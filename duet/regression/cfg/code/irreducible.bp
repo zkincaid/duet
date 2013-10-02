@@ -1,0 +1,18 @@
+/* irreducible control flow graph */
+void main () begin
+    decl x,y,z;
+    if * then
+        goto L0;
+    else
+        goto L1;
+    fi;
+
+L0:
+    x := !x;
+    if x then goto L1; else goto L3; fi;
+L1:
+    x := !x;
+    goto L0;
+L3:
+    skip;
+end

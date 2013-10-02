@@ -1,0 +1,14 @@
+&mem_10 -> {&y.Top}
+&mem_10.Top -> {&y.Top}
+&mem_9 -> {&x.Top}
+&mem_9.Top -> {&x.Top}
+&p -> {&y}
+&p.Top -> {&y}
+&q -> {&a, &b}
+&q.Top -> {&a, &b}
+&x -> {&y}
+&x.4 -> {&y}
+&x.Top -> {&y}
+&y -> {&a}
+&y.4 -> {&b}
+&y.Top -> {&a, &b}

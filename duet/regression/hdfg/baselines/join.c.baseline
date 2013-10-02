@@ -1,0 +1,11 @@
+./hdfg/code/join.c:21 >> Assertion failed: a < 2
+{map =[{} => {a}. a >= 0 && -a+2. >= 0]; default ={a}. _|_}
+./hdfg/code/join.c:22 >> Assertion failed: *q < 2
+{map =[{} => {(*q)}. (*q)-1. >= 0 && -(*q)+2. >= 0]; default ={(*q)}. _|_}
+./hdfg/code/join.c:23 >> Assertion failed: a > 1
+{map =[{} => {a}. a >= 0 && -a+1. >= 0]; default ={a}. _|_}
+./hdfg/code/join.c:24 >> Assertion failed: *q > 1
+{map =[{} => {(*q)}. (*q)-1. >= 0 && -(*q)+1. >= 0]; default ={(*q)}. _|_}
+
+4 errors total
+2 safe assertions

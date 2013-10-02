@@ -1,0 +1,10 @@
+&p -> {&x, alloc#5}
+&p.Top -> {&x, alloc#5}
+&q -> {&x, &y, alloc#5}
+&q.Top -> {&x, &y, alloc#5}
+&r -> {&x, &y, alloc#5, alloc#8}
+&r.Top -> {&x, &y, alloc#5, alloc#8}
+&tmp -> {alloc#5}
+&tmp.Top -> {alloc#5}
+&tmp___0 -> {alloc#8}
+&tmp___0.Top -> {alloc#8}

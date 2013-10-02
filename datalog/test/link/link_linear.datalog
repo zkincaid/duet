@@ -1,0 +1,6 @@
+D 2048
+link(x:D,y:D) inputtuples
+reachable(x:D,y:D) outputtuples
+.bddvarorder D0_D1_D2
+reachable(x,y) :- link(x,y).
+reachable(x,z) :- reachable(x,y), link(y,z).

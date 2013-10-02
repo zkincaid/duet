@@ -1,0 +1,5 @@
+:-1 >> Assertion failed: x==0
+{x, REACHABLE}. x >= 0 && -x+1 >= 0
+
+1 errors total
+3 safe assertions (2 statically unreachable)

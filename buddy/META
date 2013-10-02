@@ -1,0 +1,6 @@
+name = "buddy"
+version = "0.1"
+description = "BuDDy Binary Decision Diagram package"
+requires = ""
+archive(byte) = "buddy.cma"
+archive(native) = "buddy.cmxa"

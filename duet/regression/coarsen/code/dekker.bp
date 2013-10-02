@@ -1,0 +1,62 @@
+/* Implementation of Dekker's mutual exclusion algorithm.
+ * Additional flags: -whole-program
+ * Expected ouput:
+ *  1 error (line 57)
+ *  1 safe assertion (line 36)
+ */
+
+decl flag0, flag1, turn, x, y;
+
+void main () begin
+    flag0 := 0;
+    flag1 := 0;
+    turn := 0;
+    x := 0;
+    y := 0;
+
+    start_thread goto T0;
+    start_thread goto T1;
+    end_thread;
+
+T0:
+    flag0 := 1;
+    while flag1 do
+      if turn then
+        flag0 := 0;
+	assume(!turn);
+	flag0 := 1;
+      fi;
+    od
+
+    // enter critical section
+    // invariants: flag0=1
+    x := 0;
+    x := 1;
+    assert (!y); // never fails
+
+    // exit critical section
+    turn := 1;
+    flag0 := 0;
+    end_thread;
+
+T1: 
+    flag1 := 1;
+    while flag0 do
+      if !turn then
+        flag1 := 0;
+	assume(turn);
+	flag1 := 1;
+      fi;
+    od
+
+    // enter critical section
+    // invariants: flag1=1
+    y := 1;
+    y := 0;
+    assert (!x); // may fail
+
+    // exit critical section
+    turn := 0;
+    flag1 := 0;
+    end_thread;
+end

@@ -1,0 +1,4 @@
+./lra/code/trex03_unsafe.c:27 >> tmp___4
+
+1 errors total
+0 safe assertions

@@ -1,0 +1,8 @@
+NIBBLE 16
+.bddvarorder NIBBLE0_NIBBLE1_NIBBLE2_NIBBLE3
+a(x:NIBBLE,y:NIBBLE) inputtuples
+b(x:NIBBLE) outputtuples
+c(x:NIBBLE)
+c(x) :- ! a(x,y).
+b(x) :- ! c(x).
+

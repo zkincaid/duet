@@ -1,0 +1,8 @@
+&e -> {&baz}
+&e.Top -> {&baz}
+&f -> {&foo}
+&f.Top -> {&foo}
+&g -> {&bar, &foo}
+&g.Top -> {&bar, &foo}
+&h -> {&bar, &baz}
+&h.Top -> {&bar, &baz}

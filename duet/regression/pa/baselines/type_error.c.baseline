@@ -1,0 +1,16 @@
+&p -> {alloc#2}
+&p.Top -> {alloc#2}
+&q -> {alloc#4}
+&q.Top -> {alloc#4}
+&tmp -> {alloc#2}
+&tmp.Top -> {alloc#2}
+&tmp1 -> {alloc#4}
+&tmp1.Top -> {alloc#4}
+&tmp2 -> {alloc#2}
+&tmp2.Top -> {alloc#2}
+&tmp___0 -> {alloc#4}
+&tmp___0.Top -> {alloc#4}
+alloc#2.4 -> {alloc#4}
+alloc#2.Top -> {alloc#4}
+alloc#4.4 -> {alloc#2}
+alloc#4.Top -> {alloc#2}

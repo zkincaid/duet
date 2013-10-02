@@ -1,0 +1,19 @@
+ABSBOOL 4
+LOC 26
+AP 8
+COND 3
+c(x:AP, y:AP) inputtuples
+d(x:AP) inputtuples
+z(x:LOC, y:AP) inputtuples
+.bddvarorder ABSBOOL0_ABSBOOL1_LOC0_LOC1_AP0_AP1_AP2_AP3
+e(x:LOC, y:AP)
+b(x:AP, y:ABSBOOL)
+a(x:ABSBOOL,y:AP) outputtuples
+a(x,y) :- b(y,x),!e(z,y).
+b(x,y) :- a(y,x),c(x,xp),x=xp.
+e(x,y) :- z(x,y),d(y).
+e(10,0).
+e(10,1).
+b(1,1).
+b(2,1).
+a(2,3).

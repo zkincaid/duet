@@ -1,0 +1,7 @@
+./hdfg/code/forward_must_alias_err.c:30 >> Assertion failed: *r == 2
+{map: [{} => {(*r)}. (*r)-1. >= 0 && -(*r)+2. >= 0]; default: {(*r)}. _|_}
+./hdfg/code/forward_must_alias_err.c:29 >> Assertion failed: 1 <= *r
+{map: [{} => {(*r)}. (*r) >= 0 && -(*r)+2. >= 0]; default: {(*r)}. _|_}
+
+2 errors total
+0 safe assertions

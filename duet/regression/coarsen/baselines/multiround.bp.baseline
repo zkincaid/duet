@@ -1,0 +1,5 @@
+:-1 >> Assertion failed: flag0==0
+{flag0, REACHABLE}. flag0-1 = 0
+
+1 errors total
+0 safe assertions

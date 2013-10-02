@@ -1,0 +1,5 @@
+./coarsen/code/popl12fig2.c:16 >> Assertion failed: c <= 0
+{c}. c >= 0 && -c+1 >= 0
+
+1 errors total
+1 safe assertions

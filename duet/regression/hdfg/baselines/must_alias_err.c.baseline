@@ -1,0 +1,5 @@
+./hdfg/code/must_alias_err.c:16 >> Assertion failed: *p == 0
+{map: [{} => {(*p)}. (*p) >= 0 && -(*p)+1. >= 0]; default: {(*p)}. _|_}
+
+1 errors total
+0 safe assertions

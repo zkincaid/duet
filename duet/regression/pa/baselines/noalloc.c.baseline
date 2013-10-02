@@ -1,0 +1,2 @@
+&x -> {&array, &foo, &some_foo.4, &y, string#string constant}
+&x.Top -> {&array, &foo, &some_foo.4, &y, string#string constant}

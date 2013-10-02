@@ -1,0 +1,24 @@
+/* This program is designed to force the Coarsen algorithm through multiple
+ * rounds of the feedback loop.
+ * Additional flags: -parameterized
+ * Expected output:
+ *   1 error
+ *   0 safe assertions
+ */
+decl flag0, flag1, flag2;
+
+void init () begin
+    flag0,flag1,flag2 := 0,0,0;
+end
+
+void main () begin
+    if * then
+      flag0 := 1;                                     /* reachable in round 1 */
+    elsif flag0 && flag1 && flag2 then
+      assert(!flag0);                                 /* reachable in round 4 */
+    elsif flag0 && flag1 then
+      flag2 := flag1;                                 /* reachable in round 3 */
+    elsif flag0 then
+      flag1 := flag0;                                 /* reachable in round 2 */
+    fi
+end

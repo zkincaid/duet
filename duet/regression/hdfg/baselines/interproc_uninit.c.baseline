@@ -1,0 +1,7 @@
+./hdfg/code/interproc_uninit.c:18 >> Assertion failed: uninit_local == 0
+{map: [{} => {uninit_local}. T]; default: {uninit_local}. _|_}
+./hdfg/code/interproc_uninit.c:15 >> Assertion failed: global == 0
+{map: [{} => {global}. T]; default: {global}. _|_}
+
+2 errors total
+2 safe assertions

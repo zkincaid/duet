@@ -1,0 +1,5 @@
+The following benchmarks have been manually checked:
+ - simple.c
+ - simple.bp
+ - selfref.bp
+ - irreducible.bp

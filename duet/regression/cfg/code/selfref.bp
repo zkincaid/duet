@@ -1,0 +1,24 @@
+/* Jumps to labels belonging to parent statements */
+void main () begin
+    decl x,y,z;
+L0:
+    if x then
+        y := 0;
+    else
+        goto L0;
+    fi;
+
+L1:
+   while x do
+      x := 0;
+      if y then goto L1; fi;
+   od
+
+L2:
+   while * do
+      goto L2;
+   od
+
+// segfaults
+/* L2: goto L2; */
+end

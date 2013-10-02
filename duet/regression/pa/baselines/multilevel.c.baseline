@@ -1,0 +1,14 @@
+&a -> {&p}
+&a.Top -> {&p}
+&b -> {&q}
+&b.Top -> {&q}
+&c -> {&q, &r}
+&c.Top -> {&q, &r}
+&p -> {&x, &z}
+&p.Top -> {&x, &z}
+&q -> {&x, &y, &z, alloc#11}
+&q.Top -> {&x, &y, &z, alloc#11}
+&r -> {&x, &z, alloc#11}
+&r.Top -> {&x, &z, alloc#11}
+&tmp -> {alloc#11}
+&tmp.Top -> {alloc#11}

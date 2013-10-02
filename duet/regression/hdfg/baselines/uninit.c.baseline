@@ -1,0 +1,7 @@
+./hdfg/code/uninit.c:18 >> Assertion failed: uninit_var == 0
+{map: [{} => {uninit_var}. T]; default: {uninit_var}. _|_}
+./hdfg/code/uninit.c:16 >> Assertion failed: *p == 0
+{map: [{} => {(*p)}. T]; default: {(*p)}. _|_}
+
+2 errors total
+0 safe assertions

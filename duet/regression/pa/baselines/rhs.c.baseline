@@ -1,0 +1,16 @@
+&a -> {&b}
+&a.Top -> {&b}
+&b -> {&c}
+&b.Top -> {&c}
+&mem_10 -> {&a.Top, &b.Top}
+&mem_10.Top -> {&a.Top, &b.Top}
+&mem_9 -> {&a.Top, &b.Top}
+&mem_9.Top -> {&a.Top, &b.Top}
+&p -> {&a.Top, &b.Top}
+&p.Top -> {&a.Top, &b.Top}
+&q -> {&b, &c}
+&q.Top -> {&b, &c}
+&r -> {&b.1, &c.1}
+&r.Top -> {&b.1, &c.1}
+&s -> {&b.Top, &c.Top}
+&s.Top -> {&b.Top, &c.Top}

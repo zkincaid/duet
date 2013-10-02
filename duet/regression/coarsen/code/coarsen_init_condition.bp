@@ -1,0 +1,28 @@
+/* Check if initial conditions are set appropriately for the coarsening
+ * algorithm.
+ * Additional flags: -parameterized
+ * Expected output:
+ *   1 error
+ *   0 safe
+ */
+decl b0, b1;
+void init ()
+begin
+  b0 := 0;
+  b1 := 0;
+end
+
+void thread0 ()
+begin
+  /* initially, the conditions b0 and b1 should be false */
+  if (*) then
+    assume(b0);
+    assume(b1);
+    assert(0);
+  elsif (*) then
+    assume(!b0);
+    b1 := 1;
+  else
+    b0 := 1;
+  fi
+end
