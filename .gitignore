@@ -1,0 +1,31 @@
+*.annot
+*.cmo
+*.cma
+*.cmi
+*.a
+*.o
+*.cmx
+*.cmxs
+*.cmxa
+*.so
+*.byte
+*.native
+.*
+!.gitignore
+*~
+*.log
+# binaries
+apak/test
+ark/test
+datalog
+duet/duet
+
+# generated files
+deriving/_build/
+Makefile.config
+duet/autom4te.cache/
+duet/config.status
+duet/configure
+duet/src/frontend/cbp/cbpLex.ml
+duet/src/frontend/cbp/cbpParse.ml
+duet/src/frontend/cbp/cbpParse.mli
