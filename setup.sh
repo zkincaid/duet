@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -e
+
 duet_web=http://duet.cs.toronto.edu/depend
 
 if [[ $# -ne 1 || $UID -ne 0 ]]; then
