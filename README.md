@@ -7,6 +7,7 @@ Building
 
 Duet depends on several software packages.  Some of the more obscure dependencies are managed by the setup script.  The following dependencies need to be installed manually.
 
+ + autoconf
  + OCaml (>= 3.12, with native compiler)
  + camlp4
  + CamlIDL
