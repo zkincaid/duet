@@ -58,25 +58,13 @@ ensure_package apron
 ensure_package camomile
 ensure_package batteries
 
-# Build deriving
-cd deriving
-sudo -u $user make && make install
-cd ..
 
-# Build BuDDy
-cd buddy
-sudo -u $user make && make install
-cd ..
 
-# Build apak
-cd apak
-sudo -u $user make && make install
-cd ..
-
-# Build datalog
-cd datalog
-sudo -u $user make && make install
-cd ..
+for p in deriving buddy apak datalog ark; do
+	pushd $p
+	sudo -u $user make && make install
+	popd
+done
 
 # Build Duet
 cd duet
