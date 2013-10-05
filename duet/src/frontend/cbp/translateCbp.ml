@@ -87,7 +87,7 @@ struct
       | OBinop (CbpAst.Implies, left, right) ->
 	  let left = Bexpr.of_expr left in
 	  let right = Bexpr.of_expr right in
-	    BoolExpr (Or (left, right))
+	    BoolExpr (Or (Bexpr.negate left, right))
       | OBinop (CbpAst.Xor, left, right) ->
 	  let left = Bexpr.of_expr left in
 	  let right = Bexpr.of_expr right in
