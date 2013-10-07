@@ -1,21 +1,8 @@
 (*pp camlp4find deriving.syntax *)
 
 open Apak
-open Numeral
+open ArkPervasives
 open BatPervasives
-
-type ('a,'b) open_term =
-| OVar of 'b
-| OConst of QQ.t
-| OAdd of 'a * 'a
-| OMul of 'a * 'a
-| ODiv of 'a * 'a
-| OFloor of 'a
-
-type ('a,'b) term_algebra = ('a,'b) open_term -> 'a
-
-type typ = TyInt | TyReal
-    deriving (Compare)
 
 module type Var = sig
   include Linear.Var
@@ -55,10 +42,13 @@ end
 
 module type Term = sig
   include TermBasis
+  module D : NumDomain.S with type var = V.t
   val evaluate : (V.t -> QQ.t) -> t -> QQ.t
   val of_smt : (int -> V.t) -> Smt.ast -> t
   val qq_linterm : (t * QQ.t) BatEnum.t -> t
   val exp : t -> int -> t
+  val to_apron : D.env -> t -> NumDomain.term
+  val of_apron : D.env -> NumDomain.term -> t
   module Syntax : sig
     val ( + ) : t -> t -> t
     val ( - ) : t -> t -> t
@@ -110,7 +100,7 @@ module MakeHashconsedBasis (V : Var) : TermBasis with module V = V = struct
 
     let hash = function
       | Var v -> Hashtbl.hash (V.hash v, 0)
-      | Const k -> Hashtbl.hash (k, 1)
+      | Const k -> Hashtbl.hash (QQ.hash k, 1)
       | Sum ts -> Hashtbl.hash (Linexpr.hash ts, 2)
       | Mul (x,y) -> Hashtbl.hash (x.tag, y.tag, 3)
       | Div (x,y) -> Hashtbl.hash (x.tag, y.tag, 4)
@@ -118,7 +108,7 @@ module MakeHashconsedBasis (V : Var) : TermBasis with module V = V = struct
 
     let rec equal x y = match x, y with
       | (Var v0, Var v1) -> V.equal v0 v1
-      | (Const k0, Const k1) -> k0 == k1
+      | (Const k0, Const k1) -> QQ.equal k0 k1
       | (Sum ts0, Sum ts1) -> Linexpr.equal ts0 ts1
       | (Mul (s0,s1), Mul (t0,t1)) -> s0.tag == t0.tag && s1.tag == t1.tag
       | (Div (s0,s1), Div (t0,t1)) -> s0.tag == t0.tag && s1.tag == t1.tag
@@ -126,8 +116,8 @@ module MakeHashconsedBasis (V : Var) : TermBasis with module V = V = struct
       | (_, _) -> false
   end
   and Linexpr : (Linear.Expr.Hashed.S with type dim = T.t Hashcons.hash_consed
-				      and type base = Numeral.QQ.t) =
-    Linear.Expr.Hashed.HMake(T)(Numeral.QQ)
+				      and type base = QQ.t) =
+    Linear.Expr.Hashed.HMake(T)(QQ)
 
   open T
 
@@ -268,7 +258,7 @@ module MakeHashconsedBasis (V : Var) : TermBasis with module V = V = struct
     let alg = function
       | OVar v -> V.to_smt v
       | OConst k ->
-	begin match Numeral.QQ.to_zz k with
+	begin match QQ.to_zz k with
 	| Some z -> Smt.const_zz z
 	| None   -> Smt.const_qq k
 	end
@@ -332,7 +322,7 @@ module MakeBasis (V : Var) : TermBasis with module V = V = struct
     let rec to_smt = function
       | Var v -> V.to_smt v
       | Const k ->
-	begin match Numeral.QQ.to_zz k with
+	begin match QQ.to_zz k with
 	| Some z -> Smt.const_zz z
 	| None   -> Smt.const_qq k
 	end
@@ -344,8 +334,8 @@ module MakeBasis (V : Var) : TermBasis with module V = V = struct
       | Floor x -> Smt.mk_real2int (to_smt x)
   end
   and Linexpr : Linear.Expr.Ordered.S with type dim = T.t
-				   and type base = Numeral.QQ.t =
-                Linear.Expr.Ordered.Make(T)(Numeral.QQ)
+				   and type base = QQ.t =
+                Linear.Expr.Ordered.Make(T)(QQ)
 
   include T
   module V = V
@@ -462,6 +452,8 @@ end
 module Defaults (T : TermBasis) = struct
   include T
 
+  module D = NumDomain.Make(T.V)
+
   (* Don't eta-reduce - eval will memoize, and we'll get a space leak *)
 (*
   let free_tmp t =
@@ -530,7 +522,7 @@ module Defaults (T : TermBasis) = struct
 	end
       end
       | NUMERAL_AST ->
-	T.const (Numeral.QQ.of_string (get_numeral_string ctx ast))
+	T.const (QQ.of_string (get_numeral_string ctx ast))
       | VAR_AST -> T.var (env (Z3.get_index_value ctx ast))
       | QUANTIFIER_AST -> assert false
       | FUNC_DECL_AST
@@ -555,6 +547,61 @@ module Defaults (T : TermBasis) = struct
     match get_const x with
     | Some v -> const (QQ.exp v k)
     | None   -> if k < 0 then inverse (go x (-k)) else go x k
+
+  (** Evaluate a term within a model *)
+  let eval_model m = evaluate (fun v -> m#eval_qq (V.to_smt v))
+
+  let to_apron env t =
+    let open Apron in
+    let open Texpr0 in
+    let atyp = function
+      | TyInt  -> Int
+      | TyReal -> Real
+    in
+    let alg = function
+      | OVar v -> (Dim (D.Env.dim_of_var env v), V.typ v)
+      | OConst q -> begin match QQ.to_zz q with
+	| Some z -> (Cst (NumDomain.coeff_of_qq q), TyInt)
+	| None   -> (Cst (NumDomain.coeff_of_qq q), TyReal)
+      end
+      | OAdd ((s,s_typ), (t,t_typ)) ->
+	let typ = join_typ s_typ t_typ in
+	(Binop (Add, s, t, atyp typ, Down), typ)
+      | OMul ((s,s_typ), (t,t_typ)) ->
+	let typ = join_typ s_typ t_typ in
+	(Binop (Mul, s, t, atyp typ, Down), typ)
+      | ODiv ((s,s_typ), (t,t_typ)) ->
+	(Binop (Div, s, t, Real, Down), TyReal)
+      | OFloor (t,t_typ) -> (Unop (Cast, t, Int, Down), TyInt)
+    in
+    Texpr0.of_expr (fst (T.eval alg t))
+
+  let of_apron env texpr =
+    let open Apron in
+    let open Texpr0 in
+    let rec go = function
+      | Cst (Coeff.Scalar s) -> T.const (NumDomain.qq_of_scalar s)
+      | Cst (Coeff.Interval _) -> assert false (* todo *)
+      | Dim d -> T.var (D.Env.var_of_dim env d)
+      | Unop (Neg, t, _, _) -> T.neg (go t)
+      | Unop (Cast, t, Int, Down) -> T.floor (go t)
+      | Unop (Cast, _, _, _) | Unop (Sqrt, _, _, _) -> assert false (* todo *)
+      | Binop (op, s, t, typ, round) ->
+	let (s, t) = (go s, go t) in
+	begin match op with
+	| Add -> T.add s t
+	| Sub -> T.sub s t
+	| Mul -> T.mul s t
+	| Mod -> assert false (* todo *)
+	| Div ->
+	  begin match typ, round with
+	  | Int, Down -> T.idiv s t
+	  | Real, _ -> T.div s t
+	  | _, _ -> assert false (* todo *)
+	  end
+	end
+    in
+    go (Texpr0.to_expr texpr)
 
   module Syntax = struct
     let ( + ) x y = add x y
