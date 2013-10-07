@@ -3,7 +3,7 @@ OCAMLMAKEFILE = OCamlMakefile
 #LIB_PACK_NAME = ark
 
 SRC = hashcons.mli hashcons.ml hset.mli hset.ml hmap.mli hmap.ml numeral.ml \
-	smt.ml linear.ml term.ml formula.ml transition.ml transform.ml
+	smt.ml linear.ml term.ml formula.ml transition.ml
 TEST_SRC := $(SRC) test_formula.ml test_transform.ml test.ml
 
 Z3:=$(shell ocamlfind query z3)
