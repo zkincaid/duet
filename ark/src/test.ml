@@ -1,6 +1,10 @@
 open OUnit
 
-let suite = "Main" >::: [Test_formula.suite; Test_transform.suite]
+let suite = "Main" >::: [
+  Test_formula.suite;
+  Test_numdomain.suite;
+  Test_transition.suite
+]
 
 let _ =
   Printf.printf "Running test suite";

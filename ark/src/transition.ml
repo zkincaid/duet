@@ -1,7 +1,7 @@
 (*pp camlp4find deriving.syntax *)
 
 open Apak
-open Numeral
+open ArkPervasives
 open BatPervasives
 open Hashcons
 
@@ -12,7 +12,7 @@ module type Var = sig
   val of_smt : Smt.symbol -> t
   val hash : t -> int
   val equal : t -> t -> bool
-  val typ : t -> Term.typ
+  val typ : t -> typ
 end
 
 module type Transition = sig
@@ -172,8 +172,6 @@ module Make (Var : Var) = struct
     (**************************************************************************)
     module Incr = struct
 
-      open Numeral
-
       (* Polynomials with rational coefficients *)
       module P = Linear.Expr.MakePolynomial(QQ)
       module Gauss = Linear.GaussElim(QQ)(P)
@@ -307,8 +305,6 @@ module Make (Var : Var) = struct
       in
       M.fold f tr.transform tr.guard
 
-    let eval_term m = T.evaluate (fun v -> m#eval_qq (V.to_smt v))
-
     (* Is [v] a simple induction variable? *)
     let induction_var s m v =
       let incr =
@@ -328,23 +324,7 @@ module Make (Var : Var) = struct
       s#pop ();
       res
 
-    (* todo: move to formula *)
-    (** [select_disjunct m phi] selects a clause [psi] in the disjunctive
-	normal form of [psi] such that [m |= psi] *)
-    let select_disjunct m phi =
-      let open Formula in
-      let f = function
-	| OLeqZ t ->
-	  if QQ.leq (eval_term m t) QQ.zero then Some (F.leqz t) else None
-	| OLtZ t ->
-	  if QQ.lt (eval_term m t) QQ.zero then Some (F.ltz t) else None
-	| OEqZ t ->
-	  if QQ.equal (eval_term m t) QQ.zero then Some (F.eqz t) else None
-	| OAnd (Some phi, Some psi) -> Some (F.conj phi psi)
-	| OAnd (_, _) -> None
-	| OOr (x, None) | OOr (_, x) -> x
-      in
-      F.eval f phi
+    let select_disjunct m = F.select_disjunct (m#eval_qq % V.to_smt)
 
     let to_smt tr =
       let guard = F.to_smt tr.guard in

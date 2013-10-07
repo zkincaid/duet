@@ -2,17 +2,8 @@
 
 open Apak
 open Term
-open Numeral
+open ArkPervasives
 open BatPervasives
-
-type ('a,'b) open_formula =
-| OOr of 'a * 'a
-| OAnd of 'a * 'a
-| OLeqZ of 'b
-| OEqZ of 'b
-| OLtZ of 'b
-
-type ('a,'b) formula_algebra = ('a,'b) open_formula -> 'a
 
 module type FormulaBasis = sig
   type t
@@ -51,6 +42,14 @@ module type Formula = sig
   val of_smt : Smt.ast -> t
   val implies : t -> t -> bool
   val equiv : t -> t -> bool
+
+  val select_disjunct : (T.V.t -> QQ.t) -> t -> t option
+
+  val big_conj : t BatEnum.t -> t
+  val big_disj : t BatEnum.t -> t
+
+  val of_abstract : 'a T.D.t -> t
+  val abstract : 'a Apron.Manager.t -> t -> 'a T.D.t
 
   module Syntax : sig
     val ( && ) : t -> t -> t
@@ -588,6 +587,102 @@ module Defaults (F : FormulaBasis) = struct
     | Smt.Sat   -> false
     | Smt.Unsat -> true
     | Smt.Undef -> assert false
+
+  let big_disj = BatEnum.fold disj bottom 
+  let big_conj = BatEnum.fold conj top
+
+  (** [select_disjunct m phi] selects a clause [psi] in the disjunctive normal
+      form of [psi] such that [m |= psi] *)
+  let select_disjunct m phi =
+    let f = function
+      | OLeqZ t ->
+	if QQ.leq (T.evaluate m t) QQ.zero then Some (F.leqz t) else None
+      | OLtZ t ->
+	if QQ.lt (T.evaluate m t) QQ.zero then Some (F.ltz t) else None
+      | OEqZ t ->
+	if QQ.equal (T.evaluate m t) QQ.zero then Some (F.eqz t) else None
+      | OAnd (Some phi, Some psi) -> Some (F.conj phi psi)
+      | OAnd (_, _) -> None
+      | OOr (x, None) | OOr (_, x) -> x
+    in
+    F.eval f phi
+
+  module VarSet = Putil.Set.Make(T.V)
+  module D = T.D
+  open Apron
+
+  let term_free_vars term =
+    let f = function
+      | OVar v -> VarSet.singleton v
+      | OConst _ -> VarSet.empty
+      | OAdd (x,y) | OMul (x,y) | ODiv (x,y) -> VarSet.union x y
+      | OFloor x -> x
+    in
+    T.eval f term
+
+  let formula_free_vars phi =
+    let f = function
+      | OOr (x,y) | OAnd (x,y) -> VarSet.union x y
+      | OLeqZ t | OEqZ t | OLtZ t -> term_free_vars t
+    in
+    F.eval f phi
+
+  let of_tcons env tcons =
+    let open Tcons0 in
+    let t = T.of_apron env tcons.texpr0 in
+    match tcons.typ with
+    | EQ      -> F.eqz t
+    | SUPEQ   -> F.leqz (T.neg t)
+    | SUP     -> F.ltz (T.neg t)
+    | DISEQ   -> negate (F.eqz t)
+    | EQMOD _ -> assert false (* todo *)
+
+  let mk_env phi = D.Env.of_enum (VarSet.enum (formula_free_vars phi))
+
+  let of_abstract x =
+    let open D in
+    let man = Abstract0.manager x.prop in
+    let tcons = BatArray.enum (Abstract0.to_tcons_array man x.prop) in
+    big_conj (BatEnum.map (of_tcons x.env) tcons)
+
+  let abstract man phi =
+    let open D in
+    let env = mk_env phi in
+    let s = new Smt.solver in
+    let to_apron = T.to_apron env in
+    let rec go prop =
+      s#push ();
+      s#assrt (Smt.mk_not (F.to_smt (of_abstract prop)));
+      match s#check () with
+      | Smt.Unsat -> prop
+      | Smt.Undef -> D.top man env
+      | Smt.Sat ->
+	let m = s#get_model () in
+	s#pop ();
+	let apron_alg = function
+	  | OLeqZ t -> [Tcons0.make (to_apron (T.neg t)) Tcons0.SUPEQ]
+	  | OLtZ t -> [Tcons0.make (to_apron (T.neg t)) Tcons0.SUP]
+	  | OEqZ t -> [Tcons0.make (to_apron t) Tcons0.EQ]
+	  | OAnd (phi, psi) -> phi @ psi
+	  | OOr (_, _) -> assert false (* impossible *)
+	in
+	let disjunct = match select_disjunct (m#eval_qq % T.V.to_smt) phi with
+	  | Some d -> F.eval apron_alg d
+	  | None   -> assert false
+	in
+	let new_prop =
+	  { prop = 
+	      Abstract0.of_tcons_array
+		man
+		(Env.int_dim env)
+		(Env.real_dim env)
+		(Array.of_list disjunct);
+	    env = env }
+	in
+	go (D.join prop new_prop)
+    in
+    s#assrt (F.to_smt phi);
+    go (bottom man env)
 
   module Syntax = struct
     let ( && ) x y = conj x y

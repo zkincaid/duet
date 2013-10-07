@@ -4,6 +4,7 @@ open Apak
 open Ark
 open CfgIr
 open BatPervasives
+open ArkPervasives
 
 module RG = Interproc.RG
 module G = RG.G
@@ -99,12 +100,12 @@ let decorate rg =
     D.decorate rg
 
 let tr_typ typ = match resolve_type typ with
-  | Int _   -> Term.TyInt
-  | Float _ -> Term.TyReal
-  | Pointer _ -> Term.TyInt
-  | Enum _ -> Term.TyInt
-  | Array _ -> Term.TyInt
-  | Dynamic -> Term.TyReal
+  | Int _   -> TyInt
+  | Float _ -> TyReal
+  | Pointer _ -> TyInt
+  | Enum _ -> TyInt
+  | Array _ -> TyInt
+  | Dynamic -> TyReal
   | _ -> assert false
 
 module V = struct
@@ -120,9 +121,9 @@ module V = struct
     let ctx = Smt.get_context () in
     let id = E.to_int enum v in
     match typ v with
-    | Term.TyInt ->
+    | TyInt ->
       Z3.mk_const ctx (Z3.mk_int_symbol ctx id) (Smt.mk_int_sort ())
-    | Term.TyReal ->
+    | TyReal ->
       Z3.mk_const ctx (Z3.mk_int_symbol ctx id) (Smt.mk_real_sort ())
 end
 
@@ -135,8 +136,8 @@ let tr_expr expr =
   let open K in
   let alg = function
     | OHavoc typ -> T.var (V.mk_tmp "havoc" (tr_typ typ))
-    | OConstant (CInt (k, _)) -> T.int (Numeral.ZZ.of_int k)
-    | OConstant (CFloat (k, _)) -> T.const (Numeral.QQ.of_float k)
+    | OConstant (CInt (k, _)) -> T.int (ZZ.of_int k)
+    | OConstant (CFloat (k, _)) -> T.const (QQ.of_float k)
     | OCast (_, expr) -> expr
     | OBinaryOp (a, Add, b, _) -> T.add a b
     | OBinaryOp (a, Minus, b, _) -> T.sub a b

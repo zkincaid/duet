@@ -2,7 +2,7 @@
 
 open Apak
 open OUnit
-open Numeral
+open ArkPervasives
 open BatPervasives
 
 module StrVar = struct
@@ -12,7 +12,7 @@ module StrVar = struct
   let of_smt sym = match Smt.symbol_refine sym with
     | Z3.Symbol_string str -> str
     | Z3.Symbol_int _ -> assert false
-  let typ _ = Term.TyReal
+  let typ _ = TyReal
 end
 module T = Term.MakeHashconsed(StrVar)
 module F = Formula.MakeHashconsed(T)

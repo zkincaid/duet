@@ -3,6 +3,7 @@
 open Apak
 open Apron
 open BatPervasives
+open ArkPervasives
 
 module type Var = sig
   include Putil.Ordered
@@ -55,7 +56,7 @@ module Expr = struct
     val compare : (base -> base -> int) -> t -> t -> int
   end
 
-  module HMake (V : HVar) (R : Numeral.Ring.S)
+  module HMake (V : HVar) (R : Ring.S)
     : S with type dim = V.t Hashcons.hash_consed
 	and type base = R.t
 	and type t = (V.t, R.t) Hmap.t =
@@ -126,7 +127,7 @@ module Expr = struct
     let compare cmp = Hmap.compare cmp
   end
 
-  module Make (V : Var) (R : Numeral.Ring.S) = struct
+  module Make (V : Var) (R : Ring.S) = struct
     module M = BatMap.Make(V)
     type t = R.t M.t
     type base = R.t
@@ -193,7 +194,7 @@ module Expr = struct
   end
 
   (* Univariate polynomials with coefficients in R *)
-  module MakePolynomial (R : Numeral.Ring.S) = struct
+  module MakePolynomial (R : Ring.S) = struct
 
     module IntDim = struct
       include Putil.PInt
@@ -278,7 +279,7 @@ module Expr = struct
       include S
       include Putil.OrderedMix with type t := t
     end
-    module Make (V : Var) (R : Numeral.Ring.Ordered.S) = struct
+    module Make (V : Var) (R : Ring.Ordered.S) = struct
       include Make(V)(R)
       module Compare_t = struct
 	type a = t
@@ -286,7 +287,7 @@ module Expr = struct
       end
       let compare = Compare_t.compare
     end
-    module HMake (V : HVar) (R : Numeral.Ring.Ordered.S)
+    module HMake (V : HVar) (R : Ring.Ordered.S)
       : S with type dim = V.t Hashcons.hash_consed
 	  and type base = R.t =
     struct
@@ -305,7 +306,7 @@ module Expr = struct
       val hash : t -> int
       val equal : t -> t -> bool
     end
-    module HMake (V : HVar) (R : Numeral.Ring.Hashed.S)
+    module HMake (V : HVar) (R : Ring.Hashed.S)
       : S with type dim = V.t Hashcons.hash_consed
 	  and type base = R.t =
     struct
@@ -321,7 +322,7 @@ end
 exception No_solution
 exception Many_solutions
 module GaussElim
-  (F : Numeral.Field.S)
+  (F : Field.S)
   (E : Expr.S with type base = F.t) =
 struct
 

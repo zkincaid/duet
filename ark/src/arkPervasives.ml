@@ -1,7 +1,6 @@
 (*pp camlp4find deriving.syntax *)
 
 open Apak
-open Apron
 
 module Ring = struct
   module type S = sig
@@ -36,103 +35,6 @@ module Field = struct
     end
   end
 end
-
-(*
-type qq = Num.num (* Rationals *)
-type zz = Big_int.big_int (* Integers  *)
-
-(* Field of rationals *)
-module QQ = struct
-  type t = qq
-  module M = Num
-
-  include Putil.MakeFmt(struct
-    type a = t
-    let format formatter x =
-      Format.pp_print_string formatter (M.string_of_num x)
-  end)
-  module Compare_t = struct
-    type a = t
-    let compare = M.compare_num
-  end
-  let show = Show_t.show
-  let format = Show_t.format
-  let compare = Compare_t.compare
-  let add = M.add_num
-  let sub = M.sub_num
-  let mul = M.mult_num
-  let div = M.div_num
-  let zero = M.num_of_int 0
-  let one = M.num_of_int 1
-  let equal x y = M.compare_num x y = 0
-  let negate = M.minus_num
-  let inverse x = M.div_num one x
-
-  let of_int = M.num_of_int
-  let of_zz = M.num_of_big_int
-  let of_frac x y = M.div_num (M.num_of_int x) (M.num_of_int y)
-  let of_zzfrac x y = M.div_num (M.num_of_big_int x) (M.num_of_big_int y)
-
-  let of_string = M.num_of_string
-  let to_zzfrac x = match x with
-    | M.Int x -> (Big_int.big_int_of_int x, Big_int.big_int_of_int 1)
-    | M.Big_int x -> (x, Big_int.big_int_of_int 1)
-    | M.Ratio r -> (Ratio.numerator_ratio r, Ratio.denominator_ratio r)
-
-  (* unsafe *)
-(*
-  let to_frac qq =
-    let (num,den) = to_zzfrac qq in
-    (Mpz.get_int num, Mpz.get_int den)
-*)
-  let numerator x = match x with
-    | M.Int x -> Big_int.big_int_of_int x
-    | M.Big_int x -> x
-    | M.Ratio r -> Ratio.numerator_ratio r
-  let denominator x = match x with
-    | M.Int x -> Big_int.big_int_of_int 1
-    | M.Big_int x -> Big_int.big_int_of_int 1
-    | M.Ratio r -> Ratio.denominator_ratio r
-  let hash (x : t) = Hashtbl.hash x
-end
-
-(* Ring of integers *)
-module ZZ = struct
-  type t = zz
-  open Big_int
-
-  include Putil.MakeFmt(struct
-    type a = t
-    let format formatter x =
-      Format.pp_print_string formatter (string_of_big_int x)
-  end)
-  module Compare_t = struct
-    type a = t
-    let compare = compare_big_int
-  end
-  let show = Show_t.show
-  let format = Show_t.format
-  let compare = Compare_t.compare
-  let add = add_big_int
-  let sub = sub_big_int
-  let mul = mult_big_int
-  let negate = minus_big_int
-  let floor_div = div_big_int
-  let gcd = gcd_big_int
-
-  let of_int = big_int_of_int
-  let of_string = big_int_of_string
-  let one = of_int 1
-  let zero = of_int 0
-  let equal x y = compare x y = 0
-  let to_int x =
-    if is_int_big_int x then Some (int_of_big_int x) else None
-  let hash (x : t) = Hashtbl.hash x
-  let leq x y = compare x y <= 0
-  let lt x y = compare x y < 0
-end
-*)
-
 
 type qq = Mpqf.t (* Rationals *)
 type zz = Mpzf.t (* Integers  *)
@@ -180,7 +82,7 @@ module QQ = struct
 
   let numerator = Mpqf.get_num
   let denominator = Mpqf.get_den
-  let hash (x : t) = Hashtbl.hash x
+  let hash x = Hashtbl.hash (Mpqf.to_string x)
   let leq x y = compare x y <= 0
   let lt x y = compare x y < 0
   let exp x k =
@@ -230,7 +132,38 @@ module ZZ = struct
   let equal x y = compare x y = 0
   let to_int x =
     if Mpz.fits_int_p x then Some (Mpz.get_int x) else None
-  let hash (x : t) = Hashtbl.hash x
+  let hash x = Hashtbl.hash (Mpzf.to_string x)
   let leq x y = compare x y <= 0
   let lt x y = compare x y < 0
+end
+
+type typ = TyInt | TyReal
+    deriving (Compare)
+
+type ('a,'b) open_term =
+| OVar of 'b
+| OConst of QQ.t
+| OAdd of 'a * 'a
+| OMul of 'a * 'a
+| ODiv of 'a * 'a
+| OFloor of 'a
+
+type ('a,'b) term_algebra = ('a,'b) open_term -> 'a
+
+type ('a,'b) open_formula =
+| OOr of 'a * 'a
+| OAnd of 'a * 'a
+| OLeqZ of 'b
+| OEqZ of 'b
+| OLtZ of 'b
+
+type ('a,'b) formula_algebra = ('a,'b) open_formula -> 'a
+
+let join_typ a b = match a,b with
+  | TyInt, TyInt -> TyInt
+  | _, _         -> TyReal
+
+module type Var = sig
+  include Putil.Ordered
+  val typ : t -> typ
 end

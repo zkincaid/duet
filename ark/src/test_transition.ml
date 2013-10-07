@@ -2,7 +2,7 @@
 
 open Apak
 open OUnit
-
+open ArkPervasives
 
 module StrVar = Test_formula.StrVar
 
@@ -35,7 +35,7 @@ module G = Graph.Persistent.Digraph.ConcreteLabeled(V)(E)
 module A = Pathexp.MakeElim(G)(K)
 
 let var v = K.T.var (K.V.mk_var v)
-let const k = K.T.int (Numeral.ZZ.of_int k)
+let const k = K.T.int (ZZ.of_int k)
 
 let weight e =
   let open K in
@@ -106,7 +106,7 @@ let test_counter () =
 (* from sv-comp13/loops/count_up_down_safe *)
 let count_up_down_safe =
   let open CmdSyntax in
-  let (~@) x = ~@ (Numeral.QQ.of_int x) in
+  let (~@) x = ~@ (QQ.of_int x) in
   let x = var "x" in
   let y = var "y" in
   let n = var "n" in
@@ -127,7 +127,7 @@ let test_count_up_down_safe () =
 (* from sv-comp13/loops/sum01_safe *)
 let sum01_safe =
   let open CmdSyntax in
-  let (~@) x = ~@ (Numeral.QQ.of_int x) in
+  let (~@) x = ~@ (QQ.of_int x) in
   let a = ~@ 2 in
   let sn = var "sn" in
   let n = var "n" in
@@ -152,7 +152,7 @@ let test_sum01_safe () =
 (* from sv-comp13/loops/sum01_unsafe *)
 let sum01_unsafe =
   let open CmdSyntax in
-  let (~@) x = ~@ (Numeral.QQ.of_int x) in
+  let (~@) x = ~@ (QQ.of_int x) in
   let a = ~@ 2 in
   let sn = var "sn" in
   let n = var "n" in
@@ -182,7 +182,7 @@ let test_sum01_unsafe () =
 (* from sv-comp13/loops/sum02_safe *)
 let sum02_safe =
   let open CmdSyntax in
-  let (~@) x = ~@ (Numeral.QQ.of_int x) in
+  let (~@) x = ~@ (QQ.of_int x) in
   let sn = var "sn" in
   let n = var "n" in
   let i = var "i" in
@@ -232,7 +232,7 @@ let test_sum02_safe () =
 (* from sv-comp13/loops/sum03_safe *)
 let sum03_safe =
   let open CmdSyntax in
-  let (~@) x = ~@ (Numeral.QQ.of_int x) in
+  let (~@) x = ~@ (QQ.of_int x) in
   let sn = var "sn" in
   let a = ~@ 2 in
   let x = var "x" in
@@ -256,7 +256,7 @@ let test_sum03_safe () =
 (* from sv-comp13/loops/sum03_unsafe *)
 let sum03_unsafe =
   let open CmdSyntax in
-  let (~@) x = ~@ (Numeral.QQ.of_int x) in
+  let (~@) x = ~@ (QQ.of_int x) in
   let sn = var "sn" in
   let a = ~@ 2 in
   let x = var "x" in
@@ -283,7 +283,7 @@ let test_sum03_unsafe () =
 
 let third_order_safe =
   let open CmdSyntax in
-  let (~@) x = ~@ (Numeral.QQ.of_int x) in
+  let (~@) x = ~@ (QQ.of_int x) in
   let sn = var "sn" in
   let ssn = var "ssn" in
   let n = var "n" in

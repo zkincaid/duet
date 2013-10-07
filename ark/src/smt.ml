@@ -1,5 +1,6 @@
 (*pp camlp4find deriving.syntax *)
 open Z3
+open ArkPervasives
 
 let context = ref None
 let opts = ref [ ("SOFT_TIMEOUT", "10000");
@@ -91,9 +92,9 @@ let sub x y = Z3.mk_sub (get_context()) [| x ; y |]
 
 let const_int k = mk_int (get_context()) k (mk_int_sort())
 let const_qq q =
-  Z3.mk_numeral (get_context()) (Numeral.QQ.show q) (mk_real_sort())
+  Z3.mk_numeral (get_context()) (QQ.show q) (mk_real_sort())
 let const_zz k =
-  Z3.mk_numeral (get_context()) (Numeral.ZZ.show k) (mk_int_sort())
+  Z3.mk_numeral (get_context()) (ZZ.show k) (mk_int_sort())
 
 let symbol_refine = Z3.symbol_refine (get_context())
 
@@ -110,11 +111,11 @@ object(self)
     | None -> assert false
   method eval_zz term =
     match model_eval ctx m term true with
-    | Some x -> Numeral.ZZ.of_string (get_numeral_string ctx x)
+    | Some x -> ZZ.of_string (get_numeral_string ctx x)
     | None -> assert false
   method eval_qq term =
     match model_eval ctx m term true with
-    | Some x -> Numeral.QQ.of_string (get_numeral_string ctx x)
+    | Some x -> QQ.of_string (get_numeral_string ctx x)
     | None -> assert false
   method to_string () = model_to_string ctx m
 end
