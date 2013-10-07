@@ -27,9 +27,6 @@ let rec aexp_to_string e =
     String.concat ""
       ["(-";
        aexp_to_string e1; ")"]
-  | Unint_aexp (s, lst) ->
-    String.concat ""
-      [s; "("; aexp_list_to_string lst; ")"]
   | Havoc_aexp -> "nondet()"
 
 and
@@ -82,9 +79,6 @@ let rec bexp_to_string b =
     String.concat ""
       ["("; bexp_to_string b1; " || ";
        bexp_to_string b2; ")"]
-  | Unint_bexp (s, b1) ->
-    String.concat ""
-      ["("; s; "("; bexp_to_string b1; "))"]
   | Havoc_bexp -> "nondet() < 1"
 
 let rec stmt_to_string s =
@@ -267,7 +261,6 @@ let rec primify_aexp e =
   | Mult_exp (e1, e2) -> Mult_exp (primify_aexp e1, primify_aexp e2)
   | Var_exp x -> Var_exp (primify x)
   | Unneg_exp e1 -> Unneg_exp (primify_aexp e1)
-  | Unint_aexp (s, lst) -> Unint_aexp (s, primify_aexp_list lst)
   | Havoc_aexp -> e
 and
 primify_aexp_list lst =
@@ -289,7 +282,6 @@ let rec primify_bexp b =
   | And_exp (b1, b2) -> And_exp (primify_bexp b1, primify_bexp b2)
   | Or_exp (b1, b2) -> Or_exp (primify_bexp b1, primify_bexp b2)
   | Not_exp b1 -> Not_exp (primify_bexp b1)
-  | Unint_bexp (s, b1) -> Unint_bexp (s, primify_bexp b1)
   | Havoc_bexp -> b
 
 
@@ -314,8 +306,6 @@ let rec collect_vars_aexp e =
   | Mult_exp (e1, e2) -> (collect_vars_aexp e1) @ (collect_vars_aexp e2)
   | Var_exp x -> [x]
   | Unneg_exp e1 -> (collect_vars_aexp e1)
-  | Unint_aexp (func,  elist) ->
-    (collect_vars_aexp_list elist)
   | Havoc_aexp -> []
 and
 collect_vars_aexp_list l =
@@ -336,7 +326,6 @@ let rec collect_vars_bexp b =
   | And_exp (b1, b2) -> (collect_vars_bexp b1) @ (collect_vars_bexp b2)
   | Not_exp b1 -> (collect_vars_bexp b1)
   | Or_exp  (b1, b2) -> (collect_vars_bexp b1) @ (collect_vars_bexp b2)
-  | Unint_bexp (func, b1) -> (collect_vars_bexp b1)
   | Havoc_bexp -> []
 
 

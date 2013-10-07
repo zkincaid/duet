@@ -9,7 +9,6 @@ type aexp_type =
 | Mult_exp of (aexp_type * aexp_type) 
 | Var_exp of string
 | Unneg_exp of aexp_type 
-| Unint_aexp of (string * aexp_type list)
 | Havoc_aexp
 
 type bexp_type = 
@@ -23,7 +22,6 @@ type bexp_type =
 | And_exp of (bexp_type * bexp_type)
 | Not_exp of bexp_type
 | Or_exp of (bexp_type * bexp_type)
-| Unint_bexp of (string * bexp_type)
 | Havoc_bexp
 
       
