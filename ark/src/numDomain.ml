@@ -36,6 +36,7 @@ module Env = struct
     val dimension : t -> int
     val vars : t -> var BatEnum.t
     val dimensions : t -> dim BatEnum.t
+    val mem : var -> t -> bool
   end
   module Make (V : Var) = struct
     module S = Putil.Set.Make(V)
@@ -167,6 +168,9 @@ module Env = struct
     let filter p env =
       { int_dim = BatArray.filter p env.int_dim;
 	real_dim = BatArray.filter p env.real_dim }
+    let mem v env =
+      try ignore (dim_of_var env v); true
+      with Not_found -> false
   end
 end
 
@@ -178,16 +182,18 @@ module type S = sig
   type var
   module Env : Env.S with type t = env and type var = var
   val format : Format.formatter -> 'a t -> unit
+  val show : 'a t -> string
   val is_bottom : 'a t -> bool
   val is_top : 'a t -> bool
   val top : 'a Manager.t -> env -> 'a t
   val bottom : 'a Manager.t -> env -> 'a t
-  val is_leq : 'a t -> 'a t -> bool
-  val is_eq : 'a t -> 'a t -> bool
+  val leq : 'a t -> 'a t -> bool
+  val equal : 'a t -> 'a t -> bool
   val join : 'a t -> 'a t -> 'a t
   val meet : 'a t -> 'a t -> 'a t
   val widen : 'a t -> 'a t -> 'a t
   val exists : 'a Manager.t -> (var -> bool) -> 'a t -> 'a t
+  val add_vars : var BatEnum.t -> 'a t -> 'a t
 end
 
 module Make (V : Var) = struct
@@ -204,6 +210,8 @@ module Make (V : Var) = struct
 
   let format formatter x =
     Abstract0.print (V.show % (Env.var_of_dim x.env)) formatter x.prop
+
+  let show x = Putil.pp_string format x
 
   let is_bottom x = Abstract0.is_bottom (man x.prop) x.prop
 
@@ -235,9 +243,9 @@ module Make (V : Var) = struct
     { prop = f man (set_env x) (set_env y);
       env = env }
 
-  let is_leq x y = common_env (man x.prop) Abstract0.is_leq x y
+  let leq x y = common_env (man x.prop) Abstract0.is_leq x y
 
-  let is_eq x y = common_env (man x.prop) Abstract0.is_eq x y
+  let equal x y = common_env (man x.prop) Abstract0.is_eq x y
 
   let join x y = common_env_prop (man x.prop) Abstract0.join x y
 
@@ -273,4 +281,13 @@ module Make (V : Var) = struct
     let env = Env.of_enum (BatList.enum (!remember)) in
     { prop = prop;
       env = env}
+
+  let add_vars vars x =
+    let new_env = Env.merge x.env (Env.of_enum vars) in
+    let man = man x.prop in
+    let prop =
+      Abstract0.add_dimensions man x.prop (Env.inject x.env new_env) false
+    in
+    { prop = prop;
+      env = new_env }
 end

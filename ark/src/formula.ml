@@ -51,6 +51,8 @@ module type Formula = sig
 
   val of_abstract : 'a T.D.t -> t
   val abstract : 'a Apron.Manager.t -> t -> 'a T.D.t
+  val abstract_assign : 'a Apron.Manager.t -> 'a T.D.t -> T.V.t -> T.t -> 'a T.D.t
+  val abstract_assume : 'a Apron.Manager.t -> 'a T.D.t -> t -> 'a T.D.t
 
   module Syntax : sig
     val ( && ) : t -> t -> t
@@ -734,6 +736,22 @@ module Defaults (F : FormulaBasis) = struct
   let exists_list vars phi =
     let set = VarSet.of_enum (BatList.enum vars) in
     exists (not % flip VarSet.mem set) phi
+
+  let abstract_assign man x v t =
+    let open Apron in
+    let open D in
+    let vars = VarSet.add v (term_free_vars t) in
+    let x = D.add_vars (VarSet.enum vars) x in
+    { prop =
+	Abstract0.assign_texpr_array
+	  man
+	  x.prop
+	  [| Env.dim_of_var x.env v|]
+	  [| T.to_apron x.env t |]
+	  None;
+      env = x.env }
+
+  let abstract_assume man x phi = abstract man (F.conj (of_abstract x) phi)
 
   module Syntax = struct
     let ( && ) x y = conj x y

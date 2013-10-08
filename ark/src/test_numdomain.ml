@@ -80,6 +80,31 @@ let env2 () =
   assert_equal ~cmp:F.equiv ~printer:F.show psi2 psi1
 
 
+let assign1 () =
+  let x = T.var "x" in
+  let y = T.var "y" in
+  let prop = F.abstract man (x == T.zero && y == x + T.one) in
+  let post_prop1 = F.abstract man (x == T.one && y == T.one) in
+  let post_prop2 = F.abstract_assign man prop "x" y in
+  assert_equal ~cmp:D.equal ~printer:D.show post_prop2 post_prop1
+
+let assign2 () =
+  let x = T.var "x" in
+  let y = T.var "y" in
+  let two = T.const (QQ.of_int 2) in
+  let prop = F.abstract man (y == T.one) in
+  let post_prop1 = F.abstract man (x == two && y == T.one) in
+  let post_prop2 = F.abstract_assign man prop "x" (y + y) in
+  assert_equal ~cmp:D.equal ~printer:D.show post_prop2 post_prop1
+
+let assign3 () =
+  let x = T.var "x" in
+  let y = T.var "y" in
+  let prop = F.abstract man F.top in
+  let post_prop1 = F.abstract man (x == y) in
+  let post_prop2 = F.abstract_assign man prop "x" y in
+  assert_equal ~cmp:D.equal ~printer:D.show post_prop2 post_prop1
+
 let suite = "Numerical" >:::
   [
     "roundtrip1" >:: roundtrip1;
@@ -88,4 +113,7 @@ let suite = "Numerical" >:::
     "box" >:: box;
     "env1" >:: env1;
     "env2" >:: env2;
+    "assign1" >:: assign1;
+    "assign2" >:: assign2;
+    "assign3" >:: assign3;
   ]
