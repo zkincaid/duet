@@ -103,7 +103,7 @@ let test9 () =
   let y = T.var "y" in
   let z = T.var "z" in
   let phi = F.conj (F.leq x y) (F.leq y z) in
-  let psi1 = F.exists ["y"] phi in
+  let psi1 = F.exists_list ["y"] phi in
   let psi2 = F.leq x z in
   assert_equal ~cmp:F.equiv ~printer:F.show psi2 psi1
 
@@ -115,7 +115,7 @@ let test10 () =
   let five = T.const (QQ.of_int 5) in
   let phi =
     x <= (two * y) && x >= (y + y) && x < z && x >= z - five in
-  let psi1 = F.exists ["x"] phi in
+  let psi1 = F.exists_list ["x"] phi in
   let psi2 = (two * y) < z && (two * y) >= z - five in
   assert_equal ~cmp:F.equiv ~printer:F.show psi2 psi1
 
@@ -125,7 +125,7 @@ let test11 () =
   let y = T.var "y" in
   let z = T.var "z" in
   let phi = w <= x && x <= y && y <= z in
-  let psi1 = F.exists ["x";"y"] phi in
+  let psi1 = F.exists_list ["x";"y"] phi in
   let psi2 = w <= z in
   assert_equal ~cmp:F.equiv ~printer:F.show psi2 psi1
 

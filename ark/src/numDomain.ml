@@ -26,6 +26,7 @@ module Env = struct
     include Putil.S
     val of_enum : var BatEnum.t -> t
     val of_list : var list -> t
+    val filter : (var -> bool) -> t -> t
     val dim_of_var : t -> var -> dim
     val var_of_dim : t -> dim -> var
     val typ_of_dim : t -> dim -> typ
@@ -163,6 +164,9 @@ module Env = struct
     let vars env =
       BatEnum.append (BatArray.enum env.int_dim) (BatArray.enum env.real_dim)
     let dimensions env = 0 -- (dimension env)
+    let filter p env =
+      { int_dim = BatArray.filter p env.int_dim;
+	real_dim = BatArray.filter p env.real_dim }
   end
 end
 
@@ -183,6 +187,7 @@ module type S = sig
   val join : 'a t -> 'a t -> 'a t
   val meet : 'a t -> 'a t -> 'a t
   val widen : 'a t -> 'a t -> 'a t
+  val exists : 'a Manager.t -> (var -> bool) -> 'a t -> 'a t
 end
 
 module Make (V : Var) = struct
