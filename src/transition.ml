@@ -387,10 +387,8 @@ module Make (Var : Var) = struct
 
     let simplify tr =
       let f _ term free = VSet.diff free (term_free_tmp_vars term) in
-      let free_tmp =
-	VSet.elements (M.fold f tr.transform (formula_free_tmp_vars tr.guard))
-      in
-      { tr with guard = F.exists free_tmp tr.guard }
+      let free_tmp = M.fold f tr.transform (formula_free_tmp_vars tr.guard) in
+      { tr with guard = F.exists (not % flip VSet.mem free_tmp) tr.guard }
 
     module VarMap = BatMap.Make(Var)
     let disj_induction_vars tr vars =

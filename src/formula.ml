@@ -38,7 +38,8 @@ module type Formula = sig
   include FormulaBasis
 
   val negate : t -> t
-  val exists : T.V.t list -> t -> t
+  val exists : (T.V.t -> bool) -> t -> t
+  val exists_list : T.V.t list -> t -> t 
   val of_smt : Smt.ast -> t
   val implies : t -> t -> bool
   val equiv : t -> t -> bool
@@ -552,6 +553,8 @@ module Defaults (F : FormulaBasis) = struct
     in
     BatEnum.fold F.conj F.top formulae
 
+  (* Z3 quantifier elimination is very slow! *)
+(*
   let exists vars phi =
     let ctx = Smt.get_context() in
     let solve = Z3.mk_tactic ctx "qe" in
@@ -566,6 +569,7 @@ module Defaults (F : FormulaBasis) = struct
 	 [||]
 	 (to_smt phi));
     of_apply_result (Z3.tactic_apply ctx qe g)
+*)
 
   let implies phi psi =
     let s = new Smt.solver in
@@ -683,6 +687,53 @@ module Defaults (F : FormulaBasis) = struct
     in
     s#assrt (F.to_smt phi);
     go (bottom man env)
+
+  (* As described in David Monniaux: "Quantifier elimination by lazy model
+     enumeration", CAV2010. *)
+  let exists p phi =
+    let open D in
+    let man = Polka.manager_alloc_strict () in
+    let env = mk_env phi in
+    let s = new Smt.solver in
+    let to_apron = T.to_apron env in
+    let rec go psi =
+      s#push ();
+      s#assrt (Smt.mk_not (F.to_smt psi));
+      match s#check () with
+      | Smt.Unsat -> psi
+      | Smt.Undef -> assert false
+      | Smt.Sat ->
+	let m = s#get_model () in
+	s#pop ();
+	let apron_alg = function
+	  | OLeqZ t -> [Tcons0.make (to_apron (T.neg t)) Tcons0.SUPEQ]
+	  | OLtZ t -> [Tcons0.make (to_apron (T.neg t)) Tcons0.SUP]
+	  | OEqZ t -> [Tcons0.make (to_apron t) Tcons0.EQ]
+	  | OAnd (phi, psi) -> phi @ psi
+	  | OOr (_, _) -> assert false (* impossible *)
+	in
+	let disjunct = match select_disjunct (m#eval_qq % T.V.to_smt) phi with
+	  | Some d -> F.eval apron_alg d
+	  | None   -> assert false
+	in
+	let new_prop =
+	  { prop = 
+	      Abstract0.of_tcons_array
+		man
+		(Env.int_dim env)
+		(Env.real_dim env)
+		(Array.of_list disjunct);
+	    env = env }
+	in
+	let new_prop = D.exists man p new_prop in
+	go (F.disj psi (of_abstract (D.exists man p new_prop)))
+    in
+    s#assrt (F.to_smt phi);
+    go F.bottom
+
+  let exists_list vars phi =
+    let set = VarSet.of_enum (BatList.enum vars) in
+    exists (not % flip VarSet.mem set) phi
 
   module Syntax = struct
     let ( && ) x y = conj x y
