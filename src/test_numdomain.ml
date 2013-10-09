@@ -3,6 +3,7 @@
 open Apak
 open OUnit
 open ArkPervasives
+open BatPervasives
 
 module StrVar = Test_formula.StrVar
 
@@ -79,7 +80,6 @@ let env2 () =
   let psi2 = F.of_abstract (F.abstract man (x <= z)) in
   assert_equal ~cmp:F.equiv ~printer:F.show psi2 psi1
 
-
 let assign1 () =
   let x = T.var "x" in
   let y = T.var "y" in
@@ -105,6 +105,38 @@ let assign3 () =
   let post_prop2 = F.abstract_assign man prop "x" y in
   assert_equal ~cmp:D.equal ~printer:D.show post_prop2 post_prop1
 
+let formula_of_bounds t bounds =
+  let f (pred, bound) = match pred with
+    | Plt  -> F.lt t bound
+    | Pgt  -> F.gt t bound
+    | Pleq -> F.leq t bound
+    | Pgeq -> F.geq t bound
+    | Peq  -> F.eq t bound
+  in
+  BatEnum.fold F.conj F.top (BatEnum.map f (BatList.enum bounds))
+
+let symbound1 () =
+  let x = T.var "x" in
+  let y = T.var "y" in
+  let z = T.var "z" in
+  let two = T.const (QQ.of_int 2) in
+  let phi = x <= y && (two * y) <= z in
+  let p = not % (StrVar.equal "y") in
+  let phi2 = formula_of_bounds y (F.symbolic_bounds p phi y) in
+  assert_equal ~cmp:F.equiv ~printer:F.show phi phi2
+
+let symbound2 () =
+  let x = T.var "x" in
+  let y = T.var "y" in
+  let z = T.var "z" in
+  let two = T.const (QQ.of_int 2) in
+  let three = T.const (QQ.of_int 3) in
+  let phi = x <= T.zero && (x / three) > (two * y) + z in
+  let p = not % (StrVar.equal "y") in
+  let phi1 = (two * y) + z < (x / three) in
+  let phi2 = formula_of_bounds y (F.symbolic_bounds p phi y) in
+  assert_equal ~cmp:F.equiv ~printer:F.show phi1 phi2
+
 let suite = "Numerical" >:::
   [
     "roundtrip1" >:: roundtrip1;
@@ -116,4 +148,6 @@ let suite = "Numerical" >:::
     "assign1" >:: assign1;
     "assign2" >:: assign2;
     "assign3" >:: assign3;
+    "symbound1" >:: symbound1;
+    "symbound2" >:: symbound2;
   ]

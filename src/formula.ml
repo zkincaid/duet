@@ -53,6 +53,7 @@ module type Formula = sig
   val abstract : 'a Apron.Manager.t -> t -> 'a T.D.t
   val abstract_assign : 'a Apron.Manager.t -> 'a T.D.t -> T.V.t -> T.t -> 'a T.D.t
   val abstract_assume : 'a Apron.Manager.t -> 'a T.D.t -> t -> 'a T.D.t
+  val symbolic_bounds : (T.V.t -> bool) -> t -> T.t -> (pred * T.t) list
 
   module Syntax : sig
     val ( && ) : t -> t -> t
@@ -752,6 +753,72 @@ module Defaults (F : FormulaBasis) = struct
       env = x.env }
 
   let abstract_assume man x phi = abstract man (F.conj (of_abstract x) phi)
+
+  (** [symbolic_bounds p phi t] computes a set of bounds for the real term [t]
+      which are implied by property [phi], and where each variable in each
+      bound satisfies [p]. *)
+  let symbolic_bounds p phi t =
+    let open Apron in
+    let open NumDomain in
+    let open D in
+    let open Lincons0 in
+    let man = Polka.manager_alloc_strict () in
+
+    let vars = term_free_vars t in
+    let x = D.add_vars (VarSet.enum vars) (abstract man phi) in
+    let tdim = Env.dimension x.env in (* unused real dimension to store t *)
+    let change =
+      { Dim.dim = [| Env.dimension x.env |];
+	Dim.intdim = 0;
+	Dim.realdim = 1 }
+    in
+    let prop = Abstract0.add_dimensions man x.prop change false in
+    let prop =
+      Abstract0.assign_texpr_array
+	man
+	prop
+	[| tdim |]
+	[| T.to_apron x.env t |]
+	None
+    in
+    let x = exists man p { prop = prop; env = x.env } in
+    let tdim = Env.dimension x.env in (* tdim gets shifted by projection *)
+    let lincons = Abstract0.to_lincons_array man x.prop in
+    let symbounds = ref [] in
+    for i = 0 to Array.length lincons - 1 do
+      let linexpr = lincons.(i).linexpr0 in
+      match qq_of_coeff (Linexpr0.get_coeff linexpr tdim) with
+      | Some tcoeff ->
+	(* constraints that do not involve tdim are irrelevant *)
+	if not (QQ.equal tcoeff QQ.zero) then begin
+	  let pred = match lincons.(i).typ, QQ.lt tcoeff QQ.zero with
+	    | (SUPEQ, true)  -> Pleq
+	    | (SUPEQ, false) -> Pgeq
+	    | (SUP, true)    -> Plt
+	    | (SUP, false)   -> Pgt
+	    | (EQ, true)     -> Peq
+	    | (EQ, false)    -> Peq
+	    | (_, _)         -> assert false
+	  in
+	  let symbound =
+	    let t = ref T.zero in
+	    let f coeff dim =
+	      if dim != tdim then begin match qq_of_coeff coeff with
+	      | Some c ->
+		let coeff = T.const (QQ.negate (QQ.div c tcoeff)) in
+		let term = T.mul (T.var (Env.var_of_dim x.env dim)) coeff in
+		t := T.add (!t) term
+	      | None -> ()
+	      end
+	    in
+	    Linexpr0.iter f linexpr;
+	    !t
+	  in
+	  symbounds := (pred, symbound)::(!symbounds)
+	end
+      | None -> ()
+    done;
+    !symbounds
 
   module Syntax = struct
     let ( && ) x y = conj x y
