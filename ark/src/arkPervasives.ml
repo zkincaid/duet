@@ -85,6 +85,8 @@ module QQ = struct
   let hash x = Hashtbl.hash (Mpqf.to_string x)
   let leq x y = compare x y <= 0
   let lt x y = compare x y < 0
+  let geq x y = compare x y >= 0
+  let gt x y = compare x y > 0
   let exp x k =
     let rec go x k =
       if k = 0 then zero
@@ -158,6 +160,8 @@ type ('a,'b) open_formula =
 | OLtZ of 'b
 
 type ('a,'b) formula_algebra = ('a,'b) open_formula -> 'a
+
+type pred = Pgt | Pgeq | Plt | Pleq | Peq
 
 let join_typ a b = match a,b with
   | TyInt, TyInt -> TyInt

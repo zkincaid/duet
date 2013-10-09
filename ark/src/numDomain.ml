@@ -15,6 +15,10 @@ let qq_of_scalar = function
   | Scalar.Mpqf k  -> k
   | Scalar.Mpfrf k -> Mpfrf.to_mpqf k
 
+let qq_of_coeff = function
+  | Coeff.Scalar s -> Some (qq_of_scalar s)
+  | Coeff.Interval _ -> None
+
 let coeff_of_qq = Coeff.s_of_mpqf
 
 let scalar_zero = Coeff.s_of_int 0
