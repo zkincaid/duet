@@ -178,31 +178,27 @@ let tr_bexpr bexpr =
 let weight def =
   let open K in
   match def.dkind with
-  | Assume phi | Assert (phi, _) ->
-    Nonzero { K.transform = M.empty;
-	      K.guard = tr_bexpr phi }
-  | Assign (lhs, rhs) ->
-    Nonzero { K.transform = M.singleton lhs (tr_expr rhs);
-	      K.guard = F.top }
+  | Assume phi | Assert (phi, _) -> K.assume (tr_bexpr phi)
+  | Assign (lhs, rhs) -> K.assign lhs (tr_expr rhs)
   | Return None -> one
   | _ ->
-    Log.logf 0 "No translation for definition: %a" Def.format def;
+    Log.errorf "No translation for definition: %a" Def.format def;
     assert false
 
 
 let analyze file =
   match file.entry_points with
   | [main] -> begin
-(*    let rg = decorate (Interproc.make_recgraph file) in*)
+    (*    let rg = decorate (Interproc.make_recgraph file) in*)
     let rg = Interproc.make_recgraph file in
     let local func_name =
       let func = lookup_function func_name (get_gfile()) in
       let vars =
 	Varinfo.Set.remove (return_var func_name)
-	(Varinfo.Set.of_enum
-	  (BatEnum.append
-	     (BatList.enum func.formals)
-	     (BatList.enum func.locals)))
+	  (Varinfo.Set.of_enum
+	     (BatEnum.append
+		(BatList.enum func.formals)
+		(BatList.enum func.locals)))
       in
       Log.logf Log.info "Locals for %a: %a"
 	Varinfo.format func_name
@@ -216,29 +212,25 @@ let analyze file =
     in
     let s = new Smt.solver in
     let check_assert def path = match def.dkind with
-      | Assert (phi, msg) ->
+      | Assert (phi, msg) -> begin
+	s#push ();
+	s#assrt (K.to_smt path);
 
-	begin match path with
-	| K.Zero -> Report.log_safe ()
-	| K.Nonzero p ->
-	  s#push ();
-	  s#assrt (K.to_smt path);
-
-	  let phi = tr_bexpr phi in
-	  let sigma v = match K.V.lower v with
-	    | None -> K.T.var v
-	    | Some v ->
-	      try K.M.find v p.K.transform
-	      with Not_found -> K.T.var (K.V.mk_var v)
-	  in
-	  let phi = K.F.subst sigma phi in
-	  s#assrt (Smt.mk_not (K.F.to_smt phi));
-	  begin match Log.time "smt" s#check () with
-	  | Smt.Unsat -> Report.log_safe ()
-	  | Smt.Sat | Smt.Undef -> Report.log_error (Def.get_location def) msg
-	  end;
-	  s#pop ()
-	end
+	let phi = tr_bexpr phi in
+	let sigma v = match K.V.lower v with
+	  | None -> K.T.var v
+	  | Some v ->
+	    try K.M.find v path.K.transform
+	    with Not_found -> K.T.var (K.V.mk_var v)
+	in
+	let phi = K.F.subst sigma phi in
+	s#assrt (Smt.mk_not (K.F.to_smt phi));
+	begin match Log.time "smt" s#check () with
+	| Smt.Unsat -> Report.log_safe ()
+	| Smt.Sat | Smt.Undef -> Report.log_error (Def.get_location def) msg
+	end;
+	s#pop ()
+      end
       | _ -> ()
     in
     A.single_src_restrict query is_assert check_assert;
