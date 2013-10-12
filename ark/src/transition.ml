@@ -727,3 +727,141 @@ module Make (Var : Var) = struct
       Log.logf Log.info "Loop summary:@\n%a" format res;
       add one (mul res tr)
 end
+
+(* Transition PKA where star is implemented by finding & solving recurrence
+   relations defined by equations and inequalities.  *)
+module MakeBound (Var : Var) = struct
+  include Dioid(Var)
+
+  module VarMap = BatMap.Make(Var)
+
+  (* Linear terms with rational efficients *)
+  module QQTerm = Linear.Expr.Make(Var)(QQ)
+
+  (* Is [v] a simple induction variable? *)
+  let induction_var s m v =
+    let incr =
+      QQ.sub
+	(m#eval_qq (Var.to_smt (Var.prime v)))
+	(m#eval_qq (Var.to_smt v))
+    in
+    let diff = Smt.sub (Var.to_smt (Var.prime v)) (Var.to_smt v) in
+    s#push();
+    s#assrt (Smt.mk_not (Smt.mk_eq diff (Smt.const_qq incr)));
+    let res = match s#check () with
+      | Smt.Unsat ->
+	Log.logf Log.info "Found recurrence: %a' = %a + %a"
+	  Var.format v
+	  Var.format v
+	  QQ.format incr;
+	Some incr
+      | Smt.Sat | Smt.Undef ->
+	Log.logf Log.info "No recurrence for %a" Var.format v;
+	None
+    in
+    s#pop ();
+    res
+
+  let star tr =
+    Log.logf Log.info "Loop body:@\n%a" format tr;
+    let s = new Smt.solver in
+    let loop_counter = V.mk_int_tmp "K" in
+    let primed_vars = VarSet.of_enum (M.keys tr.transform /@ Var.prime) in
+    s#push ();
+    s#assrt (to_smt tr);
+
+    match s#check () with
+    | Smt.Unsat -> one
+    | Smt.Undef -> assert false
+    | Smt.Sat ->
+      let m = s#get_model () in
+
+      let f v _ env = VarMap.add v (induction_var s m v) env in
+      let induction_vars =
+	Log.time
+	  "(Simple) induction variable detection"
+	  (M.fold f tr.transform)
+	  VarMap.empty
+      in
+      let is_induction_var v = match V.lower v with
+	| Some var ->
+	  begin
+	    try (VarMap.find var induction_vars) != None
+	    with Not_found ->
+	      (* v is either a primed variable or was not updated in the loop
+		 body *)
+	      not (VarSet.mem var primed_vars)
+	  end
+	| None     -> false
+      in
+      let tr_phi = to_formula tr in
+      let rewrite =
+	let sigma v = match V.lower v with
+	  | Some x ->
+	    begin
+	      try
+		match VarMap.find x induction_vars with
+		| Some incr ->
+		  T.add
+		    (T.var v)
+		    (T.mul (T.var loop_counter) (T.const incr))
+		| None -> assert false
+	      with Not_found ->
+		(* We only fall into this case if v is not updated in the loop
+		   body (v is not in the domain of tr.transform) *)
+		T.var v
+	    end
+	  | None -> T.var v
+	in
+	T.subst sigma
+      in
+      let formula_of_bounds t bounds =
+	let f (pred, bound) =
+	  let bound = T.mul (T.var loop_counter) (rewrite bound) in
+	  match pred with
+	  | Plt  -> F.lt t bound
+	  | Pgt  -> F.gt t bound
+	  | Pleq -> F.leq t bound
+	  | Pgeq -> F.geq t bound
+	  | Peq  -> F.eq t bound
+	in
+	BatEnum.fold F.conj F.top (BatEnum.map f (BatList.enum bounds))
+      in
+      let g v incr tr =
+	match incr with
+	| Some incr ->
+	  let t =
+	    T.add
+	      (T.var (V.mk_var v))
+	      (T.mul (T.var loop_counter) (T.const incr))
+	  in
+	  Log.logf Log.info "Closed term for %a: %a"
+	    Var.format v
+	    T.format t;
+	  { tr with transform = M.add v t tr.transform }
+	| None ->
+	  Log.logf Log.info "Compute symbolic bounds for variable: %a"
+	    Var.format v;
+	  let delta =
+	    T.sub (T.var (V.mk_var (Var.prime v))) (T.var (V.mk_var v))
+	  in
+	  let bounds =
+	    try F.symbolic_bounds is_induction_var tr_phi delta
+	    with Not_found -> assert false
+	  in
+	  let nondet =
+	    T.var (V.mk_tmp ("nondet_" ^ (Var.show v)) (Var.typ v))
+	  in
+	  let bounds_formula = formula_of_bounds nondet bounds in
+	  Log.logf Log.info "Bounds: %a" F.format bounds_formula;
+	  { transform = M.add v nondet tr.transform;
+	    guard = F.conj (formula_of_bounds nondet bounds) tr.guard }
+      in
+      let res =
+	{ transform = M.empty;
+	  guard = F.leqz (T.neg (T.var loop_counter)) }
+      in
+      let res = VarMap.fold g induction_vars res in
+      Log.logf Log.info "Loop summary:@\n%a" format res;
+      add one (mul res tr)
+end

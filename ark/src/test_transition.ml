@@ -4,7 +4,19 @@ open Apak
 open OUnit
 open ArkPervasives
 
-module StrVar = Test_formula.StrVar
+module StrVar = struct
+  include Putil.PString
+  let prime x = x ^ "'"
+  let to_smt x = 
+    if String.get x 0 == 'r' then Smt.real_var x
+    else Smt.int_var x
+  let of_smt sym = match Smt.symbol_refine sym with
+    | Z3.Symbol_string str -> str
+    | Z3.Symbol_int _ -> assert false
+  let typ x =
+    if String.get x 0 == 'r' then TyReal
+    else TyInt
+end
 
 module K = Transition.Make(StrVar)
 
@@ -34,6 +46,7 @@ end
 module G = Graph.Persistent.Digraph.ConcreteLabeled(V)(E)
 module A = Pathexp.MakeElim(G)(K)
 
+let mk_tmp () = K.T.var (K.V.mk_tmp "nondet" TyReal)
 let var v = K.T.var (K.V.mk_var v)
 let const k = K.T.int (ZZ.of_int k)
 
@@ -50,39 +63,10 @@ let run_test graph src tgt =
   s#assrt (K.to_smt res);
   fun phi expected -> begin
     s#push ();
-(*    Log.logf Log.info "phi: %a" K.F.format phi;*)
     s#assrt (Smt.mk_not phi);
-(*    Log.logf Log.info "solver: %s" (s#to_string ());*)
-(*
-
-    if s#check() == Smt.Sat
-    then begin let m = s#get_model () in print_endline (m#to_string ()) end;
-    assert_equal ~printer:Show.show<Smt.lbool> expected (s#check());
-*)
-    s#pop ();
-  end
-
-(*
-let run_test2 graph src tgt =
-  let res = A.path_expr graph weight src tgt in
-  let s = new Smt.solver in
-  Log.logf Log.info "Formula: %a" K.format res;
-  print_endline "-------";
-  s#assrt (K.to_smt res);
-  fun phi expected -> begin
-    s#push ();
-    begin match res with
-    | K.Nonzero res ->
-      Log.logf Log.info "phi: %a"
-	Show.format<K.F.t Hashcons.hash_consed> (K.F.subst (K.K.mk_subst res) phi);
-      s#assrt (Smt.mk_not (K.F.to_smt (K.F.subst (K.K.mk_subst res) phi)));
-    | K.Zero -> ()
-    end;
-    print_endline "-----";
     assert_equal ~printer:Show.show<Smt.lbool> expected (s#check());
     s#pop ();
   end
-*)
 
 let mk_graph edges =
   let add_edge g (src, label, tgt) =
@@ -309,16 +293,97 @@ let test_third_order_safe () =
   in
   run_test third_order_safe 0 7 phi Smt.Unsat
 
+module Bound = struct
+  module K = Transition.MakeBound(StrVar)
+  module A = Pathexp.MakeElim(G)(K)
+  module T = K.T
+  module F = K.F
+  let frac x y = K.T.const (QQ.of_frac x y)
+  let var x = K.T.var (K.V.mk_var x)
+  let block = BatList.reduce K.mul
+  let while_loop cond body =
+    K.mul (K.star (block ((K.assume cond)::body))) (K.assume (F.negate cond))
+
+  let test_const_bounds () =
+    let open K.T.Syntax in
+    let open K.F.Syntax in
+    let (~@) x = ~@ (QQ.of_int x) in
+    let rx = var "rx" in
+    let ry = var "ry" in
+    let rtmp = var "rtmp" in
+    let prog =
+      block [
+	K.assign "rx" (~@ 0);
+	K.assign "ry" (~@ 0);
+	while_loop (rx < (~@ 10)) [
+	  K.assign "rtmp" (K.T.var (K.V.mk_tmp "havoc" TyReal));
+	  K.assume (ry - (frac 1 3) <= rtmp && rtmp < ry + (frac 1 7));
+	  K.assign "ry" rtmp;
+	  K.assign "rx" (rx + (~@ 1))
+	]
+      ]
+    in
+    let s = new Smt.solver in
+    s#assrt (K.to_smt prog);
+    Log.logf Log.info "Formula: %a" K.format prog;
+    let check phi expected =
+      s#push ();
+      s#assrt (Smt.mk_not (F.to_smt phi));
+      assert_equal ~printer:Show.show<Smt.lbool> expected (s#check());
+      s#pop ();
+    in
+    check (var "rx'" == (~@ 10)) Smt.Unsat;
+    check (var "ry'" < (frac 10 7)) Smt.Unsat;
+    check (var "ry'" >= T.neg (frac 10 3)) Smt.Unsat
+
+  (* Need linearization! *)
+  let test_symbolic_bounds () =
+    let open K.T.Syntax in
+    let open K.F.Syntax in
+    let (~@) x = ~@ (QQ.of_int x) in
+    let rx = var "rx" in
+    let rt = var "rt" in
+    let reps = var "reps" in
+    let rtmp = var "rtmp" in
+    let mu = (~@ 1)/(~@ 10000000) in
+    let decr = (~@ 1) / (~@ 10) in
+    let prog =
+      block [
+	K.assign "rx" (frac 11 10);
+	K.assign "reps" (~@ 0);
+	while_loop ((rx > (~@ 0)) && (rx + reps > (~@ 0))) [
+	  K.assume (reps <= (~@ 1) && reps >= (~@ -1));
+	  K.assign "rt" (rx + reps - decr + (decr * mu));
+	  K.assign "rtmp" (K.T.var (K.V.mk_tmp "havoc" TyReal));
+	  K.assume ((rt - (rt * mu) - rx + decr <= rtmp)
+		    && (rtmp <= rt + (rt * mu) - rx + decr));
+	  K.assign "reps" rtmp;
+	  K.assign "rx" (rx - decr)
+	]
+      ]
+    in
+    let open Smt.Syntax in
+(*    let phi = (~$ "reps'") <= (~@ 1)/(~@ 1000) in*)
+    let phi = (~$ "rx'") == (~@ 0) in
+    let s = new Smt.solver in
+    Log.logf Log.info "Formula: %a" K.format prog;
+    s#assrt (K.to_smt prog);
+    s#assrt (Smt.mk_not phi);
+    assert_equal ~printer:Show.show<Smt.lbool> Smt.Unsat (s#check())
+end
+
 let suite = "Induction" >:::
   [
     "counter" >:: test_counter;
+
     "count_up_down_safe" >:: test_count_up_down_safe;
     "sum01_safe" >:: test_sum01_safe;
     "sum01_unsafe" >:: test_sum01_unsafe;
-    "sum02_safe" >:: test_sum02_safe;
+(*    "sum02_safe" >:: test_sum02_safe;*)
     (* sum02_unsafe does not exist *)
     "sum03_safe" >:: test_sum03_safe;
     "sum03_unsafe" >:: test_sum03_unsafe;
     (* sum04_safe is boring *)
 (*    "third_order_safe" >:: test_third_order_safe;*)
+    "const_bounds" >:: Bound.test_const_bounds
   ]
