@@ -415,7 +415,6 @@ struct
       | _ -> OOr (BatEnum.get_exn e, Or (ESet.of_enum e))
       end
 
-
   let rec to_smt = function
     | LeqZ t -> Smt.mk_le (T.to_smt t) (Smt.const_int 0)
     | LtZ t -> Smt.mk_lt (Smt.mk_real2int (T.to_smt t)) (Smt.const_int 0)
@@ -763,7 +762,6 @@ module Defaults (F : FormulaBasis) = struct
     let open D in
     let open Lincons0 in
     let man = Polka.manager_alloc_strict () in
-
     let vars = term_free_vars t in
     let x = D.add_vars (VarSet.enum vars) (abstract man phi) in
     let tdim = Env.dimension x.env in (* unused real dimension to store t *)
@@ -781,8 +779,15 @@ module Defaults (F : FormulaBasis) = struct
 	[| T.to_apron x.env t |]
 	None
     in
-    let x = exists man p { prop = prop; env = x.env } in
+    let x = D.exists man p { prop = prop; env = x.env } in
     let tdim = Env.dimension x.env in (* tdim gets shifted by projection *)
+
+    let show v =
+      if v == tdim then "$" else T.V.show (Env.var_of_dim x.env v)
+    in
+    Log.logf Log.info "Symbound projection: %a"
+      (Abstract0.print show) x.prop;
+
     let lincons = Abstract0.to_lincons_array man x.prop in
     let symbounds = ref [] in
     for i = 0 to Array.length lincons - 1 do
@@ -801,7 +806,10 @@ module Defaults (F : FormulaBasis) = struct
 	    | (_, _)         -> assert false
 	  in
 	  let symbound =
-	    let t = ref T.zero in
+	    let t = match qq_of_coeff (Linexpr0.get_cst linexpr) with
+	      | Some k -> ref (T.const (QQ.negate (QQ.div k tcoeff)))
+	      | None -> assert false
+	    in
 	    let f coeff dim =
 	      if dim != tdim then begin match qq_of_coeff coeff with
 	      | Some c ->

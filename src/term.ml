@@ -256,18 +256,27 @@ module MakeHashconsedBasis (V : Var) : TermBasis with module V = V = struct
 
   let to_smt =
     let alg = function
-      | OVar v -> V.to_smt v
+      | OVar v -> (V.to_smt v, V.typ v)
       | OConst k ->
 	begin match QQ.to_zz k with
-	| Some z -> Smt.const_zz z
-	| None   -> Smt.const_qq k
+	| Some z -> (Smt.const_zz z, TyInt)
+	| None   -> (Smt.const_qq k, TyReal)
 	end
-      | OAdd (x,y) -> Smt.add x y
-      | OMul (x,y) -> Smt.mul x y
-      | ODiv (x,y) -> Smt.mk_div x y
-      | OFloor x   -> Smt.mk_real2int x
+      | OAdd ((x,x_typ),(y,y_typ)) -> (Smt.add x y, join_typ x_typ y_typ)
+      | OMul ((x,x_typ),(y,y_typ)) -> (Smt.mul x y, join_typ x_typ y_typ)
+      | ODiv ((x,x_typ),(y,y_typ)) ->
+	let x = match x_typ with
+	  | TyReal -> x
+	  | TyInt  -> (Smt.mk_int2real x)
+	in
+	let y = match y_typ with
+	  | TyReal -> y
+	  | TyInt  -> (Smt.mk_int2real y)
+	in
+	(Smt.mk_div x y, TyReal)
+      | OFloor (x, _)   -> (Smt.mk_real2int x, TyInt)
     in
-    eval alg
+    fst % eval alg
 
   let subst sigma =
     let alg = function
