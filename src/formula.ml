@@ -54,6 +54,7 @@ module type Formula = sig
   val abstract_assign : 'a Apron.Manager.t -> 'a T.D.t -> T.V.t -> T.t -> 'a T.D.t
   val abstract_assume : 'a Apron.Manager.t -> 'a T.D.t -> t -> 'a T.D.t
   val symbolic_bounds : (T.V.t -> bool) -> t -> T.t -> (pred * T.t) list
+  val linearize : (unit -> T.V.t) -> t -> t
 
   module Syntax : sig
     val ( && ) : t -> t -> t
@@ -827,6 +828,48 @@ module Defaults (F : FormulaBasis) = struct
       | None -> ()
     done;
     !symbounds
+
+  let linearize mk_tmp phi =
+    let open D in
+    let nonlinear = ref [] in
+    let replace_term t =
+      if T.is_linear t then t else begin
+	let (lin, nonlin) = T.split_linear t in
+	let mk_nl_term (t, coeff) =
+	  let var = mk_tmp () in
+	  nonlinear := (var, t)::(!nonlinear);
+	  T.mul (T.var var) (T.const coeff)
+	in
+	BatEnum.fold T.add lin (BatList.enum nonlin /@ mk_nl_term)
+      end
+    in
+    let alg = function
+    | OOr (phi, psi) -> F.disj phi psi
+    | OAnd (phi, psi) -> F.conj phi psi
+    | OLeqZ t -> F.leqz (replace_term t)
+    | OLtZ t -> F.ltz (replace_term t)
+    | OEqZ t -> F.eqz (replace_term t)
+    in
+    let lin_phi = eval alg phi in
+    let vars =
+      List.fold_left
+	(fun set (v,_) -> VarSet.add v set)
+	(formula_free_vars phi)
+	(!nonlinear)
+    in
+    let man = Polka.manager_alloc_strict () in
+    let approx = D.add_vars (VarSet.enum vars) (abstract man lin_phi) in
+    let mk_nl_equation (var, term) =
+      Tcons0.make (T.to_apron approx.env (T.sub term (T.var var))) Tcons0.EQ
+    in
+    let nl_eq =
+      BatArray.of_enum (BatList.enum (!nonlinear) /@ mk_nl_equation)
+    in
+    let nl_approx =
+      { prop = Abstract0.meet_tcons_array man approx.prop nl_eq;
+	env = approx.env }
+    in
+    F.conj lin_phi (of_abstract nl_approx)
 
   module Syntax = struct
     let ( && ) x y = conj x y

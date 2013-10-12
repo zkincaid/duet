@@ -37,6 +37,9 @@ module type TermBasis = sig
   val one : t
   val floor : t -> t
 
+  val is_linear : t -> bool
+  val split_linear : t -> t * ((t * QQ.t) list)
+
   val log_stats : unit -> unit
 end
 
@@ -288,6 +291,24 @@ module MakeHashconsedBasis (V : Var) : TermBasis with module V = V = struct
       | OFloor t -> floor t
     in
     eval alg
+
+  let rec is_linear t =
+    match t.node with
+    | Var _ -> true
+    | Const _ -> true
+    | Sum ts -> BatEnum.for_all (is_linear % fst) (Linexpr.enum ts)
+    | Mul (x, y) | Div (x, y) ->
+      begin match get_const x, get_const y with
+      | (None, _) | (_, None) -> false
+      | (_, _) -> true
+      end
+    | Floor x -> is_linear x
+
+  let split_linear t =
+    let (lin, nonlin) =
+      BatEnum.switch (is_linear % fst) (Linexpr.enum (linearize t.node))
+    in
+    (delinearize (Linexpr.of_enum lin), BatList.of_enum nonlin)
 end
 
 module MakeBasis (V : Var) : TermBasis with module V = V = struct
@@ -456,6 +477,23 @@ module MakeBasis (V : Var) : TermBasis with module V = V = struct
     | Mul (s, t) -> mul (subst sigma s) (subst sigma t)
     | Div (s, t) -> div (subst sigma s) (subst sigma t)
     | Floor t -> floor (subst sigma t)
+
+  let rec is_linear = function
+    | Var _ -> true
+    | Const _ -> true
+    | Sum ts -> BatEnum.for_all (is_linear % fst) (Linexpr.enum ts)
+    | Mul (x, y) | Div (x, y) ->
+      begin match get_const x, get_const y with
+      | (None, _) | (_, None) -> false
+      | (_, _) -> true
+      end
+    | Floor x -> is_linear x
+
+  let split_linear t =
+    let (lin, nonlin) =
+      BatEnum.switch (is_linear % fst) (Linexpr.enum (linearize t))
+    in
+    (delinearize (Linexpr.of_enum lin), BatList.of_enum nonlin)
 end
 
 module Defaults (T : TermBasis) = struct
