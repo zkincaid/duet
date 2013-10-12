@@ -129,6 +129,82 @@ let test11 () =
   let psi2 = w <= z in
   assert_equal ~cmp:F.equiv ~printer:F.show psi2 psi1
 
+let linearize phi =
+  let max = ref (-1) in
+  let mk () =
+    incr max;
+    "nonlin" ^ (string_of_int (!max))
+  in
+  F.linearize mk phi
+
+let assert_implies phi psi =
+  if not (F.implies phi psi) then
+    assert_failure (Printf.sprintf "%s\ndoes not imply\n%s"
+		      (F.show phi)
+		      (F.show psi))
+
+let linearize1 () =
+  let x = T.var "x" in
+  let y = T.var "y" in
+  let const = T.const % QQ.of_int in
+  let phi =
+    linearize (T.zero <= x
+	       && x <= (const 1000)
+	       && y == x * x
+	       && y >= (const 1000000))
+  in
+  let psi = (x == const 1000) && (y == const 1000000) in
+  assert_implies phi psi
+
+let linearize2 () =
+  let w = T.var "w" in
+  let x = T.var "x" in
+  let y = T.var "y" in
+  let z = T.var "z" in
+  let phi =
+    linearize (T.one <= x
+	       && x <= T.one
+	       && w == T.zero
+	       && z == y / x + w * y)
+  in
+  assert_implies phi (z == y)
+
+let linearize3 () =
+  let w = T.var "w" in
+  let x = T.var "x" in
+  let y = T.var "y" in
+  let z = T.var "z" in
+  let phi =
+    linearize (w <= x
+	       && T.zero <= y
+	       && w >= T.zero
+	       && z == x * y)
+  in
+  assert_implies phi (z >= T.zero)
+
+(* easier version of linearization5: y * y appears twice, but we when we
+   replace nonlinear terms by variables we lose that information. *)
+let linearize4 () =
+  let x = T.var "x" in
+  let y = T.var "y" in
+  let z = T.var "z" in
+  let phi =
+    linearize (x == y * y && z == y * y + T.one)
+  in
+  assert_implies phi (x > z)
+
+(* to pass this test case, we need linearization to be smart enough to see
+   that x = y implies x * x = y * y *)
+let linearize5 () =
+  let x = T.var "x" in
+  let y = T.var "y" in
+  let z = T.var "z" in
+  let phi =
+    linearize (x == y && z == x * x && z == y * y + (T.const (QQ.of_int 1)))
+  in
+  assert_implies phi F.bottom
+
+
 let suite = "Formula" >:::
   [
     "test1" >:: test1;
@@ -142,4 +218,9 @@ let suite = "Formula" >:::
     "test9" >:: test9;
     "test10" >:: test10;
     "test11" >:: test11;
+    "linearize1" >:: linearize1;
+    "linearize2" >:: linearize2;
+    "linearize3" >:: linearize3;
+(*    "linearize4" >:: linearize4;*)
+(*    "linearize5" >:: linearize5;*)
   ]

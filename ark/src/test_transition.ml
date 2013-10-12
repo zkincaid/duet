@@ -188,28 +188,6 @@ let test_sum02_safe () =
   let phi =
     (sn == (((n * n) / (~@ 2)) + (n / (~@ 2)))) || i == (~@ 0)
   in
-
-(*
-  let phi =
-    i == (~@ 6)
-  in
-
-  let phi =
-    n == (~@ 5)
-  in
-*)
-(*
-  let phi =
-    (sn == (n + (((n * n) - n) / (~@ 2)))) || i == (~@ 0)
-  in
-
-*)
-(*
-  let phi =
-    (sn == (~@ 10))
-  in
-
-*)
   run_test sum02_safe 0 5 phi Smt.Unsat
 
 
@@ -336,7 +314,6 @@ module Bound = struct
     check (var "ry'" < (frac 10 7)) Smt.Unsat;
     check (var "ry'" >= T.neg (frac 10 3)) Smt.Unsat
 
-  (* Need linearization! *)
   let test_symbolic_bounds () =
     let open K.T.Syntax in
     let open K.F.Syntax in
@@ -345,11 +322,11 @@ module Bound = struct
     let rt = var "rt" in
     let reps = var "reps" in
     let rtmp = var "rtmp" in
-    let mu = (~@ 1)/(~@ 10000000) in
+    let mu = T.const (QQ.exp (QQ.of_int 2) (-53)) in
     let decr = (~@ 1) / (~@ 10) in
     let prog =
       block [
-	K.assign "rx" (frac 11 10);
+	K.assume ((~@ 0) <= rx && rx <= (~@ 1000));
 	K.assign "reps" (~@ 0);
 	while_loop ((rx > (~@ 0)) && (rx + reps > (~@ 0))) [
 	  K.assume (reps <= (~@ 1) && reps >= (~@ -1));
@@ -362,14 +339,19 @@ module Bound = struct
 	]
       ]
     in
-    let open Smt.Syntax in
-(*    let phi = (~$ "reps'") <= (~@ 1)/(~@ 1000) in*)
-    let phi = (~$ "rx'") == (~@ 0) in
     let s = new Smt.solver in
     Log.logf Log.info "Formula: %a" K.format prog;
-    s#assrt (K.to_smt prog);
-    s#assrt (Smt.mk_not phi);
-    assert_equal ~printer:Show.show<Smt.lbool> Smt.Unsat (s#check())
+    let mk () = K.V.mk_tmp "nonlin" TyReal in
+    let check phi expected =
+      s#push ();
+      s#assrt (K.F.to_smt (K.F.linearize mk (K.to_formula prog
+					     && K.F.negate phi)));
+      assert_equal ~printer:Show.show<Smt.lbool> expected (s#check());
+      s#pop ();
+    in
+    check ((var "rx'") > T.neg (frac 1 10)) Smt.Unsat;
+    check ((var "reps'") <= (frac 1 100000000)) Smt.Unsat;
+    check ((var "reps'") >= (frac (-1) 100000000)) Smt.Unsat
 end
 
 let suite = "Induction" >:::
@@ -385,5 +367,6 @@ let suite = "Induction" >:::
     "sum03_unsafe" >:: test_sum03_unsafe;
     (* sum04_safe is boring *)
 (*    "third_order_safe" >:: test_third_order_safe;*)
-    "const_bounds" >:: Bound.test_const_bounds
+    "const_bounds" >:: Bound.test_const_bounds;
+    "symbolic_bounds" >:: Bound.test_symbolic_bounds
   ]
