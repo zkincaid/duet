@@ -191,7 +191,7 @@ let linearize4 () =
   let phi =
     linearize (x == y * y && z == y * y + T.one)
   in
-  assert_implies phi (x > z)
+  assert_implies phi (x < z)
 
 (* to pass this test case, we need linearization to be smart enough to see
    that x = y implies x * x = y * y *)
@@ -221,6 +221,6 @@ let suite = "Formula" >:::
     "linearize1" >:: linearize1;
     "linearize2" >:: linearize2;
     "linearize3" >:: linearize3;
-(*    "linearize4" >:: linearize4;*)
+    "linearize4" >:: linearize4;
 (*    "linearize5" >:: linearize5;*)
   ]
