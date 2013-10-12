@@ -829,15 +829,21 @@ module Defaults (F : FormulaBasis) = struct
     done;
     !symbounds
 
+  module TMap = Putil.Map.Make(T)
   let linearize mk_tmp phi =
     let open D in
-    let nonlinear = ref [] in
+    let nonlinear = ref TMap.empty in
     let replace_term t =
       if T.is_linear t then t else begin
 	let (lin, nonlin) = T.split_linear t in
 	let mk_nl_term (t, coeff) =
-	  let var = mk_tmp () in
-	  nonlinear := (var, t)::(!nonlinear);
+	  let var =
+	    try TMap.find t (!nonlinear)
+	    with Not_found ->
+	      let v = mk_tmp () in
+	      nonlinear := TMap.add t v (!nonlinear);
+	      v
+	  in
 	  T.mul (T.var var) (T.const coeff)
 	in
 	BatEnum.fold T.add lin (BatList.enum nonlin /@ mk_nl_term)
@@ -852,18 +858,18 @@ module Defaults (F : FormulaBasis) = struct
     in
     let lin_phi = eval alg phi in
     let vars =
-      List.fold_left
-	(fun set (v,_) -> VarSet.add v set)
+      BatEnum.fold
+	(fun set (_,v) -> VarSet.add v set)
 	(formula_free_vars phi)
-	(!nonlinear)
+	(TMap.enum (!nonlinear))
     in
     let man = Polka.manager_alloc_strict () in
     let approx = D.add_vars (VarSet.enum vars) (abstract man lin_phi) in
-    let mk_nl_equation (var, term) =
+    let mk_nl_equation (term, var) =
       Tcons0.make (T.to_apron approx.env (T.sub term (T.var var))) Tcons0.EQ
     in
     let nl_eq =
-      BatArray.of_enum (BatList.enum (!nonlinear) /@ mk_nl_equation)
+      BatArray.of_enum (TMap.enum (!nonlinear) /@ mk_nl_equation)
     in
     let nl_approx =
       { prop = Abstract0.meet_tcons_array man approx.prop nl_eq;
