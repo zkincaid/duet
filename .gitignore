@@ -29,3 +29,10 @@ duet/configure
 duet/src/frontend/cbp/cbpLex.ml
 duet/src/frontend/cbp/cbpParse.ml
 duet/src/frontend/cbp/cbpParse.mli
+
+#dependencies
+depend/*
+
+#tag files
+*/tags
+*/TAGS

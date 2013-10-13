@@ -16,7 +16,7 @@ Duet depends on several software packages.  Some of the more obscure dependencie
  + GMP (+ ocaml bindings)
  + MPFR (+ ocaml bindings)
  + libbdd
- + z3 (+ ocaml bindings)
+ + z3 4.3.1 (+ its ocaml bindings, beware of http://z3.codeplex.com/workitem/29)
 
 Building Duet:
 
