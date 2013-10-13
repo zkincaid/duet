@@ -304,11 +304,38 @@ module MakeHashconsedBasis (V : Var) : TermBasis with module V = V = struct
       end
     | Floor x -> is_linear x
 
+  let rec sum_of_products t =
+    match t.node with
+    | Var _ -> Linexpr.add_term t QQ.one Linexpr.zero
+    | Const k -> Linexpr.add_term one k Linexpr.zero
+    | Sum xs ->
+      let f (t, coeff) =
+	Linexpr.scalar_mul coeff (sum_of_products t)
+      in
+      BatEnum.fold Linexpr.add Linexpr.zero (Linexpr.enum xs /@ f)
+    | Floor t ->
+      Linexpr.add_term
+	(floor (delinearize (sum_of_products t)))
+	QQ.one
+	Linexpr.zero
+    | Mul (x, y) ->
+      Linexpr.of_enum
+	(BatEnum.map
+	   (fun ((t0,c0),(t1,c1)) -> (mul t0 t1, QQ.mul c0 c1))
+	   (Putil.cartesian_product
+	      (Linexpr.enum (sum_of_products x))
+	      (Linexpr.enum (sum_of_products y))))
+    | Div (x, y) ->
+      let den = delinearize (sum_of_products y) in
+      let f (t, coeff) = (div t den, coeff) in
+      Linexpr.of_enum (BatEnum.map f (Linexpr.enum (sum_of_products x)))
+
   let split_linear t =
     let (lin, nonlin) =
-      BatEnum.switch (is_linear % fst) (Linexpr.enum (linearize t.node))
+      BatEnum.switch (is_linear % fst) (Linexpr.enum (sum_of_products t))
     in
     (delinearize (Linexpr.of_enum lin), BatList.of_enum nonlin)
+
 end
 
 module MakeBasis (V : Var) : TermBasis with module V = V = struct
