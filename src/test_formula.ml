@@ -222,5 +222,5 @@ let suite = "Formula" >:::
     "linearize2" >:: linearize2;
     "linearize3" >:: linearize3;
     "linearize4" >:: linearize4;
-(*    "linearize5" >:: linearize5;*)
+    "linearize5" >:: linearize5;
   ]

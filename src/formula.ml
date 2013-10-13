@@ -829,7 +829,120 @@ module Defaults (F : FormulaBasis) = struct
     done;
     !symbounds
 
+  module V = T.V
+  module A = Linear.Affine(V)
+  module AMap = BatMap.Make(A)
+  module AffineTerm = Linear.Defaults(Linear.Expr.Make(A)(QQ))
+
+  let linterm_smt = AffineTerm.to_smt A.to_smt Smt.const_qq
+
+  (** Extract a basis for the smallest linear manifold which contains [phi]
+      and is defined over the variables [vars]. *)
+  let extract_equalities_impl s vars =
+    let zero = Smt.const_int 0 in
+    let const_var = A.to_smt A.AConst in
+    let space = new Smt.solver in (* solution space for implied equalities *)
+    let extract_linterm m =
+      let f term v =
+	AffineTerm.add_term
+	  (A.AVar v)
+	  (m#eval_qq (V.to_smt v))
+	  term
+      in
+      let const_term =
+	AffineTerm.add_term
+	  A.AConst
+	  (m#eval_qq const_var)
+	  AffineTerm.zero
+      in
+      List.fold_left f const_term vars
+    in
+    let rec go equalities =
+      match space#check () with
+      | Smt.Unsat | Smt.Undef -> equalities
+      | Smt.Sat ->
+	let candidate = extract_linterm (space#get_model ()) in
+	let candidate_formula =
+	  Smt.mk_eq (linterm_smt candidate) zero
+	in
+	s#push ();
+	s#assrt (Smt.mk_not candidate_formula);
+	match s#check () with
+	| Smt.Undef -> (* give up; return the equalities we have so far *)
+	  equalities
+	| Smt.Unsat -> (* candidate equality is implied by phi *)
+	  s#pop ();
+	  let leading =
+	    let e =
+	      let f (x,y) = match A.get_var x with
+		| Some x -> Some (x,y)
+		| None -> None
+	      in
+	      BatEnum.filter_map f (AffineTerm.enum candidate)
+	    in
+	    match BatEnum.get e with
+	    | Some (dim, coeff) ->
+	      assert (not (QQ.equal coeff QQ.zero));
+	      dim
+	    | None -> assert false
+	  in
+	  space#assrt (Smt.mk_eq (V.to_smt leading) zero);
+	  go (candidate::equalities)
+	| Smt.Sat -> (* candidate equality is not implied by phi *)
+	  let point = extract_linterm (s#get_model ()) in
+	  s#pop ();
+	  space#assrt (Smt.mk_eq (linterm_smt point) zero);
+	  go equalities
+    in
+    let nonzero v = Smt.mk_not (Smt.mk_eq (V.to_smt v) zero) in
+    s#assrt (Smt.mk_eq const_var (Smt.const_int 1));
+    space#assrt (Smt.big_disj (BatEnum.map nonzero (BatList.enum vars)));
+    go []
+
   module TMap = Putil.Map.Make(T)
+  let nonlinear_equalities map phi vars =
+    let s = new Smt.solver in
+
+    let ctx = Smt.get_context () in
+    let uninterp_mul_sym = Smt.mk_string_symbol "uninterp_mul" in
+    let uninterp_div_sym = Smt.mk_string_symbol "uninterp_div" in
+    let real_sort = Smt.mk_real_sort () in
+    let uninterp_mul_decl =
+      Z3.mk_func_decl ctx uninterp_mul_sym [| real_sort; real_sort |] real_sort
+    in
+    let uninterp_div_decl = 
+      Z3.mk_func_decl ctx uninterp_div_sym [| real_sort; real_sort |] real_sort
+    in
+    let mk_mul x y = Z3.mk_app ctx uninterp_mul_decl [| x; y |] in
+    let mk_div x y = Z3.mk_app ctx uninterp_div_decl [| x; y |] in
+    let talg = function
+      | OVar v -> (V.to_smt v, V.typ v)
+      | OConst k ->
+	begin match QQ.to_zz k with
+	| Some z -> (Smt.const_zz z, TyInt)
+	| None   -> (Smt.const_qq k, TyReal)
+	end
+      | OAdd ((x,x_typ),(y,y_typ)) -> (Smt.add x y, join_typ x_typ y_typ)
+      | OMul ((x,x_typ),(y,y_typ)) -> (mk_mul x y, TyReal)
+      | ODiv ((x,x_typ),(y,y_typ)) ->
+	let x = match x_typ with
+	  | TyReal -> x
+	  | TyInt  -> (Smt.mk_int2real x)
+	in
+	let y = match y_typ with
+	  | TyReal -> y
+	  | TyInt  -> (Smt.mk_int2real y)
+	in
+	(mk_div x y, TyReal)
+      | OFloor (x, _)   -> (Smt.mk_real2int x, TyInt)
+    in
+    let assert_nl_eq nl_term var =
+      s#assrt (Smt.mk_eq (fst (T.eval talg nl_term)) (V.to_smt var))
+    in
+    s#assrt (to_smt phi);
+    TMap.iter assert_nl_eq map;
+    extract_equalities_impl s (VarSet.elements vars)
+
   let linearize mk_tmp phi =
     let open D in
     let nonlinear = ref TMap.empty in
@@ -862,6 +975,18 @@ module Defaults (F : FormulaBasis) = struct
 	(fun set (_,v) -> VarSet.add v set)
 	(formula_free_vars phi)
 	(TMap.enum (!nonlinear))
+    in
+    let lin_phi =
+      let f phi eq =
+	let g (v, coeff) =
+	  match v with
+	  | A.AVar v -> T.mul (T.var v) (T.const coeff)
+	  | A.AConst -> T.const coeff
+	in
+	conj phi (eqz (BatEnum.reduce T.add (AffineTerm.enum eq /@ g)))
+      in
+      let eqs = nonlinear_equalities (!nonlinear) lin_phi vars in
+      List.fold_left f lin_phi eqs
     in
     let man = Polka.manager_alloc_strict () in
     let approx = D.add_vars (VarSet.enum vars) (abstract man lin_phi) in
@@ -900,6 +1025,9 @@ module MakeEq (F : Formula) = struct
   (** Extract a basis for the smallest linear manifold which contains [phi]
       and is defined over the variables [vars]. *)
   let extract_equalities phi vars =
+    (* todo: this should use extract_equalities_impl from Defaults, but we
+       don't want to extract_equalities_impl or AffineTerm to should up in the
+       signature for Formula *)
     let zero = Smt.const_int 0 in
     let const_var = A.to_smt A.AConst in
     let s = new Smt.solver in
