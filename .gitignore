@@ -19,6 +19,7 @@ apak/test
 ark/test
 datalog
 duet/duet
+errgen/errgen
 
 # generated files
 deriving/_build/
@@ -26,9 +27,13 @@ Makefile.config
 duet/autom4te.cache/
 duet/config.status
 duet/configure
+
 duet/src/frontend/cbp/cbpLex.ml
 duet/src/frontend/cbp/cbpParse.ml
 duet/src/frontend/cbp/cbpParse.mli
+
+errgen/src/lexer.ml
+errgen/src/parser.ml
 
 #dependencies
 depend/*
