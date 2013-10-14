@@ -1,11 +1,13 @@
  /* File parser.mly */
 
         %{
-          open Ast;; 
+          open Ast;;
+	  open Ark;;
+	  open ArkPervasives;;
         %}
 
         %token EOF
-        %token <float> REAL
+        %token <Ark.ArkPervasives.QQ.t> REAL
         %token <string> VAR
         %token PLUS MINUS TIMES
         %token TRUE FALSE 

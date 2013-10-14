@@ -1,9 +1,12 @@
+open Ark
+open ArkPervasives
+
 (* Ocaml definition of an imperative language *)
 
 (* Type definition for AST nodes *)
 
 type aexp_type = 
-  Real_const of float 
+  Real_const of QQ.t
 | Sum_exp of (aexp_type * aexp_type)
 | Diff_exp of (aexp_type * aexp_type)
 | Mult_exp of (aexp_type * aexp_type) 

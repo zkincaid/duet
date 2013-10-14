@@ -1,15 +1,18 @@
 open Ast
+open Apak
+open Ark
+open ArkPervasives
 
 exception NotHandled of string
 
 (******* Printing a program *****************
 *********************************************)
 
-let eps_mach = 1e-15 (** FIXME **)
-
+let eps_mach = QQ.exp (QQ.of_int 2) (-53) (** FIXME **)
+let max_float = QQ.exp (QQ.of_int 2) 53
 let rec aexp_to_string e =
   match e with
-    Real_const r -> (string_of_float r)
+    Real_const r -> (QQ.show r)
   | Var_exp x -> x
   | Mult_exp (e1, e2) ->
     String.concat ""
@@ -143,10 +146,10 @@ let rec interpret_aexp e store =
     Real_const r -> r
   | Var_exp x ->
     List.assoc x store
-  | Mult_exp (e1, e2) -> (interpret_aexp e1 store) *. (interpret_aexp e2 store)
-  | Sum_exp (e1, e2) -> (interpret_aexp e1 store) +. (interpret_aexp e2 store)
-  | Diff_exp (e1, e2) -> (interpret_aexp e1 store) -. (interpret_aexp e2 store)
-  | Unneg_exp (e1) -> -. (interpret_aexp e1 store)
+  | Mult_exp (e1, e2) -> QQ.mul (interpret_aexp e1 store) (interpret_aexp e2 store)
+  | Sum_exp (e1, e2) -> QQ.add (interpret_aexp e1 store) (interpret_aexp e2 store)
+  | Diff_exp (e1, e2) -> QQ.sub (interpret_aexp e1 store) (interpret_aexp e2 store)
+  | Unneg_exp (e1) -> QQ.negate (interpret_aexp e1 store)
   | _ -> raise (NotHandled ("Arithmetic interpretation for expression " ^ aexp_to_string e))
 
 
@@ -196,7 +199,7 @@ let rec interpret_stmt s store =
     then store
     else raise AssertionViolation
   | Print e ->
-    (print_float (interpret_aexp e store));
+    (print_string (QQ.show (interpret_aexp e store)));
     (print_string "\n");
     store
   | _ -> raise (NotHandled ("Statement inrepretation of " ^ stmt_to_string s))
@@ -411,16 +414,16 @@ let generate_err_assign_aux x e e1 e2 op =
         Seq (
          Assign (t_err, Havoc_aexp),
          Ite (
-          Ge_exp(Var_exp t, Real_const 0.),
-            Assume (And_exp(Ge_exp (Var_exp (t_err), Mult_exp (Var_exp t, Real_const (-. eps_mach))),
+          Ge_exp(Var_exp t, Real_const QQ.zero),
+            Assume (And_exp(Ge_exp (Var_exp (t_err), Mult_exp (Var_exp t, Real_const (QQ.negate eps_mach))),
                             Le_exp (Var_exp (t_err), Mult_exp (Var_exp t, Real_const eps_mach)))),
-            Assume (And_exp(Le_exp (Var_exp (t_err), Mult_exp (Var_exp t, Real_const (-. eps_mach))),
+            Assume (And_exp(Le_exp (Var_exp (t_err), Mult_exp (Var_exp t, Real_const (QQ.negate eps_mach))),
                            (Ge_exp (Var_exp (t_err), Mult_exp (Var_exp t, Real_const eps_mach))))))) in
       let tmp1 = Sum_exp (Var_exp t, Var_exp t_err) in
       let s2 = Ite (
-                And_exp (Ge_exp (tmp1, Real_const (-. max_float)), Le_exp (tmp1, Real_const max_float)),
+                And_exp (Ge_exp (tmp1, Real_const (QQ.negate max_float)), Le_exp (tmp1, Real_const max_float)),
                           Assign (epsify x, Diff_exp (tmp1, opfunc (e1, e2))),
-                  Assign (infify (epsify x), Real_const 1.)) in
+                  Assign (infify (epsify x), Real_const QQ.one)) in
       Seq (s1, Seq (s_err_stmts, Seq (s2, Assign (x, e))))
   | _ ->
       raise (NotHandled ("Expression in assignment not handled in error term generation: " ^ (aexp_to_string e)))
@@ -431,20 +434,20 @@ let generate_err_assign x e =
   match e with
     Real_const k ->
       (* eps_x = havoc(); inf_eps_x = 0; assume (eps_x >= k * eps_mach * -1 && eps_x <= k * eps_mach); *)
-      if k >= 0. then
+      if QQ.geq k QQ.zero then
         Seq (
           Seq (
             Seq (Assign (epsify x, Havoc_aexp),
-                 Assign (infify (epsify x), Real_const 0.)),
-                 Assume (And_exp (Ge_exp (Var_exp (epsify x), Mult_exp (e, Real_const (-. eps_mach))),
+                 Assign (infify (epsify x), Real_const QQ.zero)),
+                 Assume (And_exp (Ge_exp (Var_exp (epsify x), Mult_exp (e, Real_const (QQ.negate eps_mach))),
                                   Le_exp (Var_exp (epsify x), Mult_exp (e, Real_const eps_mach))))),
                  Assign (x, e))
       else
         Seq (
           Seq (
             Seq (Assign (epsify x, Havoc_aexp),
-                 Assign (infify (epsify x), Real_const 0.)),
-                 Assume (And_exp (Le_exp (Var_exp (epsify x), Mult_exp (e, Real_const (-. eps_mach))),
+                 Assign (infify (epsify x), Real_const QQ.zero)),
+                 Assume (And_exp (Le_exp (Var_exp (epsify x), Mult_exp (e, Real_const (QQ.negate eps_mach))),
                                   Ge_exp (Var_exp (epsify x), Mult_exp (e, Real_const eps_mach))))),
                  Assign (x, e))
   | Var_exp y ->
@@ -483,13 +486,13 @@ let generate_err_bexp_aux e1 e2 op =
         And_exp
           (Havoc_bexp,
            Or_exp
-             (Ge_exp (Var_exp (infify (epsify y1)), Real_const 1.),
-              Ge_exp (Var_exp (infify (epsify y2)), Real_const 1.)))
+             (Ge_exp (Var_exp (infify (epsify y1)), Real_const QQ.one),
+              Ge_exp (Var_exp (infify (epsify y2)), Real_const QQ.one)))
       in
       let b2 =
         And_exp
-          (Lt_exp (Var_exp (infify (epsify y1)), Real_const 1.),
-           Lt_exp (Var_exp (infify (epsify y2)), Real_const 1.))
+          (Lt_exp (Var_exp (infify (epsify y1)), Real_const QQ.one),
+           Lt_exp (Var_exp (infify (epsify y2)), Real_const QQ.one))
       in
       let b3 =
         opfunc (e1, e2)
@@ -666,5 +669,6 @@ let _ =
   else
     let  infile = open_in Sys.argv.(1) in
     read_and_process infile;
-    close_in infile
+    close_in infile;
+    Log.print_stats ()
 

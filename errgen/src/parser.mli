@@ -1,6 +1,6 @@
 type token =
   | EOF
-  | REAL of (float)
+  | REAL of (Ark.ArkPervasives.QQ.t)
   | VAR of (string)
   | PLUS
   | MINUS
