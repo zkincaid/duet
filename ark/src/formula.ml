@@ -50,7 +50,7 @@ module type Formula = sig
   val big_disj : t BatEnum.t -> t
 
   val of_abstract : 'a T.D.t -> t
-  val abstract : 'a Apron.Manager.t -> t -> 'a T.D.t
+  val abstract : ?exists:(T.V.t -> bool) option -> 'a Apron.Manager.t -> t -> 'a T.D.t
   val abstract_assign : 'a Apron.Manager.t -> 'a T.D.t -> T.V.t -> T.t -> 'a T.D.t
   val abstract_assume : 'a Apron.Manager.t -> 'a T.D.t -> t -> 'a T.D.t
   val symbolic_bounds : (T.V.t -> bool) -> t -> T.t -> (pred * T.t) list
@@ -652,7 +652,7 @@ module Defaults (F : FormulaBasis) = struct
     let tcons = BatArray.enum (Abstract0.to_tcons_array man x.prop) in
     big_conj (BatEnum.map (of_tcons x.env) tcons)
 
-  let abstract man phi =
+  let abstract ?exists:(p=None) man phi =
     let open D in
     let env = mk_env phi in
     let s = new Smt.solver in
@@ -686,10 +686,16 @@ module Defaults (F : FormulaBasis) = struct
 		(Array.of_list disjunct);
 	    env = env }
 	in
+	let new_prop = match p with
+	  | Some p -> D.exists man p new_prop
+	  | None   -> new_prop
+	in
 	go (D.join prop new_prop)
     in
     s#assrt (F.to_smt phi);
-    go (bottom man env)
+    match p with
+    | Some p -> go (D.exists man p (bottom man env))
+    | None -> go (bottom man env)
 
   (* As described in David Monniaux: "Quantifier elimination by lazy model
      enumeration", CAV2010. *)

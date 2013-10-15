@@ -13,6 +13,7 @@
           | "skip"         { SKIP }
           | "print"        { PRINT }
           | "assert"       { ASSERT }
+          | "assume"       { ASSUME }
           | '='            { ASSIGN }
           | "true"         { TRUE }
           | "false"        { FALSE }

@@ -14,7 +14,7 @@
         %token AND OR NOT
         %token EQ NE GT LT LE GE
         %token ASSIGN SEMI
-        %token IF WHILE ELSE SKIP PRINT ASSERT  
+        %token IF WHILE ELSE SKIP PRINT ASSERT ASSUME
         %token LPAREN RPAREN LBRACE RBRACE
         %left SEMI
         %left PLUS MINUS OR        /* lowest precedence */
@@ -41,6 +41,7 @@
          |  IF LPAREN bexp RPAREN LBRACE stmt RBRACE   { Ite($3,$6,Skip) }
          |  WHILE LPAREN bexp RPAREN LBRACE stmt RBRACE { While($3, $6) }
 	 |  ASSERT LPAREN bexp RPAREN   { Assert($3) }
+	 |  ASSUME LPAREN bexp RPAREN   { Assume($3) }
          |  PRINT LPAREN aexp RPAREN    { Print($3) }
              
         aexp:
