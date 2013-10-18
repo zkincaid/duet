@@ -271,8 +271,8 @@ let test_third_order_safe () =
   in
   run_test third_order_safe 0 7 phi Smt.Unsat
 
-module Bound = struct
-  module K = Transition.MakeBound(StrVar)
+module SymBound = struct
+  module K = Transition.MakeSymBound(StrVar)
   module A = Pathexp.MakeElim(G)(K)
   module T = K.T
   module F = K.F
@@ -354,6 +354,50 @@ module Bound = struct
     check ((var "reps'") >= (frac (-1) 100000000)) Smt.Unsat
 end
 
+module Bound = struct
+  module K = Transition.MakeBound(StrVar)
+  module A = Pathexp.MakeElim(G)(K)
+  module T = K.T
+  module F = K.F
+  let frac x y = K.T.const (QQ.of_frac x y)
+  let var x = K.T.var (K.V.mk_var x)
+  let block = BatList.reduce K.mul
+  let while_loop cond body =
+    K.mul (K.star (block ((K.assume cond)::body))) (K.assume (F.negate cond))
+
+  let test_const_bounds () =
+    let open K.T.Syntax in
+    let open K.F.Syntax in
+    let (~@) x = ~@ (QQ.of_int x) in
+    let rx = var "rx" in
+    let ry = var "ry" in
+    let rtmp = var "rtmp" in
+    let prog =
+      block [
+	K.assign "rx" (~@ 0);
+	K.assign "ry" (~@ 0);
+	while_loop (rx < (~@ 10)) [
+	  K.assign "rtmp" (K.T.var (K.V.mk_tmp "havoc" TyReal));
+	  K.assume (ry - (frac 1 3) <= rtmp && rtmp < ry + (frac 1 7));
+	  K.assign "ry" rtmp;
+	  K.assign "rx" (rx + (~@ 1))
+	]
+      ]
+    in
+    let s = new Smt.solver in
+    s#assrt (K.to_smt prog);
+    Log.logf Log.info "Formula: %a" K.format prog;
+    let check phi expected =
+      s#push ();
+      s#assrt (Smt.mk_not (F.to_smt phi));
+      assert_equal ~printer:Show.show<Smt.lbool> expected (s#check());
+      s#pop ();
+    in
+    check (var "rx'" == (~@ 10)) Smt.Unsat;
+    check (var "ry'" < (frac 10 7)) Smt.Unsat;
+    check (var "ry'" >= T.neg (frac 10 3)) Smt.Unsat
+end
+
 let suite = "Induction" >:::
   [
     "counter" >:: test_counter;
@@ -367,6 +411,7 @@ let suite = "Induction" >:::
     "sum03_unsafe" >:: test_sum03_unsafe;
     (* sum04_safe is boring *)
 (*    "third_order_safe" >:: test_third_order_safe;*)
-    "const_bounds" >:: Bound.test_const_bounds;
-    "symbolic_bounds" >:: Bound.test_symbolic_bounds
+    "symbound_const" >:: SymBound.test_const_bounds;
+    "symbound_symbolic" >:: SymBound.test_symbolic_bounds;
+    "bound_const" >:: Bound.test_const_bounds
   ]

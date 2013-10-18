@@ -251,6 +251,26 @@ module Dioid (Var : Var) = struct
     let f _ term free = VSet.diff free (term_free_tmp_vars term) in
     let free_tmp = M.fold f tr.transform (formula_free_tmp_vars tr.guard) in
     { tr with guard = F.exists (not % flip VSet.mem free_tmp) tr.guard }
+
+  let post_formula tr =
+    let phi =
+      F.linearize
+	(fun () -> V.mk_tmp "nonlin" TyReal)
+	(to_formula tr)
+    in
+    let var = T.var % V.mk_var in
+    let unprime =
+      M.of_enum (M.enum tr.transform /@ (fun (v,_) -> (Var.prime v, var v)))
+    in
+    let p v = match V.lower v with
+      | Some v -> not (M.mem v tr.transform)
+      | None -> false
+    in
+    let sigma v = match V.lower v with
+      | Some v -> if M.mem v unprime then M.find v unprime else var v
+      | None   -> assert false
+    in
+    F.subst sigma (F.exists p phi)
 end
 
 module Make (Var : Var) = struct
@@ -729,8 +749,8 @@ module Make (Var : Var) = struct
 end
 
 (* Transition PKA where star is implemented by finding & solving recurrence
-   relations defined by equations and inequalities.  *)
-module MakeBound (Var : Var) = struct
+   relations defined by equations and (symbolic) inequalities.  *)
+module MakeSymBound (Var : Var) = struct
   include Dioid(Var)
 
   module VarMap = BatMap.Make(Var)
@@ -865,24 +885,130 @@ module MakeBound (Var : Var) = struct
       Log.logf Log.info "Loop summary:@\n%a" format res;
       add one (mul res tr)
   let star k = Log.time "star" star k
+end
 
-  let post_formula tr =
-    let phi =
-      F.linearize
-	(fun () -> V.mk_tmp "nonlin" TyReal)
-	(to_formula tr)
+(* Transition PKA where star is implemented by finding & solving recurrence
+   relations defined by equations and (constant) inequalities.  *)
+module MakeBound (Var : Var) = struct
+  include Dioid(Var)
+
+  module VarMap = BatMap.Make(Var)
+
+  (* Linear terms with rational efficients *)
+  module QQTerm = Linear.Expr.Make(Var)(QQ)
+
+  (* Is [v] a simple induction variable? *)
+  let induction_var s m v =
+    let incr =
+      QQ.sub
+	(m#eval_qq (Var.to_smt (Var.prime v)))
+	(m#eval_qq (Var.to_smt v))
     in
-    let var = T.var % V.mk_var in
-    let unprime =
-      M.of_enum (M.enum tr.transform /@ (fun (v,_) -> (Var.prime v, var v)))
+    let diff = Smt.sub (Var.to_smt (Var.prime v)) (Var.to_smt v) in
+    s#push();
+    s#assrt (Smt.mk_not (Smt.mk_eq diff (Smt.const_qq incr)));
+    let res = match s#check () with
+      | Smt.Unsat ->
+	Log.logf Log.info "Found recurrence: %a' = %a + %a"
+	  Var.format v
+	  Var.format v
+	  QQ.format incr;
+	Some incr
+      | Smt.Sat | Smt.Undef ->
+	Log.logf Log.info "No recurrence for %a" Var.format v;
+	None
     in
-    let p v = match V.lower v with
-      | Some v -> not (M.mem v tr.transform)
-      | None -> false
-    in
-    let sigma v = match V.lower v with
-      | Some v -> if M.mem v unprime then M.find v unprime else var v
-      | None   -> assert false
-    in
-    F.subst sigma (F.exists p phi)
+    s#pop ();
+    res
+
+  let star tr =
+    Log.logf Log.info "Loop body:@\n%a" format tr;
+    let s = new Smt.solver in
+    let loop_counter = V.mk_int_tmp "K" in
+    let primed_vars = VarSet.of_enum (M.keys tr.transform /@ Var.prime) in
+    s#push ();
+    s#assrt (to_smt tr);
+
+    match s#check () with
+    | Smt.Unsat -> one
+    | Smt.Undef -> assert false
+    | Smt.Sat ->
+      let m = s#get_model () in
+
+      let f v _ env = VarMap.add v (induction_var s m v) env in
+      let induction_vars =
+	Log.time
+	  "(Simple) induction variable detection"
+	  (M.fold f tr.transform)
+	  VarMap.empty
+      in
+      let is_induction_var v = match V.lower v with
+	| Some var ->
+	  begin
+	    try (VarMap.find var induction_vars) != None
+	    with Not_found ->
+	      (* v is either a primed variable or was not updated in the loop
+		 body *)
+	      not (VarSet.mem var primed_vars)
+	  end
+	| None     -> false
+      in
+      let non_induction =
+	let f (v, r) = match r with
+	  | Some _ -> None
+	  | None   -> Some v
+	in
+	BatList.of_enum (BatEnum.filter_map f (VarMap.enum induction_vars))
+      in
+      let deltas =
+	let f v =
+	  T.sub (T.var (V.mk_var (Var.prime v))) (T.var (V.mk_var v))
+	in
+	List.map f non_induction
+      in
+      let bounds = F.symbolic_abstract deltas (to_formula tr) in
+      let g v incr tr =
+	match incr with
+	| Some incr ->
+	  let t =
+	    T.add
+	      (T.var (V.mk_var v))
+	      (T.mul (T.var loop_counter) (T.const incr))
+	  in
+	  Log.logf Log.info "Closed term for %a: %a"
+	    Var.format v
+	    T.format t;
+	  { tr with transform = M.add v t tr.transform }
+	| None ->
+	  let t = T.var (V.mk_tmp ("nondet_" ^ (Var.show v)) (Var.typ v)) in
+	  { tr with transform = M.add v t tr.transform }
+      in
+      let h tr (v, (lo, hi)) =
+	let nondet =
+	  try M.find v tr.transform
+	  with Not_found -> assert false
+	in
+	let lower = match lo with
+	  | Some bound ->
+	    F.leq (T.mul (T.var loop_counter) (T.const bound)) nondet
+	  | None -> F.top
+	in
+	let upper = match hi with
+	  | Some bound ->
+	    F.leq nondet (T.mul (T.var loop_counter) (T.const bound))
+	  | None -> F.top
+	in
+	{ tr with guard = F.conj (F.conj lower upper) tr.guard }
+      in
+      let res =
+	{ transform = M.empty;
+	  guard = F.leqz (T.neg (T.var loop_counter)) }
+      in
+      let res = VarMap.fold g induction_vars res in
+      let res =
+	BatEnum.fold h res (BatEnum.combine (BatList.enum non_induction,
+					     BatList.enum bounds))
+      in
+      Log.logf Log.info "Loop summary:@\n%a" format res;
+      add one (mul res tr)
 end
