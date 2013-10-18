@@ -864,4 +864,25 @@ module MakeBound (Var : Var) = struct
       let res = VarMap.fold g induction_vars res in
       Log.logf Log.info "Loop summary:@\n%a" format res;
       add one (mul res tr)
+  let star k = Log.time "star" star k
+
+  let post_formula tr =
+    let phi =
+      F.linearize
+	(fun () -> V.mk_tmp "nonlin" TyReal)
+	(to_formula tr)
+    in
+    let var = T.var % V.mk_var in
+    let unprime =
+      M.of_enum (M.enum tr.transform /@ (fun (v,_) -> (Var.prime v, var v)))
+    in
+    let p v = match V.lower v with
+      | Some v -> not (M.mem v tr.transform)
+      | None -> false
+    in
+    let sigma v = match V.lower v with
+      | Some v -> if M.mem v unprime then M.find v unprime else var v
+      | None   -> assert false
+    in
+    F.subst sigma (F.exists p phi)
 end
