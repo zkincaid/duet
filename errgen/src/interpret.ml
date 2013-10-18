@@ -8,8 +8,10 @@ exception NotHandled of string
 (******* Printing a program *****************
 *********************************************)
 
-let eps_mach = QQ.exp (QQ.of_int 2) (-53) (** FIXME **)
-let max_float = QQ.exp (QQ.of_int 2) 53
+let eps_mach = Real_const (QQ.exp (QQ.of_int 2) (-53))
+let neg_eps_mach = Real_const (QQ.negate (QQ.exp (QQ.of_int 2) (-53)))
+let max_float = Real_const (QQ.exp (QQ.of_int 2) 53)
+let min_float = Real_const (QQ.negate (QQ.exp (QQ.of_int 2) 53))
 let rec aexp_to_string e =
   match e with
     Real_const r -> (QQ.show r)
@@ -20,12 +22,12 @@ let rec aexp_to_string e =
        aexp_to_string e2; ")"]
   | Sum_exp (e1, e2) ->
     String.concat ""
-      [aexp_to_string e1; " + ";
-       aexp_to_string e2]
+      ["("; aexp_to_string e1; " + ";
+       aexp_to_string e2; ")"]
   | Diff_exp (e1, e2) ->
     String.concat ""
-      [aexp_to_string e1; " - ";
-       aexp_to_string e2]
+      ["("; aexp_to_string e1; " - ";
+       aexp_to_string e2; ")"]
   | Unneg_exp (e1) ->
     String.concat ""
       ["(-";
@@ -146,11 +148,15 @@ let rec interpret_aexp e store =
     Real_const r -> r
   | Var_exp x ->
     List.assoc x store
-  | Mult_exp (e1, e2) -> QQ.mul (interpret_aexp e1 store) (interpret_aexp e2 store)
-  | Sum_exp (e1, e2) -> QQ.add (interpret_aexp e1 store) (interpret_aexp e2 store)
-  | Diff_exp (e1, e2) -> QQ.sub (interpret_aexp e1 store) (interpret_aexp e2 store)
+  | Mult_exp (e1, e2) ->
+    QQ.mul (interpret_aexp e1 store) (interpret_aexp e2 store)
+  | Sum_exp (e1, e2) ->
+    QQ.add (interpret_aexp e1 store) (interpret_aexp e2 store)
+  | Diff_exp (e1, e2) ->
+    QQ.sub (interpret_aexp e1 store) (interpret_aexp e2 store)
   | Unneg_exp (e1) -> QQ.negate (interpret_aexp e1 store)
-  | _ -> raise (NotHandled ("Arithmetic interpretation for expression " ^ aexp_to_string e))
+  | _ -> raise (NotHandled ("Arithmetic interpretation for expression "
+			    ^ aexp_to_string e))
 
 
 (* Interpreter for boolean expressions *)
@@ -176,7 +182,8 @@ let rec interpret_bexp b store =
     not (interpret_bexp b1 store)
   | Or_exp (b1, b2) ->
     (interpret_bexp b1 store) || (interpret_bexp b2 store)
-  | _ -> raise (NotHandled ("Boolean interpretation for expression " ^ bexp_to_string b))
+  | _ -> raise (NotHandled ("Boolean interpretation for expression "
+			    ^ bexp_to_string b))
 
 
 (* Interpreter for statements *)
@@ -415,15 +422,23 @@ let generate_err_assign_aux x e e1 e2 op =
          Assign (t_err, Havoc_aexp),
          Ite (
           Ge_exp(Var_exp t, Real_const QQ.zero),
-            Assume (And_exp(Ge_exp (Var_exp (t_err), Mult_exp (Var_exp t, Real_const (QQ.negate eps_mach))),
-                            Le_exp (Var_exp (t_err), Mult_exp (Var_exp t, Real_const eps_mach)))),
-            Assume (And_exp(Le_exp (Var_exp (t_err), Mult_exp (Var_exp t, Real_const (QQ.negate eps_mach))),
-                           (Ge_exp (Var_exp (t_err), Mult_exp (Var_exp t, Real_const eps_mach))))))) in
+            Assume (And_exp(Ge_exp (Var_exp (t_err),
+				    Mult_exp (Var_exp t, neg_eps_mach)),
+                            Le_exp (Var_exp (t_err),
+				    Mult_exp (Var_exp t, eps_mach)))),
+            Assume (And_exp(Le_exp (Var_exp (t_err),
+				    Mult_exp (Var_exp t, neg_eps_mach)),
+                           (Ge_exp (Var_exp (t_err),
+				    Mult_exp (Var_exp t, eps_mach)))))))
+
+      in
       let tmp1 = Sum_exp (Var_exp t, Var_exp t_err) in
-      let s2 = Ite (
-                And_exp (Ge_exp (tmp1, Real_const (QQ.negate max_float)), Le_exp (tmp1, Real_const max_float)),
-                          Assign (epsify x, Diff_exp (tmp1, opfunc (e1, e2))),
-                  Assign (infify (epsify x), Real_const QQ.one)) in
+      let s2 =
+	Ite (And_exp (Ge_exp (tmp1, min_float),
+		      Le_exp (tmp1, max_float)),
+             Assign (epsify x, Diff_exp (tmp1, opfunc (e1, e2))),
+             Assign (infify (epsify x), Real_const QQ.one))
+      in
       Seq (s1, Seq (s_err_stmts, Seq (s2, Assign (x, e))))
   | _ ->
       raise (NotHandled ("Expression in assignment not handled in error term generation: " ^ (aexp_to_string e)))
@@ -439,17 +454,21 @@ let generate_err_assign x e =
           Seq (
             Seq (Assign (epsify x, Havoc_aexp),
                  Assign (infify (epsify x), Real_const QQ.zero)),
-                 Assume (And_exp (Ge_exp (Var_exp (epsify x), Mult_exp (e, Real_const (QQ.negate eps_mach))),
-                                  Le_exp (Var_exp (epsify x), Mult_exp (e, Real_const eps_mach))))),
+                 Assume (And_exp (Ge_exp (Var_exp (epsify x),
+					  Mult_exp (e, neg_eps_mach)),
+                                  Le_exp (Var_exp (epsify x),
+					  Mult_exp (e, eps_mach))))),
                  Assign (x, e))
       else
         Seq (
           Seq (
             Seq (Assign (epsify x, Havoc_aexp),
                  Assign (infify (epsify x), Real_const QQ.zero)),
-                 Assume (And_exp (Le_exp (Var_exp (epsify x), Mult_exp (e, Real_const (QQ.negate eps_mach))),
-                                  Ge_exp (Var_exp (epsify x), Mult_exp (e, Real_const eps_mach))))),
-                 Assign (x, e))
+            Assume (And_exp (Le_exp (Var_exp (epsify x),
+				     Mult_exp (e, neg_eps_mach)),
+                             Ge_exp (Var_exp (epsify x),
+				     Mult_exp (e, eps_mach))))),
+          Assign (x, e))
   | Var_exp y ->
     Seq (Assign (epsify x, Var_exp (epsify y)), Assign (x, e))
   | Sum_exp (e1, e2) ->
@@ -541,16 +560,34 @@ let rec generate_err_stmt s0 vars =
                  (While(Or_exp (And_exp (b, (generate_err_bexp b)),
                                 And_exp (Not_exp b, Not_exp (generate_err_bexp b))),
                         (generate_err_stmt s vars))) vars)))
+  | Assume b -> Assume b
   | _ -> raise (NotHandled ("Error computation for statement " ^ (stmt_to_string s0)))
 
+(* Instrument a program with interval guesses for the epsilon variables at
+   each loop header *)
+let add_guesses vars stmt =
+  let guess_lower = Real_const (QQ.negate QQ.one) in
+  let guess_upper = Real_const QQ.one in
+  let f guess v =
+    let err = Var_exp (epsify v) in
+    And_exp (guess,
+	     And_exp (Le_exp (guess_lower, err),
+		      Le_exp (err, guess_upper)))
+  in
+  let guess = Assert (List.fold_left f (Bool_const true) vars) in
+  let rec go = function
+    | Seq (x, y) -> Seq (go x, go y)
+    | Ite (c, x, y) -> Ite (c, go x, go y)
+    | While (c, body) -> While (c, Seq (guess, go body))
+    | atom -> atom
+  in
+  go stmt
 
 let generate_err_prog p1 =
   match p1 with
     Prog s1 ->
       let vars = collect_vars s1 in
-      (Prog (generate_err_stmt s1 vars))
-
-
+      (Prog (add_guesses vars (generate_err_stmt s1 vars)))
 
 (********** Translation to input format of T2 *****
 ****************************************************)
@@ -567,6 +604,7 @@ let rec bexp_to_assume_list s =
 let rec convert_cfg s =
   match s with
     Skip
+  | Assert _
   | Assign (_) ->
     let en = inc () in
     let ex = inc () in
@@ -657,6 +695,7 @@ let read_and_process infile =
    print_T2_prog result;
    (print_string "\nGenerating and printing error term...\n\n");
    (let errresult = generate_err_prog result in
+    Log.verbosity_level := 0;
     let errresult = Bounds.add_bounds errresult in
     print_prog errresult;
     print_T2_prog errresult
