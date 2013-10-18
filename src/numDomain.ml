@@ -198,6 +198,7 @@ module type S = sig
   val widen : 'a t -> 'a t -> 'a t
   val exists : 'a Manager.t -> (var -> bool) -> 'a t -> 'a t
   val add_vars : var BatEnum.t -> 'a t -> 'a t
+  val boxify : 'a t -> 'a t
 end
 
 module Make (V : Var) = struct
@@ -294,4 +295,14 @@ module Make (V : Var) = struct
     in
     { prop = prop;
       env = new_env }
+
+  let boxify x =
+    let man = man x.prop in
+    { prop =
+	Abstract0.of_box
+	  man
+	  (Env.int_dim x.env)
+	  (Env.real_dim x.env)
+	  (Abstract0.to_box man x.prop);
+      env = x.env }
 end
