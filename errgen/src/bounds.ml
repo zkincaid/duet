@@ -18,6 +18,7 @@ module K = Transition.MakeBound(StrVar) (* Transition PKA *)
 module F = K.F (* Formulae *)
 module T = K.T (* Terms *)
 module V = K.V
+module D = T.D
 
 let var = T.var % K.V.mk_var
 
@@ -86,7 +87,7 @@ let rec eval = function
   | Print _ -> K.one
   | Assume phi -> K.assume (tr_bexp phi)
 
-let man = Polka.manager_alloc_strict ()
+let man = Polka.manager_alloc_loose ()
 let rec add_bounds path_to = function
   | Skip -> (Skip, path_to)
   | Assign (v, t) -> (Assign (v, t), K.mul path_to (K.assign v (tr_aexp t)))
@@ -143,4 +144,40 @@ let rec add_bounds path_to = function
   | Print t -> (Print t, path_to)
   | Assume phi -> (Assume phi, K.mul path_to (K.assume (tr_bexp phi)))
 
-let add_bounds (Prog s) = Prog (fst (add_bounds K.one s))
+let forward_bounds man stmt =
+  let assume c pre = F.abstract_assume man pre (tr_bexp c) in
+  let rec go stmt pre = match stmt with
+    | Print _
+    | Skip -> (stmt, pre)
+    | Assign (v, exp) ->
+      (stmt, F.abstract_assign man pre (V.mk_var v) (tr_aexp exp))
+    | Seq (s0, s1) ->
+      let (s0, mid) = go s0 pre in
+      let (s1, post) = go s1 mid in
+      (Seq (s0,s1), post)
+    | Ite (c, bthen, belse) ->
+      let (bthen, post_then) = go bthen (assume c pre) in
+      let (belse, post_else) = go belse (assume (Not_exp c) pre) in
+      (Ite (c, bthen, belse), D.join post_then post_else)
+    | While (c, body) ->
+      let iterations = ref 0 in
+      let rec fix prop =
+	let (body, next) = go body (assume c prop) in
+	if D.leq next prop then begin
+	  Log.logf Log.info "Found a fixpoint at iteration %i:\n%a"
+	    (!iterations)
+	    D.format next;
+	  (body, next)
+	end
+	else (incr iterations; fix (D.widen prop next))
+      in
+      let (body, post) = fix pre in
+      let inv = Assume (to_bexp (F.of_abstract (assume c post))) in
+      (While (c, Seq (inv, body)), assume (Not_exp c) post)
+    | Assert c
+    | Assume c -> (stmt, assume c pre)
+  in
+  fst (go stmt (D.top man (D.Env.of_list [])))
+
+let add_bounds (Prog s) =
+  Prog (fst (add_bounds K.one (forward_bounds (Box.manager_alloc ()) s)))
