@@ -706,15 +706,21 @@ module Defaults (F : FormulaBasis) = struct
   *)
   let lazy_dnf ~join ~bottom ~top prop_to_smt phi =
     let s = new Smt.solver in
+    let disjuncts = ref 0 in
     let rec go prop =
       s#push ();
       s#assrt (Smt.mk_not (prop_to_smt prop));
       match s#check () with
       | Smt.Unsat -> prop
-      | Smt.Undef -> top
+      | Smt.Undef ->
+	begin
+	  Log.errorf "lazy_dnf failed (%d disjuncts)" (!disjuncts);
+	  top
+	end
       | Smt.Sat -> begin
 	let m = s#get_model () in
 	s#pop ();
+	incr disjuncts;
 	let disjunct = match select_disjunct (m#eval_qq % T.V.to_smt) phi with
 	  | Some d -> d
 	  | None -> begin (* This should be impossible. *)
@@ -1108,9 +1114,9 @@ module Defaults (F : FormulaBasis) = struct
      and upper bounds for each term within the feasible region of [phi]. *)
   let symbolic_abstract terms phi =
     let open D in
-    let man = Polka.manager_alloc_strict () in
-    let prop = abstract man phi in
-    let get_bounds t =
+    let man = Polka.manager_alloc_loose () in
+    let env = D.Env.of_enum (VarSet.enum (formula_free_vars phi)) in
+    let get_bounds prop t =
       let ivl = Abstract0.bound_texpr man prop.prop (T.to_apron prop.env t) in
       let cvt scalar =
 	if Scalar.is_infty scalar == 0 then Some (NumDomain.qq_of_scalar scalar)
@@ -1118,7 +1124,51 @@ module Defaults (F : FormulaBasis) = struct
       in
       (cvt ivl.Interval.inf, cvt ivl.Interval.sup)
     in
-    List.map get_bounds terms
+    let join bounds disjunct =
+      let prop = to_apron man env disjunct in
+      let new_bounds = List.map (get_bounds prop) terms in
+      let f (lo0, hi0) (lo1, hi1) =
+	let lo = match lo0, lo1 with
+	  | (Some lo0, Some lo1) -> Some (if QQ.leq lo0 lo1 then lo0 else lo1)
+	  | (None, _) | (_, None) -> None
+	in
+	let hi = match hi0, hi1 with
+	  | (Some hi0, Some hi1) -> Some (if QQ.geq hi0 hi1 then hi0 else hi1)
+	  | (None, _) | (_, None) -> None
+	in
+	(lo, hi)
+      in
+      BatList.map2 f bounds new_bounds
+    in
+    let prop_to_smt bounds =
+      let to_formula (t, (lower, upper)) =
+	let lo = match lower with
+	  | Some b -> F.leq (T.const b) t
+	  | None -> F.top
+	in
+	let hi = match upper with
+	  | Some b -> F.leq t (T.const b)
+	  | None -> F.top
+	in
+	F.conj lo hi
+      in
+      let e =
+	BatEnum.combine (BatList.enum terms, BatList.enum bounds)
+      in
+      to_smt (BatEnum.fold F.conj F.top (e /@ to_formula))
+    in
+    let top = List.map (fun _ -> (None, None)) terms in
+    let bottom = List.map (fun _ -> (Some QQ.one, Some QQ.zero)) terms in
+    lazy_dnf ~join:join ~top:top ~bottom:bottom prop_to_smt phi
+
+  let symbolic_abstract ts phi =
+    Log.time "symbolic_abstract" (symbolic_abstract ts) phi
+
+  let linearize mk_tmp phi =
+    Log.time "linearize" (linearize mk_tmp) phi
+
+  let symbolic_bounds p phi term =
+    Log.time "symbolic_bounds" (symbolic_bounds p phi) term
 
   module Syntax = struct
     let ( && ) x y = conj x y

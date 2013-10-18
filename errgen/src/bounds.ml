@@ -108,6 +108,7 @@ let rec add_bounds path_to = function
     let tr_cond = tr_bexp cond in
     let loop = K.star (K.mul (K.assume tr_cond) (eval body)) in
     let to_loop = K.mul path_to loop in
+
     let to_body = K.mul to_loop (K.assume tr_cond) in
     let (body, _) = add_bounds to_body body in
     let inv =
@@ -139,7 +140,7 @@ let rec add_bounds path_to = function
       BatEnum.fold F.conj F.top (e /@ to_formula)
     in
     (While (cond, Seq (Assume (to_bexp inv), body)),
-     K.mul to_loop (K.assume (F.negate tr_cond)))
+     K.assume (K.post_formula (K.mul to_loop (K.assume (F.negate tr_cond)))))
   | Assert phi -> (Assert phi, K.mul path_to (K.assume (tr_bexp phi)))
   | Print t -> (Print t, path_to)
   | Assume phi -> (Assume phi, K.mul path_to (K.assume (tr_bexp phi)))

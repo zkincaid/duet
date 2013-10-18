@@ -560,6 +560,7 @@ let rec generate_err_stmt s0 vars =
                  (While(Or_exp (And_exp (b, (generate_err_bexp b)),
                                 And_exp (Not_exp b, Not_exp (generate_err_bexp b))),
                         (generate_err_stmt s vars))) vars)))
+
   | Assume b -> Assume b
   | _ -> raise (NotHandled ("Error computation for statement " ^ (stmt_to_string s0)))
 
