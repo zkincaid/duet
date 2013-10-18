@@ -55,6 +55,7 @@ module type Formula = sig
   val abstract_assume : 'a Apron.Manager.t -> 'a T.D.t -> t -> 'a T.D.t
   val symbolic_bounds : (T.V.t -> bool) -> t -> T.t -> (pred * T.t) list
   val linearize : (unit -> T.V.t) -> t -> t
+  val symbolic_abstract : (T.t list) -> t -> (QQ.t option * QQ.t option) list
 
   module Syntax : sig
     val ( && ) : t -> t -> t
@@ -598,6 +599,28 @@ module Defaults (F : FormulaBasis) = struct
   let big_disj = BatEnum.fold disj bottom 
   let big_conj = BatEnum.fold conj top
 
+  (* A strange term evaluates to different things according to T.eval and
+     m#eval_qq.  For debugging purposes only: strange terms should not
+     exist *)
+  let strange_term m t = 
+    let x = T.evaluate (m#eval_qq % T.V.to_smt) t in
+    let y = m#eval_qq (T.to_smt t) in
+    if not (QQ.equal x y) then begin
+      Log.errorf "Found a strange term: %a" T.format t;
+      assert false
+    end
+
+  (* A strange formula is one that contains a strange term.  For debugging
+     purposes only: strange formulae should not exist *)
+  let strange_formula m phi =
+    let f = function
+      | OLeqZ t -> strange_term m t
+      | OEqZ t -> strange_term m t
+      | OLtZ t -> strange_term m t
+      | _ -> ()
+    in
+    F.eval f phi
+
   (** [select_disjunct m phi] selects a clause [psi] in the disjunctive normal
       form of [psi] such that [m |= psi] *)
   let select_disjunct m phi =
@@ -611,6 +634,21 @@ module Defaults (F : FormulaBasis) = struct
       | OAnd (Some phi, Some psi) -> Some (F.conj phi psi)
       | OAnd (_, _) -> None
       | OOr (x, None) | OOr (_, x) -> x
+    in
+    F.eval f phi
+
+  (** [unsat_residual m phi] replaces every atom in [phi] which the model [m]
+      satisfies with [true] (and leaves unsatisfied atoms unchanged). *)
+  let unsat_residual m phi =
+    let f = function
+      | OLeqZ t ->
+	if QQ.leq (T.evaluate m t) QQ.zero then F.top else F.leqz t
+      | OLtZ t ->
+	if QQ.lt (T.evaluate m t) QQ.zero then F.top else F.ltz t
+      | OEqZ t ->
+	if QQ.equal (T.evaluate m t) QQ.zero then F.top else F.eqz t
+      | OAnd (phi, psi) -> F.conj phi psi
+      | OOr (phi, psi) -> F.disj phi psi
     in
     F.eval f phi
 
@@ -652,50 +690,83 @@ module Defaults (F : FormulaBasis) = struct
     let tcons = BatArray.enum (Abstract0.to_tcons_array man x.prop) in
     big_conj (BatEnum.map (of_tcons x.env) tcons)
 
-  let abstract ?exists:(p=None) man phi =
-    let open D in
-    let env = mk_env phi in
+  (* [lazy_dnf join bottom top prop_to_smt phi] computes an abstraction of phi
+     by lazily computing its disjunctive normal form.
+     [join] : [abstract -> purely conjunctive formula -> abstract]
+         [join abstract psi] computes an abstract property which
+         overapproximates both abstract and psi.
+     [bottom] : [abstract]
+         Represents false
+     [top] : [abstract]
+         Represents true
+     [prop_to_smt] : [abstract -> smt formula]
+         Convert an abstract property to an SMT formula
+     [phi] : [formula]
+         The formula to abstract
+  *)
+  let lazy_dnf ~join ~bottom ~top prop_to_smt phi =
     let s = new Smt.solver in
-    let to_apron = T.to_apron env in
     let rec go prop =
       s#push ();
-      s#assrt (Smt.mk_not (F.to_smt (of_abstract prop)));
+      s#assrt (Smt.mk_not (prop_to_smt prop));
       match s#check () with
       | Smt.Unsat -> prop
-      | Smt.Undef -> D.top man env
-      | Smt.Sat ->
+      | Smt.Undef -> top
+      | Smt.Sat -> begin
 	let m = s#get_model () in
 	s#pop ();
-	let apron_alg = function
-	  | OLeqZ t -> [Tcons0.make (to_apron (T.neg t)) Tcons0.SUPEQ]
-	  | OLtZ t -> [Tcons0.make (to_apron (T.neg t)) Tcons0.SUP]
-	  | OEqZ t -> [Tcons0.make (to_apron t) Tcons0.EQ]
-	  | OAnd (phi, psi) -> phi @ psi
-	  | OOr (_, _) -> assert false (* impossible *)
-	in
 	let disjunct = match select_disjunct (m#eval_qq % T.V.to_smt) phi with
-	  | Some d -> F.eval apron_alg d
-	  | None   -> assert false
+	  | Some d -> d
+	  | None -> begin (* This should be impossible. *)
+	    let phi = unsat_residual (m#eval_qq % T.V.to_smt) phi in
+	    Log.errorf
+	      "Couldn't select disjunct for formula:\n%a\nwith model:\n%s"
+	      F.format phi
+	      (m#to_string ());
+	    Log.errorf "Smt:\n%s" (Smt.ast_to_string (to_smt phi));
+	    assert false
+	  end
 	in
-	let new_prop =
-	  { prop = 
-	      Abstract0.of_tcons_array
-		man
-		(Env.int_dim env)
-		(Env.real_dim env)
-		(Array.of_list disjunct);
-	    env = env }
-	in
-	let new_prop = match p with
-	  | Some p -> D.exists man p new_prop
-	  | None   -> new_prop
-	in
-	go (D.join prop new_prop)
+	go (join prop disjunct)
+      end
     in
     s#assrt (F.to_smt phi);
-    match p with
-    | Some p -> go (D.exists man p (bottom man env))
-    | None -> go (bottom man env)
+    go bottom
+
+  (* Convert a *conjunctive* formula into a list of apron tree constraints *)
+  let to_apron man env phi =
+    let open D in
+    let to_apron = T.to_apron env in
+    let alg = function
+    | OLeqZ t -> [Tcons0.make (to_apron (T.neg t)) Tcons0.SUPEQ]
+    | OLtZ t -> [Tcons0.make (to_apron (T.neg t)) Tcons0.SUP]
+    | OEqZ t -> [Tcons0.make (to_apron t) Tcons0.EQ]
+    | OAnd (phi, psi) -> phi @ psi
+    | OOr (_, _) -> assert false
+    in
+    { prop = 
+	Abstract0.of_tcons_array
+	  man
+	  (Env.int_dim env)
+	  (Env.real_dim env)
+	  (Array.of_list (F.eval alg phi));
+      env = env }
+
+  let abstract ?exists:(p=None) man phi =
+    let env = mk_env phi in
+    let env_proj = match p with
+      | Some p -> D.Env.filter p env
+      | None   -> env
+    in
+    let join prop disjunct =
+      let new_prop = match p with
+	| Some p -> D.exists man p (to_apron man env disjunct)
+	| None   -> to_apron man env disjunct
+      in
+      D.join prop new_prop
+    in
+    let (top, bottom) = (D.top man env_proj, D.bottom man env_proj) in
+    lazy_dnf ~join:join ~bottom:bottom ~top:top (F.to_smt % of_abstract) phi
 
   (* As described in David Monniaux: "Quantifier elimination by lazy model
      enumeration", CAV2010. *)
@@ -703,42 +774,10 @@ module Defaults (F : FormulaBasis) = struct
     let open D in
     let man = Polka.manager_alloc_strict () in
     let env = mk_env phi in
-    let s = new Smt.solver in
-    let to_apron = T.to_apron env in
-    let rec go psi =
-      s#push ();
-      s#assrt (Smt.mk_not (F.to_smt psi));
-      match s#check () with
-      | Smt.Unsat -> psi
-      | Smt.Undef -> assert false
-      | Smt.Sat ->
-	let m = s#get_model () in
-	s#pop ();
-	let apron_alg = function
-	  | OLeqZ t -> [Tcons0.make (to_apron (T.neg t)) Tcons0.SUPEQ]
-	  | OLtZ t -> [Tcons0.make (to_apron (T.neg t)) Tcons0.SUP]
-	  | OEqZ t -> [Tcons0.make (to_apron t) Tcons0.EQ]
-	  | OAnd (phi, psi) -> phi @ psi
-	  | OOr (_, _) -> assert false (* impossible *)
-	in
-	let disjunct = match select_disjunct (m#eval_qq % T.V.to_smt) phi with
-	  | Some d -> F.eval apron_alg d
-	  | None   -> assert false
-	in
-	let new_prop =
-	  { prop = 
-	      Abstract0.of_tcons_array
-		man
-		(Env.int_dim env)
-		(Env.real_dim env)
-		(Array.of_list disjunct);
-	    env = env }
-	in
-	let new_prop = D.exists man p new_prop in
-	go (F.disj psi (of_abstract (D.exists man p new_prop)))
+    let join psi disjunct =
+      F.disj psi (of_abstract (D.exists man p (to_apron man env disjunct)))
     in
-    s#assrt (F.to_smt phi);
-    go F.bottom
+    lazy_dnf ~join:join ~bottom:F.bottom ~top:F.top F.to_smt phi
 
   let exists_list vars phi =
     let set = VarSet.of_enum (BatList.enum vars) in
@@ -949,8 +988,9 @@ module Defaults (F : FormulaBasis) = struct
     TMap.iter assert_nl_eq map;
     extract_equalities_impl s (VarSet.elements vars)
 
-  let linearize mk_tmp phi =
-    let open D in
+  (* Split a formula into a linear formula and a set of nonlinear equations by
+     introducing a variable (and equation) for every nonlinear term. *)
+  let split_linear mk_tmp phi =
     let nonlinear = ref TMap.empty in
     let replace_term t =
       if T.is_linear t then t else begin
@@ -969,18 +1009,26 @@ module Defaults (F : FormulaBasis) = struct
       end
     in
     let alg = function
-    | OOr (phi, psi) -> F.disj phi psi
-    | OAnd (phi, psi) -> F.conj phi psi
-    | OLeqZ t -> F.leqz (replace_term t)
-    | OLtZ t -> F.ltz (replace_term t)
-    | OEqZ t -> F.eqz (replace_term t)
+      | OOr (phi, psi) -> F.disj phi psi
+      | OAnd (phi, psi) -> F.conj phi psi
+      | OLeqZ t -> F.leqz (replace_term t)
+      | OLtZ t -> F.ltz (replace_term t)
+      | OEqZ t -> F.eqz (replace_term t)
     in
-    let lin_phi = eval alg phi in
+    (eval alg phi, !nonlinear)
+
+  (* Linearize, but avoid converting to DNF.  Not necessarily faster than
+     converting to DNF, because this linearization strategy requires
+     abstracting the formula by a convex polytope (which may be just as bad -
+     or worse - than converting to DNF). *)
+  let linearize_nodnf mk_tmp phi =
+    let open D in
+    let (lin_phi, nonlinear) = split_linear mk_tmp phi in
     let vars =
       BatEnum.fold
 	(fun set (_,v) -> VarSet.add v set)
 	(formula_free_vars phi)
-	(TMap.enum (!nonlinear))
+	(TMap.enum nonlinear)
     in
     let lin_phi =
       let f phi eq =
@@ -991,7 +1039,7 @@ module Defaults (F : FormulaBasis) = struct
 	in
 	conj phi (eqz (BatEnum.reduce T.add (AffineTerm.enum eq /@ g)))
       in
-      let eqs = nonlinear_equalities (!nonlinear) lin_phi vars in
+      let eqs = nonlinear_equalities nonlinear lin_phi vars in
       List.fold_left f lin_phi eqs
     in
     let man = Polka.manager_alloc_strict () in
@@ -1000,13 +1048,77 @@ module Defaults (F : FormulaBasis) = struct
       Tcons0.make (T.to_apron approx.env (T.sub term (T.var var))) Tcons0.EQ
     in
     let nl_eq =
-      BatArray.of_enum (TMap.enum (!nonlinear) /@ mk_nl_equation)
+      BatArray.of_enum (TMap.enum nonlinear /@ mk_nl_equation)
     in
     let nl_approx =
       { prop = Abstract0.meet_tcons_array man approx.prop nl_eq;
 	env = approx.env }
     in
     F.conj lin_phi (of_abstract nl_approx)
+
+  (* Linearize & convert to DNF.  More accurate than [linearize_nodnf], since
+     linearization is done in each disjunct separately.  *)
+  let linearize mk_tmp phi =
+    let open D in
+    let (lin_phi, nonlinear) = split_linear mk_tmp phi in
+    let vars =
+      BatEnum.fold
+	(fun set (_,v) -> VarSet.add v set)
+	(formula_free_vars phi)
+	(TMap.enum nonlinear)
+    in
+    let env = D.Env.of_enum (VarSet.enum vars) in
+    let lin_phi =
+      let f phi eq =
+	let g (v, coeff) =
+	  match v with
+	  | A.AVar v -> T.mul (T.var v) (T.const coeff)
+	  | A.AConst -> T.const coeff
+	in
+	conj phi (eqz (BatEnum.reduce T.add (AffineTerm.enum eq /@ g)))
+      in
+      let eqs = nonlinear_equalities nonlinear lin_phi vars in
+      List.fold_left f lin_phi eqs
+    in
+    let man = Polka.manager_alloc_strict () in
+
+    let join psi disjunct =
+      (* todo: compute & strengthen w/ nl equalities here *)
+      disjunct::psi
+    in
+    let to_smt = F.to_smt % (BatList.fold_left F.disj F.bottom) in
+    let dnf = lazy_dnf ~join:join ~top:[F.top] ~bottom:[] to_smt lin_phi in
+    let mk_nl_equation (term, var) =
+      Tcons0.make (T.to_apron env (T.sub term (T.var var))) Tcons0.EQ
+    in
+    let nl_eq =
+      BatArray.of_enum (TMap.enum nonlinear /@ mk_nl_equation)
+    in
+    let add_nl psi =
+      let approx = to_apron man env psi in
+      let nl_approx =
+	{ prop = Abstract0.meet_tcons_array man approx.prop nl_eq;
+	  env = approx.env }
+      in
+      of_abstract nl_approx
+    in
+    List.fold_left F.disj F.bottom (List.map add_nl dnf)
+
+  (* Given a list of (linear) terms [terms] and a formula [phi], find lower
+     and upper bounds for each term within the feasible region of [phi]. *)
+  let symbolic_abstract terms phi =
+    let open D in
+    let man = Polka.manager_alloc_strict () in
+    let prop = abstract man phi in
+    let get_bounds t =
+      let ivl = Abstract0.bound_texpr man prop.prop (T.to_apron prop.env t) in
+      let cvt scalar =
+	if Scalar.is_infty scalar == 0 then Some (NumDomain.qq_of_scalar scalar)
+	else None
+      in
+      (cvt ivl.Interval.inf, cvt ivl.Interval.sup)
+    in
+    List.map get_bounds terms
 
   module Syntax = struct
     let ( && ) x y = conj x y

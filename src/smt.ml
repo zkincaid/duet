@@ -117,6 +117,14 @@ object(self)
     match model_eval ctx m term true with
     | Some x -> QQ.of_string (get_numeral_string ctx x)
     | None -> assert false
+  method sat phi =
+    match model_eval ctx m phi true with
+    | Some x -> begin match get_bool_value ctx x with
+      | L_TRUE -> true
+      | L_FALSE -> false
+      | L_UNDEF -> assert false
+    end
+    | None -> assert false
   method to_string () = model_to_string ctx m
 end
 

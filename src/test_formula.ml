@@ -204,7 +204,6 @@ let linearize5 () =
   in
   assert_implies phi F.bottom
 
-
 let suite = "Formula" >:::
   [
     "test1" >:: test1;
