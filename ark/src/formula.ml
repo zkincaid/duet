@@ -1093,29 +1093,35 @@ module Defaults (F : FormulaBasis) = struct
       disjunct::psi
     in
     let to_smt = F.to_smt % (BatList.fold_left F.disj F.bottom) in
-    let dnf = lazy_dnf ~join:join ~top:[F.top] ~bottom:[] to_smt lin_phi in
-    let mk_nl_equation (term, var) =
-      Tcons0.make (T.to_apron env (T.sub term (T.var var))) Tcons0.EQ
-    in
-    let nl_eq =
-      BatArray.of_enum (TMap.enum nonlinear /@ mk_nl_equation)
-    in
-    let add_nl psi =
-      let approx = to_apron man env psi in
-      let nl_approx =
-	{ prop = Abstract0.meet_tcons_array man approx.prop nl_eq;
-	  env = approx.env }
+    if TMap.is_empty nonlinear then phi else begin
+      let dnf = lazy_dnf ~join:join ~top:[F.top] ~bottom:[] to_smt lin_phi in
+      let mk_nl_equation (term, var) =
+	Tcons0.make (T.to_apron env (T.sub term (T.var var))) Tcons0.EQ
       in
-      of_abstract nl_approx
-    in
-    List.fold_left F.disj F.bottom (List.map add_nl dnf)
+      let nl_eq =
+	BatArray.of_enum (TMap.enum nonlinear /@ mk_nl_equation)
+      in
+      let add_nl psi =
+	let approx = to_apron man env psi in
+	let nl_approx =
+	  { prop = Abstract0.meet_tcons_array man approx.prop nl_eq;
+	    env = approx.env }
+	in
+	of_abstract nl_approx
+      in
+      List.fold_left F.disj F.bottom (List.map add_nl dnf)
+    end
 
   (* Given a list of (linear) terms [terms] and a formula [phi], find lower
      and upper bounds for each term within the feasible region of [phi]. *)
   let symbolic_abstract terms phi =
     let open D in
     let man = Polka.manager_alloc_loose () in
-    let env = D.Env.of_enum (VarSet.enum (formula_free_vars phi)) in
+    let vars =
+      let f vars t = VarSet.union (term_free_vars t) vars in
+      List.fold_left f (formula_free_vars phi) terms
+    in
+    let env = D.Env.of_enum (VarSet.enum vars) in
     let get_bounds prop t =
       let ivl = Abstract0.bound_texpr man prop.prop (T.to_apron prop.env t) in
       let cvt scalar =

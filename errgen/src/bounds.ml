@@ -140,7 +140,7 @@ let rec add_bounds path_to = function
       BatEnum.fold F.conj F.top (e /@ to_formula)
     in
     (While (cond, Seq (Assume (to_bexp inv), body)),
-     K.assume (K.post_formula (K.mul to_loop (K.assume (F.negate tr_cond)))))
+     K.mul to_loop (K.assume (F.negate tr_cond)))
   | Assert phi -> (Assert phi, K.mul path_to (K.assume (tr_bexp phi)))
   | Print t -> (Print t, path_to)
   | Assume phi -> (Assume phi, K.mul path_to (K.assume (tr_bexp phi)))
@@ -181,4 +181,12 @@ let forward_bounds man stmt =
   fst (go stmt (D.top man (D.Env.of_list [])))
 
 let add_bounds (Prog s) =
-  Prog (fst (add_bounds K.one (forward_bounds (Box.manager_alloc ()) s)))
+  let s =
+    Log.phase "Forward invariant generation"
+      (forward_bounds (Box.manager_alloc ()))
+      s
+  in
+  let (s, _) =
+    Log.phase "Invariant generation" (add_bounds K.one) s
+  in
+  Prog s

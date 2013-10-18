@@ -696,7 +696,7 @@ let read_and_process infile =
    print_T2_prog result;
    (print_string "\nGenerating and printing error term...\n\n");
    (let errresult = generate_err_prog result in
-    Log.verbosity_level := 0;
+    Log.verbosity_level := 1;
     let errresult = Bounds.add_bounds errresult in
     print_prog errresult;
     print_T2_prog errresult
