@@ -6,7 +6,7 @@ open BatPervasives
 
 module StrVar = struct
   include Putil.PString
-  let prime x = x ^ "'"
+  let prime x = x ^ "^"
   let to_smt x = Smt.real_var x
   let of_smt sym = match Smt.symbol_refine sym with
     | Z3.Symbol_string str -> str
@@ -86,7 +86,7 @@ let rec eval = function
   | Print _ -> K.one
   | Assume phi -> K.assume (tr_bexp phi)
 
-let man = Box.manager_alloc ()
+let man = Polka.manager_alloc_strict ()
 let rec add_bounds path_to = function
   | Skip -> (Skip, path_to)
   | Assign (v, t) -> (Assign (v, t), K.mul path_to (K.assign v (tr_aexp t)))
@@ -106,27 +106,39 @@ let rec add_bounds path_to = function
   | While (cond, body) ->
     let tr_cond = tr_bexp cond in
     let loop = K.star (K.mul (K.assume tr_cond) (eval body)) in
-    let path_to = K.mul path_to loop in
-    let (body, _) = add_bounds (K.mul path_to (K.assume tr_cond)) body in
-
-    (* Remove unprimed variables *)
-    let p v = match V.lower v with
-      | Some v -> BatString.ends_with v "'"
-      | None   -> false
-    in
-    (* Replace primed variables with their unprimed counterparts *) 
-    let sigma v =
-      match V.lower v with
-      | Some x -> var (BatString.rchop x)
-      | None -> assert false
-    in
+    let to_loop = K.mul path_to loop in
+    let to_body = K.mul to_loop (K.assume tr_cond) in
+    let (body, _) = add_bounds to_body body in
     let inv =
-      let post = F.abstract ~exists:(Some p) man (K.to_formula path_to) in
-      to_bexp (F.subst sigma (F.of_abstract post))
+      let phi =
+	F.linearize
+	  (fun () -> V.mk_tmp "nonlin" TyReal)
+	  (K.to_formula to_body)
+      in
+      let vars =
+	BatList.of_enum (K.M.keys to_body.K.transform
+			 /@ (T.var % V.mk_var % StrVar.prime))
+      in
+      let bounds = F.symbolic_abstract vars phi in
+      let to_formula (v, (lower, upper)) =
+	let v = T.var (V.mk_var v) in
+	let lo = match lower with
+	  | Some b -> F.leq (T.const b) v
+	  | None -> F.top
+	in
+	let hi = match upper with
+	  | Some b -> F.leq v (T.const b)
+	  | None -> F.top
+	in
+	F.conj lo hi
+      in
+      let e =
+	BatEnum.combine (K.M.keys to_body.K.transform, BatList.enum bounds)
+      in
+      BatEnum.fold F.conj F.top (e /@ to_formula)
     in
-
-    (While (cond, Seq (Assume inv, body)),
-     K.mul path_to (K.assume (F.negate tr_cond)))
+    (While (cond, Seq (Assume (to_bexp inv), body)),
+     K.mul to_loop (K.assume (F.negate tr_cond)))
   | Assert phi -> (Assert phi, K.mul path_to (K.assume (tr_bexp phi)))
   | Print t -> (Print t, path_to)
   | Assume phi -> (Assume phi, K.mul path_to (K.assume (tr_bexp phi)))
