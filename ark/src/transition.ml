@@ -854,7 +854,7 @@ module MakeBound (Var : Var) = struct
 	  in
 	  let bounds_formula = formula_of_bounds nondet bounds in
 	  Log.logf Log.info "Bounds: %a" F.format bounds_formula;
-	  { transform = M.add v nondet tr.transform;
+	  { transform = M.add v (T.add (T.var (V.mk_var v)) nondet) tr.transform;
 	    guard = F.conj (formula_of_bounds nondet bounds) tr.guard }
       in
       let res =
