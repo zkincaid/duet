@@ -605,7 +605,6 @@ let rec bexp_to_assume_list s =
 let rec convert_cfg s =
   match s with
     Skip
-  | Assert _
   | Assign (_) ->
     let en = inc () in
     let ex = inc () in
@@ -643,6 +642,7 @@ let rec convert_cfg s =
        [(ex1, stmt_to_string Skip, en)]
     in
     (en, ex, newedges)
+  | Assert (b)
   | Assume (b) ->
     let en = inc () in
     let ex = inc () in
