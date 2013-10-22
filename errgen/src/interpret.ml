@@ -564,6 +564,103 @@ let rec generate_err_stmt s0 vars =
   | Assume b -> Assume b
   | _ -> raise (NotHandled ("Error computation for statement " ^ (stmt_to_string s0)))
 
+(* Reformat program to not use nested arithmetic expressions, and use 
+   temporary variables instead *)
+let rec simplify_aexp e = 
+  match e with
+    Real_const _
+  | Var_exp _
+  | Havoc_aexp -> (Skip, e)
+  | Sum_exp (e1, e2) ->
+    let (prep1, e1') = simplify_aexp e1 in
+    let (prep2, e2') = simplify_aexp e2 in
+    let t = (freshvar ()) in
+    ((Seq (prep1, Seq (prep2, Assign (t, Sum_exp (e1', e2'))))), Var_exp t)
+  | Diff_exp (e1, e2) ->
+    let (prep1, e1') = simplify_aexp e1 in
+    let (prep2, e2') = simplify_aexp e2 in
+    let t = (freshvar ()) in
+    ((Seq (prep1, Seq (prep2, Assign (t, Diff_exp (e1', e2'))))), Var_exp t)
+  | Mult_exp (e1, e2) ->
+    let (prep1, e1') = simplify_aexp e1 in
+    let (prep2, e2') = simplify_aexp e2 in
+    let t = (freshvar ()) in
+    ((Seq (prep1, Seq (prep2, Assign (t, Mult_exp (e1', e2'))))), Var_exp t)
+  | Unneg_exp e1 ->
+    let (prep1, e1') = simplify_aexp e1 in
+    let t = (freshvar ()) in
+    ((Seq (prep1, Assign (t, e1'))), Var_exp t)
+
+let rec simplify_aexp_bexp b =  
+  match b with
+    Bool_const bc -> (Skip, b)
+  | Eq_exp (e1, e2) -> 
+    let (prep1, e1') = simplify_aexp e1 in
+    let (prep2, e2') = simplify_aexp e2 in
+    (Seq (prep1, prep2), Eq_exp (e1', e2'))
+  | Ne_exp (e1, e2) -> 
+    let (prep1, e1') = simplify_aexp e1 in
+    let (prep2, e2') = simplify_aexp e2 in
+    (Seq (prep1, prep2), Ne_exp (e1', e2'))
+  | Ge_exp (e1, e2) -> 
+    let (prep1, e1') = simplify_aexp e1 in
+    let (prep2, e2') = simplify_aexp e2 in
+    (Seq (prep1, prep2), Ge_exp (e1', e2'))
+  | Gt_exp (e1, e2) -> 
+    let (prep1, e1') = simplify_aexp e1 in
+    let (prep2, e2') = simplify_aexp e2 in
+    (Seq (prep1, prep2), Gt_exp (e1', e2'))
+  | Le_exp (e1, e2) -> 
+    let (prep1, e1') = simplify_aexp e1 in
+    let (prep2, e2') = simplify_aexp e2 in
+    (Seq (prep1, prep2), Le_exp (e1', e2'))
+  | Lt_exp (e1, e2) -> 
+    let (prep1, e1') = simplify_aexp e1 in
+    let (prep2, e2') = simplify_aexp e2 in
+    (Seq (prep1, prep2), Lt_exp (e1', e2'))
+  | And_exp (e1, e2) -> 
+    let (prep1, e1') = simplify_aexp_bexp e1 in
+    let (prep2, e2') = simplify_aexp_bexp e2 in
+    (Seq (prep1, prep2), And_exp (e1', e2'))
+  | Or_exp (e1, e2) -> 
+    let (prep1, e1') = simplify_aexp_bexp e1 in
+    let (prep2, e2') = simplify_aexp_bexp e2 in
+    (Seq (prep1, prep2), And_exp (e1', e2'))
+  | Not_exp e1 -> 
+    let (prep1, e1') = simplify_aexp_bexp e1 in
+    (prep1, Not_exp e1)
+  | Havoc_bexp -> (Skip, Havoc_bexp)
+
+let rec simplify_aexp_prog s0 =
+  match s0 with
+    Skip -> Skip
+  | Assign (var, e) ->
+    let (prep, e') = simplify_aexp e in
+    Seq (prep, Assign(var, e'))
+  | Seq (s1, s2) ->
+    Seq ((simplify_aexp_prog s1), (simplify_aexp_prog s2))
+  | Ite (b, s1, s2) ->
+    let s1' = simplify_aexp_prog s1 in
+    let s2' = simplify_aexp_prog s2 in
+    let (prep, b') = simplify_aexp_bexp b in
+    Seq (prep, Ite (b', s1', s2'))
+  | While (b, s) ->
+    let s' = simplify_aexp_prog s in
+    let (prep, b') =  simplify_aexp_bexp b in
+    Seq (prep, While(b', s'))
+  | Assert b -> 
+    let (prep, b') = simplify_aexp_bexp b in
+    Seq (prep, Assert(b'))
+  | Assume b -> 
+    let (prep, b') = simplify_aexp_bexp b in
+    Seq (prep, Assert(b'))
+  | _ -> s0
+
+let simplify_prog p1 =
+  match p1 with
+    Prog s1 ->
+      (Prog (simplify_aexp_prog s1))
+
 (* Instrument a program with interval guesses for the epsilon variables at
    each loop header *)
 let add_guesses vars stmt =
@@ -694,8 +791,11 @@ let read_and_process infile =
    let result = Parser.main Lexer.token lexbuf in
    print_prog result;
    print_T2_prog result;
+   (print_string "\nSimplifying and printing program...\n\n");
+   let simpprog = simplify_prog result in
+   print_prog simpprog;
    (print_string "\nGenerating and printing error term...\n\n");
-   (let errresult = generate_err_prog result in
+   (let errresult = generate_err_prog simpprog in
     Log.verbosity_level := 1;
     let errresult = Bounds.add_bounds errresult in
     print_prog errresult;
