@@ -141,7 +141,14 @@ let rec add_bounds path_to = function
     in
     (While (cond, Seq (Assume (to_bexp inv), body)),
      K.mul to_loop (K.assume (F.negate tr_cond)))
-  | Assert phi -> (Assert phi, K.mul path_to (K.assume (tr_bexp phi)))
+  | Assert phi ->
+    let path_through = K.mul path_to (K.assume (tr_bexp phi)) in
+    if not (F.equiv (K.to_formula path_to) (K.to_formula path_through))
+    then begin
+      Log.errorf "Could not generate error program: guess failed!";
+      assert false
+    end;
+    (Assert phi, path_to)
   | Print t -> (Print t, path_to)
   | Assume phi -> (Assume phi, K.mul path_to (K.assume (tr_bexp phi)))
 
