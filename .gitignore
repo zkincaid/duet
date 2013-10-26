@@ -19,6 +19,7 @@ apak/test
 ark/test
 datalog
 duet/duet
+duet/working
 errgen/errgen
 
 # generated files
