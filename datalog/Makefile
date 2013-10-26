@@ -8,8 +8,7 @@ SOURCES = $(patsubst %, src/%, $(SRC))
 PACKS = ocamlgraph deriving apak buddy camlp4.lib
 ROOT=/home/zkincaid/src/duet-project
 BUDDY:=$(shell ocamlfind query buddy)
-OCAMLLDFLAGS = -I +camlp4 -I $(BUDDY)
-# -ccopt "-Wl,-rpath,$(BUDDY)"
+OCAMLLDFLAGS = -I +camlp4 -I $(BUDDY) -ccopt "-Wl,-rpath,$(BUDDY)"
 
 all: native-code byte-code native-code-library byte-code-library
 
