@@ -39,7 +39,7 @@
          |  stmt SEMI stmt         { Seq($1, $3) }
          |  IF LPAREN bexp RPAREN LBRACE stmt RBRACE ELSE LBRACE stmt RBRACE { Ite($3,$6,$10) }
          |  IF LPAREN bexp RPAREN LBRACE stmt RBRACE   { Ite($3,$6,Skip) }
-         |  WHILE LPAREN bexp RPAREN LBRACE stmt RBRACE { While($3, $6) }
+         |  WHILE LPAREN bexp RPAREN LBRACE stmt RBRACE { While($3, $6, false) }
 	 |  ASSERT LPAREN bexp RPAREN   { Assert($3) }
 	 |  ASSUME LPAREN bexp RPAREN   { Assume($3) }
          |  PRINT LPAREN aexp RPAREN    { Print($3) }

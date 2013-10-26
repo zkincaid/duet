@@ -28,10 +28,14 @@ type stmt_type =
 |  Assign of (string * aexp_type) 
 | Seq of (stmt_type * stmt_type)
 | Ite of (bexp_type * stmt_type * stmt_type)
-| While of (bexp_type * stmt_type)
+| While of (bexp_type * stmt_type * bool)
 | Assert of bexp_type
 | Print of aexp_type
 | Assume of bexp_type    
 
 type prog_type = 
   Prog of stmt_type 
+
+val aexp_to_string : aexp_type -> string
+val bexp_to_string : bexp_type -> string
+val stmt_to_string : stmt_type -> string

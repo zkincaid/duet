@@ -78,7 +78,7 @@ let rec eval = function
     K.add
       (K.mul (K.assume cond) (eval bthen))
       (K.mul (K.assume (F.negate cond)) (eval belse))
-  | While (cond, body) ->
+  | While (cond, body, _) ->
     let cond = tr_bexp cond in
     K.mul
       (K.star (K.mul (K.assume cond) (eval body)))
@@ -87,7 +87,6 @@ let rec eval = function
   | Print _ -> K.one
   | Assume phi -> K.assume (tr_bexp phi)
 
-let man = Polka.manager_alloc_loose ()
 let rec add_bounds path_to = function
   | Skip -> (Skip, path_to)
   | Assign (v, t) -> (Assign (v, t), K.mul path_to (K.assign v (tr_aexp t)))
@@ -104,7 +103,7 @@ let rec add_bounds path_to = function
       add_bounds (K.mul path_to (K.assume (F.negate tr_cond))) belse
     in
     (Ite (cond, bthen, belse), K.add then_path else_path)
-  | While (cond, body) ->
+  | While (cond, body, residual) ->
     let tr_cond = tr_bexp cond in
     let loop = K.star (K.mul (K.assume tr_cond) (eval body)) in
     let to_loop = K.mul path_to loop in
@@ -139,7 +138,7 @@ let rec add_bounds path_to = function
       in
       BatEnum.fold F.conj F.top (e /@ to_formula)
     in
-    (While (cond, Seq (Assume (to_bexp inv), body)),
+    (While (cond, Seq (Assume (to_bexp inv), body), residual),
      K.mul to_loop (K.assume (F.negate tr_cond)))
   | Assert phi ->
     let path_through = K.mul path_to (K.assume (tr_bexp phi)) in
@@ -167,7 +166,7 @@ let forward_bounds man stmt =
       let (bthen, post_then) = go bthen (assume c pre) in
       let (belse, post_else) = go belse (assume (Not_exp c) pre) in
       (Ite (c, bthen, belse), D.join post_then post_else)
-    | While (c, body) ->
+    | While (c, body, residual) ->
       let iterations = ref 0 in
       let rec fix prop =
 	let (body, next) = go body (assume c prop) in
@@ -181,7 +180,7 @@ let forward_bounds man stmt =
       in
       let (body, post) = fix pre in
       let inv = Assume (to_bexp (F.of_abstract (assume c post))) in
-      (While (c, Seq (inv, body)), assume (Not_exp c) post)
+      (While (c, Seq (inv, body), residual), assume (Not_exp c) post)
     | Assert c
     | Assume c -> (stmt, assume c pre)
   in

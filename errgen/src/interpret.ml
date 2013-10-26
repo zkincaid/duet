@@ -12,118 +12,11 @@ let eps_mach = Real_const (QQ.exp (QQ.of_int 2) (-53))
 let neg_eps_mach = Real_const (QQ.negate (QQ.exp (QQ.of_int 2) (-53)))
 let max_float = Real_const (QQ.exp (QQ.of_int 2) 53)
 let min_float = Real_const (QQ.negate (QQ.exp (QQ.of_int 2) 53))
-let rec aexp_to_string e =
-  match e with
-    Real_const r -> (QQ.show r)
-  | Var_exp x -> x
-  | Mult_exp (e1, e2) ->
-    String.concat ""
-      ["("; aexp_to_string e1; " * ";
-       aexp_to_string e2; ")"]
-  | Sum_exp (e1, e2) ->
-    String.concat ""
-      ["("; aexp_to_string e1; " + ";
-       aexp_to_string e2; ")"]
-  | Diff_exp (e1, e2) ->
-    String.concat ""
-      ["("; aexp_to_string e1; " - ";
-       aexp_to_string e2; ")"]
-  | Unneg_exp (e1) ->
-    String.concat ""
-      ["(-";
-       aexp_to_string e1; ")"]
-  | Havoc_aexp -> "nondet()"
 
-and
-aexp_list_to_string lst =
-  match lst with
-    [] -> ""
-  | [x] -> aexp_to_string x
-  | head :: rest ->
-    String.concat ""
-      [aexp_to_string head;
-       ", ";
-       aexp_list_to_string rest]
-
-let rec bexp_to_string b =
-  match b with
-  | Bool_const (true) -> " 0 <= 0"
-  | Bool_const (false) -> " 1 <= 0"
-  | Gt_exp (e1, e2) ->
-    String.concat ""
-      [aexp_to_string e1; " > ";
-       aexp_to_string e2]
-  | Lt_exp (e1, e2) ->
-    String.concat ""
-      [aexp_to_string e1; " < ";
-       aexp_to_string e2]
-  | Ge_exp (e1, e2) ->
-    String.concat ""
-      [aexp_to_string e1; " >= ";
-       aexp_to_string e2]
-  | Le_exp (e1, e2) ->
-    String.concat ""
-      [aexp_to_string e1; " <= ";
-       aexp_to_string e2]
-  | Eq_exp (e1, e2) ->
-     String.concat ""
-      [aexp_to_string e1; " == ";
-       aexp_to_string e2]
-  | Ne_exp (e1, e2) ->
-     String.concat ""
-      [aexp_to_string e1; " != ";
-       aexp_to_string e2]
-  | And_exp (b1, b2) ->
-    String.concat ""
-      ["("; bexp_to_string b1; " && ";
-       bexp_to_string b2; ")"]
-  | Not_exp b1  ->
-    String.concat ""
-      ["!("; bexp_to_string b1; ")"]
-  | Or_exp (b1, b2) ->
-    String.concat ""
-      ["("; bexp_to_string b1; " || ";
-       bexp_to_string b2; ")"]
-  | Havoc_bexp -> "nondet() < 1"
-
-let rec stmt_to_string s =
-  match s with
-    Skip -> "skip"
-  | Assign (var, e) ->
-    String.concat "" [var; " := "; aexp_to_string e]
-  | Seq (s1, s2) ->
-    (match s1 with
-      Skip -> (stmt_to_string s2)
-    | _  ->
-          (match s2 with
-         Skip -> (stmt_to_string s1)
-          | _ -> (String.concat "" [stmt_to_string s1; ";\n"; stmt_to_string s2])))
-  | Ite (b, s1, s2) ->
-    String.concat ""
-      ["if ("; (bexp_to_string b); ") { \n";
-       stmt_to_string s1; "\n}\nelse { \n";
-       stmt_to_string s2; "\n}"]
-  | While (b, s1) ->
-    String.concat ""
-      ["while ("; bexp_to_string b; ") { \n";
-       stmt_to_string s1; "\n}\n"]
-  | Print(e) ->
-    String.concat ""
-      ["print ("; aexp_to_string e; ")\n"]
-  | Assert b ->
-    String.concat ""
-      ["assert ("; bexp_to_string b; ")"]
-  | Assume b ->
-    String.concat ""
-      ["assume ("; bexp_to_string b; ")"]
-
-
-
-let print_prog p =
+let print_prog (Prog s) =
   print_string "Printing program:\n\n";
-  match p with
-    Prog s -> (print_string (stmt_to_string s));
-  (print_string "\n")
+  print_string (stmt_to_string s);
+  print_string "\n"
 
 
 (******* Interpreter for programs **********
@@ -197,7 +90,7 @@ let rec interpret_stmt s store =
     let bv = interpret_bexp b store in
     if bv then (interpret_stmt s1 store)
     else (interpret_stmt s2 store)
-  | While (b, s1) ->
+  | While (b, s1, _) ->
     let bv = interpret_bexp b store in
     if bv then (interpret_stmt s (interpret_stmt s1 store))
     else store
@@ -229,36 +122,13 @@ let freshvar () =
   freshvartracker := z + 1;
   (String.concat "" ["__";string_of_int z])
 
-
-
 (* Substituting variables with other variables *)
 
 let primify x =
   String.concat "" [x;"\'"]
 
-(* if ((String.length x) < 4)
-  then
-    (if (String.contains x '\'')
-     then x
-     else (String.concat "" [x;"\'"]))
-  else
-    (if (((String.compare (String.sub x 0 4) "eps_") == 0)
-            or (String.contains x '\''))
-     then x
-     else (String.concat "" [x;"\'"]))
-*)
-
 let epsify x =
   String.concat "" ["eps_"; x]
-
-(* if ((String.length x) < 4)
-  then
-    String.concat "" ["eps_"; x]
-  else
-    (if ((String.compare (String.sub x 0 4) "eps_") == 0)
-     then x
-     else (String.concat "" ["eps_"; x]))
-*)
 
 let infify x =
   String.concat "" ["inf_"; x]
@@ -301,7 +171,7 @@ let rec primify_stmt s =
   | Assign (x, e) -> Assign(primify x, primify_aexp e)
   | Seq (s1, s2) -> Seq (primify_stmt s1, primify_stmt s2)
   | Ite (b, s1, s2) -> Ite (primify_bexp b, primify_stmt s1, primify_stmt s2)
-  | While (b, s1) -> While (primify_bexp b, primify_stmt s1)
+  | While (b, s1, residual) -> While (primify_bexp b, primify_stmt s1, residual)
   | Assert (b) -> Assert (primify_bexp b)
   | Print (e) -> Print (primify_aexp e)
   | Assume (b) -> Assume (primify_bexp b)
@@ -347,7 +217,7 @@ let rec collect_vars_stmt s =
     x :: (collect_vars_aexp e)
   | Seq (s1, s2) -> (collect_vars_stmt s1) @ (collect_vars_stmt s2)
   | Ite (b, s1, s2) -> (collect_vars_bexp b) @ (collect_vars_stmt s1) @ (collect_vars_stmt s2)
-  | While (b, s1) -> (collect_vars_bexp b) @ (collect_vars_stmt s1)
+  | While (b, s1, _) -> (collect_vars_bexp b) @ (collect_vars_stmt s1)
   | Assert (b) -> (collect_vars_bexp b)
   | Print (e) -> (collect_vars_aexp e)
   | Assume (b) -> (collect_vars_bexp b)
@@ -369,6 +239,13 @@ let collect_vars s =
 
 (* Residue computation *)
 
+(* Mark all loops as residual *)
+let rec mk_residue = function
+  | Seq (x, y) -> Seq (mk_residue x, mk_residue y)
+  | Ite (b, x, y) -> Ite (b, mk_residue x, mk_residue y)
+  | While (b, s, _) -> While (b, mk_residue s, true)
+  | atom -> atom
+
 let rec compute_residue_aux_1 vars =
   match vars with
     [] -> Skip
@@ -389,11 +266,11 @@ let rec  compute_residue_aux_2 vars =
            (compute_residue_aux_2 rest))
 
 let compute_residue s1 s2 vars =
-  Seq (compute_residue_aux_1 vars,
-       Seq (s1,
-            Seq(primify_stmt s2,
-                compute_residue_aux_2 vars)))
-
+  mk_residue
+    (Seq (compute_residue_aux_1 vars,
+	  Seq (s1,
+               Seq(primify_stmt s2,
+                   compute_residue_aux_2 vars))))
 
 (* Error term generation *)
 
@@ -550,16 +427,19 @@ let rec generate_err_stmt s0 vars =
                (Ite (And_exp (b, Not_exp (generate_err_bexp b)),
                      (compute_residue s1 (generate_err_stmt s2 vars) vars),
                      (compute_residue s2 (generate_err_stmt s1 vars) vars))))))
-  | While (b, s) ->
+  | While (b, s, residue) ->
     Seq (While (And_exp(b, generate_err_bexp b),
-                generate_err_stmt s vars),
+                generate_err_stmt s vars,
+		residue),
          Ite (b,
               (compute_residue s0 Skip vars),
               (compute_residue
                  Skip
                  (While(Or_exp (And_exp (b, (generate_err_bexp b)),
                                 And_exp (Not_exp b, Not_exp (generate_err_bexp b))),
-                        (generate_err_stmt s vars))) vars)))
+                        (generate_err_stmt s vars),
+			true))
+		 vars)))
 
   | Assume b -> Assume b
   | _ -> raise (NotHandled ("Error computation for statement " ^ (stmt_to_string s0)))
@@ -644,10 +524,10 @@ let rec simplify_aexp_prog s0 =
     let s2' = simplify_aexp_prog s2 in
     let (prep, b') = simplify_aexp_bexp b in
     Seq (prep, Ite (b', s1', s2'))
-  | While (b, s) ->
+  | While (b, s, residual) ->
     let s' = simplify_aexp_prog s in
     let (prep, b') =  simplify_aexp_bexp b in
-    Seq (prep, While(b', s'))
+    Seq (prep, While(b', s', residual))
   | Assert b -> 
     let (prep, b') = simplify_aexp_bexp b in
     Seq (prep, Assert(b'))
@@ -676,7 +556,7 @@ let add_guesses vars stmt =
   let rec go = function
     | Seq (x, y) -> Seq (go x, go y)
     | Ite (c, x, y) -> Ite (c, go x, go y)
-    | While (c, body) -> While (c, Seq (guess, go body))
+    | While (c, body, _) -> While (c, Seq (guess, go body), false)
     | atom -> atom
   in
   go stmt
@@ -723,7 +603,7 @@ let rec convert_cfg s =
          (ex2, stmt_to_string Skip, ex)]
     in
     (en, ex, newedges)
-  | While (b, s1) ->
+  | While (b, s1, _) ->
     let en = inc () in
     let ex = inc () in
     let (en1, ex1, t1) = convert_cfg s1 in
