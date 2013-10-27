@@ -39,3 +39,5 @@ type prog_type =
 val aexp_to_string : aexp_type -> string
 val bexp_to_string : bexp_type -> string
 val stmt_to_string : stmt_type -> string
+
+val collect_vars : stmt_type -> string list

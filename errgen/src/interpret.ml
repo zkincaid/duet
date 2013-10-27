@@ -176,67 +176,6 @@ let rec primify_stmt s =
   | Print (e) -> Print (primify_aexp e)
   | Assume (b) -> Assume (primify_bexp b)
 
-(* Collecting variables *)
-
-let rec collect_vars_aexp e =
-  match e with
-    Real_const m -> []
-  | Sum_exp (e1, e2) -> (collect_vars_aexp e1) @ (collect_vars_aexp e2)
-  | Diff_exp (e1, e2) -> (collect_vars_aexp e1) @ (collect_vars_aexp e2)
-  | Mult_exp (e1, e2) -> (collect_vars_aexp e1) @ (collect_vars_aexp e2)
-  | Var_exp x -> [x]
-  | Unneg_exp e1 -> (collect_vars_aexp e1)
-  | Havoc_aexp -> []
-and
-collect_vars_aexp_list l =
-  match l with
-    [] -> []
-  | head :: rest -> (collect_vars_aexp head) @ (collect_vars_aexp_list rest)
-
-
-let rec collect_vars_bexp b =
-  match b with
-    Bool_const bc -> []
-  | Eq_exp (e1, e2) -> (collect_vars_aexp e1) @ (collect_vars_aexp e2)
-  | Ne_exp (e1, e2) -> (collect_vars_aexp e1) @ (collect_vars_aexp e2)
-  | Gt_exp (e1, e2) -> (collect_vars_aexp e1) @ (collect_vars_aexp e2)
-  | Lt_exp (e1, e2) -> (collect_vars_aexp e1) @ (collect_vars_aexp e2)
-  | Ge_exp (e1, e2) -> (collect_vars_aexp e1) @ (collect_vars_aexp e2)
-  | Le_exp (e1, e2) -> (collect_vars_aexp e1) @ (collect_vars_aexp e2)
-  | And_exp (b1, b2) -> (collect_vars_bexp b1) @ (collect_vars_bexp b2)
-  | Not_exp b1 -> (collect_vars_bexp b1)
-  | Or_exp  (b1, b2) -> (collect_vars_bexp b1) @ (collect_vars_bexp b2)
-  | Havoc_bexp -> []
-
-
-
-let rec collect_vars_stmt s =
-  match s with
-    Skip -> []
-  | Assign (x, e) ->
-    x :: (collect_vars_aexp e)
-  | Seq (s1, s2) -> (collect_vars_stmt s1) @ (collect_vars_stmt s2)
-  | Ite (b, s1, s2) -> (collect_vars_bexp b) @ (collect_vars_stmt s1) @ (collect_vars_stmt s2)
-  | While (b, s1, _) -> (collect_vars_bexp b) @ (collect_vars_stmt s1)
-  | Assert (b) -> (collect_vars_bexp b)
-  | Print (e) -> (collect_vars_aexp e)
-  | Assume (b) -> (collect_vars_bexp b)
-
-
-let rec remove_dups l =
-  match l with
-    [] -> []
-  | (x :: rest) ->
-    if (List.mem x rest)
-    then (remove_dups rest)
-    else x :: (remove_dups rest)
-
-
-let collect_vars s =
-  let l = collect_vars_stmt s in
-  remove_dups l
-
-
 (* Residue computation *)
 
 (* Mark all loops as residual *)
@@ -543,20 +482,23 @@ let simplify_prog p1 =
 
 (* Instrument a program with interval guesses for the epsilon variables at
    each loop header *)
-let add_guesses vars stmt =
+let add_guesses stmt =
   let guess_lower = Real_const (QQ.negate QQ.one) in
   let guess_upper = Real_const QQ.one in
-  let f guess v =
-    let err = Var_exp (epsify v) in
+  let f guess err =
     And_exp (guess,
-	     And_exp (Le_exp (guess_lower, err),
-		      Le_exp (err, guess_upper)))
+	     And_exp (Le_exp (guess_lower, Var_exp err),
+		      Le_exp (Var_exp err, guess_upper)))
   in
-  let guess = Assert (List.fold_left f (Bool_const true) vars) in
+  let mk_guess vars = Assert (List.fold_left f (Bool_const true) vars) in
   let rec go = function
     | Seq (x, y) -> Seq (go x, go y)
     | Ite (c, x, y) -> Ite (c, go x, go y)
-    | While (c, body, _) -> While (c, Seq (guess, go body), false)
+    | While (c, body, _) ->
+      let vars =
+	List.filter (fun x -> BatString.starts_with "eps" x) (collect_vars body)
+      in
+      While (c, Seq (mk_guess vars, go body), false)
     | atom -> atom
   in
   go stmt
@@ -565,7 +507,7 @@ let generate_err_prog p1 =
   match p1 with
     Prog s1 ->
       let vars = collect_vars s1 in
-      (Prog (add_guesses vars (generate_err_stmt s1 vars)))
+      (Prog (add_guesses (generate_err_stmt s1 vars)))
 
 (********** Translation to input format of T2 *****
 ****************************************************)

@@ -151,3 +151,64 @@ let rec stmt_to_string s =
   | Assume b ->
     String.concat ""
       ["assume ("; bexp_to_string b; ")"]
+
+
+(* Collecting variables *)
+
+let rec collect_vars_aexp e =
+  match e with
+    Real_const m -> []
+  | Sum_exp (e1, e2) -> (collect_vars_aexp e1) @ (collect_vars_aexp e2)
+  | Diff_exp (e1, e2) -> (collect_vars_aexp e1) @ (collect_vars_aexp e2)
+  | Mult_exp (e1, e2) -> (collect_vars_aexp e1) @ (collect_vars_aexp e2)
+  | Var_exp x -> [x]
+  | Unneg_exp e1 -> (collect_vars_aexp e1)
+  | Havoc_aexp -> []
+and
+collect_vars_aexp_list l =
+  match l with
+    [] -> []
+  | head :: rest -> (collect_vars_aexp head) @ (collect_vars_aexp_list rest)
+
+
+let rec collect_vars_bexp b =
+  match b with
+    Bool_const bc -> []
+  | Eq_exp (e1, e2) -> (collect_vars_aexp e1) @ (collect_vars_aexp e2)
+  | Ne_exp (e1, e2) -> (collect_vars_aexp e1) @ (collect_vars_aexp e2)
+  | Gt_exp (e1, e2) -> (collect_vars_aexp e1) @ (collect_vars_aexp e2)
+  | Lt_exp (e1, e2) -> (collect_vars_aexp e1) @ (collect_vars_aexp e2)
+  | Ge_exp (e1, e2) -> (collect_vars_aexp e1) @ (collect_vars_aexp e2)
+  | Le_exp (e1, e2) -> (collect_vars_aexp e1) @ (collect_vars_aexp e2)
+  | And_exp (b1, b2) -> (collect_vars_bexp b1) @ (collect_vars_bexp b2)
+  | Not_exp b1 -> (collect_vars_bexp b1)
+  | Or_exp  (b1, b2) -> (collect_vars_bexp b1) @ (collect_vars_bexp b2)
+  | Havoc_bexp -> []
+
+
+
+let rec collect_vars_stmt s =
+  match s with
+    Skip -> []
+  | Assign (x, e) ->
+    x :: (collect_vars_aexp e)
+  | Seq (s1, s2) -> (collect_vars_stmt s1) @ (collect_vars_stmt s2)
+  | Ite (b, s1, s2) -> (collect_vars_bexp b) @ (collect_vars_stmt s1) @ (collect_vars_stmt s2)
+  | While (b, s1, _) -> (collect_vars_bexp b) @ (collect_vars_stmt s1)
+  | Assert (b) -> (collect_vars_bexp b)
+  | Print (e) -> (collect_vars_aexp e)
+  | Assume (b) -> (collect_vars_bexp b)
+
+
+let rec remove_dups l =
+  match l with
+    [] -> []
+  | (x :: rest) ->
+    if (List.mem x rest)
+    then (remove_dups rest)
+    else x :: (remove_dups rest)
+
+
+let collect_vars s =
+  let l = collect_vars_stmt s in
+  remove_dups l
