@@ -926,8 +926,31 @@ module MakeBound (Var : Var) = struct
     let s = new Smt.solver in
     let loop_counter = V.mk_int_tmp "K" in
     let primed_vars = VarSet.of_enum (M.keys tr.transform /@ Var.prime) in
+    let tr_formula =
+      F.linearize (fun () -> V.mk_real_tmp "nonlin") (to_formula tr)
+    in
+    (* Formula which must hold to execute at least one iteration of the loop *)
+    let body_guard =
+      let pre_vars = formula_free_program_vars tr_formula in
+      let post_vars =
+	VarSet.union
+	  (VarSet.filter (flip M.mem tr.transform) pre_vars)
+	  primed_vars
+      in
+      let low f v = match V.lower v with
+	| Some v -> f v
+	| None   -> false
+      in
+      let pre_guard = F.exists (low (flip VarSet.mem pre_vars)) tr_formula in
+      let post_guard = F.exists (low (flip VarSet.mem post_vars)) tr_formula in
+      let sigma v = match V.lower v with
+	| Some x -> T.var (V.mk_var (Var.prime x))
+	| None -> assert false (* impossible *)
+      in
+      F.conj pre_guard (F.subst sigma post_guard)
+    in
     s#push ();
-    s#assrt (to_smt tr);
+    s#assrt (F.to_smt tr_formula);
 
     match s#check () with
     | Smt.Unsat -> one
@@ -942,17 +965,6 @@ module MakeBound (Var : Var) = struct
 	  (M.fold f tr.transform)
 	  VarMap.empty
       in
-      let is_induction_var v = match V.lower v with
-	| Some var ->
-	  begin
-	    try (VarMap.find var induction_vars) != None
-	    with Not_found ->
-	      (* v is either a primed variable or was not updated in the loop
-		 body *)
-	      not (VarSet.mem var primed_vars)
-	  end
-	| None     -> false
-      in
       let non_induction =
 	let f (v, r) = match r with
 	  | Some _ -> None
@@ -966,7 +978,7 @@ module MakeBound (Var : Var) = struct
 	in
 	List.map f non_induction
       in
-      let bounds = F.symbolic_abstract deltas (to_formula tr) in
+      let bounds = F.symbolic_abstract deltas tr_formula in
       let g v incr tr =
 	match incr with
 	| Some incr ->
@@ -1000,9 +1012,14 @@ module MakeBound (Var : Var) = struct
 	in
 	{ tr with guard = F.conj (F.conj lower upper) tr.guard }
       in
+      let guard =
+	F.disj
+	  (F.eqz (T.var loop_counter))
+	  (F.conj (F.gt (T.var loop_counter) T.one) body_guard)
+      in
       let res =
 	{ transform = M.empty;
-	  guard = F.leqz (T.neg (T.var loop_counter)) }
+	  guard = guard }
       in
       let res = VarMap.fold g induction_vars res in
       let res =
@@ -1010,5 +1027,5 @@ module MakeBound (Var : Var) = struct
 					     BatList.enum bounds))
       in
       Log.logf Log.info "Loop summary:@\n%a" format res;
-      add one (mul res tr)
+      res
 end

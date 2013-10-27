@@ -715,7 +715,7 @@ module Defaults (F : FormulaBasis) = struct
       | Smt.Undef ->
 	begin
 	  Log.errorf "lazy_dnf failed (%d disjuncts)" (!disjuncts);
-	  top
+	  assert false
 	end
       | Smt.Sat -> begin
 	let m = s#get_model () in
@@ -1048,7 +1048,7 @@ module Defaults (F : FormulaBasis) = struct
       let eqs = nonlinear_equalities nonlinear lin_phi vars in
       List.fold_left f lin_phi eqs
     in
-    let man = Polka.manager_alloc_strict () in
+    let man = Polka.manager_alloc_loose () in
     let approx = D.add_vars (VarSet.enum vars) (abstract man lin_phi) in
     let mk_nl_equation (term, var) =
       Tcons0.make (T.to_apron approx.env (T.sub term (T.var var))) Tcons0.EQ
@@ -1086,7 +1086,7 @@ module Defaults (F : FormulaBasis) = struct
       let eqs = nonlinear_equalities nonlinear lin_phi vars in
       List.fold_left f lin_phi eqs
     in
-    let man = Polka.manager_alloc_strict () in
+    let man = Polka.manager_alloc_loose () in
 
     let join psi disjunct =
       (* todo: compute & strengthen w/ nl equalities here *)
@@ -1123,7 +1123,9 @@ module Defaults (F : FormulaBasis) = struct
     in
     let env = D.Env.of_enum (VarSet.enum vars) in
     let get_bounds prop t =
-      let ivl = Abstract0.bound_texpr man prop.prop (T.to_apron prop.env t) in
+      let ivl =
+	Log.time "bound_texpr" (Abstract0.bound_texpr man prop.prop) (T.to_apron prop.env t)
+      in
       let cvt scalar =
 	if Scalar.is_infty scalar == 0 then Some (NumDomain.qq_of_scalar scalar)
 	else None

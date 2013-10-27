@@ -179,8 +179,18 @@ let forward_bounds man stmt =
 	else (incr iterations; fix (D.widen prop next))
       in
       let (body, post) = fix pre in
-      let inv = Assume (to_bexp (F.of_abstract (assume c post))) in
-      (While (c, Seq (inv, body), residual), assume (Not_exp c) post)
+      (* Project out temporaries *)
+      let p x = match V.lower x with
+	| Some x -> not (BatString.starts_with x "__")
+	| None -> false
+      in
+      let post = D.exists man p post in
+      if D.is_bottom post then begin
+	(While (c, Assume (Bool_const false), residual), post)
+      end else begin
+	let inv = Assume (to_bexp (F.of_abstract (assume c post))) in
+	(While (c, Seq (inv, body), residual), assume (Not_exp c) post)
+      end
     | Assert c
     | Assume c -> (stmt, assume c pre)
   in
