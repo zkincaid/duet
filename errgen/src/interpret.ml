@@ -286,7 +286,10 @@ let generate_err_assign x e =
 				     Mult_exp (e, eps_mach))))),
           Assign (x, e))
   | Var_exp y ->
-    Seq (Assign (epsify x, Var_exp (epsify y)), Assign (x, e))
+    Seq (
+      Seq (Assign (infify (epsify x), Var_exp (infify (epsify y))), 
+           Assign (epsify x, Var_exp (epsify y))),
+      Assign (x, e))
   | Sum_exp (e1, e2) ->
     (generate_err_assign_aux x e e1 e2 Plus)
   | Diff_exp (e1, e2) ->
