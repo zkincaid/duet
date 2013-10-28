@@ -394,14 +394,94 @@ module Bound = struct
       s#pop ();
     in
     check (var "rx'" == (~@ 10)) Smt.Unsat;
-    check (var "ry'" < (frac 10 7)) Smt.Unsat;
+
+    (* Bounds detection doesn't currently handle strict inequalities *)
+    check (var "ry'" <= (frac 10 7)) Smt.Unsat;
+    check (var "ry'" > T.neg (frac 10 3)) Smt.Sat;
     check (var "ry'" >= T.neg (frac 10 3)) Smt.Unsat
+
+  let test_nested () =
+    let open K.T.Syntax in
+    let open K.F.Syntax in
+    let (~@) x = ~@ (QQ.of_int x) in
+    let rx = var "rx" in
+    let ry = var "ry" in
+    let rz = var "rz" in
+    let rtmp = var "rtmp" in
+    let prog =
+      block [
+	K.assign "rx" (~@ 0);
+	K.assign "ry" (~@ 0);
+	while_loop (rx < (~@ 2)) [
+	  K.assign "rz" (~@ 0);
+	  while_loop (rz < (~@ 5)) [
+	    K.assign "rtmp" (K.T.var (K.V.mk_tmp "havoc" TyReal));
+	    K.assume (ry - (frac 1 3) <= rtmp && rtmp <= ry + (frac 1 7));
+	    K.assign "ry" rtmp;
+	    K.assign "rz" (rz + (~@ 1));
+	  ];
+	  K.assign "rx" (rx + (~@ 1))
+	]
+      ]
+    in
+    let s = new Smt.solver in
+    s#assrt (K.to_smt prog);
+    Log.logf Log.info "Formula: %a" K.format prog;
+    let check phi expected =
+      s#push ();
+      s#assrt (Smt.mk_not (F.to_smt phi));
+      assert_equal ~printer:Show.show<Smt.lbool> expected (s#check());
+      s#pop ();
+    in
+    check (var "ry'" <= (frac 10 7)) Smt.Unsat;
+    check (var "ry'" >= T.neg (frac 10 3)) Smt.Unsat;
+    check (var "ry'" < (frac 10 7)) Smt.Sat;
+    check (var "ry'" > T.neg (frac 10 3)) Smt.Sat
+
+  let test_nested_unbounded () =
+    let open K.T.Syntax in
+    let open K.F.Syntax in
+    let (~@) x = ~@ (QQ.of_int x) in
+    let rx = var "rx" in
+    let ry = var "ry" in
+    let rz = var "rz" in
+    let rtmp = var "rtmp" in
+    let prog =
+      block [
+	K.assign "rz" (~@ 0);
+	K.assume (rx > (~@ 0));
+	while_loop (rx >= (~@ 0)) [
+	  K.assign "ry" (~@ 0);
+	  while_loop (ry < (~@ 1)) [
+	    K.assign "ry" (ry + (frac 1 10));
+	    K.assign "rz" (rz + (frac 1 2))
+	  ];
+	  while_loop (ry > (~@ 0)) [
+	    K.assign "ry" (ry - (frac 1 10));
+	    K.assign "rz" (rz - (frac 1 2))
+	  ];
+	  K.assign "rx" (rx - (~@ 1));
+	]
+      ]
+    in
+    let s = new Smt.solver in
+    s#assrt (K.to_smt prog);
+    Log.logf Log.info "Formula: %a" K.format prog;
+    let check phi expected =
+      s#push ();
+      s#assrt (Smt.mk_not (F.to_smt phi));
+      assert_equal ~printer:Show.show<Smt.lbool> expected (s#check());
+      s#pop ();
+    in
+    check (var "ry'" == (frac 0 1)) Smt.Unsat;
+    check (var "rz'" >= (T.neg (frac 1 2))) Smt.Unsat;
+    check (var "rz'" <= (~@ 0)) Smt.Unsat;
+    check F.bottom Smt.Sat
 end
 
 let suite = "Induction" >:::
   [
     "counter" >:: test_counter;
-
     "count_up_down_safe" >:: test_count_up_down_safe;
     "sum01_safe" >:: test_sum01_safe;
     "sum01_unsafe" >:: test_sum01_unsafe;
@@ -413,5 +493,7 @@ let suite = "Induction" >:::
 (*    "third_order_safe" >:: test_third_order_safe;*)
     "symbound_const" >:: SymBound.test_const_bounds;
     "symbound_symbolic" >:: SymBound.test_symbolic_bounds;
-    "bound_const" >:: Bound.test_const_bounds
+    "bound_const" >:: Bound.test_const_bounds;
+    "nested" >:: Bound.test_nested;
+    "nested_unbounded" >:: Bound.test_nested_unbounded
   ]

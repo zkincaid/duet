@@ -721,6 +721,7 @@ module Defaults (F : FormulaBasis) = struct
 	let m = s#get_model () in
 	s#pop ();
 	incr disjuncts;
+	Log.logf Log.info "[%d] lazy_dnf" (!disjuncts);
 	let disjunct = match select_disjunct (m#eval_qq % T.V.to_smt) phi with
 	  | Some d -> d
 	  | None -> begin (* This should be impossible. *)

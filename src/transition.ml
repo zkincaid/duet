@@ -929,33 +929,13 @@ module MakeBound (Var : Var) = struct
     let tr_formula =
       F.linearize (fun () -> V.mk_real_tmp "nonlin") (to_formula tr)
     in
-    (* Formula which must hold to execute at least one iteration of the loop *)
-    let body_guard =
-      let pre_vars = formula_free_program_vars tr_formula in
-      let post_vars =
-	VarSet.union
-	  (VarSet.filter (flip M.mem tr.transform) pre_vars)
-	  primed_vars
-      in
-      let low f v = match V.lower v with
-	| Some v -> f v
-	| None   -> false
-      in
-      let pre_guard = F.exists (low (flip VarSet.mem pre_vars)) tr_formula in
-      let post_guard = F.exists (low (flip VarSet.mem post_vars)) tr_formula in
-      let sigma v = match V.lower v with
-	| Some x -> T.var (V.mk_var (Var.prime x))
-	| None -> assert false (* impossible *)
-      in
-      F.conj pre_guard (F.subst sigma post_guard)
-    in
     s#push ();
     s#assrt (F.to_smt tr_formula);
 
     match s#check () with
     | Smt.Unsat -> one
     | Smt.Undef -> assert false
-    | Smt.Sat ->
+    | Smt.Sat -> begin
       let m = s#get_model () in
 
       let f v _ env = VarMap.add v (induction_var s m v) env in
@@ -996,36 +976,91 @@ module MakeBound (Var : Var) = struct
 	  { tr with transform = M.add v t tr.transform }
       in
       let h tr (v, (lo, hi)) =
-	let nondet =
-	  try M.find v tr.transform
+	let delta =
+	  try T.sub (M.find v tr.transform) (T.var (V.mk_var v))
 	  with Not_found -> assert false
 	in
 	let lower = match lo with
 	  | Some bound ->
-	    F.leq (T.mul (T.var loop_counter) (T.const bound)) nondet
+	    F.leq (T.mul (T.var loop_counter) (T.const bound)) delta
 	  | None -> F.top
 	in
 	let upper = match hi with
 	  | Some bound ->
-	    F.leq nondet (T.mul (T.var loop_counter) (T.const bound))
+	    F.leq delta (T.mul (T.var loop_counter) (T.const bound))
 	  | None -> F.top
 	in
+	let lo_string = match lo with
+	  | Some lo -> (QQ.show lo) ^ " <= "
+	  | None -> ""
+	in
+	let hi_string = match hi with
+	  | Some hi -> " <= " ^ (QQ.show hi)
+	  | None -> ""
+	in
+	Log.logf Log.info "Bounds for %a: %s%a'-%a%s"
+	  Var.format v
+	  lo_string
+	  Var.format v
+	  Var.format v
+	  hi_string;
 	{ tr with guard = F.conj (F.conj lower upper) tr.guard }
-      in
-      let guard =
-	F.disj
-	  (F.eqz (T.var loop_counter))
-	  (F.conj (F.gt (T.var loop_counter) T.one) body_guard)
       in
       let res =
 	{ transform = M.empty;
-	  guard = guard }
+	  guard = F.top }
       in
       let res = VarMap.fold g induction_vars res in
       let res =
 	BatEnum.fold h res (BatEnum.combine (BatList.enum non_induction,
 					     BatList.enum bounds))
       in
+
+      (* Formula which must hold to execute at least one iteration
+	 of the loop *)
+      let body_guard =
+	let unprime =
+	  VarMap.of_enum (M.enum tr.transform
+			  /@ (fun (v,_) -> (Var.prime v, v)))
+	in
+	let vars = formula_free_program_vars tr_formula in
+	let pre_vars =
+	  VarSet.filter (not % flip VarMap.mem unprime) vars
+	in
+	let post_vars =
+	  VarSet.union
+	    (VarSet.filter (not % flip M.mem tr.transform) pre_vars)
+	    primed_vars
+	in
+	let low f v = match V.lower v with
+	  | Some v -> f v
+	  | None   -> false
+	in
+	let pre_guard =
+	  F.exists (low (flip VarSet.mem pre_vars)) tr_formula
+	in
+	let post_guard =
+	  F.exists (low (flip VarSet.mem post_vars)) tr_formula
+	in
+	let sigma v = match V.lower v with
+	  | Some x ->
+	    if VarMap.mem x unprime
+	    then M.find (VarMap.find x unprime) res.transform
+	    else T.var v
+	  | None -> assert false (* impossible *)
+	in
+	let post_guard = F.subst sigma post_guard in
+	Log.logf Log.info "pre_guard:@\n%a" F.format pre_guard;
+	Log.logf Log.info "post_guard:@\n%a" F.format post_guard;
+	F.conj
+	  (F.conj pre_guard post_guard)
+	  (F.geq (T.var loop_counter) T.one)
+      in
+      let res =
+	let new_guard = F.disj body_guard (F.eqz (T.var loop_counter)) in
+	{ res with guard = F.conj res.guard new_guard }
+      in
       Log.logf Log.info "Loop summary:@\n%a" format res;
       res
+    end
 end
