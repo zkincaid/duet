@@ -1,3 +1,5 @@
+(*pp camlp4find deriving.syntax *)
+
 open Ast
 open Apak
 open Ark
@@ -141,12 +143,14 @@ let rec add_bounds path_to = function
     (While (cond, Seq (Assume (to_bexp inv), body), residual),
      K.mul to_loop (K.assume (F.negate tr_cond)))
   | Assert phi ->
+(*
     let path_through = K.mul path_to (K.assume (tr_bexp phi)) in
     if not (F.equiv (K.to_formula path_to) (K.to_formula path_through))
     then begin
       Log.errorf "Could not generate error program: guess failed!";
       assert false
     end;
+*)
     (Assert phi, path_to)
   | Print t -> (Print t, path_to)
   | Assume phi -> (Assume phi, K.mul path_to (K.assume (tr_bexp phi)))
@@ -174,11 +178,11 @@ let forward_bounds man stmt =
 	  Log.logf Log.info "Found a fixpoint at iteration %i:\n%a"
 	    (!iterations)
 	    D.format next;
-	  (body, next)
+	  (body, D.join pre next)
 	end
 	else (incr iterations; fix (D.widen prop next))
       in
-      let (body, post) = fix pre in
+      let (body, post) = fix (snd (go body (assume c pre))) in
       (* Project out temporaries *)
       let p x = match V.lower x with
 	| Some x -> not (BatString.starts_with x "__")

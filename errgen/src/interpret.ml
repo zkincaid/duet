@@ -379,7 +379,6 @@ let rec generate_err_stmt s0 vars =
                         (generate_err_stmt s vars),
 			true))
 		 vars)))
-
   | Assume b -> Assume b
   | _ -> raise (NotHandled ("Error computation for statement " ^ (stmt_to_string s0)))
 
@@ -472,7 +471,7 @@ let rec simplify_aexp_prog s0 =
     Seq (prep, Assert(b'))
   | Assume b -> 
     let (prep, b') = simplify_aexp_bexp b in
-    Seq (prep, Assert(b'))
+    Seq (prep, Assume(b'))
   | _ -> s0
 
 let simplify_prog p1 =
@@ -496,7 +495,7 @@ let add_guesses stmt =
     | Ite (c, x, y) -> Ite (c, go x, go y)
     | While (c, body, _) ->
       let vars =
-	List.filter (fun x -> BatString.starts_with "eps" x) (collect_vars body)
+	List.filter (fun x -> BatString.starts_with x "eps") (collect_vars body)
       in
       While (c, Seq (mk_guess vars, go body), false)
     | atom -> atom
