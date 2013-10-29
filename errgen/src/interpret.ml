@@ -217,6 +217,7 @@ type optype = Plus
           | Minus
           | Times
 
+let errvar = freshvar ()
 let generate_err_assign_aux x e e1 e2 op =
   let opfunc =
     function (arg1, arg2) ->
@@ -227,7 +228,7 @@ let generate_err_assign_aux x e e1 e2 op =
   in
   match (e1, e2) with
     (Var_exp y1, Var_exp y2) ->
-      let t = (freshvar ()) in
+      let t = errvar in
       let s1 = Assign (t,
                        opfunc (Sum_exp (e1, Var_exp (epsify y1)),
                                Sum_exp (e2, Var_exp (epsify y2)))) in
@@ -236,26 +237,28 @@ let generate_err_assign_aux x e e1 e2 op =
       let s_err_stmts =
         Seq (
          Assign (t_err, Havoc_aexp),
-         Ite (
-          Ge_exp(Var_exp t, Real_const QQ.zero),
-            Assume (And_exp(Ge_exp (Var_exp (t_err),
-				    Mult_exp (Var_exp t, neg_eps_mach)),
-                            Le_exp (Var_exp (t_err),
-				    Mult_exp (Var_exp t, eps_mach)))),
-            Assume (And_exp(Le_exp (Var_exp (t_err),
-				    Mult_exp (Var_exp t, neg_eps_mach)),
-                           (Ge_exp (Var_exp (t_err),
-				    Mult_exp (Var_exp t, eps_mach)))))))
-
+	 Assume (Or_exp(And_exp(Ge_exp (Var_exp (t_err),
+					Mult_exp (Var_exp t, neg_eps_mach)),
+				Le_exp (Var_exp (t_err),
+					Mult_exp (Var_exp t, eps_mach))),
+			And_exp(Le_exp (Var_exp (t_err),
+					Mult_exp (Var_exp t, neg_eps_mach)),
+				(Ge_exp (Var_exp (t_err),
+					 Mult_exp (Var_exp t, eps_mach)))))))
       in
       let tmp1 = Sum_exp (Var_exp t, Var_exp t_err) in
       let s2 =
 	Ite (And_exp (Ge_exp (tmp1, min_float),
 		      Le_exp (tmp1, max_float)),
-             Assign (epsify x, Diff_exp (tmp1, opfunc (e1, e2))),
+             Skip,
              Assign (infify (epsify x), Real_const QQ.one))
       in
-      Seq (s1, Seq (s_err_stmts, Seq (s2, Assign (x, e))))
+      let s3 = Assign (epsify x, Diff_exp (tmp1, opfunc (e1, e2))) in
+      Seq (s1,
+	   Seq (s_err_stmts,
+		Seq (s2,
+		     Seq (s3,
+			  Assign (x, e)))))
   | _ ->
       raise (NotHandled ("Expression in assignment not handled in error term generation: " ^ (aexp_to_string e)))
 
@@ -365,10 +368,10 @@ let rec generate_err_stmt s0 vars =
     Ite (And_exp (b, generate_err_bexp b),
          (generate_err_stmt s1 vars),
          (Ite (And_exp ((Not_exp b), (generate_err_bexp b)),
-               (generate_err_stmt s2 vars),
-               (Ite (And_exp (b, Not_exp (generate_err_bexp b)),
-                     (compute_residue s1 (generate_err_stmt s2 vars) vars),
-                     (compute_residue s2 (generate_err_stmt s1 vars) vars))))))
+	       (generate_err_stmt s2 vars),
+	       (Ite (And_exp (b, Not_exp (generate_err_bexp b)),
+		     (compute_residue s1 (generate_err_stmt s2 vars) vars),
+		     (compute_residue s2 (generate_err_stmt s1 vars) vars))))))
   | While (b, s, residue) ->
     Seq (While (And_exp(b, generate_err_bexp b),
                 generate_err_stmt s vars,
@@ -389,9 +392,15 @@ let rec generate_err_stmt s0 vars =
    temporary variables instead *)
 let rec simplify_aexp e = 
   match e with
-    Real_const _
   | Var_exp _
-  | Havoc_aexp -> (Skip, e)
+  | Havoc_aexp
+  | Sum_exp (Var_exp _, Var_exp _)
+  | Diff_exp (Var_exp _, Var_exp _)
+  | Mult_exp (Var_exp _, Var_exp _)
+  | Unneg_exp (Var_exp _) -> (Skip, e)
+  | Real_const k ->
+    let t = freshvar () in
+    (Assign (t, Real_const k), Var_exp t)
   | Sum_exp (e1, e2) ->
     let (prep1, e1') = simplify_aexp e1 in
     let (prep2, e2') = simplify_aexp e2 in
@@ -411,6 +420,11 @@ let rec simplify_aexp e =
     let (prep1, e1') = simplify_aexp e1 in
     let t = (freshvar ()) in
     ((Seq (prep1, Assign (t, e1'))), Var_exp t)
+
+(* Constants are allowed at the top level, but not as sub-expressions *)
+let simplify_aexp = function
+  | Real_const k -> (Skip, Real_const k)
+  | e -> simplify_aexp e
 
 let rec simplify_aexp_bexp b =  
   match b with
@@ -620,7 +634,7 @@ let read_and_process infile =
    print_prog simpprog;
    (print_string "\nGenerating and printing error term...\n\n");
    (let errresult = generate_err_prog simpprog in
-    Log.verbosity_level := 1;
+    Log.verbosity_level := 4;
     let errresult = Bounds.add_bounds errresult in
     print_prog errresult;
     print_T2_prog errresult

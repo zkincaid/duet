@@ -1,0 +1,25 @@
+x1 = 100;
+x2 = 75;
+x3 = -50;
+t = 0;
+two = 2;
+zero = 0;
+five = 5;
+assume (v1 <= five);
+v3 = two * v2;
+v3 = v3 - v1;
+assume (v1 >= v3);
+while(true) {
+  b = two * x2;
+  b = b - x1;
+  b = b - x3;
+  x1 = x1 + v1;
+  x2 = x2 + v2;
+  x3 = x3 + v3;
+  if (b >= zero) {
+    v2 = v2 - 1
+  } else {
+    v2 = v2 + 1
+  };
+  t = t + 1;
+}

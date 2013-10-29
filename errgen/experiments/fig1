@@ -4,4 +4,3 @@ c = 1/10;
 while (x >= zero) {
   x = x - c
 }
-

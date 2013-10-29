@@ -167,9 +167,18 @@ let forward_bounds man stmt =
       let (s1, post) = go s1 mid in
       (Seq (s0,s1), post)
     | Ite (c, bthen, belse) ->
-      let (bthen, post_then) = go bthen (assume c pre) in
-      let (belse, post_else) = go belse (assume (Not_exp c) pre) in
-      (Ite (c, bthen, belse), D.join post_then post_else)
+      let (then_prop, else_prop) = (assume c pre, assume (Not_exp c) pre) in
+      if D.is_bottom then_prop then begin
+	let (belse, post_else) = go belse else_prop in
+	(Seq (Assume (Not_exp c), belse), post_else)
+      end else if D.is_bottom else_prop then begin
+	let (bthen, post_then) = go bthen then_prop in
+	(Seq (Assume c, bthen), post_then)
+      end else begin
+	let (bthen, post_then) = go bthen then_prop in
+	let (belse, post_else) = go belse else_prop in
+	(Ite (c, bthen, belse), D.join post_then post_else)
+      end
     | While (c, body, residual) ->
       let iterations = ref 0 in
       let rec fix prop =

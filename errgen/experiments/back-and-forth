@@ -1,0 +1,10 @@
+zero = 0;
+one = 1;
+x = 1;
+c = 1/10;
+while (x >= zero) {
+  x = x - c
+};
+while (x <= one) {
+  x = x + c
+}

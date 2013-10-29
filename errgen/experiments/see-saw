@@ -1,0 +1,26 @@
+x = 0;
+y = 0;
+one = 1;
+two = 2;
+while(true) {
+  c = 4;
+  if (x <= c) {
+    x = x + one;
+    y = y + two
+  } else {
+    c = 7;
+    if (x <= c) {
+      x = x + two;
+      y = y + one
+    } else {
+      c = 9;
+      if (x <= c) {
+        x = x + one;
+        y = y + two
+      } else {
+        x = x + two;
+        y = y + one
+      }
+    }
+  }
+}

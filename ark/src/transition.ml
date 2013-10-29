@@ -929,6 +929,11 @@ module MakeBound (Var : Var) = struct
     let tr_formula =
       F.linearize (fun () -> V.mk_real_tmp "nonlin") (to_formula tr)
     in
+(*
+    let tr_formula =
+      F.exists (fun v -> V.lower v != None) tr_formula
+    in
+*)
     s#push ();
     s#assrt (F.to_smt tr_formula);
 
@@ -1036,8 +1041,11 @@ module MakeBound (Var : Var) = struct
 	  | Some v -> f v
 	  | None   -> false
 	in
-	let pre_guard =
+	let pre_guard = F.top
+(*
 	  F.exists (low (flip VarSet.mem pre_vars)) tr_formula
+*)
+	  
 	in
 	let post_guard =
 	  F.exists (low (flip VarSet.mem post_vars)) tr_formula

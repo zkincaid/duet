@@ -445,7 +445,6 @@ module Bound = struct
     let rx = var "rx" in
     let ry = var "ry" in
     let rz = var "rz" in
-    let rtmp = var "rtmp" in
     let prog =
       block [
 	K.assign "rz" (~@ 0);
