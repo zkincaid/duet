@@ -684,6 +684,20 @@ module Defaults (F : FormulaBasis) = struct
 
   let mk_env phi = D.Env.of_enum (VarSet.enum (formula_free_vars phi))
 
+  let dnf_size phi =
+    let alg = function
+      | OOr (x, y) -> x + y
+      | OAnd (x, y) -> x * y
+      | _ -> 1
+    in
+    F.eval alg phi
+  let nb_atoms phi =
+    let alg = function
+      | OOr (x, y) | OAnd (x, y) -> x + y
+      | _ -> 1
+    in
+    F.eval alg phi
+
   let of_abstract x =
     let open D in
     let man = Abstract0.manager x.prop in
@@ -781,8 +795,20 @@ module Defaults (F : FormulaBasis) = struct
     let open D in
     let man = Polka.manager_alloc_strict () in
     let env = mk_env phi in
+    Log.logf Log.info "Quantifier elimination [dim: %d, target: %d]"
+      (D.Env.dimension env)
+      (D.Env.dimension (D.Env.filter p env));
     let join psi disjunct =
-      F.disj psi (of_abstract (D.exists man p (to_apron man env disjunct)))
+      Log.logf Log.info "Polytope projection [sides: %d]"
+	(nb_atoms disjunct);
+      let projection =
+	Log.time "Polytope projection"
+	  (fun () -> of_abstract (D.exists man p (to_apron man env disjunct)))
+	  ()
+      in
+      Log.logf Log.info "Projected polytope sides: %d"
+	(nb_atoms projection);
+      F.disj psi projection
     in
     lazy_dnf ~join:join ~bottom:F.bottom ~top:F.top F.to_smt phi
 
@@ -1068,33 +1094,37 @@ module Defaults (F : FormulaBasis) = struct
   let linearize mk_tmp phi =
     let open D in
     let (lin_phi, nonlinear) = split_linear mk_tmp phi in
-    let vars =
-      BatEnum.fold
-	(fun set (_,v) -> VarSet.add v set)
-	(formula_free_vars phi)
-	(TMap.enum nonlinear)
-    in
-    let env = D.Env.of_enum (VarSet.enum vars) in
-    let lin_phi =
-      let f phi eq =
-	let g (v, coeff) =
-	  match v with
-	  | A.AVar v -> T.mul (T.var v) (T.const coeff)
-	  | A.AConst -> T.const coeff
-	in
-	conj phi (eqz (BatEnum.reduce T.add (AffineTerm.enum eq /@ g)))
-      in
-      let eqs = nonlinear_equalities nonlinear lin_phi vars in
-      List.fold_left f lin_phi eqs
-    in
-    let man = Polka.manager_alloc_loose () in
-
-    let join psi disjunct =
-      (* todo: compute & strengthen w/ nl equalities here *)
-      disjunct::psi
-    in
-    let to_smt = F.to_smt % (BatList.fold_left F.disj F.bottom) in
     if TMap.is_empty nonlinear then phi else begin
+      let vars =
+	BatEnum.fold
+	  (fun set (_,v) -> VarSet.add v set)
+	  (formula_free_vars phi)
+	  (TMap.enum nonlinear)
+      in
+      let env = D.Env.of_enum (VarSet.enum vars) in
+      Log.logf Log.info "Linearize formula (%d dimensions, %d nonlinear)"
+	(D.Env.dimension env)
+	(TMap.cardinal nonlinear);
+      let lin_phi =
+	let f phi eq =
+	  let g (v, coeff) =
+	    match v with
+	    | A.AVar v -> T.mul (T.var v) (T.const coeff)
+	    | A.AConst -> T.const coeff
+	  in
+	  conj phi (eqz (BatEnum.reduce T.add (AffineTerm.enum eq /@ g)))
+	in
+	let eqs = nonlinear_equalities nonlinear lin_phi vars in
+	List.fold_left f lin_phi eqs
+      in
+      let man = Polka.manager_alloc_loose () in
+
+      let join psi disjunct =
+	(* todo: compute & strengthen w/ nl equalities here *)
+	disjunct::psi
+      in
+      let to_smt = F.to_smt % (BatList.fold_left F.disj F.bottom) in
+
       let dnf = lazy_dnf ~join:join ~top:[F.top] ~bottom:[] to_smt lin_phi in
       let mk_nl_equation (term, var) =
 	Tcons0.make (T.to_apron env (T.sub term (T.var var))) Tcons0.EQ
@@ -1123,6 +1153,9 @@ module Defaults (F : FormulaBasis) = struct
       List.fold_left f (formula_free_vars phi) terms
     in
     let env = D.Env.of_enum (VarSet.enum vars) in
+    Log.logf Log.info "Symbolic optimization [objectives: %d, dimensions: %d]"
+      (List.length terms)
+      (D.Env.dimension env);
     let get_bounds prop t =
       let ivl =
 	Log.time "bound_texpr" (Abstract0.bound_texpr man prop.prop) (T.to_apron prop.env t)
