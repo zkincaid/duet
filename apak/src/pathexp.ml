@@ -418,7 +418,7 @@ struct
 
   type query =
     { recgraph : R.t;
-      weight : R.G.V.t -> K.t;
+      weight : R.atom -> K.t;
       local : R.block -> (K.var -> bool);
       root : R.block;
       mutable callgraph : CG.t option;
@@ -450,9 +450,18 @@ struct
       cg
     end
 
+  let add_callgraph_edge query b1 b2 =
+    let cg' = CG.add_edge (callgraph query) b1 b2 in
+    query.callgraph <- Some cg'
+
   let compute_summaries query =
     let cg = callgraph query in
-    let weight v = query.weight v in
+    let weight v = match R.classify v with
+      | Atom atom   -> query.weight atom
+      | Block block -> try HT.find query.summaries block
+	               with Not_found -> K.zero
+    in
+
     (* Compute summaries for each block *)
     let update block =
       Log.logf Log.fix "(Re)computing summary for block %a" Block.format block;
@@ -492,7 +501,10 @@ struct
   let single_src_blocks query =
     let cg = callgraph query in
 
-    let weight = query.weight in
+    let weight v = match R.classify v with
+      | Atom atom   -> query.weight atom
+      | Block block -> get_summary query block
+    in
 
     let p2c_summaries = HT.create 32 in
     let block_succ_weights block src graph =
@@ -530,7 +542,11 @@ struct
 
   let single_src_restrict query p go =
     let to_block = single_src_blocks query in
-    let weight = query.weight in
+    let weight v = match R.classify v with
+      | Atom atom   -> query.weight atom
+      | Block block -> try HT.find query.summaries block
+	               with Not_found -> K.zero
+    in
     let f (block, body) =
       let block_path = to_block block in
       let block_entry = R.block_entry query.recgraph block in
@@ -549,7 +565,11 @@ struct
 
   let single_src query =
     let path_to_block = single_src_blocks query in
-    let weight = query.weight in
+    let weight v = match R.classify v with
+      | Atom atom   -> query.weight atom
+      | Block block -> try HT.find query.summaries block
+	               with Not_found -> K.zero
+    in
     fun block -> begin
       let to_block = path_to_block block in
       let body = R.block_body query.recgraph block in

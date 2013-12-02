@@ -68,11 +68,12 @@ sig
   module HT : BatHashtbl.S with type key = Block.t
   type query
   val mk_query : R.t ->
-    (R.G.V.t -> K.t) ->
+    (R.atom -> K.t) ->
     (R.block -> (K.var -> bool)) ->
     R.block ->
     query
   val compute_summaries : query -> unit
+  val add_callgraph_edge : query -> Block.t -> Block.t -> unit
   val get_summaries : query -> K.t HT.t
   val get_summary : query -> Block.t -> K.t
   val single_src_blocks : query -> Block.t -> K.t
