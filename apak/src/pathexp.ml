@@ -418,7 +418,7 @@ struct
 
   type query =
     { recgraph : R.t;
-      weight : R.atom -> K.t;
+      weight : R.G.V.t -> K.t;
       local : R.block -> (K.var -> bool);
       root : R.block;
       mutable callgraph : CG.t option;
@@ -452,12 +452,7 @@ struct
 
   let compute_summaries query =
     let cg = callgraph query in
-    let weight v = match R.classify v with
-      | Atom atom   -> query.weight atom
-      | Block block -> try HT.find query.summaries block
-	               with Not_found -> K.zero
-    in
-
+    let weight v = query.weight v in
     (* Compute summaries for each block *)
     let update block =
       Log.logf Log.fix "(Re)computing summary for block %a" Block.format block;
@@ -476,10 +471,6 @@ struct
 	if K.equal K.zero summary then false
 	else (HT.add query.summaries block summary; true)
     in
-    (* Skip the root block - we don't need a summary for it.  We also can't
-       necessarily call find_* on the root, since it isn't required to be an
-       actual block of the graph. *)
-    let update block = not (Block.equal block query.root) && update block in
     Log.phase "Block summarization" (Fix.fix cg update) None;
     let f k s =
       Log.logf Log.fix "  Summary for %a:@\n    @[%a@]"
@@ -501,10 +492,7 @@ struct
   let single_src_blocks query =
     let cg = callgraph query in
 
-    let weight v = match R.classify v with
-      | Atom atom   -> query.weight atom
-      | Block block -> get_summary query block
-    in
+    let weight = query.weight in
 
     let p2c_summaries = HT.create 32 in
     let block_succ_weights block src graph =
@@ -542,11 +530,7 @@ struct
 
   let single_src_restrict query p go =
     let to_block = single_src_blocks query in
-    let weight v = match R.classify v with
-      | Atom atom   -> query.weight atom
-      | Block block -> try HT.find query.summaries block
-	               with Not_found -> K.zero
-    in
+    let weight = query.weight in
     let f (block, body) =
       let block_path = to_block block in
       let block_entry = R.block_entry query.recgraph block in
@@ -565,11 +549,7 @@ struct
 
   let single_src query =
     let path_to_block = single_src_blocks query in
-    let weight v = match R.classify v with
-      | Atom atom   -> query.weight atom
-      | Block block -> try HT.find query.summaries block
-	               with Not_found -> K.zero
-    in
+    let weight = query.weight in
     fun block -> begin
       let to_block = path_to_block block in
       let body = R.block_body query.recgraph block in

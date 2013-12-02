@@ -69,6 +69,6 @@ done
 # Build Duet
 cd duet
 sudo -u $user autoconf
-sudo -u $user ./configure --with-ark
+sudo -u $user ./configure #--with-ark
 sudo -u $user make
 cd ..

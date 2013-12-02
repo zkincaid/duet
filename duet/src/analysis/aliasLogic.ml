@@ -876,7 +876,7 @@ struct
     in
     let add_def_minterm def_path exists =
       exists
-      || RDTransition.fold_minterms (add_du_minterm def_path) use_tr false
+        || RDTransition.fold_minterms (add_du_minterm def_path) use_tr false
     in
       RDTransition.fold_minterms add_def_minterm def_tr false
 
@@ -911,24 +911,24 @@ struct
 	 reaching definition and exposed use, and add it if there should
 	 be. *)
       let add_rd_eu ((def,def_ap), def_tr) ((use,use_ap), use_tr) =
-	if Pa.may_alias def_ap use_ap then begin
-	  let f def_path use_path =
-	    match get_current_name def_path, get_current_name use_path with
-	    | (None, None) -> true
-	    | _ -> begin
-	      let use_path = incr_index use_path in
+        if Pa.may_alias def_ap use_ap then begin
+          let f def_path use_path =
+            match get_current_name def_path, get_current_name use_path with
+              | (None, None) -> true
+              | _ -> begin
+                  let use_path = incr_index use_path in
 
-	      let killed = killed_on_composition def_path use_path in
-	      let killed_current path =
-		match get_current_name path with
-		| Some ap -> killed ap
-		| None -> false
-	      in
-	      not (killed_current use_path || killed_current def_path)
-	    end
-	  in
-	  if exists_du f def_tr use_tr then add_edge def (def_ap, use_ap) use
-	end
+                  let killed = killed_on_composition def_path use_path in
+                  let killed_current path =
+                    match get_current_name path with
+                      | Some ap -> killed ap
+                      | None -> false
+                  in
+                    not (killed_current use_path || killed_current def_path)
+                end
+          in
+            if exists_du f def_tr use_tr then add_edge def (def_ap, use_ap) use
+        end
       in
 
       (* For a given exposed use, add all the edges with a source that is a
