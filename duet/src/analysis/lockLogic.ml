@@ -4,46 +4,6 @@ open Core
 open CfgIr
 open Apak
 
-(* -----------------Concurrent analysis *)
-module Conc = struct
-  module V = struct
-    include Def
-    type atom = t
-    type block = Varinfo.t
-    let classify v = match v.dkind with
-      | Call (None, AddrOf (Variable (func, OffsetFixed 0)), []) ->
-          RecGraph.Block func
-      | Call (_, _, _) ->
-          Log.errorf "Unrecognized call: %a" format v;
-          assert false
-      | Builtin (Fork (vo, e, elst)) -> 
-          begin match Expr.strip_all_casts e with
-            | AccessPath (Variable (func, OffsetFixed 0)) -> RecGraph.Block func
-            | _ -> Log.errorf "Unrecognized fork: %a" format v;
-                   assert false
-          end
-      | _ -> RecGraph.Atom v
-  end
-  module RG = RecGraph.Make(V)(Varinfo)
-  module RGD = ExtGraph.Display.MakeSimple(RG.G)(Def)
-  module MakePathExpr = Pathexp.MakeRG(RG)(Varinfo)
-  
-  let make_recgraph file =
-    ignore (Bddpa.initialize file);
-    Pa.simplify_calls file;
-    let mk_func rg func =
-      let add_edge src tgt graph = RG.G.add_edge graph src tgt in
-      let graph = Cfg.fold_edges add_edge func.cfg RG.G.empty in
-      let bentry = Cfg.initial_vertex func.cfg in
-      let ts = Cfg.enum_terminal func.cfg in
-      let bexit = Def.mk (Assume Bexpr.ktrue) in
-      let add_edge graph v = RG.G.add_edge graph v bexit in
-      let graph = BatEnum.fold add_edge (RG.G.add_vertex graph bexit) ts in
-        RG.add_block rg func.fname graph ~entry:bentry ~exit:bexit
-    in
-      List.fold_left mk_func RG.empty file.funcs
-end
-
 (* -----------------Domains *)
 module type Predicate = sig
   include EqLogic.Hashed.Predicate
@@ -275,12 +235,16 @@ module Domain = struct
                      frk = FM.exists f a.frk }
 end
 
-module Test = Conc.MakePathExpr(Domain)
+module Test = Interproc.MakePathExpr(Domain)
 
 let get_func e = match Expr.strip_all_casts e with
   | AccessPath (Variable (func, voff)) -> func
   | AddrOf     (Variable (func, voff)) -> func
   | _  -> failwith "Lock Logic: Called/Forked expression not a function"
+
+let fork_classify d = match d.dkind with
+  | Builtin (Fork (vo, e, elst)) -> Some (get_func e)
+  | _                            -> None
 
 let weight imap sums def = 
   let open Domain in 
@@ -343,15 +307,15 @@ let may_race v d =
 let analyze file =
   match file.entry_points with
   | [main] -> begin
-    let rg = Conc.make_recgraph file in
+    let rg = Interproc.make_recgraph file in
     let fmap = 
       let ht = Def.HT.create 32 in
       let f (b, v) = match v.dkind with
-        | Builtin (Fork (vo, e, elst)) -> Def.HT.add ht (Conc.RG.block_entry rg (get_func e)) (b, v)
+        | Builtin (Fork (vo, e, elst)) -> Def.HT.add ht (Interproc.RG.block_entry rg (get_func e)) (b, v)
         | _ -> ()
       in 
         begin
-          BatEnum.iter f (Conc.RG.vertices rg);
+          BatEnum.iter f (Interproc.RG.vertices rg);
           ht
         end
     in
@@ -361,12 +325,20 @@ let analyze file =
                    (Varinfo.Set.of_enum (BatEnum.append (BatList.enum func.formals)
                                                         (BatList.enum func.locals)))
       in fun (x, _) -> (Varinfo.Set.mem x vars) in
+    let add_fork_edges q =
+      let f (b, v) = match fork_classify v with
+        | Some b' -> Test.add_callgraph_edge q b' b
+        | None    -> ()
+      in
+        BatEnum.iter f (Interproc.RG.vertices rg)
+    in
     let sum_eq sum1 sum2 = 
       let f k v s = s && List.exists (Domain.equal v) (Test.HT.find_all sum1 k) in
         Test.HT.fold f sum2 true in
     let rec iter_query old_query = 
       let new_query = Test.mk_query rg (weight fmap (Test.get_summaries old_query)) local main in
         begin
+          add_fork_edges new_query;
           Test.compute_summaries new_query;
           if sum_eq (Test.get_summaries old_query) (Test.get_summaries new_query)
             then new_query
@@ -375,6 +347,7 @@ let analyze file =
     let query =
       let q = (Test.mk_query rg (weight fmap (Test.HT.create 0)) local main) in
         begin
+          add_fork_edges q;
           Test.compute_summaries q;
           iter_query q
         end in
@@ -385,10 +358,11 @@ let analyze file =
         Var.Set.iter f (Def.free_vars def)
     in
       BatEnum.iter (fun (b, v) -> begin print_endline (String.concat "" [(Def.show v);":"]);
-                                        iter_vars v;
-                                        print_endline (Domain.show (Test.single_src query main v))
+                                        iter_vars v
+                                  (*      print_endline (Domain.show
+                                   *      (Test.single_src query main v))*)
                                   end)
-                   (Conc.RG.vertices rg);
+                   (Interproc.RG.vertices rg);
       flush stdout
     end
   | _      -> assert false
