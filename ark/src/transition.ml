@@ -249,8 +249,10 @@ module Dioid (Var : Var) = struct
 
   let simplify tr =
     let f _ term free = VSet.diff free (term_free_tmp_vars term) in
-    let free_tmp = M.fold f tr.transform (formula_free_tmp_vars tr.guard) in
-    { tr with guard = F.exists (not % flip VSet.mem free_tmp) tr.guard }
+    let guard = F.linearize (fun () -> V.mk_tmp "nonlin" TyInt) tr.guard in
+    let free_tmp = M.fold f tr.transform (formula_free_tmp_vars guard) in
+    if VSet.is_empty free_tmp then tr
+    else { tr with guard = F.exists (not % flip VSet.mem free_tmp) guard }
 
   let post_formula tr =
     let phi =
