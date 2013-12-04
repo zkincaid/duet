@@ -744,7 +744,7 @@ module Defaults (F : FormulaBasis) = struct
 	      "Couldn't select disjunct for formula:\n%a\nwith model:\n%s"
 	      F.format phi
 	      (m#to_string ());
-	    Log.errorf "Smt:\n%s" (Smt.ast_to_string (to_smt phi));
+	    Log.errorf "Smt:\n%s\n" (Smt.ast_to_string (to_smt phi));
 	    assert false
 	  end
 	in
@@ -1143,6 +1143,59 @@ module Defaults (F : FormulaBasis) = struct
       List.fold_left F.disj F.bottom (List.map add_nl dnf)
     end
 
+  let disj_optimize terms phi =
+    let open D in
+    let man = Polka.manager_alloc_loose () in
+    let vars =
+      let f vars t = VarSet.union (term_free_vars t) vars in
+      List.fold_left f (formula_free_vars phi) terms
+    in
+    let env = D.Env.of_enum (VarSet.enum vars) in
+    Log.logf
+      Log.info
+      "Disjunctive symbolic optimization [objectives: %d, dimensions: %d]"
+      (List.length terms)
+      (D.Env.dimension env);
+    let get_bounds prop t =
+      let ivl =
+	Log.time "bound_texpr"
+	  (Abstract0.bound_texpr man prop.prop) (T.to_apron prop.env t)
+      in
+      let cvt scalar =
+	if Scalar.is_infty scalar == 0 then Some (NumDomain.qq_of_scalar scalar)
+	else None
+      in
+      (cvt ivl.Interval.inf, cvt ivl.Interval.sup)
+    in
+    let join bounds disjunct =
+      let prop = to_apron man env disjunct in
+      let new_bounds = List.map (get_bounds prop) terms in
+      new_bounds::bounds
+    in
+    let prop_to_smt bounds =
+      let to_formula (t, (lower, upper)) =
+	let lo = match lower with
+	  | Some b -> F.leq (T.const b) t
+	  | None -> F.top
+	in
+	let hi = match upper with
+	  | Some b -> F.leq t (T.const b)
+	  | None -> F.top
+	in
+	F.conj lo hi
+      in
+      let disjunct_smt disjunct =
+	let e =
+	  BatEnum.combine (BatList.enum terms, BatList.enum disjunct)
+	in
+	to_smt (BatEnum.fold F.conj F.top (e /@ to_formula))
+      in
+      Smt.big_disj ((BatList.enum bounds) /@ disjunct_smt)
+    in
+    let top = [List.map (fun _ -> (None, None)) terms] in
+    let bottom = [] in
+    lazy_dnf ~join:join ~top:top ~bottom:bottom prop_to_smt phi
+
   (* Given a list of (linear) terms [terms] and a formula [phi], find lower
      and upper bounds for each term within the feasible region of [phi]. *)
   let symbolic_abstract terms phi =
@@ -1158,7 +1211,8 @@ module Defaults (F : FormulaBasis) = struct
       (D.Env.dimension env);
     let get_bounds prop t =
       let ivl =
-	Log.time "bound_texpr" (Abstract0.bound_texpr man prop.prop) (T.to_apron prop.env t)
+	Log.time "bound_texpr"
+	  (Abstract0.bound_texpr man prop.prop) (T.to_apron prop.env t)
       in
       let cvt scalar =
 	if Scalar.is_infty scalar == 0 then Some (NumDomain.qq_of_scalar scalar)
