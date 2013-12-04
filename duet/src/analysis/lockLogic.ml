@@ -10,22 +10,6 @@ module type Predicate = sig
   val pred_weight : Def.t -> t
 end
 
-  (* Don't like this solution at all *)
-module NullPred = struct
-  type t = char deriving (Show,Compare)
-  type var = Var.t
-  let compare = Compare_t.compare
-  let format = Show_t.format
-  let show = Show_t.show
-  let equal _ _ = true
-  let unit = '0'
-  let mul _ _ = '0'
-  let subst _ _ = '0'
-  let hash = Hashtbl.hash
-  let implies _ _ _ = true
-  let pred_weight _ = unit
-end
-
 module LockPred = struct
   type t = { acq : AP.Set.t;
              rel : AP.Set.t } 
@@ -35,9 +19,8 @@ module LockPred = struct
   let format = Show_t.format
   let show = Show_t.show
 
-  (* Effectively tests whether the actual locksets are equivalent, regardless of
-   * the releases *)
-  let equal l1 l2 = AP.Set.equal l1.acq l2.acq
+  let equal l1 l2 = (AP.Set.equal l1.acq l2.acq) &&
+                    (AP.Set.equal l1.rel l2.rel)
   let unit = { acq = AP.Set.empty;
                rel = AP.Set.empty }
   let mul l1 l2 =
@@ -93,12 +76,12 @@ module MakePath (P : Predicate with type var = Var.t) = struct
       | Acquire e -> begin match e with
           | AccessPath ap  -> assume hack (AP.free_vars ap) pw
           | AddrOf ap      -> assume hack (AP.free_vars ap) pw
-          | _              -> failwith "Lock logic: Acquired non-access path"
+          | _              -> failwith ("Lock logic: Acquired non-access path: " ^ (Def.show def))
         end
       | Release e -> begin match e with
           | AccessPath ap  -> assume hack (AP.free_vars ap) pw
           | AddrOf ap      -> assume hack (AP.free_vars ap) pw
-          | _              -> failwith "Lock logic: Released non-access path"
+          | _              -> failwith ("Lock logic: Released non-access path: " ^ (Def.show def))
         end
       | Alloc (v, e, targ) -> assign (Variable v) (Havoc (Var.get_type v)) pw
       | Free e             -> one
@@ -118,7 +101,6 @@ module MakePath (P : Predicate with type var = Var.t) = struct
       | Builtin bi -> weight_builtin bi
 end
 
-module NullPath = MakePath(NullPred)
 module LockPath = MakePath(LockPred)
 
 let zero_locks lp =
@@ -191,35 +173,38 @@ module Domain = struct
   type var = Var.t
   type t = { lp : LockPath.t;
              seq : PD.t;
-             con : PD.t;
+             con : PD.t * PD.t;
              frk : FM.t }
              deriving(Show,Compare)
   let compare = Compare_t.compare
   let format = Show_t.format
   let show = Show_t.show
 
+  let mp f (a1, a2) (b1, b2) = (f a1 b1, f a2 b2)
+
   let equal a b = (LockPath.equal a.lp b.lp) && 
                   (PD.equal a.seq b.seq) &&
-                  (PD.equal a.con b.con) &&
+                  (PD.equal (fst a.con) (fst b.con)) &&
+                  (PD.equal (snd a.con) (snd b.con)) &&
                   (FM.equal a.frk b.frk)
   let mul a b =
     let aseq = PD.mul_r a.seq b.lp in
     let bseq = PD.mul_l a.lp b.seq in
       { lp = LockPath.mul a.lp b.lp;
         seq = PD.join aseq bseq;
-        con = PD.join a.con b.con;
+        con = mp PD.join a.con b.con;
         frk = FM.join (FM.absorb (FM.mul_r a.frk b.lp) bseq) (FM.mul_l a.lp b.frk) }
   let add a b = { lp = LockPath.add a.lp b.lp;
                   seq = PD.join a.seq b.seq;
-                  con = PD.join a.con b.con;
+                  con = mp PD.join a.con b.con;
                   frk = FM.join a.frk b.frk }
   let zero = { lp = LockPath.zero;
                seq = PD.bot;
-               con = PD.bot;
+               con = (PD.bot, PD.bot);
                frk = FM.bot } 
   let one = { lp = LockPath.one;
               seq = PD.bot;
-              con = PD.bot;
+              con = (PD.bot, PD.bot);
               frk = FM.bot }
   let star a = 
     let l = LockPath.star a.lp in
@@ -229,7 +214,8 @@ module Domain = struct
         frk = FM.mul_l l (FM.mul_r a.frk l) }
   let exists f a = { lp = LockPath.exists f a.lp;
                      seq = PD.exists f a.seq;
-                     con = PD.exists f a.con;
+                     con = (PD.exists f (fst a.con),
+                            PD.exists f (snd a.con));
                      frk = FM.exists f a.frk }
 end
 
@@ -258,7 +244,7 @@ let weight imap sums def =
       in
         PD.join a lval
     in
-      List.fold_left f PD.bot fpoints
+      (List.fold_left f PD.bot fpoints, PD.bot)
   in
     match def.dkind with
       | Call (vo, e, elst) ->
@@ -272,13 +258,13 @@ let weight imap sums def =
           in
             { lp = LockPath.one; 
               seq = PD.bot;
-              con = PD.join summary.seq summary.con;
+              con = (PD.bot, PD.join summary.seq (snd summary.con));
               frk = FM.M.add def PD.bot FM.M.empty }
       | Assign (v, e) -> 
           let l = LockPath.weight def in
             { lp = l;
               seq = PD.M.add v l PD.M.empty;
-              con = PD.bot;
+              con = (PD.bot, PD.bot);
               frk = FM.bot }
       | _ -> { lp = LockPath.weight def;
                seq = PD.bot;
@@ -287,10 +273,13 @@ let weight imap sums def =
 
 let may_race v d =
   try 
-    let defs = PD.M.find v d.Domain.con in
+    let defs = PD.M.find v (PD.join (fst d.Domain.con) (snd d.Domain.con)) in
     let fold_con seq_path con_path acc =
       let l = LockPath.Minterm.get_pred seq_path in
       let l' = LockPath.Minterm.get_pred con_path in
+        (* We check the intersection. Likely the correct thing to do is check
+         * whether the intersection of the relevant equivalence classes
+         * is empty *)
         acc || AP.Set.is_empty (AP.Set.inter l.LockPred.acq l'.LockPred.acq)
     in
     let fold_seq seq_path acc = acc ||
@@ -353,9 +342,9 @@ let analyze file =
         Var.Set.iter f (Def.free_vars def)
     in
       BatEnum.iter (fun (b, v) -> begin print_endline (String.concat "" [(Def.show v);":"]);
-                                        iter_vars v(*;
+                                        iter_vars v;
                                         print_endline (Domain.show
-                                         (Test.single_src query main v))*)
+                                         (Test.single_src query main v))
                                   end)
                    (Interproc.RG.vertices rg);
       flush stdout
