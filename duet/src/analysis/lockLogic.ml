@@ -93,12 +93,12 @@ module MakePath (P : Predicate with type var = Var.t) = struct
       | Acquire e -> begin match e with
           | AccessPath ap  -> assume hack (AP.free_vars ap) pw
           | AddrOf ap      -> assume hack (AP.free_vars ap) pw
-          | _              -> failwith "Lock logic: I don't think you acquired an access path yo"
+          | _              -> failwith "Lock logic: Acquired non-access path"
         end
       | Release e -> begin match e with
           | AccessPath ap  -> assume hack (AP.free_vars ap) pw
           | AddrOf ap      -> assume hack (AP.free_vars ap) pw
-          | _              -> failwith "Lock logic: I don't think you released an access path yo"
+          | _              -> failwith "Lock logic: Released non-access path"
         end
       | Alloc (v, e, targ) -> assign (Variable v) (Havoc (Var.get_type v)) pw
       | Free e             -> one
@@ -109,17 +109,27 @@ module MakePath (P : Predicate with type var = Var.t) = struct
     in match def.dkind with
       | Assign (v, e)        -> assign (Variable v) e pw
       | Store  (a, e)        -> assign a e pw
-      | Call   (vo, e, elst) -> failwith "Lock logic: Not sure there are supposed to be calls?"
+      | Call   (vo, e, elst) -> failwith "Lock logic: Call encountered"
       | Assume be            -> assume be (Bexpr.free_vars be) pw
       | Assert (be, s)       -> assume be (Bexpr.free_vars be) pw
       | AssertMemSafe (e, s) -> assume (Bexpr.of_expr e) (Expr.free_vars e) pw
       | Initial              -> one 
-      | Return eo            -> failwith "Lock logic: Again, not sure about returns..."
+      | Return eo            -> failwith "Lock logic: Return encountered"
       | Builtin bi -> weight_builtin bi
 end
 
 module NullPath = MakePath(NullPred)
 module LockPath = MakePath(LockPred)
+
+let zero_locks lp =
+  let lp_frame = LockPath.get_frame lp in
+  let make_minterm mt = 
+    LockPath.Minterm.make (LockPath.Minterm.get_eqs mt) LockPred.unit
+  in
+  let add_minterm mt  = 
+    LockPath.add (LockPath.of_minterm lp_frame (make_minterm mt))
+  in
+    LockPath.fold_minterms add_minterm lp LockPath.zero
 
 module Mapped (Key : Putil.CoreType) (Value : Putil.Ordered) = struct
   module M = Key.Map
@@ -157,14 +167,11 @@ module PD = struct
 
   let equal = M.equal LockPath.equal
   let join = merge LockPath.add
-  let mul_r a np =
-    let np_frame = NullPath.get_frame np in
-    let make_minterm m = LockPath.Minterm.make (NullPath.Minterm.get_eqs m) LockPred.unit in
-    let add_minterm m acc = LockPath.add (LockPath.of_minterm np_frame (make_minterm m)) acc in
-    let lift_np = NullPath.fold_minterms add_minterm np LockPath.zero in
-      M.map (fun lp -> LockPath.mul lp lift_np) a
-  let mul_l lp a = M.map (fun lp2 -> LockPath.mul lp lp2) a
-  let exists f a = M.map (fun lp -> LockPath.exists f lp) a
+  let mul_r pd lp =
+    let zero_lp = zero_locks lp in
+      M.map (fun lp -> LockPath.mul lp zero_lp) pd
+  let mul_l lp pd = M.map (fun lp' -> LockPath.mul lp lp') pd
+  let exists f pd = M.map (fun lp -> LockPath.exists f lp) pd
 end
 
 (* Fork maps *)
@@ -174,7 +181,7 @@ module FM = struct
 
   let equal = M.equal PD.equal
   let join = merge PD.join
-  let mul_r a np = M.map (fun f -> PD.mul_r f np) a
+  let mul_r a lp = M.map (fun f -> PD.mul_r f lp) a
   let mul_l lp a = M.map (fun f -> PD.mul_l lp f) a
   let exists f a = M.map (fun g -> PD.exists f g) a
   let absorb a pd = M.map (PD.join pd) a
@@ -183,7 +190,6 @@ end
 module Domain = struct
   type var = Var.t
   type t = { lp : LockPath.t;
-             np : NullPath.t;
              seq : PD.t;
              con : PD.t;
              frk : FM.t }
@@ -193,43 +199,35 @@ module Domain = struct
   let show = Show_t.show
 
   let equal a b = (LockPath.equal a.lp b.lp) && 
-                  (NullPath.equal a.np b.np) &&
                   (PD.equal a.seq b.seq) &&
                   (PD.equal a.con b.con) &&
                   (FM.equal a.frk b.frk)
   let mul a b =
-    let aseq = PD.mul_r a.seq b.np in
+    let aseq = PD.mul_r a.seq b.lp in
     let bseq = PD.mul_l a.lp b.seq in
       { lp = LockPath.mul a.lp b.lp;
-        np = NullPath.mul a.np b.np;
         seq = PD.join aseq bseq;
         con = PD.join a.con b.con;
-        frk = FM.join (FM.absorb (FM.mul_r a.frk b.np) bseq) (FM.mul_l a.lp b.frk) }
+        frk = FM.join (FM.absorb (FM.mul_r a.frk b.lp) bseq) (FM.mul_l a.lp b.frk) }
   let add a b = { lp = LockPath.add a.lp b.lp;
-                  np = NullPath.add a.np b.np;
                   seq = PD.join a.seq b.seq;
                   con = PD.join a.con b.con;
                   frk = FM.join a.frk b.frk }
   let zero = { lp = LockPath.zero;
-               np = NullPath.zero;
                seq = PD.bot;
                con = PD.bot;
                frk = FM.bot } 
   let one = { lp = LockPath.one;
-              np = NullPath.one;
               seq = PD.bot;
               con = PD.bot;
               frk = FM.bot }
   let star a = 
     let l = LockPath.star a.lp in
-    let n = NullPath.star a.np in
       { lp = l; 
-        np = n; 
-        seq = PD.mul_l l (PD.mul_r a.seq n);
+        seq = PD.mul_l l (PD.mul_r a.seq l);
         con = a.con;
-        frk = FM.mul_l l (FM.mul_r a.frk n) }
+        frk = FM.mul_l l (FM.mul_r a.frk l) }
   let exists f a = { lp = LockPath.exists f a.lp;
-                     np = NullPath.exists f a.np;
                      seq = PD.exists f a.seq;
                      con = PD.exists f a.con;
                      frk = FM.exists f a.frk }
@@ -273,19 +271,16 @@ let weight imap sums def =
           with Not_found -> zero 
           in
             { lp = LockPath.one; 
-              np = NullPath.one; 
               seq = PD.bot;
               con = PD.join summary.seq summary.con;
               frk = FM.M.add def PD.bot FM.M.empty }
       | Assign (v, e) -> 
           let l = LockPath.weight def in
             { lp = l;
-              np = NullPath.weight def;
               seq = PD.M.add v l PD.M.empty;
               con = PD.bot;
               frk = FM.bot }
       | _ -> { lp = LockPath.weight def;
-               np = NullPath.weight def;
                seq = PD.bot;
                con = lsum;
                frk = FM.bot }
@@ -358,9 +353,9 @@ let analyze file =
         Var.Set.iter f (Def.free_vars def)
     in
       BatEnum.iter (fun (b, v) -> begin print_endline (String.concat "" [(Def.show v);":"]);
-                                        iter_vars v
-                                  (*      print_endline (Domain.show
-                                   *      (Test.single_src query main v))*)
+                                        iter_vars v(*;
+                                        print_endline (Domain.show
+                                         (Test.single_src query main v))*)
                                   end)
                    (Interproc.RG.vertices rg);
       flush stdout
