@@ -10,54 +10,72 @@ module type Predicate = sig
   val pred_weight : Def.t -> t
 end
 
+(* Lock Logic. acq tracks acuires that definitely have not been released, rel
+ * tracks release that may not have been re-acquired. Negation is also a hack to
+ * computer lockset intersections using mul *)
 module LockPred = struct
-  type t = { acq : AP.Set.t;
+  type parity = Pos | Neg deriving(Show,Compare)
+  type var = Var.t
+  type t = { par : parity;
+             acq : AP.Set.t;
              rel : AP.Set.t } 
              deriving (Show,Compare)
-  type var = Var.t
   let compare = Compare_t.compare
   let format = Show_t.format
   let show = Show_t.show
 
-  let equal l1 l2 = (AP.Set.equal l1.acq l2.acq) &&
+  let equal l1 l2 = (l1.par == l2.par) &&
+                    (AP.Set.equal l1.acq l2.acq) &&
                     (AP.Set.equal l1.rel l2.rel)
-  let unit = { acq = AP.Set.empty;
+  let unit = { par = Pos;
+               acq = AP.Set.empty;
                rel = AP.Set.empty }
-  let mul l1 l2 =
-    let deref_alias x y = Pa.may_alias (Deref (AccessPath x)) (Deref (AccessPath y)) in
-    let remove l rel = 
-      AP.Set.filter (fun x -> not (AP.Set.exists (Pa.may_alias x) rel)) l
-    in 
-      { acq = AP.Set.union (remove l1.acq l2.rel) l2.acq;
-        rel = AP.Set.union l1.rel l2.rel }
+  let mul l1 l2 = match (l1.par, l2.par) with
+    | (Pos, Neg)
+    | (Neg, Pos) -> { par = Pos;
+                      acq = AP.Set.inter l1.acq l2.acq;
+                      rel = AP.Set.empty }
+    | _          ->
+        let remove eq l rel = 
+          AP.Set.filter (fun x -> not (AP.Set.exists (eq x) rel)) l
+        in 
+          { par = Pos;
+            acq = AP.Set.union (remove Pa.may_alias l1.acq l2.rel) l2.acq;
+            rel = AP.Set.union (remove AP.equal l1.rel l2.acq) l2.rel }
   (* Not sure if this is the right way to handle existentials *)
   let subst sub_var l =
     let add iap set = match AP.psubst_var sub_var iap with
       | Some z -> AP.Set.add z set
       | None   -> set
     in
-      { acq = AP.Set.fold add l.acq AP.Set.empty;
+      { par = l.par;
+        acq = AP.Set.fold add l.acq AP.Set.empty;
         rel = AP.Set.fold add l.rel AP.Set.empty }
-  let hash l = Hashtbl.hash (AP.Set.hash l.acq, AP.Set.hash l.rel)
+  let hash l = Hashtbl.hash (Hashtbl.hash l.par, AP.Set.hash l.acq, AP.Set.hash l.rel)
   let implies sub x y =
     let sub_iap iap =
       match AP.psubst_var (fun x -> Some (sub x)) iap with
         | Some z -> z
         | None -> assert false (* impossible *) in
-    let y_sub = { acq = AP.Set.map sub_iap y.acq;
+    let y_sub = { par = Pos;
+                  acq = AP.Set.map sub_iap y.acq;
                   rel = AP.Set.map sub_iap y.rel }
     in
       (AP.Set.for_all (fun k -> AP.Set.mem k x.acq) y_sub.acq) &&
       (AP.Set.for_all (fun k -> AP.Set.mem k x.rel) y_sub.rel)
 
   let pred_weight def = match def.dkind with
-    | Builtin (Acquire (AccessPath ap)) -> { acq = AP.Set.singleton (Deref (AccessPath ap));
+    | Builtin (Acquire (AccessPath ap)) -> { par = Pos;
+                                             acq = AP.Set.singleton (Deref (AccessPath ap));
                                              rel = AP.Set.empty }
-    | Builtin (Acquire (AddrOf ap)) -> { acq = AP.Set.singleton ap;
+    | Builtin (Acquire (AddrOf ap)) -> { par = Pos;
+                                         acq = AP.Set.singleton ap;
                                          rel = AP.Set.empty }
-    | Builtin (Release (AccessPath ap)) -> { acq = AP.Set.empty;
+    | Builtin (Release (AccessPath ap)) -> { par = Pos;
+                                              acq = AP.Set.empty;
                                              rel = AP.Set.singleton (Deref (AccessPath ap)) }
-    | Builtin (Release (AddrOf ap)) -> { acq = AP.Set.empty;
+    | Builtin (Release (AddrOf ap)) -> { par = Pos;
+                                         acq = AP.Set.empty;
                                          rel = AP.Set.singleton ap }
     | _ -> unit
 end
@@ -271,6 +289,7 @@ let weight imap sums def =
                con = lsum;
                frk = FM.bot }
 
+               (*
 let may_race v d =
   try 
     let defs = PD.M.find v (PD.join (fst d.Domain.con) (snd d.Domain.con)) in
@@ -281,6 +300,23 @@ let may_race v d =
          * whether the intersection of the relevant equivalence classes
          * is empty *)
         acc || AP.Set.is_empty (AP.Set.inter l.LockPred.acq l'.LockPred.acq)
+    in
+    let fold_seq seq_path acc = acc ||
+      LockPath.fold_minterms (fold_con seq_path) defs false
+    in
+      LockPath.fold_minterms fold_seq d.Domain.lp false
+  with Not_found -> false
+                *)
+let may_race v d =
+  try 
+    let defs = PD.M.find v (PD.join (fst d.Domain.con) (snd d.Domain.con)) in
+    let fold_con seq_path con_path acc =
+      let lck_pred = LockPath.Minterm.get_pred con_path in
+      let lck_pred' = { lck_pred with LockPred.par = LockPred.Neg } in
+      let con_path' = LockPath.Minterm.make (LockPath.Minterm.get_eqs con_path) lck_pred' in
+      let l = LockPath.Minterm.mul seq_path con_path' in
+      let l' = LockPath.Minterm.get_pred l in
+        acc || AP.Set.is_empty l'.LockPred.acq
     in
     let fold_seq seq_path acc = acc ||
       LockPath.fold_minterms (fold_con seq_path) defs false
@@ -342,9 +378,9 @@ let analyze file =
         Var.Set.iter f (Def.free_vars def)
     in
       BatEnum.iter (fun (b, v) -> begin print_endline (String.concat "" [(Def.show v);":"]);
-                                        iter_vars v;
+                                        iter_vars v(*;
                                         print_endline (Domain.show
-                                         (Test.single_src query main v))
+                                         (Test.single_src query main v))*)
                                   end)
                    (Interproc.RG.vertices rg);
       flush stdout
