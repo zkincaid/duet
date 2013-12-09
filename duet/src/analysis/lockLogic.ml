@@ -30,6 +30,7 @@ module LockPred = struct
   let unit = { par = Pos;
                acq = AP.Set.empty;
                rel = AP.Set.empty }
+  let neg l = { l with par = if l.par == Pos then Neg else Pos }
   let mul l1 l2 = match (l1.par, l2.par) with
     | (Pos, Neg)
     | (Neg, Pos) -> { par = Pos;
@@ -51,7 +52,10 @@ module LockPred = struct
       { par = l.par;
         acq = AP.Set.fold add l.acq AP.Set.empty;
         rel = AP.Set.fold add l.rel AP.Set.empty }
-  let hash l = Hashtbl.hash (Hashtbl.hash l.par, AP.Set.hash l.acq, AP.Set.hash l.rel)
+  let hash l = Hashtbl.hash (Hashtbl.hash l.par, 
+                             AP.Set.hash l.acq, 
+                             AP.Set.hash l.rel)
+  (* x implies y if x acquires a subset of y and releases a superset of y *)
   let implies sub x y =
     let sub_iap iap =
       match AP.psubst_var (fun x -> Some (sub x)) iap with
@@ -61,7 +65,7 @@ module LockPred = struct
                   acq = AP.Set.map sub_iap y.acq;
                   rel = AP.Set.map sub_iap y.rel }
     in
-      (AP.Set.for_all (fun k -> AP.Set.mem k x.acq) y_sub.acq) &&
+      (AP.Set.for_all (fun k -> AP.Set.mem k y_sub.acq) x.acq) &&
       (AP.Set.for_all (fun k -> AP.Set.mem k x.rel) y_sub.rel)
 
   let pred_weight def = match def.dkind with
@@ -119,18 +123,6 @@ module MakePath (P : Predicate with type var = Var.t) = struct
       | Builtin bi -> weight_builtin bi
 end
 
-module LockPath = MakePath(LockPred)
-
-let zero_locks lp =
-  let lp_frame = LockPath.get_frame lp in
-  let make_minterm mt = 
-    LockPath.Minterm.make (LockPath.Minterm.get_eqs mt) LockPred.unit
-  in
-  let add_minterm mt  = 
-    LockPath.add (LockPath.of_minterm lp_frame (make_minterm mt))
-  in
-    LockPath.fold_minterms add_minterm lp LockPath.zero
-
 module Mapped (Key : Putil.CoreType) (Value : Putil.Ordered) = struct
   module M = Key.Map
   type t = Value.t M.t
@@ -160,6 +152,19 @@ module Mapped (Key : Putil.CoreType) (Value : Putil.Ordered) = struct
     M.merge f a b
 end
 
+module LockPath = MakePath(LockPred)
+
+(* zero all locksets in a transition formula *)
+let zero_locks lp =
+  let lp_frame = LockPath.get_frame lp in
+  let make_minterm mt = 
+    LockPath.Minterm.make (LockPath.Minterm.get_eqs mt) LockPred.unit
+  in
+  let add_minterm mt  = 
+    LockPath.add (LockPath.of_minterm lp_frame (make_minterm mt))
+  in
+    LockPath.fold_minterms add_minterm lp LockPath.zero
+
 (* Protected Definitions *)
 module PD = struct
   include Mapped(Var)(LockPath)
@@ -187,6 +192,7 @@ module FM = struct
   let absorb a pd = M.map (PD.join pd) a
 end
 
+(* Domain for the data race analysis *)
 module Domain = struct
   type var = Var.t
   type t = { lp : LockPath.t;
@@ -237,57 +243,64 @@ module Domain = struct
                      frk = FM.exists f a.frk }
 end
 
-module Test = Interproc.MakePathExpr(Domain)
+module Datarace = struct
+  module LSA = Interproc.MakePathExpr(Domain)
+  open Domain
 
-let get_func e = match Expr.strip_all_casts e with
-  | AccessPath (Variable (func, voff)) -> func
-  | AddrOf     (Variable (func, voff)) -> func
-  | _  -> failwith "Lock Logic: Called/Forked expression not a function"
+  type t = { query : LSA.query;
+             fmap  : (Interproc.RG.block * Interproc.RG.atom) Def.HT.t;
+             root  : Interproc.RG.block }
 
-let fork_classify d = match d.dkind with
-  | Builtin (Fork (vo, e, elst)) -> Some (get_func e)
-  | _                            -> None
+  let get_func e = match Expr.strip_all_casts e with
+    | AccessPath (Variable (func, voff)) -> func
+    | AddrOf     (Variable (func, voff)) -> func
+    | _  -> failwith "Lock Logic: Called/Forked expression not a function"
 
-let weight imap sums def = 
-  let open Domain in 
-  let fpoints = try Def.HT.find_all imap def
-                with Not_found -> []
-  in
-  let lsum = 
-    let f a (b, v) =
-      let summary = try Test.HT.find sums b
-                    with Not_found -> Domain.zero 
-      in
-      let lval = try FM.M.find v summary.frk with Not_found -> PD.bot
-      in
-        PD.join a lval
+  let fork_classify d = match d.dkind with
+    | Builtin (Fork (vo, e, elst)) -> Some (get_func e)
+    | _                            -> None
+
+  let weight fmap sums def = 
+    let fpoints = try Def.HT.find_all fmap def
+    with Not_found -> []
     in
-      (List.fold_left f PD.bot fpoints, PD.bot)
-  in
-    match def.dkind with
-      | Call (vo, e, elst) ->
-          begin 
-            try Test.HT.find sums (get_func e)
-            with Not_found -> zero
-          end
-      | Builtin (Fork (vo, e, elst)) -> 
-          let summary = try Test.HT.find sums (get_func e)
-          with Not_found -> zero 
-          in
-            { lp = LockPath.one; 
-              seq = PD.bot;
-              con = (PD.bot, PD.join summary.seq (snd summary.con));
-              frk = FM.M.add def PD.bot FM.M.empty }
-      | Assign (v, e) -> 
-          let l = LockPath.weight def in
-            { lp = l;
-              seq = PD.M.add v l PD.M.empty;
-              con = (PD.bot, PD.bot);
-              frk = FM.bot }
-      | _ -> { lp = LockPath.weight def;
-               seq = PD.bot;
-               con = lsum;
-               frk = FM.bot }
+    let lsum = 
+      let f a (b, v) =
+        let summary = try LSA.HT.find sums b
+        with Not_found -> zero 
+        in
+        let lval = try FM.M.find v summary.frk with Not_found -> PD.bot
+        in
+          PD.join a lval
+      in
+        (List.fold_left f PD.bot fpoints, PD.bot)
+    in
+      match def.dkind with
+        | Call (vo, e, elst) ->
+            begin 
+              try LSA.HT.find sums (get_func e)
+              with Not_found -> zero
+            end
+        | Builtin (Fork (vo, e, elst)) -> 
+            let summary = try LSA.HT.find sums (get_func e)
+            with Not_found -> zero 
+            in
+              { lp = LockPath.one; 
+                seq = PD.bot;
+                con = (PD.bot, PD.join summary.seq (snd summary.con));
+                frk = FM.M.add def PD.bot FM.M.empty }
+        | Assign (v, e) -> 
+            let l = LockPath.weight def in
+              { lp = l;
+                seq = PD.M.add v l PD.M.empty;
+                con = (PD.bot, PD.bot);
+                frk = FM.bot }
+        | _ -> { lp = LockPath.weight def;
+                 seq = PD.bot;
+                 con = lsum;
+                 frk = FM.bot }
+
+  let weight_t t = weight (t.fmap) (LSA.get_summaries t.query)
 
                (*
 let may_race v d =
@@ -307,23 +320,104 @@ let may_race v d =
       LockPath.fold_minterms fold_seq d.Domain.lp false
   with Not_found -> false
                 *)
-let may_race v d =
-  try 
-    let defs = PD.M.find v (PD.join (fst d.Domain.con) (snd d.Domain.con)) in
-    let fold_con seq_path con_path acc =
-      let lck_pred = LockPath.Minterm.get_pred con_path in
-      let lck_pred' = { lck_pred with LockPred.par = LockPred.Neg } in
-      let con_path' = LockPath.Minterm.make (LockPath.Minterm.get_eqs con_path) lck_pred' in
-      let l = LockPath.Minterm.mul seq_path con_path' in
-      let l' = LockPath.Minterm.get_pred l in
-        acc || AP.Set.is_empty l'.LockPred.acq
-    in
-    let fold_seq seq_path acc = acc ||
-      LockPath.fold_minterms (fold_con seq_path) defs false
-    in
-      LockPath.fold_minterms fold_seq d.Domain.lp false
-  with Not_found -> false
 
+  let may_race_help t p v = 
+      try 
+        let defs = PD.M.find v (PD.join (fst p.con) (snd p.con)) in
+        let sub  = LockPath.Minterm.subst (fun x -> if Var.get_subscript x = 1
+                                                    then Var.subscript x 3
+                                                    else x)
+        in
+        let fold_con seq_path con_path acc =
+          let con_path' = sub
+            (LockPath.Minterm.make (LockPath.Minterm.get_eqs con_path)
+                                   (LockPred.neg (LockPath.Minterm.get_pred con_path)))
+          in
+          let l = LockPath.Minterm.get_pred (LockPath.Minterm.mul seq_path con_path') in
+            acc || AP.Set.is_empty l.LockPred.acq
+        in
+        let fold_seq seq_path acc = 
+          acc || LockPath.fold_minterms (fold_con seq_path) defs false
+        in
+          LockPath.fold_minterms fold_seq p.lp false
+      with Not_found -> false
+
+  let may_race t v def = may_race_help t (LSA.single_src t.query t.root def) v
+
+  let stabilise t wt def =
+    let d = weight_t t def in
+    let p = LSA.single_src t.query t.root def in
+    let pd = mul p d in
+    let gen_eq p v acc = 
+      if may_race_help t p v
+      then acc
+      else ((Var.subscript v 1, Var.subscript v 0)::acc)
+    in
+    let pre =
+      let frame = LockPath.get_frame p.lp in
+      let eqs = Var.Set.fold (gen_eq p) frame [] in
+        LockPath.of_minterm frame (LockPath.Minterm.make eqs LockPred.unit)
+    in
+    let post =
+      let frame = LockPath.get_frame pd.lp in
+      let eqs = Var.Set.fold (gen_eq pd) frame [] in
+        LockPath.of_minterm frame (LockPath.Minterm.make eqs LockPred.unit)
+    in
+      LockPath.mul pre (LockPath.mul (wt def) post)
+
+  let init file =
+    match file.entry_points with
+    | [main] -> begin
+      let rg = Interproc.make_recgraph file in
+      let fmap = 
+        let ht = Def.HT.create 32 in
+        let f (b, v) = match v.dkind with
+          | Builtin (Fork (vo, e, elst)) -> 
+              Def.HT.add ht (Interproc.RG.block_entry rg (get_func e)) (b, v)
+          | _ -> ()
+        in 
+          begin
+            BatEnum.iter f (Interproc.RG.vertices rg);
+            ht
+          end
+      in
+      let local func_name =
+        let func = lookup_function func_name (get_gfile()) in
+        let vars = Varinfo.Set.remove (return_var func_name)
+                     (Varinfo.Set.of_enum (BatEnum.append (BatList.enum func.formals)
+                                                          (BatList.enum func.locals)))
+        in fun (x, _) -> (Varinfo.Set.mem x vars) in
+      let add_fork_edges q =
+        let f (b, v) = match fork_classify v with
+          | Some b' -> LSA.add_callgraph_edge q b' b
+          | None    -> ()
+        in
+          BatEnum.iter f (Interproc.RG.vertices rg)
+      in
+      let sum_eq sum1 sum2 = 
+        let f k v s = s && List.exists (Domain.equal v) (LSA.HT.find_all sum1 k) in
+          LSA.HT.fold f sum2 true in
+      let rec iter_query old_query = 
+        let new_query = LSA.mk_query rg (weight fmap (LSA.get_summaries old_query)) 
+                                     local main
+        in
+          begin
+            add_fork_edges new_query;
+            LSA.compute_summaries new_query;
+            if sum_eq (LSA.get_summaries old_query) (LSA.get_summaries new_query)
+              then new_query
+              else iter_query new_query 
+          end
+      in
+      let initial = (LSA.mk_query rg (weight fmap (LSA.HT.create 0)) local main) in
+        add_fork_edges initial;
+        LSA.compute_summaries initial;
+        { query = iter_query initial; fmap = fmap; root = main }
+      end
+    | _      -> assert false
+end
+
+                  (*
 let analyze file =
   match file.entry_points with
   | [main] -> begin
@@ -347,45 +441,57 @@ let analyze file =
       in fun (x, _) -> (Varinfo.Set.mem x vars) in
     let add_fork_edges q =
       let f (b, v) = match fork_classify v with
-        | Some b' -> Test.add_callgraph_edge q b' b
+        | Some b' -> LSA.add_callgraph_edge q b' b
         | None    -> ()
       in
         BatEnum.iter f (Interproc.RG.vertices rg)
     in
     let sum_eq sum1 sum2 = 
-      let f k v s = s && List.exists (Domain.equal v) (Test.HT.find_all sum1 k) in
-        Test.HT.fold f sum2 true in
+      let f k v s = s && List.exists (Domain.equal v) (LSA.HT.find_all sum1 k) in
+        LSA.HT.fold f sum2 true in
     let rec iter_query old_query = 
-      let new_query = Test.mk_query rg (weight fmap (Test.get_summaries old_query)) local main in
+      let new_query = LSA.mk_query rg (weight fmap (LSA.get_summaries old_query)) local main in
         begin
           add_fork_edges new_query;
-          Test.compute_summaries new_query;
-          if sum_eq (Test.get_summaries old_query) (Test.get_summaries new_query)
+          LSA.compute_summaries new_query;
+          if sum_eq (LSA.get_summaries old_query) (LSA.get_summaries new_query)
             then new_query
             else iter_query new_query 
         end in
     let query =
-      let q = (Test.mk_query rg (weight fmap (Test.HT.create 0)) local main) in
+      let q = (LSA.mk_query rg (weight fmap (LSA.HT.create 0)) local main) in
         begin
           add_fork_edges q;
-          Test.compute_summaries q;
+          LSA.compute_summaries q;
           iter_query q
         end in
     let iter_vars def =
       let f v = print_endline ((Var.show v) ^ " :: " 
-                            ^ (string_of_bool (may_race v (Test.single_src query main def))))
+                            ^ (string_of_bool (may_race v (LSA.single_src query main def))))
       in
         Var.Set.iter f (Def.free_vars def)
     in
       BatEnum.iter (fun (b, v) -> begin print_endline (String.concat "" [(Def.show v);":"]);
                                         iter_vars v(*;
-                                        print_endline (Domain.show
-                                         (Test.single_src query main v))*)
+                                        let d = LSA.single_src query main v in
+                                          print_endline (Domain.show d)*)
                                   end)
                    (Interproc.RG.vertices rg);
       flush stdout
     end
   | _      -> assert false
+end
+                   *)
+
+let analyze file = 
+  let dra = Datarace.init file in
+  let f def = 
+    let g v = print_endline ((Var.show v) ^ " :: " ^ (string_of_bool (Datarace.may_race dra v def)))
+    in
+      print_endline (Def.show def);
+      Var.Set.iter g (Def.free_vars def)
+  in
+    List.iter (fun func -> CfgIr.Cfg.iter_vertex f func.cfg) file.funcs
 
 let _ =
   CmdLine.register_pass
