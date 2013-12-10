@@ -11,8 +11,8 @@ module type Predicate = sig
 end
 
 (* Lock Logic. acq tracks acuires that definitely have not been released, rel
- * tracks release that may not have been re-acquired. Negation is also a hack to
- * computer lockset intersections using mul *)
+ * tracks release that may not have been re-acquired. Negation is a hack to
+ * test satisfiability of eqs1 ^ eqs2 ^ acq1 \cap acq2 \neq 0 through mul *)
 module LockPred = struct
   type parity = Pos | Neg deriving(Show,Compare)
   type var = Var.t
@@ -193,6 +193,7 @@ module FM = struct
 end
 
 (* Domain for the data race analysis *)
+(* TODO: Fix propagation of sequential facts to thread entries *)
 module Domain = struct
   type var = Var.t
   type t = { lp : LockPath.t;
@@ -256,22 +257,18 @@ module Datarace = struct
     | AddrOf     (Variable (func, voff)) -> func
     | _  -> failwith "Lock Logic: Called/Forked expression not a function"
 
-  let fork_classify d = match d.dkind with
-    | Builtin (Fork (vo, e, elst)) -> Some (get_func e)
-    | _                            -> None
-
-  let weight fmap sums def = 
+  (* The weight function needs a map from initial nodes to a list of fork
+   * points, a hash table of summaries, and a weight function for lockpath *)
+  let weight fmap sums wt def = 
     let fpoints = try Def.HT.find_all fmap def
-    with Not_found -> []
+                  with Not_found -> []
     in
     let lsum = 
       let f a (b, v) =
-        let summary = try LSA.HT.find sums b
-        with Not_found -> zero 
-        in
-        let lval = try FM.M.find v summary.frk with Not_found -> PD.bot
-        in
-          PD.join a lval
+        try let summary = LSA.HT.find sums b in
+            let lval = FM.M.find v summary.frk in
+              PD.join a lval
+        with Not_found -> a
       in
         (List.fold_left f PD.bot fpoints, PD.bot)
     in
@@ -290,37 +287,19 @@ module Datarace = struct
                 con = (PD.bot, PD.join summary.seq (snd summary.con));
                 frk = FM.M.add def PD.bot FM.M.empty }
         | Assign (v, e) -> 
-            let l = LockPath.weight def in
+            let l = wt def in
               { lp = l;
                 seq = PD.M.add v l PD.M.empty;
                 con = (PD.bot, PD.bot);
                 frk = FM.bot }
-        | _ -> { lp = LockPath.weight def;
+        | _ -> { lp = wt def;
                  seq = PD.bot;
                  con = lsum;
                  frk = FM.bot }
-
+  (* Shortcut *)
   let weight_t t = weight (t.fmap) (LSA.get_summaries t.query)
 
-               (*
-let may_race v d =
-  try 
-    let defs = PD.M.find v (PD.join (fst d.Domain.con) (snd d.Domain.con)) in
-    let fold_con seq_path con_path acc =
-      let l = LockPath.Minterm.get_pred seq_path in
-      let l' = LockPath.Minterm.get_pred con_path in
-        (* We check the intersection. Likely the correct thing to do is check
-         * whether the intersection of the relevant equivalence classes
-         * is empty *)
-        acc || AP.Set.is_empty (AP.Set.inter l.LockPred.acq l'.LockPred.acq)
-    in
-    let fold_seq seq_path acc = acc ||
-      LockPath.fold_minterms (fold_con seq_path) defs false
-    in
-      LockPath.fold_minterms fold_seq d.Domain.lp false
-  with Not_found -> false
-                *)
-
+  (* Test whether a use of v at def may race *)
   let may_race_help t p v = 
       try 
         let defs = PD.M.find v (PD.join (fst p.con) (snd p.con)) in
@@ -341,11 +320,12 @@ let may_race v d =
         in
           LockPath.fold_minterms fold_seq p.lp false
       with Not_found -> false
-
   let may_race t v def = may_race_help t (LSA.single_src t.query t.root def) v
 
+  (* Given wt, a transition formula over lock logic and some predicates,
+   * construct a stabilized transition formula *)
   let stabilise t wt def =
-    let d = weight_t t def in
+    let d = weight_t t LockPath.weight def in
     let p = LSA.single_src t.query t.root def in
     let pd = mul p d in
     let gen_eq p v acc = 
@@ -364,6 +344,8 @@ let may_race v d =
         LockPath.of_minterm frame (LockPath.Minterm.make eqs LockPred.unit)
     in
       LockPath.mul pre (LockPath.mul (wt def) post)
+
+  let stabilizer t = weight_t t (stabilise t LockPath.weight)
 
   let init file =
     match file.entry_points with
@@ -387,101 +369,46 @@ let may_race v d =
                      (Varinfo.Set.of_enum (BatEnum.append (BatList.enum func.formals)
                                                           (BatList.enum func.locals)))
         in fun (x, _) -> (Varinfo.Set.mem x vars) in
-      let add_fork_edges q =
-        let f (b, v) = match fork_classify v with
-          | Some b' -> LSA.add_callgraph_edge q b' b
-          | None    -> ()
+      (* Generate an instance by*)
+      let instance =
+        (* Adds edges to the callgraph for each fork. Shouldn't really have to do
+         * this every time a new query is made *)
+        let add_fork_edges q =
+          let f (b, v) = match v.dkind with
+            | Builtin (Fork (vo, e, elst)) -> LSA.add_callgraph_edge q (get_func e) b
+            | _ -> ()
+          in
+            BatEnum.iter f (Interproc.RG.vertices rg)
         in
-          BatEnum.iter f (Interproc.RG.vertices rg)
-      in
-      let sum_eq sum1 sum2 = 
-        let f k v s = s && List.exists (Domain.equal v) (LSA.HT.find_all sum1 k) in
-          LSA.HT.fold f sum2 true in
-      let rec iter_query old_query = 
-        let new_query = LSA.mk_query rg (weight fmap (LSA.get_summaries old_query)) 
-                                     local main
+        let eq sum1 sum2 = 
+          let f k v s = s && List.exists (Domain.equal v) (LSA.HT.find_all sum1 k) in
+            LSA.HT.fold f sum2 true
         in
-          begin
-            add_fork_edges new_query;
-            LSA.compute_summaries new_query;
-            if sum_eq (LSA.get_summaries old_query) (LSA.get_summaries new_query)
-              then new_query
-              else iter_query new_query 
-          end
+        let rec iter_instance old_instance = 
+          let new_instance = { old_instance with query = 
+                                 LSA.mk_query rg (stabilizer old_instance) local main }
+          in
+            begin
+              add_fork_edges new_instance.query;
+              LSA.compute_summaries new_instance.query;
+              if eq (LSA.get_summaries old_instance.query) (LSA.get_summaries new_instance.query)
+              then new_instance
+              else iter_instance new_instance
+            end
+        in
+        let initial = (LSA.mk_query rg (weight fmap 
+                                               (LSA.HT.create 0) 
+                                               LockPath.weight)
+                                       local main)
+        in
+          add_fork_edges initial;
+          LSA.compute_summaries initial;
+          iter_instance { query = initial; fmap = fmap; root = main }
       in
-      let initial = (LSA.mk_query rg (weight fmap (LSA.HT.create 0)) local main) in
-        add_fork_edges initial;
-        LSA.compute_summaries initial;
-        { query = iter_query initial; fmap = fmap; root = main }
+        instance
       end
     | _      -> assert false
 end
-
-                  (*
-let analyze file =
-  match file.entry_points with
-  | [main] -> begin
-    let rg = Interproc.make_recgraph file in
-    let fmap = 
-      let ht = Def.HT.create 32 in
-      let f (b, v) = match v.dkind with
-        | Builtin (Fork (vo, e, elst)) -> Def.HT.add ht (Interproc.RG.block_entry rg (get_func e)) (b, v)
-        | _ -> ()
-      in 
-        begin
-          BatEnum.iter f (Interproc.RG.vertices rg);
-          ht
-        end
-    in
-    let local func_name =
-      let func = lookup_function func_name (get_gfile()) in
-      let vars = Varinfo.Set.remove (return_var func_name)
-                   (Varinfo.Set.of_enum (BatEnum.append (BatList.enum func.formals)
-                                                        (BatList.enum func.locals)))
-      in fun (x, _) -> (Varinfo.Set.mem x vars) in
-    let add_fork_edges q =
-      let f (b, v) = match fork_classify v with
-        | Some b' -> LSA.add_callgraph_edge q b' b
-        | None    -> ()
-      in
-        BatEnum.iter f (Interproc.RG.vertices rg)
-    in
-    let sum_eq sum1 sum2 = 
-      let f k v s = s && List.exists (Domain.equal v) (LSA.HT.find_all sum1 k) in
-        LSA.HT.fold f sum2 true in
-    let rec iter_query old_query = 
-      let new_query = LSA.mk_query rg (weight fmap (LSA.get_summaries old_query)) local main in
-        begin
-          add_fork_edges new_query;
-          LSA.compute_summaries new_query;
-          if sum_eq (LSA.get_summaries old_query) (LSA.get_summaries new_query)
-            then new_query
-            else iter_query new_query 
-        end in
-    let query =
-      let q = (LSA.mk_query rg (weight fmap (LSA.HT.create 0)) local main) in
-        begin
-          add_fork_edges q;
-          LSA.compute_summaries q;
-          iter_query q
-        end in
-    let iter_vars def =
-      let f v = print_endline ((Var.show v) ^ " :: " 
-                            ^ (string_of_bool (may_race v (LSA.single_src query main def))))
-      in
-        Var.Set.iter f (Def.free_vars def)
-    in
-      BatEnum.iter (fun (b, v) -> begin print_endline (String.concat "" [(Def.show v);":"]);
-                                        iter_vars v(*;
-                                        let d = LSA.single_src query main v in
-                                          print_endline (Domain.show d)*)
-                                  end)
-                   (Interproc.RG.vertices rg);
-      flush stdout
-    end
-  | _      -> assert false
-end
-                   *)
 
 let analyze file = 
   let dra = Datarace.init file in
