@@ -4,6 +4,9 @@ open Core
 open CfgIr
 open Apak
 
+(* TODO: Address of generates no equality *)
+(* TODO: Fix propagation of sequential facts to thread entries *)
+(* TODO: Fix computation of paths to vertices in forked threads *)
 (* -----------------Domains *)
 module type Predicate = sig
   include EqLogic.Hashed.Predicate
@@ -68,19 +71,18 @@ module LockPred = struct
       (AP.Set.for_all (fun k -> AP.Set.mem k y_sub.acq) x.acq) &&
       (AP.Set.for_all (fun k -> AP.Set.mem k x.rel) y_sub.rel)
 
-  let pred_weight def = match def.dkind with
-    | Builtin (Acquire (AccessPath ap)) -> { par = Pos;
-                                             acq = AP.Set.singleton (Deref (AccessPath ap));
-                                             rel = AP.Set.empty }
-    | Builtin (Acquire (AddrOf ap)) -> { par = Pos;
-                                         acq = AP.Set.singleton ap;
-                                         rel = AP.Set.empty }
-    | Builtin (Release (AccessPath ap)) -> { par = Pos;
-                                              acq = AP.Set.empty;
-                                             rel = AP.Set.singleton (Deref (AccessPath ap)) }
-    | Builtin (Release (AddrOf ap)) -> { par = Pos;
-                                         acq = AP.Set.empty;
-                                         rel = AP.Set.singleton ap }
+  let pred_weight def =
+    let get_deref e = match e with 
+      | AccessPath ap -> AP.Set.singleton (Deref (AccessPath ap))
+      | AddrOf     ap -> AP.Set.singleton ap
+      | _             -> AP.Set.empty
+    in match def.dkind with
+    | Builtin (Acquire e) -> { par = Pos;
+                               acq = get_deref e;
+                               rel = AP.Set.empty }
+    | Builtin (Release e) -> { par = Pos;
+                               acq = AP.Set.empty;
+                               rel = get_deref e }
     | _ -> unit
 end
 
@@ -96,32 +98,46 @@ module MakePath (P : Predicate with type var = Var.t) = struct
     let pw = P.pred_weight def in
     let weight_builtin bi = match bi with
       | Acquire e -> begin match e with
-          | AccessPath ap  -> assume hack (AP.free_vars ap) pw
+          | AccessPath ap 
           | AddrOf ap      -> assume hack (AP.free_vars ap) pw
           | _              -> failwith ("Lock logic: Acquired non-access path: " ^ (Def.show def))
         end
       | Release e -> begin match e with
-          | AccessPath ap  -> assume hack (AP.free_vars ap) pw
+          | AccessPath ap 
           | AddrOf ap      -> assume hack (AP.free_vars ap) pw
           | _              -> failwith ("Lock logic: Released non-access path: " ^ (Def.show def))
         end
       | Alloc (v, e, targ) -> assign (Variable v) (Havoc (Var.get_type v)) pw
-      | Free e             -> one
-      | Fork (vo, e, elst) -> one
-      | AtomicBegin        -> one
+      | Free _             
+      | Fork (_, _, _)
+      | AtomicBegin       
       | AtomicEnd          -> one
       | Exit               -> zero
     in match def.dkind with
       | Assign (v, e)        -> assign (Variable v) e pw
       | Store  (a, e)        -> assign a e pw
       | Call   (vo, e, elst) -> failwith "Lock logic: Call encountered"
-      | Assume be            -> assume be (Bexpr.free_vars be) pw
-      | Assert (be, s)       -> assume be (Bexpr.free_vars be) pw
+      | Assume be          
+      | Assert (be, _)       -> assume be (Bexpr.free_vars be) pw
       | AssertMemSafe (e, s) -> assume (Bexpr.of_expr e) (Expr.free_vars e) pw
       | Initial              -> one 
       | Return eo            -> failwith "Lock logic: Return encountered"
       | Builtin bi -> weight_builtin bi
 end
+
+module LockPath = MakePath(LockPred)
+
+(* zero all locksets in a transition formula *)
+let zero_locks lp =
+  let lp_frame = LockPath.get_frame lp in
+  let make_minterm mt = 
+    LockPath.Minterm.make (LockPath.Minterm.get_eqs mt) LockPred.unit
+  in
+  let add_minterm mt  = 
+    LockPath.add (LockPath.of_minterm lp_frame (make_minterm mt))
+  in
+    LockPath.fold_minterms add_minterm lp LockPath.zero
+
 
 module Mapped (Key : Putil.CoreType) (Value : Putil.Ordered) = struct
   module M = Key.Map
@@ -152,19 +168,6 @@ module Mapped (Key : Putil.CoreType) (Value : Putil.Ordered) = struct
     M.merge f a b
 end
 
-module LockPath = MakePath(LockPred)
-
-(* zero all locksets in a transition formula *)
-let zero_locks lp =
-  let lp_frame = LockPath.get_frame lp in
-  let make_minterm mt = 
-    LockPath.Minterm.make (LockPath.Minterm.get_eqs mt) LockPred.unit
-  in
-  let add_minterm mt  = 
-    LockPath.add (LockPath.of_minterm lp_frame (make_minterm mt))
-  in
-    LockPath.fold_minterms add_minterm lp LockPath.zero
-
 (* Protected Definitions *)
 module PD = struct
   include Mapped(Var)(LockPath)
@@ -193,7 +196,6 @@ module FM = struct
 end
 
 (* Domain for the data race analysis *)
-(* TODO: Fix propagation of sequential facts to thread entries *)
 module Domain = struct
   type var = Var.t
   type t = { lp : LockPath.t;
@@ -248,9 +250,6 @@ module Datarace = struct
   module LSA = Interproc.MakePathExpr(Domain)
   open Domain
 
-  type t = { query : LSA.query;
-             fmap  : (Interproc.RG.block * Interproc.RG.atom) Def.HT.t;
-             root  : Interproc.RG.block }
 
   let get_func e = match Expr.strip_all_casts e with
     | AccessPath (Variable (func, voff)) -> func
@@ -258,10 +257,13 @@ module Datarace = struct
     | _  -> failwith "Lock Logic: Called/Forked expression not a function"
 
   (* The weight function needs a map from initial nodes to a list of fork
-   * points, a hash table of summaries, and a weight function for lockpath *)
+   * points (to pass definitions from parent to child), a hash table of 
+   * summaries (to pass definitions from a child to a parent), and a weight
+   * function for lockpath (so that the equality logic can be stabilized *)
   let weight fmap sums wt def = 
-    let fpoints = try Def.HT.find_all fmap def
-                  with Not_found -> []
+    let fpoints =
+      try Def.HT.find_all fmap def
+      with Not_found -> []
     in
     let lsum = 
       let f a (b, v) =
@@ -279,8 +281,9 @@ module Datarace = struct
               with Not_found -> zero
             end
         | Builtin (Fork (vo, e, elst)) -> 
-            let summary = try LSA.HT.find sums (get_func e)
-            with Not_found -> zero 
+            let summary =
+              try LSA.HT.find sums (get_func e)
+              with Not_found -> zero 
             in
               { lp = LockPath.one; 
                 seq = PD.bot;
@@ -296,56 +299,54 @@ module Datarace = struct
                  seq = PD.bot;
                  con = lsum;
                  frk = FM.bot }
-  (* Shortcut *)
-  let weight_t t = weight (t.fmap) (LSA.get_summaries t.query)
 
-  (* Test whether a use of v at def may race *)
-  let may_race_help t p v = 
-      try 
-        let defs = PD.M.find v (PD.join (fst p.con) (snd p.con)) in
-        let sub  = LockPath.Minterm.subst (fun x -> if Var.get_subscript x = 1
-                                                    then Var.subscript x 3
-                                                    else x)
+  let may_race path v = 
+    try 
+      let defs = PD.M.find v (PD.join (fst path.con) (snd path.con)) in
+      let sub  = LockPath.Minterm.subst (fun x -> if Var.get_subscript x = 1
+                                                  then Var.subscript x 3
+                                                  else x)
+      in
+      let fold_con seq_path con_path acc =
+        let con_path' = sub
+          (LockPath.Minterm.make (LockPath.Minterm.get_eqs con_path)
+                                 (LockPred.neg (LockPath.Minterm.get_pred con_path)))
         in
-        let fold_con seq_path con_path acc =
-          let con_path' = sub
-            (LockPath.Minterm.make (LockPath.Minterm.get_eqs con_path)
-                                   (LockPred.neg (LockPath.Minterm.get_pred con_path)))
-          in
-          let l = LockPath.Minterm.get_pred (LockPath.Minterm.mul seq_path con_path') in
-            acc || AP.Set.is_empty l.LockPred.acq
-        in
-        let fold_seq seq_path acc = 
-          acc || LockPath.fold_minterms (fold_con seq_path) defs false
-        in
-          LockPath.fold_minterms fold_seq p.lp false
-      with Not_found -> false
-  let may_race t v def = may_race_help t (LSA.single_src t.query t.root def) v
+        let l = LockPath.Minterm.get_pred (LockPath.Minterm.mul seq_path con_path') in
+          acc || AP.Set.is_empty l.LockPred.acq
+      in
+      let fold_seq seq_path acc = 
+        acc || LockPath.fold_minterms (fold_con seq_path) defs false
+      in
+        LockPath.fold_minterms fold_seq path.lp false
+    with Not_found -> false
+
+  let find_all_races query vlst =
+    let ht = Def.HT.create 32 in
+    let f (block, def, path) =
+      let races = Var.Set.filter (fun v -> may_race path v) vlst
+      in
+        Def.HT.add ht def races
+    in
+      BatEnum.iter f (LSA.enum_single_src query);
+      ht
 
   (* Given wt, a transition formula over lock logic and some predicates,
    * construct a stabilized transition formula *)
-  let stabilise t wt def =
-    let d = weight_t t LockPath.weight def in
-    let p = LSA.single_src t.query t.root def in
-    let pd = mul p d in
-    let gen_eq p v acc = 
-      if may_race_help t p v
-      then acc
-      else ((Var.subscript v 1, Var.subscript v 0)::acc)
-    in
+  let stabilise races wt def =
     let pre =
-      let frame = LockPath.get_frame p.lp in
-      let eqs = Var.Set.fold (gen_eq p) frame [] in
-        LockPath.of_minterm frame (LockPath.Minterm.make eqs LockPred.unit)
+      let frame = try Def.HT.find races def with Not_found -> Var.Set.empty in
+        LockPath.of_minterm frame (LockPath.Minterm.make [] LockPred.unit)
     in
     let post =
-      let frame = LockPath.get_frame pd.lp in
-      let eqs = Var.Set.fold (gen_eq pd) frame [] in
-        LockPath.of_minterm frame (LockPath.Minterm.make eqs LockPred.unit)
+      let frame = try Def.HT.find races def with Not_found -> Var.Set.empty in
+        LockPath.of_minterm frame (LockPath.Minterm.make [] LockPred.unit)
     in
       LockPath.mul pre (LockPath.mul (wt def) post)
 
-  let stabilizer t = weight_t t (stabilise t LockPath.weight)
+  let eq_races r1 r2 = 
+    let f k v s = s && List.exists (Var.Set.equal v) (Def.HT.find_all r1 k) in
+      Def.HT.fold f r2 true
 
   let init file =
     match file.entry_points with
@@ -368,48 +369,65 @@ module Datarace = struct
         let vars = Varinfo.Set.remove (return_var func_name)
                      (Varinfo.Set.of_enum (BatEnum.append (BatList.enum func.formals)
                                                           (BatList.enum func.locals)))
-        in fun (x, _) -> (Varinfo.Set.mem x vars) in
-      (* Generate an instance by*)
-      let instance =
-        (* Adds edges to the callgraph for each fork. Shouldn't really have to do
-         * this every time a new query is made *)
-        let add_fork_edges q =
-          let f (b, v) = match v.dkind with
-            | Builtin (Fork (vo, e, elst)) -> LSA.add_callgraph_edge q (get_func e) b
-            | _ -> ()
+        in
+          fun (x, _) -> (Varinfo.Set.mem x vars)
+      in
+      (* Adds edges to the callgraph for each fork. Shouldn't really have to do
+       * this every time a new query is made *)
+      let add_fork_edges q =
+        let f (b, v) = match v.dkind with
+          | Builtin (Fork (vo, e, elst)) -> LSA.add_callgraph_edge q (get_func e) b
+          | _ -> ()
+        in
+          BatEnum.iter f (Interproc.RG.vertices rg)
+      in
+      let compute_races races =
+        let l_weight = stabilise races LockPath.weight in
+        let rec iter_query old_query = 
+          let eq sum1 sum2 = 
+            let f k v s = s && List.exists (Domain.equal v) (LSA.HT.find_all sum1 k) in
+              LSA.HT.fold f sum2 true
           in
-            BatEnum.iter f (Interproc.RG.vertices rg)
-        in
-        let eq sum1 sum2 = 
-          let f k v s = s && List.exists (Domain.equal v) (LSA.HT.find_all sum1 k) in
-            LSA.HT.fold f sum2 true
-        in
-        let rec iter_instance old_instance = 
-          let new_instance = { old_instance with query = 
-                                 LSA.mk_query rg (stabilizer old_instance) local main }
+          let new_query = 
+            LSA.mk_query rg (weight fmap (LSA.get_summaries old_query) l_weight)
+              local main
           in
             begin
-              add_fork_edges new_instance.query;
-              LSA.compute_summaries new_instance.query;
-              if eq (LSA.get_summaries old_instance.query) (LSA.get_summaries new_instance.query)
-              then new_instance
-              else iter_instance new_instance
+              add_fork_edges new_query;
+              LSA.compute_summaries new_query;
+              if eq (LSA.get_summaries old_query) 
+                    (LSA.get_summaries new_query)
+              then new_query
+              else iter_query new_query
             end
         in
-        let initial = (LSA.mk_query rg (weight fmap 
-                                               (LSA.HT.create 0) 
-                                               LockPath.weight)
-                                       local main)
+        let initial =
+          LSA.mk_query rg (weight fmap (LSA.HT.create 0) l_weight) local main
         in
           add_fork_edges initial;
           LSA.compute_summaries initial;
-          iter_instance { query = initial; fmap = fmap; root = main }
+          find_all_races (iter_query initial) 
+            (List.fold_left (fun acc -> fun vi -> Var.Set.add (Var.mk vi) acc) Var.Set.empty file.vars)
       in
-        instance
+      let rec fp_races old_races =
+        let new_races = compute_races old_races in
+        let f def v = print_endline ((Def.show def) ^ " --> " ^ (Var.Set.show v)) in
+         (* Def.HT.iter f new_races;*)
+          if eq_races old_races new_races then new_races
+                                          else fp_races new_races
+      in
+      let init_races = 
+        let ht = Def.HT.create 32 in
+          List.iter (fun func -> 
+            CfgIr.Cfg.iter_vertex (fun def -> Def.HT.add ht def Var.Set.empty) func.cfg)
+          file.funcs;
+          ht
+      in
+        fp_races init_races
       end
     | _      -> assert false
 end
-
+(*
 let analyze file = 
   let dra = Datarace.init file in
   let f def = 
@@ -419,6 +437,11 @@ let analyze file =
       Var.Set.iter g (Def.free_vars def)
   in
     List.iter (fun func -> CfgIr.Cfg.iter_vertex f func.cfg) file.funcs
+ *)
+let analyze file = 
+  let dra = Datarace.init file in
+  let f def v = print_endline ((Def.show def) ^ " --> " ^ (Var.Set.show v)) in
+    Def.HT.iter f dra
 
 let _ =
   CmdLine.register_pass
