@@ -56,6 +56,7 @@ module type Formula = sig
   val symbolic_bounds : (T.V.t -> bool) -> t -> T.t -> (pred * T.t) list
   val linearize : (unit -> T.V.t) -> t -> t
   val symbolic_abstract : (T.t list) -> t -> (QQ.t option * QQ.t option) list
+  val disj_optimize : (T.t list) -> t -> (QQ.t option * QQ.t option) list list
 
   module Syntax : sig
     val ( && ) : t -> t -> t

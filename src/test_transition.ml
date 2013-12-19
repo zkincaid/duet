@@ -83,9 +83,38 @@ let counter =
      (2, Assume (K.F.geq (var "i") (var "n")), 4)]      (* [i >= n] *)
   in
   mk_graph edges
+
 let test_counter () =
   let phi = (Smt.mk_eq (StrVar.to_smt "i'") (StrVar.to_smt "n")) in
   run_test counter 0 4 phi Smt.Unsat
+
+let set_opt_simple () =
+  let open K in
+  opt_higher_recurrence := true;
+  opt_disjunctive_recurrence_eq := true;
+  opt_recurrence_ineq := false;
+  opt_higher_recurrence_ineq := false;
+  opt_unroll_loop := true;
+  opt_loop_guard := false
+
+let set_opt_const_bound () =
+  let open K in
+  opt_higher_recurrence := true;
+  opt_disjunctive_recurrence_eq := false;
+  opt_recurrence_ineq := true;
+  opt_higher_recurrence_ineq := false;
+  opt_unroll_loop := false;
+  opt_loop_guard := true
+
+let set_opt_sym_bound () =
+  let open K in
+  opt_higher_recurrence := true;
+  opt_disjunctive_recurrence_eq := false;
+  opt_higher_recurrence_ineq := true;
+  opt_recurrence_ineq := false;
+  opt_unroll_loop := true;
+  opt_loop_guard := false
+
 
 (* from sv-comp13/loops/count_up_down_safe *)
 let count_up_down_safe =
@@ -106,6 +135,7 @@ let count_up_down_safe =
   mk_graph edges
 let test_count_up_down_safe () =
   let phi = Smt.mk_eq (StrVar.to_smt "y'") (StrVar.to_smt "n") in
+  set_opt_simple ();
   run_test count_up_down_safe 0 6 phi Smt.Unsat
 
 (* from sv-comp13/loops/sum01_safe *)
@@ -131,6 +161,7 @@ let test_sum01_safe () =
     (~$ "sn'") == ((~$ "n") * (~@ 2))
     || (~$ "sn'") == (~@ 0)
   in
+  set_opt_simple ();
   run_test sum01_safe 0 5 phi Smt.Unsat
 
 (* from sv-comp13/loops/sum01_unsafe *)
@@ -161,6 +192,7 @@ let test_sum01_unsafe () =
     (~$ "sn'") == ((~$ "n") * (~@ 2))
     || (~$ "sn'") == (~@ 0)
   in
+  set_opt_simple ();
   run_test sum01_unsafe 0 5 phi Smt.Sat
 
 (* from sv-comp13/loops/sum02_safe *)
@@ -188,6 +220,7 @@ let test_sum02_safe () =
   let phi =
     (sn == (((n * n) / (~@ 2)) + (n / (~@ 2)))) || i == (~@ 0)
   in
+  set_opt_simple ();
   run_test sum02_safe 0 5 phi Smt.Unsat
 
 
@@ -213,6 +246,7 @@ let test_sum03_safe () =
   (* this disjunt appears in sum03_safe, but isn't needed *)
   (*    || (~$ "sn'") == (~@ 0)*)
   in
+  set_opt_simple ();
   run_test sum03_safe 0 4 phi Smt.Unsat
 
 (* from sv-comp13/loops/sum03_unsafe *)
@@ -241,6 +275,7 @@ let test_sum03_unsafe () =
     (~$ "sn'") == ((~$ "x'") * (~@ 2))
     || (~$ "sn'") == (~@ 0)
   in
+  set_opt_simple ();
   run_test sum03_unsafe 0 5 phi Smt.Sat
 
 let third_order_safe =
@@ -269,13 +304,13 @@ let test_third_order_safe () =
 		    + (((~$ "n")*(~$ "n")*(~$ "n")) / (~@ 6)))
     || (~$ "ssn'") == (~@ 0)
   in
+  set_opt_simple ();
   run_test third_order_safe 0 7 phi Smt.Unsat
 
 module SymBound = struct
-  module K = Transition.MakeSymBound(StrVar)
-  module A = Pathexp.MakeElim(G)(K)
   module T = K.T
   module F = K.F
+
   let frac x y = K.T.const (QQ.of_frac x y)
   let var x = K.T.var (K.V.mk_var x)
   let block = BatList.reduce K.mul
@@ -285,6 +320,7 @@ module SymBound = struct
   let test_const_bounds () =
     let open K.T.Syntax in
     let open K.F.Syntax in
+    set_opt_sym_bound ();
     let (~@) x = ~@ (QQ.of_int x) in
     let rx = var "rx" in
     let ry = var "ry" in
@@ -317,6 +353,7 @@ module SymBound = struct
   let test_symbolic_bounds () =
     let open K.T.Syntax in
     let open K.F.Syntax in
+    set_opt_sym_bound ();
     let (~@) x = ~@ (QQ.of_int x) in
     let rx = var "rx" in
     let rt = var "rt" in
@@ -355,8 +392,8 @@ module SymBound = struct
 end
 
 module Bound = struct
-  module K = Transition.MakeBound(StrVar)
-  module A = Pathexp.MakeElim(G)(K)
+(*  module K = Transition.MakeBound(StrVar)*)
+(*  module A = Pathexp.MakeElim(G)(K)*)
   module T = K.T
   module F = K.F
   let frac x y = K.T.const (QQ.of_frac x y)
@@ -368,6 +405,7 @@ module Bound = struct
   let test_const_bounds () =
     let open K.T.Syntax in
     let open K.F.Syntax in
+    set_opt_const_bound ();
     let (~@) x = ~@ (QQ.of_int x) in
     let rx = var "rx" in
     let ry = var "ry" in
@@ -387,6 +425,7 @@ module Bound = struct
     let s = new Smt.solver in
     s#assrt (K.to_smt prog);
     Log.logf Log.info "Formula: %a" K.format prog;
+    Log.logf Log.info "Smt: %s" (Smt.ast_to_string (K.to_smt prog));
     let check phi expected =
       s#push ();
       s#assrt (Smt.mk_not (F.to_smt phi));
@@ -403,6 +442,7 @@ module Bound = struct
   let test_nested () =
     let open K.T.Syntax in
     let open K.F.Syntax in
+    set_opt_const_bound ();
     let (~@) x = ~@ (QQ.of_int x) in
     let rx = var "rx" in
     let ry = var "ry" in
@@ -441,6 +481,7 @@ module Bound = struct
   let test_nested_unbounded () =
     let open K.T.Syntax in
     let open K.F.Syntax in
+    set_opt_const_bound ();
     let (~@) x = ~@ (QQ.of_int x) in
     let rx = var "rx" in
     let ry = var "ry" in
@@ -484,12 +525,14 @@ let suite = "Induction" >:::
     "count_up_down_safe" >:: test_count_up_down_safe;
     "sum01_safe" >:: test_sum01_safe;
     "sum01_unsafe" >:: test_sum01_unsafe;
+
 (*    "sum02_safe" >:: test_sum02_safe;*)
     (* sum02_unsafe does not exist *)
     "sum03_safe" >:: test_sum03_safe;
     "sum03_unsafe" >:: test_sum03_unsafe;
     (* sum04_safe is boring *)
 (*    "third_order_safe" >:: test_third_order_safe;*)
+
     "symbound_const" >:: SymBound.test_const_bounds;
     "symbound_symbolic" >:: SymBound.test_symbolic_bounds;
     "bound_const" >:: Bound.test_const_bounds;
