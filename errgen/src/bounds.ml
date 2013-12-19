@@ -16,7 +16,15 @@ module StrVar = struct
   let typ _ = TyReal
 end
 
-module K = Transition.MakeBound(StrVar) (* Transition PKA *)
+module K = Transition.Make(StrVar) (* Transition PKA *)
+
+let _ =
+  K.opt_higher_recurrence := false;
+  K.opt_disjunctive_recurrence_eq := false;
+  K.opt_recurrence_ineq := true;
+  K.opt_unroll_loop := false;
+  K.opt_loop_guard := true
+
 module F = K.F (* Formulae *)
 module T = K.T (* Terms *)
 module V = K.V
