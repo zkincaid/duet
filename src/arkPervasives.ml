@@ -171,3 +171,7 @@ module type Var = sig
   include Putil.Ordered
   val typ : t -> typ
 end
+
+type 'a affine =
+| AVar of 'a
+| AConst
