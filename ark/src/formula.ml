@@ -10,7 +10,7 @@ module type FormulaBasis = sig
   include Putil.Hashed.S with type t := t
   include Putil.OrderedMix with type t := t
 
-  module T : Term.Term
+  module T : Term.S
 
   val eval : ('a,T.t) formula_algebra -> t -> 'a
   val view : t -> (t, T.t) open_formula
@@ -69,7 +69,7 @@ module type Formula = sig
   end
 end
 
-module MakeHashconsedBasis (T : Term) : FormulaBasis with module T = T = struct
+module MakeHashconsedBasis (T : Term.S) : FormulaBasis with module T = T = struct
   open Hashcons
 
   module F = struct
@@ -280,7 +280,7 @@ module MakeHashconsedBasis (T : Term) : FormulaBasis with module T = T = struct
     Log.logf 0 "Max bucket:\t%d" max
 end
 
-module MakeBasis (T : Term) : FormulaBasis with module T = T =
+module MakeBasis (T : Term.S) : FormulaBasis with module T = T =
 struct
 
   module rec F : sig
@@ -911,7 +911,7 @@ module Defaults (F : FormulaBasis) = struct
   module V = T.V
   module A = Linear.Affine(V)
   module AMap = BatMap.Make(A)
-  module AffineTerm = Linear.Defaults(Linear.Expr.Make(A)(QQ))
+  module AffineTerm = Linear.Expr.Make(A)(QQ)
 
   let linterm_smt = AffineTerm.to_smt A.to_smt Smt.const_qq
 
@@ -919,18 +919,18 @@ module Defaults (F : FormulaBasis) = struct
       and is defined over the variables [vars]. *)
   let extract_equalities_impl s vars =
     let zero = Smt.const_int 0 in
-    let const_var = A.to_smt A.AConst in
+    let const_var = A.to_smt AConst in
     let space = new Smt.solver in (* solution space for implied equalities *)
     let extract_linterm m =
       let f term v =
 	AffineTerm.add_term
-	  (A.AVar v)
+	  (AVar v)
 	  (m#eval_qq (V.to_smt v))
 	  term
       in
       let const_term =
 	AffineTerm.add_term
-	  A.AConst
+	  AConst
 	  (m#eval_qq const_var)
 	  AffineTerm.zero
       in
@@ -953,9 +953,9 @@ module Defaults (F : FormulaBasis) = struct
 	  s#pop ();
 	  let leading =
 	    let e =
-	      let f (x,y) = match A.get_var x with
-		| Some x -> Some (x,y)
-		| None -> None
+	      let f = function
+		| (AConst, _) -> None
+		| (AVar x, y) -> Some (x,y)
 	      in
 	      BatEnum.filter_map f (AffineTerm.enum candidate)
 	    in
@@ -1068,8 +1068,8 @@ module Defaults (F : FormulaBasis) = struct
       let f phi eq =
 	let g (v, coeff) =
 	  match v with
-	  | A.AVar v -> T.mul (T.var v) (T.const coeff)
-	  | A.AConst -> T.const coeff
+	  | AVar v -> T.mul (T.var v) (T.const coeff)
+	  | AConst -> T.const coeff
 	in
 	conj phi (eqz (BatEnum.reduce T.add (AffineTerm.enum eq /@ g)))
       in
@@ -1110,8 +1110,8 @@ module Defaults (F : FormulaBasis) = struct
 	let f phi eq =
 	  let g (v, coeff) =
 	    match v with
-	    | A.AVar v -> T.mul (T.var v) (T.const coeff)
-	    | A.AConst -> T.const coeff
+	    | AVar v -> T.mul (T.var v) (T.const coeff)
+	    | AConst -> T.const coeff
 	  in
 	  conj phi (eqz (BatEnum.reduce T.add (AffineTerm.enum eq /@ g)))
 	in
@@ -1281,9 +1281,9 @@ end
 module MakeEq (F : Formula) = struct
   open F
   module V = T.V
-  module A = Linear.Affine(V)
+  module A = T.AffineVar
   module AMap = BatMap.Make(A)
-  module AffineTerm = Linear.Defaults(Linear.Expr.Make(A)(QQ))
+  module AffineTerm = T.Linterm
 
   let linterm_smt = AffineTerm.to_smt A.to_smt Smt.const_qq
 
@@ -1294,19 +1294,19 @@ module MakeEq (F : Formula) = struct
        don't want to extract_equalities_impl or AffineTerm to should up in the
        signature for Formula *)
     let zero = Smt.const_int 0 in
-    let const_var = A.to_smt A.AConst in
+    let const_var = A.to_smt AConst in
     let s = new Smt.solver in
     let space = new Smt.solver in (* solution space for implied equalities *)
     let extract_linterm m =
       let f term v =
 	AffineTerm.add_term
-	  (A.AVar v)
+	  (AVar v)
 	  (m#eval_qq (V.to_smt v))
 	  term
       in
       let const_term =
 	AffineTerm.add_term
-	  A.AConst
+	  AConst
 	  (m#eval_qq const_var)
 	  AffineTerm.zero
       in
@@ -1329,9 +1329,9 @@ module MakeEq (F : Formula) = struct
 	  s#pop ();
 	  let leading =
 	    let e =
-	      let f (x,y) = match A.get_var x with
-		| Some x -> Some (x,y)
-		| None -> None
+	      let f = function
+		| (AConst, _) -> None
+		| (AVar x, y) -> Some (x,y)
 	      in
 	      BatEnum.filter_map f (AffineTerm.enum candidate)
 	    in
@@ -1356,7 +1356,7 @@ module MakeEq (F : Formula) = struct
     go []
 end
 
-module MakeHashconsed (T : Term) : Formula with module T = T
+module MakeHashconsed (T : Term.S) : Formula with module T = T
   = Defaults(MakeHashconsedBasis(T))
-module Make (T : Term) : Formula with module T = T
+module Make (T : Term.S) : Formula with module T = T
   = Defaults(MakeBasis(T))

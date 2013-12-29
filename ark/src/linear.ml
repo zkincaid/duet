@@ -11,11 +11,15 @@ module type Var = sig
 end
 
 module Affine (V : Var) = struct
-  type t =
-  | AVar of V.t
-  | AConst
-      deriving (Compare)
-
+  type t = V.t affine
+  module Compare_t = struct
+    type a = t
+    let compare x y = match x,y with
+      | AVar x, AVar y -> V.compare x y
+      | AVar _, _ -> 1
+      | _, AVar _ -> -1
+      | AConst, AConst -> 0
+  end
   include Putil.MakeFmt(struct
     type a = t
     let format formatter = function
@@ -26,17 +30,14 @@ module Affine (V : Var) = struct
   let to_smt = function
     | AVar v -> V.to_smt v
     | AConst -> Smt.int_var "affine$const"
-  let get_var = function
-    | AVar v -> Some v
-    | AConst -> None
 end
 
 module type HVar = sig
   include Putil.Hashed.S
 end
 
-module Expr = struct
-  module type S = sig
+module Impl = struct
+  module type Basis = sig
     include Putil.S
 
     type dim
@@ -44,6 +45,7 @@ module Expr = struct
     val scalar_mul : base -> t -> t
     val add : t -> t -> t
     val sub : t -> t -> t
+    val negate : t -> t
     val equal : t -> t -> bool
     val zero : t
     val find : dim -> t -> base
@@ -53,13 +55,13 @@ module Expr = struct
     val min_binding : t -> (dim * base)
     val max_binding : t -> (dim * base)
     val enum_ordered : t -> (dim * base) BatEnum.t
-    val compare : (base -> base -> int) -> t -> t -> int
+    val var : dim -> t
   end
 
   module HMake (V : HVar) (R : Ring.S)
-    : S with type dim = V.t Hashcons.hash_consed
-	and type base = R.t
-	and type t = (V.t, R.t) Hmap.t =
+    : Basis with type dim = V.t Hashcons.hash_consed
+	    and type base = R.t
+	    and type t = (V.t, R.t) Hmap.t =
   struct
     type t = (V.t, R.t) Hmap.t
     type dim = V.t Hashcons.hash_consed
@@ -92,7 +94,9 @@ module Expr = struct
       if R.equal k R.one then lin
       else if is_zero k then Hmap.empty
       else Hmap.map (fun coeff -> R.mul k coeff) lin
+
     let negate = scalar_mul neg_one
+
     let add lin0 lin1 =
       let f _ a b =
 	match a, b with
@@ -103,8 +107,7 @@ module Expr = struct
 	| None, None -> assert false
       in
       Hmap.merge f lin0 lin1
-    let sub lin0 lin1 = add lin0 (negate lin1)
-
+    let sub lin0 lin1 = add lin0 (scalar_mul neg_one lin1)
     let find x m = try Hmap.find x m with Not_found -> R.zero
     let enum = Hmap.enum
     let of_enum = Hmap.of_enum
@@ -192,7 +195,48 @@ module Expr = struct
       end
     let compare = M.compare
   end
+end
 
+module Defaults (E : Impl.Basis) = struct
+  (** Transpose a system of linear equations.  The length of [rows] should
+      match length of [equations], and the variables each equation should be
+      all belong to the list [columns].  The result is a system of linear
+      equations over the row variables. *)
+  let transpose equations rows columns =
+    let column_sum column =
+      let terms =
+	BatEnum.combine
+	  (BatList.enum rows,
+	   (BatList.enum equations) /@ (E.find column))
+      in
+      let f term (lambda, coeff) = E.add_term lambda coeff term in
+      BatEnum.fold f E.zero terms
+    in
+    List.map column_sum columns
+
+  let to_smt dim_smt coeff_smt term =
+    let f t (dim, coeff) =
+      Smt.add t (Smt.mul (coeff_smt coeff) (dim_smt dim))
+    in
+    BatEnum.fold f (Smt.const_int 0) (E.enum term)
+end
+
+module Expr = struct
+  module type S = sig
+    include Impl.Basis
+    val to_smt : (dim -> Smt.ast) -> (base -> Smt.ast) -> t -> Smt.ast
+    val transpose : t list -> dim list -> dim list -> t list
+  end
+  module Make (V : Var) (R : Ring.S) = struct
+    module I = Impl.Make(V)(R)
+    include I
+    include Defaults(I)
+  end
+  module HMake (V : HVar) (R : Ring.S) = struct
+    module I = Impl.HMake(V)(R)
+    include I
+    include Defaults(I)
+  end
   (* Univariate polynomials with coefficients in R *)
   module MakePolynomial (R : Ring.S) = struct
 
@@ -204,6 +248,7 @@ module Expr = struct
     end
 
     module P = Make(IntDim)(R)
+    include Defaults(P)
     type base = P.base
     type dim = P.dim
     type t = P.t
@@ -292,6 +337,7 @@ module Expr = struct
 	  and type base = R.t =
     struct
       include HMake(V)(R)
+
       module Compare_t = struct
 	type a = t
 	let compare = Hmap.compare R.compare
@@ -315,7 +361,6 @@ module Expr = struct
       let equal = Hmap.equal R.equal
     end
   end
-
 end
 
 (* Gaussian elimination *)
@@ -394,30 +439,4 @@ struct
     fun x ->
       try E.find x map
       with Not_found -> F.zero
-end
-
-module Defaults (E : Expr.S) = struct
-  include E
-
-  (** Transpose a system of linear equations.  The length of [rows] should
-      match length of [equations], and the variables each equation should be
-      all belong to the list [columns].  The result is a system of linear
-      equations over the row variables. *)
-  let transpose equations rows columns =
-    let column_sum column =
-      let terms =
-	BatEnum.combine
-	  (BatList.enum rows,
-	   (BatList.enum equations) /@ (E.find column))
-      in
-      let f term (lambda, coeff) = E.add_term lambda coeff term in
-      BatEnum.fold f E.zero terms
-    in
-    List.map column_sum columns
-
-  let to_smt dim_smt coeff_smt term =
-    let f t (dim, coeff) =
-      Smt.add t (Smt.mul (coeff_smt coeff) (dim_smt dim))
-    in
-    BatEnum.fold f (Smt.const_int 0) (E.enum term)
 end

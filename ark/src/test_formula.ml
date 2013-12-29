@@ -14,7 +14,7 @@ module StrVar = struct
     | Z3.Symbol_int _ -> assert false
   let typ _ = TyReal
 end
-module T = Term.MakeHashconsed(StrVar)
+module T = Term.Make(StrVar)
 module F = Formula.MakeHashconsed(T)
 module FEq = Formula.MakeEq(F)
 

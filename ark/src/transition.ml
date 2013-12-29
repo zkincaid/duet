@@ -84,7 +84,7 @@ module Dioid (Var : Var) = struct
       | PVar v           -> Var.typ v
   end
 
-  module T = Term.MakeHashconsed(V)
+  module T = Term.Make(V)
   module F = Formula.MakeHashconsed(T)
   module M = Putil.MonoMap.Ordered.Make(Var)(T)
   module VarMemo = Memo.Make(Var)
