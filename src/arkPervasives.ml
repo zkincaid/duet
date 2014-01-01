@@ -152,12 +152,15 @@ type ('a,'b) open_term =
 
 type ('a,'b) term_algebra = ('a,'b) open_term -> 'a
 
+type 'a atom =
+| LeqZ of 'a
+| LtZ of 'a
+| EqZ of 'a
+
 type ('a,'b) open_formula =
 | OOr of 'a * 'a
 | OAnd of 'a * 'a
-| OLeqZ of 'b
-| OEqZ of 'b
-| OLtZ of 'b
+| OAtom of 'b
 
 type ('a,'b) formula_algebra = ('a,'b) open_formula -> 'a
 

@@ -85,7 +85,7 @@ module Dioid (Var : Var) = struct
   end
 
   module T = Term.Make(V)
-  module F = Formula.MakeHashconsed(T)
+  module F = Formula.Make(T)
   module M = Putil.MonoMap.Ordered.Make(Var)(T)
   module VarMemo = Memo.Make(Var)
   module VarSet = Putil.Set.Make(Var)
@@ -222,7 +222,8 @@ module Dioid (Var : Var) = struct
     let open Formula in
     let f = function
       | OOr (x,y) | OAnd (x,y) -> VarSet.union x y
-      | OLeqZ t | OEqZ t | OLtZ t -> term_free_program_vars t
+      | OAtom (LeqZ t) | OAtom (EqZ t) | OAtom (LtZ t) ->
+	term_free_program_vars t
     in
     F.eval f phi
 
@@ -243,7 +244,8 @@ module Dioid (Var : Var) = struct
     let open Formula in
     let f = function
       | OOr (x,y) | OAnd (x,y) -> VSet.union x y
-      | OLeqZ t | OEqZ t | OLtZ t -> term_free_tmp_vars t
+      | OAtom (LeqZ t) | OAtom (EqZ t) | OAtom (LtZ t) ->
+	term_free_tmp_vars t
     in
     F.eval f phi
 
@@ -563,7 +565,6 @@ module Make (Var : Var) = struct
     M.fold g tr.transform env
 
   let farkas equations vars =
-    let open FEq.A in
     let lambdas =
       List.map (fun _ -> AVar (V.mk_real_tmp "lambda")) equations
     in
@@ -582,24 +583,23 @@ module Make (Var : Var) = struct
     in
     let lambda_smt =
       List.fold_left
-	(fun m lambda -> AMap.add lambda (Smt.real_var (show lambda)) m)
+	(fun m lambda -> AMap.add lambda (Smt.real_var (F.T.AffineVar.show lambda)) m)
 	AMap.empty
 	lambdas
     in
 
     let assrt (v, sum) =
       let sum =
-	AffineTerm.to_smt (fun x -> AMap.find x lambda_smt) Smt.const_qq sum
+	F.T.Linterm.to_smt (fun x -> AMap.find x lambda_smt) Smt.const_qq sum
       in
       s#assrt (Smt.mk_eq (AMap.find v column_smt) sum)
     in
-    let equations_tr = AffineTerm.transpose equations lambdas columns in
+    let equations_tr = T.Linterm.transpose equations lambdas columns in
     BatEnum.iter assrt (BatEnum.combine
 			  (BatList.enum columns, BatList.enum equations_tr));
     (s, column_smt)
 
   let higher_induction_vars ctx =
-    let open FEq.A in
     let mk_avar v = AVar (V.mk_var v) in
     let primed_vars = VarSet.of_enum (M.keys ctx.loop.transform /@ Var.prime) in
     let vars =
@@ -608,7 +608,7 @@ module Make (Var : Var) = struct
     in
     let equalities = FEq.extract_equalities ctx.phi vars in
     Log.logf Log.info "Extracted equalities:@ %a"
-      Show.format<FEq.AffineTerm.t list> equalities;
+      Show.format<T.Linterm.t list> equalities;
     let (s, coeffs) = farkas equalities vars in
     let get_coeff v = FEq.AMap.find (mk_avar v) coeffs in
     (* A variable has a coefficient iff it is involved in an equality. *)

@@ -12,10 +12,9 @@ module type FormulaBasis = sig
 
   module T : Term.S
 
-  val eval : ('a,T.t) formula_algebra -> t -> 'a
-  val view : t -> (t, T.t) open_formula
+  val eval : ('a, T.t atom) formula_algebra -> t -> 'a
+  val view : t -> (t, T.t atom) open_formula
   val to_smt : t -> Smt.ast
-  val subst : (T.V.t -> T.t) -> t -> t
 
   val top : t
   val bottom : t
@@ -26,6 +25,7 @@ module type FormulaBasis = sig
   val leqz : T.t -> t
   val eqz : T.t -> t
   val ltz : T.t -> t
+  val atom : T.t atom -> t
   val eq : T.t -> T.t -> t
   val leq : T.t -> T.t -> t
   val geq : T.t -> T.t -> t
@@ -43,6 +43,9 @@ module type Formula = sig
   val of_smt : Smt.ast -> t
   val implies : t -> t -> bool
   val equiv : t -> t -> bool
+
+  val map : (T.t atom -> t) -> t -> t
+  val subst : (T.V.t -> T.t) -> t -> t
 
   val select_disjunct : (T.V.t -> QQ.t) -> t -> t option
 
@@ -69,30 +72,33 @@ module type Formula = sig
   end
 end
 
-module MakeHashconsedBasis (T : Term.S) : FormulaBasis with module T = T = struct
+module MakeHashconsedBasis (T : Term.S) : FormulaBasis with module T = T =
+struct
   open Hashcons
 
   module F = struct
     type t =
     | Or of t Hset.t
     | And of t Hset.t
-    | LeqZ of T.t
-    | EqZ of T.t
-    | LtZ of T.t
+    | Atom of T.t atom
 
     let hash = function
-      | Or xs  -> Hashtbl.hash (Hset.hash xs, 0)
-      | And xs -> Hashtbl.hash (Hset.hash xs, 1)
-      | LeqZ t -> Hashtbl.hash (T.hash t, 2)
-      | EqZ t  -> Hashtbl.hash (T.hash t, 3)
-      | LtZ t  -> Hashtbl.hash (T.hash t, 4)
+      | Or xs         -> Hashtbl.hash (Hset.hash xs, 0)
+      | And xs        -> Hashtbl.hash (Hset.hash xs, 1)
+      | Atom (LeqZ t) -> Hashtbl.hash (T.hash t, 2)
+      | Atom (EqZ t)  -> Hashtbl.hash (T.hash t, 3)
+      | Atom (LtZ t)  -> Hashtbl.hash (T.hash t, 4)
+
+    let atom_equal x y = match x,y with
+      | LeqZ s, LeqZ t
+      | EqZ s, EqZ t
+      | LtZ s, LtZ t -> T.equal s t
+      | _, _ -> false
 
     let equal x y = match x,y with
       | Or xs, Or ys   -> Hset.equal xs ys
       | And xs, And ys -> Hset.equal xs ys
-      | LeqZ s, LeqZ t -> T.equal s t
-      | EqZ s, EqZ t   -> T.equal s t
-      | LtZ s, LtZ t   -> T.equal s t
+      | Atom a, Atom b -> atom_equal a b
       | _, _ -> false
   end
 
@@ -100,9 +106,6 @@ module MakeHashconsedBasis (T : Term.S) : FormulaBasis with module T = T = struc
   module HC = Hashcons.Make(F)
   let formula_tbl = HC.create 200003
   let hashcons x = Log.time "formula:hashcons" (HC.hashcons formula_tbl) x
-
-  let term_zero = T.int ZZ.zero
-  let term_one = T.int ZZ.one
 
   type t = F.t hash_consed
   module T = T
@@ -112,9 +115,9 @@ module MakeHashconsedBasis (T : Term.S) : FormulaBasis with module T = T = struc
     let rec format_in formatter phi = match phi with
       | Or xs -> Format.fprintf formatter "Or %a" (Hset.format format_in) xs
       | And xs -> Format.fprintf formatter "And %a" (Hset.format format_in) xs
-      | LeqZ t -> Format.fprintf formatter "%a <= 0" T.format t
-      | EqZ t -> Format.fprintf formatter "%a == 0" T.format t
-      | LtZ t -> Format.fprintf formatter "%a < 0" T.format t
+      | Atom (LeqZ t) -> Format.fprintf formatter "%a <= 0" T.format t
+      | Atom (EqZ t) -> Format.fprintf formatter "%a == 0" T.format t
+      | Atom (LtZ t) -> Format.fprintf formatter "%a < 0" T.format t
     let rec format formatter phi = format_in formatter phi.node
   end)
   module Compare_t = struct
@@ -125,8 +128,8 @@ module MakeHashconsedBasis (T : Term.S) : FormulaBasis with module T = T = struc
   let equal x y = x.tag == y.tag
   let hash x = x.hkey
 
-  let top = hashcons (LeqZ term_zero)
-  let bottom = hashcons (LeqZ term_one)
+  let top = hashcons (Atom (LeqZ T.zero))
+  let bottom = hashcons (Atom (LeqZ T.one))
 
   let mk_and xs =
     if Hset.is_empty xs then top
@@ -181,16 +184,19 @@ module MakeHashconsedBasis (T : Term.S) : FormulaBasis with module T = T = struc
   let leqz term =
     match T.get_const term with
     | Some k -> if QQ.leq k QQ.zero then top else bottom
-    | _ -> hashcons (LeqZ term)
+    | _ -> hashcons (Atom (LeqZ term))
   let eqz term =
     match T.get_const term with
     | Some k -> if QQ.equal k QQ.zero then top else bottom
-    | _ -> hashcons (EqZ term)
+    | _ -> hashcons (Atom (EqZ term))
   let ltz term =
     match T.get_const term with
     | Some k -> if QQ.lt k QQ.zero then top else bottom
-    | _ -> hashcons (LtZ term)
-
+    | _ -> hashcons (Atom (LtZ term))
+  let atom = function
+    | LeqZ t -> leqz t
+    | EqZ t  -> eqz t
+    | LtZ t  -> ltz t
 
   let eq s t = eqz (T.sub s t)
   let leq s t = leqz (T.sub s t)
@@ -212,29 +218,25 @@ module MakeHashconsedBasis (T : Term.S) : FormulaBasis with module T = T = struc
 	begin match BatEnum.get e with
 	| Some elt ->
 	  BatEnum.fold (fun x y -> alg (OOr (x, eval y))) (eval elt) e
-	| None -> alg (OLeqZ term_one)
+	| None -> alg (OAtom (LeqZ T.one))
 	end
       | And xs ->
 	let e = Hset.enum xs in
 	begin match BatEnum.get e with
 	| Some elt ->
 	  BatEnum.fold (fun x y -> alg (OAnd (x, eval y))) (eval elt) e
-	| None -> alg (OLeqZ term_zero)
+	| None -> alg (OAtom (LeqZ T.zero))
 	end
-      | LeqZ t -> alg (OLeqZ t)
-      | EqZ t -> alg (OEqZ t)
-      | LtZ t -> alg (OLtZ t))
+      | Atom atom -> alg (OAtom atom))
 
   let view t = match t.node with
-    | LeqZ t -> OLeqZ t
-    | EqZ t -> OEqZ t
-    | LtZ t -> OLtZ t
+    | Atom atom -> OAtom atom
     | And xs ->
       (* todo: skip enumerations; write functions in hset to make this more
 	 efficient *)
       let e = Hset.enum xs in
       begin match BatEnum.count e with
-      | 0 -> OLeqZ term_zero
+      | 0 -> OAtom (LeqZ T.zero)
       | 1 -> assert false (* this should have been promoted! *)
       | 2 -> OAnd (BatEnum.get_exn e, BatEnum.get_exn e)
       | _ -> OAnd (BatEnum.get_exn e, hashcons (And (Hset.of_enum e)))
@@ -242,7 +244,7 @@ module MakeHashconsedBasis (T : Term.S) : FormulaBasis with module T = T = struc
     | Or xs ->
       let e = Hset.enum xs in
       begin match BatEnum.count e with
-      | 0 -> OLeqZ term_one
+      | 0 -> OAtom (LeqZ T.one)
       | 1 -> assert false (* this should have been promoted! *)
       | 2 -> OOr (BatEnum.get_exn e, BatEnum.get_exn e)
       | _ -> OOr (BatEnum.get_exn e, hashcons (Or (Hset.of_enum e)))
@@ -250,22 +252,11 @@ module MakeHashconsedBasis (T : Term.S) : FormulaBasis with module T = T = struc
 
   let to_smt =
     let alg = function
-      | OLeqZ t -> Smt.mk_le (T.to_smt t) (Smt.const_int 0)
-      | OLtZ t -> Smt.mk_lt (T.to_smt t) (Smt.const_int 0)
-      | OEqZ t -> Smt.mk_eq (T.to_smt t) (Smt.const_int 0)
+      | OAtom (LeqZ t) -> Smt.mk_le (T.to_smt t) (Smt.const_int 0)
+      | OAtom (LtZ t) -> Smt.mk_lt (T.to_smt t) (Smt.const_int 0)
+      | OAtom (EqZ t) -> Smt.mk_eq (T.to_smt t) (Smt.const_int 0)
       | OAnd (x, y) -> Smt.conj x y
       | OOr (x, y) -> Smt.disj x y
-    in
-    eval alg
-
-  let subst sigma =
-    let term_subst = T.subst sigma in (* Build memo table here *)
-    let alg = function
-      | OLeqZ t -> leqz (term_subst t)
-      | OEqZ t -> eqz (term_subst t)
-      | OLtZ t -> ltz (term_subst t)
-      | OAnd (x, y) -> conj x y
-      | OOr (x, y) -> disj x y
     in
     eval alg
 
@@ -280,197 +271,39 @@ module MakeHashconsedBasis (T : Term.S) : FormulaBasis with module T = T = struc
     Log.logf 0 "Max bucket:\t%d" max
 end
 
-module MakeBasis (T : Term.S) : FormulaBasis with module T = T =
-struct
-
-  module rec F : sig
-    type t =
-    | Or of ESet.t
-    | And of ESet.t
-    | LeqZ of T.t
-    | EqZ of T.t
-    | LtZ of T.t
-    include Putil.Ordered with type t := t
-  end = struct
-    type t =
-    | Or of ESet.t
-    | And of ESet.t
-    | LeqZ of T.t
-    | EqZ of T.t
-    | LtZ of T.t
-	deriving (Show,Compare)
-    let format = Show_t.format
-    let show = Show_t.show
-    let compare = Compare_t.compare
-  end
-  and ESet : Putil.Set.S with type elt = F.t = Putil.Set.Make(F)
-
-  include F
-  module T = T
-
-  let equal x y = compare x y = 0
-  let top = LeqZ T.zero
-  let bottom = LeqZ T.one
-  let mk_and xs =
-    if ESet.is_empty xs then top
-    else if ESet.mem bottom xs then bottom
-    else And xs
-
-  let mk_or xs =
-    if ESet.is_empty xs then bottom
-    else if ESet.mem top xs then top
-    else Or xs
-
-  let conj phi psi =
-    if equal phi top then psi
-    else if equal psi top then phi
-    else if equal phi bottom || equal psi bottom then bottom
-    else begin match phi, psi with
-    | (And xs, And ys) -> And (ESet.union xs ys)
-    | (And xs, y) | (y, And xs) -> And (ESet.add y xs)
-    | (Or xs, Or ys) ->
-      let common = ESet.inter xs ys in
-      if ESet.is_empty common then And (ESet.add phi (ESet.singleton psi))
-      else begin
-	let phi = mk_or (ESet.diff xs common) in
-	let psi = mk_or (ESet.diff ys common) in
-	mk_and (ESet.add (mk_or (ESet.add phi (ESet.singleton psi))) common)
-      end
-    | (_, _) -> And (ESet.add phi (ESet.singleton psi))
-    end
-
-  let disj phi psi =
-    if equal phi bottom then psi
-    else if equal psi bottom then phi
-    else if equal phi top || equal psi top then top
-    else begin match phi, psi with
-    | (Or xs, Or ys) -> Or (ESet.union xs ys)
-    | (Or xs, y) | (y, Or xs) -> Or (ESet.add y xs)
-    | (And xs, And ys) ->
-      let common = ESet.inter xs ys in
-      if ESet.is_empty common then Or (ESet.add phi (ESet.singleton psi))
-      else begin
-	let phi = mk_and (ESet.diff xs common) in
-	let psi = mk_and (ESet.diff ys common) in
-	mk_and (ESet.add (mk_or (ESet.add phi (ESet.singleton psi))) common)
-      end
-    | (_, _) -> Or (ESet.add phi (ESet.singleton psi))
-    end
-  let leqz term = match T.get_const term with
-    | Some k -> if QQ.leq k QQ.zero then top else bottom
-    | None -> LeqZ term
-  let eqz term = match T.get_const term with
-    | Some k -> if QQ.equal k QQ.zero then top else bottom
-    | None -> EqZ term
-  let ltz term = match T.get_const term with
-    | Some k -> if QQ.lt k QQ.zero then top else bottom
-    | None -> LtZ term
-
-  let eq s t = eqz (T.sub s t)
-  let leq s t = leqz (T.sub s t)
-  let geq s t = leqz (T.sub t s)
-
-  let lt s t = ltz (T.sub s t)
-  let gt s t = ltz (T.sub t s)
-
-  let term_zero = T.zero
-  let term_one = T.one
-
-  let rec eval alg = function
-    | Or xs ->
-      let e = ESet.enum xs in
-      begin match BatEnum.get e with
-      | Some elt ->
-	BatEnum.fold (fun x y -> alg (OOr (x, eval alg y))) (eval alg elt) e
-      | None -> alg (OLeqZ term_one)
-      end
-    | And xs ->
-      let e = ESet.enum xs in
-      begin match BatEnum.get e with
-      | Some elt ->
-	BatEnum.fold (fun x y -> alg (OAnd (x, eval alg y))) (eval alg elt) e
-      | None -> alg (OLeqZ term_zero)
-      end
-    | LeqZ t -> alg (OLeqZ t)
-    | EqZ t -> alg (OEqZ t)
-    | LtZ t -> alg (OLtZ t)
-
-  let view t = match t with
-    | LeqZ t -> OLeqZ t
-    | LtZ t -> OLtZ t
-    | EqZ t -> OEqZ t
-    | And xs ->
-      (* todo: skip enumerations; write functions in hset to make this more
-	 efficient *)
-      let e = ESet.enum xs in
-      begin match BatEnum.count e with
-      | 0 -> OLeqZ term_zero
-      | 1 -> assert false (* this should have been promoted! *)
-      | 2 -> OAnd (BatEnum.get_exn e, BatEnum.get_exn e)
-      | _ -> OAnd (BatEnum.get_exn e, And (ESet.of_enum e))
-      end
-    | Or xs ->
-      let e = ESet.enum xs in
-      begin match BatEnum.count e with
-      | 0 -> OLeqZ term_one
-      | 1 -> assert false (* this should have been promoted! *)
-      | 2 -> OOr (BatEnum.get_exn e, BatEnum.get_exn e)
-      | _ -> OOr (BatEnum.get_exn e, Or (ESet.of_enum e))
-      end
-
-  let rec to_smt = function
-    | LeqZ t -> Smt.mk_le (T.to_smt t) (Smt.const_int 0)
-    | LtZ t -> Smt.mk_lt (Smt.mk_real2int (T.to_smt t)) (Smt.const_int 0)
-    | EqZ t -> Smt.mk_eq (T.to_smt t) (Smt.const_int 0)
-    | And phi -> Smt.big_conj (BatEnum.map to_smt (ESet.enum phi))
-    | Or phi -> Smt.big_disj (BatEnum.map to_smt (ESet.enum phi))
-      
-  let rec subst sigma = function
-    | LeqZ term -> leqz (T.subst sigma term)
-    | LtZ term -> ltz (T.subst sigma term)
-    | EqZ term -> eqz (T.subst sigma term)
-    | And phi ->
-      let phi = ESet.remove top (ESet.map (subst sigma) phi) in
-      if ESet.mem bottom phi then bottom
-      else begin match ESet.cardinal phi with
-      | 0 -> top
-      | 1 -> ESet.choose phi
-      | _ -> BatEnum.reduce conj (ESet.enum phi)
-      end
-    | Or phi ->
-      let phi = ESet.remove bottom (ESet.map (subst sigma) phi) in
-      if ESet.mem top phi then top
-      else begin match ESet.cardinal phi with
-      | 0 -> bottom
-      | 1 -> ESet.choose phi
-      | _ -> BatEnum.reduce disj (ESet.enum phi)
-      end
-
-  let hash =
-    let alg = function
-      | OLeqZ t -> Hashtbl.hash (T.hash t, 0)
-      | OEqZ t -> Hashtbl.hash (T.hash t, 1)
-      | OAnd (x, y) -> Hashtbl.hash (x, y, 2)
-      | OOr (x, y) -> Hashtbl.hash (x, y, 3)
-      | OLtZ t -> Hashtbl.hash (T.hash t, 4)
-    in
-    eval alg
-
-  let log_stats () = ()
-end
 
 module Defaults (F : FormulaBasis) = struct
   include F
+
+  let negate_atom = function
+    | LeqZ t -> ltz (T.neg t)
+    | LtZ t -> leqz (T.neg t)
+    | EqZ t -> disj (ltz t) (ltz (T.neg t))
 
   let negate =
     let alg = function
     | OOr (x, y) -> conj x y
     | OAnd (x, y) -> disj x y
-    | OLeqZ t -> gt t T.zero
-    | OEqZ t -> disj (gt t T.zero) (lt t T.zero)
-    | OLtZ t -> geq t T.zero
+    | OAtom atom -> negate_atom atom
     in
     eval alg
+
+  let map f =
+    let alg = function
+      | OOr (phi, psi) -> disj phi psi
+      | OAnd (phi, psi) -> conj phi psi
+      | OAtom atom -> f atom
+    in
+    eval alg
+
+  let subst sigma =
+    let term_subst = T.subst sigma in (* Build memo table here *)
+    let subst_atom = function
+      | LtZ t -> ltz (term_subst t)
+      | LeqZ t -> leqz (term_subst t)
+      | EqZ t -> eqz (term_subst t)
+    in
+    map subst_atom
 
   let of_smt ast =
     let open Z3 in
@@ -615,9 +448,7 @@ module Defaults (F : FormulaBasis) = struct
      purposes only: strange formulae should not exist *)
   let strange_formula m phi =
     let f = function
-      | OLeqZ t -> strange_term m t
-      | OEqZ t -> strange_term m t
-      | OLtZ t -> strange_term m t
+      | OAtom (LeqZ t) | OAtom (LtZ t) | OAtom (EqZ t) -> strange_term m t
       | _ -> ()
     in
     F.eval f phi
@@ -626,11 +457,11 @@ module Defaults (F : FormulaBasis) = struct
       form of [psi] such that [m |= psi] *)
   let select_disjunct m phi =
     let f = function
-      | OLeqZ t ->
+      | OAtom (LeqZ t) ->
 	if QQ.leq (T.evaluate m t) QQ.zero then Some (F.leqz t) else None
-      | OLtZ t ->
+      | OAtom (LtZ t) ->
 	if QQ.lt (T.evaluate m t) QQ.zero then Some (F.ltz t) else None
-      | OEqZ t ->
+      | OAtom (EqZ t) ->
 	if QQ.equal (T.evaluate m t) QQ.zero then Some (F.eqz t) else None
       | OAnd (Some phi, Some psi) -> Some (F.conj phi psi)
       | OAnd (_, _) -> None
@@ -642,11 +473,11 @@ module Defaults (F : FormulaBasis) = struct
       satisfies with [true] (and leaves unsatisfied atoms unchanged). *)
   let unsat_residual m phi =
     let f = function
-      | OLeqZ t ->
+      | OAtom (LeqZ t) ->
 	if QQ.leq (T.evaluate m t) QQ.zero then F.top else F.leqz t
-      | OLtZ t ->
+      | OAtom (LtZ t) ->
 	if QQ.lt (T.evaluate m t) QQ.zero then F.top else F.ltz t
-      | OEqZ t ->
+      | OAtom (EqZ t) ->
 	if QQ.equal (T.evaluate m t) QQ.zero then F.top else F.eqz t
       | OAnd (phi, psi) -> F.conj phi psi
       | OOr (phi, psi) -> F.disj phi psi
@@ -669,7 +500,7 @@ module Defaults (F : FormulaBasis) = struct
   let formula_free_vars phi =
     let f = function
       | OOr (x,y) | OAnd (x,y) -> VarSet.union x y
-      | OLeqZ t | OEqZ t | OLtZ t -> term_free_vars t
+      | OAtom (LeqZ t) | OAtom (EqZ t) | OAtom (LtZ t) -> term_free_vars t
     in
     F.eval f phi
 
@@ -760,9 +591,9 @@ module Defaults (F : FormulaBasis) = struct
     let open D in
     let to_apron = T.to_apron env in
     let alg = function
-    | OLeqZ t -> [Tcons0.make (to_apron (T.neg t)) Tcons0.SUPEQ]
-    | OLtZ t -> [Tcons0.make (to_apron (T.neg t)) Tcons0.SUP]
-    | OEqZ t -> [Tcons0.make (to_apron t) Tcons0.EQ]
+    | OAtom (LeqZ t) -> [Tcons0.make (to_apron (T.neg t)) Tcons0.SUPEQ]
+    | OAtom (LtZ t) -> [Tcons0.make (to_apron (T.neg t)) Tcons0.SUP]
+    | OAtom (EqZ t) -> [Tcons0.make (to_apron t) Tcons0.EQ]
     | OAnd (phi, psi) -> phi @ psi
     | OOr (_, _) -> assert false
     in
@@ -1045,9 +876,9 @@ module Defaults (F : FormulaBasis) = struct
     let alg = function
       | OOr (phi, psi) -> F.disj phi psi
       | OAnd (phi, psi) -> F.conj phi psi
-      | OLeqZ t -> F.leqz (replace_term t)
-      | OLtZ t -> F.ltz (replace_term t)
-      | OEqZ t -> F.eqz (replace_term t)
+      | OAtom (LeqZ t) -> F.leqz (replace_term t)
+      | OAtom (LtZ t) -> F.ltz (replace_term t)
+      | OAtom (EqZ t) -> F.eqz (replace_term t)
     in
     (eval alg phi, !nonlinear)
 
@@ -1356,7 +1187,5 @@ module MakeEq (F : Formula) = struct
     go []
 end
 
-module MakeHashconsed (T : Term.S) : Formula with module T = T
-  = Defaults(MakeHashconsedBasis(T))
 module Make (T : Term.S) : Formula with module T = T
-  = Defaults(MakeBasis(T))
+  = Defaults(MakeHashconsedBasis(T))
