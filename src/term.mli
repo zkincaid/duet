@@ -1,3 +1,5 @@
+(** Arithmetic terms *)
+
 open Apak
 open ArkPervasives
 
@@ -19,6 +21,7 @@ module type S = sig
   module Linterm : Linear.Expr.S with type dim = AffineVar.t
 				 and type base = QQ.t
 
+  (** {2 Term constructors} *)
   val var : V.t -> t
   val const : QQ.t -> t
   val int : ZZ.t -> t
@@ -41,15 +44,7 @@ module type S = sig
   (** Exponentiation by a constant *)
   val exp : t -> int -> t
 
-  module Syntax : sig
-    val ( + ) : t -> t -> t
-    val ( - ) : t -> t -> t
-    val ( * ) : t -> t -> t
-    val ( / ) : t -> t -> t
-    val ( ~$ ) : V.t -> t
-    val ( ~@ ) : QQ.t -> t
-  end
-
+  (** {2 Term deconstructors} *)
   (** [eval] is a fold for terms.  More precisely, terms are initial objects
       in the category of term-algebras, and [eval alg] gives the (unique)
       morphism from the initial algebra to [alg]. *)
@@ -57,6 +52,8 @@ module type S = sig
 
   (** Determine a term equivalent to a constant (and if so, which). *)
   val get_const : t -> QQ.t option
+
+  (** {2 Misc operations} *)
   val to_smt : t -> Smt.ast
 
   (** Apply a substitution *)
@@ -76,6 +73,15 @@ module type S = sig
   val of_linterm : Linterm.t -> t
 
   val log_stats : unit -> unit
+
+  module Syntax : sig
+    val ( + ) : t -> t -> t
+    val ( - ) : t -> t -> t
+    val ( * ) : t -> t -> t
+    val ( / ) : t -> t -> t
+    val ( ~$ ) : V.t -> t
+    val ( ~@ ) : QQ.t -> t
+  end
 end
 
 module Make (V : Var) : S with module V = V

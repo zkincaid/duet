@@ -1,3 +1,5 @@
+(** Linear terms and various linear algebra operations. *)
+
 open Apak
 open ArkPervasives
 open Hashcons
