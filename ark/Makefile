@@ -4,7 +4,7 @@ OCAMLMAKEFILE = OCamlMakefile
 
 SRC = hashcons.mli hashcons.ml hset.mli hset.ml hmap.mli hmap.ml	  \
 	arkPervasives.ml smt.ml numDomain.ml linear.ml linear.mli term.ml \
-	term.mli formula.ml transition.ml
+	term.mli formula.ml formula.mli transition.ml
 TEST_SRC := $(SRC) test_formula.ml test_numdomain.ml test_transition.ml test.ml
 
 Z3:=$(shell ocamlfind query z3)

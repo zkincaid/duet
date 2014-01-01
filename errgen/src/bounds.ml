@@ -73,9 +73,9 @@ let to_bexp =
   let alg = function
     | OOr (phi, psi) -> Or_exp (phi, psi)
     | OAnd (phi, psi) -> And_exp (phi, psi)
-    | OLeqZ t -> Le_exp (to_aexp t, Real_const QQ.zero)
-    | OEqZ t -> Eq_exp (to_aexp t, Real_const QQ.zero)
-    | OLtZ t -> Lt_exp (to_aexp t, Real_const QQ.zero)
+    | OAtom (LeqZ t) -> Le_exp (to_aexp t, Real_const QQ.zero)
+    | OAtom (EqZ t) -> Eq_exp (to_aexp t, Real_const QQ.zero)
+    | OAtom (LtZ t) -> Lt_exp (to_aexp t, Real_const QQ.zero)
   in
   F.eval alg
 
