@@ -5,23 +5,17 @@ open Term
 open ArkPervasives
 open BatPervasives
 
-module type FormulaBasis = sig
+module type Formula = sig
   type t
   include Putil.Hashed.S with type t := t
   include Putil.OrderedMix with type t := t
 
   module T : Term.S
 
-  val eval : ('a, T.t atom) formula_algebra -> t -> 'a
-  val view : t -> (t, T.t atom) open_formula
-  val to_smt : t -> Smt.ast
-
   val top : t
   val bottom : t
-
   val conj : t -> t -> t
   val disj : t -> t -> t
-
   val leqz : T.t -> t
   val eqz : T.t -> t
   val ltz : T.t -> t
@@ -31,35 +25,42 @@ module type FormulaBasis = sig
   val geq : T.t -> T.t -> t
   val lt : T.t -> T.t -> t
   val gt : T.t -> T.t -> t
-
-  val log_stats : unit -> unit
-end
-module type Formula = sig
-  include FormulaBasis
-
   val negate : t -> t
-  val exists : (T.V.t -> bool) -> t -> t
-  val exists_list : T.V.t list -> t -> t 
-  val of_smt : Smt.ast -> t
-  val implies : t -> t -> bool
-  val equiv : t -> t -> bool
-
-  val map : (T.t atom -> t) -> t -> t
-  val subst : (T.V.t -> T.t) -> t -> t
-
-  val select_disjunct : (T.V.t -> QQ.t) -> t -> t option
 
   val big_conj : t BatEnum.t -> t
   val big_disj : t BatEnum.t -> t
 
+  val eval : ('a, T.t atom) formula_algebra -> t -> 'a
+  val view : t -> (t, T.t atom) open_formula
+
   val of_abstract : 'a T.D.t -> t
-  val abstract : ?exists:(T.V.t -> bool) option -> 'a Apron.Manager.t -> t -> 'a T.D.t
-  val abstract_assign : 'a Apron.Manager.t -> 'a T.D.t -> T.V.t -> T.t -> 'a T.D.t
+  val abstract : ?exists:(T.V.t -> bool) option ->
+                 'a Apron.Manager.t ->
+                 t ->
+                 'a T.D.t
+  val abstract_assign : 'a Apron.Manager.t ->
+                        'a T.D.t ->
+                        T.V.t ->
+                        T.t ->
+                        'a T.D.t
   val abstract_assume : 'a Apron.Manager.t -> 'a T.D.t -> t -> 'a T.D.t
+
+
+  val exists : (T.V.t -> bool) -> t -> t
+  val exists_list : T.V.t list -> t -> t 
+  val of_smt : Smt.ast -> t
+  val to_smt : t -> Smt.ast
+  val implies : t -> t -> bool
+  val equiv : t -> t -> bool
+  val map : (T.t atom -> t) -> t -> t
+  val subst : (T.V.t -> T.t) -> t -> t
+  val select_disjunct : (T.V.t -> QQ.t) -> t -> t option
   val symbolic_bounds : (T.V.t -> bool) -> t -> T.t -> (pred * T.t) list
   val linearize : (unit -> T.V.t) -> t -> t
   val symbolic_abstract : (T.t list) -> t -> (QQ.t option * QQ.t option) list
   val disj_optimize : (T.t list) -> t -> (QQ.t option * QQ.t option) list list
+
+  val log_stats : unit -> unit
 
   module Syntax : sig
     val ( && ) : t -> t -> t
@@ -72,8 +73,7 @@ module type Formula = sig
   end
 end
 
-module MakeHashconsedBasis (T : Term.S) : FormulaBasis with module T = T =
-struct
+module Make (T : Term.S) = struct
   open Hashcons
 
   module F = struct
@@ -269,11 +269,6 @@ struct
     Log.logf 0 "Min bucket:\t%d" min;
     Log.logf 0 "Median bucket:\t%d" median;
     Log.logf 0 "Max bucket:\t%d" max
-end
-
-
-module Defaults (F : FormulaBasis) = struct
-  include F
 
   let negate_atom = function
     | LeqZ t -> ltz (T.neg t)
@@ -318,12 +313,12 @@ module Defaults (F : FormulaBasis) = struct
 	  (0 -- (get_app_num_args ctx app - 1)) /@ (get_app_arg ctx app)
 	in
 	match get_decl_kind ctx decl with
-	| OP_TRUE -> F.top
-	| OP_FALSE -> F.bottom
+	| OP_TRUE -> top
+	| OP_FALSE -> bottom
 	| OP_AND ->
-	  BatEnum.fold F.conj F.top (BatEnum.map (of_smt vars) args)
+	  BatEnum.fold conj top (BatEnum.map (of_smt vars) args)
 	| OP_OR ->
-	  BatEnum.fold F.disj F.bottom (BatEnum.map (of_smt vars) args)
+	  BatEnum.fold disj bottom (BatEnum.map (of_smt vars) args)
 	| OP_NOT -> begin
 	  match BatList.of_enum (BatEnum.map (of_smt vars) args) with
 	  | [phi] -> negate phi
@@ -331,27 +326,27 @@ module Defaults (F : FormulaBasis) = struct
 	end
 	| OP_EQ -> begin
 	  match BatList.of_enum (BatEnum.map (smt_term vars) args) with
-	  | [x;y] -> F.eq x y
+	  | [x;y] -> eq x y
 	  | _ -> assert false
 	end
 	| OP_LE -> begin
 	  match BatList.of_enum (BatEnum.map (smt_term vars) args) with
-	  | [x;y] -> F.leq x y
+	  | [x;y] -> leq x y
 	  | _ -> assert false
 	end
 	| OP_GE -> begin
 	  match BatList.of_enum (BatEnum.map (smt_term vars) args) with
-	  | [x;y] -> F.geq x y
+	  | [x;y] -> geq x y
 	  | _ -> assert false
 	end
 	| OP_LT -> begin
 	  match BatList.of_enum (BatEnum.map (smt_term vars) args) with
-	  | [x;y] -> F.lt x y
+	  | [x;y] -> lt x y
 	  | _ -> assert false
 	end
 	| OP_GT -> begin
 	  match BatList.of_enum (BatEnum.map (smt_term vars) args) with
-	  | [x;y] -> F.gt x y
+	  | [x;y] -> gt x y
 	  | _ -> assert false
 	end
 	| _ -> assert false
@@ -379,7 +374,7 @@ module Defaults (F : FormulaBasis) = struct
     let formulae =
       BatEnum.map subgoal_formula (0 -- (Z3.goal_size ctx g - 1))
     in
-    BatEnum.fold F.conj F.top formulae
+    BatEnum.fold conj top formulae
 
   let of_apply_result result =
     let ctx = Smt.get_context() in
@@ -389,7 +384,7 @@ module Defaults (F : FormulaBasis) = struct
 	goal_formula
 	(0 -- (Z3.apply_result_get_num_subgoals ctx result - 1))
     in
-    BatEnum.fold F.conj F.top formulae
+    BatEnum.fold conj top formulae
 
   (* Z3 quantifier elimination is very slow! *)
 (*
@@ -451,38 +446,38 @@ module Defaults (F : FormulaBasis) = struct
       | OAtom (LeqZ t) | OAtom (LtZ t) | OAtom (EqZ t) -> strange_term m t
       | _ -> ()
     in
-    F.eval f phi
+    eval f phi
 
   (** [select_disjunct m phi] selects a clause [psi] in the disjunctive normal
       form of [psi] such that [m |= psi] *)
   let select_disjunct m phi =
     let f = function
       | OAtom (LeqZ t) ->
-	if QQ.leq (T.evaluate m t) QQ.zero then Some (F.leqz t) else None
+	if QQ.leq (T.evaluate m t) QQ.zero then Some (leqz t) else None
       | OAtom (LtZ t) ->
-	if QQ.lt (T.evaluate m t) QQ.zero then Some (F.ltz t) else None
+	if QQ.lt (T.evaluate m t) QQ.zero then Some (ltz t) else None
       | OAtom (EqZ t) ->
-	if QQ.equal (T.evaluate m t) QQ.zero then Some (F.eqz t) else None
-      | OAnd (Some phi, Some psi) -> Some (F.conj phi psi)
+	if QQ.equal (T.evaluate m t) QQ.zero then Some (eqz t) else None
+      | OAnd (Some phi, Some psi) -> Some (conj phi psi)
       | OAnd (_, _) -> None
       | OOr (x, None) | OOr (_, x) -> x
     in
-    F.eval f phi
+    eval f phi
 
   (** [unsat_residual m phi] replaces every atom in [phi] which the model [m]
       satisfies with [true] (and leaves unsatisfied atoms unchanged). *)
   let unsat_residual m phi =
     let f = function
       | OAtom (LeqZ t) ->
-	if QQ.leq (T.evaluate m t) QQ.zero then F.top else F.leqz t
+	if QQ.leq (T.evaluate m t) QQ.zero then top else leqz t
       | OAtom (LtZ t) ->
-	if QQ.lt (T.evaluate m t) QQ.zero then F.top else F.ltz t
+	if QQ.lt (T.evaluate m t) QQ.zero then top else ltz t
       | OAtom (EqZ t) ->
-	if QQ.equal (T.evaluate m t) QQ.zero then F.top else F.eqz t
-      | OAnd (phi, psi) -> F.conj phi psi
-      | OOr (phi, psi) -> F.disj phi psi
+	if QQ.equal (T.evaluate m t) QQ.zero then top else eqz t
+      | OAnd (phi, psi) -> conj phi psi
+      | OOr (phi, psi) -> disj phi psi
     in
-    F.eval f phi
+    eval f phi
 
   module VarSet = Putil.Set.Make(T.V)
   module D = T.D
@@ -502,16 +497,16 @@ module Defaults (F : FormulaBasis) = struct
       | OOr (x,y) | OAnd (x,y) -> VarSet.union x y
       | OAtom (LeqZ t) | OAtom (EqZ t) | OAtom (LtZ t) -> term_free_vars t
     in
-    F.eval f phi
+    eval f phi
 
   let of_tcons env tcons =
     let open Tcons0 in
     let t = T.of_apron env tcons.texpr0 in
     match tcons.typ with
-    | EQ      -> F.eqz t
-    | SUPEQ   -> F.leqz (T.neg t)
-    | SUP     -> F.ltz (T.neg t)
-    | DISEQ   -> negate (F.eqz t)
+    | EQ      -> eqz t
+    | SUPEQ   -> leqz (T.neg t)
+    | SUP     -> ltz (T.neg t)
+    | DISEQ   -> negate (eqz t)
     | EQMOD _ -> assert false (* todo *)
 
   let mk_env phi = D.Env.of_enum (VarSet.enum (formula_free_vars phi))
@@ -522,13 +517,13 @@ module Defaults (F : FormulaBasis) = struct
       | OAnd (x, y) -> x * y
       | _ -> 1
     in
-    F.eval alg phi
+    eval alg phi
   let nb_atoms phi =
     let alg = function
       | OOr (x, y) | OAnd (x, y) -> x + y
       | _ -> 1
     in
-    F.eval alg phi
+    eval alg phi
 
   let of_abstract x =
     let open D in
@@ -574,7 +569,7 @@ module Defaults (F : FormulaBasis) = struct
 	    let phi = unsat_residual (m#eval_qq % T.V.to_smt) phi in
 	    Log.errorf
 	      "Couldn't select disjunct for formula:\n%a\nwith model:\n%s"
-	      F.format phi
+	      format phi
 	      (m#to_string ());
 	    Log.errorf "Smt:\n%s\n" (Smt.ast_to_string (to_smt phi));
 	    assert false
@@ -583,7 +578,7 @@ module Defaults (F : FormulaBasis) = struct
 	go (join prop disjunct)
       end
     in
-    s#assrt (F.to_smt phi);
+    s#assrt (to_smt phi);
     go bottom
 
   (* Convert a *conjunctive* formula into a list of apron tree constraints *)
@@ -602,7 +597,7 @@ module Defaults (F : FormulaBasis) = struct
 	  man
 	  (Env.int_dim env)
 	  (Env.real_dim env)
-	  (Array.of_list (F.eval alg phi));
+	  (Array.of_list (eval alg phi));
       env = env }
 
   let abstract ?exists:(p=None) man phi =
@@ -619,12 +614,11 @@ module Defaults (F : FormulaBasis) = struct
       D.join prop new_prop
     in
     let (top, bottom) = (D.top man env_proj, D.bottom man env_proj) in
-    lazy_dnf ~join:join ~bottom:bottom ~top:top (F.to_smt % of_abstract) phi
+    lazy_dnf ~join:join ~bottom:bottom ~top:top (to_smt % of_abstract) phi
 
   (* As described in David Monniaux: "Quantifier elimination by lazy model
      enumeration", CAV2010. *)
   let exists p phi =
-    let open D in
     let man = Polka.manager_alloc_strict () in
     let env = mk_env phi in
     Log.logf Log.info "Quantifier elimination [dim: %d, target: %d]"
@@ -640,9 +634,9 @@ module Defaults (F : FormulaBasis) = struct
       in
       Log.logf Log.info "Projected polytope sides: %d"
 	(nb_atoms projection);
-      F.disj psi projection
+      disj psi projection
     in
-    lazy_dnf ~join:join ~bottom:F.bottom ~top:F.top F.to_smt phi
+    lazy_dnf ~join:join ~bottom:bottom ~top:top to_smt phi
 
   let exists_list vars phi =
     let set = VarSet.of_enum (BatList.enum vars) in
@@ -662,7 +656,7 @@ module Defaults (F : FormulaBasis) = struct
 	  None;
       env = x.env }
 
-  let abstract_assume man x phi = abstract man (F.conj (of_abstract x) phi)
+  let abstract_assume man x phi = abstract man (conj (of_abstract x) phi)
 
   (** [symbolic_bounds p phi t] computes a set of bounds for the real term [t]
       which are implied by property [phi], and where each variable in each
@@ -874,11 +868,11 @@ module Defaults (F : FormulaBasis) = struct
       end
     in
     let alg = function
-      | OOr (phi, psi) -> F.disj phi psi
-      | OAnd (phi, psi) -> F.conj phi psi
-      | OAtom (LeqZ t) -> F.leqz (replace_term t)
-      | OAtom (LtZ t) -> F.ltz (replace_term t)
-      | OAtom (EqZ t) -> F.eqz (replace_term t)
+      | OOr (phi, psi) -> disj phi psi
+      | OAnd (phi, psi) -> conj phi psi
+      | OAtom (LeqZ t) -> leqz (replace_term t)
+      | OAtom (LtZ t) -> ltz (replace_term t)
+      | OAtom (EqZ t) -> eqz (replace_term t)
     in
     (eval alg phi, !nonlinear)
 
@@ -919,12 +913,11 @@ module Defaults (F : FormulaBasis) = struct
       { prop = Abstract0.meet_tcons_array man approx.prop nl_eq;
 	env = approx.env }
     in
-    F.conj lin_phi (of_abstract nl_approx)
+    conj lin_phi (of_abstract nl_approx)
 
   (* Linearize & convert to DNF.  More accurate than [linearize_nodnf], since
      linearization is done in each disjunct separately.  *)
   let linearize mk_tmp phi =
-    let open D in
     let (lin_phi, nonlinear) = split_linear mk_tmp phi in
     if TMap.is_empty nonlinear then phi else begin
       let vars =
@@ -955,9 +948,9 @@ module Defaults (F : FormulaBasis) = struct
 	(* todo: compute & strengthen w/ nl equalities here *)
 	disjunct::psi
       in
-      let to_smt = F.to_smt % (BatList.fold_left F.disj F.bottom) in
+      let to_smt = to_smt % (BatList.fold_left disj bottom) in
 
-      let dnf = lazy_dnf ~join:join ~top:[F.top] ~bottom:[] to_smt lin_phi in
+      let dnf = lazy_dnf ~join:join ~top:[top] ~bottom:[] to_smt lin_phi in
       let mk_nl_equation (term, var) =
 	Tcons0.make (T.to_apron env (T.sub term (T.var var))) Tcons0.EQ
       in
@@ -966,17 +959,17 @@ module Defaults (F : FormulaBasis) = struct
       in
       let add_nl psi =
 	let approx = to_apron man env psi in
+	let open D in
 	let nl_approx =
 	  { prop = Abstract0.meet_tcons_array man approx.prop nl_eq;
 	    env = approx.env }
 	in
 	of_abstract nl_approx
       in
-      List.fold_left F.disj F.bottom (List.map add_nl dnf)
+      List.fold_left disj bottom (List.map add_nl dnf)
     end
 
   let disj_optimize terms phi =
-    let open D in
     let man = Polka.manager_alloc_loose () in
     let vars =
       let f vars t = VarSet.union (term_free_vars t) vars in
@@ -989,6 +982,7 @@ module Defaults (F : FormulaBasis) = struct
       (List.length terms)
       (D.Env.dimension env);
     let get_bounds prop t =
+      let open D in
       let ivl =
 	Log.time "bound_texpr"
 	  (Abstract0.bound_texpr man prop.prop) (T.to_apron prop.env t)
@@ -1007,20 +1001,20 @@ module Defaults (F : FormulaBasis) = struct
     let prop_to_smt bounds =
       let to_formula (t, (lower, upper)) =
 	let lo = match lower with
-	  | Some b -> F.leq (T.const b) t
-	  | None -> F.top
+	  | Some b -> leq (T.const b) t
+	  | None -> top
 	in
 	let hi = match upper with
-	  | Some b -> F.leq t (T.const b)
-	  | None -> F.top
+	  | Some b -> leq t (T.const b)
+	  | None -> top
 	in
-	F.conj lo hi
+	conj lo hi
       in
       let disjunct_smt disjunct =
 	let e =
 	  BatEnum.combine (BatList.enum terms, BatList.enum disjunct)
 	in
-	to_smt (BatEnum.fold F.conj F.top (e /@ to_formula))
+	to_smt (BatEnum.fold conj top (e /@ to_formula))
       in
       Smt.big_disj ((BatList.enum bounds) /@ disjunct_smt)
     in
@@ -1031,7 +1025,6 @@ module Defaults (F : FormulaBasis) = struct
   (* Given a list of (linear) terms [terms] and a formula [phi], find lower
      and upper bounds for each term within the feasible region of [phi]. *)
   let symbolic_abstract terms phi =
-    let open D in
     let man = Polka.manager_alloc_loose () in
     let vars =
       let f vars t = VarSet.union (term_free_vars t) vars in
@@ -1042,6 +1035,7 @@ module Defaults (F : FormulaBasis) = struct
       (List.length terms)
       (D.Env.dimension env);
     let get_bounds prop t =
+      let open D in
       let ivl =
 	Log.time "bound_texpr"
 	  (Abstract0.bound_texpr man prop.prop) (T.to_apron prop.env t)
@@ -1071,19 +1065,19 @@ module Defaults (F : FormulaBasis) = struct
     let prop_to_smt bounds =
       let to_formula (t, (lower, upper)) =
 	let lo = match lower with
-	  | Some b -> F.leq (T.const b) t
-	  | None -> F.top
+	  | Some b -> leq (T.const b) t
+	  | None -> top
 	in
 	let hi = match upper with
-	  | Some b -> F.leq t (T.const b)
-	  | None -> F.top
+	  | Some b -> leq t (T.const b)
+	  | None -> top
 	in
-	F.conj lo hi
+	conj lo hi
       in
       let e =
 	BatEnum.combine (BatList.enum terms, BatList.enum bounds)
       in
-      to_smt (BatEnum.fold F.conj F.top (e /@ to_formula))
+      to_smt (BatEnum.fold conj top (e /@ to_formula))
     in
     let top = List.map (fun _ -> (None, None)) terms in
     let bottom = List.map (fun _ -> (Some QQ.one, Some QQ.zero)) terms in
@@ -1186,6 +1180,3 @@ module MakeEq (F : Formula) = struct
     space#assrt (Smt.big_disj (BatEnum.map nonzero (BatList.enum vars)));
     go []
 end
-
-module Make (T : Term.S) : Formula with module T = T
-  = Defaults(MakeHashconsedBasis(T))

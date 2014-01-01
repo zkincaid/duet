@@ -39,15 +39,6 @@ module type S = sig
   val qq_linterm : (t * QQ.t) BatEnum.t -> t
   val exp : t -> int -> t
 
-  module Syntax : sig
-    val ( + ) : t -> t -> t
-    val ( - ) : t -> t -> t
-    val ( * ) : t -> t -> t
-    val ( / ) : t -> t -> t
-    val ( ~$ ) : V.t -> t
-    val ( ~@ ) : QQ.t -> t
-  end
-
   val eval : ('a,V.t) term_algebra -> t -> 'a
   val get_const : t -> QQ.t option
   val to_smt : t -> Smt.ast
@@ -64,6 +55,15 @@ module type S = sig
   val of_linterm : Linterm.t -> t
 
   val log_stats : unit -> unit
+
+  module Syntax : sig
+    val ( + ) : t -> t -> t
+    val ( - ) : t -> t -> t
+    val ( * ) : t -> t -> t
+    val ( / ) : t -> t -> t
+    val ( ~$ ) : V.t -> t
+    val ( ~@ ) : QQ.t -> t
+  end
 end
 
 module Make (V : Var) : S with module V = V = struct
