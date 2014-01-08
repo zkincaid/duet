@@ -5,7 +5,13 @@ open Term
 open ArkPervasives
 open BatPervasives
 
-module type Formula = sig
+type qe_strategy =
+| Monniaux
+| Z3
+
+let opt_qe_strategy = ref Monniaux
+
+module type S = sig
   type t
   include Putil.Hashed.S with type t := t
   include Putil.OrderedMix with type t := t
@@ -386,24 +392,6 @@ module Make (T : Term.S) = struct
     in
     BatEnum.fold conj top formulae
 
-  (* Z3 quantifier elimination is very slow! *)
-(*
-  let exists vars phi =
-    let ctx = Smt.get_context() in
-    let solve = Z3.mk_tactic ctx "qe" in
-    let simpl = Z3.mk_tactic ctx "simplify" in
-    let qe = Z3.tactic_and_then ctx solve simpl in
-    let g = Z3.mk_goal ctx false false false in
-    Z3.goal_assert ctx g
-      (Z3.mk_exists_const
-	 ctx
-	 (List.length vars)
-	 (Array.of_list (List.map (Z3.to_app ctx % T.V.to_smt) vars))
-	 [||]
-	 (to_smt phi));
-    of_apply_result (Z3.tactic_apply ctx qe g)
-*)
-
   let implies phi psi =
     let s = new Smt.solver in
     s#assrt (to_smt phi);
@@ -618,7 +606,7 @@ module Make (T : Term.S) = struct
 
   (* As described in David Monniaux: "Quantifier elimination by lazy model
      enumeration", CAV2010. *)
-  let exists p phi =
+  let lme_exists p phi =
     let man = Polka.manager_alloc_strict () in
     let env = mk_env phi in
     Log.logf Log.info "Quantifier elimination [dim: %d, target: %d]"
@@ -638,9 +626,29 @@ module Make (T : Term.S) = struct
     in
     lazy_dnf ~join:join ~bottom:bottom ~top:top to_smt phi
 
-  let exists_list vars phi =
+  let lme_exists_list vars phi =
     let set = VarSet.of_enum (BatList.enum vars) in
-    exists (not % flip VarSet.mem set) phi
+    lme_exists (not % flip VarSet.mem set) phi
+
+  let z3_exists_list vars phi =
+    let ctx = Smt.get_context() in
+    let solve = Z3.mk_tactic ctx "qe" in
+    let simpl = Z3.mk_tactic ctx "simplify" in
+    let qe = Z3.tactic_and_then ctx solve simpl in
+    let g = Z3.mk_goal ctx false false false in
+    Z3.goal_assert ctx g
+      (Z3.mk_exists_const
+	 ctx
+	 (List.length vars)
+	 (Array.of_list (List.map (Z3.to_app ctx % T.V.to_smt) vars))
+	 [||]
+	 (to_smt phi));
+    of_apply_result (Z3.tactic_apply ctx qe g)
+
+  let z3_exists p phi =
+    let fv = formula_free_vars phi in
+    let vars = BatList.of_enum (BatEnum.filter (not % p) (VarSet.enum fv)) in
+    z3_exists_list vars phi
 
   let abstract_assign man x v t =
     let open Apron in
@@ -655,6 +663,16 @@ module Make (T : Term.S) = struct
 	  [| T.to_apron x.env t |]
 	  None;
       env = x.env }
+
+  let exists p phi =
+    match !opt_qe_strategy with
+    | Monniaux -> lme_exists p phi
+    | Z3 -> z3_exists p phi
+
+  let exists_list (vars : T.V.t list) (phi : t) =
+    match !opt_qe_strategy with
+    | Monniaux -> lme_exists_list vars phi
+    | Z3 -> z3_exists_list vars phi
 
   let abstract_assume man x phi = abstract man (conj (of_abstract x) phi)
 
@@ -734,7 +752,7 @@ module Make (T : Term.S) = struct
     !symbounds
 
   module V = T.V
-  module A = Linear.Affine(V)
+  module A = Linear.AffineVar(V)
   module AMap = BatMap.Make(A)
   module AffineTerm = Linear.Expr.Make(A)(QQ)
 
@@ -1103,10 +1121,10 @@ module Make (T : Term.S) = struct
   end
 end
 
-module MakeEq (F : Formula) = struct
+module MakeEq (F : S) = struct
   open F
   module V = T.V
-  module A = T.AffineVar
+  module A = Linear.AffineVar(V)
   module AMap = BatMap.Make(A)
   module AffineTerm = T.Linterm
 

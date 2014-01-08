@@ -13,6 +13,7 @@ module type Var = sig
   val hash : t -> int
   val equal : t -> t -> bool
   val typ : t -> typ
+  val tag : t -> int
 end
 
 module type Transition = sig
@@ -31,20 +32,29 @@ module Dioid (Var : Var) = struct
 
   (* Variables *)
   module V = struct
-    type t =
-    | PVar of Var.t
-    | TVar of int * typ * string
-	deriving (Compare)
-    include Putil.MakeFmt(struct
-      type a = t
-      let format formatter = function
-	| PVar v -> Var.format formatter v
-	| TVar (id,_,name) -> Format.fprintf formatter "%s!%d" name id
-    end)
-    let format = Show_t.format
-    let show = Show_t.show
+    module I = struct
+      type t =
+      | PVar of Var.t
+      | TVar of int * typ * string
+	  deriving (Compare)
+      include Putil.MakeFmt(struct
+	type a = t
+	let format formatter = function
+	  | PVar v -> Var.format formatter v
+	  | TVar (id,_,name) -> Format.fprintf formatter "%s!%d" name id
+      end)
+      let format = Show_t.format
+      let show = Show_t.show
+      let tag = function
+	| TVar (id, _, _) -> id lsl 1 + 1
+	| PVar v -> Var.tag v lsl 1
+    end
+    include I
+    module Map = Tagged.PTMap(I)
+
     let compare = Compare_t.compare
     let equal x y = compare x y = 0
+
     let hash = function
       | PVar v -> (Var.hash v) lsl 1
       | TVar (id,_,_) -> (Hashtbl.hash id) lsl 1 + 1
@@ -582,8 +592,12 @@ module Make (Var : Var) = struct
 	(BatList.enum columns)
     in
     let lambda_smt =
+      let lambda_smt = function 
+	| AVar v -> Smt.real_var (F.T.V.show v)
+	| AConst -> Smt.real_var "k$"
+      in
       List.fold_left
-	(fun m lambda -> AMap.add lambda (Smt.real_var (F.T.AffineVar.show lambda)) m)
+	(fun m lambda -> AMap.add lambda (lambda_smt lambda) m)
 	AMap.empty
 	lambdas
     in

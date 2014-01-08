@@ -16,6 +16,9 @@ module StrVar = struct
   let typ x =
     if String.get x 0 == 'r' then TyReal
     else TyInt
+  module E = Enumeration.Make(Putil.PString)
+  let enum = E.empty ()
+  let tag = E.to_int enum
 end
 
 module K = Transition.Make(StrVar)

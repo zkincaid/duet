@@ -5,6 +5,7 @@ open ArkPervasives
 
 module type Var = sig
   include Linear.Var
+  module Map : Putil.Map.S with type key = t
   val of_smt : Smt.symbol -> t
   val typ : t -> typ
   val hash : t -> int
@@ -15,11 +16,12 @@ module type S = sig
   type t
   include Putil.Hashed.S with type t := t
   include Putil.OrderedMix with type t := t
+
   module V : Var
-  module AffineVar : Linear.Var with type t = V.t affine
   module D : NumDomain.S with type var = V.t
-  module Linterm : Linear.Expr.S with type dim = AffineVar.t
-				 and type base = QQ.t
+  module Linterm : Linear.Affine.S with type var = V.t
+				   and type base = QQ.t
+  module Set : Putil.Set.S with type elt = t
 
   (** {2 Term constructors} *)
   val var : V.t -> t

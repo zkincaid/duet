@@ -10,7 +10,7 @@ module type Var = sig
   val to_smt : t -> Z3.ast
 end
 
-module Affine (V : Var) = struct
+module AffineVar (V : Var) = struct
   type t = V.t affine
   module Compare_t = struct
     type a = t
@@ -44,13 +44,11 @@ module Impl = struct
     type base
     val scalar_mul : base -> t -> t
     val add : t -> t -> t
-    val sub : t -> t -> t
     val negate : t -> t
     val equal : t -> t -> bool
     val zero : t
     val find : dim -> t -> base
     val enum : t -> (dim * base) BatEnum.t
-    val of_enum : (dim * base) BatEnum.t -> t
     val add_term : dim -> base -> t -> t
     val min_binding : t -> (dim * base)
     val max_binding : t -> (dim * base)
@@ -107,10 +105,8 @@ module Impl = struct
 	| None, None -> assert false
       in
       Hmap.merge f lin0 lin1
-    let sub lin0 lin1 = add lin0 (scalar_mul neg_one lin1)
     let find x m = try Hmap.find x m with Not_found -> R.zero
     let enum = Hmap.enum
-    let of_enum = Hmap.of_enum
     let equal = Hmap.equal R.equal
 
     let zero = Hmap.empty
@@ -173,11 +169,9 @@ module Impl = struct
 	| None, None -> assert false
       in
       M.merge f lin0 lin1
-    let sub lin0 lin1 = add lin0 (negate lin1)
 
     let find x m = try M.find x m with Not_found -> R.zero
     let enum = M.enum
-    let of_enum = M.of_enum
     let equal = M.equal R.equal
     let min_binding = M.min_binding
     let max_binding = M.max_binding
@@ -195,6 +189,74 @@ module Impl = struct
       end
     let compare = M.compare
   end
+
+  module LiftMap
+    (V : Var)
+    (M : Putil.Map.S with type key = V.t)
+    (R : Ring.S) =
+  struct
+    type t = R.t M.t
+    type base = R.t
+    type dim = V.t
+
+    let neg_one = R.negate R.one
+    let is_zero x = R.equal x R.zero
+
+    include Putil.MakeFmt(struct
+      type a = t
+      let format formatter lin =
+	let pp formatter (var, coeff) =
+	  assert (not (is_zero coeff));
+	  if R.equal coeff R.one then
+	    V.format formatter var
+	  else if R.equal coeff neg_one then
+	    Format.fprintf formatter "-%a" V.format var
+	  else
+	    Format.fprintf formatter "%a*%a" R.format coeff V.format var
+	in
+	let enum = M.enum lin in
+	if BatEnum.is_empty enum then
+	  R.format formatter R.zero
+	else
+	  Putil.format_enum pp ~left:"" ~sep:" +" ~right:"" formatter enum
+    end)
+
+    let scalar_mul k lin =
+      if R.equal k R.one then lin
+      else if is_zero k then M.empty
+      else M.map (fun coeff -> R.mul k coeff) lin
+    let negate = scalar_mul neg_one
+    let add lin0 lin1 =
+      let f _ a b =
+	match a, b with
+	| Some a, Some b ->
+	  let sum = R.add a b in
+	  if is_zero sum then None else Some sum
+	| Some x, None | None, Some x -> Some x
+	| None, None -> assert false
+      in
+      M.merge f lin0 lin1
+
+    let find x m = try M.find x m with Not_found -> R.zero
+    let enum = M.enum
+    let equal = M.equal R.equal
+    let min_binding = M.min_binding
+    let max_binding = M.max_binding
+    let enum_ordered lin = BatList.enum (M.bindings lin)
+
+    let zero = M.empty
+    let var v = M.add v R.one zero
+    let add_term v coeff lin =
+      if is_zero coeff then lin else begin
+	try
+	  let sum = R.add coeff (M.find v lin) in
+	  if not (is_zero sum) then M.add v sum lin
+	  else M.remove v lin
+	with Not_found -> M.add v coeff lin
+      end
+    let compare = M.compare
+  end
+
 end
 
 module Defaults (E : Impl.Basis) = struct
@@ -219,16 +281,31 @@ module Defaults (E : Impl.Basis) = struct
       Smt.add t (Smt.mul (coeff_smt coeff) (dim_smt dim))
     in
     BatEnum.fold f (Smt.const_int 0) (E.enum term)
+
+  let of_enum = BatEnum.fold (flip (uncurry E.add_term)) E.zero
+
+  let sub lin0 lin1 = E.add lin0 (E.negate lin1)
 end
 
 module Expr = struct
   module type S = sig
     include Impl.Basis
+    val sub : t -> t -> t
+    val of_enum : (dim * base) BatEnum.t -> t
     val to_smt : (dim -> Smt.ast) -> (base -> Smt.ast) -> t -> Smt.ast
     val transpose : t list -> dim list -> dim list -> t list
   end
   module Make (V : Var) (R : Ring.S) = struct
     module I = Impl.Make(V)(R)
+    include I
+    include Defaults(I)
+  end
+  module LiftMap
+    (V : Var)
+    (M : Putil.Map.S with type key = V.t)
+    (R : Ring.S) =
+  struct
+    module I = Impl.LiftMap(V)(M)(R)
     include I
     include Defaults(I)
   end
@@ -268,7 +345,6 @@ module Expr = struct
     let scalar_mul = P.scalar_mul
     let negate = P.negate
     let add = P.add
-    let sub = P.sub
     let find = P.find
     let enum = P.enum
     let of_enum = P.of_enum
@@ -360,6 +436,80 @@ module Expr = struct
       let hash = Hmap.hash R.hash
       let equal = Hmap.equal R.equal
     end
+  end
+end
+
+module Affine = struct
+  module type S = sig
+    type var
+    include Expr.S with type dim = var affine
+    val const : base -> t
+    val const_coeff : t -> base
+    val var_bindings : t -> (var * base) BatEnum.t
+    val var_bindings_ordered : t -> (var * base) BatEnum.t
+    val var_coeff : var -> t -> base
+  end
+  module LiftMap
+    (V : Var)
+    (M : Putil.Map.S with type key = V.t)
+    (R : Ring.S) =
+  struct
+    module I = struct
+      module L = Impl.LiftMap(V)(M)(R)
+      type t = L.t * R.t
+      type base = R.t
+      type dim = V.t affine
+      type var = V.t
+
+      include Putil.MakeFmt(struct
+	type a = t
+	let format formatter (lt, k) =
+	  if R.equal k R.zero then L.format formatter lt
+	  else if L.equal lt L.zero then R.format formatter k
+	  else Format.fprintf formatter "%a@ +@ %a" L.format lt R.format k
+      end)
+
+      (* Lift dim * base to (affine dim * base) *)
+      let lift_pair (dim, base) = (AVar dim, base)
+
+      let zero = (L.zero, R.zero)
+      let equal (lt1, k1) (lt2, k2) = R.equal k1 k2 && L.equal lt1 lt2
+      let scalar_mul a (lt, k) = (L.scalar_mul a lt, R.mul a k)
+      let add (lt1, k1) (lt2, k2) = (L.add lt1 lt2, R.add k1 k2)
+      let negate (lt, k) = (L.negate lt, R.negate k)
+      let find dim (lt, k) = match dim with
+	| AConst -> k
+	| AVar v -> L.find v lt
+      let enum (lt, k) =
+	let e = L.enum lt /@ lift_pair in
+	if not (R.equal k R.zero) then BatEnum.push e (AConst, k);
+	e
+      let add_term dim coeff (lt, k) = match dim with
+	| AConst -> (lt, R.add k coeff)
+	| AVar v -> (L.add_term v coeff lt, k)
+      let min_binding (lt, k) =
+	if R.equal k R.zero then L.min_binding lt |> lift_pair
+	else (AConst, k)
+      let max_binding (lt, k) =
+	try L.max_binding lt |> lift_pair
+	with Not_found ->
+	  if R.equal k R.zero then raise Not_found else (AConst, k)
+      let enum_ordered (lt, k) =
+	let e = L.enum_ordered lt /@ lift_pair in
+	if not (R.equal k R.zero) then BatEnum.push e (AConst, k);
+	e
+      let var = function
+	| AConst -> (L.zero, R.one)
+	| AVar v -> (L.var v, R.zero)
+    end
+    include I
+    include Defaults(I)
+
+    let const k = (L.zero, k)
+    let const_coeff (_, k) = k
+    let var_bindings (lt, _) = L.enum lt
+    let var_bindings_ordered (lt, _) = L.enum_ordered lt
+    let var_coeff v (lt, _) = L.find v lt
   end
 end
 
