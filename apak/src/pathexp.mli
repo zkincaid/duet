@@ -81,4 +81,5 @@ sig
     query -> (R.G.V.t -> bool) -> (R.G.V.t -> K.t -> unit) -> unit
   val single_src : query -> Block.t -> R.G.V.t -> K.t
   val enum_single_src : query -> (Block.t * R.G.V.t * K.t) BatEnum.t
+  val enum_single_src_tmp : (R.G.V.t -> (R.atom, R.block) typ) -> query -> (Block.t * R.G.V.t * K.t) BatEnum.t
 end

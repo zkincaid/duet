@@ -5,8 +5,8 @@ open CfgIr
 open Apak
 
 (* TODO: Address of generates no equality *)
-(* TODO: Fix propagation of sequential facts to thread entries *)
-(* TODO: Fix computation of paths to vertices in forked threads *)
+(* TODO: Fix propagation of forked threads from parent to child
+ * e.g. parents forks foo and bar, bar computes concurrently with foo *)
 (* -----------------Domains *)
 module type Predicate = sig
   include EqLogic.Hashed.Predicate
@@ -278,12 +278,12 @@ module Datarace = struct
         | Call (vo, e, elst) ->
             begin 
               try LSA.HT.find sums (get_func e)
-              with Not_found -> zero
+              with Not_found -> one 
             end
         | Builtin (Fork (vo, e, elst)) -> 
             let summary =
               try LSA.HT.find sums (get_func e)
-              with Not_found -> zero 
+              with Not_found -> one
             in
               { lp = LockPath.one; 
                 seq = PD.bot;
@@ -322,13 +322,18 @@ module Datarace = struct
     with Not_found -> false
 
   let find_all_races query vlst =
+    let classify v = match v.dkind with
+      | Builtin (Fork (vo, e, elst)) -> RecGraph.Block (get_func e)
+      | _ -> Interproc.V.classify v
+    in
     let ht = Def.HT.create 32 in
     let f (block, def, path) =
       let races = Var.Set.filter (fun v -> may_race path v) vlst
       in
+        print_endline (Def.show def ^ " ---- " ^  Domain.show path);
         Def.HT.add ht def races
     in
-      BatEnum.iter f (LSA.enum_single_src query);
+      BatEnum.iter f (LSA.enum_single_src_tmp classify query);
       ht
 
   (* Given wt, a transition formula over lock logic and some predicates,
@@ -376,7 +381,7 @@ module Datarace = struct
        * this every time a new query is made *)
       let add_fork_edges q =
         let f (b, v) = match v.dkind with
-          | Builtin (Fork (vo, e, elst)) -> LSA.add_callgraph_edge q (get_func e) b
+          | Builtin (Fork (vo, e, elst)) -> LSA.add_callgraph_edge q b (get_func e)
           | _ -> ()
         in
           BatEnum.iter f (Interproc.RG.vertices rg)
@@ -411,8 +416,8 @@ module Datarace = struct
       in
       let rec fp_races old_races =
         let new_races = compute_races old_races in
-        let f def v = print_endline ((Def.show def) ^ " --> " ^ (Var.Set.show v)) in
-         (* Def.HT.iter f new_races;*)
+        (*let f def v = print_endline ((Def.show def) ^ " --> " ^ (Var.Set.show v)) in
+          Def.HT.iter f new_races;*)
           if eq_races old_races new_races then new_races
                                           else fp_races new_races
       in
@@ -423,6 +428,7 @@ module Datarace = struct
           file.funcs;
           ht
       in
+        BatEnum.iter (fun (_, g) -> Interproc.RGD.display g) (Interproc.RG.bodies rg);
         fp_races init_races
       end
     | _      -> assert false

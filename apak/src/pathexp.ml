@@ -498,7 +498,7 @@ struct
     try HT.find summaries block
     with Not_found -> K.zero
 
-  let single_src_blocks query =
+  let single_src_blocks_tmp classify query =
     let cg = callgraph query in
 
     let weight v = match R.classify v with
@@ -508,9 +508,9 @@ struct
 
     let p2c_summaries = HT.create 32 in
     let block_succ_weights block src graph =
-      let path = Summarize.single_src_restrict_v graph weight src is_block in
+      let path = Summarize.single_src_v graph weight src in
       let ht = HT.create 32 in
-      let f u = match R.classify u with
+      let f u = match classify u with
 	| Block blk ->
 	  let to_blk = (* path from src to blk *)
 	    let local = query.local block in
@@ -535,10 +535,11 @@ struct
     in
     InterPE.single_src cg cg_weight query.root
 
+  let single_src_blocks query = single_src_blocks_tmp R.classify query
+
   let single_src_blocks query =
     ignore (get_summaries query);
     Log.phase "Compute path to block" single_src_blocks query
-
 
   let single_src_restrict query p go =
     let to_block = single_src_blocks query in
@@ -563,8 +564,8 @@ struct
     in
     BatEnum.iter f (R.bodies query.recgraph)
 
-  let single_src query =
-    let path_to_block = single_src_blocks query in
+  let single_src_tmp classify query =
+    let path_to_block = single_src_blocks_tmp classify query in
     let weight v = match R.classify v with
       | Atom atom   -> query.weight atom
       | Block block -> try HT.find query.summaries block
@@ -578,11 +579,15 @@ struct
       fun v -> K.mul to_block (to_v v)
     end
 
-  let enum_single_src query =
-    let pathexp = single_src query in
+  let single_src query = single_src_tmp R.classify query
+
+  let enum_single_src_tmp classify query =
+    let pathexp = single_src_tmp classify query in
     let enum_block (block, body) =
       let pathexp = pathexp block in
       R.G.vertices body /@ (fun v -> (block, v, pathexp v))
     in
     BatEnum.concat (R.bodies query.recgraph /@ enum_block)
+
+  let enum_single_src query = enum_single_src_tmp R.classify query
 end
