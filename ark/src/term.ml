@@ -6,6 +6,7 @@ open BatPervasives
 
 module type Var = sig
   include Linear.Var
+  module Map : Putil.Map.S with type key = t
   val of_smt : Smt.symbol -> t
   val typ : t -> typ
   val hash : t -> int
@@ -17,10 +18,10 @@ module type S = sig
   include Putil.Hashed.S with type t := t
   include Putil.OrderedMix with type t := t
   module V : Var
-  module AffineVar : Linear.Var with type t = V.t affine
   module D : NumDomain.S with type var = V.t
-  module Linterm : Linear.Expr.S with type dim = AffineVar.t
-				 and type base = QQ.t
+  module Linterm : Linear.Affine.S with type var = V.t
+				   and type base = QQ.t
+  module Set : Putil.Set.S with type elt = t
 
   val var : V.t -> t
   val const : QQ.t -> t
@@ -66,12 +67,19 @@ module type S = sig
   end
 end
 
-module Make (V : Var) : S with module V = V = struct
+module Make (V : Var) = struct
   open Hashcons
 
   module V = V
-  module AffineVar = Linear.Affine(V)
-  module Linterm = Linear.Expr.Make(AffineVar)(QQ)
+
+  module Linterm = struct
+    include Linear.Affine.LiftMap(V)(V.Map)(QQ)
+    let hash lt =
+      let var_bindings =
+	var_bindings_ordered lt /@ (fun (v,c) -> V.hash v, QQ.hash c)
+      in
+      Hashtbl.hash (QQ.hash (const_coeff lt), BatList.of_enum var_bindings)
+  end
 
   module T = struct
     type t = term hash_consed
@@ -99,6 +107,10 @@ module Make (V : Var) : S with module V = V = struct
     let hash x = x.hkey
   end
   include T
+  module Set = Tagged.PTSet(struct
+    include T
+    let tag x = x.tag
+  end)
 
   module Compare_t = struct
     type a = t
@@ -108,7 +120,22 @@ module Make (V : Var) : S with module V = V = struct
   let equal x y = x.tag == y.tag
   let hash x = x.hkey
 
-  module HC = Hashcons
+  module HC = Hashcons.Make(struct
+    type t = term
+    let equal s t = match s, t with
+    | (Lin s, Lin t) -> Linterm.equal s t
+    | (Floor s, Floor t) -> s.tag == t.tag
+    | (Add (w,x)), (Add (y,z)) -> w.tag == y.tag && x.tag == z.tag
+    | (Mul (w,x)), (Mul (y,z)) -> w.tag == y.tag && x.tag == z.tag
+    | (Div (w,x)), (Div (y,z)) -> w.tag == y.tag && x.tag == z.tag
+    | (_, _) -> false
+    let hash t = Hashtbl.hash (match t with
+    | Lin lin    -> (Linterm.hash lin, 0, 0)
+    | Floor s    -> (s.hkey, 0, 1)
+    | Add (x, y) -> (x.hkey, y.hkey, 2)
+    | Mul (x, y) -> (x.hkey, y.hkey, 3)
+    | Div (x, y) -> (x.hkey, y.hkey, 4))
+  end)
   let term_tbl = HC.create 1000003
   let hashcons x = Log.time "term:hashcons" (HC.hashcons term_tbl) x
 
@@ -155,7 +182,7 @@ module Make (V : Var) : S with module V = V = struct
     match x.node, y.node with
     | Lin lx, Lin ly -> begin
       match get_const y with
-      | Some k -> of_linterm (Linterm.scalar_mul (QQ.inverse k) ly)
+      | Some k -> of_linterm (Linterm.scalar_mul (QQ.inverse k) lx)
       | None -> hashcons (Div (x, y))
     end
     | _, _ -> hashcons (Div (x, y))

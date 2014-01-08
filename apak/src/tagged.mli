@@ -13,7 +13,10 @@ module PTSet (T : Tagged) : Putil.Hashed.Set.S with type elt = T.t
 
 (** Maps implemented with Patricia trees.  This module is taken from
     Jean-Christophe Filliatre's implementation of Patricia trees. *)
-module PTMap (T : Tagged) : Putil.Map.S with type key = T.t
+module PTMap (T : Tagged) : sig
+  include Putil.Map.S with type key = T.t
+  val hash : ('a -> int) -> 'a t -> int
+end
 
 module MakeCoreType (T : Tagged) : sig
   include Putil.CoreType with type t = T.t

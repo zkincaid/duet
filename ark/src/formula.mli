@@ -3,7 +3,11 @@
 open Apak
 open ArkPervasives
 
-module type Formula = sig
+type qe_strategy =
+| Monniaux
+| Z3
+
+module type S = sig
   type t
   include Putil.Hashed.S with type t := t
   include Putil.OrderedMix with type t := t
@@ -116,9 +120,9 @@ module type Formula = sig
   end
 end
 
-module Make (T : Term.S) : Formula with module T = T
-module MakeEq (F : Formula) : sig
-  module AMap : BatMap.S with type key = F.T.AffineVar.t
+module Make (T : Term.S) : S with module T = T
+module MakeEq (F : S) : sig
+  module AMap : BatMap.S with type key = F.T.V.t affine
   (** [extract_equalities phi vars] computes a basis for the smallest linear
       manifold which contains [phi] and is defined over the variables
       [vars]. *)

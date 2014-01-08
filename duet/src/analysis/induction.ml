@@ -125,6 +125,7 @@ module V = struct
       Z3.mk_const ctx (Z3.mk_int_symbol ctx id) (Smt.mk_int_sort ())
     | TyReal ->
       Z3.mk_const ctx (Z3.mk_int_symbol ctx id) (Smt.mk_real_sort ())
+  let tag = E.to_int enum
 end
 
 module K = Transition.Make(V)
