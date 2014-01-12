@@ -39,7 +39,7 @@ apak:
 
 install:
 	ocamlfind install apak META apak.cmi apak.cma apak.cmxa \
-	apak.a
+	apak.a apak.o
 
 uninstall:
 	@$(MAKE) -f $(OCAMLMAKEFILE) subprojs SUBPROJS=apak SUBTARGET=libuninstall
