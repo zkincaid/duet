@@ -521,7 +521,7 @@ module Make (Var : Var) = struct
       match BatList.fold_left2 g (Some T.zero) case_vars cases with
       | Some sum ->
 	{ loop with guard = F.conj loop.guard 
-	    (F.eq (M.find v loop.transform) sum) }
+	    (F.eq (T.add (T.var (V.mk_var v)) (M.find v loop.transform)) sum) }
       | None -> loop
     in
     let loop = BatList.fold_left2 f ctx.loop vars (BatList.transpose cases) in
@@ -779,9 +779,13 @@ module Make (Var : Var) = struct
 	(F.conj pre_guard post_guard)
 	(F.geq ctx.loop_counter T.one)
     in
-    let star_guard =
-      F.disj plus_guard (F.eqz ctx.loop_counter)
+    let zero_guard =
+      let eq (v, t) = F.eq (T.var (V.mk_var v)) t in
+      F.conj
+	(F.eqz ctx.loop_counter)
+	(F.big_conj (BatEnum.map eq (M.enum ctx.loop.transform)))
     in
+    let star_guard = F.disj plus_guard zero_guard in
     { ctx.loop with guard = F.conj ctx.loop.guard star_guard }
 
   (* Compute recurrence relations of the form
