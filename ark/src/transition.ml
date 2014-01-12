@@ -204,17 +204,6 @@ module Dioid (Var : Var) = struct
     { transform = M.empty;
       guard = phi }
 
-  let exists p tr =
-    let transform = M.filter (fun k _ -> p k) tr.transform in
-    let rename = VarMemo.memo (fun v -> V.mk_tmp (Var.show v) (Var.typ v)) in
-    let sigma v = match V.lower v with
-      | Some var -> T.var (if p var then v else rename var)
-      | None -> T.var v
-    in
-    { transform = transform;
-      guard = F.subst sigma tr.guard }
-
-
   let term_free_program_vars term =
     let open Term in
     let f = function
@@ -263,8 +252,17 @@ module Dioid (Var : Var) = struct
     let f _ term free = VSet.diff free (term_free_tmp_vars term) in
     let guard = F.linearize (fun () -> V.mk_tmp "nonlin" TyInt) tr.guard in
     let free_tmp = M.fold f tr.transform (formula_free_tmp_vars guard) in
-    if VSet.is_empty free_tmp then tr
-    else { tr with guard = F.exists (not % flip VSet.mem free_tmp) guard }
+    { tr with guard = F.simplify (not % flip VSet.mem free_tmp) guard }
+
+  let exists p tr =
+    let transform = M.filter (fun k _ -> p k) tr.transform in
+    let rename = VarMemo.memo (fun v -> V.mk_tmp (Var.show v) (Var.typ v)) in
+    let sigma v = match V.lower v with
+      | Some var -> T.var (if p var then v else rename var)
+      | None -> T.var v
+    in
+    { transform = transform;
+      guard = F.subst sigma tr.guard }
 
   let post_formula tr =
     let phi =

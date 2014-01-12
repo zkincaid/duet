@@ -82,12 +82,13 @@ module type S = sig
       quantifers is the one specified by [opt_qe_strategy]. *)
   val exists : (T.V.t -> bool) -> t -> t
 
-
   (** [exists vars phi] existentially quantifies each variable in [phi] which
       appears in the list [vars].  The strategy used to eliminate
       quantifiers is the one specified by [opt_qe_strategy] *)
   val exists_list : T.V.t list -> t -> t
 
+  (** Default quantifier elimination strategy.  If not set, defaults to
+      [qe_lme]. *)
   val opt_qe_strategy : ((T.V.t -> bool) -> t -> t) ref
 
   (** {3 Quantifier elimination strategies} *)
@@ -104,6 +105,29 @@ module type S = sig
       variable to be quantified, and replaces occurrences of the variable
       with the appropriate bound.  *)
   val qe_cover : (T.V.t -> bool) -> t -> t
+
+  (** {2 Simplification} *)
+
+  (** [simplify p phi] simplifies the formula [phi], treating the variables
+      which do not satisfy the predicate [p] as existentially quantified
+      ([simplify] may, but is not obligated to, eliminate these variables).
+      [simplify] may overapproximate [phi] (i.e., [simplify p phi] is implied
+      by [phi], but [phi] does not necessarily implify [simplify p phi]).  The
+      strategy used by [simplify] is the sequence of strategies given in
+      [opt_simplification_strategy].  *)
+  val simplify : (T.V.t -> bool) -> t -> t
+
+  (** Simplify using Z3's built-in simplification routines *)
+  val simplify_z3 : (T.V.t -> bool) -> t -> t
+
+  (** Simplify using the algorithm described in Isil Dillig, Thomas Dillig,
+      Alex Aiken: "Small Formulas for Large Programs: On-Line Constraint
+      Simplification in Scalable Static Analysis", SAS 2010. *)
+  val simplify_dillig : (T.V.t -> bool) -> t -> t
+
+  (** Default simplification strategy.  If not set, defaults to
+      [qe_cover; simplify_dillig]. *)
+  val opt_simplify_strategy : ((T.V.t -> bool) -> t -> t) list ref
 
   (** {2 Misc operations} *)
 

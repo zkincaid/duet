@@ -164,7 +164,8 @@ let _ =
   opt_recurrence_ineq := false;
   opt_higher_recurrence_ineq := false;
   opt_unroll_loop := false;
-  opt_loop_guard := true
+  opt_loop_guard := true;
+  F.opt_simplify_strategy := []
 
 let prime_bexpr = Bexpr.subst_var V.prime
 

@@ -54,6 +54,11 @@ module type S = sig
   val qe_z3 : (T.V.t -> bool) -> t -> t
   val qe_cover : (T.V.t -> bool) -> t -> t
 
+  val simplify : (T.V.t -> bool) -> t -> t
+  val simplify_z3 : (T.V.t -> bool) -> t -> t
+  val simplify_dillig : (T.V.t -> bool) -> t -> t
+  val opt_simplify_strategy : ((T.V.t -> bool) -> t -> t) list ref
+
   val of_smt : Smt.ast -> t
   val to_smt : t -> Smt.ast
   val implies : t -> t -> bool
@@ -1113,7 +1118,6 @@ module Make (T : Term.S) = struct
   let symbolic_bounds p phi term =
     Log.time "symbolic_bounds" (symbolic_bounds p phi) term
 
-
   exception Unbounded (* Internal to qe_cover *)
   let qe_cover p phi =
     let fv = formula_free_vars phi in
@@ -1171,6 +1175,82 @@ module Make (T : Term.S) = struct
 	with Unbounded -> top end
     in
     map replace phi
+
+  let atom_smt = function
+    | LeqZ t -> Smt.mk_le (T.to_smt t) (Smt.const_int 0)
+    | LtZ t -> Smt.mk_lt (T.to_smt t) (Smt.const_int 0)
+    | EqZ t -> Smt.mk_eq (T.to_smt t) (Smt.const_int 0)
+
+  let rec simplify_children star s children =
+    let f psi = s#assrt (star (to_smt psi)) in
+    let changed = ref false in
+    let rec go simplified = function
+      | [] -> simplified
+      | (phi::phis) ->
+	s#push ();
+	List.iter f simplified;
+	List.iter f phis;
+	let simple_phi = simplify_dillig_impl phi s in
+	s#pop ();
+	if not (equal phi simple_phi) then changed := true;
+	go (simple_phi::simplified) phis
+    in
+    let rec fix children =
+      let simplified = go [] children in
+      if !changed then begin
+	changed := false;
+	fix simplified
+      end else simplified
+    in
+    fix (BatList.of_enum (Hset.enum children))
+
+  and simplify_dillig_impl phi s =
+    match phi.node with
+    | Atom at ->
+      s#push ();
+      s#assrt (atom_smt at);
+      let simplified =
+	match s#check () with
+	| Smt.Undef -> atom at
+	| Smt.Unsat -> bottom
+	| Smt.Sat -> 
+	  s#pop ();
+	  s#push ();
+	  s#assrt (Smt.mk_not (atom_smt at));
+	  match s#check () with
+	  | Smt.Undef -> atom at
+	  | Smt.Unsat -> top
+	  | Smt.Sat -> atom at
+      in
+      s#pop ();
+      simplified
+    | Or xs -> big_disj (BatList.enum (simplify_children Smt.mk_not s xs))
+    | And xs -> big_conj (BatList.enum (simplify_children (fun x -> x) s xs))
+
+  let simplify_dillig _ phi = simplify_dillig_impl phi (new Smt.solver)
+
+  let simplify_z3 p phi =
+    let fv = formula_free_vars phi in
+    let vars = BatList.of_enum (BatEnum.filter (not % p) (VarSet.enum fv)) in
+    let ctx = Smt.get_context () in
+    let simplify = Z3.mk_tactic ctx "simplify" in
+    let solve_eqs = Z3.mk_tactic ctx "solve-eqs" in
+    let simplify = Z3.tactic_and_then ctx simplify solve_eqs in
+    let g = Z3.mk_goal ctx false false false in
+
+    Z3.goal_assert ctx g
+      (Z3.mk_exists_const
+	 ctx
+	 (List.length vars)
+	 (Array.of_list (List.map (Z3.to_app ctx % T.V.to_smt) vars))
+	 [||]
+	 (to_smt phi));
+    of_apply_result (Z3.tactic_apply ctx simplify g)
+
+
+  let opt_simplify_strategy = ref [qe_cover; simplify_dillig]
+  let simplify p phi =
+    List.fold_left (fun phi simpl -> simpl p phi) phi (!opt_simplify_strategy)
 
   module Syntax = struct
     let ( && ) x y = conj x y
