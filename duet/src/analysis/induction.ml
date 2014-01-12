@@ -226,8 +226,7 @@ let weight def =
 let analyze file =
   match file.entry_points with
   | [main] -> begin
-    (*    let rg = decorate (Interproc.make_recgraph file) in*)
-    let rg = Interproc.make_recgraph file in
+    let rg = decorate (Interproc.make_recgraph file) in
     let local func_name =
       let func = lookup_function func_name (get_gfile()) in
       let vars =

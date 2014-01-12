@@ -449,6 +449,9 @@ struct
     | Some cg -> cg
     | None -> begin
       let cg = CG.callgraph query.recgraph query.root in
+      Log.logf Log.info "Call graph vertices: %d, edges: %d"
+	(CG.nb_vertex cg)
+	(CG.nb_edges cg);
       query.callgraph <- Some cg;
       cg
     end
@@ -510,7 +513,10 @@ struct
     in
 
     let p2c_summaries = HT.create 32 in
-    let block_succ_weights block src graph =
+    let block_succ_weights (block, graph) =
+      Log.logf Log.info "Compute paths to call vertices in `%a`"
+	Block.format block;
+      let src = R.block_entry query.recgraph block in
       let path = Summarize.single_src_restrict_v graph weight src is_block in
       let ht = HT.create 32 in
       let f u = match R.classify u with
@@ -528,20 +534,19 @@ struct
       R.G.iter_vertex f graph;
       HT.add p2c_summaries block ht
     in
-    R.bodies query.recgraph
-    |> BatEnum.iter (fun (block,graph) ->
-      block_succ_weights block (R.block_entry query.recgraph block) graph);
+    Log.phase "Compute call graph weights"
+      (BatEnum.iter block_succ_weights) (R.bodies query.recgraph);
 
     let cg_weight e =
       try HT.find (HT.find p2c_summaries (CG.E.src e)) (CG.E.dst e)
       with Not_found -> assert false
     in
-    InterPE.single_src cg cg_weight query.root
+    Log.phase "Compute path to block"
+      (InterPE.single_src cg cg_weight) query.root
 
   let single_src_blocks query =
     ignore (get_summaries query);
-    Log.phase "Compute path to block" single_src_blocks query
-
+    single_src_blocks query
 
   let single_src_restrict query p go =
     let to_block = single_src_blocks query in
@@ -551,6 +556,7 @@ struct
 	               with Not_found -> K.zero
     in
     let f (block, body) =
+      Log.logf Log.info "Intraprocedural paths in `%a`" Block.format block;
       let block_path = to_block block in
       let block_entry = R.block_entry query.recgraph block in
       let from_block =

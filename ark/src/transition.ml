@@ -916,4 +916,8 @@ module Make (Var : Var) = struct
     in
     Log.logf Log.info "Loop summary: %a" format loop;
     loop
+
+  let star tr =
+    try star tr
+    with Unsat -> one
 end
