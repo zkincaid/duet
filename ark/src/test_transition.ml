@@ -522,7 +522,7 @@ module Bound = struct
     check F.bottom Smt.Sat
 end
 
-let suite = "Induction" >:::
+let suite = "Transition" >:::
   [
     "counter" >:: test_counter;
     "count_up_down_safe" >:: test_count_up_down_safe;

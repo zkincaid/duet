@@ -3,9 +3,7 @@
 open Apak
 open ArkPervasives
 
-type qe_strategy =
-| Monniaux
-| Z3
+exception Nonlinear
 
 module type S = sig
   type t
@@ -77,10 +75,37 @@ module type S = sig
   (** Abstract post-condition of an assumption *)
   val abstract_assume : 'a Apron.Manager.t -> 'a T.D.t -> t -> 'a T.D.t
 
-  (** {2 Misc operations} *)
+  (** {2 Quantification} *)
 
+  (** [exists p phi] existentially quantifies each variable in [phi] which
+      does not satisfy the predicate [p]. The strategy used to eliminate
+      quantifers is the one specified by [opt_qe_strategy]. *)
   val exists : (T.V.t -> bool) -> t -> t
-  val exists_list : T.V.t list -> t -> t 
+
+
+  (** [exists vars phi] existentially quantifies each variable in [phi] which
+      appears in the list [vars].  The strategy used to eliminate
+      quantifiers is the one specified by [opt_qe_strategy] *)
+  val exists_list : T.V.t list -> t -> t
+
+  val opt_qe_strategy : ((T.V.t -> bool) -> t -> t) ref
+
+  (** {3 Quantifier elimination strategies} *)
+
+  (** Quantifier elimination algorithm based on lazy model enumeration, as
+      described in David Monniaux: "Quantifier elimination by lazy model
+      enumeration", CAV2010. *)
+  val qe_lme : (T.V.t -> bool) -> t -> t
+
+  (** Use Z3's built-in quantifier elimination algorithm *)
+  val qe_z3 : (T.V.t -> bool) -> t -> t
+
+  (** Over-approximate quantifier elimination.  Computes intervals for each
+      variable to be quantified, and replaces occurrences of the variable
+      with the appropriate bound.  *)
+  val qe_cover : (T.V.t -> bool) -> t -> t
+
+  (** {2 Misc operations} *)
 
   val of_smt : Smt.ast -> t
   val to_smt : t -> Smt.ast
@@ -106,6 +131,10 @@ module type S = sig
 
   val symbolic_abstract : (T.t list) -> t -> (QQ.t option * QQ.t option) list
   val disj_optimize : (T.t list) -> t -> (QQ.t option * QQ.t option) list list
+
+  val dnf_size : t -> int
+  val nb_atoms : t -> int
+  val size : t -> int
 
   val log_stats : unit -> unit
 

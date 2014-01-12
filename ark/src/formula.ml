@@ -5,11 +5,7 @@ open Term
 open ArkPervasives
 open BatPervasives
 
-type qe_strategy =
-| Monniaux
-| Z3
-
-let opt_qe_strategy = ref Monniaux
+exception Nonlinear
 
 module type S = sig
   type t
@@ -51,9 +47,13 @@ module type S = sig
                         'a T.D.t
   val abstract_assume : 'a Apron.Manager.t -> 'a T.D.t -> t -> 'a T.D.t
 
-
   val exists : (T.V.t -> bool) -> t -> t
-  val exists_list : T.V.t list -> t -> t 
+  val exists_list : T.V.t list -> t -> t
+  val opt_qe_strategy : ((T.V.t -> bool) -> t -> t) ref
+  val qe_lme : (T.V.t -> bool) -> t -> t
+  val qe_z3 : (T.V.t -> bool) -> t -> t
+  val qe_cover : (T.V.t -> bool) -> t -> t
+
   val of_smt : Smt.ast -> t
   val to_smt : t -> Smt.ast
   val implies : t -> t -> bool
@@ -65,6 +65,10 @@ module type S = sig
   val linearize : (unit -> T.V.t) -> t -> t
   val symbolic_abstract : (T.t list) -> t -> (QQ.t option * QQ.t option) list
   val disj_optimize : (T.t list) -> t -> (QQ.t option * QQ.t option) list list
+
+  val dnf_size : t -> int
+  val nb_atoms : t -> int
+  val size : t -> int
 
   val log_stats : unit -> unit
 
@@ -506,9 +510,17 @@ module Make (T : Term.S) = struct
       | _ -> 1
     in
     eval alg phi
+
   let nb_atoms phi =
     let alg = function
       | OOr (x, y) | OAnd (x, y) -> x + y
+      | _ -> 1
+    in
+    eval alg phi
+
+  let size phi =
+    let alg = function
+      | OOr (x, y) | OAnd (x, y) -> x + y + 1
       | _ -> 1
     in
     eval alg phi
@@ -604,52 +616,6 @@ module Make (T : Term.S) = struct
     let (top, bottom) = (D.top man env_proj, D.bottom man env_proj) in
     lazy_dnf ~join:join ~bottom:bottom ~top:top (to_smt % of_abstract) phi
 
-  (* As described in David Monniaux: "Quantifier elimination by lazy model
-     enumeration", CAV2010. *)
-  let lme_exists p phi =
-    let man = Polka.manager_alloc_strict () in
-    let env = mk_env phi in
-    Log.logf Log.info "Quantifier elimination [dim: %d, target: %d]"
-      (D.Env.dimension env)
-      (D.Env.dimension (D.Env.filter p env));
-    let join psi disjunct =
-      Log.logf Log.info "Polytope projection [sides: %d]"
-	(nb_atoms disjunct);
-      let projection =
-	Log.time "Polytope projection"
-	  (fun () -> of_abstract (D.exists man p (to_apron man env disjunct)))
-	  ()
-      in
-      Log.logf Log.info "Projected polytope sides: %d"
-	(nb_atoms projection);
-      disj psi projection
-    in
-    lazy_dnf ~join:join ~bottom:bottom ~top:top to_smt phi
-
-  let lme_exists_list vars phi =
-    let set = VarSet.of_enum (BatList.enum vars) in
-    lme_exists (not % flip VarSet.mem set) phi
-
-  let z3_exists_list vars phi =
-    let ctx = Smt.get_context() in
-    let solve = Z3.mk_tactic ctx "qe" in
-    let simpl = Z3.mk_tactic ctx "simplify" in
-    let qe = Z3.tactic_and_then ctx solve simpl in
-    let g = Z3.mk_goal ctx false false false in
-    Z3.goal_assert ctx g
-      (Z3.mk_exists_const
-	 ctx
-	 (List.length vars)
-	 (Array.of_list (List.map (Z3.to_app ctx % T.V.to_smt) vars))
-	 [||]
-	 (to_smt phi));
-    of_apply_result (Z3.tactic_apply ctx qe g)
-
-  let z3_exists p phi =
-    let fv = formula_free_vars phi in
-    let vars = BatList.of_enum (BatEnum.filter (not % p) (VarSet.enum fv)) in
-    z3_exists_list vars phi
-
   let abstract_assign man x v t =
     let open Apron in
     let open D in
@@ -663,16 +629,6 @@ module Make (T : Term.S) = struct
 	  [| T.to_apron x.env t |]
 	  None;
       env = x.env }
-
-  let exists p phi =
-    match !opt_qe_strategy with
-    | Monniaux -> lme_exists p phi
-    | Z3 -> z3_exists p phi
-
-  let exists_list (vars : T.V.t list) (phi : t) =
-    match !opt_qe_strategy with
-    | Monniaux -> lme_exists_list vars phi
-    | Z3 -> z3_exists_list vars phi
 
   let abstract_assume man x phi = abstract man (conj (of_abstract x) phi)
 
@@ -750,6 +706,53 @@ module Make (T : Term.S) = struct
       | None -> ()
     done;
     !symbounds
+
+  (****************************************************************************)
+  (* Quantifier elimination                                                   *)
+  (****************************************************************************)
+
+  let qe_lme p phi =
+    let man = Polka.manager_alloc_strict () in
+    let env = mk_env phi in
+    Log.logf Log.info "Quantifier elimination [dim: %d, target: %d]"
+      (D.Env.dimension env)
+      (D.Env.dimension (D.Env.filter p env));
+    let join psi disjunct =
+      Log.logf Log.info "Polytope projection [sides: %d]"
+	(nb_atoms disjunct);
+      let projection =
+	Log.time "Polytope projection"
+	  (fun () -> of_abstract (D.exists man p (to_apron man env disjunct)))
+	  ()
+      in
+      Log.logf Log.info "Projected polytope sides: %d"
+	(nb_atoms projection);
+      disj psi projection
+    in
+    lazy_dnf ~join:join ~bottom:bottom ~top:top to_smt phi
+
+  let qe_z3 p phi =
+    let fv = formula_free_vars phi in
+    let vars = BatList.of_enum (BatEnum.filter (not % p) (VarSet.enum fv)) in
+    let ctx = Smt.get_context () in
+    let solve = Z3.mk_tactic ctx "qe" in
+    let simpl = Z3.mk_tactic ctx "simplify" in
+    let qe = Z3.tactic_and_then ctx solve simpl in
+    let g = Z3.mk_goal ctx false false false in
+    Z3.goal_assert ctx g
+      (Z3.mk_exists_const
+	 ctx
+	 (List.length vars)
+	 (Array.of_list (List.map (Z3.to_app ctx % T.V.to_smt) vars))
+	 [||]
+	 (to_smt phi));
+    of_apply_result (Z3.tactic_apply ctx qe g)
+
+  let opt_qe_strategy = ref qe_lme
+  let exists p phi = (!opt_qe_strategy) p phi
+  let exists_list vars phi =
+    let vars = List.fold_left (flip VarSet.add) VarSet.empty vars in
+    exists (not % (flip VarSet.mem vars)) phi
 
   module V = T.V
   module A = Linear.AffineVar(V)
@@ -1109,6 +1112,65 @@ module Make (T : Term.S) = struct
 
   let symbolic_bounds p phi term =
     Log.time "symbolic_bounds" (symbolic_bounds p phi) term
+
+
+  exception Unbounded (* Internal to qe_cover *)
+  let qe_cover p phi =
+    let fv = formula_free_vars phi in
+    let vars = BatList.of_enum (BatEnum.filter (not % p) (VarSet.enum fv)) in
+    let to_linterm t =
+      match T.to_linterm t with
+      | Some lt -> lt
+      | None -> raise Nonlinear
+    in
+    let box = symbolic_abstract (List.map T.var vars) phi in
+    let bounds =
+      List.fold_left2
+	(fun m v box -> T.V.Map.add v box m)
+	T.V.Map.empty
+	vars
+	box
+    in
+    let lower = function
+      | (None, _) -> raise Unbounded
+      | (Some x, _) -> x
+    in
+    let upper = function
+      | (_, None) -> raise Unbounded
+      | (_, Some x) -> x
+    in
+    let f (var, coeff) =
+      try
+	let k = 
+	  if QQ.lt coeff QQ.zero
+	  then upper (T.V.Map.find var bounds)
+	  else lower (T.V.Map.find var bounds)
+	in
+	(AConst, QQ.mul coeff k)
+      with Not_found -> (AVar var, coeff)
+    in
+    let rec replace = function
+      | EqZ t -> conj (replace (LeqZ t)) (replace (LeqZ (T.neg t)))
+      | LtZ t ->
+	let lt = to_linterm t in
+	begin try
+	  ltz
+	    (T.of_linterm
+	       (T.Linterm.add
+		  (T.Linterm.of_enum ((T.Linterm.var_bindings lt) /@ f))
+		  (T.Linterm.const (T.Linterm.const_coeff lt))))
+	with Unbounded -> top end
+      | LeqZ t ->
+	let lt = to_linterm t in
+	begin try
+	  leqz
+	    (T.of_linterm
+	       (T.Linterm.add
+		  (T.Linterm.of_enum ((T.Linterm.var_bindings lt) /@ f))
+		  (T.Linterm.const (T.Linterm.const_coeff lt))))
+	with Unbounded -> top end
+    in
+    map replace phi
 
   module Syntax = struct
     let ( && ) x y = conj x y

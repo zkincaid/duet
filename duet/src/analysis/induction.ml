@@ -128,8 +128,43 @@ module V = struct
   let tag = E.to_int enum
 end
 
-module K = Transition.Make(V)
+module K = struct
+  include Transition.Make(V)
+(*
+  let simplify tr =
+    Log.logf Log.info
+      "Simplifying formula: %d atoms, %d size, %d max dnf, %d program, %d tmp"
+      (F.nb_atoms tr.guard)
+      (F.size tr.guard)
+      (F.dnf_size tr.guard)
+      (VarSet.cardinal (formula_free_program_vars tr.guard))
+      (VSet.cardinal (formula_free_tmp_vars tr.guard));
+    let simplified = simplify tr in
+    Log.logf Log.info
+      "Simplified:          %d atoms, %d size, %d max dnf, %d program, %d tmp"
+      (F.nb_atoms simplified.guard)
+      (F.size simplified.guard)
+      (F.dnf_size simplified.guard)
+      (VarSet.cardinal (formula_free_program_vars simplified.guard))
+      (VSet.cardinal (formula_free_tmp_vars simplified.guard));
+    simplified
+*)
+(*
+  let mul x y = simplify (mul x y)
+  let add x y = simplify (add x y)
+  let exists p tr = simplify (exists p tr)
+*)
+end
 module A = Interproc.MakePathExpr(K)
+
+let _ =
+  let open K in
+  opt_higher_recurrence := true;
+  opt_disjunctive_recurrence_eq := true;
+  opt_recurrence_ineq := false;
+  opt_higher_recurrence_ineq := false;
+  opt_unroll_loop := false;
+  opt_loop_guard := true
 
 let prime_bexpr = Bexpr.subst_var V.prime
 
