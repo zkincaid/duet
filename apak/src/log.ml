@@ -7,8 +7,8 @@ let verbosity_level = ref 0
 (** Verbosity levels *)
 let top    = 0   (** print only errors *)
 let phases = 1   (** print phases *)
-let fix    = 2   (** print steps in fixpoint computation *)
-let bottom = 3   (** print everything *)
+let fix    = 3   (** print steps in fixpoint computation *)
+let bottom = 4   (** print everything *)
 let info   = 2   (** print extra information *)
 
 let debug_formatter =

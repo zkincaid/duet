@@ -164,12 +164,13 @@ struct
     let rec get_headers g = SCCG.fold_vertex f g VSet.empty
     and f v headers =
       match v.vtype with
-	| Simple x -> headers
-	| Scc scc ->
-	    let headers = VSet.union headers (get_headers scc.graph) in
-	      List.fold_right VSet.add scc.entries headers
+      | Simple x -> headers
+      | Scc scc ->
+	let headers = VSet.union headers (get_headers scc.graph) in
+	List.fold_right VSet.add scc.entries headers
     in
-      fun v -> VSet.mem v (get_headers g)
+    let headers = get_headers g in
+    fun v -> VSet.mem v headers
 
   let rec enum_headers g =
     let f v rest =
@@ -184,17 +185,21 @@ struct
     SCCG.fold_vertex f g (BatEnum.empty ())
 
   let (fold_inside_out : (G.V.t -> 'a -> 'a) -> G.t -> 'a -> 'a) = fun f g a ->
+    let sccg = construct g in
+    let is_header = is_header sccg in
     let rec go_simple v a = match v.vtype with
-      | Simple x -> f x a
+      | Simple x -> if is_header x then a else f x a
       | Scc _ -> a
     and go_scc v a = match v.vtype with
       | Simple _ -> a
       | Scc scc ->
+	let res =
 	  Top.fold go_simple scc.graph
 	    (SCCG.fold_vertex go_scc scc.graph a)
+	in
+	List.fold_left (fun a x -> f x a) res scc.entries
     in
-    let sccg = construct g in
-      Top.fold go_simple sccg (SCCG.fold_vertex go_scc sccg a)
+    Top.fold go_simple sccg (SCCG.fold_vertex go_scc sccg a)
 
 end
 

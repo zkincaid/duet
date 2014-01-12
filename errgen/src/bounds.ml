@@ -14,6 +14,9 @@ module StrVar = struct
     | Z3.Symbol_string str -> str
     | Z3.Symbol_int _ -> assert false
   let typ _ = TyReal
+  module E = Enumeration.Make(Putil.PString)
+  let enum = E.empty ()
+  let tag = E.to_int enum
 end
 
 module K = Transition.Make(StrVar) (* Transition PKA *)

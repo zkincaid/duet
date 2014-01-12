@@ -305,7 +305,8 @@ end = struct
       if WG.V.equal v dummy_start || WG.V.equal v dummy_end then wg
       else elim v wg
     in
-    let wg = WGTop.fold elim wg wg in
+    let scc = WGLoop.construct wg in
+    let wg = WGLoop.fold_inside_out elim wg wg in
     if WG.mem_edge wg dummy_start dummy_end
     then WG.E.label (WG.find_edge wg dummy_start dummy_end)
     else K.zero
@@ -314,6 +315,7 @@ end = struct
     let elim_succ v g =
       if WG.V.equal v dummy_start then g else elim_succ v g
     in
+    let scc = WGLoop.construct wg in
     let wg = WGTop.fold elim_succ wg wg in
     let path_from t =
       if WG.mem_edge wg dummy_start (Real t)
@@ -327,6 +329,7 @@ end = struct
       | Real rv -> if p rv then elim_succ v g else elim v g
       | Dummy _ -> g
     in
+    let scc = WGLoop.construct wg in
     let wg = WGTop.fold elim_succ wg wg in
     let from_init t =
       if WG.mem_edge wg dummy_start (Real t)
@@ -464,7 +467,7 @@ struct
 
     (* Compute summaries for each block *)
     let update block =
-      Log.logf Log.fix "(Re)computing summary for block %a" Block.format block;
+      Log.logf Log.info "Computing summary for block %a" Block.format block;
       let body = R.block_body query.recgraph block in
       let src = R.block_entry query.recgraph block in
       let tgt = R.block_exit query.recgraph block in
