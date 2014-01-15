@@ -59,6 +59,12 @@ module type S = sig
   val simplify_dillig : (T.V.t -> bool) -> t -> t
   val opt_simplify_strategy : ((T.V.t -> bool) -> t -> t) list ref
 
+  val linearize : (unit -> T.V.t) -> t -> t
+  val linearize_apron : (unit -> T.V.t) -> t -> t
+  val linearize_apron_dnf : (unit -> T.V.t) -> t -> t
+  val linearize_opt : (unit -> T.V.t) -> t -> t
+  val opt_linearize_strategy : ((unit -> T.V.t) -> t -> t) ref
+
   val of_smt : Smt.ast -> t
   val to_smt : t -> Smt.ast
   val implies : t -> t -> bool
@@ -67,7 +73,6 @@ module type S = sig
   val subst : (T.V.t -> T.t) -> t -> t
   val select_disjunct : (T.V.t -> QQ.t) -> t -> t option
   val symbolic_bounds : (T.V.t -> bool) -> t -> T.t -> (pred * T.t) list
-  val linearize : (unit -> T.V.t) -> t -> t
   val symbolic_abstract : (T.t list) -> t -> (QQ.t option * QQ.t option) list
   val disj_optimize : (T.t list) -> t -> (QQ.t option * QQ.t option) list list
 
@@ -478,7 +483,6 @@ module Make (T : Term.S) = struct
 
   module VarSet = Putil.Set.Make(T.V)
   module D = T.D
-  open Apron
 
   let term_free_vars term =
     let f = function
@@ -497,6 +501,7 @@ module Make (T : Term.S) = struct
     eval f phi
 
   let of_tcons env tcons =
+    let open Apron in
     let open Tcons0 in
     let t = T.of_apron env tcons.texpr0 in
     match tcons.typ with
@@ -531,6 +536,7 @@ module Make (T : Term.S) = struct
     eval alg phi
 
   let of_abstract x =
+    let open Apron in
     let open D in
     let man = Abstract0.manager x.prop in
     let tcons = BatArray.enum (Abstract0.to_tcons_array man x.prop) in
@@ -588,6 +594,7 @@ module Make (T : Term.S) = struct
 
   (* Convert a *conjunctive* formula into a list of apron tree constraints *)
   let to_apron man env phi =
+    let open Apron in
     let open D in
     let to_apron = T.to_apron env in
     let alg = function
@@ -902,11 +909,9 @@ module Make (T : Term.S) = struct
     in
     (eval alg phi, !nonlinear)
 
-  (* Linearize, but avoid converting to DNF.  Not necessarily faster than
-     converting to DNF, because this linearization strategy requires
-     abstracting the formula by a convex polytope (which may be just as bad -
-     or worse - than converting to DNF). *)
-  let linearize_nodnf mk_tmp phi =
+  (* Linearize, but avoid converting to DNF. *)
+  let linearize_apron mk_tmp phi =
+    let open Apron in
     let open D in
     let (lin_phi, nonlinear) = split_linear mk_tmp phi in
     let vars =
@@ -927,7 +932,7 @@ module Make (T : Term.S) = struct
       let eqs = nonlinear_equalities nonlinear lin_phi vars in
       List.fold_left f lin_phi eqs
     in
-    let man = Polka.manager_alloc_loose () in
+    let man = Box.manager_alloc () in
     let approx = D.add_vars (VarSet.enum vars) (abstract man lin_phi) in
     let mk_nl_equation (term, var) =
       Tcons0.make (T.to_apron approx.env (T.sub term (T.var var))) Tcons0.EQ
@@ -941,9 +946,8 @@ module Make (T : Term.S) = struct
     in
     conj lin_phi (of_abstract nl_approx)
 
-  (* Linearize & convert to DNF.  More accurate than [linearize_nodnf], since
-     linearization is done in each disjunct separately.  *)
-  let linearize mk_tmp phi =
+  let linearize_apron_dnf mk_tmp phi =
+    let open Apron in
     let (lin_phi, nonlinear) = split_linear mk_tmp phi in
     if TMap.is_empty nonlinear then phi else begin
       let vars =
@@ -996,6 +1000,7 @@ module Make (T : Term.S) = struct
     end
 
   let disj_optimize terms phi =
+    let open Apron in
     let man = Polka.manager_alloc_loose () in
     let vars =
       let f vars t = VarSet.union (term_free_vars t) vars in
@@ -1051,6 +1056,7 @@ module Make (T : Term.S) = struct
   (* Given a list of (linear) terms [terms] and a formula [phi], find lower
      and upper bounds for each term within the feasible region of [phi]. *)
   let symbolic_abstract terms phi =
+    let open Apron in
     let man = Polka.manager_alloc_loose () in
     let vars =
       let f vars t = VarSet.union (term_free_vars t) vars in
@@ -1112,8 +1118,167 @@ module Make (T : Term.S) = struct
   let symbolic_abstract ts phi =
     Log.time "symbolic_abstract" (symbolic_abstract ts) phi
 
+  module LinBound = struct
+    type t = { upper : T.t list;
+	       lower : T.t list;
+	       interval : Interval.t }
+      deriving (Compare, Show)
+
+    let format = Show_t.format
+    let show = Show_t.show
+    let compare = Compare_t.compare
+    let equal x y = compare x y = 0
+
+    let cartesian f xs ys =
+      let zs = Putil.cartesian_product (BatList.enum xs) (BatList.enum ys) in
+      BatList.of_enum (BatEnum.map (uncurry f) zs)
+
+    let add x y =
+      { upper = cartesian T.add x.upper y.lower;
+	lower = cartesian T.add x.lower y.lower;
+	interval = Interval.add x.interval y.interval }
+
+    let of_interval ivl =
+      { upper = [];
+	lower = [];
+	interval = ivl }      
+
+    let zero = of_interval Interval.zero
+    let bottom = of_interval Interval.bottom
+    let top = of_interval Interval.top
+
+    let mul_interval ivl x =
+      if Interval.is_nonnegative ivl then
+	let upper = match Interval.upper ivl with
+	  | Some k -> List.map (T.mul (T.const k)) x.upper
+	  | None -> []
+	in
+	let lower = match Interval.lower ivl with
+	  | Some k -> List.map (T.mul (T.const k)) x.lower
+	  | None -> []
+	in
+	{ upper = upper;
+	  lower = lower;
+	  interval = Interval.mul ivl x.interval }
+      else if Interval.is_nonpositive ivl then
+	let upper = match Interval.upper ivl with
+	  | Some k -> List.map (T.mul (T.const k)) x.lower
+	  | None -> []
+	in
+	let lower = match Interval.lower ivl with
+	  | Some k -> List.map (T.mul (T.const k)) x.upper
+	  | None -> []
+	in
+	{ upper = upper;
+	  lower = lower;
+	  interval = Interval.mul ivl x.interval }
+      else
+	{ upper = [];
+	  lower = [];
+	  interval = Interval.mul ivl x.interval }
+
+    let meet x y =
+      { upper = x.upper @ y.upper;
+	lower = x.lower @ y.lower;
+	interval = Interval.meet x.interval y.interval }
+
+    let mul x y = meet (mul_interval x.interval y) (mul_interval y.interval x)
+
+    let div x y =
+      match Interval.lower y.interval, Interval.upper y.interval with
+      | Some a, Some b ->
+	if Interval.elem QQ.zero y.interval then top
+	else if QQ.equal a b then begin
+	  if QQ.gt a QQ.zero then
+	    { lower = List.map (flip T.div (T.const a)) x.lower;
+	      upper = List.map (flip T.div (T.const a)) x.upper;
+	      interval = Interval.div x.interval y.interval }
+	  else
+	    { lower = List.map (flip T.div (T.const a)) x.upper;
+	      upper = List.map (flip T.div (T.const a)) x.lower;
+	      interval = Interval.div x.interval y.interval }
+	end else of_interval (Interval.div x.interval y.interval) (* todo *)
+      | _, _ -> of_interval (Interval.div x.interval y.interval)
+
+    let make lower upper interval =
+      { lower = lower; upper = upper; interval = interval }
+    let lower x = x.lower
+    let upper x = x.upper
+    let interval x = x.interval
+  end
+
+  let linearize_opt mk_tmp phi =
+    let (lin_phi, nonlinear) = split_linear mk_tmp phi in
+    if TMap.is_empty nonlinear then phi else begin
+    let vars =
+      BatEnum.fold
+	(fun set (_,v) -> VarSet.add v set)
+	(formula_free_vars phi)
+	(TMap.enum nonlinear)
+    in
+    let lin_phi =
+      let f phi eq =
+	let g (v, coeff) =
+	  match v with
+	  | AVar v -> T.mul (T.var v) (T.const coeff)
+	  | AConst -> T.const coeff
+	in
+	conj phi (eqz (BatEnum.reduce T.add (AffineTerm.enum eq /@ g)))
+      in
+      let eqs = nonlinear_equalities nonlinear lin_phi vars in
+      List.fold_left f lin_phi eqs
+    in
+    let var_list = VarSet.elements vars in
+    let box =
+      symbolic_abstract (List.map T.var var_list) lin_phi
+    in
+    let bounds =
+      List.fold_left2
+	(fun m v (lo,hi) -> T.V.Map.add v (Interval.make lo hi) m)
+	T.V.Map.empty
+	var_list
+	box
+    in
+    let linearize_term = function
+      | OVar v ->
+	let ivl =
+	  try T.V.Map.find v bounds
+	  with Not_found -> Interval.top
+	in
+	LinBound.make [T.var v] [T.var v] ivl
+      | OConst k -> LinBound.of_interval (Interval.const k)
+      | OAdd (x, y) -> LinBound.add x y
+      | OMul (x, y) -> LinBound.mul x y
+      | ODiv (x, y) -> LinBound.div x y
+      | OFloor _ -> assert false
+    in
+    let mk_nl_bounds (term, var) =
+      let var = T.var var in
+      let linearized = T.eval linearize_term term in
+      let symbolic_lo =
+        big_conj (BatList.enum (LinBound.lower linearized) /@ (geq var))
+      in
+      let symbolic_hi =
+        big_conj (BatList.enum (LinBound.upper linearized) /@ (leq var))
+      in
+      let const_lo = match Interval.lower (LinBound.interval linearized) with
+	| Some k -> leq (T.const k) var
+	| None -> top
+      in
+      let const_hi = match Interval.upper (LinBound.interval linearized) with
+	| Some k -> leq var (T.const k)
+	| None -> top
+      in
+      conj symbolic_lo (conj symbolic_hi (conj const_lo const_hi))
+    in
+    let nl_bounds = big_conj (TMap.enum nonlinear /@ mk_nl_bounds) in
+    conj lin_phi nl_bounds
+    end
+
+  let opt_linearize_strategy = ref linearize_opt
+
   let linearize mk_tmp phi =
-    Log.time "linearize" (linearize mk_tmp) phi
+    Log.time "linearize" (!opt_linearize_strategy mk_tmp) phi
 
   let symbolic_bounds p phi term =
     Log.time "symbolic_bounds" (symbolic_bounds p phi) term

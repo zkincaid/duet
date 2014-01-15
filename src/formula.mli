@@ -129,6 +129,33 @@ module type S = sig
       [qe_cover; simplify_dillig]. *)
   val opt_simplify_strategy : ((T.V.t -> bool) -> t -> t) list ref
 
+  (** {2 Formula linearization} *)
+
+  (** Over-approximate an arbitrary formula by a linear arithmetic formula.
+      This process requires introduction of new (existentially quantified)
+      variables: the first argument to [linearize] is a function which
+      generates new rational-typed variables.  The strategy used by
+      [linearize] is the one specified by [opt_linearize_strategy]. *)
+  val linearize : (unit -> T.V.t) -> t -> t
+
+
+  (** Linearize using APRON's linearization strategy.  Should be faster (but
+      less accurate) than [linearize_apron_dnf].  *)
+  val linearize_apron : (unit -> T.V.t) -> t -> t
+
+  (** Linearize using APRON's linearization strategy.  This forces a (lazy)
+      conversion to DNF.  Should be more accurate (but slower) than
+      [linearize_apron]. *)
+  val linearize_apron_dnf : (unit -> T.V.t) -> t -> t
+
+  (** Linearize using symbolic optimization and a combination of constant &
+      symbolic intervals for nonlinear terms.  *)
+  val linearize_opt : (unit -> T.V.t) -> t -> t
+
+  (** Default linearization strategy.  If not set, defaults to
+      [linearize_opt]. *)
+  val opt_linearize_strategy : ((unit -> T.V.t) -> t -> t) ref
+
   (** {2 Misc operations} *)
 
   val of_smt : Smt.ast -> t
@@ -149,9 +176,6 @@ module type S = sig
   val select_disjunct : (T.V.t -> QQ.t) -> t -> t option
 
   val symbolic_bounds : (T.V.t -> bool) -> t -> T.t -> (pred * T.t) list
-
-  (** Over-approximate an arbitrary formula by a linear arithmetic formula *)
-  val linearize : (unit -> T.V.t) -> t -> t
 
   val symbolic_abstract : (T.t list) -> t -> (QQ.t option * QQ.t option) list
   val disj_optimize : (T.t list) -> t -> (QQ.t option * QQ.t option) list list
