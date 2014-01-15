@@ -373,22 +373,21 @@ let solve_impl file d =
 let solve file =
   Putil.with_temp_dir
     "bddpa"
-    (fun dir -> solve_impl file (new Datalog.monolithicSolver dir "bddpa"))
+    (fun dir ->
+      Log.phase "Pointer analysis"
+	(solve_impl file) (new Datalog.monolithicSolver dir "bddpa"))
 
 class pa file =
 object(self)
   inherit ptr_anal file
-  val instance = 
-    Putil.with_temp_dir
-      "bddpa"
-      (fun dir -> solve_impl file (new Datalog.monolithicSolver dir "bddpa"))
+  val instance = solve file
   method ap_points_to = ap_points_to instance
   method expr_points_to = expr_points_to instance
   method iter f = MemLoc.HT.iter f instance
 end
 
 let initialize file =
-  let p = Log.phase "Pointer analysis" (new pa) file in
+  let p = new pa file in
     Pa.set_pa (p :> ptr_anal);
     p
 
@@ -413,9 +412,7 @@ let build_accessed pa file =
     accessed
 
 let _ =
-  let go file =
-    ((Log.phase "Pointer analysis" (new pa) file) :> ptr_anal)
-  in
+  let go file = ((new pa file) :> ptr_anal) in
   Pa.set_init go
 
 let _ =

@@ -18,6 +18,24 @@ let mk_label loc =
     Cil.Label ("__switch_" ^ (string_of_int (!label_id)), loc, false)
   end
 
+(* Replace a[x] with *(a + x).  This is necessary because Cil's simplemem
+   transformation considers a[*p] to contain only one memory access, so it
+   doesn't simplify it.
+   Todo: need to handle nested offsets
+*)
+class arrayAccessVisitor = object (self)
+  inherit Cil.nopCilVisitor
+  method vlval lval =
+    let open Cil in
+    match lval with
+    | Mem exp, Index (idx, offset) ->
+      ChangeTo (Mem (BinOp (PlusPI, exp, idx, typeOf exp)), offset)
+    | Var v, Index (idx, offset) ->
+      ChangeTo (Mem (BinOp (PlusPI, Lval (Var v, NoOffset), idx, v.vtype)),
+		offset)
+    | _, _ -> DoChildren
+end
+
 (* replace breaks with goto target *)
 class breakVisitor target = object (self)
   inherit Cil.nopCilVisitor
@@ -132,12 +150,13 @@ let simplify file =
   Cil.iterGlobals file (fun glob -> match glob with
   | Cil.GFun(fd,_) -> Oneret.oneret fd;
   | _ -> ());
-  let file = Simplemem.simplemem file in
-
+  Cil.visitCilFile (new arrayAccessVisitor) file;
+  Simplemem.simplemem file;
   Cil.visitCilFile (new loopVisitor) file;
   Cil.visitCilFile (new switchVisitor) file;
   Cfg.clearFileCFG file;
-  Cfg.computeFileCFG file
+  Cfg.computeFileCFG file;
+  file
 
 
 (* ========================================================================== *)
@@ -401,6 +420,13 @@ let tr_instr ctx instr =
       (* todo: should be non-negative *)
       mk_def (Assign (v, Havoc (Concrete (Int IInt))))
 
+    | ("__VERIFIER_nondet_char", Some (Variable v), []) ->
+      mk_def (Assign (v, Havoc (Concrete (Int IChar))))
+    | ("__VERIFIER_nondet_int", Some (Variable v), [])
+    | ("__VERIFIER_nondet_long", Some (Variable v), [])
+    | ("__VERIFIER_nondet_pointer", Some (Variable v), []) ->
+      mk_def (Assign (v, Havoc (Concrete (Int IInt))))
+
     (* CPROVER builtins *)
     | ("__CPROVER_atomic_begin", None, []) -> mk_def (Builtin AtomicBegin)
     | ("__CPROVER_atomic_end", None, []) -> mk_def (Builtin AtomicEnd)
@@ -607,8 +633,7 @@ let parse filename =
       Printf.sprintf "gcc %s-E %s -o %s" library_path filename preprocessed
     in
     ignore (Sys.command pp_cmd);
-    let file = Frontc.parse preprocessed () in
-    simplify file;
+    let file = simplify (Frontc.parse preprocessed ()) in
     tr_file filename file
   in
   Putil.with_temp_filename base ".i" go
