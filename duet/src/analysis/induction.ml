@@ -27,7 +27,17 @@ end) = struct
     type absval = I.t
     type st = unit
     module G = Interproc.RG.G
+    let nonvariable = function
+      | Variable _ -> false
+      | Deref _ -> true
+    let safe_cyl av aps = I.cyl (I.inject av aps) aps
     let transfer _ flow_in def =
+(*
+      Log.logf 0 "Transfer: %a" Def.format def;
+      let flow_in_i = I.inject flow_in (Def.get_uses def) in
+      Log.logf 0 "Input: %a" I.format flow_in_i;
+*)
+      let res = 
       match def.dkind with
       | Call (None, AddrOf (Variable (func, OffsetFixed 0)), []) ->
 	if CfgIr.defined_function func (CfgIr.get_gfile()) then
@@ -42,7 +52,34 @@ end) = struct
 	  in
 	  I.cyl flow_in global_aps
 	else flow_in (* Treat undefined functions as no-ops *)
-      | _ -> I.transfer def (I.inject flow_in (Def.get_uses def))
+      | Assign (var, expr) ->
+	begin
+	  match resolve_type (Var.get_type var) with
+	  | Int _ | Pointer _ | Dynamic ->
+	    if AP.Set.exists nonvariable (Expr.get_uses expr)
+	    then safe_cyl flow_in (AP.Set.singleton (Variable var))
+	    else I.transfer def (I.inject flow_in (Def.get_uses def))
+	  | _ -> flow_in
+	end
+      | Store (lhs, _) ->
+	(* Havoc all the variables lhs could point to *)
+	let open Pa in
+	let add_target memloc set = match memloc with
+	  | (MAddr v, offset) -> AP.Set.add (Variable (v, offset)) set
+	  | _, _ -> set
+	in
+	let vars = MemLoc.Set.fold add_target (resolve_ap lhs) AP.Set.empty in
+	safe_cyl flow_in vars
+      | Assume bexpr | Assert (bexpr, _) ->
+	if AP.Set.exists nonvariable (Bexpr.get_uses bexpr)
+	then flow_in
+	else I.transfer def (I.inject flow_in (Def.get_uses def))
+      | Builtin (Alloc (v, _, _)) ->
+	safe_cyl flow_in (AP.Set.singleton (Variable v))
+      | Initial -> I.transfer def flow_in
+      | _ -> flow_in
+      in
+      res
     let flow_in _ graph val_map v =
       let add_pred v value = I.join (val_map v) value in
       G.fold_pred add_pred graph v (I.bottom AP.Set.empty)
@@ -217,7 +254,22 @@ let weight def =
   match def.dkind with
   | Assume phi | Assert (phi, _) -> K.assume (tr_bexpr phi)
   | Assign (lhs, rhs) -> K.assign lhs (tr_expr rhs)
-  | Return None -> one
+  | Store (lhs, _) ->
+    (* Havoc all the variables lhs could point to *)
+    let open Pa in
+    let add_target memloc tr = match memloc with
+      | (MAddr v, offset) ->
+	K.mul tr (K.assign (v,offset) (T.var (V.mk_tmp "alloc" TyInt)))
+      | _, _ -> tr
+    in
+    MemLoc.Set.fold add_target (resolve_ap lhs) one
+  | Builtin Exit -> zero
+  | Builtin (Alloc (v, _, _)) ->
+    K.assign v (T.var (V.mk_tmp "alloc" TyInt))
+  | Builtin AtomicBegin | Builtin AtomicEnd
+  | Builtin (Acquire _) | Builtin (Release _)
+  | Builtin (Free _)
+  | Initial | AssertMemSafe (_, _) | Return None -> one
   | _ ->
     Log.errorf "No translation for definition: %a" Def.format def;
     assert false
@@ -226,20 +278,28 @@ let weight def =
 let analyze file =
   match file.entry_points with
   | [main] -> begin
-    let rg = decorate (Interproc.make_recgraph file) in
+    
+    let rg =
+      Log.phase "Decorating program with invariants"
+	decorate (Interproc.make_recgraph file)
+    in
+    Log.logf Log.info "done";
+(*    let rg = Interproc.make_recgraph file in*)
     let local func_name =
-      let func = lookup_function func_name (get_gfile()) in
-      let vars =
-	Varinfo.Set.remove (return_var func_name)
-	  (Varinfo.Set.of_enum
-	     (BatEnum.append
-		(BatList.enum func.formals)
-		(BatList.enum func.locals)))
-      in
-      Log.logf Log.info "Locals for %a: %a"
-	Varinfo.format func_name
-	Varinfo.Set.format vars;
-      fun (x,_) -> (Varinfo.Set.mem x vars)
+      if defined_function func_name (get_gfile()) then begin
+	let func = lookup_function func_name (get_gfile()) in
+	let vars =
+	  Varinfo.Set.remove (return_var func_name)
+	    (Varinfo.Set.of_enum
+	       (BatEnum.append
+		  (BatList.enum func.formals)
+		  (BatList.enum func.locals)))
+	in
+	Log.logf Log.info "Locals for %a: %a"
+	  Varinfo.format func_name
+	  Varinfo.Set.format vars;
+	fun (x,_) -> (Varinfo.Set.mem x vars)
+      end else (fun _ -> false)
     in
     let query = A.mk_query rg weight local main in
     let is_assert def = match def.dkind with
@@ -249,6 +309,7 @@ let analyze file =
     let s = new Smt.solver in
     let check_assert def path = match def.dkind with
       | Assert (phi, msg) -> begin
+	Log.logf Log.info "Check assertion `%a`" Def.format def;
 	s#push ();
 	s#assrt (K.to_smt path);
 
@@ -270,6 +331,7 @@ let analyze file =
       | _ -> ()
     in
     A.single_src_restrict query is_assert check_assert;
+
     Report.print_errors ();
     Report.print_safe ();
     if !CmdLine.show_stats then begin

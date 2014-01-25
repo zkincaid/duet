@@ -91,18 +91,30 @@ type 'a value =
 module ApronInterpretation = struct
   open Dim
 
-  module Env = Putil.MonoMap.Make(AP)(struct
-    type t = Dim.t value
-    include Putil.MakeFmt(struct
-      type a = t
-      let format formatter = function
-	| VInt x -> Format.fprintf formatter "Int[%d]" x
-	| VPointer p ->
-	  Format.fprintf formatter "Ptr[%d,%d,%d]"
-	    p.ptr_val p.ptr_pos p.ptr_width
-	| VDynamic -> Format.pp_print_string formatter "Dyn"
+  module Env = struct
+    include Putil.MonoMap.Make(AP)(struct
+      type t = Dim.t value
+      include Putil.MakeFmt(struct
+	type a = t
+	let format formatter = function
+	  | VInt x -> Format.fprintf formatter "Int[%d]" x
+	  | VPointer p ->
+	    Format.fprintf formatter "Ptr[%d,%d,%d]"
+	      p.ptr_val p.ptr_pos p.ptr_width
+	  | VDynamic -> Format.pp_print_string formatter "Dyn"
+      end)
     end)
-  end)
+    let delete k =
+      let shift d = if d > k then d - 1 else d in
+      let f = function
+	| VInt d -> VInt (shift d)
+	| VPointer p -> VPointer { ptr_val = shift p.ptr_val;
+				   ptr_pos = shift p.ptr_pos;
+				   ptr_width = shift p.ptr_width }
+	| VDynamic -> VDynamic
+      in
+      map f
+  end
 
   type t =
     { env : Env.t;
@@ -389,16 +401,22 @@ module ApronInterpretation = struct
 	  { av with
 	    value = Abstract0.assign_texpr (get_man()) av.value dim rhs None }
 	| VPointer ptr ->
-	    let value =
-	      Abstract0.remove_dimensions (get_man()) av.value
+	  let dim = ptr.ptr_val in
+	  let value =
+	    Abstract0.assign_texpr (get_man()) av.value dim rhs None
+	  in
+	  let value =
+	      Abstract0.remove_dimensions (get_man()) value
 		{ dim = [| ptr.ptr_pos; ptr.ptr_width |];
 		  intdim = 2;
 		  realdim = 0 }
-	    in
-	    let dim = ptr.ptr_val in
-	    let env = Env.add lhs (VInt dim) av.env in
-	      { env = env;
-		value = Abstract0.assign_texpr (get_man()) value dim rhs None }
+	  in
+	  let env =
+	    Env.delete ptr.ptr_width
+	      (Env.delete ptr.ptr_pos (Env.add lhs (VInt dim) av.env))
+	  in
+	  { env = env;
+	    value = value }
 	| VDynamic ->
 	    let dim = get_dimension av in
 	    let value = add_dimensions av.value 1 in
