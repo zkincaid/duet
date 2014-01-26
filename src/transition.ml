@@ -110,7 +110,88 @@ module Dioid (Var : Var) = struct
   let format = Show_t.format
   let show = Show_t.show
   let compare = Compare_t.compare
-  let equal left right = compare left right = 0
+
+  let modifies x =
+    M.fold (fun v _ set -> VarSet.add v set) x.transform VarSet.empty
+
+  let term_free_program_vars term =
+    let open Term in
+    let f = function
+      | OVar v -> begin match V.lower v with
+	| Some v -> VarSet.singleton v
+	| None -> VarSet.empty
+      end
+      | OConst _ -> VarSet.empty
+      | OAdd (x,y) | OMul (x,y) | ODiv (x,y) -> VarSet.union x y
+      | OFloor x -> x
+    in
+    T.eval f term
+
+  let formula_free_program_vars phi =
+    let open Formula in
+    let f = function
+      | OOr (x,y) | OAnd (x,y) -> VarSet.union x y
+      | OAtom (LeqZ t) | OAtom (EqZ t) | OAtom (LtZ t) ->
+	term_free_program_vars t
+    in
+    F.eval f phi
+
+  let term_free_tmp_vars term =
+    let open Term in
+    let f = function
+      | OVar v -> begin match V.lower v with
+	| Some _ -> VSet.empty
+	| None   -> VSet.singleton v
+      end
+      | OConst _ -> VSet.empty
+      | OAdd (x,y) | OMul (x,y) | ODiv (x,y) -> VSet.union x y
+      | OFloor x -> x
+    in
+    T.eval f term
+
+  let formula_free_tmp_vars phi =
+    let open Formula in
+    let f = function
+      | OOr (x,y) | OAnd (x,y) -> VSet.union x y
+      | OAtom (LeqZ t) | OAtom (EqZ t) | OAtom (LtZ t) ->
+	term_free_tmp_vars t
+    in
+    F.eval f phi
+
+  (* alpha equivalence - only works for normalized transitions! *)
+  let equiv x y =
+    let sigma =
+      let f v rhs m = 
+	match T.to_var rhs, T.to_var (M.find v y.transform) with
+	| Some a, Some b -> V.Map.add a b m
+	| _, _ -> assert false
+      in
+      let map = M.fold f x.transform V.Map.empty in
+      fun v ->
+	try T.var (V.Map.find v map)
+	with Not_found -> T.var v
+    in
+    let x_guard = F.subst sigma x.guard in
+    F.equal x_guard y.guard
+
+  exception Not_normal (* Not externally visible *)
+  let is_normal x =
+    let add_rhs _ rhs set = match T.to_var rhs with
+      | Some v ->
+	if VSet.mem v set || V.lower v != None then raise Not_normal
+	else VSet.add v set
+      | None -> raise Not_normal
+    in
+    try
+      let allowed_vars = M.fold add_rhs x.transform VSet.empty in
+      VSet.subset (formula_free_tmp_vars x.guard) allowed_vars
+    with Not_normal -> false
+
+  let equal x y =
+    compare x y = 0
+    || (VarSet.equal (modifies x) (modifies y)
+	&& is_normal x && is_normal y
+	&& equiv x y)
 
   let mul left right =
     let sigma_tmp =
@@ -204,50 +285,6 @@ module Dioid (Var : Var) = struct
     { transform = M.empty;
       guard = phi }
 
-  let term_free_program_vars term =
-    let open Term in
-    let f = function
-      | OVar v -> begin match V.lower v with
-	| Some v -> VarSet.singleton v
-	| None -> VarSet.empty
-      end
-      | OConst _ -> VarSet.empty
-      | OAdd (x,y) | OMul (x,y) | ODiv (x,y) -> VarSet.union x y
-      | OFloor x -> x
-    in
-    T.eval f term
-
-  let formula_free_program_vars phi =
-    let open Formula in
-    let f = function
-      | OOr (x,y) | OAnd (x,y) -> VarSet.union x y
-      | OAtom (LeqZ t) | OAtom (EqZ t) | OAtom (LtZ t) ->
-	term_free_program_vars t
-    in
-    F.eval f phi
-
-  let term_free_tmp_vars term =
-    let open Term in
-    let f = function
-      | OVar v -> begin match V.lower v with
-	| Some _ -> VSet.empty
-	| None   -> VSet.singleton v
-      end
-      | OConst _ -> VSet.empty
-      | OAdd (x,y) | OMul (x,y) | ODiv (x,y) -> VSet.union x y
-      | OFloor x -> x
-    in
-    T.eval f term
-
-  let formula_free_tmp_vars phi =
-    let open Formula in
-    let f = function
-      | OOr (x,y) | OAnd (x,y) -> VSet.union x y
-      | OAtom (LeqZ t) | OAtom (EqZ t) | OAtom (LtZ t) ->
-	term_free_tmp_vars t
-    in
-    F.eval f phi
-
   let simplify tr =
     let f _ term free = VSet.diff free (term_free_tmp_vars term) in
     let guard = F.linearize (fun () -> V.mk_tmp "nonlin" TyInt) tr.guard in
@@ -263,6 +300,49 @@ module Dioid (Var : Var) = struct
     in
     { transform = transform;
       guard = F.subst sigma tr.guard }
+
+  (* Overapproximate a transition with a transition such that each the right
+     hand side of every transformation is a unique variable, and the only free
+     temporary variables in the guard are on the right hand side of a
+     transformation.  *)
+  let normalize tr =
+    let fresh v =
+      T.var (V.mk_tmp ("normal_" ^ (Var.show v)) (Var.typ v))
+    in
+    let transform = M.mapi (fun v _ -> fresh v) tr.transform in
+    let f (v, t) = F.eq (M.find v tr.transform) t in
+    let eqs = F.big_conj (BatEnum.map f (M.enum transform)) in
+    simplify { guard = F.conj tr.guard eqs; transform = transform }
+
+  let widen_man = ref (Polka.manager_alloc_loose ())
+  let widen x y =
+    let phi = to_formula (normalize x) in
+    let psi = to_formula (normalize y) in
+    let p v = match V.lower v with
+      | Some _ -> true
+      | None   -> false
+    in
+    let phi_abstract = F.abstract ~exists:(Some p) (!widen_man) phi in
+    let psi_abstract = F.abstract ~exists:(Some p) (!widen_man) psi in
+    let widen = F.of_abstract (F.T.D.widen phi_abstract psi_abstract) in
+    let fresh v = T.var (V.mk_tmp (Var.show v) (Var.typ v)) in
+    let unprime =
+      M.of_enum (M.enum y.transform /@ (fun (v,_) -> (Var.prime v, fresh v)))
+    in
+    let transform =
+      M.mapi (fun v _ -> M.find (Var.prime v) unprime) y.transform
+    in
+    
+    let sigma v = match V.lower v with
+      | Some var ->
+	begin
+	  try M.find var unprime
+	  with Not_found -> T.var v
+	end
+      | None -> T.var v
+    in
+    { guard = F.subst sigma widen;
+      transform = transform }
 
   let post_formula tr =
     let phi =
@@ -316,13 +396,13 @@ module Make (Var : Var) = struct
 	  Log.log Log.info "Nonlinear add";
 	  None
 	| OMul (Some (px, cx), Some (py, cy)) ->
-	  if P.equal px P.zero && T.get_const cx != None then begin
-	    match T.get_const cx with
+	  if P.equal px P.zero && T.to_const cx != None then begin
+	    match T.to_const cx with
 	    | Some k ->
 	      Some (P.scalar_mul k py, T.mul (T.const k) cy)
 	    | None -> None
 	  end else if P.equal py P.zero then begin
-	    match T.get_const cy with
+	    match T.to_const cy with
 	    | Some k ->
 	      Some (P.scalar_mul k px, T.mul (T.const k) cx)
 	    | None -> None
@@ -449,6 +529,7 @@ module Make (Var : Var) = struct
   (* Hack to simplify control flow when a loop body is unsatisfiable.
      Should't be visible outside this module. *)
   exception Unsat
+  exception Undef
 
   (* Find recurrences of the form x' = x + c *)
   let simple_induction_vars ctx =
@@ -456,7 +537,7 @@ module Make (Var : Var) = struct
     s#assrt (F.to_smt ctx.phi);
     let m = match s#check () with
       | Smt.Unsat -> raise Unsat
-      | Smt.Undef -> assert false
+      | Smt.Undef -> raise Undef
       | Smt.Sat -> s#get_model ()
     in
     let induction_var v _ =
@@ -919,5 +1000,12 @@ module Make (Var : Var) = struct
 
   let star tr =
     try star tr
-    with Unsat -> one
+    with
+    | Unsat -> one
+    | Undef ->
+      let mk_nondet v _ =
+	T.var (V.mk_tmp ("nondet_" ^ (Var.show v)) (Var.typ v))
+      in
+      { guard = F.top;
+	transform = M.mapi mk_nondet tr.transform }
 end

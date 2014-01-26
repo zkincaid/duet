@@ -62,11 +62,16 @@ let weight e =
 let run_test graph src tgt =
   let res = A.path_expr graph weight src tgt in
   let s = new Smt.solver in
-  Log.logf Log.info "Formula: %a" K.format res;
-  s#assrt (K.to_smt res);
   fun phi expected -> begin
     s#push ();
-    s#assrt (Smt.mk_not phi);
+    let mk () = K.V.mk_tmp "nonlin" TyReal in
+    Log.logf Log.info "Nonlin path condition:@\n%a" K.F.format
+      (K.F.conj (K.to_formula res) (K.F.negate phi));
+    let path_condition =
+      K.F.linearize mk (K.F.conj (K.to_formula res) (K.F.negate phi))
+    in
+    Log.logf Log.info "Path condition:@\n%a" K.F.format path_condition;
+    s#assrt (K.F.to_smt path_condition);
     assert_equal ~printer:Show.show<Smt.lbool> expected (s#check());
     s#pop ();
   end
@@ -88,7 +93,7 @@ let counter =
   mk_graph edges
 
 let test_counter () =
-  let phi = (Smt.mk_eq (StrVar.to_smt "i'") (StrVar.to_smt "n")) in
+  let phi = K.F.eq (var "i'") (var "n") in
   run_test counter 0 4 phi Smt.Unsat
 
 let set_opt_simple () =
@@ -137,7 +142,7 @@ let count_up_down_safe =
   in
   mk_graph edges
 let test_count_up_down_safe () =
-  let phi = Smt.mk_eq (StrVar.to_smt "y'") (StrVar.to_smt "n") in
+  let phi = K.F.eq (var "y'") (var "n") in
   set_opt_simple ();
   run_test count_up_down_safe 0 6 phi Smt.Unsat
 
@@ -159,10 +164,10 @@ let sum01_safe =
   in
   mk_graph edges
 let test_sum01_safe () =
-  let open Smt.Syntax in
+  let open CmdSyntax in
   let phi =
-    (~$ "sn'") == ((~$ "n") * (~@ 2))
-    || (~$ "sn'") == (~@ 0)
+    (var "sn'") == ((var "n") * (~@ (QQ.of_int 2)))
+    || (var "sn'") == (~@ QQ.zero)
   in
   set_opt_simple ();
   run_test sum01_safe 0 5 phi Smt.Unsat
@@ -190,10 +195,10 @@ let sum01_unsafe =
   in
   mk_graph edges
 let test_sum01_unsafe () =
-  let open Smt.Syntax in
+  let open CmdSyntax in
   let phi =
-    (~$ "sn'") == ((~$ "n") * (~@ 2))
-    || (~$ "sn'") == (~@ 0)
+    (var "sn'") == ((var "n") * (~@ (QQ.of_int 2)))
+    || (var "sn'") == (~@ QQ.zero)
   in
   set_opt_simple ();
   run_test sum01_unsafe 0 5 phi Smt.Sat
@@ -215,13 +220,14 @@ let sum02_safe =
   in
   mk_graph edges
 let test_sum02_safe () =
-  let open Smt.Syntax in
-  let sn = ~$ "sn'" in
-  let n = ~$ "n" in
-  let i = ~$ "i'" in
+  let open CmdSyntax in
+  let sn = var "sn'" in
+  let n = var "n" in
+  let i = var "i'" in
 
   let phi =
-    (sn == (((n * n) / (~@ 2)) + (n / (~@ 2)))) || i == (~@ 0)
+    (sn == (((n * n) / (~@ (QQ.of_int 2))) + (n / (~@ (QQ.of_int 2)))))
+    || i == (~@ QQ.zero)
   in
   set_opt_simple ();
   run_test sum02_safe 0 5 phi Smt.Unsat
@@ -243,9 +249,9 @@ let sum03_safe =
   in
   mk_graph edges
 let test_sum03_safe () =
-  let open Smt.Syntax in
+  let open CmdSyntax in
   let phi =
-    (~$ "sn'") == ((~$ "x'") * (~@ 2))
+    (var "sn'") == ((var "x'") * (~@ (QQ.of_int 2)))
   (* this disjunt appears in sum03_safe, but isn't needed *)
   (*    || (~$ "sn'") == (~@ 0)*)
   in
@@ -273,10 +279,10 @@ let sum03_unsafe =
   in
   mk_graph edges
 let test_sum03_unsafe () =
-  let open Smt.Syntax in
+  let open CmdSyntax in
   let phi =
-    (~$ "sn'") == ((~$ "x'") * (~@ 2))
-    || (~$ "sn'") == (~@ 0)
+    (var "sn'") == ((var "x'") * (~@ (QQ.of_int 2)))
+    || (var "sn'") == (~@ QQ.zero)
   in
   set_opt_simple ();
   run_test sum03_unsafe 0 5 phi Smt.Sat
@@ -300,15 +306,33 @@ let third_order_safe =
   in
   mk_graph edges
 let test_third_order_safe () =
-  let open Smt.Syntax in
+  let open CmdSyntax in
   let phi =
-    (~$ "ssn'") == (((~$ "n") / (~@ 3))
-		    + (((~$ "n")*(~$ "n")) / (~@ 2))
-		    + (((~$ "n")*(~$ "n")*(~$ "n")) / (~@ 6)))
-    || (~$ "ssn'") == (~@ 0)
+    (var "ssn'") == (((var "n") / (~@ (QQ.of_int 3)))
+		    + (((var "n")*(var "n")) / (~@ (QQ.of_int 2)))
+		    + (((var "n")*(var "n")*(var "n")) / (~@ (QQ.of_int 6))))
+    || (var "ssn'") == (~@ QQ.zero)
   in
   set_opt_simple ();
   run_test third_order_safe 0 7 phi Smt.Unsat
+
+
+let test_widen () =
+  let open CmdSyntax in
+  let x = var "x" in
+  let tr =
+    K.mul
+      (K.assume (x >= (~@ (QQ.of_int 0))))
+      (K.assign "x" (x + (~@ (QQ.of_int 1))))
+  in
+  let tr2 = K.mul tr tr in
+  let w = K.widen tr tr2 in
+  let v = K.T.var (K.V.mk_tmp "havoc" TyInt) in
+  let expected =
+    { K.transform = K.M.add "x" v K.M.empty;
+      K.guard = (x >= (~@ QQ.zero)) }
+  in
+  assert_equal ~cmp:K.equal ~printer:K.show expected w
 
 module SymBound = struct
   module T = K.T
@@ -529,12 +553,13 @@ let suite = "Transition" >:::
     "sum01_safe" >:: test_sum01_safe;
     "sum01_unsafe" >:: test_sum01_unsafe;
 
-(*    "sum02_safe" >:: test_sum02_safe;*)
+    "sum02_safe" >:: test_sum02_safe;
     (* sum02_unsafe does not exist *)
     "sum03_safe" >:: test_sum03_safe;
     "sum03_unsafe" >:: test_sum03_unsafe;
     (* sum04_safe is boring *)
 (*    "third_order_safe" >:: test_third_order_safe;*)
+    "widen" >:: test_widen;
 
     "symbound_const" >:: SymBound.test_const_bounds;
     "symbound_symbolic" >:: SymBound.test_symbolic_bounds;

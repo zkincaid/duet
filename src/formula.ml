@@ -165,6 +165,8 @@ module Make (T : Term.S) = struct
     if phi.tag == top.tag then psi
     else if psi.tag == top.tag then phi
     else if phi.tag == bottom.tag || psi.tag == bottom.tag then bottom
+    else hashcons (And (Hset.add phi (Hset.singleton psi)))
+(*
     else begin match phi.node, psi.node with
     | (And xs, And ys) -> hashcons (And (Hset.union xs ys))
     | (And xs, _) -> hashcons (And (Hset.add psi xs))
@@ -180,11 +182,14 @@ module Make (T : Term.S) = struct
       end
     | (_, _) -> hashcons (And (Hset.add phi (Hset.singleton psi)))
     end
+*)
 
   let disj phi psi =
     if phi.tag == bottom.tag then psi
     else if psi.tag == bottom.tag then phi
     else if phi.tag == top.tag || psi.tag == top.tag then top
+    else hashcons (Or (Hset.add phi (Hset.singleton psi)))
+(*
     else begin match phi.node, psi.node with
     | (Or xs, Or ys) -> hashcons (Or (Hset.union xs ys))
     | (Or xs, _) -> hashcons (Or (Hset.add psi xs))
@@ -199,18 +204,18 @@ module Make (T : Term.S) = struct
 	mk_and (Hset.add (mk_or (Hset.add phi (Hset.singleton psi))) common)
       end
     | (_, _) -> hashcons (Or (Hset.add phi (Hset.singleton psi)))
-    end
+    end*)
 
   let leqz term =
-    match T.get_const term with
+    match T.to_const term with
     | Some k -> if QQ.leq k QQ.zero then top else bottom
     | _ -> hashcons (Atom (LeqZ term))
   let eqz term =
-    match T.get_const term with
+    match T.to_const term with
     | Some k -> if QQ.equal k QQ.zero then top else bottom
     | _ -> hashcons (Atom (EqZ term))
   let ltz term =
-    match T.get_const term with
+    match T.to_const term with
     | Some k -> if QQ.lt k QQ.zero then top else bottom
     | _ -> hashcons (Atom (LtZ term))
   let atom = function
@@ -417,15 +422,20 @@ module Make (T : Term.S) = struct
 
   let equiv phi psi =
     let s = new Smt.solver in
-    let phi = to_smt phi in
-    let psi = to_smt psi in
+    let phi_smt = to_smt phi in
+    let psi_smt = to_smt psi in
     s#assrt (Smt.disj
-	       (Smt.conj phi (Smt.mk_not psi))
-	       (Smt.conj (Smt.mk_not phi) psi));
+	       (Smt.conj phi_smt (Smt.mk_not psi_smt))
+	       (Smt.conj (Smt.mk_not phi_smt) psi_smt));
     match s#check () with
     | Smt.Sat   -> false
     | Smt.Unsat -> true
-    | Smt.Undef -> assert false
+    | Smt.Undef -> begin
+      Log.errorf "Timeout in equivalence check:@\n%a@\n  =  @\n%a"
+	format phi
+	format psi;
+      assert false
+    end
 
   let big_disj = BatEnum.fold disj bottom 
   let big_conj = BatEnum.fold conj top
@@ -542,6 +552,17 @@ module Make (T : Term.S) = struct
     let tcons = BatArray.enum (Abstract0.to_tcons_array man x.prop) in
     big_conj (BatEnum.map (of_tcons x.env) tcons)
 
+  let is_linear phi =
+    let alg = function
+      | OAtom (LtZ t)
+      | OAtom (LeqZ t)
+      | OAtom (EqZ t) -> if T.is_linear t then () else raise Nonlinear
+      | _ -> ()
+    in
+    try eval alg phi; true
+    with Nonlinear -> false
+
+
   (* [lazy_dnf join bottom top prop_to_smt phi] computes an abstraction of phi
      by lazily computing its disjunctive normal form.
      [join] : [abstract -> purely conjunctive formula -> abstract]
@@ -567,6 +588,8 @@ module Make (T : Term.S) = struct
       | Smt.Undef ->
 	begin
 	  Log.errorf "lazy_dnf failed (%d disjuncts)" (!disjuncts);
+	  if not (is_linear phi)
+	  then Log.errorf "lazy_dnf: formula is nonlinear!";
 	  assert false
 	end
       | Smt.Sat -> begin
@@ -761,7 +784,10 @@ module Make (T : Term.S) = struct
     of_apply_result (Z3.tactic_apply ctx qe g)
 
   let opt_qe_strategy = ref qe_lme
-  let exists p phi = (!opt_qe_strategy) p phi
+  let exists p phi =
+    if equal phi top then top
+    else if equal phi bottom then bottom
+    else (!opt_qe_strategy) p phi
   let exists_list vars phi =
     let vars = List.fold_left (flip VarSet.add) VarSet.empty vars in
     exists (not % (flip VarSet.mem vars)) phi
@@ -837,6 +863,7 @@ module Make (T : Term.S) = struct
     go []
 
   module TMap = Putil.Map.Make(T)
+  exception Unsat
   let nonlinear_equalities map phi vars =
     let s = new Smt.solver in
 
@@ -874,11 +901,17 @@ module Make (T : Term.S) = struct
       | OFloor (x, _)   -> (Smt.mk_real2int x, TyInt)
     in
     let assert_nl_eq nl_term var =
+      Log.logf Log.info "Nonlinear equation:@ %a=%a"
+	T.format nl_term
+	V.format var;
       s#assrt (Smt.mk_eq (fst (T.eval talg nl_term)) (V.to_smt var))
     in
     s#assrt (to_smt phi);
     TMap.iter assert_nl_eq map;
-    extract_equalities_impl s (VarSet.elements vars)
+    match s#check () with
+    | Smt.Sat -> extract_equalities_impl s (VarSet.elements vars)
+    | Smt.Undef -> []
+    | Smt.Unsat -> raise Unsat
 
   (* Split a formula into a linear formula and a set of nonlinear equations by
      introducing a variable (and equation) for every nonlinear term. *)
@@ -1116,7 +1149,8 @@ module Make (T : Term.S) = struct
     lazy_dnf ~join:join ~top:top ~bottom:bottom prop_to_smt phi
 
   let symbolic_abstract ts phi =
-    Log.time "symbolic_abstract" (symbolic_abstract ts) phi
+    if ts == [] then []
+    else Log.time "symbolic_abstract" (symbolic_abstract ts) phi
 
   module LinBound = struct
     type t = { upper : T.t list;
@@ -1226,6 +1260,8 @@ module Make (T : Term.S) = struct
 	conj phi (eqz (BatEnum.reduce T.add (AffineTerm.enum eq /@ g)))
       in
       let eqs = nonlinear_equalities nonlinear lin_phi vars in
+      Log.logf Log.info "Extracted equalities:@ %a"
+	Show.format<AffineTerm.t list> eqs;
       List.fold_left f lin_phi eqs
     in
     let var_list = VarSet.elements vars in
@@ -1278,7 +1314,9 @@ module Make (T : Term.S) = struct
   let opt_linearize_strategy = ref linearize_opt
 
   let linearize mk_tmp phi =
-    Log.time "linearize" (!opt_linearize_strategy mk_tmp) phi
+    try
+      Log.time "linearize" (!opt_linearize_strategy mk_tmp) phi
+    with Unsat -> bottom
 
   let symbolic_bounds p phi term =
     Log.time "symbolic_bounds" (symbolic_bounds p phi) term

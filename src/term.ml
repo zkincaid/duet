@@ -41,7 +41,8 @@ module type S = sig
   val exp : t -> int -> t
 
   val eval : ('a,V.t) term_algebra -> t -> 'a
-  val get_const : t -> QQ.t option
+  val to_const : t -> QQ.t option
+  val to_var : t -> V.t option
   val to_smt : t -> Smt.ast
   val subst : (V.t -> t) -> t -> t
   val evaluate : (V.t -> QQ.t) -> t -> QQ.t
@@ -158,7 +159,7 @@ module Make (V : Var) = struct
     | Lin xt, Lin yt -> of_linterm (Linterm.add xt yt)
     | _, _ -> hashcons (Add (x, y))
 
-  let get_const x = match x.node with
+  let to_const x = match x.node with
     | Lin lt ->
       let e = Linterm.enum lt in
       begin match BatEnum.get e with
@@ -168,27 +169,47 @@ module Make (V : Var) = struct
       end
     | _ -> None
 
+  let to_var x = match x.node with
+    | Lin lt ->
+      let e = Linterm.enum lt in
+      begin match BatEnum.get e with
+      | Some (AVar v, base) when QQ.equal base QQ.one -> Some v
+      | _ -> None
+      end
+    | _ -> None
+
   let mul x y =
-    match x.node, y.node with
-    | Lin lx, Lin ly -> begin
-      match get_const x, get_const y with
-      | Some k, _ -> of_linterm (Linterm.scalar_mul k ly)
-      | _, Some k -> of_linterm (Linterm.scalar_mul k lx)
-      | None, None -> hashcons (Mul (x, y))
-    end
+    match to_const x, to_const y with
+    | Some kx, Some ky -> const (QQ.mul kx ky)
+    | Some k, t when QQ.equal k QQ.zero -> zero
+    | t, Some k when QQ.equal k QQ.zero -> zero
+    | Some k, _ when QQ.equal k QQ.one -> y
+    | _, Some k when QQ.equal k QQ.one -> x
+    | None, Some k ->
+      begin match x.node with
+      | Lin lt -> of_linterm (Linterm.scalar_mul k lt)
+      | _ -> hashcons (Mul (x, y))
+      end
+    | Some k, None ->
+      begin match y.node with
+      | Lin lt -> of_linterm (Linterm.scalar_mul k lt)
+      | _ -> hashcons (Mul (x, y))
+      end
     | _, _ -> hashcons (Mul (x, y))
 
   let div x y =
-    match x.node, y.node with
-    | Lin lx, Lin ly -> begin
-      match get_const y with
-      | Some k -> of_linterm (Linterm.scalar_mul (QQ.inverse k) lx)
-      | None -> hashcons (Div (x, y))
-    end
-    | _, _ -> hashcons (Div (x, y))
+    match to_const y with
+    | Some k when not (QQ.equal k QQ.zero) ->
+      begin
+	if QQ.equal k QQ.one then x
+	else match x.node with
+	| Lin lx -> of_linterm (Linterm.scalar_mul (QQ.inverse k) lx)
+	| _ -> hashcons (Div (x, y))
+      end
+    | _ -> hashcons (Div (x, y))
 
   let floor x =
-    match get_const x with
+    match to_const x with
     | Some k -> const (QQ.of_zz (QQ.floor k))
     | None -> hashcons (Floor x)
 
@@ -347,7 +368,7 @@ module Make (V : Var) = struct
       let zz_coeff = int (ZZ.mul num (ZZ.floor_div denominator den)) in
       mul zz_coeff t
     in
-    BatEnum.fold add zero (ts /@ to_term)
+    div (BatEnum.fold add zero (ts /@ to_term)) (const (QQ.of_zz denominator))
 
   let of_smt env ast =
     let open Z3 in
@@ -399,7 +420,7 @@ module Make (V : Var) = struct
 	if k mod 2 = 0 then y2 else mul x y2
       end
     in
-    match get_const x with
+    match to_const x with
     | Some v -> const (QQ.exp v k)
     | None   -> if k < 0 then inverse (go x (-k)) else go x k
 

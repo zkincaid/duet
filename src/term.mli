@@ -53,7 +53,10 @@ module type S = sig
   val eval : ('a,V.t) term_algebra -> t -> 'a
 
   (** Determine a term equivalent to a constant (and if so, which). *)
-  val get_const : t -> QQ.t option
+  val to_const : t -> QQ.t option
+
+  (** Determine a term equivalent to a variable (and if so, which). *)
+  val to_var : t -> V.t option
 
   (** {2 Misc operations} *)
   val to_smt : t -> Smt.ast
