@@ -143,7 +143,7 @@ let tr_typ typ = match resolve_type typ with
   | Enum _ -> TyInt
   | Array _ -> TyInt
   | Dynamic -> TyReal
-  | _ -> assert false
+  | _ -> TyInt
 
 module V = struct
   include Var
@@ -274,17 +274,22 @@ let weight def =
     Log.errorf "No translation for definition: %a" Def.format def;
     assert false
 
+let forward_inv_gen = ref false
+let _ =
+  CmdLine.register_config
+    ("-lra-forward-inv",
+     Arg.Set forward_inv_gen,
+     " Forward invariant generation")
 
 let analyze file =
   match file.entry_points with
   | [main] -> begin
-    
+    let rg = Interproc.make_recgraph file in
     let rg =
-      Log.phase "Decorating program with invariants"
-	decorate (Interproc.make_recgraph file)
+      if !forward_inv_gen
+      then Log.phase "Decorating program with invariants" decorate rg
+      else rg
     in
-    Log.logf Log.info "done";
-(*    let rg = Interproc.make_recgraph file in*)
     let local func_name =
       if defined_function func_name (get_gfile()) then begin
 	let func = lookup_function func_name (get_gfile()) in
@@ -324,7 +329,9 @@ let analyze file =
 	s#assrt (Smt.mk_not (K.F.to_smt phi));
 	begin match Log.time "smt" s#check () with
 	| Smt.Unsat -> Report.log_safe ()
-	| Smt.Sat | Smt.Undef -> Report.log_error (Def.get_location def) msg
+	| Smt.Sat | Smt.Undef ->
+	  Log.logf Log.info "Failing path `%a`" K.format path;
+	  Report.log_error (Def.get_location def) msg
 	end;
 	s#pop ()
       end

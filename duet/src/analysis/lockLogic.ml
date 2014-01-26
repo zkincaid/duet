@@ -273,6 +273,7 @@ module Domain = struct
                      seq = PD.exists f a.seq;
                      con = PD.exists f a.con;
                      frk = FM.exists f a.frk }
+  let widen = add
 end
 
 module Test = Conc.MakePathExpr(Domain)

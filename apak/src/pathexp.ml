@@ -305,7 +305,6 @@ end = struct
       if WG.V.equal v dummy_start || WG.V.equal v dummy_end then wg
       else elim v wg
     in
-    let scc = WGLoop.construct wg in
     let wg = WGLoop.fold_inside_out elim wg wg in
     if WG.mem_edge wg dummy_start dummy_end
     then WG.E.label (WG.find_edge wg dummy_start dummy_end)
@@ -315,7 +314,6 @@ end = struct
     let elim_succ v g =
       if WG.V.equal v dummy_start then g else elim_succ v g
     in
-    let scc = WGLoop.construct wg in
     let wg = WGTop.fold elim_succ wg wg in
     let path_from t =
       if WG.mem_edge wg dummy_start (Real t)
@@ -329,7 +327,6 @@ end = struct
       | Real rv -> if p rv then elim_succ v g else elim v g
       | Dummy _ -> g
     in
-    let scc = WGLoop.construct wg in
     let wg = WGTop.fold elim_succ wg wg in
     let from_init t =
       if WG.mem_edge wg dummy_start (Real t)
@@ -399,7 +396,10 @@ open RecGraph
 module MakeRG
   (R : RecGraph.S)
   (Block : BLOCK with type t = R.block)
-  (K : Sig.KA.Quantified.Ordered.S) =
+  (K : sig 
+    include Sig.KA.Quantified.Ordered.S
+    val widen : t -> t -> t
+  end) =
 struct
   module CG = RecGraph.Callgraph(R)
   module HT = BatHashtbl.Make(Block)
@@ -469,7 +469,7 @@ struct
     in
 
     (* Compute summaries for each block *)
-    let update block =
+    let update join block =
       Log.logf Log.info "Computing summary for block %a" Block.format block;
       let body = R.block_body query.recgraph block in
       let src = R.block_entry query.recgraph block in
@@ -480,19 +480,23 @@ struct
 	K.exists (fun x -> not (local x)) s
       in
       try
-	if K.equal (HT.find query.summaries block) summary then false
-	else (HT.replace query.summaries block summary; true)
+	let old_summary = HT.find query.summaries block in
+	let new_summary = join old_summary summary in
+	if K.equal old_summary new_summary then false
+	else (HT.replace query.summaries block new_summary; true)
       with Not_found ->
 	if K.equal K.zero summary then false
 	else (HT.add query.summaries block summary; true)
     in
-    Log.phase "Block summarization" (Fix.fix cg update) None;
+    Log.phase "Block summarization"
+      (Fix.fix cg (update K.add))
+      (Some (update K.widen));
     let f k s =
-      Log.logf Log.fix "  Summary for %a:@\n    @[%a@]"
+      Log.logf 1 "  Summary for %a:@\n    @[%a@]"
 	Block.format k
 	K.format s
     in
-    Log.log Log.fix "Summaries:";
+    Log.log 1 "Summaries:";
     HT.iter f query.summaries
 
   let get_summaries query =

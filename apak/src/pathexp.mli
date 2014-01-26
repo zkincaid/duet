@@ -63,7 +63,10 @@ open RecGraph
 module MakeRG
   (R : RecGraph.S)
   (Block : BLOCK with type t = R.block)
-  (K : Sig.KA.Quantified.Ordered.S) :
+  (K : sig
+    include Sig.KA.Quantified.Ordered.S
+    val widen : t -> t -> t
+  end) :
 sig
   module HT : BatHashtbl.S with type key = Block.t
   type query
