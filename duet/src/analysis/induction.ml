@@ -167,7 +167,6 @@ end
 
 module K = struct
   include Transition.Make(V)
-(*
   let simplify tr =
     Log.logf Log.info
       "Simplifying formula: %d atoms, %d size, %d max dnf, %d program, %d tmp"
@@ -185,12 +184,14 @@ module K = struct
       (VarSet.cardinal (formula_free_program_vars simplified.guard))
       (VSet.cardinal (formula_free_tmp_vars simplified.guard));
     simplified
-*)
-(*
-  let mul x y = simplify (mul x y)
-  let add x y = simplify (add x y)
+
+  let simplify tr =
+    if F.size tr.guard > 128 then Log.time "simplify" simplify tr else tr
+
+  let mul x y = simplify (Log.time "mul" (mul x) y)
+  let add x y = simplify (Log.time "add" (add x) y)
+  let star x = Log.time "star" star x
   let exists p tr = simplify (exists p tr)
-*)
 end
 module A = Interproc.MakePathExpr(K)
 
@@ -198,11 +199,12 @@ let _ =
   let open K in
   opt_higher_recurrence := true;
   opt_disjunctive_recurrence_eq := true;
+  opt_loop_guard := true;
   opt_recurrence_ineq := false;
   opt_higher_recurrence_ineq := false;
   opt_unroll_loop := false;
-  opt_loop_guard := true;
-  F.opt_simplify_strategy := []
+  F.opt_qe_strategy := F.qe_lme;
+  F.opt_simplify_strategy := [F.qe_lme]
 
 let prime_bexpr = Bexpr.subst_var V.prime
 
@@ -275,11 +277,34 @@ let weight def =
     assert false
 
 let forward_inv_gen = ref false
+let set_qe = function
+  | "lme" -> K.F.opt_qe_strategy := K.F.qe_lme
+  | "cover" -> K.F.opt_qe_strategy := K.F.qe_cover
+  | "z3" -> K.F.opt_qe_strategy := K.F.qe_z3
+  | s -> Log.errorf "Unrecognized QE strategy: `%s`" s; assert false
+
 let _ =
   CmdLine.register_config
     ("-lra-forward-inv",
      Arg.Set forward_inv_gen,
-     " Forward invariant generation")
+     " Forward invariant generation");
+  CmdLine.register_config
+    ("-lra-unroll-loop",
+     Arg.Set K.opt_unroll_loop,
+     " Unroll loops");
+  CmdLine.register_config
+    ("-lra-rec-ineq",
+     Arg.Set K.opt_recurrence_ineq,
+     " Solve simple recurrence inequations");
+  CmdLine.register_config
+    ("-lra-higher_rec-ineq",
+     Arg.Set K.opt_higher_recurrence_ineq,
+     " Solve higher recurrence inequations");
+  CmdLine.register_config
+    ("-qe",
+     Arg.String set_qe,
+     " Set default quantifier elimination strategy (lme,cover,z3)")
+  
 
 let analyze file =
   match file.entry_points with
