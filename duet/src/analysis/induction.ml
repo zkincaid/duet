@@ -188,9 +188,10 @@ module K = struct
   let simplify tr =
     if F.size tr.guard > 128 then Log.time "simplify" simplify tr else tr
 
-  let mul x y = simplify (Log.time "mul" (mul x) y)
-  let add x y = simplify (Log.time "add" (add x) y)
-  let star x = Log.time "star" star x
+  let mul x y = simplify (Log.time "lra:mul" (mul x) y)
+  let add x y = simplify (Log.time "lra:add" (add x) y)
+  let star x = Log.time "lra:star" star x
+  let widen x y = Log.time "lra:widen" (widen x) y
   let exists p tr = simplify (exists p tr)
 end
 module A = Interproc.MakePathExpr(K)
@@ -198,13 +199,14 @@ module A = Interproc.MakePathExpr(K)
 let _ =
   let open K in
   opt_higher_recurrence := true;
-  opt_disjunctive_recurrence_eq := true;
+  opt_disjunctive_recurrence_eq := false;
   opt_loop_guard := true;
   opt_recurrence_ineq := false;
   opt_higher_recurrence_ineq := false;
   opt_unroll_loop := false;
+  opt_polyrec := true;
   F.opt_qe_strategy := F.qe_lme;
-  F.opt_simplify_strategy := [F.qe_lme]
+  F.opt_simplify_strategy := []
 
 let prime_bexpr = Bexpr.subst_var V.prime
 
@@ -218,7 +220,12 @@ let tr_expr expr =
     | OBinaryOp (a, Add, b, _) -> T.add a b
     | OBinaryOp (a, Minus, b, _) -> T.sub a b
     | OBinaryOp (a, Mult, b, _) -> T.mul a b
-    | OBinaryOp (a, Div, b, _) -> T.div a b
+    | OBinaryOp (a, Div, b, typ) ->
+      begin
+	match tr_typ typ with
+	| TyInt -> T.idiv a b
+	| TyReal -> T.div a b
+      end
     | OUnaryOp (Neg, a, _) -> T.neg a
     | OAccessPath (Variable v) -> T.var (V.mk_var v)
 
@@ -301,6 +308,14 @@ let _ =
      Arg.Set K.opt_higher_recurrence_ineq,
      " Solve higher recurrence inequations");
   CmdLine.register_config
+    ("-lra-no-polyrec",
+     Arg.Clear K.opt_polyrec,
+     " Turn off polyhedral recurrences");
+  CmdLine.register_config
+    ("-lra-no-guard",
+     Arg.Clear K.opt_loop_guard,
+     " Turn off loop guards");
+  CmdLine.register_config
     ("-qe",
      Arg.String set_qe,
      " Set default quantifier elimination strategy (lme,cover,z3)")
@@ -312,7 +327,7 @@ let analyze file =
     let rg = Interproc.make_recgraph file in
     let rg =
       if !forward_inv_gen
-      then Log.phase "Decorating program with invariants" decorate rg
+      then Log.phase "Forward invariant generation" decorate rg
       else rg
     in
     let local func_name =
@@ -341,7 +356,6 @@ let analyze file =
       | Assert (phi, msg) -> begin
 	Log.logf Log.info "Check assertion `%a`" Def.format def;
 	s#push ();
-	s#assrt (K.to_smt path);
 
 	let phi = tr_bexpr phi in
 	let sigma v = match K.V.lower v with
@@ -351,8 +365,15 @@ let analyze file =
 	    with Not_found -> K.T.var (K.V.mk_var v)
 	in
 	let phi = K.F.subst sigma phi in
-	s#assrt (Smt.mk_not (K.F.to_smt phi));
-	begin match Log.time "smt" s#check () with
+
+	s#assrt (K.F.to_smt
+		   (K.F.linearize
+		      (fun () -> K.V.mk_tmp "nonlin" TyInt)
+		      (K.F.conj
+			 (K.to_formula path)
+			 (K.F.negate phi))));
+
+	begin match Log.time "Assertion checking" s#check () with
 	| Smt.Unsat -> Report.log_safe ()
 	| Smt.Sat | Smt.Undef ->
 	  Log.logf Log.info "Failing path `%a`" K.format path;
