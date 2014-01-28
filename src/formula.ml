@@ -787,7 +787,7 @@ module Make (T : Term.S) = struct
   let exists p phi =
     if equal phi top then top
     else if equal phi bottom then bottom
-    else (!opt_qe_strategy) p phi
+    else Log.time "Quantifier Elimination" ((!opt_qe_strategy) p) phi
   let exists_list vars phi =
     let vars = List.fold_left (flip VarSet.add) VarSet.empty vars in
     exists (not % (flip VarSet.mem vars)) phi
@@ -901,9 +901,9 @@ module Make (T : Term.S) = struct
       | OFloor (x, _)   -> (Smt.mk_real2int x, TyInt)
     in
     let assert_nl_eq nl_term var =
-      Log.logf Log.info "Nonlinear equation:@ %a=%a"
-	T.format nl_term
-	V.format var;
+      Log.logf Log.info "Nonlinear equation: %a = %a"
+	V.format var
+	T.format nl_term;
       s#assrt (Smt.mk_eq (fst (T.eval talg nl_term)) (V.to_smt var))
     in
     s#assrt (to_smt phi);
@@ -1239,83 +1239,88 @@ module Make (T : Term.S) = struct
     let lower x = x.lower
     let upper x = x.upper
     let interval x = x.interval
+    let floor x = make [] [] (Interval.floor x.interval)
   end
 
   let linearize_opt mk_tmp phi =
     let (lin_phi, nonlinear) = split_linear mk_tmp phi in
     if TMap.is_empty nonlinear then phi else begin
-    let vars =
-      BatEnum.fold
-	(fun set (_,v) -> VarSet.add v set)
-	(formula_free_vars phi)
-	(TMap.enum nonlinear)
-    in
-    let lin_phi =
-      let f phi eq =
-	let g (v, coeff) =
-	  match v with
-	  | AVar v -> T.mul (T.var v) (T.const coeff)
-	  | AConst -> T.const coeff
+      let lin_phi =
+	let f phi eq =
+	  let g (v, coeff) =
+	    match v with
+	    | AVar v -> T.mul (T.var v) (T.const coeff)
+	    | AConst -> T.const coeff
+	  in
+	  conj phi (eqz (BatEnum.reduce T.add (AffineTerm.enum eq /@ g)))
 	in
-	conj phi (eqz (BatEnum.reduce T.add (AffineTerm.enum eq /@ g)))
-      in
-      let eqs = nonlinear_equalities nonlinear lin_phi vars in
-      Log.logf Log.info "Extracted equalities:@ %a"
-	Show.format<AffineTerm.t list> eqs;
-      List.fold_left f lin_phi eqs
-    in
-    let var_list = VarSet.elements vars in
-    let box =
-      symbolic_abstract (List.map T.var var_list) lin_phi
-    in
-    let bounds =
-      List.fold_left2
-	(fun m v (lo,hi) -> T.V.Map.add v (Interval.make lo hi) m)
-	T.V.Map.empty
-	var_list
-	box
-    in
-    let linearize_term = function
-      | OVar v ->
-	let ivl =
-	  try T.V.Map.find v bounds
-	  with Not_found -> Interval.top
+	(* Variables introduced to represent nonlinear terms *)
+	let nl_vars =
+	  TMap.fold (fun _ v set -> VarSet.add v set) nonlinear VarSet.empty
 	in
-	LinBound.make [T.var v] [T.var v] ivl
-      | OConst k -> LinBound.of_interval (Interval.const k)
-      | OAdd (x, y) -> LinBound.add x y
-      | OMul (x, y) -> LinBound.mul x y
-      | ODiv (x, y) -> LinBound.div x y
-      | OFloor _ -> assert false
-    in
-    let mk_nl_bounds (term, var) =
-      let var = T.var var in
-      let linearized = T.eval linearize_term term in
-      let symbolic_lo =
-        big_conj (BatList.enum (LinBound.lower linearized) /@ (geq var))
+	let eqs = nonlinear_equalities nonlinear lin_phi nl_vars in
+
+	Log.logf Log.info "Extracted equalities:@ %a"
+	  Show.format<AffineTerm.t list> eqs;
+	List.fold_left f lin_phi eqs
       in
-      let symbolic_hi =
-        big_conj (BatList.enum (LinBound.upper linearized) /@ (leq var))
+
+      (* Variables which appear in nonlinear terms *) 
+      let var_list =
+	let f t _ set = VarSet.union (term_free_vars t) set in
+	VarSet.elements (TMap.fold f nonlinear VarSet.empty)
       in
-      let const_lo = match Interval.lower (LinBound.interval linearized) with
-	| Some k -> leq (T.const k) var
-	| None -> top
+      let box =
+	symbolic_abstract (List.map T.var var_list) lin_phi
       in
-      let const_hi = match Interval.upper (LinBound.interval linearized) with
-	| Some k -> leq var (T.const k)
-	| None -> top
+      let bounds =
+	List.fold_left2
+	  (fun m v (lo,hi) -> T.V.Map.add v (Interval.make lo hi) m)
+	  T.V.Map.empty
+	  var_list
+	  box
       in
-      conj symbolic_lo (conj symbolic_hi (conj const_lo const_hi))
-    in
-    let nl_bounds = big_conj (TMap.enum nonlinear /@ mk_nl_bounds) in
-    conj lin_phi nl_bounds
+      let linearize_term = function
+	| OVar v ->
+	  let ivl =
+	    try T.V.Map.find v bounds
+	    with Not_found -> Interval.top
+	  in
+	  LinBound.make [T.var v] [T.var v] ivl
+	| OConst k -> LinBound.of_interval (Interval.const k)
+	| OAdd (x, y) -> LinBound.add x y
+	| OMul (x, y) -> LinBound.mul x y
+	| ODiv (x, y) -> LinBound.div x y
+	| OFloor x -> LinBound.floor x
+      in
+      let mk_nl_bounds (term, var) =
+	let var = T.var var in
+	let linearized = T.eval linearize_term term in
+	let symbolic_lo =
+          big_conj (BatList.enum (LinBound.lower linearized) /@ (geq var))
+	in
+	let symbolic_hi =
+          big_conj (BatList.enum (LinBound.upper linearized) /@ (leq var))
+	in
+	let const_lo = match Interval.lower (LinBound.interval linearized) with
+	  | Some k -> leq (T.const k) var
+	  | None -> top
+	in
+	let const_hi = match Interval.upper (LinBound.interval linearized) with
+	  | Some k -> leq var (T.const k)
+	  | None -> top
+	in
+	conj symbolic_lo (conj symbolic_hi (conj const_lo const_hi))
+      in
+      let nl_bounds = big_conj (TMap.enum nonlinear /@ mk_nl_bounds) in
+      conj lin_phi nl_bounds
     end
 
   let opt_linearize_strategy = ref linearize_opt
 
   let linearize mk_tmp phi =
     try
-      Log.time "linearize" (!opt_linearize_strategy mk_tmp) phi
+      Log.time "Formula linearization" (!opt_linearize_strategy mk_tmp) phi
     with Unsat -> bottom
 
   let symbolic_bounds p phi term =
@@ -1453,7 +1458,9 @@ module Make (T : Term.S) = struct
 
   let opt_simplify_strategy = ref [qe_cover; simplify_dillig]
   let simplify p phi =
-    List.fold_left (fun phi simpl -> simpl p phi) phi (!opt_simplify_strategy)
+    Log.time "Formula simplification"
+      (List.fold_left (fun phi simpl -> simpl p phi) phi)
+      (!opt_simplify_strategy)
 
   module Syntax = struct
     let ( && ) x y = conj x y

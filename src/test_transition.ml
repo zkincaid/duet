@@ -103,7 +103,8 @@ let set_opt_simple () =
   opt_recurrence_ineq := false;
   opt_higher_recurrence_ineq := false;
   opt_unroll_loop := true;
-  opt_loop_guard := false
+  opt_loop_guard := false;
+  opt_polyrec := false
 
 let set_opt_const_bound () =
   let open K in
@@ -112,7 +113,8 @@ let set_opt_const_bound () =
   opt_recurrence_ineq := true;
   opt_higher_recurrence_ineq := false;
   opt_unroll_loop := false;
-  opt_loop_guard := true
+  opt_loop_guard := true;
+  opt_polyrec := false
 
 let set_opt_sym_bound () =
   let open K in
@@ -121,7 +123,18 @@ let set_opt_sym_bound () =
   opt_higher_recurrence_ineq := true;
   opt_recurrence_ineq := false;
   opt_unroll_loop := true;
-  opt_loop_guard := false
+  opt_loop_guard := false;
+  opt_polyrec := false
+
+let set_opt_polyrec () =
+  let open K in
+  opt_higher_recurrence := true;
+  opt_disjunctive_recurrence_eq := false;
+  opt_higher_recurrence_ineq := false;
+  opt_recurrence_ineq := false;
+  opt_unroll_loop := false;
+  opt_loop_guard := true;
+  opt_polyrec := true
 
 
 (* from sv-comp13/loops/count_up_down_safe *)
@@ -546,6 +559,174 @@ module Bound = struct
     check F.bottom Smt.Sat
 end
 
+
+module Polyrec = struct
+  module T = K.T
+  module F = K.F
+  let frac x y = K.T.const (QQ.of_frac x y)
+  let var x = K.T.var (K.V.mk_var x)
+  let block = BatList.reduce K.mul
+  let while_loop cond body =
+    K.mul (K.star (block ((K.assume cond)::body))) (K.assume (F.negate cond))
+
+  let test_const_bounds () =
+    let open K.T.Syntax in
+    let open K.F.Syntax in
+    set_opt_polyrec ();
+    let (~@) x = ~@ (QQ.of_int x) in
+    let rx = var "rx" in
+    let ry = var "ry" in
+    let rtmp = var "rtmp" in
+    let prog =
+      block [
+	K.assign "rx" (~@ 0);
+	K.assign "ry" (~@ 0);
+	while_loop (rx < (~@ 10)) [
+	  K.assign "rtmp" (K.T.var (K.V.mk_tmp "havoc" TyReal));
+	  K.assume (ry - (frac 1 3) <= rtmp && rtmp < ry + (frac 1 7));
+	  K.assign "ry" rtmp;
+	  K.assign "rx" (rx + (~@ 1))
+	]
+      ]
+    in
+    let s = new Smt.solver in
+    s#assrt (K.to_smt prog);
+    Log.logf Log.info "Formula: %a" K.format prog;
+    Log.logf Log.info "Smt: %s" (Smt.ast_to_string (K.to_smt prog));
+    let check phi expected =
+      s#push ();
+      s#assrt (Smt.mk_not (F.to_smt phi));
+      assert_equal ~printer:Show.show<Smt.lbool> expected (s#check());
+      s#pop ();
+    in
+    check (var "rx'" == (~@ 10)) Smt.Unsat;
+    check (var "ry'" < (frac 10 7)) Smt.Unsat;
+    check (var "ry'" >= T.neg (frac 10 3)) Smt.Unsat
+
+  let test_nested () =
+    let open K.T.Syntax in
+    let open K.F.Syntax in
+    set_opt_polyrec ();
+    let (~@) x = ~@ (QQ.of_int x) in
+    let rx = var "rx" in
+    let ry = var "ry" in
+    let rz = var "rz" in
+    let rtmp = var "rtmp" in
+    let prog =
+      block [
+	K.assign "rx" (~@ 0);
+	K.assign "ry" (~@ 0);
+	while_loop (rx < (~@ 2)) [
+	  K.assign "rz" (~@ 0);
+	  while_loop (rz < (~@ 5)) [
+	    K.assign "rtmp" (K.T.var (K.V.mk_tmp "havoc" TyReal));
+	    K.assume (ry - (frac 1 3) <= rtmp && rtmp <= ry + (frac 1 7));
+	    K.assign "ry" rtmp;
+	    K.assign "rz" (rz + (~@ 1));
+	  ];
+	  K.assign "rx" (rx + (~@ 1))
+	]
+      ]
+    in
+    let s = new Smt.solver in
+    s#assrt (K.to_smt prog);
+    Log.logf Log.info "Formula: %a" K.format prog;
+    let check phi expected =
+      s#push ();
+      s#assrt (Smt.mk_not (F.to_smt phi));
+      assert_equal ~printer:Show.show<Smt.lbool> expected (s#check());
+      s#pop ();
+    in
+    check (var "ry'" <= (frac 10 7)) Smt.Unsat;
+    check (var "ry'" >= T.neg (frac 10 3)) Smt.Unsat;
+    check (var "ry'" < (frac 10 7)) Smt.Sat;
+    check (var "ry'" > T.neg (frac 10 3)) Smt.Sat
+
+(* k/3 <= (ry' - ry) <= k/7 *)
+(* 7ry' - 7ry - k <= 0 *)
+
+  let test_nested_unbounded () =
+    let open K.T.Syntax in
+    let open K.F.Syntax in
+    set_opt_polyrec ();
+    let (~@) x = ~@ (QQ.of_int x) in
+    let rx = var "rx" in
+    let ry = var "ry" in
+    let rz = var "rz" in
+    let prog =
+      block [
+	K.assign "rz" (~@ 0);
+	K.assume (rx > (~@ 0));
+	while_loop (rx >= (~@ 0)) [
+	  K.assign "ry" (~@ 0);
+	  while_loop (ry < (~@ 1)) [
+	    K.assign "ry" (ry + (frac 1 10));
+	    K.assign "rz" (rz + (frac 1 2))
+	  ];
+	  while_loop (ry > (~@ 0)) [
+	    K.assign "ry" (ry - (frac 1 10));
+	    K.assign "rz" (rz - (frac 1 2))
+	  ];
+	  K.assign "rx" (rx - (~@ 1));
+	]
+      ]
+    in
+    let s = new Smt.solver in
+    s#assrt (K.to_smt prog);
+    Log.logf Log.info "Formula: %a" K.format prog;
+    let check phi expected =
+      s#push ();
+      s#assrt (Smt.mk_not (F.to_smt phi));
+      assert_equal ~printer:Show.show<Smt.lbool> expected (s#check());
+      s#pop ();
+    in
+    check (var "ry'" == (frac 0 1)) Smt.Unsat;
+    check (var "rz'" >= (T.neg (frac 1 2))) Smt.Unsat;
+    check (var "rz'" <= (~@ 0)) Smt.Unsat;
+    check F.bottom Smt.Sat
+
+  let test_symbolic_bounds () =
+    let open K.T.Syntax in
+    let open K.F.Syntax in
+    set_opt_polyrec ();
+    let (~@) x = ~@ (QQ.of_int x) in
+    let rx = var "rx" in
+    let rt = var "rt" in
+    let reps = var "reps" in
+    let rtmp = var "rtmp" in
+    let mu = T.const (QQ.exp (QQ.of_int 2) (-53)) in
+    let decr = (~@ 1) / (~@ 10) in
+    let prog =
+      block [
+	K.assume ((~@ 0) <= rx && rx <= (~@ 1000));
+	K.assign "reps" (~@ 0);
+	while_loop ((rx > (~@ 0)) && (rx + reps > (~@ 0))) [
+	  K.assume (reps <= (~@ 1) && reps >= (~@ -1));
+	  K.assign "rt" (rx + reps - decr + (decr * mu));
+	  K.assign "rtmp" (K.T.var (K.V.mk_tmp "havoc" TyReal));
+	  K.assume ((rt - (rt * mu) - rx + decr <= rtmp)
+		    && (rtmp <= rt + (rt * mu) - rx + decr));
+	  K.assign "reps" rtmp;
+	  K.assign "rx" (rx - decr)
+	]
+      ]
+    in
+    let s = new Smt.solver in
+    Log.logf Log.info "Formula: %a" K.format prog;
+    let mk () = K.V.mk_tmp "nonlin" TyReal in
+    let check phi expected =
+      s#push ();
+      s#assrt (K.F.to_smt (K.F.linearize mk (K.to_formula prog
+					     && K.F.negate phi)));
+      assert_equal ~printer:Show.show<Smt.lbool> expected (s#check());
+      s#pop ();
+    in
+    check ((var "rx'") > T.neg (frac 1 10)) Smt.Unsat;
+    check ((var "reps'") <= (frac 1 100000000)) Smt.Unsat;
+    check ((var "reps'") >= (frac (-1) 100000000)) Smt.Unsat
+end
+
+
 let suite = "Transition" >:::
   [
     "counter" >:: test_counter;
@@ -565,5 +746,10 @@ let suite = "Transition" >:::
     "symbound_symbolic" >:: SymBound.test_symbolic_bounds;
     "bound_const" >:: Bound.test_const_bounds;
     "nested" >:: Bound.test_nested;
-    "nested_unbounded" >:: Bound.test_nested_unbounded
+    "nested_unbounded" >:: Bound.test_nested_unbounded;
+
+    "polyrec_bound_const" >:: Polyrec.test_const_bounds;
+    "polyrec_nested" >:: Polyrec.test_nested;
+    "polyrec_nested_unbounded" >:: Polyrec.test_nested_unbounded;
+    "polyrec_symbolic" >:: SymBound.test_symbolic_bounds;
   ]

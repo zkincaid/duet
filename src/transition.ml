@@ -290,6 +290,7 @@ module Dioid (Var : Var) = struct
     let guard = F.linearize (fun () -> V.mk_tmp "nonlin" TyInt) tr.guard in
     let free_tmp = M.fold f tr.transform (formula_free_tmp_vars guard) in
     { tr with guard = F.simplify (not % flip VSet.mem free_tmp) guard }
+  let simplify tr = Log.time "Transition simplification" simplify tr
 
   let exists p tr =
     let transform = M.filter (fun k _ -> p k) tr.transform in
@@ -375,6 +376,7 @@ module Make (Var : Var) = struct
   let opt_higher_recurrence_ineq = ref false
   let opt_unroll_loop = ref true
   let opt_loop_guard = ref false
+  let opt_polyrec = ref false
 
   (**************************************************************************)
   (* Implementation of iteration operator *)
@@ -818,6 +820,108 @@ module Make (Var : Var) = struct
     in
     { ctx with loop = loop }
 
+  (* Polyhedral recurrences *)
+  let polyrec ctx =
+    let non_induction =
+      let f (v, r) = match r with
+	| Some _ -> None
+	| None   -> Some v
+      in
+      BatList.of_enum (BatEnum.filter_map f (VarMap.enum ctx.induction_vars))
+    in
+    let deltas =
+      let f v =
+	T.sub (T.var (V.mk_var (Var.prime v))) (T.var (V.mk_var v))
+      in
+      List.map f non_induction
+    in
+    let fresh v = V.mk_tmp ("delta_" ^ (Var.show v)) (Var.typ v) in
+    let delta_vars = List.map fresh non_induction in
+    let phi =
+      List.fold_left2
+	(fun v dv d -> F.conj v (F.eq (T.var dv) d))
+	ctx.phi
+	delta_vars
+	deltas
+    in
+    let delta_map =
+      let add m dv v =
+	V.Map.add
+	  dv
+	  (T.sub (M.find v ctx.loop.transform) (T.var (V.mk_var v)))
+	  m
+      in
+      List.fold_left2 add V.Map.empty delta_vars non_induction
+    in
+    let man = Polka.manager_alloc_strict () in
+    let poly =
+      let delta_var_set = VSet.of_enum (BatList.enum delta_vars) in
+      let is_induction_var v = match V.lower v with
+	| Some var ->
+	  begin
+	    try (Incr.Env.find var ctx.induction_vars) != None
+	    with Not_found -> false
+	  end
+	| None -> false
+      in
+      let p v =
+	VSet.mem v delta_var_set || is_induction_var v
+      in
+      F.abstract ~exists:(Some p) man phi
+    in
+    Log.logf Log.info "Polyhedron: %a" F.T.D.format poly;
+    let recur tcons =
+      let open Apron in
+      let open Tcons0 in
+      let open T.D in
+      let t = T.of_apron poly.env tcons.texpr0 in
+      match T.to_linterm t with
+      | None -> F.top
+      | Some lt -> begin
+	let p (x,_) = V.Map.mem x delta_map in
+	let (deltas, nondeltas) =
+	  BatEnum.partition p (T.Linterm.var_bindings lt)
+	in
+	let lhs =
+	  let f lhs (dv, coeff) =
+	    T.add lhs (T.mul (T.const coeff) (V.Map.find dv delta_map))
+	  in
+	  BatEnum.fold f T.zero deltas
+	in
+	let rhs =
+	  let f rhs (v, coeff) = T.add rhs (T.mul (T.const coeff) (T.var v)) in
+	  let rhs_term =
+	    BatEnum.fold f (T.const (T.Linterm.const_coeff lt)) nondeltas
+	  in
+	  match Incr.eval ctx.induction_vars rhs_term with
+	  | Some (px, cx) ->
+	    let px_closed = Incr.summation px in
+	    let cx_closed = T.mul ctx.loop_counter cx in
+	    Incr.to_term (px_closed, cx_closed) ctx.loop_counter TyReal
+	  | None -> assert false
+	in
+	let res = 
+	  match tcons.typ with
+	  | EQ      -> F.eqz (T.add lhs rhs)
+	  | SUPEQ   -> F.leqz (T.neg (T.add lhs rhs))
+	  | SUP     -> F.ltz (T.neg (T.add lhs rhs))
+	  | DISEQ   -> assert false (* impossible *)
+	  | EQMOD _ -> assert false (* todo *)
+	in
+	Log.logf Log.info "Polyhedral recurrence: %a" F.format res;
+	res
+      end
+    in
+    let tcons =
+      BatArray.enum (Apron.Abstract0.to_tcons_array man poly.T.D.prop)
+    in
+    let loop =
+      { ctx.loop with guard =
+	  F.conj ctx.loop.guard (F.big_conj (BatEnum.map recur tcons)) }
+    in
+    { ctx with loop = loop }
+  let polyrec ctx = Log.time "polyrec" polyrec ctx
+
   let loop_guard ctx =
     let primed_vars = VarSet.of_enum (M.keys ctx.loop.transform /@ Var.prime) in
     let unprime =
@@ -969,6 +1073,7 @@ module Make (Var : Var) = struct
 	(!opt_disjunctive_recurrence_eq, disj_induction_vars);
 	(!opt_recurrence_ineq, recurrence_ineq);
 	(!opt_higher_recurrence_ineq, higher_recurrence_ineq);
+	(!opt_polyrec, polyrec);
       ]
     in
 
@@ -1001,7 +1106,9 @@ module Make (Var : Var) = struct
   let star tr =
     try star tr
     with
-    | Unsat -> one
+    | Unsat ->
+      Log.logf Log.info "Loop body is unsat";
+      one
     | Undef ->
       let mk_nondet v _ =
 	T.var (V.mk_tmp ("nondet_" ^ (Var.show v)) (Var.typ v))

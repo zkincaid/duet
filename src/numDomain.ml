@@ -130,8 +130,8 @@ module Env = struct
       in
       let change = Array.of_list (int_change @ real_change) in 
       { Dim.dim = change;
-	Dim.intdim = idim;
-	Dim.realdim = Array.length change - idim }
+	Dim.intdim = List.length int_change;
+	Dim.realdim = List.length real_change }
 
     let of_set vars =
       let count v (int, real) = match V.typ v with
@@ -243,7 +243,13 @@ module Make (V : Var) = struct
   let common_env_prop man f x y =
     let env = Env.merge x.env y.env in
     let set_env z =
-      Abstract0.add_dimensions man z.prop (Env.inject z.env env) false
+      let open Manager in
+      try
+	Abstract0.add_dimensions man z.prop (Env.inject z.env env) false
+      with Error log -> begin
+	Log.errorf "APRON error: %s" log.msg;
+	raise (Error log)
+      end
     in
     { prop = f man (set_env x) (set_env y);
       env = env }

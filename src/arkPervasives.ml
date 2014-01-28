@@ -1,6 +1,7 @@
 (*pp camlp4find deriving.syntax *)
 
 open Apak
+open BatPervasives
 
 module Ring = struct
   module type S = sig
@@ -345,4 +346,7 @@ module Interval = struct
 
   let upper x = x.upper
   let lower x = x.lower
+  let floor x =
+    { lower = map_opt (QQ.of_zz % QQ.floor) x.lower;
+      upper = map_opt (QQ.of_zz % QQ.floor) x.upper }
 end
