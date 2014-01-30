@@ -568,6 +568,7 @@ module Polyrec = struct
   let block = BatList.reduce K.mul
   let while_loop cond body =
     K.mul (K.star (block ((K.assume cond)::body))) (K.assume (F.negate cond))
+    
 
   let test_const_bounds () =
     let open K.T.Syntax in
@@ -590,12 +591,13 @@ module Polyrec = struct
       ]
     in
     let s = new Smt.solver in
-    s#assrt (K.to_smt prog);
-    Log.logf Log.info "Formula: %a" K.format prog;
-    Log.logf Log.info "Smt: %s" (Smt.ast_to_string (K.to_smt prog));
     let check phi expected =
       s#push ();
-      s#assrt (Smt.mk_not (F.to_smt phi));
+      let mk () = K.V.mk_tmp "nonlin" TyReal in
+      let path_condition =
+	K.F.linearize mk (K.F.conj (K.to_formula prog) (K.F.negate phi))
+      in
+      s#assrt (F.to_smt path_condition);
       assert_equal ~printer:Show.show<Smt.lbool> expected (s#check());
       s#pop ();
     in
@@ -629,11 +631,14 @@ module Polyrec = struct
       ]
     in
     let s = new Smt.solver in
-    s#assrt (K.to_smt prog);
     Log.logf Log.info "Formula: %a" K.format prog;
     let check phi expected =
       s#push ();
-      s#assrt (Smt.mk_not (F.to_smt phi));
+      let mk () = K.V.mk_tmp "nonlin" TyReal in
+      let path_condition =
+	K.F.linearize mk (K.F.conj (K.to_formula prog) (K.F.negate phi))
+      in
+      s#assrt (F.to_smt path_condition);
       assert_equal ~printer:Show.show<Smt.lbool> expected (s#check());
       s#pop ();
     in
@@ -672,11 +677,13 @@ module Polyrec = struct
       ]
     in
     let s = new Smt.solver in
-    s#assrt (K.to_smt prog);
-    Log.logf Log.info "Formula: %a" K.format prog;
     let check phi expected =
       s#push ();
-      s#assrt (Smt.mk_not (F.to_smt phi));
+      let mk () = K.V.mk_tmp "nonlin" TyReal in
+      let path_condition =
+	K.F.linearize mk (K.F.conj (K.to_formula prog) (K.F.negate phi))
+      in
+      s#assrt (F.to_smt path_condition);
       assert_equal ~printer:Show.show<Smt.lbool> expected (s#check());
       s#pop ();
     in

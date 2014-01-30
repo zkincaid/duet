@@ -31,7 +31,10 @@ class arrayAccessVisitor = object (self)
     | Mem exp, Index (idx, offset) ->
       ChangeTo (Mem (BinOp (PlusPI, exp, idx, typeOf exp)), offset)
     | Var v, Index (idx, offset) ->
-      ChangeTo (Mem (BinOp (PlusPI, Lval (Var v, NoOffset), idx, v.vtype)),
+      ChangeTo (Mem (BinOp (PlusPI,
+			    Cil.mkAddrOf (Var v, NoOffset),
+			    idx,
+			    v.vtype)),
 		offset)
     | _, _ -> DoChildren
 end
@@ -151,7 +154,7 @@ let simplify file =
   | Cil.GFun(fd,_) -> Oneret.oneret fd;
   | _ -> ());
   Cil.visitCilFile (new arrayAccessVisitor) file;
-  Simplemem.simplemem file;
+  ignore (Simplemem.simplemem file);
   Cil.visitCilFile (new loopVisitor) file;
   Cil.visitCilFile (new switchVisitor) file;
   Cfg.clearFileCFG file;
@@ -314,7 +317,9 @@ let rec tr_expr = function
            | Cil.Le -> BoolExpr (Atom (Le, e1, e2))
            | Cil.Ge -> BoolExpr (Bexpr.ge e1 e2)
            | Cil.Eq -> BoolExpr (Atom (Eq, e1, e2))
-           | Cil.Ne -> BoolExpr (Atom (Ne, e1, e2))
+           | Cil.Ne ->
+	     BoolExpr (Or (Atom (Lt, e1, e2),
+			   Atom (Lt, e2, e1)))
            | Cil.LAnd -> BoolExpr (And (Bexpr.of_expr e1, Bexpr.of_expr e2))
            | Cil.LOr -> BoolExpr (Or (Bexpr.of_expr e1, Bexpr.of_expr e2))
            | Cil.IndexPI | Cil.PlusPI -> (* these are equivalent *)
@@ -383,8 +388,11 @@ let tr_instr ctx instr =
     in
     let mk_def kind = mk_single (Def.mk ~loc:loc kind) in
     begin match v.Cil.vname, lhs, List.map tr_expr args with
-    | ("assume", None, [x]) -> mk_def (Assume (Bexpr.of_expr x))
-    | ("assert", None, [x]) -> begin
+    | ("assume", None, [x])
+    | ("__VERIFIER_assume", None, [x]) ->
+      mk_def (Assume (Bexpr.of_expr x))
+    | ("assert", None, [x])
+    | ("__VERIFIER_assert", None, [x]) -> begin
       (* Pretty print the cil expression for the error message - it should
 	 be closer the source text than the translation *)
       match args with
@@ -426,6 +434,12 @@ let tr_instr ctx instr =
     | ("__VERIFIER_nondet_long", Some (Variable v), [])
     | ("__VERIFIER_nondet_pointer", Some (Variable v), []) ->
       mk_def (Assign (v, Havoc (Concrete (Int IInt))))
+    | ("__VERIFIER_nondet_uint", Some (Variable v), []) ->
+      let havoc = mk_def (Assign (v, Havoc (Concrete (Int IInt)))) in
+      let assume =
+	mk_def (Assume (Atom (Le, Expr.zero, AccessPath (Variable v))))
+      in
+      mk_seq havoc assume
 
     (* CPROVER builtins *)
     | ("__CPROVER_atomic_begin", None, []) -> mk_def (Builtin AtomicBegin)

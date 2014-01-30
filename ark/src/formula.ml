@@ -6,6 +6,7 @@ open ArkPervasives
 open BatPervasives
 
 exception Nonlinear
+exception Timeout
 
 module type S = sig
   type t
@@ -53,6 +54,7 @@ module type S = sig
   val qe_lme : (T.V.t -> bool) -> t -> t
   val qe_z3 : (T.V.t -> bool) -> t -> t
   val qe_cover : (T.V.t -> bool) -> t -> t
+  val qe_partial : (T.V.t -> bool) -> t -> t
 
   val simplify : (T.V.t -> bool) -> t -> t
   val simplify_z3 : (T.V.t -> bool) -> t -> t
@@ -63,6 +65,7 @@ module type S = sig
   val linearize_apron : (unit -> T.V.t) -> t -> t
   val linearize_apron_dnf : (unit -> T.V.t) -> t -> t
   val linearize_opt : (unit -> T.V.t) -> t -> t
+  val linearize_trivial : (unit -> T.V.t) -> t -> t
   val opt_linearize_strategy : ((unit -> T.V.t) -> t -> t) ref
 
   val of_smt : Smt.ast -> t
@@ -217,7 +220,10 @@ module Make (T : Term.S) = struct
   let ltz term =
     match T.to_const term with
     | Some k -> if QQ.lt k QQ.zero then top else bottom
-    | _ -> hashcons (Atom (LtZ term))
+    | _ ->
+      if T.typ term == TyInt then hashcons (Atom (LeqZ (T.add term T.one)))
+      else hashcons (Atom (LtZ term))
+
   let atom = function
     | LeqZ t -> leqz t
     | EqZ t  -> eqz t
@@ -275,6 +281,16 @@ module Make (T : Term.S) = struct
       | _ -> OOr (BatEnum.get_exn e, hashcons (Or (Hset.of_enum e)))
       end
 
+  let is_linear phi =
+    let alg = function
+      | OAtom (LtZ t)
+      | OAtom (LeqZ t)
+      | OAtom (EqZ t) -> if T.is_linear t then () else raise Nonlinear
+      | _ -> ()
+    in
+    try eval alg phi; true
+    with Nonlinear -> false
+
   let to_smt =
     let alg = function
       | OAtom (LeqZ t) -> Smt.mk_le (T.to_smt t) (Smt.const_int 0)
@@ -283,7 +299,10 @@ module Make (T : Term.S) = struct
       | OAnd (x, y) -> Smt.conj x y
       | OOr (x, y) -> Smt.disj x y
     in
-    eval alg
+    let ts = eval alg in
+    fun phi ->
+      if not (is_linear phi) then raise Nonlinear
+      else ts phi
 
   let log_stats () =
     let (length, count, total, min, median, max) = HC.stats formula_tbl in
@@ -552,16 +571,6 @@ module Make (T : Term.S) = struct
     let tcons = BatArray.enum (Abstract0.to_tcons_array man x.prop) in
     big_conj (BatEnum.map (of_tcons x.env) tcons)
 
-  let is_linear phi =
-    let alg = function
-      | OAtom (LtZ t)
-      | OAtom (LeqZ t)
-      | OAtom (EqZ t) -> if T.is_linear t then () else raise Nonlinear
-      | _ -> ()
-    in
-    try eval alg phi; true
-    with Nonlinear -> false
-
 
   (* [lazy_dnf join bottom top prop_to_smt phi] computes an abstraction of phi
      by lazily computing its disjunctive normal form.
@@ -587,10 +596,8 @@ module Make (T : Term.S) = struct
       | Smt.Unsat -> prop
       | Smt.Undef ->
 	begin
-	  Log.errorf "lazy_dnf failed (%d disjuncts)" (!disjuncts);
-	  if not (is_linear phi)
-	  then Log.errorf "lazy_dnf: formula is nonlinear!";
-	  assert false
+	  Log.errorf "lazy_dnf timed out (%d disjuncts)" (!disjuncts);
+	  raise Timeout
 	end
       | Smt.Sat -> begin
 	let m = s#get_model () in
@@ -783,11 +790,136 @@ module Make (T : Term.S) = struct
 	 (to_smt phi));
     of_apply_result (Z3.tactic_apply ctx qe g)
 
+  (* Collapse nested conjunctions & disjunctions *)
+  let flatten phi =
+    let rec flatten_and phi =
+      match phi.node with
+      | And xs ->
+	let f x xs = Hset.union (flatten_and x) xs in
+	Hset.fold f xs Hset.empty
+      | Or _ -> Hset.singleton (hashcons (Or (flatten_or phi)))
+      | Atom at -> Hset.singleton phi
+    and flatten_or phi =
+      match phi.node with
+      | Or xs ->
+	let f x xs = Hset.union (flatten_or x) xs in
+	Hset.fold f xs Hset.empty
+      | And xs -> Hset.singleton (hashcons (And (flatten_and phi)))
+      | Atom at -> Hset.singleton phi
+    in
+    match phi.node with
+    | And _ -> hashcons (And (flatten_and phi))
+    | Or _ -> hashcons (Or (flatten_or phi))
+    | Atom at -> phi
+
+  let rec split_eqs phi (eqs, noneqs) =
+    match phi.node with
+    | And xs -> Hset.fold split_eqs xs (eqs, noneqs)
+    | Or _ -> (eqs, phi::noneqs)
+    | Atom (EqZ t) -> (t::eqs, noneqs)
+    | Atom _ -> (eqs, phi::noneqs)
+
+  let orient_equation vars t =
+    match T.to_linterm t with
+    | None -> None
+    | Some lt ->
+      try
+	let (v, coeff) =
+	  BatEnum.find (flip VarSet.mem vars % fst) (T.Linterm.var_bindings lt)
+	in
+	let rhs =
+	  T.div
+	    (T.of_linterm (T.Linterm.add_term (AVar v) (QQ.negate coeff) lt))
+	    (T.const (QQ.negate coeff))
+	in
+	Some (v, rhs)
+      with Not_found -> None
+
+  exception Is_top
+  let qe_partial p phi =
+    let fv_alg = function
+      | OOr (x,y) | OAnd (x,y) -> VarSet.union x y
+      | OAtom (LeqZ t) | OAtom (EqZ t) | OAtom (LtZ t) ->
+	VarSet.filter (not % p) (term_free_vars t)
+    in
+    let formula_free_vars = Log.time "Free vars" (eval fv_alg) in
+    let fv = formula_free_vars phi in    
+    let vars = VarSet.of_enum (BatEnum.filter (not % p) (VarSet.enum fv)) in
+    let formula_list_vars xs =
+      let f set x = VarSet.union set (formula_free_vars x) in
+      List.fold_left f VarSet.empty xs
+    in
+    let mk_subst rewrite = fun x ->
+      try T.V.Map.find x rewrite with Not_found -> T.var x
+    in
+    let rec qe vars phi =
+      let fv = formula_free_vars phi in
+      if VarSet.is_empty (VarSet.inter vars fv) then phi else begin
+	match phi.node with
+	| And xs ->
+	  let (eqs, noneqs) = Hset.fold split_eqs xs ([], []) in
+	  let f (vars, rewrite, noneqs) term =
+	    let term = T.subst (mk_subst rewrite) term in
+	    match orient_equation vars term with
+	    | Some (v, rhs) ->
+	      Log.logf Log.info "Found rewrite: %a --> %a"
+		T.V.format v
+		T.format rhs;
+	      let sub x =
+		if T.V.equal x v then rhs else T.var x
+	      in
+	      let rewrite =
+		T.V.Map.map (T.subst sub) rewrite
+	      in
+	      (VarSet.remove v vars, T.V.Map.add v rhs rewrite, noneqs)
+	    | None -> (vars, rewrite, (eqz term)::noneqs)
+	  in
+	  let (_, rewrite, noneqs) =
+	    List.fold_left f (vars, T.V.Map.empty, noneqs) eqs
+	  in
+	  let rr = Log.time "rewrite" (subst (mk_subst rewrite)) in	  
+	  let rec go rv ys xs = match xs with
+	    | [] -> ys
+	    | (x::xs) ->
+	      let x_vars = VarSet.inter (formula_free_vars x) vars in
+	      let rest_vars = VarSet.union rv (formula_list_vars xs) in
+	      let ex_vars = VarSet.diff x_vars rest_vars in
+	      let ys =
+		try (rr (qe ex_vars x))::ys
+		with Is_top -> ys
+	      in
+	      go (VarSet.union x_vars rv) ys xs
+	  in
+	  let xs = 
+	    if T.V.Map.is_empty rewrite then noneqs
+	    else go VarSet.empty [] noneqs
+	  in
+	  if xs = [] then raise Is_top
+	  else hashcons (And (Hset.of_enum (BatList.enum xs)))
+	| Or xs ->
+	  let f psi set = Hset.add (qe vars psi) set in
+	  hashcons (Or (Hset.fold f xs Hset.empty))
+	| Atom at -> begin
+	  let trivial_atom t =
+	    VarSet.exists (flip VarSet.mem vars) (term_free_vars t)
+	  in
+	  match at with
+	  | LeqZ t -> if trivial_atom t then top else phi
+	  | EqZ t -> if trivial_atom t then top else phi
+	  | LtZ t -> if trivial_atom t then top else phi
+	end
+      end
+    in
+    try Log.time "qe_partial" (qe vars) phi
+    with Is_top -> top
+  let qe_partial _ phi = flatten phi
+
   let opt_qe_strategy = ref qe_lme
   let exists p phi =
     if equal phi top then top
     else if equal phi bottom then bottom
     else Log.time "Quantifier Elimination" ((!opt_qe_strategy) p) phi
+
   let exists_list vars phi =
     let vars = List.fold_left (flip VarSet.add) VarSet.empty vars in
     exists (not % (flip VarSet.mem vars)) phi
@@ -1315,6 +1447,12 @@ module Make (T : Term.S) = struct
       let nl_bounds = big_conj (TMap.enum nonlinear /@ mk_nl_bounds) in
       conj lin_phi nl_bounds
     end
+  let linearize_trivial mk_tmp phi = fst (split_linear mk_tmp phi)
+  let linearize_opt mk_tmp phi =
+    try linearize_opt mk_tmp phi
+    with Timeout ->
+      Log.errorf "Timeout in linearize_opt; retrying with linearize_trivial";
+      linearize_trivial mk_tmp phi
 
   let opt_linearize_strategy = ref linearize_opt
 
@@ -1383,6 +1521,7 @@ module Make (T : Term.S) = struct
 	with Unbounded -> top end
     in
     map replace phi
+  let qe_cover p phi = Log.time "qe_cover" (qe_cover p) phi
 
   let atom_smt = function
     | LeqZ t -> Smt.mk_le (T.to_smt t) (Smt.const_int 0)

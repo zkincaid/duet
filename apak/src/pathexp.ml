@@ -314,7 +314,7 @@ end = struct
     let elim_succ v g =
       if WG.V.equal v dummy_start then g else elim_succ v g
     in
-    let wg = WGTop.fold elim_succ wg wg in
+    let wg = WGLoop.fold_inside_out elim_succ wg wg in
     let path_from t =
       if WG.mem_edge wg dummy_start (Real t)
       then WG.E.label (WG.find_edge wg dummy_start (Real t))
@@ -327,7 +327,7 @@ end = struct
       | Real rv -> if p rv then elim_succ v g else elim v g
       | Dummy _ -> g
     in
-    let wg = WGTop.fold elim_succ wg wg in
+    let wg = WGLoop.fold_inside_out elim_succ wg wg in
     let from_init t =
       if WG.mem_edge wg dummy_start (Real t)
       then WG.E.label (WG.find_edge wg dummy_start (Real t))
@@ -470,7 +470,8 @@ struct
 
     (* Compute summaries for each block *)
     let update join block =
-      Log.logf Log.info "Computing summary for block %a" Block.format block;
+      Log.logf Log.phases "\x1b[36;1mComputing summary for block `%a`\x1b[0m"
+	Block.format block;
       let body = R.block_body query.recgraph block in
       let src = R.block_entry query.recgraph block in
       let tgt = R.block_exit query.recgraph block in
@@ -492,11 +493,11 @@ struct
       (Fix.fix cg (update K.add))
       (Some (update K.widen));
     let f k s =
-      Log.logf 1 "  Summary for %a:@\n    @[%a@]"
+      Log.logf Log.info "  Summary for %a:@\n    @[%a@]"
 	Block.format k
 	K.format s
     in
-    Log.log 1 "Summaries:";
+    Log.log Log.info "Summaries:";
     HT.iter f query.summaries
 
   let get_summaries query =

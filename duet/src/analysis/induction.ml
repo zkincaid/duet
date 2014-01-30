@@ -196,6 +196,9 @@ module K = struct
 end
 module A = Interproc.MakePathExpr(K)
 
+(* Linearization as a simplifier *)
+let linearize _ = K.F.linearize (fun () -> K.V.mk_tmp "nonlin" TyInt)
+
 let _ =
   let open K in
   opt_higher_recurrence := true;
@@ -206,6 +209,7 @@ let _ =
   opt_unroll_loop := false;
   opt_polyrec := true;
   F.opt_qe_strategy := F.qe_lme;
+  F.opt_linearize_strategy := F.linearize_opt;
   F.opt_simplify_strategy := []
 
 let prime_bexpr = Bexpr.subst_var V.prime
@@ -365,18 +369,25 @@ let analyze file =
 	    with Not_found -> K.T.var (K.V.mk_var v)
 	in
 	let phi = K.F.subst sigma phi in
-
-	s#assrt (K.F.to_smt
-		   (K.F.linearize
-		      (fun () -> K.V.mk_tmp "nonlin" TyInt)
-		      (K.F.conj
-			 (K.to_formula path)
-			 (K.F.negate phi))));
+	let mk_tmp () = K.V.mk_tmp "nonlin" TyInt in
+	let path_condition =
+	  K.F.linearize mk_tmp (K.F.conj
+				  (K.to_formula path)
+				  (K.F.negate phi))
+	in
+	s#assrt (K.F.to_smt path_condition);
 
 	begin match Log.time "Assertion checking" s#check () with
 	| Smt.Unsat -> Report.log_safe ()
 	| Smt.Sat | Smt.Undef ->
-	  Log.logf Log.info "Failing path `%a`" K.format path;
+	  let m = s#get_model () in
+	  let failing_path = 
+	    K.F.select_disjunct (m#eval_qq % K.F.T.V.to_smt) path_condition
+	  in
+	  begin match failing_path with
+	  | Some path ->
+	    Log.logf Log.info "Failing path:@\n%a" K.F.format path
+	  | None -> () end;
 	  Report.log_error (Def.get_location def) msg
 	end;
 	s#pop ()
