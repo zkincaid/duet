@@ -3,7 +3,7 @@ open Z3
 open ArkPervasives
 
 let context = ref None
-let opts = ref [ ("SOFT_TIMEOUT", "10000");
+let opts = ref [ ("SOFT_TIMEOUT", "5000");
 	         ("MODEL_COMPLETION", "true") ]
 
 type lbool = Sat | Unsat | Undef

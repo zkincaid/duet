@@ -52,6 +52,11 @@ module type S = sig
       morphism from the initial algebra to [alg]. *)
   val eval : ('a,V.t) term_algebra -> t -> 'a
 
+  (** Determine the type of a term.  This is a conservative estimate: some
+      terms, for example (n+n+1)/2, only take integral values but are
+      conservatively typed as real. *)
+  val typ : t -> typ
+
   (** Determine a term equivalent to a constant (and if so, which). *)
   val to_const : t -> QQ.t option
 

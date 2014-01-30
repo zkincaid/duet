@@ -4,6 +4,7 @@ open Apak
 open ArkPervasives
 
 exception Nonlinear
+exception Timeout
 
 module type S = sig
   type t
@@ -106,6 +107,8 @@ module type S = sig
       with the appropriate bound.  *)
   val qe_cover : (T.V.t -> bool) -> t -> t
 
+  val qe_partial : (T.V.t -> bool) -> t -> t
+
   (** {2 Simplification} *)
 
   (** [simplify p phi] simplifies the formula [phi], treating the variables
@@ -151,6 +154,9 @@ module type S = sig
   (** Linearize using symbolic optimization and a combination of constant &
       symbolic intervals for nonlinear terms.  *)
   val linearize_opt : (unit -> T.V.t) -> t -> t
+
+  (** Linearize by dropping nonlinear terms.  *)
+  val linearize_trivial : (unit -> T.V.t) -> t -> t
 
   (** Default linearization strategy.  If not set, defaults to
       [linearize_opt]. *)

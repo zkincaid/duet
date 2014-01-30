@@ -287,7 +287,7 @@ module Dioid (Var : Var) = struct
 
   let simplify tr =
     let f _ term free = VSet.diff free (term_free_tmp_vars term) in
-    let guard = F.linearize (fun () -> V.mk_tmp "nonlin" TyInt) tr.guard in
+    let guard = tr.guard in
     let free_tmp = M.fold f tr.transform (formula_free_tmp_vars guard) in
     { tr with guard = F.simplify (not % flip VSet.mem free_tmp) guard }
   let simplify tr = Log.time "Transition simplification" simplify tr
@@ -313,7 +313,19 @@ module Dioid (Var : Var) = struct
     let transform = M.mapi (fun v _ -> fresh v) tr.transform in
     let f (v, t) = F.eq (M.find v tr.transform) t in
     let eqs = F.big_conj (BatEnum.map f (M.enum transform)) in
-    simplify { guard = F.conj tr.guard eqs; transform = transform }
+    let guard =
+      F.linearize
+	(fun () -> V.mk_tmp "nonlin" TyReal)
+	(F.conj tr.guard eqs)
+    in
+    simplify { guard = guard; transform = transform }
+  let normalize tr =
+    try
+      normalize tr
+    with Formula.Timeout ->
+      (Log.errorf "Timeout in transition normalization.";
+       raise Formula.Timeout)
+
 
   let widen_man = ref (Polka.manager_alloc_loose ())
   let widen x y =
@@ -344,6 +356,11 @@ module Dioid (Var : Var) = struct
     in
     { guard = F.subst sigma widen;
       transform = transform }
+  let widen x y =
+    try widen x y
+    with Formula.Timeout ->
+      (Log.errorf "Timeout in widening.";
+       raise Formula.Timeout)
 
   let post_formula tr =
     let phi =

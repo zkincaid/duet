@@ -41,6 +41,7 @@ module type S = sig
   val exp : t -> int -> t
 
   val eval : ('a,V.t) term_algebra -> t -> 'a
+  val typ : t -> typ
   val to_const : t -> QQ.t option
   val to_var : t -> V.t option
   val to_smt : t -> Smt.ast
@@ -244,6 +245,17 @@ module Make (V : Var) = struct
       | Add (x, y) -> alg (OAdd (eval x, eval y))
       | Mul (x, y) -> alg (OMul (eval x, eval y))
       | Div (x, y) -> alg (ODiv (eval x, eval y)))
+
+  let typ t =
+    let f = function
+      | OFloor _ -> TyInt
+      | OConst k ->
+	if ZZ.equal (QQ.denominator k) ZZ.one then TyInt else TyReal
+      | OVar v -> V.typ v
+      | OAdd (x, y) | OMul (x, y) -> join_typ x y
+      | ODiv (_, _) -> TyReal
+    in
+    eval f t
 
   let log_stats () =
     let (length, count, total, min, median, max) = HC.stats term_tbl in
