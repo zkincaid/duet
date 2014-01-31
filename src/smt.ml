@@ -74,7 +74,6 @@ let mk_int2real = mk_int2real (get_context())
 let mk_real2int = mk_real2int (get_context())
 let mk_is_int = mk_is_int (get_context())
 
-
 (* Derived operations not defined in the Z3 API *)
 let big_conj xs = Z3.mk_and (get_context()) (BatArray.of_enum xs)
 let big_disj xs = Z3.mk_or (get_context ()) (BatArray.of_enum xs)
