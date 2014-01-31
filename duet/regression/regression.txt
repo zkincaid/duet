@@ -68,3 +68,5 @@ lra rec2.c -lra
 lra rec1-param.c -lra
 lra rec2-param.c -lra
 lra mult-rec.c -lra
+lra mem.c -check-array-bounds -lra
+lra mem2.c -check-array-bounds -lra

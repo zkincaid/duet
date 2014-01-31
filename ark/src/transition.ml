@@ -319,6 +319,7 @@ module Dioid (Var : Var) = struct
 	(F.conj tr.guard eqs)
     in
     simplify { guard = guard; transform = transform }
+
   let normalize tr =
     try
       normalize tr
@@ -356,8 +357,11 @@ module Dioid (Var : Var) = struct
     in
     { guard = F.subst sigma widen;
       transform = transform }
+
   let widen x y =
-    try widen x y
+    try
+      if VarSet.equal (modifies x) (modifies y) then widen x y
+      else y
     with Formula.Timeout ->
       (Log.errorf "Timeout in widening.";
        raise Formula.Timeout)

@@ -558,10 +558,11 @@ struct
     let weight v = match R.classify v with
       | Atom atom   -> query.weight atom
       | Block block -> try HT.find query.summaries block
-	               with Not_found -> K.zero
+                       with Not_found -> K.zero
     in
     let f (block, body) =
-      Log.logf Log.info "Intraprocedural paths in `%a`" Block.format block;
+      Log.logf Log.info "Intraprocedural paths in `%a`"
+	Block.format block;
       let block_path = to_block block in
       let block_entry = R.block_entry query.recgraph block in
       let from_block =

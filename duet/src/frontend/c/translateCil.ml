@@ -403,13 +403,15 @@ let tr_instr ctx instr =
     end
     | ("__assert_fail", None, [_;_;_;_]) ->
       mk_def (Assert (Bexpr.kfalse, "fail"))
-    | ("malloc", Some (Variable v), [x]) ->
+    | ("malloc", Some (Variable v), [x])
+    | ("xmalloc", Some (Variable v), [x]) ->
       mk_def (Builtin (Alloc (v, x, AllocHeap)))
     | ("calloc", Some (Variable v), [mem;size]) ->
       mk_def (Builtin (Alloc (v,
 			      BinaryOp (mem, Mult, size, Concrete (Int IInt)),
 			      AllocHeap)))
-    | ("realloc", Some (Variable v), [_;x]) ->
+    | ("realloc", Some (Variable v), [_;x])
+    | ("xrealloc", Some (Variable v), [_;x]) ->
       mk_def (Builtin (Alloc (v, x, AllocHeap)))
     (* glibc #defines alloca to be __builtin_alloca *)
     | ("__builtin_alloca", Some (Variable v), [x]) ->

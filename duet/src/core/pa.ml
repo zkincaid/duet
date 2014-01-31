@@ -385,6 +385,7 @@ let simplify_calls file =
       in
       def.dkind <- Assume (Bexpr.ktrue);
       insert_succ skip def cfg;
+      Cfg.remove_edge cfg def skip;
       assert (Varinfo.Set.cardinal targets >= 1); (* todo *)
       Varinfo.Set.iter add_call targets
     in

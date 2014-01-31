@@ -656,7 +656,11 @@ module Make (T : Term.S) = struct
       D.join prop new_prop
     in
     let (top, bottom) = (D.top man env_proj, D.bottom man env_proj) in
-    lazy_dnf ~join:join ~bottom:bottom ~top:top (to_smt % of_abstract) phi
+    try lazy_dnf ~join:join ~bottom:bottom ~top:top (to_smt % of_abstract) phi
+    with Timeout -> begin
+      Log.errorf "Symbolic abstraction timed out; returning top";
+      top
+    end
 
   let abstract_assign man x v t =
     let open Apron in
@@ -753,6 +757,20 @@ module Make (T : Term.S) = struct
   (* Quantifier elimination                                                   *)
   (****************************************************************************)
 
+  let qe_trivial p phi =
+    let f = function
+      | EqZ t ->
+	if VarSet.exists (not % p) (term_free_vars t) then top
+	else eqz t
+      | LeqZ t ->
+	if VarSet.exists (not % p) (term_free_vars t) then top
+	else leqz t
+      | LtZ t ->
+	if VarSet.exists (not % p) (term_free_vars t) then top
+	else ltz t
+    in
+    map f phi
+
   let qe_lme p phi =
     let man = Polka.manager_alloc_strict () in
     let env = mk_env phi in
@@ -771,7 +789,10 @@ module Make (T : Term.S) = struct
 	(nb_atoms projection);
       disj psi projection
     in
-    lazy_dnf ~join:join ~bottom:bottom ~top:top to_smt phi
+    try lazy_dnf ~join:join ~bottom:bottom ~top:top to_smt phi
+    with Timeout ->
+      Log.errorf "Quantifier elimination timed out.  Trying qe_trivial.";
+      qe_trivial p phi
 
   let qe_z3 p phi =
     let fv = formula_free_vars phi in
