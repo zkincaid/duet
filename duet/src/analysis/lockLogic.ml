@@ -59,7 +59,7 @@ module LockPred = struct
                              AP.Set.hash l.acq, 
                              AP.Set.hash l.rel)
   (* x implies y if x acquires a subset of y and releases a superset of y *)
-  let implies sub x y =
+  let implies sub y x =
     let sub_iap iap =
       match AP.psubst_var (fun x -> Some (sub x)) iap with
         | Some z -> z
@@ -97,16 +97,8 @@ module MakePath (P : Predicate with type var = Var.t) = struct
     let hack = Atom (Eq, Constant (CChar 'h'), Constant (CChar 'h')) in
     let pw = P.pred_weight def in
     let weight_builtin bi = match bi with
-      | Acquire e -> begin match e with
-          | AccessPath ap 
-          | AddrOf ap      -> assume hack (AP.free_vars ap) pw
-          | _              -> failwith ("Lock logic: Acquired non-access path: " ^ (Def.show def))
-        end
-      | Release e -> begin match e with
-          | AccessPath ap 
-          | AddrOf ap      -> assume hack (AP.free_vars ap) pw
-          | _              -> failwith ("Lock logic: Released non-access path: " ^ (Def.show def))
-        end
+      | Acquire e 
+      | Release e -> assume hack (Expr.free_vars e) pw
       | Alloc (v, e, targ) -> assign (Variable v) (Havoc (Var.get_type v)) pw
       | Free _             
       | Fork (_, _, _)
@@ -138,6 +130,17 @@ let zero_locks lp =
   in
     LockPath.fold_minterms add_minterm lp LockPath.zero
 
+(* zero all acquired locksets in a transition formula *)
+let zero_acq_locks lp =
+  let lp_frame = LockPath.get_frame lp in
+  let make_minterm mt = 
+    let l = LockPath.Minterm.get_pred mt in
+      LockPath.Minterm.make (LockPath.Minterm.get_eqs mt) { l with LockPred.acq = AP.Set.empty }
+  in
+  let add_minterm mt  = 
+    LockPath.add (LockPath.of_minterm lp_frame (make_minterm mt))
+  in
+    LockPath.fold_minterms add_minterm lp LockPath.zero
 
 module Mapped (Key : Putil.CoreType) (Value : Putil.Ordered) = struct
   module M = Key.Map
@@ -178,6 +181,9 @@ module PD = struct
   let mul_r pd lp =
     let zero_lp = zero_locks lp in
       M.map (fun lp -> LockPath.mul lp zero_lp) pd
+  let mul_r_lp pd lp =
+    let zero_acq_lp = zero_acq_locks lp in
+      M.map (fun lp -> LockPath.mul lp zero_acq_lp) pd
   let mul_l lp pd = M.map (fun lp' -> LockPath.mul lp lp') pd
   let exists f pd = M.map (fun lp -> LockPath.exists f lp) pd
 end
@@ -217,9 +223,11 @@ module Domain = struct
   let mul a b =
     let aseq = PD.mul_r a.seq b.lp in
     let bseq = PD.mul_l a.lp b.seq in
+    let acon = (PD.mul_r_lp (fst a.con) b.lp, PD.mul_r_lp (snd a.con) b.lp) in
+    let bcon = (PD.mul_l a.lp (fst b.con), PD.mul_l a.lp (snd b.con)) in
       { lp = LockPath.mul a.lp b.lp;
         seq = PD.join aseq bseq;
-        con = mp PD.join a.con b.con;
+        con = mp PD.join acon bcon;
         frk = FM.join (FM.absorb (FM.mul_r a.frk b.lp) bseq) (FM.mul_l a.lp b.frk) }
   let add a b = { lp = LockPath.add a.lp b.lp;
                   seq = PD.join a.seq b.seq;
@@ -265,14 +273,16 @@ module Datarace = struct
       try Def.HT.find_all fmap def
       with Not_found -> []
     in
-    let lsum = 
-      let f a (b, v) =
+    let (lp, ls) = 
+      let f (lp', ls') (b, v) =
         try let summary = LSA.HT.find sums b in
             let lval = FM.M.find v summary.frk in
-              PD.join a lval
-        with Not_found -> a
+              (LockPath.add lp' summary.lp, PD.join (PD.join ls' (snd summary.con)) lval)
+        with Not_found -> (lp', ls')
       in
-        (List.fold_left f PD.bot fpoints, PD.bot)
+      let (lpsum, lssum) = List.fold_left f (LockPath.zero, PD.bot) fpoints in
+      let lpsum = if lpsum == LockPath.zero then LockPath.one else lpsum in
+        (lpsum, (lssum, PD.bot))
     in
       match def.dkind with
         | Call (vo, e, elst) ->
@@ -295,9 +305,9 @@ module Datarace = struct
                 seq = PD.M.add v l PD.M.empty;
                 con = (PD.bot, PD.bot);
                 frk = FM.bot }
-        | _ -> { lp = wt def;
+        | _ -> { lp = LockPath.mul lp (wt def);
                  seq = PD.bot;
-                 con = lsum;
+                 con = ls;
                  frk = FM.bot }
 
   let may_race path v = 
@@ -313,12 +323,12 @@ module Datarace = struct
                                  (LockPred.neg (LockPath.Minterm.get_pred con_path)))
         in
         let l = LockPath.Minterm.get_pred (LockPath.Minterm.mul seq_path con_path') in
-          acc || AP.Set.is_empty l.LockPred.acq
+          acc && not (AP.Set.is_empty l.LockPred.acq)
       in
       let fold_seq seq_path acc = 
-        acc || LockPath.fold_minterms (fold_con seq_path) defs false
+        acc && LockPath.fold_minterms (fold_con seq_path) defs true
       in
-        LockPath.fold_minterms fold_seq path.lp false
+        LockPath.fold_minterms fold_seq path.lp true
     with Not_found -> false
 
   let find_all_races query vlst =
@@ -330,7 +340,7 @@ module Datarace = struct
     let f (block, def, path) =
       let races = Var.Set.filter (fun v -> may_race path v) vlst
       in
-        print_endline (Def.show def ^ " ---- " ^  Domain.show path);
+    (*    print_endline (Def.show def ^ " ---- " ^  Domain.show path);*)
         Def.HT.add ht def races
     in
       BatEnum.iter f (LSA.enum_single_src_tmp classify query);
@@ -356,7 +366,23 @@ module Datarace = struct
   let init file =
     match file.entry_points with
     | [main] -> begin
-      let rg = Interproc.make_recgraph file in
+      let rg = 
+        print_endline ("Starting ");
+        let rginit = Interproc.make_recgraph file in
+        let f acc (_, v) = match Interproc.RG.classify v with
+          | RecGraph.Atom _ -> acc
+          | RecGraph.Block b -> 
+              begin 
+                try Interproc.RG.block_body acc b; acc
+                with Not_found -> 
+                  let vert = Def.mk Initial in
+                  let bloc = Interproc.RG.G.empty in
+                    print_endline ("Adding block " ^ (Interproc.RG.Block.show b));
+                    Interproc.RG.add_block acc b (Interproc.RG.G.add_vertex bloc vert) vert vert
+              end
+        in
+          BatEnum.fold f rginit (Interproc.RG.vertices rginit)
+      in
       let fmap = 
         let ht = Def.HT.create 32 in
         let f (b, v) = match v.dkind with
@@ -370,12 +396,14 @@ module Datarace = struct
           end
       in
       let local func_name =
-        let func = lookup_function func_name (get_gfile()) in
-        let vars = Varinfo.Set.remove (return_var func_name)
-                     (Varinfo.Set.of_enum (BatEnum.append (BatList.enum func.formals)
-                                                          (BatList.enum func.locals)))
-        in
-          fun (x, _) -> (Varinfo.Set.mem x vars)
+        try
+          let func = List.find (fun f -> Varinfo.equal func_name f.fname) (get_gfile()).funcs in
+          let vars = Varinfo.Set.remove (return_var func_name)
+                       (Varinfo.Set.of_enum (BatEnum.append (BatList.enum func.formals)
+                                               (BatList.enum func.locals)))
+          in
+            fun (x, _) -> (Varinfo.Set.mem x vars)
+        with Not_found -> (fun (_, _) -> false)
       in
       (* Adds edges to the callgraph for each fork. Shouldn't really have to do
        * this every time a new query is made *)
@@ -428,7 +456,8 @@ module Datarace = struct
           file.funcs;
           ht
       in
-        BatEnum.iter (fun (_, g) -> Interproc.RGD.display g) (Interproc.RG.bodies rg);
+      (*  BatEnum.iter (fun (_, g) -> Interproc.RGD.display g)
+         (Interproc.RG.bodies rg);*)
         fp_races init_races
       end
     | _      -> assert false
