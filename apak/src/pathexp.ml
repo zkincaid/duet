@@ -305,7 +305,7 @@ end = struct
       if WG.V.equal v dummy_start || WG.V.equal v dummy_end then wg
       else elim v wg
     in
-    let wg = WGTop.fold elim wg wg in
+    let wg = WGLoop.fold_inside_out elim wg wg in
     if WG.mem_edge wg dummy_start dummy_end
     then WG.E.label (WG.find_edge wg dummy_start dummy_end)
     else K.zero
@@ -314,7 +314,7 @@ end = struct
     let elim_succ v g =
       if WG.V.equal v dummy_start then g else elim_succ v g
     in
-    let wg = WGTop.fold elim_succ wg wg in
+    let wg = WGLoop.fold_inside_out elim_succ wg wg in
     let path_from t =
       if WG.mem_edge wg dummy_start (Real t)
       then WG.E.label (WG.find_edge wg dummy_start (Real t))
@@ -327,7 +327,7 @@ end = struct
       | Real rv -> if p rv then elim_succ v g else elim v g
       | Dummy _ -> g
     in
-    let wg = WGTop.fold elim_succ wg wg in
+    let wg = WGLoop.fold_inside_out elim_succ wg wg in
     let from_init t =
       if WG.mem_edge wg dummy_start (Real t)
       then WG.E.label (WG.find_edge wg dummy_start (Real t))
@@ -396,7 +396,10 @@ open RecGraph
 module MakeRG
   (R : RecGraph.S)
   (Block : BLOCK with type t = R.block)
-  (K : Sig.KA.Quantified.Ordered.S) =
+  (K : sig 
+    include Sig.KA.Quantified.Ordered.S
+    val widen : t -> t -> t
+  end) =
 struct
   module CG = RecGraph.Callgraph(R)
   module HT = BatHashtbl.Make(Block)
@@ -446,6 +449,9 @@ struct
     | Some cg -> cg
     | None -> begin
       let cg = CG.callgraph query.recgraph query.root in
+      Log.logf Log.info "Call graph vertices: %d, edges: %d"
+	(CG.nb_vertex cg)
+	(CG.nb_edges cg);
       query.callgraph <- Some cg;
       cg
     end
@@ -463,8 +469,9 @@ struct
     in
 
     (* Compute summaries for each block *)
-    let update block =
-      Log.logf Log.fix "(Re)computing summary for block %a" Block.format block;
+    let update join block =
+      Log.logf Log.phases "\x1b[36;1mComputing summary for block `%a`\x1b[0m"
+	Block.format block;
       let body = R.block_body query.recgraph block in
       let src = R.block_entry query.recgraph block in
       let tgt = R.block_exit query.recgraph block in
@@ -474,19 +481,23 @@ struct
 	K.exists (fun x -> not (local x)) s
       in
       try
-	if K.equal (HT.find query.summaries block) summary then false
-	else (HT.replace query.summaries block summary; true)
+	let old_summary = HT.find query.summaries block in
+	let new_summary = join old_summary summary in
+	if K.equal old_summary new_summary then false
+	else (HT.replace query.summaries block new_summary; true)
       with Not_found ->
 	if K.equal K.zero summary then false
 	else (HT.add query.summaries block summary; true)
     in
-    Log.phase "Block summarization" (Fix.fix cg update) None;
+    Log.phase "Block summarization"
+      (Fix.fix cg (update K.add))
+      (Some (update K.widen));
     let f k s =
-      Log.logf Log.fix "  Summary for %a:@\n    @[%a@]"
+      Log.logf Log.info "  Summary for %a:@\n    @[%a@]"
 	Block.format k
 	K.format s
     in
-    Log.log Log.fix "Summaries:";
+    Log.log Log.info "Summaries:";
     HT.iter f query.summaries
 
   let get_summaries query =
@@ -507,7 +518,10 @@ struct
     in
 
     let p2c_summaries = HT.create 32 in
-    let block_succ_weights block src graph =
+    let block_succ_weights (block, graph) =
+      Log.logf Log.info "Compute paths to call vertices in `%a`"
+	Block.format block;
+      let src = R.block_entry query.recgraph block in
       let path = Summarize.single_src_v graph weight src in
       let ht = HT.create 32 in
       let f u = match classify u with
@@ -525,30 +539,32 @@ struct
       R.G.iter_vertex f graph;
       HT.add p2c_summaries block ht
     in
-    R.bodies query.recgraph
-    |> BatEnum.iter (fun (block,graph) ->
-      block_succ_weights block (R.block_entry query.recgraph block) graph);
+    Log.phase "Compute call graph weights"
+      (BatEnum.iter block_succ_weights) (R.bodies query.recgraph);
 
     let cg_weight e =
       try HT.find (HT.find p2c_summaries (CG.E.src e)) (CG.E.dst e)
       with Not_found -> assert false
     in
-    InterPE.single_src cg cg_weight query.root
+    Log.phase "Compute path to block"
+      (InterPE.single_src cg cg_weight) query.root
 
   let single_src_blocks query = single_src_blocks_tmp R.classify query
 
   let single_src_blocks query =
     ignore (get_summaries query);
-    Log.phase "Compute path to block" single_src_blocks query
+    single_src_blocks query
 
   let single_src_restrict query p go =
     let to_block = single_src_blocks query in
     let weight v = match R.classify v with
       | Atom atom   -> query.weight atom
       | Block block -> try HT.find query.summaries block
-	               with Not_found -> K.zero
+                       with Not_found -> K.zero
     in
     let f (block, body) =
+      Log.logf Log.info "Intraprocedural paths in `%a`"
+	Block.format block;
       let block_path = to_block block in
       let block_entry = R.block_entry query.recgraph block in
       let from_block =

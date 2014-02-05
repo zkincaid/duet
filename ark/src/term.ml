@@ -6,23 +6,22 @@ open BatPervasives
 
 module type Var = sig
   include Linear.Var
+  module Map : Putil.Map.S with type key = t
   val of_smt : Smt.symbol -> t
   val typ : t -> typ
   val hash : t -> int
   val equal : t -> t -> bool
 end
 
-module type TermBasis = sig
+module type S = sig
   type t
   include Putil.Hashed.S with type t := t
   include Putil.OrderedMix with type t := t
-
   module V : Var
-
-  val eval : ('a,V.t) term_algebra -> t -> 'a
-  val get_const : t -> QQ.t option
-  val to_smt : t -> Smt.ast
-  val subst : (V.t -> t) -> t -> t
+  module D : NumDomain.S with type var = V.t
+  module Linterm : Linear.Affine.S with type var = V.t
+				   and type base = QQ.t
+  module Set : Putil.Set.S with type elt = t
 
   val var : V.t -> t
   val const : QQ.t -> t
@@ -31,27 +30,35 @@ module type TermBasis = sig
   val add : t -> t -> t
   val sub : t -> t -> t
   val div : t -> t -> t
-  val idiv : t -> t -> t
   val neg : t -> t
+  val floor : t -> t
   val zero : t
   val one : t
-  val floor : t -> t
+
+  val inverse : t -> t
+  val idiv : t -> t -> t
+  val qq_linterm : (t * QQ.t) BatEnum.t -> t
+  val exp : t -> int -> t
+
+  val eval : ('a,V.t) term_algebra -> t -> 'a
+  val typ : t -> typ
+  val to_const : t -> QQ.t option
+  val to_var : t -> V.t option
+  val to_smt : t -> Smt.ast
+  val subst : (V.t -> t) -> t -> t
+  val evaluate : (V.t -> QQ.t) -> t -> QQ.t
 
   val is_linear : t -> bool
   val split_linear : t -> t * ((t * QQ.t) list)
 
-  val log_stats : unit -> unit
-end
-
-module type Term = sig
-  include TermBasis
-  module D : NumDomain.S with type var = V.t
-  val evaluate : (V.t -> QQ.t) -> t -> QQ.t
   val of_smt : (int -> V.t) -> Smt.ast -> t
-  val qq_linterm : (t * QQ.t) BatEnum.t -> t
-  val exp : t -> int -> t
   val to_apron : D.env -> t -> NumDomain.term
   val of_apron : D.env -> NumDomain.term -> t
+  val to_linterm : t -> Linterm.t option
+  val of_linterm : Linterm.t -> t
+
+  val log_stats : unit -> unit
+
   module Syntax : sig
     val ( + ) : t -> t -> t
     val ( - ) : t -> t -> t
@@ -62,74 +69,51 @@ module type Term = sig
   end
 end
 
-module MakeHashconsedBasis (V : Var) : TermBasis with module V = V = struct
+module Make (V : Var) = struct
   open Hashcons
-  module rec T : sig
-    type t =
-    | Var of V.t
-    | Const of QQ.t
-    | Sum of Linexpr.t
-    | Mul of (t hash_consed) * (t hash_consed)
-    | Div of (t hash_consed) * (t hash_consed)
-    | Floor of (t hash_consed)
-    include Putil.Hashed.S with type t := t
-  end = struct
-    type t =
-    | Var of V.t
-    | Const of QQ.t
-    | Sum of Linexpr.t
-    | Mul of (t hash_consed) * (t hash_consed)
-    | Div of (t hash_consed) * (t hash_consed)
-    | Floor of (t hash_consed)
+
+  module V = V
+
+  module Linterm = struct
+    include Linear.Affine.LiftMap(V)(V.Map)(QQ)
+    let hash lt =
+      let var_bindings =
+	var_bindings_ordered lt /@ (fun (v,c) -> V.hash v, QQ.hash c)
+      in
+      Hashtbl.hash (QQ.hash (const_coeff lt), BatList.of_enum var_bindings)
+  end
+
+  module T = struct
+    type t = term hash_consed
+    and term =
+    | Lin of Linterm.t
+    | Add of t * t
+    | Mul of t * t
+    | Div of t * t
+    | Floor of t
 
     include Putil.MakeFmt(struct
       type a = t
-      let rec format formatter = function
-	| Var v -> V.format formatter v
-	| Const k -> QQ.format formatter k
-	| Sum xs -> Linexpr.format formatter xs
+      let rec format formatter term = match term.node with
+	| Lin linterm -> Linterm.format formatter linterm
+	| Add (x,y) ->
+	  Format.fprintf formatter "@[(%a)@ +@ (%a)@]" format x format y
 	| Mul (x,y) ->
-	  Format.fprintf formatter "@[(%a)@ *@ (%a)@]"
-	    format x.node
-	    format y.node
+	  Format.fprintf formatter "@[(%a)@ *@ (%a)@]" format x format y
 	| Div (x,y) ->
-	  Format.fprintf formatter "@[(%a)@ /@ (%a)@]"
-	    format x.node
-	    format y.node
+	  Format.fprintf formatter "@[(%a)@ /@ (%a)@]" format x format y
 	| Floor x ->
-	  Format.fprintf formatter "floor(%a)"
-	    format x.node
+	  Format.fprintf formatter "floor(%a)" format x
     end)
-
-    let hash = function
-      | Var v -> Hashtbl.hash (V.hash v, 0)
-      | Const k -> Hashtbl.hash (QQ.hash k, 1)
-      | Sum ts -> Hashtbl.hash (Linexpr.hash ts, 2)
-      | Mul (x,y) -> Hashtbl.hash (x.tag, y.tag, 3)
-      | Div (x,y) -> Hashtbl.hash (x.tag, y.tag, 4)
-      | Floor x -> Hashtbl.hash (x.tag, 5)
-
-    let rec equal x y = match x, y with
-      | (Var v0, Var v1) -> V.equal v0 v1
-      | (Const k0, Const k1) -> QQ.equal k0 k1
-      | (Sum ts0, Sum ts1) -> Linexpr.equal ts0 ts1
-      | (Mul (s0,s1), Mul (t0,t1)) -> s0.tag == t0.tag && s1.tag == t1.tag
-      | (Div (s0,s1), Div (t0,t1)) -> s0.tag == t0.tag && s1.tag == t1.tag
-      | (Floor x, Floor y) -> x.tag == y.tag
-      | (_, _) -> false
+    let equal x y = x.tag = y.tag
+    let hash x = x.hkey
   end
-  and Linexpr : (Linear.Expr.Hashed.S with type dim = T.t Hashcons.hash_consed
-				      and type base = QQ.t) =
-    Linear.Expr.Hashed.HMake(T)(QQ)
-
-  open T
-
-  type t = T.t hash_consed
-  module V = V
-  include Putil.MakeFmt(struct
-    type a = t
-    let format formatter x = T.format formatter x.node
+  include T
+  module Set = Tagged.PTSet(struct
+    include T
+    let tag x = x.tag
   end)
+
   module Compare_t = struct
     type a = t
     let compare x y = Pervasives.compare x.tag y.tag
@@ -138,83 +122,105 @@ module MakeHashconsedBasis (V : Var) : TermBasis with module V = V = struct
   let equal x y = x.tag == y.tag
   let hash x = x.hkey
 
-  module HC = Hashcons.Make(T)
+  module HC = Hashcons.Make(struct
+    type t = term
+    let equal s t = match s, t with
+    | (Lin s, Lin t) -> Linterm.equal s t
+    | (Floor s, Floor t) -> s.tag == t.tag
+    | (Add (w,x)), (Add (y,z)) -> w.tag == y.tag && x.tag == z.tag
+    | (Mul (w,x)), (Mul (y,z)) -> w.tag == y.tag && x.tag == z.tag
+    | (Div (w,x)), (Div (y,z)) -> w.tag == y.tag && x.tag == z.tag
+    | (_, _) -> false
+    let hash t = Hashtbl.hash (match t with
+    | Lin lin    -> (Linterm.hash lin, 0, 0)
+    | Floor s    -> (s.hkey, 0, 1)
+    | Add (x, y) -> (x.hkey, y.hkey, 2)
+    | Mul (x, y) -> (x.hkey, y.hkey, 3)
+    | Div (x, y) -> (x.hkey, y.hkey, 4))
+  end)
   let term_tbl = HC.create 1000003
   let hashcons x = Log.time "term:hashcons" (HC.hashcons term_tbl) x
 
-  let var x = hashcons (Var x)
-  let const k = hashcons (Const k)
+  let of_linterm linterm = hashcons (Lin linterm)
+  let to_linterm x = match x.node with
+    | Lin t -> Some t
+    | _ -> None
+
+  let var x = of_linterm (Linterm.var (AVar x))
+  let const k = of_linterm (Linterm.add_term AConst k Linterm.zero)
   let zero = const QQ.zero
   let one = const QQ.one
+  let neg_one = const (QQ.negate QQ.one)
   let int k = const (QQ.of_zz k)
 
-  let linearize = function
-    | Const k -> Linexpr.add_term one k Linexpr.zero
-    | Mul (s, t) as tt -> begin
-      match s.node, t.node with
-      | (Const k, _) -> Linexpr.add_term t k Linexpr.zero
-      | (_, Const k) -> Linexpr.add_term s k Linexpr.zero
-      | (_, _) -> Linexpr.add_term (hashcons tt) QQ.one Linexpr.zero
-    end
-    | Sum xs -> xs
-    | x -> Linexpr.add_term (hashcons x) QQ.one Linexpr.zero
+  let add x y =
+    if equal x zero then y
+    else if equal y zero then x
+    else match x.node, y.node with
+    | Lin xt, Lin yt -> of_linterm (Linterm.add xt yt)
+    | _, _ -> hashcons (Add (x, y))
 
-  let rec delinearize xs =
-    let enum = Linexpr.enum xs in
-    match BatEnum.get enum with
-    | None -> zero
-    | Some (t,coeff) -> begin match BatEnum.peek enum with
-      | None -> hashcons (Mul (t, (const coeff)))
-      |    _ -> hashcons (Sum xs)
-    end
+  let to_const x = match x.node with
+    | Lin lt ->
+      let e = Linterm.enum lt in
+      begin match BatEnum.get e with
+      | Some (AConst, base) -> if BatEnum.is_empty e then Some base else None
+      | Some (_, _) -> None
+      | None -> Some QQ.zero
+      end
+    | _ -> None
 
-  and add x y =
-    match x.node, y.node with
-    | (Const x, Const y) -> const (QQ.add x y)
-    | (Const k, _) when QQ.equal k QQ.zero -> y
-    | (_, Const k) when QQ.equal k QQ.zero -> x
-    | (Mul (a, b), Mul (c, d)) when a.tag == c.tag ->
-      hashcons (Mul (a, add b d))
-    | (x, y) ->
-      delinearize (Linexpr.add (linearize x) (linearize y))
+  let to_var x = match x.node with
+    | Lin lt ->
+      let e = Linterm.enum lt in
+      begin match BatEnum.get e with
+      | Some (AVar v, base) when QQ.equal base QQ.one -> Some v
+      | _ -> None
+      end
+    | _ -> None
 
-  and mul x y =
-    match x.node, y.node with
-    | (Div (num, den), _) -> hashcons (Div (mul num y, den))
-    | (Const k, _) when QQ.equal k QQ.one -> y
-    | (_, Const k) when QQ.equal k QQ.one -> x
-    | (Const k, _) | (_, Const k) when QQ.equal k QQ.zero ->
-      hashcons (Const QQ.zero)
-    | (Const x, Const y) -> hashcons (Const (QQ.mul x y))
-    | (Const k, Sum ys) | (Sum ys, Const k) ->
-      delinearize (Linexpr.scalar_mul k ys)
-
-    | (Const k, Mul (a, b)) | (Mul (a, b), Const k) -> begin
-      match a.node, b.node with
-      | (Const k2, v) | (v, Const k2) ->
-	hashcons (Mul (hashcons (Const (QQ.mul k k2)), hashcons v))
-      | (_, _) -> hashcons (Mul (x, y))
-    end
-    | (_, _) -> hashcons (Mul (x, y))
+  let mul x y =
+    match to_const x, to_const y with
+    | Some kx, Some ky -> const (QQ.mul kx ky)
+    | Some k, t when QQ.equal k QQ.zero -> zero
+    | t, Some k when QQ.equal k QQ.zero -> zero
+    | Some k, _ when QQ.equal k QQ.one -> y
+    | _, Some k when QQ.equal k QQ.one -> x
+    | None, Some k ->
+      begin match x.node with
+      | Lin lt -> of_linterm (Linterm.scalar_mul k lt)
+      | _ -> hashcons (Mul (x, y))
+      end
+    | Some k, None ->
+      begin match y.node with
+      | Lin lt -> of_linterm (Linterm.scalar_mul k lt)
+      | _ -> hashcons (Mul (x, y))
+      end
+    | _, _ -> hashcons (Mul (x, y))
 
   let div x y =
-    match x.node, y.node with
-    | (_, Const k) when QQ.equal k QQ.one -> x
-    | (_, _) -> hashcons (Div (x, y))
+    match to_const y with
+    | Some k when not (QQ.equal k QQ.zero) ->
+      begin
+	if QQ.equal k QQ.one then x
+	else match x.node with
+	| Lin lx -> of_linterm (Linterm.scalar_mul (QQ.inverse k) lx)
+	| _ -> hashcons (Div (x, y))
+      end
+    | _ -> hashcons (Div (x, y))
 
   let floor x =
-    match x.node with
-    | Const k -> hashcons (Const (QQ.of_zz (QQ.floor k)))
-    | Floor _ -> x
-    | _ -> hashcons (Floor x)
+    match to_const x with
+    | Some k -> const (QQ.of_zz (QQ.floor k))
+    | None -> hashcons (Floor x)
 
   let idiv x y = floor (div x y)
 
-  let neg x = mul (hashcons (Const (QQ.negate QQ.one))) x
+  let neg x = mul neg_one x
   let sub x y = add x (neg y)
 
   module M = Memo.Make(struct
-    type t = T.t hash_consed
+    type t = T.t
     let hash t = t.hkey
     let equal s t = s.tag == t.tag
   end)
@@ -222,30 +228,34 @@ module MakeHashconsedBasis (V : Var) : TermBasis with module V = V = struct
   let eval alg =
     M.memo_recursive ~size:991 (fun eval x ->
       match x.node with
-      | Var v -> alg (OVar v)
-      | Const k -> alg (OConst k)
       | Floor v -> alg (OFloor (eval v))
-      | Sum xs ->
-	let term (x, k) =
-	  if QQ.equal QQ.one k then eval x
-	  else alg (OMul (alg (OConst k), eval x))
+      | Lin lx ->
+	let term = function
+	  | (AConst, k) -> alg (OConst k)
+	  | (AVar x, k) ->
+	    if QQ.equal QQ.one k then alg (OVar x)
+	    else alg (OMul (alg (OConst k), alg (OVar x)))
 	in
 	let f acc t = alg (OAdd (acc, term t)) in
-	let enum = Linexpr.enum xs in
+	let enum = Linterm.enum lx in
 	begin match BatEnum.get enum with
 	| None -> alg (OConst QQ.zero)
 	| Some t -> BatEnum.fold f (term t) enum
 	end
+      | Add (x, y) -> alg (OAdd (eval x, eval y))
       | Mul (x, y) -> alg (OMul (eval x, eval y))
       | Div (x, y) -> alg (ODiv (eval x, eval y)))
 
-  let get_const x = match x.node with
-    | Var _ -> None
-    | Const k -> Some k
-    | Sum xs -> if Linexpr.equal xs Linexpr.zero then Some QQ.zero else None
-    | Mul (_, _) -> None
-    | Div (_, _) -> None
-    | Floor _ -> None
+  let typ t =
+    let f = function
+      | OFloor _ -> TyInt
+      | OConst k ->
+	if ZZ.equal (QQ.denominator k) ZZ.one then TyInt else TyReal
+      | OVar v -> V.typ v
+      | OAdd (x, y) | OMul (x, y) -> join_typ x y
+      | ODiv (_, _) -> TyReal
+    in
+    eval f t
 
   let log_stats () =
     let (length, count, total, min, median, max) = HC.stats term_tbl in
@@ -294,239 +304,43 @@ module MakeHashconsedBasis (V : Var) : TermBasis with module V = V = struct
 
   let rec is_linear t =
     match t.node with
-    | Var _ -> true
-    | Const _ -> true
-    | Sum ts -> BatEnum.for_all (is_linear % fst) (Linexpr.enum ts)
-    | Mul (x, y) | Div (x, y) ->
-      begin match get_const x, get_const y with
-      | (None, _) | (_, None) -> false
-      | (_, _) -> true
-      end
-    | Floor x -> is_linear x
+    | Lin _ -> true
+    | _ -> false
 
-  let rec sum_of_products t =
-    match t.node with
-    | Var _ -> Linexpr.add_term t QQ.one Linexpr.zero
-    | Const k -> Linexpr.add_term one k Linexpr.zero
-    | Sum xs ->
-      let f (t, coeff) =
-	Linexpr.scalar_mul coeff (sum_of_products t)
-      in
-      BatEnum.fold Linexpr.add Linexpr.zero (Linexpr.enum xs /@ f)
-    | Floor t ->
-      Linexpr.add_term
-	(floor (delinearize (sum_of_products t)))
-	QQ.one
-	Linexpr.zero
-    | Mul (x, y) ->
-      Linexpr.of_enum
-	(BatEnum.map
-	   (fun ((t0,c0),(t1,c1)) -> (mul t0 t1, QQ.mul c0 c1))
-	   (Putil.cartesian_product
-	      (Linexpr.enum (sum_of_products x))
-	      (Linexpr.enum (sum_of_products y))))
-    | Div (x, y) ->
-      let den = delinearize (sum_of_products y) in
-      let f (t, coeff) = (div t den, coeff) in
-      Linexpr.of_enum (BatEnum.map f (Linexpr.enum (sum_of_products x)))
 
-  let split_linear t =
-    let (lin, nonlin) =
-      BatEnum.switch (is_linear % fst) (Linexpr.enum (sum_of_products t))
-    in
-    (delinearize (Linexpr.of_enum lin), BatList.of_enum nonlin)
+  (* Sum of products *)
+  module Sop = Linear.Expr.Make(struct
+    include T
+    module Compare_t = Compare_t
+    let compare = compare
+    let to_smt = to_smt
+  end)(QQ)
 
-end
+  let of_sop sop =
+    BatEnum.fold add zero (Sop.enum sop /@ (fun (t, k) -> mul t (const k)))
 
-module MakeBasis (V : Var) : TermBasis with module V = V = struct
-  module rec T : sig
-    type t =
-    | Var of V.t
-    | Const of QQ.t
-    | Sum of Linexpr.t
-    | Mul of t * t
-    | Div of t * t
-    | Floor of t
-    include Putil.Ordered with type t := t
-    val to_smt : t -> Smt.ast
-  end = struct
-    type t =
-    | Var of V.t
-    | Const of QQ.t
-    | Sum of Linexpr.t
-    | Mul of t * t
-    | Div of t * t
-    | Floor of t
-	deriving (Compare)
-    let compare = Compare_t.compare
-    include Putil.MakeFmt(struct
-      type a = t
-      let rec format formatter = function
-	| Var v -> V.format formatter v
-	| Const k -> QQ.format formatter k
-	| Sum xs -> Linexpr.format formatter xs
-	| Mul (x,y) ->
-	  Format.fprintf formatter "@[(%a)@ *@ (%a)@]"
-	    format x
-	    format y
-	| Div (x,y) ->
-	  Format.fprintf formatter "@[(%a)@ /@ (%a)@]"
-	    format x
-	    format y
-	| Floor x ->
-	  Format.fprintf formatter "floor(%a)" format x
-    end)
-    let rec to_smt = function
-      | Var v -> V.to_smt v
-      | Const k ->
-	begin match QQ.to_zz k with
-	| Some z -> Smt.const_zz z
-	| None   -> Smt.const_qq k
-	end
-      | Sum xs ->
-	let term (x,k) = Smt.mul (to_smt x) (Smt.const_qq k) in
-	Smt.sum (BatEnum.map term (Linexpr.enum xs))
-      | Mul (x,y) -> Smt.mul (to_smt x) (to_smt y)
-      | Div (x,y) -> Smt.mk_div (to_smt x) (to_smt y)
-      | Floor x -> Smt.mk_real2int (to_smt x)
-  end
-  and Linexpr : Linear.Expr.Ordered.S with type dim = T.t
-				   and type base = QQ.t =
-                Linear.Expr.Ordered.Make(T)(QQ)
-
-  include T
-  module V = V
-
-  let equal x y = compare x y = 0
-
-  let var x = Var x
-  let const k = Const k
-  let int k = const (QQ.of_zz k)
-
-  let linearize = function
-    | Const k -> Linexpr.add_term (Const QQ.one) k Linexpr.zero
-    | Mul (Const k, t) | Mul (t, Const k) ->
-      Linexpr.add_term t k Linexpr.zero
-    | Sum xs -> xs
-    | x -> Linexpr.add_term x QQ.one Linexpr.zero
-
-  let rec delinearize xs =
-    let enum = Linexpr.enum xs in
-    match BatEnum.get enum with
-    | None -> Const QQ.zero
-    | Some (t,coeff) -> begin match BatEnum.peek enum with
-      | None -> mul t (Const coeff)
-      | _    -> Sum xs
-    end
-
-  and add x y = 
-    match x, y with
-    | (Const x, Const y) -> const (QQ.add x y)
-    | (Const k, _) when QQ.equal k QQ.zero -> y
-    | (_, Const k) when QQ.equal k QQ.zero -> x
-    | (Div (a, b), Div (c, d)) when equal b d ->
-      Div (add a c, b)
-    | (Mul (a, b), Mul (c, d)) when equal a c ->
-      Mul (a, add b d)
-    | (x, y) ->
-      delinearize (Linexpr.add (linearize x) (linearize y))
-
-  and mul x y =
-    match x,y with
-    | (Div (num,den), _) -> Div (mul num y, den)
-    | (Const k, _) when QQ.equal k QQ.one -> y
-    | (_, Const k) when QQ.equal k QQ.one -> x
-    | (Const k, _) | (_, Const k) when QQ.equal k QQ.zero ->
-      Const QQ.zero
-    | (Const x, Const y) -> Const (QQ.mul x y)
-    | (Const x, Sum ys) | (Sum ys, Const x) ->
-      delinearize (Linexpr.scalar_mul x ys)
-    | (_, _) -> Mul (x, y)
-
-  let div x y =
-    match x, y with
-    | (x, Const k) when QQ.equal k QQ.one -> x
-    | (x, y) -> Div (x, y)
-  let neg x = mul (Const (QQ.negate QQ.one)) x
-  let sub x y = add x (neg y)
-  let zero = Const QQ.zero
-  let one = Const QQ.one
-
-  let log_stats () = ()
-  let get_const = function
-    | Const k -> Some k
-    | _       -> None
-
-  let rec eval alg = function
-    | Var v -> alg (OVar v)
-    | Const k -> alg (OConst k)
-    | Sum xs ->
-      let term (x, k) =
-	if QQ.equal QQ.one k then eval alg x
-	else alg (OMul (alg (OConst k), eval alg x))
-      in
-      let f acc t = alg (OAdd (acc, term t)) in
-      let enum = Linexpr.enum xs in
-      begin match BatEnum.get enum with
-      | None -> alg (OConst QQ.zero)
-      | Some t -> BatEnum.fold f (term t) enum
-      end
-    | Mul (x, y) -> alg (OMul (eval alg x, eval alg y))
-    | Div (x, y) -> alg (ODiv (eval alg x, eval alg y))
-    | Floor x -> alg (OFloor (eval alg x))
-
-  let hash =
+  let to_sop t =
+    let product x y = Putil.cartesian_product (Sop.enum x) (Sop.enum y) in
+    let mul ((x,kx), (y,ky)) = (mul x y, QQ.mul kx ky) in
+    let div ((x,kx), (y,ky)) = (div x y, QQ.div kx ky) in
     let alg = function
-      | OVar v -> Hashtbl.hash (V.hash v, 0)
-      | OConst k -> Hashtbl.hash (QQ.hash k, 1)
-      | OAdd (x, y) -> Hashtbl.hash (x, y, 2)
-      | OMul (x, y) -> Hashtbl.hash (x, y, 3)
-      | ODiv (x, y) -> Hashtbl.hash (x, y, 4)
-      | OFloor x -> Hashtbl.hash (x, 5)
+      | OVar v -> Sop.var (of_linterm (Linterm.var (AVar v)))
+      | OConst k -> Sop.add_term (of_linterm (Linterm.var AConst)) k Sop.zero
+      | OAdd (x, y) -> Sop.add x y
+      | OMul (x, y) -> Sop.of_enum ((product x y) /@ mul)
+      | ODiv (x, y) -> Sop.of_enum ((product x y) /@ div)
+      | OFloor x -> Sop.var (floor (of_sop x))
     in
-    eval alg
-
-  let floor x =
-    match x with
-    | Const k -> Const (QQ.of_zz (QQ.floor k))
-    | Floor _ -> x
-    | _ -> Floor x
-
-  let idiv x y = floor (div x y)
-
-  let rec subst sigma = function
-    | Var v -> sigma v
-    | Const k -> Const k
-    | Sum xs ->
-      let f (x,k) = linearize (mul (subst sigma x) (Const k)) in
-      let s = BatEnum.map f (Linexpr.enum xs) in
-      delinearize (BatEnum.fold Linexpr.add Linexpr.zero s)
-    | Mul (s, t) -> mul (subst sigma s) (subst sigma t)
-    | Div (s, t) -> div (subst sigma s) (subst sigma t)
-    | Floor t -> floor (subst sigma t)
-
-  let rec is_linear = function
-    | Var _ -> true
-    | Const _ -> true
-    | Sum ts -> BatEnum.for_all (is_linear % fst) (Linexpr.enum ts)
-    | Mul (x, y) | Div (x, y) ->
-      begin match get_const x, get_const y with
-      | (None, _) | (_, None) -> false
-      | (_, _) -> true
-      end
-    | Floor x -> is_linear x
+    eval alg t
 
   let split_linear t =
     let (lin, nonlin) =
-      BatEnum.switch (is_linear % fst) (Linexpr.enum (linearize t))
+      BatEnum.switch (is_linear % fst) (Sop.enum (to_sop t))
     in
-    (delinearize (Linexpr.of_enum lin), BatList.of_enum nonlin)
-end
+    (of_sop (Sop.of_enum lin), BatList.of_enum nonlin)
 
-module Defaults (T : TermBasis) = struct
-  include T
 
-  module D = NumDomain.Make(T.V)
+  module D = NumDomain.Make(V)
 
   (* Don't eta-reduce - eval will memoize, and we'll get a space leak *)
 (*
@@ -548,7 +362,7 @@ module Defaults (T : TermBasis) = struct
       | ODiv (s, t) -> QQ.div s t
       | OFloor t -> QQ.of_zz (QQ.floor t)
     in
-    T.eval f term
+    eval f term
 
   (** Convert a linear term over rationals (expressed as an enumeration of
       (term, rational coefficient) pairs) into a term.  This is done by
@@ -563,10 +377,10 @@ module Defaults (T : TermBasis) = struct
     in
     let to_term (t, qq_coeff) =
       let (num, den) = QQ.to_zzfrac qq_coeff in
-      let zz_coeff = T.int (ZZ.mul num (ZZ.floor_div denominator den)) in
-      T.mul zz_coeff t
+      let zz_coeff = int (ZZ.mul num (ZZ.floor_div denominator den)) in
+      mul zz_coeff t
     in
-    BatEnum.fold T.add T.zero (ts /@ to_term)
+    div (BatEnum.fold add zero (ts /@ to_term)) (const (QQ.of_zz denominator))
 
   let of_smt env ast =
     let open Z3 in
@@ -581,14 +395,14 @@ module Defaults (T : TermBasis) = struct
 	  BatList.of_enum (BatEnum.map f (0 -- (get_app_num_args ctx app - 1)))
 	in
 	match get_decl_kind ctx decl, args with
-	| (OP_UNINTERPRETED, []) -> T.var (V.of_smt (get_decl_name ctx decl))
-	| (OP_ADD, args) -> List.fold_left T.add T.zero args
-	| (OP_SUB, [x;y]) -> T.sub x y
-	| (OP_UMINUS, [x]) -> T.neg x
-	| (OP_MUL, [x;y]) -> T.mul x y
-	| (OP_IDIV, [x;y]) -> T.div x y
+	| (OP_UNINTERPRETED, []) -> var (V.of_smt (get_decl_name ctx decl))
+	| (OP_ADD, args) -> List.fold_left add zero args
+	| (OP_SUB, [x;y]) -> sub x y
+	| (OP_UMINUS, [x]) -> neg x
+	| (OP_MUL, [x;y]) -> mul x y
+	| (OP_IDIV, [x;y]) -> div x y
 	| (OP_TO_REAL, [x]) -> x
-	| (OP_TO_INT, [x]) -> T.floor x
+	| (OP_TO_INT, [x]) -> floor x
 	| (_, _) -> begin
 	  Log.errorf "Couldn't translate: %s"
 	    (Z3.ast_to_string ctx ast);
@@ -596,8 +410,8 @@ module Defaults (T : TermBasis) = struct
 	end
       end
       | NUMERAL_AST ->
-	T.const (QQ.of_string (get_numeral_string ctx ast))
-      | VAR_AST -> T.var (env (Z3.get_index_value ctx ast))
+	const (QQ.of_string (get_numeral_string ctx ast))
+      | VAR_AST -> var (env (Z3.get_index_value ctx ast))
       | QUANTIFIER_AST -> assert false
       | FUNC_DECL_AST
       | SORT_AST
@@ -618,7 +432,7 @@ module Defaults (T : TermBasis) = struct
 	if k mod 2 = 0 then y2 else mul x y2
       end
     in
-    match get_const x with
+    match to_const x with
     | Some v -> const (QQ.exp v k)
     | None   -> if k < 0 then inverse (go x (-k)) else go x k
 
@@ -648,29 +462,29 @@ module Defaults (T : TermBasis) = struct
 	(Binop (Div, s, t, Real, Down), TyReal)
       | OFloor (t,t_typ) -> (Unop (Cast, t, Int, Down), TyInt)
     in
-    Texpr0.of_expr (fst (T.eval alg t))
+    Texpr0.of_expr (fst (eval alg t))
 
   let of_apron env texpr =
     let open Apron in
     let open Texpr0 in
     let rec go = function
-      | Cst (Coeff.Scalar s) -> T.const (NumDomain.qq_of_scalar s)
+      | Cst (Coeff.Scalar s) -> const (NumDomain.qq_of_scalar s)
       | Cst (Coeff.Interval _) -> assert false (* todo *)
-      | Dim d -> T.var (D.Env.var_of_dim env d)
-      | Unop (Neg, t, _, _) -> T.neg (go t)
-      | Unop (Cast, t, Int, Down) -> T.floor (go t)
+      | Dim d -> var (D.Env.var_of_dim env d)
+      | Unop (Neg, t, _, _) -> neg (go t)
+      | Unop (Cast, t, Int, Down) -> floor (go t)
       | Unop (Cast, _, _, _) | Unop (Sqrt, _, _, _) -> assert false (* todo *)
       | Binop (op, s, t, typ, round) ->
 	let (s, t) = (go s, go t) in
 	begin match op with
-	| Add -> T.add s t
-	| Sub -> T.sub s t
-	| Mul -> T.mul s t
+	| Add -> add s t
+	| Sub -> sub s t
+	| Mul -> mul s t
 	| Mod -> assert false (* todo *)
 	| Div ->
 	  begin match typ, round with
-	  | Int, Down -> T.idiv s t
-	  | Real, _ -> T.div s t
+	  | Int, Down -> idiv s t
+	  | Real, _ -> div s t
 	  | _, _ -> assert false (* todo *)
 	  end
 	end
@@ -686,8 +500,3 @@ module Defaults (T : TermBasis) = struct
     let ( ~@ ) x = const x
   end
 end
-
-module MakeHashconsed (V : Var) : Term with type V.t = V.t
-  = Defaults(MakeHashconsedBasis(V))
-module Make (V : Var) : Term with type V.t = V.t
-  = Defaults(MakeBasis(V))

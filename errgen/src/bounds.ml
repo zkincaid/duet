@@ -14,9 +14,20 @@ module StrVar = struct
     | Z3.Symbol_string str -> str
     | Z3.Symbol_int _ -> assert false
   let typ _ = TyReal
+  module E = Enumeration.Make(Putil.PString)
+  let enum = E.empty ()
+  let tag = E.to_int enum
 end
 
-module K = Transition.MakeBound(StrVar) (* Transition PKA *)
+module K = Transition.Make(StrVar) (* Transition PKA *)
+
+let _ =
+  K.opt_higher_recurrence := false;
+  K.opt_disjunctive_recurrence_eq := false;
+  K.opt_recurrence_ineq := true;
+  K.opt_unroll_loop := false;
+  K.opt_loop_guard := true
+
 module F = K.F (* Formulae *)
 module T = K.T (* Terms *)
 module V = K.V
@@ -65,9 +76,9 @@ let to_bexp =
   let alg = function
     | OOr (phi, psi) -> Or_exp (phi, psi)
     | OAnd (phi, psi) -> And_exp (phi, psi)
-    | OLeqZ t -> Le_exp (to_aexp t, Real_const QQ.zero)
-    | OEqZ t -> Eq_exp (to_aexp t, Real_const QQ.zero)
-    | OLtZ t -> Lt_exp (to_aexp t, Real_const QQ.zero)
+    | OAtom (LeqZ t) -> Le_exp (to_aexp t, Real_const QQ.zero)
+    | OAtom (EqZ t) -> Eq_exp (to_aexp t, Real_const QQ.zero)
+    | OAtom (LtZ t) -> Lt_exp (to_aexp t, Real_const QQ.zero)
   in
   F.eval alg
 

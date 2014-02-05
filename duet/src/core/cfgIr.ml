@@ -253,7 +253,7 @@ let return_var =
 let lookup_function name file =
   try List.find (fun f -> Varinfo.equal name f.fname) file.funcs
   with Not_found -> begin
-    Log.logf Log.top "Can't find function `%a' in %s"
+    Log.errorf "Can't find function `%a' in %s"
       Show.format<varinfo> name
       file.filename;
     assert false

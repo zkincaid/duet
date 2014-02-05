@@ -7,8 +7,8 @@ open BatPervasives
 
 module StrVar = Test_formula.StrVar
 
-module T = Term.MakeHashconsed(StrVar)
-module F = Formula.MakeHashconsed(T)
+module T = Term.Make(StrVar)
+module F = Formula.Make(T)
 open T.Syntax
 open F.Syntax
 

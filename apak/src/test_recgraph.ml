@@ -8,6 +8,7 @@ module ZMin = struct
   include Ka.ZMin
   type var = unit
   let exists _ k = k
+  let widen = add
 end
 open ZMin
 

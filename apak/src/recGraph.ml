@@ -101,7 +101,12 @@ module Callgraph(R : S) = struct
 	| Atom _  -> None
 	| Block b -> Some b
       in
-      BatEnum.filter_map f (R.G.vertices (R.block_body rg block))
+      try BatEnum.filter_map f (R.G.vertices (R.block_body rg block))
+      with Not_found -> begin
+	Log.errorf "Warning: could not find definition for block `%a`"
+	  R.Block.format block;
+	BatEnum.empty ()
+      end
     in
     U.unfold root succ
 end

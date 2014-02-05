@@ -18,6 +18,27 @@ let mk_label loc =
     Cil.Label ("__switch_" ^ (string_of_int (!label_id)), loc, false)
   end
 
+(* Replace a[x] with *(a + x).  This is necessary because Cil's simplemem
+   transformation considers a[*p] to contain only one memory access, so it
+   doesn't simplify it.
+   Todo: need to handle nested offsets
+*)
+class arrayAccessVisitor = object (self)
+  inherit Cil.nopCilVisitor
+  method vlval lval =
+    let open Cil in
+    match lval with
+    | Mem exp, Index (idx, offset) ->
+      ChangeTo (Mem (BinOp (PlusPI, exp, idx, typeOf exp)), offset)
+    | Var v, Index (idx, offset) ->
+      ChangeTo (Mem (BinOp (PlusPI,
+			    Cil.mkAddrOf (Var v, NoOffset),
+			    idx,
+			    v.vtype)),
+		offset)
+    | _, _ -> DoChildren
+end
+
 (* replace breaks with goto target *)
 class breakVisitor target = object (self)
   inherit Cil.nopCilVisitor
@@ -132,12 +153,13 @@ let simplify file =
   Cil.iterGlobals file (fun glob -> match glob with
   | Cil.GFun(fd,_) -> Oneret.oneret fd;
   | _ -> ());
-  let file = Simplemem.simplemem file in
-
+  Cil.visitCilFile (new arrayAccessVisitor) file;
+  ignore (Simplemem.simplemem file);
   Cil.visitCilFile (new loopVisitor) file;
   Cil.visitCilFile (new switchVisitor) file;
   Cfg.clearFileCFG file;
-  Cfg.computeFileCFG file
+  Cfg.computeFileCFG file;
+  file
 
 
 (* ========================================================================== *)
@@ -295,7 +317,9 @@ let rec tr_expr = function
            | Cil.Le -> BoolExpr (Atom (Le, e1, e2))
            | Cil.Ge -> BoolExpr (Bexpr.ge e1 e2)
            | Cil.Eq -> BoolExpr (Atom (Eq, e1, e2))
-           | Cil.Ne -> BoolExpr (Atom (Ne, e1, e2))
+           | Cil.Ne ->
+	     BoolExpr (Or (Atom (Lt, e1, e2),
+			   Atom (Lt, e2, e1)))
            | Cil.LAnd -> BoolExpr (And (Bexpr.of_expr e1, Bexpr.of_expr e2))
            | Cil.LOr -> BoolExpr (Or (Bexpr.of_expr e1, Bexpr.of_expr e2))
            | Cil.IndexPI | Cil.PlusPI -> (* these are equivalent *)
@@ -364,8 +388,11 @@ let tr_instr ctx instr =
     in
     let mk_def kind = mk_single (Def.mk ~loc:loc kind) in
     begin match v.Cil.vname, lhs, List.map tr_expr args with
-    | ("assume", None, [x]) -> mk_def (Assume (Bexpr.of_expr x))
-    | ("assert", None, [x]) -> begin
+    | ("assume", None, [x])
+    | ("__VERIFIER_assume", None, [x]) ->
+      mk_def (Assume (Bexpr.of_expr x))
+    | ("assert", None, [x])
+    | ("__VERIFIER_assert", None, [x]) -> begin
       (* Pretty print the cil expression for the error message - it should
 	 be closer the source text than the translation *)
       match args with
@@ -376,13 +403,15 @@ let tr_instr ctx instr =
     end
     | ("__assert_fail", None, [_;_;_;_]) ->
       mk_def (Assert (Bexpr.kfalse, "fail"))
-    | ("malloc", Some (Variable v), [x]) ->
+    | ("malloc", Some (Variable v), [x])
+    | ("xmalloc", Some (Variable v), [x]) ->
       mk_def (Builtin (Alloc (v, x, AllocHeap)))
     | ("calloc", Some (Variable v), [mem;size]) ->
       mk_def (Builtin (Alloc (v,
 			      BinaryOp (mem, Mult, size, Concrete (Int IInt)),
 			      AllocHeap)))
-    | ("realloc", Some (Variable v), [_;x]) ->
+    | ("realloc", Some (Variable v), [_;x])
+    | ("xrealloc", Some (Variable v), [_;x]) ->
       mk_def (Builtin (Alloc (v, x, AllocHeap)))
     (* glibc #defines alloca to be __builtin_alloca *)
     | ("__builtin_alloca", Some (Variable v), [x]) ->
@@ -400,6 +429,19 @@ let tr_instr ctx instr =
     | ("rand", Some (Variable v), []) ->
       (* todo: should be non-negative *)
       mk_def (Assign (v, Havoc (Concrete (Int IInt))))
+
+    | ("__VERIFIER_nondet_char", Some (Variable v), []) ->
+      mk_def (Assign (v, Havoc (Concrete (Int IChar))))
+    | ("__VERIFIER_nondet_int", Some (Variable v), [])
+    | ("__VERIFIER_nondet_long", Some (Variable v), [])
+    | ("__VERIFIER_nondet_pointer", Some (Variable v), []) ->
+      mk_def (Assign (v, Havoc (Concrete (Int IInt))))
+    | ("__VERIFIER_nondet_uint", Some (Variable v), []) ->
+      let havoc = mk_def (Assign (v, Havoc (Concrete (Int IInt)))) in
+      let assume =
+	mk_def (Assume (Atom (Le, Expr.zero, AccessPath (Variable v))))
+      in
+      mk_seq havoc assume
 
     (* CPROVER builtins *)
     | ("__CPROVER_atomic_begin", None, []) -> mk_def (Builtin AtomicBegin)
@@ -607,8 +649,7 @@ let parse filename =
       Printf.sprintf "gcc %s-E %s -o %s" library_path filename preprocessed
     in
     ignore (Sys.command pp_cmd);
-    let file = Frontc.parse preprocessed () in
-    simplify file;
+    let file = simplify (Frontc.parse preprocessed ()) in
     tr_file filename file
   in
   Putil.with_temp_filename base ".i" go

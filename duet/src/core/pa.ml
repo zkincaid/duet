@@ -366,6 +366,29 @@ let simplify_calls file =
 	insert_pre assign init_vertex cfg;
 	assign_params init_vertex (i+1) xs
     in
+    (* Replace an indirect function call with a nondeterministic branch
+       between all its possible (direct) targets.  TODO: This transformation
+       is an overapproximation, but it can be made exact. *)
+    let resolve_call def func cfg =
+      let targets = pa#resolve_call func in
+      let loc = Def.get_location def in
+      let skip = Def.mk (Assume (Bexpr.ktrue)) in
+      let add_call target =
+	let call =
+	  Def.mk ~loc:loc (Call (None,
+				 Expr.addr_of (Variable (Var.mk target)),
+				 []))
+	in
+	Cfg.add_vertex cfg call;
+	Cfg.add_edge cfg def call;
+	Cfg.add_edge cfg call skip;
+      in
+      def.dkind <- Assume (Bexpr.ktrue);
+      insert_succ skip def cfg;
+      Cfg.remove_edge cfg def skip;
+      assert (Varinfo.Set.cardinal targets >= 1); (* todo *)
+      Varinfo.Set.iter add_call targets
+    in
     let simplify_def def = match def.dkind with
       | Call (Some lhs, func, args) ->
 	let loc = Def.get_location def in
@@ -377,11 +400,11 @@ let simplify_calls file =
 	  Def.mk ~loc:loc (Assign (lhs, rhs))
 	in
 	assign_args def 0 args;
-	def.dkind <- Call (None, func, []);
+	resolve_call def func cfg;
 	insert_succ assign def cfg
       | Call (None, func, args) ->
 	assign_args def 0 args;
-	def.dkind <- Call (None, func, [])
+	resolve_call def func cfg
       | Return (Some x) ->
 	def.dkind <- Assign (return_var, x)
       | Return None ->

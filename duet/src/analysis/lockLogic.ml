@@ -252,6 +252,7 @@ module Domain = struct
                      con = (PD.exists f (fst a.con),
                             PD.exists f (snd a.con));
                      frk = FM.exists f a.frk }
+  let widen = add
 end
 
 module Datarace = struct

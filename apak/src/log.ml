@@ -7,8 +7,8 @@ let verbosity_level = ref 0
 (** Verbosity levels *)
 let top    = 0   (** print only errors *)
 let phases = 1   (** print phases *)
-let fix    = 2   (** print steps in fixpoint computation *)
-let bottom = 3   (** print everything *)
+let fix    = 3   (** print steps in fixpoint computation *)
+let bottom = 4   (** print everything *)
 let info   = 2   (** print extra information *)
 
 let debug_formatter =
@@ -69,7 +69,7 @@ let phase str f arg =
     try String.make (77 - (String.length str)) '='
     with Invalid_argument _ -> ""
   in
-    log phases ("= " ^ str ^ " " ^ padding);
+    log phases ("\x1b[32;1m= " ^ str ^ " " ^ padding ^ "\x1b[0m");
     if List.exists (fun x -> x = str) !debug_phases then begin
       let old_debug = !debug_mode in
 	debug_mode := true;
@@ -81,7 +81,7 @@ let phase str f arg =
 let start_time = Unix.gettimeofday ()
 let print_stats () =
   let f stat time =
-    print_endline (stat ^ ": " ^ (string_of_float time))
+    if time > 1.0 then print_endline (stat ^ ": " ^ (string_of_float time))
   in
     Hashtbl.iter f phases_ht;
     print_endline ("Total time: "

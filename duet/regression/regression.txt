@@ -53,7 +53,7 @@ lra trex01_unsafe.c -lra
 lra trex02_safe.c -lra
 lra trex02_safe2.c -lra
 lra trex02_unsafe.c -lra
-lra trex03_safe.c -lra
+lra trex03_safe.c -lra-forward-inv -lra
 lra trex03_unsafe.c -lra
 lra trex04_safe.c -lra
 lra terminator_02_safe.c -lra
@@ -62,3 +62,11 @@ lra terminator_03_safe.c -lra
 lra terminator_03_unsafe.c -lra
 lra sum01_real_safe.c -lra
 lra subtract_real.c -lra
+lra sum02_safe.c -lra-forward-inv -lra
+lra rec1.c -lra
+lra rec2.c -lra
+lra rec1-param.c -lra
+lra rec2-param.c -lra
+lra mult-rec.c -lra
+lra mem.c -check-array-bounds -lra
+lra mem2.c -check-array-bounds -lra

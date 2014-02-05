@@ -46,9 +46,13 @@ module MakeSegment
 		       and type right_summary = R.t) =
 struct
 
-  module Left = Interproc.MakePathExpr(L)
-  module IntraLeft = Pathexp.MakeElim(RG.G)(L)
-  module Right = Pathexp.MakeElim(RG.G)(R)
+  module Acc(K : Sig.KA.Quantified.Ordered.S) = struct
+    include K
+    let widen = K.add
+  end
+  module Left = Interproc.MakePathExpr(Acc(L))
+  module IntraLeft = Pathexp.MakeElim(RG.G)(Acc(L))
+  module Right = Pathexp.MakeElim(RG.G)(Acc(R))
 
   (** Iterate over the solution to the analysis.  An item in the solution
       consists of a program point (definition) along with a summary of the set

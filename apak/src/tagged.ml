@@ -425,7 +425,7 @@ module PTSet (T : Tagged) : Putil.Hashed.Set.S with type elt = T.t = struct
   end
 end
 
-module PTMap (T : Tagged) : Putil.Map.S with type key = T.t = struct
+module PTMap (T : Tagged) = struct
 
 (*s Maps of integers implemented as Patricia trees, following Chris
     Okasaki and Andrew Gill's paper {\em Fast Mergeable Integer Maps}

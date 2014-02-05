@@ -24,6 +24,11 @@ module MakePathExpr = Pathexp.MakeRG(RG)(Varinfo)
 let make_recgraph file =
   ignore (Bddpa.initialize file);
   Pa.simplify_calls file;
+  let mk_stub rg func =
+    let v = Def.mk (Assume Bexpr.ktrue) in
+    let graph = RG.G.add_vertex RG.G.empty v in
+    RG.add_block rg func graph ~entry:v ~exit:v
+  in
   let mk_func rg func =
     let add_edge src tgt graph = RG.G.add_edge graph src tgt in
     let graph = Cfg.fold_edges add_edge func.cfg RG.G.empty in
@@ -34,4 +39,14 @@ let make_recgraph file =
     let graph = BatEnum.fold add_edge (RG.G.add_vertex graph bexit) ts in
     RG.add_block rg func.fname graph ~entry:bentry ~exit:bexit
   in
-  List.fold_left mk_func RG.empty file.funcs
+  let add_call rg (_, v) =
+    match V.classify v with
+    | RecGraph.Block func ->
+      begin
+	try ignore (RG.block_entry rg func); rg
+	with Not_found -> mk_stub rg func
+      end
+    | RecGraph.Atom _ -> rg
+  in
+  let rg = List.fold_left mk_func RG.empty file.funcs in
+  BatEnum.fold add_call rg (RG.vertices rg)

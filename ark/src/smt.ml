@@ -3,7 +3,7 @@ open Z3
 open ArkPervasives
 
 let context = ref None
-let opts = ref [ ("SOFT_TIMEOUT", "10000");
+let opts = ref [ ("SOFT_TIMEOUT", "5000");
 	         ("MODEL_COMPLETION", "true") ]
 
 type lbool = Sat | Unsat | Undef
@@ -73,7 +73,6 @@ let mk_eq = mk_eq (get_context())
 let mk_int2real = mk_int2real (get_context())
 let mk_real2int = mk_real2int (get_context())
 let mk_is_int = mk_is_int (get_context())
-
 
 (* Derived operations not defined in the Z3 API *)
 let big_conj xs = Z3.mk_and (get_context()) (BatArray.of_enum xs)

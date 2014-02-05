@@ -14,8 +14,8 @@ module StrVar = struct
     | Z3.Symbol_int _ -> assert false
   let typ _ = TyReal
 end
-module T = Term.MakeHashconsed(StrVar)
-module F = Formula.MakeHashconsed(T)
+module T = Term.Make(StrVar)
+module F = Formula.Make(T)
 module FEq = Formula.MakeEq(F)
 
 open T.Syntax
@@ -26,7 +26,7 @@ let test1 () =
   let y = T.var "y" in
   let phi = (x == y) in
   let eqs = FEq.extract_equalities phi ["x";"y"] in
-  Log.log Log.info (Show.show<FEq.AffineTerm.t list> eqs);
+  Log.log Log.info (Show.show<T.Linterm.t list> eqs);
   assert_equal (List.length eqs) 1
 
 let test2 () =
@@ -35,7 +35,7 @@ let test2 () =
   let z = T.var "z" in
   let phi = (x == y || x == z) in
   let eqs = FEq.extract_equalities phi ["x";"y";"z"] in
-  Log.log Log.info (Show.show<FEq.AffineTerm.t list> eqs);
+  Log.log Log.info (Show.show<T.Linterm.t list> eqs);
   assert_equal (List.length eqs) 0
 
 let test3 () =
@@ -45,7 +45,7 @@ let test3 () =
   let z = T.var "z" in
   let phi = ((w == x && x == y) || (w == z && z == y)) in
   let eqs = FEq.extract_equalities phi ["w";"x";"y";"z"] in
-  Log.log Log.info (Show.show<FEq.AffineTerm.t list> eqs);
+  Log.log Log.info (Show.show<T.Linterm.t list> eqs);
   assert_equal (List.length eqs) 1
 
 let test4 () =
@@ -55,7 +55,7 @@ let test4 () =
   let z = T.var "z" in
   let phi = ((w == x && x == y) || (w == z && z == y)) in
   let eqs = FEq.extract_equalities phi ["x";"y";"z"] in
-  Log.log Log.info (Show.show<FEq.AffineTerm.t list> eqs);
+  Log.log Log.info (Show.show<T.Linterm.t list> eqs);
   assert_equal (List.length eqs) 0
 
 let test5 () =
@@ -65,7 +65,7 @@ let test5 () =
   let z = T.var "z" in
   let phi = ((w == x && x == y) || (w == z && z == y)) in
   let eqs = FEq.extract_equalities phi ["w";"y"] in
-  Log.log Log.info (Show.show<FEq.AffineTerm.t list> eqs);
+  Log.log Log.info (Show.show<T.Linterm.t list> eqs);
   assert_equal (List.length eqs) 1
 
 let test6 () =
@@ -75,14 +75,14 @@ let test6 () =
   let z = T.var "z" in
   let phi = w >= x && ((w <= x && x == y) || (w == z && z == y)) in
   let eqs = FEq.extract_equalities phi ["w";"y"] in
-  Log.log Log.info (Show.show<FEq.AffineTerm.t list> eqs);
+  Log.log Log.info (Show.show<T.Linterm.t list> eqs);
   assert_equal (List.length eqs) 1
 
 let test7 () =
   let x = T.var "x" in
   let phi = x == T.one in
   let eqs = FEq.extract_equalities phi ["x"] in
-  Log.log Log.info (Show.show<FEq.AffineTerm.t list> eqs);
+  Log.log Log.info (Show.show<T.Linterm.t list> eqs);
   assert_equal (List.length eqs) 1
 
 let test8 () =
@@ -95,7 +95,7 @@ let test8 () =
 			     || (w == z && z == y && z >= T.one))
   in
   let eqs = FEq.extract_equalities phi ["w";"x";"y";"z"] in
-  Log.log Log.info (Show.show<FEq.AffineTerm.t list> eqs);
+  Log.log Log.info (Show.show<T.Linterm.t list> eqs);
   assert_equal (List.length eqs) 2
 
 let test9 () =
