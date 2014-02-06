@@ -5,8 +5,6 @@ open CfgIr
 open Apak
 
 (* TODO: Address of generates no equality *)
-(* TODO: Fix propagation of forked threads from parent to child
- * e.g. parents forks foo and bar, bar computes concurrently with foo *)
 (* -----------------Domains *)
 module type Predicate = sig
   include EqLogic.Hashed.Predicate
@@ -181,9 +179,6 @@ module PD = struct
   let mul_r pd lp =
     let zero_lp = zero_locks lp in
       M.map (fun lp -> LockPath.mul lp zero_lp) pd
-  let mul_r_lp pd lp =
-    let zero_acq_lp = zero_acq_locks lp in
-      M.map (fun lp -> LockPath.mul lp zero_acq_lp) pd
   let mul_l lp pd = M.map (fun lp' -> LockPath.mul lp lp') pd
   let exists f pd = M.map (fun lp -> LockPath.exists f lp) pd
 end
@@ -206,7 +201,7 @@ module Domain = struct
   type var = Var.t
   type t = { lp : LockPath.t;
              seq : PD.t;
-             con : PD.t * PD.t;
+             con : PD.t;
              frk : FM.t }
              deriving(Show,Compare)
   let compare = Compare_t.compare
@@ -217,29 +212,28 @@ module Domain = struct
 
   let equal a b = (LockPath.equal a.lp b.lp) && 
                   (PD.equal a.seq b.seq) &&
-                  (PD.equal (fst a.con) (fst b.con)) &&
-                  (PD.equal (snd a.con) (snd b.con)) &&
+                  (PD.equal a.con b.con) &&
                   (FM.equal a.frk b.frk)
   let mul a b =
     let aseq = PD.mul_r a.seq b.lp in
     let bseq = PD.mul_l a.lp b.seq in
-    let acon = (PD.mul_r_lp (fst a.con) b.lp, PD.mul_r_lp (snd a.con) b.lp) in
-    let bcon = (PD.mul_l a.lp (fst b.con), PD.mul_l a.lp (snd b.con)) in
+    let acon = PD.mul_r a.con b.lp in
+    let bcon = PD.mul_l a.lp b.con in
       { lp = LockPath.mul a.lp b.lp;
         seq = PD.join aseq bseq;
-        con = mp PD.join acon bcon;
+        con = PD.join acon bcon;
         frk = FM.join (FM.absorb (FM.mul_r a.frk b.lp) bseq) (FM.mul_l a.lp b.frk) }
   let add a b = { lp = LockPath.add a.lp b.lp;
                   seq = PD.join a.seq b.seq;
-                  con = mp PD.join a.con b.con;
+                  con = PD.join a.con b.con;
                   frk = FM.join a.frk b.frk }
   let zero = { lp = LockPath.zero;
                seq = PD.bot;
-               con = (PD.bot, PD.bot);
+               con = PD.bot;
                frk = FM.bot } 
   let one = { lp = LockPath.one;
               seq = PD.bot;
-              con = (PD.bot, PD.bot);
+              con = PD.bot;
               frk = FM.bot }
   let star a = 
     let l = LockPath.star a.lp in
@@ -249,21 +243,20 @@ module Domain = struct
         frk = FM.mul_l l (FM.mul_r a.frk l) }
   let exists f a = { lp = LockPath.exists f a.lp;
                      seq = PD.exists f a.seq;
-                     con = (PD.exists f (fst a.con),
-                            PD.exists f (snd a.con));
+                     con = PD.exists f a.con;
                      frk = FM.exists f a.frk }
   let widen = add
 end
-
-module Datarace = struct
-  module LSA = Interproc.MakePathExpr(Domain)
-  open Domain
-
 
   let get_func e = match Expr.strip_all_casts e with
     | AccessPath (Variable (func, voff)) -> func
     | AddrOf     (Variable (func, voff)) -> func
     | _  -> failwith "Lock Logic: Called/Forked expression not a function"
+
+module Datarace = struct
+  module LSA = Interproc.MakePathExpr(Domain)
+  open Domain
+
 
   (* The weight function needs a map from initial nodes to a list of fork
    * points (to pass definitions from parent to child), a hash table of 
@@ -278,12 +271,12 @@ module Datarace = struct
       let f (lp', ls') (b, v) =
         try let summary = LSA.HT.find sums b in
             let lval = FM.M.find v summary.frk in
-              (LockPath.add lp' summary.lp, PD.join (PD.join ls' (snd summary.con)) lval)
+              (LockPath.add lp' summary.lp, PD.join (PD.join ls' summary.con) lval)
         with Not_found -> (lp', ls')
       in
       let (lpsum, lssum) = List.fold_left f (LockPath.zero, PD.bot) fpoints in
       let lpsum = if lpsum == LockPath.zero then LockPath.one else lpsum in
-        (lpsum, (lssum, PD.bot))
+        (lpsum, lssum)
     in
       match def.dkind with
         | Call (vo, e, elst) ->
@@ -298,22 +291,23 @@ module Datarace = struct
             in
               { lp = LockPath.one; 
                 seq = PD.bot;
-                con = (PD.bot, PD.join summary.seq (snd summary.con));
+                con = PD.join summary.seq summary.con;
                 frk = FM.M.add def PD.bot FM.M.empty }
         | Assign (v, e) -> 
             let l = wt def in
               { lp = l;
                 seq = PD.M.add v l PD.M.empty;
-                con = (PD.bot, PD.bot);
+                con = PD.bot;
                 frk = FM.bot }
         | _ -> { lp = LockPath.mul lp (wt def);
                  seq = PD.bot;
                  con = ls;
                  frk = FM.bot }
 
+  (* This is unsound if seq_path has no minterms *)
   let may_race path v = 
     try 
-      let defs = PD.M.find v (PD.join (fst path.con) (snd path.con)) in
+      let defs = PD.M.find v path.con in
       let sub  = LockPath.Minterm.subst (fun x -> if Var.get_subscript x = 1
                                                   then Var.subscript x 3
                                                   else x)
@@ -324,12 +318,12 @@ module Datarace = struct
                                  (LockPred.neg (LockPath.Minterm.get_pred con_path)))
         in
         let l = LockPath.Minterm.get_pred (LockPath.Minterm.mul seq_path con_path') in
-          acc && not (AP.Set.is_empty l.LockPred.acq)
+          acc || (AP.Set.is_empty l.LockPred.acq)
       in
       let fold_seq seq_path acc = 
-        acc && LockPath.fold_minterms (fold_con seq_path) defs true
+        acc || LockPath.fold_minterms (fold_con seq_path) defs false
       in
-        LockPath.fold_minterms fold_seq path.lp true
+        if path.lp == LockPath.zero then true else LockPath.fold_minterms fold_seq path.lp false
     with Not_found -> false
 
   let find_all_races query vlst =
@@ -341,7 +335,7 @@ module Datarace = struct
     let f (block, def, path) =
       let races = Var.Set.filter (fun v -> may_race path v) vlst
       in
-    (*    print_endline (Def.show def ^ " ---- " ^  Domain.show path);*)
+      (*  print_endline (Def.show def ^ " ---- " ^  Domain.show path);*)
         Def.HT.add ht def races
     in
       BatEnum.iter f (LSA.enum_single_src_tmp classify query);
@@ -352,11 +346,11 @@ module Datarace = struct
   let stabilise races wt def =
     let pre =
       let frame = try Def.HT.find races def with Not_found -> Var.Set.empty in
-        LockPath.of_minterm frame (LockPath.Minterm.make [] LockPred.unit)
+        LockPath.of_minterm frame (LockPath.Minterm.unit)
     in
     let post =
       let frame = try Def.HT.find races def with Not_found -> Var.Set.empty in
-        LockPath.of_minterm frame (LockPath.Minterm.make [] LockPred.unit)
+        LockPath.of_minterm frame (LockPath.Minterm.unit)
     in
       LockPath.mul pre (LockPath.mul (wt def) post)
 
@@ -368,7 +362,6 @@ module Datarace = struct
     match file.entry_points with
     | [main] -> begin
       let rg = 
-        print_endline ("Starting ");
         let rginit = Interproc.make_recgraph file in
         let f acc (_, v) = match Interproc.RG.classify v with
           | RecGraph.Atom _ -> acc
@@ -378,7 +371,6 @@ module Datarace = struct
                 with Not_found -> 
                   let vert = Def.mk Initial in
                   let bloc = Interproc.RG.G.empty in
-                    print_endline ("Adding block " ^ (Interproc.RG.Block.show b));
                     Interproc.RG.add_block acc b (Interproc.RG.G.add_vertex bloc vert) vert vert
               end
         in
@@ -463,19 +455,33 @@ module Datarace = struct
       end
     | _      -> assert false
 end
-(*
-let analyze file = 
-  let dra = Datarace.init file in
-  let f def = 
-    let g v = print_endline ((Var.show v) ^ " :: " ^ (string_of_bool (Datarace.may_race dra v def)))
+
+let races = ref None
+let get_races () = match !races with
+  | Some x -> x
+  | None -> 
+      let dra = Datarace.init (CfgIr.get_gfile()) in
+        races := Some dra;
+        dra
+
+module Stabilizer (Min : EqLogic.Hashed.ConjFormula with type var = Var.t) = struct
+  module Formula = EqLogic.MakeFormula(Min)
+  module Trans   = Formula.Transition
+  let stabilise wt def =
+    let races = get_races () in
+    let pre =
+      let frame = try Def.HT.find races def with Not_found -> Var.Set.empty in
+        Trans.of_minterm frame (Min.unit)
     in
-      print_endline (Def.show def);
-      Var.Set.iter g (Def.free_vars def)
-  in
-    List.iter (fun func -> CfgIr.Cfg.iter_vertex f func.cfg) file.funcs
- *)
+    let post =
+      let frame = try Def.HT.find races def with Not_found -> Var.Set.empty in
+        Trans.of_minterm frame (Min.unit)
+    in
+      Trans.mul pre (Trans.mul (wt def) post)
+end
+
 let analyze file = 
-  let dra = Datarace.init file in
+  let dra = get_races () in
   let f def v = print_endline ((Def.show def) ^ " --> " ^ (Var.Set.show v)) in
     Def.HT.iter f dra
 

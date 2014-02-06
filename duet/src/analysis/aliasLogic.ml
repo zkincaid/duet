@@ -13,9 +13,14 @@ module Pack = Afg.Pack
 (** Track must-alias relationships *)
 let must_alias = ref true
 
+let concurrent = ref false
+
 let _ =
   CmdLine.register_config
     ("-no-must-alias", Arg.Clear must_alias, " Disable must-alias information")
+let _ =
+  CmdLine.register_config
+    ("-concurrent", Arg.Set concurrent, " Perform concurrent dependence analysis")
 
 module RG = Interproc.RG
 
@@ -72,6 +77,54 @@ struct
     BatEnum.iter go (Left.enum_single_src left_query)
 end
 
+module MakeSegmentConc
+  (L : Sig.KA.Quantified.Ordered.S with type var = var)
+  (K : Sig.KA.Quantified.Ordered.S with type var = var)
+  (R : Sig.KA.Quantified.Ordered.S with type var = var)
+  (A : SegmentAnalysis with type summary = K.t
+		       and type left_summary = L.t
+		       and type right_summary = R.t) =
+struct
+
+  module Acc(K : Sig.KA.Quantified.Ordered.S) = struct
+    include K
+    let widen = K.add
+  end
+  module Left = Interproc.MakePathExpr(Acc(L))
+  module IntraLeft = Pathexp.MakeElim(RG.G)(Acc(L))
+  module Right = Pathexp.MakeElim(RG.G)(Acc(R))
+
+  (** Iterate over the solution to the analysis.  An item in the solution
+      consists of a program point (definition) along with a summary of the set
+      of (interprocedurally valid) paths to that that point.  *)
+  let solve smash file init =
+    let rg = Interproc.make_recgraph file in
+    let main = match file.entry_points with
+      | [x] -> x
+      | _   -> failwith "Interproc.solve: No support for multiple entry points"
+    in
+    let local f =
+      let cf = lookup_function f file in
+      fun x -> is_local cf (fst x) || is_formal cf (fst x)
+    in
+    (* Adds edges to the callgraph for each fork. Shouldn't really have to do
+     * this every time a new query is made *)
+    let add_fork_edges q =
+      let f (b, v) = match v.dkind with
+        | Builtin (Fork (vo, e, elst)) -> Left.add_callgraph_edge q b (LockLogic.get_func e)
+        | _ -> ()
+      in
+        BatEnum.iter f (Interproc.RG.vertices rg)
+    in
+    let classify v = match v.dkind with
+      | Builtin (Fork (vo, e, elst)) -> RecGraph.Block (LockLogic.get_func e)
+      | _ -> Interproc.V.classify v
+    in
+    let left_query = Left.mk_query rg A.left_weight local main in
+    let go (_, v, path_to_v) = smash path_to_v (A.right_weight v) in
+      add_fork_edges left_query;
+      BatEnum.iter go (Left.enum_single_src_tmp classify left_query)
+end
 
 (* The dependence analysis is parameterized over a ConjFormula functor (which
    is expected to be either EqLogic.Hashed.MakeEQ or
@@ -854,7 +907,33 @@ struct
     let right_action abspath uses = EU.mul (promote_right abspath) uses
     let left_action abspath reaching = RD.mul (promote_left abspath) reaching
   end
+  module ReachingDefsConc = struct
+    include ReachingDefs
+    let stabilize x def = 
+      let a = x.kill_tr in
+      let races = LockLogic.get_races () in
+      let pre =
+        let frame = try Def.HT.find races def with Not_found -> Var.Set.empty in
+          KillTransition.of_minterm frame (KillMinterm.unit)
+      in
+      let post =
+        let frame = try Def.HT.find races def with Not_found -> Var.Set.empty in
+          KillTransition.of_minterm frame (KillMinterm.unit)
+      in
+        { x with kill_tr = KillTransition.mul pre (KillTransition.mul a post) }
+
+    let left_weight def = 
+      let x = ReachingDefs.left_weight def in
+        { x with abspath = stabilize x.abspath def }
+    let right_weight def = 
+      let x = ReachingDefs.right_weight def in
+        { x with EU.abspath = stabilize x.EU.abspath def }
+    let weight def = 
+      let x = ReachingDefs.weight def in
+        stabilize x def
+  end
   module RDAnalysis = MakeSegment(RD)(AbsPath)(EU)(ReachingDefs)
+  module RDAnalysisConc = MakeSegmentConc(RD)(AbsPath)(EU)(ReachingDefsConc)
 
   let get_current_name minterm = (RDMinterm.get_pred minterm).current_name
   let incr_index =
@@ -982,7 +1061,9 @@ struct
       DefAPSet.iter (fun (d,x) -> add_edge d (x,y) join) set
     in
     DefAPSetHT.clear join_ht;
-    Log.phase "Dependence analysis" (RDAnalysis.solve smash file) ();
+    Log.phase "Dependence analysis" ((if !concurrent then RDAnalysisConc.solve 
+                                                     else RDAnalysis.solve)
+                                       smash file) ();
     DefAPSetHT.iter add_join_edge join_ht;
     Dg.simplify_dg dg;
     if !CmdLine.sanity_checks then DG.sanity_check dg;
