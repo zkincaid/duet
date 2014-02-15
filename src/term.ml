@@ -322,7 +322,10 @@ module Make (V : Var) = struct
   let to_sop t =
     let product x y = Putil.cartesian_product (Sop.enum x) (Sop.enum y) in
     let mul ((x,kx), (y,ky)) = (mul x y, QQ.mul kx ky) in
-    let div ((x,kx), (y,ky)) = (div x y, QQ.div kx ky) in
+    let div ((x,kx), (y,ky)) =
+      assert (not (QQ.equal ky QQ.zero));
+      (div x y, QQ.div kx ky)
+    in
     let alg = function
       | OVar v -> Sop.var (of_linterm (Linterm.var (AVar v)))
       | OConst k -> Sop.add_term (of_linterm (Linterm.var AConst)) k Sop.zero
@@ -353,6 +356,7 @@ module Make (V : Var) = struct
     eval alg t
 *)
 
+  (* May raise divide-by-zero *)
   let evaluate env term =
     let f = function
       | OVar v -> env v

@@ -53,6 +53,8 @@ module type S = sig
   (** One-step unfolding of a formula *)
   val view : t -> (t, T.t atom) open_formula
 
+  val is_linear : t -> bool
+
   (** {2 Abstract domain operations} *)
 
   (** Covert an abstract value to a formula *)
@@ -108,6 +110,7 @@ module type S = sig
   val qe_cover : (T.V.t -> bool) -> t -> t
 
   val qe_partial : (T.V.t -> bool) -> t -> t
+  val qe_trivial : (T.V.t -> bool) -> t -> t
 
   (** {2 Simplification} *)
 
@@ -181,6 +184,8 @@ module type S = sig
       clause (or return [None] if no such clause exists). *)
   val select_disjunct : (T.V.t -> QQ.t) -> t -> t option
 
+  val affine_hull : t -> T.V.t list -> T.Linterm.t list
+
   val symbolic_bounds : (T.V.t -> bool) -> t -> T.t -> (pred * T.t) list
 
   val symbolic_abstract : (T.t list) -> t -> (QQ.t option * QQ.t option) list
@@ -204,10 +209,3 @@ module type S = sig
 end
 
 module Make (T : Term.S) : S with module T = T
-module MakeEq (F : S) : sig
-  module AMap : BatMap.S with type key = F.T.V.t affine
-  (** [extract_equalities phi vars] computes a basis for the smallest linear
-      manifold which contains [phi] and is defined over the variables
-      [vars]. *)
-  val extract_equalities : F.t -> F.T.V.t list -> F.T.Linterm.t list
-end
