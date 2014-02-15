@@ -3,6 +3,8 @@
 open Apak
 open BatPervasives
 
+exception Divide_by_zero
+
 module Ring = struct
   module type S = sig
     include Sig.Semiring.S
@@ -58,8 +60,11 @@ module QQ = struct
   let add = Mpqf.add
   let sub = Mpqf.sub
   let mul = Mpqf.mul
-  let div = Mpqf.div
   let zero = Mpqf.of_int 0
+  let div x y =
+    if compare y zero = 0 then raise Divide_by_zero
+    else Mpqf.div x y
+
   let one = Mpqf.of_int 1
   let equal = Mpqf.equal
   let negate = Mpqf.neg

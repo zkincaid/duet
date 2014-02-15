@@ -400,8 +400,8 @@ let simplify_calls file =
 	  Def.mk ~loc:loc (Assign (lhs, rhs))
 	in
 	assign_args def 0 args;
-	resolve_call def func cfg;
-	insert_succ assign def cfg
+	insert_succ assign def cfg;
+	resolve_call def func cfg
       | Call (None, func, args) ->
 	assign_args def 0 args;
 	resolve_call def func cfg

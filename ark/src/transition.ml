@@ -286,10 +286,15 @@ module Dioid (Var : Var) = struct
       guard = phi }
 
   let simplify tr =
-    let f _ term free = VSet.diff free (term_free_tmp_vars term) in
+    let f _ term free = VSet.union free (term_free_tmp_vars term) in
     let guard = tr.guard in
-    let free_tmp = M.fold f tr.transform (formula_free_tmp_vars guard) in
-    { tr with guard = F.simplify (not % flip VSet.mem free_tmp) guard }
+    let rhs_vars = M.fold f tr.transform VSet.empty in
+    let p x = match V.lower x with
+      | Some _ -> true
+      | None -> VSet.mem x rhs_vars
+    in
+    { tr with guard = F.simplify p guard }
+
   let simplify tr = Log.time "Transition simplification" simplify tr
 
   let exists p tr =
@@ -530,7 +535,6 @@ module Make (Var : Var) = struct
   end
 
   module VarMap = BatMap.Make(Var)
-  module FEq = Formula.MakeEq(F)
 
   (* Linear terms with rational efficients *)
   module QQTerm = Linear.Expr.Make(Var)(QQ)
@@ -580,8 +584,11 @@ module Make (Var : Var) = struct
 	    QQ.format incr;
 	  let px_closed = Incr.P.add_term 1 incr Incr.P.zero in
 	  Some (px_closed, T.var (V.mk_var v))
- 	| Smt.Sat | Smt.Undef ->
+ 	| Smt.Sat ->
 	  Log.logf Log.info "No recurrence for %a" Var.format v;
+	  None
+	| Smt.Undef ->
+	  Log.errorf "Timeout in simple induction variable detection!";
 	  None
       in
       s#pop ();
@@ -676,11 +683,11 @@ module Make (Var : Var) = struct
     in
     M.fold g tr.transform env
 
+  module AMap = BatMap.Make(Linear.AffineVar(V))
   let farkas equations vars =
     let lambdas =
       List.map (fun _ -> AVar (V.mk_real_tmp "lambda")) equations
     in
-    let open FEq in
     let s = new Smt.solver in
     let columns = AConst::(List.map (fun x -> AVar x) vars) in
     
@@ -722,15 +729,15 @@ module Make (Var : Var) = struct
       let free_vars = formula_free_program_vars ctx.phi in
       BatList.of_enum (VarSet.enum free_vars /@ V.mk_var)
     in
-    let equalities = FEq.extract_equalities ctx.phi vars in
+    let equalities = F.affine_hull ctx.phi vars in
     Log.logf Log.info "Extracted equalities:@ %a"
       Show.format<T.Linterm.t list> equalities;
     let (s, coeffs) = farkas equalities vars in
-    let get_coeff v = FEq.AMap.find (mk_avar v) coeffs in
+    let get_coeff v = AMap.find (mk_avar v) coeffs in
     (* A variable has a coefficient iff it is involved in an equality. *)
-    let has_coeff v = FEq.AMap.mem (mk_avar v) coeffs in
+    let has_coeff v = AMap.mem (mk_avar v) coeffs in
 
-    let remove_coeff x coeffs = FEq.AMap.remove (AVar (V.mk_var x)) coeffs in
+    let remove_coeff x coeffs = AMap.remove (AVar (V.mk_var x)) coeffs in
     let assert_zero_coeff v =
       try s#assrt (Smt.mk_eq (get_coeff v) (Smt.const_int 0))
       with Not_found ->
@@ -770,7 +777,7 @@ module Make (Var : Var) = struct
 	   and we already set the coefficients of v and v' appropriately *)
 	let coeffs = remove_coeff v (remove_coeff (Var.prime v) coeffs) in
 	s#pop ();
-	Some (T.qq_linterm (BatList.enum (FEq.AMap.fold f coeffs [])))
+	Some (T.qq_linterm (BatList.enum (AMap.fold f coeffs [])))
     in
     let check v rhs =
       match rhs with
@@ -929,8 +936,10 @@ module Make (Var : Var) = struct
 	  | DISEQ   -> assert false (* impossible *)
 	  | EQMOD _ -> assert false (* todo *)
 	in
-	Log.logf Log.info "Polyhedral recurrence: %a" F.format res;
-	res
+	if T.equal lhs T.zero then F.top else begin
+	  Log.logf Log.info "Polyhedral recurrence: %a" F.format res;
+	  res
+	end
       end
     in
     let tcons =
@@ -1134,6 +1143,7 @@ module Make (Var : Var) = struct
       let mk_nondet v _ =
 	T.var (V.mk_tmp ("nondet_" ^ (Var.show v)) (Var.typ v))
       in
+      Log.errorf "Gave up in loop computation";
       { guard = F.top;
 	transform = M.mapi mk_nondet tr.transform }
 end

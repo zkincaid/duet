@@ -58,11 +58,16 @@ let error_pp pp x = errorf "%a" pp x
 let phases_ht = Hashtbl.create 32
 let time str f arg =
   let start_time = Unix.gettimeofday () in
-  let result = f arg in
-  let time = (Unix.gettimeofday ()) -. start_time in
-    (try Hashtbl.replace phases_ht str (Hashtbl.find phases_ht str +. time)
-     with Not_found -> Hashtbl.add phases_ht str time);
+  let record_time () =
+    let time = (Unix.gettimeofday ()) -. start_time in
+    try Hashtbl.replace phases_ht str (Hashtbl.find phases_ht str +. time)
+    with Not_found -> Hashtbl.add phases_ht str time
+  in
+  try
+    let result = f arg in
+    record_time();
     result
+  with exn -> record_time(); raise exn
 
 let phase str f arg =
   let padding =
