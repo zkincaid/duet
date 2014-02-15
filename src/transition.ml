@@ -810,7 +810,7 @@ module Make (Var : Var) = struct
       in
       List.map f non_induction
     in
-    let bounds = F.symbolic_abstract deltas ctx.phi in
+    let bounds = F.optimize deltas ctx.phi in
     let h tr (v, (lo, hi)) =
       let delta =
 	try T.sub (M.find v tr.transform) (T.var (V.mk_var v))
