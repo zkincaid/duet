@@ -79,7 +79,7 @@ module type S = sig
   val select_disjunct : (T.V.t -> QQ.t) -> t -> t option
   val affine_hull : t -> T.V.t list -> T.Linterm.t list
   val symbolic_bounds : (T.V.t -> bool) -> t -> T.t -> (pred * T.t) list
-  val symbolic_abstract : (T.t list) -> t -> (QQ.t option * QQ.t option) list
+  val optimize : (T.t list) -> t -> (QQ.t option * QQ.t option) list
   val disj_optimize : (T.t list) -> t -> (QQ.t option * QQ.t option) list list
 
   val dnf_size : t -> int
@@ -1313,7 +1313,7 @@ module Make (T : Term.S) = struct
 
   (* Given a list of (linear) terms [terms] and a formula [phi], find lower
      and upper bounds for each term within the feasible region of [phi]. *)
-  let symbolic_abstract terms phi =
+  let optimize terms phi =
     let open Apron in
     let man = Polka.manager_alloc_loose () in
     let vars =
@@ -1373,9 +1373,9 @@ module Make (T : Term.S) = struct
     let bottom = List.map (fun _ -> (Some QQ.one, Some QQ.zero)) terms in
     lazy_dnf ~join:join ~top:top ~bottom:bottom prop_to_smt phi
 
-  let symbolic_abstract ts phi =
+  let optimize ts phi =
     if ts == [] then []
-    else Log.time "symbolic_abstract" (symbolic_abstract ts) phi
+    else Log.time "optimize" (optimize ts) phi
 
   module LinBound = struct
     type t = { upper : T.t list;
@@ -1497,7 +1497,7 @@ module Make (T : Term.S) = struct
 	VarSet.elements (TMap.fold f nonlinear VarSet.empty)
       in
       let box =
-	symbolic_abstract (List.map T.var var_list) lin_phi
+	optimize (List.map T.var var_list) lin_phi
       in
       let bounds =
 	List.fold_left2
@@ -1567,7 +1567,7 @@ module Make (T : Term.S) = struct
       | Some lt -> lt
       | None -> raise Nonlinear
     in
-    let box = symbolic_abstract (List.map T.var vars) phi in
+    let box = optimize (List.map T.var vars) phi in
     let bounds =
       List.fold_left2
 	(fun m v box -> T.V.Map.add v box m)

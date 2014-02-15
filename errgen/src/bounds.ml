@@ -133,7 +133,7 @@ let rec add_bounds path_to = function
 	BatList.of_enum (K.M.keys to_body.K.transform
 			 /@ (T.var % V.mk_var % StrVar.prime))
       in
-      let bounds = F.symbolic_abstract vars phi in
+      let bounds = F.optimize vars phi in
       let to_formula (v, (lower, upper)) =
 	let v = T.var (V.mk_var v) in
 	let lo = match lower with
