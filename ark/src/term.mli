@@ -36,6 +36,8 @@ module type S = sig
   val zero : t
   val one : t
 
+  val sum : t BatEnum.t -> t
+
   (** Multiplicative inverse *)
   val inverse : t -> t
 

@@ -433,10 +433,6 @@ let weight def =
   | _ ->
     Log.errorf "No translation for definition: %a" Def.format def;
     assert false
-let weight def =
-  let w = weight def in
-  Log.logf Log.info "Weight for %a:@\n%a" Def.format def K.format w;
-  w
 
 let forward_inv_gen = ref false
 let set_qe = function
