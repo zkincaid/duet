@@ -412,69 +412,50 @@ module Make (Var : Var) = struct
     (* Polynomials with rational coefficients *)
     module P = Linear.Expr.MakePolynomial(QQ)
     module Gauss = Linear.GaussElim(QQ)(P)
-    module Env = BatMap.Make(Var)
+    module Env = Putil.Map.Make(Var)
 
-    let eval env =
-      let open Term in
-      let alg = function
-	| OConst k -> Some (P.zero, T.const k)
-	| OAdd (Some (px, cx), Some (py, cy)) ->
-	  Some (P.add px py, T.add cx cy)
-	| OAdd (_, _) ->
-	  Log.log Log.info "Nonlinear add";
-	  None
-	| OMul (Some (px, cx), Some (py, cy)) ->
-	  if P.equal px P.zero && T.to_const cx != None then begin
-	    match T.to_const cx with
-	    | Some k ->
-	      Some (P.scalar_mul k py, T.mul (T.const k) cy)
-	    | None -> None
-	  end else if P.equal py P.zero then begin
-	    match T.to_const cy with
-	    | Some k ->
-	      Some (P.scalar_mul k px, T.mul (T.const k) cx)
-	    | None -> None
-	  end else begin
-	    Log.logf Log.info "Nonlinear mul: [%a] * [%a]"
-	      P.format px
-	      P.format py;
-	    None
-	  end
-	| OVar x -> begin match V.lower x with
-	  | None -> None
-	  | Some v ->
-	    if not (Env.mem v env) then
-	      (* v not in env -> v satisfies the recurrence v_{k+1} = v_{k} *)
-	      Some (P.zero, T.var x)
-	    else begin
+    (* Closed forms *)
+    module Cf = Linear.Affine.LiftMap(Var)(Env)(P)
+
+    let cf_compose cf p =
+      let f (dim, coeff) = (dim, P.compose coeff p) in
+      Cf.of_enum (BatEnum.map f (Cf.enum cf))
+    let k_minus_1 = P.add_term 1 QQ.one (P.const (QQ.negate QQ.one))
+
+    let eval env t =
+      match T.to_linterm t with
+      | None -> None
+      | Some lt ->
+	let f (dim, coeff) =
+	  match dim with
+	  | AConst -> Cf.const (P.const coeff)
+	  | AVar (V.TVar _) -> raise Not_found
+	  | AVar (V.PVar v) -> 
+	    if Env.mem v env then begin
 	      match Env.find v env with
-	      | Some (px, cx) ->
-		let x_minus_1 = P.add_term 1 QQ.one (P.negate P.one) in
-		(* Polynomial p(X) gives closed form for the kth term in the
-		   sequence of values for v.  Since recurrence is written in
-		   terms of the value of v in the pre-state, we need to look at
-		   the (k-1)th term, so we use p(X-1) *)
-		Some (P.compose px x_minus_1, cx)
-	      (*		  Some (px, cx)*)
-	      | None -> None
+	      | Some cf ->
+		Cf.scalar_mul (P.const coeff) (cf_compose cf k_minus_1)
+	      | None -> raise Not_found
+	    end else begin
+	      (* if v isn't in env, it isn't in the domain of the
+		 transformation, and so hasn't been modified along the path *)
+	      Cf.term (AVar v) (P.const coeff)
 	    end
+	in
+	let fmt = Show.format<Cf.t option> in
+	try
+	  Some (Cf.sum (BatEnum.map f (T.Linterm.enum lt)))
+	with Not_found -> begin
+	  Log.logf Log.info "Failed to evaluate closed form for %a"
+	    T.format t;
+	  Log.logf Log.info "Environment: %a"
+	    (Env.format Show.format<Cf.t option>) env;
+	  None
 	end
-	| _ -> None
-      in
-      T.eval alg
-
-    let eval env term =
-      match eval env term with
-      | Some (px, cx) ->
-	Log.logf Log.info "Eval rhs: %a ~> %a" T.format term P.format px;
-	Some (px, cx)
-      | None ->
-	Log.logf Log.info "Eval rhs: %a ~> _|_" T.format term;
-	None
 
     (* Given a polynomial p, compute a polynomial q such that for any k, q(k)
        = p(0) + p(1) + ... + p(k-1) *)
-    let summation : P.t -> P.t = fun p ->
+    let polynomial_summation : P.t -> P.t = fun p ->
       let open BatEnum in
       let order = (P.order p) + 1 in (* order of q is 1 + order of p *)
 
@@ -515,26 +496,26 @@ module Make (Var : Var) = struct
       let add_order lin k = P.add_term k (soln k) lin in
       BatEnum.fold add_order P.zero vars
 
-    (* Convert a polynomial into a term *)
-    let to_real_term (px, cx) var =
+    let summation cf =
+      let f (x, p) = (x, polynomial_summation p) in
+      Cf.of_enum (BatEnum.map f (Cf.enum cf))
+
+    (* Convert a closed form into a term by instantiating the variable in the
+       polynomial coefficients of the closed form *)
+    let to_term cf var =
       let open BatEnum in
-      let to_term (order, cq) = T.mul (T.const cq) (T.exp var order) in
-      let e = P.enum px /@ to_term in
-      match BatEnum.peek e with
-      | Some _ -> T.add cx (reduce T.add e)
-      | None   -> cx
-
-    (* Convert a polynomial into a term, using only integer division *)
-    let to_int_term (px, cx) var =
-      let e = P.enum px /@ (fun (order, cq) -> (T.exp var order, cq)) in
-      T.add (T.qq_linterm e) cx
-
-    let to_term (px, cx) var = function
-      | TyInt -> to_int_term (px, cx) var
-      | TyReal -> to_real_term (px, cx) var
+      let polynomial_term px =
+	let to_term (order, cq) = T.mul (T.const cq) (T.exp var order) in
+	T.sum (BatEnum.map to_term (P.enum px))
+      in
+      let to_term (dim, px) = match dim with
+	| AVar v -> T.mul (polynomial_term px) (T.var (V.mk_var v))
+	| AConst -> polynomial_term px
+      in
+      T.sum (BatEnum.map to_term (Cf.enum cf))
   end
 
-  module VarMap = BatMap.Make(Var)
+  module VarMap = Incr.Env
 
   (* Linear terms with rational efficients *)
   module QQTerm = Linear.Expr.Make(Var)(QQ)
@@ -548,7 +529,7 @@ module Make (Var : Var) = struct
       (* Induction variables are variables with exact recurrences (defined by
 	 equalities of the form x' = x + p(y), where p(y) is a polynomial in
 	 induction variables of lower strata) *)
-      induction_vars : (Incr.P.t * T.t) option Incr.Env.t; 
+      induction_vars : Incr.Cf.t option Incr.Env.t; 
 
       (* Variable term representing the loop iteration *)
       loop_counter : T.t }
@@ -560,6 +541,7 @@ module Make (Var : Var) = struct
 
   (* Find recurrences of the form x' = x + c *)
   let simple_induction_vars ctx =
+    let open Incr in
     let s = new Smt.solver in
     s#assrt (F.to_smt ctx.phi);
     let m = match s#check () with
@@ -582,8 +564,10 @@ module Make (Var : Var) = struct
 	    Var.format v
 	    Var.format v
 	    QQ.format incr;
-	  let px_closed = Incr.P.add_term 1 incr Incr.P.zero in
-	  Some (px_closed, T.var (V.mk_var v))
+	  let increment = Cf.const (P.add_term 1 incr P.zero) in
+	  let cf = Cf.add_term (AVar v) P.one increment in
+	  Log.logf Log.info "Closed form: %a" Cf.format cf;
+	  Some (Cf.add_term (AVar v) P.one increment)
  	| Smt.Sat ->
 	  Log.logf Log.info "No recurrence for %a" Var.format v;
 	  None
@@ -654,18 +638,14 @@ module Make (Var : Var) = struct
 
   let closed_form env loop_counter v rhs =
     match Incr.eval env rhs with
-    | Some (px, cx) ->
-      Log.logf Log.info "Polynomial for %a: %a"
-	Var.format v
-	Incr.P.format px;
-      let px_closed = Incr.summation px in
-      let cx_closed =
-	T.add (T.mul loop_counter cx) (T.var (V.mk_var v))
+    | Some rhs_closed ->
+      let cf =
+	Incr.Cf.add_term (AVar v) Incr.P.one (Incr.summation rhs_closed)
       in
       Log.logf Log.info "Closed form for %a: %a"
 	Var.format v
-	Incr.P.format px_closed;
-      Some (px_closed, cx_closed)
+	Incr.Cf.format cf;
+      Some cf
     | None -> None
 
   let simple_higher_induction_vars tr env loop_counter =
@@ -746,8 +726,6 @@ module Make (Var : Var) = struct
 	()
     in
     let find_recurrence v =
-      Log.logf Log.info "Is `%a' an induction variable?"
-	Var.format v;
       s#push ();
 
       s#assrt (Smt.mk_eq (get_coeff v) (Smt.const_int 1));
@@ -758,7 +736,7 @@ module Make (Var : Var) = struct
       Incr.Env.iter (fun x rhs ->
 	match rhs with
 	| None -> assert_zero_coeff x
-	| Some (_, _) -> ()
+	| Some _ -> ()
       ) (Incr.Env.remove v ctx.induction_vars);
 
       (* The coefficient of a primed variable (other than v') must be 0 *)
@@ -777,15 +755,23 @@ module Make (Var : Var) = struct
 	   and we already set the coefficients of v and v' appropriately *)
 	let coeffs = remove_coeff v (remove_coeff (Var.prime v) coeffs) in
 	s#pop ();
-	Some (T.qq_linterm (BatList.enum (AMap.fold f coeffs [])))
+	let incr = T.qq_linterm (BatList.enum (AMap.fold f coeffs [])) in
+	Log.logf Log.info "Found recurrence: %a' = %a + %a"
+	  Var.format v
+	  Var.format v
+	  T.format incr;
+	Some incr
     in
+    let found_recurrence = ref false in
     let check v rhs =
       match rhs with
-      | Some (px, cx) -> Some (px, cx)
+      | Some cf -> Some cf
       | None ->
 	if has_coeff v then begin
 	  match find_recurrence v with
-	  | Some rhs -> closed_form ctx.induction_vars ctx.loop_counter v rhs
+	  | Some rhs ->
+	    found_recurrence := true;
+	    closed_form ctx.induction_vars ctx.loop_counter v rhs
 	  | None -> None
 	end
 	else
@@ -793,7 +779,14 @@ module Make (Var : Var) = struct
 	     recurrences*)
 	  None
     in
-    { ctx with induction_vars = Incr.Env.mapi check ctx.induction_vars }
+    let rec fix iv =
+      let iv = Incr.Env.mapi check iv in
+      if !found_recurrence then begin
+	found_recurrence := false;
+	fix iv
+      end else iv
+    in
+    { ctx with induction_vars = fix ctx.induction_vars }
 
   (* Simple recurrence inequations.  E.g., x + 0 <= x' <= x + 1. *)
   let recurrence_ineq ctx =
@@ -922,10 +915,7 @@ module Make (Var : Var) = struct
 	    BatEnum.fold f (T.const (T.Linterm.const_coeff lt)) nondeltas
 	  in
 	  match Incr.eval ctx.induction_vars rhs_term with
-	  | Some (px, cx) ->
-	    let px_closed = Incr.summation px in
-	    let cx_closed = T.mul ctx.loop_counter cx in
-	    Incr.to_term (px_closed, cx_closed) ctx.loop_counter TyReal
+	  | Some cf -> Incr.to_term (Incr.summation cf) ctx.loop_counter
 	  | None -> assert false
 	in
 	let res = 
@@ -1023,8 +1013,7 @@ module Make (Var : Var) = struct
 	  begin
 	    try
 	      match Incr.Env.find x ctx.induction_vars with
-	      | Some incr ->
-		Incr.to_term incr ctx.loop_counter (Var.typ x)
+	      | Some incr -> Incr.to_term incr ctx.loop_counter
 	      | None -> assert false
 	    with Not_found ->
 		(* We only fall into this case if v is not updated in the loop
@@ -1111,7 +1100,7 @@ module Make (Var : Var) = struct
     let close v incr transform =
       match incr with
       | Some incr ->
-	let t = Incr.to_term incr ctx.loop_counter (Var.typ v) in
+	let t = Incr.to_term incr ctx.loop_counter in
 	Log.logf Log.info "Closed term for %a: %a"
 	  Var.format v
 	  T.format t;

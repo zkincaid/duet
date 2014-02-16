@@ -44,6 +44,8 @@ module Expr : sig
 	all belong to the list [columns].  The result is a system of linear
 	equations over the row variables. *)
     val transpose : t list -> dim list -> dim list -> t list
+    val sum : t BatEnum.t -> t
+    val term : dim -> base -> t
   end
 
   (** Linear expressions implemented with standard maps *)
@@ -71,6 +73,9 @@ module Expr : sig
 
     (** Multiplicative unit *)
     val one : t
+
+    (** Constant polynomial *)
+    val const : R.t -> t
 
     (** Multiple a polynomial by a monomial *)
     val mul_term : int -> R.t -> t -> t

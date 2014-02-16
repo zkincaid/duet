@@ -311,23 +311,35 @@ let third_order_safe =
     [(0, ("i" := (~@ 0)), 1);
      (1, ("sn" := (~@ 0)), 2);
      (2, ("ssn" := (~@ 0)), 3);
-     (3, (?! (i <= n)), 4);
-     (5, ("ssn" := (ssn + sn)), 6);
-     (4, ("sn" := (sn + i)), 5);
-     (6, ("i" := (i + (~@ 1))), 3);
-     (3, (?! (i > n)), 7)]
+     (3, (?! (i < n)), 4);
+     (4, ("i" := (i + (~@ 1))), 5);
+     (5, ("sn" := (sn + i)), 6);
+     (6, ("ssn" := (ssn + sn)), 3);
+     (3, (?! (i >= n)), 7)]
   in
   mk_graph edges
 let test_third_order_safe () =
   let open CmdSyntax in
-  let phi =
-    (var "ssn'") == (((var "n") / (~@ (QQ.of_int 3)))
-		    + (((var "n")*(var "n")) / (~@ (QQ.of_int 2)))
-		    + (((var "n")*(var "n")*(var "n")) / (~@ (QQ.of_int 6))))
+  let n = var "n" in
+  let phi0 =
+    (var "i'" == var "n")
+    || (var "i'") == (~@ QQ.zero)
+  in
+  let phi1 =
+    ((var "sn'") == (((n * n) / (~@ (QQ.of_int 2))) + (n / (~@ (QQ.of_int 2)))))
+    || (var "sn'") == (~@ QQ.zero)
+  in
+  let phi2 =
+    (var "ssn'") ==
+      ((var "n")*((var "n")*(var "n"))) / (~@ (QQ.of_int 6))
+      + ((var "n")*(var "n")) / (~@ (QQ.of_int 2))
+      + ((var "n") / (~@ (QQ.of_int 3)))
     || (var "ssn'") == (~@ QQ.zero)
   in
-  set_opt_simple ();
-  run_test third_order_safe 0 7 phi Smt.Unsat
+  set_opt_polyrec ();
+  run_test third_order_safe 0 7 phi0 Smt.Unsat;
+  run_test third_order_safe 0 7 phi1 Smt.Unsat;
+  run_test third_order_safe 0 7 phi2 Smt.Unsat
 
 
 let test_widen () =
@@ -731,6 +743,39 @@ module Polyrec = struct
     check ((var "rx'") > T.neg (frac 1 10)) Smt.Unsat;
     check ((var "reps'") <= (frac 1 100000000)) Smt.Unsat;
     check ((var "reps'") >= (frac (-1) 100000000)) Smt.Unsat
+
+  let test_mult () =
+    let open K.T.Syntax in
+    let open K.F.Syntax in
+    set_opt_polyrec ();
+    let (~@) x = ~@ (QQ.of_int x) in
+    let x = var "x" in
+    let y = var "y" in
+    let z = var "z" in
+    let i = var "i" in
+    let prog =
+      block [
+	K.assume (x >= (~@ 0));
+	K.assign "i" (~@ 0);
+	K.assign "z" (~@ 0);
+	while_loop (i < x) [
+	  K.assign "i" (i + (~@ 1));
+	  K.assign "z" (z + y);
+	];
+      ]
+    in
+    let s = new Smt.solver in
+    Log.logf Log.info "Formula: %a" K.format prog;
+    let mk () = K.V.mk_tmp "nonlin" TyReal in
+    let check phi expected =
+      s#push ();
+      s#assrt (K.F.to_smt (K.F.linearize mk (K.to_formula prog
+					     && K.F.negate phi)));
+      assert_equal ~printer:Show.show<Smt.lbool> expected (s#check());
+      s#pop ();
+    in
+    check ((var "i'") == x) Smt.Unsat;
+    check ((var "z'") == x * y) Smt.Unsat
 end
 
 
@@ -740,13 +785,10 @@ let suite = "Transition" >:::
     "count_up_down_safe" >:: test_count_up_down_safe;
     "sum01_safe" >:: test_sum01_safe;
     "sum01_unsafe" >:: test_sum01_unsafe;
-
     "sum02_safe" >:: test_sum02_safe;
-    (* sum02_unsafe does not exist *)
     "sum03_safe" >:: test_sum03_safe;
     "sum03_unsafe" >:: test_sum03_unsafe;
-    (* sum04_safe is boring *)
-(*    "third_order_safe" >:: test_third_order_safe;*)
+    "third_order_safe" >:: test_third_order_safe;
     "widen" >:: test_widen;
 
     "symbound_const" >:: SymBound.test_const_bounds;
@@ -758,5 +800,6 @@ let suite = "Transition" >:::
     "polyrec_bound_const" >:: Polyrec.test_const_bounds;
     "polyrec_nested" >:: Polyrec.test_nested;
     "polyrec_nested_unbounded" >:: Polyrec.test_nested_unbounded;
-    "polyrec_symbolic" >:: SymBound.test_symbolic_bounds;
+    "polyrec_symbolic" >:: Polyrec.test_symbolic_bounds;
+    "polyrec_mult" >:: Polyrec.test_mult;
   ]
