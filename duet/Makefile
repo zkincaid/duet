@@ -9,7 +9,7 @@ CORE_FILES = core.ml core.mli ast.ml ast.mli hlir.ml report.ml afg.ml afg.mli \
 MISC_FILES = dominator.ml region.ml
 ANALYSIS_FILES = worklist.ml ai.ml exponential.ml bddpa.ml solve.ml	    \
 	interproc.ml live.ml dg.ml eqLogic.ml lockLogic.ml aliasLogic.ml fspa.ml	    \
-	inferFrames.ml havocPropagation.ml dependence.ml safety.ml slice.ml
+	inferFrames.ml havocPropagation.ml dependence.ml safety.ml slice.ml concDep.ml
 C_FE_FILES = translateCil.ml translateCil.mli
 CBP_FE_FILES = cbpAst.ml cbpParse.mli cbpParse.mly cbpLex.mll translateCbp.ml
 GOTO_FE_FILES =

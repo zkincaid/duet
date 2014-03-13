@@ -84,6 +84,25 @@ module LockPred = struct
     | _ -> unit
 end
 
+module CombinePred (V : EqLogic.Var) (P1 : Predicate with type var = V.t)
+                                     (P2 : Predicate with type var = V.t) =
+struct 
+  type t = P1.t * P2.t deriving (Show, Compare)
+  type var = V.t
+  let compare = Compare_t.compare
+  let format = Show_t.format
+  let show = Show_t.show
+
+  let equal x y = (P1.equal (fst x) (fst y)) && (P2.equal (snd x) (snd y))
+  let unit = (P1.unit, P2.unit)
+  let mul x y = (P1.mul (fst x) (fst y), P2.mul (snd x) (snd y))
+  let subst sub_var x = (P1.subst sub_var (fst x), P2.subst sub_var (snd x))
+  let implies sub x y = (P1.implies sub (fst x) (fst y)) &&
+                        (P2.implies sub (snd x) (snd y))
+  let hash = Hashtbl.hash
+  let pred_weight def = (P1.pred_weight def, P2.pred_weight def)
+end
+
 module MakePath (P : Predicate with type var = Var.t) = struct
   type var = Var.t
   module Minterm    = EqLogic.Hashed.MakeEQ(Var)(P)
@@ -92,11 +111,10 @@ module MakePath (P : Predicate with type var = Var.t) = struct
   include Transition
 
   let weight def = 
-    let hack = Atom (Eq, Constant (CChar 'h'), Constant (CChar 'h')) in
     let pw = P.pred_weight def in
     let weight_builtin bi = match bi with
       | Acquire e 
-      | Release e -> assume hack (Expr.free_vars e) pw
+      | Release e -> assume Bexpr.ktrue (Expr.free_vars e) pw
       | Alloc (v, e, targ) -> assign (Variable v) (Havoc (Var.get_type v)) pw
       | Free _             
       | Fork (_, _, _)

@@ -13,14 +13,9 @@ module Pack = Afg.Pack
 (** Track must-alias relationships *)
 let must_alias = ref true
 
-let concurrent = ref false
-
 let _ =
   CmdLine.register_config
     ("-no-must-alias", Arg.Clear must_alias, " Disable must-alias information")
-let _ =
-  CmdLine.register_config
-    ("-concurrent", Arg.Set concurrent, " Perform concurrent dependence analysis")
 
 module RG = Interproc.RG
 
@@ -963,7 +958,7 @@ struct
     in
       RDTransition.fold_minterms add_def_minterm def_tr false
 
-  let construct_dg file =
+  let construct_dg ?(solver = RDAnalysis.solve) file =
     let dg = DG.create () in
     let add_edge def (def_ap, use_ap) use =
       Log.debugf "Add edge %a -> %a"
@@ -1061,9 +1056,7 @@ struct
       DefAPSet.iter (fun (d,x) -> add_edge d (x,y) join) set
     in
     DefAPSetHT.clear join_ht;
-    Log.phase "Dependence analysis" ((if !concurrent then RDAnalysisConc.solve 
-                                                     else RDAnalysis.solve)
-                                       smash file) ();
+    Log.phase "Dependence analysis" (solver smash file) ();
     DefAPSetHT.iter add_join_edge join_ht;
     Dg.simplify_dg dg;
     if !CmdLine.sanity_checks then DG.sanity_check dg;
@@ -1126,7 +1119,8 @@ let interval_analysis file =
       List.iter process_func file.funcs
   in
   let construct_dg  =
-    if !must_alias then Dep.construct_dg else TrivDep.construct_dg
+    if !must_alias then Dep.construct_dg ~solver:Dep.RDAnalysis.solve 
+    else TrivDep.construct_dg ~solver:TrivDep.RDAnalysis.solve
   in
   let rec go () =
     let dg = Log.phase "Construct DG" construct_dg file in
