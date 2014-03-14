@@ -6,14 +6,59 @@ open Apak
 open EqLogic
 
 module DG = Afg.G
-module LockPred = LockLogic.LockPred
+module LockPred = struct 
+  include LockLogic.LockPred
+  let implies sub x y = false
+end
 
 module Make(MakeEQ :
 	      functor (P : Hashed.Predicate with type var = Var.t) ->
 		Hashed.ConjFormula with type var = Var.t
-				   and type pred = P.t) =
-struct
+				   and type pred = P.t) = struct
   module SeqDep = AliasLogic.Make(MakeEQ)
+
+  module MakeFormula (Minterm : Hashed.ConjFormula with type var = Var.t) = struct
+    module Formula = EqLogic.MakeFormula(Minterm)
+    module TR = struct 
+      include Formula.Transition
+
+      let sub_index i j x = if Var.get_subscript x = i then Var.subscript x j else x
+      let sub0 = sub_index 0 3
+      let sub1 = sub_index 1 3
+      let pred_unit = Minterm.get_pred Minterm.unit
+
+      let subst sub x =
+        let frame = get_frame x in
+        let f m   = add (of_minterm frame (Minterm.subst sub m)) in
+          fold_minterms f x zero
+
+      (* Multiplication needs to rewrite both transition functions over the same
+       * frame first to avoid losing equalities like x=x<3>, x<3>=y *)
+      let mul_pointed x y =
+        let frame_x = get_frame x in
+        let frame_y = get_frame y in
+        let x_minus_y = Var.Set.diff frame_x frame_y in
+        let y_minus_x = Var.Set.diff frame_y frame_x in
+        let x_eqs = subst sub1 (assume Bexpr.ktrue y_minus_x pred_unit) in
+        let y_eqs = subst sub0 (assume Bexpr.ktrue x_minus_y pred_unit) in
+          mul (mul x x_eqs) (mul y_eqs y)
+
+      let make_pointed x y =
+        let frame_x = get_frame x in
+        let frame_y = get_frame y in
+        let x_minus_y = Var.Set.diff frame_x frame_y in
+        let y_minus_x = Var.Set.diff frame_y frame_x in
+        let x_unify = mul x (assume Bexpr.ktrue y_minus_x pred_unit) in
+        let y_unify = mul y (assume Bexpr.ktrue x_minus_y pred_unit) in
+          mul (subst sub1 x_unify) (subst sub0 y_unify)
+    end
+    module State = Formula.State
+    module PointedTR : module type of TR with type t = TR.t = struct
+      include TR
+      let mul = mul_pointed
+    end
+  end
+
   module KillPred = struct
     include SeqDep.KillPred
     let pred_weight def = 
@@ -29,18 +74,17 @@ struct
           | Builtin (Alloc (lhs, _, _)) -> assign_weight (Variable lhs)
           | _ -> AP.Set.empty
   end
+  module LKPred  = LockLogic.CombinePred(Var)(LockPred)(KillPred)
+  module LKMinterm = MakeEQ(LKPred)
+  module LK = MakeFormula(LKMinterm)
+
   module RDPred = struct
     include SeqDep.RDPred
     let pred_weight def = unit
   end
-
-  module LKPred  = LockLogic.CombinePred(Var)(LockPred)(KillPred)
   module LRDPred = LockLogic.CombinePred(Var)(LockPred)(RDPred)
-
-  module LKTransition = LockLogic.MakePath(LKPred)
-  module LKMinterm = LKTransition.Minterm
-  module LRDTransition = LockLogic.MakePath(LRDPred)
-  module LRDMinterm = LRDTransition.Minterm
+  module LRDMinterm = MakeEQ(LRDPred)
+  module LRD = MakeFormula(LRDMinterm)
 
   module DefAP = struct
     type t = Def.t * AP.t
@@ -54,116 +98,47 @@ struct
   module RDMap =
     Monoid.FunctionSpace.Total.Ordered.Make
       (DefAP)
-      (Ka.Ordered.AdditiveMonoid(LRDTransition))
+      (Ka.Ordered.AdditiveMonoid(LRD.TR))
   module EUMap = RDMap
   module PointedEUMap =
-    Ka.MakePointedFS
+    Monoid.FunctionSpace.Total.Ordered.Make
       (DefAP)
-      (LRDTransition)
+      (Ka.Ordered.AdditiveMonoid(LRD.PointedTR))
 
-  module PointedLK = struct
-    type t = { left : LKTransition.t;
-               right : LKTransition.t }
-               deriving (Show,Compare)
-    let format = Show_t.format
-    let show = Show_t.show
-    let compare = Compare_t.compare
-  end
-  module PointedLKTrans = Putil.Set.Make(PointedLK)
-
-  module PointedLRD = struct
-    type t = { left : LRDTransition.t;
-               right : LRDTransition.t }
-               deriving (Show,Compare)
-    let format = Show_t.format
-    let show = Show_t.show
-    let compare = Compare_t.compare
-  end
-  module PointedLRDTrans = Putil.Set.Make(PointedLRD)
+  let map_to_pointedmap map = 
+    let f acc (x, y) = PointedEUMap.update x y acc in
+      BatEnum.fold f PointedEUMap.unit (EUMap.enum map)
 
   (* Path types. *)
-  type abspath   = LKTransition.t deriving(Show,Compare)
-  type abspath_t = LKTransition.t deriving(Show,Compare)
-  type abspath_p = PointedLKTrans.t deriving(Show,Compare)
+  type abspath   = LK.TR.t deriving(Show,Compare)
+  type abspath_t = LK.TR.t deriving(Show,Compare)
+  type abspath_p = LK.PointedTR.t deriving(Show,Compare)
   type rd   = RDMap.t deriving(Show,Compare)
   type rd_t = RDMap.t deriving(Show,Compare)
   type eu   = EUMap.t deriving(Show,Compare)
   type eu_p = PointedEUMap.t deriving(Show,Compare)
 
   (* Lift an LKTransition to an LRDTransition *)
-  let lift_kill_transition kill_tr =
-    let frame = LKTransition.get_frame kill_tr in
+  let lift_transition ?(locks = true) ?(kills = true) tr =
+    let frame = LK.TR.get_frame tr in
     let f minterm rest =
-      let (locks, killed) = LKMinterm.get_pred minterm in
+      let (lk, kl) = LKMinterm.get_pred minterm in
       let eqs = LKMinterm.get_eqs minterm in
       let pred = 
-        (locks, { SeqDep.current_name = None; killed = killed })
+        let lk = if locks then lk else LockPred.unit in
+        let kl = if kills then kl else AP.Set.empty in
+          (lk, { SeqDep.current_name = None; killed = kl })
       in
       let new_minterm = LRDMinterm.make eqs pred in
-      let new_tr = LRDTransition.of_minterm frame new_minterm in
-        LRDTransition.add new_tr rest
+      let new_tr = LRD.TR.of_minterm frame new_minterm in
+        LRD.TR.add new_tr rest
     in
-      LKTransition.fold_minterms f kill_tr LRDTransition.zero
-
-  (* Lift an LKTransition to an LRDTransition, but forget about the killed
-   access paths *)
-  let lift_kill_transition_lock_eq kill_tr =
-    let frame = LKTransition.get_frame kill_tr in
-    let f minterm rest =
-      let (locks, _) = LKMinterm.get_pred minterm in
-      let eqs = LKMinterm.get_eqs minterm in
-      let pred =
-        (locks, { SeqDep.current_name = None; killed = AP.Set.empty })
-      in
-      let new_minterm = LRDMinterm.make eqs pred in
-      let new_tr = LRDTransition.of_minterm frame new_minterm in
-        LRDTransition.add new_tr rest
-    in
-      LKTransition.fold_minterms f kill_tr LRDTransition.zero
-
-  (* Lift an LKTransition to an LRDTransition, but forget about the killed
-   access paths and locksets *)
-  let lift_kill_transition_eq kill_tr =
-    let frame = LKTransition.get_frame kill_tr in
-    let f minterm rest =
-      let eqs = LKMinterm.get_eqs minterm in
-      let pred =
-        (LockPred.unit, { SeqDep.current_name = None; killed = AP.Set.empty })
-      in
-      let new_minterm = LRDMinterm.make eqs pred in
-      let new_tr = LRDTransition.of_minterm frame new_minterm in
-        LRDTransition.add new_tr rest
-    in
-      LKTransition.fold_minterms f kill_tr LRDTransition.zero
-
-  (* Lift an LKTransition to an LRDTransition, but forget about locksets *)
-  let lift_kill_transition_kill_eq kill_tr =
-    let frame = LKTransition.get_frame kill_tr in
-    let f minterm rest =
-      let (_, killed) = LKMinterm.get_pred minterm in
-      let eqs = LKMinterm.get_eqs minterm in
-      let pred = 
-        (LockPred.unit, { SeqDep.current_name = None; killed = killed })
-      in
-      let new_minterm = LRDMinterm.make eqs pred in
-      let new_tr = LRDTransition.of_minterm frame new_minterm in
-        LRDTransition.add new_tr rest
-    in
-      LKTransition.fold_minterms f kill_tr LRDTransition.zero
-
-  (* Lift a set of pointed LKTransitions to a set of pointed LRDTransitions *)
-  let lift_pointed_kill_transition kill_tr_p =
-    let f kill_p rest = 
-      PointedLRDTrans.add { PointedLRD.left = lift_kill_transition kill_p.PointedLK.left;
-                            PointedLRD.right = lift_kill_transition kill_p.PointedLK.right }
-        rest
-    in
-      PointedLKTrans.fold f kill_tr_p PointedLRDTrans.empty
+      LK.TR.fold_minterms f tr LRD.TR.zero
 
   (* Remove dead definitions (definitions of memory locations which are
    overwritten later in the path) *)
   let filter_rd rd_tr =
-    let frame = LRDTransition.get_frame rd_tr in
+    let frame = LRD.TR.get_frame rd_tr in
     let f minterm rest =
       let (locks, pred) = LRDMinterm.get_pred minterm in
       let add = match pred.SeqDep.current_name with
@@ -171,56 +146,40 @@ struct
         | None -> true
       in
         if add
-        then LRDTransition.add (LRDTransition.of_minterm frame minterm) rest
+        then LRD.TR.add (LRD.TR.of_minterm frame minterm) rest
         else rest
     in
-      LRDTransition.fold_minterms f rd_tr LRDTransition.zero
+      LRD.TR.fold_minterms f rd_tr LRD.TR.zero
 
   let rd_mul_right rd abspath =
-    let kill = lift_kill_transition abspath in
-    let update_rd kill_tr = filter_rd (LRDTransition.mul kill_tr kill) in
+    let abspath = lift_transition abspath in
+    let update_rd tr = filter_rd (LRD.TR.mul tr abspath) in
       RDMap.map update_rd rd
 
   let rd_mul_left rd abspath =
-    let lockeqs = lift_kill_transition_lock_eq abspath in
-    let update_rd kill_tr = filter_rd (LRDTransition.mul lockeqs kill_tr) in
+    let abspath = lift_transition ~kills:false abspath in
+    let update_rd tr = filter_rd (LRD.TR.mul abspath tr) in
       RDMap.map update_rd rd
 
   let rd_mul_left_con rd abspath =
-    let eqs = lift_kill_transition_eq abspath in
-    let update_rd kill_tr = filter_rd (LRDTransition.mul eqs kill_tr) in
+    let abspath = lift_transition ~locks:false ~kills:false abspath in
+    let update_rd tr = filter_rd (LRD.TR.mul abspath tr) in
       RDMap.map update_rd rd
 
   let eu_mul_left eu abspath =
-    let kill = lift_kill_transition abspath in
-    let update_eu kill_tr = filter_rd (LRDTransition.mul kill kill_tr) in
+    let abspath = lift_transition abspath in
+    let update_eu tr = filter_rd (LRD.TR.mul abspath tr) in
       EUMap.map update_eu eu 
 
-  (* Filtering for pointed paths? *)
-  let eu_mul_pointed_left eu abspath_p = 
-    let kill = lift_pointed_kill_transition abspath_p in
-    let update_pointed_eu def_ap kill_tr kill_p acc =
-      let new_path = 
-        PointedEUMap.singleton 
-          def_ap 
-          kill_p.PointedLRD.left 
-          (LRDTransition.mul kill_p.PointedLRD.right kill_tr) 
-          LRDTransition.one
-      in
-        PointedEUMap.add new_path acc
-    in
-    let update_eu acc (def_ap, kill_tr) = 
-      PointedLRDTrans.fold (update_pointed_eu def_ap kill_tr) kill acc
-    in
-      BatEnum.fold update_eu PointedEUMap.one (EUMap.enum eu) 
+  let eu_mul_left_pointed eu abspath =
+    let abspath = lift_transition abspath in
+    let update_eu tr = filter_rd (LRD.PointedTR.mul abspath tr) in
+      PointedEUMap.map update_eu eu 
 
-  let pointed_eu_mul_left eu_p abspath =
-    let kill = lift_kill_transition abspath in
-      PointedEUMap.mul (PointedEUMap.empty kill) eu_p 
-
-  let pointed_eu_mul_left_con eu_p abspath =
-    let kill = lift_kill_transition_kill_eq abspath in
-      PointedEUMap.mul (PointedEUMap.empty kill) eu_p 
+  let eu_mul_left_con eu abspath =
+    let abspath = lift_transition ~locks:false abspath in
+    let update_eu tr = filter_rd (LRD.PointedTR.mul abspath tr) in
+      PointedEUMap.map update_eu eu 
 
   module ConcReachingDefs = struct
     type var = Var.t
@@ -241,26 +200,24 @@ struct
 
     let equal a b = compare a b = 0
 
-    let zero = { abspath = LKTransition.zero;
-                 abspath_t = LKTransition.zero;
-                 abspath_p = PointedLKTrans.empty;
+    let zero = { abspath = LK.TR.zero;
+                 abspath_t = LK.TR.zero;
+                 abspath_p = LK.PointedTR.zero;
                  rd = RDMap.unit;
                  rd_t = RDMap.unit;
                  rd_c = RDMap.unit;
                  eu = EUMap.unit;
-                 eu_p = PointedEUMap.zero;
-                 eu_c = PointedEUMap.zero }
-    let one = { abspath = LKTransition.one;
-                abspath_t = LKTransition.one;
-                abspath_p = PointedLKTrans.singleton 
-                              { PointedLK.left = LKTransition.one;
-                                PointedLK.right = LKTransition.one };
+                 eu_p = PointedEUMap.unit;
+                 eu_c = PointedEUMap.unit }
+    let one = { abspath = LK.TR.one;
+                abspath_t = LK.TR.one;
+                abspath_p = LK.PointedTR.mul LK.TR.one LK.TR.one;
                 rd = RDMap.unit;
                 rd_t = RDMap.unit;
                 rd_c = RDMap.unit;
                 eu = EUMap.unit;
-                eu_p = PointedEUMap.one;
-                eu_c = PointedEUMap.one }
+                eu_p = PointedEUMap.unit;
+                eu_c = PointedEUMap.unit }
 
     (* path = path1 ; path2,
      * terminated paths = terminate paths1 + path1 ; * terminated paths2
@@ -274,19 +231,13 @@ struct
      *                     + path1 ; pointed uses 2
      * concurrent uses = concurrent uses1 + kill eq path1 ; concurrent uses2 *)
     let mul a b = 
-      let update_right x = 
-        { x with PointedLK.right = LKTransition.mul x.PointedLK.right b.abspath }
-      in
-      let update_left y = 
-        { y with PointedLK.left = LKTransition.mul a.abspath y.PointedLK.left }
-      in
-      { abspath = LKTransition.mul a.abspath b.abspath;
-        abspath_t = LKTransition.add 
+      { abspath = LK.TR.mul a.abspath b.abspath;
+        abspath_t = LK.TR.add 
                       a.abspath_t 
-                      (LKTransition.mul a.abspath b.abspath_t);
-        abspath_p = PointedLKTrans.union
-                      (PointedLKTrans.map update_right a.abspath_p)
-                      (PointedLKTrans.map update_left b.abspath_p);
+                      (LK.TR.mul a.abspath b.abspath_t);
+        abspath_p = LK.PointedTR.add
+                      (LK.PointedTR.mul a.abspath_p b.abspath)
+                      (LK.PointedTR.mul a.abspath b.abspath_p);
         rd = RDMap.mul 
                (rd_mul_right a.rd b.abspath)
                (rd_mul_left  b.rd a.abspath);
@@ -295,63 +246,76 @@ struct
                  (rd_mul_left b.rd_t a.abspath);
         rd_c = RDMap.mul a.rd_c (rd_mul_left_con b.rd_c a.abspath);
         eu = EUMap.mul a.eu (eu_mul_left b.eu a.abspath);
-        eu_p = PointedEUMap.add
-                 a.eu_p 
-                 (PointedEUMap.add
-                    (eu_mul_pointed_left b.eu a.abspath_p)
-                    (pointed_eu_mul_left b.eu_p a.abspath));
-        eu_c = PointedEUMap.add a.eu_c (pointed_eu_mul_left_con b.eu_c a.abspath) }
+        eu_p = PointedEUMap.mul a.eu_p
+                 (PointedEUMap.mul (eu_mul_left_pointed (map_to_pointedmap b.eu) a.abspath_p)
+                                   (eu_mul_left_pointed b.eu_p a.abspath));
+        eu_c = PointedEUMap.mul a.eu_c (eu_mul_left_con b.eu_c a.abspath) }
 
-    let add a b = { abspath = LKTransition.add a.abspath b.abspath;
-                    abspath_t = LKTransition.add a.abspath_t b.abspath_t;
-                    abspath_p = PointedLKTrans.union a.abspath_p b.abspath_p;
+    let add a b = { abspath = LK.TR.add a.abspath b.abspath;
+                    abspath_t = LK.TR.add a.abspath_t b.abspath_t;
+                    abspath_p = LK.PointedTR.add a.abspath_p b.abspath_p;
                     rd = RDMap.mul a.rd b.rd;
                     rd_t = RDMap.mul a.rd_t b.rd_t;
                     rd_c = RDMap.mul a.rd_c b.rd_c;
                     eu = EUMap.mul a.eu b.eu;
                     eu_p = PointedEUMap.mul a.eu_p b.eu_p;
                     eu_c = PointedEUMap.mul a.eu_c b.eu_c }
-    
+   
+    (* path = path*,
+     * terminated paths = path* ; terminated paths
+     * pointed paths = path* ; pointed paths ; path*
+     * reaching defs = path* ; reaching defs ; path*
+     * terminated defs = path* ; reaching defs ; path* ; terminated paths
+     *                   + path* ; terminated defs
+     * concurrent defs = eq path* ; concurrent defs
+     * exposed uses = path* ; exposed uses
+     * pointed uses = path* ; pointed paths ; path* ; exposed uses
+     *                + path* ; pointed uses
+     * concurrent uses = eq path* ; concurrent uses *)
     let star a = 
-      let abspath = LKTransition.star a.abspath in
-      let abspath_t = LKTransition.mul abspath a.abspath_t in
-      let abspath_p = 
-        let extend_pointed x = 
-          { PointedLK.left = LKTransition.mul abspath x.PointedLK.left;
-            PointedLK.right = LKTransition.mul x.PointedLK.right abspath }
-        in
-          PointedLKTrans.map extend_pointed a.abspath_p in
+      let abspath = LK.TR.star a.abspath in
+      let abspath_t = LK.TR.mul abspath a.abspath_t in
+      let abspath_p = LK.PointedTR.mul 
+                        (LK.PointedTR.mul abspath a.abspath_p)
+                        abspath
+      in
+      let rd = rd_mul_left (rd_mul_right a.rd abspath) abspath in
         { abspath = abspath;
           abspath_t = abspath_t;
           abspath_p = abspath_p;
-          rd = rd_mul_left (rd_mul_right a.rd abspath) abspath;
-          rd_t = rd_mul_left (rd_mul_right a.rd abspath_t) abspath;
+          rd = rd;
+          rd_t = EUMap.mul (rd_mul_right rd a.abspath_t)
+                           (rd_mul_left a.rd_t abspath);
           rd_c = rd_mul_left_con a.rd_c abspath;
           eu = eu_mul_left a.eu abspath;
-          eu_p = eu_mul_pointed_left a.eu abspath_p;
-          eu_c = pointed_eu_mul_left_con a.eu_c abspath }
+          eu_p = PointedEUMap.mul (eu_mul_left_pointed (map_to_pointedmap a.eu) abspath_p)
+                                  (eu_mul_left_pointed a.eu_p abspath);
+          eu_c = eu_mul_left_con a.eu_c abspath }
 
     let exists f a =
-      let map_exists x = { PointedLK.left = LKTransition.exists f x.PointedLK.left;
-                           PointedLK.right = LKTransition.exists f x.PointedLK.right }
-      in
       let remove_locals rd =
         let g acc ((def, ap), rd) = match ap with
           | Variable v when not (f v) -> acc
-          | _ -> RDMap.update (def, ap) (LRDTransition.exists f rd) acc
+          | _ -> RDMap.update (def, ap) (LRD.TR.exists f rd) acc
         in
           BatEnum.fold g RDMap.unit (RDMap.enum rd)
       in
-        { abspath = LKTransition.exists f a.abspath;
-          abspath_t = LKTransition.exists f a.abspath_t;
-          abspath_p = PointedLKTrans.map map_exists a.abspath_p;
+      let remove_locals_pointed rd =
+        let g acc ((def, ap), rd) = match ap with
+          | Variable v when not (f v) -> acc
+          | _ -> PointedEUMap.update (def, ap) (LRD.PointedTR.exists f rd) acc
+        in
+          BatEnum.fold g PointedEUMap.unit (PointedEUMap.enum rd)
+      in
+        { abspath = LK.TR.exists f a.abspath;
+          abspath_t = LK.TR.exists f a.abspath_t;
+          abspath_p = LK.PointedTR.exists f a.abspath_p;
           rd = remove_locals a.rd;
           rd_t = remove_locals a.rd_t;
           rd_c = remove_locals a.rd_c;
           eu = remove_locals a.eu;
-          (* These don't remove locals, though they should *)
-          eu_p = PointedEUMap.map_codomain (LRDTransition.exists f) a.eu_p;
-          eu_c = PointedEUMap.map_codomain (LRDTransition.exists f) a.eu_c }
+          eu_p = remove_locals_pointed a.eu_p;
+          eu_c = remove_locals_pointed a.eu_c }
 
     let widen = add
   end
@@ -360,13 +324,56 @@ struct
     module Analysis = Interproc.MakePathExpr(ConcReachingDefs)
     open ConcReachingDefs
 
+    let lk_weight def =
+      let get_deref e = match e with 
+        | AccessPath ap -> AP.Set.singleton (Deref (AccessPath ap))
+        | AddrOf     ap -> AP.Set.singleton ap
+        | _             -> AP.Set.empty
+      in
+      let assign_weight lhs rhs =
+        let ls   = LockPred.unit in
+        let kill = AP.Set.singleton (AP.subscript 0 lhs) in
+          LK.TR.assign lhs rhs (ls, kill)
+      in
+      let assume_weight be =
+        let ls   = LockPred.unit in
+        let kill = AP.Set.map (AP.subscript 0) (Bexpr.get_uses be) in
+          LK.TR.assume be (Bexpr.free_vars be) (ls, kill)
+      in
+      let acq_weight e =
+        let ls   = { LockPred.par = LockPred.Pos;
+                     LockPred.acq = get_deref e;
+                     LockPred.rel = AP.Set.empty } in
+        let kill = AP.Set.empty in
+          LK.TR.assume Bexpr.ktrue (Expr.free_vars e) (ls, kill)
+      in
+      let rel_weight e =
+        let ls   = { LockPred.par = LockPred.Pos;
+                     LockPred.acq = AP.Set.empty;
+                     LockPred.rel = get_deref e } in
+        let kill = AP.Set.empty in
+          LK.TR.assume Bexpr.ktrue (Expr.free_vars e) (ls, kill)
+      in
+        match def.dkind with
+          | Assign (lhs, rhs) -> assign_weight (Variable lhs) rhs
+          | Store  (lhs, rhs) -> assign_weight lhs rhs
+          | Assume be | Assert (be, _) -> assume_weight be
+          | AssertMemSafe (e, s) -> assume_weight (Bexpr.of_expr e)
+          | Builtin (Alloc (lhs, _, _)) -> assign_weight (Variable lhs) (Havoc (Var.get_type lhs))
+          | Builtin Exit -> LK.TR.zero
+          | Builtin (Acquire e) -> acq_weight e
+          | Builtin (Release e) -> rel_weight e
+          | Call   (vo, e, elst) -> failwith "Conc dep: Call encountered"
+          | Return eo            -> failwith "Conc dep: Return encountered"
+          | _ -> LK.TR.one
+
     let rd_weight def =
       let assign_weight lhs rhs = 
         let pred = (LockPred.pred_weight def, 
                     { SeqDep.current_name = Some (AP.subscript 0 lhs);
                       SeqDep.killed = AP.Set.empty })
         in
-          RDMap.update (def, lhs) (LRDTransition.assign lhs rhs pred) RDMap.unit
+          RDMap.update (def, lhs) (LRD.TR.assign lhs rhs pred) RDMap.unit
       in
       let assume_weight bexpr =
         let uses = Bexpr.get_uses bexpr in
@@ -375,7 +382,7 @@ struct
                       { SeqDep.current_name = Some (AP.subscript 0 ap);
                         SeqDep.killed = AP.Set.empty })
           in
-          let tr = LRDTransition.assume bexpr (AP.free_vars ap) pred in
+          let tr = LRD.TR.assume bexpr (AP.free_vars ap) pred in
             RDMap.update (def, ap) tr acc
         in
           AP.Set.fold f uses RDMap.unit
@@ -390,34 +397,28 @@ struct
           | _ -> RDMap.unit
 
     let weight def =
-      let abspath = LKTransition.weight def in
+      let abspath = lk_weight def in
       let rd = rd_weight def in
-      let (eu, eu_p) = 
-        let f ap (eu_acc, eu_p_acc) = 
+      let eu = 
+        let f ap acc = 
           let pred = (LockPred.pred_weight def, 
                       { SeqDep.current_name = Some (AP.subscript 0 ap);
                         SeqDep.killed = AP.Set.empty })
           in
-          let tr   = LRDTransition.assume Bexpr.ktrue (AP.free_vars ap) pred in
-          let tr_p = { PointedLRD.left = tr;
-                       PointedLRD.right = LRDTransition.one }
-          in
-          let new_p_eu = PointedEUMap.singleton (def, ap) tr LRDTransition.one LRDTransition.one in
-            (EUMap.update (def, ap) tr eu_acc, PointedEUMap.add new_p_eu eu_p_acc)
+          let tr   = LRD.TR.assume Bexpr.ktrue (AP.free_vars ap) pred in
+            EUMap.update (def, ap) tr acc
         in
-          AP.Set.fold f (Def.get_uses def) (EUMap.unit, PointedEUMap.one)
+          AP.Set.fold f (Def.get_uses def) EUMap.unit
       in
         { abspath = abspath;
           abspath_t = abspath;
-          abspath_p = PointedLKTrans.singleton 
-                        { PointedLK.left = abspath;
-                          PointedLK.right = LKTransition.one };
+          abspath_p = LK.TR.make_pointed abspath LK.TR.one;
           rd = rd;
           rd_t = rd;
           rd_c = RDMap.unit;
           eu = eu;
-          eu_p = eu_p;
-          eu_c = PointedEUMap.one }
+          eu_p = map_to_pointedmap eu;
+          eu_c = PointedEUMap.unit }
 
 
     let analyze file =
