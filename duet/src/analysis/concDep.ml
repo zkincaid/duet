@@ -6,6 +6,7 @@ open Apak
 open EqLogic
 
 module DG = Afg.G
+module Pack = Afg.Pack
 
 (* Double lock sets *)
 module LockPred = struct
@@ -655,13 +656,26 @@ module Make(MakeEQ :
               iter_query initial
             end
             in
+              (*
               BatEnum.iter (fun (b, v) -> 
                               print_endline ("Weight: (" ^ (Interproc.RG.Block.show b) ^
                                             ", " ^ (Def.show v) ^ ") -> " ^
                                             (show (weight (Analysis.get_summaries query) v))))
-                                              (Interproc.RG.vertices rg)
+                                              (Interproc.RG.vertices rg) *)
+              query
           end
         | _      -> assert false
+
+    let add_conc_edges dg query =
+      let f _ summary =
+        let g (((def1, ap1), (def2, ap2)), _) =
+          DG.add_edge_e dg (DG.E.create def1 (Pack.PairSet.singleton (Pack.mk_pair ap1 ap2)) def2)
+        in
+          BatEnum.iter g (DFlowMap.enum summary.du);
+          BatEnum.iter g (DFlowMap.enum summary.ud)
+      in
+        Analysis.HT.iter f (Analysis.get_summaries query)
+
   end
 end
 
@@ -669,13 +683,17 @@ module ConcDep = Make(EqLogic.Hashed.MakeEQ(Var))
 module ConcTrivDep = Make(EqLogic.Hashed.MakeTrivEQ(Var))
 
 let construct_conc_dg file =
-  ignore (Bddpa.initialize file);
-  Pa.simplify_calls file;
-  if !AliasLogic.must_alias then 
-    ConcDep.SeqDep.construct_dg ~solver:ConcDep.SeqDep.RDAnalysisConc.solve file
-  else 
-    ConcTrivDep.SeqDep.construct_dg ~solver:ConcTrivDep.SeqDep.RDAnalysisConc.solve file
-
+  let dg = begin
+    ignore (Bddpa.initialize file);
+    Pa.simplify_calls file;
+    if !AliasLogic.must_alias then 
+      ConcDep.SeqDep.construct_dg ~solver:ConcDep.SeqDep.RDAnalysisConc.solve file
+    else 
+      ConcTrivDep.SeqDep.construct_dg ~solver:ConcTrivDep.SeqDep.RDAnalysisConc.solve file
+  end in
+    ConcDep.ConcRDAnalysis.add_conc_edges dg (ConcDep.ConcRDAnalysis.analyze file);
+    DG.display_labelled dg;
+    dg
 
 let chdfg_stats file =
   let dg = Log.phase "Construct hDFG" construct_conc_dg file in
@@ -688,4 +706,4 @@ let _ =
 
 let _ =
   CmdLine.register_pass 
-    ("-chdfg-test", ConcDep.ConcRDAnalysis.analyze, " Concurrent heap data flow graph test")
+    ("-chdfg-test", (fun x -> ConcDep.ConcRDAnalysis.analyze x; ()), " Concurrent heap data flow graph test")
