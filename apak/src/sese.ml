@@ -87,6 +87,31 @@ module Make(G : G) = struct
 
   type pst = PSTNode of (e * e * (pst list))
 
+  (* Internal structure used for building program structure trees *)
+  type pst_node = {
+    pst_start : e;
+    mutable pst_end : e option;
+    pst_parent : pst_node option;
+    mutable pst_children : pst_node list;
+    pst_cls : int
+  }
+
+  (* Create a new pst node with parent node and beginning edge e.  cls must be
+     the CEC of e. *)
+  let pst_mk_child node cls e =
+    let child_node = {
+      pst_start = e;
+      pst_end = None;
+      pst_parent = Some node;
+      pst_children = [];
+      pst_cls = cls;
+    } in
+    node.pst_children <- child_node::node.pst_children;
+    child_node
+  let pst_parent node = match node.pst_parent with
+    | Some p -> p
+    | None   -> invalid_arg "pst_parent"
+
   (* Create an undirected copy of the vertices reachable from init. *)
   let undirected g init =
     let open U in
@@ -315,7 +340,16 @@ module Make(G : G) = struct
 	raise e
       end
     in
-
+    if !Log.debug_mode then begin
+      let classes = Array.create num_cls [] in
+      ExtG.iter_edges (fun v u ->
+	classes.(cls v u) <- (name v, name u)::classes.(cls v u)
+      ) g;
+      for i = 0 to num_cls - 1 do
+	Log.debugf "CEC %d: %a" i Show.format<(int*int) list> classes.(i)
+      done
+    end;
+    
     (* Within each nontrivial CEC, edges are linearly ordered, and adjacent
        edges enclose a canonical SESE region.  We maintain a mapping from CECs
        to the number of edges of that CEC that have not yet been visited, so
@@ -328,34 +362,47 @@ module Make(G : G) = struct
 	with Not_found -> ())
       g;
     let tree = DfsTree.compute g init in
-    (* (r_edge, r_children, rest) is a zipper in the PST.  r_cls is the CEC of
-       r_edge. *)
-    let f (r_edge, r_cls, r_children, rest) v u =
+    let visit node v u =
+      Log.debugf "Visiting (DFS) %d -> %d" (name v) (name u);
       let e_cls = cls v u in
       let edge = (v, u) in
-      let (r_edge, r_cls, r_children, rest) =
-	if r_cls = e_cls then (* this edge ends the canonical SESE region *)
-	  begin match rest with
-	  | [] -> assert false
-	  | ((n_edge, n_cls, n_children)::rest) ->
-	    (n_edge,
-	     n_cls,
-	     (PSTNode (r_edge, edge, r_children))::n_children,
-	     rest)
-	  end else (r_edge, r_cls, r_children, rest)
+      let node =
+	if node.pst_cls = e_cls then begin
+	  (* This edge ends the canonical SESE region. *)
+	  node.pst_end <- Some edge;
+	  pst_parent node
+	end else node
       in
-      if cls_size.(e_cls) > 1 then begin (* edge begins an SESE region *)
+      if cls_size.(e_cls) > 1 then begin
+	(* This edge begins a canonical SESE region *)
 	cls_size.(e_cls) <- cls_size.(e_cls) - 1;
-	(edge, e_cls, [], (r_edge, r_cls, r_children)::rest)
-      end else (r_edge, r_cls, r_children, rest)
+	pst_mk_child node e_cls edge
+      end else node
     in
-
+    let rec go node v u =
+      let next_node = visit node v u in
+      if  DfsTree.classify v u tree = ExtGraph.TreeEdge
+      then ExtG.iter_succ (fun w -> go next_node u w) g u
+    in
     (* We (arbitrarily) make the root a (nonexistent) self-loop on init *)
     let root = (init, init) in
-    let (s, _, children, _) =
-      DfsTree.fold_edges_dfs_order f (root, -1, [], []) g tree
+    let root_node =
+      { pst_parent = None;
+	pst_start = root;
+	pst_end = None;
+	pst_cls = -1;	
+	pst_children = [] }
     in
-    PSTNode (s, s, children)
+    ExtG.iter_succ (fun w -> go root_node init w) g init;
+
+    let rec mk_pst node =
+      let children = List.map mk_pst node.pst_children in
+      match node.pst_end with
+      | Some pst_end -> PSTNode (node.pst_start,  pst_end, children)
+      | None -> assert false
+    in
+    PSTNode (root, root, (List.map mk_pst root_node.pst_children))
+
   let construct_pst init g =
     try
       let pst = construct_pst init g in

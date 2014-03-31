@@ -3,7 +3,8 @@
 type ('a, 'b) scc =
     { graph : 'b;
       mutable entries : 'a list;
-      mutable exits : 'a list }
+      mutable exits : 'a list;
+      mutable backedges : 'a list }
 
 type ('a, 'b) scc_type =
   | Simple of 'a

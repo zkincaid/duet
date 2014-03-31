@@ -32,4 +32,8 @@ module Make(H : G) : sig
   (** Compute a map from vertices to their closest enclosing SESE region
       ([None] if the given vertex isn't inside any SESE region). *)
   val block : t -> H.V.t -> Block.t option
+
+  (** Display the structure of a SESE graph.  Should only be used for
+      debugging. *)
+  val display : t -> unit
 end

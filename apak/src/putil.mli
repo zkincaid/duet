@@ -256,6 +256,7 @@ module MakeCoreType : functor (T : CoreTypeBasis) -> CoreType with type t = T.t
 
 module PString : CoreType with type t = string
 module PInt : CoreType with type t = int
+module PChar : CoreType with type t = char
 module PUnit : CoreType with type t = unit
 
 val format_enum : (Format.formatter -> 'a -> unit) -> ?left:string -> ?sep:string -> ?right:string -> Format.formatter -> 'a BatEnum.t -> unit

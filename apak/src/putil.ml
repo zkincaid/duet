@@ -510,6 +510,15 @@ module PUnit = MakeCoreType(struct
   let equal _ _ = true
 end)
 
+module PChar = MakeCoreType(struct
+  type t = char deriving (Show,Compare)
+  let format = Show_t.format
+  let show = Show_t.show
+  let compare = Compare_t.compare
+  let hash = Hashtbl.hash
+  let equal = (=)
+end)
+
 let cartesian_product e1 e2 =
   let e2c = ref (BatEnum.clone e2) in
   let go () =

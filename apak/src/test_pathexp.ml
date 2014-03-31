@@ -11,7 +11,6 @@ module R = struct
 				  let compare = Pervasives.compare
 				  let consistent = (=)
 				end)
-  let equal = eqv
 end
 
 module V = struct
@@ -21,8 +20,9 @@ module V = struct
   let hash x = x
 end
 module E = struct
-  include R
-  let default = R.one
+  type t = Putil.PChar.t option deriving (Compare, Show)
+  let compare = Compare_t.compare
+  let default = None
 end
 module G = struct
   include Persistent.Digraph.ConcreteLabeled(V)(E)
@@ -42,7 +42,7 @@ let g =
      (4, 'a', 1)]
   in
   let add_edge g (src, label, target) =
-    G.add_edge_e g (G.E.create src (alpha label) target)
+    G.add_edge_e g (G.E.create src (Some label) target)
   in
     List.fold_left
       add_edge
@@ -57,74 +57,81 @@ let automaton k =
   let max_state = ref 0 in
   let new_state () =
     let s = !max_state in
-      max_state := !max_state + 1;
-      s
+    max_state := !max_state + 1;
+    s
   in
   let f = function
     | OEmpty ->
-	let v = new_state () in
-	  { start = v;
-	    final = [];
-	    graph = G.add_vertex G.empty v }
+      let v = new_state () in
+      { start = v;
+	final = [];
+	graph = G.add_vertex G.empty v }
     | OEpsilon ->
-	let v = new_state () in
-	  { start = v;
-	    final = [v];
-	    graph = G.add_vertex G.empty v }
+      let v = new_state () in
+      { start = v;
+	final = [v];
+	graph = G.add_vertex G.empty v }
     | OCat (a, b) ->
-	let graph =
-	  List.fold_left
-	    (fun g x -> G.add_edge_e g (G.E.create x R.one b.start))
-	    (Oper.union a.graph b.graph)
-	    a.final
-	in
-	  { start = a.start;
-	    final = b.final;
-	    graph = graph }
+      let graph =
+	List.fold_left
+	  (fun g x -> G.add_edge_e g (G.E.create x None b.start))
+	  (Oper.union a.graph b.graph)
+	  a.final
+      in
+      { start = a.start;
+	final = b.final;
+	graph = graph }
     | OAlpha x ->
-	let u = new_state () in
-	let v = new_state () in
-	let graph =
-	  G.add_edge_e
-	    (G.add_vertex (G.add_vertex G.empty v) u)
-	    (G.E.create u (alpha x) v)
-	in
-	  { start = u;
-	    final = [v];
-	    graph = graph }
+      let u = new_state () in
+      let v = new_state () in
+      let graph =
+	G.add_edge_e
+	  (G.add_vertex (G.add_vertex G.empty v) u)
+	  (G.E.create u (Some x) v)
+      in
+      { start = u;
+	final = [v];
+	graph = graph }
     | OUnion (a, b) ->
-	let v = new_state () in
-	let graph =
-	  G.add_edge_e
-	    (G.add_edge_e
-	       (G.add_vertex (Oper.union a.graph b.graph) v)
-	       (G.E.create v R.one a.start))
-	    (G.E.create v R.one b.start)
-	in
-	  { start = v;
-	    final = a.final@b.final;
-	    graph = graph }
+      let v = new_state () in
+      let final = new_state () in
+      let graph =
+	G.add_edge_e
+	  (G.add_edge_e
+	     (G.add_vertex (Oper.union a.graph b.graph) v)
+	     (G.E.create v None a.start))
+	  (G.E.create v None b.start)
+      in
+      let graph =
+	List.fold_left
+	  (fun g v -> G.add_edge_e g (G.E.create v None final))
+	  graph
+	  (a.final @ b.final)
+      in
+      { start = v;
+	final = [final];
+	graph = graph }
     | OStar a ->
-	let v = new_state () in
-	let graph =
-	  List.fold_left
-	    (fun g f -> G.add_edge_e g (G.E.create f R.one a.start))
-	    (G.add_edge_e (G.add_vertex a.graph v) (G.E.create v R.one a.start))
-	    a.final
-	in
-	  { start = v;
-	    final = v::a.final;
-	    graph = graph }
+      let v = new_state () in
+      let graph =
+	List.fold_left
+	  (fun g f -> G.add_edge_e g (G.E.create f None v))
+	  (G.add_edge_e a.graph (G.E.create v None a.start))
+	  a.final
+      in
+      { start = v;
+	final = [v];
+	graph = graph }
   in
-    fold_regex f k
+  fold_regex f k
 
 open Ka.ZMin
 let test_distance name solve =
   let weight e = match G.E.label e with
-    | R.N.NAlpha 'a' -> Z 1
-    | R.N.NAlpha 'b' -> Z 2
-    | R.N.NAlpha 'c' -> Z 3
-    | R.N.NAlpha 'd' -> Z 4
+    | Some 'a' -> Z 1
+    | Some 'b' -> Z 2
+    | Some 'c' -> Z 3
+    | Some 'd' -> Z 4
     | _   -> failwith "Not an edge label"
   in
   let distance = solve g weight in
@@ -152,6 +159,7 @@ let test_distance name solve =
 	   (5, 2, PosInfinity);
 	   (3, 2, Z 5) ])
 
+
 let parse_norm x = R.normalize (Test_regex.must_parse x)
 
 module KDist = Pathexp.Make(G)(Ka.ZMin)
@@ -159,13 +167,17 @@ module KRegex = Pathexp.Make(G)(R)
 module KRegexElim = Pathexp.MakeElim(G)(R)
 module KDistElim = Pathexp.MakeElim(G)(Ka.ZMin)
 
+let g_weight e = match G.E.label e with
+  | Some c -> alpha c
+  | None -> R.one
+    
 let kleene_regex x =
   let a = automaton (Test_regex.must_parse x) in
-  let path = KRegex.all_paths a.graph G.E.label in
+  let path = KRegex.all_paths a.graph g_weight in
     List.fold_left (fun r f -> R.add r (path a.start f)) R.zero a.final
 
 let test_regex solve () =
-  let g_path = solve g G.E.label in
+  let g_path = solve g g_weight in
   let assert_equal = assert_equal ~cmp:R.eqv ~printer:R.show in
     assert_equal (parse_norm "a(baa+cba)*(ba+cb)d") (g_path 0 5);
     assert_equal (parse_norm "(baa+cba)*") (g_path 1 1);
@@ -175,6 +187,28 @@ let test_regex solve () =
     List.iter (fun x -> assert_equal (parse_norm x) (kleene_regex x))
       ["abc"; "a+b+c"; "a*"; "((a+b)*c)*"; "(a*+(b*c+c*b))*d"]
 
+let test_initial () =
+  let parse = parse_norm in
+  let weight edge = match G.E.label edge with
+    | Some c -> Regex.Alpha c
+    | None -> Regex.Epsilon
+  in
+  let assert_pathexp x =
+    let regex = parse x in
+    let a = automaton (Test_regex.must_parse x) in
+    let final = match a.final with
+      | [f] -> f
+      | _ -> assert false
+    in
+    let pathexp = KRegexElim.path_expr a.graph g_weight a.start final in
+    assert_equal ~cmp:R.equal ~printer:R.show regex pathexp
+  in
+  assert_pathexp "abc";
+  assert_pathexp "a(b+c)e";
+  assert_pathexp "a(bc)*d";
+  assert_pathexp "a(b+c)*d";
+  assert_pathexp "a((b+c)*+(c+b)*)*d"
+
 let suite = "Pathexp" >:::
   [
     test_distance "Distance" KDist.all_paths;
@@ -183,4 +217,5 @@ let suite = "Pathexp" >:::
     "Regex" >:: (test_regex KRegex.all_paths);
     "Elim regex" >:: (test_regex KRegexElim.path_expr);
     "Elim regex paths_from" >:: (test_regex KRegexElim.single_src);
+    "Pathexp initial algebra" >:: test_initial;
   ]
