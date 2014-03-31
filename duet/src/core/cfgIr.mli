@@ -60,6 +60,7 @@ val from_file_ast : Ast.file -> file
 
 val cfg_equal : Cfg.t -> Cfg.t -> bool
 
+val factor_cfg : Cfg.t -> unit
 val normalize_cfg : Cfg.t -> unit
 val remove_unreachable : Cfg.t -> Def.t -> unit
 

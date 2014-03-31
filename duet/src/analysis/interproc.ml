@@ -48,5 +48,6 @@ let make_recgraph file =
       end
     | RecGraph.Atom _ -> rg
   in
+  List.iter (fun func -> CfgIr.factor_cfg func.cfg) file.funcs;
   let rg = List.fold_left mk_func RG.empty file.funcs in
   BatEnum.fold add_call rg (RG.vertices rg)

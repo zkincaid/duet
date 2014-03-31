@@ -1145,7 +1145,7 @@ module Bexpr = struct
   let of_expr = function
     | BoolExpr b -> b
     | expr        -> Atom (Ne, expr, Expr.zero)
-  let ktrue = of_expr Expr.one
+  let ktrue = Atom (Le, Expr.zero, Expr.zero)
   let kfalse = negate ktrue
   let havoc = of_expr (Havoc (Concrete (Int IBool)))
 
