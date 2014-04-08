@@ -55,26 +55,6 @@ module Make(MakeEQ :
         let f m   = add (of_minterm frame (Minterm.subst sub m)) in
           fold_minterms f x zero
 
-      (* Multiplication needs to rewrite both transition functions over the same
-       * frame first to avoid losing equalities like x=x<3>, x<3>=y *)
-      let mul_pointed x y =
-        let frame_x = get_frame x in
-        let frame_y = get_frame y in
-        let x_minus_y = Var.Set.diff frame_x frame_y in
-        let y_minus_x = Var.Set.diff frame_y frame_x in
-        let x_eqs = subst sub1 (assume Bexpr.ktrue y_minus_x pred_unit) in
-        let y_eqs = subst sub0 (assume Bexpr.ktrue x_minus_y pred_unit) in
-          mul (mul x x_eqs) (mul y_eqs y)
-
-      let make_pointed x y =
-        let frame_x = get_frame x in
-        let frame_y = get_frame y in
-        let x_minus_y = Var.Set.diff frame_x frame_y in
-        let y_minus_x = Var.Set.diff frame_y frame_x in
-        let x_unify = mul x (assume Bexpr.ktrue y_minus_x pred_unit) in
-        let y_unify = mul y (assume Bexpr.ktrue x_minus_y pred_unit) in
-          mul (subst sub1 x_unify) (subst sub0 y_unify)
-
       let apply_pred f x =
         let frame = get_frame x in
         let g m   =
@@ -84,10 +64,6 @@ module Make(MakeEQ :
           fold_minterms g x zero
     end
     module State = Formula.State
-    module PointedTR : module type of TR with type t = TR.t = struct
-      include TR
-      let mul = mul_pointed
-    end
   end
 
   module KillPred = struct
@@ -131,17 +107,6 @@ module Make(MakeEQ :
       (DefAP)
       (Ka.Ordered.AdditiveMonoid(LRD.TR))
   module EUMap = RDMap
-  module PointedEUMap =
-    Monoid.FunctionSpace.Total.Ordered.Make
-      (DefAP)
-      (Ka.Ordered.AdditiveMonoid(LRD.PointedTR))
-
-  let map_to_pointed map = 
-    let f acc (x, y) =
-      let y' = LRD.PointedTR.make_pointed LRD.TR.one y in
-        PointedEUMap.update x y' acc
-    in
-      BatEnum.fold f PointedEUMap.unit (EUMap.enum map)
 
   module DFlow = struct
     type t = DefAP.t * DefAP.t deriving (Show, Compare)
@@ -153,26 +118,26 @@ module Make(MakeEQ :
   end
   module DefUse = struct
     type t = { def : LRD.TR.t;
-               use : LRD.PointedTR.t } deriving(Show,Compare)
+               use : LRD.TR.t } deriving(Show,Compare)
     let format = Show_t.format
     let show = Show_t.show
     let compare = Compare_t.compare
     let equal x y = compare x y = 0
     let unit = { def = LRD.TR.zero; 
-                 use = LRD.PointedTR.zero }
+                 use = LRD.TR.zero }
     let mul x y = { def = LRD.TR.add x.def y.def;
-                    use = LRD.PointedTR.add x.use y.use }
+                    use = LRD.TR.add x.use y.use }
   end
   module DFlowMap = Monoid.FunctionSpace.Total.Ordered.Make(DFlow)(DefUse)
 
   (* Path types. *)
   type abspath   = LK.TR.t deriving(Show,Compare)
   type abspath_t = LK.TR.t deriving(Show,Compare)
-  type abspath_p = LK.PointedTR.t deriving(Show,Compare)
+  type abspath_p = LK.TR.t deriving(Show,Compare)
   type rd   = RDMap.t deriving(Show,Compare)
   type rd_t = RDMap.t deriving(Show,Compare)
   type eu   = EUMap.t deriving(Show,Compare)
-  type eu_p = PointedEUMap.t deriving(Show,Compare)
+  type eu_p = EUMap.t deriving(Show,Compare)
   type du = DFlowMap.t deriving(Show,Compare)
   type ud = DFlowMap.t deriving(Show,Compare)
 
@@ -200,7 +165,7 @@ module Make(MakeEQ :
 
   (* Remove dead definitions (definitions of memory locations which are
    overwritten later in the path) *)
-  let filter_rd rd_tr = rd_tr (*
+  let filter_rd rd_tr =
     let frame = LRD.TR.get_frame rd_tr in
     let f minterm rest =
       let (locks, pred) = LRDMinterm.get_pred minterm in
@@ -212,7 +177,7 @@ module Make(MakeEQ :
         then LRD.TR.add (LRD.TR.of_minterm frame minterm) rest
         else rest
     in
-      LRD.TR.fold_minterms f rd_tr LRD.TR.zero*)
+      LRD.TR.fold_minterms f rd_tr LRD.TR.zero
 
   let mul_right x y = 
     let update_rd tr = filter_rd (LRD.TR.mul tr y) in
@@ -222,17 +187,9 @@ module Make(MakeEQ :
     let update_rd tr = filter_rd (LRD.TR.mul y tr) in
       RDMap.map update_rd x
 
-  let mul_right_pointed x y = 
-    let update_rd tr = filter_rd (LRD.PointedTR.mul tr y) in
-      PointedEUMap.map update_rd x
-
-  let mul_left_pointed x y = 
-    let update_rd tr = filter_rd (LRD.PointedTR.mul y tr) in
-      PointedEUMap.map update_rd x
-
   let killed_on_interleaving x y x_name y_name =
     let f (ls, k) = (LockPred.neg ls, k) in
-    let g x = if Var.get_subscript x = 1 then Var.subscript x 4 else x in
+    let g x = if Var.get_subscript x = 1 then Var.subscript x 3 else x in
     let y = LRDMinterm.subst g y in
     let y' = LRDMinterm.make (LRDMinterm.get_eqs y) (f (LRDMinterm.get_pred y)) in
     let z = LRDMinterm.exists (fun _ -> true) (LRDMinterm.mul x y') in
@@ -254,11 +211,11 @@ module Make(MakeEQ :
           let h min1 min2 (d, u) = 
             if (f min1 min2) 
             then (LRD.TR.add (LRD.TR.of_minterm def_frame min1) d, 
-                  LRD.PointedTR.add (LRD.PointedTR.of_minterm use_frame min2) u) 
+                  LRD.TR.add (LRD.TR.of_minterm use_frame min2) u) 
             else (d, u)
           in
-          let g min1 acc = LRD.PointedTR.fold_minterms (h min1) use_tr acc in
-            LRD.TR.fold_minterms g def_tr (LRD.TR.zero, LRD.PointedTR.zero)
+          let g min1 acc = LRD.TR.fold_minterms (h min1) use_tr acc in
+            LRD.TR.fold_minterms g def_tr (LRD.TR.zero, LRD.TR.zero)
         in
         let f d u = match (get_name d, get_name u) with
           | (None, None) -> true
@@ -267,18 +224,20 @@ module Make(MakeEQ :
         in
           filter f
       else
-        (LRD.TR.zero, LRD.PointedTR.zero)
+        (LRD.TR.zero, LRD.TR.zero)
 
   let dflow rd eu =
     let g def acc use =
       let (d, u) = get_reaching def use in
-        if (d = LRD.TR.zero && u = LRD.PointedTR.zero) then acc
+        if (d = LRD.TR.zero && u = LRD.TR.zero) then acc
         else
           let tree = { DefUse.def = d; DefUse.use = u } in
             DFlowMap.mul acc (DFlowMap.update (fst def, fst use) tree DFlowMap.unit)
     in
-    let f acc def = BatEnum.fold (g def) acc (PointedEUMap.enum eu) in
-      BatEnum.fold f DFlowMap.unit (RDMap.enum rd)
+    let f acc def = BatEnum.fold (g def) acc (EUMap.enum eu) in
+    let tmp = BatEnum.fold f DFlowMap.unit (RDMap.enum rd) in
+      print_endline ("dflow: **DEF**" ^ (RDMap.show rd) ^ " **USE** " ^ (EUMap.show eu) ^ " -> " ^ (DFlowMap.show tmp));
+      tmp
 
   let check_consistency du = du
 
@@ -304,30 +263,30 @@ module Make(MakeEQ :
     let equal a b = compare a b = 0
 
     let clear_fst =
-      LK.PointedTR.apply_pred (fun (ls, k) -> (LockPred.clear_fst ls, k))
+      LK.TR.apply_pred (fun (ls, k) -> (LockPred.clear_fst ls, k))
     let clear_kill =
-      LK.PointedTR.apply_pred (fun (ls, k) -> (ls, AP.Set.empty))
+      LK.TR.apply_pred (fun (ls, k) -> (ls, AP.Set.empty))
 
     let zero = { abspath = LK.TR.zero;
                  abspath_t = LK.TR.zero;
-                 abspath_p = LK.PointedTR.zero;
+                 abspath_p = LK.TR.zero;
                  rd = RDMap.unit;
                  rd_t = RDMap.unit;
                  rd_c = RDMap.unit;
                  eu = EUMap.unit;
-                 eu_p = PointedEUMap.unit;
-                 eu_c = PointedEUMap.unit;
+                 eu_p = EUMap.unit;
+                 eu_c = EUMap.unit;
                  du = DFlowMap.unit;
                  ud = DFlowMap.unit }
     let one = { abspath = LK.TR.one;
                 abspath_t = LK.TR.one;
-                abspath_p = LK.PointedTR.mul LK.TR.one LK.TR.one;
+                abspath_p = LK.TR.one;
                 rd = RDMap.unit;
                 rd_t = RDMap.unit;
                 rd_c = RDMap.unit;
                 eu = EUMap.unit;
-                eu_p = PointedEUMap.unit;
-                eu_c = PointedEUMap.unit;
+                eu_p = EUMap.unit;
+                eu_c = EUMap.unit;
                 du = DFlowMap.unit;
                 ud = DFlowMap.unit }
 
@@ -348,55 +307,41 @@ module Make(MakeEQ :
      *        + path1;concurrent defs2-exposed uses1 + check(path1;ud) *)
 
     let mul a b =
-      let reach_defs = mul_left b.rd_t (lift_lk ~kills:false a.abspath) in
-      let expsd_uses = mul_left_pointed b.eu_p (lift_lk ~kills:false a.abspath) in
-      let conc_defs =
-        mul_left b.rd_c 
-          (lift_lk ~fst_ls:false ~snd_ls:false ~kills:false a.abspath)
-      in
-      let conc_uses =
-        mul_left_pointed b.eu_c 
-          (lift_lk ~fst_ls:false ~snd_ls:false ~kills:false a.abspath)
-      in
-        { abspath = LK.TR.mul a.abspath b.abspath;
+        { abspath   = LK.TR.mul a.abspath b.abspath;
           abspath_t = LK.TR.add 
                         a.abspath_t 
                         (LK.TR.mul a.abspath b.abspath_t);
-          abspath_p = LK.PointedTR.add 
-                        (LK.PointedTR.mul a.abspath_p (clear_fst b.abspath)) 
-                        (LK.PointedTR.mul (clear_kill a.abspath) b.abspath_p);
-          rd   = RDMap.mul 
-                   (mul_right a.rd (lift_lk ~fst_ls:false b.abspath)) 
-                   (mul_left  b.rd (lift_lk ~kills:false a.abspath));
-          rd_t = RDMap.mul a.rd_t 
-                   (RDMap.mul 
-                      (mul_right a.rd (lift_lk ~fst_ls:false b.abspath_t))
-                      reach_defs);
-          rd_c = RDMap.mul a.rd_c conc_defs;
-          eu   = EUMap.mul a.eu (mul_left b.eu (lift_lk ~fst_ls:false a.abspath));
-          eu_p = PointedEUMap.mul a.eu_p
-                   (PointedEUMap.mul 
-                      (mul_left_pointed (map_to_pointed b.eu) (lift_lk a.abspath_p))
-                      expsd_uses);
-          eu_c = PointedEUMap.mul a.eu_c conc_uses;
-          du = DFlowMap.mul a.du 
-                 (DFlowMap.mul (dflow a.rd_t conc_uses)
-                    (DFlowMap.mul (dflow reach_defs a.eu_c)
-                       (check_consistency b.du)));
-          ud = DFlowMap.mul a.ud 
-                 (DFlowMap.mul (dflow a.rd_c expsd_uses)
-                    (DFlowMap.mul (dflow conc_defs a.eu_p)
-                       (check_consistency b.ud))) }
+          abspath_p = LK.TR.add 
+                        (LK.TR.mul a.abspath_p (clear_fst b.abspath)) 
+                        (LK.TR.mul (clear_kill a.abspath) b.abspath_p);
+          rd        = RDMap.mul 
+                        (mul_right a.rd (lift_lk ~fst_ls:false b.abspath)) 
+                        (mul_left  b.rd (lift_lk ~kills:false a.abspath));
+          rd_t      = RDMap.mul a.rd_t 
+                        (RDMap.mul 
+                           (mul_right a.rd (lift_lk ~fst_ls:false b.abspath_t))
+                           (mul_left  b.rd_t (lift_lk ~kills:false a.abspath)));
+          rd_c      = RDMap.mul a.rd_c 
+                        (mul_left b.rd_c (lift_lk ~fst_ls:false ~snd_ls:false ~kills:false a.abspath));
+          eu        = EUMap.mul a.eu (mul_left b.eu (lift_lk ~fst_ls:false a.abspath));
+          eu_p      = EUMap.mul a.eu_p
+                        (EUMap.mul 
+                           (mul_left b.eu (lift_lk a.abspath_p))
+                           (mul_left b.eu_p (lift_lk ~kills:false a.abspath)));
+          eu_c      = EUMap.mul a.eu_c 
+                        (mul_left b.eu_c (lift_lk ~fst_ls:false ~snd_ls:false ~kills:false a.abspath));
+          du        = DFlowMap.unit;
+          ud        = DFlowMap.unit }
  
     let add a b = { abspath = LK.TR.add a.abspath b.abspath;
                     abspath_t = LK.TR.add a.abspath_t b.abspath_t;
-                    abspath_p = LK.PointedTR.add a.abspath_p b.abspath_p;
+                    abspath_p = LK.TR.add a.abspath_p b.abspath_p;
                     rd = RDMap.mul a.rd b.rd;
                     rd_t = RDMap.mul a.rd_t b.rd_t;
                     rd_c = RDMap.mul a.rd_c b.rd_c;
                     eu = EUMap.mul a.eu b.eu;
-                    eu_p = PointedEUMap.mul a.eu_p b.eu_p;
-                    eu_c = PointedEUMap.mul a.eu_c b.eu_c;
+                    eu_p = EUMap.mul a.eu_p b.eu_p;
+                    eu_c = EUMap.mul a.eu_c b.eu_c;
                     du = DFlowMap.mul a.du b.du;
                     ud = DFlowMap.mul a.ud b.ud }
    
@@ -415,8 +360,8 @@ module Make(MakeEQ :
     let star a = 
       let abspath = LK.TR.star a.abspath in
       let abspath_t = LK.TR.mul abspath a.abspath_t in
-      let abspath_p = LK.PointedTR.mul 
-                        (LK.PointedTR.mul (clear_kill abspath) a.abspath_p)
+      let abspath_p = LK.TR.mul 
+                        (LK.TR.mul (clear_kill abspath) a.abspath_p)
                         (clear_fst abspath)
       in
       let rd = mul_left 
@@ -431,11 +376,11 @@ module Make(MakeEQ :
                    (lift_lk ~fst_ls:false ~snd_ls:false ~kills:false abspath)
       in
       let eu   = mul_left a.eu (lift_lk ~fst_ls:false abspath) in
-      let eu_p = PointedEUMap.mul 
-                   (mul_left_pointed (map_to_pointed a.eu) (lift_lk abspath_p))
-                   (mul_left_pointed a.eu_p (lift_lk abspath))
+      let eu_p = EUMap.mul 
+                   (mul_left a.eu (lift_lk abspath_p))
+                   (mul_left a.eu_p (lift_lk ~kills:false abspath))
       in
-      let eu_c = mul_left_pointed a.eu_c 
+      let eu_c = mul_left a.eu_c 
                    (lift_lk ~fst_ls:false ~snd_ls:false ~kills:false abspath)
       in
         { abspath = abspath;
@@ -447,8 +392,8 @@ module Make(MakeEQ :
           eu   = eu;
           eu_p = eu_p;
           eu_c = eu_c;
-          du = dflow rd_t eu_c;
-          ud = dflow rd_c eu_p }
+          du = DFlowMap.unit;
+          ud = DFlowMap.unit }
 
     let exists f a =
       let g ((def, ap), rd) = match ap with
@@ -458,10 +403,6 @@ module Make(MakeEQ :
       let remove_locals rd =
         let h acc (da, rd) = RDMap.update da (g (da, rd)) acc in
           BatEnum.fold h RDMap.unit (RDMap.enum rd)
-      in
-      let remove_locals_pointed rd =
-        let h acc (da, rd) = PointedEUMap.update da (g (da, rd)) acc in
-          BatEnum.fold h PointedEUMap.unit (PointedEUMap.enum rd)
       in
       let remove_locals_dflow du =
         let h acc (((d1, ap1), (d2, ap2)), du) =
@@ -474,13 +415,13 @@ module Make(MakeEQ :
       in
         { abspath = LK.TR.exists f a.abspath;
           abspath_t = LK.TR.exists f a.abspath_t;
-          abspath_p = LK.PointedTR.exists f a.abspath_p;
+          abspath_p = LK.TR.exists f a.abspath_p;
           rd = remove_locals a.rd;
           rd_t = remove_locals a.rd_t;
           rd_c = remove_locals a.rd_c;
           eu = remove_locals a.eu;
-          eu_p = remove_locals_pointed a.eu_p;
-          eu_c = remove_locals_pointed a.eu_c;
+          eu_p = remove_locals a.eu_p;
+          eu_c = remove_locals a.eu_c;
           du = remove_locals_dflow a.du;
           ud = remove_locals_dflow a.ud }
 
@@ -580,17 +521,17 @@ module Make(MakeEQ :
               with Not_found -> one
             in
               (RDMap.mul summary.rd_t summary.rd_c,
-               PointedEUMap.mul summary.eu_p summary.eu_c)
-        | _ -> (RDMap.unit, PointedEUMap.unit)
+               EUMap.mul summary.eu_p summary.eu_c)
+        | _ -> (RDMap.unit, EUMap.unit)
       in
         { abspath = abspath;
           abspath_t = abspath;
-          abspath_p = LK.TR.make_pointed abspath LK.TR.one;
+          abspath_p = abspath;
           rd = rd;
           rd_t = rd;
           rd_c = rd_c;
           eu = eu;
-          eu_p = map_to_pointed eu;
+          eu_p = eu;
           eu_c = eu_c;
           du = DFlowMap.unit;
           ud = DFlowMap.unit }
@@ -671,8 +612,8 @@ module Make(MakeEQ :
         let g (((def1, ap1), (def2, ap2)), _) =
           DG.add_edge_e dg (DG.E.create def1 (Pack.PairSet.singleton (Pack.mk_pair ap1 ap2)) def2)
         in
-          BatEnum.iter g (DFlowMap.enum summary.du);
-          BatEnum.iter g (DFlowMap.enum summary.ud)
+          BatEnum.iter g (DFlowMap.enum (dflow summary.rd_t summary.eu_c));
+          BatEnum.iter g (DFlowMap.enum (dflow summary.rd_c summary.eu_p))
       in
         Analysis.HT.iter f (Analysis.get_summaries query)
 
