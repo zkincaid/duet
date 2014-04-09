@@ -24,6 +24,11 @@ module Make(H : G) : sig
       block 0. *)
   val construct : H.t -> entry:(H.V.t) -> exit:H.V.t -> t
 
+  (** Augment an SESE graph with linear regions (maximal straight-line SESE
+      regions).  Linear regions are a generalization of basic blocks, where
+      canonical SESE regions are treated like atomic instructions. *)
+  val mk_linear_regions : t -> t
+
   (** Fold over the vertices of a graph, where the order is an "inside-out"
       ordering: for any SESE region with entry [n] and exit [x], the vertices
       internal to the region are traversed before [n] and [x]. *)

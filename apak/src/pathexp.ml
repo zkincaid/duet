@@ -209,8 +209,8 @@ end = struct
   end)
   let fold_dom : (WG.V.t -> 'a -> 'a) -> WG.t -> 'a -> 'a
     = fun f g acc ->
-      Log.errorf "Using fold_dom";
-      WGD.display g;
+(*      Log.errorf "Using fold_dom";*)
+(*      WGD.display g;*)
     let open Loop in
     let open WGLoop in
     let sccg = WGLoop.construct g in
@@ -338,13 +338,24 @@ end = struct
 	else visit bentry (visit bexit acc)
 	in
 	Log.logf 5 "Exit block %d" block;
-(*	ReGD.display (Re.block_body rg block);*)
 	res
       | Atom atom ->
 	Log.logf 5 "Visit: %d" (get_id atom);
 	f atom acc
     in
     fold_body visit (Re.block_body rg 0) acc
+
+  module BB = Graph.Leaderlist.Make(WG)
+
+  (* Fold over vertices which do not start or end a basic block *)
+  let fold_bb f wg acc =
+    let fold_block acc xs =
+      assert (xs != []);
+      if List.length xs > 2
+      then List.fold_right f (List.tl (List.rev (List.tl xs))) acc
+      else acc
+    in
+    List.fold_left fold_block acc (BB.leader_lists wg dummy_start)
 
   let opt_elimination_strategy = ref fold_sese
 
@@ -483,6 +494,7 @@ end = struct
       if WG.V.equal v dummy_start || WG.V.equal v dummy_end then wg
       else elim v wg
     in
+    let wg = fold_bb elim wg wg in
     let wg = (!opt_elimination_strategy) elim wg wg in
     if WG.mem_edge wg dummy_start dummy_end
     then WG.E.label (WG.find_edge wg dummy_start dummy_end)

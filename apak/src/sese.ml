@@ -632,5 +632,56 @@ module Make(G : G) = struct
       let id = HT.find ht v in
       if id = 0 then None else Some id
 
+  module LR = Graph.Leaderlist.Make(R.G)
+  let mk_linear_regions rg =
+    let id = ref (BatEnum.reduce max (R.blocks rg)) in
+    let next_block () = incr id; !id in
+    let go rg (block, body) =
+      let bentry = ref (R.block_entry rg block) in
+      let bexit = ref (R.block_exit rg block) in
+      let collapse (rg, g) lr =
+	if (List.length lr > 2)
+	  && not (List.exists (fun v -> R.G.V.equal v !bentry || R.G.V.equal v !bexit) lr)
+	then begin
+	  Log.errorf "Collapsing!";
+	  let start = List.hd lr in
+	  let finish = BatList.last lr in
+	  let lr_name = next_block () in
+	  let lr_vtx = RecGraph.Block lr_name in
+
+	  let remove_vertex g v =
+	    if R.G.V.equal v !bentry then bentry := lr_vtx;
+	    if R.G.V.equal v !bexit then bexit := lr_vtx;
+	    R.G.remove_vertex g v
+	  in
+	  let pred = R.G.pred g start in
+	  let succ = R.G.succ g finish  in
+	  let g = List.fold_left remove_vertex g lr in
+
+	  (* add edges from/to the linear region *)
+	  let g = R.G.add_vertex g lr_vtx in
+	  let g = List.fold_left (fun g v -> R.G.add_edge g v lr_vtx) g pred in
+	  let g = List.fold_left (fun g v -> R.G.add_edge g lr_vtx v) g succ in
+
+	  (* Add the vertices of the linear region to its block *)
+	  let lrg =
+	    BatEnum.fold
+	      (fun g (u,v) -> R.G.add_edge g u v)
+	      R.G.empty
+	      (Putil.adjacent_pairs (BatList.enum lr))
+	  in
+	  (R.add_block rg lr_name lrg ~entry:start ~exit:finish, g)
+	end else (rg, g)
+      in
+      let leader_lists = LR.leader_lists body (!bentry) in
+      if List.length leader_lists > 1 then begin
+	let (rg, body) =
+	  List.fold_left collapse (rg, body) leader_lists
+	in
+	R.add_block rg block body ~entry:(!bentry) ~exit:(!bexit)
+      end else rg
+    in
+    BatEnum.fold go rg (R.bodies rg)
+
   include R
 end

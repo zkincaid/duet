@@ -189,10 +189,6 @@ let test_regex solve () =
 
 let test_initial () =
   let parse = parse_norm in
-  let weight edge = match G.E.label edge with
-    | Some c -> Regex.Alpha c
-    | None -> Regex.Epsilon
-  in
   let assert_pathexp x =
     let regex = parse x in
     let a = automaton (Test_regex.must_parse x) in
@@ -207,7 +203,9 @@ let test_initial () =
   assert_pathexp "a(b+c)e";
   assert_pathexp "a(bc)*d";
   assert_pathexp "a(b+c)*d";
-  assert_pathexp "a((b+c)*+(c+b)*)*d"
+  assert_pathexp "a((b+c)*+(c+b)*)*d";
+  assert_pathexp "((a+b)(c+d)(e+f)+g)"
+
 
 let suite = "Pathexp" >:::
   [
