@@ -71,6 +71,7 @@ struct
   let block_entry rg block = (M.find block rg).bentry
   let block_exit rg block = (M.find block rg).bexit
   let block_body rg block = (M.find block rg).bbody
+(*  let block_body rg block = try (M.find block rg).bbody with Not_found -> failwith ("Couldn't find block " ^ (Block.show block))*)
   let blocks = M.keys
   let bodies rg = M.enum rg /@ (fun (block, def) -> (block, def.bbody))
   let vertices rg =
