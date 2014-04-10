@@ -453,8 +453,6 @@ module Datarace = struct
           file.funcs;
           ht
       in
-      (*  BatEnum.iter (fun (_, g) -> Interproc.RGD.display g)
-         (Interproc.RG.bodies rg);*)
         fp_races init_races
       end
     | _      -> assert false

@@ -587,12 +587,6 @@ module Make(MakeEQ :
               iter_query initial
             end
             in
-              (*
-              BatEnum.iter (fun (b, v) -> 
-                              print_endline ("Weight: (" ^ (Interproc.RG.Block.show b) ^
-                                            ", " ^ (Def.show v) ^ ") -> " ^
-                                            (show (weight (Analysis.get_summaries query) v))))
-                                              (Interproc.RG.vertices rg) *)
               query
           end
         | _      -> assert false
@@ -603,7 +597,8 @@ module Make(MakeEQ :
           DG.add_edge_e dg (DG.E.create def1 (Pack.PairSet.singleton (Pack.mk_pair ap1 ap2)) def2)
         in
           BatEnum.iter g (DFlowMap.enum (dflow summary.rd_t summary.eu_c));
-          BatEnum.iter g (DFlowMap.enum (dflow summary.rd_c summary.eu_p))
+          BatEnum.iter g (DFlowMap.enum (dflow summary.rd_c summary.eu_p));
+          BatEnum.iter g (DFlowMap.enum (dflow summary.rd_c summary.eu_c))
       in
         Analysis.HT.iter f (Analysis.get_summaries query)
 
@@ -617,6 +612,7 @@ let construct_conc_dg file =
   let dg = begin
     ignore (Bddpa.initialize file);
     Pa.simplify_calls file;
+    ignore (LockLogic.get_races ());
     if !AliasLogic.must_alias then 
       ConcDep.SeqDep.construct_dg ~solver:ConcDep.SeqDep.RDAnalysisConc.solve file
     else 

@@ -98,9 +98,15 @@ struct
       | [x] -> x
       | _   -> failwith "Interproc.solve: No support for multiple entry points"
     in
-    let local f =
-      let cf = lookup_function f file in
-      fun x -> is_local cf (fst x) || is_formal cf (fst x)
+    let local func_name =
+      try
+        let func = List.find (fun f -> Varinfo.equal func_name f.fname) (get_gfile()).funcs in
+        let vars = Varinfo.Set.remove (return_var func_name)
+                     (Varinfo.Set.of_enum (BatEnum.append (BatList.enum func.formals)
+                                             (BatList.enum func.locals)))
+        in
+          fun (x, _) -> (Varinfo.Set.mem x vars)
+      with Not_found -> (fun (_, _) -> false)
     in
     (* Adds edges to the callgraph for each fork. Shouldn't really have to do
      * this every time a new query is made *)
