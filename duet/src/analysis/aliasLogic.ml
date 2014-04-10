@@ -118,6 +118,7 @@ struct
     let left_query = Left.mk_query rg A.left_weight local main in
     let go (_, v, path_to_v) = smash path_to_v (A.right_weight v) in
       add_fork_edges left_query;
+      Left.compute_summaries left_query;
       BatEnum.iter go (Left.enum_single_src_tmp classify left_query)
 end
 

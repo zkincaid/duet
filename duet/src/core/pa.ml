@@ -386,7 +386,12 @@ let simplify_calls file =
       def.dkind <- Assume (Bexpr.ktrue);
       insert_succ skip def cfg;
       Cfg.remove_edge cfg def skip;
-      assert (Varinfo.Set.cardinal targets >= 1); (* todo *)
+      if (Varinfo.Set.cardinal targets < 1) 
+      then begin Log.errorf "No targets for call to `%a'"
+                   Expr.format func;
+                 assert false
+      end;
+     (* assert (Varinfo.Set.cardinal targets >= 1); (* todo *)*)
       Varinfo.Set.iter add_call targets
     in
     let simplify_def def = match def.dkind with

@@ -540,21 +540,7 @@ module Make(MakeEQ :
     let analyze file =
       match file.entry_points with
         | [main] -> begin
-            let rg = 
-              let rginit = Interproc.make_recgraph file in
-              let f acc (_, v) = match Interproc.RG.classify v with
-                | RecGraph.Atom _ -> acc
-                | RecGraph.Block b -> 
-                    begin 
-                      try Interproc.RG.block_body acc b; acc
-                      with Not_found -> 
-                        let vert = Def.mk Initial in
-                        let bloc = Interproc.RG.G.empty in
-                          Interproc.RG.add_block acc b (Interproc.RG.G.add_vertex bloc vert) vert vert
-                    end
-              in
-                BatEnum.fold f rginit (Interproc.RG.vertices rginit)
-            in
+            let rg = Interproc.make_recgraph file in
             let local func_name =
               try
                 let func = List.find (fun f -> Varinfo.equal func_name f.fname) (get_gfile()).funcs in
