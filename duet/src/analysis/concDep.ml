@@ -236,7 +236,11 @@ module Make(MakeEQ :
     in
     let f acc def = BatEnum.fold (g def) acc (EUMap.enum eu) in
     let tmp = BatEnum.fold f DFlowMap.unit (RDMap.enum rd) in
-      print_endline ("dflow: **DEF**" ^ (RDMap.show rd) ^ " **USE** " ^ (EUMap.show eu) ^ " -> " ^ (DFlowMap.show tmp));
+    Log.logf Log.info
+      "dflow: **DEF** %a **USE** %a -> %a"
+      RDMap.format rd
+      EUMap.format eu
+      DFlowMap.format tmp;
       tmp
 
   let check_consistency du = du
@@ -633,7 +637,7 @@ let construct_conc_dg file =
       ConcTrivDep.SeqDep.construct_dg ~solver:ConcTrivDep.SeqDep.RDAnalysisConc.solve file
   end in
     ConcDep.ConcRDAnalysis.add_conc_edges dg (ConcDep.ConcRDAnalysis.analyze file);
-  DG.display_labelled dg;
+  if !CmdLine.display_graphs then DG.display_labelled dg;
   dg
 
 let chdfg_stats file =
@@ -648,3 +652,16 @@ let _ =
 let _ =
   CmdLine.register_pass 
     ("-chdfg-test", (fun x -> ConcDep.ConcRDAnalysis.analyze x; ()), " Concurrent heap data flow graph test")
+
+module InvGen = Solve.MakeAfgSolver(Ai.ApronInterpretation)
+let invariant_generation file =
+  let dg = Log.phase "Construct hDFG" construct_conc_dg file in
+  let state = InvGen.mk_state dg in
+  let map = InvGen.do_analysis state dg in
+  InvGen.check_assertions dg map
+
+let _ =
+  CmdLine.register_pass
+    ("-chdfg",
+     invariant_generation,
+     " Invariant generation with concurrent heap data flow graph")
