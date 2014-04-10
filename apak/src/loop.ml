@@ -1,7 +1,8 @@
 type ('a, 'b) scc =
     { graph : 'b;
       mutable entries : 'a list;
-      mutable exits : 'a list }
+      mutable exits : 'a list;
+      mutable backedges : 'a list }
 
 type ('a, 'b) scc_type =
   | Simple of 'a
@@ -90,12 +91,18 @@ struct
 	      (* Remove edges coming into the entry vertices, so that "cut" is
 		 no longer strongly connected, then recursively decompose
 		 cut *)
-	      let f v g = PG.fold_pred (fun p g -> PG.remove_edge g p v) g v g
+	      let backedges = ref VSet.empty in
+	      let remove_backedge v p g =
+		backedges := VSet.add p (!backedges);
+		PG.remove_edge g p v
 	      in
+	      let f v g = PG.fold_pred (remove_backedge v) g v g in
+
 	      let cut = VSet.fold f entries.(i) component_graph.(i) in
-		Scc { graph = go cut;
-		      entries = VSet.elements entries.(i);
-		      exits = VSet.elements exits.(i) }
+	      Scc { graph = go cut;
+		    entries = VSet.elements entries.(i);
+		    exits = VSet.elements exits.(i);
+		    backedges = VSet.elements (!backedges) }
 	    end
 	    else Simple (extract_vertex component_graph.(i))
 	  in

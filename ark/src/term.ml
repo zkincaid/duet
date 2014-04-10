@@ -35,6 +35,8 @@ module type S = sig
   val zero : t
   val one : t
 
+  val sum : t BatEnum.t -> t
+
   val inverse : t -> t
   val idiv : t -> t -> t
   val qq_linterm : (t * QQ.t) BatEnum.t -> t
@@ -322,7 +324,10 @@ module Make (V : Var) = struct
   let to_sop t =
     let product x y = Putil.cartesian_product (Sop.enum x) (Sop.enum y) in
     let mul ((x,kx), (y,ky)) = (mul x y, QQ.mul kx ky) in
-    let div ((x,kx), (y,ky)) = (div x y, QQ.div kx ky) in
+    let div ((x,kx), (y,ky)) =
+      assert (not (QQ.equal ky QQ.zero));
+      (div x y, QQ.div kx ky)
+    in
     let alg = function
       | OVar v -> Sop.var (of_linterm (Linterm.var (AVar v)))
       | OConst k -> Sop.add_term (of_linterm (Linterm.var AConst)) k Sop.zero
@@ -353,6 +358,7 @@ module Make (V : Var) = struct
     eval alg t
 *)
 
+  (* May raise divide-by-zero *)
   let evaluate env term =
     let f = function
       | OVar v -> env v
@@ -424,7 +430,7 @@ module Make (V : Var) = struct
   (** Exponentiation (with constant exponent) *)
   let exp x k =
     let rec go x k =
-      if k = 0 then zero
+      if k = 0 then one
       else if k = 1 then x
       else begin
 	let y = go x (k / 2) in
@@ -435,6 +441,8 @@ module Make (V : Var) = struct
     match to_const x with
     | Some v -> const (QQ.exp v k)
     | None   -> if k < 0 then inverse (go x (-k)) else go x k
+
+  let sum terms = BatEnum.fold add zero terms
 
   (** Evaluate a term within a model *)
   let eval_model m = evaluate (fun v -> m#eval_qq (V.to_smt v))

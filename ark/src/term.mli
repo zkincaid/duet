@@ -36,6 +36,8 @@ module type S = sig
   val zero : t
   val one : t
 
+  val sum : t BatEnum.t -> t
+
   (** Multiplicative inverse *)
   val inverse : t -> t
 
@@ -70,7 +72,7 @@ module type S = sig
   val subst : (V.t -> t) -> t -> t
 
   (** Given an environment [env] and a term [t], evaluate [t], using [env] to
-      interpret variables. *)
+      interpret variables.   May raise [Ark.Divide_by_zero]. *)
   val evaluate : (V.t -> QQ.t) -> t -> QQ.t
 
   val is_linear : t -> bool

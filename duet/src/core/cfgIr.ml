@@ -152,6 +152,36 @@ let mk_skip () = Def.mk (Assume (Bexpr.ktrue))
 
 let vertex_list cfg = Cfg.fold_vertex (fun v vs -> v::vs) cfg []
 
+module HT = Hashtbl.Make(Def.Set)
+let factor_cfg cfg =
+  let succs v = Cfg.fold_succ Def.Set.add cfg v Def.Set.empty in
+  let succ_ht = HT.create 331 in
+  let f v =
+    let s = succs v in
+    if Def.Set.cardinal s >= 2 then begin
+      try HT.replace succ_ht s (v::(HT.find succ_ht s))
+      with Not_found -> HT.add succ_ht s [v]
+    end
+  in
+  let factor succs = function
+    | [v] -> ()
+    | vs ->
+      let u = mk_skip () in
+      let f v =
+	Cfg.iter_succ (Cfg.remove_edge cfg v) cfg v;
+	Cfg.add_edge cfg v u
+      in
+      List.iter f vs;
+      Def.Set.iter (fun s -> Cfg.add_edge cfg u s) succs
+  in
+  let split v = (* insert structural skip vertices *)
+    if Cfg.in_degree cfg v > 1 && Cfg.out_degree cfg v > 1
+    then insert_succ (mk_skip ()) v cfg
+  in
+  Cfg.iter_vertex f cfg;
+  HT.iter factor succ_ht;
+  Cfg.iter_vertex split cfg
+
 (** Normalize a CFG.  This function should be called immediately after
     constructing any CFG.  This function:
     - Removes 2-cycles (required for cycle equivalence testing)

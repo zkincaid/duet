@@ -35,6 +35,7 @@ module type S = sig
 
   val eval : ('a, T.t atom) formula_algebra -> t -> 'a
   val view : t -> (t, T.t atom) open_formula
+  val is_linear : t -> bool
 
   val of_abstract : 'a T.D.t -> t
   val abstract : ?exists:(T.V.t -> bool) option ->
@@ -55,6 +56,7 @@ module type S = sig
   val qe_z3 : (T.V.t -> bool) -> t -> t
   val qe_cover : (T.V.t -> bool) -> t -> t
   val qe_partial : (T.V.t -> bool) -> t -> t
+  val qe_trivial : (T.V.t -> bool) -> t -> t
 
   val simplify : (T.V.t -> bool) -> t -> t
   val simplify_z3 : (T.V.t -> bool) -> t -> t
@@ -75,8 +77,9 @@ module type S = sig
   val map : (T.t atom -> t) -> t -> t
   val subst : (T.V.t -> T.t) -> t -> t
   val select_disjunct : (T.V.t -> QQ.t) -> t -> t option
+  val affine_hull : t -> T.V.t list -> T.Linterm.t list
   val symbolic_bounds : (T.V.t -> bool) -> t -> T.t -> (pred * T.t) list
-  val symbolic_abstract : (T.t list) -> t -> (QQ.t option * QQ.t option) list
+  val optimize : (T.t list) -> t -> (QQ.t option * QQ.t option) list
   val disj_optimize : (T.t list) -> t -> (QQ.t option * QQ.t option) list list
 
   val dnf_size : t -> int
@@ -299,10 +302,7 @@ module Make (T : Term.S) = struct
       | OAnd (x, y) -> Smt.conj x y
       | OOr (x, y) -> Smt.disj x y
     in
-    let ts = eval alg in
-    fun phi ->
-      if not (is_linear phi) then raise Nonlinear
-      else ts phi
+    eval alg
 
   let log_stats () =
     let (length, count, total, min, median, max) = HC.stats formula_tbl in
@@ -484,11 +484,18 @@ module Make (T : Term.S) = struct
   let select_disjunct m phi =
     let f = function
       | OAtom (LeqZ t) ->
-	if QQ.leq (T.evaluate m t) QQ.zero then Some (leqz t) else None
+	(try
+	   if QQ.leq (T.evaluate m t) QQ.zero then Some (leqz t) else None
+	 with Divide_by_zero -> None)
       | OAtom (LtZ t) ->
-	if QQ.lt (T.evaluate m t) QQ.zero then Some (ltz t) else None
+	(try
+	   if QQ.lt (T.evaluate m t) QQ.zero then Some (ltz t) else None
+	 with Divide_by_zero -> None)
+
       | OAtom (EqZ t) ->
-	if QQ.equal (T.evaluate m t) QQ.zero then Some (eqz t) else None
+	(try
+	   if QQ.equal (T.evaluate m t) QQ.zero then Some (eqz t) else None
+	 with Divide_by_zero -> None)
       | OAnd (Some phi, Some psi) -> Some (conj phi psi)
       | OAnd (_, _) -> None
       | OOr (x, None) | OOr (_, x) -> x
@@ -564,13 +571,6 @@ module Make (T : Term.S) = struct
     in
     eval alg phi
 
-  let of_abstract x =
-    let open Apron in
-    let open D in
-    let man = Abstract0.manager x.prop in
-    let tcons = BatArray.enum (Abstract0.to_tcons_array man x.prop) in
-    big_conj (BatEnum.map (of_tcons x.env) tcons)
-
 
   (* [lazy_dnf join bottom top prop_to_smt phi] computes an abstraction of phi
      by lazily computing its disjunctive normal form.
@@ -607,9 +607,10 @@ module Make (T : Term.S) = struct
 	let disjunct = match select_disjunct (m#eval_qq % T.V.to_smt) phi with
 	  | Some d -> d
 	  | None -> begin (* This should be impossible. *)
-	    let phi = unsat_residual (m#eval_qq % T.V.to_smt) phi in
+	    Log.errorf "Couldn't select disjunct for formula:";
+(*	    let phi = unsat_residual (m#eval_qq % T.V.to_smt) phi in*)
 	    Log.errorf
-	      "Couldn't select disjunct for formula:\n%a\nwith model:\n%s"
+	      "%a\nwith model:\n%s"
 	      format phi
 	      (m#to_string ());
 	    Log.errorf "Smt:\n%s\n" (Smt.ast_to_string (to_smt phi));
@@ -642,7 +643,15 @@ module Make (T : Term.S) = struct
 	  (Array.of_list (eval alg phi));
       env = env }
 
+  let of_abstract x =
+    let open Apron in
+    let open D in
+    let man = Abstract0.manager x.prop in
+    let tcons = BatArray.enum (Abstract0.to_tcons_array man x.prop) in
+    big_conj (BatEnum.map (of_tcons x.env) tcons)
+
   let abstract ?exists:(p=None) man phi =
+    let open D in
     let env = mk_env phi in
     let env_proj = match p with
       | Some p -> D.Env.filter p env
@@ -656,7 +665,10 @@ module Make (T : Term.S) = struct
       D.join prop new_prop
     in
     let (top, bottom) = (D.top man env_proj, D.bottom man env_proj) in
-    try lazy_dnf ~join:join ~bottom:bottom ~top:top (to_smt % of_abstract) phi
+    try
+      Log.time "Abstraction"
+	(lazy_dnf ~join:join ~bottom:bottom ~top:top (to_smt % of_abstract))
+	phi
     with Timeout -> begin
       Log.errorf "Symbolic abstraction timed out; returning top";
       top
@@ -732,12 +744,15 @@ module Make (T : Term.S) = struct
 	  in
 	  let symbound =
 	    let t = match qq_of_coeff (Linexpr0.get_cst linexpr) with
-	      | Some k -> ref (T.const (QQ.negate (QQ.div k tcoeff)))
+	      | Some k ->
+		assert (not (QQ.equal tcoeff QQ.zero));
+		ref (T.const (QQ.negate (QQ.div k tcoeff)))
 	      | None -> assert false
 	    in
 	    let f coeff dim =
 	      if dim != tdim then begin match qq_of_coeff coeff with
 	      | Some c ->
+		assert (not (QQ.equal tcoeff QQ.zero));
 		let coeff = T.const (QQ.negate (QQ.div c tcoeff)) in
 		let term = T.mul (T.var (Env.var_of_dim x.env dim)) coeff in
 		t := T.add (!t) term
@@ -933,7 +948,6 @@ module Make (T : Term.S) = struct
     in
     try Log.time "qe_partial" (qe vars) phi
     with Is_top -> top
-  let qe_partial _ phi = flatten phi
 
   let opt_qe_strategy = ref qe_lme
   let exists p phi =
@@ -947,29 +961,31 @@ module Make (T : Term.S) = struct
 
   module V = T.V
   module A = Linear.AffineVar(V)
-  module AMap = BatMap.Make(A)
-  module AffineTerm = Linear.Expr.Make(A)(QQ)
 
-  let linterm_smt = AffineTerm.to_smt A.to_smt Smt.const_qq
+  let linterm_smt = T.Linterm.to_smt A.to_smt Smt.const_qq
 
-  (** Extract a basis for the smallest linear manifold which contains [phi]
-      and is defined over the variables [vars]. *)
-  let extract_equalities_impl s vars =
+  (* Counter-example based extraction of the affine hull of a formula.  This
+     works by repeatedly posing new (linearly independent) equations; each
+     equation is either implied by the formula (and gets addded to the affine
+     hull) or there is a counter-example point which shows that it is not.
+     Counter-example points are collecting in a system of linear equations
+     where the variables are the coefficients of candidate equations. *)
+  let affine_hull_ceg s vars =
     let zero = Smt.const_int 0 in
     let const_var = A.to_smt AConst in
     let space = new Smt.solver in (* solution space for implied equalities *)
     let extract_linterm m =
       let f term v =
-	AffineTerm.add_term
+	T.Linterm.add_term
 	  (AVar v)
 	  (m#eval_qq (V.to_smt v))
 	  term
       in
       let const_term =
-	AffineTerm.add_term
+	T.Linterm.add_term
 	  AConst
 	  (m#eval_qq const_var)
-	  AffineTerm.zero
+	  T.Linterm.zero
       in
       List.fold_left f const_term vars
     in
@@ -985,6 +1001,9 @@ module Make (T : Term.S) = struct
 	s#assrt (Smt.mk_not candidate_formula);
 	match s#check () with
 	| Smt.Undef -> (* give up; return the equalities we have so far *)
+	  Log.errorf
+	    "Affine hull timed out (%d equations)"
+	    (List.length equalities);
 	  equalities
 	| Smt.Unsat -> (* candidate equality is implied by phi *)
 	  s#pop ();
@@ -994,7 +1013,7 @@ module Make (T : Term.S) = struct
 		| (AConst, _) -> None
 		| (AVar x, y) -> Some (x,y)
 	      in
-	      BatEnum.filter_map f (AffineTerm.enum candidate)
+	      BatEnum.filter_map f (T.Linterm.enum candidate)
 	    in
 	    match BatEnum.get e with
 	    | Some (dim, coeff) ->
@@ -1014,6 +1033,59 @@ module Make (T : Term.S) = struct
     s#assrt (Smt.mk_eq const_var (Smt.const_int 1));
     space#assrt (Smt.big_disj (BatEnum.map nonzero (BatList.enum vars)));
     go []
+
+  (* Affine hull as in Thomas Reps, Mooly Sagiv, and Greta Yorsh: "Symbolic
+     Implementation of the Best Abstract Transformer" *)
+  let affine_hull_rsy s vars =
+    let open Apron in
+    let open D in
+    let env = Env.of_enum (BatList.enum vars) in
+    let man = Polka.manager_alloc_equalities () in
+
+    let to_apron = T.to_apron env in
+    let mk_eq_prop m =
+      let mk_cons v =
+	Tcons0.make
+	  (to_apron (T.sub (T.var v) (T.const (m#eval_qq (T.V.to_smt v)))))
+	  Tcons0.EQ
+      in
+      let cons = BatList.map mk_cons vars in
+      { prop = 
+	  Abstract0.of_tcons_array
+	    man
+	    (Env.int_dim env)
+	    (Env.real_dim env)
+	    (Array.of_list cons);
+	env = env }
+    in
+    let rec go prop =
+      s#push ();
+
+      s#assrt (Smt.mk_not (to_smt (of_abstract prop)));
+      match s#check () with
+      | Smt.Unsat -> prop
+      | Smt.Undef ->
+	begin
+	  Log.errorf "Affine hull timed out";
+	  raise Timeout
+	end
+      | Smt.Sat -> begin
+	let neweq = mk_eq_prop (s#get_model ()) in
+	s#pop ();
+	go (join prop neweq)
+      end
+    in
+    let x = go (bottom man env) in
+    let tcons = BatArray.enum (Abstract0.to_tcons_array man x.prop) in
+    let to_lineq tcons =
+      match T.to_linterm (T.of_apron env tcons.Tcons0.texpr0) with
+      | Some lt -> lt
+      | None -> assert false
+    in
+    BatList.of_enum (BatEnum.map to_lineq tcons)
+
+  let affine_hull_impl s vars =
+    Log.time "Affine hull" (affine_hull_ceg s) vars
 
   module TMap = Putil.Map.Make(T)
   exception Unsat
@@ -1054,15 +1126,15 @@ module Make (T : Term.S) = struct
       | OFloor (x, _)   -> (Smt.mk_real2int x, TyInt)
     in
     let assert_nl_eq nl_term var =
-      Log.logf Log.info "Nonlinear equation: %a = %a"
-	V.format var
-	T.format nl_term;
+      Log.logf Log.info "  %a = %a" V.format var T.format nl_term;
       s#assrt (Smt.mk_eq (fst (T.eval talg nl_term)) (V.to_smt var))
     in
     s#assrt (to_smt phi);
+    Log.logf Log.info "Nonlinear equations:";
     TMap.iter assert_nl_eq map;
+    Log.logf Log.info "done (Nonlinear equations)";
     match s#check () with
-    | Smt.Sat -> extract_equalities_impl s (VarSet.elements vars)
+    | Smt.Sat -> affine_hull_impl s (VarSet.elements vars)
     | Smt.Undef -> []
     | Smt.Unsat -> raise Unsat
 
@@ -1113,7 +1185,7 @@ module Make (T : Term.S) = struct
 	  | AVar v -> T.mul (T.var v) (T.const coeff)
 	  | AConst -> T.const coeff
 	in
-	conj phi (eqz (BatEnum.reduce T.add (AffineTerm.enum eq /@ g)))
+	conj phi (eqz (BatEnum.reduce T.add (T.Linterm.enum eq /@ g)))
       in
       let eqs = nonlinear_equalities nonlinear lin_phi vars in
       List.fold_left f lin_phi eqs
@@ -1153,7 +1225,7 @@ module Make (T : Term.S) = struct
 	    | AVar v -> T.mul (T.var v) (T.const coeff)
 	    | AConst -> T.const coeff
 	  in
-	  conj phi (eqz (BatEnum.reduce T.add (AffineTerm.enum eq /@ g)))
+	  conj phi (eqz (BatEnum.reduce T.add (T.Linterm.enum eq /@ g)))
 	in
 	let eqs = nonlinear_equalities nonlinear lin_phi vars in
 	List.fold_left f lin_phi eqs
@@ -1241,7 +1313,7 @@ module Make (T : Term.S) = struct
 
   (* Given a list of (linear) terms [terms] and a formula [phi], find lower
      and upper bounds for each term within the feasible region of [phi]. *)
-  let symbolic_abstract terms phi =
+  let optimize terms phi =
     let open Apron in
     let man = Polka.manager_alloc_loose () in
     let vars =
@@ -1301,9 +1373,9 @@ module Make (T : Term.S) = struct
     let bottom = List.map (fun _ -> (Some QQ.one, Some QQ.zero)) terms in
     lazy_dnf ~join:join ~top:top ~bottom:bottom prop_to_smt phi
 
-  let symbolic_abstract ts phi =
+  let optimize ts phi =
     if ts == [] then []
-    else Log.time "symbolic_abstract" (symbolic_abstract ts) phi
+    else Log.time "optimize" (optimize ts) phi
 
   module LinBound = struct
     type t = { upper : T.t list;
@@ -1405,16 +1477,17 @@ module Make (T : Term.S) = struct
 	    | AVar v -> T.mul (T.var v) (T.const coeff)
 	    | AConst -> T.const coeff
 	  in
-	  conj phi (eqz (BatEnum.reduce T.add (AffineTerm.enum eq /@ g)))
+	  conj phi (eqz (BatEnum.reduce T.add (T.Linterm.enum eq /@ g)))
 	in
 	(* Variables introduced to represent nonlinear terms *)
 	let nl_vars =
 	  TMap.fold (fun _ v set -> VarSet.add v set) nonlinear VarSet.empty
 	in
+
 	let eqs = nonlinear_equalities nonlinear lin_phi nl_vars in
 
 	Log.logf Log.info "Extracted equalities:@ %a"
-	  Show.format<AffineTerm.t list> eqs;
+	  Show.format<T.Linterm.t list> eqs;
 	List.fold_left f lin_phi eqs
       in
 
@@ -1424,7 +1497,7 @@ module Make (T : Term.S) = struct
 	VarSet.elements (TMap.fold f nonlinear VarSet.empty)
       in
       let box =
-	symbolic_abstract (List.map T.var var_list) lin_phi
+	optimize (List.map T.var var_list) lin_phi
       in
       let bounds =
 	List.fold_left2
@@ -1494,7 +1567,7 @@ module Make (T : Term.S) = struct
       | Some lt -> lt
       | None -> raise Nonlinear
     in
-    let box = symbolic_abstract (List.map T.var vars) phi in
+    let box = optimize (List.map T.var vars) phi in
     let bounds =
       List.fold_left2
 	(fun m v box -> T.V.Map.add v box m)
@@ -1622,6 +1695,13 @@ module Make (T : Term.S) = struct
       (List.fold_left (fun phi simpl -> simpl p phi) phi)
       (!opt_simplify_strategy)
 
+  let affine_hull phi vars =
+    try
+      let s = new Smt.solver in
+      s#assrt (to_smt phi);
+      affine_hull_impl s vars
+    with Timeout -> []
+
   module Syntax = struct
     let ( && ) x y = conj x y
     let ( || ) x y = disj x y
@@ -1631,82 +1711,4 @@ module Make (T : Term.S) = struct
     let ( <= ) x y = leq x y
     let ( >= ) x y = geq x y
   end
-end
-
-module MakeEq (F : S) = struct
-  open F
-  module V = T.V
-  module A = Linear.AffineVar(V)
-  module AMap = BatMap.Make(A)
-  module AffineTerm = T.Linterm
-
-  let linterm_smt = AffineTerm.to_smt A.to_smt Smt.const_qq
-
-  (** Extract a basis for the smallest linear manifold which contains [phi]
-      and is defined over the variables [vars]. *)
-  let extract_equalities phi vars =
-    (* todo: this should use extract_equalities_impl from Defaults, but we
-       don't want to extract_equalities_impl or AffineTerm to should up in the
-       signature for Formula *)
-    let zero = Smt.const_int 0 in
-    let const_var = A.to_smt AConst in
-    let s = new Smt.solver in
-    let space = new Smt.solver in (* solution space for implied equalities *)
-    let extract_linterm m =
-      let f term v =
-	AffineTerm.add_term
-	  (AVar v)
-	  (m#eval_qq (V.to_smt v))
-	  term
-      in
-      let const_term =
-	AffineTerm.add_term
-	  AConst
-	  (m#eval_qq const_var)
-	  AffineTerm.zero
-      in
-      List.fold_left f const_term vars
-    in
-    let rec go equalities =
-      match space#check () with
-      | Smt.Unsat | Smt.Undef -> equalities
-      | Smt.Sat ->
-	let candidate = extract_linterm (space#get_model ()) in
-	let candidate_formula =
-	  Smt.mk_eq (linterm_smt candidate) zero
-	in
-	s#push ();
-	s#assrt (Smt.mk_not candidate_formula);
-	match s#check () with
-	| Smt.Undef -> (* give up; return the equalities we have so far *)
-	  equalities
-	| Smt.Unsat -> (* candidate equality is implied by phi *)
-	  s#pop ();
-	  let leading =
-	    let e =
-	      let f = function
-		| (AConst, _) -> None
-		| (AVar x, y) -> Some (x,y)
-	      in
-	      BatEnum.filter_map f (AffineTerm.enum candidate)
-	    in
-	    match BatEnum.get e with
-	    | Some (dim, coeff) ->
-	      assert (not (QQ.equal coeff QQ.zero));
-	      dim
-	    | None -> assert false
-	  in
-	  space#assrt (Smt.mk_eq (V.to_smt leading) zero);
-	  go (candidate::equalities)
-	| Smt.Sat -> (* candidate equality is not implied by phi *)
-	  let point = extract_linterm (s#get_model ()) in
-	  s#pop ();
-	  space#assrt (Smt.mk_eq (linterm_smt point) zero);
-	  go equalities
-    in
-    let nonzero v = Smt.mk_not (Smt.mk_eq (V.to_smt v) zero) in
-    s#assrt (to_smt phi);
-    s#assrt (Smt.mk_eq const_var (Smt.const_int 1));
-    space#assrt (Smt.big_disj (BatEnum.map nonzero (BatList.enum vars)));
-    go []
 end

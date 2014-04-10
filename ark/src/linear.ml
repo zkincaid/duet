@@ -285,6 +285,10 @@ module Defaults (E : Impl.Basis) = struct
   let of_enum = BatEnum.fold (flip (uncurry E.add_term)) E.zero
 
   let sub lin0 lin1 = E.add lin0 (E.negate lin1)
+
+  let sum = BatEnum.fold E.add E.zero
+
+  let term dim coeff = E.add_term dim coeff E.zero
 end
 
 module Expr = struct
@@ -294,6 +298,8 @@ module Expr = struct
     val of_enum : (dim * base) BatEnum.t -> t
     val to_smt : (dim -> Smt.ast) -> (base -> Smt.ast) -> t -> Smt.ast
     val transpose : t list -> dim list -> dim list -> t list
+    val sum : t BatEnum.t -> t
+    val term : dim -> base -> t
   end
   module Make (V : Var) (R : Ring.S) = struct
     module I = Impl.Make(V)(R)
@@ -356,7 +362,8 @@ module Expr = struct
     let zero = P.zero
     let var = P.var
     let add_term = P.add_term
-    let one = P.add_term 0 R.one P.zero
+    let const k = P.add_term 0 k P.zero
+    let one = const R.one
     let mul_term n coeff lin =
       let f (k, cf) = (n + k, R.mul coeff cf) in
       P.M.of_enum (BatEnum.map f (P.M.enum lin))

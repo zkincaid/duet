@@ -16,7 +16,6 @@ module StrVar = struct
 end
 module T = Term.Make(StrVar)
 module F = Formula.Make(T)
-module FEq = Formula.MakeEq(F)
 
 open T.Syntax
 open F.Syntax
@@ -25,7 +24,7 @@ let test1 () =
   let x = T.var "x" in
   let y = T.var "y" in
   let phi = (x == y) in
-  let eqs = FEq.extract_equalities phi ["x";"y"] in
+  let eqs = F.affine_hull phi ["x";"y"] in
   Log.log Log.info (Show.show<T.Linterm.t list> eqs);
   assert_equal (List.length eqs) 1
 
@@ -34,7 +33,7 @@ let test2 () =
   let y = T.var "y" in
   let z = T.var "z" in
   let phi = (x == y || x == z) in
-  let eqs = FEq.extract_equalities phi ["x";"y";"z"] in
+  let eqs = F.affine_hull phi ["x";"y";"z"] in
   Log.log Log.info (Show.show<T.Linterm.t list> eqs);
   assert_equal (List.length eqs) 0
 
@@ -44,7 +43,7 @@ let test3 () =
   let y = T.var "y" in
   let z = T.var "z" in
   let phi = ((w == x && x == y) || (w == z && z == y)) in
-  let eqs = FEq.extract_equalities phi ["w";"x";"y";"z"] in
+  let eqs = F.affine_hull phi ["w";"x";"y";"z"] in
   Log.log Log.info (Show.show<T.Linterm.t list> eqs);
   assert_equal (List.length eqs) 1
 
@@ -54,7 +53,7 @@ let test4 () =
   let y = T.var "y" in
   let z = T.var "z" in
   let phi = ((w == x && x == y) || (w == z && z == y)) in
-  let eqs = FEq.extract_equalities phi ["x";"y";"z"] in
+  let eqs = F.affine_hull phi ["x";"y";"z"] in
   Log.log Log.info (Show.show<T.Linterm.t list> eqs);
   assert_equal (List.length eqs) 0
 
@@ -64,7 +63,7 @@ let test5 () =
   let y = T.var "y" in
   let z = T.var "z" in
   let phi = ((w == x && x == y) || (w == z && z == y)) in
-  let eqs = FEq.extract_equalities phi ["w";"y"] in
+  let eqs = F.affine_hull phi ["w";"y"] in
   Log.log Log.info (Show.show<T.Linterm.t list> eqs);
   assert_equal (List.length eqs) 1
 
@@ -74,14 +73,14 @@ let test6 () =
   let y = T.var "y" in
   let z = T.var "z" in
   let phi = w >= x && ((w <= x && x == y) || (w == z && z == y)) in
-  let eqs = FEq.extract_equalities phi ["w";"y"] in
+  let eqs = F.affine_hull phi ["w";"y"] in
   Log.log Log.info (Show.show<T.Linterm.t list> eqs);
   assert_equal (List.length eqs) 1
 
 let test7 () =
   let x = T.var "x" in
   let phi = x == T.one in
-  let eqs = FEq.extract_equalities phi ["x"] in
+  let eqs = F.affine_hull phi ["x"] in
   Log.log Log.info (Show.show<T.Linterm.t list> eqs);
   assert_equal (List.length eqs) 1
 
@@ -94,7 +93,7 @@ let test8 () =
     w >= x && z <= T.one && ((w <= x && x == y && z == T.one)
 			     || (w == z && z == y && z >= T.one))
   in
-  let eqs = FEq.extract_equalities phi ["w";"x";"y";"z"] in
+  let eqs = F.affine_hull phi ["w";"x";"y";"z"] in
   Log.log Log.info (Show.show<T.Linterm.t list> eqs);
   assert_equal (List.length eqs) 2
 

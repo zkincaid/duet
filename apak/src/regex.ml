@@ -88,11 +88,11 @@ let regex_add x y = match x, y with
 let rec format_regex pp_alpha formatter = function
   | Alpha x -> pp_alpha formatter x
   | Cat (x, y) ->
-    Format.fprintf formatter "%a@,%a"
+    Format.fprintf formatter "(%a@,%a)"
       (format_regex pp_alpha) x
       (format_regex pp_alpha) y
   | Union (x, y) ->
-    Format.fprintf formatter "%a@,+%a"
+    Format.fprintf formatter "(%a@,+%a)"
       (format_regex pp_alpha) x
       (format_regex pp_alpha) y
   | Star x ->

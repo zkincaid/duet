@@ -221,22 +221,34 @@ module K = struct
       (VSet.cardinal (formula_free_tmp_vars simplified.guard));
     simplified
 *)
-  let simplify tr =
-    if F.size tr.guard > 128 then Log.time "simplify" simplify tr else tr
-      
+  let exists p tr =
+    let abstract p x =
+      let x = F.linearize (fun () -> V.mk_tmp "nonlin" TyInt) x in
+      let man = Oct.manager_alloc () in
+      F.of_abstract (F.abstract ~exists:(Some p) man x)
+    in
+    F.opt_simplify_strategy := [abstract];
+    let res = simplify (exists p tr) in
+    F.opt_simplify_strategy := [];
+    res
+  let exists p tr =
+    Log.time "Existential quantification" (exists p) tr
+
+  let simplify tr = tr
+
+  let add x y =
+    if equal x zero then y
+    else if equal y zero then x
+    else Log.time "lra:add" (add (simplify x)) (simplify y)
+
   let mul x y =
     if equal x zero || equal y zero then zero
     else if equal x one then y
     else if equal y one then x
     else simplify (Log.time "lra:mul" (mul x) y)
-  let add x y =
-    if equal x zero then y
-    else if equal y zero then x
-    else simplify (Log.time "lra:add" (add x) y)
-
-  let star x = Log.time "lra:star" star x
+  let star x =
+    Log.time "lra:star" star x
   let widen x y = Log.time "lra:widen" (widen x) y
-  let exists p tr = simplify (exists p tr)
 end
 module A = Interproc.MakePathExpr(K)
 
@@ -272,7 +284,7 @@ let int_binop op left right =
   | Add -> T.add left right
   | Minus -> T.sub left right
   | Mult -> T.mul left right
-  | Div -> T.div left right
+  | Div -> T.idiv left right
   | _ -> T.var (V.mk_tmp "havoc" TyInt)
 
 let term_binop op left right = match left, op, right with
@@ -427,6 +439,7 @@ let set_qe = function
   | "lme" -> K.F.opt_qe_strategy := K.F.qe_lme
   | "cover" -> K.F.opt_qe_strategy := K.F.qe_cover
   | "z3" -> K.F.opt_qe_strategy := K.F.qe_z3
+  | "trivial" -> K.F.opt_qe_strategy := K.F.qe_trivial
   | s -> Log.errorf "Unrecognized QE strategy: `%s`" s; assert false
 
 let _ =
@@ -443,7 +456,7 @@ let _ =
      Arg.Set K.opt_recurrence_ineq,
      " Solve simple recurrence inequations");
   CmdLine.register_config
-    ("-lra-higher_rec-ineq",
+    ("-lra-higher-rec-ineq",
      Arg.Set K.opt_higher_recurrence_ineq,
      " Solve higher recurrence inequations");
   CmdLine.register_config
@@ -514,27 +527,30 @@ let analyze file =
 
 	    let mk_tmp () = K.V.mk_tmp "nonlin" TyInt in
 	    let path_condition =
-	      K.F.linearize mk_tmp (K.F.conj
-				      (K.to_formula path)
-				      (K.F.negate phi))
+	      K.F.conj (K.to_formula path) (K.F.negate phi)
 	    in
+
 	    s#push ();
 	    s#assrt (K.F.to_smt path_condition);
-	    begin match Log.time "Assertion checking" s#check () with
-	    | Smt.Unsat -> Report.log_safe ()
-	    | Smt.Undef -> Report.log_error (Def.get_location def) msg
-	    | Smt.Sat ->
-	      let m = s#get_model () in
-	      let failing_path = 
-		K.F.select_disjunct (m#eval_qq % K.F.T.V.to_smt) path_condition
-	      in
-	      begin
-		match failing_path with
-		| Some path ->
-		  Log.logf Log.info "Failing path:@\n%a" K.F.format path
-		| None -> ()
-	      end;
-	      Report.log_error (Def.get_location def) msg
+	    let checked =
+	      try
+		begin match Log.time "Assertion checking" s#check () with
+		| Smt.Unsat -> (Report.log_safe (); true)
+		| Smt.Sat -> (Report.log_error (Def.get_location def) msg; true)
+		| Smt.Undef -> false
+		end
+	      with Z3.Error (_, _) -> false
+	    in
+	    if (not checked) && not (K.F.is_linear path_condition) then begin
+	      Log.errorf "Z3 inconclusive; trying to linearize";
+	      s#pop ();
+	      s#push ();
+	      s#assrt (K.F.to_smt (K.F.linearize mk_tmp path_condition));
+	      begin match Log.time "Assertion checking" s#check () with
+	      | Smt.Unsat -> Report.log_safe ()
+	      | Smt.Sat -> Report.log_error (Def.get_location def) msg
+	      | Smt.Undef -> Report.log_error (Def.get_location def) msg
+	      end
 	    end;
 	    s#pop ();
 	  end
@@ -551,29 +567,29 @@ let analyze file =
 	in
 	let phi = K.F.subst sigma phi in
 	let mk_tmp () = K.V.mk_tmp "nonlin" TyInt in
-	let path_condition =
-	  K.F.linearize mk_tmp (K.F.conj
-				  (K.to_formula path)
-				  (K.F.negate phi))
-	in
+	let path_condition = K.F.conj (K.to_formula path) (K.F.negate phi) in
+	Log.logf Log.info "Path condition:@\n%a" K.format path;
 	s#assrt (K.F.to_smt path_condition);
+	let checked =
+	  try
+	    begin match Log.time "Assertion checking" s#check () with
+	    | Smt.Unsat -> (Report.log_safe (); true)
+	    | Smt.Sat -> (Report.log_error (Def.get_location def) msg; true)
+	    | Smt.Undef -> false
+	    end
+	  with Z3.Error (_, _) -> false
+	in
 
-	begin
-	  match Log.time "Assertion checking" s#check () with
+	if (not checked) && not (K.F.is_linear path_condition) then begin
+	  Log.errorf "Z3 inconclusive; trying to linearize";
+	  s#pop ();
+	  s#push ();
+	  s#assrt (K.F.to_smt (K.F.linearize mk_tmp path_condition));
+	  begin match Log.time "Assertion checking" s#check () with
 	  | Smt.Unsat -> Report.log_safe ()
+	  | Smt.Sat -> Report.log_error (Def.get_location def) msg
 	  | Smt.Undef -> Report.log_error (Def.get_location def) msg
-	  | Smt.Sat ->
-	    let m = s#get_model () in
-	    let failing_path =
-	      K.F.select_disjunct (m#eval_qq % K.F.T.V.to_smt) path_condition
-	    in
-	    begin
-	      match failing_path with
-	      | Some path ->
-		Log.logf Log.info "Failing path:@\n%a" K.F.format path
-	      | None -> ()
-	    end;
-	    Report.log_error (Def.get_location def) msg
+	  end
 	end;
 	s#pop ()
       end
