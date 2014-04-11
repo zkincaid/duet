@@ -8,6 +8,8 @@ open BatPervasives
 exception Nonlinear
 exception Timeout
 
+include Log.Make(struct let name = "ark.formula" end)
+
 module type S = sig
   type t
   include Putil.Hashed.S with type t := t
@@ -603,7 +605,7 @@ module Make (T : Term.S) = struct
 	let m = s#get_model () in
 	s#pop ();
 	incr disjuncts;
-	Log.logf Log.info "[%d] lazy_dnf" (!disjuncts);
+	logf "[%d] lazy_dnf" (!disjuncts);
 	let disjunct = match select_disjunct (m#eval_qq % T.V.to_smt) phi with
 	  | Some d -> d
 	  | None -> begin (* This should be impossible. *)
@@ -722,8 +724,7 @@ module Make (T : Term.S) = struct
     let show v =
       if v == tdim then "$" else T.V.show (Env.var_of_dim x.env v)
     in
-    Log.logf Log.info "Symbound projection: %a"
-      (Abstract0.print show) x.prop;
+    logf "Symbound projection: %a" (Abstract0.print show) x.prop;
 
     let lincons = Abstract0.to_lincons_array man x.prop in
     let symbounds = ref [] in
@@ -789,19 +790,18 @@ module Make (T : Term.S) = struct
   let qe_lme p phi =
     let man = Polka.manager_alloc_strict () in
     let env = mk_env phi in
-    Log.logf Log.info "Quantifier elimination [dim: %d, target: %d]"
+    logf "Quantifier elimination [dim: %d, target: %d]"
       (D.Env.dimension env)
       (D.Env.dimension (D.Env.filter p env));
     let join psi disjunct =
-      Log.logf Log.info "Polytope projection [sides: %d]"
+      logf "Polytope projection [sides: %d]"
 	(nb_atoms disjunct);
       let projection =
 	Log.time "Polytope projection"
 	  (fun () -> of_abstract (D.exists man p (to_apron man env disjunct)))
 	  ()
       in
-      Log.logf Log.info "Projected polytope sides: %d"
-	(nb_atoms projection);
+      logf "Projected polytope sides: %d" (nb_atoms projection);
       disj psi projection
     in
     try lazy_dnf ~join:join ~bottom:bottom ~top:top to_smt phi
@@ -898,7 +898,7 @@ module Make (T : Term.S) = struct
 	    let term = T.subst (mk_subst rewrite) term in
 	    match orient_equation vars term with
 	    | Some (v, rhs) ->
-	      Log.logf Log.info "Found rewrite: %a --> %a"
+	      logf "Found rewrite: %a --> %a"
 		T.V.format v
 		T.format rhs;
 	      let sub x =
@@ -1126,13 +1126,13 @@ module Make (T : Term.S) = struct
       | OFloor (x, _)   -> (Smt.mk_real2int x, TyInt)
     in
     let assert_nl_eq nl_term var =
-      Log.logf Log.info "  %a = %a" V.format var T.format nl_term;
+      logf "  %a = %a" V.format var T.format nl_term;
       s#assrt (Smt.mk_eq (fst (T.eval talg nl_term)) (V.to_smt var))
     in
     s#assrt (to_smt phi);
-    Log.logf Log.info "Nonlinear equations:";
+    logf "Nonlinear equations:";
     TMap.iter assert_nl_eq map;
-    Log.logf Log.info "done (Nonlinear equations)";
+    logf "done (Nonlinear equations)";
     match s#check () with
     | Smt.Sat -> affine_hull_impl s (VarSet.elements vars)
     | Smt.Undef -> []
@@ -1215,7 +1215,7 @@ module Make (T : Term.S) = struct
 	  (TMap.enum nonlinear)
       in
       let env = D.Env.of_enum (VarSet.enum vars) in
-      Log.logf Log.info "Linearize formula (%d dimensions, %d nonlinear)"
+      logf "Linearize formula (%d dimensions, %d nonlinear)"
 	(D.Env.dimension env)
 	(TMap.cardinal nonlinear);
       let lin_phi =
@@ -1265,8 +1265,7 @@ module Make (T : Term.S) = struct
       List.fold_left f (formula_free_vars phi) terms
     in
     let env = D.Env.of_enum (VarSet.enum vars) in
-    Log.logf
-      Log.info
+    logf
       "Disjunctive symbolic optimization [objectives: %d, dimensions: %d]"
       (List.length terms)
       (D.Env.dimension env);
@@ -1321,7 +1320,7 @@ module Make (T : Term.S) = struct
       List.fold_left f (formula_free_vars phi) terms
     in
     let env = D.Env.of_enum (VarSet.enum vars) in
-    Log.logf Log.info "Symbolic optimization [objectives: %d, dimensions: %d]"
+    logf "Symbolic optimization [objectives: %d, dimensions: %d]"
       (List.length terms)
       (D.Env.dimension env);
     let get_bounds prop t =
@@ -1486,7 +1485,7 @@ module Make (T : Term.S) = struct
 
 	let eqs = nonlinear_equalities nonlinear lin_phi nl_vars in
 
-	Log.logf Log.info "Extracted equalities:@ %a"
+	logf "Extracted equalities:@ %a"
 	  Show.format<T.Linterm.t list> eqs;
 	List.fold_left f lin_phi eqs
       in
