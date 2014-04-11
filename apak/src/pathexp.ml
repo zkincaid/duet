@@ -3,6 +3,8 @@
 open Sig.KA
 open BatPervasives
 
+module L = Log.Make(struct let name = "pathexp" end)
+
 (** Implementation of Kleene's algorithm *)
 module type G = sig
   type t
@@ -217,7 +219,7 @@ end = struct
     let rec go acc v =
       match v.vtype with
       | Simple v ->
-	Log.logf 5 "Visit: %d" (get_id v);
+	L.logf "Visit: %d" (get_id v);
 	f v acc
       | Scc scc -> go_graph scc.entries (scc.backedges@scc.exits) scc.graph acc
     and go_graph initial exits graph acc =
@@ -325,7 +327,7 @@ end = struct
     let rec visit v acc =
       match v with
       | Block block ->
-	Log.logf 5 "Enter block %d" block;
+	L.logf "Enter block %d" block;
 	let bentry = Re.block_entry rg block in
 	let bexit = Re.block_exit rg block in
 	let go v acc =
@@ -337,10 +339,10 @@ end = struct
 	if Re.G.V.equal bentry bexit then visit bentry acc
 	else visit bentry (visit bexit acc)
 	in
-	Log.logf 5 "Exit block %d" block;
+	L.logf "Exit block %d" block;
 	res
       | Atom atom ->
-	Log.logf 5 "Visit: %d" (get_id atom);
+	L.logf "Visit: %d" (get_id atom);
 	f atom acc
     in
     fold_body visit (Re.block_body rg 0) acc
@@ -643,7 +645,7 @@ struct
     | Some cg -> cg
     | None -> begin
       let cg = CG.callgraph query.recgraph query.root in
-      Log.logf Log.info "Call graph vertices: %d, edges: %d"
+      L.logf "Call graph vertices: %d, edges: %d"
 	(CG.nb_vertex cg)
 	(CG.nb_edges cg);
       query.callgraph <- Some cg;
@@ -664,7 +666,10 @@ struct
 
     (* Compute summaries for each block *)
     let update join block =
-      Log.logf Log.phases "\x1b[36;1mComputing summary for block `%a`\x1b[0m"
+      L.logf
+	~level:Log.phases
+	~attributes:[Log.Cyan]
+	"Computing summary for block `%a`"
 	Block.format block;
       let body = R.block_body query.recgraph block in
       let src = R.block_entry query.recgraph block in
@@ -687,7 +692,7 @@ struct
       (Fix.fix cg (update K.add))
       (Some (update K.widen));
     let f k s =
-      Log.logf Log.info "  Summary for %a:@\n    @[%a@]"
+      L.logf "  Summary for %a:@\n    @[%a@]"
 	Block.format k
 	K.format s
     in
@@ -713,8 +718,7 @@ struct
 
     let p2c_summaries = HT.create 32 in
     let block_succ_weights (block, graph) =
-      Log.logf Log.info "Compute paths to call vertices in `%a`"
-	Block.format block;
+      L.logf "Compute paths to call vertices in `%a`" Block.format block;
       let src = R.block_entry query.recgraph block in
       let path = Summarize.single_src_restrict_v graph weight src is_block in
       let ht = HT.create 32 in
@@ -755,8 +759,7 @@ struct
                        with Not_found -> K.zero
     in
     let f (block, body) =
-      Log.logf Log.info "Intraprocedural paths in `%a`"
-	Block.format block;
+      L.logf "Intraprocedural paths in `%a`" Block.format block;
       let block_path = to_block block in
       let block_entry = R.block_entry query.recgraph block in
       let from_block =
