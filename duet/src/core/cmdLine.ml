@@ -21,6 +21,22 @@ let verbosity_arg =
    Arg.Set_int Log.verbosity_level,
    " Set verbosity level (higher = more verbose; defaults to 0)")
 
+let verbose_arg =
+  ("-verbose",
+   Arg.String (fun v -> Log.set_verbosity_level v Log.info),
+   " Raise verbosity for a particular module")
+
+let verbose_list_arg =
+  ("-verbose-list",
+   Arg.Unit (fun () ->
+     print_endline "Available modules for setting verbosity:";
+     Hashtbl.iter (fun k _ ->
+       print_endline (" - " ^ k);
+     ) Log.loggers;
+     exit 0;
+   ),
+   " List modules which can be used with -verbose")
+
 let stats_arg =
   ("-stats", Arg.Set show_stats, " Display statistics")
 
@@ -91,6 +107,8 @@ let debug_args = ref
 
 let config_args = ref
   [
+    verbose_arg;
+    verbose_list_arg;
     verbosity_arg;
     stats_arg;
     whole_program_arg;

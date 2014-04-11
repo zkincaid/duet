@@ -5,6 +5,8 @@ open ArkPervasives
 open BatPervasives
 open Hashcons
 
+include Log.Make(struct let name = "ark.transition" end)
+
 module type Var = sig
   include Putil.Ordered
   val prime : t -> t
@@ -442,13 +444,12 @@ module Make (Var : Var) = struct
 	      Cf.term (AVar v) (P.const coeff)
 	    end
 	in
-	let fmt = Show.format<Cf.t option> in
 	try
 	  Some (Cf.sum (BatEnum.map f (T.Linterm.enum lt)))
 	with Not_found -> begin
-	  Log.logf Log.info "Failed to evaluate closed form for %a"
+	  logf "Failed to evaluate closed form for %a"
 	    T.format t;
-	  Log.logf Log.info "Environment: %a"
+	  logf "Environment: %a"
 	    (Env.format Show.format<Cf.t option>) env;
 	  None
 	end
@@ -560,16 +561,16 @@ module Make (Var : Var) = struct
       s#assrt (Smt.mk_not (Smt.mk_eq diff (Smt.const_qq incr)));
       let res = match s#check () with
 	| Smt.Unsat ->
-	  Log.logf Log.info "Found recurrence: %a' = %a + %a"
+	  logf "Found recurrence: %a' = %a + %a"
 	    Var.format v
 	    Var.format v
 	    QQ.format incr;
 	  let increment = Cf.const (P.add_term 1 incr P.zero) in
 	  let cf = Cf.add_term (AVar v) P.one increment in
-	  Log.logf Log.info "Closed form: %a" Cf.format cf;
+	  logf "Closed form: %a" Cf.format cf;
 	  Some (Cf.add_term (AVar v) P.one increment)
  	| Smt.Sat ->
-	  Log.logf Log.info "No recurrence for %a" Var.format v;
+	  logf "No recurrence for %a" Var.format v;
 	  None
 	| Smt.Undef ->
 	  Log.errorf "Timeout in simple induction variable detection!";
@@ -642,7 +643,7 @@ module Make (Var : Var) = struct
       let cf =
 	Incr.Cf.add_term (AVar v) Incr.P.one (Incr.summation rhs_closed)
       in
-      Log.logf Log.info "Closed form for %a: %a"
+      logf "Closed form for %a: %a"
 	Var.format v
 	Incr.Cf.format cf;
       Some cf
@@ -710,7 +711,7 @@ module Make (Var : Var) = struct
       BatList.of_enum (VarSet.enum free_vars /@ V.mk_var)
     in
     let equalities = F.affine_hull ctx.phi vars in
-    Log.logf Log.info "Extracted equalities:@ %a"
+    logf "Extracted equalities:@ %a"
       Show.format<T.Linterm.t list> equalities;
     let (s, coeffs) = farkas equalities vars in
     let get_coeff v = AMap.find (mk_avar v) coeffs in
@@ -756,7 +757,7 @@ module Make (Var : Var) = struct
 	let coeffs = remove_coeff v (remove_coeff (Var.prime v) coeffs) in
 	s#pop ();
 	let incr = T.qq_linterm (BatList.enum (AMap.fold f coeffs [])) in
-	Log.logf Log.info "Found recurrence: %a' = %a + %a"
+	logf "Found recurrence: %a' = %a + %a"
 	  Var.format v
 	  Var.format v
 	  T.format incr;
@@ -827,7 +828,7 @@ module Make (Var : Var) = struct
 	| Some hi -> " <= " ^ (QQ.show hi)
 	| None -> ""
       in
-      Log.logf Log.info "Bounds for %a: %s%a'-%a%s"
+      logf "Bounds for %a: %s%a'-%a%s"
 	Var.format v
 	lo_string
 	Var.format v
@@ -890,7 +891,7 @@ module Make (Var : Var) = struct
       in
       F.abstract ~exists:(Some p) man phi
     in
-    Log.logf Log.info "Polyhedron: %a" F.T.D.format poly;
+    logf "Polyhedron: %a" F.T.D.format poly;
     let recur tcons =
       let open Apron in
       let open Tcons0 in
@@ -927,7 +928,7 @@ module Make (Var : Var) = struct
 	  | EQMOD _ -> assert false (* todo *)
 	in
 	if T.equal lhs T.zero then F.top else begin
-	  Log.logf Log.info "Polyhedral recurrence: %a" F.format res;
+	  logf "Polyhedral recurrence: %a" F.format res;
 	  res
 	end
       end
@@ -975,8 +976,8 @@ module Make (Var : Var) = struct
       | None -> assert false (* impossible *)
     in
     let post_guard = F.subst sigma post_guard in
-    Log.logf Log.info "pre_guard:@\n%a" F.format pre_guard;
-    Log.logf Log.info "post_guard:@\n%a" F.format post_guard;
+    logf "pre_guard:@\n%a" F.format pre_guard;
+    logf "post_guard:@\n%a" F.format post_guard;
     let plus_guard =
       F.conj
 	(F.conj pre_guard post_guard)
@@ -1040,7 +1041,7 @@ module Make (Var : Var) = struct
       match incr with
       | Some _ -> tr
       | None ->
-	Log.logf Log.info "Compute symbolic bounds for variable: %a"
+	logf "Compute symbolic bounds for variable: %a"
 	  Var.format v;
 	let delta =
 	  T.sub (T.var (V.mk_var (Var.prime v))) (T.var (V.mk_var v))
@@ -1053,7 +1054,7 @@ module Make (Var : Var) = struct
 	  T.var (V.mk_tmp ("nondet_" ^ (Var.show v)) (Var.typ v))
 	in
 	let bounds_formula = formula_of_bounds nondet bounds in
-	Log.logf Log.info "Bounds: %a" F.format bounds_formula;
+	logf "Bounds: %a" F.format bounds_formula;
 	{ transform = M.add v (T.add (T.var (V.mk_var v)) nondet) tr.transform;
 	  guard = F.conj (formula_of_bounds nondet bounds) tr.guard }
     in
@@ -1101,7 +1102,7 @@ module Make (Var : Var) = struct
       match incr with
       | Some incr ->
 	let t = Incr.to_term incr ctx.loop_counter in
-	Log.logf Log.info "Closed term for %a: %a"
+	logf "Closed term for %a: %a"
 	  Var.format v
 	  T.format t;
 	M.add v t transform
@@ -1126,7 +1127,7 @@ module Make (Var : Var) = struct
     try star tr
     with
     | Unsat ->
-      Log.logf Log.info "Loop body is unsat";
+      logf "Loop body is unsat";
       one
     | Undef ->
       let mk_nondet v _ =
