@@ -243,6 +243,7 @@ module Make(MakeEQ :
       DFlowMap.format tmp;
       tmp
 
+  (* TODO: this *)
   let check_consistency du = du
 
   module ConcReachingDefs = struct
@@ -305,10 +306,8 @@ module Make(MakeEQ :
      * pointed uses = pointed uses1 + pointed paths1 ; exposed uses 2 
      *                     + path1 ; pointed uses 2
      * concurrent uses = concurrent uses1 + kill eq path1 ; concurrent uses2
-     * du = du1 + reaching defs1-path1;concurrent uses2
-     *        + path1;reaching defs2-concurrent uses1 + check(path1 ; du2)
-     * ud = ud1 + concurrent defs1-path1;exposed uses2
-     *        + path1;concurrent defs2-exposed uses1 + check(path1;ud) *)
+     * du = du1 + path1;reaching defs2-concurrent uses1 + check(path1 ; du2)
+     * ud = ud1 + concurrent defs1-path1;exposed uses2 + check(path1 ; ud2) *)
 
     let mul a b =
         { abspath   = LK.TR.mul a.abspath b.abspath;
@@ -591,8 +590,8 @@ module Make(MakeEQ :
           end
         | _      -> assert false
 
-    let add_conc_edges dg query =
-      let f _ summary =
+    let add_conc_edges file dg query =
+      let f summary =
         let g (((def1, ap1), (def2, ap2)), _) =
           DG.add_edge_e dg (DG.E.create def1 (Pack.PairSet.singleton (Pack.mk_pair ap1 ap2)) def2)
         in
@@ -600,7 +599,9 @@ module Make(MakeEQ :
           BatEnum.iter g (DFlowMap.enum (dflow summary.rd_c summary.eu_p));
           BatEnum.iter g (DFlowMap.enum (dflow summary.rd_c summary.eu_c))
       in
-        Analysis.HT.iter f (Analysis.get_summaries query)
+        match file.entry_points with
+          | [main] -> f (Analysis.get_summary query main)
+          | _ -> assert false
 
   end
 end
@@ -618,7 +619,7 @@ let construct_conc_dg file =
     else 
       ConcTrivDep.SeqDep.construct_dg ~solver:ConcTrivDep.SeqDep.RDAnalysisConc.solve file
   end in
-    ConcDep.ConcRDAnalysis.add_conc_edges dg (ConcDep.ConcRDAnalysis.analyze file);
+    ConcDep.ConcRDAnalysis.add_conc_edges file dg (ConcDep.ConcRDAnalysis.analyze file);
   if !CmdLine.display_graphs then DG.display_labelled dg;
   dg
 
