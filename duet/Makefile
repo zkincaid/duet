@@ -2,7 +2,6 @@ OCAMLMAKEFILE = OCamlMakefile
 
 include Makefile.config
 
-RESULT = duet
 SRC_DIR = src
 CORE_FILES = core.ml core.mli ast.ml ast.mli hlir.ml report.ml afg.ml afg.mli \
 	cfgIr.ml cfgIr.mli cmdLine.ml pa.ml pa.mli call.ml
@@ -15,7 +14,7 @@ C_FE_FILES = translateCil.ml translateCil.mli
 CBP_FE_FILES = cbpAst.ml cbpParse.mli cbpParse.mly cbpLex.mll translateCbp.ml
 GOTO_FE_FILES =
 
-PACKS = cil apak datalog apron apron.boxMPQ apron.octD apron.polkaMPQ
+PACKS = cil apak datalog apron apron.boxMPQ apron.octD apron.polkaMPQ oUnit
 
 LIBS = dynlink camlp4lib
 BUDDY:=$(shell ocamlfind query buddy)
@@ -34,6 +33,7 @@ ifeq ($(ARK), yes)
 ANALYSIS_FILES += induction.ml
 PACKS += ark
 endif
+export PACKS
 
 # check for GOTO frontend
 ifneq ($(CBMC), no)
@@ -43,16 +43,38 @@ LIBS += goto
 OCAMLLDFLAGS += -cclib -lstdc++
 endif
 
-
-
 SOURCES = $(patsubst %, $(SRC_DIR)/core/%, $(CORE_FILES)) \
 	$(patsubst %, $(SRC_DIR)/misc/%, $(MISC_FILES)) \
 	$(patsubst %, $(SRC_DIR)/analysis/%, $(ANALYSIS_FILES)) \
 	$(patsubst %, $(SRC_DIR)/frontend/c/%, $(C_FE_FILES)) \
 	$(patsubst %, $(SRC_DIR)/frontend/cbp/%, $(CBP_FE_FILES)) \
-	$(patsubst %, $(SRC_DIR)/frontend/goto/%, $(GOTO_FE_FILES)) \
-	$(SRC_DIR)/ui.ml
+	$(patsubst %, $(SRC_DIR)/frontend/goto/%, $(GOTO_FE_FILES))
 
-all: native-code
+define PROJ_duet
+  SOURCES = $(SOURCES) $(SRC_DIR)/ui.ml
+  RESULT = duet
+endef
+export PROJ_duet
 
-include $(OCAMLMAKEFILE)
+define PROJ_test
+  SOURCES = $(SOURCES) $(SRC_DIR)/analysis/ipa.ml $(SRC_DIR)/analysis/test_ipa.ml $(SRC_DIR)/unit_test.ml
+  RESULT = test
+endef
+export PROJ_test
+
+ifndef SUBPROJS
+  export SUBPROJS = duet test
+endif
+
+all: duet test
+
+duet:
+	@$(MAKE) -f $(OCAMLMAKEFILE) subprojs SUBPROJS=duet SUBTARGET=native-code
+
+test:
+	@$(MAKE) -f $(OCAMLMAKEFILE) subprojs SUBPROJS=test SUBTARGET=native-code
+
+%:
+	@$(MAKE) -f $(OCAMLMAKEFILE) subprojs SUBTARGET=$@
+
+.PHONY: test

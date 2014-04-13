@@ -2,10 +2,10 @@ open OUnit
 
 let suite = "Main" >:::
   [
-    Test_regex.suite;
-    Test_kleene.suite;
-    Test_memo.suite;
+    Test_ipa.suite;
   ]
 
 let _ =
-  run_test_tt_main suite
+  Printexc.record_backtrace true;
+  Printf.printf "Running test suite";
+  ignore (run_test_tt_main suite)
