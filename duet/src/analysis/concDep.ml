@@ -503,8 +503,10 @@ module Make(MakeEQ :
           | Builtin (Alloc (lhs, _, _)) -> assign_weight (Variable lhs) (Havoc (Var.get_type lhs))
           | _ -> RDMap.unit
 
+    module Stab = LockLogic.Stabilizer(LKMinterm)
+
     let weight summaries def =
-      let abspath = lk_weight def in
+      let abspath = (Stab.stabilise lk_weight) def in
       let rd = rd_weight def in
       let eu = 
         let f ap acc = 
