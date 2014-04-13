@@ -85,7 +85,59 @@ struct
     include K
     let widen = K.add
   end
-  module Left = Interproc.MakePathExpr(Acc(L))
+
+  (* Copied from interproc. Would be better to functorize interproc on maybe the
+   * structure V or definition of classify but this will work for now *)
+  module V = struct
+    include Def
+    type atom = t
+    type block = Varinfo.t
+    let classify v = match v.dkind with
+      | Call (None, AddrOf (Variable (func, OffsetFixed 0)), []) ->
+          RecGraph.Block func
+      | Call (_, _, _) ->
+          Log.errorf "Unrecognized call: %a" format v;
+          assert false
+      | Builtin (Fork (_, e, _)) ->
+          RecGraph.Block (LockLogic.get_func e)
+      | _ -> RecGraph.Atom v
+  end
+  module RG = RecGraph.Make(V)(Varinfo)
+  module RGD = ExtGraph.Display.MakeSimple(RG.G)(Def)
+  module MakePathExpr = Pathexp.MakeRG(RG)(Varinfo)
+
+  let make_recgraph file =
+    ignore (Bddpa.initialize file);
+    Pa.simplify_calls file;
+    let mk_stub rg func =
+      let v = Def.mk (Assume Bexpr.ktrue) in
+      let graph = RG.G.add_vertex RG.G.empty v in
+        RG.add_block rg func graph ~entry:v ~exit:v
+    in
+    let mk_func rg func =
+      let add_edge src tgt graph = RG.G.add_edge graph src tgt in
+      let graph = Cfg.fold_edges add_edge func.cfg RG.G.empty in
+      let bentry = Cfg.initial_vertex func.cfg in
+      let ts = Cfg.enum_terminal func.cfg in
+      let bexit = Def.mk (Assume Bexpr.ktrue) in
+      let add_edge graph v = RG.G.add_edge graph v bexit in
+      let graph = BatEnum.fold add_edge (RG.G.add_vertex graph bexit) ts in
+        RG.add_block rg func.fname graph ~entry:bentry ~exit:bexit
+    in
+    let add_call rg (_, v) =
+      match V.classify v with
+        | RecGraph.Block func ->
+            begin
+              try ignore (RG.block_entry rg func); rg
+              with Not_found -> mk_stub rg func
+            end
+        | RecGraph.Atom _ -> rg
+    in
+      List.iter (fun func -> CfgIr.factor_cfg func.cfg) file.funcs;
+      let rg = List.fold_left mk_func RG.empty file.funcs in
+        BatEnum.fold add_call rg (RG.vertices rg)
+
+  module Left = MakePathExpr(Acc(L))
   module IntraLeft = Pathexp.MakeElim(RG.G)(Acc(L))
   module Right = Pathexp.MakeElim(RG.G)(Acc(R))
 
@@ -93,7 +145,7 @@ struct
       consists of a program point (definition) along with a summary of the set
       of (interprocedurally valid) paths to that that point.  *)
   let solve smash file init =
-    let rg = Interproc.make_recgraph file in
+    let rg = make_recgraph file in
     let main = match file.entry_points with
       | [x] -> x
       | _   -> failwith "Interproc.solve: No support for multiple entry points"
@@ -108,24 +160,9 @@ struct
           fun (x, _) -> (Varinfo.Set.mem x vars)
       with Not_found -> (fun (_, _) -> false)
     in
-    (* Adds edges to the callgraph for each fork. Shouldn't really have to do
-     * this every time a new query is made *)
-    let add_fork_edges q =
-      let f (b, v) = match v.dkind with
-        | Builtin (Fork (vo, e, elst)) -> Left.add_callgraph_edge q b (LockLogic.get_func e)
-        | _ -> ()
-      in
-        BatEnum.iter f (Interproc.RG.vertices rg)
-    in
-    let classify v = match v.dkind with
-      | Builtin (Fork (vo, e, elst)) -> RecGraph.Block (LockLogic.get_func e)
-      | _ -> Interproc.V.classify v
-    in
     let left_query = Left.mk_query rg A.left_weight local main in
     let go (_, v, path_to_v) = smash path_to_v (A.right_weight v) in
-      add_fork_edges left_query;
-      Left.compute_summaries left_query;
-      BatEnum.iter go (Left.enum_single_src_tmp classify left_query)
+      BatEnum.iter go (Left.enum_single_src left_query)
 end
 
 (* The dependence analysis is parameterized over a ConjFormula functor (which
