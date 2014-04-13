@@ -2,14 +2,14 @@
 
 open BatPervasives
 
-type ('a, 'b) typ =
-| Atom of 'a
-| Block of 'b
+type (+'a, +'b) seq_typ = [ `Atom of 'a | `Block of 'b ]
+type (+'a, +'b) par_typ = [ ('a, 'b) seq_typ | `ParBlock of 'b ]
 
 module type Vertex = sig
   include Putil.CoreType
   type atom
   type block
+  type ('a, 'b) typ
   val classify : t -> (atom, block) typ
 end
 module type BLOCK = Putil.CoreType
@@ -26,6 +26,7 @@ module type S = sig
   type t
   type atom
   type block = Block.t
+  type ('a, 'b) typ
 
   val classify : G.V.t -> (atom, block) typ
   val block_entry : t -> block -> G.V.t
@@ -58,6 +59,7 @@ struct
   type block = V.block
   type vertex = V.t
   type edge = G.E.t
+  type ('a, 'b) typ = ('a, 'b) V.typ
 
   type block_def =
     { bentry : V.t;
@@ -91,15 +93,17 @@ struct
   let find_block rg p = BatEnum.find p (blocks rg)
 end
 
-module Callgraph(R : S) = struct
+module Callgraph
+  (R : S with type ('a, 'b) typ = ('a, 'b) par_typ) =
+struct
   module CG = ExtGraph.Persistent.Digraph.Make(R.Block)
   module U = ExtGraph.Unfold.Make(CG)
   include CG
   let callgraph rg root =
     let succ block =
       let f v = match R.classify v with
-	| Atom _  -> None
-	| Block b -> Some b
+	| `Atom _  -> None
+	| `Block b | `ParBlock b -> Some b
       in
       try BatEnum.filter_map f (R.G.vertices (R.block_body rg block))
       with Not_found -> begin
@@ -109,4 +113,15 @@ module Callgraph(R : S) = struct
       end
     in
     U.unfold root succ
+end
+
+module LiftPar(R : S with type ('a, 'b) typ = ('a, 'b) seq_typ) = struct
+  type ('a, 'b) typ = ('a, 'b) par_typ
+  include (R : S with type ('a, 'b) typ := ('a, 'b) seq_typ
+		 and module G = R.G
+		 and module Block = R.Block
+		 and type t = R.t
+		 and type atom = R.atom
+		 and type block = R.block)
+  let classify x = (classify x :> (atom, block) par_typ)
 end

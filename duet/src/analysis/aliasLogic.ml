@@ -92,19 +92,20 @@ struct
     include Def
     type atom = t
     type block = Varinfo.t
+    type ('a,'b) typ = ('a,'b) RecGraph.seq_typ
     let classify v = match v.dkind with
       | Call (None, AddrOf (Variable (func, OffsetFixed 0)), []) ->
-          RecGraph.Block func
+          `Block func
       | Call (_, _, _) ->
           Log.errorf "Unrecognized call: %a" format v;
           assert false
       | Builtin (Fork (_, e, _)) ->
-          RecGraph.Block (LockLogic.get_func e)
-      | _ -> RecGraph.Atom v
+          `Block (LockLogic.get_func e)
+      | _ -> `Atom v
   end
   module RG = RecGraph.Make(V)(Varinfo)
   module RGD = ExtGraph.Display.MakeSimple(RG.G)(Def)
-  module MakePathExpr = Pathexp.MakeRG(RG)(Varinfo)
+  module MakePathExpr = Pathexp.MakeSeqRG(RG)(Varinfo)
 
   let make_recgraph file =
     ignore (Bddpa.initialize file);
@@ -126,12 +127,12 @@ struct
     in
     let add_call rg (_, v) =
       match V.classify v with
-        | RecGraph.Block func ->
+        | `Block func ->
             begin
               try ignore (RG.block_entry rg func); rg
               with Not_found -> mk_stub rg func
             end
-        | RecGraph.Atom _ -> rg
+        | `Atom _ -> rg
     in
       List.iter (fun func -> CfgIr.factor_cfg func.cfg) file.funcs;
       let rg = List.fold_left mk_func RG.empty file.funcs in
