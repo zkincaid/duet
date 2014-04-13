@@ -21,6 +21,8 @@ type membase =
 type memloc = membase * offset
     deriving (Compare)
 
+let undefined = Varinfo.mk_global "undefined" (Concrete Void)
+
 module MemBase = struct
   module Elt = struct
     type t = membase deriving (Compare)
@@ -387,9 +389,9 @@ let simplify_calls file =
       insert_succ skip def cfg;
       Cfg.remove_edge cfg def skip;
       if (Varinfo.Set.cardinal targets < 1) 
-      then begin Log.errorf "No targets for call to `%a'"
+      then begin Log.errorf "WARNING: No targets for call to `%a'"
                    Expr.format func;
-                 assert false
+                 add_call undefined
       end;
      (* assert (Varinfo.Set.cardinal targets >= 1); (* todo *)*)
       Varinfo.Set.iter add_call targets
