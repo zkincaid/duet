@@ -10,6 +10,8 @@ open CfgIr
 
 module Pack = Afg.Pack
 
+include Log.Make(struct let name = "solve" end)
+
 (** Number of times a widening vertex can be evaluated before widening is
     applied *)
 let widening_limit = ref 1
@@ -66,7 +68,7 @@ end = struct
   let lookup result def =
     try HT.find result.map def
     with Not_found -> begin
-      Log.logf Log.top "No property associated with vertex %a"
+      Log.errorf "No property associated with vertex %a"
 	A.format_vertex def;
       assert false
     end
@@ -98,8 +100,8 @@ end = struct
       | None       -> None
     in
     let worklist = List.fold_right Fix.VSet.add worklist Fix.VSet.empty in
-      Log.log Log.fix ("Vertices: " ^ (string_of_int (G.nb_vertex graph)));
-      Log.log Log.fix ("Edges: " ^ (string_of_int (G.nb_edges graph)));
+      logf "Vertices: %d" (G.nb_vertex graph);
+      logf "Edges: %d" (G.nb_edges graph);
       Fix.fix result.graph ~init:worklist (update A.join) wide_update
 
   let solve result =
@@ -161,15 +163,15 @@ end = struct
   module HT = Hashtbl.Make(G.V)
 
   let eval st graph lookup vertex =
-    Log.debugf "Transfer %a@\n" A.format_vertex vertex;
+    logf "Transfer %a@\n" A.format_vertex vertex;
 
     let input = A.flow_in st graph lookup vertex in
-    Log.debugf "Input:@\n%a@\n" A.format_absval input;
+    logf "Input:@\n%a@\n" A.format_absval input;
 
     (* Don't compute output until input is printed - it gives us better
        traces. *)
     let output = A.transfer st input vertex in
-    Log.debugf "Output:@\n%a@\n" A.format_absval output;
+    logf "Output:@\n%a@\n" A.format_absval output;
 
     output
 

@@ -9,6 +9,8 @@ open ArkPervasives
 module RG = Interproc.RG
 module G = RG.G
 
+include Log.Make(struct let name = "lra" end)
+
 (* Decorate the program with numerical invariants *)
 
 module MakeDecorator(M : sig
@@ -204,7 +206,7 @@ module K = struct
   include Transition.Make(V)
 (*
   let simplify tr =
-    Log.logf Log.info
+    logf
       "Simplifying formula: %d atoms, %d size, %d max dnf, %d program, %d tmp"
       (F.nb_atoms tr.guard)
       (F.size tr.guard)
@@ -212,7 +214,7 @@ module K = struct
       (VarSet.cardinal (formula_free_program_vars tr.guard))
       (VSet.cardinal (formula_free_tmp_vars tr.guard));
     let simplified = simplify tr in
-    Log.logf Log.info
+    logf
       "Simplified:          %d atoms, %d size, %d max dnf, %d program, %d tmp"
       (F.nb_atoms simplified.guard)
       (F.size simplified.guard)
@@ -492,7 +494,7 @@ let analyze file =
 		  (BatList.enum func.formals)
 		  (BatList.enum func.locals)))
 	in
-	Log.logf Log.info "Locals for %a: %a"
+	logf "Locals for %a: %a"
 	  Varinfo.format func_name
 	  Varinfo.Set.format vars;
 	fun x -> (Varinfo.Set.mem (fst (var_of_value x)) vars)
@@ -568,7 +570,7 @@ let analyze file =
 	let phi = K.F.subst sigma phi in
 	let mk_tmp () = K.V.mk_tmp "nonlin" TyInt in
 	let path_condition = K.F.conj (K.to_formula path) (K.F.negate phi) in
-	Log.logf Log.info "Path condition:@\n%a" K.format path;
+	logf "Path condition:@\n%a" K.format path;
 	s#assrt (K.F.to_smt path_condition);
 	let checked =
 	  try

@@ -4,12 +4,80 @@ let default_debug   = ref false
 let debug_phases    = ref ([] : string list)
 let verbosity_level = ref 0
 
+let terminal_supports_colors =
+  let term = Unix.getenv "TERM" in
+  let in_channel =
+    Unix.open_process_in ("tput -T" ^ term ^ " colors")
+  in
+  try
+    begin
+      try
+	Scanf.fscanf in_channel "%d"
+	  (fun colors ->
+	    ignore (Unix.close_process_in in_channel);
+	    colors >= 8)
+      with End_of_file ->
+	ignore (Unix.close_process_in in_channel);
+	false
+    end
+  with e ->
+    ignore (Unix.close_process_in in_channel);
+    raise e
+
 (** Verbosity levels *)
 let top    = 0   (** print only errors *)
 let phases = 1   (** print phases *)
 let fix    = 3   (** print steps in fixpoint computation *)
 let bottom = 4   (** print everything *)
 let info   = 2   (** print extra information *)
+
+type attributes =
+| Black | Red | Green | Yellow | Blue | Magenta | Cyan | White
+| Bold | Underline
+
+let attr_code = function
+  | Black -> "\x1b[30m"
+  | Red -> "\x1b[31m"
+  | Green -> "\x1b[32m"
+  | Yellow -> "\x1b[33m"
+  | Blue -> "\x1b[34m"
+  | Magenta -> "\x1b[35m"
+  | Cyan -> "\x1b[36m"
+  | White -> "\x1b[37m"
+  | Bold -> "\x1b[1m"
+  | Underline -> "\x1b[4m"
+let reset_attributes = "\x1b[0m"
+
+let loggers = Hashtbl.create 32
+let set_verbosity_level name value =
+  try (Hashtbl.find loggers name) := value
+  with Not_found ->
+    invalid_arg ("Log.set_verbosity_level: `" ^ name ^ "' is not registered")
+
+module Make(M : sig val name : string end) = struct
+  let my_verbosity_level = ref 0
+  let _ =
+    if Hashtbl.mem loggers M.name
+    then failwith ("Duplicate logger name: `" ^ M.name ^ "'");
+    Hashtbl.add loggers M.name my_verbosity_level
+
+  let logf ?(level=info) ?(attributes=[]) fmt =
+    let (start, reset) =
+      Obj.magic
+	(if terminal_supports_colors
+	 then (String.concat "" (List.map attr_code attributes), "\x1b[0m@\n@?")
+	 else ("", ""))
+    in
+    if !verbosity_level >= level || !my_verbosity_level >= level
+    then Format.printf (start ^^ fmt ^^ reset)
+    else Format.ifprintf Format.std_formatter fmt
+
+  let log ?(level=info) ?(attributes=[]) str =
+    logf ~level:level ~attributes:attributes "%s" str
+
+  let log_pp ?(level=info) ?(attributes=[]) pp x =
+    logf ~level:level ~attributes:attributes "%a" pp x
+end
 
 let debug_formatter =
   let chan = stdout in
@@ -51,7 +119,10 @@ let debugf fmt =
   if !debug_mode then Format.printf ("DEBUG: " ^^ fmt ^^ "@\n@?")
   else Format.ifprintf Format.std_formatter fmt
 
-let errorf fmt = Format.eprintf ("\x1b[31;1m" ^^ fmt ^^ "\x1b[0m@\n@?")
+let errorf fmt =
+  if terminal_supports_colors
+  then Format.eprintf ("\x1b[31;1m" ^^ fmt ^^ "\x1b[0m@\n@?")
+  else Format.eprintf fmt
 let error msg = errorf msg
 let error_pp pp x = errorf "%a" pp x
 
