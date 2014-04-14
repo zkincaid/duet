@@ -1,13 +1,13 @@
 (** Recursive graphs *)
 
-type ('a, 'b) typ =
-| Atom of 'a
-| Block of 'b
+type (+'a, +'b) seq_typ = [ `Atom of 'a | `Block of 'b ]
+type (+'a, +'b) par_typ = [ ('a, 'b) seq_typ | `ParBlock of 'b ]
 
 module type Vertex = sig
   include Putil.CoreType
   type atom
   type block
+  type ('a, 'b) typ
   val classify : t -> (atom, block) typ
 end
 module type BLOCK = Putil.CoreType
@@ -24,6 +24,7 @@ module type S = sig
   type t
   type atom
   type block = Block.t
+  type ('a, 'b) typ
 
   val classify : G.V.t -> (atom, block) typ
   val block_entry : t -> block -> G.V.t
@@ -45,8 +46,18 @@ module Make (V : Vertex) (Block : BLOCK with type t = V.block) :
   S with type G.V.t = V.t
     and type Block.t = V.block
     and type atom = V.atom
+    and type ('a, 'b) typ = ('a, 'b) V.typ
 
-module Callgraph(R : S) : sig
+module Callgraph (R : S with type ('a, 'b) typ = ('a, 'b) par_typ) :
+sig
   include ExtGraph.P with type V.t = R.Block.t
   val callgraph : R.t -> R.Block.t -> t
 end
+
+module LiftPar(R : S with type ('a, 'b) typ = ('a, 'b) seq_typ) :
+  S with type ('a, 'b) typ = ('a, 'b) par_typ
+    and module Block = R.Block
+    and module G = R.G
+    and type t = R.t
+    and type atom = R.atom
+    and type block = R.block

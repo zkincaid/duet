@@ -416,6 +416,7 @@ module Make(G : G) = struct
   module Vertex = struct
     type atom = G.V.t
     type block = int
+    type ('a, 'b) typ = ('a, 'b) RecGraph.seq_typ
 
     include Putil.MakeCoreType(struct
       open RecGraph
@@ -423,22 +424,22 @@ module Make(G : G) = struct
       include Putil.MakeFmt(struct
 	type a = t
 	let format formatter = function
-	  | Atom v    -> Format.fprintf formatter "Atom %a" pp v
-	  | Block blk -> Format.fprintf formatter "Block %d" blk
+	  | `Atom v    -> Format.fprintf formatter "Atom %a" pp v
+	  | `Block blk -> Format.fprintf formatter "Block %d" blk
       end)
       module Compare_t = struct
 	type a = t
 	let compare u v = match u, v with
-	  | Atom u,  Atom v  -> G.V.compare u v
-	  | Atom _,  _       -> 1
-	  | _,       Atom _  -> -1
-	  | Block u, Block v -> Pervasives.compare u v
+	  | `Atom u,  `Atom v  -> G.V.compare u v
+	  | `Atom _,  _       -> 1
+	  | _,       `Atom _  -> -1
+	  | `Block u, `Block v -> Pervasives.compare u v
       end
       let compare = Compare_t.compare
       let equal u v = compare u v = 0
       let hash = function
-	| Atom v  -> Hashtbl.hash (G.V.hash v, 0)
-	| Block v -> Hashtbl.hash (v, 1)
+	| `Atom v  -> Hashtbl.hash (G.V.hash v, 0)
+	| `Block v -> Hashtbl.hash (v, 1)
     end)
     let classify x = x
   end
@@ -446,20 +447,20 @@ module Make(G : G) = struct
   module HT = Hashtbl.Make(G.V)
 
   let rec get_entry g = function
-    | RecGraph.Atom atom   -> atom
-    | RecGraph.Block block -> get_entry g (R.block_entry g block)
+    | `Atom atom   -> atom
+    | `Block block -> get_entry g (R.block_entry g block)
 
   let rec get_exit g = function
-    | RecGraph.Atom atom   -> atom
-    | RecGraph.Block block -> get_exit g (R.block_exit g block)
+    | `Atom atom   -> atom
+    | `Block block -> get_exit g (R.block_exit g block)
 
   (** Iterate over the flattened (i.e., cfg) structure of an SESE graph *)
   let iter_flattened vertex edge pre_region post_region rg block =
     let g = R.block_body rg block in
     let visit_edge u v = edge (get_exit rg u) (get_entry rg v) in
     let rec visit_vertex = function
-      | RecGraph.Atom v -> vertex v
-      | RecGraph.Block r -> visit_region r
+      | `Atom v -> vertex v
+      | `Block r -> visit_region r
     and visit_region r =
       let body = R.block_body rg r in
       pre_region r;
@@ -509,7 +510,7 @@ module Make(G : G) = struct
 	G.fold_succ f g v (G.add_vertex graph v)
     in
     let body = go s G.empty in
-    let blockv = RecGraph.Block block in
+    let blockv = `Block block in
     let rg = R.add_block rg block body ~entry:s ~exit:e in
 
     (* for every edge u->s, add u->block; for every e->v, add block->v *)
@@ -539,7 +540,7 @@ module Make(G : G) = struct
 
     let vertex v =
       try HT.find ht v
-      with Not_found -> Atom v
+      with Not_found -> `Atom v
     in
     let enclose (s0,s1) (e0,e1) g =
       let block = get_block_id () in
@@ -547,8 +548,8 @@ module Make(G : G) = struct
 	block pp s0 pp s1 pp e0 pp e1;
 
       let g = enclose block (vertex s1) (vertex e0) (vertex e1) g in
-      HT.add ht s1 (Block block);
-      HT.add ht e0 (Block block);
+      HT.add ht s1 (`Block block);
+      HT.add ht e0 (`Block block);
 (*      display g;*)
       g
     in
@@ -558,27 +559,27 @@ module Make(G : G) = struct
 	enclose s e (List.fold_left visit (rg, g) children)
     in
     let g =
-      G.fold_vertex (fun v g -> R.G.add_vertex g (Atom v)) cfg R.G.empty
+      G.fold_vertex (fun v g -> R.G.add_vertex g (`Atom v)) cfg R.G.empty
     in
     let g =
-      G.fold_edges (fun v u g -> R.G.add_edge g (Atom v) (Atom u)) cfg g
+      G.fold_edges (fun v u g -> R.G.add_edge g (`Atom v) (`Atom u)) cfg g
     in
     Log.debugf "Construct SESE graph from init: %d" (name init);
 (*    display g;*)
     let PSTNode (_, _, children) = construct_pst init cfg in
     let (rg, g) = List.fold_left visit (R.empty, g) children in
-    R.add_block rg 0 g ~entry:(Atom init) ~exit:(Atom exit)
+    R.add_block rg 0 g ~entry:(`Atom init) ~exit:(`Atom exit)
 
   let construct g ~entry:init ~exit:exit =
     let open RecGraph in
     if G.nb_vertex g <= 2 then begin
       let sg =
-	G.fold_vertex (fun v sg -> R.G.add_vertex sg (Atom v)) g R.G.empty
+	G.fold_vertex (fun v sg -> R.G.add_vertex sg (`Atom v)) g R.G.empty
       in
       let sg =
-	G.fold_edges (fun v u sg -> R.G.add_edge sg (Atom v) (Atom u)) g sg
+	G.fold_edges (fun v u sg -> R.G.add_edge sg (`Atom v) (`Atom u)) g sg
       in
-      R.add_block R.empty 0 sg ~entry:(Atom init) ~exit:(Atom exit)
+      R.add_block R.empty 0 sg ~entry:(`Atom init) ~exit:(`Atom exit)
     end else
       try construct g init exit
       with e -> begin
@@ -589,12 +590,12 @@ module Make(G : G) = struct
   let construct_triv g ~entry:init ~exit:exit =
     let open RecGraph in
     let sg =
-      G.fold_vertex (fun v sg -> R.G.add_vertex sg (Atom v)) g R.G.empty
+      G.fold_vertex (fun v sg -> R.G.add_vertex sg (`Atom v)) g R.G.empty
     in
     let sg =
-      G.fold_edges (fun v u sg -> R.G.add_edge sg (Atom v) (Atom u)) g sg
+      G.fold_edges (fun v u sg -> R.G.add_edge sg (`Atom v) (`Atom u)) g sg
     in
-    R.add_block R.empty 0 sg ~entry:(Atom init) ~exit:(Atom exit)
+    R.add_block R.empty 0 sg ~entry:(`Atom init) ~exit:(`Atom exit)
 
   module T = Graph.Topological.Make(R.G)
   let fold_sese f cfg init acc =
@@ -607,7 +608,7 @@ module Make(G : G) = struct
 	()
     in
     let rec visit v acc = match Vertex.classify v with
-      | Block block ->
+      | `Block block ->
 	let bentry = R.block_entry rg block in
 	let bexit = R.block_exit rg block in
 	let go v acc =
@@ -617,15 +618,15 @@ module Make(G : G) = struct
 	let acc = R.G.fold_vertex go (R.block_body rg block) acc in
 	if Vertex.equal bentry bexit then visit bentry acc
 	else visit bentry (visit bexit acc)
-      | Atom atom -> f atom acc
+      | `Atom atom -> f atom acc
     in
     T.fold visit (R.block_body rg 0) acc
 
   let block rg =
     let ht = HT.create 991 in
     let f (block, vertex) = match vertex with
-      | RecGraph.Atom v  -> HT.add ht v block
-      | RecGraph.Block _ -> ()
+      | `Atom v  -> HT.add ht v block
+      | `Block _ -> ()
     in
     BatEnum.iter f (R.vertices rg);
     fun v ->
@@ -647,7 +648,7 @@ module Make(G : G) = struct
 	  let start = List.hd lr in
 	  let finish = BatList.last lr in
 	  let lr_name = next_block () in
-	  let lr_vtx = RecGraph.Block lr_name in
+	  let lr_vtx = `Block lr_name in
 
 	  let remove_vertex g v =
 	    if R.G.V.equal v !bentry then bentry := lr_vtx;

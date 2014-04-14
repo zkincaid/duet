@@ -14,18 +14,18 @@ module R = Sese.Make(G)
 let graph edges = List.fold_left (fun g (u,v) -> G.add_edge g u v) G.empty edges
 
 let rec get_entry rg = function
-  | Atom atom   -> atom
-  | Block block -> get_entry rg (R.block_entry rg block)
+  | `Atom atom   -> atom
+  | `Block block -> get_entry rg (R.block_entry rg block)
 
 let rec get_exit rg = function
-  | Atom atom   -> atom
-  | Block block -> get_exit rg (R.block_exit rg block)
+  | `Atom atom   -> atom
+  | `Block block -> get_exit rg (R.block_exit rg block)
 
 let flatten rg =
   let add_edge u v g = G.add_edge g (get_exit rg u) (get_entry rg v) in
   let rec visit_vertex g = function
-    | Atom v -> G.add_vertex g v
-    | Block block ->
+    | `Atom v -> G.add_vertex g v
+    | `Block block ->
       let body = R.block_body rg block in
       let g = R.G.fold_vertex (flip visit_vertex) body g in
       R.G.fold_edges add_edge body g
