@@ -429,10 +429,12 @@ module Make(MakeEQ :
           ud = remove_locals_dflow a.ud }
 
     let widen = add
+    let fork a = { one with rd_c = RDMap.mul a.rd_t a.rd_c;
+                            eu_c = EUMap.mul a.eu_p a.eu_c }
   end
 
   module ConcRDAnalysis = struct
-    module Analysis = Interproc.MakePathExpr(ConcReachingDefs)
+    module Analysis = Interproc.MakeParPathExpr(ConcReachingDefs)
     open ConcReachingDefs
 
     let lk_weight def =
@@ -505,7 +507,7 @@ module Make(MakeEQ :
 
     module Stab = LockLogic.Stabilizer(LKMinterm)
 
-    let weight summaries def =
+    let weight def =
       let abspath = (Stab.stabilise lk_weight) def in
       let rd = rd_weight def in
       let eu = 
@@ -519,25 +521,15 @@ module Make(MakeEQ :
         in
           AP.Set.fold f (Def.get_uses def) EUMap.unit
       in
-      let (rd_c, eu_c) = match def.dkind with
-        | Builtin (Fork (vo, e, elst)) -> 
-            let summary =
-              try Analysis.HT.find summaries (LockLogic.get_func e)
-              with Not_found -> one
-            in
-              (RDMap.mul summary.rd_t summary.rd_c,
-               EUMap.mul summary.eu_p summary.eu_c)
-        | _ -> (RDMap.unit, EUMap.unit)
-      in
         { abspath = abspath;
           abspath_t = abspath;
           abspath_p = abspath;
           rd = rd;
           rd_t = rd;
-          rd_c = rd_c;
+          rd_c = RDMap.unit;
           eu = eu;
           eu_p = eu;
-          eu_c = eu_c;
+          eu_c = EUMap.unit;
           du = DFlowMap.unit;
           ud = DFlowMap.unit }
 
@@ -556,39 +548,7 @@ module Make(MakeEQ :
                   fun (x, _) -> (Varinfo.Set.mem x vars)
               with Not_found -> (fun (_, _) -> false)
             in
-            (* Adds edges to the callgraph for each fork. Shouldn't really have to do
-             * this every time a new query is made *)
-            let add_fork_edges q =
-              let f (b, v) = match v.dkind with
-                | Builtin (Fork (vo, e, elst)) -> Analysis.add_callgraph_edge q b (LockLogic.get_func e)
-                | _ -> ()
-              in
-                BatEnum.iter f (Interproc.RG.vertices rg)
-            in
-            let rec iter_query old_query = 
-              let eq sum1 sum2 =
-                let f k v s = s && List.exists (equal v) (Analysis.HT.find_all sum1 k) in
-                  Analysis.HT.fold f sum2 true
-              in
-              let new_query = Analysis.mk_query rg (weight (Analysis.get_summaries old_query)) local main in
-                begin
-                  add_fork_edges new_query;
-                  Analysis.compute_summaries new_query;
-                  if eq (Analysis.get_summaries old_query)
-                        (Analysis.get_summaries new_query)
-                  then new_query
-                  else iter_query new_query
-                end
-            in
-            let initial = Analysis.mk_query rg (weight (Analysis.HT.create 0)) local main
-            in
-            let query = begin
-              add_fork_edges initial;
-              Analysis.compute_summaries initial;
-              iter_query initial
-            end
-            in
-              query
+              Analysis.mk_query rg weight local main
           end
         | _      -> assert false
 
@@ -633,10 +593,6 @@ let chdfg_stats file =
 let _ =
   CmdLine.register_pass 
     ("-chdfg-stats", chdfg_stats, " Concurrent heap data flow graph statistics")
-
-let _ =
-  CmdLine.register_pass 
-    ("-chdfg-test", (fun x -> ConcDep.ConcRDAnalysis.analyze x; ()), " Concurrent heap data flow graph test")
 
 module InvGen = Solve.MakeAfgSolver(Ai.ApronInterpretation)
 let invariant_generation file =

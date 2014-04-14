@@ -326,6 +326,14 @@ module Domain = struct
         du    = du_remove_locals  a.du;
         du_c  = du_remove_locals  a.du_c }
   let widen = add
+  let fork a = 
+    { lp = LockPath.one;
+      def   = DefMap.unit;
+      def_c = DefMap.mul a.def a.def_c;
+      use   = UseMap.unit;
+      use_c = UseMap.mul a.use a.use_c;
+      du    = DUMap.unit;
+      du_c  = DUMap.mul a.du a.du_c }
 end
 
 let get_func e = match Expr.strip_all_casts e with
@@ -334,26 +342,14 @@ let get_func e = match Expr.strip_all_casts e with
   | _  -> failwith "Lock Logic: Called/Forked expression not a function"
 
 module Datarace = struct
-  module LSA = Interproc.MakePathExpr(Domain)
+  module LSA = Interproc.MakeParPathExpr(Domain)
   open Domain
 
   (* The weight function needs a hash table of summaries, and a weight function for lockpath *)
-  let weight sums wt d = 
+  let weight wt d = 
     let lp = wt d in
     let uses = UseMap.update d lp UseMap.unit in
       match d.dkind with
-        | Builtin (Fork (vo, e, elst)) -> 
-            let summary =
-              try LSA.HT.find sums (get_func e)
-              with Not_found -> one
-            in
-              { lp = LockPath.one; 
-                def   = DefMap.unit;
-                def_c = DefMap.mul summary.def summary.def_c;
-                use   = uses;
-                use_c = UseMap.mul summary.use summary.use_c;
-                du    = DUMap.unit;
-                du_c  = DUMap.mul summary.du summary.du_c }
         | Assign (v, e) -> 
               { lp = lp;
                 def   = DefMap.update v lp DefMap.unit;
@@ -417,54 +413,18 @@ module Datarace = struct
             fun (x, _) -> (Varinfo.Set.mem x vars)
         with Not_found -> (fun (_, _) -> false)
       in
-      (* Adds edges to the callgraph for each fork. Shouldn't really have to do
-       * this every time a new query is made *)
-      let add_fork_edges q =
-        let f (b, v) = match v.dkind with
-          | Builtin (Fork (vo, e, elst)) -> LSA.add_callgraph_edge q b (get_func e)
-          | _ -> ()
-        in
-          BatEnum.iter f (Interproc.RG.vertices rg)
-      in
       let compute_races races =
         let l_weight = stabilise races LockPath.weight in
-        let rec iter_query old_query = 
-          let eq sum1 sum2 = 
-            let f k v s = s && List.exists (Domain.equal v) (LSA.HT.find_all sum1 k) in
-              LSA.HT.fold f sum2 true
-          in
-          let new_query = 
-            LSA.mk_query rg (weight (LSA.get_summaries old_query) l_weight)
-              local main
-          in
-            begin
-              add_fork_edges new_query;
-              LSA.compute_summaries new_query;
-              if eq (LSA.get_summaries old_query) 
-                    (LSA.get_summaries new_query)
-              then new_query
-              else iter_query new_query
-            end
+        let query = LSA.mk_query rg (weight l_weight) local main
         in
-        let initial =
-          LSA.mk_query rg (weight (LSA.HT.create 0) l_weight) local main
-        in
-          add_fork_edges initial;
-          LSA.compute_summaries initial;
-          find_all_races (iter_query initial) main
+          find_all_races query main
       in
       let rec fp_races old_races =
         let new_races = compute_races old_races in
           if eq_races old_races new_races then new_races
                                           else fp_races new_races
       in
-      let init_races = 
-        let ht = Def.HT.create 32 in
-          List.iter (fun func -> 
-            CfgIr.Cfg.iter_vertex (fun def -> Def.HT.add ht def Var.Set.empty) func.cfg)
-          file.funcs;
-          ht
-      in
+      let init_races = Def.HT.create 0 in
         fp_races init_races
       end
     | _      -> assert false

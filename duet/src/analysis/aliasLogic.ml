@@ -86,59 +86,10 @@ struct
     let widen = K.add
   end
 
-  (* Copied from interproc. Would be better to functorize interproc on maybe the
-   * structure V or definition of classify but this will work for now *)
-  module V = struct
-    include Def
-    type atom = t
-    type block = Varinfo.t
-    type ('a,'b) typ = ('a,'b) RecGraph.seq_typ
-    let classify v = match v.dkind with
-      | Call (None, AddrOf (Variable (func, OffsetFixed 0)), []) ->
-          `Block func
-      | Call (_, _, _) ->
-          Log.errorf "Unrecognized call: %a" format v;
-          assert false
-      | Builtin (Fork (_, e, _)) ->
-          `Block (LockLogic.get_func e)
-      | _ -> `Atom v
-  end
-  module RG = RecGraph.Make(V)(Varinfo)
-  module RGD = ExtGraph.Display.MakeSimple(RG.G)(Def)
-  module MakePathExpr = Pathexp.MakeSeqRG(RG)(Varinfo)
-
-  let make_recgraph file =
-    ignore (Bddpa.initialize file);
-    Pa.simplify_calls file;
-    let mk_stub rg func =
-      let v = Def.mk (Assume Bexpr.ktrue) in
-      let graph = RG.G.add_vertex RG.G.empty v in
-        RG.add_block rg func graph ~entry:v ~exit:v
-    in
-    let mk_func rg func =
-      let add_edge src tgt graph = RG.G.add_edge graph src tgt in
-      let graph = Cfg.fold_edges add_edge func.cfg RG.G.empty in
-      let bentry = Cfg.initial_vertex func.cfg in
-      let ts = Cfg.enum_terminal func.cfg in
-      let bexit = Def.mk (Assume Bexpr.ktrue) in
-      let add_edge graph v = RG.G.add_edge graph v bexit in
-      let graph = BatEnum.fold add_edge (RG.G.add_vertex graph bexit) ts in
-        RG.add_block rg func.fname graph ~entry:bentry ~exit:bexit
-    in
-    let add_call rg (_, v) =
-      match V.classify v with
-        | `Block func ->
-            begin
-              try ignore (RG.block_entry rg func); rg
-              with Not_found -> mk_stub rg func
-            end
-        | `Atom _ -> rg
-    in
-      List.iter (fun func -> CfgIr.factor_cfg func.cfg) file.funcs;
-      let rg = List.fold_left mk_func RG.empty file.funcs in
-        BatEnum.fold add_call rg (RG.vertices rg)
-
-  module Left = MakePathExpr(Acc(L))
+  module Left = Interproc.MakeParPathExpr(struct
+                                            include Acc(L)
+                                            let fork a = a
+                                          end)
   module IntraLeft = Pathexp.MakeElim(RG.G)(Acc(L))
   module Right = Pathexp.MakeElim(RG.G)(Acc(R))
 
@@ -146,7 +97,7 @@ struct
       consists of a program point (definition) along with a summary of the set
       of (interprocedurally valid) paths to that that point.  *)
   let solve smash file init =
-    let rg = make_recgraph file in
+    let rg = Interproc.make_recgraph file in
     let main = match file.entry_points with
       | [x] -> x
       | _   -> failwith "Interproc.solve: No support for multiple entry points"
