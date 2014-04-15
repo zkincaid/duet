@@ -167,9 +167,10 @@ module type S = sig
 
   (** {2 Misc operations} *)
 
-  val of_smt : Smt.ast -> t
+  val of_smt : ?var_smt:(Smt.symbol -> T.t) -> Smt.ast -> t
   val to_smt : t -> Smt.ast
 
+  val is_sat : t -> bool
   val implies : t -> t -> bool
   val equiv : t -> t -> bool
 
@@ -196,6 +197,8 @@ module type S = sig
   val size : t -> int
 
   val log_stats : unit -> unit
+
+  val interpolate : t -> t -> t option
 
   module Syntax : sig
     val ( && ) : t -> t -> t

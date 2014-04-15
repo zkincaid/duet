@@ -26,10 +26,12 @@ let get_context () =
     context := Some ctx;
     ctx
   end
+
 let mk_int_sort () = mk_sort (get_context ()) Sort_int
 let mk_bool_sort () = mk_sort (get_context ()) Sort_bool
 let mk_real_sort () = mk_sort (get_context ()) Sort_real
 let mk_solver () = mk_solver (get_context ())
+let mk_fixedpoint () = mk_fixedpoint (get_context ())
 
 let ast_to_string ast = ast_to_string (get_context()) ast
 
@@ -146,6 +148,30 @@ object(self)
   method get_reason_unknown () = solver_get_reason_unknown ctx s
   method get_statistics () = solver_get_statistics ctx s
   method to_string () = solver_to_string ctx s
+end
+
+class fixedpoint =
+object(self)
+  val fp = mk_fixedpoint ()
+  val ctx = get_context ()
+  method assrt phi = fixedpoint_assert ctx fp phi
+  method add_rule ast symbol = fixedpoint_add_rule ctx fp ast symbol
+  method query ast = fixedpoint_query ctx fp ast
+  method query_relations rels = fixedpoint_query_relations ctx fp rels
+  method get_answer () = fixedpoint_get_answer ctx fp
+  method get_reason_unknown () = fixedpoint_get_reason_unknown ctx fp
+  method get_statistics () = fixedpoint_get_statistics ctx fp
+  method register_relation pred = fixedpoint_register_relation ctx fp pred
+  method set_predicate_representation ctx fp pred rep =
+    fixedpoint_set_predicate_representation ctx fp pred rep
+  method simplify_rules rules pred = fixedpoint_simplify_rules ctx fp rules pred
+  method to_string bg = fixedpoint_to_string ctx fp bg
+  method push () = fixedpoint_push ctx fp
+  method pop () = fixedpoint_pop ctx fp
+  method get_num_levels pred = fixedpoint_get_num_levels ctx fp pred
+  method get_cover_delta n pred = fixedpoint_get_cover_delta ctx fp n pred
+  method set_params params = fixedpoint_set_params ctx fp params
+  method get_help () = fixedpoint_get_help ctx fp
 end
 
 module Syntax = struct

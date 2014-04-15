@@ -53,7 +53,7 @@ module type S = sig
   val is_linear : t -> bool
   val split_linear : t -> t * ((t * QQ.t) list)
 
-  val of_smt : (int -> V.t) -> Smt.ast -> t
+  val of_smt : (int -> V.t) -> ?var_smt:(Smt.symbol -> t) -> Smt.ast -> t
   val to_apron : D.env -> t -> NumDomain.term
   val of_apron : D.env -> NumDomain.term -> t
   val to_linterm : t -> Linterm.t option
@@ -388,7 +388,7 @@ module Make (V : Var) = struct
     in
     div (BatEnum.fold add zero (ts /@ to_term)) (const (QQ.of_zz denominator))
 
-  let of_smt env ast =
+  let of_smt env ?(var_smt=(var % V.of_smt)) ast =
     let open Z3 in
     let ctx = Smt.get_context () in
     let rec of_smt ast =
@@ -401,7 +401,7 @@ module Make (V : Var) = struct
 	  BatList.of_enum (BatEnum.map f (0 -- (get_app_num_args ctx app - 1)))
 	in
 	match get_decl_kind ctx decl, args with
-	| (OP_UNINTERPRETED, []) -> var (V.of_smt (get_decl_name ctx decl))
+	| (OP_UNINTERPRETED, []) -> var_smt (get_decl_name ctx decl)
 	| (OP_ADD, args) -> List.fold_left add zero args
 	| (OP_SUB, [x;y]) -> sub x y
 	| (OP_UMINUS, [x]) -> neg x

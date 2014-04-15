@@ -72,8 +72,9 @@ module type S = sig
   val linearize_trivial : (unit -> T.V.t) -> t -> t
   val opt_linearize_strategy : ((unit -> T.V.t) -> t -> t) ref
 
-  val of_smt : Smt.ast -> t
+  val of_smt : ?var_smt:(Smt.symbol -> T.t) -> Smt.ast -> t
   val to_smt : t -> Smt.ast
+  val is_sat : t -> bool
   val implies : t -> t -> bool
   val equiv : t -> t -> bool
   val map : (T.t atom -> t) -> t -> t
@@ -89,6 +90,8 @@ module type S = sig
   val size : t -> int
 
   val log_stats : unit -> unit
+
+  val interpolate : t -> t -> t option
 
   module Syntax : sig
     val ( && ) : t -> t -> t
@@ -346,10 +349,10 @@ module Make (T : Term.S) = struct
     in
     map subst_atom
 
-  let of_smt ast =
+  let of_smt ?(var_smt=(T.var % T.V.of_smt)) ast =
     let open Z3 in
     let ctx = Smt.get_context () in
-    let smt_term vs = T.of_smt (List.nth vs) in
+    let smt_term vs = T.of_smt (List.nth vs) ~var_smt:var_smt in
     let rec of_smt vars ast =
       match get_ast_kind ctx ast with
       | APP_AST -> begin
@@ -432,6 +435,14 @@ module Make (T : Term.S) = struct
     in
     BatEnum.fold conj top formulae
 
+  let is_sat phi =
+    let s = new Smt.solver in
+    s#assrt (to_smt phi);
+    match s#check () with
+    | Smt.Sat   -> true
+    | Smt.Unsat -> false
+    | Smt.Undef -> raise Timeout
+
   let implies phi psi =
     let s = new Smt.solver in
     s#assrt (to_smt phi);
@@ -439,7 +450,7 @@ module Make (T : Term.S) = struct
     match s#check () with
     | Smt.Sat   -> false
     | Smt.Unsat -> true
-    | Smt.Undef -> assert false
+    | Smt.Undef -> raise Timeout
 
   let equiv phi psi =
     let s = new Smt.solver in
@@ -455,7 +466,7 @@ module Make (T : Term.S) = struct
       Log.errorf "Timeout in equivalence check:@\n%a@\n  =  @\n%a"
 	format phi
 	format psi;
-      assert false
+      raise Timeout
     end
 
   let big_disj = BatEnum.fold disj bottom 
@@ -820,7 +831,7 @@ module Make (T : Term.S) = struct
     Z3.goal_assert ctx g
       (Z3.mk_exists_const
 	 ctx
-	 (List.length vars)
+	 0
 	 (Array.of_list (List.map (Z3.to_app ctx % T.V.to_smt) vars))
 	 [||]
 	 (to_smt phi));
@@ -1681,7 +1692,7 @@ module Make (T : Term.S) = struct
     Z3.goal_assert ctx g
       (Z3.mk_exists_const
 	 ctx
-	 (List.length vars)
+	 0
 	 (Array.of_list (List.map (Z3.to_app ctx % T.V.to_smt) vars))
 	 [||]
 	 (to_smt phi));
@@ -1700,6 +1711,97 @@ module Make (T : Term.S) = struct
       s#assrt (to_smt phi);
       affine_hull_impl s vars
     with Timeout -> []
+
+  let interpolate phi psi =
+    let fp = new Smt.fixedpoint in
+    let ctx = Smt.get_context() in
+    let params = Z3.mk_params ctx in
+    let sym = Smt.mk_string_symbol in
+
+    Z3.params_set_symbol ctx params (sym ":engine") (sym "pdr");
+    Z3.params_set_bool ctx params (sym ":use-farkas") true;
+    Z3.params_set_bool ctx params (sym ":slice") false;
+    Z3.params_set_bool ctx params (sym ":inline-eager") false;
+    Z3.params_set_bool ctx params (sym ":inline-linear") false;
+    Z3.params_set_bool ctx params (sym ":inline-proofs") false;
+    fp#set_params params;
+
+    let var_sort v = match V.typ v with
+      | TyInt -> Smt.mk_int_sort ()
+      | TyReal -> Smt.mk_real_sort ()
+    in
+    let common_vars =
+      VarSet.elements
+	(VarSet.inter (formula_free_vars phi) (formula_free_vars psi))
+    in
+    let common_terms = Array.of_list (List.map T.var common_vars) in
+    let var_smt sym =
+      Scanf.sscanf
+	(Z3.get_symbol_string ctx sym)
+	"$A_%dn"
+	(fun d -> common_terms.(d))
+    in
+    let mk_rel name phi =
+      let sym = Smt.mk_string_symbol name in
+      let fv = VarSet.elements (formula_free_vars phi) in
+      let decl =
+	Z3.mk_func_decl
+	  ctx
+	  sym
+	  (BatArray.of_enum (BatList.enum common_vars /@ var_sort))
+	  (Smt.mk_bool_sort ())
+      in
+      let rule =
+	Z3.mk_forall_const
+	  ctx
+	  0
+	  (Array.of_list (List.map (Z3.to_app ctx % T.V.to_smt) fv))
+	  [||]
+	  (Smt.mk_implies
+	     (to_smt phi)
+	     (Z3.mk_app ctx
+		decl
+		(BatArray.of_enum (BatList.enum common_vars /@ T.V.to_smt))))
+      in
+      fp#register_relation decl;
+      fp#add_rule rule sym;
+      decl
+    in
+    let phi_rel = mk_rel "$A" phi in
+    let query =
+      let fv =
+	Array.of_list
+	  (List.map
+	     (Z3.to_app ctx % T.V.to_smt)
+	     (VarSet.elements (formula_free_vars psi)))
+      in
+      Z3.mk_exists_const
+	ctx
+	0
+	fv
+	[||]
+	(Smt.conj
+	   (to_smt psi)
+	   (Z3.mk_app ctx
+	      phi_rel
+	      (BatArray.of_enum (BatList.enum common_vars /@ T.V.to_smt))))
+    in
+    match fp#query query with
+    | Z3.L_TRUE -> None
+    | Z3.L_UNDEF ->
+      begin
+	Log.errorf "Interpolation timed out";
+	raise Timeout
+      end
+    | Z3.L_FALSE ->
+      begin
+	let itp = ref top in
+	for i = (-1) to fp#get_num_levels phi_rel do
+	  let delta = fp#get_cover_delta i phi_rel in
+	  itp := conj (!itp) (of_smt ~var_smt:var_smt delta)
+	done;
+	Some (!itp)
+      end
 
   module Syntax = struct
     let ( && ) x y = conj x y
