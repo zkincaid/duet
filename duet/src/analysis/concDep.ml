@@ -535,35 +535,22 @@ module Make(MakeEQ :
 
 
     let analyze file =
-      match file.entry_points with
-        | [main] -> begin
-            let rg = Interproc.make_recgraph file in
-            let local func_name =
-              try
-                let func = List.find (fun f -> Varinfo.equal func_name f.fname) (get_gfile()).funcs in
-                let vars = Varinfo.Set.remove (return_var func_name)
-                             (Varinfo.Set.of_enum (BatEnum.append (BatList.enum func.formals)
-                                                     (BatList.enum func.locals)))
-                in
-                  fun (x, _) -> (Varinfo.Set.mem x vars)
-              with Not_found -> (fun (_, _) -> false)
-            in
-              Analysis.mk_query rg weight local main
-          end
+      let root = match file.entry_points with
+        | [main] -> main
         | _      -> assert false
-
-    let add_conc_edges file dg query =
-      let f summary =
-        let g (((def1, ap1), (def2, ap2)), _) =
-          DG.add_edge_e dg (DG.E.create def1 (Pack.PairSet.singleton (Pack.mk_pair ap1 ap2)) def2)
-        in
-          BatEnum.iter g (DFlowMap.enum (dflow summary.rd_t summary.eu_c));
-          BatEnum.iter g (DFlowMap.enum (dflow summary.rd_c summary.eu_p));
-          BatEnum.iter g (DFlowMap.enum (dflow summary.rd_c summary.eu_c))
       in
-        match file.entry_points with
-          | [main] -> f (Analysis.get_summary query main)
-          | _ -> assert false
+      let rg = Interproc.make_recgraph file in
+        Analysis.mk_query rg weight Interproc.local root
+
+    let add_conc_edges rg root dg =
+      let query = Analysis.mk_query rg weight Interproc.local root in
+      let summary = Analysis.get_summary query root in
+      let g (((def1, ap1), (def2, ap2)), _) =
+        DG.add_edge_e dg (DG.E.create def1 (Pack.PairSet.singleton (Pack.mk_pair ap1 ap2)) def2)
+      in
+        BatEnum.iter g (DFlowMap.enum (dflow summary.rd_t summary.eu_c));
+        BatEnum.iter g (DFlowMap.enum (dflow summary.rd_c summary.eu_p));
+        BatEnum.iter g (DFlowMap.enum (dflow summary.rd_c summary.eu_c))
 
   end
 end
@@ -572,18 +559,21 @@ module ConcDep = Make(EqLogic.Hashed.MakeEQ(Var))
 module ConcTrivDep = Make(EqLogic.Hashed.MakeTrivEQ(Var))
 
 let construct_conc_dg file =
-  let dg = begin
-    ignore (Bddpa.initialize file);
-    Pa.simplify_calls file;
-    ignore (LockLogic.get_races ());
+  let root = match file.entry_points with
+    | [main] -> main
+    | _ -> assert false
+  in
+  let rg = Interproc.make_recgraph file in
+  let dg =
+    ignore(LockLogic.find_races rg root);
     if !AliasLogic.must_alias then 
-      ConcDep.SeqDep.construct_dg ~solver:ConcDep.SeqDep.RDAnalysisConc.solve file
+      ConcDep.SeqDep.construct_dg ~solver:(ConcDep.SeqDep.RDAnalysisConc.solve rg root) file
     else 
-      ConcTrivDep.SeqDep.construct_dg ~solver:ConcTrivDep.SeqDep.RDAnalysisConc.solve file
-  end in
-    ConcDep.ConcRDAnalysis.add_conc_edges file dg (ConcDep.ConcRDAnalysis.analyze file);
-  if !CmdLine.display_graphs then DG.display_labelled dg;
-  dg
+      ConcTrivDep.SeqDep.construct_dg ~solver:(ConcTrivDep.SeqDep.RDAnalysisConc.solve rg root) file
+  in
+    ConcDep.ConcRDAnalysis.add_conc_edges rg root dg;
+    if !CmdLine.display_graphs then DG.display_labelled dg;
+    dg
 
 let chdfg_stats file =
   let dg = Log.phase "Construct hDFG" construct_conc_dg file in

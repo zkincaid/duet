@@ -96,23 +96,8 @@ struct
   (** Iterate over the solution to the analysis.  An item in the solution
       consists of a program point (definition) along with a summary of the set
       of (interprocedurally valid) paths to that that point.  *)
-  let solve smash file init =
-    let rg = Interproc.make_recgraph file in
-    let main = match file.entry_points with
-      | [x] -> x
-      | _   -> failwith "Interproc.solve: No support for multiple entry points"
-    in
-    let local func_name =
-      try
-        let func = List.find (fun f -> Varinfo.equal func_name f.fname) (get_gfile()).funcs in
-        let vars = Varinfo.Set.remove (return_var func_name)
-                     (Varinfo.Set.of_enum (BatEnum.append (BatList.enum func.formals)
-                                             (BatList.enum func.locals)))
-        in
-          fun (x, _) -> (Varinfo.Set.mem x vars)
-      with Not_found -> (fun (_, _) -> false)
-    in
-    let left_query = Left.mk_query rg A.left_weight local main in
+  let solve rg root smash file init =
+    let left_query = Left.mk_query rg A.left_weight Interproc.local root in
     let go (_, v, path_to_v) = smash path_to_v (A.right_weight v) in
       BatEnum.iter go (Left.enum_single_src left_query)
 end

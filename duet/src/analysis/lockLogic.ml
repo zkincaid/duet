@@ -399,33 +399,27 @@ module Datarace = struct
     let f k v s = s && List.exists (Var.Set.equal v) (Def.HT.find_all r1 k) in
       Def.HT.fold f r2 true
 
+  let solve rg root =
+    let compute_races races =
+      let l_weight = stabilise races LockPath.weight in
+      let query = LSA.mk_query rg (weight l_weight) Interproc.local root
+      in
+        find_all_races query root
+    in
+    let rec fp_races old_races =
+      let new_races = compute_races old_races in
+        if eq_races old_races new_races then new_races
+        else fp_races new_races
+    in
+    let init_races = Def.HT.create 0 in
+      fp_races init_races
+
+
   let init file =
     match file.entry_points with
     | [main] -> begin
       let rg = Interproc.make_recgraph file in
-      let local func_name =
-        try
-          let func = List.find (fun f -> Varinfo.equal func_name f.fname) (get_gfile()).funcs in
-          let vars = Varinfo.Set.remove (return_var func_name)
-                       (Varinfo.Set.of_enum (BatEnum.append (BatList.enum func.formals)
-                                               (BatList.enum func.locals)))
-          in
-            fun (x, _) -> (Varinfo.Set.mem x vars)
-        with Not_found -> (fun (_, _) -> false)
-      in
-      let compute_races races =
-        let l_weight = stabilise races LockPath.weight in
-        let query = LSA.mk_query rg (weight l_weight) local main
-        in
-          find_all_races query main
-      in
-      let rec fp_races old_races =
-        let new_races = compute_races old_races in
-          if eq_races old_races new_races then new_races
-                                          else fp_races new_races
-      in
-      let init_races = Def.HT.create 0 in
-        fp_races init_races
+        solve rg main
       end
     | _      -> assert false
 end
@@ -435,6 +429,12 @@ let get_races () = match !races with
   | Some x -> x
   | None -> 
       let dra = Datarace.init (CfgIr.get_gfile()) in
+        races := Some dra;
+        dra
+let find_races rg root = match !races with
+  | Some x -> x
+  | None -> 
+      let dra = Datarace.solve rg root in
         races := Some dra;
         dra
 
