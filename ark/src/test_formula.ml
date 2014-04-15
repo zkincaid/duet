@@ -17,6 +17,14 @@ end
 module T = Term.Make(StrVar)
 module F = Formula.Make(T)
 
+let is_interpolant phi psi itp =
+  match itp with
+  | None ->
+    Log.errorf "no interpolant!";
+    F.is_sat (F.conj phi psi)
+  | Some itp ->
+    (F.implies phi itp) && not (F.is_sat (F.conj itp psi))
+
 open T.Syntax
 open F.Syntax
 
@@ -203,6 +211,21 @@ let linearize5 () =
   in
   assert_implies phi F.bottom
 
+let interpolate1 () =
+  let x = T.var "x" in
+  let y = T.var "y" in
+  let z = T.var "z" in
+  let phi =
+    x == y && (T.const (QQ.of_int 0)) < x
+  in
+  let psi =
+    y == z && (T.const (QQ.of_int 0)) > z
+  in
+  assert_bool "itp(y == x < 0, 0 < z = y)"
+    (is_interpolant phi psi (F.interpolate phi psi));
+  assert_bool "itp(y == x < 0, 0 < z = y)"
+    (is_interpolant psi phi (F.interpolate psi phi))
+
 let suite = "Formula" >:::
   [
     "test1" >:: test1;
@@ -221,4 +244,8 @@ let suite = "Formula" >:::
     "linearize3" >:: linearize3;
     "linearize4" >:: linearize4;
     "linearize5" >:: linearize5;
+
+  (* TODO: this works, but it segfaults if it's run with other tests...
+    "interpolate1" >:: interpolate1;
+  *)
   ]
