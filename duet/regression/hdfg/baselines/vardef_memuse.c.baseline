@@ -1,4 +1,4 @@
-./hdfg/code/vardef_memuse.c:17 >> Assertion failed: *q == 0
+./regression/hdfg/code/vardef_memuse.c:17 >> Assertion failed: *q == 0
 {map: [{} => {(*q)}. (*q) >= 0 && -(*q)+1 >= 0]; default: {(*q)}. _|_}
 
 1 errors total

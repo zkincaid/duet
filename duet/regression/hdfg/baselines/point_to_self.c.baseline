@@ -1,4 +1,4 @@
-./hdfg/code/point_to_self.c:14 >> Assertion failed: *p == 0
+./regression/hdfg/code/point_to_self.c:14 >> Assertion failed: *p == 0
 {map: [{} => {(*p)}. (*p) >= 0]; default: {(*p)}. _|_}
 
 1 errors total

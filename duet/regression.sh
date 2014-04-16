@@ -11,9 +11,9 @@
 CFG_TESTS="simple.bp simple.c irreducible.bp selfref.bp"
 
 DIR=`dirname $0`
-REGRESSION_TXT="$DIR/regression.txt"
-RUN="$DIR/regression -loadpath $DIR/.."
-RUN_MAIN="$DIR/../duet -loadpath $DIR/.."
+REGRESSION_DIR="$DIR/regression"
+REGRESSION_TXT="$REGRESSION_DIR/regression.txt"
+RUN_MAIN="$DIR/duet"
 
 phase () {
     NAME=$1
@@ -54,7 +54,7 @@ run_all_txt () {
     PASSED=0
     FAILED=0
     phase $RUN_FAMILY regression tests
-    WORKING="$DIR/working"
+    WORKING="$REGRESSION_DIR/working"
     if [ -d $WORKING ]; then
 	find $WORKING -name "*.working" | xargs rm -f
 	find $WORKING -name "*.diff" | xargs rm -f
@@ -69,7 +69,7 @@ run_all_txt () {
 	fi
 	TEST=`echo $x | awk '//{print $2}'`
 	FLAGS=`echo $x | sed 's/[^ ]* [^ ]* //'`
-	FAM_DIR="$DIR/$FAMILY"
+	FAM_DIR="$REGRESSION_DIR/$FAMILY"
 	WORKING_FAM_DIR="$WORKING/$FAMILY"
 	if [ ! -d $WORKING_FAM_DIR ]; then
 	    echo Make $WORKING_FAM_DIR
@@ -115,7 +115,7 @@ generate_all_txt () {
 	fi
 	TEST=`echo $x | awk '//{print $2}'`
 	FLAGS=`echo $x | sed 's/[^ ]* [^ ]* //'`
-	FAM_DIR=$DIR/$FAMILY
+	FAM_DIR=$REGRESSION_DIR/$FAMILY
 	echo Generating baseline for $TEST [$FAMILY]...
 	$RUN_MAIN $FLAGS $FAM_DIR/code/$TEST > $FAM_DIR/baselines/$TEST.baseline
     done
