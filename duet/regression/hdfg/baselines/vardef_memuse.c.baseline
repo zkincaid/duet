@@ -1,7 +1,5 @@
-./hdfg/code/vardef_memuse.c:11 >> Assertion failed: *p == 0
-{map =[{} => {(*p)}. T]; default ={(*p)}. _|_}
 ./hdfg/code/vardef_memuse.c:17 >> Assertion failed: *q == 0
-{map =[{} => {(*q)}. T]; default ={(*q)}. _|_}
+{map: [{} => {(*q)}. (*q) >= 0 && -(*q)+1 >= 0]; default: {(*q)}. _|_}
 
-2 errors total
-0 safe assertions
+1 errors total
+1 safe assertions

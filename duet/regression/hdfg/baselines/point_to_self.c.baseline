@@ -1,5 +1,5 @@
 ./hdfg/code/point_to_self.c:14 >> Assertion failed: *p == 0
-{map =[{} => {(*p)}. T]; default ={(*p)}. _|_}
+{map: [{} => {(*p)}. (*p) >= 0]; default: {(*p)}. _|_}
 
 1 errors total
 2 safe assertions

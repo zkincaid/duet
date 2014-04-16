@@ -88,7 +88,7 @@ run_all_txt () {
 	else
 	    PASSED=$(($PASSED+1))
 	fi
-    done < <(cat $REGRESSION_TXT)
+    done < <(cat $REGRESSION_TXT | grep -v "#")
     echo "Passed: $PASSED"
     echo "Failed: $FAILED"
 }

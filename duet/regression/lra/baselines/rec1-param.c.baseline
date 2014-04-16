@@ -1,7 +1,6 @@
 ./lra/code/rec1-param.c:14 >> x <= 1
-./lra/code/rec1-param.c:17 >> x >= 0
 ./lra/code/rec1-param.c:20 >> x <= 10
 ./lra/code/rec1-param.c:23 >> x == 10
 
-4 errors total
-0 safe assertions
+3 errors total
+1 safe assertions
