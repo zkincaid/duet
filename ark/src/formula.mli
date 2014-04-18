@@ -167,7 +167,7 @@ module type S = sig
 
   (** {2 Misc operations} *)
 
-  val of_smt : ?var_smt:(Smt.symbol -> T.t) -> Smt.ast -> t
+  val of_smt : ?bound_vars:(T.V.t list) -> ?var_smt:(Smt.symbol -> T.t) -> Smt.ast -> t
   val to_smt : t -> Smt.ast
 
   val is_sat : t -> bool

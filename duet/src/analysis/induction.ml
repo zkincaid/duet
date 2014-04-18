@@ -188,17 +188,14 @@ module V = struct
   module E = Enumeration.Make(I)
   let enum = E.empty ()
   let of_smt sym = match Smt.symbol_refine sym with
-    | Z3.Symbol_int id -> E.from_int enum id
-    | Z3.Symbol_string _ -> assert false
+    | Smt.Symbol_int id -> E.from_int enum id
+    | Smt.Symbol_string _ -> assert false
   let typ v = tr_typ (Var.get_type (var_of_value v))
   let to_smt v =
-    let ctx = Smt.get_context () in
     let id = E.to_int enum v in
     match typ v with
-    | TyInt ->
-      Z3.mk_const ctx (Z3.mk_int_symbol ctx id) (Smt.mk_int_sort ())
-    | TyReal ->
-      Z3.mk_const ctx (Z3.mk_int_symbol ctx id) (Smt.mk_real_sort ())
+    | TyInt -> Smt.mk_int_const (Smt.mk_int_symbol id)
+    | TyReal -> Smt.mk_real_const (Smt.mk_int_symbol id)
   let tag = E.to_int enum
 end
 
@@ -541,7 +538,7 @@ let analyze file =
 		| Smt.Sat -> (Report.log_error (Def.get_location def) msg; true)
 		| Smt.Undef -> false
 		end
-	      with Z3.Error (_, _) -> false
+	      with Z3.Error _ -> false
 	    in
 	    if (not checked) && not (K.F.is_linear path_condition) then begin
 	      Log.errorf "Z3 inconclusive; trying to linearize";
@@ -579,7 +576,7 @@ let analyze file =
 	    | Smt.Sat -> (Report.log_error (Def.get_location def) msg; true)
 	    | Smt.Undef -> false
 	    end
-	  with Z3.Error (_, _) -> false
+	  with Z3.Error _ -> false
 	in
 
 	if (not checked) && not (K.F.is_linear path_condition) then begin

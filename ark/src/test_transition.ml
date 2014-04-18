@@ -11,8 +11,8 @@ module StrVar = struct
     if String.get x 0 == 'r' then Smt.real_var x
     else Smt.int_var x
   let of_smt sym = match Smt.symbol_refine sym with
-    | Z3.Symbol_string str -> str
-    | Z3.Symbol_int _ -> assert false
+    | Smt.Symbol_string str -> str
+    | Smt.Symbol_int _ -> assert false
   let typ x =
     if String.get x 0 == 'r' then TyReal
     else TyInt

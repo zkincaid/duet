@@ -7,12 +7,12 @@ SRC = hashcons.mli hashcons.ml hset.mli hset.ml hmap.mli hmap.ml	  \
 	term.mli formula.ml formula.mli transition.ml
 TEST_SRC := $(SRC) test_formula.ml test_numdomain.ml test_transition.ml test.ml
 
-Z3:=$(shell ocamlfind query z3)
+Z3:=$(shell ocamlfind query Z3)
 
-export PACKS = deriving apak apron apron.boxMPQ apron.octD apron.polkaMPQ z3 \
+export PACKS = deriving apak apron apron.boxMPQ apron.octD apron.polkaMPQ Z3 \
 	oUnit
 export OCAMLFLAGS = -annot
-export OCAMLLDFLAGS = -cclib -L$(Z3) -cclib -lz3 -cclib -lz3stubs
+export OCAMLLDFLAGS = -cclib -L$(Z3) -cclib -lz3
 export LIBS = dynlink
 export LIB_PACK_NAME = ark
 

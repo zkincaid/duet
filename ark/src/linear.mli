@@ -7,7 +7,7 @@ open Hashcons
 (** Variable (dimension) signature *)
 module type Var = sig
   include Putil.Ordered
-  val to_smt : t -> Z3.ast
+  val to_smt : t -> Smt.ast
 end
 
 (** Hashed variable (dimension) signature *)
