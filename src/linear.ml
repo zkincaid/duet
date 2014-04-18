@@ -7,7 +7,7 @@ open ArkPervasives
 
 module type Var = sig
   include Putil.Ordered
-  val to_smt : t -> Z3.ast
+  val to_smt : t -> Smt.ast
 end
 
 module AffineVar (V : Var) = struct

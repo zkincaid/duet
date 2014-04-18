@@ -10,8 +10,8 @@ module StrVar = struct
   let prime x = x ^ "'"
   let to_smt x = Smt.real_var x
   let of_smt sym = match Smt.symbol_refine sym with
-    | Z3.Symbol_string str -> str
-    | Z3.Symbol_int _ -> assert false
+    | Smt.Symbol_string str -> str
+    | Smt.Symbol_int _ -> assert false
   let typ _ = TyReal
 end
 module T = Term.Make(StrVar)
@@ -244,8 +244,5 @@ let suite = "Formula" >:::
     "linearize3" >:: linearize3;
     "linearize4" >:: linearize4;
     "linearize5" >:: linearize5;
-
-  (* TODO: this works, but it segfaults if it's run with other tests...
     "interpolate1" >:: interpolate1;
-  *)
   ]
