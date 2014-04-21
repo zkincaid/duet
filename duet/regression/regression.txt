@@ -71,3 +71,4 @@ lra mult-rec.c -lra
 lra mem.c -check-array-bounds -lra
 lra mem2.c -check-array-bounds -lra
 lra pointer_arith.c -lra
+chdfg fork_interproc.c -chdfg
