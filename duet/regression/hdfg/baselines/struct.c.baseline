@@ -1,6 +1,6 @@
-./hdfg/code/struct.c:19 >> Assertion failed: (unsigned long )p->next == (unsigned long )((struct List *)0)
+./regression/hdfg/code/struct.c:19 >> Assertion failed: (unsigned long )p->next == (unsigned long )((struct List *)0)
 {map: [{} => {(p)->next}. T]; default: {(p)->next}. _|_}
-./hdfg/code/struct.c:23 >> Assertion failed: g.data == 0
+./regression/hdfg/code/struct.c:23 >> Assertion failed: g.data == 0
 {map: [{} => {g.data}. T]; default: {g.data}. _|_}
 
 2 errors total

@@ -1,4 +1,4 @@
-./hdfg/code/alias_addr_err.c:12 >> Assertion failed: a == 0
+./regression/hdfg/code/alias_addr_err.c:12 >> Assertion failed: a == 0
 {map: [{} => {a}. a >= 0 && -a+1. >= 0]; default: {a}. _|_}
 
 1 errors total

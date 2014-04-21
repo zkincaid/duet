@@ -1,4 +1,4 @@
-./lra/code/terminator_03_unsafe.c:18 >> tmp___1
+./regression/lra/code/terminator_03_unsafe.c:18 >> tmp___1
 
 1 errors total
 0 safe assertions

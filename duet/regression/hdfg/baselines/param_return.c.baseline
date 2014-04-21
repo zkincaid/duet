@@ -1,4 +1,4 @@
-./hdfg/code/param_return.c:7 >> Assertion failed: y == 1
+./regression/hdfg/code/param_return.c:7 >> Assertion failed: y == 1
 {map: [{} => {y}. y-2. >= 0 && -y+2. >= 0]; default: {y}. _|_}
 
 1 errors total

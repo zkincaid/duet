@@ -9,6 +9,7 @@ exception Nonlinear
 exception Timeout
 
 include Log.Make(struct let name = "ark.formula" end)
+module L = Log
 
 module type S = sig
   type t
@@ -72,8 +73,9 @@ module type S = sig
   val linearize_trivial : (unit -> T.V.t) -> t -> t
   val opt_linearize_strategy : ((unit -> T.V.t) -> t -> t) ref
 
-  val of_smt : Smt.ast -> t
+  val of_smt : ?bound_vars:(T.V.t list) -> ?var_smt:(Smt.symbol -> T.t) -> Smt.ast -> t
   val to_smt : t -> Smt.ast
+  val is_sat : t -> bool
   val implies : t -> t -> bool
   val equiv : t -> t -> bool
   val map : (T.t atom -> t) -> t -> t
@@ -89,6 +91,8 @@ module type S = sig
   val size : t -> int
 
   val log_stats : unit -> unit
+
+  val interpolate : t -> t -> t option
 
   module Syntax : sig
     val ( && ) : t -> t -> t
@@ -346,19 +350,16 @@ module Make (T : Term.S) = struct
     in
     map subst_atom
 
-  let of_smt ast =
+  let of_smt ?(bound_vars=[]) ?(var_smt=(T.var % T.V.of_smt)) ast =
     let open Z3 in
-    let ctx = Smt.get_context () in
-    let smt_term vs = T.of_smt (List.nth vs) in
+    let open Z3enums in
+    let smt_term vs = T.of_smt (List.nth vs) ~var_smt:var_smt in
     let rec of_smt vars ast =
-      match get_ast_kind ctx ast with
+      match AST.get_ast_kind (Expr.ast_of_expr ast) with
       | APP_AST -> begin
-	let app = to_app ctx ast in
-	let decl = get_app_decl ctx app in
-	let args =
-	  (0 -- (get_app_num_args ctx app - 1)) /@ (get_app_arg ctx app)
-	in
-	match get_decl_kind ctx decl with
+	let decl = Expr.get_func_decl ast in
+	let args = BatList.enum (List.rev (Expr.get_args ast)) in
+	match FuncDecl.get_decl_kind decl with
 	| OP_TRUE -> top
 	| OP_FALSE -> bottom
 	| OP_AND ->
@@ -398,39 +399,39 @@ module Make (T : Term.S) = struct
 	| _ -> assert false
       end
       | QUANTIFIER_AST ->
-	let num_vars = Z3.get_quantifier_num_bound ctx ast in
+	let ast = Quantifier.quantifier_of_expr ast in
 	let new_vars =
-	  BatEnum.map
-	    (T.V.of_smt % Z3.get_quantifier_bound_name ctx ast)
-	    (0--(num_vars-1))
+	  List.map T.V.of_smt (Quantifier.get_bound_variable_names ast)
 	in
-	let vars = List.append (BatList.of_enum new_vars) vars in
-	of_smt vars (Z3.get_quantifier_body ctx ast)
+	let vars = List.append new_vars vars in
+	of_smt vars (Quantifier.get_body ast)
       | NUMERAL_AST
       | VAR_AST
       | FUNC_DECL_AST
       | SORT_AST
       | UNKNOWN_AST -> assert false
     in
-    of_smt [] ast
+    of_smt bound_vars ast
 
   let of_goal g =
-    let ctx = Smt.get_context() in
-    let subgoal_formula n = of_smt (Z3.goal_formula ctx g n) in
-    let formulae =
-      BatEnum.map subgoal_formula (0 -- (Z3.goal_size ctx g - 1))
-    in
+    let open Z3 in
+    let formulae = BatEnum.map of_smt (BatList.enum (Goal.get_formulas g)) in
     BatEnum.fold conj top formulae
 
   let of_apply_result result =
-    let ctx = Smt.get_context() in
-    let goal_formula n = of_goal (Z3.apply_result_get_subgoal ctx result n) in
+    let open Z3 in
     let formulae =
-      BatEnum.map
-	goal_formula
-	(0 -- (Z3.apply_result_get_num_subgoals ctx result - 1))
+      BatList.enum (List.map of_goal (Tactic.ApplyResult.get_subgoals result))
     in
     BatEnum.fold conj top formulae
+
+  let is_sat phi =
+    let s = new Smt.solver in
+    s#assrt (to_smt phi);
+    match s#check () with
+    | Smt.Sat   -> true
+    | Smt.Unsat -> false
+    | Smt.Undef -> raise Timeout
 
   let implies phi psi =
     let s = new Smt.solver in
@@ -439,7 +440,7 @@ module Make (T : Term.S) = struct
     match s#check () with
     | Smt.Sat   -> false
     | Smt.Unsat -> true
-    | Smt.Undef -> assert false
+    | Smt.Undef -> raise Timeout
 
   let equiv phi psi =
     let s = new Smt.solver in
@@ -455,7 +456,7 @@ module Make (T : Term.S) = struct
       Log.errorf "Timeout in equivalence check:@\n%a@\n  =  @\n%a"
 	format phi
 	format psi;
-      assert false
+      raise Timeout
     end
 
   let big_disj = BatEnum.fold disj bottom 
@@ -810,21 +811,16 @@ module Make (T : Term.S) = struct
       qe_trivial p phi
 
   let qe_z3 p phi =
+    let open Z3 in
     let fv = formula_free_vars phi in
     let vars = BatList.of_enum (BatEnum.filter (not % p) (VarSet.enum fv)) in
     let ctx = Smt.get_context () in
-    let solve = Z3.mk_tactic ctx "qe" in
-    let simpl = Z3.mk_tactic ctx "simplify" in
-    let qe = Z3.tactic_and_then ctx solve simpl in
-    let g = Z3.mk_goal ctx false false false in
-    Z3.goal_assert ctx g
-      (Z3.mk_exists_const
-	 ctx
-	 (List.length vars)
-	 (Array.of_list (List.map (Z3.to_app ctx % T.V.to_smt) vars))
-	 [||]
-	 (to_smt phi));
-    of_apply_result (Z3.tactic_apply ctx qe g)
+    let solve = Tactic.mk_tactic ctx "qe" in
+    let simpl = Tactic.mk_tactic ctx "simplify" in
+    let qe = Tactic.and_then ctx solve simpl [] in
+    let g = Goal.mk_goal ctx false false false in
+    Goal.add g [Smt.mk_exists_const (List.map T.V.to_smt vars) (to_smt phi)];
+    of_apply_result (Tactic.apply qe g None)
 
   (* Collapse nested conjunctions & disjunctions *)
   let flatten phi =
@@ -1092,18 +1088,17 @@ module Make (T : Term.S) = struct
   let nonlinear_equalities map phi vars =
     let s = new Smt.solver in
 
-    let ctx = Smt.get_context () in
     let uninterp_mul_sym = Smt.mk_string_symbol "uninterp_mul" in
     let uninterp_div_sym = Smt.mk_string_symbol "uninterp_div" in
     let real_sort = Smt.mk_real_sort () in
     let uninterp_mul_decl =
-      Z3.mk_func_decl ctx uninterp_mul_sym [| real_sort; real_sort |] real_sort
+      Smt.mk_func_decl uninterp_mul_sym [real_sort; real_sort] real_sort
     in
     let uninterp_div_decl = 
-      Z3.mk_func_decl ctx uninterp_div_sym [| real_sort; real_sort |] real_sort
+      Smt.mk_func_decl uninterp_div_sym [real_sort; real_sort] real_sort
     in
-    let mk_mul x y = Z3.mk_app ctx uninterp_mul_decl [| x; y |] in
-    let mk_div x y = Z3.mk_app ctx uninterp_div_decl [| x; y |] in
+    let mk_mul x y = Smt.mk_app uninterp_mul_decl [x; y] in
+    let mk_div x y = Smt.mk_app uninterp_div_decl [x; y] in
     let talg = function
       | OVar v -> (V.to_smt v, V.typ v)
       | OConst k ->
@@ -1670,23 +1665,16 @@ module Make (T : Term.S) = struct
   let simplify_dillig _ phi = simplify_dillig_impl phi (new Smt.solver)
 
   let simplify_z3 p phi =
+    let open Z3 in
     let fv = formula_free_vars phi in
     let vars = BatList.of_enum (BatEnum.filter (not % p) (VarSet.enum fv)) in
     let ctx = Smt.get_context () in
-    let simplify = Z3.mk_tactic ctx "simplify" in
-    let solve_eqs = Z3.mk_tactic ctx "solve-eqs" in
-    let simplify = Z3.tactic_and_then ctx simplify solve_eqs in
-    let g = Z3.mk_goal ctx false false false in
-
-    Z3.goal_assert ctx g
-      (Z3.mk_exists_const
-	 ctx
-	 (List.length vars)
-	 (Array.of_list (List.map (Z3.to_app ctx % T.V.to_smt) vars))
-	 [||]
-	 (to_smt phi));
-    of_apply_result (Z3.tactic_apply ctx simplify g)
-
+    let simplify = Tactic.mk_tactic ctx "simplify" in
+    let solve_eqs = Tactic.mk_tactic ctx "solve-eqs" in
+    let simplify = Tactic.and_then ctx simplify solve_eqs [] in
+    let g = Goal.mk_goal ctx false false false in
+    Goal.add g [Smt.mk_exists_const (List.map T.V.to_smt vars) (to_smt phi)];
+    of_apply_result (Tactic.apply simplify g None)
 
   let opt_simplify_strategy = ref [qe_cover; simplify_dillig]
   let simplify p phi =
@@ -1700,6 +1688,77 @@ module Make (T : Term.S) = struct
       s#assrt (to_smt phi);
       affine_hull_impl s vars
     with Timeout -> []
+
+  let interpolate phi psi =
+    let open Z3 in
+    let fp = new Smt.fixedpoint in
+    let ctx = Smt.get_context() in
+    let params = Params.mk_params ctx in
+    let sym = Smt.mk_string_symbol in
+
+    Params.add_symbol params (sym ":engine") (sym "pdr");
+    Params.add_bool params (sym ":use-farkas") true;
+    Params.add_bool params (sym ":slice") false;
+    Params.add_bool params (sym ":inline-eager") false;
+    Params.add_bool params (sym ":inline-linear") false;
+    fp#set_params params;
+
+    let var_sort v = match V.typ v with
+      | TyInt -> Smt.mk_int_sort ()
+      | TyReal -> Smt.mk_real_sort ()
+    in
+    let common_vars =
+      VarSet.elements
+	(VarSet.inter (formula_free_vars phi) (formula_free_vars psi))
+    in
+    let mk_rel name phi =
+      let sym = Smt.mk_string_symbol name in
+      let fv = VarSet.elements (formula_free_vars phi) in
+      let decl =
+	Smt.mk_func_decl
+	  sym 
+	  (BatList.map var_sort common_vars)
+	  (Smt.mk_bool_sort ())
+      in
+      let rule =
+	Smt.mk_forall_const
+	  (List.map T.V.to_smt fv)
+	  (Smt.mk_implies
+	     (to_smt phi)
+	     (Smt.mk_app decl (BatList.map T.V.to_smt common_vars)))
+      in
+      fp#register_relation decl;
+      fp#add_rule rule (Some sym);
+      decl
+    in
+    let phi_rel = mk_rel "$A" phi in
+    let query =
+      let fv = List.map V.to_smt (VarSet.elements (formula_free_vars psi)) in
+      Smt.mk_exists_const
+	fv
+	(Smt.conj
+	   (to_smt psi)
+	   (Smt.mk_app phi_rel (BatList.map T.V.to_smt common_vars)))
+    in
+    match fp#query query with
+    | Solver.SATISFIABLE -> None
+    | Solver.UNKNOWN ->
+      begin
+	L.errorf "Interpolation timed out";
+	raise Timeout
+      end
+    | Solver.UNSATISFIABLE ->
+      begin
+	let itp = ref top in
+	for i = (-1) to fp#get_num_levels phi_rel do
+	  let delta = match fp#get_cover_delta i phi_rel with
+	    | Some d -> d
+	    | None -> assert false
+	  in
+	  itp := conj (!itp) (of_smt ~bound_vars:common_vars delta)
+	done;
+	Some (!itp)
+      end
 
   module Syntax = struct
     let ( && ) x y = conj x y

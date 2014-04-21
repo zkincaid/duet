@@ -16,9 +16,20 @@ Duet depends on several software packages.  Some of the more obscure dependencie
  + GMP (+ ocaml bindings)
  + MPFR (+ ocaml bindings)
  + libbdd
- + z3 4.3.1 (+ its ocaml bindings, beware of http://z3.codeplex.com/workitem/29)
+ + z3 + ocaml bindings (see below)
 
-Building Duet:
+### Obtaining z3
+
+```
+ git clone https://git01.codeplex.com/z3 -b ml-ng
+ cd z3
+ python scripts/mk_make.py --ml
+ cd build
+ make
+ sudo ocamlfind install Z3 api/ml/META api/ml/z3.cma api/ml/z3.cmxa api/ml/z3.a api/ml/z3.cmi api/ml/z3enums.cmi api/ml/z3native.cmi api/ml/libz3ml.a libz3.so
+```
+
+### Building Duet:
 
 Once the all dependencies have been installed, 
 

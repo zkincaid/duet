@@ -7,7 +7,7 @@ void main(int argc, char* argv[]){
     char **files;
     int n_files;
     assume(argc >= 0);
-    argv = malloc(argc);
+    argv = malloc(argc * sizeof(char*));
     optind = 1;
 
     n_files = argc - optind;

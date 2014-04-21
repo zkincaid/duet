@@ -283,7 +283,7 @@ let rec tr_expr = function
   | Cil.Const c -> Constant (tr_constant c)
   | Cil.Lval ((Cil.Var v, Cil.NoOffset) as l)
       when Cil.isFunctionType v.Cil.vtype ->
-      addr_of (tr_lval l)
+    addr_of (tr_lval l)
   | Cil.Lval l -> AccessPath (tr_lval l)
   | Cil.SizeOf t -> tr_expr (Cil.constFold true (Cil.SizeOf t))
   | Cil.SizeOfE e -> tr_expr (Cil.constFold true (Cil.SizeOfE e))
@@ -291,47 +291,74 @@ let rec tr_expr = function
   | Cil.AlignOf t -> assert false
   | Cil.AlignOfE e -> assert false
   | Cil.UnOp (op, expr, typ) ->
-      let expr = tr_expr expr in
-      let typ = tr_typ typ in
-        (match op with
-           | Cil.Neg -> UnaryOp (Neg, expr, typ)
-           | Cil.BNot -> UnaryOp (BNot, expr, typ)
-           | Cil.LNot -> BoolExpr (Bexpr.negate (Bexpr.of_expr expr)))
-  | Cil.BinOp (op, e1, e2, typ) ->
-      let e1 = tr_expr e1 in
-      let e2 = tr_expr e2 in
-      let typ = tr_typ typ in
-        (match op with
-           | Cil.PlusA -> BinaryOp (e1, Add, e2, typ)
-           | Cil.MinusA -> BinaryOp (e1, Minus, e2, typ)
-           | Cil.Mult -> BinaryOp (e1, Mult, e2, typ)
-           | Cil.Div -> BinaryOp (e1, Div, e2, typ)
-           | Cil.Mod -> BinaryOp (e1, Mod, e2, typ)
-           | Cil.Shiftlt -> BinaryOp (e1, ShiftL, e2, typ)
-           | Cil.Shiftrt -> BinaryOp (e1, ShiftR, e2, typ)
-           | Cil.BAnd -> BinaryOp (e1, BAnd, e2, typ)
-           | Cil.BOr -> BinaryOp (e1, BOr, e2, typ)
-           | Cil.BXor -> BinaryOp (e1, BXor, e2, typ)
-           | Cil.Lt -> BoolExpr (Atom (Lt, e1, e2))
-           | Cil.Gt -> BoolExpr (Bexpr.gt e1 e2)
-           | Cil.Le -> BoolExpr (Atom (Le, e1, e2))
-           | Cil.Ge -> BoolExpr (Bexpr.ge e1 e2)
-           | Cil.Eq -> BoolExpr (Atom (Eq, e1, e2))
-           | Cil.Ne ->
-	     BoolExpr (Or (Atom (Lt, e1, e2),
-			   Atom (Lt, e2, e1)))
-           | Cil.LAnd -> BoolExpr (And (Bexpr.of_expr e1, Bexpr.of_expr e2))
-           | Cil.LOr -> BoolExpr (Or (Bexpr.of_expr e1, Bexpr.of_expr e2))
-           | Cil.IndexPI | Cil.PlusPI -> (* these are equivalent *)
-	       BinaryOp (e1, Add, e2, typ)
-           | Cil.MinusPI | Cil.MinusPP -> (* these are equivalent *)
-	       BinaryOp (e1, Minus, e2, typ))
+    let expr = tr_expr expr in
+    let typ = tr_typ typ in
+    (match op with
+    | Cil.Neg -> UnaryOp (Neg, expr, typ)
+    | Cil.BNot -> UnaryOp (BNot, expr, typ)
+    | Cil.LNot -> BoolExpr (Bexpr.negate (Bexpr.of_expr expr)))
+  | Cil.BinOp (op, ce1, ce2, ctyp) ->
+    let e1 = tr_expr ce1 in
+    let e2 = tr_expr ce2 in
+    let typ = tr_typ ctyp in
+    (match op with
+    | Cil.PlusA -> BinaryOp (e1, Add, e2, typ)
+    | Cil.MinusA -> BinaryOp (e1, Minus, e2, typ)
+    | Cil.Mult -> BinaryOp (e1, Mult, e2, typ)
+    | Cil.Div -> BinaryOp (e1, Div, e2, typ)
+    | Cil.Mod -> BinaryOp (e1, Mod, e2, typ)
+    | Cil.Shiftlt -> BinaryOp (e1, ShiftL, e2, typ)
+    | Cil.Shiftrt -> BinaryOp (e1, ShiftR, e2, typ)
+    | Cil.BAnd -> BinaryOp (e1, BAnd, e2, typ)
+    | Cil.BOr -> BinaryOp (e1, BOr, e2, typ)
+    | Cil.BXor -> BinaryOp (e1, BXor, e2, typ)
+    | Cil.Lt -> BoolExpr (Atom (Lt, e1, e2))
+    | Cil.Gt -> BoolExpr (Bexpr.gt e1 e2)
+    | Cil.Le -> BoolExpr (Atom (Le, e1, e2))
+    | Cil.Ge -> BoolExpr (Bexpr.ge e1 e2)
+    | Cil.Eq -> BoolExpr (Atom (Eq, e1, e2))
+    | Cil.Ne ->
+      BoolExpr (Or (Atom (Lt, e1, e2),
+		    Atom (Lt, e2, e1)))
+    | Cil.LAnd -> BoolExpr (And (Bexpr.of_expr e1, Bexpr.of_expr e2))
+    | Cil.LOr -> BoolExpr (Or (Bexpr.of_expr e1, Bexpr.of_expr e2))
+    | Cil.IndexPI | Cil.PlusPI -> (* these are equivalent *)
+      let offset_typ = Expr.get_type e2 in
+      let offset = BinaryOp (e2, Mult, ptr_type_size ctyp, offset_typ) in
+      BinaryOp (e1, Add, offset, typ)
+    | Cil.MinusPI | Cil.MinusPP -> (* these are equivalent *)
+      (if Cil.isPointerType (Cil.typeOf ce2) then begin
+	let delta = BinaryOp (e1, Minus, e2, typ) in
+	BinaryOp (delta, Div, ptr_type_size (Cil.typeOf ce1), typ)
+      end else begin
+	let offset_typ = Expr.get_type e2 in
+	let offset = BinaryOp (e2, Mult, ptr_type_size ctyp, offset_typ) in
+	BinaryOp (e1, Minus, offset, typ)
+      end))
   | Cil.CastE (t, e) -> Cast (tr_typ t, tr_expr e)
   | Cil.AddrOf l -> addr_of (tr_lval l)
   | Cil.StartOf l ->
       (* Conversion of an array type to a pointer type *)
       addr_of (tr_lval l)
   | Cil.Question (test, left, right, typ) -> assert false
+
+(* If ptr is a pointer and i is an integer, we convert
+     ptr + i
+   to
+     ptr + ptr_type_size(typeof(ptr)) * i
+
+   Duet's IR does not not have special pointer arithmetic instructions, so we
+   need
+*)
+and ptr_type_size = function
+  | Cil.TPtr (typ, _) | Cil.TArray (typ, _, _) ->
+    tr_expr (Cil.constFold true (Cil.SizeOf typ))
+  | Cil.TNamed (ti, _) -> ptr_type_size ti.Cil.ttype
+  | typ ->
+    let typename = Pretty.sprint ~width:80 (Cil.d_type () typ) in
+    Log.errorf
+      "Cannot compute ptr_type_size for non-pointer type `%s'" typename;
+    assert false
 
 and tr_constant = function
   | Cil.CInt64 (i, ik, _) -> CInt (Int64.to_int i, ik_of_ikind ik)
