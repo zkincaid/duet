@@ -72,6 +72,35 @@ struct
     BatEnum.iter go (Left.enum_single_src left_query)
 end
 
+module MakeSegmentConc
+  (L : Sig.KA.Quantified.Ordered.S with type var = var)
+  (K : Sig.KA.Quantified.Ordered.S with type var = var)
+  (R : Sig.KA.Quantified.Ordered.S with type var = var)
+  (A : SegmentAnalysis with type summary = K.t
+		       and type left_summary = L.t
+		       and type right_summary = R.t) =
+struct
+
+  module Acc(K : Sig.KA.Quantified.Ordered.S) = struct
+    include K
+    let widen = K.add
+  end
+
+  module Left = Interproc.MakeParPathExpr(struct
+                                            include Acc(L)
+                                            let fork a = a
+                                          end)
+  module IntraLeft = Pathexp.MakeElim(RG.G)(Acc(L))
+  module Right = Pathexp.MakeElim(RG.G)(Acc(R))
+
+  (** Iterate over the solution to the analysis.  An item in the solution
+      consists of a program point (definition) along with a summary of the set
+      of (interprocedurally valid) paths to that that point.  *)
+  let solve rg root smash file init =
+    let left_query = Left.mk_query rg A.left_weight Interproc.local root in
+    let go (_, v, path_to_v) = smash path_to_v (A.right_weight v) in
+      BatEnum.iter go (Left.enum_single_src left_query)
+end
 
 (* The dependence analysis is parameterized over a ConjFormula functor (which
    is expected to be either EqLogic.Hashed.MakeEQ or
@@ -854,7 +883,33 @@ struct
     let right_action abspath uses = EU.mul (promote_right abspath) uses
     let left_action abspath reaching = RD.mul (promote_left abspath) reaching
   end
+  module ReachingDefsConc = struct
+    include ReachingDefs
+    let stabilize x def = 
+      let a = x.kill_tr in
+      let races = LockLogic.get_races () in
+      let pre =
+        let frame = try Def.HT.find races def with Not_found -> Var.Set.empty in
+          KillTransition.of_minterm frame (KillMinterm.unit)
+      in
+      let post =
+        let frame = try Def.HT.find races def with Not_found -> Var.Set.empty in
+          KillTransition.of_minterm frame (KillMinterm.unit)
+      in
+        { x with kill_tr = KillTransition.mul pre (KillTransition.mul a post) }
+
+    let left_weight def = 
+      let x = ReachingDefs.left_weight def in
+        { x with abspath = stabilize x.abspath def }
+    let right_weight def = 
+      let x = ReachingDefs.right_weight def in
+        { x with EU.abspath = stabilize x.EU.abspath def }
+    let weight def = 
+      let x = ReachingDefs.weight def in
+        stabilize x def
+  end
   module RDAnalysis = MakeSegment(RD)(AbsPath)(EU)(ReachingDefs)
+  module RDAnalysisConc = MakeSegmentConc(RD)(AbsPath)(EU)(ReachingDefsConc)
 
   let get_current_name minterm = (RDMinterm.get_pred minterm).current_name
   let incr_index =
@@ -884,7 +939,7 @@ struct
     in
       RDTransition.fold_minterms add_def_minterm def_tr false
 
-  let construct_dg file =
+  let construct_dg ?(solver = RDAnalysis.solve) file =
     let dg = DG.create () in
     let add_edge def (def_ap, use_ap) use =
       Log.debugf "Add edge %a -> %a"
@@ -982,7 +1037,7 @@ struct
       DefAPSet.iter (fun (d,x) -> add_edge d (x,y) join) set
     in
     DefAPSetHT.clear join_ht;
-    Log.phase "Dependence analysis" (RDAnalysis.solve smash file) ();
+    Log.phase "Dependence analysis" (solver smash file) ();
     DefAPSetHT.iter add_join_edge join_ht;
     Dg.simplify_dg dg;
     if !CmdLine.sanity_checks then DG.sanity_check dg;
@@ -1045,7 +1100,8 @@ let interval_analysis file =
       List.iter process_func file.funcs
   in
   let construct_dg  =
-    if !must_alias then Dep.construct_dg else TrivDep.construct_dg
+    if !must_alias then Dep.construct_dg ~solver:Dep.RDAnalysis.solve 
+    else TrivDep.construct_dg ~solver:TrivDep.RDAnalysis.solve
   in
   let rec go () =
     let dg = Log.phase "Construct DG" construct_dg file in

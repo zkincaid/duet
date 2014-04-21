@@ -1,10 +1,8 @@
 (*pp camlp4find deriving.syntax *)
 open Core
 open Apak
-open Ark
 open CfgIr
 open BatPervasives
-open ArkPervasives
 
 let star_count = ref 0
 let mul_count = ref 0
