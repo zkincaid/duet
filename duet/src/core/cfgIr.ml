@@ -292,7 +292,7 @@ let lookup_function name file =
 let lookup_function_name name file =
   try List.find (fun f -> (Varinfo.show f.fname) = name) file.funcs
   with Not_found -> begin
-    Log.logf Log.top "Can't find function `%s' in %s" name file.filename;
+    Log.errorf "Can't find function `%s' in %s" name file.filename;
     assert false
   end
 

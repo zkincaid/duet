@@ -15,7 +15,7 @@ let fix_wto wto update =
       loop false
   in
   List.iter (fun elt -> ignore (fix elt)) wto;
-  Log.log Log.fix ("Evaluations: " ^ (string_of_int (!evaluations)))
+  Log.logf ~level:Log.fix "Evaluations: %d" (!evaluations)
 
 module type G = Loop.G
 module Wto (G : G) = struct
@@ -60,7 +60,7 @@ module Wto (G : G) = struct
 	loop false
     in
     List.iter (fun elt -> ignore (fix elt)) wto;
-    Log.log Log.fix ("Evaluations: " ^ (string_of_int (!evaluations)))
+    Log.logf ~level:Log.fix "Evaluations: %d" (!evaluations)
 end
 
 type 'a worklist =

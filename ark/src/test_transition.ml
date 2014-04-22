@@ -65,12 +65,12 @@ let run_test graph src tgt =
   fun phi expected -> begin
     s#push ();
     let mk () = K.V.mk_tmp "nonlin" TyReal in
-    Log.logf Log.info "Nonlin path condition:@\n%a" K.F.format
+    Log.logf "Nonlin path condition:@\n%a" K.F.format
       (K.F.conj (K.to_formula res) (K.F.negate phi));
     let path_condition =
       K.F.linearize mk (K.F.conj (K.to_formula res) (K.F.negate phi))
     in
-    Log.logf Log.info "Path condition:@\n%a" K.F.format path_condition;
+    Log.logf "Path condition:@\n%a" K.F.format path_condition;
     s#assrt (K.F.to_smt path_condition);
     assert_equal ~printer:Show.show<Smt.lbool> expected (s#check());
     s#pop ();
@@ -391,7 +391,7 @@ module SymBound = struct
     in
     let s = new Smt.solver in
     s#assrt (K.to_smt prog);
-    Log.logf Log.info "Formula: %a" K.format prog;
+    Log.logf "Formula: %a" K.format prog;
     let check phi expected =
       s#push ();
       s#assrt (Smt.mk_not (F.to_smt phi));
@@ -429,7 +429,7 @@ module SymBound = struct
       ]
     in
     let s = new Smt.solver in
-    Log.logf Log.info "Formula: %a" K.format prog;
+    Log.logf "Formula: %a" K.format prog;
     let mk () = K.V.mk_tmp "nonlin" TyReal in
     let check phi expected =
       s#push ();
@@ -476,8 +476,8 @@ module Bound = struct
     in
     let s = new Smt.solver in
     s#assrt (K.to_smt prog);
-    Log.logf Log.info "Formula: %a" K.format prog;
-    Log.logf Log.info "Smt: %s" (Smt.ast_to_string (K.to_smt prog));
+    Log.logf "Formula: %a" K.format prog;
+    Log.logf "Smt: %s" (Smt.ast_to_string (K.to_smt prog));
     let check phi expected =
       s#push ();
       s#assrt (Smt.mk_not (F.to_smt phi));
@@ -518,7 +518,7 @@ module Bound = struct
     in
     let s = new Smt.solver in
     s#assrt (K.to_smt prog);
-    Log.logf Log.info "Formula: %a" K.format prog;
+    Log.logf "Formula: %a" K.format prog;
     let check phi expected =
       s#push ();
       s#assrt (Smt.mk_not (F.to_smt phi));
@@ -558,7 +558,7 @@ module Bound = struct
     in
     let s = new Smt.solver in
     s#assrt (K.to_smt prog);
-    Log.logf Log.info "Formula: %a" K.format prog;
+    Log.logf "Formula: %a" K.format prog;
     let check phi expected =
       s#push ();
       s#assrt (Smt.mk_not (F.to_smt phi));
@@ -643,7 +643,7 @@ module Polyrec = struct
       ]
     in
     let s = new Smt.solver in
-    Log.logf Log.info "Formula: %a" K.format prog;
+    Log.logf "Formula: %a" K.format prog;
     let check phi expected =
       s#push ();
       let mk () = K.V.mk_tmp "nonlin" TyReal in
@@ -731,7 +731,7 @@ module Polyrec = struct
       ]
     in
     let s = new Smt.solver in
-    Log.logf Log.info "Formula: %a" K.format prog;
+    Log.logf "Formula: %a" K.format prog;
     let mk () = K.V.mk_tmp "nonlin" TyReal in
     let check phi expected =
       s#push ();
@@ -765,7 +765,7 @@ module Polyrec = struct
       ]
     in
     let s = new Smt.solver in
-    Log.logf Log.info "Formula: %a" K.format prog;
+    Log.logf "Formula: %a" K.format prog;
     let mk () = K.V.mk_tmp "nonlin" TyReal in
     let check phi expected =
       s#push ();

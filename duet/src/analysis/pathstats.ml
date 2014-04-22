@@ -62,18 +62,18 @@ let analyze file =
       | _             -> false
     in
     let check_assert def path =
-      Log.logf 0 "%d paths to %a" path Def.format def
+      Log.logf ~level:0 "%d paths to %a" path Def.format def
     in
     A.compute_summaries query;
     let summary_mul = !mul_count in
     let summary_add = !add_count in
     let summary_star = !star_count in
-    Log.logf 0 "Path operations for summarization:";
-    Log.logf 0 "  Multiplication: %d" summary_mul;
-    Log.logf 0 "  Addition:       %d" summary_add;
-    Log.logf 0 "  Star:           %d" summary_star;
+    Log.logf ~level:0 "Path operations for summarization:";
+    Log.logf ~level:0 "  Multiplication: %d" summary_mul;
+    Log.logf ~level:0 "  Addition:       %d" summary_add;
+    Log.logf ~level:0 "  Star:           %d" summary_star;
     BatEnum.iter (fun block ->
-      Log.logf 0 "Paths in `%a': %d"
+      Log.logf ~level:0 "Paths in `%a': %d"
 	Varinfo.format block
 	(A.get_summary query block)
     ) (Interproc.RG.blocks rg);
@@ -82,16 +82,16 @@ let analyze file =
     let interproc_mul = !mul_count - summary_mul in
     let interproc_add = !add_count - summary_add in
     let interproc_star = !star_count - summary_star in
-    Log.logf 0 "Path operations for interprocedural paths:";
-    Log.logf 0 "  Multiplication: %d" interproc_mul;
-    Log.logf 0 "  Addition:       %d" interproc_add;
-    Log.logf 0 "  Star:           %d" interproc_star;
+    Log.logf ~level:0 "Path operations for interprocedural paths:";
+    Log.logf ~level:0 "  Multiplication: %d" interproc_mul;
+    Log.logf ~level:0 "  Addition:       %d" interproc_add;
+    Log.logf ~level:0 "  Star:           %d" interproc_star;
 
     A.single_src_restrict query is_assert check_assert;
-    Log.logf 0 "Total path operations:";
-    Log.logf 0 "  Multiplication: %d" (!mul_count);
-    Log.logf 0 "  Addition:       %d" (!add_count);
-    Log.logf 0 "  Star:           %d" (!star_count);
+    Log.logf ~level:0 "Total path operations:";
+    Log.logf ~level:0 "  Multiplication: %d" (!mul_count);
+    Log.logf ~level:0 "  Addition:       %d" (!add_count);
+    Log.logf ~level:0 "  Star:           %d" (!star_count);
 
   end
   | _ -> assert false
@@ -114,7 +114,7 @@ let analyze_pathexp file =
 
     AI.compute_summaries query;
     BatEnum.iter (fun block ->
-      Log.logf 0 "Path expression for `%a':@\n%a"
+      Log.logf ~level:0 "Path expression for `%a':@\n%a"
 	Varinfo.format block
 	Initial.format (AI.get_summary query block)
     ) (Interproc.RG.blocks rg);
