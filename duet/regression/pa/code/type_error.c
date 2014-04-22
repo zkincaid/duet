@@ -25,6 +25,12 @@ int main() {
 
     tmp2 = q->f4; /* tmp2 can point to memloc1, since tmp1->f2 overlaps q->f4 */
 
+    switch(rand()) {
+    case 0: assert(tmp2 != p); // fail
+    case 1: assert(tmp1 != q); // fail
+    case 2: assert(p->f2 != q); // fail
+    default: assert(q->f4 != p); // fail
+    }
     return 0;
 }
 

@@ -15,6 +15,19 @@ int main () {
     q = *(&y.p + i); /* conservatively assume that this reads from y.p and
 			y.q */
     p = x.q;
+
+    switch(rand()) {
+    case 0: assert(p != &y); // fail
+
+    case 1: assert(q != &a); // fail
+    case 2: assert(q != &b); // fail
+
+    case 3: assert(x.p != &y); // fail
+    case 4: assert(x.q != &y); // fail
+
+    case 5: assert(y.p != &a); // fail
+    default: assert(y.q != &b); // fail
+    }
     return 0;
 }
 

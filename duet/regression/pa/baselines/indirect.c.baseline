@@ -1,8 +1,9 @@
-&e -> {&baz}
-&e.Top -> {&baz}
-&f -> {&foo}
-&f.Top -> {&foo}
-&g -> {&bar, &foo}
-&g.Top -> {&bar, &foo}
-&h -> {&bar, &baz}
-&h.Top -> {&bar, &baz}
+./regression/pa/code/indirect.c:7 >> Assertion failed: (unsigned long )g != (unsigned long )(& foo)
+./regression/pa/code/indirect.c:8 >> Assertion failed: (unsigned long )g != (unsigned long )(& bar)
+./regression/pa/code/indirect.c:17 >> Assertion failed: (unsigned long )h != (unsigned long )(& bar)
+./regression/pa/code/indirect.c:18 >> Assertion failed: (unsigned long )h != (unsigned long )(& baz)
+./regression/pa/code/indirect.c:27 >> Assertion failed: (unsigned long )e != (unsigned long )(& baz)
+./regression/pa/code/indirect.c:39 >> Assertion failed: (unsigned long )f != (unsigned long )(& foo)
+
+6 errors total
+6 safe assertions
