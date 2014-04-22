@@ -389,7 +389,6 @@ end = struct
     end)
     let compare = Compare_t.compare
     let equal (xv, xk) (yv, yk) = Var.Set.equal xv yv && TR.equal xk yk
-    let star (v, k) = (v, TR.star k)
     let one = (Var.Set.empty, TR.one)
     let zero = (Var.Set.empty, TR.zero)
     let is_zero (_, k) = TR.equal TR.zero k
@@ -448,6 +447,15 @@ end = struct
       else if equal x one then y
       else if equal y one then x
       else mul_impl x y
+
+    (* Can't use TR.star, because TR.one is not actually the multiplicative
+       unit. *)
+    let star x =
+      let rec fix s =
+	let next = mul s s in
+	if equal s next then s else fix next
+      in
+      fix (add one x)
 
     let make vars eqs pred =
       (vars, TR.S.singleton (Minterm.make eqs pred))

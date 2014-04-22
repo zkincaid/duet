@@ -25,6 +25,7 @@ hdfg forward_must_alias_err.c -domain oct -hdfg
 hdfg interproc_must_alias.c -domain oct -hdfg
 hdfg interproc_uninit.c -domain oct -hdfg
 hdfg join.c -domain oct -hdfg
+hdfg loop.c -hdfg
 hdfg must_alias.c -domain oct -hdfg
 hdfg must_alias_addr.c -domain oct -hdfg
 hdfg must_alias_err.c -domain oct -hdfg

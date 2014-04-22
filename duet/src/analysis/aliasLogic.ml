@@ -63,11 +63,7 @@ struct
       | [x] -> x
       | _   -> failwith "Interproc.solve: No support for multiple entry points"
     in
-    let local f =
-      let cf = lookup_function f file in
-      fun x -> is_local cf (fst x) || is_formal cf (fst x)
-    in
-    let left_query = Left.mk_query rg A.left_weight local main in
+    let left_query = Left.mk_query rg A.left_weight Interproc.local main in
     let go (_, v, path_to_v) = smash path_to_v (A.right_weight v) in
     BatEnum.iter go (Left.enum_single_src left_query)
 end
