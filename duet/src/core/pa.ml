@@ -21,6 +21,8 @@ type membase =
 type memloc = membase * offset
     deriving (Compare)
 
+let undefined = Varinfo.mk_global "undefined" (Concrete Void)
+
 module MemBase = struct
   module Elt = struct
     type t = membase deriving (Compare)
@@ -369,14 +371,16 @@ let simplify_calls file =
        between all its possible (direct) targets.  TODO: This transformation
        is an overapproximation, but it can be made exact. *)
     let resolve_call def func cfg =
+      let tmp = def.dkind in
       let targets = pa#resolve_call func in
       let loc = Def.get_location def in
       let skip = Def.mk (Assume (Bexpr.ktrue)) in
       let add_call target =
-	let call =
-	  Def.mk ~loc:loc (Call (None,
-				 Expr.addr_of (Variable (Var.mk target)),
-				 []))
+        let call =
+          let etc = (None, Expr.addr_of (Variable (Var.mk target)), []) in
+            match tmp with
+              | Call _           -> Def.mk ~loc:loc (Call etc)
+              | Builtin (Fork _) -> Def.mk ~loc:loc (Builtin (Fork etc))
 	in
 	Cfg.add_vertex cfg call;
 	Cfg.add_edge cfg def call;
@@ -385,10 +389,16 @@ let simplify_calls file =
       def.dkind <- Assume (Bexpr.ktrue);
       insert_succ skip def cfg;
       Cfg.remove_edge cfg def skip;
-      assert (Varinfo.Set.cardinal targets >= 1); (* todo *)
+      if (Varinfo.Set.cardinal targets < 1) 
+      then begin Log.errorf "WARNING: No targets for call to `%a'"
+                   Expr.format func;
+                 add_call undefined
+      end;
+     (* assert (Varinfo.Set.cardinal targets >= 1); (* todo *)*)
       Varinfo.Set.iter add_call targets
     in
     let simplify_def def = match def.dkind with
+      | Builtin (Fork (Some lhs, func, args))
       | Call (Some lhs, func, args) ->
 	let loc = Def.get_location def in
 	let assign =
@@ -401,6 +411,7 @@ let simplify_calls file =
 	assign_args def 0 args;
 	insert_succ assign def cfg;
 	resolve_call def func cfg
+      | Builtin (Fork (None, func, args))
       | Call (None, func, args) ->
 	assign_args def 0 args;
 	resolve_call def func cfg
