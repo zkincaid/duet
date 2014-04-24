@@ -1062,7 +1062,7 @@ module Make (Var : Var) = struct
     { ctx with loop = loop }
 
   let star tr =
-    Log.logf Log.fix "Loop body:@\n%a" format tr;
+    logf "Loop body:@\n%a" format tr;
     let mk_nondet v _ =
       T.var (V.mk_tmp ("nondet_" ^ (Var.show v)) (Var.typ v))
     in
@@ -1120,7 +1120,7 @@ module Make (Var : Var) = struct
       if !opt_unroll_loop then add one (mul loop tr)
       else loop
     in
-    Log.logf Log.fix "Loop summary: %a" format loop;
+    logf "Loop summary: %a" format loop;
     loop
 
   let star tr =

@@ -1,16 +1,8 @@
-&curr -> {&g, alloc#2, alloc#4}
-&curr.Top -> {&g, alloc#2, alloc#4}
-&g.4 -> {alloc#2}
-&g.Top -> {alloc#2}
-&p -> {alloc#2}
-&p.Top -> {alloc#2}
-&q -> {alloc#4}
-&q.Top -> {alloc#4}
-&tmp -> {alloc#2}
-&tmp.Top -> {alloc#2}
-&tmp___0 -> {alloc#4}
-&tmp___0.Top -> {alloc#4}
-alloc#2.4 -> {alloc#4}
-alloc#2.Top -> {alloc#4}
-alloc#4.4 -> {&g}
-alloc#4.Top -> {&g}
+./regression/pa/code/list.c:39 >> Assertion failed: (unsigned long )p->next != (unsigned long )q
+./regression/pa/code/list.c:33 >> Assertion failed: (unsigned long )q->next != (unsigned long )(& g)
+./regression/pa/code/list.c:26 >> Assertion failed: (unsigned long )curr != (unsigned long )q
+./regression/pa/code/list.c:25 >> Assertion failed: (unsigned long )curr != (unsigned long )p
+./regression/pa/code/list.c:41 >> Assertion failed: (unsigned long )curr != (unsigned long )(& g)
+
+5 errors total
+5 safe assertions

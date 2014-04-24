@@ -296,13 +296,13 @@ struct
         | Assert (expr, _) ->
             let env = S.input map v in
               if I.assert_true expr env
-              then Log.log Log.top (string_of_int v.did ^ " PASS")
-              else Log.log Log.top (string_of_int v.did ^ " FAIL")
+              then Log.log ~level:Log.top (string_of_int v.did ^ " PASS")
+              else Log.log ~level:Log.top (string_of_int v.did ^ " FAIL")
 	| AssertMemSafe (expr, _) ->
             let env = S.input map v in
               if I.assert_memsafe expr env
-              then Log.log Log.top (string_of_int v.did ^ " PASS")
-              else Log.log Log.top (string_of_int v.did ^ " FAIL")
+              then Log.log ~level:Log.top (string_of_int v.did ^ " PASS")
+              else Log.log ~level:Log.top (string_of_int v.did ^ " FAIL")
         | _ -> ()
     in
       G.iter_vertex check_assertion graph

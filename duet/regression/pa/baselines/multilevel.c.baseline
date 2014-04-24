@@ -1,14 +1,16 @@
-&a -> {&p}
-&a.Top -> {&p}
-&b -> {&q}
-&b.Top -> {&q}
-&c -> {&q, &r}
-&c.Top -> {&q, &r}
-&p -> {&x, &z}
-&p.Top -> {&x, &z}
-&q -> {&x, &y, &z, alloc#11}
-&q.Top -> {&x, &y, &z, alloc#11}
-&r -> {&x, &z, alloc#11}
-&r.Top -> {&x, &z, alloc#11}
-&tmp -> {alloc#11}
-&tmp.Top -> {alloc#11}
+./regression/pa/code/multilevel.c:24 >> Assertion failed: (unsigned long )q != (unsigned long )(& x)
+./regression/pa/code/multilevel.c:28 >> Assertion failed: (unsigned long )r != (unsigned long )m
+./regression/pa/code/multilevel.c:25 >> Assertion failed: (unsigned long )q != (unsigned long )(& y)
+./regression/pa/code/multilevel.c:34 >> Assertion failed: (unsigned long )b != (unsigned long )(& q)
+./regression/pa/code/multilevel.c:30 >> Assertion failed: (unsigned long )r != (unsigned long )(& z)
+./regression/pa/code/multilevel.c:23 >> Assertion failed: (unsigned long )q != (unsigned long )m
+./regression/pa/code/multilevel.c:21 >> Assertion failed: (unsigned long )p != (unsigned long )(& z)
+./regression/pa/code/multilevel.c:32 >> Assertion failed: (unsigned long )a != (unsigned long )(& p)
+./regression/pa/code/multilevel.c:36 >> Assertion failed: (unsigned long )c != (unsigned long )(& q)
+./regression/pa/code/multilevel.c:26 >> Assertion failed: (unsigned long )q != (unsigned long )(& z)
+./regression/pa/code/multilevel.c:29 >> Assertion failed: (unsigned long )r != (unsigned long )(& x)
+./regression/pa/code/multilevel.c:37 >> Assertion failed: (unsigned long )c != (unsigned long )(& r)
+./regression/pa/code/multilevel.c:20 >> Assertion failed: (unsigned long )p != (unsigned long )(& x)
+
+13 errors total
+0 safe assertions

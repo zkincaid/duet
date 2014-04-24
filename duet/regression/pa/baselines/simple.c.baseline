@@ -1,10 +1,12 @@
-&p -> {&x, alloc#5}
-&p.Top -> {&x, alloc#5}
-&q -> {&x, &y, alloc#5}
-&q.Top -> {&x, &y, alloc#5}
-&r -> {&x, &y, alloc#5, alloc#8}
-&r.Top -> {&x, &y, alloc#5, alloc#8}
-&tmp -> {alloc#5}
-&tmp.Top -> {alloc#5}
-&tmp___0 -> {alloc#8}
-&tmp___0.Top -> {alloc#8}
+./regression/pa/code/simple.c:18 >> Assertion failed: (unsigned long )q != (unsigned long )(& x)
+./regression/pa/code/simple.c:15 >> Assertion failed: (unsigned long )p != (unsigned long )(& x)
+./regression/pa/code/simple.c:17 >> Assertion failed: (unsigned long )q != (unsigned long )a1
+./regression/pa/code/simple.c:24 >> Assertion failed: (unsigned long )r != (unsigned long )(& y)
+./regression/pa/code/simple.c:19 >> Assertion failed: (unsigned long )q != (unsigned long )(& y)
+./regression/pa/code/simple.c:14 >> Assertion failed: (unsigned long )p != (unsigned long )a1
+./regression/pa/code/simple.c:21 >> Assertion failed: (unsigned long )r != (unsigned long )a1
+./regression/pa/code/simple.c:23 >> Assertion failed: (unsigned long )r != (unsigned long )(& x)
+./regression/pa/code/simple.c:22 >> Assertion failed: (unsigned long )r != (unsigned long )a2
+
+9 errors total
+0 safe assertions

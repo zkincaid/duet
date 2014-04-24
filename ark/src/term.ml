@@ -263,13 +263,13 @@ module Make (V : Var) = struct
 
   let log_stats () =
     let (length, count, total, min, median, max) = HC.stats term_tbl in
-    Log.log 0 "----------------------------\n Term stats";
-    Log.logf 0 "Length:\t\t%d" length;
-    Log.logf 0 "Count:\t\t%d" count;
-    Log.logf 0 "Total size:\t%d" total;
-    Log.logf 0 "Min bucket:\t%d" min;
-    Log.logf 0 "Median bucket:\t%d" median;
-    Log.logf 0 "Max bucket:\t%d" max
+    Log.log ~level:0 "----------------------------\n Term stats";
+    Log.logf ~level:0 "Length:\t\t%d" length;
+    Log.logf ~level:0 "Count:\t\t%d" count;
+    Log.logf ~level:0 "Total size:\t%d" total;
+    Log.logf ~level:0 "Min bucket:\t%d" min;
+    Log.logf ~level:0 "Median bucket:\t%d" median;
+    Log.logf ~level:0 "Max bucket:\t%d" max
 
   let to_smt =
     let alg = function

@@ -566,7 +566,7 @@ let tr_func f =
   let add_goto (v, target) =
     try CfgIr.Cfg.add_edge cfg v (Hashtbl.find ctx.ctx_labelled target)
     with Not_found -> begin
-      Log.logf Log.top "Missing label (CIL frontend)";
+      Log.errorf "Missing label (CIL frontend)";
       assert false
     end
   in
@@ -668,7 +668,7 @@ let parse filename =
     let library_path =
       if !CmdLine.library_path = "" then ""
       else begin
-	Log.logf Log.info "Using library: %s" !CmdLine.library_path;
+	Log.logf "Using library: %s" !CmdLine.library_path;
 	" -I" ^ !CmdLine.library_path
       end
     in

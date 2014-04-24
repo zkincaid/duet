@@ -247,21 +247,22 @@ let emit_structure ctx file =
       let (var, of1) = get_lhs (Variable lhs) in
       ctx.alloc (var, of1, MAlloc def, OffsetFixed 0)
 
-    (* Direct call *)
-    | Call (lhs, AddrOf (Variable (v, OffsetFixed 0)), args) ->
-	emit_call ctx (lhs, v, args)
-
-    (* Indirect call *)
     | Call (lhs, expr, args) ->
+      begin match Expr.strip_casts expr with
+      | AddrOf (Variable (v, OffsetFixed 0)) -> (* Direct call *)
+	emit_call ctx (lhs, v, args)
+      | _ -> (* Indirect call *)
 	ctx.indirect_calls <- (lhs, expr, args)::ctx.indirect_calls
+      end
 
-    | Builtin (Fork (_, AddrOf (Variable (v, OffsetFixed 0)), args)) -> begin
-      let func = lookup_function v file in
-      let f formal actual =
-	assign_expr (Variable (Var.mk formal)) actual
-      in
-      List.iter2 f func.formals args
-    end
+    | Builtin (Fork (_, expr, args)) ->
+      begin match Expr.strip_casts expr with
+      | AddrOf (Variable (v, OffsetFixed 0)) -> (* Direct fork *)
+	emit_call ctx (None, v, args)
+      | _ -> (* Indirect fork *)
+	ctx.indirect_calls <- (None, expr, args)::ctx.indirect_calls
+      end
+
     | Return (Some x) -> assign_expr (Variable (Var.mk (return_var func))) x
     | _ -> ()
   in
@@ -417,8 +418,27 @@ let _ =
 
 let _ =
   let go file =
-    (* We do a bunch of sorting here to ensure that regression tests don't
-       change when (e.g.) variable ids do *)
+    let check def = match def.dkind with
+      | Assert (Or (Atom (Lt, p, q),
+		    Atom (Lt, q0, p0)), msg)
+	  when Expr.equal p p0 && Expr.equal q q0 ->
+	let memloc_is_alias x y =
+	  if (snd x) = OffsetUnknown || (snd y) = OffsetUnknown
+	  then MemBase.equal (fst x) (fst y)
+	  else MemLoc.equal x y
+	in
+	let p_pt = Pa.expr_points_to p in
+	let may_eq =
+	  MemLoc.Set.exists
+	    (fun x -> MemLoc.Set.exists (memloc_is_alias x) p_pt)
+	    (Pa.expr_points_to q)
+	in
+	if may_eq then
+	  Report.log_error (Def.get_location def) ("Assertion failed: " ^ msg)
+	else
+	  Report.log_safe ()
+      | _ -> ()
+    in
     let points_to = initialize file in
     let format_memloc_set set =
       String.concat ", "
@@ -434,7 +454,15 @@ let _ =
       pt := (format_pointsto memloc set)::(!pt)
     in
     points_to#iter print;
-    List.iter print_endline (BatList.sort Pervasives.compare (!pt))
-  in
-  CmdLine.register_pass ("-pa", go, " Pointer analysis")
+    Log.log "Pointer analysis results:";
+    List.iter Log.log (BatList.sort Pervasives.compare (!pt));
 
+    CfgIr.iter_defs check file;
+    Report.print_errors ();
+    Report.print_safe ()
+  in
+
+  CmdLine.register_pass
+    ("-pa",
+     go,
+     " Check pointer disequality assertions with pointer analysis")

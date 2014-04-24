@@ -131,9 +131,9 @@ let extract_predicates file =
     in
       List.fold_left process_thread [] file.threads
   in
-    Log.log Log.info "Extracted predicates:";
+    Log.log "Extracted predicates:";
     List.iter
-      (fun p -> Log.log_pp Log.fix Bexpr.format p)
+      (fun p -> Log.log_pp Bexpr.format p)
       preds;
     preds
 
