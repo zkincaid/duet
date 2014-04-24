@@ -6,6 +6,7 @@ int global;
 
 int *global_ptr;
 int *m;
+int *p, *q, *r;
 
 void foo (int **a, int *b) {
     if(rand()) {
@@ -16,6 +17,9 @@ void foo (int **a, int *b) {
     *a = b;
 }
 void* bar (void *c) {
+    if(rand()) {
+	assert (c != &p); // fail
+    }
     *((int**) c) = &global;
     global_ptr = &global;
     return (void*) &global;
@@ -27,9 +31,8 @@ int *baz () {
 
 void main () {
     int x, y;
-    int *p, *q, *r;
     pthread_t thread;
-    p = &x;
+    p  = &x;
     q = &y;
     foo(&q, p);
     pthread_create(&thread, NULL, bar, (void*) &p);

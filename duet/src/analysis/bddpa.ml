@@ -247,21 +247,22 @@ let emit_structure ctx file =
       let (var, of1) = get_lhs (Variable lhs) in
       ctx.alloc (var, of1, MAlloc def, OffsetFixed 0)
 
-    (* Direct call *)
-    | Call (lhs, AddrOf (Variable (v, OffsetFixed 0)), args) ->
-	emit_call ctx (lhs, v, args)
-
-    (* Indirect call *)
     | Call (lhs, expr, args) ->
+      begin match Expr.strip_casts expr with
+      | AddrOf (Variable (v, OffsetFixed 0)) -> (* Direct call *)
+	emit_call ctx (lhs, v, args)
+      | _ -> (* Indirect call *)
 	ctx.indirect_calls <- (lhs, expr, args)::ctx.indirect_calls
+      end
 
-    | Builtin (Fork (_, AddrOf (Variable (v, OffsetFixed 0)), args)) -> begin
-      let func = lookup_function v file in
-      let f formal actual =
-	assign_expr (Variable (Var.mk formal)) actual
-      in
-      List.iter2 f func.formals args
-    end
+    | Builtin (Fork (_, expr, args)) ->
+      begin match Expr.strip_casts expr with
+      | AddrOf (Variable (v, OffsetFixed 0)) -> (* Direct fork *)
+	emit_call ctx (None, v, args)
+      | _ -> (* Indirect fork *)
+	ctx.indirect_calls <- (None, expr, args)::ctx.indirect_calls
+      end
+
     | Return (Some x) -> assign_expr (Variable (Var.mk (return_var func))) x
     | _ -> ()
   in
@@ -438,11 +439,29 @@ let _ =
 	  Report.log_safe ()
       | _ -> ()
     in
-    ignore (initialize file);
+    let points_to = initialize file in
+    let format_memloc_set set =
+      String.concat ", "
+	(BatList.sort
+	   Pervasives.compare
+	   (BatList.map MemLoc.show (MemLoc.Set.elements set)))
+    in
+    let format_pointsto memloc set =
+      (MemLoc.show memloc) ^ " -> {" ^ (format_memloc_set set) ^ "}"
+    in
+    let pt = ref [] in
+    let print memloc set =
+      pt := (format_pointsto memloc set)::(!pt)
+    in
+    points_to#iter print;
+    Log.log "Pointer analysis results:";
+    List.iter Log.log (BatList.sort Pervasives.compare (!pt));
+
     CfgIr.iter_defs check file;
     Report.print_errors ();
     Report.print_safe ()
   in
+
   CmdLine.register_pass
     ("-pa",
      go,
