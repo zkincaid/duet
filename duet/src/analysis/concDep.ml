@@ -277,7 +277,7 @@ module Make(MakeEQ :
     in
     let f acc def = BatEnum.fold (fun acc -> g acc def) acc (EUMap.enum eu) in
     let tmp = BatEnum.fold f FlowMap.unit (RDMap.enum rd) in
-    Log.logf Log.info
+    Log.logf
       "dflow: **DEF** %a **USE** %a -> %a"
       RDMap.format rd
       EUMap.format eu
