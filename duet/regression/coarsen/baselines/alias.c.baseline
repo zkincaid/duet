@@ -1,4 +1,4 @@
-./coarsen/code/alias.c:13 >> Assertion failed: x == 0
+./regression/coarsen/code/alias.c:13 >> Assertion failed: x == 0
 {x, REACHABLE}. x >= 0 && -x+1 >= 0
 
 1 errors total

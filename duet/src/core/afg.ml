@@ -240,7 +240,7 @@ end = struct
 	| Initial -> () (* Initial vertex is always well-formed *)
 	| _ ->
 	    if not (AP.Set.subset (Def.get_uses v) (domain afg v)) then begin
-	      Log.logf Log.top
+	      Log.errorf
 		"Missing inputs for `%a':@\nexpected %a@\ngot %a"
 		Def.format v
 		AP.Set.format (Def.get_uses v)
@@ -251,7 +251,7 @@ end = struct
 		      (codomain afg v)
 		      ((AP.Set.union (domain afg v)) (Def.get_defs v)))
 	    then begin
-	      Log.logf Log.top
+	      Log.errorf
 		"Extra outputs for `%a':@\nexpected %a@\ngot %a"
 		Def.format v
 		AP.Set.format (AP.Set.union (domain afg v) (Def.get_defs v))

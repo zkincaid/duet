@@ -417,24 +417,33 @@ let _ =
 
 let _ =
   let go file =
-    (* We do a bunch of sorting here to ensure that regression tests don't
-       change when (e.g.) variable ids do *)
-    let points_to = initialize file in
-    let format_memloc_set set =
-      String.concat ", "
-	(BatList.sort
-	   Pervasives.compare
-	   (BatList.map MemLoc.show (MemLoc.Set.elements set)))
+    let check def = match def.dkind with
+      | Assert (Or (Atom (Lt, p, q),
+		    Atom (Lt, q0, p0)), msg)
+	  when Expr.equal p p0 && Expr.equal q q0 ->
+	let memloc_is_alias x y =
+	  if (snd x) = OffsetUnknown || (snd y) = OffsetUnknown
+	  then MemBase.equal (fst x) (fst y)
+	  else MemLoc.equal x y
+	in
+	let p_pt = Pa.expr_points_to p in
+	let may_eq =
+	  MemLoc.Set.exists
+	    (fun x -> MemLoc.Set.exists (memloc_is_alias x) p_pt)
+	    (Pa.expr_points_to q)
+	in
+	if may_eq then
+	  Report.log_error (Def.get_location def) ("Assertion failed: " ^ msg)
+	else
+	  Report.log_safe ()
+      | _ -> ()
     in
-    let format_pointsto memloc set =
-      (MemLoc.show memloc) ^ " -> {" ^ (format_memloc_set set) ^ "}"
-    in
-    let pt = ref [] in
-    let print memloc set =
-      pt := (format_pointsto memloc set)::(!pt)
-    in
-    points_to#iter print;
-    List.iter print_endline (BatList.sort Pervasives.compare (!pt))
+    ignore (initialize file);
+    CfgIr.iter_defs check file;
+    Report.print_errors ();
+    Report.print_safe ()
   in
-  CmdLine.register_pass ("-pa", go, " Pointer analysis")
-
+  CmdLine.register_pass
+    ("-pa",
+     go,
+     " Check pointer disequality assertions with pointer analysis")

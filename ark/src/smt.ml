@@ -3,20 +3,24 @@ open Z3
 open ArkPervasives
 
 let context = ref None
-let opts = ref [ ("SOFT_TIMEOUT", "5000");
-	         ("MODEL_COMPLETION", "true") ]
+let opts = ref [ ("timeout", "5000");
+	         ("model", "true") ]
 
 type lbool = Sat | Unsat | Undef
     deriving (Show)
 
-type ast = Z3.ast
-type symbol = Z3.symbol
-type symbol_refined = Z3.symbol_refined
+type ast = Expr.expr
+type symbol = Symbol.symbol
+type symbol_refined = Symbol_string of string | Symbol_int of int
+
+let symbol_refine sym =
+  if Symbol.is_int_symbol sym then Symbol_int (Symbol.get_int sym)
+  else Symbol_string (Symbol.get_string sym)
 
 let cvt_lbool = function
-  | L_TRUE -> Sat
-  | L_FALSE -> Unsat
-  | L_UNDEF -> Undef
+  | Solver.SATISFIABLE -> Sat
+  | Solver.UNSATISFIABLE -> Unsat
+  | Solver.UNKNOWN -> Undef
 
 let get_context () =
   match !context with
@@ -26,126 +30,161 @@ let get_context () =
     context := Some ctx;
     ctx
   end
-let mk_int_sort () = mk_sort (get_context ()) Sort_int
-let mk_bool_sort () = mk_sort (get_context ()) Sort_bool
-let mk_real_sort () = mk_sort (get_context ()) Sort_real
-let mk_solver () = mk_solver (get_context ())
 
-let ast_to_string ast = ast_to_string (get_context()) ast
+let mk_int_sort () = Arithmetic.Integer.mk_sort (get_context ())
+let mk_bool_sort () = Boolean.mk_sort (get_context ())
+let mk_real_sort () = Arithmetic.Real.mk_sort (get_context ())
+let mk_solver () = Solver.mk_solver (get_context ()) None
+let mk_fixedpoint () = Fixedpoint.mk_fixedpoint (get_context ())
 
-let mk_const = mk_const (get_context ())
+let ast_to_string ast = Expr.to_string ast
+
+let mk_const = Expr.mk_const (get_context ())
 let mk_int_const x = mk_const x (mk_int_sort ())
 let mk_real_const x = mk_const x (mk_real_sort ())
 let mk_bool_const x = mk_const x (mk_real_sort ())
-let mk_string_symbol = mk_string_symbol (get_context ())
+let mk_string_symbol = Symbol.mk_string (get_context ())
+let mk_int_symbol = Symbol.mk_int (get_context ())
 let int_var name = mk_const (mk_string_symbol name) (mk_int_sort ())
 let bool_var name = mk_const (mk_string_symbol name) (mk_bool_sort ())
 let real_var name = mk_const (mk_string_symbol name) (mk_real_sort ())
 
 (* Propositional logic *)
-let mk_true () = mk_true (get_context())
-let mk_false () = mk_false (get_context())
-let mk_distinct xs = mk_distinct (get_context()) xs
-let mk_distinct_list xs = Z3.mk_distinct (get_context()) (Array.of_list xs)
-let mk_not = mk_not (get_context())
-let mk_ite = mk_ite (get_context())
-let mk_iff = mk_iff (get_context())
-let mk_implies = mk_implies (get_context())
-let mk_xor = mk_xor (get_context())
-let mk_and = mk_and (get_context ())
-let mk_or = mk_or (get_context ())
+let mk_true () = Boolean.mk_true (get_context())
+let mk_false () = Boolean.mk_false (get_context())
+let mk_distinct xs = Boolean.mk_distinct (get_context()) xs
+let mk_not = Boolean.mk_not (get_context())
+let mk_ite = Boolean.mk_ite (get_context())
+let mk_iff = Boolean.mk_iff (get_context())
+let mk_implies = Boolean.mk_implies (get_context())
+let mk_xor = Boolean.mk_xor (get_context())
+let mk_and = Boolean.mk_and (get_context ())
+let mk_or = Boolean.mk_or (get_context ())
 
 (* Arithmetic *)
-let mk_add = mk_add (get_context ())
-let mk_mul = mk_mul (get_context ())
-let mk_sub = mk_sub (get_context ())
-let mk_unary_minus = mk_unary_minus (get_context ())
-let mk_div = mk_div (get_context ())
-let mk_mod = mk_mod (get_context ())
-let mk_rem = mk_rem (get_context ())
-let mk_power = mk_power (get_context ())
+let mk_add = Arithmetic.mk_add (get_context ())
+let mk_mul = Arithmetic.mk_mul (get_context ())
+let mk_sub = Arithmetic.mk_sub (get_context ())
+let mk_unary_minus = Arithmetic.mk_unary_minus (get_context ())
+let mk_div = Arithmetic.mk_div (get_context ())
+let mk_mod = Arithmetic.Integer.mk_mod (get_context ())
+let mk_rem = Arithmetic.Integer.mk_rem (get_context ())
+let mk_power = Arithmetic.mk_power (get_context ())
 
-let mk_lt = mk_lt (get_context())
-let mk_le = mk_le (get_context())
-let mk_gt = mk_gt (get_context())
-let mk_ge = mk_ge (get_context())
-let mk_eq = mk_eq (get_context())
-let mk_int2real = mk_int2real (get_context())
-let mk_real2int = mk_real2int (get_context())
-let mk_is_int = mk_is_int (get_context())
+let mk_lt = Arithmetic.mk_lt (get_context())
+let mk_le = Arithmetic.mk_le (get_context())
+let mk_gt = Arithmetic.mk_gt (get_context())
+let mk_ge = Arithmetic.mk_ge (get_context())
+let mk_eq = Boolean.mk_eq (get_context())
+let mk_int2real = Arithmetic.Integer.mk_int2real (get_context())
+let mk_real2int = Arithmetic.Real.mk_real2int (get_context())
+let mk_is_int = Arithmetic.Real.mk_is_integer (get_context())
+
+let mk_func_decl sym args ret =
+  FuncDecl.mk_func_decl (get_context()) sym args ret
+let mk_app f args = Expr.mk_app (get_context()) f args
+let mk_exists_const vars phi =
+  Quantifier.expr_of_quantifier
+    (Quantifier.mk_exists_const (get_context()) vars phi None [] [] None None)
+let mk_forall_const vars phi =
+  Quantifier.expr_of_quantifier
+    (Quantifier.mk_forall_const (get_context()) vars phi None [] [] None None)
 
 (* Derived operations not defined in the Z3 API *)
-let big_conj xs = Z3.mk_and (get_context()) (BatArray.of_enum xs)
-let big_disj xs = Z3.mk_or (get_context ()) (BatArray.of_enum xs)
-let conj x y = Z3.mk_and (get_context()) [| x ; y |]
-let disj x y = Z3.mk_or (get_context()) [| x ; y |]
+let big_conj xs = Boolean.mk_and (get_context()) (BatList.of_enum xs)
+let big_disj xs = Boolean.mk_or (get_context ()) (BatList.of_enum xs)
+let conj x y = Boolean.mk_and (get_context()) [x ; y]
+let disj x y = Boolean.mk_or (get_context()) [x ; y]
 
 let sum xs =
   match BatEnum.peek xs with
-  | None -> mk_int (get_context()) 0 (mk_int_sort())
-  | Some _ -> Z3.mk_add (get_context()) (BatArray.of_enum xs)
-let add x y = Z3.mk_add (get_context()) [| x ; y |]
-let product xs = Z3.mk_mul (get_context()) (BatArray.of_enum xs)
-let mul x y = Z3.mk_mul (get_context()) [| x ; y |]
-let sub x y = Z3.mk_sub (get_context()) [| x ; y |]
+  | None -> Arithmetic.Integer.mk_numeral_i (get_context()) 0
+  | Some _ -> Arithmetic.mk_add (get_context()) (BatList.of_enum xs)
+let add x y = Arithmetic.mk_add (get_context()) [x ; y]
+let product xs = Arithmetic.mk_mul (get_context()) (BatList.of_enum xs)
+let mul x y = Arithmetic.mk_mul (get_context()) [x ; y]
+let sub x y = Arithmetic.mk_sub (get_context()) [x ; y]
 
-let const_int k = mk_int (get_context()) k (mk_int_sort())
+let const_int k = Arithmetic.Integer.mk_numeral_i (get_context()) k
 let const_qq q =
-  Z3.mk_numeral (get_context()) (QQ.show q) (mk_real_sort())
+  Arithmetic.Real.mk_numeral_s (get_context()) (QQ.show q)
 let const_zz k =
-  Z3.mk_numeral (get_context()) (ZZ.show k) (mk_int_sort())
-
-let symbol_refine = Z3.symbol_refine (get_context())
+  Arithmetic.Integer.mk_numeral_s (get_context()) (ZZ.show k)
 
 class model m =
 object(self)
   val ctx = get_context ()
   val m = m
   method eval_int term =
-    match model_eval ctx m term true with
-    | Some x -> begin match get_numeral_int ctx x with
-      | (true, res) -> res
-      | (false, _) -> assert false (* this can actually happen *)
-    end
+    match Model.eval m term true with
+    | Some x -> Arithmetic.Integer.get_int x (* todo: overflow *)
     | None -> assert false
   method eval_zz term =
-    match model_eval ctx m term true with
-    | Some x -> ZZ.of_string (get_numeral_string ctx x)
+    match Model.eval m term true with
+    | Some x -> ZZ.of_string (Arithmetic.Integer.to_string x)
     | None -> assert false
   method eval_qq term =
-    match model_eval ctx m term true with
-    | Some x -> QQ.of_string (get_numeral_string ctx x)
+    match Model.eval m term true with
+    | Some x -> QQ.of_string (Arithmetic.Real.to_string x)
     | None -> assert false
+
+(* l_bool is missing from the new Z3 interface... *)
+
   method sat phi =
-    match model_eval ctx m phi true with
-    | Some x -> begin match get_bool_value ctx x with
-      | L_TRUE -> true
-      | L_FALSE -> false
-      | L_UNDEF -> assert false
+    match Model.eval m phi true with
+    | Some x -> begin match Expr.get_bool_value x with
+      | Z3enums.L_TRUE -> true
+      | Z3enums.L_FALSE -> false
+      | Z3enums.L_UNDEF -> assert false
     end
     | None -> assert false
-  method to_string () = model_to_string ctx m
+
+  method to_string () = Model.to_string m
 end
 
 class solver =
 object(self)
   val s = mk_solver ()
   val ctx = get_context ()
-  method assrt phi = solver_assert ctx s phi
-  method check () = cvt_lbool (solver_check ctx s)
+  method assrt phi = Solver.add s [phi]
+  method check () = cvt_lbool (Solver.check s [])
   method check_assumptions assumptions =
-    cvt_lbool (solver_check_assumptions ctx s assumptions)
-  method get_model () = new model (solver_get_model ctx s)
-  method push () = solver_push ctx s
-  method pop () = solver_pop ctx s 1
-  method reset () = solver_reset ctx s
-  method get_num_scopes () = solver_get_num_scopes ctx s
-  method get_assertions () = solver_get_assertions ctx s
-  method get_proof () = solver_get_proof ctx s
-  method get_unsat_core () = solver_get_unsat_core ctx s
-  method get_reason_unknown () = solver_get_reason_unknown ctx s
-  method get_statistics () = solver_get_statistics ctx s
-  method to_string () = solver_to_string ctx s
+    cvt_lbool (Solver.check s assumptions)
+  method get_model () = match Solver.get_model s with
+  | Some m -> new model m
+  | None -> failwith "solver.get_model: No model"
+  method push () = Solver.push s
+  method pop () = Solver.pop s 1
+  method reset () = Solver.reset s
+  method get_num_scopes () = Solver.get_num_scopes s
+  method get_assertions () = Solver.get_assertions s
+  method get_proof () = Solver.get_proof s
+  method get_unsat_core () = Solver.get_unsat_core s
+  method get_reason_unknown () = Solver.get_reason_unknown s
+  method get_statistics () = Solver.get_statistics s
+  method to_string () = Solver.to_string s
+end
+
+class fixedpoint =
+object(self)
+  val fp = mk_fixedpoint ()
+  val ctx = get_context ()
+  method assrt phi = Fixedpoint.add fp [phi]
+  method add_rule ast symbol = Fixedpoint.add_rule fp ast symbol
+  method query ast = Fixedpoint.query fp ast
+  method query_relations rels = Fixedpoint.query_r fp rels
+  method get_answer () = Fixedpoint.get_answer fp
+  method get_reason_unknown () = Fixedpoint.get_reason_unknown fp
+  method register_relation pred = Fixedpoint.register_relation fp pred
+  method set_predicate_representation fp pred rep =
+    Fixedpoint.set_predicate_representation fp pred rep
+  method to_string () = Fixedpoint.to_string fp
+  method push () = Fixedpoint.push fp
+  method pop () = Fixedpoint.pop fp
+  method get_num_levels pred = Fixedpoint.get_num_levels fp pred
+  method get_cover_delta n pred = Fixedpoint.get_cover_delta fp n pred
+  method set_params params = Fixedpoint.set_params fp params
+  method get_help () = Fixedpoint.get_help fp
 end
 
 module Syntax = struct

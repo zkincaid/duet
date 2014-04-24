@@ -77,7 +77,7 @@ module Dioid (Var : Var) = struct
 	Smt.real_var (name ^ "!" ^ (string_of_int id) ^ "!TyReal")
 
     let of_smt sym = match Smt.symbol_refine sym with
-      | Z3.Symbol_string str -> begin
+      | Smt.Symbol_string str -> begin
 	try
 	  let f name id typ = match typ with
 	    | "TyReal" -> TVar (id,TyReal,name)
@@ -89,7 +89,7 @@ module Dioid (Var : Var) = struct
 	  else PVar (Var.of_smt sym)
 	with Scanf.Scan_failure _ -> PVar (Var.of_smt sym)
       end
-      | Z3.Symbol_int _ -> PVar (Var.of_smt sym)
+      | Smt.Symbol_int _ -> PVar (Var.of_smt sym)
 
     let typ = function
       | TVar (_, typ, _) -> typ
@@ -1062,7 +1062,7 @@ module Make (Var : Var) = struct
     { ctx with loop = loop }
 
   let star tr =
-    Log.logf Log.fix "Loop body:@\n%a" format tr;
+    logf "Loop body:@\n%a" format tr;
     let mk_nondet v _ =
       T.var (V.mk_tmp ("nondet_" ^ (Var.show v)) (Var.typ v))
     in
@@ -1120,7 +1120,7 @@ module Make (Var : Var) = struct
       if !opt_unroll_loop then add one (mul loop tr)
       else loop
     in
-    Log.logf Log.fix "Loop summary: %a" format loop;
+    logf "Loop summary: %a" format loop;
     loop
 
   let star tr =

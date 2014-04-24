@@ -78,7 +78,7 @@ module type S = sig
   val is_linear : t -> bool
   val split_linear : t -> t * ((t * QQ.t) list)
 
-  val of_smt : (int -> V.t) -> Smt.ast -> t
+  val of_smt : (int -> V.t) -> ?var_smt:(Smt.symbol -> t) -> Smt.ast -> t
   val to_apron : D.env -> t -> NumDomain.term
   val of_apron : D.env -> NumDomain.term -> t
   val to_linterm : t -> Linterm.t option

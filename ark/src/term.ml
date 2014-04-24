@@ -53,7 +53,7 @@ module type S = sig
   val is_linear : t -> bool
   val split_linear : t -> t * ((t * QQ.t) list)
 
-  val of_smt : (int -> V.t) -> Smt.ast -> t
+  val of_smt : (int -> V.t) -> ?var_smt:(Smt.symbol -> t) -> Smt.ast -> t
   val to_apron : D.env -> t -> NumDomain.term
   val of_apron : D.env -> NumDomain.term -> t
   val to_linterm : t -> Linterm.t option
@@ -70,6 +70,8 @@ module type S = sig
     val ( ~@ ) : QQ.t -> t
   end
 end
+
+module L = Log
 
 module Make (V : Var) = struct
   open Hashcons
@@ -261,13 +263,13 @@ module Make (V : Var) = struct
 
   let log_stats () =
     let (length, count, total, min, median, max) = HC.stats term_tbl in
-    Log.log 0 "----------------------------\n Term stats";
-    Log.logf 0 "Length:\t\t%d" length;
-    Log.logf 0 "Count:\t\t%d" count;
-    Log.logf 0 "Total size:\t%d" total;
-    Log.logf 0 "Min bucket:\t%d" min;
-    Log.logf 0 "Median bucket:\t%d" median;
-    Log.logf 0 "Max bucket:\t%d" max
+    Log.log ~level:0 "----------------------------\n Term stats";
+    Log.logf ~level:0 "Length:\t\t%d" length;
+    Log.logf ~level:0 "Count:\t\t%d" count;
+    Log.logf ~level:0 "Total size:\t%d" total;
+    Log.logf ~level:0 "Min bucket:\t%d" min;
+    Log.logf ~level:0 "Median bucket:\t%d" median;
+    Log.logf ~level:0 "Max bucket:\t%d" max
 
   let to_smt =
     let alg = function
@@ -388,20 +390,16 @@ module Make (V : Var) = struct
     in
     div (BatEnum.fold add zero (ts /@ to_term)) (const (QQ.of_zz denominator))
 
-  let of_smt env ast =
+  let of_smt env ?(var_smt=(var % V.of_smt)) ast =
     let open Z3 in
-    let ctx = Smt.get_context () in
+    let open Z3enums in
     let rec of_smt ast =
-      match get_ast_kind ctx ast with
+      match AST.get_ast_kind (Expr.ast_of_expr ast) with
       | APP_AST -> begin
-	let app = to_app ctx ast in
-	let decl = get_app_decl ctx app in
-	let args =
-	  let f i = of_smt (get_app_arg ctx app i) in
-	  BatList.of_enum (BatEnum.map f (0 -- (get_app_num_args ctx app - 1)))
-	in
-	match get_decl_kind ctx decl, args with
-	| (OP_UNINTERPRETED, []) -> var (V.of_smt (get_decl_name ctx decl))
+	let decl = Expr.get_func_decl ast in
+	let args = List.map of_smt (Expr.get_args ast) in
+	match FuncDecl.get_decl_kind decl, args with
+	| (OP_UNINTERPRETED, []) -> var_smt (FuncDecl.get_name decl)
 	| (OP_ADD, args) -> List.fold_left add zero args
 	| (OP_SUB, [x;y]) -> sub x y
 	| (OP_UMINUS, [x]) -> neg x
@@ -410,14 +408,14 @@ module Make (V : Var) = struct
 	| (OP_TO_REAL, [x]) -> x
 	| (OP_TO_INT, [x]) -> floor x
 	| (_, _) -> begin
-	  Log.errorf "Couldn't translate: %s"
-	    (Z3.ast_to_string ctx ast);
+	  L.errorf "Couldn't translate: %s" (Expr.to_string ast);
 	  assert false
 	end
       end
       | NUMERAL_AST ->
-	const (QQ.of_string (get_numeral_string ctx ast))
-      | VAR_AST -> var (env (Z3.get_index_value ctx ast))
+	const (QQ.of_string (Arithmetic.Real.to_string ast))
+      | VAR_AST ->
+	var (env (Quantifier.get_index ast))
       | QUANTIFIER_AST -> assert false
       | FUNC_DECL_AST
       | SORT_AST

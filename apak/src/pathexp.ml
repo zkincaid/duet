@@ -696,7 +696,7 @@ struct
 	Block.format k
 	K.format s
     in
-    Log.log Log.info "Summaries:";
+    L.logf "Summaries:";
     HT.iter f query.summaries
 
   let get_summaries query =

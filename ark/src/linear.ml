@@ -7,7 +7,7 @@ open ArkPervasives
 
 module type Var = sig
   include Putil.Ordered
-  val to_smt : t -> Z3.ast
+  val to_smt : t -> Smt.ast
 end
 
 module AffineVar (V : Var) = struct
@@ -545,8 +545,7 @@ struct
   let is_empty x = E.equal x E.zero
 
   let solve sys =
-    Log.logf Log.fix "Solving system:";
-    Log.log_pp Log.fix Fmt.format sys;
+    Log.logf "Solving system:@\n @[%a@]" Fmt.format sys;
     let rec reduce fin sys =
       match sys with
       | [] -> fin
