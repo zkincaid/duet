@@ -67,6 +67,13 @@ module Make(MakeEQ :
 
   module KillPred = struct
     include SeqDep.KillPred
+    let subst sub_var set =
+      let add iap set = match (iap, AP.psubst_var sub_var iap) with
+        | (Variable v, _) -> AP.Set.add iap set
+	| (_, Some z) -> AP.Set.add z set
+	| (_, None)   -> set
+      in
+      AP.Set.fold add set AP.Set.empty
     let pred_weight def = 
       let assign_weight ap = AP.Set.singleton (AP.subscript 0 ap) in
       let assume_weight be =
@@ -86,6 +93,14 @@ module Make(MakeEQ :
 
   module RDPred = struct
     include SeqDep.RDPred
+    let subst subst_var x =
+      let current = match x.SeqDep.current_name with
+        | Some (Variable v) -> Some (Variable v)
+	| Some name -> AP.psubst_var subst_var name
+	| None -> None
+      in
+      { SeqDep.current_name = current;
+	SeqDep.killed = KillPred.subst subst_var x.SeqDep.killed }
     let pred_weight def = unit
   end
 
@@ -120,21 +135,22 @@ module Make(MakeEQ :
     let hash (x, y) = Hashtbl.hash (DefAP.hash x, DefAP.hash y)
     let equal x y = compare x y = 0
   end
+  module PartialFlowMap =
+    Monoid.FunctionSpace.Total.Ordered.Make
+      (DefAP)
+      (Ka.Ordered.AdditiveMonoid(CoLRD.TR))
   module FlowMap =
     Monoid.FunctionSpace.Total.Ordered.Make
       (DefAPPair)
       (Ka.Ordered.AdditiveMonoid(CoLRD.TR))
 
   (* Path types. *)
-  type abspath   = LK.TR.t deriving(Show,Compare)
-  type abspath_t = LK.TR.t deriving(Show,Compare)
-  type abspath_p = LK.TR.t deriving(Show,Compare)
-  type rd   = RDMap.t deriving(Show,Compare)
-  type rd_t = RDMap.t deriving(Show,Compare)
-  type eu   = EUMap.t deriving(Show,Compare)
-  type eu_p = EUMap.t deriving(Show,Compare)
+  type abspath = LK.TR.t deriving(Show,Compare)
+  type rd = RDMap.t deriving(Show,Compare)
+  type eu = EUMap.t deriving(Show,Compare)
   type du = FlowMap.t deriving(Show,Compare)
-  type ud = FlowMap.t deriving(Show,Compare)
+
+  (* Lifting functions. f is a function from lk to lrd/colrd predicates *)
 
   (* Lift an LKTransition to an LRDTransition *)
   let lift_lk f tr =
@@ -161,6 +177,8 @@ module Make(MakeEQ :
     in
       LK.TR.fold_minterms f tr CoLRD.TR.zero
 
+  (* Lift an LRDTransition to a co LRDTransition.
+   * the predicate is unchanged and the "concurrent" branch gets unit *)
   let lift_colrd tr =
     let frame = LRD.TR.get_frame tr in
     let f minterm rest =
@@ -174,8 +192,11 @@ module Make(MakeEQ :
     in
       LRD.TR.fold_minterms f tr CoLRD.TR.zero
 
+  (* predicate transformations. id is obvious, left lifts to a path left of the
+   * midpoint, right lifts to a path to the right of the midpoint. conc lifts to
+   * a pure equality path, e.g. to the left of a fork *)
   let left (lk, _) = (lk, RDPred.unit)
-  let mid (lk, kl) = (lk, { SeqDep.current_name = None; SeqDep.killed = kl })
+  let id (lk, kl) = (lk, { SeqDep.current_name = None; SeqDep.killed = kl })
   let right (lk, kl) = (LockPred.clear_fst lk, 
                         { SeqDep.current_name = None; SeqDep.killed = kl })
   let conc (_, _) = (LockPred.unit, RDPred.unit)
@@ -195,14 +216,6 @@ module Make(MakeEQ :
         else rest
     in
       LRD.TR.fold_minterms f rd_tr LRD.TR.zero
-
-  let mul_right x y = 
-    let update_rd tr = filter_rd (LRD.TR.mul tr y) in
-      RDMap.map update_rd x
-
-  let mul_left x y = 
-    let update_rd tr = filter_rd (LRD.TR.mul y tr) in
-      RDMap.map update_rd x
 
   (* Remove "trees" that can't be interleaved (beginning or ending locksets have
    * non-empty intersection) or have dead definitions/uses (definitions/uses of
@@ -228,6 +241,38 @@ module Make(MakeEQ :
     in
       CoLRD.TR.fold_minterms f du_tr CoLRD.TR.zero
 
+  (* Filtering when the ending point of the sequential path is not known -- we
+   * can filter out paths with a non-zero intersection for the initial locksets
+   * and with the access paths killed *)
+  let filter_partial_flow du_tr =
+    let frame = CoLRD.TR.get_frame du_tr in
+    let f minterm rest =
+      let subst = CoLRDMinterm.get_subst minterm in
+      let ((ls1, k1), (ls2, k2)) = CoLRDMinterm.get_pred minterm in
+      let kills = AP.Set.union k1.SeqDep.killed k2.SeqDep.killed in
+      let killed name = match name with
+        | Some ap -> AP.Set.mem (AP.subst_var subst ap) kills
+        | None -> false
+      in
+        if (AP.Set.is_empty (AP.Set.inter (fst ls1).LockPred.LP.acq
+                                          (fst ls2).LockPred.LP.acq))
+        && not (killed k1.SeqDep.current_name)
+        && not (killed k2.SeqDep.current_name)
+        then CoLRD.TR.add (CoLRD.TR.of_minterm frame minterm) rest
+        else rest
+    in
+      CoLRD.TR.fold_minterms f du_tr CoLRD.TR.zero
+
+  (* Multiply RDMap by an LRD transition *)
+  let mul_right x y = 
+    let update_rd tr = filter_rd (LRD.TR.mul tr y) in
+      RDMap.map update_rd x
+
+  let mul_left x y = 
+    let update_rd tr = filter_rd (LRD.TR.mul y tr) in
+      RDMap.map update_rd x
+
+  (* Multiply FlowMap by a CoLRD transition *)
   let mul_coright f x y =
     let update_du tr = f (CoLRD.TR.mul tr y) in
       FlowMap.map update_du x
@@ -236,6 +281,7 @@ module Make(MakeEQ :
     let update_du tr = f (CoLRD.TR.mul y tr) in
       FlowMap.map update_du x
 
+  (* Multiply FlowMap by a CoLRD transition *)
   let mul_flow_uses f ud eu =
     let h acc (((d, d_ap), (_, _)), d_tr) ((u, u_ap), u_tr) =
       let tr = f (CoLRD.TR.mul d_tr (lift_colrd u_tr)) in
@@ -255,9 +301,10 @@ module Make(MakeEQ :
                                          else x)
     in
     let g x y acc =
+      let y' = sub y in
       let p1 = LRDMinterm.get_pred x in 
-      let p2 = LRDMinterm.get_pred y in 
-      let eqs = LRDMinterm.get_eqs (LRDMinterm.mul x (sub y)) in
+      let p2 = LRDMinterm.get_pred y' in 
+      let eqs = LRDMinterm.get_eqs (LRDMinterm.mul x y') in
       let z = CoLRDMinterm.make eqs (p1, p2) in
         CoLRD.TR.add (CoLRD.TR.of_minterm frame z) acc
     in
@@ -276,18 +323,22 @@ module Make(MakeEQ :
       else acc
     in
     let f acc def = BatEnum.fold (fun acc -> g acc def) acc (EUMap.enum eu) in
-    let tmp = BatEnum.fold f FlowMap.unit (RDMap.enum rd) in
-    Log.logf Log.info
-      "dflow: **DEF** %a **USE** %a -> %a"
-      RDMap.format rd
-      EUMap.format eu
-      FlowMap.format tmp;
-      tmp
+      if (not (rd = RDMap.unit)) && (not (eu = EUMap.unit))
+      then begin
+        let tmp = BatEnum.fold f FlowMap.unit (RDMap.enum rd) in
+          Log.logf Log.info
+            "dflow: **DEF** %a **USE** %a -> %a"
+            RDMap.format rd
+            EUMap.format eu
+            FlowMap.format tmp;
+          tmp
+      end
+      else FlowMap.unit
 
   let partial_flow_parent_child = dflow interleave
   let partial_flow_child_parent rd abs_p =
     let f acc ((d, d_ap), d_tr) =
-      let du = interleave (lift_lk mid abs_p) d_tr in
+      let du = interleave (lift_lk id abs_p) d_tr in
         FlowMap.mul acc (FlowMap.update ((d, d_ap), (d, d_ap)) du FlowMap.unit)
     in
       BatEnum.fold f FlowMap.unit (RDMap.enum rd)
@@ -295,17 +346,36 @@ module Make(MakeEQ :
   let flow_child_parent = dflow (fun d u -> filter_flow (interleave u d))
   let flow_child_child = dflow (fun d u -> filter_flow (interleave d u))
 
+                           (* Path types *)
+  (* abspath   : --------- ls1, ls2, kills ------------- *)
+  (* abspath_t : --------- ls2, kills ------------------| *)
+  (* abspath_p : ---- ls1, ls2 ----|---- ls2, kills ---- *)
+  (* rd        : ---- ls1, ls2 --(def)-- ls2, kills ---- *)
+  (* rd_t      : ---- ls1, ls2 --(def)-- ls2, kills ----| *)
+  (* rd_c      : ----(fork)----        ...         -----| *)
+  (* eu        : --------- ls2, kills ----------------(use) *)
+  (* eu_p      : ---- ls1, ls2 ----|---- ls2, kills --(use) *)
+  (* rd_c      : ----(fork)----        ...         ---(use) *)
+  (* du        : ---- ls1, ls2 --(fork)-- ls1, ls2 --(def)-- ls2, kills ----
+   *             ----------------(fork)-- ls1, ls2 ----|---- ls2, kills --(use) *) 
+  (* ud        : ---- ls1, ls2 --(fork)-- ls1, ls2 ----|---- ls2, kills ---- 
+   *             ----------------(fork)-- ls1, ls2 --(def)-- ls2, kills ----| *) 
+  (* du_t      : ---- ls1, ls2 --(fork)-- ls1, ls2 --(def)-- ls2, kills ----|
+   *             ----------------(fork)-- ls1, ls2 ----|---- ls2, kills --(use)
+   *           : ---- ls1, ls2 --(fork)-- ls1, ls2 ----|---- ls2, kills --(use)
+   *             ----------------(fork)-- ls1, ls2 --(def)-- ls2, kills ----| *) 
+  (* du_c      : ----(fork)----        ...         ---- *)
   module ConcReachingDefs = struct
     type var = Var.t
-    type t = { abspath : abspath;
-               abspath_t : abspath_t;
-               abspath_p : abspath_p;
+    type t = { abspath   : abspath;
+               abspath_t : abspath;
+               abspath_p : abspath;
                rd : rd;
-               rd_t : rd_t;
-               rd_c : rd_t;
+               rd_t : rd;
+               rd_c : rd;
                eu : eu;
-               eu_p : eu_p;
-               eu_c : eu_p;
+               eu_p : eu;
+               eu_c : eu;
                du   : du;  (* parent-->child flow, non-terminated *)
                ud   : du;  (* child-->parent flow, no use *)
                du_t : du;  (* child-->parent and parent-->child flow *)
@@ -350,63 +420,39 @@ module Make(MakeEQ :
                 du_t = FlowMap.unit;
                 du_c = FlowMap.unit }
 
-    (* path = path1 ; path2,
-     * terminated paths = terminate paths1 + path1 ; * terminated paths2
-     * pointed paths = path1 ; pointed paths2 + pointed paths1 ; path2
-     * reaching defs = reaching defs1 ; kill path2 + eq/lock path1 ; reaching defs2
-     * terminated defs = terminated defs1 + reaching defs1 ; terminated paths2
-     *                     + path1 ; terminated defs 2
-     * concurrent defs = concurrent defs1 + eq path1 ; concurrent defs2
-     * exposed uses = exposed uses1 + path1 ; exposed uses2
-     * pointed uses = pointed uses1 + pointed paths1 ; exposed uses 2 
-     *                     + path1 ; pointed uses 2
-     * concurrent uses = concurrent uses1 + kill eq path1 ; concurrent uses2
-     * du = du_u1 ; path 2 + path1 ; du_u2 + path1;reaching defs2-concurrent uses1
-     * ud = ud_u1 ; path 2 + path1 ; ud_u2 + path1;exposed uses2-concurrent defs1
-     * du_t = du_t1 + path1 ; du_t2 
-     *          + interleave(path1;terminated defs2, concurrent uses1)
-     *          + du1;terminated paths2               (parent-->child)
-     *          + interleave(path1;pointed uses2, concurrent defs1)
-     *          + ud1;exposed uses2                   (child-->parent) 
-     * du_c = du_c1 + eq path1;du_c2
-     *              + interleave(path1;concurrent defs2, concurrent uses1)
-     *              + interleave(path1;concurrent uses2, concurrent defs1)
-     *                           (child-->child) *)
-
     let mul a b =
       let brd   = mul_left b.rd   (lift_lk left a.abspath) in
       let brd_t = mul_left b.rd_t (lift_lk left a.abspath) in
       let brd_c = mul_left b.rd_c (lift_lk conc a.abspath) in
-      let beu   = mul_left b.eu   (lift_lk left a.abspath) in
+      let beu   = mul_left b.eu   (lift_lk right a.abspath) in
       let beu_p = mul_left b.eu_p (lift_lk left a.abspath) in
       let beu_c = mul_left b.eu_c (lift_lk conc a.abspath) in
         { abspath   = LK.TR.mul a.abspath b.abspath;
           abspath_t = LK.TR.add 
                         a.abspath_t 
-                        (LK.TR.mul a.abspath b.abspath_t);
+                        (LK.TR.mul (clear_fst a.abspath) b.abspath_t);
           abspath_p = LK.TR.add 
                         (LK.TR.mul a.abspath_p (clear_fst b.abspath)) 
                         (LK.TR.mul (clear_kill a.abspath) b.abspath_p);
-          rd   = RDMap.mul brd 
-                   (mul_right a.rd (lift_lk right b.abspath));
+          rd   = RDMap.mul brd (mul_right a.rd (lift_lk right b.abspath));
           rd_t = RDMap.mul 
                    (RDMap.mul a.rd_t brd_t)
-                   (mul_right a.rd (lift_lk right b.abspath_t));
+                   (mul_right a.rd (lift_lk id b.abspath_t));
           rd_c = RDMap.mul a.rd_c brd_c;
           eu   = EUMap.mul a.eu beu;
           eu_p = EUMap.mul 
                    (EUMap.mul a.eu_p beu_p)
-                   (mul_left b.eu (lift_lk mid a.abspath_p));
+                   (mul_left b.eu (lift_lk id a.abspath_p));
           eu_c = EUMap.mul a.eu_c beu_c;
           du   = FlowMap.mul
-                   (mul_coleft (fun x -> x) b.du (lift_colk left a.abspath))
+                   (mul_coleft filter_partial_flow b.du (lift_colk left a.abspath))
                    (FlowMap.mul
-                      (mul_coright (fun x -> x) a.du (lift_colk right b.abspath))
+                      (mul_coright filter_partial_flow a.du (lift_colk right b.abspath))
                       (partial_flow_parent_child brd a.eu_c));
           ud   = FlowMap.mul
-                   (mul_coleft (fun x -> x) b.ud (lift_colk left a.abspath))
+                   (mul_coleft filter_partial_flow b.ud (lift_colk left a.abspath))
                    (FlowMap.mul
-                      (mul_coright (fun x -> x) a.ud (lift_colk right b.abspath))
+                      (mul_coright filter_partial_flow a.ud (lift_colk right b.abspath))
                       (partial_flow_child_parent a.rd_c b.abspath_p));
           du_t = FlowMap.mul
                    (FlowMap.mul 
@@ -441,24 +487,9 @@ module Make(MakeEQ :
                     du_t = FlowMap.mul a.du_t b.du_t;
                     du_c = FlowMap.mul a.du_c b.du_c }
    
-    (* path = path*,
-     * terminated paths = path* ; terminated paths
-     * pointed paths = path* ; pointed paths ; path*
-     * reaching defs = path* ; reaching defs ; path*
-     * terminated defs = path* ; reaching defs ; path* ; terminated paths
-     *                   + path* ; terminated defs
-     * concurrent defs = eq path* ; concurrent defs
-     * exposed uses = path* ; exposed uses
-     * pointed uses = path* ; pointed paths ; path* ; exposed uses
-     *                + path* ; pointed uses
-     * concurrent uses = eq path* ; concurrent uses
-     * du   = interleave(reaching defs, concurrent uses)
-     * du_t = interleave(terminated defs, concurrent uses)
-     *      + interleave(pointed uses, concurrent defs)
-     * du_c = interleave(concurrent defs, concurrent uses) *)
     let star a = 
       let abspath = LK.TR.star a.abspath in
-      let abspath_t = LK.TR.mul abspath a.abspath_t in
+      let abspath_t = LK.TR.mul (clear_fst abspath) a.abspath_t in
       let abspath_p = LK.TR.mul 
                         (LK.TR.mul (clear_kill abspath) a.abspath_p)
                         (clear_fst abspath)
@@ -467,16 +498,10 @@ module Make(MakeEQ :
                  (mul_right a.rd (lift_lk right abspath))
                  (lift_lk left abspath)
       in
-      let rd_t = EUMap.mul 
-                   (mul_right rd (lift_lk right a.abspath_t))
-                   (mul_left a.rd_t (lift_lk left abspath))
-      in
+      let rd_t = mul_right rd (lift_lk id a.abspath_t) in
       let rd_c = mul_left a.rd_c (lift_lk conc abspath) in
-      let eu   = mul_left a.eu (lift_lk left abspath) in
-      let eu_p = EUMap.mul 
-                   (mul_left a.eu (lift_lk mid abspath_p))
-                   (mul_left a.eu_p (lift_lk left abspath))
-      in
+      let eu   = mul_left a.eu (lift_lk right abspath) in
+      let eu_p = mul_left a.eu (lift_lk id abspath_p) in
       let eu_c = mul_left a.eu_c (lift_lk conc abspath) in
         { abspath = abspath;
           abspath_t = abspath_t;
@@ -535,9 +560,8 @@ module Make(MakeEQ :
 
     let lk_weight def =
       let get_deref e = match e with 
-        | AccessPath ap -> AP.Set.singleton (Deref (AccessPath ap))
-        | AddrOf     ap -> AP.Set.singleton ap
-        | _             -> AP.Set.empty
+        | AddrOf  ap -> AP.Set.singleton ap
+        | _          -> AP.Set.singleton (Deref e)
       in
       let assign_weight lhs rhs =
         let ls   = LockPred.unit in
@@ -618,7 +642,7 @@ module Make(MakeEQ :
           AP.Set.fold f (Def.get_uses def) EUMap.unit
       in
         { abspath = abspath;
-          abspath_t = abspath;
+          abspath_t = clear_fst abspath;
           abspath_p = abspath;
           rd = rd;
           rd_t = rd;
@@ -643,11 +667,23 @@ module Make(MakeEQ :
     let add_conc_edges rg root dg =
       let query = Analysis.mk_query rg weight Interproc.local root in
       let summary = Analysis.get_summary query root in
-      let g (((def1, ap1), (def2, ap2)), _) =
-        DG.add_edge_e dg (DG.E.create def1 (Pack.PairSet.singleton (Pack.mk_pair ap1 ap2)) def2)
+      let g (((def1, ap1), (def2, ap2)), tmp) =
+        if (filter_flow tmp) != CoLRD.TR.zero then
+          DG.add_edge_e dg (DG.E.create def1 (Pack.PairSet.singleton (Pack.mk_pair ap1 ap2)) def2)
       in
         BatEnum.iter g (FlowMap.enum summary.du_t);
         BatEnum.iter g (FlowMap.enum summary.du_c)
+          (*
+    let add_conc_edges rg root dg =
+      let query = Analysis.mk_query rg weight Interproc.local root in
+      let summary = Analysis.get_summary query root in
+      let g (((def1, ap1), (def2, ap2)), _) =
+        DG.add_edge_e dg (DG.E.create def1 (Pack.PairSet.singleton (Pack.mk_pair ap1 ap2)) def2)
+      in
+        BatEnum.iter g (FlowMap.enum (flow_parent_child summary.rd_t summary.eu_c));
+        BatEnum.iter g (FlowMap.enum (flow_child_parent summary.rd_c summary.eu_p));
+        BatEnum.iter g (FlowMap.enum (flow_child_child summary.rd_c summary.eu_c))
+           *)
 
   end
 end

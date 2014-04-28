@@ -75,9 +75,8 @@ module LockPred = struct
 
   let pred_weight def =
     let get_deref e = match e with 
-      | AccessPath ap -> AP.Set.singleton (Deref (AccessPath ap))
-      | AddrOf     ap -> AP.Set.singleton ap
-      | _             -> AP.Set.empty
+      | AddrOf ap -> AP.Set.singleton ap
+      | _         -> AP.Set.singleton (Deref e) 
     in match def.dkind with
     | Builtin (Acquire e) -> { acq = get_deref e;
                                rel = AP.Set.empty }
@@ -355,7 +354,7 @@ module Datarace = struct
     let lp = wt d in
     let uses = UseMap.update d lp UseMap.unit in
       match d.dkind with
-        | Assign (v, e) -> 
+        | Assign (v, e) when Var.is_shared v -> 
               { lp = lp;
                 def   = DefMap.update v lp DefMap.unit;
                 def_c = DefMap.unit;
