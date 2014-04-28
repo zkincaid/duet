@@ -1,16 +1,7 @@
-&p -> {alloc#2}
-&p.Top -> {alloc#2}
-&q -> {alloc#4}
-&q.Top -> {alloc#4}
-&tmp -> {alloc#2}
-&tmp.Top -> {alloc#2}
-&tmp1 -> {alloc#4}
-&tmp1.Top -> {alloc#4}
-&tmp2 -> {alloc#2}
-&tmp2.Top -> {alloc#2}
-&tmp___0 -> {alloc#4}
-&tmp___0.Top -> {alloc#4}
-alloc#2.4 -> {alloc#4}
-alloc#2.Top -> {alloc#4}
-alloc#4.4 -> {alloc#2}
-alloc#4.Top -> {alloc#2}
+./regression/pa/code/type_error.c:31 >> Assertion failed: (unsigned long )p->f2 != (unsigned long )q
+./regression/pa/code/type_error.c:32 >> Assertion failed: (unsigned long )q->f4 != (unsigned long )p
+./regression/pa/code/type_error.c:30 >> Assertion failed: (unsigned long )tmp1 != (unsigned long )q
+./regression/pa/code/type_error.c:29 >> Assertion failed: (unsigned long )tmp2 != (unsigned long )p
+
+4 errors total
+0 safe assertions

@@ -66,12 +66,16 @@ module MakePathExpr = Pathexp.MakeSeqRG(SeqRG)(Varinfo)
 
 let local func_name =
   try
-    let func = List.find (fun f -> Varinfo.equal func_name f.fname) (get_gfile()).funcs in
-    let vars = Varinfo.Set.remove (return_var func_name)
-                 (Varinfo.Set.of_enum (BatEnum.append (BatList.enum func.formals)
-                                         (BatList.enum func.locals)))
+    let func =
+      List.find (fun f -> Varinfo.equal func_name f.fname) (get_gfile()).funcs
     in
-      fun (x, _) -> (Varinfo.Set.mem x vars)
+    let vars =
+      Varinfo.Set.remove (return_var func_name)
+	(Varinfo.Set.of_enum (BatEnum.append
+				(BatList.enum func.formals)
+				(BatList.enum func.locals)))
+    in
+    fun (x, _) -> (Varinfo.Set.mem x vars)
   with Not_found -> (fun (_, _) -> false)
 
 let make_recgraph file =

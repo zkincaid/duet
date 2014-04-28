@@ -233,8 +233,8 @@ let rec simplify_ap = function
 	    | RAp (Lvl0 var) ->
 		SimpleAP.Set.add (Lvl1 (var, offset)) set
 	    | RAp (Lvl1 (_, _)) ->
-		let rhs_str = SimpleRhs.show (rhs, offset) in
-		Log.log Log.top ("Can't deref Lvl1 AP " ^ rhs_str);
+		Log.errorf "Can't deref Lvl1 AP `%a'"
+		  SimpleRhs.format (rhs, offset);
 		assert false
 	    | RAddr var ->
 		(* *(&var + offset) = var[offset] *)
@@ -262,8 +262,7 @@ object (self)
       | AccessPath (Deref x) -> self#expr_points_to x
       | AddrOf x -> self#expr_points_to expr
       | expr -> begin
-	Log.logf Log.top "Could not resolve call `%a'"
-	  Expr.format expr;
+	Log.errorf "Could not resolve call `%a'" Expr.format expr;
 	assert false
       end
     in

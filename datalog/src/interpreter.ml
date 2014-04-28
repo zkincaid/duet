@@ -695,12 +695,12 @@ let update_incremental ((head, params, body) as r) incr st =
 let update st r =
   match State.get_incr st r with
     | Some old ->
-	Log.log Log.fix "Evaluating rule (inc)";
-	Log.log_pp Log.fix format_rule r;
+	Log.log ~level:Log.fix "Evaluating rule (inc)";
+	Log.log_pp ~level:Log.fix format_rule r;
 	update_incremental r old st
     | None ->
-	Log.log Log.fix "Evaluating rule";
-	Log.log_pp Log.fix format_rule r;
+	Log.log ~level:Log.fix "Evaluating rule";
+	Log.log_pp ~level:Log.fix format_rule r;
 	update_nonincremental r st
 
 

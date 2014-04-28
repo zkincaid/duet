@@ -67,8 +67,7 @@ let construct_tcg file =
   let lookup_thread thread =
     try List.find (fun f -> Varinfo.equal thread f.fname) file.funcs
     with Not_found -> begin
-      Log.logf Log.top "Can't resolve thread identifier `%a'"
-	Varinfo.format thread;
+      Log.errorf "Can't resolve thread identifier `%a'" Varinfo.format thread;
       assert false
     end
   in

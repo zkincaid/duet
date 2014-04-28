@@ -326,7 +326,7 @@ module Make(MakeEQ :
       if (not (rd = RDMap.unit)) && (not (eu = EUMap.unit))
       then begin
         let tmp = BatEnum.fold f FlowMap.unit (RDMap.enum rd) in
-          Log.logf Log.info
+          Log.logf
             "dflow: **DEF** %a **USE** %a -> %a"
             RDMap.format rd
             EUMap.format eu

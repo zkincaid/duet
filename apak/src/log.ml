@@ -79,6 +79,8 @@ module Make(M : sig val name : string end) = struct
     logf ~level:level ~attributes:attributes "%a" pp x
 end
 
+include Make(struct let name = "default" end)
+
 let debug_formatter =
   let chan = stdout in
   let out buf pos len =
@@ -88,21 +90,6 @@ let debug_formatter =
   let flush () = flush chan in
   Format.make_formatter out flush
 
-let log level str =
-  if !verbosity_level >= level
-  then (print_endline str; flush stdout)
-
-let log_pp level pp x =
-  if !verbosity_level >= level then begin
-    pp Format.std_formatter x;
-    Format.pp_print_newline Format.std_formatter ();
-    flush stdout;
-  end
-
-let logf level fmt =
-  if !verbosity_level >= level then Format.printf (fmt ^^ "@\n@?")
-  else Format.ifprintf Format.std_formatter fmt
-  
 let debug msg =
   if !debug_mode
   then (print_endline ("DEBUG: " ^ msg); flush stdout)
@@ -145,7 +132,7 @@ let phase str f arg =
     try String.make (77 - (String.length str)) '='
     with Invalid_argument _ -> ""
   in
-    log phases ("\x1b[32;1m= " ^ str ^ " " ^ padding ^ "\x1b[0m");
+    logf ~level:phases ~attributes:[Bold; Green] "= %s %s" str padding;
     if List.exists (fun x -> x = str) !debug_phases then begin
       let old_debug = !debug_mode in
 	debug_mode := true;

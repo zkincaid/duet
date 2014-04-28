@@ -1,26 +1,15 @@
-&__retres2 -> {&global}
-&__retres2 -> {alloc#11}
-&__retres2.Top -> {&global}
-&__retres2.Top -> {alloc#11}
-&a -> {&q, &r}
-&a.Top -> {&q, &r}
-&b -> {&global, &x, &y}
-&b.Top -> {&global, &x, &y}
-&bar$return -> {&global}
-&bar$return.Top -> {&global}
-&baz$return -> {alloc#11}
-&baz$return.Top -> {alloc#11}
-&c -> {&p}
-&c.Top -> {&p}
-&global_ptr -> {&global}
-&global_ptr.Top -> {&global}
-&mem_3 -> {&p}
-&mem_3.Top -> {&p}
-&p -> {&global, &x}
-&p.Top -> {&global, &x}
-&q -> {&global, &x, &y}
-&q.Top -> {&global, &x, &y}
-&r -> {&global, &x, &y, alloc#11}
-&r.Top -> {&global, &x, &y, alloc#11}
-&tmp -> {alloc#11}
-&tmp.Top -> {alloc#11}
+./regression/pa/code/proc.c:15 >> Assertion failed: (unsigned long )*a != (unsigned long )(& global)
+./regression/pa/code/proc.c:21 >> Assertion failed: (unsigned long )c != (unsigned long )(& p)
+./regression/pa/code/proc.c:43 >> Assertion failed: (unsigned long )p != (unsigned long )(& x)
+./regression/pa/code/proc.c:42 >> Assertion failed: (unsigned long )p != (unsigned long )(& global)
+./regression/pa/code/proc.c:47 >> Assertion failed: (unsigned long )q != (unsigned long )(& x)
+./regression/pa/code/proc.c:46 >> Assertion failed: (unsigned long )q != (unsigned long )(& global)
+./regression/pa/code/proc.c:48 >> Assertion failed: (unsigned long )q != (unsigned long )(& y)
+./regression/pa/code/proc.c:50 >> Assertion failed: (unsigned long )r != (unsigned long )(& global)
+./regression/pa/code/proc.c:55 >> Assertion failed: (unsigned long )global_ptr != (unsigned long )(& global)
+./regression/pa/code/proc.c:51 >> Assertion failed: (unsigned long )r != (unsigned long )(& x)
+./regression/pa/code/proc.c:52 >> Assertion failed: (unsigned long )r != (unsigned long )(& y)
+./regression/pa/code/proc.c:53 >> Assertion failed: (unsigned long )r != (unsigned long )m
+
+12 errors total
+2 safe assertions
