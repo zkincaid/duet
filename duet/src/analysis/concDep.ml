@@ -44,10 +44,8 @@ module Make(MakeEQ :
     module TR = struct 
       include Formula.Transition
 
-      let sub_index i j x = if Var.get_subscript x = i then Var.subscript x j else x
-      let sub0 = sub_index 0 3
-      let sub1 = sub_index 1 3
       let pred_unit = Minterm.get_pred Minterm.unit
+      let sub_index i j x = if Var.get_subscript x = i then Var.subscript x j else x
 
       let subst sub x =
         let frame = get_frame x in
@@ -61,6 +59,28 @@ module Make(MakeEQ :
             add (of_minterm frame m')
         in
           fold_minterms g x zero
+
+      let mul_pointed x y =
+        let frame_x = get_frame x in
+        let frame_y = get_frame y in
+        let x_minus_y = Var.Set.diff frame_x frame_y in
+        let y_minus_x = Var.Set.diff frame_y frame_x in
+        let x_eqs =
+          subst (sub_index 1 3) (assume Bexpr.ktrue y_minus_x pred_unit)
+        in
+        let y_eqs =
+          subst (sub_index 0 3) (assume Bexpr.ktrue x_minus_y pred_unit)
+        in
+          mul (mul x x_eqs) (mul y y_eqs)
+
+      let make_pointed x y =
+        let frame_x = get_frame x in
+        let frame_y = get_frame y in
+        let x_minus_y = Var.Set.diff frame_x frame_y in
+        let y_minus_x = Var.Set.diff frame_y frame_x in
+        let x' = mul x (assume Bexpr.ktrue y_minus_x pred_unit) in
+        let y' = mul y (assume Bexpr.ktrue x_minus_y pred_unit) in
+          mul (subst (sub_index 1 3) x') (subst (sub_index 0 3) y')
     end
     module State = Formula.State
   end
@@ -108,9 +128,9 @@ module Make(MakeEQ :
   module LRDMinterm = MakeEQ(LRDPred)
   module LRD = MakeFormula(LRDMinterm)
 
-  module CoLRDPred = LockLogic.CombinePred(Var)(LRDPred)(LRDPred)
-  module CoLRDMinterm = MakeEQ(CoLRDPred)
-  module CoLRD = MakeFormula(CoLRDMinterm)
+  module TreePred = LockLogic.CombinePred(Var)(LRDPred)(LRDPred)
+  module TreeMinterm = MakeEQ(TreePred)
+  module Tree = MakeFormula(TreeMinterm)
 
   module DefAP = struct
     type t = Def.t * AP.t
@@ -135,25 +155,20 @@ module Make(MakeEQ :
     let hash (x, y) = Hashtbl.hash (DefAP.hash x, DefAP.hash y)
     let equal x y = compare x y = 0
   end
-  module PartialFlowMap =
+  module PartialTreeMap =
     Monoid.FunctionSpace.Total.Ordered.Make
       (DefAP)
-      (Ka.Ordered.AdditiveMonoid(CoLRD.TR))
-  module FlowMap =
+      (Ka.Ordered.AdditiveMonoid(Tree.TR))
+  module TreeMap =
     Monoid.FunctionSpace.Total.Ordered.Make
       (DefAPPair)
-      (Ka.Ordered.AdditiveMonoid(CoLRD.TR))
-
-  (* Path types. *)
-  type abspath = LK.TR.t deriving(Show,Compare)
-  type rd = RDMap.t deriving(Show,Compare)
-  type eu = EUMap.t deriving(Show,Compare)
-  type du = FlowMap.t deriving(Show,Compare)
+      (Ka.Ordered.AdditiveMonoid(Tree.TR))
 
   (* Lifting functions. f is a function from lk to lrd/colrd predicates *)
 
-  (* Lift an LKTransition to an LRDTransition *)
-  let lift_lk f tr =
+  (* Lift an LK Transition to an LRD Transition
+   * The "current name" is always None *)
+  let lift_lk_lrd f tr =
     let frame = LK.TR.get_frame tr in
     let f minterm rest =
       let eqs = LKMinterm.get_eqs minterm in
@@ -164,42 +179,50 @@ module Make(MakeEQ :
     in
       LK.TR.fold_minterms f tr LRD.TR.zero
 
-  (* Lift an LKTransition to a CoLRDTransition
-   * the "concurrent" branch of the transition gets unit predicate *)
-  let lift_colk f tr =
+  (* Lift an LK Transition to the left-hand branch of a Tree Transition *)
+  let lift_lk_tree f tr =
     let frame = LK.TR.get_frame tr in
     let f minterm rest =
       let eqs = LKMinterm.get_eqs minterm in
       let pred = f (LKMinterm.get_pred minterm) in
-      let new_minterm = CoLRDMinterm.make eqs (pred, LRDPred.unit) in
-      let new_tr = CoLRD.TR.of_minterm frame new_minterm in
-        CoLRD.TR.add new_tr rest
+      let new_minterm = TreeMinterm.make eqs (pred, LRDPred.unit) in
+      let new_tr = Tree.TR.of_minterm frame new_minterm in
+        Tree.TR.add new_tr rest
     in
-      LK.TR.fold_minterms f tr CoLRD.TR.zero
+      LK.TR.fold_minterms f tr Tree.TR.zero
 
-  (* Lift an LRDTransition to a co LRDTransition.
-   * the predicate is unchanged and the "concurrent" branch gets unit *)
-  let lift_colrd tr =
+  (* Lift an LRD Transition to the left-hand branch of a Tree Transition *)
+  let lift_lrd_tree tr =
     let frame = LRD.TR.get_frame tr in
     let f minterm rest =
       let eqs = LRDMinterm.get_eqs minterm in
-      let (ls, k) = LRDMinterm.get_pred minterm in
-      let new_minterm = CoLRDMinterm.make eqs ((LockPred.clear_fst ls, k),
-                                               LRDPred.unit)
-      in
-      let new_tr = CoLRD.TR.of_minterm frame new_minterm in
-        CoLRD.TR.add new_tr rest
+      let pred = LRDMinterm.get_pred minterm in
+      let new_minterm = TreeMinterm.make eqs (pred, LRDPred.unit) in
+      let new_tr = Tree.TR.of_minterm frame new_minterm in
+        Tree.TR.add new_tr rest
     in
-      LRD.TR.fold_minterms f tr CoLRD.TR.zero
+      LRD.TR.fold_minterms f tr Tree.TR.zero
+
+  (* Lift an LRD Transition to the right-hand branch of a Tree Transition *)
+  let lift_lrd_tree_right tr =
+    let frame = LRD.TR.get_frame tr in
+    let f minterm rest =
+      let eqs = LRDMinterm.get_eqs minterm in
+      let pred = LRDMinterm.get_pred minterm in
+      let new_minterm = TreeMinterm.make eqs (LRDPred.unit, pred) in
+      let new_tr = Tree.TR.of_minterm frame new_minterm in
+        Tree.TR.add new_tr rest
+    in
+      LRD.TR.fold_minterms f tr Tree.TR.zero
 
   (* predicate transformations. id is obvious, left lifts to a path left of the
    * midpoint, right lifts to a path to the right of the midpoint. conc lifts to
    * a pure equality path, e.g. to the left of a fork *)
-  let left (lk, _) = (lk, RDPred.unit)
-  let id (lk, kl) = (lk, { SeqDep.current_name = None; SeqDep.killed = kl })
-  let right (lk, kl) = (LockPred.clear_fst lk, 
+  let locks (lk, _) = (lk, RDPred.unit)
+  let all (lk, kl) = (lk, { SeqDep.current_name = None; SeqDep.killed = kl })
+  let lock_kill (lk, kl) = (LockPred.clear_fst lk, 
                         { SeqDep.current_name = None; SeqDep.killed = kl })
-  let conc (_, _) = (LockPred.unit, RDPred.unit)
+  let none (_, _) = (LockPred.unit, RDPred.unit)
 
   (* Remove dead definitions (definitions of memory locations which are
    overwritten later in the path) *)
@@ -220,48 +243,39 @@ module Make(MakeEQ :
   (* Remove "trees" that can't be interleaved (beginning or ending locksets have
    * non-empty intersection) or have dead definitions/uses (definitions/uses of
    * locations overwritten in either branch *)
-  let filter_flow du_tr =
-    let frame = CoLRD.TR.get_frame du_tr in
+  let filter_tree g tr =
+    let frame = Tree.TR.get_frame tr in
     let f minterm rest =
-      let subst = CoLRDMinterm.get_subst minterm in
-      let ((ls1, k1), (ls2, k2)) = CoLRDMinterm.get_pred minterm in
+      let subst = TreeMinterm.get_subst minterm in
+      let ((ls1, k1), (ls2, k2)) = TreeMinterm.get_pred minterm in
       let kills = AP.Set.union k1.SeqDep.killed k2.SeqDep.killed in
       let killed name = match name with
         | Some ap -> AP.Set.mem (AP.subst_var subst ap) kills
         | None -> false
       in
-        if (AP.Set.is_empty (AP.Set.inter (fst ls1).LockPred.LP.acq
-                                          (fst ls2).LockPred.LP.acq))
-        && (AP.Set.is_empty (AP.Set.inter (snd ls1).LockPred.LP.acq
-                                          (snd ls2).LockPred.LP.acq))
-        && not (killed k1.SeqDep.current_name)
-        && not (killed k2.SeqDep.current_name)
-        then CoLRD.TR.add (CoLRD.TR.of_minterm frame minterm) rest
+        if (g ls1 ls2)
+           && not (killed k1.SeqDep.current_name)
+           && not (killed k2.SeqDep.current_name)
+        then Tree.TR.add (Tree.TR.of_minterm frame minterm) rest
         else rest
     in
-      CoLRD.TR.fold_minterms f du_tr CoLRD.TR.zero
+      Tree.TR.fold_minterms f tr Tree.TR.zero
 
-  (* Filtering when the ending point of the sequential path is not known -- we
-   * can filter out paths with a non-zero intersection for the initial locksets
-   * and with the access paths killed *)
-  let filter_partial_flow du_tr =
-    let frame = CoLRD.TR.get_frame du_tr in
-    let f minterm rest =
-      let subst = CoLRDMinterm.get_subst minterm in
-      let ((ls1, k1), (ls2, k2)) = CoLRDMinterm.get_pred minterm in
-      let kills = AP.Set.union k1.SeqDep.killed k2.SeqDep.killed in
-      let killed name = match name with
-        | Some ap -> AP.Set.mem (AP.subst_var subst ap) kills
-        | None -> false
-      in
-        if (AP.Set.is_empty (AP.Set.inter (fst ls1).LockPred.LP.acq
-                                          (fst ls2).LockPred.LP.acq))
-        && not (killed k1.SeqDep.current_name)
-        && not (killed k2.SeqDep.current_name)
-        then CoLRD.TR.add (CoLRD.TR.of_minterm frame minterm) rest
-        else rest
+  let f_none x = x
+  let f_part =
+    let g ls1 ls2 =
+      (AP.Set.is_empty (AP.Set.inter (fst ls1).LockPred.LP.acq
+                                   (fst ls2).LockPred.LP.acq))
     in
-      CoLRD.TR.fold_minterms f du_tr CoLRD.TR.zero
+      filter_tree g
+  let f_all =
+    let g ls1 ls2 =
+      (AP.Set.is_empty (AP.Set.inter (fst ls1).LockPred.LP.acq
+                                     (fst ls2).LockPred.LP.acq))
+      && (AP.Set.is_empty (AP.Set.inter (snd ls1).LockPred.LP.acq
+                                        (snd ls2).LockPred.LP.acq))
+    in
+      filter_tree g
 
   (* Multiply RDMap by an LRD transition *)
   let mul_right x y = 
@@ -272,79 +286,113 @@ module Make(MakeEQ :
     let update_rd tr = filter_rd (LRD.TR.mul y tr) in
       RDMap.map update_rd x
 
-  (* Multiply FlowMap by a CoLRD transition *)
-  let mul_coright f x y =
-    let update_du tr = f (CoLRD.TR.mul tr y) in
-      FlowMap.map update_du x
+  (* Multiply PartialTreeMap by a Tree transition *)
+  let mul_pt_right f x y =
+    let update tr = f (Tree.TR.mul_pointed tr y) in
+      PartialTreeMap.map update x
 
-  let mul_coleft f x y =
-    let update_du tr = f (CoLRD.TR.mul y tr) in
-      FlowMap.map update_du x
+  let mul_pt_left f x y =
+    let update tr = f (Tree.TR.mul_pointed y tr) in
+      PartialTreeMap.map update x
 
-  (* Multiply FlowMap by a CoLRD transition *)
-  let mul_flow_uses f ud eu =
-    let h acc (((d, d_ap), (_, _)), d_tr) ((u, u_ap), u_tr) =
-      let tr = f (CoLRD.TR.mul d_tr (lift_colrd u_tr)) in
-        if Pa.may_alias d_ap u_ap
-        then FlowMap.update ((d, d_ap), (u, u_ap)) tr acc
-        else acc
-    in
-    let g acc flow = BatEnum.fold (fun acc -> h acc flow) acc (EUMap.enum eu) in 
-      BatEnum.fold g FlowMap.unit (FlowMap.enum ud)
+  (* Multiply TreeMap by a Tree transition *)
+  let mul_t_right f x y =
+    let update tr = f (Tree.TR.mul_pointed tr y) in
+      TreeMap.map update x
 
-  let interleave tr con_tr =
-    let frame =
-      Var.Set.union (LRD.TR.get_frame tr) (LRD.TR.get_frame con_tr)
-    in
-    let sub = LRDMinterm.subst (fun x -> if Var.get_subscript x = 1
-                                         then Var.subscript x 3
-                                         else x)
-    in
-    let g x y acc =
-      let y' = sub y in
-      let p1 = LRDMinterm.get_pred x in 
-      let p2 = LRDMinterm.get_pred y' in 
-      let eqs = LRDMinterm.get_eqs (LRDMinterm.mul x y') in
-      let z = CoLRDMinterm.make eqs (p1, p2) in
-        CoLRD.TR.add (CoLRD.TR.of_minterm frame z) acc
-    in
-    let f x acc = LRD.TR.fold_minterms (fun y -> g x y) con_tr acc in
-      LRD.TR.fold_minterms f tr CoLRD.TR.zero
+  let mul_t_left f x y =
+    let update tr = f (Tree.TR.mul_pointed y tr) in
+      TreeMap.map update x
 
-  (* Try all interleavings of paths in rd and eu, remove the impossible ones or
-   * ones that kill the memory locations. con_use specifies whether the uses or
-   * the definitions are concurrent *)
-  let dflow f rd eu =
+  (* Multiply a partial tree map by an eu map *)
+  let add_uses f x y =
     let g acc ((d, d_ap), d_tr) ((u, u_ap), u_tr) =
       if Pa.may_alias d_ap u_ap
-      then
-        let du = f d_tr u_tr in
-          FlowMap.mul acc (FlowMap.update ((d, d_ap), (u, u_ap)) du FlowMap.unit)
+      then begin
+        let tr = f (Tree.TR.mul_pointed d_tr (lift_lrd_tree u_tr)) in
+          if tr != Tree.TR.zero
+          then TreeMap.update ((d, d_ap), (u, u_ap)) tr acc
+          else acc
+      end
       else acc
     in
-    let f acc def = BatEnum.fold (fun acc -> g acc def) acc (EUMap.enum eu) in
-      if (not (rd = RDMap.unit)) && (not (eu = EUMap.unit))
-      then begin
-        let tmp = BatEnum.fold f FlowMap.unit (RDMap.enum rd) in
-          Log.logf
-            "dflow: **DEF** %a **USE** %a -> %a"
-            RDMap.format rd
-            EUMap.format eu
-            FlowMap.format tmp;
-          tmp
-      end
-      else FlowMap.unit
+    let f acc t = BatEnum.fold (fun acc -> g acc t) acc (EUMap.enum y) in
+      BatEnum.fold f TreeMap.unit (PartialTreeMap.enum x)
 
-  let partial_flow_parent_child = dflow interleave
-  let partial_flow_child_parent rd abs_p =
-    let f acc ((d, d_ap), d_tr) =
-      let du = interleave (lift_lk id abs_p) d_tr in
-        FlowMap.mul acc (FlowMap.update ((d, d_ap), (d, d_ap)) du FlowMap.unit)
+  (* Multiply a partial tree map by an rd map *)
+  let add_defs f x y =
+    let g acc ((u, u_ap), u_tr) ((d, d_ap), d_tr) =
+      if Pa.may_alias d_ap u_ap
+      then begin
+        let tr = f (Tree.TR.mul_pointed u_tr (lift_lrd_tree d_tr)) in
+          if tr != Tree.TR.zero
+          then TreeMap.update ((d, d_ap), (u, u_ap)) tr acc
+          else acc
+      end
+      else acc
     in
-      BatEnum.fold f FlowMap.unit (RDMap.enum rd)
-  let flow_parent_child = dflow (fun d u -> filter_flow (interleave d u))
-  let flow_child_parent = dflow (fun d u -> filter_flow (interleave u d))
-  let flow_child_child = dflow (fun d u -> filter_flow (interleave d u))
+    let f acc t = BatEnum.fold (fun acc -> g acc t) acc (RDMap.enum y) in
+      BatEnum.fold f TreeMap.unit (PartialTreeMap.enum x)
+
+  (* Quantify out the midpoint of the path, then change indices 4 to 1 *)
+  let pivot_branch x =
+    let frame = Tree.TR.get_frame x in
+    let f m acc = 
+      let tmp = 
+        TreeMinterm.subst (Tree.TR.sub_index 4 1) 
+          (TreeMinterm.exists (fun x -> Var.get_subscript x != 3) m)
+      in
+      let eqs = TreeMinterm.get_eqs tmp in
+      let (_, pred) = TreeMinterm.get_pred tmp in
+      let m' = TreeMinterm.make eqs (pred, LRDPred.unit) in
+        Tree.TR.add (Tree.TR.of_minterm frame m') acc
+    in
+      Tree.TR.fold_minterms f x Tree.TR.zero
+
+  let clear_left = Tree.TR.apply_pred (fun (_, p) -> (LRDPred.unit, p))
+
+  (* Multiply a partial rd map by a partial eu map *)
+  let mul_rd_eu x y =
+    let g acc ((d, d_ap), d_tr) ((u, u_ap), u_tr) =
+      if Pa.may_alias d_ap u_ap
+      then begin
+        let tr = f_all (Tree.TR.mul_pointed (clear_left d_tr) (pivot_branch u_tr)) in
+          if tr != Tree.TR.zero
+          then TreeMap.update ((d, d_ap), (u, u_ap)) tr acc
+          else acc
+      end
+      else acc
+    in
+    let f acc t = BatEnum.fold (fun acc -> g acc t) acc (PartialTreeMap.enum y) in
+      BatEnum.fold f TreeMap.unit (PartialTreeMap.enum x)
+
+  (* Multiply a partial eu map by a partial rd map
+   * quantify out the "fork point" of the def path, then change indices 4 to 1 *)
+  let mul_eu_rd x y =
+    let g acc ((u, u_ap), u_tr) ((d, d_ap), d_tr) =
+      if Pa.may_alias d_ap u_ap
+      then begin
+        let tr = f_all (Tree.TR.mul_pointed (clear_left u_tr) (pivot_branch d_tr)) in
+          if tr != Tree.TR.zero
+          then TreeMap.update ((d, d_ap), (u, u_ap)) tr acc
+          else acc
+      end
+      else acc
+    in
+    let f acc t = BatEnum.fold (fun acc -> g acc t) acc (PartialTreeMap.enum y) in
+      BatEnum.fold f TreeMap.unit (PartialTreeMap.enum x)
+
+  (* Make an rd or eu map a partial tree map *)
+  let make_partial_tree x =
+    let f acc (defap, tr) =
+
+      let tr' =
+        Tree.TR.subst (Tree.TR.sub_index 1 4) 
+          (Tree.TR.make_pointed Tree.TR.one (lift_lrd_tree_right tr))
+      in
+        PartialTreeMap.update defap tr' acc
+    in
+      BatEnum.fold f PartialTreeMap.unit (RDMap.enum x)
 
                            (* Path types *)
   (* abspath   : --------- ls1, ls2, kills ------------- *)
@@ -352,34 +400,39 @@ module Make(MakeEQ :
   (* abspath_p : ---- ls1, ls2 ----|---- ls2, kills ---- *)
   (* rd        : ---- ls1, ls2 --(def)-- ls2, kills ---- *)
   (* rd_t      : ---- ls1, ls2 --(def)-- ls2, kills ----| *)
-  (* rd_c      : ----(fork)----        ...         -----| *)
   (* eu        : --------- ls2, kills ----------------(use) *)
   (* eu_p      : ---- ls1, ls2 ----|---- ls2, kills --(use) *)
-  (* rd_c      : ----(fork)----        ...         ---(use) *)
-  (* du        : ---- ls1, ls2 --(fork)-- ls1, ls2 --(def)-- ls2, kills ----
-   *             ----------------(fork)-- ls1, ls2 ----|---- ls2, kills --(use) *) 
-  (* ud        : ---- ls1, ls2 --(fork)-- ls1, ls2 ----|---- ls2, kills ---- 
-   *             ----------------(fork)-- ls1, ls2 --(def)-- ls2, kills ----| *) 
-  (* du_t      : ---- ls1, ls2 --(fork)-- ls1, ls2 --(def)-- ls2, kills ----|
-   *             ----------------(fork)-- ls1, ls2 ----|---- ls2, kills --(use)
-   *           : ---- ls1, ls2 --(fork)-- ls1, ls2 ----|---- ls2, kills --(use)
-   *             ----------------(fork)-- ls1, ls2 --(def)-- ls2, kills ----| *) 
-  (* du_c      : ----(fork)----        ...         ---- *)
+  (* rd_tree   : ---- ls1, ls2 ---frk--- ls1, ls2 -------------------------
+   *                                 --- ls3, ls4 --(def)-- ls4, kills ----| *)
+  (* rd_tree_p : ---- ls1, ls2 ---frk--- ls1, ls2 ----|---- ls2, kills ----
+   *                                 --- ls3, ls4 --(def)-- ls4, kills ----| *)
+  (* rd_tree_eu: ---- ls1, ls2 ---frk--- ls1, ls2 ----|---- ls2, kills --(use)
+   *                                 --- ls3, ls4 --(def)-- ls4, kills ----| *)
+  (* eu_tree   : ---- ls1, ls2 ---frk--- ls1, ls2 -------------------------
+   *                                 --- ls3, ls4 ----|---- ls4, kills --(use) *)
+  (* eu_tree   : ---- ls1, ls2 ---frk--- ls1, ls2 --(def)-- ls2, kills ----
+   *                                 --- ls3, ls4 ----|---- ls4, kills --(use) *)
+  (* eu_tree   : ---- ls1, ls2 ---frk--- ls1, ls2 --(def)-- ls2, kills ----|
+   *                                 --- ls3, ls4 ----|---- ls4, kills --(use) *)
+  (* tree_c    : -------frk-------frk
+   *                                 --- ls1, ls2 ----|---- ls2, kills ----|
+   *                       ------------- ls3, ls4 ----|---- ls4, kills ----| *)
   module ConcReachingDefs = struct
     type var = Var.t
-    type t = { abspath   : abspath;
-               abspath_t : abspath;
-               abspath_p : abspath;
-               rd : rd;
-               rd_t : rd;
-               rd_c : rd;
-               eu : eu;
-               eu_p : eu;
-               eu_c : eu;
-               du   : du;  (* parent-->child flow, non-terminated *)
-               ud   : du;  (* child-->parent flow, no use *)
-               du_t : du;  (* child-->parent and parent-->child flow *)
-               du_c : du   (* child-->child flow *) }
+    type t = { abspath   : LK.TR.t;
+               abspath_t : LK.TR.t;
+               abspath_p : LK.TR.t;
+               rd   : RDMap.t;
+               rd_t : RDMap.t;
+               eu   : EUMap.t;
+               eu_p : EUMap.t;
+               rd_tree    : PartialTreeMap.t;
+               rd_tree_p  : PartialTreeMap.t;
+               rd_tree_eu : TreeMap.t;
+               eu_tree    : PartialTreeMap.t;
+               eu_tree_rd : TreeMap.t;
+               eu_tree_t  : TreeMap.t;
+               tree_c     : TreeMap.t }
                deriving(Show,Compare)
 
     let compare = Compare_t.compare
@@ -398,35 +451,31 @@ module Make(MakeEQ :
                  abspath_p = LK.TR.zero;
                  rd = RDMap.unit;
                  rd_t = RDMap.unit;
-                 rd_c = RDMap.unit;
                  eu = EUMap.unit;
                  eu_p = EUMap.unit;
-                 eu_c = EUMap.unit;
-                 du   = FlowMap.unit;
-                 ud   = FlowMap.unit;
-                 du_t = FlowMap.unit;
-                 du_c = FlowMap.unit }
+                 rd_tree = PartialTreeMap.unit;
+                 rd_tree_p = PartialTreeMap.unit;
+                 rd_tree_eu = TreeMap.unit;
+                 eu_tree = PartialTreeMap.unit;
+                 eu_tree_rd = TreeMap.unit;
+                 eu_tree_t = TreeMap.unit;
+                 tree_c = TreeMap.unit }
     let one = { abspath = LK.TR.one;
                 abspath_t = LK.TR.one;
                 abspath_p = LK.TR.one;
                 rd = RDMap.unit;
                 rd_t = RDMap.unit;
-                rd_c = RDMap.unit;
                 eu = EUMap.unit;
                 eu_p = EUMap.unit;
-                eu_c = EUMap.unit;
-                du   = FlowMap.unit;
-                ud   = FlowMap.unit;
-                du_t = FlowMap.unit;
-                du_c = FlowMap.unit }
+                rd_tree = PartialTreeMap.unit;
+                rd_tree_p = PartialTreeMap.unit;
+                rd_tree_eu = TreeMap.unit;
+                eu_tree = PartialTreeMap.unit;
+                eu_tree_rd = TreeMap.unit;
+                eu_tree_t = TreeMap.unit;
+                tree_c = TreeMap.unit }
 
     let mul a b =
-      let brd   = mul_left b.rd   (lift_lk left a.abspath) in
-      let brd_t = mul_left b.rd_t (lift_lk left a.abspath) in
-      let brd_c = mul_left b.rd_c (lift_lk conc a.abspath) in
-      let beu   = mul_left b.eu   (lift_lk right a.abspath) in
-      let beu_p = mul_left b.eu_p (lift_lk left a.abspath) in
-      let beu_c = mul_left b.eu_c (lift_lk conc a.abspath) in
         { abspath   = LK.TR.mul a.abspath b.abspath;
           abspath_t = LK.TR.add 
                         a.abspath_t 
@@ -434,58 +483,74 @@ module Make(MakeEQ :
           abspath_p = LK.TR.add 
                         (LK.TR.mul a.abspath_p (clear_fst b.abspath)) 
                         (LK.TR.mul (clear_kill a.abspath) b.abspath_p);
-          rd   = RDMap.mul brd (mul_right a.rd (lift_lk right b.abspath));
+          rd   = RDMap.mul 
+                   (mul_right a.rd (lift_lk_lrd lock_kill b.abspath))
+                   (mul_left b.rd (lift_lk_lrd locks a.abspath));
           rd_t = RDMap.mul 
-                   (RDMap.mul a.rd_t brd_t)
-                   (mul_right a.rd (lift_lk id b.abspath_t));
-          rd_c = RDMap.mul a.rd_c brd_c;
-          eu   = EUMap.mul a.eu beu;
-          eu_p = EUMap.mul 
-                   (EUMap.mul a.eu_p beu_p)
-                   (mul_left b.eu (lift_lk id a.abspath_p));
-          eu_c = EUMap.mul a.eu_c beu_c;
-          du   = FlowMap.mul
-                   (mul_coleft filter_partial_flow b.du (lift_colk left a.abspath))
-                   (FlowMap.mul
-                      (mul_coright filter_partial_flow a.du (lift_colk right b.abspath))
-                      (partial_flow_parent_child brd a.eu_c));
-          ud   = FlowMap.mul
-                   (mul_coleft filter_partial_flow b.ud (lift_colk left a.abspath))
-                   (FlowMap.mul
-                      (mul_coright filter_partial_flow a.ud (lift_colk right b.abspath))
-                      (partial_flow_child_parent a.rd_c b.abspath_p));
-          du_t = FlowMap.mul
-                   (FlowMap.mul 
-                      (mul_coright filter_flow a.du (lift_colk right a.abspath_t))
-                      (mul_coleft filter_flow b.du_t (lift_colk left a.abspath)))
-                   (FlowMap.mul
-                      (FlowMap.mul
-                         a.du_t 
-                         (mul_flow_uses filter_flow a.ud b.eu))
-                      (FlowMap.mul 
-                         (flow_parent_child brd_t a.eu_c)
-                         (flow_child_parent a.rd_c beu_p)));
-          du_c = FlowMap.mul 
-                   (FlowMap.mul
-                      a.du_c 
-                      (mul_coleft filter_flow b.du_c (lift_colk conc a.abspath)))
-                   (FlowMap.mul 
-                      (flow_child_child brd_c a.eu_c)
-                      (flow_child_child a.rd_c beu_c)) }
+                   (mul_right a.rd (lift_lk_lrd all b.abspath_t))
+                   (RDMap.mul
+                      a.rd_t
+                      (mul_left b.rd_t (lift_lk_lrd locks a.abspath)));
+          eu   = EUMap.mul
+                   a.eu
+                   (mul_left b.eu (lift_lk_lrd lock_kill a.abspath));
+          eu_p = EUMap.mul
+                   (mul_left b.eu (lift_lk_lrd all a.abspath_p)) 
+                   (EUMap.mul
+                      a.eu_p 
+                      (mul_left b.eu_p (lift_lk_lrd locks a.abspath)));
+          rd_tree = PartialTreeMap.mul
+                      (mul_pt_right f_none a.rd_tree (lift_lk_tree locks b.abspath))
+                      (mul_pt_left f_none b.rd_tree (lift_lk_tree locks a.abspath));
+          rd_tree_p = PartialTreeMap.mul
+                        (mul_pt_right f_part a.rd_tree (lift_lk_tree all b.abspath_p))
+                        (PartialTreeMap.mul
+                           (mul_pt_right f_part a.rd_tree_p (lift_lk_tree lock_kill b.abspath))
+                           (mul_pt_left f_part b.rd_tree_p (lift_lk_tree locks a.abspath)));
+          rd_tree_eu = TreeMap.mul 
+                         (TreeMap.mul
+                            (add_uses f_all a.rd_tree_p b.eu)
+                            (add_uses f_all a.rd_tree b.eu_p))
+                         (TreeMap.mul
+                            a.rd_tree_eu
+                            (mul_t_left f_all b.rd_tree_eu (lift_lk_tree locks a.abspath)));
+          eu_tree = PartialTreeMap.mul
+                      (mul_pt_right f_none a.eu_tree (lift_lk_tree locks b.abspath))
+                      (mul_pt_left f_none b.eu_tree (lift_lk_tree locks a.abspath));
+          eu_tree_rd = TreeMap.mul
+                         (add_defs f_part a.eu_tree b.rd)
+                         (TreeMap.mul
+                            (mul_t_right f_part a.eu_tree_rd (lift_lk_tree lock_kill b.abspath))
+                            (mul_t_left f_part b.eu_tree_rd (lift_lk_tree locks a.abspath)));
+          eu_tree_t = TreeMap.mul
+                        (TreeMap.mul
+                           (mul_t_right f_all a.eu_tree_rd (lift_lk_tree all b.abspath_t))
+                           (add_defs f_all a.eu_tree b.rd_t))
+                        (TreeMap.mul
+                           a.eu_tree_t
+                           (mul_t_left f_all b.eu_tree_t (lift_lk_tree locks a.abspath)));
+          tree_c = TreeMap.mul
+                     (TreeMap.mul
+                        (mul_rd_eu a.rd_tree b.eu_tree)
+                        (mul_eu_rd a.eu_tree b.rd_tree))
+                     (TreeMap.mul
+                        a.tree_c
+                        (mul_t_left f_all b.tree_c (lift_lk_tree none a.abspath))) }
  
     let add a b = { abspath = LK.TR.add a.abspath b.abspath;
                     abspath_t = LK.TR.add a.abspath_t b.abspath_t;
                     abspath_p = LK.TR.add a.abspath_p b.abspath_p;
                     rd = RDMap.mul a.rd b.rd;
                     rd_t = RDMap.mul a.rd_t b.rd_t;
-                    rd_c = RDMap.mul a.rd_c b.rd_c;
                     eu = EUMap.mul a.eu b.eu;
                     eu_p = EUMap.mul a.eu_p b.eu_p;
-                    eu_c = EUMap.mul a.eu_c b.eu_c;
-                    du   = FlowMap.mul a.du b.du;
-                    ud   = FlowMap.mul a.ud b.ud;
-                    du_t = FlowMap.mul a.du_t b.du_t;
-                    du_c = FlowMap.mul a.du_c b.du_c }
+                    rd_tree = PartialTreeMap.mul a.rd_tree b.rd_tree;
+                    rd_tree_p = PartialTreeMap.mul a.rd_tree_p b.rd_tree_p;
+                    rd_tree_eu = TreeMap.mul a.rd_tree_eu b.rd_tree_eu;
+                    eu_tree = PartialTreeMap.mul a.eu_tree b.eu_tree;
+                    eu_tree_rd = TreeMap.mul a.eu_tree_rd b.eu_tree_rd;
+                    eu_tree_t = TreeMap.mul a.eu_tree_t b.eu_tree_t;
+                    tree_c = TreeMap.mul a.tree_c b.tree_c }
    
     let star a = 
       let abspath = LK.TR.star a.abspath in
@@ -494,30 +559,44 @@ module Make(MakeEQ :
                         (LK.TR.mul (clear_kill abspath) a.abspath_p)
                         (clear_fst abspath)
       in
-      let rd = mul_left 
-                 (mul_right a.rd (lift_lk right abspath))
-                 (lift_lk left abspath)
+      let rd =
+        mul_left (mul_right a.rd (lift_lk_lrd lock_kill abspath))
+                 (lift_lk_lrd locks abspath)
       in
-      let rd_t = mul_right rd (lift_lk id a.abspath_t) in
-      let rd_c = mul_left a.rd_c (lift_lk conc abspath) in
-      let eu   = mul_left a.eu (lift_lk right abspath) in
-      let eu_p = mul_left a.eu (lift_lk id abspath_p) in
-      let eu_c = mul_left a.eu_c (lift_lk conc abspath) in
+      let rd_t = mul_right rd (lift_lk_lrd all a.abspath_t) in
+      let eu   = mul_left a.eu (lift_lk_lrd lock_kill abspath) in
+      let eu_p = mul_left a.eu (lift_lk_lrd all abspath_p) in
+      let rd_tree =
+        mul_pt_left f_none 
+          (mul_pt_right f_none a.rd_tree (lift_lk_tree locks abspath))
+          (lift_lk_tree locks abspath)
+      in
+      let rd_tree_p = mul_pt_right f_part rd_tree (lift_lk_tree all abspath_p) in
+      let rd_tree_eu = add_uses f_all rd_tree_p a.eu in
+      let eu_tree =
+        mul_pt_left f_none 
+          (mul_pt_right f_none a.eu_tree (lift_lk_tree locks abspath))
+          (lift_lk_tree locks abspath)
+      in
+      let eu_tree_rd = add_defs f_part eu_tree rd in
+      let eu_tree_t = mul_t_right f_all eu_tree_rd (lift_lk_tree all a.abspath_t) in
+      let tree_c =
+        TreeMap.mul (mul_rd_eu rd_tree eu_tree) (mul_eu_rd eu_tree rd_tree) 
+      in
         { abspath = abspath;
           abspath_t = abspath_t;
           abspath_p = abspath_p;
           rd   = rd;
           rd_t = rd_t;
-          rd_c = rd_c;
           eu   = eu;
           eu_p = eu_p;
-          eu_c = eu_c;
-          du   = partial_flow_parent_child rd eu_c;
-          ud   = partial_flow_child_parent rd_c abspath_p;
-          du_t = FlowMap.mul
-                   (flow_parent_child rd_t eu_c)
-                   (flow_child_parent rd_c eu_p);
-          du_c = flow_child_child rd_c eu_c }
+          rd_tree = rd_tree;
+          rd_tree_p = rd_tree_p;
+          rd_tree_eu = rd_tree_eu;
+          eu_tree = eu_tree;
+          eu_tree_rd = eu_tree_rd;
+          eu_tree_t = eu_tree_t;
+          tree_c = tree_c }
 
     let exists f a =
       let g ((def, ap), rd) = match ap with
@@ -528,30 +607,39 @@ module Make(MakeEQ :
         let h acc (da, rd) = RDMap.update da (g (da, rd)) acc in
           BatEnum.fold h RDMap.unit (RDMap.enum rd)
       in
-      let remove_locals_flow du =
+      let remove_locals_pt du =
         let h acc (x, du) =
-          FlowMap.update x (CoLRD.TR.exists f du) acc
+          PartialTreeMap.update x (Tree.TR.exists f du) acc
         in
-          BatEnum.fold h FlowMap.unit (FlowMap.enum du)
+          BatEnum.fold h PartialTreeMap.unit (PartialTreeMap.enum du)
+      in
+      let remove_locals_t du =
+        let h acc (x, du) =
+          TreeMap.update x (Tree.TR.exists f du) acc
+        in
+          BatEnum.fold h TreeMap.unit (TreeMap.enum du)
       in
         { abspath = LK.TR.exists f a.abspath;
           abspath_t = LK.TR.exists f a.abspath_t;
           abspath_p = LK.TR.exists f a.abspath_p;
           rd = remove_locals a.rd;
           rd_t = remove_locals a.rd_t;
-          rd_c = remove_locals a.rd_c;
           eu = remove_locals a.eu;
           eu_p = remove_locals a.eu_p;
-          eu_c = remove_locals a.eu_c;
-          du   = remove_locals_flow a.du;
-          ud   = remove_locals_flow a.ud;
-          du_t = remove_locals_flow a.du_t;
-          du_c = remove_locals_flow a.du_c }
+          rd_tree = remove_locals_pt a.rd_tree;
+          rd_tree_p = remove_locals_pt a.rd_tree_p;
+          rd_tree_eu = remove_locals_t a.rd_tree_eu;
+          eu_tree = remove_locals_pt a.eu_tree;
+          eu_tree_rd = remove_locals_t a.eu_tree_rd;
+          eu_tree_t = remove_locals_t a.eu_tree_t;
+          tree_c = remove_locals_t a.tree_c }
 
     let widen = add
-    let fork a = { one with rd_c = RDMap.mul a.rd_t a.rd_c;
-                            eu_c = EUMap.mul a.eu_p a.eu_c;
-                            du_c = FlowMap.mul a.du_t a.du_c }
+    let fork a = 
+      { one with
+            rd_tree = make_partial_tree a.rd_t;
+            eu_tree = make_partial_tree a.eu_p;
+            tree_c = TreeMap.mul (TreeMap.mul a.rd_tree_eu a.eu_tree_t) a.tree_c }
   end
 
   module ConcRDAnalysis = struct
@@ -646,14 +734,15 @@ module Make(MakeEQ :
           abspath_p = abspath;
           rd = rd;
           rd_t = rd;
-          rd_c = RDMap.unit;
           eu = eu;
           eu_p = eu;
-          eu_c = EUMap.unit;
-          du   = FlowMap.unit;
-          ud   = FlowMap.unit;
-          du_t = FlowMap.unit;
-          du_c = FlowMap.unit }
+          rd_tree = PartialTreeMap.unit;
+          rd_tree_p = PartialTreeMap.unit;
+          rd_tree_eu = TreeMap.unit;
+          eu_tree = PartialTreeMap.unit;
+          eu_tree_rd = TreeMap.unit;
+          eu_tree_t = TreeMap.unit;
+          tree_c = TreeMap.unit }
 
 
     let analyze file =
@@ -668,11 +757,12 @@ module Make(MakeEQ :
       let query = Analysis.mk_query rg weight Interproc.local root in
       let summary = Analysis.get_summary query root in
       let g (((def1, ap1), (def2, ap2)), tmp) =
-        if (filter_flow tmp) != CoLRD.TR.zero then
+       (* if (filter_flow tmp) != Tree.TR.zero then*)
           DG.add_edge_e dg (DG.E.create def1 (Pack.PairSet.singleton (Pack.mk_pair ap1 ap2)) def2)
       in
-        BatEnum.iter g (FlowMap.enum summary.du_t);
-        BatEnum.iter g (FlowMap.enum summary.du_c)
+        BatEnum.iter g (TreeMap.enum summary.rd_tree_eu);
+        BatEnum.iter g (TreeMap.enum summary.eu_tree_t);
+        BatEnum.iter g (TreeMap.enum summary.tree_c)
           (*
     let add_conc_edges rg root dg =
       let query = Analysis.mk_query rg weight Interproc.local root in
