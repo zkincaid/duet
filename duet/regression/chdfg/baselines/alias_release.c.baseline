@@ -1,0 +1,7 @@
+./regression/chdfg/code/alias_release.c:30 >> Assertion failed: d->something == 1
+{(d)->something}. (d)->something >= 0 && -(d)->something+1 >= 0
+./regression/chdfg/code/alias_release.c:21 >> Assertion failed: d->something == 0
+{(d)->something}. (d)->something >= 0 && -(d)->something+1 >= 0
+
+2 errors total
+1 safe assertions

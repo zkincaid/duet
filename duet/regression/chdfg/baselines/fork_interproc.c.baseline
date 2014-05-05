@@ -1,15 +1,15 @@
-./regression/chdfg/code/fork_interproc.c:23 >> Assertion failed: x21 == 0
-{x21}. x21 >= 0 && -x21+1 >= 0
-./regression/chdfg/code/fork_interproc.c:35 >> Assertion failed: x12 == 0
-{x12}. x12 >= 0 && -x12+1 >= 0
-./regression/chdfg/code/fork_interproc.c:24 >> Assertion failed: x31 == 0
-{x31}. x31 >= 0 && -x31+1 >= 0
-./regression/chdfg/code/fork_interproc.c:36 >> Assertion failed: x32 == 0
-{x32}. x32 >= 0 && -x32+1 >= 0
-./regression/chdfg/code/fork_interproc.c:48 >> Assertion failed: x23 == 0
-{x23}. x23 >= 0 && -x23+1 >= 0
 ./regression/chdfg/code/fork_interproc.c:47 >> Assertion failed: x13 == 0
 {x13}. x13 >= 0 && -x13+1 >= 0
+./regression/chdfg/code/fork_interproc.c:48 >> Assertion failed: x23 == 0
+{x23}. x23 >= 0 && -x23+1 >= 0
+./regression/chdfg/code/fork_interproc.c:35 >> Assertion failed: x12 == 0
+{x12}. x12 >= 0 && -x12+1 >= 0
+./regression/chdfg/code/fork_interproc.c:36 >> Assertion failed: x32 == 0
+{x32}. x32 >= 0 && -x32+1 >= 0
+./regression/chdfg/code/fork_interproc.c:23 >> Assertion failed: x21 == 0
+{x21}. x21 >= 0 && -x21+1 >= 0
+./regression/chdfg/code/fork_interproc.c:24 >> Assertion failed: x31 == 0
+{x31}. x31 >= 0 && -x31+1 >= 0
 
 6 errors total
 3 safe assertions

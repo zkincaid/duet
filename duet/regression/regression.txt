@@ -77,3 +77,9 @@ chdfg obj1.c -chdfg
 chdfg obj2.c -chdfg
 chdfg obj3.c -chdfg
 chdfg single_thread.c -chdfg
+chdfg global_lock.c -chdfg
+chdfg counter.c -chdfg
+chdfg producer-consumer.c -chdfg
+chdfg alias_release.c -chdfg
+chdfg local.c -chdfg
+chdfg parent_holds_lock.c -chdfg
