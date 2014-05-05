@@ -57,8 +57,12 @@ module LockPred = struct
       | Some z -> AP.Set.add z set
       | None   -> set
     in
+    let add_2 iap set = match AP.psubst_var sub_var iap with
+      | Some z -> AP.Set.add z set
+      | None   -> AP.Set.add (AP.unsubscript iap) set
+    in
       { acq = AP.Set.fold add l.acq AP.Set.empty;
-        rel = AP.Set.fold add l.rel AP.Set.empty }
+        rel = AP.Set.fold add_2 l.rel AP.Set.empty }
   let hash l = Hashtbl.hash (AP.Set.hash l.acq, 
                              AP.Set.hash l.rel)
   (* x implies y if x acquires a subset of y and releases a superset of y *)
