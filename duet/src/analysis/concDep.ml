@@ -66,10 +66,12 @@ module Make(MakeEQ :
         let x_minus_y = Var.Set.diff frame_x frame_y in
         let y_minus_x = Var.Set.diff frame_y frame_x in
         let x_eqs =
-          subst (sub_index 1 3) (assume Bexpr.ktrue y_minus_x pred_unit)
+          let tmp = assume Bexpr.ktrue y_minus_x pred_unit in
+            mul (subst (sub_index 1 3) tmp) (subst (sub_index 0 3) tmp)
         in
         let y_eqs =
-          subst (sub_index 0 3) (assume Bexpr.ktrue x_minus_y pred_unit)
+          let tmp = assume Bexpr.ktrue x_minus_y pred_unit in
+            mul (subst (sub_index 1 3) tmp) (subst (sub_index 0 3) tmp)
         in
           mul (mul x x_eqs) (mul y y_eqs)
 
@@ -338,9 +340,12 @@ module Make(MakeEQ :
   let pivot_branch x =
     let frame = Tree.TR.get_frame x in
     let f m acc = 
-      let tmp = 
-        TreeMinterm.subst (Tree.TR.sub_index 4 1) 
-          (TreeMinterm.exists (fun x -> Var.get_subscript x != 3) m)
+      let tmp =
+        let f x =
+          let sub = Var.get_subscript x in
+            sub != 3 && sub != 1
+        in
+          TreeMinterm.subst (Tree.TR.sub_index 4 1) (TreeMinterm.exists f m)
       in
       let eqs = TreeMinterm.get_eqs tmp in
       let (_, pred) = TreeMinterm.get_pred tmp in
@@ -757,23 +762,12 @@ module Make(MakeEQ :
       let query = Analysis.mk_query rg weight Interproc.local root in
       let summary = Analysis.get_summary query root in
       let g (((def1, ap1), (def2, ap2)), tmp) =
-       (* if (filter_flow tmp) != Tree.TR.zero then*)
+        if (f_all tmp) != Tree.TR.zero then
           DG.add_edge_e dg (DG.E.create def1 (Pack.PairSet.singleton (Pack.mk_pair ap1 ap2)) def2)
       in
         BatEnum.iter g (TreeMap.enum summary.rd_tree_eu);
         BatEnum.iter g (TreeMap.enum summary.eu_tree_t);
         BatEnum.iter g (TreeMap.enum summary.tree_c)
-          (*
-    let add_conc_edges rg root dg =
-      let query = Analysis.mk_query rg weight Interproc.local root in
-      let summary = Analysis.get_summary query root in
-      let g (((def1, ap1), (def2, ap2)), _) =
-        DG.add_edge_e dg (DG.E.create def1 (Pack.PairSet.singleton (Pack.mk_pair ap1 ap2)) def2)
-      in
-        BatEnum.iter g (FlowMap.enum (flow_parent_child summary.rd_t summary.eu_c));
-        BatEnum.iter g (FlowMap.enum (flow_child_parent summary.rd_c summary.eu_p));
-        BatEnum.iter g (FlowMap.enum (flow_child_child summary.rd_c summary.eu_c))
-           *)
 
   end
 end
