@@ -225,6 +225,8 @@ module E = MakeEval(
     let str_const str = SimpleRhs.Set.singleton (RStr str, OffsetFixed 0)
   end)
 
+exception Higher_ap of SimpleRhs.t
+
 let rec simplify_ap = function
   | Deref expr -> begin match simplify_expr expr with
       | VConst _ -> SimpleAP.Set.empty
@@ -232,10 +234,7 @@ let rec simplify_ap = function
 	  let add (rhs, offset) set = match rhs with
 	    | RAp (Lvl0 var) ->
 		SimpleAP.Set.add (Lvl1 (var, offset)) set
-	    | RAp (Lvl1 (_, _)) ->
-		Log.errorf "Can't deref Lvl1 AP `%a'"
-		  SimpleRhs.format (rhs, offset);
-		assert false
+	    | RAp (Lvl1 (_, _)) -> raise (Higher_ap (rhs, offset))
 	    | RAddr var ->
 		(* *(&var + offset) = var[offset] *)
 		SimpleAP.Set.add (Lvl0 (var, offset)) set
@@ -284,7 +283,13 @@ object (self)
 	  let add_offset (base, offset) = (base, Offset.add offset of2) in
 	    MemLoc.Set.map add_offset (self#ap_points_to (Variable (var, of1)))
     in
+    try
       SimpleAP.Set.fold add (simplify_ap ap) MemLoc.Set.empty
+    with Higher_ap simple_rhs -> begin
+      Log.errorf "Can't resolve access path (Higher-level AP: `%a')" AP.format ap;
+      Log.errorf "Higher-level AP: `%a'" SimpleRhs.format simple_rhs;
+      assert false
+    end
 
   method may_alias x y =
     let may_alias x y =

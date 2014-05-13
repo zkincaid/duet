@@ -112,6 +112,9 @@ sig
   val eval : expr -> (ap -> Rhs.t) -> Rhs.t value
 end
 
+
+exception Higher_ap of SimpleRhs.t
+
 val simplify_ap : ap -> SimpleAP.Set.t
 val simplify_expr : expr -> SimpleRhs.Set.t value
 

@@ -266,6 +266,15 @@ let emit_structure ctx file =
     | Return (Some x) -> assign_expr (Variable (Var.mk (return_var func))) x
     | _ -> ()
   in
+  let vdef func def =
+    try vdef func def
+    with Pa.Higher_ap simple_rhs ->
+      let loc = Def.get_location def in
+      Log.errorf "Higher-level AP: `%a'@\n  Found on: %s:%d"
+	Pa.SimpleRhs.format simple_rhs
+	loc.Cil.file
+	loc.Cil.line
+  in
     CfgIr.iter_func_defs vdef file
 
 let simple_ap_points_to pt ap =
@@ -287,24 +296,34 @@ let simple_ap_points_to pt ap =
 	end
 
 let ap_points_to pt ap =
-  let add sap set = MemLoc.Set.union (simple_ap_points_to pt sap) set in
+  try
+    let add sap set = MemLoc.Set.union (simple_ap_points_to pt sap) set in
     SimpleAP.Set.fold add (simplify_ap ap) MemLoc.Set.empty
+  with Pa.Higher_ap simple_rhs -> begin
+    Log.errorf "Higher-level AP: `%a'" Pa.SimpleRhs.format simple_rhs;
+    assert false
+  end
 
 let expr_points_to pt expr =
-  match simplify_expr expr with
+  try
+    match simplify_expr expr with
     | VConst _ -> MemLoc.Set.empty
     | VRhs rhs ->
-	let add rhs set =
-	  match rhs with
-	    | (RAp ap, offset) ->
-		let add memloc =
-		  MemLoc.Set.add (fst memloc, Offset.add (snd memloc) offset)
-		in
-		  MemLoc.Set.fold add (simple_ap_points_to pt ap) set
-	    | (RAddr v, offset) -> MemLoc.Set.add (MAddr v, offset) set
-	    | (RStr str, offset) -> MemLoc.Set.add (MStr str, offset) set
-	in
-	  SimpleRhs.Set.fold add rhs MemLoc.Set.empty
+      let add rhs set =
+	match rhs with
+	| (RAp ap, offset) ->
+	  let add memloc =
+	    MemLoc.Set.add (fst memloc, Offset.add (snd memloc) offset)
+	  in
+	  MemLoc.Set.fold add (simple_ap_points_to pt ap) set
+	| (RAddr v, offset) -> MemLoc.Set.add (MAddr v, offset) set
+	| (RStr str, offset) -> MemLoc.Set.add (MStr str, offset) set
+      in
+      SimpleRhs.Set.fold add rhs MemLoc.Set.empty
+  with Pa.Higher_ap simple_rhs -> begin
+    Log.errorf "Higher-level AP: `%a'" Pa.SimpleRhs.format simple_rhs;
+    assert false
+  end
 
 let resolve_call pt expr =
   let targets = match expr with

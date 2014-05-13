@@ -578,7 +578,6 @@ let tr_func f =
   let init = CfgIr.CfgBuilder.mk_skip cfg in
   List.iter add_goto ctx.ctx_goto;
   ignore (CfgIr.CfgBuilder.mk_seq cfg init body);
-  CfgIr.normalize_cfg cfg;
   CfgIr.remove_unreachable cfg (fst init);
   func_ir
 
@@ -658,6 +657,7 @@ let tr_file filename f =
   then file.entry_points <- [(lookup_function_name "main" file).fname]
   else file.entry_points <- List.map (fun f -> f.fname) file.funcs;
   file.threads <- file.entry_points;
+  CfgIr.normalize file;
   file
 
 let parse filename =
