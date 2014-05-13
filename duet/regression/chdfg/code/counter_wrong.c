@@ -25,13 +25,11 @@ void inc(struct counter *c) {
 }
 
 void dec(struct counter *c) {
-    pthread_mutex_lock(&(c->lock));
     assert(c->counter <= MAX);
     assert(c->counter >= 0);
     if (c->counter > 0) {
 	c->counter--;
     }
-    pthread_mutex_unlock(&(c->lock));
 }
 
 void main() {

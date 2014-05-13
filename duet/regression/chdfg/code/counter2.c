@@ -49,7 +49,7 @@ void main() {
 	    pthread_create(&t, NULL, dec, c);
 	    break;
 	default:
-	    break;
+	    c = alloc_counter();
 	}
 	n--;
     }
