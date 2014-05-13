@@ -153,6 +153,7 @@ let mk_skip () = Def.mk (Assume (Bexpr.ktrue))
 let vertex_list cfg = Cfg.fold_vertex (fun v vs -> v::vs) cfg []
 
 module HT = Hashtbl.Make(Def.Set)
+
 let factor_cfg cfg =
   let succs v = Cfg.fold_succ Def.Set.add cfg v Def.Set.empty in
   let succ_ht = HT.create 331 in
@@ -267,7 +268,6 @@ let mk_local_var func name typ = Var.mk (mk_local_varinfo func name typ)
 let mk_global_var file name typ = Var.mk (mk_global_varinfo file name typ)
 let mk_thread_local_var file name typ =
   Var.mk (mk_thread_local_varinfo file name typ)
-
 
 module FuncMemo = Memo.Make(Varinfo)
 let return_var =
@@ -396,49 +396,6 @@ module DefPairHT = Hashtbl.Make(
     let hash (a,b) = (a.did) + 10000*(b.did)
   end)
   
-(** Construct a product control flow graph.  The arguments to this
-    function are both modified, and are no longer valid CFGs. *)
-let product_cfg g h =
-  let cfg = Cfg.create () in
-  let ht = DefPairHT.create 32 in (* map pairs to vertices *)
-  let lookup u v = DefPairHT.find ht (u, v) in
-  let add_vertex u v =
-    let clone = Def.clone u in
-    DefPairHT.add ht (u,v) clone;
-    Cfg.add_vertex cfg clone
-  in
-  let add_vertices g h =
-    Cfg.iter_vertex (fun u -> Cfg.iter_vertex (fun v -> add_vertex u v) g) h
-  in
-  let add_edges g h =
-    let f e v =
-      let src = lookup (Cfg.E.src e) v in
-      let tgt1 = lookup (Cfg.E.dst e) v in
-      let tgt2 = lookup v (Cfg.E.dst e) in
-      Cfg.add_edge cfg src tgt1;
-      Cfg.add_edge cfg src tgt2
-    in
-    Cfg.iter_edges_e (fun e -> Cfg.iter_vertex (f e) g) h
-  in
-  let initial = Def.mk (Assume Bexpr.ktrue) in
-  let add_initial_edges g h =
-    let add (u, v) = Cfg.add_edge cfg initial (lookup u v) in
-    BatEnum.iter
-      add
-      (Putil.cartesian_product (Cfg.enum_initial g) (Cfg.enum_initial h))
-  in
-  Cfg.add_vertex cfg initial;
-  Cfg.remove_vertex g (Cfg.initial_vertex g);
-  Cfg.remove_vertex h (Cfg.initial_vertex h);
-  add_vertices g h;
-  add_vertices h g;
-  add_edges g h;
-  add_edges h g;
-  add_initial_edges g h;
-  add_initial_edges h g;
-  normalize_cfg cfg;
-  cfg
-
 (** A reference to the current file.  This reference should be set as early as
     (in parseFile).  This will be deprecated once we start supporting projects
     with more than one file. *)
@@ -487,6 +444,36 @@ let rewrite sub_expr sub_bexpr sub_ap sub_var file =
       d.dkind <- dk
   in
     iter_defs sub_def file
+
+let normalize file =
+  let normalize_func func =
+    let str_const_rhs def = match def.dkind with
+      | Store (lhs, rhs) ->
+	begin match Expr.strip_casts rhs with
+	| Constant (CString _) ->
+	  let tmp =
+	    mk_local_var func
+	      "duet_str_const"
+	      (Concrete (Pointer (Concrete (Int IChar))))
+	  in
+	  let tmp_assign =
+	    Def.mk ~loc:(Def.get_location def) (Assign (tmp, rhs))
+	  in
+	  def.dkind <- begin match rhs with
+	  | Constant _ -> Store (lhs, AccessPath (Variable tmp))
+	  | Cast (typ, _) -> Store (lhs, Cast (typ, AccessPath (Variable tmp)))
+	  | _ -> assert false
+	  end;
+	  insert_pre tmp_assign def func.cfg
+	| _ -> ()
+	end
+      | _ -> ()
+    in
+    remove_unreachable func.cfg (Cfg.initial_vertex func.cfg);
+    factor_cfg func.cfg;
+    Cfg.iter_vertex str_const_rhs func.cfg
+  in
+  List.iter normalize_func file.funcs
 
 (******************************************************************************)
 (* Translation from AST IR *)
@@ -630,5 +617,6 @@ let from_file_ast file =
 	     }
   in
   let set_file func = func.file <- Some file in
-    List.iter set_file file.funcs;
-    file
+  List.iter set_file file.funcs;
+  normalize file;
+  file
