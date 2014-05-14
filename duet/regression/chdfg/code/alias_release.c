@@ -27,7 +27,7 @@ void bar(struct data * d) {
 
   pthread_mutex_lock(&d->lock);
     d->something = 1;
-    assert(d->something == 1); // fail, assert(d->something == 0) from foo reaches
+    assert(d->something == 1); // pass
   pthread_mutex_unlock(&d->lock);
 }
 

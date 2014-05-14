@@ -50,7 +50,6 @@ void main() {
 	    break;
 	default:
 	    break;
-	    c = alloc_counter();
 	}
 	n--;
     }
