@@ -617,7 +617,7 @@ struct
   module InterPE = MakeElim(CG)(K)
 
   type query =
-    { recgraph : R.t;
+    { mutable recgraph : R.t;
       weight : R.atom -> K.t;
       local : R.block -> (K.var -> bool);
       root : R.block;
@@ -656,6 +656,14 @@ struct
   let add_callgraph_edge query b1 b2 =
     let cg' = CG.add_edge (callgraph query) b1 b2 in
     query.callgraph <- Some cg'
+
+  let remove_dead_code query =
+    let cg = callgraph query in
+    let f acc block = if not (CG.mem_vertex cg block)
+                      then R.remove_block acc block
+                      else acc
+    in
+      query.recgraph <- BatEnum.fold f query.recgraph (R.blocks query.recgraph)
 
   let compute_summaries query =
     let cg = callgraph query in

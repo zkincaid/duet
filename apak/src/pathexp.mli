@@ -78,6 +78,7 @@ sig
     query
   val compute_summaries : query -> unit
   val add_callgraph_edge : query -> Block.t -> Block.t -> unit
+  val remove_dead_code : query -> unit
   val get_summaries : query -> K.t HT.t
   val get_summary : query -> Block.t -> K.t
   val single_src_blocks : query -> Block.t -> K.t
@@ -103,6 +104,7 @@ sig
     query
   val compute_summaries : query -> unit
   val add_callgraph_edge : query -> Block.t -> Block.t -> unit
+  val remove_dead_code : query -> unit
   val get_summaries : query -> K.t HT.t
   val get_summary : query -> Block.t -> K.t
   val single_src_blocks : query -> Block.t -> K.t
