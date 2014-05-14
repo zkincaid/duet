@@ -95,6 +95,7 @@ struct
   let solve rg root smash file init =
     let left_query = Left.mk_query rg A.left_weight Interproc.local root in
     let go (_, v, path_to_v) = smash path_to_v (A.right_weight v) in
+      Left.remove_dead_code left_query;
       BatEnum.iter go (Left.enum_single_src left_query)
 end
 

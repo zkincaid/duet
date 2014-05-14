@@ -412,6 +412,7 @@ module Datarace = struct
       let l_weight = stabilise races LockPath.weight in
       let query = LSA.mk_query rg (weight l_weight) Interproc.local root
       in
+        LSA.remove_dead_code query;
         find_all_races query root
     in
     let rec fp_races old_races =

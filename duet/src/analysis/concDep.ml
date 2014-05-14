@@ -12,9 +12,6 @@ module Pack = Afg.Pack
 module LockPred = struct
   module LP = LockLogic.LockPred
   include LockLogic.CombinePred(Var)(LP)(LP)
-  let implies sub x y =
-    let sub' ap = Some (sub ap) in
-      equal x (subst sub' y)
   let clear_fst (x, y) = (LP.unit, y)
   let clear_snd (x, y) = (x, LP.unit)
   let make_acq x = 
@@ -712,7 +709,7 @@ module Make(MakeEQ :
         match def.dkind with
           | Store (lhs, rhs) -> assign_weight lhs rhs
           | Assign (lhs, rhs) -> assign_weight (Variable lhs) rhs
-          | Assume be | Assert (be, _) -> assume_weight be
+          | Assume be | Assert (be, _) -> RDMap.unit (*assume_weight be*)
           | AssertMemSafe (e, _) -> assume_weight (Bexpr.of_expr e)
           (* Doesn't handle offsets at the moment *)
           | Builtin (Alloc (lhs, _, _)) -> assign_weight (Variable lhs) (Havoc (Var.get_type lhs))
@@ -759,7 +756,11 @@ module Make(MakeEQ :
         Analysis.mk_query rg weight Interproc.local root
 
     let add_conc_edges rg root dg =
-      let query = Analysis.mk_query rg weight Interproc.local root in
+      let query =
+        let tmp = Analysis.mk_query rg weight Interproc.local root in
+          Analysis.remove_dead_code tmp;
+          tmp
+      in
       let summary = Analysis.get_summary query root in
       let g (((def1, ap1), (def2, ap2)), tmp) =
         if (f_all tmp) != Tree.TR.zero then
