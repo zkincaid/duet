@@ -1,8 +1,8 @@
 ./regression/pa/code/noalloc.c:24 >> Assertion failed: (unsigned long )x != (unsigned long )(& array)
-./regression/pa/code/noalloc.c:28 >> Assertion failed: (unsigned long )x != (unsigned long )(& some_foo.array_field)
+./regression/pa/code/noalloc.c:25 >> Assertion failed: (unsigned long )x != (unsigned long )(& foo)
 ./regression/pa/code/noalloc.c:26 >> Assertion failed: (unsigned long )x != (unsigned long )(& y)
 ./regression/pa/code/noalloc.c:27 >> Assertion failed: (unsigned long )x != (unsigned long )z
-./regression/pa/code/noalloc.c:25 >> Assertion failed: (unsigned long )x != (unsigned long )(& foo)
+./regression/pa/code/noalloc.c:28 >> Assertion failed: (unsigned long )x != (unsigned long )(& some_foo.array_field)
 
 5 errors total
 0 safe assertions

@@ -1,10 +1,10 @@
-./regression/pa/code/unknown_offset.c:26 >> Assertion failed: (unsigned long )x.q != (unsigned long )(& y)
-./regression/pa/code/unknown_offset.c:29 >> Assertion failed: (unsigned long )y.q != (unsigned long )(& b)
-./regression/pa/code/unknown_offset.c:23 >> Assertion failed: (unsigned long )q != (unsigned long )(& b)
-./regression/pa/code/unknown_offset.c:28 >> Assertion failed: (unsigned long )y.p != (unsigned long )(& a)
-./regression/pa/code/unknown_offset.c:25 >> Assertion failed: (unsigned long )x.p != (unsigned long )(& y)
 ./regression/pa/code/unknown_offset.c:20 >> Assertion failed: (unsigned long )p != (unsigned long )(& y)
 ./regression/pa/code/unknown_offset.c:22 >> Assertion failed: (unsigned long )q != (unsigned long )(& a)
+./regression/pa/code/unknown_offset.c:23 >> Assertion failed: (unsigned long )q != (unsigned long )(& b)
+./regression/pa/code/unknown_offset.c:25 >> Assertion failed: (unsigned long )x.p != (unsigned long )(& y)
+./regression/pa/code/unknown_offset.c:26 >> Assertion failed: (unsigned long )x.q != (unsigned long )(& y)
+./regression/pa/code/unknown_offset.c:28 >> Assertion failed: (unsigned long )y.p != (unsigned long )(& a)
+./regression/pa/code/unknown_offset.c:29 >> Assertion failed: (unsigned long )y.q != (unsigned long )(& b)
 
 7 errors total
 0 safe assertions

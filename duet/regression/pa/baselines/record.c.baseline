@@ -1,8 +1,8 @@
-./regression/pa/code/record.c:29 >> Assertion failed: (unsigned long )r != (unsigned long )(& x.p)
-./regression/pa/code/record.c:26 >> Assertion failed: (unsigned long )y.q != (unsigned long )(& z)
-./regression/pa/code/record.c:28 >> Assertion failed: (unsigned long )r != (unsigned long )(& x)
 ./regression/pa/code/record.c:20 >> Assertion failed: (unsigned long )x.p != (unsigned long )(& y.p)
 ./regression/pa/code/record.c:23 >> Assertion failed: (unsigned long )x.q != (unsigned long )(& y.q)
+./regression/pa/code/record.c:26 >> Assertion failed: (unsigned long )y.q != (unsigned long )(& z)
+./regression/pa/code/record.c:28 >> Assertion failed: (unsigned long )r != (unsigned long )(& x)
+./regression/pa/code/record.c:29 >> Assertion failed: (unsigned long )r != (unsigned long )(& x.p)
 
 5 errors total
 4 safe assertions
