@@ -60,8 +60,35 @@ sig
 end
 
 open RecGraph
-module MakeRG
-  (R : RecGraph.S)
+module MakeParRG
+  (R : RecGraph.S with type ('a,'b) typ = ('a, 'b) RecGraph.par_typ)
+  (Block : BLOCK with type t = R.block)
+  (K : sig
+    include Sig.KA.Quantified.Ordered.S
+    val widen : t -> t -> t
+    val fork : t -> t
+  end) :
+sig
+  module HT : BatHashtbl.S with type key = Block.t
+  type query
+  val mk_query : R.t ->
+    (R.atom -> K.t) ->
+    (R.block -> (K.var -> bool)) ->
+    R.block ->
+    query
+  val compute_summaries : query -> unit
+  val add_callgraph_edge : query -> Block.t -> Block.t -> unit
+  val remove_dead_code : query -> unit
+  val get_summaries : query -> K.t HT.t
+  val get_summary : query -> Block.t -> K.t
+  val single_src_blocks : query -> Block.t -> K.t
+  val single_src_restrict :
+    query -> (R.G.V.t -> bool) -> (R.G.V.t -> K.t -> unit) -> unit
+  val single_src : query -> Block.t -> R.G.V.t -> K.t
+  val enum_single_src : query -> (Block.t * R.G.V.t * K.t) BatEnum.t
+end
+module MakeSeqRG
+  (R : RecGraph.S with type ('a,'b) typ = ('a, 'b) RecGraph.seq_typ)
   (Block : BLOCK with type t = R.block)
   (K : sig
     include Sig.KA.Quantified.Ordered.S
@@ -77,6 +104,7 @@ sig
     query
   val compute_summaries : query -> unit
   val add_callgraph_edge : query -> Block.t -> Block.t -> unit
+  val remove_dead_code : query -> unit
   val get_summaries : query -> K.t HT.t
   val get_summary : query -> Block.t -> K.t
   val single_src_blocks : query -> Block.t -> K.t

@@ -4,99 +4,69 @@ open Core
 open CfgIr
 open Apak
 
-(* -----------------Concurrent analysis *)
-module Conc = struct
-  module V = struct
-    include Def
-    type atom = t
-    type block = Varinfo.t
-    let classify v = match v.dkind with
-      | Call (None, AddrOf (Variable (func, OffsetFixed 0)), []) ->
-          RecGraph.Block func
-      | Call (_, _, _) ->
-          Log.errorf "Unrecognized call: %a" format v;
-          assert false
-      | Builtin (Fork (vo, e, elst)) -> 
-          begin match Expr.strip_all_casts e with
-            | AccessPath (Variable (func, OffsetFixed 0)) -> RecGraph.Block func
-            | _ -> Log.errorf "Unrecognized fork: %a" format v;
-                   assert false
-          end
-      | _ -> RecGraph.Atom v
-  end
-  module RG = RecGraph.Make(V)(Varinfo)
-  module RGD = ExtGraph.Display.MakeSimple(RG.G)(Def)
-  module MakePathExpr = Pathexp.MakeRG(RG)(Varinfo)
-  
-  let make_recgraph file =
-    ignore (Bddpa.initialize file);
-    Pa.simplify_calls file;
-    let mk_func rg func =
-      let add_edge src tgt graph = RG.G.add_edge graph src tgt in
-      let graph = Cfg.fold_edges add_edge func.cfg RG.G.empty in
-      let bentry = Cfg.initial_vertex func.cfg in
-      let ts = Cfg.enum_terminal func.cfg in
-      let bexit = Def.mk (Assume Bexpr.ktrue) in
-      let add_edge graph v = RG.G.add_edge graph v bexit in
-      let graph = BatEnum.fold add_edge (RG.G.add_vertex graph bexit) ts in
-        RG.add_block rg func.fname graph ~entry:bentry ~exit:bexit
-    in
-      List.fold_left mk_func RG.empty file.funcs
-end
-
+(* TODO: Address of generates no equality *)
 (* -----------------Domains *)
 module type Predicate = sig
   include EqLogic.Hashed.Predicate
   val pred_weight : Def.t -> t
 end
 
-  (* Don't like this solution at all *)
-module NullPred = struct
-  type t = char deriving (Show,Compare)
-  type var = Var.t
+module CombinePred (V : EqLogic.Var) (P1 : Predicate with type var = V.t)
+                                     (P2 : Predicate with type var = V.t) =
+struct 
+  type t = P1.t * P2.t deriving (Show, Compare)
+  type var = V.t
   let compare = Compare_t.compare
   let format = Show_t.format
   let show = Show_t.show
-  let equal _ _ = true
-  let unit = '0'
-  let mul _ _ = '0'
-  let subst _ _ = '0'
+
+  let equal x y = (P1.equal (fst x) (fst y)) && (P2.equal (snd x) (snd y))
+  let unit = (P1.unit, P2.unit)
+  let mul x y = (P1.mul (fst x) (fst y), P2.mul (snd x) (snd y))
+  let subst sub_var x = (P1.subst sub_var (fst x), P2.subst sub_var (snd x))
+  let implies sub x y = (P1.implies sub (fst x) (fst y)) &&
+                        (P2.implies sub (snd x) (snd y))
   let hash = Hashtbl.hash
-  let implies _ _ _ = true
-  let pred_weight _ = unit
+  let pred_weight def = (P1.pred_weight def, P2.pred_weight def)
 end
 
+(* Locksets. acq tracks acuires that definitely have not been released, rel
+ * tracks release that may not have been re-acquired. Negation is a hack to
+ * test satisfiability of eqs1 ^ eqs2 ^ acq1 \cap acq2 \neq 0 through mul *)
 module LockPred = struct
+  type var = Var.t
   type t = { acq : AP.Set.t;
              rel : AP.Set.t } 
              deriving (Show,Compare)
-  type var = Var.t
   let compare = Compare_t.compare
   let format = Show_t.format
   let show = Show_t.show
 
-  (* Effectively tests whether the actual locksets are equivalent, regardless of
-   * the releases *)
-  let equal l1 l2 = AP.Set.equal l1.acq l2.acq
+  let equal l1 l2 = compare l1 l2 = 0
   let unit = { acq = AP.Set.empty;
                rel = AP.Set.empty }
   let mul l1 l2 =
-    let deref_alias x y = Pa.may_alias (Deref (AccessPath x)) (Deref (AccessPath y)) in
-    let remove l rel = 
-      AP.Set.filter (fun x -> not (AP.Set.exists (Pa.may_alias x) rel)) l
-    in 
-      { acq = AP.Set.union (remove l1.acq l2.rel) l2.acq;
-        rel = AP.Set.union l1.rel l2.rel }
+    let remove eq l rel = 
+      AP.Set.filter (fun x -> not (AP.Set.exists (eq x) rel)) l
+    in
+      { acq = AP.Set.union (remove Pa.may_alias l1.acq l2.rel) l2.acq;
+        rel = AP.Set.union (remove AP.equal l1.rel l2.acq) l2.rel }
   (* Not sure if this is the right way to handle existentials *)
   let subst sub_var l =
     let add iap set = match AP.psubst_var sub_var iap with
       | Some z -> AP.Set.add z set
       | None   -> set
     in
+    let add_2 iap set = match AP.psubst_var sub_var iap with
+      | Some z -> AP.Set.add z set
+      | None   -> AP.Set.add (AP.unsubscript iap) set
+    in
       { acq = AP.Set.fold add l.acq AP.Set.empty;
-        rel = AP.Set.fold add l.rel AP.Set.empty }
-  let hash l = Hashtbl.hash (AP.Set.hash l.acq, AP.Set.hash l.rel)
-  let implies sub x y =
+        rel = AP.Set.fold add_2 l.rel AP.Set.empty }
+  let hash l = Hashtbl.hash (AP.Set.hash l.acq, 
+                             AP.Set.hash l.rel)
+  (* x implies y if x acquires a subset of y and releases a superset of y *)
+  let implies sub y x =
     let sub_iap iap =
       match AP.psubst_var (fun x -> Some (sub x)) iap with
         | Some z -> z
@@ -104,19 +74,28 @@ module LockPred = struct
     let y_sub = { acq = AP.Set.map sub_iap y.acq;
                   rel = AP.Set.map sub_iap y.rel }
     in
-      (AP.Set.for_all (fun k -> AP.Set.mem k x.acq) y_sub.acq) &&
+      (AP.Set.for_all (fun k -> AP.Set.mem k y_sub.acq) x.acq) &&
       (AP.Set.for_all (fun k -> AP.Set.mem k x.rel) y_sub.rel)
 
-  let pred_weight def = match def.dkind with
-    | Builtin (Acquire (AccessPath ap)) -> { acq = AP.Set.singleton (Deref (AccessPath ap));
-                                             rel = AP.Set.empty }
-    | Builtin (Acquire (AddrOf ap)) -> { acq = AP.Set.singleton ap;
-                                         rel = AP.Set.empty }
-    | Builtin (Release (AccessPath ap)) -> { acq = AP.Set.empty;
-                                             rel = AP.Set.singleton (Deref (AccessPath ap)) }
-    | Builtin (Release (AddrOf ap)) -> { acq = AP.Set.empty;
-                                         rel = AP.Set.singleton ap }
+  let pred_weight def =
+    let get_deref e = match e with 
+      | AddrOf ap -> AP.Set.singleton ap
+      | _         -> AP.Set.singleton (Deref e) 
+    in match def.dkind with
+    | Builtin (Acquire e) -> { acq = get_deref e;
+                               rel = AP.Set.empty }
+    | Builtin (Release e) -> { acq = AP.Set.empty;
+                               rel = get_deref e }
     | _ -> unit
+end
+
+module CoLockPred = struct 
+  open LockPred
+  include CombinePred(Var)(LockPred)(LockPred)
+  let inter (l1, l2) = AP.Set.inter l1.acq l2.acq
+  let inter_empty ls = AP.Set.is_empty (inter ls)
+  let left ls  = (ls, LockPred.unit)
+  let right ls = (LockPred.unit, ls)
 end
 
 module MakePath (P : Predicate with type var = Var.t) = struct
@@ -127,272 +106,367 @@ module MakePath (P : Predicate with type var = Var.t) = struct
   include Transition
 
   let weight def = 
-    let hack = Atom (Eq, Constant (CChar 'h'), Constant (CChar 'h')) in
     let pw = P.pred_weight def in
     let weight_builtin bi = match bi with
-      | Acquire e -> begin match e with
-          | AccessPath ap  -> assume hack (AP.free_vars ap) pw
-          | AddrOf ap      -> assume hack (AP.free_vars ap) pw
-          | _              -> failwith "Lock logic: I don't think you acquired an access path yo"
-        end
-      | Release e -> begin match e with
-          | AccessPath ap  -> assume hack (AP.free_vars ap) pw
-          | AddrOf ap      -> assume hack (AP.free_vars ap) pw
-          | _              -> failwith "Lock logic: I don't think you released an access path yo"
-        end
+      | Acquire e 
+      | Release e -> assume Bexpr.ktrue (Expr.free_vars e) pw
       | Alloc (v, e, targ) -> assign (Variable v) (Havoc (Var.get_type v)) pw
-      | Free e             -> one
-      | Fork (vo, e, elst) -> one
-      | AtomicBegin        -> one
+      | Free _             
+      | Fork (_, _, _)
+      | AtomicBegin       
       | AtomicEnd          -> one
       | Exit               -> zero
     in match def.dkind with
       | Assign (v, e)        -> assign (Variable v) e pw
       | Store  (a, e)        -> assign a e pw
-      | Call   (vo, e, elst) -> failwith "Lock logic: Not sure there are supposed to be calls?"
-      | Assume be            -> assume be (Bexpr.free_vars be) pw
-      | Assert (be, s)       -> assume be (Bexpr.free_vars be) pw
+      | Call   (vo, e, elst) -> failwith "Lock logic: Call encountered"
+      | Assume be          
+      | Assert (be, _)       -> assume be (Bexpr.free_vars be) pw
       | AssertMemSafe (e, s) -> assume (Bexpr.of_expr e) (Expr.free_vars e) pw
       | Initial              -> one 
-      | Return eo            -> failwith "Lock logic: Again, not sure about returns..."
+      | Return eo            -> failwith "Lock logic: Return encountered"
       | Builtin bi -> weight_builtin bi
 end
 
-module NullPath = MakePath(NullPred)
 module LockPath = MakePath(LockPred)
+module CoLockPath = MakePath(CoLockPred)
 
-module Mapped (Key : Putil.CoreType) (Value : Putil.Ordered) = struct
-  module M = Key.Map
-  type t = Value.t M.t
-  module Show_t = struct
-    type a = t
-    let format f a = M.format Value.format f a
-    let format_list f a = ()
-    let show a =
-      let f k v s = s ^ "[" ^ Key.show k ^ "-->" ^ Value.show v ^ "]," in
-        M.fold f a ""
-    let show_list = List.fold_left (fun acc -> fun a -> acc ^ ", [" ^ show a ^ "],") ""
-  end
-  module Compare_t = struct
-    type a = t
-    let compare a b = M.compare Value.compare a b
-  end
+(* zero all locksets in a transition formula *)
+let zero_locks lp =
+  let lp_frame = LockPath.get_frame lp in
+  let make_minterm mt = 
+    LockPath.Minterm.make (LockPath.Minterm.get_eqs mt) LockPred.unit
+  in
+  let add_minterm mt  = 
+    LockPath.add (LockPath.of_minterm lp_frame (make_minterm mt))
+  in
+    LockPath.fold_minterms add_minterm lp LockPath.zero
+
+let interleave lp1 lp2 =
+  let frame = Var.Set.union (LockPath.get_frame lp1) (LockPath.get_frame lp2) in
+  let sub  = LockPath.Minterm.subst (fun x -> if Var.get_subscript x = 1
+                                              then Var.subscript x 3
+                                              else x)
+  in
+  let g m1 m2 =
+    let ls = (LockPath.Minterm.get_pred m1, LockPath.Minterm.get_pred m2) in
+    let eqs = LockPath.Minterm.get_eqs (LockPath.Minterm.mul m1 (sub m2)) in
+    let m3 = CoLockPath.Minterm.make eqs ls in
+      CoLockPath.add (CoLockPath.of_minterm frame m3)
+  in
+  let f m1 = LockPath.fold_minterms (fun m2 -> g m1 m2) lp2 in
+    LockPath.fold_minterms f lp1 CoLockPath.zero
+
+let lift_left lp =
+  let frame = LockPath.get_frame lp in
+  let f m =
+    let eqs = LockPath.Minterm.get_eqs m in
+    let ls = LockPath.Minterm.get_pred m in
+    let m' = CoLockPath.Minterm.make eqs (CoLockPred.left ls) in
+      CoLockPath.add (CoLockPath.of_minterm frame m')
+  in
+    LockPath.fold_minterms f lp CoLockPath.zero
+
+let lift_none lp =
+  let frame = LockPath.get_frame lp in
+  let f m =
+    let eqs = LockPath.Minterm.get_eqs m in
+    let m' = CoLockPath.Minterm.make eqs CoLockPred.unit in
+      CoLockPath.add (CoLockPath.of_minterm frame m')
+  in
+    LockPath.fold_minterms f lp CoLockPath.zero
+
+module DefUse = struct
+  type t = Var.t * Def.t deriving (Show, Compare)
+  let compare = Compare_t.compare
   let format = Show_t.format
   let show = Show_t.show
-  let compare = Compare_t.compare
-  let bot = M.empty
-  let merge jn a b = 
-    let f k av bv = match (av, bv) with
-      | (Some phi, Some psi) -> Some (jn phi psi)
-      | (Some phi, _)        -> Some phi
-      | (_,        Some psi) -> Some psi
-      | (_, _)               -> None in
-    M.merge f a b
+  let equal x y = compare x y = 0
 end
 
-(* Protected Definitions *)
-module PD = struct
-  include Mapped(Var)(LockPath)
-  type var = Var.t
+module LockMon = Ka.Ordered.AdditiveMonoid(LockPath)
+module CoLockMon = Ka.Ordered.AdditiveMonoid(CoLockPath)
 
-  let equal = M.equal LockPath.equal
-  let join = merge LockPath.add
-  let mul_r a np =
-    let np_frame = NullPath.get_frame np in
-    let make_minterm m = LockPath.Minterm.make (NullPath.Minterm.get_eqs m) LockPred.unit in
-    let add_minterm m acc = LockPath.add (LockPath.of_minterm np_frame (make_minterm m)) acc in
-    let lift_np = NullPath.fold_minterms add_minterm np LockPath.zero in
-      M.map (fun lp -> LockPath.mul lp lift_np) a
-  let mul_l lp a = M.map (fun lp2 -> LockPath.mul lp lp2) a
-  let exists f a = M.map (fun lp -> LockPath.exists f lp) a
-end
+module DefMap = Monoid.FunctionSpace.Total.Ordered.Make(Var)(LockMon)
+module UseMap = Monoid.FunctionSpace.Total.Ordered.Make(Def)(LockMon)
+module DUMap = Monoid.FunctionSpace.Total.Ordered.Make(DefUse)(CoLockMon)
 
-(* Fork maps *)
-module FM = struct
-  include Mapped(Def)(PD)
-  type var = Var.t
+let filter_du du = 
+  let frame = CoLockPath.get_frame du in
+  let f min acc =
+    let ls = CoLockPath.Minterm.get_pred min in
+      if CoLockPred.inter_empty ls
+      then CoLockPath.add (CoLockPath.of_minterm frame min) acc
+      else acc
+  in
+    CoLockPath.fold_minterms f du CoLockPath.zero
 
-  let equal = M.equal PD.equal
-  let join = merge PD.join
-  let mul_r a np = M.map (fun f -> PD.mul_r f np) a
-  let mul_l lp a = M.map (fun f -> PD.mul_l lp f) a
-  let exists f a = M.map (fun g -> PD.exists f g) a
-  let absorb a pd = M.map (PD.join pd) a
-end
+let def_mul_l x y =
+  DefMap.map (fun tr -> LockPath.mul y tr) x
 
+let def_mul_l_con x y =
+  DefMap.map (fun tr -> LockPath.mul (zero_locks y) tr) x
+
+let use_mul_l x y =
+  UseMap.map (fun tr -> LockPath.mul y tr) x
+
+let use_mul_l_con x y =
+  UseMap.map (fun tr -> LockPath.mul (zero_locks y) tr) x
+
+let du_mul_l x y =
+  let y' = lift_left y in
+  DUMap.map (fun tr -> filter_du (CoLockPath.mul y' tr)) x
+
+let du_mul_l_con x y =
+  let y' = lift_none y in
+  DUMap.map (fun tr -> filter_du (CoLockPath.mul y' tr)) x
+
+let mul_du def use = 
+  let h (v, def_tr) acc (use, use_tr) =
+    let tr = filter_du (interleave def_tr use_tr) in
+      DUMap.update (v, use) (filter_du tr) acc
+  in
+  let g acc (v, def_tr) =
+    BatEnum.fold (h (v, def_tr)) acc (UseMap.enum use)
+  in
+    BatEnum.fold g DUMap.unit (DefMap.enum def)
+
+let mul_ud def use = 
+  let h (v, def_tr) acc (use, use_tr) =
+    let tr = filter_du (interleave use_tr def_tr) in
+      DUMap.update (v, use) tr acc
+  in
+  let g acc (v, def_tr) =
+    BatEnum.fold (h (v, def_tr)) acc (UseMap.enum use)
+  in
+    BatEnum.fold g DUMap.unit (DefMap.enum def)
+
+(* Domain for the data race analysis *)
 module Domain = struct
   type var = Var.t
   type t = { lp : LockPath.t;
-             np : NullPath.t;
-             seq : PD.t;
-             con : PD.t;
-             frk : FM.t }
+             def   : DefMap.t;
+             def_c : DefMap.t;
+             use   : UseMap.t;
+             use_c : UseMap.t;
+             du    : DUMap.t;
+             du_c  : DUMap.t }
              deriving(Show,Compare)
   let compare = Compare_t.compare
   let format = Show_t.format
   let show = Show_t.show
 
-  let equal a b = (LockPath.equal a.lp b.lp) && 
-                  (NullPath.equal a.np b.np) &&
-                  (PD.equal a.seq b.seq) &&
-                  (PD.equal a.con b.con) &&
-                  (FM.equal a.frk b.frk)
+  let equal a b = compare a b = 0
   let mul a b =
-    let aseq = PD.mul_r a.seq b.np in
-    let bseq = PD.mul_l a.lp b.seq in
+    let bdef = def_mul_l b.def a.lp in
+    let bdef_c = def_mul_l_con b.def_c a.lp in
+    let buse = use_mul_l b.use a.lp in
+    let buse_c = use_mul_l_con b.use_c a.lp in
       { lp = LockPath.mul a.lp b.lp;
-        np = NullPath.mul a.np b.np;
-        seq = PD.join aseq bseq;
-        con = PD.join a.con b.con;
-        frk = FM.join (FM.absorb (FM.mul_r a.frk b.np) bseq) (FM.mul_l a.lp b.frk) }
+        def   = DefMap.mul a.def bdef;
+        def_c = DefMap.mul a.def_c bdef_c;
+        use   = UseMap.mul a.use buse;
+        use_c = UseMap.mul a.use_c buse_c;
+        du    = DUMap.mul 
+                  (DUMap.mul a.du (du_mul_l b.du a.lp))
+                  (DUMap.mul (mul_du bdef a.use_c) (mul_ud a.def_c buse));
+        du_c  = DUMap.mul 
+                  (DUMap.mul a.du_c (du_mul_l_con b.du_c a.lp))
+                  (DUMap.mul (mul_du a.def_c buse_c) (mul_du bdef_c a.use_c)) }
   let add a b = { lp = LockPath.add a.lp b.lp;
-                  np = NullPath.add a.np b.np;
-                  seq = PD.join a.seq b.seq;
-                  con = PD.join a.con b.con;
-                  frk = FM.join a.frk b.frk }
+                  def   = DefMap.mul a.def b.def;
+                  def_c = DefMap.mul a.def_c b.def_c;
+                  use   = UseMap.mul a.use b.use;
+                  use_c = UseMap.mul a.use_c b.use_c;
+                  du    = DUMap.mul a.du b.du;
+                  du_c  = DUMap.mul a.du_c b.du_c }
   let zero = { lp = LockPath.zero;
-               np = NullPath.zero;
-               seq = PD.bot;
-               con = PD.bot;
-               frk = FM.bot } 
+               def   = DefMap.unit;
+               def_c = DefMap.unit;
+               use   = UseMap.unit;
+               use_c = UseMap.unit;
+               du    = DUMap.unit;
+               du_c  = DUMap.unit }
   let one = { lp = LockPath.one;
-              np = NullPath.one;
-              seq = PD.bot;
-              con = PD.bot;
-              frk = FM.bot }
+              def   = DefMap.unit;
+              def_c = DefMap.unit;
+              use   = UseMap.unit;
+              use_c = UseMap.unit;
+              du    = DUMap.unit;
+              du_c  = DUMap.unit }
   let star a = 
-    let l = LockPath.star a.lp in
-    let n = NullPath.star a.np in
-      { lp = l; 
-        np = n; 
-        seq = PD.mul_l l (PD.mul_r a.seq n);
-        con = a.con;
-        frk = FM.mul_l l (FM.mul_r a.frk n) }
-  let exists f a = { lp = LockPath.exists f a.lp;
-                     np = NullPath.exists f a.np;
-                     seq = PD.exists f a.seq;
-                     con = PD.exists f a.con;
-                     frk = FM.exists f a.frk }
+    let lp = LockPath.star a.lp in
+    let def   = def_mul_l a.def lp in
+    let def_c = def_mul_l_con a.def_c lp in
+    let use   = use_mul_l a.use lp in
+    let use_c = use_mul_l_con a.use_c lp in
+      { lp    = lp;
+        def   = def;
+        def_c = def_c;
+        use   = use;
+        use_c = use_c;
+        du    = DUMap.mul (mul_du def use_c) (mul_ud def_c use);
+        du_c  = mul_du def_c use_c }
+  let exists f a =
+    let def_remove_locals m =
+      let g acc (v, tr) =
+        if f v then DefMap.update v (LockPath.exists f tr) acc else acc
+      in
+        BatEnum.fold g DefMap.unit (DefMap.enum m)
+    in
+    let use_remove_locals m =
+      let g acc (def, tr) =
+        UseMap.update def (LockPath.exists f tr) acc
+      in
+        BatEnum.fold g UseMap.unit (UseMap.enum m)
+    in
+    let du_remove_locals m =
+      let g acc (x, tr) =
+        DUMap.update x (CoLockPath.exists f tr) acc
+      in
+        BatEnum.fold g DUMap.unit (DUMap.enum m)
+    in
+      { lp = LockPath.exists f a.lp;
+        def   = def_remove_locals a.def;
+        def_c = def_remove_locals a.def_c;
+        use   = use_remove_locals a.use;
+        use_c = use_remove_locals a.use_c;
+        du    = du_remove_locals  a.du;
+        du_c  = du_remove_locals  a.du_c }
   let widen = add
+  let fork a = 
+    { lp = LockPath.one;
+      def   = DefMap.unit;
+      def_c = DefMap.mul a.def a.def_c;
+      use   = UseMap.unit;
+      use_c = UseMap.mul a.use a.use_c;
+      du    = DUMap.unit;
+      du_c  = DUMap.mul a.du a.du_c }
 end
-
-module Test = Conc.MakePathExpr(Domain)
 
 let get_func e = match Expr.strip_all_casts e with
   | AccessPath (Variable (func, voff)) -> func
   | AddrOf     (Variable (func, voff)) -> func
   | _  -> failwith "Lock Logic: Called/Forked expression not a function"
 
-let weight imap sums def = 
-  let open Domain in 
-  let fpoints = try Def.HT.find_all imap def
-                with Not_found -> []
-  in
-  let lsum = 
-    let f a (b, v) =
-      let summary = try Test.HT.find sums b
-                    with Not_found -> Domain.zero 
-      in
-      let lval = try FM.M.find v summary.frk with Not_found -> PD.bot
-      in
-        PD.join a lval
-    in
-      List.fold_left f PD.bot fpoints
-  in
-    match def.dkind with
-      | Call (vo, e, elst) ->
-          begin 
-            try Test.HT.find sums (get_func e)
-            with Not_found -> zero
-          end
-      | Builtin (Fork (vo, e, elst)) -> 
-          let summary = try Test.HT.find sums (get_func e)
-          with Not_found -> zero 
-          in
-            { lp = LockPath.one; 
-              np = NullPath.one; 
-              seq = PD.bot;
-              con = PD.join summary.seq summary.con;
-              frk = FM.M.add def PD.bot FM.M.empty }
-      | Assign (v, e) -> 
-          let l = LockPath.weight def in
-            { lp = l;
-              np = NullPath.weight def;
-              seq = PD.M.add v l PD.M.empty;
-              con = PD.bot;
-              frk = FM.bot }
-      | _ -> { lp = LockPath.weight def;
-               np = NullPath.weight def;
-               seq = PD.bot;
-               con = lsum;
-               frk = FM.bot }
+module Datarace = struct
+  module LSA = Interproc.MakeParPathExpr(Domain)
+  open Domain
 
-let may_race v d =
-  try 
-    let defs = PD.M.find v d.Domain.con in
-    let fold_con seq_path con_path acc =
-      let l = LockPath.Minterm.get_pred seq_path in
-      let l' = LockPath.Minterm.get_pred con_path in
-        acc || AP.Set.is_empty (AP.Set.inter l.LockPred.acq l'.LockPred.acq)
-    in
-    let fold_seq seq_path acc = acc ||
-      LockPath.fold_minterms (fold_con seq_path) defs false
-    in
-      LockPath.fold_minterms fold_seq d.Domain.lp false
-  with Not_found -> false
+  (* The weight function needs a hash table of summaries, and a weight function for lockpath *)
+  let weight wt d = 
+    let lp = wt d in
+    let uses = UseMap.update d lp UseMap.unit in
+      match d.dkind with
+        | Assign (v, e) when Var.is_shared v -> 
+              { lp = lp;
+                def   = DefMap.update v lp DefMap.unit;
+                def_c = DefMap.unit;
+                use   = uses;
+                use_c = UseMap.unit;
+                du    = DUMap.unit;
+                du_c  = DUMap.unit; }
+        | _ -> { lp = lp;
+                 def   = DefMap.unit;
+                 def_c = DefMap.unit;
+                 use   = uses;
+                 use_c = UseMap.unit;
+                 du    = DUMap.unit;
+                 du_c  = DUMap.unit }
 
-let analyze file =
-  match file.entry_points with
-  | [main] -> begin
-    let rg = Conc.make_recgraph file in
-    let fmap = 
-      let ht = Def.HT.create 32 in
-      let f (b, v) = match v.dkind with
-        | Builtin (Fork (vo, e, elst)) -> Def.HT.add ht (Conc.RG.block_entry rg (get_func e)) (b, v)
-        | _ -> ()
-      in 
-        begin
-          BatEnum.iter f (Conc.RG.vertices rg);
-          ht
-        end
+  let find_all_races query root =
+    let ht = Def.HT.create 32 in
+    let summary = LSA.get_summary query root in
+    let g min acc =
+      let ls = CoLockPath.Minterm.get_pred min in
+        acc || CoLockPred.inter_empty ls
     in
-    let local func_name =
-      let func = lookup_function func_name (get_gfile()) in
-      let vars = Varinfo.Set.remove (return_var func_name)
-                   (Varinfo.Set.of_enum (BatEnum.append (BatList.enum func.formals)
-                                                        (BatList.enum func.locals)))
-      in fun (x, _) -> (Varinfo.Set.mem x vars) in
-    let sum_eq sum1 sum2 = 
-      let f k v s = s && List.exists (Domain.equal v) (Test.HT.find_all sum1 k) in
-        Test.HT.fold f sum2 true in
-    let rec iter_query old_query = 
-      let new_query = Test.mk_query rg (weight fmap (Test.get_summaries old_query)) local main in
-        begin
-          Test.compute_summaries new_query;
-          if sum_eq (Test.get_summaries old_query) (Test.get_summaries new_query)
-            then new_query
-            else iter_query new_query 
-        end in
-    let query =
-      let q = (Test.mk_query rg (weight fmap (Test.HT.create 0)) local main) in
-        begin
-          Test.compute_summaries q;
-          iter_query q
-        end in
-    let iter_vars def =
-      let f v = print_endline ((Var.show v) ^ " :: " 
-                            ^ (string_of_bool (may_race v (Test.single_src query main def))))
+    let f ((v, def), tr) =
+      if CoLockPath.fold_minterms g tr false
+      then try Def.HT.replace ht def (Var.Set.add v (Def.HT.find ht def))
+      with Not_found -> Def.HT.add ht def (Var.Set.singleton v)
+    in
+      BatEnum.iter f (DUMap.enum summary.du);
+      BatEnum.iter f (DUMap.enum summary.du_c);
+      ht
+
+  (* Given wt, a transition formula over lock logic and some predicates,
+   * construct a stabilized transition formula *)
+  let stabilise races wt def =
+    let pre =
+      let frame = try Def.HT.find races def with Not_found -> Var.Set.empty in
+        LockPath.of_minterm frame (LockPath.Minterm.unit)
+    in
+    let post =
+      let frame = try Def.HT.find races def with Not_found -> Var.Set.empty in
+        LockPath.of_minterm frame (LockPath.Minterm.unit)
+    in
+      LockPath.mul pre (LockPath.mul (wt def) post)
+
+  let eq_races r1 r2 = 
+    let f k v s = s && List.exists (Var.Set.equal v) (Def.HT.find_all r1 k) in
+      Def.HT.fold f r2 true
+
+  let solve rg root =
+    let compute_races races =
+      let l_weight = stabilise races LockPath.weight in
+      let query = LSA.mk_query rg (weight l_weight) Interproc.local root
       in
-        Var.Set.iter f (Def.free_vars def)
+        LSA.remove_dead_code query;
+        find_all_races query root
     in
-      BatEnum.iter (fun (b, v) -> begin print_endline (String.concat "" [(Def.show v);":"]);
-                                        iter_vars v;
-                                        print_endline (Domain.show (Test.single_src query main v))
-                                  end)
-                   (Conc.RG.vertices rg);
-      flush stdout
-    end
-  | _      -> assert false
+    let rec fp_races old_races =
+      let new_races = compute_races old_races in
+        if eq_races old_races new_races then new_races
+        else fp_races new_races
+    in
+    let init_races = Def.HT.create 0 in
+      fp_races init_races
+
+
+  let init file =
+    match file.entry_points with
+    | [main] -> begin
+      let rg = Interproc.make_recgraph file in
+        solve rg main
+      end
+    | _      -> assert false
+end
+
+let races = ref None
+let get_races () = match !races with
+  | Some x -> x
+  | None -> 
+      let dra = Datarace.init (CfgIr.get_gfile()) in
+        races := Some dra;
+        dra
+let find_races rg root = match !races with
+  | Some x -> x
+  | None -> 
+      let dra = Datarace.solve rg root in
+        races := Some dra;
+        dra
+
+module Stabilizer (Min : EqLogic.Hashed.ConjFormula with type var = Var.t) = struct
+  module Formula = EqLogic.MakeFormula(Min)
+  module Trans   = Formula.Transition
+  let stabilise wt def =
+    let races = get_races () in
+    let pre =
+      let frame = try Def.HT.find races def with Not_found -> Var.Set.empty in
+        Trans.of_minterm frame (Min.unit)
+    in
+    let post =
+      let frame = try Def.HT.find races def with Not_found -> Var.Set.empty in
+        Trans.of_minterm frame (Min.unit)
+    in
+      Trans.mul pre (Trans.mul (wt def) post)
+end
+
+let analyze file = 
+  let dra = get_races () in
+  let f def v = print_endline ((Def.show def) ^ " --> " ^ (Var.Set.show v)) in
+    Def.HT.iter f dra
 
 let _ =
   CmdLine.register_pass

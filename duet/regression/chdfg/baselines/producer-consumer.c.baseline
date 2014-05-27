@@ -1,0 +1,7 @@
+./regression/chdfg/code/producer-consumer.c:17 >> Assertion failed: head < SIZE
+{head, SIZE}. SIZE-50 = 0 && head >= 0
+./regression/chdfg/code/producer-consumer.c:35 >> Assertion failed: tail < SIZE
+{tail, SIZE}. SIZE-50 = 0 && tail >= 0
+
+2 errors total
+2 safe assertions

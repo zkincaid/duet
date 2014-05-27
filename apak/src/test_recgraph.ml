@@ -30,15 +30,16 @@ module V = struct
   module Set = Putil.Hashed.Set.Make(M)
   type atom = int
   type block = string
+  type ('a,'b) typ = ('a,'b) RecGraph.seq_typ
 
   let classify x  = match x with
-    | A x -> Atom x
-    | B x -> Block x
+    | A x -> `Atom x
+    | B x -> `Block x
 end
 open V
 
 module R = RecGraph.Make(V)(Putil.PString)
-module D = Pathexp.MakeRG(R)(Putil.PString)(ZMin)
+module D = Pathexp.MakeSeqRG(R)(Putil.PString)(ZMin)
 
 let rec make = function
   | [] -> R.empty

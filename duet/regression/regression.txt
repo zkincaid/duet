@@ -25,6 +25,7 @@ hdfg forward_must_alias_err.c -domain oct -hdfg
 hdfg interproc_must_alias.c -domain oct -hdfg
 hdfg interproc_uninit.c -domain oct -hdfg
 hdfg join.c -domain oct -hdfg
+hdfg loop.c -hdfg
 hdfg must_alias.c -domain oct -hdfg
 hdfg must_alias_addr.c -domain oct -hdfg
 hdfg must_alias_err.c -domain oct -hdfg
@@ -71,3 +72,14 @@ lra mult-rec.c -lra
 lra mem.c -check-array-bounds -lra
 lra mem2.c -check-array-bounds -lra
 lra pointer_arith.c -lra
+chdfg fork_interproc.c -chdfg
+chdfg obj1.c -chdfg
+chdfg obj2.c -chdfg
+chdfg obj3.c -chdfg
+chdfg single_thread.c -chdfg
+chdfg global_lock.c -chdfg
+chdfg counter.c -chdfg
+chdfg producer-consumer.c -chdfg
+chdfg alias_release.c -chdfg
+chdfg local.c -chdfg
+chdfg parent_holds_lock.c -chdfg
