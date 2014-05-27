@@ -60,17 +60,21 @@ module Make(MakeEQ :
       let mul_pointed x y =
         let frame_x = get_frame x in
         let frame_y = get_frame y in
+        let frame = Var.Set.union frame_x frame_y in
         let x_minus_y = Var.Set.diff frame_x frame_y in
         let y_minus_x = Var.Set.diff frame_y frame_x in
-        let x_eqs =
-          let tmp = assume Bexpr.ktrue y_minus_x pred_unit in
-            mul (subst (sub_index 1 3) tmp) (subst (sub_index 0 3) tmp)
+        let f var acc = (Var.subscript var 0, Var.subscript var 3) ::
+                        (Var.subscript var 3, Var.subscript var 1) :: acc
         in
-        let y_eqs =
-          let tmp = assume Bexpr.ktrue x_minus_y pred_unit in
-            mul (subst (sub_index 1 3) tmp) (subst (sub_index 0 3) tmp)
+        let x_eqs = Var.Set.fold f y_minus_x [] in
+        let y_eqs = Var.Set.fold f x_minus_y [] in
+        let g lst m = add (of_minterm frame 
+                                      (Minterm.make (lst @ (Minterm.get_eqs m)) 
+                                                    (Minterm.get_pred m)))
         in
-          mul (mul x x_eqs) (mul y y_eqs)
+        let x' = fold_minterms (g x_eqs) x zero in
+        let y' = fold_minterms (g y_eqs) y zero in
+          mul x' y'
 
       let make_pointed x y =
         let frame_x = get_frame x in
@@ -120,6 +124,22 @@ module Make(MakeEQ :
       in
       { SeqDep.current_name = current;
 	SeqDep.killed = KillPred.subst subst_var x.SeqDep.killed }
+
+    let filter x =
+      let imprecise v ap = match ap with
+        | Variable v' -> v = v'
+        | _ -> Pa.may_alias (Variable v) ap
+      in
+      let kills = match x.SeqDep.current_name with
+        | Some (Variable v) -> AP.Set.filter (imprecise v) x.SeqDep.killed
+        | Some ap -> AP.Set.filter (Pa.may_alias ap) x.SeqDep.killed
+        | _ -> x.SeqDep.killed
+    in
+      { x with SeqDep.killed = kills }
+
+    let mul x y = 
+      filter (SeqDep.RDPred.mul x y)
+
     let pred_weight def = unit
   end
 
@@ -239,6 +259,28 @@ module Make(MakeEQ :
     in
       LRD.TR.fold_minterms f rd_tr LRD.TR.zero
 
+  (* Find a variable equality for two aliased access paths *)
+  let unify a b =
+    let unify e e' =
+      let vs = Var.Set.filter
+                (fun v -> is_pointer_type (Var.get_type v)) (Expr.free_vars e)
+      in
+      let vs' = Var.Set.filter
+                 (fun v -> is_pointer_type (Var.get_type v)) (Expr.free_vars e')
+      in
+      let v  = Var.Set.choose vs  in
+      let v' = Var.Set.choose vs' in
+        if e = (Expr.subst_var (fun v'' -> if v' = v'' then v else v'') e')
+        then [(v, v')]
+        else []
+    in
+      match (a, b) with
+        | (Some (Variable v), Some (Variable u)) -> [(v, u)]
+        | (Some (Deref e), Some (Deref e')) -> begin try unify e e'
+                                                     with Not_found -> []
+                                               end
+        | _ -> []
+
   (* Remove "trees" that can't be interleaved (beginning or ending locksets have
    * non-empty intersection) or have dead definitions/uses (definitions/uses of
    * locations overwritten in either branch *)
@@ -303,12 +345,26 @@ module Make(MakeEQ :
     let update tr = f (Tree.TR.mul_pointed y tr) in
       TreeMap.map update x
 
+  let mul_pointed_eq tr tr' =
+    let tr'' = Tree.TR.mul_pointed tr tr' in
+    let frame = Tree.TR.get_frame tr'' in
+    let f m acc =
+      let ((ls1, k1), (ls2, k2)) = TreeMinterm.get_pred m in
+        Tree.TR.add (Tree.TR.of_minterm frame 
+                       (TreeMinterm.make
+                         ((unify k1.SeqDep.current_name k2.SeqDep.current_name)
+                          @ TreeMinterm.get_eqs m)
+                         ((ls1, k1), (ls2, k2))))
+                    acc
+    in
+      Tree.TR.fold_minterms f tr'' Tree.TR.zero
+
   (* Multiply a partial tree map by an eu map *)
   let add_uses f x y =
     let g acc ((d, d_ap), d_tr) ((u, u_ap), u_tr) =
       if Pa.may_alias d_ap u_ap
       then begin
-        let tr = f (Tree.TR.mul_pointed d_tr (lift_lrd_tree u_tr)) in
+        let tr = f (mul_pointed_eq d_tr (lift_lrd_tree u_tr)) in
           if tr != Tree.TR.zero
           then TreeMap.update ((d, d_ap), (u, u_ap)) tr acc
           else acc
@@ -323,7 +379,7 @@ module Make(MakeEQ :
     let g acc ((u, u_ap), u_tr) ((d, d_ap), d_tr) =
       if Pa.may_alias d_ap u_ap
       then begin
-        let tr = f (Tree.TR.mul_pointed u_tr (lift_lrd_tree d_tr)) in
+        let tr = f (mul_pointed_eq u_tr (lift_lrd_tree d_tr)) in
           if tr != Tree.TR.zero
           then TreeMap.update ((d, d_ap), (u, u_ap)) tr acc
           else acc
@@ -358,7 +414,7 @@ module Make(MakeEQ :
     let g acc ((d, d_ap), d_tr) ((u, u_ap), u_tr) =
       if Pa.may_alias d_ap u_ap
       then begin
-        let tr = f_all (Tree.TR.mul_pointed (clear_left d_tr) (pivot_branch u_tr)) in
+        let tr = f_all (mul_pointed_eq (clear_left d_tr) (pivot_branch u_tr)) in
           if tr != Tree.TR.zero
           then TreeMap.update ((d, d_ap), (u, u_ap)) tr acc
           else acc
@@ -374,7 +430,7 @@ module Make(MakeEQ :
     let g acc ((u, u_ap), u_tr) ((d, d_ap), d_tr) =
       if Pa.may_alias d_ap u_ap
       then begin
-        let tr = f_all (Tree.TR.mul_pointed (clear_left u_tr) (pivot_branch d_tr)) in
+        let tr = f_all (mul_pointed_eq (clear_left u_tr) (pivot_branch d_tr)) in
           if tr != Tree.TR.zero
           then TreeMap.update ((d, d_ap), (u, u_ap)) tr acc
           else acc
@@ -478,6 +534,12 @@ module Make(MakeEQ :
                 tree_c = TreeMap.unit }
 
     let mul a b =
+      let a_lk_lrd = lift_lk_lrd lock_kill a.abspath in
+      let a_locks_lrd = lift_lk_lrd locks a.abspath in
+      let b_lk_lrd = lift_lk_lrd lock_kill b.abspath in
+      let a_locks_tree = lift_lk_tree locks a.abspath in
+      let b_lk_tree = lift_lk_tree lock_kill b.abspath in
+      let b_locks_tree = lift_lk_tree locks b.abspath in
         { abspath   = LK.TR.mul a.abspath b.abspath;
           abspath_t = LK.TR.add 
                         a.abspath_t 
@@ -485,52 +547,44 @@ module Make(MakeEQ :
           abspath_p = LK.TR.add 
                         (LK.TR.mul a.abspath_p (clear_fst b.abspath)) 
                         (LK.TR.mul (clear_kill a.abspath) b.abspath_p);
-          rd   = RDMap.mul 
-                   (mul_right a.rd (lift_lk_lrd lock_kill b.abspath))
-                   (mul_left b.rd (lift_lk_lrd locks a.abspath));
+          rd   = RDMap.mul (mul_right a.rd b_lk_lrd) (mul_left b.rd a_locks_lrd);
           rd_t = RDMap.mul 
                    (mul_right a.rd (lift_lk_lrd all b.abspath_t))
-                   (RDMap.mul
-                      a.rd_t
-                      (mul_left b.rd_t (lift_lk_lrd locks a.abspath)));
-          eu   = EUMap.mul
-                   a.eu
-                   (mul_left b.eu (lift_lk_lrd lock_kill a.abspath));
+                   (RDMap.mul a.rd_t (mul_left b.rd_t a_locks_lrd));
+          eu   = EUMap.mul a.eu (mul_left b.eu a_lk_lrd);
           eu_p = EUMap.mul
                    (mul_left b.eu (lift_lk_lrd all a.abspath_p)) 
-                   (EUMap.mul
-                      a.eu_p 
-                      (mul_left b.eu_p (lift_lk_lrd locks a.abspath)));
+                   (EUMap.mul a.eu_p (mul_left b.eu_p a_locks_lrd));
           rd_tree = PartialTreeMap.mul
-                      (mul_pt_right f_none a.rd_tree (lift_lk_tree locks b.abspath))
-                      (mul_pt_left f_none b.rd_tree (lift_lk_tree locks a.abspath));
+                      (mul_pt_right f_none a.rd_tree b_locks_tree)
+                      (mul_pt_left f_none b.rd_tree a_locks_tree);
           rd_tree_p = PartialTreeMap.mul
                         (mul_pt_right f_part a.rd_tree (lift_lk_tree all b.abspath_p))
                         (PartialTreeMap.mul
-                           (mul_pt_right f_part a.rd_tree_p (lift_lk_tree lock_kill b.abspath))
-                           (mul_pt_left f_part b.rd_tree_p (lift_lk_tree locks a.abspath)));
+                           (mul_pt_right f_part a.rd_tree_p b_lk_tree)
+                           (mul_pt_left f_part b.rd_tree_p a_locks_tree));
           rd_tree_eu = TreeMap.mul 
                          (TreeMap.mul
                             (add_uses f_all a.rd_tree_p b.eu)
                             (add_uses f_all a.rd_tree b.eu_p))
                          (TreeMap.mul
                             a.rd_tree_eu
-                            (mul_t_left f_all b.rd_tree_eu (lift_lk_tree locks a.abspath)));
+                            (mul_t_left f_all b.rd_tree_eu a_locks_tree));
           eu_tree = PartialTreeMap.mul
-                      (mul_pt_right f_none a.eu_tree (lift_lk_tree locks b.abspath))
-                      (mul_pt_left f_none b.eu_tree (lift_lk_tree locks a.abspath));
+                      (mul_pt_right f_none a.eu_tree b_locks_tree)
+                      (mul_pt_left f_none b.eu_tree a_locks_tree);
           eu_tree_rd = TreeMap.mul
                          (add_defs f_part a.eu_tree b.rd)
                          (TreeMap.mul
-                            (mul_t_right f_part a.eu_tree_rd (lift_lk_tree lock_kill b.abspath))
-                            (mul_t_left f_part b.eu_tree_rd (lift_lk_tree locks a.abspath)));
+                            (mul_t_right f_part a.eu_tree_rd b_lk_tree)
+                            (mul_t_left f_part b.eu_tree_rd a_locks_tree));
           eu_tree_t = TreeMap.mul
                         (TreeMap.mul
                            (mul_t_right f_all a.eu_tree_rd (lift_lk_tree all b.abspath_t))
                            (add_defs f_all a.eu_tree b.rd_t))
                         (TreeMap.mul
                            a.eu_tree_t
-                           (mul_t_left f_all b.eu_tree_t (lift_lk_tree locks a.abspath)));
+                           (mul_t_left f_all b.eu_tree_t a_locks_tree));
           tree_c = TreeMap.mul
                      (TreeMap.mul
                         (mul_rd_eu a.rd_tree b.eu_tree)
@@ -557,34 +611,20 @@ module Make(MakeEQ :
     let star a = 
       let abspath = LK.TR.star a.abspath in
       let abspath_t = LK.TR.mul (clear_fst abspath) a.abspath_t in
-      let abspath_p = LK.TR.mul 
-                        (LK.TR.mul (clear_kill abspath) a.abspath_p)
-                        (clear_fst abspath)
-      in
-      let rd =
-        mul_left (mul_right a.rd (lift_lk_lrd lock_kill abspath))
-                 (lift_lk_lrd locks abspath)
-      in
+      let abspath_p = LK.TR.mul (LK.TR.mul (clear_kill abspath) a.abspath_p) (clear_fst abspath) in
+      let lrd_lk = lift_lk_lrd lock_kill abspath in
+      let tree_locks = lift_lk_tree locks abspath in
+      let rd = mul_left (mul_right a.rd lrd_lk) (lift_lk_lrd locks abspath) in
       let rd_t = mul_right rd (lift_lk_lrd all a.abspath_t) in
-      let eu   = mul_left a.eu (lift_lk_lrd lock_kill abspath) in
+      let eu   = mul_left a.eu lrd_lk in
       let eu_p = mul_left a.eu (lift_lk_lrd all abspath_p) in
-      let rd_tree =
-        mul_pt_left f_none 
-          (mul_pt_right f_none a.rd_tree (lift_lk_tree locks abspath))
-          (lift_lk_tree locks abspath)
-      in
+      let rd_tree = mul_pt_left f_none (mul_pt_right f_none a.rd_tree tree_locks) tree_locks in
       let rd_tree_p = mul_pt_right f_part rd_tree (lift_lk_tree all abspath_p) in
       let rd_tree_eu = add_uses f_all rd_tree_p a.eu in
-      let eu_tree =
-        mul_pt_left f_none 
-          (mul_pt_right f_none a.eu_tree (lift_lk_tree locks abspath))
-          (lift_lk_tree locks abspath)
-      in
+      let eu_tree = mul_pt_left f_none (mul_pt_right f_none a.eu_tree tree_locks) tree_locks in
       let eu_tree_rd = add_defs f_part eu_tree rd in
       let eu_tree_t = mul_t_right f_all eu_tree_rd (lift_lk_tree all a.abspath_t) in
-      let tree_c =
-        TreeMap.mul (mul_rd_eu rd_tree eu_tree) (mul_eu_rd eu_tree rd_tree) 
-      in
+      let tree_c = TreeMap.mul (mul_rd_eu rd_tree eu_tree) (mul_eu_rd eu_tree rd_tree) in
         { abspath = abspath;
           abspath_t = abspath_t;
           abspath_p = abspath_p;
@@ -708,7 +748,8 @@ module Make(MakeEQ :
       in
         match def.dkind with
           | Store (lhs, rhs) -> assign_weight lhs rhs
-          | Assign (lhs, rhs) -> assign_weight (Variable lhs) rhs
+          | Assign (lhs, rhs) when Var.is_shared lhs || Varinfo.addr_taken (fst lhs)
+              -> assign_weight (Variable lhs) rhs
           | Assume be | Assert (be, _) -> RDMap.unit (*assume_weight be*)
           | AssertMemSafe (e, _) -> assume_weight (Bexpr.of_expr e)
           (* Doesn't handle offsets at the moment *)
@@ -721,13 +762,17 @@ module Make(MakeEQ :
       let abspath = (Stab.stabilise lk_weight) def in
       let rd = rd_weight def in
       let eu = 
-        let f ap acc = 
-          let pred = (LockPred.pred_weight def, 
-                      { SeqDep.current_name = Some (AP.subscript 0 ap);
-                        SeqDep.killed = AP.Set.empty })
-          in
-          let tr   = LRD.TR.assume Bexpr.ktrue (AP.free_vars ap) pred in
-            EUMap.update (def, ap) tr acc
+        let f ap acc = match ap with
+          | Variable v when not (Var.is_shared v || Varinfo.addr_taken (fst v))
+            -> acc
+          | _ -> begin
+              let pred = (LockPred.pred_weight def, 
+                          { SeqDep.current_name = Some (AP.subscript 0 ap);
+                            SeqDep.killed = AP.Set.empty })
+              in
+              let tr   = LRD.TR.assume Bexpr.ktrue (AP.free_vars ap) pred in
+                EUMap.update (def, ap) tr acc
+            end
         in
           AP.Set.fold f (Def.get_uses def) EUMap.unit
       in
