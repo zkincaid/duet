@@ -126,7 +126,12 @@ module Make(MakeEQ :
 	SeqDep.killed = KillPred.subst subst_var x.SeqDep.killed }
 
     let filter x =
+      let imprecise v ap = match ap with
+        | Variable v' -> v = v'
+        | _ -> Pa.may_alias (Variable v) ap
+      in
       let kills = match x.SeqDep.current_name with
+        | Some (Variable v) -> AP.Set.filter (imprecise v) x.SeqDep.killed
         | Some ap -> AP.Set.filter (Pa.may_alias ap) x.SeqDep.killed
         | _ -> x.SeqDep.killed
     in
