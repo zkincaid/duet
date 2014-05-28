@@ -275,7 +275,7 @@ let emit_structure ctx file =
 	loc.Cil.file
 	loc.Cil.line
   in
-    CfgIr.iter_func_defs vdef file
+  CfgIr.iter_func_defs vdef file
 
 let simple_ap_points_to pt ap =
   let points_to memloc =

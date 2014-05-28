@@ -17,6 +17,7 @@ pa record.c -pa
 pa rhs.c -pa
 pa type_error.c -pa
 pa unknown_offset.c -pa
+pa init.c -pa
 hdfg alias_addr_err.c -domain oct -hdfg
 hdfg backward_must_alias.c -domain oct -hdfg
 hdfg branch_err.c -domain oct -hdfg

@@ -339,7 +339,7 @@ let rec tr_expr = function
   | Cil.AddrOf l -> addr_of (tr_lval l)
   | Cil.StartOf l ->
       (* Conversion of an array type to a pointer type *)
-      addr_of (tr_lval l)
+    addr_of (tr_lval l)
   | Cil.Question (test, left, right, typ) -> assert false
 
 (* If ptr is a pointer and i is an integer, we convert
@@ -370,22 +370,30 @@ and tr_constant = function
 
 (** Converts a Cil lval to an access path. *)
 and tr_lval lval =
-  let rec do_offset ap = function
+  let rec do_offset ap typ = function
     | Cil.NoOffset -> ap
     | Cil.Field (fi, next) ->
-	do_offset (AP.offset ap (OffsetFixed (field_offset fi))) next
+      do_offset
+	(AP.offset ap (OffsetFixed (field_offset fi)))
+	fi.Cil.ftype
+	next
     | Cil.Index (i, next) ->
+      let elt_typ = match typ with
+	| Cil.TPtr (et, _) -> et
+	| Cil.TArray (et, _, _) -> et
+	| _ -> assert false
+      in
       try
-	let offset = OffsetFixed (calc_expr i) in
-	do_offset (AP.offset ap offset) next
+	let offset = OffsetFixed (type_size elt_typ * calc_expr i) in
+	do_offset (AP.offset ap offset) elt_typ next
       with Not_constant _ ->
-	do_offset (Deref (Expr.add (addr_of ap) (tr_expr i))) next
+	do_offset (Deref (Expr.add (addr_of ap) (tr_expr i))) elt_typ next
   in
   let base = match fst lval with
     | Cil.Var vi -> Variable (Var.mk (variable_of_varinfo vi))
     | Cil.Mem expr -> Deref (tr_expr expr)
   in
-    do_offset base (snd lval)
+  do_offset base (Cil.typeOfLval (fst lval, Cil.NoOffset)) (snd lval)
 
 (* ========================================================================== *)
 (** Definitions *)
@@ -631,6 +639,36 @@ let tr_file_funcs =
   in
     go
 
+let tr_initializer globals =
+  let f il v =
+    match v with
+    | Cil.GVar (v, init, loc) ->
+      let mk_assign lv exp =
+	let rhs = tr_expr exp in
+	match tr_lval lv with
+	| Variable v -> Def.mk ~loc:loc (Assign (v, rhs))
+	| ap -> Def.mk ~loc:loc (Store (ap, rhs))
+      in
+      let rec mk_init lv init il = match init with
+	| Cil.SingleInit exp -> (mk_assign lv exp)::il
+	| Cil.CompoundInit (ct, initl) ->
+	  Cil.foldLeftCompound
+	    ~implicit:true
+	    ~doinit:(fun offset init typ il ->
+	      mk_init (Cil.addOffsetLval offset lv) init il)
+	    ~ct:ct
+	    ~initl:initl
+	    ~acc:il
+      in
+      begin
+	match init.Cil.init with
+	| Some init -> mk_init (Cil.Var v, Cil.NoOffset) init il
+	| _ -> il
+      end
+    | _ -> il
+  in
+  List.fold_left f [] globals
+
 let tr_file filename f =
   let open CfgIr in
   let file = {
@@ -653,6 +691,16 @@ let tr_file filename f =
   in
   file.funcs <- funcs;
   file.globinit <- init;
+
+  (* If there are initialized global variables, insert the initialization code
+     into main.  *)
+  let initialize = tr_initializer f.Cil.globals in
+  if initialize != [] then begin
+    let main = lookup_function_name "main" file in
+    let entry = Cfg.initial_vertex main.cfg in
+    List.iter (fun v -> CfgIr.insert_pre v entry main.cfg) initialize
+  end;
+
   if !whole_program
   then file.entry_points <- [(lookup_function_name "main" file).fname]
   else file.entry_points <- List.map (fun f -> f.fname) file.funcs;

@@ -395,9 +395,11 @@ let simplify_calls file =
       insert_succ skip def cfg;
       Cfg.remove_edge cfg def skip;
       if (Varinfo.Set.cardinal targets < 1) 
-      then begin Log.errorf "WARNING: No targets for call to `%a'"
-                   Expr.format func;
-                 add_call undefined
+      then begin
+	Log.errorf "WARNING: No targets for call to `%a' on line %d"
+          Expr.format func
+	  (Def.get_location def).Cil.line;
+        add_call undefined
       end;
      (* assert (Varinfo.Set.cardinal targets >= 1); (* todo *)*)
       Varinfo.Set.iter add_call targets

@@ -1,0 +1,10 @@
+./regression/pa/code/init.c:28 >> Assertion failed: (unsigned long )p != (unsigned long )(& a)
+./regression/pa/code/init.c:29 >> Assertion failed: (unsigned long )some_struct.f1 != (unsigned long )(& a)
+./regression/pa/code/init.c:30 >> Assertion failed: (unsigned long )some_struct.f2 != (unsigned long )(& b)
+./regression/pa/code/init.c:31 >> Assertion failed: (unsigned long )mem_2->f1 != (unsigned long )(& a)
+./regression/pa/code/init.c:32 >> Assertion failed: (unsigned long )mem_3->f2 != (unsigned long )(& b)
+./regression/pa/code/init.c:33 >> Assertion failed: (unsigned long )mem_4->f1 != (unsigned long )(& c)
+./regression/pa/code/init.c:34 >> Assertion failed: (unsigned long )mem_5->f2 != (unsigned long )(& d)
+
+7 errors total
+0 safe assertions
