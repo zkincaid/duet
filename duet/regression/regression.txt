@@ -7,6 +7,7 @@ coarsen rendez-vous.c -no-whole-program -coarsen
 coarsen producer_consumer.c -no-whole-program -parameterized -coarsen
 coarsen popl12fig2.c -coarsen -parameterized
 coarsen alias.c -coarsen -no-whole-program -parameterized
+coarsen fork_interproc.c -coarsen
 pa indirect.c -pa
 pa list.c -pa
 pa noalloc.c -pa
