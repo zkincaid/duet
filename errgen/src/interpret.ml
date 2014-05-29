@@ -1,3 +1,5 @@
+(*pp camlp4find deriving.syntax *)
+
 open Ast
 open Apak
 open Ark
@@ -15,7 +17,7 @@ let min_float = Real_const (QQ.negate (QQ.exp (QQ.of_int 2) 53))
 
 let print_prog (Prog s) =
   print_string "Printing program:\n\n";
-  print_string (stmt_to_string s);
+  Format.printf "%a@\n" Show.format<stmt_type> s;
   print_string "\n"
 
 
@@ -79,38 +81,6 @@ let rec interpret_bexp b store =
 			    ^ bexp_to_string b))
 
 
-(* Interpreter for statements *)
-
-let rec interpret_stmt s store =
-  match s with
-     Skip -> store
-  |  Assign (var, e) -> (update_store store var (interpret_aexp e store))
-  | Seq (s1, s2) -> (interpret_stmt s2 (interpret_stmt s1 store))
-  | Ite (b, s1, s2) ->
-    let bv = interpret_bexp b store in
-    if bv then (interpret_stmt s1 store)
-    else (interpret_stmt s2 store)
-  | While (b, s1, _) ->
-    let bv = interpret_bexp b store in
-    if bv then (interpret_stmt s (interpret_stmt s1 store))
-    else store
-  | Assert b ->
-    if (interpret_bexp b store)
-    then store
-    else raise AssertionViolation
-  | Print e ->
-    (print_string (QQ.show (interpret_aexp e store)));
-    (print_string "\n");
-    store
-  | _ -> raise (NotHandled ("Statement inrepretation of " ^ stmt_to_string s))
-
-let interpret_prog p =
-  (print_string "Interpreting program:\n\n");
-  (ignore (match p with
-    Prog s -> interpret_stmt s []));
-  (print_string "\n")
-
-
 (********** Generating the error program *************
 *************************************************)
 
@@ -164,17 +134,19 @@ let rec primify_bexp b =
   | Not_exp b1 -> Not_exp (primify_bexp b1)
   | Havoc_bexp -> b
 
-
-let rec primify_stmt s =
-  match s with
-    Skip -> Skip
+let primify_cmd = function
+  | Skip -> Skip
   | Assign (x, e) -> Assign(primify x, primify_aexp e)
-  | Seq (s1, s2) -> Seq (primify_stmt s1, primify_stmt s2)
-  | Ite (b, s1, s2) -> Ite (primify_bexp b, primify_stmt s1, primify_stmt s2)
-  | While (b, s1, residual) -> While (primify_bexp b, primify_stmt s1, residual)
   | Assert (b) -> Assert (primify_bexp b)
   | Print (e) -> Print (primify_aexp e)
   | Assume (b) -> Assume (primify_bexp b)
+
+let rec primify_stmt s =
+  match s with
+  | Cmd c -> Cmd (primify_cmd c)
+  | Seq (s1, s2) -> Seq (primify_stmt s1, primify_stmt s2)
+  | Ite (b, s1, s2) -> Ite (primify_bexp b, primify_stmt s1, primify_stmt s2)
+  | While (b, s1, residual) -> While (primify_bexp b, primify_stmt s1, residual)
 
 (* Residue computation *)
 
@@ -185,31 +157,34 @@ let rec mk_residue = function
   | While (b, s, _) -> While (b, mk_residue s, true)
   | atom -> atom
 
-let rec compute_residue_aux_1 vars =
-  match vars with
-    [] -> Skip
-  | x :: rest ->
-    Seq (Assign (primify x, Var_exp x),
-         Seq (Assign (infify (epsify (primify x)), Var_exp (infify (epsify x))),
-              Seq (Assign (epsify (primify x), Var_exp (epsify x)),
-                   (compute_residue_aux_1 rest))))
+let mk_seq = function
+  | [] -> Cmd Skip
+  | xs -> BatList.reduce (fun x y -> Seq (x, y)) xs
 
+let rec compute_residue_aux_1 vars =
+  mk_seq (List.map (fun x ->
+    mk_seq [
+      Cmd (Assign (primify x, Var_exp x));
+      Cmd (Assign (infify (epsify (primify x)), Var_exp (infify (epsify x))));
+      Cmd (Assign (epsify (primify x), Var_exp (epsify x)))
+    ]) vars)
 
 let rec  compute_residue_aux_2 vars =
-  match vars with
-    [] -> Skip
-  | x :: rest ->
-    Seq(
-      Seq (Assign (epsify x, Sum_exp(Var_exp (epsify (primify x)), Diff_exp(Var_exp(primify x), (Var_exp x)))),
-           Assign (infify (epsify x), Var_exp (infify (epsify (primify x))))),
-           (compute_residue_aux_2 rest))
+  mk_seq (List.map (fun x ->
+    Seq (Cmd (Assign (epsify x,
+		      Sum_exp(Var_exp (epsify (primify x)),
+			      Diff_exp(Var_exp(primify x), (Var_exp x))))),
+	 Cmd (Assign (infify (epsify x),
+		      Var_exp (infify (epsify (primify x))))))
+  ) vars)
 
 let compute_residue s1 s2 vars =
-  mk_residue
-    (Seq (compute_residue_aux_1 vars,
-	  Seq (s1,
-               Seq(primify_stmt s2,
-                   compute_residue_aux_2 vars))))
+  mk_residue (mk_seq [
+    compute_residue_aux_1 vars;
+    s1;
+    primify_stmt s2;
+    compute_residue_aux_2 vars
+  ])
 
 (* Error term generation *)
 
@@ -229,36 +204,38 @@ let generate_err_assign_aux x e e1 e2 op =
   match (e1, e2) with
     (Var_exp y1, Var_exp y2) ->
       let t = errvar in
-      let s1 = Assign (t,
-                       opfunc (Sum_exp (e1, Var_exp (epsify y1)),
-                               Sum_exp (e2, Var_exp (epsify y2)))) in
+      let s1 = Cmd (Assign (t,
+			    opfunc (Sum_exp (e1, Var_exp (epsify y1)),
+				    Sum_exp (e2, Var_exp (epsify y2)))))
+      in
       (* If we have uninterpreted function symbols, we should replace the variable __round_err by one *)
       let t_err = t ^ "__round_err" in
       let s_err_stmts =
         Seq (
-         Assign (t_err, Havoc_aexp),
-	 Assume (Or_exp(And_exp(Ge_exp (Var_exp (t_err),
-					Mult_exp (Var_exp t, neg_eps_mach)),
-				Le_exp (Var_exp (t_err),
-					Mult_exp (Var_exp t, eps_mach))),
-			And_exp(Le_exp (Var_exp (t_err),
-					Mult_exp (Var_exp t, neg_eps_mach)),
-				(Ge_exp (Var_exp (t_err),
-					 Mult_exp (Var_exp t, eps_mach)))))))
+         Cmd (Assign (t_err, Havoc_aexp)),
+	 Cmd (Assume (
+	   Or_exp(And_exp(Ge_exp (Var_exp (t_err),
+				  Mult_exp (Var_exp t, neg_eps_mach)),
+			  Le_exp (Var_exp (t_err),
+				  Mult_exp (Var_exp t, eps_mach))),
+		  And_exp(Le_exp (Var_exp (t_err),
+				  Mult_exp (Var_exp t, neg_eps_mach)),
+			  (Ge_exp (Var_exp (t_err),
+				   Mult_exp (Var_exp t, eps_mach))))))))
       in
       let tmp1 = Sum_exp (Var_exp t, Var_exp t_err) in
       let s2 =
 	Ite (And_exp (Ge_exp (tmp1, min_float),
 		      Le_exp (tmp1, max_float)),
-             Skip,
-             Assign (infify (epsify x), Real_const QQ.one))
+             Cmd Skip,
+             Cmd (Assign (infify (epsify x), Real_const QQ.one)))
       in
-      let s3 = Assign (epsify x, Diff_exp (tmp1, opfunc (e1, e2))) in
+      let s3 = Cmd (Assign (epsify x, Diff_exp (tmp1, opfunc (e1, e2)))) in
       Seq (s1,
 	   Seq (s_err_stmts,
 		Seq (s2,
 		     Seq (s3,
-			  Assign (x, e)))))
+			  Cmd (Assign (x, e))))))
   | _ ->
       raise (NotHandled ("Expression in assignment not handled in error term generation: " ^ (aexp_to_string e)))
 
@@ -269,30 +246,31 @@ let generate_err_assign x e =
     Real_const k ->
       (* eps_x = havoc(); inf_eps_x = 0; assume (eps_x >= k * eps_mach * -1 && eps_x <= k * eps_mach); *)
       if QQ.geq k QQ.zero then
-        Seq (
-          Seq (
-            Seq (Assign (epsify x, Havoc_aexp),
-                 Assign (infify (epsify x), Real_const QQ.zero)),
-                 Assume (And_exp (Ge_exp (Var_exp (epsify x),
-					  Mult_exp (e, neg_eps_mach)),
-                                  Le_exp (Var_exp (epsify x),
-					  Mult_exp (e, eps_mach))))),
-                 Assign (x, e))
+	mk_seq [
+	  Cmd (Assign (epsify x, Havoc_aexp));
+          Cmd (Assign (infify (epsify x), Real_const QQ.zero));
+          Cmd (Assume (And_exp (Ge_exp (Var_exp (epsify x),
+					Mult_exp (e, neg_eps_mach)),
+                                Le_exp (Var_exp (epsify x),
+					Mult_exp (e, eps_mach)))));
+          Cmd (Assign (x, e))
+	]
       else
-        Seq (
-          Seq (
-            Seq (Assign (epsify x, Havoc_aexp),
-                 Assign (infify (epsify x), Real_const QQ.zero)),
-            Assume (And_exp (Le_exp (Var_exp (epsify x),
-				     Mult_exp (e, neg_eps_mach)),
-                             Ge_exp (Var_exp (epsify x),
-				     Mult_exp (e, eps_mach))))),
-          Assign (x, e))
+	mk_seq [
+	  Cmd (Assign (epsify x, Havoc_aexp));
+          Cmd (Assign (infify (epsify x), Real_const QQ.zero));
+          Cmd (Assume (And_exp (Le_exp (Var_exp (epsify x),
+					Mult_exp (e, neg_eps_mach)),
+				Ge_exp (Var_exp (epsify x),
+					Mult_exp (e, eps_mach)))));
+          Cmd (Assign (x, e))
+	]
   | Var_exp y ->
-    Seq (
-      Seq (Assign (infify (epsify x), Var_exp (infify (epsify y))), 
-           Assign (epsify x, Var_exp (epsify y))),
-      Assign (x, e))
+    mk_seq [
+      Cmd (Assign (infify (epsify x), Var_exp (infify (epsify y))));
+      Cmd (Assign (epsify x, Var_exp (epsify y)));
+      Cmd (Assign (x, e))
+    ]
   | Sum_exp (e1, e2) ->
     (generate_err_assign_aux x e e1 e2 Plus)
   | Diff_exp (e1, e2) ->
@@ -359,8 +337,8 @@ let generate_err_bexp b =
 
 let rec generate_err_stmt s0 vars =
   match s0 with
-    Skip -> Skip
-  | Assign (var, e) ->
+    Cmd Skip -> Cmd Skip
+  | Cmd (Assign (var, e)) ->
     (generate_err_assign var e)
   | Seq (s1, s2) ->
     Seq ((generate_err_stmt s1 vars), (generate_err_stmt s2 vars))
@@ -377,58 +355,58 @@ let rec generate_err_stmt s0 vars =
                 generate_err_stmt s vars,
 		residue),
          Ite (b,
-              (compute_residue s0 Skip vars),
+              (compute_residue s0 (Cmd Skip) vars),
               (compute_residue
-                 Skip
+                 (Cmd Skip)
                  (While(Or_exp (And_exp (b, (generate_err_bexp b)),
                                 And_exp (Not_exp b, Not_exp (generate_err_bexp b))),
                         (generate_err_stmt s vars),
 			true))
 		 vars)))
-  | Assume b -> Assume b
-  | _ -> raise (NotHandled ("Error computation for statement " ^ (stmt_to_string s0)))
+  | Cmd (Assume b) -> Cmd (Assume b)
+  | _ -> raise (NotHandled ("Error computation for statement " ^ Show.show<stmt_type> s0))
 
 (* Reformat program to not use nested arithmetic expressions, and use 
    temporary variables instead *)
-let rec simplify_aexp e = 
+let rec simplify_aexp e =
   match e with
   | Var_exp _
   | Havoc_aexp
   | Sum_exp (Var_exp _, Var_exp _)
   | Diff_exp (Var_exp _, Var_exp _)
   | Mult_exp (Var_exp _, Var_exp _)
-  | Unneg_exp (Var_exp _) -> (Skip, e)
+  | Unneg_exp (Var_exp _) -> (Cmd Skip, e)
   | Real_const k ->
     let t = freshvar () in
-    (Assign (t, Real_const k), Var_exp t)
+    (Cmd (Assign (t, Real_const k)), Var_exp t)
   | Sum_exp (e1, e2) ->
     let (prep1, e1') = simplify_aexp e1 in
     let (prep2, e2') = simplify_aexp e2 in
     let t = (freshvar ()) in
-    ((Seq (prep1, Seq (prep2, Assign (t, Sum_exp (e1', e2'))))), Var_exp t)
+    (mk_seq [prep1; prep2; Cmd (Assign (t, Sum_exp (e1', e2')))], Var_exp t)
   | Diff_exp (e1, e2) ->
     let (prep1, e1') = simplify_aexp e1 in
     let (prep2, e2') = simplify_aexp e2 in
     let t = (freshvar ()) in
-    ((Seq (prep1, Seq (prep2, Assign (t, Diff_exp (e1', e2'))))), Var_exp t)
+    (mk_seq [prep1; prep2; Cmd (Assign (t, Diff_exp (e1', e2')))], Var_exp t)
   | Mult_exp (e1, e2) ->
     let (prep1, e1') = simplify_aexp e1 in
     let (prep2, e2') = simplify_aexp e2 in
     let t = (freshvar ()) in
-    ((Seq (prep1, Seq (prep2, Assign (t, Mult_exp (e1', e2'))))), Var_exp t)
+    (mk_seq [prep1; prep2; Cmd (Assign (t, Mult_exp (e1', e2')))], Var_exp t)
   | Unneg_exp e1 ->
     let (prep1, e1') = simplify_aexp e1 in
     let t = (freshvar ()) in
-    ((Seq (prep1, Assign (t, e1'))), Var_exp t)
+    (Seq (prep1, Cmd (Assign (t, e1'))), Var_exp t)
 
 (* Constants are allowed at the top level, but not as sub-expressions *)
 let simplify_aexp = function
-  | Real_const k -> (Skip, Real_const k)
+  | Real_const k -> (Cmd Skip, Real_const k)
   | e -> simplify_aexp e
 
 let rec simplify_aexp_bexp b =  
   match b with
-    Bool_const bc -> (Skip, b)
+    Bool_const bc -> (Cmd Skip, b)
   | Eq_exp (e1, e2) -> 
     let (prep1, e1') = simplify_aexp e1 in
     let (prep2, e2') = simplify_aexp e2 in
@@ -464,14 +442,14 @@ let rec simplify_aexp_bexp b =
   | Not_exp e1 -> 
     let (prep1, e1') = simplify_aexp_bexp e1 in
     (prep1, Not_exp e1)
-  | Havoc_bexp -> (Skip, Havoc_bexp)
+  | Havoc_bexp -> (Cmd Skip, Havoc_bexp)
 
 let rec simplify_aexp_prog s0 =
   match s0 with
-    Skip -> Skip
-  | Assign (var, e) ->
+    Cmd Skip -> Cmd Skip
+  | Cmd (Assign (var, e)) ->
     let (prep, e') = simplify_aexp e in
-    Seq (prep, Assign(var, e'))
+    Seq (prep, Cmd (Assign(var, e')))
   | Seq (s1, s2) ->
     Seq ((simplify_aexp_prog s1), (simplify_aexp_prog s2))
   | Ite (b, s1, s2) ->
@@ -483,12 +461,12 @@ let rec simplify_aexp_prog s0 =
     let s' = simplify_aexp_prog s in
     let (prep, b') =  simplify_aexp_bexp b in
     Seq (prep, While(b', s', residual))
-  | Assert b -> 
+  | Cmd (Assert b) ->
     let (prep, b') = simplify_aexp_bexp b in
-    Seq (prep, Assert(b'))
-  | Assume b -> 
+    Seq (prep, Cmd (Assert(b')))
+  | Cmd (Assume b) ->
     let (prep, b') = simplify_aexp_bexp b in
-    Seq (prep, Assume(b'))
+    Seq (prep, Cmd (Assume(b')))
   | _ -> s0
 
 let simplify_prog p1 =
@@ -506,7 +484,7 @@ let add_guesses stmt =
 	     And_exp (Le_exp (guess_lower, Var_exp err),
 		      Le_exp (Var_exp err, guess_upper)))
   in
-  let mk_guess vars = Assert (List.fold_left f (Bool_const true) vars) in
+  let mk_guess vars = Cmd (Assert (List.fold_left f (Bool_const true) vars)) in
   let rec go = function
     | Seq (x, y) -> Seq (go x, go y)
     | Ite (c, x, y) -> Ite (c, go x, go y)
@@ -535,30 +513,30 @@ let inc = function () ->
 let rec bexp_to_assume_list s =
   match s with
    | And_exp (c1, c2) -> (bexp_to_assume_list c1) ^ ";\n" ^ (bexp_to_assume_list c2)
-   | _ -> stmt_to_string (Assume s)
+   | _ -> Show.show<cmd_type> (Assume s)
 
 let rec convert_cfg s =
   match s with
-    Skip
-  | Assign (_) ->
+    Cmd Skip
+  | Cmd (Assign (_)) ->
     let en = inc () in
     let ex = inc () in
-    (en, ex, [(en, stmt_to_string s, ex)])
+    (en, ex, [(en, Show.show<stmt_type> s, ex)])
   | Seq (s1, s2) ->
     let (en1, ex1, t1) = convert_cfg s1 in
     let (en2, ex2, t2) = convert_cfg s2 in
-    (en1, ex2, t1 @  [(ex1, stmt_to_string Skip, en2)] @ t2 )
+    (en1, ex2, t1 @  [(ex1, Show.show<cmd_type> Skip, en2)] @ t2 )
   | Ite (b, s1, s2) ->
     let en = inc () in
     let ex = inc () in
     let (en1, ex1, t1) = convert_cfg s1 in
     let (en2, ex2, t2) = convert_cfg s2 in
     let newedges =
-      [(en, stmt_to_string (Assume b), en1);
-       (en, stmt_to_string (Assume (Not_exp b)), en2)]
+      [(en, Show.show<cmd_type> (Assume b), en1);
+       (en, Show.show<cmd_type> (Assume (Not_exp b)), en2)]
       @ t1 @ t2 @
-        [(ex1, stmt_to_string Skip, ex);
-         (ex2, stmt_to_string Skip, ex)]
+        [(ex1, Show.show<cmd_type> Skip, ex);
+         (ex2, Show.show<cmd_type> Skip, ex)]
     in
     (en, ex, newedges)
   | While (b, s1, _) ->
@@ -574,15 +552,15 @@ let rec convert_cfg s =
       loop_edges @
        [(en, bexp_to_assume_list (Not_exp b), ex)]
       @ t1 @
-       [(ex1, stmt_to_string Skip, en)]
+       [(ex1, Show.show<cmd_type> Skip, en)]
     in
     (en, ex, newedges)
-  | Assert (b)
-  | Assume (b) ->
+  | Cmd (Assert (b))
+  | Cmd (Assume (b)) ->
     let en = inc () in
     let ex = inc () in
     (en, ex, [(en, bexp_to_assume_list b, ex)])
-  | _ -> raise (NotHandled ("T2 Translation of " ^ (stmt_to_string s)))
+  | _ -> raise (NotHandled ("T2 Translation of " ^ (Show.show<stmt_type> s)))
 
 
 let rec transitions_T2_to_string tr =
@@ -620,6 +598,55 @@ let print_T2_prog p =
       (print_cfg_T2 g)
 
 
+module C = struct
+  type t = cmd_type deriving (Show,Compare)
+  let compare = Compare_t.compare
+  let show = Show_t.show
+  let format = Show_t.format
+  let default = Skip
+end
+
+module Cfa = struct
+  include ExtGraph.Persistent.Digraph.MakeBidirectionalLabeled(Putil.PInt)(C)
+end
+module CfaDisplay = ExtGraph.Display.MakeLabeled(Cfa)(Putil.PInt)(C)
+
+
+let build_cfa s =
+  let fresh =
+    let m = ref (-1) in
+    fun () -> (incr m; !m)
+  in
+  let add_edge cfa u lbl v =
+    Cfa.add_edge_e cfa (Cfa.E.create u lbl v)
+  in
+  let rec go cfa entry = function
+    | Cmd Skip -> (cfa, entry)
+    | Cmd c ->
+      let succ = fresh () in
+      (add_edge cfa entry c succ, succ)
+    | Seq (c, d) ->
+      let (cfa, exit) = go cfa entry c in
+      go cfa exit d
+    | Ite (phi, c, d) ->
+      let succ, enter_then, enter_else = fresh (), fresh (), fresh () in
+      let cfa = add_edge cfa entry (Assume phi) enter_then in
+      let cfa = add_edge cfa entry (Assume (Not_exp phi)) enter_else in
+      let (cfa, exit_then) = go cfa enter_then c in
+      let (cfa, exit_else) = go cfa enter_else d in
+      (Cfa.add_edge (Cfa.add_edge cfa exit_then succ) exit_else succ, succ)
+    | While (phi, body, _) ->
+      let (cfa, enter_body) = go cfa entry (Cmd (Assume phi)) in
+      let (cfa, exit_body) = go cfa enter_body body in
+      let cfa = Cfa.add_edge cfa exit_body entry in
+      go cfa entry (Cmd (Assume (Not_exp phi)))
+  in
+  let entry = fresh () in
+  let (cfa, exit) = go (Cfa.add_vertex Cfa.empty entry) entry s in
+  (cfa, entry, exit)
+
+
+
 (*********** Main function ****************
 *******************************************)
 
@@ -630,21 +657,23 @@ let read_and_process infile =
    print_prog result;
    print_T2_prog result;
    (print_string "\nSimplifying and printing program...\n\n");
-   let simpprog = simplify_prog result in
-   print_prog simpprog;
+   let Prog simpprog = simplify_prog result in
+   print_prog (Prog simpprog);
+   let (cfa, _, _) = build_cfa simpprog in
+   CfaDisplay.display cfa
+
+(*
    (print_string "\nGenerating and printing error term...\n\n");
    (let errresult = generate_err_prog simpprog in
-    Log.verbosity_level := 4;
     let errresult = Bounds.add_bounds errresult in
-    print_prog errresult;
+    print_prog errresult
     print_T2_prog errresult
    )
-
-
+*)
 
 let _ =
   if Array.length Sys.argv <> 2 then
-    Printf.fprintf stderr "usage: %s input_filename\n" Sys.argv.(0)
+    Format.eprintf "usage: %s input_filename\n" Sys.argv.(0)
   else
     let  infile = open_in Sys.argv.(1) in
     read_and_process infile;

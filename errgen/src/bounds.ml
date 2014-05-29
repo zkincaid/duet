@@ -83,8 +83,8 @@ let to_bexp =
   F.eval alg
 
 let rec eval = function
-  | Skip -> K.one 
-  | Assign (v, t) -> K.assign v (tr_aexp t)
+  | Cmd Skip -> K.one
+  | Cmd (Assign (v, t)) -> K.assign v (tr_aexp t)
   | Seq (x, y) -> K.mul (eval x) (eval y)
   | Ite (cond, bthen, belse) ->
     let cond = tr_bexp cond in
@@ -96,13 +96,14 @@ let rec eval = function
     K.mul
       (K.star (K.mul (K.assume cond) (eval body)))
       (K.assume (F.negate cond))
-  | Assert phi -> K.assume (tr_bexp phi)
-  | Print _ -> K.one
-  | Assume phi -> K.assume (tr_bexp phi)
+  | Cmd (Assert phi) -> K.assume (tr_bexp phi)
+  | Cmd (Print _) -> K.one
+  | Cmd (Assume phi) -> K.assume (tr_bexp phi)
 
 let rec add_bounds path_to = function
-  | Skip -> (Skip, path_to)
-  | Assign (v, t) -> (Assign (v, t), K.mul path_to (K.assign v (tr_aexp t)))
+  | Cmd Skip -> (Cmd Skip, path_to)
+  | Cmd (Assign (v, t)) ->
+    (Cmd (Assign (v, t)), K.mul path_to (K.assign v (tr_aexp t)))
   | Seq (x, y) ->
     let (x, to_y) = add_bounds path_to x in
     let (y, to_end) = add_bounds to_y y in
@@ -151,9 +152,9 @@ let rec add_bounds path_to = function
       in
       BatEnum.fold F.conj F.top (e /@ to_formula)
     in
-    (While (cond, Seq (Assume (to_bexp inv), body), residual),
+    (While (cond, Seq (Cmd (Assume (to_bexp inv)), body), residual),
      K.mul to_loop (K.assume (F.negate tr_cond)))
-  | Assert phi ->
+  | Cmd (Assert phi) ->
 (*
     let path_through = K.mul path_to (K.assume (tr_bexp phi)) in
     if not (F.equiv (K.to_formula path_to) (K.to_formula path_through))
@@ -162,16 +163,16 @@ let rec add_bounds path_to = function
       assert false
     end;
 *)
-    (Assert phi, path_to)
-  | Print t -> (Print t, path_to)
-  | Assume phi -> (Assume phi, K.mul path_to (K.assume (tr_bexp phi)))
+    (Cmd (Assert phi), path_to)
+  | Cmd (Print t) -> (Cmd (Print t), path_to)
+  | Cmd (Assume phi) -> (Cmd (Assume phi), K.mul path_to (K.assume (tr_bexp phi)))
 
 let forward_bounds man stmt =
   let assume c pre = F.abstract_assume man pre (tr_bexp c) in
   let rec go stmt pre = match stmt with
-    | Print _
-    | Skip -> (stmt, pre)
-    | Assign (v, exp) ->
+    | Cmd (Print _)
+    | Cmd (Skip) -> (stmt, pre)
+    | Cmd (Assign (v, exp)) ->
       (stmt, F.abstract_assign man pre (V.mk_var v) (tr_aexp exp))
     | Seq (s0, s1) ->
       let (s0, mid) = go s0 pre in
@@ -181,10 +182,10 @@ let forward_bounds man stmt =
       let (then_prop, else_prop) = (assume c pre, assume (Not_exp c) pre) in
       if D.is_bottom then_prop then begin
 	let (belse, post_else) = go belse else_prop in
-	(Seq (Assume (Not_exp c), belse), post_else)
+	(Seq (Cmd (Assume (Not_exp c)), belse), post_else)
       end else if D.is_bottom else_prop then begin
 	let (bthen, post_then) = go bthen then_prop in
-	(Seq (Assume c, bthen), post_then)
+	(Seq (Cmd (Assume c), bthen), post_then)
       end else begin
 	let (bthen, post_then) = go bthen then_prop in
 	let (belse, post_else) = go belse else_prop in
@@ -210,13 +211,13 @@ let forward_bounds man stmt =
       in
       let post = D.exists man p post in
       if D.is_bottom post then begin
-	(While (c, Assume (Bool_const false), residual), post)
+	(While (c, Cmd (Assume (Bool_const false)), residual), post)
       end else begin
-	let inv = Assume (to_bexp (F.of_abstract (assume c post))) in
+	let inv = Cmd (Assume (to_bexp (F.of_abstract (assume c post)))) in
 	(While (c, Seq (inv, body), residual), assume (Not_exp c) post)
       end
-    | Assert c
-    | Assume c -> (stmt, assume c pre)
+    | Cmd (Assert c)
+    | Cmd (Assume c) -> (stmt, assume c pre)
   in
   fst (go stmt (D.top man (D.Env.of_list [])))
 

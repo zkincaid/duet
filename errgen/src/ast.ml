@@ -1,3 +1,5 @@
+(*pp camlp4find deriving.syntax *)
+
 open Ark
 open ArkPervasives
 
@@ -13,6 +15,7 @@ type aexp_type =
 | Var_exp of string
 | Unneg_exp of aexp_type 
 | Havoc_aexp
+    deriving (Compare)
 
 type bexp_type = 
   Bool_const of bool
@@ -26,22 +29,89 @@ type bexp_type =
 | Not_exp of bexp_type
 | Or_exp of (bexp_type * bexp_type)
 | Havoc_bexp
+    deriving (Compare)
 
-      
-type stmt_type = 
-   Skip 
-|  Assign of (string * aexp_type) 
-| Seq of (stmt_type * stmt_type)
-| Ite of (bexp_type * stmt_type * stmt_type)
-| While of (bexp_type * stmt_type * bool)
+type cmd_type =
+  Skip
+| Assign of (string * aexp_type) 
 | Assert of bexp_type
 | Print of aexp_type
 | Assume of bexp_type
+    deriving (Compare)
 
-
+type stmt_type = 
+  Cmd of cmd_type
+| Seq of (stmt_type * stmt_type)
+| Ite of (bexp_type * stmt_type * stmt_type)
+| While of (bexp_type * stmt_type * bool)
 
 type prog_type = 
   Prog of stmt_type  
+
+module Show_aexp_type = Show.Defaults(struct
+  type a = aexp_type
+  let rec format formatter = function
+    | Real_const r -> QQ.format formatter r
+    | Var_exp x -> Format.pp_print_string formatter x
+    | Sum_exp (a, b) ->
+      Format.fprintf formatter "(%a + %a)" format a format b
+    | Diff_exp (a, b) ->
+      Format.fprintf formatter "(%a - %a)" format a format b
+    | Mult_exp (a, b) ->
+      Format.fprintf formatter "(%a * %a)" format a format b
+    | Unneg_exp a ->
+      Format.fprintf formatter "-(%a)" format a
+    | Havoc_aexp -> Format.pp_print_string formatter "nondet()"
+end)
+module Show_bexp_type = Show.Defaults(struct
+  type a = bexp_type
+  let fe = Show.format<aexp_type>
+  let rec format formatter = function
+    | Bool_const true -> Format.pp_print_string formatter "0 <= 0"
+    | Bool_const false -> Format.pp_print_string formatter "1 <= 0"
+    | Eq_exp (a, b) -> Format.fprintf formatter "%a == %a" fe a fe b
+    | Ne_exp (a, b) -> Format.fprintf formatter "%a != %a" fe a fe b
+    | Gt_exp (a, b) -> Format.fprintf formatter "%a > %a" fe a fe b
+    | Lt_exp (a, b) -> Format.fprintf formatter "%a < %a" fe a fe b
+    | Ge_exp (a, b) -> Format.fprintf formatter "%a >= %a" fe a fe b
+    | Le_exp (a, b) -> Format.fprintf formatter "%a <= %a" fe a fe b
+    | And_exp (phi,psi) ->
+      Format.fprintf formatter "(%a && %a)" format phi format psi
+    | Or_exp (phi,psi) ->
+      Format.fprintf formatter "(%a || %a)" format phi format psi
+    | Not_exp phi -> Format.fprintf formatter "!(%a)" format phi
+    | Havoc_bexp -> Format.pp_print_string formatter "nondet() < 1"
+end)
+module Show_cmd_type = Show.Defaults(struct
+  type a = cmd_type
+  let format formatter = function
+    | Skip -> Format.pp_print_string formatter "skip"
+    | Assign (v, rhs) ->
+      Format.fprintf formatter "%s := %a" v Show.format<aexp_type> rhs
+    | Assert phi ->
+      Format.fprintf formatter "assert(%a)" Show.format<bexp_type> phi
+    | Print t ->
+      Format.fprintf formatter "print(%a)" Show.format<aexp_type> t
+    | Assume phi ->
+      Format.fprintf formatter "assume(%a)" Show.format<bexp_type> phi
+end)
+module Show_stmt_type = Show.Defaults(struct
+  type a = stmt_type
+  let rec format formatter = function
+    | Cmd c -> Show.format<cmd_type> formatter c
+    | Seq (Cmd Skip, c) | Seq (c, Cmd Skip) -> format formatter c
+    | Seq (c, d) ->
+      Format.fprintf formatter "%a;@\n%a" format c format d
+    | Ite (c, bthen, belse) ->
+      Format.fprintf formatter "if (%a) {@\n  @[%a@]@\n} else {@\n  @[%a@]}"
+	Show.format<bexp_type> c
+	format bthen
+	format belse
+    | While (c, body, _) ->
+      Format.fprintf formatter "while (%a) {@\n  @[%a@]@\n}"
+	Show.format<bexp_type> c
+	format body
+end)
 
 let rec aexp_to_string e =
   match e with
@@ -117,42 +187,6 @@ let rec bexp_to_string b =
        bexp_to_string b2; ")"]
   | Havoc_bexp -> "nondet() < 1"
 
-let rec stmt_to_string s =
-  match s with
-    Skip -> "skip"
-  | Assign (var, e) ->
-    String.concat "" [var; " := "; aexp_to_string e]
-  | Seq (s1, s2) ->
-    (match s1 with
-      Skip -> (stmt_to_string s2)
-    | _  ->
-          (match s2 with
-         Skip -> (stmt_to_string s1)
-          | _ -> (String.concat "" [stmt_to_string s1; ";\n"; stmt_to_string s2])))
-  | Ite (b, s1, s2) ->
-    String.concat ""
-      ["if ("; (bexp_to_string b); ") { \n";
-       stmt_to_string s1; "\n}\nelse { \n";
-       stmt_to_string s2; "\n}"]
-  | While (b, s1, false) ->
-    String.concat ""
-      ["while ("; bexp_to_string b; ") { \n";
-       stmt_to_string s1; "\n}\n"]
-  | While (b, s1, true) ->
-    String.concat ""
-      ["residual-while ("; bexp_to_string b; ") { \n";
-       stmt_to_string s1; "\n}\n"]
-  | Print(e) ->
-    String.concat ""
-      ["print ("; aexp_to_string e; ")\n"]
-  | Assert b ->
-    String.concat ""
-      ["assert ("; bexp_to_string b; ")"]
-  | Assume b ->
-    String.concat ""
-      ["assume ("; bexp_to_string b; ")"]
-
-
 (* Collecting variables *)
 
 let rec collect_vars_aexp e =
@@ -186,19 +220,20 @@ let rec collect_vars_bexp b =
   | Havoc_bexp -> []
 
 
-
-let rec collect_vars_stmt s =
-  match s with
-    Skip -> []
+let collect_vars_cmd = function
+  | Skip -> []
   | Assign (x, e) ->
     x :: (collect_vars_aexp e)
-  | Seq (s1, s2) -> (collect_vars_stmt s1) @ (collect_vars_stmt s2)
-  | Ite (b, s1, s2) -> (collect_vars_bexp b) @ (collect_vars_stmt s1) @ (collect_vars_stmt s2)
-  | While (b, s1, _) -> (collect_vars_bexp b) @ (collect_vars_stmt s1)
   | Assert (b) -> (collect_vars_bexp b)
   | Print (e) -> (collect_vars_aexp e)
   | Assume (b) -> (collect_vars_bexp b)
 
+let rec collect_vars_stmt s =
+  match s with
+  | Cmd c -> collect_vars_cmd c
+  | Seq (s1, s2) -> (collect_vars_stmt s1) @ (collect_vars_stmt s2)
+  | Ite (b, s1, s2) -> (collect_vars_bexp b) @ (collect_vars_stmt s1) @ (collect_vars_stmt s2)
+  | While (b, s1, _) -> (collect_vars_bexp b) @ (collect_vars_stmt s1)
 
 let rec remove_dups l =
   match l with

@@ -23,21 +23,33 @@ type bexp_type =
 | Or_exp of (bexp_type * bexp_type)
 | Havoc_bexp
 
-type stmt_type =  
-   Skip 
-|  Assign of (string * aexp_type) 
+type cmd_type =
+  Skip
+| Assign of (string * aexp_type) 
+| Assert of bexp_type
+| Print of aexp_type
+| Assume of bexp_type
+
+type stmt_type = 
+  Cmd of cmd_type
 | Seq of (stmt_type * stmt_type)
 | Ite of (bexp_type * stmt_type * stmt_type)
 | While of (bexp_type * stmt_type * bool)
-| Assert of bexp_type
-| Print of aexp_type
-| Assume of bexp_type    
 
 type prog_type = 
   Prog of stmt_type 
 
 val aexp_to_string : aexp_type -> string
 val bexp_to_string : bexp_type -> string
-val stmt_to_string : stmt_type -> string
 
 val collect_vars : stmt_type -> string list
+
+
+(* Deriving instances *)
+module Compare_aexp_type : Compare.Compare with type a = aexp_type
+module Compare_bexp_type : Compare.Compare with type a = bexp_type
+module Compare_cmd_type : Compare.Compare with type a = cmd_type
+module Show_aexp_type : Show.Show with type a = aexp_type
+module Show_bexp_type : Show.Show with type a = bexp_type
+module Show_cmd_type : Show.Show with type a = cmd_type
+module Show_stmt_type : Show.Show with type a = stmt_type

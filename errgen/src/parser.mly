@@ -33,16 +33,16 @@
 	;
 
 	stmt:
-                              {  Skip  } 
-         | SKIP                { Skip } 
-         |  VAR ASSIGN aexp       { Assign($1,$3) }
+                              {  Cmd Skip  }
+         | SKIP                { Cmd Skip }
+         |  VAR ASSIGN aexp       { Cmd (Assign($1,$3)) }
          |  stmt SEMI stmt         { Seq($1, $3) }
          |  IF LPAREN bexp RPAREN LBRACE stmt RBRACE ELSE LBRACE stmt RBRACE { Ite($3,$6,$10) }
-         |  IF LPAREN bexp RPAREN LBRACE stmt RBRACE   { Ite($3,$6,Skip) }
+         |  IF LPAREN bexp RPAREN LBRACE stmt RBRACE   { Ite($3,$6,Cmd Skip) }
          |  WHILE LPAREN bexp RPAREN LBRACE stmt RBRACE { While($3, $6, false) }
-	 |  ASSERT LPAREN bexp RPAREN   { Assert($3) }
-	 |  ASSUME LPAREN bexp RPAREN   { Assume($3) }
-         |  PRINT LPAREN aexp RPAREN    { Print($3) }
+	 |  ASSERT LPAREN bexp RPAREN   { Cmd (Assert($3)) }
+	 |  ASSUME LPAREN bexp RPAREN   { Cmd (Assume($3)) }
+         |  PRINT LPAREN aexp RPAREN    { Cmd (Print($3)) }
              
         aexp:
             REAL                    { Real_const($1) }
