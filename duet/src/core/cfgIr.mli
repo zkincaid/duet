@@ -60,10 +60,6 @@ val from_file_ast : Ast.file -> file
 
 val cfg_equal : Cfg.t -> Cfg.t -> bool
 
-val factor_cfg : Cfg.t -> unit
-val normalize_cfg : Cfg.t -> unit
-val remove_unreachable : Cfg.t -> Def.t -> unit
-
 val return_var : Varinfo.t -> Varinfo.t
 
 val is_local : func -> Varinfo.t -> bool
@@ -71,3 +67,18 @@ val is_formal : func -> Varinfo.t -> bool
 
 val iter_func_defs : (Varinfo.t -> Def.t -> unit) -> file -> unit
 val iter_defs : (Def.t -> unit) -> file -> unit
+
+val remove_unreachable : Cfg.t -> Def.t -> unit
+
+(** Normalize a file.  This should be called immediately after constructing a
+    file.  Normalization ensures that:
+    - CFGs are well-formed:
+      + There is a single entry vertex (with no predecessors)
+      + There is a single exit vertex (with no successors)
+      + Every vertex is reachable from the entry vertex
+    - String constants do not appear as the RHS of a store
+
+    Normalization also inserts skip vertices in places that are structurally
+    convenient for SESE region detection.
+*)
+val normalize : file -> unit

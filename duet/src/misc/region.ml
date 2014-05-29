@@ -11,7 +11,7 @@ open Apak
 
 module R = Sese.Make(Cfg)
 module G = R.G
-module CG = RecGraph.Callgraph(R)
+module CG = RecGraph.Callgraph(RecGraph.LiftPar(R))
 
 type region_hierarchy = {
   callgraph : CG.t;
@@ -65,8 +65,8 @@ let region_vars g =
     end
   in
   let add_uses (_, v) = match v with
-    | RecGraph.Atom def -> Var.Set.iter (add_use def) (Def.free_vars def)
-    | RecGraph.Block _  -> ()
+    | `Atom def -> Var.Set.iter (add_use def) (Def.free_vars def)
+    | `Block _  -> ()
   in
   let rmap = R.Block.HT.create 32 in
   let add_rmap x = function
@@ -101,8 +101,8 @@ end = struct
   let kleene rg g def_weight generalize s t =
     let region_vars = region_vars rg in
     let rec weight = function
-      | Atom def -> def_weight def
-      | Block block ->
+      | `Atom def -> def_weight def
+      | `Block block ->
 	let rv = region_vars block in
 	let entry = R.block_entry rg block in
 	let exit = R.block_exit rg block in
@@ -111,7 +111,7 @@ end = struct
 	let exist v = Varinfo.is_global (fst v) || not (Var.Set.mem v rv) in
 	generalize exist summary
     in
-    PE.path_expr_v g weight (Atom s) (Atom t)
+    PE.path_expr_v g weight (`Atom s) (`Atom t)
 
   let summarize_fun func weight generalize =
     let init = Cfg.initial_vertex func.cfg in

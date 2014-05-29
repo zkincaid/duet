@@ -1,7 +1,7 @@
-./regression/pa/code/rhs.c:20 >> Assertion failed: (unsigned long )r != (unsigned long )(& c + 1)
-./regression/pa/code/rhs.c:15 >> Assertion failed: (unsigned long )p != (unsigned long )(& a + 42)
 ./regression/pa/code/rhs.c:14 >> Assertion failed: (unsigned long )p != (unsigned long )(& a)
+./regression/pa/code/rhs.c:15 >> Assertion failed: (unsigned long )p != (unsigned long )(& a + 42)
 ./regression/pa/code/rhs.c:17 >> Assertion failed: (unsigned long )r != (unsigned long )(& b + 1)
+./regression/pa/code/rhs.c:20 >> Assertion failed: (unsigned long )r != (unsigned long )(& c + 1)
 
 4 errors total
 4 safe assertions

@@ -21,6 +21,8 @@ type membase =
 type memloc = membase * offset
     deriving (Compare)
 
+let undefined = Varinfo.mk_global "undefined" (Concrete Void)
+
 module MemBase = struct
   module Elt = struct
     type t = membase deriving (Compare)
@@ -223,6 +225,8 @@ module E = MakeEval(
     let str_const str = SimpleRhs.Set.singleton (RStr str, OffsetFixed 0)
   end)
 
+exception Higher_ap of SimpleRhs.t
+
 let rec simplify_ap = function
   | Deref expr -> begin match simplify_expr expr with
       | VConst _ -> SimpleAP.Set.empty
@@ -230,10 +234,7 @@ let rec simplify_ap = function
 	  let add (rhs, offset) set = match rhs with
 	    | RAp (Lvl0 var) ->
 		SimpleAP.Set.add (Lvl1 (var, offset)) set
-	    | RAp (Lvl1 (_, _)) ->
-		Log.errorf "Can't deref Lvl1 AP `%a'"
-		  SimpleRhs.format (rhs, offset);
-		assert false
+	    | RAp (Lvl1 (_, _)) -> raise (Higher_ap (rhs, offset))
 	    | RAddr var ->
 		(* *(&var + offset) = var[offset] *)
 		SimpleAP.Set.add (Lvl0 (var, offset)) set
@@ -282,7 +283,13 @@ object (self)
 	  let add_offset (base, offset) = (base, Offset.add offset of2) in
 	    MemLoc.Set.map add_offset (self#ap_points_to (Variable (var, of1)))
     in
+    try
       SimpleAP.Set.fold add (simplify_ap ap) MemLoc.Set.empty
+    with Higher_ap simple_rhs -> begin
+      Log.errorf "Can't resolve access path (Higher-level AP: `%a')" AP.format ap;
+      Log.errorf "Higher-level AP: `%a'" SimpleRhs.format simple_rhs;
+      assert false
+    end
 
   method may_alias x y =
     let may_alias x y =
@@ -369,14 +376,16 @@ let simplify_calls file =
        between all its possible (direct) targets.  TODO: This transformation
        is an overapproximation, but it can be made exact. *)
     let resolve_call def func cfg =
+      let tmp = def.dkind in
       let targets = pa#resolve_call func in
       let loc = Def.get_location def in
       let skip = Def.mk (Assume (Bexpr.ktrue)) in
       let add_call target =
-	let call =
-	  Def.mk ~loc:loc (Call (None,
-				 Expr.addr_of (Variable (Var.mk target)),
-				 []))
+        let call =
+          let etc = (None, Expr.addr_of (Variable (Var.mk target)), []) in
+            match tmp with
+              | Call _           -> Def.mk ~loc:loc (Call etc)
+              | Builtin (Fork _) -> Def.mk ~loc:loc (Builtin (Fork etc))
 	in
 	Cfg.add_vertex cfg call;
 	Cfg.add_edge cfg def call;
@@ -385,10 +394,18 @@ let simplify_calls file =
       def.dkind <- Assume (Bexpr.ktrue);
       insert_succ skip def cfg;
       Cfg.remove_edge cfg def skip;
-      assert (Varinfo.Set.cardinal targets >= 1); (* todo *)
+      if (Varinfo.Set.cardinal targets < 1) 
+      then begin
+	Log.errorf "WARNING: No targets for call to `%a' on line %d"
+          Expr.format func
+	  (Def.get_location def).Cil.line;
+        add_call undefined
+      end;
+     (* assert (Varinfo.Set.cardinal targets >= 1); (* todo *)*)
       Varinfo.Set.iter add_call targets
     in
     let simplify_def def = match def.dkind with
+      | Builtin (Fork (Some lhs, func, args))
       | Call (Some lhs, func, args) ->
 	let loc = Def.get_location def in
 	let assign =
@@ -401,6 +418,7 @@ let simplify_calls file =
 	assign_args def 0 args;
 	insert_succ assign def cfg;
 	resolve_call def func cfg
+      | Builtin (Fork (None, func, args))
       | Call (None, func, args) ->
 	assign_args def 0 args;
 	resolve_call def func cfg

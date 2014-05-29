@@ -1,12 +1,12 @@
-./regression/pa/code/simple.c:18 >> Assertion failed: (unsigned long )q != (unsigned long )(& x)
+./regression/pa/code/simple.c:14 >> Assertion failed: (unsigned long )p != (unsigned long )a1
 ./regression/pa/code/simple.c:15 >> Assertion failed: (unsigned long )p != (unsigned long )(& x)
 ./regression/pa/code/simple.c:17 >> Assertion failed: (unsigned long )q != (unsigned long )a1
-./regression/pa/code/simple.c:24 >> Assertion failed: (unsigned long )r != (unsigned long )(& y)
+./regression/pa/code/simple.c:18 >> Assertion failed: (unsigned long )q != (unsigned long )(& x)
 ./regression/pa/code/simple.c:19 >> Assertion failed: (unsigned long )q != (unsigned long )(& y)
-./regression/pa/code/simple.c:14 >> Assertion failed: (unsigned long )p != (unsigned long )a1
 ./regression/pa/code/simple.c:21 >> Assertion failed: (unsigned long )r != (unsigned long )a1
-./regression/pa/code/simple.c:23 >> Assertion failed: (unsigned long )r != (unsigned long )(& x)
 ./regression/pa/code/simple.c:22 >> Assertion failed: (unsigned long )r != (unsigned long )a2
+./regression/pa/code/simple.c:23 >> Assertion failed: (unsigned long )r != (unsigned long )(& x)
+./regression/pa/code/simple.c:24 >> Assertion failed: (unsigned long )r != (unsigned long )(& y)
 
 9 errors total
 0 safe assertions

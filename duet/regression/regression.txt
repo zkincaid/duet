@@ -7,6 +7,7 @@ coarsen rendez-vous.c -no-whole-program -coarsen
 coarsen producer_consumer.c -no-whole-program -parameterized -coarsen
 coarsen popl12fig2.c -coarsen -parameterized
 coarsen alias.c -coarsen -no-whole-program -parameterized
+coarsen fork_interproc.c -coarsen
 pa indirect.c -pa
 pa list.c -pa
 pa noalloc.c -pa
@@ -17,6 +18,7 @@ pa record.c -pa
 pa rhs.c -pa
 pa type_error.c -pa
 pa unknown_offset.c -pa
+pa init.c -pa
 hdfg alias_addr_err.c -domain oct -hdfg
 hdfg backward_must_alias.c -domain oct -hdfg
 hdfg branch_err.c -domain oct -hdfg
@@ -25,6 +27,7 @@ hdfg forward_must_alias_err.c -domain oct -hdfg
 hdfg interproc_must_alias.c -domain oct -hdfg
 hdfg interproc_uninit.c -domain oct -hdfg
 hdfg join.c -domain oct -hdfg
+hdfg loop.c -hdfg
 hdfg must_alias.c -domain oct -hdfg
 hdfg must_alias_addr.c -domain oct -hdfg
 hdfg must_alias_err.c -domain oct -hdfg
@@ -71,3 +74,14 @@ lra mult-rec.c -lra
 lra mem.c -check-array-bounds -lra
 lra mem2.c -check-array-bounds -lra
 lra pointer_arith.c -lra
+chdfg fork_interproc.c -chdfg
+chdfg obj1.c -chdfg
+chdfg obj2.c -chdfg
+chdfg obj3.c -chdfg
+chdfg single_thread.c -chdfg
+chdfg global_lock.c -chdfg
+chdfg counter.c -chdfg
+chdfg producer-consumer.c -chdfg
+chdfg alias_release.c -chdfg
+chdfg local.c -chdfg
+chdfg parent_holds_lock.c -chdfg

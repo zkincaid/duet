@@ -1,7 +1,7 @@
+./regression/pa/code/type_error.c:29 >> Assertion failed: (unsigned long )tmp2 != (unsigned long )p
+./regression/pa/code/type_error.c:30 >> Assertion failed: (unsigned long )tmp1 != (unsigned long )q
 ./regression/pa/code/type_error.c:31 >> Assertion failed: (unsigned long )p->f2 != (unsigned long )q
 ./regression/pa/code/type_error.c:32 >> Assertion failed: (unsigned long )q->f4 != (unsigned long )p
-./regression/pa/code/type_error.c:30 >> Assertion failed: (unsigned long )tmp1 != (unsigned long )q
-./regression/pa/code/type_error.c:29 >> Assertion failed: (unsigned long )tmp2 != (unsigned long )p
 
 4 errors total
 0 safe assertions

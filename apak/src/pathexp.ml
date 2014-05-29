@@ -316,8 +316,8 @@ end = struct
       let format formatter =
 	let open RecGraph in
 	function
-	| Block k -> Format.fprintf formatter "Block %d" k
-	| Atom k -> Format.fprintf formatter "Atom %d" (get_id k)
+	| `Block k -> Format.fprintf formatter "Block %d" k
+	| `Atom k -> Format.fprintf formatter "Atom %d" (get_id k)
     end)
   end)
   let fold_sese f wg acc =
@@ -326,7 +326,7 @@ end = struct
     let fold_body = ReLoop.fold_inside_out in
     let rec visit v acc =
       match v with
-      | Block block ->
+      | `Block block ->
 	L.logf "Enter block %d" block;
 	let bentry = Re.block_entry rg block in
 	let bexit = Re.block_exit rg block in
@@ -341,7 +341,7 @@ end = struct
 	in
 	L.logf "Exit block %d" block;
 	res
-      | Atom atom ->
+      | `Atom atom ->
 	L.logf "Visit: %d" (get_id atom);
 	f atom acc
     in
@@ -589,11 +589,12 @@ end = struct
 end
 
 open RecGraph
-module MakeRG
-  (R : RecGraph.S)
+module MakeParRG
+  (R : RecGraph.S with type ('a,'b) typ = ('a, 'b) RecGraph.par_typ)
   (Block : BLOCK with type t = R.block)
   (K : sig 
     include Sig.KA.Quantified.Ordered.S
+    val fork : t -> t
     val widen : t -> t -> t
   end) =
 struct
@@ -616,7 +617,7 @@ struct
   module InterPE = MakeElim(CG)(K)
 
   type query =
-    { recgraph : R.t;
+    { mutable recgraph : R.t;
       weight : R.atom -> K.t;
       local : R.block -> (K.var -> bool);
       root : R.block;
@@ -625,8 +626,8 @@ struct
       to_block : K.t HT.t }
 
   let is_block v = match R.classify v with
-    | Block _ -> true
-    | Atom _  -> false
+    | `ParBlock _ | `Block _ -> true
+    | `Atom _  -> false
 
   let mk_query g weight local root =
     { recgraph = g;
@@ -656,12 +657,28 @@ struct
     let cg' = CG.add_edge (callgraph query) b1 b2 in
     query.callgraph <- Some cg'
 
+  let remove_dead_code query =
+    let cg = callgraph query in
+    let f acc block = if not (CG.mem_vertex cg block)
+                      then R.remove_block acc block
+                      else acc
+    in
+      query.recgraph <- BatEnum.fold f query.recgraph (R.blocks query.recgraph)
+
   let compute_summaries query =
     let cg = callgraph query in
     let weight v = match R.classify v with
-      | Atom atom   -> query.weight atom
-      | Block block -> try HT.find query.summaries block
-	               with Not_found -> K.zero
+      | `Atom atom   -> query.weight atom
+      | `Block block ->
+	begin
+	  try HT.find query.summaries block
+	  with Not_found -> K.zero
+	end
+      | `ParBlock block ->
+	begin
+	  try K.fork (HT.find query.summaries block)
+	  with Not_found -> K.fork K.zero
+	end
     in
 
     (* Compute summaries for each block *)
@@ -712,18 +729,19 @@ struct
     let cg = callgraph query in
 
     let weight v = match R.classify v with
-      | Atom atom   -> query.weight atom
-      | Block block -> get_summary query block
+      | `Atom atom   -> query.weight atom
+      | `Block block -> get_summary query block
+      | `ParBlock block -> K.fork (get_summary query block)
     in
 
     let p2c_summaries = HT.create 32 in
     let block_succ_weights (block, graph) =
       L.logf "Compute paths to call vertices in `%a`" Block.format block;
       let src = R.block_entry query.recgraph block in
-      let path = Summarize.single_src_restrict_v graph weight src is_block in
+      let path = Summarize.single_src_v graph weight src in
       let ht = HT.create 32 in
       let f u = match R.classify u with
-	| Block blk ->
+	| `Block blk | `ParBlock blk ->
 	  let to_blk = (* path from src to blk *)
 	    let local = query.local block in
 	    K.exists (fun x -> not (local x)) (path u)
@@ -732,7 +750,7 @@ struct
 	    try HT.replace ht blk (K.add (HT.find ht blk) to_blk)
 	    with Not_found -> HT.add ht blk to_blk
 	  end
-	| Atom _ -> ()
+	| `Atom _ -> ()
       in
       R.G.iter_vertex f graph;
       HT.add p2c_summaries block ht
@@ -754,9 +772,17 @@ struct
   let single_src_restrict query p go =
     let to_block = single_src_blocks query in
     let weight v = match R.classify v with
-      | Atom atom   -> query.weight atom
-      | Block block -> try HT.find query.summaries block
-                       with Not_found -> K.zero
+      | `Atom atom -> query.weight atom
+      | `Block block ->
+	begin
+	  try HT.find query.summaries block
+          with Not_found -> K.zero
+	end
+      | `ParBlock block ->
+	begin
+	  try HT.find query.summaries block
+          with Not_found -> K.fork K.zero
+	end
     in
     let f (block, body) =
       L.logf "Intraprocedural paths in `%a`" Block.format block;
@@ -778,9 +804,17 @@ struct
   let single_src query =
     let path_to_block = single_src_blocks query in
     let weight v = match R.classify v with
-      | Atom atom   -> query.weight atom
-      | Block block -> try HT.find query.summaries block
-	               with Not_found -> K.zero
+      | `Atom atom -> query.weight atom
+      | `Block block ->
+	begin
+	  try HT.find query.summaries block
+	  with Not_found -> K.zero
+	end
+      | `ParBlock block ->
+	begin
+	  try HT.find query.summaries block
+	  with Not_found -> K.fork K.zero
+	end
     in
     fun block -> begin
       let to_block = path_to_block block in
@@ -798,3 +832,18 @@ struct
     in
     BatEnum.concat (R.bodies query.recgraph /@ enum_block)
 end
+
+module MakeSeqRG
+  (R : RecGraph.S with type ('a,'b) typ = ('a, 'b) RecGraph.seq_typ)
+  (Block : BLOCK with type t = R.block)
+  (K : sig
+    include Sig.KA.Quantified.Ordered.S
+    val widen : t -> t -> t
+  end) =
+  MakeParRG
+    (RecGraph.LiftPar(R))
+    (Block)
+    (struct
+      include K
+      let fork _ = assert false
+     end)

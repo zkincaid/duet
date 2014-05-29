@@ -247,25 +247,35 @@ let emit_structure ctx file =
       let (var, of1) = get_lhs (Variable lhs) in
       ctx.alloc (var, of1, MAlloc def, OffsetFixed 0)
 
-    (* Direct call *)
-    | Call (lhs, AddrOf (Variable (v, OffsetFixed 0)), args) ->
-	emit_call ctx (lhs, v, args)
-
-    (* Indirect call *)
     | Call (lhs, expr, args) ->
+      begin match Expr.strip_casts expr with
+      | AddrOf (Variable (v, OffsetFixed 0)) -> (* Direct call *)
+	emit_call ctx (lhs, v, args)
+      | _ -> (* Indirect call *)
 	ctx.indirect_calls <- (lhs, expr, args)::ctx.indirect_calls
+      end
 
-    | Builtin (Fork (_, AddrOf (Variable (v, OffsetFixed 0)), args)) -> begin
-      let func = lookup_function v file in
-      let f formal actual =
-	assign_expr (Variable (Var.mk formal)) actual
-      in
-      List.iter2 f func.formals args
-    end
+    | Builtin (Fork (_, expr, args)) ->
+      begin match Expr.strip_casts expr with
+      | AddrOf (Variable (v, OffsetFixed 0)) -> (* Direct fork *)
+	emit_call ctx (None, v, args)
+      | _ -> (* Indirect fork *)
+	ctx.indirect_calls <- (None, expr, args)::ctx.indirect_calls
+      end
+
     | Return (Some x) -> assign_expr (Variable (Var.mk (return_var func))) x
     | _ -> ()
   in
-    CfgIr.iter_func_defs vdef file
+  let vdef func def =
+    try vdef func def
+    with Pa.Higher_ap simple_rhs ->
+      let loc = Def.get_location def in
+      Log.errorf "Higher-level AP: `%a'@\n  Found on: %s:%d"
+	Pa.SimpleRhs.format simple_rhs
+	loc.Cil.file
+	loc.Cil.line
+  in
+  CfgIr.iter_func_defs vdef file
 
 let simple_ap_points_to pt ap =
   let points_to memloc =
@@ -286,24 +296,34 @@ let simple_ap_points_to pt ap =
 	end
 
 let ap_points_to pt ap =
-  let add sap set = MemLoc.Set.union (simple_ap_points_to pt sap) set in
+  try
+    let add sap set = MemLoc.Set.union (simple_ap_points_to pt sap) set in
     SimpleAP.Set.fold add (simplify_ap ap) MemLoc.Set.empty
+  with Pa.Higher_ap simple_rhs -> begin
+    Log.errorf "Higher-level AP: `%a'" Pa.SimpleRhs.format simple_rhs;
+    assert false
+  end
 
 let expr_points_to pt expr =
-  match simplify_expr expr with
+  try
+    match simplify_expr expr with
     | VConst _ -> MemLoc.Set.empty
     | VRhs rhs ->
-	let add rhs set =
-	  match rhs with
-	    | (RAp ap, offset) ->
-		let add memloc =
-		  MemLoc.Set.add (fst memloc, Offset.add (snd memloc) offset)
-		in
-		  MemLoc.Set.fold add (simple_ap_points_to pt ap) set
-	    | (RAddr v, offset) -> MemLoc.Set.add (MAddr v, offset) set
-	    | (RStr str, offset) -> MemLoc.Set.add (MStr str, offset) set
-	in
-	  SimpleRhs.Set.fold add rhs MemLoc.Set.empty
+      let add rhs set =
+	match rhs with
+	| (RAp ap, offset) ->
+	  let add memloc =
+	    MemLoc.Set.add (fst memloc, Offset.add (snd memloc) offset)
+	  in
+	  MemLoc.Set.fold add (simple_ap_points_to pt ap) set
+	| (RAddr v, offset) -> MemLoc.Set.add (MAddr v, offset) set
+	| (RStr str, offset) -> MemLoc.Set.add (MStr str, offset) set
+      in
+      SimpleRhs.Set.fold add rhs MemLoc.Set.empty
+  with Pa.Higher_ap simple_rhs -> begin
+    Log.errorf "Higher-level AP: `%a'" Pa.SimpleRhs.format simple_rhs;
+    assert false
+  end
 
 let resolve_call pt expr =
   let targets = match expr with
@@ -438,11 +458,29 @@ let _ =
 	  Report.log_safe ()
       | _ -> ()
     in
-    ignore (initialize file);
+    let points_to = initialize file in
+    let format_memloc_set set =
+      String.concat ", "
+	(BatList.sort
+	   Pervasives.compare
+	   (BatList.map MemLoc.show (MemLoc.Set.elements set)))
+    in
+    let format_pointsto memloc set =
+      (MemLoc.show memloc) ^ " -> {" ^ (format_memloc_set set) ^ "}"
+    in
+    let pt = ref [] in
+    let print memloc set =
+      pt := (format_pointsto memloc set)::(!pt)
+    in
+    points_to#iter print;
+    Log.log "Pointer analysis results:";
+    List.iter Log.log (BatList.sort Pervasives.compare (!pt));
+
     CfgIr.iter_defs check file;
     Report.print_errors ();
     Report.print_safe ()
   in
+
   CmdLine.register_pass
     ("-pa",
      go,

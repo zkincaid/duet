@@ -579,7 +579,9 @@ let extract_predicates file =
       coreachable(b,a) <-- (coreachable(b,a_pred) &&& enabled(a_pred,b)
 			    &&& desc(a_pred,a));
       coreachable(b,c) <-- (spawn(a,b) &&& succ(a,c));
+      coreachable(c,b) <-- (spawn(a,b) &&& succ(a,c));
       coreachable(a,c) <-- (coreachable(a,b) &&& spawn(b,c));
+      coreachable(c,a) <-- (coreachable(a,b) &&& spawn(b,c));
 
       (* mayReach ************************************************************)
       mayReach(def,ap,use) <-- (defines(def,ap) &&& uses(use,ap)

@@ -1,14 +1,15 @@
-./regression/pa/code/proc.c:14 >> Assertion failed: (unsigned long )*a != (unsigned long )(& global)
-./regression/pa/code/proc.c:40 >> Assertion failed: (unsigned long )p != (unsigned long )(& x)
-./regression/pa/code/proc.c:39 >> Assertion failed: (unsigned long )p != (unsigned long )(& global)
-./regression/pa/code/proc.c:44 >> Assertion failed: (unsigned long )q != (unsigned long )(& x)
-./regression/pa/code/proc.c:43 >> Assertion failed: (unsigned long )q != (unsigned long )(& global)
-./regression/pa/code/proc.c:45 >> Assertion failed: (unsigned long )q != (unsigned long )(& y)
-./regression/pa/code/proc.c:47 >> Assertion failed: (unsigned long )r != (unsigned long )(& global)
-./regression/pa/code/proc.c:52 >> Assertion failed: (unsigned long )global_ptr != (unsigned long )(& global)
-./regression/pa/code/proc.c:48 >> Assertion failed: (unsigned long )r != (unsigned long )(& x)
-./regression/pa/code/proc.c:49 >> Assertion failed: (unsigned long )r != (unsigned long )(& y)
-./regression/pa/code/proc.c:50 >> Assertion failed: (unsigned long )r != (unsigned long )m
+./regression/pa/code/proc.c:15 >> Assertion failed: (unsigned long )*a != (unsigned long )(& global)
+./regression/pa/code/proc.c:21 >> Assertion failed: (unsigned long )c != (unsigned long )(& p)
+./regression/pa/code/proc.c:42 >> Assertion failed: (unsigned long )p != (unsigned long )(& global)
+./regression/pa/code/proc.c:43 >> Assertion failed: (unsigned long )p != (unsigned long )(& x)
+./regression/pa/code/proc.c:46 >> Assertion failed: (unsigned long )q != (unsigned long )(& global)
+./regression/pa/code/proc.c:47 >> Assertion failed: (unsigned long )q != (unsigned long )(& x)
+./regression/pa/code/proc.c:48 >> Assertion failed: (unsigned long )q != (unsigned long )(& y)
+./regression/pa/code/proc.c:50 >> Assertion failed: (unsigned long )r != (unsigned long )(& global)
+./regression/pa/code/proc.c:51 >> Assertion failed: (unsigned long )r != (unsigned long )(& x)
+./regression/pa/code/proc.c:52 >> Assertion failed: (unsigned long )r != (unsigned long )(& y)
+./regression/pa/code/proc.c:53 >> Assertion failed: (unsigned long )r != (unsigned long )m
+./regression/pa/code/proc.c:55 >> Assertion failed: (unsigned long )global_ptr != (unsigned long )(& global)
 
-11 errors total
+12 errors total
 2 safe assertions

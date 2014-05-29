@@ -1,7 +1,7 @@
-./regression/pa/code/list.c:39 >> Assertion failed: (unsigned long )p->next != (unsigned long )q
-./regression/pa/code/list.c:33 >> Assertion failed: (unsigned long )q->next != (unsigned long )(& g)
-./regression/pa/code/list.c:26 >> Assertion failed: (unsigned long )curr != (unsigned long )q
 ./regression/pa/code/list.c:25 >> Assertion failed: (unsigned long )curr != (unsigned long )p
+./regression/pa/code/list.c:26 >> Assertion failed: (unsigned long )curr != (unsigned long )q
+./regression/pa/code/list.c:33 >> Assertion failed: (unsigned long )q->next != (unsigned long )(& g)
+./regression/pa/code/list.c:39 >> Assertion failed: (unsigned long )p->next != (unsigned long )q
 ./regression/pa/code/list.c:41 >> Assertion failed: (unsigned long )curr != (unsigned long )(& g)
 
 5 errors total
