@@ -11,8 +11,8 @@ module StrVar = struct
   let prime x = x ^ "^"
   let to_smt x = Smt.real_var x
   let of_smt sym = match Smt.symbol_refine sym with
-    | Z3.Symbol_string str -> str
-    | Z3.Symbol_int _ -> assert false
+    | Smt.Symbol_string str -> str
+    | Smt.Symbol_int _ -> assert false
   let typ _ = TyReal
   module E = Enumeration.Make(Putil.PString)
   let enum = E.empty ()
@@ -195,7 +195,7 @@ let forward_bounds man stmt =
       let rec fix prop =
 	let (body, next) = go body (assume c prop) in
 	if D.leq next prop then begin
-	  Log.logf Log.info "Found a fixpoint at iteration %i:\n%a"
+	  Log.logf "Found a fixpoint at iteration %i:\n%a"
 	    (!iterations)
 	    D.format next;
 	  (body, D.join pre next)
