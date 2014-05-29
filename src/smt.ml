@@ -127,12 +127,9 @@ object(self)
     match Model.eval m term true with
     | Some x -> QQ.of_string (Arithmetic.Real.to_string x)
     | None -> assert false
-
-(* l_bool is missing from the new Z3 interface... *)
-
   method sat phi =
     match Model.eval m phi true with
-    | Some x -> begin match Expr.get_bool_value x with
+    | Some x -> begin match Boolean.get_bool_value x with
       | Z3enums.L_TRUE -> true
       | Z3enums.L_FALSE -> false
       | Z3enums.L_UNDEF -> assert false

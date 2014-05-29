@@ -216,14 +216,40 @@ let interpolate1 () =
   let y = T.var "y" in
   let z = T.var "z" in
   let phi =
-    x == y && (T.const (QQ.of_int 0)) < x
+    x == y && (T.const (QQ.of_int 0) == x)
   in
   let psi =
-    y == z && (T.const (QQ.of_int 0)) > z
+    y == z && (T.const (QQ.of_int 0) > z)
   in
   assert_bool "itp(y == x < 0, 0 < z = y)"
     (is_interpolant phi psi (F.interpolate phi psi));
   assert_bool "itp(y == x < 0, 0 < z = y)"
+    (is_interpolant psi phi (F.interpolate psi phi))
+
+let interpolate2 () =
+  let x = T.var "x" in
+  let y = T.var "y" in
+  let phi = x == T.zero && y == x + T.one && y < T.one in
+  let psi = F.top in
+  assert_bool "itp(x = 0 /\\ y = x + 1 /\\ y < 1, true)"
+    (is_interpolant phi psi (F.interpolate phi psi));
+  assert_bool "itp(true, x = 0 /\\ y = x + 1 /\\ y < 1)"
+    (is_interpolant psi phi (F.interpolate psi phi))
+
+let interpolate3 () =
+  let w = T.var "w" in
+  let x = T.var "x" in
+  let y = T.var "y" in
+  let z = T.var "z" in
+  let phi =
+    x == T.one && w == T.one
+  in
+  let psi =
+    y == x + w && y <= T.one
+  in
+  assert_bool "itp(x = w = 1, y = x + w <= 1)"
+    (is_interpolant phi psi (F.interpolate phi psi));
+  assert_bool "itp(y = x + w <= 1, x = w = 1)"
     (is_interpolant psi phi (F.interpolate psi phi))
 
 let suite = "Formula" >:::
@@ -245,4 +271,6 @@ let suite = "Formula" >:::
     "linearize4" >:: linearize4;
     "linearize5" >:: linearize5;
     "interpolate1" >:: interpolate1;
+    "interpolate2" >:: interpolate2;
+    "interpolate3" >:: interpolate3;
   ]
