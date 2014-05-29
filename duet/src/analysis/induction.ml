@@ -147,7 +147,6 @@ let tr_typ typ = match resolve_type typ with
   | Dynamic -> TyReal
   | _ -> TyInt
 
-
 type value =
 | VVal of Var.t
 | VPos of Var.t

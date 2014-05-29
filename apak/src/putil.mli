@@ -275,5 +275,6 @@ val with_temp_dir : string -> (string -> 'a) -> 'a
 
 val adjacent_pairs : 'a BatEnum.t -> ('a * 'a) BatEnum.t
 val cartesian_product : 'a BatEnum.t -> 'b BatEnum.t -> ('a * 'b) BatEnum.t
+val distinct_pairs : 'a BatEnum.t -> ('a * 'a) BatEnum.t
 
 val compare_tuple : int Lazy.t list -> int

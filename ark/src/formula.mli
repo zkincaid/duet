@@ -53,6 +53,13 @@ module type S = sig
   (** One-step unfolding of a formula *)
   val view : t -> (t, T.t atom) open_formula
 
+  (** Enumerate over top-level conjuncts.  Empty if the formula is true. *)
+  val conjuncts : t -> t BatEnum.t
+
+  (** Enumerate over top-level disjuncts.  Empty if the formula is false. *)
+  val disjuncts : t -> t BatEnum.t
+
+  (** Is the formula a linear arithmetic formula? *)
   val is_linear : t -> bool
 
   (** {2 Abstract domain operations} *)

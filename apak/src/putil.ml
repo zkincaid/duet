@@ -544,6 +544,23 @@ let adjacent_pairs enum =
   in
   BatEnum.from go
 
+let distinct_pairs enum =
+  match BatEnum.get enum with
+  | None -> BatEnum.empty ()
+  | Some first ->
+    let rest = ref (BatEnum.clone enum) in
+    let cur = ref first in
+    let rec go () =
+      match BatEnum.get (!rest) with
+      | None -> begin
+	cur := BatEnum.get_exn enum;
+	rest := BatEnum.clone enum;
+	go ()
+      end
+      | Some elt -> (!cur, elt)
+    in
+    BatEnum.from go
+
 let rec compare_tuple = function
   | [] -> 0
   | (x::xs) ->

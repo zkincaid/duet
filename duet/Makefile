@@ -30,7 +30,7 @@ OCAMLLDFLAGS = -I +camlp4 -I $(BUDDY)
 
 # check for Ark
 ifeq ($(ARK), yes)
-ANALYSIS_FILES += induction.ml
+ANALYSIS_FILES += induction.ml ipa.ml
 PACKS += ark
 endif
 export PACKS
@@ -50,14 +50,20 @@ SOURCES = $(patsubst %, $(SRC_DIR)/core/%, $(CORE_FILES)) \
 	$(patsubst %, $(SRC_DIR)/frontend/cbp/%, $(CBP_FE_FILES)) \
 	$(patsubst %, $(SRC_DIR)/frontend/goto/%, $(GOTO_FE_FILES))
 
+
+
+DUET_SOURCES = $(SOURCES) $(SRC_DIR)/ui.ml
+TEST_SOURCES = $(SOURCES) $(SRC_DIR)/analysis/test_ipa.ml	\
+	$(SRC_DIR)/unit_test.ml
+
 define PROJ_duet
-  SOURCES = $(SOURCES) $(SRC_DIR)/ui.ml
+  SOURCES = $(DUET_SOURCES)
   RESULT = duet
 endef
 export PROJ_duet
 
 define PROJ_test
-  SOURCES = $(SOURCES) $(SRC_DIR)/analysis/ipa.ml $(SRC_DIR)/analysis/test_ipa.ml $(SRC_DIR)/unit_test.ml
+  SOURCES = $(TEST_SOURCES)
   RESULT = test
 endef
 export PROJ_test
@@ -68,10 +74,10 @@ endif
 
 all: duet test
 
-duet:
+duet: $(DUET_SOURCES)
 	@$(MAKE) -f $(OCAMLMAKEFILE) subprojs SUBPROJS=duet SUBTARGET=native-code
 
-test:
+test: $(TEST_SOURCES)
 	@$(MAKE) -f $(OCAMLMAKEFILE) subprojs SUBPROJS=test SUBTARGET=native-code
 
 %:

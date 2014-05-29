@@ -38,6 +38,8 @@ module type S = sig
 
   val eval : ('a, T.t atom) formula_algebra -> t -> 'a
   val view : t -> (t, T.t atom) open_formula
+  val conjuncts : t -> t BatEnum.t
+  val disjuncts : t -> t BatEnum.t
   val is_linear : t -> bool
 
   val of_abstract : 'a T.D.t -> t
@@ -290,6 +292,18 @@ module Make (T : Term.S) = struct
       | _ -> OOr (BatEnum.get_exn e, hashcons (Or (Hset.of_enum e)))
       end
 
+  let conjuncts t =
+    if equal t top then BatEnum.empty () else
+      match t.node with
+      | Atom _ | Or _ -> BatEnum.singleton t
+      | And xs -> Hset.enum xs
+
+  let disjuncts t =
+    if equal t bottom then BatEnum.empty () else
+      match t.node with
+      | Atom _ | And _ -> BatEnum.singleton t
+      | Or xs -> Hset.enum xs
+
   let is_linear phi =
     let alg = function
       | OAtom (LtZ t)
@@ -358,7 +372,7 @@ module Make (T : Term.S) = struct
       match AST.get_ast_kind (Expr.ast_of_expr ast) with
       | APP_AST -> begin
 	let decl = Expr.get_func_decl ast in
-	let args = BatList.enum (List.rev (Expr.get_args ast)) in
+	let args = BatList.enum (Expr.get_args ast) in
 	match FuncDecl.get_decl_kind decl with
 	| OP_TRUE -> top
 	| OP_FALSE -> bottom
@@ -1698,7 +1712,7 @@ module Make (T : Term.S) = struct
 
     Params.add_symbol params (sym ":engine") (sym "pdr");
     Params.add_bool params (sym ":use-farkas") true;
-    Params.add_bool params (sym ":slice") false;
+    Params.add_bool params (sym ":use-utvpi") false;
     Params.add_bool params (sym ":inline-eager") false;
     Params.add_bool params (sym ":inline-linear") false;
     fp#set_params params;
@@ -1759,6 +1773,9 @@ module Make (T : Term.S) = struct
 	done;
 	Some (!itp)
       end
+  let interpolate phi psi =
+    if is_sat phi then interpolate phi psi
+    else Some bottom
 
   module Syntax = struct
     let ( && ) x y = conj x y
