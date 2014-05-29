@@ -611,7 +611,6 @@ module Cfa = struct
 end
 module CfaDisplay = ExtGraph.Display.MakeLabeled(Cfa)(Putil.PInt)(C)
 
-
 let build_cfa s =
   let fresh =
     let m = ref (-1) in
@@ -646,6 +645,65 @@ let build_cfa s =
   (cfa, entry, exit)
 
 
+module Pair(M : Putil.Ordered) = struct
+  type t = M.t * M.t deriving (Show)
+  module Compare_t = struct
+    type a = t
+    let compare (a,b) (c,d) = match M.compare a c with
+      | 0 -> M.compare b d
+      | c -> c
+  end
+  let compare = Compare_t.compare
+  let show = Show_t.show
+  let format = Show_t.format
+  let equal x y = compare x y = 0
+  let hash = Hashtbl.hash
+end
+
+(* Tensor product *)
+module TCfa = struct
+  module VP = Pair(Putil.PInt)
+  module CP = Pair(C)
+  module G = ExtGraph.Persistent.Digraph.MakeBidirectionalLabeled
+    (struct
+      include VP
+      module Set = Putil.Hashed.Set.Make(VP)
+      module Map = Putil.Map.Make(VP)
+      module HT = BatHashtbl.Make(VP)
+     end)
+    (struct
+      include CP
+      let default = (Skip, Skip)
+     end)
+  module D = ExtGraph.Display.MakeLabeled(G)(VP)(CP)
+  include G
+  include D
+  let tensor (g,g_entry) (h, h_entry) =
+    let add_vertex v (worklist, tensor) =
+      if mem_vertex tensor v then (worklist, tensor)
+      else (v::worklist, add_vertex tensor v)
+    in
+    let add_succ u (worklist, tensor) (e,f) =
+      let v = Cfa.E.dst e, Cfa.E.dst f in
+      let lbl = Cfa.E.label e, Cfa.E.label f in
+      let (worklist, tensor) = add_vertex v (worklist, tensor) in
+      (worklist, add_edge_e tensor (E.create u lbl v))
+    in
+    let rec fix (worklist, tensor) =
+      match worklist with
+      | [] -> tensor
+      | ((u,v)::worklist) ->
+	fix (BatEnum.fold
+	       (add_succ (u,v))
+	       (worklist, tensor)
+	       (Putil.cartesian_product
+		  (Cfa.enum_succ_e g u)
+		  (Cfa.enum_succ_e h v)))
+    in
+    let entry = (g_entry, h_entry) in
+    fix ([entry], G.add_vertex empty entry)
+end
+
 
 (*********** Main function ****************
 *******************************************)
@@ -659,8 +717,9 @@ let read_and_process infile =
    (print_string "\nSimplifying and printing program...\n\n");
    let Prog simpprog = simplify_prog result in
    print_prog (Prog simpprog);
-   let (cfa, _, _) = build_cfa simpprog in
-   CfaDisplay.display cfa
+   let (cfa, e, _) = build_cfa simpprog in
+   CfaDisplay.display cfa;
+   TCfa.display (TCfa.tensor (cfa,e) (cfa,e))
 
 (*
    (print_string "\nGenerating and printing error term...\n\n");
