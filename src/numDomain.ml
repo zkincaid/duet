@@ -30,6 +30,7 @@ module Env = struct
     include Putil.S
     val of_enum : var BatEnum.t -> t
     val of_list : var list -> t
+    val empty : t
     val filter : (var -> bool) -> t -> t
     val dim_of_var : t -> var -> dim
     val var_of_dim : t -> dim -> var
@@ -55,6 +56,8 @@ module Env = struct
     let format = Show_t.format
     let show = Show_t.show
     let compare = Compare_t.compare
+
+    let empty = { int_dim = [||]; real_dim = [||] }
 
     (* Search for an index in a sorted array *)
     let search v array =
