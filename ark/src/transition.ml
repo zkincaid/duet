@@ -828,10 +828,10 @@ module Make (Var : Var) = struct
 	| Some hi -> " <= " ^ (QQ.show hi)
 	| None -> ""
       in
-      logf "Bounds for %a: %s%a'-%a%s"
+      logf "Bounds for %a: %s%a-%a%s"
 	Var.format v
 	lo_string
-	Var.format v
+	Var.format (Var.prime v)
 	Var.format v
 	hi_string;
       { tr with guard = F.conj (F.conj lower upper) tr.guard }

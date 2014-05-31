@@ -7,6 +7,7 @@
         }
         rule token = parse
             [' ' '\t' '\n']     { token lexbuf }     (* skip whitespace *)
+	  | "nondet"        { NONDET }
 	  | "while"        { WHILE }
           | "if"           { IF }
           | "else"         { ELSE }

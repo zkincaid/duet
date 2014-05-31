@@ -14,7 +14,7 @@
         %token AND OR NOT
         %token EQ NE GT LT LE GE
         %token ASSIGN SEMI
-        %token IF WHILE ELSE SKIP PRINT ASSERT ASSUME
+        %token IF WHILE ELSE SKIP PRINT ASSERT ASSUME NONDET
         %token LPAREN RPAREN LBRACE RBRACE
         %left SEMI
         %left PLUS MINUS OR        /* lowest precedence */
@@ -52,6 +52,7 @@
           | aexp MINUS aexp         { Diff_exp($1, $3) }
           | aexp TIMES aexp         { Mult_exp($1, $3) }
           | MINUS aexp %prec UMINUS { Unneg_exp($2) }
+	  | NONDET LPAREN RPAREN    { Havoc_aexp }
         ;
 
         bexp:
@@ -66,4 +67,5 @@
           |  bexp OR bexp           { Or_exp($1, $3) }
           |  bexp AND bexp          { And_exp($1, $3) }
           |  NOT bexp               { Not_exp ($2) }
+	  |  NONDET LPAREN RPAREN   { Havoc_bexp }
         ;    

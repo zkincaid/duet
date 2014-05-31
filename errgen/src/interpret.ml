@@ -644,6 +644,13 @@ let build_cfa s =
   let (cfa, exit) = go (Cfa.add_vertex Cfa.empty entry) entry s in
   (cfa, entry, exit)
 
+let primify_cfa g =
+  let f e g =
+    Cfa.add_edge_e
+      g
+      (Cfa.E.create (Cfa.E.src e) (primify_cmd (Cfa.E.label e)) (Cfa.E.dst e))
+  in
+  Cfa.fold_edges_e f g Cfa.empty
 
 module Pair(M : Putil.Ordered) = struct
   type t = M.t * M.t deriving (Show)
@@ -704,31 +711,184 @@ module TCfa = struct
     fix ([entry], G.add_vertex empty entry)
 end
 
+module K = Bounds.K
+
+module T = K.T
+module F = K.F
+module V = K.V
+module D = T.D
+
+let rec real_aexp = function
+  | Real_const k -> T.const k
+  | Sum_exp (s, t) -> T.add (real_aexp s) (real_aexp t)
+  | Diff_exp (s, t) -> T.sub (real_aexp s) (real_aexp t)
+  | Mult_exp (s, t) -> T.mul (real_aexp s) (real_aexp t)
+  | Var_exp v -> T.var (K.V.mk_var v)
+  | Unneg_exp t -> T.neg (real_aexp t)
+  | Havoc_aexp -> T.var (K.V.mk_tmp "havoc" TyReal)
+let rec real_bexp = function
+  | Bool_const true -> F.top
+  | Bool_const false -> F.bottom
+  | Eq_exp (s, t) -> F.eq (real_aexp s) (real_aexp t)
+  | Ne_exp (s, t) -> F.negate (F.eq (real_aexp s) (real_aexp t))
+  | Gt_exp (s, t) -> F.gt (real_aexp s) (real_aexp t)
+  | Lt_exp (s, t) -> F.lt (real_aexp s) (real_aexp t)
+  | Ge_exp (s, t) -> F.geq (real_aexp s) (real_aexp t)
+  | Le_exp (s, t) -> F.leq (real_aexp s) (real_aexp t)
+  | And_exp (phi, psi) -> F.conj (real_bexp phi) (real_bexp psi)
+  | Or_exp (phi, psi) -> F.disj (real_bexp phi) (real_bexp psi)
+  | Not_exp phi -> F.negate (real_bexp phi)
+  | Havoc_bexp -> F.leqz (T.var (K.V.mk_tmp "havoc" TyReal))
+
+let eps_mach = QQ.exp (QQ.of_int 2) (-53)
+let rec float_aexp = function
+  | Real_const k -> (T.const (Mpqf.of_float (Mpqf.to_float k)), F.top)
+  | Sum_exp (s, t) -> float_binop T.add s t
+  | Diff_exp (s, t) -> float_binop T.sub s t
+  | Mult_exp (s, t) -> float_binop T.mul s t
+  | Var_exp v -> (T.var (K.V.mk_var v), F.top)
+  | Unneg_exp t ->
+    let (t, t_err) = float_aexp t in
+    (T.neg t, t_err)
+  | Havoc_aexp -> (T.var (K.V.mk_tmp "havoc" TyReal), F.top)
+and float_binop op s t =
+  let (s,s_err) = float_aexp s in
+  let (t,t_err) = float_aexp t in
+  let err = T.var (K.V.mk_tmp "err" TyReal) in
+  let term = op s t in
+  let err_magnitude = T.mul term (T.const eps_mach) in
+  let err_constraint =
+    F.disj
+      (F.conj
+	 (F.leq (T.neg err_magnitude) err)
+	 (F.leq err err_magnitude))
+      (F.conj
+	 (F.leq (T.neg err_magnitude) err)
+	 (F.leq err (T.neg err_magnitude)))
+  in
+  (T.add term err, F.conj err_constraint (F.conj s_err t_err))
+
+let rec nnf = function
+  | Bool_const true -> Bool_const true
+  | Bool_const false -> Bool_const false
+  | Eq_exp (s, t) -> Eq_exp (s, t)
+  | Gt_exp (s, t) -> Gt_exp (s, t)
+  | Lt_exp (s, t) -> Lt_exp (s, t)
+  | Ge_exp (s, t) -> Ge_exp (s, t)
+  | Le_exp (s, t) -> Le_exp (s, t)
+  | And_exp (phi, psi) -> And_exp (nnf phi, nnf psi)
+  | Or_exp (phi, psi) -> Or_exp (nnf phi, nnf psi)
+  | Havoc_bexp -> Havoc_bexp
+  | Ne_exp (s, t) -> Or_exp (Lt_exp (s, t), Gt_exp (s, t))
+  | Not_exp phi -> negate phi
+and negate = function
+  | Bool_const true -> Bool_const false
+  | Bool_const false -> Bool_const true
+  | Eq_exp (s, t) -> Or_exp (Lt_exp (s, t), Gt_exp (s, t))
+  | Gt_exp (s, t) -> Le_exp (s, t)
+  | Lt_exp (s, t) -> Ge_exp (s, t)
+  | Ge_exp (s, t) -> Lt_exp (s, t)
+  | Le_exp (s, t) -> Gt_exp (s, t)
+  | And_exp (phi, psi) -> Or_exp (negate phi, negate psi)
+  | Or_exp (phi, psi) -> And_exp (negate phi, negate psi)
+  | Havoc_bexp -> Havoc_bexp
+  | Ne_exp (s, t) -> Eq_exp (s, t)
+  | Not_exp phi -> nnf phi
+
+let rec float_bexp = function
+  | Bool_const true -> F.top
+  | Bool_const false -> F.bottom
+  | Eq_exp (s, t) -> float_bool_binop F.eq s t
+  | Gt_exp (s, t) -> float_bool_binop F.gt s t
+  | Lt_exp (s, t) -> float_bool_binop F.lt s t
+  | Ge_exp (s, t) -> float_bool_binop F.geq s t
+  | Le_exp (s, t) -> float_bool_binop F.leq s t
+  | And_exp (phi, psi) -> F.conj (float_bexp phi) (float_bexp psi)
+  | Or_exp (phi, psi) -> F.disj (float_bexp phi) (float_bexp psi)
+  | Havoc_bexp -> F.leqz (T.var (K.V.mk_tmp "havoc" TyReal))
+  | Ne_exp _ -> assert false
+  | Not_exp _ -> assert false
+and float_bool_binop op s t =
+  let (s,s_err) = float_aexp s in
+  let (t,t_err) = float_aexp t in
+  F.conj (op s t) (F.conj s_err t_err)
+let float_bexp bexp = float_bexp (nnf bexp)
+
+let float_weight cmd =
+  match cmd with
+  | Assign (v, rhs) ->
+    let (rhs, rhs_err) = float_aexp rhs in
+    { K.assign v rhs with K.guard = rhs_err }
+  | Assume phi -> K.assume (float_bexp phi)
+  | Skip -> K.one
+  | Assert _ | Print _ -> K.one
+
+let real_weight cmd =
+  match cmd with
+  | Assign (v, rhs) -> K.assign v (real_aexp rhs)
+  | Assume phi -> K.assume (real_bexp phi)
+  | Skip -> K.one
+  | Assert _ | Print _ -> K.one
+
+module P = Pathexp.MakeElim(TCfa)(K)
+
+let print_bounds vars formula =
+  let f v =
+    T.sub
+      (T.var (V.mk_var (Bounds.StrVar.prime v)))
+      (T.var (V.mk_var (Bounds.StrVar.prime (primify v))))
+  in
+  let g v bounds =
+    let bound_str =
+      match bounds with
+      | (Some x, Some y) ->
+	string_of_float (Mpqf.to_float (QQ.max (Mpqf.abs x) (Mpqf.abs y)))
+      | (_, _) -> "oo"
+    in
+    Format.printf "  | %s - %s' | <= %s@\n" v v bound_str
+  in
+  List.iter2 g vars (F.optimize (List.map f vars) formula)
+
+let tensor_weight e =
+  let (flbl, rlbl) = TCfa.E.label e in
+  (* real & float operate on disjoint sets of variables, so sequential
+     composition is non-interfering *)
+  K.mul (float_weight flbl) (real_weight rlbl)
+
+let analyze tensor entry =
+  let pathexp = P.single_src tensor tensor_weight entry in
+  let print (u,v) =
+    let pathexp = pathexp (u,v) in
+    let vars =
+      let f v = v.[String.length v - 1] != ''' in
+      List.filter f (K.VarSet.elements (K.modifies pathexp))
+    in
+    let phi = K.to_formula pathexp in
+    if F.is_sat phi then begin
+      Format.printf "At (%d, %d):@\n" u v;
+      print_bounds vars phi
+    end else Format.printf "At (%d, %d): unreachable@\n" u v;
+  in
+  TCfa.iter_vertex print tensor
 
 (*********** Main function ****************
 *******************************************)
 
-
 let read_and_process infile =
    let lexbuf  = Lexing.from_channel infile in
-   let result = Parser.main Lexer.token lexbuf in
-   print_prog result;
-   print_T2_prog result;
-   (print_string "\nSimplifying and printing program...\n\n");
-   let Prog simpprog = simplify_prog result in
-   print_prog (Prog simpprog);
-   let (cfa, e, _) = build_cfa simpprog in
-   CfaDisplay.display cfa;
-   TCfa.display (TCfa.tensor (cfa,e) (cfa,e))
+   let Prog prog = Parser.main Lexer.token lexbuf in
+   print_prog (Prog prog);
+   let (cfa, e, _) = build_cfa prog in
+   let tensor = TCfa.tensor (cfa, e) (primify_cfa cfa, e) in
 
-(*
-   (print_string "\nGenerating and printing error term...\n\n");
-   (let errresult = generate_err_prog simpprog in
-    let errresult = Bounds.add_bounds errresult in
-    print_prog errresult
-    print_T2_prog errresult
-   )
-*)
+   (* forget stuttering for now ... *)
+   let tensor =
+     let f (u, v) g =
+       if u != v then TCfa.remove_vertex g (u, v) else g
+     in
+     TCfa.fold_vertex f tensor tensor
+   in
+   analyze tensor (e,e)
 
 let _ =
   if Array.length Sys.argv <> 2 then

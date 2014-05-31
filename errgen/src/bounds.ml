@@ -7,7 +7,14 @@ open ArkPervasives
 open BatPervasives
 
 module StrVar = struct
-  include Putil.PString
+  type t = string deriving (Compare)
+  include Putil.MakeFmt(struct
+    type a = t
+    let format formatter str = Format.pp_print_string formatter str
+  end)
+  let compare = Compare_t.compare
+  let hash = Hashtbl.hash
+  let equal x y = x = y
   let prime x = x ^ "^"
   let to_smt x = Smt.real_var x
   let of_smt sym = match Smt.symbol_refine sym with
@@ -24,7 +31,8 @@ module K = Transition.Make(StrVar) (* Transition PKA *)
 let _ =
   K.opt_higher_recurrence := false;
   K.opt_disjunctive_recurrence_eq := false;
-  K.opt_recurrence_ineq := true;
+  K.opt_polyrec := true;
+  K.opt_recurrence_ineq := false;
   K.opt_unroll_loop := false;
   K.opt_loop_guard := true
 

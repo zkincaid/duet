@@ -25,6 +25,7 @@ type token =
   | PRINT
   | ASSERT
   | ASSUME
+  | NONDET
   | LPAREN
   | RPAREN
   | LBRACE

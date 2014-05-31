@@ -1,6 +1,5 @@
-zero = 0;
 x = 1000;
-c = 1/10;
-while (x >= zero) {
-  x = x - c
+x = 100;
+while (0 <= x) {
+  x = x - 1/10
 }

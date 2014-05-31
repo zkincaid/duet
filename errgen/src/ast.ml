@@ -103,7 +103,7 @@ module Show_stmt_type = Show.Defaults(struct
     | Seq (c, d) ->
       Format.fprintf formatter "%a;@\n%a" format c format d
     | Ite (c, bthen, belse) ->
-      Format.fprintf formatter "if (%a) {@\n  @[%a@]@\n} else {@\n  @[%a@]}"
+      Format.fprintf formatter "if (%a) {@\n  @[%a@]@\n} else {@\n  @[%a@]@\n}"
 	Show.format<bexp_type> c
 	format bthen
 	format belse
