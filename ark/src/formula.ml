@@ -1347,16 +1347,22 @@ module Make (T : Term.S) = struct
     let join bounds disjunct =
       let prop = to_apron man env disjunct in
       let new_bounds = List.map (get_bounds prop) terms in
+      let is_empty lo hi = match lo, hi with
+	| Some lo, Some hi when QQ.gt lo hi -> true
+	| _, _ -> false
+      in
       let f (lo0, hi0) (lo1, hi1) =
-	let lo = match lo0, lo1 with
-	  | (Some lo0, Some lo1) -> Some (if QQ.leq lo0 lo1 then lo0 else lo1)
-	  | (None, _) | (_, None) -> None
-	in
-	let hi = match hi0, hi1 with
-	  | (Some hi0, Some hi1) -> Some (if QQ.geq hi0 hi1 then hi0 else hi1)
-	  | (None, _) | (_, None) -> None
-	in
-	(lo, hi)
+	if is_empty lo0 hi0 then (lo1, hi1) else begin
+	  let lo = match lo0, lo1 with
+	    | (Some lo0, Some lo1) -> Some (if QQ.leq lo0 lo1 then lo0 else lo1)
+	    | (None, _) | (_, None) -> None
+	  in
+	  let hi = match hi0, hi1 with
+	    | (Some hi0, Some hi1) -> Some (if QQ.geq hi0 hi1 then hi0 else hi1)
+	    | (None, _) | (_, None) -> None
+	  in
+	  (lo, hi)
+	end
       in
       BatList.map2 f bounds new_bounds
     in
