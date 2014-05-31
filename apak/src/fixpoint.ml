@@ -169,7 +169,6 @@ end = struct
 	if changed then HT.replace result.map vertex new_prop;
 	changed
       end else begin
-	Log.errorf "FRESH (%d)" (HT.length result.map);
 	HT.add result.map vertex flow_out;
 	true
       end
