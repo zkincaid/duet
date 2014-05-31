@@ -240,7 +240,6 @@ let interpolate3 () =
   let w = T.var "w" in
   let x = T.var "x" in
   let y = T.var "y" in
-  let z = T.var "z" in
   let phi =
     x == T.one && w == T.one
   in
@@ -251,6 +250,23 @@ let interpolate3 () =
     (is_interpolant phi psi (F.interpolate phi psi));
   assert_bool "itp(y = x + w <= 1, x = w = 1)"
     (is_interpolant psi phi (F.interpolate psi phi))
+
+let optimize1 () =
+  let x = T.var "x" in
+  let y = T.var "y" in
+  let two = T.const (QQ.of_int 2) in
+  let five = T.const (QQ.of_int 5) in
+  let phi =
+    T.neg five <= x && x <= T.neg two && two <= y
+  in
+  match F.optimize [x; y] phi with
+  | [(Some x_lo, Some x_hi); (Some y_lo, None)] ->
+    begin
+      assert_equal ~cmp:QQ.equal ~printer:QQ.show x_lo (QQ.of_int (-5));
+      assert_equal ~cmp:QQ.equal ~printer:QQ.show x_hi (QQ.of_int (-2));
+      assert_equal ~cmp:QQ.equal ~printer:QQ.show y_lo (QQ.of_int 2)
+    end
+  | _ -> assert false
 
 let suite = "Formula" >:::
   [
@@ -273,4 +289,5 @@ let suite = "Formula" >:::
     "interpolate1" >:: interpolate1;
     "interpolate2" >:: interpolate2;
     "interpolate3" >:: interpolate3;
+    "optimize1" >:: optimize1;
   ]

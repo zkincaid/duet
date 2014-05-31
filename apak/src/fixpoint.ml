@@ -17,7 +17,11 @@ let fix_wto wto update =
   List.iter (fun elt -> ignore (fix elt)) wto;
   Log.logf ~level:Log.fix "Evaluations: %d" (!evaluations)
 
-module type G = Loop.G
+module type G = sig
+  include Loop.G
+  module E : Graph.Sig.EDGE with type vertex = V.t
+  val iter_edges_e : (E.t -> unit) -> t -> unit
+end
 module Wto (G : G) = struct
   module Order = Wto(G)
   module VSet = Set.Make(G.V)
@@ -108,7 +112,11 @@ end
 
 module MakeAnalysis (G : G) (D : Sig.AbstractDomain.S) : sig
   type result
-  val analyze : (G.V.t -> D.t -> D.t) -> G.t -> result
+  val analyze :
+    (G.V.t -> D.t -> D.t) ->
+    ?edge_transfer:(G.E.t -> D.t -> D.t) ->
+    G.t ->
+    result
   val input : result -> G.V.t -> D.t
   val output : result -> G.V.t -> D.t
   val enum_input : result -> (G.V.t * D.t) BatEnum.t
@@ -116,56 +124,64 @@ module MakeAnalysis (G : G) (D : Sig.AbstractDomain.S) : sig
 end = struct
   module HT = BatHashtbl.Make(G.V)
   module Fix = Wto(G)
-
   type result =
     { map : D.t HT.t;
-      pred : G.V.t list HT.t }
+      pred : G.E.t list HT.t;
+      edge_transfer :  G.E.t -> D.t -> D.t }
 
-  let analyze transfer graph =
+  let populate_pred graph =
+    let pred = HT.create 991 in
+    let add_edge e =
+      let dst = G.E.dst e in
+      HT.add pred dst (e::(HT.find pred dst))
+    in
+    G.iter_vertex (fun v -> HT.add pred v []) graph;
+    G.iter_edges_e add_edge graph;
+    pred
+
+  let prop result vertex =
+    try HT.find result.map vertex
+    with Not_found -> D.bottom
+
+  let input result vertex =
+    let predecessors =
+      try HT.find result.pred vertex with Not_found -> assert false
+    in
+    match predecessors with
+    | [] -> D.bottom
+    | _ ->
+      BatList.reduce D.join (List.map (fun e ->
+	result.edge_transfer e (prop result (G.E.src e))
+      ) predecessors)
+
+  let analyze transfer ?(edge_transfer=fun _ v -> v)  graph =
     let result =
       { map = HT.create 991;
-	pred = HT.create 991 }
-    in
-    let prop vertex =
-      try HT.find result.map vertex
-      with Not_found -> D.bottom
-    in
-    let flow_in vertex =
-      let predecessors =
-	try HT.find result.pred vertex with Not_found -> assert false
-      in
-      List.fold_left (fun phi v -> D.join (prop v) phi) D.bottom predecessors
+	pred = populate_pred graph;
+	edge_transfer = edge_transfer }
     in
     let update join vertex =
-      let flow_out = transfer vertex (flow_in vertex) in
-      if not (HT.mem result.map vertex) then begin
-	let old_prop = prop vertex in
-	let new_prop = join flow_out old_prop in
+      let flow_out = transfer vertex (input result vertex) in
+      if HT.mem result.map vertex then begin
+	let old_prop = prop result vertex in
+	let new_prop = join old_prop flow_out in
 	let changed = not (D.equal old_prop new_prop) in
 	if changed then HT.replace result.map vertex new_prop;
 	changed
       end else begin
+	Log.errorf "FRESH (%d)" (HT.length result.map);
 	HT.add result.map vertex flow_out;
 	true
       end
     in
-    let add_edge u v () = HT.add result.pred v (u::(HT.find result.pred v)) in
-    G.iter_vertex (fun v -> HT.add result.pred v []) graph;
-    G.fold_edges add_edge graph ();
     Fix.fix graph (update D.join) (Some (update D.widen));
     result
-
-  let input result vertex =
-    let predecessors = HT.find result.pred vertex in
-    let join phi v = D.join (HT.find result.map v) phi in
-    List.fold_left join D.bottom predecessors
 
   let output result vertex = HT.find result.map vertex
 
   let enum_input result =
-    let join phi v = D.join (HT.find result.map v) phi in
-    let f (v, predecessors) = (v, List.fold_left join D.bottom predecessors) in
-    BatEnum.map f (HT.enum result.pred)
+    BatEnum.map (fun v -> (v, input result v)) (HT.keys result.pred)
 
   let enum_output result = HT.enum result.map
 end
+

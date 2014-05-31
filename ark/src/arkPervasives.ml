@@ -85,6 +85,7 @@ module QQ = struct
     let (num, den) = to_zzfrac qq in
     if Mpz.cmp den (Mpzf.of_int 1) == 0 then Some num
     else None
+  let to_float qq = Mpqf.to_float qq
 
   let numerator = Mpqf.get_num
   let denominator = Mpqf.get_den
@@ -111,6 +112,7 @@ module QQ = struct
 
   let min x y = if leq x y then x else y
   let max x y = if geq x y then x else y
+  let abs = Mpqf.abs
 end
 
 (* Ring of integers *)
