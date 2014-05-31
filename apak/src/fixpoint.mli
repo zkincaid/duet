@@ -1,14 +1,24 @@
 (** Fixpoint computation *)
 
+module type G = sig
+  include Loop.G
+  module E : Graph.Sig.EDGE with type vertex = V.t
+  val iter_edges_e : (E.t -> unit) -> t -> unit
+end
+
 (** High-level interface for fixpoint computations. *)
-module MakeAnalysis (G : Loop.G) (D : Sig.AbstractDomain.S) : sig
+module MakeAnalysis (G : G) (D : Sig.AbstractDomain.S) : sig
   (** Internal state of the analysis, used for querying the properties
       associated with each vertex in the fixpoint. *)
   type result
 
   (** Compute a fixpoint result.  This result is accessed using the query
       functions below. *)
-  val analyze : (G.V.t -> D.t -> D.t) -> G.t -> result
+  val analyze :
+    (G.V.t -> D.t -> D.t) ->
+    ?edge_transfer:(G.E.t -> D.t -> D.t) ->
+    G.t ->
+    result
 
   (** Property associated with the pre-state of a vertex. *)
   val input : result -> G.V.t -> D.t
@@ -43,7 +53,7 @@ val fix_worklist : 'a worklist -> ('a -> bool) -> unit
 (** Module implementing fixpoint computation using a weak topological
     iteration order.  This is typically faster and more general than
     [fix_wto]. *)
-module Wto (G : Loop.G) : sig
+module Wto (G : G) : sig
   module VSet : Set.S with type elt = G.V.t
 
   (** Fixpoint computation over a graph using weak topological iteration order
