@@ -44,6 +44,13 @@ val bexp_to_string : bexp_type -> string
 
 val collect_vars : stmt_type -> string list
 
+val primify : string -> string
+val primify_aexp : aexp_type -> aexp_type
+val primify_bexp : bexp_type -> bexp_type
+val primify_cmd : cmd_type -> cmd_type
+
+val nnf : bexp_type -> bexp_type
+val negate : bexp_type -> bexp_type
 
 (* Deriving instances *)
 module Compare_aexp_type : Compare.Compare with type a = aexp_type

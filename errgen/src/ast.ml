@@ -247,3 +247,70 @@ let rec remove_dups l =
 let collect_vars s =
   let l = collect_vars_stmt s in
   remove_dups l
+
+let primify x =
+  String.concat "" [x;"\'"]
+
+let rec primify_aexp e =
+  match e with
+    Real_const m -> e
+  | Sum_exp (e1, e2) -> Sum_exp (primify_aexp e1, primify_aexp e2)
+  | Diff_exp (e1, e2) -> Diff_exp (primify_aexp e1, primify_aexp e2)
+  | Mult_exp (e1, e2) -> Mult_exp (primify_aexp e1, primify_aexp e2)
+  | Var_exp x -> Var_exp (primify x)
+  | Unneg_exp e1 -> Unneg_exp (primify_aexp e1)
+  | Havoc_aexp -> e
+and
+primify_aexp_list lst =
+  match lst with
+    [] -> []
+  | head :: rest ->
+    (primify_aexp head) :: (primify_aexp_list rest)
+
+let rec primify_bexp b =
+  match b with
+    Bool_const bc -> b
+  | Eq_exp (e1, e2) -> Eq_exp (primify_aexp e1, primify_aexp e2)
+  | Ne_exp (e1, e2) -> Ne_exp (primify_aexp e1, primify_aexp e2)
+  | Gt_exp (e1, e2) -> Gt_exp (primify_aexp e1, primify_aexp e2)
+  | Lt_exp (e1, e2) -> Lt_exp (primify_aexp e1, primify_aexp e2)
+  | Le_exp (e1, e2) -> Le_exp (primify_aexp e1, primify_aexp e2)
+  | Ge_exp (e1, e2) -> Ge_exp (primify_aexp e1, primify_aexp e2)
+  | And_exp (b1, b2) -> And_exp (primify_bexp b1, primify_bexp b2)
+  | Or_exp (b1, b2) -> Or_exp (primify_bexp b1, primify_bexp b2)
+  | Not_exp b1 -> Not_exp (primify_bexp b1)
+  | Havoc_bexp -> b
+
+let primify_cmd = function
+  | Skip -> Skip
+  | Assign (x, e) -> Assign(primify x, primify_aexp e)
+  | Assert (b) -> Assert (primify_bexp b)
+  | Print (e) -> Print (primify_aexp e)
+  | Assume (b) -> Assume (primify_bexp b)
+
+let rec nnf = function
+  | Bool_const true -> Bool_const true
+  | Bool_const false -> Bool_const false
+  | Eq_exp (s, t) -> Eq_exp (s, t)
+  | Gt_exp (s, t) -> Gt_exp (s, t)
+  | Lt_exp (s, t) -> Lt_exp (s, t)
+  | Ge_exp (s, t) -> Ge_exp (s, t)
+  | Le_exp (s, t) -> Le_exp (s, t)
+  | And_exp (phi, psi) -> And_exp (nnf phi, nnf psi)
+  | Or_exp (phi, psi) -> Or_exp (nnf phi, nnf psi)
+  | Havoc_bexp -> Havoc_bexp
+  | Ne_exp (s, t) -> Or_exp (Lt_exp (s, t), Gt_exp (s, t))
+  | Not_exp phi -> negate phi
+and negate = function
+  | Bool_const true -> Bool_const false
+  | Bool_const false -> Bool_const true
+  | Eq_exp (s, t) -> Or_exp (Lt_exp (s, t), Gt_exp (s, t))
+  | Gt_exp (s, t) -> Le_exp (s, t)
+  | Lt_exp (s, t) -> Ge_exp (s, t)
+  | Ge_exp (s, t) -> Lt_exp (s, t)
+  | Le_exp (s, t) -> Gt_exp (s, t)
+  | And_exp (phi, psi) -> Or_exp (negate phi, negate psi)
+  | Or_exp (phi, psi) -> And_exp (negate phi, negate psi)
+  | Havoc_bexp -> Havoc_bexp
+  | Ne_exp (s, t) -> Eq_exp (s, t)
+  | Not_exp phi -> nnf phi

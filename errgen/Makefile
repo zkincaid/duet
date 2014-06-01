@@ -1,8 +1,8 @@
 OCAMLMAKEFILE = OCamlMakefile
 
-RESULT = errgen
+RESULT = approx
 SRC_DIR = src
-FILES = ast.ml ast.mli lexer.mll parser.mli parser.mly bounds.ml interpret.ml
+FILES = ast.ml ast.mli lexer.mll parser.mli parser.mly approx.ml
 SOURCES = $(patsubst %, $(SRC_DIR)/%, $(FILES))
 PACKS = ark
 

@@ -968,28 +968,13 @@ let analyze tensor entry =
 let read_and_process infile =
    let lexbuf  = Lexing.from_channel infile in
    let Prog prog = Parser.main Lexer.token lexbuf in
-   print_prog (Prog prog);
-   let (cfa, e, _) = build_cfa prog in
-   let tensor = TCfa.tensor (cfa, e) (primify_cfa cfa, e) in
-   (* forget stuttering for now ... *)
-   let tensor =
-     let f (u, v) g =
-       if u != v then TCfa.remove_vertex g (u, v) else g
-     in
-     TCfa.fold_vertex f tensor tensor
-   in
-   analyze tensor (e,e)
+   print_prog (Prog prog)
 
 let _ =
   if Array.length Sys.argv <> 2 then
     Format.eprintf "usage: %s input_filename\n" Sys.argv.(0)
   else
     let  infile = open_in Sys.argv.(1) in
-(*
-    Log.set_verbosity_level "errgen" 2;
-    Log.set_verbosity_level "ark.formula" 2;
-    Log.set_verbosity_level "ark.transition" 2;
-*)
     read_and_process infile;
     close_in infile;
     Log.print_stats ()
