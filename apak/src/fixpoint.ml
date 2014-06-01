@@ -110,24 +110,17 @@ struct
     fix_worklist (create_worklist graph vs) update
 end
 
-module MakeAnalysis (G : G) (D : Sig.AbstractDomain.S) : sig
-  type result
-  val analyze :
-    (G.V.t -> D.t -> D.t) ->
-    ?edge_transfer:(G.E.t -> D.t -> D.t) ->
-    G.t ->
-    result
-  val input : result -> G.V.t -> D.t
-  val output : result -> G.V.t -> D.t
-  val enum_input : result -> (G.V.t * D.t) BatEnum.t
-  val enum_output : result -> (G.V.t * D.t) BatEnum.t
-end = struct
+module MakeAnalysis (G : G) (D : Sig.AbstractDomain.S) =
+struct
   module HT = BatHashtbl.Make(G.V)
   module Fix = Wto(G)
+  module Wto = Loop.Wto(G)
   type result =
     { map : D.t HT.t;
       pred : G.E.t list HT.t;
-      edge_transfer :  G.E.t -> D.t -> D.t }
+      graph : G.t;
+      edge_transfer : G.E.t -> D.t -> D.t;
+      vertex_transfer : G.V.t -> D.t -> D.t }
 
   let populate_pred graph =
     let pred = HT.create 991 in
@@ -154,11 +147,13 @@ end = struct
 	result.edge_transfer e (prop result (G.E.src e))
       ) predecessors)
 
-  let analyze transfer ?(edge_transfer=fun _ v -> v)  graph =
+  let analyze transfer ?(edge_transfer=fun _ prop -> prop) graph =
     let result =
       { map = HT.create 991;
 	pred = populate_pred graph;
-	edge_transfer = edge_transfer }
+	graph = graph;
+	edge_transfer = edge_transfer;
+	vertex_transfer = transfer }
     in
     let update join vertex =
       let flow_out = transfer vertex (input result vertex) in
@@ -176,6 +171,90 @@ end = struct
     Fix.fix graph (update D.join) (Some (update D.widen));
     result
 
+  let analyze_ldi
+      transfer
+      ?(edge_transfer=fun _ v -> v)
+      ?(delay=10)
+      ?(max_decrease=10)
+      graph =
+    let result =
+      { map = HT.create 991;
+	pred = populate_pred graph;
+	graph = graph;
+	edge_transfer = edge_transfer;
+	vertex_transfer = transfer }
+    in
+
+    let set_prop v prop =
+      if HT.mem result.map v then HT.replace result.map v prop
+      else HT.add result.map v prop
+    in
+    let flow_out vertex = transfer vertex (input result vertex) in
+
+    let (wto, is_widening) = Wto.create_widening graph in
+    let rec decrease changed = function
+      | Loop.WSimple v ->
+	let old_prop = prop result v in
+	let new_prop = flow_out v in
+	set_prop v new_prop;
+	changed || not (D.equal old_prop new_prop)
+      | Loop.WLoop vs ->
+	let rec loop changed n =
+	  if n = 0 then changed
+	  else if List.fold_left decrease false vs
+	  then loop true (n - 1)
+	  else changed
+	in
+	loop false max_decrease || changed
+    in
+    let rec increase widen changed = function
+      | Loop.WSimple v ->
+	let old_prop = prop result v in
+	let new_prop =
+	  if is_widening v then
+	    if widen then D.widen old_prop (flow_out v)
+	    else D.join old_prop (flow_out v)
+	  else flow_out v
+	in
+	set_prop v new_prop;
+	changed || not (D.equal old_prop new_prop)
+      | Loop.WLoop vs ->
+	let rec loop changed n =
+	  if List.fold_left (increase (n <= 0)) false vs
+	  then loop true (n - 1)
+	  else changed
+	in
+	let loop_changed = loop false delay in
+	if loop_changed then ignore (decrease false (Loop.WLoop vs));
+	changed || loop_changed
+    in
+    List.iter (fun elt -> ignore (increase false false elt)) wto;
+    result
+
+  let improve result max_iter =
+    let iters = HT.create 991 in
+    let get_iters v =
+      if HT.mem iters v then HT.find iters v
+      else begin
+	HT.add iters v 0;
+	0
+      end
+    in
+    let incr_iters v =
+      HT.replace iters v ((get_iters v) + 1)
+    in
+    let update vertex =
+      let flow_out = result.vertex_transfer vertex (input result vertex) in
+      let changed = not (D.equal (prop result vertex) flow_out) in
+      if changed then HT.replace result.map vertex flow_out;
+      changed
+    in
+    let wide_update vertex =
+      (get_iters vertex <= max_iter)
+      && (incr_iters vertex; update vertex)
+    in
+    Fix.fix result.graph update (Some wide_update)
+
   let output result vertex = HT.find result.map vertex
 
   let enum_input result =
@@ -183,4 +262,3 @@ end = struct
 
   let enum_output result = HT.enum result.map
 end
-

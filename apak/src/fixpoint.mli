@@ -20,6 +20,25 @@ module MakeAnalysis (G : G) (D : Sig.AbstractDomain.S) : sig
     G.t ->
     result
 
+  (** Analysis with local decreasing iterations and delayed widening.  This
+      should produce more accurate results than [analyze] if the widening
+      operator is imprecise.
+      - [delay]: the number of times a widening node is evaulated before
+        applying widening.
+      - [max_decrease]: the maximum number of local decreasing iterations.
+  *)
+  val analyze_ldi :
+    (G.V.t -> D.t -> D.t) ->
+    ?edge_transfer:(G.E.t -> D.t -> D.t) ->
+    ?delay:int ->
+    ?max_decrease:int ->
+    G.t ->
+    result
+
+  (** Improve an anaylsis result by applying decreasing iterations (up to some
+      maximum number of iterations). *)
+  val improve : result -> int -> unit
+
   (** Property associated with the pre-state of a vertex. *)
   val input : result -> G.V.t -> D.t
 
