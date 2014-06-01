@@ -403,7 +403,7 @@ module Make (Var : Var) = struct
   let opt_recurrence_ineq = ref false
   let opt_higher_recurrence_ineq = ref false
   let opt_unroll_loop = ref true
-  let opt_loop_guard = ref false
+  let opt_loop_guard = ref (Some F.exists)
   let opt_polyrec = ref false
 
   (**************************************************************************)
@@ -943,7 +943,7 @@ module Make (Var : Var) = struct
     { ctx with loop = loop }
   let polyrec ctx = Log.time "polyrec" polyrec ctx
 
-  let loop_guard ctx =
+  let loop_guard exists ctx =
     let primed_vars = VarSet.of_enum (M.keys ctx.loop.transform /@ Var.prime) in
     let unprime =
       VarMap.of_enum (M.enum ctx.loop.transform
@@ -1113,8 +1113,9 @@ module Make (Var : Var) = struct
     let loop = { ctx.loop with transform = transform } in
 
     let loop =
-      if !opt_loop_guard then loop_guard { ctx with loop = loop }
-      else loop
+      match !opt_loop_guard with
+      | Some ex -> loop_guard ex { ctx with loop = loop }
+      | None -> loop
     in
     let loop =
       if !opt_unroll_loop then add one (mul loop tr)

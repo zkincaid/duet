@@ -103,7 +103,7 @@ let set_opt_simple () =
   opt_recurrence_ineq := false;
   opt_higher_recurrence_ineq := false;
   opt_unroll_loop := true;
-  opt_loop_guard := false;
+  opt_loop_guard := None;
   opt_polyrec := false
 
 let set_opt_const_bound () =
@@ -113,7 +113,7 @@ let set_opt_const_bound () =
   opt_recurrence_ineq := true;
   opt_higher_recurrence_ineq := false;
   opt_unroll_loop := false;
-  opt_loop_guard := true;
+  opt_loop_guard := Some F.exists;
   opt_polyrec := false
 
 let set_opt_sym_bound () =
@@ -123,7 +123,7 @@ let set_opt_sym_bound () =
   opt_higher_recurrence_ineq := true;
   opt_recurrence_ineq := false;
   opt_unroll_loop := true;
-  opt_loop_guard := false;
+  opt_loop_guard := None;
   opt_polyrec := false
 
 let set_opt_polyrec () =
@@ -133,7 +133,7 @@ let set_opt_polyrec () =
   opt_higher_recurrence_ineq := false;
   opt_recurrence_ineq := false;
   opt_unroll_loop := false;
-  opt_loop_guard := true;
+  opt_loop_guard := Some F.exists;
   opt_polyrec := true
 
 
