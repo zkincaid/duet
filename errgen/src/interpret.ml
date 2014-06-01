@@ -7,6 +7,8 @@ open ArkPervasives
 
 exception NotHandled of string
 
+include Log.Make(struct let name = "errgen" end)
+
 (******* Printing a program *****************
 *********************************************)
 
@@ -814,6 +816,102 @@ and float_bool_binop op s t =
   F.conj (op s t) (F.conj s_err t_err)
 let float_bexp bexp = float_bexp (nnf bexp)
 
+let print_bounds vars formula =
+  let f v =
+    T.sub
+      (T.var (V.mk_var (Bounds.StrVar.prime v)))
+      (T.var (V.mk_var (Bounds.StrVar.prime (primify v))))
+  in
+  let g v bounds =
+    let bound_str =
+      match bounds with
+      | (Some x, Some y) ->
+	string_of_float (Mpqf.to_float (QQ.max (Mpqf.abs x) (Mpqf.abs y)))
+      | (_, _) -> "oo"
+    in
+    Format.printf "  | %s - %s' | <= %s@\n" v v bound_str
+  in
+  List.iter2 g vars (F.optimize (List.map f vars) formula)
+
+let man = Box.manager_alloc ()
+
+module A = Fixpoint.MakeAnalysis(TCfa)(struct
+  type t = Box.t D.t
+  include Putil.MakeFmt(struct
+    type a = t
+    let format = D.format
+  end)
+  let join x y = D.join x y
+  let widen x y = D.widen x y
+  let bottom = D.bottom man (D.Env.of_list [])
+  let equal = D.equal
+end)
+
+let float_post cmd prop =
+  let project prop = D.exists man (fun p -> V.lower p != None) prop in
+  (* Assumptions can be non-linear; Apron's linearization works better by
+     iterating assumptions.  It's possible that this iteration won't terminate
+     - it depends on the details of Apron's linearization. *)
+  let rec assume prop phi =
+    let next = F.abstract_assume man prop phi in
+    if D.equal next prop then prop
+    else assume next phi
+  in
+  match cmd with
+  | Assign (v, rhs) ->
+    let (rhs, rhs_err) = float_aexp rhs in
+    project (F.abstract_assign man
+	       (assume prop rhs_err)
+	       (V.mk_var v)
+	       rhs)
+  | Assume phi -> project (F.abstract_assume man prop (float_bexp phi))
+  | Skip | Assert _ | Print _ -> prop
+
+let real_post cmd prop =
+  match cmd with
+  | Assign (v, rhs) -> F.abstract_assign man prop (V.mk_var v) (real_aexp rhs)
+  | Assume phi -> F.abstract_assume man prop (real_bexp phi)
+  | Skip | Assert _ | Print _ -> prop
+
+let tensor_post (fcmd, rcmd) prop =
+  let post = float_post fcmd (real_post rcmd prop) in
+  logf "pre:@\n %a@\ncmd: %a/%a@\npost:@\n %a"
+    D.format prop
+    C.format fcmd
+    C.format rcmd
+    D.format post;
+  post
+
+let iter_analyze tensor entry =
+  let tr e prop =
+    let (flbl, rlbl) = TCfa.E.label e in
+    tensor_post (flbl, rlbl) prop
+  in
+  let vtr v prop =
+    if v = entry then D.top man (D.Env.of_list []) else prop
+  in
+  let result =
+    A.analyze_ldi vtr ~edge_transfer:tr ~delay:2 ~max_decrease:2 tensor
+  in
+  let print ((u, v), prop) =
+    if D.is_bottom prop then Format.printf "At (%d, %d): unreachable@\n" u v
+    else begin
+      let phi = F.of_abstract prop in
+      let vars = K.VarSet.elements (K.formula_free_program_vars phi) in
+      Format.printf "At (%d, %d):@\n" u v;
+      Format.printf "%a@\n@?" D.format prop;
+      print_bounds vars phi
+    end
+  in
+  (*
+    let print ((u, v), prop) =
+    Format.printf "At (%d, %d):@\n" u v;
+    Format.printf "%a@\n@?" D.format prop;
+    in
+  *)
+  BatEnum.iter print (A.enum_output result);
+  result
+
 let float_weight cmd =
   match cmd with
   | Assign (v, rhs) ->
@@ -832,31 +930,17 @@ let real_weight cmd =
 
 module P = Pathexp.MakeElim(TCfa)(K)
 
-let print_bounds vars formula =
-  let f v =
-    T.sub
-      (T.var (V.mk_var (Bounds.StrVar.prime v)))
-      (T.var (V.mk_var (Bounds.StrVar.prime (primify v))))
-  in
-  let g v bounds =
-    let bound_str =
-      match bounds with
-      | (Some x, Some y) ->
-	string_of_float (Mpqf.to_float (QQ.max (Mpqf.abs x) (Mpqf.abs y)))
-      | (_, _) -> "oo"
-    in
-    Format.printf "  | %s - %s' | <= %s@\n" v v bound_str
-  in
-  List.iter2 g vars (F.optimize (List.map f vars) formula)
-
-let tensor_weight e =
+let tensor_weight result e =
   let (flbl, rlbl) = TCfa.E.label e in
   (* real & float operate on disjoint sets of variables, so sequential
      composition is non-interfering *)
-  K.mul (float_weight flbl) (real_weight rlbl)
+  let weight = K.mul (float_weight flbl) (real_weight rlbl) in
+  let inv = K.assume (F.of_abstract (A.output result (TCfa.E.src e))) in
+  K.mul inv weight
 
 let analyze tensor entry =
-  let pathexp = P.single_src tensor tensor_weight entry in
+  let result = iter_analyze tensor entry in
+  let pathexp = P.single_src tensor (tensor_weight result) entry in
   let print (u,v) =
     let pathexp = pathexp (u,v) in
     let vars =
@@ -880,7 +964,6 @@ let read_and_process infile =
    print_prog (Prog prog);
    let (cfa, e, _) = build_cfa prog in
    let tensor = TCfa.tensor (cfa, e) (primify_cfa cfa, e) in
-
    (* forget stuttering for now ... *)
    let tensor =
      let f (u, v) g =
@@ -895,6 +978,7 @@ let _ =
     Format.eprintf "usage: %s input_filename\n" Sys.argv.(0)
   else
     let  infile = open_in Sys.argv.(1) in
+(*    Log.set_verbosity_level "errgen" 2;*)
     read_and_process infile;
     close_in infile;
     Log.print_stats ()
