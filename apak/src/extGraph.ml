@@ -1590,7 +1590,8 @@ module Display = struct
     Make(G)(Show_vertex)(struct
       let graph_attributes _ = []
       let vertex_attributes _ = []
-      let edge_attributes e = [`Label (Show_edge.show (G.E.label e))]
+      let edge_attributes e =
+	[`Label (String.escaped (Show_edge.show (G.E.label e)))]
     end)
 
   module MakeStructural (G : G) = struct
