@@ -875,7 +875,7 @@ let real_post cmd prop =
 
 let tensor_post (fcmd, rcmd) prop =
   let post = float_post fcmd (real_post rcmd prop) in
-  logf "pre:@\n %a@\ncmd: %a/%a@\npost:@\n %a"
+  logf ~level:3 "pre:@\n %a@\ncmd: %a/%a@\npost:@\n %a"
     D.format prop
     C.format fcmd
     C.format rcmd
@@ -893,23 +893,28 @@ let iter_analyze tensor entry =
   let result =
     A.analyze_ldi vtr ~edge_transfer:tr ~delay:2 ~max_decrease:2 tensor
   in
-  let print ((u, v), prop) =
+  let print (u, v) =
+    let prop = A.output result (u, v) in
     if D.is_bottom prop then Format.printf "At (%d, %d): unreachable@\n" u v
     else begin
+      let sigma v = match V.lower v with
+	| Some v -> T.var (V.mk_var (Bounds.StrVar.prime v))
+	| None -> assert false
+      in
       let phi = F.of_abstract prop in
-      let vars = K.VarSet.elements (K.formula_free_program_vars phi) in
+      let vars =
+	let f v = v.[String.length v - 1] != ''' in
+	List.filter f (K.VarSet.elements (K.formula_free_program_vars phi))
+      in
+
       Format.printf "At (%d, %d):@\n" u v;
-      Format.printf "%a@\n@?" D.format prop;
-      print_bounds vars phi
+(*      Format.printf "%a@\n@?" D.format prop;*)
+      print_bounds vars (F.subst sigma phi)
     end
   in
-  (*
-    let print ((u, v), prop) =
-    Format.printf "At (%d, %d):@\n" u v;
-    Format.printf "%a@\n@?" D.format prop;
-    in
-  *)
-  BatEnum.iter print (A.enum_output result);
+  Format.printf "Error bounds (iterative analysis):@\n";
+  TCfa.iter_vertex print tensor;
+  Format.printf "==================================@\n";
   result
 
 let float_weight cmd =
@@ -953,7 +958,9 @@ let analyze tensor entry =
       print_bounds vars phi
     end else Format.printf "At (%d, %d): unreachable@\n" u v;
   in
-  TCfa.iter_vertex print tensor
+  Format.printf "Error bounds (path expression analysis):@\n";
+  TCfa.iter_vertex print tensor;
+  Format.printf "========================================@\n"
 
 (*********** Main function ****************
 *******************************************)
@@ -978,7 +985,11 @@ let _ =
     Format.eprintf "usage: %s input_filename\n" Sys.argv.(0)
   else
     let  infile = open_in Sys.argv.(1) in
-(*    Log.set_verbosity_level "errgen" 2;*)
+(*
+    Log.set_verbosity_level "errgen" 2;
+    Log.set_verbosity_level "ark.formula" 2;
+    Log.set_verbosity_level "ark.transition" 2;
+*)
     read_and_process infile;
     close_in infile;
     Log.print_stats ()
