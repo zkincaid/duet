@@ -504,7 +504,7 @@ module Verify = struct
 
   module Tr = Transition.Make(IV)
 
-  let loc = Var.mk (Varinfo.mk_local "@" (Concrete (Int IInt)))
+  let loc = Var.mk (Varinfo.mk_local "@" (Concrete (Int unknown_width)))
 
   module P = Tr.F
   let stable phi args def k =

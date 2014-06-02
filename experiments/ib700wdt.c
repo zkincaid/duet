@@ -3440,7 +3440,7 @@ signed int alloc_chrdev_region(unsigned int *dev, unsigned int baseminor, unsign
 {
   signed int major;
   signed int return_value = nondet_int();
-  __CPROVER_assume(return_value == 0 || return_value == -1);
+  assume(return_value == 0 || return_value == -1);
   if(return_value == 0)
   {
     unsigned int return_value_nondet_uint$1 = nondet_unsigned();
@@ -3629,7 +3629,8 @@ void call_cdev_functions()
 
   unsigned short int return_value_nondet_ushort$1 = nondet_ushort();
   cdev_no = (signed int)return_value_nondet_ushort$1;
-  __CPROVER_assume(0 <= cdev_no && cdev_no < (signed int)number_cdev_registered);
+  assume(0 <= cdev_no);
+  assume(cdev_no < (signed int)number_cdev_registered);
   unsigned short int return_value_nondet_ushort$2 = nondet_ushort();
   switch((signed int)return_value_nondet_ushort$2)
   {
@@ -3820,7 +3821,7 @@ void call_interrupt_handler()
   struct pt_regs regs;
   signed int return_value_nondet_int$1 = nondet_int();
   i = (unsigned short int)return_value_nondet_int$1;
-  __CPROVER_assume((signed int)i < 16);
+  assume((signed int)i < 16);
   /* array `registered_irq' upper bound */
   assert((signed long int)i < 16l);
   if(!(registered_irq[(signed long int)i].handler == ((signed int (*)(signed int, void *, struct pt_regs *))NULL)))
@@ -3833,7 +3834,7 @@ void call_interrupt_handler()
 void call_shared_workqueue_functions()
 {
   unsigned short int i = nondet_ushort();
-  __CPROVER_assume((signed int)i < 10);
+  assume((signed int)i < 10);
   /* array `shared_workqueue' upper bound */
   assert((signed long int)i < 10l);
   if(!(shared_workqueue[(signed long int)i] == ((struct work_struct *)NULL)))
@@ -3851,7 +3852,7 @@ void call_shared_workqueue_functions()
 void call_tasklet_functions()
 {
   unsigned int i;
-  __CPROVER_assume(i < (unsigned int)10);
+  assume(i < (unsigned int)10);
   /* array `tasklet_registered' upper bound */
   assert((signed long int)i < 10l);
   if(!(tasklet_registered[(signed long int)i].tasklet == ((struct tasklet_struct *)NULL)))
@@ -3877,7 +3878,7 @@ signed int cdev_add(struct cdev$link6 *p, unsigned int dev, unsigned int count)
   p->dev = dev;
   p->count = count;
   signed int return_value = nondet_int();
-  __CPROVER_assume(return_value == 0 || return_value == -1);
+  assume(return_value == 0 || return_value == -1);
   if(return_value == 0)
   {
     if((signed int)number_cdev_registered < 10)
@@ -4866,7 +4867,7 @@ struct pci_dev$link3 * pci_get_class(unsigned int class, struct pci_dev$link3 *f
     from->vendor = nondet_ushort();
     from->device = nondet_ushort();
     from->irq = nondet_unsigned();
-    __CPROVER_assume(from->irq < (unsigned int)16);
+    assume(from->irq < (unsigned int)16);
     return from;
   }
 
@@ -5174,20 +5175,6 @@ signed int pthread_mutex_init(struct __pthread_mutex_t_struct *__mutex, const st
   struct __pthread_mutex_t_struct i = (struct __pthread_mutex_t_struct){ .locked=0 != 0 };
   *__mutex = i;
   return nondet_int();
-}
-
-// c::pthread_mutex_lock
-// file /usr/local/ddv/models/con2/include/ddverify/pthread.h line 203
-signed int pthread_mutex_lock(struct __pthread_mutex_t_struct *__mutex)
-{
-
-__CPROVER_HIDE:
-  ;
-  __CPROVER_atomic_begin();
-  __CPROVER_assume(!(__mutex->locked != FALSE));
-  __mutex->locked = 1 != 0;
-  __CPROVER_atomic_end();
-  return 0;
 }
 
 // c::pthread_mutex_unlock

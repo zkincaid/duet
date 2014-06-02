@@ -191,27 +191,6 @@ let field_offset fi =
 module HT = Hashtbl
 let named_hash = HT.create 32
 
-(* converts the interger type of CIL to our int_kind *)
-let ik_of_ikind = function
-  | Cil.IChar       -> IChar
-  | Cil.ISChar      -> IChar
-  | Cil.IUChar      -> IChar
-  | Cil.IBool       -> IBool
-  | Cil.IInt        -> IInt
-  | Cil.IUInt       -> IInt
-  | Cil.IShort      -> IShort
-  | Cil.IUShort     -> IShort
-  | Cil.ILong       -> ILong
-  | Cil.IULong      -> ILong
-  | Cil.ILongLong   -> ILongLong
-  | Cil.IULongLong  -> ILongLong
-
-(* converts the floating point type of CIL to our float_kind *)
-let fk_of_fkind = function
-  | Cil.FFloat      -> FFloat
-  | Cil.FDouble     -> FDouble
-  | Cil.FLongDouble -> FLongDouble
-
 (** Converts a Cil.typ to our internal representation. *)
 let rec tr_typ cil_typ =
   match cil_typ with
@@ -235,8 +214,8 @@ and tr_ctyp =
   let tr_enumi (s,e,_) = (s, calc_expr e) in
     function
       | Cil.TVoid _ -> Void
-      | Cil.TInt (ik, _) -> Int (ik_of_ikind ik)
-      | Cil.TFloat (fk, _) -> Float (fk_of_fkind fk)
+      | Cil.TInt (ik, _) as typ -> Int (type_size typ)
+      | Cil.TFloat (fk, _) as typ -> Float (type_size typ)
       | Cil.TPtr (base, _) -> Pointer (tr_typ base)
       | Cil.TArray (base, None, _) -> Array (tr_typ base, None)
       | Cil.TArray (base, Some expr, _) ->
@@ -338,7 +317,7 @@ let rec tr_expr = function
   | Cil.CastE (t, e) -> Cast (tr_typ t, tr_expr e)
   | Cil.AddrOf l -> addr_of (tr_lval l)
   | Cil.StartOf l ->
-      (* Conversion of an array type to a pointer type *)
+    (* Conversion of an array type to a pointer type *)
     addr_of (tr_lval l)
   | Cil.Question (test, left, right, typ) -> assert false
 
@@ -361,11 +340,12 @@ and ptr_type_size = function
     assert false
 
 and tr_constant = function
-  | Cil.CInt64 (i, ik, _) -> CInt (Int64.to_int i, ik_of_ikind ik)
+  | Cil.CInt64 (i, ik, _) ->
+    CInt (Int64.to_int i, type_size (Cil.TInt (ik, [])))
   | Cil.CStr s -> CString s
   | Cil.CWStr i -> assert false
   | Cil.CChr c -> CChar c
-  | Cil.CReal (f, fk, _) -> CFloat (f, fk_of_fkind fk)
+  | Cil.CReal (f, fk, _) -> CFloat (f, type_size (Cil.TFloat (fk, [])))
   | Cil.CEnum (e, s, ei) -> assert false
 
 (** Converts a Cil lval to an access path. *)
@@ -443,7 +423,10 @@ let tr_instr ctx instr =
       mk_def (Builtin (Alloc (v, x, AllocHeap)))
     | ("calloc", Some (Variable v), [mem;size]) ->
       mk_def (Builtin (Alloc (v,
-			      BinaryOp (mem, Mult, size, Concrete (Int IInt)),
+			      BinaryOp (mem,
+					Mult,
+					size,
+					Concrete (Int pointer_width)),
 			      AllocHeap)))
     | ("realloc", Some (Variable v), [_;x])
     | ("xrealloc", Some (Variable v), [_;x]) ->
@@ -463,16 +446,19 @@ let tr_instr ctx instr =
 
     | ("rand", Some (Variable v), []) ->
       (* todo: should be non-negative *)
-      mk_def (Assign (v, Havoc (Concrete (Int IInt))))
+      mk_def (Assign (v, Havoc (Concrete (Int unknown_width))))
 
     | ("__VERIFIER_nondet_char", Some (Variable v), []) ->
-      mk_def (Assign (v, Havoc (Concrete (Int IChar))))
-    | ("__VERIFIER_nondet_int", Some (Variable v), [])
-    | ("__VERIFIER_nondet_long", Some (Variable v), [])
+      mk_def (Assign (v, Havoc (Concrete (Int 1))))
+    | ("__VERIFIER_nondet_int", Some (Variable v), []) ->
+      mk_def (Assign (v, Havoc (Concrete (Int machine_int_width))))
+    | ("__VERIFIER_nondet_long", Some (Variable v), []) ->
+      let sz = type_size (Cil.TInt (Cil.ILong, [])) in
+      mk_def (Assign (v, Havoc (Concrete (Int sz))))
     | ("__VERIFIER_nondet_pointer", Some (Variable v), []) ->
-      mk_def (Assign (v, Havoc (Concrete (Int IInt))))
+      mk_def (Assign (v, Havoc (Concrete (Int pointer_width))))
     | ("__VERIFIER_nondet_uint", Some (Variable v), []) ->
-      let havoc = mk_def (Assign (v, Havoc (Concrete (Int IInt)))) in
+      let havoc = mk_def (Assign (v, Havoc (Concrete (Int unknown_width)))) in
       let assume =
 	mk_def (Assume (Atom (Le, Expr.zero, AccessPath (Variable v))))
       in
@@ -610,9 +596,8 @@ let define_args file =
   let (argc, argv) = match main_func.formals with
     | [argc;argv] -> (argc,argv)
     | [] -> begin
-	let argc = Varinfo.mk_local "argc" (Concrete (Int IInt)) in
-	let string = Concrete (Pointer (Concrete (Int IChar))) in
-	let argv = Varinfo.mk_local "argv" (Concrete (Pointer string)) in
+	let argc = Varinfo.mk_local "argc" (Concrete (Int machine_int_width)) in
+	let argv = Varinfo.mk_local "argv" (Concrete (Pointer typ_string)) in
 	  main_func.formals <- [argc;argv];
 	  (argc,argv)
       end
@@ -638,6 +623,23 @@ let tr_file_funcs =
     | [] -> []
   in
     go
+
+(* Create an explicit memory allocation instruction for a fixed-size array
+   (currently unused). *)
+let add_array_initializer v loc il =
+  match v.Cil.vtype with
+  | Cil.TArray (typ, Some size, _) ->
+    begin
+      let size =
+	Expr.const_int (type_size typ * calc_expr size)
+      in
+      let lhs = Var.mk (variable_of_varinfo v) in
+      let def =
+	Def.mk ~loc:loc (Builtin (Alloc (lhs, size, AllocHeap)))
+      in
+      def::il
+    end
+  | _ -> il
 
 let tr_initializer globals =
   let f il v =

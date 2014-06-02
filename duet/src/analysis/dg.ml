@@ -121,7 +121,7 @@ let simplify_dg afg =
   in
 *)
   let init_ap =
-    Variable (Var.mk (Varinfo.mk_global "init" (Concrete (Int IInt))))
+    Variable (Var.mk (Varinfo.mk_global "init" (Concrete (Int unknown_width))))
   in
   let relabel e =
     let ap = S.snd (S.PairSet.choose (G.E.label e)) in

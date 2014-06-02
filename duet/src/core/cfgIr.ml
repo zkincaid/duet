@@ -454,7 +454,7 @@ let normalize file =
 	  let tmp =
 	    mk_local_var func
 	      "duet_str_const"
-	      (Concrete (Pointer (Concrete (Int IChar))))
+	      (Concrete (Pointer (Concrete (Int char_width))))
 	  in
 	  let tmp_assign =
 	    Def.mk ~loc:(Def.get_location def) (Assign (tmp, rhs))

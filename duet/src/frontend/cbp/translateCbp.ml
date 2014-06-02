@@ -4,8 +4,8 @@ open Ast
 open Apak
 
 exception No_translation of string
-let typ_bool = Concrete (Int IBool)
-let constant_bool k = Constant (CInt (k, IBool))
+let typ_bool = Concrete (Int bool_width)
+let constant_bool k = Constant (CInt (k, bool_width))
 let ktrue = constant_bool 1
 let kfalse = constant_bool 0
 

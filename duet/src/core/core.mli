@@ -6,19 +6,6 @@ open Apak
 
 (** {2 Core types} *)
 
-type int_kind =
-  | IChar
-  | IBool
-  | IInt
-  | IShort
-  | ILong
-  | ILongLong
-
-type float_kind =
-  | FFloat
-  | FDouble 
-  | FLongDouble
-
 (** Record containing the information of enumeration (in C), use java
     class for java enumerations *)
 type enuminfo = {
@@ -30,8 +17,8 @@ type enuminfo = {
 type ctyp =
   | Void
   | Lock
-  | Int       of int_kind
-  | Float     of float_kind
+  | Int       of int
+  | Float     of int
   | Pointer   of typ
   | Array     of typ * int option 
   | Record    of recordinfo
@@ -95,12 +82,12 @@ type offset =
 | OffsetUnknown
 type var = varinfo * offset
 
-(** Constants *)
+(** Constants. *)
 type constant =
-| CInt          of int * int_kind 
-| CString       of string 
-| CChar         of char 
-| CFloat        of float * float_kind
+| CInt    of int * int (** CInt(i,w) represents constant i of width w *)
+| CString of string
+| CChar   of char
+| CFloat  of float * int (** CFloat(f,w) represents constant f of width w *)
 
 (** Access paths *)
 type ap =
@@ -212,6 +199,14 @@ module Show_varinfo : Show.Show with type a = varinfo
 val is_pointer_type : typ -> bool
 val is_numeric_type : typ -> bool
 val typ_equiv : typ -> typ -> bool
+val typ_width : typ -> int
+
+val typ_string : typ
+val char_width : int
+val bool_width : int
+val machine_int_width : int
+val pointer_width : int
+val unknown_width : int
 
 (** Return the underyling concrete type of a (possibly named) type *)
 val resolve_type : typ -> ctyp

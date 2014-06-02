@@ -521,16 +521,16 @@ module ApronInterpretation = struct
 
   let rec apron_expr av expr =
     let f = function
-      | OHavoc typ -> begin match resolve_type typ with
-	  | Int IBool -> VInt havoc_bool
-	  | Enum _ | Int _ -> VInt (havoc_int)
-	  | Pointer _ ->
-	      VPointer { ptr_val = havoc_int;
-			 ptr_pos = havoc_int;
-			 ptr_width = havoc_int }
-	  | Dynamic -> VDynamic
-	  | _ -> failwith (Format.sprintf "Havoc with a non-integer type: "
-			   ^ (Putil.pp_string format_typ typ))
+      | OHavoc typ ->
+	begin match resolve_type typ with
+	| Int _ -> VInt havoc_int
+	| Pointer _ ->
+	  VPointer { ptr_val = havoc_int;
+		     ptr_pos = havoc_int;
+		     ptr_width = havoc_int }
+	| Dynamic -> VDynamic
+	| _ -> failwith (Format.sprintf "Havoc with a non-integer type: "
+			 ^ (Putil.pp_string format_typ typ))
 	end
       | OConstant (CInt (c, _)) -> VInt (Texpr0.Cst (Coeff.s_of_int c))
       | OConstant (CFloat (c, _)) -> VInt (Texpr0.Cst (Coeff.s_of_float c))
@@ -561,10 +561,7 @@ module ApronInterpretation = struct
 	    | OffsetFixed x -> Texpr0.Cst (Coeff.s_of_int x)
 	    | OffsetUnknown -> havoc_int
 	  in
-	  let width = match resolve_type (Varinfo.get_type v) with
-	    | Array (_, Some size) -> size
-	    | _ -> 1
-	  in
+	  let width = typ_width (Varinfo.get_type v) in
 	  let p =
 	    { ptr_val = havoc_positive_int;
 	      ptr_pos = pos;
