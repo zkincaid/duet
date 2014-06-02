@@ -7,22 +7,6 @@
 open Apak
 open BatPervasives
 
-(** Types *)
-type int_kind =
-| IChar
-| IBool
-| IInt
-| IShort
-| ILong
-| ILongLong
-    deriving (Compare)
-
-type float_kind =
-| FFloat
-| FDouble 
-| FLongDouble
-    deriving (Compare)
-
 (** Record containing the information of enumeration *)
 type enuminfo = {
   enname : string;
@@ -33,8 +17,8 @@ type enuminfo = {
 type ctyp =
 | Void
 | Lock
-| Int       of int_kind
-| Float     of float_kind
+| Int       of int
+| Float     of int
 | Pointer   of typ
 | Array     of typ * int option 
 | Record    of recordinfo
@@ -205,10 +189,10 @@ type var = varinfo * offset deriving (Compare, Eq)
 
 (** Constants *)
 type constant =
-| CInt          of int * int_kind 
+| CInt          of int * int
 | CString       of string 
 | CChar         of char 
-| CFloat        of float * float_kind
+| CFloat        of float * int
     deriving (Compare)
 
 (** Access paths *)
@@ -283,6 +267,22 @@ type ('a, 'b) open_bexpr =
 type ('a, 'b, 'c) expr_algebra = ('a, 'b, 'c) open_expr -> 'a
 type ('a, 'b) bexpr_algebra = ('a, 'b) open_bexpr -> 'b
 
+
+let cil_typ_width t =
+  match Cil.constFold true (Cil.SizeOf t) with
+  | Cil.Const Cil.CInt64 (i, _, _) -> Int64.to_int i
+  | _ -> assert false
+
+(* If the width of a float/integer type cannot be determined, use
+   unknown_width *)
+let _ = Cil.initCIL ()
+let unknown_width = 0
+let char_width = 1
+let bool_width = 1
+let machine_int_width = cil_typ_width (Cil.TInt (Cil.IInt, []))
+let pointer_width = cil_typ_width (Cil.TPtr (Cil.TInt (Cil.IInt, []), []))
+let typ_string = Concrete (Pointer (Concrete (Int char_width)))
+
 (* ========================================================================== *)
 
 (* Functions on types *)
@@ -290,20 +290,35 @@ let resolve_type = function
   | Named (_, ctyp) -> !ctyp
   | Concrete ctyp   -> ctyp
 
+let rec typ_width typ = match resolve_type typ with
+  | Int k -> k
+  | Float k -> k
+  | Void -> 0
+  | Record record ->
+    List.fold_left (+) 0 (List.map field_width record.rfields)
+  | Union record ->
+    List.fold_left (max) 0 (List.map field_width record.rfields)
+  | Lock -> 2 * machine_int_width
+  | Func (_, _) -> pointer_width
+  | Pointer _ -> pointer_width
+  | Array (typ, None) -> unknown_width
+  | Array (typ, Some k) -> typ_width typ * k
+  | Dynamic -> unknown_width
+  | Enum _ -> machine_int_width
+and field_width fi = typ_width fi.fityp
+
 let text = Format.pp_print_string
 
 let rec format_ctyp formatter = function
   | Void -> text formatter "void"
   | Lock -> text formatter "lock"
-  | Int IChar -> text formatter "char"
-  | Int IBool -> text formatter "bool"
-  | Int IInt -> text formatter "int"
-  | Int IShort -> text formatter "short"
-  | Int ILong -> text formatter "long"
-  | Int ILongLong -> text formatter "long long"
-  | Float FFloat -> text formatter "float"
-  | Float FDouble -> text formatter "double"
-  | Float FLongDouble -> text formatter "long double"
+  | Int 0 -> text formatter "int<??>"
+  | Int 1 -> text formatter "char"
+  | Int 4 -> text formatter "int32"
+  | Int 8 -> text formatter "int64"
+  | Int k -> Format.fprintf formatter "int<%d>" k
+  | Float 0 -> text formatter "float<??>"
+  | Float k -> Format.fprintf formatter "float<%d>" k
   | Pointer t -> Format.fprintf formatter "@[<hov 0>*%a@]" format_typ t
   | Array (t, Some i) -> Format.fprintf formatter "%a[%d]" format_typ t i
   | Array (t, None) -> Format.fprintf formatter "%a[]" format_typ t
@@ -477,8 +492,8 @@ and fold_bexpr f g =
     fold_bexpr_only h
 
 let expr_of_offset = function
-  | OffsetUnknown -> Havoc (Concrete (Int IInt))
-  | OffsetFixed n -> Constant (CInt (n, IInt))
+  | OffsetUnknown -> Havoc (Concrete (Int unknown_width))
+  | OffsetFixed n -> Constant (CInt (n, unknown_width))
 
 let rec expr_type = function
   | Havoc typ -> typ
@@ -486,13 +501,13 @@ let rec expr_type = function
   | Constant (CString _) ->
 	(* probably Array (Int IChar), but this should be checked ... *)
     assert false
-  | Constant (CChar _) -> Concrete (Int IChar)
+  | Constant (CChar _) -> Concrete (Int 1)
   | Constant (CFloat (_, fk)) -> Concrete (Float fk)
   | Cast (typ, _) -> typ
   | BinaryOp (_, _, _, typ) -> typ
   | UnaryOp (_, _, typ) -> typ
   | AccessPath ap -> ap_type ap
-  | BoolExpr _ -> Concrete (Int IBool)
+  | BoolExpr _ -> Concrete (Int 1)
   | AddrOf ap -> Concrete (Pointer (ap_type ap))
 and ap_type ap =
   let deref_type x = match resolve_type x with
@@ -943,11 +958,11 @@ and psubst_var_ap f = function
 
 type bexpr_val = BTrue | BFalse | BHavoc | BNone
 
-let expr_zero = Constant (CInt (0, IInt))
-let expr_one = Constant (CInt (1, IInt))
+let expr_zero = Constant (CInt (0, unknown_width))
+let expr_one = Constant (CInt (1, unknown_width))
 let bexpr_true = Atom (Ne, expr_one, expr_zero)
 let bexpr_false = Atom (Eq, expr_one, expr_zero)
-let bexpr_havoc = Atom (Ne, (Havoc (Concrete (Int IBool))), expr_zero)
+let bexpr_havoc = Atom (Ne, (Havoc (Concrete (Int 1))), expr_zero)
 let bexpr_equal x y = bexpr_compare x y = 0
 
 let (simplify_expr, simplify_bexpr) =
@@ -982,9 +997,9 @@ let (simplify_expr, simplify_bexpr) =
     | OAccessPath ap -> AccessPath ap
     | OBoolExpr expr ->
 	(match constant_bexpr expr with
-	   | BTrue -> Constant (CInt (1, IBool))
-	   | BFalse -> Constant (CInt (0, IBool))
-	   | BHavoc -> Havoc (Concrete (Int IBool))
+	   | BTrue -> Constant (CInt (1, bool_width))
+	   | BFalse -> Constant (CInt (0, bool_width))
+	   | BHavoc -> Havoc (Concrete (Int bool_width))
 	   | BNone -> BoolExpr expr)
     | OHavoc typ -> Havoc typ
     | OAddrOf ap -> AddrOf ap
@@ -1088,7 +1103,7 @@ module Expr = struct
       AddrOf ap
     end
 
-  let const_int x = Constant (CInt (x, IInt))
+  let const_int x = Constant (CInt (x, unknown_width))
   let zero = const_int 0
   let one = const_int 1
   let null typ = Cast (typ, zero)
@@ -1147,7 +1162,7 @@ module Bexpr = struct
     | expr        -> Atom (Ne, expr, Expr.zero)
   let ktrue = Atom (Le, Expr.zero, Expr.zero)
   let kfalse = negate ktrue
-  let havoc = of_expr (Havoc (Concrete (Int IBool)))
+  let havoc = of_expr (Havoc (Concrete (Int 1)))
 
   let subst_var = subst_var_bexpr
   let psubst_var = psubst_var_bexpr

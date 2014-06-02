@@ -8,6 +8,9 @@ open EqLogic
 module DG = Afg.G
 module Pack = Afg.Pack
 
+(* True if the variable may be used concurrently *)
+let may_use_conc v = Var.is_shared v || Varinfo.addr_taken (fst v)
+
 (* Two point lock sets *)
 module LockPred = struct
   module LP = LockLogic.LockPred
@@ -57,33 +60,22 @@ module Make(MakeEQ :
         in
           fold_minterms g x zero
 
-      let mul_pointed x y =
-        let frame_x = get_frame x in
-        let frame_y = get_frame y in
-        let frame = Var.Set.union frame_x frame_y in
-        let x_minus_y = Var.Set.diff frame_x frame_y in
-        let y_minus_x = Var.Set.diff frame_y frame_x in
-        let f var acc = (Var.subscript var 0, Var.subscript var 3) ::
-                        (Var.subscript var 3, Var.subscript var 1) :: acc
+      let make_tree x =
+        let frame = get_frame x in
+        let eqs =
+          Var.Set.fold
+            (fun v -> fun acc -> (Var.subscript v 0, Var.subscript v 3) ::
+                                 (Var.subscript v 3, Var.subscript v 1) :: acc)
+            frame
+            []
         in
-        let x_eqs = Var.Set.fold f y_minus_x [] in
-        let y_eqs = Var.Set.fold f x_minus_y [] in
-        let g lst m = add (of_minterm frame 
-                                      (Minterm.make (lst @ (Minterm.get_eqs m)) 
-                                                    (Minterm.get_pred m)))
+        let f m =
+          let m' = Minterm.subst (sub_index 1 4) m in
+            add (of_minterm frame (Minterm.make (eqs @ (Minterm.get_eqs m'))
+                                                (Minterm.get_pred m')))
         in
-        let x' = fold_minterms (g x_eqs) x zero in
-        let y' = fold_minterms (g y_eqs) y zero in
-          mul x' y'
+          fold_minterms f x zero
 
-      let make_pointed x y =
-        let frame_x = get_frame x in
-        let frame_y = get_frame y in
-        let x_minus_y = Var.Set.diff frame_x frame_y in
-        let y_minus_x = Var.Set.diff frame_y frame_x in
-        let x' = mul x (assume Bexpr.ktrue y_minus_x pred_unit) in
-        let y' = mul y (assume Bexpr.ktrue x_minus_y pred_unit) in
-          mul (subst (sub_index 1 3) x') (subst (sub_index 0 3) y')
     end
     module State = Formula.State
   end
@@ -128,7 +120,7 @@ module Make(MakeEQ :
     let filter x =
       let imprecise v ap = match ap with
         | Variable v' -> v = v'
-        | _ -> Pa.may_alias (Variable v) ap
+        | _ -> Varinfo.addr_taken (fst v) && Pa.may_alias (Variable v) ap
       in
       let kills = match x.SeqDep.current_name with
         | Some (Variable v) -> AP.Set.filter (imprecise v) x.SeqDep.killed
@@ -329,24 +321,24 @@ module Make(MakeEQ :
 
   (* Multiply PartialTreeMap by a Tree transition *)
   let mul_pt_right f x y =
-    let update tr = f (Tree.TR.mul_pointed tr y) in
+    let update tr = f (Tree.TR.mul tr y) in
       PartialTreeMap.map update x
 
   let mul_pt_left f x y =
-    let update tr = f (Tree.TR.mul_pointed y tr) in
+    let update tr = f (Tree.TR.mul y tr) in
       PartialTreeMap.map update x
 
   (* Multiply TreeMap by a Tree transition *)
   let mul_t_right f x y =
-    let update tr = f (Tree.TR.mul_pointed tr y) in
+    let update tr = f (Tree.TR.mul tr y) in
       TreeMap.map update x
 
   let mul_t_left f x y =
-    let update tr = f (Tree.TR.mul_pointed y tr) in
+    let update tr = f (Tree.TR.mul y tr) in
       TreeMap.map update x
 
-  let mul_pointed_eq tr tr' =
-    let tr'' = Tree.TR.mul_pointed tr tr' in
+  let mul_eq tr tr' =
+    let tr'' = Tree.TR.mul tr tr' in
     let frame = Tree.TR.get_frame tr'' in
     let f m acc =
       let ((ls1, k1), (ls2, k2)) = TreeMinterm.get_pred m in
@@ -364,7 +356,7 @@ module Make(MakeEQ :
     let g acc ((d, d_ap), d_tr) ((u, u_ap), u_tr) =
       if Pa.may_alias d_ap u_ap
       then begin
-        let tr = f (mul_pointed_eq d_tr (lift_lrd_tree u_tr)) in
+        let tr = f (mul_eq d_tr (lift_lrd_tree u_tr)) in
           if tr != Tree.TR.zero
           then TreeMap.update ((d, d_ap), (u, u_ap)) tr acc
           else acc
@@ -379,7 +371,7 @@ module Make(MakeEQ :
     let g acc ((u, u_ap), u_tr) ((d, d_ap), d_tr) =
       if Pa.may_alias d_ap u_ap
       then begin
-        let tr = f (mul_pointed_eq u_tr (lift_lrd_tree d_tr)) in
+        let tr = f (mul_eq u_tr (lift_lrd_tree d_tr)) in
           if tr != Tree.TR.zero
           then TreeMap.update ((d, d_ap), (u, u_ap)) tr acc
           else acc
@@ -414,7 +406,7 @@ module Make(MakeEQ :
     let g acc ((d, d_ap), d_tr) ((u, u_ap), u_tr) =
       if Pa.may_alias d_ap u_ap
       then begin
-        let tr = f_all (mul_pointed_eq (clear_left d_tr) (pivot_branch u_tr)) in
+        let tr = f_all (mul_eq (clear_left d_tr) (pivot_branch u_tr)) in
           if tr != Tree.TR.zero
           then TreeMap.update ((d, d_ap), (u, u_ap)) tr acc
           else acc
@@ -430,7 +422,7 @@ module Make(MakeEQ :
     let g acc ((u, u_ap), u_tr) ((d, d_ap), d_tr) =
       if Pa.may_alias d_ap u_ap
       then begin
-        let tr = f_all (mul_pointed_eq (clear_left u_tr) (pivot_branch d_tr)) in
+        let tr = f_all (mul_eq (clear_left u_tr) (pivot_branch d_tr)) in
           if tr != Tree.TR.zero
           then TreeMap.update ((d, d_ap), (u, u_ap)) tr acc
           else acc
@@ -443,11 +435,7 @@ module Make(MakeEQ :
   (* Make an rd or eu map a partial tree map *)
   let make_partial_tree x =
     let f acc (defap, tr) =
-
-      let tr' =
-        Tree.TR.subst (Tree.TR.sub_index 1 4) 
-          (Tree.TR.make_pointed Tree.TR.one (lift_lrd_tree_right tr))
-      in
+      let tr' = Tree.TR.make_tree (lift_lrd_tree_right tr) in
         PartialTreeMap.update defap tr' acc
     in
       BatEnum.fold f PartialTreeMap.unit (RDMap.enum x)
@@ -689,18 +677,25 @@ module Make(MakeEQ :
     open ConcReachingDefs
 
     let lk_weight def =
+      let filter_vars kill =
+        let f ap = match ap with
+          | Variable v -> may_use_conc v
+          | _ -> true
+        in
+          AP.Set.filter f kill
+      in
       let get_deref e = match e with 
         | AddrOf  ap -> AP.Set.singleton ap
         | _          -> AP.Set.singleton (Deref e)
       in
       let assign_weight lhs rhs =
         let ls   = LockPred.unit in
-        let kill = AP.Set.singleton (AP.subscript 0 lhs) in
+        let kill = filter_vars (AP.Set.singleton (AP.subscript 0 lhs)) in
           LK.TR.assign lhs rhs (ls, kill)
       in
       let assume_weight be =
         let ls   = LockPred.unit in
-        let kill = AP.Set.map (AP.subscript 0) (Bexpr.get_uses be) in
+        let kill = filter_vars (AP.Set.map (AP.subscript 0) (Bexpr.get_uses be)) in
           LK.TR.assume be (Bexpr.free_vars be) (ls, kill)
       in
       let acq_weight e =
@@ -748,34 +743,33 @@ module Make(MakeEQ :
       in
         match def.dkind with
           | Store (lhs, rhs) -> assign_weight lhs rhs
-          | Assign (lhs, rhs) when Var.is_shared lhs || Varinfo.addr_taken (fst lhs)
-              -> assign_weight (Variable lhs) rhs
+          | Assign (lhs, rhs) when may_use_conc lhs -> assign_weight (Variable lhs) rhs
           | Assume be | Assert (be, _) -> RDMap.unit (*assume_weight be*)
           | AssertMemSafe (e, _) -> assume_weight (Bexpr.of_expr e)
           (* Doesn't handle offsets at the moment *)
           | Builtin (Alloc (lhs, _, _)) -> assign_weight (Variable lhs) (Havoc (Var.get_type lhs))
           | _ -> RDMap.unit
 
+    let eu_weight def =
+      let f ap acc = match ap with
+        | Variable v when not (may_use_conc v) -> acc
+        | _ -> begin
+            let pred = (LockPred.pred_weight def, 
+                        { SeqDep.current_name = Some (AP.subscript 0 ap);
+                          SeqDep.killed = AP.Set.empty })
+            in
+            let tr   = LRD.TR.assume Bexpr.ktrue (AP.free_vars ap) pred in
+              EUMap.update (def, ap) tr acc
+          end
+      in
+        AP.Set.fold f (Def.get_uses def) EUMap.unit
+
     module Stab = LockLogic.Stabilizer(LKMinterm)
 
     let weight def =
       let abspath = (Stab.stabilise lk_weight) def in
       let rd = rd_weight def in
-      let eu = 
-        let f ap acc = match ap with
-          | Variable v when not (Var.is_shared v || Varinfo.addr_taken (fst v))
-            -> acc
-          | _ -> begin
-              let pred = (LockPred.pred_weight def, 
-                          { SeqDep.current_name = Some (AP.subscript 0 ap);
-                            SeqDep.killed = AP.Set.empty })
-              in
-              let tr   = LRD.TR.assume Bexpr.ktrue (AP.free_vars ap) pred in
-                EUMap.update (def, ap) tr acc
-            end
-        in
-          AP.Set.fold f (Def.get_uses def) EUMap.unit
-      in
+      let eu = eu_weight def in
         { abspath = abspath;
           abspath_t = clear_fst abspath;
           abspath_p = abspath;

@@ -39,6 +39,7 @@ hdfg undefined_func.c -hdfg
 hdfg uninit.c -hdfg
 hdfg var.c -hdfg
 hdfg vardef_memuse.c -hdfg
+hdfg struct_array.c -check-array-bounds -hdfg
 # hdfg fspa.c -fspa
 # hdfg fspa_loop.c -fspa
 lra count_up_down_safe.c -lra

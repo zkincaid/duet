@@ -52,7 +52,9 @@ let add_array_bounds file =
   * is not being dereferenced *)
 let add_null_pointer_derefs file =
   let null_ne expr =
-    (Ne, Cast (Concrete (Int IInt), expr), Constant (CInt (0, IInt)))
+    (Ne,
+     Cast (Concrete (Int pointer_width), expr),
+     Constant (CInt (0, pointer_width)))
   in
   let check_func func =
     let vertices = Cfg.fold_vertex (fun v vs -> v::vs) func.cfg [] in

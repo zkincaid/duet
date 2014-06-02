@@ -257,7 +257,7 @@ let _ =
   let open K in
   opt_higher_recurrence := true;
   opt_disjunctive_recurrence_eq := false;
-  opt_loop_guard := true;
+  opt_loop_guard := Some F.exists;
   opt_recurrence_ineq := false;
   opt_higher_recurrence_ineq := false;
   opt_unroll_loop := false;
@@ -440,6 +440,24 @@ let set_qe = function
   | "trivial" -> K.F.opt_qe_strategy := K.F.qe_trivial
   | s -> Log.errorf "Unrecognized QE strategy: `%s`" s; assert false
 
+
+let abstract_guard man p phi =
+  K.F.of_abstract (K.F.abstract man ~exists:(Some p) phi)
+
+let set_guard s =
+  if s = "none" then K.opt_loop_guard := None else
+    let guard = match s with
+      | "qe" -> K.F.exists
+      | "box" -> abstract_guard (Box.manager_of_box (Box.manager_alloc ()))
+      | "oct" -> abstract_guard (Oct.manager_of_oct (Oct.manager_alloc ()))
+      | "polka" ->
+	abstract_guard (Polka.manager_of_polka (Polka.manager_alloc_loose ()))
+      | _ ->
+	Log.errorf "Unrecognized option for -lra-guard: `%s'" s;
+	assert false
+    in
+    K.opt_loop_guard := Some guard
+
 let _ =
   CmdLine.register_config
     ("-lra-forward-inv",
@@ -462,8 +480,8 @@ let _ =
      Arg.Clear K.opt_polyrec,
      " Turn off polyhedral recurrences");
   CmdLine.register_config
-    ("-lra-no-guard",
-     Arg.Clear K.opt_loop_guard,
+    ("-lra-guard",
+     Arg.String set_guard,
      " Turn off loop guards");
   CmdLine.register_config
     ("-qe",

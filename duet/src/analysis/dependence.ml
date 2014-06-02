@@ -688,7 +688,9 @@ let extract_predicates file =
   let add_cfg_edges file dg =
     let reachable =
       let v =
-	Variable (Var.mk (Varinfo.mk_local "REACHABLE" (Concrete (Int IBool))))
+	Variable (Var.mk (Varinfo.mk_local
+			    "REACHABLE"
+			    (Concrete (Int bool_width))))
       in
       State.PairSet.singleton (State.mk_pair v v)
     in
