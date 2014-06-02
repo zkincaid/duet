@@ -232,21 +232,34 @@ let print_bounds vars formula =
   in
   List.iter2 g vars (F.optimize (List.map f vars) formula)
 
-let man = Box.manager_alloc ()
-
+type magic
 module A = Fixpoint.MakeAnalysis(TCfa)(struct
-  type t = Box.t D.t
+  type t = magic D.t option
   include Putil.MakeFmt(struct
     type a = t
-    let format = D.format
+    let format formatter = function
+      | Some x -> D.format formatter x
+      | None -> Format.pp_print_string formatter "_|_"
   end)
-  let join x y = D.join x y
-  let widen x y = D.widen x y
-  let bottom = D.bottom man (D.Env.of_list [])
-  let equal = D.equal
+  let join x y = match x,y with
+    | Some x, Some y -> Some (D.join x y)
+    | Some x, None | None, Some x -> Some x
+    | None, None -> None
+  let widen x y = match x,y with
+    | Some x, Some y -> Some (D.widen x y)
+    | Some x, None | None, Some x -> Some x
+    | None, None -> None
+  let bottom = None
+  let equal x y = match x,y with
+    | Some x, Some y -> D.equal x y
+    | None, None -> true
+    | _, _ -> false
 end)
+let formula_of_prop = function
+  | Some prop -> F.of_abstract prop
+  | None -> F.bottom
 
-let float_post cmd prop =
+let float_post man cmd prop =
   let project prop = D.exists man (fun p -> V.lower p != None) prop in
   (* Assumptions can be non-linear; Apron's linearization works better by
      iterating assumptions.  It's possible that this iteration won't terminate
@@ -266,14 +279,14 @@ let float_post cmd prop =
   | Assume phi -> project (F.abstract_assume man prop (float_bexp phi))
   | Skip | Assert _ | Print _ -> prop
 
-let real_post cmd prop =
+let real_post man cmd prop =
   match cmd with
   | Assign (v, rhs) -> F.abstract_assign man prop (V.mk_var v) (real_aexp rhs)
   | Assume phi -> F.abstract_assume man prop (real_bexp phi)
   | Skip | Assert _ | Print _ -> prop
 
-let tensor_post (fcmd, rcmd) prop =
-  let post = float_post fcmd (real_post rcmd prop) in
+let tensor_post man (fcmd, rcmd) prop =
+  let post = float_post man fcmd (real_post man rcmd prop) in
   logf ~level:3 "pre:@\n %a@\ncmd: %a/%a@\npost:@\n %a"
     D.format prop
     C.format fcmd
@@ -281,19 +294,44 @@ let tensor_post (fcmd, rcmd) prop =
     D.format post;
   post
 
+
+
 let iter_analyze tensor entry =
-  let tr e prop =
-    let (flbl, rlbl) = TCfa.E.label e in
-    tensor_post (flbl, rlbl) prop
+  let lower man = function
+    | Some x -> x
+    | None -> D.bottom man D.Env.empty
   in
-  let vtr v prop =
-    if v = entry then D.top man (D.Env.of_list []) else prop
+  let analyze man vertex_tr =
+    let tr e = function
+      | Some prop ->
+	let (flbl, rlbl) = TCfa.E.label e in
+	Some (tensor_post man (flbl, rlbl) prop)
+      | None -> None
+    in
+    A.analyze_ldi vertex_tr ~edge_transfer:tr ~delay:2 ~max_decrease:2 tensor
   in
+  let box = Box.manager_of_box (Box.manager_alloc ()) in
+  let box_result =
+    let vtr v prop =
+      if v = entry then Some (D.top box D.Env.empty) else prop
+    in
+    analyze box vtr
+  in
+  let man = Polka.manager_of_polka (Polka.manager_alloc_loose ()) in
   let result =
-    A.analyze_ldi vtr ~edge_transfer:tr ~delay:2 ~max_decrease:2 tensor
+    let vtr v prop =
+      if v = entry then Some (D.top man D.Env.empty) else begin
+	match prop with
+	| None -> None
+	| Some prop ->
+	  let box = formula_of_prop (A.output box_result v) in
+	  Some (F.abstract_assume man prop box)
+      end
+    in
+    analyze man vtr
   in
   let print (u, v) =
-    let prop = A.output result (u, v) in
+    let prop = lower man (A.output result (u, v)) in
     if D.is_bottom prop then Format.printf "At (%d, %d): unreachable@\n" u v
     else begin
       let sigma v = match V.lower v with
@@ -338,9 +376,11 @@ let tensor_weight result e =
   let (flbl, rlbl) = TCfa.E.label e in
   (* real & float operate on disjoint sets of variables, so sequential
      composition is non-interfering *)
-  let weight = K.mul (float_weight flbl) (real_weight rlbl) in
-  let inv = K.assume (F.of_abstract (A.output result (TCfa.E.src e))) in
-  K.mul inv weight
+  F.opt_simplify_strategy := [F.qe_cover];
+  let inv = K.assume (formula_of_prop (A.output result (TCfa.E.src e))) in
+  let fweight = K.simplify (K.normalize (K.mul inv (float_weight flbl))) in
+  K.mul fweight (real_weight rlbl)
+
 
 let analyze tensor entry =
   let result = iter_analyze tensor entry in
@@ -370,13 +410,19 @@ let read_and_process infile =
    let (cfa, e, _) = build_cfa prog in
    let tensor = TCfa.tensor (cfa, e) (primify_cfa cfa, e) in
    (* forget stuttering for now ... *)
+
    let tensor =
      let f (u, v) g =
        if u != v then TCfa.remove_vertex g (u, v) else g
      in
      TCfa.fold_vertex f tensor tensor
    in
+
    analyze tensor (e,e)
+
+let guard_ex =
+  let man = Box.manager_alloc () in
+  fun p phi -> F.of_abstract (F.abstract ~exists:(Some p) man phi)
 
 let _ =
   if Array.length Sys.argv <> 2 then
@@ -393,7 +439,7 @@ let _ =
     K.opt_polyrec := false;
     K.opt_recurrence_ineq := true;
     K.opt_unroll_loop := false;
-    K.opt_loop_guard := true;
+    K.opt_loop_guard := Some guard_ex;
     read_and_process infile;
     close_in infile;
     Log.print_stats ()
