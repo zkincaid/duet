@@ -7,61 +7,55 @@ open CfgIr
 open Apak
 open Call
 
-let emit_cfg caller callee ret params pre =
+let emit_cfg caller callee ret params preds succs =
+  let visited = Def.HT.create 0 in
   let cfg = caller.cfg in
   let args =
     try List.combine callee.formals params
     with Invalid_argument _ -> []
   in
 
-  let add_params pre (v, e) =
+  let add_params preds (v, e) =
     let assign = Def.mk (Assign ((v, OffsetFixed 0), e)) in
-      Def.Set.iter (fun v -> Cfg.add_edge cfg v assign) pre;
-      Def.Set.singleton assign
+      List.iter (fun v -> Cfg.add_edge cfg v assign) preds;
+      [assign]
   in
 
-  let rec add_vertex pre cur =
-    let f pre succ exits =
-      if Cfg.mem_vertex cfg succ
-      then exits
-      else Def.Set.union (add_vertex pre succ) exits
+  let rec add_vertex preds def =
+    let add_exit preds =
+      List.iter (fun u -> List.iter (fun v -> Cfg.add_edge cfg u v) succs) preds
     in
-    match cur.dkind with
+    match def.dkind with
     | Return eo ->
       begin match (ret, eo) with
         | (Some v, Some e) ->
             let vert = Def.mk (Assign (v, e)) in
-              Def.Set.iter (fun v -> Cfg.add_edge cfg v vert) pre;
-              Def.Set.singleton vert
-        | (None, _) -> pre
+              List.iter (fun v -> Cfg.add_edge cfg v vert) preds;
+              add_exit [vert]
+        | (None, _) -> add_exit preds
         | _ -> failwith "Return value empty"
       end
     | _ ->
-      Def.Set.iter (fun v -> Cfg.add_edge cfg v cur) pre; 
-      if (Cfg.out_degree callee.cfg cur) < 1
-      then Def.Set.singleton cur
-      else Cfg.fold_succ (f (Def.Set.singleton cur)) callee.cfg cur Def.Set.empty
+      List.iter (fun v -> Cfg.add_edge cfg v def) preds;
+      if not (Def.HT.mem visited def) then
+        begin
+          Def.HT.add visited def true;
+          List.iter (fun v -> Cfg.add_edge cfg v def) preds;
+          if (Cfg.out_degree callee.cfg def) < 1
+          then add_exit [def] 
+          else Cfg.iter_succ (add_vertex [def]) callee.cfg def
+        end
   in
-   
-    add_vertex (List.fold_left add_params pre args)
+    add_vertex (List.fold_left add_params preds args)
                (Cfg.initial_vertex callee.cfg)
 
 let expand_call func callee def ret params = match callee with
   | Some callee ->
-      let pre = Cfg.fold_pred Def.Set.add func.cfg def Def.Set.empty in
-      let exits = emit_cfg func callee ret params pre in
-        Cfg.iter_succ 
-          (fun v ->
-             Def.Set.iter
-               (fun u -> Cfg.add_edge func.cfg u v)
-               exits)
-          func.cfg def;
-        Cfg.remove_vertex func.cfg def
-  | None ->
-      Cfg.iter_pred
-        (fun u -> Cfg.iter_succ (Cfg.add_edge func.cfg u) func.cfg def)
-        func.cfg
-        def
+      let preds = Cfg.pred func.cfg def in
+      let succs = Cfg.succ func.cfg def in
+        Cfg.remove_vertex func.cfg def;
+        emit_cfg func callee ret params preds succs
+  | None -> remove_inner_vertex def func.cfg
 
 let inline_file file =
   let ht = Varinfo.HT.create (List.length file.funcs) in
@@ -80,9 +74,9 @@ let inline_file file =
           | _ -> ()
         in
           Cfg.iter_vertex expand_calls func.cfg;
+          if !Log.debug_mode then Cfg.sanity_check func.cfg;
           Varinfo.HT.add ht name (Some func)
     with Not_found -> Varinfo.HT.add ht name None
   in
     Callgraph.Top.iter inline cg
 
-let _ = CmdLine.register_pass ("-inline", inline_file, " Inline input file")

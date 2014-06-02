@@ -485,3 +485,11 @@ let _ =
     ("-pa",
      go,
      " Check pointer disequality assertions with pointer analysis")
+
+let _ =
+  let go file =
+    ignore(initialize file);
+    Pa.simplify_calls file;
+    Inline.inline_file file;
+  in
+    CmdLine.register_pass ("-inline", go, " Inline and simplify function calls")
