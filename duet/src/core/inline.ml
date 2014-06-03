@@ -61,16 +61,22 @@ let inline_file file =
   let ht = Varinfo.HT.create (List.length file.funcs) in
   let cg = build_callgraph file in
   let top_order = Callgraph.compute_topological_order cg in
-  let rec inline name =
+  let rec inline name = if not (Varinfo.HT.mem ht name) then
     try let func = List.find (fun f -> Varinfo.equal name f.fname) file.funcs in
         let expand_calls def = match def.dkind with
           | Call (vo, AddrOf (Variable (tgt, OffsetFixed 0)), elst) ->
-              let callee =
-                try Varinfo.HT.find ht tgt
-                with Not_found -> if (top_order name tgt) < 0
-                                  then failwith "Can't inline recursive program"
-                                  else inline tgt; Varinfo.HT.find ht tgt
-              in expand_call func callee def vo elst
+              begin
+              try expand_call func (Varinfo.HT.find ht tgt) def vo elst
+              with Not_found ->
+                if (top_order name tgt) <= 0
+                then Log.errorf "WARNING: Can't inline recursive call from %a to %a"
+                       Varinfo.format name
+                       Varinfo.format tgt
+                else
+                  begin inline tgt;
+                        expand_call func (Varinfo.HT.find ht tgt) def vo elst
+                  end
+              end
           | _ -> ()
         in
           Cfg.iter_vertex expand_calls func.cfg;
