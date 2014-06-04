@@ -84,6 +84,22 @@ module type S = sig
   val to_linterm : t -> Linterm.t option
   val of_linterm : Linterm.t -> t
 
+  (** [nudge_up t] computes a term which is greater than or equal to [t]
+      (regardless of the interpretation of the variables in [t]), and which
+      uses rational constants of a smaller bitwidth. *)
+  val nudge_up : ?accuracy:int -> t -> t
+
+  (** [nudge_down t] computes a term which is less than or equal to [t]
+      (regardless of the interpretation of the variables in [t]), and which
+      uses rational constants of a smaller bitwidth. *)
+  val nudge_down : ?accuracy:int -> t -> t
+
+  (** [nudge t] computes an pair of terms [(lo,hi)] representing an interval
+      which contains [t], and where [lo] and [hi] use rational constants of a
+      smaller bitwidth.  [nudge t] is equivalent to [(nudge_down t, nudge_up
+      t)]. *)
+  val nudge : ?accuracy:int -> t -> t * t
+
   val log_stats : unit -> unit
 
   module Syntax : sig

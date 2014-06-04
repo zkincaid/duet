@@ -335,7 +335,7 @@ module Dioid (Var : Var) = struct
        raise Formula.Timeout)
 
 
-  let widen_man = ref (Polka.manager_alloc_loose ())
+  let widen_man = ref (NumDomain.polka_loose_manager ())
   let widen x y =
     let phi = to_formula (normalize x) in
     let psi = to_formula (normalize y) in
@@ -875,7 +875,7 @@ module Make (Var : Var) = struct
       in
       List.fold_left2 add V.Map.empty delta_vars non_induction
     in
-    let man = Polka.manager_alloc_strict () in
+    let man = NumDomain.polka_strict_manager () in
     let poly =
       let delta_var_set = VSet.of_enum (BatList.enum delta_vars) in
       let is_induction_var v = match V.lower v with
@@ -963,10 +963,10 @@ module Make (Var : Var) = struct
       | None   -> false
     in
     let pre_guard =
-      F.exists (low (flip VarSet.mem pre_vars)) ctx.phi
+      F.nudge (F.exists (low (flip VarSet.mem pre_vars)) ctx.phi)
     in
     let post_guard =
-      F.exists (low (flip VarSet.mem post_vars)) ctx.phi
+      F.nudge (F.exists (low (flip VarSet.mem post_vars)) ctx.phi)
     in
     let sigma v = match V.lower v with
       | Some x ->

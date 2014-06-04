@@ -42,6 +42,8 @@ end
 type qq = Mpqf.t (* Rationals *)
 type zz = Mpzf.t (* Integers  *)
 
+let opt_default_accuracy = ref (-1)
+
 (* Field of rationals *)
 module QQ = struct
   type t = Mpqf.t
@@ -113,6 +115,49 @@ module QQ = struct
   let min x y = if leq x y then x else y
   let max x y = if geq x y then x else y
   let abs = Mpqf.abs
+
+  (* Truncated continued fraction *)
+  let rec nudge ?(accuracy=(!opt_default_accuracy)) x =
+    if accuracy < 0 then
+      (x, x)
+    else
+      let (num, den) = to_zzfrac x in
+      let (q, r) = Mpzf.fdiv_qr num den in
+      if accuracy = 0 then
+	(Mpqf.of_mpz q, Mpqf.of_mpz (Mpzf.add_int q 1))
+      else if Mpzf.cmp_int r 0 = 0 then
+	(of_zz q, of_zz q)
+      else
+	let (lo, hi) = nudge ~accuracy:(accuracy - 1) (of_zzfrac den r) in
+	(add (of_zz q) (inverse hi),
+	 add (of_zz q) (inverse lo))
+
+  let rec nudge_down ?(accuracy=(!opt_default_accuracy)) x =
+    if accuracy < 0 then
+      x
+    else
+      let (num, den) = to_zzfrac x in
+      let (q, r) = Mpzf.fdiv_qr num den in
+      if accuracy = 0 then
+	Mpqf.of_mpz q
+      else if Mpzf.cmp_int r 0 = 0 then
+	of_zz q
+      else
+	let hi = nudge_up ~accuracy:(accuracy - 1) (of_zzfrac den r) in
+	add (of_zz q) (inverse hi)
+  and nudge_up ?(accuracy=(!opt_default_accuracy)) x =
+    if accuracy < 0 then
+      x
+    else
+      let (num, den) = to_zzfrac x in
+      let (q, r) = Mpzf.fdiv_qr num den in
+      if accuracy = 0 then
+	Mpqf.of_mpz (Mpzf.add_int q 1)
+      else if Mpzf.cmp_int r 0 = 0 then
+	of_zz q
+      else
+	let lo = nudge_down ~accuracy:(accuracy - 1) (of_zzfrac den r) in
+	add (of_zz q) (inverse lo)
 end
 
 (* Ring of integers *)
