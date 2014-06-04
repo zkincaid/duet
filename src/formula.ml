@@ -67,6 +67,7 @@ module type S = sig
   val simplify_z3 : (T.V.t -> bool) -> t -> t
   val simplify_dillig : (T.V.t -> bool) -> t -> t
   val opt_simplify_strategy : ((T.V.t -> bool) -> t -> t) list ref
+  val nudge : ?accuracy:int -> t -> t
 
   val linearize : (unit -> T.V.t) -> t -> t
   val linearize_apron : (unit -> T.V.t) -> t -> t
@@ -715,7 +716,7 @@ module Make (T : Term.S) = struct
     let open NumDomain in
     let open D in
     let open Lincons0 in
-    let man = Polka.manager_alloc_strict () in
+    let man = NumDomain.polka_strict_manager () in
     let vars = term_free_vars t in
     let x = D.add_vars (VarSet.enum vars) (abstract man phi) in
     let tdim = Env.dimension x.env in (* unused real dimension to store t *)
@@ -803,7 +804,7 @@ module Make (T : Term.S) = struct
     map f phi
 
   let qe_lme p phi =
-    let man = Polka.manager_alloc_strict () in
+    let man = NumDomain.polka_strict_manager () in
     let env = mk_env phi in
     logf "Quantifier elimination [dim: %d, target: %d]"
       (D.Env.dimension env)
@@ -1239,7 +1240,7 @@ module Make (T : Term.S) = struct
 	let eqs = nonlinear_equalities nonlinear lin_phi vars in
 	List.fold_left f lin_phi eqs
       in
-      let man = Polka.manager_alloc_loose () in
+      let man = NumDomain.polka_loose_manager () in
 
       let join psi disjunct =
 	(* todo: compute & strengthen w/ nl equalities here *)
@@ -1268,7 +1269,7 @@ module Make (T : Term.S) = struct
 
   let disj_optimize terms phi =
     let open Apron in
-    let man = Polka.manager_alloc_loose () in
+    let man = NumDomain.polka_loose_manager () in
     let vars =
       let f vars t = VarSet.union (term_free_vars t) vars in
       List.fold_left f (formula_free_vars phi) terms
@@ -1323,7 +1324,7 @@ module Make (T : Term.S) = struct
      and upper bounds for each term within the feasible region of [phi]. *)
   let optimize terms phi =
     let open Apron in
-    let man = Polka.manager_alloc_loose () in
+    let man = NumDomain.polka_loose_manager () in
     let vars =
       let f vars t = VarSet.union (term_free_vars t) vars in
       List.fold_left f (formula_free_vars phi) terms
@@ -1354,11 +1355,11 @@ module Make (T : Term.S) = struct
       let f (lo0, hi0) (lo1, hi1) =
 	if is_empty lo0 hi0 then (lo1, hi1) else begin
 	  let lo = match lo0, lo1 with
-	    | (Some lo0, Some lo1) -> Some (if QQ.leq lo0 lo1 then lo0 else lo1)
+	    | (Some lo0, Some lo1) -> Some (QQ.min lo0 (QQ.nudge_down lo1))
 	    | (None, _) | (_, None) -> None
 	  in
 	  let hi = match hi0, hi1 with
-	    | (Some hi0, Some hi1) -> Some (if QQ.geq hi0 hi1 then hi0 else hi1)
+	    | (Some hi0, Some hi1) -> Some (QQ.max hi0 (QQ.nudge_up hi1))
 	    | (None, _) | (_, None) -> None
 	  in
 	  (lo, hi)
@@ -1782,6 +1783,16 @@ module Make (T : Term.S) = struct
   let interpolate phi psi =
     if is_sat phi then interpolate phi psi
     else Some bottom
+
+  let nudge_atom acc = function
+    | LeqZ t -> leqz (T.nudge_down ~accuracy:acc t)
+    | LtZ t -> ltz (T.nudge_down ~accuracy:acc t)
+    | EqZ t ->
+      let (lo,hi) = T.nudge ~accuracy:acc t in
+      conj (leqz lo) (leqz (T.neg hi))
+
+  let nudge ?(accuracy=(!opt_default_accuracy)) phi =
+    map (nudge_atom accuracy) phi
 
   module Syntax = struct
     let ( && ) x y = conj x y

@@ -142,6 +142,10 @@ module type S = sig
       [qe_cover; simplify_dillig]. *)
   val opt_simplify_strategy : ((T.V.t -> bool) -> t -> t) list ref
 
+  (** Over-approximate a formula with another formula which uses rational
+      constants of a smaller bitwidth.  *)
+  val nudge : ?accuracy:int -> t -> t
+
   (** {2 Formula linearization} *)
 
   (** Over-approximate an arbitrary formula by a linear arithmetic formula.
@@ -150,7 +154,6 @@ module type S = sig
       generates new rational-typed variables.  The strategy used by
       [linearize] is the one specified by [opt_linearize_strategy]. *)
   val linearize : (unit -> T.V.t) -> t -> t
-
 
   (** Linearize using APRON's linearization strategy.  Should be faster (but
       less accurate) than [linearize_apron_dnf].  *)
