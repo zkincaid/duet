@@ -59,6 +59,11 @@ module type S = sig
   val to_linterm : t -> Linterm.t option
   val of_linterm : Linterm.t -> t
 
+
+  val nudge_up : ?accuracy:int -> t -> t
+  val nudge_down : ?accuracy:int -> t -> t
+  val nudge : ?accuracy:int -> t -> t * t
+
   val log_stats : unit -> unit
 
   module Syntax : sig
@@ -496,6 +501,31 @@ module Make (V : Var) = struct
 	end
     in
     go (Texpr0.to_expr texpr)
+
+  let nudge ?(accuracy=(!opt_default_accuracy)) t = match to_linterm t with
+    | None -> (t, t)
+    | Some lt ->
+      let old = Linterm.const_coeff lt in
+      let (lo, hi) = QQ.nudge old in
+      let lt = Linterm.sub lt (Linterm.const old) in
+      (of_linterm (Linterm.add lt (Linterm.const lo)),
+       of_linterm (Linterm.add lt (Linterm.const hi)))
+
+  let nudge_up ?(accuracy=(!opt_default_accuracy)) t = match to_linterm t with
+    | None -> t
+    | Some lt ->
+      let old = Linterm.const_coeff lt in
+      let hi = QQ.nudge_up old in
+      let lt = Linterm.sub lt (Linterm.const old) in
+      of_linterm (Linterm.add lt (Linterm.const hi))
+
+  let nudge_down ?(accuracy=(!opt_default_accuracy)) t = match to_linterm t with
+    | None -> t
+    | Some lt ->
+      let old = Linterm.const_coeff lt in
+      let lo = QQ.nudge_down old in
+      let lt = Linterm.sub lt (Linterm.const old) in
+      of_linterm (Linterm.add lt (Linterm.const lo))
 
   module Syntax = struct
     let ( + ) x y = add x y

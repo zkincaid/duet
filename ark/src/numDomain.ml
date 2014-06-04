@@ -24,6 +24,24 @@ let coeff_of_qq = Coeff.s_of_mpqf
 let scalar_zero = Coeff.s_of_int 0
 let scalar_one = Coeff.s_of_int 1
 
+let opt_max_coeff_size = ref (Some 10)
+let set_coeff_size man =
+  match !opt_max_coeff_size with
+  | Some m ->
+    let internal = Polka.manager_get_internal man in
+    Polka.set_approximate_max_coeff_size internal m
+  | None -> ()
+
+let polka_loose_manager () =
+  let man = Polka.manager_alloc_loose () in
+  set_coeff_size man;
+  man
+
+let polka_strict_manager () =
+  let man = Polka.manager_alloc_strict () in
+  set_coeff_size man;
+  man
+
 module Env = struct
   module type S = sig
     type var
