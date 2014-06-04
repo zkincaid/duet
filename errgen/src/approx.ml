@@ -317,6 +317,7 @@ let iter_analyze tensor entry =
     in
     analyze box vtr
   in
+
   let man = Polka.manager_of_polka (Polka.manager_alloc_loose ()) in
   let result =
     let vtr v prop =
@@ -324,12 +325,13 @@ let iter_analyze tensor entry =
 	match prop with
 	| None -> None
 	| Some prop ->
-	  let box = formula_of_prop (A.output box_result v) in
+	  let box = F.nudge (formula_of_prop (A.output box_result v)) in
 	  Some (F.abstract_assume man prop box)
       end
     in
     analyze man vtr
   in
+
   let print (u, v) =
     let prop = lower man (A.output result (u, v)) in
     if D.is_bottom prop then Format.printf "At (%d, %d): unreachable@\n" u v
@@ -345,7 +347,10 @@ let iter_analyze tensor entry =
       in
 
       Format.printf "At (%d, %d):@\n" u v;
-(*      Format.printf "%a@\n@?" D.format prop;*)
+(*
+      Format.printf "%a@\n@?" F.format phi;
+      Format.printf "%a@\n@?" F.format (F.nudge phi);
+*)
       print_bounds vars (F.subst sigma phi)
     end
   in
@@ -377,9 +382,22 @@ let tensor_weight result e =
   (* real & float operate on disjoint sets of variables, so sequential
      composition is non-interfering *)
   F.opt_simplify_strategy := [F.qe_cover];
-  let inv = K.assume (formula_of_prop (A.output result (TCfa.E.src e))) in
+  let inv =
+    let prop = A.output result (TCfa.E.src e) in
+    let phi = formula_of_prop prop in
+    let vars =
+      K.VarSet.elements (K.formula_free_program_vars phi)
+    in
+    let delta =
+      List.map (fun v ->
+	T.sub (T.var (V.mk_var v)) (T.var (V.mk_var (primify v)))
+      ) vars
+    in
+    let vars = List.map (fun v -> T.var (V.mk_var v)) vars in
+    K.assume (F.boxify (vars@delta) phi)
+  in
   let fweight = K.simplify (K.normalize (K.mul inv (float_weight flbl))) in
-  K.mul fweight (real_weight rlbl)
+  K.mul { fweight with K.guard = F.nudge fweight.K.guard }  (real_weight rlbl)
 
 
 let analyze tensor entry =
@@ -434,12 +452,17 @@ let _ =
     Log.set_verbosity_level "ark.formula" 2;
     Log.set_verbosity_level "ark.transition" 2;
 *)
+    ArkPervasives.opt_default_accuracy := 10;
+    NumDomain.opt_max_coeff_size := None;
     K.opt_higher_recurrence := false;
     K.opt_disjunctive_recurrence_eq := false;
     K.opt_polyrec := false;
     K.opt_recurrence_ineq := true;
     K.opt_unroll_loop := false;
     K.opt_loop_guard := Some guard_ex;
-    read_and_process infile;
+    try
+      read_and_process infile
+    with Apron.Manager.Error exc ->
+      Log.errorf "Error: %a" Apron.Manager.print_exclog exc;
     close_in infile;
     Log.print_stats ()
