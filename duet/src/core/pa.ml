@@ -260,6 +260,7 @@ object (self)
     let targets = match Expr.strip_casts expr with
       | AccessPath (Deref x) -> self#expr_points_to x
       | AddrOf x -> self#expr_points_to expr
+      | AccessPath (Variable _) -> self#expr_points_to expr
       | expr -> begin
 	Log.errorf "Could not resolve call `%a'" Expr.format expr;
 	assert false

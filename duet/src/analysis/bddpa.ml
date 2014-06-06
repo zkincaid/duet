@@ -326,10 +326,13 @@ let expr_points_to pt expr =
   end
 
 let resolve_call pt expr =
-  let targets = match expr with
+  let targets = match Expr.strip_casts expr with
     | AccessPath (Deref x) -> expr_points_to pt x
-    | AddrOf x -> expr_points_to pt expr
-    | _ -> assert false
+    | AddrOf _ -> expr_points_to pt expr
+    | AccessPath (Variable _) -> expr_points_to pt expr
+    | expr ->
+      Log.errorf "Couldn't resolve call to `%a'" Expr.format expr;
+      assert false
   in
   let add_call x set = match x with
     | (MAddr v, OffsetFixed 0) -> Varinfo.Set.add v set
