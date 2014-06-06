@@ -4,7 +4,7 @@ include Makefile.config
 
 SRC_DIR = src
 CORE_FILES = core.ml core.mli ast.ml ast.mli hlir.ml report.ml afg.ml afg.mli \
-	cfgIr.ml cfgIr.mli cmdLine.ml pa.ml pa.mli call.ml
+	cfgIr.ml cfgIr.mli cmdLine.ml pa.ml pa.mli call.ml inline.ml
 MISC_FILES = dominator.ml region.ml
 ANALYSIS_FILES = worklist.ml ai.ml exponential.ml bddpa.ml solve.ml	   \
 	interproc.ml live.ml dg.ml eqLogic.ml lockLogic.ml aliasLogic.ml   \
