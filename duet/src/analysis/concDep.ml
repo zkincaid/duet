@@ -123,7 +123,7 @@ module Make(MakeEQ :
         | _ -> Varinfo.addr_taken (fst v) && Pa.may_alias (Variable v) ap
       in
       let kills = match x.SeqDep.current_name with
-        | Some (Variable v) -> AP.Set.filter (imprecise v) x.SeqDep.killed
+       (* | Some (Variable v) -> AP.Set.filter (imprecise v) x.SeqDep.killed*)
         | Some ap -> AP.Set.filter (Pa.may_alias ap) x.SeqDep.killed
         | _ -> x.SeqDep.killed
     in
@@ -680,7 +680,7 @@ module Make(MakeEQ :
       let filter_vars kill =
         let f ap = match ap with
           | Variable v -> may_use_conc v
-          | _ -> true
+          | _ -> Pa.ap_is_shared ap
         in
           AP.Set.filter f kill
       in
@@ -747,7 +747,8 @@ module Make(MakeEQ :
           | Assume be | Assert (be, _) -> RDMap.unit (*assume_weight be*)
           | AssertMemSafe (e, _) -> assume_weight (Bexpr.of_expr e)
           (* Doesn't handle offsets at the moment *)
-          | Builtin (Alloc (lhs, _, _)) -> assign_weight (Variable lhs) (Havoc (Var.get_type lhs))
+          | Builtin (Alloc (lhs, _, _)) when may_use_conc lhs
+            -> assign_weight (Variable lhs) (Havoc (Var.get_type lhs))
           | _ -> RDMap.unit
 
     let eu_weight def =
@@ -843,7 +844,7 @@ let _ =
 
 module InvGen = Solve.MakeAfgSolver(Ai.ApronInterpretation)
 let invariant_generation file =
-  let dg = Log.phase "Construct hDFG" construct_conc_dg file in
+  let dg = Log.phase "Construct chDFG" construct_conc_dg file in
   let state = InvGen.mk_state dg in
   let map = InvGen.do_analysis state dg in
   InvGen.check_assertions dg map

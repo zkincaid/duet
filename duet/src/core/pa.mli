@@ -135,7 +135,7 @@ val may_alias : ap -> ap -> bool
 val resolve_ap : ap -> MemLoc.Set.t
 val resolve_call : expr -> Varinfo.Set.t
 val has_undefined_target : expr -> bool
-(*val ap_is_shared : ap -> bool*)
+val ap_is_shared : ap -> bool
 
 (** Simplify function calls by passing parameters and return variables through
     global variables.  So, for example, [r = foo(exp1,exp2)] becomes
