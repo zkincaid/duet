@@ -85,6 +85,10 @@ module type S = sig
   (** Abstract post-condition of an assumption *)
   val abstract_assume : 'a Apron.Manager.t -> 'a T.D.t -> t -> 'a T.D.t
 
+  (** Abstract a formula by a conjunction of intervals over a set of given
+      template terms. *)
+  val boxify : T.t list -> t -> t
+
   (** {2 Quantification} *)
 
   (** [exists p phi] existentially quantifies each variable in [phi] which

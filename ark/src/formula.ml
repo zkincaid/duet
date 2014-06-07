@@ -53,6 +53,7 @@ module type S = sig
                         T.t ->
                         'a T.D.t
   val abstract_assume : 'a Apron.Manager.t -> 'a T.D.t -> t -> 'a T.D.t
+  val boxify : T.t list -> t -> t
 
   val exists : (T.V.t -> bool) -> t -> t
   val exists_list : T.V.t list -> t -> t
@@ -1793,6 +1794,21 @@ module Make (T : Term.S) = struct
 
   let nudge ?(accuracy=(!opt_default_accuracy)) phi =
     map (nudge_atom accuracy) phi
+
+  let boxify templates phi =
+    let bounds = optimize templates phi in
+    let to_formula template (lo, hi) =
+      let lower = match lo with
+	| Some lo -> leq (T.const lo) template
+	| None -> top
+      in
+      let upper = match hi with
+	| Some hi -> leq template (T.const hi)
+	| None -> top
+      in
+      conj lower upper
+    in
+    big_conj (BatList.enum (List.map2 to_formula templates bounds))
 
   module Syntax = struct
     let ( && ) x y = conj x y
