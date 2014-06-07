@@ -30,6 +30,13 @@ class arrayAccessVisitor = object (self)
     match lval with
     | Mem exp, Index (idx, offset) ->
       ChangeTo (Mem (BinOp (PlusPI, exp, idx, typeOf exp)), offset)
+    | Mem exp, Field (fi, Index (idx, offset)) ->
+      let lv = (Mem exp, Field (fi, NoOffset)) in
+      ChangeTo (Mem (BinOp (PlusPI,
+			    Cil.mkAddrOf lv,
+			    idx,
+			    typeOfLval lv)),
+		  offset)
     | Var v, Index (idx, offset) ->
       ChangeTo (Mem (BinOp (PlusPI,
 			    Cil.mkAddrOf (Var v, NoOffset),

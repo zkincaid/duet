@@ -55,6 +55,7 @@ val lookup_function_name : string -> file -> func
 
 val insert_pre : Def.t -> Def.t -> Cfg.t -> unit
 val insert_succ : Def.t -> Def.t -> Cfg.t -> unit
+val remove_inner_vertex : Def.t -> Cfg.t -> unit
 
 val from_file_ast : Ast.file -> file
 

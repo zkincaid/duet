@@ -421,7 +421,7 @@ module Datarace = struct
         else fp_races new_races
     in
     let init_races = Def.HT.create 0 in
-      fp_races init_races
+      Log.phase "(Pseudo) Datarace analysis" fp_races init_races
 
 
   let init file =
