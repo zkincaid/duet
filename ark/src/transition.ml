@@ -392,6 +392,43 @@ module Dioid (Var : Var) = struct
       | None   -> assert false
     in
     F.subst sigma (F.exists p phi)
+
+  let abstract_post man tr prop =
+    let phi =
+      F.conj
+	(F.linearize
+	   (fun () -> V.mk_tmp "nonlin" TyReal)
+	   (to_formula tr))
+	(F.of_abstract prop)
+    in
+    let unprime =
+      M.enum tr.transform
+      /@ (fun (v,_) -> (Var.prime v, T.var (V.mk_var v)))
+      |> M.of_enum
+    in
+    let old =
+      VarMemo.memo
+	(fun v -> T.var (V.mk_tmp ((Var.show v) ^ "_old") (Var.typ v)))
+    in
+    let sigma x = match V.lower x with
+      | Some v ->
+	if M.mem v unprime then M.find v unprime
+	else if M.mem v tr.transform then old v
+	else T.var x
+      | None -> T.var x
+    in
+    let phi = F.subst sigma phi in
+    let phi =
+      if Box.manager_is_box man then
+	let fv =
+	  List.map (T.var % V.mk_var)
+	    (VarSet.elements (formula_free_program_vars phi))
+	in
+	F.boxify fv phi
+      else phi
+    in
+    let p x = V.lower x != None in
+    F.abstract ~exists:(Some p) man phi
 end
 
 module Make (Var : Var) = struct

@@ -214,7 +214,7 @@ struct
 	  if is_widening v then
 	    if widen then D.widen old_prop (flow_out v)
 	    else D.join old_prop (flow_out v)
-	  else flow_out v
+	  else D.join old_prop (flow_out v)
 	in
 	set_prop v new_prop;
 	changed || not (D.equal old_prop new_prop)

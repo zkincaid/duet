@@ -10,7 +10,7 @@ TEST_SRC := $(SRC) test_pervasives.ml test_formula.ml test_numdomain.ml	\
 
 Z3:=$(shell ocamlfind query Z3)
 
-export PACKS = deriving apak apron apron.boxMPQ apron.octD apron.polkaMPQ Z3 \
+export PACKS = deriving apak apron apron.boxMPQ apron.octMPQ apron.polkaMPQ Z3 \
 	oUnit
 export OCAMLFLAGS = -annot
 export OCAMLLDFLAGS = -cclib -L$(Z3) -cclib -lz3
