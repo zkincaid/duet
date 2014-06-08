@@ -45,6 +45,7 @@ val bexp_to_string : bexp_type -> string
 val collect_vars : stmt_type -> string list
 
 val primify : string -> string
+val unprimify : string -> string
 val primify_aexp : aexp_type -> aexp_type
 val primify_bexp : bexp_type -> bexp_type
 val primify_cmd : cmd_type -> cmd_type

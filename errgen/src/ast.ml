@@ -251,6 +251,10 @@ let collect_vars s =
 let primify x =
   String.concat "" [x;"\'"]
 
+let unprimify x =
+  assert (x.[String.length x - 1] = ''');
+  String.sub x 0 (String.length x - 1)
+
 let rec primify_aexp e =
   match e with
     Real_const m -> e
