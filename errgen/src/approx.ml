@@ -155,8 +155,8 @@ module F = K.F
 module V = K.V
 module D = T.D
 
-let eps_mach = QQ.exp (QQ.of_int 2) (-24)
-let eps_0 = QQ.exp (QQ.of_int 2) (-24)
+let eps_mach = QQ.exp (QQ.of_int 2) (-53)
+let eps_0 = QQ.exp (QQ.of_int 2) (-53)
 
 let rec real_aexp = function
   | Real_const k -> T.const k
@@ -357,103 +357,7 @@ let analyze_sep (float,float_entry) (real,real_entry) =
       (F.of_abstract (AbstractDomain.lower man (float_annotation u)))
       (F.of_abstract (AbstractDomain.lower man (real_annotation v)))
 
-(* Analyze the tensor *)
-let iter_analyze tensor entry =
-  let lower man = function
-    | Some x -> x
-    | None -> D.bottom man D.Env.empty
-  in
-  let analyze man vertex_tr =
-    let tr e = function
-      | Some prop ->
-	let (flbl, rlbl) = TCfa.E.label e in
-	Some (tensor_post man (flbl, rlbl) prop)
-      | None -> None
-    in
-    A.analyze_ldi vertex_tr ~edge_transfer:tr ~delay:3 ~max_decrease:2 tensor
-  in
-  let box = Box.manager_of_box (Box.manager_alloc ()) in
-  let box_result =
-    let vtr v prop =
-      if v = entry then Some (D.top box D.Env.empty) else prop
-    in
-    analyze box vtr
-  in
-  let man = box in
-  let result = box_result in
-  let print_box (u, v) =
-    let prop = lower man (A.output result (u, v)) in
-    logf ~level:1 "At (%d, %d):@\n @[%a@]" u v D.format prop
-  in
-  logf ~level:1 "- Boxes ---";
-  TCfa.iter_vertex print_box tensor;
-  logf ~level:1 "-----------";
-  (*
-    let man = Polka.manager_of_polka (Polka.manager_alloc_loose ()) in
-    let result =
-    let vtr v prop =
-    if v = entry then Some (D.top man D.Env.empty) else begin
-    match prop with
-    | None -> None
-    | Some prop ->
-    let box = F.nudge (formula_of_prop (A.output box_result v)) in
-    Some (F.abstract_assume man prop box)
-    end
-    in
-    analyze man vtr
-    in
-  *)
-  let print (u, v) =
-    let prop = lower man (A.output result (u, v)) in
-    if D.is_bottom prop then Format.printf "At (%d, %d): unreachable@\n" u v
-    else begin
-      let sigma v = match V.lower v with
-	| Some v -> T.var (V.mk_var (StrVar.prime v))
-	| None -> assert false
-      in
-      let phi = F.of_abstract prop in
-      let vars =
-	let f v = v.[String.length v - 1] != ''' in
-	List.filter f (K.VarSet.elements (K.formula_free_program_vars phi))
-      in
-
-      Format.printf "At (%d, %d):@\n" u v;
-(*
-      Format.printf "%a@\n@?" F.format phi;
-      Format.printf "%a@\n@?" F.format (F.nudge phi);
-*)
-      print_bounds vars (F.subst sigma phi)
-    end
-  in
-  Format.printf "Error bounds (iterative analysis):@\n";
-  TCfa.iter_vertex print tensor;
-  Format.printf "==================================@\n";
-  result
-
 module P = Pathexp.MakeElim(TCfa)(K)
-
-
-let tensor_weight result e =
-  let (flbl, rlbl) = TCfa.E.label e in
-  (* real & float operate on disjoint sets of variables, so sequential
-     composition is non-interfering *)
-  F.opt_simplify_strategy := [F.qe_cover];
-  let inv =
-    let prop = A.output result (TCfa.E.src e) in
-    let phi = formula_of_prop prop in
-    let vars =
-      K.VarSet.elements (K.formula_free_program_vars phi)
-    in
-    let delta =
-      List.map (fun v ->
-	T.sub (T.var (V.mk_var v)) (T.var (V.mk_var (primify v)))
-      ) vars
-    in
-    let vars = List.map (fun v -> T.var (V.mk_var v)) vars in
-    K.assume (F.boxify (vars@delta) phi)
-  in
-  let fweight = K.simplify (K.normalize (K.mul inv (float_weight flbl))) in
-  K.mul { fweight with K.guard = F.nudge fweight.K.guard }  (real_weight rlbl)
 
 (* Aux function for Chebyshev distance: given an enumeration of terms, returns
    a pair (d, phi) consisting of a (fresh) variable d and a formula phi such
@@ -602,10 +506,6 @@ let iter_analyze_nonstuttering vars float real tensor entry =
       in
 
       Format.printf "At (%d, %d):@\n" u v;
-(*
-      Format.printf "%a@\n@?" F.format phi;
-      Format.printf "%a@\n@?" F.format (F.nudge phi);
-*)
       print_bounds vars (F.subst sigma phi)
     end
   in
@@ -644,25 +544,6 @@ let analyze_nonstuttering vars float real tensor entry =
     end else Format.printf "At (%d, %d): unreachable@\n" u v;
   in
   Format.printf "Error bounds (path expression analysis, nonstuttering):@\n";
-  TCfa.iter_vertex print tensor;
-  Format.printf "========================================@\n"
-
-let analyze tensor entry =
-  let result = iter_analyze tensor entry in
-  let pathexp = P.single_src tensor (tensor_weight result) entry in
-  let print (u,v) =
-    let pathexp = pathexp (u,v) in
-    let vars =
-      let f v = v.[String.length v - 1] != ''' in
-      List.filter f (K.VarSet.elements (K.modifies pathexp))
-    in
-    let phi = K.to_formula pathexp in
-    if F.is_sat phi then begin
-      Format.printf "At (%d, %d):@\n" u v;
-      print_bounds vars phi
-    end else Format.printf "At (%d, %d): unreachable@\n" u v;
-  in
-  Format.printf "Error bounds (path expression analysis):@\n";
   TCfa.iter_vertex print tensor;
   Format.printf "========================================@\n"
 
@@ -722,10 +603,6 @@ let _ =
     Log.set_verbosity_level "ark.formula" 2;
     Log.set_verbosity_level "ark.transition" 2;
 *)
-
-    Log.set_verbosity_level "ark.formula" 2;
-(*    Log.set_verbosity_level "errgen.transition" 2;*)
-
     Log.set_verbosity_level "errgen" 2;
     ArkPervasives.opt_default_accuracy := 10;
     NumDomain.opt_max_coeff_size := None;
