@@ -427,6 +427,7 @@ module Dioid (Var : Var) = struct
 	F.boxify fv phi
       else phi
     in
+
     let p x = V.lower x != None in
     F.abstract ~exists:(Some p) man phi
 end
@@ -1000,10 +1001,10 @@ module Make (Var : Var) = struct
       | None   -> false
     in
     let pre_guard =
-      F.nudge (F.exists (low (flip VarSet.mem pre_vars)) ctx.phi)
+      F.nudge (exists (low (flip VarSet.mem pre_vars)) ctx.phi)
     in
     let post_guard =
-      F.nudge (F.exists (low (flip VarSet.mem post_vars)) ctx.phi)
+      F.nudge (exists (low (flip VarSet.mem post_vars)) ctx.phi)
     in
     let sigma v = match V.lower v with
       | Some x ->
