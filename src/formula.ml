@@ -200,6 +200,7 @@ module Make (T : Term.S) = struct
     end
 *)
 
+
   let disj phi psi =
     if phi.tag == bottom.tag then psi
     else if psi.tag == bottom.tag then phi
@@ -611,7 +612,7 @@ module Make (T : Term.S) = struct
     let rec go prop =
       s#push ();
       s#assrt (Smt.mk_not (prop_to_smt prop));
-      match s#check () with
+      match Log.time "lazy_dnf/sat" s#check () with
       | Smt.Unsat -> prop
       | Smt.Undef ->
 	begin
@@ -1321,19 +1322,78 @@ module Make (T : Term.S) = struct
     let bottom = [] in
     lazy_dnf ~join:join ~top:top ~bottom:bottom prop_to_smt phi
 
+
+  let atom_smt = function
+    | LeqZ t -> Smt.mk_le (T.to_smt t) (Smt.const_int 0)
+    | LtZ t -> Smt.mk_lt (T.to_smt t) (Smt.const_int 0)
+    | EqZ t -> Smt.mk_eq (T.to_smt t) (Smt.const_int 0)
+
+  let rec simplify_children star s children =
+    let f psi = s#assrt (star (to_smt psi)) in
+    let changed = ref false in
+    let rec go simplified = function
+      | [] -> simplified
+      | (phi::phis) ->
+	s#push ();
+	List.iter f simplified;
+	List.iter f phis;
+	let simple_phi = simplify_dillig_impl phi s in
+	s#pop ();
+	if not (equal phi simple_phi) then changed := true;
+	go (simple_phi::simplified) phis
+    in
+    let rec fix children =
+      let simplified = go [] children in
+      if !changed then begin
+	changed := false;
+	fix simplified
+      end else simplified
+    in
+    fix (BatList.of_enum (Hset.enum children))
+
+  and simplify_dillig_impl phi s =
+    match phi.node with
+    | Atom at ->
+      s#push ();
+      s#assrt (atom_smt at);
+      let simplified =
+	match s#check () with
+	| Smt.Undef -> atom at
+	| Smt.Unsat -> bottom
+	| Smt.Sat -> 
+	  s#pop ();
+	  s#push ();
+	  s#assrt (Smt.mk_not (atom_smt at));
+	  match s#check () with
+	  | Smt.Undef -> atom at
+	  | Smt.Unsat -> top
+	  | Smt.Sat -> atom at
+      in
+      s#pop ();
+      simplified
+    | Or xs -> big_disj (BatList.enum (simplify_children Smt.mk_not s xs))
+    | And xs -> big_conj (BatList.enum (simplify_children (fun x -> x) s xs))
+
+  let simplify_dillig _ phi = simplify_dillig_impl phi (new Smt.solver)
+
   (* Given a list of (linear) terms [terms] and a formula [phi], find lower
      and upper bounds for each term within the feasible region of [phi]. *)
   let optimize terms phi =
     let open Apron in
     let man = NumDomain.polka_loose_manager () in
+    let term_vars =
+      let f vars t = VarSet.union (term_free_vars t) vars in
+      List.fold_left f VarSet.empty terms
+    in
     let vars =
       let f vars t = VarSet.union (term_free_vars t) vars in
       List.fold_left f (formula_free_vars phi) terms
     in
     let env = D.Env.of_enum (VarSet.enum vars) in
-    logf "Symbolic optimization [objectives: %d, dimensions: %d]"
+    logf "Symbolic optimization [objectives: %d, dimensions: %d, size: %d]"
       (List.length terms)
-      (D.Env.dimension env);
+      (D.Env.dimension env)
+      (size phi);
     let get_bounds prop t =
       let open D in
       let ivl =
@@ -1347,7 +1407,13 @@ module Make (T : Term.S) = struct
       (cvt ivl.Interval.inf, cvt ivl.Interval.sup)
     in
     let join bounds disjunct =
-      let prop = to_apron man env disjunct in
+      let reduced = qe_partial (flip VarSet.mem term_vars) disjunct in
+      let env =
+	D.Env.of_enum
+	  (VarSet.enum (VarSet.union (formula_free_vars reduced) term_vars))
+      in
+      let reduced = simplify_dillig () reduced in
+      let prop = Log.time "to_apron" (to_apron man env) reduced in
       let new_bounds = List.map (get_bounds prop) terms in
       let is_empty lo hi = match lo, hi with
 	| Some lo, Some hi when QQ.gt lo hi -> true
@@ -1632,59 +1698,6 @@ module Make (T : Term.S) = struct
     in
     map replace phi
   let qe_cover p phi = Log.time "qe_cover" (qe_cover p) phi
-
-  let atom_smt = function
-    | LeqZ t -> Smt.mk_le (T.to_smt t) (Smt.const_int 0)
-    | LtZ t -> Smt.mk_lt (T.to_smt t) (Smt.const_int 0)
-    | EqZ t -> Smt.mk_eq (T.to_smt t) (Smt.const_int 0)
-
-  let rec simplify_children star s children =
-    let f psi = s#assrt (star (to_smt psi)) in
-    let changed = ref false in
-    let rec go simplified = function
-      | [] -> simplified
-      | (phi::phis) ->
-	s#push ();
-	List.iter f simplified;
-	List.iter f phis;
-	let simple_phi = simplify_dillig_impl phi s in
-	s#pop ();
-	if not (equal phi simple_phi) then changed := true;
-	go (simple_phi::simplified) phis
-    in
-    let rec fix children =
-      let simplified = go [] children in
-      if !changed then begin
-	changed := false;
-	fix simplified
-      end else simplified
-    in
-    fix (BatList.of_enum (Hset.enum children))
-
-  and simplify_dillig_impl phi s =
-    match phi.node with
-    | Atom at ->
-      s#push ();
-      s#assrt (atom_smt at);
-      let simplified =
-	match s#check () with
-	| Smt.Undef -> atom at
-	| Smt.Unsat -> bottom
-	| Smt.Sat -> 
-	  s#pop ();
-	  s#push ();
-	  s#assrt (Smt.mk_not (atom_smt at));
-	  match s#check () with
-	  | Smt.Undef -> atom at
-	  | Smt.Unsat -> top
-	  | Smt.Sat -> atom at
-      in
-      s#pop ();
-      simplified
-    | Or xs -> big_disj (BatList.enum (simplify_children Smt.mk_not s xs))
-    | And xs -> big_conj (BatList.enum (simplify_children (fun x -> x) s xs))
-
-  let simplify_dillig _ phi = simplify_dillig_impl phi (new Smt.solver)
 
   let simplify_z3 p phi =
     let open Z3 in
