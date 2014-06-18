@@ -181,7 +181,13 @@ module Make (T : Term.S) = struct
     if phi.tag == top.tag then psi
     else if psi.tag == top.tag then phi
     else if phi.tag == bottom.tag || psi.tag == bottom.tag then bottom
-    else hashcons (And (Hset.add phi (Hset.singleton psi)))
+    else begin match phi.node, psi.node with
+    | (And xs, And ys) -> hashcons (And (Hset.union xs ys))
+    | (And xs, _) -> hashcons (And (Hset.add psi xs))
+    | (_, And xs) -> hashcons (And (Hset.add phi xs))
+    | (_, _) -> hashcons (And (Hset.add phi (Hset.singleton psi)))
+    end
+
 (*
     else begin match phi.node, psi.node with
     | (And xs, And ys) -> hashcons (And (Hset.union xs ys))
@@ -538,6 +544,7 @@ module Make (T : Term.S) = struct
     eval f phi
 
   module VarSet = Putil.Set.Make(T.V)
+  module VarMap = Putil.Map.Make(T.V)
   module D = T.D
 
   let term_free_vars term =
@@ -591,6 +598,263 @@ module Make (T : Term.S) = struct
     in
     eval alg phi
 
+  let atom_smt = function
+    | LeqZ t -> Smt.mk_le (T.to_smt t) (Smt.const_int 0)
+    | LtZ t -> Smt.mk_lt (T.to_smt t) (Smt.const_int 0)
+    | EqZ t -> Smt.mk_eq (T.to_smt t) (Smt.const_int 0)
+
+  let rec simplify_children star s children =
+    let f psi = s#assrt (star (to_smt psi)) in
+    let changed = ref false in
+    let rec go simplified = function
+      | [] -> simplified
+      | (phi::phis) ->
+	s#push ();
+	List.iter f simplified;
+	List.iter f phis;
+	let simple_phi = simplify_dillig_impl phi s in
+	s#pop ();
+	if not (equal phi simple_phi) then changed := true;
+	go (simple_phi::simplified) phis
+    in
+    let rec fix children =
+      let simplified = go [] children in
+      if !changed then begin
+	changed := false;
+	fix simplified
+      end else simplified
+    in
+    fix (BatList.of_enum (Hset.enum children))
+
+  and simplify_dillig_impl phi s =
+    match phi.node with
+    | Atom at ->
+      s#push ();
+      s#assrt (atom_smt at);
+      let simplified =
+	match s#check () with
+	| Smt.Undef -> atom at
+	| Smt.Unsat -> bottom
+	| Smt.Sat ->
+	  s#pop ();
+	  s#push ();
+	  s#assrt (Smt.mk_not (atom_smt at));
+	  match s#check () with
+	  | Smt.Undef -> atom at
+	  | Smt.Unsat -> top
+	  | Smt.Sat -> atom at
+      in
+      s#pop ();
+      simplified
+    | Or xs -> big_disj (BatList.enum (simplify_children Smt.mk_not s xs))
+    | And xs -> big_conj (BatList.enum (simplify_children (fun x -> x) s xs))
+
+  let simplify_dillig _ phi = simplify_dillig_impl phi (new Smt.solver)
+
+  module Polyhedron = struct
+    module L = T.Linterm
+    type t = { eq : L.t list;
+	       leq : L.t list }
+
+    let conjoin x y =
+      { eq = x.eq @ y.eq;
+	leq = x.leq @ y.leq }
+
+    let nonzero_coeff v t = not (QQ.equal (L.var_coeff v t) QQ.zero)
+
+    let of_atom =
+      let linearize t =
+	match T.to_linterm t with
+	| Some lt -> lt
+	| None -> raise Nonlinear
+      in
+      function
+      | LeqZ t -> { eq = []; leq = [linearize t] }
+      | LtZ t -> { eq = []; leq = [linearize t] }
+      | EqZ t -> { eq = [linearize t]; leq = [] }
+
+    let of_formula phi =
+      let alg = function
+	| OAtom at -> of_atom at
+	| OAnd (p, q) -> conjoin p q
+	| OOr (_, _) -> invalid_arg "Polyhedron.of_formula"
+      in
+      eval alg phi
+
+    let to_formula p =
+      let eqs =
+	BatEnum.map (fun t -> atom (EqZ (T.of_linterm t))) (BatList.enum p.eq)
+      in
+      let leqs =
+	BatEnum.map (fun t -> atom (LeqZ (T.of_linterm t))) (BatList.enum p.leq)
+      in
+      big_conj (BatEnum.append eqs leqs)
+
+    let fourier_motzkin v p =
+      let (occ, rest) = List.partition (nonzero_coeff v) p.leq in
+      let normalize t =
+	let coeff = L.var_coeff v t in
+	let t = L.add_term (AVar v) (QQ.negate coeff) t in
+	(coeff, L.scalar_mul (QQ.inverse coeff) t)
+      in
+      let f (pos, neg) t =
+	let (coeff, t) = normalize t in
+	if QQ.leq coeff QQ.zero then (pos, t::neg)
+	else (t::pos, neg)
+      in
+      let (pos, neg) = List.fold_left f ([],[]) occ in
+      let occ =
+	let pairs =
+	  Putil.cartesian_product (BatList.enum pos) (BatList.enum neg)
+	in
+	BatList.of_enum (BatEnum.map (fun (p, n) -> L.sub p n) pairs)
+      in
+      { eq = p.eq;
+	leq = occ@rest }
+
+    let occurrence_map vars p =
+      let f m t =
+	let g m (var, coeff) =
+	  if VarSet.mem var vars then begin
+	    let (pos, neg) =
+	      try VarMap.find var m
+	      with Not_found -> (0, 0)
+	    in
+	    let (pos, neg) =
+	      if QQ.leq coeff QQ.zero then (pos, neg + 1)
+	      else (pos + 1, neg)
+	    in
+	    VarMap.add var (pos, neg) m
+	  end else
+	    m
+	in
+	BatEnum.fold g m (L.var_bindings t)
+      in
+      List.fold_left f VarMap.empty p.leq
+
+    let h_val (pos, neg) = pos*neg - (pos + neg)
+    let pick_min occ_map =
+      let f (min_v, min_h) (v, (pos, neg)) =
+	let h = h_val (pos, neg) in
+	if h < min_h then (v, h) else (min_v, min_h)
+      in
+      let e = VarMap.enum occ_map in
+      let (v, (pos, neg)) = BatEnum.get_exn e in
+      fst (BatEnum.fold f (v, h_val (pos, neg)) e)
+
+    let vars p =
+      let add_vars vs t =
+	BatEnum.fold (fun vs (d, _) -> VarSet.add d vs) vs (L.var_bindings t)
+      in
+      List.fold_left
+	add_vars
+	(List.fold_left add_vars VarSet.empty p.eq)
+	p.leq
+
+    let to_apron env man p =
+      let open Apron in
+      let open D in
+
+(*      let env = Env.of_enum (VarSet.enum (vars p)) in*)
+      let apron_term t =
+	let mk (v, coeff) =
+	  (NumDomain.coeff_of_qq coeff, Env.dim_of_var env v)
+	in
+	Linexpr0.of_list None
+	  (BatList.of_enum (BatEnum.map mk (L.var_bindings t)))
+	  (Some (NumDomain.coeff_of_qq (L.const_coeff t)))
+      in
+      let apron_leq t =
+	Lincons0.make (apron_term (L.negate t)) Lincons0.SUPEQ
+      in
+      let apron_eq t =
+	Lincons0.make (apron_term t) Lincons0.EQ
+      in
+      let constraints =
+	(List.map apron_eq p.eq) @ (List.map apron_leq p.leq)
+      in
+      { prop =
+	  Abstract0.of_lincons_array
+	    man
+	    (Env.int_dim env)
+	    (Env.real_dim env)
+	    (Array.of_list constraints);
+	env = env }
+
+    let term_to_smt =
+      let to_smt = function
+	| AVar v -> T.V.to_smt v
+	| AConst -> Smt.const_int 1
+      in
+      L.to_smt to_smt Smt.const_qq
+
+    let add_leq (s, p) t =
+      s#push ();
+      s#assrt (Smt.mk_gt (term_to_smt t) (Smt.const_int 0));
+      match s#check () with
+      | Smt.Sat | Smt.Undef ->
+	begin
+	  s#pop ();
+	  s#assrt (Smt.mk_le (term_to_smt t) (Smt.const_int 0));
+	  (s, { p with leq = t::p.leq })
+	end
+      | Smt.Unsat ->
+	(s#pop (); (s, p))
+
+    (* Try to project out a set of variables from a polyhedron, but leave
+       variables that are expensive to eliminate. *)
+    let rec try_fme vars p =
+      let occ_map = occurrence_map vars p in
+      if VarMap.is_empty occ_map then p
+      else begin
+	let v = pick_min occ_map in
+	let (pos, neg) = VarMap.find v occ_map in
+	if h_val (pos, neg) <= 10 (* arbitrary... *)
+	then try_fme (VarSet.remove v vars) (fourier_motzkin v p)
+	else p
+      end
+    let try_fme vars p =
+      Log.time "Polyhedron.try_fme" (try_fme vars) p
+
+    let simplify_minimal p =
+      let s = new Smt.solver in
+      let assrt t =
+	s#assrt (Smt.mk_le (term_to_smt t) (Smt.const_int 0))
+      in
+      let rec go left = function
+	| [] -> left
+	| (t::right) ->
+	  s#push ();
+	  List.iter assrt right;
+	  s#assrt (Smt.mk_gt (term_to_smt t) (Smt.const_int 0));
+	  match s#check () with
+	  | Smt.Sat | Smt.Undef ->
+	    begin
+	      s#pop ();
+	      assrt t;
+	      go (t::left) right
+	    end
+	  | Smt.Unsat ->
+	    begin
+	      s#pop ();
+	      go left right
+	    end
+      in
+      { eq = p.eq; leq = go [] p.leq }
+
+    let simplify p =
+      let s = new Smt.solver in
+      snd (List.fold_left add_leq (s, { p with leq = [] }) p.leq)
+
+    let simplify p =
+      Log.time "Polyhedron.simplify" simplify p
+
+  end
+
+  let top_closure =
+    map (function
+    | LtZ t -> atom (LeqZ t)
+    | at -> atom at)
 
   (* [lazy_dnf join bottom top prop_to_smt phi] computes an abstraction of phi
      by lazily computing its disjunctive normal form.
@@ -655,7 +919,7 @@ module Make (T : Term.S) = struct
     | OAnd (phi, psi) -> phi @ psi
     | OOr (_, _) -> assert false
     in
-    { prop = 
+    { prop =
 	Abstract0.of_tcons_array
 	  man
 	  (Env.int_dim env)
@@ -1063,7 +1327,7 @@ module Make (T : Term.S) = struct
 	  Tcons0.EQ
       in
       let cons = BatList.map mk_cons vars in
-      { prop = 
+      { prop =
 	  Abstract0.of_tcons_array
 	    man
 	    (Env.int_dim env)
@@ -1322,60 +1586,6 @@ module Make (T : Term.S) = struct
     let bottom = [] in
     lazy_dnf ~join:join ~top:top ~bottom:bottom prop_to_smt phi
 
-
-  let atom_smt = function
-    | LeqZ t -> Smt.mk_le (T.to_smt t) (Smt.const_int 0)
-    | LtZ t -> Smt.mk_lt (T.to_smt t) (Smt.const_int 0)
-    | EqZ t -> Smt.mk_eq (T.to_smt t) (Smt.const_int 0)
-
-  let rec simplify_children star s children =
-    let f psi = s#assrt (star (to_smt psi)) in
-    let changed = ref false in
-    let rec go simplified = function
-      | [] -> simplified
-      | (phi::phis) ->
-	s#push ();
-	List.iter f simplified;
-	List.iter f phis;
-	let simple_phi = simplify_dillig_impl phi s in
-	s#pop ();
-	if not (equal phi simple_phi) then changed := true;
-	go (simple_phi::simplified) phis
-    in
-    let rec fix children =
-      let simplified = go [] children in
-      if !changed then begin
-	changed := false;
-	fix simplified
-      end else simplified
-    in
-    fix (BatList.of_enum (Hset.enum children))
-
-  and simplify_dillig_impl phi s =
-    match phi.node with
-    | Atom at ->
-      s#push ();
-      s#assrt (atom_smt at);
-      let simplified =
-	match s#check () with
-	| Smt.Undef -> atom at
-	| Smt.Unsat -> bottom
-	| Smt.Sat -> 
-	  s#pop ();
-	  s#push ();
-	  s#assrt (Smt.mk_not (atom_smt at));
-	  match s#check () with
-	  | Smt.Undef -> atom at
-	  | Smt.Unsat -> top
-	  | Smt.Sat -> atom at
-      in
-      s#pop ();
-      simplified
-    | Or xs -> big_disj (BatList.enum (simplify_children Smt.mk_not s xs))
-    | And xs -> big_conj (BatList.enum (simplify_children (fun x -> x) s xs))
-
-  let simplify_dillig _ phi = simplify_dillig_impl phi (new Smt.solver)
-
   (* Given a list of (linear) terms [terms] and a formula [phi], find lower
      and upper bounds for each term within the feasible region of [phi]. *)
   let optimize terms phi =
@@ -1407,13 +1617,26 @@ module Make (T : Term.S) = struct
       (cvt ivl.Interval.inf, cvt ivl.Interval.sup)
     in
     let join bounds disjunct =
-      let reduced = qe_partial (flip VarSet.mem term_vars) disjunct in
+      let reduced =
+	qe_partial (flip VarSet.mem term_vars) disjunct
+      in
+      let vars = VarSet.diff (formula_free_vars reduced) term_vars in
+
+      let p =
+	Polyhedron.simplify
+	  (Polyhedron.try_fme vars
+	     (Polyhedron.simplify (Polyhedron.of_formula reduced)))
+      in
+
       let env =
 	D.Env.of_enum
-	  (VarSet.enum (VarSet.union (formula_free_vars reduced) term_vars))
+	  (VarSet.enum (VarSet.union (Polyhedron.vars p) term_vars))
       in
-      let reduced = simplify_dillig () reduced in
-      let prop = Log.time "to_apron" (to_apron man env) reduced in
+
+      let prop =
+	Log.time "to_apron" (Polyhedron.to_apron env man) p
+      in
+
       let new_bounds = List.map (get_bounds prop) terms in
       let is_empty lo hi = match lo, hi with
 	| Some lo, Some hi when QQ.gt lo hi -> true
