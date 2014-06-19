@@ -48,59 +48,54 @@ module K = struct
     let is_primed v = v.[String.length v - 1] = ''' in
     VarSet.filter (fun v -> not (is_primed v)) (modifies tr)
 
-  let recurrence_ineq_terms terms ctx =
-    let post_sigma v = match V.lower v with
-      | Some var ->
-	(try M.find var ctx.loop.transform
-	 with Not_found -> T.var v)
-      | None -> assert false
+  let simplify tr =
+    let vars =
+      VarSet.elements (formula_free_program_vars tr.guard)
     in
-    let prime_sigma v = match V.lower v with
-      | Some var ->
-	if M.mem var ctx.loop.transform then T.var (V.mk_var (Var.prime var))
-	else T.var v
-      | None -> assert false
+    let postify v =
+      try M.find v tr.transform
+      with Not_found -> T.var (V.mk_var v)
     in
-    let prime_term t = T.subst prime_sigma t in
-    let post_term t = T.subst post_sigma t in
-    let deltas =
-      let f t = T.sub (prime_term t) t in
-      List.map f terms
+    let post_diff = (* difference between pre-state and post-state vars *)
+      List.map (fun (v, rhs) ->
+	T.sub rhs (T.var (V.mk_var v))
+      ) (BatList.of_enum (M.enum tr.transform))
     in
-    let bounds = F.optimize deltas ctx.phi in
-    let h tr (t, (lo, hi)) =
-      let delta = T.sub (post_term t) t in
-      let lower = match lo with
-	| Some bound ->
-	  F.leq (T.mul ctx.loop_counter (T.const bound)) delta
-	| None -> F.top
+    let templates =
+      (List.map (fun v -> T.var (V.mk_var v)) vars)
+      @ (BatList.of_enum (M.values tr.transform))
+      @ post_diff
+    in
+    let box = F.boxify templates tr.guard in
+
+    (* difference beween float & real vars *)
+    let approx_diff x =
+      let mk_var v = T.var (V.mk_var v) in
+      let pre_diff = T.sub (mk_var x) (mk_var (primify x)) in
+      let post_diff = T.sub (postify x) (postify (primify x)) in
+      let mk_box phi =
+	F.conj
+	  phi
+	  (F.boxify
+	     [pre_diff; post_diff; T.sub post_diff pre_diff]
+	     (F.conj phi tr.guard))
       in
-      let upper = match hi with
-	| Some bound ->
-	  F.leq delta (T.mul ctx.loop_counter (T.const bound))
-	| None -> F.top
-      in
-      let lo_string = match lo with
-	| Some lo -> (QQ.show lo) ^ " <= "
-	| None -> ""
-      in
-      let hi_string = match hi with
-	| Some hi -> " <= " ^ (QQ.show hi)
-	| None -> ""
-      in
-      logf "Bounds for (%a): %s(%a)-(%a)%s"
-	T.format t
-	lo_string
-	T.format (prime_term t)
-	T.format t
-	hi_string;
-      { tr with guard = F.conj (F.conj lower upper) tr.guard }
+      let positive = F.geq pre_diff T.zero in
+      let increasing = F.leq pre_diff post_diff in
+      let negative = F.negate positive in
+      let decreasing = F.negate increasing in
+      F.big_disj (BatList.enum [
+	mk_box (F.conj positive increasing);
+	mk_box (F.conj positive decreasing);
+	mk_box (F.conj negative increasing);
+	mk_box (F.conj negative decreasing);
+      ])
     in
-    let loop =
-      BatEnum.fold h ctx.loop (BatEnum.combine (BatList.enum terms,
-						BatList.enum bounds))
+    let approx_diff_guard =
+      F.big_conj
+	(BatEnum.map approx_diff (VarSet.enum (modified_floats tr)))
     in
-    { ctx with loop = loop }
+    { tr with guard = F.nudge (F.conj box approx_diff_guard) }
 
   let star tr =
     let mk_nondet v _ =
@@ -111,175 +106,130 @@ module K = struct
       { transform = M.mapi mk_nondet tr.transform;
 	guard = F.leqz (T.neg loop_counter) }
     in
-    let induction_vars =
-      M.fold
-	(fun v _ env -> Incr.Env.add v None env)
-	tr.transform
-	Incr.Env.empty
-    in
-    let ctx =
-      { induction_vars = induction_vars;
-	phi = F.linearize (fun () -> V.mk_real_tmp "nonlin") (to_formula tr);
-	loop_counter = loop_counter;
-	loop = loop }
-    in
-    let ctx = simple_induction_vars ctx in
-    let context_transform ctx (do_transform, transform) =
-      if do_transform then transform ctx else ctx
-    in
-    let ctx =
-      List.fold_left context_transform ctx [
-	(!opt_higher_recurrence, higher_induction_vars);
-	(!opt_disjunctive_recurrence_eq, disj_induction_vars);
-	(!opt_recurrence_ineq, recurrence_ineq);
-	(!opt_higher_recurrence_ineq, higher_recurrence_ineq);
-	(!opt_polyrec, polyrec);
-      ]
-    in
-
-    (* Compute closed forms for induction variables *)
-    let close v incr transform =
-      match incr with
-      | Some incr ->
-	let t = Incr.to_term incr ctx.loop_counter in
-	logf "Closed term for %a: %a"
-	  Var.format v
-	  T.format t;
-	M.add v t transform
-      | None -> transform
-    in
-    let transform = Incr.Env.fold close ctx.induction_vars ctx.loop.transform in
-    let loop = { ctx.loop with transform = transform } in
-
-    let ctx =
-      let modified = VarSet.elements (modifies tr) in
-      let is_primed v = v.[String.length v - 1] = ''' in
-      let modified_floats =
-	List.filter (fun v -> not (is_primed v)) modified
-      in
-      let diff =
-	List.map (fun v ->
-	  T.sub (T.var (V.mk_var v)) (T.var (V.mk_var (primify v)))
-	) modified_floats
-      in
-      recurrence_ineq_terms
-	((List.map (fun v -> T.var (V.mk_var v)) modified) @ diff)
-	{ ctx with loop = loop }
-    in
-    let loop = ctx.loop in
-
-    let loop =
-      match !opt_loop_guard with
-      | Some ex -> loop_guard ex { ctx with loop = loop }
-      | None -> loop
-    in
-    let loop =
-      if !opt_unroll_loop then add one (mul loop tr)
-      else loop
-    in
-    logf ~level:3 "Loop summary: %a" format loop;
-    loop
-
-  let star tr =
-    try
-      star tr
-    with
-    | Unsat ->
-      logf "Loop body is unsat";
-      one
-    | Undef ->
-      let mk_nondet v _ =
-	T.var (V.mk_tmp ("nondet_" ^ (Var.show v)) (Var.typ v))
-      in
-      Log.errorf "Gave up in loop computation";
-      { guard = F.top;
-	transform = M.mapi mk_nondet tr.transform }
-
-  let split_star tr phi =
-    let assume_phi = assume phi in
-    let assume_not_phi = assume (F.negate phi) in
-
-    let tr12 = mul assume_phi (mul tr assume_not_phi) in
-    let tr21 = mul assume_not_phi (mul tr assume_phi) in
-
-    logf ~attributes:[Log.Cyan] "@\nComputing loop summary assuming: %a"
-      F.format phi;
-    let str1 =
-      Log.time "star1" star (mul assume_phi tr)
-    in
-
-    logf ~attributes:[Log.Cyan] "@\nComputing loop summary assuming: %a"
-      F.format (F.negate phi);
-    let str2 =
-      Log.time "star2" star (mul assume_not_phi tr)
-    in
-
-    logf ~attributes:[Log.Cyan] "@\nComputing loop summary";
-    BatList.reduce mul [
-      str2;
-      Log.time "star3" star (mul (mul str1 tr12) (mul str2 tr21));
-      str1
-    ]
-
-  let star tr =
-    (* todo: how do we handle multiple variables?  Right now, we just pick one
-       to split on. *)
-    let x = VarSet.choose (modified_floats tr) in
-    let loop =
-      split_star tr (F.leq (T.var (V.mk_var x)) (T.var (V.mk_var (primify x))))
-    in
-    logf ~level:3 "Loop summary: %a" format loop;
-    loop
-  let star tr = Log.time "star" star tr
-
-  let simplify tr =
-    let vars =
-      VarSet.elements (formula_free_program_vars tr.guard)
-    in
     let postify v =
-      try M.find v tr.transform
+      try M.find v loop.transform
       with Not_found -> T.var (V.mk_var v)
     in
-    let rhs = BatList.of_enum (M.values tr.transform) in
-    let post_diff = (* difference between pre-state and post-state vars *)
-      List.map (fun (v, rhs) ->
-	T.sub rhs (T.var (V.mk_var v))
-      ) (BatList.of_enum (M.enum tr.transform))
+    let loop_body =
+      let add_eq v rhs phi = F.conj (F.eq (postify v) rhs) phi in
+      F.linearize
+	(fun () -> V.mk_real_tmp "nonlin")
+	(M.fold add_eq tr.transform tr.guard)
     in
-    let approx_diff = (* difference beween float & real vars *)
-      let mk_var v = T.var (V.mk_var v) in
-      let f x diffs =
-	let pre = T.sub (mk_var x) (mk_var (primify x)) in
-	let post = T.sub (postify x) (postify (primify x)) in
-	[pre; post; T.sub post pre] @ diffs
+    let with_bound f = function
+      | Some x -> f x
+      | None -> F.top
+    in
+    let recurrence_ineq diff_term (lo, hi) =
+      let lower =
+	with_bound
+	  (fun lo -> F.leq (T.mul loop_counter (T.const lo)) diff_term)
+	  lo
       in
-      VarSet.fold f (modified_floats tr) []
-    in
-    let templates =
-      (List.map (fun v -> T.var (V.mk_var v)) vars)
-      @ rhs
-      @ post_diff
-      @ approx_diff
-    in
-    let mk_box guard =
-      F.conj (F.boxify templates (F.conj tr.guard guard)) guard
+      let upper =
+	with_bound
+	  (fun hi -> F.leq diff_term (T.mul loop_counter (T.const hi)))
+	  hi
+      in
+      F.conj lower upper
     in
 
-    (* todo: how do we handle multiple variables?  Right now, we just pick one
-       to split on. *)
-    let guard =
-      try
-	let x = VarSet.choose (modified_floats tr) in
-	let guard = F.leq (T.var (V.mk_var x)) (T.var (V.mk_var (primify x))) in
-	let box1 = mk_box guard in
-	let box2 = mk_box (F.negate guard) in
-	F.disj box1 box2
-      with Not_found -> mk_box F.top (* no modified floats *)
+    let loop =
+      let terms =
+	M.fold
+	  (fun v t ts -> (T.sub t (T.var (V.mk_var v)))::ts)
+	  loop.transform
+	  []
+      in
+      let recur =
+	let bounds = F.optimize terms loop_body in
+	F.big_conj (BatList.enum (List.map2 recurrence_ineq terms bounds))
+      in
+      { loop with guard = F.conj loop.guard recur }
     in
-    { tr with guard = F.nudge guard }
-  let simplify tr = Log.time "simplify" simplify tr
 
-  let star x = simplify (star x)
+    let mk_box t (lo, hi) =
+      let lo = with_bound (fun lo -> F.leq (T.const lo) t) lo in
+      let hi = with_bound (fun hi -> F.leq t (T.const hi)) hi in
+      F.conj lo hi
+    in
+
+    let attractor x =
+      let pre_diff =
+	T.sub (T.var (V.mk_var x)) (T.var (V.mk_var (primify x)))
+      in
+      let post_diff =
+	T.sub (postify x) (postify (primify x))
+      in
+      let positive = F.geq pre_diff T.zero in
+      let increasing = F.leq pre_diff post_diff in
+      let negative = F.negate positive in
+      let decreasing = F.negate increasing in
+
+      let mk_case phi =
+	let diff = T.sub post_diff pre_diff in
+	match F.optimize [diff; post_diff] phi with
+	| [recur; box] ->
+	  F.conj (recurrence_ineq diff recur) (mk_box post_diff box)
+	| _ -> assert false
+      in
+
+      logf ~level:1 "formula: %a" F.format loop_body;
+      logf ~level:1 "stable: %a" F.format
+			 (F.disj
+			    (F.conj positive increasing)
+			    (F.conj negative decreasing));
+
+      let stable_bounds =
+	let bounds =
+	  F.optimize
+	    [post_diff]
+	    (F.conj loop_body (F.disj (F.conj positive increasing)
+				 (F.conj negative decreasing)))
+	in
+	match bounds with
+	| [box] -> mk_box post_diff box
+	| _ -> assert false
+      in
+      let pd_bounds =
+	mk_case
+	  (F.conj
+	     (F.conj (F.negate stable_bounds) loop_body)
+	     (F.conj positive decreasing))
+      in
+      let ni_bounds =
+	mk_case
+	  (F.conj
+	     (F.conj (F.negate stable_bounds) loop_body)
+	     (F.conj negative increasing))
+      in
+      logf ~level:1 "pd_bounds: %a" F.format pd_bounds;
+      logf ~level:1 "ni_bounds: %a" F.format ni_bounds;
+      logf ~level:1 "stable_bounds: %a" F.format stable_bounds;
+      F.disj stable_bounds (F.disj pd_bounds ni_bounds)
+    in
+    let plus_guard =
+      let vars = VarSet.elements (formula_free_program_vars loop_body) in
+      let templates =
+	(List.map (fun v -> T.var (V.mk_var v)) vars)
+	@ (BatList.of_enum (M.values loop.transform))
+      in
+      let attractors =
+	F.big_conj (BatEnum.map attractor (VarSet.enum (modified_floats tr)))
+      in
+      F.conj (F.boxify templates loop_body) attractors
+    in
+    let zero_guard =
+      let eq (v, t) = F.eq (T.var (V.mk_var v)) t in
+      F.conj
+	(F.eqz loop_counter)
+	(F.big_conj (BatEnum.map eq (M.enum loop.transform)))
+    in
+    let star_guard = F.disj plus_guard zero_guard in
+    let loop = { loop with guard = F.conj loop.guard star_guard } in
+    logf ~level:1 "loop summary:@\n%a" format loop;
+    loop
+
 end
 module T = K.T
 module F = K.F
@@ -545,14 +495,20 @@ let analyze_sep (float,float_entry) (real,real_entry) =
       (F.of_abstract (AbstractDomain.lower man (real_annotation v)))
 
 let add_stuttering cfa =
-  let g v cfa =
-    if Cfa.mem_edge cfa v v then
-      let k = Cfa.E.label (Cfa.find_edge cfa v v) in
-      add_edge cfa v v (K.mul k k)
+  (* For each edge u --k--> v such that u has a self loop u --k'--> u, add
+     relabel the u->v edge u --(k + k'k)--> v. *)
+  let g e cfa =
+    let u = Cfa.E.src e in
+    let v = Cfa.E.dst e in
+    if Cfa.mem_edge cfa u u then
+      let k = Cfa.E.label e in
+      let k' = Cfa.E.label (Cfa.find_edge cfa u u) in
+      add_edge cfa u v (K.mul (K.add k' (K.mul k' k')) k)
     else cfa
   in
-  let f v cfa = add_edge cfa v v K.one in
-  Cfa.fold_vertex f cfa (Cfa.fold_vertex g cfa cfa)
+  let stutter v cfa = add_edge cfa v v K.one in
+  Cfa.fold_vertex stutter cfa
+    (Cfa.fold_edges_e g cfa cfa)
 
 (******************************************************************************)
 (* Tensor *)
@@ -614,13 +570,6 @@ let greedy annotation vars float_tr real_tr real_succs =
     try M.find v tr.transform
     with Not_found -> T.var (V.mk_var v)
   in
-
-(*
-  let float_tr =
-    { float_tr with guard = F.conj float_tr.guard annotation }
-  in
-  let float_tr = K.normalize float_tr in
-*)
 
   (* Distance between the post-state of float_tr and real_tr *)
   let (dist, dist_cons) =
@@ -755,16 +704,28 @@ let rec expand ctx (u, v) pathexp (g, changed) =
     let guard = F.subst sigma weight.K.guard in
     if F.is_sat (F.conj phi guard) then begin
       let dst = TCfa.E.dst e in
-      let phi = F.conj phi (F.negate (F.qe_lme not_tmp guard)) in
-      logf ~attributes:[Log.Green] "  Added an edge: %a -> %a"
+      let psi = F.conj phi (F.negate (F.qe_lme not_tmp guard)) in
+      logf ~level:1 ~attributes:[Log.Green] "  Added an edge: %a -> %a"
 	TCfa.VP.format (u, v)
 	TCfa.VP.format dst;
+
+(*
+      let s = new Smt.solver in
+      s#assrt (F.to_smt (F.conj phi guard));
+      ignore (s#check ());
+      let m = s#get_model () in
+      Format.printf "tensor guard: %a@\n" Show.format<F.t option> (F.select_disjunct (fun v -> m#eval_qq (T.V.to_smt v)) tensor_guard_assert);
+      Format.printf "tr: %a@\n" K.M.format pathexp.K.transform;
+      Format.printf "%s@\n" (m#to_string ());
+      assert false
+      *)
+
       if TCfa.mem_vertex graph dst then
-	(TCfa.add_edge_e graph e, phi, true)
+	(TCfa.add_edge_e graph e, psi, true)
       else
 	(fst (expand ctx dst (K.mul pathexp weight)
 		(TCfa.add_edge_e graph e, false)),
-	 phi,
+	 psi,
 	 true)
     end else
       (graph, phi, changed)
@@ -794,11 +755,11 @@ let analyze ctx tensor entry =
     logf ~level:1 ~attributes:[Log.Bold] "Computing path expressions...";
     let pathexp = P.single_src tensor TCfa.E.label entry in
     let check (u, v) (g, changed) =
-(*
       let pathexp = pathexp (u, v) in
       expand ctx (u,v) pathexp (g, changed)
-*)
+(*
       (g, changed)
+*)
     in
     let (tensor, changed) =
       TCfa.fold_vertex check tensor (tensor, false)
@@ -881,8 +842,8 @@ let _ =
     Log.set_verbosity_level "ark.formula" 2;
     Log.set_verbosity_level "ark.transition" 2;
 *)
-
     Log.set_verbosity_level "errgen" 2;
+    Log.set_verbosity_level "ark.transition" 2;
 
     F.opt_simplify_strategy := [guard_ex];
     ArkPervasives.opt_default_accuracy := 10;
