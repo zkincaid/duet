@@ -1,6 +1,0 @@
-name = "datalog"
-version = "0.1"
-description = "Incremental datalog interpreter"
-requires = "cil,ocamlgraph,deriving,apak,buddy,camlp4.lib"
-archive(byte) = "datalog.cma"
-archive(native) = "datalog.cmxa"

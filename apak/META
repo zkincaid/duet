@@ -1,6 +1,0 @@
-name = "apak"
-version = "0.3"
-description = "Algebraic Program Analysis Kit"
-requires = "ocamlgraph,deriving,batteries"
-archive(byte) = "apak.cma"
-archive(native) = "apak.cmxa"

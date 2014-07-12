@@ -10,4 +10,5 @@ let suite = "Main" >:::
   ]
 
 let _ =
+  Printf.printf "Running apak test suite";
   run_test_tt_main suite

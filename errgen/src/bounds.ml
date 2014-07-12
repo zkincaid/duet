@@ -1,5 +1,3 @@
-(*pp camlp4find deriving.syntax *)
-
 open Ast
 open Apak
 open Ark

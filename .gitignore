@@ -14,31 +14,23 @@
 !.gitignore
 *~
 *.log
-# binaries
-apak/test
-ark/test
-datalog
-duet/duet
-duet/test
-duet/working
-errgen/errgen
 
 # generated files
-deriving/_build/
-Makefile.config
-duet/autom4te.cache/
-duet/config.status
-duet/configure
-
-duet/src/frontend/cbp/cbpLex.ml
-duet/src/frontend/cbp/cbpParse.ml
-duet/src/frontend/cbp/cbpParse.mli
-
-errgen/src/lexer.ml
-errgen/src/parser.ml
-
-#dependencies
-depend/*
+_build/
+setup.ml
+setup.data
+myocamlbuild.ml
+*.mlpack
+*.mldylib
+*.mllib
+ark/META
+apak/META
+duet/regression/working/
+duet/src/config.ml
+configure
+autom4te.cache
+config.status
+duet/duet
 
 #tag files
 */tags

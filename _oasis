@@ -1,0 +1,68 @@
+OASISFormat: 0.4
+Name:        duet
+Version:     0.1.3
+Synopsis:    Duet program analyzer
+Authors:     Zachary Kincaid
+License:     GPL-3.0
+Plugins:     META (0.4)
+AlphaFeatures: ocamlbuild_more_args
+
+Library apak
+  Path:             apak
+  BuildTools:       ocamlbuild
+  FindlibName:      apak
+  Pack:             true
+  InternalModules:  DisjointSet, Dll, Enumeration, EvalLink, ExtGraph, Fixpoint,
+                    Ka, Lattice, Log, Loop, Memo, Monoid, Pathexp, Persistent,
+                    RecGraph, Semilattice, Sese, Sig, Tagged, Putil
+  BuildDepends:     deriving, deriving.syntax, batteries, ocamlgraph
+  Install:          false
+  XMETADescription: Algebraic Program Analysis Kit
+
+Executable test_apak
+  Build$:       flag(tests)
+  Path:         apak
+  BuildTools:   ocamlbuild
+  MainIs:       unit_test.ml
+  BuildDepends: deriving, deriving.syntax, batteries, ocamlgraph, oUnit
+  Install:      false
+
+Library ark
+  Path:             ark
+  BuildTools:       ocamlbuild
+  FindlibName:      ark
+  Pack:             true
+  InternalModules:  ArkPervasives, Formula, Linear, NumDomain, Smt, Term,
+                    Transition, Hset, Hashcons, Hmap
+  BuildDepends:     deriving, deriving.syntax, apak, gmp, camlidl, apron, Z3
+  Install:          false
+  XMETADescription: Arithmetic Reasoning Kit
+
+Executable test_ark
+  Build$:         flag(tests)
+  Path:           ark
+  BuildTools:     ocamlbuild
+  MainIs:         test.ml
+  BuildDepends:   deriving, deriving.syntax, apak, gmp, camlidl, apron,
+                  apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, oUnit
+  CompiledObject: native
+  Install:        false
+
+Executable duet
+  Path:           duet/src
+  BuildTools:     ocamlbuild
+  MainIs:         duet.ml
+  BuildDepends:   deriving, deriving.syntax, apak, gmp, camlidl, apron,
+                  apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, ark, cil
+  CompiledObject: native
+  Install:        false
+
+Test apak
+  Command:   $test_apak
+  TestTools: test_apak
+  Run$:      flag(tests)
+
+Test ark
+  Command:   $test_ark
+  TestTools: test_ark
+  Run$:      flag(tests)

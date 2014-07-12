@@ -1,5 +1,0 @@
-NIBBLE 16
-.bddvarorder NIBBLE0_NIBBLE1
-a(x:NIBBLE,y:NIBBLE) inputtuples
-b(x:NIBBLE) outputtuples
-b(x) {y} :- a(x,y).
