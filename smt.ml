@@ -1,4 +1,3 @@
-(*pp camlp4find deriving.syntax *)
 open Z3
 open ArkPervasives
 

@@ -278,8 +278,8 @@ module Make(H : HashedType) : (S with type key = H.t) = struct
   
 end
 
-module Show_hash_consed (S : Show.Show) =
-  Show.Defaults(struct
+module Show_hash_consed (S : Deriving_Show.Show) =
+  Deriving_Show.Defaults(struct
     type a = S.a hash_consed
     let format formatter hc = S.format formatter hc.node
   end)

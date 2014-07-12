@@ -1,6 +1,0 @@
-name = "ark"
-version = "0.1"
-description = "Arithmetic Reasoning Kit"
-requires = "deriving,apak,apron,apron.boxMPQ,apron.octMPQ,apron.polkaMPQ,Z3"
-archive(byte) = "ark.cma"
-archive(native) = "ark.cmxa"

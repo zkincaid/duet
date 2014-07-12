@@ -1,9 +1,8 @@
-(*pp camlp4find deriving.syntax *)
-
 open Apak
 open ArkPervasives
 open BatPervasives
 open Hashcons
+open Apron
 
 include Log.Make(struct let name = "ark.transition" end)
 

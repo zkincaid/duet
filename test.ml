@@ -9,5 +9,5 @@ let suite = "Main" >::: [
 
 let _ =
   Printexc.record_backtrace true;
-  Printf.printf "Running test suite";
+  Printf.printf "Running ark test suite";
   ignore (run_test_tt_main suite)

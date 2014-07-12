@@ -1,5 +1,3 @@
-(*pp camlp4find deriving.syntax *)
-
 open Apak
 open Apron
 open BatPervasives

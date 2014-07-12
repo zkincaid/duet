@@ -1,5 +1,3 @@
-(*pp camlp4find deriving.syntax *)
-
 (** Numerical abstract domains *)
 open Apron
 open Apak
