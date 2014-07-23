@@ -1237,7 +1237,7 @@ module Make (T : Term.S) = struct
   module V = T.V
   module A = Linear.AffineVar(V)
 
-  let linterm_smt = T.Linterm.to_smt A.to_smt Smt.const_qq
+  let linterm_smt = T.Linterm.to_smt (A.to_smt V.to_smt) Smt.const_qq
 
   (* Counter-example based extraction of the affine hull of a formula.  This
      works by repeatedly posing new (linearly independent) equations; each
@@ -1247,7 +1247,7 @@ module Make (T : Term.S) = struct
      where the variables are the coefficients of candidate equations. *)
   let affine_hull_ceg s vars =
     let zero = Smt.const_int 0 in
-    let const_var = A.to_smt AConst in
+    let const_var = A.to_smt V.to_smt AConst in
     let space = new Smt.solver in (* solution space for implied equalities *)
     let extract_linterm m =
       let f term v =

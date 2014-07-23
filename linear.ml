@@ -5,7 +5,6 @@ open ArkPervasives
 
 module type Var = sig
   include Putil.Ordered
-  val to_smt : t -> Smt.ast
 end
 
 module AffineVar (V : Var) = struct
@@ -25,8 +24,8 @@ module AffineVar (V : Var) = struct
       | AConst -> Format.pp_print_int formatter 1
   end)
   let compare = Compare_t.compare
-  let to_smt = function
-    | AVar v -> V.to_smt v
+  let to_smt f = function
+    | AVar v -> f v
     | AConst -> Smt.int_var "affine$const"
 end
 

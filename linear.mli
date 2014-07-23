@@ -7,7 +7,6 @@ open Hashcons
 (** Variable (dimension) signature *)
 module type Var = sig
   include Putil.Ordered
-  val to_smt : t -> Smt.ast
 end
 
 (** Hashed variable (dimension) signature *)
@@ -15,7 +14,10 @@ module type HVar = Putil.Hashed.S
 
 (** Augment a variable type with a new dimension for constants.  Linear
     expressions over Affine(V) are equivalent to affine expressions over V. *)
-module AffineVar (V : Var) : Var with type t = V.t affine
+module AffineVar (V : Var) : sig
+  include Var with type t = V.t affine
+  val to_smt : (V.t -> Smt.ast) -> t -> Smt.ast
+end
 
 module Expr : sig
   module type S = sig

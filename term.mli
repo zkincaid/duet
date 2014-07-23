@@ -6,6 +6,7 @@ open ArkPervasives
 module type Var = sig
   include Linear.Var
   module Map : Putil.Map.S with type key = t
+  val to_smt : t -> Smt.ast
   val of_smt : Smt.symbol -> t
   val typ : t -> typ
   val hash : t -> int

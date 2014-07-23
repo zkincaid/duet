@@ -5,6 +5,7 @@ open BatPervasives
 module type Var = sig
   include Linear.Var
   module Map : Putil.Map.S with type key = t
+  val to_smt : t -> Smt.ast
   val of_smt : Smt.symbol -> t
   val typ : t -> typ
   val hash : t -> int
@@ -489,7 +490,7 @@ module Make (V : Var) = struct
 	| Add -> add s t
 	| Sub -> sub s t
 	| Mul -> mul s t
-	| Mod -> assert false (* todo *)
+	| Mod | Pow -> assert false (* todo *)
 	| Div ->
 	  begin match typ, round with
 	  | Int, Down -> idiv s t
