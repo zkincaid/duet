@@ -23,7 +23,7 @@ Executable test_apak
   Build$:       flag(tests)
   Path:         apak
   BuildTools:   ocamlbuild
-  MainIs:       unit_test.ml
+  MainIs:       test_apak.ml
   BuildDepends: deriving, deriving.syntax, batteries, ocamlgraph, oUnit
   Install:      false
 
@@ -42,7 +42,7 @@ Executable test_ark
   Build$:         flag(tests)
   Path:           ark
   BuildTools:     ocamlbuild
-  MainIs:         test.ml
+  MainIs:         test_ark.ml
   BuildDepends:   deriving, deriving.syntax, apak, gmp, camlidl, apron,
                   apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, oUnit
   CompiledObject: native
