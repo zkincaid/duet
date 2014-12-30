@@ -72,6 +72,9 @@ object (self)
   method run () =
     self#write_program ();
     List.iter flush channels;
+    if Sys.command "java -version 2>/dev/null" != 0 then begin
+      failwith "Java not found"
+    end;
     let cmd =
       "export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:"
       ^ Config.bddbddb_path
