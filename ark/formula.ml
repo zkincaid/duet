@@ -1683,7 +1683,7 @@ module Make (T : Term.S) = struct
   module LinBound = struct
     type t = { upper : T.t list;
 	       lower : T.t list;
-	       interval : Interval.t }
+	       interval : Interval.interval }
       deriving (Compare, Show)
 
     let format = Show_t.format

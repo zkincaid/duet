@@ -33,7 +33,7 @@ Library ark
   FindlibName:      ark
   Pack:             true
   InternalModules:  ArkPervasives, Formula, Linear, NumDomain, Smt, Term,
-                    Transition, Hset, Hashcons, Hmap
+                    Transition, Hset, Hashcons, Hmap, Interval
   BuildDepends:     deriving, deriving.syntax, apak, gmp, camlidl, apron, Z3
   Install:          false
   XMETADescription: Arithmetic Reasoning Kit
