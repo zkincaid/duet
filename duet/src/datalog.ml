@@ -75,12 +75,13 @@ object (self)
     if Sys.command "java -version 2>/dev/null" != 0 then begin
       failwith "Java not found"
     end;
+    let outfile = dir ^ "/log.txt" in
     let cmd =
       "export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:"
       ^ Config.bddbddb_path
       ^ " && java -Xmx1024m -jar " ^ Config.bddbddb_path ^ "/bddbddb.jar"
       ^ " " ^ dir ^ "/" ^ name ^ ".datalog"
-      ^ " 1> /dev/null 2> /dev/null"
+      ^ " 1> " ^ outfile ^ " 2> " ^ outfile
     in
     Sys.command cmd
 
