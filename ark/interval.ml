@@ -69,18 +69,21 @@ let mul_const k x =
       upper = map_opt (QQ.mul k) x.upper }
   end
 
-let join x y = {
-  lower =
-    begin match x.lower, y.lower with
-    | Some x, Some y -> Some (QQ.min x y)
-    | _, _ -> None
-    end;
-  upper =
-    begin match x.upper, y.upper with
-    | Some x, Some y -> Some (QQ.max x y)
-    | _, _ -> None
-    end
-}
+let join x y =
+  if equal x bottom then y
+  else if equal y bottom then x
+  else {
+    lower =
+      begin match x.lower, y.lower with
+	    | Some x, Some y -> Some (QQ.min x y)
+	    | _, _ -> None
+      end;
+    upper =
+      begin match x.upper, y.upper with
+	    | Some x, Some y -> Some (QQ.max x y)
+	    | _, _ -> None
+      end
+  }
 
 let meet x y = normalize {
   lower =
@@ -170,3 +173,16 @@ let lower x = x.lower
 let floor x =
   { lower = map_opt (QQ.of_zz % QQ.floor) x.lower;
     upper = map_opt (QQ.of_zz % QQ.floor) x.upper }
+
+let of_apron ivl =
+  let cvt scalar =
+    if Apron.Scalar.is_infty scalar == 0
+    then Some (NumDomain.qq_of_scalar scalar)
+    else None
+  in
+  make (cvt ivl.Apron.Interval.inf) (cvt ivl.Apron.Interval.sup)
+
+let const_of { upper; lower } =
+  match upper, lower with
+  | Some hi, Some lo when QQ.equal hi lo -> Some hi
+  | _ -> None
