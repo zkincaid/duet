@@ -85,8 +85,8 @@ module type S = sig
   val select_disjunct : (T.V.t -> QQ.t) -> t -> t option
   val affine_hull : t -> T.V.t list -> T.Linterm.t list
   val symbolic_bounds : (T.V.t -> bool) -> t -> T.t -> (pred * T.t) list
-  val optimize : (T.t list) -> t -> (QQ.t option * QQ.t option) list
-  val disj_optimize : (T.t list) -> t -> (QQ.t option * QQ.t option) list list
+  val optimize : (T.t list) -> t -> Interval.interval list
+  val disj_optimize : (T.t list) -> t -> Interval.interval list list
 
   val dnf_size : t -> int
   val nb_atoms : t -> int
@@ -1532,7 +1532,6 @@ module Make (T : Term.S) = struct
     end
 
   let disj_optimize terms phi =
-    let open Apron in
     let man = NumDomain.polka_loose_manager () in
     let vars =
       let f vars t = VarSet.union (term_free_vars t) vars in
@@ -1547,13 +1546,9 @@ module Make (T : Term.S) = struct
       let open D in
       let ivl =
 	Log.time "bound_texpr"
-	  (Abstract0.bound_texpr man prop.prop) (T.to_apron prop.env t)
+	  (Apron.Abstract0.bound_texpr man prop.prop) (T.to_apron prop.env t)
       in
-      let cvt scalar =
-	if Scalar.is_infty scalar == 0 then Some (NumDomain.qq_of_scalar scalar)
-	else None
-      in
-      (cvt ivl.Interval.inf, cvt ivl.Interval.sup)
+      Interval.of_apron ivl
     in
     let join bounds disjunct =
       let prop = to_apron man env disjunct in
@@ -1561,12 +1556,12 @@ module Make (T : Term.S) = struct
       new_bounds::bounds
     in
     let prop_to_smt bounds =
-      let to_formula (t, (lower, upper)) =
-	let lo = match lower with
+      let to_formula (t, ivl) =
+	let lo = match Interval.lower ivl with
 	  | Some b -> leq (T.const b) t
 	  | None -> top
 	in
-	let hi = match upper with
+	let hi = match Interval.upper ivl with
 	  | Some b -> leq t (T.const b)
 	  | None -> top
 	in
@@ -1587,7 +1582,6 @@ module Make (T : Term.S) = struct
   (* Given a list of (linear) terms [terms] and a formula [phi], find lower
      and upper bounds for each term within the feasible region of [phi]. *)
   let optimize terms phi =
-    let open Apron in
     let man = NumDomain.polka_loose_manager () in
     let term_vars =
       let f vars t = VarSet.union (term_free_vars t) vars in
@@ -1606,13 +1600,9 @@ module Make (T : Term.S) = struct
       let open D in
       let ivl =
 	Log.time "bound_texpr"
-	  (Abstract0.bound_texpr man prop.prop) (T.to_apron prop.env t)
+	  (Apron.Abstract0.bound_texpr man prop.prop) (T.to_apron prop.env t)
       in
-      let cvt scalar =
-	if Scalar.is_infty scalar == 0 then Some (NumDomain.qq_of_scalar scalar)
-	else None
-      in
-      (cvt ivl.Interval.inf, cvt ivl.Interval.sup)
+      Interval.of_apron ivl
     in
     let join bounds disjunct =
       let reduced =
@@ -1636,32 +1626,15 @@ module Make (T : Term.S) = struct
       in
 
       let new_bounds = List.map (get_bounds prop) terms in
-      let is_empty lo hi = match lo, hi with
-	| Some lo, Some hi when QQ.gt lo hi -> true
-	| _, _ -> false
-      in
-      let f (lo0, hi0) (lo1, hi1) =
-	if is_empty lo0 hi0 then (lo1, hi1) else begin
-	  let lo = match lo0, lo1 with
-	    | (Some lo0, Some lo1) -> Some (QQ.min lo0 (QQ.nudge_down lo1))
-	    | (None, _) | (_, None) -> None
-	  in
-	  let hi = match hi0, hi1 with
-	    | (Some hi0, Some hi1) -> Some (QQ.max hi0 (QQ.nudge_up hi1))
-	    | (None, _) | (_, None) -> None
-	  in
-	  (lo, hi)
-	end
-      in
-      BatList.map2 f bounds new_bounds
+      BatList.map2 Interval.join bounds new_bounds
     in
     let prop_to_smt bounds =
-      let to_formula (t, (lower, upper)) =
-	let lo = match lower with
+      let to_formula (t, ivl) =
+	let lo = match Interval.lower ivl with
 	  | Some b -> leq (T.const b) t
 	  | None -> top
 	in
-	let hi = match upper with
+	let hi = match Interval.upper ivl with
 	  | Some b -> leq t (T.const b)
 	  | None -> top
 	in
@@ -1672,8 +1645,8 @@ module Make (T : Term.S) = struct
       in
       to_smt (BatEnum.fold conj top (e /@ to_formula))
     in
-    let top = List.map (fun _ -> (None, None)) terms in
-    let bottom = List.map (fun _ -> (Some QQ.one, Some QQ.zero)) terms in
+    let top = List.map (fun _ -> Interval.top) terms in
+    let bottom = List.map (fun _ -> Interval.bottom) terms in
     lazy_dnf ~join:join ~top:top ~bottom:bottom prop_to_smt phi
 
   let optimize ts phi =
@@ -1804,7 +1777,7 @@ module Make (T : Term.S) = struct
       in
       let bounds =
 	List.fold_left2
-	  (fun m v (lo,hi) -> T.V.Map.add v (Interval.make lo hi) m)
+	  (fun m v ivl -> T.V.Map.add v ivl m)
 	  T.V.Map.empty
 	  var_list
 	  box
@@ -1878,13 +1851,13 @@ module Make (T : Term.S) = struct
 	vars
 	box
     in
-    let lower = function
-      | (None, _) -> raise Unbounded
-      | (Some x, _) -> x
+    let lower ivl = match Interval.lower ivl with
+      | None -> raise Unbounded
+      | Some x -> x
     in
-    let upper = function
-      | (_, None) -> raise Unbounded
-      | (_, Some x) -> x
+    let upper ivl = match Interval.upper ivl with
+      | None -> raise Unbounded
+      | Some x -> x
     in
     let f (var, coeff) =
       try
@@ -2031,12 +2004,12 @@ module Make (T : Term.S) = struct
 
   let boxify templates phi =
     let bounds = optimize templates phi in
-    let to_formula template (lo, hi) =
-      let lower = match lo with
+    let to_formula template ivl =
+      let lower = match Interval.lower ivl with
 	| Some lo -> leq (T.const lo) template
 	| None -> top
       in
-      let upper = match hi with
+      let upper = match Interval.upper ivl with
 	| Some hi -> leq template (T.const hi)
 	| None -> top
       in

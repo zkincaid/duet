@@ -257,12 +257,13 @@ let optimize1 () =
   let phi =
     T.neg five <= x && x <= T.neg two && two <= y
   in
+  let x_expected = Interval.make_bounded (QQ.of_int (-5)) (QQ.of_int (-2)) in
+  let y_expected = Interval.make (Some (QQ.of_int 2)) None in
   match F.optimize [x; y] phi with
-  | [(Some x_lo, Some x_hi); (Some y_lo, None)] ->
+  | [x_ivl; y_ivl] ->
     begin
-      assert_equal ~cmp:QQ.equal ~printer:QQ.show x_lo (QQ.of_int (-5));
-      assert_equal ~cmp:QQ.equal ~printer:QQ.show x_hi (QQ.of_int (-2));
-      assert_equal ~cmp:QQ.equal ~printer:QQ.show y_lo (QQ.of_int 2)
+      assert_equal ~cmp:Interval.equal ~printer:Interval.show x_expected x_ivl;
+      assert_equal ~cmp:Interval.equal ~printer:Interval.show y_expected y_ivl
     end
   | _ -> assert false
 

@@ -203,8 +203,8 @@ module type S = sig
 
   val symbolic_bounds : (T.V.t -> bool) -> t -> T.t -> (pred * T.t) list
 
-  val optimize : (T.t list) -> t -> (QQ.t option * QQ.t option) list
-  val disj_optimize : (T.t list) -> t -> (QQ.t option * QQ.t option) list list
+  val optimize : (T.t list) -> t -> Interval.interval list
+  val disj_optimize : (T.t list) -> t -> Interval.interval list list
 
   val dnf_size : t -> int
   val nb_atoms : t -> int
