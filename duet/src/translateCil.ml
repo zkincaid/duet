@@ -668,7 +668,7 @@ let tr_initializer globals =
 	| Cil.SingleInit exp -> (mk_assign lv exp)::il
 	| Cil.CompoundInit (ct, initl) ->
 	  Cil.foldLeftCompound
-	    ~implicit:true
+	    ~implicit:false
 	    ~doinit:(fun offset init typ il ->
 	      mk_init (Cil.addOffsetLval offset lv) init il)
 	    ~ct:ct
