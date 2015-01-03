@@ -1,3 +1,0 @@
-# -*- mode: Makefile -*-
-CBMC = @CBMC@
-ARK = @ARK@

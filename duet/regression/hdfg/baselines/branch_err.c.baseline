@@ -1,5 +1,5 @@
 ./regression/hdfg/code/branch_err.c:14 >> Assertion failed: *p == 0
-{map: [{} => {(*p)}. (*p) >= 0 && -(*p)+1. >= 0]; default: {(*p)}. _|_}
+{map: [{} => {(*p)}. (*p) >= 0 && -(*p)+1 >= 0]; default: {(*p)}. _|_}
 
 1 errors total
 0 safe assertions

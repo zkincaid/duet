@@ -5,40 +5,42 @@ Duet is a static analysis tool designed for analyzing concurrent programs.
 Building
 ========
 
-Duet depends on several software packages.  Some of the more obscure dependencies are managed by the setup script.  The following dependencies need to be installed manually.
+### Dependencies
 
- + autoconf
- + OCaml (>= 3.12, with native compiler)
- + camlp4
- + CamlIDL
- + findlib
- + Java
- + GMP (+ ocaml bindings)
- + MPFR (+ ocaml bindings)
- + libbdd
- + z3 + ocaml bindings (see below)
+Duet depends on several software packages.  The following dependencies need to be installed manually.
 
-### Obtaining z3
+ + [opam](http://opam.ocaml.org) (with OCaml >= 3.12 & native compiler)
+ + autotools
+ + GMP and MPFR
 
+On Ubuntu, you can install these packages (except Java) with:
 ```
- git clone https://git01.codeplex.com/z3 -b ml-ng
- cd z3
- python scripts/mk_make.py --ml
- cd build
+ sudo apt-get install opam autotools-dev libgmp-dev libmpfr-dev
+```
+
+Next, add the [sv-opam](https://github.com/zkincaid/sv-opam) OPAM repository, and install the rest of duet's dependencies.  These are built from source, so grab a coffee &mdash; this may take a long time.
+```
+ opam remote add sv git://github.com/zkincaid/sv-opam.git
+ opam install ocamlgraph batteries cil oasis deriving Z3 apron.0.9.10 ounit
+```
+
+Building Z3 from source requires the latest version of git.  Follow [these instructions](http://z3.codeplex.com/wikipage?title=Git%20HTTPS%20cloning%20errors) if opam fails to install Z3.
+
+### Building Duet
+
+After Duet's dependencies are installed, it can be built as follows:
+```
+ autoconf
+ ./configure
  make
- sudo ocamlfind install Z3 api/ml/META api/ml/z3.cma api/ml/z3.cmxa api/ml/z3.a api/ml/z3.cmi api/ml/z3enums.cmi api/ml/z3native.cmi api/ml/libz3ml.a libz3.so
 ```
 
-### Building Duet:
-
-Once the all dependencies have been installed, 
-
-Run `sudo ./setup.sh <username>`
-
-
-Documentation can be built with `make doc` the output will be in `./doc`.  This requires ocamldoc.  A dependency graph of the modules in the project can be built with `make dg`; the output will be in `doc/dependencies.png`.
-
-A TAGS file (for emacs/vim) can be built with `make tags`.  This requires `otags`.
+Duet's makefile has the following targets:
+ + `make`: Build duet
+ + `make ark`: Build the ark library and test suite
+ + `make apak`: Build the apak library and test suite
+ + `make doc`: Build documentation
+ + `make test`: Run test suite
 
 Running Duet
 ============
@@ -58,19 +60,7 @@ By default, Duet checks user-defined assertions. Alternatively, it can also inst
 
 Architecture
 ============
-Duet is split into several modules:
-
-* deriving
-
-  Extension to OCaml for deriving functions from type declarations.  This extends the original [deriving](https://github.com/jaked/deriving) package with a `Compare` class.
-
-* buddy
-
-  Bindings to the [BuDDy](http://buddy.sourceforge.net/manual/main.html) binary decision diagram (BDD) package.  This extends the original [bindings](https://github.com/abate/ocaml-buddy) with some additional functions.
-
-* datalog
-
-  BDD-based datalog implementation and interface to [bddbddb](http://bddbddb.sourceforge.net)
+Duet is split into several packages:
 
 * apak
 
@@ -78,7 +68,7 @@ Duet is split into several modules:
 
 * ark 
 
-  Arithmetic reasoning kit.  This is a high-level interface over Z3 (and eventually Apron).  Most of the work of linear recurrence analysis lives in ark.
+  Arithmetic reasoning kit.  This is a high-level interface over Z3 and Apron.  Most of the work of linear recurrence analysis lives in ark.
 
 * duet
 

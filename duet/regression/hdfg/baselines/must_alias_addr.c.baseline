@@ -1,5 +1,5 @@
 ./regression/hdfg/code/must_alias_addr.c:11 >> Assertion failed: a == 1
-{map: [{} => {a}. a >= 0 && -a+1. >= 0]; default: {a}. _|_}
+{map: [{} => {a}. a >= 0 && -a+1 >= 0]; default: {a}. _|_}
 
 1 errors total
 0 safe assertions
