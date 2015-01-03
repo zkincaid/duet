@@ -118,6 +118,8 @@ class switchVisitor = object (self)
         | Label _        -> lbl
         | Case (exp,loc) -> add_target (Some exp); mk_label loc
         | Default loc    -> add_target None; mk_label loc
+        | CaseRange (_, _, _) ->
+	   failwith "CaseRange not supported: GCC extension."
       in
       stmt.labels <- List.map f stmt.labels;
       !targets
@@ -323,6 +325,8 @@ let rec tr_expr = function
       end))
   | Cil.CastE (t, e) -> Cast (tr_typ t, tr_expr e)
   | Cil.AddrOf l -> addr_of (tr_lval l)
+  | Cil.AddrOfLabel _ ->
+     failwith "Address of label (&&) is not supported: GCC extension."
   | Cil.StartOf l ->
     (* Conversion of an array type to a pointer type *)
     addr_of (tr_lval l)
@@ -422,7 +426,9 @@ let tr_instr ctx instr =
 	let error_msg = Pretty.sprint ~width:80 (Cil.d_exp () cil_arg) in
 	mk_def (Assert (Bexpr.of_expr x, error_msg))
       | _ -> assert false
-    end
+					end
+    | ("__VERIFIER_error", None, []) ->
+      mk_def (Assert (Bexpr.kfalse, "error"))
     | ("__assert_fail", None, [_;_;_;_]) ->
       mk_def (Assert (Bexpr.kfalse, "fail"))
     | ("malloc", Some (Variable v), [x])
