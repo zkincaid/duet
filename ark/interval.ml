@@ -98,17 +98,20 @@ let meet x y = normalize {
     end
 }
 
-let leq x y =
-  begin match x.lower, y.lower with
-  | _, None -> true
-  | None, _ -> false
-  | Some a, Some b -> QQ.geq a b
-  end
-  || begin match x.upper, y.upper with
-    | _, None -> true
-    | None, _ -> false
-    | Some a, Some b -> QQ.leq a b
-  end
+(* Is every member of the interval x inside the interval y? *)
+let leq x y = equal x (meet x y)
+
+(* Is every member of the interval x <= every member of the interval y? *)
+let left x y =
+  match x.upper, y.lower with
+  | (Some x_hi, Some y_lo) -> QQ.leq x_hi y_lo
+  | (_, _) -> false
+
+(* Is every member of the interval x < every member of the interval y? *)
+let strictly_left x y =
+  match x.upper, y.lower with
+  | (Some x_hi, Some y_lo) -> QQ.lt x_hi y_lo
+  | (_, _) -> false
 
 let is_nonnegative x =
   match x.lower with
@@ -168,6 +171,33 @@ let div x y =
   | _, _ -> top (* todo *)
   end
 
+let abs x =
+  if is_nonnegative x then x
+  else if is_nonpositive x then negate x
+  else
+    let upper =
+      match x.lower, x.upper with
+      | (Some lo, Some hi) -> Some (QQ.max (QQ.negate lo) hi)
+      | (_, _) -> None
+    in
+    { lower = Some QQ.zero; upper = upper }
+
+let modulo x y =
+  if equal x bottom || equal y bottom then
+    bottom
+  else if elem QQ.zero y then top
+  else
+    (* mod y is the same as mod |y| *)
+    let y = abs y in
+    match y.lower with
+    (* |y| is sufficiently large for "mod y" be a no-op on x *)
+    | Some lo when strictly_left (abs x) (const lo) -> x
+    | _ ->
+       let y_1 = map_opt (flip QQ.sub QQ.one) y.upper in (* |y|-1 *)
+       let divisor_ivl = { lower = map_opt QQ.negate y_1; upper = y_1 } in
+       let dividend_ivl = join x zero in
+       meet divisor_ivl dividend_ivl
+
 let upper x = x.upper
 let lower x = x.lower
 let floor x =
@@ -182,7 +212,18 @@ let of_apron ivl =
   in
   make (cvt ivl.Apron.Interval.inf) (cvt ivl.Apron.Interval.sup)
 
-let const_of { upper; lower } =
+let apron_of { lower; upper } =
+  let lo = match lower with
+    | Some lo -> Apron.Scalar.of_mpqf lo
+    | None -> Apron.Scalar.of_infty (-1)
+  in
+  let hi = match upper with
+    | Some hi -> Apron.Scalar.of_mpqf hi
+    | None -> Apron.Scalar.of_infty 1
+  in
+  Apron.Interval.of_scalar lo hi
+
+let const_of { lower; upper } =
   match upper, lower with
   | Some hi, Some lo when QQ.equal hi lo -> Some hi
   | _ -> None

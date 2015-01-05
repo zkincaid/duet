@@ -549,7 +549,7 @@ module Make (T : Term.S) = struct
     let f = function
       | OVar v -> VarSet.singleton v
       | OConst _ -> VarSet.empty
-      | OAdd (x,y) | OMul (x,y) | ODiv (x,y) -> VarSet.union x y
+      | OAdd (x,y) | OMul (x,y) | ODiv (x,y) | OMod (x,y) -> VarSet.union x y
       | OFloor x -> x
     in
     T.eval f term
@@ -1369,15 +1369,21 @@ module Make (T : Term.S) = struct
 
     let uninterp_mul_sym = Smt.mk_string_symbol "uninterp_mul" in
     let uninterp_div_sym = Smt.mk_string_symbol "uninterp_div" in
+    let uninterp_mod_sym = Smt.mk_string_symbol "uninterp_mod" in
     let real_sort = Smt.mk_real_sort () in
+    let int_sort = Smt.mk_int_sort () in
     let uninterp_mul_decl =
       Smt.mk_func_decl uninterp_mul_sym [real_sort; real_sort] real_sort
     in
-    let uninterp_div_decl = 
+    let uninterp_div_decl =
       Smt.mk_func_decl uninterp_div_sym [real_sort; real_sort] real_sort
+    in
+    let uninterp_mod_decl =
+      Smt.mk_func_decl uninterp_mod_sym [int_sort; int_sort] int_sort
     in
     let mk_mul x y = Smt.mk_app uninterp_mul_decl [x; y] in
     let mk_div x y = Smt.mk_app uninterp_div_decl [x; y] in
+    let mk_mod x y = Smt.mk_app uninterp_mod_decl [x; y] in
     let talg = function
       | OVar v -> (V.to_smt v, V.typ v)
       | OConst k ->
@@ -1397,6 +1403,9 @@ module Make (T : Term.S) = struct
 	  | TyInt  -> (Smt.mk_int2real y)
 	in
 	(mk_div x y, TyReal)
+      | OMod ((x,TyInt),(y,TyInt)) ->
+	(mk_mod x y, TyInt)
+      | OMod (_, _) -> assert false
       | OFloor (x, _)   -> (Smt.mk_real2int x, TyInt)
     in
     let assert_nl_eq nl_term var =
@@ -1719,6 +1728,11 @@ module Make (T : Term.S) = struct
 
     let mul x y = meet (mul_interval x.interval y) (mul_interval y.interval x)
 
+    let negate x =
+      { interval = Interval.negate x.interval;
+	upper = List.map T.neg x.lower;
+	lower = List.map T.neg x.upper }
+
     let div x y =
       match Interval.lower y.interval, Interval.upper y.interval with
       | Some a, Some b ->
@@ -1734,6 +1748,30 @@ module Make (T : Term.S) = struct
 	      interval = Interval.div x.interval y.interval }
 	end else of_interval (Interval.div x.interval y.interval) (* todo *)
       | _, _ -> of_interval (Interval.div x.interval y.interval)
+
+    let modulo x y =
+      let ivl = Interval.modulo x.interval y.interval in
+      if Interval.equal ivl Interval.bottom then bottom
+      else if Interval.elem QQ.zero y.interval then top
+      else
+	(* y is either strictly positive or strictly negative.  mod y is the
+           same as mod |y| *)
+	let y =
+	  if Interval.is_positive y.interval then y
+	  else negate y
+	in
+	if Interval.is_nonnegative x.interval then
+	  { interval = ivl;
+	    lower = [];
+	    upper = x.upper@(List.map (flip T.sub T.one) (y.upper)) }
+	else if Interval.is_nonpositive x.interval then
+	  { interval = ivl;
+	    lower = x.lower@(List.map (T.add T.one % T.neg) y.upper);
+	    upper = [] }
+	else
+	  { interval = ivl;
+	    lower = List.map (T.add T.one % T.neg) y.upper;
+	    upper = List.map (flip T.sub T.one) y.upper }
 
     let make lower upper interval =
       { lower = lower; upper = upper; interval = interval }
@@ -1793,6 +1831,7 @@ module Make (T : Term.S) = struct
 	| OAdd (x, y) -> LinBound.add x y
 	| OMul (x, y) -> LinBound.mul x y
 	| ODiv (x, y) -> LinBound.div x y
+	| OMod (x, y) -> LinBound.modulo x y
 	| OFloor x -> LinBound.floor x
       in
       let mk_nl_bounds (term, var) =

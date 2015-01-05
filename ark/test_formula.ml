@@ -10,7 +10,9 @@ module StrVar = struct
   let of_smt sym = match Smt.symbol_refine sym with
     | Smt.Symbol_string str -> str
     | Smt.Symbol_int _ -> assert false
-  let typ _ = TyReal
+  let typ = function
+    | "ix" | "iy" | "iz" -> TyInt
+    | _ -> TyReal
 end
 module T = Term.Make(StrVar)
 module F = Formula.Make(T)
@@ -209,6 +211,19 @@ let linearize5 () =
   in
   assert_implies phi F.bottom
 
+let linearize6 () =
+  let x = T.var "ix" in
+  let y = T.var "iy" in
+  let z = T.var "iz" in
+  let phi =
+    linearize (T.const (QQ.of_int 3) <= y && y <= (T.const (QQ.of_int 10))
+	       && x >= T.zero
+	       && z == T.modulo x y)
+  in
+  assert_implies phi (z < T.const (QQ.of_int 10));
+  assert_implies phi (z >= T.zero);
+  assert_implies phi (z <= x)
+
 let interpolate1 () =
   let x = T.var "x" in
   let y = T.var "y" in
@@ -285,6 +300,7 @@ let suite = "Formula" >:::
     "linearize3" >:: linearize3;
     "linearize4" >:: linearize4;
     "linearize5" >:: linearize5;
+    "linearize6" >:: linearize6;
     "interpolate1" >:: interpolate1;
     "interpolate2" >:: interpolate2;
     "interpolate3" >:: interpolate3;

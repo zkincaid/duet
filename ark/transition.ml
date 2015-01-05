@@ -122,7 +122,7 @@ module Dioid (Var : Var) = struct
 	| None -> VarSet.empty
       end
       | OConst _ -> VarSet.empty
-      | OAdd (x,y) | OMul (x,y) | ODiv (x,y) -> VarSet.union x y
+      | OAdd (x,y) | OMul (x,y) | ODiv (x,y) | OMod (x,y) -> VarSet.union x y
       | OFloor x -> x
     in
     T.eval f term
@@ -144,7 +144,7 @@ module Dioid (Var : Var) = struct
 	| None   -> VSet.singleton v
       end
       | OConst _ -> VSet.empty
-      | OAdd (x,y) | OMul (x,y) | ODiv (x,y) -> VSet.union x y
+      | OAdd (x,y) | OMul (x,y) | ODiv (x,y) | OMod (x,y) -> VSet.union x y
       | OFloor x -> x
     in
     T.eval f term
