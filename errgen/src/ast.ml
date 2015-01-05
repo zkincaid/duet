@@ -48,7 +48,7 @@ type stmt_type =
 type prog_type = 
   Prog of stmt_type  
 
-module Show_aexp_type = Show.Defaults(struct
+module Show_aexp_type = Deriving_Show.Defaults(struct
   type a = aexp_type
   let rec format formatter = function
     | Real_const r -> QQ.format formatter r
@@ -63,7 +63,7 @@ module Show_aexp_type = Show.Defaults(struct
       Format.fprintf formatter "-(%a)" format a
     | Havoc_aexp -> Format.pp_print_string formatter "nondet()"
 end)
-module Show_bexp_type = Show.Defaults(struct
+module Show_bexp_type = Deriving_Show.Defaults(struct
   type a = bexp_type
   let fe = Show.format<aexp_type>
   let rec format formatter = function
@@ -82,7 +82,7 @@ module Show_bexp_type = Show.Defaults(struct
     | Not_exp phi -> Format.fprintf formatter "!(%a)" format phi
     | Havoc_bexp -> Format.pp_print_string formatter "nondet() < 1"
 end)
-module Show_cmd_type = Show.Defaults(struct
+module Show_cmd_type = Deriving_Show.Defaults(struct
   type a = cmd_type
   let format formatter = function
     | Skip -> Format.pp_print_string formatter "skip"
@@ -95,7 +95,7 @@ module Show_cmd_type = Show.Defaults(struct
     | Assume phi ->
       Format.fprintf formatter "assume(%a)" Show.format<bexp_type> phi
 end)
-module Show_stmt_type = Show.Defaults(struct
+module Show_stmt_type = Deriving_Show.Defaults(struct
   type a = stmt_type
   let rec format formatter = function
     | Cmd c -> Show.format<cmd_type> formatter c

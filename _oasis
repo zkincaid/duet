@@ -57,6 +57,15 @@ Executable duet
   CompiledObject: native
   Install:        false
 
+Executable approx
+  Path:           errgen/src
+  BuildTools:     ocamlbuild
+  MainIs:         approx.ml
+  BuildDepends:   deriving, deriving.syntax, apak, gmp, camlidl, apron,
+                  apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, ark
+  CompiledObject: native
+  Install:        false
+
 Test apak
   Command:   $test_apak
   TestTools: test_apak

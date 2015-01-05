@@ -9,6 +9,7 @@ type aexp_type =
 | Var_exp of string
 | Unneg_exp of aexp_type 
 | Havoc_aexp
+    deriving (Compare, Show)
 
 type bexp_type = 
  Bool_const of bool 
@@ -22,6 +23,7 @@ type bexp_type =
 | Not_exp of bexp_type
 | Or_exp of (bexp_type * bexp_type)
 | Havoc_bexp
+    deriving (Compare, Show)
 
 type cmd_type =
   Skip
@@ -29,12 +31,14 @@ type cmd_type =
 | Assert of bexp_type
 | Print of aexp_type
 | Assume of bexp_type
+    deriving (Compare, Show)
 
 type stmt_type = 
   Cmd of cmd_type
 | Seq of (stmt_type * stmt_type)
 | Ite of (bexp_type * stmt_type * stmt_type)
 | While of (bexp_type * stmt_type * bool)
+    deriving (Show)
 
 type prog_type = 
   Prog of stmt_type 
@@ -52,12 +56,3 @@ val primify_cmd : cmd_type -> cmd_type
 
 val nnf : bexp_type -> bexp_type
 val negate : bexp_type -> bexp_type
-
-(* Deriving instances *)
-module Compare_aexp_type : Compare.Compare with type a = aexp_type
-module Compare_bexp_type : Compare.Compare with type a = bexp_type
-module Compare_cmd_type : Compare.Compare with type a = cmd_type
-module Show_aexp_type : Show.Show with type a = aexp_type
-module Show_bexp_type : Show.Show with type a = bexp_type
-module Show_cmd_type : Show.Show with type a = cmd_type
-module Show_stmt_type : Show.Show with type a = stmt_type
