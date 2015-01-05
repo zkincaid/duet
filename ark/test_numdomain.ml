@@ -37,8 +37,8 @@ let roundtrip2 () =
   assert_equal ~cmp:T.equal ~printer:T.show t t2
 
 let roundtrip3 () =
-  let x = T.var "x" in
-  let env = Env.of_enum (BatList.enum ["x"]) in
+  let x = T.var "ix" in
+  let env = Env.of_enum (BatList.enum ["ix"]) in
   let five = T.const (QQ.of_int 5) in
   let two = T.const (QQ.of_int 2) in
   let t = T.modulo (x + five) two in

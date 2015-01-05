@@ -223,8 +223,6 @@ module Make (V : Var) = struct
       end
     | _ -> hashcons (Div (x, y))
 
-  let modulo x y = hashcons (Mod (x, y))
-
   let floor x =
     match to_const x with
     | Some k -> const (QQ.of_zz (QQ.floor k))
@@ -274,6 +272,14 @@ module Make (V : Var) = struct
       | OMod (_, _) -> TyInt
     in
     eval f t
+
+  let modulo x y =
+    if typ x != TyInt then
+      invalid_arg ("Term.modulo: non-integral dividend: " ^ T.show x)
+    else if typ y != TyInt then
+      invalid_arg ("Term.modulo: non-integral divisor: " ^ T.show y)
+    else
+      hashcons (Mod (x, y))
 
   let log_stats () =
     let (length, count, total, min, median, max) = HC.stats term_tbl in
