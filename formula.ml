@@ -1392,7 +1392,7 @@ module Make (T : Term.S) = struct
 	| None   -> (Smt.const_qq k, TyReal)
 	end
       | OAdd ((x,x_typ),(y,y_typ)) -> (Smt.add x y, join_typ x_typ y_typ)
-      | OMul ((x,x_typ),(y,y_typ)) -> (mk_mul x y, TyReal)
+      | OMul ((x,x_typ),(y,y_typ)) -> (mk_mul x y, join_typ x_typ y_typ)
       | ODiv ((x,x_typ),(y,y_typ)) ->
 	let x = match x_typ with
 	  | TyReal -> x
@@ -1403,8 +1403,7 @@ module Make (T : Term.S) = struct
 	  | TyInt  -> (Smt.mk_int2real y)
 	in
 	(mk_div x y, TyReal)
-      | OMod ((x,TyInt),(y,TyInt)) ->
-	(mk_mod x y, TyInt)
+      | OMod ((x,TyInt),(y,TyInt)) -> (mk_mod x y, TyInt)
       | OMod (_, _) -> assert false
       | OFloor (x, _)   -> (Smt.mk_real2int x, TyInt)
     in
