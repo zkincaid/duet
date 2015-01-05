@@ -36,6 +36,15 @@ let roundtrip2 () =
   let t2 = T.of_apron env (T.to_apron env t) in
   assert_equal ~cmp:T.equal ~printer:T.show t t2
 
+let roundtrip3 () =
+  let x = T.var "x" in
+  let env = Env.of_enum (BatList.enum ["x"]) in
+  let five = T.const (QQ.of_int 5) in
+  let two = T.const (QQ.of_int 2) in
+  let t = T.modulo (x + five) two in
+  let t2 = T.of_apron env (T.to_apron env t) in
+  assert_equal ~cmp:T.equal ~printer:T.show t t2
+
 let abstract1 () =
   let x = T.var "x" in
   let y = T.var "y" in
@@ -135,10 +144,40 @@ let symbound2 () =
   let phi2 = formula_of_bounds y (F.symbolic_bounds p phi y) in
   assert_equal ~cmp:F.equiv ~printer:F.show phi1 phi2
 
+(* Check that Apron's expression evaluation agrees with ark's *)
+let assert_eval_equal t =
+  let apron_ivl =
+    Interval.of_apron (NumDomain.eval_texpr (T.to_apron Env.empty t))
+  in
+  match Interval.const_of apron_ivl with
+  | Some apron_val ->
+     let ark_val = T.evaluate (fun _ -> assert false) t in
+     assert_equal ~cmp:QQ.equal ~printer:QQ.show apron_val ark_val
+  | None -> assert false
+
+
+(* Make sure Apron's modulus & integer division operators agrees with ark's. *)
+let modulo () =
+  let expr1 = T.modulo (T.const (QQ.of_int 14)) (T.const (QQ.of_int (-3))) in
+  let expr2 = T.modulo (T.const (QQ.of_int (-14))) (T.const (QQ.of_int 3)) in
+  let expr3 = T.modulo (T.const (QQ.of_int (-14))) (T.const (QQ.of_int (-3))) in
+  assert_eval_equal expr1;
+  assert_eval_equal expr2;
+  assert_eval_equal expr3
+
+let div () =
+  let expr1 = T.idiv (T.const (QQ.of_int 14)) (T.const (QQ.of_int (-3))) in
+  let expr2 = T.idiv (T.const (QQ.of_int (-14))) (T.const (QQ.of_int 3)) in
+  let expr3 = T.idiv (T.const (QQ.of_int (-14))) (T.const (QQ.of_int (-3))) in
+  assert_eval_equal expr1;
+  assert_eval_equal expr2;
+  assert_eval_equal expr3
+
 let suite = "Numerical" >:::
   [
     "roundtrip1" >:: roundtrip1;
     "roundtrip2" >:: roundtrip2;
+    "roundtrip3" >:: roundtrip3;
     "abstract1" >:: abstract1;
     "box" >:: box;
     "env1" >:: env1;
@@ -148,4 +187,6 @@ let suite = "Numerical" >:::
     "assign3" >:: assign3;
     "symbound1" >:: symbound1;
     "symbound2" >:: symbound2;
+    "modulo" >:: modulo;
+    "div" >:: div
   ]

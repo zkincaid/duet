@@ -32,6 +32,7 @@ module type S = sig
   val add : t -> t -> t
   val sub : t -> t -> t
   val div : t -> t -> t
+  val modulo : t -> t -> t
   val neg : t -> t
   val floor : t -> t
   val zero : t

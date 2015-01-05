@@ -22,6 +22,11 @@ let coeff_of_qq = Coeff.s_of_mpqf
 let scalar_zero = Coeff.s_of_int 0
 let scalar_one = Coeff.s_of_int 1
 
+(* Evaluate a closed expression to an interval *)
+let eval_texpr expr =
+  let man = Box.manager_alloc () in
+  Abstract0.bound_texpr man (Abstract0.top man 0 0) expr
+
 let opt_max_coeff_size = ref (Some 10)
 let set_coeff_size man =
   match !opt_max_coeff_size with

@@ -29,6 +29,7 @@ module type S = sig
   val add : t -> t -> t
   val sub : t -> t -> t
   val div : t -> t -> t
+  val modulo : t -> t -> t
   val neg : t -> t
   val floor : t -> t
   val zero : t
@@ -98,6 +99,7 @@ module Make (V : Var) = struct
     | Add of t * t
     | Mul of t * t
     | Div of t * t
+    | Mod of t * t
     | Floor of t
 
     include Putil.MakeFmt(struct
@@ -110,6 +112,8 @@ module Make (V : Var) = struct
 	  Format.fprintf formatter "@[(%a)@ *@ (%a)@]" format x format y
 	| Div (x,y) ->
 	  Format.fprintf formatter "@[(%a)@ /@ (%a)@]" format x format y
+	| Mod (x,y) ->
+	  Format.fprintf formatter "@[(%a)@ %@ (%a)@]" format x format y
 	| Floor x ->
 	  Format.fprintf formatter "floor(%a)" format x
     end)
@@ -138,13 +142,15 @@ module Make (V : Var) = struct
     | (Add (w,x)), (Add (y,z)) -> w.tag == y.tag && x.tag == z.tag
     | (Mul (w,x)), (Mul (y,z)) -> w.tag == y.tag && x.tag == z.tag
     | (Div (w,x)), (Div (y,z)) -> w.tag == y.tag && x.tag == z.tag
+    | (Mod (w,x)), (Mod (y,z)) -> w.tag == y.tag && x.tag == z.tag
     | (_, _) -> false
     let hash t = Hashtbl.hash (match t with
     | Lin lin    -> (Linterm.hash lin, 0, 0)
     | Floor s    -> (s.hkey, 0, 1)
     | Add (x, y) -> (x.hkey, y.hkey, 2)
     | Mul (x, y) -> (x.hkey, y.hkey, 3)
-    | Div (x, y) -> (x.hkey, y.hkey, 4))
+    | Div (x, y) -> (x.hkey, y.hkey, 4)
+    | Mod (x, y) -> (x.hkey, y.hkey, 5))
   end)
   let term_tbl = HC.create 1000003
   let hashcons x = Log.time "term:hashcons" (HC.hashcons term_tbl) x
@@ -217,6 +223,8 @@ module Make (V : Var) = struct
       end
     | _ -> hashcons (Div (x, y))
 
+  let modulo x y = hashcons (Mod (x, y))
+
   let floor x =
     match to_const x with
     | Some k -> const (QQ.of_zz (QQ.floor k))
@@ -252,7 +260,8 @@ module Make (V : Var) = struct
 	end
       | Add (x, y) -> alg (OAdd (eval x, eval y))
       | Mul (x, y) -> alg (OMul (eval x, eval y))
-      | Div (x, y) -> alg (ODiv (eval x, eval y)))
+      | Div (x, y) -> alg (ODiv (eval x, eval y))
+      | Mod (x, y) -> alg (OMod (eval x, eval y)))
 
   let typ t =
     let f = function
@@ -262,6 +271,7 @@ module Make (V : Var) = struct
       | OVar v -> V.typ v
       | OAdd (x, y) | OMul (x, y) -> join_typ x y
       | ODiv (_, _) -> TyReal
+      | OMod (_, _) -> TyInt
     in
     eval f t
 
@@ -295,6 +305,7 @@ module Make (V : Var) = struct
 	  | TyInt  -> (Smt.mk_int2real y)
 	in
 	(Smt.mk_div x y, TyReal)
+      | OMod ((x,x_typ),(y,y_typ)) -> (Smt.mk_mod x y, TyInt)
       | OFloor (x, _)   -> (Smt.mk_real2int x, TyInt)
     in
     fst % eval alg
@@ -306,6 +317,7 @@ module Make (V : Var) = struct
       | OAdd (s,t) -> add s t
       | OMul (s,t) -> mul s t
       | ODiv (s,t) -> div s t
+      | OMod (s,t) -> modulo s t
       | OFloor t -> floor t
     in
     eval alg
@@ -340,6 +352,7 @@ module Make (V : Var) = struct
       | OAdd (x, y) -> Sop.add x y
       | OMul (x, y) -> Sop.of_enum ((product x y) /@ mul)
       | ODiv (x, y) -> Sop.of_enum ((product x y) /@ div)
+      | OMod (x, y) -> Sop.var (modulo (of_sop x) (of_sop y))
       | OFloor x -> Sop.var (floor (of_sop x))
     in
     eval alg t
@@ -372,6 +385,12 @@ module Make (V : Var) = struct
       | OAdd (s, t) -> QQ.add s t
       | OMul (s, t) -> QQ.mul s t
       | ODiv (s, t) -> QQ.div s t
+      | OMod (s, t) ->
+	 begin
+	   match QQ.to_zz s, QQ.to_zz t with
+	   | (Some s, Some t) -> QQ.of_zz (ZZ.modulo s t)
+	   | (_, _) -> failwith "Term.evaluate: non-integral mod"
+	 end
       | OFloor t -> QQ.of_zz (QQ.floor t)
     in
     eval f term
@@ -469,8 +488,9 @@ module Make (V : Var) = struct
 	let typ = join_typ s_typ t_typ in
 	(Binop (Mul, s, t, atyp typ, Down), typ)
       | ODiv ((s,s_typ), (t,t_typ)) ->
-	(Binop (Div, s, t, Real, Down), TyReal)
+	(Binop (Div, s, t, Real, Zero), TyReal)
       | OFloor (t,t_typ) -> (Unop (Cast, t, Int, Down), TyInt)
+      | OMod ((s,s_typ), (t,t_typ)) -> (Binop (Mod, s, t, Int, Zero), TyInt)
     in
     Texpr0.of_expr (fst (eval alg t))
 
@@ -490,7 +510,12 @@ module Make (V : Var) = struct
 	| Add -> add s t
 	| Sub -> sub s t
 	| Mul -> mul s t
-	| Mod | Pow -> assert false (* todo *)
+	| Mod ->
+	   begin match typ, round with
+		 | Int, Zero -> modulo s t
+		 | _, _ -> assert false
+	   end
+	| Pow -> assert false (* todo *)
 	| Div ->
 	  begin match typ, round with
 	  | Int, Down -> idiv s t
