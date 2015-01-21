@@ -2,7 +2,6 @@ open Apak
 open ArkPervasives
 open BatPervasives
 open Hashcons
-open Apron
 
 include Log.Make(struct let name = "ark.transition" end)
 
@@ -123,7 +122,7 @@ module Dioid (Var : Var) = struct
 	| None -> VarSet.empty
       end
       | OConst _ -> VarSet.empty
-      | OAdd (x,y) | OMul (x,y) | ODiv (x,y) -> VarSet.union x y
+      | OAdd (x,y) | OMul (x,y) | ODiv (x,y) | OMod (x,y) -> VarSet.union x y
       | OFloor x -> x
     in
     T.eval f term
@@ -145,7 +144,7 @@ module Dioid (Var : Var) = struct
 	| None   -> VSet.singleton v
       end
       | OConst _ -> VSet.empty
-      | OAdd (x,y) | OMul (x,y) | ODiv (x,y) -> VSet.union x y
+      | OAdd (x,y) | OMul (x,y) | ODiv (x,y) | OMod (x,y) -> VSet.union x y
       | OFloor x -> x
     in
     T.eval f term
@@ -644,10 +643,10 @@ module Make (Var : Var) = struct
     let cases = F.disj_optimize deltas ctx.phi in
     let case_vars = List.map (fun case -> T.var (V.mk_int_tmp "K")) cases in
     let f loop v cases =
-      let g sum case_var (lo, hi) = match sum, lo, hi with
-	| (Some sum, Some lo, Some hi) when QQ.equal lo hi ->
-	  Some (T.add (T.mul case_var (T.const lo)) sum)
-	| (_, _, _) -> None
+      let g sum case_var ivl = match sum, Interval.const_of ivl with
+	| (Some sum, Some k_ivl) ->
+	  Some (T.add (T.mul case_var (T.const k_ivl)) sum)
+	| (_, _) -> None
       in
       match BatList.fold_left2 g (Some T.zero) case_vars cases with
       | Some sum ->
@@ -842,26 +841,26 @@ module Make (Var : Var) = struct
       List.map f non_induction
     in
     let bounds = F.optimize deltas ctx.phi in
-    let h tr (v, (lo, hi)) =
+    let h tr (v, ivl) =
       let delta =
 	try T.sub (M.find v tr.transform) (T.var (V.mk_var v))
 	with Not_found -> assert false
       in
-      let lower = match lo with
+      let lower = match Interval.lower ivl with
 	| Some bound ->
 	  F.leq (T.mul ctx.loop_counter (T.const bound)) delta
 	| None -> F.top
       in
-      let upper = match hi with
+      let upper = match Interval.upper ivl with
 	| Some bound ->
 	  F.leq delta (T.mul ctx.loop_counter (T.const bound))
 	| None -> F.top
       in
-      let lo_string = match lo with
+      let lo_string = match Interval.lower ivl with
 	| Some lo -> (QQ.show lo) ^ " <= "
 	| None -> ""
       in
-      let hi_string = match hi with
+      let hi_string = match Interval.upper ivl with
 	| Some hi -> " <= " ^ (QQ.show hi)
 	| None -> ""
       in

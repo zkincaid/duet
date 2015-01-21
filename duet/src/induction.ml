@@ -282,6 +282,7 @@ let int_binop op left right =
   | Minus -> T.sub left right
   | Mult -> T.mul left right
   | Div -> T.idiv left right
+  | Mod -> T.modulo left right
   | _ -> T.var (V.mk_tmp "havoc" TyInt)
 
 let term_binop op left right = match left, op, right with

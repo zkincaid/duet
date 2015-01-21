@@ -33,7 +33,6 @@ let nudge3 () =
   assert_bool "nudge_down(q) = q" (QQ.equal q_lo q);
   assert_bool "q = nudge_up(q)" (QQ.equal q q_hi)
 
-
 let suite = "Pervasives" >:::
   [
     "nudge1" >:: nudge1;

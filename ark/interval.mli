@@ -8,6 +8,7 @@ val top : interval
 val bottom : interval
 val const : QQ.t -> interval
 val zero : interval
+val const_of : interval -> QQ.t option
 
 val negate : interval -> interval
 
@@ -19,6 +20,7 @@ val equal : interval -> interval -> bool
 
 val mul : interval -> interval -> interval
 val div : interval -> interval -> interval
+val modulo : interval -> interval -> interval
 val add : interval -> interval -> interval
 val floor : interval -> interval
 
@@ -34,3 +36,6 @@ val elem : QQ.t -> interval -> bool
 
 val lower : interval -> QQ.t option
 val upper : interval -> QQ.t option
+
+val of_apron : Apron.Interval.t -> interval
+val apron_of : interval -> Apron.Interval.t

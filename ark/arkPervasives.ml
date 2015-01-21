@@ -178,6 +178,11 @@ module ZZ = struct
   let mul = Mpzf.mul
   let negate = Mpzf.neg
   let floor_div = Mpzf.fdiv_q
+
+  (* C99: a == (a/b)*b + a%b, division truncates towards zero *)
+  let modulo = Mpzf.tdiv_r
+  let div = Mpzf.tdiv_q
+
   let gcd = Mpzf.gcd
   let lcm = Mpzf.lcm
 
@@ -202,6 +207,7 @@ type ('a,'b) open_term =
 | OAdd of 'a * 'a
 | OMul of 'a * 'a
 | ODiv of 'a * 'a
+| OMod of 'a * 'a
 | OFloor of 'a
 
 type ('a,'b) term_algebra = ('a,'b) open_term -> 'a

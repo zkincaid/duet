@@ -10,7 +10,9 @@ module StrVar = struct
   let of_smt sym = match Smt.symbol_refine sym with
     | Smt.Symbol_string str -> str
     | Smt.Symbol_int _ -> assert false
-  let typ _ = TyReal
+  let typ = function
+    | "ix" | "iy" | "iz" -> TyInt
+    | _ -> TyReal
 end
 module T = Term.Make(StrVar)
 module F = Formula.Make(T)
@@ -209,6 +211,19 @@ let linearize5 () =
   in
   assert_implies phi F.bottom
 
+let linearize6 () =
+  let x = T.var "ix" in
+  let y = T.var "iy" in
+  let z = T.var "iz" in
+  let phi =
+    linearize (T.const (QQ.of_int 3) <= y && y <= (T.const (QQ.of_int 10))
+	       && x >= T.zero
+	       && z == T.modulo x y)
+  in
+  assert_implies phi (z < T.const (QQ.of_int 10));
+  assert_implies phi (z >= T.zero);
+  assert_implies phi (z <= x)
+
 let interpolate1 () =
   let x = T.var "x" in
   let y = T.var "y" in
@@ -257,12 +272,13 @@ let optimize1 () =
   let phi =
     T.neg five <= x && x <= T.neg two && two <= y
   in
+  let x_expected = Interval.make_bounded (QQ.of_int (-5)) (QQ.of_int (-2)) in
+  let y_expected = Interval.make (Some (QQ.of_int 2)) None in
   match F.optimize [x; y] phi with
-  | [(Some x_lo, Some x_hi); (Some y_lo, None)] ->
+  | [x_ivl; y_ivl] ->
     begin
-      assert_equal ~cmp:QQ.equal ~printer:QQ.show x_lo (QQ.of_int (-5));
-      assert_equal ~cmp:QQ.equal ~printer:QQ.show x_hi (QQ.of_int (-2));
-      assert_equal ~cmp:QQ.equal ~printer:QQ.show y_lo (QQ.of_int 2)
+      assert_equal ~cmp:Interval.equal ~printer:Interval.show x_expected x_ivl;
+      assert_equal ~cmp:Interval.equal ~printer:Interval.show y_expected y_ivl
     end
   | _ -> assert false
 
@@ -284,6 +300,7 @@ let suite = "Formula" >:::
     "linearize3" >:: linearize3;
     "linearize4" >:: linearize4;
     "linearize5" >:: linearize5;
+    "linearize6" >:: linearize6;
     "interpolate1" >:: interpolate1;
     "interpolate2" >:: interpolate2;
     "interpolate3" >:: interpolate3;
