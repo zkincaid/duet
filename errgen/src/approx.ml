@@ -1,15 +1,16 @@
-(*pp camlp4find deriving.syntax *)
-
 open Ast
 open Apak
 open Ark
 open ArkPervasives
+open BatPervasives
 
 include Log.Make(struct let name = "errgen" end)
 
 let eps_mach = QQ.exp (QQ.of_int 2) (-53)
 let eps_0 = QQ.exp (QQ.of_int 2) (-53)
 
+let approxify = primify
+let idealify x = x
 
 module Var = struct
   type t = string deriving (Compare)
@@ -71,8 +72,8 @@ module K = struct
     (* difference beween float & real vars *)
     let approx_diff x =
       let mk_var v = T.var (V.mk_var v) in
-      let pre_diff = T.sub (mk_var x) (mk_var (primify x)) in
-      let post_diff = T.sub (postify x) (postify (primify x)) in
+      let pre_diff = T.sub (mk_var (idealify x)) (mk_var (approxify x)) in
+      let post_diff = T.sub (postify (idealify x)) (postify (approxify x)) in
       let mk_box phi =
 	F.conj
 	  phi
@@ -120,16 +121,16 @@ module K = struct
       | Some x -> f x
       | None -> F.top
     in
-    let recurrence_ineq diff_term (lo, hi) =
+    let recurrence_ineq diff_term ivl =
       let lower =
 	with_bound
 	  (fun lo -> F.leq (T.mul loop_counter (T.const lo)) diff_term)
-	  lo
+	  (Interval.lower ivl)
       in
       let upper =
 	with_bound
 	  (fun hi -> F.leq diff_term (T.mul loop_counter (T.const hi)))
-	  hi
+	  (Interval.upper ivl)
       in
       F.conj lower upper
     in
@@ -148,18 +149,22 @@ module K = struct
       { loop with guard = F.conj loop.guard recur }
     in
 
-    let mk_box t (lo, hi) =
-      let lo = with_bound (fun lo -> F.leq (T.const lo) t) lo in
-      let hi = with_bound (fun hi -> F.leq t (T.const hi)) hi in
+    let mk_box t ivl =
+      let lo =
+	with_bound (fun lo -> F.leq (T.const lo) t) (Interval.lower ivl)
+      in
+      let hi =
+	with_bound (fun hi -> F.leq t (T.const hi)) (Interval.upper ivl)
+      in
       F.conj lo hi
     in
 
     let attractor x =
       let pre_diff =
-	T.sub (T.var (V.mk_var x)) (T.var (V.mk_var (primify x)))
+	T.sub (T.var (V.mk_var (idealify x))) (T.var (V.mk_var (approxify x)))
       in
       let post_diff =
-	T.sub (postify x) (postify (primify x))
+	T.sub (postify (idealify x)) (postify (approxify x))
       in
       let positive = F.geq pre_diff T.zero in
       let increasing = F.leq pre_diff post_diff in
@@ -312,6 +317,10 @@ module Cfa = struct
   module G = ExtGraph.Persistent.Digraph.MakeBidirectionalLabeled(Putil.PInt)(K)
   include G
   include ExtGraph.Display.MakeLabeled(G)(Putil.PInt)(K)
+  let collect_vars cfa =
+    edges_e cfa /@ (K.modifies % E.label)
+    |> BatEnum.reduce K.VarSet.union
+    |> K.VarSet.elements
 end
 
 module Slice = ExtGraph.Slice.Make(Cfa)
@@ -406,8 +415,7 @@ let build_cfa s weight =
   let (cfa, exit) = go (Cfa.add_vertex Cfa.empty entry) entry s in
   (cfa, entry, exit)
 
-let float_weight cmd =
-  match cmd with
+let float_weight = function
   | Assign (v, rhs) ->
     let (rhs, rhs_err) = float_aexp rhs in
     { K.assign v rhs with K.guard = rhs_err }
@@ -415,13 +423,11 @@ let float_weight cmd =
   | Skip -> K.one
   | Assert _ | Print _ -> K.one
 
-let real_weight cmd =
-  match primify_cmd cmd with
+let real_weight = function
   | Assign (v, rhs) -> K.assign v (real_aexp rhs)
   | Assume phi -> K.assume (real_bexp phi)
   | Skip -> K.one
   | Assert _ | Print _ -> K.one
-
 
 type magic
 module AbstractDomain = struct
@@ -457,42 +463,41 @@ module A = Fixpoint.MakeAnalysis(Cfa)(AbstractDomain)
 (* Analyze floating & real program separately; annotation for a tensor node
    (u,v) is the conjunction of the (floating) annotation at u with the (real)
    annoation at v.  *)
-let analyze_sep (float,float_entry) (real,real_entry) =
+let analyze_sep (approx,approx_entry) (ideal,ideal_entry) =
   let man = Box.manager_of_box (Box.manager_alloc ()) in
   let analyze cfa entry =
     let vertex_tr v prop =
       if v = entry then Some (D.top man D.Env.empty) else prop
     in
     let tr e =
-      AbstractDomain.lift
-	(fun prop -> K.abstract_post man (Cfa.E.label e) prop)
+      AbstractDomain.lift (fun prop -> K.abstract_post man (Cfa.E.label e) prop)
     in
     let result =
       A.analyze_ldi vertex_tr ~edge_transfer:tr ~delay:3 ~max_decrease:2 cfa
     in
     A.output result
   in
-  let float_annotation = analyze float float_entry in
-  let real_annotation = analyze real real_entry in
+  let approx_annotation = analyze approx approx_entry in
+  let ideal_annotation = analyze ideal ideal_entry in
   logf ~level:1 "@\n";
-  logf ~level:1 ~attributes:[Log.Bold] "Float invariants:";
+  logf ~level:1 ~attributes:[Log.Bold] "Approx invariants:";
   Cfa.iter_vertex (fun v ->
-    logf ~level:1 "Float invariant for %d:@\n%a"
+    logf ~level:1 "Approx invariant for %d:@\n%a"
       v
-      D.format (AbstractDomain.lower man (float_annotation v))
-  ) float;
+      D.format (AbstractDomain.lower man (approx_annotation v))
+  ) approx;
   logf ~level:1 "@\n";
-  logf ~level:1 ~attributes:[Log.Bold] "Real invariants:";
+  logf ~level:1 ~attributes:[Log.Bold] "Ideal invariants:";
   Cfa.iter_vertex (fun v ->
-    logf ~level:1 "Real invariant for %d:@\n%a"
+    logf ~level:1 "Ideal invariant for %d:@\n%a"
       v
-      D.format (AbstractDomain.lower man (real_annotation v))
-  ) real;
+      D.format (AbstractDomain.lower man (ideal_annotation v))
+  ) ideal;
   logf ~level:1 "@\n";
   fun (u, v) ->
     F.conj
-      (F.of_abstract (AbstractDomain.lower man (float_annotation u)))
-      (F.of_abstract (AbstractDomain.lower man (real_annotation v)))
+      (F.of_abstract (AbstractDomain.lower man (approx_annotation u)))
+      (F.of_abstract (AbstractDomain.lower man (ideal_annotation v)))
 
 let add_stuttering cfa =
   (* For each edge u --k--> v such that u has a self loop u --k'--> u, add
@@ -562,7 +567,7 @@ let manhattan terms =
 
 let forall p phi = F.negate (F.exists p (F.negate phi))
 
-let greedy annotation vars float_tr real_tr real_succs =
+let greedy annotation vars approx_tr ideal_tr ideal_succs =
   let open K in
   let open BatPervasives in
 
@@ -571,24 +576,26 @@ let greedy annotation vars float_tr real_tr real_succs =
     with Not_found -> T.var (V.mk_var v)
   in
 
-  (* Distance between the post-state of float_tr and real_tr *)
+  (* Distance between the post-state of approx_tr and ideal_tr *)
   let (dist, dist_cons) =
     let terms =
       let diff v =
-	T.sub (get_transform v float_tr) (get_transform (primify v) real_tr)
+	T.sub
+	  (get_transform (idealify v) ideal_tr)
+	  (get_transform (approxify v) approx_tr)
       in
       BatEnum.map diff (BatList.enum vars)
     in
     chebyshev terms
   in
 
-  (* Distance between the post-state of float_tr and real_succs *)
+  (* Distance between the post-state of approx_tr and ideal_succs *)
   let (other_dist, other_dist_cons) =
     let terms =
       let diff v =
 	T.sub
-	  (get_transform v float_tr)
-	  (get_transform (primify v) real_succs)
+	  (get_transform (idealify v) ideal_succs)
+	  (get_transform (approxify v) approx_tr)
       in
       BatEnum.map diff (BatList.enum vars)
     in
@@ -598,15 +605,15 @@ let greedy annotation vars float_tr real_tr real_succs =
 	(fun v -> V.equal other_dist v || not_tmp v)
 	(F.big_conj (BatList.enum [
 	  other_cons;
-	  float_tr.guard;
-	  real_succs.guard;
+	  approx_tr.guard;
+	  ideal_succs.guard;
 	  annotation;
 	]))
     in
     (other_dist, guard)
   in
 
-  (* real_tr minimizes post-state distance *)
+  (* ideal_tr minimizes post-state distance *)
   let dist_guard =
     let phi =
       F.disj
@@ -621,8 +628,8 @@ let greedy annotation vars float_tr real_tr real_succs =
   let guard =
     F.big_conj (BatList.enum [
       dist_guard;
-      float_tr.guard;
-      real_tr.guard;
+      approx_tr.guard;
+      ideal_tr.guard;
       dist_cons;
       annotation
     ])
@@ -630,7 +637,7 @@ let greedy annotation vars float_tr real_tr real_succs =
   let add_transform v t tr = M.add v t tr in
   let res =
   { guard = guard;
-    transform = M.fold add_transform float_tr.transform real_tr.transform }
+    transform = M.fold add_transform approx_tr.transform ideal_tr.transform }
   in
   let res = K.simplify res in
   logf "@\nGreedy transition:@\n%a@\n@\n" K.format res;
@@ -646,15 +653,17 @@ type ctx =
   { annotation : int * int -> F.t;
     tr_succs : int -> K.t;
     vars : string list;
-    float_cfa : Cfa.t;
-    real_cfa : Cfa.t }
+    approx_cfa : Cfa.t;
+    ideal_cfa : Cfa.t }
 
 let tensor_edge ctx e1 e2 =
   let open K in
   let src = (Cfa.E.src e1, Cfa.E.src e2) in
   let dst = (Cfa.E.dst e1, Cfa.E.dst e2) in
   let succs = ctx.tr_succs (Cfa.E.src e2) in
-  let tr = greedy (ctx.annotation src) ctx.vars (Cfa.E.label e1) (Cfa.E.label e2) succs in
+  let tr =
+    greedy (ctx.annotation src) ctx.vars (Cfa.E.label e1) (Cfa.E.label e2) succs
+  in
   TCfa.E.create src tr dst
 
 let sync ctx (g, g_entry) (h, h_entry) =
@@ -690,14 +699,11 @@ let rec expand ctx (u, v) pathexp (g, changed) =
   in
   let phi = F.conj (K.to_formula pathexp) tensor_guard_assert in
   let edges =
-    let mk_edge (real_edge, float_edge) =
-      tensor_edge ctx real_edge float_edge
-    in
     BatEnum.map
-      mk_edge
+      (uncurry (tensor_edge ctx))
       (Putil.cartesian_product
-	 (Cfa.enum_succ_e ctx.float_cfa u)
-	 (Cfa.enum_succ_e ctx.real_cfa v))
+	 (Cfa.enum_succ_e ctx.approx_cfa u)
+	 (Cfa.enum_succ_e ctx.ideal_cfa v))
   in
   let f (graph, phi, changed) e =
     let weight = TCfa.E.label e in
@@ -738,10 +744,10 @@ let print_bounds vars pathexp =
     try K.M.find v pathexp.K.transform
     with Not_found -> T.var (V.mk_var v)
   in
-  let f v = T.sub (post v) (post (primify v)) in
+  let f v = T.sub (post (idealify v)) (post (approxify v)) in
   let g v bounds =
     let bound_str =
-      match bounds with
+      match Interval.lower bounds, Interval.upper bounds with
       | (Some x, Some y) ->
 	string_of_float (Mpqf.to_float (QQ.max (Mpqf.abs x) (Mpqf.abs y)))
       | (_, _) -> "oo"
@@ -782,29 +788,6 @@ let analyze ctx tensor entry =
   TCfa.iter_vertex print tensor;
   Format.printf "========================================@\n"
 
-(*********** Main function ****************
-*******************************************)
-let read_and_process infile =
-  let lexbuf  = Lexing.from_channel infile in
-  let Prog prog = Parser.main Lexer.token lexbuf in
-
-  let (float_cfa, float_entry, float_exit) = build_cfa prog float_weight in
-  let (real_cfa, real_entry, real_exit) = build_cfa prog real_weight in
-  let real_cfa = reduce_cfa real_cfa real_entry real_exit in
-  let float_cfa = reduce_cfa float_cfa float_entry float_exit in
-
-  let annotation = analyze_sep (float_cfa,float_entry) (real_cfa,real_entry) in
-  let real_cfa = add_stuttering real_cfa in
-  let ctx =
-    { annotation = annotation;
-      tr_succs = tr_succs real_cfa;
-      vars = collect_vars prog;
-      float_cfa = float_cfa;
-      real_cfa = real_cfa }
-  in
-  let entry = (float_entry, real_entry) in
-  analyze ctx (sync ctx (float_cfa,float_entry) (real_cfa,real_entry)) entry
-
 let guard_ex p phi =
   let vars =
     K.VarSet.elements (K.formula_free_program_vars phi)
@@ -832,31 +815,84 @@ let guard_ex p phi =
   in
   F.boxify templates phi
 
-let _ =
-  if Array.length Sys.argv <> 2 then
-    Format.eprintf "usage: %s input_filename\n" Sys.argv.(0)
-  else
-    let infile = open_in Sys.argv.(1) in
-(*
-    Log.set_verbosity_level "errgen" 2;
-    Log.set_verbosity_level "ark.formula" 2;
-    Log.set_verbosity_level "ark.transition" 2;
-*)
-    Log.set_verbosity_level "errgen" 2;
-    Log.set_verbosity_level "ark.transition" 2;
+let usage_msg = "Usage: approx [OPTIONS] <ideal> <approx>\n"
+              ^ "       approx [OPTIONS] -float <file>"
 
-    F.opt_simplify_strategy := [guard_ex];
-    ArkPervasives.opt_default_accuracy := 10;
-    NumDomain.opt_max_coeff_size := None;
-    K.opt_higher_recurrence := false;
-    K.opt_disjunctive_recurrence_eq := false;
-    K.opt_polyrec := false;
-    K.opt_recurrence_ineq := false;
-    K.opt_unroll_loop := false;
-    K.opt_loop_guard := Some guard_ex;
-    (try
-       read_and_process infile
-     with Apron.Manager.Error exc ->
-       Log.errorf "Error: %a" Apron.Manager.print_exclog exc);
-    close_in infile;
-    Log.print_stats ()
+let ideal = ref None
+let approx = ref None
+
+
+let parse_file filename weight =
+  let infile = Pervasives.open_in filename in
+  let lexbuf = Lexing.from_channel infile in
+  let Prog prog = Parser.main Lexer.token lexbuf in
+  Pervasives.close_in infile;
+  build_cfa prog weight
+
+let anon_fun s =
+  match !ideal, !approx with
+  | None, _ -> ideal := Some (parse_file s real_weight)
+  | Some _, None -> approx := Some (parse_file s (real_weight % primify_cmd))
+  | _, _ -> failwith "Too many input files"
+
+let float_arg =
+  let set_float s =
+    if !ideal == None && !approx == None then begin
+      ideal := Some (parse_file s real_weight);
+      approx := Some (parse_file s (float_weight % primify_cmd))
+    end else
+      failwith "Too many input files"
+  in
+  ("-float",
+   Arg.String set_float,
+   " Set approximate program to be floating point implementation")
+
+let verbose_arg =
+  ("-verbose",
+   Arg.String (fun v -> Log.set_verbosity_level v Log.info),
+   " Raise verbosity for a particular module")
+
+let verbose_list_arg =
+  ("-verbose-list",
+   Arg.Unit (fun () ->
+     print_endline "Available modules for setting verbosity:";
+     Hashtbl.iter (fun k _ ->
+       print_endline (" - " ^ k);
+     ) Log.loggers;
+     exit 0;
+   ),
+   " List modules which can be used with -verbose")
+
+let spec_list = [
+    float_arg;
+    verbose_arg;
+    verbose_list_arg
+  ]
+
+let _ =
+  Arg.parse (Arg.align spec_list) anon_fun usage_msg;
+  match !ideal, !approx with
+  | Some (ideal_cfa, ideal_entry, ideal_exit),
+    Some (approx_cfa, approx_entry, approx_exit) ->
+     begin
+       let ideal_cfa = reduce_cfa ideal_cfa ideal_entry ideal_exit in
+       let approx_cfa = reduce_cfa approx_cfa approx_entry approx_exit in
+       let annotation =
+	 analyze_sep (approx_cfa,approx_entry) (ideal_cfa,ideal_entry)
+       in
+       let ideal_cfa = add_stuttering ideal_cfa in
+       let ctx =
+	 { annotation = annotation;
+	   tr_succs = tr_succs ideal_cfa;
+	   vars = Cfa.collect_vars ideal_cfa;
+	   approx_cfa = approx_cfa;
+	   ideal_cfa = ideal_cfa }
+       in
+       logf ~level:1 "Vars: %a" Show.format<string list> ctx.vars;
+       let entry = (approx_entry, ideal_entry) in
+       let tensor =
+	 sync ctx (approx_cfa,approx_entry) (ideal_cfa,ideal_entry)
+       in
+       analyze ctx tensor entry
+     end
+  | _, _ -> print_endline usage_msg

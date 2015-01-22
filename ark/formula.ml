@@ -1628,9 +1628,10 @@ module Make (T : Term.S) = struct
       let vars = VarSet.diff (formula_free_vars reduced) term_vars in
 
       let p =
-	Polyhedron.simplify
-	  (Polyhedron.try_fme vars
-	     (Polyhedron.simplify (Polyhedron.of_formula reduced)))
+	Polyhedron.of_formula reduced
+	|> Polyhedron.simplify
+	|> Polyhedron.try_fme vars
+	|> Polyhedron.simplify
       in
 
       let env =

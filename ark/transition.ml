@@ -418,12 +418,19 @@ module Dioid (Var : Var) = struct
     let phi = F.subst sigma phi in
     let phi =
       if Box.manager_is_box man then
+begin
+	logf "Boxify: %a" F.format phi;
 	let fv =
 	  List.map (T.var % V.mk_var)
 	    (VarSet.elements (formula_free_program_vars phi))
 	in
-	F.boxify fv phi
-      else phi
+	let r = F.boxify fv phi in
+	logf "fv: %a" Show.format<T.t list> fv;
+	logf "result: %a" F.format r;
+	r
+end
+      else
+	phi
     in
 
     let p x = V.lower x != None in
