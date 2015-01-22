@@ -1012,12 +1012,30 @@ module Make (Var : Var) = struct
       | None -> assert false (* impossible *)
     in
     let post_guard = F.subst sigma post_guard in
+    let penultimate_guard =
+      let loop_counter = match T.to_var ctx.loop_counter with
+	| Some v -> v
+	| None -> assert false
+      in
+      let p v = V.equal v loop_counter || V.lower v != None in
+      let phi = mul ctx.loop (assume pre_guard) in
+      let sigma v =
+	if V.equal v loop_counter then T.sub (T.var v) T.one
+	else T.var v
+      in
+      logf "penultimate_guard_phi:@\n%a" F.format phi.guard;
+      F.subst sigma (exists p (F.linearize (fun () -> V.mk_real_tmp "nonlin")
+					   phi.guard))
+    in
     logf "pre_guard:@\n%a" F.format pre_guard;
     logf "post_guard:@\n%a" F.format post_guard;
+    logf "penultimate_guard:@\n%a" F.format penultimate_guard;
     let plus_guard =
-      F.conj
-	(F.conj pre_guard post_guard)
-	(F.geq ctx.loop_counter T.one)
+      F.big_conj (BatList.enum [
+		      pre_guard;
+		      post_guard;
+		      penultimate_guard;
+		      (F.geq ctx.loop_counter T.one)])
     in
     let zero_guard =
       let eq (v, t) = F.eq (T.var (V.mk_var v)) t in

@@ -282,6 +282,19 @@ let optimize1 () =
     end
   | _ -> assert false
 
+let qe_partial1 () =
+  let x = T.var "x" in
+  let y = T.var "y" in
+  let phi = F.qe_partial (fun x -> x = "y") (x == y && x >= T.zero) in
+  assert_equal ~cmp:F.equiv ~printer:F.show phi (y >= T.zero)
+
+let qe_partial2 () =
+  let x = T.var "x" in
+  let y = T.var "y" in
+  let z = T.var "z" in
+  let phi = F.qe_partial (fun x -> x = "z") (x == y - T.one && y == z && x >= T.zero) in
+  assert_equal ~cmp:F.equiv ~printer:F.show phi (z >= T.one)
+
 let suite = "Formula" >:::
   [
     "test1" >:: test1;
@@ -305,4 +318,6 @@ let suite = "Formula" >:::
     "interpolate2" >:: interpolate2;
     "interpolate3" >:: interpolate3;
     "optimize1" >:: optimize1;
+    "qe_partial1" >:: qe_partial1;
+    "qe_partial2" >:: qe_partial2
   ]

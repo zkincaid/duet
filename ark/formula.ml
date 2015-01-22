@@ -1168,6 +1168,10 @@ module Make (T : Term.S) = struct
       if VarSet.is_empty (VarSet.inter vars fv) then phi else begin
 	match phi.node with
 	| And xs ->
+
+	   (* Re-write /\ xs as (/\ rewrite) /\ (/\ noneqs), where rewrite is a
+             set of oriented equations which eliminate existentially
+             quantified variables, and noneqs is the remainder *)
 	  let (eqs, noneqs) = Hset.fold split_eqs xs ([], []) in
 	  let f (vars, rewrite, noneqs) term =
 	    let term = T.subst (mk_subst rewrite) term in
@@ -1176,6 +1180,8 @@ module Make (T : Term.S) = struct
 	      logf "Found rewrite: %a --> %a"
 		T.V.format v
 		T.format rhs;
+
+	      (* Rewrite RHS of every rewrite rule to eliminate v *)
 	      let sub x =
 		if T.V.equal x v then rhs else T.var x
 	      in
@@ -1188,7 +1194,10 @@ module Make (T : Term.S) = struct
 	  let (_, rewrite, noneqs) =
 	    List.fold_left f (vars, T.V.Map.empty, noneqs) eqs
 	  in
-	  let rr = Log.time "rewrite" (subst (mk_subst rewrite)) in	  
+
+	  let noneqs =
+	    Log.time "rewrite" (List.map (subst (mk_subst rewrite))) noneqs
+	  in
 	  let rec go rv ys xs = match xs with
 	    | [] -> ys
 	    | (x::xs) ->
@@ -1196,7 +1205,7 @@ module Make (T : Term.S) = struct
 	      let rest_vars = VarSet.union rv (formula_list_vars xs) in
 	      let ex_vars = VarSet.diff x_vars rest_vars in
 	      let ys =
-		try (rr (qe ex_vars x))::ys
+		try (qe ex_vars x)::ys
 		with Is_top -> ys
 	      in
 	      go (VarSet.union x_vars rv) ys xs
