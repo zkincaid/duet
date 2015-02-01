@@ -7,216 +7,19 @@ open Syntax
 open Cfa
 
 include Log.Make(struct let name = "errgen" end)
-
-module K = struct
-  include Syntax.K (* Transition PKA *)
-
-  include Log.Make(struct let name = "attractor" end)
-
-  let absolute_value term =
-    let abs = V.mk_tmp "abs" TyReal in
-    let at = T.var abs in
-    (abs,
-     F.conj
-       (F.conj (F.leq term at) (F.leq (T.neg term) at))
-       (F.disj (F.eq term at) (F.eq (T.neg term) at)))
-
-  let modified_floats tr =
-    let is_primed v = v.[String.length v - 1] = ''' in
-    VarSet.filter (fun v -> not (is_primed v)) (modifies tr)
-
-  let simplify tr =
-    let vars =
-      VarSet.elements (formula_free_program_vars tr.guard)
-    in
-    let postify v =
-      try M.find v tr.transform
-      with Not_found -> T.var (V.mk_var v)
-    in
-    let post_diff = (* difference between pre-state and post-state vars *)
-      List.map (fun (v, rhs) ->
-          T.sub rhs (T.var (V.mk_var v))
-        ) (BatList.of_enum (M.enum tr.transform))
-    in
-    let templates =
-      (List.map (fun v -> T.var (V.mk_var v)) vars)
-      @ (BatList.of_enum (M.values tr.transform))
-      @ post_diff
-    in
-    let box = F.boxify templates tr.guard in
-
-    (* difference beween float & real vars *)
-    let approx_diff x =
-      let mk_var v = T.var (V.mk_var v) in
-      let pre_diff = T.sub (mk_var (idealify x)) (mk_var (approxify x)) in
-      let post_diff = T.sub (postify (idealify x)) (postify (approxify x)) in
-      let mk_box phi =
-        F.conj
-          phi
-          (F.boxify
-             [pre_diff; post_diff; T.sub post_diff pre_diff]
-             (F.conj phi tr.guard))
-      in
-      let positive = F.geq pre_diff T.zero in
-      let increasing = F.leq pre_diff post_diff in
-      let negative = F.negate positive in
-      let decreasing = F.negate increasing in
-      F.big_disj (BatList.enum [
-          mk_box (F.conj positive increasing);
-          mk_box (F.conj positive decreasing);
-          mk_box (F.conj negative increasing);
-          mk_box (F.conj negative decreasing);
-        ])
-    in
-    let approx_diff_guard =
-      F.big_conj
-        (BatEnum.map approx_diff (VarSet.enum (modified_floats tr)))
-    in
-    { tr with guard = F.nudge (F.conj box approx_diff_guard) }
-
-  let star tr =
-    let mk_nondet v _ =
-      T.var (V.mk_tmp ("nondet_" ^ (Var.show v)) (Var.typ v))
-    in
-    let loop_counter = T.var (V.mk_real_tmp "K") in
-    let loop =
-      { transform = M.mapi mk_nondet tr.transform;
-        guard = F.leqz (T.neg loop_counter) }
-    in
-    let postify v =
-      try M.find v loop.transform
-      with Not_found -> T.var (V.mk_var v)
-    in
-    let loop_body =
-      let add_eq v rhs phi = F.conj (F.eq (postify v) rhs) phi in
-      F.linearize
-        (fun () -> V.mk_real_tmp "nonlin")
-        (M.fold add_eq tr.transform tr.guard)
-    in
-    let with_bound f = function
-      | Some x -> f x
-      | None -> F.top
-    in
-    let recurrence_ineq diff_term ivl =
-      let lower =
-        with_bound
-          (fun lo -> F.leq (T.mul loop_counter (T.const lo)) diff_term)
-          (Interval.lower ivl)
-      in
-      let upper =
-        with_bound
-          (fun hi -> F.leq diff_term (T.mul loop_counter (T.const hi)))
-          (Interval.upper ivl)
-      in
-      F.conj lower upper
-    in
-
-    let loop =
-      let terms =
-        M.fold
-          (fun v t ts -> (T.sub t (T.var (V.mk_var v)))::ts)
-          loop.transform
-          []
-      in
-      let recur =
-        let bounds = F.optimize terms loop_body in
-        F.big_conj (BatList.enum (List.map2 recurrence_ineq terms bounds))
-      in
-      { loop with guard = F.conj loop.guard recur }
-    in
-
-    let mk_box t ivl =
-      let lo =
-        with_bound (fun lo -> F.leq (T.const lo) t) (Interval.lower ivl)
-      in
-      let hi =
-        with_bound (fun hi -> F.leq t (T.const hi)) (Interval.upper ivl)
-      in
-      F.conj lo hi
-    in
-
-    let attractor x =
-      let pre_diff =
-        T.sub (T.var (V.mk_var (idealify x))) (T.var (V.mk_var (approxify x)))
-      in
-      let post_diff =
-        T.sub (postify (idealify x)) (postify (approxify x))
-      in
-      let positive = F.geq pre_diff T.zero in
-      let increasing = F.leq pre_diff post_diff in
-      let negative = F.negate positive in
-      let decreasing = F.negate increasing in
-
-      let mk_case phi =
-        let diff = T.sub post_diff pre_diff in
-        match F.optimize [diff; post_diff] phi with
-        | [recur; box] ->
-          F.conj (recurrence_ineq diff recur) (mk_box post_diff box)
-        | _ -> assert false
-      in
-
-      logf ~level:1 "formula: %a" F.format loop_body;
-      logf ~level:1 "stable: %a" F.format
-        (F.disj
-           (F.conj positive increasing)
-           (F.conj negative decreasing));
-
-      let stable_bounds =
-        let bounds =
-          F.optimize
-            [post_diff]
-            (F.conj loop_body (F.disj (F.conj positive increasing)
-                                 (F.conj negative decreasing)))
-        in
-        match bounds with
-        | [box] -> mk_box post_diff box
-        | _ -> assert false
-      in
-      let pd_bounds =
-        mk_case
-          (F.conj
-             (F.conj (F.negate stable_bounds) loop_body)
-             (F.conj positive decreasing))
-      in
-      let ni_bounds =
-        mk_case
-          (F.conj
-             (F.conj (F.negate stable_bounds) loop_body)
-             (F.conj negative increasing))
-      in
-      logf ~level:1 "pd_bounds: %a" F.format pd_bounds;
-      logf ~level:1 "ni_bounds: %a" F.format ni_bounds;
-      logf ~level:1 "stable_bounds: %a" F.format stable_bounds;
-      F.disj stable_bounds (F.disj pd_bounds ni_bounds)
-    in
-
-    let plus_guard =
-      let vars = VarSet.elements (formula_free_program_vars loop_body) in
-      let templates =
-        (List.map (fun v -> T.var (V.mk_var v)) vars)
-        @ (BatList.of_enum (M.values loop.transform))
-      in
-      let attractors =
-        F.big_conj (BatEnum.map attractor (VarSet.enum (modified_floats tr)))
-      in
-      F.conj (F.boxify templates loop_body) attractors
-    in
-    let zero_guard =
-      let eq (v, t) = F.eq (T.var (V.mk_var v)) t in
-      F.conj
-        (F.eqz loop_counter)
-        (F.big_conj (BatEnum.map eq (M.enum loop.transform)))
-    in
-    let star_guard = F.disj plus_guard zero_guard in
-    let loop = { loop with guard = F.conj loop.guard star_guard } in
-
-    logf ~level:1 "loop summary:@\n%a" format loop;
-    loop
-end
+module K = Syntax.K
 module T = K.T
 module F = K.F
 module V = K.V
 module D = T.D
+
+let absolute_value term =
+  let abs = V.mk_tmp "abs" TyReal in
+  let at = T.var abs in
+  (abs,
+   F.conj
+     (F.conj (F.leq term at) (F.leq (T.neg term) at))
+     (F.disj (F.eq term at) (F.eq (T.neg term) at)))
 
 (* Template intervals *)
 module TIvl = struct
@@ -389,9 +192,7 @@ let post_formula tr =
      (real) annoation at v.  *)
 let analyze_sep (approx,approx_entry) (ideal,ideal_entry) =
   let man = Box.manager_of_box (Box.manager_alloc ()) in
-  let polka = NumDomain.polka_loose_manager () in
   let property_formula prop = F.of_abstract (AbstractDomain.lower man prop) in
-  let top = D.top polka D.Env.empty in
   let analyze cfa entry =
     let vertex_tr v prop =
       if v = entry then Some (D.top man D.Env.empty) else prop
@@ -412,19 +213,6 @@ let analyze_sep (approx,approx_entry) (ideal,ideal_entry) =
       CfaPathexp.single_src cfa weight ideal_entry
     in
     let pe_annotation = Memo.memo (fun u -> post_formula (pe u)) in
-(*
-    let rewrite_cfa =
-      map_edges (fun e ->
-          let src, k, dst = Cfa.E.src e, Cfa.E.label e, Cfa.E.dst e in
-          let k_guard =
-            K.abstract_post polka (K.mul (pe src) (K.assume k.K.guard)) top
-            |> F.of_abstract
-          in
-          Cfa.E.create src { k with K.guard = k_guard } dst
-        )
-        cfa
-    in
-    *)
     (pe_annotation, cfa)
   in
   let (approx_annotation, approx_cfa) = analyze approx approx_entry in
@@ -454,7 +242,7 @@ let chebyshev terms =
 let manhattan terms =
   let d = V.mk_tmp "dist" TyReal in
   let (abs_vars, abs_cons) =
-    BatEnum.uncombine (BatEnum.map K.absolute_value terms)
+    BatEnum.uncombine (BatEnum.map absolute_value terms)
   in
   let abs_terms = BatEnum.map T.var abs_vars in
   (d, F.conj (F.big_conj abs_cons) (F.eq (T.var d) (T.sum abs_terms)))
@@ -514,12 +302,7 @@ let greedy annotation vars approx_tr ideal_tr ideal_succs =
       not_tmp v || K.VSet.mem v approx_temps || V.equal v dist
     in
     let res =
-      Log.time "forall-elim"
-        (forall p)
-        (F.big_conj (BatList.enum [
-             phi;
-(*             approx_tr.K.guard;*)
-           ]))
+      Log.time "forall-elim" (forall p) phi
     in
 
 (*    logf "res: %a@\n" F.format (F.qe_lme (fun _ -> true) res);*)
@@ -588,18 +371,6 @@ let tensor_edge ctx =
 *)
       res)
 
-(*
-let tensor_edge ctx e1 e2 =
-  let open K in
-  let src = (Cfa.E.src e1, Cfa.E.src e2) in
-  let dst = (Cfa.E.dst e1, Cfa.E.dst e2) in
-  let succs = ctx.tr_succs (Cfa.E.src e2) in
-  let tr =
-    greedy (ctx.annotation src) ctx.vars (Cfa.E.label e1) (Cfa.E.label e2) succs
-  in
-  TCfa.E.create src tr dst
-*)
-
 module Worklist = struct
   include Putil.Set.Make(struct
       type t = int * int deriving (Show,Compare)
@@ -660,9 +431,6 @@ let attractor_bounds ctx tensor_edge =
   let src = TCfa.E.src tensor_edge in
   let dst = TCfa.E.dst tensor_edge in
 
-  let annotation =
-    ctx.annotation src
-  in
   let tr = TCfa.E.label tensor_edge in
   let postify v =
     try K.M.find v tr.K.transform
@@ -737,51 +505,6 @@ let analyze ctx approx_entry ideal_entry =
   in
   let sep_annotation = ctx.annotation in
   let man = NumDomain.polka_loose_manager () in
-  let initial_annotation v =
-    let mk_var = T.var % V.mk_var in
-    let eq v =
-      F.eq (mk_var (idealify v)) (mk_var (approxify v))
-    in
-    let phi =
-      F.big_conj (BatList.enum ((ctx.annotation v)::(List.map eq ctx.vars)))
-    in
-    F.abstract man phi
-  in
-  let widen v prop =
-    let old_prop = Hashtbl.find annotation v in
-    let delay =
-      try Hashtbl.find delay_widening v
-      with Not_found -> begin
-          Hashtbl.add delay_widening v 0;
-          0
-        end
-    in
-    let wide_prop =
-      if delay < 0 then begin
-        Hashtbl.replace delay_widening v (delay + 1);
-        D.join old_prop prop
-      end else begin
-        Hashtbl.replace delay_widening v 0;
-        let old_prop_tivl =
-          TIvl.abstract templates (F.of_abstract old_prop)
-        in
-        let prop_tivl =
-          TIvl.abstract templates (F.of_abstract old_prop)
-        in
-        TIvl.widen old_prop_tivl prop_tivl
-        |> TIvl.to_formula
-        |> F.abstract man
-      end
-    in
-    let box =
-      (F.conj (F.of_abstract wide_prop) (ctx.annotation v))
-      |> TIvl.abstract templates
-      |> TIvl.nudge
-      |> TIvl.to_formula
-      |> F.abstract man
-    in
-    D.meet (D.nudge wide_prop) box
-  in
 
   let ctx = { ctx with annotation =
                          fun v ->
@@ -867,7 +590,6 @@ let analyze ctx approx_entry ideal_entry =
         F.eq (T.var (V.mk_var (approxify v))) (T.var (V.mk_var (idealify v))))
     |> F.big_conj
     |> F.abstract man
-    (*TIvl.abstract templates*)
   in
   Hashtbl.add annotation entry precondition;
 
@@ -905,7 +627,7 @@ let analyze ctx approx_entry ideal_entry =
             add_edge tensor_edge;
             logf "Post --> %a" D.format post;
             try
-              let new_annotation = (*widen target post*)
+              let new_annotation =
                 let old_prop = Hashtbl.find annotation target in
                 let delay =
                   try Hashtbl.find delay_widening target
@@ -936,13 +658,8 @@ let analyze ctx approx_entry ideal_entry =
               if not (D.is_bottom post) then begin
                 logf ~attributes:[Log.Red;Log.Bold] "New reachable vertex: %a"
                   Show.format<int*int> target;
-                let prop =
-(*                  D.join (initial_annotation target) post*)
-                  post
-                in
-                logf "Initial annotation: %a" D.format prop;
 
-                Hashtbl.add annotation target prop;
+                Hashtbl.add annotation target post;
                 worklist := Worklist.add target (!worklist)
               end else
                 logf ~attributes:[Log.Blue;Log.Bold] "Redundant edge: %a -> %a"
@@ -1046,10 +763,6 @@ let _ =
       let (annotation, ideal_cfa, approx_cfa) =
         analyze_sep (approx_cfa, approx_entry) (ideal_cfa, ideal_entry)
       in
-(*
-       Cfa.display ideal_cfa;
-       Cfa.display approx_cfa;
-*)
       let ideal_cfa = normalize (add_stuttering (collapse_assume ideal_cfa)) in
       let approx_cfa = normalize (collapse_assume approx_cfa) in
       let ctx =
@@ -1059,18 +772,7 @@ let _ =
           approx_cfa = approx_cfa;
           ideal_cfa = ideal_cfa }
       in
-      (*       Cfa.display ideal_cfa;*)
       analyze ctx approx_entry ideal_entry;
-
-(*
-      Cfa.iter_edges_e (fun approx_edge ->
-          let ideal_edge =
-            Cfa.find_edge ideal_cfa (Cfa.E.src approx_edge) (Cfa.E.dst approx_edge)
-          in
-
-          attractor_bounds ctx approx_edge ideal_edge
-        ) approx_cfa;
-*)
       Log.print_stats ()
     end
   | _, _ -> print_endline usage_msg
