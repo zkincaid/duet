@@ -418,17 +418,31 @@ module Dioid (Var : Var) = struct
     let phi = F.subst sigma phi in
     let phi =
       if Box.manager_is_box man then
-begin
-	logf "Boxify: %a" F.format phi;
-	let fv =
-	  List.map (T.var % V.mk_var)
-	    (VarSet.elements (formula_free_program_vars phi))
-	in
-	let r = F.boxify fv phi in
-	logf "fv: %a" Show.format<T.t list> fv;
-	logf "result: %a" F.format r;
-	r
-end
+	begin
+	  let fv =
+	    List.map (T.var % V.mk_var)
+		     (VarSet.elements (formula_free_program_vars phi))
+	  in
+	  logf "Boxify: %a" F.format phi;
+	  let r = F.boxify fv phi in
+	  logf "fv: %a" Show.format<T.t list> fv;
+	  logf "result: %a" F.format r;
+	  r
+	end
+      else if Oct.manager_is_oct man then
+	begin
+	  let fv =
+	    List.map (T.var % V.mk_var)
+		     (VarSet.elements (formula_free_program_vars phi))
+	  in
+	  let templates =
+	    Putil.distinct_pairs (BatList.enum fv)
+	    /@ (fun (x,y) -> [T.add x y; T.sub x y])
+	    |> BatList.of_enum
+	    |> BatList.concat
+	  in
+	  F.boxify templates phi
+	end
       else
 	phi
     in
@@ -445,7 +459,7 @@ module Make (Var : Var) = struct
   let opt_disjunctive_recurrence_eq = ref true
   let opt_recurrence_ineq = ref false
   let opt_higher_recurrence_ineq = ref false
-  let opt_unroll_loop = ref true
+  let opt_unroll_loop = ref false
   let opt_loop_guard = ref (Some F.exists)
   let opt_polyrec = ref false
 

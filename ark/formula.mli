@@ -150,6 +150,9 @@ module type S = sig
       constants of a smaller bitwidth.  *)
   val nudge : ?accuracy:int -> t -> t
 
+  (** Collapse nested conjunctions & disjunctions *)
+  val flatten : t -> t
+
   (** {2 Formula linearization} *)
 
   (** Over-approximate an arbitrary formula by a linear arithmetic formula.

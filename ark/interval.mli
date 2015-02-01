@@ -26,6 +26,7 @@ val floor : interval -> interval
 
 val join : interval -> interval -> interval
 val meet : interval -> interval -> interval
+val widen : interval -> interval -> interval
 val leq : interval -> interval -> bool
 
 val is_nonnegative : interval -> bool
@@ -39,3 +40,5 @@ val upper : interval -> QQ.t option
 
 val of_apron : Apron.Interval.t -> interval
 val apron_of : interval -> Apron.Interval.t
+
+val nudge : ?accuracy:int -> interval -> interval

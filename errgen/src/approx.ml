@@ -3,37 +3,15 @@ open Apak
 open Ark
 open ArkPervasives
 open BatPervasives
+open Syntax
+open Cfa
 
 include Log.Make(struct let name = "errgen" end)
 
-let eps_mach = QQ.exp (QQ.of_int 2) (-53)
-let eps_0 = QQ.exp (QQ.of_int 2) (-53)
-
-let approxify = primify
-let idealify x = x
-
-module Var = struct
-  type t = string deriving (Compare)
-  include Putil.MakeFmt(struct
-    type a = t
-    let format formatter str = Format.pp_print_string formatter str
-  end)
-  let compare = Compare_t.compare
-  let hash = Hashtbl.hash
-  let equal x y = x = y
-  let prime x = x ^ "^"
-  let to_smt x = Smt.real_var x
-  let of_smt sym = match Smt.symbol_refine sym with
-    | Smt.Symbol_string str -> str
-    | Smt.Symbol_int _ -> assert false
-  let typ _ = TyReal
-  module E = Enumeration.Make(Putil.PString)
-  let enum = E.empty ()
-  let tag = E.to_int enum
-end
-
 module K = struct
-  include Transition.Make(Var) (* Transition PKA *)
+  include Syntax.K (* Transition PKA *)
+
+  include Log.Make(struct let name = "attractor" end)
 
   let absolute_value term =
     let abs = V.mk_tmp "abs" TyReal in
@@ -42,8 +20,6 @@ module K = struct
      F.conj
        (F.conj (F.leq term at) (F.leq (T.neg term) at))
        (F.disj (F.eq term at) (F.eq (T.neg term) at)))
-
-  let default = one
 
   let modified_floats tr =
     let is_primed v = v.[String.length v - 1] = ''' in
@@ -59,8 +35,8 @@ module K = struct
     in
     let post_diff = (* difference between pre-state and post-state vars *)
       List.map (fun (v, rhs) ->
-	T.sub rhs (T.var (V.mk_var v))
-      ) (BatList.of_enum (M.enum tr.transform))
+	  T.sub rhs (T.var (V.mk_var v))
+        ) (BatList.of_enum (M.enum tr.transform))
     in
     let templates =
       (List.map (fun v -> T.var (V.mk_var v)) vars)
@@ -86,11 +62,11 @@ module K = struct
       let negative = F.negate positive in
       let decreasing = F.negate increasing in
       F.big_disj (BatList.enum [
-	mk_box (F.conj positive increasing);
-	mk_box (F.conj positive decreasing);
-	mk_box (F.conj negative increasing);
-	mk_box (F.conj negative decreasing);
-      ])
+	  mk_box (F.conj positive increasing);
+	  mk_box (F.conj positive decreasing);
+	  mk_box (F.conj negative increasing);
+	  mk_box (F.conj negative decreasing);
+        ])
     in
     let approx_diff_guard =
       F.big_conj
@@ -181,9 +157,9 @@ module K = struct
 
       logf ~level:1 "formula: %a" F.format loop_body;
       logf ~level:1 "stable: %a" F.format
-			 (F.disj
-			    (F.conj positive increasing)
-			    (F.conj negative decreasing));
+	(F.disj
+	   (F.conj positive increasing)
+	   (F.conj negative decreasing));
 
       let stable_bounds =
 	let bounds =
@@ -213,6 +189,7 @@ module K = struct
       logf ~level:1 "stable_bounds: %a" F.format stable_bounds;
       F.disj stable_bounds (F.disj pd_bounds ni_bounds)
     in
+
     let plus_guard =
       let vars = VarSet.elements (formula_free_program_vars loop_body) in
       let templates =
@@ -232,212 +209,131 @@ module K = struct
     in
     let star_guard = F.disj plus_guard zero_guard in
     let loop = { loop with guard = F.conj loop.guard star_guard } in
+
     logf ~level:1 "loop summary:@\n%a" format loop;
     loop
-
 end
 module T = K.T
 module F = K.F
 module V = K.V
 module D = T.D
 
-let linearize = F.linearize (fun () -> V.mk_real_tmp "nonlin")
+(* Template intervals *)
+module TIvl = struct
+  module M = Putil.Map.Make(T)
+  module I = Ark.Interval
+  type t = I.interval M.t
 
-let not_tmp v = V.lower v != None
+  let compare = M.compare I.compare
+  let equal = M.equal I.equal
 
-let rec real_aexp = function
-  | Real_const k -> T.const k
-  | Sum_exp (s, t) -> T.add (real_aexp s) (real_aexp t)
-  | Diff_exp (s, t) -> T.sub (real_aexp s) (real_aexp t)
-  | Mult_exp (s, t) -> T.mul (real_aexp s) (real_aexp t)
-  | Var_exp v -> T.var (K.V.mk_var v)
-  | Unneg_exp t -> T.neg (real_aexp t)
-  | Havoc_aexp -> T.var (K.V.mk_tmp "havoc" TyReal)
-let rec real_bexp = function
-  | Bool_const true -> F.top
-  | Bool_const false -> F.bottom
-  | Eq_exp (s, t) -> F.eq (real_aexp s) (real_aexp t)
-  | Ne_exp (s, t) -> F.negate (F.eq (real_aexp s) (real_aexp t))
-  | Gt_exp (s, t) -> F.gt (real_aexp s) (real_aexp t)
-  | Lt_exp (s, t) -> F.lt (real_aexp s) (real_aexp t)
-  | Ge_exp (s, t) -> F.geq (real_aexp s) (real_aexp t)
-  | Le_exp (s, t) -> F.leq (real_aexp s) (real_aexp t)
-  | And_exp (phi, psi) -> F.conj (real_bexp phi) (real_bexp psi)
-  | Or_exp (phi, psi) -> F.disj (real_bexp phi) (real_bexp psi)
-  | Not_exp phi -> F.negate (real_bexp phi)
-  | Havoc_bexp -> F.leqz (T.var (K.V.mk_tmp "havoc" TyReal))
+  let abstract templates phi =
+    let bounds = F.optimize templates phi in
+    BatList.fold_left2 (fun m k v -> M.add k v m) M.empty templates bounds
 
-let rec float_aexp = function
-  | Real_const k -> (T.const (Mpqf.of_float (Mpqf.to_float k)), F.top)
-  | Sum_exp (s, t) -> float_binop T.add s t
-  | Diff_exp (s, t) -> float_binop T.sub s t
-  | Mult_exp (s, t) -> float_binop T.mul s t
-  | Var_exp v -> (T.var (K.V.mk_var v), F.top)
-  | Unneg_exp t ->
-    let (t, t_err) = float_aexp t in
-    (T.neg t, t_err)
-  | Havoc_aexp -> (T.var (K.V.mk_tmp "havoc" TyReal), F.top)
-and float_binop op s t =
-  let (s,s_err) = float_aexp s in
-  let (t,t_err) = float_aexp t in
-  let err = T.var (K.V.mk_tmp "err" TyReal) in
-  let term = op s t in
-  let err_magnitude = T.mul term (T.const eps_mach) in
-  let err_constraint =
-    F.disj
-      (F.conj
-	 (F.leq (T.neg err_magnitude) err)
-	 (F.leq err err_magnitude))
-      (F.conj
-	 (F.leq (T.neg err_magnitude) err)
-	 (F.leq err (T.neg err_magnitude)))
-  in
-  (T.add term err, F.conj err_constraint (F.conj s_err t_err))
+  let top templates =
+    BatList.fold_left (fun m t -> M.add t I.top m) M.empty templates
 
-let rec float_bexp = function
-  | Bool_const true -> F.top
-  | Bool_const false -> F.bottom
-  | Eq_exp (s, t) -> float_bool_binop F.eq s t
-  | Gt_exp (s, t) -> float_bool_binop F.gt s t
-  | Lt_exp (s, t) -> float_bool_binop F.lt s t
-  | Ge_exp (s, t) -> float_bool_binop F.geq s t
-  | Le_exp (s, t) -> float_bool_binop F.leq s t
-  | And_exp (phi, psi) -> F.conj (float_bexp phi) (float_bexp psi)
-  | Or_exp (phi, psi) -> F.disj (float_bexp phi) (float_bexp psi)
-  | Havoc_bexp -> F.leqz (T.var (K.V.mk_tmp "havoc" TyReal))
-  | Ne_exp _ -> assert false
-  | Not_exp _ -> assert false
-and float_bool_binop op s t =
-  let (s,s_err) = float_aexp s in
-  let (t,t_err) = float_aexp t in
-  F.conj (op s t) (F.conj s_err t_err)
-let float_bexp bexp = float_bexp (nnf bexp)
+  let bottom templates =
+    BatList.fold_left (fun m t -> M.add t I.top m) M.empty templates
 
-module Cfa = struct
-  module G = ExtGraph.Persistent.Digraph.MakeBidirectionalLabeled(Putil.PInt)(K)
-  include G
-  include ExtGraph.Display.MakeLabeled(G)(Putil.PInt)(K)
-  let collect_vars cfa =
-    edges_e cfa /@ (K.modifies % E.label)
-    |> BatEnum.reduce K.VarSet.union
-    |> K.VarSet.elements
+  let join =
+    let f _ a b = match a,b with
+      | Some a, Some b -> Some (I.join a b)
+      | Some a, None | None, Some a -> Some a (* Should really be None... *)
+      | None, None -> None
+    in
+    M.merge f
+
+  let widen =
+    let f _ a b = match a,b with
+      | Some a, Some b -> Some (I.widen a b)
+      | Some a, None | None, Some a -> Some a (* Should really be None... *)
+      | None, None -> None
+    in
+    M.merge f
+
+  let meet =
+    let f _ a b = match a,b with
+      | Some a, Some b -> Some (I.meet a b)
+      | Some a, None | None, Some a -> Some a
+      | None, None -> None
+    in
+    M.merge f
+
+  let to_formula prop =
+    let ti_formula (template, ivl) =
+      let lower = match Interval.lower ivl with
+	| Some lo -> F.leq (T.const lo) template
+	| None -> F.top
+      in
+      let upper = match Interval.upper ivl with
+	| Some hi -> F.leq template (T.const hi)
+	| None -> F.top
+      in
+      F.conj lower upper
+    in
+    (M.enum prop /@ ti_formula) |> F.big_conj
+
+  let nudge = M.map (I.nudge ~accuracy:3)
+
+  let abstract_post tr prop =
+    let phi =
+      F.linearize
+	(fun () -> V.mk_tmp "nonlin" TyReal)
+	(F.conj (K.to_formula tr) (to_formula prop))
+    in
+    let unprime =
+      K.M.enum tr.K.transform
+      /@ (fun (v,_) -> (Var.prime v, T.var (V.mk_var v)))
+      |> K.M.of_enum
+    in
+    let old =
+      K.VarMemo.memo
+	(fun v -> T.var (V.mk_tmp ((Var.show v) ^ "_old") (Var.typ v)))
+    in
+    let sigma x = match V.lower x with
+      | Some v ->
+	if K.M.mem v unprime then K.M.find v unprime
+	else if K.M.mem v tr.K.transform then old v
+	else T.var x
+      | None -> T.var x
+    in
+    let phi = F.subst sigma phi in
+    let templates = BatList.of_enum (M.keys prop) in
+    let bounds = F.optimize templates phi in
+    BatList.fold_left2 (fun m k v -> M.add k v m) M.empty templates bounds
+    |> nudge
+
+  let format formatter prop =
+    Format.fprintf formatter "[|@[";
+    M.iter (fun template ivl ->
+	let lo = match I.lower ivl with
+	  | Some lo -> QQ.show lo
+	  | None -> "-oo"
+	in
+	let hi = match I.upper ivl with
+	  | Some hi -> QQ.show hi
+	  | None -> "+oo"
+	in
+	Format.fprintf formatter "@[%s <= %a <= %s@]@\n"
+	  lo
+	  T.format template
+	  hi
+      ) prop;
+    Format.fprintf formatter "@]|]"
+  let is_bottom = M.exists (fun _ ivl -> I.equal ivl I.bottom)
 end
-
-module Slice = ExtGraph.Slice.Make(Cfa)
-module VSet = Putil.PInt.Set
-module L = Loop.SccGraph(Cfa)
-module Top = Graph.Topological.Make(Cfa)
-
-let add_edge g v u k =
-  if Cfa.mem_edge g v u then begin
-    let e = Cfa.find_edge g v u in
-    let g = Cfa.remove_edge_e g e in
-    Cfa.add_edge_e g (Cfa.E.create v (K.add (Cfa.E.label e) k) u)
-  end else Cfa.add_edge_e g (Cfa.E.create v k u)
-
-let add_edge_e g e =
-  add_edge g (Cfa.E.src e) (Cfa.E.dst e) (Cfa.E.label e)
-
-let elim v g =
-  assert (Cfa.mem_vertex g v);
-  assert (not (Cfa.mem_edge g v v));
-  let f se h =
-    let v_to_se = Cfa.E.label se in
-    let add pe h =
-      let weight = K.mul (Cfa.E.label pe) v_to_se in
-      add_edge h (Cfa.E.src pe) (Cfa.E.dst se) weight
-    in
-    Cfa.fold_pred_e add g v h
-  in
-  Cfa.fold_succ_e f g v (Cfa.remove_vertex g v)
-
-
-let reduce_cfa cfa entry exit =
-  let scc = L.construct cfa in
-  let is_header = L.is_header scc in
-  let is_cp v = is_header v || v = entry || v = exit in
-  let cp = BatList.of_enum (BatEnum.filter is_cp (Cfa.vertices cfa)) in
-  logf ~level:1 "Entry: %d" entry;
-  logf ~level:1 "Exit: %d" exit;
-  logf ~level:1 "Cutpoints: %a" Show.format<int list> cp;
-  let dag =
-    let f g v =
-      Cfa.fold_succ_e (fun e g -> Cfa.remove_edge_e g e) cfa v g
-    in
-    List.fold_left f cfa cp
-  in
-  let add_succs cpg u =
-    assert (Cfa.mem_vertex dag u);
-    let graph =
-      Cfa.fold_succ_e (fun e g -> add_edge_e g e) cfa u dag
-    in
-    assert (Cfa.mem_vertex graph u);
-    let graph =
-      Top.fold (fun v g ->
-	if is_cp v then g else elim v g
-      ) graph graph
-    in
-    assert (Cfa.mem_vertex graph u);
-    Cfa.fold_succ_e (fun e cpg -> add_edge_e cpg e) graph u cpg
-  in
-  List.fold_left add_succs Cfa.empty cp
-
-let build_cfa s weight =
-  let fresh =
-    let m = ref (-1) in
-    fun () -> (incr m; !m)
-  in
-  let add_edge cfa u lbl v =
-    add_edge_e cfa (Cfa.E.create u (weight lbl) v)
-  in
-  let rec go cfa entry = function
-    | Cmd Skip -> (cfa, entry)
-    | Cmd c ->
-      let succ = fresh () in
-      (add_edge cfa entry c succ, succ)
-    | Seq (c, d) ->
-      let (cfa, exit) = go cfa entry c in
-      go cfa exit d
-    | Ite (phi, c, d) ->
-      let succ, enter_then, enter_else = fresh (), fresh (), fresh () in
-      let cfa = add_edge cfa entry (Assume phi) enter_then in
-      let cfa = add_edge cfa entry (Assume (Not_exp phi)) enter_else in
-      let (cfa, exit_then) = go cfa enter_then c in
-      let (cfa, exit_else) = go cfa enter_else d in
-      (Cfa.add_edge (Cfa.add_edge cfa exit_then succ) exit_else succ, succ)
-    | While (phi, body, _) ->
-      let (cfa, enter_body) = go cfa entry (Cmd (Assume phi)) in
-      let (cfa, exit_body) = go cfa enter_body body in
-      let cfa = Cfa.add_edge cfa exit_body entry in
-      go cfa entry (Cmd (Assume (Not_exp phi)))
-  in
-  let entry = fresh () in
-  let (cfa, exit) = go (Cfa.add_vertex Cfa.empty entry) entry s in
-  (cfa, entry, exit)
-
-let float_weight = function
-  | Assign (v, rhs) ->
-    let (rhs, rhs_err) = float_aexp rhs in
-    { K.assign v rhs with K.guard = rhs_err }
-  | Assume phi -> K.assume (float_bexp phi)
-  | Skip -> K.one
-  | Assert _ | Print _ -> K.one
-
-let real_weight = function
-  | Assign (v, rhs) -> K.assign v (real_aexp rhs)
-  | Assume phi -> K.assume (real_bexp phi)
-  | Skip -> K.one
-  | Assert _ | Print _ -> K.one
 
 type magic
 module AbstractDomain = struct
   type t = magic D.t option
   include Putil.MakeFmt(struct
-    type a = t
-    let format formatter = function
-      | Some x -> D.format formatter x
-      | None -> Format.pp_print_string formatter "_|_"
-  end)
+      type a = t
+      let format formatter = function
+        | Some x -> D.format formatter x
+        | None -> Format.pp_print_string formatter "_|_"
+    end)
   let join x y = match x,y with
     | Some x, Some y -> Some (D.join x y)
     | Some x, None | None, Some x -> Some x
@@ -460,11 +356,42 @@ module AbstractDomain = struct
 end
 module A = Fixpoint.MakeAnalysis(Cfa)(AbstractDomain)
 
+module CfaPathexp = Pathexp.MakeElim(Cfa)(Syntax.K)
+
+
+let post_formula tr =
+  let phi =
+    F.linearize
+      (fun () -> V.mk_tmp "nonlin" TyReal)
+      (K.to_formula tr)
+  in
+  let unprime =
+    K.M.enum tr.K.transform
+    /@ (fun (v,_) -> (Var.prime v, T.var (V.mk_var v)))
+    |> K.M.of_enum
+  in
+  let old =
+    K.VarMemo.memo
+      (fun v -> T.var (V.mk_tmp ((Var.show v) ^ "_old") (Var.typ v)))
+  in
+  let sigma x = match V.lower x with
+    | Some v ->
+      if K.M.mem v unprime then K.M.find v unprime
+      else if K.M.mem v tr.K.transform then old v
+      else T.var x
+    | None -> T.var x
+  in
+  F.subst sigma phi
+
+
 (* Analyze floating & real program separately; annotation for a tensor node
-   (u,v) is the conjunction of the (floating) annotation at u with the (real)
-   annoation at v.  *)
+     (u,v) is the conjunction of the (floating) annotation at u with the
+     (real) annoation at v.  *)
 let analyze_sep (approx,approx_entry) (ideal,ideal_entry) =
   let man = Box.manager_of_box (Box.manager_alloc ()) in
+  let polka = NumDomain.polka_loose_manager () in
+  let property_formula prop = F.of_abstract (AbstractDomain.lower man prop) in
+  let top = D.top polka D.Env.empty in
   let analyze cfa entry =
     let vertex_tr v prop =
       if v = entry then Some (D.top man D.Env.empty) else prop
@@ -475,71 +402,38 @@ let analyze_sep (approx,approx_entry) (ideal,ideal_entry) =
     let result =
       A.analyze_ldi vertex_tr ~edge_transfer:tr ~delay:3 ~max_decrease:2 cfa
     in
-    A.output result
+    let annotation = A.output result in
+    let pe =
+      let weight e =
+        K.mul
+          (K.assume (property_formula (annotation (Cfa.E.src e))))
+          (Cfa.E.label e)
+      in
+      CfaPathexp.single_src cfa weight ideal_entry
+    in
+    let pe_annotation = Memo.memo (fun u -> post_formula (pe u)) in
+(*
+    let rewrite_cfa =
+      map_edges (fun e ->
+          let src, k, dst = Cfa.E.src e, Cfa.E.label e, Cfa.E.dst e in
+          let k_guard =
+            K.abstract_post polka (K.mul (pe src) (K.assume k.K.guard)) top
+            |> F.of_abstract
+          in
+          Cfa.E.create src { k with K.guard = k_guard } dst
+        )
+        cfa
+    in
+    *)
+    (pe_annotation, cfa)
   in
-  let approx_annotation = analyze approx approx_entry in
-  let ideal_annotation = analyze ideal ideal_entry in
-  logf ~level:1 "@\n";
-  logf ~level:1 ~attributes:[Log.Bold] "Approx invariants:";
-  Cfa.iter_vertex (fun v ->
-    logf ~level:1 "Approx invariant for %d:@\n%a"
-      v
-      D.format (AbstractDomain.lower man (approx_annotation v))
-  ) approx;
-  logf ~level:1 "@\n";
-  logf ~level:1 ~attributes:[Log.Bold] "Ideal invariants:";
-  Cfa.iter_vertex (fun v ->
-    logf ~level:1 "Ideal invariant for %d:@\n%a"
-      v
-      D.format (AbstractDomain.lower man (ideal_annotation v))
-  ) ideal;
-  logf ~level:1 "@\n";
-  fun (u, v) ->
-    F.conj
-      (F.of_abstract (AbstractDomain.lower man (approx_annotation u)))
-      (F.of_abstract (AbstractDomain.lower man (ideal_annotation v)))
+  let (approx_annotation, approx_cfa) = analyze approx approx_entry in
+  let (ideal_annotation, ideal_cfa) = analyze ideal ideal_entry in
+  ((fun (u, v) ->
+      F.conj (approx_annotation u) (ideal_annotation v)),
+   ideal_cfa,
+   approx_cfa)
 
-let add_stuttering cfa =
-  (* For each edge u --k--> v such that u has a self loop u --k'--> u, add
-     relabel the u->v edge u --(k + k'k)--> v. *)
-  let g e cfa =
-    let u = Cfa.E.src e in
-    let v = Cfa.E.dst e in
-    if Cfa.mem_edge cfa u u then
-      let k = Cfa.E.label e in
-      let k' = Cfa.E.label (Cfa.find_edge cfa u u) in
-      add_edge cfa u v (K.mul (K.add k' (K.mul k' k')) k)
-    else cfa
-  in
-  let stutter v cfa = add_edge cfa v v K.one in
-  Cfa.fold_vertex stutter cfa
-    (Cfa.fold_edges_e g cfa cfa)
-
-(******************************************************************************)
-(* Tensor *)
-
-module TCfa = struct
-  module VP = struct
-    module I = struct
-      type t = int * int deriving (Compare, Show)
-      let compare = Compare_t.compare
-      let show = Show_t.show
-      let format = Show_t.format
-      let equal x y = compare x y = 0
-      let hash = Hashtbl.hash
-    end
-    include I
-    module Set = Putil.Hashed.Set.Make(I)
-    module Map = Putil.Map.Make(I)
-    module HT = BatHashtbl.Make(I)
-  end
-  module G = ExtGraph.Persistent.Digraph.MakeBidirectionalLabeled(VP)(K)
-  module D = ExtGraph.Display.MakeSimple(G)(VP)
-  include G
-  include D
-end
-module TW = Loop.Wto(TCfa)
-module TL = Loop.SccGraph(TCfa)
 
 module P = Pathexp.MakeElim(TCfa)(K)
 
@@ -565,14 +459,14 @@ let manhattan terms =
   let abs_terms = BatEnum.map T.var abs_vars in
   (d, F.conj (F.big_conj abs_cons) (F.eq (T.var d) (T.sum abs_terms)))
 
-let forall p phi = F.negate (F.exists p (F.negate phi))
+let forall p phi = F.negate (F.qe_lme p (F.negate phi))
 
 let greedy annotation vars approx_tr ideal_tr ideal_succs =
-  let open K in
   let open BatPervasives in
 
+  let ideal_succs = K.normalize ideal_succs in
   let get_transform v tr =
-    try M.find v tr.transform
+    try K.M.find v tr.K.transform
     with Not_found -> T.var (V.mk_var v)
   in
 
@@ -599,49 +493,65 @@ let greedy annotation vars approx_tr ideal_tr ideal_succs =
       in
       BatEnum.map diff (BatList.enum vars)
     in
-    let (other_dist, other_cons) = chebyshev terms in
-    let guard =
-      F.qe_lme
-	(fun v -> V.equal other_dist v || not_tmp v)
-	(F.big_conj (BatList.enum [
-	  other_cons;
-	  approx_tr.guard;
-	  ideal_succs.guard;
-	  annotation;
-	]))
-    in
-    (other_dist, guard)
+    chebyshev terms
   in
 
   (* ideal_tr minimizes post-state distance *)
   let dist_guard =
-    let phi =
-      F.disj
-	(F.negate other_dist_cons)
-	(F.leq (T.sub (T.var dist) (T.var other_dist)) (T.const eps_0))
+    let phi = (* other_dist_cons => dist - other_dist <= eps_0 *)
+      F.big_disj (BatList.enum [
+          F.negate ideal_succs.K.guard;
+          F.negate other_dist_cons;
+(*
+          F.negate annotation;
+          F.negate approx_tr.K.guard;
+*)
+	  (F.leq (T.sub (T.var dist) (T.var other_dist)) (T.const eps_0))
+        ])
     in
-    let lin_phi =
-      linearize (F.conj annotation phi)
+    let approx_temps = K.formula_free_tmp_vars (K.to_formula approx_tr) in
+    let p v =
+      not_tmp v || K.VSet.mem v approx_temps || V.equal v dist
     in
-    forall (not % (V.equal other_dist)) lin_phi
+    let res =
+      Log.time "forall-elim"
+        (forall p)
+        (F.big_conj (BatList.enum [
+             phi;
+(*             approx_tr.K.guard;*)
+           ]))
+    in
+
+(*    logf "res: %a@\n" F.format (F.qe_lme (fun _ -> true) res);*)
+(*
+    logf "ideal: %a@\n" F.format ideal_succs.K.guard;
+    logf "approx: %a@\n" F.format approx_tr.K.guard;
+    logf "annotation: %a@\n" F.format annotation;
+*)
+(*
+    logf "before elim: %a@\n" F.format (F.flatten
+                                          (F.qe_lme (fun _ -> true) 
+                                             (F.big_conj (BatList.enum [
+                                                  ideal_succs.K.guard;
+                                                  approx_tr.K.guard;
+                                                  annotation]))));
+    *)
+    res
   in
+  (*  logf "Dist guard: %a" F.format dist_guard;*)
   let guard =
     F.big_conj (BatList.enum [
-      dist_guard;
-      approx_tr.guard;
-      ideal_tr.guard;
-      dist_cons;
-      annotation
-    ])
+        dist_guard;
+        approx_tr.K.guard;
+        ideal_tr.K.guard;
+        dist_cons;
+        annotation
+      ])
   in
-  let add_transform v t tr = M.add v t tr in
-  let res =
-  { guard = guard;
-    transform = M.fold add_transform approx_tr.transform ideal_tr.transform }
-  in
-  let res = K.simplify res in
-  logf "@\nGreedy transition:@\n%a@\n@\n" K.format res;
-  res
+  logf "Dist_cons: %a@\n" F.format (F.boxify [T.var dist] guard);
+  let add_transform v t tr = K.M.add v t tr in
+  { K.guard = guard;
+    K.transform = K.M.fold add_transform approx_tr.K.transform ideal_tr.K.transform }
 
 (* Maps a vertex v to a transition which approximates the transition relation
    starting at v (and going anywhere) *)
@@ -656,6 +566,26 @@ type ctx =
     approx_cfa : Cfa.t;
     ideal_cfa : Cfa.t }
 
+let tensor_edge ctx =
+  Memo.memo (fun ((a_src,i_src),(a_dst,i_dst)) ->
+      logf "Computing tensor edge (%d,%d) -> (%d,%d)"
+        a_src i_src
+        a_dst i_dst;
+      let e1 = Cfa.find_edge ctx.approx_cfa a_src a_dst in
+      let e2 = Cfa.find_edge ctx.ideal_cfa i_src i_dst in
+      let tr1 = Cfa.E.label e1 in
+      let tr2 = Cfa.E.label e2 in
+      let succs = ctx.tr_succs (Cfa.E.src e2) in
+      let res = greedy (ctx.annotation (a_src,i_src)) ctx.vars tr1 tr2 succs in
+(*
+      logf "Computed tensor edge (%d,%d) -> (%d,%d):@\n%a"
+        a_src i_src
+        a_dst i_dst
+        K.format res;
+*)
+      res)
+
+(*
 let tensor_edge ctx e1 e2 =
   let open K in
   let src = (Cfa.E.src e1, Cfa.E.src e2) in
@@ -665,87 +595,368 @@ let tensor_edge ctx e1 e2 =
     greedy (ctx.annotation src) ctx.vars (Cfa.E.label e1) (Cfa.E.label e2) succs
   in
   TCfa.E.create src tr dst
+*)
 
-let sync ctx (g, g_entry) (h, h_entry) =
-  let add_edge g_edge tensor =
-    let f h_edge tensor =
-      if Cfa.E.dst g_edge = Cfa.E.dst h_edge then
-	TCfa.add_edge_e tensor (tensor_edge ctx g_edge h_edge)
-      else
-	tensor
+module Worklist = struct
+  include Putil.Set.Make(struct
+      type t = int * int deriving (Show,Compare)
+      let compare = Compare_t.compare
+      let show = Show_t.show
+      let format = Show_t.format
+    end)
+end
+
+module TemplateSet = Putil.Set.Make(T)
+let templates_of_prop man prop =
+  let open Apron in
+  let open Tcons0 in
+  let f xs lc =
+    let t =
+      match T.to_linterm (T.of_apron prop.D.env lc.texpr0) with
+      | None -> assert false
+      | Some lt ->
+        T.Linterm.sub lt (T.Linterm.const (T.Linterm.const_coeff lt))
+        |> T.of_linterm
     in
-    Cfa.fold_succ_e f h (Cfa.E.src g_edge) tensor
-  in
-  Cfa.fold_edges_e add_edge g TCfa.empty
+    TemplateSet.add t xs
+ in
+ Array.fold_left f TemplateSet.empty (Abstract0.to_tcons_array man prop.D.prop)
 
-let rec expand ctx (u, v) pathexp (g, changed) =
-  logf ~attributes:[Log.Green] "Expanding (%d, %d)" u v;
-  let sigma v = match K.V.lower v with
-    | None -> T.var v
-    | Some v ->
-      try K.M.find v pathexp.K.transform
-      with Not_found -> T.var (V.mk_var v)
+let tivl_widen man templates upper x y =
+  let discovered =
+    TemplateSet.inter (templates_of_prop man x) (templates_of_prop man y)
   in
-  let tensor_guard =
-    let guards =
-      BatEnum.map (fun e ->
-	(TCfa.E.label e).K.guard
-      ) (TCfa.enum_succ_e g (u, v))
-    in
-    F.qe_lme not_tmp (F.big_disj guards)
+  let templates =
+    TemplateSet.union
+      discovered
+      (TemplateSet.of_enum (BatList.enum templates))
+    |> TemplateSet.elements
   in
-  let tensor_guard_assert =
-    F.negate (F.subst sigma tensor_guard)
+  logf "TIvl widening discovered templates: %a" TemplateSet.format discovered;
+  let tivl_of_prop = TIvl.abstract templates % F.of_abstract in
+  let res =
+    TIvl.widen (tivl_of_prop x) (tivl_of_prop y)
+    |> TIvl.meet (TIvl.abstract templates upper)
+    |> TIvl.to_formula
+    |> F.abstract man
   in
-  let phi = F.conj (K.to_formula pathexp) tensor_guard_assert in
-  let edges =
-    BatEnum.map
-      (uncurry (tensor_edge ctx))
-      (Putil.cartesian_product
-	 (Cfa.enum_succ_e ctx.approx_cfa u)
-	 (Cfa.enum_succ_e ctx.ideal_cfa v))
-  in
-  let f (graph, phi, changed) e =
-    let weight = TCfa.E.label e in
-    let guard = F.subst sigma weight.K.guard in
-    if F.is_sat (F.conj phi guard) then begin
-      let dst = TCfa.E.dst e in
-      let psi = F.conj phi (F.negate (F.qe_lme not_tmp guard)) in
-      logf ~level:1 ~attributes:[Log.Green] "  Added an edge: %a -> %a"
-	TCfa.VP.format (u, v)
-	TCfa.VP.format dst;
+  logf "-->%a" D.format res;
+  res
 
-(*
-      let s = new Smt.solver in
-      s#assrt (F.to_smt (F.conj phi guard));
-      ignore (s#check ());
-      let m = s#get_model () in
-      Format.printf "tensor guard: %a@\n" Show.format<F.t option> (F.select_disjunct (fun v -> m#eval_qq (T.V.to_smt v)) tensor_guard_assert);
-      Format.printf "tr: %a@\n" K.M.format pathexp.K.transform;
-      Format.printf "%s@\n" (m#to_string ());
-      assert false
-      *)
-
-      if TCfa.mem_vertex graph dst then
-	(TCfa.add_edge_e graph e, psi, true)
-      else
-	(fst (expand ctx dst (K.mul pathexp weight)
-		(TCfa.add_edge_e graph e, false)),
-	 psi,
-	 true)
-    end else
-      (graph, phi, changed)
+let attractor_bounds ctx tensor_edge =
+  let mk_var = T.var % V.mk_var in
+  let diff v =
+    T.sub (mk_var (idealify v)) (mk_var (approxify v))
   in
-  let (g, _, changed) = (BatEnum.fold f (g, phi, changed) edges) in
-  (g, changed)
+  let differences = List.map diff ctx.vars in
+  let templates =
+    List.map mk_var ctx.vars
+    @ List.map (mk_var % approxify) ctx.vars
+  in
 
-let print_bounds vars pathexp =
-  let post v =
-    try K.M.find v pathexp.K.transform
+  let src = TCfa.E.src tensor_edge in
+  let dst = TCfa.E.dst tensor_edge in
+
+  let annotation =
+    ctx.annotation src
+  in
+  let tr = TCfa.E.label tensor_edge in
+  let postify v =
+    try K.M.find v tr.K.transform
     with Not_found -> T.var (V.mk_var v)
   in
-  let f v = T.sub (post (idealify v)) (post (approxify v)) in
-  let g v bounds =
+  let bounds x =
+    let pre_diff =
+      T.sub (T.var (V.mk_var (idealify x))) (T.var (V.mk_var (approxify x)))
+    in
+    let post_diff =
+      T.sub (postify (idealify x)) (postify (approxify x))
+    in
+    let phi =
+      F.big_conj (BatList.enum [
+          tr.K.guard;
+          F.geq pre_diff T.zero; (* positive *)
+          F.geq post_diff pre_diff (* increasing *)
+        ])
+    in
+    let psi =
+      F.big_conj (BatList.enum [
+          tr.K.guard;
+          F.leq pre_diff T.zero; (* negative *)
+          F.leq post_diff pre_diff (* decreasing *)
+        ])
+    in
+    let pi_bounds = List.hd (F.optimize [post_diff] phi) in
+    let nd_bounds = List.hd (F.optimize [post_diff] psi) in
+    Interval.join pi_bounds nd_bounds
+  in
+  let res =
+    List.fold_left2
+      (fun m diff bounds -> TIvl.M.add diff bounds m)
+      TIvl.M.empty
+      differences
+      (List.map bounds ctx.vars) 
+  in
+  logf ~attributes:[Log.Magenta] "Outward bounds %a -> %a: %a"
+    Show.format<int*int> src
+    Show.format<int*int> dst
+    TIvl.format res;
+  TIvl.meet res (TIvl.abstract templates (ctx.annotation dst))
+
+
+(*
+let build_sync_tensor ctx entry =
+  Cfa.fold_edges_e (fun approx_edge tensor ->
+      let ideal_edge =
+        Cfa.find_edge ctx.ideal_cfa (Cfa.E.src approx_edge) (Cfa.E.dst approx_edge)
+      in
+      let tensor_edge =
+	Log.time "tensor_edge" (tensor_edge ctx approx_edge) ideal_edge
+      in
+      TCfa.add_edge_e tensor tensor_edge
+    ) ctx.approx_cfa (TCfa.add_vertex TCfa.empty entry)
+*)
+
+let analyze ctx approx_entry ideal_entry =
+  let entry = (approx_entry, ideal_entry) in
+  let annotation = Hashtbl.create 991 in (* annotation table *)
+  let delay_widening = Hashtbl.create 991 in
+  let tensor_edge = tensor_edge ctx in
+  let attractor_bounds = attractor_bounds ctx in
+
+  let templates =
+    let mk_var = T.var % V.mk_var in
+    let diff v =
+      T.sub (mk_var (idealify v)) (mk_var (approxify v))
+    in
+    List.map mk_var ctx.vars
+    @ List.map (mk_var % approxify) ctx.vars
+    @ List.map diff ctx.vars
+  in
+  let sep_annotation = ctx.annotation in
+  let man = NumDomain.polka_loose_manager () in
+  let initial_annotation v =
+    let mk_var = T.var % V.mk_var in
+    let eq v =
+      F.eq (mk_var (idealify v)) (mk_var (approxify v))
+    in
+    let phi =
+      F.big_conj (BatList.enum ((ctx.annotation v)::(List.map eq ctx.vars)))
+    in
+    F.abstract man phi
+  in
+  let widen v prop =
+    let old_prop = Hashtbl.find annotation v in
+    let delay =
+      try Hashtbl.find delay_widening v
+      with Not_found -> begin
+          Hashtbl.add delay_widening v 0;
+          0
+        end
+    in
+    let wide_prop =
+      if delay < 0 then begin
+        Hashtbl.replace delay_widening v (delay + 1);
+        D.join old_prop prop
+      end else begin
+        Hashtbl.replace delay_widening v 0;
+        let old_prop_tivl =
+          TIvl.abstract templates (F.of_abstract old_prop)
+        in
+        let prop_tivl =
+          TIvl.abstract templates (F.of_abstract old_prop)
+        in
+        TIvl.widen old_prop_tivl prop_tivl
+        |> TIvl.to_formula
+        |> F.abstract man
+      end
+    in
+    let box =
+      (F.conj (F.of_abstract wide_prop) (ctx.annotation v))
+      |> TIvl.abstract templates
+      |> TIvl.nudge
+      |> TIvl.to_formula
+      |> F.abstract man
+    in
+    D.meet (D.nudge wide_prop) box
+  in
+
+  let ctx = { ctx with annotation =
+			 fun v ->
+                           try
+                             F.conj
+                               (F.of_abstract (Hashtbl.find annotation v))
+                               (ctx.annotation v)
+                           (*TIvl.to_formula (Hashtbl.find annotation v)*)
+                           with Not_found -> assert false }
+  in
+  let tensor = ref (TCfa.add_vertex TCfa.empty entry) in
+  let worklist = ref (Worklist.singleton entry) in
+  let is_cutpoint = ref (fun _ -> false) in
+  let pop_worklist () =
+    let (v, wl) = Worklist.pop (!worklist) in
+    worklist := wl;
+    v
+  in
+
+  let check_edge ctx precondition e =
+    let src = TCfa.E.src e in
+    let approx_dst = fst (TCfa.E.dst e) in
+    let f e k =
+      if fst (TCfa.E.dst e) = approx_dst then K.add k (TCfa.E.label e)
+      else k
+    in
+    let outgoing = TCfa.fold_succ_e f (!tensor) src K.zero in
+    let is_primed v =
+      v.[String.length v - 1] = '''
+      || (v.[String.length v - 1] = '^' && v.[String.length v - 2] = ''')
+    in
+    let p v = match V.lower v with
+      | Some v -> is_primed v
+      | None -> false
+    in
+    let outgoing_phi =
+      let make_eq v =
+	let v = approxify v in
+	let post = T.var (V.mk_var (Var.prime v)) in
+	F.eq post (try K.M.find v outgoing.K.transform
+		   with Not_found -> T.var (V.mk_var v))
+      in
+      F.conj (F.big_conj (BatList.enum ctx.vars /@ make_eq)) outgoing.K.guard
+    in
+
+    let s = new Smt.solver in
+    s#assrt (F.to_smt precondition);
+    s#assrt (F.to_smt (F.qe_lme p (K.to_formula (TCfa.E.label e))));
+    s#assrt (F.to_smt (F.negate (F.qe_lme not_tmp outgoing_phi)));
+    match s#check () with
+    | Smt.Sat   ->
+      (logf "model@\n%s" (((s#get_model())#to_string()));
+       true)
+    | Smt.Unsat -> false
+    | Smt.Undef -> assert false
+  in
+  let add_edge e =
+    let src = TCfa.E.src e in
+    let dst = TCfa.E.dst e in
+    if TCfa.mem_edge (!tensor) src dst then
+      begin
+	tensor := TCfa.remove_edge (!tensor) src dst;
+	logf ~attributes:[Log.Red;Log.Bold] "Updated edge: %a -> %a"
+	  Show.format<int*int> src
+ 	  Show.format<int*int> dst
+      end
+    else
+      begin
+	logf ~attributes:[Log.Red;Log.Bold] "New edge: %a -> %a"
+	  Show.format<int*int> src
+          Show.format<int*int> dst;
+      end;
+    tensor := TCfa.add_edge_e (!tensor) e;
+    is_cutpoint := TL.is_header (TL.construct (!tensor))
+  in
+
+  let precondition =
+    BatList.enum ctx.vars
+    /@ (fun v ->
+	F.eq (T.var (V.mk_var (approxify v))) (T.var (V.mk_var (idealify v))))
+    |> F.big_conj
+    |> F.abstract man
+    (*TIvl.abstract templates*)
+  in
+  Hashtbl.add annotation entry precondition;
+
+  while not (Worklist.is_empty (!worklist)) do
+    let (approx_v, ideal_v) = pop_worklist () in
+    let precondition =
+      try Hashtbl.find annotation (approx_v, ideal_v)
+      with Not_found -> assert false
+    in
+    logf ~attributes:[Log.Green]
+      "=-=-=-=-  Forward iteration @@ (%d, %d) -=-=-=-=" approx_v ideal_v;
+    logf "Precondition: %a" D.format precondition;
+    logf "TIVL: %a" TIvl.format (TIvl.abstract templates (F.of_abstract precondition));
+
+    (* Recompute outgoing edges *)
+    let f approx_edge =
+      let g ideal_edge =
+        let source = (Cfa.E.src approx_edge, Cfa.E.src ideal_edge) in
+        let target = (Cfa.E.dst approx_edge, Cfa.E.dst ideal_edge) in
+
+        let tensor_tr = tensor_edge (source, target) in
+        let tensor_edge =
+          TCfa.E.create source tensor_tr target
+        in
+	let post =
+	  Log.time "abstract_post"
+	    (K.abstract_post man tensor_tr) precondition
+	in
+
+	if not (D.is_bottom post)
+	&& (TCfa.mem_edge (!tensor) source target
+	    || check_edge ctx (F.of_abstract precondition) tensor_edge)
+	then
+	  begin
+	    add_edge tensor_edge;
+	    logf "Post --> %a" D.format post;
+            try
+              let new_annotation = (*widen target post*)
+                let old_prop = Hashtbl.find annotation target in
+                let delay =
+                  try Hashtbl.find delay_widening target
+                  with Not_found -> begin
+                      Hashtbl.add delay_widening target 0;
+                      0
+                    end
+                in
+                Hashtbl.replace delay_widening target (delay + 1);
+                if delay >= 2 then
+                  let attractor = attractor_bounds tensor_edge in
+                  D.meet
+                    (D.join
+                       (D.join old_prop post)
+                       (F.abstract man (TIvl.to_formula attractor)))
+                    (tivl_widen man templates (sep_annotation target) old_prop post)
+                else if delay >= 4 then
+                  tivl_widen man templates (sep_annotation target) old_prop post
+                else
+                  D.join old_prop post
+              in
+	      if not (D.equal (Hashtbl.find annotation target) new_annotation)
+	      then begin
+		Hashtbl.replace annotation target new_annotation;
+		worklist := Worklist.add target (!worklist)
+	      end
+	    with Not_found ->
+	      if not (D.is_bottom post) then begin
+		logf ~attributes:[Log.Red;Log.Bold] "New reachable vertex: %a"
+		  Show.format<int*int> target;
+                let prop =
+(*                  D.join (initial_annotation target) post*)
+                  post
+                in
+		logf "Initial annotation: %a" D.format prop;
+
+		Hashtbl.add annotation target prop;
+		worklist := Worklist.add target (!worklist)
+	      end else
+		logf ~attributes:[Log.Blue;Log.Bold] "Redundant edge: %a -> %a"
+		  Show.format<int*int> (TCfa.E.src tensor_edge)
+ 		  Show.format<int*int> (TCfa.E.dst tensor_edge)
+	  end
+      in
+      let succs = Cfa.succ_e ctx.ideal_cfa ideal_v in
+      let (x,y) = BatList.partition ((=) (Cfa.E.dst approx_edge) % Cfa.E.dst) succs in
+      List.iter g x
+      (*(x@y)*)
+    in
+    Cfa.iter_succ_e f ctx.approx_cfa approx_v
+  done;
+
+  let diff v =
+    T.sub (T.var (V.mk_var (idealify v))) (T.var (V.mk_var (approxify v)))
+  in
+  let print_diff v bounds =
     let bound_str =
       match Interval.lower bounds, Interval.upper bounds with
       | (Some x, Some y) ->
@@ -754,69 +965,16 @@ let print_bounds vars pathexp =
     in
     Format.printf "  | %s - %s' | <= %s@\n" v v bound_str
   in
-  List.iter2 g vars (F.optimize (List.map f vars) pathexp.K.guard)
-
-let analyze ctx tensor entry =
-  let rec fix tensor =
-    logf ~level:1 ~attributes:[Log.Bold] "Computing path expressions...";
-    let pathexp = P.single_src tensor TCfa.E.label entry in
-    let check (u, v) (g, changed) =
-      let pathexp = pathexp (u, v) in
-      expand ctx (u,v) pathexp (g, changed)
-(*
-      (g, changed)
-*)
-    in
-    let (tensor, changed) =
-      TCfa.fold_vertex check tensor (tensor, false)
-    in
-    if changed then fix tensor else (pathexp, tensor)
+  let print_entry vtx prop =
+    Format.printf "Distance at %a:@\n" Show.format<int*int> vtx;
+    List.iter2 print_diff
+      ctx.vars
+      (F.optimize (List.map diff ctx.vars) (F.of_abstract prop))
   in
-  let (pathexp, tensor) = fix tensor in
-  let print (u,v) =
-    let pathexp = pathexp (u,v) in
-    let vars =
-      let f v = v.[String.length v - 1] != ''' in
-      List.filter f (K.VarSet.elements (K.modifies pathexp))
-    in
-    if F.is_sat pathexp.K.guard then begin
-      Format.printf "At (%d, %d):@\n" u v;
-      print_bounds vars pathexp
-    end else Format.printf "At (%d, %d): unreachable@\n" u v;
-  in
-  Format.printf "Error bounds (path expression analysis):@\n";
-  TCfa.iter_vertex print tensor;
-  Format.printf "========================================@\n"
-
-let guard_ex p phi =
-  let vars =
-    K.VarSet.elements (K.formula_free_program_vars phi)
-  in
-  let vars =
-    List.filter (fun v -> p (V.mk_var v)) vars
-  in
-  let templates =
-    let is_primed v =
-      v.[String.length v - 1] = '''
-      || (v.[String.length v - 1] = '^' && v.[String.length v - 2] = ''')
-    in
-    let unprimed =
-      List.filter (fun v -> not (is_primed v)) vars
-    in
-    let primify v =
-      if v.[String.length v - 1] = '^'
-      then (String.sub v 0 (String.length v - 1)) ^ "'^"
-      else v ^ "'"
-    in
-    (List.map (fun v -> T.var (V.mk_var v)) vars)
-    @ (List.map
-	 (fun v -> T.sub (T.var (V.mk_var v)) (T.var (V.mk_var (primify v))))
-	 unprimed)
-  in
-  F.boxify templates phi
+  Hashtbl.iter print_entry annotation
 
 let usage_msg = "Usage: approx [OPTIONS] <ideal> <approx>\n"
-              ^ "       approx [OPTIONS] -float <file>"
+                ^ "       approx [OPTIONS] -float <file>"
 
 let ideal = ref None
 let approx = ref None
@@ -855,44 +1013,59 @@ let verbose_arg =
 let verbose_list_arg =
   ("-verbose-list",
    Arg.Unit (fun () ->
-     print_endline "Available modules for setting verbosity:";
-     Hashtbl.iter (fun k _ ->
-       print_endline (" - " ^ k);
-     ) Log.loggers;
-     exit 0;
-   ),
+       print_endline "Available modules for setting verbosity:";
+       Hashtbl.iter (fun k _ ->
+           print_endline (" - " ^ k);
+         ) Log.loggers;
+       exit 0;
+     ),
    " List modules which can be used with -verbose")
 
 let spec_list = [
-    float_arg;
-    verbose_arg;
-    verbose_list_arg
-  ]
+  float_arg;
+  verbose_arg;
+  verbose_list_arg
+]
 
 let _ =
   Arg.parse (Arg.align spec_list) anon_fun usage_msg;
+  ArkPervasives.opt_default_accuracy := 5;
+  F.opt_simplify_strategy := [F.qe_lme];
   match !ideal, !approx with
   | Some (ideal_cfa, ideal_entry, ideal_exit),
     Some (approx_cfa, approx_entry, approx_exit) ->
-     begin
-       let ideal_cfa = reduce_cfa ideal_cfa ideal_entry ideal_exit in
-       let approx_cfa = reduce_cfa approx_cfa approx_entry approx_exit in
-       let annotation =
-	 analyze_sep (approx_cfa,approx_entry) (ideal_cfa,ideal_entry)
-       in
-       let ideal_cfa = add_stuttering ideal_cfa in
-       let ctx =
-	 { annotation = annotation;
-	   tr_succs = tr_succs ideal_cfa;
-	   vars = Cfa.collect_vars ideal_cfa;
-	   approx_cfa = approx_cfa;
-	   ideal_cfa = ideal_cfa }
-       in
-       logf ~level:1 "Vars: %a" Show.format<string list> ctx.vars;
-       let entry = (approx_entry, ideal_entry) in
-       let tensor =
-	 sync ctx (approx_cfa,approx_entry) (ideal_cfa,ideal_entry)
-       in
-       analyze ctx tensor entry
-     end
+    begin
+      let ideal_cfa = reduce_cfa ideal_cfa ideal_entry ideal_exit in
+      let approx_cfa = reduce_cfa approx_cfa approx_entry approx_exit in
+
+      let (annotation, ideal_cfa, approx_cfa) =
+	analyze_sep (approx_cfa, approx_entry) (ideal_cfa, ideal_entry)
+      in
+(*
+       Cfa.display ideal_cfa;
+       Cfa.display approx_cfa;
+*)
+      let ideal_cfa = normalize (add_stuttering (collapse_assume ideal_cfa)) in
+      let approx_cfa = normalize (collapse_assume approx_cfa) in
+      let ctx =
+	{ annotation = annotation;
+	  tr_succs = tr_succs ideal_cfa;
+	  vars = Cfa.collect_vars ideal_cfa;
+	  approx_cfa = approx_cfa;
+	  ideal_cfa = ideal_cfa }
+      in
+      (*       Cfa.display ideal_cfa;*)
+      analyze ctx approx_entry ideal_entry;
+
+(*
+      Cfa.iter_edges_e (fun approx_edge ->
+          let ideal_edge =
+            Cfa.find_edge ideal_cfa (Cfa.E.src approx_edge) (Cfa.E.dst approx_edge)
+          in
+          
+          attractor_bounds ctx approx_edge ideal_edge
+        ) approx_cfa;
+*)
+      Log.print_stats ()
+    end
   | _, _ -> print_endline usage_msg

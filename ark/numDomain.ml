@@ -223,6 +223,7 @@ module type S = sig
   val exists : 'a Manager.t -> (var -> bool) -> 'a t -> 'a t
   val add_vars : var BatEnum.t -> 'a t -> 'a t
   val boxify : 'a t -> 'a t
+  val nudge : 'a t -> 'a t
 end
 
 module Make (V : Var) = struct
@@ -335,4 +336,75 @@ module Make (V : Var) = struct
 	  (Env.real_dim x.env)
 	  (Abstract0.to_box man x.prop);
       env = x.env }
+
+  exception Not_nudgeable
+  let nudge x =
+    let open Lincons0 in
+    let man = man x.prop in
+    let qq_of_coeff c =
+      match qq_of_coeff c with
+      | Some qq -> qq
+      | None -> raise Not_nudgeable
+    in
+    let accuracy = 5 in
+    let nudge_lc lc =
+      (* modifications of linexpr are reflected in lc *)
+      let linexpr = lc.linexpr0 in
+
+      Format.printf "Nudge: @[%a@]@\n" (Lincons0.print (V.show % (Env.var_of_dim x.env))) lc;
+
+
+      let max_coeff = ref QQ.zero in
+      Linexpr0.iter (fun c _ ->
+          max_coeff := QQ.max (!max_coeff) (QQ.abs (qq_of_coeff c))
+        ) linexpr;
+      Linexpr0.iter (fun c dim ->
+          let new_coeff = QQ.div (qq_of_coeff c) (!max_coeff) in
+          if QQ.equal (QQ.nudge_down new_coeff) new_coeff then
+            Linexpr0.set_coeff linexpr dim (coeff_of_qq new_coeff)
+          else
+            raise Not_nudgeable
+        ) linexpr;
+      let const_coeff =
+        QQ.div (qq_of_coeff (Linexpr0.get_cst linexpr)) (!max_coeff)
+      in
+      match lc.Lincons0.typ with
+      | EQ ->
+        let (lo, hi) = QQ.nudge ~accuracy:accuracy const_coeff in
+        let hi_linexpr = Linexpr0.copy linexpr in
+        Linexpr0.set_cst linexpr (coeff_of_qq (QQ.negate hi));
+        Linexpr0.set_cst hi_linexpr (coeff_of_qq lo);
+        Linexpr0.iter (fun c dim ->
+            Linexpr0.set_coeff linexpr dim (Coeff.neg c)
+          ) linexpr;
+        BatList.enum [
+          Lincons0.make linexpr SUPEQ;
+          Lincons0.make hi_linexpr SUPEQ
+        ]
+      |	SUPEQ | SUP ->
+        Linexpr0.set_cst linexpr (coeff_of_qq (QQ.nudge_up ~accuracy:accuracy const_coeff));
+        Format.printf "==> @[%a@]@\n" (Lincons0.print (V.show % (Env.var_of_dim x.env))) lc;
+        BatEnum.singleton lc
+      |	DISEQ |	EQMOD _ -> BatEnum.empty ()
+    in
+    let try_nudge_lc lc =
+      try nudge_lc lc
+      with Not_nudgeable -> BatEnum.empty ()
+    in
+    let lincons = 
+      BatEnum.concat_map
+        try_nudge_lc
+        (BatArray.enum (Abstract0.to_lincons_array man x.prop))
+    in
+    let res =
+    { x with prop =
+               Abstract0.of_lincons_array
+                 man
+	         (Env.int_dim x.env)
+	         (Env.real_dim x.env)
+                 (BatArray.of_enum lincons) }
+    in
+    Format.printf "Nudge: @[%a@]@\n" format x;
+    Format.printf "==> @[%a@]@\n" format res;
+    res
 end

@@ -67,6 +67,7 @@ module type S = sig
   val simplify_dillig : (T.V.t -> bool) -> t -> t
   val opt_simplify_strategy : ((T.V.t -> bool) -> t -> t) list ref
   val nudge : ?accuracy:int -> t -> t
+  val flatten : t -> t
 
   val linearize : (unit -> T.V.t) -> t -> t
   val linearize_apron : (unit -> T.V.t) -> t -> t
@@ -147,12 +148,20 @@ module Make (T : Term.S) = struct
   include Putil.MakeFmt(struct
     type a = t
     let rec format_in formatter phi = match phi with
-      | Or xs -> Format.fprintf formatter "Or %a" (Hset.format format_in) xs
-      | And xs -> Format.fprintf formatter "And %a" (Hset.format format_in) xs
+      | Or xs ->
+        Format.fprintf formatter "Or {@\n  @[";
+        BatEnum.iter (fun y -> Format.fprintf formatter "%a@\n" format y)
+                     (Hset.enum xs);
+        Format.fprintf formatter "@]@\n}"
+      | And xs ->
+        Format.fprintf formatter "And {@\n  @[";
+        BatEnum.iter (fun y -> Format.fprintf formatter "%a@\n" format y)
+                     (Hset.enum xs);
+        Format.fprintf formatter "@]@\n}"
       | Atom (LeqZ t) -> Format.fprintf formatter "%a <= 0" T.format t
       | Atom (EqZ t) -> Format.fprintf formatter "%a == 0" T.format t
       | Atom (LtZ t) -> Format.fprintf formatter "%a < 0" T.format t
-    let rec format formatter phi = format_in formatter phi.node
+     and format formatter phi = format_in formatter phi.node
   end)
   module Compare_t = struct
     type a = t
@@ -1185,9 +1194,8 @@ module Make (T : Term.S) = struct
 	      let sub x =
 		if T.V.equal x v then rhs else T.var x
 	      in
-	      let rewrite =
-		T.V.Map.map (T.subst sub) rewrite
-	      in
+	      let rewrite = T.V.Map.map (T.subst sub) rewrite in
+
 	      (VarSet.remove v vars, T.V.Map.add v rhs rewrite, noneqs)
 	    | None -> (vars, rewrite, (eqz term)::noneqs)
 	  in
@@ -1834,7 +1842,7 @@ module Make (T : Term.S) = struct
 	  let ivl =
 	    try T.V.Map.find v bounds
 	    with Not_found -> Interval.top
-	  in
+          in
 	  LinBound.make [T.var v] [T.var v] ivl
 	| OConst k -> LinBound.of_interval (Interval.const k)
 	| OAdd (x, y) -> LinBound.add x y
@@ -2051,19 +2059,25 @@ module Make (T : Term.S) = struct
     map (nudge_atom accuracy) phi
 
   let boxify templates phi =
-    let bounds = optimize templates phi in
-    let to_formula template ivl =
-      let lower = match Interval.lower ivl with
-	| Some lo -> leq (T.const lo) template
-	| None -> top
+    if templates = [] then
+      if is_sat phi then top else bottom
+    else
+      let bounds = optimize templates phi in
+      let to_formula template ivl =
+	let lower = match Interval.lower ivl with
+	  | Some lo -> leq (T.const lo) template
+	  | None -> top
+	in
+	let upper = match Interval.upper ivl with
+	  | Some hi -> leq template (T.const hi)
+	  | None -> top
+	in
+	conj lower upper
       in
-      let upper = match Interval.upper ivl with
-	| Some hi -> leq template (T.const hi)
-	| None -> top
-      in
-      conj lower upper
-    in
-    big_conj (BatList.enum (List.map2 to_formula templates bounds))
+      if Interval.equal Interval.bottom (List.hd bounds) then
+	bottom
+      else
+	big_conj (BatList.enum (List.map2 to_formula templates bounds))
 
   module Syntax = struct
     let ( && ) x y = conj x y

@@ -188,7 +188,8 @@ module Make (V : Var) = struct
     | Lin lt ->
       let e = Linterm.enum lt in
       begin match BatEnum.get e with
-      | Some (AVar v, base) when QQ.equal base QQ.one -> Some v
+      | Some (AVar v, base) when QQ.equal base QQ.one && BatEnum.is_empty e ->
+	 Some v
       | _ -> None
       end
     | _ -> None

@@ -85,6 +85,20 @@ let join x y =
       end
   }
 
+let widen x y =
+  if equal x bottom then y
+  else
+    let y = join x y in
+    let lower = match x.lower, y.lower with
+      | Some x, Some y when QQ.equal x y -> Some x
+      | _, _ -> None
+    in
+    let upper = match x.upper, y.upper with
+      | Some x, Some y when QQ.equal x y -> Some x
+      | _, _ -> None
+    in
+    { lower; upper }
+
 let meet x y = normalize {
   lower =
     begin match x.lower, y.lower with
@@ -227,3 +241,7 @@ let const_of { lower; upper } =
   match upper, lower with
   | Some hi, Some lo when QQ.equal hi lo -> Some hi
   | _ -> None
+
+let nudge ?(accuracy=(!ArkPervasives.opt_default_accuracy)) {lower; upper} =
+  { lower = map_opt (QQ.nudge_down ~accuracy:accuracy) lower;
+    upper = map_opt (QQ.nudge_up ~accuracy:accuracy) upper }
