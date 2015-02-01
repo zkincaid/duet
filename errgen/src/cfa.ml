@@ -65,7 +65,7 @@ let reduce_cfa cfa entry exit =
     assert (Cfa.mem_vertex graph u);
     let graph =
       Top.fold (fun v g ->
-	if is_cp v then g else elim v g
+        if is_cp v then g else elim v g
       ) graph graph
     in
     assert (Cfa.mem_vertex graph u);
@@ -78,7 +78,7 @@ let rec collapse_assume g =
   try
     let e =
       BatEnum.find (fun e -> K.M.is_empty (Cfa.E.label e).K.transform)
-		   (Cfa.edges_e g)
+                   (Cfa.edges_e g)
     in
     let tr = Cfa.E.label e in
     let add se h =
@@ -141,25 +141,25 @@ let add_stuttering cfa =
     else
       let u_loop =
         if Cfa.mem_edge cfa u u then
-	  double (Cfa.E.label (Cfa.find_edge cfa u u))
+          double (Cfa.E.label (Cfa.find_edge cfa u u))
         else
-	  K.zero
+          K.zero
       in
       let v_loop =
         if Cfa.mem_edge cfa v v then
-	  double (Cfa.E.label (Cfa.find_edge cfa v v))
+          double (Cfa.E.label (Cfa.find_edge cfa v v))
         else
-	  K.zero
+          K.zero
       in
       add_edge g u v (K.add (K.mul u_loop k)
-			(K.add (K.mul k v_loop)
+                        (K.add (K.mul k v_loop)
                                 (K.mul (K.mul u_loop k) v_loop)))
   in
   let stutter g v = add_edge g v v K.one in
 (*  Cfa.fold_edges_e f cfa cfa*)
   BatEnum.fold stutter
-	       (Cfa.fold_edges_e f cfa cfa)
-	       (L.enum_headers (L.construct cfa))
+               (Cfa.fold_edges_e f cfa cfa)
+               (L.enum_headers (L.construct cfa))
 
 let map_edges f cfa =
   Cfa.fold_edges_e (fun e g -> Cfa.add_edge_e g (f e)) cfa Cfa.empty

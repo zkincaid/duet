@@ -86,11 +86,11 @@ and float_binop op s t =
   let err_constraint =
     F.disj
       (F.conj
-	 (F.leq (T.neg err_magnitude) err)
-	 (F.leq err err_magnitude))
+         (F.leq (T.neg err_magnitude) err)
+         (F.leq err err_magnitude))
       (F.conj
-	 (F.leq (T.neg err_magnitude) err)
-	 (F.leq err (T.neg err_magnitude)))
+         (F.leq (T.neg err_magnitude) err)
+         (F.leq err (T.neg err_magnitude)))
   in
   (T.add term err, F.conj err_constraint (F.conj s_err t_err))
 
@@ -153,7 +153,7 @@ let guard_ex p phi =
     in
     (List.map (fun v -> T.var (V.mk_var v)) vars)
     @ (List.map
-	 (fun v -> T.sub (T.var (V.mk_var v)) (T.var (V.mk_var (primify v))))
-	 unprimed)
+         (fun v -> T.sub (T.var (V.mk_var v)) (T.var (V.mk_var (primify v))))
+         unprimed)
   in
   F.boxify templates phi

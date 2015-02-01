@@ -53,7 +53,7 @@ let rec interpret_aexp e store =
     QQ.sub (interpret_aexp e1 store) (interpret_aexp e2 store)
   | Unneg_exp (e1) -> QQ.negate (interpret_aexp e1 store)
   | _ -> raise (NotHandled ("Arithmetic interpretation for expression "
-			    ^ aexp_to_string e))
+                            ^ aexp_to_string e))
 
 
 (* Interpreter for boolean expressions *)
@@ -80,7 +80,7 @@ let rec interpret_bexp b store =
   | Or_exp (b1, b2) ->
     (interpret_bexp b1 store) || (interpret_bexp b2 store)
   | _ -> raise (NotHandled ("Boolean interpretation for expression "
-			    ^ bexp_to_string b))
+                            ^ bexp_to_string b))
 
 
 (********** Generating the error program *************
@@ -174,10 +174,10 @@ let rec compute_residue_aux_1 vars =
 let rec  compute_residue_aux_2 vars =
   mk_seq (List.map (fun x ->
     Seq (Cmd (Assign (epsify x,
-		      Sum_exp(Var_exp (epsify (primify x)),
-			      Diff_exp(Var_exp(primify x), (Var_exp x))))),
-	 Cmd (Assign (infify (epsify x),
-		      Var_exp (infify (epsify (primify x))))))
+                      Sum_exp(Var_exp (epsify (primify x)),
+                              Diff_exp(Var_exp(primify x), (Var_exp x))))),
+         Cmd (Assign (infify (epsify x),
+                      Var_exp (infify (epsify (primify x))))))
   ) vars)
 
 let compute_residue s1 s2 vars =
@@ -207,37 +207,37 @@ let generate_err_assign_aux x e e1 e2 op =
     (Var_exp y1, Var_exp y2) ->
       let t = errvar in
       let s1 = Cmd (Assign (t,
-			    opfunc (Sum_exp (e1, Var_exp (epsify y1)),
-				    Sum_exp (e2, Var_exp (epsify y2)))))
+                            opfunc (Sum_exp (e1, Var_exp (epsify y1)),
+                                    Sum_exp (e2, Var_exp (epsify y2)))))
       in
       (* If we have uninterpreted function symbols, we should replace the variable __round_err by one *)
       let t_err = t ^ "__round_err" in
       let s_err_stmts =
         Seq (
          Cmd (Assign (t_err, Havoc_aexp)),
-	 Cmd (Assume (
-	   Or_exp(And_exp(Ge_exp (Var_exp (t_err),
-				  Mult_exp (Var_exp t, neg_eps_mach)),
-			  Le_exp (Var_exp (t_err),
-				  Mult_exp (Var_exp t, eps_mach))),
-		  And_exp(Le_exp (Var_exp (t_err),
-				  Mult_exp (Var_exp t, neg_eps_mach)),
-			  (Ge_exp (Var_exp (t_err),
-				   Mult_exp (Var_exp t, eps_mach))))))))
+         Cmd (Assume (
+           Or_exp(And_exp(Ge_exp (Var_exp (t_err),
+                                  Mult_exp (Var_exp t, neg_eps_mach)),
+                          Le_exp (Var_exp (t_err),
+                                  Mult_exp (Var_exp t, eps_mach))),
+                  And_exp(Le_exp (Var_exp (t_err),
+                                  Mult_exp (Var_exp t, neg_eps_mach)),
+                          (Ge_exp (Var_exp (t_err),
+                                   Mult_exp (Var_exp t, eps_mach))))))))
       in
       let tmp1 = Sum_exp (Var_exp t, Var_exp t_err) in
       let s2 =
-	Ite (And_exp (Ge_exp (tmp1, min_float),
-		      Le_exp (tmp1, max_float)),
+        Ite (And_exp (Ge_exp (tmp1, min_float),
+                      Le_exp (tmp1, max_float)),
              Cmd Skip,
              Cmd (Assign (infify (epsify x), Real_const QQ.one)))
       in
       let s3 = Cmd (Assign (epsify x, Diff_exp (tmp1, opfunc (e1, e2)))) in
       Seq (s1,
-	   Seq (s_err_stmts,
-		Seq (s2,
-		     Seq (s3,
-			  Cmd (Assign (x, e))))))
+           Seq (s_err_stmts,
+                Seq (s2,
+                     Seq (s3,
+                          Cmd (Assign (x, e))))))
   | _ ->
       raise (NotHandled ("Expression in assignment not handled in error term generation: " ^ (aexp_to_string e)))
 
@@ -248,25 +248,25 @@ let generate_err_assign x e =
     Real_const k ->
       (* eps_x = havoc(); inf_eps_x = 0; assume (eps_x >= k * eps_mach * -1 && eps_x <= k * eps_mach); *)
       if QQ.geq k QQ.zero then
-	mk_seq [
-	  Cmd (Assign (epsify x, Havoc_aexp));
+        mk_seq [
+          Cmd (Assign (epsify x, Havoc_aexp));
           Cmd (Assign (infify (epsify x), Real_const QQ.zero));
           Cmd (Assume (And_exp (Ge_exp (Var_exp (epsify x),
-					Mult_exp (e, neg_eps_mach)),
+                                        Mult_exp (e, neg_eps_mach)),
                                 Le_exp (Var_exp (epsify x),
-					Mult_exp (e, eps_mach)))));
+                                        Mult_exp (e, eps_mach)))));
           Cmd (Assign (x, e))
-	]
+        ]
       else
-	mk_seq [
-	  Cmd (Assign (epsify x, Havoc_aexp));
+        mk_seq [
+          Cmd (Assign (epsify x, Havoc_aexp));
           Cmd (Assign (infify (epsify x), Real_const QQ.zero));
           Cmd (Assume (And_exp (Le_exp (Var_exp (epsify x),
-					Mult_exp (e, neg_eps_mach)),
-				Ge_exp (Var_exp (epsify x),
-					Mult_exp (e, eps_mach)))));
+                                        Mult_exp (e, neg_eps_mach)),
+                                Ge_exp (Var_exp (epsify x),
+                                        Mult_exp (e, eps_mach)))));
           Cmd (Assign (x, e))
-	]
+        ]
   | Var_exp y ->
     mk_seq [
       Cmd (Assign (infify (epsify x), Var_exp (infify (epsify y))));
@@ -348,14 +348,14 @@ let rec generate_err_stmt s0 vars =
     Ite (And_exp (b, generate_err_bexp b),
          (generate_err_stmt s1 vars),
          (Ite (And_exp ((Not_exp b), (generate_err_bexp b)),
-	       (generate_err_stmt s2 vars),
-	       (Ite (And_exp (b, Not_exp (generate_err_bexp b)),
-		     (compute_residue s1 (generate_err_stmt s2 vars) vars),
-		     (compute_residue s2 (generate_err_stmt s1 vars) vars))))))
+               (generate_err_stmt s2 vars),
+               (Ite (And_exp (b, Not_exp (generate_err_bexp b)),
+                     (compute_residue s1 (generate_err_stmt s2 vars) vars),
+                     (compute_residue s2 (generate_err_stmt s1 vars) vars))))))
   | While (b, s, residue) ->
     Seq (While (And_exp(b, generate_err_bexp b),
                 generate_err_stmt s vars,
-		residue),
+                residue),
          Ite (b,
               (compute_residue s0 (Cmd Skip) vars),
               (compute_residue
@@ -363,8 +363,8 @@ let rec generate_err_stmt s0 vars =
                  (While(Or_exp (And_exp (b, (generate_err_bexp b)),
                                 And_exp (Not_exp b, Not_exp (generate_err_bexp b))),
                         (generate_err_stmt s vars),
-			true))
-		 vars)))
+                        true))
+                 vars)))
   | Cmd (Assume b) -> Cmd (Assume b)
   | _ -> raise (NotHandled ("Error computation for statement " ^ Show.show<stmt_type> s0))
 
@@ -483,8 +483,8 @@ let add_guesses stmt =
   let guess_upper = Real_const QQ.one in
   let f guess err =
     And_exp (guess,
-	     And_exp (Le_exp (guess_lower, Var_exp err),
-		      Le_exp (Var_exp err, guess_upper)))
+             And_exp (Le_exp (guess_lower, Var_exp err),
+                      Le_exp (Var_exp err, guess_upper)))
   in
   let mk_guess vars = Cmd (Assert (List.fold_left f (Bool_const true) vars)) in
   let rec go = function
@@ -492,7 +492,7 @@ let add_guesses stmt =
     | Ite (c, x, y) -> Ite (c, go x, go y)
     | While (c, body, _) ->
       let vars =
-	List.filter (fun x -> BatString.starts_with x "eps") (collect_vars body)
+        List.filter (fun x -> BatString.starts_with x "eps") (collect_vars body)
       in
       While (c, Seq (mk_guess vars, go body), false)
     | atom -> atom
@@ -702,12 +702,12 @@ module TCfa = struct
       match worklist with
       | [] -> tensor
       | ((u,v)::worklist) ->
-	fix (BatEnum.fold
-	       (add_succ (u,v))
-	       (worklist, tensor)
-	       (Putil.cartesian_product
-		  (Cfa.enum_succ_e g u)
-		  (Cfa.enum_succ_e h v)))
+        fix (BatEnum.fold
+               (add_succ (u,v))
+               (worklist, tensor)
+               (Putil.cartesian_product
+                  (Cfa.enum_succ_e g u)
+                  (Cfa.enum_succ_e h v)))
     in
     let entry = (g_entry, h_entry) in
     fix ([entry], G.add_vertex empty entry)
@@ -762,11 +762,11 @@ and float_binop op s t =
   let err_constraint =
     F.disj
       (F.conj
-	 (F.leq (T.neg err_magnitude) err)
-	 (F.leq err err_magnitude))
+         (F.leq (T.neg err_magnitude) err)
+         (F.leq err err_magnitude))
       (F.conj
-	 (F.leq (T.neg err_magnitude) err)
-	 (F.leq err (T.neg err_magnitude)))
+         (F.leq (T.neg err_magnitude) err)
+         (F.leq err (T.neg err_magnitude)))
   in
   (T.add term err, F.conj err_constraint (F.conj s_err t_err))
 
@@ -826,7 +826,7 @@ let print_bounds vars formula =
     let bound_str =
       match bounds with
       | (Some x, Some y) ->
-	string_of_float (Mpqf.to_float (QQ.max (Mpqf.abs x) (Mpqf.abs y)))
+        string_of_float (Mpqf.to_float (QQ.max (Mpqf.abs x) (Mpqf.abs y)))
       | (_, _) -> "oo"
     in
     Format.printf "  | %s - %s' | <= %s@\n" v v bound_str
@@ -861,9 +861,9 @@ let float_post cmd prop =
   | Assign (v, rhs) ->
     let (rhs, rhs_err) = float_aexp rhs in
     project (F.abstract_assign man
-	       (assume prop rhs_err)
-	       (V.mk_var v)
-	       rhs)
+               (assume prop rhs_err)
+               (V.mk_var v)
+               rhs)
   | Assume phi -> project (F.abstract_assume man prop (float_bexp phi))
   | Skip | Assert _ | Print _ -> prop
 
@@ -898,13 +898,13 @@ let iter_analyze tensor entry =
     if D.is_bottom prop then Format.printf "At (%d, %d): unreachable@\n" u v
     else begin
       let sigma v = match V.lower v with
-	| Some v -> T.var (V.mk_var (Bounds.StrVar.prime v))
-	| None -> assert false
+        | Some v -> T.var (V.mk_var (Bounds.StrVar.prime v))
+        | None -> assert false
       in
       let phi = F.of_abstract prop in
       let vars =
-	let f v = v.[String.length v - 1] != ''' in
-	List.filter f (K.VarSet.elements (K.formula_free_program_vars phi))
+        let f v = v.[String.length v - 1] != ''' in
+        List.filter f (K.VarSet.elements (K.formula_free_program_vars phi))
       in
 
       Format.printf "At (%d, %d):@\n" u v;

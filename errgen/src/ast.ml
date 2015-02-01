@@ -105,13 +105,13 @@ module Show_stmt_type = Deriving_Show.Defaults(struct
       Format.fprintf formatter "%a;@\n%a" format c format d
     | Ite (c, bthen, belse) ->
       Format.fprintf formatter "if (%a) {@\n  @[%a@]@\n} else {@\n  @[%a@]@\n}"
-	Show.format<bexp_type> c
-	format bthen
-	format belse
+        Show.format<bexp_type> c
+        format bthen
+        format belse
     | While (c, body, _) ->
       Format.fprintf formatter "while (%a) {@\n  @[%a@]@\n}"
-	Show.format<bexp_type> c
-	format body
+        Show.format<bexp_type> c
+        format body
 end)
 
 let rec aexp_to_string e =

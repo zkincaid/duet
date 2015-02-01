@@ -2,8 +2,8 @@
 
         %{
           open Ast;;
-	  open Ark;;
-	  open ArkPervasives;;
+          open Ark;;
+          open ArkPervasives;;
         %}
 
         %token EOF
@@ -25,14 +25,14 @@
         %%
         main:
             prog EOF             {  
-	    $1}
+            $1}
         ;
 
         prog:
-	  stmt                   { Prog($1)  } 
-	;
+          stmt                   { Prog($1)  } 
+        ;
 
-	stmt:
+        stmt:
                               {  Cmd Skip  }
          | SKIP                { Cmd Skip }
          |  VAR ASSIGN aexp       { Cmd (Assign($1,$3)) }
@@ -40,20 +40,20 @@
          |  IF LPAREN bexp RPAREN LBRACE stmt RBRACE ELSE LBRACE stmt RBRACE { Ite($3,$6,$10) }
          |  IF LPAREN bexp RPAREN LBRACE stmt RBRACE   { Ite($3,$6,Cmd Skip) }
          |  WHILE LPAREN bexp RPAREN LBRACE stmt RBRACE { While($3, $6, false) }
-	 |  ASSERT LPAREN bexp RPAREN   { Cmd (Assert($3)) }
-	 |  ASSUME LPAREN bexp RPAREN   { Cmd (Assume($3)) }
+         |  ASSERT LPAREN bexp RPAREN   { Cmd (Assert($3)) }
+         |  ASSUME LPAREN bexp RPAREN   { Cmd (Assume($3)) }
          |  PRINT LPAREN aexp RPAREN    { Cmd (Print($3)) }
              
         aexp:
             REAL                    { Real_const($1) }
-	  | VAR                     { Var_exp($1) }
+          | VAR                     { Var_exp($1) }
           | LPAREN aexp RPAREN      { $2 }
           | aexp PLUS aexp          { Sum_exp($1, $3) }
           | aexp MINUS aexp         { Diff_exp($1, $3) }
           | aexp TIMES aexp         { Mult_exp($1, $3) }
           | aexp DIV aexp         { Div_exp($1, $3) }
           | MINUS aexp %prec UMINUS { Unneg_exp($2) }
-	  | NONDET LPAREN RPAREN    { Havoc_aexp }
+          | NONDET LPAREN RPAREN    { Havoc_aexp }
         ;
 
         bexp:
@@ -64,9 +64,9 @@
           |  aexp LT aexp           { Lt_exp($1, $3) }
           |  aexp LE aexp           { Le_exp($1, $3) }
           |  aexp EQ aexp           { Eq_exp($1, $3) }
-	  |  aexp NE aexp           { Ne_exp($1, $3) }
+          |  aexp NE aexp           { Ne_exp($1, $3) }
           |  bexp OR bexp           { Or_exp($1, $3) }
           |  bexp AND bexp          { And_exp($1, $3) }
           |  NOT bexp               { Not_exp ($2) }
-	  |  NONDET LPAREN RPAREN   { Havoc_bexp }
+          |  NONDET LPAREN RPAREN   { Havoc_bexp }
         ;    
