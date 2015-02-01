@@ -36,6 +36,7 @@
           | '+'            { PLUS }
           | '-'            { MINUS }
           | '*'            { TIMES }
+          | '/'            { DIV }
           | '('            { LPAREN }
           | ')'            { RPAREN }
           | '{'            { LBRACE }

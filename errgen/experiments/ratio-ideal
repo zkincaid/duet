@@ -1,0 +1,9 @@
+numer = 0;
+denom = 0;
+i = 0;
+while (i < 20) {
+  i = i + 1;
+  numer = numer + (i * 1/400);
+  denom = denom + (i * 1/10000)
+};
+ratio = numer / denom

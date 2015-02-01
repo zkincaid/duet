@@ -46,6 +46,7 @@ let rec real_aexp = function
   | Sum_exp (s, t) -> T.add (real_aexp s) (real_aexp t)
   | Diff_exp (s, t) -> T.sub (real_aexp s) (real_aexp t)
   | Mult_exp (s, t) -> T.mul (real_aexp s) (real_aexp t)
+  | Div_exp (s, t) -> T.div (real_aexp s) (real_aexp t)
   | Var_exp v -> T.var (K.V.mk_var v)
   | Unneg_exp t -> T.neg (real_aexp t)
   | Havoc_aexp -> T.var (K.V.mk_tmp "havoc" TyReal)
@@ -70,6 +71,7 @@ let rec float_aexp = function
   | Sum_exp (s, t) -> float_binop T.add s t
   | Diff_exp (s, t) -> float_binop T.sub s t
   | Mult_exp (s, t) -> float_binop T.mul s t
+  | Div_exp (s, t) -> float_binop T.div s t
   | Var_exp v -> (T.var (K.V.mk_var v), F.top)
   | Unneg_exp t ->
     let (t, t_err) = float_aexp t in

@@ -6,6 +6,7 @@ type aexp_type =
 | Sum_exp of (aexp_type * aexp_type)
 | Diff_exp of (aexp_type * aexp_type) 
 | Mult_exp of (aexp_type * aexp_type) 
+| Div_exp of (aexp_type * aexp_type)
 | Var_exp of string
 | Unneg_exp of aexp_type 
 | Havoc_aexp

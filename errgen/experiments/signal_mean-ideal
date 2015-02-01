@@ -2,6 +2,6 @@ i = 0;
 sn = 0;
 while (i < 20) {
   i = i + 1;
-  sn = sn + (i * 1/10)
+  sn = sn + (i * 1/1000)
 };
 avg = sn * 1/20

@@ -10,6 +10,7 @@ type aexp_type =
 | Sum_exp of (aexp_type * aexp_type)
 | Diff_exp of (aexp_type * aexp_type)
 | Mult_exp of (aexp_type * aexp_type) 
+| Div_exp of (aexp_type * aexp_type) 
 | Var_exp of string
 | Unneg_exp of aexp_type 
 | Havoc_aexp
@@ -57,6 +58,8 @@ module Show_aexp_type = Deriving_Show.Defaults(struct
       Format.fprintf formatter "(%a - %a)" format a format b
     | Mult_exp (a, b) ->
       Format.fprintf formatter "(%a * %a)" format a format b
+    | Div_exp (a, b) ->
+      Format.fprintf formatter "(%a / %a)" format a format b
     | Unneg_exp a ->
       Format.fprintf formatter "-(%a)" format a
     | Havoc_aexp -> Format.pp_print_string formatter "nondet()"
@@ -118,6 +121,10 @@ let rec aexp_to_string e =
   | Mult_exp (e1, e2) ->
     String.concat ""
       ["("; aexp_to_string e1; " * ";
+       aexp_to_string e2; ")"]
+  | Div_exp (e1, e2) ->
+    String.concat ""
+      ["("; aexp_to_string e1; " / ";
        aexp_to_string e2; ")"]
   | Sum_exp (e1, e2) ->
     String.concat ""
@@ -193,6 +200,7 @@ let rec collect_vars_aexp e =
   | Sum_exp (e1, e2) -> (collect_vars_aexp e1) @ (collect_vars_aexp e2)
   | Diff_exp (e1, e2) -> (collect_vars_aexp e1) @ (collect_vars_aexp e2)
   | Mult_exp (e1, e2) -> (collect_vars_aexp e1) @ (collect_vars_aexp e2)
+  | Div_exp (e1, e2) -> (collect_vars_aexp e1) @ (collect_vars_aexp e2)
   | Var_exp x -> [x]
   | Unneg_exp e1 -> (collect_vars_aexp e1)
   | Havoc_aexp -> []
@@ -259,6 +267,7 @@ let rec primify_aexp e =
   | Sum_exp (e1, e2) -> Sum_exp (primify_aexp e1, primify_aexp e2)
   | Diff_exp (e1, e2) -> Diff_exp (primify_aexp e1, primify_aexp e2)
   | Mult_exp (e1, e2) -> Mult_exp (primify_aexp e1, primify_aexp e2)
+  | Div_exp (e1, e2) -> Div_exp (primify_aexp e1, primify_aexp e2)
   | Var_exp x -> Var_exp (primify x)
   | Unneg_exp e1 -> Unneg_exp (primify_aexp e1)
   | Havoc_aexp -> e

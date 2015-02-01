@@ -9,7 +9,7 @@
         %token EOF
         %token <Ark.ArkPervasives.QQ.t> REAL
         %token <string> VAR
-        %token PLUS MINUS TIMES
+        %token PLUS MINUS TIMES DIV
         %token TRUE FALSE 
         %token AND OR NOT
         %token EQ NE GT LT LE GE
@@ -18,7 +18,7 @@
         %token LPAREN RPAREN LBRACE RBRACE
         %left SEMI
         %left PLUS MINUS OR        /* lowest precedence */
-        %left TIMES AND         /* medium precedence */
+        %left TIMES DIV AND         /* medium precedence */
         %nonassoc UMINUS NOT       /* highest precedence */
         %start main             /* the entry point */
         %type <Ast.prog_type> main
@@ -51,6 +51,7 @@
           | aexp PLUS aexp          { Sum_exp($1, $3) }
           | aexp MINUS aexp         { Diff_exp($1, $3) }
           | aexp TIMES aexp         { Mult_exp($1, $3) }
+          | aexp DIV aexp         { Div_exp($1, $3) }
           | MINUS aexp %prec UMINUS { Unneg_exp($2) }
 	  | NONDET LPAREN RPAREN    { Havoc_aexp }
         ;
