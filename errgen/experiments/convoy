@@ -1,0 +1,15 @@
+assume(0 <= a0);
+assume(a0 <= 1);
+assume(1 <= v0);
+assume(45 <= dp0);
+assume(dp0 <= 55);
+assume(-1 <= dv0);
+assume(dv0 <= 1);
+assume(-128/1000 <= da0);
+assume(da0 <= 128/1000);
+while (1 <= 1) {
+  a1 = 5/100 * dv1 + 5/100 * (dp0 - 50);
+  dv0 = dv0 + 1/10 * da0;
+  dp0 = dp0 + (1/10)*dv0 + 1/2000 * da0;
+  da0 = a0 - a1
+}

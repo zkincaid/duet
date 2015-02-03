@@ -1,0 +1,12 @@
+i = 0;
+max = 0;
+old_max = 0;
+while ( i <= 20 ) {
+  original_a = nondet(); 
+  a = original_a;
+  old_max = max;
+  if (a < old_max) { 
+    max = a; 
+  } else {  skip; };
+  i = i + 1;
+}
