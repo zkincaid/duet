@@ -4,8 +4,7 @@ open Ark
 open ArkPervasives
 
 let eps_mach = QQ.exp (QQ.of_int 2) (-53)
-let eps_0 = QQ.zero
-(*QQ.exp (QQ.of_int 2) (-53)*)
+let eps_0 = QQ.exp (QQ.of_int 2) (-53)
 
 module Var = struct
   type t = string deriving (Compare)

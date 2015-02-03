@@ -389,7 +389,15 @@ let templates_of_prop man prop =
       match T.to_linterm (T.of_apron prop.D.env lc.texpr0) with
       | None -> assert false
       | Some lt ->
-        T.Linterm.sub lt (T.Linterm.const (T.Linterm.const_coeff lt))
+        let lin =
+          T.Linterm.sub lt (T.Linterm.const (T.Linterm.const_coeff lt))
+        in
+        let max_coeff =
+          BatEnum.fold (fun x y -> QQ.max (QQ.abs (snd y)) x)
+            QQ.zero
+            (T.Linterm.var_bindings lin)
+        in
+        T.Linterm.scalar_mul (QQ.inverse max_coeff) lin
         |> T.of_linterm
     in
     TemplateSet.add t xs
@@ -407,6 +415,7 @@ let tivl_widen man templates upper x y =
     |> TemplateSet.elements
   in
   logf "TIvl widening discovered templates: %a" TemplateSet.format discovered;
+
   let tivl_of_prop = TIvl.abstract templates % F.of_abstract in
   let res =
     TIvl.widen (tivl_of_prop x) (tivl_of_prop y)
@@ -508,18 +517,34 @@ let analyze ctx approx_entry ideal_entry =
 
   let ctx = { ctx with annotation =
                          fun v ->
-                           try
-                             F.conj
-                               (F.of_abstract (Hashtbl.find annotation v))
-                               (ctx.annotation v)
+                           try F.conj
+                                 (F.of_abstract (Hashtbl.find annotation v))
+                                 (ctx.annotation v)
                            with Not_found -> assert false }
   in
-  let tensor = ref (TCfa.add_vertex TCfa.empty entry) in
+
+  let tensor =
+    Cfa.fold_edges_e (fun approx_edge tensor ->
+        let src = Cfa.E.src approx_edge in
+        let dst = Cfa.E.dst approx_edge in
+        let tensor_edge =
+          TCfa.E.create (src,src) (tensor_edge ((src,src), (dst,dst))) (dst,dst)
+        in
+        TCfa.add_edge_e tensor tensor_edge
+      ) ctx.approx_cfa (TCfa.add_vertex TCfa.empty entry)
+    |> ref
+  in
   let worklist = ref (Worklist.singleton entry) in
+  let outer_worklist = ref (Worklist.singleton entry) in
   let is_cutpoint = ref (fun _ -> false) in
   let pop_worklist () =
     let (v, wl) = Worklist.pop (!worklist) in
     worklist := wl;
+    v
+  in
+  let pop_outer_worklist () =
+    let (v, wl) = Worklist.pop (!outer_worklist) in
+    outer_worklist := wl;
     v
   in
 
@@ -553,10 +578,8 @@ let analyze ctx approx_entry ideal_entry =
     s#assrt (F.to_smt precondition);
     s#assrt (F.to_smt (F.qe_lme p (K.to_formula (TCfa.E.label e))));
     s#assrt (F.to_smt (F.negate (F.qe_lme not_tmp outgoing_phi)));
-    match s#check () with
-    | Smt.Sat   ->
-      (logf "model@\n%s" (((s#get_model())#to_string()));
-       true)
+    match Log.time "check_edge_sat" s#check () with
+    | Smt.Sat   -> true
     | Smt.Unsat -> false
     | Smt.Undef -> assert false
   in
@@ -593,86 +616,106 @@ let analyze ctx approx_entry ideal_entry =
   in
   Hashtbl.add annotation entry precondition;
 
-  while not (Worklist.is_empty (!worklist)) do
-    let (approx_v, ideal_v) = pop_worklist () in
-    let precondition =
-      try Hashtbl.find annotation (approx_v, ideal_v)
-      with Not_found -> assert false
+  let eval_edge precondition tensor_edge =
+    let source = TCfa.E.src tensor_edge in
+    let target = TCfa.E.dst tensor_edge in
+    let tensor_tr = TCfa.E.label tensor_edge in
+    let post =
+      Log.time "abstract_post"
+        (K.abstract_post man tensor_tr) precondition
     in
-    logf ~attributes:[Log.Green]
-      "=-=-=-=-  Forward iteration @@ (%d, %d) -=-=-=-=" approx_v ideal_v;
-    logf "Precondition: %a" D.format precondition;
-    logf "TIVL: %a" TIvl.format (TIvl.abstract templates (F.of_abstract precondition));
+
+    if (not (D.is_bottom post)
+        && (TCfa.mem_edge (!tensor) source target
+            || check_edge ctx (F.of_abstract precondition) tensor_edge))
+    then
+      begin
+        add_edge tensor_edge;
+        logf "Post --> %a" D.format post;
+        try
+          let new_annotation =
+            let old_prop = Hashtbl.find annotation target in
+            let delay =
+              try Hashtbl.find delay_widening target
+              with Not_found -> begin
+                  Hashtbl.add delay_widening target 0;
+                  0
+                end
+            in
+            Hashtbl.replace delay_widening target (delay + 1);
+            if delay >= 2 then
+              let attractor = attractor_bounds tensor_edge in
+              D.meet
+                (D.join
+                   (D.join old_prop post)
+                   (F.abstract man (TIvl.to_formula attractor)))
+                (tivl_widen man templates (sep_annotation target) old_prop post)
+            else if delay >= 4 then
+              tivl_widen man templates (sep_annotation target) old_prop post
+            else
+              D.join old_prop post
+          in
+          if not (D.equal (Hashtbl.find annotation target) new_annotation)
+          then begin
+            Hashtbl.replace annotation target new_annotation;
+            worklist := Worklist.add target (!worklist);
+            outer_worklist := Worklist.add target (!outer_worklist)
+          end
+        with Not_found ->
+          if not (D.is_bottom post) then begin
+            logf ~attributes:[Log.Red;Log.Bold] "New reachable vertex: %a"
+              Show.format<int*int> target;
+
+            Hashtbl.add annotation target post;
+            worklist := Worklist.add target (!worklist);
+            outer_worklist := Worklist.add target (!outer_worklist)
+          end else
+            logf ~attributes:[Log.Blue;Log.Bold] "Redundant edge: %a -> %a"
+              Show.format<int*int> (TCfa.E.src tensor_edge)
+              Show.format<int*int> (TCfa.E.dst tensor_edge)
+      end
+  in
+
+  while not (Worklist.is_empty (!outer_worklist)) do
+    while not (Worklist.is_empty (!worklist)) do
+      let source = pop_worklist () in
+      let (approx_v, ideal_v) = source in
+      let precondition =
+        try Hashtbl.find annotation source
+        with Not_found -> assert false
+      in
+      logf ~attributes:[Log.Green]
+        "=-=-=-=-  Forward iteration @@ (%d, %d) -=-=-=-=" approx_v ideal_v;
+      logf "Precondition: %a" D.format precondition;
+      logf "TIVL: %a" TIvl.format (TIvl.abstract templates (F.of_abstract precondition));
+      TCfa.iter_succ_e (eval_edge precondition) (!tensor) source
+    done;
 
     (* Recompute outgoing edges *)
-    let f approx_edge =
-      let g ideal_edge =
-        let source = (Cfa.E.src approx_edge, Cfa.E.src ideal_edge) in
-        let target = (Cfa.E.dst approx_edge, Cfa.E.dst ideal_edge) in
-
-        let tensor_tr = tensor_edge (source, target) in
-        let tensor_edge =
-          TCfa.E.create source tensor_tr target
-        in
-        let post =
-          Log.time "abstract_post"
-            (K.abstract_post man tensor_tr) precondition
-        in
-
-        if not (D.is_bottom post)
-        && (TCfa.mem_edge (!tensor) source target
-            || check_edge ctx (F.of_abstract precondition) tensor_edge)
-        then
-          begin
-            add_edge tensor_edge;
-            logf "Post --> %a" D.format post;
-            try
-              let new_annotation =
-                let old_prop = Hashtbl.find annotation target in
-                let delay =
-                  try Hashtbl.find delay_widening target
-                  with Not_found -> begin
-                      Hashtbl.add delay_widening target 0;
-                      0
-                    end
-                in
-                Hashtbl.replace delay_widening target (delay + 1);
-                if delay >= 2 then
-                  let attractor = attractor_bounds tensor_edge in
-                  D.meet
-                    (D.join
-                       (D.join old_prop post)
-                       (F.abstract man (TIvl.to_formula attractor)))
-                    (tivl_widen man templates (sep_annotation target) old_prop post)
-                else if delay >= 4 then
-                  tivl_widen man templates (sep_annotation target) old_prop post
-                else
-                  D.join old_prop post
-              in
-              if not (D.equal (Hashtbl.find annotation target) new_annotation)
-              then begin
-                Hashtbl.replace annotation target new_annotation;
-                worklist := Worklist.add target (!worklist)
-              end
-            with Not_found ->
-              if not (D.is_bottom post) then begin
-                logf ~attributes:[Log.Red;Log.Bold] "New reachable vertex: %a"
-                  Show.format<int*int> target;
-
-                Hashtbl.add annotation target post;
-                worklist := Worklist.add target (!worklist)
-              end else
-                logf ~attributes:[Log.Blue;Log.Bold] "Redundant edge: %a -> %a"
-                  Show.format<int*int> (TCfa.E.src tensor_edge)
-                  Show.format<int*int> (TCfa.E.dst tensor_edge)
-          end
+    while not (Worklist.is_empty (!outer_worklist)) do
+      let (approx_v, ideal_v) = pop_outer_worklist () in
+      let precondition =
+        try Hashtbl.find annotation (approx_v, ideal_v)
+        with Not_found -> assert false
       in
-      let succs = Cfa.succ_e ctx.ideal_cfa ideal_v in
-      let (x,y) = BatList.partition ((=) (Cfa.E.dst approx_edge) % Cfa.E.dst) succs in
-      List.iter g x
-      (*(x@y)*)
-    in
-    Cfa.iter_succ_e f ctx.approx_cfa approx_v
+
+      let f approx_edge =
+        let g ideal_edge =
+          let source = (Cfa.E.src approx_edge, Cfa.E.src ideal_edge) in
+          let target = (Cfa.E.dst approx_edge, Cfa.E.dst ideal_edge) in
+
+          if not (TCfa.mem_edge (!tensor) source target) then
+            let tensor_tr = tensor_edge (source, target) in
+            let tensor_edge =
+              TCfa.E.create source tensor_tr target
+            in
+            eval_edge precondition tensor_edge
+        in
+        let succs = Cfa.succ_e ctx.ideal_cfa ideal_v in
+        List.iter g succs
+      in
+      Cfa.iter_succ_e f ctx.approx_cfa approx_v
+    done;
   done;
 
   let diff v =
