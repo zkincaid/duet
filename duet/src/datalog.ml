@@ -77,12 +77,15 @@ object (self)
     end;
     let outfile = dir ^ "/log.txt" in
     let cmd =
-      "export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:"
-      ^ Config.bddbddb_path
-      ^ " && java -Xmx1024m -jar " ^ Config.bddbddb_path ^ "/bddbddb.jar"
+      "LD_LIBRARY_PATH="
+      ^ (try Sys.getenv "LD_LIBRARY_PATH" with Not_found -> "")
+      ^ ":"
+      ^ (Config.bddbddb_path())
+      ^ " java -Xmx1024m -jar " ^ (Config.bddbddb_path()) ^ "/bddbddb.jar"
       ^ " " ^ dir ^ "/" ^ name ^ ".datalog"
       ^ " 1> " ^ outfile ^ " 2> " ^ outfile
     in
+    print_endline cmd;
     Sys.command cmd
 
   method kill () = ()
