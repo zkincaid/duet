@@ -120,11 +120,11 @@ object(self)
     | None -> assert false
   method eval_zz term =
     match Model.eval m term true with
-    | Some x -> ZZ.of_string (Arithmetic.Integer.to_string x)
+    | Some x -> ZZ.of_string (Arithmetic.Integer.numeral_to_string x)
     | None -> assert false
   method eval_qq term =
     match Model.eval m term true with
-    | Some x -> QQ.of_string (Arithmetic.Real.to_string x)
+    | Some x -> QQ.of_string (Arithmetic.Real.numeral_to_string x)
     | None -> assert false
   method sat phi =
     match Model.eval m phi true with

@@ -442,7 +442,7 @@ module Make (V : Var) = struct
 	end
       end
       | NUMERAL_AST ->
-	const (QQ.of_string (Arithmetic.Real.to_string ast))
+	const (QQ.of_string (Arithmetic.Real.numeral_to_string ast))
       | VAR_AST ->
 	var (env (Quantifier.get_index ast))
       | QUANTIFIER_AST -> assert false
