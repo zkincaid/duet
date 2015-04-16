@@ -85,7 +85,6 @@ object (self)
       ^ " " ^ dir ^ "/" ^ name ^ ".datalog"
       ^ " 1> " ^ outfile ^ " 2> " ^ outfile
     in
-    print_endline cmd;
     Sys.command cmd
 
   method kill () = ()

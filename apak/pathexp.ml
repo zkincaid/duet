@@ -170,29 +170,16 @@ end = struct
   let dummy_start = Dummy 0
   let dummy_end = Dummy 1
 
-  module LoopDom = Graph.Dominator.Make(struct
-    type t = WGLoop.t ref
-    module V = WGLoop.V
-    let pred g v = WGLoop.pred (!g) v
-    let succ g v = WGLoop.succ (!g) v
-    let fold_vertex f g a = WGLoop.fold_vertex f (!g) a
-    let iter_vertex f g = WGLoop.iter_vertex f (!g)
-    let nb_vertex g = WGLoop.nb_vertex (!g)
-    let create ?(size=0) () = ref WGLoop.empty
-    let add_edge g u v = g := WGLoop.add_edge (!g) u v
-  end)
+  module LoopDom = Graph.Dominator.Make(WGLoop)
   module LoopPostDom = Graph.Dominator.Make(struct
-    type t = WGLoop.t ref
+    type t = WGLoop.t
     module V = WGLoop.V
-    let pred g v = WGLoop.succ (!g) v
-    let succ g v = WGLoop.pred (!g) v
-    let fold_vertex f g a = WGLoop.fold_vertex f (!g) a
-    let iter_vertex f g = WGLoop.iter_vertex f (!g)
-    let nb_vertex g = WGLoop.nb_vertex (!g)
-    let create ?(size=0) () = ref WGLoop.empty
-    let add_edge g u v = g := WGLoop.add_edge (!g) u v
+    let pred g v = WGLoop.succ g v
+    let succ g v = WGLoop.pred g v
+    let fold_vertex = WGLoop.fold_vertex
+    let iter_vertex = WGLoop.iter_vertex
+    let nb_vertex = WGLoop.nb_vertex
   end)
-
 
   module VMemo = Memo.Make(WGV)
   let get_id =
@@ -270,10 +257,12 @@ end = struct
       in
 
       let dom_tree =
-	(LoopDom.compute_all (ref graph) root).LoopDom.dom_tree
+        LoopDom.compute_idom graph root
+        |> LoopDom.idom_to_dom_tree graph
       in
       let postdom =
-	(LoopPostDom.compute_all (ref graph) post_root).LoopPostDom.dom
+        LoopPostDom.compute_idom graph post_root
+        |> LoopPostDom.idom_to_dom
       in
       let rec visit acc v =
 	if List.length (dom_tree v) > 1
