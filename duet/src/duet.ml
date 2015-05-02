@@ -9,7 +9,7 @@ open TranslateCil
 open TranslateCbp
 
 (* Analyses *)
-open Induction
+open Cra
 open Dependence
 open ConcDep
 

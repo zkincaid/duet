@@ -8,7 +8,7 @@ open ArkPervasives
 module RG = Interproc.RG
 module G = RG.G
 
-include Log.Make(struct let name = "lra" end)
+include Log.Make(struct let name = "cra" end)
 
 (* Decorate the program with numerical invariants *)
 
@@ -236,16 +236,16 @@ module K = struct
   let add x y =
     if equal x zero then y
     else if equal y zero then x
-    else Log.time "lra:add" (add (simplify x)) (simplify y)
+    else Log.time "cra:add" (add (simplify x)) (simplify y)
 
   let mul x y =
     if equal x zero || equal y zero then zero
     else if equal x one then y
     else if equal y one then x
-    else simplify (Log.time "lra:mul" (mul x) y)
+    else simplify (Log.time "cra:mul" (mul x) y)
   let star x =
-    Log.time "lra:star" star x
-  let widen x y = Log.time "lra:widen" (widen x) y
+    Log.time "cra:star" star x
+  let widen x y = Log.time "cra:widen" (widen x) y
 end
 module A = Interproc.MakePathExpr(K)
 
@@ -453,34 +453,34 @@ let set_guard s =
       | "polka" ->
 	abstract_guard (Polka.manager_of_polka (Polka.manager_alloc_loose ()))
       | _ ->
-	Log.errorf "Unrecognized option for -lra-guard: `%s'" s;
+	Log.errorf "Unrecognized option for -cra-guard: `%s'" s;
 	assert false
     in
     K.opt_loop_guard := Some guard
 
 let _ =
   CmdLine.register_config
-    ("-lra-forward-inv",
+    ("-cra-forward-inv",
      Arg.Set forward_inv_gen,
      " Forward invariant generation");
   CmdLine.register_config
-    ("-lra-unroll-loop",
+    ("-cra-unroll-loop",
      Arg.Set K.opt_unroll_loop,
      " Unroll loops");
   CmdLine.register_config
-    ("-lra-rec-ineq",
+    ("-cra-rec-ineq",
      Arg.Set K.opt_recurrence_ineq,
      " Solve simple recurrence inequations");
   CmdLine.register_config
-    ("-lra-higher-rec-ineq",
+    ("-cra-higher-rec-ineq",
      Arg.Set K.opt_higher_recurrence_ineq,
      " Solve higher recurrence inequations");
   CmdLine.register_config
-    ("-lra-no-polyrec",
+    ("-cra-no-polyrec",
      Arg.Clear K.opt_polyrec,
      " Turn off polyhedral recurrences");
   CmdLine.register_config
-    ("-lra-guard",
+    ("-cra-guard",
      Arg.String set_guard,
      " Turn off loop guards");
   CmdLine.register_config
@@ -624,4 +624,4 @@ let analyze file =
 
 let _ =
   CmdLine.register_pass
-    ("-lra", analyze, " Linear recurrence analysis")
+    ("-cra", analyze, " Compositional recurrence analysis")
