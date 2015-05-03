@@ -218,6 +218,7 @@ module K = struct
       (VSet.cardinal (formula_free_tmp_vars simplified.guard));
     simplified
 *)
+
   let exists p tr =
     let abstract p x =
       let x = F.linearize (fun () -> V.mk_tmp "nonlin" TyInt) x in
@@ -228,10 +229,14 @@ module K = struct
     let res = simplify (exists p tr) in
     F.opt_simplify_strategy := [];
     res
+
   let exists p tr =
     Log.time "Existential quantification" (exists p) tr
 
-  let simplify tr = tr
+  let star x =
+    Log.time "cra:star" star (simplify x)
+
+(*  let simplify tr = tr*)
 
   let add x y =
     if equal x zero then y
@@ -243,8 +248,7 @@ module K = struct
     else if equal x one then y
     else if equal y one then x
     else simplify (Log.time "cra:mul" (mul x) y)
-  let star x =
-    Log.time "cra:star" star x
+    
   let widen x y = Log.time "cra:widen" (widen x) y
 end
 module A = Interproc.MakePathExpr(K)
@@ -261,9 +265,9 @@ let _ =
   opt_higher_recurrence_ineq := false;
   opt_unroll_loop := false;
   opt_polyrec := true;
-  F.opt_qe_strategy := F.qe_lme;
+  F.opt_qe_strategy := (fun p phi -> F.qe_lme p (F.qe_partial p phi));
   F.opt_linearize_strategy := F.linearize_opt;
-  F.opt_simplify_strategy := []
+  F.opt_simplify_strategy := [F.qe_partial]
 
 
 type ptr_term =
@@ -498,6 +502,9 @@ let analyze file =
       then Log.phase "Forward invariant generation" decorate rg
       else rg
     in
+
+(*    BatEnum.iter (Interproc.RGD.display % snd) (RG.bodies rg);*)
+
     let local func_name =
       if defined_function func_name (get_gfile()) then begin
 	let func = lookup_function func_name (get_gfile()) in

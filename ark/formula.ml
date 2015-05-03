@@ -1123,20 +1123,13 @@ module Make (T : Term.S) = struct
     | Or _ -> hashcons (Or (flatten_or phi))
     | Atom at -> phi
 
-  let rec split_eqs phi (eqs, noneqs) =
-    match phi.node with
-    | And xs -> Hset.fold split_eqs xs (eqs, noneqs)
-    | Or _ -> (eqs, phi::noneqs)
-    | Atom (EqZ t) -> (t::eqs, noneqs)
-    | Atom _ -> (eqs, phi::noneqs)
-
-  let orient_equation vars t =
+  let orient_equation p t =
     match T.to_linterm t with
     | None -> None
     | Some lt ->
       try
 	let (v, coeff) =
-	  BatEnum.find (flip VarSet.mem vars % fst) (T.Linterm.var_bindings lt)
+	  BatEnum.find (p % fst) (T.Linterm.var_bindings lt)
 	in
 	let rhs =
 	  T.div
@@ -1148,34 +1141,54 @@ module Make (T : Term.S) = struct
 
   exception Is_top
   let qe_partial p phi =
-    let fv_alg = function
-      | OOr (x,y) | OAnd (x,y) -> VarSet.union x y
-      | OAtom (LeqZ t) | OAtom (EqZ t) | OAtom (LtZ t) ->
-	VarSet.filter (not % p) (term_free_vars t)
+
+    (* Find the set of variables which appear in a formula and which are bound
+       by the quantifier *)
+    let bound_vars =
+      let bv_alg = function
+        | OOr (x,y) | OAnd (x,y) -> VarSet.union x y
+        | OAtom (LeqZ t) | OAtom (EqZ t) | OAtom (LtZ t) ->
+	  VarSet.filter (not % p) (term_free_vars t)
+      in
+      Log.time "Bound vars" (eval bv_alg)
     in
-    let formula_free_vars = Log.time "Free vars" (eval fv_alg) in
-    let fv = formula_free_vars phi in    
-    let vars = VarSet.of_enum (BatEnum.filter (not % p) (VarSet.enum fv)) in
-    let formula_list_vars xs =
-      let f set x = VarSet.union set (formula_free_vars x) in
-      List.fold_left f VarSet.empty xs
-    in
+
+    let phi_bound_vars = bound_vars phi in
+    logf "QE_PARTIAL: %a" VarSet.format phi_bound_vars;
     let mk_subst rewrite = fun x ->
       try T.V.Map.find x rewrite with Not_found -> T.var x
     in
-    let rec qe vars phi =
-      let fv = formula_free_vars phi in
-      if VarSet.is_empty (VarSet.inter vars fv) then phi else begin
-	match phi.node with
+    let rewrite_varset rewrite varset =
+      let f x set =
+        try
+          VarSet.filter (not % p) (term_free_vars (T.V.Map.find x rewrite))
+          |> VarSet.union set
+        with Not_found -> VarSet.add x set
+      in
+      VarSet.fold f varset VarSet.empty
+    in
+
+    let rec qe rewrite vars psi =
+      if VarSet.is_empty vars then
+        if T.V.Map.is_empty rewrite then psi
+        else subst (mk_subst rewrite) psi
+      else match psi.node with
 	| And xs ->
 
-	   (* Re-write /\ xs as (/\ rewrite) /\ (/\ noneqs), where rewrite is a
+          (* Re-write /\ xs as (/\ rewrite) /\ (/\ noneqs), where rewrite is a
              set of oriented equations which eliminate existentially
              quantified variables, and noneqs is the remainder *)
+          let rec split_eqs phi (eqs, noneqs) =
+            match phi.node with
+            | And xs -> Hset.fold split_eqs xs (eqs, noneqs)
+            | Or _ -> (eqs, phi::noneqs)
+            | Atom (EqZ t) -> (t::eqs, noneqs)
+            | Atom _ -> (eqs, phi::noneqs)
+          in
 	  let (eqs, noneqs) = Hset.fold split_eqs xs ([], []) in
-	  let f (vars, rewrite, noneqs) term =
+	  let f (rewrite, noneqs) term =
 	    let term = T.subst (mk_subst rewrite) term in
-	    match orient_equation vars term with
+	    match orient_equation (flip VarSet.mem vars) term with
 	    | Some (v, rhs) ->
 	      logf "Found rewrite: %a --> %a"
 		T.V.format v
@@ -1188,49 +1201,47 @@ module Make (T : Term.S) = struct
 	      let rewrite =
 		T.V.Map.map (T.subst sub) rewrite
 	      in
-	      (VarSet.remove v vars, T.V.Map.add v rhs rewrite, noneqs)
-	    | None -> (vars, rewrite, (eqz term)::noneqs)
+	      (T.V.Map.add v rhs rewrite, noneqs)
+	    | None ->
+	      logf "Could not orient equation %a=0"
+                T.format term;
+              (rewrite, (eqz term)::noneqs)
 	  in
-	  let (_, rewrite, noneqs) =
-	    List.fold_left f (vars, T.V.Map.empty, noneqs) eqs
+	  let (rewrite, noneqs) =
+	    List.fold_left f (rewrite, noneqs) eqs
 	  in
 
-	  let noneqs =
-	    Log.time "rewrite" (List.map (subst (mk_subst rewrite))) noneqs
-	  in
-	  let rec go rv ys xs = match xs with
-	    | [] -> ys
-	    | (x::xs) ->
-	      let x_vars = VarSet.inter (formula_free_vars x) vars in
-	      let rest_vars = VarSet.union rv (formula_list_vars xs) in
-	      let ex_vars = VarSet.diff x_vars rest_vars in
-	      let ys =
-		try (qe ex_vars x)::ys
-		with Is_top -> ys
-	      in
-	      go (VarSet.union x_vars rv) ys xs
-	  in
-	  let xs = 
-	    if T.V.Map.is_empty rewrite then noneqs
-	    else go VarSet.empty [] noneqs
-	  in
-	  if xs = [] then raise Is_top
-	  else hashcons (And (Hset.of_enum (BatList.enum xs)))
+          (* Rewrite noneqs and push in the quantifier *)
+          let rec miniscope vars left = function
+          | [] -> big_conj (BatList.enum left)
+          | (psi::right) ->
+            let scope =
+              BatList.fold_left
+                (fun scope x ->
+                   VarSet.diff scope (rewrite_varset rewrite (bound_vars x))
+                )
+                (VarSet.inter vars (rewrite_varset rewrite (bound_vars psi)))
+                right
+            in
+            let psi' = qe rewrite scope psi in
+            let vars = VarSet.diff vars (bound_vars psi') in
+            miniscope vars (psi'::left) right
+          in
+          miniscope vars [] noneqs
 	| Or xs ->
-	  let f psi set = Hset.add (qe vars psi) set in
+	  let f psi set = Hset.add (qe rewrite vars psi) set in
 	  hashcons (Or (Hset.fold f xs Hset.empty))
-	| Atom at -> begin
-	  let trivial_atom t =
-	    VarSet.exists (flip VarSet.mem vars) (term_free_vars t)
-	  in
-	  match at with
-	  | LeqZ t -> if trivial_atom t then top else phi
-	  | EqZ t -> if trivial_atom t then top else phi
-	  | LtZ t -> if trivial_atom t then top else phi
-	end
-      end
+	| Atom _ ->
+          let psi' = subst (mk_subst rewrite) psi in
+          if VarSet.exists (flip VarSet.mem vars) (bound_vars psi') then
+            (* exists x. psi is equivalent to true if phi is an atom and x
+               appears in psi *)
+            top
+          else
+            psi'
     in
-    try Log.time "qe_partial" (qe vars) phi
+
+    try Log.time "qe_partial" (qe T.V.Map.empty phi_bound_vars) phi
     with Is_top -> top
 
   let opt_qe_strategy = ref qe_lme
