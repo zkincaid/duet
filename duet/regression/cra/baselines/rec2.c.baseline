@@ -1,0 +1,4 @@
+./regression/cra/code/rec2.c:9 >> x <= 1
+
+1 errors total
+3 safe assertions

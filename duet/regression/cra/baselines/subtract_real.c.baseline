@@ -1,0 +1,4 @@
+./regression/cra/code/subtract_real.c:15 >> result == x - y
+
+1 errors total
+2 safe assertions

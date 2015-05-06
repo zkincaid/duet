@@ -1,0 +1,6 @@
+./regression/cra/code/rec1-param.c:14 >> x <= 1
+./regression/cra/code/rec1-param.c:20 >> x <= 10
+./regression/cra/code/rec1-param.c:23 >> x == 10
+
+3 errors total
+1 safe assertions

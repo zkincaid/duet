@@ -1,0 +1,4 @@
+./regression/cra/code/count_up_down_unsafe.c:18 >> y != n
+
+1 errors total
+0 safe assertions

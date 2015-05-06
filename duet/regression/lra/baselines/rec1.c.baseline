@@ -1,6 +1,0 @@
-./regression/lra/code/rec1.c:14 >> x <= 1
-./regression/lra/code/rec1.c:20 >> x <= 10
-./regression/lra/code/rec1.c:23 >> x == 10
-
-3 errors total
-1 safe assertions

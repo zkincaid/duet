@@ -1,4 +1,0 @@
-./regression/lra/code/sum03_unsafe.c:19 >> tmp
-
-1 errors total
-0 safe assertions
