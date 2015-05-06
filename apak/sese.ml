@@ -32,10 +32,10 @@ module Make(G : G) = struct
     let iter_pred f g v = fold_pred (fun v () -> f v) g v ()
     let find_edge g u v =
       let f e = function
-	| Some e -> Some e
-	| None ->
-	  if G.V.equal (G.E.src e) u && G.V.equal (G.E.dst e) v then Some e
-	  else None
+        | Some e -> Some e
+        | None ->
+          if G.V.equal (G.E.src e) u && G.V.equal (G.E.dst e) v then Some e
+          else None
       in
       match fold_edges_e f g None with
       | Some e -> e
@@ -51,12 +51,12 @@ module Make(G : G) = struct
   let pp formatter v = Format.pp_print_int formatter (name v)
 
   module GD = ExtGraph.Display.MakeSimple(ExtG)(struct
-    type t = G.V.t
-    include Putil.MakeFmt(struct
-      type a = t
-      let format = pp
+      type t = G.V.t
+      include Putil.MakeFmt(struct
+          type a = t
+          let format = pp
+        end)
     end)
-  end)
 
   module GScc = Loop.SccInfo.Make(ExtG)
   module DfsTree = ExtGraph.DfsTree.Make(ExtG)
@@ -68,18 +68,18 @@ module Make(G : G) = struct
     module Compare_t = struct
       type a = t
       let compare (a,b) (c,d) =
-	match G.V.compare a c with
-	| 0 -> G.V.compare b d
-	| x -> x
+        match G.V.compare a c with
+        | 0 -> G.V.compare b d
+        | x -> x
     end
     let compare = Compare_t.compare
     include Putil.MakeFmt(struct
-      type a = t
-      let format formatter (a, b) =
-	Format.fprintf formatter "(%a,%a)"
-	  pp a
-	  pp b
-    end)
+        type a = t
+        let format formatter (a, b) =
+          Format.fprintf formatter "(%a,%a)"
+            pp a
+            pp b
+      end)
   end
   module ESet = Putil.Set.Make(GE)
 
@@ -117,12 +117,12 @@ module Make(G : G) = struct
       match worklist with
       | [] -> pg
       | (v::worklist) ->
-	let f succ (worklist, pg) =
-	  let h = add_edge pg v succ in
-	  if mem_vertex pg succ then (worklist, h)
-	  else (succ::worklist, h)
-	in
-	go (G.fold_succ f g v (worklist, pg))
+        let f succ (worklist, pg) =
+          let h = add_edge pg v succ in
+          if mem_vertex pg succ then (worklist, h)
+          else (succ::worklist, h)
+        in
+        go (G.fold_succ f g v (worklist, pg))
     in
     add_vertex (go ([init], empty)) init
 
@@ -141,18 +141,18 @@ module Make(G : G) = struct
       tgt : int }
   type child =
     { dfsnum : int;
-      hi : int; (* dfsnum of the destination vertex closest to the root of
-		   any edge originating from a decendent of this vertex. *)
+      hi : int; (* dfsnum of the destination vertex closest to the root of any
+                   edge originating from a decendent of this vertex. *)
       blist : cec_edge Dll.t }
 
   (* Normalize a pair of integers so that the smaller integer comes first.
      This gives a canonical name to undirected edges. *)
   let norm_pair (x, y) = if x < y then (x, y) else (y, x)
   module H = Hashtbl.Make (struct
-			     type t = int * int
-			     let hash x = Hashtbl.hash (norm_pair x)
-			     let equal x y = (norm_pair x) = (norm_pair y)
-			   end)
+      type t = int * int
+      let hash x = Hashtbl.hash (norm_pair x)
+      let equal x y = (norm_pair x) = (norm_pair y)
+    end)
 
   let find_cls tbl edge = H.find tbl (norm_pair edge)
   let set_cls tbl edge cls = H.add tbl (norm_pair edge) cls
@@ -171,11 +171,11 @@ module Make(G : G) = struct
 
     let twocycles =
       G.fold_edges
-	(fun u v set ->
-	  if ExtG.mem_edge digraph v u then ESet.add (u, v) set
-	  else set)
-	digraph
-	ESet.empty
+        (fun u v set ->
+           if ExtG.mem_edge digraph v u then ESet.add (u, v) set
+           else set)
+        digraph
+        ESet.empty
     in
 
     (* We need the graph to be strongly 2-connected.  Add edges from sink SCCs
@@ -183,11 +183,11 @@ module Make(G : G) = struct
     let graph =
       let sinks = GScc.sinks digraph in
       let f graph scc =
-	let v =
-	  try BatEnum.find (not % ExtG.mem_edge digraph init) (GScc.enum scc)
-	  with Not_found -> assert false (* this can happen *)
-	in
-	U.add_edge graph v init
+        let v =
+          try BatEnum.find (not % ExtG.mem_edge digraph init) (GScc.enum scc)
+          with Not_found -> assert false (* this can happen *)
+        in
+        U.add_edge graph v init
       in
       BatEnum.fold f graph sinks
     in
@@ -198,9 +198,9 @@ module Make(G : G) = struct
        directed graph but it is terminal in the directed graph.  *)
     let graph =
       U.fold_vertex
-	(fun v g -> if U.out_degree g v == 1 then U.add_edge g v init else g)
-	graph
-	graph
+        (fun v g -> if U.out_degree g v == 1 then U.add_edge g v init else g)
+        graph
+        graph
     in
 
     let tree = UDfsTree.compute graph init in
@@ -218,9 +218,9 @@ module Make(G : G) = struct
     in
     let mk_edge u v =
       { recent_size = -1;
-	recent_class = -1;
-	src = u;
-	tgt = v }
+        recent_class = -1;
+        src = u;
+        tgt = v }
     in
 
     (* For each vertex v, maintain a list of the (capping) backedges from a
@@ -248,84 +248,84 @@ module Make(G : G) = struct
       let dfsnum = get_dfs_num v tree in
       let hi0 = fold_backedges (fun x -> min (get_dfs_num x tree)) v infty in
       let min2 x (y, z) =
-	if x <= y then (x, y)
-	else if x < z then (y, x)
-	else (y, z)
+        if x <= y then (x, y)
+        else if x < z then (y, x)
+        else (y, z)
       in
       let (hi1, hi2) = fold_children (fun m c -> min2 c.hi m) (infty, infty) in
       let blist =
-	fold_children (fun bl c -> Dll.concat bl c.blist) (Dll.create ())
+        fold_children (fun bl c -> Dll.concat bl c.blist) (Dll.create ())
       in
       (* Push backedges originating at this vertex *)
       iter_backedges
-	(fun x -> push_backedge dfsnum (get_dfs_num x tree) blist)
-	v;
+        (fun x -> push_backedge dfsnum (get_dfs_num x tree) blist)
+        v;
       if hi2 < hi0 then push_capping_backedge dfsnum hi2 blist;
       begin
-	let b =
-	  try Dll.top blist
-	  with Not_found -> failwith "ExtGraph.CEC: empty blist"
-	in
-	if b.recent_size != (Dll.size blist) then begin
-	  b.recent_size <- Dll.size blist;
-	  b.recent_class <- new_class ()
-	end;
-	vertex_cls.(dfsnum) <- b.recent_class;
-	if b.recent_size = 1
-	then set_cls cls (b.src, b.tgt) b.recent_class;
+        let b =
+          try Dll.top blist
+          with Not_found -> failwith "ExtGraph.CEC: empty blist"
+        in
+        if b.recent_size != (Dll.size blist) then begin
+          b.recent_size <- Dll.size blist;
+          b.recent_class <- new_class ()
+        end;
+        vertex_cls.(dfsnum) <- b.recent_class;
+        if b.recent_size = 1
+        then set_cls cls (b.src, b.tgt) b.recent_class;
       end;
 
       (* Delete backedges ending at this vertex, and determine the CEC for
-	 real backedges (that is, non-capping backedges) *)
+         	 real backedges (that is, non-capping backedges) *)
       List.iter (Dll.delete blist) capping_backedges.(dfsnum);
       begin
-	let f b =
-	  Dll.delete blist b;
-	  let edge = Dll.elt b in
-	  let edge_cls =
-	    try find_cls cls (edge.src, edge.tgt) with Not_found -> infty
-	  in
-	  if edge_cls = infty
-	  then set_cls cls (edge.src, edge.tgt) (new_class ())
-	in
-	List.iter f backedges.(dfsnum)
+        let f b =
+          Dll.delete blist b;
+          let edge = Dll.elt b in
+          let edge_cls =
+            try find_cls cls (edge.src, edge.tgt) with Not_found -> infty
+          in
+          if edge_cls = infty
+          then set_cls cls (edge.src, edge.tgt) (new_class ())
+        in
+        List.iter f backedges.(dfsnum)
       end;
 
       (* Determine the CEC for the edge from the parent of v to v. *)
       begin match parent v tree with
-      | None -> () (* nothing to do for root *)
-      | Some p ->
-	let b =
-	  try Dll.top blist
-	  with Not_found -> failwith "ExtGraph.CEC: empty blist"
-	in
-	if b.recent_size != (Dll.size blist) then begin
-	  b.recent_size <- Dll.size blist;
-	  b.recent_class <- new_class ()
-	end;
-	set_cls cls (dfsnum, get_dfs_num p tree) b.recent_class;
-	if b.recent_size = 1
-	then set_cls cls (b.src, b.tgt) b.recent_class
+        | None -> () (* nothing to do for root *)
+        | Some p ->
+          let b =
+            try Dll.top blist
+            with Not_found -> failwith "ExtGraph.CEC: empty blist"
+          in
+          if b.recent_size != (Dll.size blist) then begin
+            b.recent_size <- Dll.size blist;
+            b.recent_class <- new_class ()
+          end;
+          set_cls cls (dfsnum, get_dfs_num p tree) b.recent_class;
+          if b.recent_size = 1
+          then set_cls cls (b.src, b.tgt) b.recent_class
       end;
       { dfsnum = dfsnum;
-	hi = min hi0 hi1;
-	blist = blist }
+        hi = min hi0 hi1;
+        blist = blist }
     in
     (* Another 2-cycle problem: edges which belong to a 2-cycle are not
        cycle-equivalent with anything. *)
     let bump_2cycle (u, v) =
       if get_dfs_num u tree < get_dfs_num v tree then begin
-	set_cls cls (get_dfs_num u tree, get_dfs_num v tree) (new_class ());
-	ignore (new_class ());
+        set_cls cls (get_dfs_num u tree, get_dfs_num v tree) (new_class ());
+        ignore (new_class ());
       end
     in
     ignore (UDfsTree.fold_dfs_tree f tree);
     ESet.iter bump_2cycle twocycles;
     ((fun x -> vertex_cls.(get_dfs_num x tree)),
      (fun x y ->
-       let cls = find_cls cls (get_dfs_num x tree, get_dfs_num y tree) in
-       if ESet.mem (x,y) twocycles && get_dfs_num x tree < get_dfs_num y tree
-       then cls + 1 else cls),
+        let cls = find_cls cls (get_dfs_num x tree, get_dfs_num y tree) in
+        if ESet.mem (x,y) twocycles && get_dfs_num x tree < get_dfs_num y tree
+        then cls + 1 else cls),
      !max_class)
 
 
@@ -333,21 +333,21 @@ module Make(G : G) = struct
   let construct_pst init g =
     let (_, cls, num_cls) =
       try compute_cec g init with e -> begin
-	Log.errorf "Failed to compute cycle equivalence classes";
-	GD.display g;
-	raise e
-      end
+          Log.errorf "Failed to compute cycle equivalence classes";
+          GD.display g;
+          raise e
+        end
     in
     if !Log.debug_mode then begin
       let classes = Array.create num_cls [] in
       ExtG.iter_edges (fun v u ->
-	classes.(cls v u) <- (name v, name u)::classes.(cls v u)
-      ) g;
+          classes.(cls v u) <- (name v, name u)::classes.(cls v u)
+        ) g;
       for i = 0 to num_cls - 1 do
-	Log.debugf "CEC %d: %a" i Show.format<(int*int) list> classes.(i)
+        Log.debugf "CEC %d: %a" i Show.format<(int*int) list> classes.(i)
       done
     end;
-    
+
     (* Within each nontrivial CEC, edges are linearly ordered, and adjacent
        edges enclose a canonical SESE region.  We maintain a mapping from CECs
        to the number of edges of that CEC that have not yet been visited, so
@@ -356,8 +356,8 @@ module Make(G : G) = struct
     let cls_size = Array.create num_cls 0 in
     ExtG.iter_edges
       (fun v u ->
-	try cls_size.(cls v u) <- cls_size.(cls v u) + 1
-	with Not_found -> ())
+         try cls_size.(cls v u) <- cls_size.(cls v u) + 1
+         with Not_found -> ())
       g;
     let tree = DfsTree.compute g init in
     let visit node v u =
@@ -365,16 +365,16 @@ module Make(G : G) = struct
       let e_cls = cls v u in
       let edge = (v, u) in
       let node =
-	if node.pst_cls = e_cls then begin
-	  (* This edge ends the canonical SESE region. *)
-	  node.pst_end <- Some edge;
-	  pst_parent node
-	end else node
+        if node.pst_cls = e_cls then begin
+          (* This edge ends the canonical SESE region. *)
+          node.pst_end <- Some edge;
+          pst_parent node
+        end else node
       in
       if cls_size.(e_cls) > 1 then begin
-	(* This edge begins a canonical SESE region *)
-	cls_size.(e_cls) <- cls_size.(e_cls) - 1;
-	pst_mk_child node e_cls edge
+        (* This edge begins a canonical SESE region *)
+        cls_size.(e_cls) <- cls_size.(e_cls) - 1;
+        pst_mk_child node e_cls edge
       end else node
     in
     let rec go node v u =
@@ -386,10 +386,10 @@ module Make(G : G) = struct
     let root = (init, init) in
     let root_node =
       { pst_parent = None;
-	pst_start = root;
-	pst_end = None;
-	pst_cls = -1;	
-	pst_children = [] }
+        pst_start = root;
+        pst_end = None;
+        pst_cls = -1;
+        pst_children = [] }
     in
     ExtG.iter_succ (fun w -> go root_node init w) g init;
 
@@ -407,9 +407,9 @@ module Make(G : G) = struct
       Log.debugf "Pst: %a" (format_pst pp) pst;
       pst
     with e -> begin
-      Log.error "Failed to construct program structure tree";
-      raise e
-    end
+        Log.error "Failed to construct program structure tree";
+        raise e
+      end
 
   module Vertex = struct
     type atom = G.V.t
@@ -417,28 +417,28 @@ module Make(G : G) = struct
     type ('a, 'b) typ = ('a, 'b) RecGraph.seq_typ
 
     include Putil.MakeCoreType(struct
-      open RecGraph
-      type t = (G.V.t, int) typ
-      include Putil.MakeFmt(struct
-	type a = t
-	let format formatter = function
-	  | `Atom v    -> Format.fprintf formatter "Atom %a" pp v
-	  | `Block blk -> Format.fprintf formatter "Block %d" blk
+        open RecGraph
+        type t = (G.V.t, int) typ
+        include Putil.MakeFmt(struct
+            type a = t
+            let format formatter = function
+              | `Atom v    -> Format.fprintf formatter "Atom %a" pp v
+              | `Block blk -> Format.fprintf formatter "Block %d" blk
+          end)
+        module Compare_t = struct
+          type a = t
+          let compare u v = match u, v with
+            | `Atom u,  `Atom v  -> G.V.compare u v
+            | `Atom _,  _       -> 1
+            | _,       `Atom _  -> -1
+            | `Block u, `Block v -> Pervasives.compare u v
+        end
+        let compare = Compare_t.compare
+        let equal u v = compare u v = 0
+        let hash = function
+          | `Atom v  -> Hashtbl.hash (G.V.hash v, 0)
+          | `Block v -> Hashtbl.hash (v, 1)
       end)
-      module Compare_t = struct
-	type a = t
-	let compare u v = match u, v with
-	  | `Atom u,  `Atom v  -> G.V.compare u v
-	  | `Atom _,  _       -> 1
-	  | _,       `Atom _  -> -1
-	  | `Block u, `Block v -> Pervasives.compare u v
-      end
-      let compare = Compare_t.compare
-      let equal u v = compare u v = 0
-      let hash = function
-	| `Atom v  -> Hashtbl.hash (G.V.hash v, 0)
-	| `Block v -> Hashtbl.hash (v, 1)
-    end)
     let classify x = x
   end
   module R = RecGraph.Make(Vertex)(Putil.PInt)
@@ -501,11 +501,11 @@ module Make(G : G) = struct
        vertices that are reachable from s without going through post_e. *)
     let rec go v graph =
       if G.mem_vertex graph v then graph else
-	let f u graph =
-	  if G.V.equal u post_e then graph
-	  else G.add_edge (go u graph) v u
-	in
-	G.fold_succ f g v (G.add_vertex graph v)
+        let f u graph =
+          if G.V.equal u post_e then graph
+          else G.add_edge (go u graph) v u
+        in
+        G.fold_succ f g v (G.add_vertex graph v)
     in
     let body = go s G.empty in
     let blockv = `Block block in
@@ -543,18 +543,18 @@ module Make(G : G) = struct
     let enclose (s0,s1) (e0,e1) g =
       let block = get_block_id () in
       Log.debugf "Enclose(%d) (%a->%a) ==> (%a->%a)"
-	block pp s0 pp s1 pp e0 pp e1;
+        block pp s0 pp s1 pp e0 pp e1;
 
       let g = enclose block (vertex s1) (vertex e0) (vertex e1) g in
       HT.add ht s1 (`Block block);
       HT.add ht e0 (`Block block);
-(*      display g;*)
+      (*      display g;*)
       g
     in
     let rec visit (rg, g) = function
       | PSTNode (_, _, []) -> (rg, g) (* leaves are trivial *)
       | PSTNode (s, e, children) ->
-	enclose s e (List.fold_left visit (rg, g) children)
+        enclose s e (List.fold_left visit (rg, g) children)
     in
     let g =
       G.fold_vertex (fun v g -> R.G.add_vertex g (`Atom v)) cfg R.G.empty
@@ -563,7 +563,7 @@ module Make(G : G) = struct
       G.fold_edges (fun v u g -> R.G.add_edge g (`Atom v) (`Atom u)) cfg g
     in
     Log.debugf "Construct SESE graph from init: %d" (name init);
-(*    display g;*)
+    (*    display g;*)
     let PSTNode (_, _, children) = construct_pst init cfg in
     let (rg, g) = List.fold_left visit (R.empty, g) children in
     R.add_block rg 0 g ~entry:(`Atom init) ~exit:(`Atom exit)
@@ -572,18 +572,18 @@ module Make(G : G) = struct
     let open RecGraph in
     if G.nb_vertex g <= 2 then begin
       let sg =
-	G.fold_vertex (fun v sg -> R.G.add_vertex sg (`Atom v)) g R.G.empty
+        G.fold_vertex (fun v sg -> R.G.add_vertex sg (`Atom v)) g R.G.empty
       in
       let sg =
-	G.fold_edges (fun v u sg -> R.G.add_edge sg (`Atom v) (`Atom u)) g sg
+        G.fold_edges (fun v u sg -> R.G.add_edge sg (`Atom v) (`Atom u)) g sg
       in
       R.add_block R.empty 0 sg ~entry:(`Atom init) ~exit:(`Atom exit)
     end else
       try construct g init exit
       with e -> begin
-	Log.error "Failed to construct region graph";
-	raise e
-      end
+          Log.error "Failed to construct region graph";
+          raise e
+        end
 
   let construct_triv g ~entry:init ~exit:exit =
     let open RecGraph in
@@ -601,21 +601,21 @@ module Make(G : G) = struct
     let rg =
       (* exit doesn't matter *)
       Log.time
-	"Construct SESE graph"
-	(fun () -> construct cfg ~entry:init ~exit:init)
-	()
+        "Construct SESE graph"
+        (fun () -> construct cfg ~entry:init ~exit:init)
+        ()
     in
     let rec visit v acc = match Vertex.classify v with
       | `Block block ->
-	let bentry = R.block_entry rg block in
-	let bexit = R.block_exit rg block in
-	let go v acc =
-	  if Vertex.equal v bentry || Vertex.equal v bexit then acc
-	  else visit v acc
-	in
-	let acc = R.G.fold_vertex go (R.block_body rg block) acc in
-	if Vertex.equal bentry bexit then visit bentry acc
-	else visit bentry (visit bexit acc)
+        let bentry = R.block_entry rg block in
+        let bexit = R.block_exit rg block in
+        let go v acc =
+          if Vertex.equal v bentry || Vertex.equal v bexit then acc
+          else visit v acc
+        in
+        let acc = R.G.fold_vertex go (R.block_body rg block) acc in
+        if Vertex.equal bentry bexit then visit bentry acc
+        else visit bentry (visit bexit acc)
       | `Atom atom -> f atom acc
     in
     T.fold visit (R.block_body rg 0) acc
@@ -639,45 +639,45 @@ module Make(G : G) = struct
       let bentry = ref (R.block_entry rg block) in
       let bexit = ref (R.block_exit rg block) in
       let collapse (rg, g) lr =
-	if (List.length lr > 2)
-	  && not (List.exists (fun v -> R.G.V.equal v !bentry || R.G.V.equal v !bexit) lr)
-	then begin
-	  Log.errorf "Collapsing!";
-	  let start = List.hd lr in
-	  let finish = BatList.last lr in
-	  let lr_name = next_block () in
-	  let lr_vtx = `Block lr_name in
+        if (List.length lr > 2)
+           && not (List.exists (fun v -> R.G.V.equal v !bentry || R.G.V.equal v !bexit) lr)
+        then begin
+          Log.errorf "Collapsing!";
+          let start = List.hd lr in
+          let finish = BatList.last lr in
+          let lr_name = next_block () in
+          let lr_vtx = `Block lr_name in
 
-	  let remove_vertex g v =
-	    if R.G.V.equal v !bentry then bentry := lr_vtx;
-	    if R.G.V.equal v !bexit then bexit := lr_vtx;
-	    R.G.remove_vertex g v
-	  in
-	  let pred = R.G.pred g start in
-	  let succ = R.G.succ g finish  in
-	  let g = List.fold_left remove_vertex g lr in
+          let remove_vertex g v =
+            if R.G.V.equal v !bentry then bentry := lr_vtx;
+            if R.G.V.equal v !bexit then bexit := lr_vtx;
+            R.G.remove_vertex g v
+          in
+          let pred = R.G.pred g start in
+          let succ = R.G.succ g finish  in
+          let g = List.fold_left remove_vertex g lr in
 
-	  (* add edges from/to the linear region *)
-	  let g = R.G.add_vertex g lr_vtx in
-	  let g = List.fold_left (fun g v -> R.G.add_edge g v lr_vtx) g pred in
-	  let g = List.fold_left (fun g v -> R.G.add_edge g lr_vtx v) g succ in
+          (* add edges from/to the linear region *)
+          let g = R.G.add_vertex g lr_vtx in
+          let g = List.fold_left (fun g v -> R.G.add_edge g v lr_vtx) g pred in
+          let g = List.fold_left (fun g v -> R.G.add_edge g lr_vtx v) g succ in
 
-	  (* Add the vertices of the linear region to its block *)
-	  let lrg =
-	    BatEnum.fold
-	      (fun g (u,v) -> R.G.add_edge g u v)
-	      R.G.empty
-	      (Putil.adjacent_pairs (BatList.enum lr))
-	  in
-	  (R.add_block rg lr_name lrg ~entry:start ~exit:finish, g)
-	end else (rg, g)
+          (* Add the vertices of the linear region to its block *)
+          let lrg =
+            BatEnum.fold
+              (fun g (u,v) -> R.G.add_edge g u v)
+              R.G.empty
+              (Putil.adjacent_pairs (BatList.enum lr))
+          in
+          (R.add_block rg lr_name lrg ~entry:start ~exit:finish, g)
+        end else (rg, g)
       in
       let leader_lists = LR.leader_lists body (!bentry) in
       if List.length leader_lists > 1 then begin
-	let (rg, body) =
-	  List.fold_left collapse (rg, body) leader_lists
-	in
-	R.add_block rg block body ~entry:(!bentry) ~exit:(!bexit)
+        let (rg, body) =
+          List.fold_left collapse (rg, body) leader_lists
+        in
+        R.add_block rg block body ~entry:(!bentry) ~exit:(!bexit)
       end else rg
     in
     BatEnum.fold go rg (R.bodies rg)

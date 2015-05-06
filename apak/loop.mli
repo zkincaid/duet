@@ -1,18 +1,18 @@
 (** Strongly connected components *)
 
 type ('a, 'b) scc =
-    { graph : 'b;
-      mutable entries : 'a list;
-      mutable exits : 'a list;
-      mutable backedges : 'a list }
+  { graph : 'b;
+    mutable entries : 'a list;
+    mutable exits : 'a list;
+    mutable backedges : 'a list }
 
 type ('a, 'b) scc_type =
   | Simple of 'a
   | Scc of ('a, 'b) scc
 
 type ('a, 'b) scc_vertex =
-    { scc_id : int;
-      mutable vtype : ('a, 'b) scc_type }
+  { scc_id : int;
+    mutable vtype : ('a, 'b) scc_type }
 
 module type G = sig
   type t
@@ -28,7 +28,7 @@ end
 module SccGraph (G : G) : sig
   type t
   include Graph.Sig.P with type t := t
-		      and type V.t = (G.V.t, t) scc_vertex
+                       and type V.t = (G.V.t, t) scc_vertex
 
   val construct : G.t -> t
   val enum_headers : t -> G.V.t BatEnum.t
@@ -79,9 +79,9 @@ module SccInfo : sig
 end
 
 type 'a loop_nest =
-    { body : 'a;
-      headers : 'a;
-      children : 'a loop_nest list }
+  { body : 'a;
+    headers : 'a;
+    children : 'a loop_nest list }
 
 (** Weak topological order element *)
 type 'a wto_elt =
@@ -98,4 +98,4 @@ module Wto (G : G) : sig
 end
 
 val format_wto :
-    (Format.formatter -> 'a -> unit) -> Format.formatter -> 'a wto -> unit
+  (Format.formatter -> 'a -> unit) -> Format.formatter -> 'a wto -> unit

@@ -33,16 +33,16 @@ class arrayAccessVisitor = object (self)
     | Mem exp, Field (fi, Index (idx, offset)) ->
       let lv = (Mem exp, Field (fi, NoOffset)) in
       ChangeTo (Mem (BinOp (PlusPI,
-			    Cil.mkAddrOf lv,
-			    idx,
-			    typeOfLval lv)),
-		  offset)
+                            Cil.mkAddrOf lv,
+                            idx,
+                            typeOfLval lv)),
+                offset)
     | Var v, Index (idx, offset) ->
       ChangeTo (Mem (BinOp (PlusPI,
-			    Cil.mkAddrOf (Var v, NoOffset),
-			    idx,
-			    v.vtype)),
-		offset)
+                            Cil.mkAddrOf (Var v, NoOffset),
+                            idx,
+                            v.vtype)),
+                offset)
     | _, _ -> DoChildren
 end
 
@@ -88,7 +88,7 @@ class loopVisitor = object (self)
     | Loop (bl, loc, st1, st2) ->
       let block = visitCilBlock (new breakVisitor break_target) bl in
       let cblock =
-	visitCilBlock (new continueVisitor cont_target) block
+        visitCilBlock (new continueVisitor cont_target) block
       in
       let kind = Block (mkBlock [cont_target;
                                  (mkStmt (Block cblock));
@@ -119,7 +119,7 @@ class switchVisitor = object (self)
         | Case (exp,loc) -> add_target (Some exp); mk_label loc
         | Default loc    -> add_target None; mk_label loc
         | CaseRange (_, _, _) ->
-	   failwith "CaseRange not supported: GCC extension."
+          failwith "CaseRange not supported: GCC extension."
       in
       stmt.labels <- List.map f stmt.labels;
       !targets
@@ -129,8 +129,8 @@ class switchVisitor = object (self)
        not hold.  *)
     let mk_if exp target rest = match target with
       | (stmt, None) ->
-	(* Default case.  Throw out rest, insert unconditional goto *)
-	mkStmt (Goto (ref stmt, locUnknown))
+        (* Default case.  Throw out rest, insert unconditional goto *)
+        mkStmt (Goto (ref stmt, locUnknown))
       | (stmt, Some e) ->
         mkStmt (If (BinOp (Eq, exp, e, typeOf exp),
                     mkBlock [mkStmt (Goto (ref stmt, locUnknown))],
@@ -160,8 +160,8 @@ end
 let simplify file =
   if (not !Epicenter.doEpicenter) then Rmtmps.removeUnusedTemps file;
   Cil.iterGlobals file (fun glob -> match glob with
-  | Cil.GFun(fd,_) -> Oneret.oneret fd;
-  | _ -> ());
+      | Cil.GFun(fd,_) -> Oneret.oneret fd;
+      | _ -> ());
   Cil.visitCilFile (new arrayAccessVisitor) file;
   ignore (Simplemem.simplemem file);
   Cil.visitCilFile (new loopVisitor) file;
@@ -178,8 +178,8 @@ let simplify file =
 exception Not_constant of string
 let calc_expr x =
   match Cil.constFold true x with
-    | Cil.Const Cil.CInt64 (i, _, _) -> Int64.to_int i
-    | exp -> raise (Not_constant (Pretty.sprint 79 (Cil.d_exp () exp)))
+  | Cil.Const Cil.CInt64 (i, _, _) -> Int64.to_int i
+  | exp -> raise (Not_constant (Pretty.sprint 79 (Cil.d_exp () exp)))
 
 let type_size t = calc_expr (Cil.SizeOf t)
 
@@ -189,8 +189,8 @@ let field_offset fi =
   let (bits_offset, _) =
     Cil.bitsOffset comp_typ (Cil.Field (fi, Cil.NoOffset))
   in
-    if bits_offset mod 8 = 0 then bits_offset / 8
-    else bits_offset/8
+  if bits_offset mod 8 = 0 then bits_offset / 8
+  else bits_offset/8
 (* failwith "fe/c: Can't calculate offsets for bitfields"*)
 
 (* ========================================================================== *)
@@ -203,16 +203,16 @@ let named_hash = HT.create 32
 (** Converts a Cil.typ to our internal representation. *)
 let rec tr_typ cil_typ =
   match cil_typ with
-    | Cil.TNamed (tinfo, _) ->
-	(match tinfo.Cil.ttype with
-	   | Cil.TComp (cinfo, _) ->
-	       if (tinfo.Cil.tname = "pthread_mutex_t"
-		   || tinfo.Cil.tname = "spin_lock_t")
-	       then Concrete Lock
-	       else Named (tinfo.Cil.tname, ref (tr_ctyp tinfo.Cil.ttype))
-	   | typ -> Concrete (tr_ctyp typ)) (* only allow aliases for
-					       record types *)
-    | _ -> Concrete (tr_ctyp cil_typ)
+  | Cil.TNamed (tinfo, _) ->
+    (match tinfo.Cil.ttype with
+     | Cil.TComp (cinfo, _) ->
+       if (tinfo.Cil.tname = "pthread_mutex_t"
+           || tinfo.Cil.tname = "spin_lock_t")
+       then Concrete Lock
+       else Named (tinfo.Cil.tname, ref (tr_ctyp tinfo.Cil.ttype))
+     | typ -> Concrete (tr_ctyp typ)) (* only allow aliases for record
+                                         types *)
+  | _ -> Concrete (tr_ctyp cil_typ)
 and tr_ctyp =
   let tr_field f =
     { finame = f.Cil.fname;
@@ -221,41 +221,41 @@ and tr_ctyp =
     }
   in
   let tr_enumi (s,e,_) = (s, calc_expr e) in
-    function
-      | Cil.TVoid _ -> Void
-      | Cil.TInt (ik, _) as typ -> Int (type_size typ)
-      | Cil.TFloat (fk, _) as typ -> Float (type_size typ)
-      | Cil.TPtr (base, _) -> Pointer (tr_typ base)
-      | Cil.TArray (base, None, _) -> Array (tr_typ base, None)
-      | Cil.TArray (base, Some expr, _) ->
-	  Array (tr_typ base, Some (calc_expr expr))
-      | Cil.TEnum (en, _) ->
-	  Enum {enname = en.Cil.ename;
-		enitems = List.map tr_enumi en.Cil.eitems}
-      | Cil.TFun (typ, None, bool, _) -> Dynamic
-      | Cil.TFun (typ, Some args, bool, _) ->
-	  Func (tr_typ typ,
-		List.map (fun (_,t,_) -> tr_typ t) args)
-      | Cil.TBuiltin_va_list _ -> Dynamic (* todo *)
-      | Cil.TNamed (tinfo, _) -> tr_ctyp tinfo.Cil.ttype
-      | Cil.TComp (cinfo, _) ->
-	  try resolve_type (HT.find named_hash cinfo.Cil.ckey)
-	  with Not_found -> begin
-	    let typ_ref = ref Void in
-	    let named_typ = Named (cinfo.Cil.cname, typ_ref) in
-	      HT.add named_hash cinfo.Cil.ckey named_typ;
-	      let record_info =
-		{ rfields = List.map tr_field cinfo.Cil.cfields;
-		  rkey = cinfo.Cil.ckey;
-		  rname = cinfo.Cil.cname; }
-	      in
-	      let typ =
-		if cinfo.Cil.cstruct then Record record_info
-		else Union record_info
-	      in
-		typ_ref := typ;
-		typ
-	  end
+  function
+  | Cil.TVoid _ -> Void
+  | Cil.TInt (ik, _) as typ -> Int (type_size typ)
+  | Cil.TFloat (fk, _) as typ -> Float (type_size typ)
+  | Cil.TPtr (base, _) -> Pointer (tr_typ base)
+  | Cil.TArray (base, None, _) -> Array (tr_typ base, None)
+  | Cil.TArray (base, Some expr, _) ->
+    Array (tr_typ base, Some (calc_expr expr))
+  | Cil.TEnum (en, _) ->
+    Enum {enname = en.Cil.ename;
+          enitems = List.map tr_enumi en.Cil.eitems}
+  | Cil.TFun (typ, None, bool, _) -> Dynamic
+  | Cil.TFun (typ, Some args, bool, _) ->
+    Func (tr_typ typ,
+          List.map (fun (_,t,_) -> tr_typ t) args)
+  | Cil.TBuiltin_va_list _ -> Dynamic (* todo *)
+  | Cil.TNamed (tinfo, _) -> tr_ctyp tinfo.Cil.ttype
+  | Cil.TComp (cinfo, _) ->
+    try resolve_type (HT.find named_hash cinfo.Cil.ckey)
+    with Not_found -> begin
+        let typ_ref = ref Void in
+        let named_typ = Named (cinfo.Cil.cname, typ_ref) in
+        HT.add named_hash cinfo.Cil.ckey named_typ;
+        let record_info =
+          { rfields = List.map tr_field cinfo.Cil.cfields;
+            rkey = cinfo.Cil.ckey;
+            rname = cinfo.Cil.cname; }
+        in
+        let typ =
+          if cinfo.Cil.cstruct then Record record_info
+          else Union record_info
+        in
+        typ_ref := typ;
+        typ
+      end
 
 let type_of_var v = tr_typ v.Cil.vtype
 
@@ -264,13 +264,13 @@ let type_of_var v = tr_typ v.Cil.vtype
 (** Access paths and expressions *)
 
 let variable_of_varinfo = Memo.memo (fun vi ->
-  if vi.Cil.vglob then Varinfo.mk_global vi.Cil.vname (type_of_var vi)
-  else Varinfo.mk_local vi.Cil.vname (type_of_var vi))
+    if vi.Cil.vglob then Varinfo.mk_global vi.Cil.vname (type_of_var vi)
+    else Varinfo.mk_local vi.Cil.vname (type_of_var vi))
 
 let rec tr_expr = function
   | Cil.Const c -> Constant (tr_constant c)
   | Cil.Lval ((Cil.Var v, Cil.NoOffset) as l)
-      when Cil.isFunctionType v.Cil.vtype ->
+    when Cil.isFunctionType v.Cil.vtype ->
     addr_of (tr_lval l)
   | Cil.Lval l -> AccessPath (tr_lval l)
   | Cil.SizeOf t -> tr_expr (Cil.constFold true (Cil.SizeOf t))
@@ -282,51 +282,51 @@ let rec tr_expr = function
     let expr = tr_expr expr in
     let typ = tr_typ typ in
     (match op with
-    | Cil.Neg -> UnaryOp (Neg, expr, typ)
-    | Cil.BNot -> UnaryOp (BNot, expr, typ)
-    | Cil.LNot -> BoolExpr (Bexpr.negate (Bexpr.of_expr expr)))
+     | Cil.Neg -> UnaryOp (Neg, expr, typ)
+     | Cil.BNot -> UnaryOp (BNot, expr, typ)
+     | Cil.LNot -> BoolExpr (Bexpr.negate (Bexpr.of_expr expr)))
   | Cil.BinOp (op, ce1, ce2, ctyp) ->
     let e1 = tr_expr ce1 in
     let e2 = tr_expr ce2 in
     let typ = tr_typ ctyp in
     (match op with
-    | Cil.PlusA -> BinaryOp (e1, Add, e2, typ)
-    | Cil.MinusA -> BinaryOp (e1, Minus, e2, typ)
-    | Cil.Mult -> BinaryOp (e1, Mult, e2, typ)
-    | Cil.Div -> BinaryOp (e1, Div, e2, typ)
-    | Cil.Mod -> BinaryOp (e1, Mod, e2, typ)
-    | Cil.Shiftlt -> BinaryOp (e1, ShiftL, e2, typ)
-    | Cil.Shiftrt -> BinaryOp (e1, ShiftR, e2, typ)
-    | Cil.BAnd -> BinaryOp (e1, BAnd, e2, typ)
-    | Cil.BOr -> BinaryOp (e1, BOr, e2, typ)
-    | Cil.BXor -> BinaryOp (e1, BXor, e2, typ)
-    | Cil.Lt -> BoolExpr (Atom (Lt, e1, e2))
-    | Cil.Gt -> BoolExpr (Bexpr.gt e1 e2)
-    | Cil.Le -> BoolExpr (Atom (Le, e1, e2))
-    | Cil.Ge -> BoolExpr (Bexpr.ge e1 e2)
-    | Cil.Eq -> BoolExpr (Atom (Eq, e1, e2))
-    | Cil.Ne ->
-      BoolExpr (Or (Atom (Lt, e1, e2),
-		    Atom (Lt, e2, e1)))
-    | Cil.LAnd -> BoolExpr (And (Bexpr.of_expr e1, Bexpr.of_expr e2))
-    | Cil.LOr -> BoolExpr (Or (Bexpr.of_expr e1, Bexpr.of_expr e2))
-    | Cil.IndexPI | Cil.PlusPI -> (* these are equivalent *)
-      let offset_typ = Expr.get_type e2 in
-      let offset = BinaryOp (e2, Mult, ptr_type_size ctyp, offset_typ) in
-      BinaryOp (e1, Add, offset, typ)
-    | Cil.MinusPI | Cil.MinusPP -> (* these are equivalent *)
-      (if Cil.isPointerType (Cil.typeOf ce2) then begin
-	let delta = BinaryOp (e1, Minus, e2, typ) in
-	BinaryOp (delta, Div, ptr_type_size (Cil.typeOf ce1), typ)
-      end else begin
-	let offset_typ = Expr.get_type e2 in
-	let offset = BinaryOp (e2, Mult, ptr_type_size ctyp, offset_typ) in
-	BinaryOp (e1, Minus, offset, typ)
-      end))
+     | Cil.PlusA -> BinaryOp (e1, Add, e2, typ)
+     | Cil.MinusA -> BinaryOp (e1, Minus, e2, typ)
+     | Cil.Mult -> BinaryOp (e1, Mult, e2, typ)
+     | Cil.Div -> BinaryOp (e1, Div, e2, typ)
+     | Cil.Mod -> BinaryOp (e1, Mod, e2, typ)
+     | Cil.Shiftlt -> BinaryOp (e1, ShiftL, e2, typ)
+     | Cil.Shiftrt -> BinaryOp (e1, ShiftR, e2, typ)
+     | Cil.BAnd -> BinaryOp (e1, BAnd, e2, typ)
+     | Cil.BOr -> BinaryOp (e1, BOr, e2, typ)
+     | Cil.BXor -> BinaryOp (e1, BXor, e2, typ)
+     | Cil.Lt -> BoolExpr (Atom (Lt, e1, e2))
+     | Cil.Gt -> BoolExpr (Bexpr.gt e1 e2)
+     | Cil.Le -> BoolExpr (Atom (Le, e1, e2))
+     | Cil.Ge -> BoolExpr (Bexpr.ge e1 e2)
+     | Cil.Eq -> BoolExpr (Atom (Eq, e1, e2))
+     | Cil.Ne ->
+       BoolExpr (Or (Atom (Lt, e1, e2),
+                     Atom (Lt, e2, e1)))
+     | Cil.LAnd -> BoolExpr (And (Bexpr.of_expr e1, Bexpr.of_expr e2))
+     | Cil.LOr -> BoolExpr (Or (Bexpr.of_expr e1, Bexpr.of_expr e2))
+     | Cil.IndexPI | Cil.PlusPI -> (* these are equivalent *)
+       let offset_typ = Expr.get_type e2 in
+       let offset = BinaryOp (e2, Mult, ptr_type_size ctyp, offset_typ) in
+       BinaryOp (e1, Add, offset, typ)
+     | Cil.MinusPI | Cil.MinusPP -> (* these are equivalent *)
+       (if Cil.isPointerType (Cil.typeOf ce2) then begin
+           let delta = BinaryOp (e1, Minus, e2, typ) in
+           BinaryOp (delta, Div, ptr_type_size (Cil.typeOf ce1), typ)
+         end else begin
+          let offset_typ = Expr.get_type e2 in
+          let offset = BinaryOp (e2, Mult, ptr_type_size ctyp, offset_typ) in
+          BinaryOp (e1, Minus, offset, typ)
+        end))
   | Cil.CastE (t, e) -> Cast (tr_typ t, tr_expr e)
   | Cil.AddrOf l -> addr_of (tr_lval l)
   | Cil.AddrOfLabel _ ->
-     failwith "Address of label (&&) is not supported: GCC extension."
+    failwith "Address of label (&&) is not supported: GCC extension."
   | Cil.StartOf l ->
     (* Conversion of an array type to a pointer type *)
     addr_of (tr_lval l)
@@ -365,20 +365,20 @@ and tr_lval lval =
     | Cil.NoOffset -> ap
     | Cil.Field (fi, next) ->
       do_offset
-	(AP.offset ap (OffsetFixed (field_offset fi)))
-	fi.Cil.ftype
-	next
+        (AP.offset ap (OffsetFixed (field_offset fi)))
+        fi.Cil.ftype
+        next
     | Cil.Index (i, next) ->
       let elt_typ = match typ with
-	| Cil.TPtr (et, _) -> et
-	| Cil.TArray (et, _, _) -> et
-	| _ -> assert false
+        | Cil.TPtr (et, _) -> et
+        | Cil.TArray (et, _, _) -> et
+        | _ -> assert false
       in
       try
-	let offset = OffsetFixed (type_size elt_typ * calc_expr i) in
-	do_offset (AP.offset ap offset) elt_typ next
+        let offset = OffsetFixed (type_size elt_typ * calc_expr i) in
+        do_offset (AP.offset ap offset) elt_typ next
       with Not_constant _ ->
-	do_offset (Deref (Expr.add (addr_of ap) (tr_expr i))) elt_typ next
+        do_offset (Deref (Expr.add (addr_of ap) (tr_expr i))) elt_typ next
   in
   let base = match fst lval with
     | Cil.Var vi -> Variable (Var.mk (variable_of_varinfo vi))
@@ -404,8 +404,8 @@ let tr_instr ctx instr =
   | Cil.Set (l, e, loc) ->
     let rhs = tr_expr e in
     begin match tr_lval l with
-    | Variable v -> mk_single (Def.mk ~loc:loc (Assign (v, rhs)))
-    | ap -> mk_single (Def.mk ~loc:loc (Store (ap, rhs)))
+      | Variable v -> mk_single (Def.mk ~loc:loc (Assign (v, rhs)))
+      | ap -> mk_single (Def.mk ~loc:loc (Store (ap, rhs)))
     end
   | Cil.Call (lhs, Cil.Lval (Cil.Var v, Cil.NoOffset), args, loc) ->
     let lhs = match lhs with
@@ -414,90 +414,90 @@ let tr_instr ctx instr =
     in
     let mk_def kind = mk_single (Def.mk ~loc:loc kind) in
     begin match v.Cil.vname, lhs, List.map tr_expr args with
-    | ("assume", None, [x])
-    | ("__VERIFIER_assume", None, [x]) ->
-      mk_def (Assume (Bexpr.of_expr x))
-    | ("assert", None, [x])
-    | ("__VERIFIER_assert", None, [x]) -> begin
-      (* Pretty print the cil expression for the error message - it should
-	 be closer the source text than the translation *)
-      match args with
-      | [cil_arg] ->
-	let error_msg = Pretty.sprint ~width:80 (Cil.d_exp () cil_arg) in
-	mk_def (Assert (Bexpr.of_expr x, error_msg))
-      | _ -> assert false
-					end
-    | ("__VERIFIER_error", None, []) ->
-      mk_def (Assert (Bexpr.kfalse, "error"))
-    | ("__assert_fail", None, [_;_;_;_]) ->
-      mk_def (Assert (Bexpr.kfalse, "fail"))
-    | ("malloc", Some (Variable v), [x])
-    | ("xmalloc", Some (Variable v), [x]) ->
-      mk_def (Builtin (Alloc (v, x, AllocHeap)))
-    | ("calloc", Some (Variable v), [mem;size]) ->
-      mk_def (Builtin (Alloc (v,
-			      BinaryOp (mem,
-					Mult,
-					size,
-					Concrete (Int pointer_width)),
-			      AllocHeap)))
-    | ("realloc", Some (Variable v), [_;x])
-    | ("xrealloc", Some (Variable v), [_;x]) ->
-      mk_def (Builtin (Alloc (v, x, AllocHeap)))
-    (* glibc #defines alloca to be __builtin_alloca *)
-    | ("__builtin_alloca", Some (Variable v), [x]) ->
-      mk_def (Builtin (Alloc (v, x, AllocStack)))
-    | ("pthread_mutex_lock", None, [x]) -> mk_def (Builtin (Acquire x))
-    | ("pthread_mutex_unlock", None, [x]) -> mk_def (Builtin (Release x))
-    | ("spin_lock", None, [x]) -> mk_def (Builtin (Acquire x))
-    | ("spin_unlock", None, [x]) -> mk_def (Builtin (Release x))
-    | ("pthread_create", Some (Variable v), [_;_;func;arg]) ->
-      mk_def (Builtin (Fork (Some v, func, [arg])))
-    | ("pthread_create", None, [_;_;func;arg]) ->
-      mk_def (Builtin (Fork (None, func, [arg])))
-    | ("exit", _, [_]) -> mk_def (Builtin Exit)
+      | ("assume", None, [x])
+      | ("__VERIFIER_assume", None, [x]) ->
+        mk_def (Assume (Bexpr.of_expr x))
+      | ("assert", None, [x])
+      | ("__VERIFIER_assert", None, [x]) -> begin
+          (* Pretty print the cil expression for the error message - it should
+             	 be closer the source text than the translation *)
+          match args with
+          | [cil_arg] ->
+            let error_msg = Pretty.sprint ~width:80 (Cil.d_exp () cil_arg) in
+            mk_def (Assert (Bexpr.of_expr x, error_msg))
+          | _ -> assert false
+        end
+      | ("__VERIFIER_error", None, []) ->
+        mk_def (Assert (Bexpr.kfalse, "error"))
+      | ("__assert_fail", None, [_;_;_;_]) ->
+        mk_def (Assert (Bexpr.kfalse, "fail"))
+      | ("malloc", Some (Variable v), [x])
+      | ("xmalloc", Some (Variable v), [x]) ->
+        mk_def (Builtin (Alloc (v, x, AllocHeap)))
+      | ("calloc", Some (Variable v), [mem;size]) ->
+        mk_def (Builtin (Alloc (v,
+                                BinaryOp (mem,
+                                          Mult,
+                                          size,
+                                          Concrete (Int pointer_width)),
+                                AllocHeap)))
+      | ("realloc", Some (Variable v), [_;x])
+      | ("xrealloc", Some (Variable v), [_;x]) ->
+        mk_def (Builtin (Alloc (v, x, AllocHeap)))
+      (* glibc #defines alloca to be __builtin_alloca *)
+      | ("__builtin_alloca", Some (Variable v), [x]) ->
+        mk_def (Builtin (Alloc (v, x, AllocStack)))
+      | ("pthread_mutex_lock", None, [x]) -> mk_def (Builtin (Acquire x))
+      | ("pthread_mutex_unlock", None, [x]) -> mk_def (Builtin (Release x))
+      | ("spin_lock", None, [x]) -> mk_def (Builtin (Acquire x))
+      | ("spin_unlock", None, [x]) -> mk_def (Builtin (Release x))
+      | ("pthread_create", Some (Variable v), [_;_;func;arg]) ->
+        mk_def (Builtin (Fork (Some v, func, [arg])))
+      | ("pthread_create", None, [_;_;func;arg]) ->
+        mk_def (Builtin (Fork (None, func, [arg])))
+      | ("exit", _, [_]) -> mk_def (Builtin Exit)
 
-    | ("rand", Some (Variable v), []) ->
-      (* todo: should be non-negative *)
-      mk_def (Assign (v, Havoc (Concrete (Int unknown_width))))
+      | ("rand", Some (Variable v), []) ->
+        (* todo: should be non-negative *)
+        mk_def (Assign (v, Havoc (Concrete (Int unknown_width))))
 
-    | ("__VERIFIER_nondet_char", Some (Variable v), []) ->
-      mk_def (Assign (v, Havoc (Concrete (Int 1))))
-    | ("__VERIFIER_nondet_int", Some (Variable v), []) ->
-      mk_def (Assign (v, Havoc (Concrete (Int machine_int_width))))
-    | ("__VERIFIER_nondet_long", Some (Variable v), []) ->
-      let sz = type_size (Cil.TInt (Cil.ILong, [])) in
-      mk_def (Assign (v, Havoc (Concrete (Int sz))))
-    | ("__VERIFIER_nondet_pointer", Some (Variable v), []) ->
-      mk_def (Assign (v, Havoc (Concrete (Int pointer_width))))
-    | ("__VERIFIER_nondet_uint", Some (Variable v), []) ->
-      let havoc = mk_def (Assign (v, Havoc (Concrete (Int unknown_width)))) in
-      let assume =
-	mk_def (Assume (Atom (Le, Expr.zero, AccessPath (Variable v))))
-      in
-      mk_seq havoc assume
+      | ("__VERIFIER_nondet_char", Some (Variable v), []) ->
+        mk_def (Assign (v, Havoc (Concrete (Int 1))))
+      | ("__VERIFIER_nondet_int", Some (Variable v), []) ->
+        mk_def (Assign (v, Havoc (Concrete (Int machine_int_width))))
+      | ("__VERIFIER_nondet_long", Some (Variable v), []) ->
+        let sz = type_size (Cil.TInt (Cil.ILong, [])) in
+        mk_def (Assign (v, Havoc (Concrete (Int sz))))
+      | ("__VERIFIER_nondet_pointer", Some (Variable v), []) ->
+        mk_def (Assign (v, Havoc (Concrete (Int pointer_width))))
+      | ("__VERIFIER_nondet_uint", Some (Variable v), []) ->
+        let havoc = mk_def (Assign (v, Havoc (Concrete (Int unknown_width)))) in
+        let assume =
+          mk_def (Assume (Atom (Le, Expr.zero, AccessPath (Variable v))))
+        in
+        mk_seq havoc assume
 
-    (* CPROVER builtins *)
-    | ("__CPROVER_atomic_begin", None, []) -> mk_def (Builtin AtomicBegin)
-    | ("__CPROVER_atomic_end", None, []) -> mk_def (Builtin AtomicEnd)
+      (* CPROVER builtins *)
+      | ("__CPROVER_atomic_begin", None, []) -> mk_def (Builtin AtomicBegin)
+      | ("__CPROVER_atomic_end", None, []) -> mk_def (Builtin AtomicEnd)
 
-    | (_, Some (Variable lhs), args) ->
-      mk_def (Call (Some lhs,
-		    tr_expr (Cil.Lval (Cil.Var v, Cil.NoOffset)),
-		    args))
-    | (_, None, args) ->
-      mk_def (Call (None,
-		    tr_expr (Cil.Lval (Cil.Var v, Cil.NoOffset)),
-		    args))
-    | (_, Some (Deref expr), args) ->
-      let tmp = CfgIr.mk_local_var ctx.ctx_func "__tmp" (Expr.get_type expr) in
-      let call =
-	mk_def (Call (Some tmp,
-		      tr_expr (Cil.Lval (Cil.Var v, Cil.NoOffset)),
-		      args))
-      in
-      let store = mk_def (Store (Deref expr, AccessPath (Variable tmp))) in
-      mk_seq call store
+      | (_, Some (Variable lhs), args) ->
+        mk_def (Call (Some lhs,
+                      tr_expr (Cil.Lval (Cil.Var v, Cil.NoOffset)),
+                      args))
+      | (_, None, args) ->
+        mk_def (Call (None,
+                      tr_expr (Cil.Lval (Cil.Var v, Cil.NoOffset)),
+                      args))
+      | (_, Some (Deref expr), args) ->
+        let tmp = CfgIr.mk_local_var ctx.ctx_func "__tmp" (Expr.get_type expr) in
+        let call =
+          mk_def (Call (Some tmp,
+                        tr_expr (Cil.Lval (Cil.Var v, Cil.NoOffset)),
+                        args))
+        in
+        let store = mk_def (Store (Deref expr, AccessPath (Variable tmp))) in
+        mk_seq call store
     end
   | Cil.Call (lhs, func, args, loc) ->
     let lhs = match lhs with
@@ -507,17 +507,17 @@ let tr_instr ctx instr =
     let func = tr_expr func in
     let args = List.map tr_expr args in
     begin match lhs with
-    | Some (Variable v) ->
-      mk_single (Def.mk ~loc:loc (Call (Some v, func, args)))
-    | None -> mk_single (Def.mk ~loc:loc (Call (None, func, args)))
-    | Some (Deref expr) ->
-      let tmp = CfgIr.mk_local_var ctx.ctx_func "__tmp" (Expr.get_type expr) in
-      let call = mk_single (Def.mk ~loc:loc (Call (Some tmp, func, args))) in
-      let store =
-	mk_single
-	  (Def.mk ~loc:loc (Store (Deref expr, AccessPath (Variable tmp))))
-      in
-      mk_seq call store
+      | Some (Variable v) ->
+        mk_single (Def.mk ~loc:loc (Call (Some v, func, args)))
+      | None -> mk_single (Def.mk ~loc:loc (Call (None, func, args)))
+      | Some (Deref expr) ->
+        let tmp = CfgIr.mk_local_var ctx.ctx_func "__tmp" (Expr.get_type expr) in
+        let call = mk_single (Def.mk ~loc:loc (Call (Some tmp, func, args))) in
+        let store =
+          mk_single
+            (Def.mk ~loc:loc (Store (Deref expr, AccessPath (Variable tmp))))
+        in
+        mk_seq call store
     end
   | Cil.Asm (_, _, _, _, _, loc) ->
     (* TODO - this is unsound *)
@@ -573,9 +573,9 @@ let tr_func f =
   let add_goto (v, target) =
     try CfgIr.Cfg.add_edge cfg v (Hashtbl.find ctx.ctx_labelled target)
     with Not_found -> begin
-      Log.errorf "Missing label (CIL frontend)";
-      assert false
-    end
+        Log.errorf "Missing label (CIL frontend)";
+        assert false
+      end
   in
   let body =
     CfgIr.CfgBuilder.mk_block
@@ -590,10 +590,10 @@ let tr_func f =
 
 let rec tr_file_vars = function
   | (x::xs) -> let rest = tr_file_vars xs in
-      (match x with
-	 | Cil.GVarDecl (v, _) -> (variable_of_varinfo v)::rest
-	 | Cil.GVar (v, _, _) -> (variable_of_varinfo v)::rest
-	 | _ -> rest)
+    (match x with
+     | Cil.GVarDecl (v, _) -> (variable_of_varinfo v)::rest
+     | Cil.GVar (v, _, _) -> (variable_of_varinfo v)::rest
+     | _ -> rest)
   | [] -> []
 
 (* Provide definitions for argc/argv *)
@@ -602,32 +602,32 @@ let define_args file =
   let main = match file.entry_points with
     | [x] -> x
     | _   -> failwith ("CfgIr.define_args: " ^
-			 "no support for multiple entry points")
+                       "no support for multiple entry points")
   in
   let main_func = lookup_function main file in
   let init_vertex = Cfg.initial_vertex main_func.cfg in
   let (argc, argv) = match main_func.formals with
     | [argc;argv] -> (argc,argv)
     | [] -> begin
-	let argc = Varinfo.mk_local "argc" (Concrete (Int machine_int_width)) in
-	let argv = Varinfo.mk_local "argv" (Concrete (Pointer typ_string)) in
-	  main_func.formals <- [argc;argv];
-	  (argc,argv)
+        let argc = Varinfo.mk_local "argc" (Concrete (Int machine_int_width)) in
+        let argv = Varinfo.mk_local "argv" (Concrete (Pointer typ_string)) in
+        main_func.formals <- [argc;argv];
+        (argc,argv)
       end
     | _ -> failwith ("CfgIr.define_args: wrong # of params to main")
   in
   let define0 =
     Def.mk (Assume (Bexpr.ge
-		      (AccessPath (Variable (Var.mk argc)))
-		      Expr.zero))
+                      (AccessPath (Variable (Var.mk argc)))
+                      Expr.zero))
   in
   let define1 =
     Def.mk (Builtin (Alloc (Var.mk argv,
-			    AccessPath (Variable (Var.mk argc)),
-			    AllocStack)))
+                            AccessPath (Variable (Var.mk argc)),
+                            AllocStack)))
   in
-    insert_pre define0 init_vertex main_func.cfg;
-    insert_pre define1 init_vertex main_func.cfg
+  insert_pre define0 init_vertex main_func.cfg;
+  insert_pre define1 init_vertex main_func.cfg
 
 let tr_file_funcs =
   let rec go = function
@@ -635,7 +635,7 @@ let tr_file_funcs =
     | (_::rest) -> go rest
     | [] -> []
   in
-    go
+  go
 
 (* Create an explicit memory allocation instruction for a fixed-size array
    (currently unused). *)
@@ -644,11 +644,11 @@ let add_array_initializer v loc il =
   | Cil.TArray (typ, Some size, _) ->
     begin
       let size =
-	Expr.const_int (type_size typ * calc_expr size)
+        Expr.const_int (type_size typ * calc_expr size)
       in
       let lhs = Var.mk (variable_of_varinfo v) in
       let def =
-	Def.mk ~loc:loc (Builtin (Alloc (lhs, size, AllocHeap)))
+        Def.mk ~loc:loc (Builtin (Alloc (lhs, size, AllocHeap)))
       in
       def::il
     end
@@ -659,26 +659,26 @@ let tr_initializer globals =
     match v with
     | Cil.GVar (v, init, loc) ->
       let mk_assign lv exp =
-	let rhs = tr_expr exp in
-	match tr_lval lv with
-	| Variable v -> Def.mk ~loc:loc (Assign (v, rhs))
-	| ap -> Def.mk ~loc:loc (Store (ap, rhs))
+        let rhs = tr_expr exp in
+        match tr_lval lv with
+        | Variable v -> Def.mk ~loc:loc (Assign (v, rhs))
+        | ap -> Def.mk ~loc:loc (Store (ap, rhs))
       in
       let rec mk_init lv init il = match init with
-	| Cil.SingleInit exp -> (mk_assign lv exp)::il
-	| Cil.CompoundInit (ct, initl) ->
-	  Cil.foldLeftCompound
-	    ~implicit:false
-	    ~doinit:(fun offset init typ il ->
-	      mk_init (Cil.addOffsetLval offset lv) init il)
-	    ~ct:ct
-	    ~initl:initl
-	    ~acc:il
+        | Cil.SingleInit exp -> (mk_assign lv exp)::il
+        | Cil.CompoundInit (ct, initl) ->
+          Cil.foldLeftCompound
+            ~implicit:false
+            ~doinit:(fun offset init typ il ->
+                mk_init (Cil.addOffsetLval offset lv) init il)
+            ~ct:ct
+            ~initl:initl
+            ~acc:il
       in
       begin
-	match init.Cil.init with
-	| Some init -> mk_init (Cil.Var v, Cil.NoOffset) init il
-	| _ -> il
+        match init.Cil.init with
+        | Some init -> mk_init (Cil.Var v, Cil.NoOffset) init il
+        | _ -> il
       end
     | _ -> il
   in
@@ -731,8 +731,8 @@ let parse filename =
     let library_path =
       if !CmdLine.library_path = "" then ""
       else begin
-	Log.logf "Using library: %s" !CmdLine.library_path;
-	" -I" ^ !CmdLine.library_path
+        Log.logf "Using library: %s" !CmdLine.library_path;
+        " -I" ^ !CmdLine.library_path
       end
     in
     let pp_cmd =

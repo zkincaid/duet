@@ -16,8 +16,8 @@ struct Make (I : Interpretation) = struct
     let simplify_def def =
       match v.dkind with
       | Assume phi ->
-	let phi = simplify_bexpr phi in
-	
+        let phi = simplify_bexpr phi in
+
       | Assert (psi, _) -> ()
       | Assignment (lhs, rhs)
       | _ -> ()

@@ -11,8 +11,8 @@ module FunctionSpace : sig
   module type S = sig
     include Sig.Semilattice.S
     include Sig.FunctionSpace.S with type t := t
-    (** [weak_update k v f] constructs a function which maps [k] to
-	[join v (f k)] and all other elements [y] to [f y]. *)
+    (** [weak_update k v f] constructs a function which maps [k] to [join v (f
+        k)] and all other elements [y] to [f y]. *)
     val weak_update : dom -> cod -> t -> t
   end
 
@@ -26,30 +26,30 @@ module FunctionSpace : sig
     end
 
     (** [LiftMap(M)(Codomain)] constructs a total function space semilattice
-	where [M] is used as the underlying map representation.  This is
-	useful (for example) with tagged types, since Patricia trees support
-	fast merging. *)
+        where [M] is used as the underlying map representation.  This
+        is useful (for example) with tagged types, since Patricia
+        trees support fast merging. *)
     module LiftMap (M : Putil.Map.S) (Codomain : Sig.Semilattice.S) :
       S with type dom = M.key
-	and type cod = Codomain.t
+         and type cod = Codomain.t
 
     module Make (Domain : Putil.Ordered) (Codomain : Sig.Semilattice.S) :
       S with type dom = Domain.t
-	and type cod = Codomain.t
+         and type cod = Codomain.t
 
     module Ordered : sig
       module type S = sig
-	include S
-	include Putil.OrderedMix with type t := t
+        include S
+        include Putil.OrderedMix with type t := t
       end
       module LiftMap (M : Putil.Map.S) (Codomain : Sig.Semilattice.Ordered.S) :
-	S with type dom = M.key
-	  and type cod = Codomain.t
+        S with type dom = M.key
+           and type cod = Codomain.t
       module Make
-	(Domain : Putil.Ordered)
-	(Codomain : Sig.Semilattice.Ordered.S) :
-	S with type dom = Domain.t
-	  and type cod = Codomain.t
+          (Domain : Putil.Ordered)
+          (Codomain : Sig.Semilattice.Ordered.S) :
+        S with type dom = Domain.t
+           and type cod = Codomain.t
     end
   end
 
@@ -62,30 +62,30 @@ module FunctionSpace : sig
     end
 
     (** [LiftMap(M)(Codomain)] constructs a partial function space semilattice
-	where [M] is used as the underlying map representation.  This is
-	useful (for example) with tagged types, since Patricia trees support
-	fast merging. *)
+        where [M] is used as the underlying map representation.  This
+        is useful (for example) with tagged types, since Patricia
+        trees support fast merging. *)
     module LiftMap (M : Putil.Map.S) (Codomain : Sig.Semilattice.S) :
       S with type dom = M.key
-	and type cod = Codomain.t
+         and type cod = Codomain.t
 
     module Make (Domain : Putil.Ordered) (Codomain : Sig.Semilattice.S) :
       S with type dom = Domain.t
-	and type cod = Codomain.t
+         and type cod = Codomain.t
 
     module Ordered : sig
       module type S = sig
-	include S
-	include Putil.OrderedMix with type t := t
+        include S
+        include Putil.OrderedMix with type t := t
       end
       module LiftMap (M : Putil.Map.S) (Codomain : Sig.Semilattice.Ordered.S) :
-	S with type dom = M.key
-	  and type cod = Codomain.t
+        S with type dom = M.key
+           and type cod = Codomain.t
       module Make
-	(Domain : Putil.Ordered)
-	(Codomain : Sig.Semilattice.Ordered.S) :
-	S with type dom = Domain.t
-	  and type cod = Codomain.t
+          (Domain : Putil.Ordered)
+          (Codomain : Sig.Semilattice.Ordered.S) :
+        S with type dom = Domain.t
+           and type cod = Codomain.t
     end
   end
 end
@@ -108,9 +108,9 @@ module Bounded : sig
     | Bottom
     | Value of 'a
   val format_bounded : (Format.formatter -> 'a -> unit) ->
-                       Format.formatter ->
-                       'a bounded ->
-                       unit
+    Format.formatter ->
+    'a bounded ->
+    unit
 
   (** Augment a semilattice with a least element *)
   module Lift (S : Sig.Semilattice.S) :

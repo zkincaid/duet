@@ -10,19 +10,19 @@ module MakeRR (S : Set.OrderedType) : sig
 end = struct
   module Set = Set.Make(S)
   type t = { front : S.t list;
-	     back  : S.t list;
-	     set   : Set.t }
+             back  : S.t list;
+             set   : Set.t }
 
   let normalize s =
     match s.front with
-      | [] -> { s with front = List.rev s.back; back = [] }
-      | _  -> s
+    | [] -> { s with front = List.rev s.back; back = [] }
+    | _  -> s
 
   let pick s =
     let n = normalize s in
-      match n.front with
-	| (x::xs) -> Some (x, { n with front = xs; set = Set.remove x n.set })
-	| [] -> None
+    match n.front with
+    | (x::xs) -> Some (x, { n with front = xs; set = Set.remove x n.set })
+    | [] -> None
 
   let empty = { front = []; back = []; set = Set.empty }
   let singleton x = { front = [x]; back = []; set = Set.singleton x }
@@ -34,6 +34,6 @@ end = struct
 
   let rec fix f wl =
     match pick wl with
-      | None -> ()
-      | Some (elt, wl) -> fix f (cat wl (f elt))
+    | None -> ()
+    | Some (elt, wl) -> fix f (cat wl (f elt))
 end

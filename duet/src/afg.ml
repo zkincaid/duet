@@ -27,31 +27,31 @@ struct
     let add_init v init =
       if is_initial v afg then v::init else init
     in
-      BatList.enum (fold_vertex add_init afg [])
+    BatList.enum (fold_vertex add_init afg [])
 
   let is_terminal v afg = out_degree afg v = 0
   let enum_terminal afg =
     let add_init v init =
       if is_terminal v afg then v::init else init
     in
-      BatList.enum (fold_vertex add_init afg [])
+    BatList.enum (fold_vertex add_init afg [])
 
   let clone vertex_clone g =
     let ht = VHT.create 32 in
     let h = create () in
     let process_vertex v =
       let clone = vertex_clone v in
-	add_vertex h clone;
-	VHT.add ht v clone
+      add_vertex h clone;
+      VHT.add ht v clone
     in
     let process_edge e =
       let src = VHT.find ht (E.src e) in
       let dst = VHT.find ht (E.dst e) in
-	add_edge_e h (E.create src (E.label e) dst)
+      add_edge_e h (E.create src (E.label e) dst)
     in
-      iter_vertex process_vertex g;
-      iter_edges_e process_edge g;
-      h
+    iter_vertex process_vertex g;
+    iter_edges_e process_edge g;
+    h
 end
 
 module Pack : sig
@@ -86,10 +86,10 @@ end
 
 module G : sig
   include FlowGraph with type V.t = def
-		    and type E.label = Pack.PairSet.t
+                     and type E.label = Pack.PairSet.t
   val group_pred : V.t -> t -> (V.t -> 'a) -> 'a ->
-                   (AP.Set.t -> 'a -> 'a -> 'a) ->
-                   'a Pack.SetMap.t
+    (AP.Set.t -> 'a -> 'a -> 'a) ->
+    'a Pack.SetMap.t
   val edge_label : E.t -> Pack.PairSet.t
   val inputs : t -> V.t -> Pack.PowerSet.t
   val outputs : t -> V.t -> Pack.PowerSet.t
@@ -99,7 +99,7 @@ module G : sig
   val minimize : t -> t
   val display_labelled : t -> unit (** Display with edge labels *)
 end = struct
-    
+
   (* ocamlgraph requires a default edge value, so edges are labeled
      with edge_label option rather than edge_value.  No edge should
      ever be labelled with None *)
@@ -121,19 +121,19 @@ end = struct
 
   let inputs afg v =
     let add_input edge = Pack.PowerSet.add (project_snd (edge_label edge)) in
-      fold_pred_e add_input afg v Pack.PowerSet.empty
+    fold_pred_e add_input afg v Pack.PowerSet.empty
 
   let outputs afg v =
     let add_output edge = Pack.PowerSet.add (project_fst (edge_label edge)) in
-      fold_succ_e add_output afg v Pack.PowerSet.empty
+    fold_succ_e add_output afg v Pack.PowerSet.empty
 
   let domain afg v =
     let add_input edge = AP.Set.union (project_snd (edge_label edge)) in
-      fold_pred_e add_input afg v AP.Set.empty
+    fold_pred_e add_input afg v AP.Set.empty
 
   let codomain afg v =
     let add_output edge = AP.Set.union (project_fst (edge_label edge)) in
-      fold_succ_e add_output afg v AP.Set.empty
+    fold_succ_e add_output afg v AP.Set.empty
 
   module G = MakeFG(G0)
   include G
@@ -145,17 +145,17 @@ end = struct
   let group_pred vertex cdg f zero combine =
     let add_pred edge map =
       let old = (try Pack.SetMap.find (project_snd (edge_label edge)) map
-		 with Not_found -> zero)
+                 with Not_found -> zero)
       in
       let set = project_snd (edge_label edge) in
-	Pack.SetMap.add set (combine set old (f (E.src edge))) map
+      Pack.SetMap.add set (combine set old (f (E.src edge))) map
     in
-      fold_pred_e add_pred cdg vertex Pack.SetMap.empty
+    fold_pred_e add_pred cdg vertex Pack.SetMap.empty
 
   let minimize g =
     let module AbsEdge = struct
       type t = Def.t * Pack.PairSet.t
-	deriving (Show,Compare)
+                 deriving (Show,Compare)
       let format = Show_t.format
       let show = Show_t.show
       let compare = Compare_t.compare
@@ -168,9 +168,9 @@ end = struct
     let get_alpha x = Def.HT.find alpha x in
     let set_alpha x y =
       let a = get_alpha x in
-	Def.HT.replace alpha x y;
-	Def.HT.replace gamma y (Def.Set.add x (Def.HT.find gamma y));
-	Def.HT.replace gamma a (Def.Set.remove x (Def.HT.find gamma a))
+      Def.HT.replace alpha x y;
+      Def.HT.replace gamma y (Def.Set.add x (Def.HT.find gamma y));
+      Def.HT.replace gamma a (Def.Set.remove x (Def.HT.find gamma a))
     in
 
     let changed = ref false in
@@ -182,16 +182,16 @@ end = struct
       let alpha = get_alpha v in
       let preds = vertex_edges v in
       let (abs,map) =
-	try (M.find preds map, map)
-	with Not_found -> (v, M.add preds v map)
+        try (M.find preds map, map)
+        with Not_found -> (v, M.add preds v map)
       in
-	if Def.equal abs alpha then map
-	else begin
-	  changed := true;
-	  Def.HT.add gamma abs Def.Set.empty;
-	  set_alpha v abs;
-	  map
-	end
+      if Def.equal abs alpha then map
+      else begin
+        changed := true;
+        Def.HT.add gamma abs Def.Set.empty;
+        set_alpha v abs;
+        map
+      end
     in
     let split_partition p defs =
       ignore (Def.Set.fold add_vertex defs (M.add (vertex_edges p) p M.empty))
@@ -203,27 +203,27 @@ end = struct
     let initial = ref [] in
     let set_initial def =
       let p = 
-	try List.find (fun d -> def.dkind = d.dkind) (!initial)
-	with Not_found -> begin
-	  initial := def::(!initial);
-	  Def.HT.add gamma def Def.Set.empty;
-	  def
-	end
+        try List.find (fun d -> def.dkind = d.dkind) (!initial)
+        with Not_found -> begin
+            initial := def::(!initial);
+            Def.HT.add gamma def Def.Set.empty;
+            def
+          end
       in
-	Def.HT.replace alpha def p;
-	Def.HT.replace gamma p (Def.Set.add def (Def.HT.find gamma p))
+      Def.HT.replace alpha def p;
+      Def.HT.replace gamma p (Def.Set.add def (Def.HT.find gamma p))
     in
     let m = create () in
     let add_edge e =
       let edge =
-	E.create (get_alpha (E.src e)) (E.label e) (get_alpha (E.dst e))
+        E.create (get_alpha (E.src e)) (E.label e) (get_alpha (E.dst e))
       in
-	add_edge_e m edge
+      add_edge_e m edge
     in
-      iter_vertex set_initial g;
-      fix ();
-      iter_edges_e add_edge g;
-      m
+    iter_vertex set_initial g;
+    fix ();
+    iter_edges_e add_edge g;
+    m
 
   module EdgeDisplay = ExtGraph.Display.MakeLabeled(G)(Def)(Pack.PairSet)
 
@@ -235,28 +235,28 @@ end = struct
   let sanity_check afg =
     let check_vertex v =
       match v.dkind with
-	| Initial -> () (* Initial vertex is always well-formed *)
-	| _ ->
-	    if not (AP.Set.subset (Def.get_uses v) (domain afg v)) then begin
-	      Log.errorf
-		"Missing inputs for `%a':@\nexpected %a@\ngot %a"
-		Def.format v
-		AP.Set.format (Def.get_uses v)
-		AP.Set.format (domain afg v);
-	      assert false
-	    end;
-	    if not (AP.Set.subset
-		      (codomain afg v)
-		      ((AP.Set.union (domain afg v)) (Def.get_defs v)))
-	    then begin
-	      Log.errorf
-		"Extra outputs for `%a':@\nexpected %a@\ngot %a"
-		Def.format v
-		AP.Set.format (AP.Set.union (domain afg v) (Def.get_defs v))
-		AP.Set.format (codomain afg v);
-	      assert false
-	    end
+      | Initial -> () (* Initial vertex is always well-formed *)
+      | _ ->
+        if not (AP.Set.subset (Def.get_uses v) (domain afg v)) then begin
+          Log.errorf
+            "Missing inputs for `%a':@\nexpected %a@\ngot %a"
+            Def.format v
+            AP.Set.format (Def.get_uses v)
+            AP.Set.format (domain afg v);
+          assert false
+        end;
+        if not (AP.Set.subset
+                  (codomain afg v)
+                  ((AP.Set.union (domain afg v)) (Def.get_defs v)))
+        then begin
+          Log.errorf
+            "Extra outputs for `%a':@\nexpected %a@\ngot %a"
+            Def.format v
+            AP.Set.format (AP.Set.union (domain afg v) (Def.get_defs v))
+            AP.Set.format (codomain afg v);
+          assert false
+        end
     in
-      iter_vertex check_vertex afg;
-      Log.debug "AFG sanity check complete."
+    iter_vertex check_vertex afg;
+    Log.debug "AFG sanity check complete."
 end 

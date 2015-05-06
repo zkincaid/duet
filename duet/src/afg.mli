@@ -11,8 +11,8 @@ module type FlowGraph = sig
 end
 
 module MakeFG (G : Graph.Sig.I) : FlowGraph with type t = G.t
-					    and module V = G.V
-					    and module E = G.E
+                                             and module V = G.V
+                                             and module E = G.E
 
 module Pack : sig
   type pair
@@ -28,10 +28,10 @@ end
 
 module G : sig
   include FlowGraph with type V.t = Def.t
-		    and type E.label = Pack.PairSet.t
+                     and type E.label = Pack.PairSet.t
   val group_pred : V.t -> t -> (V.t -> 'a) -> 'a ->
-                   (AP.Set.t -> 'a -> 'a -> 'a) ->
-                   'a Pack.SetMap.t
+    (AP.Set.t -> 'a -> 'a -> 'a) ->
+    'a Pack.SetMap.t
   val edge_label : E.t -> Pack.PairSet.t
   val inputs : t -> V.t -> Pack.PowerSet.t
   val outputs : t -> V.t -> Pack.PowerSet.t

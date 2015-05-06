@@ -40,7 +40,7 @@ let ticket_delta = let open Syntax in [
     ("pc3", "m := t++", i != k && "pc3"@[i]);
     ("pc3", "[m <= s]", (i == k && "pc2"@[i]) || (i != k && "pc3"@[i]));
     ("pc3", "s++", i != k && "pc3"@[i]);
-]
+  ]
 
 let short_ticket =
   let accept p = false in (*(p = "pc" || p = "pc1")*)
@@ -130,7 +130,7 @@ let test_short_ticket () =
   assert_equal ~printer:(Show.show<(string*int) list option>) (empty pa) None
 
 let suite = "Predicate automata" >::: [
-  "Accepting" >:: test_accepting;
-  "Empty" >:: test_empty;
-  "Short ticket" >:: test_short_ticket;
-]
+    "Accepting" >:: test_accepting;
+    "Empty" >:: test_empty;
+    "Short ticket" >:: test_short_ticket;
+  ]

@@ -99,7 +99,7 @@ let test8 () =
   let z = T.var "z" in
   let phi =
     w >= x && z <= T.one && ((w <= x && x == y && z == T.one)
-			     || (w == z && z == y && z >= T.one))
+                             || (w == z && z == y && z >= T.one))
   in
   let eqs = F.affine_hull phi ["w";"x";"y";"z"] in
   Log.log (Show.show<T.Linterm.t list> eqs);
@@ -147,8 +147,8 @@ let linearize phi =
 let assert_implies phi psi =
   if not (F.implies phi psi) then
     assert_failure (Printf.sprintf "%s\ndoes not imply\n%s"
-		      (F.show phi)
-		      (F.show psi))
+                      (F.show phi)
+                      (F.show psi))
 
 let linearize1 () =
   let x = T.var "x" in
@@ -156,9 +156,9 @@ let linearize1 () =
   let const = T.const % QQ.of_int in
   let phi =
     linearize (T.zero <= x
-	       && x <= (const 1000)
-	       && y == x * x
-	       && y >= (const 1000000))
+               && x <= (const 1000)
+               && y == x * x
+               && y >= (const 1000000))
   in
   let psi = (x == const 1000) && (y == const 1000000) in
   assert_implies phi psi
@@ -170,9 +170,9 @@ let linearize2 () =
   let z = T.var "z" in
   let phi =
     linearize (T.one <= x
-	       && x <= T.one
-	       && w == T.zero
-	       && z == y / x + w * y)
+               && x <= T.one
+               && w == T.zero
+               && z == y / x + w * y)
   in
   assert_implies phi (z == y)
 
@@ -183,9 +183,9 @@ let linearize3 () =
   let z = T.var "z" in
   let phi =
     linearize (w <= x
-	       && T.zero <= y
-	       && w >= T.zero
-	       && z == x * y)
+               && T.zero <= y
+               && w >= T.zero
+               && z == x * y)
   in
   assert_implies phi (z >= T.zero)
 
@@ -217,8 +217,8 @@ let linearize6 () =
   let z = T.var "iz" in
   let phi =
     linearize (T.const (QQ.of_int 3) <= y && y <= (T.const (QQ.of_int 10))
-	       && x >= T.zero
-	       && z == T.modulo x y)
+               && x >= T.zero
+               && z == T.modulo x y)
   in
   assert_implies phi (z < T.const (QQ.of_int 10));
   assert_implies phi (z >= T.zero);
@@ -296,28 +296,28 @@ let qe_partial2 () =
   assert_equal ~cmp:F.equiv ~printer:F.show phi (z >= T.one)
 
 let suite = "Formula" >:::
-  [
-    "test1" >:: test1;
-    "test2" >:: test2;
-    "test3" >:: test3;
-    "test4" >:: test4;
-    "test5" >:: test5;
-    "test6" >:: test6;
-    "test7" >:: test7;
-    "test8" >:: test8;
-    "test9" >:: test9;
-    "test10" >:: test10;
-    "test11" >:: test11;
-    "linearize1" >:: linearize1;
-    "linearize2" >:: linearize2;
-    "linearize3" >:: linearize3;
-    "linearize4" >:: linearize4;
-    "linearize5" >:: linearize5;
-    "linearize6" >:: linearize6;
-    "interpolate1" >:: interpolate1;
-    "interpolate2" >:: interpolate2;
-    "interpolate3" >:: interpolate3;
-    "optimize1" >:: optimize1;
-    "qe_partial1" >:: qe_partial1;
-    "qe_partial2" >:: qe_partial2
-  ]
+            [
+              "test1" >:: test1;
+              "test2" >:: test2;
+              "test3" >:: test3;
+              "test4" >:: test4;
+              "test5" >:: test5;
+              "test6" >:: test6;
+              "test7" >:: test7;
+              "test8" >:: test8;
+              "test9" >:: test9;
+              "test10" >:: test10;
+              "test11" >:: test11;
+              "linearize1" >:: linearize1;
+              "linearize2" >:: linearize2;
+              "linearize3" >:: linearize3;
+              "linearize4" >:: linearize4;
+              "linearize5" >:: linearize5;
+              "linearize6" >:: linearize6;
+              "interpolate1" >:: interpolate1;
+              "interpolate2" >:: interpolate2;
+              "interpolate3" >:: interpolate3;
+              "optimize1" >:: optimize1;
+              "qe_partial1" >:: qe_partial1;
+              "qe_partial2" >:: qe_partial2
+            ]

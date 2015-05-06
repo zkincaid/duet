@@ -9,8 +9,8 @@ let format_dynarray pp formatter items =
     let length = DynArray.length items in
     for i = 0 to length - 2 do
       Format.fprintf formatter "@[%d -> %a;@;@]"
-	i
-	pp (DynArray.get items i)
+        i
+        pp (DynArray.get items i)
     done;
     if length <> 0
     then pp formatter (DynArray.get items (length - 1))
@@ -44,7 +44,7 @@ module Make (HTyp : Hashtbl.HashedType) : S with type e = HTyp.t =
 struct
   module HT = Hashtbl.Make (HTyp);;
   type t = { left  : HTyp.t DynArray.t;
-	     right : int HT.t }
+             right : int HT.t }
   type e = HTyp.t
 
   let format pp formatter enum = format_dynarray pp formatter enum.left
@@ -61,10 +61,10 @@ struct
 
   let add enum elem =
     let len = DynArray.length enum.left in
-      begin
-	DynArray.add enum.left elem;
-	HT.add enum.right elem len
-      end
+    begin
+      DynArray.add enum.left elem;
+      HT.add enum.right elem len
+    end
 
   let to_int enum elem =
     (if not (HT.mem enum.right elem) then add enum elem;
@@ -73,10 +73,10 @@ struct
   let create list =
     let left = DynArray.of_list list in
     let right = HT.create (DynArray.length left) in
-      begin
-	DynArray.iteri (fun i x -> HT.add right x i) left;
-	{ left = left; right = right }
-      end
+    begin
+      DynArray.iteri (fun i x -> HT.add right x i) left;
+      { left = left; right = right }
+    end
 
   let empty () = 
     { left = DynArray.create (); right = HT.create 32 }
@@ -105,8 +105,8 @@ struct
 
   let make enum kind =
     let len = DynArray.length enum.left in
-      DynArray.add enum.left kind;
-      (len, kind)
+    DynArray.add enum.left kind;
+    (len, kind)
 
   let kind_of (id, kind) = kind
 

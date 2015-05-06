@@ -51,7 +51,7 @@ val filter : ('a key -> 'b -> bool) -> ('a, 'b) t -> ('a, 'b) t
 val filter_map : ('a key -> 'b -> 'c option) -> ('a, 'b) t -> ('a, 'c) t
 
 val merge : ('a key -> 'b option -> 'c option -> 'd option) ->
-       ('a, 'b) t -> ('a, 'c) t -> ('a, 'd) t
+  ('a, 'b) t -> ('a, 'c) t -> ('a, 'd) t
 
 val hash : ('b -> int) -> ('a, 'b) t -> int
 

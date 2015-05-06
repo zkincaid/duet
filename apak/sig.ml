@@ -49,8 +49,8 @@ module KA = struct
     end
     module Ordered = struct
       module type S = sig
-	include S
-	include Putil.OrderedMix with type t := t
+        include S
+        include Putil.OrderedMix with type t := t
       end
     end
   end
@@ -75,8 +75,8 @@ module Semilattice = struct
     end
     module Ordered = struct
       module type S = sig
-	include S
-	include Putil.OrderedMix with type t := t
+        include S
+        include Putil.OrderedMix with type t := t
       end
     end
   end
@@ -103,8 +103,8 @@ module Lattice = struct
     end
     module Ordered = struct
       module type S = sig
-	include S
-	include Putil.OrderedMix with type t := t
+        include S
+        include Putil.OrderedMix with type t := t
       end
     end
   end

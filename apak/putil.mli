@@ -152,8 +152,8 @@ module MonoMap : sig
   end
 
   module Make (Key : Ordered) (Val : PP) : S with
-					       type key = Key.t
-					     and type value = Val.t
+    type key = Key.t
+                                              and type value = Val.t
 
   module Ordered : sig
     module type S = sig
@@ -161,8 +161,8 @@ module MonoMap : sig
       include OrderedMix with type t := t
     end
     module Make (Key : Ordered) (Val : Ordered) : S with
-						      type key = Key.t
-						    and type value = Val.t
+      type key = Key.t
+                                                     and type value = Val.t
   end
 end
 
@@ -184,14 +184,14 @@ module TotalFunction : sig
     val equal : t -> t -> bool
   end
   module LiftMap
-    (M : Map.S)
-    (Codomain : sig
-      type t
-      val format : Format.formatter -> t -> unit
-      val equal : t -> t -> bool
-    end) :
+      (M : Map.S)
+      (Codomain : sig
+         type t
+         val format : Format.formatter -> t -> unit
+         val equal : t -> t -> bool
+       end) :
     S with type dom = M.key
-      and type cod = Codomain.t
+       and type cod = Codomain.t
 
   module Ordered : sig
     module type S = sig
@@ -200,7 +200,7 @@ module TotalFunction : sig
     end
     module LiftMap (M : Map.S) (Codomain : Ordered) :
       S with type dom = M.key
-	and type cod = Codomain.t
+         and type cod = Codomain.t
   end
 end
 

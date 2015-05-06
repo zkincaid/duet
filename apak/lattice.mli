@@ -21,7 +21,7 @@ module FunctionSpace : sig
     include Sig.Lattice.S
     include Sig.FunctionSpace.S with type t := t
     (** [weak_update k v f] constructs a function which maps [k] to
-	[join v (f k)] and all other elements [y] to [f y]. *)
+        	[join v (f k)] and all other elements [y] to [f y]. *)
     val weak_update : dom -> cod -> t -> t
   end
 
@@ -34,31 +34,31 @@ module FunctionSpace : sig
       val weak_update : dom -> cod -> t -> t
     end
 
-    (** [LiftMap(M)(Codomain)] constructs a total function space lattice
-	where [M] is used as the underlying map representation.  This is
-	useful (for example) with tagged types, since Patricia trees support
-	fast merging. *)
+    (** [LiftMap(M)(Codomain)] constructs a total function space lattice where
+        [M] is used as the underlying map representation.  This is
+        useful (for example) with tagged types, since Patricia trees
+        support fast merging. *)
     module LiftMap (M : Putil.Map.S) (Codomain : Sig.Lattice.S) :
       S with type dom = M.key
-	and type cod = Codomain.t
+         and type cod = Codomain.t
 
     module Make (Domain : Putil.Ordered) (Codomain : Sig.Lattice.S) :
       S with type dom = Domain.t
-	and type cod = Codomain.t
+         and type cod = Codomain.t
 
     module Ordered : sig
       module type S = sig
-	include S
-	include Putil.OrderedMix with type t := t
+        include S
+        include Putil.OrderedMix with type t := t
       end
       module LiftMap (M : Putil.Map.S) (Codomain : Sig.Lattice.Ordered.S) :
-	S with type dom = M.key
-	  and type cod = Codomain.t
+        S with type dom = M.key
+           and type cod = Codomain.t
       module Make
-	(Domain : Putil.Ordered)
-	(Codomain : Sig.Lattice.Ordered.S) :
-	S with type dom = Domain.t
-	  and type cod = Codomain.t
+          (Domain : Putil.Ordered)
+          (Codomain : Sig.Lattice.Ordered.S) :
+        S with type dom = Domain.t
+           and type cod = Codomain.t
     end
   end
 
@@ -72,30 +72,30 @@ module FunctionSpace : sig
     end
 
     (** [LiftMap(M)(Codomain)] constructs a partial function space lattice
-	where [M] is used as the underlying map representation.  This is
-	useful (for example) with tagged types, since Patricia trees support
-	fast merging. *)
+        where [M] is used as the underlying map representation.  This
+        is useful (for example) with tagged types, since Patricia
+        trees support fast merging. *)
     module LiftMap (M : Putil.Map.S) (Codomain : Sig.Lattice.S) :
       S with type dom = M.key
-	and type cod = Codomain.t
+         and type cod = Codomain.t
 
     module Make (Domain : Putil.Ordered) (Codomain : Sig.Lattice.S) :
       S with type dom = Domain.t
-	and type cod = Codomain.t
+         and type cod = Codomain.t
 
     module Ordered : sig
       module type S = sig
-	include S
-	include Putil.OrderedMix with type t := t
+        include S
+        include Putil.OrderedMix with type t := t
       end
       module LiftMap (M : Putil.Map.S) (Codomain : Sig.Lattice.Ordered.S) :
-	S with type dom = M.key
-	  and type cod = Codomain.t
+        S with type dom = M.key
+           and type cod = Codomain.t
       module Make
-	(Domain : Putil.Ordered)
-	(Codomain : Sig.Lattice.Ordered.S) :
-	S with type dom = Domain.t
-	  and type cod = Codomain.t
+          (Domain : Putil.Ordered)
+          (Codomain : Sig.Lattice.Ordered.S) :
+        S with type dom = Domain.t
+           and type cod = Codomain.t
     end
   end
 end
@@ -139,49 +139,49 @@ module Bounded : sig
 
   module FunctionSpace : sig
     (** Total function spaces where all but finitely many elements map to the
-	same "default" value. *)
+        same "default" value. *)
     module Total : sig
       module type S = sig
-	include Sig.Lattice.Bounded.S
-	include Sig.FunctionSpace.Total with type t := t
-	(** [weak_update k v f] constructs a function which maps [k] to [join
-	    v (f k)] and all other elements [y] to [f y]. *)
-	val weak_update : dom -> cod -> t -> t
+        include Sig.Lattice.Bounded.S
+        include Sig.FunctionSpace.Total with type t := t
+        (** [weak_update k v f] constructs a function which maps [k] to [join
+            v (f k)] and all other elements [y] to [f y]. *)
+        val weak_update : dom -> cod -> t -> t
       end
 
       (** [LiftMap(M)(Codomain)] constructs a total function space lattice
-	  where [M] is used as the underlying map representation.  This is
-	  useful (for example) with tagged types, since Patricia trees support
-	  fast merging. *)
+          where [M] is used as the underlying map representation.
+          This is useful (for example) with tagged types, since
+          Patricia trees support fast merging. *)
       module LiftMap (M : Putil.Map.S) (Codomain : Sig.Lattice.Bounded.S) :
-	S with type dom = M.key
-	  and type cod = Codomain.t
+        S with type dom = M.key
+           and type cod = Codomain.t
 
       module Make (Domain : Putil.Ordered) (Codomain : Sig.Lattice.Bounded.S) :
-	S with type dom = Domain.t
-	  and type cod = Codomain.t
+        S with type dom = Domain.t
+           and type cod = Codomain.t
 
       (** Total function space where every function that maps at least one
-	  point to bottom is identified with bottom *)
+          point to bottom is identified with bottom *)
       module Smash (Domain : Putil.Ordered) (Codomain : Sig.Lattice.Bounded.S) :
-	S with type dom = Domain.t
-	  and type cod = Codomain.t
+        S with type dom = Domain.t
+           and type cod = Codomain.t
 
       module Ordered : sig
-	module type S = sig
-	  include S
-	  include Putil.OrderedMix with type t := t
-	end
-	module LiftMap
-	  (M : Putil.Map.S)
-	  (Codomain : Sig.Lattice.Bounded.Ordered.S) :
-	  S with type dom = M.key
-	    and type cod = Codomain.t
-	module Make
-	  (Domain : Putil.Ordered)
-	  (Codomain : Sig.Lattice.Bounded.Ordered.S) :
-	  S with type dom = Domain.t
-	    and type cod = Codomain.t
+        module type S = sig
+          include S
+          include Putil.OrderedMix with type t := t
+        end
+        module LiftMap
+            (M : Putil.Map.S)
+            (Codomain : Sig.Lattice.Bounded.Ordered.S) :
+          S with type dom = M.key
+             and type cod = Codomain.t
+        module Make
+            (Domain : Putil.Ordered)
+            (Codomain : Sig.Lattice.Bounded.Ordered.S) :
+          S with type dom = Domain.t
+             and type cod = Codomain.t
       end
     end
   end

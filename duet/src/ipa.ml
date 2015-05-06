@@ -15,23 +15,23 @@ include Log.Make(struct let name = "ipa" end)
 module Make (A : Sigma) (P : Predicate) = struct
 
   module HT = BatHashtbl.Make(struct
-    type t = P.t * A.t
-    let equal (p, a) (q, b) = P.equal p q && A.equal a b
-    let hash (p, a) = Hashtbl.hash (P.hash p, A.hash a)
-  end)
+      type t = P.t * A.t
+      let equal (p, a) (q, b) = P.equal p q && A.equal a b
+      let hash (p, a) = Hashtbl.hash (P.hash p, A.hash a)
+    end)
 
   type formula =
-  | And of formula * formula
-  | Or of formula * formula
-  | Atom of P.t * int list
-  | True
-  | False
-  | Eq of int * int
-  | Neq of int * int 
-      deriving (Show)
+    | And of formula * formula
+    | Or of formula * formula
+    | Atom of P.t * int list
+    | True
+    | False
+    | Eq of int * int
+    | Neq of int * int
+               deriving (Show)
 
   type atom = P.t * int list
-    deriving (Show,Compare)
+                deriving (Show,Compare)
 
   type t =
     { delta : formula HT.t;
@@ -44,26 +44,26 @@ module Make (A : Sigma) (P : Predicate) = struct
      it. *)
   module Config = struct
     module E = Putil.Set.Make(struct
-      type t = atom
-	deriving (Show, Compare)
-      let compare = Compare_t.compare
-      let format = Show_t.format
-      let show = Show_t.show
-    end)
+        type t = atom
+            deriving (Show, Compare)
+        let compare = Compare_t.compare
+        let format = Show_t.format
+        let show = Show_t.show
+      end)
     include E
 
     let hash config =
       Hashtbl.hash (List.map
-		      (fun (p, args) -> (P.hash p, args))
-		      (elements config))
+                      (fun (p, args) -> (P.hash p, args))
+                      (elements config))
 
     (* Sets of configurations correspond to the DNF of some formula *)
     module Set = Putil.Set.Make(E)
 
     let conj x y =
       BatEnum.map
-	(fun (x,y) -> E.union x y)
-	(Putil.cartesian_product (Set.enum x) (Set.enum y))
+        (fun (x,y) -> E.union x y)
+        (Putil.cartesian_product (Set.enum x) (Set.enum y))
       |> Set.of_enum
 
     (* Given a constant k and a configuration c = 
@@ -77,12 +77,12 @@ module Make (A : Sigma) (P : Predicate) = struct
        that the signature of k' in C' is a subset of the signature of k in
        C. *)
     module Sig = Putil.Set.Make(struct
-      type t = P.t * int
-	deriving (Show,Compare)
-      let compare = Compare_t.compare
-      let format = Show_t.format
-      let show = Show_t.show
-    end)
+        type t = P.t * int
+                   deriving (Show,Compare)
+        let compare = Compare_t.compare
+        let format = Show_t.format
+        let show = Show_t.show
+      end)
 
     module KSet = Putil.Set.Make(Putil.PInt)
     module KMap = BatMap.Make(Putil.PInt)
@@ -90,17 +90,17 @@ module Make (A : Sigma) (P : Predicate) = struct
     (* Compute the signature of a constant in some configuration *)
     let mk_sig i config =
       let f (head,args) sg =
-	let g pos j sg =
-	  if i = j then Sig.add (head,pos) sg
-	  else sg
-	in
-	BatEnum.foldi g sg (BatList.enum args)
+        let g pos j sg =
+          if i = j then Sig.add (head,pos) sg
+          else sg
+        in
+        BatEnum.foldi g sg (BatList.enum args)
       in
       fold f config Sig.empty
 
     let constants config =
       let f (head, args) constants =
-	List.fold_left (fun s x -> KSet.add x s) constants args
+        List.fold_left (fun s x -> KSet.add x s) constants args
       in
       fold f config KSet.empty
 
@@ -111,27 +111,27 @@ module Make (A : Sigma) (P : Predicate) = struct
     let covers x y =
       (cardinal x <= cardinal y)
       && (subset x y || begin
-	    let x_sigs = mk_sig_map x in
-	    let y_sigs = mk_sig_map y in
-	    let check map =
-	      let f (head,args) =
-		mem (head, List.map (fun x -> KMap.find x map) args) y
-	      in
-	      for_all f x
-	    in
-	    let rec go xs y_sigs map = match xs with
-	      | [] -> check map
-	      | (x::xs) ->
-		let x_sig = KMap.find x x_sigs in
-		let f (y,y_sig) =
-		  Sig.subset x_sig y_sig
-		  &&
-		    (go xs (KMap.remove y y_sigs) (KMap.add x y map))
-		in
-		BatEnum.exists f (KMap.enum y_sigs)
-	    in
-	    go (KSet.elements (constants x)) y_sigs KMap.empty
-      end)
+          let x_sigs = mk_sig_map x in
+          let y_sigs = mk_sig_map y in
+          let check map =
+            let f (head,args) =
+              mem (head, List.map (fun x -> KMap.find x map) args) y
+            in
+            for_all f x
+          in
+          let rec go xs y_sigs map = match xs with
+            | [] -> check map
+            | (x::xs) ->
+              let x_sig = KMap.find x x_sigs in
+              let f (y,y_sig) =
+                Sig.subset x_sig y_sig
+                &&
+                (go xs (KMap.remove y y_sigs) (KMap.add x y map))
+              in
+              BatEnum.exists f (KMap.enum y_sigs)
+          in
+          go (KSet.elements (constants x)) y_sigs KMap.empty
+        end)
   end
 
   (* A configuration is accepting if it contains only accepting predicates *)
@@ -151,9 +151,9 @@ module Make (A : Sigma) (P : Predicate) = struct
   let make ?(delta=[]) sigma accepting initial =
     let pa =
       { delta = HT.create 991;
-	sigma = sigma;
-	accepting = accepting;
-	initial = initial }
+        sigma = sigma;
+        accepting = accepting;
+        initial = initial }
     in
     let add_delta (predicate, alpha, formula) =
       add_transition pa predicate alpha formula
@@ -240,8 +240,8 @@ module Make (A : Sigma) (P : Predicate) = struct
     in
     let f (p, a) =
       let phi =
-	try negate_formula (HT.find pa.delta (p, a))
-	with Not_found -> True
+        try negate_formula (HT.find pa.delta (p, a))
+        with Not_found -> True
       in
       add_transition neg_pa p a phi
     in
@@ -270,15 +270,15 @@ module Make (A : Sigma) (P : Predicate) = struct
     in
     try eval (find_transition pa head alpha)
     with Invalid_argument _ -> begin
-      Log.errorf "Invalid transition!";
-      Log.errorf "%a%a --([#%d] %a)--> %a"
-	P.format head
-	Show.format<int list> actuals
-	i
-	A.format alpha
-	Show.format<formula> (find_transition pa head alpha);
-      assert false
-    end
+        Log.errorf "Invalid transition!";
+        Log.errorf "%a%a --([#%d] %a)--> %a"
+          P.format head
+          Show.format<int list> actuals
+          i
+          A.format alpha
+          Show.format<formula> (find_transition pa head alpha);
+        assert false
+      end
 
   type abs =
     { abs_delta : P.t * int list -> A.t * int -> formula;
@@ -300,7 +300,7 @@ module Make (A : Sigma) (P : Predicate) = struct
       | And (phi, psi) -> Config.conj (eval phi) (eval psi)
       | Or (phi, psi) -> Config.Set.union (eval phi) (eval psi)
       | Atom (p, args) ->
-	Config.Set.singleton (Config.singleton (p, args))
+        Config.Set.singleton (Config.singleton (p, args))
       | True -> Config.Set.singleton Config.empty
       | False -> Config.Set.empty
       | Eq (s, t) -> if s = t then (eval True) else (eval False)
@@ -324,61 +324,61 @@ module Make (A : Sigma) (P : Predicate) = struct
     module CHT = BatHashtbl.Make(Config)
     type t =
       { mutable worklist : Config.t list;
-	successor : Config.Set.t CHT.t;
-	parent : (A.t * int * Config.t) CHT.t;
-	cover : Config.t CHT.t }
+        successor : Config.Set.t CHT.t;
+        parent : (A.t * int * Config.t) CHT.t;
+        cover : Config.t CHT.t }
     let vertices rg = CHT.keys rg.successor
     let expand rg (pa : abs) config =
       logf ~level:3 ~attributes:[Log.Blue;Log.Bold]
-	"Expanding vertex: %a" Config.format config;
+        "Expanding vertex: %a" Config.format config;
       let used_constants = Config.constants config in
       let fresh =
-	if Config.KSet.cardinal used_constants > 0
-	then 1 + Config.KSet.fold max used_constants 0
-	else 0
+        if Config.KSet.cardinal used_constants > 0
+        then 1 + Config.KSet.fold max used_constants 0
+        else 0
       in
       let constants = Config.KSet.add fresh used_constants in
       let labels =
-	Putil.cartesian_product
-	  (BatList.enum pa.abs_sigma)
-	  (Config.KSet.enum constants)
+        Putil.cartesian_product
+          (BatList.enum pa.abs_sigma)
+          (Config.KSet.enum constants)
       in
       let label_succ (alpha, k) =
-	logf ~level:3 " + Action: <%d, %a>" k A.format alpha;
-	let succs = abs_next pa config (alpha, k) in
-	begin
-	  try
-	    let all_succs =
-	      Config.Set.union succs (CHT.find rg.successor config)
-	    in
-	    CHT.replace rg.successor config all_succs
-	  with Not_found -> CHT.add rg.successor config succs
-	end;
+        logf ~level:3 " + Action: <%d, %a>" k A.format alpha;
+        let succs = abs_next pa config (alpha, k) in
+        begin
+          try
+            let all_succs =
+              Config.Set.union succs (CHT.find rg.successor config)
+            in
+            CHT.replace rg.successor config all_succs
+          with Not_found -> CHT.add rg.successor config succs
+        end;
 
-	let add_succ succ =
-	  if CHT.mem rg.parent succ || CHT.mem rg.successor succ
-	  then logf ~level:3 "   - Skipped vertex: %a" Config.format succ
-	  else begin
-	    logf ~level:3 "   - Added successor: %a" Config.format succ;
-	    CHT.add rg.parent succ (alpha, k, config);
-	    if abs_accept pa succ then raise (Accepting succ);
-	    rg.worklist <- succ::rg.worklist
-	  end
-	in
-	Config.Set.iter add_succ succs
+        let add_succ succ =
+          if CHT.mem rg.parent succ || CHT.mem rg.successor succ
+          then logf ~level:3 "   - Skipped vertex: %a" Config.format succ
+          else begin
+            logf ~level:3 "   - Added successor: %a" Config.format succ;
+            CHT.add rg.parent succ (alpha, k, config);
+            if abs_accept pa succ then raise (Accepting succ);
+            rg.worklist <- succ::rg.worklist
+          end
+        in
+        Config.Set.iter add_succ succs
       in
       BatEnum.iter label_succ labels
 
     let close rg pa config =
       try
-	let cover = BatEnum.find (flip Config.covers config) (vertices rg) in
-	CHT.add rg.cover config cover;
-	logf ~level:3 ~attributes:[Log.Green;Log.Bold] "Covered vertex: %a"
-	  Config.format config;
-	logf ~level:3 " by %a" Config.format cover;
-	true
+        let cover = BatEnum.find (flip Config.covers config) (vertices rg) in
+        CHT.add rg.cover config cover;
+        logf ~level:3 ~attributes:[Log.Green;Log.Bold] "Covered vertex: %a"
+          Config.format config;
+        logf ~level:3 " by %a" Config.format cover;
+        true
       with Not_found -> false
-      | _ -> assert false
+         | _ -> assert false
   end
 
   let abs_empty pa =
@@ -386,9 +386,9 @@ module Make (A : Sigma) (P : Predicate) = struct
     let rec fix rg =
       match rg.worklist with
       | (config::rest) ->
-	rg.worklist <- rest;
-	if not (close rg pa config) then expand rg pa config;
-	fix rg
+        rg.worklist <- rest;
+        if not (close rg pa config) then expand rg pa config;
+        fix rg
       | [] -> ()
     in
     let rec eval = function
@@ -398,28 +398,28 @@ module Make (A : Sigma) (P : Predicate) = struct
       | True -> Config.Set.singleton Config.empty
       | False -> Config.Set.empty
       | Eq (_, _) | Neq (_, _) ->
-	invalid_arg "Pa: equalities not allowed in initial formula!"
+        invalid_arg "Pa: equalities not allowed in initial formula!"
     in
     let eval x = try eval x with _ -> assert false in
 
     let rg =
       try
-      { worklist = Config.Set.elements (eval pa.abs_initial);
-	successor = CHT.create 991;
-	parent = CHT.create 991;
-	cover = CHT.create 991 }
+        { worklist = Config.Set.elements (eval pa.abs_initial);
+          successor = CHT.create 991;
+          parent = CHT.create 991;
+          cover = CHT.create 991 }
       with _ -> assert false
     in
     let rec path_to_root v path =
       try
-	let (a,i,p) = CHT.find rg.parent v in
-	path_to_root p ((a,i)::path)
+        let (a,i,p) = CHT.find rg.parent v in
+        path_to_root p ((a,i)::path)
       with Not_found -> path
-      | _ -> assert false
+         | _ -> assert false
     in
     if List.exists (abs_accept pa) rg.worklist then Some [] else
       try
-	(fix rg); None
+        (fix rg); None
       with Accepting v -> Some (path_to_root v [])
   let abs_empty pa = Log.time "PA emptiness" abs_empty pa
   let abs_empty pa = abs_empty pa
@@ -459,14 +459,14 @@ module Verify = struct
   open ArkPervasives
 
   let tr_typ typ = TyInt
-(*match resolve_type typ with
-    | Int _   -> TyInt
-    | Float _ -> TyReal
-    | Pointer _ -> TyInt
-    | Enum _ -> TyInt
-    | Array _ -> TyInt
-    | Dynamic -> TyReal
-    | _ -> TyInt*)
+  (*match resolve_type typ with
+      | Int _   -> TyInt
+      | Float _ -> TyReal
+      | Pointer _ -> TyInt
+      | Enum _ -> TyInt
+      | Array _ -> TyInt
+      | Dynamic -> TyReal
+      | _ -> TyInt*)
 
   module PInt = Putil.PInt
 
@@ -474,11 +474,11 @@ module Verify = struct
     module I = struct
       type t = Var.t * int deriving (Compare)
       include Putil.MakeFmt(struct
-	type a = t
-	let format formatter (var, i) =
-	  if Var.is_shared var then Var.format formatter var
-	  else Format.fprintf formatter "%a[#%d]" Var.format var i
-      end)
+          type a = t
+          let format formatter (var, i) =
+            if Var.is_shared var then Var.format formatter var
+            else Format.fprintf formatter "%a[#%d]" Var.format var i
+        end)
       let compare = Compare_t.compare
       let equal x y = compare x y = 0
       let hash (v, i) = Hashtbl.hash (Var.hash v, i)
@@ -508,9 +508,9 @@ module Verify = struct
   let stable phi args def k =
     let fv =
       Tr.VarSet.map
-	(fun (v,i) -> if Var.is_shared v then (v,k)
-	  else (v, List.nth args (i-1)))
-	(Tr.formula_free_program_vars phi)
+        (fun (v,i) -> if Var.is_shared v then (v,k)
+          else (v, List.nth args (i-1)))
+        (Tr.formula_free_program_vars phi)
     in
     not (Tr.VarSet.exists (fun (v, _) -> Var.equal loc v) fv)
     && match def.dkind with
@@ -561,8 +561,8 @@ module Verify = struct
       { ss with ssglobal = Var.Map.add x (1+lookup ss.ssglobal x) ss.ssglobal }
     else
       let local =
-	try PInt.Map.find i ss.sslocal
-	with Not_found -> Var.Map.empty
+        try PInt.Map.find i ss.sslocal
+        with Not_found -> Var.Map.empty
       in
       let sub = 1 + lookup local x in
       { ss with sslocal = PInt.Map.add i (Var.Map.add x sub local) ss.sslocal }
@@ -582,8 +582,8 @@ module Verify = struct
 
       | OAccessPath (Variable v) -> T.var (Tr.V.mk_var (subscript v))
 
-	(* No real translations for anything else -- just return a free var
-	   "tr" (which just acts like a havoc). *)
+      (* No real translations for anything else -- just return a free var "tr"
+         (which just acts like a havoc). *)
       | OBinaryOp (a, _, b, typ) -> T.var (Tr.V.mk_tmp "tr" (tr_typ typ))
       | OUnaryOp (_, _, typ) -> T.var (Tr.V.mk_tmp "tr" (tr_typ typ))
       | OBoolExpr _ -> T.var (Tr.V.mk_int_tmp "tr")
@@ -606,15 +606,15 @@ module Verify = struct
       | Core.OAnd (a, b) -> P.conj a b
       | Core.OOr (a, b) -> P.disj a b
       | Core.OAtom (pred, x, y) ->
-	let x = subscript x in
-	let y = subscript y in
-	begin
-	  match pred with
-	  | Lt -> P.lt x y
-	  | Le -> P.leq x y
-	  | Eq -> P.eq x y
-	  | Ne -> P.disj (P.lt x y) (P.gt x y)
-	end
+        let x = subscript x in
+        let y = subscript y in
+        begin
+          match pred with
+          | Lt -> P.lt x y
+          | Le -> P.leq x y
+          | Eq -> P.eq x y
+          | Ne -> P.disj (P.lt x y) (P.gt x y)
+        end
     in
     Bexpr.fold alg
 
@@ -624,18 +624,18 @@ module Verify = struct
     let generalize i =
       try BatHashtbl.find rev_subst i
       with Not_found -> begin
-	let id = BatDynArray.length subst in
-	BatHashtbl.add rev_subst i id;
-	BatDynArray.add subst i;
-	id
-      end
+          let id = BatDynArray.length subst in
+          BatHashtbl.add rev_subst i id;
+          BatDynArray.add subst i;
+          id
+        end
     in
     let sigma v = match Tr.V.lower v with
       | Some (v, tid) ->
-	let iv =
-	  if Var.is_shared v then (v, tid) else (v, 1 + generalize tid)
-	in
-	T.var (Tr.V.mk_var (IV.subscript iv 0))
+        let iv =
+          if Var.is_shared v then (v, tid) else (v, 1 + generalize tid)
+        in
+        T.var (Tr.V.mk_var (IV.subscript iv 0))
       | None -> assert false
     in
     let gen_phi = P.subst sigma phi in
@@ -649,16 +649,16 @@ module Verify = struct
     let generalize i =
       try BatHashtbl.find rev_subst i
       with Not_found -> begin
-	let id = BatDynArray.length subst in
-	BatHashtbl.add rev_subst i id;
-	BatDynArray.add subst i;
-	id
-      end
+          let id = BatDynArray.length subst in
+          BatHashtbl.add rev_subst i id;
+          BatDynArray.add subst i;
+          id
+        end
     in
     let sigma v = match Tr.V.lower v with
       | Some (v, tid) ->
-	let iv = if Var.is_shared v then (v,tid) else (v, generalize tid) in
-	T.var (Tr.V.mk_var (IV.subscript iv 0))
+        let iv = if Var.is_shared v then (v,tid) else (v, generalize tid) in
+        T.var (Tr.V.mk_var (IV.subscript iv 0))
       | None -> assert false
     in
     let gen_phi = P.subst sigma phi in
@@ -671,9 +671,9 @@ module Verify = struct
 
     let rhs =
       PA.big_conj
-	(BatEnum.append
-	   (BatEnum.map f (P.conjuncts psi))
-	   (Putil.distinct_pairs (BatHashtbl.enum rev_subst) /@ mk_eq))
+        (BatEnum.append
+           (BatEnum.map f (P.conjuncts psi))
+           (Putil.distinct_pairs (BatHashtbl.enum rev_subst) /@ mk_eq))
     in
     (subst, gen_phi, rhs)
   let generalize i phi psi =
@@ -688,12 +688,12 @@ module Verify = struct
     let f (def, i) (ss, rest) = match def.dkind with
       | Assume phi -> (ss, (i, def, subscript_bexpr ss i phi)::rest)
       | Assign (v, expr) ->
-	let rhs = subscript_expr ss i expr in
-	let ss' = subscript_incr ss i v in
-	let assign =
-	  P.eq (T.var (Tr.V.mk_var (subscript ss' i v))) rhs
-	in
-	(ss', (i, def, assign)::rest)
+        let rhs = subscript_expr ss i expr in
+        let ss' = subscript_incr ss i v in
+        let assign =
+          P.eq (T.var (Tr.V.mk_var (subscript ss' i v))) rhs
+        in
+        (ss', (i, def, assign)::rest)
       | _ -> (ss, (i, def, P.top)::rest)
     in
     snd (List.fold_right f trace (ss_init, []))
@@ -701,35 +701,35 @@ module Verify = struct
   let construct ipa trace =
     let rec go post = function
       | ((i, tr, phi)::rest) ->
-	let phis = BatList.map (fun (_,_,phi) -> phi) rest in
-	let a = P.big_conj (BatList.enum phis) in
-	let b = P.conj phi (P.negate post) in
-(*	Log.errorf "Going to interpolate! %a / %a" P.format a P.format b;*)
-	let itp = match P.interpolate a b with
-	  | None ->
-	    (Log.errorf "Failed to interpolate! %a / %a"
-	       P.format a P.format b;
-	     assert false)
-	  | Some itp ->
-	    (Log.logf ~level:3 "Found interpolant! %a / %a: %a"
-	       P.format a P.format b P.format itp;
-	     assert (P.implies a itp);
-	     assert (not (P.is_sat (P.conj itp b)));
-	     itp)
-	in
-	if P.compare (unsubscript post) (unsubscript itp) = 0 then begin
-	  Log.logf "Skipping transition: [#%d] %a" i Def.format tr;
-	  go itp rest
-	end else begin
-	  BatEnum.iter (flip go rest) (P.conjuncts itp);
-	  let (_, lhs, rhs) = generalize i post itp in
+        let phis = BatList.map (fun (_,_,phi) -> phi) rest in
+        let a = P.big_conj (BatList.enum phis) in
+        let b = P.conj phi (P.negate post) in
+        (*	Log.errorf "Going to interpolate! %a / %a" P.format a P.format b;*)
+        let itp = match P.interpolate a b with
+          | None ->
+            (Log.errorf "Failed to interpolate! %a / %a"
+               P.format a P.format b;
+             assert false)
+          | Some itp ->
+            (Log.logf ~level:3 "Found interpolant! %a / %a: %a"
+               P.format a P.format b P.format itp;
+             assert (P.implies a itp);
+             assert (not (P.is_sat (P.conj itp b)));
+             itp)
+        in
+        if P.compare (unsubscript post) (unsubscript itp) = 0 then begin
+          Log.logf "Skipping transition: [#%d] %a" i Def.format tr;
+          go itp rest
+        end else begin
+          BatEnum.iter (flip go rest) (P.conjuncts itp);
+          let (_, lhs, rhs) = generalize i post itp in
 
-	  Log.logf "Added IPA transition:@\n @[%a@] @[--( [#0] %a )-->@] @[%a@]"
-	    P.format lhs
-	    Def.format tr
-	    Show.format<PA.formula> rhs;
-	  PA.add_transition ipa lhs tr rhs
-	end
+          Log.logf "Added IPA transition:@\n @[%a@] @[--( [#0] %a )-->@] @[%a@]"
+            P.format lhs
+            Def.format tr
+            Show.format<PA.formula> rhs;
+          PA.add_transition ipa lhs tr rhs
+        end
 
       | [] -> assert false
     in
@@ -791,7 +791,7 @@ module Verify = struct
     let err_tr = Def.HT.create 61 in
     let add_err_tr def phi =
       let guard =
-	Def.mk ~loc:(Def.get_location def) (Assume (Bexpr.negate phi))
+        Def.mk ~loc:(Def.get_location def) (Assume (Bexpr.negate phi))
       in
       sigma := guard::(!sigma);
       Def.HT.add err_tr guard (loc_pred def)
@@ -800,31 +800,31 @@ module Verify = struct
     let delta (p, args) (a,i) =
       match args with
       | [] -> (* loc *)
-	if Def.HT.mem err_tr a
-	then PA.And (PA.Atom (p, []),
-		     PA.Atom (Def.HT.find err_tr a, [i]))
-	else PA.And (PA.Atom (p, []),
-		     PA.Atom (loc_pred a, [i]))
+        if Def.HT.mem err_tr a
+        then PA.And (PA.Atom (p, []),
+                     PA.Atom (Def.HT.find err_tr a, [i]))
+        else PA.And (PA.Atom (p, []),
+                     PA.Atom (loc_pred a, [i]))
       | [j] ->
-	if PHT.mem thread_init p then begin
-	  match a.dkind with
-	  | Builtin (Fork (_, expr, _)) ->
-	    let func = match Expr.strip_casts expr with
-	      | AddrOf (Variable (func, OffsetFixed 0)) -> func
-	      | _ -> assert false
-	    in
-	    if Varinfo.equal (PHT.find thread_init p) func && i != j
-	    then PA.True
-	    else PA.False
-	  | _ -> PA.False
-	end else
-	  if P.equal p (loc_pred err) && Def.HT.mem err_tr a then
-	    if i = j then PA.Atom (Def.HT.find err_tr a, [i])
-	    else PA.False
-	  else if i = j && PSet.mem p (get_next (loc_pred a)) then PA.True
-	  else if i != j && not (PSet.mem (loc_pred a) (!main_locs))
-	  then PA.Atom (p, args)
-	  else PA.False
+        if PHT.mem thread_init p then begin
+          match a.dkind with
+          | Builtin (Fork (_, expr, _)) ->
+            let func = match Expr.strip_casts expr with
+              | AddrOf (Variable (func, OffsetFixed 0)) -> func
+              | _ -> assert false
+            in
+            if Varinfo.equal (PHT.find thread_init p) func && i != j
+            then PA.True
+            else PA.False
+          | _ -> PA.False
+        end else
+        if P.equal p (loc_pred err) && Def.HT.mem err_tr a then
+          if i = j then PA.Atom (Def.HT.find err_tr a, [i])
+          else PA.False
+        else if i = j && PSet.mem p (get_next (loc_pred a)) then PA.True
+        else if i != j && not (PSet.mem (loc_pred a) (!main_locs))
+        then PA.Atom (p, args)
+        else PA.False
       | _ -> assert false
     in
 
@@ -834,19 +834,19 @@ module Verify = struct
     add_pred loc;
 
     BatEnum.iter (fun (thread, body) ->
-      RG.G.iter_edges (fun u v -> add_next u v) body;
-      RG.G.iter_vertex (fun u ->
-	sigma := u::(!sigma);
-	add_pred (loc_pred u);
-	match u.dkind with
-	| Assert (phi, _) -> add_err_tr u phi
-	| _ -> ()
-      ) body;
-      if not (Varinfo.equal thread main) then add_thread_init thread
-    ) (RG.bodies rg);
+        RG.G.iter_edges (fun u v -> add_next u v) body;
+        RG.G.iter_vertex (fun u ->
+            sigma := u::(!sigma);
+            add_pred (loc_pred u);
+            match u.dkind with
+            | Assert (phi, _) -> add_err_tr u phi
+            | _ -> ()
+          ) body;
+        if not (Varinfo.equal thread main) then add_thread_init thread
+      ) (RG.bodies rg);
     RG.G.iter_vertex (fun d ->
-      main_locs := PSet.add (loc_pred d) (!main_locs)
-    ) (RG.block_body rg main);
+        main_locs := PSet.add (loc_pred d) (!main_locs)
+      ) (RG.block_body rg main);
     let accept =
       let entry = RG.block_entry rg main in
       (fun p -> P.equal (loc_pred entry) p || P.equal loc p)
@@ -867,56 +867,56 @@ module Verify = struct
     let abstract_pf pf =
       let open PA in
       let delta (p,args) (a,i) =
-	if stable p args a i
-	then Or (Atom (p, args), next pf (p,args) (a,i))
-	else next pf (p,args) (a,i)
+        if stable p args a i
+        then Or (Atom (p, args), next pf (p,args) (a,i))
+        else next pf (p,args) (a,i)
       in
       { abs_predicates = PSet.add P.bottom (predicates pf);
-	abs_delta = delta;
-	abs_sigma = pf.sigma;
-	abs_accepting = pf.accepting;
-	abs_initial = pf.initial
+        abs_delta = delta;
+        abs_sigma = pf.sigma;
+        abs_accepting = pf.accepting;
+        abs_initial = pf.initial
       }
     in
     let check pf =
       abs_empty (abs_intersect program_pa (abs_negate (abstract_pf pf)))
-    (* (mk_abstract pf)))*)
+      (* (mk_abstract pf)))*)
     in
     let number_cex = ref 0 in
     let print_info () =
       logf ~level:0 "  IPA predicates: %d"
-	(BatEnum.count (PA.enum_delta pf));
+        (BatEnum.count (PA.enum_delta pf));
       logf ~level:0 "  Spurious counter-examples: %d " !number_cex;
     in
     let rec loop () =
       match check pf with
       | Some trace ->
-	logf ~attributes:[Log.Bold] "@\nFound error trace (%d):" (!number_cex);
-	List.iter (fun (def, id) ->
-	  logf "  [#%d] %a" id Def.format def
-	) trace;
-	logf ""; (* newline *)
-	let trace_formula =
-	  BatList.enum (trace_formulae trace)
-	  /@ (fun (_,_,phi) -> phi) |> P.big_conj
-	in
-	if P.is_sat trace_formula then begin
-	  log ~level:0 ~attributes:[Log.Bold;Log.Red]
-	    "Verification result: Unsafe";
-	  print_info ();
-	  logf ~attributes:[Log.Bold] "  Error trace:";
-	  List.iter (fun (def, id) ->
-	    logf ~level:0 "    [#%d] %a" id Def.format def
-	  ) trace;
-	end else begin
-	  construct pf trace;
-	  incr number_cex;
-	  loop ()
-	end
+        logf ~attributes:[Log.Bold] "@\nFound error trace (%d):" (!number_cex);
+        List.iter (fun (def, id) ->
+            logf "  [#%d] %a" id Def.format def
+          ) trace;
+        logf ""; (* newline *)
+        let trace_formula =
+          BatList.enum (trace_formulae trace)
+          /@ (fun (_,_,phi) -> phi) |> P.big_conj
+        in
+        if P.is_sat trace_formula then begin
+          log ~level:0 ~attributes:[Log.Bold;Log.Red]
+            "Verification result: Unsafe";
+          print_info ();
+          logf ~attributes:[Log.Bold] "  Error trace:";
+          List.iter (fun (def, id) ->
+              logf ~level:0 "    [#%d] %a" id Def.format def
+            ) trace;
+        end else begin
+          construct pf trace;
+          incr number_cex;
+          loop ()
+        end
       | None ->
-	log ~level:0 ~attributes:[Log.Bold;Log.Green]
-	  "Verification result: Safe";
-	print_info ()
+        log ~level:0 ~attributes:[Log.Bold;Log.Green]
+          "Verification result: Safe";
+        print_info ()
     in
     loop ()
 end

@@ -5,31 +5,31 @@ end = struct
   module HT = Hashtbl.Make(M)
   let memo ?size:(size=991) f =
     let memo_table = HT.create size in
-      fun x -> (try HT.find memo_table x
-		with Not_found ->
-		  let result = f x in
-		    HT.add memo_table x result;
-		    result)
+    fun x -> (try HT.find memo_table x
+              with Not_found ->
+                let result = f x in
+                HT.add memo_table x result;
+                result)
   let memo_recursive ?size:(size=991) f =
     let memo_table = HT.create size in
     let rec g x =
       (try HT.find memo_table x
        with Not_found ->
-	 let result = f g x in
-	   HT.add memo_table x result;
-	   result)
+         let result = f g x in
+         HT.add memo_table x result;
+         result)
     in
-      g
+    g
 end
 
 (** Memoize a function using built-in polymorphic hash *)
 let memo ?size:(size=991) f =
   let memo_table = Hashtbl.create size in
-    fun x -> (try Hashtbl.find memo_table x
-	      with Not_found ->
-		let result = f x in
-		  Hashtbl.add memo_table x result;
-		  result)
+  fun x -> (try Hashtbl.find memo_table x
+            with Not_found ->
+              let result = f x in
+              Hashtbl.add memo_table x result;
+              result)
 
 let memo_recursive ?size:(size=991) f =
   let memo_table = Hashtbl.create size in
@@ -37,10 +37,10 @@ let memo_recursive ?size:(size=991) f =
     (try Hashtbl.find memo_table x
      with Not_found ->
        let result = f g x in
-	 Hashtbl.add memo_table x result;
-	 result)
+       Hashtbl.add memo_table x result;
+       result)
   in
-    g
+  g
 
 
 module Tabulate = struct
@@ -74,46 +74,46 @@ module Tabulate = struct
       the return continuation will be called repeatedly during fixpoint
       computation. *)
   module Make (F : Fun) : S with type dom = F.dom
-			    and type cod = F.cod =
+                             and type cod = F.cod =
   struct
     module H = Hashtbl.Make(struct
-			      type t = F.dom
-			      let hash = F.hash
-			      let equal = F.dom_equal
-			    end)
+        type t = F.dom
+        let hash = F.hash
+        let equal = F.dom_equal
+      end)
     type dom = F.dom
     type cod = F.cod
     let value  = H.create 991
     let depend = H.create 991 (* Track a list of continuations for each table
-				 entry (the continuations passed to call). *)
+                                 				 entry (the continuations passed to call). *)
 
     let update x new_value =
       let old = H.find value x in
       let cur = F.join old new_value in
-	if not (F.cod_equal old cur) then begin
-	  H.replace value x cur;
-	  List.iter (fun k -> k cur) (H.find depend x)
-	end
+      if not (F.cod_equal old cur) then begin
+        H.replace value x cur;
+        List.iter (fun k -> k cur) (H.find depend x)
+      end
 
     let call x k =
       let v =
-	try H.find value x
-	with Not_found ->
-	  H.add value x F.bottom;
-	  H.add depend x [];
-	  F.f x (update x);
-	  H.find value x
+        try H.find value x
+        with Not_found ->
+          H.add value x F.bottom;
+          H.add depend x [];
+          F.f x (update x);
+          H.find value x
       in
-	H.replace depend x (k::(H.find depend x));
-	k v
+      H.replace depend x (k::(H.find depend x));
+      k v
 
     let call_direct x =
       try H.find value x
       with Not_found ->
-	let result = ref F.bottom in
-	let k r = result := r in
-	  F.f x k;
-	  !result
+        let result = ref F.bottom in
+        let k r = result := r in
+        F.f x k;
+        !result
   end
 
   module type RecFun = sig
@@ -130,17 +130,17 @@ module Tabulate = struct
   end
 
   module MakeRec (F : RecFun) : S with type dom = F.dom
-				  and type cod = F.cod =
+                                   and type cod = F.cod =
   struct
     module rec Fun : Fun with type dom = F.dom
-			 and type cod = F.cod =
+                          and type cod = F.cod =
     struct
       include F
       let f = F.f Tab.call
     end
 
     and Tab : S with type dom = F.dom
-		and type cod = F.cod = Make(Fun)
+                 and type cod = F.cod = Make(Fun)
 
     include Tab
   end

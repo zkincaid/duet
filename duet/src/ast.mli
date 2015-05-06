@@ -1,11 +1,11 @@
 open Core
 (** Statement kind *)
-type stmt_kind = 
-    | Branch        of stmt * stmt
-    | Instr         of def list
-    | Goto          of int (** Statement id *)
-    | ForkGoto      of int (** Statement id *)
-    | Block         of stmt list
+type stmt_kind =
+  | Branch        of stmt * stmt
+  | Instr         of def list
+  | Goto          of int (** Statement id *)
+  | ForkGoto      of int (** Statement id *)
+  | Block         of stmt list
 and stmt = {
   sid : int; (** Statement id *)
   mutable skind : stmt_kind;
@@ -29,7 +29,7 @@ and file = {
   mutable stmt_map : (int,stmt) Hashtbl.t
 }
 
-type 'a open_stmt = 
+type 'a open_stmt =
   | OBranch        of 'a * 'a
   | OInstr         of def list
   | OGoto          of int

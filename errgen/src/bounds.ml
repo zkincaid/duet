@@ -44,15 +44,15 @@ let rec tr_aexp = function
 
 let to_aexp =
   let alg = function
-  | OVar v ->
-    begin match V.lower v with
-    | Some var -> Var_exp var
-    | None -> assert false
-    end
-  | OConst k -> Real_const k
-  | OAdd (x, y) -> Sum_exp (x, y)
-  | OMul (x, y) -> Mult_exp (x, y)
-  | ODiv (_, _) | OFloor _ -> assert false
+    | OVar v ->
+      begin match V.lower v with
+        | Some var -> Var_exp var
+        | None -> assert false
+      end
+    | OConst k -> Real_const k
+    | OAdd (x, y) -> Sum_exp (x, y)
+    | OMul (x, y) -> Mult_exp (x, y)
+    | ODiv (_, _) | OFloor _ -> assert false
   in
   T.eval alg
 
@@ -123,29 +123,29 @@ let rec add_bounds path_to = function
     let (body, _) = add_bounds to_body body in
     let inv =
       let phi =
-	F.linearize
-	  (fun () -> V.mk_tmp "nonlin" TyReal)
-	  (K.to_formula to_body)
+        F.linearize
+          (fun () -> V.mk_tmp "nonlin" TyReal)
+          (K.to_formula to_body)
       in
       let vars =
-	BatList.of_enum (K.M.keys to_body.K.transform
-			 /@ (T.var % V.mk_var % StrVar.prime))
+        BatList.of_enum (K.M.keys to_body.K.transform
+                         /@ (T.var % V.mk_var % StrVar.prime))
       in
       let bounds = F.optimize vars phi in
       let to_formula (v, (lower, upper)) =
-	let v = T.var (V.mk_var v) in
-	let lo = match lower with
-	  | Some b -> F.leq (T.const b) v
-	  | None -> F.top
-	in
-	let hi = match upper with
-	  | Some b -> F.leq v (T.const b)
-	  | None -> F.top
-	in
-	F.conj lo hi
+        let v = T.var (V.mk_var v) in
+        let lo = match lower with
+          | Some b -> F.leq (T.const b) v
+          | None -> F.top
+        in
+        let hi = match upper with
+          | Some b -> F.leq v (T.const b)
+          | None -> F.top
+        in
+        F.conj lo hi
       in
       let e =
-	BatEnum.combine (K.M.keys to_body.K.transform, BatList.enum bounds)
+        BatEnum.combine (K.M.keys to_body.K.transform, BatList.enum bounds)
       in
       BatEnum.fold F.conj F.top (e /@ to_formula)
     in
@@ -178,40 +178,40 @@ let forward_bounds man stmt =
     | Ite (c, bthen, belse) ->
       let (then_prop, else_prop) = (assume c pre, assume (Not_exp c) pre) in
       if D.is_bottom then_prop then begin
-	let (belse, post_else) = go belse else_prop in
-	(Seq (Assume (Not_exp c), belse), post_else)
+        let (belse, post_else) = go belse else_prop in
+        (Seq (Assume (Not_exp c), belse), post_else)
       end else if D.is_bottom else_prop then begin
-	let (bthen, post_then) = go bthen then_prop in
-	(Seq (Assume c, bthen), post_then)
+        let (bthen, post_then) = go bthen then_prop in
+        (Seq (Assume c, bthen), post_then)
       end else begin
-	let (bthen, post_then) = go bthen then_prop in
-	let (belse, post_else) = go belse else_prop in
-	(Ite (c, bthen, belse), D.join post_then post_else)
+        let (bthen, post_then) = go bthen then_prop in
+        let (belse, post_else) = go belse else_prop in
+        (Ite (c, bthen, belse), D.join post_then post_else)
       end
     | While (c, body, residual) ->
       let iterations = ref 0 in
       let rec fix prop =
-	let (body, next) = go body (assume c prop) in
-	if D.leq next prop then begin
-	  Log.logf Log.info "Found a fixpoint at iteration %i:\n%a"
-	    (!iterations)
-	    D.format next;
-	  (body, D.join pre next)
-	end
-	else (incr iterations; fix (D.widen prop next))
+        let (body, next) = go body (assume c prop) in
+        if D.leq next prop then begin
+          Log.logf Log.info "Found a fixpoint at iteration %i:\n%a"
+            (!iterations)
+            D.format next;
+          (body, D.join pre next)
+        end
+        else (incr iterations; fix (D.widen prop next))
       in
       let (body, post) = fix (snd (go body (assume c pre))) in
       (* Project out temporaries *)
       let p x = match V.lower x with
-	| Some x -> not (BatString.starts_with x "__")
-	| None -> false
+        | Some x -> not (BatString.starts_with x "__")
+        | None -> false
       in
       let post = D.exists man p post in
       if D.is_bottom post then begin
-	(While (c, Assume (Bool_const false), residual), post)
+        (While (c, Assume (Bool_const false), residual), post)
       end else begin
-	let inv = Assume (to_bexp (F.of_abstract (assume c post))) in
-	(While (c, Seq (inv, body), residual), assume (Not_exp c) post)
+        let inv = Assume (to_bexp (F.of_abstract (assume c post))) in
+        (While (c, Seq (inv, body), residual), assume (Not_exp c) post)
       end
     | Assert c
     | Assume c -> (stmt, assume c pre)

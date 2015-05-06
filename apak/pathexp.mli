@@ -61,13 +61,13 @@ end
 
 open RecGraph
 module MakeParRG
-  (R : RecGraph.S with type ('a,'b) typ = ('a, 'b) RecGraph.par_typ)
-  (Block : BLOCK with type t = R.block)
-  (K : sig
-    include Sig.KA.Quantified.Ordered.S
-    val widen : t -> t -> t
-    val fork : t -> t
-  end) :
+    (R : RecGraph.S with type ('a,'b) typ = ('a, 'b) RecGraph.par_typ)
+    (Block : BLOCK with type t = R.block)
+    (K : sig
+       include Sig.KA.Quantified.Ordered.S
+       val widen : t -> t -> t
+       val fork : t -> t
+     end) :
 sig
   module HT : BatHashtbl.S with type key = Block.t
   type query
@@ -88,12 +88,12 @@ sig
   val enum_single_src : query -> (Block.t * R.G.V.t * K.t) BatEnum.t
 end
 module MakeSeqRG
-  (R : RecGraph.S with type ('a,'b) typ = ('a, 'b) RecGraph.seq_typ)
-  (Block : BLOCK with type t = R.block)
-  (K : sig
-    include Sig.KA.Quantified.Ordered.S
-    val widen : t -> t -> t
-  end) :
+    (R : RecGraph.S with type ('a,'b) typ = ('a, 'b) RecGraph.seq_typ)
+    (Block : BLOCK with type t = R.block)
+    (K : sig
+       include Sig.KA.Quantified.Ordered.S
+       val widen : t -> t -> t
+     end) :
 sig
   module HT : BatHashtbl.S with type key = Block.t
   type query

@@ -77,15 +77,15 @@ module PTSet (T : Tagged) : Putil.Hashed.Set.S with type elt = T.t = struct
     | Leaf j -> (tag k) == (tag j)
     | Branch (_, m, l, r) -> mem k (if zero_bit (tag k) m then l else r)
 
-(*s The following operation [join] will be used in both insertion and
-  union. Given two non-empty trees [t0] and [t1] with longest common
-  prefixes [p0] and [p1] respectively, which are supposed to
-  disagree, it creates the union of [t0] and [t1]. For this, it
-  computes the first bit [m] where [p0] and [p1] disagree and create
-  a branching node on that bit. Depending on the value of that bit
-  in [p0], [t0] will be the left subtree and [t1] the right one, or
-  the converse. Computing the first branching bit of [p0] and [p1]
-  uses a nice property of twos-complement representation of integers. *)
+  (*s The following operation [join] will be used in both insertion and
+    union. Given two non-empty trees [t0] and [t1] with longest common
+    prefixes [p0] and [p1] respectively, which are supposed to
+    disagree, it creates the union of [t0] and [t1]. For this, it
+    computes the first bit [m] where [p0] and [p1] disagree and create
+    a branching node on that bit. Depending on the value of that bit
+    in [p0], [t0] will be the left subtree and [t1] the right one, or
+    the converse. Computing the first branching bit of [p0] and [p1]
+    uses a nice property of twos-complement representation of integers. *)
 
   let lowest_bit x = x land (-x)
 
@@ -95,9 +95,9 @@ module PTSet (T : Tagged) : Putil.Hashed.Set.S with type elt = T.t = struct
 
   let join (p0,t0,p1,t1) =
     let m = branching_bit p0 p1 in
-    if zero_bit p0 m then 
+    if zero_bit p0 m then
       Branch (mask p0 m, m, t0, t1)
-    else 
+    else
       Branch (mask p0 m, m, t1, t0)
 
   (*s Then the insertion of value [k] in set [t] is easily implemented using
@@ -112,16 +112,16 @@ module PTSet (T : Tagged) : Putil.Hashed.Set.S with type elt = T.t = struct
   let add k t =
     let rec ins = function
       | Empty -> Leaf k
-      | Leaf j as t -> 
-	if (tag j) == (tag k) then t else join (tag k, Leaf k, tag j, t)
+      | Leaf j as t ->
+        if (tag j) == (tag k) then t else join (tag k, Leaf k, tag j, t)
       | Branch (p,m,t0,t1) as t ->
-	if match_prefix (tag k) p m then
-	  if zero_bit (tag k) m then 
-	    Branch (p, m, ins t0, t1)
-	  else
-	    Branch (p, m, t0, ins t1)
-	else
-	  join (tag k, Leaf k, p, t)
+        if match_prefix (tag k) p m then
+          if zero_bit (tag k) m then
+            Branch (p, m, ins t0, t1)
+          else
+            Branch (p, m, t0, ins t1)
+        else
+          join (tag k, Leaf k, p, t)
     in
     ins t
 
@@ -139,14 +139,14 @@ module PTSet (T : Tagged) : Putil.Hashed.Set.S with type elt = T.t = struct
     let rec rmv = function
       | Empty -> Empty
       | Leaf j as t -> if (tag k) == (tag j) then Empty else t
-      | Branch (p,m,t0,t1) as t -> 
-	if match_prefix (tag k) p m then
-	  if zero_bit (tag k) m then
-	    branch (p, m, rmv t0, t1)
-	  else
-	    branch (p, m, t0, rmv t1)
-	else
-	  t
+      | Branch (p,m,t0,t1) as t ->
+        if match_prefix (tag k) p m then
+          if zero_bit (tag k) m then
+            branch (p, m, rmv t0, t1)
+          else
+            branch (p, m, t0, rmv t1)
+        else
+          t
     in
     rmv t
 
@@ -164,23 +164,23 @@ module PTSet (T : Tagged) : Putil.Hashed.Set.S with type elt = T.t = struct
     | t, Leaf k -> add k t
     | (Branch (p,m,s0,s1) as s), (Branch (q,n,t0,t1) as t) ->
       if m == n && match_prefix q p m then
-	(* The trees have the same prefix. Merge the subtrees. *)
-	Branch (p, m, merge (s0,t0), merge (s1,t1))
+        (* The trees have the same prefix. Merge the subtrees. *)
+        Branch (p, m, merge (s0,t0), merge (s1,t1))
       else if m < n && match_prefix q p m then
-	(* [q] contains [p]. Merge [t] with a subtree of [s]. *)
-	if zero_bit q m then 
-	  Branch (p, m, merge (s0,t), s1)
-        else 
-	  Branch (p, m, s0, merge (s1,t))
+        (* [q] contains [p]. Merge [t] with a subtree of [s]. *)
+        if zero_bit q m then
+          Branch (p, m, merge (s0,t), s1)
+        else
+          Branch (p, m, s0, merge (s1,t))
       else if m > n && match_prefix p q n then
-	(* [p] contains [q]. Merge [s] with a subtree of [t]. *)
-	if zero_bit p n then
-	  Branch (q, n, merge (s,t0), t1)
-	else
-	  Branch (q, n, t0, merge (s,t1))
+        (* [p] contains [q]. Merge [s] with a subtree of [t]. *)
+        if zero_bit p n then
+          Branch (q, n, merge (s,t0), t1)
+        else
+          Branch (q, n, t0, merge (s,t1))
       else
-	(* The prefixes disagree. *)
-	join (p, s, q, t)
+        (* The prefixes disagree. *)
+        join (p, s, q, t)
 
   let union s t = merge (s,t)
 
@@ -196,14 +196,14 @@ module PTSet (T : Tagged) : Putil.Hashed.Set.S with type elt = T.t = struct
     | Branch _, Leaf _ -> false
     | Branch (p1,m1,l1,r1), Branch (p2,m2,l2,r2) ->
       if m1 == m2 && p1 == p2 then
-	subset l1 l2 && subset r1 r2
+        subset l1 l2 && subset r1 r2
       else if m1 > m2 && match_prefix p1 p2 m2 then
-	if zero_bit p1 m2 then 
-	  subset l1 l2 && subset r1 l2
-	else 
-	  subset l1 r2 && subset r1 r2
+        if zero_bit p1 m2 then
+          subset l1 l2 && subset r1 l2
+        else
+          subset l1 r2 && subset r1 r2
       else
-	false
+        false
 
   (*s To compute the intersection and the difference of two sets, we still
     examine the same four cases as in [merge]. The recursion is then
@@ -215,14 +215,14 @@ module PTSet (T : Tagged) : Putil.Hashed.Set.S with type elt = T.t = struct
     | Leaf k1, _ -> if mem k1 s2 then s1 else Empty
     | _, Leaf k2 -> if mem k2 s1 then s2 else Empty
     | Branch (p1,m1,l1,r1), Branch (p2,m2,l2,r2) ->
-      if m1 == m2 && p1 == p2 then 
-	merge (inter l1 l2, inter r1 r2)
+      if m1 == m2 && p1 == p2 then
+        merge (inter l1 l2, inter r1 r2)
       else if m1 < m2 && match_prefix p2 p1 m1 then
-	inter (if zero_bit p2 m1 then l1 else r1) s2
+        inter (if zero_bit p2 m1 then l1 else r1) s2
       else if m1 > m2 && match_prefix p1 p2 m2 then
-	inter s1 (if zero_bit p1 m2 then l2 else r2)
+        inter s1 (if zero_bit p1 m2 then l2 else r2)
       else
-	Empty
+        Empty
 
   let rec diff s1 s2 = match (s1,s2) with
     | Empty, _ -> Empty
@@ -231,16 +231,16 @@ module PTSet (T : Tagged) : Putil.Hashed.Set.S with type elt = T.t = struct
     | _, Leaf k2 -> remove k2 s1
     | Branch (p1,m1,l1,r1), Branch (p2,m2,l2,r2) ->
       if m1 == m2 && p1 == p2 then
-	merge (diff l1 l2, diff r1 r2)
+        merge (diff l1 l2, diff r1 r2)
       else if m1 < m2 && match_prefix p2 p1 m1 then
-	if zero_bit p2 m1 then 
-	  merge (diff l1 s2, r1) 
-	else 
-	  merge (l1, diff r1 s2)
+        if zero_bit p2 m1 then
+          merge (diff l1 s2, r1)
+        else
+          merge (l1, diff r1 s2)
       else if m1 > m2 && match_prefix p1 p2 m2 then
-	if zero_bit p1 m2 then diff s1 l2 else diff s1 r2
+        if zero_bit p1 m2 then diff s1 l2 else diff s1 r2
       else
-	s1
+        s1
 
   (*s All the following operations ([cardinal], [iter], [fold], [for_all],
     [exists], [filter], [partition], [choose], [elements]) are implemented as
@@ -255,7 +255,7 @@ module PTSet (T : Tagged) : Putil.Hashed.Set.S with type elt = T.t = struct
     | Empty -> ()
     | Leaf k -> f k
     | Branch (_,_,t0,t1) -> iter f t0; iter f t1
-      
+
   let rec fold f s accu = match s with
     | Empty -> accu
     | Leaf k -> f k accu
@@ -317,7 +317,7 @@ module PTSet (T : Tagged) : Putil.Hashed.Set.S with type elt = T.t = struct
   (*s Another nice property of Patricia trees is to be independent of the
     order of insertion. As a consequence, two Patricia trees have the same
     elements if and only if they are structurally equal. *)
-      
+
   let rec compare left right = match left,right with
     | Empty, Empty -> 0
     | Empty, _ -> 1
@@ -326,16 +326,16 @@ module PTSet (T : Tagged) : Putil.Hashed.Set.S with type elt = T.t = struct
     | Leaf _, _ -> 1
     | _, Leaf _ -> -1
     | Branch (p,m,s0,s1), Branch (q,n,t0,t1) -> begin
-      match Pervasives.compare m n with
-	| 0 -> begin match Pervasives.compare p q with
-	    | 0 -> begin match compare s0 t0 with
-		| 0 -> compare s1 t1
-		| other -> other
-	    end
-	    | other -> other
-	end 
-	| other -> other
-    end
+        match Pervasives.compare m n with
+        | 0 -> begin match Pervasives.compare p q with
+            | 0 -> begin match compare s0 t0 with
+                | 0 -> compare s1 t1
+                | other -> other
+              end
+            | other -> other
+          end
+        | other -> other
+      end
 
   let rec equal left right = match left, right with
     | Empty, Empty -> true
@@ -352,7 +352,7 @@ module PTSet (T : Tagged) : Putil.Hashed.Set.S with type elt = T.t = struct
   (*i*)
   let make l = List.fold_right add l empty
   (*i*)
-    
+
   (*s Additional functions w.r.t to [Set.S]. *)
 
   let rec intersect s1 s2 = match (s1,s2) with
@@ -382,18 +382,18 @@ module PTSet (T : Tagged) : Putil.Hashed.Set.S with type elt = T.t = struct
     let add_cardinal sum t = sum + (cardinal t) in
     let rec make ts count =
       BatEnum.make
-	~next:(fun () ->
-	  let (hd, tl) = pull [] (!ts) in
-	  decr count;
-	  ts := tl;
-	  hd)
+        ~next:(fun () ->
+            let (hd, tl) = pull [] (!ts) in
+            decr count;
+            ts := tl;
+            hd)
 
-	~count:(fun () ->
-	  if !count < 0 then count := (List.fold_left add_cardinal 0 (!ts));
-	  !count)
+        ~count:(fun () ->
+            if !count < 0 then count := (List.fold_left add_cardinal 0 (!ts));
+            !count)
 
-	~clone:(fun () ->
-	  make (ref !ts) (ref !count))
+        ~clone:(fun () ->
+            make (ref !ts) (ref !count))
     in
     make (ref [t]) (ref (-1))
 
@@ -401,11 +401,11 @@ module PTSet (T : Tagged) : Putil.Hashed.Set.S with type elt = T.t = struct
 
   let map f s = fold (fun v set -> add (f v) set) s empty
 
-  let rec filter_map f s = 
+  let rec filter_map f s =
     let add v set =
       match f v with
-	| Some u -> add u set
-	| None -> set
+      | Some u -> add u set
+      | None -> set
     in
     fold add s empty
 
@@ -414,11 +414,11 @@ module PTSet (T : Tagged) : Putil.Hashed.Set.S with type elt = T.t = struct
     (elt, remove elt s)
 
   include Putil.MakeFmt(struct
-    type a = t
-    let format formatter set =
-      let enum = enum set in
-      Putil.format_enum T.format ~left:"{" ~sep:"," ~right:"}" formatter enum
-  end)
+      type a = t
+      let format formatter set =
+        let enum = enum set in
+        Putil.format_enum T.format ~left:"{" ~sep:"," ~right:"}" formatter enum
+    end)
   module Compare_t = struct
     type a = t
     let compare = compare
@@ -427,11 +427,11 @@ end
 
 module PTMap (T : Tagged) = struct
 
-(*s Maps of integers implemented as Patricia trees, following Chris
-    Okasaki and Andrew Gill's paper {\em Fast Mergeable Integer Maps}
-    ({\tt\small http://www.cs.columbia.edu/\~{}cdo/papers.html\#ml98maps}).
-    See the documentation of module [Ptset] which is also based on the
-    same data-structure. *)
+  (*s Maps of integers implemented as Patricia trees, following Chris
+      Okasaki and Andrew Gill's paper {\em Fast Mergeable Integer Maps}
+      ({\tt\small http://www.cs.columbia.edu/\~{}cdo/papers.html\#ml98maps}).
+      See the documentation of module [Ptset] which is also based on the
+      same data-structure. *)
 
   type key = T.t
   type 'a t =
@@ -463,9 +463,9 @@ module PTMap (T : Tagged) = struct
 
   let join (p0,t0,p1,t1) =
     let m = branching_bit p0 p1 in
-    if zero_bit p0 m then 
+    if zero_bit p0 m then
       Branch (mask p0 m, m, t0, t1)
-    else 
+    else
       Branch (mask p0 m, m, t1, t0)
 
   let match_prefix k p m = (mask k m) == p
@@ -473,19 +473,19 @@ module PTMap (T : Tagged) = struct
   let add k x t =
     let rec ins = function
       | Empty -> Leaf (k,x)
-      | Leaf (j,_) as t -> 
-	if tag j == tag k then 
-	  Leaf (k,x) 
-	else 
-	  join (tag k, Leaf (k,x), tag j, t)
+      | Leaf (j,_) as t ->
+        if tag j == tag k then
+          Leaf (k,x)
+        else
+          join (tag k, Leaf (k,x), tag j, t)
       | Branch (p,m,t0,t1) as t ->
-	if match_prefix (tag k) p m then
-	  if zero_bit (tag k) m then 
-	    Branch (p, m, ins t0, t1)
-	  else
-	    Branch (p, m, t0, ins t1)
-	else
-	  join (tag k, Leaf (k,x), p, t)
+        if match_prefix (tag k) p m then
+          if zero_bit (tag k) m then
+            Branch (p, m, ins t0, t1)
+          else
+            Branch (p, m, t0, ins t1)
+        else
+          join (tag k, Leaf (k,x), p, t)
     in
     ins t
 
@@ -506,22 +506,22 @@ module PTMap (T : Tagged) = struct
       let p1 = get_prefix t1 in
       let m = branching_bit p0 p1 in
       if zero_bit p0 m then
-	Branch (mask p0 m, m, t0, t1)
+        Branch (mask p0 m, m, t0, t1)
       else
-	Branch (mask p0 m, m, t1, t0)
+        Branch (mask p0 m, m, t1, t0)
 
   let remove k t =
     let rec rmv = function
       | Empty -> Empty
       | Leaf (j,_) as t -> if tag k == tag j then Empty else t
-      | Branch (p,m,t0,t1) as t -> 
-	if match_prefix (tag k) p m then
-	  if zero_bit (tag k) m then
-	    branch (p, m, rmv t0, t1)
-	  else
-	    branch (p, m, t0, rmv t1)
-	else
-	  t
+      | Branch (p,m,t0,t1) as t ->
+        if match_prefix (tag k) p m then
+          if zero_bit (tag k) m then
+            branch (p, m, rmv t0, t1)
+          else
+            branch (p, m, t0, rmv t1)
+        else
+          t
     in
     rmv t
 
@@ -534,12 +534,12 @@ module PTMap (T : Tagged) = struct
     | Empty -> Empty
     | Leaf (k,x) -> Leaf (k, f x)
     | Branch (p,m,t0,t1) -> Branch (p, m, map f t0, map f t1)
-      
+
   let rec mapi f = function
     | Empty -> Empty
     | Leaf (k,x) -> Leaf (k, f k x)
     | Branch (p,m,t0,t1) -> Branch (p, m, mapi f t0, mapi f t1)
-      
+
   let rec fold f s accu = match s with
     | Empty -> accu
     | Leaf (k,x) -> f k x accu
@@ -560,18 +560,18 @@ module PTMap (T : Tagged) = struct
     let add_cardinal sum t = sum + (cardinal t) in
     let rec make ts count =
       BatEnum.make
-	~next:(fun () ->
-	  let (hd, tl) = pull [] (!ts) in
-	  decr count;
-	  ts := tl;
-	  hd)
+        ~next:(fun () ->
+            let (hd, tl) = pull [] (!ts) in
+            decr count;
+            ts := tl;
+            hd)
 
-	~count:(fun () ->
-	  if !count < 0 then count := (List.fold_left add_cardinal 0 (!ts));
-	  !count)
+        ~count:(fun () ->
+            if !count < 0 then count := (List.fold_left add_cardinal 0 (!ts));
+            !count)
 
-	~clone:(fun () ->
-	  make (ref !ts) (ref !count))
+        ~clone:(fun () ->
+            make (ref !ts) (ref !count))
     in
     make (ref [t]) (ref (-1))
 
@@ -626,9 +626,9 @@ module PTMap (T : Tagged) = struct
   let rec filter_map f = function
     | Empty -> Empty
     | Leaf (k,v) -> begin match f k v with
-	| Some r -> Leaf (k, r)
-	| None -> Empty
-    end
+        | Some r -> Leaf (k, r)
+        | None -> Empty
+      end
     | Branch (p,m,t0,t1) -> branch (p, m, filter_map f t0, filter_map f t1)
 
   let merge f s t =
@@ -639,62 +639,62 @@ module PTMap (T : Tagged) = struct
       | t, Empty -> map_left t
 
       | (Leaf (j,v0), Leaf(k,v1)) ->
-	if tag j == tag k then begin
-	  match f j (Some v0) (Some v1) with
-	    | Some r -> Leaf (j, r)
-	    | None -> Empty
-	end else begin
-	  match f j (Some v0) None, f k None (Some v1) with
-	    | None, None -> Empty
-	    | Some r, None -> Leaf (j, r)
-	    | None, Some r -> Leaf (k, r)
-	    | Some r0, Some r1 ->
-	      join (tag j, Leaf (j, r0), tag k, Leaf (k, r1))
-	end
+        if tag j == tag k then begin
+          match f j (Some v0) (Some v1) with
+          | Some r -> Leaf (j, r)
+          | None -> Empty
+        end else begin
+          match f j (Some v0) None, f k None (Some v1) with
+          | None, None -> Empty
+          | Some r, None -> Leaf (j, r)
+          | None, Some r -> Leaf (k, r)
+          | Some r0, Some r1 ->
+            join (tag j, Leaf (j, r0), tag k, Leaf (k, r1))
+        end
 
       | ((Leaf (k,v) as left), (Branch (p,m,s0,s1) as t)) ->
-	if match_prefix (tag k) p m then
-	  if zero_bit (tag k) m then
-	    branch (p, m, go (left, s0), map_right s1)
-	  else
-	    branch (p, m, map_right s0, go (left, s1))
-	else begin
-	  match f k (Some v) None with
-	    | Some r -> join_safe (Leaf (k, r), map_right t)
-	    | None -> map_right t
-	end
+        if match_prefix (tag k) p m then
+          if zero_bit (tag k) m then
+            branch (p, m, go (left, s0), map_right s1)
+          else
+            branch (p, m, map_right s0, go (left, s1))
+        else begin
+          match f k (Some v) None with
+          | Some r -> join_safe (Leaf (k, r), map_right t)
+          | None -> map_right t
+        end
 
       | ((Branch (p,m,s0,s1) as t), (Leaf (k,v) as right)) ->
-	if match_prefix (tag k) p m then
-	  if zero_bit (tag k) m then
-	    branch (p, m, go (s0, right), map_left s1)
-	  else
-	    branch (p, m, map_left s0, go (s1, right))
-	else begin
-	  match f k None (Some v) with
-	    | Some r -> join_safe (Leaf (k, r), map_left t)
-	    | None -> map_left t
-	end
+        if match_prefix (tag k) p m then
+          if zero_bit (tag k) m then
+            branch (p, m, go (s0, right), map_left s1)
+          else
+            branch (p, m, map_left s0, go (s1, right))
+        else begin
+          match f k None (Some v) with
+          | Some r -> join_safe (Leaf (k, r), map_left t)
+          | None -> map_left t
+        end
 
       | (Branch (p,m,s0,s1) as s), (Branch (q,n,t0,t1) as t) ->
-	if m == n && match_prefix q p m then
-	(* The trees have the same prefix. Merge the subtrees. *)
-	  Branch (p, m, go (s0,t0), go (s1,t1))
-	else if m < n && match_prefix q p m then
-	(* [q] contains [p]. Merge [t] with a subtree of [s]. *)
-	  if zero_bit q m then 
-	    branch (p, m, go (s0,t), map_left s1)
-          else 
-	    branch (p, m, map_left s0, go (s1,t))
-	else if m > n && match_prefix p q n then
-	(* [p] contains [q]. Merge [s] with a subtree of [t]. *)
-	  if zero_bit p n then
-	    branch (q, n, go (s,t0), map_right t1)
-	  else
-	    branch (q, n, map_right t0, go (s,t1))
-	else
-	(* The prefixes disagree. *)
-	  join_safe (map_left s, map_right t)
+        if m == n && match_prefix q p m then
+          (* The trees have the same prefix. Merge the subtrees. *)
+          Branch (p, m, go (s0,t0), go (s1,t1))
+        else if m < n && match_prefix q p m then
+          (* [q] contains [p]. Merge [t] with a subtree of [s]. *)
+          if zero_bit q m then
+            branch (p, m, go (s0,t), map_left s1)
+          else
+            branch (p, m, map_left s0, go (s1,t))
+        else if m > n && match_prefix p q n then
+          (* [p] contains [q]. Merge [s] with a subtree of [t]. *)
+          if zero_bit p n then
+            branch (q, n, go (s,t0), map_right t1)
+          else
+            branch (q, n, map_right t0, go (s,t1))
+        else
+          (* The prefixes disagree. *)
+          join_safe (map_left s, map_right t)
     in
     go (s, t)
 
@@ -708,23 +708,23 @@ module PTMap (T : Tagged) = struct
     | Empty, _ -> 1
     | _, Empty -> -1
     | Leaf (k0,v0), Leaf (k1,v1) -> begin
-      match Pervasives.compare (tag k0) (tag k1) with
-	| 0     -> cmp v0 v1
-	| other -> other
-    end
+        match Pervasives.compare (tag k0) (tag k1) with
+        | 0     -> cmp v0 v1
+        | other -> other
+      end
     | Leaf (_,_), _ -> 1
     | _, Leaf (_,_) -> -1
     | Branch (p,m,s0,s1), Branch (q,n,t0,t1) -> begin
-      match Pervasives.compare m n with
-	| 0 -> begin match Pervasives.compare p q with
-	    | 0 -> begin match compare cmp s0 t0 with
-		| 0 -> compare cmp s1 t1
-		| other -> other
-	    end
-	    | other -> other
-	end 
-	| other -> other
-    end
+        match Pervasives.compare m n with
+        | 0 -> begin match Pervasives.compare p q with
+            | 0 -> begin match compare cmp s0 t0 with
+                | 0 -> compare cmp s1 t1
+                | other -> other
+              end
+            | other -> other
+          end
+        | other -> other
+      end
 
   let rec equal eq left right = match left, right with
     | Empty, Empty -> true
@@ -766,10 +766,10 @@ end = struct
   module Set = PTSet(T)
   module Map = PTMap(T)
   module HT = BatHashtbl.Make(struct
-    type t = T.t
-    let hash x = Hashtbl.hash (tag x)
-    let equal x y = (tag x) = (tag y)
-  end)
+      type t = T.t
+      let hash x = Hashtbl.hash (tag x)
+      let equal x y = (tag x) = (tag y)
+    end)
   let compare = Compare_t.compare
   let hash x = Hashtbl.hash (tag x)
   let equal x y = (tag x) = (tag y)

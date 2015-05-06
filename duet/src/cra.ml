@@ -13,9 +13,9 @@ include Log.Make(struct let name = "cra" end)
 (* Decorate the program with numerical invariants *)
 
 module MakeDecorator(M : sig
-  type t
-  val manager_alloc : unit -> t Apron.Manager.t
-end) = struct
+    type t
+    val manager_alloc : unit -> t Apron.Manager.t
+  end) = struct
 
   module ApronI =
     Ai.ApronInterpretation
@@ -39,46 +39,46 @@ end) = struct
       Log.logf 0 "Input: %a" I.format flow_in_i;
 *)
       let res = 
-      match def.dkind with
-      | Call (None, AddrOf (Variable (func, OffsetFixed 0)), []) ->
-	if CfgIr.defined_function func (CfgIr.get_gfile()) then
-	(* Havoc the global variables *)
-	  let open ApronI in
-	  let global_aps =
-	    Env.fold
-	      (fun ap _ aps ->
-		if AP.is_global ap then AP.Set.add ap aps else aps)
-	      flow_in.env
-	      AP.Set.empty
-	  in
-	  I.cyl flow_in global_aps
-	else flow_in (* Treat undefined functions as no-ops *)
-      | Assign (var, expr) ->
-	begin
-	  match resolve_type (Var.get_type var) with
-	  | Int _ | Pointer _ | Dynamic ->
-	    if AP.Set.exists nonvariable (Expr.get_uses expr)
-	    then safe_cyl flow_in (AP.Set.singleton (Variable var))
-	    else I.transfer def (I.inject flow_in (Def.get_uses def))
-	  | _ -> flow_in
-	end
-      | Store (lhs, _) ->
-	(* Havoc all the variables lhs could point to *)
-	let open Pa in
-	let add_target memloc set = match memloc with
-	  | (MAddr v, offset) -> AP.Set.add (Variable (v, offset)) set
-	  | _, _ -> set
-	in
-	let vars = MemLoc.Set.fold add_target (resolve_ap lhs) AP.Set.empty in
-	safe_cyl flow_in vars
-      | Assume bexpr | Assert (bexpr, _) ->
-	if AP.Set.exists nonvariable (Bexpr.get_uses bexpr)
-	then flow_in
-	else I.transfer def (I.inject flow_in (Def.get_uses def))
-      | Builtin (Alloc (v, _, _)) ->
-	safe_cyl flow_in (AP.Set.singleton (Variable v))
-      | Initial -> I.transfer def flow_in
-      | _ -> flow_in
+        match def.dkind with
+        | Call (None, AddrOf (Variable (func, OffsetFixed 0)), []) ->
+          if CfgIr.defined_function func (CfgIr.get_gfile()) then
+            (* Havoc the global variables *)
+            let open ApronI in
+            let global_aps =
+              Env.fold
+                (fun ap _ aps ->
+                   if AP.is_global ap then AP.Set.add ap aps else aps)
+                flow_in.env
+                AP.Set.empty
+            in
+            I.cyl flow_in global_aps
+          else flow_in (* Treat undefined functions as no-ops *)
+        | Assign (var, expr) ->
+          begin
+            match resolve_type (Var.get_type var) with
+            | Int _ | Pointer _ | Dynamic ->
+              if AP.Set.exists nonvariable (Expr.get_uses expr)
+              then safe_cyl flow_in (AP.Set.singleton (Variable var))
+              else I.transfer def (I.inject flow_in (Def.get_uses def))
+            | _ -> flow_in
+          end
+        | Store (lhs, _) ->
+          (* Havoc all the variables lhs could point to *)
+          let open Pa in
+          let add_target memloc set = match memloc with
+            | (MAddr v, offset) -> AP.Set.add (Variable (v, offset)) set
+            | _, _ -> set
+          in
+          let vars = MemLoc.Set.fold add_target (resolve_ap lhs) AP.Set.empty in
+          safe_cyl flow_in vars
+        | Assume bexpr | Assert (bexpr, _) ->
+          if AP.Set.exists nonvariable (Bexpr.get_uses bexpr)
+          then flow_in
+          else I.transfer def (I.inject flow_in (Def.get_uses def))
+        | Builtin (Alloc (v, _, _)) ->
+          safe_cyl flow_in (AP.Set.singleton (Variable v))
+        | Initial -> I.transfer def flow_in
+        | _ -> flow_in
       in
       res
     let flow_in _ graph val_map v =
@@ -89,8 +89,8 @@ end) = struct
       if I.equal x newv then None else Some newv
     let widen =
       let f _ _ old_val new_val =
-	let wide_val = I.widen old_val new_val in
-	if I.equal old_val wide_val then None else Some wide_val
+        let wide_val = I.widen old_val new_val in
+        if I.equal old_val wide_val then None else Some wide_val
       in
       Some f
     let name = "Numerical analysis"
@@ -104,15 +104,15 @@ end) = struct
       let result = NumAnalysis.empty_result () body in
       let entry = RG.block_entry rg block in
       NumAnalysis.init_result result body (fun d ->
-	if Def.equal entry d
-	then I.top AP.Set.empty
-	else I.bottom AP.Set.empty);
+          if Def.equal entry d
+          then I.top AP.Set.empty
+          else I.bottom AP.Set.empty);
       NumAnalysis.solve result (G.fold_vertex (fun x xs -> x::xs) body []);
       let f body v =
-	let value = NumAnalysis.output result v in
-	let bexpr = ApronI.bexpr_of_av value in
-	let def = Def.mk (Assume bexpr) in
-	G.split body v ~pred:v ~succ:def
+        let value = NumAnalysis.output result v in
+        let bexpr = ApronI.bexpr_of_av value in
+        let def = Def.mk (Assume bexpr) in
+        G.split body v ~pred:v ~succ:def
       in
       BatEnum.fold f body (enum_loop_headers body)
     in
@@ -132,9 +132,9 @@ let decorate rg =
     D.decorate rg
   | Polyhedron ->
     let module D = MakeDecorator(struct
-      type t = Polka.loose Polka.t
-      let manager_alloc = Polka.manager_alloc_loose
-    end) in
+        type t = Polka.loose Polka.t
+        let manager_alloc = Polka.manager_alloc_loose
+      end) in
     D.decorate rg
 
 let tr_typ typ = match resolve_type typ with
@@ -147,10 +147,10 @@ let tr_typ typ = match resolve_type typ with
   | _ -> TyInt
 
 type value =
-| VVal of Var.t
-| VPos of Var.t
-| VWidth of Var.t
-    deriving (Compare)
+  | VVal of Var.t
+  | VPos of Var.t
+  | VWidth of Var.t
+        deriving (Compare)
 
 let var_of_value = function
   | VVal v | VPos v | VWidth v -> v
@@ -164,12 +164,12 @@ module V = struct
   module I = struct
     type t = value deriving (Compare)
     include Putil.MakeFmt(struct
-      type a = t
-      let format formatter = function
-	| VVal v -> Var.format formatter v
-	| VWidth v -> Format.fprintf formatter "%a@@width" Var.format v
-	| VPos v -> Format.fprintf formatter "%a@@pos" Var.format v
-    end)
+        type a = t
+        let format formatter = function
+          | VVal v -> Var.format formatter v
+          | VWidth v -> Format.fprintf formatter "%a@@width" Var.format v
+          | VPos v -> Format.fprintf formatter "%a@@pos" Var.format v
+      end)
     let compare = Compare_t.compare
     let show = Show_t.show
     let format = Show_t.format
@@ -250,7 +250,7 @@ module K = struct
     else if equal x one then y
     else if equal y one then x
     else simplify (Log.time "cra:mul" (mul x) y)
-    
+
   let widen x y = Log.time "cra:widen" (widen x) y
 end
 module A = Interproc.MakePathExpr(K)
@@ -278,8 +278,8 @@ type ptr_term =
     ptr_width : K.T.t }
 
 type term =
-| TInt of K.T.t
-| TPointer of ptr_term
+  | TInt of K.T.t
+  | TPointer of ptr_term
 
 let int_binop op left right =
   let open K in
@@ -298,22 +298,22 @@ let term_binop op left right = match left, op, right with
   | (TInt offset, Add, TPointer ptr) ->
     let p =
       { ptr_val = int_binop Add ptr.ptr_val offset;
-	ptr_pos = int_binop Add ptr.ptr_pos offset;
-	ptr_width = ptr.ptr_width }
+        ptr_pos = int_binop Add ptr.ptr_pos offset;
+        ptr_width = ptr.ptr_width }
     in
     TPointer p
   | (TPointer ptr, Minus, TInt offset) ->
     let p =
       { ptr_val = int_binop Minus ptr.ptr_val offset;
-	ptr_pos = int_binop Minus ptr.ptr_pos offset;
-	ptr_width = ptr.ptr_width }
+        ptr_pos = int_binop Minus ptr.ptr_pos offset;
+        ptr_width = ptr.ptr_width }
     in
     TPointer p
   | (TInt offset, Minus, TPointer ptr) ->
     let p =
       { ptr_val = int_binop Minus offset ptr.ptr_val;
-	ptr_pos = int_binop Minus offset ptr.ptr_pos;
-	ptr_width = ptr.ptr_width }
+        ptr_pos = int_binop Minus offset ptr.ptr_pos;
+        ptr_width = ptr.ptr_width }
     in
     TPointer p
   | (TPointer left, op, TInt right) ->
@@ -338,16 +338,16 @@ let tr_expr expr =
     | OUnaryOp (Neg, TPointer a, _) -> TInt (T.neg a.ptr_val)
     | OAccessPath (Variable v) ->
       if typ_has_offsets (Var.get_type v) then
-	TPointer { ptr_val = T.var (V.mk_var (VVal v));
-		   ptr_width = T.var (V.mk_var (VWidth v));
-		   ptr_pos = T.var (V.mk_var (VPos v)) }
+        TPointer { ptr_val = T.var (V.mk_var (VVal v));
+                   ptr_width = T.var (V.mk_var (VWidth v));
+                   ptr_pos = T.var (V.mk_var (VPos v)) }
       else TInt (T.var (V.mk_var (VVal v)))
 
     | OAddrOf _ ->
       (* Todo: width and pos aren't correct. *)
       TPointer { ptr_val = T.var (V.mk_tmp "tr" TyInt);
-		 ptr_width = T.one;
-		 ptr_pos = T.zero }
+                 ptr_width = T.one;
+                 ptr_pos = T.zero }
 
     (* No real translations for anything else -- just return a free var "tr"
        (which just acts like a havoc). *)
@@ -372,11 +372,11 @@ let tr_bexpr bexpr =
       let x = tr_expr_val x in
       let y = tr_expr_val y in
       begin
-	match pred with
-	| Lt -> F.lt x y
-	| Le -> F.leq x y
-	| Eq -> F.eq x y
-	| Ne -> F.disj (F.lt x y) (F.gt x y)
+        match pred with
+        | Lt -> F.lt x y
+        | Le -> F.leq x y
+        | Eq -> F.eq x y
+        | Ne -> F.disj (F.lt x y) (F.gt x y)
       end
   in
   Bexpr.fold alg bexpr
@@ -389,37 +389,37 @@ let weight def =
     if typ_has_offsets (Var.get_type lhs) then begin
       match tr_expr rhs with
       | TPointer rhs ->
-	BatList.reduce K.mul [
-	  K.assign (VVal lhs) rhs.ptr_val;
-	  K.assign (VPos lhs) rhs.ptr_pos;
-	  K.assign (VWidth lhs) rhs.ptr_width;
-	]
+        BatList.reduce K.mul [
+          K.assign (VVal lhs) rhs.ptr_val;
+          K.assign (VPos lhs) rhs.ptr_pos;
+          K.assign (VWidth lhs) rhs.ptr_width;
+        ]
       | TInt tint -> begin
-	(match Var.get_type lhs, rhs with
-	| (_, Havoc _) | (Concrete Dynamic, _) -> ()
-	| _ -> Log.errorf "Ill-typed pointer assignment: %a" Def.format def);
-	BatList.reduce K.mul [
-	  K.assign (VVal lhs) tint;
-	  K.assign (VPos lhs) (T.var (V.mk_tmp "type_err" TyInt));
-	  K.assign (VWidth lhs) (T.var (V.mk_tmp "type_err" TyInt))
-	]
-      end
+          (match Var.get_type lhs, rhs with
+           | (_, Havoc _) | (Concrete Dynamic, _) -> ()
+           | _ -> Log.errorf "Ill-typed pointer assignment: %a" Def.format def);
+          BatList.reduce K.mul [
+            K.assign (VVal lhs) tint;
+            K.assign (VPos lhs) (T.var (V.mk_tmp "type_err" TyInt));
+            K.assign (VWidth lhs) (T.var (V.mk_tmp "type_err" TyInt))
+          ]
+        end
     end else K.assign (VVal lhs) (tr_expr_val rhs)
   | Store (lhs, _) ->
     (* Havoc all the variables lhs could point to *)
     let open Pa in
     let add_target memloc tr = match memloc with
       | (MAddr v, offset) ->
-	if typ_has_offsets (Var.get_type (v,offset)) then begin
-	  BatList.reduce K.mul [
-	    tr;
-	    K.assign (VVal (v,offset)) (T.var (V.mk_tmp "store" TyInt));
-	    K.assign (VPos (v,offset)) (T.var (V.mk_tmp "store" TyInt));
-	    K.assign (VWidth (v,offset)) (T.var (V.mk_tmp "store" TyInt))
-	  ]
-	end else begin
-	  K.mul tr (K.assign (VVal (v,offset)) (T.var (V.mk_tmp "store" TyInt)))
-	end
+        if typ_has_offsets (Var.get_type (v,offset)) then begin
+          BatList.reduce K.mul [
+            tr;
+            K.assign (VVal (v,offset)) (T.var (V.mk_tmp "store" TyInt));
+            K.assign (VPos (v,offset)) (T.var (V.mk_tmp "store" TyInt));
+            K.assign (VWidth (v,offset)) (T.var (V.mk_tmp "store" TyInt))
+          ]
+        end else begin
+          K.mul tr (K.assign (VVal (v,offset)) (T.var (V.mk_tmp "store" TyInt)))
+        end
       | _, _ -> tr
     in
     MemLoc.Set.fold add_target (resolve_ap lhs) one
@@ -457,10 +457,10 @@ let set_guard s =
       | "box" -> abstract_guard (Box.manager_of_box (Box.manager_alloc ()))
       | "oct" -> abstract_guard (Oct.manager_of_oct (Oct.manager_alloc ()))
       | "polka" ->
-	abstract_guard (Polka.manager_of_polka (Polka.manager_alloc_loose ()))
+        abstract_guard (Polka.manager_of_polka (Polka.manager_alloc_loose ()))
       | _ ->
-	Log.errorf "Unrecognized option for -cra-guard: `%s'" s;
-	assert false
+        Log.errorf "Unrecognized option for -cra-guard: `%s'" s;
+        assert false
     in
     K.opt_loop_guard := Some guard
 
@@ -493,142 +493,142 @@ let _ =
     ("-qe",
      Arg.String set_qe,
      " Set default quantifier elimination strategy (lme,cover,z3)")
-  
+
 
 let analyze file =
   match file.entry_points with
   | [main] -> begin
-    let rg = Interproc.make_recgraph file in
-    let rg =
-      if !forward_inv_gen
-      then Log.phase "Forward invariant generation" decorate rg
-      else rg
-    in
+      let rg = Interproc.make_recgraph file in
+      let rg =
+        if !forward_inv_gen
+        then Log.phase "Forward invariant generation" decorate rg
+        else rg
+      in
 
-(*    BatEnum.iter (Interproc.RGD.display % snd) (RG.bodies rg);*)
+      (*    BatEnum.iter (Interproc.RGD.display % snd) (RG.bodies rg);*)
 
-    let local func_name =
-      if defined_function func_name (get_gfile()) then begin
-	let func = lookup_function func_name (get_gfile()) in
-	let vars =
-	  Varinfo.Set.remove (return_var func_name)
-	    (Varinfo.Set.of_enum
-	       (BatEnum.append
-		  (BatList.enum func.formals)
-		  (BatList.enum func.locals)))
-	in
-	logf "Locals for %a: %a"
-	  Varinfo.format func_name
-	  Varinfo.Set.format vars;
-	fun x -> (Varinfo.Set.mem (fst (var_of_value x)) vars)
-      end else (fun _ -> false)
-    in
-    let query = A.mk_query rg weight local main in
-    let is_assert def = match def.dkind with
-      | Assert (_, _) | AssertMemSafe _ -> true
-      | _             -> false
-    in
-    let s = new Smt.solver in
-    let check_assert def path =
-      match def.dkind with
-      | AssertMemSafe (expr, msg) -> begin
-	match tr_expr expr with
-	| TInt _ ->
-	  Report.log_error (Def.get_location def) "Memory safety (type error)"
-	| TPointer p ->
-	  begin
-	    let sigma v = match K.V.lower v with
-	      | None -> K.T.var v
-	      | Some v ->
-		try K.M.find v path.K.transform
-		with Not_found -> K.T.var (K.V.mk_var v)
-	    in
-	    let phi =
-	      K.F.conj
-		(K.F.geq p.ptr_pos K.T.zero)
-		(K.F.lt p.ptr_pos p.ptr_width)
-	    in
-	    let phi = K.F.subst sigma phi in
+      let local func_name =
+        if defined_function func_name (get_gfile()) then begin
+          let func = lookup_function func_name (get_gfile()) in
+          let vars =
+            Varinfo.Set.remove (return_var func_name)
+              (Varinfo.Set.of_enum
+                 (BatEnum.append
+                    (BatList.enum func.formals)
+                    (BatList.enum func.locals)))
+          in
+          logf "Locals for %a: %a"
+            Varinfo.format func_name
+            Varinfo.Set.format vars;
+          fun x -> (Varinfo.Set.mem (fst (var_of_value x)) vars)
+        end else (fun _ -> false)
+      in
+      let query = A.mk_query rg weight local main in
+      let is_assert def = match def.dkind with
+        | Assert (_, _) | AssertMemSafe _ -> true
+        | _             -> false
+      in
+      let s = new Smt.solver in
+      let check_assert def path =
+        match def.dkind with
+        | AssertMemSafe (expr, msg) -> begin
+            match tr_expr expr with
+            | TInt _ ->
+              Report.log_error (Def.get_location def) "Memory safety (type error)"
+            | TPointer p ->
+              begin
+                let sigma v = match K.V.lower v with
+                  | None -> K.T.var v
+                  | Some v ->
+                    try K.M.find v path.K.transform
+                    with Not_found -> K.T.var (K.V.mk_var v)
+                in
+                let phi =
+                  K.F.conj
+                    (K.F.geq p.ptr_pos K.T.zero)
+                    (K.F.lt p.ptr_pos p.ptr_width)
+                in
+                let phi = K.F.subst sigma phi in
 
-	    let mk_tmp () = K.V.mk_tmp "nonlin" TyInt in
-	    let path_condition =
-	      K.F.conj (K.to_formula path) (K.F.negate phi)
-	    in
+                let mk_tmp () = K.V.mk_tmp "nonlin" TyInt in
+                let path_condition =
+                  K.F.conj (K.to_formula path) (K.F.negate phi)
+                in
 
-	    s#push ();
-	    s#assrt (K.F.to_smt path_condition);
-	    let checked =
-	      try
-		begin match Log.time "Assertion checking" s#check () with
-		| Smt.Unsat -> (Report.log_safe (); true)
-		| Smt.Sat -> (Report.log_error (Def.get_location def) msg; true)
-		| Smt.Undef -> false
-		end
-	      with Z3.Error _ -> false
-	    in
-	    if (not checked) && not (K.F.is_linear path_condition) then begin
-	      Log.errorf "Z3 inconclusive; trying to linearize";
-	      s#pop ();
-	      s#push ();
-	      s#assrt (K.F.to_smt (K.F.linearize mk_tmp path_condition));
-	      begin match Log.time "Assertion checking" s#check () with
-	      | Smt.Unsat -> Report.log_safe ()
-	      | Smt.Sat -> Report.log_error (Def.get_location def) msg
-	      | Smt.Undef -> Report.log_error (Def.get_location def) msg
-	      end
-	    end;
-	    s#pop ();
-	  end
+                s#push ();
+                s#assrt (K.F.to_smt path_condition);
+                let checked =
+                  try
+                    begin match Log.time "Assertion checking" s#check () with
+                      | Smt.Unsat -> (Report.log_safe (); true)
+                      | Smt.Sat -> (Report.log_error (Def.get_location def) msg; true)
+                      | Smt.Undef -> false
+                    end
+                  with Z3.Error _ -> false
+                in
+                if (not checked) && not (K.F.is_linear path_condition) then begin
+                  Log.errorf "Z3 inconclusive; trying to linearize";
+                  s#pop ();
+                  s#push ();
+                  s#assrt (K.F.to_smt (K.F.linearize mk_tmp path_condition));
+                  begin match Log.time "Assertion checking" s#check () with
+                    | Smt.Unsat -> Report.log_safe ()
+                    | Smt.Sat -> Report.log_error (Def.get_location def) msg
+                    | Smt.Undef -> Report.log_error (Def.get_location def) msg
+                  end
+                end;
+                s#pop ();
+              end
+          end
+        | Assert (phi, msg) -> begin
+            s#push ();
+
+            let phi = tr_bexpr phi in
+            let sigma v = match K.V.lower v with
+              | None -> K.T.var v
+              | Some v ->
+                try K.M.find v path.K.transform
+                with Not_found -> K.T.var (K.V.mk_var v)
+            in
+            let phi = K.F.subst sigma phi in
+            let mk_tmp () = K.V.mk_tmp "nonlin" TyInt in
+            let path_condition = K.F.conj (K.to_formula path) (K.F.negate phi) in
+            logf "Path condition:@\n%a" K.format path;
+            s#assrt (K.F.to_smt path_condition);
+            let checked =
+              try
+                begin match Log.time "Assertion checking" s#check () with
+                  | Smt.Unsat -> (Report.log_safe (); true)
+                  | Smt.Sat -> (Report.log_error (Def.get_location def) msg; true)
+                  | Smt.Undef -> false
+                end
+              with Z3.Error _ -> false
+            in
+
+            if (not checked) && not (K.F.is_linear path_condition) then begin
+              Log.errorf "Z3 inconclusive; trying to linearize";
+              s#pop ();
+              s#push ();
+              s#assrt (K.F.to_smt (K.F.linearize mk_tmp path_condition));
+              begin match Log.time "Assertion checking" s#check () with
+                | Smt.Unsat -> Report.log_safe ()
+                | Smt.Sat -> Report.log_error (Def.get_location def) msg
+                | Smt.Undef -> Report.log_error (Def.get_location def) msg
+              end
+            end;
+            s#pop ()
+          end
+        | _ -> ()
+      in
+      A.single_src_restrict query is_assert check_assert;
+
+      Report.print_errors ();
+      Report.print_safe ();
+      if !CmdLine.show_stats then begin
+        K.T.log_stats ();
+        K.F.log_stats ()
       end
-      | Assert (phi, msg) -> begin
-	s#push ();
-
-	let phi = tr_bexpr phi in
-	let sigma v = match K.V.lower v with
-	  | None -> K.T.var v
-	  | Some v ->
-	    try K.M.find v path.K.transform
-	    with Not_found -> K.T.var (K.V.mk_var v)
-	in
-	let phi = K.F.subst sigma phi in
-	let mk_tmp () = K.V.mk_tmp "nonlin" TyInt in
-	let path_condition = K.F.conj (K.to_formula path) (K.F.negate phi) in
-	logf "Path condition:@\n%a" K.format path;
-	s#assrt (K.F.to_smt path_condition);
-	let checked =
-	  try
-	    begin match Log.time "Assertion checking" s#check () with
-	    | Smt.Unsat -> (Report.log_safe (); true)
-	    | Smt.Sat -> (Report.log_error (Def.get_location def) msg; true)
-	    | Smt.Undef -> false
-	    end
-	  with Z3.Error _ -> false
-	in
-
-	if (not checked) && not (K.F.is_linear path_condition) then begin
-	  Log.errorf "Z3 inconclusive; trying to linearize";
-	  s#pop ();
-	  s#push ();
-	  s#assrt (K.F.to_smt (K.F.linearize mk_tmp path_condition));
-	  begin match Log.time "Assertion checking" s#check () with
-	  | Smt.Unsat -> Report.log_safe ()
-	  | Smt.Sat -> Report.log_error (Def.get_location def) msg
-	  | Smt.Undef -> Report.log_error (Def.get_location def) msg
-	  end
-	end;
-	s#pop ()
-      end
-      | _ -> ()
-    in
-    A.single_src_restrict query is_assert check_assert;
-
-    Report.print_errors ();
-    Report.print_safe ();
-    if !CmdLine.show_stats then begin
-      K.T.log_stats ();
-      K.F.log_stats ()
     end
-  end
   | _ -> assert false
 
 let _ =

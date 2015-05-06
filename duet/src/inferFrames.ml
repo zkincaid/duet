@@ -12,7 +12,7 @@ let add_equality eq partition =
   let (rest, merge) =
     P.partition (fun x -> AP.Set.is_empty (AP.Set.inter eq x)) partition
   in
-    P.add (P.fold AP.Set.union merge AP.Set.empty) rest
+  P.add (P.fold AP.Set.union merge AP.Set.empty) rest
 
 let p_map f p = P.fold (fun x p -> P.add (f x) p) p P.empty
 
@@ -21,27 +21,27 @@ let compact set =
   let add x c =
     if (P.exists (lt x) set) then c else P.add x c
   in
-    P.fold add set P.empty
+  P.fold add set P.empty
 
 module D = struct
   module M = BatSet.Make(struct
-    type t = Def.t * AP.Set.t
-      deriving (Show,Compare)
-    let compare = Compare_t.compare
-    let format = Show_t.format
-    let show = Show_t.show
-  end)
+      type t = Def.t * AP.Set.t
+                 deriving (Show,Compare)
+      let compare = Compare_t.compare
+      let format = Show_t.format
+      let show = Show_t.show
+    end)
   include M
   include Putil.MakeFmt(struct
-    type a = t
-    let format formatter set =
-      let pp formatter (def, set) =
-	Format.fprintf formatter "%a@ ->@ %a"
-	  Def.format def
-	  AP.Set.format set
-      in
-      Putil.format_enum pp formatter (M.enum set)
-  end)
+      type a = t
+      let format formatter set =
+        let pp formatter (def, set) =
+          Format.fprintf formatter "%a@ ->@ %a"
+            Def.format def
+            AP.Set.format set
+        in
+        Putil.format_enum pp formatter (M.enum set)
+    end)
 
   let compact set =
     let lt (d,x) (e,y) =
@@ -50,7 +50,7 @@ module D = struct
     let add x c =
       if (exists (lt x) set) then c else add x c
     in
-      fold add set empty
+    fold add set empty
   let join x y = compact (union x y)
   let widen = join
 end
@@ -74,17 +74,17 @@ let relatable file =
     let is_join_vertex v = (Cfg.in_degree func.cfg v) > 1 in
     let set_join_map v =
       if is_join_vertex v then begin
-	let preds = Cfg.pred func.cfg v in
-	let lca = get_lca dom_tree preds in
-	let f a v = AP.Set.union a (Def.get_defs v) in
-	let add_branch modified v =
-	  Dom.fold_to_ancestor f modified dom_tree v lca
-	in
-	let modified = List.fold_left add_branch AP.Set.empty preds in
-	  Def.HT.add join_map v modified
+        let preds = Cfg.pred func.cfg v in
+        let lca = get_lca dom_tree preds in
+        let f a v = AP.Set.union a (Def.get_defs v) in
+        let add_branch modified v =
+          Dom.fold_to_ancestor f modified dom_tree v lca
+        in
+        let modified = List.fold_left add_branch AP.Set.empty preds in
+        Def.HT.add join_map v modified
       end
     in
-      Cfg.iter_vertex set_join_map func.cfg
+    Cfg.iter_vertex set_join_map func.cfg
   in
   let module S = Solve.MakeForwardCfgSolver(
     struct
@@ -97,21 +97,21 @@ let relatable file =
 
       let name = "Infer related"
       let transfer def related =
-	let related =
-	  try add_equality (Def.HT.find join_map def) related
-	  with Not_found -> related
-	in
-	let defs = Def.get_defs def in
-	let uses = Def.get_uses def in
-	let pure_defs = AP.Set.diff defs uses in
-	let du = AP.Set.union defs uses in
-	let related = p_map (fun x -> AP.Set.diff x pure_defs) related in
-	let related =
-	  p_map
-	    (fun x -> if intersects x du then AP.Set.union x du else x)
-	    related
-	in
-	  compact (P.add du (add_equality du related))
+        let related =
+          try add_equality (Def.HT.find join_map def) related
+          with Not_found -> related
+        in
+        let defs = Def.get_defs def in
+        let uses = Def.get_uses def in
+        let pure_defs = AP.Set.diff defs uses in
+        let du = AP.Set.union defs uses in
+        let related = p_map (fun x -> AP.Set.diff x pure_defs) related in
+        let related =
+          p_map
+            (fun x -> if intersects x du then AP.Set.union x du else x)
+            related
+        in
+        compact (P.add du (add_equality du related))
       let bottom = P.empty
     end)
   in
@@ -122,12 +122,12 @@ let relatable file =
     BatEnum.iter (uncurry (Def.HT.add out_map)) (S.enum_output result);
     S.display result
   in
-    List.iter process_thread file.threads;
-    S.file_analysis file f P.empty (fun _ init -> init);
-    ((fun v ->
-	try add_equality (Def.HT.find join_map v) (Def.HT.find in_map v)
-	with Not_found -> (Def.HT.find in_map v)),
-     Def.HT.find out_map)
+  List.iter process_thread file.threads;
+  S.file_analysis file f P.empty (fun _ init -> init);
+  ((fun v ->
+      try add_equality (Def.HT.find join_map v) (Def.HT.find in_map v)
+      with Not_found -> (Def.HT.find in_map v)),
+   Def.HT.find out_map)
 
 (** Construct a dependence graph with the property that any analysis
     run on this dependence graph is as accurate as the corresponding
@@ -226,23 +226,23 @@ let infer_partition file =
     let for_all p = MemLoc.Set.for_all p set in
     let nexists p = for_all (fun x -> not (p x)) in
     if (MemLoc.Set.cardinal set == 2)
-      && (for_all MemLoc.is_var)
-      && (for_all MemLoc.is_shared || nexists MemLoc.is_shared)
+       && (for_all MemLoc.is_var)
+       && (for_all MemLoc.is_shared || nexists MemLoc.is_shared)
     then begin
       let s = DS.find partition (MemLoc.Set.choose set) in
       let merge ap = ignore (DS.union s (DS.find partition ap)) in
-	MemLoc.Set.iter merge set
+      MemLoc.Set.iter merge set
     end
   in
   let rec add_bexpr bexpr =
     let uses = memlocs (Bexpr.get_uses bexpr) in
-      if MemLoc.Set.cardinal uses <= 2 then union_loc_set uses
-      else begin
-	match bexpr with
-	  | And (l, r) -> (add_bexpr l; add_bexpr r)
-	  | Or (l, r) -> (add_bexpr l; add_bexpr r)
-	  | Atom _ -> ()
-      end
+    if MemLoc.Set.cardinal uses <= 2 then union_loc_set uses
+    else begin
+      match bexpr with
+      | And (l, r) -> (add_bexpr l; add_bexpr r)
+      | Or (l, r) -> (add_bexpr l; add_bexpr r)
+      | Atom _ -> ()
+    end
   in
   let add_vertex v = match v.dkind with
     | Assume p -> add_bexpr p
@@ -252,15 +252,15 @@ let infer_partition file =
   in
   let process_thread t =
     let func = lookup_function t file in
-      Cfg.iter_vertex add_vertex func.cfg
+    Cfg.iter_vertex add_vertex func.cfg
   in
-    List.iter process_thread file.threads;
-    (match file.globinit with
-       | Some f -> Cfg.iter_vertex add_vertex f.cfg
-       | None -> ());
-    let map = DS.reverse_map partition MemLoc.Set.empty MemLoc.Set.add in
-    let f ap = try map ap with Not_found -> MemLoc.Set.singleton ap in
-      f
+  List.iter process_thread file.threads;
+  (match file.globinit with
+   | Some f -> Cfg.iter_vertex add_vertex f.cfg
+   | None -> ());
+  let map = DS.reverse_map partition MemLoc.Set.empty MemLoc.Set.add in
+  let f ap = try map ap with Not_found -> MemLoc.Set.singleton ap in
+  f
 
 module VarDS = DisjointSet.Make(Var)
 let memlocs ap_set =
@@ -284,22 +284,22 @@ let infer_var_partition file =
     let for_all p = Var.Set.for_all p set in
     let nexists p = for_all (fun x -> not (p x)) in
     if (Var.Set.cardinal set == 2)
-      && (for_all Var.is_shared || nexists Var.is_shared)
+       && (for_all Var.is_shared || nexists Var.is_shared)
     then begin
       let s = VarDS.find partition (Var.Set.choose set) in
       let merge ap = ignore (VarDS.union s (VarDS.find partition ap)) in
-	Var.Set.iter merge set
+      Var.Set.iter merge set
     end
   in
   let rec add_bexpr bexpr =
     let uses = var_locs (Bexpr.get_uses bexpr) in
-      if Var.Set.cardinal uses <= 2 then union_loc_set uses
-      else begin
-	match bexpr with
-	  | And (l, r) -> (add_bexpr l; add_bexpr r)
-	  | Or (l, r) -> (add_bexpr l; add_bexpr r)
-	  | Atom _ -> ()
-      end
+    if Var.Set.cardinal uses <= 2 then union_loc_set uses
+    else begin
+      match bexpr with
+      | And (l, r) -> (add_bexpr l; add_bexpr r)
+      | Or (l, r) -> (add_bexpr l; add_bexpr r)
+      | Atom _ -> ()
+    end
   in
   let add_vertex v = match v.dkind with
     | Assume p -> add_bexpr p
@@ -309,12 +309,12 @@ let infer_var_partition file =
   in
   let process_thread t =
     let func = lookup_function t file in
-      Cfg.iter_vertex add_vertex func.cfg
+    Cfg.iter_vertex add_vertex func.cfg
   in
-    List.iter process_thread file.threads;
-    (match file.globinit with
-       | Some f -> Cfg.iter_vertex add_vertex f.cfg
-       | None -> ());
-    let map = VarDS.reverse_map partition Var.Set.empty Var.Set.add in
-    let f var = try map var with Not_found -> Var.Set.singleton var in
-      f
+  List.iter process_thread file.threads;
+  (match file.globinit with
+   | Some f -> Cfg.iter_vertex add_vertex f.cfg
+   | None -> ());
+  let map = VarDS.reverse_map partition Var.Set.empty Var.Set.add in
+  let f var = try map var with Not_found -> Var.Set.singleton var in
+  f

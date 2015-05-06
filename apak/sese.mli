@@ -14,9 +14,9 @@ end
 
 module Make(H : G) : sig
   include RecGraph.S with type atom = H.V.t
-		     and type Block.t = int
-		     and type ('a, 'b) typ = ('a, 'b) RecGraph.seq_typ
-		     and type G.V.t = (H.V.t, int) RecGraph.seq_typ
+                      and type Block.t = int
+                      and type ('a, 'b) typ = ('a, 'b) RecGraph.seq_typ
+                      and type G.V.t = (H.V.t, int) RecGraph.seq_typ
 
   (** [construct g en ex] constructs a recursive graph structurally identical
       to [g] and where the blocks are the single-entry single-exit regions of

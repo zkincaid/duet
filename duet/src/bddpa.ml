@@ -37,13 +37,13 @@ let id_of_type = FieldEnum.to_int type_enum
 let type_of_id = FieldEnum.from_int type_enum
 
 type context =
-    { file : CfgIr.file;
-      assign : MemBase.t * Offset.t * MemBase.t * Offset.t * Offset.t -> unit;
-      load : MemBase.t * Offset.t * MemBase.t * Offset.t * Offset.t -> unit;
-      store : MemBase.t * Offset.t * Offset.t * MemBase.t * Offset.t -> unit;
-      alloc : MemBase.t * Offset.t * MemBase.t * Offset.t -> unit;
-      new_tmp : unit -> MemBase.t;
-      mutable indirect_calls : (Var.t option * expr * expr list) list }
+  { file : CfgIr.file;
+    assign : MemBase.t * Offset.t * MemBase.t * Offset.t * Offset.t -> unit;
+    load : MemBase.t * Offset.t * MemBase.t * Offset.t * Offset.t -> unit;
+    store : MemBase.t * Offset.t * Offset.t * MemBase.t * Offset.t -> unit;
+    alloc : MemBase.t * Offset.t * MemBase.t * Offset.t -> unit;
+    new_tmp : unit -> MemBase.t;
+    mutable indirect_calls : (Var.t option * expr * expr list) list }
 
 let mk_context file d =
   (* x.of1 := y.of2 + of3 *)
@@ -52,7 +52,7 @@ let mk_context file d =
   in
   let e_assign (x, of1, y, of2, of3) =
     e_assign [id_of_membase x; id_of_field of1;
-	      id_of_membase y; id_of_field of2; id_of_field of3]
+              id_of_membase y; id_of_field of2; id_of_field of3]
   in
 
   (* x.of1 := *(y.of2 + of3) *)
@@ -61,7 +61,7 @@ let mk_context file d =
   in
   let e_load (x, of1, y, of2, of3) =
     e_load [id_of_membase x; id_of_field of1;
-	    id_of_membase y; id_of_field of2; id_of_field of3]
+            id_of_membase y; id_of_field of2; id_of_field of3]
   in
 
   (* *(x.of1 + of2) := y.of3 *)
@@ -70,7 +70,7 @@ let mk_context file d =
   in
   let e_store (x, of1, of2, y, of3) =
     e_store [id_of_membase x; id_of_field of1; id_of_field of2;
-	     id_of_membase y; id_of_field of3]
+             id_of_membase y; id_of_field of3]
   in
 
   (* x.of1 = alloc(...), x.of1 = &y, or x.of1 = "string_constant" *)
@@ -79,23 +79,23 @@ let mk_context file d =
   in
   let e_alloc (x, of1, loc, of2) =
     e_alloc [id_of_membase x; id_of_field of1;
-	     id_of_membase loc; id_of_field of2]
+             id_of_membase loc; id_of_field of2]
   in
 
   let max_tmp = ref 0 in
   let new_tmp () =
     let mem = MTmp (!max_tmp) in
-      incr max_tmp;
-      mem
+    incr max_tmp;
+    mem
   in
 
-    { file = file;
-      assign = e_assign;
-      load = e_load;
-      store = e_store;
-      alloc = e_alloc;
-      new_tmp = new_tmp;
-      indirect_calls = [] }
+  { file = file;
+    assign = e_assign;
+    load = e_load;
+    store = e_store;
+    alloc = e_alloc;
+    new_tmp = new_tmp;
+    indirect_calls = [] }
 
 let emit_program d =
   let emit = d#emit in
@@ -139,42 +139,42 @@ let emit_program d =
   let none = string_of_int (id_of_field (OffsetFixed 0)) in
   let unknown = string_of_int (id_of_field OffsetUnknown) in
 
-    emit (pointsTo("a:H", "b:F", "c:H", "d:F") ^ " outputtuples");
-    emit (resolveField("a:F", "b:F"));
-    emit (cat("a:F", "b:F", "c:F"));
+  emit (pointsTo("a:H", "b:F", "c:H", "d:F") ^ " outputtuples");
+  emit (resolveField("a:F", "b:F"));
+  emit (cat("a:F", "b:F", "c:F"));
 
-    cat (none, x, y) <-- "x = y";
-    cat (x, none, y) <-- "x = y";
-    cat (x, y, unknown) <-- (("x != " ^ none) &&& ("y != " ^ none));
+  cat (none, x, y) <-- "x = y";
+  cat (x, none, y) <-- "x = y";
+  cat (x, y, unknown) <-- (("x != " ^ none) &&& ("y != " ^ none));
 
 
-    resolveField(x, y) <-- "x = y";
-    emit (resolveField("_", unknown) ^ ".");
-    emit (resolveField(unknown, "_") ^ ".");
+  resolveField(x, y) <-- "x = y";
+  emit (resolveField("_", unknown) ^ ".");
+  emit (resolveField(unknown, "_") ^ ".");
 
-    (* x.fx := y.f1 + f2 *)
-    pointsTo(x, ff, h, f) <-- (assign(x, fx, y, f1, f2)
-			       &&& pointsTo(y, f1, h, hf)
-			       &&& resolveField(fx, ff)
-			       &&& cat(hf, f2, f));
+  (* x.fx := y.f1 + f2 *)
+  pointsTo(x, ff, h, f) <-- (assign(x, fx, y, f1, f2)
+                             &&& pointsTo(y, f1, h, hf)
+                             &&& resolveField(fx, ff)
+                             &&& cat(hf, f2, f));
 
-    (* *(x.f1 + f2) := y.fy *)
-    pointsTo(hx, ff, h, f) <-- (store(x, f1, f2, y, fy)
-				&&& pointsTo(x, f1, hx, f3)
-				&&& cat(f3, f2, f4)
-				&&& resolveField(f4, ff)
-				&&& pointsTo(y, fy, h, f));
+  (* *(x.f1 + f2) := y.fy *)
+  pointsTo(hx, ff, h, f) <-- (store(x, f1, f2, y, fy)
+                              &&& pointsTo(x, f1, hx, f3)
+                              &&& cat(f3, f2, f4)
+                              &&& resolveField(f4, ff)
+                              &&& pointsTo(y, fy, h, f));
 
-    (* x.fx := *(y.f1 + f2) *)
-    pointsTo(x, ff, h, f) <-- (load(x, fx, y, f1, f2)
-			       &&& pointsTo(y, f1, hy, f3)
-			       &&& cat (f3, f2, hyf)
-			       &&& pointsTo(hy, hyf, h, f)
-			       &&& resolveField(fx, ff));
+  (* x.fx := *(y.f1 + f2) *)
+  pointsTo(x, ff, h, f) <-- (load(x, fx, y, f1, f2)
+                             &&& pointsTo(y, f1, hy, f3)
+                             &&& cat (f3, f2, hyf)
+                             &&& pointsTo(hy, hyf, h, f)
+                             &&& resolveField(fx, ff));
 
-    (* x.fx := alloc (...) + f / &y + f / "const_str" + f *)
-    pointsTo(x, ff, y, f) <-- (alloc(x, fx, y, f)
-			       &&& resolveField (fx, ff))
+  (* x.fx := alloc (...) + f / &y + f / "const_str" + f *)
+  pointsTo(x, ff, y, f) <-- (alloc(x, fx, y, f)
+                             &&& resolveField (fx, ff))
 
 (* ap is on the lhs of an assignment; return a memory location such that
    assigning to that location approximates assigning to ap *)
@@ -191,9 +191,9 @@ let get_lhs ctx ap =
     let tmp = ctx.new_tmp () in
     let add = function
       | Lvl0 (var, of1) ->
-	ctx.assign (MAddr var, of1, tmp, OffsetFixed 0, OffsetFixed 0)
+        ctx.assign (MAddr var, of1, tmp, OffsetFixed 0, OffsetFixed 0)
       | Lvl1 ((var, of1), of2) ->
-	ctx.store (MAddr var, of1, of2, tmp, OffsetFixed 0)
+        ctx.store (MAddr var, of1, of2, tmp, OffsetFixed 0)
     in
     SimpleAP.Set.iter add simple_lhs;
     (tmp, OffsetFixed 0)
@@ -203,17 +203,17 @@ let emit_assign ctx lhs rhs =
   let assign (x, of1) = function
     | (RAp (Lvl0 (y, of2)), of3) -> ctx.assign (x,of1,MAddr y,of2,of3)
     | (RAp (Lvl1 ((y, of2), of3)), OffsetFixed 0) ->
-	ctx.load (x, of1, MAddr y, of2, of3)
+      ctx.load (x, of1, MAddr y, of2, of3)
     | (RAp (Lvl1 ((y, of2), of3)), of4) ->
-	let tmp = ctx.new_tmp () in
-	  ctx.load (tmp, OffsetFixed 0, MAddr y, of2, of3);
-	  ctx.assign (x, of1, tmp, OffsetFixed 0, of4)
+      let tmp = ctx.new_tmp () in
+      ctx.load (tmp, OffsetFixed 0, MAddr y, of2, of3);
+      ctx.assign (x, of1, tmp, OffsetFixed 0, of4)
     | (RAddr v, of2) -> ctx.alloc (x, of1, MAddr v, of2)
     | (RStr str, of2) -> ctx.alloc (x, of1, MStr str, of2)
   in
-    match simplify_expr rhs with
-      | VConst _ -> ()
-      | VRhs set -> SimpleRhs.Set.iter (assign (get_lhs ctx lhs)) set
+  match simplify_expr rhs with
+  | VConst _ -> ()
+  | VRhs set -> SimpleRhs.Set.iter (assign (get_lhs ctx lhs)) set
 
 let emit_call ctx (lhs, v, args) =
   if defined_function v ctx.file then begin
@@ -221,15 +221,15 @@ let emit_call ctx (lhs, v, args) =
     let f formal actual = emit_assign ctx (Variable (Var.mk formal)) actual in
     let rec go formals actuals = match formals, actuals with
       | (formal::frest, actual::arest) ->
-	f formal actual; go frest arest
+        f formal actual; go frest arest
       | _ -> () (* todo! *)
     in
     go func.formals args;
     match lhs with
     | Some var ->
       emit_assign ctx
-	(Variable var)
-	(AccessPath (Variable (Var.mk (return_var v))))
+        (Variable var)
+        (AccessPath (Variable (Var.mk (return_var v))))
     | None    -> ()
   end else () (* Undefined function *)
 
@@ -247,18 +247,18 @@ let emit_structure ctx file =
 
     | Call (lhs, expr, args) ->
       begin match Expr.strip_casts expr with
-      | AddrOf (Variable (v, OffsetFixed 0)) -> (* Direct call *)
-	emit_call ctx (lhs, v, args)
-      | _ -> (* Indirect call *)
-	ctx.indirect_calls <- (lhs, expr, args)::ctx.indirect_calls
+        | AddrOf (Variable (v, OffsetFixed 0)) -> (* Direct call *)
+          emit_call ctx (lhs, v, args)
+        | _ -> (* Indirect call *)
+          ctx.indirect_calls <- (lhs, expr, args)::ctx.indirect_calls
       end
 
     | Builtin (Fork (_, expr, args)) ->
       begin match Expr.strip_casts expr with
-      | AddrOf (Variable (v, OffsetFixed 0)) -> (* Direct fork *)
-	emit_call ctx (None, v, args)
-      | _ -> (* Indirect fork *)
-	ctx.indirect_calls <- (None, expr, args)::ctx.indirect_calls
+        | AddrOf (Variable (v, OffsetFixed 0)) -> (* Direct fork *)
+          emit_call ctx (None, v, args)
+        | _ -> (* Indirect fork *)
+          ctx.indirect_calls <- (None, expr, args)::ctx.indirect_calls
       end
 
     | Return (Some x) -> assign_expr (Variable (Var.mk (return_var func))) x
@@ -269,9 +269,9 @@ let emit_structure ctx file =
     with Pa.Higher_ap simple_rhs ->
       let loc = Def.get_location def in
       Log.errorf "Higher-level AP: `%a'@\n  Found on: %s:%d"
-	Pa.SimpleRhs.format simple_rhs
-	loc.Cil.file
-	loc.Cil.line
+        Pa.SimpleRhs.format simple_rhs
+        loc.Cil.file
+        loc.Cil.line
   in
   CfgIr.iter_func_defs vdef file
 
@@ -281,26 +281,26 @@ let simple_ap_points_to pt ap =
       if FieldEnum.in_enum field_enum (snd memloc) then memloc
       else (fst memloc, OffsetUnknown)
     in
-      try MemLoc.HT.find pt memloc
-      with Not_found -> MemLoc.Set.empty
+    try MemLoc.HT.find pt memloc
+    with Not_found -> MemLoc.Set.empty
   in
-    match ap with
-      | Lvl0 (var, of1) -> points_to (MAddr var, of1)
-      | Lvl1 ((var, of1), of2) -> begin
-	  let add (mem, offset) =
-	    MemLoc.Set.union (points_to (mem, Offset.add offset of2))
-	  in
-	    MemLoc.Set.fold add (points_to (MAddr var, of1)) MemLoc.Set.empty
-	end
+  match ap with
+  | Lvl0 (var, of1) -> points_to (MAddr var, of1)
+  | Lvl1 ((var, of1), of2) -> begin
+      let add (mem, offset) =
+        MemLoc.Set.union (points_to (mem, Offset.add offset of2))
+      in
+      MemLoc.Set.fold add (points_to (MAddr var, of1)) MemLoc.Set.empty
+    end
 
 let ap_points_to pt ap =
   try
     let add sap set = MemLoc.Set.union (simple_ap_points_to pt sap) set in
     SimpleAP.Set.fold add (simplify_ap ap) MemLoc.Set.empty
   with Pa.Higher_ap simple_rhs -> begin
-    Log.errorf "Higher-level AP: `%a'" Pa.SimpleRhs.format simple_rhs;
-    assert false
-  end
+      Log.errorf "Higher-level AP: `%a'" Pa.SimpleRhs.format simple_rhs;
+      assert false
+    end
 
 let expr_points_to pt expr =
   try
@@ -308,20 +308,20 @@ let expr_points_to pt expr =
     | VConst _ -> MemLoc.Set.empty
     | VRhs rhs ->
       let add rhs set =
-	match rhs with
-	| (RAp ap, offset) ->
-	  let add memloc =
-	    MemLoc.Set.add (fst memloc, Offset.add (snd memloc) offset)
-	  in
-	  MemLoc.Set.fold add (simple_ap_points_to pt ap) set
-	| (RAddr v, offset) -> MemLoc.Set.add (MAddr v, offset) set
-	| (RStr str, offset) -> MemLoc.Set.add (MStr str, offset) set
+        match rhs with
+        | (RAp ap, offset) ->
+          let add memloc =
+            MemLoc.Set.add (fst memloc, Offset.add (snd memloc) offset)
+          in
+          MemLoc.Set.fold add (simple_ap_points_to pt ap) set
+        | (RAddr v, offset) -> MemLoc.Set.add (MAddr v, offset) set
+        | (RStr str, offset) -> MemLoc.Set.add (MStr str, offset) set
       in
       SimpleRhs.Set.fold add rhs MemLoc.Set.empty
   with Pa.Higher_ap simple_rhs -> begin
-    Log.errorf "Higher-level AP: `%a'" Pa.SimpleRhs.format simple_rhs;
-    assert false
-  end
+      Log.errorf "Higher-level AP: `%a'" Pa.SimpleRhs.format simple_rhs;
+      assert false
+    end
 
 let resolve_call pt expr =
   let targets = match Expr.strip_casts expr with
@@ -336,7 +336,7 @@ let resolve_call pt expr =
     | (MAddr v, OffsetFixed 0) -> Varinfo.Set.add v set
     | _ -> set (* No functions on the heap *)
   in
-    MemLoc.Set.fold add_call targets Varinfo.Set.empty
+  MemLoc.Set.fold add_call targets Varinfo.Set.empty
 
 let solve_impl file d =
   let ht = MemLoc.HT.create 1024 in
@@ -349,68 +349,68 @@ let solve_impl file d =
     in
     let add = function
       | [v;vo;m;mo] ->
-	  (* bddbddb can produce out-of-range tuples.  Just ignore them. *)
-	  (try begin
-	     match getm v vo, getm m mo with
-		 (* skip temporary mem locs *)
-	       | ((MTmp _,_), _) | (_, (MTmp _,_)) -> ()
-	       | (x, y) -> add_pt x y
-	   end with Enumeration.Not_in_enumeration _ -> ())
+        (* bddbddb can produce out-of-range tuples.  Just ignore them. *)
+        (try begin
+           match getm v vo, getm m mo with
+           (* skip temporary mem locs *)
+           | ((MTmp _,_), _) | (_, (MTmp _,_)) -> ()
+           | (x, y) -> add_pt x y
+         end with Enumeration.Not_in_enumeration _ -> ())
       | _ -> assert false
     in
-      d#iter_tuples add "pointsTo"
+    d#iter_tuples add "pointsTo"
   in
   let rec fix targets =
     let changed = ref false in
     let f (lhs, func, args) old_targets =
       let targets = resolve_call ht func in
       let new_targets = Varinfo.Set.diff targets old_targets in
-	if Varinfo.Set.cardinal new_targets != 0 then begin
-	  changed := true;
-	  Varinfo.Set.iter
-	    (fun tgt -> emit_call ctx (lhs, tgt, args))
-	    new_targets
-	end;
-	targets
+      if Varinfo.Set.cardinal new_targets != 0 then begin
+        changed := true;
+        Varinfo.Set.iter
+          (fun tgt -> emit_call ctx (lhs, tgt, args))
+          new_targets
+      end;
+      targets
     in
-      d#run ();
-      build d;
-      let new_targets = List.map2 f ctx.indirect_calls targets in
-	if !changed then fix new_targets
+    d#run ();
+    build d;
+    let new_targets = List.map2 f ctx.indirect_calls targets in
+    if !changed then fix new_targets
   in
-    d#new_domain "F";
-    d#new_domain "H";
+  d#new_domain "F";
+  d#new_domain "H";
 
-    emit_structure ctx file;
-    emit_program d; (* populates ctx.indirect_calls *)
+  emit_structure ctx file;
+  emit_program d; (* populates ctx.indirect_calls *)
 
-    d#ensure_domain_capacity "F" (FieldEnum.size field_enum);
-    d#ensure_domain_capacity "H" (MemBaseEnum.size membase_enum);
+  d#ensure_domain_capacity "F" (FieldEnum.size field_enum);
+  d#ensure_domain_capacity "H" (MemBaseEnum.size membase_enum);
 
-    fix (List.map (fun _ -> Varinfo.Set.empty) ctx.indirect_calls);
+  fix (List.map (fun _ -> Varinfo.Set.empty) ctx.indirect_calls);
 
-    ht
+  ht
 
 let solve file =
   Putil.with_temp_dir
     "bddpa"
     (fun dir ->
-      Log.phase "Pointer analysis"
-	(solve_impl file) (new Datalog.monolithicSolver dir "bddpa"))
+       Log.phase "Pointer analysis"
+         (solve_impl file) (new Datalog.monolithicSolver dir "bddpa"))
 
 class pa file =
-object(self)
-  inherit ptr_anal file
-  val instance = solve file
-  method ap_points_to = ap_points_to instance
-  method expr_points_to = expr_points_to instance
-  method iter f = MemLoc.HT.iter f instance
-end
+  object(self)
+    inherit ptr_anal file
+    val instance = solve file
+    method ap_points_to = ap_points_to instance
+    method expr_points_to = expr_points_to instance
+    method iter f = MemLoc.HT.iter f instance
+  end
 
 let initialize file =
   let p = new pa file in
-    Pa.set_pa (p :> ptr_anal);
-    p
+  Pa.set_pa (p :> ptr_anal);
+  p
 
 (** Build a hash table mapping each allocation site to the set of memory
     locations associated with it.  This includes all field offsets of the
@@ -420,7 +420,7 @@ let build_accessed pa file =
   let add_access def memloc =
     try
       let set = MemLoc.Set.add memloc (Def.HT.find accessed def) in
-	Def.HT.replace accessed def set
+      Def.HT.replace accessed def set
     with Not_found -> Def.HT.add accessed def (MemLoc.Set.singleton memloc)
   in
   let add_access memloc = match memloc with
@@ -429,8 +429,8 @@ let build_accessed pa file =
   in
   let add_ap ap = MemLoc.Set.iter add_access (pa#resolve_ap ap) in
   let add_def def = AP.Set.iter add_ap (Def.get_uses def) in
-    CfgIr.iter_defs add_def file;
-    accessed
+  CfgIr.iter_defs add_def file;
+  accessed
 
 let _ =
   let go file = ((new pa file) :> ptr_anal) in
@@ -440,31 +440,31 @@ let _ =
   let go file =
     let check def = match def.dkind with
       | Assert (Or (Atom (Lt, p, q),
-		    Atom (Lt, q0, p0)), msg)
-	  when Expr.equal p p0 && Expr.equal q q0 ->
-	let memloc_is_alias x y =
-	  if (snd x) = OffsetUnknown || (snd y) = OffsetUnknown
-	  then MemBase.equal (fst x) (fst y)
-	  else MemLoc.equal x y
-	in
-	let p_pt = Pa.expr_points_to p in
-	let may_eq =
-	  MemLoc.Set.exists
-	    (fun x -> MemLoc.Set.exists (memloc_is_alias x) p_pt)
-	    (Pa.expr_points_to q)
-	in
-	if may_eq then
-	  Report.log_error (Def.get_location def) ("Assertion failed: " ^ msg)
-	else
-	  Report.log_safe ()
+                    Atom (Lt, q0, p0)), msg)
+        when Expr.equal p p0 && Expr.equal q q0 ->
+        let memloc_is_alias x y =
+          if (snd x) = OffsetUnknown || (snd y) = OffsetUnknown
+          then MemBase.equal (fst x) (fst y)
+          else MemLoc.equal x y
+        in
+        let p_pt = Pa.expr_points_to p in
+        let may_eq =
+          MemLoc.Set.exists
+            (fun x -> MemLoc.Set.exists (memloc_is_alias x) p_pt)
+            (Pa.expr_points_to q)
+        in
+        if may_eq then
+          Report.log_error (Def.get_location def) ("Assertion failed: " ^ msg)
+        else
+          Report.log_safe ()
       | _ -> ()
     in
     let points_to = initialize file in
     let format_memloc_set set =
       String.concat ", "
-	(BatList.sort
-	   Pervasives.compare
-	   (BatList.map MemLoc.show (MemLoc.Set.elements set)))
+        (BatList.sort
+           Pervasives.compare
+           (BatList.map MemLoc.show (MemLoc.Set.elements set)))
     in
     let format_pointsto memloc set =
       (MemLoc.show memloc) ^ " -> {" ^ (format_memloc_set set) ^ "}"
@@ -493,4 +493,4 @@ let _ =
     Pa.simplify_calls file;
     Inline.inline_file file;
   in
-    CmdLine.register_pass ("-inline", go, " Inline and simplify function calls")
+  CmdLine.register_pass ("-inline", go, " Inline and simplify function calls")

@@ -13,8 +13,8 @@ type membase =
   | MAddr of varinfo
   | MStr of string
   | MAlloc of def
-  | MTmp of int (** Temporary memory location - does not correspond to anything
-		    in the program *)
+  | MTmp of int (** Temporary memory location - does not correspond to
+                    anything in the program *)
 
 (** A memory location consists of a base and an offset.  The location of
     (base,offset) is base+offset if offset is fixed, and some nondeterministic
@@ -32,29 +32,29 @@ end
 (** Common pointer analysis operations *)
 class virtual ptr_anal : CfgIr.file -> object
 
-  (** Possible points-to targets of an access path *)
-  method virtual ap_points_to : ap -> MemLoc.Set.t
+    (** Possible points-to targets of an access path *)
+    method virtual ap_points_to : ap -> MemLoc.Set.t
 
-  (** Possible points-to targets of an expression  *)
-  method virtual expr_points_to : expr -> MemLoc.Set.t
+    (** Possible points-to targets of an expression  *)
+    method virtual expr_points_to : expr -> MemLoc.Set.t
 
-  (** Determine whether two access paths may be aliased (as lvalues). *)
-  method may_alias : ap -> ap -> bool
+    (** Determine whether two access paths may be aliased (as lvalues). *)
+    method may_alias : ap -> ap -> bool
 
-  (** Possible locations that an {b lvalue} could refer to (in contrast to
-      ap_points_to, which determines the possible locations that an {b rvalue}
-      could refer to)  *)
-  method resolve_ap : ap -> MemLoc.Set.t
+    (** Possible locations that an {b lvalue} could refer to (in contrast to
+        ap_points_to, which determines the possible locations that an {b rvalue}
+        could refer to)  *)
+    method resolve_ap : ap -> MemLoc.Set.t
 
-  (** Possible targets of a function call expression.  This is really just the
-      variable locations an expression could evaluate to.  [resolve_call] does
-      not guarantee that the variables returned are function typed. *)
-  method resolve_call : expr -> Varinfo.Set.t
+    (** Possible targets of a function call expression.  This is really just the
+        variable locations an expression could evaluate to.  [resolve_call] does
+        not guarantee that the variables returned are function typed. *)
+    method resolve_call : expr -> Varinfo.Set.t
 
-  (** Check whether a function call may have an undefined target (a function
-      without available source code). *)
-  method has_undefined_target : expr -> bool
-end
+    (** Check whether a function call may have an undefined target (a function
+        without available source code). *)
+    method has_undefined_target : expr -> bool
+  end
 
 (** {2 Simplification} *)
 
@@ -101,13 +101,13 @@ type 'a value =
     interpretation of primitive operations in Rhs to an interpretation of
     integer/pointer expressions. *)
 module MakeEval : functor (Rhs : sig
-		  type t
-		  val str_const : string -> t
-		  val addr_of : Var.t -> t
-		  val havoc : t
-		  val change_offset : (int -> offset) -> t -> t
-		  val join : t -> t -> t
-		end) ->
+                             type t
+                             val str_const : string -> t
+                             val addr_of : Var.t -> t
+                             val havoc : t
+                             val change_offset : (int -> offset) -> t -> t
+                             val join : t -> t -> t
+                           end) ->
 sig
   val eval : expr -> (ap -> Rhs.t) -> Rhs.t value
 end
@@ -140,9 +140,9 @@ val ap_is_shared : ap -> bool
 (** Simplify function calls by passing parameters and return variables through
     global variables.  So, for example, [r = foo(exp1,exp2)] becomes
 
-{[param0 = exp1
-param1 = exp2
-foo()
-r = return v]}
+    {[param0 = exp1
+        param1 = exp2
+        foo()
+        r = return v]}
 *)
 val simplify_calls : CfgIr.file -> unit

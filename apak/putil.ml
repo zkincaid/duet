@@ -14,9 +14,9 @@ let format_enum
     match BatEnum.get enum with
     | None   -> ()
     | Some x -> begin
-      pp formatter x;
-      BatEnum.iter (fun y -> Format.fprintf formatter "%s@;%a" sep pp y) enum
-    end
+        pp formatter x;
+        BatEnum.iter (fun y -> Format.fprintf formatter "%s@;%a" sep pp y) enum
+      end
   in
   Format.fprintf formatter "@[<hov 1>%s%a%s@]" left pp_items enum right
 
@@ -24,29 +24,29 @@ let default_terminal_size = (24, 80)
 let terminal_size = ref None
 let get_terminal_size () =
   match !terminal_size with
-    | Some x -> x
-    | None ->
-	let size =
-	  if not (Unix.isatty Unix.stdout) then default_terminal_size else begin
-	    let in_channel = Unix.open_process_in "stty size" in
-	      try
-		begin
-		  try
-		    Scanf.fscanf in_channel "%d %d"
-		      (fun rows cols ->
-			 ignore (Unix.close_process_in in_channel);
-			 (rows, cols))
-		  with End_of_file ->
-		    ignore (Unix.close_process_in in_channel);
-		    default_terminal_size
-		end
-	      with e ->
-		ignore (Unix.close_process_in in_channel);
-		raise e
-	  end
-	in
-	  terminal_size := Some size;
-	  size
+  | Some x -> x
+  | None ->
+    let size =
+      if not (Unix.isatty Unix.stdout) then default_terminal_size else begin
+        let in_channel = Unix.open_process_in "stty size" in
+        try
+          begin
+            try
+              Scanf.fscanf in_channel "%d %d"
+                (fun rows cols ->
+                   ignore (Unix.close_process_in in_channel);
+                   (rows, cols))
+            with End_of_file ->
+              ignore (Unix.close_process_in in_channel);
+              default_terminal_size
+          end
+        with e ->
+          ignore (Unix.close_process_in in_channel);
+          raise e
+      end
+    in
+    terminal_size := Some size;
+    size
 
 (* From Deriving.Show.ShowDefaults' *)
 let pp_string pp x =
@@ -132,10 +132,10 @@ module Set = struct
     end
 
     include MakeFmt(struct
-      type a = t
-      let format fmt set =
-	format_enum Ord.format ~left:"{" ~sep:"," ~right:"}" fmt (enum set)
-    end)
+        type a = t
+        let format fmt set =
+          format_enum Ord.format ~left:"{" ~sep:"," ~right:"}" fmt (enum set)
+      end)
   end
 end
 
@@ -181,11 +181,11 @@ module Map = struct
     include BatMap.Make(Key)
     let format pp_val formatter map =
       let pp formatter (key, value) =
-	Format.pp_open_box formatter 0;
+        Format.pp_open_box formatter 0;
         Key.format formatter key;
         Format.pp_print_string formatter " => ";
         pp_val formatter value;
-	Format.pp_close_box formatter ();
+        Format.pp_close_box formatter ();
       in
       format_enum pp formatter (enum map)
   end
@@ -236,7 +236,7 @@ module MonoMap = struct
   end
 
   module Make (Key : Ordered) (Val : PP) : S with type key = Key.t
-					     and type value = Val.t =
+                                              and type value = Val.t =
   struct
     module M = BatMap.Make(Key)
     type key = Key.t
@@ -245,17 +245,17 @@ module MonoMap = struct
     include (M : BatMap.S with type 'a t := 'a u and type key := key)
     type t = value u
     include MakeFmt(struct
-      type a = t
-      let format formatter map =
-	let pp formatter (key, value) =
-	  Format.pp_open_box formatter 0;
-          Key.format formatter key;
-          Format.pp_print_string formatter " => ";
-          Val.format formatter value;
-	  Format.pp_close_box formatter ();
-	in
-	format_enum pp formatter (M.enum map)
-    end)
+        type a = t
+        let format formatter map =
+          let pp formatter (key, value) =
+            Format.pp_open_box formatter 0;
+            Key.format formatter key;
+            Format.pp_print_string formatter " => ";
+            Val.format formatter value;
+            Format.pp_close_box formatter ();
+          in
+          format_enum pp formatter (M.enum map)
+      end)
   end
 
   module Ordered = struct
@@ -264,13 +264,13 @@ module MonoMap = struct
       include OrderedMix with type t := t
     end
     module Make (Key : Ordered) (Val : Ordered) : S with
-						      type key = Key.t
-						    and type value = Val.t =
+      type key = Key.t
+                                                     and type value = Val.t =
     struct
       include Make(Key)(Val)
       module Compare_t = struct
-	type a = t
-	let compare = compare Val.compare
+        type a = t
+        let compare = compare Val.compare
       end
       let compare = Compare_t.compare
     end
@@ -293,26 +293,26 @@ module TotalFunction = struct
     val equal : t -> t -> bool
   end
   module LiftMap
-    (M : Map.S)
-    (Codomain : sig
-      type t
-      val format : Format.formatter -> t -> unit
-      val equal : t -> t -> bool
-    end) =
+      (M : Map.S)
+      (Codomain : sig
+         type t
+         val format : Format.formatter -> t -> unit
+         val equal : t -> t -> bool
+       end) =
   struct
     type dom = M.key
     type cod = Codomain.t
     type t = 
       { map : cod M.t;
-	default : Codomain.t }
+        default : Codomain.t }
 
     include MakeFmt(struct
-      type a = t
-      let format formatter f =
-	Format.fprintf formatter "@[{map: @[%a@];@ default: @[%a@]}@]"
-	  (M.format Codomain.format) f.map
-	  Codomain.format f.default
-    end)
+        type a = t
+        let format formatter f =
+          Format.fprintf formatter "@[{map: @[%a@];@ default: @[%a@]}@]"
+            (M.format Codomain.format) f.map
+            Codomain.format f.default
+      end)
     let format = Show_t.format
     let show = Show_t.show
 
@@ -335,17 +335,17 @@ module TotalFunction = struct
       let default = m f.default g.default in
       let return x = if Codomain.equal x default then None else Some x in
       let merge _ a b = match a,b with
-	| Some a, Some b -> return (m a b)
-	| Some a, _ -> return (m a g.default)
-	| _, Some b -> return (m f.default b)
-	| None, None -> assert false
+        | Some a, Some b -> return (m a b)
+        | Some a, _ -> return (m a g.default)
+        | _, Some b -> return (m f.default b)
+        | None, None -> assert false
       in
       { map = M.merge merge f.map g.map;
-	default = default }
+        default = default }
 
     let map f x =
       { map = M.map f x.map;
-	default = f x.default }
+        default = f x.default }
     let enum f = M.enum f.map
     let support f = M.keys f.map
     let default f = f.default
@@ -358,15 +358,15 @@ module TotalFunction = struct
     end
     module LiftMap (M : Map.S) (Codomain : Ordered) = struct
       include LiftMap(M)(struct
-	include Codomain
-	let equal x y = compare x y = 0
-      end)
+          include Codomain
+          let equal x y = compare x y = 0
+        end)
       module Compare_t = struct
-	type a = t
-	let compare f g =
-	  match Codomain.compare f.default g.default with
-	  | 0 -> M.compare Codomain.compare f.map g.map
-	  | x -> x
+        type a = t
+        let compare f g =
+          match Codomain.compare f.default g.default with
+          | 0 -> M.compare Codomain.compare f.map g.map
+          | x -> x
       end
       let compare = Compare_t.compare
     end
@@ -407,7 +407,7 @@ module Hashed = struct
     module Make (M : Ordered) = struct
       include Set.Make(M)
       let hash set =
-	fold (fun elt hash -> combine (M.hash elt) hash) set 0
+        fold (fun elt hash -> combine (M.hash elt) hash) set 0
     end
   end
 end
@@ -415,38 +415,38 @@ end
 let with_temp_filename base exn f =
   let file = Filename.temp_file base exn in
   let result = f file in
-    Sys.remove file;
-    result
+  Sys.remove file;
+  result
 
 let with_temp_file base exn f =
   let go name =
     let file = Pervasives.open_out name in
     let result = f name file in
-      Pervasives.close_out file;
-      result
+    Pervasives.close_out file;
+    result
   in
-    with_temp_filename base exn go
+  with_temp_filename base exn go
 
 (* not completely safe! *)
 let with_temp_dir base f =
   let name = Filename.temp_file base "" in
-    Unix.unlink name; (* kill regular file, make a directory *)
-    Unix.mkdir name 0o770; (* ug+rwx *)
-    let result = f name in
-      (* cleanup *)
-      begin
-	let handle = Unix.opendir name in
-	  try while true do
-	    let fn = Unix.readdir handle in
-	      if not (fn = "." || fn = "..") then Unix.unlink (name ^ "/" ^ fn)
-	  done with End_of_file -> Unix.rmdir name
-      end;
-      result
+  Unix.unlink name; (* kill regular file, make a directory *)
+  Unix.mkdir name 0o770; (* ug+rwx *)
+  let result = f name in
+  (* cleanup *)
+  begin
+    let handle = Unix.opendir name in
+    try while true do
+        let fn = Unix.readdir handle in
+        if not (fn = "." || fn = "..") then Unix.unlink (name ^ "/" ^ fn)
+      done with End_of_file -> Unix.rmdir name
+  end;
+  result
 
 let with_temp_dir base f =
   match !temp_dir with
-    | Some x -> f x
-    | None   -> with_temp_dir base f
+  | Some x -> f x
+  | None   -> with_temp_dir base f
 
 (** Search for a file named {!file} in all the directories in the load
     path.  Raise File_not_found if no such file exists. *)
@@ -454,11 +454,11 @@ let find_file file =
   let rec go = function
     | [] -> None
     | (d::ds) ->
-	let qualified = d ^ "/" ^ file in
-	  if Sys.file_exists qualified then Some qualified
-	  else go ds
+      let qualified = d ^ "/" ^ file in
+      if Sys.file_exists qualified then Some qualified
+      else go ds
   in
-    go (!load_path)
+  go (!load_path)
 
 module type CoreTypeBasis = sig
   include Ordered
@@ -480,40 +480,40 @@ module MakeCoreType (M : CoreTypeBasis) = struct
 end
 
 module PString = MakeCoreType(struct
-  type t = string deriving (Show,Compare)
-  let format = Show_t.format
-  let show = Show_t.show
-  let compare = Compare_t.compare
-  let hash = Hashtbl.hash
-  let equal = (=)
-end)
+    type t = string deriving (Show,Compare)
+    let format = Show_t.format
+    let show = Show_t.show
+    let compare = Compare_t.compare
+    let hash = Hashtbl.hash
+    let equal = (=)
+  end)
 
 module PInt = MakeCoreType(struct
-  type t = int deriving (Show,Compare)
-  let format = Show_t.format
-  let show = Show_t.show
-  let compare = Compare_t.compare
-  let hash = Hashtbl.hash
-  let equal = (=)
-end)
+    type t = int deriving (Show,Compare)
+    let format = Show_t.format
+    let show = Show_t.show
+    let compare = Compare_t.compare
+    let hash = Hashtbl.hash
+    let equal = (=)
+  end)
 
 module PUnit = MakeCoreType(struct
-  type t = unit deriving (Show,Compare)
-  let format = Show_t.format
-  let show = Show_t.show
-  let compare = Compare_t.compare
-  let hash _ = 0
-  let equal _ _ = true
-end)
+    type t = unit deriving (Show,Compare)
+    let format = Show_t.format
+    let show = Show_t.show
+    let compare = Compare_t.compare
+    let hash _ = 0
+    let equal _ _ = true
+  end)
 
 module PChar = MakeCoreType(struct
-  type t = char deriving (Show,Compare)
-  let format = Show_t.format
-  let show = Show_t.show
-  let compare = Compare_t.compare
-  let hash = Hashtbl.hash
-  let equal = (=)
-end)
+    type t = char deriving (Show,Compare)
+    let format = Show_t.format
+    let show = Show_t.show
+    let compare = Compare_t.compare
+    let hash = Hashtbl.hash
+    let equal = (=)
+  end)
 
 let cartesian_product e1 e2 =
   let e2c = ref (BatEnum.clone e2) in
@@ -521,15 +521,15 @@ let cartesian_product e1 e2 =
     match BatEnum.peek e1 with
     | None -> raise BatEnum.No_more_elements
     | Some x -> begin match BatEnum.get (!e2c) with
-      | Some y -> (x, y)
-      | None -> begin
-	BatEnum.junk e1;
-	e2c := BatEnum.clone e2;
-	match BatEnum.peek e1, BatEnum.get (!e2c) with
-	| Some x, Some y -> (x, y)
-	| _, _ -> raise BatEnum.No_more_elements
+        | Some y -> (x, y)
+        | None -> begin
+            BatEnum.junk e1;
+            e2c := BatEnum.clone e2;
+            match BatEnum.peek e1, BatEnum.get (!e2c) with
+            | Some x, Some y -> (x, y)
+            | _, _ -> raise BatEnum.No_more_elements
+          end
       end
-    end
   in
   BatEnum.from go
 
@@ -549,10 +549,10 @@ let distinct_pairs enum =
     let rec go () =
       match BatEnum.get (!rest) with
       | None -> begin
-	cur := BatEnum.get_exn enum;
-	rest := BatEnum.clone enum;
-	go ()
-      end
+          cur := BatEnum.get_exn enum;
+          rest := BatEnum.clone enum;
+          go ()
+        end
       | Some elt -> (!cur, elt)
     in
     BatEnum.from go
@@ -560,5 +560,5 @@ let distinct_pairs enum =
 let rec compare_tuple = function
   | [] -> 0
   | (x::xs) ->
-      let cmp = Lazy.force x in
-	if cmp = 0 then compare_tuple xs else cmp
+    let cmp = Lazy.force x in
+    if cmp = 0 then compare_tuple xs else cmp

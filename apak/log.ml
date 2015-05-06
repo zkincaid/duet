@@ -12,13 +12,13 @@ let terminal_supports_colors =
   try
     begin
       try
-	Scanf.fscanf in_channel "%d"
-	  (fun colors ->
-	    ignore (Unix.close_process_in in_channel);
-	    colors >= 8)
+        Scanf.fscanf in_channel "%d"
+          (fun colors ->
+             ignore (Unix.close_process_in in_channel);
+             colors >= 8)
       with End_of_file ->
-	ignore (Unix.close_process_in in_channel);
-	false
+        ignore (Unix.close_process_in in_channel);
+        false
     end
   with e ->
     ignore (Unix.close_process_in in_channel);
@@ -32,8 +32,8 @@ let bottom = 4   (** print everything *)
 let info   = 2   (** print extra information *)
 
 type attributes =
-| Black | Red | Green | Yellow | Blue | Magenta | Cyan | White
-| Bold | Underline
+  | Black | Red | Green | Yellow | Blue | Magenta | Cyan | White
+  | Bold | Underline
 
 let attr_code = function
   | Black -> "\x1b[30m"
@@ -64,9 +64,9 @@ module Make(M : sig val name : string end) = struct
   let logf ?(level=info) ?(attributes=[]) fmt =
     let (start, reset) =
       Obj.magic
-	(if terminal_supports_colors
-	 then (String.concat "" (List.map attr_code attributes), "\x1b[0m@\n@?")
-	 else ("", ""))
+        (if terminal_supports_colors
+         then (String.concat "" (List.map attr_code attributes), "\x1b[0m@\n@?")
+         else ("", ""))
     in
     if !verbosity_level >= level || !my_verbosity_level >= level
     then Format.printf (start ^^ fmt ^^ reset)
@@ -132,20 +132,20 @@ let phase str f arg =
     try String.make (77 - (String.length str)) '='
     with Invalid_argument _ -> ""
   in
-    logf ~level:phases ~attributes:[Bold; Green] "= %s %s" str padding;
-    if List.exists (fun x -> x = str) !debug_phases then begin
-      let old_debug = !debug_mode in
-	debug_mode := true;
-	let result = time str f arg in
-	  debug_mode := old_debug;
-	  result
-    end else time str f arg
+  logf ~level:phases ~attributes:[Bold; Green] "= %s %s" str padding;
+  if List.exists (fun x -> x = str) !debug_phases then begin
+    let old_debug = !debug_mode in
+    debug_mode := true;
+    let result = time str f arg in
+    debug_mode := old_debug;
+    result
+  end else time str f arg
 
 let start_time = Unix.gettimeofday ()
 let print_stats () =
   let f stat time =
     if time > 1.0 then print_endline (stat ^ ": " ^ (string_of_float time))
   in
-    Hashtbl.iter f phases_ht;
-    print_endline ("Total time: "
-		   ^ (string_of_float (Unix.gettimeofday () -. start_time)))
+  Hashtbl.iter f phases_ht;
+  print_endline ("Total time: "
+                 ^ (string_of_float (Unix.gettimeofday () -. start_time)))

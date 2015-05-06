@@ -13,21 +13,21 @@ let mk_map set =
       then Offset.Set.add offset (MemBase.Map.find base map)
       else Offset.Set.singleton offset
     in
-      MemBase.Map.add base offsets map
+    MemBase.Map.add base offsets map
   in
-    MemLoc.Set.fold add set MemBase.Map.empty
+  MemLoc.Set.fold add set MemBase.Map.empty
 
 module Domain = struct
   module S = struct
     include Lattice.Bounded.LiftSubset(MemLoc.Set)
     let join x y = match x, y with
       | (Set a, Set b) ->
-	  let memloc_set = MemLoc.Set.union a b in
-	  let f (base,offset) =
-	    offset = OffsetUnknown
-	    || not (MemLoc.Set.mem (base, OffsetUnknown) memloc_set)
-	  in
-	    Set (MemLoc.Set.filter f memloc_set)
+        let memloc_set = MemLoc.Set.union a b in
+        let f (base,offset) =
+          offset = OffsetUnknown
+          || not (MemLoc.Set.mem (base, OffsetUnknown) memloc_set)
+        in
+        Set (MemLoc.Set.filter f memloc_set)
       | (_, _) -> Neg (MemLoc.Set.empty)
   end
   module FS = Lattice.FunctionSpace.Total.Make(AP)(S)
@@ -47,7 +47,7 @@ module Domain = struct
     in
     let rename_one g (x, y) = update y (eval f x) g in
     let remove = AP.Set.diff left right in
-      cyl (List.fold_left rename_one f rename) remove
+    cyl (List.fold_left rename_one f rename) remove
 
   let is_bottom = FS.equal (const S.bottom)
   let top _ = const S.top
@@ -58,11 +58,11 @@ module Domain = struct
     struct
       type t = MemLoc.Set.t
       let change_offset f =
-	let change = function
-	  | (rhs, OffsetFixed off) -> (rhs, f off)
-	  | x -> x
-	in
-	  MemLoc.Set.map change
+        let change = function
+          | (rhs, OffsetFixed off) -> (rhs, f off)
+          | x -> x
+        in
+        MemLoc.Set.map change
       let join = MemLoc.Set.union
       let havoc = MemLoc.Set.empty
       let addr_of v = MemLoc.Set.singleton (MAddr (fst v), snd v)
@@ -75,29 +75,29 @@ module Domain = struct
       | S.Neg mem -> MemLoc.Set.empty
     in
     begin match def.dkind with
-    | Store (ap, expr) ->
-      begin match E.eval expr env with
-      | VConst _ -> FS.update ap (S.Set MemLoc.Set.empty) points_to
-      | VRhs mem -> FS.update ap (S.Set mem) points_to
-      end
-    | Assign (var, expr) ->
-      begin
-	let ap = Variable var in
-	match E.eval expr env with
-	| VConst _ -> FS.update ap (S.Set MemLoc.Set.empty) points_to
-	| VRhs mem -> FS.update ap (S.Set mem) points_to
-      end
-    | Builtin (Alloc (lhs, _, _)) ->
-      let heaploc = (MAlloc def, OffsetFixed 0) in
-      FS.update (Variable lhs) (S.Set (MemLoc.Set.singleton heaploc)) points_to
-    | Initial -> FS.const S.bottom
-    | Assume _ | Assert _ | AssertMemSafe _ | Call _ -> points_to
-    | Return _ -> points_to
-    | Builtin (Free _) -> assert false
-    | Builtin (Fork _) -> points_to
-    | Builtin (Acquire _) | Builtin (Release _) -> points_to
-    | Builtin AtomicBegin | Builtin AtomicEnd -> points_to
-    | Builtin Exit -> FS.const S.bottom
+      | Store (ap, expr) ->
+        begin match E.eval expr env with
+          | VConst _ -> FS.update ap (S.Set MemLoc.Set.empty) points_to
+          | VRhs mem -> FS.update ap (S.Set mem) points_to
+        end
+      | Assign (var, expr) ->
+        begin
+          let ap = Variable var in
+          match E.eval expr env with
+          | VConst _ -> FS.update ap (S.Set MemLoc.Set.empty) points_to
+          | VRhs mem -> FS.update ap (S.Set mem) points_to
+        end
+      | Builtin (Alloc (lhs, _, _)) ->
+        let heaploc = (MAlloc def, OffsetFixed 0) in
+        FS.update (Variable lhs) (S.Set (MemLoc.Set.singleton heaploc)) points_to
+      | Initial -> FS.const S.bottom
+      | Assume _ | Assert _ | AssertMemSafe _ | Call _ -> points_to
+      | Return _ -> points_to
+      | Builtin (Free _) -> assert false
+      | Builtin (Fork _) -> points_to
+      | Builtin (Acquire _) | Builtin (Release _) -> points_to
+      | Builtin AtomicBegin | Builtin AtomicEnd -> points_to
+      | Builtin Exit -> FS.const S.bottom
     end
 
   let widen_memloc_set x y =
@@ -105,27 +105,27 @@ module Domain = struct
     let y_map = mk_map y in
     let unmap base y_offsets set =
       let x_offsets =
-	try MemBase.Map.find base x_map
-	with Not_found -> Offset.Set.empty
+        try MemBase.Map.find base x_map
+        with Not_found -> Offset.Set.empty
       in
-	if Offset.Set.equal x_offsets y_offsets
-	then begin
-	  Offset.Set.fold
-	    (fun offset set -> MemLoc.Set.add (base,offset) set)
-	    x_offsets
-	    set
-	end else MemLoc.Set.add (base, OffsetUnknown) set
+      if Offset.Set.equal x_offsets y_offsets
+      then begin
+        Offset.Set.fold
+          (fun offset set -> MemLoc.Set.add (base,offset) set)
+          x_offsets
+          set
+      end else MemLoc.Set.add (base, OffsetUnknown) set
     in
-      MemBase.Map.fold unmap y_map MemLoc.Set.empty
+    MemBase.Map.fold unmap y_map MemLoc.Set.empty
 
   let widen x y =
     let y = join x y in
     let f fs (ap, y_memlocs) =
       let x_memlocs = FS.eval x ap in
       let memlocs = match x_memlocs, y_memlocs with
-	| S.Set x_memlocs, S.Set y_memlocs ->
-	  S.Set (widen_memloc_set x_memlocs y_memlocs)
-	| _ -> S.top
+        | S.Set x_memlocs, S.Set y_memlocs ->
+          S.Set (widen_memloc_set x_memlocs y_memlocs)
+        | _ -> S.top
       in
       FS.update ap memlocs fs
     in
@@ -144,13 +144,13 @@ let analyze dg =
     | Store (lhs, _) ->
       let points_to = Domain.FS.eval value lhs in
       Format.fprintf Format.std_formatter "%a -> %a@\n"
-	Def.format def
-	Domain.S.format points_to
+        Def.format def
+        Domain.S.format points_to
     | Assign (lhs, _) ->
       let points_to = Domain.FS.eval value (Variable lhs) in
       Format.fprintf Format.std_formatter "%a -> %a@\n"
-	Def.format def
-	Domain.S.format points_to
+        Def.format def
+        Domain.S.format points_to
     | _ -> ()
   in
   let result = Solve.do_analysis state dg in
@@ -165,31 +165,31 @@ let diff a b =
     try
       let b = Solve.S.output b def in
       let go_ap ap =
-	let a = Domain.eval a ap in
-	let b = Domain.eval b ap in
-	let add = Domain.S.diff a b in
-	let remove = Domain.S.diff b a in
-	let diff = Domain.S.union add remove in
-	  if not (Domain.S.equal diff (S.Set MemLoc.Set.empty))
-	  then begin
-	    incr change_count;
-	    print_endline ("diff @ " ^ (Def.show def)
-			   ^ " ap: " ^ (AP.show ap));
-	    begin match add with
-	      | S.Set add -> MemLoc.Set.iter print_plus add
-	      | S.Neg add -> print_endline "+infinity"
-	    end;
-	    begin match remove with
-	      | S.Set remove -> MemLoc.Set.iter print_minus remove
-	      | S.Neg remove -> print_endline "-infinity"
-	    end
-	  end
+        let a = Domain.eval a ap in
+        let b = Domain.eval b ap in
+        let add = Domain.S.diff a b in
+        let remove = Domain.S.diff b a in
+        let diff = Domain.S.union add remove in
+        if not (Domain.S.equal diff (S.Set MemLoc.Set.empty))
+        then begin
+          incr change_count;
+          print_endline ("diff @ " ^ (Def.show def)
+                         ^ " ap: " ^ (AP.show ap));
+          begin match add with
+            | S.Set add -> MemLoc.Set.iter print_plus add
+            | S.Neg add -> print_endline "+infinity"
+          end;
+          begin match remove with
+            | S.Set remove -> MemLoc.Set.iter print_minus remove
+            | S.Neg remove -> print_endline "-infinity"
+          end
+        end
       in
-	AP.Set.iter go_ap (Def.get_uses def)
+      AP.Set.iter go_ap (Def.get_uses def)
     with _ -> Log.debug ("No b output at : " ^ (Def.show def))
   in
-    BatEnum.iter go (Solve.S.enum_output a);
-    print_endline ("Total diff count: " ^ (string_of_int (!change_count)))
+  BatEnum.iter go (Solve.S.enum_output a);
+  print_endline ("Total diff count: " ^ (string_of_int (!change_count)))
 
 let _ =
   let go file = analyze (AliasLogic.construct_dg file) in

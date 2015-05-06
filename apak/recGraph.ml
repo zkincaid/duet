@@ -71,7 +71,7 @@ struct
   let block_entry rg block = (M.find block rg).bentry
   let block_exit rg block = (M.find block rg).bexit
   let block_body rg block = (M.find block rg).bbody
-(*  let block_body rg block = try (M.find block rg).bbody with Not_found -> failwith ("Couldn't find block " ^ (Block.show block))*)
+  (*  let block_body rg block = try (M.find block rg).bbody with Not_found -> failwith ("Couldn't find block " ^ (Block.show block))*)
   let blocks = M.keys
   let bodies rg = M.enum rg /@ (fun (block, def) -> (block, def.bbody))
   let vertices rg =
@@ -92,7 +92,7 @@ struct
 end
 
 module Callgraph
-  (R : S with type ('a, 'b) typ = ('a, 'b) par_typ) =
+    (R : S with type ('a, 'b) typ = ('a, 'b) par_typ) =
 struct
   module CG = ExtGraph.Persistent.Digraph.Make(R.Block)
   module U = ExtGraph.Unfold.Make(CG)
@@ -100,15 +100,15 @@ struct
   let callgraph rg root =
     let succ block =
       let f v = match R.classify v with
-	| `Atom _  -> None
-	| `Block b | `ParBlock b -> Some b
+        | `Atom _  -> None
+        | `Block b | `ParBlock b -> Some b
       in
       try BatEnum.filter_map f (R.G.vertices (R.block_body rg block))
       with Not_found -> begin
-	Log.errorf "Warning: could not find definition for block `%a`"
-	  R.Block.format block;
-	BatEnum.empty ()
-      end
+          Log.errorf "Warning: could not find definition for block `%a`"
+            R.Block.format block;
+          BatEnum.empty ()
+        end
     in
     U.unfold root succ
 end
@@ -116,10 +116,10 @@ end
 module LiftPar(R : S with type ('a, 'b) typ = ('a, 'b) seq_typ) = struct
   type ('a, 'b) typ = ('a, 'b) par_typ
   include (R : S with type ('a, 'b) typ := ('a, 'b) seq_typ
-		 and module G = R.G
-		 and module Block = R.Block
-		 and type t = R.t
-		 and type atom = R.atom
-		 and type block = R.block)
+                  and module G = R.G
+                  and module Block = R.Block
+                  and type t = R.t
+                  and type atom = R.atom
+                  and type block = R.block)
   let classify x = (classify x :> (atom, block) par_typ)
 end

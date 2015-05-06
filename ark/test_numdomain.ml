@@ -59,7 +59,7 @@ let box () =
   let phi = T.zero <= x && x <= y && y <= T.one in
   let psi = F.of_abstract (F.abstract box phi) in
   let psi2 =
-       T.zero <= x && x <= T.one
+    T.zero <= x && x <= T.one
     && T.zero <= y && y <= T.one
   in
   assert_equal ~cmp:F.equiv ~printer:F.show psi psi2
@@ -69,8 +69,8 @@ let env1 () =
   let y = T.var "y" in
   let z = T.var "z" in
   let psi1 = F.of_abstract (D.meet
-			      (F.abstract man (x <= y))
-			      (F.abstract man (y <= z)))
+                              (F.abstract man (x <= y))
+                              (F.abstract man (y <= z)))
   in
   let psi2 = F.of_abstract (F.abstract man (x <= y && y <= z)) in
   assert_equal ~cmp:F.equiv ~printer:F.show psi2 psi1
@@ -81,8 +81,8 @@ let env2 () =
   let y = T.var "y" in
   let z = T.var "z" in
   let psi1 = F.of_abstract (D.join
-			      (F.abstract man (x <= z && w <= x))
-			      (F.abstract man (x <= z && y < z)))
+                              (F.abstract man (x <= z && w <= x))
+                              (F.abstract man (x <= z && y < z)))
   in
   let psi2 = F.of_abstract (F.abstract man (x <= z)) in
   assert_equal ~cmp:F.equiv ~printer:F.show psi2 psi1
@@ -151,8 +151,8 @@ let assert_eval_equal t =
   in
   match Interval.const_of apron_ivl with
   | Some apron_val ->
-     let ark_val = T.evaluate (fun _ -> assert false) t in
-     assert_equal ~cmp:QQ.equal ~printer:QQ.show apron_val ark_val
+    let ark_val = T.evaluate (fun _ -> assert false) t in
+    assert_equal ~cmp:QQ.equal ~printer:QQ.show apron_val ark_val
   | None -> assert false
 
 
@@ -174,19 +174,19 @@ let div () =
   assert_eval_equal expr3
 
 let suite = "Numerical" >:::
-  [
-    "roundtrip1" >:: roundtrip1;
-    "roundtrip2" >:: roundtrip2;
-    "roundtrip3" >:: roundtrip3;
-    "abstract1" >:: abstract1;
-    "box" >:: box;
-    "env1" >:: env1;
-    "env2" >:: env2;
-    "assign1" >:: assign1;
-    "assign2" >:: assign2;
-    "assign3" >:: assign3;
-    "symbound1" >:: symbound1;
-    "symbound2" >:: symbound2;
-    "modulo" >:: modulo;
-    "div" >:: div
-  ]
+            [
+              "roundtrip1" >:: roundtrip1;
+              "roundtrip2" >:: roundtrip2;
+              "roundtrip3" >:: roundtrip3;
+              "abstract1" >:: abstract1;
+              "box" >:: box;
+              "env1" >:: env1;
+              "env2" >:: env2;
+              "assign1" >:: assign1;
+              "assign2" >:: assign2;
+              "assign3" >:: assign3;
+              "symbound1" >:: symbound1;
+              "symbound2" >:: symbound2;
+              "modulo" >:: modulo;
+              "div" >:: div
+            ]

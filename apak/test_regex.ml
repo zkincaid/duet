@@ -11,13 +11,13 @@ let parse str =
   in
   let seq f g pos =
     match f pos with
-      | (Some (x, pos)) -> g x pos
-      | None            -> None
+    | (Some (x, pos)) -> g x pos
+    | None            -> None
   in
   let alt f g pos =
     match f pos with
-      | None -> g pos
-      | x    -> x
+    | None -> g pos
+    | x    -> x
   in
   let seq0 f g = seq f (fun _ -> g) in
   let char x =
@@ -41,16 +41,16 @@ let parse str =
   in
   let alpha =
     seq next_char (fun x ->
-		     if Char.code x >= 97 && Char.code x <= 122
-		     then ret (Alpha x)
-		     else fail)
+        if Char.code x >= 97 && Char.code x <= 122
+        then ret (Alpha x)
+        else fail)
   in
   let rec factor pos = alt (paren plus) alpha pos
   and star pos =
     alt
       (seq
-	 factor
-	 (fun x -> seq0 (char '*') (ret (Star x))))
+         factor
+         (fun x -> seq0 (char '*') (ret (Star x))))
       factor
       pos
   and cat pos =
@@ -64,18 +64,18 @@ let parse str =
       (fun xs -> ret (List.fold_right regex_add xs Empty))
       pos
   in
-    match plus 0 with
-      | Some (x, pos) ->
-	  if pos = str_len then Some x else None
-      | None          -> None
+  match plus 0 with
+  | Some (x, pos) ->
+    if pos = str_len then Some x else None
+  | None          -> None
 
 module NR = NormalizedRegex(struct
-			      type t = char deriving (Show,Compare)
-			      let format = Show_t.format
-			      let show = Show_t.show
-			      let compare = Pervasives.compare
-			      let consistent = (=)
-			    end)
+    type t = char deriving (Show,Compare)
+    let format = Show_t.format
+    let show = Show_t.show
+    let compare = Pervasives.compare
+    let consistent = (=)
+  end)
 
 let intersects x y = NR.intersects (NR.normalize x) (NR.normalize y)
 
@@ -86,39 +86,39 @@ let norm_string regex = NR.show regex
 
 let must_parse x =
   match parse x with
-    | Some y -> y
-    | None -> failwith ("Failed to parse " ^ x)
+  | Some y -> y
+  | None -> failwith ("Failed to parse " ^ x)
 
 let test_parse () =
   let check x y =
     assert_equal ~printer:regex_string (must_parse x) (must_parse y)
   in
-    check "abc" "a(bc)";
-    check "a+b+c" "a+(b+c)";
-    check "a(bc+d)ef*" "a(((bc)+d)(e(f*)))";
-    check "ba*+(ab)*" "(b(a*))+(ab)*";
-    check "(a+ab)*+b(a+ab)*" "(a+ab)*+b((a+ab)*)";
-    check "(a+ab)*+(z(a+ab)*z)" "(a+(ab))*+(z((a+(ab))*z))";
-    check "ab+ba+a+a*b+ba*+(ab)*" "(ab)+((ba)+(a+(((a*)b)+((b(a*))+(ab)*))))"
+  check "abc" "a(bc)";
+  check "a+b+c" "a+(b+c)";
+  check "a(bc+d)ef*" "a(((bc)+d)(e(f*)))";
+  check "ba*+(ab)*" "(b(a*))+(ab)*";
+  check "(a+ab)*+b(a+ab)*" "(a+ab)*+b((a+ab)*)";
+  check "(a+ab)*+(z(a+ab)*z)" "(a+(ab))*+(z((a+(ab))*z))";
+  check "ab+ba+a+a*b+ba*+(ab)*" "(ab)+((ba)+(a+(((a*)b)+((b(a*))+(ab)*))))"
 
 let parse_norm x = NR.normalize (must_parse x)
 
 let test_norm () =
   let assert_equal = assert_equal ~cmp:NR.equal ~printer:norm_string in
-    assert_equal (parse_norm "a+b+c") (parse_norm "c+b+a");
-    assert_equal (parse_norm "a*+b+a*") (parse_norm "b+a*");
-    assert_equal (parse_norm "(a+(a+a))*+a*") (parse_norm "a*")
+  assert_equal (parse_norm "a+b+c") (parse_norm "c+b+a");
+  assert_equal (parse_norm "a*+b+a*") (parse_norm "b+a*");
+  assert_equal (parse_norm "(a+(a+a))*+a*") (parse_norm "a*")
 
 let test_derivative () =
   let assert_equal = assert_equal ~cmp:NR.equal ~printer:norm_string in
-    assert_equal (parse_norm "b") (NR.derivative 'a' (parse_norm "ab"));
-    assert_equal (parse_norm "bb") (NR.derivative 'a' (parse_norm "abb"));
-    assert_equal (NR.derivative 'a' (parse_norm "ba")) NR.zero;
-    assert_equal (parse_norm "c+b") (NR.derivative 'a' (parse_norm "ab+ac"));
-    assert_equal (parse_norm "b(ab)*") (NR.derivative 'a' (parse_norm "(ab)*"));
-    assert_equal
-      (NR.derivative 'a' (parse_norm "(a+ab)*"))
-      (NR.derivative 'a' (NR.derivative 'a' (parse_norm "(a+ab)*")))
+  assert_equal (parse_norm "b") (NR.derivative 'a' (parse_norm "ab"));
+  assert_equal (parse_norm "bb") (NR.derivative 'a' (parse_norm "abb"));
+  assert_equal (NR.derivative 'a' (parse_norm "ba")) NR.zero;
+  assert_equal (parse_norm "c+b") (NR.derivative 'a' (parse_norm "ab+ac"));
+  assert_equal (parse_norm "b(ab)*") (NR.derivative 'a' (parse_norm "(ab)*"));
+  assert_equal
+    (NR.derivative 'a' (parse_norm "(a+ab)*"))
+    (NR.derivative 'a' (NR.derivative 'a' (parse_norm "(a+ab)*")))
 
 let test_intersect () =
   let parse_intersect x y = intersects (must_parse x) (must_parse y) in
@@ -128,16 +128,16 @@ let test_intersect () =
   let check_not x y =
     assert_bool ("!intersects " ^ x ^ ", " ^ y) (not (parse_intersect x y))
   in
-    check "a" "a";
-    check_not "a" "b";
-    check "ab*" "abbbb";
-    check "a*" "z*";
-    check_not "(aa)*" "aaaaaaa";
-    check "(aa)*" "aaaaaaaa";
-    check "(a+b)(c+d)*(e+f)" "(b+c)*f";
-    check_not "(a+b)(c+d)*(e+f)" "(a+b+c)d*";
-    check_not "a*(ab)*a*" "baa";
-    check "(a*b+aa*+a*b*c)*" "(baa*)(baa*)*b"
+  check "a" "a";
+  check_not "a" "b";
+  check "ab*" "abbbb";
+  check "a*" "z*";
+  check_not "(aa)*" "aaaaaaa";
+  check "(aa)*" "aaaaaaaa";
+  check "(a+b)(c+d)*(e+f)" "(b+c)*f";
+  check_not "(a+b)(c+d)*(e+f)" "(a+b+c)d*";
+  check_not "a*(ab)*a*" "baa";
+  check "(a*b+aa*+a*b*c)*" "(baa*)(baa*)*b"
 
 let test_eqv () =
   let assert_equal = assert_equal ~cmp:NR.eqv ~printer:norm_string in
@@ -146,18 +146,18 @@ let test_eqv () =
       ("not equivalent: " ^ (norm_string x) ^ ", " ^ (norm_string y))
       (not (NR.eqv x y))
   in
-    assert_equal (parse_norm "aa*") (parse_norm "a*a");
-    assert_equal (parse_norm "(a*+b*)*") (parse_norm "(a+b)*");
-    assert_equal (parse_norm "(a+b+c+d)*") (parse_norm "(a*b*c*d*)*");
-    assert_nequal (parse_norm "(a*+b*)*") (parse_norm "(a+b)(a+b)*");
-    assert_nequal (parse_norm "a*((b+c)*+d)*a") (parse_norm ("a*(b+c)*d*a"));
-    assert_nequal (parse_norm "a*b*(c*d*)*") (parse_norm ("a*b*(cd)*"))
+  assert_equal (parse_norm "aa*") (parse_norm "a*a");
+  assert_equal (parse_norm "(a*+b*)*") (parse_norm "(a+b)*");
+  assert_equal (parse_norm "(a+b+c+d)*") (parse_norm "(a*b*c*d*)*");
+  assert_nequal (parse_norm "(a*+b*)*") (parse_norm "(a+b)(a+b)*");
+  assert_nequal (parse_norm "a*((b+c)*+d)*a") (parse_norm ("a*(b+c)*d*a"));
+  assert_nequal (parse_norm "a*b*(c*d*)*") (parse_norm ("a*b*(cd)*"))
 
 let suite = "Regex" >:::
-  [
-    "parse" >:: test_parse;
-    "normalized" >:: test_norm;
-    "derivative" >:: test_derivative;
-    "intersect" >:: test_intersect;
-    "equivalence" >:: test_eqv;
-  ]
+            [
+              "parse" >:: test_parse;
+              "normalized" >:: test_norm;
+              "derivative" >:: test_derivative;
+              "intersect" >:: test_intersect;
+              "equivalence" >:: test_eqv;
+            ]

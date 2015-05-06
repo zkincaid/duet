@@ -29,9 +29,9 @@ module V = struct
 end
 
 type cmd =
-| Assign of StrVar.t * K.T.t
-| Assume of K.F.t
-    deriving (Show,Compare)
+  | Assign of StrVar.t * K.T.t
+  | Assume of K.F.t
+        deriving (Show,Compare)
 module CmdSyntax = struct
   let ( := ) x y = Assign (x, y)
   let ( ?! ) x = Assume x
@@ -61,25 +61,25 @@ let run_test graph src tgt =
   let res = A.path_expr graph weight src tgt in
   let s = new Smt.solver in
   fun phi expected -> begin
-    s#push ();
-    let mk () = K.V.mk_tmp "nonlin" TyReal in
-    Log.logf "Nonlin path condition:@\n%a" K.F.format
-      (K.F.conj (K.to_formula res) (K.F.negate phi));
-    let path_condition =
-      K.F.linearize mk (K.F.conj (K.to_formula res) (K.F.negate phi))
-    in
-    Log.logf "Path condition:@\n%a" K.F.format path_condition;
-    s#assrt (K.F.to_smt path_condition);
-    assert_equal ~printer:Show.show<Smt.lbool> expected (s#check());
-    s#pop ();
-  end
+      s#push ();
+      let mk () = K.V.mk_tmp "nonlin" TyReal in
+      Log.logf "Nonlin path condition:@\n%a" K.F.format
+        (K.F.conj (K.to_formula res) (K.F.negate phi));
+      let path_condition =
+        K.F.linearize mk (K.F.conj (K.to_formula res) (K.F.negate phi))
+      in
+      Log.logf "Path condition:@\n%a" K.F.format path_condition;
+      s#assrt (K.F.to_smt path_condition);
+      assert_equal ~printer:Show.show<Smt.lbool> expected (s#check());
+      s#pop ();
+    end
 
 let mk_graph edges =
   let add_edge g (src, label, tgt) =
     G.add_edge_e g (G.E.create src label tgt)
   in
   List.fold_left add_edge G.empty edges
-    
+
 let counter =
   let edges =
     [(0, Assume (K.F.gt (var "n") (const 0)), 1);       (* [n > 0] *)
@@ -263,8 +263,8 @@ let test_sum03_safe () =
   let open CmdSyntax in
   let phi =
     (var "sn'") == ((var "x'") * (~@ (QQ.of_int 2)))
-  (* this disjunt appears in sum03_safe, but isn't needed *)
-  (*    || (~$ "sn'") == (~@ 0)*)
+    (* this disjunt appears in sum03_safe, but isn't needed *)
+    (*    || (~$ "sn'") == (~@ 0)*)
   in
   set_opt_simple ();
   run_test sum03_safe 0 4 phi Smt.Unsat
@@ -329,9 +329,9 @@ let test_third_order_safe () =
   in
   let phi2 =
     (var "ssn'") ==
-      ((var "n")*((var "n")*(var "n"))) / (~@ (QQ.of_int 6))
-      + ((var "n")*(var "n")) / (~@ (QQ.of_int 2))
-      + ((var "n") / (~@ (QQ.of_int 3)))
+    ((var "n")*((var "n")*(var "n"))) / (~@ (QQ.of_int 6))
+    + ((var "n")*(var "n")) / (~@ (QQ.of_int 2))
+    + ((var "n") / (~@ (QQ.of_int 3)))
     || (var "ssn'") == (~@ QQ.zero)
   in
   set_opt_polyrec ();
@@ -377,14 +377,14 @@ module SymBound = struct
     let rtmp = var "rtmp" in
     let prog =
       block [
-	K.assign "rx" (~@ 0);
-	K.assign "ry" (~@ 0);
-	while_loop (rx < (~@ 10)) [
-	  K.assign "rtmp" (K.T.var (K.V.mk_tmp "havoc" TyReal));
-	  K.assume (ry - (frac 1 3) <= rtmp && rtmp < ry + (frac 1 7));
-	  K.assign "ry" rtmp;
-	  K.assign "rx" (rx + (~@ 1))
-	]
+        K.assign "rx" (~@ 0);
+        K.assign "ry" (~@ 0);
+        while_loop (rx < (~@ 10)) [
+          K.assign "rtmp" (K.T.var (K.V.mk_tmp "havoc" TyReal));
+          K.assume (ry - (frac 1 3) <= rtmp && rtmp < ry + (frac 1 7));
+          K.assign "ry" rtmp;
+          K.assign "rx" (rx + (~@ 1))
+        ]
       ]
     in
     let s = new Smt.solver in
@@ -413,17 +413,17 @@ module SymBound = struct
     let decr = (~@ 1) / (~@ 10) in
     let prog =
       block [
-	K.assume ((~@ 0) <= rx && rx <= (~@ 1000));
-	K.assign "reps" (~@ 0);
-	while_loop ((rx > (~@ 0)) && (rx + reps > (~@ 0))) [
-	  K.assume (reps <= (~@ 1) && reps >= (~@ -1));
-	  K.assign "rt" (rx + reps - decr + (decr * mu));
-	  K.assign "rtmp" (K.T.var (K.V.mk_tmp "havoc" TyReal));
-	  K.assume ((rt - (rt * mu) - rx + decr <= rtmp)
-		    && (rtmp <= rt + (rt * mu) - rx + decr));
-	  K.assign "reps" rtmp;
-	  K.assign "rx" (rx - decr)
-	]
+        K.assume ((~@ 0) <= rx && rx <= (~@ 1000));
+        K.assign "reps" (~@ 0);
+        while_loop ((rx > (~@ 0)) && (rx + reps > (~@ 0))) [
+          K.assume (reps <= (~@ 1) && reps >= (~@ -1));
+          K.assign "rt" (rx + reps - decr + (decr * mu));
+          K.assign "rtmp" (K.T.var (K.V.mk_tmp "havoc" TyReal));
+          K.assume ((rt - (rt * mu) - rx + decr <= rtmp)
+                    && (rtmp <= rt + (rt * mu) - rx + decr));
+          K.assign "reps" rtmp;
+          K.assign "rx" (rx - decr)
+        ]
       ]
     in
     let s = new Smt.solver in
@@ -432,7 +432,7 @@ module SymBound = struct
     let check phi expected =
       s#push ();
       s#assrt (K.F.to_smt (K.F.linearize mk (K.to_formula prog
-					     && K.F.negate phi)));
+                                             && K.F.negate phi)));
       assert_equal ~printer:Show.show<Smt.lbool> expected (s#check());
       s#pop ();
     in
@@ -442,8 +442,8 @@ module SymBound = struct
 end
 
 module Bound = struct
-(*  module K = Transition.MakeBound(StrVar)*)
-(*  module A = Pathexp.MakeElim(G)(K)*)
+  (*  module K = Transition.MakeBound(StrVar)*)
+  (*  module A = Pathexp.MakeElim(G)(K)*)
   module T = K.T
   module F = K.F
   let frac x y = K.T.const (QQ.of_frac x y)
@@ -462,14 +462,14 @@ module Bound = struct
     let rtmp = var "rtmp" in
     let prog =
       block [
-	K.assign "rx" (~@ 0);
-	K.assign "ry" (~@ 0);
-	while_loop (rx < (~@ 10)) [
-	  K.assign "rtmp" (K.T.var (K.V.mk_tmp "havoc" TyReal));
-	  K.assume (ry - (frac 1 3) <= rtmp && rtmp < ry + (frac 1 7));
-	  K.assign "ry" rtmp;
-	  K.assign "rx" (rx + (~@ 1))
-	]
+        K.assign "rx" (~@ 0);
+        K.assign "ry" (~@ 0);
+        while_loop (rx < (~@ 10)) [
+          K.assign "rtmp" (K.T.var (K.V.mk_tmp "havoc" TyReal));
+          K.assume (ry - (frac 1 3) <= rtmp && rtmp < ry + (frac 1 7));
+          K.assign "ry" rtmp;
+          K.assign "rx" (rx + (~@ 1))
+        ]
       ]
     in
     let s = new Smt.solver in
@@ -500,18 +500,18 @@ module Bound = struct
     let rtmp = var "rtmp" in
     let prog =
       block [
-	K.assign "rx" (~@ 0);
-	K.assign "ry" (~@ 0);
-	while_loop (rx < (~@ 2)) [
-	  K.assign "rz" (~@ 0);
-	  while_loop (rz < (~@ 5)) [
-	    K.assign "rtmp" (K.T.var (K.V.mk_tmp "havoc" TyReal));
-	    K.assume (ry - (frac 1 3) <= rtmp && rtmp <= ry + (frac 1 7));
-	    K.assign "ry" rtmp;
-	    K.assign "rz" (rz + (~@ 1));
-	  ];
-	  K.assign "rx" (rx + (~@ 1))
-	]
+        K.assign "rx" (~@ 0);
+        K.assign "ry" (~@ 0);
+        while_loop (rx < (~@ 2)) [
+          K.assign "rz" (~@ 0);
+          while_loop (rz < (~@ 5)) [
+            K.assign "rtmp" (K.T.var (K.V.mk_tmp "havoc" TyReal));
+            K.assume (ry - (frac 1 3) <= rtmp && rtmp <= ry + (frac 1 7));
+            K.assign "ry" rtmp;
+            K.assign "rz" (rz + (~@ 1));
+          ];
+          K.assign "rx" (rx + (~@ 1))
+        ]
       ]
     in
     let s = new Smt.solver in
@@ -538,20 +538,20 @@ module Bound = struct
     let rz = var "rz" in
     let prog =
       block [
-	K.assign "rz" (~@ 0);
-	K.assume (rx > (~@ 0));
-	while_loop (rx >= (~@ 0)) [
-	  K.assign "ry" (~@ 0);
-	  while_loop (ry < (~@ 1)) [
-	    K.assign "ry" (ry + (frac 1 10));
-	    K.assign "rz" (rz + (frac 1 2))
-	  ];
-	  while_loop (ry > (~@ 0)) [
-	    K.assign "ry" (ry - (frac 1 10));
-	    K.assign "rz" (rz - (frac 1 2))
-	  ];
-	  K.assign "rx" (rx - (~@ 1));
-	]
+        K.assign "rz" (~@ 0);
+        K.assume (rx > (~@ 0));
+        while_loop (rx >= (~@ 0)) [
+          K.assign "ry" (~@ 0);
+          while_loop (ry < (~@ 1)) [
+            K.assign "ry" (ry + (frac 1 10));
+            K.assign "rz" (rz + (frac 1 2))
+          ];
+          while_loop (ry > (~@ 0)) [
+            K.assign "ry" (ry - (frac 1 10));
+            K.assign "rz" (rz - (frac 1 2))
+          ];
+          K.assign "rx" (rx - (~@ 1));
+        ]
       ]
     in
     let s = new Smt.solver in
@@ -578,7 +578,7 @@ module Polyrec = struct
   let block = BatList.reduce K.mul
   let while_loop cond body =
     K.mul (K.star (block ((K.assume cond)::body))) (K.assume (F.negate cond))
-    
+
 
   let test_const_bounds () =
     let open K.T.Syntax in
@@ -590,14 +590,14 @@ module Polyrec = struct
     let rtmp = var "rtmp" in
     let prog =
       block [
-	K.assign "rx" (~@ 0);
-	K.assign "ry" (~@ 0);
-	while_loop (rx < (~@ 10)) [
-	  K.assign "rtmp" (K.T.var (K.V.mk_tmp "havoc" TyReal));
-	  K.assume (ry - (frac 1 3) <= rtmp && rtmp < ry + (frac 1 7));
-	  K.assign "ry" rtmp;
-	  K.assign "rx" (rx + (~@ 1))
-	]
+        K.assign "rx" (~@ 0);
+        K.assign "ry" (~@ 0);
+        while_loop (rx < (~@ 10)) [
+          K.assign "rtmp" (K.T.var (K.V.mk_tmp "havoc" TyReal));
+          K.assume (ry - (frac 1 3) <= rtmp && rtmp < ry + (frac 1 7));
+          K.assign "ry" rtmp;
+          K.assign "rx" (rx + (~@ 1))
+        ]
       ]
     in
     let s = new Smt.solver in
@@ -605,7 +605,7 @@ module Polyrec = struct
       s#push ();
       let mk () = K.V.mk_tmp "nonlin" TyReal in
       let path_condition =
-	K.F.linearize mk (K.F.conj (K.to_formula prog) (K.F.negate phi))
+        K.F.linearize mk (K.F.conj (K.to_formula prog) (K.F.negate phi))
       in
       s#assrt (F.to_smt path_condition);
       assert_equal ~printer:Show.show<Smt.lbool> expected (s#check());
@@ -626,18 +626,18 @@ module Polyrec = struct
     let rtmp = var "rtmp" in
     let prog =
       block [
-	K.assign "rx" (~@ 0);
-	K.assign "ry" (~@ 0);
-	while_loop (rx < (~@ 2)) [
-	  K.assign "rz" (~@ 0);
-	  while_loop (rz < (~@ 5)) [
-	    K.assign "rtmp" (K.T.var (K.V.mk_tmp "havoc" TyReal));
-	    K.assume (ry - (frac 1 3) <= rtmp && rtmp <= ry + (frac 1 7));
-	    K.assign "ry" rtmp;
-	    K.assign "rz" (rz + (~@ 1));
-	  ];
-	  K.assign "rx" (rx + (~@ 1))
-	]
+        K.assign "rx" (~@ 0);
+        K.assign "ry" (~@ 0);
+        while_loop (rx < (~@ 2)) [
+          K.assign "rz" (~@ 0);
+          while_loop (rz < (~@ 5)) [
+            K.assign "rtmp" (K.T.var (K.V.mk_tmp "havoc" TyReal));
+            K.assume (ry - (frac 1 3) <= rtmp && rtmp <= ry + (frac 1 7));
+            K.assign "ry" rtmp;
+            K.assign "rz" (rz + (~@ 1));
+          ];
+          K.assign "rx" (rx + (~@ 1))
+        ]
       ]
     in
     let s = new Smt.solver in
@@ -646,7 +646,7 @@ module Polyrec = struct
       s#push ();
       let mk () = K.V.mk_tmp "nonlin" TyReal in
       let path_condition =
-	K.F.linearize mk (K.F.conj (K.to_formula prog) (K.F.negate phi))
+        K.F.linearize mk (K.F.conj (K.to_formula prog) (K.F.negate phi))
       in
       s#assrt (F.to_smt path_condition);
       assert_equal ~printer:Show.show<Smt.lbool> expected (s#check());
@@ -657,8 +657,8 @@ module Polyrec = struct
     check (var "ry'" < (frac 10 7)) Smt.Sat;
     check (var "ry'" > T.neg (frac 10 3)) Smt.Sat
 
-(* k/3 <= (ry' - ry) <= k/7 *)
-(* 7ry' - 7ry - k <= 0 *)
+  (* k/3 <= (ry' - ry) <= k/7 *)
+  (* 7ry' - 7ry - k <= 0 *)
 
   let test_nested_unbounded () =
     let open K.T.Syntax in
@@ -670,20 +670,20 @@ module Polyrec = struct
     let rz = var "rz" in
     let prog =
       block [
-	K.assign "rz" (~@ 0);
-	K.assume (rx > (~@ 0));
-	while_loop (rx >= (~@ 0)) [
-	  K.assign "ry" (~@ 0);
-	  while_loop (ry < (~@ 1)) [
-	    K.assign "ry" (ry + (frac 1 10));
-	    K.assign "rz" (rz + (frac 1 2))
-	  ];
-	  while_loop (ry > (~@ 0)) [
-	    K.assign "ry" (ry - (frac 1 10));
-	    K.assign "rz" (rz - (frac 1 2))
-	  ];
-	  K.assign "rx" (rx - (~@ 1));
-	]
+        K.assign "rz" (~@ 0);
+        K.assume (rx > (~@ 0));
+        while_loop (rx >= (~@ 0)) [
+          K.assign "ry" (~@ 0);
+          while_loop (ry < (~@ 1)) [
+            K.assign "ry" (ry + (frac 1 10));
+            K.assign "rz" (rz + (frac 1 2))
+          ];
+          while_loop (ry > (~@ 0)) [
+            K.assign "ry" (ry - (frac 1 10));
+            K.assign "rz" (rz - (frac 1 2))
+          ];
+          K.assign "rx" (rx - (~@ 1));
+        ]
       ]
     in
     let s = new Smt.solver in
@@ -691,7 +691,7 @@ module Polyrec = struct
       s#push ();
       let mk () = K.V.mk_tmp "nonlin" TyReal in
       let path_condition =
-	K.F.linearize mk (K.F.conj (K.to_formula prog) (K.F.negate phi))
+        K.F.linearize mk (K.F.conj (K.to_formula prog) (K.F.negate phi))
       in
       s#assrt (F.to_smt path_condition);
       assert_equal ~printer:Show.show<Smt.lbool> expected (s#check());
@@ -715,17 +715,17 @@ module Polyrec = struct
     let decr = (~@ 1) / (~@ 10) in
     let prog =
       block [
-	K.assume ((~@ 0) <= rx && rx <= (~@ 1000));
-	K.assign "reps" (~@ 0);
-	while_loop ((rx > (~@ 0)) && (rx + reps > (~@ 0))) [
-	  K.assume (reps <= (~@ 1) && reps >= (~@ -1));
-	  K.assign "rt" (rx + reps - decr + (decr * mu));
-	  K.assign "rtmp" (K.T.var (K.V.mk_tmp "havoc" TyReal));
-	  K.assume ((rt - (rt * mu) - rx + decr <= rtmp)
-		    && (rtmp <= rt + (rt * mu) - rx + decr));
-	  K.assign "reps" rtmp;
-	  K.assign "rx" (rx - decr)
-	]
+        K.assume ((~@ 0) <= rx && rx <= (~@ 1000));
+        K.assign "reps" (~@ 0);
+        while_loop ((rx > (~@ 0)) && (rx + reps > (~@ 0))) [
+          K.assume (reps <= (~@ 1) && reps >= (~@ -1));
+          K.assign "rt" (rx + reps - decr + (decr * mu));
+          K.assign "rtmp" (K.T.var (K.V.mk_tmp "havoc" TyReal));
+          K.assume ((rt - (rt * mu) - rx + decr <= rtmp)
+                    && (rtmp <= rt + (rt * mu) - rx + decr));
+          K.assign "reps" rtmp;
+          K.assign "rx" (rx - decr)
+        ]
       ]
     in
     let s = new Smt.solver in
@@ -734,7 +734,7 @@ module Polyrec = struct
     let check phi expected =
       s#push ();
       s#assrt (K.F.to_smt (K.F.linearize mk (K.to_formula prog
-					     && K.F.negate phi)));
+                                             && K.F.negate phi)));
       assert_equal ~printer:Show.show<Smt.lbool> expected (s#check());
       s#pop ();
     in
@@ -753,13 +753,13 @@ module Polyrec = struct
     let i = var "i" in
     let prog =
       block [
-	K.assume (x >= (~@ 0));
-	K.assign "i" (~@ 0);
-	K.assign "z" (~@ 0);
-	while_loop (i < x) [
-	  K.assign "i" (i + (~@ 1));
-	  K.assign "z" (z + y);
-	];
+        K.assume (x >= (~@ 0));
+        K.assign "i" (~@ 0);
+        K.assign "z" (~@ 0);
+        while_loop (i < x) [
+          K.assign "i" (i + (~@ 1));
+          K.assign "z" (z + y);
+        ];
       ]
     in
     let s = new Smt.solver in
@@ -768,7 +768,7 @@ module Polyrec = struct
     let check phi expected =
       s#push ();
       s#assrt (K.F.to_smt (K.F.linearize mk (K.to_formula prog
-					     && K.F.negate phi)));
+                                             && K.F.negate phi)));
       assert_equal ~printer:Show.show<Smt.lbool> expected (s#check());
       s#pop ();
     in
@@ -778,26 +778,26 @@ end
 
 
 let suite = "Transition" >:::
-  [
-    "counter" >:: test_counter;
-    "count_up_down_safe" >:: test_count_up_down_safe;
-    "sum01_safe" >:: test_sum01_safe;
-    "sum01_unsafe" >:: test_sum01_unsafe;
-    "sum02_safe" >:: test_sum02_safe;
-    "sum03_safe" >:: test_sum03_safe;
-    "sum03_unsafe" >:: test_sum03_unsafe;
-    "third_order_safe" >:: test_third_order_safe;
-    "widen" >:: test_widen;
+            [
+              "counter" >:: test_counter;
+              "count_up_down_safe" >:: test_count_up_down_safe;
+              "sum01_safe" >:: test_sum01_safe;
+              "sum01_unsafe" >:: test_sum01_unsafe;
+              "sum02_safe" >:: test_sum02_safe;
+              "sum03_safe" >:: test_sum03_safe;
+              "sum03_unsafe" >:: test_sum03_unsafe;
+              "third_order_safe" >:: test_third_order_safe;
+              "widen" >:: test_widen;
 
-    "symbound_const" >:: SymBound.test_const_bounds;
-    "symbound_symbolic" >:: SymBound.test_symbolic_bounds;
-    "bound_const" >:: Bound.test_const_bounds;
-    "nested" >:: Bound.test_nested;
-    "nested_unbounded" >:: Bound.test_nested_unbounded;
+              "symbound_const" >:: SymBound.test_const_bounds;
+              "symbound_symbolic" >:: SymBound.test_symbolic_bounds;
+              "bound_const" >:: Bound.test_const_bounds;
+              "nested" >:: Bound.test_nested;
+              "nested_unbounded" >:: Bound.test_nested_unbounded;
 
-    "polyrec_bound_const" >:: Polyrec.test_const_bounds;
-    "polyrec_nested" >:: Polyrec.test_nested;
-    "polyrec_nested_unbounded" >:: Polyrec.test_nested_unbounded;
-    "polyrec_symbolic" >:: Polyrec.test_symbolic_bounds;
-    "polyrec_mult" >:: Polyrec.test_mult;
-  ]
+              "polyrec_bound_const" >:: Polyrec.test_const_bounds;
+              "polyrec_nested" >:: Polyrec.test_nested;
+              "polyrec_nested_unbounded" >:: Polyrec.test_nested_unbounded;
+              "polyrec_symbolic" >:: Polyrec.test_symbolic_bounds;
+              "polyrec_mult" >:: Polyrec.test_mult;
+            ]

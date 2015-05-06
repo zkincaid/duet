@@ -21,7 +21,7 @@ module type S = sig
   module V : Var
   module D : NumDomain.S with type var = V.t
   module Linterm : Linear.Affine.S with type var = V.t
-				   and type base = QQ.t
+                                    and type base = QQ.t
   module Set : Putil.Set.S with type elt = t
 
   (** {2 Term constructors} *)

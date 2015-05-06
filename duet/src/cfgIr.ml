@@ -28,8 +28,8 @@ module Cfg = struct
     let max_rank = ref 0 in
     let set_rank x =
       if not (Def.HT.mem rank x) then begin
-	Def.HT.add rank x (!max_rank);
-	max_rank := !max_rank + 1
+        Def.HT.add rank x (!max_rank);
+        max_rank := !max_rank + 1
       end
     in
     Dfs.postfix set_rank cfg; (* postorder *)
@@ -117,31 +117,31 @@ end
 let insert_pre u v cfg =
   let add_edge u v = Cfg.add_edge cfg u v in
   let rem_edge u v = Cfg.remove_edge cfg u v in
-    if not (Cfg.mem_vertex cfg u) then
-      begin
-        Cfg.add_vertex cfg u;
-        Cfg.iter_pred (fun x -> rem_edge x v; add_edge x u) cfg v;
-        add_edge u v
-      end
-    else failwith "Cannot insert_pre: vertex already belongs to the CFG!"
+  if not (Cfg.mem_vertex cfg u) then
+    begin
+      Cfg.add_vertex cfg u;
+      Cfg.iter_pred (fun x -> rem_edge x v; add_edge x u) cfg v;
+      add_edge u v
+    end
+  else failwith "Cannot insert_pre: vertex already belongs to the CFG!"
 
 (** Inserts definition u into cfg directly after v *)
 let insert_succ u v cfg =
   let add_edge u v = Cfg.add_edge cfg u v in
   let rem_edge u v = Cfg.remove_edge cfg u v in
-    if not (Cfg.mem_vertex cfg u) then begin
-        Cfg.add_vertex cfg u;
-        Cfg.iter_succ (fun x -> rem_edge v x; add_edge u x) cfg v;
-        add_edge v u
-      end
-    else failwith "Cannot insert_succ: vertex already belongs to the CFG!"
+  if not (Cfg.mem_vertex cfg u) then begin
+    Cfg.add_vertex cfg u;
+    Cfg.iter_succ (fun x -> rem_edge v x; add_edge u x) cfg v;
+    add_edge v u
+  end
+  else failwith "Cannot insert_succ: vertex already belongs to the CFG!"
 
 (** Remove a vertex and create edges between each predecessor and successor *)
 let remove_inner_vertex u cfg =
   let add_edge u v = Cfg.add_edge cfg u v in
   let f x = Cfg.iter_succ (add_edge x) cfg u in
-    Cfg.iter_pred f cfg u;
-    Cfg.remove_vertex cfg u
+  Cfg.iter_pred f cfg u;
+  Cfg.remove_vertex cfg u
 
 module Dfs = Graph.Traverse.Dfs(Cfg)
 module DfsTree = ExtGraph.DfsTree.Make(Cfg)
@@ -167,8 +167,8 @@ let factor_cfg cfg =
     | vs ->
       let u = mk_skip () in
       let f v =
-	Cfg.iter_succ (Cfg.remove_edge cfg v) cfg v;
-	Cfg.add_edge cfg v u
+        Cfg.iter_succ (Cfg.remove_edge cfg v) cfg v;
+        Cfg.add_edge cfg v u
       in
       List.iter f vs;
       Def.Set.iter (fun s -> Cfg.add_edge cfg u s) succs
@@ -195,38 +195,38 @@ let normalize_cfg cfg =
   in
   let normalize_assume def = match def.dkind with
     | Assume c ->
-	if Hlir.trivial_cond c then remove_inner_vertex def cfg
-	else begin match Bexpr.eval c with
-	  | Some true ->
-	      if Cfg.in_degree cfg def > 0 then remove_inner_vertex def cfg
-	  | Some false -> Cfg.remove_vertex cfg def
-	  | None -> ()
-	end
+      if Hlir.trivial_cond c then remove_inner_vertex def cfg
+      else begin match Bexpr.eval c with
+        | Some true ->
+          if Cfg.in_degree cfg def > 0 then remove_inner_vertex def cfg
+        | Some false -> Cfg.remove_vertex cfg def
+        | None -> ()
+      end
     | _ -> ()
   in
   let rec compress u = (* create multi-way branches *)
     if Cfg.mem_vertex cfg u then
       match u.dkind, Cfg.pred cfg u with
-	| (Assume uexpr, [v]) -> begin match v.dkind, Cfg.pred cfg v with
-	    | (Assume vexpr, [pred]) -> begin
-		Cfg.add_edge cfg pred u;
-		Cfg.remove_edge cfg v u;
-		u.dkind <- Assume (And (vexpr, uexpr));
-		if Cfg.out_degree cfg v = 0 then Cfg.remove_vertex cfg v;
-		compress u
-	      end
-	    | (_, _) -> ()
-	  end
-	| (_, _) -> ()
+      | (Assume uexpr, [v]) -> begin match v.dkind, Cfg.pred cfg v with
+          | (Assume vexpr, [pred]) -> begin
+              Cfg.add_edge cfg pred u;
+              Cfg.remove_edge cfg v u;
+              u.dkind <- Assume (And (vexpr, uexpr));
+              if Cfg.out_degree cfg v = 0 then Cfg.remove_vertex cfg v;
+              compress u
+            end
+          | (_, _) -> ()
+        end
+      | (_, _) -> ()
   in
   let split v = (* insert structural skip vertices *)
     if Cfg.in_degree cfg v > 1 then insert_pre (mk_skip ()) v cfg;
     if Cfg.out_degree cfg v > 1 then insert_succ (mk_skip ()) v cfg
   in
-    Cfg.iter_vertex normalize_assume cfg;
-    Cfg.iter_vertex compress cfg;
-    List.iter split (vertex_list cfg);
-    Cfg.iter_edges remove_2cycle cfg
+  Cfg.iter_vertex normalize_assume cfg;
+  Cfg.iter_vertex compress cfg;
+  List.iter split (vertex_list cfg);
+  Cfg.iter_edges remove_2cycle cfg
 
 open Cfg
 
@@ -249,18 +249,18 @@ and file = {
 
 let mk_local_varinfo func name typ =
   let var = Varinfo.mk_local name typ in
-    func.locals <- var::func.locals;
-    var
+  func.locals <- var::func.locals;
+  var
 
 let mk_global_varinfo file name typ =
   let var = Varinfo.mk_global name typ in
-    file.vars <- var::file.vars;
-    var
+  file.vars <- var::file.vars;
+  var
 
 let mk_thread_local_varinfo file name typ =
   let var = Varinfo.mk_thread_local name typ in
-    file.vars <- var::file.vars;
-    var
+  file.vars <- var::file.vars;
+  var
 
 let mk_local_var func name typ = Var.mk (mk_local_varinfo func name typ)
 let mk_global_var file name typ = Var.mk (mk_global_varinfo file name typ)
@@ -271,28 +271,28 @@ module FuncMemo = Memo.Make(Varinfo)
 let return_var =
   let go func =
     match resolve_type (Varinfo.get_type func) with
-      | Func (ret, _) ->
-	Varinfo.mk_thread_local ((Varinfo.show func) ^ "$return") ret
-      | _ -> failwith ("CfgIr.return_var: argument must be a function-typed"
-		       ^ " variable")
+    | Func (ret, _) ->
+      Varinfo.mk_thread_local ((Varinfo.show func) ^ "$return") ret
+    | _ -> failwith ("CfgIr.return_var: argument must be a function-typed"
+                     ^ " variable")
   in
-    FuncMemo.memo go
+  FuncMemo.memo go
 
 let lookup_function name file =
   try List.find (fun f -> Varinfo.equal name f.fname) file.funcs
   with Not_found -> begin
-    Log.errorf "Can't find function `%a' in %s"
-      Show.format<varinfo> name
-      file.filename;
-    assert false
-  end
+      Log.errorf "Can't find function `%a' in %s"
+        Show.format<varinfo> name
+        file.filename;
+      assert false
+    end
 
 let lookup_function_name name file =
   try List.find (fun f -> (Varinfo.show f.fname) = name) file.funcs
   with Not_found -> begin
-    Log.errorf "Can't find function `%s' in %s" name file.filename;
-    assert false
-  end
+      Log.errorf "Can't find function `%s' in %s" name file.filename;
+      assert false
+    end
 
 let defined_function name file =
   List.exists (fun f -> Varinfo.equal name f.fname) file.funcs
@@ -307,59 +307,59 @@ let iter_vars f file =
     f func.fname;
     f (return_var func.fname)
   in
-    List.iter vfunc file.funcs;
-    List.iter f file.vars;
-    match file.globinit with
-      | Some func -> vfunc func
-      | None -> ()
+  List.iter vfunc file.funcs;
+  List.iter f file.vars;
+  match file.globinit with
+  | Some func -> vfunc func
+  | None -> ()
 
 (** Iterate over every definition of every thread of a file, as well as
     globinit *)
 let iter_defs f file =
   let iter_cfg cfg = Cfg.iter_vertex f cfg in
-    begin match file.globinit with
-      | Some f -> iter_cfg f.cfg
-      | None   -> ()
-    end;
-    List.iter (fun f -> iter_cfg f.cfg) file.funcs
+  begin match file.globinit with
+    | Some f -> iter_cfg f.cfg
+    | None   -> ()
+  end;
+  List.iter (fun f -> iter_cfg f.cfg) file.funcs
 
 let iter_func_defs f file =
   let iter_func func = Cfg.iter_vertex (f func.fname) func.cfg in
-    begin match file.globinit with
-      | Some f -> iter_func f
-      | None   -> ()
-    end;
-    List.iter iter_func file.funcs
+  begin match file.globinit with
+    | Some f -> iter_func f
+    | None   -> ()
+  end;
+  List.iter iter_func file.funcs
 
 let iter_entry_points f file =
   let g thread = f (lookup_function thread file) in
-    List.iter g file.entry_points
+  List.iter g file.entry_points
 
 let clone_func func =
   let name = Varinfo.clone func.fname in
-    begin match func.file with
-      | Some file -> file.vars <- name::file.vars
-      | None      -> ()
-    end;
-    { fname = name;
-      formals = func.formals;
-      locals = func.locals;
-      cfg = Cfg.clone func.cfg;
-      file = func.file }
+  begin match func.file with
+    | Some file -> file.vars <- name::file.vars
+    | None      -> ()
+  end;
+  { fname = name;
+    formals = func.formals;
+    locals = func.locals;
+    cfg = Cfg.clone func.cfg;
+    file = func.file }
 
 (** Remove the vertices of a CFG that are not reachable from the
     initial vertex. *)
 let remove_unreachable cfg start =
   let reachable = ref Def.Set.empty in
   let add_reachable v = reachable := Def.Set.add v (!reachable) in
-    Dfs.prefix_component add_reachable cfg start;
-    iter_vertex (fun v ->
-		   if not (Def.Set.mem v (!reachable))
-		   then (remove_vertex cfg v;
-			 match v.dkind with
-			   | Assert _ -> Report.log_safe_unreachable ()
-			   | _ -> ()))
-      cfg
+  Dfs.prefix_component add_reachable cfg start;
+  iter_vertex (fun v ->
+      if not (Def.Set.mem v (!reachable))
+      then (remove_vertex cfg v;
+            match v.dkind with
+            | Assert _ -> Report.log_safe_unreachable ()
+            | _ -> ()))
+    cfg
 
 (** Given a CFG {!g} and vertex {!v}, extract the sub-CFG with initial
     vertex {!v} consisting of all vertices of {!g} reachable from
@@ -371,9 +371,9 @@ let extract_cfg cfg start =
     if (mem_vertex extract (E.src e)) && (mem_vertex extract (E.dst e))
     then add_edge_e extract e
   in
-    Dfs.prefix_component extract_vertex cfg start;
-    iter_edges_e extract_edge cfg;
-    extract
+  Dfs.prefix_component extract_vertex cfg start;
+  iter_edges_e extract_edge cfg;
+  extract
 
 let extract_thread func name start =
   { fname = name;
@@ -393,7 +393,7 @@ module DefPairHT = Hashtbl.Make(
     let equal (a,b) (c,d) = (Def.equal a c) && (Def.equal b d)
     let hash (a,b) = (a.did) + 10000*(b.did)
   end)
-  
+
 (** A reference to the current file.  This reference should be set as early as
     (in parseFile).  This will be deprecated once we start supporting projects
     with more than one file. *)
@@ -413,9 +413,9 @@ let rewrite sub_expr sub_bexpr sub_ap sub_var file =
     | Alloc (lhs, expr, loc) -> Alloc (sub_var lhs, sub_expr expr, loc)
     | Free expr -> Free (sub_expr expr)
     | Fork (Some lhs, func, args) ->
-	Fork (Some (sub_var lhs), sub_expr func, List.map sub_expr args)
+      Fork (Some (sub_var lhs), sub_expr func, List.map sub_expr args)
     | Fork (None, func, args) ->
-	Fork (None, sub_expr func, List.map sub_expr args)
+      Fork (None, sub_expr func, List.map sub_expr args)
     | Acquire expr -> Acquire (sub_expr expr)
     | Release expr -> Release (sub_expr expr)
     | AtomicBegin -> AtomicBegin
@@ -425,46 +425,46 @@ let rewrite sub_expr sub_bexpr sub_ap sub_var file =
   let sub_def d =
     let dk =
       match d.dkind with
-	| Store (ap, expr) -> Store (sub_ap ap, sub_expr expr)
-	| Assign (var, expr) -> Assign (sub_var var, sub_expr expr)
-	| Call (Some lhs, func, args) ->
-	    Call (Some (sub_var lhs), sub_expr func, List.map sub_expr args)
-	| Call (None, func, args) ->
-	    Call (None, sub_expr func, List.map sub_expr args)
-	| Assume expr -> Assume (sub_bexpr expr)
-	| Initial -> Initial
-	| Assert (expr, msg) -> Assert (sub_bexpr expr, msg)
-	| AssertMemSafe (expr, msg) -> AssertMemSafe (sub_expr expr, msg)
-	| Return (Some expr) -> Return (Some (sub_expr expr))
-	| Return None -> Return None
-	| Builtin x -> Builtin (sub_builtin x)
+      | Store (ap, expr) -> Store (sub_ap ap, sub_expr expr)
+      | Assign (var, expr) -> Assign (sub_var var, sub_expr expr)
+      | Call (Some lhs, func, args) ->
+        Call (Some (sub_var lhs), sub_expr func, List.map sub_expr args)
+      | Call (None, func, args) ->
+        Call (None, sub_expr func, List.map sub_expr args)
+      | Assume expr -> Assume (sub_bexpr expr)
+      | Initial -> Initial
+      | Assert (expr, msg) -> Assert (sub_bexpr expr, msg)
+      | AssertMemSafe (expr, msg) -> AssertMemSafe (sub_expr expr, msg)
+      | Return (Some expr) -> Return (Some (sub_expr expr))
+      | Return None -> Return None
+      | Builtin x -> Builtin (sub_builtin x)
     in
-      d.dkind <- dk
+    d.dkind <- dk
   in
-    iter_defs sub_def file
+  iter_defs sub_def file
 
 let normalize file =
   let normalize_func func =
     let str_const_rhs def = match def.dkind with
       | Store (lhs, rhs) ->
-	begin match Expr.strip_casts rhs with
-	| Constant (CString _) ->
-	  let tmp =
-	    mk_local_var func
-	      "duet_str_const"
-	      (Concrete (Pointer (Concrete (Int char_width))))
-	  in
-	  let tmp_assign =
-	    Def.mk ~loc:(Def.get_location def) (Assign (tmp, rhs))
-	  in
-	  def.dkind <- begin match rhs with
-	  | Constant _ -> Store (lhs, AccessPath (Variable tmp))
-	  | Cast (typ, _) -> Store (lhs, Cast (typ, AccessPath (Variable tmp)))
-	  | _ -> assert false
-	  end;
-	  insert_pre tmp_assign def func.cfg
-	| _ -> ()
-	end
+        begin match Expr.strip_casts rhs with
+          | Constant (CString _) ->
+            let tmp =
+              mk_local_var func
+                "duet_str_const"
+                (Concrete (Pointer (Concrete (Int char_width))))
+            in
+            let tmp_assign =
+              Def.mk ~loc:(Def.get_location def) (Assign (tmp, rhs))
+            in
+            def.dkind <- begin match rhs with
+              | Constant _ -> Store (lhs, AccessPath (Variable tmp))
+              | Cast (typ, _) -> Store (lhs, Cast (typ, AccessPath (Variable tmp)))
+              | _ -> assert false
+            end;
+            insert_pre tmp_assign def func.cfg
+          | _ -> ()
+        end
       | _ -> ()
     in
     remove_unreachable func.cfg (Cfg.initial_vertex func.cfg);
@@ -482,10 +482,10 @@ let normalize file =
 let from_func_ast file func_ast =
   let cfg = create ~size:32 () in
   let func = { fname = func_ast.Ast.fname;
-	       formals = func_ast.Ast.formals;
-	       locals = func_ast.Ast.locals;
-	       cfg = cfg;
-	       file = None }
+               formals = func_ast.Ast.formals;
+               locals = func_ast.Ast.locals;
+               cfg = cfg;
+               file = None }
   in
   let threads = ref [] in
   let max_thread = ref 0 in
@@ -495,29 +495,29 @@ let from_func_ast file func_ast =
     let thread_var =
       Varinfo.mk_global thread_name (Concrete (Func (Concrete Void, [])))
     in
-      incr max_thread;
-      threads := (stmt, thread_var)::(!threads);
-      thread_var
+    incr max_thread;
+    threads := (stmt, thread_var)::(!threads);
+    thread_var
   in
   let fork_lookup =
     Memo.memo (fun stmt ->
-		 match stmt_kind stmt with
-		   | ForkGoto tgt ->
-		       let thread_name = add_thread (lookup_stmt file tgt) in
-		       let fork =
-			 Expr.addr_of (Variable (Var.mk thread_name))
-		       in
-			 Def.mk (Builtin (Fork (None, fork, [])))
-		   | _ -> failwith "add_fork: Not a fork!")
+        match stmt_kind stmt with
+        | ForkGoto tgt ->
+          let thread_name = add_thread (lookup_stmt file tgt) in
+          let fork =
+            Expr.addr_of (Variable (Var.mk thread_name))
+          in
+          Def.mk (Builtin (Fork (None, fork, [])))
+        | _ -> failwith "add_fork: Not a fork!")
   in
   let stmt_cfg = Ast.construct_cfg file func_ast in
   let rec initial_defs_impl reached stmt =
     if StmtSet.mem stmt (!reached) then [] else begin
       reached := StmtSet.add stmt !reached;
       match stmt_kind stmt with
-	| Instr (x::xs) -> [x]
-	| ForkGoto _ -> [fork_lookup stmt]
-	| _ -> next_defs_impl reached stmt
+      | Instr (x::xs) -> [x]
+      | ForkGoto _ -> [fork_lookup stmt]
+      | _ -> next_defs_impl reached stmt
     end
   and next_defs_impl reached stmt =
     StmtCfg.fold_succ
@@ -536,13 +536,13 @@ let from_func_ast file func_ast =
   in
   let process_stmt stmt =
     match stmt_kind stmt with
-      | Instr (d::ds as defs) ->
-	let enum = Putil.adjacent_pairs (BatList.enum defs) in
-	BatEnum.iter (fun (x,y) -> Cfg.add_edge cfg x y) enum;
-	List.iter (Cfg.add_edge cfg (BatList.last defs)) (next_defs stmt)
-      | ForkGoto _ ->
-	    List.iter (Cfg.add_edge cfg (fork_lookup stmt)) (next_defs stmt)
-      | _ -> ()
+    | Instr (d::ds as defs) ->
+      let enum = Putil.adjacent_pairs (BatList.enum defs) in
+      BatEnum.iter (fun (x,y) -> Cfg.add_edge cfg x y) enum;
+      List.iter (Cfg.add_edge cfg (BatList.last defs)) (next_defs stmt)
+    | ForkGoto _ ->
+      List.iter (Cfg.add_edge cfg (fork_lookup stmt)) (next_defs stmt)
+    | _ -> ()
   in
   let handle_return v = match v.dkind with
     | Return _ -> iter_succ_e (remove_edge_e cfg) cfg v
@@ -550,27 +550,27 @@ let from_func_ast file func_ast =
   in
   let create_thread (stmt, name) =
     let initial_def = Def.mk (Assume Bexpr.ktrue) in
-      List.iter (Cfg.add_edge cfg initial_def) (initial_defs stmt);
-      let func = extract_thread func name (get_node initial_def) in
-	normalize_cfg func.cfg;
-	if !Log.debug_mode then sanity_check func.cfg;
-	func
+    List.iter (Cfg.add_edge cfg initial_def) (initial_defs stmt);
+    let func = extract_thread func name (get_node initial_def) in
+    normalize_cfg func.cfg;
+    if !Log.debug_mode then sanity_check func.cfg;
+    func
   in
   let init = Def.mk (Assume Bexpr.ktrue) in
-    Cfg.add_vertex cfg init;
-    StmtCfg.iter_vertex process_stmt stmt_cfg;
-    List.iter (add_edge cfg init) (initial_defs (List.hd func_ast.Ast.body));
-    iter_vertex handle_return cfg;
-    let threads = List.map create_thread (!threads) in
-      (* this should be uncommented if there is thread creation *)
-(*      remove_unreachable cfg (get_node init); *)
-      normalize_cfg cfg;
-      remove_unreachable cfg (get_node init);
-      List.iter
-	(fun t -> normalize_cfg t.cfg)
-	threads;
-      if !Log.debug_mode then sanity_check cfg;
-      (func, threads)
+  Cfg.add_vertex cfg init;
+  StmtCfg.iter_vertex process_stmt stmt_cfg;
+  List.iter (add_edge cfg init) (initial_defs (List.hd func_ast.Ast.body));
+  iter_vertex handle_return cfg;
+  let threads = List.map create_thread (!threads) in
+  (* this should be uncommented if there is thread creation *)
+  (*      remove_unreachable cfg (get_node init); *)
+  normalize_cfg cfg;
+  remove_unreachable cfg (get_node init);
+  List.iter
+    (fun t -> normalize_cfg t.cfg)
+    threads;
+  if !Log.debug_mode then sanity_check cfg;
+  (func, threads)
 
 let from_file_ast file =
   (* todo: merge globinit with init, if it exists *)
@@ -578,16 +578,16 @@ let from_file_ast file =
     if !whole_program then (None, file.Ast.funcs)
     else begin
       let is_init f = (Varinfo.show f.Ast.fname) = "init" in
-	match List.partition is_init file.Ast.funcs with
-	  | ([init], funcs) ->
-	      let (f,_) = from_func_ast file init in (Some f, funcs)
-	  | _               -> (None, file.Ast.funcs)
+      match List.partition is_init file.Ast.funcs with
+      | ([init], funcs) ->
+        let (f,_) = from_func_ast file init in (Some f, funcs)
+      | _               -> (None, file.Ast.funcs)
     end
   in
   let (funcs, threads) =
     List.fold_left (fun (fs,ts) func ->
-		      let (f, ts2) = from_func_ast file func in
-			(f::fs,ts2@ts))
+        let (f, ts2) = from_func_ast file func in
+        (f::fs,ts2@ts))
       ([],[])
       funcs
   in
@@ -598,21 +598,21 @@ let from_file_ast file =
   let (entry_points, threads) =
     if !whole_program then begin
       let main_thread =
-	try find_fun "main"
-	with Not_found ->
-	  failwith "Main function required for whole program analysis"
+        try find_fun "main"
+        with Not_found ->
+          failwith "Main function required for whole program analysis"
       in
-	([main_thread], main_thread::threads)
+      ([main_thread], main_thread::threads)
     end else (funcs, funcs @ threads)
   in
   let file = { filename = file.Ast.filename;
-	       funcs = funcs@threads;
-	       threads = List.map (fun x -> x.fname) threads;
-	       entry_points = List.map (fun x -> x.fname) entry_points;
-	       vars = file.Ast.vars;
-	       types = file.Ast.types;
-	       globinit = init;
-	     }
+               funcs = funcs@threads;
+               threads = List.map (fun x -> x.fname) threads;
+               entry_points = List.map (fun x -> x.fname) entry_points;
+               vars = file.Ast.vars;
+               types = file.Ast.types;
+               globinit = init;
+             }
   in
   let set_file func = func.file <- Some file in
   List.iter set_file file.funcs;
@@ -711,6 +711,6 @@ let split_atomic_func func =
   List.iter (fun def ->
       let seq = split_def def in
       List.iter (fun aux -> insert_pre aux def func.cfg) (List.rev seq)
-  ) (Cfg.fold_vertex (fun x y -> x::y) func.cfg [])
+    ) (Cfg.fold_vertex (fun x y -> x::y) func.cfg [])
 
 let split_atomic file = List.iter split_atomic_func file.funcs

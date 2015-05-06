@@ -15,11 +15,11 @@ end
 module PSet = Putil.Set.Make(Pred)
 
 module Make
-  (Man : sig
-     type t
-     val man : t Apron.Manager.t
-     val predicates : AP.Set.t -> PSet.t
-   end) =
+    (Man : sig
+       type t
+       val man : t Apron.Manager.t
+       val predicates : AP.Set.t -> PSet.t
+     end) =
 struct
   module AI = Ai.ApronInterpretation
 
@@ -30,10 +30,10 @@ struct
   let add_val preds v f =
     if AI.is_bottom v then f else begin
       let add_true p st =
-	if AI.assert_true p v then PSet.add p st else st
+        if AI.assert_true p v then PSet.add p st else st
       in
       let st = PSet.fold add_true preds PSet.empty in
-	add st v f
+      add st v f
     end
 
   let project func aps =
@@ -43,7 +43,7 @@ struct
 
   let top aps =
     let preds = Man.predicates aps in
-      add_val preds (AI.top aps) (const (AI.bottom aps))
+    add_val preds (AI.top aps) (const (AI.bottom aps))
 
   let bottom aps = const (AI.bottom aps)
 
