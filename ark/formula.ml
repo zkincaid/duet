@@ -1638,11 +1638,7 @@ module Make (T : Term.S) = struct
       in
       let vars = VarSet.diff (formula_free_vars reduced) term_vars in
 
-      let p =
-	Polyhedron.simplify
-	  (Polyhedron.try_fme vars
-	     (Polyhedron.simplify (Polyhedron.of_formula reduced)))
-      in
+      let p = Polyhedron.of_formula reduced in
 
       let env =
 	D.Env.of_enum

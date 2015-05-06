@@ -219,6 +219,7 @@ module K = struct
     simplified
 *)
 
+(*
   let exists p tr =
     let abstract p x =
       let x = F.linearize (fun () -> V.mk_tmp "nonlin" TyInt) x in
@@ -229,6 +230,7 @@ module K = struct
     let res = simplify (exists p tr) in
     F.opt_simplify_strategy := [];
     res
+*)
 
   let exists p tr =
     Log.time "Existential quantification" (exists p) tr
@@ -236,7 +238,7 @@ module K = struct
   let star x =
     Log.time "cra:star" star (simplify x)
 
-(*  let simplify tr = tr*)
+  let simplify tr = tr
 
   let add x y =
     if equal x zero then y
