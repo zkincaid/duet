@@ -83,3 +83,6 @@ val remove_unreachable : Cfg.t -> Def.t -> unit
     convenient for SESE region detection.
 *)
 val normalize : file -> unit
+
+(** Normalize a file so that every definition executes atomically. *)
+val split_atomic : file -> unit

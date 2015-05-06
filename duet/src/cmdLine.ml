@@ -147,3 +147,8 @@ let parse filename =
     | [] -> failwith "Unrecognized file extension"
   in
   go (!parsers)
+
+
+let _ =
+  register_pass
+    ("-split-atomic", CfgIr.split_atomic, " Split commands into atomic instructions")

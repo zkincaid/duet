@@ -618,3 +618,99 @@ let from_file_ast file =
   List.iter set_file file.funcs;
   normalize file;
   file
+
+let split_atomic_func func =
+  let rec f_expr = function
+    | OHavoc typ -> (Havoc typ, [])
+    | OConstant k -> (Constant k, [])
+    | OCast (typ, (expr, seq)) -> (Cast (typ, expr), seq)
+    | OBinaryOp ((x,xseq), op, (y,yseq), typ) ->
+      (BinaryOp (x, op, y, typ), xseq@yseq)
+    | OUnaryOp (op, (x,seq), typ) -> (UnaryOp (op, x, typ), seq)
+    | OAccessPath ap ->
+      let (ap, seq) = split_ap ap in
+      (AccessPath ap, seq)
+    | OBoolExpr (bexpr, seq) -> (BoolExpr bexpr, seq)
+    | OAddrOf lval -> (AddrOf lval, [])
+  and f_bexpr = function
+    | OAnd ((x,xseq), (y,yseq)) -> (And (x,y), xseq@yseq)
+    | OOr ((x,xseq), (y,yseq)) -> (Or (x,y), xseq@yseq)
+    | OAtom (pred, (x,xseq), (y,yseq)) -> (Atom (pred,x,y), xseq@yseq)
+  and split_ap = function
+    | Variable v ->
+      if Var.is_shared v then
+        let tmp = mk_local_var func ("tmp_" ^ Var.show v) (Var.get_type v) in
+        (Variable tmp, [Def.mk (Assign (tmp, AccessPath (Variable v)))])
+      else
+        (Variable v, [])
+    | Deref expr ->
+      let (expr, seq) = split_expr expr in
+      let tmp = mk_local_var func "tmp_deref" (Expr.get_type expr) in
+      let tmp_def = Def.mk (Assign (tmp, AccessPath (Deref expr))) in
+      (Variable tmp, tmp_def::seq)
+  and split_expr expr = Expr.deep_fold f_expr f_bexpr expr
+  and split_bexpr expr = Bexpr.deep_fold f_expr f_bexpr expr
+  in
+  let split_def def = match def.dkind with
+    | Assign (lhs, rhs) ->
+      let (rhs, seq) = split_expr rhs in
+      def.dkind <- Assign (lhs, rhs);
+      seq
+    | Store (Deref lhs, rhs) ->
+      let (lhs, lseq) = split_expr lhs in
+      let (rhs, rseq) = split_expr rhs in
+      def.dkind <- Store (Deref lhs, rhs);
+      lseq@rseq
+    | Store (_, _) -> assert false
+    | Call (lhs, func, args) ->
+      let (func, fseq) = split_expr func in
+      let (args, seqs) = BatList.split (List.map split_expr args) in
+      def.dkind <- Call (lhs, func, args);
+      fseq@(BatList.concat seqs)
+    | Assume bexpr ->
+      let (bexpr, seq) = split_bexpr bexpr in
+      def.dkind <- Assume bexpr;
+      seq
+    | Initial -> []
+    | Assert (cond, msg) ->
+      let (cond, seq) = split_bexpr cond in
+      def.dkind <- Assert (cond, msg);
+      seq
+    | AssertMemSafe (expr, msg) ->
+      let (expr, seq) = split_expr expr in
+      def.dkind <- AssertMemSafe (expr, msg);
+      seq
+    | Return (Some expr) ->
+      let (expr, seq) = split_expr expr in
+      def.dkind <- Return (Some expr);
+      seq
+    | Return None -> []
+    | Builtin (Alloc (lhs, size, target)) ->
+      let (size, seq) = split_expr size in
+      def.dkind <- Builtin (Alloc (lhs, size, target));
+      seq
+    | Builtin (Free expr) ->
+      let (expr, seq) = split_expr expr in
+      def.dkind <- Builtin (Free (expr));
+      seq
+    | Builtin (Fork (lhs, func, args)) ->
+      let (func, fseq) = split_expr func in
+      let (args, seqs) = BatList.split (List.map split_expr args) in
+      def.dkind <- Builtin (Fork (lhs, func, args));
+      fseq@(BatList.concat seqs)
+    | Builtin (Acquire expr) ->
+      let (expr, seq) = split_expr expr in
+      def.dkind <- Builtin (Acquire (expr));
+      seq
+    | Builtin (Release expr) ->
+      let (expr, seq) = split_expr expr in
+      def.dkind <- Builtin (Release (expr));
+      seq
+    | Builtin AtomicBegin | Builtin AtomicEnd | Builtin Exit -> []
+  in
+  List.iter (fun def ->
+      let seq = split_def def in
+      List.iter (fun aux -> insert_pre aux def func.cfg) (List.rev seq)
+  ) (Cfg.fold_vertex (fun x y -> x::y) func.cfg [])
+
+let split_atomic file = List.iter split_atomic_func file.funcs
