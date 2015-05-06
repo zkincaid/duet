@@ -71,16 +71,16 @@ module type S = sig
       project the resulting abstract value onto a subset of the free variables
       in the formula (this is faster than abstracting and then projecting. *)
   val abstract : ?exists:(T.V.t -> bool) option ->
-                 'a Apron.Manager.t ->
-                 t ->
-                 'a T.D.t
+    'a Apron.Manager.t ->
+    t ->
+    'a T.D.t
 
   (** Abstract post-condition of an assigment *)
   val abstract_assign : 'a Apron.Manager.t ->
-                        'a T.D.t ->
-                        T.V.t ->
-                        T.t ->
-                        'a T.D.t
+    'a T.D.t ->
+    T.V.t ->
+    T.t ->
+    'a T.D.t
 
   (** Abstract post-condition of an assumption *)
   val abstract_assume : 'a Apron.Manager.t -> 'a T.D.t -> t -> 'a T.D.t

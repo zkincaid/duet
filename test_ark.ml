@@ -1,12 +1,12 @@
 open OUnit
 
 let suite = "Main" >::: [
-  Test_pervasives.suite;
-  Test_interval.suite;
-  Test_formula.suite;
-  Test_numdomain.suite;
-  Test_transition.suite
-]
+    Test_pervasives.suite;
+    Test_interval.suite;
+    Test_formula.suite;
+    Test_numdomain.suite;
+    Test_transition.suite
+  ]
 
 let _ =
   Printexc.record_backtrace true;

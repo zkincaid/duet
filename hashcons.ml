@@ -16,7 +16,7 @@
 (*s Hash tables for hash-consing. (Some code is borrowed from the ocaml
     standard library, which is copyright 1996 INRIA.) *)
 
-type 'a hash_consed = { 
+type 'a hash_consed = {
   hkey : int;
   tag : int;
   node : 'a }
@@ -44,13 +44,13 @@ let clear t =
   for i = 0 to Array.length t.table - 1 do t.table.(i) <- emptybucket done;
   t.totsize <- 0;
   t.limit <- 3
-  
+
 let fold f t init =
   let rec fold_bucket i b accu =
     if i >= Weak.length b then accu else
       match Weak.get b i with
-	| Some v -> fold_bucket (i+1) b (f v accu)
-	| None -> fold_bucket (i+1) b accu
+      | Some v -> fold_bucket (i+1) b (f v accu)
+      | None -> fold_bucket (i+1) b accu
   in
   Array.fold_right (fold_bucket 0) t.table init
 
@@ -58,8 +58,8 @@ let iter f t =
   let rec iter_bucket i b =
     if i >= Weak.length b then () else
       match Weak.get b i with
-	| Some v -> f v; iter_bucket (i+1) b
-	| None -> iter_bucket (i+1) b
+      | Some v -> f v; iter_bucket (i+1) b
+      | None -> iter_bucket (i+1) b
   in
   Array.iter (iter_bucket 0) t.table
 
@@ -90,8 +90,8 @@ and add t d =
   let rec loop i =
     if i >= sz then begin
       let newsz = min (sz + 3) (Sys.max_array_length - 1) in
-      if newsz <= sz then 
-	failwith "Hashcons.Make: hash bucket cannot grow more";
+      if newsz <= sz then
+        failwith "Hashcons.Make: hash bucket cannot grow more";
       let newbucket = Weak.create newsz in
       Weak.blit bucket 0 newbucket 0 sz;
       Weak.set newbucket i (Some d);
@@ -118,16 +118,16 @@ let hashcons t d =
       hnode
     end else begin
       match Weak.get_copy bucket i with
-        | Some v when v.node = d -> 
-	    begin match Weak.get bucket i with
-              | Some v -> v
-              | None -> loop (i+1)
-            end
-        | _ -> loop (i+1)
+      | Some v when v.node = d ->
+        begin match Weak.get bucket i with
+          | Some v -> v
+          | None -> loop (i+1)
+        end
+      | _ -> loop (i+1)
     end
   in
   loop 0
-  
+
 let stats t =
   let len = Array.length t.table in
   let lens = Array.map Weak.length t.table in
@@ -139,22 +139,22 @@ let stats t =
 (* Functorial interface *)
 
 module type HashedType =
-  sig
-    type t
-    val equal : t -> t -> bool
-    val hash : t -> int
-  end
+sig
+  type t
+  val equal : t -> t -> bool
+  val hash : t -> int
+end
 
 module type S =
-  sig
-    type key
-    type t
-    val create : int -> t
-    val clear : t -> unit
-    val hashcons : t -> key -> key hash_consed
-    val iter : (key hash_consed -> unit) -> t -> unit
-    val stats : t -> int * int * int * int * int * int
-  end
+sig
+  type key
+  type t
+  val create : int -> t
+  val clear : t -> unit
+  val hashcons : t -> key -> key hash_consed
+  val iter : (key hash_consed -> unit) -> t -> unit
+  val stats : t -> int * int * int * int * int * int
+end
 
 module Make(H : HashedType) : (S with type key = H.t) = struct
 
@@ -185,29 +185,29 @@ module Make(H : HashedType) : (S with type key = H.t) = struct
     done;
     t.totsize <- 0;
     t.limit <- 3
-  
+
   let fold f t init =
     let rec fold_bucket i b accu =
       if i >= Weak.length b then accu else
-      match Weak.get b i with
-      | Some v -> fold_bucket (i+1) b (f v accu)
-      | None -> fold_bucket (i+1) b accu
+        match Weak.get b i with
+        | Some v -> fold_bucket (i+1) b (f v accu)
+        | None -> fold_bucket (i+1) b accu
     in
     Array.fold_right (fold_bucket 0) t.table init
 
   let iter f t =
     let rec iter_bucket i b =
       if i >= Weak.length b then () else
-      match Weak.get b i with
-      | Some v -> f v; iter_bucket (i+1) b
-      | None -> iter_bucket (i+1) b
+        match Weak.get b i with
+        | Some v -> f v; iter_bucket (i+1) b
+        | None -> iter_bucket (i+1) b
     in
     Array.iter (iter_bucket 0) t.table
 
   let count t =
     let rec count_bucket i b accu =
       if i >= Weak.length b then accu else
-      count_bucket (i+1) b (accu + (if Weak.check b i then 1 else 0))
+        count_bucket (i+1) b (accu + (if Weak.check b i then 1 else 0))
     in
     Array.fold_right (count_bucket 0) t.table 0
 
@@ -231,8 +231,8 @@ module Make(H : HashedType) : (S with type key = H.t) = struct
     let rec loop i =
       if i >= sz then begin
         let newsz = min (sz + 3) (Sys.max_array_length - 1) in
-        if newsz <= sz then 
-	  failwith "Hashcons.Make: hash bucket cannot grow more";
+        if newsz <= sz then
+          failwith "Hashcons.Make: hash bucket cannot grow more";
         let newbucket = Weak.create newsz in
         Weak.blit bucket 0 newbucket 0 sz;
         Weak.set newbucket i (Some d);
@@ -254,28 +254,28 @@ module Make(H : HashedType) : (S with type key = H.t) = struct
     let sz = Weak.length bucket in
     let rec loop i =
       if i >= sz then begin
-	let hnode = { hkey = hkey; tag = gentag (); node = d } in
-	add t hnode;
-	hnode
+        let hnode = { hkey = hkey; tag = gentag (); node = d } in
+        add t hnode;
+        hnode
       end else begin
         match Weak.get_copy bucket i with
-        | Some v when H.equal v.node d -> 
-	    begin match Weak.get bucket i with
-              | Some v -> v
-              | None -> loop (i+1)
-            end
+        | Some v when H.equal v.node d ->
+          begin match Weak.get bucket i with
+            | Some v -> v
+            | None -> loop (i+1)
+          end
         | _ -> loop (i+1)
       end
     in
     loop 0
-  
+
   let stats t =
     let len = Array.length t.table in
     let lens = Array.map Weak.length t.table in
     Array.sort compare lens;
     let totlen = Array.fold_left ( + ) 0 lens in
     (len, count t, totlen, lens.(0), lens.(len/2), lens.(len-1))
-  
+
 end
 
 module Show_hash_consed (S : Deriving_Show.Show) =
@@ -283,9 +283,9 @@ module Show_hash_consed (S : Deriving_Show.Show) =
     type a = S.a hash_consed
     let format formatter hc = S.format formatter hc.node
   end)
-    
+
 module Compare_hash_consed (S : sig type a end) =
-  struct
-    type a = S.a hash_consed
-    let compare x y = Pervasives.compare x.tag y.tag
-  end
+struct
+  type a = S.a hash_consed
+  let compare x y = Pervasives.compare x.tag y.tag
+end

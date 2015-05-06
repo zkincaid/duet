@@ -34,20 +34,20 @@ module Dioid (Var : Var) = struct
   module V = struct
     module I = struct
       type t =
-      | PVar of Var.t
-      | TVar of int * typ * string
-	  deriving (Compare)
+        | PVar of Var.t
+        | TVar of int * typ * string
+                    deriving (Compare)
       include Putil.MakeFmt(struct
-	type a = t
-	let format formatter = function
-	  | PVar v -> Var.format formatter v
-	  | TVar (id,_,name) -> Format.fprintf formatter "%s!%d" name id
-      end)
+          type a = t
+          let format formatter = function
+            | PVar v -> Var.format formatter v
+            | TVar (id,_,name) -> Format.fprintf formatter "%s!%d" name id
+        end)
       let format = Show_t.format
       let show = Show_t.show
       let tag = function
-	| TVar (id, _, _) -> id lsl 1 + 1
-	| PVar v -> Var.tag v lsl 1
+        | TVar (id, _, _) -> id lsl 1 + 1
+        | PVar v -> Var.tag v lsl 1
     end
     include I
     module Map = Tagged.PTMap(I)
@@ -70,23 +70,23 @@ module Dioid (Var : Var) = struct
     let to_smt = function
       | PVar x -> Var.to_smt x
       | TVar (id,TyInt,name) ->
-	Smt.int_var (name ^ "!" ^ (string_of_int id) ^ "!TyInt")
+        Smt.int_var (name ^ "!" ^ (string_of_int id) ^ "!TyInt")
       | TVar (id,TyReal,name) ->
-	Smt.real_var (name ^ "!" ^ (string_of_int id) ^ "!TyReal")
+        Smt.real_var (name ^ "!" ^ (string_of_int id) ^ "!TyReal")
 
     let of_smt sym = match Smt.symbol_refine sym with
       | Smt.Symbol_string str -> begin
-	try
-	  let f name id typ = match typ with
-	    | "TyReal" -> TVar (id,TyReal,name)
-	    | "TyInt"  -> TVar (id,TyInt,name)
-	    | _        -> raise (Scanf.Scan_failure "Invalid type identifier")
-	  in
-	  if BatString.exists str "!"
-	  then Scanf.sscanf str "%[^!]!%d!%s" f
-	  else PVar (Var.of_smt sym)
-	with Scanf.Scan_failure _ -> PVar (Var.of_smt sym)
-      end
+          try
+            let f name id typ = match typ with
+              | "TyReal" -> TVar (id,TyReal,name)
+              | "TyInt"  -> TVar (id,TyInt,name)
+              | _        -> raise (Scanf.Scan_failure "Invalid type identifier")
+            in
+            if BatString.exists str "!"
+            then Scanf.sscanf str "%[^!]!%d!%s" f
+            else PVar (Var.of_smt sym)
+          with Scanf.Scan_failure _ -> PVar (Var.of_smt sym)
+        end
       | Smt.Symbol_int _ -> PVar (Var.of_smt sym)
 
     let typ = function
@@ -101,7 +101,7 @@ module Dioid (Var : Var) = struct
   module VarSet = Putil.Set.Make(Var)
   module VSet = Putil.Set.Make(V)
 
-  type t = 
+  type t =
     { transform: M.t;
       guard: F.t }
       deriving (Show,Compare)
@@ -118,9 +118,9 @@ module Dioid (Var : Var) = struct
     let open Term in
     let f = function
       | OVar v -> begin match V.lower v with
-	| Some v -> VarSet.singleton v
-	| None -> VarSet.empty
-      end
+          | Some v -> VarSet.singleton v
+          | None -> VarSet.empty
+        end
       | OConst _ -> VarSet.empty
       | OAdd (x,y) | OMul (x,y) | ODiv (x,y) | OMod (x,y) -> VarSet.union x y
       | OFloor x -> x
@@ -132,7 +132,7 @@ module Dioid (Var : Var) = struct
     let f = function
       | OOr (x,y) | OAnd (x,y) -> VarSet.union x y
       | OAtom (LeqZ t) | OAtom (EqZ t) | OAtom (LtZ t) ->
-	term_free_program_vars t
+        term_free_program_vars t
     in
     F.eval f phi
 
@@ -140,9 +140,9 @@ module Dioid (Var : Var) = struct
     let open Term in
     let f = function
       | OVar v -> begin match V.lower v with
-	| Some _ -> VSet.empty
-	| None   -> VSet.singleton v
-      end
+          | Some _ -> VSet.empty
+          | None   -> VSet.singleton v
+        end
       | OConst _ -> VSet.empty
       | OAdd (x,y) | OMul (x,y) | ODiv (x,y) | OMod (x,y) -> VSet.union x y
       | OFloor x -> x
@@ -154,22 +154,22 @@ module Dioid (Var : Var) = struct
     let f = function
       | OOr (x,y) | OAnd (x,y) -> VSet.union x y
       | OAtom (LeqZ t) | OAtom (EqZ t) | OAtom (LtZ t) ->
-	term_free_tmp_vars t
+        term_free_tmp_vars t
     in
     F.eval f phi
 
   (* alpha equivalence - only works for normalized transitions! *)
   let equiv x y =
     let sigma =
-      let f v rhs m = 
-	match T.to_var rhs, T.to_var (M.find v y.transform) with
-	| Some a, Some b -> V.Map.add a b m
-	| _, _ -> assert false
+      let f v rhs m =
+        match T.to_var rhs, T.to_var (M.find v y.transform) with
+        | Some a, Some b -> V.Map.add a b m
+        | _, _ -> assert false
       in
       let map = M.fold f x.transform V.Map.empty in
       fun v ->
-	try T.var (V.Map.find v map)
-	with Not_found -> T.var v
+        try T.var (V.Map.find v map)
+        with Not_found -> T.var v
     in
     let x_guard = F.subst sigma x.guard in
     F.equal x_guard y.guard
@@ -178,8 +178,8 @@ module Dioid (Var : Var) = struct
   let is_normal x =
     let add_rhs _ rhs set = match T.to_var rhs with
       | Some v ->
-	if VSet.mem v set || V.lower v != None then raise Not_normal
-	else VSet.add v set
+        if VSet.mem v set || V.lower v != None then raise Not_normal
+        else VSet.add v set
       | None -> raise Not_normal
     in
     try
@@ -190,8 +190,8 @@ module Dioid (Var : Var) = struct
   let equal x y =
     compare x y = 0
     || (VarSet.equal (modifies x) (modifies y)
-	&& is_normal x && is_normal y
-	&& equiv x y)
+        && is_normal x && is_normal y
+        && equiv x y)
 
   let mul left right =
     let sigma_tmp =
@@ -199,16 +199,16 @@ module Dioid (Var : Var) = struct
     in
     let sigma v = match v with
       | V.PVar var -> begin
-	try M.find var left.transform
-	with Not_found -> T.var v
-      end
+          try M.find var left.transform
+          with Not_found -> T.var v
+        end
       | V.TVar (id, typ, name) -> sigma_tmp (id, typ, name)
     in
 
     let transform = M.map (T.subst sigma) right.transform in
 
-      (* Add bindings from left transform for variables that are not written
-	 in right *)
+    (* Add bindings from left transform for variables that are not written in
+       right *)
     let f v term tr =
       if M.mem v tr then tr else M.add v term tr
     in
@@ -229,26 +229,26 @@ module Dioid (Var : Var) = struct
     in
     let transform =
       let merge v x y =
-	let varname = "phi_" ^ (Var.show v) in
-	match x, y with
-	| Some s, Some t ->
-	  if T.equal s t then Some s else begin
-	    let tmp = T.var (V.mk_tmp varname (Var.typ v)) in
-	    left_eq tmp s;
-	    right_eq tmp t;
-	    Some tmp
-	  end
-	| Some s, None ->
-	  let tmp = T.var (V.mk_tmp varname (Var.typ v)) in
-	  left_eq tmp s;
-	  right_eq tmp (T.var (V.mk_var v));
-	  Some tmp
-	| None, Some t ->
-	  let tmp = T.var (V.mk_tmp varname (Var.typ v)) in
-	  left_eq tmp (T.var (V.mk_var v));
-	  right_eq tmp t;
-	  Some tmp
-	| None, None -> assert false
+        let varname = "phi_" ^ (Var.show v) in
+        match x, y with
+        | Some s, Some t ->
+          if T.equal s t then Some s else begin
+            let tmp = T.var (V.mk_tmp varname (Var.typ v)) in
+            left_eq tmp s;
+            right_eq tmp t;
+            Some tmp
+          end
+        | Some s, None ->
+          let tmp = T.var (V.mk_tmp varname (Var.typ v)) in
+          left_eq tmp s;
+          right_eq tmp (T.var (V.mk_var v));
+          Some tmp
+        | None, Some t ->
+          let tmp = T.var (V.mk_tmp varname (Var.typ v)) in
+          left_eq tmp (T.var (V.mk_var v));
+          right_eq tmp t;
+          Some tmp
+        | None, None -> assert false
       in
       M.merge merge left.transform right.transform
     in
@@ -320,8 +320,8 @@ module Dioid (Var : Var) = struct
     let eqs = F.big_conj (BatEnum.map f (M.enum transform)) in
     let guard =
       F.linearize
-	(fun () -> V.mk_tmp "nonlin" TyReal)
-	(F.conj tr.guard eqs)
+        (fun () -> V.mk_tmp "nonlin" TyReal)
+        (F.conj tr.guard eqs)
     in
     simplify { guard = guard; transform = transform }
 
@@ -351,13 +351,13 @@ module Dioid (Var : Var) = struct
     let transform =
       M.mapi (fun v _ -> M.find (Var.prime v) unprime) y.transform
     in
-    
+
     let sigma v = match V.lower v with
       | Some var ->
-	begin
-	  try M.find var unprime
-	  with Not_found -> T.var v
-	end
+        begin
+          try M.find var unprime
+          with Not_found -> T.var v
+        end
       | None -> T.var v
     in
     { guard = F.subst sigma widen;
@@ -374,8 +374,8 @@ module Dioid (Var : Var) = struct
   let post_formula tr =
     let phi =
       F.linearize
-	(fun () -> V.mk_tmp "nonlin" TyReal)
-	(to_formula tr)
+        (fun () -> V.mk_tmp "nonlin" TyReal)
+        (to_formula tr)
     in
     let var = T.var % V.mk_var in
     let unprime =
@@ -394,10 +394,10 @@ module Dioid (Var : Var) = struct
   let abstract_post man tr prop =
     let phi =
       F.conj
-	(F.linearize
-	   (fun () -> V.mk_tmp "nonlin" TyReal)
-	   (to_formula tr))
-	(F.of_abstract prop)
+        (F.linearize
+           (fun () -> V.mk_tmp "nonlin" TyReal)
+           (to_formula tr))
+        (F.of_abstract prop)
     in
     let unprime =
       M.enum tr.transform
@@ -406,23 +406,23 @@ module Dioid (Var : Var) = struct
     in
     let old =
       VarMemo.memo
-	(fun v -> T.var (V.mk_tmp ((Var.show v) ^ "_old") (Var.typ v)))
+        (fun v -> T.var (V.mk_tmp ((Var.show v) ^ "_old") (Var.typ v)))
     in
     let sigma x = match V.lower x with
       | Some v ->
-	if M.mem v unprime then M.find v unprime
-	else if M.mem v tr.transform then old v
-	else T.var x
+        if M.mem v unprime then M.find v unprime
+        else if M.mem v tr.transform then old v
+        else T.var x
       | None -> T.var x
     in
     let phi = F.subst sigma phi in
     let phi =
       if Box.manager_is_box man then
-	let fv =
-	  List.map (T.var % V.mk_var)
-	    (VarSet.elements (formula_free_program_vars phi))
-	in
-	F.boxify fv phi
+        let fv =
+          List.map (T.var % V.mk_var)
+            (VarSet.elements (formula_free_program_vars phi))
+        in
+        F.boxify fv phi
       else phi
     in
 
@@ -464,31 +464,31 @@ module Make (Var : Var) = struct
       match T.to_linterm t with
       | None -> None
       | Some lt ->
-	let f (dim, coeff) =
-	  match dim with
-	  | AConst -> Cf.const (P.const coeff)
-	  | AVar (V.TVar _) -> raise Not_found
-	  | AVar (V.PVar v) -> 
-	    if Env.mem v env then begin
-	      match Env.find v env with
-	      | Some cf ->
-		Cf.scalar_mul (P.const coeff) (cf_compose cf k_minus_1)
-	      | None -> raise Not_found
-	    end else begin
-	      (* if v isn't in env, it isn't in the domain of the
-		 transformation, and so hasn't been modified along the path *)
-	      Cf.term (AVar v) (P.const coeff)
-	    end
-	in
-	try
-	  Some (Cf.sum (BatEnum.map f (T.Linterm.enum lt)))
-	with Not_found -> begin
-	  logf "Failed to evaluate closed form for %a"
-	    T.format t;
-	  logf "Environment: %a"
-	    (Env.format Show.format<Cf.t option>) env;
-	  None
-	end
+        let f (dim, coeff) =
+          match dim with
+          | AConst -> Cf.const (P.const coeff)
+          | AVar (V.TVar _) -> raise Not_found
+          | AVar (V.PVar v) ->
+            if Env.mem v env then begin
+              match Env.find v env with
+              | Some cf ->
+                Cf.scalar_mul (P.const coeff) (cf_compose cf k_minus_1)
+              | None -> raise Not_found
+            end else begin
+              (* if v isn't in env, it isn't in the domain of the
+                 transformation, and so hasn't been modified along the path *)
+              Cf.term (AVar v) (P.const coeff)
+            end
+        in
+        try
+          Some (Cf.sum (BatEnum.map f (T.Linterm.enum lt)))
+        with Not_found -> begin
+            logf "Failed to evaluate closed form for %a"
+              T.format t;
+            logf "Environment: %a"
+              (Env.format Show.format<Cf.t option>) env;
+            None
+          end
 
     (* Given a polynomial p, compute a polynomial q such that for any k, q(k)
        = p(0) + p(1) + ... + p(k-1) *)
@@ -497,34 +497,34 @@ module Make (Var : Var) = struct
       let order = (P.order p) + 1 in (* order of q is 1 + order of p *)
 
       (* Create a system of linear equalities:
-	 c_n*0^n + ... + c_1*0 + c_0 = p(0)
-	 c_n*1^n + ... + c_1*1 + c_0 = p(0) + p(1)
-	 c_n*2^n + ... + c_1*2 + c_0 = p(0) + p(1) + p(2)
-	 ...
-	 c_n*n^n + ... + c_1*n + c_0 = p(0) + p(1) + ... + p(n)
+           c_n*0^n + ... + c_1*0 + c_0 = p(0)
+           c_n*1^n + ... + c_1*1 + c_0 = p(0) + p(1)
+           c_n*2^n + ... + c_1*2 + c_0 = p(0) + p(1) + p(2)
+           ...
+           c_n*n^n + ... + c_1*n + c_0 = p(0) + p(1) + ... + p(n)
 
-	 We then solve for the c_i coefficients to get q
+         We then solve for the c_i coefficients to get q
       *)
       let rec mk_sys k =
-	if k = 0 then begin
-	  let rhs = QQ.zero in
-	  let lhs = P.var 0 in
-	  (rhs, [(lhs,rhs)])
-	end else begin
-	  assert (k > 0);
-	  let (prev, rest) = mk_sys (k - 1) in
-	  let rhs = QQ.add prev (P.eval p (QQ.of_int k)) in
-	  let vars = BatEnum.(---) 1 order in
-	  let lhs =
-	    let qq_k = QQ.of_int k in
-	    let f (rx, last) ord =
-	      let next = QQ.mul last qq_k in
-	      (P.add_term ord next rx, next)
-	    in
-	    fst (BatEnum.fold f (P.one, QQ.one) vars)
-	  in
-	  (rhs, (lhs,rhs)::rest)
-	end
+        if k = 0 then begin
+          let rhs = QQ.zero in
+          let lhs = P.var 0 in
+          (rhs, [(lhs,rhs)])
+        end else begin
+          assert (k > 0);
+          let (prev, rest) = mk_sys (k - 1) in
+          let rhs = QQ.add prev (P.eval p (QQ.of_int k)) in
+          let vars = BatEnum.(---) 1 order in
+          let lhs =
+            let qq_k = QQ.of_int k in
+            let f (rx, last) ord =
+              let next = QQ.mul last qq_k in
+              (P.add_term ord next rx, next)
+            in
+            fst (BatEnum.fold f (P.one, QQ.one) vars)
+          in
+          (rhs, (lhs,rhs)::rest)
+        end
       in
 
       let sys = snd (mk_sys order) in
@@ -542,12 +542,12 @@ module Make (Var : Var) = struct
     let to_term cf var =
       let open BatEnum in
       let polynomial_term px =
-	let to_term (order, cq) = T.mul (T.const cq) (T.exp var order) in
-	T.sum (BatEnum.map to_term (P.enum px))
+        let to_term (order, cq) = T.mul (T.const cq) (T.exp var order) in
+        T.sum (BatEnum.map to_term (P.enum px))
       in
       let to_term (dim, px) = match dim with
-	| AVar v -> T.mul (polynomial_term px) (T.var (V.mk_var v))
-	| AConst -> polynomial_term px
+        | AVar v -> T.mul (polynomial_term px) (T.var (V.mk_var v))
+        | AConst -> polynomial_term px
       in
       T.sum (BatEnum.map to_term (Cf.enum cf))
   end
@@ -564,9 +564,9 @@ module Make (Var : Var) = struct
       phi : F.t; (* Formula representing the loop body *)
 
       (* Induction variables are variables with exact recurrences (defined by
-	 equalities of the form x' = x + p(y), where p(y) is a polynomial in
-	 induction variables of lower strata) *)
-      induction_vars : Incr.Cf.t option Incr.Env.t; 
+         equalities of the form x' = x + p(y), where p(y) is a
+         polynomial in induction variables of lower strata) *)
+      induction_vars : Incr.Cf.t option Incr.Env.t;
 
       (* Variable term representing the loop iteration *)
       loop_counter : T.t }
@@ -588,38 +588,38 @@ module Make (Var : Var) = struct
     in
     let induction_var v _ =
       let incr =
-	QQ.sub
-	  (m#eval_qq (Var.to_smt (Var.prime v)))
-	  (m#eval_qq (Var.to_smt v))
+        QQ.sub
+          (m#eval_qq (Var.to_smt (Var.prime v)))
+          (m#eval_qq (Var.to_smt v))
       in
       let diff = Smt.sub (Var.to_smt (Var.prime v)) (Var.to_smt v) in
       s#push();
       s#assrt (Smt.mk_not (Smt.mk_eq diff (Smt.const_qq incr)));
       let res = match s#check () with
-	| Smt.Unsat ->
-	  logf "Found recurrence: %a' = %a + %a"
-	    Var.format v
-	    Var.format v
-	    QQ.format incr;
-	  let increment = Cf.const (P.add_term 1 incr P.zero) in
-	  let cf = Cf.add_term (AVar v) P.one increment in
-	  logf "Closed form: %a" Cf.format cf;
-	  Some (Cf.add_term (AVar v) P.one increment)
- 	| Smt.Sat ->
-	  logf "No recurrence for %a" Var.format v;
-	  None
-	| Smt.Undef ->
-	  Log.errorf "Timeout in simple induction variable detection!";
-	  None
+        | Smt.Unsat ->
+          logf "Found recurrence: %a' = %a + %a"
+            Var.format v
+            Var.format v
+            QQ.format incr;
+          let increment = Cf.const (P.add_term 1 incr P.zero) in
+          let cf = Cf.add_term (AVar v) P.one increment in
+          logf "Closed form: %a" Cf.format cf;
+          Some (Cf.add_term (AVar v) P.one increment)
+        | Smt.Sat ->
+          logf "No recurrence for %a" Var.format v;
+          None
+        | Smt.Undef ->
+          Log.errorf "Timeout in simple induction variable detection!";
+          None
       in
       s#pop ();
       res
     in
     let induction_vars =
       Log.time
-	"(Simple) induction variable detection"
-	(Incr.Env.mapi induction_var)
-	ctx.induction_vars
+        "(Simple) induction variable detection"
+        (Incr.Env.mapi induction_var)
+        ctx.induction_vars
     in
     { ctx with induction_vars = induction_vars }
 
@@ -629,29 +629,29 @@ module Make (Var : Var) = struct
   let disj_induction_vars ctx =
     let vars =
       Incr.Env.fold
-	(fun v recurrence vs -> match recurrence with
-	| None -> v::vs
-	| Some _ -> vs)
-	ctx.induction_vars
-	[]
+        (fun v recurrence vs -> match recurrence with
+           | None -> v::vs
+           | Some _ -> vs)
+        ctx.induction_vars
+        []
     in
     let deltas =
       List.map
-	(fun v -> T.sub (T.var (V.mk_var (Var.prime v))) (T.var (V.mk_var v)))
-	vars
+        (fun v -> T.sub (T.var (V.mk_var (Var.prime v))) (T.var (V.mk_var v)))
+        vars
     in
     let cases = F.disj_optimize deltas ctx.phi in
     let case_vars = List.map (fun case -> T.var (V.mk_int_tmp "K")) cases in
     let f loop v cases =
       let g sum case_var ivl = match sum, Interval.const_of ivl with
-	| (Some sum, Some k_ivl) ->
-	  Some (T.add (T.mul case_var (T.const k_ivl)) sum)
-	| (_, _) -> None
+        | (Some sum, Some k_ivl) ->
+          Some (T.add (T.mul case_var (T.const k_ivl)) sum)
+        | (_, _) -> None
       in
       match BatList.fold_left2 g (Some T.zero) case_vars cases with
       | Some sum ->
-	{ loop with guard = F.conj loop.guard 
-	    (F.eq (T.add (T.var (V.mk_var v)) (M.find v loop.transform)) sum) }
+        { loop with guard = F.conj loop.guard
+                        (F.eq (T.add (T.var (V.mk_var v)) (M.find v loop.transform)) sum) }
       | None -> loop
     in
     let loop = BatList.fold_left2 f ctx.loop vars (BatList.transpose cases) in
@@ -659,9 +659,9 @@ module Make (Var : Var) = struct
     let sum = List.fold_left T.add T.zero case_vars in
     let guard =
       List.fold_left
-	F.conj
-	(F.eq sum ctx.loop_counter)
-	(List.map (fun v -> F.leqz (T.neg v)) case_vars)
+        F.conj
+        (F.eq sum ctx.loop_counter)
+        (List.map (fun v -> F.leqz (T.neg v)) case_vars)
     in
     let loop = { loop with guard = F.conj loop.guard guard } in
     { ctx with loop = loop }
@@ -677,11 +677,11 @@ module Make (Var : Var) = struct
     match Incr.eval env rhs with
     | Some rhs_closed ->
       let cf =
-	Incr.Cf.add_term (AVar v) Incr.P.one (Incr.summation rhs_closed)
+        Incr.Cf.add_term (AVar v) Incr.P.one (Incr.summation rhs_closed)
       in
       logf "Closed form for %a: %a"
-	Var.format v
-	Incr.Cf.format cf;
+        Var.format v
+        Incr.Cf.format cf;
       Some cf
     | None -> None
 
@@ -691,12 +691,12 @@ module Make (Var : Var) = struct
     in
     let g v rhs env =
       try begin match Incr.Env.find v env with
-      | Some _ -> env
-      | None -> begin
-	match check v rhs with
-	| Some incr -> Incr.Env.add v (Some incr) env
-	| None -> env
-      end end with Not_found -> assert false
+        | Some _ -> env
+        | None -> begin
+            match check v rhs with
+            | Some incr -> Incr.Env.add v (Some incr) env
+            | None -> env
+          end end with Not_found -> assert false
     in
     M.fold g tr.transform env
 
@@ -707,36 +707,36 @@ module Make (Var : Var) = struct
     in
     let s = new Smt.solver in
     let columns = AConst::(List.map (fun x -> AVar x) vars) in
-    
+
     (* Build var -> smt var mappings -- we need to do this because just
        calling V.to_smt will produce integer-sorted variables and we need
        them to be rational-sorted. *)
     let column_smt =
       BatEnum.foldi
-	(fun i c m -> AMap.add c (Smt.real_var ("c$" ^ (string_of_int i))) m)
-	AMap.empty
-	(BatList.enum columns)
+        (fun i c m -> AMap.add c (Smt.real_var ("c$" ^ (string_of_int i))) m)
+        AMap.empty
+        (BatList.enum columns)
     in
     let lambda_smt =
-      let lambda_smt = function 
-	| AVar v -> Smt.real_var (F.T.V.show v)
-	| AConst -> Smt.real_var "k$"
+      let lambda_smt = function
+        | AVar v -> Smt.real_var (F.T.V.show v)
+        | AConst -> Smt.real_var "k$"
       in
       List.fold_left
-	(fun m lambda -> AMap.add lambda (lambda_smt lambda) m)
-	AMap.empty
-	lambdas
+        (fun m lambda -> AMap.add lambda (lambda_smt lambda) m)
+        AMap.empty
+        lambdas
     in
 
     let assrt (v, sum) =
       let sum =
-	F.T.Linterm.to_smt (fun x -> AMap.find x lambda_smt) Smt.const_qq sum
+        F.T.Linterm.to_smt (fun x -> AMap.find x lambda_smt) Smt.const_qq sum
       in
       s#assrt (Smt.mk_eq (AMap.find v column_smt) sum)
     in
     let equations_tr = T.Linterm.transpose equations lambdas columns in
     BatEnum.iter assrt (BatEnum.combine
-			  (BatList.enum columns, BatList.enum equations_tr));
+                          (BatList.enum columns, BatList.enum equations_tr));
     (s, column_smt)
 
   let higher_induction_vars ctx =
@@ -758,9 +758,9 @@ module Make (Var : Var) = struct
     let assert_zero_coeff v =
       try s#assrt (Smt.mk_eq (get_coeff v) (Smt.const_int 0))
       with Not_found ->
-	(* No coefficient assigned to v => we may assume it's zero without
-	   asserting anything *)
-	()
+        (* No coefficient assigned to v => we may assume it's zero without
+           	   asserting anything *)
+        ()
     in
     let find_recurrence v =
       s#push ();
@@ -769,12 +769,12 @@ module Make (Var : Var) = struct
       s#assrt (Smt.mk_eq (get_coeff (Var.prime v)) (Smt.const_int (-1)));
 
       (* The coefficient of a non-induction variable (other than v) must be
-	 0 *)
+         	 0 *)
       Incr.Env.iter (fun x rhs ->
-	match rhs with
-	| None -> assert_zero_coeff x
-	| Some _ -> ()
-      ) (Incr.Env.remove v ctx.induction_vars);
+          match rhs with
+          | None -> assert_zero_coeff x
+          | Some _ -> ()
+        ) (Incr.Env.remove v ctx.induction_vars);
 
       (* The coefficient of a primed variable (other than v') must be 0 *)
       VarSet.iter assert_zero_coeff (VarSet.remove (Var.prime v) primed_vars);
@@ -782,45 +782,46 @@ module Make (Var : Var) = struct
       match s#check () with
       | Smt.Unsat | Smt.Undef -> (s#pop (); None)
       | Smt.Sat ->
-	let m = s#get_model () in
-	let f v coeff ts =
-	  match v with
-	  | AVar v -> (T.var v, m#eval_qq coeff)::ts
-	  | AConst -> (T.one, m#eval_qq coeff)::ts
-	in
-	(* Remove v & v' terms -- we want the term t such that v' = v + t,
-	   and we already set the coefficients of v and v' appropriately *)
-	let coeffs = remove_coeff v (remove_coeff (Var.prime v) coeffs) in
-	s#pop ();
-	let incr = T.qq_linterm (BatList.enum (AMap.fold f coeffs [])) in
-	logf "Found recurrence: %a' = %a + %a"
-	  Var.format v
-	  Var.format v
-	  T.format incr;
-	Some incr
+        let m = s#get_model () in
+        let f v coeff ts =
+          match v with
+          | AVar v -> (T.var v, m#eval_qq coeff)::ts
+          | AConst -> (T.one, m#eval_qq coeff)::ts
+        in
+        (* Remove v & v' terms -- we want the term t such that v' = v + t, and
+           we already set the coefficients of v and v'
+           appropriately *)
+        let coeffs = remove_coeff v (remove_coeff (Var.prime v) coeffs) in
+        s#pop ();
+        let incr = T.qq_linterm (BatList.enum (AMap.fold f coeffs [])) in
+        logf "Found recurrence: %a' = %a + %a"
+          Var.format v
+          Var.format v
+          T.format incr;
+        Some incr
     in
     let found_recurrence = ref false in
     let check v rhs =
       match rhs with
       | Some cf -> Some cf
       | None ->
-	if has_coeff v then begin
-	  match find_recurrence v with
-	  | Some rhs ->
-	    found_recurrence := true;
-	    closed_form ctx.induction_vars ctx.loop_counter v rhs
-	  | None -> None
-	end
-	else
-	  (* v isn't involved in any equalities => can't satisfy any
-	     recurrences*)
-	  None
+        if has_coeff v then begin
+          match find_recurrence v with
+          | Some rhs ->
+            found_recurrence := true;
+            closed_form ctx.induction_vars ctx.loop_counter v rhs
+          | None -> None
+        end
+        else
+          (* v isn't involved in any equalities => can't satisfy any
+             recurrences*)
+          None
     in
     let rec fix iv =
       let iv = Incr.Env.mapi check iv in
       if !found_recurrence then begin
-	found_recurrence := false;
-	fix iv
+        found_recurrence := false;
+        fix iv
       end else iv
     in
     { ctx with induction_vars = fix ctx.induction_vars }
@@ -829,52 +830,52 @@ module Make (Var : Var) = struct
   let recurrence_ineq ctx =
     let non_induction =
       let f (v, r) = match r with
-	| Some _ -> None
-	| None   -> Some v
+        | Some _ -> None
+        | None   -> Some v
       in
       BatList.of_enum (BatEnum.filter_map f (VarMap.enum ctx.induction_vars))
     in
     let deltas =
       let f v =
-	T.sub (T.var (V.mk_var (Var.prime v))) (T.var (V.mk_var v))
+        T.sub (T.var (V.mk_var (Var.prime v))) (T.var (V.mk_var v))
       in
       List.map f non_induction
     in
     let bounds = F.optimize deltas ctx.phi in
     let h tr (v, ivl) =
       let delta =
-	try T.sub (M.find v tr.transform) (T.var (V.mk_var v))
-	with Not_found -> assert false
+        try T.sub (M.find v tr.transform) (T.var (V.mk_var v))
+        with Not_found -> assert false
       in
       let lower = match Interval.lower ivl with
-	| Some bound ->
-	  F.leq (T.mul ctx.loop_counter (T.const bound)) delta
-	| None -> F.top
+        | Some bound ->
+          F.leq (T.mul ctx.loop_counter (T.const bound)) delta
+        | None -> F.top
       in
       let upper = match Interval.upper ivl with
-	| Some bound ->
-	  F.leq delta (T.mul ctx.loop_counter (T.const bound))
-	| None -> F.top
+        | Some bound ->
+          F.leq delta (T.mul ctx.loop_counter (T.const bound))
+        | None -> F.top
       in
       let lo_string = match Interval.lower ivl with
-	| Some lo -> (QQ.show lo) ^ " <= "
-	| None -> ""
+        | Some lo -> (QQ.show lo) ^ " <= "
+        | None -> ""
       in
       let hi_string = match Interval.upper ivl with
-	| Some hi -> " <= " ^ (QQ.show hi)
-	| None -> ""
+        | Some hi -> " <= " ^ (QQ.show hi)
+        | None -> ""
       in
       logf "Bounds for %a: %s%a'-%a%s"
-	Var.format v
-	lo_string
-	Var.format v
-	Var.format v
-	hi_string;
+        Var.format v
+        lo_string
+        Var.format v
+        Var.format v
+        hi_string;
       { tr with guard = F.conj (F.conj lower upper) tr.guard }
     in
     let loop =
       BatEnum.fold h ctx.loop (BatEnum.combine (BatList.enum non_induction,
-						BatList.enum bounds))
+                                                BatList.enum bounds))
     in
     { ctx with loop = loop }
 
@@ -882,14 +883,14 @@ module Make (Var : Var) = struct
   let polyrec ctx =
     let non_induction =
       let f (v, r) = match r with
-	| Some _ -> None
-	| None   -> Some v
+        | Some _ -> None
+        | None   -> Some v
       in
       BatList.of_enum (BatEnum.filter_map f (VarMap.enum ctx.induction_vars))
     in
     let deltas =
       let f v =
-	T.sub (T.var (V.mk_var (Var.prime v))) (T.var (V.mk_var v))
+        T.sub (T.var (V.mk_var (Var.prime v))) (T.var (V.mk_var v))
       in
       List.map f non_induction
     in
@@ -897,17 +898,17 @@ module Make (Var : Var) = struct
     let delta_vars = List.map fresh non_induction in
     let phi =
       List.fold_left2
-	(fun v dv d -> F.conj v (F.eq (T.var dv) d))
-	ctx.phi
-	delta_vars
-	deltas
+        (fun v dv d -> F.conj v (F.eq (T.var dv) d))
+        ctx.phi
+        delta_vars
+        deltas
     in
     let delta_map =
       let add m dv v =
-	V.Map.add
-	  dv
-	  (T.sub (M.find v ctx.loop.transform) (T.var (V.mk_var v)))
-	  m
+        V.Map.add
+          dv
+          (T.sub (M.find v ctx.loop.transform) (T.var (V.mk_var v)))
+          m
       in
       List.fold_left2 add V.Map.empty delta_vars non_induction
     in
@@ -915,15 +916,15 @@ module Make (Var : Var) = struct
     let poly =
       let delta_var_set = VSet.of_enum (BatList.enum delta_vars) in
       let is_induction_var v = match V.lower v with
-	| Some var ->
-	  begin
-	    try (Incr.Env.find var ctx.induction_vars) != None
-	    with Not_found -> false
-	  end
-	| None -> false
+        | Some var ->
+          begin
+            try (Incr.Env.find var ctx.induction_vars) != None
+            with Not_found -> false
+          end
+        | None -> false
       in
       let p v =
-	VSet.mem v delta_var_set || is_induction_var v
+        VSet.mem v delta_var_set || is_induction_var v
       in
       F.abstract ~exists:(Some p) man phi
     in
@@ -936,45 +937,45 @@ module Make (Var : Var) = struct
       match T.to_linterm t with
       | None -> F.top
       | Some lt -> begin
-	let p (x,_) = V.Map.mem x delta_map in
-	let (deltas, nondeltas) =
-	  BatEnum.partition p (T.Linterm.var_bindings lt)
-	in
-	let lhs =
-	  let f lhs (dv, coeff) =
-	    T.add lhs (T.mul (T.const coeff) (V.Map.find dv delta_map))
-	  in
-	  BatEnum.fold f T.zero deltas
-	in
-	let rhs =
-	  let f rhs (v, coeff) = T.add rhs (T.mul (T.const coeff) (T.var v)) in
-	  let rhs_term =
-	    BatEnum.fold f (T.const (T.Linterm.const_coeff lt)) nondeltas
-	  in
-	  match Incr.eval ctx.induction_vars rhs_term with
-	  | Some cf -> Incr.to_term (Incr.summation cf) ctx.loop_counter
-	  | None -> assert false
-	in
-	let res = 
-	  match tcons.typ with
-	  | EQ      -> F.eqz (T.add lhs rhs)
-	  | SUPEQ   -> F.leqz (T.neg (T.add lhs rhs))
-	  | SUP     -> F.ltz (T.neg (T.add lhs rhs))
-	  | DISEQ   -> assert false (* impossible *)
-	  | EQMOD _ -> assert false (* todo *)
-	in
-	if T.equal lhs T.zero then F.top else begin
-	  logf "Polyhedral recurrence: %a" F.format res;
-	  res
-	end
-      end
+          let p (x,_) = V.Map.mem x delta_map in
+          let (deltas, nondeltas) =
+            BatEnum.partition p (T.Linterm.var_bindings lt)
+          in
+          let lhs =
+            let f lhs (dv, coeff) =
+              T.add lhs (T.mul (T.const coeff) (V.Map.find dv delta_map))
+            in
+            BatEnum.fold f T.zero deltas
+          in
+          let rhs =
+            let f rhs (v, coeff) = T.add rhs (T.mul (T.const coeff) (T.var v)) in
+            let rhs_term =
+              BatEnum.fold f (T.const (T.Linterm.const_coeff lt)) nondeltas
+            in
+            match Incr.eval ctx.induction_vars rhs_term with
+            | Some cf -> Incr.to_term (Incr.summation cf) ctx.loop_counter
+            | None -> assert false
+          in
+          let res =
+            match tcons.typ with
+            | EQ      -> F.eqz (T.add lhs rhs)
+            | SUPEQ   -> F.leqz (T.neg (T.add lhs rhs))
+            | SUP     -> F.ltz (T.neg (T.add lhs rhs))
+            | DISEQ   -> assert false (* impossible *)
+            | EQMOD _ -> assert false (* todo *)
+          in
+          if T.equal lhs T.zero then F.top else begin
+            logf "Polyhedral recurrence: %a" F.format res;
+            res
+          end
+        end
     in
     let tcons =
       BatArray.enum (Apron.Abstract0.to_tcons_array man poly.T.D.prop)
     in
     let loop =
       { ctx.loop with guard =
-	  F.conj ctx.loop.guard (F.big_conj (BatEnum.map recur tcons)) }
+                        F.conj ctx.loop.guard (F.big_conj (BatEnum.map recur tcons)) }
     in
     { ctx with loop = loop }
   let polyrec ctx = Log.time "polyrec" polyrec ctx
@@ -983,7 +984,7 @@ module Make (Var : Var) = struct
     let primed_vars = VarSet.of_enum (M.keys ctx.loop.transform /@ Var.prime) in
     let unprime =
       VarMap.of_enum (M.enum ctx.loop.transform
-		      /@ (fun (v,_) -> (Var.prime v, v)))
+                      /@ (fun (v,_) -> (Var.prime v, v)))
     in
     let vars = formula_free_program_vars ctx.phi in
     let pre_vars =
@@ -991,8 +992,8 @@ module Make (Var : Var) = struct
     in
     let post_vars =
       VarSet.union
-	(VarSet.filter (not % flip M.mem ctx.loop.transform) pre_vars)
-	primed_vars
+        (VarSet.filter (not % flip M.mem ctx.loop.transform) pre_vars)
+        primed_vars
     in
     let low f v = match V.lower v with
       | Some v -> f v
@@ -1006,42 +1007,42 @@ module Make (Var : Var) = struct
     in
     let sigma v = match V.lower v with
       | Some x ->
-	if VarMap.mem x unprime
-	then M.find (VarMap.find x unprime) ctx.loop.transform
-	else T.var v
+        if VarMap.mem x unprime
+        then M.find (VarMap.find x unprime) ctx.loop.transform
+        else T.var v
       | None -> assert false (* impossible *)
     in
     let post_guard = F.subst sigma post_guard in
     let penultimate_guard =
       let loop_counter = match T.to_var ctx.loop_counter with
-	| Some v -> v
-	| None -> assert false
+        | Some v -> v
+        | None -> assert false
       in
       let p v = V.equal v loop_counter || V.lower v != None in
       let phi = mul ctx.loop (assume pre_guard) in
       let sigma v =
-	if V.equal v loop_counter then T.sub (T.var v) T.one
-	else T.var v
+        if V.equal v loop_counter then T.sub (T.var v) T.one
+        else T.var v
       in
       logf "penultimate_guard_phi:@\n%a" F.format phi.guard;
       F.subst sigma (exists p (F.linearize (fun () -> V.mk_real_tmp "nonlin")
-					   phi.guard))
+                                 phi.guard))
     in
     logf "pre_guard:@\n%a" F.format pre_guard;
     logf "post_guard:@\n%a" F.format post_guard;
     logf "penultimate_guard:@\n%a" F.format penultimate_guard;
     let plus_guard =
       F.big_conj (BatList.enum [
-		      pre_guard;
-		      post_guard;
-		      penultimate_guard;
-		      (F.geq ctx.loop_counter T.one)])
+          pre_guard;
+          post_guard;
+          penultimate_guard;
+          (F.geq ctx.loop_counter T.one)])
     in
     let zero_guard =
       let eq (v, t) = F.eq (T.var (V.mk_var v)) t in
       F.conj
-	(F.eqz ctx.loop_counter)
-	(F.big_conj (BatEnum.map eq (M.enum ctx.loop.transform)))
+        (F.eqz ctx.loop_counter)
+        (F.big_conj (BatEnum.map eq (M.enum ctx.loop.transform)))
     in
     let star_guard = F.disj plus_guard zero_guard in
     { ctx.loop with guard = F.conj ctx.loop.guard star_guard }
@@ -1053,41 +1054,41 @@ module Make (Var : Var) = struct
     let primed_vars = VarSet.of_enum (M.keys ctx.loop.transform /@ Var.prime) in
     let is_induction_var v = match V.lower v with
       | Some var ->
-	begin
-	  try (Incr.Env.find var ctx.induction_vars) != None
-	  with Not_found ->
-	      (* v is either a primed variable or was not updated in the loop
-		 body *)
-	    not (VarSet.mem var primed_vars)
-	end
+        begin
+          try (Incr.Env.find var ctx.induction_vars) != None
+          with Not_found ->
+            (* v is either a primed variable or was not updated in the loop
+               		 body *)
+            not (VarSet.mem var primed_vars)
+        end
       | None     -> false
     in
     let rewrite =
       let sigma v = match V.lower v with
-	| Some x ->
-	  begin
-	    try
-	      match Incr.Env.find x ctx.induction_vars with
-	      | Some incr -> Incr.to_term incr ctx.loop_counter
-	      | None -> assert false
-	    with Not_found ->
-		(* We only fall into this case if v is not updated in the loop
-		   body (v is not in the domain of tr.transform) *)
-	      T.var v
-	  end
-	| None -> T.var v
+        | Some x ->
+          begin
+            try
+              match Incr.Env.find x ctx.induction_vars with
+              | Some incr -> Incr.to_term incr ctx.loop_counter
+              | None -> assert false
+            with Not_found ->
+              (* We only fall into this case if v is not updated in the loop
+                 		   body (v is not in the domain of tr.transform) *)
+              T.var v
+          end
+        | None -> T.var v
       in
       T.subst sigma
     in
     let formula_of_bounds t bounds =
       let f (pred, bound) =
-	let bound = T.mul ctx.loop_counter (rewrite bound) in
-	match pred with
-	| Plt  -> F.lt t bound
-	| Pgt  -> F.gt t bound
-	| Pleq -> F.leq t bound
-	| Pgeq -> F.geq t bound
-	| Peq  -> F.eq t bound
+        let bound = T.mul ctx.loop_counter (rewrite bound) in
+        match pred with
+        | Plt  -> F.lt t bound
+        | Pgt  -> F.gt t bound
+        | Pleq -> F.leq t bound
+        | Pgeq -> F.geq t bound
+        | Peq  -> F.eq t bound
       in
       BatEnum.fold F.conj F.top (BatEnum.map f (BatList.enum bounds))
     in
@@ -1095,22 +1096,22 @@ module Make (Var : Var) = struct
       match incr with
       | Some _ -> tr
       | None ->
-	logf "Compute symbolic bounds for variable: %a"
-	  Var.format v;
-	let delta =
-	  T.sub (T.var (V.mk_var (Var.prime v))) (T.var (V.mk_var v))
-	in
-	let bounds =
-	  try F.symbolic_bounds is_induction_var ctx.phi delta
-	  with Not_found -> assert false
-	in
-	let nondet =
-	  T.var (V.mk_tmp ("nondet_" ^ (Var.show v)) (Var.typ v))
-	in
-	let bounds_formula = formula_of_bounds nondet bounds in
-	logf "Bounds: %a" F.format bounds_formula;
-	{ transform = M.add v (T.add (T.var (V.mk_var v)) nondet) tr.transform;
-	  guard = F.conj (formula_of_bounds nondet bounds) tr.guard }
+        logf "Compute symbolic bounds for variable: %a"
+          Var.format v;
+        let delta =
+          T.sub (T.var (V.mk_var (Var.prime v))) (T.var (V.mk_var v))
+        in
+        let bounds =
+          try F.symbolic_bounds is_induction_var ctx.phi delta
+          with Not_found -> assert false
+        in
+        let nondet =
+          T.var (V.mk_tmp ("nondet_" ^ (Var.show v)) (Var.typ v))
+        in
+        let bounds_formula = formula_of_bounds nondet bounds in
+        logf "Bounds: %a" F.format bounds_formula;
+        { transform = M.add v (T.add (T.var (V.mk_var v)) nondet) tr.transform;
+          guard = F.conj (formula_of_bounds nondet bounds) tr.guard }
     in
     let loop = Incr.Env.fold g ctx.induction_vars ctx.loop in
     { ctx with loop = loop }
@@ -1123,19 +1124,19 @@ module Make (Var : Var) = struct
     let loop_counter = T.var (V.mk_int_tmp "K") in
     let loop =
       { transform = M.mapi mk_nondet tr.transform;
-	guard = F.leqz (T.neg loop_counter) }
+        guard = F.leqz (T.neg loop_counter) }
     in
     let induction_vars =
       M.fold
-	(fun v _ env -> Incr.Env.add v None env)
-	tr.transform
-	Incr.Env.empty
+        (fun v _ env -> Incr.Env.add v None env)
+        tr.transform
+        Incr.Env.empty
     in
     let ctx =
       { induction_vars = induction_vars;
-	phi = F.linearize (fun () -> V.mk_real_tmp "nonlin") (to_formula tr);
-	loop_counter = loop_counter;
-	loop = loop }
+        phi = F.linearize (fun () -> V.mk_real_tmp "nonlin") (to_formula tr);
+        loop_counter = loop_counter;
+        loop = loop }
     in
     let ctx = simple_induction_vars ctx in
     let context_transform ctx (do_transform, transform) =
@@ -1143,11 +1144,11 @@ module Make (Var : Var) = struct
     in
     let ctx =
       List.fold_left context_transform ctx [
-	(!opt_higher_recurrence, higher_induction_vars);
-	(!opt_disjunctive_recurrence_eq, disj_induction_vars);
-	(!opt_recurrence_ineq, recurrence_ineq);
-	(!opt_higher_recurrence_ineq, higher_recurrence_ineq);
-	(!opt_polyrec, polyrec);
+        (!opt_higher_recurrence, higher_induction_vars);
+        (!opt_disjunctive_recurrence_eq, disj_induction_vars);
+        (!opt_recurrence_ineq, recurrence_ineq);
+        (!opt_higher_recurrence_ineq, higher_recurrence_ineq);
+        (!opt_polyrec, polyrec);
       ]
     in
 
@@ -1155,11 +1156,11 @@ module Make (Var : Var) = struct
     let close v incr transform =
       match incr with
       | Some incr ->
-	let t = Incr.to_term incr ctx.loop_counter in
-	logf "Closed term for %a: %a"
-	  Var.format v
-	  T.format t;
-	M.add v t transform
+        let t = Incr.to_term incr ctx.loop_counter in
+        logf "Closed term for %a: %a"
+          Var.format v
+          T.format t;
+        M.add v t transform
       | None -> transform
     in
     let transform = Incr.Env.fold close ctx.induction_vars ctx.loop.transform in
@@ -1186,9 +1187,9 @@ module Make (Var : Var) = struct
       one
     | Undef ->
       let mk_nondet v _ =
-	T.var (V.mk_tmp ("nondet_" ^ (Var.show v)) (Var.typ v))
+        T.var (V.mk_tmp ("nondet_" ^ (Var.show v)) (Var.typ v))
       in
       Log.errorf "Gave up in loop computation";
       { guard = F.top;
-	transform = M.mapi mk_nondet tr.transform }
+        transform = M.mapi mk_nondet tr.transform }
 end
