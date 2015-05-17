@@ -190,7 +190,7 @@ module Make(MakeEQ :
 
   (* Lift an LK Transition to the left-hand branch of a Tree Transition *)
   let lift_lk_tree f tr =
-p    let frame = LK.TR.get_frame tr in
+    let frame = LK.TR.get_frame tr in
     let f minterm rest =
       let eqs = LKMinterm.get_eqs minterm in
       let pred = f (LKMinterm.get_pred minterm) in
