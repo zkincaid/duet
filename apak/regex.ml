@@ -164,13 +164,19 @@ struct
                 Format.fprintf formatter "@[(%a)@]" format x
               | _ -> format formatter x
             in
-            let enum = BatList.enum xs in
-            Putil.format_enum pp_elt ~left:"" ~sep:"" ~right:"" formatter enum
+            ApakEnum.pp_print_enum
+              ~pp_sep:(fun _ () -> ())
+              pp_elt
+              formatter
+              (BatList.enum xs)
           | NUnion xs ->
             if NSet.is_empty xs then Format.pp_print_string formatter "{}"
             else
-              let enum = NSet.enum xs in
-              Putil.format_enum format ~left:"" ~sep:"+" ~right:"" formatter enum
+            ApakEnum.pp_print_enum
+              ~pp_sep:(fun formatter () -> Format.fprintf formatter "@,+" )
+              format
+              formatter
+              (NSet.enum xs)
           | NComplement x ->
             Format.fprintf formatter "@[~(%a)@]" format x
       end)

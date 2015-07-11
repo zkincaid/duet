@@ -341,7 +341,7 @@ module Dependence (M : sig
 
     let entries = file.entry_points in
     let enum =
-      Putil.cartesian_product (BatList.enum entries) (BatList.enum entries)
+      ApakEnum.cartesian_product (BatList.enum entries) (BatList.enum entries)
     in
     BatEnum.iter coreach enum;
 

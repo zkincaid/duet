@@ -20,34 +20,6 @@ let format_enum
   in
   Format.fprintf formatter "@[<hov 1>%s%a%s@]" left pp_items enum right
 
-let default_terminal_size = (24, 80)
-let terminal_size = ref None
-let get_terminal_size () =
-  match !terminal_size with
-  | Some x -> x
-  | None ->
-    let size =
-      if not (Unix.isatty Unix.stdout) then default_terminal_size else begin
-        let in_channel = Unix.open_process_in "stty size" in
-        try
-          begin
-            try
-              Scanf.fscanf in_channel "%d %d"
-                (fun rows cols ->
-                   ignore (Unix.close_process_in in_channel);
-                   (rows, cols))
-            with End_of_file ->
-              ignore (Unix.close_process_in in_channel);
-              default_terminal_size
-          end
-        with e ->
-          ignore (Unix.close_process_in in_channel);
-          raise e
-      end
-    in
-    terminal_size := Some size;
-    size
-
 (* From Deriving.Show.ShowDefaults' *)
 let pp_string pp x =
   let b = Buffer.create 16 in
@@ -55,7 +27,11 @@ let pp_string pp x =
   Format.fprintf formatter "@[<hov 0>%a@]@?" pp x;
   Buffer.sub b 0 (Buffer.length b)
 
-let format_list pp formatter xs = format_enum pp formatter (BatList.enum xs)
+let format_list pp_elt formatter xs =
+  let sep formatter () = Format.fprintf formatter ";@ " in
+  Format.fprintf formatter "[%a]"
+    (ApakEnum.pp_print_enum ~pp_sep:sep pp_elt)
+    (BatList.enum xs)
 
 module type S =
 sig
@@ -514,48 +490,6 @@ module PChar = MakeCoreType(struct
     let hash = Hashtbl.hash
     let equal = (=)
   end)
-
-let cartesian_product e1 e2 =
-  let e2c = ref (BatEnum.clone e2) in
-  let go () =
-    match BatEnum.peek e1 with
-    | None -> raise BatEnum.No_more_elements
-    | Some x -> begin match BatEnum.get (!e2c) with
-        | Some y -> (x, y)
-        | None -> begin
-            BatEnum.junk e1;
-            e2c := BatEnum.clone e2;
-            match BatEnum.peek e1, BatEnum.get (!e2c) with
-            | Some x, Some y -> (x, y)
-            | _, _ -> raise BatEnum.No_more_elements
-          end
-      end
-  in
-  BatEnum.from go
-
-let adjacent_pairs enum =
-  let go () = match BatEnum.get enum, BatEnum.peek enum with
-    | Some x, Some y -> (x, y)
-    | _, _ -> raise BatEnum.No_more_elements
-  in
-  BatEnum.from go
-
-let distinct_pairs enum =
-  match BatEnum.get enum with
-  | None -> BatEnum.empty ()
-  | Some first ->
-    let rest = ref (BatEnum.clone enum) in
-    let cur = ref first in
-    let rec go () =
-      match BatEnum.get (!rest) with
-      | None -> begin
-          cur := BatEnum.get_exn enum;
-          rest := BatEnum.clone enum;
-          go ()
-        end
-      | Some elt -> (!cur, elt)
-    in
-    BatEnum.from go
 
 let rec compare_tuple = function
   | [] -> 0

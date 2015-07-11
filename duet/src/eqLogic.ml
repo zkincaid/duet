@@ -104,13 +104,13 @@ struct
   include Putil.MakeFmt(struct
       type a = t
       let format formatter x =
-        let pp formatter (x, rep) =
-          Format.fprintf formatter "%a = %a"
-            V.format x
-            V.format rep
-        in
-        Format.fprintf formatter "[|@[%a@ &&@ %a@]|]"
-          (Putil.format_enum pp ~left:"[|" ~sep:" && " ~right:"") (enum_eqs x)
+        let open Format in
+        fprintf formatter "[|@[%a@ && %a@]|]"
+          (ApakEnum.pp_print_enum
+             ~pp_sep:(fun formatter () -> fprintf formatter "@ && ")
+             (fun formatter (x, rep) ->
+                fprintf formatter "%a = %a" V.format x V.format rep))
+          (enum_eqs x)
           P.format x.predicates
     end)
 

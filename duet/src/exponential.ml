@@ -99,7 +99,8 @@ struct
       add (PSet.union st1 st2) (AI.meet v1 v2) func
     in
     let default = AI.meet (default f) (default g) in
-    BatEnum.fold add (const default) (Putil.cartesian_product (enum f) (enum g))
+    (ApakEnum.cartesian_product (enum f) (enum g))
+    |> BatEnum.fold add (const default)
 end
 
 

@@ -425,11 +425,15 @@ module Var = struct
             match resolve_offset var.vtyp offset with
             | Some [] -> Varinfo.format formatter var
             | Some xs ->
-              let enum = BatList.enum xs in
               let pp formatter f = Format.pp_print_string formatter f.finame in
               Format.fprintf formatter "%a.%a"
                 Varinfo.format var
-                (Putil.format_enum pp ~left:"" ~sep:"." ~right:"") enum
+                (ApakEnum.pp_print_enum
+                   ~pp_sep:(fun formatter () ->
+                       Format.pp_print_string formatter ".")
+                   pp)
+                (BatList.enum xs)
+
             | None ->
               Format.fprintf formatter "%a.%a"
                 Varinfo.format var
@@ -685,10 +689,9 @@ let format_builtin formatter = function
       | Some v -> Format.fprintf formatter "%a = " Var.format v
       | None    -> ()
     end;
-    let enum = BatList.enum args in
     Format.fprintf formatter "fork(%a, %a)"
       format_expr func
-      (Putil.format_enum format_expr ~left:"" ~sep:"," ~right:"") enum
+      (ApakEnum.pp_print_enum format_expr) (BatList.enum args)
   | Acquire lock -> Format.fprintf formatter "acquire(%a)" format_expr lock
   | Release lock -> Format.fprintf formatter "release(%a)" format_expr lock
   | AtomicBegin -> Format.pp_print_string formatter "atomic_begin"
@@ -706,16 +709,14 @@ let format_dk formatter = function
       format_ap ap
       format_expr expr
   | Call (None, func, args) ->
-    let enum = BatList.enum args in
-    Format.fprintf formatter "%a%a"
+    Format.fprintf formatter "%a(%a)"
       format_expr func
-      (Putil.format_enum format_expr ~left:"(" ~sep:"," ~right:")") enum
+      (ApakEnum.pp_print_enum format_expr) (BatList.enum args)
   | Call (Some lhs, func, args) ->
-    let enum = BatList.enum args in
-    Format.fprintf formatter "%a=%a%a"
+    Format.fprintf formatter "%a=%a(%a)"
       Var.format lhs
       format_expr func
-      (Putil.format_enum format_expr ~left:"(" ~sep:"," ~right:")") enum
+      (ApakEnum.pp_print_enum format_expr) (BatList.enum args)
   | Assume expr -> Format.fprintf formatter "assume(%a)" format_bexpr expr
   | Initial -> Format.pp_print_string formatter "initial"
   | Assert (e,msg) ->
@@ -1180,8 +1181,8 @@ module Bexpr = struct
   let dnf bexpr =
     let f = function
       | OAnd (x, y) ->
-        let enum = Putil.cartesian_product (BatList.enum x) (BatList.enum y) in
-        BatEnum.fold (fun r (x, y) -> (x @ y)::r) [] enum
+        ApakEnum.cartesian_product (BatList.enum x) (BatList.enum y)
+        |> BatEnum.fold (fun r (x, y) -> (x @ y)::r) []
       | OOr (x, y) -> x@y
       | OAtom (p, a, b) -> [[Atom (p,a,b)]]
     in

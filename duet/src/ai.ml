@@ -181,11 +181,16 @@ module ApronInterpretation = struct
         AP.Set.format formatter domain;
         Format.pp_print_string formatter ".";
         Format.pp_print_space formatter ();
-        if is_top av then Format.pp_print_string formatter "T"
-        else if is_bottom av then Format.pp_print_string formatter "_|_"
+        if is_top av then
+          Format.pp_print_string formatter "T"
+        else if is_bottom av then
+          Format.pp_print_string formatter "_|_"
         else
-          let enum = BatArray.enum lincons in
-          Putil.format_enum pp ~left:"" ~sep:" &&" ~right:"" formatter enum
+          ApakEnum.pp_print_enum
+            ~pp_sep:(fun formatter () -> Format.fprintf formatter "@ && ")
+            pp
+            formatter
+            (BatArray.enum lincons)
     end)
 
   (* Create a new pointer value, where ptr_val, ptr_pos, and ptr_width are

@@ -416,8 +416,9 @@ module PTSet (T : Tagged) : Putil.Hashed.Set.S with type elt = T.t = struct
   include Putil.MakeFmt(struct
       type a = t
       let format formatter set =
-        let enum = enum set in
-        Putil.format_enum T.format ~left:"{" ~sep:"," ~right:"}" formatter enum
+        Format.fprintf formatter "{%a}"
+          (ApakEnum.pp_print_enum T.format)
+        (enum set)
     end)
   module Compare_t = struct
     type a = t
@@ -751,7 +752,9 @@ module PTMap (T : Tagged) = struct
       pp_val formatter value;
       Format.pp_close_box formatter ();
     in
-    Putil.format_enum pp formatter (enum map)
+    Format.fprintf formatter "[%a]"
+      (ApakEnum.pp_print_enum pp)
+      (enum map)
 end
 
 module MakeCoreType (T : Tagged) : sig

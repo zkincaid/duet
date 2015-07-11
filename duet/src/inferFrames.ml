@@ -36,11 +36,13 @@ module D = struct
       type a = t
       let format formatter set =
         let pp formatter (def, set) =
-          Format.fprintf formatter "%a@ ->@ %a"
+          Format.fprintf formatter "@[%a@ -> %a@]"
             Def.format def
             AP.Set.format set
         in
-        Putil.format_enum pp formatter (M.enum set)
+        Format.fprintf formatter "[%a]"
+          (ApakEnum.pp_print_enum pp)
+          (M.enum set)
     end)
 
   let compact set =

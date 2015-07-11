@@ -667,7 +667,7 @@ module Make(G : G) = struct
             BatEnum.fold
               (fun g (u,v) -> R.G.add_edge g u v)
               R.G.empty
-              (Putil.adjacent_pairs (BatList.enum lr))
+              (ApakEnum.adjacent_pairs (BatList.enum lr))
           in
           (R.add_block rg lr_name lrg ~entry:start ~exit:finish, g)
         end else (rg, g)

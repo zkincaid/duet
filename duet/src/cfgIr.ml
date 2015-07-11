@@ -537,8 +537,8 @@ let from_func_ast file func_ast =
   let process_stmt stmt =
     match stmt_kind stmt with
     | Instr (d::ds as defs) ->
-      let enum = Putil.adjacent_pairs (BatList.enum defs) in
-      BatEnum.iter (fun (x,y) -> Cfg.add_edge cfg x y) enum;
+      ApakEnum.adjacent_pairs (BatList.enum defs)
+      |> BatEnum.iter (fun (x,y) -> Cfg.add_edge cfg x y);
       List.iter (Cfg.add_edge cfg (BatList.last defs)) (next_defs stmt)
     | ForkGoto _ ->
       List.iter (Cfg.add_edge cfg (fork_lookup stmt)) (next_defs stmt)

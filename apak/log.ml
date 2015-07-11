@@ -60,8 +60,8 @@ module Make(M : sig val name : string end) = struct
          then (String.concat "" (List.map attr_code attributes), "\x1b[0m@\n@?")
          else ("", "@\n@?"))
     in
-    if level_leq level (!verbosity_level)
-       || level_leq level (!my_verbosity_level)
+    if level_leq (!verbosity_level) level
+       || level_leq (!my_verbosity_level) level
     then
       Format.printf (start ^^ fmt ^^ reset)
     else

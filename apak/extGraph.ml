@@ -1773,6 +1773,9 @@ module Build = struct
       let successors = G.enum_succ g v in
       let g = G.remove_vertex g v in
       let add_edge g (u, v) = G.add_edge g u v in
-      BatEnum.fold add_edge g (Putil.cartesian_product predecessors successors)
+      BatEnum.fold
+        add_edge
+        g
+        (ApakEnum.cartesian_product predecessors successors)
   end
 end

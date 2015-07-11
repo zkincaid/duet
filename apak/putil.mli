@@ -257,7 +257,6 @@ module PInt : CoreType with type t = int
 module PChar : CoreType with type t = char
 module PUnit : CoreType with type t = unit
 
-val format_enum : (Format.formatter -> 'a -> unit) -> ?left:string -> ?sep:string -> ?right:string -> Format.formatter -> 'a BatEnum.t -> unit
 val format_list : (Format.formatter -> 'a -> unit) -> Format.formatter -> 'a list -> unit
 val pp_string : (Format.formatter -> 'a -> unit) -> 'a -> string
 
@@ -270,9 +269,5 @@ val find_file : string -> string option
 val with_temp_filename : string -> string -> (string -> 'a) -> 'a
 val with_temp_file : string -> string -> (string -> out_channel -> 'a) -> 'a
 val with_temp_dir : string -> (string -> 'a) -> 'a
-
-val adjacent_pairs : 'a BatEnum.t -> ('a * 'a) BatEnum.t
-val cartesian_product : 'a BatEnum.t -> 'b BatEnum.t -> ('a * 'b) BatEnum.t
-val distinct_pairs : 'a BatEnum.t -> ('a * 'a) BatEnum.t
 
 val compare_tuple : int Lazy.t list -> int
