@@ -102,7 +102,7 @@ module type S = sig
       t)]. *)
   val nudge : ?accuracy:int -> t -> t * t
 
-  val log_stats : unit -> unit
+  val log_stats : Log.level -> unit
 
   module Syntax : sig
     val ( + ) : t -> t -> t

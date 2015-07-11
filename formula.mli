@@ -210,7 +210,7 @@ module type S = sig
   val nb_atoms : t -> int
   val size : t -> int
 
-  val log_stats : unit -> unit
+  val log_stats : Log.level -> unit
 
   val interpolate : t -> t -> t option
 
