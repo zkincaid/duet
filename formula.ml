@@ -1979,10 +1979,10 @@ module Make (T : Term.S) = struct
     let sym = Smt.mk_string_symbol in
 
     Params.add_symbol params (sym ":engine") (sym "pdr");
-    Params.add_bool params (sym ":use-farkas") true;
-    Params.add_bool params (sym ":use-utvpi") false;
-    Params.add_bool params (sym ":inline-eager") false;
-    Params.add_bool params (sym ":inline-linear") false;
+    Params.add_bool params (sym ":pdr.farkas") true;
+    Params.add_bool params (sym ":pdr.utvpi") false;
+    Params.add_bool params (sym ":xform.inline_eager") false;
+    Params.add_bool params (sym ":xform.inline_linear") false;
     fp#set_params params;
 
     let var_sort v = match V.typ v with
