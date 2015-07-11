@@ -13,7 +13,7 @@ open Cra
 open Dependence
 open ConcDep
 
-let usage_msg = "Duet program analyzer\nUsage: duet [OPTIONS] file.[c|bp|goto]"
+let usage_msg = "Duet program analyzer\nUsage: duet [OPTIONS] file.[c|bp]"
 
 let anon_fun s = ignore (CmdLine.parse s)
 
