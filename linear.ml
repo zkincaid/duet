@@ -480,7 +480,7 @@ module Affine = struct
           let format formatter (lt, k) =
             if R.equal k R.zero then L.format formatter lt
             else if L.equal lt L.zero then R.format formatter k
-            else Format.fprintf formatter "%a@ +@ %a" L.format lt R.format k
+            else Format.fprintf formatter "%a@ + %a" L.format lt R.format k
         end)
 
       (* Lift dim * base to (affine dim * base) *)
