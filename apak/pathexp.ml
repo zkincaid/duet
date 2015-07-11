@@ -671,8 +671,8 @@ struct
     (* Compute summaries for each block *)
     let update join block =
       L.logf
-        ~level:Log.phases
-        ~attributes:[Log.Cyan]
+        ~level:`info
+        ~attributes:[`Cyan]
         "Computing summary for block `%a`"
         Block.format block;
       let body = R.block_body query.recgraph block in

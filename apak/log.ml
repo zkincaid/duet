@@ -1,81 +1,76 @@
-(** Options *)
+(** Verbosity levels - from BatLog *)
+type level = [ `trace | `debug | `info | `warn | `error | `fatal | `always ]
+let level_leq x y =
+  let to_int = function
+    | `trace -> 0 | `debug -> 1 | `info -> 2 | `warn -> 3
+    | `error -> 4 | `fatal -> 5 | `always -> 6
+  in
+  (to_int x) <= (to_int y)
+
+
 let debug_mode      = ref false
 let default_debug   = ref false
 let debug_phases    = ref ([] : string list)
-let verbosity_level = ref 0
+let verbosity_level : level ref = ref `always
 
 let terminal_supports_colors =
-  let term = Unix.getenv "TERM" in
-  let in_channel =
-    Unix.open_process_in ("tput -T" ^ term ^ " colors")
-  in
-  try
-    begin
-      try
-        Scanf.fscanf in_channel "%d"
-          (fun colors ->
-             ignore (Unix.close_process_in in_channel);
-             colors >= 8)
-      with End_of_file ->
-        ignore (Unix.close_process_in in_channel);
-        false
-    end
-  with e ->
-    ignore (Unix.close_process_in in_channel);
-    raise e
+  Unix.isatty Unix.stdout
 
-(** Verbosity levels *)
-let top    = 0   (** print only errors *)
-let phases = 1   (** print phases *)
-let fix    = 3   (** print steps in fixpoint computation *)
-let bottom = 4   (** print everything *)
-let info   = 2   (** print extra information *)
-
-type attributes =
-  | Black | Red | Green | Yellow | Blue | Magenta | Cyan | White
-  | Bold | Underline
+let level_of_string = function
+  | "trace" -> `trace
+  | "debug" -> `debug
+  | "info" -> `info
+  | "warn" -> `warn
+  | "error" -> `error
+  | "fatal" -> `fatal
+  | "always" -> `always
+  | lev ->
+    Format.ksprintf invalid_arg "Unrecognized level: `%s'" lev
 
 let attr_code = function
-  | Black -> "\x1b[30m"
-  | Red -> "\x1b[31m"
-  | Green -> "\x1b[32m"
-  | Yellow -> "\x1b[33m"
-  | Blue -> "\x1b[34m"
-  | Magenta -> "\x1b[35m"
-  | Cyan -> "\x1b[36m"
-  | White -> "\x1b[37m"
-  | Bold -> "\x1b[1m"
-  | Underline -> "\x1b[4m"
+  | `Black -> "\x1b[30m"
+  | `Red -> "\x1b[31m"
+  | `Green -> "\x1b[32m"
+  | `Yellow -> "\x1b[33m"
+  | `Blue -> "\x1b[34m"
+  | `Magenta -> "\x1b[35m"
+  | `Cyan -> "\x1b[36m"
+  | `White -> "\x1b[37m"
+  | `Bold -> "\x1b[1m"
+  | `Underline -> "\x1b[4m"
 let reset_attributes = "\x1b[0m"
 
 let loggers = Hashtbl.create 32
-let set_verbosity_level name value =
+let set_verbosity_level name (value : level) =
   try (Hashtbl.find loggers name) := value
   with Not_found ->
     invalid_arg ("Log.set_verbosity_level: `" ^ name ^ "' is not registered")
 
 module Make(M : sig val name : string end) = struct
-  let my_verbosity_level = ref 0
+  let my_verbosity_level = ref `always
   let _ =
     if Hashtbl.mem loggers M.name
     then failwith ("Duplicate logger name: `" ^ M.name ^ "'");
     Hashtbl.add loggers M.name my_verbosity_level
 
-  let logf ?(level=info) ?(attributes=[]) fmt =
+  let logf ?(level=`info) ?(attributes=[]) fmt =
     let (start, reset) =
       Obj.magic
-        (if terminal_supports_colors
+        (if terminal_supports_colors && attributes != []
          then (String.concat "" (List.map attr_code attributes), "\x1b[0m@\n@?")
-         else ("", ""))
+         else ("", "@\n@?"))
     in
-    if !verbosity_level >= level || !my_verbosity_level >= level
-    then Format.printf (start ^^ fmt ^^ reset)
-    else Format.ifprintf Format.std_formatter fmt
+    if level_leq level (!verbosity_level)
+       || level_leq level (!my_verbosity_level)
+    then
+      Format.printf (start ^^ fmt ^^ reset)
+    else
+      Format.ifprintf Format.std_formatter fmt
 
-  let log ?(level=info) ?(attributes=[]) str =
+  let log ?(level=`info) ?(attributes=[]) str =
     logf ~level:level ~attributes:attributes "%s" str
 
-  let log_pp ?(level=info) ?(attributes=[]) pp x =
+  let log_pp ?(level=`info) ?(attributes=[]) pp x =
     logf ~level:level ~attributes:attributes "%a" pp x
 end
 
@@ -113,6 +108,11 @@ let errorf fmt =
 let error msg = errorf msg
 let error_pp pp x = errorf "%a" pp x
 
+let fatalf fmt = Format.kfprintf (fun _ -> exit (-1)) fmt
+let fatal msg = fatalf msg
+
+let invalid_argf fmt = Format.ksprintf invalid_arg fmt
+
 let phases_ht = Hashtbl.create 32
 let time str f arg =
   let start_time = Unix.gettimeofday () in
@@ -132,7 +132,7 @@ let phase str f arg =
     try String.make (77 - (String.length str)) '='
     with Invalid_argument _ -> ""
   in
-  logf ~level:phases ~attributes:[Bold; Green] "= %s %s" str padding;
+  logf ~level:`info ~attributes:[`Bold; `Green] "= %s %s" str padding;
   if List.exists (fun x -> x = str) !debug_phases then begin
     let old_debug = !debug_mode in
     debug_mode := true;

@@ -92,7 +92,7 @@ module type S = sig
   val nb_atoms : t -> int
   val size : t -> int
 
-  val log_stats : unit -> unit
+  val log_stats : Log.level -> unit
 
   val interpolate : t -> t -> t option
 
@@ -331,15 +331,15 @@ module Make (T : Term.S) = struct
     in
     eval alg
 
-  let log_stats () =
+  let log_stats (level : Log.level) =
     let (length, count, total, min, median, max) = HC.stats formula_tbl in
-    Log.log ~level:0 "----------------------------\n Formula stats";
-    Log.logf ~level:0 "Length:\t\t%d" length;
-    Log.logf ~level:0 "Count:\t\t%d" count;
-    Log.logf ~level:0 "Total size:\t%d" total;
-    Log.logf ~level:0 "Min bucket:\t%d" min;
-    Log.logf ~level:0 "Median bucket:\t%d" median;
-    Log.logf ~level:0 "Max bucket:\t%d" max
+    Log.log ~level:level "----------------------------\n Formula stats";
+    Log.logf ~level:level "Length:\t\t%d" length;
+    Log.logf ~level:level "Count:\t\t%d" count;
+    Log.logf ~level:level "Total size:\t%d" total;
+    Log.logf ~level:level "Min bucket:\t%d" min;
+    Log.logf ~level:level "Median bucket:\t%d" median;
+    Log.logf ~level:level "Max bucket:\t%d" max
 
   let negate_atom = function
     | LeqZ t -> ltz (T.neg t)
@@ -1636,7 +1636,6 @@ module Make (T : Term.S) = struct
       let reduced =
         qe_partial (flip VarSet.mem term_vars) disjunct
       in
-      let vars = VarSet.diff (formula_free_vars reduced) term_vars in
 
       let p = Polyhedron.of_formula reduced in
 

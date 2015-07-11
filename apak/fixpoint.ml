@@ -15,7 +15,7 @@ let fix_wto wto update =
       loop false
   in
   List.iter (fun elt -> ignore (fix elt)) wto;
-  Log.logf ~level:Log.fix "Evaluations: %d" (!evaluations)
+  Log.logf ~level:`trace "Evaluations: %d" (!evaluations)
 
 module type G = sig
   include Loop.G
@@ -64,7 +64,7 @@ module Wto (G : G) = struct
         loop false
     in
     List.iter (fun elt -> ignore (fix elt)) wto;
-    Log.logf ~level:Log.fix "Evaluations: %d" (!evaluations)
+    Log.logf ~level:`trace "Evaluations: %d" (!evaluations)
 end
 
 type 'a worklist =

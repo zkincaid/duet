@@ -625,8 +625,8 @@ let analyze file =
       Report.print_errors ();
       Report.print_safe ();
       if !CmdLine.show_stats then begin
-        K.T.log_stats ();
-        K.F.log_stats ()
+        K.T.log_stats `always;
+        K.F.log_stats `always
       end
     end
   | _ -> assert false

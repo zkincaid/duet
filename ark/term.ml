@@ -64,7 +64,7 @@ module type S = sig
   val nudge_down : ?accuracy:int -> t -> t
   val nudge : ?accuracy:int -> t -> t * t
 
-  val log_stats : unit -> unit
+  val log_stats : Log.level -> unit
 
   module Syntax : sig
     val ( + ) : t -> t -> t
@@ -281,15 +281,15 @@ module Make (V : Var) = struct
     else
       hashcons (Mod (x, y))
 
-  let log_stats () =
+  let log_stats (level : Log.level) =
     let (length, count, total, min, median, max) = HC.stats term_tbl in
-    Log.log ~level:0 "----------------------------\n Term stats";
-    Log.logf ~level:0 "Length:\t\t%d" length;
-    Log.logf ~level:0 "Count:\t\t%d" count;
-    Log.logf ~level:0 "Total size:\t%d" total;
-    Log.logf ~level:0 "Min bucket:\t%d" min;
-    Log.logf ~level:0 "Median bucket:\t%d" median;
-    Log.logf ~level:0 "Max bucket:\t%d" max
+    Log.log ~level:level "----------------------------\n Term stats";
+    Log.logf ~level:level "Length:\t\t%d" length;
+    Log.logf ~level:level "Count:\t\t%d" count;
+    Log.logf ~level:level "Total size:\t%d" total;
+    Log.logf ~level:level "Min bucket:\t%d" min;
+    Log.logf ~level:level "Median bucket:\t%d" median;
+    Log.logf ~level:level "Max bucket:\t%d" max
 
   let to_smt =
     let alg = function

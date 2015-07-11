@@ -18,12 +18,12 @@ let fail_fork       = ref false
 
 let verbosity_arg =
   ("-verbosity",
-   Arg.Set_int Log.verbosity_level,
+   Arg.String (fun v -> Log.verbosity_level := (Log.level_of_string v)),
    " Set verbosity level (higher = more verbose; defaults to 0)")
 
 let verbose_arg =
   ("-verbose",
-   Arg.String (fun v -> Log.set_verbosity_level v Log.info),
+   Arg.String (fun v -> Log.set_verbosity_level v `info),
    " Raise verbosity for a particular module")
 
 let verbose_list_arg =
