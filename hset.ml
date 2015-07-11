@@ -400,5 +400,4 @@ let of_enum enum = BatEnum.fold (fun set elt -> add elt set) empty enum
 
 let format pp formatter set =
   let pp formatter x = pp formatter x.node in
-  let enum = enum set in
-  Apak.Putil.format_enum pp ~left:"{" ~sep:"," ~right:"}" formatter enum
+  Format.fprintf formatter "{%a}" (ApakEnum.pp_print_enum pp) (enum set)

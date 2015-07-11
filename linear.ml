@@ -33,6 +33,16 @@ module type HVar = sig
   include Putil.Hashed.S
 end
 
+let pp_print_sum pp zero formatter enum =
+  if BatEnum.is_empty enum then
+    zero formatter ()
+  else
+    ApakEnum.pp_print_enum
+      ~pp_sep:(fun formatter () -> Format.fprintf formatter "@ + ")
+      pp
+      formatter
+      enum
+
 module Impl = struct
   module type Basis = sig
     include Putil.S
@@ -78,11 +88,11 @@ module Impl = struct
             else
               Format.fprintf formatter "%a*%a" R.format coeff V.format var
           in
-          let enum = Hmap.enum lin in
-          if BatEnum.is_empty enum then
-            R.format formatter R.zero
-          else
-            Putil.format_enum pp ~left:"" ~sep:" +" ~right:"" formatter enum
+          pp_print_sum
+            pp
+            (fun fmt () -> R.format fmt R.zero)
+            formatter
+            (Hmap.enum lin)
       end)
 
     let scalar_mul k lin =
@@ -144,11 +154,11 @@ module Impl = struct
             else
               Format.fprintf formatter "%a*%a" R.format coeff V.format var
           in
-          let enum = M.enum lin in
-          if BatEnum.is_empty enum then
-            R.format formatter R.zero
-          else
-            Putil.format_enum pp ~left:"" ~sep:" +" ~right:"" formatter enum
+          pp_print_sum
+            pp
+            (fun fmt () -> R.format fmt R.zero)
+            formatter
+            (M.enum lin)
       end)
 
     let scalar_mul k lin =
@@ -211,11 +221,11 @@ module Impl = struct
             else
               Format.fprintf formatter "%a*%a" R.format coeff V.format var
           in
-          let enum = M.enum lin in
-          if BatEnum.is_empty enum then
-            R.format formatter R.zero
-          else
-            Putil.format_enum pp ~left:"" ~sep:" +" ~right:"" formatter enum
+          pp_print_sum
+            pp
+            (fun fmt () -> R.format fmt R.zero)
+            formatter
+            (M.enum lin)
       end)
 
     let scalar_mul k lin =
@@ -338,11 +348,11 @@ module Expr = struct
           let pp formatter (order, coeff) =
             Format.fprintf formatter "%a*X^%d" R.format coeff order
           in
-          let enum = P.enum poly in
-          match BatEnum.peek enum with
-          | Some _ ->
-            Putil.format_enum pp ~left:"" ~sep:" +" ~right:"" formatter enum
-          | None -> Format.pp_print_int formatter 0
+          pp_print_sum
+            pp
+            (fun formatter () -> Format.pp_print_int formatter 0)
+            formatter
+            (P.enum poly)
       end)
 
     let scalar_mul = P.scalar_mul
@@ -368,7 +378,7 @@ module Expr = struct
       let f r ((pn,pc), (qn,qc)) =
         P.add_term (pn + qn) (R.mul pc qc) r
       in
-      (Putil.cartesian_product (P.enum p) (P.enum q))
+      (ApakEnum.cartesian_product (P.enum p) (P.enum q))
       |> BatEnum.fold f P.zero
     let rec exp p n =
       if n = 0 then one

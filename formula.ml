@@ -703,7 +703,7 @@ module Make (T : Term.S) = struct
       let (pos, neg) = List.fold_left f ([],[]) occ in
       let occ =
         let pairs =
-          Putil.cartesian_product (BatList.enum pos) (BatList.enum neg)
+          ApakEnum.cartesian_product (BatList.enum pos) (BatList.enum neg)
         in
         BatList.of_enum (BatEnum.map (fun (p, n) -> L.sub p n) pairs)
       in
@@ -1688,7 +1688,7 @@ module Make (T : Term.S) = struct
     let equal x y = compare x y = 0
 
     let cartesian f xs ys =
-      let zs = Putil.cartesian_product (BatList.enum xs) (BatList.enum ys) in
+      let zs = ApakEnum.cartesian_product (BatList.enum xs) (BatList.enum ys) in
       BatList.of_enum (BatEnum.map (uncurry f) zs)
 
     let add x y =

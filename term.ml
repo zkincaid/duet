@@ -346,7 +346,7 @@ module Make (V : Var) = struct
     BatEnum.fold add zero (Sop.enum sop /@ (fun (t, k) -> mul t (const k)))
 
   let to_sop t =
-    let product x y = Putil.cartesian_product (Sop.enum x) (Sop.enum y) in
+    let product x y = ApakEnum.cartesian_product (Sop.enum x) (Sop.enum y) in
     let mul ((x,kx), (y,ky)) = (mul x y, QQ.mul kx ky) in
     let div ((x,kx), (y,ky)) =
       assert (not (QQ.equal ky QQ.zero));
