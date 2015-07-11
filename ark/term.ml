@@ -104,14 +104,16 @@ module Make (V : Var) = struct
 
     include Putil.MakeFmt(struct
         type a = t
-        let rec format formatter term = match term.node with
-          | Lin linterm -> Linterm.format formatter linterm
+        let rec format formatter term =
+          match term.node with
+          | Lin linterm ->
+            Format.fprintf formatter "@[%a@]" Linterm.format linterm
           | Add (x,y) ->
-            Format.fprintf formatter "@[(%a)@ +@ (%a)@]" format x format y
+            Format.fprintf formatter "@[(%a)@ + (%a)@]" format x format y
           | Mul (x,y) ->
-            Format.fprintf formatter "@[(%a)@ *@ (%a)@]" format x format y
+            Format.fprintf formatter "@[(%a)@ * (%a)@]" format x format y
           | Div (x,y) ->
-            Format.fprintf formatter "@[(%a)@ /@ (%a)@]" format x format y
+            Format.fprintf formatter "@[(%a)@ / (%a)@]" format x format y
           | Mod (x,y) ->
             Format.fprintf formatter "@[(%a)@ %@ (%a)@]" format x format y
           | Floor x ->
