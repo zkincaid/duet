@@ -1,5 +1,5 @@
 # OASIS_START
-# DO NOT EDIT (digest: a20aa60e970969ba1d7d64929d682579)
+# DO NOT EDIT (digest: 5c4731bada485af15f1180d36d2055c5)
 # Ignore VCS directories, you can use the same kind of rule outside
 # OASIS_START/STOP if you want to exclude directories that contains
 # useless stuff for the build process
@@ -49,17 +49,11 @@ true: annot, bin_annot
 <apak/*.ml{,i,y}>: pkg_ocamlgraph
 # Library ark
 "ark/ark.cmxs": use_ark
-"ark/arkPervasives.cmx": for-pack(Ark)
-"ark/formula.cmx": for-pack(Ark)
-"ark/linear.cmx": for-pack(Ark)
-"ark/numDomain.cmx": for-pack(Ark)
-"ark/smt.cmx": for-pack(Ark)
-"ark/term.cmx": for-pack(Ark)
-"ark/transition.cmx": for-pack(Ark)
 "ark/hset.cmx": for-pack(Ark)
 "ark/hashcons.cmx": for-pack(Ark)
 "ark/hmap.cmx": for-pack(Ark)
-"ark/interval.cmx": for-pack(Ark)
+"ark/qQ.cmx": for-pack(Ark)
+"ark/zZ.cmx": for-pack(Ark)
 # Executable test_ark
 "ark/test_ark.native": pkg_Z3
 "ark/test_ark.native": pkg_apron
