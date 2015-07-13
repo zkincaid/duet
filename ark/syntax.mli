@@ -72,11 +72,9 @@ module Formula : sig
   type 'a open_t = [
     | `Tru
     | `Fls
-    | `And of 'a * 'a
-    | `Or of 'a * 'a
+    | `Binop of [`And | `Or] * 'a * 'a
     | `Not of 'a
-    | `Exists of (string option) * typ * 'a
-    | `Forall of (string option) * typ * 'a
+    | `Quantify of [`Exists | `Forall] * string * typ * 'a
     | `Atom of [`Eq | `Leq | `Lt] * term * term
   ]
   val hash : t -> int
@@ -103,8 +101,8 @@ module Formula : sig
   val mk_or : 'a context -> t -> t -> t
   val mk_not : 'a context -> t -> t
 
-  val mk_exists : 'a context -> ?hint:(string option) -> typ -> t -> t
-  val mk_forall : 'a context -> ?hint:(string option) -> typ -> t -> t
+  val mk_exists : 'a context -> ?name:string -> typ -> t -> t
+  val mk_forall : 'a context -> ?name:string -> typ -> t -> t
 
   val mk_conjunction : 'a context -> t BatEnum.t -> t
   val mk_disjunction : 'a context -> t BatEnum.t -> t
@@ -114,8 +112,8 @@ module ImplicitContext(C : sig
     type t
     val context : t context
   end) : sig
-  val exists : ?hint:(string option) -> typ -> formula -> formula
-  val forall : ?hint:(string option) -> typ -> formula -> formula
+  val exists : ?name:string -> typ -> formula -> formula
+  val forall : ?name:string -> typ -> formula -> formula
   val ( ! ) : formula -> formula
   val ( && ) : formula -> formula -> formula
   val ( || ) : formula -> formula -> formula
