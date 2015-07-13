@@ -3,6 +3,10 @@ open Syntax
 module T = Term
 module F = Formula
 
+include Apak.Log.Make(struct let name = "ark.smt" end)
+
+exception Unknown_result
+
 let bool_val x =
   match Z3.Boolean.get_bool_value x with
   | Z3enums.L_TRUE -> true
@@ -195,6 +199,33 @@ class ['a] context opts = object(self)
       | UNKNOWN_AST -> invalid_arg "formula_of"
     in
     of_smt env ast
+
+  method interpolate_seq ctx seq =
+    let rec make_pattern phi = function
+      | [psi] ->
+        Z3.Boolean.mk_and z3 [
+          Z3.Interpolation.mk_interpolant z3 phi;
+          self#of_formula psi
+        ]
+      | psi::rest ->
+        make_pattern
+          (Z3.Boolean.mk_and z3
+             [Z3.Interpolation.mk_interpolant z3 phi;
+              self#of_formula psi])
+          rest
+      | [] ->
+        invalid_arg "interpolate_seq: input sequence must be of length >= 2"
+    in
+    let params = Z3.Params.mk_params z3 in
+    let pattern =
+      if seq = [] then
+        invalid_arg "interpolate_seq: input sequence must be of length >= 2";
+      make_pattern (self#of_formula (List.hd seq)) (List.tl seq)
+    in
+    match Z3.Interpolation.compute_interpolant z3 pattern params with
+    | (_, Some interp, None) -> Some (List.map (self#formula_of ctx) interp)
+    | (_, None, Some _) -> None
+    | (_, _, _) -> failwith "interpolate_seq: unknown result"
 end
 
 class ['a] model (ctx : 'a context) m = object(self)
@@ -244,3 +275,19 @@ class ['a] solver (ctx : 'a context) = object(self)
     | `Unsat -> `Unsat
     | `Unknown -> `Unknown
 end
+
+let is_sat ctx phi =
+  let s = new solver ctx in
+  s#add phi;
+  s#check ()
+
+let implies ctx phi psi =
+  let s = new solver ctx in
+  Z3.Solver.add s#z3 [
+    ctx#of_formula phi;
+    Z3.Boolean.mk_not ctx#z3 (ctx#of_formula psi)
+  ];
+  match s#check () with
+  | `Sat -> false
+  | `Unsat -> true
+  | `Unknown -> raise Unknown_result

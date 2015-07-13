@@ -410,6 +410,8 @@ struct
   let ( < ) = Formula.mk_lt C.context
   let ( <= ) = Formula.mk_leq C.context
   let ( = ) = Formula.mk_eq C.context
+  let tru = Formula.mk_true C.context
+  let fls = Formula.mk_false C.context
       
   let ( + ) = Term.mk_add C.context
   let ( - ) = Term.mk_sub C.context

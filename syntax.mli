@@ -120,6 +120,8 @@ module ImplicitContext(C : sig
   val ( < ) : term -> term -> formula
   val ( <= ) : term -> term -> formula
   val ( = ) : term -> term -> formula
+  val tru : formula
+  val fls : formula
 
   val ( + ) : term -> term -> term
   val ( - ) : term -> term -> term
