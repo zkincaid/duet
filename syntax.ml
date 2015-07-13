@@ -13,8 +13,8 @@ type label =
   | And
   | Or
   | Not
-  | Exists of string option * typ
-  | Forall of string option * typ
+  | Exists of string * typ
+  | Forall of string * typ
   | Eq
   | Leq
   | Lt
@@ -158,7 +158,6 @@ module Term = struct
     | Node (Neg, [t]) -> `Unop (`Neg, t)
     | _ -> invalid_arg "destruct: not a term"
 
-
   let eval alg t =
     let f label children = match label, children with
       | Real qq, [] -> alg (`Real qq)
@@ -252,11 +251,9 @@ module Formula = struct
   type 'a open_t = [
     | `Tru
     | `Fls
-    | `And of 'a * 'a
-    | `Or of 'a * 'a
+    | `Binop of [`And | `Or] * 'a * 'a
     | `Not of 'a
-    | `Exists of (string option) * typ * 'a
-    | `Forall of (string option) * typ * 'a
+    | `Quantify of [`Exists | `Forall] * string * typ * 'a
     | `Atom of [`Eq | `Leq | `Lt] * term * term
   ]
 
@@ -267,11 +264,11 @@ module Formula = struct
   let destruct phi = match phi.node with
     | Node (True, []) -> `Tru
     | Node (False, []) -> `Fls
-    | Node (And, [phi; psi]) -> `And (phi, psi)
-    | Node (Or, [phi; psi]) -> `Or (phi, psi)
+    | Node (And, [phi; psi]) -> `Binop (`And, phi, psi)
+    | Node (Or, [phi; psi]) -> `Binop (`Or, phi, psi)
     | Node (Not, [phi]) -> `Not phi
-    | Node (Exists (hint, typ), [phi]) -> `Exists (hint, typ, phi)
-    | Node (Forall (hint, typ), [phi]) -> `Forall (hint, typ, phi)
+    | Node (Exists (name, typ), [phi]) -> `Quantify (`Exists, name, typ, phi)
+    | Node (Forall (name, typ), [phi]) -> `Quantify (`Forall, name, typ, phi)
     | Node (Eq, [s; t]) -> `Atom (`Eq, s, t)
     | Node (Leq, [s; t]) -> `Atom (`Leq, s, t)
     | Node (Lt, [s; t]) -> `Atom (`Lt, s, t)
@@ -280,23 +277,23 @@ module Formula = struct
   let rec eval alg phi = match destruct phi with
     | `Tru -> alg `Tru
     | `Fls -> alg `Fls
-    | `And (phi, psi) -> alg (`And (eval alg phi, eval alg psi))
-    | `Or (phi, psi) -> alg (`Or (eval alg phi, eval alg psi))
-    | `Exists (hint, typ, phi) -> alg (`Exists (hint, typ, eval alg phi))
-    | `Forall (hint, typ, phi) -> alg (`Forall (hint, typ, eval alg phi))
+    | `Binop (op, phi, psi) -> alg (`Binop (op, eval alg phi, eval alg psi))
+    | `Or (phi, psi) -> alg (`Binop (`Or, eval alg phi, eval alg psi))
+    | `Quantify (qt, name, typ, phi) ->
+      alg (`Quantify (qt, name, typ, eval alg phi))
     | `Not phi -> alg (`Not (eval alg phi))
     | `Atom (op, s, t) -> alg (`Atom (op, s, t))
 
   let rec flatten_universal phi = match phi.node with
-    | Node (Forall (hint, typ), [phi]) ->
+    | Node (Forall (name, typ), [phi]) ->
       let (varinfo, phi') = flatten_universal phi in
-      ((hint,typ)::varinfo, phi')
+      ((name,typ)::varinfo, phi')
     | _ -> ([], phi)
 
   let rec flatten_existential phi = match phi.node with
-    | Node (Exists (hint, typ), [phi]) ->
+    | Node (Exists (name, typ), [phi]) ->
       let (varinfo, phi') = flatten_existential phi in
-      ((hint,typ)::varinfo, phi')
+      ((name,typ)::varinfo, phi')
     | _ -> ([], phi)
 
   let destruct_flat phi = match phi.node with
@@ -307,12 +304,12 @@ module Formula = struct
     | Node (Or, [phi; psi]) ->
       `Or ((flatten_expr Or phi)@(flatten_expr Or psi))
     | Node (Not, [phi]) -> `Not phi
-    | Node (Exists (hint, typ), [phi]) ->
+    | Node (Exists (name, typ), [phi]) ->
       let varinfo, phi' = flatten_existential phi in
-      `Exists ((hint,typ)::varinfo, phi')
-    | Node (Forall (hint, typ), [phi]) ->
+      `Quantify (`Exists, (name,typ)::varinfo, phi')
+    | Node (Forall (name, typ), [phi]) ->
       let varinfo, phi' = flatten_universal phi in
-      `Forall ((hint, typ)::varinfo, phi')
+      `Quantify (`Forall, (name, typ)::varinfo, phi')
     | Node (Eq, [s; t]) -> `Atom (`Eq, s, t)
     | Node (Leq, [s; t]) -> `Atom (`Leq, s, t)
     | Node (Lt, [s; t]) -> `Atom (`Lt, s, t)
@@ -351,27 +348,23 @@ module Formula = struct
         (Term.format ctx ~env:env) x
         op_string
         (Term.format ctx ~env:env) y        
-    | `Exists (varinfo, psi) | `Forall (varinfo, psi) ->
-      let hint_string = function
-        | Some k -> k
-        | None   -> "_"
-      in
+    | `Quantify (qt, varinfo, psi) ->
       let env =
         List.fold_right
-          (fun (name, typ) env -> Env.push (hint_string name) env)
+          (fun (name, typ) env -> Env.push name env)
           varinfo
           env
       in
       let quantifier_name =
-        match destruct phi with
-        | `Exists (_, _, _) -> "exists"
-        | _ -> "forall"
+        match qt with
+        | `Exists -> "exists"
+        | `Forall -> "forall"
       in
       fprintf formatter "(@[%s@ " quantifier_name;
       ApakEnum.pp_print_enum
         ~pp_sep:pp_print_space
         (fun formatter (name, typ) ->
-           fprintf formatter "(%s : %s)" (hint_string name) (string_of_typ typ))
+           fprintf formatter "(%s : %s)" name (string_of_typ typ))
         formatter
         (BatList.enum varinfo);
       fprintf formatter ".@ %a@])" (format ctx ~env:env) psi
@@ -387,10 +380,10 @@ module Formula = struct
   let mk_leq ctx s t = hashcons ctx (Node (Leq, [s; t]))
   let mk_lt ctx s t = hashcons ctx (Node (Lt, [s; t]))
   let mk_eq ctx s t = hashcons ctx (Node (Eq, [s; t]))
-  let mk_forall ctx ?hint:(hint=None) typ phi =
-    hashcons ctx (Node (Forall (hint, typ), [phi]))
-  let mk_exists ctx ?hint:(hint=None) typ phi =
-    hashcons ctx (Node (Exists (hint, typ), [phi]))
+  let mk_forall ctx ?name:(name="_") typ phi =
+    hashcons ctx (Node (Forall (name, typ), [phi]))
+  let mk_exists ctx ?name:(name="_") typ phi =
+    hashcons ctx (Node (Exists (name, typ), [phi]))
 
   let mk_conjunction ctx conjuncts =
     if BatEnum.is_empty conjuncts then

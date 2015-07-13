@@ -50,15 +50,11 @@ class ['a] context opts = object(self)
     T.eval alg
 
   method of_formula =
-    let symbol_of_hint = function
-      | Some name -> Z3.Symbol.mk_string z3 name
-      | None -> Z3.Symbol.mk_string z3 "anon"
-    in
     let alg = function
       | `Tru -> Z3.Boolean.mk_true z3
       | `Fls -> Z3.Boolean.mk_false z3
-      | `And (phi, psi) -> Z3.Boolean.mk_and z3 [phi; psi]
-      | `Or (phi, psi) -> Z3.Boolean.mk_or z3 [phi; psi]
+      | `Binop (`And, phi, psi) -> Z3.Boolean.mk_and z3 [phi; psi]
+      | `Binop (`Or, phi, psi) -> Z3.Boolean.mk_or z3 [phi; psi]
       | `Not phi -> Z3.Boolean.mk_not z3 phi
       | `Atom (op, s, t) ->
         let mk = match op with
@@ -67,11 +63,15 @@ class ['a] context opts = object(self)
           | `Lt -> Z3.Arithmetic.mk_lt
         in
         mk z3 (self#of_term s) (self#of_term t)
-      | `Exists (hint, typ, phi) ->
-        Z3.Quantifier.mk_exists
+      | `Quantify (qt, name, typ, phi) ->
+        let mk_quantified = match qt with
+          | `Exists -> Z3.Quantifier.mk_exists
+          | `Forall -> Z3.Quantifier.mk_forall
+        in
+        mk_quantified
           z3
           [self#sort_of_typ typ]
-          [symbol_of_hint hint]
+          [Z3.Symbol.mk_string z3 name]
           phi
           None
           []
@@ -79,18 +79,6 @@ class ['a] context opts = object(self)
           None
           None
         |> Z3.Quantifier.expr_of_quantifier
-      | `Forall (hint, typ, phi) ->
-        Z3.Quantifier.mk_forall
-          z3
-          [self#sort_of_typ typ]
-          [symbol_of_hint hint]
-          phi
-          None
-          []
-          []
-          None
-          None
-        |> Z3.Quantifier.expr_of_quantifier        
     in
     F.eval alg
 
@@ -193,8 +181,10 @@ class ['a] context opts = object(self)
         in
         List.fold_left2
           (fun body name sort ->
-             let hint = Some (Z3.Symbol.to_string name) in
-             quantify ctx ~hint:hint (self#typ_of_sort sort) body)
+             quantify ctx
+               ~name:(Z3.Symbol.to_string name)
+               (self#typ_of_sort sort)
+               body)
           (of_smt env (Quantifier.get_body ast))
           (Quantifier.get_bound_variable_names ast)
           (Quantifier.get_bound_variable_sorts ast)            

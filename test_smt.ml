@@ -43,10 +43,10 @@ let roundtrip2 () =
 let roundtrip3 () =
   let phi =
     let open S in
-    forall ~hint:(Some "a") TyInt
-      (forall ~hint:(Some "b") TyInt
+    forall ~name:"a" TyInt
+      (forall ~name:"b" TyInt
          (!((var 0 TyInt) < (var 1 TyInt))
-          || (exists ~hint:(Some "c") TyReal
+          || (exists ~name:"c" TyReal
                 ((var 1 TyInt) < (var 0 TyReal)
                  && (var 0 TyReal) < (var 2 TyInt)))))
   in
