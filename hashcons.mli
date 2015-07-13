@@ -80,3 +80,4 @@ module Show_hash_consed (S : Deriving_Show.Show)
 
 module Compare_hash_consed (S : sig type a end) :
   Deriving_Compare.Compare with type a = S.a hash_consed
+

@@ -1,7 +1,8 @@
 open OUnit
 
 let suite = "Main" >::: [
-  Test_scalar.suite;
+    Test_scalar.suite;
+    Test_smt.suite;
 ]
 
 let _ =
