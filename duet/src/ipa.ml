@@ -6,8 +6,11 @@ module type Sigma = sig
 end
 
 module type Predicate = sig
-  include Putil.Hashed.S
-  include Putil.OrderedMix with type t := t
+  type t
+  val hash : t -> int
+  val equal : t -> t -> bool
+  val compare : t -> t -> int
+  val format : Format.formatter -> t -> unit
 end
 
 include Log.Make(struct let name = "ipa" end)
@@ -20,17 +23,27 @@ module Make (A : Sigma) (P : Predicate) = struct
       let hash (p, a) = Hashtbl.hash (P.hash p, A.hash a)
     end)
 
+  type predicate = P.t
+  module Show_predicate = Deriving_Show.Defaults(struct
+      type a = predicate
+      let format = P.format
+  end)
+  module Compare_predicate = Deriving_Compare.Defaults(struct
+      type a = predicate
+      let compare = P.compare
+  end)
+
   type formula =
     | And of formula * formula
     | Or of formula * formula
-    | Atom of P.t * int list
+    | Atom of predicate * int list
     | True
     | False
     | Eq of int * int
     | Neq of int * int
                deriving (Show)
 
-  type atom = P.t * int list
+  type atom = predicate * int list
                 deriving (Show,Compare)
 
   type t =
@@ -63,7 +76,7 @@ module Make (A : Sigma) (P : Predicate) = struct
     let conj x y =
       BatEnum.map
         (fun (x,y) -> E.union x y)
-        (Putil.cartesian_product (Set.enum x) (Set.enum y))
+        (ApakEnum.cartesian_product (Set.enum x) (Set.enum y))
       |> Set.of_enum
 
     (* Given a constant k and a configuration c = 
@@ -77,7 +90,7 @@ module Make (A : Sigma) (P : Predicate) = struct
        that the signature of k' in C' is a subset of the signature of k in
        C. *)
     module Sig = Putil.Set.Make(struct
-        type t = P.t * int
+        type t = predicate * int
                    deriving (Show,Compare)
         let compare = Compare_t.compare
         let format = Show_t.format
@@ -161,7 +174,7 @@ module Make (A : Sigma) (P : Predicate) = struct
     List.iter add_delta delta;
     pa
 
-  module PSet = Putil.Set.Make(P)
+  module PSet = BatSet.Make(P)
   let rec formula_predicates = function
     | True | False | Eq (_, _) | Neq (_, _) -> PSet.empty
     | Atom (p, _) -> PSet.singleton p
@@ -246,7 +259,7 @@ module Make (A : Sigma) (P : Predicate) = struct
       add_transition neg_pa p a phi
     in
     let sigma = BatList.enum pa.sigma in
-    BatEnum.iter f (Putil.cartesian_product (PSet.enum predicates) sigma);
+    BatEnum.iter f (ApakEnum.cartesian_product (PSet.enum predicates) sigma);
     neg_pa
 
   let next pa (head, actuals) (alpha, i) =
@@ -329,7 +342,7 @@ module Make (A : Sigma) (P : Predicate) = struct
         cover : Config.t CHT.t }
     let vertices rg = CHT.keys rg.successor
     let expand rg (pa : abs) config =
-      logf ~level:3 ~attributes:[Log.Blue;Log.Bold]
+      logf ~level:`trace ~attributes:[`Blue;`Bold]
         "Expanding vertex: %a" Config.format config;
       let used_constants = Config.constants config in
       let fresh =
@@ -339,12 +352,12 @@ module Make (A : Sigma) (P : Predicate) = struct
       in
       let constants = Config.KSet.add fresh used_constants in
       let labels =
-        Putil.cartesian_product
+        ApakEnum.cartesian_product
           (BatList.enum pa.abs_sigma)
           (Config.KSet.enum constants)
       in
       let label_succ (alpha, k) =
-        logf ~level:3 " + Action: <%d, %a>" k A.format alpha;
+        logf ~level:`trace " + Action: <%d, %a>" k A.format alpha;
         let succs = abs_next pa config (alpha, k) in
         begin
           try
@@ -357,9 +370,9 @@ module Make (A : Sigma) (P : Predicate) = struct
 
         let add_succ succ =
           if CHT.mem rg.parent succ || CHT.mem rg.successor succ
-          then logf ~level:3 "   - Skipped vertex: %a" Config.format succ
+          then logf ~level:`trace "   - Skipped vertex: %a" Config.format succ
           else begin
-            logf ~level:3 "   - Added successor: %a" Config.format succ;
+            logf ~level:`trace "   - Added successor: %a" Config.format succ;
             CHT.add rg.parent succ (alpha, k, config);
             if abs_accept pa succ then raise (Accepting succ);
             rg.worklist <- succ::rg.worklist
@@ -373,9 +386,9 @@ module Make (A : Sigma) (P : Predicate) = struct
       try
         let cover = BatEnum.find (flip Config.covers config) (vertices rg) in
         CHT.add rg.cover config cover;
-        logf ~level:3 ~attributes:[Log.Green;Log.Bold] "Covered vertex: %a"
+        logf ~level:`trace ~attributes:[`Green;`Bold] "Covered vertex: %a"
           Config.format config;
-        logf ~level:3 " by %a" Config.format cover;
+        logf ~level:`trace " by %a" Config.format cover;
         true
       with Not_found -> false
          | _ -> assert false
@@ -456,17 +469,17 @@ end
 module Verify = struct
   open Core
   open Ark
-  open ArkPervasives
+  open Ark.Syntax
 
-  let tr_typ typ = TyInt
-  (*match resolve_type typ with
+  let tr_typ typ =
+    match resolve_type typ with
       | Int _   -> TyInt
       | Float _ -> TyReal
       | Pointer _ -> TyInt
       | Enum _ -> TyInt
       | Array _ -> TyInt
       | Dynamic -> TyReal
-      | _ -> TyInt*)
+      | _ -> TyInt
 
   module PInt = Putil.PInt
 
@@ -484,51 +497,89 @@ module Verify = struct
       let hash (v, i) = Hashtbl.hash (Var.hash v, i)
     end
     include I
-    module E = Enumeration.Make(I)
-    let enum = E.empty ()
     let typ = tr_typ % Var.get_type % fst
-    let of_smt sym = match Smt.symbol_refine sym with
-      | Smt.Symbol_int id -> E.from_int enum id
-      | Smt.Symbol_string _ -> assert false
-    let to_smt v =
-      let id = E.to_int enum v in
-      match typ v with
-      | TyInt -> Smt.mk_int_const (Smt.mk_int_symbol id)
-      | TyReal -> Smt.mk_real_const (Smt.mk_int_symbol id)
-    let tag = E.to_int enum
     let subscript (v, i) ss = (Var.subscript v ss, i)
-    let prime = flip subscript 1
   end
 
-  module Tr = Transition.Make(IV)
-
+  let ctx = mk_context (module IV)
+  let z3 = new Smt.context []
   let loc = Var.mk (Varinfo.mk_local "@" (Concrete (Int unknown_width)))
 
-  module P = Tr.F
-  let stable phi args def k =
-    let fv =
-      Tr.VarSet.map
-        (fun (v,i) -> if Var.is_shared v then (v,k)
-          else (v, List.nth args (i-1)))
-        (Tr.formula_free_program_vars phi)
-    in
-    not (Tr.VarSet.exists (fun (v, _) -> Var.equal loc v) fv)
-    && match def.dkind with
-    | Assign (v, expr) -> not (Tr.VarSet.mem (v,k) fv)
-    | _ -> true
-
-  module T = Tr.F.T
-
+  module P = struct
+    type t = Formula.t
+    let hash = Formula.hash
+    let equal = Formula.equal
+    let compare = Formula.compare
+    let format formatter phi = Formula.format ctx formatter phi
+    let conj = Formula.mk_and ctx
+    let disj = Formula.mk_or ctx
+    let negate = Formula.mk_not ctx
+    let tru = Formula.mk_true ctx
+    let fls = Formula.mk_false ctx
+    let leq = Formula.mk_leq ctx
+    let lt = Formula.mk_lt ctx
+    let eq = Formula.mk_eq ctx
+    let constants = Formula.constants
+    let substitute = Formula.substitute ctx
+    let substitute_const = Formula.substitute_const ctx
+    let existential_closure = Formula.existential_closure ctx
+    let conjuncts phi =
+      match Formula.destruct_flat phi with
+      | `And conjuncts -> BatList.enum conjuncts
+      | `Tru -> BatEnum.empty ()
+      | _ -> BatEnum.singleton phi
+    let big_conj = Formula.mk_conjunction ctx
+    let big_disj = Formula.mk_disjunction ctx
+  end
+  module T = struct
+    type t = Term.t
+    let hash = Term.hash
+    let equal = Term.equal
+    let compare = Term.compare
+    let var = Term.mk_var ctx
+    let add = Term.mk_add ctx
+    let mul = Term.mk_mul ctx
+    let div = Term.mk_div ctx
+    let modulo = Term.mk_mod ctx
+    let floor = Term.mk_floor ctx
+    let neg = Term.mk_neg ctx
+    let sub = Term.mk_sub ctx
+    let real = Term.mk_real ctx
+    let int zz = Term.mk_real ctx (QQ.of_zz zz)
+    let zero = Term.mk_zero ctx
+    let one = Term.mk_zero ctx
+    let program_var v = Term.mk_const ctx (symbol_of_const ctx v)
+  end
   module PA = Make(Def)(P)
+
+  module VarSet = struct
+    module S = ConstSymbol.Set
+    let enum cs = S.enum cs /@ (const_of_symbol ctx)
+    let exists p cs = S.exists (p % (const_of_symbol ctx)) cs
+    let mem elt cs = S.mem (symbol_of_const ctx elt) cs
+  end
+
+  let stable phi args def k =
+    let program_vars = P.constants phi in
+    match def.dkind with
+    | Assign (v, expr) ->
+      let p (v', k') =
+        Var.equal loc v'
+        || (Var.equal v v' && (Var.is_shared v || List.nth args (k' - 1) = k))
+      in
+      not (VarSet.exists p program_vars)
+    | _ ->
+      not (VarSet.exists (fun (v, _) -> Var.equal loc v) program_vars)
 
   (* Determine the arity of a predicate (i.e., the number of distinct threads
      whose local variables appear in the predicate).  This function assumes
      that expressions are "normal" in the sense that thread id's have been
      renamed to occupy an initial segment of the naturals. *)
   let arity phi =
-    let vs = Tr.formula_free_program_vars phi in
-    let f (v, id) m = if Var.is_shared v then max m id else m in
-    1 + (Tr.VarSet.fold f vs (-1))
+    let f m (v, id) =
+      if Var.is_shared v then max m id else m
+    in
+    1 + (BatEnum.fold f (-1) (VarSet.enum (P.constants phi)))
 
   (* Subscripting *)
   type ss =
@@ -567,12 +618,16 @@ module Verify = struct
       let sub = 1 + lookup local x in
       { ss with sslocal = PInt.Map.add i (Var.Map.add x sub local) ss.sslocal }
 
+  let gensym =
+    let n = ref (-1) in
+    fun () -> incr n; !n
+
   let subscript_expr ss i =
     let subscript = subscript ss i in
     let alg = function
-      | OHavoc typ -> T.var (Tr.V.mk_tmp "havoc" (tr_typ typ))
+      | OHavoc typ -> T.var (gensym ()) (tr_typ typ)
       | OConstant (CInt (k, _)) -> T.int (ZZ.of_int k)
-      | OConstant (CFloat (k, _)) -> T.const (QQ.of_float k)
+      | OConstant (CFloat (k, _)) -> T.real (QQ.of_float k)
       | OCast (_, expr) -> expr
       | OBinaryOp (a, Add, b, _) -> T.add a b
       | OBinaryOp (a, Mult, b, _) -> T.mul a b
@@ -580,27 +635,24 @@ module Verify = struct
 
       | OUnaryOp (Neg, a, _) -> T.neg a
 
-      | OAccessPath (Variable v) -> T.var (Tr.V.mk_var (subscript v))
+      | OAccessPath (Variable v) -> T.program_var (subscript v)
 
       (* No real translations for anything else -- just return a free var "tr"
          (which just acts like a havoc). *)
-      | OBinaryOp (a, _, b, typ) -> T.var (Tr.V.mk_tmp "tr" (tr_typ typ))
-      | OUnaryOp (_, _, typ) -> T.var (Tr.V.mk_tmp "tr" (tr_typ typ))
-      | OBoolExpr _ -> T.var (Tr.V.mk_int_tmp "tr")
-      | OAccessPath ap -> T.var (Tr.V.mk_tmp "tr" (tr_typ (AP.get_type ap)))
-      | OConstant _ -> T.var (Tr.V.mk_int_tmp "tr")
-      | OAddrOf _ -> T.var (Tr.V.mk_int_tmp "tr")
+      | OBinaryOp (a, _, b, typ) -> T.var (gensym ()) (tr_typ typ)
+      | OUnaryOp (_, _, typ) -> T.var (gensym ()) (tr_typ typ)
+      | OBoolExpr _ -> T.var (gensym ()) TyInt
+      | OAccessPath ap -> T.var (gensym ()) (tr_typ (AP.get_type ap))
+      | OConstant _ -> T.var (gensym ()) TyInt
+      | OAddrOf _ -> T.var (gensym ()) TyInt
     in
     Expr.fold alg
 
   let unsubscript =
-    let sigma v = match Tr.V.lower v with
-      | Some v -> T.var (Tr.V.mk_var (IV.subscript v 0))
-      | None -> T.var v
-    in
-    P.subst sigma
+    let sigma v = T.program_var (fst (const_of_symbol ctx v), 0) in
+    P.substitute_const sigma
 
-  let subscript_bexpr ss i =
+  let subscript_bexpr ss i bexpr =
     let subscript = subscript_expr ss i in
     let alg = function
       | Core.OAnd (a, b) -> P.conj a b
@@ -613,10 +665,10 @@ module Verify = struct
           | Lt -> P.lt x y
           | Le -> P.leq x y
           | Eq -> P.eq x y
-          | Ne -> P.disj (P.lt x y) (P.gt x y)
+          | Ne -> P.negate (P.eq x y)
         end
     in
-    Bexpr.fold alg
+    P.existential_closure (Bexpr.fold alg bexpr)
 
   let generalize_atom phi =
     let subst = BatDynArray.make 10 in
@@ -630,15 +682,14 @@ module Verify = struct
           id
         end
     in
-    let sigma v = match Tr.V.lower v with
-      | Some (v, tid) ->
-        let iv =
-          if Var.is_shared v then (v, tid) else (v, 1 + generalize tid)
-        in
-        T.var (Tr.V.mk_var (IV.subscript iv 0))
-      | None -> assert false
+    let sigma v =
+      let (v, tid) = const_of_symbol ctx v in
+      let iv =
+        if Var.is_shared v then (v, tid) else (v, 1 + generalize tid)
+      in
+      T.program_var (IV.subscript iv 0)
     in
-    let gen_phi = P.subst sigma phi in
+    let gen_phi = P.substitute_const sigma phi in
     (gen_phi, BatDynArray.to_list subst)
 
   let generalize i phi psi =
@@ -655,13 +706,14 @@ module Verify = struct
           id
         end
     in
-    let sigma v = match Tr.V.lower v with
-      | Some (v, tid) ->
-        let iv = if Var.is_shared v then (v,tid) else (v, generalize tid) in
-        T.var (Tr.V.mk_var (IV.subscript iv 0))
-      | None -> assert false
+    let sigma v =
+      let (v, tid) = const_of_symbol ctx v in
+      let iv =
+        if Var.is_shared v then (v, tid) else (v, generalize tid)
+      in
+      T.program_var (IV.subscript iv 0)
     in
-    let gen_phi = P.subst sigma phi in
+    let gen_phi = P.substitute_const sigma phi in
     BatHashtbl.add rev_subst i 0;
     let f psi =
       let (gen_psi, args) = generalize_atom psi in
@@ -673,7 +725,7 @@ module Verify = struct
       PA.big_conj
         (BatEnum.append
            (BatEnum.map f (P.conjuncts psi))
-           (Putil.distinct_pairs (BatHashtbl.enum rev_subst) /@ mk_eq))
+           (ApakEnum.distinct_pairs (BatHashtbl.enum rev_subst) /@ mk_eq))
     in
     (subst, gen_phi, rhs)
   let generalize i phi psi =
@@ -691,10 +743,11 @@ module Verify = struct
         let rhs = subscript_expr ss i expr in
         let ss' = subscript_incr ss i v in
         let assign =
-          P.eq (T.var (Tr.V.mk_var (subscript ss' i v))) rhs
+          P.eq (T.program_var (subscript ss' i v)) rhs
+          |> P.existential_closure
         in
         (ss', (i, def, assign)::rest)
-      | _ -> (ss, (i, def, P.top)::rest)
+      | _ -> (ss, (i, def, P.tru)::rest)
     in
     snd (List.fold_right f trace (ss_init, []))
 
@@ -704,18 +757,17 @@ module Verify = struct
         let phis = BatList.map (fun (_,_,phi) -> phi) rest in
         let a = P.big_conj (BatList.enum phis) in
         let b = P.conj phi (P.negate post) in
-        (*	Log.errorf "Going to interpolate! %a / %a" P.format a P.format b;*)
-        let itp = match P.interpolate a b with
-          | None ->
+        let itp = match z3#interpolate_seq ctx [a; b] with
+          | Some [itp] ->
+            (Log.logf ~level:`trace "Found interpolant!@\n%a / %a: %a"
+               P.format a P.format b P.format itp;
+             assert (Smt.implies z3 a itp);
+             assert (Smt.is_sat z3 (P.conj itp b) = `Unsat);
+             itp)
+          | _ ->
             (Log.errorf "Failed to interpolate! %a / %a"
                P.format a P.format b;
              assert false)
-          | Some itp ->
-            (Log.logf ~level:3 "Found interpolant! %a / %a: %a"
-               P.format a P.format b P.format itp;
-             assert (P.implies a itp);
-             assert (not (P.is_sat (P.conj itp b)));
-             itp)
         in
         if P.compare (unsubscript post) (unsubscript itp) = 0 then begin
           Log.logf "Skipping transition: [#%d] %a" i Def.format tr;
@@ -724,7 +776,8 @@ module Verify = struct
           BatEnum.iter (flip go rest) (P.conjuncts itp);
           let (_, lhs, rhs) = generalize i post itp in
 
-          Log.logf "Added IPA transition:@\n @[%a@] @[--( [#0] %a )-->@] @[%a@]"
+          Log.logf
+            "Added PA transition:@\n @[%a@]@\n --( [#0] %a )-->@\n @[%a@]"
             P.format lhs
             Def.format tr
             Show.format<PA.formula> rhs;
@@ -733,18 +786,18 @@ module Verify = struct
 
       | [] -> assert false
     in
-    go P.bottom (trace_formulae trace)
+    go P.fls (trace_formulae trace)
   let construct ipa trace =
-    Log.time "IPA construction" (construct ipa) trace
+    Log.time "PA construction" (construct ipa) trace
 
   module PHT = Hashtbl.Make(P)
-  module PSet = Putil.Set.Make(P)
+  module PSet = BatSet.Make(P)
 
   let program_automaton file rg =
     let open Interproc in
     let main = match file.CfgIr.entry_points with
       | [x] -> x
-      | _   -> failwith "IPA: No support for multiple entry points"
+      | _   -> failwith "PA: No support for multiple entry points"
     in
 
     let sigma = ref [] in
@@ -754,7 +807,7 @@ module Verify = struct
 
     (* Map each control location to a unique predicate symbol *)
     let loc_pred def =
-      P.eq (T.var (Tr.V.mk_var (loc,1))) (T.const (QQ.of_int def.did))
+      P.eq (T.program_var (loc,1)) (T.real (QQ.of_int def.did))
     in
 
     (* Map control locations to their successors *)
@@ -830,7 +883,7 @@ module Verify = struct
 
     (* loc predicate ensure that whenever a new thread executes a command its
        program counter is instantiated properly. *)
-    let loc = P.top in
+    let loc = P.tru in
     add_pred loc;
 
     BatEnum.iter (fun (thread, body) ->
@@ -862,7 +915,7 @@ module Verify = struct
     let rg = Interproc.make_recgraph file in
     let program_pa = program_automaton file rg in
     let pf =
-      PA.make program_pa.abs_sigma (fun _ -> false) (Atom (P.bottom, []))
+      PA.make program_pa.abs_sigma (fun _ -> false) (Atom (P.fls, []))
     in
     let abstract_pf pf =
       let open PA in
@@ -871,7 +924,7 @@ module Verify = struct
         then Or (Atom (p, args), next pf (p,args) (a,i))
         else next pf (p,args) (a,i)
       in
-      { abs_predicates = PSet.add P.bottom (predicates pf);
+      { abs_predicates = PSet.add P.fls (predicates pf);
         abs_delta = delta;
         abs_sigma = pf.sigma;
         abs_accepting = pf.accepting;
@@ -884,37 +937,47 @@ module Verify = struct
     in
     let number_cex = ref 0 in
     let print_info () =
-      logf ~level:0 "  IPA predicates: %d"
+      logf ~level:`info "  PA transitions: %d"
         (BatEnum.count (PA.enum_delta pf));
-      logf ~level:0 "  Spurious counter-examples: %d " !number_cex;
+      logf ~level:`info "  Spurious counter-examples: %d " !number_cex;
     in
     let rec loop () =
       match check pf with
       | Some trace ->
-        logf ~attributes:[Log.Bold] "@\nFound error trace (%d):" (!number_cex);
+        logf ~attributes:[`Bold] "@\nFound error trace (%d):" (!number_cex);
         List.iter (fun (def, id) ->
             logf "  [#%d] %a" id Def.format def
-          ) trace;
+          ) (List.rev trace);
         logf ""; (* newline *)
         let trace_formula =
           BatList.enum (trace_formulae trace)
           /@ (fun (_,_,phi) -> phi) |> P.big_conj
         in
-        if P.is_sat trace_formula then begin
-          log ~level:0 ~attributes:[Log.Bold;Log.Red]
-            "Verification result: Unsafe";
-          print_info ();
-          logf ~attributes:[Log.Bold] "  Error trace:";
-          List.iter (fun (def, id) ->
-              logf ~level:0 "    [#%d] %a" id Def.format def
-            ) trace;
-        end else begin
-          construct pf trace;
-          incr number_cex;
-          loop ()
+        begin
+          match Smt.is_sat z3 trace_formula with
+          | `Sat ->
+            log ~level:`always ~attributes:[`Bold;`Red]
+              "Verification result: Unsafe";
+            print_info ();
+            logf ~level:`info ~attributes:[`Bold] "  Error trace:";
+            List.iter (fun (def, id) ->
+                logf ~level:`info "    [#%d] %a" id Def.format def
+              ) trace
+          | `Unsat ->
+            construct pf trace;
+            incr number_cex;
+            loop ()
+          | `Unknown ->
+            log ~level:`always ~attributes:[`Bold;`Red]
+              "Verification result: Unknown";
+            print_info ();
+            logf ~level:`info ~attributes:[`Bold] "  Could not verify trace:";
+            List.iter (fun (def, id) ->
+                logf ~level:`info "    [#%d] %a" id Def.format def
+              ) trace
         end
       | None ->
-        log ~level:0 ~attributes:[Log.Bold;Log.Green]
+        log ~level:`always ~attributes:[`Bold;`Green]
           "Verification result: Safe";
         print_info ()
     in

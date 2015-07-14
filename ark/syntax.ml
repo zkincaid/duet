@@ -138,6 +138,17 @@ let rec flatten_expr label expr =
   else
     [expr]
 
+(* Avoid capture by incrementing bound variables *)
+let rec decapture ctx depth expr =
+  let Node (label, children) = expr.node in
+  match label with
+  | Exists (_, _) | Forall (_, _) ->
+    decapture_children ctx label (depth + 1) children
+  | Var (v, typ) -> hashcons ctx (Node (Var (v + depth, typ), []))
+  | _ -> decapture_children ctx label depth children
+and decapture_children ctx label depth children =
+  hashcons ctx (Node (label, List.map (decapture ctx depth) children))
+
 module Expr = struct
   type t = expr hash_consed
 
@@ -146,17 +157,6 @@ module Expr = struct
   let hash t = t.hkey
 
   let substitute ctx subst expr =
-    (* Avoid capture *)
-    let rec decapture depth expr =
-      let Node (label, children) = expr.node in
-      match label with
-      | Exists (_, _) | Forall (_, _) ->
-        decapture_children label (depth + 1) children
-      | Var (v, typ) -> hashcons ctx (Node (Var (v + depth, typ), []))
-      | _ -> decapture_children label depth children      
-    and decapture_children label depth children =
-      hashcons ctx (Node (label, List.map (decapture depth) children))
-    in
     let rec go depth expr =
       let Node (label, children) = expr.node in
       match label with
@@ -166,10 +166,23 @@ module Expr = struct
         if v < depth then (* bound var *)
           expr
         else
-          decapture depth (subst (v - depth))
+          decapture ctx depth (subst (v - depth))
       | _ -> go_children label depth children
     and go_children label depth children =
-        hashcons ctx (Node (label, List.map (go depth) children))
+      hashcons ctx (Node (label, List.map (go depth) children))
+    in
+    go 0 expr
+
+  let substitute_const ctx subst expr =
+    let rec go depth expr =
+      let Node (label, children) = expr.node in
+      match label with
+      | Exists (_, _) | Forall (_, _) ->
+        go_children label (depth + 1) children
+      | Const k -> decapture ctx depth (subst k)
+      | _ -> go_children label depth children
+    and go_children label depth children =
+      hashcons ctx (Node (label, List.map (go depth) children))
     in
     go 0 expr
 
@@ -334,6 +347,16 @@ module Formula = struct
     | `Atom of [`Eq | `Leq | `Lt] * term * term
   ]
 
+  type 'a flat_open_t = [
+    | `Tru
+    | `Fls
+    | `And of 'a list
+    | `Or of 'a list
+    | `Not of 'a
+    | `Quantify of [`Exists | `Forall] * (string * typ) list * 'a
+    | `Atom of [`Eq | `Leq | `Lt] * term * term
+  ]
+
   let destruct phi = match phi.node with
     | Node (True, []) -> `Tru
     | Node (False, []) -> `Fls
@@ -469,6 +492,11 @@ module Formula = struct
       mk_false ctx
     else
       BatEnum.reduce (mk_or ctx) disjuncts
+
+  let mk_iff ctx phi psi =
+    mk_or ctx
+      (mk_and ctx phi psi)
+      (mk_and ctx (mk_not ctx phi) (mk_not ctx psi))
 
   let existential_closure ctx phi =
     let vars = vars phi in

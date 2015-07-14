@@ -70,6 +70,7 @@ module Term : sig
 
   val constants : t -> ConstSymbol.Set.t
   val substitute : 'a context -> (int -> t) -> t -> t
+  val substitute_const : 'a context -> (const_symbol -> t) -> t -> t
 end
 
 module Formula : sig
@@ -80,6 +81,15 @@ module Formula : sig
     | `Binop of [`And | `Or] * 'a * 'a
     | `Not of 'a
     | `Quantify of [`Exists | `Forall] * string * typ * 'a
+    | `Atom of [`Eq | `Leq | `Lt] * term * term
+  ]
+  type 'a flat_open_t = [
+    | `Tru
+    | `Fls
+    | `And of 'a list
+    | `Or of 'a list
+    | `Not of 'a
+    | `Quantify of [`Exists | `Forall] * (string * typ) list * 'a
     | `Atom of [`Eq | `Leq | `Lt] * term * term
   ]
   val hash : t -> int
@@ -93,6 +103,7 @@ module Formula : sig
   val show : 'a context -> ?env:(string Env.t) -> t -> string
 
   val destruct : t -> t open_t
+  val destruct_flat : t -> t flat_open_t
   val eval : ('a open_t -> 'a) -> t -> 'a
 
   val mk_true : 'a context -> t
@@ -109,11 +120,14 @@ module Formula : sig
   val mk_exists : 'a context -> ?name:string -> typ -> t -> t
   val mk_forall : 'a context -> ?name:string -> typ -> t -> t
 
+  val mk_iff : 'a context -> t -> t -> t
+
   val mk_conjunction : 'a context -> t BatEnum.t -> t
   val mk_disjunction : 'a context -> t BatEnum.t -> t
 
   val constants : t -> ConstSymbol.Set.t
   val substitute : 'a context -> (int -> term) -> t -> t
+  val substitute_const : 'a context -> (const_symbol -> term) -> t -> t
   val existential_closure : 'a context -> t -> t
 end
 

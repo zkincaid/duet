@@ -689,9 +689,11 @@ let format_builtin formatter = function
       | Some v -> Format.fprintf formatter "%a = " Var.format v
       | None    -> ()
     end;
-    Format.fprintf formatter "fork(%a, %a)"
-      format_expr func
-      (ApakEnum.pp_print_enum format_expr) (BatList.enum args)
+    Format.fprintf formatter "fork(@[%a" format_expr func;
+    if args != [] then
+      Format.fprintf formatter ",@ %a"
+        (ApakEnum.pp_print_enum format_expr) (BatList.enum args);
+    Format.fprintf formatter "@])"
   | Acquire lock -> Format.fprintf formatter "acquire(%a)" format_expr lock
   | Release lock -> Format.fprintf formatter "release(%a)" format_expr lock
   | AtomicBegin -> Format.pp_print_string formatter "atomic_begin"
