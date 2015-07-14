@@ -3,9 +3,13 @@ open Hashcons
 type const_symbol = int
 
 type typ = TyInt | TyReal
-let string_of_typ = function
-  | TyInt -> "int"
-  | TyReal -> "real"
+             deriving (Compare)
+module Show_typ = Deriving_Show.Defaults(struct
+    type a = typ
+    let format formatter = function
+      | TyReal -> Format.pp_print_string formatter "real"
+      | TyInt -> Format.pp_print_string formatter "int"
+  end)
 
 type label =
   | True
@@ -32,20 +36,18 @@ type expr = Node of label * ((expr hash_consed) list)
 type formula = expr hash_consed
 type term = expr hash_consed
 
-module Expr = struct
-  type t = expr
-  let equal (Node (label, args)) (Node (label', args')) =
-    (match label, label' with
-     | Exists (_, typ), Exists (_, typ') -> typ = typ'
-     | Forall (_, typ), Forall (_, typ') -> typ = typ'
-     | _, _ -> label = label')
-    && List.for_all2 (fun x y -> x.tag = y.tag) args args'
-  let compare = Pervasives.compare
-  let hash (Node (label, args)) =
-    Hashtbl.hash (label, List.map (fun expr -> expr.tag) args)
-end
-
-module HC = Hashcons.Make(Expr)
+module HC = Hashcons.Make(struct
+    type t = expr
+    let equal (Node (label, args)) (Node (label', args')) =
+      (match label, label' with
+       | Exists (_, typ), Exists (_, typ') -> typ = typ'
+       | Forall (_, typ), Forall (_, typ') -> typ = typ'
+       | _, _ -> label = label')
+      && List.for_all2 (fun x y -> x.tag = y.tag) args args'
+    let compare = Pervasives.compare
+    let hash (Node (label, args)) =
+      Hashtbl.hash (label, List.map (fun expr -> expr.tag) args)
+  end)
 
 module type Constant = sig
   type t
@@ -55,10 +57,26 @@ module type Constant = sig
   val equal : t -> t -> bool
 end
 
+module ConstSymbol = Apak.Putil.PInt
+
+module Var = struct
+  module I = struct
+    type t = int * typ
+               deriving (Show,Compare)
+    let format = Show.format<t>
+    let show = Show.show<t>
+    let compare = Compare.compare<t>
+  end
+  include I
+  module Set = Apak.Putil.Set.Make(I)
+  module Map = Apak.Putil.Map.Make(I)
+end
 module Env = struct
   type 'a t = 'a list
   let push x xs = x::xs
-  let find = List.nth
+  let find i xs =
+    try List.nth i xs
+    with Failure _ -> raise Not_found
   let empty = []
 end
 
@@ -109,8 +127,9 @@ let const_typ ctx const = ctx.const_typ (const_of_symbol ctx const)
 let const_format ctx formatter const =
   ctx.const_format formatter (const_of_symbol ctx const)
 
-let rec eval_expr alg (Node (label, children)) =
-  alg label (List.map (fun child -> eval_expr alg child.node) children)
+let rec eval_expr alg expr =
+  let (Node (label, children)) = expr.node in
+  alg label (List.map (eval_expr alg) children)
 
 let rec flatten_expr label expr =
   let Node (label', children) = expr.node in
@@ -119,8 +138,70 @@ let rec flatten_expr label expr =
   else
     [expr]
 
+module Expr = struct
+  type t = expr hash_consed
+
+  let equal s t = s.tag = t.tag
+  let compare s t = Pervasives.compare s.tag t.tag
+  let hash t = t.hkey
+
+  let substitute ctx subst expr =
+    (* Avoid capture *)
+    let rec decapture depth expr =
+      let Node (label, children) = expr.node in
+      match label with
+      | Exists (_, _) | Forall (_, _) ->
+        decapture_children label (depth + 1) children
+      | Var (v, typ) -> hashcons ctx (Node (Var (v + depth, typ), []))
+      | _ -> decapture_children label depth children      
+    and decapture_children label depth children =
+      hashcons ctx (Node (label, List.map (decapture depth) children))
+    in
+    let rec go depth expr =
+      let Node (label, children) = expr.node in
+      match label with
+      | Exists (_, _) | Forall (_, _) ->
+        go_children label (depth + 1) children
+      | Var (v, _) ->
+        if v < depth then (* bound var *)
+          expr
+        else
+          decapture depth (subst (v - depth))
+      | _ -> go_children label depth children
+    and go_children label depth children =
+        hashcons ctx (Node (label, List.map (go depth) children))
+    in
+    go 0 expr
+
+  let constants expr =
+    let alg label children =
+      let z =
+        match label with
+        | Const k -> ConstSymbol.Set.singleton k
+        | _ -> ConstSymbol.Set.empty
+      in
+      BatList.fold_left ConstSymbol.Set.union z children
+    in
+    eval_expr alg expr
+
+  let vars expr =
+    let rec go depth expr =
+      let Node (label, children) = expr.node in
+      match label with
+      | Exists (_, _) | Forall (_, _) ->
+        go_children (depth + 1) children
+      | Var (v, typ) ->
+        if v < depth then Var.Set.empty
+        else Var.Set.singleton (v - depth, typ)
+      | _ -> go_children depth children
+    and go_children depth children =
+      List.fold_left Var.Set.union Var.Set.empty (List.map (go depth) children)
+    in
+    go 0 expr
+end
+
 module Term = struct
-  type t = term
+  include Expr
 
   type 'a open_t = [
     | `Real of QQ.t
@@ -129,10 +210,6 @@ module Term = struct
     | `Binop of [`Add | `Mul | `Div | `Mod ] * 'a * 'a
     | `Unop of [`Floor | `Neg ] * 'a
   ]
-
-  let equal s t = s.tag = t.tag
-  let compare s t = Pervasives.compare s.tag t.tag
-  let hash t = t.hkey
 
   let destruct t = match t.node with
     | Node (Real qq, []) -> `Real qq
@@ -171,9 +248,9 @@ module Term = struct
       | Neg, [t] -> alg (`Unop (`Neg, t))
       | _ -> invalid_arg "eval: not a term"
     in
-    eval_expr f t.node
+    eval_expr f t
 
-  let rec format ctx ?env:(env=Env.empty) formatter t =
+  let rec format ?env:(env=Env.empty) ctx formatter t =
     let open Format in
     match destruct_flat t with
     | `Real qq -> QQ.format formatter qq
@@ -246,7 +323,7 @@ module Term = struct
 end
 
 module Formula = struct
-  type t = formula
+  include Expr
 
   type 'a open_t = [
     | `Tru
@@ -256,10 +333,6 @@ module Formula = struct
     | `Quantify of [`Exists | `Forall] * string * typ * 'a
     | `Atom of [`Eq | `Leq | `Lt] * term * term
   ]
-
-  let equal s t = s.tag = t.tag
-  let compare s t = Pervasives.compare s.tag t.tag
-  let hash t = t.hkey
 
   let destruct phi = match phi.node with
     | Node (True, []) -> `Tru
@@ -315,7 +388,7 @@ module Formula = struct
     | Node (Lt, [s; t]) -> `Atom (`Lt, s, t)
     | _ -> invalid_arg "destruct: not a formula"
 
-  let rec format ctx ?env:(env=Env.empty) formatter phi =
+  let rec format ?env:(env=Env.empty) ctx formatter phi =
     let open Format in
     match destruct_flat phi with
     | `Tru -> pp_print_string formatter "true"
@@ -364,10 +437,10 @@ module Formula = struct
       ApakEnum.pp_print_enum
         ~pp_sep:pp_print_space
         (fun formatter (name, typ) ->
-           fprintf formatter "(%s : %s)" name (string_of_typ typ))
+           fprintf formatter "(%s : %s)" name (Show.show<typ> typ))
         formatter
         (BatList.enum varinfo);
-      fprintf formatter ".@ %a@])" (format ctx ~env:env) psi
+      fprintf formatter ".@ %a@])" (format ~env:env ctx) psi
 
   let show ctx ?env:(env=Env.empty) t =
     Apak.Putil.pp_string (format ctx ~env:env) t
@@ -397,6 +470,26 @@ module Formula = struct
     else
       BatEnum.reduce (mk_or ctx) disjuncts
 
+  let existential_closure ctx phi =
+    let vars = vars phi in
+    let types = Array.make (Var.Set.cardinal vars) TyInt in
+    let rename =
+      let n = ref (-1) in
+      let map =
+        Var.Set.fold (fun (v, typ) m ->
+            incr n;
+            types.(!n) <- typ;
+            Apak.Putil.PInt.Map.add v (Term.mk_var ctx (!n) typ) m
+          )
+          vars
+          Apak.Putil.PInt.Map.empty
+      in
+      fun v -> Apak.Putil.PInt.Map.find v map
+    in
+    Array.fold_left
+      (fun psi typ -> mk_exists ctx typ psi)
+      (substitute ctx rename phi)
+      types
 end
 
 module ImplicitContext(C : sig

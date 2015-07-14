@@ -32,7 +32,7 @@ Library ark
   BuildTools:       ocamlbuild
   FindlibName:      ark
   Pack:             true
-  InternalModules:  Hset, Hashcons, Hmap, QQ, ZZ
+  InternalModules:  Hset, Hashcons, Hmap, QQ, ZZ, Syntax, Smt
   BuildDepends:     deriving, deriving.syntax, apak, gmp, camlidl, apron, Z3
   Install:          false
   XMETADescription: Arithmetic Reasoning Kit
