@@ -139,6 +139,11 @@ class ['a] context opts = object(self)
           | OP_OR ->
             BatEnum.map (of_smt env) args
             |> F.mk_disjunction ctx
+          | OP_IFF -> begin
+              match BatList.of_enum (BatEnum.map (of_smt env) args) with
+              | [phi;psi] -> F.mk_iff ctx phi psi
+              | _ -> assert false
+            end
           | OP_NOT -> begin
               match BatList.of_enum (BatEnum.map (of_smt env) args) with
               | [phi] -> F.mk_not ctx phi
@@ -169,7 +174,8 @@ class ['a] context opts = object(self)
               | [x;y] -> F.mk_lt ctx y x
               | _ -> assert false
             end
-          | _ -> assert false
+          | _ ->
+            Apak.Log.invalid_argf "Smt.formula_of: %s" (Z3.Expr.to_string ast)
         end
       | QUANTIFIER_AST ->
         let ast = Quantifier.quantifier_of_expr ast in
