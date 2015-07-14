@@ -10,7 +10,7 @@ open TranslateCbp
 
 (* Analyses *)
 (*open Cra*)
-open Ipa
+open Proofspace
 open Dependence
 open ConcDep
 
