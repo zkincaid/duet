@@ -20,6 +20,8 @@ end
 
 type const_symbol
 
+module ConstSymbol : Apak.Putil.CoreType with type t = const_symbol
+
 val mk_context : (module Constant with type t = 'a) -> 'a context
 val mk_string_context : unit -> (string * typ) context
 
@@ -40,8 +42,8 @@ module Term : sig
   val hash : t -> int
   val equal : t -> t -> bool
   val compare : t -> t -> int
-  val format : 'a context ->
-    ?env:(string Env.t) ->
+  val format : ?env:(string Env.t) ->
+    'a context ->
     Format.formatter ->
     t ->
     unit
@@ -65,6 +67,9 @@ module Term : sig
   val mk_floor : 'a context -> t -> t
   val mk_sum : 'a context -> t BatEnum.t -> t
   val mk_product : 'a context -> t BatEnum.t -> t
+
+  val constants : t -> ConstSymbol.Set.t
+  val substitute : 'a context -> (int -> t) -> t -> t
 end
 
 module Formula : sig
@@ -80,8 +85,8 @@ module Formula : sig
   val hash : t -> int
   val equal : t -> t -> bool
   val compare : t -> t -> int
-  val format : 'a context ->
-    ?env:(string Env.t) ->
+  val format : ?env:(string Env.t) ->
+    'a context ->
     Format.formatter ->
     t ->
     unit
@@ -106,6 +111,10 @@ module Formula : sig
 
   val mk_conjunction : 'a context -> t BatEnum.t -> t
   val mk_disjunction : 'a context -> t BatEnum.t -> t
+
+  val constants : t -> ConstSymbol.Set.t
+  val substitute : 'a context -> (int -> term) -> t -> t
+  val existential_closure : 'a context -> t -> t
 end
 
 module ImplicitContext(C : sig
