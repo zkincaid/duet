@@ -36,63 +36,35 @@ module IV = struct
   let subscript (v, i) ss = (Var.subscript v ss, i)
 end
 
-let ctx = mk_context (module IV)
-let z3 = new Smt.context []
+module Ctx = struct
+  module C = Syntax.Make(IV)
+  include C
+  include Smt.MakeSolver(C)(struct let opts = [] end)
+end
+
 let loc = Var.mk (Varinfo.mk_local "@" (Concrete (Int unknown_width)))
 
+module VarSet = BatSet.Make(IV)
+
 module P = struct
-  type t = Formula.t
-  let hash = Formula.hash
-  let equal = Formula.equal
-  let compare = Formula.compare
-  let format formatter phi = Formula.format ctx formatter phi
-  let conj = Formula.mk_and ctx
-  let disj = Formula.mk_or ctx
-  let negate = Formula.mk_not ctx
-  let tru = Formula.mk_true ctx
-  let fls = Formula.mk_false ctx
-  let leq = Formula.mk_leq ctx
-  let lt = Formula.mk_lt ctx
-  let eq = Formula.mk_eq ctx
-  let constants = Formula.constants
-  let substitute = Formula.substitute ctx
-  let substitute_const = Formula.substitute_const ctx
-  let existential_closure = Formula.existential_closure ctx
+  include Ctx.Formula
   let conjuncts phi =
-    match Formula.destruct_flat phi with
+    match destruct phi with
     | `And conjuncts -> BatList.enum conjuncts
     | `Tru -> BatEnum.empty ()
     | _ -> BatEnum.singleton phi
-  let big_conj = Formula.mk_conjunction ctx
-  let big_disj = Formula.mk_disjunction ctx
+  let big_conj enum = Ctx.mk_and (BatList.of_enum enum)
+  let big_disj enum = Ctx.mk_or (BatList.of_enum enum)
+  let constants phi =
+    Ctx.Formula.fold_constants
+      (fun i s -> VarSet.add (Ctx.const_of_symbol i) s)
+      phi
+      VarSet.empty
 end
-module T = struct
-  type t = Term.t
-  let hash = Term.hash
-  let equal = Term.equal
-  let compare = Term.compare
-  let var = Term.mk_var ctx
-  let add = Term.mk_add ctx
-  let mul = Term.mk_mul ctx
-  let div = Term.mk_div ctx
-  let modulo = Term.mk_mod ctx
-  let floor = Term.mk_floor ctx
-  let neg = Term.mk_neg ctx
-  let sub = Term.mk_sub ctx
-  let real = Term.mk_real ctx
-  let int zz = Term.mk_real ctx (QQ.of_zz zz)
-  let zero = Term.mk_zero ctx
-  let one = Term.mk_zero ctx
-  let program_var v = Term.mk_const ctx (symbol_of_const ctx v)
-end
-module PA = PredicateAutomata.Make(Def)(P)
 
-module VarSet = struct
-  module S = ConstSymbol.Set
-  let enum cs = S.enum cs /@ (const_of_symbol ctx)
-  let exists p cs = S.exists (p % (const_of_symbol ctx)) cs
-  let mem elt cs = S.mem (symbol_of_const ctx elt) cs
-end
+let program_var v = Ctx.mk_const (Ctx.symbol_of_const v)
+
+module PA = PredicateAutomata.Make(Def)(P)
 
 let stable phi args def k =
   let program_vars = P.constants phi in
@@ -160,47 +132,47 @@ let gensym =
 let subscript_expr ss i =
   let subscript = subscript ss i in
   let alg = function
-    | OHavoc typ -> T.var (gensym ()) (tr_typ typ)
-    | OConstant (CInt (k, _)) -> T.int (ZZ.of_int k)
-    | OConstant (CFloat (k, _)) -> T.real (QQ.of_float k)
+    | OHavoc typ -> Ctx.mk_var (gensym ()) (tr_typ typ)
+    | OConstant (CInt (k, _)) -> Ctx.mk_real (QQ.of_int k)
+    | OConstant (CFloat (k, _)) -> Ctx.mk_real (QQ.of_float k)
     | OCast (_, expr) -> expr
-    | OBinaryOp (a, Add, b, _) -> T.add a b
-    | OBinaryOp (a, Mult, b, _) -> T.mul a b
-    | OBinaryOp (a, Minus, b, _) -> T.sub a b
+    | OBinaryOp (a, Add, b, _) -> Ctx.mk_add [a; b]
+    | OBinaryOp (a, Mult, b, _) -> Ctx.mk_mul [a; b]
+    | OBinaryOp (a, Minus, b, _) -> Ctx.mk_sub a b
 
-    | OUnaryOp (Neg, a, _) -> T.neg a
+    | OUnaryOp (Neg, a, _) -> Ctx.mk_neg a
 
-    | OAccessPath (Variable v) -> T.program_var (subscript v)
+    | OAccessPath (Variable v) -> program_var (subscript v)
 
     (* No real translations for anything else -- just return a free var "tr"
        (which just acts like a havoc). *)
-    | OBinaryOp (a, _, b, typ) -> T.var (gensym ()) (tr_typ typ)
-    | OUnaryOp (_, _, typ) -> T.var (gensym ()) (tr_typ typ)
-    | OBoolExpr _ -> T.var (gensym ()) TyInt
-    | OAccessPath ap -> T.var (gensym ()) (tr_typ (AP.get_type ap))
-    | OConstant _ -> T.var (gensym ()) TyInt
-    | OAddrOf _ -> T.var (gensym ()) TyInt
+    | OBinaryOp (a, _, b, typ) -> Ctx.mk_var (gensym ()) (tr_typ typ)
+    | OUnaryOp (_, _, typ) -> Ctx.mk_var (gensym ()) (tr_typ typ)
+    | OBoolExpr _ -> Ctx.mk_var (gensym ()) TyInt
+    | OAccessPath ap -> Ctx.mk_var (gensym ()) (tr_typ (AP.get_type ap))
+    | OConstant _ -> Ctx.mk_var (gensym ()) TyInt
+    | OAddrOf _ -> Ctx.mk_var (gensym ()) TyInt
   in
   Expr.fold alg
 
 let unsubscript =
-  let sigma v = T.program_var (fst (const_of_symbol ctx v), 0) in
+  let sigma v = program_var (fst (Ctx.const_of_symbol v), 0) in
   P.substitute_const sigma
 
 let subscript_bexpr ss i bexpr =
   let subscript = subscript_expr ss i in
   let alg = function
-    | Core.OAnd (a, b) -> P.conj a b
-    | Core.OOr (a, b) -> P.disj a b
+    | Core.OAnd (a, b) -> Ctx.mk_and [a; b]
+    | Core.OOr (a, b) -> Ctx.mk_or [a; b]
     | Core.OAtom (pred, x, y) ->
       let x = subscript x in
       let y = subscript y in
       begin
         match pred with
-        | Lt -> P.lt x y
-        | Le -> P.leq x y
-        | Eq -> P.eq x y
-        | Ne -> P.negate (P.eq x y)
+        | Lt -> Ctx.mk_lt x y
+        | Le -> Ctx.mk_leq x y
+        | Eq -> Ctx.mk_eq x y
+        | Ne -> Ctx.mk_not (Ctx.mk_eq x y)
       end
   in
   P.existential_closure (Bexpr.fold alg bexpr)
@@ -218,11 +190,11 @@ let generalize_atom phi =
       end
   in
   let sigma v =
-    let (v, tid) = const_of_symbol ctx v in
+    let (v, tid) = Ctx.const_of_symbol v in
     let iv =
       if Var.is_shared v then (v, tid) else (v, 1 + generalize tid)
     in
-    T.program_var (IV.subscript iv 0)
+    program_var (IV.subscript iv 0)
   in
   let gen_phi = P.substitute_const sigma phi in
   (gen_phi, BatDynArray.to_list subst)
@@ -242,11 +214,11 @@ let generalize i phi psi =
       end
   in
   let sigma v =
-    let (v, tid) = const_of_symbol ctx v in
+    let (v, tid) = Ctx.const_of_symbol v in
     let iv =
       if Var.is_shared v then (v, tid) else (v, generalize tid)
     in
-    T.program_var (IV.subscript iv 0)
+    program_var (IV.subscript iv 0)
   in
   let gen_phi = P.substitute_const sigma phi in
   BatHashtbl.add rev_subst i 0;
@@ -278,11 +250,11 @@ let trace_formulae trace =
       let rhs = subscript_expr ss i expr in
       let ss' = subscript_incr ss i v in
       let assign =
-        P.eq (T.program_var (subscript ss' i v)) rhs
+        Ctx.mk_eq (program_var (subscript ss' i v)) rhs
         |> P.existential_closure
       in
       (ss', (i, def, assign)::rest)
-    | _ -> (ss, (i, def, P.tru)::rest)
+    | _ -> (ss, (i, def, Ctx.mk_true)::rest)
   in
   snd (List.fold_right f trace (ss_init, []))
 
@@ -290,14 +262,14 @@ let construct ipa trace =
   let rec go post = function
     | ((i, tr, phi)::rest) ->
       let phis = BatList.map (fun (_,_,phi) -> phi) rest in
-      let a = P.big_conj (BatList.enum phis) in
-      let b = P.conj phi (P.negate post) in
-      let itp = match z3#interpolate_seq ctx [a; b] with
-        | Some [itp] ->
+      let a = Ctx.mk_and phis in
+      let b = Ctx.mk_and [phi; Ctx.mk_not post] in
+      let itp = match Ctx.interpolate_seq [a; b] with
+        | `Unsat [itp] ->
           (Log.logf ~level:`trace "Found interpolant!@\n%a / %a: %a"
              P.format a P.format b P.format itp;
-           assert (Smt.implies z3 a itp);
-           assert (Smt.is_sat z3 (P.conj itp b) = `Unsat);
+           assert (Ctx.implies a itp);
+           assert (Ctx.is_sat (Ctx.mk_and [itp; b]) = `Unsat);
            itp)
         | _ ->
           (Log.errorf "Failed to interpolate! %a / %a"
@@ -321,7 +293,7 @@ let construct ipa trace =
 
     | [] -> assert false
   in
-  go P.fls (trace_formulae trace)
+  go Ctx.mk_false (trace_formulae trace)
 let construct ipa trace =
   Log.time "PA construction" (construct ipa) trace
 
@@ -342,7 +314,7 @@ let program_automaton file rg =
 
   (* Map each control location to a unique predicate symbol *)
   let loc_pred def =
-    P.eq (T.program_var (loc,1)) (T.real (QQ.of_int def.did))
+    Ctx.mk_eq (program_var (loc,1)) (Ctx.mk_real (QQ.of_int def.did))
   in
 
   (* Map control locations to their successors *)
@@ -418,7 +390,7 @@ let program_automaton file rg =
 
   (* loc predicate ensure that whenever a new thread executes a command its
      program counter is instantiated properly. *)
-  let loc = P.tru in
+  let loc = Ctx.mk_true in
   add_pred loc;
 
   BatEnum.iter (fun (thread, body) ->
@@ -450,7 +422,7 @@ let verify file =
   let rg = Interproc.make_recgraph file in
   let program_pa = program_automaton file rg in
   let pf =
-    PA.make program_pa.abs_sigma (fun _ -> false) (Atom (P.fls, []))
+    PA.make program_pa.abs_sigma (fun _ -> false) (Atom (Ctx.mk_false, []))
   in
   let abstract_pf pf =
     let open PA in
@@ -459,7 +431,7 @@ let verify file =
       then Or (Atom (p, args), next pf (p,args) (a,i))
       else next pf (p,args) (a,i)
     in
-    { abs_predicates = PSet.add P.fls (predicates pf);
+    { abs_predicates = PSet.add Ctx.mk_false (predicates pf);
       abs_delta = delta;
       abs_sigma = pf.sigma;
       abs_accepting = pf.accepting;
@@ -489,7 +461,7 @@ let verify file =
         /@ (fun (_,_,phi) -> phi) |> P.big_conj
       in
       begin
-        match Smt.is_sat z3 trace_formula with
+        match Ctx.is_sat trace_formula with
         | `Sat ->
           log ~level:`always ~attributes:[`Bold;`Red]
             "Verification result: Unsafe";
