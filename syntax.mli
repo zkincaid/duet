@@ -1,7 +1,4 @@
-type 'a context
 type typ = TyInt | TyReal
-type formula
-type term
 
 module type Constant = sig
   type t
@@ -11,6 +8,8 @@ module type Constant = sig
   val equal : t -> t -> bool
 end
 
+module TypedString : Constant with type t = string * typ
+
 module Env : sig
   type 'a t
   val empty : 'a t
@@ -18,139 +17,146 @@ module Env : sig
   val find : 'a t -> int -> 'a
 end
 
-type const_symbol
+type 'a open_term = [
+  | `Real of QQ.t
+  | `Const of int
+  | `Var of int * typ
+  | `Add of 'a list
+  | `Mul of 'a list
+  | `Binop of [ `Div | `Mod ] * 'a * 'a
+  | `Unop of [ `Floor | `Neg ] * 'a
+]
 
-module ConstSymbol : Apak.Putil.CoreType with type t = const_symbol
+type ('a,'term) open_formula = [
+  | `Tru
+  | `Fls
+  | `And of 'a list
+  | `Or of 'a list
+  | `Not of 'a
+  | `Quantify of [`Exists | `Forall] * string * typ * 'a
+  | `Atom of [`Eq | `Leq | `Lt] * 'term * 'term
+]
 
-val mk_context : (module Constant with type t = 'a) -> 'a context
-val mk_string_context : unit -> (string * typ) context
+module Make (C : Constant) : sig
+  type term
+  type formula
 
-val symbol_of_const : 'a context -> 'a -> const_symbol
-val const_of_symbol : 'a context -> const_symbol -> 'a
-val id_of_symbol : const_symbol -> int
-val symbol_of_id : int -> const_symbol
+  val symbol_of_const : C.t -> int
+  val const_of_symbol : int -> C.t
 
-module Term : sig
-  type t = term
-  type 'a open_t = [
-    | `Real of QQ.t
-    | `Const of const_symbol
-    | `Var of int * typ
-    | `Binop of [`Add | `Mul | `Div | `Mod ] * 'a * 'a
-    | `Unop of [`Floor | `Neg] * 'a
-  ]
-  val hash : t -> int
-  val equal : t -> t -> bool
-  val compare : t -> t -> int
-  val format : ?env:(string Env.t) ->
-    'a context ->
-    Format.formatter ->
-    t ->
-    unit
-  val show : 'a context -> ?env:(string Env.t) -> t -> string
+  val mk_add : term list -> term
+  val mk_mul : term list -> term
+  val mk_div : term -> term -> term
+  val mk_mod : term -> term -> term
+  val mk_var : int -> typ -> term
+  val mk_real : QQ.t -> term
+  val mk_const : int -> term
+  val mk_floor : term -> term
+  val mk_neg : term -> term
+  val mk_sub : term -> term -> term
 
-  val destruct : t -> t open_t
-  val eval : ('a open_t -> 'a) -> t -> 'a
+  val mk_forall : ?name:string -> typ -> formula -> formula
+  val mk_exists : ?name:string -> typ -> formula -> formula
+  val mk_and : formula list -> formula
+  val mk_or : formula list -> formula
+  val mk_not : formula -> formula
+  val mk_eq : term -> term -> formula
+  val mk_lt : term -> term -> formula
+  val mk_leq : term -> term -> formula
+  val mk_true : formula
+  val mk_false : formula
+  
+  module Term : sig
+    type t = term
+    val hash : t -> int
+    val equal : t -> t -> bool
+    val compare : t -> t -> int
+    val format : Format.formatter -> t -> unit
+    val show : t -> string
 
-  val mk_zero : 'a context -> t
-  val mk_one : 'a context -> t
-  val mk_real : 'a context -> QQ.t -> t
-  val mk_const : 'a context -> const_symbol -> t
-  val mk_var : 'a context -> int -> typ -> t
-  val mk_add : 'a context -> t -> t -> t
-  val mk_sub : 'a context -> t -> t -> t
-  val mk_neg : 'a context -> t -> t
-  val mk_mul : 'a context -> t -> t -> t
-  val mk_div : 'a context -> t -> t -> t
-  val mk_idiv : 'a context -> t -> t -> t
-  val mk_mod : 'a context -> t -> t -> t
-  val mk_floor : 'a context -> t -> t
-  val mk_sum : 'a context -> t BatEnum.t -> t
-  val mk_product : 'a context -> t BatEnum.t -> t
+    val destruct : t -> t open_term
+    val eval : ('a open_term -> 'a) -> t -> 'a
+    val fold_constants : (int -> 'a -> 'a) -> t -> 'a -> 'a
+    val substitute : (int -> t) -> t -> t
+    val substitute_const : (int -> t) -> t -> t
+  end
 
-  val constants : t -> ConstSymbol.Set.t
-  val substitute : 'a context -> (int -> t) -> t -> t
-  val substitute_const : 'a context -> (const_symbol -> t) -> t -> t
+  module Formula : sig
+    type t = formula
+    val hash : t -> int
+    val equal : t -> t -> bool
+    val compare : t -> t -> int
+    val format : Format.formatter -> t -> unit
+    val show : t -> string
+
+    val destruct : t -> (t, term) open_formula
+    val eval : (('a, term) open_formula -> 'a) -> t -> 'a
+    val fold_constants : (int -> 'a -> 'a) -> t -> 'a -> 'a
+    val substitute : (int -> term) -> t -> t
+    val substitute_const : (int -> term) -> t -> t
+    val existential_closure : t -> t
+  end
 end
 
-module Formula : sig
-  type t = formula
-  type 'a open_t = [
-    | `Tru
-    | `Fls
-    | `Binop of [`And | `Or] * 'a * 'a
-    | `Not of 'a
-    | `Quantify of [`Exists | `Forall] * string * typ * 'a
-    | `Atom of [`Eq | `Leq | `Lt] * term * term
-  ]
-  type 'a flat_open_t = [
-    | `Tru
-    | `Fls
-    | `And of 'a list
-    | `Or of 'a list
-    | `Not of 'a
-    | `Quantify of [`Exists | `Forall] * (string * typ) list * 'a
-    | `Atom of [`Eq | `Leq | `Lt] * term * term
-  ]
-  val hash : t -> int
-  val equal : t -> t -> bool
-  val compare : t -> t -> int
-  val format : ?env:(string Env.t) ->
-    'a context ->
-    Format.formatter ->
-    t ->
-    unit
-  val show : 'a context -> ?env:(string Env.t) -> t -> string
+module type BuilderContext = sig
+  type term
+  type formula
 
-  val destruct : t -> t open_t
-  val destruct_flat : t -> t flat_open_t
-  val eval : ('a open_t -> 'a) -> t -> 'a
+  val mk_add : term list -> term
+  val mk_mul : term list -> term
+  val mk_div : term -> term -> term
+  val mk_mod : term -> term -> term
+  val mk_var : int -> typ -> term
+  val mk_real : QQ.t -> term
+  val mk_const : int -> term
+  val mk_floor : term -> term
+  val mk_neg : term -> term
 
-  val mk_true : 'a context -> t
-  val mk_false : 'a context -> t
-
-  val mk_leq : 'a context -> term -> term -> t
-  val mk_lt : 'a context -> term -> term -> t
-  val mk_eq : 'a context -> term -> term -> t
-
-  val mk_and : 'a context -> t -> t -> t
-  val mk_or : 'a context -> t -> t -> t
-  val mk_not : 'a context -> t -> t
-
-  val mk_exists : 'a context -> ?name:string -> typ -> t -> t
-  val mk_forall : 'a context -> ?name:string -> typ -> t -> t
-
-  val mk_iff : 'a context -> t -> t -> t
-
-  val mk_conjunction : 'a context -> t BatEnum.t -> t
-  val mk_disjunction : 'a context -> t BatEnum.t -> t
-
-  val constants : t -> ConstSymbol.Set.t
-  val substitute : 'a context -> (int -> term) -> t -> t
-  val substitute_const : 'a context -> (const_symbol -> term) -> t -> t
-  val existential_closure : 'a context -> t -> t
+  val mk_forall : ?name:string -> typ -> formula -> formula
+  val mk_exists : ?name:string -> typ -> formula -> formula
+  val mk_and : formula list -> formula
+  val mk_or : formula list -> formula
+  val mk_not : formula -> formula
+  val mk_eq : term -> term -> formula
+  val mk_lt : term -> term -> formula
+  val mk_leq : term -> term -> formula
 end
 
-module ImplicitContext(C : sig
-    type t
-    val context : t context
-  end) : sig
-  val exists : ?name:string -> typ -> formula -> formula
-  val forall : ?name:string -> typ -> formula -> formula
-  val ( ! ) : formula -> formula
-  val ( && ) : formula -> formula -> formula
-  val ( || ) : formula -> formula -> formula
-  val ( < ) : term -> term -> formula
-  val ( <= ) : term -> term -> formula
-  val ( = ) : term -> term -> formula
-  val tru : formula
-  val fls : formula
+module type EvalContext = sig
+  type term
+  type formula
+  module Formula : sig
+    type t = formula
+    val eval : (('a, term) open_formula -> 'a) -> t -> 'a    
+  end
+  module Term : sig
+    type t = term
+    val eval : ('a open_term -> 'a) -> t -> 'a
+  end
+end
 
-  val ( + ) : term -> term -> term
-  val ( - ) : term -> term -> term
-  val ( * ) : term -> term -> term
-  val ( / ) : term -> term -> term
-  val ( mod ) : term -> term -> term
-  val const : const_symbol -> term    
-  val var : int -> typ -> term
+module MakeTranslator (Source : EvalContext) (Target : BuilderContext) : sig
+  val term : Source.term -> Target.term
+  val formula : Source.formula -> Target.formula
+end
+
+module Infix (C : BuilderContext) : sig
+  val exists : ?name:string -> typ -> C.formula -> C.formula
+  val forall : ?name:string -> typ -> C.formula -> C.formula
+  val ( ! ) : C.formula -> C.formula
+  val ( && ) : C.formula -> C.formula -> C.formula
+  val ( || ) : C.formula -> C.formula -> C.formula
+  val ( < ) : C.term -> C.term -> C.formula
+  val ( <= ) : C.term -> C.term -> C.formula
+  val ( = ) : C.term -> C.term -> C.formula
+  val tru : C.formula
+  val fls : C.formula
+
+  val ( + ) : C.term -> C.term -> C.term
+  val ( - ) : C.term -> C.term -> C.term
+  val ( * ) : C.term -> C.term -> C.term
+  val ( / ) : C.term -> C.term -> C.term
+  val ( mod ) : C.term -> C.term -> C.term
+  val const : int -> C.term
+  val var : int -> typ -> C.term
 end

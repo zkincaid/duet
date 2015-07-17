@@ -1,63 +1,59 @@
 open OUnit
 open Syntax
 
-let ctx = Syntax.mk_string_context ()
+module Ctx = Syntax.Make(Syntax.TypedString)
+module Infix = Syntax.Infix(Ctx)
 
-module S = ImplicitContext(struct
-    type t = string * typ
-    let context = ctx
-  end)
+let r = Ctx.mk_const (Ctx.symbol_of_const ("r", TyReal))
+let s = Ctx.mk_const (Ctx.symbol_of_const ("s", TyReal))
+let t = Ctx.mk_const (Ctx.symbol_of_const ("t", TyReal))
 
-let r = S.const (symbol_of_const ctx ("r", TyReal))
-let s = S.const (symbol_of_const ctx ("s", TyReal))
-let t = S.const (symbol_of_const ctx ("t", TyReal))
+let w = Ctx.mk_const (Ctx.symbol_of_const ("w", TyInt))
+let x = Ctx.mk_const (Ctx.symbol_of_const ("x", TyInt))
+let y = Ctx.mk_const (Ctx.symbol_of_const ("y", TyInt))
+let z = Ctx.mk_const (Ctx.symbol_of_const ("z", TyInt))
 
-let w = S.const (symbol_of_const ctx ("w", TyInt))
-let x = S.const (symbol_of_const ctx ("x", TyInt))
-let y = S.const (symbol_of_const ctx ("y", TyInt))
-let z = S.const (symbol_of_const ctx ("z", TyInt))
-
-let frac num den = Term.mk_real ctx (QQ.of_frac num den)
-let int k = Term.mk_real ctx (QQ.of_int k)
+let frac num den = Ctx.mk_real (QQ.of_frac num den)
+let int k = Ctx.mk_real (QQ.of_int k)
 
 let assert_equal_term s t =
-  assert_equal ~printer:(Term.show ctx) s t
+  assert_equal ~printer:Ctx.Term.show s t
 let assert_equal_formula s t =
-  assert_equal ~printer:(Formula.show ctx) s t
+  assert_equal ~printer:Ctx.Formula.show s t
 
 let substitute () =
   let subst =
-    let open S in
+    let open Infix in
     function
     | 0 -> x
     | 2 -> (var 0 TyInt)
     | _ -> raise Not_found
   in
   let phi =
-    let open S in
+    let open Infix in
     (y = (var 0 TyInt))
     || (exists TyInt
           ((y = (var 0 TyInt) + (var 1 TyInt))
            && (var 1 TyInt) < (var 3 TyInt)))
   in
   let psi =
-    let open S in
+    let open Infix in
     (y = x)
     || (exists TyInt
           ((y = (var 0 TyInt) + x)
            && x < (var 1 TyInt)))
   in
-  assert_equal_formula (Formula.substitute ctx subst phi) psi
+  assert_equal_formula (Ctx.Formula.substitute subst phi) psi
 
 let existential_closure1 () =
   let phi =
-    let open S in
+    let open Infix in
     (x = (var 34 TyInt) || (var 34 TyInt) < y)
     && (var 35 TyReal) <= (var 42 TyReal)
     && (var 42 TyReal) <= (var 34 TyInt)
   in
   let psi =
-    let open S in
+    let open Infix in
     ((x = (var 0 TyInt) || (var 0 TyInt) < y)
      && (var 1 TyReal) <= (var 2 TyReal)
      && (var 2 TyReal) <= (var 0 TyInt))
@@ -65,26 +61,26 @@ let existential_closure1 () =
     |> exists TyReal
     |> exists TyReal
   in
-  assert_equal_formula (Formula.existential_closure ctx phi) psi
+  assert_equal_formula (Ctx.Formula.existential_closure phi) psi
 
 let existential_closure2 () =
   let phi =
-    let open S in
+    let open Infix in
     ((var 5 TyReal) = (var 0 TyInt) + (int 1))
     && (exists TyInt
           ((var 0 TyInt) = (var 6 TyReal)))
   in
   let psi =
-    let open S in
+    let open Infix in
     exists TyReal
       (exists TyInt
          (((var 1 TyReal) = (var 0 TyInt) + (int 1))         
           && (exists TyInt
                 ((var 0 TyInt) = (var 2 TyReal)))))
   in
-  assert_equal_formula (Formula.existential_closure ctx phi) psi
+  assert_equal_formula (Ctx.Formula.existential_closure phi) psi
 
-let suite = "SMT" >:::
+let suite = "Syntax" >:::
   [
     "substitute" >:: substitute;
     "existential_closure1" >:: existential_closure1;

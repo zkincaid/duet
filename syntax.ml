@@ -1,9 +1,8 @@
 open Hashcons
 
-type const_symbol = int
-
 type typ = TyInt | TyReal
              deriving (Compare)
+
 module Show_typ = Deriving_Show.Defaults(struct
     type a = typ
     let format formatter = function
@@ -22,7 +21,7 @@ type label =
   | Eq
   | Leq
   | Lt
-  | Const of const_symbol
+  | Const of int
   | Var of int * typ
   | Add
   | Mul
@@ -80,31 +79,6 @@ module Env = struct
   let empty = []
 end
 
-type 'a context =
-  { const_of_sym : 'a BatDynArray.t;
-    sym_of_const : 'a -> const_symbol;
-    const_format : Format.formatter -> 'a -> unit;
-    const_typ : 'a -> typ;
-    expr : HC.t }
-
-let mk_context (type t) (module C : Constant with type t = t) =
-  let module HT = Hashtbl.Make(C) in
-  let const_of_sym = BatDynArray.make 256 in
-  let sym_of_const =
-    let table = HT.create 991 in
-    fun k ->
-      try HT.find table k
-      with Not_found ->
-        let id = BatDynArray.length const_of_sym in
-        BatDynArray.add const_of_sym k;
-        HT.add table k id;
-        id
-  in
-  { const_of_sym = const_of_sym;
-    sym_of_const = sym_of_const;
-    const_format = C.format;
-    const_typ = C.typ;
-    expr = HC.create 991 }
 
 module TypedString = struct
   type t = string * typ
@@ -113,19 +87,6 @@ module TypedString = struct
   let hash = Hashtbl.hash
   let equal = (=)
 end
-let mk_string_context () = mk_context (module TypedString)
-
-let const_of_symbol ctx id = BatDynArray.get ctx.const_of_sym id
-let symbol_of_const ctx = ctx.sym_of_const
-let id_of_symbol id = id
-let symbol_of_id id = id
-
-let hashcons ctx = HC.hashcons ctx.expr
-
-let const_typ ctx const = ctx.const_typ (const_of_symbol ctx const)
-
-let const_format ctx formatter const =
-  ctx.const_format formatter (const_of_symbol ctx const)
 
 let rec eval_expr alg expr =
   let (Node (label, children)) = expr.node in
@@ -138,410 +99,454 @@ let rec flatten_expr label expr =
   else
     [expr]
 
-(* Avoid capture by incrementing bound variables *)
-let rec decapture ctx depth expr =
-  let Node (label, children) = expr.node in
-  match label with
-  | Exists (_, _) | Forall (_, _) ->
-    decapture_children ctx label (depth + 1) children
-  | Var (v, typ) -> hashcons ctx (Node (Var (v + depth, typ), []))
-  | _ -> decapture_children ctx label depth children
-and decapture_children ctx label depth children =
-  hashcons ctx (Node (label, List.map (decapture ctx depth) children))
+type 'a open_term = [
+  | `Real of QQ.t
+  | `Const of int
+  | `Var of int * typ
+  | `Add of 'a list
+  | `Mul of 'a list
+  | `Binop of [ `Div | `Mod ] * 'a * 'a
+  | `Unop of [ `Floor | `Neg ] * 'a
+]
 
-module Expr = struct
-  type t = expr hash_consed
+type ('a,'b) open_formula = [
+  | `Tru
+  | `Fls
+  | `And of 'a list
+  | `Or of 'a list
+  | `Not of 'a
+  | `Quantify of [`Exists | `Forall] * string * typ * 'a
+  | `Atom of [`Eq | `Leq | `Lt] * 'b * 'b
+]
 
-  let equal s t = s.tag = t.tag
-  let compare s t = Pervasives.compare s.tag t.tag
-  let hash t = t.hkey
+module Make (C : Constant) = struct
+  type term = expr hash_consed
+  type formula = expr hash_consed
 
-  let substitute ctx subst expr =
-    let rec go depth expr =
+  module E = Apak.Enumeration.Make(C)
+
+  let hashcons =
+    let hc = HC.create 991 in
+    HC.hashcons hc
+
+  let constants = E.empty ()
+  
+  let const_of_symbol = E.from_int constants
+  let symbol_of_const = E.to_int constants
+
+  let mk_real qq = hashcons (Node (Real qq, []))
+  let mk_zero = mk_real QQ.zero
+  let mk_one = mk_real QQ.one
+  let mk_const k = hashcons (Node (Const k, []))
+  let mk_var v typ = hashcons (Node (Var (v, typ), []))
+  let mk_neg t = hashcons (Node (Neg, [t]))
+  let mk_div s t = hashcons (Node (Div, [s; t]))
+  let mk_mod s t = hashcons (Node (Mod, [s; t]))
+  let mk_floor t = hashcons (Node (Floor, [t]))
+  let mk_idiv s t = mk_floor (mk_div s t)
+
+  let mk_add = function
+    | [] -> mk_zero
+    | [x] -> x
+    | sum -> hashcons (Node (Add, sum))
+
+  let mk_mul = function
+    | [] -> mk_one
+    | [x] -> x
+    | product -> hashcons (Node (Mul, product))
+
+  let mk_sub s t = mk_add [s; (mk_neg t)]
+
+  let mk_true = hashcons (Node (True, []))
+  let mk_false = hashcons (Node (False, []))
+  let mk_not phi = hashcons (Node (Not, [phi]))
+  let mk_leq s t = hashcons (Node (Leq, [s; t]))
+  let mk_lt s t = hashcons (Node (Lt, [s; t]))
+  let mk_eq s t = hashcons (Node (Eq, [s; t]))
+
+  let mk_forall ?name:(name="_") typ phi =
+    hashcons (Node (Forall (name, typ), [phi]))
+
+  let mk_exists ?name:(name="_") typ phi =
+    hashcons (Node (Exists (name, typ), [phi]))
+
+  let mk_and = function
+    | [] -> mk_true
+    | [x] -> x
+    | conjuncts -> hashcons (Node (And, conjuncts))
+
+  let mk_or = function
+    | [] -> mk_false
+    | [x] -> x
+    | disjuncts -> hashcons (Node (Or, disjuncts))
+
+  let mk_iff phi psi =
+    mk_or [mk_and [phi; psi];
+           mk_not (mk_or [phi; psi])]
+
+  module Expr = struct
+    type t = expr hash_consed
+
+    let equal s t = s.tag = t.tag
+    let compare s t = Pervasives.compare s.tag t.tag
+    let hash t = t.hkey
+
+    (* Avoid capture by incrementing bound variables *)
+    let rec decapture depth expr =
       let Node (label, children) = expr.node in
       match label with
       | Exists (_, _) | Forall (_, _) ->
-        go_children label (depth + 1) children
-      | Var (v, _) ->
-        if v < depth then (* bound var *)
-          expr
-        else
-          decapture ctx depth (subst (v - depth))
-      | _ -> go_children label depth children
-    and go_children label depth children =
-      hashcons ctx (Node (label, List.map (go depth) children))
-    in
-    go 0 expr
+        decapture_children label (depth + 1) children
+      | Var (v, typ) -> hashcons (Node (Var (v + depth, typ), []))
+      | _ -> decapture_children label depth children
+    and decapture_children label depth children =
+      hashcons (Node (label, List.map (decapture depth) children))
 
-  let substitute_const ctx subst expr =
-    let rec go depth expr =
-      let Node (label, children) = expr.node in
-      match label with
-      | Exists (_, _) | Forall (_, _) ->
-        go_children label (depth + 1) children
-      | Const k -> decapture ctx depth (subst k)
-      | _ -> go_children label depth children
-    and go_children label depth children =
-      hashcons ctx (Node (label, List.map (go depth) children))
-    in
-    go 0 expr
-
-  let constants expr =
-    let alg label children =
-      let z =
+    let substitute subst expr =
+      let rec go depth expr =
+        let Node (label, children) = expr.node in
         match label with
-        | Const k -> ConstSymbol.Set.singleton k
-        | _ -> ConstSymbol.Set.empty
+        | Exists (_, _) | Forall (_, _) ->
+          go_children label (depth + 1) children
+        | Var (v, _) ->
+          if v < depth then (* bound var *)
+            expr
+          else
+            decapture depth (subst (v - depth))
+        | _ -> go_children label depth children
+      and go_children label depth children =
+        hashcons (Node (label, List.map (go depth) children))
       in
-      BatList.fold_left ConstSymbol.Set.union z children
-    in
-    eval_expr alg expr
+      go 0 expr
 
-  let vars expr =
-    let rec go depth expr =
-      let Node (label, children) = expr.node in
-      match label with
-      | Exists (_, _) | Forall (_, _) ->
-        go_children (depth + 1) children
-      | Var (v, typ) ->
-        if v < depth then Var.Set.empty
-        else Var.Set.singleton (v - depth, typ)
-      | _ -> go_children depth children
-    and go_children depth children =
-      List.fold_left Var.Set.union Var.Set.empty (List.map (go depth) children)
-    in
-    go 0 expr
+    let substitute_const subst expr =
+      let rec go depth expr =
+        let Node (label, children) = expr.node in
+        match label with
+        | Exists (_, _) | Forall (_, _) ->
+          go_children label (depth + 1) children
+        | Const k -> decapture depth (subst k)
+        | _ -> go_children label depth children
+      and go_children label depth children =
+        hashcons (Node (label, List.map (go depth) children))
+      in
+      go 0 expr
+
+    let fold_constants f expr acc =
+      let rec go acc expr =
+        let Node (label, children) = expr.node in
+        match label with
+        | Const k -> f k acc
+        | _ -> List.fold_left go acc children
+      in
+      go acc expr
+
+    let vars expr =
+      let rec go depth expr =
+        let Node (label, children) = expr.node in
+        match label with
+        | Exists (_, _) | Forall (_, _) ->
+          go_children (depth + 1) children
+        | Var (v, typ) ->
+          if v < depth then Var.Set.empty
+          else Var.Set.singleton (v - depth, typ)
+        | _ -> go_children depth children
+      and go_children depth children =
+        List.fold_left Var.Set.union Var.Set.empty (List.map (go depth) children)
+      in
+      go 0 expr
+  end
+
+
+  module Term = struct
+    include Expr
+
+    let eval alg t =
+      let f label children = match label, children with
+        | Real qq, [] -> alg (`Real qq)
+        | Const k, [] -> alg (`Const k)
+        | Var (v, typ), [] -> alg (`Var (v, typ))
+        | Add, sum -> alg (`Add sum)
+        | Mul, product -> alg (`Mul product)
+        | Div, [s; t] -> alg (`Binop (`Div, s, t))
+        | Mod, [s; t] -> alg (`Binop (`Mod, s, t))
+        | Floor, [t] -> alg (`Unop (`Floor, t))
+        | Neg, [t] -> alg (`Unop (`Neg, t))
+        | _ -> invalid_arg "eval: not a term"
+      in
+      eval_expr f t
+
+    let destruct t = match t.node with
+      | Node (Real qq, []) -> `Real qq
+      | Node (Const k, []) -> `Const k
+      | Node (Var (v, typ), []) -> `Var (v, typ)
+      | Node (Add, sum) -> `Add sum
+      | Node (Mul, product) -> `Mul product
+      | Node (Div, [s; t]) -> `Binop (`Div, s, t)
+      | Node (Mod, [s; t]) -> `Binop (`Mod, s, t)
+      | Node (Floor, [t]) -> `Unop (`Floor, t)
+      | Node (Neg, [t]) -> `Unop (`Neg, t)
+      | _ -> invalid_arg "destruct: not a term"
+
+    let rec format formatter t =
+      let open Format in
+      match destruct t with
+      | `Real qq -> QQ.format formatter qq
+      | `Const k -> C.format formatter (const_of_symbol k)
+      | `Var (v, typ) -> fprintf formatter "[free:%d]" v
+      | `Add terms ->
+        fprintf formatter "(@[";
+        ApakEnum.pp_print_enum
+          ~pp_sep:(fun formatter () -> fprintf formatter "@ + ")
+          format
+          formatter
+          (BatList.enum terms);
+        fprintf formatter "@])"
+      | `Mul terms ->
+        fprintf formatter "(@[";
+        ApakEnum.pp_print_enum
+          ~pp_sep:(fun formatter () -> fprintf formatter "@ * ")
+          format
+          formatter
+          (BatList.enum terms);
+        fprintf formatter "@])"
+      | `Binop (`Div, s, t) ->
+        fprintf formatter "(@[%a@ / %a@])"
+          format s
+          format t
+      | `Binop (`Mod, s, t) ->
+        fprintf formatter "(@[%a@ mod %a@])"
+          format s
+          format t
+      | `Unop (`Floor, t) ->
+        fprintf formatter "floor(@[%a@])" format t
+      | `Unop (`Neg, t) ->
+        begin match destruct t with
+          | `Real qq -> QQ.format formatter (QQ.negate qq)
+          | `Const _ | `Var (_, _) ->
+            fprintf formatter "-%a" format t
+          | _ -> fprintf formatter "-(@[%a@])" format t
+        end
+    let show t = Apak.Putil.pp_string format t
+  end
+  module Formula = struct
+    include Expr
+    let destruct phi = match phi.node with
+      | Node (True, []) -> `Tru
+      | Node (False, []) -> `Fls
+      | Node (And, conjuncts) -> `And conjuncts
+      | Node (Or, disjuncts) -> `Or disjuncts
+      | Node (Not, [phi]) -> `Not phi
+      | Node (Exists (name, typ), [phi]) -> `Quantify (`Exists, name, typ, phi)
+      | Node (Forall (name, typ), [phi]) -> `Quantify (`Forall, name, typ, phi)
+      | Node (Eq, [s; t]) -> `Atom (`Eq, s, t)
+      | Node (Leq, [s; t]) -> `Atom (`Leq, s, t)
+      | Node (Lt, [s; t]) -> `Atom (`Lt, s, t)
+      | _ -> invalid_arg "destruct: not a formula"
+
+    let rec eval : (('a, term) open_formula -> 'a) -> t -> 'a =
+        fun alg phi -> match destruct phi with
+      | `Tru -> alg `Tru
+      | `Fls -> alg `Fls
+      | `Or disjuncts -> alg (`Or (List.map (eval alg) disjuncts))
+      | `And conjuncts -> alg (`And (List.map (eval alg) conjuncts))
+      | `Quantify (qt, name, typ, phi) ->
+        alg (`Quantify (qt, name, typ, eval alg phi))
+      | `Not phi -> alg (`Not (eval alg phi))
+      | `Atom (op, s, t) -> alg (`Atom (op, s, t))
+
+    let rec flatten_universal phi = match phi.node with
+      | Node (Forall (name, typ), [phi]) ->
+        let (varinfo, phi') = flatten_universal phi in
+        ((name,typ)::varinfo, phi')
+      | _ -> ([], phi)
+
+    let rec flatten_existential phi = match phi.node with
+      | Node (Exists (name, typ), [phi]) ->
+        let (varinfo, phi') = flatten_existential phi in
+        ((name,typ)::varinfo, phi')
+      | _ -> ([], phi)
+
+    let destruct_flat phi = match phi.node with
+      | Node (True, []) -> `Tru
+      | Node (False, []) -> `Fls
+      | Node (And, conjuncts) ->
+        `And (List.concat (List.map (flatten_expr And) conjuncts))
+      | Node (Or, disjuncts) ->
+        `Or (List.concat (List.map (flatten_expr Or) disjuncts))
+      | Node (Not, [phi]) -> `Not phi
+      | Node (Exists (name, typ), [phi]) ->
+        let varinfo, phi' = flatten_existential phi in
+        `Quantify (`Exists, (name,typ)::varinfo, phi')
+      | Node (Forall (name, typ), [phi]) ->
+        let varinfo, phi' = flatten_universal phi in
+        `Quantify (`Forall, (name, typ)::varinfo, phi')
+      | Node (Eq, [s; t]) -> `Atom (`Eq, s, t)
+      | Node (Leq, [s; t]) -> `Atom (`Leq, s, t)
+      | Node (Lt, [s; t]) -> `Atom (`Lt, s, t)
+      | _ -> invalid_arg "Formula.destruct_flat: not a formula"
+
+    let rec format formatter phi =
+      let open Format in
+      match destruct_flat phi with
+      | `Tru -> pp_print_string formatter "true"
+      | `Fls -> pp_print_string formatter "false"
+      | `Not phi ->
+        fprintf formatter "!(@[%a@])" format phi
+      | `And conjuncts ->
+        fprintf formatter "(@[";
+        ApakEnum.pp_print_enum
+          ~pp_sep:(fun formatter () -> fprintf formatter "@ /\\ ")
+          format
+          formatter
+          (BatList.enum conjuncts);
+        fprintf formatter "@])"
+      | `Or conjuncts ->
+        fprintf formatter "(@[";
+        ApakEnum.pp_print_enum
+          ~pp_sep:(fun formatter () -> fprintf formatter "@ \\/ ")
+          format
+          formatter
+          (BatList.enum conjuncts);
+        fprintf formatter "@])"
+      | `Atom (op, x, y) ->
+        let op_string = match op with
+          | `Eq -> "="
+          | `Leq -> "<="
+          | `Lt -> "<"
+        in
+        fprintf formatter "@[%a %s %a@]"
+          Term.format x
+          op_string
+          Term.format y
+      | `Quantify (qt, varinfo, psi) ->
+        let quantifier_name =
+          match qt with
+          | `Exists -> "exists"
+          | `Forall -> "forall"
+        in
+        fprintf formatter "(@[%s@ " quantifier_name;
+        ApakEnum.pp_print_enum
+          ~pp_sep:pp_print_space
+          (fun formatter (name, typ) ->
+             fprintf formatter "(%s : %s)" name (Show.show<typ> typ))
+          formatter
+          (BatList.enum varinfo);
+        fprintf formatter ".@ %a@])" format psi
+
+    let show t = Apak.Putil.pp_string format t
+
+    let existential_closure phi =
+      let vars = vars phi in
+      let types = Array.make (Var.Set.cardinal vars) TyInt in
+      let rename =
+        let n = ref (-1) in
+        let map =
+          Var.Set.fold (fun (v, typ) m ->
+              incr n;
+              types.(!n) <- typ;
+              Apak.Putil.PInt.Map.add v (mk_var (!n) typ) m
+            )
+            vars
+            Apak.Putil.PInt.Map.empty
+        in
+        fun v -> Apak.Putil.PInt.Map.find v map
+      in
+      Array.fold_left
+        (fun psi typ -> mk_exists typ psi)
+        (substitute rename phi)
+        types
+  end
 end
 
-module Term = struct
-  include Expr
+module type BuilderContext = sig
+  type term
+  type formula
 
-  type 'a open_t = [
-    | `Real of QQ.t
-    | `Const of const_symbol
-    | `Var of int * typ
-    | `Binop of [`Add | `Mul | `Div | `Mod ] * 'a * 'a
-    | `Unop of [`Floor | `Neg ] * 'a
-  ]
+  val mk_add : term list -> term
+  val mk_mul : term list -> term
+  val mk_div : term -> term -> term
+  val mk_mod : term -> term -> term
+  val mk_var : int -> typ -> term
+  val mk_real : QQ.t -> term
+  val mk_const : int -> term
+  val mk_floor : term -> term
+  val mk_neg : term -> term
 
-  let destruct t = match t.node with
-    | Node (Real qq, []) -> `Real qq
-    | Node (Const k, []) -> `Const k
-    | Node (Var (v, typ), []) -> `Var (v, typ)
-    | Node (Add, [s; t]) -> `Binop (`Add, s, t)
-    | Node (Mul, [s; t]) -> `Binop (`Mul, s, t)
-    | Node (Div, [s; t]) -> `Binop (`Div, s, t)
-    | Node (Mod, [s; t]) -> `Binop (`Mod, s, t)
-    | Node (Floor, [t]) -> `Unop (`Floor, t)
-    | Node (Neg, [t]) -> `Unop (`Neg, t)
-    | _ -> invalid_arg "destruct: not a term"
-
-  let destruct_flat t = match t.node with
-    | Node (Real qq, []) -> `Real qq
-    | Node (Const k, []) -> `Const k
-    | Node (Var (v, typ), []) -> `Var (v, typ)
-    | Node (Add, [s; t]) -> `Add ((flatten_expr Add s)@(flatten_expr Add t))
-    | Node (Mul, [s; t]) -> `Mul ((flatten_expr Mul s)@(flatten_expr Mul t))
-    | Node (Div, [s; t]) -> `Binop (`Div, s, t)
-    | Node (Mod, [s; t]) -> `Binop (`Mod, s, t)
-    | Node (Floor, [t]) -> `Unop (`Floor, t)
-    | Node (Neg, [t]) -> `Unop (`Neg, t)
-    | _ -> invalid_arg "destruct: not a term"
-
-  let eval alg t =
-    let f label children = match label, children with
-      | Real qq, [] -> alg (`Real qq)
-      | Const k, [] -> alg (`Const k)
-      | Var (v, typ), [] -> alg (`Var (v, typ))
-      | Add, [s; t] -> alg (`Binop (`Add, s, t))
-      | Mul, [s; t] -> alg (`Binop (`Mul, s, t))
-      | Div, [s; t] -> alg (`Binop (`Div, s, t))
-      | Mod, [s; t] -> alg (`Binop (`Mod, s, t))
-      | Floor, [t] -> alg (`Unop (`Floor, t))
-      | Neg, [t] -> alg (`Unop (`Neg, t))
-      | _ -> invalid_arg "eval: not a term"
-    in
-    eval_expr f t
-
-  let rec format ?env:(env=Env.empty) ctx formatter t =
-    let open Format in
-    match destruct_flat t with
-    | `Real qq -> QQ.format formatter qq
-    | `Const k -> const_format ctx formatter k
-    | `Var (v, typ) ->
-      (try fprintf formatter "[%s:%d]" (Env.find env v) v
-       with Not_found -> fprintf formatter "[free:%d]" v)
-    | `Add terms ->
-      fprintf formatter "(@[";
-      ApakEnum.pp_print_enum
-        ~pp_sep:(fun formatter () -> fprintf formatter "@ + ")
-        (format ctx ~env:env)
-        formatter
-        (BatList.enum terms);
-      fprintf formatter "@])"
-    | `Mul terms ->
-      fprintf formatter "(@[";
-      ApakEnum.pp_print_enum
-        ~pp_sep:(fun formatter () -> fprintf formatter "@ * ")
-        (format ctx ~env:env)
-        formatter
-        (BatList.enum terms);
-      fprintf formatter "@])"
-    | `Binop (`Div, s, t) ->
-      fprintf formatter "(@[%a@ / %a@])"
-        (format ctx ~env:env) s
-        (format ctx ~env:env) t
-    | `Binop (`Mod, s, t) ->
-      fprintf formatter "(@[%a@ mod %a@])"
-        (format ctx ~env:env) s
-        (format ctx ~env:env) t
-    | `Unop (`Floor, t) ->
-      fprintf formatter "floor(@[%a@])" (format ctx ~env:env) t
-    | `Unop (`Neg, t) ->
-      begin match destruct t with
-        | `Real qq -> QQ.format formatter (QQ.negate qq)
-        | `Const _ | `Var (_, _) ->
-          fprintf formatter "-%a" (format ctx ~env:env) t          
-        | _ -> fprintf formatter "-(@[%a@])" (format ctx ~env:env) t
-      end
-
-  let show ctx ?env:(env=Env.empty) t =
-    Apak.Putil.pp_string (format ctx ~env:env) t
-
-  let mk_const ctx k = hashcons ctx (Node (Const k, []))
-  let mk_var ctx v typ = hashcons ctx (Node (Var (v, typ), []))
-  let mk_add ctx s t = hashcons ctx (Node (Add, [s; t]))
-  let mk_neg ctx t = hashcons ctx (Node (Neg, [t]))
-  let mk_sub ctx s t = mk_add ctx s (mk_neg ctx t)
-  let mk_mul ctx s t = hashcons ctx (Node (Mul, [s; t]))
-  let mk_div ctx s t = hashcons ctx (Node (Div, [s; t]))
-  let mk_mod ctx s t = hashcons ctx (Node (Mod, [s; t]))
-  let mk_floor ctx t = hashcons ctx (Node (Floor, [t]))
-  let mk_zero ctx = hashcons ctx (Node (Real QQ.zero, []))
-  let mk_one ctx = hashcons ctx (Node (Real QQ.one, []))
-  let mk_real ctx qq = hashcons ctx (Node (Real qq, []))
-  let mk_idiv ctx s t = mk_floor ctx (mk_div ctx s t)
-
-  let mk_sum ctx terms =
-    if BatEnum.is_empty terms then
-      mk_zero ctx
-    else
-      BatEnum.reduce (mk_add ctx) terms
-
-  let mk_product ctx terms =
-    if BatEnum.is_empty terms then
-      mk_one ctx
-    else
-      BatEnum.reduce (mk_mul ctx) terms
+  val mk_forall : ?name:string -> typ -> formula -> formula
+  val mk_exists : ?name:string -> typ -> formula -> formula
+  val mk_and : formula list -> formula
+  val mk_or : formula list -> formula
+  val mk_not : formula -> formula
+  val mk_eq : term -> term -> formula
+  val mk_lt : term -> term -> formula
+  val mk_leq : term -> term -> formula
 end
 
-module Formula = struct
-  include Expr
-
-  type 'a open_t = [
-    | `Tru
-    | `Fls
-    | `Binop of [`And | `Or] * 'a * 'a
-    | `Not of 'a
-    | `Quantify of [`Exists | `Forall] * string * typ * 'a
-    | `Atom of [`Eq | `Leq | `Lt] * term * term
-  ]
-
-  type 'a flat_open_t = [
-    | `Tru
-    | `Fls
-    | `And of 'a list
-    | `Or of 'a list
-    | `Not of 'a
-    | `Quantify of [`Exists | `Forall] * (string * typ) list * 'a
-    | `Atom of [`Eq | `Leq | `Lt] * term * term
-  ]
-
-  let destruct phi = match phi.node with
-    | Node (True, []) -> `Tru
-    | Node (False, []) -> `Fls
-    | Node (And, [phi; psi]) -> `Binop (`And, phi, psi)
-    | Node (Or, [phi; psi]) -> `Binop (`Or, phi, psi)
-    | Node (Not, [phi]) -> `Not phi
-    | Node (Exists (name, typ), [phi]) -> `Quantify (`Exists, name, typ, phi)
-    | Node (Forall (name, typ), [phi]) -> `Quantify (`Forall, name, typ, phi)
-    | Node (Eq, [s; t]) -> `Atom (`Eq, s, t)
-    | Node (Leq, [s; t]) -> `Atom (`Leq, s, t)
-    | Node (Lt, [s; t]) -> `Atom (`Lt, s, t)
-    | _ -> invalid_arg "destruct: not a formula"
-
-  let rec eval alg phi = match destruct phi with
-    | `Tru -> alg `Tru
-    | `Fls -> alg `Fls
-    | `Binop (op, phi, psi) -> alg (`Binop (op, eval alg phi, eval alg psi))
-    | `Or (phi, psi) -> alg (`Binop (`Or, eval alg phi, eval alg psi))
-    | `Quantify (qt, name, typ, phi) ->
-      alg (`Quantify (qt, name, typ, eval alg phi))
-    | `Not phi -> alg (`Not (eval alg phi))
-    | `Atom (op, s, t) -> alg (`Atom (op, s, t))
-
-  let rec flatten_universal phi = match phi.node with
-    | Node (Forall (name, typ), [phi]) ->
-      let (varinfo, phi') = flatten_universal phi in
-      ((name,typ)::varinfo, phi')
-    | _ -> ([], phi)
-
-  let rec flatten_existential phi = match phi.node with
-    | Node (Exists (name, typ), [phi]) ->
-      let (varinfo, phi') = flatten_existential phi in
-      ((name,typ)::varinfo, phi')
-    | _ -> ([], phi)
-
-  let destruct_flat phi = match phi.node with
-    | Node (True, []) -> `Tru
-    | Node (False, []) -> `Fls
-    | Node (And, [phi; psi]) ->
-      `And ((flatten_expr And phi)@(flatten_expr And psi))
-    | Node (Or, [phi; psi]) ->
-      `Or ((flatten_expr Or phi)@(flatten_expr Or psi))
-    | Node (Not, [phi]) -> `Not phi
-    | Node (Exists (name, typ), [phi]) ->
-      let varinfo, phi' = flatten_existential phi in
-      `Quantify (`Exists, (name,typ)::varinfo, phi')
-    | Node (Forall (name, typ), [phi]) ->
-      let varinfo, phi' = flatten_universal phi in
-      `Quantify (`Forall, (name, typ)::varinfo, phi')
-    | Node (Eq, [s; t]) -> `Atom (`Eq, s, t)
-    | Node (Leq, [s; t]) -> `Atom (`Leq, s, t)
-    | Node (Lt, [s; t]) -> `Atom (`Lt, s, t)
-    | _ -> invalid_arg "destruct: not a formula"
-
-  let rec format ?env:(env=Env.empty) ctx formatter phi =
-    let open Format in
-    match destruct_flat phi with
-    | `Tru -> pp_print_string formatter "true"
-    | `Fls -> pp_print_string formatter "false"
-    | `Not phi ->
-      fprintf formatter "!(@[%a@])" (format ctx ~env:env) phi
-    | `And conjuncts ->
-      fprintf formatter "(@[";
-      ApakEnum.pp_print_enum
-        ~pp_sep:(fun formatter () -> fprintf formatter "@ /\\ ")
-        (format ctx ~env:env)
-        formatter
-        (BatList.enum conjuncts);
-      fprintf formatter "@])"
-    | `Or conjuncts ->
-      fprintf formatter "(@[";
-      ApakEnum.pp_print_enum
-        ~pp_sep:(fun formatter () -> fprintf formatter "@ \\/ ")
-        (format ctx ~env:env)
-        formatter
-        (BatList.enum conjuncts);
-      fprintf formatter "@])"
-    | `Atom (op, x, y) ->
-      let op_string = match op with
-        | `Eq -> "="
-        | `Leq -> "<="
-        | `Lt -> "<"
-      in
-      fprintf formatter "@[%a %s %a@]"
-        (Term.format ctx ~env:env) x
-        op_string
-        (Term.format ctx ~env:env) y        
-    | `Quantify (qt, varinfo, psi) ->
-      let env =
-        List.fold_right
-          (fun (name, typ) env -> Env.push name env)
-          varinfo
-          env
-      in
-      let quantifier_name =
-        match qt with
-        | `Exists -> "exists"
-        | `Forall -> "forall"
-      in
-      fprintf formatter "(@[%s@ " quantifier_name;
-      ApakEnum.pp_print_enum
-        ~pp_sep:pp_print_space
-        (fun formatter (name, typ) ->
-           fprintf formatter "(%s : %s)" name (Show.show<typ> typ))
-        formatter
-        (BatList.enum varinfo);
-      fprintf formatter ".@ %a@])" (format ~env:env ctx) psi
-
-  let show ctx ?env:(env=Env.empty) t =
-    Apak.Putil.pp_string (format ctx ~env:env) t
-
-  let mk_and ctx phi psi = hashcons ctx (Node (And, [phi; psi]))
-  let mk_or ctx phi psi = hashcons ctx (Node (Or, [phi; psi]))
-  let mk_not ctx phi = hashcons ctx (Node (Not, [phi]))
-  let mk_true ctx = hashcons ctx (Node (True, []))
-  let mk_false ctx = hashcons ctx (Node (False, []))
-  let mk_leq ctx s t = hashcons ctx (Node (Leq, [s; t]))
-  let mk_lt ctx s t = hashcons ctx (Node (Lt, [s; t]))
-  let mk_eq ctx s t = hashcons ctx (Node (Eq, [s; t]))
-  let mk_forall ctx ?name:(name="_") typ phi =
-    hashcons ctx (Node (Forall (name, typ), [phi]))
-  let mk_exists ctx ?name:(name="_") typ phi =
-    hashcons ctx (Node (Exists (name, typ), [phi]))
-
-  let mk_conjunction ctx conjuncts =
-    if BatEnum.is_empty conjuncts then
-      mk_true ctx
-    else
-      BatEnum.reduce (mk_and ctx) conjuncts
-
-  let mk_disjunction ctx disjuncts =
-    if BatEnum.is_empty disjuncts then
-      mk_false ctx
-    else
-      BatEnum.reduce (mk_or ctx) disjuncts
-
-  let mk_iff ctx phi psi =
-    mk_or ctx
-      (mk_and ctx phi psi)
-      (mk_and ctx (mk_not ctx phi) (mk_not ctx psi))
-
-  let existential_closure ctx phi =
-    let vars = vars phi in
-    let types = Array.make (Var.Set.cardinal vars) TyInt in
-    let rename =
-      let n = ref (-1) in
-      let map =
-        Var.Set.fold (fun (v, typ) m ->
-            incr n;
-            types.(!n) <- typ;
-            Apak.Putil.PInt.Map.add v (Term.mk_var ctx (!n) typ) m
-          )
-          vars
-          Apak.Putil.PInt.Map.empty
-      in
-      fun v -> Apak.Putil.PInt.Map.find v map
-    in
-    Array.fold_left
-      (fun psi typ -> mk_exists ctx typ psi)
-      (substitute ctx rename phi)
-      types
+module type EvalContext = sig
+  type term
+  type formula
+  module Formula : sig
+    type t = formula
+    val eval : (('a, term) open_formula -> 'a) -> t -> 'a    
+  end
+  module Term : sig
+    type t = term
+    val eval : ('a open_term -> 'a) -> t -> 'a
+  end
 end
 
-module ImplicitContext(C : sig
-    type t
-    val context : t context
-  end) =
+module MakeTranslator (Source : EvalContext) (Target : BuilderContext) = struct
+  let term term =
+    let alg = function
+      | `Real qq -> Target.mk_real qq
+      | `Const sym -> Target.mk_const sym
+      | `Var (i, typ) -> Target.mk_var i typ
+      | `Add sum -> Target.mk_add sum
+      | `Mul product -> Target.mk_mul product
+      | `Binop (`Div, s, t) -> Target.mk_div s t
+      | `Binop (`Mod, s, t) -> Target.mk_mod s t
+      | `Unop (`Floor, t) -> Target.mk_floor t
+      | `Unop (`Neg, t) -> Target.mk_neg t
+    in
+    Source.Term.eval alg term
+  let formula phi =
+    let alg = function
+      | `Tru -> Target.mk_and []
+      | `Fls -> Target.mk_or []
+      | `And conjuncts -> Target.mk_and conjuncts
+      | `Or disjuncts -> Target.mk_or disjuncts
+      | `Not phi -> Target.mk_not phi
+      | `Quantify (`Exists, name, typ, phi) ->
+        Target.mk_exists ~name:name typ phi
+      | `Quantify (`Forall, name, typ, phi) ->
+        Target.mk_forall ~name:name typ phi
+      | `Atom (`Eq, s, t) -> Target.mk_eq (term s) (term t)
+      | `Atom (`Leq, s, t) -> Target.mk_leq (term s) (term t)
+      | `Atom (`Lt, s, t) -> Target.mk_lt (term s) (term t)
+    in
+    Source.Formula.eval alg phi
+end
+
+module Infix (C : BuilderContext) =
 struct
-  let ( ! ) = Formula.mk_not C.context
-  let ( && ) = Formula.mk_and C.context
-  let ( || ) = Formula.mk_or C.context
-  let ( < ) = Formula.mk_lt C.context
-  let ( <= ) = Formula.mk_leq C.context
-  let ( = ) = Formula.mk_eq C.context
-  let tru = Formula.mk_true C.context
-  let fls = Formula.mk_false C.context
+  let ( ! ) = C.mk_not
+  let ( && ) x y = C.mk_and [x; y]
+  let ( || ) x y = C.mk_or [x; y]
+  let ( < ) = C.mk_lt
+  let ( <= ) = C.mk_leq
+  let ( = ) = C.mk_eq
+  let tru = C.mk_and []
+  let fls = C.mk_or []
       
-  let ( + ) = Term.mk_add C.context
-  let ( - ) = Term.mk_sub C.context
-  let ( * ) = Term.mk_mul C.context
-  let ( / ) = Term.mk_div C.context
-  let ( mod ) = Term.mk_mod C.context
+  let ( + ) x y = C.mk_add [x; y]
+  let ( - ) x y = C.mk_add [x; C.mk_neg y]
+  let ( * ) x y = C.mk_mul [x; y]
+  let ( / ) = C.mk_div
+  let ( mod ) = C.mk_mod
 
-  let const = Term.mk_const C.context
-  let forall = Formula.mk_forall C.context
-  let exists = Formula.mk_exists C.context
-  let var = Term.mk_var C.context
+  let const = C.mk_const
+  let forall = C.mk_forall
+  let exists = C.mk_exists
+  let var = C.mk_var
 end
