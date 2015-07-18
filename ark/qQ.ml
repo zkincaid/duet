@@ -3,20 +3,10 @@ type t = Mpqf.t
 
 let opt_default_accuracy = ref (-1)
 
-include Putil.MakeFmt(struct
-    type a = t
-    let format = Mpqf.print
-  end)
+let pp = Mpqf.print
+let show = Putil.mk_show pp
 
-module Compare_t = struct
-  type a = t
-  let compare = Mpqf.cmp
-end
-
-let show = Show_t.show
-let format = Show_t.format
-
-let compare = Compare_t.compare
+let compare = Mpqf.cmp
 let equal = Mpqf.equal
 let leq x y = compare x y <= 0
 let lt x y = compare x y < 0

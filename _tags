@@ -1,5 +1,5 @@
 # OASIS_START
-# DO NOT EDIT (digest: 09ca1f027879ec926b3168d57e25a2ee)
+# DO NOT EDIT (digest: 411067c07645234565c605f6f6e2b164)
 # Ignore VCS directories, you can use the same kind of rule outside
 # OASIS_START/STOP if you want to exclude directories that contains
 # useless stuff for the build process
@@ -38,15 +38,17 @@ true: annot, bin_annot
 "apak/putil.cmx": for-pack(Apak)
 # Executable test_apak
 "apak/test_apak.byte": pkg_batteries
-"apak/test_apak.byte": pkg_deriving
-"apak/test_apak.byte": pkg_deriving.syntax
 "apak/test_apak.byte": pkg_oUnit
 "apak/test_apak.byte": pkg_ocamlgraph
+"apak/test_apak.byte": pkg_ppx_deriving
+"apak/test_apak.byte": pkg_ppx_deriving.ord
+"apak/test_apak.byte": pkg_ppx_deriving.show
 <apak/*.ml{,i,y}>: pkg_batteries
-<apak/*.ml{,i,y}>: pkg_deriving
-<apak/*.ml{,i,y}>: pkg_deriving.syntax
 <apak/*.ml{,i,y}>: pkg_oUnit
 <apak/*.ml{,i,y}>: pkg_ocamlgraph
+<apak/*.ml{,i,y}>: pkg_ppx_deriving
+<apak/*.ml{,i,y}>: pkg_ppx_deriving.ord
+<apak/*.ml{,i,y}>: pkg_ppx_deriving.show
 # Library ark
 "ark/ark.cmxs": use_ark
 "ark/hset.cmx": for-pack(Ark)
@@ -64,11 +66,12 @@ true: annot, bin_annot
 "ark/test_ark.native": pkg_apron.polkaMPQ
 "ark/test_ark.native": pkg_batteries
 "ark/test_ark.native": pkg_camlidl
-"ark/test_ark.native": pkg_deriving
-"ark/test_ark.native": pkg_deriving.syntax
 "ark/test_ark.native": pkg_gmp
 "ark/test_ark.native": pkg_oUnit
 "ark/test_ark.native": pkg_ocamlgraph
+"ark/test_ark.native": pkg_ppx_deriving
+"ark/test_ark.native": pkg_ppx_deriving.ord
+"ark/test_ark.native": pkg_ppx_deriving.show
 "ark/test_ark.native": use_apak
 <ark/*.ml{,i,y}>: pkg_Z3
 <ark/*.ml{,i,y}>: pkg_apron
@@ -77,11 +80,12 @@ true: annot, bin_annot
 <ark/*.ml{,i,y}>: pkg_apron.polkaMPQ
 <ark/*.ml{,i,y}>: pkg_batteries
 <ark/*.ml{,i,y}>: pkg_camlidl
-<ark/*.ml{,i,y}>: pkg_deriving
-<ark/*.ml{,i,y}>: pkg_deriving.syntax
 <ark/*.ml{,i,y}>: pkg_gmp
 <ark/*.ml{,i,y}>: pkg_oUnit
 <ark/*.ml{,i,y}>: pkg_ocamlgraph
+<ark/*.ml{,i,y}>: pkg_ppx_deriving
+<ark/*.ml{,i,y}>: pkg_ppx_deriving.ord
+<ark/*.ml{,i,y}>: pkg_ppx_deriving.show
 <ark/*.ml{,i,y}>: use_apak
 # Executable duet
 "duet/src/duet.native": pkg_Z3
@@ -92,10 +96,12 @@ true: annot, bin_annot
 "duet/src/duet.native": pkg_batteries
 "duet/src/duet.native": pkg_camlidl
 "duet/src/duet.native": pkg_cil
-"duet/src/duet.native": pkg_deriving
-"duet/src/duet.native": pkg_deriving.syntax
+"duet/src/duet.native": pkg_cil.default-features
 "duet/src/duet.native": pkg_gmp
 "duet/src/duet.native": pkg_ocamlgraph
+"duet/src/duet.native": pkg_ppx_deriving
+"duet/src/duet.native": pkg_ppx_deriving.ord
+"duet/src/duet.native": pkg_ppx_deriving.show
 "duet/src/duet.native": use_apak
 "duet/src/duet.native": use_ark
 <duet/src/*.ml{,i,y}>: pkg_Z3
@@ -106,10 +112,12 @@ true: annot, bin_annot
 <duet/src/*.ml{,i,y}>: pkg_batteries
 <duet/src/*.ml{,i,y}>: pkg_camlidl
 <duet/src/*.ml{,i,y}>: pkg_cil
-<duet/src/*.ml{,i,y}>: pkg_deriving
-<duet/src/*.ml{,i,y}>: pkg_deriving.syntax
+<duet/src/*.ml{,i,y}>: pkg_cil.default-features
 <duet/src/*.ml{,i,y}>: pkg_gmp
 <duet/src/*.ml{,i,y}>: pkg_ocamlgraph
+<duet/src/*.ml{,i,y}>: pkg_ppx_deriving
+<duet/src/*.ml{,i,y}>: pkg_ppx_deriving.ord
+<duet/src/*.ml{,i,y}>: pkg_ppx_deriving.show
 <duet/src/*.ml{,i,y}>: use_apak
 <duet/src/*.ml{,i,y}>: use_ark
 # OASIS_STOP

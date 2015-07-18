@@ -83,19 +83,19 @@ let regex_add x y = match x, y with
   | (Empty, x) | (x, Empty)     -> x
   | (x, y)                      -> if x = y then x else Union (x,y)
 
-let rec format_regex pp_alpha formatter = function
+let rec pp_regex pp_alpha formatter = function
   | Alpha x -> pp_alpha formatter x
   | Cat (x, y) ->
     Format.fprintf formatter "(%a@,%a)"
-      (format_regex pp_alpha) x
-      (format_regex pp_alpha) y
+      (pp_regex pp_alpha) x
+      (pp_regex pp_alpha) y
   | Union (x, y) ->
     Format.fprintf formatter "(%a@,+%a)"
-      (format_regex pp_alpha) x
-      (format_regex pp_alpha) y
+      (pp_regex pp_alpha) x
+      (pp_regex pp_alpha) y
   | Star x ->
     Format.fprintf formatter "@[(%a)*@]"
-      (format_regex pp_alpha) x
+      (pp_regex pp_alpha) x
   | Empty -> Format.pp_print_string formatter "{}"
   | Epsilon -> Format.pp_print_string formatter "@"
 
@@ -104,12 +104,7 @@ let rec format_regex pp_alpha formatter = function
     ([regex_star], [regex_mul], [regex_add]), but specialized to [M.t] *)
 module MakeKA (M : Putil.S) =
 struct
-  type t = M.t regex
-
-  include Putil.MakeFmt(struct
-      type a = t
-      let format = format_regex M.format
-    end)
+  type t = M.t regex [@@deriving show]
 
   let star = regex_star
   let mul = regex_mul
@@ -138,6 +133,9 @@ struct
       | NStar of t
       | NAlpha of M.t
       | NComplement of t
+    val pp : Format.formatter -> t -> unit
+    val show : t -> string
+    val compare : t -> t -> int
     include Putil.Ordered with type t := t
   end = struct
     type t =
@@ -146,50 +144,42 @@ struct
       | NStar of t
       | NAlpha of M.t
       | NComplement of t
-            deriving (Compare)
-    let compare = Compare_t.compare
-    include Putil.MakeFmt(struct
-        type a = t
-        let rec format formatter = function
-          | NAlpha a -> M.format formatter a
-          | NStar (NAlpha a) ->
-            M.format formatter a;
-            Format.pp_print_string formatter "*"
-          | NStar x ->
-            Format.fprintf formatter "@[(%a)*@]" format x
-          | NCat [] -> Format.pp_print_string formatter "@"
-          | NCat xs ->
-            let pp_elt formatter x = match x with
-              | NUnion _ ->
-                Format.fprintf formatter "@[(%a)@]" format x
-              | _ -> format formatter x
-            in
-            ApakEnum.pp_print_enum
-              ~pp_sep:(fun _ () -> ())
-              pp_elt
-              formatter
-              (BatList.enum xs)
-          | NUnion xs ->
-            if NSet.is_empty xs then Format.pp_print_string formatter "{}"
-            else
-            ApakEnum.pp_print_enum
-              ~pp_sep:(fun formatter () -> Format.fprintf formatter "@,+" )
-              format
-              formatter
-              (NSet.enum xs)
-          | NComplement x ->
-            Format.fprintf formatter "@[~(%a)@]" format x
-      end)
+            [@@deriving ord]
+
+    let rec pp formatter = function
+      | NAlpha a -> M.pp formatter a
+      | NStar (NAlpha a) ->
+        M.pp formatter a;
+        Format.pp_print_string formatter "*"
+      | NStar x ->
+        Format.fprintf formatter "@[(%a)*@]" pp x
+      | NCat [] -> Format.pp_print_string formatter "@"
+      | NCat xs ->
+        let pp_elt formatter x = match x with
+          | NUnion _ ->
+            Format.fprintf formatter "@[(%a)@]" pp x
+          | _ -> pp formatter x
+        in
+        ApakEnum.pp_print_enum
+          ~pp_sep:(fun _ () -> ())
+          pp_elt
+          formatter
+          (BatList.enum xs)
+      | NUnion xs ->
+        if NSet.is_empty xs then Format.pp_print_string formatter "{}"
+        else
+          ApakEnum.pp_print_enum
+            ~pp_sep:(fun formatter () -> Format.fprintf formatter "@,+" )
+            pp
+            formatter
+            (NSet.enum xs)
+      | NComplement x ->
+        Format.fprintf formatter "@[~(%a)@]" pp x
+    let show = Putil.mk_show pp
   end
   and NSet : Putil.Set.S with type elt = N.t = Putil.Set.Make(N)
 
-  type t = N.t
-  open N
-  module Show_t = N.Show_t
-  let format = Show_t.format
-  let show = Show_t.show
-  module Compare_t = N.Compare_t
-  let compare = N.compare
+  include N
 
   let equal x y = compare x y = 0
 
@@ -286,8 +276,7 @@ struct
 
   module StateSet = Set.Make(
     struct
-      type t = N.t * N.t deriving (Compare)
-      let compare = Compare_t.compare
+      type t = N.t * N.t [@@deriving ord]
     end)
 
   (* state pairs along with heuristic distance estimates *)

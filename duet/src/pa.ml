@@ -10,29 +10,24 @@ type membase =
   | MAlloc of def
   | MTmp of int (** Temporary memory location - does not correspond to anything
                     in the program *)
-        deriving (Compare)
+        [@@deriving ord]
 
 (** A memory location consists of a base and an offset.  The location of
     (base,offset) is base+offset if offset is fixed, and some nondeterministic
     location *within the chunk of memory allocated at base* if offset is
     OffsetUnknown. *)
-type memloc = membase * offset
-                deriving (Compare)
+type memloc = membase * offset [@@deriving ord]
 
 let undefined = Varinfo.mk_global "undefined" (Concrete Void)
 
 module MemBase = struct
   module Elt = struct
-    type t = membase deriving (Compare)
-    include Putil.MakeFmt(struct
-        type a = t
-        let format formatter = function
-          | MAddr x -> Format.fprintf formatter "&%a" Varinfo.format x
-          | MAlloc x -> Format.fprintf formatter "alloc#%d" x.did
-          | MStr x -> Format.pp_print_string formatter ("string#" ^ x)
-          | MTmp x -> Format.fprintf formatter "tmp#%d" x
-      end)
-    let compare = Compare_t.compare
+    type t = membase [@@deriving ord]
+    let pp formatter = function
+      | MAddr x -> Format.fprintf formatter "&%a" Varinfo.pp x
+      | MAlloc x -> Format.fprintf formatter "alloc#%d" x.did
+      | MStr x -> Format.pp_print_string formatter ("string#" ^ x)
+      | MTmp x -> Format.fprintf formatter "tmp#%d" x
     let equal x y = compare x y = 0
     let hash = function
       | MAddr x -> Hashtbl.hash (0, Varinfo.hash x)
@@ -54,18 +49,14 @@ end
 
 module MemLoc = struct
   module Elt = struct
-    type t = memloc deriving (Compare)
-    include Putil.MakeFmt(struct
-        type a = t
-        let format formatter (base, offset) = match offset with
-          | OffsetFixed 0 -> MemBase.format formatter base
-          | _ ->
-            Format.fprintf formatter "%a.%a"
-              MemBase.format base
-              Offset.format offset
-      end)
+    type t = memloc [@@deriving ord]
+    let pp formatter (base, offset) = match offset with
+      | OffsetFixed 0 -> MemBase.pp formatter base
+      | _ ->
+        Format.fprintf formatter "%a.%a"
+          MemBase.pp base
+          Offset.pp offset
     let hash (base, offset) = Hashtbl.hash (MemBase.hash base, offset)
-    let compare = Compare_t.compare
     let equal x y = compare x y = 0
   end
   include Putil.MakeCoreType(Elt)
@@ -137,21 +128,17 @@ end
 type simple_ap =
   | Lvl0 of Var.t
   | Lvl1 of Var.t * offset
-              deriving (Compare)
+              [@@deriving ord]
 
 module SimpleAP = struct
   module Elt = struct
-    type t = simple_ap deriving (Compare)
-    include Putil.MakeFmt(struct
-        type a = t
-        let format formatter = function
-          | Lvl0 v -> Var.format formatter v
-          | Lvl1 (v, offset) ->
-            Format.fprintf formatter "*(%a)->%a"
-              Var.format v
-              Offset.format offset
-      end)
-    let compare = Compare_t.compare
+    type t = simple_ap [@@deriving ord]
+    let pp formatter = function
+      | Lvl0 v -> Var.pp formatter v
+      | Lvl1 (v, offset) ->
+        Format.fprintf formatter "*(%a)->%a"
+          Var.pp v
+          Offset.pp offset
   end
   include Elt
   module Set = Putil.Set.Make(Elt)
@@ -165,30 +152,26 @@ type rhsbase =
   | RAp of simple_ap
   | RAddr of varinfo
   | RStr of string
-        deriving (Compare)
-type simple_rhs = rhsbase * offset deriving (Compare)
+        [@@deriving ord]
+type simple_rhs = rhsbase * offset [@@deriving ord]
 
 module SimpleRhs = struct
   module Elt = struct
-    type t = simple_rhs deriving (Compare)
-    include Putil.MakeFmt(struct
-        type a = t
-        let format formatter (base, offset) =
-          begin match base with
-            | RAp ap -> SimpleAP.format formatter ap
-            | RAddr var -> Format.fprintf formatter "&(%a)" Varinfo.format var
-            | RStr string ->
-              Format.pp_print_string formatter
-                ("\"" ^ (String.escaped string) ^ "\"")
-          end;
-          begin match offset with
-            | OffsetFixed 0 -> ()
-            | _ ->
-              Format.pp_print_string formatter "+";
-              Offset.format formatter offset
-          end
-      end)
-    let compare = Compare_t.compare
+    type t = simple_rhs [@@deriving ord]
+    let pp formatter (base, offset) =
+      begin match base with
+        | RAp ap -> SimpleAP.pp formatter ap
+        | RAddr var -> Format.fprintf formatter "&(%a)" Varinfo.pp var
+        | RStr string ->
+          Format.pp_print_string formatter
+            ("\"" ^ (String.escaped string) ^ "\"")
+      end;
+      begin match offset with
+        | OffsetFixed 0 -> ()
+        | _ ->
+          Format.pp_print_string formatter "+";
+          Offset.pp formatter offset
+      end
   end
   include Elt
   module Set = Putil.Set.Make(Elt)
@@ -260,7 +243,7 @@ class virtual ptr_anal file =
         | AddrOf x -> self#expr_points_to expr
         | AccessPath (Variable _) -> self#expr_points_to expr
         | expr -> begin
-            Log.errorf "Could not resolve call `%a'" Expr.format expr;
+            Log.errorf "Could not resolve call `%a'" Expr.pp expr;
             assert false
           end
       in
@@ -285,8 +268,8 @@ class virtual ptr_anal file =
       try
         SimpleAP.Set.fold add (simplify_ap ap) MemLoc.Set.empty
       with Higher_ap simple_rhs -> begin
-          Log.errorf "Can't resolve access path (Higher-level AP: `%a')" AP.format ap;
-          Log.errorf "Higher-level AP: `%a'" SimpleRhs.format simple_rhs;
+          Log.errorf "Can't resolve access path (Higher-level AP: `%a')" AP.pp ap;
+          Log.errorf "Higher-level AP: `%a'" SimpleRhs.pp simple_rhs;
           assert false
         end
 
@@ -385,6 +368,7 @@ let simplify_calls file =
           match tmp with
           | Call _           -> Def.mk ~loc:loc (Call etc)
           | Builtin (Fork _) -> Def.mk ~loc:loc (Builtin (Fork etc))
+          | _ -> assert false
         in
         Cfg.add_vertex cfg call;
         Cfg.add_edge cfg def call;
@@ -396,7 +380,7 @@ let simplify_calls file =
       if (Varinfo.Set.cardinal targets < 1)
       then begin
         Log.errorf "WARNING: No targets for call to `%a' on line %d"
-          Expr.format func
+          Expr.pp func
           (Def.get_location def).Cil.line;
         add_call undefined
       end;

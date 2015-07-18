@@ -73,9 +73,9 @@ module Make (G : Graph.Sig.G) = struct
        sdom(u) is minimal among vertices u satisfying sdom(w) ->+ u ->* w.
        During dominator tree construction, map each vertex to its immediate
        dominator. *)
-    let idom = Array.create size 0 in
+    let idom = Array.make size 0 in
 
-    let pred = Array.create size [] in (* predecessors in graph *)
+    let pred = Array.make size [] in (* predecessors in graph *)
     let add_pred v p = pred.(v) <- p::pred.(v) in
 
     (* Eval/link structure used for computing sdom and idom.  The link
@@ -143,7 +143,7 @@ module Make (G : Graph.Sig.G) = struct
          idom(w) = | sdom(w) if sdom(w) = sdom(u)
                    | idom(u) otherwise
     *)
-    (let bucket = Array.create size [] in
+    (let bucket = Array.make size [] in
      let add_to_bucket b v = bucket.(b) <- (v::bucket.(b)) in
 
      for w = (size - 1) downto 1 do

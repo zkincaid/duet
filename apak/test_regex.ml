@@ -70,19 +70,16 @@ let parse str =
   | None          -> None
 
 module NR = NormalizedRegex(struct
-    type t = char deriving (Show,Compare)
-    let format = Show_t.format
-    let show = Show_t.show
-    let compare = Pervasives.compare
+    type t = char [@@deriving show,ord]
     let consistent = (=)
   end)
 
 let intersects x y = NR.intersects (NR.normalize x) (NR.normalize y)
 
 let regex_string regex =
-  Putil.pp_string (format_regex Show.format<char>) regex
+  Putil.mk_show (pp_regex Format.pp_print_char) regex
 
-let norm_string regex = NR.show regex
+let norm_string = NR.show
 
 let must_parse x =
   match parse x with

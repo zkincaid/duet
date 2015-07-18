@@ -68,8 +68,8 @@ let inline_file file =
               with Not_found ->
                 if (top_order name tgt) <= 0
                 then Log.errorf "WARNING: Can't inline recursive call from %a to %a"
-                    Varinfo.format name
-                    Varinfo.format tgt
+                    Varinfo.pp name
+                    Varinfo.pp tgt
                 else
                   begin inline tgt;
                     expand_call func (Varinfo.HT.find ht tgt) def vo elst

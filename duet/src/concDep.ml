@@ -138,11 +138,7 @@ module Make(MakeEQ :
   module Tree = MakeFormula(TreeMinterm)
 
   module DefAP = struct
-    type t = Def.t * AP.t
-               deriving (Show, Compare)
-    let format = Show_t.format
-    let show = Show_t.show
-    let compare = Compare_t.compare
+    type t = Def.t * AP.t [@@deriving show,ord]
     let hash (def, ap) = Hashtbl.hash (Def.hash def, AP.hash ap)
     let equal x y = compare x y = 0
   end
@@ -153,10 +149,7 @@ module Make(MakeEQ :
   module EUMap = RDMap
 
   module DefAPPair = struct
-    type t = DefAP.t * DefAP.t deriving (Show, Compare)
-    let format = Show_t.format
-    let show = Show_t.show
-    let compare = Compare_t.compare
+    type t = DefAP.t * DefAP.t [@@deriving show,ord]
     let hash (x, y) = Hashtbl.hash (DefAP.hash x, DefAP.hash y)
     let equal x y = compare x y = 0
   end
@@ -473,11 +466,7 @@ module Make(MakeEQ :
                eu_tree_rd : TreeMap.t;
                eu_tree_t  : TreeMap.t;
                tree_c     : TreeMap.t }
-        deriving(Show,Compare)
-
-    let compare = Compare_t.compare
-    let format = Show_t.format
-    let show = Show_t.show
+        [@@deriving show,ord]
 
     let equal a b = compare a b = 0
 

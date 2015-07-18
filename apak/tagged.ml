@@ -413,17 +413,10 @@ module PTSet (T : Tagged) : Putil.Hashed.Set.S with type elt = T.t = struct
     let elt = min_elt s in
     (elt, remove elt s)
 
-  include Putil.MakeFmt(struct
-      type a = t
-      let format formatter set =
-        Format.fprintf formatter "{%a}"
-          (ApakEnum.pp_print_enum T.format)
-        (enum set)
-    end)
-  module Compare_t = struct
-    type a = t
-    let compare = compare
-  end
+  let pp formatter set =
+    Format.fprintf formatter "{%a}"
+      (ApakEnum.pp_print_enum T.pp)
+      (enum set)
 end
 
 module PTMap (T : Tagged) = struct
@@ -744,16 +737,16 @@ module PTMap (T : Tagged) = struct
     | Leaf (k, v) -> (k, v)
     | Branch (_, _, _, t) -> max_binding t
 
-  let format pp_val formatter map =
-    let pp formatter (key, value) =
+  let pp pp_val formatter map =
+    let pp_elt formatter (key, value) =
       Format.pp_open_box formatter 0;
-      T.format formatter key;
+      T.pp formatter key;
       Format.pp_print_string formatter " => ";
       pp_val formatter value;
       Format.pp_close_box formatter ();
     in
     Format.fprintf formatter "[%a]"
-      (ApakEnum.pp_print_enum pp)
+      (ApakEnum.pp_print_enum pp_elt)
       (enum map)
 end
 
@@ -762,10 +755,6 @@ module MakeCoreType (T : Tagged) : sig
   val tag : t -> int
 end = struct
   include T
-  module Compare_t = struct
-    type a = t
-    let compare x y = compare (tag x) (tag y)
-  end
   module Set = PTSet(T)
   module Map = PTMap(T)
   module HT = BatHashtbl.Make(struct
@@ -773,7 +762,8 @@ end = struct
       let hash x = Hashtbl.hash (tag x)
       let equal x y = (tag x) = (tag y)
     end)
-  let compare = Compare_t.compare
+  let show = Putil.mk_show pp
+  let compare x y = compare (tag x) (tag y)
   let hash x = Hashtbl.hash (tag x)
   let equal x y = (tag x) = (tag y)
 end

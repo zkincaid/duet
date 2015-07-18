@@ -5,11 +5,7 @@ end
 
 module ZPlus : Ordered.S with type t = int =
 struct
-  type t = int deriving (Show,Compare)
-
-  let format = Show_t.format
-  let show = Show_t.show
-  let compare = Compare_t.compare
+  type t = int [@@deriving show,ord]
 
   let mul x y = x + y
   let equal x y = (x = y)
@@ -23,12 +19,9 @@ module AddUnit (M : sig
   end) = struct
   type t = M.t option
 
-  include Putil.MakeFmt(struct
-      type a = t
-      let format formatter = function
-        | None -> Format.pp_print_string formatter "Unit"
-        | Some x -> M.format formatter x
-    end)
+  let pp formatter = function
+    | None -> Format.pp_print_string formatter "Unit"
+    | Some x -> M.pp formatter x
 
   let mul x y = match x, y with
     | (Some x, Some y) -> Some (M.mul x y)
@@ -70,11 +63,7 @@ module FunctionSpace = struct
     struct
       type dom = M.key
       type cod = Codomain.t
-      type t = cod M.t
-      include Putil.MakeFmt(struct
-          type a = t
-          let format formatter map = M.format Codomain.format formatter map
-        end)
+      type t = Codomain.t M.t [@@deriving show]
 
       let equal = M.equal Codomain.equal
       let unit = M.empty
@@ -134,18 +123,9 @@ module FunctionSpace = struct
       type dom = M.key
       type cod = Codomain.t
       type t =
-        { map : cod M.t;
+        { map : Codomain.t M.t;
           default : Codomain.t }
-
-      include Putil.MakeFmt(struct
-          type a = t
-          let format formatter f =
-            Format.fprintf formatter "@[{map: @[%a@]@ default: @[%a@]@]"
-              (M.format Codomain.format) f.map
-              Codomain.format f.default
-        end)
-      let format = Show_t.format
-      let show = Show_t.show
+          [@@deriving show]
 
       let equal f g =
         Codomain.equal f.default g.default

@@ -20,14 +20,12 @@ module PInt = Putil.PInt
 
 module IV = struct
   module I = struct
-    type t = Var.t * int deriving (Compare)
-    include Putil.MakeFmt(struct
-        type a = t
-        let format formatter (var, i) =
-          if Var.is_shared var then Var.format formatter var
-          else Format.fprintf formatter "%a[#%d]" Var.format var i
-      end)
-    let compare = Compare_t.compare
+    type t = Var.t * int [@@deriving ord]
+
+    let pp formatter (var, i) =
+      if Var.is_shared var then Var.pp formatter var
+      else Format.fprintf formatter "%a[#%d]" Var.pp var i
+
     let equal x y = compare x y = 0
     let hash (v, i) = Hashtbl.hash (Var.hash v, i)
   end
@@ -267,17 +265,15 @@ let construct ipa trace =
       let itp = match Ctx.interpolate_seq [a; b] with
         | `Unsat [itp] ->
           (Log.logf ~level:`trace "Found interpolant!@\n%a / %a: %a"
-             P.format a P.format b P.format itp;
+             P.pp a P.pp b P.pp itp;
            assert (Ctx.implies a itp);
            assert (Ctx.is_sat (Ctx.mk_and [itp; b]) = `Unsat);
            itp)
         | _ ->
-          (Log.errorf "Failed to interpolate! %a / %a"
-             P.format a P.format b;
-           assert false)
+          Log.fatalf "Failed to interpolate! %a / %a" P.pp a P.pp b
       in
       if P.compare (unsubscript post) (unsubscript itp) = 0 then begin
-        Log.logf "Skipping transition: [#%d] %a" i Def.format tr;
+        Log.logf "Skipping transition: [#%d] %a" i Def.pp tr;
         go itp rest
       end else begin
         BatEnum.iter (flip go rest) (P.conjuncts itp);
@@ -285,9 +281,9 @@ let construct ipa trace =
 
         Log.logf
           "Added PA transition:@\n @[%a@]@\n --( [#0] %a )-->@\n @[%a@]"
-          P.format lhs
-          Def.format tr
-          Show.format<PA.formula> rhs;
+          P.pp lhs
+          Def.pp tr
+          PA.pp_formula rhs;
         PA.add_transition ipa lhs tr rhs
       end
 
@@ -453,7 +449,7 @@ let verify file =
     | Some trace ->
       logf ~attributes:[`Bold] "@\nFound error trace (%d):" (!number_cex);
       List.iter (fun (def, id) ->
-          logf "  [#%d] %a" id Def.format def
+          logf "  [#%d] %a" id Def.pp def
         ) (List.rev trace);
       logf ""; (* newline *)
       let trace_formula =
@@ -468,7 +464,7 @@ let verify file =
           print_info ();
           logf ~level:`info ~attributes:[`Bold] "  Error trace:";
           List.iter (fun (def, id) ->
-              logf ~level:`info "    [#%d] %a" id Def.format def
+              logf ~level:`info "    [#%d] %a" id Def.pp def
             ) trace
         | `Unsat ->
           construct pf trace;
@@ -480,7 +476,7 @@ let verify file =
           print_info ();
           logf ~level:`info ~attributes:[`Bold] "  Could not verify trace:";
           List.iter (fun (def, id) ->
-              logf ~level:`info "    [#%d] %a" id Def.format def
+              logf ~level:`info "    [#%d] %a" id Def.pp def
             ) trace
       end
     | None ->

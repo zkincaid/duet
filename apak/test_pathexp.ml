@@ -4,23 +4,18 @@ open Regex
 
 module R = struct
   include Regex.NormalizedRegex(struct
-      type t = char deriving (Show,Compare)
-      let format = Show_t.format
-      let show = Show_t.show
-      let compare = Pervasives.compare
+      type t = char [@@deriving show,ord]
       let consistent = (=)
     end)
 end
 
 module V = struct
-  type t = int deriving (Compare)
+  type t = int [@@deriving ord]
   let equal = (=)
-  let compare = Pervasives.compare
   let hash x = x
 end
 module E = struct
-  type t = Putil.PChar.t option deriving (Compare, Show)
-  let compare = Compare_t.compare
+  type t = Putil.PChar.t option [@@deriving show,ord]
   let default = None
 end
 module G = struct

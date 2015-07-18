@@ -13,8 +13,7 @@ module Seq = struct
       | Call (None, AddrOf (Variable (func, OffsetFixed 0)), []) ->
         `Block func
       | Call (_, _, _) ->
-        Log.errorf "Unrecognized call: %a" format v;
-        assert false
+        Log.fatalf "Unrecognized call: %a" pp v
       | _ -> `Atom v
   end
   module RG = RecGraph.Make(V)(Varinfo)
@@ -31,13 +30,11 @@ module V = struct
     | Call (None, AddrOf (Variable (func, OffsetFixed 0)), []) ->
       `Block func
     | Call (_, _, _) ->
-      Log.errorf "Unrecognized call: %a" format v;
-      assert false
+      Log.fatalf "Unrecognized call: %a" pp v
     | Builtin (Fork (None, AddrOf (Variable (func, OffsetFixed 0)), [])) ->
       `ParBlock func
     | Builtin (Fork (_, _, _)) ->
-      Log.errorf "Unrecognized fork: %a" format v;
-      assert false
+      Log.fatalf "Unrecognized fork: %a" pp v;
     | _ -> `Atom v
 end
 module RG = RecGraph.Make(V)(Varinfo)
@@ -56,8 +53,7 @@ module SeqRG = struct
     | Call (None, AddrOf (Variable (func, OffsetFixed 0)), []) ->
       `Block func
     | Call (_, _, _) ->
-      Log.errorf "Unrecognized call: %a" Def.format v;
-      assert false
+      Log.fatalf "Unrecognized call: %a" Def.pp v
     | _ -> `Atom v
 end
 module MakePathExpr = Pathexp.MakeSeqRG(SeqRG)(Varinfo)

@@ -27,19 +27,6 @@ let level_of_string = function
   | lev ->
     Format.ksprintf invalid_arg "Unrecognized level: `%s'" lev
 
-let attr_code = function
-  | `Black -> "\x1b[30m"
-  | `Red -> "\x1b[31m"
-  | `Green -> "\x1b[32m"
-  | `Yellow -> "\x1b[33m"
-  | `Blue -> "\x1b[34m"
-  | `Magenta -> "\x1b[35m"
-  | `Cyan -> "\x1b[36m"
-  | `White -> "\x1b[37m"
-  | `Bold -> "\x1b[1m"
-  | `Underline -> "\x1b[4m"
-let reset_attributes = "\x1b[0m"
-
 let loggers = Hashtbl.create 32
 let set_verbosity_level name (value : level) =
   try (Hashtbl.find loggers name) := value
@@ -54,24 +41,43 @@ module Make(M : sig val name : string end) = struct
     Hashtbl.add loggers M.name my_verbosity_level
 
   let logf ?(level=`info) ?(attributes=[]) fmt =
+    let attr_code = function
+      | `Black -> format_of_string "\x1b[30m"
+      | `Red -> "\x1b[31m"
+      | `Green -> "\x1b[32m"
+      | `Yellow -> "\x1b[33m"
+      | `Blue -> "\x1b[34m"
+      | `Magenta -> "\x1b[35m"
+      | `Cyan -> "\x1b[36m"
+      | `White -> "\x1b[37m"
+      | `Bold -> "\x1b[1m"
+      | `Underline -> "\x1b[4m"
+    in
+    let format_of_attrs =
+      List.fold_left
+        (fun fmt attr -> fmt ^^ (format_of_string (attr_code attr)))
+        ""
+    in
     let (start, reset) =
-      Obj.magic
-        (if terminal_supports_colors && attributes != []
-         then (String.concat "" (List.map attr_code attributes), "\x1b[0m@\n@?")
-         else ("", "@\n@?"))
+      if terminal_supports_colors && attributes != [] then
+        (format_of_attrs attributes, format_of_string "\x1b[0m@\n@?")
+      else
+        ("", "@\n@?")
     in
     if level_leq (!verbosity_level) level
        || level_leq (!my_verbosity_level) level
     then
-      Format.printf (start ^^ fmt ^^ reset)
+      Format.fprintf Format.std_formatter (start ^^ fmt ^^ reset)
     else
       Format.ifprintf Format.std_formatter fmt
 
+
   let log ?(level=`info) ?(attributes=[]) str =
-    logf ~level:level ~attributes:attributes "%s" str
+    logf ~level ~attributes "%s" str
 
   let log_pp ?(level=`info) ?(attributes=[]) pp x =
-    logf ~level:level ~attributes:attributes "%a" pp x
+    logf ~level ~attributes "%a" pp x
+
 end
 
 include Make(struct let name = "default" end)
@@ -108,7 +114,14 @@ let errorf fmt =
 let error msg = errorf msg
 let error_pp pp x = errorf "%a" pp x
 
-let fatalf fmt = Format.kfprintf (fun _ -> exit (-1)) fmt
+let fatalf fmt =
+  let fmt =
+    if terminal_supports_colors
+    then ("\x1b[31;1m" ^^ fmt ^^ "\x1b[0m@\n@?")
+    else fmt
+  in
+  Format.kfprintf (fun _ -> exit (-1)) Format.err_formatter fmt
+
 let fatal msg = fatalf msg
 
 let invalid_argf fmt = Format.ksprintf invalid_arg fmt

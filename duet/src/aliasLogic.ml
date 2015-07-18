@@ -112,11 +112,8 @@ struct
      formulae equality logic formulae with a unary predicate symbol K which
      represents access paths that have been killed along a path.  *)
   module KillPred = struct
-    type t = AP.Set.t deriving (Show,Compare)
+    type t = AP.Set.t [@@deriving show,ord]
     type var = Var.t
-    let compare = Compare_t.compare
-    let format = Show_t.format
-    let show = Show_t.show
 
     let equal = AP.Set.equal
     let unit = AP.Set.empty
@@ -150,14 +147,12 @@ struct
                           between the definition point and the end of the
                           path *)
   }
-      deriving (Show,Compare)
+      [@@deriving show,ord]
 
   module RDPred = struct
-    type t = rd_pred deriving (Show,Compare)
+    type t = rd_pred [@@deriving show,ord]
     type var = Var.t
-    let format = Show_t.format
-    let show = Show_t.show
-    let compare = Compare_t.compare
+
     let equal x y = compare x y = 0
 
     let hash x =
@@ -205,10 +200,7 @@ struct
 
   module DefAP = struct
     type t = Def.t * AP.t
-               deriving (Show, Compare)
-    let format = Show_t.format
-    let show = Show_t.show
-    let compare = Compare_t.compare
+               [@@deriving show,ord]
     let hash (def, ap) = Hashtbl.hash (Def.hash def, AP.hash ap)
     let equal x y = compare x y = 0
   end
@@ -293,11 +285,7 @@ struct
 
 
   module MemTR = struct
-    type t = Pa.MemLoc.Set.t * RDTransition.t
-               deriving (Show,Compare)
-    let format = Show_t.format
-    let show = Show_t.show
-    let compare = Compare_t.compare
+    type t = Pa.MemLoc.Set.t * RDTransition.t [@@deriving show,ord]
   end
   module ReverseRDMap =
     Monoid.FunctionSpace.Total.Make
@@ -355,13 +343,10 @@ struct
   (* Abstract paths *)
   type abspath = { kill_tr : KillTransition.t;
                    kill_var : Var.Set.t option }
-      deriving (Show,Compare)
+      [@@deriving show,ord]
   module AbsPath = struct
-    type t = abspath deriving (Show,Compare)
+    type t = abspath [@@deriving show,ord]
     type var = Core.var
-    let compare = Compare_t.compare
-    let format = Show_t.format
-    let show = Show_t.show
     let equal x y = compare x y = 0
     let zero =
       { kill_tr = KillTransition.zero;
@@ -406,15 +391,11 @@ struct
   type rd = { reaching_defs : RDMap.t;
               reaching_lvl0 : VarRDMap.t;
               abspath : AbsPath.t }
-      deriving (Show,Compare)
+      [@@deriving show,ord]
 
   module RD = struct
-    type t = rd deriving (Show,Compare)
+    type t = rd [@@deriving show,ord]
     type var = Core.var
-
-    let format = Show_t.format
-    let show = Show_t.show
-    let compare = Compare_t.compare
 
     let get_frame x = AbsPath.get_frame x.abspath
 
@@ -563,11 +544,8 @@ struct
       { exposed_uses : EUMap.t;
         exposed_var_uses : VarEUMap.t;
         abspath : AbsPath.t }
-        deriving (Show, Compare)
+        [@@deriving show,ord]
     type var = Core.var
-    let compare = Compare_t.compare
-    let format = Show_t.format
-    let show = Show_t.show
     let equal x y = compare x y = 0
     let zero =
       { abspath = AbsPath.zero;
@@ -938,8 +916,8 @@ struct
     let dg = DG.create () in
     let add_edge def (def_ap, use_ap) use =
       Log.debugf "Add edge %a -> %a"
-        Def.format def
-        Def.format use;
+        Def.pp def
+        Def.pp use;
       DG.add_edge_e
         dg
         (DG.E.create
@@ -1020,8 +998,8 @@ struct
         BatEnum.iter add_mem_var_edges (RDMap.support reaching_defs)
       in
       Log.debug "-----   SMASH   -----";
-      Log.debug_pp RD.format left;
-      Log.debug_pp EU.format right;
+      Log.debug_pp RD.pp left;
+      Log.debug_pp EU.pp right;
       BatEnum.iter add_rd (RDMap.enum reaching_defs);
       BatEnum.iter add_rd_var (VarEUMap.enum exposed_lvl0);
       BatEnum.iter add_eu_var_def (EUMap.support exposed_uses);

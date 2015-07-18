@@ -12,7 +12,7 @@ module type Predicate = sig
   val hash : t -> int
   val equal : t -> t -> bool
   val compare : t -> t -> int
-  val format : Format.formatter -> t -> unit
+  val pp : Format.formatter -> t -> unit
 end
 
 module Make (A : Sigma) (P : Predicate) = struct
@@ -23,15 +23,7 @@ module Make (A : Sigma) (P : Predicate) = struct
       let hash (p, a) = Hashtbl.hash (P.hash p, A.hash a)
     end)
 
-  type predicate = P.t
-  module Show_predicate = Deriving_Show.Defaults(struct
-      type a = predicate
-      let format = P.format
-  end)
-  module Compare_predicate = Deriving_Compare.Defaults(struct
-      type a = predicate
-      let compare = P.compare
-  end)
+  type predicate = P.t [@@deriving show,ord]
 
   type formula =
     | And of formula * formula
@@ -41,10 +33,10 @@ module Make (A : Sigma) (P : Predicate) = struct
     | False
     | Eq of int * int
     | Neq of int * int
-               deriving (Show)
+               [@@deriving show]
 
   type atom = predicate * int list
-                deriving (Show,Compare)
+                [@@deriving show,ord]
 
   type t =
     { delta : formula HT.t;
@@ -57,11 +49,7 @@ module Make (A : Sigma) (P : Predicate) = struct
      it. *)
   module Config = struct
     module E = Putil.Set.Make(struct
-        type t = atom
-            deriving (Show, Compare)
-        let compare = Compare_t.compare
-        let format = Show_t.format
-        let show = Show_t.show
+        type t = atom [@@deriving show,ord]
       end)
     include E
 
@@ -90,11 +78,7 @@ module Make (A : Sigma) (P : Predicate) = struct
        that the signature of k' in C' is a subset of the signature of k in
        C. *)
     module Sig = Putil.Set.Make(struct
-        type t = predicate * int
-                   deriving (Show,Compare)
-        let compare = Compare_t.compare
-        let format = Show_t.format
-        let show = Show_t.show
+        type t = predicate * int [@@deriving show,ord]
       end)
 
     module KSet = Putil.Set.Make(Putil.PInt)
@@ -282,16 +266,13 @@ module Make (A : Sigma) (P : Predicate) = struct
       | Neq (s, t) -> if env.(s) = env.(t) then False else True
     in
     try eval (find_transition pa head alpha)
-    with Invalid_argument _ -> begin
-        Log.errorf "Invalid transition!";
-        Log.errorf "%a%a --([#%d] %a)--> %a"
-          P.format head
-          Show.format<int list> actuals
-          i
-          A.format alpha
-          Show.format<formula> (find_transition pa head alpha);
-        assert false
-      end
+    with Invalid_argument _ ->
+      Log.fatalf "Invalid transition!@\n%a%s --([#%d] %a)--> %a"
+        P.pp head
+        ([%derive.show: int list] actuals)
+        i
+        A.pp alpha
+        pp_formula (find_transition pa head alpha);
 
   type abs =
     { abs_delta : P.t * int list -> A.t * int -> formula;
@@ -343,7 +324,7 @@ module Make (A : Sigma) (P : Predicate) = struct
     let vertices rg = CHT.keys rg.successor
     let expand rg (pa : abs) config =
       logf ~level:`trace ~attributes:[`Blue;`Bold]
-        "Expanding vertex: %a" Config.format config;
+        "Expanding vertex: %a" Config.pp config;
       let used_constants = Config.constants config in
       let fresh =
         if Config.KSet.cardinal used_constants > 0
@@ -357,7 +338,7 @@ module Make (A : Sigma) (P : Predicate) = struct
           (Config.KSet.enum constants)
       in
       let label_succ (alpha, k) =
-        logf ~level:`trace " + Action: <%d, %a>" k A.format alpha;
+        logf ~level:`trace " + Action: <%d, %a>" k A.pp alpha;
         let succs = abs_next pa config (alpha, k) in
         begin
           try
@@ -370,9 +351,9 @@ module Make (A : Sigma) (P : Predicate) = struct
 
         let add_succ succ =
           if CHT.mem rg.parent succ || CHT.mem rg.successor succ
-          then logf ~level:`trace "   - Skipped vertex: %a" Config.format succ
+          then logf ~level:`trace "   - Skipped vertex: %a" Config.pp succ
           else begin
-            logf ~level:`trace "   - Added successor: %a" Config.format succ;
+            logf ~level:`trace "   - Added successor: %a" Config.pp succ;
             CHT.add rg.parent succ (alpha, k, config);
             if abs_accept pa succ then raise (Accepting succ);
             rg.worklist <- succ::rg.worklist
@@ -387,8 +368,8 @@ module Make (A : Sigma) (P : Predicate) = struct
         let cover = BatEnum.find (flip Config.covers config) (vertices rg) in
         CHT.add rg.cover config cover;
         logf ~level:`trace ~attributes:[`Green;`Bold] "Covered vertex: %a"
-          Config.format config;
-        logf ~level:`trace " by %a" Config.format cover;
+          Config.pp config;
+        logf ~level:`trace " by %a" Config.pp cover;
         true
       with Not_found -> false
          | _ -> assert false

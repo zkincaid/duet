@@ -66,15 +66,12 @@ module Pack : sig
   val mk_pair : AP.t -> AP.t -> pair
 end = struct
   include AP
-  type pair = t * t deriving (Show,Compare)
+  type pair = t * t [@@deriving show,ord]
   module SetMap = BatMap.Make(Set)
   module PowerSet = Putil.Set.Make(Set)
   module PairSet = Putil.Set.Make(
     struct
-      type t = pair deriving (Show,Compare)
-      let format = Show_t.format
-      let show = Show_t.show
-      let compare = Compare_t.compare
+      type t = pair [@@deriving show,ord]
     end)
   let fst (x,_) = x
   let snd (_,y) = y
@@ -154,11 +151,7 @@ end = struct
 
   let minimize g =
     let module AbsEdge = struct
-      type t = Def.t * Pack.PairSet.t
-                 deriving (Show,Compare)
-      let format = Show_t.format
-      let show = Show_t.show
-      let compare = Compare_t.compare
+      type t = Def.t * Pack.PairSet.t [@@deriving show,ord]
     end in
     let module Key = Putil.Set.Make(AbsEdge) in
     let module M = Map.Make(Key) in
@@ -238,23 +231,21 @@ end = struct
       | Initial -> () (* Initial vertex is always well-formed *)
       | _ ->
         if not (AP.Set.subset (Def.get_uses v) (domain afg v)) then begin
-          Log.errorf
+          Log.fatalf
             "Missing inputs for `%a':@\nexpected %a@\ngot %a"
-            Def.format v
-            AP.Set.format (Def.get_uses v)
-            AP.Set.format (domain afg v);
-          assert false
+            Def.pp v
+            AP.Set.pp (Def.get_uses v)
+            AP.Set.pp (domain afg v);
         end;
         if not (AP.Set.subset
                   (codomain afg v)
                   ((AP.Set.union (domain afg v)) (Def.get_defs v)))
         then begin
-          Log.errorf
+          Log.fatalf
             "Extra outputs for `%a':@\nexpected %a@\ngot %a"
-            Def.format v
-            AP.Set.format (AP.Set.union (domain afg v) (Def.get_defs v))
-            AP.Set.format (codomain afg v);
-          assert false
+            Def.pp v
+            AP.Set.pp (AP.Set.union (domain afg v) (Def.get_defs v))
+            AP.Set.pp (codomain afg v);
         end
     in
     iter_vertex check_vertex afg;

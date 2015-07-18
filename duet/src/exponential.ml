@@ -7,10 +7,7 @@ open Apak
 
 (* Set of predicates *)
 module Pred = struct
-  type t = bexpr deriving (Show,Compare)
-  let format = Show_t.format
-  let show = Show_t.show
-  let compare = Compare_t.compare
+  type t = bexpr [@@deriving show,ord]
 end
 module PSet = Putil.Set.Make(Pred)
 

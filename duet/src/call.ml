@@ -54,9 +54,8 @@ let build_callgraph file =
   cg
 
 module DefLabel = struct
-  type t = def option deriving (Compare)
+  type t = def option [@@deriving ord]
   let default = None
-  let compare = Compare_t.compare
 end
 
 (** Thread creation graph.  Currently intraprocedural. *)
@@ -65,10 +64,8 @@ let construct_tcg file =
   let tcg = Tcg.create () in
   let lookup_thread thread =
     try List.find (fun f -> Varinfo.equal thread f.fname) file.funcs
-    with Not_found -> begin
-        Log.errorf "Can't resolve thread identifier `%a'" Varinfo.format thread;
-        assert false
-      end
+    with Not_found ->
+      Log.fatalf "Can't resolve thread identifier `%a'" Varinfo.pp thread
   in
   let add_succs thread =
     let func = lookup_thread thread in

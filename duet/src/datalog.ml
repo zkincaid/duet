@@ -85,7 +85,7 @@ class monolithicSolver dir name  =
         ^ " " ^ dir ^ "/" ^ name ^ ".datalog"
         ^ " 1> " ^ outfile ^ " 2> " ^ outfile
       in
-      Sys.command cmd
+      ignore (Sys.command cmd)
 
     method kill () = ()
 

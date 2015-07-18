@@ -101,18 +101,15 @@ struct
     | Noncanonical nc -> BatList.enum nc
     | Canonical c -> VMap.enum c
 
-  include Putil.MakeFmt(struct
-      type a = t
-      let format formatter x =
-        let open Format in
-        fprintf formatter "[|@[%a@ && %a@]|]"
-          (ApakEnum.pp_print_enum
-             ~pp_sep:(fun formatter () -> fprintf formatter "@ && ")
-             (fun formatter (x, rep) ->
-                fprintf formatter "%a = %a" V.format x V.format rep))
-          (enum_eqs x)
-          P.format x.predicates
-    end)
+  let pp formatter x =
+    let open Format in
+    fprintf formatter "[|@[%a@ && %a@]|]"
+      (ApakEnum.pp_print_enum
+         ~pp_sep:(fun formatter () -> fprintf formatter "@ && ")
+         (fun formatter (x, rep) ->
+            fprintf formatter "%a = %a" V.pp x V.pp rep))
+      (enum_eqs x)
+      P.pp x.predicates
 
   let exists p x =
     let g x y () = ignore (DS.union (DS.find ds x) (DS.find ds y)) in
@@ -260,16 +257,10 @@ module Hashed = struct
       Hashtbl.hash (Putil.Hashed.list hash_eq eqs, p_hash preds)
   end
   module MakeTrivEQ (V : Var) (P : Predicate with type var = V.t) = struct
-    type t = P.t
+    type t = P.t [@@deriving show,ord]
     type pred = P.t
     type eqs = unit
     type var = V.t
-
-    module Show_t = P.Show_t
-    module Compare_t = P.Compare_t
-    let format = Show_t.format
-    let show = Show_t.show
-    let compare = Compare_t.compare
 
     let hash = P.hash
     let mul = P.mul
@@ -323,12 +314,9 @@ end = struct
     module S = struct
       type var = Var.t
       type pred = Minterm.pred
-      type t = Var.Set.t * Minterm.t deriving (Compare)
-      include Putil.MakeFmt(struct
-          type a = t
-          let format formatter (_, x) = Minterm.format formatter x
-        end)
-      let compare = Compare_t.compare
+      type t = Var.Set.t * Minterm.t [@@deriving ord]
+      let pp formatter (_, x) = Minterm.pp formatter x
+
       let hash (x,y) = Hashtbl.hash (Var.Set.hash x, Minterm.hash y)
       let get_subst x = Minterm.get_subst (snd x)
       let get_pred x = Minterm.get_pred (snd x)
@@ -352,10 +340,7 @@ end = struct
 
     (** An abstract path consists of a transition formula (over indexed access
         paths, with indices in \{0,1\}). *)
-    type t = Minterm.t deriving (Show, Compare)
-    let compare = Compare_t.compare
-    let format = Show_t.format
-    let show = Show_t.show
+    type t = Minterm.t [@@deriving show,ord]
 
     let unit = Minterm.unit
 
@@ -379,13 +364,10 @@ end = struct
       composition, and star is iterated relational composition. *)
   module Transition = struct
     module TR = Ka.ReducedDisjCompletion(ConjTransition)
-    type t = Var.Set.t * TR.t deriving (Compare)
+    type t = Var.Set.t * TR.t [@@deriving ord]
 
-    include Putil.MakeFmt(struct
-        type a = t
-        let format formatter x = TR.format formatter (snd x)
-      end)
-    let compare = Compare_t.compare
+    let pp formatter x = TR.pp formatter (snd x)
+
     let equal (xv, xk) (yv, yk) = Var.Set.equal xv yv && TR.equal xk yk
     let one = (Var.Set.empty, TR.one)
     let zero = (Var.Set.empty, TR.zero)

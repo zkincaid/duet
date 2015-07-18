@@ -39,7 +39,7 @@ type 'a open_stmt =
 val mk_file : string -> file
 val mk_stmt : file -> stmt_kind -> stmt
 val stmt_kind : stmt -> stmt_kind
-val format_stmt : Format.formatter -> stmt -> unit
+val pp_stmt : Format.formatter -> stmt -> unit
 val lookup_stmt : file -> int -> stmt
 val stmt_id : stmt -> int
 

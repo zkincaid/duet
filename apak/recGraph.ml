@@ -1,7 +1,9 @@
 open BatPervasives
 
-type (+'a, +'b) seq_typ = [ `Atom of 'a | `Block of 'b ]
-type (+'a, +'b) par_typ = [ ('a, 'b) seq_typ | `ParBlock of 'b ]
+type ('a, 'b) seq_typ = [ `Atom of 'a | `Block of 'b ]
+
+type ('a, 'b) par_typ = [ ('a, 'b) seq_typ | `ParBlock of 'b ]
+
 
 module type Vertex = sig
   include Putil.CoreType
@@ -106,7 +108,7 @@ struct
       try BatEnum.filter_map f (R.G.vertices (R.block_body rg block))
       with Not_found -> begin
           Log.errorf "Warning: could not find definition for block `%a`"
-            R.Block.format block;
+            R.Block.pp block;
           BatEnum.empty ()
         end
     in

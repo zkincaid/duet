@@ -9,7 +9,7 @@ open BatPervasives
 type enuminfo = {
   enname : string;
   mutable enitems : (string * int) list
-}
+} [@@deriving ord]
 
 (** Concrete type (any type that is not a named type *)
 type ctyp =
@@ -31,6 +31,7 @@ and typ =
                                        reference to its underlying concrete
                                        type *)
   | Concrete  of ctyp
+        [@@deriving ord]
 
 and field = {
   finame : string;
@@ -44,16 +45,11 @@ and recordinfo = {
   rkey : int; (* key required for duplicate structs etc.*)
 }
 
-module Compare_typ = struct
-  type a = typ
-  let compare = Pervasives.compare
-end
-
 (** Unary operations *)
 type unop =
   | Neg
   | BNot
-      deriving (Compare)
+      [@@deriving ord]
 
 (** Binary operations *)
 type binop =
@@ -67,14 +63,14 @@ type binop =
   | BXor
   | BAnd
   | BOr
-      deriving (Compare)
+      [@@deriving ord]
 
 type pred =
   | Lt
   | Le
   | Eq
   | Ne
-      deriving (Compare)
+      [@@deriving ord]
 
 type visibility =
   | VzGlobal      (** Global variable *)
@@ -98,27 +94,17 @@ type varinfo = {
   mutable vviz : visibility;
   mutable vaddr_taken: bool;
 }
-module Compare_varinfo = struct
-  type a = varinfo
-  let compare x y = compare (x.vid, x.vsubscript) (y.vid, y.vsubscript)
-end
-module Eq_varinfo = struct
-  type a = varinfo
-  let eq x y =
-    x.vid = y.vid && x.vsubscript = y.vsubscript
-end
-module Show_varinfo = Deriving_Show.Defaults(struct
-    type a = varinfo
-    let format formatter x =
-      if x.vsubscript = 0 then Format.pp_print_string formatter x.vname
-      else Format.fprintf formatter "%s<%d>" x.vname x.vsubscript
-  end)
+
+let compare_varinfo x y = compare (x.vid, x.vsubscript) (y.vid, y.vsubscript)
+
+let pp_varinfo formatter x =
+  if x.vsubscript = 0 then Format.pp_print_string formatter x.vname
+  else Format.fprintf formatter "%s<%d>" x.vname x.vsubscript
+let show_varinfo = Putil.mk_show pp_varinfo
+
 module Varinfo = struct
   include Putil.MakeCoreType(struct
-      type t = varinfo deriving (Show,Compare)
-      let format = Show_varinfo.format
-      let show = Show_varinfo.show
-      let compare = Compare_t.compare
+      type t = varinfo [@@deriving show,ord]
       let hash x = Hashtbl.hash (x.vid, x.vsubscript)
       let equal x y = x.vid = y.vid && x.vsubscript = y.vsubscript
     end)
@@ -164,26 +150,22 @@ end
 type offset =
   | OffsetFixed of int
   | OffsetUnknown
-      deriving (Functor, Compare, Eq)
+      [@@deriving ord]
+
 module Offset = struct
   include Putil.MakeCoreType(struct
-      type t = offset deriving (Compare)
-      include Putil.MakeFmt(struct
-          type a = t
-          let format fmt = function
-            | OffsetFixed x -> Format.pp_print_int fmt x
-            | OffsetUnknown -> Format.pp_print_string fmt "Top"
-        end)
+      type t = offset [@@deriving ord]
+      let pp fmt = function
+        | OffsetFixed x -> Format.pp_print_int fmt x
+        | OffsetUnknown -> Format.pp_print_string fmt "Top"
       let hash = Hashtbl.hash
-      let compare = Compare_t.compare
-      let equal = (=)
     end)
   let add x y = match x,y with
     | (OffsetFixed x, OffsetFixed y) -> OffsetFixed (x + y)
     | _ -> OffsetUnknown
 end
 
-type var = varinfo * offset deriving (Compare, Eq)
+type var = varinfo * offset [@@deriving ord]
 
 (** Constants *)
 type constant =
@@ -191,7 +173,7 @@ type constant =
   | CString       of string 
   | CChar         of char 
   | CFloat        of float * int
-                       deriving (Compare)
+                       [@@deriving ord]
 
 (** Access paths *)
 type ap =
@@ -214,7 +196,7 @@ and expr =
   | AccessPath    of ap
   | BoolExpr      of bexpr
   | AddrOf        of ap
-        deriving (Compare)
+        [@@deriving ord]
 
 type alloc_target =
   | AllocHeap
@@ -246,6 +228,8 @@ and defkind =
 and def =
   { did : int;
     mutable dkind : defkind }
+
+let compare_def x y = compare x.did y.did
 
 (** Open types for folding *)
 type ('a, 'b, 'c) open_expr =
@@ -307,7 +291,7 @@ and field_width fi = typ_width fi.fityp
 
 let text = Format.pp_print_string
 
-let rec format_ctyp formatter = function
+let rec pp_ctyp formatter = function
   | Void -> text formatter "void"
   | Lock -> text formatter "lock"
   | Int 0 -> text formatter "int<??>"
@@ -317,20 +301,20 @@ let rec format_ctyp formatter = function
   | Int k -> Format.fprintf formatter "int<%d>" k
   | Float 0 -> text formatter "float<??>"
   | Float k -> Format.fprintf formatter "float<%d>" k
-  | Pointer t -> Format.fprintf formatter "@[<hov 0>*%a@]" format_typ t
-  | Array (t, Some i) -> Format.fprintf formatter "%a[%d]" format_typ t i
-  | Array (t, None) -> Format.fprintf formatter "%a[]" format_typ t
+  | Pointer t -> Format.fprintf formatter "@[<hov 0>*%a@]" pp_typ t
+  | Array (t, Some i) -> Format.fprintf formatter "%a[%d]" pp_typ t i
+  | Array (t, None) -> Format.fprintf formatter "%a[]" pp_typ t
   | Record r -> text formatter ("Record " ^ r.rname)
   | Enum e -> text formatter ("Enum " ^ e.enname)
   | Func (ret, args) ->
     Format.fprintf formatter "fun (%a) -> %a"
-      (Putil.format_list format_typ) args
-      format_typ ret
+      (Putil.pp_print_list pp_typ) args
+      pp_typ ret
   | Union r -> text formatter ("Union " ^ r.rname)
   | Dynamic -> text formatter "dynamic"
-and format_typ formatter = function
+and pp_typ formatter = function
   | Named (name, i) -> text formatter ("`" ^ name ^ "`")
-  | Concrete ctyp   -> format_ctyp formatter ctyp
+  | Concrete ctyp   -> pp_ctyp formatter ctyp
 
 (** Try to resolve an offset to a sequence of field accesses. *)
 let rec resolve_offset typ offset =
@@ -415,30 +399,24 @@ let rec typ_get_offsets typ = match resolve_type typ with
 
 module Var = struct
   include Putil.MakeCoreType(struct
-      type t = var deriving (Compare)
-      let compare = Compare_t.compare
+      type t = var [@@deriving ord]
       let hash (x, y) = Hashtbl.hash (Varinfo.hash x, y)
-      let equal = Eq.eq<var>
-      include Putil.MakeFmt(struct
-          type a = t
-          let format formatter (var, offset) =
-            match resolve_offset var.vtyp offset with
-            | Some [] -> Varinfo.format formatter var
-            | Some xs ->
-              let pp formatter f = Format.pp_print_string formatter f.finame in
-              Format.fprintf formatter "%a.%a"
-                Varinfo.format var
-                (ApakEnum.pp_print_enum
-                   ~pp_sep:(fun formatter () ->
-                       Format.pp_print_string formatter ".")
-                   pp)
-                (BatList.enum xs)
-
-            | None ->
-              Format.fprintf formatter "%a.%a"
-                Varinfo.format var
-                Offset.format offset
-        end)
+      let pp formatter (var, offset) =
+        match resolve_offset var.vtyp offset with
+        | Some [] -> Varinfo.pp formatter var
+        | Some xs ->
+          let pp_elt formatter f = Format.pp_print_string formatter f.finame in
+          Format.fprintf formatter "%a.%a"
+            Varinfo.pp var
+            (ApakEnum.pp_print_enum
+               ~pp_sep:(fun formatter () ->
+                   Format.pp_print_string formatter ".")
+               pp_elt)
+            (BatList.enum xs)
+        | None ->
+          Format.fprintf formatter "%a.%a"
+            Varinfo.pp var
+            Offset.pp offset
     end)
   let get_type (v, offset) =
     match resolve_offset v.vtyp offset with
@@ -518,10 +496,6 @@ and ap_type ap =
     | Func _ -> x (* todo *)
     | Dynamic -> Concrete Dynamic
     | typ -> Concrete (Pointer (Concrete Dynamic))
-    (*
-      Log.debugf "Deref type: %a" format_ctyp typ;
-      assert false
-    *)
   in
   match ap with
   | Variable v -> Var.get_type v
@@ -548,12 +522,12 @@ let to_pointer_offset = function
     end
   | _ -> None
 
-let rec format_expr formatter = function
+let rec pp_expr formatter = function
   | Havoc _ -> Format.pp_print_string formatter "*"
   | Cast (typ, ex) ->
     Format.fprintf formatter "(%a)%a"
-      format_typ typ
-      format_expr ex
+      pp_typ typ
+      pp_expr ex
   | BinaryOp (ex1, b, ex2, tp) ->
     let op = match b with
       | Add    -> "+"
@@ -568,31 +542,31 @@ let rec format_expr formatter = function
       | BOr    -> "|"
     in
     Format.fprintf formatter "@[<hov 0>(%a%s%a)@]"
-      format_expr ex1
+      pp_expr ex1
       op
-      format_expr ex2
+      pp_expr ex2
   | UnaryOp (u, ex, tp) ->
     let op = match u with
       | Neg  -> "-"
       | BNot -> "~"
     in
-    Format.fprintf formatter "%s%a" op format_expr ex
+    Format.fprintf formatter "%s%a" op pp_expr ex
   | Constant (CInt (i, _)) -> Format.pp_print_int formatter i
   | Constant (CString s) -> Format.fprintf formatter "\"%s\"" s
   | Constant (CChar c) -> Format.pp_print_char formatter c
   | Constant (CFloat (flt,_)) -> Format.pp_print_float formatter flt
-  | AccessPath ap -> format_ap formatter ap
-  | BoolExpr b -> format_bexpr formatter b
-  | AddrOf ap -> Format.fprintf formatter "&%a" format_ap ap
-and format_bexpr formatter  = function
+  | AccessPath ap -> pp_ap formatter ap
+  | BoolExpr b -> pp_bexpr formatter b
+  | AddrOf ap -> Format.fprintf formatter "&%a" pp_ap ap
+and pp_bexpr formatter  = function
   | And (left, right) ->
     Format.fprintf formatter "%a&&%a"
-      format_bexpr left
-      format_bexpr right
+      pp_bexpr left
+      pp_bexpr right
   | Or (left, right) ->
     Format.fprintf formatter "%a||%a"
-      format_bexpr left
-      format_bexpr right
+      pp_bexpr left
+      pp_bexpr right
   | Atom (pred, left, right) ->
     let pred = match pred with
       | Lt -> "<"
@@ -601,32 +575,28 @@ and format_bexpr formatter  = function
       | Ne -> "!="
     in
     Format.fprintf formatter "%a%s%a"
-      format_expr left
+      pp_expr left
       pred
-      format_expr right
-and format_ap formatter = function
-  | Variable v -> Var.format formatter v
+      pp_expr right
+and pp_ap formatter = function
+  | Variable v -> Var.pp formatter v
   | Deref expr -> match to_pointer_offset expr with
     | Some (ptr, offset) -> begin match resolve_type (expr_type expr) with
         | Pointer typ -> begin
             match resolve_offset typ (OffsetFixed offset) with
             | Some [] | None ->
-              Format.fprintf formatter "(*%a)" format_expr expr
+              Format.fprintf formatter "(*%a)" pp_expr expr
             | Some xs ->
               Format.fprintf formatter "(%a)->%s"
-                format_expr ptr
+                pp_expr ptr
                 (String.concat "." (List.map (fun f -> f.finame) xs))
           end
-        | _ -> Format.fprintf formatter "(*%a)" format_expr expr
+        | _ -> Format.fprintf formatter "(*%a)" pp_expr expr
       end
-    | None -> Format.fprintf formatter "(*%a)" format_expr expr
+    | None -> Format.fprintf formatter "(*%a)" pp_expr expr
 
-let show_expr expr = Putil.pp_string format_expr expr
-let show_bexpr bexpr = Putil.pp_string format_bexpr bexpr
-
-let expr_compare = Compare.compare<expr>
-let bexpr_compare = Compare.compare<bexpr>
-let ap_compare = Compare.compare<ap>
+let show_expr = Putil.mk_show pp_expr
+let show_bexpr = Putil.mk_show pp_bexpr
 
 let hash_expr_alg hash_ap = function
   | OAccessPath a -> hash_ap a lsl 2
@@ -674,65 +644,65 @@ let get_offsets v =
   Offset.Set.fold f (typ_get_offsets v.vtyp) Var.Set.empty
 
 (* Functions on definitions ***************************************************)
-let format_builtin formatter = function
+let pp_builtin formatter = function
   | Alloc (lhs, size, AllocHeap) ->
     Format.fprintf formatter "%a = malloc(%a)"
-      Var.format lhs
-      format_expr size
+      Var.pp lhs
+      pp_expr size
   | Alloc (lhs, size, AllocStack) ->
     Format.fprintf formatter "%a = alloca(%a)"
-      Var.format lhs
-      format_expr size
-  | Free (expr) -> Format.fprintf formatter "free(%a)" format_expr expr
+      Var.pp lhs
+      pp_expr size
+  | Free (expr) -> Format.fprintf formatter "free(%a)" pp_expr expr
   | Fork (lhs, func, args) ->
     begin match lhs with
-      | Some v -> Format.fprintf formatter "%a = " Var.format v
+      | Some v -> Format.fprintf formatter "%a = " Var.pp v
       | None    -> ()
     end;
-    Format.fprintf formatter "fork(@[%a" format_expr func;
+    Format.fprintf formatter "fork(@[%a" pp_expr func;
     if args != [] then
       Format.fprintf formatter ",@ %a"
-        (ApakEnum.pp_print_enum format_expr) (BatList.enum args);
+        (ApakEnum.pp_print_enum pp_expr) (BatList.enum args);
     Format.fprintf formatter "@])"
-  | Acquire lock -> Format.fprintf formatter "acquire(%a)" format_expr lock
-  | Release lock -> Format.fprintf formatter "release(%a)" format_expr lock
+  | Acquire lock -> Format.fprintf formatter "acquire(%a)" pp_expr lock
+  | Release lock -> Format.fprintf formatter "release(%a)" pp_expr lock
   | AtomicBegin -> Format.pp_print_string formatter "atomic_begin"
   | AtomicEnd -> Format.pp_print_string formatter "atomic_end"
   | Exit -> Format.pp_print_string formatter "exit"
 
 (** Pretty printing for definitions (needs to be rewritten) *)
-let format_dk formatter = function
+let pp_dk formatter = function
   | Assign (var, expr) ->
     Format.fprintf formatter "%a=%a"
-      Var.format var
-      format_expr expr
+      Var.pp var
+      pp_expr expr
   | Store (ap, expr) ->
     Format.fprintf formatter "%a=%a"
-      format_ap ap
-      format_expr expr
+      pp_ap ap
+      pp_expr expr
   | Call (None, func, args) ->
     Format.fprintf formatter "%a(%a)"
-      format_expr func
-      (ApakEnum.pp_print_enum format_expr) (BatList.enum args)
+      pp_expr func
+      (ApakEnum.pp_print_enum pp_expr) (BatList.enum args)
   | Call (Some lhs, func, args) ->
     Format.fprintf formatter "%a=%a(%a)"
-      Var.format lhs
-      format_expr func
-      (ApakEnum.pp_print_enum format_expr) (BatList.enum args)
-  | Assume expr -> Format.fprintf formatter "assume(%a)" format_bexpr expr
+      Var.pp lhs
+      pp_expr func
+      (ApakEnum.pp_print_enum pp_expr) (BatList.enum args)
+  | Assume expr -> Format.fprintf formatter "assume(%a)" pp_bexpr expr
   | Initial -> Format.pp_print_string formatter "initial"
   | Assert (e,msg) ->
-    Format.fprintf formatter "assert(%a) : %s" format_bexpr e msg
+    Format.fprintf formatter "assert(%a) : %s" pp_bexpr e msg
   | AssertMemSafe (e,msg) ->
-    Format.fprintf formatter "memsafe(%a) : %s" format_expr e msg
+    Format.fprintf formatter "memsafe(%a) : %s" pp_expr e msg
   | Return None -> Format.pp_print_string formatter "return"
-  | Return (Some e) -> Format.fprintf formatter "return %a" format_expr e
-  | Builtin b -> format_builtin formatter b
+  | Return (Some e) -> Format.fprintf formatter "return %a" pp_expr e
+  | Builtin b -> pp_builtin formatter b
 
-let format_def formatter def =
+let pp_def formatter def =
   Format.fprintf formatter "%d : %a"
     def.did
-    format_dk def.dkind
+    pp_dk def.dkind
 
 let unknown_loc = Cil.locUnknown
 
@@ -747,28 +717,6 @@ let eval_binop op i j = match op with
   | BXor   -> i lxor j
   | BAnd   -> i land j
   | BOr    -> i lor j
-
-(** Deriving instances *)
-module Compare_def = struct
-  type a = def
-  let compare x y = compare x.did y.did
-end
-module Show_bexpr = Deriving_Show.Defaults(struct
-    type a = bexpr
-    let format = format_bexpr
-  end)
-module Show_expr = Deriving_Show.Defaults(struct
-    type a = expr
-    let format = format_expr
-  end)
-module Show_var = Deriving_Show.Defaults(struct
-    type a = var
-    let format = Var.format
-  end)
-module Show_ap = Deriving_Show.Defaults(struct
-    type a = ap
-    let format = format_ap
-  end)
 
 (******************************************************************************)
 let expr_apply apply_ap f = function
@@ -847,17 +795,7 @@ and free_vars_ap = function
 
 module CoreAP =
   Putil.MakeCoreType(struct
-    type t = ap
-    module Compare_t = struct
-      type a = ap
-      let compare = ap_compare
-    end
-    include Putil.MakeFmt(struct
-        type a = t
-        let format = format_ap
-      end)
-    let compare = ap_compare
-    let equal a b = ap_compare a b = 0
+    type t = ap [@@deriving show,ord]
     let hash = ap_hash
   end)
 
@@ -964,7 +902,7 @@ let expr_one = Constant (CInt (1, unknown_width))
 let bexpr_true = Atom (Ne, expr_one, expr_zero)
 let bexpr_false = Atom (Eq, expr_one, expr_zero)
 let bexpr_havoc = Atom (Ne, (Havoc (Concrete (Int 1))), expr_zero)
-let bexpr_equal x y = bexpr_compare x y = 0
+let bexpr_equal x y = compare_bexpr x y = 0
 
 let (simplify_expr, simplify_bexpr) =
   let constant_bexpr bexpr =
@@ -1075,17 +1013,7 @@ end
 (** Expressions *)
 module Expr = struct
   include Putil.MakeCoreType(struct
-      type t = expr
-      module Compare_t = struct
-        type a = expr
-        let compare = expr_compare
-      end
-      include Putil.MakeFmt(struct
-          type a = t
-          let format = format_expr
-        end)
-      let compare = expr_compare
-      let equal a b = expr_compare a b = 0
+      type t = expr [@@deriving show,ord]
       let hash = expr_hash
     end)
 
@@ -1132,17 +1060,7 @@ end
 (** Boolean expressions *)
 module Bexpr = struct
   include Putil.MakeCoreType(struct
-      type t = bexpr
-      module Compare_t = struct
-        type a = bexpr
-        let compare = bexpr_compare
-      end
-      include Putil.MakeFmt(struct
-          type a = t
-          let format = format_bexpr
-        end)
-      let compare = bexpr_compare
-      let equal a b = bexpr_compare a b = 0
+      type t = bexpr [@@deriving show,ord]
       let hash = bexpr_hash
     end)
 
@@ -1309,18 +1227,8 @@ let rec dk_get_uses = function
 
 module Def = struct
   include Putil.MakeCoreType(struct
-      type t = def
-      module Compare_t = struct
-        type a = def
-        let compare x y = Pervasives.compare x.did y.did
-      end
-      include Putil.MakeFmt(struct
-          type a = t
-          let format = format_def
-        end)
+      type t = def [@@deriving show,ord]
       let hash x = Hashtbl.hash x.did
-      let compare = Compare_t.compare
-      let equal x y = x.did = y.did
     end)
 
   (* To keep track of the max_id of the definition hash table *)
@@ -1346,3 +1254,7 @@ module Def = struct
   let free_vars def = dk_free_vars def.dkind
   let assigned_var def = dk_assigned_var def.dkind
 end
+
+let pp_var = Var.pp
+let show_var = Var.show
+let show_ap = AP.show

@@ -88,22 +88,22 @@ let end_block formatter =
   Format.pp_force_newline formatter ();
   Format.pp_print_string formatter "}"
 
-let rec format_stmt formatter stmt = match stmt_kind stmt with
+let rec pp_stmt formatter stmt = match stmt_kind stmt with
   | Branch (s1, s2) ->
     Format.fprintf formatter "Branch@;%a@\nelse@;%a"
-      format_stmt s1
-      format_stmt s2
+      pp_stmt s1
+      pp_stmt s2
   | Instr [] ->
     Format.fprintf formatter "skip %d" stmt.sid
-  | Instr [def] -> Def.format formatter def
+  | Instr [def] -> Def.pp formatter def
   | Instr (d::ds) ->
     let pp def =
       Format.pp_force_newline formatter ();
-      Def.format formatter def;
+      Def.pp formatter def;
       Format.pp_print_string formatter ";";
     in
     start_block formatter;
-    Def.format formatter d;
+    Def.pp formatter d;
     Format.pp_print_string formatter ";";
     List.iter pp ds;
     end_block formatter
@@ -111,7 +111,7 @@ let rec format_stmt formatter stmt = match stmt_kind stmt with
   | ForkGoto i -> Format.fprintf formatter "fork/goto: %d" i
   | Block stmts ->
     let pp stmt =
-      format_stmt formatter stmt;
+      pp_stmt formatter stmt;
       Format.pp_force_newline formatter ()
     in
     start_block formatter;
@@ -170,7 +170,7 @@ module Display = struct
   include StmtCfg;;
   open Graph.Graphviz.DotAttributes;;
   let vertex_name v =
-    "\"" ^ (String.escaped (Putil.pp_string format_stmt v)) ^ "\""
+    "\"" ^ (String.escaped (Putil.mk_show pp_stmt v)) ^ "\""
   let get_subgraph v =  None
   let default_vertex_attributes _ = []
   let default_edge_attributes _ = []

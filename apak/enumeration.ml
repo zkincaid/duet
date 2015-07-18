@@ -4,7 +4,7 @@
 module DynArray = BatDynArray
 
 (* From Deriving.Show.Show_array *)
-let format_dynarray pp formatter items =
+let pp_dynarray pp formatter items =
   let write_items formatter items =
     let length = DynArray.length items in
     for i = 0 to length - 2 do
@@ -27,7 +27,7 @@ module type S = sig
   val to_int : t -> e -> int
   val create : e list -> t
   val empty : unit -> t
-  val format : (Format.formatter -> e -> unit) -> Format.formatter -> t -> unit
+  val pp : (Format.formatter -> e -> unit) -> Format.formatter -> t -> unit
   val size : t -> int
   val iter : (e -> unit) -> t -> unit
   val in_enum : t -> e -> bool
@@ -47,7 +47,7 @@ struct
              right : int HT.t }
   type e = HTyp.t
 
-  let format pp formatter enum = format_dynarray pp formatter enum.left
+  let pp pp_elt formatter enum = pp_dynarray pp_elt formatter enum.left
 
   let size enum = DynArray.length (enum.left)
 
@@ -90,8 +90,8 @@ struct
   type k = M.t
   type e = int * k
 
-  let format pp formatter enum =
-    format_dynarray pp formatter (DynArray.mapi (fun i k -> (i,k)) enum.left)
+  let pp pp_elt formatter enum =
+    pp_dynarray pp_elt formatter (DynArray.mapi (fun i k -> (i,k)) enum.left)
 
   let size enum = DynArray.length (enum.left)
 

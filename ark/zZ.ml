@@ -2,22 +2,12 @@ open Apak
 
 type t = Mpzf.t
 
-include Putil.MakeFmt(struct
-    type a = t
-    let format = Mpzf.print
-  end)
-
-module Compare_t = struct
-  type a = t
-  let compare = Mpzf.cmp
-end
-
-let show = Show_t.show
-let format = Show_t.format
+let pp = Mpzf.print
+let show = Putil.mk_show pp
 
 let hash x = Hashtbl.hash (Mpzf.to_string x)
 
-let compare = Compare_t.compare
+let compare = Mpzf.cmp
 let equal x y = compare x y = 0
 let leq x y = compare x y <= 0
 let lt x y = compare x y < 0

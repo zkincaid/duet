@@ -107,7 +107,7 @@ module Bounded : sig
   type 'a bounded =
     | Bottom
     | Value of 'a
-  val format_bounded : (Format.formatter -> 'a -> unit) ->
+  val pp_bounded : (Format.formatter -> 'a -> unit) ->
     Format.formatter ->
     'a bounded ->
     unit

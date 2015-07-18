@@ -6,6 +6,8 @@ open Apak
 open Pretty
 open Ast
 
+include Log.Make(struct let name = "translateCil" end)
+
 (* ========================================================================== *)
 (* CIL->CIL simplification pass.  The interesting function here is just
    "simplify". *)
@@ -158,7 +160,7 @@ class switchVisitor = object (self)
 end
 
 let simplify file =
-  if (not !Epicenter.doEpicenter) then Rmtmps.removeUnusedTemps file;
+  Rmtmps.removeUnusedTemps file;
   Cil.iterGlobals file (fun glob -> match glob with
       | Cil.GFun(fd,_) -> Oneret.oneret fd;
       | _ -> ());
@@ -726,17 +728,24 @@ let tr_file filename f =
 let parse filename =
   let base = Filename.chop_extension (Filename.basename filename) in
   let go preprocessed =
+    logf ~level:`trace "Preprocessing";
+    logf ~level:`trace "  Destination: %s" preprocessed;
     (* "preprocessed" is a fresh name where we can store the preprocessed
        file *)
     let library_path =
       if !CmdLine.library_path = "" then ""
       else begin
-        Log.logf "Using library: %s" !CmdLine.library_path;
+        logf ~level:`trace "  Using library: %s" !CmdLine.library_path;
         " -I" ^ !CmdLine.library_path
       end
     in
+
+    logf ~level:`trace "Preprocessing:@\n  Library path: %s@\n Destination: %s"
+      library_path
+      preprocessed;
+
     let pp_cmd =
-      Printf.sprintf "gcc %s-E %s -o %s" library_path filename preprocessed
+      Printf.sprintf "gcc %s -E %s -o %s" library_path filename preprocessed
     in
     ignore (Sys.command pp_cmd);
     let file = simplify (Frontc.parse preprocessed ()) in
@@ -745,4 +754,3 @@ let parse filename =
   Putil.with_temp_filename base ".i" go
 
 let _ = CmdLine.register_parser ("c", parse)
-

@@ -12,11 +12,8 @@ end
 module CombinePred (V : EqLogic.Var) (P1 : Predicate with type var = V.t)
     (P2 : Predicate with type var = V.t) =
 struct
-  type t = P1.t * P2.t deriving (Show, Compare)
+  type t = P1.t * P2.t [@@deriving show,ord]
   type var = V.t
-  let compare = Compare_t.compare
-  let format = Show_t.format
-  let show = Show_t.show
 
   let equal x y = (P1.equal (fst x) (fst y)) && (P2.equal (snd x) (snd y))
   let unit = (P1.unit, P2.unit)
@@ -35,10 +32,7 @@ module LockPred = struct
   type var = Var.t
   type t = { acq : AP.Set.t;
              rel : AP.Set.t }
-      deriving (Show,Compare)
-  let compare = Compare_t.compare
-  let format = Show_t.format
-  let show = Show_t.show
+      [@@deriving show,ord]
 
   let equal l1 l2 = compare l1 l2 = 0
   let unit = { acq = AP.Set.empty;
@@ -175,10 +169,7 @@ let lift_none lp =
   LockPath.fold_minterms f lp CoLockPath.zero
 
 module DefUse = struct
-  type t = Var.t * Def.t deriving (Show, Compare)
-  let compare = Compare_t.compare
-  let format = Show_t.format
-  let show = Show_t.show
+  type t = Var.t * Def.t [@@deriving show,ord]
   let equal x y = compare x y = 0
 end
 
@@ -249,10 +240,7 @@ module Domain = struct
              use_c : UseMap.t;
              du    : DUMap.t;
              du_c  : DUMap.t }
-      deriving(Show,Compare)
-  let compare = Compare_t.compare
-  let format = Show_t.format
-  let show = Show_t.show
+      [@@deriving show,ord]
 
   let equal a b = compare a b = 0
   let mul a b =
@@ -463,7 +451,9 @@ end
 
 let analyze file =
   let dra = get_races () in
-  let f def v = print_endline ((Def.show def) ^ " --> " ^ (Var.Set.show v)) in
+  let f def v =
+    Format.printf "%a --> %a" Def.pp def Var.Set.pp v
+  in
   Def.HT.iter f dra
 
 let _ =

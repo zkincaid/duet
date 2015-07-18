@@ -56,7 +56,8 @@ module type MinInterpretation = sig
 end
 
 module type Domain = sig
-  include Putil.S
+  type t
+  val pp : Format.formatter -> t -> unit
   val project : t -> AP.Set.t -> t
   val inject : t -> AP.Set.t -> t
   val cyl : t -> AP.Set.t -> t
@@ -94,15 +95,12 @@ module ApronInterpretation = struct
   module Env = struct
     include Putil.MonoMap.Make(AP)(struct
         type t = Dim.t value
-        include Putil.MakeFmt(struct
-            type a = t
-            let format formatter = function
-              | VInt x -> Format.fprintf formatter "Int[%d]" x
-              | VPointer p ->
-                Format.fprintf formatter "Ptr[%d,%d,%d]"
-                  p.ptr_val p.ptr_pos p.ptr_width
-              | VDynamic -> Format.pp_print_string formatter "Dyn"
-          end)
+        let pp formatter = function
+          | VInt x -> Format.fprintf formatter "Int[%d]" x
+          | VPointer p ->
+            Format.fprintf formatter "Ptr[%d,%d,%d]"
+              p.ptr_val p.ptr_pos p.ptr_width
+          | VDynamic -> Format.pp_print_string formatter "Dyn"
       end)
     let delete k =
       let shift d = if d > k then d - 1 else d in
@@ -154,44 +152,40 @@ module ApronInterpretation = struct
     | Coeff.Scalar x -> Scalar.cmp_int x 0 > 0
     | Coeff.Interval _ -> true
 
-  include Putil.MakeFmt(struct
-      type a = t
-      let format formatter av =
-        let lincons = Abstract0.to_lincons_array (get_man()) av.value in
-        let add_to_env ap value env = match value with
-          | VInt d -> DimMap.add d (AP.show ap) env
-          | VPointer ptr ->
-            DimMap.add ptr.ptr_val (AP.show ap)
-              (DimMap.add ptr.ptr_pos ("pos@" ^ (AP.show ap))
-                 (DimMap.add ptr.ptr_width ("width@" ^ (AP.show ap)) env))
-          | VDynamic -> env
-        in
-        let env = Env.fold add_to_env av.env DimMap.empty in
-        let domain =
-          Env.fold (fun ap _ -> AP.Set.add ap) av.env AP.Set.empty
-        in
-        let format_linexpr linexpr =
-          Linexpr0.print (fun d -> DimMap.find d env) linexpr
-        in
-        let pp formatter cons =
-          format_linexpr formatter cons.Lincons0.linexpr0;
-          Format.fprintf formatter " %s 0"
-            (Lincons0.string_of_typ cons.Lincons0.typ)
-        in
-        AP.Set.format formatter domain;
-        Format.pp_print_string formatter ".";
-        Format.pp_print_space formatter ();
-        if is_top av then
-          Format.pp_print_string formatter "T"
-        else if is_bottom av then
-          Format.pp_print_string formatter "_|_"
-        else
-          ApakEnum.pp_print_enum
-            ~pp_sep:(fun formatter () -> Format.fprintf formatter "@ && ")
-            pp
-            formatter
-            (BatArray.enum lincons)
-    end)
+  let pp formatter av =
+    let lincons = Abstract0.to_lincons_array (get_man()) av.value in
+    let add_to_env ap value env = match value with
+      | VInt d -> DimMap.add d (AP.show ap) env
+      | VPointer ptr ->
+        DimMap.add ptr.ptr_val (AP.show ap)
+          (DimMap.add ptr.ptr_pos ("pos@" ^ (AP.show ap))
+             (DimMap.add ptr.ptr_width ("width@" ^ (AP.show ap)) env))
+      | VDynamic -> env
+    in
+    let env = Env.fold add_to_env av.env DimMap.empty in
+    let domain =
+      Env.fold (fun ap _ -> AP.Set.add ap) av.env AP.Set.empty
+    in
+    let format_linexpr linexpr =
+      Linexpr0.print (fun d -> DimMap.find d env) linexpr
+    in
+    let pp_elt formatter cons =
+      format_linexpr formatter cons.Lincons0.linexpr0;
+      Format.fprintf formatter " %s 0"
+        (Lincons0.string_of_typ cons.Lincons0.typ)
+    in
+    AP.Set.pp formatter domain;
+    Format.pp_print_string formatter ". ";
+    if is_top av then
+      Format.pp_print_string formatter "T"
+    else if is_bottom av then
+      Format.pp_print_string formatter "_|_"
+    else
+      ApakEnum.pp_print_enum
+        ~pp_sep:(fun formatter () -> Format.fprintf formatter "@ && ")
+        pp_elt
+        formatter
+        (BatArray.enum lincons)
 
   (* Create a new pointer value, where ptr_val, ptr_pos, and ptr_width are
      new dimension, starting with n *)
@@ -247,7 +241,7 @@ module ApronInterpretation = struct
     if add = 0 then num_av else
       let current_dim = (Abstract0.dimension (get_man()) num_av).intd in
       Abstract0.add_dimensions (get_man()) num_av
-        { dim = Array.create add current_dim;
+        { dim = Array.make add current_dim;
           intdim = add;
           realdim = 0 }
         false
@@ -272,8 +266,8 @@ module ApronInterpretation = struct
     try Env.find x av.env
     with Not_found ->
       Format.printf "Missing dimension %a in %a"
-        AP.format x
-        format av;
+        AP.pp x
+        pp av;
       flush stdout;
       flush stderr;
       assert false
@@ -534,8 +528,7 @@ module ApronInterpretation = struct
                        ptr_pos = havoc_int;
                        ptr_width = havoc_int }
           | Dynamic -> VDynamic
-          | _ -> failwith (Format.sprintf "Havoc with a non-integer type: "
-                           ^ (Putil.pp_string format_typ typ))
+          | _ -> Log.fatalf "Havoc with a non-integer type: %a" pp_typ typ
         end
       | OConstant (CInt (c, _)) -> VInt (Texpr0.Cst (Coeff.s_of_int c))
       | OConstant (CFloat (c, _)) -> VInt (Texpr0.Cst (Coeff.s_of_float c))
@@ -813,6 +806,7 @@ module ApronInterpretation = struct
               | Mul -> Expr.mul left right
               | Div -> Expr.div left right
               | Mod -> Expr.modulo left right
+              | Pow -> assert false
             end
         end
     in

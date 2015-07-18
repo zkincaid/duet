@@ -38,9 +38,7 @@ module AtomicityAnalysis = Solve.MakeForwardCfgSolver(
   struct
 
     (* We should only encounter access paths *)
-    type t = int option deriving (Show)
-    let format = Show_t.format
-    let show = Show_t.show
+    type t = int option [@@deriving show]
     let join x y = match x,y with
       | (None, x) | (x, None) -> x
       | (Some x, Some y) -> Some (min x y)
@@ -131,7 +129,7 @@ module Dependence (M : sig
     in
     Log.log "Extracted predicates:";
     List.iter
-      (fun p -> Log.log_pp Bexpr.format p)
+      (fun p -> Log.log_pp Bexpr.pp p)
       preds;
     preds
 
@@ -622,7 +620,7 @@ module Dependence (M : sig
 
     (* emit block/defines for a particular location and condition *)
     let go vertex post c_num pred =
-      Log.debugf " emit_inv / Predicate: %a" Bexpr.format pred;
+      Log.debugf " emit_inv / Predicate: %a" Bexpr.pp pred;
       let def_id = id_of_def vertex in
       if block_cond vertex pred then begin
         let ab = I.eval_pred pred (Lazy.force post) in
@@ -739,7 +737,7 @@ module Dependence (M : sig
     emit_datalog ();
     emit_static_structure ();
     Log.debug "ENUM";
-    Log.debug_pp (DefEnum.format Def.format) def_enum;
+    Log.debug_pp (DefEnum.pp Def.pp) def_enum;
     if !CmdLine.display_graphs then NumAnalysis.display map;
     fix ();
     d#kill ();

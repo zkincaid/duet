@@ -15,7 +15,7 @@ Library apak
   InternalModules:  DisjointSet, Dll, Enumeration, EvalLink, ExtGraph, Fixpoint,
                     Ka, Lattice, Log, Loop, Memo, Monoid, Pathexp, Persistent,
                     RecGraph, Semilattice, Sese, Sig, Tagged, Putil
-  BuildDepends:     deriving, deriving.syntax, batteries, ocamlgraph
+  BuildDepends:     ppx_deriving, ppx_deriving.show, ppx_deriving.ord, batteries, ocamlgraph
   Install:          false
   XMETADescription: Algebraic Program Analysis Kit
 
@@ -24,7 +24,8 @@ Executable test_apak
   Path:         apak
   BuildTools:   ocamlbuild
   MainIs:       test_apak.ml
-  BuildDepends: deriving, deriving.syntax, batteries, ocamlgraph, oUnit
+  BuildDepends: ppx_deriving, ppx_deriving.show, ppx_deriving.ord, batteries,
+                ocamlgraph, oUnit
   Install:      false
 
 Library ark
@@ -33,7 +34,7 @@ Library ark
   FindlibName:      ark
   Pack:             true
   InternalModules:  Hset, Hashcons, Hmap, QQ, ZZ, Syntax, Smt
-  BuildDepends:     deriving, deriving.syntax, apak, gmp, camlidl, apron, Z3
+  BuildDepends:     ppx_deriving, ppx_deriving.show, ppx_deriving.ord, apak, gmp, camlidl, apron, Z3
   Install:          false
   XMETADescription: Arithmetic Reasoning Kit
 
@@ -42,7 +43,7 @@ Executable test_ark
   Path:           ark
   BuildTools:     ocamlbuild
   MainIs:         test_ark.ml
-  BuildDepends:   deriving, deriving.syntax, apak, gmp, camlidl, apron,
+  BuildDepends:   ppx_deriving, ppx_deriving.ord, apak, gmp, camlidl, apron,
                   apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, oUnit
   CompiledObject: native
   Install:        false
@@ -51,17 +52,19 @@ Executable duet
   Path:           duet/src
   BuildTools:     ocamlbuild
   MainIs:         duet.ml
-  BuildDepends:   deriving, deriving.syntax, apak, gmp, camlidl, apron,
-                  apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, ark, cil
+  BuildDepends:   ppx_deriving, ppx_deriving.show, ppx_deriving.ord,
+                  apak, gmp, camlidl, apron,
+                  apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, ark,
+                  cil, cil.default-features
   CompiledObject: native
   Install:        false
 
 Test apak
   Command:   $test_apak
   TestTools: test_apak
-  Run$:      flag(tests)
+  run$:      flag(tests)
 
 Test ark
   Command:   $test_ark
   TestTools: test_ark
-  Run$:      flag(tests)
+  run$:      flag(tests)

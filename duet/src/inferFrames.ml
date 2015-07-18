@@ -25,25 +25,18 @@ let compact set =
 
 module D = struct
   module M = BatSet.Make(struct
-      type t = Def.t * AP.Set.t
-                 deriving (Show,Compare)
-      let compare = Compare_t.compare
-      let format = Show_t.format
-      let show = Show_t.show
+      type t = Def.t * AP.Set.t [@@deriving show,ord]
     end)
   include M
-  include Putil.MakeFmt(struct
-      type a = t
-      let format formatter set =
-        let pp formatter (def, set) =
-          Format.fprintf formatter "@[%a@ -> %a@]"
-            Def.format def
-            AP.Set.format set
-        in
-        Format.fprintf formatter "[%a]"
-          (ApakEnum.pp_print_enum pp)
-          (M.enum set)
-    end)
+  let pp formatter set =
+    let pp_elt formatter (def, set) =
+      Format.fprintf formatter "@[%a@ -> %a@]"
+        Def.pp def
+        AP.Set.pp set
+    in
+    Format.fprintf formatter "[%a]"
+      (ApakEnum.pp_print_enum pp_elt)
+      (M.enum set)
 
   let compact set =
     let lt (d,x) (e,y) =
@@ -90,9 +83,7 @@ let relatable file =
   in
   let module S = Solve.MakeForwardCfgSolver(
     struct
-      type t = P.t deriving (Show)
-      let format = Show_t.format
-      let show = Show_t.show
+      type t = P.t [@@deriving show]
       let join x y = compact (P.union x y)
       let widen = join
       let equal = P.equal

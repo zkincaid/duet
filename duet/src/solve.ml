@@ -41,8 +41,8 @@ module type MinAnalysis = sig
   val join : st -> G.V.t -> absval -> absval -> absval option
   val widen : (st -> G.V.t -> absval -> absval -> absval option) option
   val name : string
-  val format_vertex : Format.formatter -> G.V.t -> unit
-  val format_absval : Format.formatter -> absval -> unit
+  val pp_vertex : Format.formatter -> G.V.t -> unit
+  val pp_absval : Format.formatter -> absval -> unit
 end
 
 module MkMin (A : MinAnalysis) : sig
@@ -69,7 +69,7 @@ end = struct
     try HT.find result.map def
     with Not_found -> begin
         Log.errorf "No property associated with vertex %a"
-          A.format_vertex def;
+          A.pp_vertex def;
         assert false
       end
 
@@ -119,13 +119,10 @@ end = struct
   let display ?(widening = (fun _ -> false)) result = 
     let module Show_v = struct
       type t = G.V.t
-      include Putil.MakeFmt(struct
-          type a = t
-          let format formatter v =
-            Format.fprintf formatter "%a@\n%a"
-              A.format_vertex v
-              A.format_absval (lookup result v)
-        end)
+      let pp formatter v =
+        Format.fprintf formatter "%a@\n%a"
+          A.pp_vertex v
+          A.pp_absval (lookup result v)
     end in
     let module D = ExtGraph.Display.MakeSimple(G)(Show_v) in
     D.display result.graph
@@ -143,8 +140,8 @@ module type Analysis = sig
   val join : st -> G.V.t -> absval -> absval -> absval option
   val widen : (st -> G.V.t -> absval -> absval -> absval option) option
   val name : string
-  val format_vertex : Format.formatter -> G.V.t -> unit
-  val format_absval : Format.formatter -> absval -> unit
+  val pp_vertex : Format.formatter -> G.V.t -> unit
+  val pp_absval : Format.formatter -> absval -> unit
 end
 
 module Mk (A : Analysis) : sig
@@ -163,15 +160,15 @@ end = struct
   module HT = Hashtbl.Make(G.V)
 
   let eval st graph lookup vertex =
-    logf "Transfer %a@\n" A.format_vertex vertex;
+    logf "Transfer %a@\n" A.pp_vertex vertex;
 
     let input = A.flow_in st graph lookup vertex in
-    logf "Input:@\n%a@\n" A.format_absval input;
+    logf "Input:@\n%a@\n" A.pp_absval input;
 
     (* Don't compute output until input is printed - it gives us better
        traces. *)
     let output = A.transfer st input vertex in
-    logf "Output:@\n%a@\n" A.format_absval output;
+    logf "Output:@\n%a@\n" A.pp_absval output;
 
     output
 
@@ -275,8 +272,8 @@ struct
     let widen = Some widen_impl
 
     let name = I.name
-    let format_vertex = Def.format
-    let format_absval = I.format
+    let pp_vertex = Def.pp
+    let pp_absval = I.pp
   end
   module S = Mk(A)
   include S
@@ -310,14 +307,14 @@ struct
   (** Find and report assertion violations *)
   let check_assertions graph map =
     let log_failure def msg value =
-      Report.log_error
+      Report.log_errorf
         (Def.get_location def)
-        ("Assertion failed: " ^ msg ^ "\n" ^ (I.show value))
+        "Assertion failed: %s@\n%a" msg I.pp value
     in
     let log_memsafe_failure def msg value =
-      Report.log_error
+      Report.log_errorf
         (Def.get_location def)
-        ("Cannot prove safe: " ^ msg ^ "\n" ^ (I.show value))
+        "Cannot prove safe: %s@\n%a" msg I.pp value
     in
     let check_assertion v =
       match v.dkind with
@@ -354,8 +351,8 @@ module MakeForwardCfgSolver (I : MinInterpretation) = struct
       if I.equal x newv then None else Some newv
     let widen = None
     let name = I.name
-    let format_vertex = Def.format
-    let format_absval = I.format
+    let pp_vertex = Def.pp
+    let pp_absval = I.pp
   end
   module S = Mk(A)
   include S
@@ -432,8 +429,8 @@ module MakeBackwardCfgSolver (I : MinInterpretation) = struct
     let widen = None
 
     let name = I.name
-    let format_vertex = Def.format
-    let format_absval = I.format
+    let pp_vertex = Def.pp
+    let pp_absval = I.pp
   end
   module S = Mk(A)
   include S

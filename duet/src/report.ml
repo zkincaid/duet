@@ -14,6 +14,16 @@ let log_error loc txt =
   incr error_count;
   errors := (loc,txt)::(!errors)
 
+let log_errorf loc =
+  let b = Buffer.create 512 in
+  let formatter = Format.formatter_of_buffer b in
+  Format.kfprintf
+    (fun fmt ->
+       Format.pp_print_flush fmt ();
+       log_error loc (Buffer.contents b))
+    formatter
+
+
 let log_safe () = incr safe_count
 
 let log_safe_unreachable () = incr safe_count; incr unreachable_count

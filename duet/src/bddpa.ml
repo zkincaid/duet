@@ -269,7 +269,7 @@ let emit_structure ctx file =
     with Pa.Higher_ap simple_rhs ->
       let loc = Def.get_location def in
       Log.errorf "Higher-level AP: `%a'@\n  Found on: %s:%d"
-        Pa.SimpleRhs.format simple_rhs
+        Pa.SimpleRhs.pp simple_rhs
         loc.Cil.file
         loc.Cil.line
   in
@@ -298,7 +298,7 @@ let ap_points_to pt ap =
     let add sap set = MemLoc.Set.union (simple_ap_points_to pt sap) set in
     SimpleAP.Set.fold add (simplify_ap ap) MemLoc.Set.empty
   with Pa.Higher_ap simple_rhs -> begin
-      Log.errorf "Higher-level AP: `%a'" Pa.SimpleRhs.format simple_rhs;
+      Log.errorf "Higher-level AP: `%a'" Pa.SimpleRhs.pp simple_rhs;
       assert false
     end
 
@@ -319,7 +319,7 @@ let expr_points_to pt expr =
       in
       SimpleRhs.Set.fold add rhs MemLoc.Set.empty
   with Pa.Higher_ap simple_rhs -> begin
-      Log.errorf "Higher-level AP: `%a'" Pa.SimpleRhs.format simple_rhs;
+      Log.errorf "Higher-level AP: `%a'" Pa.SimpleRhs.pp simple_rhs;
       assert false
     end
 
@@ -329,7 +329,7 @@ let resolve_call pt expr =
     | AddrOf _ -> expr_points_to pt expr
     | AccessPath (Variable _) -> expr_points_to pt expr
     | expr ->
-      Log.errorf "Couldn't resolve call to `%a'" Expr.format expr;
+      Log.errorf "Couldn't resolve call to `%a'" Expr.pp expr;
       assert false
   in
   let add_call x set = match x with
@@ -460,18 +460,18 @@ let _ =
       | _ -> ()
     in
     let points_to = initialize file in
-    let format_memloc_set set =
+    let pp_memloc_set set =
       String.concat ", "
         (BatList.sort
            Pervasives.compare
            (BatList.map MemLoc.show (MemLoc.Set.elements set)))
     in
-    let format_pointsto memloc set =
-      (MemLoc.show memloc) ^ " -> {" ^ (format_memloc_set set) ^ "}"
+    let pp_pointsto memloc set =
+      (MemLoc.show memloc) ^ " -> {" ^ (pp_memloc_set set) ^ "}"
     in
     let pt = ref [] in
     let print memloc set =
-      pt := (format_pointsto memloc set)::(!pt)
+      pt := (pp_pointsto memloc set)::(!pt)
     in
     points_to#iter print;
     Log.log "Pointer analysis results:";

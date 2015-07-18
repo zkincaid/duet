@@ -5,7 +5,7 @@ open RecGraph
 
 module G = struct
   include Graph.Persistent.Digraph.Concrete(PInt)
-  let format_vertex = PInt.format
+  let format_vertex = PInt.pp
 end
 
 module GD = ExtGraph.Display.MakeSimple(G)(PInt)

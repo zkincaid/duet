@@ -1301,7 +1301,7 @@ module DfsTree = struct
 
     (** Process a DFS tree bottom-up. *)
     let fold_dfs_tree f tree =
-      let children = Array.create tree.size [] in
+      let children = Array.make tree.size [] in
       for v = (tree.size - 1) downto 1 do
         let parent = tree.parent.(v) in
         let value = f (tree.vertex.(v)) (children.(v)) in
@@ -1314,7 +1314,7 @@ module DfsTree = struct
       match tree.max_dfs with
       | Some max_dfs -> max_dfs
       | None ->
-        let max_dfs = Array.create tree.size 0 in
+        let max_dfs = Array.make tree.size 0 in
         let f v children =
           let v_dfs = get_dfs_num v tree in
           let v_max = List.fold_left max v_dfs children in
@@ -1352,8 +1352,8 @@ module DfsTree = struct
       in
       let size = G.nb_vertex graph in
       let dfs_num = HT.create (2*size) in
-      let vertex = Array.create size init in
-      let parent = Array.create size 0 in
+      let vertex = Array.make size init in
+      let parent = Array.make size 0 in
       let rec dfs v =
         let n = next_dfs_num () in
         let get_dfs_num w =
@@ -1412,7 +1412,7 @@ module DfsTree = struct
 
     let vertices tree = BatArray.enum tree.vertex
     let leaves tree =
-      let internal = Array.create tree.size false in
+      let internal = Array.make tree.size false in
       let last = tree.size - 1 in
       let f v =
         if internal.(v) then None
@@ -1564,7 +1564,8 @@ module Display = struct
     module Display = struct
       include D
       include G
-      let vertex_name x = "\"" ^ (String.escaped (S.show x)) ^ "\""
+      let vertex_name x =
+        "\"" ^ (String.escaped ((Putil.mk_show S.pp) x)) ^ "\""
       let get_subgraph v =  None
       let default_vertex_attributes _ = []
       let default_edge_attributes _ = []
@@ -1589,7 +1590,7 @@ module Display = struct
       let graph_attributes _ = []
       let vertex_attributes _ = []
       let edge_attributes e =
-        [`Label (String.escaped (Show_edge.show (G.E.label e)))]
+        [`Label (String.escaped ((Putil.mk_show Show_edge.pp) (G.E.label e)))]
     end)
 
   module MakeStructural (G : G) = struct
@@ -1599,10 +1600,7 @@ module Display = struct
       let name = M.memo (fun _ -> incr id; !id) in
       let module Show_v = struct
         type t = G.V.t
-        include Putil.MakeFmt(struct
-            type a = t
-            let format formatter v = Format.pp_print_int formatter (name v)
-          end)
+        let pp formatter v = Format.pp_print_int formatter (name v)
       end
       in
       let module D = MakeSimple(G)(Show_v) in

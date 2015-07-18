@@ -74,10 +74,3 @@ sig
 end
 
 module Make(H : HashedType) : (S with type key = H.t)
-
-module Show_hash_consed (S : Deriving_Show.Show)
-  : (Deriving_Show.Show with type a = S.a hash_consed)
-
-module Compare_hash_consed (S : sig type a end) :
-  Deriving_Compare.Compare with type a = S.a hash_consed
-

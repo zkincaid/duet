@@ -76,12 +76,13 @@ type visibility =
   | VzLocal       (** Local variable *)
   | VzThreadLocal (** Thread local variable (per-thread variable with global
                       scope) *)
-type varinfo deriving (Show,Compare)
+type varinfo [@@deriving show,ord]
+
 type offset =
   | OffsetFixed of int
   | OffsetUnknown
-      deriving (Compare)
-type var = varinfo * offset deriving (Show)
+      [@@deriving ord]
+type var = varinfo * offset [@@deriving show]
 
 (** Constants. *)
 type constant =
@@ -112,7 +113,7 @@ and expr =
   | BoolExpr      of bexpr
   | AddrOf        of ap (** It is not generally safe to use this
                             constructor; use [addr_of] instead *)
-        deriving (Show,Compare)
+        [@@deriving show,ord]
 
 type alloc_target =
   | AllocHeap
@@ -182,10 +183,6 @@ module Offset : sig
   val add : t -> t -> t
 end
 
-(** {b Deriving instances for core types} *)
-
-module Compare_def : Deriving_Compare.Compare with type a = def
-
 (** {2 Core operations} *)
 
 val is_pointer_type : typ -> bool
@@ -203,7 +200,7 @@ val unknown_width : int
 (** Return the underyling concrete type of a (possibly named) type *)
 val resolve_type : typ -> ctyp
 
-val format_typ : Format.formatter -> typ -> unit
+val pp_typ : Format.formatter -> typ -> unit
 
 val get_offsets : varinfo -> Var.Set.t
 
@@ -336,3 +333,5 @@ module Def : sig
   val mk : ?loc:Cil.location -> defkind -> t
   val get_location : t -> Cil.location
 end
+
+val compare_def : def -> def -> int

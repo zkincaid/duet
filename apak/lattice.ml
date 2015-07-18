@@ -109,18 +109,13 @@ module Bounded = struct
     | Bottom
     | Value of 'a
 
-  let format_bounded pp formatter = function
+  let pp_bounded pp formatter = function
     | Bottom -> Format.pp_print_string formatter "_|_"
     | Top -> Format.pp_print_string formatter "T"
     | Value x -> pp formatter x
 
   module Lift (L : Sig.Lattice.S) = struct
-    type t = L.t bounded
-
-    include Putil.MakeFmt(struct
-        type a = t
-        let format = format_bounded L.format
-      end)
+    type t = L.t bounded [@@deriving show]
 
     let join d e = match (d, e) with
       | (Top, x) | (x, Top) -> Top
@@ -143,16 +138,12 @@ module Bounded = struct
     type t =
       | Set of S.t
       | Neg of S.t
-            deriving (Compare)
+            [@@deriving ord]
     type elt = S.elt
 
-    include Putil.MakeFmt(struct
-        type a = t
-        let format formatter = function
-          | Set x -> S.format formatter x
-          | Neg x -> Format.fprintf formatter "@[complement(%a)@]" S.format x
-      end)
-    let compare = Compare_t.compare
+    let pp formatter = function
+      | Set x -> S.pp formatter x
+      | Neg x -> Format.fprintf formatter "@[~%a@]" S.pp x
 
     let join x y = match x, y with
       | (Set a, Set b) -> Set (S.union a b)
@@ -240,12 +231,9 @@ module Bounded = struct
         type dom = Domain.t
         type cod = Codomain.t
 
-        include Putil.MakeFmt(struct
-            type a = t
-            let format formatter = function
-              | Bottom -> Format.pp_print_string formatter "_|_"
-              | Map f -> M.format formatter f
-          end)
+        let pp formatter = function
+          | Bottom -> Format.pp_print_string formatter "_|_"
+          | Map f -> M.pp formatter f
 
         let equal f g = match f,g with
           | Bottom, Bottom -> true

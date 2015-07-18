@@ -8,26 +8,13 @@ include BatEnum.Infix
 include BatPervasives
 module List = BatList
 
-let format_enum
-    pp ?left:(left="[") ?sep:(sep=",") ?right:(right="]") formatter enum =
-  let pp_items formatter enum =
-    match BatEnum.get enum with
-    | None   -> ()
-    | Some x -> begin
-        pp formatter x;
-        BatEnum.iter (fun y -> Format.fprintf formatter "%s@;%a" sep pp y) enum
-      end
-  in
-  Format.fprintf formatter "@[<hov 1>%s%a%s@]" left pp_items enum right
-
-(* From Deriving.Show.ShowDefaults' *)
-let pp_string pp x =
+let mk_show pp x =
   let b = Buffer.create 16 in
   let formatter = Format.formatter_of_buffer b in
   Format.fprintf formatter "@[<hov 0>%a@]@?" pp x;
   Buffer.sub b 0 (Buffer.length b)
 
-let format_list pp_elt formatter xs =
+let pp_print_list pp_elt formatter xs =
   let sep formatter () = Format.fprintf formatter ";@ " in
   Format.fprintf formatter "[%a]"
     (ApakEnum.pp_print_enum ~pp_sep:sep pp_elt)
@@ -35,32 +22,21 @@ let format_list pp_elt formatter xs =
 
 module type S =
 sig
-  type t deriving (Show)
-  val format : Format.formatter -> t -> unit
-  val show : t -> string
-end
-
-module type SimpleFormatter = sig
-  type a
-  val format : Format.formatter -> a -> unit
-end
-
-module MakeFmt(S : SimpleFormatter) = struct
-  module Show_t = Deriving_Show.Defaults(S)
-  let format = Show_t.format
-  let show = Show_t.show
+  type t
+  val pp : Format.formatter -> t -> unit
 end
 
 module type OrderedMix =
 sig
-  type t deriving (Compare)
+  type t
   val compare : t -> t -> int
 end
 
 module type Ordered =
 sig
-  include S
-  include OrderedMix with type t := t
+  type t
+  val pp : Format.formatter -> t -> unit
+  val compare : t -> t -> int
 end
 
 (* Sets ***********************************************************************)
@@ -102,16 +78,11 @@ module Set = struct
   struct
     module S = BatSet.Make(Ord)
     include S
-    module Compare_t = struct
-      type a = t
-      let compare = compare
-    end
 
-    include MakeFmt(struct
-        type a = t
-        let format fmt set =
-          format_enum Ord.format ~left:"{" ~sep:"," ~right:"}" fmt (enum set)
-      end)
+    let pp formatter set =
+      Format.fprintf formatter "{@[%a@]}"
+        (ApakEnum.pp_print_enum Ord.pp) (enum set)
+    let show = mk_show pp
   end
 end
 
@@ -150,20 +121,19 @@ module Map = struct
     val values : 'a t -> 'a BatEnum.t
     val enum : 'a t -> (key * 'a) BatEnum.t
     val of_enum : (key * 'a) BatEnum.t -> 'a t
-    val format :
+    val pp :
       (Format.formatter -> 'a -> unit) -> Format.formatter -> 'a t -> unit
   end
   module Make (Key : Ordered) : S with type key = Key.t = struct
     include BatMap.Make(Key)
-    let format pp_val formatter map =
-      let pp formatter (key, value) =
-        Format.pp_open_box formatter 0;
-        Key.format formatter key;
-        Format.pp_print_string formatter " => ";
-        pp_val formatter value;
-        Format.pp_close_box formatter ();
+    let pp pp_val formatter map =
+      let pp_elt formatter (key, value) =
+        Format.fprintf formatter "@[%a@ => %a@]"
+          Key.pp key
+          pp_val value;
       in
-      format_enum pp formatter (enum map)
+      Format.fprintf formatter "[@[%a@]]"
+        (ApakEnum.pp_print_enum pp_elt) (enum map)
   end
 end
 
@@ -220,18 +190,15 @@ module MonoMap = struct
     type 'a u = 'a M.t
     include (M : BatMap.S with type 'a t := 'a u and type key := key)
     type t = value u
-    include MakeFmt(struct
-        type a = t
-        let format formatter map =
-          let pp formatter (key, value) =
-            Format.pp_open_box formatter 0;
-            Key.format formatter key;
-            Format.pp_print_string formatter " => ";
-            Val.format formatter value;
-            Format.pp_close_box formatter ();
-          in
-          format_enum pp formatter (M.enum map)
-      end)
+    let pp formatter map =
+      let pp_elt formatter (key, value) =
+        Format.fprintf formatter "@[%a@ => %a@]"
+          Key.pp key
+          Val.pp value;
+      in
+      Format.fprintf formatter "[@[%a@]]"
+        (ApakEnum.pp_print_enum pp_elt) (M.enum map)
+    let show = mk_show pp
   end
 
   module Ordered = struct
@@ -244,11 +211,7 @@ module MonoMap = struct
                                                      and type value = Val.t =
     struct
       include Make(Key)(Val)
-      module Compare_t = struct
-        type a = t
-        let compare = compare Val.compare
-      end
-      let compare = Compare_t.compare
+      let compare = compare Val.compare
     end
   end
 end
@@ -272,25 +235,21 @@ module TotalFunction = struct
       (M : Map.S)
       (Codomain : sig
          type t
-         val format : Format.formatter -> t -> unit
+         val pp : Format.formatter -> t -> unit
          val equal : t -> t -> bool
        end) =
   struct
     type dom = M.key
     type cod = Codomain.t
     type t = 
-      { map : cod M.t;
+      { map : Codomain.t M.t;
         default : Codomain.t }
 
-    include MakeFmt(struct
-        type a = t
-        let format formatter f =
-          Format.fprintf formatter "@[{map: @[%a@];@ default: @[%a@]}@]"
-            (M.format Codomain.format) f.map
-            Codomain.format f.default
-      end)
-    let format = Show_t.format
-    let show = Show_t.show
+    let pp format map =
+      Format.fprintf format "{@[map: %a;@ default: %a@]}"
+        (M.pp Codomain.pp) map.map
+        Codomain.pp map.default
+    let show = mk_show pp
 
     let equal f g =
       Codomain.equal f.default g.default
@@ -438,55 +397,49 @@ let find_file file =
 
 module type CoreTypeBasis = sig
   include Ordered
-  val equal : t -> t -> bool
   val hash : t -> int
 end
 module type CoreType = sig
   include CoreTypeBasis
+  val show : t -> string
+  val equal : t -> t -> bool
   module HT : BatHashtbl.S with type key = t
   module Map : Map.S with type key = t
   module Set : Hashed.Set.S with type elt = t
 end
 
 module MakeCoreType (M : CoreTypeBasis) = struct
-  include M
-  module HT = BatHashtbl.Make(M)
+  module AM = struct
+    include M
+    let equal x y = compare x y = 0
+  end
+  include AM
+  let show = mk_show pp
+  module HT = BatHashtbl.Make(AM)
   module Map = Map.Make(M)
-  module Set = Hashed.Set.Make(M)
+  module Set = Hashed.Set.Make(AM)
 end
 
 module PString = MakeCoreType(struct
-    type t = string deriving (Show,Compare)
-    let format = Show_t.format
-    let show = Show_t.show
-    let compare = Compare_t.compare
+    type t = string [@@deriving show,ord]
     let hash = Hashtbl.hash
     let equal = (=)
   end)
 
 module PInt = MakeCoreType(struct
-    type t = int deriving (Show,Compare)
-    let format = Show_t.format
-    let show = Show_t.show
-    let compare = Compare_t.compare
+    type t = int [@@deriving show,ord]
     let hash = Hashtbl.hash
     let equal = (=)
   end)
 
 module PUnit = MakeCoreType(struct
-    type t = unit deriving (Show,Compare)
-    let format = Show_t.format
-    let show = Show_t.show
-    let compare = Compare_t.compare
+    type t = unit [@@deriving show,ord]
     let hash _ = 0
     let equal _ _ = true
   end)
 
 module PChar = MakeCoreType(struct
-    type t = char deriving (Show,Compare)
-    let format = Show_t.format
-    let show = Show_t.show
-    let compare = Compare_t.compare
+    type t = char [@@deriving show,ord]
     let hash = Hashtbl.hash
     let equal = (=)
   end)
