@@ -1,4 +1,4 @@
-open Hashcons
+open BatHashcons
 
 type typ = TyInt | TyReal [@@deriving ord]
 
@@ -27,11 +27,11 @@ type label =
   | Neg
   | Real of QQ.t
 
-type expr = Node of label * ((expr hash_consed) list)
-type formula = expr hash_consed
-type term = expr hash_consed
+type expr = Node of label * ((expr hobj) list)
+type formula = expr hobj
+type term = expr hobj
 
-module HC = Hashcons.Make(struct
+module HC = BatHashcons.MakeTable(struct
     type t = expr
     let equal (Node (label, args)) (Node (label', args')) =
       (match label, label' with
@@ -81,11 +81,11 @@ module TypedString = struct
 end
 
 let rec eval_expr alg expr =
-  let (Node (label, children)) = expr.node in
+  let (Node (label, children)) = expr.obj in
   alg label (List.map (eval_expr alg) children)
 
 let rec flatten_expr label expr =
-  let Node (label', children) = expr.node in
+  let Node (label', children) = expr.obj in
   if label = label' then
     List.concat (List.map (flatten_expr label) children)
   else
@@ -112,8 +112,8 @@ type ('a,'b) open_formula = [
 ]
 
 module Make (C : Constant) = struct
-  type term = expr hash_consed
-  type formula = expr hash_consed
+  type term = expr hobj
+  type formula = expr hobj
 
   module E = Apak.Enumeration.Make(C)
 
@@ -177,15 +177,15 @@ module Make (C : Constant) = struct
            mk_not (mk_or [phi; psi])]
 
   module Expr = struct
-    type t = expr hash_consed
+    type t = expr hobj
 
     let equal s t = s.tag = t.tag
     let compare s t = Pervasives.compare s.tag t.tag
-    let hash t = t.hkey
+    let hash t = t.hcode
 
     (* Avoid capture by incrementing bound variables *)
     let rec decapture depth expr =
-      let Node (label, children) = expr.node in
+      let Node (label, children) = expr.obj in
       match label with
       | Exists (_, _) | Forall (_, _) ->
         decapture_children label (depth + 1) children
@@ -196,7 +196,7 @@ module Make (C : Constant) = struct
 
     let substitute subst expr =
       let rec go depth expr =
-        let Node (label, children) = expr.node in
+        let Node (label, children) = expr.obj in
         match label with
         | Exists (_, _) | Forall (_, _) ->
           go_children label (depth + 1) children
@@ -213,7 +213,7 @@ module Make (C : Constant) = struct
 
     let substitute_const subst expr =
       let rec go depth expr =
-        let Node (label, children) = expr.node in
+        let Node (label, children) = expr.obj in
         match label with
         | Exists (_, _) | Forall (_, _) ->
           go_children label (depth + 1) children
@@ -226,7 +226,7 @@ module Make (C : Constant) = struct
 
     let fold_constants f expr acc =
       let rec go acc expr =
-        let Node (label, children) = expr.node in
+        let Node (label, children) = expr.obj in
         match label with
         | Const k -> f k acc
         | _ -> List.fold_left go acc children
@@ -235,7 +235,7 @@ module Make (C : Constant) = struct
 
     let vars expr =
       let rec go depth expr =
-        let Node (label, children) = expr.node in
+        let Node (label, children) = expr.obj in
         match label with
         | Exists (_, _) | Forall (_, _) ->
           go_children (depth + 1) children
@@ -268,7 +268,7 @@ module Make (C : Constant) = struct
       in
       eval_expr f t
 
-    let destruct t = match t.node with
+    let destruct t = match t.obj with
       | Node (Real qq, []) -> `Real qq
       | Node (Const k, []) -> `Const k
       | Node (Var (v, typ), []) -> `Var (v, typ)
@@ -323,7 +323,7 @@ module Make (C : Constant) = struct
   end
   module Formula = struct
     include Expr
-    let destruct phi = match phi.node with
+    let destruct phi = match phi.obj with
       | Node (True, []) -> `Tru
       | Node (False, []) -> `Fls
       | Node (And, conjuncts) -> `And conjuncts
@@ -347,19 +347,19 @@ module Make (C : Constant) = struct
       | `Not phi -> alg (`Not (eval alg phi))
       | `Atom (op, s, t) -> alg (`Atom (op, s, t))
 
-    let rec flatten_universal phi = match phi.node with
+    let rec flatten_universal phi = match phi.obj with
       | Node (Forall (name, typ), [phi]) ->
         let (varinfo, phi') = flatten_universal phi in
         ((name,typ)::varinfo, phi')
       | _ -> ([], phi)
 
-    let rec flatten_existential phi = match phi.node with
+    let rec flatten_existential phi = match phi.obj with
       | Node (Exists (name, typ), [phi]) ->
         let (varinfo, phi') = flatten_existential phi in
         ((name,typ)::varinfo, phi')
       | _ -> ([], phi)
 
-    let destruct_flat phi = match phi.node with
+    let destruct_flat phi = match phi.obj with
       | Node (True, []) -> `Tru
       | Node (False, []) -> `Fls
       | Node (And, conjuncts) ->
