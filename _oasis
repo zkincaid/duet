@@ -68,3 +68,8 @@ Test ark
   Command:   $test_ark
   TestTools: test_ark
   run$:      flag(tests)
+
+Test regression
+  Command:   cd duet && ./regression.sh run pa coarsen hdfg chdfg
+  TestTools: duet
+  run$:      flag(tests)
