@@ -35,9 +35,9 @@ module IV = struct
 end
 
 module Ctx = struct
-  module C = Syntax.Make(IV)
+  module C = Syntax.Make(IV)()
   include C
-  include Smt.MakeSolver(C)(struct let opts = [] end)
+  include Smt.MakeSolver(C)(struct let opts = [] end)()
 end
 
 let loc = Var.mk (Varinfo.mk_local "@" (Concrete (Int unknown_width)))

@@ -37,7 +37,7 @@ type ('a,'term) open_formula = [
   | `Atom of [`Eq | `Leq | `Lt] * 'term * 'term
 ]
 
-module Make (C : Constant) : sig
+module Make (C : Constant) () : sig
   type term
   type formula
 

@@ -1,7 +1,7 @@
 open OUnit
 open Syntax
 
-module Ctx = Syntax.Make(Syntax.TypedString)
+module Ctx = Syntax.Make(Syntax.TypedString)()
 module Infix = Syntax.Infix(Ctx)
 
 let r = Ctx.mk_const (Ctx.symbol_of_const ("r", TyReal))

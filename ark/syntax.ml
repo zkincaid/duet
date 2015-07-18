@@ -111,7 +111,7 @@ type ('a,'b) open_formula = [
   | `Atom of [`Eq | `Leq | `Lt] * 'b * 'b
 ]
 
-module Make (C : Constant) = struct
+module Make (C : Constant) () = struct
   type term = expr hobj
   type formula = expr hobj
 

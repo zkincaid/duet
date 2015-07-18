@@ -2,12 +2,12 @@ open OUnit
 open Syntax
 
 module Ctx = struct
-  module C = Syntax.Make(Syntax.TypedString)
+  module C = Syntax.Make(Syntax.TypedString)()
   include C
-  include Smt.MakeSolver(C)(struct let opts = [] end)
+  include Smt.MakeSolver(C)(struct let opts = [] end)()
 end
 
-module Z3 = Smt.MakeZ3(struct let opts = [] end)
+module Z3 = Smt.MakeZ3(struct let opts = [] end)()
 module Z3Of = MakeTranslator(Ctx)(Z3)
 module OfZ3 = MakeTranslator(Z3)(Ctx)
 

@@ -17,7 +17,7 @@ let bool_val x =
 
 let int_val x = Z3.Arithmetic.Integer.get_int x
 
-module MakeZ3 (Opt : sig val opts : (string * string) list end) = struct
+module MakeZ3 (Opt : sig val opts : (string * string) list end)() = struct
   type term = Z3.Expr.expr
   type formula = Z3.Expr.expr
   open Z3
@@ -161,9 +161,10 @@ end
 
 module MakeSolver
     (C : TranslationContext)
-    (Opt : sig val opts : (string * string) list end) = struct
+    (Opt : sig val opts : (string * string) list end)
+    () = struct
 
-  module Z3C = MakeZ3(Opt)
+  module Z3C = MakeZ3(Opt)()
   module Z3Of = MakeTranslator(C)(Z3C)
   module OfZ3 = MakeTranslator(Z3C)(C)
 
