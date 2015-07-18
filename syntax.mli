@@ -2,7 +2,7 @@ type typ = TyInt | TyReal
 
 module type Constant = sig
   type t
-  val format : Format.formatter -> t -> unit
+  val pp : Format.formatter -> t -> unit
   val typ : t -> typ
   val hash : t -> int
   val equal : t -> t -> bool
@@ -71,7 +71,7 @@ module Make (C : Constant) : sig
     val hash : t -> int
     val equal : t -> t -> bool
     val compare : t -> t -> int
-    val format : Format.formatter -> t -> unit
+    val pp : Format.formatter -> t -> unit
     val show : t -> string
 
     val destruct : t -> t open_term
@@ -86,7 +86,7 @@ module Make (C : Constant) : sig
     val hash : t -> int
     val equal : t -> t -> bool
     val compare : t -> t -> int
-    val format : Format.formatter -> t -> unit
+    val pp : Format.formatter -> t -> unit
     val show : t -> string
 
     val destruct : t -> (t, term) open_formula

@@ -1,14 +1,10 @@
 open Hashcons
 
-type typ = TyInt | TyReal
-             deriving (Compare)
+type typ = TyInt | TyReal [@@deriving ord]
 
-module Show_typ = Deriving_Show.Defaults(struct
-    type a = typ
-    let format formatter = function
-      | TyReal -> Format.pp_print_string formatter "real"
-      | TyInt -> Format.pp_print_string formatter "int"
-  end)
+let pp_typ formatter = function
+  | TyReal -> Format.pp_print_string formatter "real"
+  | TyInt -> Format.pp_print_string formatter "int"
 
 type label =
   | True
@@ -50,7 +46,7 @@ module HC = Hashcons.Make(struct
 
 module type Constant = sig
   type t
-  val format : Format.formatter -> t -> unit
+  val pp : Format.formatter -> t -> unit
   val typ : t -> typ
   val hash : t -> int
   val equal : t -> t -> bool
@@ -60,11 +56,7 @@ module ConstSymbol = Apak.Putil.PInt
 
 module Var = struct
   module I = struct
-    type t = int * typ
-               deriving (Show,Compare)
-    let format = Show.format<t>
-    let show = Show.show<t>
-    let compare = Compare.compare<t>
+    type t = int * typ [@@deriving show,ord]
   end
   include I
   module Set = Apak.Putil.Set.Make(I)
@@ -82,7 +74,7 @@ end
 
 module TypedString = struct
   type t = string * typ
-  let format formatter (name, _) = Format.pp_print_string formatter name
+  let pp formatter (name, _) = Format.pp_print_string formatter name
   let typ = snd
   let hash = Hashtbl.hash
   let equal = (=)
@@ -288,17 +280,17 @@ module Make (C : Constant) = struct
       | Node (Neg, [t]) -> `Unop (`Neg, t)
       | _ -> invalid_arg "destruct: not a term"
 
-    let rec format formatter t =
+    let rec pp formatter t =
       let open Format in
       match destruct t with
-      | `Real qq -> QQ.format formatter qq
-      | `Const k -> C.format formatter (const_of_symbol k)
+      | `Real qq -> QQ.pp formatter qq
+      | `Const k -> C.pp formatter (const_of_symbol k)
       | `Var (v, typ) -> fprintf formatter "[free:%d]" v
       | `Add terms ->
         fprintf formatter "(@[";
         ApakEnum.pp_print_enum
           ~pp_sep:(fun formatter () -> fprintf formatter "@ + ")
-          format
+          pp
           formatter
           (BatList.enum terms);
         fprintf formatter "@])"
@@ -306,28 +298,28 @@ module Make (C : Constant) = struct
         fprintf formatter "(@[";
         ApakEnum.pp_print_enum
           ~pp_sep:(fun formatter () -> fprintf formatter "@ * ")
-          format
+          pp
           formatter
           (BatList.enum terms);
         fprintf formatter "@])"
       | `Binop (`Div, s, t) ->
         fprintf formatter "(@[%a@ / %a@])"
-          format s
-          format t
+          pp s
+          pp t
       | `Binop (`Mod, s, t) ->
         fprintf formatter "(@[%a@ mod %a@])"
-          format s
-          format t
+          pp s
+          pp t
       | `Unop (`Floor, t) ->
-        fprintf formatter "floor(@[%a@])" format t
+        fprintf formatter "floor(@[%a@])" pp t
       | `Unop (`Neg, t) ->
         begin match destruct t with
-          | `Real qq -> QQ.format formatter (QQ.negate qq)
+          | `Real qq -> QQ.pp formatter (QQ.negate qq)
           | `Const _ | `Var (_, _) ->
-            fprintf formatter "-%a" format t
-          | _ -> fprintf formatter "-(@[%a@])" format t
+            fprintf formatter "-%a" pp t
+          | _ -> fprintf formatter "-(@[%a@])" pp t
         end
-    let show t = Apak.Putil.pp_string format t
+    let show t = Apak.Putil.mk_show pp t
   end
   module Formula = struct
     include Expr
@@ -386,18 +378,18 @@ module Make (C : Constant) = struct
       | Node (Lt, [s; t]) -> `Atom (`Lt, s, t)
       | _ -> invalid_arg "Formula.destruct_flat: not a formula"
 
-    let rec format formatter phi =
+    let rec pp formatter phi =
       let open Format in
       match destruct_flat phi with
       | `Tru -> pp_print_string formatter "true"
       | `Fls -> pp_print_string formatter "false"
       | `Not phi ->
-        fprintf formatter "!(@[%a@])" format phi
+        fprintf formatter "!(@[%a@])" pp phi
       | `And conjuncts ->
         fprintf formatter "(@[";
         ApakEnum.pp_print_enum
           ~pp_sep:(fun formatter () -> fprintf formatter "@ /\\ ")
-          format
+          pp
           formatter
           (BatList.enum conjuncts);
         fprintf formatter "@])"
@@ -405,7 +397,7 @@ module Make (C : Constant) = struct
         fprintf formatter "(@[";
         ApakEnum.pp_print_enum
           ~pp_sep:(fun formatter () -> fprintf formatter "@ \\/ ")
-          format
+          pp
           formatter
           (BatList.enum conjuncts);
         fprintf formatter "@])"
@@ -416,9 +408,9 @@ module Make (C : Constant) = struct
           | `Lt -> "<"
         in
         fprintf formatter "@[%a %s %a@]"
-          Term.format x
+          Term.pp x
           op_string
-          Term.format y
+          Term.pp y
       | `Quantify (qt, varinfo, psi) ->
         let quantifier_name =
           match qt with
@@ -429,12 +421,12 @@ module Make (C : Constant) = struct
         ApakEnum.pp_print_enum
           ~pp_sep:pp_print_space
           (fun formatter (name, typ) ->
-             fprintf formatter "(%s : %s)" name (Show.show<typ> typ))
+             fprintf formatter "(%s : %a)" name pp_typ typ)
           formatter
           (BatList.enum varinfo);
-        fprintf formatter ".@ %a@])" format psi
+        fprintf formatter ".@ %a@])" pp psi
 
-    let show t = Apak.Putil.pp_string format t
+    let show t = Apak.Putil.mk_show pp t
 
     let existential_closure phi =
       let vars = vars phi in

@@ -1,6 +1,9 @@
-open Apak
-include Putil.Ordered with type t = Mpzf.t
+type t = Mpzf.t
 
+val pp : Format.formatter -> t -> unit
+val show : t -> string
+
+val compare : t -> t -> int
 val equal : t -> t -> bool
 val leq : t -> t -> bool
 val lt : t -> t -> bool
