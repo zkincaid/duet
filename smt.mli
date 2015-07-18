@@ -5,12 +5,13 @@ module type TranslationContext = sig
   include Syntax.EvalContext with type term := term and type formula := formula
 end
 
-module MakeZ3  (Opt : sig val opts : (string * string) list end) :
+module MakeZ3  (Opt : sig val opts : (string * string) list end)() :
   TranslationContext
 
 module MakeSolver
     (C : TranslationContext)
-    (Opt : sig val opts : (string * string) list end) : sig
+    (Opt : sig val opts : (string * string) list end)
+    () : sig
 
   type solver
   type model
