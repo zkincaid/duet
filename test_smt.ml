@@ -7,9 +7,8 @@ module Ctx = struct
   include Smt.MakeSolver(C)(struct let opts = [] end)()
 end
 
-module Z3 = Smt.MakeZ3(struct let opts = [] end)()
-module Z3Of = MakeTranslator(Ctx)(Z3)
-module OfZ3 = MakeTranslator(Z3)(Ctx)
+module Z3Of = MakeTranslator(Ctx)(Ctx.Z3C)
+module OfZ3 = MakeTranslator(Ctx.Z3C)(Ctx)
 
 module Infix = Syntax.Infix(Ctx)
 

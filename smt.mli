@@ -1,20 +1,22 @@
+open Syntax
+
 exception Unknown_result
 
 module type TranslationContext = sig
   include Syntax.BuilderContext
   include Syntax.EvalContext with type term := term and type formula := formula
+  val const_typ : const_sym -> typ
 end
-
-module MakeZ3  (Opt : sig val opts : (string * string) list end)() :
-  TranslationContext
 
 module MakeSolver
     (C : TranslationContext)
     (Opt : sig val opts : (string * string) list end)
     () : sig
-
+  
   type solver
   type model
+
+  module Z3C : TranslationContext
 
   (** May raise [Unknown_result]. *)
   val implies : C.formula -> C.formula -> bool

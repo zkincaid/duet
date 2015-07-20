@@ -5,6 +5,7 @@ include Apak.Log.Make(struct let name = "ark.smt" end)
 module type TranslationContext = sig
   include BuilderContext
   include EvalContext with type term := term and type formula := formula
+  val const_typ : const_sym -> typ
 end
 
 exception Unknown_result
@@ -17,154 +18,157 @@ let bool_val x =
 
 let int_val x = Z3.Arithmetic.Integer.get_int x
 
-module MakeZ3 (Opt : sig val opts : (string * string) list end)() = struct
-  type term = Z3.Expr.expr
-  type formula = Z3.Expr.expr
-  open Z3
-  let ctx = mk_context Opt.opts
-  let int_sort = Arithmetic.Integer.mk_sort ctx
-  let real_sort = Arithmetic.Real.mk_sort ctx
-  let bool_sort = Boolean.mk_sort ctx
-
-  let sort_of_typ = function
-    | TyInt  -> int_sort
-    | TyReal -> real_sort
-
-  let typ_of_sort sort =
-    let open Z3enums in
-    match Sort.get_sort_kind sort with
-    | REAL_SORT -> TyReal
-    | INT_SORT -> TyInt
-    | _ -> invalid_arg "typ_of_sort"    
-
-  module Term = struct
-    type t = term
-    let rec eval : ('a open_term -> 'a) -> t -> 'a = fun alg ast ->
-      let open Z3enums in
-      match AST.get_ast_kind (Expr.ast_of_expr ast) with
-      | APP_AST -> begin
-          let decl = Expr.get_func_decl ast in
-          let args = List.map (eval alg) (Expr.get_args ast) in
-          match FuncDecl.get_decl_kind decl, args with
-          | (OP_UNINTERPRETED, []) ->
-            alg (`Const (Symbol.get_int (FuncDecl.get_name decl)))
-          | (OP_ADD, args) -> alg (`Add args)
-          | (OP_MUL, args) -> alg (`Mul args)
-          | (OP_SUB, [x;y]) -> alg (`Add [x; alg (`Unop (`Neg, y))])
-          | (OP_UMINUS, [x]) -> alg (`Unop (`Neg, x))
-          | (OP_MOD, [x;y]) -> alg (`Binop (`Mod, x, y))
-          | (OP_IDIV, [x;y]) -> alg (`Unop (`Floor, alg (`Binop (`Div, x, y))))
-          | (OP_DIV, [x;y]) -> alg (`Binop (`Div, x, y))
-          | (OP_TO_REAL, [x]) -> x
-          | (OP_TO_INT, [x]) -> alg (`Unop (`Floor, x))
-          | (_, _) -> invalid_arg "Term.eval: unknown application"
-        end
-      | NUMERAL_AST ->
-        alg (`Real (QQ.of_string (Arithmetic.Real.numeral_to_string ast)))
-      | VAR_AST ->
-        let index = Quantifier.get_index ast in
-        alg (`Var (index, (typ_of_sort (Expr.get_sort ast))))
-      | QUANTIFIER_AST
-      | FUNC_DECL_AST
-      | SORT_AST
-      | UNKNOWN_AST -> invalid_arg "Term.eval: unknown ast type"
-
-  end
-  module Formula = struct
-    type t = formula
-    let rec eval alg ast =
-      let open Z3enums in
-      match AST.get_ast_kind (Expr.ast_of_expr ast) with
-      | APP_AST -> begin
-          let decl = Expr.get_func_decl ast in
-          match FuncDecl.get_decl_kind decl, Expr.get_args ast with
-          | (OP_TRUE, []) -> alg `Tru
-          | (OP_FALSE, []) -> alg `Fls
-          | (OP_AND, args) -> alg (`And (List.map (eval alg) args))
-          | (OP_OR, args) -> alg (`Or (List.map (eval alg) args))
-          | (OP_IFF, [phi;psi]) ->
-            let phi, psi = eval alg phi, eval alg psi in
-            alg (`Or [alg (`And [phi; psi]);
-                      alg (`Not (alg (`Or [phi; psi])))])
-          | (OP_NOT, [phi]) -> alg (`Not (eval alg phi))
-          | (OP_EQ, [s; t]) -> alg (`Atom (`Eq, s, t))
-          | (OP_LE, [s; t]) -> alg (`Atom (`Leq, s, t))
-          | (OP_GE, [s; t]) -> alg (`Atom (`Leq, t, s))
-          | (OP_LT, [s; t]) -> alg (`Atom (`Lt, s, t))
-          | (OP_GT, [s; t]) -> alg (`Atom (`Lt, t, s))
-          | _ ->
-            Apak.Log.invalid_argf "Formula.eval: %s" (Z3.Expr.to_string ast)
-        end
-      | QUANTIFIER_AST ->
-        let ast = Quantifier.quantifier_of_expr ast in
-        let qt =
-          if Quantifier.is_existential ast then `Exists
-          else `Forall
-        in
-        List.fold_left2
-          (fun body name sort ->
-             alg (`Quantify (qt,
-                             Z3.Symbol.to_string name,
-                             typ_of_sort sort,
-                             body)))
-          (eval alg (Quantifier.get_body ast))
-          (Quantifier.get_bound_variable_names ast)
-          (Quantifier.get_bound_variable_sorts ast)            
-      | NUMERAL_AST
-      | VAR_AST
-      | FUNC_DECL_AST
-      | SORT_AST
-      | UNKNOWN_AST -> invalid_arg "Formula.eval"
-  end
-  
-  let mk_add = Arithmetic.mk_add ctx
-  let mk_mul = Arithmetic.mk_mul ctx
-  let mk_div = Arithmetic.mk_div ctx
-  let mk_mod = Arithmetic.Integer.mk_mod ctx
-  let mk_var i typ = Quantifier.mk_bound ctx i (sort_of_typ typ)
-  let mk_real qq =
-    match QQ.to_zz qq with
-    | Some zz -> Arithmetic.Integer.mk_numeral_s ctx (ZZ.show zz)
-    | None -> Arithmetic.Real.mk_numeral_s ctx (QQ.show qq)
-  let mk_const k =
-    Arithmetic.Integer.mk_const ctx (Symbol.mk_int ctx k) (* TODO !!!! *)
-  let mk_floor = Arithmetic.Real.mk_real2int ctx
-  let mk_neg = Arithmetic.mk_unary_minus ctx
-
-  let mk_true = Boolean.mk_true ctx
-  let mk_false = Boolean.mk_false ctx
-  let mk_and = Boolean.mk_and ctx
-  let mk_or = Boolean.mk_or ctx
-  let mk_not = Boolean.mk_not ctx
-  let mk_quantified qt ?name:(name="_") typ phi =
-    let mk = match qt with
-      | `Exists -> Quantifier.mk_exists
-      | `Forall -> Quantifier.mk_forall
-    in
-    mk
-      ctx
-      [sort_of_typ typ]
-      [Symbol.mk_string ctx name]
-      phi
-      None
-      []
-      []
-      None
-      None
-    |> Z3.Quantifier.expr_of_quantifier
-  let mk_exists = mk_quantified `Exists
-  let mk_forall = mk_quantified `Forall
-  let mk_lt = Arithmetic.mk_lt ctx
-  let mk_leq = Arithmetic.mk_le ctx
-  let mk_eq = Boolean.mk_eq ctx
-end
-
 module MakeSolver
     (C : TranslationContext)
     (Opt : sig val opts : (string * string) list end)
     () = struct
 
-  module Z3C = MakeZ3(Opt)()
+  module Z3C = struct
+    type term = Z3.Expr.expr
+    type formula = Z3.Expr.expr
+    open Z3
+
+    let ctx = mk_context Opt.opts
+    let int_sort = Arithmetic.Integer.mk_sort ctx
+    let real_sort = Arithmetic.Real.mk_sort ctx
+    let bool_sort = Boolean.mk_sort ctx
+    let const_typ = C.const_typ
+
+    let sort_of_typ = function
+      | TyInt  -> int_sort
+      | TyReal -> real_sort
+
+    let typ_of_sort sort =
+      let open Z3enums in
+      match Sort.get_sort_kind sort with
+      | REAL_SORT -> TyReal
+      | INT_SORT -> TyInt
+      | _ -> invalid_arg "typ_of_sort"    
+
+    module Term = struct
+      type t = term
+      let rec eval alg ast =
+        let open Z3enums in
+        match AST.get_ast_kind (Expr.ast_of_expr ast) with
+        | APP_AST -> begin
+            let decl = Expr.get_func_decl ast in
+            let args = List.map (eval alg) (Expr.get_args ast) in
+            match FuncDecl.get_decl_kind decl, args with
+            | (OP_UNINTERPRETED, []) ->
+              alg (`Const (Obj.magic (Symbol.get_int (FuncDecl.get_name decl))))
+            | (OP_ADD, args) -> alg (`Add args)
+            | (OP_MUL, args) -> alg (`Mul args)
+            | (OP_SUB, [x;y]) -> alg (`Add [x; alg (`Unop (`Neg, y))])
+            | (OP_UMINUS, [x]) -> alg (`Unop (`Neg, x))
+            | (OP_MOD, [x;y]) -> alg (`Binop (`Mod, x, y))
+            | (OP_IDIV, [x;y]) -> alg (`Unop (`Floor, alg (`Binop (`Div, x, y))))
+            | (OP_DIV, [x;y]) -> alg (`Binop (`Div, x, y))
+            | (OP_TO_REAL, [x]) -> x
+            | (OP_TO_INT, [x]) -> alg (`Unop (`Floor, x))
+            | (_, _) -> invalid_arg "Term.eval: unknown application"
+          end
+        | NUMERAL_AST ->
+          alg (`Real (QQ.of_string (Arithmetic.Real.numeral_to_string ast)))
+        | VAR_AST ->
+          let index = Quantifier.get_index ast in
+          alg (`Var (index, (typ_of_sort (Expr.get_sort ast))))
+        | QUANTIFIER_AST
+        | FUNC_DECL_AST
+        | SORT_AST
+        | UNKNOWN_AST -> invalid_arg "Term.eval: unknown ast type"
+
+    end
+    module Formula = struct
+      type t = formula
+      let rec eval alg ast =
+        let open Z3enums in
+        match AST.get_ast_kind (Expr.ast_of_expr ast) with
+        | APP_AST -> begin
+            let decl = Expr.get_func_decl ast in
+            match FuncDecl.get_decl_kind decl, Expr.get_args ast with
+            | (OP_TRUE, []) -> alg `Tru
+            | (OP_FALSE, []) -> alg `Fls
+            | (OP_AND, args) -> alg (`And (List.map (eval alg) args))
+            | (OP_OR, args) -> alg (`Or (List.map (eval alg) args))
+            | (OP_IFF, [phi;psi]) ->
+              let phi, psi = eval alg phi, eval alg psi in
+              alg (`Or [alg (`And [phi; psi]);
+                        alg (`Not (alg (`Or [phi; psi])))])
+            | (OP_NOT, [phi]) -> alg (`Not (eval alg phi))
+            | (OP_EQ, [s; t]) -> alg (`Atom (`Eq, s, t))
+            | (OP_LE, [s; t]) -> alg (`Atom (`Leq, s, t))
+            | (OP_GE, [s; t]) -> alg (`Atom (`Leq, t, s))
+            | (OP_LT, [s; t]) -> alg (`Atom (`Lt, s, t))
+            | (OP_GT, [s; t]) -> alg (`Atom (`Lt, t, s))
+            | _ ->
+              Apak.Log.invalid_argf "Formula.eval: %s" (Z3.Expr.to_string ast)
+          end
+        | QUANTIFIER_AST ->
+          let ast = Quantifier.quantifier_of_expr ast in
+          let qt =
+            if Quantifier.is_existential ast then `Exists
+            else `Forall
+          in
+          List.fold_left2
+            (fun body name sort ->
+               alg (`Quantify (qt,
+                               Z3.Symbol.to_string name,
+                               typ_of_sort sort,
+                               body)))
+            (eval alg (Quantifier.get_body ast))
+            (Quantifier.get_bound_variable_names ast)
+            (Quantifier.get_bound_variable_sorts ast)
+        | NUMERAL_AST
+        | VAR_AST
+        | FUNC_DECL_AST
+        | SORT_AST
+        | UNKNOWN_AST -> invalid_arg "Formula.eval"
+    end
+
+    let mk_add = Arithmetic.mk_add ctx
+    let mk_mul = Arithmetic.mk_mul ctx
+    let mk_div = Arithmetic.mk_div ctx
+    let mk_mod = Arithmetic.Integer.mk_mod ctx
+    let mk_var i typ = Quantifier.mk_bound ctx i (sort_of_typ typ)
+    let mk_real qq =
+      match QQ.to_zz qq with
+      | Some zz -> Arithmetic.Integer.mk_numeral_s ctx (ZZ.show zz)
+      | None -> Arithmetic.Real.mk_numeral_s ctx (QQ.show qq)
+    let mk_const sym =
+      let id = Z3.Symbol.mk_int ctx (Obj.magic sym) in
+      match C.const_typ sym with
+      | TyInt -> Z3.Arithmetic.Integer.mk_const ctx id
+      | TyReal -> Z3.Arithmetic.Real.mk_const ctx id
+    let mk_floor = Arithmetic.Real.mk_real2int ctx
+    let mk_neg = Arithmetic.mk_unary_minus ctx
+
+    let mk_true = Boolean.mk_true ctx
+    let mk_false = Boolean.mk_false ctx
+    let mk_and = Boolean.mk_and ctx
+    let mk_or = Boolean.mk_or ctx
+    let mk_not = Boolean.mk_not ctx
+    let mk_quantified qt ?name:(name="_") typ phi =
+      let mk = match qt with
+        | `Exists -> Quantifier.mk_exists
+        | `Forall -> Quantifier.mk_forall
+      in
+      mk
+        ctx
+        [sort_of_typ typ]
+        [Symbol.mk_string ctx name]
+        phi
+        None
+        []
+        []
+        None
+        None
+      |> Z3.Quantifier.expr_of_quantifier
+    let mk_exists = mk_quantified `Exists
+    let mk_forall = mk_quantified `Forall
+    let mk_lt = Arithmetic.mk_lt ctx
+    let mk_leq = Arithmetic.mk_le ctx
+    let mk_eq = Boolean.mk_eq ctx
+  end
   module Z3Of = MakeTranslator(C)(Z3C)
   module OfZ3 = MakeTranslator(Z3C)(C)
 
