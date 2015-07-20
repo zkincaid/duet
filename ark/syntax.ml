@@ -2,6 +2,8 @@ open BatHashcons
 
 type typ = TyInt | TyReal [@@deriving ord]
 
+type const_sym = int
+
 let pp_typ formatter = function
   | TyReal -> Format.pp_print_string formatter "real"
   | TyInt -> Format.pp_print_string formatter "int"
@@ -17,7 +19,7 @@ type label =
   | Eq
   | Leq
   | Lt
-  | Const of int
+  | Const of const_sym
   | Var of int * typ
   | Add
   | Mul
@@ -111,20 +113,60 @@ type ('a,'b) open_formula = [
   | `Atom of [`Eq | `Leq | `Lt] * 'b * 'b
 ]
 
+module MakeSymbolManager (C : Constant) () = struct
+  module HT = Hashtbl.Make (C)
+  module DynArray = BatDynArray
+
+  let const_left = DynArray.make 512
+  let const_right = HT.create 991
+
+  let const_of_symbol sym =
+    match DynArray.get const_left sym with
+    | `Const k -> Some k
+    | _ -> None
+
+  let const_of_symbol_exn sym =
+    match DynArray.get const_left sym with
+    | `Const k -> k
+    | _ -> invalid_arg "const_of_symbol"
+
+  let symbol_of_const k =
+    if HT.mem const_right k then
+      HT.find const_right k
+    else
+      let id = DynArray.length const_left in
+      HT.add const_right k id;
+      DynArray.add const_left (`Const k);
+      id
+
+  let mk_skolem ?(name="K") typ =
+    DynArray.add const_left (`Skolem (name, typ));
+    DynArray.length const_left - 1
+
+  let is_skolem sym =
+    match DynArray.get const_left sym with
+    | `Skolem (_, _) -> true
+    | `Const _ -> false
+
+  let const_typ sym =
+    match DynArray.get const_left sym with
+    | `Skolem (_, typ) -> typ
+    | `Const k -> C.typ k
+
+  let pp_const formatter sym =
+    match DynArray.get const_left sym with
+    | `Skolem (name, _) -> Format.fprintf formatter "%s:%d" name sym
+    | `Const k -> C.pp formatter k
+end
 module Make (C : Constant) () = struct
   type term = expr hobj
   type formula = expr hobj
 
-  module E = Apak.Enumeration.Make(C)
+  include MakeSymbolManager(C)()
 
   let hashcons =
     let hc = HC.create 991 in
     HC.hashcons hc
-
-  let constants = E.empty ()
-  
-  let const_of_symbol = E.from_int constants
-  let symbol_of_const = E.to_int constants
 
   let mk_real qq = hashcons (Node (Real qq, []))
   let mk_zero = mk_real QQ.zero
@@ -244,11 +286,13 @@ module Make (C : Constant) () = struct
           else Var.Set.singleton (v - depth, typ)
         | _ -> go_children depth children
       and go_children depth children =
-        List.fold_left Var.Set.union Var.Set.empty (List.map (go depth) children)
+        List.fold_left
+          Var.Set.union
+          Var.Set.empty
+          (List.map (go depth) children)
       in
       go 0 expr
   end
-
 
   module Term = struct
     include Expr
@@ -284,7 +328,7 @@ module Make (C : Constant) () = struct
       let open Format in
       match destruct t with
       | `Real qq -> QQ.pp formatter qq
-      | `Const k -> C.pp formatter (const_of_symbol k)
+      | `Const k -> pp_const formatter k
       | `Var (v, typ) -> fprintf formatter "[free:%d]" v
       | `Add terms ->
         fprintf formatter "(@[";
@@ -448,6 +492,16 @@ module Make (C : Constant) () = struct
         (fun psi typ -> mk_exists typ psi)
         (substitute rename phi)
         types
+
+    let skolemize_free phi =
+      let skolem = Apak.Memo.memo (fun (i, typ) -> mk_const (mk_skolem typ)) in
+      let rec go expr =
+        let (Node (label, children)) = expr.obj in
+        match label with
+        | Var (i, typ) -> skolem (i, typ)
+        | _ -> hashcons (Node (label, List.map go children))
+      in
+      go phi
   end
 end
 

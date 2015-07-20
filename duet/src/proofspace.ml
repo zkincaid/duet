@@ -55,7 +55,10 @@ module P = struct
   let big_disj enum = Ctx.mk_or (BatList.of_enum enum)
   let constants phi =
     Ctx.Formula.fold_constants
-      (fun i s -> VarSet.add (Ctx.const_of_symbol i) s)
+      (fun i s ->
+         match Ctx.const_of_symbol i with
+         | Some v -> VarSet.add v s
+         | None -> s)
       phi
       VarSet.empty
 end
@@ -154,7 +157,7 @@ let subscript_expr ss i =
   Expr.fold alg
 
 let unsubscript =
-  let sigma v = program_var (fst (Ctx.const_of_symbol v), 0) in
+  let sigma sym = program_var (fst (Ctx.const_of_symbol_exn sym), 0) in
   P.substitute_const sigma
 
 let subscript_bexpr ss i bexpr =
@@ -188,7 +191,7 @@ let generalize_atom phi =
       end
   in
   let sigma v =
-    let (v, tid) = Ctx.const_of_symbol v in
+    let (v, tid) = Ctx.const_of_symbol_exn v in
     let iv =
       if Var.is_shared v then (v, tid) else (v, 1 + generalize tid)
     in
@@ -212,7 +215,7 @@ let generalize i phi psi =
       end
   in
   let sigma v =
-    let (v, tid) = Ctx.const_of_symbol v in
+    let (v, tid) = Ctx.const_of_symbol_exn v in
     let iv =
       if Var.is_shared v then (v, tid) else (v, generalize tid)
     in

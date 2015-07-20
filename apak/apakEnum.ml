@@ -1,11 +1,11 @@
 open Batteries
 
 let default_sep formatter () = Format.fprintf formatter ",@ "
-let pp_print_enum ?pp_sep:(pp_sep=default_sep) pp_elt formatter enum =
+let pp_print_enum ?(indent=2) ?(pp_sep=default_sep) pp_elt formatter enum =
   match BatEnum.get enum with
   | None   -> ()
   | Some x -> begin
-      Format.pp_open_hovbox formatter 2;
+      Format.pp_open_hovbox formatter indent;
       pp_elt formatter x;
       BatEnum.iter (fun elt ->
           pp_sep formatter ();

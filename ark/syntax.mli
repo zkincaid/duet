@@ -1,11 +1,24 @@
 type typ = TyInt | TyReal
 
+type const_sym
+
 module type Constant = sig
   type t
   val pp : Format.formatter -> t -> unit
   val typ : t -> typ
   val hash : t -> int
   val equal : t -> t -> bool
+end
+
+module MakeSymbolManager (C : Constant)() : sig
+  val symbol_of_const : C.t -> const_sym
+  val const_of_symbol : const_sym -> C.t option
+  val const_of_symbol_exn : const_sym -> C.t
+
+  val mk_skolem : ?name:string -> typ -> const_sym
+  val is_skolem : const_sym -> bool
+  val const_typ : const_sym -> typ
+  val pp_const : Format.formatter -> const_sym -> unit
 end
 
 module TypedString : Constant with type t = string * typ
@@ -19,7 +32,7 @@ end
 
 type 'a open_term = [
   | `Real of QQ.t
-  | `Const of int
+  | `Const of const_sym
   | `Var of int * typ
   | `Add of 'a list
   | `Mul of 'a list
@@ -41,8 +54,14 @@ module Make (C : Constant) () : sig
   type term
   type formula
 
-  val symbol_of_const : C.t -> int
-  val const_of_symbol : int -> C.t
+  val symbol_of_const : C.t -> const_sym
+  val const_of_symbol : const_sym -> C.t option
+  val const_of_symbol_exn : const_sym -> C.t
+
+  val mk_skolem : ?name:string -> typ -> const_sym
+  val is_skolem : const_sym -> bool
+  val const_typ : const_sym -> typ
+  val pp_const : Format.formatter -> const_sym -> unit
 
   val mk_add : term list -> term
   val mk_mul : term list -> term
@@ -50,7 +69,7 @@ module Make (C : Constant) () : sig
   val mk_mod : term -> term -> term
   val mk_var : int -> typ -> term
   val mk_real : QQ.t -> term
-  val mk_const : int -> term
+  val mk_const : const_sym -> term
   val mk_floor : term -> term
   val mk_neg : term -> term
   val mk_sub : term -> term -> term
@@ -78,7 +97,7 @@ module Make (C : Constant) () : sig
     val eval : ('a open_term -> 'a) -> t -> 'a
     val fold_constants : (int -> 'a -> 'a) -> t -> 'a -> 'a
     val substitute : (int -> t) -> t -> t
-    val substitute_const : (int -> t) -> t -> t
+    val substitute_const : (const_sym -> t) -> t -> t
   end
 
   module Formula : sig
@@ -91,10 +110,11 @@ module Make (C : Constant) () : sig
 
     val destruct : t -> (t, term) open_formula
     val eval : (('a, term) open_formula -> 'a) -> t -> 'a
-    val fold_constants : (int -> 'a -> 'a) -> t -> 'a -> 'a
+    val fold_constants : (const_sym -> 'a -> 'a) -> t -> 'a -> 'a
     val substitute : (int -> term) -> t -> t
-    val substitute_const : (int -> term) -> t -> t
+    val substitute_const : (const_sym -> term) -> t -> t
     val existential_closure : t -> t
+    val skolemize_free : t -> t
   end
 end
 
@@ -108,7 +128,7 @@ module type BuilderContext = sig
   val mk_mod : term -> term -> term
   val mk_var : int -> typ -> term
   val mk_real : QQ.t -> term
-  val mk_const : int -> term
+  val mk_const : const_sym -> term
   val mk_floor : term -> term
   val mk_neg : term -> term
 

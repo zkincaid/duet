@@ -104,3 +104,29 @@ and nudge_up ?(accuracy=(!opt_default_accuracy)) x =
     else
       let lo = nudge_down ~accuracy:(accuracy - 1) (of_zzfrac den r) in
       add (of_zz q) (inverse lo)
+
+let floor x =
+  let (num, den) = to_zzfrac x in
+  Mpzf.fdiv_q num den
+
+let idiv x y =
+  let (xnum, xden) = to_zzfrac x in
+  let (ynum, yden) = to_zzfrac y in
+  ZZ.div (ZZ.mul xnum yden) (ZZ.mul ynum xden)
+
+let modulo x y =
+  let (xnum, xden) = to_zzfrac x in
+  let (ynum, yden) = to_zzfrac y in
+  of_zzfrac
+    (ZZ.modulo (ZZ.mul xnum yden) (ZZ.mul ynum xden))
+    (ZZ.mul xden yden)
+
+let gcd x y =
+  let (xnum, xden) = to_zzfrac x in
+  let (ynum, yden) = to_zzfrac y in
+  of_zzfrac (ZZ.gcd xnum ynum) (ZZ.lcm xden yden)
+
+let lcm x y =
+  let (xnum, xden) = to_zzfrac x in
+  let (ynum, yden) = to_zzfrac y in
+  of_zzfrac (ZZ.lcm xnum ynum) (ZZ.gcd xden yden)

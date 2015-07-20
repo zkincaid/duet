@@ -12,11 +12,16 @@ val hash : t -> int
 
 val add : t -> t -> t
 val mul : t -> t -> t
+val div : t -> t -> t
+val idiv : t -> t -> ZZ.t
+val modulo : t -> t -> t
+val gcd : t -> t -> t
+val lcm : t -> t -> t
 val zero : t
 val one : t
 val negate : t -> t
 val inverse : t -> t
-
+val floor : t -> ZZ.t
 val sub : t -> t -> t
 val exp : t -> int -> t
 

@@ -17,7 +17,10 @@ val one : t
 val negate : t -> t
   
 val sub : t -> t -> t
-val floor_div : t -> t -> t
+
+val div : t -> t -> t
+val modulo : t -> t -> t
+
 val gcd : t -> t -> t
 val lcm : t -> t -> t
 
