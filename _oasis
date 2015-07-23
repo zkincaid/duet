@@ -33,7 +33,7 @@ Library ark
   BuildTools:       ocamlbuild
   FindlibName:      ark
   Pack:             true
-  InternalModules:  QQ, ZZ, Syntax, Smt, Linear
+  InternalModules:  QQ, ZZ, Syntax, Smt, Linear, Abstract
   BuildDepends:     ppx_deriving, ppx_deriving.show, ppx_deriving.ord, apak, gmp, camlidl, apron, Z3
   Install:          false
   XMETADescription: Arithmetic Reasoning Kit

@@ -272,4 +272,15 @@ module MakeSolver
     | `Sat -> false
     | `Unsat -> true
     | `Unknown -> raise Unknown_result
+
+  let equiv phi psi =
+    let s = Solver.mk_solver () in
+    Z3.Solver.add s [Z3C.mk_or [
+        Z3C.mk_and [Z3Of.formula phi; Z3C.mk_not (Z3Of.formula psi)];
+        Z3C.mk_and [Z3Of.formula psi; Z3C.mk_not (Z3Of.formula phi)];
+      ]];
+    match Solver.check s [] with
+    | `Sat -> false
+    | `Unsat -> true
+    | `Unknown -> raise Unknown_result
 end

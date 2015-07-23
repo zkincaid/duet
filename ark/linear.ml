@@ -19,21 +19,19 @@ module type Vector = sig
   type t
   type dim
   type scalar
-
   val equal : t -> t -> bool
   val add : t -> t -> t
   val scalar_mul : scalar -> t -> t
-
+  val negate : t -> t
+  val dot : t -> t -> scalar
   val zero : t
   val add_term : scalar -> dim -> t -> t
   val of_term : scalar -> dim -> t
-
   val enum : t -> (scalar * dim) BatEnum.t
   val coeff : dim -> t -> scalar
-
   val pivot : dim -> t -> scalar * t
-
   val pp : Format.formatter -> t -> unit
+  val show : t -> string
 end
 
 module type Context = sig
@@ -88,16 +86,16 @@ module AbelianGroupMap (M : Map) (G : AbelianGroup) = struct
     in
     M.merge f u v
 
-  let add_term coeff v lin =
-    if is_zero coeff then lin else begin
+  let add_term coeff dim vec =
+    if is_zero coeff then vec else begin
       try
-        let sum = G.add coeff (M.find v lin) in
-        if not (is_zero sum) then M.add v sum lin
-        else M.remove v lin
-      with Not_found -> M.add v coeff lin
+        let sum = G.add coeff (M.find dim vec) in
+        if not (is_zero sum) then M.add dim sum vec
+        else M.remove dim vec
+      with Not_found -> M.add dim coeff vec
     end
 
-  let coeff x m = try M.find x m with Not_found -> G.zero
+  let coeff dim vec = try M.find dim vec with Not_found -> G.zero
 
   let enum vec = M.enum vec /@ (fun (x,y) -> (y,x))
 
@@ -110,8 +108,7 @@ module AbelianGroupMap (M : Map) (G : AbelianGroup) = struct
   let negate = M.map G.negate
 
   let pivot dim vec =
-    let coeff = M.find dim vec in
-    (coeff, M.remove dim vec)
+    (coeff dim vec, M.remove dim vec)
 end
 
 module Int = struct
@@ -283,7 +280,7 @@ let solve_exn mat b =
   in
   let res =
     backprop (QQVector.of_term QQ.one b_column) rr
-    |> pivot b_column
+    |> QQVector.pivot b_column
     |> snd
     |> QQVector.negate
   in
