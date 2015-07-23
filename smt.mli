@@ -21,6 +21,9 @@ module MakeSolver
   (** May raise [Unknown_result]. *)
   val implies : C.formula -> C.formula -> bool
 
+  (** May raise [Unknown_result]. *)
+  val equiv : C.formula -> C.formula -> bool
+
   val is_sat : C.formula -> [ `Sat | `Unsat | `Unknown ]
   val get_model : C.formula -> [ `Sat of model | `Unsat | `Unknown ]
   val interpolate_seq : C.formula list ->

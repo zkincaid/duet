@@ -11,15 +11,16 @@ module type Context = sig
   include Smt.TranslationContext
 end
 
-module ZZVector : sig
+module type Vector = sig
   type t
-  type dim = int
-  type scalar = ZZ.t
+  type dim
+  type scalar
 
   val equal : t -> t -> bool
   val add : t -> t -> t
   val scalar_mul : scalar -> t -> t
-  val dot : t -> t -> ZZ.t
+  val negate : t -> t
+  val dot : t -> t -> scalar
 
   val zero : t
   val add_term : scalar -> dim -> t -> t
@@ -34,28 +35,8 @@ module ZZVector : sig
   val show : t -> string
 end
 
-module QQVector : sig
-  type t
-  type dim = int
-  type scalar = QQ.t
-
-  val equal : t -> t -> bool
-  val add : t -> t -> t
-  val scalar_mul : scalar -> t -> t
-  val dot : t -> t -> QQ.t
-
-  val zero : t
-  val add_term : scalar -> dim -> t -> t
-  val of_term : scalar -> dim -> t
-
-  val enum : t -> (scalar * dim) BatEnum.t
-  val coeff : dim -> t -> scalar
-
-  val pivot : dim -> t -> scalar * t
-
-  val pp : Format.formatter -> t -> unit
-  val show : t -> string
-end
+module ZZVector : Vector with type dim = int and type scalar = ZZ.t
+module QQVector : Vector with type dim = int and type scalar = QQ.t
 
 module QQMatrix : sig
   type t

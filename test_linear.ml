@@ -69,10 +69,20 @@ let solve3 () =
     "Unsolvable system of linear equations"
      (solve m b = None)
 
+let solve4 () =
+  let m = mk_matrix [[1; -1; -1];
+                     [0; 0; 1]]
+  in
+  let b = mk_vector [1] in
+  let x = solve_exn m b in
+  assert_equal ~printer:QQVector.show b (vector_right_mul m x)
+
+
 let suite = "Linear" >::: [
     "dot" >:: dot;
     "mul" >:: mul;
     "solve1" >:: solve1;
     "solve2" >:: solve2;
     "solve3" >:: solve3;
+    "solve4" >:: solve4;
   ]
