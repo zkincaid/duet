@@ -203,11 +203,11 @@ let infer_frames file =
     file
 *)
 
-module MemLoc = Pa.MemLoc
+module MemLoc = PointerAnalysis.MemLoc
 module DS = DisjointSet.Make(MemLoc)
 
 let memlocs ap_set =
-  let f ap = MemLoc.Set.union (Pa.resolve_ap ap) in
+  let f ap = MemLoc.Set.union (PointerAnalysis.resolve_ap ap) in
   AP.Set.fold f ap_set MemLoc.Set.empty
 
 (** Partition the access paths in a program into related "packs".  The
@@ -257,17 +257,17 @@ let infer_partition file =
 
 module VarDS = DisjointSet.Make(Var)
 let memlocs ap_set =
-  let f ap = MemLoc.Set.union (Pa.resolve_ap ap) in
+  let f ap = MemLoc.Set.union (PointerAnalysis.resolve_ap ap) in
   AP.Set.fold f ap_set MemLoc.Set.empty
 
 let var_locs ap_set =
   let f ap set =
     let g memloc set =
       match memloc with
-      | (Pa.MAddr vi, offset) -> Var.Set.add (vi, offset) set
+      | (PointerAnalysis.MAddr vi, offset) -> Var.Set.add (vi, offset) set
       | _ -> set
     in
-    MemLoc.Set.fold g (Pa.resolve_ap ap) set
+    MemLoc.Set.fold g (PointerAnalysis.resolve_ap ap) set
   in
   AP.Set.fold f ap_set Var.Set.empty
 

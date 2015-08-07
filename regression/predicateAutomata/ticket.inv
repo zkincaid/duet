@@ -1,0 +1,181 @@
+let init() =
+  (forall i. D(i))
+  /\ (exists i. <!enter>(i))
+  /\ {fls}()
+  /\ (forall i. {olds<s}() \/ {olds<m}(i))
+in
+let inv(i) =
+  D(i)
+  \/ <2,3>(i)
+  \/ <1,2>(i)
+  \/ <3,1>(i)
+  \/ <1,3>(i)
+  \/ <3,2>(i)
+  \/ <2,1>(i)
+  \/ <3,3>(i)
+  \/ <1,1>(i)
+  \/ (<2,2>(i) /\ ({s=m}(i) \/ {s<m}(i) \/ {s<t}()))
+in
+let not_at_2(i) =
+  <0>(i) \/ <1>(i) \/ <3>(i)
+  \/ <1,1>(i) \/ <1,2>(i) \/ <1,3>(i)
+  \/ <3,1>(i) \/ <3,2>(i) \/ <3,3>(i)
+in
+let at_2(i) =
+  <2,1>(i) \/ <2,2>(i) \/ <2,3>(i) \/ <2>(i)
+in
+let at_3(i) =
+  <3,1>(i) \/ <3,2>(i) \/ <3,3>(i) \/ <3>(i)
+in
+let ticket_acquired(i) = at_2(i) \/ at_3(i) in
+(*
+init()
+
+(* Some thread isn't in a loop *)
+\/ (exists i. <0,1>(i) \/ <0,2>(i) \/ <0,3>(i))
+
+\/ ({fls}() /\ (
+
+(exists i. <!enter>(i)
+	   /\ {olds<s}()
+	   /\ (forall i. D(i) \/ <2,3>(i) \/ <1,3>(i) \/ <1,2>(i)
+	              \/ (<2,2>(i) /\ {s=m}(i))))
+
+\/ (exists i. <!enter>(i)
+           /\ (forall j. i = j \/ inv(j))
+	   /\ ((D(i) /\ ({olds<m}(i)
+	                 \/ {s<m}(i)
+			 \/ {s<t}()
+			 \/ (exists j. {m<t-1}(j))))
+	       \/ (<2,2>(i) /\ ({s=m}(i)
+	                        \/ (exists j. {mi=mj-1}(j,i) /\ {mi<mj-1}(j,i))))))
+
+
+
+(* Some thread has to be the first to acquire a ticket *)
+\/ ((forall i. (<2>(i) /\ ({s=m}(i)
+                           \/ {s<m}(i) (* why?? *)
+                           \/ (exists j. ({mi<mj-1}(j,i) \/ {mi=mj-1}(j,i)))))
+            \/ (<1>(i) /\ {s=t}())
+   	    \/ (<3>(i) /\ {m=t-1}(i))
+ 	    \/ <0>(i))
+     /\ (exists i. <1>(i) \/ <2>(i)))
+
+(* The thread which is not supposed to enter its critical section must enter
+   in order to loop *)
+\/ (exists i. <!enter>(i) /\ (<1,2>(i) \/ <3,1>(i) \/ <3,2>(i)))
+
+(* Invariant: when thread i is in its critical section, s = m(i) *)
+\/ (exists i. (<3,1>(i) \/ <3,2>(i) \/ <3,3>(i) \/ <3>(i))
+           /\ {s=m}(i))
+
+(* Invariant: while thread i  is waiting,
+     s <= m(i)
+   and either
+     m(i) = t - 1
+   or there is some j such that j has acquired its ticket and
+     m(i) = m(j)-1
+*)
+\/ (exists i. at_2(i)
+              /\ (({s<m}(i) /\ {s=m}(i))
+                  \/ ((forall j. not_at_2(j) \/ {mi=mj-1}(i,j))
+		      /\ {m=t-1}(i))))
+
+(* Invariant: if i has a ticket, then m(i) <= t-1 *)
+\/ (exists i. ticket_acquired(i) /\ {m=t-1}(i) /\ {m<t-1}(i))
+
+(* If i is critical and some other thread has a ticket, then m(i) < t-1 *)
+\/ (exists i j. i != j /\ at_3(i) /\ at_2(j) /\ {m<t-1}(i))
+
+(* Invariant: If only one thread is waiting, critical, then it has m(i)=t-1 *)
+\/ (exists i. (<2>(i) \/ <3>(i)) /\ {m=t-1}(i)
+           /\ (forall j. i = j \/ <0>(j) \/ <1>(j)))
+
+(* Invariant: s<=t, and if some thread has a ticket, then s < t *)
+\/ ({s<t}() /\ ({s=t}() \/ exists i. at_2(i)))
+
+(* Invariant: old(s)<=s *)
+\/ {olds<=s}()
+
+(* Invariant: mutual exclusion *)
+\/ (exists i j. i != j /\ at_3(i) /\ at_3(j))
+\/ (exists i j. i != j /\ at_3(i) /\ at_2(j) /\ {s<m}(j))
+
+
+(* Invariant: if thread i is in its critical section, there is no waiting
+   thread with a smaller ticket*)
+\/ (exists i. at_3(i)
+           /\ (exists j. {mi<mj-1}(i,j) /\ {mi=mj-1}(i,j)
+	              /\ at_2(j)))
+))
+*)
+
+let at_3(i) = <3>(i) in
+let at_2(i) = <2>(i) in
+let at_1(i) = <1>(i) in
+let multiple_loc(i) =
+  (<1>(i) /\ (<2>(i) \/ <3>(i)))
+  \/ (<2>(i) /\ <3>(i))
+in
+let pc(i) = at_1(i) \/ at_2(i) \/ at_3(i) \/ <0>(i) in
+
+(*
+{fls}()
+/\ (forall i. pc(i))
+
+/\ (
+(exists i j. i != j /\ at_3(i) /\ at_3(j))
+\/ (exists i j. i != j /\ at_3(i) /\ at_2(j) /\ {s<m}(j))
+\/ (exists i j. i != j /\ at_2(i) /\ at_2(j) /\ {s<m}(j) /\ {s<m}(i))
+\/ (exists i. (at_2(i) \/ at_3(i)) /\ {s<t}())
+
+(* If a thread i has a ticket, then s<=m(i) *)
+\/ (exists i. at_2(i) /\ {s<m}(i) /\ {s=m}(i))
+
+(* If thread i is in its critical section, then s=m(i) *)
+\/ (exists i. at_3(i) /\ {s=m}(i))
+
+(* If a thread i has a ticket, then m(i)<=t-1 *)
+\/ (exists i. (at_2(i) \/ at_3(i)) /\ {m<t-1}(i) /\ {m=t-1}(i))
+\/ (exists i. (at_2(i) \/ at_3(i)) /\ {m<t}(i))
+
+(* Thread i is in critical, but its ticket is bigger than thread j's *)
+\/ (exists i j. i != j /\ at_3(i) /\ at_2(j) /\ {mi<mj-1}(i,j) /\ {mi=mj-1}(i,j))
+
+\/ (exists i j. i != j /\ at_2(i) /\ at_2(j)
+             /\ {s<m}(i) /\ {mi<mj-1}(i,j) /\ {mi=mj-1}(i,j))
+
+
+\/ ({s<t}() /\ {s=t}())
+
+\/ (exists i j. i != j /\ at_2(i) /\ at_3(j) /\ {m<t-1}(j))
+\/ (exists i j. i != j /\ at_2(i) /\ at_2(j) /\ {s<m}(j) /\ {m<t-1}(j))
+\/ (exists i j. i != j /\ at_2(i) /\ at_2(j) /\ {s<m}(i) /\ {s<m}(j))
+
+
+\/ (exists i j. i != j /\ at_2(i) /\ at_2(j) /\ {s<m}(i) /\ {s<m}(j))
+\/ (exists i j k. i != j /\ j != k /\ i != k
+              /\ at_2(i) /\ at_2(j) /\ at_3(k)
+              /\ {mi<mj-1}(k,i) /\ {mi<mj-1}(k,j))
+\/ (exists i j k. i != j /\ j != k /\ i != k
+              /\ at_2(i) /\ at_2(j) /\ at_2(k)
+              /\ {mi<mj-1}(k,i) /\ {mi<mj-1}(k,j) /\ {s<m}(k))
+)
+*)
+
+{fls}()
+/\ (forall i. pc(i))
+
+/\ (
+
+(*(exists i j. i != j /\ at_3(i) /\ at_3(j))*)
+
+(exists i. (<2>(i) \/ <3>(i)) /\ {m=t-1}(i) /\ {m<t-1}(i))
+\/ (exists i. <2>(i) /\ {s<m}(i) /\ {s=m}(i))
+\/ (exists i. <3>(i) /\ {s=m}(i))
+\/ (exists i j. <3>(i) /\ <2>(j) /\ {mi=mj-1}(i,j) /\ {mi<mj-1}(i,j))
+\/ ({s<t}() /\ {s=t}())
+\/ (exists i j. <2>(i) /\ <2>(i)
+             /\ {mi=mj-1}(i,j) /\ {mi<mj-1}(i,j)
+             /\ {mi=mj-1}(j,i) /\ {mi<mj-1}(j,i))
+)

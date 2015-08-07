@@ -22,14 +22,15 @@ let construct file pack uses =
         | Some v -> FS.update (pack v) (Def.Set.singleton def) rd
         | None -> match def.dkind with
           | Store (lhs, rhs) ->
+            let open PointerAnalysis in
             let f memloc rd =
               match memloc with
-              | (Pa.MAddr vi, offset) ->
+              | (MAddr vi, offset) ->
                 let p = pack (vi, offset) in
                 FS.update p (Def.Set.add def (FS.eval rd p)) rd
               | (_, _) -> rd
             in
-            Pa.MemLoc.Set.fold f (Pa.resolve_ap lhs) rd
+            MemLoc.Set.fold f (resolve_ap lhs) rd
           | Assume phi | Assert (phi, _) ->
             let set_rd v rd = FS.update (pack v) (Def.Set.singleton def) rd in
             Var.Set.fold set_rd (Bexpr.free_vars phi) rd

@@ -452,18 +452,19 @@ end = struct
       | (Variable x, _) ->
         make (Var.Set.singleton x) [] pred
       | (ap, _) ->
+        let open PointerAnalysis in
         let roots = AP.free_vars ap in
 
         (* If p may be &a, then we need to add a to the frame without the
            equality a0 = a1 if *p gets written to. *)
         let add_memloc memloc varset = match memloc with
-          | (Pa.MAddr v, offset) -> Var.Set.add (v, offset) varset
+          | (MAddr v, offset) -> Var.Set.add (v, offset) varset
           | (_, _) -> varset
         in
-        let memlocs = Pa.resolve_ap ap in
+        let memlocs = resolve_ap ap in
 
         let killed =
-          Pa.MemLoc.Set.fold add_memloc memlocs (Var.Set.empty)
+          MemLoc.Set.fold add_memloc memlocs (Var.Set.empty)
         in
         let add_root root (frame, eqs) =
           if Var.Set.mem root killed then (frame, eqs)

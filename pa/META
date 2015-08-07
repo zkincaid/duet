@@ -1,0 +1,12 @@
+# OASIS_START
+# DO NOT EDIT (digest: e367ad8dc4f0c1068e458c64deed9f21)
+version = "0.1.3"
+description = "Predicate Automata tools"
+requires = "ppx_deriving ppx_deriving.show ppx_deriving.ord apak Z3"
+archive(byte) = "pa.cma"
+archive(byte, plugin) = "pa.cma"
+archive(native) = "pa.cmxa"
+archive(native, plugin) = "pa.cmxs"
+exists_if = "pa.cma"
+# OASIS_STOP
+

@@ -12,9 +12,7 @@ let debug_mode      = ref false
 let default_debug   = ref false
 let debug_phases    = ref ([] : string list)
 let verbosity_level : level ref = ref `always
-
-let terminal_supports_colors =
-  Unix.isatty Unix.stdout
+let colorize        = ref (Unix.isatty Unix.stdout)
 
 let level_of_string = function
   | "trace" -> `trace
@@ -59,7 +57,7 @@ module Make(M : sig val name : string end) = struct
         ""
     in
     let (start, reset) =
-      if terminal_supports_colors && attributes != [] then
+      if !colorize && attributes != [] then
         (format_of_attrs attributes, format_of_string "\x1b[0m@\n@?")
       else
         ("", "@\n@?")
@@ -108,7 +106,7 @@ let debugf fmt =
   else Format.ifprintf Format.std_formatter fmt
 
 let errorf fmt =
-  if terminal_supports_colors
+  if !colorize
   then Format.eprintf ("\x1b[31;1m" ^^ fmt ^^ "\x1b[0m@\n@?")
   else Format.eprintf fmt
 let error msg = errorf msg
@@ -116,7 +114,7 @@ let error_pp pp x = errorf "%a" pp x
 
 let fatalf fmt =
   let fmt =
-    if terminal_supports_colors
+    if !colorize
     then ("\x1b[31;1m" ^^ fmt ^^ "\x1b[0m@\n@?")
     else fmt
   in

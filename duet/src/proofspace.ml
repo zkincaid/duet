@@ -65,29 +65,46 @@ end
 
 let program_var v = Ctx.mk_const (Ctx.symbol_of_const v)
 
-module PA = PredicateAutomata.Make(Def)(P)
-
-let stable phi args def k =
-  let program_vars = P.constants phi in
-  match def.dkind with
-  | Assign (v, expr) ->
-    let p (v', k') =
-      Var.equal loc v'
-      || (Var.equal v v' && (Var.is_shared v || List.nth args (k' - 1) = k))
-    in
-    not (VarSet.exists p program_vars)
-  | _ ->
-    not (VarSet.exists (fun (v, _) -> Var.equal loc v) program_vars)
+module PA = Pa.PredicateAutomata.Make(Def)(struct
+    include P
+    let pp formatter p = Format.fprintf formatter "{%a}" pp p
+  end)
 
 (* Determine the arity of a predicate (i.e., the number of distinct threads
    whose local variables appear in the predicate).  This function assumes
    that expressions are "normal" in the sense that thread id's have been
    renamed to occupy an initial segment of the naturals. *)
 let arity phi =
-  let f m (v, id) =
-    if Var.is_shared v then max m id else m
+  let f m (v, idx) =
+    if Var.is_shared v then m else max m idx
   in
-  1 + (BatEnum.fold f (-1) (VarSet.enum (P.constants phi)))
+  BatEnum.fold f 0 (VarSet.enum (P.constants phi))
+
+let add_stable pa phi =
+  let program_vars = P.constants phi in
+  let arity = arity phi in
+  let stable =
+    Pa.Formula.mk_atom
+      phi
+      (BatList.of_enum ((1 -- arity) /@ (fun i -> Pa.Formula.Var i)))
+  in
+  PA.alphabet pa |> BatEnum.iter (fun def ->
+      let open Pa.Formula in
+      let rhs =
+        match def.dkind with
+        | Assign (v, expr) ->
+          if Var.is_shared v && VarSet.mem (v, 0) program_vars then
+            mk_false
+          else
+            (1 -- arity) |> BatEnum.fold (fun rhs i ->
+                if VarSet.mem (v, i) program_vars then
+                  mk_and rhs (mk_neq (Var 0) (Var i))
+                else
+                  rhs)
+              stable
+        | _ -> stable
+      in
+      PA.add_transition pa phi def rhs)
 
 (* Subscripting *)
 type ss =
@@ -222,20 +239,30 @@ let generalize i phi psi =
     program_var (IV.subscript iv 0)
   in
   let gen_phi = P.substitute_const sigma phi in
-  BatHashtbl.add rev_subst i 0;
   let f psi =
     let (gen_psi, args) = generalize_atom psi in
-    PA.Atom (gen_psi, List.map generalize args)
+    Pa.Formula.mk_atom
+      gen_psi
+      (List.map (fun i -> Pa.Formula.Var (generalize i)) args)
   in
-  let mk_eq ((i,j), (k,l)) = if i = k then PA.Eq (j,l) else PA.Neq (j,l) in
-
+  let mk_eq ((i,j), (k,l)) =
+    let open Pa.Formula in
+    if i = k then
+      mk_eq (Var j) (Var l)
+    else
+      mk_neq (Var j) (Var l)
+  in
+  BatHashtbl.add rev_subst i 0;
   let rhs =
-    PA.big_conj
+    let props = BatList.of_enum (BatEnum.map f (P.conjuncts psi)) in
+    let vars = BatHashtbl.enum rev_subst in
+    Pa.Formula.big_conj
       (BatEnum.append
-         (BatEnum.map f (P.conjuncts psi))
-         (ApakEnum.distinct_pairs (BatHashtbl.enum rev_subst) /@ mk_eq))
+         (BatList.enum props)
+         (ApakEnum.distinct_pairs vars /@ mk_eq))
   in
   (subst, gen_phi, rhs)
+
 let generalize i phi psi =
   try generalize i phi psi
   with _ -> assert false
@@ -245,7 +272,7 @@ let generalize i phi psi =
    where the sequence of phis is the SSA form of the trace.
 *)
 let trace_formulae trace =
-  let f (def, i) (ss, rest) = match def.dkind with
+  let f (ss, rest) (def, i) = match def.dkind with
     | Assume phi -> (ss, (i, def, subscript_bexpr ss i phi)::rest)
     | Assign (v, expr) ->
       let rhs = subscript_expr ss i expr in
@@ -257,7 +284,7 @@ let trace_formulae trace =
       (ss', (i, def, assign)::rest)
     | _ -> (ss, (i, def, Ctx.mk_true)::rest)
   in
-  snd (List.fold_right f trace (ss_init, []))
+  List.rev (snd (List.fold_left f (ss_init, []) trace))
 
 let construct ipa trace =
   let rec go post = function
@@ -266,25 +293,23 @@ let construct ipa trace =
       let a = Ctx.mk_and phis in
       let b = Ctx.mk_and [phi; Ctx.mk_not post] in
       let itp = match Ctx.interpolate_seq [a; b] with
-        | `Unsat [itp] ->
-          (Log.logf ~level:`trace "Found interpolant!@\n%a / %a: %a"
-             P.pp a P.pp b P.pp itp;
-           assert (Ctx.implies a itp);
-           assert (Ctx.is_sat (Ctx.mk_and [itp; b]) = `Unsat);
-           itp)
+        | `Unsat [itp] -> itp
         | _ ->
           Log.fatalf "Failed to interpolate! %a / %a" P.pp a P.pp b
       in
       if P.compare (unsubscript post) (unsubscript itp) = 0 then begin
         Log.logf "Skipping transition: [#%d] %a" i Def.pp tr;
+        let (_, lhs, rhs) = generalize i post itp in
+        PA.add_transition ipa lhs tr rhs;
         go itp rest
       end else begin
         BatEnum.iter (flip go rest) (P.conjuncts itp);
         let (_, lhs, rhs) = generalize i post itp in
-
+        add_stable ipa lhs;
         Log.logf
-          "Added PA transition:@\n @[%a@]@\n --( [#0] %a )-->@\n @[%a@]"
+          "Added PA transition:@\n @[{%a}(%a)@]@\n --( [#0] %a )-->@\n @[%a@]"
           P.pp lhs
+          (ApakEnum.pp_print_enum Format.pp_print_int) (1 -- arity lhs)
           Def.pp tr
           PA.pp_formula rhs;
         PA.add_transition ipa lhs tr rhs
@@ -292,7 +317,7 @@ let construct ipa trace =
 
     | [] -> assert false
   in
-  go Ctx.mk_false (trace_formulae trace)
+  go Ctx.mk_false (List.rev (trace_formulae trace))
 let construct ipa trace =
   Log.time "PA construction" (construct ipa) trace
 
@@ -306,145 +331,137 @@ let program_automaton file rg =
     | _   -> failwith "PA: No support for multiple entry points"
   in
 
-  let sigma = ref [] in
-  let preds = ref PSet.empty in
-  let add_pred p = preds := PSet.add p (!preds) in
-  let main_locs = ref PSet.empty in
-
-  (* Map each control location to a unique predicate symbol *)
+  (* Map each control location to a unique monadic predicate symbol *)
   let loc_pred def =
     Ctx.mk_eq (program_var (loc,1)) (Ctx.mk_real (QQ.of_int def.did))
   in
 
-  (* Map control locations to their successors *)
-  let next = PHT.create 991 in
-  let add_next u v =
-    let u,v = loc_pred u, loc_pred v in
-    try PHT.replace next u (PSet.add v (PHT.find next u))
-    with Not_found -> PHT.add next u (PSet.singleton v)
-  in
-  let get_next v =
-    try PHT.find next v
-    with Not_found -> PSet.empty
-  in
-
-  (* Each thread gets a new initial vertex.  If some thread is in the
-     initial location, the only transition that can be executed is a fork
-     which spawns that thread. *)
-  let thread_init = PHT.create 31 in
-  let add_thread_init thread =
-    let init = Def.mk Initial in
-    let entry = RG.block_entry rg thread in
-    sigma := init::(!sigma);
-    add_pred (loc_pred init);
-    add_next init entry;
-    PHT.add thread_init (loc_pred init) thread
-  in
-
-  (* Error location; must replace asserts with guarded transitions to
+  (* Nullary error predicate: asserts are replaced with guarded transitions to
      error. *)
-  let err = Def.mk (Assume Bexpr.ktrue) in
-  add_pred (loc_pred err);
+  let err = loc_pred (Def.mk (Assume Bexpr.ktrue)) in
+
+  (* Nullary loc predicate ensures that whenever a new thread executes a
+     command its program counter is instantiated properly. *)
+  let loc = Ctx.mk_true in
 
   (* Transitions to the error state *)
-  let err_tr = Def.HT.create 61 in
-  let add_err_tr def phi =
-    let guard =
-      Def.mk ~loc:(Def.get_location def) (Assume (Bexpr.negate phi))
-    in
-    sigma := guard::(!sigma);
-    Def.HT.add err_tr guard (loc_pred def)
+  let err_tr =
+    let module M = Memo.Make(Def) in
+    M.memo (fun def ->
+        match def.dkind with
+        | Assert (phi, _) ->
+          Def.mk ~loc:(Def.get_location def) (Assume (Bexpr.negate phi))
+        | _ -> assert false)
+  in
+  (* Thread creation transitions *)
+  let init_tr =
+    let module M = Memo.Make(Varinfo) in
+    M.memo (fun thread -> Def.mk Initial)
   in
 
-  let delta (p, args) (a,i) =
-    match args with
-    | [] -> (* loc *)
-      if Def.HT.mem err_tr a
-      then PA.And (PA.Atom (p, []),
-                   PA.Atom (Def.HT.find err_tr a, [i]))
-      else PA.And (PA.Atom (p, []),
-                   PA.Atom (loc_pred a, [i]))
-    | [j] ->
-      if PHT.mem thread_init p then begin
-        match a.dkind with
-        | Builtin (Fork (_, expr, _)) ->
-          let func = match Expr.strip_casts expr with
-            | AddrOf (Variable (func, OffsetFixed 0)) -> func
-            | _ -> assert false
-          in
-          if Varinfo.equal (PHT.find thread_init p) func && i != j
-          then PA.True
-          else PA.False
-        | _ -> PA.False
-      end else
-      if P.equal p (loc_pred err) && Def.HT.mem err_tr a then
-        if i = j then PA.Atom (Def.HT.find err_tr a, [i])
-        else PA.False
-      else if i = j && PSet.mem p (get_next (loc_pred a)) then PA.True
-      else if i != j && not (PSet.mem (loc_pred a) (!main_locs))
-      then PA.Atom (p, args)
-      else PA.False
-    | _ -> assert false
+  let is_assert def =
+    match def.dkind with
+    | Assert (_, _) -> true
+    | _ -> false
+  in
+  let sigma =
+    let sigma = ref [] in
+    RG.vertices rg |> BatEnum.iter (fun (_, def) ->
+        sigma := def::(!sigma);
+        if is_assert def then sigma := (err_tr def)::(!sigma)
+      );
+    RG.blocks rg |> BatEnum.iter (fun thread ->
+        if not (Varinfo.equal thread main) then
+          sigma := (init_tr thread)::(!sigma)
+      );
+    !sigma
   in
 
-  (* loc predicate ensure that whenever a new thread executes a command its
-     program counter is instantiated properly. *)
-  let loc = Ctx.mk_true in
-  add_pred loc;
+  let initial_formula =
+    Pa.Formula.mk_and (Pa.Formula.mk_atom loc []) (Pa.Formula.mk_atom err [])
+  in
+  let pa =
+    PA.make sigma [loc; loc_pred (RG.block_entry rg main)] initial_formula
+  in
 
   BatEnum.iter (fun (thread, body) ->
-      RG.G.iter_edges (fun u v -> add_next u v) body;
+      let open Pa.Formula in
+      RG.G.iter_edges (fun u v ->
+          (* delta(tgt(sigma)(i),sigma:j) = (i = j) *)
+          PA.add_transition pa (loc_pred v) u (mk_eq (Var 0) (Var 1))
+        ) body;
+
       RG.G.iter_vertex (fun u ->
-          sigma := u::(!sigma);
-          add_pred (loc_pred u);
+          (* delta(loc, sigma:i) = loc /\ src(sigma)(i) *)
+          PA.add_transition pa loc u (mk_and
+                                        (mk_atom loc [])
+                                        (mk_atom (loc_pred u) [Var 0]));
+
           match u.dkind with
-          | Assert (phi, _) -> add_err_tr u phi
+          | Assert (_, _) ->
+            (* Guarded transition to the error state *)
+            PA.add_transition pa err (err_tr u) mk_true;
+
+            (* delta(loc, sigma:i) = loc /\ src(sigma)(i) *)
+            PA.add_transition
+              pa
+              loc
+              (err_tr u)
+              (mk_and (mk_atom loc []) (mk_atom (loc_pred u) [Var 0]))
+
+          | Builtin (Fork (_, expr, _)) ->
+            (* delta(init-t(i), fork(t):j) = true *)
+            let func = match Expr.strip_casts expr with
+              | AddrOf (Variable (func, OffsetFixed 0)) -> func
+              | _ -> assert false
+            in
+            let init = loc_pred (init_tr func) in
+            PA.add_transition pa init u mk_true
           | _ -> ()
         ) body;
-      if not (Varinfo.equal thread main) then add_thread_init thread
+
+      if not (Varinfo.equal thread main) then begin
+        let entry = loc_pred (RG.block_entry rg thread) in
+        let init = init_tr thread in
+        PA.add_transition pa loc init (mk_atom loc []);
+        PA.add_transition pa entry init (mk_and
+                                           (mk_eq (Var 0) (Var 1))
+                                           (mk_atom (loc_pred init) [Var 0]))
+      end
     ) (RG.bodies rg);
-  RG.G.iter_vertex (fun d ->
-      main_locs := PSet.add (loc_pred d) (!main_locs)
-    ) (RG.block_body rg main);
-  let accept =
-    let entry = RG.block_entry rg main in
-    (fun p -> P.equal (loc_pred entry) p || P.equal loc p)
-  in
-  { PA.abs_delta = delta;
-    PA.abs_sigma = !sigma;
-    PA.abs_predicates = !preds;
-    PA.abs_accepting = accept;
-    PA.abs_initial = PA.And (PA.Atom (loc_pred err, [0]), PA.Atom (loc, [])) }
+
+  (* delta(u(i), v:j) = u(i) /\ i != j *)
+  RG.vertices rg |> BatEnum.iter (fun (ublk, u) ->
+      let open Pa.Formula in
+      let u = loc_pred u in
+      let rhs = mk_and (mk_atom u [Var 1]) (mk_neq (Var 0) (Var 1)) in
+
+      RG.vertices rg |> BatEnum.iter (fun (vblk, v) ->
+          (* only one copy of main is running *)
+          if not (Varinfo.equal ublk main) || not (Varinfo.equal vblk main) then
+            PA.add_transition pa u v rhs);
+      RG.blocks rg |> BatEnum.iter (fun thread ->
+          if not (Varinfo.equal thread main) then
+            PA.add_transition pa u (init_tr thread) rhs));
+
+  pa
 
 let verify file =
   let open PA in
-  let rg = Interproc.make_recgraph file in
+  let rg = Interproc.remove_skip (Interproc.make_recgraph file) in
   let program_pa = program_automaton file rg in
   let pf =
-    PA.make program_pa.abs_sigma (fun _ -> false) (Atom (Ctx.mk_false, []))
+    PA.make
+      (BatList.of_enum (PA.alphabet program_pa))
+      []
+      (Pa.Formula.mk_atom Ctx.mk_false [])
   in
-  let abstract_pf pf =
-    let open PA in
-    let delta (p,args) (a,i) =
-      if stable p args a i
-      then Or (Atom (p, args), next pf (p,args) (a,i))
-      else next pf (p,args) (a,i)
-    in
-    { abs_predicates = PSet.add Ctx.mk_false (predicates pf);
-      abs_delta = delta;
-      abs_sigma = pf.sigma;
-      abs_accepting = pf.accepting;
-      abs_initial = pf.initial
-    }
-  in
-  let check pf =
-    abs_empty (abs_intersect program_pa (abs_negate (abstract_pf pf)))
-    (* (mk_abstract pf)))*)
-  in
+
+  let check pf = PA.empty (PA.intersect program_pa (PA.negate pf)) in
   let number_cex = ref 0 in
   let print_info () =
-    logf ~level:`info "  PA transitions: %d"
-      (BatEnum.count (PA.enum_delta pf));
+    logf ~level:`info "  PA predicates: %d"
+      (BatEnum.count (PA.vocabulary pf));
     logf ~level:`info "  Spurious counter-examples: %d " !number_cex;
   in
   let rec loop () =
@@ -453,7 +470,7 @@ let verify file =
       logf ~attributes:[`Bold] "@\nFound error trace (%d):" (!number_cex);
       List.iter (fun (def, id) ->
           logf "  [#%d] %a" id Def.pp def
-        ) (List.rev trace);
+        ) trace;
       logf ""; (* newline *)
       let trace_formula =
         BatList.enum (trace_formulae trace)

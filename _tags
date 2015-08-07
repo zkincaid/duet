@@ -1,5 +1,5 @@
 # OASIS_START
-# DO NOT EDIT (digest: c0638c738fb33fd45cf641367eb0c756)
+# DO NOT EDIT (digest: 9b9db61be67c1ac5468a7f3a114126cb)
 # Ignore VCS directories, you can use the same kind of rule outside
 # OASIS_START/STOP if you want to exclude directories that contains
 # useless stuff for the build process
@@ -86,6 +86,48 @@ true: annot, bin_annot
 <ark/*.ml{,i,y}>: pkg_ppx_deriving.ord
 <ark/*.ml{,i,y}>: pkg_ppx_deriving.show
 <ark/*.ml{,i,y}>: use_apak
+# Library pa
+"pa/pa.cmxs": use_pa
+"pa/smt.cmx": for-pack(Pa)
+"pa/formula.cmx": for-pack(Pa)
+"pa/struct.cmx": for-pack(Pa)
+"pa/predicateAutomata.cmx": for-pack(Pa)
+<pa/*.ml{,i,y}>: pkg_Z3
+<pa/*.ml{,i,y}>: pkg_batteries
+<pa/*.ml{,i,y}>: pkg_ocamlgraph
+<pa/*.ml{,i,y}>: pkg_ppx_deriving
+<pa/*.ml{,i,y}>: pkg_ppx_deriving.ord
+<pa/*.ml{,i,y}>: pkg_ppx_deriving.show
+<pa/*.ml{,i,y}>: use_apak
+# Executable test_patools
+"patools/test_patools.native": pkg_Z3
+"patools/test_patools.native": pkg_batteries
+"patools/test_patools.native": pkg_oUnit
+"patools/test_patools.native": pkg_ocamlgraph
+"patools/test_patools.native": pkg_ppx_deriving
+"patools/test_patools.native": pkg_ppx_deriving.ord
+"patools/test_patools.native": pkg_ppx_deriving.show
+"patools/test_patools.native": use_apak
+"patools/test_patools.native": use_pa
+<patools/*.ml{,i,y}>: pkg_oUnit
+# Executable patools
+<patools/*.ml{,i,y}>: oasis_executable_patools_ccopt
+"patools/patools.native": pkg_Z3
+"patools/patools.native": pkg_batteries
+"patools/patools.native": pkg_ocamlgraph
+"patools/patools.native": pkg_ppx_deriving
+"patools/patools.native": pkg_ppx_deriving.ord
+"patools/patools.native": pkg_ppx_deriving.show
+"patools/patools.native": use_apak
+"patools/patools.native": use_pa
+<patools/*.ml{,i,y}>: pkg_Z3
+<patools/*.ml{,i,y}>: pkg_batteries
+<patools/*.ml{,i,y}>: pkg_ocamlgraph
+<patools/*.ml{,i,y}>: pkg_ppx_deriving
+<patools/*.ml{,i,y}>: pkg_ppx_deriving.ord
+<patools/*.ml{,i,y}>: pkg_ppx_deriving.show
+<patools/*.ml{,i,y}>: use_apak
+<patools/*.ml{,i,y}>: use_pa
 # Executable duet
 "duet/src/duet.native": pkg_Z3
 "duet/src/duet.native": pkg_apron
@@ -103,6 +145,7 @@ true: annot, bin_annot
 "duet/src/duet.native": pkg_ppx_deriving.show
 "duet/src/duet.native": use_apak
 "duet/src/duet.native": use_ark
+"duet/src/duet.native": use_pa
 <duet/src/*.ml{,i,y}>: pkg_Z3
 <duet/src/*.ml{,i,y}>: pkg_apron
 <duet/src/*.ml{,i,y}>: pkg_apron.boxMPQ
@@ -119,5 +162,7 @@ true: annot, bin_annot
 <duet/src/*.ml{,i,y}>: pkg_ppx_deriving.show
 <duet/src/*.ml{,i,y}>: use_apak
 <duet/src/*.ml{,i,y}>: use_ark
+<duet/src/*.ml{,i,y}>: use_pa
 # OASIS_STOP
 "lib": not_hygienic
+true: use_menhir

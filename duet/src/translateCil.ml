@@ -740,7 +740,7 @@ let parse filename =
       end
     in
 
-    logf ~level:`trace "Preprocessing:@\n  Library path: %s@\n Destination: %s"
+    logf ~level:`trace "Preprocessing:@\n  Library path: %s@\n  Destination: %s"
       library_path
       preprocessed;
 

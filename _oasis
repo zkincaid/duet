@@ -48,6 +48,33 @@ Executable test_ark
   CompiledObject: native
   Install:        false
 
+Library pa
+  Path:       pa
+  BuildTools: ocamlbuild
+  Pack:       true
+  FindlibName:      pa
+  InternalModules:  Smt, Formula, Struct, PredicateAutomata
+  BuildDepends: ppx_deriving, ppx_deriving.show, ppx_deriving.ord, apak, Z3
+  Install:          false
+  XMETADescription: Predicate Automata tools
+
+Executable test_patools
+  Path:         patools
+  BuildTools:   ocamlbuild, menhir
+  MainIs:       test_patools.ml
+  BuildDepends: ppx_deriving, ppx_deriving.show, ppx_deriving.ord, apak, Z3,
+                oUnit, pa
+  Install:      false
+  CompiledObject: native
+
+Executable patools
+  Path:       patools
+  BuildTools: ocamlbuild, menhir
+  BuildDepends: ppx_deriving, ppx_deriving.show, ppx_deriving.ord, apak, Z3, pa
+  MainIs: patools.ml
+  CCOpt: -annot
+  CompiledObject: native
+
 Executable duet
   Path:           duet/src
   BuildTools:     ocamlbuild
@@ -55,7 +82,7 @@ Executable duet
   BuildDepends:   ppx_deriving, ppx_deriving.show, ppx_deriving.ord,
                   apak, gmp, camlidl, apron,
                   apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, ark,
-                  cil, cil.default-features
+                  cil, cil.default-features, pa
   CompiledObject: native
   Install:        false
 
@@ -70,6 +97,6 @@ Test ark
   run$:      flag(tests)
 
 Test regression
-  Command:   cd duet && ./regression.sh run pa coarsen hdfg chdfg
+  Command:   ./regression.sh run pa coarsen hdfg chdfg proofspace
   TestTools: duet
   run$:      flag(tests)

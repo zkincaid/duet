@@ -18,12 +18,13 @@ let may_assign_vars def =
   | Some v -> Var.Set.singleton v
   | None -> begin match def.dkind with
       | Store (lhs, _) ->
+        let open PointerAnalysis in
         let f memloc set =
           match memloc with
-          | (Pa.MAddr vi, offset) -> Var.Set.add (vi, offset) set
+          | (MAddr vi, offset) -> Var.Set.add (vi, offset) set
           | _ -> set
         in
-        Pa.MemLoc.Set.fold f (Pa.resolve_ap lhs) Var.Set.empty
+        MemLoc.Set.fold f (resolve_ap lhs) Var.Set.empty
       | _ -> Var.Set.empty
     end
 
@@ -235,15 +236,16 @@ module Dependence (M : sig
           end
         | None -> match def.dkind with
           | Store (lhs, rhs) ->
+            let open PointerAnalysis in
             let f memloc =
               match memloc with
-              | (Pa.MAddr vi, offset) ->
+              | (MAddr vi, offset) ->
                 let p = M.pack (vi, offset) in
                 if is_shared_pack p then
                   e_def [id_of_def def; id_of_pack p]
               | (_, _) -> ()
             in
-            Pa.MemLoc.Set.iter f (Pa.resolve_ap lhs)
+            MemLoc.Set.iter f (resolve_ap lhs)
           | Assume phi | Assert (phi, _) ->
             let set_rd v =
               let p = M.pack v in

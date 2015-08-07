@@ -6,9 +6,9 @@
 
 open Core
 open CfgIr
-open Pa
 open Apak
 open Datalog
+open PointerAnalysis
 
 (* Enumerations for converting to/from integers for datalog *******************)
 module DefEnum = Enumeration.Make(Def)
@@ -266,10 +266,10 @@ let emit_structure ctx file =
   in
   let vdef func def =
     try vdef func def
-    with Pa.Higher_ap simple_rhs ->
+    with Higher_ap simple_rhs ->
       let loc = Def.get_location def in
       Log.errorf "Higher-level AP: `%a'@\n  Found on: %s:%d"
-        Pa.SimpleRhs.pp simple_rhs
+        SimpleRhs.pp simple_rhs
         loc.Cil.file
         loc.Cil.line
   in
@@ -297,10 +297,8 @@ let ap_points_to pt ap =
   try
     let add sap set = MemLoc.Set.union (simple_ap_points_to pt sap) set in
     SimpleAP.Set.fold add (simplify_ap ap) MemLoc.Set.empty
-  with Pa.Higher_ap simple_rhs -> begin
-      Log.errorf "Higher-level AP: `%a'" Pa.SimpleRhs.pp simple_rhs;
-      assert false
-    end
+  with Higher_ap simple_rhs ->
+    Log.fatalf "Higher-level AP: `%a'" SimpleRhs.pp simple_rhs
 
 let expr_points_to pt expr =
   try
@@ -318,10 +316,8 @@ let expr_points_to pt expr =
         | (RStr str, offset) -> MemLoc.Set.add (MStr str, offset) set
       in
       SimpleRhs.Set.fold add rhs MemLoc.Set.empty
-  with Pa.Higher_ap simple_rhs -> begin
-      Log.errorf "Higher-level AP: `%a'" Pa.SimpleRhs.pp simple_rhs;
-      assert false
-    end
+  with Higher_ap simple_rhs ->
+    Log.fatalf "Higher-level AP: `%a'" SimpleRhs.pp simple_rhs
 
 let resolve_call pt expr =
   let targets = match Expr.strip_casts expr with
@@ -409,7 +405,7 @@ class pa file =
 
 let initialize file =
   let p = new pa file in
-  Pa.set_pa (p :> ptr_anal);
+  set_pa (p :> ptr_anal);
   p
 
 (** Build a hash table mapping each allocation site to the set of memory
@@ -434,7 +430,7 @@ let build_accessed pa file =
 
 let _ =
   let go file = ((new pa file) :> ptr_anal) in
-  Pa.set_init go
+  set_init go
 
 let _ =
   let go file =
@@ -447,11 +443,11 @@ let _ =
           then MemBase.equal (fst x) (fst y)
           else MemLoc.equal x y
         in
-        let p_pt = Pa.expr_points_to p in
+        let p_pt = PointerAnalysis.expr_points_to p in
         let may_eq =
           MemLoc.Set.exists
             (fun x -> MemLoc.Set.exists (memloc_is_alias x) p_pt)
-            (Pa.expr_points_to q)
+            (PointerAnalysis.expr_points_to q)
         in
         if may_eq then
           Report.log_error (Def.get_location def) ("Assertion failed: " ^ msg)
@@ -490,7 +486,7 @@ let _ =
 let _ =
   let go file =
     ignore(initialize file);
-    Pa.simplify_calls file;
+    simplify_calls file;
     Inline.inline_file file;
   in
   CmdLine.register_pass ("-inline", go, " Inline and simplify function calls")

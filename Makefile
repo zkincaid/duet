@@ -2,7 +2,7 @@ SETUP = ocaml setup.ml
 
 all: build
 
-.PHONY: build duet ark apak
+.PHONY: build duet ark apak patools
 
 build: setup.ml setup.data
 	$(SETUP) -build
@@ -17,6 +17,9 @@ ark: setup.ml setup.data
 
 apak: setup.ml setup.data
 	ocamlbuild apak/test_apak.byte -tag debug
+
+patools: setup.ml setup.data
+	ocamlbuild patools/patools.native -tag debug
 
 setup.ml: _oasis
 	oasis setup

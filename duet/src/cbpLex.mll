@@ -63,7 +63,7 @@ rule cbp = parse
   | '&' { AND }
   | "&&" { AND }
   | '!' { NOT }
-  | '~' { TILDE }
+       (*  | '~' { TILDE }*)
   | '^' { XOR }
   | '|' { OR }
   | "||" { OR }

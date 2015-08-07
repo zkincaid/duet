@@ -86,6 +86,6 @@ chdfg producer-consumer.c -chdfg
 chdfg alias_release.c -chdfg
 chdfg local.c -chdfg
 chdfg parent_holds_lock.c -chdfg
-proofspace local.c -proofspace
 proofspace thread_modular.c -proofspace
 proofspace count_threads.c -proofspace
+proofspace count_threads_bug.c -proofspace

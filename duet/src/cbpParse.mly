@@ -12,7 +12,7 @@
 %token COMMA COLON
 %token LPAREN RPAREN LBRACKET RBRACKET
 %token AND OR NOT XOR
-%token TILDE
+/* %token TILDE */
 %token LANGLE RANGLE
 
 %token RETURN GOTO SKIP
@@ -35,7 +35,7 @@
 
 %token EOF
 
-%left AND OR EQ NEQ IMPL
+/* %left AND OR EQ NEQ IMPL */
 
 %type <CbpAst.program> program
 %start program

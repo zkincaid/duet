@@ -118,7 +118,8 @@ module Make(MakeEQ :
     let filter x =
       let kills = match x.SeqDep.current_name with
         (* | Some (Variable v) -> AP.Set.filter (imprecise v) x.SeqDep.killed*)
-        | Some ap -> AP.Set.filter (Pa.may_alias ap) x.SeqDep.killed
+        | Some ap ->
+          AP.Set.filter (PointerAnalysis.may_alias ap) x.SeqDep.killed
         | _ -> x.SeqDep.killed
       in
       { x with SeqDep.killed = kills }
@@ -341,7 +342,7 @@ module Make(MakeEQ :
   (* Multiply a partial tree map by an eu map *)
   let add_uses f x y =
     let g acc ((d, d_ap), d_tr) ((u, u_ap), u_tr) =
-      if Pa.may_alias d_ap u_ap
+      if PointerAnalysis.may_alias d_ap u_ap
       then begin
         let tr = f (mul_eq d_tr (lift_lrd_tree u_tr)) in
         if tr != Tree.TR.zero
@@ -356,7 +357,7 @@ module Make(MakeEQ :
   (* Multiply a partial tree map by an rd map *)
   let add_defs f x y =
     let g acc ((u, u_ap), u_tr) ((d, d_ap), d_tr) =
-      if Pa.may_alias d_ap u_ap
+      if PointerAnalysis.may_alias d_ap u_ap
       then begin
         let tr = f (mul_eq u_tr (lift_lrd_tree d_tr)) in
         if tr != Tree.TR.zero
@@ -391,7 +392,7 @@ module Make(MakeEQ :
   (* Multiply a partial rd map by a partial eu map *)
   let mul_rd_eu x y =
     let g acc ((d, d_ap), d_tr) ((u, u_ap), u_tr) =
-      if Pa.may_alias d_ap u_ap
+      if PointerAnalysis.may_alias d_ap u_ap
       then begin
         let tr = f_all (mul_eq (clear_left d_tr) (pivot_branch u_tr)) in
         if tr != Tree.TR.zero
@@ -407,7 +408,7 @@ module Make(MakeEQ :
    * quantify out the "fork point" of the def path, then change indices 4 to 1 *)
   let mul_eu_rd x y =
     let g acc ((u, u_ap), u_tr) ((d, d_ap), d_tr) =
-      if Pa.may_alias d_ap u_ap
+      if PointerAnalysis.may_alias d_ap u_ap
       then begin
         let tr = f_all (mul_eq (clear_left u_tr) (pivot_branch d_tr)) in
         if tr != Tree.TR.zero
@@ -663,7 +664,7 @@ module Make(MakeEQ :
       let filter_vars kill =
         let f ap = match ap with
           | Variable v -> may_use_conc v
-          | _ -> Pa.ap_is_shared ap
+          | _ -> PointerAnalysis.ap_is_shared ap
         in
         AP.Set.filter f kill
       in

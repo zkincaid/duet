@@ -285,7 +285,7 @@ struct
 
 
   module MemTR = struct
-    type t = Pa.MemLoc.Set.t * RDTransition.t [@@deriving show,ord]
+    type t = PointerAnalysis.MemLoc.Set.t * RDTransition.t [@@deriving show,ord]
   end
   module ReverseRDMap =
     Monoid.FunctionSpace.Total.Make
@@ -436,7 +436,7 @@ struct
       let open ReverseRDMap in
       let f ((def,ap), tr) =
         update
-          (Pa.resolve_ap ap, tr)
+          (PointerAnalysis.resolve_ap ap, tr)
           (DefAPSet.singleton (def,ap))
           unit
       in
@@ -594,7 +594,7 @@ struct
       let open ReverseRDMap in
       let f ((def,ap), tr) =
         update
-          (Pa.resolve_ap ap, tr)
+          (PointerAnalysis.resolve_ap ap, tr)
           (DefAPSet.singleton (def,ap))
           unit
       in
@@ -943,7 +943,7 @@ struct
          reaching definition and exposed use, and add it if there
          should be. *)
       let add_rd_eu ((def,def_ap), def_tr) ((use,use_ap), use_tr) =
-        if Pa.may_alias def_ap use_ap then begin
+        if PointerAnalysis.may_alias def_ap use_ap then begin
           let f def_path use_path =
             match get_current_name def_path, get_current_name use_path with
             | (None, None) -> true
@@ -966,8 +966,9 @@ struct
       (* For a given exposed use, add all the edges with a source that is a
          write to a variable that use_ap may point to. *)
       let add_eu_var_def (use,use_ap) =
+        let open PointerAnalysis in
         let add_var_defs = function
-          | (Pa.MAddr v,offset) -> begin
+          | (MAddr v,offset) -> begin
               let defs = VarRDMap.eval reaching_lvl0 (v, offset) in
               let var_ap = Variable (v, offset) in
               let add_edge_to_eu def = add_edge def (var_ap, use_ap) use in
@@ -977,7 +978,7 @@ struct
             end
           | _ -> ()
         in
-        Pa.MemLoc.Set.iter add_var_defs (Pa.resolve_ap use_ap)
+        MemLoc.Set.iter add_var_defs (resolve_ap use_ap)
       in
 
       let add_rd rd =
@@ -988,7 +989,7 @@ struct
       let add_rd_var (v, uses) =
         let defs = VarRDMap.eval reaching_lvl0 v in
         let add_mem_var_edges (def,ap) =
-          if Pa.may_alias ap (Variable v)
+          if PointerAnalysis.may_alias ap (Variable v)
           then Def.Set.iter (fun u -> add_edge def (ap, Variable v) u) uses
         in
         let add_edge d u = add_edge d (Variable v, Variable v) u in
@@ -1045,7 +1046,7 @@ module TrivDep = Make(EqLogic.Hashed.MakeTrivEQ(Var))
 
 let construct_dg file =
   ignore (Bddpa.initialize file);
-  Pa.simplify_calls file;
+  PointerAnalysis.simplify_calls file;
   if !must_alias then Dep.construct_dg file
   else TrivDep.construct_dg file
 
@@ -1086,7 +1087,7 @@ let interval_analysis file =
     if !changed then go () else (dg, map)
   in
   ignore (Bddpa.initialize file);
-  Pa.simplify_calls file;
+  PointerAnalysis.simplify_calls file;
   let (dg,map) = go () in
   IntervalAnalysis.check_assertions dg map
 

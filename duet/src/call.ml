@@ -75,7 +75,7 @@ let construct_tcg file =
             let edge = Tcg.E.create thread (Some def) func in
             Tcg.add_edge_e tcg edge
           in
-          Varinfo.Set.iter add_edge (Pa.resolve_call expr)
+          Varinfo.Set.iter add_edge (PointerAnalysis.resolve_call expr)
         end
       | _ -> ()
     in

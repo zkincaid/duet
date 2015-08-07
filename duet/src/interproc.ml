@@ -74,7 +74,7 @@ let local func_name =
 
 let make_recgraph file =
   ignore (Bddpa.initialize file);
-  Pa.simplify_calls file;
+  PointerAnalysis.simplify_calls file;
   let mk_stub rg func =
     let v = Def.mk (Assume Bexpr.ktrue) in
     let graph = RG.G.add_vertex RG.G.empty v in
@@ -101,3 +101,22 @@ let make_recgraph file =
   in
   let rg = List.fold_left mk_func RG.empty file.funcs in
   BatEnum.fold add_call rg (RG.vertices rg)
+
+let remove_skip rg =
+  let f block graph =
+    let remove v graph =
+      if Def.equal v (RG.block_entry rg block) then
+        graph
+      else match v.dkind with
+        | Assume phi when Bexpr.eval phi = Some true ->
+          RG.G.fold_succ
+            (fun s g ->
+               RG.G.fold_pred (fun p g -> RG.G.add_edge g p s) graph v g)
+            graph
+            v
+            (RG.G.remove_vertex graph v)
+        | _ -> graph
+    in
+    RG.G.fold_vertex remove graph graph
+  in
+  RG.map f rg

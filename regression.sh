@@ -13,7 +13,7 @@ CFG_TESTS="simple.bp simple.c irreducible.bp selfref.bp"
 DIR=`dirname $0`
 REGRESSION_DIR="$DIR/regression"
 REGRESSION_TXT="$REGRESSION_DIR/regression.txt"
-RUN_MAIN="$DIR/duet"
+RUN_MAIN="$DIR/duet.native"
 
 phase () {
     NAME=$1

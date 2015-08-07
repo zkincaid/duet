@@ -41,7 +41,10 @@ module LockPred = struct
     let remove eq l rel =
       AP.Set.filter (fun x -> not (AP.Set.exists (eq x) rel)) l
     in
-    { acq = AP.Set.union (remove Pa.may_alias l1.acq l2.rel) l2.acq;
+    { acq =
+        AP.Set.union
+          (remove PointerAnalysis.may_alias l1.acq l2.rel)
+          l2.acq;
       rel = AP.Set.union (remove AP.equal l1.rel l2.acq) l2.rel }
   (* Not sure if this is the right way to handle existentials *)
   let subst sub_var l =

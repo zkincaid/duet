@@ -4,16 +4,17 @@ open Solve
 open Apak
 
 let may_use def =
+  let open PointerAnalysis in
   let f ap set =
     match ap with
     | Variable v -> Var.Set.add v set
     | Deref _ ->
       let g memloc set =
         match memloc with
-        | (Pa.MAddr vi, offset) -> Var.Set.add (vi,offset) set
+        | (MAddr vi, offset) -> Var.Set.add (vi,offset) set
         | _ -> set
       in
-      Pa.MemLoc.Set.fold g (Pa.ap_points_to ap) set
+      MemLoc.Set.fold g (ap_points_to ap) set
   in
   AP.Set.fold f (Def.get_uses def) Var.Set.empty
 

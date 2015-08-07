@@ -421,7 +421,7 @@ module MakeBackwardCfgSolver (I : MinInterpretation) = struct
       match v.dkind with
       | Builtin (Fork (_, tgt, _)) ->
         let join func acc = I.join (st.thread_map func) acc in
-        Varinfo.Set.fold join (Pa.resolve_call tgt) input
+        Varinfo.Set.fold join (PointerAnalysis.resolve_call tgt) input
       | _ -> input
 
     let join st def x y =

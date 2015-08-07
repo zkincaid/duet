@@ -40,6 +40,10 @@ let verbose_list_arg =
 let stats_arg =
   ("-stats", Arg.Set show_stats, " Display statistics")
 
+let colorize_arg =
+  ("-color", Arg.Set Log.colorize, " Use ANSI colors")
+
+
 let lib_arg =
   ("-lib",
    Arg.Set_string library_path,
@@ -111,6 +115,7 @@ let config_args = ref
       verbose_list_arg;
       verbosity_arg;
       stats_arg;
+      colorize_arg;
       whole_program_arg;
       lib_arg;
       load_path_arg;
