@@ -8,12 +8,11 @@
 #   baselines <set>  Generate a particular set of regression tests
 #   sets             Get a list of all baseline sets
 
-CFG_TESTS="simple.bp simple.c irreducible.bp selfref.bp"
-
 DIR=`dirname $0`
 REGRESSION_DIR="$DIR/regression"
 REGRESSION_TXT="$REGRESSION_DIR/regression.txt"
 RUN_MAIN="$DIR/duet.native"
+WORKING="$REGRESSION_DIR/.working"
 
 phase () {
     NAME=$1
@@ -23,62 +22,25 @@ phase () {
 }
 
 run_all () {
-    NAME=$1
-    shift
-    CMD=$1
-    shift
+    FAMILY=$1
+    FAMILY_DIR=$REGRESSION_DIR/$FAMILY
     PASSED=0
     FAILED=0
-    phase $NAME
-    for x in $@; do
-	OUT=`$RUN $CMD $x | tail -1`
-	case $OUT in
-	    "Passed")
-		PASSED=$(($PASSED+1))
-		;;
-	    "Failed")
-		FAILED=$(($FAILED+1))
-		echo Baselines differ at $x
-		;;
-	    *)
-		echo Error at $x
-		;;
-	esac
-    done
-    echo "Passed: $PASSED"
-    echo "Failed: $FAILED"
-}
-
-run_all_txt () {
-    RUN_FAMILY=$1
-    PASSED=0
-    FAILED=0
-    phase $RUN_FAMILY regression tests
-    WORKING="$REGRESSION_DIR/working"
-    if [ -d $WORKING ]; then
-	find $WORKING -name "*.working" | xargs rm -f
-	find $WORKING -name "*.diff" | xargs rm -f
-    else
-	mkdir $WORKING
-    fi
+    phase $FAMILY regression tests
 
     while read x; do
-	FAMILY=`echo $x | awk '//{print $1}'`
-	if [ "$FAMILY" != "$RUN_FAMILY" ]; then
-	    continue
-	fi
-	TEST=`echo $x | awk '//{print $2}'`
-	FLAGS=`echo $x | sed 's/[^ ]* [^ ]* //'`
-	FAM_DIR="$REGRESSION_DIR/$FAMILY"
+	TEST=`echo $x | sed 's/\([^:]*\):.*/\1/'`
+	COMMAND=`echo $x | sed 's/[^:]*: \(.*\)/\1/' | sed "s#@code#$FAMILY_DIR/code#g"`
+
 	WORKING_FAM_DIR="$WORKING/$FAMILY"
 	if [ ! -d $WORKING_FAM_DIR ]; then
 	    echo Make $WORKING_FAM_DIR
 	    mkdir $WORKING_FAM_DIR
 	fi
-	echo Running $TEST [$FAMILY]...
+	echo Running $TEST...
 	WORKING_OUTPUT="$WORKING_FAM_DIR/$TEST.working"
-	BASELINE="$FAM_DIR/baselines/$TEST.baseline"
-	$RUN_MAIN $FLAGS $FAM_DIR/code/$TEST > $WORKING_OUTPUT
+	BASELINE="$FAMILY_DIR/baselines/$TEST.baseline"
+	$DIR/$COMMAND > $WORKING_OUTPUT
 	DIFF_COUNT=`diff $BASELINE $WORKING_OUTPUT | wc -l`
 	if [ $DIFF_COUNT -gt 0 ]; then
 	    echo Baseline differs!
@@ -88,37 +50,27 @@ run_all_txt () {
 	else
 	    PASSED=$(($PASSED+1))
 	fi
-    done < <(cat $REGRESSION_TXT | grep -v "#")
+    done < <(cat $FAMILY_DIR/regression.txt | grep -v "#")
     echo "Passed: $PASSED"
     echo "Failed: $FAILED"
 }
 
 regression_sets () {
-    awk '//{print $1}' $REGRESSION_TXT | sort | uniq
+    cd $REGRESSION_DIR && ls -d */ | sed s#/##
 }
 
 generate_all () {
-    CMD=$1
-    shift
-    for x in $@; do
-	echo Generating baseline for $x...
-	$RUN $CMD $x
-    done
-}
+    FAMILY=$1
+    FAMILY_DIR=$REGRESSION_DIR/$FAMILY
+    phase $FAMILY baselines
 
-generate_all_txt () {
-    GENERATE_FAMILY=$1
-    cat $REGRESSION_TXT | while read x; do
-	FAMILY=`echo $x | awk '//{print $1}'`
-	if [ "$FAMILY" != "$GENERATE_FAMILY" ]; then
-	    continue
-	fi
-	TEST=`echo $x | awk '//{print $2}'`
-	FLAGS=`echo $x | sed 's/[^ ]* [^ ]* //'`
-	FAM_DIR=$REGRESSION_DIR/$FAMILY
-	echo Generating baseline for $TEST [$FAMILY]...
-	$RUN_MAIN $FLAGS $FAM_DIR/code/$TEST > $FAM_DIR/baselines/$TEST.baseline
-    done
+    while read x; do
+	TEST=`echo $x | sed 's/\([^:]*\):.*/\1/'`
+	COMMAND=`echo $x | sed 's/[^:]*: \(.*\)/\1/' | sed "s#@code#$FAMILY_DIR/code#g"`
+	echo Generating $TEST...
+
+        $DIR/$COMMAND > $FAMILY_DIR/baselines/$TEST.baseline
+    done < <(cat $FAMILY_DIR/regression.txt | grep -v "#")
 }
 
 if [ $# -lt 1 ]; then
@@ -137,14 +89,18 @@ fi
 case $FLAG in
     "run")
 	echo Running regression tests...
+	rm -rf $WORKING
+	mkdir $WORKING
+
 	for s in $SETS; do
-	    run_all_txt $s
+	    run_all $s
 	done
 	;;
     "baselines")
 	echo Generating baselines...
+
 	for s in $SETS; do
-	    generate_all_txt $s
+	    generate_all $s
 	done
 	;;
     "sets")
