@@ -1,6 +1,6 @@
 open Apak
 open BatPervasives
-open Formula
+open PaFormula
 
 include Log.Make(struct let name = "struct" end)
 
@@ -45,6 +45,8 @@ module type S = sig
     (predicate,int) formula option
 end
 
+module F = PaFormula
+
 module Make (P : Symbol) = struct
   type predicate = P.t
   type atom = P.t * int list [@@deriving ord]
@@ -72,7 +74,7 @@ module Make (P : Symbol) = struct
   let show = Putil.mk_show pp
 
   let pp_formula formatter phi =
-    Formula.pp P.pp Format.pp_print_int formatter phi
+    F.pp P.pp Format.pp_print_int formatter phi
 
   let hash str =
     (str.universe,
@@ -110,7 +112,7 @@ module Make (P : Symbol) = struct
       | `Forall (_, x) | `Exists (_, x) -> x
       | `T | `F -> 0
     in
-    Formula.eval f phi
+    F.eval f phi
 
   let empty size =
     { universe = size;
@@ -162,7 +164,7 @@ module Make (P : Symbol) = struct
         try BatList.nth env v
         with Invalid_argument _ -> invalid_arg "models"
     in
-    match Formula.destruct phi with
+    match F.destruct phi with
     | `Eq (s, t) -> (term_val s) = (term_val t)
     | `Neq (s, t) -> (term_val s) != (term_val t)
     | `Atom (p, args) ->
@@ -189,7 +191,7 @@ module Make (P : Symbol) = struct
           with Invalid_argument _ ->
             invalid_arg ("min_models: unbound " ^ (string_of_int v))
       in
-      match Formula.destruct phi with
+      match F.destruct phi with
       | `Eq (s, t) ->
         if (term_val s) = (term_val t) then [empty size] else []
       | `Neq (s, t) ->
@@ -316,7 +318,7 @@ module Make (P : Symbol) = struct
         try BatList.nth env v
         with Invalid_argument _ -> invalid_arg "models"
     in
-    match Formula.destruct phi with
+    match F.destruct phi with
     | `Eq (s, t) ->
       if (term_val s) = (term_val t) then
         Some (mk_eq (Const (term_val s)) (Const (term_val t)))
@@ -346,7 +348,7 @@ module Make (P : Symbol) = struct
       end
     | `Forall (_, _) ->
       if models ~env:env str phi then
-        Some (Formula.var_substitute (fun i -> Const (List.nth env i)) phi)
+        Some (F.var_substitute (fun i -> Const (List.nth env i)) phi)
       else
         None
     | `Exists (_, phi) ->

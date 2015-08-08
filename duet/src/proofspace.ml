@@ -3,6 +3,7 @@ open BatPervasives
 open Core
 open Ark
 open Ark.Syntax
+open Pa
 
 include Log.Make(struct let name = "proofspace" end)
 
@@ -65,7 +66,7 @@ end
 
 let program_var v = Ctx.mk_const (Ctx.symbol_of_const v)
 
-module PA = Pa.PredicateAutomata.Make(Def)(struct
+module PA = PredicateAutomata.Make(Def)(struct
     include P
     let pp formatter p = Format.fprintf formatter "{%a}" pp p
   end)
@@ -84,12 +85,12 @@ let add_stable pa phi =
   let program_vars = P.constants phi in
   let arity = arity phi in
   let stable =
-    Pa.Formula.mk_atom
+    PaFormula.mk_atom
       phi
-      (BatList.of_enum ((1 -- arity) /@ (fun i -> Pa.Formula.Var i)))
+      (BatList.of_enum ((1 -- arity) /@ (fun i -> PaFormula.Var i)))
   in
   PA.alphabet pa |> BatEnum.iter (fun def ->
-      let open Pa.Formula in
+      let open PaFormula in
       let rhs =
         match def.dkind with
         | Assign (v, expr) ->
@@ -241,12 +242,12 @@ let generalize i phi psi =
   let gen_phi = P.substitute_const sigma phi in
   let f psi =
     let (gen_psi, args) = generalize_atom psi in
-    Pa.Formula.mk_atom
+    PaFormula.mk_atom
       gen_psi
-      (List.map (fun i -> Pa.Formula.Var (generalize i)) args)
+      (List.map (fun i -> PaFormula.Var (generalize i)) args)
   in
   let mk_eq ((i,j), (k,l)) =
-    let open Pa.Formula in
+    let open PaFormula in
     if i = k then
       mk_eq (Var j) (Var l)
     else
@@ -256,7 +257,7 @@ let generalize i phi psi =
   let rhs =
     let props = BatList.of_enum (BatEnum.map f (P.conjuncts psi)) in
     let vars = BatHashtbl.enum rev_subst in
-    Pa.Formula.big_conj
+    PaFormula.big_conj
       (BatEnum.append
          (BatList.enum props)
          (ApakEnum.distinct_pairs vars /@ mk_eq))
@@ -378,14 +379,14 @@ let program_automaton file rg =
   in
 
   let initial_formula =
-    Pa.Formula.mk_and (Pa.Formula.mk_atom loc []) (Pa.Formula.mk_atom err [])
+    PaFormula.mk_and (PaFormula.mk_atom loc []) (PaFormula.mk_atom err [])
   in
   let pa =
     PA.make sigma [loc; loc_pred (RG.block_entry rg main)] initial_formula
   in
 
   BatEnum.iter (fun (thread, body) ->
-      let open Pa.Formula in
+      let open PaFormula in
       RG.G.iter_edges (fun u v ->
           (* delta(tgt(sigma)(i),sigma:j) = (i = j) *)
           PA.add_transition pa (loc_pred v) u (mk_eq (Var 0) (Var 1))
@@ -432,7 +433,7 @@ let program_automaton file rg =
 
   (* delta(u(i), v:j) = u(i) /\ i != j *)
   RG.vertices rg |> BatEnum.iter (fun (ublk, u) ->
-      let open Pa.Formula in
+      let open PaFormula in
       let u = loc_pred u in
       let rhs = mk_and (mk_atom u [Var 1]) (mk_neq (Var 0) (Var 1)) in
 
@@ -454,7 +455,7 @@ let verify file =
     PA.make
       (BatList.of_enum (PA.alphabet program_pa))
       []
-      (Pa.Formula.mk_atom Ctx.mk_false [])
+      (PaFormula.mk_atom Ctx.mk_false [])
   in
 
   let check pf = PA.empty (PA.intersect program_pa (PA.negate pf)) in

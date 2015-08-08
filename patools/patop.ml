@@ -2,17 +2,18 @@ open Apak
 open BatPervasives
 
 module A = PredicateAutomata.Make(Putil.PString)(Putil.PString)
+module F = PaFormula
 
 let pp_print_list = Apak.Putil.pp_print_list
-let pp_formula phi = Formula.pp Putil.PString.pp Putil.PInt.pp phi
+let pp_formula phi = F.pp Putil.PString.pp Putil.PInt.pp phi
 let show_formula = Putil.mk_show pp_formula
 
-let exists x phi = Formula.const_exists ~name:(Some x) x phi
+let exists x phi = F.const_exists ~name:(Some x) x phi
 
-let forall x phi = Formula.const_forall ~name:(Some x) x phi
+let forall x phi = F.const_forall ~name:(Some x) x phi
 
 let of_cfa entry edges =
-  let open Formula in
+  let open F in
   let open A in
   let initial =
     mk_and (mk_atom "<!$>" []) (mk_forall (mk_atom "D" [Var 0]))

@@ -1,6 +1,6 @@
 %{
 open Apak
-open Formula
+open PaFormula
 open PredicateAutomata
 open BatPervasives
 open Patop
@@ -30,8 +30,8 @@ let pp_pos formatter pos =
 %start main
 %type <Patop.A.t> main
 %start main_formula
-%type <(string, string) Formula.formula> main_formula
-%type <(string, string) Formula.formula> ext_formula
+%type <(string, string) PaFormula.formula> main_formula
+%type <(string, string) PaFormula.formula> ext_formula
 %start word
 %type <(string*int) list> word                      
 %start cfa
@@ -50,7 +50,7 @@ main:
           StringSet.elements (List.fold_left f StringSet.empty transitions)
         in
         let start =
-          Formula.substitute
+          PaFormula.substitute
             (undefined ~message:"Start formula should be a sentence")
             start
         in
@@ -68,11 +68,11 @@ main:
                   (pp_print_list Format.pp_print_string) lhs_params
                   sigma
                   index
-                  (Formula.pp Format.pp_print_string Format.pp_print_string)
+                  (PaFormula.pp Format.pp_print_string Format.pp_print_string)
                   rhs;
                 failwith ("Unbound variable")
             in
-            Formula.substitute subst rhs
+            PaFormula.substitute subst rhs
           in
           A.add_transition pa lhs sigma rhs'
         in
@@ -91,7 +91,7 @@ main_formula:
              Log.errorf "Variable `%s' unbound in definition of `%s'" k rel;
              failwith ("Unbound variable")
          in
-         Formula.substitute subst rhs
+         PaFormula.substitute subst rhs
        in
        let replace_rel p k =
          if p = rel then
@@ -99,7 +99,7 @@ main_formula:
          else
            mk_atom p (BatList.of_enum ((0 -- (k - 1)) /@ (fun i -> Var i)))
        in
-       Formula.atom_substitute replace_rel body
+       PaFormula.atom_substitute replace_rel body
      }
   | phi = formula; EOF { phi }
 ;

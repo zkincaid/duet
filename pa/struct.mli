@@ -1,5 +1,5 @@
 (* Finite structures *)
-open Formula
+open PaFormula
 
 module type Symbol = sig
   type t

@@ -14,7 +14,7 @@ let bool_val x =
 
 let int_val x = Arithmetic.Integer.get_int x
   
-module F = Formula
+module F = PaFormula
 
 class ['a] ctx opts = object(self)
   val z3 = mk_context opts
@@ -287,24 +287,23 @@ let rec simplify_children add_star s children =
   go [] (go [] children)
 
 and simplify_dillig_impl phi s =
-  let open Formula in
-  match Formula.destruct_flatten phi with
-  | `T -> Formula.mk_true
-  | `F -> Formula.mk_false
+  match F.destruct_flatten phi with
+  | `T -> F.mk_true
+  | `F -> F.mk_false
   | `Atom (_, _) ->
     s#push ();
     s#add phi;
     let simplified =
       match s#check () with
       | `Unknown -> phi
-      | `Unsat -> mk_false
+      | `Unsat -> F.mk_false
       | `Sat ->
         s#pop ();
         s#push ();
         s#add_not phi;
         match s#check () with
         | `Unknown -> phi
-        | `Unsat -> mk_true
+        | `Unsat -> F.mk_true
         | `Sat -> phi
     in
     (*    logf "Solver: %s" (Solver.to_string s#z3);*)
@@ -315,8 +314,8 @@ and simplify_dillig_impl phi s =
       (format Format.pp_print_string Format.pp_print_int) simplified;
 *)
     simplified
-  | `Or xs -> big_disj (BatList.enum (simplify_children s#add_not s xs))
-  | `And xs -> big_conj (BatList.enum (simplify_children s#add s xs))
+  | `Or xs -> F.big_disj (BatList.enum (simplify_children s#add_not s xs))
+  | `And xs -> F.big_conj (BatList.enum (simplify_children s#add s xs))
   | `Forall (_,_) | `Exists (_,_) -> invalid_arg "quantifier-free"
   | `Eq (_,_) | `Neq(_,_) -> invalid_arg "equality-free"
 

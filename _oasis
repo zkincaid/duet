@@ -53,7 +53,7 @@ Library pa
   BuildTools: ocamlbuild
   Pack:       true
   FindlibName:      pa
-  InternalModules:  Smt, Formula, Struct, PredicateAutomata
+  InternalModules:  PaSmt, PaFormula, Struct, PredicateAutomata
   BuildDepends: ppx_deriving, ppx_deriving.show, ppx_deriving.ord, apak, Z3
   Install:          false
   XMETADescription: Predicate Automata tools

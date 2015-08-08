@@ -19,7 +19,7 @@ module Make (A : Sigma) (P : Predicate) : sig
   type t
   type predicate = P.t
   type alpha = A.t
-  type formula = (predicate, int) Formula.formula
+  type formula = (predicate, int) PaFormula.formula
   type config
 
   module Config : Struct.S with type predicate = predicate

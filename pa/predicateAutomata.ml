@@ -1,5 +1,5 @@
 open BatPervasives
-open Formula
+open PaFormula
 open Apak
 
 let pp_print_list = Apak.Putil.pp_print_list
@@ -21,11 +21,12 @@ module type Predicate = sig
   val pp : Format.formatter -> t -> unit
 end
 
+module F = PaFormula
 
 module Make (A : Sigma) (P : Predicate) = struct
   type predicate = P.t
   type alpha = A.t
-  type formula = (P.t, int) Formula.formula
+  type formula = (P.t, int) F.formula
   type atom = P.t * int list [@@deriving ord]
 
   let pp_atom formatter (p,args) =
@@ -193,7 +194,7 @@ module Make (A : Sigma) (P : Predicate) = struct
 
   let post pa phi alpha =
     let rec go depth phi =
-      match Formula.destruct phi with
+      match F.destruct phi with
       | `And (phi, psi) -> mk_and (go depth phi) (go depth psi)
       | `Or (phi, psi) -> mk_or (go depth phi) (go depth psi)
       | `Atom (head, args) ->
@@ -204,7 +205,7 @@ module Make (A : Sigma) (P : Predicate) = struct
             try List.nth args (n - 1)
             with Invalid_argument _ -> invalid_arg "post"
         in
-        Formula.var_substitute subs rhs
+        F.var_substitute subs rhs
       | `Forall (name, phi) ->
         mk_forall ~name:name (go (depth + 1) phi)
       | `Exists (name, phi) ->
@@ -217,13 +218,13 @@ module Make (A : Sigma) (P : Predicate) = struct
     mk_exists (go 0 phi)
 
   let concrete_post pa phi (alpha,i) =
-    match Formula.destruct (post pa phi alpha) with
+    match F.destruct (post pa phi alpha) with
     | `Exists (_, psi) ->
       let f = function
         | 0 -> Const i
         | _ -> assert false
       in
-      Formula.simplify (Formula.var_substitute f psi)
+      F.simplify (F.var_substitute f psi)
     | `F -> mk_false
     | `T -> mk_true
     | _ -> assert false
@@ -246,7 +247,7 @@ module Make (A : Sigma) (P : Predicate) = struct
       List.fold_left (fun m (_, k) -> max m k) 1 word
     in
     let start =
-      Formula.instantiate_quantifiers
+      F.instantiate_quantifiers
         pa.initial
         (BatList.of_enum (1 -- universe))
     in
@@ -256,7 +257,7 @@ module Make (A : Sigma) (P : Predicate) = struct
       start
     |> accepting_formula pa
 
-  let pp_formula phi = Formula.pp P.pp Format.pp_print_int phi
+  let pp_formula phi = F.pp P.pp Format.pp_print_int phi
 
   let pp formatter pa =
     let free_name i = Char.escaped (Char.chr (i + (Char.code 'i'))) in
@@ -274,8 +275,8 @@ module Make (A : Sigma) (P : Predicate) = struct
             let rhs =
               find_transition pa p alpha
               (* Constant symbols shouldn't exist *)
-              |> Formula.substitute undefined
-              |> Formula.var_substitute (fun i ->
+              |> F.substitute undefined
+              |> F.var_substitute (fun i ->
                   if i = 0 then Const (free_name k)
                   else Const (free_name (k - 1))
                 )
@@ -285,7 +286,7 @@ module Make (A : Sigma) (P : Predicate) = struct
               (pp_print_list Format.pp_print_string) arg_names
               A.pp alpha
               (free_name k)
-              (Formula.pp P.pp Format.pp_print_string) rhs
+              (F.pp P.pp Format.pp_print_string) rhs
           );
         Format.pp_print_newline formatter ()
       )
@@ -297,7 +298,7 @@ module Make (A : Sigma) (P : Predicate) = struct
     end)
 
   let rec pp_ground_formula prop formatter phi =
-    let open Formula in
+    let open F in
     let open Format in
     match destruct_flatten phi with
     | `And conjuncts ->
@@ -380,20 +381,20 @@ module Make (A : Sigma) (P : Predicate) = struct
       (0 -- (bits - 1));
     fprintf formatter "initial_constraint = \"%a\",@\n"
       (pp_ground_formula get_prop_id)
-      ((Formula.instantiate_quantifiers
+      ((F.instantiate_quantifiers
           pa.initial
           (BatList.of_enum (1 -- size)))
-       |> Formula.simplify);
+       |> F.simplify);
     let pp_tr formatter (p, tuple) =
       let pp_atr formatter (alpha, k) =
         let rhs =
-          Formula.instantiate_quantifiers
+          F.instantiate_quantifiers
             ~env:(k::tuple)
             (find_transition pa p alpha)
             (BatList.of_enum (1 -- size))
-          |> Formula.simplify
+          |> F.simplify
         in
-        match Formula.destruct rhs with
+        match F.destruct rhs with
         | `F -> pp_print_string formatter "false"
         | _ ->
           fprintf formatter "%a@ & %a"

@@ -3,10 +3,11 @@ open Apak
 open Patop
 
 module Struct = Patop.A.Config
+module F = PaFormula
 
 let parse_formula string =
   let lexbuf = Lexing.from_string (string ^ "\n") in
-  Formula.substitute
+  F.substitute
     (BatPervasives.undefined ~message:"Start formula should be a sentence")
     (PaParse.main_formula PaLex.token lexbuf)
 
@@ -26,7 +27,7 @@ let models () =
   let msg =
     Format.asprintf "%a |= %a"
       Struct.pp m
-      (Formula.pp Putil.PString.pp Putil.PInt.pp) phi
+      (F.pp Putil.PString.pp Putil.PInt.pp) phi
   in
   assert_bool msg (Struct.models m phi)
 
@@ -39,7 +40,7 @@ let min_models () =
     let msg =
       Format.asprintf "%a |= %a"
         Struct.pp m
-        (Formula.pp Putil.PString.pp Putil.PInt.pp) phi
+        (F.pp Putil.PString.pp Putil.PInt.pp) phi
     in
     assert_bool msg (Struct.models m phi)
   in

@@ -1,5 +1,5 @@
 # OASIS_START
-# DO NOT EDIT (digest: 9b9db61be67c1ac5468a7f3a114126cb)
+# DO NOT EDIT (digest: 2692a762c274c6fbc21ade07e533f9ad)
 # Ignore VCS directories, you can use the same kind of rule outside
 # OASIS_START/STOP if you want to exclude directories that contains
 # useless stuff for the build process
@@ -88,8 +88,8 @@ true: annot, bin_annot
 <ark/*.ml{,i,y}>: use_apak
 # Library pa
 "pa/pa.cmxs": use_pa
-"pa/smt.cmx": for-pack(Pa)
-"pa/formula.cmx": for-pack(Pa)
+"pa/paSmt.cmx": for-pack(Pa)
+"pa/paFormula.cmx": for-pack(Pa)
 "pa/struct.cmx": for-pack(Pa)
 "pa/predicateAutomata.cmx": for-pack(Pa)
 <pa/*.ml{,i,y}>: pkg_Z3

@@ -2,6 +2,8 @@ open Apak
 open Patop
 
 include Log.Make(struct let name = "patools" end)
+module F = PaFormula
+module Smt = PaSmt
 
 let execute cmd f =
   let chan = Unix.open_process_in cmd in
@@ -57,7 +59,7 @@ let load_formula filename =
   let lexbuf = Lexing.from_channel (open_in filename) in
   lexbuf.lex_curr_p <- { lexbuf.lex_curr_p with pos_fname = filename };
   try
-    Formula.substitute
+    F.substitute
       (BatPervasives.undefined ~message:"Start formula should be a sentence")
       (PaParse.main_formula PaLex.token lexbuf)
   with
@@ -82,7 +84,7 @@ let load_word filename =
                 pos.pos_lnum
                 (pos.pos_cnum - pos.pos_bol + 1))
 
-let pp_formula phi = Formula.pp Format.pp_print_string Format.pp_print_int phi
+let pp_formula phi = F.pp Format.pp_print_string Format.pp_print_int phi
 
 let bounded_empty = A.bounded_empty
 
@@ -94,7 +96,7 @@ let print_post_formula pa phi =
   BatEnum.iter (fun alpha ->
       logf "Post %a:@\n  @[%a@]"
         Format.pp_print_string alpha
-        (Formula.pp Format.pp_print_string Format.pp_print_int)
+        (F.pp Format.pp_print_string Format.pp_print_int)
         (A.post pa phi alpha)
     ) (A.alphabet pa)
 
@@ -122,7 +124,7 @@ let bounded_check_emptiness_certificate pa phi =
 module Config = A.Config
 let model_of_z3 m predicates size =
   let open BatPervasives in
-  let open Formula in
+  let open F in
   let open Z3 in
   let open Model.FuncInterp in
   predicates
@@ -167,7 +169,7 @@ let model_of_z3 m predicates size =
 let entailment_cex ctx predicates phi psi =
   let solver = new Smt.solver ctx in
   let open BatPervasives in
-  let open Formula in
+  let open F in
   solver#add phi;
   solver#add_not psi;
   match Smt.get_min_model solver with
@@ -191,14 +193,14 @@ let check_emptiness_certificate pa phi =
     let n = ref 0 in
     fun x ->
       incr n;
-      Formula.alpha_of_int (!n)
+      F.alpha_of_int (!n)
   in
   let string_of_rel = Memo.memo (fun _ -> gensym ()) in
   let pp_rel formatter rel =
     Format.pp_print_string formatter (string_of_rel rel)
   in
   let pp phi =
-    Formula.tptp3_pp pp_rel Format.pp_print_int phi
+    F.tptp3_pp pp_rel Format.pp_print_int phi
   in
   BatEnum.iter (fun alpha ->
       let file = Filename.temp_file "inv-check" ".p" in
@@ -264,7 +266,7 @@ let run pa word =
   in
   let start =
     let open BatPervasives in
-    Formula.instantiate_quantifiers
+    F.instantiate_quantifiers
       (A.initial pa)
       (BatList.of_enum (1 -- universe))
   in
