@@ -482,6 +482,9 @@ let tr_instr ctx instr =
       (* CPROVER builtins *)
       | ("__CPROVER_atomic_begin", None, []) -> mk_def (Builtin AtomicBegin)
       | ("__CPROVER_atomic_end", None, []) -> mk_def (Builtin AtomicEnd)
+      | ("__VERIFIER_atomic_begin", None, []) -> mk_def (Builtin AtomicBegin)
+      | ("__VERIFIER_atomic_end", None, []) -> mk_def (Builtin AtomicEnd)
+
 
       | (_, Some (Variable lhs), args) ->
         mk_def (Call (Some lhs,

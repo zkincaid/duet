@@ -6,7 +6,6 @@ all: build
 
 build: setup.ml setup.data
 	$(SETUP) -build
-	cp duet.native duet/duet
 
 duet: setup.ml setup.data duet/src/config.ml
 	ocamlbuild duet/src/duet.native -tag debug

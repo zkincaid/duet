@@ -76,7 +76,7 @@ Executable patools
   CompiledObject: native
 
 Executable duet
-  Path:           duet/src
+  Path:           duet
   BuildTools:     ocamlbuild
   MainIs:         duet.ml
   BuildDepends:   ppx_deriving, ppx_deriving.show, ppx_deriving.ord,

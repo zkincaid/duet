@@ -341,6 +341,9 @@ let program_automaton file rg =
      error. *)
   let err = loc_pred (Def.mk (Assume Bexpr.ktrue)) in
 
+  (* Unary atomic predicate for implementing atomic sections. *)
+  let atomic = loc_pred (Def.mk (Assume Bexpr.ktrue)) in
+
   (* Nullary loc predicate ensures that whenever a new thread executes a
      command its program counter is instantiated properly. *)
   let loc = Ctx.mk_true in
@@ -393,10 +396,26 @@ let program_automaton file rg =
         ) body;
 
       RG.G.iter_vertex (fun u ->
-          (* delta(loc, sigma:i) = loc /\ src(sigma)(i) *)
-          PA.add_transition pa loc u (mk_and
-                                        (mk_atom loc [])
-                                        (mk_atom (loc_pred u) [Var 0]));
+          begin match u.dkind with
+          | Builtin AtomicEnd ->
+            PA.add_transition pa loc u
+              (* delta(loc, sigma:i) = loc /\ src(sigma)(i) /\ atomic(i) *)
+              (mk_and
+                 (mk_and (mk_atom loc []) (mk_atom atomic [Var 0]))
+                 (mk_atom (loc_pred u) [Var 0]));
+          | _ ->
+            (* delta(loc, sigma:i) = loc /\ src(sigma)(i) *)
+            PA.add_transition pa loc u (mk_and
+                                          (mk_atom loc [])
+                                          (mk_atom (loc_pred u) [Var 0]))
+          end;
+            
+          begin match u.dkind with
+            | Builtin AtomicBegin -> PA.add_transition pa atomic u mk_true
+            | _ -> 
+              PA.add_transition pa atomic u
+                (mk_and (mk_eq (Var 0) (Var 1)) (mk_atom atomic [Var 1]))
+          end;
 
           match u.dkind with
           | Assert (_, _) ->
