@@ -96,6 +96,11 @@ Test ark
   TestTools: test_ark
   run$:      flag(tests)
 
+Test patools
+  Command:   $test_patools
+  TestTools: test_patools
+  run$:      flag(tests)
+
 Test regression
   Command:   ./regression.sh run pa coarsen hdfg chdfg proofspace
   TestTools: duet
