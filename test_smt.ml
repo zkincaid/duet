@@ -7,9 +7,6 @@ module Ctx = struct
   include Smt.MakeSolver(C)(struct let opts = [] end)()
 end
 
-module Z3Of = MakeTranslator(Ctx)(Ctx.Z3C)
-module OfZ3 = MakeTranslator(Ctx.Z3C)(Ctx)
-
 module Infix = Syntax.Infix(Ctx)
 
 let r = Ctx.mk_const (Ctx.symbol_of_const ("r", TyReal))
@@ -34,7 +31,7 @@ let roundtrip1 () =
     let open Infix in
     x * x * x mod (int 10) + (frac 100 3) / (r - z + s)
   in
-  assert_equal_term term (OfZ3.term (Z3Of.term term))
+  assert_equal_term term (Ctx.term_of (Ctx.of_term term))
 
 let roundtrip2 () =
   let phi =
@@ -42,7 +39,7 @@ let roundtrip2 () =
     x <= y && y <= z && x < z
     || x = y && y = z
   in
-  assert_equal_formula phi (OfZ3.formula (Z3Of.formula phi))
+  assert_equal_formula phi (Ctx.formula_of (Ctx.of_formula phi))
 
 let roundtrip3 () =
   let phi =
@@ -54,7 +51,7 @@ let roundtrip3 () =
                 ((var 1 TyInt) < (var 0 TyReal)
                  && (var 0 TyReal) < (var 2 TyInt)))))
   in
-  assert_equal_formula phi (OfZ3.formula (Z3Of.formula phi))
+  assert_equal_formula phi (Ctx.formula_of (Ctx.of_formula phi))
 
 let is_interpolant phi psi itp =
   (Ctx.implies phi itp)

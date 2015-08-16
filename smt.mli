@@ -8,6 +8,57 @@ module type TranslationContext = sig
   val const_typ : const_sym -> typ
 end
 
+module Make
+    (Opt : sig val opts : (string * string) list end)
+    () : sig
+
+  type expr
+  type func_decl
+
+  type 'a open_expr = [
+    | `Real of QQ.t
+    | `App of func_decl * 'a list
+    | `Var of int * typ
+    | `Add of 'a list
+    | `Mul of 'a list
+    | `Binop of [ `Div | `Mod ] * 'a * 'a
+    | `Unop of [ `Floor | `Neg ] * 'a
+    | `Tru
+    | `Fls
+    | `And of 'a list
+    | `Or of 'a list
+    | `Not of 'a
+    | `Quantify of [`Exists | `Forall] * string * typ * 'a
+    | `Atom of [`Eq | `Leq | `Lt] * 'a * 'a
+  ]
+
+  val eval : ('a open_expr -> 'a) -> expr -> 'a
+  val mk : expr open_expr -> expr
+
+  val mk_add : expr list -> expr
+  val mk_mul : expr list -> expr
+  val mk_div : expr -> expr -> expr
+  val mk_mod : expr -> expr -> expr
+  val mk_var : int -> typ -> expr
+  val mk_real : QQ.t -> expr
+  val mk_app : func_decl -> expr list -> expr
+  val mk_const : func_decl -> expr
+  val mk_floor : expr -> expr
+  val mk_neg : expr -> expr
+  val mk_sub : expr -> expr -> expr
+
+  val mk_forall : ?name:string -> typ -> expr -> expr
+  val mk_exists : ?name:string -> typ -> expr -> expr
+  val mk_and : expr list -> expr
+  val mk_or : expr list -> expr
+  val mk_not : expr -> expr
+  val mk_eq : expr -> expr -> expr
+  val mk_lt : expr -> expr -> expr
+  val mk_leq : expr -> expr -> expr
+  val mk_true : expr
+  val mk_false : expr
+end
+
 module MakeSolver
     (C : TranslationContext)
     (Opt : sig val opts : (string * string) list end)
@@ -15,8 +66,6 @@ module MakeSolver
   
   type solver
   type model
-
-  module Z3C : TranslationContext
 
   (** May raise [Unknown_result]. *)
   val implies : C.formula -> C.formula -> bool
@@ -44,4 +93,9 @@ module MakeSolver
     val sat : model -> C.formula -> bool
     val to_string : model -> string
   end
+
+  val term_of : Z3.Expr.expr -> C.term
+  val of_term : C.term -> Z3.Expr.expr
+  val formula_of : Z3.Expr.expr -> C.formula
+  val of_formula : C.formula -> Z3.Expr.expr
 end
