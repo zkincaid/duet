@@ -9,13 +9,13 @@ include Log.Make(struct let name = "proofspace" end)
 
 let tr_typ typ =
   match resolve_type typ with
-  | Int _   -> TyInt
-  | Float _ -> TyReal
-  | Pointer _ -> TyInt
-  | Enum _ -> TyInt
-  | Array _ -> TyInt
-  | Dynamic -> TyReal
-  | _ -> TyInt
+  | Int _   -> `TyInt
+  | Float _ -> `TyReal
+  | Pointer _ -> `TyInt
+  | Enum _ -> `TyInt
+  | Array _ -> `TyInt
+  | Dynamic -> `TyReal
+  | _ -> `TyInt
 
 module PInt = Putil.PInt
 
@@ -167,10 +167,10 @@ let subscript_expr ss i =
        (which just acts like a havoc). *)
     | OBinaryOp (a, _, b, typ) -> Ctx.mk_var (gensym ()) (tr_typ typ)
     | OUnaryOp (_, _, typ) -> Ctx.mk_var (gensym ()) (tr_typ typ)
-    | OBoolExpr _ -> Ctx.mk_var (gensym ()) TyInt
+    | OBoolExpr _ -> Ctx.mk_var (gensym ()) `TyInt
     | OAccessPath ap -> Ctx.mk_var (gensym ()) (tr_typ (AP.get_type ap))
-    | OConstant _ -> Ctx.mk_var (gensym ()) TyInt
-    | OAddrOf _ -> Ctx.mk_var (gensym ()) TyInt
+    | OConstant _ -> Ctx.mk_var (gensym ()) `TyInt
+    | OAddrOf _ -> Ctx.mk_var (gensym ()) `TyInt
   in
   Expr.fold alg
 

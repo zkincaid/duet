@@ -22,10 +22,9 @@ let int_val x = Z3.Arithmetic.Integer.get_int x
 let typ_of_sort sort =
   let open Z3enums in
   match Z3.Sort.get_sort_kind sort with
-  | REAL_SORT -> TyReal
-  | INT_SORT -> TyInt
+  | REAL_SORT -> `TyReal
+  | INT_SORT -> `TyInt
   | _ -> invalid_arg "typ_of_sort"
-
 
 module Make
     (Opt : sig val opts : (string * string) list end)
@@ -39,7 +38,7 @@ module Make
   type 'a open_expr = [
     | `Real of QQ.t
     | `App of func_decl * 'a list
-    | `Var of int * typ
+    | `Var of int * typ_arith
     | `Add of 'a list
     | `Mul of 'a list
     | `Binop of [ `Div | `Mod ] * 'a * 'a
@@ -49,7 +48,7 @@ module Make
     | `And of 'a list
     | `Or of 'a list
     | `Not of 'a
-    | `Quantify of [`Exists | `Forall] * string * typ * 'a
+    | `Quantify of [`Exists | `Forall] * string * typ_arith * 'a
     | `Atom of [`Eq | `Leq | `Lt] * 'a * 'a
   ]
 
@@ -61,8 +60,9 @@ module Make
   let bool_sort = Boolean.mk_sort ctx
 
   let sort_of_typ = function
-    | TyInt  -> int_sort
-    | TyReal -> real_sort
+    | `TyInt  -> int_sort
+    | `TyReal -> real_sort
+    | `TyBool -> bool_sort
 
   let rec eval alg ast =
     let open Z3enums in
@@ -239,12 +239,17 @@ module MakeSolver
       | `Const sym ->
         let id = Z3.Symbol.mk_int Z3C.ctx (Obj.magic sym) in
         let sort = match C.const_typ sym with
-          | TyInt -> Z3C.int_sort
-          | TyReal -> Z3C.real_sort
+          | `TyInt -> Z3C.int_sort
+          | `TyReal -> Z3C.real_sort
+          | `TyBool -> Z3C.bool_sort
+          | `TyFun (_,_) -> invalid_arg "z3_of.term"
         in
         let decl = Z3.FuncDecl.mk_const_decl Z3C.ctx id sort in
         Z3C.mk_const decl
-      | `Var (i, typ) -> Z3C.mk_var i typ
+      | `Var (i, `TyFun (_, _))
+      | `Var (i, `TyBool) -> invalid_arg "z3_of.term"
+      | `Var (i, `TyInt) -> Z3C.mk_var i `TyInt
+      | `Var (i, `TyReal) -> Z3C.mk_var i `TyReal
       | `Add sum -> Z3C.mk_add sum
       | `Mul product -> Z3C.mk_mul product
       | `Binop (`Div, s, t) -> Z3C.mk_div s t
@@ -282,7 +287,8 @@ module MakeSolver
     in
     let alg = function
       | `Real qq -> `Term (C.mk_real qq)
-      | `Var (i, typ) -> `Term (C.mk_var i typ)
+      | `Var (i, `TyInt) -> `Term (C.mk_var i `TyInt)
+      | `Var (i, `TyReal) -> `Term (C.mk_var i `TyReal)
       | `App (decl, []) ->
         let id = Z3.Symbol.get_int (Z3.FuncDecl.get_name decl) in
         `Term (C.mk_const (Obj.magic id))

@@ -9,14 +9,14 @@ end
 
 module Infix = Syntax.Infix(Ctx)
 
-let r = Ctx.mk_const (Ctx.symbol_of_const ("r", TyReal))
-let s = Ctx.mk_const (Ctx.symbol_of_const ("s", TyReal))
-let t = Ctx.mk_const (Ctx.symbol_of_const ("t", TyReal))
+let r = Ctx.mk_const (Ctx.symbol_of_const ("r", `TyReal))
+let s = Ctx.mk_const (Ctx.symbol_of_const ("s", `TyReal))
+let t = Ctx.mk_const (Ctx.symbol_of_const ("t", `TyReal))
 
-let w = Ctx.mk_const (Ctx.symbol_of_const ("w", TyInt))
-let x = Ctx.mk_const (Ctx.symbol_of_const ("x", TyInt))
-let y = Ctx.mk_const (Ctx.symbol_of_const ("y", TyInt))
-let z = Ctx.mk_const (Ctx.symbol_of_const ("z", TyInt))
+let w = Ctx.mk_const (Ctx.symbol_of_const ("w", `TyInt))
+let x = Ctx.mk_const (Ctx.symbol_of_const ("x", `TyInt))
+let y = Ctx.mk_const (Ctx.symbol_of_const ("y", `TyInt))
+let z = Ctx.mk_const (Ctx.symbol_of_const ("z", `TyInt))
 
 let frac num den = Ctx.mk_real (QQ.of_frac num den)
 let int k = Ctx.mk_real (QQ.of_int k)
@@ -44,12 +44,12 @@ let roundtrip2 () =
 let roundtrip3 () =
   let phi =
     let open Infix in
-    forall ~name:"a" TyInt
-      (forall ~name:"b" TyInt
-         (!((var 0 TyInt) < (var 1 TyInt))
-          || (exists ~name:"c" TyReal
-                ((var 1 TyInt) < (var 0 TyReal)
-                 && (var 0 TyReal) < (var 2 TyInt)))))
+    forall ~name:"a" `TyInt
+      (forall ~name:"b" `TyInt
+         (!((var 0 `TyInt) < (var 1 `TyInt))
+          || (exists ~name:"c" `TyReal
+                ((var 1 `TyInt) < (var 0 `TyReal)
+                 && (var 0 `TyReal) < (var 2 `TyInt)))))
   in
   assert_equal_formula phi (Ctx.formula_of (Ctx.of_formula phi))
 
