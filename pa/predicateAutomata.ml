@@ -2,7 +2,9 @@ open BatPervasives
 open PaFormula
 open Apak
 
-let pp_print_list = Apak.Putil.pp_print_list
+let sep formatter () = Format.fprintf formatter ",@ "
+let pp_print_list ?(pp_sep=sep) pp_elt formatter xs =
+    ApakEnum.pp_print_enum ~pp_sep pp_elt formatter (BatList.enum xs)
 
 include Log.Make(struct let name = "pa" end)
 

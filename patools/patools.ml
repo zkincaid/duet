@@ -311,8 +311,23 @@ let _ =
     A.pp_ground size Format.std_formatter pa
   | "empty" ->
     let pa = load_automaton Sys.argv.(2) in
+    begin match A.empty pa with
+      | None ->
+        logf ~level:`always
+          "The input predicate automaton accepts an empty language"
+      | Some _ -> ()
+    end
+  | "bounded-empty" ->
+    let pa = load_automaton Sys.argv.(2) in
     let size = int_of_string Sys.argv.(3) in
-    ignore (bounded_empty pa size)    
+    begin match bounded_empty pa size with
+      | None ->
+        logf ~level:`always
+          "The input predicate automaton accepts no words with over an \
+           alphabet with %d thread(s)"
+          size
+      | Some _ -> ()
+    end
   | "diff-check" ->
     let program = load_automaton Sys.argv.(2) in
     let proof = load_automaton Sys.argv.(3) in
