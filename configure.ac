@@ -17,7 +17,7 @@ else
    ln -s lib/libbuddy.so.32 lib/libbuddy.so
 fi
 
-AC_OUTPUT(duet/src/config.ml)
+AC_OUTPUT(duet/config.ml)
 
 make setup.ml
 make setup.data
