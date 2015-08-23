@@ -1,4 +1,7 @@
-type typ = TyInt | TyReal
+type typ = [ `TyInt | `TyReal | `TyBool | `TyFun of (typ list) * typ]
+type typ_arith = [ `TyInt | `TyReal ]
+type typ_bool = [ `TyBool ]
+type 'a typ_fun = [ `TyFun of (typ list) * 'a ]
 
 type const_sym
 
@@ -8,17 +11,6 @@ module type Constant = sig
   val typ : t -> typ
   val hash : t -> int
   val equal : t -> t -> bool
-end
-
-module MakeSymbolManager (C : Constant)() : sig
-  val symbol_of_const : C.t -> const_sym
-  val const_of_symbol : const_sym -> C.t option
-  val const_of_symbol_exn : const_sym -> C.t
-
-  val mk_skolem : ?name:string -> typ -> const_sym
-  val is_skolem : const_sym -> bool
-  val const_typ : const_sym -> typ
-  val pp_const : Format.formatter -> const_sym -> unit
 end
 
 module TypedString : Constant with type t = string * typ
@@ -33,7 +25,7 @@ end
 type 'a open_term = [
   | `Real of QQ.t
   | `Const of const_sym
-  | `Var of int * typ
+  | `Var of int * typ_arith
   | `Add of 'a list
   | `Mul of 'a list
   | `Binop of [ `Div | `Mod ] * 'a * 'a
@@ -46,13 +38,14 @@ type ('a,'term) open_formula = [
   | `And of 'a list
   | `Or of 'a list
   | `Not of 'a
-  | `Quantify of [`Exists | `Forall] * string * typ * 'a
+  | `Quantify of [`Exists | `Forall] * string * typ_arith * 'a
   | `Atom of [`Eq | `Leq | `Lt] * 'term * 'term
 ]
 
 module Make (C : Constant) () : sig
-  type term
-  type formula
+  type 'a expr
+  type term = typ_arith expr
+  type formula = typ_bool expr
 
   val symbol_of_const : C.t -> const_sym
   val const_of_symbol : const_sym -> C.t option
@@ -67,15 +60,15 @@ module Make (C : Constant) () : sig
   val mk_mul : term list -> term
   val mk_div : term -> term -> term
   val mk_mod : term -> term -> term
-  val mk_var : int -> typ -> term
+  val mk_var : int -> typ_arith -> term
   val mk_real : QQ.t -> term
   val mk_const : const_sym -> term
   val mk_floor : term -> term
   val mk_neg : term -> term
   val mk_sub : term -> term -> term
 
-  val mk_forall : ?name:string -> typ -> formula -> formula
-  val mk_exists : ?name:string -> typ -> formula -> formula
+  val mk_forall : ?name:string -> typ_arith -> formula -> formula
+  val mk_exists : ?name:string -> typ_arith -> formula -> formula
   val mk_and : formula list -> formula
   val mk_or : formula list -> formula
   val mk_not : formula -> formula
@@ -126,14 +119,14 @@ module type BuilderContext = sig
   val mk_mul : term list -> term
   val mk_div : term -> term -> term
   val mk_mod : term -> term -> term
-  val mk_var : int -> typ -> term
+  val mk_var : int -> typ_arith -> term
   val mk_real : QQ.t -> term
   val mk_const : const_sym -> term
   val mk_floor : term -> term
   val mk_neg : term -> term
 
-  val mk_forall : ?name:string -> typ -> formula -> formula
-  val mk_exists : ?name:string -> typ -> formula -> formula
+  val mk_forall : ?name:string -> typ_arith -> formula -> formula
+  val mk_exists : ?name:string -> typ_arith -> formula -> formula
   val mk_and : formula list -> formula
   val mk_or : formula list -> formula
   val mk_not : formula -> formula
@@ -161,8 +154,8 @@ module MakeTranslator (Source : EvalContext) (Target : BuilderContext) : sig
 end
 
 module Infix (C : BuilderContext) : sig
-  val exists : ?name:string -> typ -> C.formula -> C.formula
-  val forall : ?name:string -> typ -> C.formula -> C.formula
+  val exists : ?name:string -> typ_arith -> C.formula -> C.formula
+  val forall : ?name:string -> typ_arith -> C.formula -> C.formula
   val ( ! ) : C.formula -> C.formula
   val ( && ) : C.formula -> C.formula -> C.formula
   val ( || ) : C.formula -> C.formula -> C.formula
@@ -178,5 +171,5 @@ module Infix (C : BuilderContext) : sig
   val ( / ) : C.term -> C.term -> C.term
   val ( mod ) : C.term -> C.term -> C.term
   val const : int -> C.term
-  val var : int -> typ -> C.term
+  val var : int -> typ_arith -> C.term
 end

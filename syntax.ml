@@ -1,12 +1,29 @@
 open BatHashcons
 
-type typ = TyInt | TyReal [@@deriving ord]
+type typ = [
+  | `TyInt
+  | `TyReal
+  | `TyBool
+  | `TyFun of (typ list) * typ
+] [@@ deriving ord]
+
+type typ_arith = [ `TyInt | `TyReal ] [@@ deriving ord]
+type typ_bool = [ `TyBool ]
+type 'a typ_fun = [ `TyFun of (typ list) * 'a ]
 
 type const_sym = int
 
-let pp_typ formatter = function
-  | TyReal -> Format.pp_print_string formatter "real"
-  | TyInt -> Format.pp_print_string formatter "int"
+let rec pp_typ formatter = function
+  | `TyReal -> Format.pp_print_string formatter "real"
+  | `TyInt -> Format.pp_print_string formatter "int"
+  | `TyBool -> Format.pp_print_string formatter "bool"
+  | `TyFun (dom, cod) ->
+    let pp_sep formatter () = Format.fprintf formatter "@ * " in
+    Format.fprintf formatter "(@[%a@ -> %a@])"
+      (ApakEnum.pp_print_enum ~pp_sep pp_typ) (BatList.enum dom)
+      pp_typ cod
+
+let pp_typ_arith = pp_typ
 
 type label =
   | True
@@ -14,13 +31,13 @@ type label =
   | And
   | Or
   | Not
-  | Exists of string * typ
-  | Forall of string * typ
+  | Exists of string * typ_arith
+  | Forall of string * typ_arith
   | Eq
   | Leq
   | Lt
   | Const of const_sym
-  | Var of int * typ
+  | Var of int * typ_arith
   | Add
   | Mul
   | Div
@@ -29,12 +46,12 @@ type label =
   | Neg
   | Real of QQ.t
 
-type expr = Node of label * ((expr hobj) list)
-type formula = expr hobj
-type term = expr hobj
+type sexpr = Node of label * ((sexpr hobj) list)
+type formula = sexpr hobj
+type term = sexpr hobj
 
 module HC = BatHashcons.MakeTable(struct
-    type t = expr
+    type t = sexpr
     let equal (Node (label, args)) (Node (label', args')) =
       (match label, label' with
        | Exists (_, typ), Exists (_, typ') -> typ = typ'
@@ -43,7 +60,7 @@ module HC = BatHashcons.MakeTable(struct
       && List.for_all2 (fun x y -> x.tag = y.tag) args args'
     let compare = Pervasives.compare
     let hash (Node (label, args)) =
-      Hashtbl.hash (label, List.map (fun expr -> expr.tag) args)
+      Hashtbl.hash (label, List.map (fun sexpr -> sexpr.tag) args)
   end)
 
 module type Constant = sig
@@ -58,7 +75,7 @@ module ConstSymbol = Apak.Putil.PInt
 
 module Var = struct
   module I = struct
-    type t = int * typ [@@deriving show,ord]
+    type t = int * typ_arith [@@deriving show,ord]
   end
   include I
   module Set = Apak.Putil.Set.Make(I)
@@ -82,21 +99,21 @@ module TypedString = struct
   let equal = (=)
 end
 
-let rec eval_expr alg expr =
-  let (Node (label, children)) = expr.obj in
-  alg label (List.map (eval_expr alg) children)
+let rec eval_sexpr alg sexpr =
+  let (Node (label, children)) = sexpr.obj in
+  alg label (List.map (eval_sexpr alg) children)
 
-let rec flatten_expr label expr =
-  let Node (label', children) = expr.obj in
+let rec flatten_sexpr label sexpr =
+  let Node (label', children) = sexpr.obj in
   if label = label' then
-    List.concat (List.map (flatten_expr label) children)
+    List.concat (List.map (flatten_sexpr label) children)
   else
-    [expr]
+    [sexpr]
 
 type 'a open_term = [
   | `Real of QQ.t
   | `Const of int
-  | `Var of int * typ
+  | `Var of int * typ_arith
   | `Add of 'a list
   | `Mul of 'a list
   | `Binop of [ `Div | `Mod ] * 'a * 'a
@@ -109,11 +126,15 @@ type ('a,'b) open_formula = [
   | `And of 'a list
   | `Or of 'a list
   | `Not of 'a
-  | `Quantify of [`Exists | `Forall] * string * typ * 'a
+  | `Quantify of [`Exists | `Forall] * string * typ_arith * 'a
   | `Atom of [`Eq | `Leq | `Lt] * 'b * 'b
 ]
 
-module MakeSymbolManager (C : Constant) () = struct
+module Make (C : Constant) () = struct
+  type 'a expr = sexpr hobj
+  type term = typ_arith expr
+  type formula = typ_bool expr
+
   module HT = Hashtbl.Make (C)
   module DynArray = BatDynArray
 
@@ -157,12 +178,6 @@ module MakeSymbolManager (C : Constant) () = struct
     match DynArray.get const_left sym with
     | `Skolem (name, _) -> Format.fprintf formatter "%s:%d" name sym
     | `Const k -> C.pp formatter k
-end
-module Make (C : Constant) () = struct
-  type term = expr hobj
-  type formula = expr hobj
-
-  include MakeSymbolManager(C)()
 
   let hashcons =
     let hc = HC.create 991 in
@@ -218,16 +233,16 @@ module Make (C : Constant) () = struct
     mk_or [mk_and [phi; psi];
            mk_not (mk_or [phi; psi])]
 
-  module Expr = struct
-    type t = expr hobj
+  module Sexpr = struct
+    type t = sexpr hobj
 
     let equal s t = s.tag = t.tag
     let compare s t = Pervasives.compare s.tag t.tag
     let hash t = t.hcode
 
     (* Avoid capture by incrementing bound variables *)
-    let rec decapture depth expr =
-      let Node (label, children) = expr.obj in
+    let rec decapture depth sexpr =
+      let Node (label, children) = sexpr.obj in
       match label with
       | Exists (_, _) | Forall (_, _) ->
         decapture_children label (depth + 1) children
@@ -236,26 +251,26 @@ module Make (C : Constant) () = struct
     and decapture_children label depth children =
       hashcons (Node (label, List.map (decapture depth) children))
 
-    let substitute subst expr =
-      let rec go depth expr =
-        let Node (label, children) = expr.obj in
+    let substitute subst sexpr =
+      let rec go depth sexpr =
+        let Node (label, children) = sexpr.obj in
         match label with
         | Exists (_, _) | Forall (_, _) ->
           go_children label (depth + 1) children
         | Var (v, _) ->
           if v < depth then (* bound var *)
-            expr
+            sexpr
           else
             decapture depth (subst (v - depth))
         | _ -> go_children label depth children
       and go_children label depth children =
         hashcons (Node (label, List.map (go depth) children))
       in
-      go 0 expr
+      go 0 sexpr
 
-    let substitute_const subst expr =
-      let rec go depth expr =
-        let Node (label, children) = expr.obj in
+    let substitute_const subst sexpr =
+      let rec go depth sexpr =
+        let Node (label, children) = sexpr.obj in
         match label with
         | Exists (_, _) | Forall (_, _) ->
           go_children label (depth + 1) children
@@ -264,20 +279,20 @@ module Make (C : Constant) () = struct
       and go_children label depth children =
         hashcons (Node (label, List.map (go depth) children))
       in
-      go 0 expr
+      go 0 sexpr
 
-    let fold_constants f expr acc =
-      let rec go acc expr =
-        let Node (label, children) = expr.obj in
+    let fold_constants f sexpr acc =
+      let rec go acc sexpr =
+        let Node (label, children) = sexpr.obj in
         match label with
         | Const k -> f k acc
         | _ -> List.fold_left go acc children
       in
-      go acc expr
+      go acc sexpr
 
-    let vars expr =
-      let rec go depth expr =
-        let Node (label, children) = expr.obj in
+    let vars sexpr =
+      let rec go depth sexpr =
+        let Node (label, children) = sexpr.obj in
         match label with
         | Exists (_, _) | Forall (_, _) ->
           go_children (depth + 1) children
@@ -291,11 +306,11 @@ module Make (C : Constant) () = struct
           Var.Set.empty
           (List.map (go depth) children)
       in
-      go 0 expr
+      go 0 sexpr
   end
 
   module Term = struct
-    include Expr
+    include Sexpr
 
     let eval alg t =
       let f label children = match label, children with
@@ -310,7 +325,7 @@ module Make (C : Constant) () = struct
         | Neg, [t] -> alg (`Unop (`Neg, t))
         | _ -> invalid_arg "eval: not a term"
       in
-      eval_expr f t
+      eval_sexpr f t
 
     let destruct t = match t.obj with
       | Node (Real qq, []) -> `Real qq
@@ -366,7 +381,7 @@ module Make (C : Constant) () = struct
     let show t = Apak.Putil.mk_show pp t
   end
   module Formula = struct
-    include Expr
+    include Sexpr
     let destruct phi = match phi.obj with
       | Node (True, []) -> `Tru
       | Node (False, []) -> `Fls
@@ -407,9 +422,9 @@ module Make (C : Constant) () = struct
       | Node (True, []) -> `Tru
       | Node (False, []) -> `Fls
       | Node (And, conjuncts) ->
-        `And (List.concat (List.map (flatten_expr And) conjuncts))
+        `And (List.concat (List.map (flatten_sexpr And) conjuncts))
       | Node (Or, disjuncts) ->
-        `Or (List.concat (List.map (flatten_expr Or) disjuncts))
+        `Or (List.concat (List.map (flatten_sexpr Or) disjuncts))
       | Node (Not, [phi]) -> `Not phi
       | Node (Exists (name, typ), [phi]) ->
         let varinfo, phi' = flatten_existential phi in
@@ -474,7 +489,7 @@ module Make (C : Constant) () = struct
 
     let existential_closure phi =
       let vars = vars phi in
-      let types = Array.make (Var.Set.cardinal vars) TyInt in
+      let types = Array.make (Var.Set.cardinal vars) `TyInt in
       let rename =
         let n = ref (-1) in
         let map =
@@ -495,10 +510,10 @@ module Make (C : Constant) () = struct
 
     let skolemize_free phi =
       let skolem = Apak.Memo.memo (fun (i, typ) -> mk_const (mk_skolem typ)) in
-      let rec go expr =
-        let (Node (label, children)) = expr.obj in
+      let rec go sexpr =
+        let (Node (label, children)) = sexpr.obj in
         match label with
-        | Var (i, typ) -> skolem (i, typ)
+        | Var (i, typ) -> skolem (i, (typ :> typ))
         | _ -> hashcons (Node (label, List.map go children))
       in
       go phi
@@ -513,14 +528,14 @@ module type BuilderContext = sig
   val mk_mul : term list -> term
   val mk_div : term -> term -> term
   val mk_mod : term -> term -> term
-  val mk_var : int -> typ -> term
+  val mk_var : int -> typ_arith -> term
   val mk_real : QQ.t -> term
   val mk_const : int -> term
   val mk_floor : term -> term
   val mk_neg : term -> term
 
-  val mk_forall : ?name:string -> typ -> formula -> formula
-  val mk_exists : ?name:string -> typ -> formula -> formula
+  val mk_forall : ?name:string -> typ_arith -> formula -> formula
+  val mk_exists : ?name:string -> typ_arith -> formula -> formula
   val mk_and : formula list -> formula
   val mk_or : formula list -> formula
   val mk_not : formula -> formula

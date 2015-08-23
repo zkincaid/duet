@@ -10,19 +10,19 @@ end
 
 module Infix = Syntax.Infix(Ctx)
 
-let r = Ctx.mk_const (Ctx.symbol_of_const ("r", TyReal))
-let s = Ctx.mk_const (Ctx.symbol_of_const ("s", TyReal))
-let t = Ctx.mk_const (Ctx.symbol_of_const ("t", TyReal))
+let r = Ctx.mk_const (Ctx.symbol_of_const ("r", `TyReal))
+let s = Ctx.mk_const (Ctx.symbol_of_const ("s", `TyReal))
+let t = Ctx.mk_const (Ctx.symbol_of_const ("t", `TyReal))
 
-let w = Ctx.mk_const (Ctx.symbol_of_const ("w", TyInt))
-let x = Ctx.mk_const (Ctx.symbol_of_const ("x", TyInt))
-let y = Ctx.mk_const (Ctx.symbol_of_const ("y", TyInt))
-let z = Ctx.mk_const (Ctx.symbol_of_const ("z", TyInt))
+let w = Ctx.mk_const (Ctx.symbol_of_const ("w", `TyInt))
+let x = Ctx.mk_const (Ctx.symbol_of_const ("x", `TyInt))
+let y = Ctx.mk_const (Ctx.symbol_of_const ("y", `TyInt))
+let z = Ctx.mk_const (Ctx.symbol_of_const ("z", `TyInt))
 
-let wsym = Ctx.symbol_of_const ("w", TyInt)
-let xsym = Ctx.symbol_of_const ("x", TyInt)
-let ysym = Ctx.symbol_of_const ("y", TyInt)
-let zsym = Ctx.symbol_of_const ("z", TyInt)
+let wsym = Ctx.symbol_of_const ("w", `TyInt)
+let xsym = Ctx.symbol_of_const ("x", `TyInt)
+let ysym = Ctx.symbol_of_const ("y", `TyInt)
+let zsym = Ctx.symbol_of_const ("z", `TyInt)
 
 let frac num den = Ctx.mk_real (QQ.of_frac num den)
 let int k = Ctx.mk_real (QQ.of_int k)
