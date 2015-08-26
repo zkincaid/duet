@@ -15,10 +15,10 @@ module type Predicate = sig
   val pp : Format.formatter -> t -> unit
 end
 
-module Make (A : Sigma) (P : Predicate) : sig
+module type S = sig
   type t
-  type predicate = P.t
-  type alpha = A.t
+  type predicate
+  type alpha
   type formula = (predicate, int) PaFormula.formula
   type config
 
@@ -26,7 +26,13 @@ module Make (A : Sigma) (P : Predicate) : sig
                             and type t = config
 
   val pp : Format.formatter -> t -> unit
+  val pp_alpha : Format.formatter -> alpha -> unit
+
+  (** [pp_ground size fmt a] formats the alternating finite automata obtained
+      from the predicate automaton [a] by instantiating the universe to
+      [size].  The printed format is the input format of the Alaska tool. *)
   val pp_ground : int -> Format.formatter -> t -> unit
+
   val pp_formula : Format.formatter -> formula -> unit
 
   (** [make sigma accept initial] creates a new PA with alphabet [sigma],
@@ -69,16 +75,29 @@ module Make (A : Sigma) (P : Predicate) : sig
 
   val pred : t -> config -> (alpha * int) -> config
 
-  val empty : t -> ((alpha * int) list) option
-
-  (** [bounded_empty pa bound] finds [Some] word which is accepted by [pa] and
-      uses only indexed letters with index [<= bound]; [None] if there are no
-      such words. *)
-  val bounded_empty : t -> int -> ((alpha * int) list) option
-
-  val bounded_invariant : t -> int -> formula -> ((alpha * int) list) option
-
   (** [accepting_formula pa phi] determines whether all models of [phi] are
       accepting configurations of [pa]. *)
   val accepting_formula : t -> formula -> bool
+
+  val accepting : t -> config -> bool
+end
+
+module Make (A : Sigma) (P : Predicate) :
+  S with type predicate = P.t
+     and type alpha = A.t
+
+module MakeEmpty (A : S) : sig
+  val empty : A.t -> ((A.alpha * int) list) option
+end
+
+module MakeBounded (A : S) : sig
+  (** [bounded_empty pa bound] finds [Some] word which is accepted by [pa] and
+      uses only indexed letters with index [<= bound]; [None] if there are no
+      such words. *)
+  val bounded_empty : A.t -> int -> ((A.alpha * int) list) option
+
+  val bounded_invariant : A.t ->
+    int ->
+    A.formula ->
+    ((A.alpha * int) list) option
 end

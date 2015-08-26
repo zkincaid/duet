@@ -2,6 +2,8 @@ open Apak
 open BatPervasives
 
 module A = PredicateAutomata.Make(Putil.PString)(Putil.PString)
+module Bounded = PredicateAutomata.MakeBounded(A)
+module Empty = PredicateAutomata.MakeEmpty(A)
 module F = PaFormula
 
 let pp_print_list = Apak.Putil.pp_print_list

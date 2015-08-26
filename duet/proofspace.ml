@@ -66,10 +66,15 @@ end
 
 let program_var v = Ctx.mk_const (Ctx.symbol_of_const v)
 
-module PA = PredicateAutomata.Make(Def)(struct
-    include P
-    let pp formatter p = Format.fprintf formatter "{%a}" pp p
-  end)
+module PA = PredicateAutomata.Make
+    (struct
+      include Def
+      let pp formatter def = Format.fprintf formatter "<%a>" pp def
+    end)
+    (struct
+      include P
+      let pp formatter p = Format.fprintf formatter "{%a}" pp p
+    end)
 
 (* Determine the arity of a predicate (i.e., the number of distinct threads
    whose local variables appear in the predicate).  This function assumes
@@ -466,6 +471,9 @@ let program_automaton file rg =
 
   pa
 
+module E = PredicateAutomata.MakeEmpty(PA)
+let empty = E.empty
+
 let verify file =
   let open PA in
   let rg = Interproc.remove_skip (Interproc.make_recgraph file) in
@@ -477,7 +485,9 @@ let verify file =
       (PaFormula.mk_atom Ctx.mk_false [])
   in
 
-  let check pf = PA.empty (PA.intersect program_pa (PA.negate pf)) in
+  let check pf =
+    Log.time "PA emptiness" empty (PA.intersect program_pa (PA.negate pf))
+  in
   let number_cex = ref 0 in
   let print_info () =
     logf ~level:`info "  PA predicates: %d"

@@ -86,7 +86,7 @@ let load_word filename =
 
 let pp_formula phi = F.pp Format.pp_print_string Format.pp_print_int phi
 
-let bounded_empty = A.bounded_empty
+let bounded_empty = Bounded.bounded_empty
 
 let complement = A.negate
 
@@ -255,7 +255,7 @@ let check_emptiness_certificate pa phi =
   
 let check_invariant pa phi =
   logf "Checking invariant:@\n%a" pp_formula phi;
-  A.bounded_invariant pa 2 phi
+  Bounded.bounded_invariant pa 2 phi
 
 let run pa word =
   let ctx = new Smt.ctx [("model", "true")] in
@@ -311,7 +311,7 @@ let _ =
     A.pp_ground size Format.std_formatter pa
   | "empty" ->
     let pa = load_automaton Sys.argv.(2) in
-    begin match A.empty pa with
+    begin match Empty.empty pa with
       | None ->
         logf ~level:`always
           "The input predicate automaton accepts an empty language"

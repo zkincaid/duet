@@ -25,9 +25,43 @@ end
 
 module F = PaFormula
 
+module type S = sig
+  type t
+  type predicate
+  type alpha
+  type formula = (predicate, int) PaFormula.formula
+  type config
+
+  module Config : Struct.S with type predicate = predicate
+                            and type t = config
+
+  val pp : Format.formatter -> t -> unit
+  val pp_alpha : Format.formatter -> alpha -> unit
+  val pp_ground : int -> Format.formatter -> t -> unit
+  val pp_formula : Format.formatter -> formula -> unit
+  val make : alpha list -> predicate list -> formula -> t
+  val add_transition : t -> predicate -> alpha -> formula -> unit
+  val alphabet : t -> alpha BatEnum.t
+  val vocabulary : t -> (predicate * int) BatEnum.t
+  val initial : t -> formula
+  val negate : t -> t
+  val intersect : t -> t -> t
+  val union : t -> t -> t
+  val post : t -> formula -> alpha -> formula
+  val concrete_post : t -> formula -> (alpha * int) -> formula
+  val succs : t -> config -> (alpha * int) -> config BatEnum.t
+  val pred : t -> config -> (alpha * int) -> config
+(*
+  val bounded_empty : t -> int -> ((alpha * int) list) option
+  val bounded_invariant : t -> int -> formula -> ((alpha * int) list) option
+*)
+  val accepting_formula : t -> formula -> bool
+  val accepting : t -> config -> bool
+end
+
 module Make (A : Sigma) (P : Predicate) = struct
   type predicate = P.t
-  type alpha = A.t
+  type alpha = A.t [@@deriving show]
   type formula = (P.t, int) F.formula
   type atom = P.t * int list [@@deriving ord]
 
@@ -427,17 +461,6 @@ module Make (A : Sigma) (P : Predicate) = struct
              None) |> BatEnum.concat);
     fprintf formatter "@]@\n)@\n"
     
-  (* Emptiness ****************************************************************)
-  module CHT = BatHashtbl.Make(Config)
-
-  (* Reachability graph *)
-  type rg =
-    { mutable worklist : Config.t list;
-      parent : ((A.t * int * Config.t) option) CHT.t;
-      cover : Config.t CHT.t }
-
-  let vertices rg = CHT.keys rg.parent
-
   let accepting pa config =
     BatEnum.for_all (fun (x,_) -> PSet.mem x pa.accepting) (Config.props config)
 
@@ -479,6 +502,18 @@ module Make (A : Sigma) (P : Predicate) = struct
           )
         |> Config.make ~size:universe)
     |> BatEnum.fold Config.union (Config.empty universe)
+end
+
+module MakeReachabilityGraph (A : S) = struct
+  open A
+  module CHT = BatHashtbl.Make(Config)
+
+  type rg =
+    { mutable worklist : Config.t list;
+      parent : ((alpha * int * Config.t) option) CHT.t;
+      cover : Config.t CHT.t }
+
+  let vertices rg = CHT.keys rg.parent
 
   let close_trivial rg pa config =
     CHT.mem rg.parent config
@@ -514,7 +549,7 @@ module Make (A : Sigma) (P : Predicate) = struct
     logf ~level:`trace ~attributes:[`Blue;`Bold] "Expanding vertex:";
     logf ~level:`trace "@[%a" Config.pp config;
     let add_succs (alpha, k) =
-      logf ~level:`trace " + Action: <%d : %a>" k A.pp alpha;
+      logf ~level:`trace " + Action: <%d : %a>" k pp_alpha alpha;
       let succs = succs pa config (alpha, k) in
       let add_succ succ =
         if not (CHT.mem rg.parent succ) then begin
@@ -530,7 +565,7 @@ module Make (A : Sigma) (P : Predicate) = struct
     in
     let result =
       ApakEnum.cartesian_product
-        (BatList.enum pa.sigma)
+        (alphabet pa)
         (Config.universe config)
       |> BatEnum.iter add_succs
     in
@@ -541,8 +576,8 @@ module Make (A : Sigma) (P : Predicate) = struct
     logf ~level:`trace ~attributes:[`Blue;`Bold]
       "Expanding vertex [inter-universal]: %a" Config.pp config;
     let k = Config.universe_size config + 1 in
-    BatList.enum pa.sigma |> BatEnum.iter (fun alpha ->
-      logf ~level:`trace " + Action: <%d : %a>" k A.pp alpha;
+    alphabet pa |> BatEnum.iter (fun alpha ->
+      logf ~level:`trace " + Action: <%d : %a>" k pp_alpha alpha;
       let succs = succs pa config (alpha, k) in
       let add_succ succ =
         if not (CHT.mem rg.parent succ) then begin
@@ -566,55 +601,16 @@ module Make (A : Sigma) (P : Predicate) = struct
     logf "%a" Config.pp v;
     match CHT.find rg.parent v with
     | Some (a,i,p) ->
-      logf "  <%a : %d>" A.pp a i;
+      logf "  <%a : %d>" pp_alpha a i;
       print_path_to_root rg p
     | None -> ()
 
-  (* Find a reachable configuration that satisfies the predicate p *)
-  let bounded_search pa size p =
-    let rec fix rg =
-      match List.rev rg.worklist with
-      | (config::rest) ->
-        rg.worklist <- List.rev rest;
-        expand rg pa config p;
-        fix rg
-      | [] -> ()
-    in
-    let rg =
-      { worklist = BatList.of_enum (Config.min_models size pa.initial);
-        parent = CHT.create 991;
-        cover = CHT.create 991 }
-    in
-    List.iter (fun s -> CHT.add rg.parent s None) rg.worklist;
-    let rec path_to_root v path =
-      match CHT.find rg.parent v with
-      | Some (a,i,p) ->
-        path_to_root p ((a,i)::path)
-      | None -> path
-    in
-    let rec print_path_to_root v =
-      logf "%a" Config.pp v;
-      match CHT.find rg.parent v with
-      | Some (a,i,p) ->
-        logf "  <%a : %d>" A.pp a i;
-        print_path_to_root p
-      | None -> ()
-    in
-    try
-      let config = List.find p rg.worklist in
-      logf "Accepting initial configuration:@\n%a" Config.pp config;
-      Some []
-    with Not_found ->
-      try
-        (fix rg); None
-      with Accepting v ->
-        (logf "Accepting path:";
-         print_path_to_root v;
-         Some (path_to_root v []))
+end
 
-  let bounded_empty pa size = bounded_search pa size (accepting pa)
-  let bounded_invariant pa size phi =
-    bounded_search pa size (not % flip Config.models phi)
+module MakeEmpty (A : S) = struct
+  open A
+
+  include MakeReachabilityGraph(A)
 
   let empty pa =
     let accept = accepting pa in
@@ -628,7 +624,7 @@ module Make (A : Sigma) (P : Predicate) = struct
       | [] -> ()
     in
     let initial_configurations =
-      BatList.of_enum (Config.min_models 1 pa.initial)
+      BatList.of_enum (Config.min_models 1 (initial pa))
     in
     let rg =
       { worklist = [];
@@ -649,4 +645,57 @@ module Make (A : Sigma) (P : Predicate) = struct
         (logf "Accepting path:";
          print_path_to_root rg v;
          Some (path_to_root rg v []))
+end
+
+module MakeBounded (A : S) = struct
+  open A
+
+  include MakeReachabilityGraph(A)
+
+  (* Find a reachable configuration that satisfies the predicate p *)
+  let bounded_search pa size p =
+    let rec fix rg =
+      match List.rev rg.worklist with
+      | (config::rest) ->
+        rg.worklist <- List.rev rest;
+        expand rg pa config p;
+        fix rg
+      | [] -> ()
+    in
+    let rg =
+      { worklist = BatList.of_enum (Config.min_models size (initial pa));
+        parent = CHT.create 991;
+        cover = CHT.create 991 }
+    in
+    List.iter (fun s -> CHT.add rg.parent s None) rg.worklist;
+    let rec path_to_root v path =
+      match CHT.find rg.parent v with
+      | Some (a,i,p) ->
+        path_to_root p ((a,i)::path)
+      | None -> path
+    in
+    let rec print_path_to_root v =
+      logf "%a" Config.pp v;
+      match CHT.find rg.parent v with
+      | Some (a,i,p) ->
+        logf "  <%a : %d>" pp_alpha a i;
+        print_path_to_root p
+      | None -> ()
+    in
+    try
+      let config = List.find p rg.worklist in
+      logf "Accepting initial configuration:@\n%a" Config.pp config;
+      Some []
+    with Not_found ->
+      try
+        (fix rg); None
+      with Accepting v ->
+        (logf "Accepting path:";
+         print_path_to_root v;
+         Some (path_to_root v []))
+
+  let bounded_empty pa size = bounded_search pa size (accepting pa)
+  let bounded_invariant pa size phi =
+    bounded_search pa size (not % flip Config.models phi)
+
 end
