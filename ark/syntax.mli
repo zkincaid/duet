@@ -129,6 +129,8 @@ module type BuilderContext = sig
   val mk_exists : ?name:string -> typ_arith -> formula -> formula
   val mk_and : formula list -> formula
   val mk_or : formula list -> formula
+  val mk_true : formula
+  val mk_false : formula
   val mk_not : formula -> formula
   val mk_eq : term -> term -> formula
   val mk_lt : term -> term -> formula

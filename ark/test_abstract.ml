@@ -31,7 +31,8 @@ let assert_equal_term s t =
   assert_equal ~printer:Ctx.Term.show s t
 let assert_equiv_formula s t =
   assert_equal ~printer:Ctx.Formula.show ~cmp:Ctx.equiv s t
-
+let assert_equal_qq x y =
+  assert_equal ~printer:QQ.show ~cmp:QQ.equal x y
 
 let hull_formula hull = Ctx.mk_and (List.map (Ctx.mk_eq (int 0)) hull)
 
@@ -93,6 +94,49 @@ let affine_hull6 () =
   let hull = affine_hull (module Ctx) phi [wsym;xsym;ysym;zsym] in
   assert_equiv_formula phi_hull (hull_formula hull)
 
+let optimize1 () =
+  let phi =
+    let open Infix in
+    (int 0) <= r && r <= (int 1)
+  in
+  assert_equiv_formula phi (Abstract.boxify (module Ctx) phi [r])
+
+let optimize2 () =
+  let phi =
+    let open Infix in
+    (int 0) <= r && r <= (int 1)
+    && (int (-3)) <= s && s <= (int 28)
+  in
+  let phi_r =
+    let open Infix in
+    (int 0) <= r && r <= (int 1)
+  in
+  let phi_rs =
+    let open Infix in
+    (int (-3)) <= (r + s) && (r + s) <= (int 29)
+  in
+  assert_equiv_formula phi (Abstract.boxify (module Ctx) phi [r; s]);
+  assert_equiv_formula phi_r (Abstract.boxify (module Ctx) phi [r]);
+  assert_equiv_formula phi_rs
+		       (Abstract.boxify (module Ctx) phi [Ctx.mk_add [r; s]])
+
+let optimize3 () =
+  let phi =
+    let open Infix in
+    (int 0) <= r && s <= (int 1)
+  in
+  assert_equiv_formula phi (Abstract.boxify (module Ctx) phi [r; s])
+
+let optimize4 () =
+  let phi =
+    let open Infix in
+    (int 1) < r && r < (int 5)
+  in
+  let phi_closed =
+    let open Infix in
+    (int 1) <= r && r <= (int 5)
+  in
+  assert_equiv_formula phi_closed (Abstract.boxify (module Ctx) phi [r])
 
 let suite = "Abstract" >::: [
     "affine_hull1" >:: affine_hull1;
@@ -101,4 +145,8 @@ let suite = "Abstract" >::: [
     "affine_hull4" >:: affine_hull4;
     "affine_hull5" >:: affine_hull5;
     "affine_hull6" >:: affine_hull6;
+    "optimize1" >:: optimize1;
+    "optimize2" >:: optimize2;
+    "optimize3" >:: optimize3;
+    "optimize4" >:: optimize4;
   ]

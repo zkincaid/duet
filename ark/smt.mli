@@ -98,4 +98,8 @@ module MakeSolver
   val of_term : C.term -> Z3.Expr.expr
   val formula_of : Z3.Expr.expr -> C.formula
   val of_formula : C.formula -> Z3.Expr.expr
+
+  val optimize_box : C.formula -> C.term list -> [ `Sat of Interval.t list
+						 | `Unsat
+						 | `Unknown ]
 end

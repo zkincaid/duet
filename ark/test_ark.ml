@@ -4,6 +4,7 @@ let suite = "Main" >::: [
     Test_scalar.suite;
     Test_syntax.suite;
     Test_smt.suite;
+    Test_interval.suite;
     Test_linear.suite;
     Test_abstract.suite
 ]

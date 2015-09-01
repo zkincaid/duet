@@ -39,6 +39,10 @@ module type AbstractionContext = sig
     val sat : model -> formula -> bool
     val to_string : model -> string
   end
+
+  val optimize_box : formula -> term list -> [ `Sat of Interval.t list
+					     | `Unsat
+					     | `Unknown ]
 end
 
 exception Nonlinear
@@ -156,3 +160,29 @@ let affine_hull
           go equalities mat' (k::ks)
   in
   go [] QQMatrix.zero constants
+
+let boxify
+      (type formula)
+      (type term)
+      (module C : AbstractionContext with type formula = formula
+                                      and type term = term)
+      phi
+      terms =
+  let mk_box t ivl =
+    let lower =
+      match Interval.lower ivl with
+      | Some lo -> [C.mk_leq (C.mk_real lo) t]
+      | None -> []
+    in
+    let upper =
+      match Interval.upper ivl with
+      | Some hi -> [C.mk_leq t (C.mk_real hi)]
+      | None -> []
+    in
+    lower@upper
+  in
+  match C.optimize_box phi terms with
+  | `Sat intervals ->
+     C.mk_and (List.concat (List.map2 mk_box terms intervals))
+  | `Unsat -> C.mk_false
+  | `Unknown -> assert false

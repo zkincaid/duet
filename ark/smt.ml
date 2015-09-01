@@ -19,6 +19,18 @@ let bool_val x =
 
 let int_val x = Z3.Arithmetic.Integer.get_int x
 
+let zz_val ast = ZZ.of_string (Z3.Arithmetic.Integer.numeral_to_string ast)
+
+let rec qq_val ast =
+  if Z3.Expr.is_numeral ast then
+    QQ.of_string (Z3.Arithmetic.Real.numeral_to_string ast)
+  else if Z3.FloatingPoint.is_to_real ast
+	  || Z3.Arithmetic.is_int2real ast
+	  || Z3.Arithmetic.is_real2int ast
+  then
+    qq_val (List.hd (Z3.Expr.get_args ast))
+  else invalid_arg "qq_val"
+
 let typ_of_sort sort =
   let open Z3enums in
   match Z3.Sort.get_sort_kind sort with
@@ -98,7 +110,7 @@ module Make
         | (_, _) -> invalid_arg "eval: unknown application"
       end
     | NUMERAL_AST ->
-      alg (`Real (QQ.of_string (Arithmetic.Real.numeral_to_string ast)))
+      alg (`Real (qq_val ast))
     | VAR_AST ->
       let index = Quantifier.get_index ast in
       alg (`Var (index, (typ_of_sort (Expr.get_sort ast))))
@@ -208,12 +220,12 @@ module Make
   module Model = struct
     let eval_int m term =
       match Z3.Model.eval m term true with
-      | Some x -> ZZ.of_string (Z3.Arithmetic.Integer.numeral_to_string x)
+      | Some x -> zz_val x
       | None -> invalid_arg "eval_int: not an integer term"
 
     let eval_real m term =
       match Z3.Model.eval m term true with
-      | Some x -> QQ.of_string (Z3.Arithmetic.Real.numeral_to_string x)
+      | Some x -> qq_val x
       | None -> invalid_arg "eval_real: not a real term"
 
     let sat m phi =
@@ -361,12 +373,12 @@ module MakeSolver
   module Model = struct
     let eval_int m term =
       match Z3.Model.eval m (of_term term) true with
-      | Some x -> ZZ.of_string (Z3.Arithmetic.Integer.numeral_to_string x)
+      | Some x -> zz_val x
       | None -> invalid_arg "eval_int: not an integer term"
 
     let eval_real m term =
       match Z3.Model.eval m (of_term term) true with
-      | Some x -> QQ.of_string (Z3.Arithmetic.Real.numeral_to_string x)
+      | Some x -> qq_val x
       | None -> invalid_arg "eval_real: not a real term"
 
     let sat m phi =
@@ -435,4 +447,49 @@ module MakeSolver
     | `Sat -> false
     | `Unsat -> true
     | `Unknown -> raise Unknown_result
+
+  let optimize_box phi terms =
+    let open Z3.Optimize in
+    let opt = mk_opt ctx in
+    let params = Z3.Params.mk_params ctx in
+    let sym = Z3.Symbol.mk_string ctx in
+    Z3.Params.add_symbol params (sym ":opt.priority") (sym "box");
+    set_parameters opt params;
+    add opt [of_formula phi];
+    let mk_handles t =
+      let z3t = of_term t in
+      (minimize opt z3t, maximize opt z3t)
+    in
+    let handles = List.map mk_handles terms in
+    let mk_interval (lo, hi) =
+      let lower =
+	let lo = get_lower lo in
+	if Z3.Expr.is_numeral lo then
+	  Some (qq_val lo)
+	else if Z3.Expr.to_string lo = "(* (- 1) oo)" then
+	  None
+	else if Z3.Arithmetic.is_add lo then
+	  (* x + epsilon *)
+	   Some (qq_val (List.hd (Z3.Expr.get_args lo)))
+	else
+	  Apak.Log.fatalf "Smt.optimize_box: %s" (Z3.Expr.to_string lo)
+      in
+      let upper =
+	let hi = get_lower hi in
+	if Z3.Expr.is_numeral hi then
+	  Some (qq_val hi)
+	else if Z3.Expr.to_string hi = "oo" then
+	  None
+	else if Z3.Arithmetic.is_add hi then
+	  (* x - epsilon *)
+	  Some (qq_val (List.hd (Z3.Expr.get_args hi)))
+	else
+	  Apak.Log.fatalf "Smt.optimize_box: %s" (Z3.Expr.to_string hi)
+      in
+      Interval.make lower upper
+    in
+    match check opt with
+    | Z3.Solver.SATISFIABLE -> `Sat (List.map mk_interval handles)
+    | Z3.Solver.UNSATISFIABLE -> `Unsat
+    | Z3.Solver.UNKNOWN -> `Unknown
 end
