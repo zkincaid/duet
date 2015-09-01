@@ -36,6 +36,10 @@ module type AbstractionContext = sig
     val sat : model -> formula -> bool
     val to_string : model -> string
   end
+
+  val optimize_box : formula -> term list -> [ `Sat of Interval.t list
+					     | `Unsat
+					     | `Unknown ]
 end
 
 val affine_hull :
@@ -43,3 +47,9 @@ val affine_hull :
   'a ->
   const_sym list ->
   'b list
+
+val boxify :
+  (module AbstractionContext with type formula = 'a and type term = 'b) ->
+  'a ->
+  'b list ->
+  'a
