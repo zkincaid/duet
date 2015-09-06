@@ -634,3 +634,99 @@ let analyze file =
 let _ =
   CmdLine.register_pass
     ("-cra", analyze, " Compositional recurrence analysis")
+
+(*******************************************************************************
+ * Newtonian Program Analysis via Tensor product
+ ******************************************************************************)
+
+(* Tensored vocabulary *)
+type vv = Left of V.t | Right of V.t
+              deriving (Show, Compare)
+
+module VV = struct
+  module I = struct
+    type t = vv deriving (Show, Compare)
+    let compare = Compare_t.compare
+    let show = Show_t.show
+    let format = Show_t.format
+    let equal x y = compare x y = 0
+
+    let hash = function
+      | Left v -> Hashtbl.hash (v, 0)
+      | Right v -> Hashtbl.hash (v, 1)
+  end
+  include I
+
+  let lower = function
+    | Left v -> v
+    | Right v -> v
+
+  let left v = Left v
+  let right v = Right v
+
+  let prime = function
+    | Left v -> Left (V.prime v)
+    | Right v -> Right (V.prime v)
+
+  module E = Enumeration.Make(I)
+  let enum = E.empty ()
+  let of_smt sym = match Smt.symbol_refine sym with
+    | Smt.Symbol_int id -> E.from_int enum id
+    | Smt.Symbol_string _ -> assert false
+  let typ v = tr_typ (Var.get_type (var_of_value (lower v)))
+  let to_smt v =
+    let id = E.to_int enum v in
+    match typ v with
+    | TyInt -> Smt.mk_int_const (Smt.mk_int_symbol id)
+    | TyReal -> Smt.mk_real_const (Smt.mk_int_symbol id)
+  let tag = E.to_int enum
+end
+
+(* Tensored transition formula *)
+module KK = Transition.Make(VV)
+
+let inject_term inject term =
+  let alg = function
+    | OFloor x -> KK.T.floor x
+    | OAdd (x, y) -> KK.T.add x y
+    | OMul (x, y) -> KK.T.mul x y
+    | ODiv (x, y) -> KK.T.div x y
+    | OMod (x, y) -> KK.T.modulo x y
+    | OVar (K.V.PVar v) -> KK.T.var (KK.V.mk_var (inject v))
+    | OVar (K.V.TVar (id, typ, name)) ->
+      (* Identifiers for temporary variables remain unchanged.  This may be
+         something we need to be careful about. *)
+      KK.T.var (KK.V.TVar (id, typ, name))
+    | OConst k -> KK.T.const k
+  in
+  K.T.eval alg term
+
+let inject_formula inject phi =
+  let alg = function
+    | OOr (phi, psi) -> KK.F.disj phi psi
+    | OAnd (phi, psi) -> KK.F.conj phi psi
+    | OAtom (LeqZ x) -> KK.F.leqz (inject_term inject x)
+    | OAtom (EqZ x) -> KK.F.eqz (inject_term inject x)
+    | OAtom (LtZ x) -> KK.F.ltz (inject_term inject x)
+  in
+  K.F.eval alg phi
+
+let tensor tr_left tr_right =
+  let left_transform =
+    BatEnum.fold (fun transform (k, term) ->
+        KK.M.add (Left k) (inject_term VV.left term) transform)
+      KK.M.empty
+      (K.M.enum tr_left.K.transform);
+  in
+  (* Combined left & right transform *)
+  let left_right_transform =
+    BatEnum.fold (fun transform (k, term) ->
+        KK.M.add (Right k) (inject_term VV.right term) transform)
+      left_transform
+      (K.M.enum tr_right.K.transform);
+  in
+  { KK.transform = left_right_transform;
+    KK.guard =
+      KK.F.conj
+        (inject_formula VV.left tr_left.K.guard)
+        (inject_formula VV.right tr_right.K.guard) }
