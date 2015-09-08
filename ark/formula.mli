@@ -209,7 +209,7 @@ module type S = sig
   val optimize : (T.t list) -> t -> Interval.interval list
   val disj_optimize : (T.t list) -> t -> Interval.interval list list
 
-  val dnf_size : t -> int
+  val dnf_size : t -> ZZ.t
   val nb_atoms : t -> int
   val size : t -> int
 

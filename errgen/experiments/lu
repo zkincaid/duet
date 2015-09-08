@@ -1,14 +1,17 @@
 i = 0;
 max = 0;
-old_max = 0;
-while ( i <= 20 ) {
-  original_a = nondet(); 
+tmp_max = 0;
+while(i <= 20) {
+  i = i + 1;
+  original_a = nondet();
+  while(1 <= 0) {
+    skip;
+  };
   a = nondet();
   assume((original_a - 2) <= a);
   assume(a <= (original_a + 2));
-  old_max = max;
-  if (a < old_max) { 
+  tmp_max = max;
+  if (a > tmp_max) { 
     max = a; 
   } else {  skip; };
-  i = i + 1;
 }

@@ -89,7 +89,7 @@ module type S = sig
   val optimize : (T.t list) -> t -> Interval.interval list
   val disj_optimize : (T.t list) -> t -> Interval.interval list list
 
-  val dnf_size : t -> int
+  val dnf_size : t -> ZZ.t
   val nb_atoms : t -> int
   val size : t -> int
 
@@ -585,9 +585,9 @@ module Make (T : Term.S) = struct
 
   let dnf_size phi =
     let alg = function
-      | OOr (x, y) -> x + y
-      | OAnd (x, y) -> x * y
-      | _ -> 1
+      | OOr (x, y) -> ZZ.add x y
+      | OAnd (x, y) -> ZZ.mul x y
+      | _ -> ZZ.one
     in
     eval alg phi
 
@@ -856,12 +856,36 @@ module Make (T : Term.S) = struct
     let simplify p =
       Log.time "Polyhedron.simplify" simplify p
 
+    let dnf phi =
+      let alg = function
+        | OOr (x, y) -> x@y
+        | OAnd (x, y) ->
+          ApakEnum.cartesian_product (BatList.enum x) (BatList.enum y)
+          /@ (uncurry conjoin)
+          |> BatList.of_enum
+        | OAtom atom -> [of_atom atom]
+      in
+      eval alg phi
   end
 
   let top_closure =
     map (function
         | LtZ t -> atom (LeqZ t)
         | at -> atom at)
+
+  let dnf phi =
+    let alg = function
+      | OOr (x, y) -> x@y
+      | OAnd (x, y) ->
+        ApakEnum.cartesian_product (BatList.enum x) (BatList.enum y)
+        /@ (uncurry conj)
+        |> BatList.of_enum
+      | OAtom at -> [atom at]
+    in
+    eval alg phi
+
+  let eager_dnf ~join ~bottom ~top phi =
+    BatList.fold_left join bottom (dnf phi)
 
   (* [lazy_dnf join bottom top prop_to_smt phi] computes an abstraction of phi
      by lazily computing its disjunctive normal form.
@@ -913,6 +937,14 @@ module Make (T : Term.S) = struct
     in
     s#assrt (to_smt phi);
     go bottom
+(*
+  let lazy_dnf ~join ~bottom ~top prop_to_smt phi =
+    match ZZ.to_int (dnf_size phi) with
+    | Some sz when sz < 10 ->
+      eager_dnf ~join ~bottom ~top phi
+    | _ ->
+      lazy_dnf ~join ~bottom ~top prop_to_smt phi
+*)
 
   (* Convert a *conjunctive* formula into a list of apron tree constraints *)
   let to_apron man env phi =
@@ -1076,62 +1108,6 @@ module Make (T : Term.S) = struct
     in
     map f phi
 
-  let qe_lme p phi =
-    let man = NumDomain.polka_strict_manager () in
-    let env = mk_env phi in
-    logf "Quantifier elimination [dim: %d, target: %d]"
-      (D.Env.dimension env)
-      (D.Env.dimension (D.Env.filter p env));
-    let join psi disjunct =
-      logf "Polytope projection [sides: %d]"
-        (nb_atoms disjunct);
-      let projection =
-        Log.time "Polytope projection"
-          (fun () -> of_abstract (D.exists man p (to_apron man env disjunct)))
-          ()
-      in
-      logf "Projected polytope sides: %d" (nb_atoms projection);
-      disj psi projection
-    in
-    try lazy_dnf ~join:join ~bottom:bottom ~top:top to_smt phi
-    with Timeout ->
-      Log.errorf "Quantifier elimination timed out.  Trying qe_trivial.";
-      qe_trivial p phi
-
-  let qe_z3 p phi =
-    let open Z3 in
-    let fv = formula_free_vars phi in
-    let vars = BatList.of_enum (BatEnum.filter (not % p) (VarSet.enum fv)) in
-    let ctx = Smt.get_context () in
-    let solve = Tactic.mk_tactic ctx "qe" in
-    let simpl = Tactic.mk_tactic ctx "simplify" in
-    let qe = Tactic.and_then ctx solve simpl [] in
-    let g = Goal.mk_goal ctx false false false in
-    Goal.add g [Smt.mk_exists_const (List.map T.V.to_smt vars) (to_smt phi)];
-    of_apply_result (Tactic.apply qe g None)
-
-  (* Collapse nested conjunctions & disjunctions *)
-  let flatten phi =
-    let rec flatten_and phi =
-      match phi.node with
-      | And xs ->
-        let f x xs = Hset.union (flatten_and x) xs in
-        Hset.fold f xs Hset.empty
-      | Or _ -> Hset.singleton (hashcons (Or (flatten_or phi)))
-      | Atom at -> Hset.singleton phi
-    and flatten_or phi =
-      match phi.node with
-      | Or xs ->
-        let f x xs = Hset.union (flatten_or x) xs in
-        Hset.fold f xs Hset.empty
-      | And xs -> Hset.singleton (hashcons (And (flatten_and phi)))
-      | Atom at -> Hset.singleton phi
-    in
-    match phi.node with
-    | And _ -> hashcons (And (flatten_and phi))
-    | Or _ -> hashcons (Or (flatten_or phi))
-    | Atom at -> phi
-
   let orient_equation p t =
     match T.to_linterm t with
     | None -> None
@@ -1249,9 +1225,93 @@ module Make (T : Term.S) = struct
           else
             psi'
     in
-
     try Log.time "qe_partial" (qe T.V.Map.empty phi_bound_vars) phi
     with Is_top -> top
+
+  let qe_lme p phi =
+    let man = NumDomain.polka_strict_manager () in
+    let env = mk_env phi in
+    logf "Quantifier elimination [dim: %d, target: %d]"
+      (D.Env.dimension env)
+      (D.Env.dimension (D.Env.filter p env));
+    let join psi disjunct =
+      logf "Polytope projection [sides: %d]"
+       (nb_atoms disjunct);
+      let projection =
+       Log.time "Polytope projection"
+         (fun () -> of_abstract (D.exists man p (to_apron man env disjunct)))
+         ()
+      in
+(*
+      (* If an atom is of the form ax + t == 0 where x is a projected integer
+         variable, and t doesn't contain any projected variables, then
+         generate the equation t == 0 mod a. *)
+      let get_mod_eq = function
+        | EqZ t ->
+          begin match T.to_linterm t with
+            | Some lt ->
+              let (terms, projected_terms) =
+                let f = function
+                  | (AVar v, _) -> p v
+                  | (AConst, _) -> true
+                in
+                BatEnum.partition f (T.Linterm.enum lt)
+              in
+              begin match BatEnum.get projected_terms with
+                | Some (AVar v, coeff) ->
+                  if BatEnum.is_empty projected_terms && T.V.typ v = TyInt then
+                    let t = T.of_linterm (T.Linterm.of_enum terms) in
+                    eqz (T.modulo t (T.const coeff))
+                  else top
+                | _ -> top
+              end
+            | None -> top
+          end
+        | _ -> top
+      in
+      let mod_eqs = map get_mod_eq disjunct in
+*)
+      logf "Projected polytope sides: %d" (nb_atoms projection);
+      disj psi projection
+    in
+    try lazy_dnf ~join:join ~bottom:bottom ~top:top to_smt phi
+    with Timeout ->
+      Log.errorf "Quantifier elimination timed out.";
+      raise Timeout
+
+  let qe_z3 p phi =
+    let open Z3 in
+    let fv = formula_free_vars phi in
+    let vars = BatList.of_enum (BatEnum.filter (not % p) (VarSet.enum fv)) in
+    let ctx = Smt.get_context () in
+    let solve = Tactic.mk_tactic ctx "qe" in
+    let simpl = Tactic.mk_tactic ctx "simplify" in
+    let qe = Tactic.and_then ctx solve simpl [] in
+    let g = Goal.mk_goal ctx false false false in
+    Goal.add g [Smt.mk_exists_const (List.map T.V.to_smt vars) (to_smt phi)];
+    of_apply_result (Tactic.apply qe g None)
+
+  (* Collapse nested conjunctions & disjunctions *)
+  let flatten phi =
+    let rec flatten_and phi =
+      match phi.node with
+      | And xs ->
+	let f x xs = Hset.union (flatten_and x) xs in
+	Hset.fold f xs Hset.empty
+      | Or _ -> Hset.singleton (hashcons (Or (flatten_or phi)))
+      | Atom at -> Hset.singleton phi
+    and flatten_or phi =
+      match phi.node with
+      | Or xs ->
+	let f x xs = Hset.union (flatten_or x) xs in
+	Hset.fold f xs Hset.empty
+      | And xs -> Hset.singleton (hashcons (And (flatten_and phi)))
+      | Atom at -> Hset.singleton phi
+    in
+    match phi.node with
+    | And _ -> hashcons (And (flatten_and phi))
+    | Or _ -> hashcons (Or (flatten_or phi))
+    | Atom at -> phi
 
   let opt_qe_strategy = ref qe_lme
   let exists p phi =
@@ -1647,10 +1707,12 @@ module Make (T : Term.S) = struct
       in
 
       let p =
-        Polyhedron.of_formula reduced
-        |> Polyhedron.simplify
-        |> Polyhedron.try_fme vars
-        |> Polyhedron.simplify
+	Polyhedron.of_formula reduced
+(*
+	|> Polyhedron.simplify
+	|> Polyhedron.try_fme vars
+	|> Polyhedron.simplify
+*)
       in
 
       let env =

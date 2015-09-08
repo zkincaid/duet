@@ -391,7 +391,7 @@ module Make (V : Var) = struct
       try nudge_lc lc
       with Not_nudgeable -> BatEnum.empty ()
     in
-    let lincons = 
+    let lincons =
       BatEnum.concat_map
         try_nudge_lc
         (BatArray.enum (Abstract0.to_lincons_array man x.prop))

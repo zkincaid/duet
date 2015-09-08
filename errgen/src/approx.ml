@@ -78,7 +78,7 @@ module TIvl = struct
     in
     (M.enum prop /@ ti_formula) |> F.big_conj
 
-  let nudge = M.map (I.nudge ~accuracy:3)
+  let nudge = M.map (I.nudge ~accuracy:5)
 
   let abstract_post tr prop =
     let phi =
@@ -266,9 +266,9 @@ let greedy annotation vars approx_tr ideal_tr ideal_succs =
           (get_transform (idealify v) ideal_tr)
           (get_transform (approxify v) approx_tr)
       in
-      BatEnum.map diff (BatList.enum vars)
+      BatEnum.map diff (BatEnum.filter (not % flip BatString.starts_with "tmp") (BatList.enum vars))
     in
-    chebyshev terms
+    manhattan terms
   in
 
   (* Distance between the post-state of approx_tr and ideal_succs *)
@@ -279,9 +279,9 @@ let greedy annotation vars approx_tr ideal_tr ideal_succs =
           (get_transform (idealify v) ideal_succs)
           (get_transform (approxify v) approx_tr)
       in
-      BatEnum.map diff (BatList.enum vars)
+      BatEnum.map diff (BatEnum.filter (not % flip BatString.starts_with "tmp") (BatList.enum vars))
     in
-    chebyshev terms
+    manhattan terms
   in
 
   (* ideal_tr minimizes post-state distance *)
@@ -290,6 +290,7 @@ let greedy annotation vars approx_tr ideal_tr ideal_succs =
       F.big_disj (BatList.enum [
           F.negate ideal_succs.K.guard;
           F.negate other_dist_cons;
+          F.negate approx_tr.K.guard;
 (*
           F.negate annotation;
           F.negate approx_tr.K.guard;
@@ -483,18 +484,39 @@ let attractor_bounds ctx tensor_edge =
     TIvl.format res;
   TIvl.meet res (TIvl.abstract templates (ctx.annotation dst))
 
-(*
-let build_sync_tensor ctx entry =
-  Cfa.fold_edges_e (fun approx_edge tensor ->
-      let ideal_edge =
-        Cfa.find_edge ctx.ideal_cfa (Cfa.E.src approx_edge) (Cfa.E.dst approx_edge)
-      in
-      let tensor_edge =
-        Log.time "tensor_edge" (tensor_edge ctx approx_edge) ideal_edge
-      in
-      TCfa.add_edge_e tensor tensor_edge
-    ) ctx.approx_cfa (TCfa.add_vertex TCfa.empty entry)
-*)
+let attractor_bounds ctx tensor_edge =
+  Log.time "attractor_bounds" (attractor_bounds ctx) tensor_edge
+
+module AbsDom = struct
+  let man = Polka.manager_alloc_equalities ()
+  let templates : T.t list ref = ref []
+  type t =
+    { eq  : (Polka.equalities Polka.t) D.t;
+      tivl : TIvl.t }
+  let join x y =
+    { eq = D.join x.eq y.eq;
+      tivl = TIvl.join x.tivl y.tivl }
+  let meet x y =
+    { eq = D.meet x.eq y.eq;
+      tivl = TIvl.meet x.tivl y.tivl }
+  let equal x y =
+    D.equal x.eq y.eq && TIvl.equal x.tivl y.tivl
+  let is_bottom x =
+    D.is_bottom x.eq || TIvl.is_bottom x.tivl
+  let widen _ x y =
+    { eq = D.widen x.eq y.eq;
+      tivl = TIvl.widen x.tivl y.tivl }
+  let format formatter x =
+    Format.fprintf formatter "@[%a && %a@]" D.format x.eq TIvl.format x.tivl
+  let abstract_post tr x =
+    { eq = K.abstract_post man tr x.eq;
+      tivl = TIvl.abstract_post tr x.tivl }
+  let to_formula x =
+    F.conj (F.of_abstract x.eq) (TIvl.to_formula x.tivl)
+  let abstract phi =
+    { eq = F.abstract man phi;
+      tivl = TIvl.abstract (!templates) phi }
+end
 
 let analyze ctx approx_entry ideal_entry =
   let entry = (approx_entry, ideal_entry) in
@@ -503,22 +525,12 @@ let analyze ctx approx_entry ideal_entry =
   let tensor_edge = tensor_edge ctx in
   let attractor_bounds = attractor_bounds ctx in
 
-  let templates =
-    let mk_var = T.var % V.mk_var in
-    let diff v =
-      T.sub (mk_var (idealify v)) (mk_var (approxify v))
-    in
-    List.map mk_var ctx.vars
-    @ List.map (mk_var % approxify) ctx.vars
-    @ List.map diff ctx.vars
-  in
   let sep_annotation = ctx.annotation in
-  let man = NumDomain.polka_loose_manager () in
 
   let ctx = { ctx with annotation =
                          fun v ->
                            try F.conj
-                                 (F.of_abstract (Hashtbl.find annotation v))
+                                 (AbsDom.to_formula (Hashtbl.find annotation v))
                                  (ctx.annotation v)
                            with Not_found -> assert false }
   in
@@ -557,8 +569,7 @@ let analyze ctx approx_entry ideal_entry =
     in
     let outgoing = TCfa.fold_succ_e f (!tensor) src K.zero in
     let is_primed v =
-      v.[String.length v - 1] = '''
-      || (v.[String.length v - 1] = '^' && v.[String.length v - 2] = ''')
+      v.[String.length v - 1] != '^' || v.[String.length v - 2] = '''
     in
     let p v = match V.lower v with
       | Some v -> is_primed v
@@ -576,15 +587,17 @@ let analyze ctx approx_entry ideal_entry =
 
     let s = new Smt.solver in
     s#assrt (F.to_smt precondition);
-    s#assrt (F.to_smt (F.qe_lme p (K.to_formula (TCfa.E.label e))));
-    s#assrt (F.to_smt (F.negate (F.qe_lme not_tmp outgoing_phi)));
+    s#assrt (F.to_smt (K.to_formula (TCfa.E.label e)));
+    s#assrt (F.to_smt (F.negate (F.qe_lme p outgoing_phi)));
     match Log.time "check_edge_sat" s#check () with
     | Smt.Sat   -> true
     | Smt.Unsat -> false
     | Smt.Undef -> assert false
   in
   let check_edge ctx precondition e =
-    Log.time "check_edge" (check_edge ctx precondition) e
+    try
+      Log.time "check_edge" (check_edge ctx precondition) e
+    with Formula.Timeout -> true
   in
 
   let add_edge e =
@@ -612,7 +625,7 @@ let analyze ctx approx_entry ideal_entry =
     /@ (fun v ->
         F.eq (T.var (V.mk_var (approxify v))) (T.var (V.mk_var (idealify v))))
     |> F.big_conj
-    |> F.abstract man
+    |> AbsDom.abstract
   in
   Hashtbl.add annotation entry precondition;
 
@@ -621,17 +634,16 @@ let analyze ctx approx_entry ideal_entry =
     let target = TCfa.E.dst tensor_edge in
     let tensor_tr = TCfa.E.label tensor_edge in
     let post =
-      Log.time "abstract_post"
-        (K.abstract_post man tensor_tr) precondition
+      AbsDom.abstract_post tensor_tr precondition
     in
 
-    if (not (D.is_bottom post)
+    if (not (AbsDom.is_bottom post)
         && (TCfa.mem_edge (!tensor) source target
-            || check_edge ctx (F.of_abstract precondition) tensor_edge))
+            || check_edge ctx (AbsDom.to_formula precondition) tensor_edge))
     then
       begin
         add_edge tensor_edge;
-        logf "Post --> %a" D.format post;
+        logf "Post --> %a" AbsDom.format post;
         try
           let new_annotation =
             let old_prop = Hashtbl.find annotation target in
@@ -645,24 +657,24 @@ let analyze ctx approx_entry ideal_entry =
             Hashtbl.replace delay_widening target (delay + 1);
             if delay >= 2 then
               let attractor = attractor_bounds tensor_edge in
-              D.meet
-                (D.join
-                   (D.join old_prop post)
-                   (F.abstract man (TIvl.to_formula attractor)))
-                (tivl_widen man templates (sep_annotation target) old_prop post)
+              AbsDom.meet
+                (AbsDom.join
+                   (AbsDom.join old_prop post)
+                   (AbsDom.abstract (TIvl.to_formula attractor)))
+                (AbsDom.widen (sep_annotation target) old_prop post)
             else if delay >= 4 then
-              tivl_widen man templates (sep_annotation target) old_prop post
+              AbsDom.widen (sep_annotation target) old_prop post
             else
-              D.join old_prop post
+              AbsDom.join old_prop post
           in
-          if not (D.equal (Hashtbl.find annotation target) new_annotation)
+          if not (AbsDom.equal (Hashtbl.find annotation target) new_annotation)
           then begin
             Hashtbl.replace annotation target new_annotation;
             worklist := Worklist.add target (!worklist);
             outer_worklist := Worklist.add target (!outer_worklist)
           end
         with Not_found ->
-          if not (D.is_bottom post) then begin
+          if not (AbsDom.is_bottom post) then begin
             logf ~attributes:[`Red;`Bold] "New reachable vertex: %a"
               Show.format<int*int> target;
 
@@ -686,8 +698,7 @@ let analyze ctx approx_entry ideal_entry =
       in
       logf ~attributes:[`Green]
         "=-=-=-=-  Forward iteration @@ (%d, %d) -=-=-=-=" approx_v ideal_v;
-      logf "Precondition: %a" D.format precondition;
-      logf "TIVL: %a" TIvl.format (TIvl.abstract templates (F.of_abstract precondition));
+      logf "Precondition: %a" AbsDom.format precondition;
       TCfa.iter_succ_e (eval_edge precondition) (!tensor) source
     done;
 
@@ -734,7 +745,7 @@ let analyze ctx approx_entry ideal_entry =
     Format.printf "Distance at %a:@\n" Show.format<int*int> vtx;
     List.iter2 print_diff
       ctx.vars
-      (F.optimize (List.map diff ctx.vars) (F.of_abstract prop))
+      (F.optimize (List.map diff ctx.vars) (AbsDom.to_formula prop))
   in
   Hashtbl.iter print_entry annotation
 
@@ -815,7 +826,20 @@ let _ =
           approx_cfa = approx_cfa;
           ideal_cfa = ideal_cfa }
       in
+
+      let templates =
+        let mk_var = T.var % V.mk_var in
+        let diff v =
+          T.sub (mk_var (idealify v)) (mk_var (approxify v))
+        in
+        List.map mk_var ctx.vars
+        @ List.map (mk_var % approxify) ctx.vars
+        @ List.map diff ctx.vars
+      in
+      AbsDom.templates := templates;
+
       analyze ctx approx_entry ideal_entry;
       Log.print_stats ()
+
     end
   | _, _ -> print_endline usage_msg

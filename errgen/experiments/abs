@@ -1,6 +1,4 @@
 x = nondet();
-assume(0 < x);
-assume(x < 10);
 if (x < 0) {
    result = -x;
 } else {

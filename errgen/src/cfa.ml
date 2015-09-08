@@ -65,7 +65,7 @@ let reduce_cfa cfa entry exit =
     assert (Cfa.mem_vertex graph u);
     let graph =
       Top.fold (fun v g ->
-        if is_cp v then g else elim v g
+          if is_cp v then g else elim v g
       ) graph graph
     in
     assert (Cfa.mem_vertex graph u);

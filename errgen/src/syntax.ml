@@ -156,3 +156,8 @@ let guard_ex p phi =
          unprimed)
   in
   F.boxify templates phi
+
+let is_deterministic tr =
+  let open K in
+  M.enum tr.transform
+  |> BatEnum.for_all (fun (_,rhs) -> (VSet.is_empty (term_free_tmp_vars rhs)))

@@ -1066,6 +1066,8 @@ module Make (Var : Var) = struct
         (F.big_conj (BatEnum.map eq (M.enum ctx.loop.transform)))
     in
     let star_guard = F.disj plus_guard zero_guard in
+    logf "zero guard: %a" F.format zero_guard;
+    logf "star guard: %a" F.format star_guard;
     { ctx.loop with guard = F.conj ctx.loop.guard star_guard }
 
   (* Compute recurrence relations of the form
