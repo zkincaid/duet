@@ -42,39 +42,39 @@ hdfg vardef_memuse.c -hdfg
 hdfg struct_array.c -check-array-bounds -hdfg
 # hdfg fspa.c -fspa
 # hdfg fspa_loop.c -fspa
-lra count_up_down_safe.c -lra
-lra count_up_down_unsafe.c -lra
-lra sum01_safe.c -lra
-lra sum01_unsafe.c -lra
-lra sum01_bug02_sum01_bug02_base.case_unsafe.c -lra
-lra sum01_bug02_unsafe.c -lra
-lra sum03_safe.c -lra
-lra sum03_unsafe.c -lra
-lra sum04_safe.c -lra
-lra sum04_unsafe.c -lra
-lra trex01_safe.c -lra
-lra trex01_unsafe.c -lra
-lra trex02_safe.c -lra
-lra trex02_safe2.c -lra
-lra trex02_unsafe.c -lra
-lra trex03_safe.c -lra-forward-inv -lra
-lra trex03_unsafe.c -lra
-lra trex04_safe.c -lra
-lra terminator_02_safe.c -lra
-lra terminator_02_unsafe.c -lra
-lra terminator_03_safe.c -lra
-lra terminator_03_unsafe.c -lra
-lra sum01_real_safe.c -lra
-lra subtract_real.c -lra
-lra sum02_safe.c -lra-forward-inv -lra
-lra rec1.c -lra
-lra rec2.c -lra
-lra rec1-param.c -lra
-lra rec2-param.c -lra
-lra mult-rec.c -lra
-lra mem.c -check-array-bounds -lra
-lra mem2.c -check-array-bounds -lra
-lra pointer_arith.c -lra
+cra count_up_down_safe.c -cra
+cra count_up_down_unsafe.c -cra
+cra sum01_safe.c -cra
+cra sum01_unsafe.c -cra
+cra sum01_bug02_sum01_bug02_base.case_unsafe.c -cra
+cra sum01_bug02_unsafe.c -cra
+cra sum03_safe.c -cra
+cra sum03_unsafe.c -cra
+cra sum04_safe.c -cra
+cra sum04_unsafe.c -cra
+cra trex01_safe.c -cra
+cra trex01_unsafe.c -cra
+cra trex02_safe.c -cra
+cra trex02_safe2.c -cra
+cra trex02_unsafe.c -cra
+cra trex03_safe.c -cra-forward-inv -cra
+cra trex03_unsafe.c -cra
+cra trex04_safe.c -cra
+cra terminator_02_safe.c -cra
+cra terminator_02_unsafe.c -cra
+cra terminator_03_safe.c -cra
+cra terminator_03_unsafe.c -cra
+cra sum01_real_safe.c -cra
+cra subtract_real.c -cra
+cra sum02_safe.c -cra-forward-inv -cra
+cra rec1.c -cra
+cra rec2.c -cra
+cra rec1-param.c -cra
+cra rec2-param.c -cra
+cra mult-rec.c -cra
+cra mem.c -check-array-bounds -cra
+cra mem2.c -check-array-bounds -cra
+cra pointer_arith.c -cra
 chdfg fork_interproc.c -chdfg
 chdfg obj1.c -chdfg
 chdfg obj2.c -chdfg

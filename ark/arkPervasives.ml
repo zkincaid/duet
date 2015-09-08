@@ -47,9 +47,9 @@ module QQ = struct
   type t = Mpqf.t
 
   include Putil.MakeFmt(struct
-    type a = t
-    let format = Mpqf.print
-  end)
+      type a = t
+      let format = Mpqf.print
+    end)
   module Compare_t = struct
     type a = t
     let compare = Mpqf.cmp
@@ -99,9 +99,9 @@ module QQ = struct
       if k = 0 then zero
       else if k = 1 then x
       else begin
-	let y = go x (k / 2) in
-	let y2 = mul y y in
-	if k mod 2 = 0 then y2 else mul x y2
+        let y = go x (k / 2) in
+        let y2 = mul y y in
+        if k mod 2 = 0 then y2 else mul x y2
       end
     in
     if k < 0 then Mpqf.inv (go x (-k))
@@ -122,13 +122,13 @@ module QQ = struct
       let (num, den) = to_zzfrac x in
       let (q, r) = Mpzf.fdiv_qr num den in
       if accuracy = 0 then
-	(Mpqf.of_mpz q, Mpqf.of_mpz (Mpzf.add_int q 1))
+        (Mpqf.of_mpz q, Mpqf.of_mpz (Mpzf.add_int q 1))
       else if Mpzf.cmp_int r 0 = 0 then
-	(of_zz q, of_zz q)
+        (of_zz q, of_zz q)
       else
-	let (lo, hi) = nudge ~accuracy:(accuracy - 1) (of_zzfrac den r) in
-	(add (of_zz q) (inverse hi),
-	 add (of_zz q) (inverse lo))
+        let (lo, hi) = nudge ~accuracy:(accuracy - 1) (of_zzfrac den r) in
+        (add (of_zz q) (inverse hi),
+         add (of_zz q) (inverse lo))
 
   let rec nudge_down ?(accuracy=(!opt_default_accuracy)) x =
     if accuracy < 0 then
@@ -137,12 +137,12 @@ module QQ = struct
       let (num, den) = to_zzfrac x in
       let (q, r) = Mpzf.fdiv_qr num den in
       if accuracy = 0 then
-	Mpqf.of_mpz q
+        Mpqf.of_mpz q
       else if Mpzf.cmp_int r 0 = 0 then
-	of_zz q
+        of_zz q
       else
-	let hi = nudge_up ~accuracy:(accuracy - 1) (of_zzfrac den r) in
-	add (of_zz q) (inverse hi)
+        let hi = nudge_up ~accuracy:(accuracy - 1) (of_zzfrac den r) in
+        add (of_zz q) (inverse hi)
   and nudge_up ?(accuracy=(!opt_default_accuracy)) x =
     if accuracy < 0 then
       x
@@ -150,12 +150,12 @@ module QQ = struct
       let (num, den) = to_zzfrac x in
       let (q, r) = Mpzf.fdiv_qr num den in
       if accuracy = 0 then
-	Mpqf.of_mpz (Mpzf.add_int q 1)
+        Mpqf.of_mpz (Mpzf.add_int q 1)
       else if Mpzf.cmp_int r 0 = 0 then
-	of_zz q
+        of_zz q
       else
-	let lo = nudge_down ~accuracy:(accuracy - 1) (of_zzfrac den r) in
-	add (of_zz q) (inverse lo)
+        let lo = nudge_down ~accuracy:(accuracy - 1) (of_zzfrac den r) in
+        add (of_zz q) (inverse lo)
 end
 
 (* Ring of integers *)
@@ -163,9 +163,9 @@ module ZZ = struct
   type t = Mpzf.t
 
   include Putil.MakeFmt(struct
-    type a = t
-    let format = Mpzf.print
-  end)
+      type a = t
+      let format = Mpzf.print
+    end)
   module Compare_t = struct
     type a = t
     let compare = Mpzf.cmp
@@ -199,28 +199,28 @@ module ZZ = struct
 end
 
 type typ = TyInt | TyReal
-    deriving (Compare)
+             deriving (Compare)
 
 type ('a,'b) open_term =
-| OVar of 'b
-| OConst of QQ.t
-| OAdd of 'a * 'a
-| OMul of 'a * 'a
-| ODiv of 'a * 'a
-| OMod of 'a * 'a
-| OFloor of 'a
+  | OVar of 'b
+  | OConst of QQ.t
+  | OAdd of 'a * 'a
+  | OMul of 'a * 'a
+  | ODiv of 'a * 'a
+  | OMod of 'a * 'a
+  | OFloor of 'a
 
 type ('a,'b) term_algebra = ('a,'b) open_term -> 'a
 
 type 'a atom =
-| LeqZ of 'a
-| LtZ of 'a
-| EqZ of 'a
+  | LeqZ of 'a
+  | LtZ of 'a
+  | EqZ of 'a
 
 type ('a,'b) open_formula =
-| OOr of 'a * 'a
-| OAnd of 'a * 'a
-| OAtom of 'b
+  | OOr of 'a * 'a
+  | OAnd of 'a * 'a
+  | OAtom of 'b
 
 type ('a,'b) formula_algebra = ('a,'b) open_formula -> 'a
 
@@ -236,5 +236,5 @@ module type Var = sig
 end
 
 type 'a affine =
-| AVar of 'a
-| AConst
+  | AVar of 'a
+  | AConst

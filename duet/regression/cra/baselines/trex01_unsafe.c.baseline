@@ -1,0 +1,4 @@
+./regression/cra/code/trex01_unsafe.c:13 >> z >= 2
+
+1 errors total
+0 safe assertions

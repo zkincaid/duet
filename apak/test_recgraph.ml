@@ -13,9 +13,9 @@ open ZMin
 module V = struct
   module M = struct
     type t =
-    | A of int
-    | B of string
-	deriving (Show,Compare)
+      | A of int
+      | B of string
+            deriving (Show,Compare)
     let equal = (=)
     let compare = Compare_t.compare
     let hash = Hashtbl.hash
@@ -72,23 +72,23 @@ let test_g0 () =
   let assert_summary (dst,d) =
     ("Distance summary for block " ^ dst)
     >:: (fun () ->
-      assert_equal ~printer:Ka.ZMin.show d (summary dst))
+        assert_equal ~printer:Ka.ZMin.show d (summary dst))
   in
   let distance = lazy (D.single_src_blocks query) in
   let assert_distance (dst,d) =
     ("Distance to block " ^ dst)
     >:: (fun () ->
-      assert_equal ~printer:Ka.ZMin.show d ((Lazy.force distance) dst))
+        assert_equal ~printer:Ka.ZMin.show d ((Lazy.force distance) dst))
   in
   "G0" >:::
-    ((List.map assert_summary
-	[("foo", Z 2);
-	 ("bar", Z 1);
-	 ("baz", Z 2);])
-     @ (List.map assert_distance
-	  [("foo", Z 2);
-	   ("bar", Z 1);
-	   ("baz", Z 2)]))
+  ((List.map assert_summary
+      [("foo", Z 2);
+       ("bar", Z 1);
+       ("baz", Z 2);])
+   @ (List.map assert_distance
+        [("foo", Z 2);
+         ("bar", Z 1);
+         ("baz", Z 2)]))
 
 let g1 =
   make [
@@ -122,17 +122,17 @@ let test_g1 () =
   let assert_distance (dst,d) =
     ("Distance to block " ^ dst)
     >:: (fun () ->
-      assert_equal ~printer:Ka.ZMin.show d ((Lazy.force distance) dst))
+        assert_equal ~printer:Ka.ZMin.show d ((Lazy.force distance) dst))
   in
   "G1" >:::
-    ((List.map assert_summary
-	[("foo", Z 3);
-	 ("bar", Z 1);
-	 ("baz", Z 2);])
-     @ (List.map assert_distance
-	  [("foo", Z 1);
-	   ("bar", Z 3);
-	   ("baz", Z 2)]))
+  ((List.map assert_summary
+      [("foo", Z 3);
+       ("bar", Z 1);
+       ("baz", Z 2);])
+   @ (List.map assert_distance
+        [("foo", Z 1);
+         ("bar", Z 3);
+         ("baz", Z 2)]))
 
 let g2 =
   make [
@@ -167,21 +167,21 @@ let test_g2 () =
   let assert_distance (dst,d) =
     ("Distance to block " ^ dst)
     >:: (fun () ->
-      assert_equal ~printer:Ka.ZMin.show d (Lazy.force (distance) dst))
+        assert_equal ~printer:Ka.ZMin.show d (Lazy.force (distance) dst))
   in
   "G2" >:::
-    ((List.map assert_summary
-	[("foo", Z 2);
-	 ("bar", Z 3);
-	 ("baz", PosInfinity);])
-     @ (List.map assert_distance
-	  [("foo", Z 1);
-	   ("bar", Z 4);
-	   ("baz", Z 1)]))
+  ((List.map assert_summary
+      [("foo", Z 2);
+       ("bar", Z 3);
+       ("baz", PosInfinity);])
+   @ (List.map assert_distance
+        [("foo", Z 1);
+         ("bar", Z 4);
+         ("baz", Z 1)]))
 
 let suite = "RecGraph" >:::
-  [
-    test_g0 ();
-    test_g1 ();
-    test_g2 ();
-  ]
+            [
+              test_g0 ();
+              test_g1 ();
+              test_g2 ();
+            ]

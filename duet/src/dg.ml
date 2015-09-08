@@ -19,21 +19,21 @@ let construct file pack uses =
 
     let transfer def rd =
       begin match Def.assigned_var def with
-      | Some v -> FS.update (pack v) (Def.Set.singleton def) rd
-      | None -> match def.dkind with
-	| Store (lhs, rhs) ->
-	  let f memloc rd =
-	    match memloc with
-	    | (Pa.MAddr vi, offset) ->
-	      let p = pack (vi, offset) in
-	      FS.update p (Def.Set.add def (FS.eval rd p)) rd
-	    | (_, _) -> rd
-	  in
-	  Pa.MemLoc.Set.fold f (Pa.resolve_ap lhs) rd
-	| Assume phi | Assert (phi, _) ->
-	  let set_rd v rd = FS.update (pack v) (Def.Set.singleton def) rd in
-	  Var.Set.fold set_rd (Bexpr.free_vars phi) rd
-	| _ -> rd
+        | Some v -> FS.update (pack v) (Def.Set.singleton def) rd
+        | None -> match def.dkind with
+          | Store (lhs, rhs) ->
+            let f memloc rd =
+              match memloc with
+              | (Pa.MAddr vi, offset) ->
+                let p = pack (vi, offset) in
+                FS.update p (Def.Set.add def (FS.eval rd p)) rd
+              | (_, _) -> rd
+            in
+            Pa.MemLoc.Set.fold f (Pa.resolve_ap lhs) rd
+          | Assume phi | Assert (phi, _) ->
+            let set_rd v rd = FS.update (pack v) (Def.Set.singleton def) rd in
+            Var.Set.fold set_rd (Bexpr.free_vars phi) rd
+          | _ -> rd
       end
     let widen = join
     let name = "Reaching definitions"
@@ -54,14 +54,14 @@ let construct file pack uses =
     let go (pack, defs) =
       if not (Var.Set.is_empty (Var.Set.inter uses pack))
       then
-	let pack_edge =
-	  let f var pair_set =
-	    let v = Variable var in
-	    S.PairSet.add (S.mk_pair v v) pair_set
-	  in
-	  Var.Set.fold f pack S.PairSet.empty
-	in
-	Def.Set.iter (fun def -> add_edge def pack_edge v) defs
+        let pack_edge =
+          let f var pair_set =
+            let v = Variable var in
+            S.PairSet.add (S.mk_pair v v) pair_set
+          in
+          Var.Set.fold f pack S.PairSet.empty
+        in
+        Def.Set.iter (fun def -> add_edge def pack_edge v) defs
 
     in
     G.add_vertex dg v;
@@ -75,7 +75,7 @@ let construct file pack uses =
       (FS.const Def.Set.empty)
   in
   let mk_init _ value = value in
-    (* add all the vertices of a cfg to the G *)
+  (* add all the vertices of a cfg to the G *)
   let process_result result =
     BatEnum.iter process_vertex (RD.enum_input result)
   in
@@ -87,16 +87,16 @@ let simplify_dg afg =
   let vertices = G.fold_vertex (fun v vs -> v::vs) afg [] in
   let remove_copy v =
     match v.dkind with
-      | Assign (lhs, AccessPath (Variable rhs)) ->
-	  let f pe se =
-	    let def_ap = S.fst (S.PairSet.choose (G.E.label pe)) in
-	    let use_ap = S.snd (S.PairSet.choose (G.E.label se)) in
-	    let lbl = S.PairSet.singleton (S.mk_pair def_ap use_ap) in
-	      G.add_edge_e afg (G.E.create (G.E.src pe) lbl (G.E.dst se))
-	  in
-	    G.iter_pred_e (fun pe -> G.iter_succ_e (f pe) afg v) afg v;
-	    G.remove_vertex afg v
-      | _ -> ()
+    | Assign (lhs, AccessPath (Variable rhs)) ->
+      let f pe se =
+        let def_ap = S.fst (S.PairSet.choose (G.E.label pe)) in
+        let use_ap = S.snd (S.PairSet.choose (G.E.label se)) in
+        let lbl = S.PairSet.singleton (S.mk_pair def_ap use_ap) in
+        G.add_edge_e afg (G.E.create (G.E.src pe) lbl (G.E.dst se))
+      in
+      G.iter_pred_e (fun pe -> G.iter_succ_e (f pe) afg v) afg v;
+      G.remove_vertex afg v
+    | _ -> ()
   in
 (*
   let split_vertex v = (* don't split asserts! *)
@@ -126,20 +126,20 @@ let simplify_dg afg =
   let relabel e =
     let ap = S.snd (S.PairSet.choose (G.E.label e)) in
     let lbl = S.PairSet.singleton (S.mk_pair init_ap ap) in
-      G.remove_edge_e afg e;
-      G.add_edge_e afg (G.E.create Def.initial lbl (G.E.dst e))
+    G.remove_edge_e afg e;
+    G.add_edge_e afg (G.E.create Def.initial lbl (G.E.dst e))
   in
-    (* reduce the dimension of initial_def  *)
-    if G.mem_vertex afg Def.initial
-    then G.iter_succ_e relabel afg Def.initial;
-    List.iter remove_copy vertices
+  (* reduce the dimension of initial_def  *)
+  if G.mem_vertex afg Def.initial
+  then G.iter_succ_e relabel afg Def.initial;
+  List.iter remove_copy vertices
 (*    List.iter split_vertex (G.fold_vertex (fun v vs -> v::vs) afg [])*)
 
 let compare_dg g h =
   let compare_v d =
     let cmp = compare (G.in_degree g d) (G.in_degree h d) in
-      if cmp < 0 then print_endline "<"
-      else if cmp > 0 then print_endline ">"
-      else print_endline "="
+    if cmp < 0 then print_endline "<"
+    else if cmp > 0 then print_endline ">"
+    else print_endline "="
   in
-    G.iter_vertex compare_v g
+  G.iter_vertex compare_v g

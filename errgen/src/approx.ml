@@ -477,7 +477,7 @@ let attractor_bounds ctx tensor_edge =
       differences
       (List.map bounds ctx.vars) 
   in
-  logf ~attributes:[Log.Magenta] "Outward bounds %a -> %a: %a"
+  logf ~attributes:[`Magenta] "Outward bounds %a -> %a: %a"
     Show.format<int*int> src
     Show.format<int*int> dst
     TIvl.format res;
@@ -593,13 +593,13 @@ let analyze ctx approx_entry ideal_entry =
     if TCfa.mem_edge (!tensor) src dst then
       begin
         tensor := TCfa.remove_edge (!tensor) src dst;
-        logf ~attributes:[Log.Red;Log.Bold] "Updated edge: %a -> %a"
+        logf ~attributes:[`Red;`Bold] "Updated edge: %a -> %a"
           Show.format<int*int> src
           Show.format<int*int> dst
       end
     else
       begin
-        logf ~attributes:[Log.Red;Log.Bold] "New edge: %a -> %a"
+        logf ~attributes:[`Red;`Bold] "New edge: %a -> %a"
           Show.format<int*int> src
           Show.format<int*int> dst;
       end;
@@ -663,14 +663,14 @@ let analyze ctx approx_entry ideal_entry =
           end
         with Not_found ->
           if not (D.is_bottom post) then begin
-            logf ~attributes:[Log.Red;Log.Bold] "New reachable vertex: %a"
+            logf ~attributes:[`Red;`Bold] "New reachable vertex: %a"
               Show.format<int*int> target;
 
             Hashtbl.add annotation target post;
             worklist := Worklist.add target (!worklist);
             outer_worklist := Worklist.add target (!outer_worklist)
           end else
-            logf ~attributes:[Log.Blue;Log.Bold] "Redundant edge: %a -> %a"
+            logf ~attributes:[`Blue;`Bold] "Redundant edge: %a -> %a"
               Show.format<int*int> (TCfa.E.src tensor_edge)
               Show.format<int*int> (TCfa.E.dst tensor_edge)
       end
@@ -684,7 +684,7 @@ let analyze ctx approx_entry ideal_entry =
         try Hashtbl.find annotation source
         with Not_found -> assert false
       in
-      logf ~attributes:[Log.Green]
+      logf ~attributes:[`Green]
         "=-=-=-=-  Forward iteration @@ (%d, %d) -=-=-=-=" approx_v ideal_v;
       logf "Precondition: %a" D.format precondition;
       logf "TIVL: %a" TIvl.format (TIvl.abstract templates (F.of_abstract precondition));
@@ -772,7 +772,7 @@ let float_arg =
 
 let verbose_arg =
   ("-verbose",
-   Arg.String (fun v -> Log.set_verbosity_level v Log.info),
+   Arg.String (fun v -> Log.set_verbosity_level v `info),
    " Raise verbosity for a particular module")
 
 let verbose_list_arg =

@@ -9,11 +9,11 @@ open TranslateCil
 open TranslateCbp
 
 (* Analyses *)
-open Induction
+open Cra
 open Dependence
 open ConcDep
 
-let usage_msg = "Duet program analyzer\nUsage: duet [OPTIONS] file.[c|bp|goto]"
+let usage_msg = "Duet program analyzer\nUsage: duet [OPTIONS] file.[c|bp]"
 
 let anon_fun s = ignore (CmdLine.parse s)
 
@@ -23,10 +23,10 @@ let _ =
   Arg.parse (Arg.align spec_list) anon_fun usage_msg;
   match !CfgIr.gfile with
   | None -> begin
-    prerr_endline "You must supply a program to be analyzed";
-    Arg.usage (Arg.align spec_list) usage_msg
-  end
+      prerr_endline "You must supply a program to be analyzed";
+      Arg.usage (Arg.align spec_list) usage_msg
+    end
   | Some x -> begin
-    CmdLine.run (CfgIr.get_gfile());
-    if !CmdLine.show_stats then Log.print_stats ()
-  end
+      CmdLine.run (CfgIr.get_gfile());
+      if !CmdLine.show_stats then Log.print_stats ()
+    end

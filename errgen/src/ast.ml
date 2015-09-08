@@ -6,46 +6,46 @@ open ArkPervasives
 (* Type definition for AST nodes *)
 
 type aexp_type = 
-  Real_const of QQ.t
-| Sum_exp of (aexp_type * aexp_type)
-| Diff_exp of (aexp_type * aexp_type)
-| Mult_exp of (aexp_type * aexp_type) 
-| Div_exp of (aexp_type * aexp_type) 
-| Var_exp of string
-| Unneg_exp of aexp_type 
-| Havoc_aexp
+    Real_const of QQ.t
+  | Sum_exp of (aexp_type * aexp_type)
+  | Diff_exp of (aexp_type * aexp_type)
+  | Mult_exp of (aexp_type * aexp_type) 
+  | Div_exp of (aexp_type * aexp_type) 
+  | Var_exp of string
+  | Unneg_exp of aexp_type 
+  | Havoc_aexp
     deriving (Compare)
 
 type bexp_type = 
-  Bool_const of bool
-| Eq_exp of (aexp_type * aexp_type)
-| Ne_exp of (aexp_type * aexp_type)
-| Gt_exp of (aexp_type * aexp_type)
-| Lt_exp of (aexp_type * aexp_type)
-| Ge_exp of (aexp_type * aexp_type)
-| Le_exp of (aexp_type * aexp_type)
-| And_exp of (bexp_type * bexp_type)
-| Not_exp of bexp_type
-| Or_exp of (bexp_type * bexp_type)
-| Havoc_bexp
-    deriving (Compare)
+    Bool_const of bool
+  | Eq_exp of (aexp_type * aexp_type)
+  | Ne_exp of (aexp_type * aexp_type)
+  | Gt_exp of (aexp_type * aexp_type)
+  | Lt_exp of (aexp_type * aexp_type)
+  | Ge_exp of (aexp_type * aexp_type)
+  | Le_exp of (aexp_type * aexp_type)
+  | And_exp of (bexp_type * bexp_type)
+  | Not_exp of bexp_type
+  | Or_exp of (bexp_type * bexp_type)
+  | Havoc_bexp
+        deriving (Compare)
 
 type cmd_type =
-  Skip
-| Assign of (string * aexp_type) 
-| Assert of bexp_type
-| Print of aexp_type
-| Assume of bexp_type
-    deriving (Compare)
+    Skip
+  | Assign of (string * aexp_type) 
+  | Assert of bexp_type
+  | Print of aexp_type
+  | Assume of bexp_type
+        deriving (Compare)
 
 type stmt_type = 
-  Cmd of cmd_type
-| Seq of (stmt_type * stmt_type)
-| Ite of (bexp_type * stmt_type * stmt_type)
-| While of (bexp_type * stmt_type * bool)
+    Cmd of cmd_type
+  | Seq of (stmt_type * stmt_type)
+  | Ite of (bexp_type * stmt_type * stmt_type)
+  | While of (bexp_type * stmt_type * bool)
 
 type prog_type = 
-  Prog of stmt_type  
+    Prog of stmt_type
 
 module Show_aexp_type = Deriving_Show.Defaults(struct
   type a = aexp_type
@@ -141,7 +141,7 @@ let rec aexp_to_string e =
   | Havoc_aexp -> "nondet()"
 
 and
-aexp_list_to_string lst =
+  aexp_list_to_string lst =
   match lst with
     [] -> ""
   | [x] -> aexp_to_string x
@@ -172,11 +172,11 @@ let rec bexp_to_string b =
       [aexp_to_string e1; " <= ";
        aexp_to_string e2]
   | Eq_exp (e1, e2) ->
-     String.concat ""
+    String.concat ""
       [aexp_to_string e1; " == ";
        aexp_to_string e2]
   | Ne_exp (e1, e2) ->
-     String.concat ""
+    String.concat ""
       [aexp_to_string e1; " != ";
        aexp_to_string e2]
   | And_exp (b1, b2) ->
@@ -205,7 +205,7 @@ let rec collect_vars_aexp e =
   | Unneg_exp e1 -> (collect_vars_aexp e1)
   | Havoc_aexp -> []
 and
-collect_vars_aexp_list l =
+  collect_vars_aexp_list l =
   match l with
     [] -> []
   | head :: rest -> (collect_vars_aexp head) @ (collect_vars_aexp_list rest)

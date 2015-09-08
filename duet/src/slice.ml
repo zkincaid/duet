@@ -31,12 +31,12 @@ let backward graph =
   let update v =
     let new_reaching = G.fold_pred add_predecessor graph v Def.Set.empty in
     let old_reaching = reaching v in
-      change v new_reaching;
-      not (Def.Set.equal new_reaching old_reaching)
+    change v new_reaching;
+    not (Def.Set.equal new_reaching old_reaching)
   in
   let wide_update = None in
-    F.fix graph update wide_update;
-    reaching
+  F.fix graph update wide_update;
+  reaching
 
 let forward graph =
   let ht = Def.HT.create 1024 in
@@ -52,11 +52,11 @@ let forward graph =
   let update v =
     let new_reaching = G.fold_succ add_successor graph v Def.Set.empty in
     let old_reaching = reaching v in
-      change v new_reaching;
-      not (Def.Set.equal new_reaching old_reaching)
+    change v new_reaching;
+    not (Def.Set.equal new_reaching old_reaching)
   in
-    WL.fix graph update;
-    reaching
+  WL.fix graph update;
+  reaching
 
 let slice_stats graph get_slice =
   let total_slice_size = ref 0 in
@@ -66,18 +66,18 @@ let slice_stats graph get_slice =
     if not (is_boring vertex) then begin
       let slice = get_slice vertex in
       let slice_size = Def.Set.cardinal slice in
-	if slice_size > (!max_slice_size) then max_slice_size := slice_size;
-	total_slice_size := !total_slice_size + slice_size;
-	incr total_vertices
+      if slice_size > (!max_slice_size) then max_slice_size := slice_size;
+      total_slice_size := !total_slice_size + slice_size;
+      incr total_vertices
     end
   in
-    G.iter_vertex f graph;
-    print_endline ("Vertices: " ^ (string_of_int (!total_vertices)));
-    print_endline ("Max slice: " ^ (string_of_int (!max_slice_size)));
-    let avg_slice =
-      (float_of_int !total_slice_size) /. (float_of_int (!total_vertices))
-    in
-      print_endline ("Avg slice: " ^ (string_of_float avg_slice))
+  G.iter_vertex f graph;
+  print_endline ("Vertices: " ^ (string_of_int (!total_vertices)));
+  print_endline ("Max slice: " ^ (string_of_int (!max_slice_size)));
+  let avg_slice =
+    (float_of_int !total_slice_size) /. (float_of_int (!total_vertices))
+  in
+  print_endline ("Avg slice: " ^ (string_of_float avg_slice))
 (*
 let _ =
   let go file =

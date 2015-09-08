@@ -46,7 +46,7 @@ let test_tab_cycle () =
   assert_equal_int (CycleTest.call_direct 2) 12
 
 let suite = "Memo" >:::
-  [
-    "Tabulate Fibonnacci" >:: test_tab_fib;
-    "Tabulate Cycle" >:: test_tab_cycle;
-  ]
+            [
+              "Tabulate Fibonnacci" >:: test_tab_fib;
+              "Tabulate Cycle" >:: test_tab_cycle;
+            ]

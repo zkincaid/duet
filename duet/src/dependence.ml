@@ -17,15 +17,15 @@ let may_assign_vars def =
   match Def.assigned_var def with
   | Some v -> Var.Set.singleton v
   | None -> begin match def.dkind with
-    | Store (lhs, _) ->
-      let f memloc set =
-	match memloc with
-	| (Pa.MAddr vi, offset) -> Var.Set.add (vi, offset) set
-	| _ -> set
-      in
-      Pa.MemLoc.Set.fold f (Pa.resolve_ap lhs) Var.Set.empty
-    | _ -> Var.Set.empty
-  end
+      | Store (lhs, _) ->
+        let f memloc set =
+          match memloc with
+          | (Pa.MAddr vi, offset) -> Var.Set.add (vi, offset) set
+          | _ -> set
+        in
+        Pa.MemLoc.Set.fold f (Pa.resolve_ap lhs) Var.Set.empty
+      | _ -> Var.Set.empty
+    end
 
 (* Does a given location define a condition (i.e., does it define a
    variable that occurs in a condition)? *)
@@ -49,10 +49,10 @@ module AtomicityAnalysis = Solve.MakeForwardCfgSolver(
 
     let transfer def flow_in =
       let flow_in = lower_opt flow_in in
-	match def.dkind with
-	  | Builtin AtomicBegin -> Some (flow_in + 1)
-	  | Builtin AtomicEnd -> Some (flow_in - 1)
-	  | _ -> Some flow_in
+      match def.dkind with
+      | Builtin AtomicBegin -> Some (flow_in + 1)
+      | Builtin AtomicEnd -> Some (flow_in - 1)
+      | _ -> Some flow_in
 
     let name = "Atomicity analysis"
     let bottom = None
@@ -63,9 +63,9 @@ let extract_locks file =
   let f rest var =
     let is_lock var = resolve_type (AP.get_type (Variable var)) = Lock in
     let add x rest = (Variable x)::rest in
-      Var.Set.fold add (Var.Set.filter is_lock (get_offsets var)) rest
+    Var.Set.fold add (Var.Set.filter is_lock (get_offsets var)) rest
   in
-    List.fold_left f [] file.vars
+  List.fold_left f [] file.vars
 
 (* map from abstract booleans to an integer representation *)
 let int_of_ab = function
@@ -82,53 +82,53 @@ let neg x = "!" ^ x
 (* The core of the dependence analysis.  Should not be exported.
    Called via run. *)
 module Dependence (M : sig
-		     type t (** APRON type *)
-		     val man : t Apron.Manager.t (** APRON manager *)
-		     val file : file
-		     val dir : string (** temp directory for dep analysis *)
-		     val pack : var -> Pack.t
-		   end) = struct
+    type t (** APRON type *)
+    val man : t Apron.Manager.t (** APRON manager *)
+    val file : file
+    val dir : string (** temp directory for dep analysis *)
+    val pack : var -> Pack.t
+  end) = struct
   module State = Afg.Pack
 
-(* Retrieve a list of predicates from a program that will be used as
-   control conditions.  Each of these predicates must be defined only
-   over global access paths.  Currently, predicates are extracted only
-   from thread bodies. *)
-let extract_predicates file =
-  let is_constant p =
-    (* don't bother keeping trivial predicates *)
-    match Bexpr.eval p with
+  (* Retrieve a list of predicates from a program that will be used as
+     control conditions.  Each of these predicates must be defined only
+     over global access paths.  Currently, predicates are extracted only
+     from thread bodies. *)
+  let extract_predicates file =
+    let is_constant p =
+      (* don't bother keeping trivial predicates *)
+      match Bexpr.eval p with
       | Some _ -> true
       | None -> false
-  in
-  let is_shared_var ap =
-    match ap with
-    | Deref _ -> false
-    | Variable v ->
-      (Varinfo.is_shared (fst v)) && (is_numeric_type (Var.get_type v))
-  in
-  let f vertex preds = match vertex.dkind with
-    | Assert (p, _) | Assume p ->
-       if (not (is_constant p)
-	   && AP.Set.for_all is_shared_var (Bexpr.get_uses p))
-       then begin
-	 (* don't add p if it is logically equivalent to some other
-	    extracted predicate or its negation *)
-	 let p = Bexpr.simplify p in
-	 let not_p = Bexpr.negate p in
-	 let equiv_p q = Bexpr.equal q p || Bexpr.equal q not_p in
-	   if not (List.exists equiv_p preds) then p::preds
-	   else preds
-       end else preds
-    | _ -> preds
-  in
-  let preds =
-    let process_thread p t =
-      let func = lookup_function t file in
-	Cfg.fold_vertex f func.cfg p
     in
+    let is_shared_var ap =
+      match ap with
+      | Deref _ -> false
+      | Variable v ->
+        (Varinfo.is_shared (fst v)) && (is_numeric_type (Var.get_type v))
+    in
+    let f vertex preds = match vertex.dkind with
+      | Assert (p, _) | Assume p ->
+        if (not (is_constant p)
+            && AP.Set.for_all is_shared_var (Bexpr.get_uses p))
+        then begin
+          (* don't add p if it is logically equivalent to some other extracted
+             predicate or its negation *)
+          let p = Bexpr.simplify p in
+          let not_p = Bexpr.negate p in
+          let equiv_p q = Bexpr.equal q p || Bexpr.equal q not_p in
+          if not (List.exists equiv_p preds) then p::preds
+          else preds
+        end else preds
+      | _ -> preds
+    in
+    let preds =
+      let process_thread p t =
+        let func = lookup_function t file in
+        Cfg.fold_vertex f func.cfg p
+      in
       List.fold_left process_thread [] file.threads
-  in
+    in
     Log.log "Extracted predicates:";
     List.iter
       (fun p -> Log.log_pp Bexpr.format p)
@@ -155,12 +155,12 @@ let extract_predicates file =
   (* Datalog solver object *)
   let d =
     let solver = new Datalog.monolithicSolver M.dir "dependence" in
-      solver#new_domain "ABSBOOL";
-      solver#new_domain "LOC";
-      solver#new_domain "AP";
-      solver#new_domain "COND";
-      solver#ensure_domain_capacity "ABSBOOL" 4;
-      solver
+    solver#new_domain "ABSBOOL";
+    solver#new_domain "LOC";
+    solver#new_domain "AP";
+    solver#new_domain "COND";
+    solver#ensure_domain_capacity "ABSBOOL" 4;
+    solver
 
   (* Dummy vertex that is added as a control flow predecessor of every
      initial vertex.  If file.globinit is defined, initial_vertex is
@@ -197,12 +197,12 @@ let extract_predicates file =
     let holding_chan n _ =
       d#input_tuples ("holding" ^ (string_of_int n)) [("LOC",0)]
     in
-      BatList.mapi holding_chan locks
+    BatList.mapi holding_chan locks
   let acquire_chans =
     let acquire_chan n _ =
       d#input_tuples ("acquire" ^ (string_of_int n)) [("LOC",0)]
     in
-      BatList.mapi acquire_chan locks
+    BatList.mapi acquire_chan locks
 
   (* Emits static structure: CFG successor relation, lockset
      information, and thread creation information.  This is the
@@ -212,54 +212,54 @@ let extract_predicates file =
     let add_succ u v = e_succ [id_of_def u; id_of_def v] in
     let emit_locks (vertex, ls) =
       (match vertex.dkind with
-      | Builtin (Acquire (AddrOf lock)) ->
-	List.iter2
-	  (fun l emit -> if AP.equal l lock then emit [id_of_def vertex])
-	  locks
-	  acquire_chans
-      | _ -> ());
+       | Builtin (Acquire (AddrOf lock)) ->
+         List.iter2
+           (fun l emit -> if AP.equal l lock then emit [id_of_def vertex])
+           locks
+           acquire_chans
+       | _ -> ());
       (List.iter2
-	 (fun lock emit -> if AP.Set.mem lock ls then emit [id_of_def vertex])
-	 locks
-	 holding_chans)
+         (fun lock emit -> if AP.Set.mem lock ls then emit [id_of_def vertex])
+         locks
+         holding_chans)
     in
     let emit_atomic (vertex, atomicity_level) =
       if (lower_opt atomicity_level) > 0 then e_atomic [id_of_def vertex]
     in
     let emit_def_use def =
       begin match Def.assigned_var def with
-      | Some v -> begin
-	let p = M.pack v in
-	if is_shared_pack p then begin
-	  e_def [id_of_def def; id_of_pack p];
-	  e_kill [id_of_def def; id_of_pack p]
-	end
-      end
-      | None -> match def.dkind with
-	| Store (lhs, rhs) ->
-	  let f memloc =
-	    match memloc with
-	    | (Pa.MAddr vi, offset) ->
-	      let p = M.pack (vi, offset) in
-	      if is_shared_pack p then
-		e_def [id_of_def def; id_of_pack p]
-	    | (_, _) -> ()
-	  in
-	  Pa.MemLoc.Set.iter f (Pa.resolve_ap lhs)
-	| Assume phi | Assert (phi, _) ->
-	  let set_rd v =
-	    let p = M.pack v in
-	    if is_shared_pack p then e_kill [id_of_def def; id_of_pack p]
-	  in
-	  Var.Set.iter set_rd (Bexpr.free_vars phi)
-	| _ -> ()
+        | Some v -> begin
+            let p = M.pack v in
+            if is_shared_pack p then begin
+              e_def [id_of_def def; id_of_pack p];
+              e_kill [id_of_def def; id_of_pack p]
+            end
+          end
+        | None -> match def.dkind with
+          | Store (lhs, rhs) ->
+            let f memloc =
+              match memloc with
+              | (Pa.MAddr vi, offset) ->
+                let p = M.pack (vi, offset) in
+                if is_shared_pack p then
+                  e_def [id_of_def def; id_of_pack p]
+              | (_, _) -> ()
+            in
+            Pa.MemLoc.Set.iter f (Pa.resolve_ap lhs)
+          | Assume phi | Assert (phi, _) ->
+            let set_rd v =
+              let p = M.pack v in
+              if is_shared_pack p then e_kill [id_of_def def; id_of_pack p]
+            in
+            Var.Set.iter set_rd (Bexpr.free_vars phi)
+          | _ -> ()
       end;
 
       (* emit uses *)
       Var.Set.iter
         (fun var ->
-	  let pack = M.pack var in
-	  if is_shared_pack pack then e_use [id_of_def def; id_of_pack pack])
+           let pack = M.pack var in
+           if is_shared_pack pack then e_use [id_of_def def; id_of_pack pack])
         (may_use def)
     in
 
@@ -271,19 +271,19 @@ let extract_predicates file =
 
       (* Lockset analysis: what locks must be held at each point? *)
       let module LSAnalysis = Solve.MakeForwardCfgSolver(
-	struct
-	  (* We should only encounter access paths *)
-	  include Lattice.Dual(Lattice.LiftSubset(AP.Set))
+        struct
+          (* We should only encounter access paths *)
+          include Lattice.Dual(Lattice.LiftSubset(AP.Set))
 
-	  let transfer def = match def.dkind with
-	    | Builtin (Acquire (AddrOf lock)) -> AP.Set.add lock
-	    | Builtin (Release (AddrOf lock)) -> AP.Set.remove lock
-	    | _ -> (fun ls -> ls)
+          let transfer def = match def.dkind with
+            | Builtin (Acquire (AddrOf lock)) -> AP.Set.add lock
+            | Builtin (Release (AddrOf lock)) -> AP.Set.remove lock
+            | _ -> (fun ls -> ls)
 
-	  let widen = join
-	  let name = "Lockset analysis"
-	  let bottom = all_locks
-	end)
+          let widen = join
+          let name = "Lockset analysis"
+          let bottom = all_locks
+        end)
       in
       let init_ls v =
         if v.did = init_vertex.did then AP.Set.empty else all_locks
@@ -291,12 +291,12 @@ let extract_predicates file =
       Cfg.iter_edges add_succ cfg;
       Cfg.iter_vertex emit_def_use cfg;
       BatEnum.iter
-	emit_locks
-	(LSAnalysis.enum_input (LSAnalysis.do_analysis cfg init_ls));
+        emit_locks
+        (LSAnalysis.enum_input (LSAnalysis.do_analysis cfg init_ls));
       BatEnum.iter
-	emit_atomic
-	(AtomicityAnalysis.enum_input
-	   (AtomicityAnalysis.do_analysis cfg (fun _ -> None)))
+        emit_atomic
+        (AtomicityAnalysis.enum_input
+           (AtomicityAnalysis.do_analysis cfg (fun _ -> None)))
     in
 
     (* Emit initial coreachable pairs.  If the program is
@@ -313,14 +313,14 @@ let extract_predicates file =
     in
     let emit_coreachable x y =
       d#emit ("coreachable(" ^ (init_vertex_str x) ^ ","
-	      ^ (init_vertex_str y) ^").")
+              ^ (init_vertex_str y) ^").")
     in
     let coreach =
       if !CmdLine.parameterized && not (!CfgIr.whole_program)
       then (fun (x, y) -> emit_coreachable x y)
       else (fun (x, y) ->
-	if not (Varinfo.equal x y)
-	then emit_coreachable x y)
+          if not (Varinfo.equal x y)
+          then emit_coreachable x y)
     in
 
     (* iterate f over the initial vertices of each thread *)
@@ -329,30 +329,30 @@ let extract_predicates file =
     in
     List.iter (fun thread -> emit_cfg thread.cfg) file.funcs;
 
-      (* emit spawn relation *)
+    (* emit spawn relation *)
     Call.iter_tcg_order
       (fun def thread ->
-      	let init_vertex = thread_init_vertex thread in
-	match def with
-	| Some def ->
-	  e_spawn [id_of_def def; id_of_def init_vertex]
-	| None -> ())
+         let init_vertex = thread_init_vertex thread in
+         match def with
+         | Some def ->
+           e_spawn [id_of_def def; id_of_def init_vertex]
+         | None -> ())
       file;
 
     let entries = file.entry_points in
     let enum =
-      Putil.cartesian_product (BatList.enum entries) (BatList.enum entries)
+      ApakEnum.cartesian_product (BatList.enum entries) (BatList.enum entries)
     in
     BatEnum.iter coreach enum;
 
-      (* Add in dummy CFG successor edges.  This is necessary for *)
+    (* Add in dummy CFG successor edges.  This is necessary for *)
     match file.globinit with
     | Some init ->
       emit_cfg init.cfg;
       add_succ initial_def (Cfg.initial_vertex init.cfg);
       BatEnum.iter
-	(fun d -> iter_thread_init (add_succ d))
-	(Cfg.enum_terminal init.cfg)
+        (fun d -> iter_thread_init (add_succ d))
+        (Cfg.enum_terminal init.cfg)
     | None -> iter_thread_init (add_succ initial_def)
 
   (* end emit_static_structure ***********************************************)
@@ -441,17 +441,17 @@ let extract_predicates file =
     (* true iff location x is nonblocking (derived relation) *)
     let conj_nonblocking x rest =
       let cond_block =
-	BatList.mapi
-	  (fun n _ -> neg (blocksOnCond ((string_of_int n), x)))
-	  predicates
+        BatList.mapi
+          (fun n _ -> neg (blocksOnCond ((string_of_int n), x)))
+          predicates
       in
       let lock_block =
-	BatList.mapi (fun n _ -> neg (acquire n x)) locks
+        BatList.mapi (fun n _ -> neg (acquire n x)) locks
       in
       let conditions = cond_block@lock_block
       in
-	if List.length conditions > 0 then (list_and conditions) &&& rest
-	else rest
+      if List.length conditions > 0 then (list_and conditions) &&& rest
+      else rest
     in
 
     (* variables *)
@@ -468,152 +468,152 @@ let extract_predicates file =
     let v = "v" in
 
     let (<--) x y = emit (x ^ " :- " ^ y ^ ".") in
-      emit ".bddvarorder AP0_COND0_COND1_COND2_COND3_COND4_ABSBOOL0_ABSBOOL1_LOC0_LOC1_LOC2_LOC3";
+    emit ".bddvarorder AP0_COND0_COND1_COND2_COND3_COND4_ABSBOOL0_ABSBOOL1_LOC0_LOC1_LOC2_LOC3";
 
-      BatList.iteri
-	(fun n _ -> emit (enabledLock n ("a:LOC", "b:LOC")))
-	locks;
+    BatList.iteri
+      (fun n _ -> emit (enabledLock n ("a:LOC", "b:LOC")))
+      locks;
 
-      emit (enabledCond ("c:COND", "a:LOC", "b:LOC"));
-      emit (mayReachCond ("c:COND", "a:LOC", "b:LOC", "c:LOC"));
-      emit (localMayReachCond ("c:COND", "a:LOC", "b:LOC"));
-      emit (blocksOnCond ("c:COND", "a:LOC"));
-      emit (desc ("a:LOC", "b:LOC"));
-      emit (descAP ("a:LOC", "b:LOC", "ap:AP"));
-      emit (descCond ("a:LOC", "b:LOC", "c:COND"));
-      emit (killCond ("c:COND", "a:LOC"));
-      emit (inv ("c:COND", "a:LOC", "v:ABSBOOL"));
-      emit (mayReach ("def:LOC", "ap:AP", "use:LOC") ^ " outputtuples");
-      emit (mayReach_impl ("a:LOC", "ap:AP", "b:LOC", "c:LOC"));
-      emit (enabled ("a:LOC", "b:LOC"));
-      emit (coreachable ("ls:LOC", "rs:LOC"));
-      emit (consistent("v1:ABSBOOL", "v2:ABSBOOL"));
-      emit (relevant ("a:LOC", "ap:AP"));
-      emit (nonblocking ("a:LOC"));
+    emit (enabledCond ("c:COND", "a:LOC", "b:LOC"));
+    emit (mayReachCond ("c:COND", "a:LOC", "b:LOC", "c:LOC"));
+    emit (localMayReachCond ("c:COND", "a:LOC", "b:LOC"));
+    emit (blocksOnCond ("c:COND", "a:LOC"));
+    emit (desc ("a:LOC", "b:LOC"));
+    emit (descAP ("a:LOC", "b:LOC", "ap:AP"));
+    emit (descCond ("a:LOC", "b:LOC", "c:COND"));
+    emit (killCond ("c:COND", "a:LOC"));
+    emit (inv ("c:COND", "a:LOC", "v:ABSBOOL"));
+    emit (mayReach ("def:LOC", "ap:AP", "use:LOC") ^ " outputtuples");
+    emit (mayReach_impl ("a:LOC", "ap:AP", "b:LOC", "c:LOC"));
+    emit (enabled ("a:LOC", "b:LOC"));
+    emit (coreachable ("ls:LOC", "rs:LOC"));
+    emit (consistent("v1:ABSBOOL", "v2:ABSBOOL"));
+    emit (relevant ("a:LOC", "ap:AP"));
+    emit (nonblocking ("a:LOC"));
 
-      emit (consistent ("0", "0") ^ ".");
-      emit (consistent ("0", "1") ^ ".");
-      emit (consistent ("0", "2") ^ ".");
-      emit (consistent ("1", "0") ^ ".");
-      emit (consistent ("2", "0") ^ ".");
-      emit (consistent ("1", "1") ^ ".");
-      emit (consistent ("2", "2") ^ ".");
+    emit (consistent ("0", "0") ^ ".");
+    emit (consistent ("0", "1") ^ ".");
+    emit (consistent ("0", "2") ^ ".");
+    emit (consistent ("1", "0") ^ ".");
+    emit (consistent ("2", "0") ^ ".");
+    emit (consistent ("1", "1") ^ ".");
+    emit (consistent ("2", "2") ^ ".");
 
 
-      nonblocking(a) <-- conj_nonblocking a (neg(atomic(a)));
+    nonblocking(a) <-- conj_nonblocking a (neg(atomic(a)));
 
-      (* descendents *********************************************************)
-      desc (a,b) <-- succ(a,b);
-      desc (a,c) <-- (desc(a,b) &&& nonblocking(b) &&& desc(b,c));
-      descAP (a,b,"_") <-- succ(a,b);
-      descAP (a,c,ap) <-- (descAP(a,b,ap)
-			   &&& nonblocking b
-			   &&& neg (kill(b,ap))
-			   &&& descAP(b,c,ap));
-      descCond (a,b,"_") <-- succ(a,b);
-      descCond (a,c,i) <-- (descCond(a,b,i)
-			    &&& nonblocking b
-			    &&& (neg (killCond(i,b)))
-			    &&& descCond(b,c,i));
+    (* descendents *********************************************************)
+    desc (a,b) <-- succ(a,b);
+    desc (a,c) <-- (desc(a,b) &&& nonblocking(b) &&& desc(b,c));
+    descAP (a,b,"_") <-- succ(a,b);
+    descAP (a,c,ap) <-- (descAP(a,b,ap)
+                         &&& nonblocking b
+                         &&& neg (kill(b,ap))
+                         &&& descAP(b,c,ap));
+    descCond (a,b,"_") <-- succ(a,b);
+    descCond (a,c,i) <-- (descCond(a,b,i)
+                          &&& nonblocking b
+                          &&& (neg (killCond(i,b)))
+                          &&& descCond(b,c,i));
 
-      (* enabled *************************************************************)
-      blocksOnCond(i,a) <-- (blockCond (i, a,"_"));
-      enabledCond (i,a,b) <-- (inv (i, b, "bv") &&& blockCond (i, a, "av")
-			    &&& consistent("av","bv"));
-      enabledCond (i, a, "_") <-- (neg(blocksOnCond(i,a)));
-      begin
-	let f i _ =
-	  enabledLock i ("_",b) <-- (neg(holding i b));
-	  enabledLock i (a,"_") <-- (neg(acquire i a));
-	in
-	  BatList.iteri f locks
-      end;
-      begin
-	match (predicates, locks) with
-	  | ([], []) ->
-	      (* no locks or control conditions, so enabled always holds *)
-	      enabled("_",b) <-- neg(atomic(b));
-	  | _ ->
-	      let forall f = BatList.mapi (fun n _ -> f n) in
-	      let enabled_cond =
-		forall
-		  (fun i -> enabledCond (string_of_int i, a, b))
-		  predicates
-	      in
-	      let enabled_lock =
-		forall (fun i -> enabledLock i (a,b)) locks
-	      in
-		enabled(a,b) <-- (neg(atomic(b))
-				  &&& list_and (enabled_lock@enabled_cond))
-      end;
+    (* enabled *************************************************************)
+    blocksOnCond(i,a) <-- (blockCond (i, a,"_"));
+    enabledCond (i,a,b) <-- (inv (i, b, "bv") &&& blockCond (i, a, "av")
+                             &&& consistent("av","bv"));
+    enabledCond (i, a, "_") <-- (neg(blocksOnCond(i,a)));
+    begin
+      let f i _ =
+        enabledLock i ("_",b) <-- (neg(holding i b));
+        enabledLock i (a,"_") <-- (neg(acquire i a));
+      in
+      BatList.iteri f locks
+    end;
+    begin
+      match (predicates, locks) with
+      | ([], []) ->
+        (* no locks or control conditions, so enabled always holds *)
+        enabled("_",b) <-- neg(atomic(b));
+      | _ ->
+        let forall f = BatList.mapi (fun n _ -> f n) in
+        let enabled_cond =
+          forall
+            (fun i -> enabledCond (string_of_int i, a, b))
+            predicates
+        in
+        let enabled_lock =
+          forall (fun i -> enabledLock i (a,b)) locks
+        in
+        enabled(a,b) <-- (neg(atomic(b))
+                          &&& list_and (enabled_lock@enabled_cond))
+    end;
 
-      (* invariant map *******************************************************)
-      killCond(i,a) <-- definesCond (i, a, "_");
-      killCond(i,a) <-- blockCond (i, a, "_");
+    (* invariant map *******************************************************)
+    killCond(i,a) <-- definesCond (i, a, "_");
+    killCond(i,a) <-- blockCond (i, a, "_");
 
-      mayReachCond(i,a,b,c) <-- (definesCond (i, a, "_") &&& coreachable(a, c)
-				 &&& enabled(a, c) &&& succ(a,b));
-      mayReachCond(i,a,b,c) <-- (mayReachCond (i, a, b_pred, c)
-				 &&& descCond(b_pred, b, i)
-				 &&& neg (killCond (i, b_pred))
-				 &&& enabled(b_pred, c));
-      mayReachCond(i,a,b,c) <-- (mayReachCond (i, a, b, c_pred)
-				 &&& descCond(c_pred, c, i)
-				 &&& neg (killCond (i, c_pred))
-				 &&& enabled(c_pred, b));
+    mayReachCond(i,a,b,c) <-- (definesCond (i, a, "_") &&& coreachable(a, c)
+                               &&& enabled(a, c) &&& succ(a,b));
+    mayReachCond(i,a,b,c) <-- (mayReachCond (i, a, b_pred, c)
+                               &&& descCond(b_pred, b, i)
+                               &&& neg (killCond (i, b_pred))
+                               &&& enabled(b_pred, c));
+    mayReachCond(i,a,b,c) <-- (mayReachCond (i, a, b, c_pred)
+                               &&& descCond(c_pred, c, i)
+                               &&& neg (killCond (i, c_pred))
+                               &&& enabled(c_pred, b));
 
-      localMayReachCond(i,a,b) <-- (killCond(i, a) &&& succ(a,b));
-      localMayReachCond(i,a,b) <-- (localMayReachCond(i, a, b_pred)
-				    &&& neg (killCond (i, b_pred))
-				    &&& descCond(b_pred, b, i));
+    localMayReachCond(i,a,b) <-- (killCond(i, a) &&& succ(a,b));
+    localMayReachCond(i,a,b) <-- (localMayReachCond(i, a, b_pred)
+                                  &&& neg (killCond (i, b_pred))
+                                  &&& descCond(b_pred, b, i));
 
-      inv (i,b,v) <-- (localMayReachCond(i, a, b) &&& definesCond(i, a, v));
-      inv (i,b,v) <-- (localMayReachCond(i, a, b) &&& blockCond(i, a, v));
-      inv (i,b,v) <-- (mayReachCond (i, a, "_", b) &&& definesCond (i, a, v));
+    inv (i,b,v) <-- (localMayReachCond(i, a, b) &&& definesCond(i, a, v));
+    inv (i,b,v) <-- (localMayReachCond(i, a, b) &&& blockCond(i, a, v));
+    inv (i,b,v) <-- (mayReachCond (i, a, "_", b) &&& definesCond (i, a, v));
 
-      (* coreachable *********************************************************)
-      coreachable(a,b) <-- (coreachable(a_pred,b) &&& enabled(a_pred,b)
-			    &&& desc(a_pred,a));
-      coreachable(b,a) <-- (coreachable(b,a_pred) &&& enabled(a_pred,b)
-			    &&& desc(a_pred,a));
-      coreachable(b,c) <-- (spawn(a,b) &&& succ(a,c));
-      coreachable(c,b) <-- (spawn(a,b) &&& succ(a,c));
-      coreachable(a,c) <-- (coreachable(a,b) &&& spawn(b,c));
-      coreachable(c,a) <-- (coreachable(a,b) &&& spawn(b,c));
+    (* coreachable *********************************************************)
+    coreachable(a,b) <-- (coreachable(a_pred,b) &&& enabled(a_pred,b)
+                          &&& desc(a_pred,a));
+    coreachable(b,a) <-- (coreachable(b,a_pred) &&& enabled(a_pred,b)
+                          &&& desc(a_pred,a));
+    coreachable(b,c) <-- (spawn(a,b) &&& succ(a,c));
+    coreachable(c,b) <-- (spawn(a,b) &&& succ(a,c));
+    coreachable(a,c) <-- (coreachable(a,b) &&& spawn(b,c));
+    coreachable(c,a) <-- (coreachable(a,b) &&& spawn(b,c));
 
-      (* mayReach ************************************************************)
-      mayReach(def,ap,use) <-- (defines(def,ap) &&& uses(use,ap)
-				&&& mayReach_impl(def,ap,"_",use));
+    (* mayReach ************************************************************)
+    mayReach(def,ap,use) <-- (defines(def,ap) &&& uses(use,ap)
+                              &&& mayReach_impl(def,ap,"_",use));
 
-      mayReach_impl (a,ap,b,c) <-- (defines(a,ap)
-				    &&& relevant(c,ap)
-				    &&& coreachable(a,c)
-				    &&& enabled(a,c)
-				    &&& descAP(a,b,ap));
-      mayReach_impl (a,ap,b,c) <-- (mayReach_impl (a,ap,b_pred,c)
-				    &&& relevant(c,ap)
-				    &&& descAP(b_pred,b,ap)
-				    &&& neg (kill (b_pred, ap))
-				    &&& enabled(b_pred,c));
-      mayReach_impl (a,ap,b,c) <-- (mayReach_impl (a,ap,b,c_pred)
-				    &&& relevant(c,ap)
-				    &&& descAP(c_pred,c,ap)
-				    &&& neg (kill (c_pred, ap))
-				    &&& enabled(c_pred,b));
+    mayReach_impl (a,ap,b,c) <-- (defines(a,ap)
+                                  &&& relevant(c,ap)
+                                  &&& coreachable(a,c)
+                                  &&& enabled(a,c)
+                                  &&& descAP(a,b,ap));
+    mayReach_impl (a,ap,b,c) <-- (mayReach_impl (a,ap,b_pred,c)
+                                  &&& relevant(c,ap)
+                                  &&& descAP(b_pred,b,ap)
+                                  &&& neg (kill (b_pred, ap))
+                                  &&& enabled(b_pred,c));
+    mayReach_impl (a,ap,b,c) <-- (mayReach_impl (a,ap,b,c_pred)
+                                  &&& relevant(c,ap)
+                                  &&& descAP(c_pred,c,ap)
+                                  &&& neg (kill (c_pred, ap))
+                                  &&& enabled(c_pred,b));
 
-      relevant(a,ap) <-- uses(a,ap);
-      relevant(b,ap) <-- (neg(kill(b,ap))
-			  &&& descAP(b,a,ap)
-			  &&& relevant(a,ap))
+    relevant(a,ap) <-- uses(a,ap);
+    relevant(b,ap) <-- (neg(kill(b,ap))
+                        &&& descAP(b,a,ap)
+                        &&& relevant(a,ap))
 
   (* end emit_datalog ********************************************************)
 
   (* Does a given location block on a condition? *)
   let block_cond def pred = match def.dkind with
     | Assume p ->
-	let np = Bexpr.simplify p in
-	let neg_np = Bexpr.negate p in
-	  (Bexpr.equal np pred) || (Bexpr.equal neg_np pred)
+      let np = Bexpr.simplify p in
+      let neg_np = Bexpr.negate p in
+      (Bexpr.equal np pred) || (Bexpr.equal neg_np pred)
     | _          -> false
 
   (* Emit invariant map (blockCond and definesCond).  This needs to be
@@ -625,12 +625,12 @@ let extract_predicates file =
       Log.debugf " emit_inv / Predicate: %a" Bexpr.format pred;
       let def_id = id_of_def vertex in
       if block_cond vertex pred then begin
-	let ab = I.eval_pred pred (Lazy.force post) in
-	e_blockCond [c_num; def_id; int_of_ab ab]
+        let ab = I.eval_pred pred (Lazy.force post) in
+        e_blockCond [c_num; def_id; int_of_ab ab]
       end;
       if defines_cond vertex pred then begin
-	let ab = I.eval_pred pred (Lazy.force post) in
-	e_definesCond [c_num; def_id; int_of_ab ab]
+        let ab = I.eval_pred pred (Lazy.force post) in
+        e_definesCond [c_num; def_id; int_of_ab ab]
       end
     in
 
@@ -638,9 +638,9 @@ let extract_predicates file =
     let emit_inv_loc vertex = match vertex.dkind with
       | Initial -> ()
       | _ ->
-	let post = lazy (NumAnalysis.output map vertex) in
-	Log.debug ("emit_inv: " ^ (Def.show vertex));
-	BatList.iteri (go vertex post) predicates
+        let post = lazy (NumAnalysis.output map vertex) in
+        Log.debug ("emit_inv: " ^ (Def.show vertex));
+        BatList.iteri (go vertex post) predicates
     in
 
     (* Treat the dummy initial vertex as a definition of each
@@ -651,8 +651,8 @@ let extract_predicates file =
     let add_initial_def p _ =
       e_definesCond [p; id_of_def initial_def; int_of_ab Top]
     in
-      DG.iter_vertex emit_inv_loc dg;
-      BatList.iteri add_initial_def predicates
+    DG.iter_vertex emit_inv_loc dg;
+    BatList.iteri add_initial_def predicates
 
   (* end datalog stuff *******************************************************)
   (***************************************************************************)
@@ -662,19 +662,19 @@ let extract_predicates file =
   let mk_edge src pack tgt =
     let label =
       let f var pair_set =
-	let var = Variable var in
-	State.PairSet.add (State.mk_pair var var) pair_set
+        let var = Variable var in
+        State.PairSet.add (State.mk_pair var var) pair_set
       in
       Pack.fold f pack State.PairSet.empty
     in
     let label =
       match src.dkind with
       | Store (ap, _) ->
-	let vars = Var.Set.inter pack (may_assign_vars src) in
-	assert (Var.Set.cardinal vars == 1); (* todo *)
-	let var = Variable (Var.Set.choose vars) in
-	let label = State.PairSet.remove (State.mk_pair var var) label in
-	State.PairSet.add (State.mk_pair ap var) label
+        let vars = Var.Set.inter pack (may_assign_vars src) in
+        assert (Var.Set.cardinal vars == 1); (* todo *)
+        let var = Variable (Var.Set.choose vars) in
+        let label = State.PairSet.remove (State.mk_pair var var) label in
+        State.PairSet.add (State.mk_pair ap var) label
       | _ -> label
     in
     DG.E.create src label tgt
@@ -686,9 +686,9 @@ let extract_predicates file =
   let add_cfg_edges file dg =
     let reachable =
       let v =
-	Variable (Var.mk (Varinfo.mk_local
-			    "REACHABLE"
-			    (Concrete (Int bool_width))))
+        Variable (Var.mk (Varinfo.mk_local
+                            "REACHABLE"
+                            (Concrete (Int bool_width))))
       in
       State.PairSet.singleton (State.mk_pair v v)
     in
@@ -699,8 +699,8 @@ let extract_predicates file =
     let add_thread_edges t = add_cfg_edges (lookup_function t file).cfg in
     List.iter add_thread_edges file.threads;
     (match file.globinit with
-    | Some f -> add_cfg_edges f.cfg
-    | None -> ());
+     | Some f -> add_cfg_edges f.cfg
+     | None -> ());
     dg
 
   (* Run the coarsen algorithm *)
@@ -711,39 +711,39 @@ let extract_predicates file =
     let worklist = ref [] in
     let add_edge = function
       | [def; ap; use] ->
-	  let def = def_of_id def in
-	  let pack = pack_of_id ap in
-	  let use = def_of_id use in
-	  let edge = mk_edge def pack use in
-	    if not (DG.mem_edge_e dg edge) then begin
-	      worklist := use::(!worklist);
-	      DG.add_edge_e dg edge
-	    end
+        let def = def_of_id def in
+        let pack = pack_of_id ap in
+        let use = def_of_id use in
+        let edge = mk_edge def pack use in
+        if not (DG.mem_edge_e dg edge) then begin
+          worklist := use::(!worklist);
+          DG.add_edge_e dg edge
+        end
       | _ -> failwith "Wrong arity for mayReach relation!"
     in
     let st = NumAnalysis.mk_state dg in
     let map = NumAnalysis.do_analysis st dg in
-      (* a new interval analysis is computed before calling fix *)
+    (* a new interval analysis is computed before calling fix *)
     let rec fix () =
       Log.time "emit_inv" (emit_inv dg) map;
       d#run ();
       worklist := [];
       d#iter_tuples add_edge "mayReach";
       if !worklist != [] then begin
-	if !CmdLine.display_graphs then NumAnalysis.display map;
-	NumAnalysis.reset_state st dg;
-	NumAnalysis.solve map (!worklist);
-	fix ()
+        if !CmdLine.display_graphs then NumAnalysis.display map;
+        NumAnalysis.reset_state st dg;
+        NumAnalysis.solve map (!worklist);
+        fix ()
       end
     in
-      emit_datalog ();
-      emit_static_structure ();
-      Log.debug "ENUM";
-      Log.debug_pp (DefEnum.format Def.format) def_enum;
-      if !CmdLine.display_graphs then NumAnalysis.display map;
-      fix ();
-      d#kill ();
-      (dg, map)
+    emit_datalog ();
+    emit_static_structure ();
+    Log.debug "ENUM";
+    Log.debug_pp (DefEnum.format Def.format) def_enum;
+    if !CmdLine.display_graphs then NumAnalysis.display map;
+    fix ();
+    d#kill ();
+    (dg, map)
 end
 
 (** Run interval analysis *)
@@ -755,12 +755,12 @@ let run file =
   let run dir =
     let module R =
       Dependence(struct
-		   type t = Box.t
-		   let man = Box.manager_alloc ()
-		   let file = file
-		   let dir = dir
-		   let pack = pack
-		 end)
+        type t = Box.t
+        let man = Box.manager_alloc ()
+        let file = file
+        let dir = dir
+        let pack = pack
+      end)
     in
     let (afg, map) = R.run () in
     R.NumAnalysis.check_assertions afg map

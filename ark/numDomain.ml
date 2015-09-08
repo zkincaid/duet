@@ -69,8 +69,8 @@ module Env = struct
 
     type t =
       { int_dim : V.t array;
-	real_dim : V.t array }
-	deriving (Show,Compare)
+        real_dim : V.t array }
+        deriving (Show,Compare)
 
     type var = V.t
 
@@ -83,14 +83,14 @@ module Env = struct
     (* Search for an index in a sorted array *)
     let search v array =
       let rec go min max =
-	if max < min then raise Not_found
-	else begin
-	  let mid =  min + ((max - min) / 2) in
-	  let cmp = V.compare v array.(mid) in
-	  if cmp < 0 then go min (mid - 1)
-	  else if cmp > 0 then go (mid + 1) max
-	  else mid
-	end
+        if max < min then raise Not_found
+        else begin
+          let mid =  min + ((max - min) / 2) in
+          let cmp = V.compare v array.(mid) in
+          if cmp < 0 then go min (mid - 1)
+          else if cmp > 0 then go (mid + 1) max
+          else mid
+        end
       in
       go 0 (Array.length array - 1)
 
@@ -100,26 +100,26 @@ module Env = struct
       let blen = Array.length b in
       (* count the size of the intersection of a and b *)
       let rec common i j acc = 
-	if i == alen || j == blen then acc else begin
-	  let cmp = V.compare a.(i) b.(j) in
-	  if cmp < 0 then common (i + 1) j acc
-	  else if cmp > 0 then common i (j + 1) acc
-	  else common (i + 1) (j + 1) (acc + 1)
-	end
+        if i == alen || j == blen then acc else begin
+          let cmp = V.compare a.(i) b.(j) in
+          if cmp < 0 then common (i + 1) j acc
+          else if cmp > 0 then common i (j + 1) acc
+          else common (i + 1) (j + 1) (acc + 1)
+        end
       in
       let clen = alen + blen - (common 0 0 0) in
       let c = Array.create clen (Obj.magic ()) in
       let rec go i j k =
-	if k < clen then begin
-	  if i == alen then (c.(k) <- b.(j); go i (j + 1) (k + 1))
-	  else if j == blen then (c.(k) <- a.(i); go (i + 1) j (k + 1))
-	  else begin
-	    let cmp = V.compare a.(i) b.(j) in
-	    if cmp < 0 then (c.(k) <- a.(i); go (i + 1) j (k + 1))
-	    else if cmp > 0 then (c.(k) <- b.(j); go i (j + 1) (k + 1))
-	    else (c.(k) <- a.(i); go (i + 1) (j + 1) (k + 1))
-	  end
-	end
+        if k < clen then begin
+          if i == alen then (c.(k) <- b.(j); go i (j + 1) (k + 1))
+          else if j == blen then (c.(k) <- a.(i); go (i + 1) j (k + 1))
+          else begin
+            let cmp = V.compare a.(i) b.(j) in
+            if cmp < 0 then (c.(k) <- a.(i); go (i + 1) j (k + 1))
+            else if cmp > 0 then (c.(k) <- b.(j); go i (j + 1) (k + 1))
+            else (c.(k) <- a.(i); go (i + 1) (j + 1) (k + 1))
+          end
+        end
       in
       go 0 0 0;
       c
@@ -128,21 +128,21 @@ module Env = struct
        sub-environments *)
     let merge env0 env1 =
       { int_dim = merge_array env0.int_dim env1.int_dim;
-	real_dim = merge_array env0.real_dim env1.real_dim }
+        real_dim = merge_array env0.real_dim env1.real_dim }
 
     let inject_array a b =
       let alen = Array.length a in
       let blen = Array.length b in
       let rec go i j acc =
-	if j >= blen then acc else begin
-	  if i < alen then begin
-	    let cmp = V.compare a.(i) b.(j) in
-	    assert (cmp >= 0);
-	    if cmp == 0 then go (i + 1) (j + 1) acc
-	    else go i (j + 1) (i::acc)
-	  end
-	  else go i (j + 1) (i::acc)
-	end
+        if j >= blen then acc else begin
+          if i < alen then begin
+            let cmp = V.compare a.(i) b.(j) in
+            assert (cmp >= 0);
+            if cmp == 0 then go (i + 1) (j + 1) acc
+            else go i (j + 1) (i::acc)
+          end
+          else go i (j + 1) (i::acc)
+        end
       in
       List.rev (go 0 0 [])
 
@@ -150,17 +150,17 @@ module Env = struct
       let int_change = inject_array a.int_dim b.int_dim in
       let idim = Array.length a.int_dim in
       let real_change =
-	List.map (fun x -> x + idim) (inject_array a.real_dim b.real_dim)
+        List.map (fun x -> x + idim) (inject_array a.real_dim b.real_dim)
       in
       let change = Array.of_list (int_change @ real_change) in 
       { Dim.dim = change;
-	Dim.intdim = List.length int_change;
-	Dim.realdim = List.length real_change }
+        Dim.intdim = List.length int_change;
+        Dim.realdim = List.length real_change }
 
     let of_set vars =
       let count v (int, real) = match V.typ v with
-	| TyInt  -> (int + 1, real)
-	| TyReal -> (int, real + 1)
+        | TyInt  -> (int + 1, real)
+        | TyReal -> (int, real + 1)
       in
       let (int, real) = S.fold count vars (0, 0) in
       let int_dim = Array.create int (Obj.magic ()) in
@@ -168,12 +168,12 @@ module Env = struct
       let int_max = ref 0 in
       let real_max = ref 0 in
       let f v = match V.typ v with
-	| TyInt  -> (int_dim.(!int_max) <- v; incr int_max)
-	| TyReal -> (real_dim.(!real_max) <- v; incr real_max)
+        | TyInt  -> (int_dim.(!int_max) <- v; incr int_max)
+        | TyReal -> (real_dim.(!real_max) <- v; incr real_max)
       in
       S.iter f vars;
       { int_dim = int_dim;
-	real_dim = real_dim }
+        real_dim = real_dim }
 
     let of_enum e = of_set (S.of_enum e)
     let of_list vs = of_enum (BatList.enum vs)
@@ -195,7 +195,7 @@ module Env = struct
     let dimensions env = 0 -- (dimension env)
     let filter p env =
       { int_dim = BatArray.filter p env.int_dim;
-	real_dim = BatArray.filter p env.real_dim }
+        real_dim = BatArray.filter p env.real_dim }
     let mem v env =
       try ignore (dim_of_var env v); true
       with Not_found -> false
@@ -270,11 +270,11 @@ module Make (V : Var) = struct
     let set_env z =
       let open Manager in
       try
-	Abstract0.add_dimensions man z.prop (Env.inject z.env env) false
+        Abstract0.add_dimensions man z.prop (Env.inject z.env env) false
       with Error log -> begin
-	Log.errorf "APRON error: %s" log.msg;
-	raise (Error log)
-      end
+          Log.errorf "APRON error: %s" log.msg;
+          raise (Error log)
+        end
     in
     { prop = f man (set_env x) (set_env y);
       env = env }
@@ -298,21 +298,21 @@ module Make (V : Var) = struct
     for i = dimension - 1 downto 0 do
       let v = Env.var_of_dim x.env i in
       if p v then begin
-	remember := v::(!remember)
+        remember := v::(!remember)
       end else begin
-	forget := i::(!forget);
-	match V.typ v with
-	| TyInt  -> incr intdim
-	| TyReal -> incr realdim
+        forget := i::(!forget);
+        match V.typ v with
+        | TyInt  -> incr intdim
+        | TyReal -> incr realdim
       end
     done;
     let prop =
       Abstract0.remove_dimensions
-	man
-	x.prop
-	{ Dim.dim = Array.of_list (!forget);
-	  Dim.intdim = !intdim;
-	  Dim.realdim = !realdim }
+        man
+        x.prop
+        { Dim.dim = Array.of_list (!forget);
+          Dim.intdim = !intdim;
+          Dim.realdim = !realdim }
     in
     let env = Env.of_enum (BatList.enum (!remember)) in
     { prop = prop;
@@ -330,11 +330,11 @@ module Make (V : Var) = struct
   let boxify x =
     let man = man x.prop in
     { prop =
-	Abstract0.of_box
-	  man
-	  (Env.int_dim x.env)
-	  (Env.real_dim x.env)
-	  (Abstract0.to_box man x.prop);
+        Abstract0.of_box
+          man
+          (Env.int_dim x.env)
+          (Env.real_dim x.env)
+          (Abstract0.to_box man x.prop);
       env = x.env }
 
   exception Not_nudgeable

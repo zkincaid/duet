@@ -4,7 +4,7 @@ val whole_program : bool ref
 
 module Cfg : sig
   include Afg.FlowGraph with type V.t = Def.t
-			and type E.label = unit
+                         and type E.label = unit
   val initial_vertex : t -> Def.t
   val display : t -> unit
   val sanity_check : t -> unit
@@ -83,3 +83,6 @@ val remove_unreachable : Cfg.t -> Def.t -> unit
     convenient for SESE region detection.
 *)
 val normalize : file -> unit
+
+(** Normalize a file so that every definition executes atomically. *)
+val split_atomic : file -> unit

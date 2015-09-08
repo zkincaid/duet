@@ -56,19 +56,19 @@ let branch_loop = graph [(0, 1);(1, 2);(1, 3);(2, 4);(3, 4);(4, 5);(4, 1)]
 let rho = graph [(0, 1);(1, 2);(2, 3);(3, 1)]
 
 let run_test g () =
-(*  GD.display g;*)
+  (*  GD.display g;*)
   let rg = R.construct g ~entry:0 ~exit:0 in
-(*  R.display rg;*)
+  (*  R.display rg;*)
   assert_equal g (flatten rg)
 
 let suite = "Sese" >:::
-  [
-    "diamond" >:: run_test diamond;
-    "twocycle1" >:: run_test twocycle1;
-    "twocycle2" >:: run_test twocycle2;
-    "twocycle3" >:: run_test twocycle3;
-    "loop" >:: run_test loop;
-    "post_loop" >:: run_test post_loop;
-    "branch_loop" >:: run_test branch_loop;
-    "rho" >:: run_test rho;
-  ]
+            [
+              "diamond" >:: run_test diamond;
+              "twocycle1" >:: run_test twocycle1;
+              "twocycle2" >:: run_test twocycle2;
+              "twocycle3" >:: run_test twocycle3;
+              "loop" >:: run_test loop;
+              "post_loop" >:: run_test post_loop;
+              "branch_loop" >:: run_test branch_loop;
+              "rho" >:: run_test rho;
+            ]

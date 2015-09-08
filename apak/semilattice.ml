@@ -21,26 +21,26 @@ module FunctionSpace = struct
       type cod = Codomain.t
       type t = cod M.t
       include Putil.MakeFmt(struct
-	type a = t
-	let format formatter map = M.format Codomain.format formatter map
-      end)
+          type a = t
+          let format formatter map = M.format Codomain.format formatter map
+        end)
 
       let equal = M.equal Codomain.equal
       let bottom = M.empty
 
       let join x y =
-	let f _ a b =
-	  match a, b with
-	  | Some a, Some b -> Some (Codomain.join a b)
-	  | Some x, _ | _, Some x -> Some x
-	  | None, None -> assert false
-	in
-	M.merge f x y
+        let f _ a b =
+          match a, b with
+          | Some a, Some b -> Some (Codomain.join a b)
+          | Some x, _ | _, Some x -> Some x
+          | None, None -> assert false
+        in
+        M.merge f x y
 
       let update = M.add
       let weak_update k v f =
-	try M.add k (Codomain.join v (M.find k f)) f
-	with Not_found -> M.add k v f
+        try M.add k (Codomain.join v (M.find k f)) f
+        with Not_found -> M.add k v f
       let partition = M.partition
       let filter = M.filter
       let map = M.map
@@ -55,22 +55,22 @@ module FunctionSpace = struct
       LiftMap(Putil.Map.Make(Domain))(Codomain)
     module Ordered = struct
       module type S = sig
-	include S
-	include Putil.OrderedMix with type t := t
+        include S
+        include Putil.OrderedMix with type t := t
       end
       module LiftMap (M : Putil.Map.S) (Codomain : Sig.Semilattice.Ordered.S) =
       struct
-	include LiftMap(M)(Codomain)
-	module Compare_t = struct
-	  type a = t
-	  let compare = M.compare Codomain.compare
-	end
-	let compare = Compare_t.compare
+        include LiftMap(M)(Codomain)
+        module Compare_t = struct
+          type a = t
+          let compare = M.compare Codomain.compare
+        end
+        let compare = Compare_t.compare
       end
       module Make
-	(Domain : Putil.Ordered)
-	(Codomain : Sig.Semilattice.Ordered.S) =
-	LiftMap(Putil.Map.Make(Domain))(Codomain)
+          (Domain : Putil.Ordered)
+          (Codomain : Sig.Semilattice.Ordered.S) =
+        LiftMap(Putil.Map.Make(Domain))(Codomain)
     end
   end
   module Total = struct
@@ -88,19 +88,19 @@ module FunctionSpace = struct
       LiftMap(Putil.Map.Make(Domain))(Codomain)
     module Ordered = struct
       module type S = sig
-	include S
-	include Putil.OrderedMix with type t := t
+        include S
+        include Putil.OrderedMix with type t := t
       end
       module LiftMap (M : Putil.Map.S) (Codomain : Sig.Semilattice.Ordered.S) =
       struct
-	include Putil.TotalFunction.Ordered.LiftMap(M)(Codomain)
-	let join = merge Codomain.join
-	let weak_update k v f = update k (Codomain.join v (eval f k)) f
+        include Putil.TotalFunction.Ordered.LiftMap(M)(Codomain)
+        let join = merge Codomain.join
+        let weak_update k v f = update k (Codomain.join v (eval f k)) f
       end
       module Make
-	(Domain : Putil.Ordered)
-	(Codomain : Sig.Semilattice.Ordered.S) =
-	LiftMap(Putil.Map.Make(Domain))(Codomain)
+          (Domain : Putil.Ordered)
+          (Codomain : Sig.Semilattice.Ordered.S) =
+        LiftMap(Putil.Map.Make(Domain))(Codomain)
     end
   end
 end
@@ -130,9 +130,9 @@ module Bounded = struct
     type t = S.t bounded
 
     include Putil.MakeFmt(struct
-      type a = t
-      let format = format_bounded S.format
-    end)
+        type a = t
+        let format = format_bounded S.format
+      end)
 
     let join d e = match (d, e) with
       | (Bottom, x) | (x, Bottom) -> x

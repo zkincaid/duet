@@ -48,9 +48,9 @@ let reduce_cfa cfa entry exit =
   let is_header = L.is_header scc in
   let is_cp v = is_header v || v = entry || v = exit in
   let cp = BatList.of_enum (BatEnum.filter is_cp (Cfa.vertices cfa)) in
-  logf ~level:1 "Entry: %d" entry;
-  logf ~level:1 "Exit: %d" exit;
-  logf ~level:1 "Cutpoints: %a" Show.format<int list> cp;
+  logf "Entry: %d" entry;
+  logf "Exit: %d" exit;
+  logf "Cutpoints: %a" Show.format<int list> cp;
   let dag =
     let f g v =
       Cfa.fold_succ_e (fun e g -> Cfa.remove_edge_e g e) cfa v g

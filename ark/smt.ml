@@ -3,10 +3,10 @@ open ArkPervasives
 
 let context = ref None
 let opts = ref [ ("timeout", "5000");
-	         ("model", "true") ]
+                 ("model", "true") ]
 
 type lbool = Sat | Unsat | Undef
-    deriving (Show)
+               deriving (Show)
 
 type ast = Expr.expr
 type symbol = Symbol.symbol
@@ -25,10 +25,10 @@ let get_context () =
   match !context with
   | Some c -> c
   | None -> begin
-    let ctx = Z3.mk_context (!opts) in
-    context := Some ctx;
-    ctx
-  end
+      let ctx = Z3.mk_context (!opts) in
+      context := Some ctx;
+      ctx
+    end
 
 let mk_int_sort () = Arithmetic.Integer.mk_sort (get_context ())
 let mk_bool_sort () = Boolean.mk_sort (get_context ())
@@ -111,77 +111,77 @@ let const_zz k =
   Arithmetic.Integer.mk_numeral_s (get_context()) (ZZ.show k)
 
 class model m =
-object(self)
-  val ctx = get_context ()
-  val m = m
-  method eval_int term =
-    match Model.eval m term true with
-    | Some x -> Arithmetic.Integer.get_int x (* todo: overflow *)
-    | None -> assert false
-  method eval_zz term =
-    match Model.eval m term true with
-    | Some x -> ZZ.of_string (Arithmetic.Integer.to_string x)
-    | None -> assert false
-  method eval_qq term =
-    match Model.eval m term true with
-    | Some x -> QQ.of_string (Arithmetic.Real.to_string x)
-    | None -> assert false
-  method sat phi =
-    match Model.eval m phi true with
-    | Some x -> begin match Boolean.get_bool_value x with
-      | Z3enums.L_TRUE -> true
-      | Z3enums.L_FALSE -> false
-      | Z3enums.L_UNDEF -> assert false
-    end
-    | None -> assert false
+  object(self)
+    val ctx = get_context ()
+    val m = m
+    method eval_int term =
+      match Model.eval m term true with
+      | Some x -> Arithmetic.Integer.get_int x (* todo: overflow *)
+      | None -> assert false
+    method eval_zz term =
+      match Model.eval m term true with
+      | Some x -> ZZ.of_string (Arithmetic.Integer.numeral_to_string x)
+      | None -> assert false
+    method eval_qq term =
+      match Model.eval m term true with
+      | Some x -> QQ.of_string (Arithmetic.Real.numeral_to_string x)
+      | None -> assert false
+    method sat phi =
+      match Model.eval m phi true with
+      | Some x -> begin match Boolean.get_bool_value x with
+          | Z3enums.L_TRUE -> true
+          | Z3enums.L_FALSE -> false
+          | Z3enums.L_UNDEF -> assert false
+        end
+      | None -> assert false
 
-  method to_string () = Model.to_string m
-end
+    method to_string () = Model.to_string m
+  end
 
 class solver =
-object(self)
-  val s = mk_solver ()
-  val ctx = get_context ()
-  method assrt phi = Solver.add s [phi]
-  method check () = cvt_lbool (Solver.check s [])
-  method check_assumptions assumptions =
-    cvt_lbool (Solver.check s assumptions)
-  method get_model () = match Solver.get_model s with
-  | Some m -> new model m
-  | None -> failwith "solver.get_model: No model"
-  method push () = Solver.push s
-  method pop () = Solver.pop s 1
-  method reset () = Solver.reset s
-  method get_num_scopes () = Solver.get_num_scopes s
-  method get_assertions () = Solver.get_assertions s
-  method get_proof () = Solver.get_proof s
-  method get_unsat_core () = Solver.get_unsat_core s
-  method get_reason_unknown () = Solver.get_reason_unknown s
-  method get_statistics () = Solver.get_statistics s
-  method to_string () = Solver.to_string s
-end
+  object(self)
+    val s = mk_solver ()
+    val ctx = get_context ()
+    method assrt phi = Solver.add s [phi]
+    method check () = cvt_lbool (Solver.check s [])
+    method check_assumptions assumptions =
+      cvt_lbool (Solver.check s assumptions)
+    method get_model () = match Solver.get_model s with
+      | Some m -> new model m
+      | None -> failwith "solver.get_model: No model"
+    method push () = Solver.push s
+    method pop () = Solver.pop s 1
+    method reset () = Solver.reset s
+    method get_num_scopes () = Solver.get_num_scopes s
+    method get_assertions () = Solver.get_assertions s
+    method get_proof () = Solver.get_proof s
+    method get_unsat_core () = Solver.get_unsat_core s
+    method get_reason_unknown () = Solver.get_reason_unknown s
+    method get_statistics () = Solver.get_statistics s
+    method to_string () = Solver.to_string s
+  end
 
 class fixedpoint =
-object(self)
-  val fp = mk_fixedpoint ()
-  val ctx = get_context ()
-  method assrt phi = Fixedpoint.add fp [phi]
-  method add_rule ast symbol = Fixedpoint.add_rule fp ast symbol
-  method query ast = Fixedpoint.query fp ast
-  method query_relations rels = Fixedpoint.query_r fp rels
-  method get_answer () = Fixedpoint.get_answer fp
-  method get_reason_unknown () = Fixedpoint.get_reason_unknown fp
-  method register_relation pred = Fixedpoint.register_relation fp pred
-  method set_predicate_representation fp pred rep =
-    Fixedpoint.set_predicate_representation fp pred rep
-  method to_string () = Fixedpoint.to_string fp
-  method push () = Fixedpoint.push fp
-  method pop () = Fixedpoint.pop fp
-  method get_num_levels pred = Fixedpoint.get_num_levels fp pred
-  method get_cover_delta n pred = Fixedpoint.get_cover_delta fp n pred
-  method set_params params = Fixedpoint.set_params fp params
-  method get_help () = Fixedpoint.get_help fp
-end
+  object(self)
+    val fp = mk_fixedpoint ()
+    val ctx = get_context ()
+    method assrt phi = Fixedpoint.add fp [phi]
+    method add_rule ast symbol = Fixedpoint.add_rule fp ast symbol
+    method query ast = Fixedpoint.query fp ast
+    method query_relations rels = Fixedpoint.query_r fp rels
+    method get_answer () = Fixedpoint.get_answer fp
+    method get_reason_unknown () = Fixedpoint.get_reason_unknown fp
+    method register_relation pred = Fixedpoint.register_relation fp pred
+    method set_predicate_representation fp pred rep =
+      Fixedpoint.set_predicate_representation fp pred rep
+    method to_string () = Fixedpoint.to_string fp
+    method push () = Fixedpoint.push fp
+    method pop () = Fixedpoint.pop fp
+    method get_num_levels pred = Fixedpoint.get_num_levels fp pred
+    method get_cover_delta n pred = Fixedpoint.get_cover_delta fp n pred
+    method set_params params = Fixedpoint.set_params fp params
+    method get_help () = Fixedpoint.get_help fp
+  end
 
 module Syntax = struct
   let ( + ) x y = add x y

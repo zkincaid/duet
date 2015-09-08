@@ -95,8 +95,8 @@ end
 (** Module implementing fixpoint computation using a priority worklist.
     Priorities comparison is implemented by the [C] module argument. *)
 module GraphWorklist
-  (G : Graph.Sig.G)
-  (C : sig val compare : G.V.t -> G.V.t -> int end) :
+    (G : Graph.Sig.G)
+    (C : sig val compare : G.V.t -> G.V.t -> int end) :
 sig
   module VSet : Set.S with type elt = G.V.t
   val fix : G.t -> ?init:(VSet.t) -> (G.V.t -> bool) -> unit

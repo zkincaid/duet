@@ -4,27 +4,27 @@ open Sig.KA
 let generic_star equal mul add one x =
   let rec fix s =
     let next = mul s s in
-      if equal s next then s else fix next
+    if equal s next then s else fix next
   in
-    fix (add one x)
+  fix (add one x)
 
 (** Augment a structure with an additive unit *)
 module AddZero(M : sig
-		  include Putil.Ordered
-		  val equal : t -> t -> bool
-		  val mul : t -> t -> t
-		  val add : t -> t -> t
-		  val star : t -> t
-		  val one : t
-		end) = struct
+    include Putil.Ordered
+    val equal : t -> t -> bool
+    val mul : t -> t -> t
+    val add : t -> t -> t
+    val star : t -> t
+    val one : t
+  end) = struct
   type t = Zero | Nonzero of M.t
-      deriving (Compare)
+               deriving (Compare)
   include Putil.MakeFmt(struct
-    type a = t
-    let format formatter = function
-      | Zero -> Format.pp_print_int formatter 0
-      | Nonzero x -> M.format formatter x
-  end)
+      type a = t
+      let format formatter = function
+        | Zero -> Format.pp_print_int formatter 0
+        | Nonzero x -> M.format formatter x
+    end)
   let compare = Compare_t.compare
   let equal x y = match x,y with
     | (Nonzero x, Nonzero y) -> M.equal x y
@@ -53,9 +53,9 @@ end
     This is safe if the monoid is finite; otherwise, care needs to be taken to
     ensure that star does not diverge.  *)
 module ReducedDisjCompletion (M : sig
-				include Sig.Monoid.Ordered.S
-				val implies : t -> t -> bool
-			      end) = struct
+    include Sig.Monoid.Ordered.S
+    val implies : t -> t -> bool
+  end) = struct
   module S = Putil.Set.Make(M)
   type t = S.t deriving (Show,Compare)
 
@@ -78,13 +78,13 @@ module ReducedDisjCompletion (M : sig
       if S.exists (strict_implies a) x then s
       else S.add a s
     in
-      S.fold add_x x (S.fold add_y y S.empty)
+    S.fold add_x x (S.fold add_y y S.empty)
 
   let reduce set =
     let add x s =
       if S.exists (strict_implies x) set then s else S.add x s
     in
-      Log.time "Reduce [disjunctive completion]" (S.fold add set) S.empty
+    Log.time "Reduce [disjunctive completion]" (S.fold add set) S.empty
 
   (** {!mul} is O(m*n), where m is the number of minterms in x, and n is the
       number of minterms in y *)
@@ -94,16 +94,16 @@ module ReducedDisjCompletion (M : sig
     let result =
       Log.time "mul [disjunctive completion] " (S.fold f x) S.empty
     in
-      reduce result
+    reduce result
 
   let star x =
     let rec fix s =
       let next = mul s s in
-	if equal s next then s else fix next
+      if equal s next then s else fix next
     in
-      fix (add one x)
+    fix (add one x)
 
-(*  let star = generic_star equal mul add one*)
+  (*  let star = generic_star equal mul add one*)
 end
 
 (** Lift a monoid to a Kleene algebra by taking its disjunctive completion.
@@ -125,21 +125,21 @@ module DisjCompletion (M : Sig.Monoid.Ordered.S) = struct
   (** {!mul} is O(m*n), where m is the number of minterms in x, and n is the
       number of minterms in y *)
   let mul x y =
-(*    print_endline ("MUL " ^ (string_of_int (S.cardinal x)) ^ " * " ^ (string_of_int (S.cardinal y)));*)
+    (*    print_endline ("MUL " ^ (string_of_int (S.cardinal x)) ^ " * " ^ (string_of_int (S.cardinal y)));*)
     let g a b = S.add (M.mul a b) in
     let f a = S.fold (g a) y in
     let res = S.fold f x S.empty in
-(*      print_endline ("res " ^ (string_of_int (S.cardinal res)));*)
-      res
+    (*      print_endline ("res " ^ (string_of_int (S.cardinal res)));*)
+    res
 
   let star x =
     let rec fix s =
       let next = mul s s in
-	if equal s next then s else fix next
+      if equal s next then s else fix next
     in
-      fix (add one x)
+    fix (add one x)
 
-(*  let star = generic_star equal mul add one*)
+  (*  let star = generic_star equal mul add one*)
 end
 
 module AdditiveMonoid (K : S) : Sig.Monoid.S with type t = K.t =
@@ -171,8 +171,8 @@ module FunctionSpace = struct
   module Make (Domain : Putil.Ordered) (Codomain : S) = struct
     module M = Putil.MonoMap.Make(Domain)(Codomain)
     type t = { map : M.t;
-	       default : Codomain.t }
-      deriving (Show)
+               default : Codomain.t }
+        deriving (Show)
 
     let format = Show_t.format
     let show = Show_t.show
@@ -183,17 +183,17 @@ module FunctionSpace = struct
 
     let singleton k v default =
       { map = M.add k v M.empty;
-	default = default }
+        default = default }
 
     let empty default =
       { map = M.empty;
-	default = default }
+        default = default }
 
     let set_default f default = { f with default = default }
 
     let map_codomain func f =
       { map = M.map func f.map;
-	default = func f.default }
+        default = func f.default }
 
     let eval f x =
       try M.find x f.map
@@ -201,27 +201,27 @@ module FunctionSpace = struct
 
     let pointwise combine f g =
       let add_f k v map =
-	M.add k (combine v (eval g k)) map
+        M.add k (combine v (eval g k)) map
       in
       let add_g k v map =
-	if M.mem k f.map then map
-	else M.add k (combine f.default v) map
+        if M.mem k f.map then map
+        else M.add k (combine f.default v) map
       in
       { map = M.fold add_g g.map (M.fold add_f f.map M.empty);
-	default = combine f.default g.default }
+        default = combine f.default g.default }
 
     let mul = pointwise Codomain.mul
     let add = pointwise Codomain.add
 
     let zero =
       { map = M.empty;
-	default = Codomain.zero }
+        default = Codomain.zero }
     let one =
       { map = M.empty;
-	default = Codomain.one }
+        default = Codomain.one }
     let star f =
       { map = M.map Codomain.star f.map;
-	default = Codomain.star f.default }
+        default = Codomain.star f.default }
   end
 end
 
@@ -229,8 +229,8 @@ module MakePath (Domain : Putil.Ordered) (Codomain : Ordered.S) =
 struct
   module M = Putil.MonoMap.Ordered.Make(Domain)(Codomain)
   type t = { map : M.t;
-	     default : Codomain.t }
-    deriving (Show, Compare)
+             default : Codomain.t }
+      deriving (Show, Compare)
   let format = Show_t.format
   let show = Show_t.show
   let compare = Compare_t.compare
@@ -263,8 +263,8 @@ struct
       if M.mem k f.map then map
       else M.add k (combine f.default v) map
     in
-      { map = M.fold add_g g.map (M.fold add_f f.map M.empty);
-	default = combine f.default g.default }
+    { map = M.fold add_g g.map (M.fold add_f f.map M.empty);
+      default = combine f.default g.default }
 
   let add_map fmap gmap =
     let add_f k v map =
@@ -275,7 +275,7 @@ struct
       if M.mem k fmap then map
       else M.add k v map
     in
-      M.fold add_g gmap (M.fold add_f fmap M.empty)
+    M.fold add_g gmap (M.fold add_f fmap M.empty)
 
   let add f g =
     { map = add_map f.map g.map;
@@ -283,8 +283,8 @@ struct
 
   let mul f g =
     let extend_g = M.map (Codomain.mul f.default) g.map in
-      { map = add_map f.map extend_g;
-	default = Codomain.mul f.default g.default }
+    { map = add_map f.map extend_g;
+      default = Codomain.mul f.default g.default }
 
   let zero =
     { map = M.empty;
@@ -294,8 +294,8 @@ struct
       default = Codomain.one }
   let star f =
     let default = Codomain.star f.default in
-      { map = M.map (Codomain.mul default) f.map;
-	default = default }
+    { map = M.map (Codomain.mul default) f.map;
+      default = default }
 end
 
 module MakeRevPath (Domain : Putil.Ordered) (Codomain : Ordered.S) =
@@ -304,22 +304,22 @@ struct
 
   let mul f g =
     let extend_f = M.map (fun x -> Codomain.mul x g.default) f.map in
-      { map = add_map extend_f g.map;
-	default = Codomain.mul f.default g.default }
+    { map = add_map extend_f g.map;
+      default = Codomain.mul f.default g.default }
 
   let star f =
     let default = Codomain.star f.default in
-      { map = M.map (fun x -> Codomain.mul x default) f.map;
-	default = default }
+    { map = M.map (fun x -> Codomain.mul x default) f.map;
+      default = default }
 end
 
 module MakePointedFS
-  (Domain : Putil.Ordered)
-  (Codomain : Ordered.S) =
+    (Domain : Putil.Ordered)
+    (Codomain : Ordered.S) =
 struct
   type path = { left : Codomain.t;
-		right : Codomain.t }
-    deriving (Show,Compare)
+                right : Codomain.t }
+      deriving (Show,Compare)
   module Path = struct
     type t = path deriving (Show,Compare)
     let format = Show_t.format
@@ -328,8 +328,8 @@ struct
   end
   module M = Putil.MonoMap.Ordered.Make(Domain)(Path)
   type t = { map : M.t;
-	     default : Codomain.t }
-    deriving (Show, Compare)
+             default : Codomain.t }
+      deriving (Show, Compare)
   let format = Show_t.format
   let show = Show_t.show
   let compare = Compare_t.compare
@@ -339,15 +339,15 @@ struct
   let path_add x y =
     { left = Codomain.add x.left y.left;
       right = Codomain.add x.right y.right }
-      
+
   let equal f g = compare f g = 0
 
   let singleton k left right default =
     let v = { left = left;
-	      right = right }
+              right = right }
     in
-      { map = M.add k v M.empty;
-	default = default }
+    { map = M.add k v M.empty;
+      default = default }
 
   let empty default =
     { map = M.empty;
@@ -356,10 +356,10 @@ struct
   let map_codomain func f =
     let path_func x =
       { left = func x.left;
-	right = func x.right }
+        right = func x.right }
     in
-      { map = M.map path_func f.map;
-	default = func f.default }
+    { map = M.map path_func f.map;
+      default = func f.default }
 
   let eval_left f x =
     try (M.find x f.map).left
@@ -372,12 +372,12 @@ struct
   let add_map m n =
     let add k v map =
       let value = 
-	try path_add v (M.find k map)
-	with Not_found -> v
+        try path_add v (M.find k map)
+        with Not_found -> v
       in
-	M.add k value map
+      M.add k value map
     in
-      M.fold add m n
+    M.fold add m n
 
   let add f g =
     { map = add_map f.map g.map;
@@ -390,8 +390,8 @@ struct
     let g_extend_left =
       M.map (fun x -> { x with left = Codomain.mul f.default x.left}) g.map
     in
-      { map = add_map f_extend_right g_extend_left;
-	default = Codomain.mul f.default g.default }
+    { map = add_map f_extend_right g_extend_left;
+      default = Codomain.mul f.default g.default }
 
   let zero =
     { map = M.empty;
@@ -403,15 +403,15 @@ struct
     let default = Codomain.star f.default in
     let extend x =
       { left = Codomain.mul default x.left;
-	right = Codomain.mul x.right default }
+        right = Codomain.mul x.right default }
     in
-      { map = M.map extend f.map;
-	default = default }
+    { map = M.map extend f.map;
+      default = default }
 
   let compare f g =
     let cmp = Codomain.compare f.default g.default in
-      if cmp != 0 then cmp
-      else M.compare f.map g.map
+    if cmp != 0 then cmp
+    else M.compare f.map g.map
 end
 
 module Ordered = struct
@@ -419,9 +419,9 @@ module Ordered = struct
     module Make (Domain : Putil.Ordered) (Codomain : Ordered.S) = struct
       include FunctionSpace.Make(Domain)(Codomain)
       let compare f g =
-	let cmp = Codomain.compare f.default g.default in
-	if cmp != 0 then cmp
-	else M.compare Codomain.compare f.map g.map
+        let cmp = Codomain.compare f.default g.default in
+        if cmp != 0 then cmp
+        else M.compare Codomain.compare f.map g.map
     end
   end
 
@@ -452,15 +452,15 @@ struct
     | PosInfinity
     | NegInfinity
     | Z of int
-	deriving (Compare)
+          deriving (Compare)
 
   include Putil.MakeFmt(struct
-    type a = t
-    let format formatter = function
-    | PosInfinity -> Format.pp_print_string formatter "+infinity"
-    | NegInfinity -> Format.pp_print_string formatter "-infinity"
-    | Z x -> Format.pp_print_int formatter x
-  end)
+      type a = t
+      let format formatter = function
+        | PosInfinity -> Format.pp_print_string formatter "+infinity"
+        | NegInfinity -> Format.pp_print_string formatter "-infinity"
+        | Z x -> Format.pp_print_int formatter x
+    end)
   let compare = Compare_t.compare
   let equal = (=)
 

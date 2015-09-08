@@ -49,8 +49,8 @@ module Tabulate : sig
   end
 
   module Make (F : Fun) : S with type dom = F.dom
-			    and type cod = F.cod
+                             and type cod = F.cod
 
   module MakeRec (F : RecFun) : S with type dom = F.dom
-				  and type cod = F.cod
+                                   and type cod = F.cod
 end

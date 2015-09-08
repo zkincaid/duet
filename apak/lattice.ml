@@ -36,35 +36,35 @@ module FunctionSpace = struct
     struct
       include Semilattice.FunctionSpace.Partial.LiftMap(M)(Codomain)
       let meet x y =
-	let f _ a b =
-	  match a, b with
-	  | Some a, Some b -> Some (Codomain.meet a b)
-	  | _, _ -> None
-	in
-	merge f x y
+        let f _ a b =
+          match a, b with
+          | Some a, Some b -> Some (Codomain.meet a b)
+          | _, _ -> None
+        in
+        merge f x y
     end
     module Make (Domain : Putil.Ordered) (Codomain : Sig.Lattice.S) =
       LiftMap(Putil.Map.Make(Domain))(Codomain)
     module Ordered = struct
       module type S = sig
-	include S
-	include Putil.OrderedMix with type t := t
+        include S
+        include Putil.OrderedMix with type t := t
       end
       module LiftMap (M : Putil.Map.S) (Codomain : Sig.Lattice.Ordered.S) =
       struct
-	include Semilattice.FunctionSpace.Partial.Ordered.LiftMap(M)(Codomain)
-	let meet x y =
-	  let f _ a b =
-	    match a, b with
-	    | Some a, Some b -> Some (Codomain.meet a b)
-	    | _, _ -> None
-	  in
-	  merge f x y
+        include Semilattice.FunctionSpace.Partial.Ordered.LiftMap(M)(Codomain)
+        let meet x y =
+          let f _ a b =
+            match a, b with
+            | Some a, Some b -> Some (Codomain.meet a b)
+            | _, _ -> None
+          in
+          merge f x y
       end
       module Make
-	(Domain : Putil.Ordered)
-	(Codomain : Sig.Lattice.Ordered.S) =
-	LiftMap(Putil.Map.Make(Domain))(Codomain)
+          (Domain : Putil.Ordered)
+          (Codomain : Sig.Lattice.Ordered.S) =
+        LiftMap(Putil.Map.Make(Domain))(Codomain)
     end
   end
   module Total = struct
@@ -83,20 +83,20 @@ module FunctionSpace = struct
       LiftMap(Putil.Map.Make(Domain))(Codomain)
     module Ordered = struct
       module type S = sig
-	include S
-	include Putil.OrderedMix with type t := t
+        include S
+        include Putil.OrderedMix with type t := t
       end
       module LiftMap (M : Putil.Map.S) (Codomain : Sig.Lattice.Ordered.S) =
       struct
-	include Putil.TotalFunction.Ordered.LiftMap(M)(Codomain)
-	let join = merge Codomain.join
-	let meet = merge Codomain.meet
-	let weak_update k v f = update k (Codomain.join v (eval f k)) f
+        include Putil.TotalFunction.Ordered.LiftMap(M)(Codomain)
+        let join = merge Codomain.join
+        let meet = merge Codomain.meet
+        let weak_update k v f = update k (Codomain.join v (eval f k)) f
       end
       module Make
-	(Domain : Putil.Ordered)
-	(Codomain : Sig.Lattice.Ordered.S) =
-	LiftMap(Putil.Map.Make(Domain))(Codomain)
+          (Domain : Putil.Ordered)
+          (Codomain : Sig.Lattice.Ordered.S) =
+        LiftMap(Putil.Map.Make(Domain))(Codomain)
     end
   end
 end
@@ -118,9 +118,9 @@ module Bounded = struct
     type t = L.t bounded
 
     include Putil.MakeFmt(struct
-      type a = t
-      let format = format_bounded L.format
-    end)
+        type a = t
+        let format = format_bounded L.format
+      end)
 
     let join d e = match (d, e) with
       | (Top, x) | (x, Top) -> Top
@@ -141,17 +141,17 @@ module Bounded = struct
 
   module LiftSubset (S : Putil.Set.S) = struct
     type t =
-    | Set of S.t
-    | Neg of S.t
-	deriving (Compare)
+      | Set of S.t
+      | Neg of S.t
+            deriving (Compare)
     type elt = S.elt
 
     include Putil.MakeFmt(struct
-      type a = t
-      let format formatter = function
-	| Set x -> S.format formatter x
-	| Neg x -> Format.fprintf formatter "@[complement(%a)@]" S.format x
-    end)
+        type a = t
+        let format formatter = function
+          | Set x -> S.format formatter x
+          | Neg x -> Format.fprintf formatter "@[complement(%a)@]" S.format x
+      end)
     let compare = Compare_t.compare
 
     let join x y = match x, y with
@@ -199,13 +199,13 @@ module Bounded = struct
     let diff x y = inter x (complement y)
 
     (** Assumes an infinite universe (so {!Set a} and {!Neg b} can never be
-	equal). *)
+        equal). *)
     let equal x y = match x, y with
       | (Set a, Set b) | (Neg a, Neg b) -> S.equal a b
       | _ -> false
 
     (** Assumes an infinite universe (so {!Neg a} can never be a subset of
-	{!Set a}) *)
+        {!Set a}) *)
     let subset x y = match x, y with
       | (Set x, Set y) -> S.subset x y
       | (Set x, Neg y) -> S.is_empty (S.inter x y)
@@ -216,130 +216,130 @@ module Bounded = struct
   module FunctionSpace = struct
     module Total = struct
       module type S = sig
-	include Sig.Lattice.Bounded.S
-	include Sig.FunctionSpace.Total with type t := t
-	val weak_update : dom -> cod -> t -> t
+        include Sig.Lattice.Bounded.S
+        include Sig.FunctionSpace.Total with type t := t
+        val weak_update : dom -> cod -> t -> t
       end
       module LiftMap (M : Putil.Map.S) (Codomain : Sig.Lattice.Bounded.S) =
       struct
-	include FunctionSpace.Total.LiftMap(M)(Codomain)
-	let top = const Codomain.top
-	let bottom = const Codomain.bottom
+        include FunctionSpace.Total.LiftMap(M)(Codomain)
+        let top = const Codomain.top
+        let bottom = const Codomain.bottom
       end
       module Make (Domain : Putil.Ordered) (Codomain : Sig.Lattice.Bounded.S) =
-	LiftMap(Putil.Map.Make(Domain))(Codomain)
+        LiftMap(Putil.Map.Make(Domain))(Codomain)
 
       module Smash (Domain : Putil.Ordered) (Codomain : Sig.Lattice.Bounded.S) =
       struct
-	module M = Putil.TotalFunction.LiftMap(Putil.Map.Make(Domain))(Codomain)
-	(* Todo: we can get rid of bottom, and just represent it with const
-	   bottom *)
-	type t =
-	| Bottom
-	| Map of M.t
-	type dom = Domain.t
-	type cod = Codomain.t
+        module M = Putil.TotalFunction.LiftMap(Putil.Map.Make(Domain))(Codomain)
+        (* Todo: we can get rid of bottom, and just represent it with const
+           bottom *)
+        type t =
+          | Bottom
+          | Map of M.t
+        type dom = Domain.t
+        type cod = Codomain.t
 
-	include Putil.MakeFmt(struct
-	  type a = t
-	  let format formatter = function
-	    | Bottom -> Format.pp_print_string formatter "_|_"
-	    | Map f -> M.format formatter f
-	end)
+        include Putil.MakeFmt(struct
+            type a = t
+            let format formatter = function
+              | Bottom -> Format.pp_print_string formatter "_|_"
+              | Map f -> M.format formatter f
+          end)
 
-	let equal f g = match f,g with
-	  | Bottom, Bottom -> true
-	  | Bottom, _ | _, Bottom -> false
-	  | Map f, Map g -> M.equal f g
+        let equal f g = match f,g with
+          | Bottom, Bottom -> true
+          | Bottom, _ | _, Bottom -> false
+          | Map f, Map g -> M.equal f g
 
-	let top = Map (M.const Codomain.top)
-	let bottom = Bottom
+        let top = Map (M.const Codomain.top)
+        let bottom = Bottom
 
-	let update k v = function
-	  | Bottom -> Bottom
-	  | Map f ->
-	    if Codomain.equal v Codomain.bottom then Bottom
-	    else Map (M.update k v f)
+        let update k v = function
+          | Bottom -> Bottom
+          | Map f ->
+            if Codomain.equal v Codomain.bottom then Bottom
+            else Map (M.update k v f)
 
-	let eval f x = match f with
-	  | Bottom -> Codomain.bottom
-	  | Map f -> M.eval f x
+        let eval f x = match f with
+          | Bottom -> Codomain.bottom
+          | Map f -> M.eval f x
 
-	let weak_update k v f = update k (Codomain.join v (eval f k)) f
+        let weak_update k v f = update k (Codomain.join v (eval f k)) f
 
-	let join x y = match x, y with
-	  | x, Bottom | Bottom, x -> x
-	  | Map f, Map g -> Map (M.merge Codomain.join f g)
+        let join x y = match x, y with
+          | x, Bottom | Bottom, x -> x
+          | Map f, Map g -> Map (M.merge Codomain.join f g)
 
-	exception Bot
-	let meet x y =
-	  let meet x y =
-	    let z = Codomain.meet x y in
-	    if Codomain.equal z Codomain.bottom then raise Bot
-	    else z
-	  in
-	  match x, y with
-	  | x, Bottom | Bottom, x -> Bottom
-	  | Map f, Map g ->
-	    try Map (M.merge meet f g)
-	    with Bot -> Bottom
+        exception Bot
+        let meet x y =
+          let meet x y =
+            let z = Codomain.meet x y in
+            if Codomain.equal z Codomain.bottom then raise Bot
+            else z
+          in
+          match x, y with
+          | x, Bottom | Bottom, x -> Bottom
+          | Map f, Map g ->
+            try Map (M.merge meet f g)
+            with Bot -> Bottom
 
-	let const k =
-	  if Codomain.equal k Codomain.bottom then Bottom else Map (M.const k)
-	let default = function
-	  | Map f -> M.default f
-	  | Bottom -> Codomain.bottom
+        let const k =
+          if Codomain.equal k Codomain.bottom then Bottom else Map (M.const k)
+        let default = function
+          | Map f -> M.default f
+          | Bottom -> Codomain.bottom
 
-	let merge m f g =
-	  let op x y =
-	    let z = m x y in
-	    if Codomain.equal z Codomain.bottom then raise Bot
-	    else z
-	  in
-	  let f = match f with
-	    | Bottom -> M.const Codomain.bottom
-	    | Map f -> f
-	  in
-	  let g = match g with
-	    | Bottom -> M.const Codomain.bottom
-	    | Map g -> g
-	  in
-	  try Map (M.merge op f g)
-	  with Bot -> Bottom
-	let support = function
-	  | Map m -> M.support m
-	  | Bottom -> BatEnum.empty ()
-	let enum = function
-	  | Map m -> M.enum m
-	  | Bottom -> BatEnum.empty ()
-	let map f = function
-	  | Bottom -> const (f Codomain.bottom)
-	  | Map x ->
-	    let g x =
-	      let y = f x in
-	      if Codomain.equal y Codomain.bottom then raise Bot else y
-	    in
-	    try Map (M.map g x)
-	    with Bot -> Bottom
+        let merge m f g =
+          let op x y =
+            let z = m x y in
+            if Codomain.equal z Codomain.bottom then raise Bot
+            else z
+          in
+          let f = match f with
+            | Bottom -> M.const Codomain.bottom
+            | Map f -> f
+          in
+          let g = match g with
+            | Bottom -> M.const Codomain.bottom
+            | Map g -> g
+          in
+          try Map (M.merge op f g)
+          with Bot -> Bottom
+        let support = function
+          | Map m -> M.support m
+          | Bottom -> BatEnum.empty ()
+        let enum = function
+          | Map m -> M.enum m
+          | Bottom -> BatEnum.empty ()
+        let map f = function
+          | Bottom -> const (f Codomain.bottom)
+          | Map x ->
+            let g x =
+              let y = f x in
+              if Codomain.equal y Codomain.bottom then raise Bot else y
+            in
+            try Map (M.map g x)
+            with Bot -> Bottom
       end
 
       module Ordered = struct
-	module type S = sig
-	  include S
-	  include Putil.OrderedMix with type t := t
-	end
-	module LiftMap
-	  (M : Putil.Map.S)
-	  (Codomain : Sig.Lattice.Bounded.Ordered.S) =
-	struct
-	  include FunctionSpace.Total.Ordered.LiftMap(M)(Codomain)
-	  let top = const Codomain.top
-	  let bottom = const Codomain.bottom
-	end
-	module Make
-	  (Domain : Putil.Ordered)
-	  (Codomain : Sig.Lattice.Bounded.Ordered.S) =
-	  LiftMap(Putil.Map.Make(Domain))(Codomain)
+        module type S = sig
+          include S
+          include Putil.OrderedMix with type t := t
+        end
+        module LiftMap
+            (M : Putil.Map.S)
+            (Codomain : Sig.Lattice.Bounded.Ordered.S) =
+        struct
+          include FunctionSpace.Total.Ordered.LiftMap(M)(Codomain)
+          let top = const Codomain.top
+          let bottom = const Codomain.bottom
+        end
+        module Make
+            (Domain : Putil.Ordered)
+            (Codomain : Sig.Lattice.Bounded.Ordered.S) =
+          LiftMap(Putil.Map.Make(Domain))(Codomain)
       end
     end
   end
@@ -348,16 +348,16 @@ module Bounded = struct
     module Lift (L : Sig.Lattice.Ordered.S) = struct
       include Lift(L)
       let compare x y = match x,y with
-	| (Top, Top) -> 0
-	| (Top, _) -> 1
-	| (_, Top) -> -1
-	| (Bottom, Bottom) -> 0
-	| (Bottom, _) -> 1
-	| (_, Bottom) -> -1
-	| (Value x, Value y) -> L.compare x y
+        | (Top, Top) -> 0
+        | (Top, _) -> 1
+        | (_, Top) -> -1
+        | (Bottom, Bottom) -> 0
+        | (Bottom, _) -> 1
+        | (_, Bottom) -> -1
+        | (Value x, Value y) -> L.compare x y
       module Compare_t = struct
-	type a = t
-	let compare = compare
+        type a = t
+        let compare = compare
       end
     end
   end

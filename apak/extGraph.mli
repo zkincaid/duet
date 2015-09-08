@@ -52,79 +52,79 @@ end
 module Persistent : sig
   module Digraph : sig
     module Make
-      (V : Vertex) :
+        (V : Vertex) :
       P with type V.t = V.t
-	and type V.label = V.t
-	and type E.t = V.t * V.t
-	and type E.label = unit
+         and type V.label = V.t
+         and type E.t = V.t * V.t
+         and type E.label = unit
     module MakeLabeled
-      (V : Vertex)
-      (E : Graph.Sig.ORDERED_TYPE_DFT) :
+        (V : Vertex)
+        (E : Graph.Sig.ORDERED_TYPE_DFT) :
       P with type V.t = V.t
-	and type V.label = V.t
-	and type E.t = V.t * E.t * V.t
-	and type E.label = E.t
+         and type V.label = V.t
+         and type E.t = V.t * E.t * V.t
+         and type E.label = E.t
     module MakeBidirectional
-      (V : Vertex) :
+        (V : Vertex) :
       P with type V.t = V.t
-	and type V.label = V.t
-	and type E.t = V.t * V.t
-	and type E.label = unit
+         and type V.label = V.t
+         and type E.t = V.t * V.t
+         and type E.label = unit
     module MakeBidirectionalLabeled
-      (V : Vertex)
-      (E : Graph.Sig.ORDERED_TYPE_DFT) :
+        (V : Vertex)
+        (E : Graph.Sig.ORDERED_TYPE_DFT) :
       P with type V.t = V.t
-	and type V.label = V.t
-	and type E.t = V.t * E.t * V.t
-	and type E.label = E.t
+         and type V.label = V.t
+         and type E.t = V.t * E.t * V.t
+         and type E.label = E.t
   end
 end
 
 module Imperative : sig
   module Digraph : sig
     module Make
-      (V : Vertex) :
+        (V : Vertex) :
       I with type V.t = V.t
-	and type V.label = V.t
-	and type E.t = V.t * V.t
-	and type E.label = unit
+         and type V.label = V.t
+         and type E.t = V.t * V.t
+         and type E.label = unit
     module MakeLabeled
-      (V : Vertex)
-      (E : Graph.Sig.ORDERED_TYPE_DFT) :
+        (V : Vertex)
+        (E : Graph.Sig.ORDERED_TYPE_DFT) :
       I with type V.t = V.t
-	and type V.label = V.t
-	and type E.t = V.t * E.t * V.t
-	and type E.label = E.t
+         and type V.label = V.t
+         and type E.t = V.t * E.t * V.t
+         and type E.label = E.t
     module MakeBidirectional
-      (V : Vertex) :
+        (V : Vertex) :
       I with type V.t = V.t
-	and type V.label = V.t
-	and type E.t = V.t * V.t
-	and type E.label = unit
+         and type V.label = V.t
+         and type E.t = V.t * V.t
+         and type E.label = unit
     module MakeBidirectionalLabeled
-      (V : Vertex)
-      (E : Graph.Sig.ORDERED_TYPE_DFT) :
+        (V : Vertex)
+        (E : Graph.Sig.ORDERED_TYPE_DFT) :
       I with type V.t = V.t
-	and type V.label = V.t
-	and type E.t = V.t * E.t * V.t
-	and type E.label = E.t
+         and type V.label = V.t
+         and type E.t = V.t * E.t * V.t
+         and type E.label = E.t
   end
 end
 
 module ForgetDirection(G : Graph.Sig.G) :
   (Graph.Sig.G with type t = G.t
-	       and type V.t = G.V.t
-	       and type E.t = G.E.t)
+                and type V.t = G.V.t
+                and type E.t = G.E.t)
 
 module Reverse(G : Graph.Sig.G) :
   (Graph.Sig.G with type t = G.t
-	       and type V.t = G.V.t
-	       and type E.t = G.E.t)
+                and type V.t = G.V.t
+                and type E.t = G.E.t)
 
 module Subgraph(G : Graph.Sig.G) :
   (Graph.Sig.G with type t = G.t * (G.V.t -> bool)
-	       and type V.t = G.V.t
-	       and type E.t = G.E.t)
+                and type V.t = G.V.t
+                and type E.t = G.E.t)
 
 
 type edge_type = TreeEdge | BackEdge | CrossEdge | ForwardEdge
@@ -185,7 +185,7 @@ module PersistentCopy : sig
   end
   module Digraph (G : G) : sig
     include Graph.Sig.P with type V.t = G.V.t
-			and type E.label = unit
+                         and type E.label = unit
     val copy : G.t -> t
     val copy_reachable : G.V.t -> G.t -> t
   end
@@ -201,13 +201,13 @@ module Display : sig
   end
 
   module Make
-    (G : G)
-    (S : Putil.S with type t = G.V.t)
-    (D : sig
-      val graph_attributes : G.t -> Graph.Graphviz.DotAttributes.graph list
-      val vertex_attributes : G.V.t -> Graph.Graphviz.DotAttributes.vertex list
-      val edge_attributes : G.E.t -> Graph.Graphviz.DotAttributes.edge list
-    end) :
+      (G : G)
+      (S : Putil.S with type t = G.V.t)
+      (D : sig
+         val graph_attributes : G.t -> Graph.Graphviz.DotAttributes.graph list
+         val vertex_attributes : G.V.t -> Graph.Graphviz.DotAttributes.vertex list
+         val edge_attributes : G.E.t -> Graph.Graphviz.DotAttributes.edge list
+       end) :
   sig
     val output_graph : out_channel -> G.t -> unit
     val display : G.t -> unit
@@ -220,16 +220,16 @@ module Display : sig
   end
 
   module MakeLabeled
-    (G : G)
-    (Show_vertex : Putil.S with type t = G.V.t)
-    (Show_edge : Putil.S with type t = G.E.label) :
+      (G : G)
+      (Show_vertex : Putil.S with type t = G.V.t)
+      (Show_edge : Putil.S with type t = G.E.label) :
   sig
     val output_graph : out_channel -> G.t -> unit
     val display : G.t -> unit
   end
 
   module MakeStructural
-    (G : G) :
+      (G : G) :
   sig
     val output_graph : out_channel -> G.t -> unit
     val display : G.t -> unit

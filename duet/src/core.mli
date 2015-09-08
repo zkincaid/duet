@@ -24,14 +24,14 @@ type ctyp =
   | Record    of recordinfo
   | Enum      of enuminfo
   | Func      of typ * typ list (** A function type consists of a return type
-				    and a list of parameter types. *)
+                                    and a list of parameter types. *)
   | Union     of recordinfo
   | Dynamic (** A default type for values that cannot be assigned a static
-		type, or whose static type is misleading or uninformative *)
+                type, or whose static type is misleading or uninformative *)
 and typ =
   | Named     of string * ctyp ref (** A named type consists of a name and a
-				       reference to its underlying concrete
-				       type *)
+                                       reference to its underlying concrete
+                                       type *)
   | Concrete  of ctyp
 
 and field = {
@@ -39,7 +39,7 @@ and field = {
   fityp : typ;
   fioffset : int;
 }
-    
+
 and recordinfo = {
   rname : string;
   rfields : field list;
@@ -48,98 +48,98 @@ and recordinfo = {
 
 (** Unary operations *)
 type unop =
-| Neg
-| BNot
+  | Neg
+  | BNot
 
 (** Binary operations *)
 type binop =
-| Add
-| Minus
-| Mult
-| Div 
-| Mod 
-| ShiftL
-| ShiftR
-| BXor
-| BAnd
-| BOr
+  | Add
+  | Minus
+  | Mult
+  | Div 
+  | Mod 
+  | ShiftL
+  | ShiftR
+  | BXor
+  | BAnd
+  | BOr
 
 (** Predicates *)
 type pred =
-| Lt
-| Le
-| Eq
-| Ne
+  | Lt
+  | Le
+  | Eq
+  | Ne
 
 type visibility =
-| VzGlobal      (** Global variable *)
-| VzLocal       (** Local variable *)
-| VzThreadLocal (** Thread local variable (per-thread variable with global
-		    scope) *)
+  | VzGlobal      (** Global variable *)
+  | VzLocal       (** Local variable *)
+  | VzThreadLocal (** Thread local variable (per-thread variable with global
+                      scope) *)
 type varinfo deriving (Show,Compare)
 type offset =
-| OffsetFixed of int
-| OffsetUnknown
-    deriving (Compare)
+  | OffsetFixed of int
+  | OffsetUnknown
+      deriving (Compare)
 type var = varinfo * offset deriving (Show)
 
 (** Constants. *)
 type constant =
-| CInt    of int * int (** CInt(i,w) represents constant i of width w *)
-| CString of string
-| CChar   of char
-| CFloat  of float * int (** CFloat(f,w) represents constant f of width w *)
+  | CInt    of int * int (** CInt(i,w) represents constant i of width w *)
+  | CString of string
+  | CChar   of char
+  | CFloat  of float * int (** CFloat(f,w) represents constant f of width w *)
 
 (** Access paths *)
 type ap =
-| Variable      of var
-| Deref         of expr
+  | Variable      of var
+  | Deref         of expr
 
 (** Boolean expressions (in negation normal form) *)
 and bexpr =
-| Atom          of (pred * expr * expr)
-| And           of (bexpr * bexpr)
-| Or            of (bexpr * bexpr)
+  | Atom          of (pred * expr * expr)
+  | And           of (bexpr * bexpr)
+  | Or            of (bexpr * bexpr)
 
 (** Expressions *)
 and expr =
-| Havoc         of typ
-| Constant      of constant
-| Cast          of typ * expr
-| BinaryOp      of expr * binop * expr * typ
-| UnaryOp       of unop * expr * typ
-| AccessPath    of ap
-| BoolExpr      of bexpr
-| AddrOf        of ap (** It is not generally safe to use this
-				 constructor; use [addr_of] instead *)
-    deriving (Show,Compare)
+  | Havoc         of typ
+  | Constant      of constant
+  | Cast          of typ * expr
+  | BinaryOp      of expr * binop * expr * typ
+  | UnaryOp       of unop * expr * typ
+  | AccessPath    of ap
+  | BoolExpr      of bexpr
+  | AddrOf        of ap (** It is not generally safe to use this
+                            constructor; use [addr_of] instead *)
+        deriving (Show,Compare)
 
 type alloc_target =
-| AllocHeap
-| AllocStack
+  | AllocHeap
+  | AllocStack
 
 (** Builtin definitions *)
 type builtin =
-| Alloc of (var * expr * alloc_target)
-| Free of expr
-| Fork of (var option * expr * expr list)
-| Acquire of expr
-| Release of expr
-| AtomicBegin
-| AtomicEnd
-| Exit
+  | Alloc of (var * expr * alloc_target)
+  | Free of expr
+  | Fork of (var option * expr * expr list)
+  | Acquire of expr
+  | Release of expr
+  | AtomicBegin
+  | AtomicEnd
+  | Exit
 
 (** Definition kind *)
 and defkind =
-| Assign of (var * expr)
-| Store of (ap * expr)
-| Call of (var option * expr * expr list)
-| Assume of bexpr
-| Initial
-| Assert of bexpr * string
-| AssertMemSafe of expr * string
-| Return of expr option
-| Builtin of builtin
+  | Assign of (var * expr)
+  | Store of (ap * expr)
+  | Call of (var option * expr * expr list)
+  | Assume of bexpr
+  | Initial
+  | Assert of bexpr * string
+  | AssertMemSafe of expr * string
+  | Return of expr option
+  | Builtin of builtin
 
 and def =
   { did : int;
@@ -264,8 +264,8 @@ module Expr : sig
   val modulo : t -> t -> t
   val neg : t -> t
 
-  (** Take the address of an access path.  This should always be used instead of
-      the AddrOf constructor *)
+  (** Take the address of an access path.  This should always be used instead
+      of the AddrOf constructor *)
   val addr_of : ap -> t
 
   val get_uses : t -> AP.Set.t
@@ -277,8 +277,8 @@ module Expr : sig
   val psubst_var : (var -> var option) -> t -> t option
   val simplify : t -> t
 
-  (** Remove all leading casts from an expression (lower-level
-      sub-expressions may still contain casts) *)
+  (** Remove all leading casts from an expression (lower-level sub-expressions
+      may still contain casts) *)
   val strip_casts : t -> t
 
   (** Remove all casts from an expression. *)

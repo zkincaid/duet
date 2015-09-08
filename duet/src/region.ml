@@ -69,30 +69,30 @@ let region_vars g =
   let rmap = R.Block.HT.create 32 in
   let add_rmap x = function
     | Some r -> begin
-      try R.Block.HT.replace rmap r (Var.Set.add x (R.Block.HT.find rmap r))
-      with Not_found -> R.Block.HT.add rmap r (Var.Set.singleton x)
-    end
+        try R.Block.HT.replace rmap r (Var.Set.add x (R.Block.HT.find rmap r))
+        with Not_found -> R.Block.HT.add rmap r (Var.Set.singleton x)
+      end
     | None -> ()
   in
   BatEnum.iter add_uses (R.vertices g);
   Var.HT.iter add_rmap ht;
   (fun block ->
-    try R.Block.HT.find rmap block
-    with Not_found -> Var.Set.empty)
+     try R.Block.HT.find rmap block
+     with Not_found -> Var.Set.empty)
 
 module MakeElim (K : Sig.KA.Ordered.S) :
 sig
   val kleene : R.t ->
-               G.t ->
-               (def -> K.t) ->
-               ((var -> bool) -> K.t -> K.t) ->
-               def ->
-               def ->
-               K.t
+    G.t ->
+    (def -> K.t) ->
+    ((var -> bool) -> K.t -> K.t) ->
+    def ->
+    def ->
+    K.t
   val summarize_fun : func ->
-                      (def -> K.t) ->
-                      ((var -> bool) -> K.t -> K.t) ->
-                      K.t
+    (def -> K.t) ->
+    ((var -> bool) -> K.t -> K.t) ->
+    K.t
 end = struct
   module PE = Pathexp.MakeElim(G)(K)
   open RecGraph
@@ -101,13 +101,13 @@ end = struct
     let rec weight = function
       | `Atom def -> def_weight def
       | `Block block ->
-	let rv = region_vars block in
-	let entry = R.block_entry rg block in
-	let exit = R.block_exit rg block in
-	let body = R.block_body rg block in
-	let summary = PE.path_expr_v body weight entry exit in
-	let exist v = Varinfo.is_global (fst v) || not (Var.Set.mem v rv) in
-	generalize exist summary
+        let rv = region_vars block in
+        let entry = R.block_entry rg block in
+        let exit = R.block_exit rg block in
+        let body = R.block_body rg block in
+        let summary = PE.path_expr_v body weight entry exit in
+        let exist v = Varinfo.is_global (fst v) || not (Var.Set.mem v rv) in
+        generalize exist summary
     in
     PE.path_expr_v g weight (`Atom s) (`Atom t)
 

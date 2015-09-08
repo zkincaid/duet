@@ -152,8 +152,8 @@ module MonoMap : sig
   end
 
   module Make (Key : Ordered) (Val : PP) : S with
-					       type key = Key.t
-					     and type value = Val.t
+    type key = Key.t
+                                              and type value = Val.t
 
   module Ordered : sig
     module type S = sig
@@ -161,8 +161,8 @@ module MonoMap : sig
       include OrderedMix with type t := t
     end
     module Make (Key : Ordered) (Val : Ordered) : S with
-						      type key = Key.t
-						    and type value = Val.t
+      type key = Key.t
+                                                     and type value = Val.t
   end
 end
 
@@ -184,14 +184,14 @@ module TotalFunction : sig
     val equal : t -> t -> bool
   end
   module LiftMap
-    (M : Map.S)
-    (Codomain : sig
-      type t
-      val format : Format.formatter -> t -> unit
-      val equal : t -> t -> bool
-    end) :
+      (M : Map.S)
+      (Codomain : sig
+         type t
+         val format : Format.formatter -> t -> unit
+         val equal : t -> t -> bool
+       end) :
     S with type dom = M.key
-      and type cod = Codomain.t
+       and type cod = Codomain.t
 
   module Ordered : sig
     module type S = sig
@@ -200,7 +200,7 @@ module TotalFunction : sig
     end
     module LiftMap (M : Map.S) (Codomain : Ordered) :
       S with type dom = M.key
-	and type cod = Codomain.t
+         and type cod = Codomain.t
   end
 end
 
@@ -257,7 +257,6 @@ module PInt : CoreType with type t = int
 module PChar : CoreType with type t = char
 module PUnit : CoreType with type t = unit
 
-val format_enum : (Format.formatter -> 'a -> unit) -> ?left:string -> ?sep:string -> ?right:string -> Format.formatter -> 'a BatEnum.t -> unit
 val format_list : (Format.formatter -> 'a -> unit) -> Format.formatter -> 'a list -> unit
 val pp_string : (Format.formatter -> 'a -> unit) -> 'a -> string
 
@@ -270,9 +269,5 @@ val find_file : string -> string option
 val with_temp_filename : string -> string -> (string -> 'a) -> 'a
 val with_temp_file : string -> string -> (string -> out_channel -> 'a) -> 'a
 val with_temp_dir : string -> (string -> 'a) -> 'a
-
-val adjacent_pairs : 'a BatEnum.t -> ('a * 'a) BatEnum.t
-val cartesian_product : 'a BatEnum.t -> 'b BatEnum.t -> ('a * 'b) BatEnum.t
-val distinct_pairs : 'a BatEnum.t -> ('a * 'a) BatEnum.t
 
 val compare_tuple : int Lazy.t list -> int

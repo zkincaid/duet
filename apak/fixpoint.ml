@@ -8,14 +8,14 @@ let fix_wto wto update =
     | WLoop xs ->
       let f changed x = fix x || changed in
       let rec loop changed =
-	if List.fold_left f false xs
-	then loop true
-	else changed
+        if List.fold_left f false xs
+        then loop true
+        else changed
       in
       loop false
   in
   List.iter (fun elt -> ignore (fix elt)) wto;
-  Log.logf ~level:Log.fix "Evaluations: %d" (!evaluations)
+  Log.logf ~level:`trace "Evaluations: %d" (!evaluations)
 
 module type G = sig
   include Loop.G
@@ -32,14 +32,14 @@ module Wto (G : G) = struct
     let evaluations = ref 0 in
     let (update, wto) = match wto, wide_update with
       | (None, Some widen) ->
-	let (wto, is_widening) = Order.create_widening graph in
-	let update v = if is_widening v then widen v else update v in
-	(update, wto)
+        let (wto, is_widening) = Order.create_widening graph in
+        let update v = if is_widening v then widen v else update v in
+        (update, wto)
       | (None, None) -> (update, Order.create graph)
       | (Some wto, Some widen) ->
-	let (_, is_widening) = Order.create_widening graph in
- 	let update v = if is_widening v then widen v else update v in
- 	(update, wto)
+        let (_, is_widening) = Order.create_widening graph in
+        let update v = if is_widening v then widen v else update v in
+        (update, wto)
       | (Some wto, None) -> (update, wto)
     in
     let marked = ref vs in
@@ -55,16 +55,16 @@ module Wto (G : G) = struct
     let rec fix = function
       | WSimple x -> update x
       | WLoop xs ->
-	let f changed x = fix x || changed in
-	let rec loop changed =
-	  if List.fold_left f false xs
-	  then loop true
-	  else changed
-	in
-	loop false
+        let f changed x = fix x || changed in
+        let rec loop changed =
+          if List.fold_left f false xs
+          then loop true
+          else changed
+        in
+        loop false
     in
     List.iter (fun elt -> ignore (fix elt)) wto;
-    Log.logf ~level:Log.fix "Evaluations: %d" (!evaluations)
+    Log.logf ~level:`trace "Evaluations: %d" (!evaluations)
 end
 
 type 'a worklist =
@@ -86,19 +86,19 @@ let fix_worklist worklist update =
     vertices of a graph, and the successors of an item are its succesors in
     the graph. *)
 module GraphWorklist
-  (G : Graph.Sig.G)
-  (C : sig val compare : G.V.t -> G.V.t -> int end) =
+    (G : Graph.Sig.G)
+    (C : sig val compare : G.V.t -> G.V.t -> int end) =
 struct
   module VSet = Set.Make(struct
-			   type t = G.V.t
-			   let compare = C.compare
-			 end)
+      type t = G.V.t
+      let compare = C.compare
+    end)
   let rec create_worklist graph set =
     let pick () =
       if VSet.is_empty set then None
       else begin
-	let x = VSet.min_elt set in
-	Some (x, create_worklist graph (VSet.remove x set))
+        let x = VSet.min_elt set in
+        Some (x, create_worklist graph (VSet.remove x set))
       end
     in
     let add_succs v =
@@ -144,28 +144,28 @@ struct
     | [] -> D.bottom
     | _ ->
       BatList.reduce D.join (List.map (fun e ->
-	result.edge_transfer e (prop result (G.E.src e))
-      ) predecessors)
+          result.edge_transfer e (prop result (G.E.src e))
+        ) predecessors)
 
   let analyze transfer ?(edge_transfer=fun _ prop -> prop) graph =
     let result =
       { map = HT.create 991;
-	pred = populate_pred graph;
-	graph = graph;
-	edge_transfer = edge_transfer;
-	vertex_transfer = transfer }
+        pred = populate_pred graph;
+        graph = graph;
+        edge_transfer = edge_transfer;
+        vertex_transfer = transfer }
     in
     let update join vertex =
       let flow_out = transfer vertex (input result vertex) in
       if HT.mem result.map vertex then begin
-	let old_prop = prop result vertex in
-	let new_prop = join old_prop flow_out in
-	let changed = not (D.equal old_prop new_prop) in
-	if changed then HT.replace result.map vertex new_prop;
-	changed
+        let old_prop = prop result vertex in
+        let new_prop = join old_prop flow_out in
+        let changed = not (D.equal old_prop new_prop) in
+        if changed then HT.replace result.map vertex new_prop;
+        changed
       end else begin
-	HT.add result.map vertex flow_out;
-	true
+        HT.add result.map vertex flow_out;
+        true
       end
     in
     Fix.fix graph (update D.join) (Some (update D.widen));
@@ -179,10 +179,10 @@ struct
       graph =
     let result =
       { map = HT.create 991;
-	pred = populate_pred graph;
-	graph = graph;
-	edge_transfer = edge_transfer;
-	vertex_transfer = transfer }
+        pred = populate_pred graph;
+        graph = graph;
+        edge_transfer = edge_transfer;
+        vertex_transfer = transfer }
     in
 
     let set_prop v prop =
@@ -194,39 +194,39 @@ struct
     let (wto, is_widening) = Wto.create_widening graph in
     let rec decrease changed = function
       | Loop.WSimple v ->
-	let old_prop = prop result v in
-	let new_prop = flow_out v in
-	set_prop v new_prop;
-	changed || not (D.equal old_prop new_prop)
+        let old_prop = prop result v in
+        let new_prop = flow_out v in
+        set_prop v new_prop;
+        changed || not (D.equal old_prop new_prop)
       | Loop.WLoop vs ->
-	let rec loop changed n =
-	  if n = 0 then changed
-	  else if List.fold_left decrease false vs
-	  then loop true (n - 1)
-	  else changed
-	in
-	loop false max_decrease || changed
+        let rec loop changed n =
+          if n = 0 then changed
+          else if List.fold_left decrease false vs
+          then loop true (n - 1)
+          else changed
+        in
+        loop false max_decrease || changed
     in
     let rec increase widen changed = function
       | Loop.WSimple v ->
-	let old_prop = prop result v in
-	let new_prop =
-	  if is_widening v then
-	    if widen then D.widen old_prop (flow_out v)
-	    else D.join old_prop (flow_out v)
-	  else D.join old_prop (flow_out v)
-	in
-	set_prop v new_prop;
-	changed || not (D.equal old_prop new_prop)
+        let old_prop = prop result v in
+        let new_prop =
+          if is_widening v then
+            if widen then D.widen old_prop (flow_out v)
+            else D.join old_prop (flow_out v)
+          else D.join old_prop (flow_out v)
+        in
+        set_prop v new_prop;
+        changed || not (D.equal old_prop new_prop)
       | Loop.WLoop vs ->
-	let rec loop changed n =
-	  if List.fold_left (increase (n <= 0)) false vs
-	  then loop true (n - 1)
-	  else changed
-	in
-	let loop_changed = loop false delay in
-	if loop_changed then ignore (decrease false (Loop.WLoop vs));
-	changed || loop_changed
+        let rec loop changed n =
+          if List.fold_left (increase (n <= 0)) false vs
+          then loop true (n - 1)
+          else changed
+        in
+        let loop_changed = loop false delay in
+        if loop_changed then ignore (decrease false (Loop.WLoop vs));
+        changed || loop_changed
     in
     List.iter (fun elt -> ignore (increase false false elt)) wto;
     result
@@ -236,8 +236,8 @@ struct
     let get_iters v =
       if HT.mem iters v then HT.find iters v
       else begin
-	HT.add iters v 0;
-	0
+        HT.add iters v 0;
+        0
       end
     in
     let incr_iters v =

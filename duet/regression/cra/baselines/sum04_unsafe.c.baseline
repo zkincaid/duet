@@ -1,0 +1,4 @@
+./regression/cra/code/sum04_unsafe.c:15 >> tmp
+
+1 errors total
+0 safe assertions

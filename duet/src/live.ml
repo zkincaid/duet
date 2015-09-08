@@ -9,9 +9,9 @@ let may_use def =
     | Variable v -> Var.Set.add v set
     | Deref _ ->
       let g memloc set =
-	match memloc with
-	| (Pa.MAddr vi, offset) -> Var.Set.add (vi,offset) set
-	| _ -> set
+        match memloc with
+        | (Pa.MAddr vi, offset) -> Var.Set.add (vi,offset) set
+        | _ -> set
       in
       Pa.MemLoc.Set.fold g (Pa.ap_points_to ap) set
   in

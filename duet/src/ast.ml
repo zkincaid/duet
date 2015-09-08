@@ -2,12 +2,12 @@ open Core
 open Apak
 
 (** Statement kind *)
-type stmt_kind = 
-    | Branch        of stmt * stmt
-    | Instr         of def list
-    | Goto          of int (** Statement id *)
-    | ForkGoto      of int (** Statement id *)
-    | Block         of stmt list
+type stmt_kind =
+  | Branch        of stmt * stmt
+  | Instr         of def list
+  | Goto          of int (** Statement id *)
+  | ForkGoto      of int (** Statement id *)
+  | Block         of stmt list
 and stmt = {
   sid : int; (** Statement id *)
   mutable skind : stmt_kind;
@@ -52,11 +52,11 @@ let mk_file name =
 let mk_stmt file kind =
   let sid = file.max_sid in
   let stmt = { sid = sid;
-	       skind = kind }
+               skind = kind }
   in
-    file.max_sid <- sid + 1;
-    Hashtbl.add file.stmt_map sid stmt;
-    stmt
+  file.max_sid <- sid + 1;
+  Hashtbl.add file.stmt_map sid stmt;
+  stmt
 
 let stmt_kind stmt = stmt.skind
 let stmt_id stmt = stmt.sid
@@ -64,7 +64,7 @@ let lookup_stmt file sid =
   try Hashtbl.find file.stmt_map sid
   with Not_found -> failwith ("Undefined statement id: " ^ (string_of_int sid))
 
-type 'a open_stmt = 
+type 'a open_stmt =
   | OBranch        of 'a * 'a
   | OInstr         of def list
   | OGoto          of int (** Statement id *)
@@ -79,9 +79,9 @@ let rec fold_stmt f stmt = match stmt_kind stmt with
   | Block stmts -> f (OBlock (List.map (fold_stmt f) stmts))
 
 let start_block formatter =
-    Format.pp_print_string formatter "{";
-    Format.pp_open_box formatter 2;
-    Format.pp_force_newline formatter ()
+  Format.pp_print_string formatter "{";
+  Format.pp_open_box formatter 2;
+  Format.pp_force_newline formatter ()
 
 let end_block formatter =
   Format.pp_close_box formatter ();
@@ -143,7 +143,7 @@ let rec final lst = match lst with
 type 'a visitAction =
   | SkipChildren   (** Do not visit the children; return the node *)
   | DoChildren     (** Visit the children.  Rebuild the node on the way up if
-		       there are any changes to the children *)
+                       there are any changes to the children *)
   | ChangeTo of 'a (** Replace the node *)
 class type astVisitor = object
   method vexpr : expr -> expr visitAction
@@ -156,13 +156,13 @@ end
 
 let mk_local_var func name typ =
   let var = Varinfo.mk_local name typ in
-    func.locals <- var::func.locals;
-    var
+  func.locals <- var::func.locals;
+  var
 
 let mk_global_var file name typ =
   let var = Varinfo.mk_global name typ in
-    file.vars <- var::file.vars;
-    var
+  file.vars <- var::file.vars;
+  var
 
 module StmtCfg = Graph.Imperative.Digraph.Concrete(StmtHashTyp)
 
@@ -190,28 +190,29 @@ let construct_cfg file func =
   and process_stmt incoming stmt =
     List.iter (fun x -> add_edge x stmt) incoming;
     match stmt_kind stmt with
-      | Goto sid -> add_edge stmt (lookup_stmt file sid); []
-      | Block stmts -> process_block [stmt] stmts
-      | Branch (bthen, belse) ->
-	  let bstart = Def.mk (Assume Bexpr.ktrue) in
-	  let bend = Def.mk (Assume Bexpr.ktrue) in
-	  let bstart = mk_stmt file (Instr [bstart]) in
-	  let bend = mk_stmt file (Instr [bend]) in
-	  let out_then = process_stmt [bstart] bthen in
-	  let out_else = process_stmt [bstart] belse in
-	    add_edge stmt bstart;
-	    List.iter (fun x -> add_edge x bend) (out_then@out_else);
-	    [bend]
-      | ForkGoto _ -> [stmt]
-      | Instr _ -> [stmt]
+    | Goto sid -> add_edge stmt (lookup_stmt file sid); []
+    | Block stmts -> process_block [stmt] stmts
+    | Branch (bthen, belse) ->
+      let bstart = Def.mk (Assume Bexpr.ktrue) in
+      let bend = Def.mk (Assume Bexpr.ktrue) in
+      let bstart = mk_stmt file (Instr [bstart]) in
+      let bend = mk_stmt file (Instr [bend]) in
+      let out_then = process_stmt [bstart] bthen in
+      let out_else = process_stmt [bstart] belse in
+      add_edge stmt bstart;
+      List.iter (fun x -> add_edge x bend) (out_then@out_else);
+      [bend]
+    | ForkGoto _ -> [stmt]
+    | Instr _ -> [stmt]
   in
   let rec add_vertices stmt =
     StmtCfg.add_vertex cfg stmt;
     match stmt_kind stmt with
-      | Branch (a, b) -> add_vertices a; add_vertices b
-      | Block stmts -> List.iter add_vertices stmts
-      | _ -> ()
+    | Branch (a, b) -> add_vertices a; add_vertices b
+    | Block stmts -> List.iter add_vertices stmts
+    | _ -> ()
   in
-    List.iter add_vertices func.body;
-    ignore (process_block [] func.body);
-    cfg
+  List.iter add_vertices func.body;
+  ignore (process_block [] func.body);
+  cfg
+

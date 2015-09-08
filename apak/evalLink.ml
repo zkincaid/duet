@@ -13,33 +13,33 @@ module Make (Elem : Hashtbl.HashedType) (Val : Sig.Semigroup.S) : sig
 end = struct
   module HT = Hashtbl.Make(Elem)
   type node = { id : int;
-		mutable parent : node option;
-		mutable value : Val.t }
+                mutable parent : node option;
+                mutable value : Val.t }
 
   type t = { set_map : node HT.t;
-	     mutable size : int }
+             mutable size : int }
 
   let create size = { set_map = HT.create size;
-		      size = 0 }
+                      size = 0 }
 
   let eq x y = x.id = y.id
 
   let rec compress set =
     match set.parent with
-      | None -> set
-      | Some p ->
-	  let root = compress p in
-	    if not (eq root p) then begin
-	      set.parent <- Some root;
-	      set.value <- Val.mul set.value p.value
-	    end;
-	    root
+    | None -> set
+    | Some p ->
+      let root = compress p in
+      if not (eq root p) then begin
+        set.parent <- Some root;
+        set.value <- Val.mul set.value p.value
+      end;
+      root
 
   let eval_node node =
     ignore(compress node);
     match node.parent with
-      | None -> node.value
-      | Some p -> Val.mul p.value node.value
+    | None -> node.value
+    | Some p -> Val.mul p.value node.value
 
   let get ds x =
     try HT.find ds.set_map x
@@ -55,5 +55,5 @@ end = struct
 
   let update ds x v =
     let node = get ds x in
-      node.value <- Val.mul node.value v
+    node.value <- Val.mul node.value v
 end

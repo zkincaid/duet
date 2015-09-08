@@ -68,10 +68,10 @@ end = struct
   let lookup result def =
     try HT.find result.map def
     with Not_found -> begin
-      Log.errorf "No property associated with vertex %a"
-	A.format_vertex def;
-      assert false
-    end
+        Log.errorf "No property associated with vertex %a"
+          A.format_vertex def;
+        assert false
+      end
 
   let empty_result state graph =
     { map = HT.create 991;
@@ -88,21 +88,21 @@ end = struct
     let graph = result.graph in
     let update join vertex =
       let value = A.eval result.state result.graph (lookup result) vertex in
-	if HT.mem result.map vertex then begin
-	let old_value = lookup result vertex in
-	  match join result.state vertex old_value value with
-	    | Some new_value -> (HT.replace result.map vertex new_value; true)
-	    | None -> false
-	end else (HT.add result.map vertex value; true)
+      if HT.mem result.map vertex then begin
+        let old_value = lookup result vertex in
+        match join result.state vertex old_value value with
+        | Some new_value -> (HT.replace result.map vertex new_value; true)
+        | None -> false
+      end else (HT.add result.map vertex value; true)
     in
     let wide_update = match A.widen with
       | Some widen -> Some (update widen)
       | None       -> None
     in
     let worklist = List.fold_right Fix.VSet.add worklist Fix.VSet.empty in
-      logf "Vertices: %d" (G.nb_vertex graph);
-      logf "Edges: %d" (G.nb_edges graph);
-      Fix.fix result.graph ~init:worklist (update A.join) wide_update
+    logf "Vertices: %d" (G.nb_vertex graph);
+    logf "Edges: %d" (G.nb_edges graph);
+    Fix.fix result.graph ~init:worklist (update A.join) wide_update
 
   let solve result =
     Log.phase ("Fixpoint computation: " ^ A.name) (solve_impl result)
@@ -110,9 +110,9 @@ end = struct
   let do_analysis state graph initial_value =
     let result = empty_result state graph in
     let worklist = G.fold_vertex (fun x xs -> x::xs) graph [] in
-      G.iter_vertex (fun v -> HT.add result.map v (initial_value v)) graph;
-      solve result worklist;
-      result
+    G.iter_vertex (fun v -> HT.add result.map v (initial_value v)) graph;
+    solve result worklist;
+    result
 
   (** Display an AFG with vertices annotated with the abstract values
       from map to the screen *)
@@ -120,12 +120,12 @@ end = struct
     let module Show_v = struct
       type t = G.V.t
       include Putil.MakeFmt(struct
-	type a = t
-	let format formatter v =
-	  Format.fprintf formatter "%a@\n%a"
-	    A.format_vertex v
-	    A.format_absval (lookup result v)
-      end)
+          type a = t
+          let format formatter v =
+            Format.fprintf formatter "%a@\n%a"
+              A.format_vertex v
+              A.format_absval (lookup result v)
+        end)
     end in
     let module D = ExtGraph.Display.MakeSimple(G)(Show_v) in
     D.display result.graph
@@ -176,9 +176,9 @@ end = struct
     output
 
   module MinSolver = MkMin(struct
-    include A
-    let eval = eval
-  end)
+      include A
+      let eval = eval
+    end)
 
   type result = MinSolver.result
 
@@ -221,13 +221,13 @@ struct
 
     let lookup_widening st def =
       try
-	let limit = Def.HT.find st.widening def in
-	  Def.HT.replace st.widening def (limit - 1);
-	  limit
+        let limit = Def.HT.find st.widening def in
+        Def.HT.replace st.widening def (limit - 1);
+        limit
       with Not_found -> begin
-	Def.HT.add st.widening def (!widening_limit);
-	(!widening_limit)
-      end
+          Def.HT.add st.widening def (!widening_limit);
+          (!widening_limit)
+        end
 
     let transfer _ flow_in def = I.transfer def flow_in
 
@@ -238,7 +238,7 @@ struct
         let absval = I.inject (val_map (G.E.src e)) pre_state in
         let state = Pack.project_snd label in
         let old = (try Pack.SetMap.find state map
-          with Not_found -> I.bottom state)
+                   with Not_found -> I.bottom state)
         in
         let rename_map =
           let f a xs = (Pack.fst a, Pack.snd a)::xs in
@@ -260,18 +260,18 @@ struct
 
     let join st def old_val new_val =
       let new_val = I.join old_val new_val in
-	if I.equal old_val new_val then None else Some new_val
+      if I.equal old_val new_val then None else Some new_val
 
     let widen_impl st def old_val new_val =
       let new_val = I.join old_val new_val in
-	if I.equal old_val new_val then None else begin
-	  let limit = lookup_widening st def in
-	    if limit >= 0 then Some new_val
-	    else match def.dkind with
-	      | Assume c | Assert (c, _) ->
-		  Some (I.transfer def (I.widen old_val new_val))
-	      | _ -> Some (I.widen old_val new_val)
-	end
+      if I.equal old_val new_val then None else begin
+        let limit = lookup_widening st def in
+        if limit >= 0 then Some new_val
+        else match def.dkind with
+          | Assume c | Assert (c, _) ->
+            Some (I.transfer def (I.widen old_val new_val))
+          | _ -> Some (I.widen old_val new_val)
+      end
     let widen = Some widen_impl
 
     let name = I.name
@@ -293,19 +293,19 @@ struct
   let error_report graph map =
     let check_assertion v =
       match v.dkind with
-        | Assert (expr, _) ->
-            let env = S.input map v in
-              if I.assert_true expr env
-              then Log.log ~level:Log.top (string_of_int v.did ^ " PASS")
-              else Log.log ~level:Log.top (string_of_int v.did ^ " FAIL")
-	| AssertMemSafe (expr, _) ->
-            let env = S.input map v in
-              if I.assert_memsafe expr env
-              then Log.log ~level:Log.top (string_of_int v.did ^ " PASS")
-              else Log.log ~level:Log.top (string_of_int v.did ^ " FAIL")
-        | _ -> ()
+      | Assert (expr, _) ->
+        let env = S.input map v in
+        if I.assert_true expr env
+        then Log.log ~level:`always (string_of_int v.did ^ " PASS")
+        else Log.log ~level:`always (string_of_int v.did ^ " FAIL")
+      | AssertMemSafe (expr, _) ->
+        let env = S.input map v in
+        if I.assert_memsafe expr env
+        then Log.log ~level:`always (string_of_int v.did ^ " PASS")
+        else Log.log ~level:`always (string_of_int v.did ^ " FAIL")
+      | _ -> ()
     in
-      G.iter_vertex check_assertion graph
+    G.iter_vertex check_assertion graph
 
   (** Find and report assertion violations *)
   let check_assertions graph map =
@@ -321,21 +321,21 @@ struct
     in
     let check_assertion v =
       match v.dkind with
-        | Assert (expr, msg) ->
-            let env = S.input map v in
-              if not (I.assert_true expr env)
-              then log_failure v msg env
-              else Report.log_safe ()
-	| AssertMemSafe (expr, msg) ->
-            let env = S.input map v in
-              if not (I.assert_memsafe expr env)
-              then log_memsafe_failure v msg env
-              else Report.log_safe ()
-        | _ -> ()
+      | Assert (expr, msg) ->
+        let env = S.input map v in
+        if not (I.assert_true expr env)
+        then log_failure v msg env
+        else Report.log_safe ()
+      | AssertMemSafe (expr, msg) ->
+        let env = S.input map v in
+        if not (I.assert_memsafe expr env)
+        then log_memsafe_failure v msg env
+        else Report.log_safe ()
+      | _ -> ()
     in
-      G.iter_vertex check_assertion graph;
-      Report.print_errors ();
-      Report.print_safe ()
+    G.iter_vertex check_assertion graph;
+    Report.print_errors ();
+    Report.print_safe ()
 end
 
 module MakeForwardCfgSolver (I : MinInterpretation) = struct
@@ -351,7 +351,7 @@ module MakeForwardCfgSolver (I : MinInterpretation) = struct
 
     let join _ _ x y =
       let newv = I.join x y in
-	if I.equal x newv then None else Some newv
+      if I.equal x newv then None else Some newv
     let widen = None
     let name = I.name
     let format_vertex = Def.format
@@ -376,8 +376,8 @@ module MakeForwardCfgSolver (I : MinInterpretation) = struct
     let process_cfg cfg init =
       let result = do_analysis cfg (mk_initial_fun cfg init) in
       let add_fork (def, value) = match def.dkind with
-	| Builtin (Fork _) -> Def.HT.add fork_map def value
-	| _ -> ()
+        | Builtin (Fork _) -> Def.HT.add fork_map def value
+        | _ -> ()
       in
       BatEnum.iter add_fork (enum_output result);
       f result;
@@ -396,11 +396,11 @@ module MakeForwardCfgSolver (I : MinInterpretation) = struct
     in
     let process_thread def thread =
       let initial = match def with
-	| Some fork ->
+        | Some fork ->
           (try Def.HT.find fork_map fork
            with Not_found ->
              failwith "solve/forwardCfgSover: No entry for fork")
-	| None -> initial
+        | None -> initial
       in
       let func = lookup_function thread file in
       ignore (process_cfg func.cfg (mk_init func initial))
@@ -413,19 +413,19 @@ module MakeBackwardCfgSolver (I : MinInterpretation) = struct
     module G = ExtGraph.Reverse(Cfg)
     type absval = I.t
     type st = { thread_map : varinfo -> I.t }
-	
+
     let transfer st input def =
       I.transfer def input
 
     let flow_in st graph val_map v =
       let input =
-	Cfg.fold_succ (fun v value -> I.join (val_map v) value) graph v I.bottom
+        Cfg.fold_succ (fun v value -> I.join (val_map v) value) graph v I.bottom
       in
-	match v.dkind with
-	  | Builtin (Fork (_, tgt, _)) ->
-	    let join func acc = I.join (st.thread_map func) acc in
-	    Varinfo.Set.fold join (Pa.resolve_call tgt) input
-	  | _ -> input
+      match v.dkind with
+      | Builtin (Fork (_, tgt, _)) ->
+        let join func acc = I.join (st.thread_map func) acc in
+        Varinfo.Set.fold join (Pa.resolve_call tgt) input
+      | _ -> input
 
     let join st def x y =
       if I.equal x y then None else Some (I.join x y)
@@ -443,7 +443,7 @@ module MakeBackwardCfgSolver (I : MinInterpretation) = struct
     let state =
       { A.thread_map = (fun _ -> failwith "No interpretation for fork") }
     in
-      do_analysis state graph
+    do_analysis state graph
 
   module W = ExtGraph.Subgraph(Cfg)
 
@@ -459,27 +459,27 @@ module MakeBackwardCfgSolver (I : MinInterpretation) = struct
     let do_analysis graph =
       let st = { A.thread_map = lookup_thread }
       in
-        S.do_analysis st graph
+      S.do_analysis st graph
     in
     let process_cfg cfg init =
       let result = do_analysis cfg (mk_initial_fun cfg init) in
-        f result;
-        result
+      f result;
+      result
     in
     let initial_value = ref I.bottom in
     let process_thread _ thread =
       let func = lookup_function thread file in
       let result = process_cfg func.cfg (mk_init func initial) in
       let thread_value = S.output result (Cfg.initial_vertex func.cfg) in
-        Hashtbl.add thread_map thread thread_value;
-	Cfg.sanity_check func.cfg;
-        if List.exists (Varinfo.equal thread) file.entry_points
-        then initial_value := I.join (!initial_value) thread_value
+      Hashtbl.add thread_map thread thread_value;
+      Cfg.sanity_check func.cfg;
+      if List.exists (Varinfo.equal thread) file.entry_points
+      then initial_value := I.join (!initial_value) thread_value
     in
-      Call.iter_reverse_tcg_order process_thread file;
-      (match file.globinit with
-         | None -> !initial_value
-         | Some func ->
-             let result = process_cfg func.cfg (!initial_value) in
-               S.output result (Cfg.initial_vertex func.cfg))
+    Call.iter_reverse_tcg_order process_thread file;
+    (match file.globinit with
+     | None -> !initial_value
+     | Some func ->
+       let result = process_cfg func.cfg (!initial_value) in
+       S.output result (Cfg.initial_vertex func.cfg))
 end

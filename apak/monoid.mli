@@ -11,20 +11,20 @@ module ZPlus : Ordered.S with type t = int
 
 (** Augment a semigroup with a unit to form a monoid *)
 module AddUnit
-  (M : sig
-    include Putil.S
-    val mul : t -> t -> t
-    val equal : t -> t -> bool
-  end) : sig
-    include S
+    (M : sig
+       include Putil.S
+       val mul : t -> t -> t
+       val equal : t -> t -> bool
+     end) : sig
+  include S
 
-    (** Lift an element of the underlying semigroup into the monoid *)
-    val lift : M.t -> t
+  (** Lift an element of the underlying semigroup into the monoid *)
+  val lift : M.t -> t
 
-    (** Drop an element of the monoid into the underyling semigroup; evaluates
-	to [None] on the unit. *)
-    val drop : t -> M.t option
-  end
+  (** Drop an element of the monoid into the underyling semigroup; evaluates
+      to [None] on the unit. *)
+  val drop : t -> M.t option
+end
 
 module FunctionSpace : sig
   (** Common signature for partial & total function spaces *)
@@ -45,41 +45,41 @@ module FunctionSpace : sig
     module type S = sig
       include S
       (** [merge m f g] constructs the function which maps each [x] to
-	  [m (f x) (g x)] *)
+          [m (f x) (g x)] *)
       val merge : (cod -> cod -> cod) -> t -> t -> t
 
       (** [default f] is the value to which [f] maps all elements of the
-	  domain which are not in the support of [f]. *)
+          domain which are not in the support of [f]. *)
       val default : t -> cod
 
       (** [const k] constructs a function where every element of the domain is
-	  mapped to [k] *)
+          mapped to [k] *)
       val const : cod -> t
     end
 
     (** [LiftMap(M)(Codomain)] constructs a total function space monoid where
-	[M] is used as the underlying map representation.  This is useful (for
-	example) with tagged types, since Patricia trees support fast
-	merging. *)
+        [M] is used as the underlying map representation.  This is
+        useful (for example) with tagged types, since Patricia trees
+        support fast merging. *)
     module LiftMap (M : Putil.Map.S) (Codomain : Sig.Monoid.S) :
       S with type dom = M.key
-	and type cod = Codomain.t
+         and type cod = Codomain.t
 
     module Make (Domain : Putil.Ordered) (Codomain : Sig.Monoid.S) :
       S with type dom = Domain.t
-	and type cod = Codomain.t
+         and type cod = Codomain.t
 
     module Ordered : sig
       module type S = sig
-	include S
-	include Putil.OrderedMix with type t := t
+        include S
+        include Putil.OrderedMix with type t := t
       end
       module LiftMap (M : Putil.Map.S) (Codomain : Sig.Monoid.Ordered.S) :
-	S with type dom = M.key
-	  and type cod = Codomain.t
+        S with type dom = M.key
+           and type cod = Codomain.t
       module Make (Domain : Putil.Ordered) (Codomain : Sig.Monoid.Ordered.S) :
-	S with type dom = Domain.t
-	  and type cod = Codomain.t
+        S with type dom = Domain.t
+           and type cod = Codomain.t
     end
   end
 
@@ -100,28 +100,28 @@ module FunctionSpace : sig
     end
 
     (** [LiftMap(M)(Codomain)] constructs a partial function space monoid
-	where [M] is used as the underlying map representation.  This is
-	useful (for example) with tagged types, since Patricia trees support
-	fast merging. *)
+        where [M] is used as the underlying map representation.  This
+        is useful (for example) with tagged types, since Patricia
+        trees support fast merging. *)
     module LiftMap (M : Putil.Map.S) (Codomain : Sig.Monoid.S) :
       S with type dom = M.key
-	and type cod = Codomain.t
+         and type cod = Codomain.t
 
     module Make (Domain : Putil.Ordered) (Codomain : Sig.Monoid.S) :
       S with type dom = Domain.t
-	and type cod = Codomain.t
+         and type cod = Codomain.t
 
     module Ordered : sig
       module type S = sig
-	include S
-	include Putil.OrderedMix with type t := t
+        include S
+        include Putil.OrderedMix with type t := t
       end
       module LiftMap (M : Putil.Map.S) (Codomain : Sig.Monoid.Ordered.S) :
-	S with type dom = M.key
-	  and type cod = Codomain.t
+        S with type dom = M.key
+           and type cod = Codomain.t
       module Make (Domain : Putil.Ordered) (Codomain : Sig.Monoid.Ordered.S) :
-	S with type dom = Domain.t
-	  and type cod = Codomain.t
+        S with type dom = Domain.t
+           and type cod = Codomain.t
     end
   end
 end

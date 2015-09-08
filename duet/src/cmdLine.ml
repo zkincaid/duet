@@ -18,23 +18,23 @@ let fail_fork       = ref false
 
 let verbosity_arg =
   ("-verbosity",
-   Arg.Set_int Log.verbosity_level,
+   Arg.String (fun v -> Log.verbosity_level := (Log.level_of_string v)),
    " Set verbosity level (higher = more verbose; defaults to 0)")
 
 let verbose_arg =
   ("-verbose",
-   Arg.String (fun v -> Log.set_verbosity_level v Log.info),
+   Arg.String (fun v -> Log.set_verbosity_level v `info),
    " Raise verbosity for a particular module")
 
 let verbose_list_arg =
   ("-verbose-list",
    Arg.Unit (fun () ->
-     print_endline "Available modules for setting verbosity:";
-     Hashtbl.iter (fun k _ ->
-       print_endline (" - " ^ k);
-     ) Log.loggers;
-     exit 0;
-   ),
+       print_endline "Available modules for setting verbosity:";
+       Hashtbl.iter (fun k _ ->
+           print_endline (" - " ^ k);
+         ) Log.loggers;
+       exit 0;
+     ),
    " List modules which can be used with -verbose")
 
 let stats_arg =
@@ -83,9 +83,9 @@ let debug_phase_arg =
   let add_debug_phase phase =
     Log.debug_phases := phase::(!Log.debug_phases)
   in
-    ("-debug-phase",
-     Arg.String add_debug_phase,
-     " Print debugging information for a particular phase")
+  ("-debug-phase",
+   Arg.String add_debug_phase,
+   " Print debugging information for a particular phase")
 
 let sanity_check_arg =
   ("-no-sanity-check", Arg.Clear sanity_checks, " Disable sanity checks")
@@ -98,27 +98,27 @@ let display_graphs_arg =
 let pass_args : (key * spec * doc) list ref = ref []
 
 let debug_args = ref
-  [
-    debug_arg;
-    debug_phase_arg;
-    sanity_check_arg;
-    display_graphs_arg;
-  ]
+    [
+      debug_arg;
+      debug_phase_arg;
+      sanity_check_arg;
+      display_graphs_arg;
+    ]
 
 let config_args = ref
-  [
-    verbose_arg;
-    verbose_list_arg;
-    verbosity_arg;
-    stats_arg;
-    whole_program_arg;
-    lib_arg;
-    load_path_arg;
-    parameterized_arg;
-    temp_dir_arg;
-    fail_malloc_arg;
-    fail_fork_arg;
-  ]
+    [
+      verbose_arg;
+      verbose_list_arg;
+      verbosity_arg;
+      stats_arg;
+      whole_program_arg;
+      lib_arg;
+      load_path_arg;
+      parameterized_arg;
+      temp_dir_arg;
+      fail_malloc_arg;
+      fail_fork_arg;
+    ]
 
 let passes : (CfgIr.file -> unit) list ref = ref []
 let run file = List.iter (fun f -> f file) (List.rev (!passes))
@@ -140,10 +140,15 @@ let parse filename =
   let rec go = function
     | ((suffix, parse)::tl) ->
       if Filename.check_suffix filename suffix then begin
-	let file = Log.phase "Parsing" parse filename in
-	CfgIr.gfile := Some file;
-	file
+        let file = Log.phase "Parsing" parse filename in
+        CfgIr.gfile := Some file;
+        file
       end else go tl
     | [] -> failwith "Unrecognized file extension"
   in
   go (!parsers)
+
+
+let _ =
+  register_pass
+    ("-split-atomic", CfgIr.split_atomic, " Split commands into atomic instructions")

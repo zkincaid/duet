@@ -1,4 +1,0 @@
-./regression/lra/code/trex02_unsafe.c:24 >> x == 0
-
-1 errors total
-0 safe assertions

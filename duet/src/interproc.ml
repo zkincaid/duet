@@ -11,10 +11,10 @@ module Seq = struct
     type ('a,'b) typ = ('a,'b) RecGraph.seq_typ
     let classify v = match v.dkind with
       | Call (None, AddrOf (Variable (func, OffsetFixed 0)), []) ->
-	`Block func
+        `Block func
       | Call (_, _, _) ->
-	Log.errorf "Unrecognized call: %a" format v;
-	assert false
+        Log.errorf "Unrecognized call: %a" format v;
+        assert false
       | _ -> `Atom v
   end
   module RG = RecGraph.Make(V)(Varinfo)
@@ -47,11 +47,11 @@ module MakeParPathExpr = Pathexp.MakeParRG(RG)(Varinfo)
 module SeqRG = struct
   type ('a, 'b) typ = ('a, 'b) RecGraph.seq_typ
   include (RG : RecGraph.S with type ('a, 'b) typ := ('a, 'b) RecGraph.par_typ
-		 and module G = RG.G
-		 and module Block = RG.Block
-		 and type t = RG.t
-		 and type atom = RG.atom
-		 and type block = RG.block)
+                            and module G = RG.G
+                            and module Block = RG.Block
+                            and type t = RG.t
+                            and type atom = RG.atom
+                            and type block = RG.block)
   let classify v = match v.dkind with
     | Call (None, AddrOf (Variable (func, OffsetFixed 0)), []) ->
       `Block func
@@ -69,9 +69,9 @@ let local func_name =
     in
     let vars =
       Varinfo.Set.remove (return_var func_name)
-	(Varinfo.Set.of_enum (BatEnum.append
-				(BatList.enum func.formals)
-				(BatList.enum func.locals)))
+        (Varinfo.Set.of_enum (BatEnum.append
+                                (BatList.enum func.formals)
+                                (BatList.enum func.locals)))
     in
     fun (x, _) -> (Varinfo.Set.mem x vars)
   with Not_found -> (fun (_, _) -> false)
@@ -98,8 +98,8 @@ let make_recgraph file =
     match V.classify v with
     | `ParBlock func | `Block func ->
       begin
-	try ignore (RG.block_entry rg func); rg
-	with Not_found -> mk_stub rg func
+        try ignore (RG.block_entry rg func); rg
+        with Not_found -> mk_stub rg func
       end
     | `Atom _ -> rg
   in

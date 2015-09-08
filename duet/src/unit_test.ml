@@ -1,9 +1,9 @@
 open OUnit
 
 let suite = "Main" >:::
-  [
-    Test_ipa.suite;
-  ]
+            [
+              Test_ipa.suite;
+            ]
 
 let _ =
   Printexc.record_backtrace true;

@@ -1,2 +1,6 @@
 (* -*- mode:tuareg -*- *)
-let bddbddb_path="@BDDBDDB_DIR@"
+open Apak
+let bddbddb_path () =
+  match Putil.find_file "bddbddb.jar" with
+  | Some file -> Filename.dirname file
+  | None -> "@BDDBDDB_DIR@"

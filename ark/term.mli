@@ -21,7 +21,7 @@ module type S = sig
   module V : Var
   module D : NumDomain.S with type var = V.t
   module Linterm : Linear.Affine.S with type var = V.t
-				   and type base = QQ.t
+                                    and type base = QQ.t
   module Set : Putil.Set.S with type elt = t
 
   (** {2 Term constructors} *)
@@ -102,7 +102,7 @@ module type S = sig
       t)]. *)
   val nudge : ?accuracy:int -> t -> t * t
 
-  val log_stats : unit -> unit
+  val log_stats : Log.level -> unit
 
   module Syntax : sig
     val ( + ) : t -> t -> t

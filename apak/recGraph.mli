@@ -44,9 +44,9 @@ end
 
 module Make (V : Vertex) (Block : BLOCK with type t = V.block) :
   S with type G.V.t = V.t
-    and type Block.t = V.block
-    and type atom = V.atom
-    and type ('a, 'b) typ = ('a, 'b) V.typ
+     and type Block.t = V.block
+     and type atom = V.atom
+     and type ('a, 'b) typ = ('a, 'b) V.typ
 
 module Callgraph (R : S with type ('a, 'b) typ = ('a, 'b) par_typ) :
 sig
@@ -56,8 +56,8 @@ end
 
 module LiftPar(R : S with type ('a, 'b) typ = ('a, 'b) seq_typ) :
   S with type ('a, 'b) typ = ('a, 'b) par_typ
-    and module Block = R.Block
-    and module G = R.G
-    and type t = R.t
-    and type atom = R.atom
-    and type block = R.block
+     and module Block = R.Block
+     and module G = R.G
+     and type t = R.t
+     and type atom = R.atom
+     and type block = R.block

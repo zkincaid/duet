@@ -6,8 +6,8 @@ open Apak
 
 let replace_havoc_ap hv = function
   | AccessPath ap ->
-      if AP.Set.mem ap hv then Havoc (AP.get_type ap)
-      else (AccessPath ap)
+    if AP.Set.mem ap hv then Havoc (AP.get_type ap)
+    else (AccessPath ap)
   | expr -> expr
 let replace_havoc_expr hv expr =
   Expr.simplify (Expr.subst_expr (replace_havoc_ap hv) expr)
@@ -18,21 +18,21 @@ module HP = struct
   let transfer def havoc_vars =
     let is_havoc_expr e =
       match replace_havoc_expr havoc_vars e with
-	| Havoc _ -> true
-	| _ -> false
+      | Havoc _ -> true
+      | _ -> false
     in
-      match def.dkind with
-	| Store (ap, expr) ->
-	    if is_havoc_expr expr then AP.Set.add ap havoc_vars
-	    else AP.Set.remove ap havoc_vars
-	| Assign (var, expr) ->
-	  let ap = Variable var in
-	  if is_havoc_expr expr then AP.Set.add ap havoc_vars
-	  else AP.Set.remove ap havoc_vars
-	| Assume bexpr -> AP.Set.diff havoc_vars (Bexpr.get_uses bexpr)
-	| Initial -> havoc_vars (* todo - should be universe *)
-	| Assert (bexpr, _) -> AP.Set.diff havoc_vars (Bexpr.get_uses bexpr)
-	| _ -> havoc_vars
+    match def.dkind with
+    | Store (ap, expr) ->
+      if is_havoc_expr expr then AP.Set.add ap havoc_vars
+      else AP.Set.remove ap havoc_vars
+    | Assign (var, expr) ->
+      let ap = Variable var in
+      if is_havoc_expr expr then AP.Set.add ap havoc_vars
+      else AP.Set.remove ap havoc_vars
+    | Assume bexpr -> AP.Set.diff havoc_vars (Bexpr.get_uses bexpr)
+    | Initial -> havoc_vars (* todo - should be universe *)
+    | Assert (bexpr, _) -> AP.Set.diff havoc_vars (Bexpr.get_uses bexpr)
+    | _ -> havoc_vars
   let widen = join
   let bottom = AP.Set.empty
 end

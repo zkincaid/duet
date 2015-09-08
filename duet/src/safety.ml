@@ -4,7 +4,7 @@ open Apak
 
 let assert_before cfg v cond msg =
   let assrt = Def.mk ~loc:(Def.get_location v) (Assert (cond, msg)) in
-    insert_pre assrt v cfg
+  insert_pre assrt v cfg
 
 let aps_referenced def =
   let lhs_aps = match def.dkind with
@@ -22,7 +22,7 @@ let aps_referenced def =
     | Builtin AtomicBegin | Builtin AtomicEnd
     | Builtin Exit -> AP.Set.empty
   in
-    AP.Set.union lhs_aps (Def.get_accessed def)
+  AP.Set.union lhs_aps (Def.get_accessed def)
 
 let add_array_bounds file =
   let check_func func =
@@ -30,17 +30,17 @@ let add_array_bounds file =
     let examine_vertex def =
       let f apx = match apx with
         | Deref expr ->
-	  let loc = Def.get_location def in
-	  let msg =
-	    "memory safe: " ^ (Expr.show (Expr.strip_all_casts expr)) in
+          let loc = Def.get_location def in
+          let msg =
+            "memory safe: " ^ (Expr.show (Expr.strip_all_casts expr)) in
           let d = Def.mk ~loc:loc (AssertMemSafe (expr, msg)) in
           insert_pre d def func.cfg
         | _ -> ()
       in
       AP.Set.iter f (Def.get_accessed def);
       begin match def.dkind with
-      | Store (ap, _) -> f ap
-      | _ -> ()
+        | Store (ap, _) -> f ap
+        | _ -> ()
       end
 
     in
@@ -61,19 +61,19 @@ let add_null_pointer_derefs file =
     let examine_vertex def =
       let f apx = match apx with
         | Deref expr ->
-	    let loc = Def.get_location def in
-	    let msg =
-	      "nonnull: " ^ (Expr.show (Expr.strip_all_casts expr))
-	    in
-            let d = Def.mk ~loc:loc (Assert (Atom (null_ne expr), msg)) in
-              insert_pre d def func.cfg
+          let loc = Def.get_location def in
+          let msg =
+            "nonnull: " ^ (Expr.show (Expr.strip_all_casts expr))
+          in
+          let d = Def.mk ~loc:loc (Assert (Atom (null_ne expr), msg)) in
+          insert_pre d def func.cfg
         | _ -> ()
       in
-        AP.Set.iter f (Def.get_accessed def)
+      AP.Set.iter f (Def.get_accessed def)
     in
-      List.iter examine_vertex vertices
+    List.iter examine_vertex vertices
   in
-    List.iter check_func file.funcs
+  List.iter check_func file.funcs
 
 let _ =
   CmdLine.register_pass
