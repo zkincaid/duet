@@ -172,7 +172,7 @@ module Dioid (Var : Var) = struct
         with Not_found -> T.var v
     in
     let x_guard = F.subst sigma x.guard in
-    F.equal x_guard y.guard
+    F.equiv x_guard y.guard
 
   exception Not_normal (* Not externally visible *)
   let is_normal x =

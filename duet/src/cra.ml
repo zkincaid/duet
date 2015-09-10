@@ -269,7 +269,11 @@ let _ =
   opt_polyrec := true;
   F.opt_qe_strategy := (fun p phi -> F.qe_lme p (F.qe_partial p phi));
   F.opt_linearize_strategy := F.linearize_opt;
-  F.opt_simplify_strategy := [F.qe_partial]
+
+  (* This slows down the analysis, but is required for making "K.equiv" do the
+     right thing when comparing with Newton *)
+  F.opt_simplify_strategy := [F.qe_lme]
+  (*  F.opt_simplify_strategy := [F.qe_partial]*)
 
 
 type ptr_term =
@@ -685,6 +689,9 @@ end
 (* Tensored transition formula *)
 module KK = Transition.Make(VV)
 
+(* Inject terms from the untensored vocabulary to the tensored vocabulary.
+   [inject_term VV.left] performs left injection and [inject_term VV.right]
+   performs right injection. *)
 let inject_term inject term =
   let alg = function
     | OFloor x -> KK.T.floor x
@@ -701,6 +708,7 @@ let inject_term inject term =
   in
   K.T.eval alg term
 
+(* See inject_term *)
 let inject_formula inject phi =
   let alg = function
     | OOr (phi, psi) -> KK.F.disj phi psi
@@ -730,3 +738,87 @@ let tensor tr_left tr_right =
       KK.F.conj
         (inject_formula VV.left tr_left.K.guard)
         (inject_formula VV.right tr_right.K.guard) }
+
+(* Lower terms from the tensored vocabulary to the untensored vocabulary. *)
+let lower_term substitution term =
+  let alg = function
+    | OFloor x -> K.T.floor x
+    | OAdd (x, y) -> K.T.add x y
+    | OMul (x, y) -> K.T.mul x y
+    | ODiv (x, y) -> K.T.div x y
+    | OMod (x, y) -> K.T.modulo x y
+    | OVar v -> substitution v
+    | OConst k -> K.T.const k
+  in
+  KK.T.eval alg term
+
+let lower_formula substitution phi =
+  let alg = function
+    | OOr (phi, psi) -> K.F.disj phi psi
+    | OAnd (phi, psi) -> K.F.conj phi psi
+    | OAtom (LeqZ x) -> K.F.leqz (lower_term substitution x)
+    | OAtom (EqZ x) -> K.F.eqz (lower_term substitution x)
+    | OAtom (LtZ x) -> K.F.ltz (lower_term substitution x)
+  in
+  KK.F.eval alg phi
+
+
+let detensor_transpose tensored_tr =
+  (* For [Left v -> rhs] in tensor_tr's transform, create a fresh Skolem
+     constant skolem_v.  Store the mapping [v -> skolem_v] in substitution_map,
+     and store the pair (v, rhs) in the list pre_state_eqs. *)
+  let (substitution_map, pre_state_eqs) =
+    let fresh_skolem v =
+      K.T.var (K.V.mk_tmp ("fresh_" ^ (V.show v)) (V.typ v))
+    in
+    KK.M.fold
+      (fun v rhs (substitution_map, pre_state_eqs) ->
+         match v with
+         | Right _ -> (substitution_map, pre_state_eqs)
+         | Left v ->
+           let skolem_v = fresh_skolem v in
+           let substitution_map = K.M.add v skolem_v substitution_map in
+           (substitution_map, (K.T.var (K.V.mk_var v), rhs)::pre_state_eqs))
+      tensored_tr.KK.transform
+      (K.M.empty, [])
+  in
+
+  (* For every variable v, identify Left v (representing the post-state of the
+     left) and Right v (representing the pre-state of the right) by
+     substituting the same term term_v for both Left v and Right v.  term_v is
+     defined to be v if v was not written on the left, and skolem_v if it
+     was. *)
+  let substitution = function
+    | KK.V.PVar (Left v) | KK.V.PVar (Right v) ->
+      (try
+         K.M.find v substitution_map
+       with Not_found -> K.T.var (K.V.mk_var v))
+    | KK.V.TVar (id, typ, name) -> K.T.var (K.V.TVar (id, typ, name))
+  in
+
+  (* substitution_map already has all the assignments that come from the left.
+     Add to substition map all the right assignments, possibly overwriting the
+     left assignments. *)
+  let transform =
+    KK.M.fold
+      (fun v rhs transform ->
+         match v with
+         | Left _ -> transform
+         | Right v -> K.M.add v (lower_term substitution rhs) transform)
+      tensored_tr.KK.transform
+      substitution_map
+  in
+
+  (* Lower the guard into the untensored vocabulary and conjoin the equations
+     for the Skolem constants. *)
+  let guard =
+    List.fold_left
+      (fun guard (v, term) ->
+         K.F.conj
+           guard
+           (K.F.eq v (lower_term substitution term)))
+      (lower_formula substitution tensored_tr.KK.guard)
+      pre_state_eqs
+  in
+  { K.transform = transform;
+    K.guard = guard }
