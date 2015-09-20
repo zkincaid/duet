@@ -19,6 +19,10 @@ let x = Ctx.mk_const (Ctx.symbol_of_const ("x", `TyInt))
 let y = Ctx.mk_const (Ctx.symbol_of_const ("y", `TyInt))
 let z = Ctx.mk_const (Ctx.symbol_of_const ("z", `TyInt))
 
+let rsym = Ctx.symbol_of_const ("r", `TyReal)
+let ssym = Ctx.symbol_of_const ("s", `TyReal)
+let tsym = Ctx.symbol_of_const ("t", `TyReal)
+
 let wsym = Ctx.symbol_of_const ("w", `TyInt)
 let xsym = Ctx.symbol_of_const ("x", `TyInt)
 let ysym = Ctx.symbol_of_const ("y", `TyInt)
@@ -33,6 +37,7 @@ let assert_equiv_formula s t =
   assert_equal ~printer:Ctx.Formula.show ~cmp:Ctx.equiv s t
 let assert_equal_qq x y =
   assert_equal ~printer:QQ.show ~cmp:QQ.equal x y
+
 
 let hull_formula hull = Ctx.mk_and (List.map (Ctx.mk_eq (int 0)) hull)
 
@@ -138,6 +143,30 @@ let optimize4 () =
   in
   assert_equiv_formula phi_closed (Abstract.boxify (module Ctx) phi [r])
 
+(*
+let optimize5 () =
+  let phi =
+    Ctx.mk_exists ~name:"s" `TyReal
+      (let open Infix in
+       r <= (Ctx.mk_var 0 `TyReal) && (Ctx.mk_var 0 `TyReal) < (int 0))
+  in
+  let ivl = Interval.make None (Some QQ.zero) in
+  match Abstract.aqopt (module Ctx) phi r with
+  | `Sat ivl2 ->
+    assert_equal ~printer:Interval.show ~cmp:Interval.equal ivl ivl2
+  | _ -> assert false
+*)
+
+let aqsat1 () =
+  let phi =
+    Ctx.mk_forall ~name:"r" `TyReal
+      (Ctx.mk_exists ~name:"s" `TyReal
+         (Ctx.mk_lt (Ctx.mk_var 1 `TyReal) (Ctx.mk_var 0 `TyReal)))
+  in
+  assert_equal `Sat (Abstract.aqsat (module Ctx) phi)
+
+
+
 let suite = "Abstract" >::: [
     "affine_hull1" >:: affine_hull1;
     "affine_hull2" >:: affine_hull2;
@@ -149,4 +178,6 @@ let suite = "Abstract" >::: [
     "optimize2" >:: optimize2;
     "optimize3" >:: optimize3;
     "optimize4" >:: optimize4;
+    (*    "optimize5" >:: optimize5;*)
+    "aqsat1" >:: aqsat1;
   ]

@@ -35,6 +35,11 @@ module Make
   val eval : ('a open_expr -> 'a) -> expr -> 'a
   val mk : expr open_expr -> expr
 
+  val mk_fresh_decl : ?name:string
+    -> [ `TyBool | `TyInt | `TyReal ] list
+    -> [ `TyBool | `TyInt | `TyReal ]
+    -> func_decl
+
   val mk_add : expr list -> expr
   val mk_mul : expr list -> expr
   val mk_div : expr -> expr -> expr
@@ -57,6 +62,27 @@ module Make
   val mk_leq : expr -> expr -> expr
   val mk_true : expr
   val mk_false : expr
+
+  type solver
+  type model
+
+  module Solver : sig
+    val mk_solver : unit -> solver
+    val add : solver -> expr list -> unit
+    val push : solver -> unit
+    val pop : solver -> int -> unit
+    val check : solver -> expr list -> [ `Sat | `Unsat | `Unknown ]
+    val get_model : solver -> [ `Sat of model | `Unsat | `Unknown ]
+  end
+
+  module Model : sig
+    val eval_int : model -> expr -> ZZ.t
+    val eval_real : model -> expr -> QQ.t
+    val eval_func : model -> func_decl -> ((expr list * expr) list) * expr
+    val sat : model -> expr -> bool
+    val to_string : model -> string
+  end
+
 end
 
 module MakeSolver
@@ -74,6 +100,7 @@ module MakeSolver
   val equiv : C.formula -> C.formula -> bool
 
   val is_sat : C.formula -> [ `Sat | `Unsat | `Unknown ]
+  val qe_sat : C.formula -> [ `Sat | `Unsat | `Unknown ]
   val get_model : C.formula -> [ `Sat of model | `Unsat | `Unknown ]
   val interpolate_seq : C.formula list ->
     [ `Sat of model | `Unsat of C.formula list | `Unknown ]
@@ -85,6 +112,9 @@ module MakeSolver
     val pop : solver -> int -> unit
     val check : solver -> C.formula list -> [ `Sat | `Unsat | `Unknown ]
     val get_model : solver -> [ `Sat of model | `Unsat | `Unknown ]
+    val get_unsat_core : solver ->
+      C.formula list ->
+      [ `Sat | `Unsat of C.formula list | `Unknown ]
   end
 
   module Model : sig
@@ -102,4 +132,6 @@ module MakeSolver
   val optimize_box : C.formula -> C.term list -> [ `Sat of Interval.t list
 						 | `Unsat
 						 | `Unknown ]
+
+  val qe : C.formula -> C.formula
 end

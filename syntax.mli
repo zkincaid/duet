@@ -83,12 +83,14 @@ module Make (C : Constant) () : sig
     val hash : t -> int
     val equal : t -> t -> bool
     val compare : t -> t -> int
+    val open_pp : ?env:(string Env.t) -> Format.formatter -> t -> unit
+    val open_show : ?env:(string Env.t) -> t -> string
     val pp : Format.formatter -> t -> unit
     val show : t -> string
 
     val destruct : t -> t open_term
     val eval : ('a open_term -> 'a) -> t -> 'a
-    val fold_constants : (int -> 'a -> 'a) -> t -> 'a -> 'a
+    val fold_constants : (const_sym -> 'a -> 'a) -> t -> 'a -> 'a
     val substitute : (int -> t) -> t -> t
     val substitute_const : (const_sym -> t) -> t -> t
   end
@@ -98,6 +100,8 @@ module Make (C : Constant) () : sig
     val hash : t -> int
     val equal : t -> t -> bool
     val compare : t -> t -> int
+    val open_pp : ?env:(string Env.t) -> Format.formatter -> t -> unit
+    val open_show : ?env:(string Env.t) -> t -> string
     val pp : Format.formatter -> t -> unit
     val show : t -> string
 
@@ -108,6 +112,7 @@ module Make (C : Constant) () : sig
     val substitute_const : (const_sym -> term) -> t -> t
     val existential_closure : t -> t
     val skolemize_free : t -> t
+    val prenex : t -> t
   end
 end
 

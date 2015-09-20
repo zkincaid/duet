@@ -17,6 +17,7 @@ module type Vector = sig
   type scalar
 
   val equal : t -> t -> bool
+  val compare : t -> t -> int
   val add : t -> t -> t
   val scalar_mul : scalar -> t -> t
   val negate : t -> t
