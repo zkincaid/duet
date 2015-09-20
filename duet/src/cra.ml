@@ -764,6 +764,9 @@ let lower_formula substitution phi =
 
 
 let detensor_transpose tensored_tr =
+  let lower_temporary =
+    Memo.memo (fun (id, typ, name) -> K.V.mk_tmp name typ)
+  in
   (* For [Left v -> rhs] in tensor_tr's transform, create a fresh Skolem
      constant skolem_v.  Store the mapping [v -> skolem_v] in substitution_map,
      and store the pair (v, rhs) in the list pre_state_eqs. *)
@@ -793,7 +796,7 @@ let detensor_transpose tensored_tr =
       (try
          K.M.find v substitution_map
        with Not_found -> K.T.var (K.V.mk_var v))
-    | KK.V.TVar (id, typ, name) -> K.T.var (K.V.TVar (id, typ, name))
+    | KK.V.TVar (id, typ, name) -> K.T.var (lower_temporary (id, typ, name))
   in
 
   (* substitution_map already has all the assignments that come from the left.
