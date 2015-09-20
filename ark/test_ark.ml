@@ -1,4 +1,5 @@
 open OUnit
+open ArkParse
 
 let suite = "Main" >::: [
     Test_scalar.suite;

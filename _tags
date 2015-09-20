@@ -1,5 +1,5 @@
 # OASIS_START
-# DO NOT EDIT (digest: 03f7bdbbe2b2204df3add06c2a004487)
+# DO NOT EDIT (digest: ff9ecb9edcb41d1da1f7a691d6ef6b49)
 # Ignore VCS directories, you can use the same kind of rule outside
 # OASIS_START/STOP if you want to exclude directories that contains
 # useless stuff for the build process
@@ -73,6 +73,21 @@ true: annot, bin_annot
 "ark/test_ark.native": pkg_ppx_deriving.ord
 "ark/test_ark.native": pkg_ppx_deriving.show
 "ark/test_ark.native": use_apak
+# Executable arktop
+"ark/arkTop.native": pkg_Z3
+"ark/arkTop.native": pkg_apron
+"ark/arkTop.native": pkg_apron.boxMPQ
+"ark/arkTop.native": pkg_apron.octMPQ
+"ark/arkTop.native": pkg_apron.polkaMPQ
+"ark/arkTop.native": pkg_batteries
+"ark/arkTop.native": pkg_camlidl
+"ark/arkTop.native": pkg_gmp
+"ark/arkTop.native": pkg_oUnit
+"ark/arkTop.native": pkg_ocamlgraph
+"ark/arkTop.native": pkg_ppx_deriving
+"ark/arkTop.native": pkg_ppx_deriving.ord
+"ark/arkTop.native": pkg_ppx_deriving.show
+"ark/arkTop.native": use_apak
 <ark/*.ml{,i,y}>: pkg_Z3
 <ark/*.ml{,i,y}>: pkg_apron
 <ark/*.ml{,i,y}>: pkg_apron.boxMPQ

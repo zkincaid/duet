@@ -57,6 +57,7 @@ module HC = BatHashcons.MakeTable(struct
        | Exists (_, typ), Exists (_, typ') -> typ = typ'
        | Forall (_, typ), Forall (_, typ') -> typ = typ'
        | _, _ -> label = label')
+      && List.length args == List.length args'
       && List.for_all2 (fun x y -> x.tag = y.tag) args args'
     let compare = Pervasives.compare
     let hash (Node (label, args)) =
@@ -84,8 +85,8 @@ end
 module Env = struct
   type 'a t = 'a list
   let push x xs = x::xs
-  let find i xs =
-    try List.nth i xs
+  let find xs i =
+    try List.nth xs i
     with Failure _ -> raise Not_found
   let empty = []
 end
@@ -219,15 +220,23 @@ module Make (C : Constant) () = struct
   let mk_exists ?name:(name="_") typ phi =
     hashcons (Node (Exists (name, typ), [phi]))
 
-  let mk_and = function
-    | [] -> mk_true
-    | [x] -> x
-    | conjuncts -> hashcons (Node (And, conjuncts))
+  let mk_and conjuncts =
+    if List.exists (fun x -> x.tag = mk_false.tag) conjuncts then
+      mk_false
+    else
+      match List.filter (fun x -> x.tag != mk_true.tag) conjuncts with
+      | [] -> mk_true
+      | [x] -> x
+      | conjuncts -> hashcons (Node (And, conjuncts))
 
-  let mk_or = function
-    | [] -> mk_false
-    | [x] -> x
-    | disjuncts -> hashcons (Node (Or, disjuncts))
+  let mk_or disjuncts =
+    if List.exists (fun x -> x.tag = mk_true.tag) disjuncts then
+      mk_true
+    else
+      match List.filter (fun x -> x.tag != mk_false.tag) disjuncts with
+      | [] -> mk_false
+      | [x] -> x
+      | disjuncts -> hashcons (Node (Or, disjuncts))
 
   let mk_iff phi psi =
     mk_or [mk_and [phi; psi];
@@ -339,17 +348,19 @@ module Make (C : Constant) () = struct
       | Node (Neg, [t]) -> `Unop (`Neg, t)
       | _ -> invalid_arg "destruct: not a term"
 
-    let rec pp formatter t =
+    let rec open_pp ?(env=Env.empty) formatter t =
       let open Format in
       match destruct t with
       | `Real qq -> QQ.pp formatter qq
       | `Const k -> pp_const formatter k
-      | `Var (v, typ) -> fprintf formatter "[free:%d]" v
+      | `Var (v, typ) ->
+        (try fprintf formatter "[%s:%d]" (Env.find env v) v
+         with Not_found -> fprintf formatter "[free:%d]" v)
       | `Add terms ->
         fprintf formatter "(@[";
         ApakEnum.pp_print_enum
           ~pp_sep:(fun formatter () -> fprintf formatter "@ + ")
-          pp
+          (open_pp ~env)
           formatter
           (BatList.enum terms);
         fprintf formatter "@])"
@@ -357,28 +368,30 @@ module Make (C : Constant) () = struct
         fprintf formatter "(@[";
         ApakEnum.pp_print_enum
           ~pp_sep:(fun formatter () -> fprintf formatter "@ * ")
-          pp
+          (open_pp ~env)
           formatter
           (BatList.enum terms);
         fprintf formatter "@])"
       | `Binop (`Div, s, t) ->
         fprintf formatter "(@[%a@ / %a@])"
-          pp s
-          pp t
+          (open_pp ~env) s
+          (open_pp ~env) t
       | `Binop (`Mod, s, t) ->
         fprintf formatter "(@[%a@ mod %a@])"
-          pp s
-          pp t
+          (open_pp ~env) s
+          (open_pp ~env) t
       | `Unop (`Floor, t) ->
-        fprintf formatter "floor(@[%a@])" pp t
+        fprintf formatter "floor(@[%a@])" (open_pp ~env) t
       | `Unop (`Neg, t) ->
         begin match destruct t with
           | `Real qq -> QQ.pp formatter (QQ.negate qq)
           | `Const _ | `Var (_, _) ->
-            fprintf formatter "-%a" pp t
-          | _ -> fprintf formatter "-(@[%a@])" pp t
+            fprintf formatter "-%a" (open_pp ~env) t
+          | _ -> fprintf formatter "-(@[%a@])" (open_pp ~env) t
         end
-    let show t = Apak.Putil.mk_show pp t
+    let open_show ?(env=Env.empty) t = Apak.Putil.mk_show (open_pp ~env) t
+    let pp = open_pp ~env:Env.empty
+    let show = open_show ~env:Env.empty
   end
   module Formula = struct
     include Sexpr
@@ -437,18 +450,18 @@ module Make (C : Constant) () = struct
       | Node (Lt, [s; t]) -> `Atom (`Lt, s, t)
       | _ -> invalid_arg "Formula.destruct_flat: not a formula"
 
-    let rec pp formatter phi =
+    let rec open_pp ?(env=Env.empty) formatter phi =
       let open Format in
       match destruct_flat phi with
       | `Tru -> pp_print_string formatter "true"
       | `Fls -> pp_print_string formatter "false"
       | `Not phi ->
-        fprintf formatter "!(@[%a@])" pp phi
+        fprintf formatter "!(@[%a@])" (open_pp ~env) phi
       | `And conjuncts ->
         fprintf formatter "(@[";
         ApakEnum.pp_print_enum
           ~pp_sep:(fun formatter () -> fprintf formatter "@ /\\ ")
-          pp
+          (open_pp ~env)
           formatter
           (BatList.enum conjuncts);
         fprintf formatter "@])"
@@ -456,7 +469,7 @@ module Make (C : Constant) () = struct
         fprintf formatter "(@[";
         ApakEnum.pp_print_enum
           ~pp_sep:(fun formatter () -> fprintf formatter "@ \\/ ")
-          pp
+          (open_pp ~env)
           formatter
           (BatList.enum conjuncts);
         fprintf formatter "@])"
@@ -467,14 +480,17 @@ module Make (C : Constant) () = struct
           | `Lt -> "<"
         in
         fprintf formatter "@[%a %s %a@]"
-          Term.pp x
+          (Term.open_pp ~env) x
           op_string
-          Term.pp y
+          (Term.open_pp ~env) y
       | `Quantify (qt, varinfo, psi) ->
         let quantifier_name =
           match qt with
           | `Exists -> "exists"
           | `Forall -> "forall"
+        in
+        let env =
+          List.fold_left (fun env (x,_) -> Env.push x env) env varinfo
         in
         fprintf formatter "(@[%s@ " quantifier_name;
         ApakEnum.pp_print_enum
@@ -483,9 +499,12 @@ module Make (C : Constant) () = struct
              fprintf formatter "(%s : %a)" name pp_typ typ)
           formatter
           (BatList.enum varinfo);
-        fprintf formatter ".@ %a@])" pp psi
+        fprintf formatter ".@ %a@])" (open_pp ~env) psi
 
-    let show t = Apak.Putil.mk_show pp t
+    let open_show ?(env=Env.empty) t = Apak.Putil.mk_show (open_pp ~env) t
+
+    let pp = open_pp ~env:Env.empty
+    let show = open_show ~env:Env.empty
 
     let existential_closure phi =
       let vars = vars phi in
@@ -517,6 +536,47 @@ module Make (C : Constant) () = struct
         | _ -> hashcons (Node (label, List.map go children))
       in
       go phi
+
+    let prenex phi =
+      let negate_prefix =
+        List.map (function
+            | `Exists (name, typ) -> `Forall (name, typ)
+            | `Forall (name, typ) -> `Exists (name, typ))
+      in
+      let combine phis =
+        let f (qf_pre0, phi0) (qf_pre, phis) =
+          let depth = List.length qf_pre in
+          (qf_pre0@qf_pre, (Sexpr.decapture depth phi0)::phis)
+        in
+        List.fold_right f phis ([], [])
+      in
+
+      let alg = function
+        | `Tru -> ([], mk_true)
+        | `Fls -> ([], mk_false)
+        | `Atom (`Eq, x, y) -> ([], mk_eq x y)
+        | `Atom (`Lt, x, y) -> ([], mk_lt x y)
+        | `Atom (`Leq, x, y) -> ([], mk_leq x y)
+        | `And conjuncts ->
+          let (qf_pre, conjuncts) = combine conjuncts in
+          (qf_pre, mk_and conjuncts)
+        | `Or disjuncts ->
+          let (qf_pre, disjuncts) = combine disjuncts in
+          (qf_pre, mk_or disjuncts)
+        | `Quantify (`Exists, name, typ, (qf_pre, phi)) ->
+          (`Exists (name, typ)::qf_pre, phi)
+        | `Quantify (`Forall, name, typ, (qf_pre, phi)) ->
+          (`Forall (name, typ)::qf_pre, phi)
+        | `Not (qf_pre, phi) -> (negate_prefix qf_pre, mk_not phi)
+      in
+      let (qf_pre, matrix) = eval alg phi in
+      List.fold_right
+        (fun qf phi ->
+          match qf with
+          | `Exists (name, typ) -> mk_exists ~name typ phi
+          | `Forall (name, typ) -> mk_forall ~name typ phi)
+        qf_pre
+        matrix
   end
 end
 

@@ -48,6 +48,17 @@ Executable test_ark
   CompiledObject: native
   Install:        false
 
+Executable arktop
+  Build$:         flag(tests)
+  Path:           ark
+  BuildTools:     ocamlbuild
+  MainIs:         arkTop.ml
+  BuildDepends:   ppx_deriving, ppx_deriving.ord, apak, gmp, camlidl, apron,
+                  apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, oUnit
+  CompiledObject: native
+  Install:        false
+
+
 Library pa
   Path:       pa
   BuildTools: ocamlbuild

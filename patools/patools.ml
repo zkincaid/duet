@@ -137,7 +137,6 @@ let model_of_z3 m predicates size =
         match m#get_func_interp p with
         | None -> Config.empty 1
         | Some interp ->
-          ignore (get_else interp);
           if Smt.bool_val (get_else interp) then begin
             let full =
               BatList.of_enum ((1 -- k) /@ (fun _ -> (1 -- size)))

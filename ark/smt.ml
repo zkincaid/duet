@@ -76,6 +76,13 @@ module Make
     | `TyReal -> real_sort
     | `TyBool -> bool_sort
 
+  let mk_fresh_decl ?(name="f") params result =
+    Z3.FuncDecl.mk_fresh_func_decl
+      ctx
+      name
+      (List.map sort_of_typ params)
+      (sort_of_typ result)
+
   let rec eval alg ast =
     let open Z3enums in
     match AST.get_ast_kind (Expr.ast_of_expr ast) with
@@ -228,6 +235,18 @@ module Make
       | Some x -> qq_val x
       | None -> invalid_arg "eval_real: not a real term"
 
+    let eval_func m decl =
+      let open Model.FuncInterp in
+      match Model.get_func_interp m decl with
+      | Some interp ->
+        let entries =
+          List.map (fun entry ->
+              (FuncEntry.get_args entry, FuncEntry.get_value entry)
+            ) (get_entries interp)
+        in
+        (entries, get_else interp)
+      | None -> invalid_arg "eval_func: No interpretation for function decl"
+
     let sat m phi =
       match Z3.Model.eval m phi true with
       | Some x -> bool_val x
@@ -235,7 +254,6 @@ module Make
 
     let to_string = Z3.Model.to_string
   end
-
 end
 
 module MakeSolver
@@ -368,6 +386,13 @@ module MakeSolver
         end
       | `Unsat -> `Unsat
       | `Unknown -> `Unknown
+
+    let get_unsat_core solver assumptions =
+      match check solver assumptions with
+      | `Sat -> `Sat
+      | `Unknown -> `Unknown
+      | `Unsat ->
+        `Unsat (List.map formula_of (Z3.Solver.get_unsat_core solver))
   end
 
   module Model = struct
@@ -436,6 +461,34 @@ module MakeSolver
     | `Sat -> false
     | `Unsat -> true
     | `Unknown -> raise Unknown_result
+
+  let of_goal g =
+    let open Z3 in
+    List.map formula_of (Goal.get_formulas g)
+    |> C.mk_and
+
+  let of_apply_result result =
+    let open Z3 in
+    List.map of_goal (Tactic.ApplyResult.get_subgoals result)
+    |> C.mk_and
+
+  let qe phi =
+    let open Z3 in
+    let solve = Tactic.mk_tactic ctx "qe" in
+    let simpl = Tactic.mk_tactic ctx "simplify" in
+    let qe = Tactic.and_then ctx solve simpl [] in
+    let g = Goal.mk_goal ctx false false false in
+    Goal.add g [of_formula phi];
+    of_apply_result (Tactic.apply qe g None)
+
+  let qe_sat phi =
+    let open Z3 in
+    let solve = Tactic.mk_tactic ctx "qe-sat" in
+    let simpl = Tactic.mk_tactic ctx "simplify" in
+    let qe = Tactic.and_then ctx solve simpl [] in
+    let g = Goal.mk_goal ctx false false false in
+    Goal.add g [of_formula phi];
+    is_sat (of_apply_result (Tactic.apply qe g None))
 
   let equiv phi psi =
     let s = Solver.mk_solver () in

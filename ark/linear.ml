@@ -20,6 +20,7 @@ module type Vector = sig
   type dim
   type scalar
   val equal : t -> t -> bool
+  val compare : t -> t -> int
   val add : t -> t -> t
   val scalar_mul : scalar -> t -> t
   val negate : t -> t
@@ -137,6 +138,7 @@ module ZZVector = struct
     |> Format.fprintf formatter "[@[%a@]]" (ApakEnum.pp_print_enum ZZ.pp)
 
   let show = Putil.mk_show pp
+  let compare = compare ZZ.compare
 end
 
 module QQVector = struct
@@ -158,6 +160,7 @@ module QQVector = struct
     |> Format.fprintf formatter "[%a]" (ApakEnum.pp_print_enum QQ.pp)
 
   let show = Putil.mk_show pp
+  let compare = compare QQ.compare
 end
 
 module QQMatrix = struct
