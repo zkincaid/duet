@@ -252,6 +252,18 @@ module K = struct
     else simplify (Log.time "cra:mul" (mul x) y)
 
   let widen x y = Log.time "cra:widen" (widen x) y
+
+  (* existentially quantify local post-state variables and conjoin with the
+     equality /\ { l = l' : l is local }.  Since post-state variables do not
+     appear in the guard and for each variable x *not* in the transform we
+     have the equality x = x', it is sufficient to remove locals from the
+     transform.  *)
+  let project tr =
+    let is_global v _ = Var.is_global (var_of_value v) in
+    { transform = M.filter is_global tr.transform;
+      guard = tr.guard }
+
+  let merge x y = mul x (project y)
 end
 module A = Interproc.MakePathExpr(K)
 
@@ -825,3 +837,6 @@ let detensor_transpose tensored_tr =
   in
   { K.transform = transform;
     K.guard = guard }
+
+let kk_merge x y =
+  KK.mul x (tensor K.one (K.project (detensor_transpose y)))
