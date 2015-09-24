@@ -41,7 +41,7 @@ class arrayAccessVisitor = object (self)
                 offset)
     | Var v, Index (idx, offset) ->
       ChangeTo (Mem (BinOp (PlusPI,
-                            Cil.mkAddrOf (Var v, NoOffset),
+                            Lval (Var v, NoOffset),
                             idx,
                             v.vtype)),
                 offset)
@@ -558,8 +558,54 @@ and tr_stmt ctx stmt =
   then Hashtbl.add ctx.ctx_labelled stmt.Cil.sid (fst ivl);
   ivl
 
-(* ========================================================================== *)
-(** File *)
+  (* ========================================================================== *)
+  (** File *)
+
+(* Create an explicit memory allocation instruction for a fixed-size array *)
+let add_array_initializer v il =
+  match v.Cil.vtype with
+  | Cil.TArray (typ, Some size, _) ->
+    begin
+      let size =
+        Expr.const_int (type_size typ * calc_expr size)
+      in
+      let lhs = Var.mk (variable_of_varinfo v) in
+      let def =
+        Def.mk ~loc:v.Cil.vdecl (Builtin (Alloc (lhs, size, AllocStack)))
+      in
+      def::il
+    end
+  | _ -> il
+
+let tr_initializer globals =
+  let f il v =
+    match v with
+    | Cil.GVar (v, init, loc) ->
+      let mk_assign lv exp =
+        let rhs = tr_expr exp in
+        match tr_lval lv with
+        | Variable v -> Def.mk ~loc:loc (Assign (v, rhs))
+        | ap -> Def.mk ~loc:loc (Store (ap, rhs))
+      in
+      let rec mk_init lv init il = match init with
+        | Cil.SingleInit exp -> (mk_assign lv exp)::il
+        | Cil.CompoundInit (ct, initl) ->
+          Cil.foldLeftCompound
+            ~implicit:false
+            ~doinit:(fun offset init typ il ->
+                mk_init (Cil.addOffsetLval offset lv) init il)
+            ~ct:ct
+            ~initl:initl
+            ~acc:il
+      in
+      begin
+        match init.Cil.init with
+        | Some init -> mk_init (Cil.Var v, Cil.NoOffset) init il
+        | _ -> il
+      end
+    | _ -> il
+  in
+  List.fold_left f [] globals
 
 let tr_func f =
   let cfg = CfgIr.Cfg.create () in
@@ -582,10 +628,15 @@ let tr_func f =
         assert false
       end
   in
+  let initialization =
+    List.map
+      (CfgIr.CfgBuilder.mk_single cfg)
+      (List.fold_right add_array_initializer f.Cil.slocals [])
+  in
   let body =
     CfgIr.CfgBuilder.mk_block
       cfg
-      (List.map (tr_stmt ctx) f.Cil.sbody.Cil.bstmts)
+      (initialization@(List.map (tr_stmt ctx) f.Cil.sbody.Cil.bstmts))
   in
   let init = CfgIr.CfgBuilder.mk_skip cfg in
   List.iter add_goto ctx.ctx_goto;
@@ -641,53 +692,6 @@ let tr_file_funcs =
     | [] -> []
   in
   go
-
-(* Create an explicit memory allocation instruction for a fixed-size array
-   (currently unused). *)
-let add_array_initializer v loc il =
-  match v.Cil.vtype with
-  | Cil.TArray (typ, Some size, _) ->
-    begin
-      let size =
-        Expr.const_int (type_size typ * calc_expr size)
-      in
-      let lhs = Var.mk (variable_of_varinfo v) in
-      let def =
-        Def.mk ~loc:loc (Builtin (Alloc (lhs, size, AllocHeap)))
-      in
-      def::il
-    end
-  | _ -> il
-
-let tr_initializer globals =
-  let f il v =
-    match v with
-    | Cil.GVar (v, init, loc) ->
-      let mk_assign lv exp =
-        let rhs = tr_expr exp in
-        match tr_lval lv with
-        | Variable v -> Def.mk ~loc:loc (Assign (v, rhs))
-        | ap -> Def.mk ~loc:loc (Store (ap, rhs))
-      in
-      let rec mk_init lv init il = match init with
-        | Cil.SingleInit exp -> (mk_assign lv exp)::il
-        | Cil.CompoundInit (ct, initl) ->
-          Cil.foldLeftCompound
-            ~implicit:false
-            ~doinit:(fun offset init typ il ->
-                mk_init (Cil.addOffsetLval offset lv) init il)
-            ~ct:ct
-            ~initl:initl
-            ~acc:il
-      in
-      begin
-        match init.Cil.init with
-        | Some init -> mk_init (Cil.Var v, Cil.NoOffset) init il
-        | _ -> il
-      end
-    | _ -> il
-  in
-  List.fold_left f [] globals
 
 let tr_file filename f =
   let open CfgIr in
