@@ -86,7 +86,20 @@ module Make (A : Sigma) (P : Predicate) :
   S with type predicate = P.t
      and type alpha = A.t
 
-module MakeEmpty (A : S) : sig
+module MakeEmpty (A : sig
+    type t
+    type alpha
+    type config
+    type predicate
+    type formula = (predicate, int) PaFormula.formula
+    module Config : Struct.S with type predicate = predicate
+                              and type t = config
+    val pp_alpha : Format.formatter -> alpha -> unit
+    val alphabet : t -> alpha BatEnum.t
+    val succs : t -> config -> (alpha * int) -> config BatEnum.t
+    val accepting : t -> config -> bool
+    val initial : t -> formula
+  end) : sig
   val empty : A.t -> ((A.alpha * int) list) option
 end
 

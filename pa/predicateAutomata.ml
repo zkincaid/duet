@@ -471,7 +471,7 @@ module Make (A : Sigma) (P : Predicate) = struct
       let rhs = find_transition pa head alpha in
       let min_models = Config.min_models ~env:(i::args) succ_size rhs in
       if BatEnum.is_empty min_models then begin
-        logf ~level:`trace "   %a has no successors" pp_atom (head, args);
+        (*        logf ~level:`trace "   %a has no successors" pp_atom (head, args);*)
         raise No_succs
       end;
       min_models
@@ -504,195 +504,260 @@ module Make (A : Sigma) (P : Predicate) = struct
     |> BatEnum.fold Config.union (Config.empty universe)
 end
 
-module MakeReachabilityGraph (A : S) = struct
+module MakeReachabilityGraph (A : sig
+    type t
+    type alpha
+    type config
+    type predicate
+    module Config : Struct.S with type predicate = predicate
+                              and type t = config
+    val pp_alpha : Format.formatter -> alpha -> unit
+    val successors : t -> config -> (alpha * int * config) BatEnum.t
+  end) = struct
   open A
-  module CHT = BatHashtbl.Make(Config)
+  type id = int
+  module DA = BatDynArray
 
-  type rg =
-    { mutable worklist : Config.t list;
-      parent : ((alpha * int * Config.t) option) CHT.t;
-      cover : Config.t CHT.t }
+  (* Set of vertices, weighted by some heuristic value *)
+  module WVSet = Set.Make(struct
+      type t = int * int
+      let compare (a,b) (c,d) =
+        match compare a c with
+        | 0 -> compare b d
+        | r -> r
+    end)
 
-  let vertices rg = CHT.keys rg.parent
+  type arg =
+    { mutable worklist : WVSet.t;
+      pa : t;
+      label : config DA.t;
+      parent : ((alpha * int * id) option) DA.t; (* Invariant: label & parent
+                                                    should always have the
+                                                    same length *)
+      cover : (id,id) Hashtbl.t (* partial maps a vertex v to a vertex u such
+                                   that v is covered by u *)
+    }
 
-  let close_trivial rg pa config =
-    CHT.mem rg.parent config
+  let make pa =
+    { worklist = WVSet.empty;
+      pa = pa;
+      label = DA.make 2048;
+      parent = DA.make 2048;
+      cover = Hashtbl.create 991 }
 
-  let close_ancestor rg pa config parent =
+  let label arg vertex =
+    let nb_vertex = DA.length arg.label in
+    if 0 <= vertex && vertex < nb_vertex then
+      DA.get arg.label vertex
+    else 
+      Log.invalid_argf "label: vertex %d does not exist" vertex
+
+  let parent arg vertex =
+    let nb_vertex = DA.length arg.parent in
+    if 0 <= vertex && vertex < nb_vertex then
+      DA.get arg.parent vertex
+    else 
+      Log.invalid_argf "parent: vertex %d does not exist" vertex
+
+  let rec path_to_root arg v path =
+    match parent arg v with
+    | Some (a,i,p) ->
+      path_to_root arg p ((a,i)::path)
+    | None -> List.rev path
+
+  let rec print_path_to_root arg v =
+    logf "%a" Config.pp (label arg v);
+    match parent arg v with
+    | Some (a,i,p) ->
+      logf "  <%a : %d>" pp_alpha a i;
+      print_path_to_root arg p
+    | None -> ()
+
+  (* Heuristic value = max thread id on path to v *)
+  let hval arg v =
+    let rec go hval v =
+      match parent arg v with
+      | Some (_, i, p) ->
+        go (max i hval) p
+      | None -> hval
+    in
+    go 0 v
+
+  let add_worklist arg v =
+    arg.worklist <- WVSet.add (hval arg v, v) arg.worklist
+
+  let pick_worklist arg =
+    if WVSet.is_empty arg.worklist then
+      None
+    else
+      let (h, v) = WVSet.min_elt arg.worklist in
+      arg.worklist <- WVSet.remove (h, v) arg.worklist;
+      Some v
+
+  (* Add a new vertex to an ARG, with a given parent and label, and add it to
+     the worklist.  Returns an identifier for that vertex. *)
+  let add_vertex arg ?(parent=None) label =
+    let id = DA.length arg.label in
+    DA.add arg.label label;
+    DA.add arg.parent parent;
+    add_worklist arg id;
+    id
+
+  let expand arg vertex =
+    let config = label arg vertex in
+    logf ~level:`trace ~attributes:[`Blue;`Bold] "Expanding vertex:";
+    logf ~level:`trace "@[[%d] %a" vertex Config.pp config;
+    let add_succ (alpha, k, config) =
+      let succ_vertex =
+        add_vertex arg ~parent:(Some (alpha, k, vertex)) config
+      in
+      logf ~level:`trace " --(%d : %a)->@\n  @[[%d] %a@]"
+        k
+        pp_alpha alpha
+        succ_vertex
+        Config.pp config
+    in
+    successors arg.pa (label arg vertex) |> BatEnum.iter add_succ;
+    logf ~level:`trace ~attributes:[`Blue;`Bold] "@]"
+
+  (* u covers v *)
+  let add_cover arg u v =
+    assert (u < v);
+    Hashtbl.add arg.cover v u
+
+  (* Given a vertex v, try to find another vertex u which covers v.  If such a
+     vertex is found, add the cover relation and return true.  Only look at
+     ancestors of v in the ARG. *)
+  let close_ancestor arg vertex =
+    let config = label arg vertex in
     let rec find_covering_ancestor v =
-      match CHT.find rg.parent v with
+      match parent arg v with
       | Some (a,i,p) ->
-        if Config.embeds p config then begin
-          CHT.add rg.cover config p;
+        if Config.embeds (label arg p) config then begin
+          add_cover arg p vertex;
           logf ~level:`trace ~attributes:[`Green;`Bold]
-            "Covered vertex: %a"
+            "Covered vertex: [%d] %a"
+            vertex
             Config.pp config;
-          logf ~level:`trace " by ancestor %a" Config.pp p;
+          logf ~level:`trace " by ancestor [%d] %a" p Config.pp (label arg p);
           true
         end else find_covering_ancestor p
       | None -> false
     in
-    find_covering_ancestor parent
+    find_covering_ancestor vertex
 
-  let close_all rg pa config =
-    try
-      let cover = BatEnum.find (flip Config.embeds config) (vertices rg) in
-      CHT.add rg.cover config cover;
-      logf ~level:`trace ~attributes:[`Green;`Bold] "Covered vertex: %a"
-        Config.pp config;
-      logf ~level:`trace " by %a" Config.pp cover;
-      true
-    with Not_found -> false
-
-  exception Accepting of Config.t
-  let expand rg pa config p =
-    logf ~level:`trace ~attributes:[`Blue;`Bold] "Expanding vertex:";
-    logf ~level:`trace "@[%a" Config.pp config;
-    let add_succs (alpha, k) =
-      logf ~level:`trace " + Action: <%d : %a>" k pp_alpha alpha;
-      let succs = succs pa config (alpha, k) in
-      let add_succ succ =
-        if not (CHT.mem rg.parent succ) then begin
-          if not (close_all rg pa succ) then begin
-            rg.worklist <- succ::rg.worklist;
-            logf ~level:`trace "   - Added successor: %a" Config.pp succ
-          end;
-          CHT.add rg.parent succ (Some (alpha, k, config));
-          if p succ then raise (Accepting succ)
+  (* Same as close_ancestor, except search through all vertices with lower
+     id's *)
+  let close_all arg vertex =
+    let config = label arg vertex in
+    let rec find_cover u =
+      if u >= vertex then
+        false
+      else if Config.embeds (DA.get arg.label u) config then
+        begin
+          add_cover arg u vertex;
+          logf ~level:`trace ~attributes:[`Green;`Bold]
+            "Covered vertex: [%d] %a"
+            vertex
+            Config.pp config;
+          logf ~level:`trace " by [%d] %a" u Config.pp (label arg u);
+          true
         end
-      in
-      BatEnum.iter add_succ succs
+      else
+        find_cover (u + 1)
     in
-    let result =
-      ApakEnum.cartesian_product
-        (alphabet pa)
-        (Config.universe config)
-      |> BatEnum.iter add_succs
-    in
-    logf ~level:`trace "@]";
-    result
-
-  let expand_interuniversal rg pa config p =
-    logf ~level:`trace ~attributes:[`Blue;`Bold]
-      "Expanding vertex [inter-universal]: %a" Config.pp config;
-    let k = Config.universe_size config + 1 in
-    alphabet pa |> BatEnum.iter (fun alpha ->
-      logf ~level:`trace " + Action: <%d : %a>" k pp_alpha alpha;
-      let succs = succs pa config (alpha, k) in
-      let add_succ succ =
-        if not (CHT.mem rg.parent succ) then begin
-          if not (close_all rg pa succ) then begin
-            rg.worklist <- succ::rg.worklist;
-            logf ~level:`trace "   - Added successor: %a" Config.pp succ
-          end;
-          CHT.add rg.parent succ (Some (alpha, k, config));
-          if p succ then raise (Accepting succ)
-        end
-      in
-      BatEnum.iter add_succ succs)
-
-  let rec path_to_root rg v path =
-    match CHT.find rg.parent v with
-    | Some (a,i,p) ->
-      path_to_root rg p ((a,i)::path)
-    | None -> List.rev path
-
-  let rec print_path_to_root rg v =
-    logf "%a" Config.pp v;
-    match CHT.find rg.parent v with
-    | Some (a,i,p) ->
-      logf "  <%a : %d>" pp_alpha a i;
-      print_path_to_root rg p
-    | None -> ()
-
+    find_cover 0
 end
 
-module MakeEmpty (A : S) = struct
+module MakeEmpty (A : sig
+    type t
+    type alpha
+    type config
+    type predicate
+    type formula = (predicate, int) PaFormula.formula
+    module Config : Struct.S with type predicate = predicate
+                              and type t = config
+    val pp_alpha : Format.formatter -> alpha -> unit
+    val alphabet : t -> alpha BatEnum.t
+    val succs : t -> config -> (alpha * int) -> config BatEnum.t
+    val accepting : t -> config -> bool
+    val initial : t -> formula
+  end) = struct
   open A
 
-  include MakeReachabilityGraph(A)
+  module Arg = MakeReachabilityGraph(struct
+      include A
+      let successors pa config =
+        ApakEnum.cartesian_product
+          (alphabet pa)
+          (1 -- (Config.universe_size config + 1))
+        /@ (fun (alpha, k) ->
+            succs pa config (alpha, k)
+            /@ (fun s -> (alpha, k, s)))
+        |> BatEnum.concat
+    end)
 
   let empty pa =
-    let accept = accepting pa in
-    let rec fix rg =
-      match List.rev rg.worklist with
-      | (config::rest) ->
-        rg.worklist <- List.rev rest;
-        expand rg pa config accept;
-        expand_interuniversal rg pa config accept;
-        fix rg
-      | [] -> ()
+    let rec fix arg =
+      match Arg.pick_worklist arg with
+      | Some v ->
+        if accepting pa (Arg.label arg v) then begin
+            Arg.print_path_to_root arg v;
+            Some (Arg.path_to_root arg v [])
+        end else begin
+          if not (Arg.close_all arg v) then
+            Arg.expand arg v;
+          fix arg
+        end
+      | None -> None
     in
-    let initial_configurations =
-      BatList.of_enum (Config.min_models 1 (initial pa))
-    in
-    let rg =
-      { worklist = [];
-        parent = CHT.create 991;
-        cover = CHT.create 991 }
-    in
-    try
-      let config = List.find accept rg.worklist in
-      logf "Accepting initial configuration:@\n%a" Config.pp config;
-      Some []
-    with Not_found ->
-      try
-        List.iter (fun s -> CHT.add rg.parent s None) initial_configurations;
-        List.iter (fun c -> expand rg pa c accept) initial_configurations;
-        fix rg;
-        None
-      with Accepting v ->
-        (logf "Accepting path:";
-         print_path_to_root rg v;
-         Some (path_to_root rg v []))
+    let arg = Arg.make pa in
+
+    (* Add initial configurations to the ARG *)
+    Config.min_models 1 (initial pa) |> BatEnum.iter (fun config ->
+        ignore (Arg.add_vertex arg config));
+
+    fix arg
 end
+
 
 module MakeBounded (A : S) = struct
   open A
 
-  include MakeReachabilityGraph(A)
+  module Arg = MakeReachabilityGraph(struct
+      include A
+      let successors pa config =
+        ApakEnum.cartesian_product
+          (alphabet pa)
+          (Config.universe config)
+        /@ (fun (alpha, k) ->
+            succs pa config (alpha, k)
+            /@ (fun s -> (alpha, k, s)))
+        |> BatEnum.concat
+    end)
 
   (* Find a reachable configuration that satisfies the predicate p *)
   let bounded_search pa size p =
-    let rec fix rg =
-      match List.rev rg.worklist with
-      | (config::rest) ->
-        rg.worklist <- List.rev rest;
-        expand rg pa config p;
-        fix rg
-      | [] -> ()
+    let rec fix arg =
+      match Arg.pick_worklist arg with
+      | Some v ->
+        if p (Arg.label arg v) then begin
+            Arg.print_path_to_root arg v;
+            Some (Arg.path_to_root arg v [])
+        end else begin
+          if not (Arg.close_all arg v) then
+            Arg.expand arg v;
+          fix arg
+        end
+      | None -> None
     in
-    let rg =
-      { worklist = BatList.of_enum (Config.min_models size (initial pa));
-        parent = CHT.create 991;
-        cover = CHT.create 991 }
-    in
-    List.iter (fun s -> CHT.add rg.parent s None) rg.worklist;
-    let rec path_to_root v path =
-      match CHT.find rg.parent v with
-      | Some (a,i,p) ->
-        path_to_root p ((a,i)::path)
-      | None -> path
-    in
-    let rec print_path_to_root v =
-      logf "%a" Config.pp v;
-      match CHT.find rg.parent v with
-      | Some (a,i,p) ->
-        logf "  <%a : %d>" pp_alpha a i;
-        print_path_to_root p
-      | None -> ()
-    in
-    try
-      let config = List.find p rg.worklist in
-      logf "Accepting initial configuration:@\n%a" Config.pp config;
-      Some []
-    with Not_found ->
-      try
-        (fix rg); None
-      with Accepting v ->
-        (logf "Accepting path:";
-         print_path_to_root v;
-         Some (path_to_root v []))
+    let arg = Arg.make pa in
+
+    (* Add initial configurations to the ARG *)
+    Config.min_models size (initial pa) |> BatEnum.iter (fun config ->
+        ignore (Arg.add_vertex arg config));
+
+    fix arg
 
   let bounded_empty pa size = bounded_search pa size (accepting pa)
   let bounded_invariant pa size phi =
