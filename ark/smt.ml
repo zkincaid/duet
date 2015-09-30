@@ -179,7 +179,7 @@ class fixedpoint =
     method pop () = Fixedpoint.pop fp
     method get_num_levels pred = Fixedpoint.get_num_levels fp pred
     method get_cover_delta n pred = Fixedpoint.get_cover_delta fp n pred
-    method set_params params = Fixedpoint.set_params fp params
+    method set_params params = Fixedpoint.set_parameters fp params
     method get_help () = Fixedpoint.get_help fp
   end
 
