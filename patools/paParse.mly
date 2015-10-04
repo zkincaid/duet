@@ -45,17 +45,17 @@ main:
     EOF
       {
         let module StringSet = Putil.PString.Set in
-        let sigma =
+        let alphabet =
           let f set (_, (letter,_), _) = StringSet.add letter set in
-          StringSet.elements (List.fold_left f StringSet.empty transitions)
+          List.fold_left f StringSet.empty transitions
         in
         let start =
           PaFormula.substitute
             (undefined ~message:"Start formula should be a sentence")
             start
         in
-        let pa = A.make sigma final start in
-        let add_transition ((lhs,lhs_params),(sigma,index),rhs) =
+        let pa = A.make alphabet [] start [] in
+        let add_transition ((lhs,lhs_params),(letter,index),rhs) =
           let rhs' =
             let params = index::lhs_params in
             let subst k =
@@ -66,7 +66,7 @@ main:
                 Log.errorf "  @[%s(%a) --( %s : %s )-> %a@]"
                   lhs
                   (pp_print_list Format.pp_print_string) lhs_params
-                  sigma
+                  letter
                   index
                   (PaFormula.pp Format.pp_print_string Format.pp_print_string)
                   rhs;
@@ -74,9 +74,16 @@ main:
             in
             PaFormula.substitute subst rhs
           in
-          A.add_transition pa lhs sigma rhs'
+          if not (A.mem_vocabulary pa lhs) then
+            A.add_predicate pa lhs (List.length lhs_params);
+          A.add_transition pa lhs (StringSet.singleton letter) rhs'
         in
         List.iter add_transition transitions;
+        List.iter (fun q ->
+            if not (A.mem_vocabulary pa q) then
+              A.add_predicate pa q 0;
+            A.add_accepting pa q)
+          final;
         pa
       }
 ;
@@ -127,9 +134,9 @@ term:
 ;
 transition:
   | lhs = ID; LPAREN; lhs_params = separated_list(COMMA,ID); RPAREN;
-   ARROWTAIL; sigma = ID; COLON; index = ID; ARROWHEAD;
+   ARROWTAIL; letter = ID; COLON; index = ID; ARROWHEAD;
    rhs = ext_formula; DOT
-     { ((lhs,lhs_params),(sigma,index),rhs) }
+     { ((lhs,lhs_params),(letter,index),rhs) }
 ;
 params:
   p = separated_list(COMMA, term) { p }
@@ -150,6 +157,6 @@ state:
   | id = INT { string_of_int id }
 ;
 edge:
-  | left = state; ARROWTAIL; sigma = ID; ARROWHEAD; right = state; DOT
-     { (left, sigma, right) }
+  | left = state; ARROWTAIL; letter = ID; ARROWHEAD; right = state; DOT
+     { (left, letter, right) }
 ;

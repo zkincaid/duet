@@ -58,7 +58,7 @@ module StructSet = BatSet.Make(Struct)
 let bounded_check_post pa phi =
   let open BatPervasives in
   let size = 2 in
-  BatEnum.iter (fun alpha ->
+  Alphabet.Set.iter (fun alpha ->
       let succs (config, i) =
         A.succs pa config (alpha, i)
       in

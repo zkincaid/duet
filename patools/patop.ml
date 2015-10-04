@@ -1,7 +1,8 @@
 open Apak
 open BatPervasives
 
-module A = PredicateAutomata.Make(Putil.PString)(Putil.PString)
+module Alphabet = Putil.PString
+module A = PredicateAutomata.Make(Alphabet)(Putil.PString)
 module Bounded = PredicateAutomata.MakeBounded(A)
 module Empty = PredicateAutomata.MakeEmpty(A)
 module F = PaFormula
@@ -20,20 +21,15 @@ let of_cfa entry edges =
   let initial =
     mk_and (mk_atom "<!$>" []) (mk_forall (mk_atom "D" [Var 0]))
   in
-  let sigma =
+  let alphabet =
     List.fold_left
-      (fun s (_, a, _) -> BatSet.add a s)
-      BatSet.empty
+      (fun s (_, a, _) -> Alphabet.Set.add a s)
+      Alphabet.Set.empty
       edges
-    |> BatSet.elements
   in
   let mk_single x = "<" ^ x ^ ">" in
   let mk_pair x y = "<" ^ x ^ "," ^ y ^ ">" in
   let entry = mk_single entry in
-  let pa = A.make ("$"::sigma) ["loc"; entry] initial in
-  let ifeq x y phi psi =
-    mk_or (mk_and (mk_eq x y) phi) (mk_and (mk_neq x y) psi)
-  in
   let locations =
     List.fold_left
       (fun s (x, _, y) -> BatSet.add x (BatSet.add y s))
@@ -41,32 +37,49 @@ let of_cfa entry edges =
       edges
     |> BatSet.elements
   in
+  let pa =
+    let alphabet = Alphabet.Set.add "$" alphabet in
+    let vocabulary =
+      let pairs =
+        BatEnum.cartesian_product
+          (BatList.enum locations)
+          (BatList.enum locations)
+        /@ (fun (x, y) -> (mk_pair x y, 1))
+        |> BatList.of_enum
+      in
+      let singles =
+        List.map (fun x -> (mk_single x, 1)) locations
+      in
+      [("D", 1); ("loc", 0); ("<!$>", 0)]@(singles@pairs)
+    in
+    A.make alphabet vocabulary initial ["loc"; entry]
+  in
+  let ifeq x y phi psi =
+    mk_or (mk_and (mk_eq x y) phi) (mk_and (mk_neq x y) psi)
+  in
   (* Stable actions *)
   ApakEnum.cartesian_product (BatList.enum locations) (BatList.enum locations)
   |> BatEnum.iter (fun (x, y) ->
-      sigma |> BatList.iter (fun alpha ->
-          add_transition
-            pa
-            (mk_pair x y)
-            alpha (mk_and
-                     (mk_neq (Var 0) (Var 1))
-                     (mk_atom (mk_pair x y) [Var 1]))
-        )
-    );
+      add_transition
+        pa
+        (mk_pair x y)
+        alphabet
+        (mk_and
+           (mk_neq (Var 0) (Var 1))
+           (mk_atom (mk_pair x y) [Var 1])));
+
   locations |> BatList.iter (fun x ->
-      sigma |> BatList.iter (fun alpha ->
-          add_transition
-            pa
-            (mk_single x)
-            alpha
-            (mk_and
-               (mk_neq (Var 0) (Var 1))
-               (mk_atom (mk_single x) [Var 1]))
-        )
-    );
+      add_transition
+        pa
+        (mk_single x)
+        alphabet
+        (mk_and
+           (mk_neq (Var 0) (Var 1))
+           (mk_atom (mk_single x) [Var 1])));
 
   (* Initialization & movement*)
   edges |> List.iter (fun (src, a, tgt) ->
+      let a = Alphabet.Set.singleton a in
       add_transition pa "D" a (ifeq (Var 0) (Var 1)
                                  (mk_atom (mk_pair src tgt) [Var 1])
                                  (mk_atom "D" [Var 1]));
@@ -89,12 +102,12 @@ let of_cfa entry edges =
     );
 
   (* Dollar *)
+  let dollar = Alphabet.Set.singleton "$" in
   locations |> BatList.iter (fun x ->
-      add_transition pa (mk_pair x x) "$" (mk_atom (mk_single x) [Var 1])
+      add_transition pa (mk_pair x x) dollar (mk_atom (mk_single x) [Var 1])
     );
-  add_transition pa "D" "$" (mk_atom "loc" [Var 1]);
+  add_transition pa "D" dollar (mk_atom "loc" [Var 1]);
 
-  sigma |> List.iter (fun alpha ->
-      add_transition pa "<!$>" alpha mk_true
-    );
+  add_transition pa "<!$>" alphabet mk_true;
+
   pa

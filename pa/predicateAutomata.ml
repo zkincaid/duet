@@ -8,11 +8,23 @@ let pp_print_list ?(pp_sep=sep) pp_elt formatter xs =
 
 include Log.Make(struct let name = "pa" end)
 
-module type Sigma = sig
+module type Alphabet = sig
   type t
   val pp : Format.formatter -> t -> unit
   val hash : t -> int
   val equal : t -> t -> bool
+
+  module Set : sig
+    type elt = t
+    type t
+    val mem : elt -> t -> bool
+    val inter : t -> t -> t
+    val diff : t -> t -> t
+    val enum : t -> elt BatEnum.t
+    val choose : t -> elt
+    val is_empty : t -> bool
+    val equal : t -> t -> bool
+  end
 end
 
 module type Predicate = sig
@@ -28,139 +40,169 @@ module F = PaFormula
 module type S = sig
   type t
   type predicate
-  type alpha
+  type letter
+  type letter_set
   type formula = (predicate, int) PaFormula.formula
   type config
 
   module Config : Struct.S with type predicate = predicate
                             and type t = config
 
+  module LetterSet : sig
+    type t = letter_set
+    val mem : letter -> t -> bool
+    val inter : t -> t -> t
+    val enum : t -> letter BatEnum.t
+    val choose : t -> letter
+  end
+
   val pp : Format.formatter -> t -> unit
-  val pp_alpha : Format.formatter -> alpha -> unit
+  val pp_letter : Format.formatter -> letter -> unit
   val pp_ground : int -> Format.formatter -> t -> unit
   val pp_formula : Format.formatter -> formula -> unit
-  val make : alpha list -> predicate list -> formula -> t
-  val add_transition : t -> predicate -> alpha -> formula -> unit
-  val alphabet : t -> alpha BatEnum.t
+
+  val make : letter_set ->
+    (predicate * int) list ->
+    formula ->
+    predicate list ->
+    t
+  val add_predicate : t -> predicate -> int -> unit
+  val add_accepting : t -> predicate -> unit
+  val add_transition : t -> predicate -> letter_set -> formula -> unit
+  val conjoin_transition : t -> predicate -> letter_set -> formula -> unit
+  val alphabet : t -> letter_set
   val vocabulary : t -> (predicate * int) BatEnum.t
+  val mem_vocabulary : t -> predicate -> bool
+  val arity : t -> predicate -> int
   val initial : t -> formula
-  val negate : t -> t
-  val intersect : t -> t -> t
-  val union : t -> t -> t
-  val post : t -> formula -> alpha -> formula
-  val concrete_post : t -> formula -> (alpha * int) -> formula
-  val succs : t -> config -> (alpha * int) -> config BatEnum.t
-  val pred : t -> config -> (alpha * int) -> config
-(*
-  val bounded_empty : t -> int -> ((alpha * int) list) option
-  val bounded_invariant : t -> int -> formula -> ((alpha * int) list) option
-*)
+  val post : t -> formula -> letter -> formula
+  val concrete_post : t -> formula -> (letter * int) -> formula
+  val succs : t -> config -> (letter * int) -> config BatEnum.t
+  val successors : t -> config -> int -> (letter_set * config) BatEnum.t
+  val pred : t -> config -> (letter * int) -> config
   val accepting_formula : t -> formula -> bool
   val accepting : t -> config -> bool
+
+  val negate : t -> t
+  val union : t -> t -> t
+  val intersect : t -> t -> t
 end
 
-module Make (A : Sigma) (P : Predicate) = struct
+module Make (A : Alphabet) (P : Predicate) = struct
   type predicate = P.t
-  type alpha = A.t [@@deriving show]
+  type letter = A.t [@@deriving show]
+  type letter_set = A.Set.t
   type formula = (P.t, int) F.formula
   type atom = P.t * int list [@@deriving ord]
+
+  module PSet = BatSet.Make(P)
+  module PHT = BatHashtbl.Make(P)
+  module LetterSet = A.Set
 
   let pp_atom formatter (p,args) =
     Format.fprintf formatter "@[%a(%a)@]"
       P.pp p
       (ApakEnum.pp_print_enum Format.pp_print_int) (BatList.enum args)
 
-  module PSet = BatSet.Make(P)
-  module HT = BatHashtbl.Make(struct
-      type t = P.t * A.t
-      let equal (p, a) (q, b) = P.equal p q && A.equal a b
-      let hash (p, a) = Hashtbl.hash (P.hash p, A.hash a)
-    end)
-
-  type t =
-    { delta : formula HT.t;
-      sigma : A.t list;
-      accepting : PSet.t;
-      initial : formula; }
 
   (* A configuration is a finite structure over the vocabulary of the PA. *)
   module Config = Struct.Make(P)
   type config = Config.t
 
-  (* A configuration is accepting if it contains only accepting predicates *)
-  let accept pa config =
-    BatEnum.for_all (fun (x,_) -> PSet.mem x pa.accepting) (Config.props config)
+  type t =
+    { arity : int PHT.t;
+
+      (* Transition function is represented as a list of letter_set * formula
+         pairs.  If a given letter has multiple applicable transition rules
+         (i.e., belongs to more than one letter_set in the list), the rules
+         are interpreted disjunctively. *)
+      delta : ((letter_set * formula) list) PHT.t;
+
+      alphabet : letter_set;
+      mutable accepting : PSet.t;
+      initial : formula; }
 
   let initial pa = pa.initial
 
-  let find_transition pa predicate alpha =
-    try HT.find pa.delta (predicate, alpha)
-    with Not_found -> mk_false
+  let mem_vocabulary pa predicate = PHT.mem pa.arity predicate
 
-  let add_transition pa predicate alpha formula =
-    try
-      let old = HT.find pa.delta (predicate, alpha) in
-      HT.replace pa.delta (predicate, alpha) (mk_or old formula)
-    with Not_found -> HT.add pa.delta (predicate, alpha) formula
+  let arity pa predicate = PHT.find pa.arity predicate
 
-  let make sigma accepting initial =
-    { delta = HT.create 991;
-      sigma = sigma;
-      accepting = PSet.of_enum (BatList.enum accepting);
-      initial = initial }
+  let add_predicate pa predicate arity =
+    if mem_vocabulary pa predicate then
+      invalid_arg "PredicateAutomata.add_predicate: already belongs \
+                   to the vocabulary of the input PA"
+    else begin
+      PHT.add pa.arity predicate arity;
+      PHT.add pa.delta predicate []
+    end
 
-  module PHT = BatHashtbl.Make(P)
-  let vocabulary pa =
-    let ht = PHT.create 991 in
-    let add_predicate p arity =
-      try
-        if PHT.find ht p != arity then
-          failwith "Predicate used with different arities"
-      with Not_found -> PHT.add ht p arity
+  let add_accepting pa predicate =
+    if not (mem_vocabulary pa predicate) then
+      invalid_arg "PredicateAutomata.add_accepting: predicate does not belong \
+                   to the vocabulary of the input PA"
+    else
+      pa.accepting <- PSet.add predicate pa.accepting
+
+  let transitions pa predicate = PHT.find pa.delta predicate
+
+  let transition pa predicate letter =
+    (* Find all applicable transition rules and take the disjunction *)
+    List.fold_left (fun applicable (letters, rhs) ->
+        if LetterSet.mem letter letters then rhs::applicable
+        else applicable)
+      []
+      (transitions pa predicate)
+    |> BatList.enum
+    |> PaFormula.big_disj
+
+  let add_transition pa predicate letters rhs =
+    if not (mem_vocabulary pa predicate) then
+      invalid_arg "PredicateAutomata.add_transition: predicate does not belong \
+                   to the vocabulary of the input PA"
+    else if not (LetterSet.is_empty letters) then
+      PHT.replace
+        pa.delta
+        predicate
+        ((letters, rhs)::(PHT.find pa.delta predicate))
+
+  let conjoin_transition pa predicate letters rhs =
+    List.fold_left (fun rules (r_letters, r_rhs) ->
+        let intersect = LetterSet.inter letters r_letters in
+        if LetterSet.is_empty intersect then
+          (r_letters, r_rhs)::rules
+        else
+          let diff = LetterSet.diff r_letters letters in
+          let rules =
+            if LetterSet.is_empty diff then
+              rules
+            else
+              (diff, r_rhs)::rules
+          in
+          (intersect, PaFormula.mk_and r_rhs rhs)::rules)
+      []
+      (transitions pa predicate)
+    |> PHT.replace pa.delta predicate
+
+  let make alphabet vocabulary initial accepting =
+    let pa =
+      { delta = PHT.create 991;
+        arity = PHT.create 991;
+        alphabet = alphabet;
+        accepting = PSet.empty;
+        initial = initial }
     in
-    let add_formula phi =
-      let f = function
-        | `Atom (p, args) -> add_predicate p (List.length args)
-        | _ -> ()
-      in
-      eval f phi
-    in
-    add_formula pa.initial;
-    BatEnum.iter add_formula (HT.values pa.delta);
-    PHT.enum ht
+    List.iter (fun (q,ar) -> add_predicate pa q ar) vocabulary;
+    List.iter (add_accepting pa) accepting;
+    pa
 
-  let formula_predicates phi =
-    let f = function
-      | `Eq (_, _) | `Neq (_, _) -> PSet.empty
-      | `Atom (p, _) -> PSet.singleton p
-      | `Forall (_, x) | `Exists (_, x) -> x
-      | `And (x, y) | `Or (x, y) -> PSet.union x y
-      | `T | `F -> PSet.empty
-    in
-    eval f phi
+  let vocabulary pa = PHT.enum pa.arity
 
-  (* Get the set of all predicates which are used by a given PA *)
-  let predicates pa =
-    let formulas = HT.values pa.delta in
-    BatEnum.push formulas pa.initial;
-    BatEnum.fold
-      (fun set phi -> PSet.union (formula_predicates phi) set)
-      (PSet.of_enum (HT.keys pa.delta /@ fst))
-      formulas
+  let alphabet pa = pa.alphabet
 
-  let alphabet pa = BatList.enum pa.sigma
+  let same_alphabet pa qa = A.Set.equal pa.alphabet qa.alphabet
 
-  let complete pa =
-    ApakEnum.cartesian_product
-      (PSet.enum (predicates pa))
-      (BatList.enum pa.sigma)
-    |> BatEnum.iter (fun (predicate, letter) ->
-        if not (HT.mem pa.delta (predicate, letter))
-        then HT.add pa.delta (predicate, letter) mk_false)
-
-
-  let same_alphabet pa qa =
-    BatList.for_all2 (fun a b -> A.equal a b) pa.sigma qa.sigma
+  let predicates pa = PHT.keys pa.arity |> PSet.of_enum
       
   let disjoint_predicates pa qa =
     PSet.is_empty (PSet.inter (predicates pa) (predicates qa))
@@ -173,13 +215,15 @@ module Make (A : Sigma) (P : Predicate) = struct
       invalid_arg "PredicateAutomata.union: input automata must have equal \
                    alphabets";
     let union =
-      { delta = HT.copy pa.delta;
-        sigma = pa.sigma;
+      { delta = PHT.copy pa.delta;
+        arity = PHT.copy pa.arity;
+        alphabet = pa.alphabet;
         accepting = PSet.union pa.accepting qa.accepting;
         initial = mk_or pa.initial qa.initial }
     in
-    qa.delta |> HT.iter (fun (q, alpha) rhs ->
-        add_transition union q alpha rhs);
+    qa.arity |> PHT.iter (fun q arity -> add_predicate union q arity);
+    qa.delta |> PHT.iter (fun q rules -> PHT.replace union.delta q rules);
+
     union
 
   let intersect pa qa =
@@ -190,13 +234,14 @@ module Make (A : Sigma) (P : Predicate) = struct
       invalid_arg "PredicateAutomata.union: input automata must have equal \
                    alphabets";
     let inter =
-      { delta = HT.copy pa.delta;
-        sigma = pa.sigma;
+      { delta = PHT.copy pa.delta;
+        arity = PHT.copy pa.arity;
+        alphabet = pa.alphabet;
         accepting = PSet.union pa.accepting qa.accepting;
         initial = mk_and pa.initial qa.initial }
     in
-    qa.delta |> HT.iter (fun (q, alpha) rhs ->
-        add_transition inter q alpha rhs);
+    qa.arity |> PHT.iter (fun q arity -> add_predicate inter q arity);
+    qa.delta |> PHT.iter (fun q rules -> PHT.replace inter.delta q rules);
     inter
 
   (* Negates a formula, except that atomic (non-equality) propositions are
@@ -216,25 +261,33 @@ module Make (A : Sigma) (P : Predicate) = struct
     eval f phi
 
   let negate pa =
-    let predicates = predicates pa in
+    let accepting =
+      BatEnum.filter (not % flip PSet.mem pa.accepting) (PHT.keys pa.arity)
+      |> PSet.of_enum
+    in
     let neg_pa =
-      { delta = HT.create 991;
-        sigma = pa.sigma;
-        accepting = PSet.filter (not % flip PSet.mem pa.accepting) predicates;
+      { arity = PHT.copy pa.arity;
+        delta = PHT.create 991;
+        alphabet = pa.alphabet;
+        accepting = accepting;
         initial = negate_formula pa.initial; }
     in
-    ApakEnum.cartesian_product (PSet.enum predicates) (BatList.enum pa.sigma)
-    |> BatEnum.iter (fun (p, a) ->
-        add_transition neg_pa p a (negate_formula (find_transition pa p a)));
+
+    PHT.keys pa.arity |> BatEnum.iter (fun q ->
+        PHT.add neg_pa.delta q [(pa.alphabet, mk_true)]);
+
+    pa.delta |> PHT.iter (fun q rules ->
+        rules |> List.iter (fun (letters, rhs) ->
+            conjoin_transition neg_pa q letters (negate_formula rhs)));
     neg_pa
 
-  let post pa phi alpha =
+  let post pa phi letter =
     let rec go depth phi =
       match F.destruct phi with
       | `And (phi, psi) -> mk_and (go depth phi) (go depth psi)
       | `Or (phi, psi) -> mk_or (go depth phi) (go depth psi)
       | `Atom (head, args) ->
-        let rhs = find_transition pa head alpha in
+        let rhs = transition pa head letter in
         let subs n =
           if n = 0 then Var depth
           else
@@ -253,8 +306,8 @@ module Make (A : Sigma) (P : Predicate) = struct
     in
     mk_exists (go 0 phi)
 
-  let concrete_post pa phi (alpha,i) =
-    match F.destruct (post pa phi alpha) with
+  let concrete_post pa phi (letter,i) =
+    match F.destruct (post pa phi letter) with
     | `Exists (_, psi) ->
       let f = function
         | 0 -> Const i
@@ -288,7 +341,7 @@ module Make (A : Sigma) (P : Predicate) = struct
         (BatList.of_enum (1 -- universe))
     in
     List.fold_right
-      (fun (alpha, i) phi -> concrete_post pa phi (alpha, i))
+      (fun (letter, i) phi -> concrete_post pa phi (letter, i))
       word
       start
     |> accepting_formula pa
@@ -307,9 +360,9 @@ module Make (A : Sigma) (P : Predicate) = struct
         let arg_names =
           (0 -- (k-1)) /@ free_name |> BatList.of_enum
         in
-        pa.sigma |> List.iter (fun alpha ->
+        pa.alphabet |> LetterSet.enum |> BatEnum.iter (fun letter ->
             let rhs =
-              find_transition pa p alpha
+              transition pa p letter
               (* Constant symbols shouldn't exist *)
               |> F.substitute undefined
               |> F.var_substitute (fun i ->
@@ -320,7 +373,7 @@ module Make (A : Sigma) (P : Predicate) = struct
             Format.fprintf formatter "%a(%a) --( %a : %s )-> %a.@\n"
               P.pp p
               (pp_print_list Format.pp_print_string) arg_names
-              A.pp alpha
+              A.pp letter
               (free_name k)
               (F.pp P.pp Format.pp_print_string) rhs
           );
@@ -369,9 +422,9 @@ module Make (A : Sigma) (P : Predicate) = struct
     let (pp_bit_rep, bits) =
       let next = ref (-1) in
       let ht = Hashtbl.create 991 in
-      BatEnum.iter (fun (alpha,i) ->
-          incr next; Hashtbl.add ht (alpha,i) (!next)
-        ) (ApakEnum.cartesian_product (BatList.enum pa.sigma) (1 -- size));
+      BatEnum.iter (fun (letter,i) ->
+          incr next; Hashtbl.add ht (letter,i) (!next)
+        ) (ApakEnum.cartesian_product (LetterSet.enum pa.alphabet) (1 -- size));
       let nb_bits =
         let rec lg index n =
           if n = 0 then index else lg (index + 1) (n / 2)
@@ -379,7 +432,7 @@ module Make (A : Sigma) (P : Predicate) = struct
         lg 0 (!next)
       in
 
-      let pp_bit_rep formatter (alpha, k) =
+      let pp_bit_rep formatter (letter, k) =
         let rec go index id =
           let p = "p" ^ (string_of_int index) in
           if index == nb_bits then []
@@ -390,7 +443,7 @@ module Make (A : Sigma) (P : Predicate) = struct
           ~pp_sep:(fun formatter () -> fprintf formatter "@ & ")
           pp_print_string
           formatter
-          (go 0 (Hashtbl.find ht (alpha, k)))
+          (go 0 (Hashtbl.find ht (letter, k)))
       in
       (pp_bit_rep, nb_bits)
     in
@@ -422,11 +475,11 @@ module Make (A : Sigma) (P : Predicate) = struct
           (BatList.of_enum (1 -- size)))
        |> F.simplify);
     let pp_tr formatter (p, tuple) =
-      let pp_atr formatter (alpha, k) =
+      let pp_atr formatter (letter, k) =
         let rhs =
           F.instantiate_quantifiers
             ~env:(k::tuple)
-            (find_transition pa p alpha)
+            (transition pa p letter)
             (BatList.of_enum (1 -- size))
           |> F.simplify
         in
@@ -434,7 +487,7 @@ module Make (A : Sigma) (P : Predicate) = struct
         | `F -> pp_print_string formatter "false"
         | _ ->
           fprintf formatter "%a@ & %a"
-            pp_bit_rep (alpha, k)
+            pp_bit_rep (letter, k)
             (pp_ground_formula get_prop_id) rhs
       in
       fprintf formatter "%d : \"\"\"%a\"\"\""
@@ -442,7 +495,7 @@ module Make (A : Sigma) (P : Predicate) = struct
         (ApakEnum.pp_print_enum
            ~pp_sep:(fun formatter () -> fprintf formatter "@ | ")
            pp_atr)
-        (ApakEnum.cartesian_product (BatList.enum pa.sigma) (1 -- size))
+        (ApakEnum.cartesian_product (LetterSet.enum pa.alphabet) (1 -- size))
     in
     fprintf formatter "transition_function = {@\n  %a@\n},@\n"
       (ApakEnum.pp_print_enum
@@ -461,17 +514,18 @@ module Make (A : Sigma) (P : Predicate) = struct
              None) |> BatEnum.concat);
     fprintf formatter "@]@\n)@\n"
     
+  (* A configuration is accepting if it contains only accepting predicates *)
   let accepting pa config =
     BatEnum.for_all (fun (x,_) -> PSet.mem x pa.accepting) (Config.props config)
 
   exception No_succs
-  let succs pa config (alpha, i) =
+  let succs pa config (letter, i) =
     let succ_size = max (Config.universe_size config) i in
     let next_prop (head, args) =
-      let rhs = find_transition pa head alpha in
+      let rhs = transition pa head letter in
       let min_models = Config.min_models ~env:(i::args) succ_size rhs in
       if BatEnum.is_empty min_models then begin
-        (*        logf ~level:`trace "   %a has no successors" pp_atom (head, args);*)
+        (* logf ~level:`trace "   %a has no successors" pp_atom (head, args);*)
         raise No_succs
       end;
       min_models
@@ -484,7 +538,7 @@ module Make (A : Sigma) (P : Predicate) = struct
       |> BatEnum.reduce combine
     with No_succs -> BatEnum.empty ()
 
-  let pred pa config (alpha, i) =
+  let pred pa config (letter, i) =
     let universe = Config.universe_size config in
     vocabulary pa
     /@ (fun (p, k) ->
@@ -494,7 +548,7 @@ module Make (A : Sigma) (P : Predicate) = struct
             if Config.models
                 ~env:(i::tuple)
                 config
-                (find_transition pa p alpha)
+                (transition pa p letter)
             then
               Some (p, tuple)
             else
@@ -502,17 +556,41 @@ module Make (A : Sigma) (P : Predicate) = struct
           )
         |> Config.make ~size:universe)
     |> BatEnum.fold Config.union (Config.empty universe)
+
+  let successors pa config index =
+    let combine_one (letters, succ) (letters', succ') =
+      let combined_letters = LetterSet.inter letters letters' in
+      if LetterSet.is_empty combined_letters then None
+      else Some (combined_letters, Config.union succ succ')
+    in
+    let combine transitions transitions' =
+      List.concat
+        (List.map (fun (letters, succ) ->
+             BatList.filter_map (combine_one (letters, succ)) transitions')
+            transitions)
+    in
+    let succ_size = max (Config.universe_size config) index in
+    Config.props config
+    /@ (fun (q, tuple) ->
+        let f (letter_set, rhs) =
+          Config.min_models ~env:(index::tuple) succ_size rhs
+          /@ (fun m -> (letter_set, m))
+          |> BatList.of_enum
+        in
+        List.concat (List.map f (transitions pa q)))
+    |> BatEnum.fold combine [(alphabet pa, Config.empty succ_size)]
+    |> BatList.enum
 end
 
 module MakeReachabilityGraph (A : sig
     type t
-    type alpha
+    type letter
     type config
     type predicate
     module Config : Struct.S with type predicate = predicate
                               and type t = config
-    val pp_alpha : Format.formatter -> alpha -> unit
-    val successors : t -> config -> (alpha * int * config) BatEnum.t
+    val pp_letter : Format.formatter -> letter -> unit
+    val successors : t -> config -> (letter * int * config) BatEnum.t
   end) = struct
   open A
   type id = int
@@ -531,7 +609,7 @@ module MakeReachabilityGraph (A : sig
     { mutable worklist : WVSet.t;
       pa : t;
       label : config DA.t;
-      parent : ((alpha * int * id) option) DA.t; (* Invariant: label & parent
+      parent : ((letter * int * id) option) DA.t; (* Invariant: label & parent
                                                     should always have the
                                                     same length *)
       cover : (id,id) Hashtbl.t (* partial maps a vertex v to a vertex u such
@@ -569,7 +647,7 @@ module MakeReachabilityGraph (A : sig
     logf "%a" Config.pp (label arg v);
     match parent arg v with
     | Some (a,i,p) ->
-      logf "  <%a : %d>" pp_alpha a i;
+      logf "  <%a : %d>" pp_letter a i;
       print_path_to_root arg p
     | None -> ()
 
@@ -607,13 +685,13 @@ module MakeReachabilityGraph (A : sig
     let config = label arg vertex in
     logf ~level:`trace ~attributes:[`Blue;`Bold] "Expanding vertex:";
     logf ~level:`trace "@[[%d] %a" vertex Config.pp config;
-    let add_succ (alpha, k, config) =
+    let add_succ (letter, k, config) =
       let succ_vertex =
-        add_vertex arg ~parent:(Some (alpha, k, vertex)) config
+        add_vertex arg ~parent:(Some (letter, k, vertex)) config
       in
       logf ~level:`trace " --(%d : %a)->@\n  @[[%d] %a@]"
         k
-        pp_alpha alpha
+        pp_letter letter
         succ_vertex
         Config.pp config
     in
@@ -635,11 +713,9 @@ module MakeReachabilityGraph (A : sig
       | Some (a,i,p) ->
         if Config.embeds (label arg p) config then begin
           add_cover arg p vertex;
-          logf ~level:`trace ~attributes:[`Green;`Bold]
-            "Covered vertex: [%d] %a"
-            vertex
-            Config.pp config;
-          logf ~level:`trace " by ancestor [%d] %a" p Config.pp (label arg p);
+          logf ~level:`trace ~attributes:[`Green;`Bold] "Covered vertex:";
+          logf ~level:`trace " [%d] %a" vertex Config.pp config;
+          logf ~level:`trace "by ancestor@\n [%d] %a" p Config.pp (label arg p);
           true
         end else find_covering_ancestor p
       | None -> false
@@ -671,33 +747,67 @@ end
 
 module MakeEmpty (A : sig
     type t
-    type alpha
+    type letter
+    type letter_set
     type config
     type predicate
     type formula = (predicate, int) PaFormula.formula
     module Config : Struct.S with type predicate = predicate
                               and type t = config
-    val pp_alpha : Format.formatter -> alpha -> unit
-    val alphabet : t -> alpha BatEnum.t
-    val succs : t -> config -> (alpha * int) -> config BatEnum.t
+    module LetterSet : sig
+      type t = letter_set
+      val choose : t -> letter
+    end
+    val pp_letter : Format.formatter -> letter -> unit
+    val alphabet : t -> letter_set
+    val successors : t -> config -> int -> (letter_set * config) BatEnum.t
     val accepting : t -> config -> bool
     val initial : t -> formula
-  end) = struct
+    val conjoin_transition : t -> predicate -> letter_set -> formula -> unit
+    val add_transition : t -> predicate -> letter_set -> formula -> unit
+    val add_predicate : t -> predicate -> int -> unit
+    val add_accepting : t -> predicate -> unit
+    val mem_vocabulary : t -> predicate -> bool
+    val vocabulary : t -> (predicate * int) BatEnum.t
+    val pp : Format.formatter -> t -> unit
+  end) =
+struct
   open A
 
   module Arg = MakeReachabilityGraph(struct
       include A
       let successors pa config =
-        ApakEnum.cartesian_product
-          (alphabet pa)
-          (1 -- (Config.universe_size config + 1))
-        /@ (fun (alpha, k) ->
-            succs pa config (alpha, k)
-            /@ (fun s -> (alpha, k, s)))
+        (1 -- (Config.universe_size config + 1))
+        /@ (fun i ->
+            A.successors pa config i
+            /@ (fun (letters, succ) -> (A.LetterSet.choose letters, i, succ)))
         |> BatEnum.concat
     end)
 
-  let empty pa =
+  (* Trivial incremental solver: just re-run the emptiness query from
+     scratch *)
+  type solver = A.t
+
+  let mk_solver pa = pa
+  let pp = A.pp
+
+  let add_predicate pa predicate arity =
+    A.add_predicate pa predicate arity;
+    A.add_transition pa predicate (A.alphabet pa) PaFormula.mk_true
+
+  let add_accepting_predicate pa predicate arity =
+    add_predicate pa predicate arity;
+    A.add_accepting pa predicate
+
+  let conjoin_transition = A.conjoin_transition
+
+  let mem_vocabulary = A.mem_vocabulary
+
+  let alphabet = A.alphabet
+
+  let vocabulary = A.vocabulary
+
+  let find_word pa =
     let rec fix arg =
       match Arg.pick_worklist arg with
       | Some v ->
@@ -727,12 +837,10 @@ module MakeBounded (A : S) = struct
   module Arg = MakeReachabilityGraph(struct
       include A
       let successors pa config =
-        ApakEnum.cartesian_product
-          (alphabet pa)
-          (Config.universe config)
-        /@ (fun (alpha, k) ->
-            succs pa config (alpha, k)
-            /@ (fun s -> (alpha, k, s)))
+        Config.universe config
+        /@ (fun i ->
+            A.successors pa config i
+            /@ (fun (letters, succ) -> (A.LetterSet.choose letters, i, succ)))
         |> BatEnum.concat
     end)
 
@@ -762,5 +870,4 @@ module MakeBounded (A : S) = struct
   let bounded_empty pa size = bounded_search pa size (accepting pa)
   let bounded_invariant pa size phi =
     bounded_search pa size (not % flip Config.models phi)
-
 end

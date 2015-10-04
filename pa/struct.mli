@@ -42,9 +42,14 @@ module type S = sig
       into the second? *)
   val embeds : t -> t -> bool
 
+  (** [union s s'] is a structure whose universe is the union of the universes
+      of [s] and [s'] and whose interpretation of each predicate [p] is the
+      union of its interpretation in [s] and [s']. *)
   val union : t -> t -> t
 
   val empty : int -> t
+
+  (** [full vocabulary] is the largest structure over the given vocabulary *)
   val full : (predicate * int) BatEnum.t -> int -> t
 
   val add : predicate -> int list -> t -> t

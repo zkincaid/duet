@@ -76,6 +76,25 @@ module PA = PredicateAutomata.Make
       let pp formatter p = Format.fprintf formatter "{%a}" pp p
     end)
 
+module E = PredicateAutomata.MakeEmpty(PA)
+
+(* Negate a PA formula.  Atoms are left unchanged, predicates in the resulting
+   formula should be interpreted negatively.  negate_paformula is only applied
+   to the right hand side of transitions in PAs corresponding to proof
+   spaces. *)
+let negate_paformula =
+  let open PaFormula in
+  PaFormula.eval (function
+      | `T -> mk_false
+      | `F -> mk_true
+      | `Atom (predicate, terms) -> mk_atom predicate terms
+      | `And (phi, psi) -> mk_or phi psi
+      | `Or (phi, psi) -> mk_and phi psi
+      | `Forall (name, body) -> mk_exists ~name body
+      | `Exists (name, body) -> mk_forall ~name body
+      | `Eq (s, t) -> mk_neq s t
+      | `Neq (s, t) -> mk_eq s t)
+
 (* Determine the arity of a predicate (i.e., the number of distinct threads
    whose local variables appear in the predicate).  This function assumes
    that expressions are "normal" in the sense that thread id's have been
@@ -86,31 +105,87 @@ let arity phi =
   in
   BatEnum.fold f 0 (VarSet.enum (P.constants phi))
 
-let add_stable pa phi =
-  let program_vars = P.constants phi in
-  let arity = arity phi in
+(* not_assign is a set of all definitions which are not assignments.  assign
+   maps each variable to the set of definitions which assign to it *)
+type assign_table =
+  { not_assign : Def.Set.t;
+    assign : Def.Set.t Var.Map.t }
+
+let get_assign v table =
+  try Var.Map.find v table.assign
+  with Not_found -> Def.Set.empty
+
+let make_assign_table alphabet =
+  let assign = ref Var.Map.empty in
+  let find_assign v =
+    try Var.Map.find v (!assign)
+    with Not_found -> Def.Set.empty
+  in
+  let add_assign v def =
+    let defs = Def.Set.add def (find_assign v) in
+    assign := Var.Map.add v defs (!assign)
+  in
+  let not_assign = ref Def.Set.empty in
+  let add_not_assign def = not_assign := Def.Set.add def (!not_assign) in
+  let add_def def =
+    match def.dkind with
+    | Assign (v, expr) ->
+      add_assign v def
+    | _ -> add_not_assign def
+  in
+  Def.Set.iter add_def alphabet;
+  { not_assign = !not_assign;
+    assign = !assign }
+
+(* Given an assertion phi, add transitions corresponding to Hoare triples of
+   the form { phi } def { phi }, where def does not assign to any variable in
+   phi. *)
+let add_stable solver assign_table assertion =
+  let program_vars = P.constants assertion in
+  let unindexed_program_vars =
+    VarSet.enum program_vars /@ fst |> Var.Set.of_enum
+  in
+  let arity = arity assertion in
   let stable =
     PaFormula.mk_atom
-      phi
+      assertion
       (BatList.of_enum ((1 -- arity) /@ (fun i -> PaFormula.Var i)))
   in
-  PA.alphabet pa |> BatEnum.iter (fun def ->
-      let open PaFormula in
-      let rhs =
-        match def.dkind with
-        | Assign (v, expr) ->
-          if Var.is_shared v && VarSet.mem (v, 0) program_vars then
-            mk_false
+  let f v v_defs stable_defs =
+    if Var.Set.mem v unindexed_program_vars then
+      stable_defs
+    else
+      Def.Set.union v_defs stable_defs
+  in
+
+  (* Add stable transition for definitions which do not write to any variable
+     that appears in assertion *)
+  E.conjoin_transition
+    solver
+    assertion
+    (Var.Map.fold f assign_table.assign assign_table.not_assign)
+    (negate_paformula stable);
+
+  (* Add conditional stable transitions for definitions which write to local
+     variables that appear in the assertion *)
+  let add_stable v =
+    let rhs =
+      (1 -- arity) |> BatEnum.fold (fun rhs i ->
+          let open PaFormula in
+          if VarSet.mem (v, i) program_vars then
+            mk_and rhs (mk_neq (Var 0) (Var i))
           else
-            (1 -- arity) |> BatEnum.fold (fun rhs i ->
-                if VarSet.mem (v, i) program_vars then
-                  mk_and rhs (mk_neq (Var 0) (Var i))
-                else
-                  rhs)
-              stable
-        | _ -> stable
-      in
-      PA.add_transition pa phi def rhs)
+            rhs)
+        stable
+    in
+    E.conjoin_transition
+      solver
+      assertion
+      (get_assign v assign_table)
+      (negate_paformula rhs)
+  in
+  unindexed_program_vars |> Var.Set.iter (fun v ->
+      if not (Var.is_shared v) then add_stable v)
 
 (* Subscripting *)
 type ss =
@@ -292,7 +367,7 @@ let trace_formulae trace =
   in
   List.rev (snd (List.fold_left f (ss_init, []) trace))
 
-let construct ipa trace =
+let construct solver assign_table trace =
   let rec go post = function
     | ((i, tr, phi)::rest) ->
       let phis = BatList.map (fun (_,_,phi) -> phi) rest in
@@ -303,29 +378,39 @@ let construct ipa trace =
         | _ ->
           Log.fatalf "Failed to interpolate! %a / %a" P.pp a P.pp b
       in
+      let letters = Def.Set.singleton tr in
       if P.compare (unsubscript post) (unsubscript itp) = 0 then begin
         Log.logf "Skipping transition: [#%d] %a" i Def.pp tr;
         let (_, lhs, rhs) = generalize i post itp in
-        PA.add_transition ipa lhs tr rhs;
+        let lhs_arity = arity lhs in
+        if not (E.mem_vocabulary solver lhs) then begin
+          E.add_accepting_predicate solver lhs lhs_arity;
+          add_stable solver assign_table lhs
+        end;
+        E.conjoin_transition solver lhs letters (negate_paformula rhs);
         go itp rest
       end else begin
         BatEnum.iter (flip go rest) (P.conjuncts itp);
         let (_, lhs, rhs) = generalize i post itp in
-        add_stable ipa lhs;
+        let lhs_arity = arity lhs in
+        if not (E.mem_vocabulary solver lhs) then begin
+          E.add_accepting_predicate solver lhs lhs_arity;
+          add_stable solver assign_table lhs
+        end;
         Log.logf
           "Added PA transition:@\n @[{%a}(%a)@]@\n --( [#0] %a )-->@\n @[%a@]"
           P.pp lhs
-          (ApakEnum.pp_print_enum Format.pp_print_int) (1 -- arity lhs)
+          (ApakEnum.pp_print_enum Format.pp_print_int) (1 -- lhs_arity)
           Def.pp tr
           PA.pp_formula rhs;
-        PA.add_transition ipa lhs tr rhs
+        E.conjoin_transition solver lhs letters (negate_paformula rhs)
       end
 
     | [] -> assert false
   in
   go Ctx.mk_false (List.rev (trace_formulae trace))
-let construct ipa trace =
-  Log.time "PA construction" (construct ipa) trace
+let construct solver trace =
+  Log.time "PA construction" (construct solver) trace
 
 module PHT = Hashtbl.Make(P)
 module PSet = BatSet.Make(P)
@@ -373,63 +458,75 @@ let program_automaton file rg =
     | Assert (_, _) -> true
     | _ -> false
   in
-  let sigma =
-    let sigma = ref [] in
+  let alphabet =
+    let alphabet = ref Def.Set.empty in
     RG.vertices rg |> BatEnum.iter (fun (_, def) ->
-        sigma := def::(!sigma);
-        if is_assert def then sigma := (err_tr def)::(!sigma)
+        alphabet := Def.Set.add def (!alphabet);
+        if is_assert def then alphabet := Def.Set.add (err_tr def) (!alphabet)
       );
     RG.blocks rg |> BatEnum.iter (fun thread ->
         if not (Varinfo.equal thread main) then
-          sigma := (init_tr thread)::(!sigma)
+          alphabet := Def.Set.add (init_tr thread) (!alphabet)
       );
-    !sigma
+    !alphabet
   in
-
+  let vocabulary =
+    let vocab = ref [(loc, 0); (err, 0); (atomic, 1)] in
+    RG.vertices rg |> BatEnum.iter (fun (_, def) ->
+        vocab := (loc_pred def, 1)::(!vocab));
+    RG.blocks rg |> BatEnum.iter (fun func ->
+        vocab := (loc_pred (init_tr func), 1)::(!vocab));
+    !vocab
+  in
   let initial_formula =
     PaFormula.mk_and (PaFormula.mk_atom loc []) (PaFormula.mk_atom err [])
   in
   let pa =
-    PA.make sigma [loc; loc_pred (RG.block_entry rg main)] initial_formula
+    PA.make
+      alphabet
+      vocabulary
+      initial_formula
+      [loc; loc_pred (RG.block_entry rg main)]
+  in
+  let add_single_transition lhs letter rhs =
+    PA.add_transition pa lhs (Def.Set.singleton letter) rhs
   in
 
   BatEnum.iter (fun (thread, body) ->
       let open PaFormula in
       RG.G.iter_edges (fun u v ->
           (* delta(tgt(sigma)(i),sigma:j) = (i = j) *)
-          PA.add_transition pa (loc_pred v) u (mk_eq (Var 0) (Var 1))
+          add_single_transition (loc_pred v) u (mk_eq (Var 0) (Var 1))
         ) body;
 
       RG.G.iter_vertex (fun u ->
           begin match u.dkind with
-          | Builtin AtomicEnd ->
-            PA.add_transition pa loc u
+            | Builtin AtomicEnd ->
               (* delta(loc, sigma:i) = loc /\ src(sigma)(i) /\ atomic(i) *)
-              (mk_and
-                 (mk_and (mk_atom loc []) (mk_atom atomic [Var 0]))
-                 (mk_atom (loc_pred u) [Var 0]));
-          | _ ->
-            (* delta(loc, sigma:i) = loc /\ src(sigma)(i) *)
-            PA.add_transition pa loc u (mk_and
-                                          (mk_atom loc [])
-                                          (mk_atom (loc_pred u) [Var 0]))
+              add_single_transition loc u
+                (mk_and
+                   (mk_and (mk_atom loc []) (mk_atom atomic [Var 0]))
+                   (mk_atom (loc_pred u) [Var 0]));
+            | _ ->
+              (* delta(loc, sigma:i) = loc /\ src(sigma)(i) *)
+              add_single_transition loc u (mk_and
+                                             (mk_atom loc [])
+                                             (mk_atom (loc_pred u) [Var 0]))
           end;
-            
+          Log.logf "1.1";
           begin match u.dkind with
-            | Builtin AtomicBegin -> PA.add_transition pa atomic u mk_true
+            | Builtin AtomicBegin -> add_single_transition atomic u mk_true
             | _ -> 
-              PA.add_transition pa atomic u
+              add_single_transition atomic u
                 (mk_and (mk_eq (Var 0) (Var 1)) (mk_atom atomic [Var 1]))
           end;
-
           match u.dkind with
           | Assert (_, _) ->
             (* Guarded transition to the error state *)
-            PA.add_transition pa err (err_tr u) mk_true;
+            add_single_transition err (err_tr u) mk_true;
 
             (* delta(loc, sigma:i) = loc /\ src(sigma)(i) *)
-            PA.add_transition
-              pa
+            add_single_transition
               loc
               (err_tr u)
               (mk_and (mk_atom loc []) (mk_atom (loc_pred u) [Var 0]))
@@ -440,18 +537,17 @@ let program_automaton file rg =
               | AddrOf (Variable (func, OffsetFixed 0)) -> func
               | _ -> assert false
             in
-            let init = loc_pred (init_tr func) in
-            PA.add_transition pa init u mk_true
+            add_single_transition (loc_pred (init_tr func)) u mk_true
           | _ -> ()
         ) body;
 
       if not (Varinfo.equal thread main) then begin
         let entry = loc_pred (RG.block_entry rg thread) in
         let init = init_tr thread in
-        PA.add_transition pa loc init (mk_atom loc []);
-        PA.add_transition pa entry init (mk_and
-                                           (mk_eq (Var 0) (Var 1))
-                                           (mk_atom (loc_pred init) [Var 0]))
+        add_single_transition loc init (mk_atom loc []);
+        add_single_transition entry init (mk_and
+                                            (mk_eq (Var 0) (Var 1))
+                                            (mk_atom (loc_pred init) [Var 0]))
       end
     ) (RG.bodies rg);
 
@@ -464,38 +560,48 @@ let program_automaton file rg =
       RG.vertices rg |> BatEnum.iter (fun (vblk, v) ->
           (* only one copy of main is running *)
           if not (Varinfo.equal ublk main) || not (Varinfo.equal vblk main) then
-            PA.add_transition pa u v rhs);
+            add_single_transition u v rhs);
       RG.blocks rg |> BatEnum.iter (fun thread ->
           if not (Varinfo.equal thread main) then
-            PA.add_transition pa u (init_tr thread) rhs));
+            add_single_transition u (init_tr thread) rhs));
 
   pa
-
-module E = PredicateAutomata.MakeEmpty(PA)
-let empty = E.empty
 
 let verify file =
   let open PA in
   let rg = Interproc.remove_skip (Interproc.make_recgraph file) in
   let program_pa = program_automaton file rg in
-  let pf =
+  let assign_table = make_assign_table (alphabet program_pa) in
+
+  let empty_proofspace_pa =
     PA.make
-      (BatList.of_enum (PA.alphabet program_pa))
-      []
+      (alphabet program_pa)
+      [(Ctx.mk_false, 0)]
       (PaFormula.mk_atom Ctx.mk_false [])
+      []
+  in
+  (* { false } def { false } *)
+  PA.add_transition
+    empty_proofspace_pa
+    Ctx.mk_false
+    (alphabet program_pa)
+    (PaFormula.mk_atom Ctx.mk_false []);
+
+  let solver =
+    E.mk_solver (PA.intersect program_pa (PA.negate empty_proofspace_pa))
   in
 
-  let check pf =
-    Log.time "PA emptiness" empty (PA.intersect program_pa (PA.negate pf))
+  let check () =
+    Log.time "PA emptiness" E.find_word solver
   in
   let number_cex = ref 0 in
   let print_info () =
     logf ~level:`info "  PA predicates: %d"
-      (BatEnum.count (PA.vocabulary pf));
+      (BatEnum.count (E.vocabulary solver));
     logf ~level:`info "  Spurious counter-examples: %d " !number_cex;
   in
   let rec loop () =
-    match check pf with
+    match check () with
     | Some trace ->
       logf ~attributes:[`Bold] "@\nFound error trace (%d):" (!number_cex);
       List.iter (fun (def, id) ->
@@ -517,7 +623,7 @@ let verify file =
               logf ~level:`info "    [#%d] %a" id Def.pp def
             ) trace
         | `Unsat ->
-          construct pf trace;
+          construct solver assign_table trace;
           incr number_cex;
           loop ()
         | `Unknown ->

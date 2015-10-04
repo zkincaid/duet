@@ -93,7 +93,7 @@ let complement = A.negate
 let intersect = A.intersect
 
 let print_post_formula pa phi =
-  BatEnum.iter (fun alpha ->
+  Alphabet.Set.iter (fun alpha ->
       logf "Post %a:@\n  @[%a@]"
         Format.pp_print_string alpha
         (F.pp Format.pp_print_string Format.pp_print_int)
@@ -117,7 +117,7 @@ let bounded_check_emptiness_certificate pa phi =
               end
             ) (A.succs pa config label)
         ) (ApakEnum.cartesian_product
-             (A.alphabet pa)
+             (Alphabet.Set.enum (A.alphabet pa))
              (A.Config.universe config))
     ) (A.Config.min_models 2 phi)
 
@@ -201,7 +201,7 @@ let check_emptiness_certificate pa phi =
   let pp phi =
     F.tptp3_pp pp_rel Format.pp_print_int phi
   in
-  BatEnum.iter (fun alpha ->
+  Alphabet.Set.iter (fun alpha ->
       let file = Filename.temp_file "inv-check" ".p" in
       let chan = open_out file in
       let fmt = Format.formatter_of_out_channel chan in
@@ -218,7 +218,7 @@ let check_emptiness_certificate pa phi =
 let check_emptiness_certificate pa phi =
   let ctx = new Smt.ctx [("model", "true")] in
   BatEnum.iter (fun (p, arity) -> ctx#register_rel p arity) (A.vocabulary pa);
-  BatEnum.iter (fun alpha ->
+  Alphabet.Set.iter (fun alpha ->
       let post = A.post pa phi alpha in
       match entailment_cex ctx (A.vocabulary pa) post phi with
       | Some m ->
@@ -310,7 +310,7 @@ let _ =
     A.pp_ground size Format.std_formatter pa
   | "empty" ->
     let pa = load_automaton Sys.argv.(2) in
-    begin match Empty.empty pa with
+    begin match Empty.find_word (Empty.mk_solver pa) with
       | None ->
         logf ~level:`always
           "The input predicate automaton accepts an empty language"
