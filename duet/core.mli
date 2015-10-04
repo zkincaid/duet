@@ -20,7 +20,7 @@ type ctyp =
   | Int       of int
   | Float     of int
   | Pointer   of typ
-  | Array     of typ * int option 
+  | Array     of typ * (int * int) option
   | Record    of recordinfo
   | Enum      of enuminfo
   | Func      of typ * typ list (** A function type consists of a return type

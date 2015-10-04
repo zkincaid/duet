@@ -41,7 +41,7 @@ class arrayAccessVisitor = object (self)
                 offset)
     | Var v, Index (idx, offset) ->
       ChangeTo (Mem (BinOp (PlusPI,
-                            Lval (Var v, NoOffset),
+                            Cil.mkAddrOf (Var v, NoOffset),
                             idx,
                             v.vtype)),
                 offset)
@@ -229,8 +229,8 @@ and tr_ctyp =
   | Cil.TFloat (fk, _) as typ -> Float (type_size typ)
   | Cil.TPtr (base, _) -> Pointer (tr_typ base)
   | Cil.TArray (base, None, _) -> Array (tr_typ base, None)
-  | Cil.TArray (base, Some expr, _) ->
-    Array (tr_typ base, Some (calc_expr expr))
+  | Cil.TArray (base, Some expr, _) as typ ->
+    Array (tr_typ base, Some (calc_expr expr, type_size typ))
   | Cil.TEnum (en, _) ->
     Enum {enname = en.Cil.ename;
           enitems = List.map tr_enumi en.Cil.eitems}
@@ -628,15 +628,10 @@ let tr_func f =
         assert false
       end
   in
-  let initialization =
-    List.map
-      (CfgIr.CfgBuilder.mk_single cfg)
-      (List.fold_right add_array_initializer f.Cil.slocals [])
-  in
   let body =
     CfgIr.CfgBuilder.mk_block
       cfg
-      (initialization@(List.map (tr_stmt ctx) f.Cil.sbody.Cil.bstmts))
+      (List.map (tr_stmt ctx) f.Cil.sbody.Cil.bstmts)
   in
   let init = CfgIr.CfgBuilder.mk_skip cfg in
   List.iter add_goto ctx.ctx_goto;

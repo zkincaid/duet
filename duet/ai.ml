@@ -741,7 +741,7 @@ module ApronInterpretation = struct
       end
     | Initial ->
       let set_init ap _ av = match AP.get_ctype ap with
-        | Array (_, Some size) ->
+        | Array (_, Some (_, size)) ->
           alloc_safe ap (VInt (Texpr0.Cst (Coeff.s_of_int size))) av
         | _ -> av
       in

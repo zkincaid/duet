@@ -18,7 +18,7 @@ type ctyp =
   | Int       of int
   | Float     of int
   | Pointer   of typ
-  | Array     of typ * int option 
+  | Array     of typ * (int * int) option
   | Record    of recordinfo
   | Enum      of enuminfo
   | Func      of typ * typ list (** A function type consists of a return type
@@ -284,7 +284,7 @@ let rec typ_width typ = match resolve_type typ with
   | Func (_, _) -> pointer_width
   | Pointer _ -> pointer_width
   | Array (typ, None) -> unknown_width
-  | Array (typ, Some k) -> typ_width typ * k
+  | Array (typ, Some (_, size)) -> size
   | Dynamic -> unknown_width
   | Enum _ -> machine_int_width
 and field_width fi = typ_width fi.fityp
@@ -302,7 +302,7 @@ let rec pp_ctyp formatter = function
   | Float 0 -> text formatter "float<??>"
   | Float k -> Format.fprintf formatter "float<%d>" k
   | Pointer t -> Format.fprintf formatter "@[<hov 0>*%a@]" pp_typ t
-  | Array (t, Some i) -> Format.fprintf formatter "%a[%d]" pp_typ t i
+  | Array (t, Some (nb, _)) -> Format.fprintf formatter "%a[%d]" pp_typ t nb
   | Array (t, None) -> Format.fprintf formatter "%a[]" pp_typ t
   | Record r -> text formatter ("Record " ^ r.rname)
   | Enum e -> text formatter ("Enum " ^ e.enname)
