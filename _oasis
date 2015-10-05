@@ -53,7 +53,8 @@ Executable duet
   BuildTools:     ocamlbuild
   MainIs:         duet.ml
   BuildDepends:   deriving, deriving.syntax, apak, gmp, camlidl, apron,
-                  apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, ark, cil
+                  apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, ark, cil,
+                  cil.default-features
   CompiledObject: native
   Install:        false
 

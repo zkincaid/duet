@@ -158,12 +158,12 @@ class switchVisitor = object (self)
 end
 
 let simplify file =
-  if (not !Epicenter.doEpicenter) then Rmtmps.removeUnusedTemps file;
+  Rmtmps.removeUnusedTemps file;
   Cil.iterGlobals file (fun glob -> match glob with
       | Cil.GFun(fd,_) -> Oneret.oneret fd;
       | _ -> ());
   Cil.visitCilFile (new arrayAccessVisitor) file;
-  ignore (Simplemem.simplemem file);
+  Simplemem.simplemem file;
   Cil.visitCilFile (new loopVisitor) file;
   Cil.visitCilFile (new switchVisitor) file;
   Cfg.clearFileCFG file;
