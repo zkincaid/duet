@@ -435,6 +435,10 @@ let find_races rg root = match !races with
     let dra = Datarace.solve rg root in
     races := Some dra;
     dra
+let compute_races rg root = 
+  let dra = Datarace.solve rg root in
+    races := Some dra;
+    dra
 
 module Stabilizer (Min : EqLogic.Hashed.ConjFormula with type var = Var.t) = struct
   module Formula = EqLogic.MakeFormula(Min)

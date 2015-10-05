@@ -154,8 +154,7 @@ let phase str f arg =
 
 let start_time = Unix.gettimeofday ()
 let print_stats () =
-  let f stat time =
-    if time > 1.0 then print_endline (stat ^ ": " ^ (string_of_float time))
+  let f stat time = print_endline (stat ^ ": " ^ (string_of_float time))
   in
   Hashtbl.iter f phases_ht;
   print_endline ("Total time: "
