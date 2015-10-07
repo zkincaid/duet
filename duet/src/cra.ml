@@ -4,6 +4,7 @@ open Ark
 open CfgIr
 open BatPervasives
 open ArkPervasives
+open Pathexp
 
 module RG = Interproc.RG
 module G = RG.G
@@ -250,6 +251,10 @@ module K = struct
     else if equal x one then y
     else if equal y one then x
     else simplify (Log.time "cra:mul" (mul x) y)
+  
+  let get_zero t = zero
+
+  let get_one t = one
 
   let widen x y = Log.time "cra:widen" (widen x) y
 
@@ -264,6 +269,13 @@ module K = struct
       guard = tr.guard }
 
   let merge x y = mul x (project y)
+  
+  let print_k x = show x
+
+  let eq_k x y = equal x y
+
+  let normalize_k x = normalize x
+
 end
 module A = Interproc.MakePathExpr(K)
 
@@ -512,8 +524,10 @@ let _ =
 
 
 let analyze file =
+  Printf.printf "Entering CRA\n"; flush stdout;
   match file.entry_points with
   | [main] -> begin
+      Printf.printf "Entering Main\n"; flush stdout;
       let rg = Interproc.make_recgraph file in
       let rg =
         if !forward_inv_gen
@@ -637,9 +651,10 @@ let analyze file =
         | _ -> ()
       in
       A.single_src_restrict query is_assert check_assert;
-
+      Printf.printf "Reporting\n"; flush stdout;
       Report.print_errors ();
       Report.print_safe ();
+      Printf.printf "Done Reporting\n"; flush stdout;
       if !CmdLine.show_stats then begin
         K.T.log_stats `always;
         K.F.log_stats `always
@@ -650,6 +665,35 @@ let analyze file =
 let _ =
   CmdLine.register_pass
     ("-cra", analyze, " Compositional recurrence analysis")
+
+(*******************************************************************************
+* Newtonian Program Analysis Helper Functions
+********************************************************************************)
+
+let () =
+  Callback.register "compose_callback" K.mul
+
+let () =
+  Callback.register "union_callback" K.add
+
+let () =
+  Callback.register "one_callback" K.get_one
+
+let () =
+  Callback.register "zero_callback" K.get_zero
+
+let () =
+  Callback.register "star_callback" K.star
+
+let () =
+  Callback.register "print_callback" K.print_k
+
+let () =
+  Callback.register "eq_callback" K.eq_k
+
+let () =
+  Callback.register "normalize_callback" K.normalize_k
+
 
 (*******************************************************************************
  * Newtonian Program Analysis via Tensor product

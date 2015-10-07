@@ -36,7 +36,9 @@ true: annot, bin_annot
 "apak/sig.cmx": for-pack(Apak)
 "apak/tagged.cmx": for-pack(Apak)
 "apak/putil.cmx": for-pack(Apak)
+<apak/*.ml{,i,y}>: oasis_library_apak_ccopt
 # Executable test_apak
+<apak/*.ml{,i,y}>: oasis_executable_test_apak_ccopt
 "apak/test_apak.byte": pkg_batteries
 "apak/test_apak.byte": pkg_deriving
 "apak/test_apak.byte": pkg_deriving.syntax
@@ -60,7 +62,9 @@ true: annot, bin_annot
 "ark/hashcons.cmx": for-pack(Ark)
 "ark/hmap.cmx": for-pack(Ark)
 "ark/interval.cmx": for-pack(Ark)
+<ark/*.ml{,i,y}>: oasis_library_ark_ccopt
 # Executable test_ark
+<ark/*.ml{,i,y}>: oasis_executable_test_ark_ccopt
 "ark/test_ark.native": pkg_Z3
 "ark/test_ark.native": pkg_apron
 "ark/test_ark.native": pkg_apron.boxMPQ
@@ -88,6 +92,7 @@ true: annot, bin_annot
 <ark/*.ml{,i,y}>: pkg_ocamlgraph
 <ark/*.ml{,i,y}>: use_apak
 # Executable duet
+<duet/src/*.ml{,i,y}>: oasis_executable_duet_ccopt
 "duet/src/duet.native": pkg_Z3
 "duet/src/duet.native": pkg_apron
 "duet/src/duet.native": pkg_apron.boxMPQ
