@@ -198,6 +198,7 @@ module V = struct
 end
 
 module K = struct
+  module Voc = V
   include Transition.Make(V)
 (*
   let simplify tr =
@@ -264,6 +265,43 @@ module K = struct
       guard = tr.guard }
 
   let merge x y = mul x (project y)
+
+  (* Transpose a transition formula (intuitively, swap the primed and unprimed
+     variables). *)
+  let transpose tr =
+    (* The transform of the transpose is obtained by mapping each variable in
+       tr's transform to a fresh Skolem constant, which will represent the
+       value of that variable in the pre-state.  (After the transform, a
+       variable which appears in the RHS of a transform or a guard refers to
+       the post-state). *)
+    let transform =
+      let fresh_skolem v =
+        T.var (V.mk_tmp ("fresh_" ^ (Voc.show v)) (Voc.typ v))
+      in
+      M.fold
+        (fun v _ transform -> M.add v (fresh_skolem v) transform)
+        tr.transform
+        M.empty
+    in
+
+    (* Replace every variable in tr's transform with its Skolem constant *)
+    let substitution = function
+      | V.PVar v when M.mem v transform -> M.find v transform
+      | v -> T.var v
+    in
+
+    (* Apply substitution to the guard & conjoin with equations from tr's
+       transform *)
+    let guard =
+      let transform_equations =
+        M.enum tr.transform
+        /@ (fun (v, rhs) ->
+            F.eq (T.var (V.mk_var v)) (T.subst substitution rhs))
+        |> F.big_conj
+      in
+      F.conj transform_equations (F.subst substitution tr.guard)
+    in
+    { transform; guard }
 end
 module A = Interproc.MakePathExpr(K)
 
