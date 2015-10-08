@@ -81,14 +81,17 @@ module CfgBuilder = struct
     | (x::xs) ->
       List.fold_left (fun acc x -> mk_seq cfg acc x) x xs
 
-  let mk_if cfg cond bthen belse =
+  let mk_if cfg ?(loc=Cil.locUnknown) cond bthen belse =
     let ventry = mk_skip cfg in
     let vexit = mk_skip cfg in
     let bthen =
-      mk_seq cfg (mk_single cfg (Def.mk (Assume cond))) bthen
+      mk_seq cfg (mk_single cfg (Def.mk ~loc (Assume cond))) bthen
     in
     let belse =
-      mk_seq cfg (mk_single cfg (Def.mk (Assume (Bexpr.negate cond)))) belse
+      mk_seq
+        cfg
+        (mk_single cfg (Def.mk ~loc (Assume (Bexpr.negate cond))))
+        belse
     in
     ignore (mk_seq cfg ventry bthen);
     ignore (mk_seq cfg ventry belse);
@@ -96,17 +99,17 @@ module CfgBuilder = struct
     ignore (mk_seq cfg belse vexit);
     (fst ventry, fst vexit)
 
-  let mk_while_do cfg cond body =
-    let ventry = mk_single cfg (Def.mk (Assume cond)) in
-    let vexit = mk_single cfg (Def.mk (Assume (Bexpr.negate cond))) in
+  let mk_while_do cfg ?(loc=Cil.locUnknown) cond body =
+    let ventry = mk_single cfg (Def.mk ~loc (Assume cond)) in
+    let vexit = mk_single cfg (Def.mk ~loc (Assume (Bexpr.negate cond))) in
     ignore (mk_seq cfg ventry body);
     ignore (mk_seq cfg body ventry);
     ignore (mk_seq cfg body vexit);
     (ventry, vexit)
 
-  let mk_do_while cfg cond body =
-    let vloop = mk_single cfg (Def.mk (Assume cond)) in
-    let vexit = mk_single cfg (Def.mk (Assume (Bexpr.negate cond))) in
+  let mk_do_while cfg ?(loc=Cil.locUnknown) cond body =
+    let vloop = mk_single cfg (Def.mk ~loc (Assume cond)) in
+    let vexit = mk_single cfg (Def.mk ~loc (Assume (Bexpr.negate cond))) in
     ignore (mk_seq cfg vloop body);
     ignore (mk_seq cfg body vloop);
     ignore (mk_seq cfg body vexit);

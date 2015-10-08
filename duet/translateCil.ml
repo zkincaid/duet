@@ -545,8 +545,9 @@ let rec tr_stmtkind ctx stmt =
     ctx.ctx_goto <- (ventry, (!stmtref).Cil.sid)::ctx.ctx_goto;
     (ventry, vexit)
   | Cil.Block b -> mk_block cfg (List.map (tr_stmt ctx) b.Cil.bstmts)
-  | Cil.If (cond, bthen, belse, _) ->
+  | Cil.If (cond, bthen, belse, loc) ->
     mk_if
+      ~loc
       cfg
       (Bexpr.of_expr (tr_expr cond))
       (mk_block cfg (List.map (tr_stmt ctx) bthen.Cil.bstmts))
