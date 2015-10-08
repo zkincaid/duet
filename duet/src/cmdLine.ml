@@ -144,7 +144,8 @@ let parse filename =
         CfgIr.gfile := Some file;
         file
       end else go tl
-    | [] -> failwith "Unrecognized file extension"
+    | [] -> 
+      failwith "Unrecognized file extension"
   in
   go (!parsers)
 

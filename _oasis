@@ -12,6 +12,7 @@ Library apak
   BuildTools:       ocamlbuild
   FindlibName:      apak
   Pack:             true
+  CCOpt:            -g -rdynamic
   InternalModules:  DisjointSet, Dll, Enumeration, EvalLink, ExtGraph, Fixpoint,
                     Ka, Lattice, Log, Loop, Memo, Monoid, Pathexp, Persistent,
                     RecGraph, Semilattice, Sese, Sig, Tagged, Putil
@@ -24,6 +25,7 @@ Executable test_apak
   Path:         apak
   BuildTools:   ocamlbuild
   MainIs:       test_apak.ml
+  CCOpt:        -g -rdynamic
   BuildDepends: deriving, deriving.syntax, batteries, ocamlgraph, oUnit
   Install:      false
 
@@ -32,6 +34,7 @@ Library ark
   BuildTools:       ocamlbuild
   FindlibName:      ark
   Pack:             true
+  CCOpt:            -g -rdynamic
   InternalModules:  ArkPervasives, Formula, Linear, NumDomain, Smt, Term,
                     Transition, Hset, Hashcons, Hmap, Interval
   BuildDepends:     deriving, deriving.syntax, apak, gmp, camlidl, apron, Z3
@@ -43,6 +46,7 @@ Executable test_ark
   Path:           ark
   BuildTools:     ocamlbuild
   MainIs:         test_ark.ml
+  CCOpt:          -g -rdynamic
   BuildDepends:   deriving, deriving.syntax, apak, gmp, camlidl, apron,
                   apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, oUnit
   CompiledObject: native
@@ -52,6 +56,7 @@ Executable duet
   Path:           duet/src
   BuildTools:     ocamlbuild
   MainIs:         duet.ml
+  CCOpt:          -g -rdynamic
   BuildDepends:   deriving, deriving.syntax, apak, gmp, camlidl, apron,
                   apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, ark, cil,
                   cil.default-features

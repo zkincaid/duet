@@ -1,7 +1,7 @@
 open Core
 open CfgIr
 open Apak
-
+open Printf
 open Safety
 
 (* Frontends *)
@@ -10,12 +10,14 @@ open TranslateCbp
 
 (* Analyses *)
 open Cra
+open Newton_interface
 open Dependence
 open ConcDep
 
 let usage_msg = "Duet program analyzer\nUsage: duet [OPTIONS] file.[c|bp]"
 
 let anon_fun s = ignore (CmdLine.parse s)
+
 
 let _ =
   Sys.set_signal Sys.sigtstp (Sys.Signal_handle (fun _ -> Log.print_stats ()));
@@ -27,6 +29,7 @@ let _ =
       Arg.usage (Arg.align spec_list) usage_msg
     end
   | Some x -> begin
+      Printf.printf "analyzing\n"; flush stdout;
       CmdLine.run (CfgIr.get_gfile());
       if !CmdLine.show_stats then Log.print_stats ()
     end
