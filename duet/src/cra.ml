@@ -699,7 +699,27 @@ module VV = struct
 end
 
 (* Tensored transition formula *)
-module KK = Transition.Make(VV)
+module KK = struct
+  module Voc = V
+  module VocMap = Map.Make(Voc)
+  include Transition.Make(VV)
+
+  (* Detensor-transpose local variables and remove them from the footprint *)
+  let project tr =
+    (* For every *local* variable v, identify Left v (representing the
+       post-state of the left) and Right v (representing the pre-state of the
+       right) by substituting [Left v -> Right v] *)
+    let substitution = function
+      | V.PVar (Left v) when not (Var.is_global (var_of_value v)) ->
+        T.var (V.mk_var (Right v))
+      | v -> T.var v
+    in
+    { transform = M.map (T.subst substitution) tr.transform;
+      guard = F.subst substitution tr.guard }
+
+    (* Remove local variables from the footprint *)
+    |> exists (Var.is_global % var_of_value % VV.lower)
+end
 
 (* Inject terms from the untensored vocabulary to the tensored vocabulary.
    [inject_term VV.left] performs left injection and [inject_term VV.right]
