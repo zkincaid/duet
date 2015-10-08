@@ -65,7 +65,8 @@ Library pa
   Pack:       true
   FindlibName:      pa
   InternalModules:  PaSmt, PaFormula, Struct, PredicateAutomata
-  BuildDepends: ppx_deriving, ppx_deriving.show, ppx_deriving.ord, apak, Z3
+  BuildDepends: ppx_deriving, ppx_deriving.show, ppx_deriving.ord, apak, Z3,
+  		buddy
   Install:          false
   XMETADescription: Predicate Automata tools
 
@@ -74,14 +75,15 @@ Executable test_patools
   BuildTools:   ocamlbuild, menhir
   MainIs:       test_patools.ml
   BuildDepends: ppx_deriving, ppx_deriving.show, ppx_deriving.ord, apak, Z3,
-                oUnit, pa
+                oUnit, buddy, pa
   Install:      false
   CompiledObject: native
 
 Executable patools
   Path:       patools
   BuildTools: ocamlbuild, menhir
-  BuildDepends: ppx_deriving, ppx_deriving.show, ppx_deriving.ord, apak, Z3, pa
+  BuildDepends: ppx_deriving, ppx_deriving.show, ppx_deriving.ord, apak, Z3,
+  		buddy, pa
   MainIs: patools.ml
   CCOpt: -annot
   CompiledObject: native
@@ -93,7 +95,7 @@ Executable duet
   BuildDepends:   ppx_deriving, ppx_deriving.show, ppx_deriving.ord,
                   apak, gmp, camlidl, apron,
                   apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, ark,
-                  cil, cil.default-features, pa
+                  cil, cil.default-features, buddy, pa
   CompiledObject: native
   Install:        false
 
