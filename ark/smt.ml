@@ -7,6 +7,7 @@ module type TranslationContext = sig
   include BuilderContext
   include EvalContext with type term := term and type formula := formula
   val const_typ : const_sym -> typ
+  val mk_skolem : ?name:string -> typ -> const_sym
 end
 
 exception Unknown_result
@@ -105,6 +106,7 @@ module Make
         | (OP_FALSE, []) -> alg `Fls
         | (OP_AND, args) -> alg (`And args)
         | (OP_OR, args) -> alg (`Or args)
+        | (OP_IMPLIES, [phi;psi]) -> alg (`Or [alg (`Not phi); psi])
         | (OP_IFF, [phi;psi]) ->
           alg (`Or [alg (`And [phi; psi]);
                     alg (`Not (alg (`Or [phi; psi])))])
@@ -114,7 +116,8 @@ module Make
         | (OP_GE, [s; t]) -> alg (`Atom (`Leq, t, s))
         | (OP_LT, [s; t]) -> alg (`Atom (`Lt, s, t))
         | (OP_GT, [s; t]) -> alg (`Atom (`Lt, t, s))
-        | (_, _) -> invalid_arg "eval: unknown application"
+        | (_, _) -> invalid_arg ("eval: unknown application: "
+                                 ^ (Expr.to_string ast))
       end
     | NUMERAL_AST ->
       alg (`Real (qq_val ast))
@@ -306,10 +309,10 @@ module MakeSolver
     in
     C.Formula.eval alg phi
 
-  let of_z3 expr =
+  let of_z3 const_of_decl expr =
     let term = function
       | `Term t -> t
-      | _ -> invalid_arg "of_z3.term"
+      | `Formula phi -> invalid_arg ("of_z3.term:" ^ (Z3.Expr.to_string (of_formula phi)))
     in
     let formula = function
       | `Formula phi -> phi
@@ -320,8 +323,13 @@ module MakeSolver
       | `Var (i, `TyInt) -> `Term (C.mk_var i `TyInt)
       | `Var (i, `TyReal) -> `Term (C.mk_var i `TyReal)
       | `App (decl, []) ->
-        let id = Z3.Symbol.get_int (Z3.FuncDecl.get_name decl) in
-        `Term (C.mk_const (Obj.magic id))
+        let const_sym = const_of_decl decl in
+        begin match C.const_typ const_sym with
+          | `TyBool ->
+            `Formula (C.mk_eq (C.mk_real QQ.zero) (C.mk_const const_sym))
+          | `TyInt | `TyReal -> `Term (C.mk_const const_sym)
+          | `TyFun (_, _) -> assert false (* Shouldn't appear with zero args *)
+        end
       | `Add sum -> `Term (C.mk_add (List.map term sum))
       | `Mul product -> `Term (C.mk_mul (List.map term product))
       | `Binop (op, s, t) ->
@@ -341,20 +349,30 @@ module MakeSolver
         `Formula (C.mk_exists ~name:name typ (formula phi))
       | `Quantify (`Forall, name, typ, phi) ->
         `Formula (C.mk_forall ~name:name typ (formula phi))
-      | `Atom (`Eq, s, t) -> `Formula (C.mk_eq (term s) (term t))
+      | `Atom (`Eq, `Term s, `Term t) -> `Formula (C.mk_eq s t)
+      | `Atom (`Eq, `Formula phi, `Formula psi) ->
+        `Formula (C.mk_or [C.mk_not phi; psi])
       | `Atom (`Leq, s, t) -> `Formula (C.mk_leq (term s) (term t))
       | `Atom (`Lt, s, t) -> `Formula (C.mk_lt (term s) (term t))
+      | `Atom (`Eq, _, _)
       | `App (_, _) -> invalid_arg "term_of"
     in
     Z3C.eval alg expr
 
+  (* const_of_decl is sufficient for round-tripping, since const_sym's become
+     int symbols *)
+  let const_of_decl decl =
+    let sym = Z3.FuncDecl.get_name decl in
+    assert (Z3.Symbol.is_int_symbol sym);
+    Obj.magic (Z3.Symbol.get_int sym)
+
   let term_of term =
-    match of_z3 term with
+    match of_z3 const_of_decl term with
     | `Term t -> t
     | `Formula _ -> invalid_arg "term_of"
 
   let formula_of phi =
-    match of_z3 phi with
+    match of_z3 const_of_decl phi with
     | `Formula phi -> phi
     | `Term _ -> invalid_arg "formula_of"
 
@@ -545,4 +563,19 @@ module MakeSolver
     | Z3.Solver.SATISFIABLE -> `Sat (List.map mk_interval handles)
     | Z3.Solver.UNSATISFIABLE -> `Unsat
     | Z3.Solver.UNKNOWN -> `Unknown
+
+  let load_smtlib2 str =
+    let ast = Z3.SMT.parse_smtlib2_string ctx str [] [] [] [] in
+    let const_of_decl =
+      let cos = Apak.Memo.memo (fun (name, typ) -> C.mk_skolem ~name typ) in
+      fun decl ->
+        let open Z3 in
+        let sym = FuncDecl.get_name decl in
+        assert (FuncDecl.get_domain decl = []);
+        assert (Symbol.is_string_symbol sym);
+        cos (Symbol.get_string sym, typ_of_sort (FuncDecl.get_range decl))
+    in
+    match of_z3 const_of_decl ast with
+    | `Formula phi -> phi
+    | `Term _ -> invalid_arg "load_smtlib2"
 end
