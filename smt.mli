@@ -6,6 +6,7 @@ module type TranslationContext = sig
   include Syntax.BuilderContext
   include Syntax.EvalContext with type term := term and type formula := formula
   val const_typ : const_sym -> typ
+  val mk_skolem : ?name:string -> typ -> const_sym
 end
 
 module Make
@@ -134,4 +135,5 @@ module MakeSolver
 						 | `Unknown ]
 
   val qe : C.formula -> C.formula
+  val load_smtlib2 : string -> C.formula
 end
