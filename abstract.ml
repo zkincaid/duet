@@ -837,63 +837,85 @@ let aqsat_impl
     | `Sat m ->
       logf "Strategy formula is SAT!";
 
-      (* Given a path through sat_tree corresponding to a winning play for
-         SAT, compute a path to add to unsat_tree to ensure that UNSAT will
-         synthesize a winning counter-strategy on the next round *)
-      let counter_strategy path =
-
-        (* Compute a model of phi from the input path *)
-        let path_model =
-          List.fold_left
-            (fun pm pe ->
-               let (k, value) =
-                 match pe with
-                 | `Exists (k, sk) -> (k, C.Model.eval_real m (C.mk_const sk))
-                 | `Forall (k, t) -> (k, V.dot t pm)
-               in
-               V.add_term value (dim_of_const k) pm)
-            (const_linterm QQ.one)
-            path
-        in
-
-        logf "path_model: %a" (pp_linterm (module C)) path_model;
-
-        let f pe (phi, new_path) =
-          match pe with
-          | `Exists (x, _) ->
-            let t = mbp_term path_model x phi in
-            logf ~level:`trace "Found move: %a = %a"
-              C.pp_const x
-              (pp_linterm (module C)) t;
-            (substitute_one (module C) x t phi, (`Forall (x, t)::new_path))
-          | `Forall (x, t) ->
-            (substitute_one (module C) x t phi, (`Exists x)::new_path)
-        in
-        let phi_core =
-          match select_disjunct_linear (module C) phi path_model with
-          | Some x -> x
-          | None -> assert false
-        in
-        logf ~level:`trace "Core: %a" C.Formula.pp phi_core;
-        snd (List.fold_right f path (phi_core, []))
-
-      in
-      let f unsat_tree path =
-        let cs = counter_strategy path in
-        try
-          let (subst, unsat_tree) =
-            SymTree.add_path (module C) cs unsat_tree
+      (* Using the model m, synthesize a counter-strategy which beats the
+         strategy unsat-strategy.  This is done by traversing the SAT strategy
+         tree: on the way down, we build a model of phi from the labels on the
+         path to the root.  On the way up, we find elimination terms for each
+         variable using model-based projection.  *)
+      let rec counter_strategy path_model tree =
+        let open SymTree in
+        match tree with
+        | STExists (k, sk, tree) ->
+          let path_model =
+            V.add_term
+              (C.Model.eval_real m (C.mk_const sk))
+              (dim_of_const k)
+              path_model
           in
-          C.Solver.add
-            unsat_solver
-            [List.fold_right
-               (fun (x, t) phi -> substitute_one (module C) x t phi)
-               subst
-               not_phi];
-          unsat_tree
-        with Redundant_path -> unsat_tree
+          let (counter_phi, counter_paths) = counter_strategy path_model tree in
+          let move = mbp_term path_model k counter_phi in
+          logf ~level:`trace "Found move: %a = %a"
+            C.pp_const k
+            (pp_linterm (module C)) move;
+          let counter_phi = substitute_one (module C) k move counter_phi in
+          let counter_paths =
+            List.map (fun path -> (`Forall (k, move))::path) counter_paths
+          in
+          (counter_phi, counter_paths)
+        | STForall (k, vm) ->
+          let (counter_phis, paths) =
+            VM.enum vm
+            /@ (fun (move, tree) ->
+                let path_model =
+                  V.add_term
+                    (V.dot move path_model)
+                    (dim_of_const k)
+                    path_model
+                in
+                let (counter_phi, counter_paths) =
+                  counter_strategy path_model tree
+                in
+                let counter_phi =
+                  substitute_one (module C) k move counter_phi
+                in
+                let counter_paths =
+                  List.map (fun path -> (`Exists k)::path) counter_paths
+                in
+                (counter_phi, counter_paths))
+            |> BatEnum.uncombine
+          in
+          (C.mk_and (BatList.of_enum counter_phis),
+           BatList.concat (BatList.of_enum paths))
+        | STLeaf ->
+          let phi_core =
+            match select_disjunct_linear (module C) phi path_model with
+            | Some x -> x
+            | None -> assert false
+          in
+          logf ~level:`trace "Core: %a" C.Formula.pp phi_core;
+          (phi_core, [[]])
       in
-      `Sat (SymTree.fold_paths f unsat_tree sat_tree)
+      let unsat_tree =
+        let add_counter_path unsat_tree path =
+          try
+            let (subst, unsat_tree) =
+              SymTree.add_path (module C) path unsat_tree
+            in
+            C.Solver.add
+              unsat_solver
+              [List.fold_right
+                 (fun (x, t) phi -> substitute_one (module C) x t phi)
+                 subst
+                 not_phi];
+            unsat_tree
+          with Redundant_path -> unsat_tree
+        in
+        List.fold_left
+          add_counter_path
+          unsat_tree
+          (snd (counter_strategy (const_linterm QQ.one) sat_tree))
+      in
+      `Sat unsat_tree
     | `Unsat -> `Unsat
     | `Unknown -> `Unknown
   in
