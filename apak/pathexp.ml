@@ -201,7 +201,7 @@ end = struct
       let rec go acc v =
         match v.vtype with
         | Simple v ->
-          L.logf "Visit: %d" (get_id v);
+          L.logf ~level:`trace "Visit: %d" (get_id v);
           f v acc
         | Scc scc -> go_graph scc.entries (scc.backedges@scc.exits) scc.graph acc
       and go_graph initial exits graph acc =
@@ -309,7 +309,7 @@ end = struct
     let rec visit v acc =
       match v with
       | `Block block ->
-        L.logf "Enter block %d" block;
+        L.logf ~level:`trace "Enter block %d" block;
         let bentry = Re.block_entry rg block in
         let bexit = Re.block_exit rg block in
         let go v acc =
@@ -321,10 +321,10 @@ end = struct
           if Re.G.V.equal bentry bexit then visit bentry acc
           else visit bentry (visit bexit acc)
         in
-        L.logf "Exit block %d" block;
+        L.logf ~level:`trace "Exit block %d" block;
         res
       | `Atom atom ->
-        L.logf "Visit: %d" (get_id atom);
+        L.logf ~level:`trace "Visit: %d" (get_id atom);
         f atom acc
     in
     fold_body visit (Re.block_body rg 0) acc
