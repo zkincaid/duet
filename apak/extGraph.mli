@@ -1,5 +1,6 @@
 (** Useful operations on graphs *)
 
+val display_image : string ref
 val display_dot : (out_channel -> 'a -> unit) -> 'a -> unit
 
 module type G = sig

@@ -96,8 +96,10 @@ let sanity_check_arg =
 
 let display_graphs_arg =
   ("-display-graphs",
-   Arg.Set display_graphs,
-   " Display graphs (requires Eye of Gnome)")
+   Arg.String (fun cmd ->
+       display_graphs := true;
+       Apak.ExtGraph.display_image := cmd),
+   " Display graphs (using supplied image viewer)")
 
 let pass_args : (key * spec * doc) list ref = ref []
 
