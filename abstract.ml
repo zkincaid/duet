@@ -659,32 +659,32 @@ let substitute_one
 
 
 exception Redundant_path
-module SymTree = struct
-  type sym_tree =
-    | STExists of const_sym * const_sym * sym_tree
-    | STForall of const_sym * (sym_tree VM.t)
+module Scheme = struct
+  type t =
+    | STExists of const_sym * const_sym * t
+    | STForall of const_sym * (t VM.t)
     | STLeaf
 
   let pp
       (module C : AbstractionContext)
       formatter
-      sym_tree =
+      scheme =
     let open Format in
     let rec pp formatter = function
       | STExists (k, sk, t) ->
         fprintf formatter "@[(exists %a:@\n  @[%a@])@]" C.pp_const sk pp t
       | STForall (k, vm) ->
-        let pp_elt formatter (term, tree) =
+        let pp_elt formatter (move, scheme) =
           fprintf formatter "%a:@\n  @[%a@]@\n"
-            (pp_linterm (module C)) term
-            pp tree
+            (pp_linterm (module C)) move
+            pp scheme
         in
         fprintf formatter "@[(forall %a:@\n  @[%a@])@]"
           C.pp_const k
           (ApakEnum.pp_print_enum pp_elt) (VM.enum vm)
       | STLeaf -> ()
     in
-    pp formatter sym_tree
+    pp formatter scheme
 
   let rec size = function
     | STLeaf -> 1
@@ -696,44 +696,44 @@ module SymTree = struct
 
   let empty = STLeaf
 
-  let fold_paths f acc sym_tree =
+  let fold_paths f acc scheme =
     let rec go acc path = function
       | STLeaf -> f acc (List.rev path)
-      | STExists (k, sk, sym_tree) ->
-        go acc (`Exists (k, sk)::path) sym_tree
+      | STExists (k, sk, scheme) ->
+        go acc (`Exists (k, sk)::path) scheme
       | STForall (k, vm) ->
-        BatEnum.fold (fun acc (term, sym_tree) ->
-            go acc ((`Forall (k, term))::path) sym_tree)
+        BatEnum.fold (fun acc (term, scheme) ->
+            go acc ((`Forall (k, term))::path) scheme)
           acc
           (VM.enum vm)
     in
-    go acc [] sym_tree
+    go acc [] scheme
 
-  let fold_substitutions f acc sym_tree =
+  let fold_substitutions f acc scheme =
     let rec go acc path = function
       | STLeaf -> f acc (List.rev path)
-      | STExists (k, sk, sym_tree) ->
+      | STExists (k, sk, scheme) ->
         let term = V.of_term QQ.one (dim_of_const sk) in
-        go acc ((k, term)::path) sym_tree
+        go acc ((k, term)::path) scheme
       | STForall (k, vm) ->
-        BatEnum.fold (fun acc (term, sym_tree) ->
-            go acc ((k, term)::path) sym_tree)
+        BatEnum.fold (fun acc (term, scheme) ->
+            go acc ((k, term)::path) scheme)
           acc
           (VM.enum vm)
     in
-    go acc [] sym_tree
+    go acc [] scheme
 
-  let fold_skolem f acc sym_tree =
+  let fold_skolem f acc scheme =
     let rec go acc = function
       | STLeaf -> acc
-      | STExists (k, sk, sym_tree) -> go (f acc sk) sym_tree
+      | STExists (k, sk, scheme) -> go (f acc sk) scheme
       | STForall (k, vm) ->
         BatEnum.fold
-          (fun acc (_, sym_tree) -> go acc sym_tree)
+          (fun acc (_, scheme) -> go acc scheme)
           acc
           (VM.enum vm)
     in
-    go acc sym_tree
+    go acc scheme
 
   let mk_empty
       (module C : AbstractionContext)
@@ -748,7 +748,7 @@ module SymTree = struct
     go path
 
   (* Given an input path, create pair consisting of (1) a substitution
-     corresponding to the path and (2) a new sym_tree where the only path is
+     corresponding to the path and (2) a new scheme where the only path is
      the path *)
   let mk_path
       (module C : AbstractionContext)
@@ -758,60 +758,60 @@ module SymTree = struct
       | (`Exists k)::path ->
         let sk = C.mk_skolem ~name:(Putil.mk_show C.pp_const k) `TyReal in
         let term = V.of_term QQ.one (dim_of_const sk) in
-        let (subst, result_tree) = go path in
-        ((k, term)::subst, STExists (k, sk, result_tree))
-      | (`Forall (k, t))::path ->
-        let (subst, result_tree) = go path in
-        ((k, t)::subst, STForall (k, VM.add t result_tree VM.empty))
+        let (subst, result_scheme) = go path in
+        ((k, term)::subst, STExists (k, sk, result_scheme))
+      | (`Forall (k, move))::path ->
+        let (subst, result_scheme) = go path in
+        ((k, move)::subst, STForall (k, VM.add move result_scheme VM.empty))
     in
     go path
 
-  (* Given an input path and a sym_tree, create a pair consisting of (1) a
+  (* Given an input path and a scheme, create a pair consisting of (1) a
      substitution corresponding to the path and (2) the result of adding the
-     path to the input sym_tree *)
+     path to the input scheme *)
   let add_path
       (module C : AbstractionContext)
       path
-      sym_tree =
+      scheme =
 
-    let rec go path sym_tree =
-      match path, sym_tree with
+    let rec go path scheme =
+      match path, scheme with
       | ([], STLeaf) ->
-        (* path was already in sym_tree *)
+        (* path was already in scheme *)
         raise Redundant_path
 
-      | (`Exists k::path, STExists (k', sk, sym_tree)) ->
+      | (`Exists k::path, STExists (k', sk, scheme)) ->
         assert (k = k');
-        let (subst, child) = go path sym_tree in
+        let (subst, child) = go path scheme in
         let term = V.of_term QQ.one (dim_of_const sk) in
         ((k, term)::subst, STExists (k, sk, child))
 
-      | (`Forall (k, t)::path, STForall (k', vm)) ->
+      | (`Forall (k, move)::path, STForall (k', vm)) ->
         assert (k = k');
         let (subst, child) =
-          try go path (VM.find t vm)
+          try go path (VM.find move vm)
           with Not_found -> mk_path (module C) path
         in
-        ((k, t)::subst, STForall (k, VM.add t child vm))
+        ((k, move)::subst, STForall (k, VM.add move child vm))
       | (_, _) -> assert false
     in
-    go path sym_tree
+    go path scheme
 
-  let formula_of_tree
+  let formula_of_scheme
       (type formula)
       (module C : AbstractionContext with type formula = formula)
-      tree
+      scheme
       phi =
     let f constraints subst =
       let new_constraint =
         List.fold_right
-          (fun (x, t) phi -> substitute_one (module C) x t phi)
+          (fun (k, move) phi -> substitute_one (module C) k move phi)
           subst
           phi
       in
       new_constraint::constraints
     in
-    fold_substitutions f [] tree
+    fold_substitutions f [] scheme
     |> C.mk_and
 end
 
@@ -821,38 +821,40 @@ let aqsat_impl
     (module C : AbstractionContext with type formula = formula
                                     and type solver = solver)
     mbp_term
-    (sat_tree, sat_solver, phi)
-    (unsat_tree, unsat_solver, not_phi) =
+    (sat_scheme, sat_solver, phi)
+    (unsat_scheme, unsat_solver, not_phi) =
 
   (* Synthesize a winning strategy for SAT, if one exists.  If so, update
-     unsat_solver and unsat_tree so in the next round a counter-strategy will
+     unsat_solver and unsat_scheme so in the next round a counter-strategy will
      be synthesized. *)
   let find_strategy
-      (sat_tree, sat_solver, phi)
-      (unsat_tree, unsat_solver, not_phi) =
+      (sat_scheme, sat_solver, phi)
+      (unsat_scheme, unsat_solver, not_phi) =
 
-    logf "%a" (SymTree.pp (module C)) sat_tree;
-    logf "Checking sat... %d" (SymTree.size sat_tree);
+    logf "%a" (Scheme.pp (module C)) sat_scheme;
+    logf "Checking sat... %d" (Scheme.size sat_scheme);
     match C.Solver.get_model sat_solver with
     | `Sat m ->
       logf "Strategy formula is SAT!";
 
       (* Using the model m, synthesize a counter-strategy which beats the
          strategy unsat-strategy.  This is done by traversing the SAT strategy
-         tree: on the way down, we build a model of phi from the labels on the
-         path to the root.  On the way up, we find elimination terms for each
-         variable using model-based projection.  *)
-      let rec counter_strategy path_model tree =
-        let open SymTree in
-        match tree with
-        | STExists (k, sk, tree) ->
+         scheme: on the way down, we build a model of phi from the labels on
+         the path to the root.  On the way up, we find elimination terms for
+         each variable using model-based projection.  *)
+      let rec counter_strategy path_model scheme =
+        let open Scheme in
+        match scheme with
+        | STExists (k, sk, scheme) ->
           let path_model =
             V.add_term
               (C.Model.eval_real m (C.mk_const sk))
               (dim_of_const k)
               path_model
           in
-          let (counter_phi, counter_paths) = counter_strategy path_model tree in
+          let (counter_phi, counter_paths) =
+            counter_strategy path_model scheme
+          in
           let move = mbp_term path_model k counter_phi in
           logf ~level:`trace "Found move: %a = %a"
             C.pp_const k
@@ -865,7 +867,7 @@ let aqsat_impl
         | STForall (k, vm) ->
           let (counter_phis, paths) =
             VM.enum vm
-            /@ (fun (move, tree) ->
+            /@ (fun (move, scheme) ->
                 let path_model =
                   V.add_term
                     (V.dot move path_model)
@@ -873,7 +875,7 @@ let aqsat_impl
                     path_model
                 in
                 let (counter_phi, counter_paths) =
-                  counter_strategy path_model tree
+                  counter_strategy path_model scheme
                 in
                 let counter_phi =
                   substitute_one (module C) k move counter_phi
@@ -895,44 +897,44 @@ let aqsat_impl
           logf ~level:`trace "Core: %a" C.Formula.pp phi_core;
           (phi_core, [[]])
       in
-      let unsat_tree =
-        let add_counter_path unsat_tree path =
+      let unsat_scheme =
+        let add_counter_path unsat_scheme path =
           try
-            let (subst, unsat_tree) =
-              SymTree.add_path (module C) path unsat_tree
+            let (subst, unsat_scheme) =
+              Scheme.add_path (module C) path unsat_scheme
             in
             C.Solver.add
               unsat_solver
               [List.fold_right
-                 (fun (x, t) phi -> substitute_one (module C) x t phi)
+                 (fun (x, move) phi -> substitute_one (module C) x move phi)
                  subst
                  not_phi];
-            unsat_tree
-          with Redundant_path -> unsat_tree
+            unsat_scheme
+          with Redundant_path -> unsat_scheme
         in
         List.fold_left
           add_counter_path
-          unsat_tree
-          (snd (counter_strategy (const_linterm QQ.one) sat_tree))
+          unsat_scheme
+          (snd (counter_strategy (const_linterm QQ.one) sat_scheme))
       in
-      `Sat unsat_tree
+      `Sat unsat_scheme
     | `Unsat -> `Unsat
     | `Unknown -> `Unknown
   in
-  let rec is_sat (sat_tree, unsat_tree) =
+  let rec is_sat (sat_scheme, unsat_scheme) =
     logf ~attributes:[`Blue;`Bold] "Synthesizing SAT strategy";
-    match find_strategy (sat_tree, sat_solver, phi) (unsat_tree, unsat_solver, not_phi) with
-    | `Sat unsat_tree -> is_unsat (sat_tree, unsat_tree)
-    | `Unsat -> `Unsat (sat_tree, unsat_tree)
+    match find_strategy (sat_scheme, sat_solver, phi) (unsat_scheme, unsat_solver, not_phi) with
+    | `Sat unsat_scheme -> is_unsat (sat_scheme, unsat_scheme)
+    | `Unsat -> `Unsat (sat_scheme, unsat_scheme)
     | `Unknown -> `Unknown
-  and is_unsat (sat_tree, unsat_tree) =
+  and is_unsat (sat_scheme, unsat_scheme) =
     logf ~attributes:[`Red;`Bold] "Synthesizing UNSAT strategy";
-    match find_strategy (unsat_tree, unsat_solver, not_phi) (sat_tree, sat_solver, phi) with
-    | `Sat sat_tree -> is_sat (sat_tree, unsat_tree)
-    | `Unsat -> `Sat (sat_tree, unsat_tree)
+    match find_strategy (unsat_scheme, unsat_solver, not_phi) (sat_scheme, sat_solver, phi) with
+    | `Sat sat_scheme -> is_sat (sat_scheme, unsat_scheme)
+    | `Unsat -> `Sat (sat_scheme, unsat_scheme)
     | `Unknown -> `Unknown
   in
-  is_unsat (sat_tree, unsat_tree)
+  is_unsat (sat_scheme, unsat_scheme)
 
 let aqsat_init
     (type formula)
@@ -953,26 +955,26 @@ let aqsat_init
         qf_pre
     in
 
-    (* Create paths for sat_tree & unsat_tree *)
+    (* Create paths for sat_scheme & unsat_scheme *)
     let f (qt, x) (sat_path, unsat_path, phi) =
-      let t = mbp_term (module C) phi_model x phi in
+      let move = mbp_term (module C) phi_model x phi in
       logf "Initial move: %a = %a"
         C.pp_const x
-        (pp_linterm (module C)) t;
+        (pp_linterm (module C)) move;
       let (sat_path, unsat_path) = match qt with
         | `Exists ->
           ((`Exists x)::sat_path,
-           (`Forall (x, t))::unsat_path)
+           (`Forall (x, move))::unsat_path)
         | `Forall ->
-          ((`Forall (x, t))::sat_path,
+          ((`Forall (x, move))::sat_path,
            (`Exists x)::unsat_path)
       in
-      (sat_path, unsat_path, substitute_one (module C) x t phi)
+      (sat_path, unsat_path, substitute_one (module C) x move phi)
     in
     let (sat_path, unsat_path, _) = List.fold_right f qf_pre ([], [], phi) in
-    let (sat_subst, sat_tree) = SymTree.mk_path (module C) sat_path in
-    let (unsat_subst, unsat_tree) = SymTree.mk_path (module C) unsat_path in
-    `Sat (sat_tree, unsat_tree)
+    let (sat_subst, sat_scheme) = Scheme.mk_path (module C) sat_path in
+    let (unsat_subst, unsat_scheme) = Scheme.mk_path (module C) unsat_path in
+    `Sat (sat_scheme, unsat_scheme)
 
 let aqsat
     (type formula)
@@ -988,20 +990,21 @@ let aqsat
   match aqsat_init (module C) qf_pre phi with
   | `Unsat -> `Unsat
   | `Unknown -> `Unknown
-  | `Sat (sat_tree, unsat_tree) ->
+  | `Sat (sat_scheme, unsat_scheme) ->
     let sat_solver = C.Solver.mk_solver () in
     let unsat_solver = C.Solver.mk_solver () in
 
     C.Solver.add unsat_solver
-      [SymTree.formula_of_tree (module C) unsat_tree not_phi];
-    C.Solver.add sat_solver [SymTree.formula_of_tree (module C) sat_tree phi];
+      [Scheme.formula_of_scheme (module C) unsat_scheme not_phi];
+    C.Solver.add sat_solver
+      [Scheme.formula_of_scheme (module C) sat_scheme phi];
 
     let result =
       aqsat_impl
         (module C)
         (mbp_term (module C))
-        (sat_tree, sat_solver, phi)
-        (unsat_tree, unsat_solver, not_phi)
+        (sat_scheme, sat_solver, phi)
+        (unsat_scheme, unsat_solver, not_phi)
     in
     match result with
     | `Sat (_, _) -> `Sat
@@ -1044,13 +1047,13 @@ let aqopt
     else mbp_term (module C) m x phi
   in
 
-  let sat_tree_initial = ref SymTree.empty in
-  let unsat_tree_initial = ref SymTree.empty in
-  let rec improve_bound bound unsat_tree =
-    let unsat_tree = !unsat_tree_initial in
+  let sat_scheme_initial = ref Scheme.empty in
+  let unsat_scheme_initial = ref Scheme.empty in
+  let rec improve_bound bound unsat_scheme =
+    let unsat_scheme = !unsat_scheme_initial in
     let constrain =
-      match unsat_tree, bound with
-      | (SymTree.STExists (_, objective, _), Some x) ->
+      match unsat_scheme, bound with
+      | (Scheme.STExists (_, objective, _), Some x) ->
         logf "Trying to improve bound: %a" QQ.pp x;
         C.mk_lt (C.mk_const objective) (C.mk_real x)
       | (_, _) ->
@@ -1063,31 +1066,31 @@ let aqopt
 
     C.Solver.add unsat_solver
       [constrain;
-       SymTree.formula_of_tree (module C) unsat_tree not_phi_unbounded];
+       Scheme.formula_of_scheme (module C) unsat_scheme not_phi_unbounded];
     C.Solver.add sat_solver
-      [SymTree.formula_of_tree (module C) (!sat_tree_initial) phi_unbounded];
+      [Scheme.formula_of_scheme (module C) (!sat_scheme_initial) phi_unbounded];
 
     let result =
       aqsat_impl
         (module C)
         mbp_term
-        (!sat_tree_initial, sat_solver, phi_unbounded)
-        (unsat_tree, unsat_solver, not_phi_unbounded)
+        (!sat_scheme_initial, sat_solver, phi_unbounded)
+        (unsat_scheme, unsat_solver, not_phi_unbounded)
     in
     match result with
-    | `Sat (sat_tree, unsat_tree) -> `Sat bound
+    | `Sat (sat_scheme, unsat_scheme) -> `Sat bound
     | `Unknown -> `Unknown
-    | `Unsat (SymTree.STLeaf, SymTree.STLeaf) -> `Unsat
-    | `Unsat (sat_tree, unsat_tree) ->
-      let (opt, opt_tree) = match sat_tree with
-        | SymTree.STForall (_, vm) ->
+    | `Unsat (Scheme.STLeaf, Scheme.STLeaf) -> `Unsat
+    | `Unsat (sat_scheme, unsat_scheme) ->
+      let (opt, opt_scheme) = match sat_scheme with
+        | Scheme.STForall (_, vm) ->
           (VM.enum vm)
-          /@ (fun (v, tree) -> match const_of_linterm v with
-              | Some qq -> (qq, tree)
+          /@ (fun (v, scheme) -> match const_of_linterm v with
+              | Some qq -> (qq, scheme)
               | None -> assert false)
-          |> BatEnum.reduce (fun (a, a_tree) (b, b_tree) ->
-              if QQ.lt a b then (b, b_tree)
-              else (a, a_tree))
+          |> BatEnum.reduce (fun (a, a_scheme) (b, b_scheme) ->
+              if QQ.lt a b then (b, b_scheme)
+              else (a, a_scheme))
         | _ -> assert false
       in
       logf "Objective function is bounded by %a" QQ.pp opt;
@@ -1095,17 +1098,17 @@ let aqopt
       let bounded_phi =
         let f constraints subst =
           let new_constraint =
-            List.fold_right (fun (x, t) phi ->
+            List.fold_right (fun (x, move) phi ->
                 if KS.mem x objective_constants then
                   phi
                 else
-                  substitute_one (module C) x t phi)
+                  substitute_one (module C) x move phi)
               subst
               phi
           in
           new_constraint::constraints
         in
-        SymTree.fold_substitutions f [] opt_tree
+        Scheme.fold_substitutions f [] opt_scheme
         |> C.mk_and
       in
       (*      logf "Bounded: %a" C.Formula.pp bounded_phi;*)
@@ -1121,15 +1124,15 @@ let aqopt
            | _, None -> assert false
            | None, _ -> ()
          end;
-         improve_bound (Interval.upper ivl) unsat_tree
+         improve_bound (Interval.upper ivl) unsat_scheme
        | `Unsat | `Sat _ -> assert false
       end
   in
   match aqsat_init (module C) qf_pre_unbounded phi_unbounded with
-  | `Sat (sat_tree, unsat_tree) ->
-    sat_tree_initial := sat_tree;
-    unsat_tree_initial := unsat_tree;
-    begin match improve_bound None unsat_tree with
+  | `Sat (sat_scheme, unsat_scheme) ->
+    sat_scheme_initial := sat_scheme;
+    unsat_scheme_initial := unsat_scheme;
+    begin match improve_bound None unsat_scheme with
       | `Sat upper -> `Sat (Interval.make None upper)
       | `Unsat -> `Unsat
       | `Unknown -> `Unknown
