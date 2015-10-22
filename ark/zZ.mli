@@ -24,6 +24,10 @@ val modulo : t -> t -> t
 val gcd : t -> t -> t
 val lcm : t -> t -> t
 
+val max : t -> t -> t
+val min : t -> t -> t
+val abs : t -> t
+
 val of_int : int -> t
 val of_string : string -> t
 

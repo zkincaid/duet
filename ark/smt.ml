@@ -209,6 +209,7 @@ module Make
     let add = Z3.Solver.add
     let push = Z3.Solver.push
     let pop = Z3.Solver.pop
+    let reset = Z3.Solver.reset
 
     let check s args =
       match Z3.Solver.check s args with
@@ -312,7 +313,8 @@ module MakeSolver
   let of_z3 const_of_decl expr =
     let term = function
       | `Term t -> t
-      | `Formula phi -> invalid_arg ("of_z3.term:" ^ (Z3.Expr.to_string (of_formula phi)))
+      | `Formula phi ->
+        invalid_arg ("of_z3.term:" ^ (Z3.Expr.to_string (of_formula phi)))
     in
     let formula = function
       | `Formula phi -> phi
@@ -354,8 +356,9 @@ module MakeSolver
         `Formula (C.mk_or [C.mk_not phi; psi])
       | `Atom (`Leq, s, t) -> `Formula (C.mk_leq (term s) (term t))
       | `Atom (`Lt, s, t) -> `Formula (C.mk_lt (term s) (term t))
-      | `Atom (`Eq, _, _)
-      | `App (_, _) -> invalid_arg "term_of"
+      | `Atom (`Eq, _, _) -> invalid_arg "of_z3"
+      | `App (decl, args) ->
+        invalid_arg ("of_z3: " ^ (Z3.FuncDecl.to_string decl))
     in
     Z3C.eval alg expr
 
@@ -388,6 +391,7 @@ module MakeSolver
 
     let push = Z3.Solver.push
     let pop = Z3.Solver.pop
+    let reset = Z3.Solver.reset
 
     let check s args =
       match Z3.Solver.check s (List.map of_formula args) with

@@ -72,6 +72,7 @@ module Make
     val add : solver -> expr list -> unit
     val push : solver -> unit
     val pop : solver -> int -> unit
+    val reset : solver -> unit
     val check : solver -> expr list -> [ `Sat | `Unsat | `Unknown ]
     val get_model : solver -> [ `Sat of model | `Unsat | `Unknown ]
   end
@@ -111,6 +112,7 @@ module MakeSolver
     val add : solver -> C.formula list -> unit
     val push : solver -> unit
     val pop : solver -> int -> unit
+    val reset : solver -> unit
     val check : solver -> C.formula list -> [ `Sat | `Unsat | `Unknown ]
     val get_model : solver -> [ `Sat of model | `Unsat | `Unknown ]
     val get_unsat_core : solver ->
