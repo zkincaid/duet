@@ -49,25 +49,30 @@ let load_math_opt filename =
                 (pos.pos_cnum - pos.pos_bol + 1))
 
 let _ =
-  (*  Log.verbosity_level := `info;*)
   Log.colorize := true;
-  match Sys.argv.(1) with
+  let i =
+    match Sys.argv.(1) with
+    | "verbose" -> Log.verbosity_level := `info; 2
+    | "trace" -> Log.verbosity_level := `trace; 2
+    | _ -> 1
+  in
+  match Sys.argv.(i) with
   | "sat" ->
-    let phi = load_formula Sys.argv.(2) in
+    let phi = load_formula Sys.argv.(i+1) in
     begin match Abstract.aqsat (module C) phi with
       | `Sat -> Log.logf ~level:`always "Satisfiable"
       | `Unsat -> Log.logf ~level:`always "Unsatisfiable"
       | `Unknown -> Log.logf ~level:`always "Unknown"
     end
   | "sat-z3" ->
-    let phi = load_formula Sys.argv.(2) in
+    let phi = load_formula Sys.argv.(i+1) in
     begin match CZ.is_sat phi with
       | `Sat -> Log.logf ~level:`always "Satisfiable"
       | `Unsat -> Log.logf ~level:`always "Unsatisfiable"
       | `Unknown -> Log.logf ~level:`always "Unknown"
     end
   | "sat-mbp" ->
-    let phi = load_formula Sys.argv.(2) in
+    let phi = load_formula Sys.argv.(i+1) in
     let psi = Abstract.qe_mbp (module C) phi in
     begin match CZ.is_sat psi with
       | `Sat -> Log.logf ~level:`always "Satisfiable"
@@ -75,14 +80,14 @@ let _ =
       | `Unknown -> Log.logf ~level:`always "Unknown"
     end
   | "sat-z3qe" ->
-    let phi = load_formula Sys.argv.(2) in
+    let phi = load_formula Sys.argv.(i+1) in
     begin match CZ.is_sat (CZ.qe phi) with
       | `Sat -> Log.logf ~level:`always "Satisfiable"
       | `Unsat -> Log.logf ~level:`always "Unsatisfiable"
       | `Unknown -> Log.logf ~level:`always "Unknown"
     end
   | "qe-sat" ->
-    let phi = load_formula Sys.argv.(2) in
+    let phi = load_formula Sys.argv.(i+1) in
     let phi = Ctx.Formula.prenex phi in
     begin match CZ.qe_sat phi with
       | `Sat -> Log.logf ~level:`always "Satisfiable"
@@ -90,7 +95,7 @@ let _ =
       | `Unknown -> Log.logf ~level:`always "Unknown"
     end
   | "qe-sat-unbounded" ->
-    let (objective, phi) = load_math_opt Sys.argv.(2) in
+    let (objective, phi) = load_math_opt Sys.argv.(i+1) in
     let phi = Ctx.Formula.prenex phi in
     begin match CZ.qe_sat phi with
       | `Sat -> Log.logf ~level:`always "Satisfiable"
@@ -99,11 +104,11 @@ let _ =
     end
 
   | "qe-mbp" ->
-    let phi = load_formula Sys.argv.(2) in
+    let phi = load_formula Sys.argv.(i+1) in
     let psi = Abstract.qe_mbp (module C) phi in
     Log.logf ~level:`always "%a" C.Formula.pp psi
   | "opt" ->
-    let (objective, phi) = load_math_opt Sys.argv.(2) in
+    let (objective, phi) = load_math_opt Sys.argv.(i+1) in
     begin match Abstract.aqopt (module C) phi objective with
       | `Sat ivl ->
         begin match Interval.upper ivl with
@@ -115,7 +120,7 @@ let _ =
       | `Unknown -> Log.logf ~level:`always "Unknown"
     end
   | "opt-mbp" ->
-    let (objective, phi) = load_math_opt Sys.argv.(2) in
+    let (objective, phi) = load_math_opt Sys.argv.(i+1) in
     let psi = Abstract.qe_mbp (module C) phi in
     begin match C.optimize_box psi [objective] with
       | `Sat [ivl] ->
@@ -129,7 +134,7 @@ let _ =
       | _ -> assert false
     end
   | "opt-z3qe" ->
-    let (objective, phi) = load_math_opt Sys.argv.(2) in
+    let (objective, phi) = load_math_opt Sys.argv.(i+1) in
     let psi = CZ.qe phi in
     begin match C.optimize_box psi [objective] with
       | `Sat [ivl] ->

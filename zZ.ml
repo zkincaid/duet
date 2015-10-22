@@ -36,3 +36,6 @@ let to_int x =
 
 let min x y = if leq x y then x else y
 let max x y = if geq x y then x else y
+let abs x =
+  if lt x zero then negate x
+  else x

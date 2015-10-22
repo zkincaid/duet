@@ -54,6 +54,7 @@ let exp x k =
   in
   if k < 0 then Mpqf.inv (go x (-k))
   else go x k
+
 let floor x =
   let (num, den) = to_zzfrac x in
   Mpzf.fdiv_q num den
@@ -115,6 +116,7 @@ let idiv x y =
   ZZ.div (ZZ.mul xnum yden) (ZZ.mul ynum xden)
 
 let modulo x y =
+  if compare y zero = 0 then invalid_arg "QQ.modulo: divide by zero";
   let (xnum, xden) = to_zzfrac x in
   let (ynum, yden) = to_zzfrac y in
   of_zzfrac

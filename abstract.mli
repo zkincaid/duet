@@ -16,6 +16,7 @@ module type AbstractionContext = sig
     val compare : t -> t -> int
     val equal : t -> t -> bool
     val fold_constants : (const_sym -> 'a -> 'a) -> t -> 'a -> 'a
+    val destruct : t -> t open_term
   end
   module Formula : sig
     type t = formula
@@ -40,6 +41,7 @@ module type AbstractionContext = sig
     val add : solver -> formula list -> unit
     val push : solver -> unit
     val pop : solver -> int -> unit
+    val reset : solver -> unit
     val check : solver -> formula list -> [ `Sat | `Unsat | `Unknown ]
     val get_model : solver -> [ `Sat of model | `Unsat | `Unknown ]
     val get_unsat_core : solver ->
