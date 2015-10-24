@@ -8,10 +8,12 @@ include Log.Make(struct let name = "ark.abstract" end)
 module V = Linear.QQVector
 module VS = Putil.Set.Make(Linear.QQVector)
 module VM = Putil.Map.Make(Linear.QQVector)
-module KS = BatSet.Make(struct
-    type t = const_sym
-    let compare = Pervasives.compare
-  end)
+module K = struct
+  type t = const_sym
+  let compare = Pervasives.compare
+end
+module KS = BatSet.Make(K)
+module KM = BatMap.Make(K)
 
 module type AbstractionContext = sig
 
@@ -25,6 +27,7 @@ module type AbstractionContext = sig
     type t = term
     val eval : ('a open_term -> 'a) -> t -> 'a
     val pp : Format.formatter -> t -> unit
+    val show : t -> string
     val compare : t -> t -> int
     val equal : t -> t -> bool
     val fold_constants : (const_sym -> 'a -> 'a) -> t -> 'a -> 'a
@@ -34,6 +37,7 @@ module type AbstractionContext = sig
     type t = formula
     val eval : (('a, term) open_formula -> 'a) -> t -> 'a    
     val pp : Format.formatter -> t -> unit
+    val show : t -> string
     val substitute_const : (const_sym -> term) -> t -> t
     val substitute : (int -> term) -> t -> t
     val destruct : t -> (t, term) open_formula
@@ -116,7 +120,7 @@ let linterm_of
     | `Var (_, _) -> raise Nonlinear
     | `Add sum -> List.fold_left add zero sum
     | `Mul sum -> List.fold_left mul (real QQ.one) sum
-    | `Binop (`Div, x, y) -> scalar_mul (QQ.inverse (qq_of y)) y
+    | `Binop (`Div, x, y) -> scalar_mul (QQ.inverse (qq_of y)) x
     | `Binop (`Mod, x, y) -> real (QQ.modulo (qq_of x) (qq_of y))
     | `Unop (`Floor, x) -> real (QQ.of_zz (QQ.floor (qq_of x)))
     | `Unop (`Neg, x) -> negate x
@@ -227,7 +231,11 @@ let evaluate_term
   let f = function
     | `Real qq -> qq
     | `Const k -> interp k
-    | `Var (i, _) -> Env.find env i
+    | `Var (i, _) ->
+      begin match Env.find env i with
+        | `Real qq -> qq
+        | _ -> invalid_arg "evaluate_term"
+      end
     | `Add xs -> List.fold_left QQ.add QQ.zero xs
     | `Mul xs -> List.fold_left QQ.mul QQ.one xs
     | `Binop (`Div, dividend, divisor) -> QQ.div dividend divisor
@@ -237,6 +245,68 @@ let evaluate_term
   in
   C.Term.eval f term
 
+let evaluate_linterm interp term =
+  (V.enum term)
+  /@ (fun (coeff, dim) ->
+      match const_of_dim dim with
+      | Some const -> QQ.mul (interp const) coeff
+      | None -> coeff)
+  |> BatEnum.fold QQ.add QQ.zero
+
+(* Mapping from constant symbols to appropriately-typed constant values. *)
+module Interpretation = struct
+  type interpretation =
+    { const_typ : const_sym -> typ_fo;
+      map : [ `Bool of bool | `Real of QQ.t ] KM.t }
+  let empty (module C : AbstractionContext) =
+    let const_typ k =
+      match C.const_typ k with
+      | `TyInt -> `TyInt
+      | `TyReal -> `TyReal
+      | `TyBool -> `TyBool
+      | `TyFun _ -> invalid_arg "Interpretation: only first-order constants"
+    in
+    { const_typ = const_typ;
+      map = KM.empty }
+
+  let add_real k v interp =
+    match interp.const_typ k with
+    | `TyReal | `TyInt -> { interp with map = KM.add k (`Real v) interp.map }
+    | _ -> invalid_arg "add_real: constant symbol is non-arithmetic"
+
+  let add_bool k v interp =
+    match interp.const_typ k with
+    | `TyBool -> { interp with map = KM.add k (`Bool v) interp.map }
+    | _ -> invalid_arg "add_boolan: constant symbol is non-boolean"
+
+  let real interp k =
+    match KM.find k interp.map with
+    | `Real v -> v
+    | _ -> invalid_arg "real: constant symbol is not real"
+
+  let bool interp k =
+    match KM.find k interp.map with
+    | `Bool v -> v
+    | _ -> invalid_arg "bool: constant symbol is not Boolean"
+
+  let pp
+      (module C : AbstractionContext)
+      formatter
+      interp =
+    let pp_val formatter = function
+      | `Bool true -> Format.pp_print_string formatter "true"
+      | `Bool false -> Format.pp_print_string formatter "false"
+      | `Real q -> QQ.pp formatter q
+    in
+    let pp_elt formatter (key, value) =
+      Format.fprintf formatter "@[%a@ => %a@]"
+        C.pp_const key
+        pp_val value
+    in
+    Format.fprintf formatter "[@[%a@]]"
+      (ApakEnum.pp_print_enum pp_elt) (KM.enum interp.map)
+end
+
 (* [select_implicant m ?env phi] selects an implicant of [phi] such that
    [m,?env |= phi] *)
 let select_implicant
@@ -245,7 +315,9 @@ let select_implicant
     interp
     ?(env=Env.empty)
     phi =
-  let eval term = evaluate_term (module C) interp ~env term in
+  let eval term =
+    evaluate_term (module C) (Interpretation.real interp) ~env term
+  in
   let rec go phi =
     match C.Formula.destruct phi with
     | `Tru -> Some []
@@ -271,7 +343,53 @@ let select_implicant
     | `Atom (`Leq, s, t) when QQ.leq (eval s) (eval t) -> Some [phi]
     | `Atom (`Lt, s, t) when QQ.lt (eval s) (eval t) -> Some [phi]
     | `Atom (_, _, _) -> None
-    | `Quantify _ | `Not _ -> invalid_arg "select_implicant"
+    | `Proposition (`Const p) ->
+      if Interpretation.bool interp p then Some [phi]
+      else None
+    | `Proposition (`Var v) ->
+      begin match Env.find env v with
+        | `Bool true -> Some [phi]
+        | `Bool false -> None
+        | _ -> invalid_arg "select_implicant"
+      end
+    | `Not psi -> go_not psi
+    | `Quantify _ -> invalid_arg "select_implicant"
+  and go_not phi =
+    match C.Formula.destruct phi with
+    | `Tru -> None
+    | `Fls -> Some []
+    | `Or disjuncts ->
+      (* All disjuncts must be unsatisfied *)
+      let f phi =
+        match go_not phi with
+        | Some x -> x
+        | None -> raise Not_found
+      in
+      (try Some (BatList.concat (List.map f disjuncts))
+       with Not_found -> None)
+    | `And conjuncts ->
+      (* Find unsatisfied conjunct *)
+      let f conjunct phi =
+        match conjunct with
+        | None -> go_not phi
+        | _ -> conjunct
+      in
+      List.fold_left f None conjuncts
+    | `Atom (`Eq, s, t) when QQ.equal (eval s) (eval t) -> None
+    | `Atom (`Leq, s, t) when QQ.leq (eval s) (eval t) -> None
+    | `Atom (`Lt, s, t) when QQ.lt (eval s) (eval t) -> None
+    | `Atom (_, _, _) -> Some [phi]
+    | `Proposition (`Const p) ->
+      if Interpretation.bool interp p then None
+      else Some [phi]
+    | `Proposition (`Var v) ->
+      begin match Env.find env v with
+        | `Bool true -> None
+        | `Bool false -> Some [phi]
+        | _ -> invalid_arg "select_implicant"
+      end
+    | `Not psi -> go psi
+    | `Quantify _ -> invalid_arg "select_implicant"
   in
   match go phi with
   | Some phis -> Some (C.mk_and phis)
@@ -315,8 +433,9 @@ let map_atoms
     | `Or disjuncts -> C.mk_or disjuncts
     | `Tru -> C.mk_true
     | `Fls -> C.mk_false
-    | `Not _ | `Quantify (_, _, _, _) -> invalid_arg "map_atoms"
     | `Atom (op, s, zero) -> f op s zero
+    | `Proposition _ | `Not _ | `Quantify (_, _, _, _) ->
+      invalid_arg "map_atoms"
   in
   C.Formula.eval alg phi
 
@@ -485,100 +604,18 @@ let terms
       V.add (linterm_of (module C) s) (V.negate (linterm_of (module C) t))
       |> VS.singleton
     | `Tru | `Fls -> VS.empty
-    | `Not _ | `Quantify (_, _, _, _) -> invalid_arg "abstract.terms"
+    | `Proposition _ | `Not _ | `Quantify (_, _, _, _) ->
+      invalid_arg "abstract.terms"
   in
   C.Formula.eval alg phi
-
-exception Equal_term of V.t
-let select_real_term
-    (type formula)
-    (type model)
-    (module C : AbstractionContext with type formula = formula
-                                    and type model = model)
-    m
-    x
-    phi =
-
-  let merge (lower1, upper1) (lower2, upper2) =
-    let lower =
-      match lower1, lower2 with
-      | (x, None) | (None, x) -> x
-      | (Some (s, s_val), Some (t, t_val)) ->
-        if QQ.lt t_val s_val then
-          Some (s, s_val)
-        else
-          Some (t, t_val)
-    in
-    let upper =
-      match upper1, upper2 with
-      | (x, None) | (None, x) -> x
-      | (Some (s, s_val), Some (t, t_val)) ->
-        if QQ.lt s_val t_val then
-          Some (s, s_val)
-        else
-          Some (t, t_val)
-    in
-    (lower, upper)
-  in
-  let x_val = V.dot m (V.of_term QQ.one (dim_of_const x)) in
-  let alg = function
-    | `And xs | `Or xs -> List.fold_left merge (None, None) xs
-    | `Atom (op, t, zero) ->
-      assert (C.Term.equal zero (C.mk_real QQ.zero));
-
-      let t = linterm_of (module C) t in
-      let (a, t') = V.pivot (dim_of_const x) t in
-
-      (* Atom is ax + t' op 0 *)
-      if QQ.equal QQ.zero a then
-        (None, None)
-      else
-        let toa = V.scalar_mul (QQ.inverse (QQ.negate a)) t' in
-        let toa_val = V.dot m toa in
-        if QQ.equal toa_val x_val && (op = `Leq || op = `Eq) then
-          raise (Equal_term toa)
-        else if QQ.lt a QQ.zero && QQ.lt toa_val x_val then
-          (* Lower bound *)
-          (Some (toa, toa_val), None)
-        else if QQ.lt QQ.zero a && QQ.lt x_val toa_val then
-          (* Upper bound *)
-          (None, Some (toa, toa_val))
-        else
-          (None, None)
-    | `Tru | `Fls -> (None, None)
-    | `Not _ | `Quantify (_, _, _, _) -> invalid_arg "abstract.terms"
-  in
-  try
-    match C.Formula.eval alg phi with
-    | (Some (s, _), None) ->
-      logf ~level:`trace "Found lower bound: %a < %a"
-        (pp_linterm (module C))
-        s C.pp_const x;
-      V.add s (const_linterm (QQ.of_int (1)))
-    | (None, Some (t, _)) ->
-      logf ~level:`trace "Found upper bound: %a < %a"
-        C.pp_const x
-        (pp_linterm (module C)) t;
-      V.add t (const_linterm (QQ.of_int (-1)))
-    | (Some (s, _), Some (t, _)) ->
-      logf ~level:`trace "Found interval: %a < %a < %a"
-        (pp_linterm (module C)) s
-        C.pp_const x
-        (pp_linterm (module C)) t;
-      V.scalar_mul (QQ.of_frac 1 2) (V.add s t)
-    | (None, None) -> V.zero (* Value of x is irrelevant *)
-  with Equal_term t ->
-    (logf ~level:`trace "Found equal term: %a = %a"
-       C.pp_const x
-       (pp_linterm (module C)) t;
-     t)
 
 (* Given a prenex formula phi, compute a pair (qf_pre, psi) such that
    - qf_pre is a quantifier prefix [(Q0, a0);...;(Qn, an)] where each Qi is
      either `Exists or `Forall, and each ai is a Skolem constant
    - psi is negation- and quantifier-free formula, and contains no free
      variables
-   - every atom of in psi is of the form t < 0, t <= 0, or t = 0
+   - every atom of in psi is either a propositial variable or an arithmetic
+     atom of the form t < 0, t <= 0, or t = 0
    - phi is equivalent to Q0 a0.Q1 a1. ... Qn. an. psi
 *)
 let normalize
@@ -587,8 +624,8 @@ let normalize
     phi =
   let phi = C.Formula.prenex phi in
   let zero = C.mk_real QQ.zero in
-  let rec normalize (env : C.term Env.t) phi =
-    let subst = C.Formula.substitute (Env.find env) in
+  let rec normalize env phi =
+    let subst = C.Formula.substitute (C.mk_const % Env.find env) in
     match C.Formula.destruct phi with
     | `Not psi -> normalize_not env psi
     | `And conjuncts -> C.mk_and (List.map (normalize env) conjuncts)
@@ -598,9 +635,11 @@ let normalize
     | `Atom (`Eq, s, t) -> subst (C.mk_eq (C.mk_sub s t) zero)
     | `Atom (`Leq, s, t) -> subst (C.mk_leq (C.mk_sub s t) zero)
     | `Atom (`Lt, s, t) -> subst (C.mk_lt (C.mk_sub s t) zero)
+    | `Proposition (`Var i) -> C.mk_prop_const (Env.find env i)
+    | `Proposition (`Const _) -> phi
     | `Quantify (_, _, _, _) -> invalid_arg "normalize: expected prenex"
   and normalize_not env phi =
-    let subst = C.Formula.substitute (Env.find env) in
+    let subst = C.Formula.substitute (C.mk_const % Env.find env) in
     match C.Formula.destruct phi with
     | `Not psi -> normalize env psi
     | `And conjuncts -> C.mk_or (List.map (normalize_not env) conjuncts)
@@ -611,20 +650,21 @@ let normalize
       subst (C.mk_or [C.mk_lt (C.mk_sub s t) zero; C.mk_lt (C.mk_sub t s) zero])
     | `Atom (`Leq, s, t) -> subst (C.mk_lt (C.mk_sub t s) zero)
     | `Atom (`Lt, s, t) -> subst (C.mk_leq (C.mk_sub t s) zero)
+    | `Proposition (`Var i) -> C.mk_not (C.mk_prop_const (Env.find env i))
+    | `Proposition (`Const _) -> C.mk_not phi
     | `Quantify (_, _, _, _) -> invalid_arg "normalize: expected prenex"
   in
   let rec go env phi =
     match C.Formula.destruct phi with
     | `Quantify (qt, name, typ, psi) ->
       let k = C.mk_skolem ~name (typ :> Syntax.typ) in
-      let (qf_pre, psi) = go (Env.push (C.mk_const k) env) psi in
+      let (qf_pre, psi) = go (Env.push k env) psi in
       ((qt,k)::qf_pre, psi)
     | _ -> ([], normalize env phi)
   in
   go Env.empty phi
 
-(* destruct_normal is safe to apply to a formula that has been
-   normalized *)
+(* destruct_normal is safe to apply to a formula that has been normalized *)
 let destruct_normal
     (type formula)
     (module C : AbstractionContext with type formula = formula)
@@ -635,16 +675,24 @@ let destruct_normal
     | `Real q ->
       begin match QQ.to_zz q with
         | Some z -> z
-        | None -> invalid_arg "destruct_normal"
+        | None -> invalid_arg "destruct_normal: non-integral value"
       end
-    | _ -> invalid_arg "destruct_normal"
+    | _ -> invalid_arg "destruct_normal: non-constant"
   in
   match C.Formula.destruct phi with
-  | `Not _ | `Quantify (_, _, _, _) -> invalid_arg "destruct_normal"
+  | `Quantify (_, _, _, _) -> invalid_arg "destruct_normal: quantification"
   | `And psis -> `And psis
   | `Or psis -> `Or psis
   | `Tru -> `Tru
   | `Fls -> `Fls
+  | `Not psi ->
+    begin match C.Formula.destruct psi with
+      | `Proposition (`Const p) -> `NotProposition p
+      | _ -> invalid_arg ("destruct_normal: " ^ (C.Formula.show phi))
+    end
+  | `Proposition (`Const p) -> `Proposition p
+  | `Proposition (`Var _) ->
+    invalid_arg "destruct_normal: propositional variable"
   | `Atom (`Eq, s, t) ->
     if not (C.Term.equal t zero) then invalid_arg "destruct_normal";
     begin match C.Term.destruct s with
@@ -657,7 +705,6 @@ let destruct_normal
     end
   | `Atom (`Lt, s, t) ->
     if not (C.Term.equal t zero) then invalid_arg "destruct_normal";
-
     begin match C.Term.destruct s with
       | `Binop (`Mod, dividend, modulus) ->
         (* Indivisibility constraint: dividend % modulus < 0. *)
@@ -752,6 +799,7 @@ let int_virtual_substitution
         | `Or psis -> C.mk_or (List.map subst psis)
         | `Tru -> C.mk_true
         | `Fls -> C.mk_false
+        | `Proposition _ | `NotProposition _ -> phi
         | `Divides (delta, s) ->
           (* The atom is of the form
                 delta | ax + s
@@ -829,7 +877,7 @@ let substitute_real_term
     match destruct_normal (module C) phi with
     | `And psis -> C.mk_and (List.map go psis)
     | `Or psis -> C.mk_or (List.map go psis)
-    | `Tru | `Fls -> phi
+    | `Tru | `Fls | `Proposition _ | `NotProposition _ -> phi
     | `Divides (delta, s) -> mk_divides (module C) delta (replace_term s)
     | `NotDivides (delta, s) -> mk_not_divides (module C) delta (replace_term s)
     | `CompareZero (op, s) ->
@@ -847,6 +895,7 @@ module Scheme = struct
   type move =
     | MInt of int_virtual_term
     | MReal of V.t
+    | MBool of bool
           [@@deriving ord]
 
   let substitute
@@ -858,17 +907,38 @@ module Scheme = struct
     match move with
     | MInt vt -> int_virtual_substitution (module C) x vt phi
     | MReal t -> substitute_real_term (module C) x t phi
+    | MBool vb ->
+      let replacement = match vb with
+        | true -> C.mk_true
+        | false -> C.mk_false
+      in
+      let alg = function
+        | `And xs -> C.mk_and xs
+        | `Or xs -> C.mk_or xs
+        | `Tru -> C.mk_true
+        | `Fls -> C.mk_false
+        | `Quantify (_, _, _, _) | `Proposition (`Var _) ->
+          invalid_arg "substitute"
+        | `Not phi -> C.mk_not phi
+        | `Atom (`Leq, s, t) -> C.mk_leq s t
+        | `Atom (`Lt, s, t) -> C.mk_lt s t
+        | `Atom (`Eq, s, t) -> C.mk_eq s t
+        | `Proposition (`Const p) when p = x -> replacement
+        | `Proposition (`Const p) -> C.mk_prop_const p
+      in
+      C.Formula.eval alg phi
 
   let evaluate_move model move =
     match move with
     | MInt vt ->
-      begin match QQ.to_zz (V.dot vt.term model) with
+      begin match QQ.to_zz (evaluate_linterm model vt.term) with
         | None -> assert false
         | Some tv ->
           ZZ.add (Mpzf.fdiv_q tv (ZZ.of_int vt.divisor)) vt.offset
           |> QQ.of_zz
       end
-    | MReal t -> V.dot t model
+    | MReal t -> evaluate_linterm model t
+    | MBool _ -> invalid_arg "evaluate_move"
 
   let pp_move
       (module C : AbstractionContext)
@@ -877,6 +947,8 @@ module Scheme = struct
     match move with
     | MInt vt -> pp_int_virtual_term (module C) formatter vt
     | MReal t -> pp_linterm (module C) formatter t
+    | MBool true -> Format.pp_print_string formatter "true"
+    | MBool false -> Format.pp_print_string formatter "false"
 
   let const_of_move move =
     match move with
@@ -884,6 +956,7 @@ module Scheme = struct
     | MInt vt ->
       if vt.divisor = 1 then const_of_linterm vt.term
       else None
+    | MBool _ -> invalid_arg "const_of_move"
 
   module MM = BatMap.Make(struct type t = move [@@deriving ord] end)
 
@@ -1015,10 +1088,92 @@ module Scheme = struct
     go scheme
 end
 
+exception Equal_term of V.t
+let select_real_term
+    (type formula)
+    (module C : AbstractionContext with type formula = formula)
+    interp
+    x
+    phi =
+
+  let merge (lower1, upper1) (lower2, upper2) =
+    let lower =
+      match lower1, lower2 with
+      | (x, None) | (None, x) -> x
+      | (Some (s, s_val), Some (t, t_val)) ->
+        if QQ.lt t_val s_val then
+          Some (s, s_val)
+        else
+          Some (t, t_val)
+    in
+    let upper =
+      match upper1, upper2 with
+      | (x, None) | (None, x) -> x
+      | (Some (s, s_val), Some (t, t_val)) ->
+        if QQ.lt s_val t_val then
+          Some (s, s_val)
+        else
+          Some (t, t_val)
+    in
+    (lower, upper)
+  in
+  let x_val = Interpretation.real interp x in
+  let rec go phi =
+    match destruct_normal (module C) phi with
+    | `And xs | `Or xs ->
+      List.fold_left (fun a psi -> merge a (go psi)) (None, None) xs
+    | `Tru | `Fls | `Proposition _ | `NotProposition _ -> (None, None)
+    | `Divides _ | `NotDivides _ -> invalid_arg "select_real_term"
+    | `CompareZero (op, t) ->
+
+      let (a, t') = V.pivot (dim_of_const x) t in
+
+      (* Atom is ax + t' op 0 *)
+      if QQ.equal QQ.zero a then
+        (None, None)
+      else
+        let toa = V.scalar_mul (QQ.inverse (QQ.negate a)) t' in
+        let toa_val = evaluate_linterm (Interpretation.real interp) toa in
+        if QQ.equal toa_val x_val && (op = `Leq || op = `Eq) then
+          raise (Equal_term toa)
+        else if QQ.lt a QQ.zero && QQ.lt toa_val x_val then
+          (* Lower bound *)
+          (Some (toa, toa_val), None)
+        else if QQ.lt QQ.zero a && QQ.lt x_val toa_val then
+          (* Upper bound *)
+          (None, Some (toa, toa_val))
+        else
+          (None, None)
+  in
+  try
+    match go phi with
+    | (Some (s, _), None) ->
+      logf ~level:`trace "Found lower bound: %a < %a"
+        (pp_linterm (module C))
+        s C.pp_const x;
+      V.add s (const_linterm (QQ.of_int (1)))
+    | (None, Some (t, _)) ->
+      logf ~level:`trace "Found upper bound: %a < %a"
+        C.pp_const x
+        (pp_linterm (module C)) t;
+      V.add t (const_linterm (QQ.of_int (-1)))
+    | (Some (s, _), Some (t, _)) ->
+      logf ~level:`trace "Found interval: %a < %a < %a"
+        (pp_linterm (module C)) s
+        C.pp_const x
+        (pp_linterm (module C)) t;
+      V.scalar_mul (QQ.of_frac 1 2) (V.add s t)
+    | (None, None) -> V.zero (* Value of x is irrelevant *)
+  with Equal_term t ->
+    (logf ~level:`trace "Found equal term: %a = %a"
+       C.pp_const x
+       (pp_linterm (module C)) t;
+     t)
+
 let select_int_term
     (type formula)
     (module C : AbstractionContext with type formula = formula)
-    m
+    interp
     x
     phi =
   let merge bound bound' =
@@ -1037,15 +1192,16 @@ let select_int_term
     | (`Upper (t, t_val), _) | (_, `Upper (t, t_val)) -> `Upper (t, t_val)
     | `None, `None -> `None
   in
-  let x_val = match QQ.to_zz (V.coeff (dim_of_const x) m) with
+  let eval = evaluate_linterm (Interpretation.real interp) in
+  let x_val = match QQ.to_zz (Interpretation.real interp x) with
     | Some zz -> zz
     | None -> assert false
   in
   let is_sat op t =
     match op with
-    | `Leq -> QQ.leq (V.dot m t) QQ.zero
-    | `Lt -> QQ.lt (V.dot m t) QQ.zero
-    | `Eq -> QQ.equal (V.dot m t) QQ.zero
+    | `Leq -> QQ.leq (eval t) QQ.zero
+    | `Lt -> QQ.lt (eval t) QQ.zero
+    | `Eq -> QQ.equal (eval t) QQ.zero
   in
   (* delta = gcd { lcm(d,a) : d | ax + t or not(d | ax + t) in atoms }.  If
      [[vt]](m) = [[x]](m) mod delta, then for every divisilibity atom
@@ -1056,7 +1212,9 @@ let select_int_term
     let rec go phi =
       match destruct_normal (module C) phi with
       | `And xs | `Or xs -> List.fold_left ZZ.gcd ZZ.one (List.map go xs)
-      | `Tru | `Fls | `CompareZero (_, _) -> ZZ.one
+      | `Tru | `Fls | `CompareZero (_, _)
+      | `Proposition _ | `NotProposition _ ->
+        ZZ.one
       | `Divides (divisor, t) | `NotDivides (divisor, t) ->
         let (a, t) = V.pivot (dim_of_const x) t in
         let a = match QQ.to_zz a with
@@ -1069,14 +1227,17 @@ let select_int_term
     go phi
   in
   let evaluate_vt vt =
-    match QQ.to_zz (Scheme.evaluate_move m (Scheme.MInt vt)) with
+    let real_val =
+      Scheme.evaluate_move (Interpretation.real interp) (Scheme.MInt vt)
+    in
+    match QQ.to_zz real_val with
     | Some v -> v
     | None -> assert false
   in
   let rec go phi =
     match destruct_normal (module C) phi with
     | `And xs | `Or xs -> List.fold_left merge `None (List.map go xs)
-    | `Tru | `Fls -> `None
+    | `Tru | `Fls | `Proposition _ | `NotProposition _ -> `None
     | `Divides (_, _) | `NotDivides (_, _) -> `None
     | `CompareZero (op, t) when is_sat op t ->
       let (a, t) = V.pivot (dim_of_const x) t in
@@ -1086,7 +1247,7 @@ let select_int_term
           | None -> assert false
           | Some z -> z
       in
-      let t_val = match QQ.to_zz (V.dot m t) with
+      let t_val = match QQ.to_zz (eval t) with
         | Some zz -> zz
         | None -> assert false
       in
@@ -1113,7 +1274,7 @@ let select_int_term
         let rhs =
           V.add_term (QQ.negate (QQ.add (QQ.of_int a) QQ.one)) const_dim t
         in
-        let t_val = match QQ.to_zz (V.dot m rhs) with
+        let t_val = match QQ.to_zz (eval rhs) with
           | Some zz -> zz
           | None -> assert false
         in
@@ -1134,7 +1295,7 @@ let select_int_term
     | `CompareZero (op, t) -> `None
   in
   let vt_val vt =
-    let tval = match QQ.to_zz (V.dot m vt.term) with
+    let tval = match QQ.to_zz (eval vt.term) with
       | Some zz -> zz
       | None -> assert false
     in
@@ -1195,15 +1356,23 @@ module CounterStrategySynthesis (C : AbstractionContext) = struct
          terms for each universally-quantified variable using model-based
          projection.  *)
       let rec counter_strategy path_model scheme =
-        logf "Path model: %a" (pp_linterm (module C)) path_model;
+        logf "Path model: %a" (Interpretation.pp (module C)) path_model;
         let open Scheme in
         match scheme with
         | SForall (k, sk, scheme) ->
           let path_model =
-            V.add_term
-              (C.Model.eval_real m (C.mk_const sk))
-              (dim_of_const k)
-              path_model
+            match C.const_typ k with
+            | `TyReal | `TyInt ->
+              Interpretation.add_real
+                k
+                (C.Model.eval_real m (C.mk_const sk))
+                path_model
+            | `TyBool ->
+              Interpretation.add_bool
+                k
+                (C.Model.sat m (C.mk_prop_const sk))
+                path_model
+            | `TyFun _ -> assert false
           in
           logf ~level:`trace "Forall %a" C.pp_const k;
           let (counter_phi, counter_paths) =
@@ -1223,10 +1392,14 @@ module CounterStrategySynthesis (C : AbstractionContext) = struct
             MM.enum mm
             /@ (fun (move, scheme) ->
                 let path_model =
-                  V.add_term
-                    (Scheme.evaluate_move path_model move)
-                    (dim_of_const k)
-                    path_model
+                  match move with
+                  | Scheme.MBool bool_val ->
+                    Interpretation.add_bool k bool_val path_model
+                  | _ ->
+                    let mv =
+                      Scheme.evaluate_move (Interpretation.real path_model) move
+                    in
+                    Interpretation.add_real k mv path_model
                 in
                 let (counter_phi, counter_paths) =
                   counter_strategy path_model scheme
@@ -1244,9 +1417,8 @@ module CounterStrategySynthesis (C : AbstractionContext) = struct
            BatList.concat (BatList.of_enum paths))
         | SEmpty ->
           let phi_implicant =
-            let interp x = V.coeff (dim_of_const x) path_model in
             let implicant =
-              select_implicant (module C) interp ctx.not_formula
+              select_implicant (module C) path_model ctx.not_formula
             in
             match implicant with
             | Some x -> x
@@ -1255,7 +1427,7 @@ module CounterStrategySynthesis (C : AbstractionContext) = struct
           logf ~level:`trace "Implicant: %a" C.Formula.pp phi_implicant;
           (phi_implicant, [[]])
       in
-      `Sat (snd (counter_strategy (const_linterm QQ.one) ctx.scheme))
+      `Sat (snd (counter_strategy (Interpretation.empty (module C)) ctx.scheme))
 
   (* Check to see if the matrix of a prenex formula is satisfiable.  If it is,
      initialize a sat/unsat strategy scheme pair. *)
@@ -1268,9 +1440,20 @@ module CounterStrategySynthesis (C : AbstractionContext) = struct
 
       let phi_model =
         List.fold_left
-          (fun v (_, k) ->
-             V.add_term (C.Model.eval_real m (C.mk_const k)) (dim_of_const k) v)
-          (const_linterm QQ.one)
+          (fun interp (_, k) ->
+            match C.const_typ k with
+            | `TyReal | `TyInt ->
+              Interpretation.add_real
+                k
+                (C.Model.eval_real m (C.mk_const k))
+                interp
+            | `TyBool ->
+              Interpretation.add_bool
+                k
+                (C.Model.sat m (C.mk_prop_const k))
+                interp
+            | `TyFun _ -> assert false)
+          (Interpretation.empty (module C))
           qf_pre
       in
 
@@ -1354,7 +1537,8 @@ let aqsat
     match C.const_typ x with
     | `TyInt -> Scheme.MInt (select_int_term (module C) model x phi)
     | `TyReal -> Scheme.MReal (select_real_term (module C) model x phi)
-    | `TyBool | `TyFun (_, _) -> assert false
+    | `TyBool -> Scheme.MBool (Interpretation.bool model x)
+    | `TyFun (_, _) -> assert false
   in
   match CSS.initialize_pair select_term qf_pre phi with
   | `Unsat -> `Unsat
@@ -1394,12 +1578,13 @@ let aqopt
   (* Always select [[objective]](m) as the value of objective *)
   let select_term m x phi =
     if x = objective then
-      Scheme.MReal (const_linterm (V.coeff (dim_of_const x) m))
+      Scheme.MReal (const_linterm (Interpretation.real m x))
     else
       match C.const_typ x with
       | `TyInt -> Scheme.MInt (select_int_term (module C) m x phi)
       | `TyReal -> Scheme.MReal (select_real_term (module C) m x phi)
-      | `TyBool | `TyFun (_, _) -> assert false
+      | `TyBool -> Scheme.MBool (Interpretation.bool m x)
+      | `TyFun (_, _) -> assert false
   in
   match CSS.initialize_pair select_term qf_pre_unbounded phi_unbounded with
   | `Unsat -> `Unsat

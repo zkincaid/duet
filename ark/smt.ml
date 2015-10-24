@@ -37,6 +37,7 @@ let typ_of_sort sort =
   match Z3.Sort.get_sort_kind sort with
   | REAL_SORT -> `TyReal
   | INT_SORT -> `TyInt
+  | BOOL_SORT -> `TyBool
   | _ -> invalid_arg "typ_of_sort"
 
 module Make
@@ -51,7 +52,7 @@ module Make
   type 'a open_expr = [
     | `Real of QQ.t
     | `App of func_decl * 'a list
-    | `Var of int * typ_arith
+    | `Var of int * typ_fo
     | `Add of 'a list
     | `Mul of 'a list
     | `Binop of [ `Div | `Mod ] * 'a * 'a
@@ -61,7 +62,7 @@ module Make
     | `And of 'a list
     | `Or of 'a list
     | `Not of 'a
-    | `Quantify of [`Exists | `Forall] * string * typ_arith * 'a
+    | `Quantify of [`Exists | `Forall] * string * typ_fo * 'a
     | `Atom of [`Eq | `Leq | `Lt] * 'a * 'a
   ]
 
@@ -184,6 +185,8 @@ module Make
   let mk_eq = Boolean.mk_eq ctx
   let mk_app = Expr.mk_app ctx
   let mk_const k = mk_app k []
+  let mk_prop_const = mk_const
+  let mk_prop_var i = Quantifier.mk_bound ctx i bool_sort
   let mk = function
     | `Real qq -> mk_real qq
     | `App (func, args) -> mk_app func args
@@ -203,6 +206,8 @@ module Make
     | `Atom (`Eq, x, y) -> mk_eq x y
     | `Atom (`Lt, x, y) -> mk_lt x y
     | `Atom (`Leq, x, y) -> mk_leq x y
+    | `Proposition (`Const p) -> mk_prop_const p
+    | `Proposition (`Var i) -> mk_prop_var i
 
   module Solver = struct
     let mk_solver () = Z3.Solver.mk_simple_solver ctx
@@ -275,8 +280,7 @@ module MakeSolver
         let sort = match C.const_typ sym with
           | `TyInt -> Z3C.int_sort
           | `TyReal -> Z3C.real_sort
-          | `TyBool -> Z3C.bool_sort
-          | `TyFun (_,_) -> invalid_arg "z3_of.term"
+          | `TyBool | `TyFun (_,_) -> invalid_arg "z3_of.term"
         in
         let decl = Z3.FuncDecl.mk_const_decl Z3C.ctx id sort in
         Z3C.mk_const decl
@@ -307,6 +311,13 @@ module MakeSolver
       | `Atom (`Eq, s, t) -> Z3C.mk_eq (of_term s) (of_term t)
       | `Atom (`Leq, s, t) -> Z3C.mk_leq (of_term s) (of_term t)
       | `Atom (`Lt, s, t) -> Z3C.mk_lt (of_term s) (of_term t)
+      | `Proposition (`Var i) -> Z3C.mk_prop_var i
+      | `Proposition (`Const p) ->
+        let id = Z3.Symbol.mk_int Z3C.ctx (Obj.magic p) in
+        if not (C.const_typ p = `TyBool) then
+          invalid_arg "z3_of.formula";
+        let decl = Z3.FuncDecl.mk_const_decl Z3C.ctx id Z3C.bool_sort in
+        Z3C.mk_prop_const decl
     in
     C.Formula.eval alg phi
 
@@ -324,11 +335,11 @@ module MakeSolver
       | `Real qq -> `Term (C.mk_real qq)
       | `Var (i, `TyInt) -> `Term (C.mk_var i `TyInt)
       | `Var (i, `TyReal) -> `Term (C.mk_var i `TyReal)
+      | `Var (i, `TyBool) -> `Formula (C.mk_prop_var i)
       | `App (decl, []) ->
         let const_sym = const_of_decl decl in
         begin match C.const_typ const_sym with
-          | `TyBool ->
-            `Formula (C.mk_eq (C.mk_real QQ.zero) (C.mk_const const_sym))
+          | `TyBool -> `Formula (C.mk_prop_const const_sym)
           | `TyInt | `TyReal -> `Term (C.mk_const const_sym)
           | `TyFun (_, _) -> assert false (* Shouldn't appear with zero args *)
         end
