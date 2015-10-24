@@ -6,6 +6,12 @@ open EqLogic
 module DG = Afg.G
 module Pack = Afg.Pack
 
+let conc_edges = ref true
+
+let _ =
+  CmdLine.register_config
+    ("-no-conc-edges", Arg.Clear conc_edges, " Disable concurrent data flow edges") 
+
 (* True if the variable may be used concurrently *)
 let may_use_conc v = Var.is_shared v || Varinfo.addr_taken (fst v)
 
@@ -807,15 +813,20 @@ let construct_conc_dg file =
   in
   let rg = Interproc.make_recgraph file in
   let dg =
-    ignore(LockLogic.find_races rg root);
+    ignore(LockLogic.compute_races rg root);
     if !AliasLogic.must_alias then
       ConcDep.SeqDep.construct_dg ~solver:(ConcDep.SeqDep.RDAnalysisConc.solve rg root) file
     else
       ConcTrivDep.SeqDep.construct_dg ~solver:(ConcTrivDep.SeqDep.RDAnalysisConc.solve rg root) file
   in
-  ConcDep.ConcRDAnalysis.add_conc_edges rg root dg;
-  if !CmdLine.display_graphs then DG.display_labelled dg;
-  dg
+    if !conc_edges then begin
+      if !AliasLogic.must_alias then
+        ConcDep.ConcRDAnalysis.add_conc_edges rg root dg
+      else
+        ConcTrivDep.ConcRDAnalysis.add_conc_edges rg root dg
+    end;
+    if !CmdLine.display_graphs then DG.display_labelled dg;
+    dg
 
 let chdfg_stats file =
   let dg = Log.phase "Construct hDFG" construct_conc_dg file in
@@ -826,15 +837,69 @@ let _ =
   CmdLine.register_pass
     ("-chdfg-stats", chdfg_stats, " Concurrent heap data flow graph statistics")
 
-module InvGen = Solve.MakeAfgSolver(Ai.ApronInterpretation)
+module I = Ai.ApronInterpretation
+module InvGen = Solve.MakeAfgSolver(I)
 let invariant_generation file =
-  let dg = Log.phase "Construct chDFG" construct_conc_dg file in
-  let state = InvGen.mk_state dg in
-  let map = InvGen.do_analysis state dg in
-  InvGen.check_assertions dg map
+  let changed = ref false in
+  let remove_unreachable dg map file =
+    let process_func func =
+      let remove_vertex v =
+        match v.dkind with
+          | Assume _ ->
+              if (DG.mem_vertex dg v
+                  && I.is_bottom (InvGen.output map v))
+              then begin
+                Cfg.iter_succ_e (Cfg.remove_edge_e func.cfg) func.cfg v;
+                Log.debug ("UNREACHABLE: " ^ (Def.show v));
+                v.dkind <- Builtin Exit;
+                changed := true
+              end
+          | _ -> ()
+      in
+      let init = Cfg.initial_vertex func.cfg in
+        Cfg.iter_vertex remove_vertex func.cfg;
+        CfgIr.remove_unreachable func.cfg init;
+    in
+      List.iter process_func file.funcs
+  in
+  let rec go () =
+    let dg = Log.phase "Construct chDFG" construct_conc_dg file in
+    let state = InvGen.mk_state dg in
+    let map = InvGen.do_analysis state dg in
+      Log.debug "REMOVE UNREACHABLE";
+      changed := false;
+      remove_unreachable dg map file;
+      if !changed then go () else (dg, map)
+  in
+    ignore (Bddpa.initialize file);
+    PointerAnalysis.simplify_calls file;
+    let (dg,map) = go () in
+      print_endline ("Vertices: " ^ (string_of_int (DG.nb_vertex dg)));
+      print_endline ("Edges: " ^ (string_of_int (DG.nb_edges dg)));
+      InvGen.check_assertions dg map
 
 let _ =
   CmdLine.register_pass
     ("-chdfg",
      invariant_generation,
      " Invariant generation with concurrent heap data flow graph")
+
+let sequentialish file =
+  let expand_cfg cfg =
+    let expand_forks def = match def.dkind with
+      | Builtin (Fork (vo, tgt, elst)) ->
+          let call = Def.mk (Call (vo, tgt, elst)) in
+            Cfg.add_vertex cfg call;
+            List.iter (fun v -> Cfg.add_edge cfg v call) (Cfg.pred cfg def);
+            def.dkind <- Assume (Bexpr.ktrue)
+      | _ -> ()
+    in
+      Cfg.iter_vertex expand_forks cfg
+  in
+    List.iter (fun func -> expand_cfg func.cfg) file.funcs
+
+let _ =
+  CmdLine.register_pass
+    ("-sequentialish",
+     sequentialish,
+     " Replace forks with a nondeterministic call")

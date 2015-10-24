@@ -18,7 +18,7 @@ module CfgBuilder : sig
   val mk_single : Cfg.t -> Def.t -> ivl
   val mk_seq : Cfg.t -> ivl -> ivl -> ivl
   val mk_block : Cfg.t -> ivl list -> ivl
-  val mk_if : Cfg.t -> Bexpr.t -> ivl -> ivl -> ivl
+  val mk_if : Cfg.t -> ?loc:Cil.location -> Bexpr.t -> ivl -> ivl -> ivl
 end
 
 type func = {
