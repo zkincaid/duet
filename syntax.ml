@@ -9,6 +9,7 @@ type typ = [
 
 type typ_arith = [ `TyInt | `TyReal ] [@@ deriving ord]
 type typ_bool = [ `TyBool ]
+type typ_fo = [ `TyInt | `TyReal | `TyBool ] [@@ deriving ord]
 type 'a typ_fun = [ `TyFun of (typ list) * 'a ]
 
 type const_sym = int
@@ -24,6 +25,7 @@ let rec pp_typ formatter = function
       pp_typ cod
 
 let pp_typ_arith = pp_typ
+let pp_typ_fo = pp_typ
 
 type label =
   | True
@@ -31,13 +33,13 @@ type label =
   | And
   | Or
   | Not
-  | Exists of string * typ_arith
-  | Forall of string * typ_arith
+  | Exists of string * typ_fo
+  | Forall of string * typ_fo
   | Eq
   | Leq
   | Lt
   | Const of const_sym
-  | Var of int * typ_arith
+  | Var of int * typ_fo
   | Add
   | Mul
   | Div
@@ -76,7 +78,7 @@ module ConstSymbol = Apak.Putil.PInt
 
 module Var = struct
   module I = struct
-    type t = int * typ_arith [@@deriving show,ord]
+    type t = int * typ_fo [@@deriving show,ord]
   end
   include I
   module Set = Apak.Putil.Set.Make(I)
@@ -127,8 +129,9 @@ type ('a,'b) open_formula = [
   | `And of 'a list
   | `Or of 'a list
   | `Not of 'a
-  | `Quantify of [`Exists | `Forall] * string * typ_arith * 'a
+  | `Quantify of [`Exists | `Forall] * string * typ_fo * 'a
   | `Atom of [`Eq | `Leq | `Lt] * 'b * 'b
+  | `Proposition of [ `Const of int | `Var of int ]
 ]
 
 module Make (C : Constant) () = struct
@@ -187,8 +190,11 @@ module Make (C : Constant) () = struct
   let mk_real qq = hashcons (Node (Real qq, []))
   let mk_zero = mk_real QQ.zero
   let mk_one = mk_real QQ.one
-  let mk_const k = hashcons (Node (Const k, []))
-  let mk_var v typ = hashcons (Node (Var (v, typ), []))
+  let mk_const k =
+    match const_typ k with
+    | `TyInt | `TyReal -> hashcons (Node (Const k, []))
+    | _ -> invalid_arg "mk_const: must be arithmetic type"
+  let mk_var v typ = hashcons (Node (Var (v, (typ :> typ_fo)), []))
   let mk_neg t = hashcons (Node (Neg, [t]))
   let mk_div s t = hashcons (Node (Div, [s; t]))
   let mk_mod s t = hashcons (Node (Mod, [s; t]))
@@ -209,7 +215,15 @@ module Make (C : Constant) () = struct
 
   let mk_true = hashcons (Node (True, []))
   let mk_false = hashcons (Node (False, []))
-  let mk_not phi = hashcons (Node (Not, [phi]))
+  let mk_prop_const k =
+    match const_typ k with
+    | `TyBool -> hashcons (Node (Const k, []))
+    | _ -> invalid_arg "mk_prop_const: not a propositional constant"
+  let mk_prop_var i = hashcons (Node (Var (i, `TyBool), []))
+  let mk_not phi =
+    if phi.tag = mk_false.tag then mk_true
+    else if phi.tag = mk_true.tag then mk_false
+    else hashcons (Node (Not, [phi]))
   let mk_leq s t = hashcons (Node (Leq, [s; t]))
   let mk_lt s t = hashcons (Node (Lt, [s; t]))
   let mk_eq s t = hashcons (Node (Eq, [s; t]))
@@ -324,8 +338,17 @@ module Make (C : Constant) () = struct
     let eval alg t =
       let f label children = match label, children with
         | Real qq, [] -> alg (`Real qq)
-        | Const k, [] -> alg (`Const k)
-        | Var (v, typ), [] -> alg (`Var (v, typ))
+        | Const k, [] ->
+          begin match const_typ k with
+            | `TyInt | `TyReal -> alg (`Const k)
+            | `TyBool | `TyFun _ -> invalid_arg "eval: not a term"
+          end
+        | Var (v, typ), [] ->
+          begin match typ with
+            | `TyInt -> alg (`Var (v, `TyInt))
+            | `TyReal -> alg (`Var (v, `TyReal))
+            | `TyBool -> invalid_arg "eval: not a term"
+          end
         | Add, sum -> alg (`Add sum)
         | Mul, product -> alg (`Mul product)
         | Div, [s; t] -> alg (`Binop (`Div, s, t))
@@ -338,8 +361,17 @@ module Make (C : Constant) () = struct
 
     let destruct t = match t.obj with
       | Node (Real qq, []) -> `Real qq
-      | Node (Const k, []) -> `Const k
-      | Node (Var (v, typ), []) -> `Var (v, typ)
+      | Node (Const k, []) ->
+        begin match const_typ k with
+          | `TyInt | `TyReal -> `Const k
+          | `TyBool | `TyFun _ -> invalid_arg "destruct: not a term"
+        end
+      | Node (Var (v, typ), []) ->
+        begin match typ with
+          | `TyInt -> `Var (v, `TyInt)
+          | `TyReal -> `Var (v, `TyReal)
+          | `TyBool -> invalid_arg "destruct: not a term"
+        end
       | Node (Add, sum) -> `Add sum
       | Node (Mul, product) -> `Mul product
       | Node (Div, [s; t]) -> `Binop (`Div, s, t)
@@ -406,6 +438,12 @@ module Make (C : Constant) () = struct
       | Node (Eq, [s; t]) -> `Atom (`Eq, s, t)
       | Node (Leq, [s; t]) -> `Atom (`Leq, s, t)
       | Node (Lt, [s; t]) -> `Atom (`Lt, s, t)
+      | Node (Const k, []) ->
+        begin match const_typ k with
+          | `TyBool -> `Proposition (`Const k)
+          | `TyInt | `TyReal | `TyFun _ -> invalid_arg "destruct: not a formula"
+          end
+      | Node (Var (v, `TyBool), []) -> `Proposition (`Var v)
       | _ -> invalid_arg "destruct: not a formula"
 
     let rec eval : (('a, term) open_formula -> 'a) -> t -> 'a =
@@ -418,6 +456,7 @@ module Make (C : Constant) () = struct
         alg (`Quantify (qt, name, typ, eval alg phi))
       | `Not phi -> alg (`Not (eval alg phi))
       | `Atom (op, s, t) -> alg (`Atom (op, s, t))
+      | `Proposition p -> alg (`Proposition p)
 
     let rec flatten_universal phi = match phi.obj with
       | Node (Forall (name, typ), [phi]) ->
@@ -448,6 +487,13 @@ module Make (C : Constant) () = struct
       | Node (Eq, [s; t]) -> `Atom (`Eq, s, t)
       | Node (Leq, [s; t]) -> `Atom (`Leq, s, t)
       | Node (Lt, [s; t]) -> `Atom (`Lt, s, t)
+      | Node (Const k, []) ->
+        begin match const_typ k with
+          | `TyBool -> `Proposition (`Const k)
+          | `TyInt | `TyReal | `TyFun _ -> invalid_arg "destruct: not a formula"
+        end
+      | Node (Var (v, `TyBool), []) -> `Proposition (`Var v)
+
       | _ -> invalid_arg "Formula.destruct_flat: not a formula"
 
     let rec open_pp ?(env=Env.empty) formatter phi =
@@ -473,6 +519,10 @@ module Make (C : Constant) () = struct
           formatter
           (BatList.enum conjuncts);
         fprintf formatter "@])"
+      | `Proposition (`Const k) -> pp_const formatter k
+      | `Proposition (`Var v) ->
+        (try fprintf formatter "[%s:%d]" (Env.find env v) v
+         with Not_found -> fprintf formatter "[free:%d]" v)
       | `Atom (op, x, y) ->
         let op_string = match op with
           | `Eq -> "="
@@ -568,6 +618,8 @@ module Make (C : Constant) () = struct
         | `Quantify (`Forall, name, typ, (qf_pre, phi)) ->
           (`Forall (name, typ)::qf_pre, phi)
         | `Not (qf_pre, phi) -> (negate_prefix qf_pre, mk_not phi)
+        | `Proposition (`Const p) -> ([], mk_prop_const p)
+        | `Proposition (`Var i) -> ([], mk_prop_var i)
       in
       let (qf_pre, matrix) = eval alg phi in
       List.fold_right
@@ -594,12 +646,14 @@ module type BuilderContext = sig
   val mk_floor : term -> term
   val mk_neg : term -> term
 
-  val mk_forall : ?name:string -> typ_arith -> formula -> formula
-  val mk_exists : ?name:string -> typ_arith -> formula -> formula
+  val mk_forall : ?name:string -> typ_fo -> formula -> formula
+  val mk_exists : ?name:string -> typ_fo -> formula -> formula
   val mk_and : formula list -> formula
   val mk_or : formula list -> formula
   val mk_true : formula
   val mk_false : formula
+  val mk_prop_const : const_sym -> formula
+  val mk_prop_var : int -> formula
   val mk_not : formula -> formula
   val mk_eq : term -> term -> formula
   val mk_lt : term -> term -> formula
@@ -617,38 +671,6 @@ module type EvalContext = sig
     type t = term
     val eval : ('a open_term -> 'a) -> t -> 'a
   end
-end
-
-module MakeTranslator (Source : EvalContext) (Target : BuilderContext) = struct
-  let term term =
-    let alg = function
-      | `Real qq -> Target.mk_real qq
-      | `Const sym -> Target.mk_const sym
-      | `Var (i, typ) -> Target.mk_var i typ
-      | `Add sum -> Target.mk_add sum
-      | `Mul product -> Target.mk_mul product
-      | `Binop (`Div, s, t) -> Target.mk_div s t
-      | `Binop (`Mod, s, t) -> Target.mk_mod s t
-      | `Unop (`Floor, t) -> Target.mk_floor t
-      | `Unop (`Neg, t) -> Target.mk_neg t
-    in
-    Source.Term.eval alg term
-  let formula phi =
-    let alg = function
-      | `Tru -> Target.mk_and []
-      | `Fls -> Target.mk_or []
-      | `And conjuncts -> Target.mk_and conjuncts
-      | `Or disjuncts -> Target.mk_or disjuncts
-      | `Not phi -> Target.mk_not phi
-      | `Quantify (`Exists, name, typ, phi) ->
-        Target.mk_exists ~name:name typ phi
-      | `Quantify (`Forall, name, typ, phi) ->
-        Target.mk_forall ~name:name typ phi
-      | `Atom (`Eq, s, t) -> Target.mk_eq (term s) (term t)
-      | `Atom (`Leq, s, t) -> Target.mk_leq (term s) (term t)
-      | `Atom (`Lt, s, t) -> Target.mk_lt (term s) (term t)
-    in
-    Source.Formula.eval alg phi
 end
 
 module Infix (C : BuilderContext) =

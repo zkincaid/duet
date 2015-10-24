@@ -19,7 +19,7 @@ module Make
   type 'a open_expr = [
     | `Real of QQ.t
     | `App of func_decl * 'a list
-    | `Var of int * typ_arith
+    | `Var of int * typ_fo
     | `Add of 'a list
     | `Mul of 'a list
     | `Binop of [ `Div | `Mod ] * 'a * 'a
@@ -29,7 +29,7 @@ module Make
     | `And of 'a list
     | `Or of 'a list
     | `Not of 'a
-    | `Quantify of [`Exists | `Forall] * string * typ_arith * 'a
+    | `Quantify of [`Exists | `Forall] * string * typ_fo * 'a
     | `Atom of [`Eq | `Leq | `Lt] * 'a * 'a
   ]
 
@@ -53,8 +53,8 @@ module Make
   val mk_neg : expr -> expr
   val mk_sub : expr -> expr -> expr
 
-  val mk_forall : ?name:string -> typ_arith -> expr -> expr
-  val mk_exists : ?name:string -> typ_arith -> expr -> expr
+  val mk_forall : ?name:string -> typ_fo -> expr -> expr
+  val mk_exists : ?name:string -> typ_fo -> expr -> expr
   val mk_and : expr list -> expr
   val mk_or : expr list -> expr
   val mk_not : expr -> expr
@@ -63,6 +63,9 @@ module Make
   val mk_leq : expr -> expr -> expr
   val mk_true : expr
   val mk_false : expr
+  val mk_prop_const : func_decl -> expr
+  val mk_prop_var : int -> expr
+
 
   type solver
   type model

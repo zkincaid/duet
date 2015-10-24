@@ -1,5 +1,6 @@
 type typ = [ `TyInt | `TyReal | `TyBool | `TyFun of (typ list) * typ]
 type typ_arith = [ `TyInt | `TyReal ]
+type typ_fo = [ `TyInt | `TyReal | `TyBool ]
 type typ_bool = [ `TyBool ]
 type 'a typ_fun = [ `TyFun of (typ list) * 'a ]
 
@@ -38,8 +39,9 @@ type ('a,'term) open_formula = [
   | `And of 'a list
   | `Or of 'a list
   | `Not of 'a
-  | `Quantify of [`Exists | `Forall] * string * typ_arith * 'a
+  | `Quantify of [`Exists | `Forall] * string * typ_fo * 'a
   | `Atom of [`Eq | `Leq | `Lt] * 'term * 'term
+  | `Proposition of [ `Const of const_sym | `Var of int ]
 ]
 
 module Make (C : Constant) () : sig
@@ -67,8 +69,8 @@ module Make (C : Constant) () : sig
   val mk_neg : term -> term
   val mk_sub : term -> term -> term
 
-  val mk_forall : ?name:string -> typ_arith -> formula -> formula
-  val mk_exists : ?name:string -> typ_arith -> formula -> formula
+  val mk_forall : ?name:string -> typ_fo -> formula -> formula
+  val mk_exists : ?name:string -> typ_fo -> formula -> formula
   val mk_and : formula list -> formula
   val mk_or : formula list -> formula
   val mk_not : formula -> formula
@@ -77,6 +79,8 @@ module Make (C : Constant) () : sig
   val mk_leq : term -> term -> formula
   val mk_true : formula
   val mk_false : formula
+  val mk_prop_const : const_sym -> formula
+  val mk_prop_var : int -> formula
   
   module Term : sig
     type t = term
@@ -130,12 +134,14 @@ module type BuilderContext = sig
   val mk_floor : term -> term
   val mk_neg : term -> term
 
-  val mk_forall : ?name:string -> typ_arith -> formula -> formula
-  val mk_exists : ?name:string -> typ_arith -> formula -> formula
+  val mk_forall : ?name:string -> typ_fo -> formula -> formula
+  val mk_exists : ?name:string -> typ_fo -> formula -> formula
   val mk_and : formula list -> formula
   val mk_or : formula list -> formula
   val mk_true : formula
   val mk_false : formula
+  val mk_prop_const : const_sym -> formula
+  val mk_prop_var : int -> formula
   val mk_not : formula -> formula
   val mk_eq : term -> term -> formula
   val mk_lt : term -> term -> formula
@@ -155,14 +161,9 @@ module type EvalContext = sig
   end
 end
 
-module MakeTranslator (Source : EvalContext) (Target : BuilderContext) : sig
-  val term : Source.term -> Target.term
-  val formula : Source.formula -> Target.formula
-end
-
 module Infix (C : BuilderContext) : sig
-  val exists : ?name:string -> typ_arith -> C.formula -> C.formula
-  val forall : ?name:string -> typ_arith -> C.formula -> C.formula
+  val exists : ?name:string -> typ_fo -> C.formula -> C.formula
+  val forall : ?name:string -> typ_fo -> C.formula -> C.formula
   val ( ! ) : C.formula -> C.formula
   val ( && ) : C.formula -> C.formula -> C.formula
   val ( || ) : C.formula -> C.formula -> C.formula
