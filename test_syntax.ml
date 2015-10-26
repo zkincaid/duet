@@ -80,9 +80,29 @@ let existential_closure2 () =
   in
   assert_equal_formula (Ctx.Formula.existential_closure phi) psi
 
+(* This test will fail if the implementation of prenex changes the way that
+   unordered quantifiers get ordered (swap var 0 and var 1 in psi). *)
+let prenex () =
+  let phi =
+    let open Infix in
+    exists `TyReal
+      ((exists `TyReal ((var 0 `TyReal) = (var 1 `TyReal)))
+       && (exists `TyReal ((var 0 `TyReal) <= (var 1 `TyReal))))
+  in
+  let psi =
+    let open Infix in
+    exists `TyReal
+      (exists `TyReal
+         (exists `TyReal
+            ((var 1 `TyReal) = (var 2 `TyReal)
+             && (var 0 `TyReal) <= (var 2 `TyReal))))
+  in
+  assert_equal_formula (Ctx.Formula.prenex phi) psi
+
 let suite = "Syntax" >:::
   [
     "substitute" >:: substitute;
     "existential_closure1" >:: existential_closure1;
     "existential_closure2" >:: existential_closure2;
+    "prenex" >:: prenex;
   ]
