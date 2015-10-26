@@ -773,7 +773,6 @@ let int_virtual_substitution
   (* phi[x -> floor(t/mu) + k]
      == \/_{i=0}^mu mu | t - i /\ phi[mu * x -> t - i + mu*k] *)
   (0 -- (virtual_term.divisor - 1))
-  (*  ((-(virtual_term.divisor - 1)) -- (virtual_term.divisor - 1))*)
   /@ (fun i ->
       (* t - i + mu*k *)
       let replace_mux =
@@ -865,6 +864,10 @@ let substitute_real_term
     x
     t
     phi =
+  begin match C.const_typ x with
+    | `TyInt | `TyReal -> ()
+    | _ -> invalid_arg "substitute_real_term: non-arithmetic constant"
+  end;
   let replace_term s =
     let (a, s') = V.pivot (dim_of_const x) s in
     if QQ.equal a QQ.zero then
@@ -886,6 +889,27 @@ let substitute_real_term
       | `Eq -> C.mk_eq s zero
       | `Lt -> C.mk_lt s zero
       | `Leq -> C.mk_leq s zero
+  in
+  go phi
+
+let substitute_prop_const
+    (type formula)
+    (module C : AbstractionContext with type formula = formula)
+    x
+    x'
+    phi =
+  begin match C.const_typ x, C.const_typ x' with
+    | `TyBool, `TyBool -> ()
+    | _, _ -> invalid_arg "substitute_prop_const: non-boolean constant"
+  end;
+  let rec go phi =
+    match destruct_normal (module C) phi with
+    | `And psis -> C.mk_and (List.map go psis)
+    | `Or psis -> C.mk_or (List.map go psis)
+    | `Proposition p -> C.mk_prop_const (if x = p then x' else p)
+    | `NotProposition p -> C.mk_not (C.mk_prop_const (if x = p then x' else p))
+    | `Divides (_, _) | `NotDivides (_, _) | `CompareZero (_, _)
+    | `Tru | `Fls -> phi
   in
   go phi
 
@@ -1058,7 +1082,10 @@ module Scheme = struct
         assert (k = k');
 
         let term = V.of_term QQ.one (dim_of_const sk) in
-        substitute_real_term (module C) k term (go path scheme)
+        begin match C.const_typ k with
+          | `TyBool -> substitute_prop_const (module C) k sk (go path scheme)
+          | _ -> substitute_real_term (module C) k term (go path scheme)
+        end
 
       | (`Exists (k, move)::path, SExists (k', mm)) ->
         assert (k = k');
@@ -1078,7 +1105,11 @@ module Scheme = struct
       | SEmpty -> phi
       | SForall (k, sk, scheme) ->
         let move = V.of_term QQ.one (dim_of_const sk) in
-        substitute_real_term (module C) k move (go scheme)
+        begin match C.const_typ k with
+          | `TyBool -> substitute_prop_const (module C) k sk (go scheme)
+          | _ -> substitute_real_term (module C) k move (go scheme)
+        end
+
       | SExists (k, mm) ->
         MM.enum mm
         /@ (fun (move, scheme) -> substitute (module C) k move (go scheme))

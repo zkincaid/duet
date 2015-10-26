@@ -398,6 +398,7 @@ module MakeSolver
 
   module Solver = struct
     let mk_solver () = Z3.Solver.mk_simple_solver Z3C.ctx
+
     let add s formulae = Z3.Solver.add s (List.map of_formula formulae)
 
     let push = Z3.Solver.push
