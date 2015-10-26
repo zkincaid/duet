@@ -264,15 +264,20 @@ module Make (C : Constant) () = struct
     let hash t = t.hcode
 
     (* Avoid capture by incrementing bound variables *)
-    let rec decapture depth sexpr =
+    let rec decapture depth incr sexpr =
       let Node (label, children) = sexpr.obj in
       match label with
       | Exists (_, _) | Forall (_, _) ->
-        decapture_children label (depth + 1) children
-      | Var (v, typ) -> hashcons (Node (Var (v + depth, typ), []))
-      | _ -> decapture_children label depth children
-    and decapture_children label depth children =
-      hashcons (Node (label, List.map (decapture depth) children))
+        decapture_children label (depth + 1) incr children
+      | Var (v, typ) ->
+        if v < depth then
+          (* v is bound *)
+          sexpr
+        else
+          hashcons (Node (Var (v + incr, typ), []))
+      | _ -> decapture_children label depth incr children
+    and decapture_children label depth incr children =
+      hashcons (Node (label, List.map (decapture depth incr) children))
 
     let substitute subst sexpr =
       let rec go depth sexpr =
@@ -284,7 +289,7 @@ module Make (C : Constant) () = struct
           if v < depth then (* bound var *)
             sexpr
           else
-            decapture depth (subst (v - depth))
+            decapture 0 depth (subst (v - depth))
         | _ -> go_children label depth children
       and go_children label depth children =
         hashcons (Node (label, List.map (go depth) children))
@@ -297,7 +302,7 @@ module Make (C : Constant) () = struct
         match label with
         | Exists (_, _) | Forall (_, _) ->
           go_children label (depth + 1) children
-        | Const k -> decapture depth (subst k)
+        | Const k -> decapture 0 depth (subst k)
         | _ -> go_children label depth children
       and go_children label depth children =
         hashcons (Node (label, List.map (go depth) children))
@@ -596,7 +601,9 @@ module Make (C : Constant) () = struct
       let combine phis =
         let f (qf_pre0, phi0) (qf_pre, phis) =
           let depth = List.length qf_pre in
-          (qf_pre0@qf_pre, (Sexpr.decapture depth phi0)::phis)
+          let depth0 = List.length qf_pre0 in
+          let phis = List.map (Sexpr.decapture depth depth0) phis in
+          (qf_pre0@qf_pre, (Sexpr.decapture 0 depth phi0)::phis)
         in
         List.fold_right f phis ([], [])
       in
