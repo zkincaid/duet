@@ -131,15 +131,15 @@ module Make
         if Quantifier.is_existential ast then `Exists
         else `Forall
       in
-      List.fold_left2
-        (fun body name sort ->
+      List.fold_right2
+        (fun name sort body ->
            alg (`Quantify (qt,
                            Z3.Symbol.to_string name,
                            typ_of_sort sort,
                            body)))
-        (eval alg (Quantifier.get_body ast))
         (Quantifier.get_bound_variable_names ast)
         (Quantifier.get_bound_variable_sorts ast)
+        (eval alg (Quantifier.get_body ast))
     | FUNC_DECL_AST
     | SORT_AST
     | UNKNOWN_AST -> invalid_arg "eval: unknown ast type"
