@@ -44,6 +44,8 @@ type ('a,'term) open_formula = [
   | `Proposition of [ `Const of const_sym | `Var of int ]
 ]
 
+val pp_typ : Format.formatter -> typ -> unit
+
 module Make (C : Constant) () : sig
   type 'a expr
   type term = typ_arith expr
@@ -82,6 +84,9 @@ module Make (C : Constant) () : sig
   val mk_prop_const : const_sym -> formula
   val mk_prop_var : int -> formula
   
+  val mk_exists_const : const_sym -> formula -> formula
+  val mk_forall_const : const_sym -> formula -> formula
+
   module Term : sig
     type t = term
     val hash : t -> int

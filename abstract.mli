@@ -46,6 +46,7 @@ module type AbstractionContext = sig
     val reset : solver -> unit
     val check : solver -> formula list -> [ `Sat | `Unsat | `Unknown ]
     val get_model : solver -> [ `Sat of model | `Unsat | `Unknown ]
+    val to_string : solver -> string
     val get_unsat_core : solver ->
       formula list ->
       [ `Sat | `Unsat of formula list | `Unknown ]
