@@ -183,6 +183,8 @@ module Make (C : Constant) () = struct
     | `Skolem (name, _) -> Format.fprintf formatter "%s:%d" name sym
     | `Const k -> C.pp formatter k
 
+  let show_const = Apak.Putil.mk_show pp_const
+
   let hashcons =
     let hc = HC.create 991 in
     HC.hashcons hc
@@ -637,6 +639,34 @@ module Make (C : Constant) () = struct
         qf_pre
         matrix
   end
+
+  let quantify_const qt sym phi =
+    let typ = match const_typ sym with
+      | `TyInt -> `TyInt
+      | `TyReal -> `TyReal
+      | `TyBool -> `TyBool
+      | `TyFun _ ->
+        begin match qt with
+          | `Forall ->
+            invalid_arg "mk_forall_const: not a first-order constant"
+          | `Exists ->
+            invalid_arg "mk_exists_const: not a first-order constant"
+        end
+    in
+    let replacement = mk_var 0 typ in
+    let subst k =
+      if k = sym then replacement
+      else match const_typ k with
+        | `TyBool -> mk_prop_const k
+        | _ -> mk_const k
+    in
+    let psi = Sexpr.substitute_const subst (Sexpr.decapture 0 1 phi) in
+    match qt with
+    | `Forall -> mk_forall ~name:(show_const sym) typ psi
+    | `Exists -> mk_exists ~name:(show_const sym) typ psi
+
+  let mk_exists_const = quantify_const `Exists
+  let mk_forall_const = quantify_const `Forall
 end
 
 module type BuilderContext = sig

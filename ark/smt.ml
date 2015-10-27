@@ -7,7 +7,9 @@ module type TranslationContext = sig
   include BuilderContext
   include EvalContext with type term := term and type formula := formula
   val const_typ : const_sym -> typ
+  val pp_const : Format.formatter -> const_sym -> unit
   val mk_skolem : ?name:string -> typ -> const_sym
+  val mk_exists_const : const_sym -> formula -> formula
 end
 
 exception Unknown_result
@@ -62,6 +64,7 @@ module Make
     | `And of 'a list
     | `Or of 'a list
     | `Not of 'a
+    | `Ite of 'a * 'a * 'a
     | `Quantify of [`Exists | `Forall] * string * typ_fo * 'a
     | `Atom of [`Eq | `Leq | `Lt] * 'a * 'a
   ]
@@ -117,6 +120,7 @@ module Make
         | (OP_GE, [s; t]) -> alg (`Atom (`Leq, t, s))
         | (OP_LT, [s; t]) -> alg (`Atom (`Lt, s, t))
         | (OP_GT, [s; t]) -> alg (`Atom (`Lt, t, s))
+        | (OP_ITE, [cond; s; t]) -> alg (`Ite (cond, s, t))
         | (_, _) -> invalid_arg ("eval: unknown application: "
                                  ^ (Expr.to_string ast))
       end
@@ -187,6 +191,7 @@ module Make
   let mk_const k = mk_app k []
   let mk_prop_const = mk_const
   let mk_prop_var i = Quantifier.mk_bound ctx i bool_sort
+  let mk_ite = Boolean.mk_ite ctx
   let mk = function
     | `Real qq -> mk_real qq
     | `App (func, args) -> mk_app func args
@@ -208,6 +213,7 @@ module Make
     | `Atom (`Leq, x, y) -> mk_leq x y
     | `Proposition (`Const p) -> mk_prop_const p
     | `Proposition (`Var i) -> mk_prop_var i
+    | `Ite (cond, bthen, belse) -> mk_ite cond bthen belse
 
   module Solver = struct
     let mk_solver () = Z3.Solver.mk_simple_solver ctx
@@ -272,6 +278,34 @@ module MakeSolver
 
   module Z3C = Make(Opt)()
 
+  let term_typ =
+    let join s t =
+      match s, t with
+      | `TyInt, `TyInt -> `TyInt
+      | `TyInt, `TyReal | `TyReal, `TyInt | `TyReal, `TyReal -> `TyReal
+      | _, _ -> assert false
+    in
+    let alg = function
+      | `Real qq ->
+        begin match QQ.to_zz qq with
+          | Some _ -> `TyInt
+          | None -> `TyReal
+        end
+      | `Var (_, typ) -> typ
+      | `Const k ->
+        begin match C.const_typ k with
+          | `TyInt -> `TyInt
+          | `TyReal -> `TyReal
+          | _ -> invalid_arg "typ: not an arithmetic term"
+        end
+      | `Add xs | `Mul xs -> List.fold_left join `TyInt xs
+      | `Binop (`Div, s, t) -> `TyReal
+      | `Binop (`Mod, s, t) -> join s t
+      | `Unop (`Floor, _) -> `TyInt
+      | `Unop (`Neg, t) -> t
+    in
+    C.Term.eval alg
+
   let of_term term =
     let alg = function
       | `Real qq -> Z3C.mk_real qq
@@ -323,36 +357,51 @@ module MakeSolver
 
   let of_z3 const_of_decl expr =
     let term = function
-      | `Term t -> t
+      | `Term (_, t) -> t
       | `Formula phi ->
         invalid_arg ("of_z3.term:" ^ (Z3.Expr.to_string (of_formula phi)))
+    in
+    let ite = function
+      | `Term (ite, _) -> ite
+      | `Formula phi ->
+        invalid_arg ("of_z3.term:" ^ (Z3.Expr.to_string (of_formula phi)))
+    in
+    let ite_formula phi (sk, cond, tthen, telse) =
+      let sk_def =
+        C.mk_or [C.mk_and [cond; C.mk_eq (C.mk_const sk) tthen];
+                 C.mk_and [C.mk_not cond; C.mk_eq (C.mk_const sk) telse]]
+      in
+      C.mk_exists_const sk (C.mk_and [sk_def; phi])
     in
     let formula = function
       | `Formula phi -> phi
       | _ -> invalid_arg "of_z3.formula"
     in
     let alg = function
-      | `Real qq -> `Term (C.mk_real qq)
-      | `Var (i, `TyInt) -> `Term (C.mk_var i `TyInt)
-      | `Var (i, `TyReal) -> `Term (C.mk_var i `TyReal)
+      | `Real qq -> `Term ([], C.mk_real qq)
+      | `Var (i, `TyInt) -> `Term ([], C.mk_var i `TyInt)
+      | `Var (i, `TyReal) -> `Term ([], C.mk_var i `TyReal)
       | `Var (i, `TyBool) -> `Formula (C.mk_prop_var i)
       | `App (decl, []) ->
         let const_sym = const_of_decl decl in
         begin match C.const_typ const_sym with
           | `TyBool -> `Formula (C.mk_prop_const const_sym)
-          | `TyInt | `TyReal -> `Term (C.mk_const const_sym)
+          | `TyInt | `TyReal -> `Term ([], C.mk_const const_sym)
           | `TyFun (_, _) -> assert false (* Shouldn't appear with zero args *)
         end
-      | `Add sum -> `Term (C.mk_add (List.map term sum))
-      | `Mul product -> `Term (C.mk_mul (List.map term product))
+      | `Add sum ->
+        `Term (List.concat (List.map ite sum), C.mk_add (List.map term sum))
+      | `Mul product ->
+        `Term (List.concat (List.map ite product),
+               C.mk_mul (List.map term product))
       | `Binop (op, s, t) ->
         let mk_op = match op with
           | `Div -> C.mk_div
           | `Mod -> C.mk_mod
         in
-        `Term (mk_op (term s) (term t))
-      | `Unop (`Floor, t) -> `Term (C.mk_floor (term t))
-      | `Unop (`Neg, t) -> `Term (C.mk_neg (term t))
+        `Term ((ite s)@(ite t), mk_op (term s) (term t))
+      | `Unop (`Floor, t) -> `Term (ite t, C.mk_floor (term t))
+      | `Unop (`Neg, t) -> `Term (ite t, C.mk_neg (term t))
       | `Tru -> `Formula (C.mk_and [])
       | `Fls -> `Formula (C.mk_or [])
       | `And conjuncts -> `Formula (C.mk_and (List.map formula conjuncts))
@@ -362,12 +411,29 @@ module MakeSolver
         `Formula (C.mk_exists ~name:name typ (formula phi))
       | `Quantify (`Forall, name, typ, phi) ->
         `Formula (C.mk_forall ~name:name typ (formula phi))
-      | `Atom (`Eq, `Term s, `Term t) -> `Formula (C.mk_eq s t)
+      | `Atom (`Eq, `Term (ite_s, s), `Term (ite_t, t)) ->
+        `Formula (List.fold_left ite_formula (C.mk_eq s t) (ite_s@ite_t))
       | `Atom (`Eq, `Formula phi, `Formula psi) ->
         `Formula (C.mk_or [C.mk_not phi; psi])
-      | `Atom (`Leq, s, t) -> `Formula (C.mk_leq (term s) (term t))
-      | `Atom (`Lt, s, t) -> `Formula (C.mk_lt (term s) (term t))
+      | `Atom (`Leq, s, t) ->
+        `Formula (List.fold_left
+                    ite_formula
+                    (C.mk_leq (term s) (term t))
+                    ((ite s)@(ite t)))
+      | `Atom (`Lt, s, t) ->
+        `Formula (List.fold_left
+                    ite_formula
+                    (C.mk_lt (term s) (term t))
+                    ((ite s)@(ite t)))
       | `Atom (`Eq, _, _) -> invalid_arg "of_z3"
+      | `Ite (cond, s, t) ->
+        let typ = match term_typ (term s), term_typ (term s) with
+          | `TyInt, `TyInt -> `TyInt
+          | _, _ -> `TyReal
+        in
+        let sk = C.mk_skolem ~name:"ite" typ in
+        `Term ((sk, formula cond, term s, term t)::((ite s)@(ite t)),
+               C.mk_const sk)
       | `App (decl, args) ->
         invalid_arg ("of_z3: " ^ (Z3.FuncDecl.to_string decl))
     in
@@ -382,8 +448,8 @@ module MakeSolver
 
   let term_of term =
     match of_z3 const_of_decl term with
-    | `Term t -> t
-    | `Formula _ -> invalid_arg "term_of"
+    | `Term ([], t) -> t
+    | _ -> invalid_arg "term_of"
 
   let formula_of phi =
     match of_z3 const_of_decl phi with
@@ -421,6 +487,7 @@ module MakeSolver
       | `Unsat -> `Unsat
       | `Unknown -> `Unknown
 
+    let to_string = Z3.Solver.to_string
     let get_unsat_core solver assumptions =
       match check solver assumptions with
       | `Sat -> `Sat

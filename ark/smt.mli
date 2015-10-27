@@ -6,7 +6,9 @@ module type TranslationContext = sig
   include Syntax.BuilderContext
   include Syntax.EvalContext with type term := term and type formula := formula
   val const_typ : const_sym -> typ
+  val pp_const : Format.formatter -> const_sym -> unit
   val mk_skolem : ?name:string -> typ -> const_sym
+  val mk_exists_const : const_sym -> formula -> formula
 end
 
 module Make
@@ -29,6 +31,7 @@ module Make
     | `And of 'a list
     | `Or of 'a list
     | `Not of 'a
+    | `Ite of 'a * 'a * 'a
     | `Quantify of [`Exists | `Forall] * string * typ_fo * 'a
     | `Atom of [`Eq | `Leq | `Lt] * 'a * 'a
   ]
@@ -118,6 +121,7 @@ module MakeSolver
     val reset : solver -> unit
     val check : solver -> C.formula list -> [ `Sat | `Unsat | `Unknown ]
     val get_model : solver -> [ `Sat of model | `Unsat | `Unknown ]
+    val to_string : solver -> string
     val get_unsat_core : solver ->
       C.formula list ->
       [ `Sat | `Unsat of C.formula list | `Unknown ]
