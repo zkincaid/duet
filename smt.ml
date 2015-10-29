@@ -3,16 +3,29 @@ open BatPervasives
 
 include Apak.Log.Make(struct let name = "ark.smt" end)
 
-module type TranslationContext = sig
-  include BuilderContext
-  include EvalContext with type term := term and type formula := formula
-  val const_typ : const_sym -> typ
-  val pp_const : Format.formatter -> const_sym -> unit
-  val mk_skolem : ?name:string -> typ -> const_sym
-  val mk_exists_const : const_sym -> formula -> formula
-end
-
 exception Unknown_result
+
+type expr = Z3.Expr.expr
+type func_decl = Z3.FuncDecl.func_decl
+type sort = Z3.Sort.sort
+
+type 'a open_expr = [
+  | `Real of QQ.t
+  | `App of func_decl * 'a list
+  | `Var of int * typ_fo
+  | `Add of 'a list
+  | `Mul of 'a list
+  | `Binop of [ `Div | `Mod ] * 'a * 'a
+  | `Unop of [ `Floor | `Neg ] * 'a
+  | `Tru
+  | `Fls
+  | `And of 'a list
+  | `Or of 'a list
+  | `Not of 'a
+  | `Ite of 'a * 'a * 'a
+  | `Quantify of [`Exists | `Forall] * string * typ_fo * 'a
+  | `Atom of [`Eq | `Leq | `Lt] * 'a * 'a
+]
 
 let bool_val x =
   match Z3.Boolean.get_bool_value x with
@@ -42,571 +55,494 @@ let typ_of_sort sort =
   | BOOL_SORT -> `TyBool
   | _ -> invalid_arg "typ_of_sort"
 
-module Make
-    (Opt : sig val opts : (string * string) list end)
-    () = struct
+let sort_of_typ z3 = function
+  | `TyInt -> Z3.Arithmetic.Integer.mk_sort z3
+  | `TyReal -> Z3.Arithmetic.Real.mk_sort z3
+  | `TyBool -> Z3.Boolean.mk_sort z3
 
-  type expr = Z3.Expr.expr
-  type func_decl = Z3.FuncDecl.func_decl
-  type solver = Z3.Solver.solver
-  type model = Z3.Model.model
+let rec eval alg ast =
+  let open Z3 in
+  let open Z3enums in
+  match AST.get_ast_kind (Expr.ast_of_expr ast) with
+  | APP_AST -> begin
+      let decl = Expr.get_func_decl ast in
+      let args = List.map (eval alg) (Expr.get_args ast) in
+      match FuncDecl.get_decl_kind decl, args with
+      | (OP_UNINTERPRETED, args) -> alg (`App (decl, args))
+      | (OP_ADD, args) -> alg (`Add args)
+      | (OP_MUL, args) -> alg (`Mul args)
+      | (OP_SUB, [x;y]) -> alg (`Add [x; alg (`Unop (`Neg, y))])
+      | (OP_UMINUS, [x]) -> alg (`Unop (`Neg, x))
+      | (OP_MOD, [x;y]) -> alg (`Binop (`Mod, x, y))
+      | (OP_IDIV, [x;y]) -> alg (`Unop (`Floor, alg (`Binop (`Div, x, y))))
+      | (OP_DIV, [x;y]) -> alg (`Binop (`Div, x, y))
+      | (OP_TO_REAL, [x]) -> x
+      | (OP_TO_INT, [x]) -> alg (`Unop (`Floor, x))
 
-  type 'a open_expr = [
-    | `Real of QQ.t
-    | `App of func_decl * 'a list
-    | `Var of int * typ_fo
-    | `Add of 'a list
-    | `Mul of 'a list
-    | `Binop of [ `Div | `Mod ] * 'a * 'a
-    | `Unop of [ `Floor | `Neg ] * 'a
-    | `Tru
-    | `Fls
-    | `And of 'a list
-    | `Or of 'a list
-    | `Not of 'a
-    | `Ite of 'a * 'a * 'a
-    | `Quantify of [`Exists | `Forall] * string * typ_fo * 'a
-    | `Atom of [`Eq | `Leq | `Lt] * 'a * 'a
-  ]
-
-  open Z3
-
-  let ctx = mk_context Opt.opts
-  let int_sort = Arithmetic.Integer.mk_sort ctx
-  let real_sort = Arithmetic.Real.mk_sort ctx
-  let bool_sort = Boolean.mk_sort ctx
-
-  let sort_of_typ = function
-    | `TyInt  -> int_sort
-    | `TyReal -> real_sort
-    | `TyBool -> bool_sort
-
-  let mk_fresh_decl ?(name="f") params result =
-    Z3.FuncDecl.mk_fresh_func_decl
-      ctx
-      name
-      (List.map sort_of_typ params)
-      (sort_of_typ result)
-
-  let rec eval alg ast =
-    let open Z3enums in
-    match AST.get_ast_kind (Expr.ast_of_expr ast) with
-    | APP_AST -> begin
-        let decl = Expr.get_func_decl ast in
-        let args = List.map (eval alg) (Expr.get_args ast) in
-        match FuncDecl.get_decl_kind decl, args with
-        | (OP_UNINTERPRETED, args) -> alg (`App (decl, args))
-        | (OP_ADD, args) -> alg (`Add args)
-        | (OP_MUL, args) -> alg (`Mul args)
-        | (OP_SUB, [x;y]) -> alg (`Add [x; alg (`Unop (`Neg, y))])
-        | (OP_UMINUS, [x]) -> alg (`Unop (`Neg, x))
-        | (OP_MOD, [x;y]) -> alg (`Binop (`Mod, x, y))
-        | (OP_IDIV, [x;y]) -> alg (`Unop (`Floor, alg (`Binop (`Div, x, y))))
-        | (OP_DIV, [x;y]) -> alg (`Binop (`Div, x, y))
-        | (OP_TO_REAL, [x]) -> x
-        | (OP_TO_INT, [x]) -> alg (`Unop (`Floor, x))
-
-        | (OP_TRUE, []) -> alg `Tru
-        | (OP_FALSE, []) -> alg `Fls
-        | (OP_AND, args) -> alg (`And args)
-        | (OP_OR, args) -> alg (`Or args)
-        | (OP_IMPLIES, [phi;psi]) -> alg (`Or [alg (`Not phi); psi])
-        | (OP_IFF, [phi;psi]) ->
-          alg (`Or [alg (`And [phi; psi]);
-                    alg (`Not (alg (`Or [phi; psi])))])
-        | (OP_NOT, [phi]) -> alg (`Not phi)
-        | (OP_EQ, [s; t]) -> alg (`Atom (`Eq, s, t))
-        | (OP_LE, [s; t]) -> alg (`Atom (`Leq, s, t))
-        | (OP_GE, [s; t]) -> alg (`Atom (`Leq, t, s))
-        | (OP_LT, [s; t]) -> alg (`Atom (`Lt, s, t))
-        | (OP_GT, [s; t]) -> alg (`Atom (`Lt, t, s))
-        | (OP_ITE, [cond; s; t]) -> alg (`Ite (cond, s, t))
-        | (_, _) -> invalid_arg ("eval: unknown application: "
-                                 ^ (Expr.to_string ast))
-      end
-    | NUMERAL_AST ->
-      alg (`Real (qq_val ast))
-    | VAR_AST ->
-      let index = Quantifier.get_index ast in
-      alg (`Var (index, (typ_of_sort (Expr.get_sort ast))))
-    | QUANTIFIER_AST ->
-      let ast = Quantifier.quantifier_of_expr ast in
-      let qt =
-        if Quantifier.is_existential ast then `Exists
-        else `Forall
-      in
-      List.fold_right2
-        (fun name sort body ->
-           alg (`Quantify (qt,
-                           Z3.Symbol.to_string name,
-                           typ_of_sort sort,
-                           body)))
-        (Quantifier.get_bound_variable_names ast)
-        (Quantifier.get_bound_variable_sorts ast)
-        (eval alg (Quantifier.get_body ast))
-    | FUNC_DECL_AST
-    | SORT_AST
-    | UNKNOWN_AST -> invalid_arg "eval: unknown ast type"
-
-  let mk_sub x y = Arithmetic.mk_sub ctx [x; y]
-  let mk_add = Arithmetic.mk_add ctx
-  let mk_mul = Arithmetic.mk_mul ctx
-  let mk_div = Arithmetic.mk_div ctx
-  let mk_mod = Arithmetic.Integer.mk_mod ctx
-  let mk_var i typ = Quantifier.mk_bound ctx i (sort_of_typ typ)
-  let mk_real qq =
-    match QQ.to_zz qq with
-    | Some zz -> Arithmetic.Integer.mk_numeral_s ctx (ZZ.show zz)
-    | None -> Arithmetic.Real.mk_numeral_s ctx (QQ.show qq)
-  let mk_floor = Arithmetic.Real.mk_real2int ctx
-  let mk_neg = Arithmetic.mk_unary_minus ctx
-
-  let mk_true = Boolean.mk_true ctx
-  let mk_false = Boolean.mk_false ctx
-  let mk_and = Boolean.mk_and ctx
-  let mk_or = Boolean.mk_or ctx
-  let mk_not = Boolean.mk_not ctx
-  let mk_quantified qt ?name:(name="_") typ phi =
-    let mk = match qt with
-      | `Exists -> Quantifier.mk_exists
-      | `Forall -> Quantifier.mk_forall
+      | (OP_TRUE, []) -> alg `Tru
+      | (OP_FALSE, []) -> alg `Fls
+      | (OP_AND, args) -> alg (`And args)
+      | (OP_OR, args) -> alg (`Or args)
+      | (OP_IMPLIES, [phi;psi]) -> alg (`Or [alg (`Not phi); psi])
+      | (OP_IFF, [phi;psi]) ->
+        alg (`Or [alg (`And [phi; psi]);
+                  alg (`Not (alg (`Or [phi; psi])))])
+      | (OP_NOT, [phi]) -> alg (`Not phi)
+      | (OP_EQ, [s; t]) -> alg (`Atom (`Eq, s, t))
+      | (OP_LE, [s; t]) -> alg (`Atom (`Leq, s, t))
+      | (OP_GE, [s; t]) -> alg (`Atom (`Leq, t, s))
+      | (OP_LT, [s; t]) -> alg (`Atom (`Lt, s, t))
+      | (OP_GT, [s; t]) -> alg (`Atom (`Lt, t, s))
+      | (OP_ITE, [cond; s; t]) -> alg (`Ite (cond, s, t))
+      | (_, _) -> invalid_arg ("eval: unknown application: "
+                               ^ (Expr.to_string ast))
+    end
+  | NUMERAL_AST ->
+    alg (`Real (qq_val ast))
+  | VAR_AST ->
+    let index = Quantifier.get_index ast in
+    alg (`Var (index, (typ_of_sort (Expr.get_sort ast))))
+  | QUANTIFIER_AST ->
+    let ast = Quantifier.quantifier_of_expr ast in
+    let qt =
+      if Quantifier.is_existential ast then `Exists
+      else `Forall
     in
-    mk
-      ctx
-      [sort_of_typ typ]
-      [Symbol.mk_string ctx name]
-      phi
-      None
-      []
-      []
-      None
-      None
-    |> Z3.Quantifier.expr_of_quantifier
-  let mk_exists = mk_quantified `Exists
-  let mk_forall = mk_quantified `Forall
-  let mk_lt = Arithmetic.mk_lt ctx
-  let mk_leq = Arithmetic.mk_le ctx
-  let mk_eq = Boolean.mk_eq ctx
-  let mk_app = Expr.mk_app ctx
-  let mk_const k = mk_app k []
-  let mk_prop_const = mk_const
-  let mk_prop_var i = Quantifier.mk_bound ctx i bool_sort
-  let mk_ite = Boolean.mk_ite ctx
-  let mk = function
-    | `Real qq -> mk_real qq
-    | `App (func, args) -> mk_app func args
-    | `Var (i, typ) -> mk_var i typ
-    | `Add sum -> mk_add sum
-    | `Mul product -> mk_mul product
-    | `Binop (`Div, x, y) -> mk_div x y
-    | `Binop (`Mod, x, y) -> mk_mod x y
-    | `Unop (`Floor, x) -> mk_floor x
-    | `Unop (`Neg, x) -> mk_neg x
-    | `Tru -> mk_true
-    | `Fls -> mk_false
-    | `And conjuncts -> mk_and conjuncts
-    | `Or disjuncts -> mk_or disjuncts
-    | `Not phi -> mk_not phi
-    | `Quantify (qt, name, typ, phi) -> mk_quantified qt ~name:name typ phi
-    | `Atom (`Eq, x, y) -> mk_eq x y
-    | `Atom (`Lt, x, y) -> mk_lt x y
-    | `Atom (`Leq, x, y) -> mk_leq x y
-    | `Proposition (`Const p) -> mk_prop_const p
-    | `Proposition (`Var i) -> mk_prop_var i
-    | `Ite (cond, bthen, belse) -> mk_ite cond bthen belse
+    List.fold_right2
+      (fun name sort body ->
+         alg (`Quantify (qt,
+                         Z3.Symbol.to_string name,
+                         typ_of_sort sort,
+                         body)))
+      (Quantifier.get_bound_variable_names ast)
+      (Quantifier.get_bound_variable_sorts ast)
+      (eval alg (Quantifier.get_body ast))
+  | FUNC_DECL_AST
+  | SORT_AST
+  | UNKNOWN_AST -> invalid_arg "eval: unknown ast type"
 
-  module Solver = struct
-    let mk_solver () = Z3.Solver.mk_simple_solver ctx
-    let add = Z3.Solver.add
-    let push = Z3.Solver.push
-    let pop = Z3.Solver.pop
-    let reset = Z3.Solver.reset
 
-    let check s args =
-      match Z3.Solver.check s args with
-      | Z3.Solver.SATISFIABLE -> `Sat
-      | Z3.Solver.UNSATISFIABLE -> `Unsat
-      | Z3.Solver.UNKNOWN -> `Unknown
+class type ['a] smt_model = object
+  method eval_int : 'a term -> ZZ.t
+  method eval_real : 'a term -> QQ.t
+  method sat :  'a formula -> bool
+  method to_string : unit -> string
+end
 
-    let get_model : solver -> [`Sat of model | `Unknown | `Unsat ] = fun s ->
-      match check s [] with
-      | `Sat ->
-        begin match Z3.Solver.get_model s with
-          | Some m -> `Sat m
-          | None -> `Unknown
-        end
-      | `Unsat -> `Unsat
-      | `Unknown -> `Unknown
-  end
+class type ['a] smt_solver = object
+  method add : ('a formula) list -> unit
+  method push : unit -> unit
+  method pop : int -> unit
+  method reset : unit -> unit
+  method check : ('a formula) list -> [ `Sat | `Unsat | `Unknown ]  
+  method to_string : unit -> string
+  method get_model : unit -> [ `Sat of 'a smt_model | `Unsat | `Unknown ]
+  method get_unsat_core : ('a formula) list ->
+    [ `Sat | `Unsat of ('a formula) list | `Unknown ]
+end
 
-  module Model = struct
-    let eval_int m term =
-      match Z3.Model.eval m term true with
+class type ['a] smt_context = object
+  method ark : 'a context
+  method mk_solver : unit -> 'a smt_solver
+
+  method of_term : 'a term -> Z3.Expr.expr
+  method of_formula : 'a formula -> Z3.Expr.expr
+  method term_of : Z3.Expr.expr -> 'a term
+  method formula_of : Z3.Expr.expr -> 'a formula
+
+  method implies : 'a formula -> 'a formula -> bool
+  method equiv : 'a formula -> 'a formula -> bool
+  method is_sat : 'a formula -> [ `Sat | `Unsat | `Unknown ]
+  method qe_sat : 'a formula -> [ `Sat | `Unsat | `Unknown ]
+  method qe : 'a formula -> 'a formula
+  method get_model : 'a formula -> [ `Sat of 'a smt_model | `Unsat | `Unknown ]
+  method interpolate_seq : 'a formula list ->
+    [ `Sat of 'a smt_model | `Unsat of 'a formula list | `Unknown ]
+  method optimize_box : 'a formula -> 'a term list -> [ `Sat of Interval.t list
+						      | `Unsat
+						      | `Unknown ]
+  method load_smtlib2 : string -> 'a formula
+end
+
+let term_typ ctx =
+  let join s t =
+    match s, t with
+    | `TyInt, `TyInt -> `TyInt
+    | `TyInt, `TyReal | `TyReal, `TyInt | `TyReal, `TyReal -> `TyReal
+    | _, _ -> assert false
+  in
+  let alg = function
+    | `Real qq ->
+      begin match QQ.to_zz qq with
+        | Some _ -> `TyInt
+        | None -> `TyReal
+      end
+    | `Var (_, typ) -> typ
+    | `Const k ->
+      begin match typ_symbol ctx k with
+        | `TyInt -> `TyInt
+        | `TyReal -> `TyReal
+        | _ -> invalid_arg "typ: not an arithmetic term"
+      end
+    | `Add xs | `Mul xs -> List.fold_left join `TyInt xs
+    | `Binop (`Div, s, t) -> `TyReal
+    | `Binop (`Mod, s, t) -> join s t
+    | `Unop (`Floor, _) -> `TyInt
+    | `Unop (`Neg, t) -> t
+  in
+  Term.eval ctx alg
+
+let mk_quantified ctx qt ?name:(name="_") typ phi =
+  let mk = match qt with
+    | `Exists -> Z3.Quantifier.mk_exists
+    | `Forall -> Z3.Quantifier.mk_forall
+  in
+  mk
+    ctx
+    [sort_of_typ ctx typ]
+    [Z3.Symbol.mk_string ctx name]
+    phi
+    None
+    []
+    []
+    None
+    None
+  |> Z3.Quantifier.expr_of_quantifier
+
+let z3_of_symbol z3 sym = Z3.Symbol.mk_int z3 (Obj.magic sym)
+
+let z3_of_term ark z3 term =
+  let alg = function
+    | `Real qq ->
+      begin match QQ.to_zz qq with
+        | Some zz -> Z3.Arithmetic.Integer.mk_numeral_s z3 (ZZ.show zz)
+        | None -> Z3.Arithmetic.Real.mk_numeral_s z3 (QQ.show qq)
+      end
+    | `Const sym ->
+      let sort = match typ_symbol ark sym with
+        | `TyInt -> sort_of_typ z3 `TyInt
+        | `TyReal -> sort_of_typ z3 `TyReal
+        | `TyBool | `TyFun (_,_) -> invalid_arg "z3_of.term"
+      in
+      let decl = Z3.FuncDecl.mk_const_decl z3 (z3_of_symbol z3 sym) sort in
+      Z3.Expr.mk_const_f z3 decl
+    | `Var (i, `TyFun (_, _)) | `Var (i, `TyBool) -> invalid_arg "z3_of.term"
+    | `Var (i, `TyInt) ->
+      Z3.Quantifier.mk_bound z3 i (sort_of_typ z3 `TyInt)
+    | `Var (i, `TyReal) ->
+      Z3.Quantifier.mk_bound z3 i (sort_of_typ z3 `TyReal)
+    | `Add sum -> Z3.Arithmetic.mk_add z3 sum
+    | `Mul product -> Z3.Arithmetic.mk_mul z3 product
+    | `Binop (`Div, s, t) -> Z3.Arithmetic.mk_div z3 s t
+    | `Binop (`Mod, s, t) -> Z3.Arithmetic.Integer.mk_mod z3 s t
+    | `Unop (`Floor, t) -> Z3. Arithmetic.Real.mk_real2int z3 t
+    | `Unop (`Neg, t) -> Z3.Arithmetic.mk_unary_minus z3 t
+  in
+  Term.eval ark alg term
+
+let z3_of_formula ark z3 phi =
+  let of_term = z3_of_term ark z3 in
+  let alg = function
+    | `Tru -> Z3.Boolean.mk_true z3
+    | `Fls -> Z3.Boolean.mk_false z3
+    | `And conjuncts -> Z3.Boolean.mk_and z3 conjuncts
+    | `Or disjuncts -> Z3.Boolean.mk_or z3 disjuncts
+    | `Not phi -> Z3.Boolean.mk_not z3 phi
+    | `Quantify (qt, name, typ, phi) ->
+      mk_quantified z3 qt ~name typ phi
+    | `Atom (`Eq, s, t) -> Z3.Boolean.mk_eq z3 (of_term s) (of_term t)
+    | `Atom (`Leq, s, t) -> Z3.Arithmetic.mk_le z3 (of_term s) (of_term t)
+    | `Atom (`Lt, s, t) -> Z3.Arithmetic.mk_lt z3 (of_term s) (of_term t)
+    | `Proposition (`Var i) ->
+      Z3.Quantifier.mk_bound z3 i (sort_of_typ z3 `TyBool)
+    | `Proposition (`Const p) ->
+      let decl =
+        Z3.FuncDecl.mk_const_decl z3
+          (z3_of_symbol z3 p)
+          (sort_of_typ z3 `TyBool)
+      in
+      Z3.Expr.mk_const_f z3 decl
+  in
+  Formula.eval ark alg phi
+
+let of_z3 context const_of_decl expr =
+  let term = function
+    | `Term (_, t) -> t
+    | `Formula phi -> invalid_arg "of_z3.term"
+  in
+  let ite = function
+    | `Term (ite, _) -> ite
+    | `Formula phi -> invalid_arg "of_z3.term"
+  in
+  let ite_formula phi (sk, cond, tthen, telse) =
+    let sk_def =
+      mk_or context [
+        mk_and context [
+          cond;
+          mk_eq context (mk_const context sk) tthen
+        ];
+        mk_and context [
+          mk_not context cond;
+          mk_eq context (mk_const context sk) telse
+        ]
+      ]
+    in
+    mk_exists_const context sk (mk_and context [sk_def; phi])
+  in
+  let formula = function
+    | `Formula phi -> phi
+    | _ -> invalid_arg "of_z3.formula"
+  in
+  let alg = function
+    | `Real qq -> `Term ([], mk_real context qq)
+    | `Var (i, `TyBool) -> `Formula (mk_var context i `TyBool)
+    | `Var (i, typ) -> `Term ([], mk_var context i typ)
+    | `App (decl, []) ->
+      let const_sym = const_of_decl decl in
+      begin match typ_symbol context const_sym with
+        | `TyBool -> `Formula (mk_const context const_sym)
+        | `TyInt | `TyReal -> `Term ([], mk_const context const_sym)
+        | `TyFun (_, _) -> assert false (* Shouldn't appear with zero args *)
+      end
+    | `Add sum ->
+      `Term (List.concat (List.map ite sum),
+             mk_add context (List.map term sum))
+    | `Mul product ->
+      `Term (List.concat (List.map ite product),
+             mk_mul context (List.map term product))
+    | `Binop (op, s, t) ->
+      let mk_op = match op with
+        | `Div -> mk_div
+        | `Mod -> mk_mod
+      in
+      `Term ((ite s)@(ite t), mk_op context (term s) (term t))
+    | `Unop (`Floor, t) -> `Term (ite t, mk_floor context (term t))
+    | `Unop (`Neg, t) -> `Term (ite t, mk_neg context (term t))
+    | `Tru -> `Formula (mk_true context)
+    | `Fls -> `Formula (mk_false context)
+    | `And conjuncts -> `Formula (mk_and context (List.map formula conjuncts))
+    | `Or disjuncts -> `Formula (mk_or context (List.map formula disjuncts))
+    | `Not phi -> `Formula (mk_not context (formula phi))
+    | `Quantify (`Exists, name, typ, phi) ->
+      `Formula (mk_exists context ~name:name typ (formula phi))
+    | `Quantify (`Forall, name, typ, phi) ->
+      `Formula (mk_forall context ~name:name typ (formula phi))
+    | `Atom (`Eq, `Term (ite_s, s), `Term (ite_t, t)) ->
+      `Formula (List.fold_left ite_formula (mk_eq context s t) (ite_s@ite_t))
+    | `Atom (`Eq, `Formula phi, `Formula psi) ->
+      `Formula (mk_or context [
+          mk_and context [mk_not context phi; mk_not context psi];
+          mk_and context [phi; psi];
+        ])
+    | `Atom (`Leq, s, t) ->
+      `Formula (List.fold_left
+                  ite_formula
+                  (mk_leq context (term s) (term t))
+                  ((ite s)@(ite t)))
+    | `Atom (`Lt, s, t) ->
+      `Formula (List.fold_left
+                  ite_formula
+                  (mk_lt context (term s) (term t))
+                  ((ite s)@(ite t)))
+    | `Atom (`Eq, _, _) -> invalid_arg "of_z3"
+    | `Ite (cond, s, t) ->
+      let typ =
+        match term_typ context (term s), term_typ context (term s) with
+        | `TyInt, `TyInt -> `TyInt
+        | _, _ -> `TyReal
+      in
+      let sk = mk_symbol context ~name:"ite" typ in
+      `Term ((sk, formula cond, term s, term t)::((ite s)@(ite t)),
+             mk_const context sk)
+    | `App (decl, args) ->
+      invalid_arg ("of_z3: " ^ (Z3.FuncDecl.to_string decl))
+  in
+  eval alg expr
+
+(* const_of_decl is sufficient for round-tripping, since const_sym's become
+   int symbols *)
+let const_of_decl decl =
+  let sym = Z3.FuncDecl.get_name decl in
+  assert (Z3.Symbol.is_int_symbol sym);
+  Obj.magic (Z3.Symbol.get_int sym)
+
+let term_of_z3 context term =
+  match of_z3 context const_of_decl term with
+  | `Term ([], t) -> t
+  | _ -> invalid_arg "term_of"
+
+let formula_of_z3 context phi =
+  match of_z3 context const_of_decl phi with
+  | `Formula phi -> phi
+  | `Term _ -> invalid_arg "formula_of"
+
+
+class ['a] z3_model (context : 'a context) z3 m =
+  let of_formula = z3_of_formula context z3 in
+  let of_term = z3_of_term context z3 in
+  object(self)
+    method eval_int term =
+      match Z3.Model.eval m (of_term term) true with
       | Some x -> zz_val x
       | None -> invalid_arg "eval_int: not an integer term"
 
-    let eval_real m term =
-      match Z3.Model.eval m term true with
+    method eval_real term =
+      match Z3.Model.eval m (of_term term) true with
       | Some x -> qq_val x
       | None -> invalid_arg "eval_real: not a real term"
 
-    let eval_func m decl =
-      let open Model.FuncInterp in
-      match Model.get_func_interp m decl with
-      | Some interp ->
-        let entries =
-          List.map (fun entry ->
-              (FuncEntry.get_args entry, FuncEntry.get_value entry)
-            ) (get_entries interp)
-        in
-        (entries, get_else interp)
-      | None -> invalid_arg "eval_func: No interpretation for function decl"
-
-    let sat m phi =
-      match Z3.Model.eval m phi true with
+    method sat phi =
+      match Z3.Model.eval m (of_formula phi) true with
       | Some x -> bool_val x
       | None -> assert false
 
-    let to_string = Z3.Model.to_string
+    method to_string () = Z3.Model.to_string m
   end
-end
 
-module MakeSolver
-    (C : TranslationContext)
-    (Opt : sig val opts : (string * string) list end)
-    () = struct
+class ['a] z3_solver (context : 'a context) z3 s =
+  let of_formula = z3_of_formula context z3 in
+  let formula_of = formula_of_z3 context in
+  object(self)
+    method add phis = Z3.Solver.add s (List.map of_formula phis)
+    method push () = Z3.Solver.push s
+    method pop = Z3.Solver.pop s
+    method reset () = Z3.Solver.reset s
 
-  module Z3C = Make(Opt)()
-
-  let term_typ =
-    let join s t =
-      match s, t with
-      | `TyInt, `TyInt -> `TyInt
-      | `TyInt, `TyReal | `TyReal, `TyInt | `TyReal, `TyReal -> `TyReal
-      | _, _ -> assert false
-    in
-    let alg = function
-      | `Real qq ->
-        begin match QQ.to_zz qq with
-          | Some _ -> `TyInt
-          | None -> `TyReal
-        end
-      | `Var (_, typ) -> typ
-      | `Const k ->
-        begin match C.const_typ k with
-          | `TyInt -> `TyInt
-          | `TyReal -> `TyReal
-          | _ -> invalid_arg "typ: not an arithmetic term"
-        end
-      | `Add xs | `Mul xs -> List.fold_left join `TyInt xs
-      | `Binop (`Div, s, t) -> `TyReal
-      | `Binop (`Mod, s, t) -> join s t
-      | `Unop (`Floor, _) -> `TyInt
-      | `Unop (`Neg, t) -> t
-    in
-    C.Term.eval alg
-
-  let of_term term =
-    let alg = function
-      | `Real qq -> Z3C.mk_real qq
-      | `Const sym ->
-        let id = Z3.Symbol.mk_int Z3C.ctx (Obj.magic sym) in
-        let sort = match C.const_typ sym with
-          | `TyInt -> Z3C.int_sort
-          | `TyReal -> Z3C.real_sort
-          | `TyBool | `TyFun (_,_) -> invalid_arg "z3_of.term"
-        in
-        let decl = Z3.FuncDecl.mk_const_decl Z3C.ctx id sort in
-        Z3C.mk_const decl
-      | `Var (i, `TyFun (_, _))
-      | `Var (i, `TyBool) -> invalid_arg "z3_of.term"
-      | `Var (i, `TyInt) -> Z3C.mk_var i `TyInt
-      | `Var (i, `TyReal) -> Z3C.mk_var i `TyReal
-      | `Add sum -> Z3C.mk_add sum
-      | `Mul product -> Z3C.mk_mul product
-      | `Binop (`Div, s, t) -> Z3C.mk_div s t
-      | `Binop (`Mod, s, t) -> Z3C.mk_mod s t
-      | `Unop (`Floor, t) -> Z3C.mk_floor t
-      | `Unop (`Neg, t) -> Z3C.mk_neg t
-    in
-    C.Term.eval alg term
-
-  let of_formula phi =
-    let alg = function
-      | `Tru -> Z3C.mk_and []
-      | `Fls -> Z3C.mk_or []
-      | `And conjuncts -> Z3C.mk_and conjuncts
-      | `Or disjuncts -> Z3C.mk_or disjuncts
-      | `Not phi -> Z3C.mk_not phi
-      | `Quantify (`Exists, name, typ, phi) ->
-        Z3C.mk_exists ~name:name typ phi
-      | `Quantify (`Forall, name, typ, phi) ->
-        Z3C.mk_forall ~name:name typ phi
-      | `Atom (`Eq, s, t) -> Z3C.mk_eq (of_term s) (of_term t)
-      | `Atom (`Leq, s, t) -> Z3C.mk_leq (of_term s) (of_term t)
-      | `Atom (`Lt, s, t) -> Z3C.mk_lt (of_term s) (of_term t)
-      | `Proposition (`Var i) -> Z3C.mk_prop_var i
-      | `Proposition (`Const p) ->
-        let id = Z3.Symbol.mk_int Z3C.ctx (Obj.magic p) in
-        if not (C.const_typ p = `TyBool) then
-          invalid_arg "z3_of.formula";
-        let decl = Z3.FuncDecl.mk_const_decl Z3C.ctx id Z3C.bool_sort in
-        Z3C.mk_prop_const decl
-    in
-    C.Formula.eval alg phi
-
-  let of_z3 const_of_decl expr =
-    let term = function
-      | `Term (_, t) -> t
-      | `Formula phi ->
-        invalid_arg ("of_z3.term:" ^ (Z3.Expr.to_string (of_formula phi)))
-    in
-    let ite = function
-      | `Term (ite, _) -> ite
-      | `Formula phi ->
-        invalid_arg ("of_z3.term:" ^ (Z3.Expr.to_string (of_formula phi)))
-    in
-    let ite_formula phi (sk, cond, tthen, telse) =
-      let sk_def =
-        C.mk_or [C.mk_and [cond; C.mk_eq (C.mk_const sk) tthen];
-                 C.mk_and [C.mk_not cond; C.mk_eq (C.mk_const sk) telse]]
-      in
-      C.mk_exists_const sk (C.mk_and [sk_def; phi])
-    in
-    let formula = function
-      | `Formula phi -> phi
-      | _ -> invalid_arg "of_z3.formula"
-    in
-    let alg = function
-      | `Real qq -> `Term ([], C.mk_real qq)
-      | `Var (i, `TyInt) -> `Term ([], C.mk_var i `TyInt)
-      | `Var (i, `TyReal) -> `Term ([], C.mk_var i `TyReal)
-      | `Var (i, `TyBool) -> `Formula (C.mk_prop_var i)
-      | `App (decl, []) ->
-        let const_sym = const_of_decl decl in
-        begin match C.const_typ const_sym with
-          | `TyBool -> `Formula (C.mk_prop_const const_sym)
-          | `TyInt | `TyReal -> `Term ([], C.mk_const const_sym)
-          | `TyFun (_, _) -> assert false (* Shouldn't appear with zero args *)
-        end
-      | `Add sum ->
-        `Term (List.concat (List.map ite sum), C.mk_add (List.map term sum))
-      | `Mul product ->
-        `Term (List.concat (List.map ite product),
-               C.mk_mul (List.map term product))
-      | `Binop (op, s, t) ->
-        let mk_op = match op with
-          | `Div -> C.mk_div
-          | `Mod -> C.mk_mod
-        in
-        `Term ((ite s)@(ite t), mk_op (term s) (term t))
-      | `Unop (`Floor, t) -> `Term (ite t, C.mk_floor (term t))
-      | `Unop (`Neg, t) -> `Term (ite t, C.mk_neg (term t))
-      | `Tru -> `Formula (C.mk_and [])
-      | `Fls -> `Formula (C.mk_or [])
-      | `And conjuncts -> `Formula (C.mk_and (List.map formula conjuncts))
-      | `Or disjuncts -> `Formula (C.mk_or (List.map formula disjuncts))
-      | `Not phi -> `Formula (C.mk_not (formula phi))
-      | `Quantify (`Exists, name, typ, phi) ->
-        `Formula (C.mk_exists ~name:name typ (formula phi))
-      | `Quantify (`Forall, name, typ, phi) ->
-        `Formula (C.mk_forall ~name:name typ (formula phi))
-      | `Atom (`Eq, `Term (ite_s, s), `Term (ite_t, t)) ->
-        `Formula (List.fold_left ite_formula (C.mk_eq s t) (ite_s@ite_t))
-      | `Atom (`Eq, `Formula phi, `Formula psi) ->
-        `Formula (C.mk_or [C.mk_not phi; psi])
-      | `Atom (`Leq, s, t) ->
-        `Formula (List.fold_left
-                    ite_formula
-                    (C.mk_leq (term s) (term t))
-                    ((ite s)@(ite t)))
-      | `Atom (`Lt, s, t) ->
-        `Formula (List.fold_left
-                    ite_formula
-                    (C.mk_lt (term s) (term t))
-                    ((ite s)@(ite t)))
-      | `Atom (`Eq, _, _) -> invalid_arg "of_z3"
-      | `Ite (cond, s, t) ->
-        let typ = match term_typ (term s), term_typ (term s) with
-          | `TyInt, `TyInt -> `TyInt
-          | _, _ -> `TyReal
-        in
-        let sk = C.mk_skolem ~name:"ite" typ in
-        `Term ((sk, formula cond, term s, term t)::((ite s)@(ite t)),
-               C.mk_const sk)
-      | `App (decl, args) ->
-        invalid_arg ("of_z3: " ^ (Z3.FuncDecl.to_string decl))
-    in
-    Z3C.eval alg expr
-
-  (* const_of_decl is sufficient for round-tripping, since const_sym's become
-     int symbols *)
-  let const_of_decl decl =
-    let sym = Z3.FuncDecl.get_name decl in
-    assert (Z3.Symbol.is_int_symbol sym);
-    Obj.magic (Z3.Symbol.get_int sym)
-
-  let term_of term =
-    match of_z3 const_of_decl term with
-    | `Term ([], t) -> t
-    | _ -> invalid_arg "term_of"
-
-  let formula_of phi =
-    match of_z3 const_of_decl phi with
-    | `Formula phi -> phi
-    | `Term _ -> invalid_arg "formula_of"
-
-  type solver = Z3.Solver.solver
-  type model = Z3.Model.model
-  type fixedpoint = Z3.Fixedpoint.fixedpoint
-
-  let ctx = Z3C.ctx
-
-  module Solver = struct
-    let mk_solver () = Z3.Solver.mk_simple_solver Z3C.ctx
-
-    let add s formulae = Z3.Solver.add s (List.map of_formula formulae)
-
-    let push = Z3.Solver.push
-    let pop = Z3.Solver.pop
-    let reset = Z3.Solver.reset
-
-    let check s args =
+    method check args =
       match Z3.Solver.check s (List.map of_formula args) with
       | Z3.Solver.SATISFIABLE -> `Sat
       | Z3.Solver.UNSATISFIABLE -> `Unsat
       | Z3.Solver.UNKNOWN -> `Unknown
 
-    let get_model : solver -> [`Sat of model | `Unknown | `Unsat ] = fun s ->
-      match check s [] with
+    method get_model : unit -> [ `Sat of 'a smt_model | `Unsat | `Unknown ] =
+      fun () ->
+      match self#check [] with
       | `Sat ->
         begin match Z3.Solver.get_model s with
-          | Some m -> `Sat m
+          | Some m -> `Sat (new z3_model context z3 m)
           | None -> `Unknown
         end
       | `Unsat -> `Unsat
       | `Unknown -> `Unknown
 
-    let to_string = Z3.Solver.to_string
-    let get_unsat_core solver assumptions =
-      match check solver assumptions with
+    method to_string () = Z3.Solver.to_string s
+
+    method get_unsat_core : 'a formula list -> [ `Sat | `Unsat of ('a formula list) | `Unknown ]
+      = 
+      fun assumptions ->
+      match self#check assumptions with
       | `Sat -> `Sat
       | `Unknown -> `Unknown
       | `Unsat ->
-        `Unsat (List.map formula_of (Z3.Solver.get_unsat_core solver))
+        `Unsat (List.map formula_of (Z3.Solver.get_unsat_core s))
   end
 
-  module Model = struct
-    let eval_int m term =
-      match Z3.Model.eval m (of_term term) true with
-      | Some x -> zz_val x
-      | None -> invalid_arg "eval_int: not an integer term"
-
-    let eval_real m term =
-      match Z3.Model.eval m (of_term term) true with
-      | Some x -> qq_val x
-      | None -> invalid_arg "eval_real: not a real term"
-
-    let sat m phi =
-      match Z3.Model.eval m (of_formula phi) true with
-      | Some x -> bool_val x
-      | None -> assert false
-
-    let to_string = Z3.Model.to_string
-  end
-
-  let interpolate_seq seq =
-    let rec make_pattern phi = function
-      | [psi] ->
-        Z3C.mk_and [
-          Z3.Interpolation.mk_interpolant Z3C.ctx phi;
-          of_formula psi
-        ]
-      | psi::rest ->
-        make_pattern
-          (Z3C.mk_and
-             [Z3.Interpolation.mk_interpolant ctx phi;
-              of_formula psi])
-          rest
-      | [] ->
-        invalid_arg "interpolate_seq: input sequence must be of length >= 2"
-    in
-    let params = Z3.Params.mk_params ctx in
-    let pattern =
-      if seq = [] then
-        invalid_arg "interpolate_seq: input sequence must be of length >= 2";
-      make_pattern (of_formula (List.hd seq)) (List.tl seq)
-    in
-    match Z3.Interpolation.compute_interpolant ctx pattern params with
-    | (_, Some interp, None) -> `Unsat (List.map formula_of interp)
-    | (_, None, Some m) -> `Sat m
-    | (_, _, _) -> `Unknown
-
-  let is_sat phi =
-    let s = Solver.mk_solver () in
-    Solver.add s [phi];
-    Solver.check s []
-
-  let get_model phi =
-    let s = Solver.mk_solver () in
-    Solver.add s [phi];
-    Solver.get_model s
-
-  let implies phi psi =
-    let s = Solver.mk_solver () in
-    Z3.Solver.add s [
-      of_formula phi;
-      Z3C.mk_not (of_formula psi)
-    ];
-    match Solver.check s [] with
-    | `Sat -> false
-    | `Unsat -> true
-    | `Unknown -> raise Unknown_result
-
+let mk_context : 'a context -> (string * string) list -> 'a smt_context
+    = fun context opts ->
+  let z3 = Z3.mk_context opts in
+  let of_term = z3_of_term context z3 in
+  let of_formula = z3_of_formula context z3 in
+  let term_of = term_of_z3 context in
+  let formula_of = formula_of_z3 context in
   let of_goal g =
     let open Z3 in
     List.map formula_of (Goal.get_formulas g)
-    |> C.mk_and
-
+    |> mk_and context
+  in
   let of_apply_result result =
     let open Z3 in
     List.map of_goal (Tactic.ApplyResult.get_subgoals result)
-    |> C.mk_and
+    |> mk_and context
+  in
+  object (self)
+    method ark = context
+    method of_term = of_term
+    method of_formula = of_formula
+    method term_of = term_of
+    method formula_of = formula_of
+    method mk_solver () =
+      new z3_solver context z3 (Z3.Solver.mk_simple_solver z3)
 
-  let qe phi =
-    let open Z3 in
-    let solve = Tactic.mk_tactic ctx "qe" in
-    let simpl = Tactic.mk_tactic ctx "simplify" in
-    let qe = Tactic.and_then ctx solve simpl [] in
-    let g = Goal.mk_goal ctx false false false in
-    Goal.add g [of_formula phi];
-    of_apply_result (Tactic.apply qe g None)
+    method is_sat phi =
+      let s = self#mk_solver () in
+      s#add [phi];
+      s#check []
 
-  let qe_sat phi =
-    let open Z3 in
-    let solve = Tactic.mk_tactic ctx "qe-sat" in
-    let simpl = Tactic.mk_tactic ctx "simplify" in
-    let qe = Tactic.and_then ctx solve simpl [] in
-    let g = Goal.mk_goal ctx false false false in
-    Goal.add g [of_formula phi];
-    is_sat (of_apply_result (Tactic.apply qe g None))
+    method get_model phi =
+      let s = self#mk_solver () in
+      s#add [phi];
+      s#get_model ()
 
-  let equiv phi psi =
-    let s = Solver.mk_solver () in
-    Z3.Solver.add s [Z3C.mk_or [
-        Z3C.mk_and [of_formula phi; Z3C.mk_not (of_formula psi)];
-        Z3C.mk_and [of_formula psi; Z3C.mk_not (of_formula phi)];
-      ]];
-    match Solver.check s [] with
-    | `Sat -> false
-    | `Unsat -> true
-    | `Unknown -> raise Unknown_result
+    method implies phi psi =
+      let s = self#mk_solver () in
+      s#add [phi; mk_not context psi];
+      match s#check [] with
+      | `Sat -> false
+      | `Unsat -> true
+      | `Unknown -> raise Unknown_result
 
-  let optimize_box phi terms =
+    method equiv phi psi =
+      let s = self#mk_solver () in
+      s#add [mk_or context [
+          mk_and context [phi; mk_not context psi];
+          mk_and context [psi; mk_not context phi]
+        ]];
+      match s#check [] with
+      | `Sat -> false
+      | `Unsat -> true
+      | `Unknown -> raise Unknown_result
+
+    method qe phi =
+      let open Z3 in
+      let solve = Tactic.mk_tactic z3 "qe" in
+      let simpl = Tactic.mk_tactic z3 "simplify" in
+      let qe = Tactic.and_then z3 solve simpl [] in
+      let g = Goal.mk_goal z3 false false false in
+      Goal.add g [of_formula phi];
+      of_apply_result (Tactic.apply qe g None)
+
+    method qe_sat phi =
+      let open Z3 in
+      let solve = Tactic.mk_tactic z3 "qsat" in
+      let simpl = Tactic.mk_tactic z3 "simplify" in
+      let qe = Tactic.and_then z3 solve simpl [] in
+      let g = Goal.mk_goal z3 false false false in
+      Goal.add g [of_formula phi];
+      self#is_sat (of_apply_result (Tactic.apply qe g None))
+
+    method interpolate_seq seq =
+      let rec make_pattern phi = function
+        | [psi] ->
+          Z3.Boolean.mk_and z3 [
+            Z3.Interpolation.mk_interpolant z3 phi;
+            of_formula psi
+          ]
+        | psi::rest ->
+          make_pattern
+            (Z3.Boolean.mk_and z3 [
+                Z3.Interpolation.mk_interpolant z3 phi;
+                of_formula psi
+              ])
+            rest
+        | [] ->
+          invalid_arg "interpolate_seq: input sequence must be of length >= 2"
+      in
+      let params = Z3.Params.mk_params z3 in
+      let pattern =
+        if seq = [] then
+          invalid_arg "interpolate_seq: input sequence must be of length >= 2";
+        make_pattern (of_formula (List.hd seq)) (List.tl seq)
+      in
+      match Z3.Interpolation.compute_interpolant z3 pattern params with
+      | (_, Some interp, None) -> `Unsat (List.map formula_of interp)
+      | (_, None, Some m) -> `Sat (new z3_model context z3 m)
+      | (_, _, _) -> `Unknown
+
+  method optimize_box phi terms =
     let open Z3.Optimize in
-    let opt = mk_opt ctx in
-    let params = Z3.Params.mk_params ctx in
-    let sym = Z3.Symbol.mk_string ctx in
+    let opt = mk_opt z3 in
+    let params = Z3.Params.mk_params z3 in
+    let sym = Z3.Symbol.mk_string z3 in
     Z3.Params.add_symbol params (sym ":opt.priority") (sym "box");
     set_parameters opt params;
     add opt [of_formula phi];
@@ -647,18 +583,21 @@ module MakeSolver
     | Z3.Solver.UNSATISFIABLE -> `Unsat
     | Z3.Solver.UNKNOWN -> `Unknown
 
-  let load_smtlib2 str =
-    let ast = Z3.SMT.parse_smtlib2_string ctx str [] [] [] [] in
-    let const_of_decl =
-      let cos = Apak.Memo.memo (fun (name, typ) -> C.mk_skolem ~name typ) in
-      fun decl ->
-        let open Z3 in
-        let sym = FuncDecl.get_name decl in
-        assert (FuncDecl.get_domain decl = []);
-        assert (Symbol.is_string_symbol sym);
-        cos (Symbol.get_string sym, typ_of_sort (FuncDecl.get_range decl))
-    in
-    match of_z3 const_of_decl ast with
-    | `Formula phi -> phi
-    | `Term _ -> invalid_arg "load_smtlib2"
-end
+    method load_smtlib2 str =
+      let ast = Z3.SMT.parse_smtlib2_string z3 str [] [] [] [] in
+      let const_of_decl =
+        let cos =
+          Apak.Memo.memo (fun (name, typ) -> mk_symbol context ~name typ)
+        in
+        fun decl ->
+          let open Z3 in
+          let sym = FuncDecl.get_name decl in
+          assert (FuncDecl.get_domain decl = []);
+          assert (Symbol.is_string_symbol sym);
+          cos (Symbol.get_string sym, typ_of_sort (FuncDecl.get_range decl))
+      in
+      match of_z3 context const_of_decl ast with
+      | `Formula phi -> phi
+      | `Term _ -> invalid_arg "load_smtlib2"
+
+  end

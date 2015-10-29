@@ -35,12 +35,6 @@ module type Vector = sig
   val show : t -> string
 end
 
-module type Context = sig
-  val const_typ : const_sym -> typ
-  val pp_const : Format.formatter -> const_sym -> unit
-  include Smt.TranslationContext
-end
-
 module type Map = sig
   type 'a t
   type key
