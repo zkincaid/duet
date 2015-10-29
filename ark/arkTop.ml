@@ -1,11 +1,10 @@
 open ArkAst
 open Apak
 
-module CZ = Smt.MakeSolver(Ctx)(struct let opts = [] end)()
-module C = struct
-  include Ctx
-  include CZ
-end
+module Ctx = ArkAst.Ctx
+module Infix = Syntax.Infix(Ctx)
+let ctx = Ctx.context
+let smt_ctx = Smt.mk_context ctx []
 
 let file_contents filename =
   let chan = open_in filename in
@@ -28,7 +27,7 @@ let load_math_formula filename =
                 pos.pos_lnum
                 (pos.pos_cnum - pos.pos_bol + 1))
 
-let load_smtlib2 filename = CZ.load_smtlib2 (file_contents filename)
+let load_smtlib2 filename = smt_ctx#load_smtlib2 (file_contents filename)
 
 let load_formula filename =
   if Filename.check_suffix filename "m" then load_math_formula filename
@@ -59,45 +58,45 @@ let _ =
   match Sys.argv.(i) with
   | "sat" ->
     let phi = load_formula Sys.argv.(i+1) in
-    begin match Abstract.aqsat (module C) phi with
+    begin match Abstract.aqsat smt_ctx phi with
       | `Sat -> Log.logf ~level:`always "Satisfiable"
       | `Unsat -> Log.logf ~level:`always "Unsatisfiable"
       | `Unknown -> Log.logf ~level:`always "Unknown"
     end
   | "sat-z3" ->
     let phi = load_formula Sys.argv.(i+1) in
-    begin match CZ.is_sat phi with
+    begin match smt_ctx#is_sat phi with
       | `Sat -> Log.logf ~level:`always "Satisfiable"
       | `Unsat -> Log.logf ~level:`always "Unsatisfiable"
       | `Unknown -> Log.logf ~level:`always "Unknown"
     end
   | "sat-mbp" ->
     let phi = load_formula Sys.argv.(i+1) in
-    let psi = Abstract.qe_mbp (module C) phi in
-    begin match CZ.is_sat psi with
+    let psi = Abstract.qe_mbp smt_ctx phi in
+    begin match smt_ctx#is_sat psi with
       | `Sat -> Log.logf ~level:`always "Satisfiable"
       | `Unsat -> Log.logf ~level:`always "Unsatisfiable"
       | `Unknown -> Log.logf ~level:`always "Unknown"
     end
   | "sat-z3qe" ->
     let phi = load_formula Sys.argv.(i+1) in
-    begin match CZ.is_sat (CZ.qe phi) with
+    begin match smt_ctx#is_sat (smt_ctx#qe phi) with
       | `Sat -> Log.logf ~level:`always "Satisfiable"
       | `Unsat -> Log.logf ~level:`always "Unsatisfiable"
       | `Unknown -> Log.logf ~level:`always "Unknown"
     end
   | "qe-sat" ->
     let phi = load_formula Sys.argv.(i+1) in
-    let phi = Ctx.Formula.prenex phi in
-    begin match CZ.qe_sat phi with
+    let phi = Syntax.Formula.prenex ctx phi in
+    begin match smt_ctx#qe_sat phi with
       | `Sat -> Log.logf ~level:`always "Satisfiable"
       | `Unsat -> Log.logf ~level:`always "Unsatisfiable"
       | `Unknown -> Log.logf ~level:`always "Unknown"
     end
   | "qe-sat-unbounded" ->
     let (objective, phi) = load_math_opt Sys.argv.(i+1) in
-    let phi = Ctx.Formula.prenex phi in
-    begin match CZ.qe_sat phi with
+    let phi = Syntax.Formula.prenex ctx phi in
+    begin match smt_ctx#qe_sat phi with
       | `Sat -> Log.logf ~level:`always "Satisfiable"
       | `Unsat -> Log.logf ~level:`always "Unsatisfiable"
       | `Unknown -> Log.logf ~level:`always "Unknown"
@@ -105,11 +104,11 @@ let _ =
 
   | "qe-mbp" ->
     let phi = load_formula Sys.argv.(i+1) in
-    let psi = Abstract.qe_mbp (module C) phi in
-    Log.logf ~level:`always "%a" C.Formula.pp psi
+    let psi = Abstract.qe_mbp smt_ctx phi in
+    Log.logf ~level:`always "%a" (Syntax.Formula.pp ctx) psi
   | "opt" ->
     let (objective, phi) = load_math_opt Sys.argv.(i+1) in
-    begin match Abstract.aqopt (module C) phi objective with
+    begin match Abstract.aqopt smt_ctx phi objective with
       | `Sat ivl ->
         begin match Interval.upper ivl with
           | Some upper ->
@@ -121,8 +120,8 @@ let _ =
     end
   | "opt-mbp" ->
     let (objective, phi) = load_math_opt Sys.argv.(i+1) in
-    let psi = Abstract.qe_mbp (module C) phi in
-    begin match C.optimize_box psi [objective] with
+    let psi = Abstract.qe_mbp smt_ctx phi in
+    begin match smt_ctx#optimize_box psi [objective] with
       | `Sat [ivl] ->
         begin match Interval.upper ivl with
           | Some upper ->
@@ -135,8 +134,8 @@ let _ =
     end
   | "opt-z3qe" ->
     let (objective, phi) = load_math_opt Sys.argv.(i+1) in
-    let psi = CZ.qe phi in
-    begin match C.optimize_box psi [objective] with
+    let psi = smt_ctx#qe phi in
+    begin match smt_ctx#optimize_box psi [objective] with
       | `Sat [ivl] ->
         begin match Interval.upper ivl with
           | Some upper ->

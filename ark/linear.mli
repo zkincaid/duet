@@ -5,12 +5,6 @@ open Syntax
 (** Raised for unsolvable systems of linear equations *)
 exception No_solution
   
-module type Context = sig
-  val const_typ : const_sym -> typ
-  val pp_const : Format.formatter -> const_sym -> unit
-  include Smt.TranslationContext
-end
-
 module type Vector = sig
   type t
   type dim

@@ -27,6 +27,8 @@ module IV = struct
       if Var.is_shared var then Var.pp formatter var
       else Format.fprintf formatter "%a[#%d]" Var.pp var i
 
+    let show = Putil.mk_show pp
+
     let equal x y = compare x y = 0
     let hash (v, i) = Hashtbl.hash (Var.hash v, i)
   end
@@ -35,36 +37,53 @@ module IV = struct
   let subscript (v, i) ss = (Var.subscript v ss, i)
 end
 
-module Ctx = struct
-  module C = Syntax.Make(IV)()
-  include C
-  include Smt.MakeSolver(C)(struct let opts = [] end)()
-end
+module Ctx = MakeContext()
+module IVMemo = Memo.Make(IV)
+
+let ctx = Ctx.context
+let smt_ctx = Smt.mk_context ctx []
+
+
+let symbol_table = Hashtbl.create 991
+
+let of_symbol symbol =
+  try Some (Hashtbl.find symbol_table symbol)
+  with Not_found -> None
+
+let symbol_of =
+  IVMemo.memo (fun iv ->
+      let symbol = mk_symbol ctx ~name:(IV.show iv) (IV.typ iv) in
+      Hashtbl.add symbol_table symbol iv;
+      symbol)
 
 let loc = Var.mk (Varinfo.mk_local "@" (Concrete (Int unknown_width)))
 
 module VarSet = BatSet.Make(IV)
 
 module P = struct
-  include Ctx.Formula
+  type t = Ctx.formula
+  let equal = Formula.equal
+  let compare = Formula.compare
+  let hash = Formula.hash
+  let pp = Formula.pp ctx
   let conjuncts phi =
-    match destruct phi with
+    match Formula.destruct ctx phi with
     | `And conjuncts -> BatList.enum conjuncts
     | `Tru -> BatEnum.empty ()
     | _ -> BatEnum.singleton phi
   let big_conj enum = Ctx.mk_and (BatList.of_enum enum)
   let big_disj enum = Ctx.mk_or (BatList.of_enum enum)
   let constants phi =
-    Ctx.Formula.fold_constants
+    fold_constants
       (fun i s ->
-         match Ctx.const_of_symbol i with
+         match of_symbol i with
          | Some v -> VarSet.add v s
          | None -> s)
       phi
       VarSet.empty
 end
 
-let program_var v = Ctx.mk_const (Ctx.symbol_of_const v)
+let program_var v = Ctx.mk_const (symbol_of v)
 
 module PA = PredicateAutomata.Make
     (struct
@@ -255,8 +274,12 @@ let subscript_expr ss i =
   Expr.fold alg
 
 let unsubscript =
-  let sigma sym = program_var (fst (Ctx.const_of_symbol_exn sym), 0) in
-  P.substitute_const sigma
+  let sigma sym =
+    match of_symbol sym with
+    | Some (v, _) -> program_var (v, 0)
+    | None -> assert false
+  in
+  substitute_const ctx sigma
 
 let subscript_bexpr ss i bexpr =
   let subscript = subscript_expr ss i in
@@ -274,7 +297,7 @@ let subscript_bexpr ss i bexpr =
         | Ne -> Ctx.mk_not (Ctx.mk_eq x y)
       end
   in
-  P.existential_closure (Bexpr.fold alg bexpr)
+  Formula.existential_closure ctx (Bexpr.fold alg bexpr)
 
 let generalize_atom phi =
   let subst = BatDynArray.make 10 in
@@ -289,13 +312,15 @@ let generalize_atom phi =
       end
   in
   let sigma v =
-    let (v, tid) = Ctx.const_of_symbol_exn v in
-    let iv =
-      if Var.is_shared v then (v, tid) else (v, 1 + generalize tid)
-    in
-    program_var (IV.subscript iv 0)
+    match of_symbol v with
+    | Some (v, tid) ->
+      let iv =
+        if Var.is_shared v then (v, tid) else (v, 1 + generalize tid)
+      in
+      program_var (IV.subscript iv 0)
+    | None -> assert false
   in
-  let gen_phi = P.substitute_const sigma phi in
+  let gen_phi = substitute_const ctx sigma phi in
   (gen_phi, BatDynArray.to_list subst)
 
 let generalize i phi psi =
@@ -313,13 +338,15 @@ let generalize i phi psi =
       end
   in
   let sigma v =
-    let (v, tid) = Ctx.const_of_symbol_exn v in
-    let iv =
-      if Var.is_shared v then (v, tid) else (v, generalize tid)
-    in
-    program_var (IV.subscript iv 0)
+    match of_symbol v with
+    | Some (v, tid) ->
+      let iv =
+        if Var.is_shared v then (v, tid) else (v, generalize tid)
+      in
+      program_var (IV.subscript iv 0)
+    | None -> assert false
   in
-  let gen_phi = P.substitute_const sigma phi in
+  let gen_phi = substitute_const ctx sigma phi in
   let f psi =
     let (gen_psi, args) = generalize_atom psi in
     PaFormula.mk_atom
@@ -360,7 +387,7 @@ let trace_formulae trace =
       let ss' = subscript_incr ss i v in
       let assign =
         Ctx.mk_eq (program_var (subscript ss' i v)) rhs
-        |> P.existential_closure
+        |> Formula.existential_closure ctx
       in
       (ss', (i, def, assign)::rest)
     | _ -> (ss, (i, def, Ctx.mk_true)::rest)
@@ -373,7 +400,7 @@ let construct solver assign_table trace =
       let phis = BatList.map (fun (_,_,phi) -> phi) rest in
       let a = Ctx.mk_and phis in
       let b = Ctx.mk_and [phi; Ctx.mk_not post] in
-      let itp = match Ctx.interpolate_seq [a; b] with
+      let itp = match smt_ctx#interpolate_seq [a; b] with
         | `Unsat [itp] -> itp
         | _ ->
           Log.fatalf "Failed to interpolate! %a / %a" P.pp a P.pp b
@@ -613,7 +640,7 @@ let verify file =
         /@ (fun (_,_,phi) -> phi) |> P.big_conj
       in
       begin
-        match Ctx.is_sat trace_formula with
+        match smt_ctx#is_sat trace_formula with
         | `Sat ->
           log ~level:`always ~attributes:[`Bold;`Red]
             "Verification result: Unsafe";
