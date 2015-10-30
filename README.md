@@ -9,7 +9,7 @@ Building
 
 Duet depends on several software packages.  The following dependencies need to be installed manually.
 
- + [opam](http://opam.ocaml.org) (with OCaml >= 3.12 & native compiler)
+ + [opam](http://opam.ocaml.org) (with OCaml 4.01 & native compiler)
  + autotools
  + GMP and MPFR
 
@@ -21,10 +21,8 @@ On Ubuntu, you can install these packages (except Java) with:
 Next, add the [sv-opam](https://github.com/zkincaid/sv-opam) OPAM repository, and install the rest of duet's dependencies.  These are built from source, so grab a coffee &mdash; this may take a long time.
 ```
  opam remote add sv git://github.com/zkincaid/sv-opam.git
- opam install ocamlgraph batteries cil oasis deriving Z3 apron.0.9.10 ounit
+ opam install ocamlgraph batteries cil.1.7.3 oasis deriving Z3 apron.0.9.10 ounit
 ```
-
-Building Z3 from source requires the latest version of git.  Follow [these instructions](http://z3.codeplex.com/wikipage?title=Git%20HTTPS%20cloning%20errors) if opam fails to install Z3.
 
 ### Building Duet
 
@@ -49,7 +47,7 @@ There are three main program analyses implemented in Duet:
 
 * Data flow graphs (POPL'12): `duet -coarsen FILE`
 * Heap data flow graphs: `duet -hdfg FILE`
-* Linear recurrence analysis: `duet -lra FILE`
+* Compositional recurrence analysis: `duet -cra FILE`
 
 Duet supports two file types (and guesses which to use by file extension): C programs (.c), Boolean programs (.bp).
 
@@ -68,7 +66,7 @@ Duet is split into several packages:
 
 * ark 
 
-  Arithmetic reasoning kit.  This is a high-level interface over Z3 and Apron.  Most of the work of linear recurrence analysis lives in ark.
+  Arithmetic reasoning kit.  This is a high-level interface over Z3 and Apron.  Most of the work of compositional recurrence analysis lives in ark.
 
 * duet
 

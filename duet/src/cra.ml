@@ -199,6 +199,7 @@ module V = struct
 end
 
 module K = struct
+  module Voc = V
   include Transition.Make(V)
 (*
   let simplify tr =
@@ -276,6 +277,42 @@ module K = struct
 
   let normalize_k x = normalize x
 
+  (* Transpose a transition formula (intuitively, swap the primed and unprimed
+     variables). *)
+  let transpose tr =
+    (* The transform of the transpose is obtained by mapping each variable in
+       tr's transform to a fresh Skolem constant, which will represent the
+       value of that variable in the pre-state.  (After the transform, a
+       variable which appears in the RHS of a transform or a guard refers to
+       the post-state). *)
+    let transform =
+      let fresh_skolem v =
+        T.var (V.mk_tmp ("fresh_" ^ (Voc.show v)) (Voc.typ v))
+      in
+      M.fold
+        (fun v _ transform -> M.add v (fresh_skolem v) transform)
+        tr.transform
+        M.empty
+    in
+
+    (* Replace every variable in tr's transform with its Skolem constant *)
+    let substitution = function
+      | V.PVar v when M.mem v transform -> M.find v transform
+      | v -> T.var v
+    in
+
+    (* Apply substitution to the guard & conjoin with equations from tr's
+       transform *)
+    let guard =
+      let transform_equations =
+        M.enum tr.transform
+        /@ (fun (v, rhs) ->
+            F.eq (T.var (V.mk_var v)) (T.subst substitution rhs))
+        |> F.big_conj
+      in
+      F.conj transform_equations (F.subst substitution tr.guard)
+    in
+    { transform; guard }
 end
 module A = Interproc.MakePathExpr(K)
 
@@ -667,35 +704,6 @@ let _ =
     ("-cra", analyze, " Compositional recurrence analysis")
 
 (*******************************************************************************
-* Newtonian Program Analysis Helper Functions
-********************************************************************************)
-
-let () =
-  Callback.register "compose_callback" K.mul
-
-let () =
-  Callback.register "union_callback" K.add
-
-let () =
-  Callback.register "one_callback" K.get_one
-
-let () =
-  Callback.register "zero_callback" K.get_zero
-
-let () =
-  Callback.register "star_callback" K.star
-
-let () =
-  Callback.register "print_callback" K.print_k
-
-let () =
-  Callback.register "eq_callback" K.eq_k
-
-let () =
-  Callback.register "normalize_callback" K.normalize_k
-
-
-(*******************************************************************************
  * Newtonian Program Analysis via Tensor product
  ******************************************************************************)
 
@@ -743,7 +751,39 @@ module VV = struct
 end
 
 (* Tensored transition formula *)
-module KK = Transition.Make(VV)
+module KK = struct
+  module Voc = V
+  module VocMap = Map.Make(Voc)
+  include Transition.Make(VV)
+
+  let mul_KK x y = mul x y
+
+  let star_KK x = star x
+
+  let add_KK x y = add x y
+
+  let zero_KK t = zero
+
+  let one_KK t = one
+
+  let print_KK x = show x
+
+  (* Detensor-transpose local variables and remove them from the footprint *)
+  let project tr =
+    (* For every *local* variable v, identify Left v (representing the
+       post-state of the left) and Right v (representing the pre-state of the
+       right) by substituting [Left v -> Right v] *)
+    let substitution = function
+      | V.PVar (Left v) when not (Var.is_global (var_of_value v)) ->
+        T.var (V.mk_var (Right v))
+      | v -> T.var v
+    in
+    { transform = M.map (T.subst substitution) tr.transform;
+      guard = F.subst substitution tr.guard }
+
+    (* Remove local variables from the footprint *)
+    |> exists (Var.is_global % var_of_value % VV.lower)
+end
 
 (* Inject terms from the untensored vocabulary to the tensored vocabulary.
    [inject_term VV.left] performs left injection and [inject_term VV.right]
@@ -884,3 +924,64 @@ let detensor_transpose tensored_tr =
 
 let kk_merge x y =
   KK.mul x (tensor K.one (K.project (detensor_transpose y)))
+
+(*******************************************************************************
+* Newtonian Program Analysis Helper Functions
+********************************************************************************)
+
+let () =
+  Callback.register "compose_callback" K.mul
+
+let () =
+  Callback.register "union_callback" K.add
+
+let () =
+  Callback.register "one_callback" K.get_one
+
+let () =
+  Callback.register "zero_callback" K.get_zero
+
+let () =
+  Callback.register "star_callback" K.star
+
+let () =
+  Callback.register "print_callback" K.print_k
+
+let () =
+  Callback.register "tensoredPrint_callback" KK.print_KK
+
+let () =
+  Callback.register "eq_callback" K.eq_k
+
+let () =
+  Callback.register "normalize_callback" K.normalize_k
+
+let() =
+  Callback.register "transpose_callback" K.transpose
+
+let() =
+  Callback.register "tensor_callback" tensor
+
+let() =
+  Callback.register "merge_callback" K.project
+
+let() =
+  Callback.register "tensorMerge_callback" KK.project
+
+let() =
+  Callback.register "detensorTranspose_callback" detensor_transpose
+
+let() =
+  Callback.register "tensorCompose_callback" KK.mul_KK
+
+let() =
+  Callback.register "tensorUnion_callback" KK.add_KK
+
+let() =
+  Callback.register "tensorStar_callback" KK.star_KK
+
+let() =
+  Callback.register "tensorZero_callback" KK.zero_KK
+
+let() =
+  Callback.register "tensorOne_callback" KK.one_KK
