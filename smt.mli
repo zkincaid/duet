@@ -50,6 +50,7 @@ end
 
 class type ['a] smt_context = object
   method ark : 'a context
+  method z3 : Z3.context
   method mk_solver : unit -> 'a smt_solver
 
   method of_term : 'a term -> Z3.Expr.expr
