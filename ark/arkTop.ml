@@ -146,4 +146,15 @@ let _ =
       | `Unknown -> Log.logf ~level:`always "Unknown"
       | _ -> assert false
     end
+  | "echo" ->
+    Z3.SMT.benchmark_to_smtstring
+      smt_ctx#z3
+      (Sys.argv.(i+1))
+      ""
+      "unknown"
+      ""
+      []
+      (smt_ctx#of_formula (load_formula Sys.argv.(i+1)))
+    |> print_endline
+
   | x -> Log.fatalf "Unknown command: `%s'" x

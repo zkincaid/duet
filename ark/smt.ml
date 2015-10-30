@@ -143,6 +143,7 @@ end
 
 class type ['a] smt_context = object
   method ark : 'a context
+  method z3 : Z3.context
   method mk_solver : unit -> 'a smt_solver
 
   method of_term : 'a term -> Z3.Expr.expr
@@ -456,6 +457,7 @@ let mk_context : 'a context -> (string * string) list -> 'a smt_context
   in
   object (self)
     method ark = context
+    method z3 = z3
     method of_term = of_term
     method of_formula = of_formula
     method term_of = term_of
@@ -599,5 +601,4 @@ let mk_context : 'a context -> (string * string) list -> 'a smt_context
       match of_z3 context const_of_decl ast with
       | `Formula phi -> phi
       | `Term _ -> invalid_arg "load_smtlib2"
-
   end
