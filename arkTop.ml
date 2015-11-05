@@ -47,6 +47,11 @@ let load_math_opt filename =
                 pos.pos_lnum
                 (pos.pos_cnum - pos.pos_bol + 1))
 
+let print_result = function
+  | `Sat -> Log.logf ~level:`always "sat"
+  | `Unsat -> Log.logf ~level:`always "unsat"
+  | `Unknown -> Log.logf ~level:`always "unknown"
+
 let _ =
   Log.colorize := true;
   let i =
@@ -58,33 +63,17 @@ let _ =
   match Sys.argv.(i) with
   | "sat" ->
     let phi = load_formula Sys.argv.(i+1) in
-    begin match Abstract.aqsat smt_ctx phi with
-      | `Sat -> Log.logf ~level:`always "Satisfiable"
-      | `Unsat -> Log.logf ~level:`always "Unsatisfiable"
-      | `Unknown -> Log.logf ~level:`always "Unknown"
-    end
+    print_result (Abstract.aqsat smt_ctx phi)
   | "sat-z3" ->
     let phi = load_formula Sys.argv.(i+1) in
-    begin match smt_ctx#is_sat phi with
-      | `Sat -> Log.logf ~level:`always "Satisfiable"
-      | `Unsat -> Log.logf ~level:`always "Unsatisfiable"
-      | `Unknown -> Log.logf ~level:`always "Unknown"
-    end
+    print_result (smt_ctx#is_sat phi)
   | "sat-mbp" ->
     let phi = load_formula Sys.argv.(i+1) in
     let psi = Abstract.qe_mbp smt_ctx phi in
-    begin match smt_ctx#is_sat psi with
-      | `Sat -> Log.logf ~level:`always "Satisfiable"
-      | `Unsat -> Log.logf ~level:`always "Unsatisfiable"
-      | `Unknown -> Log.logf ~level:`always "Unknown"
-    end
+    print_result (smt_ctx#is_sat psi)
   | "sat-z3qe" ->
     let phi = load_formula Sys.argv.(i+1) in
-    begin match smt_ctx#is_sat (smt_ctx#qe phi) with
-      | `Sat -> Log.logf ~level:`always "Satisfiable"
-      | `Unsat -> Log.logf ~level:`always "Unsatisfiable"
-      | `Unknown -> Log.logf ~level:`always "Unknown"
-    end
+    print_result (smt_ctx#is_sat (smt_ctx#qe phi))
   | "qe-sat" ->
     let phi = load_formula Sys.argv.(i+1) in
     let phi = Syntax.Formula.prenex ctx phi in
@@ -96,11 +85,7 @@ let _ =
   | "qe-sat-unbounded" ->
     let (objective, phi) = load_math_opt Sys.argv.(i+1) in
     let phi = Syntax.Formula.prenex ctx phi in
-    begin match smt_ctx#qe_sat phi with
-      | `Sat -> Log.logf ~level:`always "Satisfiable"
-      | `Unsat -> Log.logf ~level:`always "Unsatisfiable"
-      | `Unknown -> Log.logf ~level:`always "Unknown"
-    end
+    print_result (smt_ctx#qe_sat phi)
 
   | "qe-mbp" ->
     let phi = load_formula Sys.argv.(i+1) in
