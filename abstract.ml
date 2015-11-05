@@ -293,11 +293,11 @@ let select_implicant ark interp ?(env=Env.empty) phi =
     | `Atom (_, _, _) -> Some [phi]
     | `Proposition (`Const p) ->
       if Interpretation.bool interp p then None
-      else Some [phi]
+      else Some [mk_not ark phi]
     | `Proposition (`Var v) ->
       begin match Env.find env v with
         | `Bool true -> None
-        | `Bool false -> Some [phi]
+        | `Bool false -> Some [mk_not ark phi]
         | _ -> invalid_arg "select_implicant"
       end
     | `Not psi -> go psi
