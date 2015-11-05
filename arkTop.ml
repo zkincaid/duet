@@ -74,14 +74,24 @@ let _ =
   | "sat-z3qe" ->
     let phi = load_formula Sys.argv.(i+1) in
     print_result (smt_ctx#is_sat (smt_ctx#qe phi))
-  | "qe-sat" ->
-    let phi = load_formula Sys.argv.(i+1) in
-    let phi = Syntax.Formula.prenex ctx phi in
-    begin match smt_ctx#qe_sat phi with
-      | `Sat -> Log.logf ~level:`always "Satisfiable"
-      | `Unsat -> Log.logf ~level:`always "Unsatisfiable"
-      | `Unknown -> Log.logf ~level:`always "Unknown"
+  | "qsat" ->
+    let str = file_contents Sys.argv.(i+1) in
+
+    let z3 = Z3.mk_context [] in
+    let t =
+      Z3.Tactic.and_then z3
+        (Smt.mk_quantifier_simplify_tactic z3)
+        (Z3.Tactic.mk_tactic z3 "qsat")
+        []
+    in
+    let s = Z3.Solver.mk_solver_t z3 t in
+    Z3.Solver.add s [Z3.SMT.parse_smtlib2_string z3 str [] [] [] []];
+    begin match Z3.Solver.check s [] with
+    | Z3.Solver.SATISFIABLE -> print_endline "sat"
+    | Z3.Solver.UNSATISFIABLE -> print_endline "unsat"
+    | Z3.Solver.UNKNOWN -> print_endline "unknown"
     end
+
   | "qe-sat-unbounded" ->
     let (objective, phi) = load_math_opt Sys.argv.(i+1) in
     let phi = Syntax.Formula.prenex ctx phi in

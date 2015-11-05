@@ -83,3 +83,5 @@ class type ['a] smt_context = object
 end
 
 val mk_context : 'a context -> (string * string) list -> 'a smt_context
+
+val mk_quantifier_simplify_tactic : Z3.context -> Z3.Tactic.tactic

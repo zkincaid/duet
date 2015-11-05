@@ -121,6 +121,37 @@ let rec eval alg ast =
   | SORT_AST
   | UNKNOWN_AST -> invalid_arg "eval: unknown ast type"
 
+let mk_quantifier_simplify_tactic z3 =
+  let open Z3 in
+  let open Tactic in
+  let mk_tactic = mk_tactic z3 in
+  let sym = Symbol.mk_string z3 in
+  let pull_ite =
+    let p = Params.mk_params z3 in
+    Params.add_bool p (sym "pull-cheap-ite") true;
+    Params.add_bool p (sym "local-ctx") true;
+    Params.add_int p (sym "local-ctx-limit") 10000000;
+    p
+  in
+  let ctx_simp =
+    let p = Params.mk_params z3 in
+    Params.add_int p (sym "max-depth") 30;
+    Params.add_int p (sym "max_steps") 5000000;
+    p
+  in
+  let solve_eqs =
+    when_ z3
+      (Probe.not_ z3 (Probe.mk_probe z3 "has-patterns"))
+      (mk_tactic "solve-eqs")
+  in
+  let f t t' = Tactic.and_then z3 t t' [] in
+  List.fold_left f (mk_tactic "simplify") [
+    mk_tactic "propagate-values";
+    using_params z3 (mk_tactic "ctx-simplify") ctx_simp;
+    using_params z3 (mk_tactic "simplify") pull_ite;
+    solve_eqs;
+    mk_tactic "elim-uncnstr";
+    mk_tactic "simplify"]
 
 class type ['a] smt_model = object
   method eval_int : 'a term -> ZZ.t
