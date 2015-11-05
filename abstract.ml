@@ -1058,7 +1058,7 @@ let select_int_term ark interp x phi =
   let delta =
     let rec go phi =
       match destruct_normal ark phi with
-      | `And xs | `Or xs -> List.fold_left ZZ.gcd ZZ.one (List.map go xs)
+      | `And xs | `Or xs -> List.fold_left ZZ.lcm ZZ.one (List.map go xs)
       | `Tru | `Fls | `CompareZero (_, _)
       | `Proposition _ | `NotProposition _ ->
         ZZ.one
