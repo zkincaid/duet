@@ -152,4 +152,34 @@ let _ =
       (smt_ctx#of_formula (load_formula Sys.argv.(i+1)))
     |> print_endline
 
+  | "stats" ->
+    let open Syntax in
+    let phi = load_formula Sys.argv.(i+1) in
+    let phi = Formula.prenex ctx phi in
+    let module K = struct
+      type t = const_sym
+      let compare = Pervasives.compare
+    end in
+    let module KS = BatSet.Make(K) in
+    let constants = fold_constants KS.add phi KS.empty in
+    let rec go phi =
+      match Formula.destruct ctx phi with
+      | `Quantify (`Exists, name, typ, psi) -> "E" ^ (go psi)
+      | `Quantify (`Forall, name, typ, psi) -> "F" ^ (go psi)
+      | _ -> ""
+    in
+    let qf_pre =
+      (String.concat "" (List.map (fun _ -> "E") (KS.elements constants)))
+      ^ (go phi)
+    in
+    let size = function
+      | `Tru | `Fls -> 1
+      | `Proposition _ | `Atom (_, _, _) -> 1
+      | `Not x | `Quantify (_, _, _, x) -> x + 1
+      | `And xs | `Or xs -> List.fold_left (+) 1 xs
+    in
+    Log.logf ~level:`always "Quantifier prefix: %s" qf_pre;
+    Log.logf ~level:`always "Variables: %d" (String.length qf_pre);
+    Log.logf ~level:`always "Size: %d" (Formula.eval ctx size phi)
+
   | x -> Log.fatalf "Unknown command: `%s'" x
