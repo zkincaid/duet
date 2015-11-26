@@ -4,7 +4,9 @@ open Apak
 module Ctx = ArkAst.Ctx
 module Infix = Syntax.Infix(Ctx)
 let ctx = Ctx.context
-let smt_ctx = Smt.mk_context ctx []
+let smt_ctx = Smt.mk_context ctx [("model", "true");
+                                  ("proof", "false");
+                                  ("unsat_core", "false")]
 
 let file_contents filename =
   let chan = open_in filename in
@@ -64,6 +66,15 @@ let _ =
   | "sat" ->
     let phi = load_formula Sys.argv.(i+1) in
     print_result (Abstract.aqsat smt_ctx phi)
+
+  | "sat-forward" ->
+    let phi = load_formula Sys.argv.(i+1) in
+    print_result (Abstract.aqsat_forward smt_ctx phi)
+
+  | "easysat" ->
+    let phi = load_formula Sys.argv.(i+1) in
+    print_result (Abstract.easy_sat smt_ctx phi)
+
   | "sat-z3" ->
     let phi = load_formula Sys.argv.(i+1) in
     print_result (smt_ctx#is_sat phi)

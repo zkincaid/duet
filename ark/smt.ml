@@ -631,3 +631,9 @@ let mk_context : 'a context -> (string * string) list -> 'a smt_context
       | `Formula phi -> phi
       | `Term _ -> invalid_arg "load_smtlib2"
   end
+
+let mk_solver ?(theory="") ctx =
+  if theory = "" then
+    (new z3_solver ctx#ark ctx#z3 (Z3.Solver.mk_simple_solver ctx#z3))
+  else
+    (new z3_solver ctx#ark ctx#z3 (Z3.Solver.mk_solver_s ctx#z3 theory))
