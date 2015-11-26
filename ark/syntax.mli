@@ -17,7 +17,7 @@ type const_sym
    don't cross contexts. *)
 type 'a context
 
-type ('a,'typ) expr
+type ('a,+'typ) expr
 type 'a term = ('a, typ_arith) expr
 type 'a formula = ('a, typ_bool) expr
 
@@ -115,6 +115,9 @@ val substitute_const : 'a context ->
 
 val fold_constants : (const_sym -> 'a -> 'a) -> ('b, 'c) expr -> 'a -> 'a
 
+val pp_typ : Format.formatter -> typ -> unit
+val term_typ : 'a context -> 'a term -> typ_arith
+
 module Term : sig
   type 'a t = 'a term
   val equal : 'a term -> 'a term -> bool
@@ -143,8 +146,6 @@ module Formula : sig
   val skolemize_free : 'a context -> 'a formula -> 'a formula
   val prenex : 'a context -> 'a formula -> 'a formula
 end
-
-val pp_typ : Format.formatter -> typ -> unit
 
 module Infix (C : sig
     type t

@@ -37,6 +37,8 @@ let const_dim = 0
 
 let const_linterm k = Linear.QQVector.of_term k const_dim
 
+let linterm_size linterm = BatEnum.count (V.enum linterm)
+
 let const_of_linterm v =
   let (k, rest) = V.pivot const_dim v in
   if V.equal rest V.zero then Some k
@@ -109,6 +111,16 @@ let evaluate_linterm interp term =
       | None -> coeff)
   |> BatEnum.fold QQ.add QQ.zero
 
+(* Compute the GCD of all coefficients in an affine term (with integral
+   coefficients) *)
+let coefficient_gcd term =
+  BatEnum.fold (fun gcd (qq, _) ->
+      match QQ.to_zz qq with
+      | None -> assert false
+      | Some zz -> ZZ.gcd zz gcd)
+    ZZ.zero
+    (V.enum term)
+
 (* Mapping from constant symbols to appropriately-typed constant values. *)
 module Interpretation = struct
   type 'a interpretation =
@@ -127,7 +139,7 @@ module Interpretation = struct
   let add_bool k v interp =
     match typ_symbol interp.ark k with
     | `TyBool -> { interp with map = KM.add k (`Bool v) interp.map }
-    | _ -> invalid_arg "add_boolan: constant symbol is non-boolean"
+    | _ -> invalid_arg "add_boolean: constant symbol is non-boolean"
 
   let real interp k =
     match KM.find k interp.map with
@@ -138,6 +150,8 @@ module Interpretation = struct
     match KM.find k interp.map with
     | `Bool v -> v
     | _ -> invalid_arg "bool: constant symbol is not Boolean"
+
+  let value interp k = KM.find k interp.map
 
   let pp formatter interp =
     let pp_val formatter = function
@@ -152,6 +166,26 @@ module Interpretation = struct
     in
     Format.fprintf formatter "[@[%a@]]"
       (ApakEnum.pp_print_enum pp_elt) (KM.enum interp.map)
+
+  let of_model ark model symbols =
+    List.fold_left
+      (fun interp k ->
+         match typ_symbol ark k with
+         | `TyReal | `TyInt ->
+           add_real
+             k
+             (model#eval_real (mk_const ark k))
+             interp
+         | `TyBool ->
+           add_bool
+             k
+             (model#sat (mk_const ark k))
+             interp
+         | `TyFun _ -> assert false)
+      (empty ark)
+      symbols
+
+  let enum interp = KM.enum interp.map
 end
 
 (* Counter-example based extraction of the affine hull of a formula.  This
@@ -357,7 +391,7 @@ let pp_int_virtual_term ark formatter vt =
         vt.divisor
   end;
   if not (ZZ.equal vt.offset ZZ.zero) then
-    Format.fprintf formatter "@ + %a@]" ZZ.pp vt.offset
+    Format.fprintf formatter " + %a@]" ZZ.pp vt.offset
   else
     Format.fprintf formatter "@]"
 
@@ -502,7 +536,6 @@ let terms ark phi =
 let normalize ark phi =
   let phi = Formula.prenex ark phi in
   let zero = mk_real ark QQ.zero in
-  logf "Prenex: %a" (Formula.pp ark) phi;
   let rec normalize env phi =
     let subst = substitute ark (mk_const ark % Env.find env) in
     match Formula.destruct ark phi with
@@ -614,7 +647,10 @@ let mk_divides ark divisor term =
   if ZZ.equal divisor ZZ.one then
     mk_true ark
   else
-    let divisor = QQ.of_zz divisor in
+    let gcd = coefficient_gcd term in
+    let divisor = QQ.of_zz (ZZ.div divisor gcd) in
+    let term = V.scalar_mul (QQ.of_zzfrac ZZ.one gcd) term in
+
     mk_eq ark
       (mk_mod ark (of_linterm ark term) (mk_real ark divisor))
       (mk_real ark QQ.zero)
@@ -624,102 +660,112 @@ let mk_not_divides ark divisor term =
   if ZZ.equal divisor ZZ.one then
     mk_false ark
   else
-    let divisor = QQ.of_zz divisor in
+    let gcd = coefficient_gcd term in
+    let divisor = QQ.div (QQ.of_zz divisor) (QQ.of_zz gcd) in
+    let term = V.scalar_mul (QQ.of_zzfrac ZZ.one gcd) term in
+
     mk_lt ark
       (mk_neg ark (mk_mod ark (of_linterm ark term) (mk_real ark divisor)))
       (mk_real ark QQ.zero)
 
 let int_virtual_substitution ark x virtual_term phi =
   let zero = mk_real ark QQ.zero in
-  (* phi[x -> floor(t/mu) + k]
-     == \/_{i=0}^mu mu | t - i /\ phi[mu * x -> t - i + mu*k] *)
-  (0 -- (virtual_term.divisor - 1))
-  /@ (fun i ->
-      (* t - i + mu*k *)
-      let replace_mux =
-        V.add_term
-          (QQ.of_zz
-             (ZZ.sub
-                (ZZ.mul
-                   (ZZ.of_int virtual_term.divisor)
-                   virtual_term.offset)
-                (ZZ.of_int i)))
-          const_dim
-          virtual_term.term
-      in
+  (* virtual_term is of the form: floor(t/a) + b *)
 
-      let subst_term a s =
-        V.add
-          (V.scalar_mul a replace_mux)
-          (V.scalar_mul (QQ.of_int virtual_term.divisor) s)
-      in
-      let rec subst phi =
-        match destruct_normal ark phi with
-        | `And psis -> mk_and ark (List.map subst psis)
-        | `Or psis -> mk_or ark (List.map subst psis)
-        | `Tru -> mk_true ark
-        | `Fls -> mk_false ark
-        | `Proposition _ | `NotProposition _ -> phi
-        | `Divides (delta, s) ->
-          (* The atom is of the form
-                delta | ax + s
-             Replace with
-                mu * delta | a(t - i + mu * k) + mu * s *)
-          let (a, s) = V.pivot (dim_of_const x) s in
-          if QQ.equal a QQ.zero then
-            mk_divides ark delta s
-          else
-            mk_divides ark
-              (ZZ.mul (ZZ.of_int virtual_term.divisor) delta)
-              (subst_term a s)
-        | `NotDivides (delta, s) ->
-          (* The atom is of the form
-                not(delta | ax + s)
-             Replace with
-                not(mu * delta | a(t - i + mu * k) + mu * s) *)
-          let (a, s) = V.pivot (dim_of_const x) s in
-          if QQ.equal a QQ.zero then
-            mk_not_divides ark delta s
-          else
-            mk_not_divides ark
-              (ZZ.mul (ZZ.of_int virtual_term.divisor) delta)
-              (subst_term a s)
-        | `CompareZero (op, s) ->
-          (* The atom is of the form
-                ax + s >< 0
-             Replace with
-               a(t - i + mu * k) + mu * s >< 0 *)
-          let (a, s) = V.pivot (dim_of_const x) s in
-          let mk_compare =
-            match op with
-            | `Eq -> mk_eq ark
-            | `Lt -> mk_lt ark
-            | `Leq -> mk_leq ark
-          in
-          if QQ.equal a QQ.zero then
-            mk_compare (of_linterm ark s) zero
-          else
-            mk_compare (of_linterm ark (subst_term a s)) zero
-      in
+  (* Each atom
+       (c*x + s) op 0
+       [or (b | c*x + s) ]
+     Is replaced by a disjunction
+       \/_{i=0}^{a-1} (a | t - i) /\ c*(t + a*b - i) + a*s op 0)
+       [or (a | t - i) /\ (a*b | c*(t + a*b - i) + a*s) ]
 
-      (* mu | t - i *)
-      let divisibility_constraint =
-        if virtual_term.divisor == 1 then
-          mk_true ark
-        else
-          let t_minus_i =
-            V.add_term (QQ.of_int (-i)) const_dim virtual_term.term
-            |> of_linterm ark
-          in
-          mk_eq ark
-            (mk_mod ark
-               t_minus_i
-               (mk_real ark (QQ.of_int virtual_term.divisor)))
-            zero
+     subst_term i c s is the term c*(t + a*b - i) + a*s)
+  *)
+  let subst_term i c s =
+    let t_plus_ab_minus_i =
+      V.add_term
+        (QQ.of_zz
+           (ZZ.sub
+              (ZZ.mul (ZZ.of_int virtual_term.divisor) virtual_term.offset)
+              (ZZ.of_int i)))
+        const_dim
+        virtual_term.term
+    in
+    V.add
+      (V.scalar_mul c t_plus_ab_minus_i)
+      (V.scalar_mul (QQ.of_int virtual_term.divisor) s)
+  in
+
+  (* Make the divisibility atom (a | t - i) *)
+  let divisibility_constraint i =
+    if virtual_term.divisor == 1 then
+      mk_true ark
+    else
+      let t_minus_i =
+        V.add_term (QQ.of_int (-i)) const_dim virtual_term.term
+        |> of_linterm ark
       in
-      mk_and ark [subst phi; divisibility_constraint])
-  |> BatList.of_enum
-  |> mk_or ark
+      mk_eq ark
+        (mk_mod ark t_minus_i (mk_real ark (QQ.of_int virtual_term.divisor)))
+        zero
+  in
+
+  let rec subst phi =
+    match destruct_normal ark phi with
+    | `And psis -> mk_and ark (List.map subst psis)
+    | `Or psis -> mk_or ark (List.map subst psis)
+    | `Tru -> mk_true ark
+    | `Fls -> mk_false ark
+    | `Proposition _ | `NotProposition _ -> phi
+    | `Divides (delta, s) ->
+      let (c, s) = V.pivot (dim_of_const x) s in
+      if QQ.equal c QQ.zero then
+        mk_divides ark delta s
+      else
+        (0 -- (virtual_term.divisor - 1))
+        /@ (fun i ->
+            mk_and ark [mk_divides ark
+                          (ZZ.mul (ZZ.of_int virtual_term.divisor) delta)
+                          (subst_term i c s);
+                        divisibility_constraint i])
+        |> BatList.of_enum
+        |> mk_or ark
+
+    | `NotDivides (delta, s) ->
+      let (c, s) = V.pivot (dim_of_const x) s in
+      if QQ.equal c QQ.zero then
+        mk_not_divides ark delta s
+      else
+        (0 -- (virtual_term.divisor - 1))
+        /@ (fun i ->
+            mk_and ark [mk_not_divides ark
+                          (ZZ.mul (ZZ.of_int virtual_term.divisor) delta)
+                          (subst_term i c s);
+                        divisibility_constraint i])
+        |> BatList.of_enum
+        |> mk_or ark
+
+    | `CompareZero (op, s) ->
+      let (c, s) = V.pivot (dim_of_const x) s in
+      let mk_compare =
+        match op with
+        | `Eq -> mk_eq
+        | `Lt -> mk_lt
+        | `Leq -> mk_leq
+      in
+      if QQ.equal c QQ.zero then
+        mk_compare ark (of_linterm ark s) zero
+      else
+        (0 -- (virtual_term.divisor - 1))
+        /@ (fun i ->
+            mk_and ark [mk_compare ark
+                          (of_linterm ark (subst_term i c s))
+                          zero;
+                        divisibility_constraint i])
+        |> BatList.of_enum
+        |> mk_or ark
+  in
+  subst phi
 
 let substitute_real_term ark x t phi =
   begin match typ_symbol ark x with
@@ -800,6 +846,11 @@ module Scheme = struct
       in
       Formula.eval ark alg phi
 
+  let substitute_move ark m x move phi =
+    match select_implicant ark m (substitute ark x move phi) with
+    | None -> assert false
+    | Some x -> x
+
   let evaluate_move model move =
     match move with
     | MInt vt ->
@@ -853,11 +904,20 @@ module Scheme = struct
     pp formatter scheme
 
   let rec size = function
-    | SEmpty -> 1
-    | SForall (_, _, t) -> size t
+    | SEmpty -> 0
+    | SForall (_, _, t) -> 1 + (size t)
     | SExists (_, mm) ->
       MM.enum mm
       /@ (fun (_, t) -> size t)
+      |> BatEnum.sum
+      |> (+) 1
+
+  let rec nb_paths = function
+    | SEmpty -> 1
+    | SForall (_, _, t) -> nb_paths t
+    | SExists (_, mm) ->
+      MM.enum mm
+      /@ (fun (_, t) -> nb_paths t)
       |> BatEnum.sum
 
   let empty = SEmpty
@@ -896,7 +956,12 @@ module Scheme = struct
           with Not_found -> mk_path ark path
         in
         SExists (k, MM.add move subscheme mm)
-      | (_, _) -> assert false
+      | `Exists (_, _)::_, SForall (_, _, _) | (`Forall _)::_, SExists (_, _) ->
+        assert false
+      | ([], _) ->
+        assert false
+      | (_, SEmpty) ->
+        assert false
     in
     match scheme with
     | SEmpty -> mk_path ark path
@@ -943,11 +1008,21 @@ module Scheme = struct
         |> mk_or ark
     in
     go scheme
+
+  let rec paths = function
+    | SEmpty -> [[]]
+    | SForall (k, sk, scheme) ->
+      List.map (fun path -> (`Forall k)::path) (paths scheme)
+    | SExists (k, mm) ->
+      BatEnum.fold (fun rest (move, scheme) ->
+          (List.map (fun path -> (`Exists (k, move))::path) (paths scheme))
+          @rest)
+        []
+        (MM.enum mm)
 end
 
 exception Equal_term of V.t
 let select_real_term ark interp x phi =
-
   let merge (lower1, upper1) (lower2, upper2) =
     let lower =
       match lower1, lower2 with
@@ -1094,49 +1169,82 @@ let select_int_term ark interp x phi =
           | None -> assert false
           | Some z -> z
       in
-      let t_val = match QQ.to_zz (eval t) with
-        | Some zz -> zz
-        | None -> assert false
-      in
       if a = 0 then
         `None
       else if a > 0 then
         (* ax + t (<|<=) 0 --> upper bound of floor(-t/a) *)
         (* x (<|<=) floor(-t/a) + ([[x - floor(-t/a)]] mod delta) - delta *)
-        let rhs_val = Mpzf.fdiv_q (ZZ.negate t_val) (ZZ.of_int a) in
-        let vt =
-          { term = V.negate t;
-            divisor = a;
-            offset =
-              let res = Mpzf.fdiv_r (ZZ.sub x_val rhs_val) delta in
-              if ZZ.equal res ZZ.zero && op != `Lt then
-                ZZ.zero
-              else
-                ZZ.sub res delta
-          }
+        let numerator =
+          if op = `Lt then
+            (* a*floor(((numerator-1) / a) < numerator *)
+            V.add_term (QQ.of_int (-1)) const_dim (V.negate t)
+          else
+            V.negate t
         in
+
+        let rhs_val = (* [[floor(numerator / a)]] *)
+          match QQ.to_zz (eval numerator) with
+          | Some num -> Mpzf.fdiv_q num (ZZ.of_int a)
+          | None -> assert false
+        in
+        let vt =
+          { term = numerator;
+            divisor = a;
+            offset = Mpzf.cdiv_r (ZZ.sub x_val rhs_val) delta }
+        in
+        let vt_val = evaluate_vt vt in
+
+        assert (ZZ.equal (ZZ.modulo (ZZ.sub vt_val x_val) delta) ZZ.zero);
+        assert (ZZ.leq x_val vt_val);
+        begin
+          let axv = ZZ.mul (ZZ.of_int a) vt_val in
+          let tv = match QQ.to_zz (eval t) with
+            | Some zz -> ZZ.negate zz
+            | None -> assert false
+          in
+          match op with
+          | `Lt -> assert (ZZ.lt axv tv)
+          | `Leq -> assert (ZZ.leq axv tv)
+          | `Eq -> assert (ZZ.equal axv tv)
+        end;
         `Upper (vt, evaluate_vt vt)
       else
-        (* (-a)x + t (<|<=) 0 --> lower bound of ceil(t/a) = floor((t+a-1)/2) *)
-        let rhs =
-          V.add_term (QQ.negate (QQ.add (QQ.of_int a) QQ.one)) const_dim t
+        let a = -a in
+
+        (* (-a)x + t <= 0 --> lower bound of ceil(t/a) = floor((t+a-1)/a) *)
+        (* (-a)x + t < 0 --> lower bound of ceil(t+1/a) = floor((t+a)/a) *)
+        let numerator =
+          if op = `Lt then
+            V.add_term (QQ.of_int a) const_dim t
+          else
+            V.add_term (QQ.of_int (a - 1)) const_dim t
         in
-        let t_val = match QQ.to_zz (eval rhs) with
-          | Some zz -> zz
+        let rhs_val = (* [[floor(numerator / a)]] *)
+          match QQ.to_zz (eval numerator) with
+          | Some num -> Mpzf.fdiv_q num (ZZ.of_int a)
           | None -> assert false
         in
 
-        let rhs_val = Mpzf.fdiv_q (ZZ.negate t_val) (ZZ.of_int a) in
         let vt =
-          { term = rhs;
-            divisor = -a;
-            offset =
-              let res = Mpzf.fdiv_r (ZZ.sub x_val rhs_val) delta in
-              if ZZ.equal res ZZ.zero && op = `Lt then
-                delta
-              else
-                res }
+          { term = numerator;
+            divisor = a;
+            offset = Mpzf.fdiv_r (ZZ.sub x_val rhs_val) delta }
         in
+        let vt_val = evaluate_vt vt in
+
+        assert (ZZ.equal (ZZ.modulo (ZZ.sub vt_val x_val) delta) ZZ.zero);
+        assert (ZZ.leq vt_val x_val);
+        begin
+          let axv = ZZ.mul (ZZ.of_int a) vt_val in
+          let tv = match QQ.to_zz (eval t) with
+            | Some zz -> zz
+            | None -> assert false
+          in
+          match op with
+          | `Lt -> assert (ZZ.lt tv axv)
+          | `Leq -> assert (ZZ.leq tv axv)
+          | `Eq -> assert (ZZ.equal tv axv)
+        end;
         `Lower (vt, evaluate_vt vt)
 
     | `CompareZero (op, t) -> `None
@@ -1182,6 +1290,10 @@ module CSS = struct
       ark : 'a context;
     }
 
+  let reset ctx =
+    ctx.solver#reset ();
+    ctx.scheme <- Scheme.SEmpty
+
   let add_path ctx path =
     let ark = ctx.ark in
     try
@@ -1209,8 +1321,8 @@ module CSS = struct
          terms for each universally-quantified variable using model-based
          projection.  *)
       let rec counter_strategy path_model scheme =
-        logf "Path model: %a" Interpretation.pp path_model;
         let open Scheme in
+        logf ~level:`trace "Path model: %a" Interpretation.pp path_model;
         match scheme with
         | SForall (k, sk, scheme) ->
           let path_model =
@@ -1233,11 +1345,14 @@ module CSS = struct
           let (counter_phi, counter_paths) =
             counter_strategy path_model scheme
           in
+          logf ~level:`trace "Select term from: %a" (Formula.pp ctx.ark) counter_phi;
           let move = select_term path_model k counter_phi in
           logf ~level:`trace "Found move: %a = %a"
             (pp_symbol ctx.ark) k
             (Scheme.pp_move ctx.ark) move;
-          let counter_phi = Scheme.substitute ctx.ark k move counter_phi in
+          let counter_phi =
+            Scheme.substitute_move ctx.ark path_model k move counter_phi
+          in
           let counter_paths =
             List.map (fun path -> (`Exists (k, move))::path) counter_paths
           in
@@ -1260,7 +1375,7 @@ module CSS = struct
                   counter_strategy path_model scheme
                 in
                 let counter_phi =
-                  Scheme.substitute ctx.ark k move counter_phi
+                  Scheme.substitute_move ctx.ark path_model k move counter_phi
                 in
                 let counter_paths =
                   List.map (fun path -> (`Forall k)::path) counter_paths
@@ -1293,24 +1408,7 @@ module CSS = struct
     | `Sat m ->
       logf "Found initial model";
       let ark = smt_ctx#ark in
-      let phi_model =
-        List.fold_left
-          (fun interp (_, k) ->
-            match typ_symbol ark k with
-            | `TyReal | `TyInt ->
-              Interpretation.add_real
-                k
-                (m#eval_real (mk_const ark k))
-                interp
-            | `TyBool ->
-              Interpretation.add_bool
-                k
-                (m#sat (mk_const ark k))
-                interp
-            | `TyFun _ -> assert false)
-          (Interpretation.empty ark)
-          qf_pre
-      in
+      let phi_model = Interpretation.of_model ark m (List.map snd qf_pre) in
 
       (* Create paths for sat_scheme & unsat_scheme *)
       let f (qt, x) (sat_path, unsat_path, phi) =

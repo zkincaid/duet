@@ -136,7 +136,7 @@ let mk_quantifier_simplify_tactic z3 =
   let ctx_simp =
     let p = Params.mk_params z3 in
     Params.add_int p (sym "max-depth") 30;
-    Params.add_int p (sym "max_steps") 5000000;
+    Params.add_int p (sym "max-steps") 5000000;
     p
   in
   let solve_eqs =
@@ -195,34 +195,6 @@ class type ['a] smt_context = object
 						      | `Unknown ]
   method load_smtlib2 : string -> 'a formula
 end
-
-let term_typ ctx =
-  let join s t =
-    match s, t with
-    | `TyInt, `TyInt -> `TyInt
-    | `TyInt, `TyReal | `TyReal, `TyInt | `TyReal, `TyReal -> `TyReal
-    | _, _ -> assert false
-  in
-  let alg = function
-    | `Real qq ->
-      begin match QQ.to_zz qq with
-        | Some _ -> `TyInt
-        | None -> `TyReal
-      end
-    | `Var (_, typ) -> typ
-    | `Const k ->
-      begin match typ_symbol ctx k with
-        | `TyInt -> `TyInt
-        | `TyReal -> `TyReal
-        | _ -> invalid_arg "typ: not an arithmetic term"
-      end
-    | `Add xs | `Mul xs -> List.fold_left join `TyInt xs
-    | `Binop (`Div, s, t) -> `TyReal
-    | `Binop (`Mod, s, t) -> join s t
-    | `Unop (`Floor, _) -> `TyInt
-    | `Unop (`Neg, t) -> t
-  in
-  Term.eval ctx alg
 
 let mk_quantified ctx qt ?name:(name="_") typ phi =
   let mk = match qt with
@@ -321,6 +293,22 @@ let of_z3 context const_of_decl expr =
     in
     mk_exists_const context sk (mk_and context [sk_def; phi])
   in
+  let ite_formula phi (sk, cond, tthen, telse) =
+    mk_or context [
+      mk_and context [
+        cond;
+        substitute_const context
+          (fun k -> if k = sk then tthen else mk_const context k)
+          phi
+      ];
+      mk_and context [
+        mk_not context cond;
+        substitute_const context
+          (fun k -> if k = sk then telse else mk_const context k)
+          phi
+      ]
+    ]
+  in
   let formula = function
     | `Formula phi -> phi
     | _ -> invalid_arg "of_z3.formula"
@@ -377,6 +365,14 @@ let of_z3 context const_of_decl expr =
                   (mk_lt context (term s) (term t))
                   ((ite s)@(ite t)))
     | `Atom (`Eq, _, _) -> invalid_arg "of_z3"
+    | `Ite (`Formula cond, `Formula phi, `Formula psi) ->
+      let ite =
+        mk_or context [
+          mk_and context [cond; phi];
+          mk_and context [mk_not context cond; psi]
+        ]
+      in
+      `Formula ite
     | `Ite (cond, s, t) ->
       let typ =
         match term_typ context (term s), term_typ context (term s) with
@@ -441,7 +437,10 @@ class ['a] z3_solver (context : 'a context) z3 s =
     method reset () = Z3.Solver.reset s
 
     method check args =
-      match Z3.Solver.check s (List.map of_formula args) with
+      let res =
+        Apak.Log.time "solver.check" (Z3.Solver.check s) (List.map of_formula args)
+      in
+      match res with
       | Z3.Solver.SATISFIABLE -> `Sat
       | Z3.Solver.UNSATISFIABLE -> `Unsat
       | Z3.Solver.UNKNOWN -> `Unknown
@@ -616,8 +615,8 @@ let mk_context : 'a context -> (string * string) list -> 'a smt_context
     | Z3.Solver.UNSATISFIABLE -> `Unsat
     | Z3.Solver.UNKNOWN -> `Unknown
 
-    method load_smtlib2 str =
-      let ast = Z3.SMT.parse_smtlib2_string z3 str [] [] [] [] in
+  method load_smtlib2 str =
+   let ast = Z3.SMT.parse_smtlib2_string z3 str [] [] [] [] in
       let const_of_decl =
         let cos =
           Apak.Memo.memo (fun (name, typ) -> mk_symbol context ~name typ)
@@ -626,8 +625,7 @@ let mk_context : 'a context -> (string * string) list -> 'a smt_context
           let open Z3 in
           let sym = FuncDecl.get_name decl in
           assert (FuncDecl.get_domain decl = []);
-          assert (Symbol.is_string_symbol sym);
-          cos (Symbol.get_string sym, typ_of_sort (FuncDecl.get_range decl))
+          cos (Symbol.to_string sym, typ_of_sort (FuncDecl.get_range decl))
       in
       match of_z3 context const_of_decl ast with
       | `Formula phi -> phi
