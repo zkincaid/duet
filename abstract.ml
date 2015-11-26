@@ -1326,10 +1326,17 @@ module CSS = struct
 
   (* Check if a given scheme is winning.  If not, synthesize a
      counter-strategy. *)
-  let get_counter_strategy select_term ctx =
-    logf "%a" (Scheme.pp ctx.ark) ctx.scheme;
+  let get_counter_strategy select_term ?(parameters=None) ctx =
+    logf ~level:`trace "%a" (Scheme.pp ctx.ark) ctx.scheme;
+    let parameters =
+      match parameters with
+      | Some p -> p
+      | None   -> Interpretation.empty ctx.ark
+    in
     match ctx.solver#get_model () with
-    | `Unsat -> `Unsat
+    | `Unsat ->
+      logf "Winning formula is valid";
+      `Unsat
     | `Unknown -> `Unknown
     | `Sat m ->
       logf "Winning formula is not valid";
@@ -1414,10 +1421,11 @@ module CSS = struct
             | Some x -> x
             | None -> assert false
           in
+          logf ~level:`trace "Path model: %a" Interpretation.pp path_model;
           logf ~level:`trace "Implicant: %a" (Formula.pp ctx.ark) phi_implicant;
           (phi_implicant, [[]])
       in
-      `Sat (snd (counter_strategy (Interpretation.empty ctx.ark) ctx.scheme))
+      `Sat (snd (counter_strategy parameters ctx.scheme))
 
   (* Check to see if the matrix of a prenex formula is satisfiable.  If it is,
      initialize a sat/unsat strategy scheme pair. *)
@@ -1480,14 +1488,28 @@ module CSS = struct
       `Sat (sat_ctx, unsat_ctx)
 
   let is_sat select_term sat_ctx unsat_ctx =
+    let round = ref 0 in
+    let old_paths = ref (-1) in
     let rec is_sat () =
-      logf ~attributes:[`Blue;`Bold] "Checking if SAT wins";
+      incr round;
+      logf ~level:`trace ~attributes:[`Blue;`Bold] "Round %d: Sat [%d/%d], Unsat [%d/%d]"
+        (!round)
+        (Scheme.size sat_ctx.scheme)
+        (Scheme.nb_paths sat_ctx.scheme)
+        (Scheme.size unsat_ctx.scheme)
+              (Scheme.nb_paths unsat_ctx.scheme);
+      let paths = Scheme.nb_paths sat_ctx.scheme in
+      assert (paths > !old_paths);
+      old_paths := paths;
+      logf ~attributes:[`Blue;`Bold] "Checking if SAT wins (%d)"
+        (Scheme.nb_paths sat_ctx.scheme);
       match get_counter_strategy select_term sat_ctx with
       | `Sat paths -> (List.iter (add_path unsat_ctx) paths; is_unsat ())
       | `Unsat -> `Sat
       | `Unknown -> `Unknown
     and is_unsat () =
-      logf ~attributes:[`Blue;`Bold] "Checking if UNSAT wins";
+      logf ~attributes:[`Blue;`Bold] "Checking if UNSAT wins (%d)"
+        (Scheme.nb_paths unsat_ctx.scheme);
       match get_counter_strategy select_term unsat_ctx with
       | `Sat paths -> (List.iter (add_path sat_ctx) paths; is_sat ())
       | `Unsat -> `Unsat
@@ -1495,18 +1517,254 @@ module CSS = struct
     in
     is_sat ()
 
-  let reset ctx =
-    ctx.solver#reset ();
-    ctx.scheme <- Scheme.SEmpty
+  let max_improve_rounds = ref 10
+
+  (* Try to find a "good" initial model of phi by solving a non-accumulating
+     version of the satisfiability game.  This game can go into an infinite
+     loop (paper beats rock beats scissors beats paper...), so we detect
+     cycles by saving every strategy we've found and quitting when we get a
+     repeat or when we hit max_improve_rounds. *)
+  let initialize_pair select_term smt_ctx qf_pre phi =
+    let unsat_scheme = ref Scheme.empty in
+    let ark = smt_ctx#ark in
+    match initialize_pair select_term smt_ctx qf_pre phi with
+    | `Unsat -> `Unsat
+    | `Unknown -> `Unknown
+    | `Sat (sat_ctx, unsat_ctx) ->
+      let round = ref 0 in
+      let rec is_sat () =
+        incr round;
+        logf "Improve round: %d" (!round);
+        logf ~attributes:[`Blue;`Bold] "Checking if SAT wins (%d)"
+          (Scheme.size sat_ctx.scheme);
+        if (!round) = (!max_improve_rounds) then
+          `Sat (sat_ctx, unsat_ctx)
+        else
+          match get_counter_strategy select_term sat_ctx with
+          | `Sat [path] ->
+            begin
+              try
+                unsat_scheme := Scheme.add_path ark path (!unsat_scheme);
+                reset unsat_ctx;
+                add_path unsat_ctx path;
+                is_unsat ()
+              with Redundant_path -> `Sat (sat_ctx, unsat_ctx)
+            end
+          | `Sat _ -> assert false
+          | `Unsat -> `Sat (sat_ctx, unsat_ctx)
+          | `Unknown -> `Unknown
+      and is_unsat () =
+        logf ~attributes:[`Blue;`Bold] "Checking if UNSAT wins (%d)"
+          (Scheme.size unsat_ctx.scheme);
+        match get_counter_strategy select_term unsat_ctx with
+        | `Sat paths -> (reset sat_ctx;
+                         List.iter (add_path sat_ctx) paths;
+                         is_sat ())
+        | `Unsat -> `Unsat
+        | `Unknown -> `Unknown
+      in
+      is_sat ()
 end
 
-let aqsat smt_ctx phi =
+let aqsat_forward smt_ctx qf_pre phi =
   let ark = smt_ctx#ark in
-  let constants = fold_constants KS.add phi KS.empty in
-  let (qf_pre, phi) = normalize ark phi in
-  let qf_pre =
-    (List.map (fun k -> (`Exists, k)) (KS.elements constants))@qf_pre
+  let select_term model x phi =
+    match typ_symbol ark x with
+    | `TyInt -> Scheme.MInt (select_int_term ark model x phi)
+    | `TyReal -> Scheme.MReal (select_real_term ark model x phi)
+    | `TyBool -> Scheme.MBool (Interpretation.bool model x)
+    | `TyFun (_, _) -> assert false
   in
+
+  (* If the quantifier prefix leads with an existential, check satisfiability
+     of the negated sentence instead, then negate the result.  We may now
+     assume that the outer-most quantifier is universal. *)
+  let (qf_pre, phi, negate) =
+    match qf_pre with
+    | (`Exists, _)::_ ->
+      let phi = snd (normalize ark (mk_not ark phi)) in
+      let qf_pre =
+        List.map (function
+            | (`Exists, x) -> (`Forall, x)
+            | (`Forall, x) -> (`Exists, x))
+          qf_pre
+      in
+      (qf_pre, phi, true)
+    | _ ->
+      (qf_pre, phi, false)
+  in
+
+  match CSS.initialize_pair select_term smt_ctx qf_pre phi with
+  | `Unsat -> if negate then `Sat else `Unsat
+  | `Unknown -> `Unknown
+  | `Sat (sat_ctx, unsat_ctx) ->
+    let not_phi = sat_ctx.CSS.not_formula in
+    let param_substitution param_interp =
+      substitute_const ark (fun sym ->
+          try
+            begin match Interpretation.value param_interp sym with
+              | `Real qq -> (mk_real ark qq :> ('a, typ) expr)
+              | `Bool true -> (mk_true ark :> ('a, typ) expr)
+              | `Bool false -> (mk_false ark :> ('a, typ) expr)
+            end
+          with Not_found -> mk_const ark sym)
+    in
+    let assert_param_constraints ctx parameter_interp =
+      let open CSS in
+      BatEnum.iter (function
+          | (k, `Real qv) ->
+            ctx.solver#add [mk_eq ark (mk_const ark k) (mk_real ark qv)]
+          | (k, `Bool false) ->
+            ctx.solver#add [mk_not ark (mk_const ark k)]
+          | (k, `Bool true) ->
+            ctx.solver#add [mk_const ark k])
+        (Interpretation.enum parameter_interp)
+    in
+    let mk_sat_ctx scheme parameter_interp =
+      let open CSS in
+      let ctx =
+        { formula = phi;
+          not_formula = not_phi;
+          scheme = scheme;
+          solver = smt_ctx#mk_solver ();
+          smt = smt_ctx;
+          ark = ark }
+      in
+      let win =
+        Scheme.winning_formula ark scheme phi
+        |> param_substitution parameter_interp
+      in
+      ctx.solver#add [mk_not ark win];
+      assert_param_constraints ctx parameter_interp;
+      ctx
+    in
+    let mk_unsat_ctx scheme parameter_interp =
+      let open CSS in
+      let ctx =
+        { formula = not_phi;
+          not_formula = phi;
+          scheme = scheme;
+          solver = smt_ctx#mk_solver ();
+          smt = smt_ctx;
+          ark = ark }
+      in
+      let win =
+        Scheme.winning_formula ark scheme not_phi
+        |> param_substitution parameter_interp
+      in
+      ctx.solver#add [mk_not ark win];
+      assert_param_constraints ctx parameter_interp;
+      ctx
+    in
+
+    (* Peel leading existential quantifiers off of a scheme.  Fails if there
+       is more than one move for an existential in the prefix.  *)
+    let rec existential_prefix = function
+      | Scheme.SExists (k, mm) ->
+        begin match BatList.of_enum (Scheme.MM.enum mm) with
+          | [(move, scheme)] ->
+            let (ex_pre, sub_scheme) = existential_prefix scheme in
+            ((k, move)::ex_pre, sub_scheme)
+          | _ -> assert false
+        end
+      | scheme -> ([], scheme)
+    in
+    let rec universal_prefix = function
+      | Scheme.SForall (k, _, scheme) -> k::(universal_prefix scheme)
+      | _ -> []
+    in
+    let scheme_of_paths paths =
+      List.fold_left
+        (fun scheme path ->
+           try Scheme.add_path ark path scheme
+           with Redundant_path -> scheme)
+        Scheme.empty
+        paths
+    in
+
+    (* Compute a winning strategy for the remainder of the game, after the
+       prefix play determined by parameter_interp.  scheme is an initial
+       candidate strategy for one of the players, which begins with
+       universals. *)
+    let rec solve_game polarity param_interp ctx =
+      logf ~attributes:[`Green] "Solving game %s (%d/%d)"
+        (if polarity then "SAT" else "UNSAT")
+        (Scheme.nb_paths ctx.CSS.scheme)
+        (Scheme.size ctx.CSS.scheme);
+      logf ~level:`trace "Parameters: %a" Interpretation.pp param_interp;
+      let res =
+        try
+          CSS.get_counter_strategy select_term ~parameters:(Some param_interp) ctx
+        with Not_found -> assert false
+      in
+      match res with
+      | `Unknown -> `Unknown
+      | `Unsat ->
+        (* No counter-strategy to the strategy of the active player => active
+           player wins *)
+        `Sat ctx.CSS.scheme
+      | `Sat paths ->
+        let unsat_scheme = scheme_of_paths paths in
+        let (ex_pre, sub_scheme) = existential_prefix unsat_scheme in
+        let param_interp' =
+          List.fold_left (fun interp (k, move) ->
+              match move with
+              | Scheme.MBool bv -> Interpretation.add_bool k bv interp
+              | move ->
+                Interpretation.add_real
+                  k
+                  (Scheme.evaluate_move (Interpretation.real interp) move)
+                  interp)
+            param_interp
+            ex_pre
+        in
+        let sub_ctx =
+          if polarity then
+            mk_unsat_ctx sub_scheme param_interp'
+          else
+            mk_sat_ctx sub_scheme param_interp'
+        in
+        match solve_game (not polarity) param_interp' sub_ctx with
+        | `Unknown -> `Unknown
+        | `Sat scheme ->
+          (* Inactive player wins *)
+          let scheme =
+            List.fold_right
+              (fun (k, move) scheme ->
+                 let mm = Scheme.MM.add move scheme Scheme.MM.empty in
+                 Scheme.SExists (k, mm))
+              ex_pre
+              scheme
+          in
+          `Unsat scheme
+        | `Unsat scheme' ->
+          (* There is a counter-strategy for the strategy of the inactive
+             player => augment strategy for the active player & try again *)
+          let open CSS in
+          let forall_prefix =
+            List.map (fun x -> `Forall x) (universal_prefix ctx.scheme)
+          in
+          let add_path path =
+            try
+              let path = forall_prefix@path in
+              ctx.scheme <- Scheme.add_path ark path ctx.scheme;
+              let win =
+                Scheme.path_winning_formula ark path ctx.scheme ctx.formula
+                |> param_substitution param_interp
+              in
+              ctx.solver#add [mk_not ark win]
+            with Redundant_path -> ()
+          in
+          List.iter add_path (Scheme.paths scheme');
+          solve_game polarity param_interp ctx
+    in
+    match solve_game true (Interpretation.empty ark) sat_ctx with
+    | `Unknown -> `Unknown
+    | `Sat _ -> if negate then `Unsat else `Sat
+    | `Unsat _ -> if negate then `Sat else `Unsat
+
+let aqsat_core smt_ctx qf_pre phi =
+  let ark = smt_ctx#ark in
   let select_term model x phi =
     match typ_symbol ark x with
     | `TyInt -> Scheme.MInt (select_int_term ark model x phi)
@@ -1517,7 +1775,27 @@ let aqsat smt_ctx phi =
   match CSS.initialize_pair select_term smt_ctx qf_pre phi with
   | `Unsat -> `Unsat
   | `Unknown -> `Unknown
-  | `Sat (sat_ctx, unsat_ctx) -> CSS.is_sat select_term sat_ctx unsat_ctx
+  | `Sat (sat_ctx, unsat_ctx) ->
+    CSS.reset unsat_ctx;
+    CSS.is_sat select_term sat_ctx unsat_ctx
+
+let aqsat smt_ctx phi =
+  let ark = smt_ctx#ark in
+  let constants = fold_constants KS.add phi KS.empty in
+  let (qf_pre, phi) = normalize ark phi in
+  let qf_pre =
+    (List.map (fun k -> (`Exists, k)) (KS.elements constants))@qf_pre
+  in
+  aqsat_core smt_ctx qf_pre phi
+
+let aqsat_forward smt_ctx phi =
+  let ark = smt_ctx#ark in
+  let constants = fold_constants KS.add phi KS.empty in
+  let (qf_pre, phi) = normalize ark phi in
+  let qf_pre =
+    (List.map (fun k -> (`Exists, k)) (KS.elements constants))@qf_pre
+  in
+  aqsat_forward smt_ctx qf_pre phi
 
 let aqopt smt_ctx phi t =
   let ark = smt_ctx#ark in
@@ -1676,3 +1954,27 @@ let qe_mbp smt_ctx phi =
       mk_not ark (exists x (snd (normalize ark (mk_not ark phi))))
   in
   List.fold_right qe qf_pre phi
+
+
+let easy_sat smt_ctx phi =
+  let ark = smt_ctx#ark in
+  let constants = fold_constants KS.add phi KS.empty in
+  let (qf_pre, phi) = normalize ark phi in
+  let qf_pre =
+    (List.map (fun k -> (`Exists, k)) (KS.elements constants))@qf_pre
+  in
+  let select_term model x phi =
+    match typ_symbol ark x with
+    | `TyInt -> Scheme.MInt (select_int_term ark model x phi)
+    | `TyReal -> Scheme.MReal (select_real_term ark model x phi)
+    | `TyBool -> Scheme.MBool (Interpretation.bool model x)
+    | `TyFun (_, _) -> assert false
+  in
+  match CSS.initialize_pair select_term smt_ctx qf_pre phi with
+  | `Unsat -> `Unsat
+  | `Unknown -> `Unknown
+  | `Sat (sat_ctx, unsat_ctx) ->
+    match CSS.get_counter_strategy select_term sat_ctx with
+    | `Unsat -> `Sat
+    | `Unknown -> `Unknown
+    | `Sat _ -> `Unknown

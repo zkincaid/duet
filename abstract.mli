@@ -10,6 +10,9 @@ val boxify : 'a smt_context -> 'a formula -> 'a term list -> 'a formula
 (** Alternating quantifier satisfiability *)
 val aqsat : 'a smt_context -> 'a formula -> [ `Sat | `Unsat | `Unknown ]
 
+(** Alternating quantifier satisfiability *)
+val aqsat_forward : 'a smt_context -> 'a formula -> [ `Sat | `Unsat | `Unknown ]
+
 (** Alternating quantifier optimization *)
 val aqopt : 'a smt_context -> 'a formula -> 'a term -> [ `Sat of Interval.t
                                                        | `Unsat
@@ -17,3 +20,6 @@ val aqopt : 'a smt_context -> 'a formula -> 'a term -> [ `Sat of Interval.t
 
 (** Quantifier eliminiation via model-based projection *)
 val qe_mbp : 'a smt_context -> 'a formula -> 'a formula
+
+(** Alternating quantifier satisfiability *)
+val easy_sat : 'a smt_context -> 'a formula -> [ `Sat | `Unsat | `Unknown ]
