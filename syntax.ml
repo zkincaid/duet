@@ -610,6 +610,34 @@ let quantify_const ctx qt sym phi =
 let mk_exists_const ctx = quantify_const ctx `Exists
 let mk_forall_const ctx = quantify_const ctx `Forall
 
+let term_typ ctx =
+  let join s t =
+    match s, t with
+    | `TyInt, `TyInt -> `TyInt
+    | `TyInt, `TyReal | `TyReal, `TyInt | `TyReal, `TyReal -> `TyReal
+    | _, _ -> assert false
+  in
+  let alg = function
+    | `Real qq ->
+      begin match QQ.to_zz qq with
+        | Some _ -> `TyInt
+        | None -> `TyReal
+      end
+    | `Var (_, typ) -> typ
+    | `Const k ->
+      begin match typ_symbol ctx k with
+        | `TyInt -> `TyInt
+        | `TyReal -> `TyReal
+        | _ -> invalid_arg "typ: not an arithmetic term"
+      end
+    | `Add xs | `Mul xs -> List.fold_left join `TyInt xs
+    | `Binop (`Div, s, t) -> `TyReal
+    | `Binop (`Mod, s, t) -> join s t
+    | `Unop (`Floor, _) -> `TyInt
+    | `Unop (`Neg, t) -> t
+  in
+  Term.eval ctx alg
+
 module Infix (C : sig
     type t
     val context : t context
