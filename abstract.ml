@@ -1027,30 +1027,47 @@ let select_real_term ark interp x phi =
     let lower =
       match lower1, lower2 with
       | (x, None) | (None, x) -> x
-      | (Some (s, s_val), Some (t, t_val)) ->
-        if QQ.lt t_val s_val then
-          Some (s, s_val)
+      | (Some (s, s_val, s_strict), Some (t, t_val, t_strict)) ->
+        if QQ.lt t_val s_val
+        then
+          Some (s, s_val, s_strict)
         else
-          Some (t, t_val)
+          let strict =
+            (QQ.equal t_val s_val && (s_strict || t_strict))
+            || t_strict
+          in
+          Some (t, t_val, strict)
     in
     let upper =
       match upper1, upper2 with
       | (x, None) | (None, x) -> x
-      | (Some (s, s_val), Some (t, t_val)) ->
-        if QQ.lt s_val t_val then
-          Some (s, s_val)
+      | (Some (s, s_val, s_strict), Some (t, t_val, t_strict)) ->
+        if QQ.lt s_val t_val
+        then
+          Some (s, s_val, s_strict)
         else
-          Some (t, t_val)
+          let strict =
+            (QQ.equal t_val s_val && (s_strict || t_strict))
+            || t_strict
+          in
+          Some (t, t_val, strict)
     in
     (lower, upper)
   in
   let x_val = Interpretation.real interp x in
+  let is_sat op t =
+    match op with
+    | `Leq -> QQ.leq (evaluate_linterm (Interpretation.real interp) t) QQ.zero
+    | `Lt -> QQ.lt (evaluate_linterm (Interpretation.real interp) t) QQ.zero
+    | `Eq -> QQ.equal (evaluate_linterm (Interpretation.real interp) t) QQ.zero
+  in
   let rec go phi =
     match destruct_normal ark phi with
     | `And xs | `Or xs ->
       List.fold_left (fun a psi -> merge a (go psi)) (None, None) xs
     | `Tru | `Fls | `Proposition _ | `NotProposition _ -> (None, None)
     | `Divides _ | `NotDivides _ -> invalid_arg "select_real_term"
+    | `CompareZero (op, t) when (not (is_sat op t)) -> (None, None)
     | `CompareZero (op, t) ->
 
       let (a, t') = V.pivot (dim_of_const x) t in
@@ -1061,30 +1078,33 @@ let select_real_term ark interp x phi =
       else
         let toa = V.scalar_mul (QQ.inverse (QQ.negate a)) t' in
         let toa_val = evaluate_linterm (Interpretation.real interp) toa in
-        if QQ.equal toa_val x_val && (op = `Leq || op = `Eq) then
+        if op = `Eq || (QQ.equal toa_val x_val && op = `Leq) then
           raise (Equal_term toa)
-        else if QQ.lt a QQ.zero && QQ.lt toa_val x_val then
+        else if QQ.lt a QQ.zero then
           (* Lower bound *)
-          (Some (toa, toa_val), None)
-        else if QQ.lt QQ.zero a && QQ.lt x_val toa_val then
-          (* Upper bound *)
-          (None, Some (toa, toa_val))
+          (Some (toa, toa_val, op = `Lt), None)
         else
-          (None, None)
+          (* Upper bound *)
+          (None, Some (toa, toa_val, op = `Lt))
   in
   try
     match go phi with
-    | (Some (s, _), None) ->
+    | (Some (t, _, false), _) | (_, Some (t, _, false)) ->
+      (logf ~level:`trace "Found equal(?) term: %a = %a"
+         (pp_symbol ark) x
+         (pp_linterm ark) t;
+       t)
+    | (Some (s, _, _), None) ->
       logf ~level:`trace "Found lower bound: %a < %a"
         (pp_linterm ark) s
         (pp_symbol ark) x;
       V.add s (const_linterm (QQ.of_int (1)))
-    | (None, Some (t, _)) ->
+    | (None, Some (t, _, _)) ->
       logf ~level:`trace "Found upper bound: %a < %a"
         (pp_symbol ark) x
         (pp_linterm ark) t;
       V.add t (const_linterm (QQ.of_int (-1)))
-    | (Some (s, _), Some (t, _)) ->
+    | (Some (s, _, _), Some (t, _, _)) ->
       logf ~level:`trace "Found interval: %a < %a < %a"
         (pp_linterm ark) s
         (pp_symbol ark) x
