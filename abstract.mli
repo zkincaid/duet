@@ -14,9 +14,10 @@ val aqsat : 'a smt_context -> 'a formula -> [ `Sat | `Unsat | `Unknown ]
 val aqsat_forward : 'a smt_context -> 'a formula -> [ `Sat | `Unsat | `Unknown ]
 
 (** Alternating quantifier optimization *)
-val aqopt : 'a smt_context -> 'a formula -> 'a term -> [ `Sat of Interval.t
-                                                       | `Unsat
-                                                       | `Unknown ]
+val maximize : 'a smt_context -> 'a formula -> 'a term -> [ `Bounded of QQ.t
+                                                          | `Infinity
+                                                          | `MinusInfinity
+                                                          | `Unknown ]
 
 (** Quantifier eliminiation via model-based projection *)
 val qe_mbp : 'a smt_context -> 'a formula -> 'a formula

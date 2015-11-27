@@ -114,15 +114,15 @@ let _ =
     Log.logf ~level:`always "%a" (Syntax.Formula.pp ctx) psi
   | "opt" ->
     let (objective, phi) = load_math_opt Sys.argv.(i+1) in
-    begin match Abstract.aqopt smt_ctx phi objective with
-      | `Sat ivl ->
-        begin match Interval.upper ivl with
-          | Some upper ->
-            Log.logf ~level:`always "Upper bound: %a" QQ.pp upper
-          | None -> Log.logf ~level:`always "Upper bound: oo"
-        end
-      | `Unsat -> Log.logf ~level:`always "Unsatisfiable"
-      | `Unknown -> Log.logf ~level:`always "Unknown"
+    begin match Abstract.maximize smt_ctx phi objective with
+      | `Bounded b ->
+        Log.logf ~level:`always "Upper bound: %a" QQ.pp b;
+      | `Infinity ->
+        Log.logf ~level:`always "Upper bound: oo"
+      | `MinusInfinity ->
+        Log.logf ~level:`always "Upper bound: -oo"
+      | `Unknown ->
+        Log.logf ~level:`always "Upper bound: unknown"
     end
   | "opt-mbp" ->
     let (objective, phi) = load_math_opt Sys.argv.(i+1) in
