@@ -37,7 +37,7 @@ module IV = struct
   let subscript (v, i) ss = (Var.subscript v ss, i)
 end
 
-module Ctx = MakeContext()
+module Ctx = MakeSimplifyingContext()
 module IVMemo = Memo.Make(IV)
 
 let ctx = Ctx.context
