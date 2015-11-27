@@ -124,50 +124,52 @@ type ('a,'b) open_formula = [
 
 type 'a context =
   { hashcons : HC.t;
-    symbols : (string * typ) DynArray.t }
+    symbols : (string * typ) DynArray.t;
+    mk : label -> (sexpr hobj) list -> sexpr hobj
+  }
 
-let mk ctx label children =
-  HC.hashcons ctx.hashcons (Node (label, children))
-                              
 let mk_symbol ctx ?(name="K") typ =
   DynArray.add ctx.symbols (name, typ);
   DynArray.length ctx.symbols - 1
 
 let typ_symbol ctx = snd % DynArray.get ctx.symbols
-let show_symbol ctx = fst % DynArray.get ctx.symbols
-let pp_symbol ctx formatter sym =
-  Format.pp_print_string formatter (show_symbol ctx sym)
+let pp_symbol ctx formatter symbol =
+  Format.fprintf formatter "%s:%d"
+    (fst (DynArray.get ctx.symbols symbol))
+    symbol
 
-let mk_real ctx qq = mk ctx (Real qq) []
+let show_symbol ctx = Apak.Putil.mk_show (pp_symbol ctx)
+
+let mk_real ctx qq = ctx.mk (Real qq) []
 let mk_zero ctx = mk_real ctx QQ.zero
 let mk_one ctx = mk_real ctx QQ.one
 
-let mk_const ctx k = mk ctx (Const k) []
-let mk_var ctx v typ = mk ctx (Var (v, typ)) []
+let mk_const ctx k = ctx.mk (Const k) []
+let mk_var ctx v typ = ctx.mk (Var (v, typ)) []
 
-let mk_neg ctx t = mk ctx Neg [t]
-let mk_div ctx s t = mk ctx Div [s; t]
-let mk_mod ctx s t = mk ctx Mod [s; t]
-let mk_floor ctx t = mk ctx Floor [t]
+let mk_neg ctx t = ctx.mk Neg [t]
+let mk_div ctx s t = ctx.mk Div [s; t]
+let mk_mod ctx s t = ctx.mk Mod [s; t]
+let mk_floor ctx t = ctx.mk Floor [t]
 let mk_idiv ctx s t = mk_floor ctx (mk_div ctx s t)
 
 let mk_add ctx = function
   | [] -> mk_zero ctx
   | [x] -> x
-  | sum -> mk ctx Add sum
+  | sum -> ctx.mk Add sum
 
 let mk_mul ctx = function
   | [] -> mk_one ctx
   | [x] -> x
-  | product -> mk ctx Mul product
+  | product -> ctx.mk Mul product
 
 let mk_sub ctx s t = mk_add ctx [s; mk_neg ctx t]
 
-let mk_true ctx = mk ctx True []
-let mk_false ctx = mk ctx False []
-let mk_leq ctx s t = mk ctx Leq [s; t]
-let mk_lt ctx s t = mk ctx Lt [s; t]
-let mk_eq ctx s t = mk ctx Eq [s; t]
+let mk_true ctx = ctx.mk True []
+let mk_false ctx = ctx.mk False []
+let mk_leq ctx s t = ctx.mk Leq [s; t]
+let mk_lt ctx s t = ctx.mk Lt [s; t]
+let mk_eq ctx s t = ctx.mk Eq [s; t]
 
 let is_true phi = match phi.obj with
   | Node (True, []) -> true
@@ -177,32 +179,19 @@ let is_false phi = match phi.obj with
   | Node (False, []) -> true
   | _ -> false
 
-let mk_not ctx phi =
-  match phi.obj with
-  | Node (True, []) -> mk_false ctx
-  | Node (False, []) -> mk_true ctx
-  | _ -> mk ctx Not [phi]
+let is_zero phi = match phi.obj with
+  | Node (Real k, []) -> QQ.equal k QQ.zero
+  | _ -> false
 
-let mk_and ctx conjuncts =
-  if List.exists is_false conjuncts then
-    mk_false ctx
-  else
-    match List.filter (not % is_true) conjuncts with
-    | [] -> mk_true ctx
-    | [x] -> x
-    | conjuncts -> mk ctx And conjuncts
+let is_one phi = match phi.obj with
+  | Node (Real k, []) -> QQ.equal k QQ.one
+  | _ -> false
 
-let mk_or ctx disjuncts =
-  if List.exists is_true disjuncts then
-    mk_true ctx
-  else
-    match List.filter (not % is_false) disjuncts with
-    | [] -> mk_false ctx
-    | [x] -> x
-    | disjuncts -> mk ctx Or disjuncts
-
-let mk_forall ctx ?name:(name="_") typ phi = mk ctx (Forall (name, typ)) [phi]
-let mk_exists ctx ?name:(name="_") typ phi = mk ctx (Exists (name, typ)) [phi]
+let mk_not ctx phi = ctx.mk Not [phi]
+let mk_and ctx conjuncts = ctx.mk And conjuncts
+let mk_or ctx disjuncts = ctx.mk Or disjuncts
+let mk_forall ctx ?name:(name="_") typ phi = ctx.mk (Forall (name, typ)) [phi]
+let mk_exists ctx ?name:(name="_") typ phi = ctx.mk (Exists (name, typ)) [phi]
 
 (* Avoid capture by incrementing bound variables *)
 let rec decapture ctx depth incr sexpr =
@@ -215,10 +204,10 @@ let rec decapture ctx depth incr sexpr =
       (* v is bound *)
       sexpr
     else
-      mk ctx (Var (v + incr, typ)) []
+      ctx.mk (Var (v + incr, typ)) []
   | _ -> decapture_children ctx label depth incr children
 and decapture_children ctx label depth incr children =
-  mk ctx label (List.map (decapture ctx depth incr) children)
+  ctx.mk label (List.map (decapture ctx depth incr) children)
 
 let substitute ctx subst sexpr =
   let rec go depth sexpr =
@@ -233,7 +222,7 @@ let substitute ctx subst sexpr =
         decapture ctx 0 depth (subst (v - depth))
     | _ -> go_children label depth children
   and go_children label depth children =
-    mk ctx label (List.map (go depth) children)
+    ctx.mk label (List.map (go depth) children)
   in
   go 0 sexpr
 
@@ -246,7 +235,7 @@ let substitute_const ctx subst sexpr =
     | Const k -> decapture ctx 0 depth (subst k)
     | _ -> go_children label depth children
   and go_children label depth children =
-    mk ctx label (List.map (go depth) children)
+    ctx.mk label (List.map (go depth) children)
   in
   go 0 sexpr
 
@@ -535,7 +524,7 @@ module Formula = struct
         let (Node (label, children)) = sexpr.obj in
         match label with
         | Var (i, typ) -> skolem (i, (typ :> typ))
-        | _ -> mk ctx label (List.map go children)
+        | _ -> ctx.mk label (List.map go children)
       in
       go phi
 
@@ -664,15 +653,42 @@ struct
   let var = mk_var C.context
 end
 
-module MakeContext () = struct
-  type t = unit
+module type Context = sig
+  type t (* magic type parameter unique to this context *)
+  val context : t context
   type term = (t, typ_arith) expr
   type formula = (t, typ_bool) expr
 
-  let context =
-    { hashcons = HC.create 991;
-      symbols = DynArray.make 512 }
+  val mk_symbol : ?name:string -> typ -> const_sym
+  val mk_const : const_sym -> ('a, 'typ) expr
+  val mk_var : int -> typ_fo -> ('a, 'typ) expr
+  val mk_add : term list -> term
+  val mk_mul : term list -> term
+  val mk_div : term -> term -> term
+  val mk_mod : term -> term -> term
+  val mk_real : QQ.t -> term
+  val mk_floor : term -> term
+  val mk_neg : term -> term
+  val mk_sub : term -> term -> term
+  val mk_forall : ?name:string -> typ_fo -> formula -> formula
+  val mk_exists : ?name:string -> typ_fo -> formula -> formula
+  val mk_forall_const : const_sym -> formula -> formula
+  val mk_exists_const : const_sym -> formula -> formula
+  val mk_and : formula list -> formula
+  val mk_or : formula list -> formula
+  val mk_not : formula -> formula
+  val mk_eq : term -> term -> formula
+  val mk_lt : term -> term -> formula
+  val mk_leq : term -> term -> formula
+  val mk_true : formula
+  val mk_false : formula
+end
 
+module ImplicitContext(C : sig
+    type t
+    val context : t context
+  end) = struct
+  open C
   let mk_symbol = mk_symbol context
   let mk_const = mk_const context
   let mk_var = mk_var context
@@ -695,5 +711,111 @@ module MakeContext () = struct
   let mk_lt = mk_lt context
   let mk_leq = mk_leq context
   let mk_true = mk_true context
-  let mk_false = mk_false context
+  let mk_false = mk_false context      
+end
+
+module MakeContext () = struct
+  type t = unit
+  type term = (t, typ_arith) expr
+  type formula = (t, typ_bool) expr
+
+  let context =
+    let hashcons = HC.create 991 in
+    let symbols = DynArray.make 512 in
+    let mk label children = HC.hashcons hashcons (Node (label, children)) in
+    { hashcons; symbols; mk }
+
+  include ImplicitContext(struct
+      type t = unit
+      let context = context
+    end)
+end
+
+module MakeSimplifyingContext () = struct
+  type t = unit
+  type term = (t, typ_arith) expr
+  type formula = (t, typ_bool) expr
+
+  let context =
+    let hashcons = HC.create 991 in
+    let symbols = DynArray.make 512 in
+    let true_ = HC.hashcons hashcons (Node (True, [])) in
+    let false_ = HC.hashcons hashcons (Node (False, [])) in
+    let rec mk label children =
+      let hc label children = HC.hashcons hashcons (Node (label, children)) in
+      match label, children with
+      | Lt, [x; y] ->
+        begin match x.obj, y.obj with
+          | Node (Real xv, []), Node (Real yv, []) ->
+            if QQ.lt xv yv then true_ else false_
+          | _ -> hc label [x; y]
+        end
+
+      | Leq, [x; y] ->
+        begin match x.obj, y.obj with
+          | Node (Real xv, []), Node (Real yv, []) ->
+            if QQ.leq xv yv then true_ else false_
+          | _ -> hc label [x; y]
+        end
+
+      | Eq, [x; y] ->
+        begin match x.obj, y.obj with
+          | Node (Real xv, []), Node (Real yv, []) ->
+            if QQ.equal xv yv then true_ else false_
+          | _ -> hc label [x; y]
+        end
+
+      | And, conjuncts ->
+        if List.exists is_false conjuncts then
+          false_
+        else
+          begin
+            match List.filter (not % is_true) conjuncts with
+            | [] -> true_
+            | [x] -> x
+            | conjuncts -> hc And conjuncts
+          end
+
+      | Or, disjuncts ->
+          if List.exists is_true disjuncts then
+            true_
+          else
+            begin
+              match List.filter (not % is_false) disjuncts with
+              | [] -> false_
+              | [x] -> x
+              | disjuncts -> hc Or disjuncts
+            end
+
+      | Not, [phi] when is_true phi -> false_
+      | Not, [phi] when is_false phi -> true_
+
+      | Add, xs ->
+        begin match List.filter (not % is_zero) xs with
+          | [] -> mk (Real QQ.zero) []
+          | [x] -> x
+          | xs -> hc Add xs
+        end
+
+      | Mul, xs ->
+        begin match List.filter (not % is_one) xs with
+          | [] -> mk (Real QQ.one) []
+          | [x] -> x
+          | xs -> hc Mul xs
+        end
+
+      | Neg, [x] ->
+        begin match x.obj with
+          | Node (Real xv, []) -> mk (Real (QQ.negate xv)) []
+          | _ -> hc Neg [x]
+        end
+
+      | _, _ -> hc label children
+    in
+    { hashcons; symbols; mk }
+
+  include ImplicitContext(struct
+      type t = unit
+      let context = context
+    end)
 end

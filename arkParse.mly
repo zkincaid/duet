@@ -20,13 +20,18 @@ let symbol_of_string =
 %token OBJECTIVE
 %token <string> ID
 %token <QQ.t> REAL
-%token ADD MUL MINUS
+%token ADD MINUS MUL
 %token AND OR NOT
 %token EQ LEQ LT GT
 %token FORALL EXISTS
 %token LPAREN RPAREN
 %token LBRACKET RBRACKET
 %token LBRACE RBRACE
+
+%left ADD
+%left MUL
+%nonassoc UMINUS
+
 %start math_main
 %type <ArkAst.formula> math_main
 %start math_opt_main
@@ -44,7 +49,6 @@ math_main:
 ;
 
 math_formula:
-    | LPAREN; phi = math_formula; RPAREN { phi }
     | AND; LBRACKET; phi = math_formula; COMMA; psi = math_formula; RBRACKET
       { Ctx.mk_and [phi; psi] }
     | OR; LBRACKET; phi = math_formula; COMMA; psi = math_formula; RBRACKET
@@ -67,10 +71,11 @@ math_vars:
 math_term:
     | LPAREN; t = math_term; RPAREN { t }
     | s = math_term; ADD; t = math_term { Ctx.mk_add [s; t] }
+    | LPAREN; s = math_term; MINUS; t = math_term; RPAREN { Ctx.mk_sub s t }
     | s = math_term; MUL; t = math_term { Ctx.mk_mul [s; t] }
-    | MINUS; v = ID { Ctx.mk_neg (Ctx.mk_const (symbol_of_string v)) }
     | v = ID { Ctx.mk_const (symbol_of_string v) }
     | k = REAL { Ctx.mk_real k }
+    | MINUS; t = math_term { Ctx.mk_neg t } %prec UMINUS
 ;
 
 

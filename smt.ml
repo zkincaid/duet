@@ -279,21 +279,6 @@ let of_z3 context const_of_decl expr =
     | `Formula phi -> invalid_arg "of_z3.term"
   in
   let ite_formula phi (sk, cond, tthen, telse) =
-    let sk_def =
-      mk_or context [
-        mk_and context [
-          cond;
-          mk_eq context (mk_const context sk) tthen
-        ];
-        mk_and context [
-          mk_not context cond;
-          mk_eq context (mk_const context sk) telse
-        ]
-      ]
-    in
-    mk_exists_const context sk (mk_and context [sk_def; phi])
-  in
-  let ite_formula phi (sk, cond, tthen, telse) =
     mk_or context [
       mk_and context [
         cond;

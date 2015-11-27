@@ -3,7 +3,7 @@ open Abstract
 open Syntax
 
 
-module Ctx = MakeContext ()
+module Ctx = MakeSimplifyingContext ()
 module Infix = Syntax.Infix(Ctx)
 let ctx = Ctx.context
 let smt_ctx = Smt.mk_context ctx []

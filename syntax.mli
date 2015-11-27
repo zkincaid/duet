@@ -42,7 +42,7 @@ type ('a,'term) open_formula = [
   | `Proposition of [ `Const of const_sym | `Var of int ]
 ]
 
-module MakeContext () : sig
+module type Context = sig
   type t (* magic type parameter unique to this context *)
   val context : t context
   type term = (t, typ_arith) expr
@@ -72,6 +72,11 @@ module MakeContext () : sig
   val mk_true : formula
   val mk_false : formula
 end
+
+module MakeContext () : Context
+
+(** Create a context which simplifies expressions on the fly *)
+module MakeSimplifyingContext () : Context
 
 val mk_symbol : 'a context -> ?name:string -> typ -> const_sym
 

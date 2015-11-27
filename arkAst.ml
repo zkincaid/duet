@@ -1,4 +1,4 @@
-module Ctx = Syntax.MakeContext ()
+module Ctx = Syntax.MakeSimplifyingContext ()
 
 type term = Ctx.term
 type formula = Ctx.formula
