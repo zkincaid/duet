@@ -1797,7 +1797,7 @@ let aqsat_forward smt_ctx phi =
   in
   aqsat_forward smt_ctx qf_pre phi
 
-let aqopt smt_ctx phi t =
+let maximize_feasible smt_ctx phi t =
   let ark = smt_ctx#ark in
   let objective_constants = fold_constants KS.add t KS.empty in
   let constants = fold_constants KS.add phi objective_constants in
@@ -1832,11 +1832,12 @@ let aqopt smt_ctx phi t =
       | `TyBool -> Scheme.MBool (Interpretation.bool m x)
       | `TyFun (_, _) -> assert false
   in
+  CSS.max_improve_rounds := 1;
   let init =
     CSS.initialize_pair select_term smt_ctx qf_pre_unbounded phi_unbounded
   in
   match init with
-  | `Unsat -> `Unsat
+  | `Unsat -> `MinusInfinity
   | `Unknown -> `Unknown
   | `Sat (sat_ctx, unsat_ctx) ->
     (* Skolem constant associated with the (universally quantified) objective
@@ -1858,14 +1859,33 @@ let aqopt smt_ctx phi t =
       end;
       match CSS.is_sat select_term sat_ctx unsat_ctx with
       | `Unknown -> `Unknown
-      | `Sat -> `Sat (Interval.make None bound)
+      | `Sat ->
+        begin match bound with
+          | Some b -> `Bounded b
+          | None -> `Infinity
+        end
       | `Unsat ->
 
         (* Find the largest constant which has been selected as an (UNSAT)
            move for the objective bound, and the associated sub-scheme *)
         let (opt, opt_scheme) = match unsat_ctx.CSS.scheme with
           | Scheme.SExists (_, mm) ->
-            (Scheme.MM.enum mm)
+            BatEnum.filter (fun (move, scheme) ->
+                let move_val = match Scheme.const_of_move move with
+                  | Some qq -> qq
+                  | None -> assert false
+                in
+                let win =
+                  let win_not_unbounded =
+                    Scheme.winning_formula ark scheme not_phi_unbounded
+                  in
+                  mk_and
+                    ark
+                    [mk_not ark win_not_unbounded;
+                     mk_eq ark (mk_real ark move_val) (mk_const ark objective)]
+                in
+                smt_ctx#is_sat win = `Unsat)
+              (Scheme.MM.enum mm)
             /@ (fun (v, scheme) -> match Scheme.const_of_move v with
                 | Some qq -> (qq, scheme)
                 | None -> assert false)
@@ -1874,6 +1894,7 @@ let aqopt smt_ctx phi t =
                 else (a, a_scheme))
           | _ -> assert false
         in
+
         logf "Objective function is bounded by %a" QQ.pp opt;
 
         (* Get the negation of the winning formula for SAT corresponding to
@@ -1890,15 +1911,17 @@ let aqopt smt_ctx phi t =
               else scheme
             | SExists (_, _) -> scheme
           in
-          let win =
-            Scheme.winning_formula ark (go opt_scheme) not_phi_unbounded
-          in
-          mk_not ark win
+          (Scheme.winning_formula ark (go opt_scheme) not_phi_unbounded)
+          |> mk_not ark
         in
+        logf "Bounded phi:@\n%a" (Formula.pp ark) bounded_phi;
         begin match smt_ctx#optimize_box bounded_phi [t] with
           | `Unknown ->
             Log.errorf "Failed to optimize - returning conservative bound";
-            `Sat (Interval.make None bound)
+            begin match bound with
+              | Some b -> `Bounded b
+              | None -> `Infinity
+            end
           | `Sat [ivl] ->
             begin match bound, Interval.upper ivl with
               | Some b, Some x ->
@@ -1912,6 +1935,11 @@ let aqopt smt_ctx phi t =
         end
     in
     check_bound None
+let maximize smt_ctx phi t =
+  match aqsat smt_ctx phi with
+  | `Sat -> maximize_feasible smt_ctx phi t
+  | `Unsat -> `MinusInfinity
+  | `Unknown -> `Unknown
 
 exception Unknown
 let qe_mbp smt_ctx phi =
