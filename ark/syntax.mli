@@ -11,7 +11,7 @@ type typ_fo = [ `TyInt | `TyReal | `TyBool ]
 type typ_bool = [ `TyBool ]
 type 'a typ_fun = [ `TyFun of (typ list) * 'a ]
 
-type const_sym
+type symbol
 
 (* context is a phantom type: the 'a type parameter ensures that expressions
    don't cross contexts. *)
@@ -23,7 +23,7 @@ type 'a formula = ('a, typ_bool) expr
 
 type 'a open_term = [
   | `Real of QQ.t
-  | `Const of const_sym
+  | `Const of symbol
   | `Var of int * typ_arith
   | `Add of 'a list
   | `Mul of 'a list
@@ -39,7 +39,7 @@ type ('a,'term) open_formula = [
   | `Not of 'a
   | `Quantify of [`Exists | `Forall] * string * typ_fo * 'a
   | `Atom of [`Eq | `Leq | `Lt] * 'term * 'term
-  | `Proposition of [ `Const of const_sym | `Var of int ]
+  | `Proposition of [ `Const of symbol | `Var of int ]
 ]
 
 module type Context = sig
@@ -48,8 +48,8 @@ module type Context = sig
   type term = (t, typ_arith) expr
   type formula = (t, typ_bool) expr
 
-  val mk_symbol : ?name:string -> typ -> const_sym
-  val mk_const : const_sym -> ('a, 'typ) expr
+  val mk_symbol : ?name:string -> typ -> symbol
+  val mk_const : symbol -> ('a, 'typ) expr
   val mk_var : int -> typ_fo -> ('a, 'typ) expr
   val mk_add : term list -> term
   val mk_mul : term list -> term
@@ -61,8 +61,8 @@ module type Context = sig
   val mk_sub : term -> term -> term
   val mk_forall : ?name:string -> typ_fo -> formula -> formula
   val mk_exists : ?name:string -> typ_fo -> formula -> formula
-  val mk_forall_const : const_sym -> formula -> formula
-  val mk_exists_const : const_sym -> formula -> formula
+  val mk_forall_const : symbol -> formula -> formula
+  val mk_exists_const : symbol -> formula -> formula
   val mk_and : formula list -> formula
   val mk_or : formula list -> formula
   val mk_not : formula -> formula
@@ -73,14 +73,27 @@ module type Context = sig
   val mk_false : formula
 end
 
+module Symbol : sig
+  type t = symbol
+  module Set : BatSet.S with type elt = symbol
+  module Map : BatMap.S with type key = symbol
+end
+
 module MakeContext () : Context
 
 (** Create a context which simplifies expressions on the fly *)
 module MakeSimplifyingContext () : Context
 
-val mk_symbol : 'a context -> ?name:string -> typ -> const_sym
 
-val mk_const : 'a context -> const_sym -> ('a, 'typ) expr
+val mk_symbol : 'a context -> ?name:string -> typ -> symbol
+val typ_symbol : 'a context -> symbol -> typ
+val pp_symbol : 'a context -> Format.formatter -> symbol -> unit
+val show_symbol : 'a context -> symbol -> string
+val symbol_of_int : int -> symbol
+val int_of_symbol : symbol -> int
+
+
+val mk_const : 'a context -> symbol -> ('a, 'typ) expr
 
 val mk_var : 'a context -> int -> typ_fo -> ('a, 'typ) expr
 
@@ -95,8 +108,8 @@ val mk_sub : 'a context -> 'a term -> 'a term -> 'a term
 
 val mk_forall : 'a context -> ?name:string -> typ_fo -> 'a formula -> 'a formula
 val mk_exists : 'a context -> ?name:string -> typ_fo -> 'a formula -> 'a formula
-val mk_forall_const : 'a context -> const_sym -> 'a formula -> 'a formula
-val mk_exists_const : 'a context -> const_sym -> 'a formula -> 'a formula
+val mk_forall_const : 'a context -> symbol -> 'a formula -> 'a formula
+val mk_exists_const : 'a context -> symbol -> 'a formula -> 'a formula
 
 val mk_and : 'a context -> 'a formula list -> 'a formula
 val mk_or : 'a context -> 'a formula list -> 'a formula
@@ -107,18 +120,13 @@ val mk_leq : 'a context -> 'a term -> 'a term -> 'a formula
 val mk_true : 'a context -> 'a formula
 val mk_false : 'a context -> 'a formula
 
-val typ_symbol : 'a context -> const_sym -> typ
-
-val pp_symbol : 'a context -> Format.formatter -> const_sym -> unit
-val show_symbol : 'a context -> const_sym -> string
-
 val substitute : 'a context ->
   (int -> ('a,'b) expr) -> ('a,'typ) expr -> ('a,'typ) expr
 
 val substitute_const : 'a context ->
-  (const_sym -> ('a,'b) expr) -> ('a,'typ) expr -> ('a,'typ) expr
+  (symbol -> ('a,'b) expr) -> ('a,'typ) expr -> ('a,'typ) expr
 
-val fold_constants : (const_sym -> 'a -> 'a) -> ('b, 'c) expr -> 'a -> 'a
+val fold_constants : (symbol -> 'a -> 'a) -> ('b, 'c) expr -> 'a -> 'a
 
 val pp_typ : Format.formatter -> typ -> unit
 val term_typ : 'a context -> 'a term -> typ_arith
@@ -172,6 +180,6 @@ module Infix (C : sig
   val ( * ) : C.t term -> C.t term -> C.t term
   val ( / ) : C.t term -> C.t term -> C.t term
   val ( mod ) : C.t term -> C.t term -> C.t term
-  val const : const_sym -> (C.t, 'typ) expr
+  val const : symbol -> (C.t, 'typ) expr
   val var : int -> typ_fo -> (C.t, 'typ) expr
 end

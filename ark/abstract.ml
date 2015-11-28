@@ -5,15 +5,6 @@ open Apak
 
 include Log.Make(struct let name = "ark.abstract" end)
 
-
-(* Sets & maps of constants symbols *)
-module K = struct
-  type t = const_sym
-  let compare = Pervasives.compare
-end
-module KS = BatSet.Make(K)
-module KM = BatMap.Make(K)
-
 exception Nonlinear
 
 (* Affine expressions over constant symbols.  dim_of_const, const_dim, and
@@ -23,13 +14,13 @@ module V = Linear.QQVector
 module VS = Putil.Set.Make(Linear.QQVector)
 module VM = Putil.Map.Make(Linear.QQVector)
 
-let const_of_dim dim =
+let sym_of_dim dim =
   if dim == 0 then None
-  else if dim > 0 then Some (Obj.magic (dim - 1))
-  else Some (Obj.magic dim)
+  else if dim > 0 then Some (symbol_of_int (dim - 1))
+  else Some (symbol_of_int dim)
 
-let dim_of_const k =
-  let id = Obj.magic k in
+let dim_of_sym k =
+  let id = int_of_symbol k in
   if id >= 0 then id + 1
   else id
 
@@ -59,7 +50,7 @@ let linterm_of ark term =
   in
   let alg = function
     | `Real qq -> real qq
-    | `Const k -> of_term QQ.one (dim_of_const k)
+    | `Const k -> of_term QQ.one (dim_of_sym k)
     | `Var (_, _) -> raise Nonlinear
     | `Add sum -> List.fold_left add zero sum
     | `Mul sum -> List.fold_left mul (real QQ.one) sum
@@ -74,7 +65,7 @@ let of_linterm ark linterm =
   let open Linear.QQVector in
   enum linterm
   /@ (fun (coeff, dim) ->
-      match const_of_dim dim with
+      match sym_of_dim dim with
       | Some k ->
         if QQ.equal coeff QQ.one then mk_const ark k
         else mk_mul ark [mk_real ark coeff; mk_const ark k]
@@ -106,7 +97,7 @@ let evaluate_term ark interp ?(env=Env.empty) term =
 let evaluate_linterm interp term =
   (V.enum term)
   /@ (fun (coeff, dim) ->
-      match const_of_dim dim with
+      match sym_of_dim dim with
       | Some const -> QQ.mul (interp const) coeff
       | None -> coeff)
   |> BatEnum.fold QQ.add QQ.zero
@@ -123,35 +114,36 @@ let coefficient_gcd term =
 
 (* Mapping from constant symbols to appropriately-typed constant values. *)
 module Interpretation = struct
+  module SM = Symbol.Map
   type 'a interpretation =
     { ark : 'a context;
-      map : [ `Bool of bool | `Real of QQ.t ] KM.t }
+      map : [ `Bool of bool | `Real of QQ.t ] SM.t }
 
   let empty ark =
     { ark = ark;
-      map = KM.empty }
+      map = SM.empty }
 
   let add_real k v interp =
     match typ_symbol interp.ark k with
-    | `TyReal | `TyInt -> { interp with map = KM.add k (`Real v) interp.map }
+    | `TyReal | `TyInt -> { interp with map = SM.add k (`Real v) interp.map }
     | _ -> invalid_arg "add_real: constant symbol is non-arithmetic"
 
   let add_bool k v interp =
     match typ_symbol interp.ark k with
-    | `TyBool -> { interp with map = KM.add k (`Bool v) interp.map }
+    | `TyBool -> { interp with map = SM.add k (`Bool v) interp.map }
     | _ -> invalid_arg "add_boolean: constant symbol is non-boolean"
 
   let real interp k =
-    match KM.find k interp.map with
+    match SM.find k interp.map with
     | `Real v -> v
     | _ -> invalid_arg "real: constant symbol is not real"
 
   let bool interp k =
-    match KM.find k interp.map with
+    match SM.find k interp.map with
     | `Bool v -> v
     | _ -> invalid_arg "bool: constant symbol is not Boolean"
 
-  let value interp k = KM.find k interp.map
+  let value interp k = SM.find k interp.map
 
   let pp formatter interp =
     let pp_val formatter = function
@@ -165,7 +157,7 @@ module Interpretation = struct
         pp_val value
     in
     Format.fprintf formatter "[@[%a@]]"
-      (ApakEnum.pp_print_enum pp_elt) (KM.enum interp.map)
+      (ApakEnum.pp_print_enum pp_elt) (SM.enum interp.map)
 
   let of_model ark model symbols =
     List.fold_left
@@ -185,7 +177,18 @@ module Interpretation = struct
       (empty ark)
       symbols
 
-  let enum interp = KM.enum interp.map
+  let enum interp = SM.enum interp.map
+
+  let substitute interpretation =
+    let ark = interpretation.ark in
+    substitute_const ark (fun sym ->
+        try
+          begin match value interpretation sym with
+            | `Real qq -> (mk_real ark qq :> ('a, typ) expr)
+            | `Bool true -> (mk_true ark :> ('a, typ) expr)
+            | `Bool false -> (mk_false ark :> ('a, typ) expr)
+          end
+        with Not_found -> mk_const ark sym)
 end
 
 (* Counter-example based extraction of the affine hull of a formula.  This
@@ -206,7 +209,7 @@ let affine_hull (smt_ctx : 'a Smt.smt_context) phi constants =
   let rec go equalities mat = function
     | [] -> equalities
     | (k::ks) ->
-      let dim = dim_of_const k in
+      let dim = dim_of_sym k in
       let row_num = next_row () in
       (* Find a candidate equation which is satisfied by all previously
          sampled points, and where the coefficient of k is 1 *)
@@ -218,7 +221,7 @@ let affine_hull (smt_ctx : 'a Smt.smt_context) phi constants =
         let candidate_term =
           QQVector.enum candidate
           /@ (fun (coeff, dim) ->
-              match const_of_dim dim with
+              match sym_of_dim dim with
               | Some const -> mk_mul ark [mk_real ark coeff; mk_const ark const]
               | None -> mk_real ark coeff)
           |> BatList.of_enum
@@ -245,7 +248,7 @@ let affine_hull (smt_ctx : 'a Smt.smt_context) phi constants =
             List.fold_left (fun row k ->
                 QQVector.add_term
                   (point#eval_real (mk_const ark k))
-                  (dim_of_const k)
+                  (dim_of_sym k)
                   row)
               vec_one
               constants
@@ -411,7 +414,7 @@ let pp_virtual_term ark formatter =
 (* Loos-Weispfenning virtual substitution *) 
 let virtual_substitution ark x virtual_term phi =
   let pivot_term x term =
-    V.pivot (dim_of_const x) (linterm_of ark term)
+    V.pivot (dim_of_sym x) (linterm_of ark term)
   in
   let replace_atom op s zero =
     assert (Term.equal zero (mk_real ark QQ.zero));
@@ -477,7 +480,7 @@ let mbp_virtual_term ark m x terms =
   (* The set { -t/a : ax + t in T } *)
   let x_terms =
     let f t terms =
-      let (coeff, t') = V.pivot (dim_of_const x) t in
+      let (coeff, t') = V.pivot (dim_of_sym x) t in
       if QQ.equal coeff QQ.zero then
         terms
       else begin
@@ -486,7 +489,7 @@ let mbp_virtual_term ark m x terms =
     in
     VS.fold f terms VS.empty
   in
-  let x_val = V.dot m (V.of_term QQ.one (dim_of_const x)) in
+  let x_val = V.dot m (V.of_term QQ.one (dim_of_sym x)) in
 
   (* First try to find a term t such that m |= x = t *)
   let m_implies_x_eq t =
@@ -718,7 +721,7 @@ let int_virtual_substitution ark x virtual_term phi =
     | `Fls -> mk_false ark
     | `Proposition _ | `NotProposition _ -> phi
     | `Divides (delta, s) ->
-      let (c, s) = V.pivot (dim_of_const x) s in
+      let (c, s) = V.pivot (dim_of_sym x) s in
       if QQ.equal c QQ.zero then
         mk_divides ark delta s
       else
@@ -732,7 +735,7 @@ let int_virtual_substitution ark x virtual_term phi =
         |> mk_or ark
 
     | `NotDivides (delta, s) ->
-      let (c, s) = V.pivot (dim_of_const x) s in
+      let (c, s) = V.pivot (dim_of_sym x) s in
       if QQ.equal c QQ.zero then
         mk_not_divides ark delta s
       else
@@ -746,7 +749,7 @@ let int_virtual_substitution ark x virtual_term phi =
         |> mk_or ark
 
     | `CompareZero (op, s) ->
-      let (c, s) = V.pivot (dim_of_const x) s in
+      let (c, s) = V.pivot (dim_of_sym x) s in
       let mk_compare =
         match op with
         | `Eq -> mk_eq
@@ -773,7 +776,7 @@ let substitute_real_term ark x t phi =
     | _ -> invalid_arg "substitute_real_term: non-arithmetic constant"
   end;
   let replace_term s =
-    let (a, s') = V.pivot (dim_of_const x) s in
+    let (a, s') = V.pivot (dim_of_sym x) s in
     if QQ.equal a QQ.zero then
       s
     else
@@ -881,8 +884,8 @@ module Scheme = struct
   module MM = BatMap.Make(struct type t = move [@@deriving ord] end)
 
   type t =
-    | SForall of const_sym * const_sym * t
-    | SExists of const_sym * (t MM.t)
+    | SForall of symbol * symbol * t
+    | SExists of symbol * (t MM.t)
     | SEmpty
 
   let pp ark formatter scheme =
@@ -976,7 +979,7 @@ module Scheme = struct
       | (`Forall k::path, SForall (k', sk, scheme)) ->
         assert (k = k');
 
-        let term = V.of_term QQ.one (dim_of_const sk) in
+        let term = V.of_term QQ.one (dim_of_sym sk) in
         begin match typ_symbol ark k with
           | `TyBool -> substitute_prop_const ark k sk (go path scheme)
           | _ -> substitute_real_term ark k term (go path scheme)
@@ -995,7 +998,7 @@ module Scheme = struct
     let rec go = function
       | SEmpty -> phi
       | SForall (k, sk, scheme) ->
-        let move = V.of_term QQ.one (dim_of_const sk) in
+        let move = V.of_term QQ.one (dim_of_sym sk) in
         begin match typ_symbol ark k with
           | `TyBool -> substitute_prop_const ark k sk (go scheme)
           | _ -> substitute_real_term ark k move (go scheme)
@@ -1070,7 +1073,7 @@ let select_real_term ark interp x phi =
     | `CompareZero (op, t) when (not (is_sat op t)) -> (None, None)
     | `CompareZero (op, t) ->
 
-      let (a, t') = V.pivot (dim_of_const x) t in
+      let (a, t') = V.pivot (dim_of_sym x) t in
 
       (* Atom is ax + t' op 0 *)
       if QQ.equal QQ.zero a then
@@ -1158,7 +1161,7 @@ let select_int_term ark interp x phi =
       | `Proposition _ | `NotProposition _ ->
         ZZ.one
       | `Divides (divisor, t) | `NotDivides (divisor, t) ->
-        let (a, t) = V.pivot (dim_of_const x) t in
+        let (a, t) = V.pivot (dim_of_sym x) t in
         let a = match QQ.to_zz a with
           | None -> assert false
           | Some zz -> ZZ.abs zz
@@ -1182,7 +1185,7 @@ let select_int_term ark interp x phi =
     | `Tru | `Fls | `Proposition _ | `NotProposition _ -> `None
     | `Divides (_, _) | `NotDivides (_, _) -> `None
     | `CompareZero (op, t) when is_sat op t ->
-      let (a, t) = V.pivot (dim_of_const x) t in
+      let (a, t) = V.pivot (dim_of_sym x) t in
       let a = match QQ.to_zz a with
         | None -> assert false
         | Some zz -> match ZZ.to_int zz with
@@ -1599,16 +1602,6 @@ let aqsat_forward smt_ctx qf_pre phi =
   | `Unknown -> `Unknown
   | `Sat (sat_ctx, unsat_ctx) ->
     let not_phi = sat_ctx.CSS.not_formula in
-    let param_substitution param_interp =
-      substitute_const ark (fun sym ->
-          try
-            begin match Interpretation.value param_interp sym with
-              | `Real qq -> (mk_real ark qq :> ('a, typ) expr)
-              | `Bool true -> (mk_true ark :> ('a, typ) expr)
-              | `Bool false -> (mk_false ark :> ('a, typ) expr)
-            end
-          with Not_found -> mk_const ark sym)
-    in
     let assert_param_constraints ctx parameter_interp =
       let open CSS in
       BatEnum.iter (function
@@ -1632,7 +1625,7 @@ let aqsat_forward smt_ctx qf_pre phi =
       in
       let win =
         Scheme.winning_formula ark scheme phi
-        |> param_substitution parameter_interp
+        |> Interpretation.substitute parameter_interp
       in
       ctx.solver#add [mk_not ark win];
       assert_param_constraints ctx parameter_interp;
@@ -1650,7 +1643,7 @@ let aqsat_forward smt_ctx qf_pre phi =
       in
       let win =
         Scheme.winning_formula ark scheme not_phi
-        |> param_substitution parameter_interp
+        |> Interpretation.substitute parameter_interp
       in
       ctx.solver#add [mk_not ark win];
       assert_param_constraints ctx parameter_interp;
@@ -1694,7 +1687,10 @@ let aqsat_forward smt_ctx qf_pre phi =
       logf ~level:`trace "Parameters: %a" Interpretation.pp param_interp;
       let res =
         try
-          CSS.get_counter_strategy select_term ~parameters:(Some param_interp) ctx
+          CSS.get_counter_strategy
+            select_term
+            ~parameters:(Some param_interp)
+            ctx
         with Not_found -> assert false
       in
       match res with
@@ -1750,7 +1746,7 @@ let aqsat_forward smt_ctx qf_pre phi =
               ctx.scheme <- Scheme.add_path ark path ctx.scheme;
               let win =
                 Scheme.path_winning_formula ark path ctx.scheme ctx.formula
-                |> param_substitution param_interp
+                |> Interpretation.substitute param_interp
               in
               ctx.solver#add [mk_not ark win]
             with Redundant_path -> ()
@@ -1781,29 +1777,29 @@ let aqsat_core smt_ctx qf_pre phi =
 
 let aqsat smt_ctx phi =
   let ark = smt_ctx#ark in
-  let constants = fold_constants KS.add phi KS.empty in
+  let constants = fold_constants Symbol.Set.add phi Symbol.Set.empty in
   let (qf_pre, phi) = normalize ark phi in
   let qf_pre =
-    (List.map (fun k -> (`Exists, k)) (KS.elements constants))@qf_pre
+    (List.map (fun k -> (`Exists, k)) (Symbol.Set.elements constants))@qf_pre
   in
   aqsat_core smt_ctx qf_pre phi
 
 let aqsat_forward smt_ctx phi =
   let ark = smt_ctx#ark in
-  let constants = fold_constants KS.add phi KS.empty in
+  let constants = fold_constants Symbol.Set.add phi Symbol.Set.empty in
   let (qf_pre, phi) = normalize ark phi in
   let qf_pre =
-    (List.map (fun k -> (`Exists, k)) (KS.elements constants))@qf_pre
+    (List.map (fun k -> (`Exists, k)) (Symbol.Set.elements constants))@qf_pre
   in
   aqsat_forward smt_ctx qf_pre phi
 
 let maximize_feasible smt_ctx phi t =
   let ark = smt_ctx#ark in
-  let objective_constants = fold_constants KS.add t KS.empty in
-  let constants = fold_constants KS.add phi objective_constants in
+  let objective_constants = fold_constants Symbol.Set.add t Symbol.Set.empty in
+  let constants = fold_constants Symbol.Set.add phi objective_constants in
   let (qf_pre, phi) = normalize ark phi in
   let qf_pre =
-    ((List.map (fun k -> (`Exists, k)) (KS.elements constants))@qf_pre)
+    ((List.map (fun k -> (`Exists, k)) (Symbol.Set.elements constants))@qf_pre)
   in
 
   (* First, check if the objective function is unbounded.  This is done by
@@ -1907,7 +1903,7 @@ let maximize_feasible smt_ctx phi t =
             match scheme with
             | SEmpty -> SEmpty
             | SForall (k, sk, subscheme) ->
-              if KS.mem k objective_constants then go subscheme
+              if Symbol.Set.mem k objective_constants then go subscheme
               else scheme
             | SExists (_, _) -> scheme
           in
@@ -1948,7 +1944,9 @@ let qe_mbp smt_ctx phi =
   let exists x phi =
     let solver = smt_ctx#mk_solver () in
     let disjuncts = ref [] in
-    let constants = KS.elements (fold_constants KS.add phi KS.empty) in
+    let constants =
+      Symbol.Set.elements (fold_constants Symbol.Set.add phi Symbol.Set.empty)
+    in
     let terms = terms ark phi in
     let rec loop () =
       match solver#get_model () with
@@ -1958,7 +1956,7 @@ let qe_mbp smt_ctx phi =
             (fun k v ->
                V.add_term
                  (m#eval_real (mk_const ark k))
-                 (dim_of_const k)
+                 (dim_of_sym k)
                  v)
             constants
             (const_linterm QQ.one)
@@ -1983,13 +1981,12 @@ let qe_mbp smt_ctx phi =
   in
   List.fold_right qe qf_pre phi
 
-
 let easy_sat smt_ctx phi =
   let ark = smt_ctx#ark in
-  let constants = fold_constants KS.add phi KS.empty in
+  let constants = fold_constants Symbol.Set.add phi Symbol.Set.empty in
   let (qf_pre, phi) = normalize ark phi in
   let qf_pre =
-    (List.map (fun k -> (`Exists, k)) (KS.elements constants))@qf_pre
+    (List.map (fun k -> (`Exists, k)) (Symbol.Set.elements constants))@qf_pre
   in
   let select_term model x phi =
     match typ_symbol ark x with
