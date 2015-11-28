@@ -167,12 +167,7 @@ let _ =
     let open Syntax in
     let phi = load_formula Sys.argv.(i+1) in
     let phi = Formula.prenex ctx phi in
-    let module K = struct
-      type t = const_sym
-      let compare = Pervasives.compare
-    end in
-    let module KS = BatSet.Make(K) in
-    let constants = fold_constants KS.add phi KS.empty in
+    let constants = fold_constants Symbol.Set.add phi Symbol.Set.empty in
     let rec go phi =
       match Formula.destruct ctx phi with
       | `Quantify (`Exists, name, typ, psi) -> "E" ^ (go psi)
@@ -180,7 +175,8 @@ let _ =
       | _ -> ""
     in
     let qf_pre =
-      (String.concat "" (List.map (fun _ -> "E") (KS.elements constants)))
+      (String.concat ""
+         (List.map (fun _ -> "E") (Symbol.Set.elements constants)))
       ^ (go phi)
     in
     let size = function

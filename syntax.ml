@@ -13,7 +13,7 @@ type typ_bool = [ `TyBool ]
 type typ_fo = [ `TyInt | `TyReal | `TyBool ] [@@ deriving ord]
 type 'a typ_fun = [ `TyFun of (typ list) * 'a ]
 
-type const_sym = int
+type symbol = int
 
 let rec pp_typ formatter = function
   | `TyReal -> Format.pp_print_string formatter "real"
@@ -39,7 +39,7 @@ type label =
   | Eq
   | Leq
   | Lt
-  | Const of const_sym
+  | Const of symbol
   | Var of int * typ_fo
   | Add
   | Mul
@@ -70,7 +70,11 @@ module HC = BatHashcons.MakeTable(struct
 
 module DynArray = BatDynArray
 
-module ConstSymbol = Apak.Putil.PInt
+module Symbol = struct
+  type t = symbol
+  module Set = BatSet.Make(Apak.Putil.PInt)
+  module Map = BatMap.Make(Apak.Putil.PInt)
+end
 
 module Var = struct
   module I = struct
@@ -139,6 +143,8 @@ let pp_symbol ctx formatter symbol =
     symbol
 
 let show_symbol ctx = Apak.Putil.mk_show (pp_symbol ctx)
+let symbol_of_int x = x
+let int_of_symbol x = x
 
 let mk_real ctx qq = ctx.mk (Real qq) []
 let mk_zero ctx = mk_real ctx QQ.zero
@@ -659,8 +665,8 @@ module type Context = sig
   type term = (t, typ_arith) expr
   type formula = (t, typ_bool) expr
 
-  val mk_symbol : ?name:string -> typ -> const_sym
-  val mk_const : const_sym -> ('a, 'typ) expr
+  val mk_symbol : ?name:string -> typ -> symbol
+  val mk_const : symbol -> ('a, 'typ) expr
   val mk_var : int -> typ_fo -> ('a, 'typ) expr
   val mk_add : term list -> term
   val mk_mul : term list -> term
@@ -672,8 +678,8 @@ module type Context = sig
   val mk_sub : term -> term -> term
   val mk_forall : ?name:string -> typ_fo -> formula -> formula
   val mk_exists : ?name:string -> typ_fo -> formula -> formula
-  val mk_forall_const : const_sym -> formula -> formula
-  val mk_exists_const : const_sym -> formula -> formula
+  val mk_forall_const : symbol -> formula -> formula
+  val mk_exists_const : symbol -> formula -> formula
   val mk_and : formula list -> formula
   val mk_or : formula list -> formula
   val mk_not : formula -> formula

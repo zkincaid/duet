@@ -213,7 +213,7 @@ let mk_quantified ctx qt ?name:(name="_") typ phi =
     None
   |> Z3.Quantifier.expr_of_quantifier
 
-let z3_of_symbol z3 sym = Z3.Symbol.mk_int z3 (Obj.magic sym)
+let z3_of_symbol z3 sym = Z3.Symbol.mk_int z3 (int_of_symbol sym)
 
 let z3_of_term ark z3 term =
   let alg = function
@@ -269,7 +269,7 @@ let z3_of_formula ark z3 phi =
   in
   Formula.eval ark alg phi
 
-let of_z3 context const_of_decl expr =
+let of_z3 context sym_of_decl expr =
   let term = function
     | `Term (_, t) -> t
     | `Formula phi -> invalid_arg "of_z3.term"
@@ -303,7 +303,7 @@ let of_z3 context const_of_decl expr =
     | `Var (i, `TyBool) -> `Formula (mk_var context i `TyBool)
     | `Var (i, typ) -> `Term ([], mk_var context i typ)
     | `App (decl, []) ->
-      let const_sym = const_of_decl decl in
+      let const_sym = sym_of_decl decl in
       begin match typ_symbol context const_sym with
         | `TyBool -> `Formula (mk_const context const_sym)
         | `TyInt | `TyReal -> `Term ([], mk_const context const_sym)
@@ -372,20 +372,20 @@ let of_z3 context const_of_decl expr =
   in
   eval alg expr
 
-(* const_of_decl is sufficient for round-tripping, since const_sym's become
-   int symbols *)
-let const_of_decl decl =
+(* sym_of_decl is sufficient for round-tripping, since ark symbols become
+   Z3 int symbols *)
+let sym_of_decl decl =
   let sym = Z3.FuncDecl.get_name decl in
   assert (Z3.Symbol.is_int_symbol sym);
-  Obj.magic (Z3.Symbol.get_int sym)
+  symbol_of_int (Z3.Symbol.get_int sym)
 
 let term_of_z3 context term =
-  match of_z3 context const_of_decl term with
+  match of_z3 context sym_of_decl term with
   | `Term ([], t) -> t
   | _ -> invalid_arg "term_of"
 
 let formula_of_z3 context phi =
-  match of_z3 context const_of_decl phi with
+  match of_z3 context sym_of_decl phi with
   | `Formula phi -> phi
   | `Term _ -> invalid_arg "formula_of"
 
@@ -446,11 +446,11 @@ class ['a] z3_solver (context : 'a context) z3 s =
     method get_unsat_core : 'a formula list -> [ `Sat | `Unsat of ('a formula list) | `Unknown ]
       = 
       fun assumptions ->
-      match self#check assumptions with
-      | `Sat -> `Sat
-      | `Unknown -> `Unknown
-      | `Unsat ->
-        `Unsat (List.map formula_of (Z3.Solver.get_unsat_core s))
+        match self#check assumptions with
+        | `Sat -> `Sat
+        | `Unknown -> `Unknown
+        | `Unsat ->
+          `Unsat (List.map formula_of (Z3.Solver.get_unsat_core s))
   end
 
 let mk_context : 'a context -> (string * string) list -> 'a smt_context
@@ -602,7 +602,7 @@ let mk_context : 'a context -> (string * string) list -> 'a smt_context
 
   method load_smtlib2 str =
    let ast = Z3.SMT.parse_smtlib2_string z3 str [] [] [] [] in
-      let const_of_decl =
+      let sym_of_decl =
         let cos =
           Apak.Memo.memo (fun (name, typ) -> mk_symbol context ~name typ)
         in
@@ -612,7 +612,7 @@ let mk_context : 'a context -> (string * string) list -> 'a smt_context
           assert (FuncDecl.get_domain decl = []);
           cos (Symbol.to_string sym, typ_of_sort (FuncDecl.get_range decl))
       in
-      match of_z3 context const_of_decl ast with
+      match of_z3 context sym_of_decl ast with
       | `Formula phi -> phi
       | `Term _ -> invalid_arg "load_smtlib2"
   end
