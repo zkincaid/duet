@@ -259,15 +259,20 @@ module K = struct
 
   let widen x y = Log.time "cra:widen" (widen x) y
 
+  let project tr =
+    let is_global v = Var.is_global (var_of_value v) in
+    exists is_global tr
+
   (* existentially quantify local post-state variables and conjoin with the
      equality /\ { l = l' : l is local }.  Since post-state variables do not
      appear in the guard and for each variable x *not* in the transform we
      have the equality x = x', it is sufficient to remove locals from the
      transform.  *)
-  let project tr =
+(*
     let is_global v _ = Var.is_global (var_of_value v) in
     { transform = M.filter is_global tr.transform;
       guard = tr.guard }
+*)
 
   let merge x y = mul x (project y)
   
