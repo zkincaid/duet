@@ -271,12 +271,6 @@ module K = struct
 
   let merge x y = mul x (project y)
   
-  let print_k x = show x
-
-  let eq_k x y = equal x y
-
-  let normalize_k x = normalize x
-
   (* Transpose a transition formula (intuitively, swap the primed and unprimed
      variables). *)
   let transpose tr =
@@ -756,18 +750,6 @@ module KK = struct
   module VocMap = Map.Make(Voc)
   include Transition.Make(VV)
 
-  let mul_KK x y = mul x y
-
-  let star_KK x = star x
-
-  let add_KK x y = add x y
-
-  let zero_KK t = zero
-
-  let one_KK t = one
-
-  let print_KK x = show x
-
   (* Detensor-transpose local variables and remove them from the footprint *)
   let project tr =
     (* For every *local* variable v, identify Left v (representing the
@@ -935,18 +917,18 @@ let () =
   Callback.register "one_callback" K.get_one;
   Callback.register "zero_callback" K.get_zero;
   Callback.register "star_callback" K.star;
-  Callback.register "print_callback" K.print_k;
-  Callback.register "tensoredPrint_callback" KK.print_KK;
-  Callback.register "eq_callback" K.eq_k;
-  Callback.register "normalize_callback" K.normalize_k;
+  Callback.register "print_callback" K.show;
+  Callback.register "tensoredPrint_callback" KK.show;
+  Callback.register "eq_callback" K.equal;
+  Callback.register "normalize_callback" K.normalize;
   Callback.register "transpose_callback" K.transpose;
   Callback.register "tensor_callback" tensor;
   Callback.register "merge_callback" K.project;
   Callback.register "tensorMerge_callback" KK.project;
   Callback.register "detensorTranspose_callback" detensor_transpose;
-  Callback.register "tensorCompose_callback" KK.mul_KK;
-  Callback.register "tensorUnion_callback" KK.add_KK;
-  Callback.register "tensorStar_callback" KK.star_KK;
-  Callback.register "tensorZero_callback" KK.zero_KK;
-  Callback.register "tensorOne_callback" KK.one_KK;
-  Callback.register "tensor_linearize_star_callback" KK.linearize_star;
+  Callback.register "tensorCompose_callback" KK.mul;
+  Callback.register "tensorUnion_callback" KK.add;
+  Callback.register "tensorStar_callback" KK.star;
+  Callback.register "tensorZero_callback" KK.zero;
+  Callback.register "tensorOne_callback" KK.one;
+  Callback.register "tensor_linearize_star_callback" KK.linearize_star
