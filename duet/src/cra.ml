@@ -930,58 +930,23 @@ let kk_merge x y =
 ********************************************************************************)
 
 let () =
-  Callback.register "compose_callback" K.mul
-
-let () =
-  Callback.register "union_callback" K.add
-
-let () =
-  Callback.register "one_callback" K.get_one
-
-let () =
-  Callback.register "zero_callback" K.get_zero
-
-let () =
-  Callback.register "star_callback" K.star
-
-let () =
-  Callback.register "print_callback" K.print_k
-
-let () =
-  Callback.register "tensoredPrint_callback" KK.print_KK
-
-let () =
-  Callback.register "eq_callback" K.eq_k
-
-let () =
-  Callback.register "normalize_callback" K.normalize_k
-
-let() =
-  Callback.register "transpose_callback" K.transpose
-
-let() =
-  Callback.register "tensor_callback" tensor
-
-let() =
-  Callback.register "merge_callback" K.project
-
-let() =
-  Callback.register "tensorMerge_callback" KK.project
-
-let() =
-  Callback.register "detensorTranspose_callback" detensor_transpose
-
-let() =
-  Callback.register "tensorCompose_callback" KK.mul_KK
-
-let() =
-  Callback.register "tensorUnion_callback" KK.add_KK
-
-let() =
-  Callback.register "tensorStar_callback" KK.star_KK
-
-let() =
-  Callback.register "tensorZero_callback" KK.zero_KK
-
-let() =
-  Callback.register "tensorOne_callback" KK.one_KK
+  Callback.register "compose_callback" K.mul;
+  Callback.register "union_callback" K.add;
+  Callback.register "one_callback" K.get_one;
+  Callback.register "zero_callback" K.get_zero;
+  Callback.register "star_callback" K.star;
+  Callback.register "print_callback" K.print_k;
+  Callback.register "tensoredPrint_callback" KK.print_KK;
+  Callback.register "eq_callback" K.eq_k;
+  Callback.register "normalize_callback" K.normalize_k;
+  Callback.register "transpose_callback" K.transpose;
+  Callback.register "tensor_callback" tensor;
+  Callback.register "merge_callback" K.project;
+  Callback.register "tensorMerge_callback" KK.project;
+  Callback.register "detensorTranspose_callback" detensor_transpose;
+  Callback.register "tensorCompose_callback" KK.mul_KK;
+  Callback.register "tensorUnion_callback" KK.add_KK;
+  Callback.register "tensorStar_callback" KK.star_KK;
+  Callback.register "tensorZero_callback" KK.zero_KK;
+  Callback.register "tensorOne_callback" KK.one_KK;
+  Callback.register "tensor_linearize_star_callback" KK.linearize_star;

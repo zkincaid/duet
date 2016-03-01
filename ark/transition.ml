@@ -1058,7 +1058,7 @@ module Make (Var : Var) = struct
           try (Incr.Env.find var ctx.induction_vars) != None
           with Not_found ->
             (* v is either a primed variable or was not updated in the loop
-               		 body *)
+               body *)
             not (VarSet.mem var primed_vars)
         end
       | None     -> false
@@ -1073,7 +1073,7 @@ module Make (Var : Var) = struct
               | None -> assert false
             with Not_found ->
               (* We only fall into this case if v is not updated in the loop
-                 		   body (v is not in the domain of tr.transform) *)
+                 body (v is not in the domain of tr.transform) *)
               T.var v
           end
         | None -> T.var v
@@ -1116,7 +1116,10 @@ module Make (Var : Var) = struct
     let loop = Incr.Env.fold g ctx.induction_vars ctx.loop in
     { ctx with loop = loop }
 
-  let star tr =
+
+  (* Compute a pair <lin, tr*>, where lin is a linearized transition formula
+     corresponding to tr, and tr* approximates the transitive closure of tr *)
+  let linearize_star tr =
     logf "Loop body:@\n%a" format tr;
     let mk_nondet v _ =
       T.var (V.mk_tmp ("nondet_" ^ (Var.show v)) (Var.typ v))
@@ -1177,10 +1180,10 @@ module Make (Var : Var) = struct
       else loop
     in
     logf "Loop summary: %a" format loop;
-    loop
+    (ctx.phi, loop)
 
   let star tr =
-    try star tr
+    try snd (linearize_star tr)
     with
     | Unsat ->
       logf "Loop body is unsat";
