@@ -312,6 +312,17 @@ module K = struct
       F.conj transform_equations (F.subst substitution tr.guard)
     in
     { transform; guard }
+
+  let top block =
+    let file = (get_gfile()) in
+    let func = lookup_function block (get_gfile()) in
+    (BatEnum.append
+       (BatEnum.append (BatList.enum func.formals) (BatList.enum func.locals))
+       (BatList.enum file.vars))
+    /@ (fun vi ->
+        let v = VVal (Var.mk vi) in
+        assign v (T.var (V.mk_tmp "havoc" (Voc.typ v))))
+    |> BatEnum.reduce mul
 end
 module A = Interproc.MakePathExpr(K)
 
@@ -770,6 +781,20 @@ module KK = struct
 
     (* Remove local variables from the footprint *)
     |> exists (Var.is_global % var_of_value % VV.lower)
+
+  let top block =
+    let file = (get_gfile()) in
+    let func = lookup_function block (get_gfile()) in
+    (BatEnum.append
+       (BatEnum.append (BatList.enum func.formals) (BatList.enum func.locals))
+       (BatList.enum file.vars))
+    /@ (fun vi ->
+        let vl = Left (VVal (Var.mk vi)) in
+        let vr = Right (VVal (Var.mk vi)) in
+        mul
+          (assign vl (T.var (V.mk_tmp "havoc" (VV.typ vl))))
+          (assign vr (T.var (V.mk_tmp "havoc" (VV.typ vr)))))
+    |> BatEnum.reduce mul
 end
 
 (* Inject terms from the untensored vocabulary to the tensored vocabulary.
