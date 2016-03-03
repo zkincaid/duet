@@ -941,6 +941,11 @@ let kk_merge x y =
 * Newtonian Program Analysis Helper Functions
 ********************************************************************************)
 
+let qe_lme_pvars f = 
+   (* Remove temporary variables (TVars) by quantifier elimination,
+        leaving only program variables (PVars). *)
+   (KK.F.qe_lme (fun v -> KK.V.lower v != None) f)
+
 let () =
   Callback.register "compose_callback" K.mul;
   Callback.register "union_callback" K.add;
@@ -963,4 +968,6 @@ let () =
   Callback.register "tensorOne_callback" KK.one;
   Callback.register "tensor_linearize_star_callback" KK.linearize_star;
   Callback.register "fst_callback" fst;
-  Callback.register "snd_callback" snd
+  Callback.register "snd_callback" snd;
+  Callback.register "tensorEquiv_callback" KK.F.equiv;
+  Callback.register "tensorQELME_callback" qe_lme_pvars
