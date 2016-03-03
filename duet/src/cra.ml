@@ -961,4 +961,6 @@ let () =
   Callback.register "tensorStar_callback" KK.star;
   Callback.register "tensorZero_callback" KK.zero;
   Callback.register "tensorOne_callback" KK.one;
-  Callback.register "tensor_linearize_star_callback" KK.linearize_star
+  Callback.register "tensor_linearize_star_callback" KK.linearize_star;
+  Callback.register "fst_callback" fst;
+  Callback.register "snd_callback" snd
