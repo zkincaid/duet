@@ -240,6 +240,7 @@ module K = struct
   let star x =
     Log.time "cra:star" star (simplify x)
 
+(*
   let simplify tr = tr
 
   let add x y =
@@ -252,10 +253,8 @@ module K = struct
     else if equal x one then y
     else if equal y one then x
     else simplify (Log.time "cra:mul" (mul x) y)
+*)
   
-  let get_zero t = zero
-
-  let get_one t = one
 
   let widen x y = Log.time "cra:widen" (widen x) y
 
@@ -949,8 +948,8 @@ let qe_lme_pvars f =
 let () =
   Callback.register "compose_callback" K.mul;
   Callback.register "union_callback" K.add;
-  Callback.register "one_callback" K.get_one;
-  Callback.register "zero_callback" K.get_zero;
+  Callback.register "one_callback" K.one;
+  Callback.register "zero_callback" K.zero;
   Callback.register "star_callback" K.star;
   Callback.register "print_callback" K.show;
   Callback.register "tensoredPrint_callback" KK.show;
