@@ -1182,12 +1182,15 @@ module Make (Var : Var) = struct
     logf "Loop summary: %a" format loop;
     (ctx.phi, loop)
 
+  let linearize_star tr =
+    try linearize_star tr
+    with Unsat ->
+      logf "Loop body is unsat";
+      (F.bottom, one)
+
   let star tr =
     try snd (linearize_star tr)
     with
-    | Unsat ->
-      logf "Loop body is unsat";
-      one
     | Undef ->
       let mk_nondet v _ =
         T.var (V.mk_tmp ("nondet_" ^ (Var.show v)) (Var.typ v))
