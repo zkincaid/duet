@@ -255,6 +255,9 @@ module K = struct
     else simplify (Log.time "cra:mul" (mul x) y)
 *)
   
+  let get_zero t = zero
+
+  let get_one t = one
 
   let widen x y = Log.time "cra:widen" (widen x) y
 
@@ -342,9 +345,11 @@ let _ =
 
   (* This slows down the analysis, but is required for making "K.equiv" do the
      right thing when comparing with Newton *)
-  F.opt_simplify_strategy := [F.qe_lme]
+  (* F.opt_simplify_strategy := [F.qe_lme] *)
   (*  F.opt_simplify_strategy := [F.qe_partial]*)
 
+  (* chenged simplifying strategy *)
+  F.opt_simplify_strategy := [F.qe_partial; F.simplify_dillig]
 
 type ptr_term =
   { ptr_val : K.T.t;
@@ -796,6 +801,13 @@ module KK = struct
     |> BatEnum.reduce mul
 end
 
+
+let _ =
+  let open KK in
+  (* chenged simplifying strategy *)
+  F.opt_simplify_strategy := [F.qe_partial; F.simplify_dillig]
+
+
 (* Inject terms from the untensored vocabulary to the tensored vocabulary.
    [inject_term VV.left] performs left injection and [inject_term VV.right]
    performs right injection. *)
@@ -940,16 +952,21 @@ let kk_merge x y =
 * Newtonian Program Analysis Helper Functions
 ********************************************************************************)
 
-let qe_lme_pvars f = 
+let tensor_qe_lme_pvars f = 
    (* Remove temporary variables (TVars) by quantifier elimination,
         leaving only program variables (PVars). *)
    (KK.F.qe_lme (fun v -> KK.V.lower v != None) f)
 
+let qe_lme_pvars f = 
+   (* Remove temporary variables (TVars) by quantifier elimination,
+        leaving only program variables (PVars). *)
+   (K.F.qe_lme (fun v -> K.V.lower v != None) f)
+
 let () =
   Callback.register "compose_callback" K.mul;
   Callback.register "union_callback" K.add;
-  Callback.register "one_callback" K.one;
-  Callback.register "zero_callback" K.zero;
+  Callback.register "one_callback" K.get_one;
+  Callback.register "zero_callback" K.get_zero;
   Callback.register "star_callback" K.star;
   Callback.register "print_callback" K.show;
   Callback.register "tensoredPrint_callback" KK.show;
@@ -966,7 +983,12 @@ let () =
   Callback.register "tensorZero_callback" KK.zero;
   Callback.register "tensorOne_callback" KK.one;
   Callback.register "tensor_linearize_star_callback" KK.linearize_star;
+  Callback.register "linearize_star_callback" K.linearize_star;
   Callback.register "fst_callback" fst;
   Callback.register "snd_callback" snd;
   Callback.register "tensorEquiv_callback" KK.F.equiv;
-  Callback.register "tensorQELME_callback" qe_lme_pvars
+  Callback.register "equiv_callback" K.F.equiv;
+  Callback.register "simplify_callback" K.simplify;
+  Callback.register "tensorSimplify_callback" KK.simplify;
+  Callback.register "tensorQELME_callback" tensor_qe_lme_pvars;
+  Callback.register "QELME_callback" qe_lme_pvars

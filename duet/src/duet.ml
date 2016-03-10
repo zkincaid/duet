@@ -10,7 +10,7 @@ open TranslateCbp
 
 (* Analyses *)
 open Cra
-(* open Newton_interface *)
+open Newton_interface
 open Dependence
 open ConcDep
 
