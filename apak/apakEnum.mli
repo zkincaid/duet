@@ -1,4 +1,10 @@
-val pp_print_enum : ?pp_sep:(Format.formatter -> unit -> unit) ->
+val pp_print_enum : ?indent:int ->
+  ?pp_sep:(Format.formatter -> unit -> unit) ->
+  (Format.formatter -> 'a -> unit) ->
+  Format.formatter ->
+  'a BatEnum.t ->
+  unit
+val pp_print_enum_nobox : ?pp_sep:(Format.formatter -> unit -> unit) ->
   (Format.formatter -> 'a -> unit) ->
   Format.formatter ->
   'a BatEnum.t ->

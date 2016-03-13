@@ -146,13 +146,28 @@ module Make (T : Term.S) = struct
 
   include Putil.MakeFmt(struct
       type a = t
-      let rec format_in formatter phi = match phi with
-        | Or xs -> Format.fprintf formatter "Or %a" (Hset.format format_in) xs
-        | And xs -> Format.fprintf formatter "And %a" (Hset.format format_in) xs
-        | Atom (LeqZ t) -> Format.fprintf formatter "%a <= 0" T.format t
-        | Atom (EqZ t) -> Format.fprintf formatter "%a == 0" T.format t
-        | Atom (LtZ t) -> Format.fprintf formatter "%a < 0" T.format t
-      let rec format formatter phi = format_in formatter phi.node
+      let rec format formatter phi =
+        let open Format in
+        match phi.node with
+        | Or xs ->
+          fprintf formatter "(@[<v 0>";
+          ApakEnum.pp_print_enum_nobox
+            ~pp_sep:(fun formatter () -> fprintf formatter "@;|| ")
+            format
+            formatter
+            (Hset.enum xs);
+          fprintf formatter "@])"
+        | And xs ->
+          fprintf formatter "(@[<v 0>";
+          ApakEnum.pp_print_enum_nobox
+            ~pp_sep:(fun formatter () -> fprintf formatter "@;&& ")
+            format
+            formatter
+            (Hset.enum xs);
+          fprintf formatter "@])"
+        | Atom (LeqZ t) -> fprintf formatter "@[%a <= 0@]" T.format t
+        | Atom (EqZ t) -> fprintf formatter "@[%a == 0@]" T.format t
+        | Atom (LtZ t) -> fprintf formatter "@[%a < 0@]" T.format t
     end)
   module Compare_t = struct
     type a = t
