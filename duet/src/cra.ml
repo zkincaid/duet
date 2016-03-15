@@ -991,4 +991,12 @@ let () =
   Callback.register "simplify_callback" K.simplify;
   Callback.register "tensorSimplify_callback" KK.simplify;
   Callback.register "tensorQELME_callback" tensor_qe_lme_pvars;
-  Callback.register "QELME_callback" qe_lme_pvars
+  Callback.register "QELME_callback" qe_lme_pvars;
+  Callback.register "tensor_print_indent_callback" (fun indent tr ->
+      Format.open_vbox indent;
+      Format.printf "%a" KK.format tr;
+      Format.close_box ());
+  Callback.register "print_indent_callback" (fun indent tr ->
+      Format.open_vbox indent;
+      Format.printf "%a" K.format tr;
+      Format.close_box ())

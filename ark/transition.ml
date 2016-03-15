@@ -104,12 +104,26 @@ module Dioid (Var : Var) = struct
   type t =
     { transform: M.t;
       guard: F.t }
-      deriving (Show,Compare)
+      deriving (Compare)
   type var = Var.t
 
-  let format = Show_t.format
-  let show = Show_t.show
   let compare = Compare_t.compare
+
+  include Putil.MakeFmt(struct
+      type a = t
+      let format formatter tr =
+        Format.fprintf formatter
+          "{@[<v 0>transform:@;  @[<v 0>%a@]@;guard:@;  @[<v 0>%a@]@]}"
+          (ApakEnum.pp_print_enum_nobox
+             ~pp_sep:(fun formatter () -> Format.pp_print_break formatter 0 0)
+             (fun formatter (lhs, rhs) ->
+                Format.fprintf formatter "%a := %a"
+                  Var.format lhs
+                  T.format rhs))
+          (M.enum tr.transform)
+
+          F.format tr.guard
+    end)
 
   let modifies x =
     M.fold (fun v _ set -> VarSet.add v set) x.transform VarSet.empty
