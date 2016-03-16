@@ -336,6 +336,7 @@ let _ =
   opt_higher_recurrence := true;
   opt_disjunctive_recurrence_eq := false;
   opt_loop_guard := Some F.exists;
+  (* opt_loop_guard := None; *)
   opt_recurrence_ineq := false;
   opt_higher_recurrence_ineq := false;
   opt_unroll_loop := false;
@@ -804,6 +805,7 @@ end
 
 let _ =
   let open KK in
+  opt_loop_guard := None;
   (* chenged simplifying strategy *)
   F.opt_simplify_strategy := [F.qe_partial; F.simplify_dillig]
 
@@ -992,6 +994,8 @@ let () =
   Callback.register "tensorSimplify_callback" KK.simplify;
   Callback.register "tensorQELME_callback" tensor_qe_lme_pvars;
   Callback.register "QELME_callback" qe_lme_pvars;
+  Callback.register "print_formula_callback" K.F.show;
+  Callback.register "tensor_print_formula_callback" KK.F.show;
   Callback.register "tensor_print_indent_callback" (fun indent tr ->
       Format.open_vbox indent;
       Format.printf "%a" KK.format tr;
