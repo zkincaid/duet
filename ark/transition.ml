@@ -447,14 +447,18 @@ end
 module Make (Var : Var) = struct
   include Dioid(Var)
 
+  let convex_hull p phi =
+    let man = NumDomain.polka_strict_manager () in
+    F.of_abstract (F.abstract ~exists:(Some p) man phi)
+
   (* Iteration operator options *)
   let opt_higher_recurrence = ref true
-  let opt_disjunctive_recurrence_eq = ref true
+  let opt_disjunctive_recurrence_eq = ref false
   let opt_recurrence_ineq = ref false
   let opt_higher_recurrence_ineq = ref false
-  let opt_unroll_loop = ref true
-  let opt_loop_guard = ref (Some F.exists)
-  let opt_polyrec = ref false
+  let opt_unroll_loop = ref false
+  let opt_loop_guard = ref (Some convex_hull)
+  let opt_polyrec = ref true
 
   (**************************************************************************)
   (* Implementation of iteration operator *)
