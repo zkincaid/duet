@@ -1135,8 +1135,9 @@ module Make (Var : Var) = struct
     { ctx with loop = loop }
 
 
-  (* Compute a pair <lin, tr*>, where lin is a linearized transition formula
-     corresponding to tr, and tr* approximates the transitive closure of tr *)
+  (* Compute a triple pair <lin, hull tr*>, where lin is a linearized
+     transition formula corresponding to tr, hull is the convex hull of lin,
+     and tr* approximates the transitive closure of tr *)
   let linearize_star tr =
     logf "Loop body:@\n%a" format tr;
     let mk_nondet v _ =
@@ -1153,9 +1154,18 @@ module Make (Var : Var) = struct
         tr.transform
         Incr.Env.empty
     in
+    let linear_body =
+      F.linearize (fun () -> V.mk_real_tmp "nonlin") (to_formula tr)
+    in
+    let body_hull =
+      F.abstract
+        ~exists:(Some (fun v -> V.lower v != None))
+        (!widen_man)
+        linear_body
+    in
     let ctx =
       { induction_vars = induction_vars;
-        phi = F.linearize (fun () -> V.mk_real_tmp "nonlin") (to_formula tr);
+        phi = F.of_abstract body_hull;
         loop_counter = loop_counter;
         loop = loop }
     in
@@ -1198,16 +1208,17 @@ module Make (Var : Var) = struct
       else loop
     in
     logf "Loop summary: %a" format loop;
-    (ctx.phi, loop)
+    (linear_body, body_hull, loop)
 
   let linearize_star tr =
     try linearize_star tr
     with Unsat ->
       logf "Loop body is unsat";
-      (F.bottom, one)
+      (F.bottom, F.T.D.bottom (!widen_man) F.T.D.Env.empty, one)
 
   let star tr =
-    try snd (linearize_star tr)
+    try
+      (match linearize_star tr with (_, _, star) -> star)
     with
     | Undef ->
       let mk_nondet v _ =
