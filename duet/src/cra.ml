@@ -350,7 +350,10 @@ let _ =
   (*  F.opt_simplify_strategy := [F.qe_partial]*)
 
   (* chenged simplifying strategy *)
-  F.opt_simplify_strategy := [F.qe_partial; F.simplify_dillig]
+  let simplify_dillig =
+    F.simplify_dillig_nonlinear (fun () -> V.mk_tmp "nonlin" TyInt)
+  in
+  F.opt_simplify_strategy := [F.qe_partial; simplify_dillig]
 
 type ptr_term =
   { ptr_val : K.T.t;
@@ -805,9 +808,12 @@ end
 
 let _ =
   let open KK in
+  let simplify_dillig =
+    F.simplify_dillig_nonlinear (fun () -> V.mk_tmp "nonlin" TyInt)
+  in
   opt_loop_guard := None;
   (* chenged simplifying strategy *)
-  F.opt_simplify_strategy := [F.qe_partial; F.simplify_dillig]
+  F.opt_simplify_strategy := [F.qe_partial; simplify_dillig]
 
 
 (* Inject terms from the untensored vocabulary to the tensored vocabulary.

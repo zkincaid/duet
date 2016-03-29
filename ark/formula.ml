@@ -65,6 +65,7 @@ module type S = sig
   val simplify : (T.V.t -> bool) -> t -> t
   val simplify_z3 : (T.V.t -> bool) -> t -> t
   val simplify_dillig : (T.V.t -> bool) -> t -> t
+  val simplify_dillig_nonlinear : (unit -> T.V.t) -> (T.V.t -> bool) -> t -> t
   val opt_simplify_strategy : ((T.V.t -> bool) -> t -> t) list ref
   val nudge : ?accuracy:int -> t -> t
 
@@ -1398,10 +1399,8 @@ module Make (T : Term.S) = struct
     Log.time "Affine hull" (affine_hull_ceg s) vars
 
   module TMap = Putil.Map.Make(T)
-  exception Unsat
-  let nonlinear_equalities map phi vars =
-    let s = new Smt.solver in
 
+  let uninterpreted_nonlinear_term =
     let uninterp_mul_sym = Smt.mk_string_symbol "uninterp_mul" in
     let uninterp_div_sym = Smt.mk_string_symbol "uninterp_div" in
     let uninterp_mod_sym = Smt.mk_string_symbol "uninterp_mod" in
@@ -1440,11 +1439,16 @@ module Make (T : Term.S) = struct
         (mk_div x y, TyReal)
       | OMod ((x,TyInt),(y,TyInt)) -> (mk_mod x y, TyInt)
       | OMod (_, _) -> assert false
-      | OFloor (x, _)   -> (Smt.mk_real2int x, TyInt)
+      | OFloor (x, _) -> (Smt.mk_real2int x, TyInt)
     in
+    fun term -> fst (T.eval talg term)
+
+  exception Unsat
+  let nonlinear_equalities map phi vars =
+    let s = new Smt.solver in
     let assert_nl_eq nl_term var =
       logf "  %a = %a" V.format var T.format nl_term;
-      s#assrt (Smt.mk_eq (fst (T.eval talg nl_term)) (V.to_smt var))
+      s#assrt (Smt.mk_eq (uninterpreted_nonlinear_term nl_term) (V.to_smt var))
     in
     s#assrt (to_smt phi);
     logf "Nonlinear equations:";
@@ -2084,6 +2088,28 @@ module Make (T : Term.S) = struct
       conj lower upper
     in
     big_conj (BatList.enum (List.map2 to_formula templates bounds))
+
+  let simplify_dillig_nonlinear mk_tmp _ phi =
+    (* Replace nonlinear terms with fresh vars & create map between the fresh
+       vars and the nonlinear terms they represent *)
+    let (lin_phi, nonlinear) = split_linear mk_tmp phi in
+    let s = new Smt.solver in
+    (* Add uninterp equality to the context for each fresh var *)
+    let assert_nl_eq nl_term var =
+      s#assrt (Smt.mk_eq (uninterpreted_nonlinear_term nl_term) (V.to_smt var))
+    in
+    TMap.iter assert_nl_eq nonlinear;
+    s#push ();
+    (* reverse map sends each variable to the nonlinear term it represents *)
+    let rev =
+      TMap.fold (fun t v rev -> VarMap.add v t rev) nonlinear VarMap.empty
+    in
+    (* substitution re-introduces non-linear terms *)
+    let sigma v =
+      try VarMap.find v rev
+      with Not_found -> T.var v
+    in
+    subst sigma (simplify_dillig_impl lin_phi s)
 
   module Syntax = struct
     let ( && ) x y = conj x y

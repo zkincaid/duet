@@ -292,32 +292,61 @@ let qe_partial2 () =
   let x = T.var "x" in
   let y = T.var "y" in
   let z = T.var "z" in
-  let phi = F.qe_partial (fun x -> x = "z") (x == y - T.one && y == z && x >= T.zero) in
+  let phi =
+    F.qe_partial (fun x -> x = "z") (x == y - T.one && y == z && x >= T.zero)
+  in
   assert_equal ~cmp:F.equiv ~printer:F.show phi (z >= T.one)
 
-let suite = "Formula" >:::
-            [
-              "test1" >:: test1;
-              "test2" >:: test2;
-              "test3" >:: test3;
-              "test4" >:: test4;
-              "test5" >:: test5;
-              "test6" >:: test6;
-              "test7" >:: test7;
-              "test8" >:: test8;
-              "test9" >:: test9;
-              "test10" >:: test10;
-              "test11" >:: test11;
-              "linearize1" >:: linearize1;
-              "linearize2" >:: linearize2;
-              "linearize3" >:: linearize3;
-              "linearize4" >:: linearize4;
-              "linearize5" >:: linearize5;
-              "linearize6" >:: linearize6;
-              "interpolate1" >:: interpolate1;
-              "interpolate2" >:: interpolate2;
-              "interpolate3" >:: interpolate3;
-              "optimize1" >:: optimize1;
-              "qe_partial1" >:: qe_partial1;
-              "qe_partial2" >:: qe_partial2
-            ]
+let simplify_dillig_nonlinear =
+  let max = ref (-1) in
+  let mk () =
+    incr max;
+    "nonlin" ^ (string_of_int (!max))
+  in
+  F.simplify_dillig_nonlinear mk (fun _ -> true)
+
+
+let test_simplify_dillig_nonlinear1 () =
+  let x = T.var "x" in
+  let y = T.var "y" in
+  let phi = (x == y * y) && (y * y == x) in
+  assert_equal ~cmp:F.equiv ~printer:F.show
+    (simplify_dillig_nonlinear phi)
+    (y * y == x)
+
+let test_simplify_dillig_nonlinear2 () =
+  let x = T.var "x" in
+  let y = T.var "y" in
+  let z = T.var "z" in
+  let phi = (y * y == x) && (y == z) || (x <= z * z) in
+  assert_equal ~cmp:F.equiv ~printer:F.show
+    (simplify_dillig_nonlinear phi)
+    (x <= z * z)
+
+let suite = "Formula" >::: [
+    "test1" >:: test1;
+    "test2" >:: test2;
+    "test3" >:: test3;
+    "test4" >:: test4;
+    "test5" >:: test5;
+    "test6" >:: test6;
+    "test7" >:: test7;
+    "test8" >:: test8;
+    "test9" >:: test9;
+    "test10" >:: test10;
+    "test11" >:: test11;
+    "linearize1" >:: linearize1;
+    "linearize2" >:: linearize2;
+    "linearize3" >:: linearize3;
+    "linearize4" >:: linearize4;
+    "linearize5" >:: linearize5;
+    "linearize6" >:: linearize6;
+    "interpolate1" >:: interpolate1;
+    "interpolate2" >:: interpolate2;
+    "interpolate3" >:: interpolate3;
+    "optimize1" >:: optimize1;
+    "qe_partial1" >:: qe_partial1;
+    "qe_partial2" >:: qe_partial2;
+    "test_simplify_dillig_nonlinear1" >:: test_simplify_dillig_nonlinear1;
+    "test_simplify_dillig_nonlinear2" >:: test_simplify_dillig_nonlinear2
+  ]
