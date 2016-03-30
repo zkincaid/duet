@@ -350,7 +350,9 @@ let _ =
   (*  F.opt_simplify_strategy := [F.qe_partial]*)
 
   (* chenged simplifying strategy *)
-  F.opt_simplify_strategy := [F.qe_partial; F.simplify_dillig]
+  F.opt_simplify_strategy := [F.qe_partial]
+  (* F.opt_simplify_strategy := [F.qe_partial; F.simplify_dillig] *)
+  (* F.opt_simplify_strategy := [F.qe_partial; F.simplify_z3] *)
 
 type ptr_term =
   { ptr_val : K.T.t;
@@ -807,7 +809,9 @@ let _ =
   let open KK in
   opt_loop_guard := None;
   (* chenged simplifying strategy *)
-  F.opt_simplify_strategy := [F.qe_partial; F.simplify_dillig]
+  F.opt_simplify_strategy := [F.qe_partial]
+  (* F.opt_simplify_strategy := [F.qe_partial; F.simplify_dillig] *)
+  (* F.opt_simplify_strategy := [F.qe_partial; F.simplify_z3] *)
 
 
 (* Inject terms from the untensored vocabulary to the tensored vocabulary.
