@@ -1003,21 +1003,29 @@ let () =
   Callback.register "QELME_callback" qe_lme_pvars;
   Callback.register "print_formula_callback" K.F.show;
   Callback.register "tensor_print_formula_callback" KK.F.show;
-  Callback.register "tensor_print_indent_callback" (fun indent tr ->
-      Format.open_vbox indent;
-      Format.printf "%a" KK.format tr;
-      Format.close_box ());
-  Callback.register "print_indent_callback" (fun indent tr ->
-      Format.open_vbox indent;
-      Format.printf "%a" K.format tr;
-      Format.close_box ());
-  Callback.register "print_robust_callback" (fun indent tr ->
-      Format.open_vbox indent;
-      Format.printf "%a" K.format_robust tr;
-      Format.close_box ());
   Callback.register "tensor_print_robust_callback" (fun indent tr ->
-      Format.open_vbox indent;
-      Format.printf "%a" KK.format_robust tr;
-      Format.close_box ());
+     Putil.pp_string (fun formatter tr ->
+     Format.pp_open_vbox formatter indent;
+     Format.pp_print_break formatter 0 0;
+     Format.fprintf formatter "%a" KK.format_robust tr;
+     Format.pp_close_box formatter ()) tr);
+  Callback.register "print_robust_callback" (fun indent tr ->
+     Putil.pp_string (fun formatter tr ->
+     Format.pp_open_vbox formatter indent;
+     Format.pp_print_break formatter 0 0;
+     Format.fprintf formatter "%a" K.format_robust tr;
+     Format.pp_close_box formatter ()) tr);
+  Callback.register "tensor_print_indent_callback" (fun indent tr ->
+     Putil.pp_string (fun formatter tr ->
+     Format.pp_open_vbox formatter indent;
+     Format.pp_print_break formatter 0 0;
+     Format.fprintf formatter "%a" KK.format tr;
+     Format.pp_close_box formatter ()) tr);
+  Callback.register "print_indent_callback" (fun indent tr ->
+     Putil.pp_string (fun formatter tr ->
+     Format.pp_open_vbox formatter indent;
+     Format.pp_print_break formatter 0 0;
+     Format.fprintf formatter "%a" K.format tr;
+     Format.pp_close_box formatter ()) tr);
   Callback.register "tensor_hull_equiv_callback" KK.F.T.D.equal;
   Callback.register "hull_equiv_callback" K.F.T.D.equal
