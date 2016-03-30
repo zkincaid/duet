@@ -65,6 +65,7 @@ module type S = sig
   val simplify : (T.V.t -> bool) -> t -> t
   val simplify_z3 : (T.V.t -> bool) -> t -> t
   val simplify_dillig : (T.V.t -> bool) -> t -> t
+  val simplify_dillig_nonlinear : (unit -> T.V.t) -> (T.V.t -> bool) -> t -> t
   val opt_simplify_strategy : ((T.V.t -> bool) -> t -> t) list ref
   val nudge : ?accuracy:int -> t -> t
 
@@ -95,6 +96,8 @@ module type S = sig
   val log_stats : Log.level -> unit
 
   val interpolate : t -> t -> t option
+
+  val format_robust : Format.formatter -> t -> unit
 
   module Syntax : sig
     val ( && ) : t -> t -> t
@@ -1398,10 +1401,8 @@ module Make (T : Term.S) = struct
     Log.time "Affine hull" (affine_hull_ceg s) vars
 
   module TMap = Putil.Map.Make(T)
-  exception Unsat
-  let nonlinear_equalities map phi vars =
-    let s = new Smt.solver in
 
+  let uninterpreted_nonlinear_term =
     let uninterp_mul_sym = Smt.mk_string_symbol "uninterp_mul" in
     let uninterp_div_sym = Smt.mk_string_symbol "uninterp_div" in
     let uninterp_mod_sym = Smt.mk_string_symbol "uninterp_mod" in
@@ -1440,11 +1441,16 @@ module Make (T : Term.S) = struct
         (mk_div x y, TyReal)
       | OMod ((x,TyInt),(y,TyInt)) -> (mk_mod x y, TyInt)
       | OMod (_, _) -> assert false
-      | OFloor (x, _)   -> (Smt.mk_real2int x, TyInt)
+      | OFloor (x, _) -> (Smt.mk_real2int x, TyInt)
     in
+    fun term -> fst (T.eval talg term)
+
+  exception Unsat
+  let nonlinear_equalities map phi vars =
+    let s = new Smt.solver in
     let assert_nl_eq nl_term var =
       logf "  %a = %a" V.format var T.format nl_term;
-      s#assrt (Smt.mk_eq (fst (T.eval talg nl_term)) (V.to_smt var))
+      s#assrt (Smt.mk_eq (uninterpreted_nonlinear_term nl_term) (V.to_smt var))
     in
     s#assrt (to_smt phi);
     logf "Nonlinear equations:";
@@ -2084,6 +2090,55 @@ module Make (T : Term.S) = struct
       conj lower upper
     in
     big_conj (BatList.enum (List.map2 to_formula templates bounds))
+
+  let simplify_dillig_nonlinear mk_tmp _ phi =
+    (* Replace nonlinear terms with fresh vars & create map between the fresh
+       vars and the nonlinear terms they represent *)
+    let (lin_phi, nonlinear) = split_linear mk_tmp phi in
+    let s = new Smt.solver in
+    (* Add uninterp equality to the context for each fresh var *)
+    let assert_nl_eq nl_term var =
+      s#assrt (Smt.mk_eq (uninterpreted_nonlinear_term nl_term) (V.to_smt var))
+    in
+    TMap.iter assert_nl_eq nonlinear;
+    s#push ();
+    (* reverse map sends each variable to the nonlinear term it represents *)
+    let rev =
+      TMap.fold (fun t v rev -> VarMap.add v t rev) nonlinear VarMap.empty
+    in
+    (* substitution re-introduces non-linear terms *)
+    let sigma v =
+      try VarMap.find v rev
+      with Not_found -> T.var v
+    in
+    subst sigma (simplify_dillig_impl lin_phi s)
+
+  let rec format_robust formatter phi =
+    let open Format in
+    let sort =
+      BatList.sort
+        (fun x y -> Pervasives.compare (nb_atoms x) (nb_atoms y))
+    in
+    match phi.node with
+    | Or xs ->
+      fprintf formatter "(@[<v 0>";
+      ApakEnum.pp_print_enum_nobox
+        ~pp_sep:(fun formatter () -> fprintf formatter "@;|| ")
+        format_robust
+        formatter
+        (BatList.enum (sort (Hset.elements xs)));
+      fprintf formatter "@])"
+    | And xs ->
+      fprintf formatter "(@[<v 0>";
+      ApakEnum.pp_print_enum_nobox
+        ~pp_sep:(fun formatter () -> fprintf formatter "@;&& ")
+        format_robust
+        formatter
+        (BatList.enum (sort (Hset.elements xs)));
+      fprintf formatter "@])"
+    | Atom (LeqZ t) -> fprintf formatter "@[%a <= 0@]" T.format t
+    | Atom (EqZ t) -> fprintf formatter "@[%a == 0@]" T.format t
+    | Atom (LtZ t) -> fprintf formatter "@[%a < 0@]" T.format t
 
   module Syntax = struct
     let ( && ) x y = conj x y

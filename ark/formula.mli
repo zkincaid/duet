@@ -142,6 +142,11 @@ module type S = sig
       Simplification in Scalable Static Analysis", SAS 2010. *)
   val simplify_dillig : (T.V.t -> bool) -> t -> t
 
+  (** As [simplify_dillig], except non-linear terms are treated as
+      uninterpreted function symbols so that all satisfiability queries are
+      performed in QF_UFLIRA. *)
+  val simplify_dillig_nonlinear : (unit -> T.V.t) -> (T.V.t -> bool) -> t -> t
+
   (** Default simplification strategy.  If not set, defaults to
       [qe_cover; simplify_dillig]. *)
   val opt_simplify_strategy : ((T.V.t -> bool) -> t -> t) list ref
@@ -213,6 +218,10 @@ module type S = sig
   val log_stats : Log.level -> unit
 
   val interpolate : t -> t -> t option
+
+  (** As [format], but additionally apply some transformations to make the
+      formatting more robust.  Should be used for regression testing. *)
+  val format_robust : Format.formatter -> t -> unit
 
   module Syntax : sig
     val ( && ) : t -> t -> t
