@@ -1227,4 +1227,16 @@ module Make (Var : Var) = struct
       Log.errorf "Gave up in loop computation";
       { guard = F.top;
         transform = M.mapi mk_nondet tr.transform }
+
+  let format_robust formatter tr =
+    Format.fprintf formatter
+      "{@[<v 0>transform:@;  @[<v 0>%a@]@;guard:@;  @[<v 0>%a@]@]}"
+      (ApakEnum.pp_print_enum_nobox
+         ~pp_sep:(fun formatter () -> Format.pp_print_break formatter 0 0)
+         (fun formatter (lhs, rhs) ->
+            Format.fprintf formatter "%a := %a"
+              Var.format lhs
+              T.format rhs))
+      (M.enum tr.transform)
+      F.format_robust tr.guard
 end

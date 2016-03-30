@@ -97,6 +97,8 @@ module type S = sig
 
   val interpolate : t -> t -> t option
 
+  val format_robust : Format.formatter -> t -> unit
+
   module Syntax : sig
     val ( && ) : t -> t -> t
     val ( || ) : t -> t -> t
@@ -2110,6 +2112,33 @@ module Make (T : Term.S) = struct
       with Not_found -> T.var v
     in
     subst sigma (simplify_dillig_impl lin_phi s)
+
+  let rec format_robust formatter phi =
+    let open Format in
+    let sort =
+      BatList.sort
+        (fun x y -> Pervasives.compare (nb_atoms x) (nb_atoms y))
+    in
+    match phi.node with
+    | Or xs ->
+      fprintf formatter "(@[<v 0>";
+      ApakEnum.pp_print_enum_nobox
+        ~pp_sep:(fun formatter () -> fprintf formatter "@;|| ")
+        format_robust
+        formatter
+        (BatList.enum (sort (Hset.elements xs)));
+      fprintf formatter "@])"
+    | And xs ->
+      fprintf formatter "(@[<v 0>";
+      ApakEnum.pp_print_enum_nobox
+        ~pp_sep:(fun formatter () -> fprintf formatter "@;&& ")
+        format_robust
+        formatter
+        (BatList.enum (sort (Hset.elements xs)));
+      fprintf formatter "@])"
+    | Atom (LeqZ t) -> fprintf formatter "@[%a <= 0@]" T.format t
+    | Atom (EqZ t) -> fprintf formatter "@[%a == 0@]" T.format t
+    | Atom (LtZ t) -> fprintf formatter "@[%a < 0@]" T.format t
 
   module Syntax = struct
     let ( && ) x y = conj x y

@@ -219,6 +219,10 @@ module type S = sig
 
   val interpolate : t -> t -> t option
 
+  (** As [format], but additionally apply some transformations to make the
+      formatting more robust.  Should be used for regression testing. *)
+  val format_robust : Format.formatter -> t -> unit
+
   module Syntax : sig
     val ( && ) : t -> t -> t
     val ( || ) : t -> t -> t

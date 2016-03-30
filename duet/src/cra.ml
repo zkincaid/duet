@@ -1011,5 +1011,13 @@ let () =
       Format.open_vbox indent;
       Format.printf "%a" K.format tr;
       Format.close_box ());
+  Callback.register "print_robust_callback" (fun indent tr ->
+      Format.open_vbox indent;
+      Format.printf "%a" K.format_robust tr;
+      Format.close_box ());
+  Callback.register "tensor_print_robust_callback" (fun indent tr ->
+      Format.open_vbox indent;
+      Format.printf "%a" KK.format_robust tr;
+      Format.close_box ());
   Callback.register "tensor_hull_equiv_callback" KK.F.T.D.equal;
   Callback.register "hull_equiv_callback" K.F.T.D.equal
