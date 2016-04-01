@@ -823,7 +823,7 @@ module Make (Var : Var) = struct
       match rhs with
       | Some cf -> Some cf
       | None ->
-        if has_coeff v then begin
+        if has_coeff v && has_coeff (Var.prime v) then begin
           match find_recurrence v with
           | Some rhs ->
             found_recurrence := true;
