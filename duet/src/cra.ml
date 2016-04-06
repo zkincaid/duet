@@ -1029,4 +1029,6 @@ let () =
      Format.pp_close_box formatter ()) tr);
   Callback.register "tensor_hull_equiv_callback" KK.F.T.D.equal;
   Callback.register "hull_equiv_callback" K.F.T.D.equal;
-  Callback.register "is_sat_callback" (fun tr -> K.F.is_sat tr.K.guard)
+  Callback.register "is_sat_callback" (fun tr ->
+      try K.F.is_sat tr.K.guard
+      with Formula.Timeout -> K.F.is_sat (linearize () tr.K.guard))
