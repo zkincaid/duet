@@ -153,13 +153,13 @@ let optimize5 () =
   | _ -> assert false
 *)
 
-let aqsat1 () =
+let simsat1 () =
   let phi =
     Ctx.mk_forall ~name:"r" `TyReal
       (Ctx.mk_exists ~name:"s" `TyReal
          (Ctx.mk_lt (Ctx.mk_var 1 `TyReal) (Ctx.mk_var 0 `TyReal)))
   in
-  assert_equal `Sat (Abstract.aqsat smt_ctx phi)
+  assert_equal `Sat (Abstract.simsat smt_ctx phi)
 
 let mbp1 () =
   let phi =
@@ -196,7 +196,7 @@ let sim1 () =
          ((Ctx.mk_not ((y < x) && (x < (int 2))))
           || x = (int 1)))
   in
-  assert_bool "sim1" (Abstract.aqsat smt_ctx phi = `Sat)
+  assert_bool "sim1" (Abstract.simsat smt_ctx phi = `Sat)
 
 let sim2 () =
   let phi =
@@ -207,7 +207,7 @@ let sim2 () =
       (Ctx.mk_forall ~name:"y" `TyInt
          (x <= (Ctx.mk_ite ((int 0) < y) y (Ctx.mk_neg y))))
   in
-  assert_bool "sim2" (Abstract.aqsat smt_ctx phi = `Sat)
+  assert_bool "sim2" (Abstract.simsat smt_ctx phi = `Sat)
 
 
 let suite = "Abstract" >::: [
@@ -222,7 +222,7 @@ let suite = "Abstract" >::: [
     "optimize3" >:: optimize3;
     "optimize4" >:: optimize4;
     (*    "optimize5" >:: optimize5;*)
-    "aqsat1" >:: aqsat1;
+    "simsat1" >:: simsat1;
     "mbp1" >:: mbp1;
     "mbp2" >:: mbp2;
     "sim1" >:: sim1;

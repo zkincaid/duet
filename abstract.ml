@@ -1631,7 +1631,7 @@ module CSS = struct
         core
 end
 
-let aqsat_forward smt_ctx qf_pre phi =
+let simsat_forward smt_ctx qf_pre phi =
   let ark = smt_ctx#ark in
   let select_term model x atoms =
     match typ_symbol ark x with
@@ -1820,7 +1820,7 @@ let aqsat_forward smt_ctx qf_pre phi =
     | `Sat _ -> if negate then `Unsat else `Sat
     | `Unsat _ -> if negate then `Sat else `Unsat
 
-let aqsat_core smt_ctx qf_pre phi =
+let simsat_core smt_ctx qf_pre phi =
   let ark = smt_ctx#ark in
   let select_term model x phi =
     match typ_symbol ark x with
@@ -1836,23 +1836,23 @@ let aqsat_core smt_ctx qf_pre phi =
     CSS.reset unsat_ctx;
     CSS.is_sat select_term sat_ctx unsat_ctx
 
-let aqsat smt_ctx phi =
+let simsat smt_ctx phi =
   let ark = smt_ctx#ark in
   let constants = fold_constants Symbol.Set.add phi Symbol.Set.empty in
   let (qf_pre, phi) = normalize ark phi in
   let qf_pre =
     (List.map (fun k -> (`Exists, k)) (Symbol.Set.elements constants))@qf_pre
   in
-  aqsat_core smt_ctx qf_pre phi
+  simsat_core smt_ctx qf_pre phi
 
-let aqsat_forward smt_ctx phi =
+let simsat_forward smt_ctx phi =
   let ark = smt_ctx#ark in
   let constants = fold_constants Symbol.Set.add phi Symbol.Set.empty in
   let (qf_pre, phi) = normalize ark phi in
   let qf_pre =
     (List.map (fun k -> (`Exists, k)) (Symbol.Set.elements constants))@qf_pre
   in
-  aqsat_forward smt_ctx qf_pre phi
+  simsat_forward smt_ctx qf_pre phi
 
 let maximize_feasible smt_ctx phi t =
   let ark = smt_ctx#ark in
@@ -1994,7 +1994,7 @@ let maximize_feasible smt_ctx phi t =
     check_bound None
 
 let maximize smt_ctx phi t =
-  match aqsat smt_ctx phi with
+  match simsat smt_ctx phi with
   | `Sat -> maximize_feasible smt_ctx phi t
   | `Unsat -> `MinusInfinity
   | `Unknown -> `Unknown

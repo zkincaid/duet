@@ -22,11 +22,13 @@ val affine_hull : 'a smt_context -> 'a formula -> symbol list -> 'a term list
 
 val boxify : 'a smt_context -> 'a formula -> 'a term list -> 'a formula
 
-(** Alternating quantifier satisfiability *)
-val aqsat : 'a smt_context -> 'a formula -> [ `Sat | `Unsat | `Unknown ]
+(** Satisfiability via strategy improvement *)
+val simsat : 'a smt_context -> 'a formula -> [ `Sat | `Unsat | `Unknown ]
 
-(** Alternating quantifier satisfiability *)
-val aqsat_forward : 'a smt_context -> 'a formula -> [ `Sat | `Unsat | `Unknown ]
+(** Satisfiability via strategy improvement, forwards version *)
+val simsat_forward : 'a smt_context -> 'a formula -> [ `Sat
+                                                     | `Unsat
+                                                     | `Unknown ]
 
 (** Alternating quantifier optimization *)
 val maximize : 'a smt_context -> 'a formula -> 'a term -> [ `Bounded of QQ.t
