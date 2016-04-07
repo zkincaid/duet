@@ -65,11 +65,12 @@ let _ =
   match Sys.argv.(i) with
   | "sat" ->
     let phi = load_formula Sys.argv.(i+1) in
-    print_result (Abstract.aqsat smt_ctx phi)
+    print_result (Abstract.simsat smt_ctx phi)
+    (*    Apak.Log.print_stats ()*)
 
   | "sat-forward" ->
     let phi = load_formula Sys.argv.(i+1) in
-    print_result (Abstract.aqsat_forward smt_ctx phi)
+    print_result (Abstract.simsat_forward smt_ctx phi)
 
   | "easysat" ->
     let phi = load_formula Sys.argv.(i+1) in
