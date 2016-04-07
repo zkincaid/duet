@@ -14,6 +14,10 @@ let x = Ctx.mk_const (Ctx.mk_symbol ~name:"x" `TyInt)
 let y = Ctx.mk_const (Ctx.mk_symbol ~name:"y" `TyInt)
 let z = Ctx.mk_const (Ctx.mk_symbol ~name:"z" `TyInt)
 
+let b = Ctx.mk_const (Ctx.mk_symbol ~name:"b" `TyBool)
+let f = Ctx.mk_symbol ~name:"f" (`TyFun ([`TyInt; `TyBool], `TyInt))
+let p = Ctx.mk_symbol ~name:"p" (`TyFun ([`TyInt; `TyBool], `TyBool))
+
 let frac num den = Ctx.mk_real (QQ.of_frac num den)
 let int k = Ctx.mk_real (QQ.of_int k)
 
@@ -54,6 +58,13 @@ let roundtrip3 () =
                  && (var 0 `TyReal) < (var 2 `TyInt)))))
   in
   assert_equal_formula phi (smt_ctx#formula_of (smt_ctx#of_formula phi))
+
+let roundtrip4 () =
+  let term =
+    let open Infix in
+    (Ctx.mk_app f [x; b]) + x
+  in
+  assert_equal_term term (smt_ctx#term_of (smt_ctx#of_term term))
 
 let is_interpolant phi psi itp =
   (smt_ctx#implies phi itp)
@@ -121,6 +132,7 @@ let suite = "SMT" >:::
     "roundtrip1" >:: roundtrip1;
     "roundtrip2" >:: roundtrip2;
     "roundtrip3" >:: roundtrip3;
+    "roundtrip4" >:: roundtrip4;
     "interpolate1" >:: interpolate1;
     "interpolate2" >:: interpolate2;
     "interpolate3" >:: interpolate3;

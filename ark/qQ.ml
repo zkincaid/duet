@@ -111,6 +111,7 @@ let floor x =
   Mpzf.fdiv_q num den
 
 let idiv x y =
+  if compare y zero = 0 then invalid_arg "QQ.idiv: divide by zero";
   let (xnum, xden) = to_zzfrac x in
   let (ynum, yden) = to_zzfrac y in
   ZZ.div (ZZ.mul xnum yden) (ZZ.mul ynum xden)

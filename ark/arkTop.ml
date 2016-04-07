@@ -183,6 +183,7 @@ let _ =
       | `Tru | `Fls -> 1
       | `Proposition _ | `Atom (_, _, _) -> 1
       | `Not x | `Quantify (_, _, _, x) -> x + 1
+      | `Ite (x, y, z) -> x + y + z + 1
       | `And xs | `Or xs -> List.fold_left (+) 1 xs
     in
     Log.logf ~level:`always "Quantifier prefix: %s" qf_pre;

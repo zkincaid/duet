@@ -41,5 +41,5 @@ uninstall:
 reinstall:
 	$(SETUP) -reinstall
 
-doc:
+doc: setup.ml setup.data
 	$(SETUP) -doc

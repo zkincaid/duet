@@ -161,6 +161,53 @@ let aqsat1 () =
   in
   assert_equal `Sat (Abstract.aqsat smt_ctx phi)
 
+let mbp1 () =
+  let phi =
+    let open Infix in
+    let s = Ctx.mk_var 0 `TyReal in
+    (Ctx.mk_exists ~name:"s" `TyReal
+       (s = r && (s <= (int 0) || r <= (int 1))))
+  in
+  let psi =
+    let open Infix in
+    r <= (int 1)
+  in
+  assert_equiv_formula (Abstract.qe_mbp smt_ctx phi) psi
+
+let mbp2 () =
+  let phi =
+    let s = Ctx.mk_var 0 `TyReal in
+    Ctx.mk_forall ~name:"s" `TyReal
+      (Ctx.mk_leq r (Ctx.mk_ite
+                       (Ctx.mk_lt (int 0) s)
+                       s
+                       (Ctx.mk_neg s)))
+  in
+  let psi = Ctx.mk_leq r (int 0) in
+  assert_equiv_formula (Abstract.qe_mbp smt_ctx phi) psi
+
+let sim1 () =
+  let phi =
+    let x = Ctx.mk_var 1 `TyInt in
+    let y = Ctx.mk_var 0 `TyInt in
+    let open Infix in
+    Ctx.mk_exists ~name:"x" `TyInt
+      (Ctx.mk_forall ~name:"y" `TyInt
+         ((Ctx.mk_not ((y < x) && (x < (int 2))))
+          || x = (int 1)))
+  in
+  assert_bool "sim1" (Abstract.aqsat smt_ctx phi = `Sat)
+
+let sim2 () =
+  let phi =
+    let x = Ctx.mk_var 1 `TyInt in
+    let y = Ctx.mk_var 0 `TyInt in
+    let open Infix in
+    Ctx.mk_exists ~name:"x" `TyInt
+      (Ctx.mk_forall ~name:"y" `TyInt
+         (x <= (Ctx.mk_ite ((int 0) < y) y (Ctx.mk_neg y))))
+  in
+  assert_bool "sim2" (Abstract.aqsat smt_ctx phi = `Sat)
 
 
 let suite = "Abstract" >::: [
@@ -176,4 +223,8 @@ let suite = "Abstract" >::: [
     "optimize4" >:: optimize4;
     (*    "optimize5" >:: optimize5;*)
     "aqsat1" >:: aqsat1;
+    "mbp1" >:: mbp1;
+    "mbp2" >:: mbp2;
+    "sim1" >:: sim1;
+    "sim2" >:: sim2;
   ]
