@@ -109,3 +109,9 @@ Test regression
   Command:   ./regression.sh run pa coarsen hdfg chdfg proofspace
   TestTools: duet
   run$:      flag(tests)
+
+Document API
+  Title: API reference for Ark
+  Type: OCamlbuild (0.4)
+  XOCamlbuildPath: .
+  XOCamlbuildLibraries: apak, ark
