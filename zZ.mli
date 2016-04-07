@@ -1,3 +1,5 @@
+(** Unbounded integers *)
+
 type t = Mpzf.t
 
 val pp : Format.formatter -> t -> unit
@@ -18,7 +20,14 @@ val negate : t -> t
   
 val sub : t -> t -> t
 
+(** Integer division conforming to C99:
+    [a == (a/b)*b + a%b],
+    division truncates towards zero *)
 val div : t -> t -> t
+
+(** Modulo conforming to C99:
+    [a == (a/b)*b + a%b],
+    division truncates towards zero *)
 val modulo : t -> t -> t
 
 val gcd : t -> t -> t

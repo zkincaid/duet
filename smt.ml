@@ -215,14 +215,19 @@ let mk_quantified ctx qt ?name:(name="_") typ phi =
 
 let z3_of_symbol z3 sym = Z3.Symbol.mk_int z3 (int_of_symbol sym)
 
-let z3_of_term ark z3 term =
+let rec z3_of_expr ark z3 expr =
+  match refine ark expr with
+  | `Term t -> z3_of_term ark z3 t
+  | `Formula phi -> z3_of_formula ark z3 phi
+
+and z3_of_term (ark : 'a context) z3 (term : 'a term) =
   let alg = function
     | `Real qq ->
       begin match QQ.to_zz qq with
         | Some zz -> Z3.Arithmetic.Integer.mk_numeral_s z3 (ZZ.show zz)
         | None -> Z3.Arithmetic.Real.mk_numeral_s z3 (QQ.show qq)
       end
-    | `Const sym ->
+    | `Const sym | `App (sym, []) ->
       let sort = match typ_symbol ark sym with
         | `TyInt -> sort_of_typ z3 `TyInt
         | `TyReal -> sort_of_typ z3 `TyReal
@@ -230,6 +235,17 @@ let z3_of_term ark z3 term =
       in
       let decl = Z3.FuncDecl.mk_const_decl z3 (z3_of_symbol z3 sym) sort in
       Z3.Expr.mk_const_f z3 decl
+
+    | `App (func, args) ->
+      let (param_sorts, return_sort) = match typ_symbol ark func with
+        | `TyInt | `TyReal | `TyBool -> invalid_arg "z3_of.term"
+        | `TyFun (params, return) ->
+          (List.map (sort_of_typ z3) params, sort_of_typ z3 return)
+      in
+      let z3sym = z3_of_symbol z3 func in
+      let decl = Z3.FuncDecl.mk_func_decl z3 z3sym param_sorts return_sort in
+      Z3.Expr.mk_app z3 decl (List.map (z3_of_expr ark z3) args)
+
     | `Var (i, `TyFun (_, _)) | `Var (i, `TyBool) -> invalid_arg "z3_of.term"
     | `Var (i, `TyInt) ->
       Z3.Quantifier.mk_bound z3 i (sort_of_typ z3 `TyInt)
@@ -241,10 +257,12 @@ let z3_of_term ark z3 term =
     | `Binop (`Mod, s, t) -> Z3.Arithmetic.Integer.mk_mod z3 s t
     | `Unop (`Floor, t) -> Z3. Arithmetic.Real.mk_real2int z3 t
     | `Unop (`Neg, t) -> Z3.Arithmetic.mk_unary_minus z3 t
+    | `Ite (cond, bthen, belse) ->
+      Z3.Boolean.mk_ite z3 (z3_of_formula ark z3 cond) bthen belse
   in
   Term.eval ark alg term
 
-let z3_of_formula ark z3 phi =
+and z3_of_formula ark z3 phi =
   let of_term = z3_of_term ark z3 in
   let alg = function
     | `Tru -> Z3.Boolean.mk_true z3
@@ -259,116 +277,74 @@ let z3_of_formula ark z3 phi =
     | `Atom (`Lt, s, t) -> Z3.Arithmetic.mk_lt z3 (of_term s) (of_term t)
     | `Proposition (`Var i) ->
       Z3.Quantifier.mk_bound z3 i (sort_of_typ z3 `TyBool)
-    | `Proposition (`Const p) ->
+    | `Proposition (`Const p) | `Proposition (`App (p, [])) ->
       let decl =
         Z3.FuncDecl.mk_const_decl z3
           (z3_of_symbol z3 p)
           (sort_of_typ z3 `TyBool)
       in
       Z3.Expr.mk_const_f z3 decl
+    | `Proposition (`App (predicate, args)) ->
+      let (param_sorts, return_sort) = match typ_symbol ark predicate with
+        | `TyInt | `TyReal | `TyBool -> invalid_arg "z3_of.term"
+        | `TyFun (params, return) ->
+          (List.map (sort_of_typ z3) params, sort_of_typ z3 return)
+      in
+      let z3sym = z3_of_symbol z3 predicate in
+      let decl = Z3.FuncDecl.mk_func_decl z3 z3sym param_sorts return_sort in
+      Z3.Expr.mk_app z3 decl (List.map (z3_of_expr ark z3) args)
+    | `Ite (cond, bthen, belse) -> Z3.Boolean.mk_ite z3 cond bthen belse
   in
   Formula.eval ark alg phi
 
+type 'a gexpr = ('a, typ_fo) Syntax.expr
 let of_z3 context sym_of_decl expr =
-  let term = function
-    | `Term (_, t) -> t
-    | `Formula phi -> invalid_arg "of_z3.term"
+  let term expr =
+    match refine context expr with
+    | `Term t -> t
+    | _ -> invalid_arg "of_z3.term"
   in
-  let ite = function
-    | `Term (ite, _) -> ite
-    | `Formula phi -> invalid_arg "of_z3.term"
-  in
-  let ite_formula phi (sk, cond, tthen, telse) =
-    mk_or context [
-      mk_and context [
-        cond;
-        substitute_const context
-          (fun k -> if k = sk then tthen else mk_const context k)
-          phi
-      ];
-      mk_and context [
-        mk_not context cond;
-        substitute_const context
-          (fun k -> if k = sk then telse else mk_const context k)
-          phi
-      ]
-    ]
-  in
-  let formula = function
+  let formula expr =
+    match refine context expr with
     | `Formula phi -> phi
     | _ -> invalid_arg "of_z3.formula"
   in
-  let alg = function
-    | `Real qq -> `Term ([], mk_real context qq)
-    | `Var (i, `TyBool) -> `Formula (mk_var context i `TyBool)
-    | `Var (i, typ) -> `Term ([], mk_var context i typ)
-    | `App (decl, []) ->
-      let const_sym = sym_of_decl decl in
-      begin match typ_symbol context const_sym with
-        | `TyBool -> `Formula (mk_const context const_sym)
-        | `TyInt | `TyReal -> `Term ([], mk_const context const_sym)
-        | `TyFun (_, _) -> assert false (* Shouldn't appear with zero args *)
-      end
-    | `Add sum ->
-      `Term (List.concat (List.map ite sum),
-             mk_add context (List.map term sum))
-    | `Mul product ->
-      `Term (List.concat (List.map ite product),
-             mk_mul context (List.map term product))
-    | `Binop (op, s, t) ->
-      let mk_op = match op with
-        | `Div -> mk_div
-        | `Mod -> mk_mod
-      in
-      `Term ((ite s)@(ite t), mk_op context (term s) (term t))
-    | `Unop (`Floor, t) -> `Term (ite t, mk_floor context (term t))
-    | `Unop (`Neg, t) -> `Term (ite t, mk_neg context (term t))
-    | `Tru -> `Formula (mk_true context)
-    | `Fls -> `Formula (mk_false context)
-    | `And conjuncts -> `Formula (mk_and context (List.map formula conjuncts))
-    | `Or disjuncts -> `Formula (mk_or context (List.map formula disjuncts))
-    | `Not phi -> `Formula (mk_not context (formula phi))
-    | `Quantify (`Exists, name, typ, phi) ->
-      `Formula (mk_exists context ~name:name typ (formula phi))
-    | `Quantify (`Forall, name, typ, phi) ->
-      `Formula (mk_forall context ~name:name typ (formula phi))
-    | `Atom (`Eq, `Term (ite_s, s), `Term (ite_t, t)) ->
-      `Formula (List.fold_left ite_formula (mk_eq context s t) (ite_s@ite_t))
-    | `Atom (`Eq, `Formula phi, `Formula psi) ->
-      `Formula (mk_or context [
-          mk_and context [mk_not context phi; mk_not context psi];
-          mk_and context [phi; psi];
-        ])
-    | `Atom (`Leq, s, t) ->
-      `Formula (List.fold_left
-                  ite_formula
-                  (mk_leq context (term s) (term t))
-                  ((ite s)@(ite t)))
-    | `Atom (`Lt, s, t) ->
-      `Formula (List.fold_left
-                  ite_formula
-                  (mk_lt context (term s) (term t))
-                  ((ite s)@(ite t)))
-    | `Atom (`Eq, _, _) -> invalid_arg "of_z3"
-    | `Ite (`Formula cond, `Formula phi, `Formula psi) ->
-      let ite =
-        mk_or context [
-          mk_and context [cond; phi];
-          mk_and context [mk_not context cond; psi]
-        ]
-      in
-      `Formula ite
-    | `Ite (cond, s, t) ->
-      let typ =
-        match term_typ context (term s), term_typ context (term s) with
-        | `TyInt, `TyInt -> `TyInt
-        | _, _ -> `TyReal
-      in
-      let sk = mk_symbol context ~name:"ite" typ in
-      `Term ((sk, formula cond, term s, term t)::((ite s)@(ite t)),
-             mk_const context sk)
+  let alg : (('a, typ_fo) Syntax.expr) open_expr -> ('a, typ_fo) Syntax.expr =
+      function
+    | `Real qq -> (mk_real context qq :> 'a gexpr)
+    | `Var (i, typ) -> mk_var context i typ
     | `App (decl, args) ->
-      invalid_arg ("of_z3: " ^ (Z3.FuncDecl.to_string decl))
+      let const_sym = sym_of_decl decl in
+      mk_app context const_sym args
+    | `Add sum -> (mk_add context (List.map term sum) :> 'a gexpr)
+    | `Mul product -> (mk_mul context (List.map term product) :> 'a gexpr)
+    | `Binop (`Div, s, t) -> (mk_div context (term s) (term t) :> 'a gexpr)
+    | `Binop (`Mod, s, t) -> (mk_mod context (term s) (term t) :> 'a gexpr)
+    | `Unop (`Floor, t) -> (mk_floor context (term t) :> 'a gexpr)
+    | `Unop (`Neg, t) -> (mk_neg context (term t) :> 'a gexpr)
+    | `Tru -> (mk_true context :> 'a gexpr)
+    | `Fls -> (mk_false context :> 'a gexpr)
+    | `And conjuncts ->
+      (mk_and context (List.map formula conjuncts) :> 'a gexpr)
+    | `Or disjuncts -> (mk_or context (List.map formula disjuncts) :> 'a gexpr)
+    | `Not phi -> (mk_not context (formula phi) :> 'a gexpr)
+    | `Quantify (`Exists, name, typ, phi) ->
+      (mk_exists context ~name:name typ (formula phi) :> 'a gexpr)
+    | `Quantify (`Forall, name, typ, phi) ->
+      (mk_forall context ~name:name typ (formula phi) :> 'a gexpr)
+    | `Atom (`Eq, s, t) ->
+      begin match refine context s, refine context t with
+        | `Term s, `Term t -> (mk_eq context s t :> 'a gexpr)
+        | `Formula phi, `Formula psi ->
+          (mk_or context [mk_and context [phi; psi];
+                          mk_and context [mk_not context phi;
+                                          mk_not context phi]]
+           :> 'a gexpr)
+        | _, _ -> invalid_arg "of_z3: equal"
+      end
+    | `Atom (`Leq, s, t) -> (mk_leq context (term s) (term t) :> 'a gexpr)
+    | `Atom (`Lt, s, t) -> (mk_lt context (term s) (term t) :> 'a gexpr)
+    | `Ite (cond, bthen, belse) -> mk_ite context (formula cond) bthen belse
   in
   eval alg expr
 
@@ -380,14 +356,14 @@ let sym_of_decl decl =
   symbol_of_int (Z3.Symbol.get_int sym)
 
 let term_of_z3 context term =
-  match of_z3 context sym_of_decl term with
-  | `Term ([], t) -> t
+  match refine context (of_z3 context sym_of_decl term) with
+  | `Term t -> t
   | _ -> invalid_arg "term_of"
 
 let formula_of_z3 context phi =
-  match of_z3 context sym_of_decl phi with
+  match refine context (of_z3 context sym_of_decl phi) with
   | `Formula phi -> phi
-  | `Term _ -> invalid_arg "formula_of"
+  |  _ -> invalid_arg "formula_of"
 
 
 class ['a] z3_model (context : 'a context) z3 m =
@@ -612,7 +588,7 @@ let mk_context : 'a context -> (string * string) list -> 'a smt_context
           assert (FuncDecl.get_domain decl = []);
           cos (Symbol.to_string sym, typ_of_sort (FuncDecl.get_range decl))
       in
-      match of_z3 context sym_of_decl ast with
+      match refine context (of_z3 context sym_of_decl ast) with
       | `Formula phi -> phi
       | `Term _ -> invalid_arg "load_smtlib2"
   end

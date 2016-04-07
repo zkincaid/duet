@@ -21,7 +21,6 @@ let negate = Mpzf.neg
 let one = Mpzf.of_int 1
 let zero = Mpzf.of_int 0
 
-(* C99: a == (a/b)*b + a%b, division truncates towards zero *)
 let modulo = Mpzf.tdiv_r
 let div = Mpzf.tdiv_q
 

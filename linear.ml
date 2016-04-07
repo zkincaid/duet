@@ -288,7 +288,6 @@ let solve mat b =
   try Some (solve_exn mat b)
   with No_solution -> None
 
-
 let vector_right_mul m v =
   m|> IntMap.filter_map (fun _ row ->
       let cell = QQVector.dot row v in

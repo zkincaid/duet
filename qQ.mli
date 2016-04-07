@@ -1,3 +1,5 @@
+(** Unbounded rationals *)
+
 type t = Mpqf.t
 
 val pp : Format.formatter -> t -> unit
@@ -41,6 +43,18 @@ val min : t -> t -> t
 val max : t -> t -> t
 val abs : t -> t
 
-val nudge_up : ?accuracy:int -> t -> t
-val nudge_down : ?accuracy:int -> t -> t
+(** {3 Approximation of rationals} *)
+
+(** Compute an upper and lower bound for a rational number (with small
+    representations) via truncated continued fractions.  The optional
+    [accuracy] parameter determines the number of terms in the continued
+    fraction (larger => more accurate, smaller => smaller representation) *)
 val nudge : ?accuracy:int -> t -> t * t
+
+(** Compute an upper bound for a rational number (with a small
+    representation). *)
+val nudge_up : ?accuracy:int -> t -> t
+
+(** Compute an lower bound for a rational number (with a small
+    representation). *)
+val nudge_down : ?accuracy:int -> t -> t

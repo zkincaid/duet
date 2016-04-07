@@ -6,10 +6,13 @@ open Apak
 include Log.Make(struct let name = "ark.abstract" end)
 
 exception Nonlinear
+exception Equal_term of Linear.QQVector.t
+exception Divide_by_zero
 
-(* Affine expressions over constant symbols.  dim_of_const, const_dim, and
-   const_of_dim are used to translate between constant symbols and the
-   dimensions of the coordinate space. *)
+
+(* Affine expressions over constant symbols.  dim_of_sym, const_dim, and
+   sym_of_dim are used to translate between symbols and the dimensions of the
+   coordinate space. *)
 module V = Linear.QQVector
 module VS = Putil.Set.Make(Linear.QQVector)
 module VM = Putil.Map.Make(Linear.QQVector)
@@ -44,20 +47,25 @@ let linterm_of ark term =
     if equal rest zero then k
     else raise Nonlinear
   in
+  let nonzero_qq_of term =
+    let qq = qq_of term in
+    if QQ.equal qq QQ.zero then raise Nonlinear else qq
+  in
   let mul x y =
     try scalar_mul (qq_of x) y
     with Nonlinear -> scalar_mul (qq_of y) x
   in
   let alg = function
     | `Real qq -> real qq
-    | `Const k -> of_term QQ.one (dim_of_sym k)
-    | `Var (_, _) -> raise Nonlinear
+    | `Const k | `App (k, []) -> of_term QQ.one (dim_of_sym k)
+    | `Var (_, _) | `App (_, _) -> raise Nonlinear
     | `Add sum -> List.fold_left add zero sum
     | `Mul sum -> List.fold_left mul (real QQ.one) sum
-    | `Binop (`Div, x, y) -> scalar_mul (QQ.inverse (qq_of y)) x
-    | `Binop (`Mod, x, y) -> real (QQ.modulo (qq_of x) (qq_of y))
+    | `Binop (`Div, x, y) -> scalar_mul (QQ.inverse (nonzero_qq_of y)) x
+    | `Binop (`Mod, x, y) -> real (QQ.modulo (qq_of x) (nonzero_qq_of y))
     | `Unop (`Floor, x) -> real (QQ.of_zz (QQ.floor (qq_of x)))
     | `Unop (`Neg, x) -> negate x
+    | `Ite (_, _, _) -> raise Nonlinear
   in
   Term.eval ark alg term
 
@@ -75,24 +83,6 @@ let of_linterm ark linterm =
 
 let pp_linterm ark formatter linterm =
   Term.pp ark formatter (of_linterm ark linterm)
-
-let evaluate_term ark interp ?(env=Env.empty) term =
-  let f = function
-    | `Real qq -> qq
-    | `Const k -> interp k
-    | `Var (i, _) ->
-      begin match Env.find env i with
-        | `Real qq -> qq
-        | _ -> invalid_arg "evaluate_term"
-      end
-    | `Add xs -> List.fold_left QQ.add QQ.zero xs
-    | `Mul xs -> List.fold_left QQ.mul QQ.one xs
-    | `Binop (`Div, dividend, divisor) -> QQ.div dividend divisor
-    | `Binop (`Mod, t, modulus) -> QQ.modulo t modulus
-    | `Unop (`Floor, t) -> QQ.of_zz (QQ.floor t)
-    | `Unop (`Neg, t) -> QQ.negate t
-  in
-  Term.eval ark f term
 
 let evaluate_linterm interp term =
   (V.enum term)
@@ -189,6 +179,71 @@ module Interpretation = struct
             | `Bool false -> (mk_false ark :> ('a, typ) expr)
           end
         with Not_found -> mk_const ark sym)
+
+  let rec evaluate_term interp ?(env=Env.empty) term =
+    let f = function
+      | `Real qq -> qq
+      | `Const k | `App (k, []) -> real interp k
+      | `Var (i, _) ->
+        begin match Env.find env i with
+          | `Real qq -> qq
+          | _ -> invalid_arg "evaluate_term: ill-typed variable"
+        end
+      | `Add xs -> List.fold_left QQ.add QQ.zero xs
+      | `Mul xs -> List.fold_left QQ.mul QQ.one xs
+      | `Binop (`Div, dividend, divisor) when QQ.equal divisor QQ.zero ->
+        raise Divide_by_zero
+      | `Binop (`Mod, t, modulus) when QQ.equal modulus QQ.zero ->
+        raise Divide_by_zero
+      | `Binop (`Div, dividend, divisor) -> QQ.div dividend divisor
+      | `Binop (`Mod, t, modulus) -> QQ.modulo t modulus
+      | `Unop (`Floor, t) -> QQ.of_zz (QQ.floor t)
+      | `Unop (`Neg, t) -> QQ.negate t
+      | `App (_, _) -> invalid_arg "evaluate_term: application"
+      | `Ite (cond, bthen, belse) ->
+        if evaluate_formula interp ~env cond then
+          bthen
+        else
+          belse
+    in
+    try
+      Term.eval interp.ark f term
+    with Not_found ->
+      invalid_arg "evaluate_term: no interpretation for constant symbol"
+
+  and evaluate_formula interp ?(env=Env.empty) phi =
+    let f = function
+      | `And xs -> List.for_all (fun x -> x) xs
+      | `Or xs -> List.exists (fun x -> x) xs
+      | `Tru -> true
+      | `Fls -> false
+      | `Atom (op, s, t) ->
+        begin try
+            let s = evaluate_term interp ~env s in
+            let t = evaluate_term interp ~env t in
+            begin match op with
+              | `Leq -> QQ.leq s t
+              | `Eq -> QQ.equal s t
+              | `Lt -> QQ.lt s t
+            end
+          with Divide_by_zero -> false
+        end
+      | `Not v -> not v
+      | `Ite (cond, bthen, belse) -> if cond then bthen else belse
+      | `Proposition (`Const k) -> bool interp k
+      | `Proposition (`Var i) ->
+        begin match Env.find env i with
+        | `Bool v -> v
+        | _ -> invalid_arg "evaluate_formula: ill-typed variable"
+        end
+      | `Proposition (`App (_, _)) ->
+        invalid_arg "evaluate_formula: function application"
+      | `Quantify (_, _, _, _) -> invalid_arg "evalutate_formula: quantifier"
+    in
+    try
+      Formula.eval interp.ark f phi
+    with Not_found ->
+      invalid_arg "evaluate_formula: no interpretation for constant symbol"
 end
 
 (* Counter-example based extraction of the affine hull of a formula.  This
@@ -261,13 +316,66 @@ let affine_hull (smt_ctx : 'a Smt.smt_context) phi constants =
   in
   go [] QQMatrix.zero constants
 
-(* [select_implicant ark m ?env phi] selects an implicant of [phi] such that
-   [m,?env |= phi] *)
+(* [select_implicant ark m ?env phi] selects an implicant [I] of [phi] such
+   that [m,?env |= I |= phi].  The implicant [I] is a list of atomic formulas,
+   which can be destructed using [destruct_atom]. *)
 let select_implicant ark interp ?(env=Env.empty) phi =
-  let eval term =
-    evaluate_term ark (Interpretation.real interp) ~env term
-  in
-  let rec go phi =
+  let rec term t =
+    match Term.destruct ark t with
+    | `Real _ | `Const _ | `App (_, []) | `Var (_, _) -> (t, [])
+    | `Add xs ->
+      let (summands, implicant) =
+        List.fold_right
+          (fun x (summands, implicant) ->
+             let (x_term, x_implicant) = term x in
+             (x_term::summands, x_implicant@implicant))
+          xs
+          ([], [])
+      in
+      (mk_add ark summands, implicant)
+    | `Mul xs ->
+      let (products, implicant) =
+        List.fold_right
+          (fun x (products, implicant) ->
+             let (x_term, x_implicant) = term x in
+             (x_term::products, x_implicant@implicant))
+          xs
+          ([], [])
+      in
+      (mk_mul ark products, implicant)
+    | `Binop (op, s, t) ->
+      let (s_term, s_impl) = term s in
+      let (t_term, t_impl) = term t in
+      let term =
+        match op with
+        | `Div -> mk_div ark s_term t_term
+        | `Mod -> mk_mod ark s_term t_term
+      in
+      (term, s_impl@t_impl)
+    | `Unop (op, t) ->
+      let (t_term, t_impl) = term t in
+      let term = match op with
+        | `Floor -> mk_floor ark t_term
+        | `Neg -> mk_neg ark t_term
+      in
+      (term, t_impl)
+    | `App (_, _) -> invalid_arg "select_implicant: application"
+    | `Ite (cond, bthen, belse) ->
+      begin match formula cond with
+        | Some implicant ->
+          let (t, t_implicant) = term bthen in
+          (t, t_implicant@implicant)
+        | None ->
+          let not_cond =
+            rewrite ark ~down:(nnf_rewriter ark) (mk_not ark cond)
+          in
+          match formula not_cond with
+          | Some implicant ->
+            let (t, t_implicant) = term belse in
+            (t, t_implicant@implicant)
+          | None -> assert false
+      end
+  and formula phi =
     match Formula.destruct ark phi with
     | `Tru -> Some []
     | `Fls -> None
@@ -275,74 +383,111 @@ let select_implicant ark interp ?(env=Env.empty) phi =
       (* Find satisfied disjunct *)
       let f disjunct phi =
         match disjunct with
-        | None -> go phi
+        | None -> formula phi
         | _ -> disjunct
       in
       List.fold_left f None disjuncts
     | `And conjuncts ->
       (* All conjuncts must be satisfied *)
       let f phi =
-        match go phi with
+        match formula phi with
         | Some x -> x
         | None -> raise Not_found
       in
       (try Some (BatList.concat (List.map f conjuncts))
        with Not_found -> None)
-    | `Atom (`Eq, s, t) when QQ.equal (eval s) (eval t) -> Some [phi]
-    | `Atom (`Leq, s, t) when QQ.leq (eval s) (eval t) -> Some [phi]
-    | `Atom (`Lt, s, t) when QQ.lt (eval s) (eval t) -> Some [phi]
-    | `Atom (_, _, _) -> None
+    | `Atom (op, s, t) ->
+      let (s_term, s_impl) = term s in
+      let (t_term, t_impl) = term t in
+      begin
+        try
+          let s_val = Interpretation.evaluate_term interp ~env s_term in
+          let t_val = Interpretation.evaluate_term interp ~env t_term in
+          let cons_nontriv phi atoms =
+            if (Formula.destruct ark phi) = `Tru then atoms
+            else phi::atoms
+          in
+          begin match op with
+            | `Eq when QQ.equal s_val t_val ->
+              Some (cons_nontriv (mk_eq ark s_term t_term) (s_impl@t_impl))
+            | `Leq when QQ.leq s_val t_val ->
+              Some (cons_nontriv (mk_leq ark s_term t_term) (s_impl@t_impl))
+            | `Lt when QQ.lt s_val t_val ->
+              Some (cons_nontriv (mk_lt ark s_term t_term) (s_impl@t_impl))
+            | _ ->
+              None
+          end
+        with Divide_by_zero -> None
+      end
     | `Proposition (`Const p) ->
       if Interpretation.bool interp p then Some [phi]
       else None
     | `Proposition (`Var v) ->
       begin match Env.find env v with
         | `Bool true -> Some [phi]
-        | `Bool false -> None
-        | _ -> invalid_arg "select_implicant"
+        | `Bool _ -> None
+        | _ -> invalid_arg "select_implicant: ill-typed propositional variable"
       end
-    | `Not psi -> go_not psi
-    | `Quantify _ -> invalid_arg "select_implicant"
-  and go_not phi =
-    match Formula.destruct ark phi with
-    | `Tru -> None
-    | `Fls -> Some []
-    | `Or disjuncts ->
-      (* All disjuncts must be unsatisfied *)
-      let f phi =
-        match go_not phi with
-        | Some x -> x
-        | None -> raise Not_found
-      in
-      (try Some (BatList.concat (List.map f disjuncts))
-       with Not_found -> None)
-    | `And conjuncts ->
-      (* Find unsatisfied conjunct *)
-      let f conjunct phi =
-        match conjunct with
-        | None -> go_not phi
-        | _ -> conjunct
-      in
-      List.fold_left f None conjuncts
-    | `Atom (`Eq, s, t) when QQ.equal (eval s) (eval t) -> None
-    | `Atom (`Leq, s, t) when QQ.leq (eval s) (eval t) -> None
-    | `Atom (`Lt, s, t) when QQ.lt (eval s) (eval t) -> None
-    | `Atom (_, _, _) -> Some [phi]
-    | `Proposition (`Const p) ->
-      if Interpretation.bool interp p then None
-      else Some [mk_not ark phi]
-    | `Proposition (`Var v) ->
-      begin match Env.find env v with
-        | `Bool true -> None
-        | `Bool false -> Some [mk_not ark phi]
-        | _ -> invalid_arg "select_implicant"
+    | `Not psi ->
+      begin match Formula.destruct ark psi with
+        | `Proposition (`Const p) ->
+          if not (Interpretation.bool interp p) then
+            Some [phi]
+          else
+            None
+        | `Proposition (`Var v) ->
+          begin match Env.find env v with
+            | `Bool false -> Some [phi]
+            | `Bool _ -> None
+            | _ ->
+              invalid_arg "select_implicant: ill-typed propositional variable"
+          end
+        | _ -> invalid_arg "select_implicant: negation"
       end
-    | `Not psi -> go psi
-    | `Quantify _ -> invalid_arg "select_implicant"
+    | `Ite (cond, bthen, belse) ->
+      begin match formula cond with
+        | Some cond_implicant ->
+          begin match formula bthen with
+            | Some bthen_implicant -> Some (cond_implicant@bthen_implicant)
+            | None -> None
+          end
+        | None ->
+          let not_cond =
+            rewrite ark ~down:(nnf_rewriter ark) (mk_not ark cond)
+          in
+          match formula not_cond with
+          | Some cond_implicant ->
+            begin match formula belse with
+              | Some belse_implicant -> Some (cond_implicant@belse_implicant)
+              | None -> None
+            end
+          | None -> None
+      end
+    | `Proposition (`App (_, _)) | `Quantify _ -> invalid_arg "select_implicant"
   in
-  match go phi with
-  | Some phis -> Some (mk_and ark phis)
+  formula phi
+
+let select_implicant ark interp ?(env=Env.empty) phi =
+  match select_implicant ark interp phi with
+  | Some atoms ->
+    logf ~level:`trace "Implicant Atoms:";
+    List.iter (fun atom -> logf ~level:`trace ">%a" (Formula.pp ark) atom) atoms;
+    Some atoms
   | None -> None
+
+let destruct_atom ark phi =
+  match Formula.destruct ark phi with
+  | `Atom (op, s, t) -> `Comparison (op, s, t)
+  | `Proposition (`Const k) -> `Literal (`Pos, `Const k)
+  | `Proposition (`Var i) -> `Literal (`Pos, `Var i)
+  | `Not psi ->
+    begin match Formula.destruct ark psi with
+      | `Proposition (`Const k) -> `Literal (`Neg, `Const k)
+      | `Proposition (`Var i) -> `Literal (`Neg, `Var i)
+      | _ -> invalid_arg "destruct_atomic: not atomic"
+    end
+  | _ ->
+    invalid_arg "destruct_atomic: not atomic"
 
 let boxify smt_ctx phi terms =
   let ark = smt_ctx#ark in
@@ -366,23 +511,23 @@ let boxify smt_ctx phi terms =
   | `Unknown -> assert false
 
 let map_atoms ark f phi =
-  let alg = function
-    | `And conjuncts -> mk_and ark conjuncts
-    | `Or disjuncts -> mk_or ark disjuncts
-    | `Tru -> mk_true ark
-    | `Fls -> mk_false ark
-    | `Atom (op, s, zero) -> f op s zero
-    | `Proposition _ | `Not _ | `Quantify (_, _, _, _) ->
-      invalid_arg "map_atoms"
+  let rewriter expr =
+    match refine ark expr with
+    | `Formula phi ->
+      begin match Formula.destruct ark phi with
+        | `Atom (op, s, t) -> (f op s t :> ('a, typ_fo) expr)
+        | _ -> expr
+      end
+    | `Term _ -> expr
   in
-  Formula.eval ark alg phi
+  rewrite ark ~up:rewriter phi
 
 (* floor(term/divisor) + offset *)
 type int_virtual_term =
   { term : V.t;
     divisor : int;
     offset : ZZ.t }
-  [@@ deriving ord]
+  [@@deriving ord]
 
 let pp_int_virtual_term ark formatter vt =
   begin
@@ -476,56 +621,57 @@ let virtual_substitution ark x virtual_term phi =
    - vt is -t/a + epsilon (where ax + t in T) and m |= -t/a < x and
                           m |= 's/b < x ==> (-s/b <= s/a) for all bx + s in T
    - vt is -oo otherwise *)
-let mbp_virtual_term ark m x terms =
-  (* The set { -t/a : ax + t in T } *)
-  let x_terms =
-    let f t terms =
-      let (coeff, t') = V.pivot (dim_of_sym x) t in
-      if QQ.equal coeff QQ.zero then
-        terms
-      else begin
-        VS.add (V.scalar_mul (QQ.negate (QQ.inverse coeff)) t') terms
-      end
-    in
-    VS.fold f terms VS.empty
-  in
-  let x_val = V.dot m (V.of_term QQ.one (dim_of_sym x)) in
+let mbp_virtual_term ark interp x atoms =
+  assert (typ_symbol ark x == `TyReal);
 
-  (* First try to find a term t such that m |= x = t *)
-  let m_implies_x_eq t =
-    QQ.equal x_val (V.dot m t)
+  let x_val =
+    try Interpretation.real interp x
+    with Not_found ->
+      invalid_arg "mbp_virtual_term: no interpretation for constant"
+  in
+  let merge lower lower' =
+    match lower, lower' with
+    | None, x | x, None -> x
+    | Some (lower, lower_val), Some (lower', lower_val') ->
+      if QQ.lt lower_val lower_val' then
+        Some (lower', lower_val')
+      else
+        Some (lower, lower_val)
+  in
+
+  let get_vt atom =
+    match destruct_atom ark atom with
+    | `Literal (_, _) -> None
+    | `Comparison (op, s, t) ->
+      let t =
+        try V.add (linterm_of ark s) (V.negate (linterm_of ark t))
+        with Nonlinear -> assert false
+      in
+      let (a, t') = V.pivot (dim_of_sym x) t in
+
+      (* Atom is ax + t' op 0 *)
+      if QQ.equal QQ.zero a then
+        None
+      else
+        let toa = V.scalar_mul (QQ.inverse (QQ.negate a)) t' in
+        let toa_val = evaluate_linterm (Interpretation.real interp) toa in
+        match op with
+        | `Eq -> raise (Equal_term toa)
+        | `Leq when QQ.equal toa_val x_val -> raise (Equal_term toa)
+        | `Lt | `Leq ->
+          if QQ.lt a QQ.zero then
+            (* Lower bound *)
+            Some (toa, toa_val)
+          else
+            (* Upper bound: discard *)
+            None
   in
   try
-    Term (BatEnum.find m_implies_x_eq (VS.enum x_terms))
-  with Not_found ->
-    (* There is no term t such that m |= x = t.  Try to find a term t such
-       that m |= t < x and for all s such that m |= s < x, we have
-       m |= s <= t *)
-    let f s best =
-      let s_val = V.dot m s in
-      if QQ.lt s_val x_val then
-        match best with
-        | Some (t, t_val) when QQ.leq s_val t_val -> Some (t, t_val)
-        | Some (_, _) | None -> Some (s, s_val)
-      else best
-    in
-    match VS.fold f x_terms None with
-    | Some (t, _) -> PlusEpsilon t
-    | None -> MinusInfinity
-
-(* Compute the set of normalized linear terms which appear in a normalized
-   formula *)
-let terms ark phi =
-  let alg = function
-    | `And xs | `Or xs -> List.fold_left VS.union VS.empty xs
-    | `Atom (_, s, t) ->
-      V.add (linterm_of ark s) (V.negate (linterm_of ark t))
-      |> VS.singleton
-    | `Tru | `Fls -> VS.empty
-    | `Proposition _ | `Not _ | `Quantify (_, _, _, _) ->
-      invalid_arg "abstract.terms"
-  in
-  Formula.eval ark alg phi
+    begin match List.fold_left merge None (List.map get_vt atoms) with
+      | Some (lower, _) -> PlusEpsilon lower
+      | None -> MinusInfinity
+    end
+  with Equal_term t -> Term t
 
 (* Given a prenex formula phi, compute a pair (qf_pre, psi) such that
    - qf_pre is a quantifier prefix [(Q0, a0);...;(Qn, an)] where each Qi is
@@ -539,36 +685,21 @@ let terms ark phi =
 let normalize ark phi =
   let phi = Formula.prenex ark phi in
   let zero = mk_real ark QQ.zero in
-  let rec normalize env phi =
-    let subst = substitute ark (mk_const ark % Env.find env) in
-    match Formula.destruct ark phi with
-    | `Not psi -> normalize_not env psi
-    | `And conjuncts -> mk_and ark (List.map (normalize env) conjuncts)
-    | `Or disjuncts -> mk_or ark (List.map (normalize env) disjuncts)
-    | `Tru -> mk_true ark
-    | `Fls -> mk_false ark
-    | `Atom (`Eq, s, t) -> subst (mk_eq ark (mk_sub ark s t) zero)
-    | `Atom (`Leq, s, t) -> subst (mk_leq ark (mk_sub ark s t) zero)
-    | `Atom (`Lt, s, t) -> subst (mk_lt ark (mk_sub ark s t) zero)
-    | `Proposition (`Var i) -> mk_const ark (Env.find env i)
-    | `Proposition (`Const _) -> phi
-    | `Quantify (_, _, _, _) -> invalid_arg "normalize: expected prenex"
-  and normalize_not env phi =
-    let subst = substitute ark (mk_const ark % Env.find env) in
-    match Formula.destruct ark phi with
-    | `Not psi -> normalize env psi
-    | `And conjuncts -> mk_or ark (List.map (normalize_not env) conjuncts)
-    | `Or disjuncts -> mk_and ark (List.map (normalize_not env) disjuncts)
-    | `Tru -> mk_false ark
-    | `Fls -> mk_true ark
-    | `Atom (`Eq, s, t) ->
-      subst (mk_or ark [mk_lt ark (mk_sub ark s t) zero;
-                        mk_lt ark (mk_sub ark t s) zero])
-    | `Atom (`Leq, s, t) -> subst (mk_lt ark (mk_sub ark t s) zero)
-    | `Atom (`Lt, s, t) -> subst (mk_leq ark (mk_sub ark t s) zero)
-    | `Proposition (`Var i) -> mk_not ark (mk_const ark (Env.find env i))
-    | `Proposition (`Const _) -> mk_not ark phi
-    | `Quantify (_, _, _, _) -> invalid_arg "normalize: expected prenex"
+  let rewriter env expr =
+    match refine ark expr with
+    | `Formula phi ->
+      (begin match Formula.destruct ark phi with
+         | `Proposition (`Var i) -> mk_const ark (Env.find env i)
+         | `Atom (`Eq, s, t) -> mk_eq ark (mk_sub ark s t) zero
+         | `Atom (`Leq, s, t) -> mk_leq ark (mk_sub ark s t) zero
+         | `Atom (`Lt, s, t) -> mk_lt ark (mk_sub ark s t) zero
+         | _ -> phi
+       end :> ('a, typ_fo) expr)
+    | `Term t ->
+      begin match Term.destruct ark t with
+        | `Var (i, _) -> mk_const ark (Env.find env i)
+        | _ -> expr
+      end
   in
   let rec go env phi =
     match Formula.destruct ark phi with
@@ -576,91 +707,83 @@ let normalize ark phi =
       let k = mk_symbol ark ~name (typ :> Syntax.typ) in
       let (qf_pre, psi) = go (Env.push k env) psi in
       ((qt,k)::qf_pre, psi)
-    | _ -> ([], normalize env phi)
+    | _ -> ([], rewrite ark ~down:(nnf_rewriter ark) ~up:(rewriter env) phi)
   in
   go Env.empty phi
 
-(* destruct_normal is safe to apply to a formula that has been normalized *)
-let destruct_normal ark phi =
+let simplify_atom ark op s t =
   let zero = mk_real ark QQ.zero in
   let destruct_int term =
     match Term.destruct ark term with
     | `Real q ->
       begin match QQ.to_zz q with
         | Some z -> z
-        | None -> invalid_arg "destruct_normal: non-integral value"
+        | None -> invalid_arg "simplify_atom: non-integral value"
       end
-    | _ -> invalid_arg "destruct_normal: non-constant"
+    | _ -> invalid_arg "simplify_atom: non-constant"
   in
-  match Formula.destruct ark phi with
-  | `Quantify (_, _, _, _) -> invalid_arg "destruct_normal: quantification"
-  | `And psis -> `And psis
-  | `Or psis -> `Or psis
-  | `Tru -> `Tru
-  | `Fls -> `Fls
-  | `Not psi ->
-    begin match Formula.destruct ark psi with
-      | `Proposition (`Const p) -> `NotProposition p
-      | _ -> invalid_arg ("destruct_normal: " ^ (Formula.show ark phi))
-    end
-  | `Proposition (`Const p) -> `Proposition p
-  | `Proposition (`Var _) ->
-    invalid_arg "destruct_normal: propositional variable"
-  | `Atom (`Eq, s, t) ->
-    if not (Term.equal t zero) then invalid_arg "destruct_normal";
+  let s =
+    if Term.equal t zero then s
+    else mk_sub ark s t
+  in
+  (* Scale a linterm with rational coefficients so that all coefficients are
+     integral *)
+  let zz_linterm term =
+    let qq_linterm = linterm_of ark term in
+    let multiplier = 
+      BatEnum.fold (fun multiplier (qq, _) ->
+          ZZ.lcm (QQ.denominator qq) multiplier)
+        ZZ.one
+        (V.enum qq_linterm)
+    in
+    V.scalar_mul (QQ.of_zz multiplier) qq_linterm
+  in
+  match op with
+  | `Eq ->
     begin match Term.destruct ark s with
     | `Binop (`Mod, dividend, modulus) ->
 
       (* Divisibility constraint *)
       let modulus = destruct_int modulus in
-      `Divides (modulus, linterm_of ark dividend)
-    | _ -> `CompareZero (`Eq, linterm_of ark s)
+      `Divides (modulus, zz_linterm dividend)
+    | _ -> `CompareZero (`Eq, zz_linterm s)
     end
-  | `Atom (`Lt, s, t) ->
-    if not (Term.equal t zero) then invalid_arg "destruct_normal";
+  | `Lt ->
     begin match Term.destruct ark s with
       | `Binop (`Mod, dividend, modulus) ->
         (* Indivisibility constraint: dividend % modulus < 0. *)
         let modulus = destruct_int modulus in
-        `NotDivides (modulus, linterm_of ark dividend)
+        `NotDivides (modulus, zz_linterm dividend)
 
       | `Unop (`Neg, s') ->
         begin match Term.destruct ark s' with
           | `Binop (`Mod, dividend, modulus) ->
             (* Indivisibility constraint: dividend % modulus > 0 *)
             let modulus = destruct_int modulus in
-            `NotDivides (modulus, linterm_of ark dividend)
-          | _ -> `CompareZero (`Lt, linterm_of ark s)
+            `NotDivides (modulus, zz_linterm dividend)
+          | _ -> `CompareZero (`Lt, zz_linterm s)
         end
 
-      | _ -> `CompareZero (`Lt, linterm_of ark s)
+      | _ -> `CompareZero (`Lt, zz_linterm s)
     end
-  | `Atom (`Leq, s, t) ->
-    if not (Term.equal t zero) then invalid_arg "destruct_normal";
-    `CompareZero (`Leq, linterm_of ark s)
-
-let destruct_normal ark phi = 
-  try destruct_normal ark phi
-  with Nonlinear ->
-    Log.errorf "Error destructing formula: %a" (Formula.pp ark) phi;
-    raise Nonlinear
+  | `Leq ->
+    `CompareZero (`Leq, zz_linterm s)
 
 let mk_divides ark divisor term =
   assert (ZZ.lt ZZ.zero divisor);
-  if ZZ.equal divisor ZZ.one then
+  if ZZ.equal divisor ZZ.one || V.equal term V.zero then
     mk_true ark
   else
     let gcd = coefficient_gcd term in
     let divisor = QQ.of_zz (ZZ.div divisor gcd) in
     let term = V.scalar_mul (QQ.of_zzfrac ZZ.one gcd) term in
-
     mk_eq ark
       (mk_mod ark (of_linterm ark term) (mk_real ark divisor))
       (mk_real ark QQ.zero)
 
 let mk_not_divides ark divisor term =
   assert(ZZ.lt ZZ.zero divisor);
-  if ZZ.equal divisor ZZ.one then
+  if ZZ.equal divisor ZZ.one || V.equal term V.zero then
     mk_false ark
   else
     let gcd = coefficient_gcd term in
@@ -671,149 +794,11 @@ let mk_not_divides ark divisor term =
       (mk_neg ark (mk_mod ark (of_linterm ark term) (mk_real ark divisor)))
       (mk_real ark QQ.zero)
 
-let int_virtual_substitution ark x virtual_term phi =
-  let zero = mk_real ark QQ.zero in
-  (* virtual_term is of the form: floor(t/a) + b *)
-
-  (* Each atom
-       (c*x + s) op 0
-       [or (b | c*x + s) ]
-     Is replaced by a disjunction
-       \/_{i=0}^{a-1} (a | t - i) /\ c*(t + a*b - i) + a*s op 0)
-       [or (a | t - i) /\ (a*b | c*(t + a*b - i) + a*s) ]
-
-     subst_term i c s is the term c*(t + a*b - i) + a*s)
-  *)
-  let subst_term i c s =
-    let t_plus_ab_minus_i =
-      V.add_term
-        (QQ.of_zz
-           (ZZ.sub
-              (ZZ.mul (ZZ.of_int virtual_term.divisor) virtual_term.offset)
-              (ZZ.of_int i)))
-        const_dim
-        virtual_term.term
-    in
-    V.add
-      (V.scalar_mul c t_plus_ab_minus_i)
-      (V.scalar_mul (QQ.of_int virtual_term.divisor) s)
-  in
-
-  (* Make the divisibility atom (a | t - i) *)
-  let divisibility_constraint i =
-    if virtual_term.divisor == 1 then
-      mk_true ark
-    else
-      let t_minus_i =
-        V.add_term (QQ.of_int (-i)) const_dim virtual_term.term
-        |> of_linterm ark
-      in
-      mk_eq ark
-        (mk_mod ark t_minus_i (mk_real ark (QQ.of_int virtual_term.divisor)))
-        zero
-  in
-
-  let rec subst phi =
-    match destruct_normal ark phi with
-    | `And psis -> mk_and ark (List.map subst psis)
-    | `Or psis -> mk_or ark (List.map subst psis)
-    | `Tru -> mk_true ark
-    | `Fls -> mk_false ark
-    | `Proposition _ | `NotProposition _ -> phi
-    | `Divides (delta, s) ->
-      let (c, s) = V.pivot (dim_of_sym x) s in
-      if QQ.equal c QQ.zero then
-        mk_divides ark delta s
-      else
-        (0 -- (virtual_term.divisor - 1))
-        /@ (fun i ->
-            mk_and ark [mk_divides ark
-                          (ZZ.mul (ZZ.of_int virtual_term.divisor) delta)
-                          (subst_term i c s);
-                        divisibility_constraint i])
-        |> BatList.of_enum
-        |> mk_or ark
-
-    | `NotDivides (delta, s) ->
-      let (c, s) = V.pivot (dim_of_sym x) s in
-      if QQ.equal c QQ.zero then
-        mk_not_divides ark delta s
-      else
-        (0 -- (virtual_term.divisor - 1))
-        /@ (fun i ->
-            mk_and ark [mk_not_divides ark
-                          (ZZ.mul (ZZ.of_int virtual_term.divisor) delta)
-                          (subst_term i c s);
-                        divisibility_constraint i])
-        |> BatList.of_enum
-        |> mk_or ark
-
-    | `CompareZero (op, s) ->
-      let (c, s) = V.pivot (dim_of_sym x) s in
-      let mk_compare =
-        match op with
-        | `Eq -> mk_eq
-        | `Lt -> mk_lt
-        | `Leq -> mk_leq
-      in
-      if QQ.equal c QQ.zero then
-        mk_compare ark (of_linterm ark s) zero
-      else
-        (0 -- (virtual_term.divisor - 1))
-        /@ (fun i ->
-            mk_and ark [mk_compare ark
-                          (of_linterm ark (subst_term i c s))
-                          zero;
-                        divisibility_constraint i])
-        |> BatList.of_enum
-        |> mk_or ark
-  in
-  subst phi
-
 let substitute_real_term ark x t phi =
-  begin match typ_symbol ark x with
-    | `TyInt | `TyReal -> ()
-    | _ -> invalid_arg "substitute_real_term: non-arithmetic constant"
-  end;
-  let replace_term s =
-    let (a, s') = V.pivot (dim_of_sym x) s in
-    if QQ.equal a QQ.zero then
-      s
-    else
-      V.add s' (V.scalar_mul a t)
-  in
-  let zero = mk_real ark QQ.zero in
-  let rec go phi =
-    match destruct_normal ark phi with
-    | `And psis -> mk_and ark (List.map go psis)
-    | `Or psis -> mk_or ark (List.map go psis)
-    | `Tru | `Fls | `Proposition _ | `NotProposition _ -> phi
-    | `Divides (delta, s) -> mk_divides ark delta (replace_term s)
-    | `NotDivides (delta, s) -> mk_not_divides ark delta (replace_term s)
-    | `CompareZero (op, s) ->
-      let s = of_linterm ark (replace_term s) in
-      match op with
-      | `Eq -> mk_eq ark s zero
-      | `Lt -> mk_lt ark s zero
-      | `Leq -> mk_leq ark s zero
-  in
-  go phi
-
-let substitute_prop_const ark x x' phi =
-  begin match typ_symbol ark x, typ_symbol ark x' with
-    | `TyBool, `TyBool -> ()
-    | _, _ -> invalid_arg "substitute_prop_const: non-boolean constant"
-  end;
-  let rec go phi =
-    match destruct_normal ark phi with
-    | `And psis -> mk_and ark (List.map go psis)
-    | `Or psis -> mk_or ark (List.map go psis)
-    | `Proposition p -> mk_const ark (if x = p then x' else p)
-    | `NotProposition p -> mk_not ark (mk_const ark (if x = p then x' else p))
-    | `Divides (_, _) | `NotDivides (_, _) | `CompareZero (_, _)
-    | `Tru | `Fls -> phi
-  in
-  go phi
+  let replacement = of_linterm ark t in
+  substitute_const ark
+    (fun p -> if p = x then replacement else mk_const ark p)
+    phi
 
 exception Redundant_path
 module Scheme = struct
@@ -824,35 +809,42 @@ module Scheme = struct
     | MBool of bool
           [@@deriving ord]
 
+  let pp_move ark formatter move =
+    match move with
+    | MInt vt -> pp_int_virtual_term ark formatter vt
+    | MReal t -> pp_linterm ark formatter t
+    | MBool true -> Format.pp_print_string formatter "true"
+    | MBool false -> Format.pp_print_string formatter "false"
+
   let substitute ark x move phi =
     match move with
-    | MInt vt -> int_virtual_substitution ark x vt phi
-    | MReal t -> substitute_real_term ark x t phi
+    | MInt vt ->
+      let replacement =
+        let term = of_linterm ark vt.term in
+        let offset = mk_real ark (QQ.of_zz vt.offset) in
+        let term_over_div =
+          if vt.divisor = 1 then
+            term
+          else
+            mk_floor ark (mk_div ark term (mk_real ark (QQ.of_int vt.divisor)))
+        in
+        mk_add ark [term_over_div; offset]
+      in
+      substitute_const
+        ark
+        (fun p -> if p = x then replacement else mk_const ark p)
+        phi
+    (*      int_virtual_substitution ark x vt phi*)
+    | MReal t ->
+      substitute_real_term ark x t phi
     | MBool vb ->
       let replacement = match vb with
         | true -> mk_true ark
         | false -> mk_false ark
       in
-      let alg = function
-        | `And xs -> mk_and ark xs
-        | `Or xs -> mk_or ark xs
-        | `Tru -> mk_true ark
-        | `Fls -> mk_false ark
-        | `Quantify (_, _, _, _) | `Proposition (`Var _) ->
-          invalid_arg "substitute"
-        | `Not phi -> mk_not ark phi
-        | `Atom (`Leq, s, t) -> mk_leq ark s t
-        | `Atom (`Lt, s, t) -> mk_lt ark s t
-        | `Atom (`Eq, s, t) -> mk_eq ark s t
-        | `Proposition (`Const p) when p = x -> replacement
-        | `Proposition (`Const p) -> mk_const ark p
-      in
-      Formula.eval ark alg phi
-
-  let substitute_move ark m x move phi =
-    match select_implicant ark m (substitute ark x move phi) with
-    | None -> assert false
-    | Some x -> x
+      substitute_const ark
+        (fun p -> if p = x then replacement else mk_const ark p)
+        phi
 
   let evaluate_move model move =
     match move with
@@ -866,12 +858,50 @@ module Scheme = struct
     | MReal t -> evaluate_linterm model t
     | MBool _ -> invalid_arg "evaluate_move"
 
-  let pp_move ark formatter move =
+  let substitute_implicant interp x move implicant =
+    let ark = interp.Interpretation.ark in
+    let is_true phi =
+      match Formula.destruct ark phi with
+      | `Tru -> true
+      | _ -> false
+    in
     match move with
-    | MInt vt -> pp_int_virtual_term ark formatter vt
-    | MReal t -> pp_linterm ark formatter t
-    | MBool true -> Format.pp_print_string formatter "true"
-    | MBool false -> Format.pp_print_string formatter "false"
+    | MInt vt ->
+      (* floor(term/div) + offset ~> (term - ([[term]] mod div))/div + offset,
+         and add constraint that div | (term - ([[term]] mod div)) *)
+      let term_val =
+        let term_qq = evaluate_linterm (Interpretation.real interp) vt.term in
+        match QQ.to_zz term_qq with
+        | None -> assert false
+        | Some zz -> zz
+      in
+      let remainder =
+        Mpzf.fdiv_r term_val (ZZ.of_int vt.divisor)
+      in
+      let numerator =
+        V.add_term (QQ.of_zz (ZZ.negate remainder)) const_dim vt.term
+      in
+      let replacement =
+        V.scalar_mul (QQ.inverse (QQ.of_int vt.divisor)) numerator
+        |> V.add_term (QQ.of_zz vt.offset) const_dim
+        |> of_linterm ark
+      in
+
+      assert (QQ.equal
+                (Interpretation.evaluate_term interp replacement)
+                (evaluate_move (Interpretation.real interp) move));
+      let subst =
+        substitute_const ark
+          (fun p -> if p = x then replacement else mk_const ark p)
+      in
+      let divides = mk_divides ark (ZZ.of_int vt.divisor) numerator in
+      BatList.filter (not % is_true) (divides::(List.map subst implicant))
+    | _ ->
+      BatList.filter_map (fun atom ->
+          let atom' = substitute ark x move atom in
+          if is_true atom' then None else Some atom')
+        implicant
+
 
   let const_of_move move =
     match move with
@@ -978,13 +1008,10 @@ module Scheme = struct
       | ([], SEmpty) -> phi
       | (`Forall k::path, SForall (k', sk, scheme)) ->
         assert (k = k');
-
-        let term = V.of_term QQ.one (dim_of_sym sk) in
-        begin match typ_symbol ark k with
-          | `TyBool -> substitute_prop_const ark k sk (go path scheme)
-          | _ -> substitute_real_term ark k term (go path scheme)
-        end
-
+        let sk_const = mk_const ark sk in
+        substitute_const ark
+          (fun sym -> if k = sym then sk_const else mk_const ark sym)
+          (go path scheme)
       | (`Exists (k, move)::path, SExists (k', mm)) ->
         assert (k = k');
         substitute ark k move (go path (MM.find move mm))
@@ -998,11 +1025,10 @@ module Scheme = struct
     let rec go = function
       | SEmpty -> phi
       | SForall (k, sk, scheme) ->
-        let move = V.of_term QQ.one (dim_of_sym sk) in
-        begin match typ_symbol ark k with
-          | `TyBool -> substitute_prop_const ark k sk (go scheme)
-          | _ -> substitute_real_term ark k move (go scheme)
-        end
+        let sk_const = mk_const ark sk in
+        substitute_const ark
+          (fun sym -> if k = sym then sk_const else mk_const ark sym)
+          (go scheme)
 
       | SExists (k, mm) ->
         MM.enum mm
@@ -1024,8 +1050,7 @@ module Scheme = struct
         (MM.enum mm)
 end
 
-exception Equal_term of V.t
-let select_real_term ark interp x phi =
+let select_real_term ark interp x atoms =
   let merge (lower1, upper1) (lower2, upper2) =
     let lower =
       match lower1, lower2 with
@@ -1058,20 +1083,11 @@ let select_real_term ark interp x phi =
     (lower, upper)
   in
   let x_val = Interpretation.real interp x in
-  let is_sat op t =
-    match op with
-    | `Leq -> QQ.leq (evaluate_linterm (Interpretation.real interp) t) QQ.zero
-    | `Lt -> QQ.lt (evaluate_linterm (Interpretation.real interp) t) QQ.zero
-    | `Eq -> QQ.equal (evaluate_linterm (Interpretation.real interp) t) QQ.zero
-  in
-  let rec go phi =
-    match destruct_normal ark phi with
-    | `And xs | `Or xs ->
-      List.fold_left (fun a psi -> merge a (go psi)) (None, None) xs
-    | `Tru | `Fls | `Proposition _ | `NotProposition _ -> (None, None)
-    | `Divides _ | `NotDivides _ -> invalid_arg "select_real_term"
-    | `CompareZero (op, t) when (not (is_sat op t)) -> (None, None)
-    | `CompareZero (op, t) ->
+  let bound_of_atom atom =
+    match destruct_atom ark atom with
+    | `Literal (_, _) -> (None, None)
+    | `Comparison (op, s, t) ->
+      let t = V.add (linterm_of ark s) (V.negate (linterm_of ark t)) in
 
       let (a, t') = V.pivot (dim_of_sym x) t in
 
@@ -1091,7 +1107,7 @@ let select_real_term ark interp x phi =
           (None, Some (toa, toa_val, op = `Lt))
   in
   try
-    match go phi with
+    match List.fold_left merge (None, None) (List.map bound_of_atom atoms) with
     | (Some (t, _, false), _) | (_, Some (t, _, false)) ->
       (logf ~level:`trace "Found equal(?) term: %a = %a"
          (pp_symbol ark) x
@@ -1120,7 +1136,7 @@ let select_real_term ark interp x phi =
        (pp_linterm ark) t;
      t)
 
-let select_int_term ark interp x phi =
+let select_int_term ark interp x atoms =
   let merge bound bound' =
     match bound, bound' with
     | (`Lower (s, s_val), `Lower (t, t_val)) ->
@@ -1142,35 +1158,31 @@ let select_int_term ark interp x phi =
     | Some zz -> zz
     | None -> assert false
   in
-  let is_sat op t =
-    match op with
-    | `Leq -> QQ.leq (eval t) QQ.zero
-    | `Lt -> QQ.lt (eval t) QQ.zero
-    | `Eq -> QQ.equal (eval t) QQ.zero
-  in
   (* delta = gcd { lcm(d,a) : d | ax + t or not(d | ax + t) in atoms }.  If
      [[vt]](m) = [[x]](m) mod delta, then for every divisilibity atom
        d | ax + t
      which appears in phi, we have
        m |= (d | ax + t)   <==>   m |= (d | a(vt) + t *)
   let delta =
-    let rec go phi =
-      match destruct_normal ark phi with
-      | `And xs | `Or xs -> List.fold_left ZZ.lcm ZZ.one (List.map go xs)
-      | `Tru | `Fls | `CompareZero (_, _)
-      | `Proposition _ | `NotProposition _ ->
-        ZZ.one
-      | `Divides (divisor, t) | `NotDivides (divisor, t) ->
-        let (a, t) = V.pivot (dim_of_sym x) t in
-        let a = match QQ.to_zz a with
-          | None -> assert false
-          | Some zz -> ZZ.abs zz
-        in
-        if ZZ.equal ZZ.zero a then ZZ.one
-        else ZZ.lcm divisor a
-    in
-    go phi
+    List.fold_left
+      (fun delta atom ->
+         match destruct_atom ark atom with
+         | `Literal (_, _) -> delta
+         | `Comparison (op, s, t) ->
+           match simplify_atom ark op s t with
+           | `Divides (divisor, t) | `NotDivides (divisor, t) ->
+             let (a, t) = V.pivot (dim_of_sym x) t in
+             let a = match QQ.to_zz a with
+               | None -> assert false
+               | Some zz -> ZZ.abs zz
+             in
+             if ZZ.equal ZZ.zero a then delta
+             else ZZ.lcm (ZZ.div divisor (ZZ.gcd divisor a)) delta
+           | _ -> delta)
+      ZZ.one
+      atoms
   in
+  assert (ZZ.lt ZZ.zero delta);
   let evaluate_vt vt =
     let real_val =
       Scheme.evaluate_move (Interpretation.real interp) (Scheme.MInt vt)
@@ -1179,98 +1191,99 @@ let select_int_term ark interp x phi =
     | Some v -> v
     | None -> assert false
   in
-  let rec go phi =
-    match destruct_normal ark phi with
-    | `And xs | `Or xs -> List.fold_left merge `None (List.map go xs)
-    | `Tru | `Fls | `Proposition _ | `NotProposition _ -> `None
-    | `Divides (_, _) | `NotDivides (_, _) -> `None
-    | `CompareZero (op, t) when is_sat op t ->
-      let (a, t) = V.pivot (dim_of_sym x) t in
-      let a = match QQ.to_zz a with
-        | None -> assert false
-        | Some zz -> match ZZ.to_int zz with
-          | None -> assert false
-          | Some z -> z
-      in
-      if a = 0 then
+  let bound_of_atom atom =
+    match destruct_atom ark atom with
+    | `Literal (_, _) -> `None
+    | `Comparison (op, s, t) ->
+      match simplify_atom ark op s t with
+      | `CompareZero (op, t) ->
+        begin
+          let (a, t) = V.pivot (dim_of_sym x) t in
+          let a = match QQ.to_zz a with
+            | None -> assert false
+            | Some zz -> match ZZ.to_int zz with
+              | None -> assert false
+              | Some z -> z
+          in
+          if a = 0 then
+            `None
+          else if a > 0 then
+            (* ax + t (<|<=) 0 --> upper bound of floor(-t/a) *)
+            (* x (<|<=) floor(-t/a) + ([[x - floor(-t/a)]] mod delta) - delta *)
+            let numerator =
+              if op = `Lt then
+                (* a*floor(((numerator-1) / a) < numerator *)
+                V.add_term (QQ.of_int (-1)) const_dim (V.negate t)
+              else
+                V.negate t
+            in
+
+            let rhs_val = (* [[floor(numerator / a)]] *)
+              match QQ.to_zz (eval numerator) with
+              | Some num -> Mpzf.fdiv_q num (ZZ.of_int a)
+              | None -> assert false
+            in
+            let vt =
+              { term = numerator;
+                divisor = a;
+                offset = Mpzf.cdiv_r (ZZ.sub x_val rhs_val) delta }
+            in
+            let vt_val = evaluate_vt vt in
+
+            assert (ZZ.equal (ZZ.modulo (ZZ.sub vt_val x_val) delta) ZZ.zero);
+            assert (ZZ.leq x_val vt_val);
+            begin
+              let axv = ZZ.mul (ZZ.of_int a) vt_val in
+              let tv = match QQ.to_zz (eval t) with
+                | Some zz -> ZZ.negate zz
+                | None -> assert false
+              in
+              match op with
+              | `Lt -> assert (ZZ.lt axv tv)
+              | `Leq -> assert (ZZ.leq axv tv)
+              | `Eq -> assert (ZZ.equal axv tv)
+            end;
+            `Upper (vt, evaluate_vt vt)
+          else
+            let a = -a in
+
+            (* (-a)x + t <= 0 --> lower bound of ceil(t/a) = floor((t+a-1)/a) *)
+            (* (-a)x + t < 0 --> lower bound of ceil(t+1/a) = floor((t+a)/a) *)
+            let numerator =
+              if op = `Lt then
+                V.add_term (QQ.of_int a) const_dim t
+              else
+                V.add_term (QQ.of_int (a - 1)) const_dim t
+            in
+            let rhs_val = (* [[floor(numerator / a)]] *)
+              match QQ.to_zz (eval numerator) with
+              | Some num -> Mpzf.fdiv_q num (ZZ.of_int a)
+              | None -> assert false
+            in
+
+            let vt =
+              { term = numerator;
+                divisor = a;
+                offset = Mpzf.fdiv_r (ZZ.sub x_val rhs_val) delta }
+            in
+            let vt_val = evaluate_vt vt in
+            assert (ZZ.equal (ZZ.modulo (ZZ.sub vt_val x_val) delta) ZZ.zero);
+            assert (ZZ.leq vt_val x_val);
+            begin
+              let axv = ZZ.mul (ZZ.of_int a) vt_val in
+              let tv = match QQ.to_zz (eval t) with
+                | Some zz -> zz
+                | None -> assert false
+              in
+              match op with
+              | `Lt -> assert (ZZ.lt tv axv)
+              | `Leq -> assert (ZZ.leq tv axv)
+              | `Eq -> assert (ZZ.equal tv axv)
+            end;
+            `Lower (vt, evaluate_vt vt)
+        end
+      | _ ->
         `None
-      else if a > 0 then
-        (* ax + t (<|<=) 0 --> upper bound of floor(-t/a) *)
-        (* x (<|<=) floor(-t/a) + ([[x - floor(-t/a)]] mod delta) - delta *)
-        let numerator =
-          if op = `Lt then
-            (* a*floor(((numerator-1) / a) < numerator *)
-            V.add_term (QQ.of_int (-1)) const_dim (V.negate t)
-          else
-            V.negate t
-        in
-
-        let rhs_val = (* [[floor(numerator / a)]] *)
-          match QQ.to_zz (eval numerator) with
-          | Some num -> Mpzf.fdiv_q num (ZZ.of_int a)
-          | None -> assert false
-        in
-        let vt =
-          { term = numerator;
-            divisor = a;
-            offset = Mpzf.cdiv_r (ZZ.sub x_val rhs_val) delta }
-        in
-        let vt_val = evaluate_vt vt in
-
-        assert (ZZ.equal (ZZ.modulo (ZZ.sub vt_val x_val) delta) ZZ.zero);
-        assert (ZZ.leq x_val vt_val);
-        begin
-          let axv = ZZ.mul (ZZ.of_int a) vt_val in
-          let tv = match QQ.to_zz (eval t) with
-            | Some zz -> ZZ.negate zz
-            | None -> assert false
-          in
-          match op with
-          | `Lt -> assert (ZZ.lt axv tv)
-          | `Leq -> assert (ZZ.leq axv tv)
-          | `Eq -> assert (ZZ.equal axv tv)
-        end;
-        `Upper (vt, evaluate_vt vt)
-      else
-        let a = -a in
-
-        (* (-a)x + t <= 0 --> lower bound of ceil(t/a) = floor((t+a-1)/a) *)
-        (* (-a)x + t < 0 --> lower bound of ceil(t+1/a) = floor((t+a)/a) *)
-        let numerator =
-          if op = `Lt then
-            V.add_term (QQ.of_int a) const_dim t
-          else
-            V.add_term (QQ.of_int (a - 1)) const_dim t
-        in
-        let rhs_val = (* [[floor(numerator / a)]] *)
-          match QQ.to_zz (eval numerator) with
-          | Some num -> Mpzf.fdiv_q num (ZZ.of_int a)
-          | None -> assert false
-        in
-
-        let vt =
-          { term = numerator;
-            divisor = a;
-            offset = Mpzf.fdiv_r (ZZ.sub x_val rhs_val) delta }
-        in
-        let vt_val = evaluate_vt vt in
-
-        assert (ZZ.equal (ZZ.modulo (ZZ.sub vt_val x_val) delta) ZZ.zero);
-        assert (ZZ.leq vt_val x_val);
-        begin
-          let axv = ZZ.mul (ZZ.of_int a) vt_val in
-          let tv = match QQ.to_zz (eval t) with
-            | Some zz -> zz
-            | None -> assert false
-          in
-          match op with
-          | `Lt -> assert (ZZ.lt tv axv)
-          | `Leq -> assert (ZZ.leq tv axv)
-          | `Eq -> assert (ZZ.equal tv axv)
-        end;
-        `Lower (vt, evaluate_vt vt)
-
-    | `CompareZero (op, t) -> `None
   in
   let vt_val vt =
     let tval = match QQ.to_zz (eval vt.term) with
@@ -1279,23 +1292,31 @@ let select_int_term ark interp x phi =
     in
     ZZ.add (Mpzf.fdiv_q tval (ZZ.of_int vt.divisor)) vt.offset
   in
-  match go phi with
+  match List.fold_left merge `None (List.map bound_of_atom atoms) with
   | `Lower (vt, _) ->
     logf ~level:`trace "Found lower bound: %a < %a"
       (pp_int_virtual_term ark) vt
       (pp_symbol ark) x;
     assert (ZZ.equal (Mpzf.fdiv_r x_val delta) (Mpzf.fdiv_r (vt_val vt) delta));
     vt
-  | `Upper (vt, _)->
+  | `Upper (vt, _) ->
     logf ~level:`trace "Found upper bound: %a < %a"
       (pp_symbol ark) x
       (pp_int_virtual_term ark) vt;
     assert (ZZ.equal (Mpzf.fdiv_r x_val delta) (Mpzf.fdiv_r (vt_val vt) delta));
     vt
   | `None ->
-    logf ~level:`trace "Irrelevant: %a" (pp_symbol ark) x;
     (* Value of x is irrelevant *)
+    logf ~level:`trace "Irrelevant: %a" (pp_symbol ark) x;
     { term = V.zero; divisor = 1; offset = ZZ.zero }
+
+let select_int_term ark interp x atoms =
+  try
+    select_int_term ark interp x atoms
+  with Nonlinear | Invalid_argument _ ->
+    Log.errorf "select_int_term atoms:";
+    List.iter (fun atom -> Log.errorf ">%a" (Formula.pp ark) atom) atoms;
+    assert false
 
 (* Counter-strategy synthesis *)
 module CSS = struct
@@ -1375,13 +1396,12 @@ module CSS = struct
           let (counter_phi, counter_paths) =
             counter_strategy path_model scheme
           in
-          logf ~level:`trace "Select term from: %a" (Formula.pp ctx.ark) counter_phi;
           let move = select_term path_model k counter_phi in
           logf ~level:`trace "Found move: %a = %a"
             (pp_symbol ctx.ark) k
             (Scheme.pp_move ctx.ark) move;
           let counter_phi =
-            Scheme.substitute_move ctx.ark path_model k move counter_phi
+            Scheme.substitute_implicant path_model k move counter_phi
           in
           let counter_paths =
             List.map (fun path -> (`Exists (k, move))::path) counter_paths
@@ -1405,7 +1425,7 @@ module CSS = struct
                   counter_strategy path_model scheme
                 in
                 let counter_phi =
-                  Scheme.substitute_move ctx.ark path_model k move counter_phi
+                  Scheme.substitute_implicant path_model k move counter_phi
                 in
                 let counter_paths =
                   List.map (fun path -> (`Forall k)::path) counter_paths
@@ -1413,19 +1433,16 @@ module CSS = struct
                 (counter_phi, counter_paths))
             |> BatEnum.uncombine
           in
-          (mk_and ctx.ark (BatList.of_enum counter_phis),
+          (BatList.concat (BatList.of_enum counter_phis),
            BatList.concat (BatList.of_enum paths))
         | SEmpty ->
+          logf ~level:`trace "Path model: %a" Interpretation.pp path_model;
+          logf ~level:`trace "not_phi: %a" (Formula.pp ctx.ark) ctx.not_formula;
           let phi_implicant =
-            let implicant =
-              select_implicant ctx.ark path_model ctx.not_formula
-            in
-            match implicant with
+            match select_implicant ctx.ark path_model ctx.not_formula with
             | Some x -> x
             | None -> assert false
           in
-          logf ~level:`trace "Path model: %a" Interpretation.pp path_model;
-          logf ~level:`trace "Implicant: %a" (Formula.pp ctx.ark) phi_implicant;
           (phi_implicant, [[]])
       in
       `Sat (snd (counter_strategy parameters ctx.scheme))
@@ -1440,10 +1457,9 @@ module CSS = struct
       logf "Found initial model";
       let ark = smt_ctx#ark in
       let phi_model = Interpretation.of_model ark m (List.map snd qf_pre) in
-
       (* Create paths for sat_scheme & unsat_scheme *)
-      let f (qt, x) (sat_path, unsat_path, phi) =
-        let move = select_term phi_model x phi in
+      let f (qt, x) (sat_path, unsat_path, atoms) =
+        let move = select_term phi_model x atoms in
         let (sat_path, unsat_path) = match qt with
           | `Exists ->
             ((`Exists (x, move))::sat_path,
@@ -1452,9 +1468,15 @@ module CSS = struct
             ((`Forall x)::sat_path,
              (`Exists (x, move))::unsat_path)
         in
-        (sat_path, unsat_path, Scheme.substitute ark x move phi)
+        (sat_path,
+         unsat_path,
+         Scheme.substitute_implicant phi_model x move atoms)
       in
-      let (sat_path, unsat_path, _) = List.fold_right f qf_pre ([], [], phi) in
+      let (sat_path, unsat_path, _) =
+        match select_implicant ark phi_model phi with
+        | Some implicant -> List.fold_right f qf_pre ([], [], implicant)
+        | None -> assert false
+      in
       let not_phi = snd (normalize ark (mk_not ark phi)) in
       let sat_ctx =
         let scheme = Scheme.mk_path ark sat_path in
@@ -1567,14 +1589,54 @@ module CSS = struct
         | `Unknown -> `Unknown
       in
       is_sat ()
+
+  let minimize_scheme param_interp ctx =
+    let solver = ctx.smt#mk_solver () in
+    let paths = Scheme.paths ctx.scheme in
+    let path_guards =
+      List.map (fun _ -> mk_const ctx.ark (mk_symbol ctx.ark `TyBool)) paths
+    in
+    let psis =
+      let winning_formula path =
+        Scheme.path_winning_formula ctx.ark path ctx.scheme ctx.formula
+        |> Interpretation.substitute param_interp
+      in
+      List.map2 (fun path guard ->
+          mk_or ctx.ark [mk_not ctx.ark guard;
+                         mk_not ctx.ark (winning_formula path)])
+        paths
+        path_guards
+    in
+    let path_of_guard guard =
+      List.fold_left2 (fun res g path ->
+          if Formula.equal g guard then Some path
+          else res)
+        None
+        path_guards
+        paths
+      |> (function
+          | Some x -> x
+          | None -> assert false)
+    in
+    solver#add [mk_and ctx.ark psis];
+    match solver#get_unsat_core path_guards with
+    | `Sat -> assert false
+    | `Unknown -> assert false
+    | `Unsat core ->
+      List.fold_left
+        (fun scheme core_guard ->
+           try Scheme.add_path ctx.ark (path_of_guard core_guard) scheme
+           with Redundant_path -> scheme)
+        Scheme.empty
+        core
 end
 
 let aqsat_forward smt_ctx qf_pre phi =
   let ark = smt_ctx#ark in
-  let select_term model x phi =
+  let select_term model x atoms =
     match typ_symbol ark x with
-    | `TyInt -> Scheme.MInt (select_int_term ark model x phi)
-    | `TyReal -> Scheme.MReal (select_real_term ark model x phi)
+    | `TyInt -> Scheme.MInt (select_int_term ark model x atoms)
+    | `TyReal -> Scheme.MReal (select_real_term ark model x atoms)
     | `TyBool -> Scheme.MBool (Interpretation.bool model x)
     | `TyFun (_, _) -> assert false
   in
@@ -1596,7 +1658,6 @@ let aqsat_forward smt_ctx qf_pre phi =
     | _ ->
       (qf_pre, phi, false)
   in
-
   match CSS.initialize_pair select_term smt_ctx qf_pre phi with
   | `Unsat -> if negate then `Sat else `Unsat
   | `Unknown -> `Unknown
@@ -1931,6 +1992,7 @@ let maximize_feasible smt_ctx phi t =
         end
     in
     check_bound None
+
 let maximize smt_ctx phi t =
   match aqsat smt_ctx phi with
   | `Sat -> maximize_feasible smt_ctx phi t
@@ -1941,27 +2003,24 @@ exception Unknown
 let qe_mbp smt_ctx phi =
   let ark = smt_ctx#ark in
   let (qf_pre, phi) = normalize ark phi in
+  let phi = eliminate_ite ark phi in
   let exists x phi =
     let solver = smt_ctx#mk_solver () in
     let disjuncts = ref [] in
     let constants =
-      Symbol.Set.elements (fold_constants Symbol.Set.add phi Symbol.Set.empty)
+      fold_constants Symbol.Set.add phi (Symbol.Set.singleton x)
+      |> Symbol.Set.elements
     in
-    let terms = terms ark phi in
     let rec loop () =
       match solver#get_model () with
       | `Sat m ->
-        let model =
-          List.fold_right
-            (fun k v ->
-               V.add_term
-                 (m#eval_real (mk_const ark k))
-                 (dim_of_sym k)
-                 v)
-            constants
-            (const_linterm QQ.one)
+        let interp = Interpretation.of_model ark m constants in
+        let implicant =
+          match select_implicant ark interp phi with
+          | Some x -> x
+          | None -> assert false
         in
-        let vt = mbp_virtual_term ark model x terms in
+        let vt = mbp_virtual_term ark interp x implicant in
         let psi = virtual_substitution ark x vt phi in
         disjuncts := psi::(!disjuncts);
         solver#add [mk_not ark psi];
@@ -1972,14 +2031,15 @@ let qe_mbp smt_ctx phi =
     solver#add [phi];
     loop ()
   in
-  let qe (qt, x) phi =
-    match qt with
-    | `Exists ->
-      exists x (snd (normalize ark phi))
-    | `Forall ->
-      mk_not ark (exists x (snd (normalize ark (mk_not ark phi))))
-  in
-  List.fold_right qe qf_pre phi
+  List.fold_right
+    (fun (qt, x) phi ->
+       match qt with
+       | `Exists ->
+         exists x (snd (normalize ark phi))
+       | `Forall ->
+         mk_not ark (exists x (snd (normalize ark (mk_not ark phi)))))
+    qf_pre
+    phi
 
 let easy_sat smt_ctx phi =
   let ark = smt_ctx#ark in
