@@ -5,8 +5,7 @@ module Ctx = ArkAst.Ctx
 module Infix = Syntax.Infix(Ctx)
 let ctx = Ctx.context
 let smt_ctx = Smt.mk_context ctx [("model", "true");
-                                  ("proof", "false");
-                                  ("unsat_core", "false")]
+                                  ("unsat_core", "true")]
 
 let file_contents filename =
   let chan = open_in filename in
@@ -65,23 +64,23 @@ let _ =
   match Sys.argv.(i) with
   | "sat" ->
     let phi = load_formula Sys.argv.(i+1) in
-    print_result (Abstract.simsat smt_ctx phi)
+    print_result (Quantifier.simsat smt_ctx phi)
     (*    Apak.Log.print_stats ()*)
 
   | "sat-forward" ->
     let phi = load_formula Sys.argv.(i+1) in
-    print_result (Abstract.simsat_forward smt_ctx phi)
+    print_result (Quantifier.simsat_forward smt_ctx phi)
 
   | "easysat" ->
     let phi = load_formula Sys.argv.(i+1) in
-    print_result (Abstract.easy_sat smt_ctx phi)
+    print_result (Quantifier.easy_sat smt_ctx phi)
 
   | "sat-z3" ->
     let phi = load_formula Sys.argv.(i+1) in
     print_result (smt_ctx#is_sat phi)
   | "sat-mbp" ->
     let phi = load_formula Sys.argv.(i+1) in
-    let psi = Abstract.qe_mbp smt_ctx phi in
+    let psi = Quantifier.qe_mbp smt_ctx phi in
     print_result (smt_ctx#is_sat psi)
   | "sat-z3qe" ->
     let phi = load_formula Sys.argv.(i+1) in
@@ -111,11 +110,11 @@ let _ =
 
   | "qe-mbp" ->
     let phi = load_formula Sys.argv.(i+1) in
-    let psi = Abstract.qe_mbp smt_ctx phi in
+    let psi = Quantifier.qe_mbp smt_ctx phi in
     Log.logf ~level:`always "%a" (Syntax.Formula.pp ctx) psi
   | "opt" ->
     let (objective, phi) = load_math_opt Sys.argv.(i+1) in
-    begin match Abstract.maximize smt_ctx phi objective with
+    begin match Quantifier.maximize smt_ctx phi objective with
       | `Bounded b ->
         Log.logf ~level:`always "Upper bound: %a" QQ.pp b;
       | `Infinity ->
@@ -127,7 +126,7 @@ let _ =
     end
   | "opt-mbp" ->
     let (objective, phi) = load_math_opt Sys.argv.(i+1) in
-    let psi = Abstract.qe_mbp smt_ctx phi in
+    let psi = Quantifier.qe_mbp smt_ctx phi in
     begin match smt_ctx#optimize_box psi [objective] with
       | `Sat [ivl] ->
         begin match Interval.upper ivl with
