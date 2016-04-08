@@ -1,8 +1,6 @@
 open Syntax
 open Smt
 
-exception Nonlinear
-
 module Interpretation : sig
   type 'a interpretation
   val pp : Format.formatter -> 'a interpretation -> unit
