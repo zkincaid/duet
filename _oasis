@@ -31,7 +31,7 @@ Library "ark"
   Path:             ark
   FindlibName:      ark
   Pack:             true
-  Modules:  QQ, ZZ, Syntax, Interval, Smt, Linear, Abstract
+  Modules:  QQ, ZZ, Syntax, Interval, Smt, Linear, Interpretation, Abstract
   BuildDepends:     ppx_deriving, ppx_deriving.show, ppx_deriving.ord, apak, gmp, camlidl, apron, Z3
   Install:          false
   XMETADescription: Arithmetic Reasoning Kit
