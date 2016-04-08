@@ -293,3 +293,84 @@ let vector_right_mul m v =
       let cell = QQVector.dot row v in
       if QQ.equal cell QQ.zero then None
       else Some cell)
+
+(* Affine expressions over constant symbols.  dim_of_sym, const_dim, and
+   sym_of_dim are used to translate between symbols and the dimensions of the
+   coordinate space. *)
+
+exception Nonlinear
+
+let sym_of_dim dim =
+  if dim == 0 then None
+  else if dim > 0 then Some (symbol_of_int (dim - 1))
+  else Some (symbol_of_int dim)
+
+let dim_of_sym k =
+  let id = int_of_symbol k in
+  if id >= 0 then id + 1
+  else id
+
+let const_dim = 0
+
+let const_linterm k = QQVector.of_term k const_dim
+
+let linterm_size linterm = BatEnum.count (QQVector.enum linterm)
+
+let const_of_linterm v =
+  let (k, rest) = QQVector.pivot const_dim v in
+  if QQVector.equal rest QQVector.zero then Some k
+  else None
+
+let linterm_of ark term =
+  let open QQVector in
+  let real qq = of_term qq const_dim in
+  let pivot_const = pivot const_dim in
+  let qq_of term =
+    let (k, rest) = pivot_const term in
+    if equal rest zero then k
+    else raise Nonlinear
+  in
+  let nonzero_qq_of term =
+    let qq = qq_of term in
+    if QQ.equal qq QQ.zero then raise Nonlinear else qq
+  in
+  let mul x y =
+    try scalar_mul (qq_of x) y
+    with Nonlinear -> scalar_mul (qq_of y) x
+  in
+  let alg = function
+    | `Real qq -> real qq
+    | `Const k | `App (k, []) -> of_term QQ.one (dim_of_sym k)
+    | `Var (_, _) | `App (_, _) -> raise Nonlinear
+    | `Add sum -> List.fold_left add zero sum
+    | `Mul sum -> List.fold_left mul (real QQ.one) sum
+    | `Binop (`Div, x, y) -> scalar_mul (QQ.inverse (nonzero_qq_of y)) x
+    | `Binop (`Mod, x, y) -> real (QQ.modulo (qq_of x) (nonzero_qq_of y))
+    | `Unop (`Floor, x) -> real (QQ.of_zz (QQ.floor (qq_of x)))
+    | `Unop (`Neg, x) -> negate x
+    | `Ite (_, _, _) -> raise Nonlinear
+  in
+  Term.eval ark alg term
+
+let of_linterm ark linterm =
+  let open QQVector in
+  enum linterm
+  /@ (fun (coeff, dim) ->
+      match sym_of_dim dim with
+      | Some k ->
+        if QQ.equal coeff QQ.one then mk_const ark k
+        else mk_mul ark [mk_real ark coeff; mk_const ark k]
+      | None -> mk_real ark coeff)
+  |> BatList.of_enum
+  |> mk_add ark
+
+let pp_linterm ark formatter linterm =
+  Term.pp ark formatter (of_linterm ark linterm)
+
+let evaluate_linterm interp term =
+  (QQVector.enum term)
+  /@ (fun (coeff, dim) ->
+      match sym_of_dim dim with
+      | Some const -> QQ.mul (interp const) coeff
+      | None -> coeff)
+  |> BatEnum.fold QQ.add QQ.zero
