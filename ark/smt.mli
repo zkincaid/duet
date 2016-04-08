@@ -76,8 +76,8 @@ class type ['a] smt_context = object
     [ `Sat of 'a smt_model | `Unsat of 'a formula list | `Unknown ]
 
   method optimize_box : 'a formula -> 'a term list -> [ `Sat of Interval.t list
-						      | `Unsat
-						      | `Unknown ]
+                                                      | `Unsat
+                                                      | `Unknown ]
 
   method load_smtlib2 : string -> 'a formula
 end

@@ -41,8 +41,8 @@ let rec qq_val ast =
   if Z3.Expr.is_numeral ast then
     QQ.of_string (Z3.Arithmetic.Real.numeral_to_string ast)
   else if Z3.FloatingPoint.is_to_real ast
-	  || Z3.Arithmetic.is_int2real ast
-	  || Z3.Arithmetic.is_real2int ast
+       || Z3.Arithmetic.is_int2real ast
+       || Z3.Arithmetic.is_real2int ast
   then
     qq_val (List.hd (Z3.Expr.get_args ast))
   else invalid_arg "qq_val"
@@ -100,12 +100,12 @@ let rec eval alg ast =
   | NUMERAL_AST ->
     alg (`Real (qq_val ast))
   | VAR_AST ->
-    let index = Quantifier.get_index ast in
+    let index = Z3.Quantifier.get_index ast in
     alg (`Var (index, (typ_of_sort (Expr.get_sort ast))))
   | QUANTIFIER_AST ->
-    let ast = Quantifier.quantifier_of_expr ast in
+    let ast = Z3.Quantifier.quantifier_of_expr ast in
     let qt =
-      if Quantifier.is_existential ast then `Exists
+      if Z3.Quantifier.is_existential ast then `Exists
       else `Forall
     in
     List.fold_right2
@@ -114,9 +114,9 @@ let rec eval alg ast =
                          Z3.Symbol.to_string name,
                          typ_of_sort sort,
                          body)))
-      (Quantifier.get_bound_variable_names ast)
-      (Quantifier.get_bound_variable_sorts ast)
-      (eval alg (Quantifier.get_body ast))
+      (Z3.Quantifier.get_bound_variable_names ast)
+      (Z3.Quantifier.get_bound_variable_sorts ast)
+      (eval alg (Z3.Quantifier.get_body ast))
   | FUNC_DECL_AST
   | SORT_AST
   | UNKNOWN_AST -> invalid_arg "eval: unknown ast type"
@@ -191,8 +191,8 @@ class type ['a] smt_context = object
   method interpolate_seq : 'a formula list ->
     [ `Sat of 'a smt_model | `Unsat of 'a formula list | `Unknown ]
   method optimize_box : 'a formula -> 'a term list -> [ `Sat of Interval.t list
-						      | `Unsat
-						      | `Unknown ]
+                                                      | `Unsat
+                                                      | `Unknown ]
   method load_smtlib2 : string -> 'a formula
 end
 
@@ -310,7 +310,7 @@ let of_z3 context sym_of_decl expr =
     | _ -> invalid_arg "of_z3.formula"
   in
   let alg : (('a, typ_fo) Syntax.expr) open_expr -> ('a, typ_fo) Syntax.expr =
-      function
+    function
     | `Real qq -> (mk_real context qq :> 'a gexpr)
     | `Var (i, typ) -> mk_var context i typ
     | `App (decl, args) ->
@@ -408,14 +408,14 @@ class ['a] z3_solver (context : 'a context) z3 s =
 
     method get_model : unit -> [ `Sat of 'a smt_model | `Unsat | `Unknown ] =
       fun () ->
-      match self#check [] with
-      | `Sat ->
-        begin match Z3.Solver.get_model s with
-          | Some m -> `Sat (new z3_model context z3 m)
-          | None -> `Unknown
-        end
-      | `Unsat -> `Unsat
-      | `Unknown -> `Unknown
+        match self#check [] with
+        | `Sat ->
+          begin match Z3.Solver.get_model s with
+            | Some m -> `Sat (new z3_model context z3 m)
+            | None -> `Unknown
+          end
+        | `Unsat -> `Unsat
+        | `Unknown -> `Unknown
 
     method to_string () = Z3.Solver.to_string s
 
@@ -430,168 +430,168 @@ class ['a] z3_solver (context : 'a context) z3 s =
   end
 
 let mk_context : 'a context -> (string * string) list -> 'a smt_context
-    = fun context opts ->
-  let z3 = Z3.mk_context opts in
-  let of_term = z3_of_term context z3 in
-  let of_formula = z3_of_formula context z3 in
-  let term_of = term_of_z3 context in
-  let formula_of = formula_of_z3 context in
-  let of_goal g =
-    let open Z3 in
-    List.map formula_of (Goal.get_formulas g)
-    |> mk_and context
-  in
-  let of_apply_result result =
-    let open Z3 in
-    List.map of_goal (Tactic.ApplyResult.get_subgoals result)
-    |> mk_and context
-  in
-  object (self)
-    method ark = context
-    method z3 = z3
-    method of_term = of_term
-    method of_formula = of_formula
-    method term_of = term_of
-    method formula_of = formula_of
-    method mk_solver () =
-      new z3_solver context z3 (Z3.Solver.mk_simple_solver z3)
-
-    method is_sat phi =
-      let s = self#mk_solver () in
-      s#add [phi];
-      s#check []
-
-    method get_model phi =
-      let s = self#mk_solver () in
-      s#add [phi];
-      s#get_model ()
-
-    method implies phi psi =
-      let s = self#mk_solver () in
-      s#add [phi; mk_not context psi];
-      match s#check [] with
-      | `Sat -> false
-      | `Unsat -> true
-      | `Unknown -> raise Unknown_result
-
-    method equiv phi psi =
-      let s = self#mk_solver () in
-      s#add [mk_or context [
-          mk_and context [phi; mk_not context psi];
-          mk_and context [psi; mk_not context phi]
-        ]];
-      match s#check [] with
-      | `Sat -> false
-      | `Unsat -> true
-      | `Unknown -> raise Unknown_result
-
-    method qe phi =
+  = fun context opts ->
+    let z3 = Z3.mk_context opts in
+    let of_term = z3_of_term context z3 in
+    let of_formula = z3_of_formula context z3 in
+    let term_of = term_of_z3 context in
+    let formula_of = formula_of_z3 context in
+    let of_goal g =
       let open Z3 in
-      let solve = Tactic.mk_tactic z3 "qe" in
-      let simpl = Tactic.mk_tactic z3 "simplify" in
-      let qe = Tactic.and_then z3 solve simpl [] in
-      let g = Goal.mk_goal z3 false false false in
-      Goal.add g [of_formula phi];
-      of_apply_result (Tactic.apply qe g None)
-
-    method qe_sat phi =
+      List.map formula_of (Goal.get_formulas g)
+      |> mk_and context
+    in
+    let of_apply_result result =
       let open Z3 in
-      let solve = Tactic.mk_tactic z3 "qsat" in
-      let simpl = Tactic.mk_tactic z3 "simplify" in
-      let qe = Tactic.and_then z3 solve simpl [] in
-      let g = Goal.mk_goal z3 false false false in
-      Goal.add g [of_formula phi];
-      self#is_sat (of_apply_result (Tactic.apply qe g None))
-
-    method interpolate_seq seq =
-      let rec make_pattern phi = function
-        | [psi] ->
-          Z3.Boolean.mk_and z3 [
-            Z3.Interpolation.mk_interpolant z3 phi;
-            of_formula psi
-          ]
-        | psi::rest ->
-          make_pattern
-            (Z3.Boolean.mk_and z3 [
-                Z3.Interpolation.mk_interpolant z3 phi;
-                of_formula psi
-              ])
-            rest
-        | [] ->
-          invalid_arg "interpolate_seq: input sequence must be of length >= 2"
-      in
-      let params = Z3.Params.mk_params z3 in
-      let pattern =
-        if seq = [] then
-          invalid_arg "interpolate_seq: input sequence must be of length >= 2";
-        make_pattern (of_formula (List.hd seq)) (List.tl seq)
-      in
-      match Z3.Interpolation.compute_interpolant z3 pattern params with
-      | (_, Some interp, None) -> `Unsat (List.map formula_of interp)
-      | (_, None, Some m) -> `Sat (new z3_model context z3 m)
-      | (_, _, _) -> `Unknown
-
-  method optimize_box phi terms =
-    let open Z3.Optimize in
-    let opt = mk_opt z3 in
-    let params = Z3.Params.mk_params z3 in
-    let sym = Z3.Symbol.mk_string z3 in
-    Z3.Params.add_symbol params (sym ":opt.priority") (sym "box");
-    set_parameters opt params;
-    add opt [of_formula phi];
-    let mk_handles t =
-      let z3t = of_term t in
-      (minimize opt z3t, maximize opt z3t)
+      List.map of_goal (Tactic.ApplyResult.get_subgoals result)
+      |> mk_and context
     in
-    let handles = List.map mk_handles terms in
-    let mk_interval (lo, hi) =
-      let lower =
-	let lo = get_lower lo in
-	if Z3.Expr.is_numeral lo then
-	  Some (qq_val lo)
-	else if Z3.Expr.to_string lo = "(* (- 1) oo)" then
-	  None
-	else if Z3.Arithmetic.is_add lo then
-	  (* x + epsilon *)
-	   Some (qq_val (List.hd (Z3.Expr.get_args lo)))
-	else
-	  Apak.Log.fatalf "Smt.optimize_box: %s" (Z3.Expr.to_string lo)
-      in
-      let upper =
-	let hi = get_lower hi in
-	if Z3.Expr.is_numeral hi then
-	  Some (qq_val hi)
-	else if Z3.Expr.to_string hi = "oo" then
-	  None
-	else if Z3.Arithmetic.is_add hi then
-	  (* x - epsilon *)
-	  Some (qq_val (List.hd (Z3.Expr.get_args hi)))
-	else
-	  Apak.Log.fatalf "Smt.optimize_box: %s" (Z3.Expr.to_string hi)
-      in
-      Interval.make lower upper
-    in
-    match check opt with
-    | Z3.Solver.SATISFIABLE -> `Sat (List.map mk_interval handles)
-    | Z3.Solver.UNSATISFIABLE -> `Unsat
-    | Z3.Solver.UNKNOWN -> `Unknown
+    object (self)
+      method ark = context
+      method z3 = z3
+      method of_term = of_term
+      method of_formula = of_formula
+      method term_of = term_of
+      method formula_of = formula_of
+      method mk_solver () =
+        new z3_solver context z3 (Z3.Solver.mk_simple_solver z3)
 
-  method load_smtlib2 str =
-   let ast = Z3.SMT.parse_smtlib2_string z3 str [] [] [] [] in
-      let sym_of_decl =
-        let cos =
-          Apak.Memo.memo (fun (name, typ) -> mk_symbol context ~name typ)
+      method is_sat phi =
+        let s = self#mk_solver () in
+        s#add [phi];
+        s#check []
+
+      method get_model phi =
+        let s = self#mk_solver () in
+        s#add [phi];
+        s#get_model ()
+
+      method implies phi psi =
+        let s = self#mk_solver () in
+        s#add [phi; mk_not context psi];
+        match s#check [] with
+        | `Sat -> false
+        | `Unsat -> true
+        | `Unknown -> raise Unknown_result
+
+      method equiv phi psi =
+        let s = self#mk_solver () in
+        s#add [mk_or context [
+            mk_and context [phi; mk_not context psi];
+            mk_and context [psi; mk_not context phi]
+          ]];
+        match s#check [] with
+        | `Sat -> false
+        | `Unsat -> true
+        | `Unknown -> raise Unknown_result
+
+      method qe phi =
+        let open Z3 in
+        let solve = Tactic.mk_tactic z3 "qe" in
+        let simpl = Tactic.mk_tactic z3 "simplify" in
+        let qe = Tactic.and_then z3 solve simpl [] in
+        let g = Goal.mk_goal z3 false false false in
+        Goal.add g [of_formula phi];
+        of_apply_result (Tactic.apply qe g None)
+
+      method qe_sat phi =
+        let open Z3 in
+        let solve = Tactic.mk_tactic z3 "qsat" in
+        let simpl = Tactic.mk_tactic z3 "simplify" in
+        let qe = Tactic.and_then z3 solve simpl [] in
+        let g = Goal.mk_goal z3 false false false in
+        Goal.add g [of_formula phi];
+        self#is_sat (of_apply_result (Tactic.apply qe g None))
+
+      method interpolate_seq seq =
+        let rec make_pattern phi = function
+          | [psi] ->
+            Z3.Boolean.mk_and z3 [
+              Z3.Interpolation.mk_interpolant z3 phi;
+              of_formula psi
+            ]
+          | psi::rest ->
+            make_pattern
+              (Z3.Boolean.mk_and z3 [
+                  Z3.Interpolation.mk_interpolant z3 phi;
+                  of_formula psi
+                ])
+              rest
+          | [] ->
+            invalid_arg "interpolate_seq: input sequence must be of length >= 2"
         in
-        fun decl ->
-          let open Z3 in
-          let sym = FuncDecl.get_name decl in
-          assert (FuncDecl.get_domain decl = []);
-          cos (Symbol.to_string sym, typ_of_sort (FuncDecl.get_range decl))
-      in
-      match refine context (of_z3 context sym_of_decl ast) with
-      | `Formula phi -> phi
-      | `Term _ -> invalid_arg "load_smtlib2"
-  end
+        let params = Z3.Params.mk_params z3 in
+        let pattern =
+          if seq = [] then
+            invalid_arg "interpolate_seq: input sequence must be of length >= 2";
+          make_pattern (of_formula (List.hd seq)) (List.tl seq)
+        in
+        match Z3.Interpolation.compute_interpolant z3 pattern params with
+        | (_, Some interp, None) -> `Unsat (List.map formula_of interp)
+        | (_, None, Some m) -> `Sat (new z3_model context z3 m)
+        | (_, _, _) -> `Unknown
+
+      method optimize_box phi terms =
+        let open Z3.Optimize in
+        let opt = mk_opt z3 in
+        let params = Z3.Params.mk_params z3 in
+        let sym = Z3.Symbol.mk_string z3 in
+        Z3.Params.add_symbol params (sym ":opt.priority") (sym "box");
+        set_parameters opt params;
+        add opt [of_formula phi];
+        let mk_handles t =
+          let z3t = of_term t in
+          (minimize opt z3t, maximize opt z3t)
+        in
+        let handles = List.map mk_handles terms in
+        let mk_interval (lo, hi) =
+          let lower =
+            let lo = get_lower lo in
+            if Z3.Expr.is_numeral lo then
+              Some (qq_val lo)
+            else if Z3.Expr.to_string lo = "(* (- 1) oo)" then
+              None
+            else if Z3.Arithmetic.is_add lo then
+              (* x + epsilon *)
+              Some (qq_val (List.hd (Z3.Expr.get_args lo)))
+            else
+              Apak.Log.fatalf "Smt.optimize_box: %s" (Z3.Expr.to_string lo)
+          in
+          let upper =
+            let hi = get_lower hi in
+            if Z3.Expr.is_numeral hi then
+              Some (qq_val hi)
+            else if Z3.Expr.to_string hi = "oo" then
+              None
+            else if Z3.Arithmetic.is_add hi then
+              (* x - epsilon *)
+              Some (qq_val (List.hd (Z3.Expr.get_args hi)))
+            else
+              Apak.Log.fatalf "Smt.optimize_box: %s" (Z3.Expr.to_string hi)
+          in
+          Interval.make lower upper
+        in
+        match check opt with
+        | Z3.Solver.SATISFIABLE -> `Sat (List.map mk_interval handles)
+        | Z3.Solver.UNSATISFIABLE -> `Unsat
+        | Z3.Solver.UNKNOWN -> `Unknown
+
+      method load_smtlib2 str =
+        let ast = Z3.SMT.parse_smtlib2_string z3 str [] [] [] [] in
+        let sym_of_decl =
+          let cos =
+            Apak.Memo.memo (fun (name, typ) -> mk_symbol context ~name typ)
+          in
+          fun decl ->
+            let open Z3 in
+            let sym = FuncDecl.get_name decl in
+            assert (FuncDecl.get_domain decl = []);
+            cos (Symbol.to_string sym, typ_of_sort (FuncDecl.get_range decl))
+        in
+        match refine context (of_z3 context sym_of_decl ast) with
+        | `Formula phi -> phi
+        | `Term _ -> invalid_arg "load_smtlib2"
+    end
 
 let mk_solver ?(theory="") ctx =
   if theory = "" then
