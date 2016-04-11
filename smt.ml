@@ -338,7 +338,7 @@ let of_z3 context sym_of_decl expr =
         | `Formula phi, `Formula psi ->
           (mk_or context [mk_and context [phi; psi];
                           mk_and context [mk_not context phi;
-                                          mk_not context phi]]
+                                          mk_not context psi]]
            :> 'a gexpr)
         | _, _ -> invalid_arg "of_z3: equal"
       end
