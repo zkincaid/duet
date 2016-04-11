@@ -11,6 +11,30 @@ module V = Linear.QQVector
 module VS = Putil.Set.Make(Linear.QQVector)
 module VM = Putil.Map.Make(Linear.QQVector)
 
+let substitute_const ark sigma expr =
+  let simplify t = of_linterm ark (linterm_of ark t) in
+  rewrite ark ~up:(fun expr ->
+      match refine ark expr with
+      | `Formula phi ->
+        begin
+          try
+            match Formula.destruct ark phi with
+            | `Atom (`Eq, s, t) ->
+              (mk_eq ark (simplify s) (simplify t) :> ('a, typ_fo) expr)
+            | `Atom (`Leq, s, t) ->
+              (mk_leq ark (simplify s) (simplify t) :> ('a, typ_fo) expr)
+            | `Atom (`Lt, s, t) ->
+              (mk_lt ark (simplify s) (simplify t) :> ('a, typ_fo) expr)
+            | _ -> expr
+          with Nonlinear -> expr
+        end
+      | `Term t ->
+        begin match Term.destruct ark t with
+          | `Const k -> (sigma k :> ('a, typ_fo) expr)
+          | _ -> expr
+        end)
+    expr
+
 (* Compute the GCD of all coefficients in an affine term (with integral
    coefficients) *)
 let coefficient_gcd term =
@@ -313,12 +337,6 @@ let mk_not_divides ark divisor term =
       (mk_neg ark (mk_mod ark (of_linterm ark term) (mk_real ark divisor)))
       (mk_real ark QQ.zero)
 
-let substitute_real_term ark x t phi =
-  let replacement = of_linterm ark t in
-  substitute_const ark
-    (fun p -> if p = x then replacement else mk_const ark p)
-    phi
-
 exception Redundant_path
 module Scheme = struct
 
@@ -355,7 +373,11 @@ module Scheme = struct
         phi
     (*      int_virtual_substitution ark x vt phi*)
     | MReal t ->
-      substitute_real_term ark x t phi
+      let replacement = of_linterm ark t in
+      substitute_const
+        ark
+        (fun p -> if p = x then replacement else mk_const ark p)
+        phi
     | MBool vb ->
       let replacement = match vb with
         | true -> mk_true ark
