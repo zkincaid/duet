@@ -1031,4 +1031,12 @@ let () =
   Callback.register "hull_equiv_callback" K.F.T.D.equal;
   Callback.register "is_sat_callback" (fun tr ->
       try K.F.is_sat tr.K.guard
-      with Formula.Timeout -> K.F.is_sat (linearize () tr.K.guard))
+      with Formula.Timeout -> K.F.is_sat (linearize () tr.K.guard));
+  Callback.register "print_stats_callback" Log.print_stats;
+  Callback.register "print_hull_callback" (fun indent hull ->
+     Putil.pp_string (fun formatter tr ->
+          Format.pp_open_vbox formatter indent;
+          Format.pp_print_break formatter 0 0;
+          Format.fprintf formatter "%a" K.F.T.D.format tr;
+          Format.pp_close_box formatter ())
+       hull)
