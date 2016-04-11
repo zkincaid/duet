@@ -317,7 +317,7 @@ let mk_divides ark divisor term =
   if ZZ.equal divisor ZZ.one || V.equal term V.zero then
     mk_true ark
   else
-    let gcd = coefficient_gcd term in
+    let gcd = ZZ.gcd (coefficient_gcd term) divisor in
     let divisor = QQ.of_zz (ZZ.div divisor gcd) in
     let term = V.scalar_mul (QQ.of_zzfrac ZZ.one gcd) term in
     mk_eq ark
@@ -329,7 +329,7 @@ let mk_not_divides ark divisor term =
   if ZZ.equal divisor ZZ.one || V.equal term V.zero then
     mk_false ark
   else
-    let gcd = coefficient_gcd term in
+    let gcd = ZZ.gcd (coefficient_gcd term) divisor in
     let divisor = QQ.div (QQ.of_zz divisor) (QQ.of_zz gcd) in
     let term = V.scalar_mul (QQ.of_zzfrac ZZ.one gcd) term in
 
@@ -849,7 +849,8 @@ let select_int_term ark interp x atoms =
   | `None ->
     (* Value of x is irrelevant *)
     logf ~level:`trace "Irrelevant: %a" (pp_symbol ark) x;
-    { term = V.zero; divisor = 1; offset = ZZ.zero }
+    let value = Linear.const_linterm (QQ.of_zz (ZZ.modulo x_val delta)) in
+    { term = value; divisor = 1; offset = ZZ.zero }
 
 let select_int_term ark interp x atoms =
   try
