@@ -190,4 +190,30 @@ let _ =
     Log.logf ~level:`always "Variables: %d" (String.length qf_pre);
     Log.logf ~level:`always "Size: %d" (Formula.eval ctx size phi)
 
+  | "random" ->
+    Random.self_init ();
+    let qf_pre = ref [] in
+    String.iter (function
+        | 'E' -> qf_pre := `Exists::(!qf_pre)
+        | 'A' -> qf_pre := `Forall::(!qf_pre)
+        | _ -> assert false)
+      Sys.argv.(i+1);
+    RandomFormula.quantifier_prefix := List.rev (!qf_pre);
+    RandomFormula.formula_uq_depth := int_of_string (Sys.argv.(i + 2));
+    begin
+      match Sys.argv.(i + 3) with
+      | "dense" -> RandomFormula.dense := true;
+      | "sparse" -> RandomFormula.dense := false;
+      | _ -> assert false
+    end;
+    Z3.SMT.benchmark_to_smtstring
+      smt_ctx#z3
+      "random"
+      ""
+      "unknown"
+      ""
+      []
+      (smt_ctx#of_formula (RandomFormula.mk_random_formula ctx))
+    |> print_endline
+
   | x -> Log.fatalf "Unknown command: `%s'" x
