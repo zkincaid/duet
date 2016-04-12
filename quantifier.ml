@@ -25,12 +25,19 @@ let substitute_const ark sigma expr =
               (mk_leq ark (simplify s) (simplify t) :> ('a, typ_fo) expr)
             | `Atom (`Lt, s, t) ->
               (mk_lt ark (simplify s) (simplify t) :> ('a, typ_fo) expr)
+            | `Proposition (`Const k) -> (sigma k :> ('a, typ_fo) expr)
             | _ -> expr
           with Nonlinear -> expr
         end
       | `Term t ->
         begin match Term.destruct ark t with
           | `Const k -> (sigma k :> ('a, typ_fo) expr)
+          | `Binop (`Mod, s, t) ->
+            begin
+              try
+                (mk_mod ark (simplify s) (simplify t) :> ('a, typ_fo) expr)
+              with Nonlinear -> expr
+            end
           | _ -> expr
         end)
     expr
@@ -279,7 +286,7 @@ let simplify_atom ark op s t =
         ZZ.one
         (V.enum qq_linterm)
     in
-    V.scalar_mul (QQ.of_zz multiplier) qq_linterm
+    (multiplier, V.scalar_mul (QQ.of_zz multiplier) qq_linterm)
   in
   match op with
   | `Eq ->
@@ -288,29 +295,32 @@ let simplify_atom ark op s t =
 
       (* Divisibility constraint *)
       let modulus = destruct_int modulus in
-      `Divides (modulus, zz_linterm dividend)
-    | _ -> `CompareZero (`Eq, zz_linterm s)
+      let (multiplier, lt) = zz_linterm dividend in
+      `Divides (ZZ.mul multiplier modulus, lt)
+    | _ -> `CompareZero (`Eq, snd (zz_linterm s))
     end
   | `Lt ->
     begin match Term.destruct ark s with
       | `Binop (`Mod, dividend, modulus) ->
         (* Indivisibility constraint: dividend % modulus < 0. *)
         let modulus = destruct_int modulus in
-        `NotDivides (modulus, zz_linterm dividend)
+        let (multiplier, lt) = zz_linterm dividend in
+        `NotDivides (ZZ.mul multiplier modulus, lt)
 
       | `Unop (`Neg, s') ->
         begin match Term.destruct ark s' with
           | `Binop (`Mod, dividend, modulus) ->
             (* Indivisibility constraint: dividend % modulus > 0 *)
             let modulus = destruct_int modulus in
-            `NotDivides (modulus, zz_linterm dividend)
-          | _ -> `CompareZero (`Lt, zz_linterm s)
+            let (multiplier, lt) = zz_linterm dividend in
+            `NotDivides (ZZ.mul multiplier modulus, lt)
+          | _ -> `CompareZero (`Lt, snd (zz_linterm s))
         end
 
-      | _ -> `CompareZero (`Lt, zz_linterm s)
+      | _ -> `CompareZero (`Lt, snd (zz_linterm s))
     end
   | `Leq ->
-    `CompareZero (`Leq, zz_linterm s)
+    `CompareZero (`Leq, snd (zz_linterm s))
 
 let mk_divides ark divisor term =
   assert (ZZ.lt ZZ.zero divisor);
