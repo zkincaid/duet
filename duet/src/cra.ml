@@ -980,6 +980,7 @@ let () =
   Callback.register "print_callback" K.show;
   Callback.register "tensoredPrint_callback" KK.show;
   Callback.register "eq_callback" (fun x y -> K.compare x y = 0);
+  Callback.register "equiv_callback" K.equiv;
   Callback.register "normalize_callback" K.normalize;
   Callback.register "transpose_callback" K.transpose;
   Callback.register "tensor_callback" tensor;
