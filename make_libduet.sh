@@ -1,5 +1,7 @@
-ocamlbuild duet/src/duet.cmx
-ocamlbuild duet/src/newton_interface.cmx
+ocamlbuild duet/src/duet.cmx duet/src/newton_interface.cmx
+if [ $? != 0 ]; then
+    exit -1
+fi
 
 echo "************* Linking libduet.so: *************"
 cd _build/duet/src/
