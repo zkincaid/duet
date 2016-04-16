@@ -237,8 +237,9 @@ module K = struct
   let exists p tr =
     Log.time "Existential quantification" (exists p) tr
 
+
   let star x =
-    Log.time "cra:star" star (simplify x)
+    Log.time "cra:star" star x
 
 (*
   let simplify tr = tr
@@ -978,7 +979,7 @@ let () =
   Callback.register "star_callback" K.star;
   Callback.register "print_callback" K.show;
   Callback.register "tensoredPrint_callback" KK.show;
-  Callback.register "eq_callback" K.equal;
+  Callback.register "eq_callback" (fun x y -> K.compare x y = 0);
   Callback.register "normalize_callback" K.normalize;
   Callback.register "transpose_callback" K.transpose;
   Callback.register "tensor_callback" tensor;
