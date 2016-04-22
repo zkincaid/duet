@@ -1049,4 +1049,9 @@ let () =
       /@ (fun vi ->
           let v = VVal (Var.mk vi) in
           assign v (T.var (V.mk_tmp "havoc" (Voc.typ v))))
-      |> BatEnum.reduce mul)
+      |> BatEnum.reduce mul);
+  Callback.register "procedure_of_entry_callback" (fun rg entry ->
+      let block =
+        (RG.blocks rg) |> BatEnum.find (Def.equal entry % (RG.block_entry rg))
+      in
+      (block, Varinfo.show block))
