@@ -316,7 +316,7 @@ module K = struct
     in
     { transform; guard }
 
-  let top block =
+  let top_local block =
     let file = (get_gfile()) in
     let func = lookup_function block (get_gfile()) in
     (BatEnum.append
@@ -791,7 +791,7 @@ module KK = struct
     (* Remove local variables from the footprint *)
     |> exists (Var.is_global % var_of_value % VV.lower)
 
-  let top block =
+  let top_local block =
     let file = (get_gfile()) in
     let func = lookup_function block (get_gfile()) in
     (BatEnum.append
@@ -1041,4 +1041,12 @@ let () =
           Format.pp_print_break formatter 0 0;
           Format.fprintf formatter "%a" K.F.T.D.format tr;
           Format.pp_close_box formatter ())
-       hull)
+       hull);
+  Callback.register "top_callback" (fun () ->
+      let open K in
+      let file = (get_gfile()) in
+      (BatList.enum file.vars)
+      /@ (fun vi ->
+          let v = VVal (Var.mk vi) in
+          assign v (T.var (V.mk_tmp "havoc" (Voc.typ v))))
+      |> BatEnum.reduce mul)
