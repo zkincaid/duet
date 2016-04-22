@@ -1052,6 +1052,7 @@ let () =
       |> BatEnum.reduce mul);
   Callback.register "procedure_of_entry_callback" (fun rg entry ->
       let block =
-        (RG.blocks rg) |> BatEnum.find (Def.equal entry % (RG.block_entry rg))
+        (RG.blocks rg)
+        |> BatEnum.find (fun block -> entry = (RG.block_entry rg block).did)
       in
       (block, Varinfo.show block))
