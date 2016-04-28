@@ -40,6 +40,22 @@ let analyze_basic file =
             caml_add_wpds_error_rule
               (K.assume (K.F.negate (Cra.tr_bexpr phi)))
               vertex.did
+          | AssertMemSafe (expr, _) -> begin
+              let open Cra in
+              match tr_expr expr with
+              | TInt _ -> assert false
+              | TPointer p ->
+                begin
+                  let phi =
+                    K.F.conj
+                      (K.F.geq p.ptr_pos K.T.zero)
+                      (K.F.lt p.ptr_pos p.ptr_width)
+                  in
+                  caml_add_wpds_error_rule
+                    (K.assume (K.F.negate phi))
+                    vertex.did
+                end
+            end
           | _ -> ()
         );
       set_vertices (RG.block_entry rg main).did (RG.block_exit rg main).did;
