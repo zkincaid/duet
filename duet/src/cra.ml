@@ -1042,6 +1042,13 @@ let () =
           Format.fprintf formatter "%a" K.F.T.D.format tr;
           Format.pp_close_box formatter ())
        hull);
+  Callback.register "tensor_print_hull_callback" (fun indent hull ->
+     Putil.pp_string (fun formatter tr ->
+          Format.pp_open_vbox formatter indent;
+          Format.pp_print_break formatter 0 0;
+          Format.fprintf formatter "%a" KK.F.T.D.format tr;
+          Format.pp_close_box formatter ())
+       hull);
   Callback.register "top_callback" (fun () ->
       let open K in
       let file = (get_gfile()) in
