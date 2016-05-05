@@ -468,7 +468,7 @@ let tr_bexpr bexpr =
 let weight def =
   let open K in
   match def.dkind with
-  | Assume phi | Assert (phi, _) -> K.assume (tr_bexpr phi)
+  | Assume phi -> K.assume (tr_bexpr phi)
   | Assign (lhs, rhs) ->
     if typ_has_offsets (Var.get_type lhs) then begin
       match tr_expr rhs with
@@ -517,7 +517,7 @@ let weight def =
   | Builtin AtomicBegin | Builtin AtomicEnd
   | Builtin (Acquire _) | Builtin (Release _)
   | Builtin (Free _)
-  | Initial | AssertMemSafe (_, _) | Return None -> one
+  | Initial | Assert (_, _) | AssertMemSafe (_, _) | Return None -> one
   | _ ->
     Log.errorf "No translation for definition: %a" Def.format def;
     assert false
