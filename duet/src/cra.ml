@@ -1034,6 +1034,8 @@ let () =
   Callback.register "is_sat_callback" (fun tr ->
       try K.F.is_sat tr.K.guard
       with Formula.Timeout -> K.F.is_sat (linearize () tr.K.guard));
+  Callback.register "is_sat_linear_callback" (fun tr ->
+      K.F.is_sat (linearize () tr.K.guard));
   Callback.register "print_stats_callback" Log.print_stats;
   Callback.register "print_hull_callback" (fun indent hull ->
      Putil.pp_string (fun formatter tr ->
