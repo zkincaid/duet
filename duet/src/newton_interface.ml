@@ -33,6 +33,11 @@ let analyze_basic file =
   match file.entry_points with
   | [main] -> begin
       let rg = Interproc.make_recgraph file in
+      let rg =
+        if !Cra.forward_inv_gen
+        then Log.phase "Forward invariant generation" Cra.decorate rg
+        else rg
+      in
       BatEnum.iter (block_iter rg) (Interproc.RG.blocks rg);
       Interproc.RG.vertices rg |> BatEnum.iter (fun (_, vertex) ->
           match vertex.dkind with
