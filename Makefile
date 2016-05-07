@@ -22,7 +22,7 @@ setup.ml: _oasis
 	oasis setup
 
 setup.data: setup.ml
-	$(SETUP) -configure --enable-tests
+	$(SETUP) -configure
 
 install:
 	$(SETUP) -install
