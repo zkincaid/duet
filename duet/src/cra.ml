@@ -812,7 +812,7 @@ let _ =
   let simplify_dillig =
     F.simplify_dillig_nonlinear (fun () -> V.mk_tmp "nonlin" TyInt)
   in
-  opt_loop_guard := None;
+  opt_loop_guard := Some F.exists;
   (* chenged simplifying strategy *)
   F.opt_simplify_strategy := [F.qe_partial; simplify_dillig]
 
