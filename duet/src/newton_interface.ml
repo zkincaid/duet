@@ -14,7 +14,7 @@ external set_vertices: int -> int -> unit = "set_vertices_wfa"
 external set_cWeight: K.t -> unit = "set_compare_weight"
 external caml_add_wpds_call_rule: K.t -> int -> int -> int -> unit = "add_wpds_call_rule"
 external caml_add_wpds_epsilon_rule: K.t -> int -> unit = "add_wpds_epsilon_rule"
-external caml_add_wpds_error_rule: K.t -> int -> unit = "add_wpds_error_rule"
+external caml_add_wpds_error_rule: K.t -> int -> int -> unit = "add_wpds_error_rule"
 
 (*Create a function to call out to the weight maker and create a wpds in c*)
 let iter_helper rg vertexa vertexb =
@@ -45,6 +45,7 @@ let analyze_basic file =
             caml_add_wpds_error_rule
               (K.assume (K.F.negate (Cra.tr_bexpr phi)))
               vertex.did
+              (Def.get_location vertex).Cil.line
           | AssertMemSafe (expr, _) -> begin
               let open Cra in
               match tr_expr expr with
@@ -59,7 +60,8 @@ let analyze_basic file =
                   caml_add_wpds_error_rule
                     (K.assume (K.F.negate phi))
                     vertex.did
-                end
+                    (Def.get_location vertex).Cil.line
+               end
             end
           | _ -> ()
         );
