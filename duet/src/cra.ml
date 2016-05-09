@@ -234,12 +234,57 @@ module K = struct
     res
 *)
 
+  (* Enable/disable loop splitting during for star computation  *)
+  let opt_split_loops = ref false
+
   let exists p tr =
     Log.time "Existential quantification" (exists p) tr
 
+  let star x = Log.time "cra:star" star x
 
-  let star x =
-    Log.time "cra:star" star x
+  (* Split loops using the atomic predicates that (1) appear in the guard of
+     the loop body and (2) are expressed over pre-state variables, and then
+     compute star *)
+  let star_split tr =
+    let alg = function
+      | OAnd (xs, ys) | OOr (xs, ys) -> xs@ys
+      | OAtom atom ->
+        begin match atom with
+          | LeqZ t when VSet.is_empty (term_free_tmp_vars t) -> [F.leqz t]
+          | LtZ t when VSet.is_empty (term_free_tmp_vars t) -> [F.ltz t]
+          | EqZ t when VSet.is_empty (term_free_tmp_vars t) -> [F.eqz t]
+          | _ -> []
+        end
+    in
+    let predicates = F.eval alg tr.guard in
+    let rec go predicates tr =
+      match predicates with
+      | [] -> star tr
+      | (predicate::predicates) when
+          F.is_sat (F.conj tr.guard predicate) &&
+          F.is_sat (F.conj tr.guard (F.negate predicate)) ->
+        logf ~level:`trace "Splitting on predicate: %a" F.format predicate;
+        let tr_predicate = assume predicate in
+        let tr_not_predicate = assume (F.negate predicate) in
+        let tr_tt = mul (mul tr_predicate tr) tr_predicate in
+        let tr_tf = mul (mul tr_predicate tr) tr_not_predicate in
+        let tr_ff = mul (mul tr_not_predicate tr) tr_not_predicate in
+        let tr_ft = mul (mul tr_not_predicate tr) tr_predicate in
+        if not (F.is_sat tr_tf.guard) then
+          mul (go predicates tr_ff) (add one (mul tr_ft (go predicates tr_tt)))
+        else if not (F.is_sat tr_ft.guard) then
+          mul (go predicates tr_tt) (add one (mul tr_tf (go predicates tr_ff)))
+        else
+          go predicates tr
+      | (_::predicates) -> go predicates tr
+    in
+    go predicates tr
+
+  let star tr =
+    if !opt_split_loops then
+      star_split tr
+    else
+      star tr
 
 (*
   let simplify tr = tr
@@ -573,6 +618,10 @@ let _ =
     ("-cra-guard",
      Arg.String set_guard,
      " Turn off loop guards");
+  CmdLine.register_config
+    ("-cra-split-loops",
+     Arg.Set K.opt_split_loops,
+     " Turn on loop splitting");
   CmdLine.register_config
     ("-qe",
      Arg.String set_qe,
