@@ -740,6 +740,8 @@ let parse filename =
     in
     ignore (Sys.command pp_cmd);
     let file = simplify (Frontc.parse preprocessed ()) in
+    if !Errormsg.hadErrors then
+      Log.fatalf "Could not parse input file";
     tr_file filename file
   in
   Putil.with_temp_filename base ".i" go
