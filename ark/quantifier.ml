@@ -56,7 +56,9 @@ let select_implicant ark interp ?(env=Env.empty) phi =
   match Interpretation.select_implicant interp phi with
   | Some atoms ->
     logf ~level:`trace "Implicant Atoms:";
-    List.iter (fun atom -> logf ~level:`trace ">%a" (Formula.pp ark) atom) atoms;
+    List.iter
+      (fun atom -> logf ~level:`trace ">%a" (Formula.pp ark) atom)
+      atoms;
     Some atoms
   | None -> None
 
@@ -349,7 +351,7 @@ let mk_not_divides ark divisor term =
       (mk_real ark QQ.zero)
 
 exception Redundant_path
-module Scheme = struct
+module Skeleton = struct
 
   type move =
     | MInt of int_virtual_term
@@ -469,23 +471,23 @@ module Scheme = struct
     | SExists of symbol * (t MM.t)
     | SEmpty
 
-  let pp ark formatter scheme =
+  let pp ark formatter skeleton =
     let open Format in
     let rec pp formatter = function
       | SForall (k, sk, t) ->
         fprintf formatter "@[(forall %a:@\n  @[%a@])@]" (pp_symbol ark) sk pp t
       | SExists (k, mm) ->
-        let pp_elt formatter (move, scheme) =
+        let pp_elt formatter (move, skeleton) =
           fprintf formatter "%a:@\n  @[%a@]@\n"
             (pp_move ark) move
-            pp scheme
+            pp skeleton
         in
         fprintf formatter "@[(exists %a:@\n  @[%a@])@]"
           (pp_symbol ark) k
           (ApakEnum.pp_print_enum pp_elt) (MM.enum mm)
       | SEmpty -> ()
     in
-    pp formatter scheme
+    pp formatter skeleton
 
   let rec size = function
     | SEmpty -> 0
@@ -506,7 +508,7 @@ module Scheme = struct
 
   let empty = SEmpty
 
-  (* Create a new scheme where the only path is the given path *)
+  (* Create a new skeleton where the only path is the given path *)
   let mk_path ark path =
     let rec go = function
       | [] -> SEmpty
@@ -519,27 +521,27 @@ module Scheme = struct
     go path
 
   (* Add a path (corresponding to a new instantiation of the existential
-     variables of some formula) to a scheme.  Raise Redundant_path if this
-     path already belonged to the scheme. *)
-  let add_path ark path scheme =
+     variables of some formula) to a skeleton.  Raise Redundant_path if this
+     path already belonged to the skeleton. *)
+  let add_path ark path skeleton =
 
-    let rec go path scheme =
-      match path, scheme with
+    let rec go path skeleton =
+      match path, skeleton with
       | ([], SEmpty) ->
-        (* path was already in scheme *)
+        (* path was already in skeleton *)
         raise Redundant_path
 
-      | (`Forall k::path, SForall (k', sk, scheme)) ->
+      | (`Forall k::path, SForall (k', sk, skeleton)) ->
         assert (k = k');
-        SForall (k, sk, go path scheme)
+        SForall (k, sk, go path skeleton)
 
       | (`Exists (k, move)::path, SExists (k', mm)) ->
         assert (k = k');
-        let subscheme =
+        let subskeleton =
           try go path (MM.find move mm)
           with Not_found -> mk_path ark path
         in
-        SExists (k, MM.add move subscheme mm)
+        SExists (k, MM.add move subskeleton mm)
       | `Exists (_, _)::_, SForall (_, _, _) | (`Forall _)::_, SExists (_, _) ->
         assert false
       | ([], _) ->
@@ -547,55 +549,56 @@ module Scheme = struct
       | (_, SEmpty) ->
         assert false
     in
-    match scheme with
+    match skeleton with
     | SEmpty -> mk_path ark path
-    | _ -> go path scheme
+    | _ -> go path skeleton
 
   (* Used for incremental construction of the winning formula:
-       (winning_formula scheme phi) = \/_p winning_path_formula p scheme phi *)
-  let path_winning_formula ark path scheme phi =
-    let rec go path scheme =
-      match path, scheme with
+       (winning_formula skeleton phi)
+                                   = \/_p winning_path_formula p skeleton phi *)
+  let path_winning_formula ark path skeleton phi =
+    let rec go path skeleton =
+      match path, skeleton with
       | ([], SEmpty) -> phi
-      | (`Forall k::path, SForall (k', sk, scheme)) ->
+      | (`Forall k::path, SForall (k', sk, skeleton)) ->
         assert (k = k');
         let sk_const = mk_const ark sk in
         substitute_const ark
           (fun sym -> if k = sym then sk_const else mk_const ark sym)
-          (go path scheme)
+          (go path skeleton)
       | (`Exists (k, move)::path, SExists (k', mm)) ->
         assert (k = k');
         substitute ark k move (go path (MM.find move mm))
       | (_, _) -> assert false
     in
-    go path scheme
+    go path skeleton
 
-  (* winning_formula scheme phi is valid iff scheme is a winning scheme for
-     the formula phi *)
-  let winning_formula ark scheme phi =
+  (* winning_formula skeleton phi is valid iff skeleton is a winning skeleton
+     for the formula phi *)
+  let winning_formula ark skeleton phi =
     let rec go = function
       | SEmpty -> phi
-      | SForall (k, sk, scheme) ->
+      | SForall (k, sk, skeleton) ->
         let sk_const = mk_const ark sk in
         substitute_const ark
           (fun sym -> if k = sym then sk_const else mk_const ark sym)
-          (go scheme)
+          (go skeleton)
 
       | SExists (k, mm) ->
         MM.enum mm
-        /@ (fun (move, scheme) -> substitute ark k move (go scheme))
+        /@ (fun (move, skeleton) -> substitute ark k move (go skeleton))
         |> BatList.of_enum
         |> mk_or ark
     in
-    go scheme
+    go skeleton
 
   let rec paths = function
     | SEmpty -> [[]]
-    | SForall (k, sk, scheme) ->
-      List.map (fun path -> (`Forall k)::path) (paths scheme)
+    | SForall (k, sk, skeleton) ->
+      List.map (fun path -> (`Forall k)::path) (paths skeleton)
     | SExists (k, mm) ->
-      BatEnum.fold (fun rest (move, scheme) ->
-          (List.map (fun path -> (`Exists (k, move))::path) (paths scheme))
+      BatEnum.fold (fun rest (move, skeleton) ->
+          (List.map (fun path -> (`Exists (k, move))::path) (paths skeleton))
           @rest)
         []
         (MM.enum mm)
@@ -736,7 +739,7 @@ let select_int_term ark interp x atoms =
   assert (ZZ.lt ZZ.zero delta);
   let evaluate_vt vt =
     let real_val =
-      Scheme.evaluate_move (Interpretation.real interp) (Scheme.MInt vt)
+      Skeleton.evaluate_move (Interpretation.real interp) (Skeleton.MInt vt)
     in
     match QQ.to_zz real_val with
     | Some v -> v
@@ -881,11 +884,11 @@ module CSS = struct
   type 'a ctx =
     { formula : 'a formula;
       not_formula : 'a formula; (* Negated formula *)
-      mutable scheme : Scheme.t; (* scheme for formula *)
+      mutable skeleton : Skeleton.t; (* skeleton for formula *)
 
-      (* solver for the *negation* of the winning formula for scheme (unsat
+      (* solver for the *negation* of the winning formula for skeleton (unsat
          iff there is a winning SAT strategy for formula which conforms to
-         scheme) *)
+         skeleton) *)
       solver : 'a Smt.smt_solver;
       smt : 'a Smt.smt_context;
       ark : 'a context;
@@ -893,22 +896,22 @@ module CSS = struct
 
   let reset ctx =
     ctx.solver#reset ();
-    ctx.scheme <- Scheme.SEmpty
+    ctx.skeleton <- Skeleton.SEmpty
 
   let add_path ctx path =
     let ark = ctx.ark in
     try
-      ctx.scheme <- Scheme.add_path ark path ctx.scheme;
+      ctx.skeleton <- Skeleton.add_path ark path ctx.skeleton;
       let win =
-        Scheme.path_winning_formula ark path ctx.scheme ctx.formula
+        Skeleton.path_winning_formula ark path ctx.skeleton ctx.formula
       in
       ctx.solver#add [mk_not ark win]
     with Redundant_path -> ()
 
-  (* Check if a given scheme is winning.  If not, synthesize a
+  (* Check if a given skeleton is winning.  If not, synthesize a
      counter-strategy. *)
   let get_counter_strategy select_term ?(parameters=None) ctx =
-    logf ~level:`trace "%a" (Scheme.pp ctx.ark) ctx.scheme;
+    logf ~level:`trace "%a" (Skeleton.pp ctx.ark) ctx.skeleton;
     let parameters =
       match parameters with
       | Some p -> p
@@ -923,16 +926,16 @@ module CSS = struct
       logf "Winning formula is not valid";
 
       (* Using the model m, synthesize a counter-strategy which beats the
-         strategy scheme.  This is done by traversing the scheme: on the way
-         down, we build a model of the *negation* of the formula using the
+         strategy skeleton.  This is done by traversing the skeleton: on the
+         way down, we build a model of the *negation* of the formula using the
          labels on the path to the root.  On the way up, we find elimination
          terms for each universally-quantified variable using model-based
          projection.  *)
-      let rec counter_strategy path_model scheme =
-        let open Scheme in
+      let rec counter_strategy path_model skeleton =
+        let open Skeleton in
         logf ~level:`trace "Path model: %a" Interpretation.pp path_model;
-        match scheme with
-        | SForall (k, sk, scheme) ->
+        match skeleton with
+        | SForall (k, sk, skeleton) ->
           let path_model =
             match typ_symbol ctx.ark k with
             | `TyReal | `TyInt ->
@@ -951,14 +954,14 @@ module CSS = struct
             (pp_symbol ctx.ark) k
             (pp_symbol ctx.ark) sk;
           let (counter_phi, counter_paths) =
-            counter_strategy path_model scheme
+            counter_strategy path_model skeleton
           in
           let move = select_term path_model k counter_phi in
           logf ~level:`trace "Found move: %a = %a"
             (pp_symbol ctx.ark) k
-            (Scheme.pp_move ctx.ark) move;
+            (Skeleton.pp_move ctx.ark) move;
           let counter_phi =
-            Scheme.substitute_implicant path_model k move counter_phi
+            Skeleton.substitute_implicant path_model k move counter_phi
           in
           let counter_paths =
             List.map (fun path -> (`Exists (k, move))::path) counter_paths
@@ -967,22 +970,24 @@ module CSS = struct
         | SExists (k, mm) ->
           let (counter_phis, paths) =
             MM.enum mm
-            /@ (fun (move, scheme) ->
+            /@ (fun (move, skeleton) ->
                 let path_model =
                   match move with
-                  | Scheme.MBool bool_val ->
+                  | Skeleton.MBool bool_val ->
                     Interpretation.add_bool k bool_val path_model
                   | _ ->
                     let mv =
-                      Scheme.evaluate_move (Interpretation.real path_model) move
+                      Skeleton.evaluate_move
+                        (Interpretation.real path_model)
+                        move
                     in
                     Interpretation.add_real k mv path_model
                 in
                 let (counter_phi, counter_paths) =
-                  counter_strategy path_model scheme
+                  counter_strategy path_model skeleton
                 in
                 let counter_phi =
-                  Scheme.substitute_implicant path_model k move counter_phi
+                  Skeleton.substitute_implicant path_model k move counter_phi
                 in
                 let counter_paths =
                   List.map (fun path -> (`Forall k)::path) counter_paths
@@ -1002,10 +1007,10 @@ module CSS = struct
           in
           (phi_implicant, [[]])
       in
-      `Sat (snd (counter_strategy parameters ctx.scheme))
+      `Sat (snd (counter_strategy parameters ctx.skeleton))
 
   (* Check to see if the matrix of a prenex formula is satisfiable.  If it is,
-     initialize a sat/unsat strategy scheme pair. *)
+     initialize a sat/unsat strategy skeleton pair. *)
   let initialize_pair select_term smt_ctx qf_pre phi =
     match smt_ctx#get_model phi with
     | `Unsat -> `Unsat
@@ -1014,7 +1019,7 @@ module CSS = struct
       logf "Found initial model";
       let ark = smt_ctx#ark in
       let phi_model = Interpretation.of_model ark m (List.map snd qf_pre) in
-      (* Create paths for sat_scheme & unsat_scheme *)
+      (* Create paths for sat_skeleton & unsat_skeleton *)
       let f (qt, x) (sat_path, unsat_path, atoms) =
         let move = select_term phi_model x atoms in
         let (sat_path, unsat_path) = match qt with
@@ -1027,7 +1032,7 @@ module CSS = struct
         in
         (sat_path,
          unsat_path,
-         Scheme.substitute_implicant phi_model x move atoms)
+         Skeleton.substitute_implicant phi_model x move atoms)
       in
       let (sat_path, unsat_path, _) =
         match select_implicant ark phi_model phi with
@@ -1036,37 +1041,37 @@ module CSS = struct
       in
       let not_phi = snd (normalize ark (mk_not ark phi)) in
       let sat_ctx =
-        let scheme = Scheme.mk_path ark sat_path in
+        let skeleton = Skeleton.mk_path ark sat_path in
         let win =
-          Scheme.path_winning_formula ark sat_path scheme phi
+          Skeleton.path_winning_formula ark sat_path skeleton phi
         in
         let solver = smt_ctx#mk_solver () in
         solver#add [mk_not ark win];
         { formula = phi;
           not_formula = not_phi;
-          scheme = scheme;
+          skeleton = skeleton;
           solver = solver;
           smt = smt_ctx;
           ark = ark }
       in
       let unsat_ctx =
-        let scheme = Scheme.mk_path ark unsat_path in
+        let skeleton = Skeleton.mk_path ark unsat_path in
         let win =
-          Scheme.path_winning_formula ark unsat_path scheme not_phi
+          Skeleton.path_winning_formula ark unsat_path skeleton not_phi
         in
         let solver = smt_ctx#mk_solver () in
         solver#add [mk_not ark win];
         { formula = not_phi;
           not_formula = phi;
-          scheme = scheme;
+          skeleton = skeleton;
           solver = solver;
           smt = smt_ctx;
           ark = ark }
       in
       logf "Initial SAT strategy:@\n%a"
-        (Scheme.pp ark) sat_ctx.scheme;
+        (Skeleton.pp ark) sat_ctx.skeleton;
       logf "Initial UNSAT strategy:@\n%a"
-        (Scheme.pp ark) unsat_ctx.scheme;
+        (Skeleton.pp ark) unsat_ctx.skeleton;
       `Sat (sat_ctx, unsat_ctx)
 
   let is_sat select_term sat_ctx unsat_ctx =
@@ -1074,24 +1079,25 @@ module CSS = struct
     let old_paths = ref (-1) in
     let rec is_sat () =
       incr round;
-      logf ~level:`trace ~attributes:[`Blue;`Bold] "Round %d: Sat [%d/%d], Unsat [%d/%d]"
+      logf ~level:`trace ~attributes:[`Blue;`Bold]
+        "Round %d: Sat [%d/%d], Unsat [%d/%d]"
         (!round)
-        (Scheme.size sat_ctx.scheme)
-        (Scheme.nb_paths sat_ctx.scheme)
-        (Scheme.size unsat_ctx.scheme)
-              (Scheme.nb_paths unsat_ctx.scheme);
-      let paths = Scheme.nb_paths sat_ctx.scheme in
+        (Skeleton.size sat_ctx.skeleton)
+        (Skeleton.nb_paths sat_ctx.skeleton)
+        (Skeleton.size unsat_ctx.skeleton)
+              (Skeleton.nb_paths unsat_ctx.skeleton);
+      let paths = Skeleton.nb_paths sat_ctx.skeleton in
       assert (paths > !old_paths);
       old_paths := paths;
       logf ~attributes:[`Blue;`Bold] "Checking if SAT wins (%d)"
-        (Scheme.nb_paths sat_ctx.scheme);
+        (Skeleton.nb_paths sat_ctx.skeleton);
       match get_counter_strategy select_term sat_ctx with
       | `Sat paths -> (List.iter (add_path unsat_ctx) paths; is_unsat ())
       | `Unsat -> `Sat
       | `Unknown -> `Unknown
     and is_unsat () =
       logf ~attributes:[`Blue;`Bold] "Checking if UNSAT wins (%d)"
-        (Scheme.nb_paths unsat_ctx.scheme);
+        (Skeleton.nb_paths unsat_ctx.skeleton);
       match get_counter_strategy select_term unsat_ctx with
       | `Sat paths -> (List.iter (add_path sat_ctx) paths; is_sat ())
       | `Unsat -> `Unsat
@@ -1107,7 +1113,7 @@ module CSS = struct
      cycles by saving every strategy we've found and quitting when we get a
      repeat or when we hit max_improve_rounds. *)
   let initialize_pair select_term smt_ctx qf_pre phi =
-    let unsat_scheme = ref Scheme.empty in
+    let unsat_skeleton = ref Skeleton.empty in
     let ark = smt_ctx#ark in
     match initialize_pair select_term smt_ctx qf_pre phi with
     | `Unsat -> `Unsat
@@ -1118,7 +1124,7 @@ module CSS = struct
         incr round;
         logf "Improve round: %d" (!round);
         logf ~attributes:[`Blue;`Bold] "Checking if SAT wins (%d)"
-          (Scheme.size sat_ctx.scheme);
+          (Skeleton.size sat_ctx.skeleton);
         if (!round) = (!max_improve_rounds) then
           `Sat (sat_ctx, unsat_ctx)
         else
@@ -1126,7 +1132,7 @@ module CSS = struct
           | `Sat [path] ->
             begin
               try
-                unsat_scheme := Scheme.add_path ark path (!unsat_scheme);
+                unsat_skeleton := Skeleton.add_path ark path (!unsat_skeleton);
                 reset unsat_ctx;
                 add_path unsat_ctx path;
                 is_unsat ()
@@ -1137,7 +1143,7 @@ module CSS = struct
           | `Unknown -> `Unknown
       and is_unsat () =
         logf ~attributes:[`Blue;`Bold] "Checking if UNSAT wins (%d)"
-          (Scheme.size unsat_ctx.scheme);
+          (Skeleton.size unsat_ctx.skeleton);
         match get_counter_strategy select_term unsat_ctx with
         | `Sat paths -> (reset sat_ctx;
                          List.iter (add_path sat_ctx) paths;
@@ -1147,15 +1153,15 @@ module CSS = struct
       in
       is_sat ()
 
-  let minimize_scheme param_interp ctx =
+  let minimize_skeleton param_interp ctx =
     let solver = ctx.smt#mk_solver () in
-    let paths = Scheme.paths ctx.scheme in
+    let paths = Skeleton.paths ctx.skeleton in
     let path_guards =
       List.map (fun _ -> mk_const ctx.ark (mk_symbol ctx.ark `TyBool)) paths
     in
     let psis =
       let winning_formula path =
-        Scheme.path_winning_formula ctx.ark path ctx.scheme ctx.formula
+        Skeleton.path_winning_formula ctx.ark path ctx.skeleton ctx.formula
         |> Interpretation.substitute param_interp
       in
       List.map2 (fun path guard ->
@@ -1181,10 +1187,10 @@ module CSS = struct
     | `Unknown -> assert false
     | `Unsat core ->
       List.fold_left
-        (fun scheme core_guard ->
-           try Scheme.add_path ctx.ark (path_of_guard core_guard) scheme
-           with Redundant_path -> scheme)
-        Scheme.empty
+        (fun skeleton core_guard ->
+           try Skeleton.add_path ctx.ark (path_of_guard core_guard) skeleton
+           with Redundant_path -> skeleton)
+        Skeleton.empty
         core
 end
 
@@ -1192,9 +1198,9 @@ let simsat_forward smt_ctx qf_pre phi =
   let ark = smt_ctx#ark in
   let select_term model x atoms =
     match typ_symbol ark x with
-    | `TyInt -> Scheme.MInt (select_int_term ark model x atoms)
-    | `TyReal -> Scheme.MReal (select_real_term ark model x atoms)
-    | `TyBool -> Scheme.MBool (Interpretation.bool model x)
+    | `TyInt -> Skeleton.MInt (select_int_term ark model x atoms)
+    | `TyReal -> Skeleton.MReal (select_real_term ark model x atoms)
+    | `TyBool -> Skeleton.MBool (Interpretation.bool model x)
     | `TyFun (_, _) -> assert false
   in
 
@@ -1231,36 +1237,36 @@ let simsat_forward smt_ctx qf_pre phi =
             ctx.solver#add [mk_const ark k])
         (Interpretation.enum parameter_interp)
     in
-    let mk_sat_ctx scheme parameter_interp =
+    let mk_sat_ctx skeleton parameter_interp =
       let open CSS in
       let ctx =
         { formula = phi;
           not_formula = not_phi;
-          scheme = scheme;
+          skeleton = skeleton;
           solver = smt_ctx#mk_solver ();
           smt = smt_ctx;
           ark = ark }
       in
       let win =
-        Scheme.winning_formula ark scheme phi
+        Skeleton.winning_formula ark skeleton phi
         |> Interpretation.substitute parameter_interp
       in
       ctx.solver#add [mk_not ark win];
       assert_param_constraints ctx parameter_interp;
       ctx
     in
-    let mk_unsat_ctx scheme parameter_interp =
+    let mk_unsat_ctx skeleton parameter_interp =
       let open CSS in
       let ctx =
         { formula = not_phi;
           not_formula = phi;
-          scheme = scheme;
+          skeleton = skeleton;
           solver = smt_ctx#mk_solver ();
           smt = smt_ctx;
           ark = ark }
       in
       let win =
-        Scheme.winning_formula ark scheme not_phi
+        Skeleton.winning_formula ark skeleton not_phi
         |> Interpretation.substitute parameter_interp
       in
       ctx.solver#add [mk_not ark win];
@@ -1268,40 +1274,40 @@ let simsat_forward smt_ctx qf_pre phi =
       ctx
     in
 
-    (* Peel leading existential quantifiers off of a scheme.  Fails if there
+    (* Peel leading existential quantifiers off of a skeleton.  Fails if there
        is more than one move for an existential in the prefix.  *)
     let rec existential_prefix = function
-      | Scheme.SExists (k, mm) ->
-        begin match BatList.of_enum (Scheme.MM.enum mm) with
-          | [(move, scheme)] ->
-            let (ex_pre, sub_scheme) = existential_prefix scheme in
-            ((k, move)::ex_pre, sub_scheme)
+      | Skeleton.SExists (k, mm) ->
+        begin match BatList.of_enum (Skeleton.MM.enum mm) with
+          | [(move, skeleton)] ->
+            let (ex_pre, sub_skeleton) = existential_prefix skeleton in
+            ((k, move)::ex_pre, sub_skeleton)
           | _ -> assert false
         end
-      | scheme -> ([], scheme)
+      | skeleton -> ([], skeleton)
     in
     let rec universal_prefix = function
-      | Scheme.SForall (k, _, scheme) -> k::(universal_prefix scheme)
+      | Skeleton.SForall (k, _, skeleton) -> k::(universal_prefix skeleton)
       | _ -> []
     in
-    let scheme_of_paths paths =
+    let skeleton_of_paths paths =
       List.fold_left
-        (fun scheme path ->
-           try Scheme.add_path ark path scheme
-           with Redundant_path -> scheme)
-        Scheme.empty
+        (fun skeleton path ->
+           try Skeleton.add_path ark path skeleton
+           with Redundant_path -> skeleton)
+        Skeleton.empty
         paths
     in
 
     (* Compute a winning strategy for the remainder of the game, after the
-       prefix play determined by parameter_interp.  scheme is an initial
+       prefix play determined by parameter_interp.  skeleton is an initial
        candidate strategy for one of the players, which begins with
        universals. *)
     let rec solve_game polarity param_interp ctx =
       logf ~attributes:[`Green] "Solving game %s (%d/%d)"
         (if polarity then "SAT" else "UNSAT")
-        (Scheme.nb_paths ctx.CSS.scheme)
-        (Scheme.size ctx.CSS.scheme);
+        (Skeleton.nb_paths ctx.CSS.skeleton)
+        (Skeleton.size ctx.CSS.skeleton);
       logf ~level:`trace "Parameters: %a" Interpretation.pp param_interp;
       let res =
         try
@@ -1316,60 +1322,60 @@ let simsat_forward smt_ctx qf_pre phi =
       | `Unsat ->
         (* No counter-strategy to the strategy of the active player => active
            player wins *)
-        `Sat ctx.CSS.scheme
+        `Sat ctx.CSS.skeleton
       | `Sat paths ->
-        let unsat_scheme = scheme_of_paths paths in
-        let (ex_pre, sub_scheme) = existential_prefix unsat_scheme in
+        let unsat_skeleton = skeleton_of_paths paths in
+        let (ex_pre, sub_skeleton) = existential_prefix unsat_skeleton in
         let param_interp' =
           List.fold_left (fun interp (k, move) ->
               match move with
-              | Scheme.MBool bv -> Interpretation.add_bool k bv interp
+              | Skeleton.MBool bv -> Interpretation.add_bool k bv interp
               | move ->
                 Interpretation.add_real
                   k
-                  (Scheme.evaluate_move (Interpretation.real interp) move)
+                  (Skeleton.evaluate_move (Interpretation.real interp) move)
                   interp)
             param_interp
             ex_pre
         in
         let sub_ctx =
           if polarity then
-            mk_unsat_ctx sub_scheme param_interp'
+            mk_unsat_ctx sub_skeleton param_interp'
           else
-            mk_sat_ctx sub_scheme param_interp'
+            mk_sat_ctx sub_skeleton param_interp'
         in
         match solve_game (not polarity) param_interp' sub_ctx with
         | `Unknown -> `Unknown
-        | `Sat scheme ->
+        | `Sat skeleton ->
           (* Inactive player wins *)
-          let scheme =
+          let skeleton =
             List.fold_right
-              (fun (k, move) scheme ->
-                 let mm = Scheme.MM.add move scheme Scheme.MM.empty in
-                 Scheme.SExists (k, mm))
+              (fun (k, move) skeleton ->
+                 let mm = Skeleton.MM.add move skeleton Skeleton.MM.empty in
+                 Skeleton.SExists (k, mm))
               ex_pre
-              scheme
+              skeleton
           in
-          `Unsat scheme
-        | `Unsat scheme' ->
+          `Unsat skeleton
+        | `Unsat skeleton' ->
           (* There is a counter-strategy for the strategy of the inactive
              player => augment strategy for the active player & try again *)
           let open CSS in
           let forall_prefix =
-            List.map (fun x -> `Forall x) (universal_prefix ctx.scheme)
+            List.map (fun x -> `Forall x) (universal_prefix ctx.skeleton)
           in
           let add_path path =
             try
               let path = forall_prefix@path in
-              ctx.scheme <- Scheme.add_path ark path ctx.scheme;
+              ctx.skeleton <- Skeleton.add_path ark path ctx.skeleton;
               let win =
-                Scheme.path_winning_formula ark path ctx.scheme ctx.formula
+                Skeleton.path_winning_formula ark path ctx.skeleton ctx.formula
                 |> Interpretation.substitute param_interp
               in
               ctx.solver#add [mk_not ark win]
             with Redundant_path -> ()
           in
-          List.iter add_path (Scheme.paths scheme');
+          List.iter add_path (Skeleton.paths skeleton');
           solve_game polarity param_interp ctx
     in
     match solve_game true (Interpretation.empty ark) sat_ctx with
@@ -1381,9 +1387,9 @@ let simsat_core smt_ctx qf_pre phi =
   let ark = smt_ctx#ark in
   let select_term model x phi =
     match typ_symbol ark x with
-    | `TyInt -> Scheme.MInt (select_int_term ark model x phi)
-    | `TyReal -> Scheme.MReal (select_real_term ark model x phi)
-    | `TyBool -> Scheme.MBool (Interpretation.bool model x)
+    | `TyInt -> Skeleton.MInt (select_int_term ark model x phi)
+    | `TyReal -> Skeleton.MReal (select_real_term ark model x phi)
+    | `TyBool -> Skeleton.MBool (Interpretation.bool model x)
     | `TyFun (_, _) -> assert false
   in
   match CSS.initialize_pair select_term smt_ctx qf_pre phi with
@@ -1438,12 +1444,12 @@ let maximize_feasible smt_ctx phi t =
   (* Always select [[objective]](m) as the value of objective *)
   let select_term m x phi =
     if x = objective then
-      Scheme.MReal (const_linterm (Interpretation.real m x))
+      Skeleton.MReal (const_linterm (Interpretation.real m x))
     else
       match typ_symbol ark x with
-      | `TyInt -> Scheme.MInt (select_int_term ark m x phi)
-      | `TyReal -> Scheme.MReal (select_real_term ark m x phi)
-      | `TyBool -> Scheme.MBool (Interpretation.bool m x)
+      | `TyInt -> Skeleton.MInt (select_int_term ark m x phi)
+      | `TyReal -> Skeleton.MReal (select_real_term ark m x phi)
+      | `TyBool -> Skeleton.MBool (Interpretation.bool m x)
       | `TyFun (_, _) -> assert false
   in
   CSS.max_improve_rounds := 1;
@@ -1457,8 +1463,8 @@ let maximize_feasible smt_ctx phi t =
     (* Skolem constant associated with the (universally quantified) objective
        bound *)
     let objective_skolem =
-      match sat_ctx.CSS.scheme with
-      | Scheme.SForall (_, sk, _) -> sk
+      match sat_ctx.CSS.skeleton with
+      | Skeleton.SForall (_, sk, _) -> sk
       | _ -> assert false
     in
     let rec check_bound bound =
@@ -1481,17 +1487,17 @@ let maximize_feasible smt_ctx phi t =
       | `Unsat ->
 
         (* Find the largest constant which has been selected as an (UNSAT)
-           move for the objective bound, and the associated sub-scheme *)
-        let (opt, opt_scheme) = match unsat_ctx.CSS.scheme with
-          | Scheme.SExists (_, mm) ->
-            BatEnum.filter (fun (move, scheme) ->
-                let move_val = match Scheme.const_of_move move with
+           move for the objective bound, and the associated sub-skeleton *)
+        let (opt, opt_skeleton) = match unsat_ctx.CSS.skeleton with
+          | Skeleton.SExists (_, mm) ->
+            BatEnum.filter (fun (move, skeleton) ->
+                let move_val = match Skeleton.const_of_move move with
                   | Some qq -> qq
                   | None -> assert false
                 in
                 let win =
                   let win_not_unbounded =
-                    Scheme.winning_formula ark scheme not_phi_unbounded
+                    Skeleton.winning_formula ark skeleton not_phi_unbounded
                   in
                   mk_and
                     ark
@@ -1499,33 +1505,33 @@ let maximize_feasible smt_ctx phi t =
                      mk_eq ark (mk_real ark move_val) (mk_const ark objective)]
                 in
                 smt_ctx#is_sat win = `Unsat)
-              (Scheme.MM.enum mm)
-            /@ (fun (v, scheme) -> match Scheme.const_of_move v with
-                | Some qq -> (qq, scheme)
+              (Skeleton.MM.enum mm)
+            /@ (fun (v, skeleton) -> match Skeleton.const_of_move v with
+                | Some qq -> (qq, skeleton)
                 | None -> assert false)
-            |> BatEnum.reduce (fun (a, a_scheme) (b, b_scheme) ->
-                if QQ.lt a b then (b, b_scheme)
-                else (a, a_scheme))
+            |> BatEnum.reduce (fun (a, a_skeleton) (b, b_skeleton) ->
+                if QQ.lt a b then (b, b_skeleton)
+                else (a, a_skeleton))
           | _ -> assert false
         in
 
         logf "Objective function is bounded by %a" QQ.pp opt;
 
         (* Get the negation of the winning formula for SAT corresponding to
-           the sub-scheme rooted below all of the constant symbols which
+           the sub-skeleton rooted below all of the constant symbols which
            appear in the objective.  This formula is weaker than phi, and the
            constant symbols in the objective are not bound. *)
         let bounded_phi =
-          let open Scheme in
-          let rec go scheme =
-            match scheme with
+          let open Skeleton in
+          let rec go skeleton =
+            match skeleton with
             | SEmpty -> SEmpty
-            | SForall (k, sk, subscheme) ->
-              if Symbol.Set.mem k objective_constants then go subscheme
-              else scheme
-            | SExists (_, _) -> scheme
+            | SForall (k, sk, subskeleton) ->
+              if Symbol.Set.mem k objective_constants then go subskeleton
+              else skeleton
+            | SExists (_, _) -> skeleton
           in
-          (Scheme.winning_formula ark (go opt_scheme) not_phi_unbounded)
+          (Skeleton.winning_formula ark (go opt_skeleton) not_phi_unbounded)
           |> mk_not ark
         in
         logf "Bounded phi:@\n%a" (Formula.pp ark) bounded_phi;
@@ -1607,9 +1613,9 @@ let easy_sat smt_ctx phi =
   in
   let select_term model x phi =
     match typ_symbol ark x with
-    | `TyInt -> Scheme.MInt (select_int_term ark model x phi)
-    | `TyReal -> Scheme.MReal (select_real_term ark model x phi)
-    | `TyBool -> Scheme.MBool (Interpretation.bool model x)
+    | `TyInt -> Skeleton.MInt (select_int_term ark model x phi)
+    | `TyReal -> Skeleton.MReal (select_real_term ark model x phi)
+    | `TyBool -> Skeleton.MBool (Interpretation.bool model x)
     | `TyFun (_, _) -> assert false
   in
   match CSS.initialize_pair select_term smt_ctx qf_pre phi with
