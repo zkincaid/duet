@@ -340,6 +340,7 @@ let mk_not_divides ark divisor term =
     mk_false ark
   else
     let gcd = ZZ.gcd (coefficient_gcd term) divisor in
+    assert (ZZ.lt ZZ.zero gcd);
     let divisor = QQ.div (QQ.of_zz divisor) (QQ.of_zz gcd) in
     let term = V.scalar_mul (QQ.of_zzfrac ZZ.one gcd) term in
 
@@ -381,7 +382,6 @@ module Scheme = struct
         ark
         (fun p -> if p = x then replacement else mk_const ark p)
         phi
-    (*      int_virtual_substitution ark x vt phi*)
     | MReal t ->
       let replacement = of_linterm ark t in
       substitute_const
@@ -865,8 +865,13 @@ let select_int_term ark interp x atoms =
 let select_int_term ark interp x atoms =
   try
     select_int_term ark interp x atoms
-  with Nonlinear | Invalid_argument _ ->
-    Log.errorf "select_int_term atoms:";
+  with
+  | Nonlinear ->
+    Log.errorf "(nonlinear) select_int_term atoms:";
+    List.iter (fun atom -> Log.errorf ">%a" (Formula.pp ark) atom) atoms;
+    assert false
+  | Invalid_argument msg ->
+    Log.errorf "(inv arg) select_int_term atoms: %s" msg;
     List.iter (fun atom -> Log.errorf ">%a" (Formula.pp ark) atom) atoms;
     assert false
 

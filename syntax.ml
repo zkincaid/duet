@@ -139,6 +139,20 @@ type ('a,'b) open_formula = [
                     | `App of symbol * ('b, typ_fo) expr list ]
 ]
 
+let size expr =
+  let open Apak.Putil.PInt in
+  let counted = ref Set.empty in
+  let rec go sexpr =
+    let (Node (_, children, _)) = sexpr.obj in
+    if Set.mem sexpr.tag (!counted) then
+      1
+    else begin
+      counted := Set.add sexpr.tag (!counted);
+      List.fold_left (fun sz child -> sz + (go child)) 1 children
+    end
+  in
+  go expr
+
 type 'a context =
   { hashcons : HC.t;
     symbols : (string * typ) DynArray.t;

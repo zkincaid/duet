@@ -1,8 +1,8 @@
 open Syntax
 open BatPervasives
 
-let min_coeff = ref (-5)
-let max_coeff = ref 5
+let min_coeff = ref (-10)
+let max_coeff = ref 10
 let quantifier_prefix =
   ref [ `Forall; `Forall; `Forall; `Forall;
         `Exists; `Exists; `Exists; `Exists;
@@ -20,16 +20,6 @@ let mk_random_coeff ctx =
 let mk_random_variable ctx =
   mk_var ctx (Random.int (List.length (!quantifier_prefix))) `TyInt
 
-let mk_random_variable ctx =
-  let rec go min max =
-    if min = max then max
-    else if Random.float 1.0 >= 0.6 then
-      go min ((min + max) / 2)
-    else
-      go ((max + min + 1) / 2) max
-  in
-  mk_var ctx (go 0 (List.length (!quantifier_prefix) - 1)) `TyInt
-
 let mk_random_term ctx =
   if !dense then
     (0 -- ((List.length (!quantifier_prefix)) - 1))
@@ -37,7 +27,7 @@ let mk_random_term ctx =
     |> BatList.of_enum
     |> mk_add ctx
   else
-    (1 -- (!number_of_monomials_per_expression))
+    (1 -- (1 + (Random.int (!number_of_monomials_per_expression) - 1)))
     /@ (fun _ -> mk_mul ctx [mk_random_coeff ctx; mk_random_variable ctx])
     |> BatList.of_enum
     |> mk_add ctx
