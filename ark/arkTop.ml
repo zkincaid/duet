@@ -171,7 +171,7 @@ let _ =
     let rec go phi =
       match Formula.destruct ctx phi with
       | `Quantify (`Exists, name, typ, psi) -> "E" ^ (go psi)
-      | `Quantify (`Forall, name, typ, psi) -> "F" ^ (go psi)
+      | `Quantify (`Forall, name, typ, psi) -> "A" ^ (go psi)
       | _ -> ""
     in
     let qf_pre =
@@ -179,16 +179,9 @@ let _ =
          (List.map (fun _ -> "E") (Symbol.Set.elements constants)))
       ^ (go phi)
     in
-    let size = function
-      | `Tru | `Fls -> 1
-      | `Proposition _ | `Atom (_, _, _) -> 1
-      | `Not x | `Quantify (_, _, _, x) -> x + 1
-      | `Ite (x, y, z) -> x + y + z + 1
-      | `And xs | `Or xs -> List.fold_left (+) 1 xs
-    in
     Log.logf ~level:`always "Quantifier prefix: %s" qf_pre;
     Log.logf ~level:`always "Variables: %d" (String.length qf_pre);
-    Log.logf ~level:`always "Size: %d" (Formula.eval ctx size phi)
+    Log.logf ~level:`always "Matrix size: %d" (size phi)
 
   | "random" ->
     Random.self_init ();

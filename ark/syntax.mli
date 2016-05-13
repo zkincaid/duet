@@ -57,6 +57,9 @@ type 'a formula = ('a, typ_bool) expr
 val refine : 'a context -> ('a, typ_fo) expr -> [ `Term of 'a term
                                                 | `Formula of 'a formula ]
 
+
+val size : ('a, 'typ_fo) expr -> int
+
 val mk_const : 'a context -> symbol -> ('a, 'typ) expr
 
 val mk_app : 'a context -> symbol -> ('a, 'b) expr list -> ('a, 'typ) expr
