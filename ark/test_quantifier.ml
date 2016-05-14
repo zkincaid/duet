@@ -1,7 +1,7 @@
 open OUnit
 open Quantifier
 open Syntax
-
+open Apak
 
 module Ctx = MakeSimplifyingContext ()
 module Infix = Syntax.Infix(Ctx)
@@ -90,6 +90,31 @@ let sim2 () =
   in
   assert_bool "sim2" (simsat smt_ctx phi = `Sat)
 
+let strategy1 () =
+  let phi =
+    let open Infix in
+    (((int 0) <= x) && (x < y))
+    || ((x < (int 0)) && (y < x))
+  in
+  let qf_prefix = [`Forall, xsym; `Exists, ysym] in
+  match winning_strategy smt_ctx qf_prefix phi with
+  | `Sat strategy ->
+    assert_bool "strategy1" (check_strategy smt_ctx qf_prefix phi strategy)
+  | _ -> assert false
+
+let strategy2 () =
+  let phi =
+    let open Infix in
+    (y < w) && (y < x)
+    && (w < z) && (x < z)
+  in
+  let qf_prefix =
+    [`Forall, wsym; `Forall, xsym; `Exists, ysym; `Exists, zsym]
+  in
+  match winning_strategy smt_ctx qf_prefix phi with
+  | `Sat strategy ->
+    assert_bool "strategy2" (check_strategy smt_ctx qf_prefix phi strategy)
+  | _ -> assert false
 
 let suite = "Quantifier" >::: [
     "simsat1" >:: simsat1;
@@ -97,4 +122,6 @@ let suite = "Quantifier" >::: [
     "mbp2" >:: mbp2;
     "sim1" >:: sim1;
     "sim2" >:: sim2;
+    "strategy1" >:: strategy1;
+    "strategy2" >:: strategy2;
   ]
