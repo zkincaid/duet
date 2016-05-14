@@ -7,6 +7,8 @@ include Log.Make(struct let name = "ark.quantifier" end)
 
 exception Equal_term of Linear.QQVector.t
 
+type quantifier_prefix = ([`Forall | `Exists] * symbol) list
+
 module V = Linear.QQVector
 module VS = Putil.Set.Make(Linear.QQVector)
 module VM = Putil.Map.Make(Linear.QQVector)
@@ -249,7 +251,11 @@ let normalize ark phi =
        end :> ('a, typ_fo) expr)
     | `Term t ->
       begin match Term.destruct ark t with
-        | `Var (i, _) -> mk_const ark (Env.find env i)
+        | `Var (i, _) ->
+          begin
+            try mk_const ark (Env.find env i)
+            with Not_found -> invalid_arg "Quantifier.normalize: free variable"
+          end
         | _ -> expr
       end
   in
@@ -350,6 +356,17 @@ let mk_not_divides ark divisor term =
       (mk_neg ark (mk_mod ark (of_linterm ark term) (mk_real ark divisor)))
       (mk_real ark QQ.zero)
 
+let term_of_virtual_term ark vt =
+  let term = of_linterm ark vt.term in
+  let offset = mk_real ark (QQ.of_zz vt.offset) in
+  let term_over_div =
+    if vt.divisor = 1 then
+      term
+    else
+      mk_floor ark (mk_div ark term (mk_real ark (QQ.of_int vt.divisor)))
+  in
+  mk_add ark [term_over_div; offset]
+
 exception Redundant_path
 module Skeleton = struct
 
@@ -369,17 +386,7 @@ module Skeleton = struct
   let substitute ark x move phi =
     match move with
     | MInt vt ->
-      let replacement =
-        let term = of_linterm ark vt.term in
-        let offset = mk_real ark (QQ.of_zz vt.offset) in
-        let term_over_div =
-          if vt.divisor = 1 then
-            term
-          else
-            mk_floor ark (mk_div ark term (mk_real ark (QQ.of_int vt.divisor)))
-        in
-        mk_add ark [term_over_div; offset]
-      in
+      let replacement = term_of_virtual_term ark vt in
       substitute_const
         ark
         (fun p -> if p = x then replacement else mk_const ark p)
@@ -475,16 +482,17 @@ module Skeleton = struct
     let open Format in
     let rec pp formatter = function
       | SForall (k, sk, t) ->
-        fprintf formatter "@[(forall %a:@\n  @[%a@])@]" (pp_symbol ark) sk pp t
+        fprintf formatter "@[<v 2>(forall %a:@;%a)@]" (pp_symbol ark) sk pp t
       | SExists (k, mm) ->
         let pp_elt formatter (move, skeleton) =
-          fprintf formatter "%a:@\n  @[%a@]@\n"
+          fprintf formatter "%a:@;@[%a@]@\n"
             (pp_move ark) move
             pp skeleton
         in
-        fprintf formatter "@[(exists %a:@\n  @[%a@])@]"
+        let pp_sep formatter () = Format.fprintf formatter "@;" in
+        fprintf formatter "@[<v 2>(exists %a:@;@[<v 0>%a@])@]"
           (pp_symbol ark) k
-          (ApakEnum.pp_print_enum pp_elt) (MM.enum mm)
+          (ApakEnum.pp_print_enum_nobox ~pp_sep pp_elt) (MM.enum mm)
       | SEmpty -> ()
     in
     pp formatter skeleton
@@ -1194,7 +1202,7 @@ module CSS = struct
         core
 end
 
-let simsat_forward smt_ctx qf_pre phi =
+let simsat_forward_core smt_ctx qf_pre phi =
   let ark = smt_ctx#ark in
   let select_term model x atoms =
     match typ_symbol ark x with
@@ -1222,7 +1230,27 @@ let simsat_forward smt_ctx qf_pre phi =
       (qf_pre, phi, false)
   in
   match CSS.initialize_pair select_term smt_ctx qf_pre phi with
-  | `Unsat -> if negate then `Sat else `Unsat
+  | `Unsat ->
+    (* Matrix is unsat -> any unsat strategy is winning *)
+    let path =
+      qf_pre |> List.map (function
+          | `Forall, k ->
+            begin match typ_symbol ark k with
+              | `TyReal ->
+                `Exists (k, Skeleton.MReal (Linear.const_linterm QQ.zero))
+              | `TyInt ->
+                let vt =
+                  { term = Linear.const_linterm QQ.zero;
+                    divisor = 1;
+                    offset = ZZ.zero }
+                in
+                `Exists (k, Skeleton.MInt vt)
+              | `TyBool -> `Exists (k, Skeleton.MBool true)
+              | _ -> assert false
+            end
+          | `Exists, k -> `Forall k)
+    in
+    `Unsat (Skeleton.add_path ark path Skeleton.empty)
   | `Unknown -> `Unknown
   | `Sat (sat_ctx, unsat_ctx) ->
     let not_phi = sat_ctx.CSS.not_formula in
@@ -1380,8 +1408,8 @@ let simsat_forward smt_ctx qf_pre phi =
     in
     match solve_game true (Interpretation.empty ark) sat_ctx with
     | `Unknown -> `Unknown
-    | `Sat _ -> if negate then `Unsat else `Sat
-    | `Unsat _ -> if negate then `Sat else `Unsat
+    | `Sat skeleton -> if negate then `Unsat skeleton else `Sat skeleton
+    | `Unsat skeleton -> if negate then `Sat skeleton else `Unsat skeleton
 
 let simsat_core smt_ctx qf_pre phi =
   let ark = smt_ctx#ark in
@@ -1415,7 +1443,10 @@ let simsat_forward smt_ctx phi =
   let qf_pre =
     (List.map (fun k -> (`Exists, k)) (Symbol.Set.elements constants))@qf_pre
   in
-  simsat_forward smt_ctx qf_pre phi
+  match simsat_forward_core smt_ctx qf_pre phi with
+  | `Sat _ -> `Sat
+  | `Unsat _ -> `Unsat
+  | `Unknown -> `Unknown
 
 let maximize_feasible smt_ctx phi t =
   let ark = smt_ctx#ark in
@@ -1626,3 +1657,123 @@ let easy_sat smt_ctx phi =
     | `Unsat -> `Sat
     | `Unknown -> `Unknown
     | `Sat _ -> `Unknown
+
+
+type 'a strategy = Strategy of ('a formula * Skeleton.move * 'a strategy) list
+
+let rec pp_strategy ark formatter (Strategy xs) =
+  let open Format in
+  let pp_sep formatter () = Format.fprintf formatter "@;" in
+  let rec pp formatter = function
+    | (Strategy []) -> ()
+    | (Strategy xs) ->
+      fprintf formatter "@;  @[<v 0>%a@]"
+        (ApakEnum.pp_print_enum_nobox ~pp_sep pp_elt)
+        (BatList.enum xs)
+  and pp_elt formatter (guard, move, sub_strategy) =
+    fprintf formatter "%a --> %a%a"
+      (Formula.pp ark) guard
+      (Skeleton.pp_move ark) move
+      pp sub_strategy
+  in
+  fprintf formatter "@[<v 0>%a@]"
+    (ApakEnum.pp_print_enum_nobox ~pp_sep pp_elt)
+    (BatList.enum xs)
+
+let show_strategy ark = Apak.Putil.mk_show (pp_strategy ark)
+
+(* Extract a winning strategy from a skeleton *)
+let extract_strategy smt_ctx skeleton phi =
+  let ark = smt_ctx#ark in
+  let open Skeleton in
+  let rec go subst = function
+    | SEmpty ->
+      let psi = mk_not ark (List.fold_left (fun a f -> f a) phi subst) in
+      smt_ctx#of_formula psi
+    | SForall (k, sk, skeleton) ->
+      let sk_const = mk_const ark sk in
+      let replace =
+        substitute_const ark
+          (fun sym -> if k = sym then sk_const else mk_const ark sym)
+      in
+      go (replace::subst) skeleton
+    | SExists (k, mm) ->
+      MM.enum mm
+      /@ (fun (move, skeleton) ->
+          go ((substitute ark k move)::subst) skeleton
+          |> Z3.Interpolation.mk_interpolant smt_ctx#z3)
+      |> BatList.of_enum
+      |> Z3.Boolean.mk_and smt_ctx#z3
+  in
+  let pattern = go [] skeleton in
+  let params = Z3.Params.mk_params smt_ctx#z3 in
+  match Z3.Interpolation.compute_interpolant smt_ctx#z3 pattern params with
+  | (_, Some interp, None) ->
+    let rec go interp = function
+      | SEmpty -> (interp, Strategy [])
+      | SForall (k, sk, skeleton) ->
+        let replacement = mk_const ark k in
+        let subst x =
+          if x = sk then replacement else mk_const ark x
+        in
+        go (List.map (substitute_const ark subst) interp) skeleton
+      | SExists (k, mm) ->
+        BatEnum.fold (fun (interp, strategy) (move, skeleton) ->
+            match go interp skeleton with
+            | ([], _) -> assert false
+            | ((guard::interp), sub_strategy) ->
+              let guard = mk_not ark guard in
+              (interp, (guard, move, sub_strategy)::strategy))
+          (interp, [])
+          (MM.enum mm)
+        |> (fun (interp, xs) -> (interp, Strategy xs))
+    in
+    let (interp, strategy) = go (List.map smt_ctx#formula_of interp) skeleton in
+    assert (interp == []);
+    strategy
+  | (_, None, Some _) -> assert false
+  | (_, _, _) -> assert false
+
+let winning_strategy smt_ctx qf_pre phi =
+  match simsat_forward_core smt_ctx qf_pre phi with
+  | `Sat skeleton ->
+    logf "Formula is SAT.  Extracting strategy.";
+    `Sat (extract_strategy smt_ctx skeleton phi)
+  | `Unsat skeleton ->
+    logf "Formula is UNSAT.  Extracting strategy.";
+    `Unsat (extract_strategy smt_ctx skeleton (mk_not smt_ctx#ark phi))
+  | `Unknown -> `Unknown
+
+let check_strategy smt_ctx qf_pre phi strategy =
+  let ark = smt_ctx#ark in
+  (* go qf_pre strategy computes a formula whose models correspond to playing
+     phi according to the strategy *)
+  let rec go qf_pre (Strategy xs) =
+    match qf_pre with
+    | [] ->
+      assert (xs = []);
+      mk_true ark
+    | (`Exists, k)::qf_pre ->
+      let has_move =
+        xs |> List.map (fun (guard, move, sub_strategy) ->
+            let move_formula =
+              let open Skeleton in
+              match move with
+              | MInt vt ->
+                mk_eq ark (mk_const ark k) (term_of_virtual_term ark vt)
+              | MReal linterm ->
+                mk_eq ark (mk_const ark k) (of_linterm ark linterm)
+              | MBool true -> mk_const ark k
+              | MBool false -> mk_not ark (mk_const ark k)
+            in
+            mk_and ark [guard; move_formula; go qf_pre sub_strategy])
+        |> mk_or ark
+      in
+      let no_move =
+        xs |> List.map (fun (guard, _, _) -> mk_not ark guard) |> mk_and ark
+      in
+      mk_or ark [has_move; no_move]
+    | (`Forall, _)::qf_pre -> go qf_pre (Strategy xs)
+  in
+  let strategy_formula = go qf_pre strategy in
+  smt_ctx#is_sat (mk_and ark [strategy_formula; mk_not ark phi]) = `Unsat
