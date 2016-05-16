@@ -24,11 +24,11 @@ module type Transition = sig
   val assume : formula -> t
 end
 
+(* Max ID for temporary variables *)
+let max_id = ref 0
+
 module Dioid (Var : Var) = struct
   open Term
-
-  (* Max ID for temporary variables *)
-  let max_id = ref 0
 
   (* Variables *)
   module V = struct
