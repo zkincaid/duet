@@ -294,13 +294,9 @@ module RecurrenceAnalysis (Var : Var) = struct
       []
       (BatArray.enum (Apron.Abstract0.to_tcons_array man hull.T.D.prop))
 
-  let alpha tr =
-    let modified = VarSet.of_enum (M.keys tr.transform) in
+  let alpha_formula body modified =
     let unprime =
       VarMap.of_enum (VarSet.enum modified /@ (fun v -> (Var.prime v, v)))
-    in
-    let body =
-      F.linearize (fun () -> V.mk_real_tmp "nonlin") (to_formula tr)
     in
     let vars = formula_free_program_vars body in
     let pre_vars =
@@ -348,6 +344,13 @@ module RecurrenceAnalysis (Var : Var) = struct
       stratified = stratified;
       inequations = inequations }
 
+  let alpha tr =
+    let body =
+      F.linearize (fun () -> V.mk_real_tmp "nonlin") (to_formula tr)
+    in
+    let modified = VarSet.of_enum (M.keys tr.transform) in
+    alpha_formula body modified
+
   let format_abstract formatter abstract =
     Format.fprintf formatter
       "{@[<v 0>pre:@;  @[<v 0>%a@]@;post:@;  @[<v 0>%a@]@;"
@@ -388,7 +391,17 @@ module RecurrenceAnalysis (Var : Var) = struct
           (term_free_program_vars lhs)
           (VarSet.union (term_free_program_vars rhs) vars))
       abstract.inequations
-      
+
+  let get_manager =
+    let man = ref None in
+    fun () -> match !man with
+      | Some m -> m
+      | None -> begin
+          let m = NumDomain.polka_loose_manager () in
+          man := Some m;
+          m
+        end
+
   let hull_of_abstract abstract =
     let vars = abstract_vars abstract in
     let prime = Var.prime in
@@ -425,10 +438,10 @@ module RecurrenceAnalysis (Var : Var) = struct
       in
       List.map constraint_of_rec_ineq abstract.inequations
     in
-    let man = NumDomain.polka_loose_manager () in
+
     { T.D.prop =
         Abstract0.of_tcons_array
-          man
+          (get_manager ())
           (T.D.Env.int_dim env)
           (T.D.Env.real_dim env)
           (Array.of_list (eq_constraints@ineq_constraints));
@@ -436,6 +449,13 @@ module RecurrenceAnalysis (Var : Var) = struct
 
   let abstract_equal x y =
     T.D.equal (hull_of_abstract x) (hull_of_abstract y)
+
+  let abstract_widen x y =
+    let body =
+      F.of_abstract (T.D.widen (hull_of_abstract x) (hull_of_abstract y))
+    in
+    let modified = VarSet.union x.modified y.modified in
+    alpha_formula body modified
 
   let star x =
     let abstract = alpha x in
@@ -952,6 +972,9 @@ let () =
 
   Callback.register "abstract_equiv_callback" K.abstract_equal;
   Callback.register "tensor_abstract_equiv_callback" KK.abstract_equal;
+
+  Callback.register "abstract_widen_callback" K.abstract_widen;
+  Callback.register "tensor_abstract_widen_callback" KK.abstract_widen;
 
   Callback.register "abstract_star_callback" K.abstract_star;
   Callback.register "tensor_abstract_star_callback" KK.abstract_star;
