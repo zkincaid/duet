@@ -4,7 +4,7 @@ open CfgIr
 
 module RG = Interproc.RG
 module G = RG.G
-module K = Cra.K
+module K = NewtonDomain.K
 
 include Log.Make(struct let name = "cra_newton" end)
 module A = Interproc.MakePathExpr(Cra.K)
@@ -43,11 +43,11 @@ let analyze_basic file =
           match vertex.dkind with
           | Assert (phi, _) ->
             caml_add_wpds_error_rule
-              (K.assume (K.F.negate (Cra.tr_bexpr phi)))
+              (K.assume (K.F.negate (NewtonDomain.tr_bexpr phi)))
               vertex.did
               (Def.get_location vertex).Cil.line
           | AssertMemSafe (expr, _) -> begin
-              let open Cra in
+              let open NewtonDomain in
               match tr_expr expr with
               | TInt _ -> assert false
               | TPointer p ->
@@ -67,7 +67,7 @@ let analyze_basic file =
         );
       set_vertices (RG.block_entry rg main).did (RG.block_exit rg main).did;
       let local _ _ = false in
-      let query = A.mk_query rg Cra.weight local main in
+      let query = A.mk_query rg NewtonDomain.weight local main in
       A.compute_summaries query;
       set_cWeight (A.get_summary query main)
     end

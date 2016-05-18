@@ -198,49 +198,16 @@ module V = struct
   let tag = E.to_int enum
 end
 
+
 module K = struct
   module Voc = V
   include Transition.Make(V)
-(*
-  let simplify tr =
-    logf
-      "Simplifying formula: %d atoms, %d size, %d max dnf, %d program, %d tmp"
-      (F.nb_atoms tr.guard)
-      (F.size tr.guard)
-      (F.dnf_size tr.guard)
-      (VarSet.cardinal (formula_free_program_vars tr.guard))
-      (VSet.cardinal (formula_free_tmp_vars tr.guard));
-    let simplified = simplify tr in
-    logf
-      "Simplified:          %d atoms, %d size, %d max dnf, %d program, %d tmp"
-      (F.nb_atoms simplified.guard)
-      (F.size simplified.guard)
-      (F.dnf_size simplified.guard)
-      (VarSet.cardinal (formula_free_program_vars simplified.guard))
-      (VSet.cardinal (formula_free_tmp_vars simplified.guard));
-    simplified
-*)
-
-(*
-  let exists p tr =
-    let abstract p x =
-      let x = F.linearize (fun () -> V.mk_tmp "nonlin" TyInt) x in
-      let man = Oct.manager_alloc () in
-      F.of_abstract (F.abstract ~exists:(Some p) man x)
-    in
-    F.opt_simplify_strategy := [abstract];
-    let res = simplify (exists p tr) in
-    F.opt_simplify_strategy := [];
-    res
-*)
 
   (* Enable/disable loop splitting during for star computation  *)
   let opt_split_loops = ref false
 
   let exists p tr =
     Log.time "Existential quantification" (exists p) tr
-
-  let star x = Log.time "cra:star" star x
 
   (* Split loops using the atomic predicates that (1) appear in the guard of
      the loop body and (2) are expressed over pre-state variables, and then
@@ -263,7 +230,7 @@ module K = struct
       | (predicate::predicates) when
           F.is_sat (F.conj tr.guard predicate) &&
           F.is_sat (F.conj tr.guard (F.negate predicate)) ->
-        logf ~level:`trace "Splitting on predicate: %a" F.format predicate;
+        logf "Splitting on predicate: %a" F.format predicate;
         let tr_predicate = assume predicate in
         let tr_not_predicate = assume (F.negate predicate) in
         let tr_tt = mul (mul tr_predicate tr) tr_predicate in
@@ -300,77 +267,8 @@ module K = struct
     else if equal y one then x
     else simplify (Log.time "cra:mul" (mul x) y)
 *)
-  
-  let get_zero t = zero
-
-  let get_one t = one
 
   let widen x y = Log.time "cra:widen" (widen x) y
-
-  let project tr =
-    let is_global v = Var.is_global (var_of_value v) in
-    exists is_global tr
-
-  (* existentially quantify local post-state variables and conjoin with the
-     equality /\ { l = l' : l is local }.  Since post-state variables do not
-     appear in the guard and for each variable x *not* in the transform we
-     have the equality x = x', it is sufficient to remove locals from the
-     transform.  *)
-(*
-    let is_global v _ = Var.is_global (var_of_value v) in
-    { transform = M.filter is_global tr.transform;
-      guard = tr.guard }
-*)
-
-  let merge x y = mul x (project y)
-  
-  (* Transpose a transition formula (intuitively, swap the primed and unprimed
-     variables). *)
-  let transpose tr =
-    (* The transform of the transpose is obtained by mapping each variable in
-       tr's transform to a fresh Skolem constant, which will represent the
-       value of that variable in the pre-state.  (After the transform, a
-       variable which appears in the RHS of a transform or a guard refers to
-       the post-state). *)
-    let transform =
-      let fresh_skolem v =
-        T.var (V.mk_tmp ("fresh_" ^ (Voc.show v)) (Voc.typ v))
-      in
-      M.fold
-        (fun v _ transform -> M.add v (fresh_skolem v) transform)
-        tr.transform
-        M.empty
-    in
-
-    (* Replace every variable in tr's transform with its Skolem constant *)
-    let substitution = function
-      | V.PVar v when M.mem v transform -> M.find v transform
-      | v -> T.var v
-    in
-
-    (* Apply substitution to the guard & conjoin with equations from tr's
-       transform *)
-    let guard =
-      let transform_equations =
-        M.enum tr.transform
-        /@ (fun (v, rhs) ->
-            F.eq (T.var (V.mk_var v)) (T.subst substitution rhs))
-        |> F.big_conj
-      in
-      F.conj transform_equations (F.subst substitution tr.guard)
-    in
-    { transform; guard }
-
-  let top_local block =
-    let file = (get_gfile()) in
-    let func = lookup_function block (get_gfile()) in
-    (BatEnum.append
-       (BatEnum.append (BatList.enum func.formals) (BatList.enum func.locals))
-       (BatList.enum file.vars))
-    /@ (fun vi ->
-        let v = VVal (Var.mk vi) in
-        assign v (T.var (V.mk_tmp "havoc" (Voc.typ v))))
-    |> BatEnum.reduce mul
 end
 module A = Interproc.MakePathExpr(K)
 
@@ -629,10 +527,8 @@ let _ =
 
 
 let analyze file =
-  Printf.printf "Entering CRA\n"; flush stdout;
   match file.entry_points with
   | [main] -> begin
-      Printf.printf "Entering Main\n"; flush stdout;
       let rg = Interproc.make_recgraph file in
       let rg =
         if !forward_inv_gen
@@ -652,9 +548,6 @@ let analyze file =
                     (BatList.enum func.formals)
                     (BatList.enum func.locals)))
           in
-          logf "Locals for %a: %a"
-            Varinfo.format func_name
-            Varinfo.Set.format vars;
           fun x -> (Varinfo.Set.mem (fst (var_of_value x)) vars)
         end else (fun _ -> false)
       in
@@ -756,10 +649,8 @@ let analyze file =
         | _ -> ()
       in
       A.single_src_restrict query is_assert check_assert;
-      Printf.printf "Reporting\n"; flush stdout;
       Report.print_errors ();
       Report.print_safe ();
-      Printf.printf "Done Reporting\n"; flush stdout;
       if !CmdLine.show_stats then begin
         K.T.log_stats `always;
         K.F.log_stats `always
@@ -770,347 +661,3 @@ let analyze file =
 let _ =
   CmdLine.register_pass
     ("-cra", analyze, " Compositional recurrence analysis")
-
-(*******************************************************************************
- * Newtonian Program Analysis via Tensor product
- ******************************************************************************)
-
-(* Tensored vocabulary *)
-type vv = Left of V.t | Right of V.t
-              deriving (Show, Compare)
-
-module VV = struct
-  module I = struct
-    type t = vv deriving (Show, Compare)
-    let compare = Compare_t.compare
-    let show = Show_t.show
-    let format = Show_t.format
-    let equal x y = compare x y = 0
-
-    let hash = function
-      | Left v -> Hashtbl.hash (v, 0)
-      | Right v -> Hashtbl.hash (v, 1)
-  end
-  include I
-
-  let lower = function
-    | Left v -> v
-    | Right v -> v
-
-  let left v = Left v
-  let right v = Right v
-
-  let prime = function
-    | Left v -> Left (V.prime v)
-    | Right v -> Right (V.prime v)
-
-  module E = Enumeration.Make(I)
-  let enum = E.empty ()
-  let of_smt sym = match Smt.symbol_refine sym with
-    | Smt.Symbol_int id -> E.from_int enum id
-    | Smt.Symbol_string _ -> assert false
-  let typ v = tr_typ (Var.get_type (var_of_value (lower v)))
-  let to_smt v =
-    let id = E.to_int enum v in
-    match typ v with
-    | TyInt -> Smt.mk_int_const (Smt.mk_int_symbol id)
-    | TyReal -> Smt.mk_real_const (Smt.mk_int_symbol id)
-  let tag = E.to_int enum
-end
-
-(* Tensored transition formula *)
-module KK = struct
-  module Voc = V
-  module VocMap = Map.Make(Voc)
-  include Transition.Make(VV)
-
-  (* Detensor-transpose local variables and remove them from the footprint *)
-  let project tr =
-    (* For every *local* variable v, identify Left v (representing the
-       post-state of the left) and Right v (representing the pre-state of the
-       right) by substituting [Left v -> Right v] *)
-    let substitution = function
-      | V.PVar (Left v) when not (Var.is_global (var_of_value v)) ->
-        T.var (V.mk_var (Right v))
-      | v -> T.var v
-    in
-    { transform = M.map (T.subst substitution) tr.transform;
-      guard = F.subst substitution tr.guard }
-
-    (* Remove local variables from the footprint *)
-    |> exists (Var.is_global % var_of_value % VV.lower)
-
-  let top_local block =
-    let file = (get_gfile()) in
-    let func = lookup_function block (get_gfile()) in
-    (BatEnum.append
-       (BatEnum.append (BatList.enum func.formals) (BatList.enum func.locals))
-       (BatList.enum file.vars))
-    /@ (fun vi ->
-        let vl = Left (VVal (Var.mk vi)) in
-        let vr = Right (VVal (Var.mk vi)) in
-        mul
-          (assign vl (T.var (V.mk_tmp "havoc" (VV.typ vl))))
-          (assign vr (T.var (V.mk_tmp "havoc" (VV.typ vr)))))
-    |> BatEnum.reduce mul
-end
-
-
-let _ =
-  let open KK in
-  let simplify_dillig =
-    F.simplify_dillig_nonlinear (fun () -> V.mk_tmp "nonlin" TyInt)
-  in
-  opt_loop_guard := Some F.exists;
-  (* chenged simplifying strategy *)
-  F.opt_simplify_strategy := [F.qe_partial; simplify_dillig]
-
-
-(* Inject terms from the untensored vocabulary to the tensored vocabulary.
-   [inject_term VV.left] performs left injection and [inject_term VV.right]
-   performs right injection. *)
-let inject_term inject term =
-  let alg = function
-    | OFloor x -> KK.T.floor x
-    | OAdd (x, y) -> KK.T.add x y
-    | OMul (x, y) -> KK.T.mul x y
-    | ODiv (x, y) -> KK.T.div x y
-    | OMod (x, y) -> KK.T.modulo x y
-    | OVar (K.V.PVar v) -> KK.T.var (KK.V.mk_var (inject v))
-    | OVar (K.V.TVar (id, typ, name)) ->
-      (* Identifiers for temporary variables remain unchanged.  This may be
-         something we need to be careful about. *)
-      KK.T.var (KK.V.TVar (id, typ, name))
-    | OConst k -> KK.T.const k
-  in
-  K.T.eval alg term
-
-(* See inject_term *)
-let inject_formula inject phi =
-  let alg = function
-    | OOr (phi, psi) -> KK.F.disj phi psi
-    | OAnd (phi, psi) -> KK.F.conj phi psi
-    | OAtom (LeqZ x) -> KK.F.leqz (inject_term inject x)
-    | OAtom (EqZ x) -> KK.F.eqz (inject_term inject x)
-    | OAtom (LtZ x) -> KK.F.ltz (inject_term inject x)
-  in
-  K.F.eval alg phi
-
-let tensor tr_left tr_right =
-  let left_transform =
-    BatEnum.fold (fun transform (k, term) ->
-        KK.M.add (Left k) (inject_term VV.left term) transform)
-      KK.M.empty
-      (K.M.enum tr_left.K.transform);
-  in
-  (* Combined left & right transform *)
-  let left_right_transform =
-    BatEnum.fold (fun transform (k, term) ->
-        KK.M.add (Right k) (inject_term VV.right term) transform)
-      left_transform
-      (K.M.enum tr_right.K.transform);
-  in
-  { KK.transform = left_right_transform;
-    KK.guard =
-      KK.F.conj
-        (inject_formula VV.left tr_left.K.guard)
-        (inject_formula VV.right tr_right.K.guard) }
-
-(* Lower terms from the tensored vocabulary to the untensored vocabulary. *)
-let lower_term substitution term =
-  let alg = function
-    | OFloor x -> K.T.floor x
-    | OAdd (x, y) -> K.T.add x y
-    | OMul (x, y) -> K.T.mul x y
-    | ODiv (x, y) -> K.T.div x y
-    | OMod (x, y) -> K.T.modulo x y
-    | OVar v -> substitution v
-    | OConst k -> K.T.const k
-  in
-  KK.T.eval alg term
-
-let lower_formula substitution phi =
-  let alg = function
-    | OOr (phi, psi) -> K.F.disj phi psi
-    | OAnd (phi, psi) -> K.F.conj phi psi
-    | OAtom (LeqZ x) -> K.F.leqz (lower_term substitution x)
-    | OAtom (EqZ x) -> K.F.eqz (lower_term substitution x)
-    | OAtom (LtZ x) -> K.F.ltz (lower_term substitution x)
-  in
-  KK.F.eval alg phi
-
-
-let detensor_transpose tensored_tr =
-  let lower_temporary =
-    Memo.memo (fun (id, typ, name) -> K.V.mk_tmp name typ)
-  in
-  (* For [Left v -> rhs] in tensor_tr's transform, create a fresh Skolem
-     constant skolem_v.  Store the mapping [v -> skolem_v] in substitution_map,
-     and store the pair (v, rhs) in the list pre_state_eqs. *)
-  let (substitution_map, pre_state_eqs) =
-    let fresh_skolem v =
-      K.T.var (K.V.mk_tmp ("fresh_" ^ (V.show v)) (V.typ v))
-    in
-    KK.M.fold
-      (fun v rhs (substitution_map, pre_state_eqs) ->
-         match v with
-         | Right _ -> (substitution_map, pre_state_eqs)
-         | Left v ->
-           let skolem_v = fresh_skolem v in
-           let substitution_map = K.M.add v skolem_v substitution_map in
-           (substitution_map, (K.T.var (K.V.mk_var v), rhs)::pre_state_eqs))
-      tensored_tr.KK.transform
-      (K.M.empty, [])
-  in
-
-  (* For every variable v, identify Left v (representing the post-state of the
-     left) and Right v (representing the pre-state of the right) by
-     substituting the same term term_v for both Left v and Right v.  term_v is
-     defined to be v if v was not written on the left, and skolem_v if it
-     was. *)
-  let substitution = function
-    | KK.V.PVar (Left v) | KK.V.PVar (Right v) ->
-      (try
-         K.M.find v substitution_map
-       with Not_found -> K.T.var (K.V.mk_var v))
-    | KK.V.TVar (id, typ, name) -> K.T.var (lower_temporary (id, typ, name))
-  in
-
-  (* substitution_map already has all the assignments that come from the left.
-     Add to substition map all the right assignments, possibly overwriting the
-     left assignments. *)
-  let transform =
-    KK.M.fold
-      (fun v rhs transform ->
-         match v with
-         | Left _ -> transform
-         | Right v -> K.M.add v (lower_term substitution rhs) transform)
-      tensored_tr.KK.transform
-      substitution_map
-  in
-
-  (* Lower the guard into the untensored vocabulary and conjoin the equations
-     for the Skolem constants. *)
-  let guard =
-    List.fold_left
-      (fun guard (v, term) ->
-         K.F.conj
-           guard
-           (K.F.eq v (lower_term substitution term)))
-      (lower_formula substitution tensored_tr.KK.guard)
-      pre_state_eqs
-  in
-  { K.transform = transform;
-    K.guard = guard }
-
-let kk_merge x y =
-  KK.mul x (tensor K.one (K.project (detensor_transpose y)))
-
-(*******************************************************************************
-* Newtonian Program Analysis Helper Functions
-********************************************************************************)
-
-let tensor_qe_lme_pvars f = 
-   (* Remove temporary variables (TVars) by quantifier elimination,
-        leaving only program variables (PVars). *)
-   (KK.F.qe_lme (fun v -> KK.V.lower v != None) f)
-
-let qe_lme_pvars f = 
-   (* Remove temporary variables (TVars) by quantifier elimination,
-        leaving only program variables (PVars). *)
-   (K.F.qe_lme (fun v -> K.V.lower v != None) f)
-
-let () =
-  Callback.register "compose_callback" K.mul;
-  Callback.register "union_callback" K.add;
-  Callback.register "one_callback" K.get_one;
-  Callback.register "zero_callback" K.get_zero;
-  Callback.register "star_callback" K.star;
-  Callback.register "print_callback" K.show;
-  Callback.register "tensoredPrint_callback" KK.show;
-  Callback.register "eq_callback" (fun x y -> K.compare x y = 0);
-  Callback.register "equiv_callback" K.equiv;
-  Callback.register "normalize_callback" K.normalize;
-  Callback.register "transpose_callback" K.transpose;
-  Callback.register "tensor_callback" tensor;
-  Callback.register "merge_callback" K.project;
-  Callback.register "tensorMerge_callback" KK.project;
-  Callback.register "detensorTranspose_callback" detensor_transpose;
-  Callback.register "tensorCompose_callback" KK.mul;
-  Callback.register "tensorUnion_callback" KK.add;
-  Callback.register "tensorStar_callback" KK.star;
-  Callback.register "tensorZero_callback" KK.zero;
-  Callback.register "tensorOne_callback" KK.one;
-  Callback.register "tensor_linearize_star_callback" KK.linearize_star;
-  Callback.register "linearize_star_callback" K.linearize_star;
-  Callback.register "ls_lin_callback" (fun (x,_,_) -> x);
-  Callback.register "ls_hull_callback" (fun (_,y,_) -> y);
-  Callback.register "ls_star_callback" (fun (_,_,z) -> z);
-  Callback.register "tensorEquiv_callback" KK.F.equiv;
-  Callback.register "equiv_callback" K.F.equiv;
-  Callback.register "simplify_callback" K.simplify;
-  Callback.register "tensorSimplify_callback" KK.simplify;
-  Callback.register "tensorQELME_callback" tensor_qe_lme_pvars;
-  Callback.register "QELME_callback" qe_lme_pvars;
-  Callback.register "print_formula_callback" K.F.show;
-  Callback.register "tensor_print_formula_callback" KK.F.show;
-  Callback.register "tensor_print_robust_callback" (fun indent tr ->
-     Putil.pp_string (fun formatter tr ->
-     Format.pp_open_vbox formatter indent;
-     Format.pp_print_break formatter 0 0;
-     Format.fprintf formatter "%a" KK.format_robust tr;
-     Format.pp_close_box formatter ()) tr);
-  Callback.register "print_robust_callback" (fun indent tr ->
-     Putil.pp_string (fun formatter tr ->
-     Format.pp_open_vbox formatter indent;
-     Format.pp_print_break formatter 0 0;
-     Format.fprintf formatter "%a" K.format_robust tr;
-     Format.pp_close_box formatter ()) tr);
-  Callback.register "tensor_print_indent_callback" (fun indent tr ->
-     Putil.pp_string (fun formatter tr ->
-     Format.pp_open_vbox formatter indent;
-     Format.pp_print_break formatter 0 0;
-     Format.fprintf formatter "%a" KK.format tr;
-     Format.pp_close_box formatter ()) tr);
-  Callback.register "print_indent_callback" (fun indent tr ->
-     Putil.pp_string (fun formatter tr ->
-     Format.pp_open_vbox formatter indent;
-     Format.pp_print_break formatter 0 0;
-     Format.fprintf formatter "%a" K.format tr;
-     Format.pp_close_box formatter ()) tr);
-  Callback.register "tensor_hull_equiv_callback" KK.F.T.D.equal;
-  Callback.register "hull_equiv_callback" K.F.T.D.equal;
-  Callback.register "is_sat_callback" (fun tr ->
-      try K.F.is_sat tr.K.guard
-      with Formula.Timeout -> K.F.is_sat (linearize () tr.K.guard));
-  Callback.register "is_sat_linear_callback" (fun tr ->
-      K.F.is_sat (linearize () tr.K.guard));
-  Callback.register "print_stats_callback" Log.print_stats;
-  Callback.register "print_hull_callback" (fun indent hull ->
-     Putil.pp_string (fun formatter tr ->
-          Format.pp_open_vbox formatter indent;
-          Format.pp_print_break formatter 0 0;
-          Format.fprintf formatter "%a" K.F.T.D.format tr;
-          Format.pp_close_box formatter ())
-       hull);
-  Callback.register "tensor_print_hull_callback" (fun indent hull ->
-     Putil.pp_string (fun formatter tr ->
-          Format.pp_open_vbox formatter indent;
-          Format.pp_print_break formatter 0 0;
-          Format.fprintf formatter "%a" KK.F.T.D.format tr;
-          Format.pp_close_box formatter ())
-       hull);
-  Callback.register "top_callback" (fun () ->
-      let open K in
-      let file = (get_gfile()) in
-      (BatList.enum file.vars)
-      /@ (fun vi ->
-          let v = VVal (Var.mk vi) in
-          assign v (T.var (V.mk_tmp "havoc" (Voc.typ v))))
-      |> BatEnum.reduce mul);
-  Callback.register "procedure_of_entry_callback" (fun rg entry ->
-      let block =
-        (RG.blocks rg)
-        |> BatEnum.find (fun block -> entry = (RG.block_entry rg block).did)
-      in
-      (block, Varinfo.show block))

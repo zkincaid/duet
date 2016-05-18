@@ -28,7 +28,6 @@ let _ =
       Arg.usage (Arg.align spec_list) usage_msg
     end
   | Some x -> begin
-      Printf.printf "analyzing\n"; flush stdout;
       CmdLine.run (CfgIr.get_gfile());
       if !CmdLine.show_stats then Log.print_stats ()
     end
