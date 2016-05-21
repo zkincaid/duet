@@ -33,224 +33,248 @@ end
 
 module RecurrenceAnalysis (Var : Var) = struct
   include Transition.Make(Var)
-  type abstract =
-    { precondition : Polka.loose Polka.t T.D.t;
-      postcondition : Polka.loose Polka.t T.D.t;
-      modified : VarSet.t;
-      stratified : (Var.t * T.t) list;
-      inequations : (T.t * [ `Leq | `Eq ] * T.t) list }
 
-  let abstract_star abstract =
-    let loop_counter = T.var (V.mk_int_tmp "K") in
-    (* In an recurrence environment, absence of a binding for a variable
-       indicates that the variable is not modified (i.e., the variable
-       satisfies the recurrence x' = x + 0).  We initialize the environment to
-       bind None to each modified variable. *)
-    let env =
-      VarSet.fold
-        (fun v env -> Incr.Env.add v None env)
-        abstract.modified
-        Incr.Env.empty
+  let _ =
+    let simplify_dillig =
+      F.simplify_dillig_nonlinear (fun () -> V.mk_tmp "nonlin" TyInt)
     in
-    let close_sum env rhs =
-      (* Substitute closed forms for lower induction vars into the
-         right-hand-side *)
-      match Incr.eval env rhs with
-      | Some rhs_closed -> Incr.summation rhs_closed
-      | None -> assert false
-    in
-    (* Close all stratified recurrence equations *)
-    let (env, transform) =
-      List.fold_left (fun (env, transform) (var, rhs) ->
-          let cf = Incr.Cf.add_term (AVar var) Incr.P.one (close_sum env rhs) in
-          logf "@[Closed form for %a: %a@]"
-            Var.format var
-            Incr.Cf.format cf;
-          let env = Incr.Env.add var (Some cf) env in
-          let transform = M.add var (Incr.to_term cf loop_counter) transform in
-          (env, transform))
-        (env, M.empty)
-        abstract.stratified
-    in
-    (* Non-induction variables get assigned a Skolem constant *)
-    let transform =
-      VarSet.fold (fun var transform ->
-          if M.mem var transform then
-            transform
-          else
-            let nondet = V.mk_tmp ("nondet_" ^ (Var.show var)) (Var.typ var) in
-            M.add var (T.var nondet) transform)
-        abstract.modified
-        transform
-    in
-    (* Substitution that replaces every modified variable x with (x' - x) *)
-    let delta_subst v = match V.lower v with
-      | Some pv -> begin
-          try T.sub (M.find pv transform) (T.var v)
-          with Not_found -> T.var v
+    F.opt_simplify_strategy := [F.qe_partial; simplify_dillig]
+
+  let get_manager =
+    let man = ref None in
+    fun () -> match !man with
+      | Some m -> m
+      | None -> begin
+          let m = NumDomain.polka_loose_manager () in
+          man := Some m;
+          m
         end
-      | _ -> assert false
-    in
-    (* Close all linear recurrence inequations *)
-    let ineqs =
-      abstract.inequations |> List.map (fun (lhs, op, rhs) ->
-          let cf = Incr.to_term (close_sum env rhs) loop_counter in
-          let lhs_delta = T.subst delta_subst lhs in
-          match op with
-          | `Leq -> F.leq lhs_delta cf
-          | `Eq -> F.eq lhs_delta cf)
-      |> BatList.enum |> F.big_conj
-    in
-    let postcondition =
-      let sigma v = match V.lower v with
-        | Some var ->
-          begin
-            try M.find var transform
+
+  module Base = struct
+    type abstract =
+      { precondition : Polka.loose Polka.t T.D.t;
+        postcondition : Polka.loose Polka.t T.D.t;
+        modified : VarSet.t;
+        stratified : (Var.t * T.t) list;
+        inequations : (T.t * [ `Leq | `Eq ] * T.t) list }
+
+    let abstract_star abstract =
+      let loop_counter = T.var (V.mk_int_tmp "K") in
+      (* In an recurrence environment, absence of a binding for a variable
+         indicates that the variable is not modified (i.e., the variable
+         satisfies the recurrence x' = x + 0).  We initialize the environment
+         to bind None to each modified variable. *)
+      let env =
+        VarSet.fold
+          (fun v env -> Incr.Env.add v None env)
+          abstract.modified
+          Incr.Env.empty
+      in
+      let close_sum env rhs =
+        (* Substitute closed forms for lower induction vars into the
+           right-hand-side *)
+        match Incr.eval env rhs with
+        | Some rhs_closed -> Incr.summation rhs_closed
+        | None -> assert false
+      in
+      (* Close all stratified recurrence equations *)
+      let (env, transform) =
+        List.fold_left (fun (env, transform) (var, rhs) ->
+            let cf =
+              Incr.Cf.add_term (AVar var) Incr.P.one (close_sum env rhs)
+            in
+            logf "@[Closed form for %a: %a@]"
+              Var.format var
+              Incr.Cf.format cf;
+            let env = Incr.Env.add var (Some cf) env in
+            let transform =
+              M.add var (Incr.to_term cf loop_counter) transform
+            in
+            (env, transform))
+          (env, M.empty)
+          abstract.stratified
+      in
+      (* Non-induction variables get assigned a Skolem constant *)
+      let transform =
+        VarSet.fold (fun var transform ->
+            if M.mem var transform then
+              transform
+            else
+              let nondet =
+                V.mk_tmp ("nondet_" ^ (Var.show var)) (Var.typ var)
+              in
+              M.add var (T.var nondet) transform)
+          abstract.modified
+          transform
+      in
+      (* Substitution that replaces every modified variable x with (x' - x) *)
+      let delta_subst v = match V.lower v with
+        | Some pv -> begin
+            try T.sub (M.find pv transform) (T.var v)
             with Not_found -> T.var v
           end
         | _ -> assert false
       in
-      F.of_abstract abstract.postcondition |> F.subst sigma
-    in
-    let plus_guard =
-      F.big_conj (BatList.enum [
-          ineqs;
-          (F.of_abstract abstract.precondition);
-          postcondition;
-          (F.geq loop_counter T.one)])
-    in
-    let zero_guard =
-      let eq (v, t) = F.eq (T.var (V.mk_var v)) t in
-      F.conj
-        (F.eqz loop_counter)
-        (F.big_conj (BatEnum.map eq (M.enum transform)))
-    in
-    { transform = transform;
-      guard = F.disj plus_guard zero_guard }
-
-  let stratified_recurrence_equations modified body =
-    let mk_avar v = AVar (V.mk_var v) in
-    let primed_vars = VarSet.map Var.prime modified in
-    let vars =
-      let free_vars = formula_free_program_vars body in
-      BatList.of_enum (VarSet.enum free_vars /@ V.mk_var)
-    in
-    let equalities = F.affine_hull body vars in
-    logf "Extracted equalities:@ %a"
-      Show.format<T.Linterm.t list> equalities;
-    let (s, coeffs) = farkas equalities vars in
-    let get_coeff v = AMap.find (mk_avar v) coeffs in
-    (* A variable has a coefficient iff it is involved in an equality. *)
-    let has_coeff v = AMap.mem (mk_avar v) coeffs in
-
-    let remove_coeff x coeffs = AMap.remove (AVar (V.mk_var x)) coeffs in
-    let assert_zero_coeff v =
-      try s#assrt (Smt.mk_eq (get_coeff v) (Smt.const_int 0))
-      with Not_found ->
-        (* No coefficient assigned to v => we may assume it's zero without
-           	   asserting anything *)
-        ()
-    in
-    let find_recurrence v non_induction =
-      s#push ();
-
-      s#assrt (Smt.mk_eq (get_coeff v) (Smt.const_int 1));
-      s#assrt (Smt.mk_eq (get_coeff (Var.prime v)) (Smt.const_int (-1)));
-
-      (* The coefficient of a non-induction variable (other than v) must be
-         0 *)
-      non_induction |> VarSet.iter (fun x ->
-          if not (Var.equal x v) then
-            assert_zero_coeff x);
-
-      (* The coefficient of a primed variable (other than v') must be 0 *)
-      VarSet.iter assert_zero_coeff (VarSet.remove (Var.prime v) primed_vars);
-
-      match s#check () with
-      | Smt.Unsat | Smt.Undef -> (s#pop (); None)
-      | Smt.Sat ->
-        let m = s#get_model () in
-        let f v coeff ts =
-          match v with
-          | AVar v -> (T.var v, m#eval_qq coeff)::ts
-          | AConst -> (T.one, m#eval_qq coeff)::ts
+      (* Close all linear recurrence inequations *)
+      let ineqs =
+        abstract.inequations |> List.map (fun (lhs, op, rhs) ->
+            let cf = Incr.to_term (close_sum env rhs) loop_counter in
+            let lhs_delta = T.subst delta_subst lhs in
+            match op with
+            | `Leq -> F.leq lhs_delta cf
+            | `Eq -> F.eq lhs_delta cf)
+        |> BatList.enum |> F.big_conj
+      in
+      let postcondition =
+        let sigma v = match V.lower v with
+          | Some var ->
+            begin
+              try M.find var transform
+              with Not_found -> T.var v
+            end
+          | _ -> assert false
         in
-        (* Remove v & v' terms -- we want the term t such that v' = v + t, and
-           we already set the coefficients of v and v'
-           appropriately *)
-        let coeffs = remove_coeff v (remove_coeff (Var.prime v) coeffs) in
-        s#pop ();
-        let incr = T.qq_linterm (BatList.enum (AMap.fold f coeffs [])) in
-        logf "Found recurrence: %a' = %a + %a"
-          Var.format v
-          Var.format v
-          T.format incr;
-        Some incr
-    in
-    let rec fix equations vars =
-      let found_recurrence = ref false in
-      let non_induction = ref vars in
-      let equations =
-        VarSet.fold (fun v equations ->
-            match find_recurrence v (!non_induction) with
-            | None -> equations
-            | Some rhs ->
-              found_recurrence := true;
-              non_induction := VarSet.remove v (!non_induction);
-              (v, rhs)::equations)
-          vars
-          equations
+        F.of_abstract abstract.postcondition |> F.subst sigma
       in
-      if !found_recurrence then fix equations (!non_induction)
-      else equations
-    in
-    let vars =
-      VarSet.filter (fun v -> has_coeff v && has_coeff (Var.prime v)) modified
-    in
-    List.rev (fix [] vars)
+      let plus_guard =
+        F.big_conj (BatList.enum [
+            ineqs;
+            (F.of_abstract abstract.precondition);
+            postcondition;
+            (F.geq loop_counter T.one)])
+      in
+      let zero_guard =
+        let eq (v, t) = F.eq (T.var (V.mk_var v)) t in
+        F.conj
+          (F.eqz loop_counter)
+          (F.big_conj (BatEnum.map eq (M.enum transform)))
+      in
+      { transform = transform;
+        guard = F.disj plus_guard zero_guard }
 
-  let linear_recurrence_inequations induction_vars non_induction_vars body =
-    (* each non-induction variable x is associated with a delta variable,
-       defined to be the difference between x' and x *)
-    let delta_vars =
-      VarSet.fold (fun v map ->
-          VarMap.add v (V.mk_tmp ("delta_" ^ (Var.show v)) (Var.typ v)) map)
-        non_induction_vars
-        VarMap.empty
-    in
-    let rev_delta_vars = (* reverse mapping of delta_vars *)
-      VarMap.fold
-        (fun var delta rev -> V.Map.add delta var rev)
-        delta_vars
-        V.Map.empty
-    in
-    (* For every non-induction var x, substitute x -> x' - delta(x) in the
-       loop body.  This produces a formula equivalent to
-          phi /\ { delta(y) = y'-y : y is a non-induction var }
-       but with pre-state variables projected out.
-     *)
-    let phi =
-      let delta_subst v = match v with
-        | V.PVar pv when VarMap.mem pv delta_vars ->
-          T.sub
-            (T.var (V.mk_var (Var.prime pv)))
-            (T.var (VarMap.find pv delta_vars))
-        | _ -> T.var v
+    let stratified_recurrence_equations modified body =
+      let mk_avar v = AVar (V.mk_var v) in
+      let primed_vars = VarSet.map Var.prime modified in
+      let vars =
+        let free_vars = formula_free_program_vars body in
+        BatList.of_enum (VarSet.enum free_vars /@ V.mk_var)
       in
-      F.subst delta_subst body
-    in
-    let man = NumDomain.polka_loose_manager () in
-    let hull =
-      let is_induction_var v = match V.lower v with
-        | Some var -> VarSet.mem var induction_vars
-        | None -> false
+      let equalities = F.affine_hull body vars in
+      logf "Extracted equalities:@ %a"
+        Show.format<T.Linterm.t list> equalities;
+      let (s, coeffs) = farkas equalities vars in
+      let get_coeff v = AMap.find (mk_avar v) coeffs in
+      (* A variable has a coefficient iff it is involved in an equality. *)
+      let has_coeff v = AMap.mem (mk_avar v) coeffs in
+
+      let remove_coeff x coeffs = AMap.remove (AVar (V.mk_var x)) coeffs in
+      let assert_zero_coeff v =
+        try s#assrt (Smt.mk_eq (get_coeff v) (Smt.const_int 0))
+        with Not_found ->
+          (* No coefficient assigned to v => we may assume it's zero without
+             asserting anything *)
+          ()
       in
-      (* Project all variables except the delta vars & induction vars *)
-      let p v = V.Map.mem v rev_delta_vars || is_induction_var v in
-      F.abstract ~exists:(Some p) man phi
-    in
-    logf "Convex hull: %a" F.T.D.format hull;
-    let recur ineqs tcons =
+      let find_recurrence v non_induction =
+        s#push ();
+
+        s#assrt (Smt.mk_eq (get_coeff v) (Smt.const_int 1));
+        s#assrt (Smt.mk_eq (get_coeff (Var.prime v)) (Smt.const_int (-1)));
+
+        (* The coefficient of a non-induction variable (other than v) must be
+           0 *)
+        non_induction |> VarSet.iter (fun x ->
+            if not (Var.equal x v) then
+              assert_zero_coeff x);
+
+        (* The coefficient of a primed variable (other than v') must be 0 *)
+        VarSet.iter assert_zero_coeff (VarSet.remove (Var.prime v) primed_vars);
+
+        match s#check () with
+        | Smt.Unsat | Smt.Undef -> (s#pop (); None)
+        | Smt.Sat ->
+          let m = s#get_model () in
+          let f v coeff ts =
+            match v with
+            | AVar v -> (T.var v, m#eval_qq coeff)::ts
+            | AConst -> (T.one, m#eval_qq coeff)::ts
+          in
+          (* Remove v & v' terms -- we want the term t such that v' = v + t, and
+             we already set the coefficients of v and v'
+             appropriately *)
+          let coeffs = remove_coeff v (remove_coeff (Var.prime v) coeffs) in
+          s#pop ();
+          let incr = T.qq_linterm (BatList.enum (AMap.fold f coeffs [])) in
+          logf "Found recurrence: %a' = %a + %a"
+            Var.format v
+            Var.format v
+            T.format incr;
+          Some incr
+      in
+      let rec fix equations vars =
+        let found_recurrence = ref false in
+        let non_induction = ref vars in
+        let equations =
+          VarSet.fold (fun v equations ->
+              match find_recurrence v (!non_induction) with
+              | None -> equations
+              | Some rhs ->
+                found_recurrence := true;
+                non_induction := VarSet.remove v (!non_induction);
+                (v, rhs)::equations)
+            vars
+            equations
+        in
+        if !found_recurrence then fix equations (!non_induction)
+        else equations
+      in
+      let vars =
+        VarSet.filter (fun v -> has_coeff v && has_coeff (Var.prime v)) modified
+      in
+      List.rev (fix [] vars)
+
+    let linear_recurrence_inequations induction_vars non_induction_vars body =
+      (* each non-induction variable x is associated with a delta variable,
+         defined to be the difference between x' and x *)
+      let delta_vars =
+        VarSet.fold (fun v map ->
+            VarMap.add v (V.mk_tmp ("delta_" ^ (Var.show v)) (Var.typ v)) map)
+          non_induction_vars
+          VarMap.empty
+      in
+      let rev_delta_vars = (* reverse mapping of delta_vars *)
+        VarMap.fold
+          (fun var delta rev -> V.Map.add delta var rev)
+          delta_vars
+          V.Map.empty
+      in
+      (* For every non-induction var x, substitute x -> x' - delta(x) in the
+         loop body.  This produces a formula equivalent to
+            phi /\ { delta(y) = y'-y : y is a non-induction var }
+         but with pre-state variables projected out.
+      *)
+      let phi =
+        let delta_subst v = match v with
+          | V.PVar pv when VarMap.mem pv delta_vars ->
+            T.sub
+              (T.var (V.mk_var (Var.prime pv)))
+              (T.var (VarMap.find pv delta_vars))
+          | _ -> T.var v
+        in
+        F.subst delta_subst body
+      in
+      let man = NumDomain.polka_loose_manager () in
+      let hull =
+        let is_induction_var v = match V.lower v with
+          | Some var -> VarSet.mem var induction_vars
+          | None -> false
+        in
+        (* Project all variables except the delta vars & induction vars *)
+        let p v = V.Map.mem v rev_delta_vars || is_induction_var v in
+        F.abstract ~exists:(Some p) man phi
+      in
+      logf "Convex hull: %a" F.T.D.format hull;
+      let recur ineqs tcons =
       let open Apron in
       let open Tcons0 in
       let open T.D in
@@ -294,182 +318,368 @@ module RecurrenceAnalysis (Var : Var) = struct
       []
       (BatArray.enum (Apron.Abstract0.to_tcons_array man hull.T.D.prop))
 
-  let alpha_formula body modified =
-    let unprime =
-      VarMap.of_enum (VarSet.enum modified /@ (fun v -> (Var.prime v, v)))
-    in
-    let vars = formula_free_program_vars body in
-    let pre_vars =
-      VarSet.filter (not % flip VarMap.mem unprime) vars
-    in
-    let low f v = match V.lower v with
-      | Some v -> f v
-      | None   -> false
-    in
-    let man = NumDomain.polka_loose_manager () in
-    let pre_guard =
-      F.abstract man ~exists:(Some (low (flip VarSet.mem pre_vars))) body
-    in
-    let post_guard =
-      (* replace modified unprimed variables with double-primed variables, and
-         replace primed variables by unprimed variables.  After the
-         substitution, the guard is defined on pre-state variables only.  *)
-      let sigma v = match V.lower v with
-        | Some var ->
-          if VarSet.mem var modified then
-            T.var (V.mk_var (Var.prime (Var.prime var)))
-          else if VarMap.mem var unprime then
-            T.var (V.mk_var (VarMap.find var unprime))
-          else T.var v
-        | None -> T.var v
+    let alpha_formula body modified =
+      let unprime =
+        VarMap.of_enum (VarSet.enum modified /@ (fun v -> (Var.prime v, v)))
       in
-      let post_vars = VarSet.union pre_vars modified in
-      let p = low (flip VarSet.mem post_vars) in
-      F.abstract man ~exists:(Some p) (F.subst sigma body)
-    in
-    let stratified = stratified_recurrence_equations modified body in
-    let induction_vars =
-      List.fold_left
-        (fun set (iv, _) -> VarSet.add iv set)
-        VarSet.empty
-        stratified
-    in
-    let non_induction_vars = VarSet.diff modified induction_vars in
-    let inequations =
-      linear_recurrence_inequations induction_vars non_induction_vars body
-    in
-    { precondition = pre_guard;
-      postcondition = post_guard;
-      modified = modified;
-      stratified = stratified;
-      inequations = inequations }
-
-  let alpha tr =
-    let body =
-      F.linearize (fun () -> V.mk_real_tmp "nonlin") (to_formula tr)
-    in
-    let modified = VarSet.of_enum (M.keys tr.transform) in
-    alpha_formula body modified
-
-  let format_abstract formatter abstract =
-    Format.fprintf formatter
-      "{@[<v 0>pre:@;  @[<v 0>%a@]@;post:@;  @[<v 0>%a@]@;"
-      F.format (F.of_abstract abstract.precondition)
-      F.format (F.of_abstract abstract.postcondition);
-    Format.fprintf formatter
-      "recurrences:@;  @[<v 0>%a@;%a@]@]}"
-      (ApakEnum.pp_print_enum_nobox
-         ~pp_sep:(fun formatter () -> Format.pp_print_break formatter 0 0)
-         (fun formatter (lhs, rhs) ->
-            Format.fprintf formatter "%a' = %a + %a"
-              Var.format lhs
-              Var.format lhs
-              T.format rhs))
-      (BatList.enum abstract.stratified)
-      (ApakEnum.pp_print_enum_nobox
-         ~pp_sep:(fun formatter () -> Format.pp_print_break formatter 0 0)
-         (fun formatter (lhs, op, rhs) ->
-            Format.fprintf formatter "(%a)' %s (%a) + %a"
-              T.format lhs
-              (match op with
-               | `Eq -> "="
-               | `Leq -> "<=")
-              T.format lhs
-              T.format rhs))
-      (BatList.enum abstract.inequations)
-
-  let abstract_vars abstract =
-    VarSet.union
-      (formula_free_program_vars (F.of_abstract abstract.precondition))
-      (formula_free_program_vars (F.of_abstract abstract.postcondition))
-    |> VarSet.union (VarSet.map Var.prime abstract.modified)
-    |> List.fold_right (fun (v, rhs) vars ->
-        VarSet.union (VarSet.add v vars) (term_free_program_vars rhs))
-      abstract.stratified
-    |> List.fold_right (fun (lhs, _, rhs) vars ->
-        VarSet.union
-          (term_free_program_vars lhs)
-          (VarSet.union (term_free_program_vars rhs) vars))
-      abstract.inequations
-
-  let get_manager =
-    let man = ref None in
-    fun () -> match !man with
-      | Some m -> m
-      | None -> begin
-          let m = NumDomain.polka_loose_manager () in
-          man := Some m;
-          m
-        end
-
-  let hull_of_abstract abstract =
-    let vars = abstract_vars abstract in
-    let prime = Var.prime in
-    let open Apron in
-    let env = T.D.Env.of_enum (VarSet.enum vars /@ V.mk_var) in
-    let to_apron = T.to_apron env in
-    let eq_constraints =
-      let constraint_of_rec_eq (v, rhs) =
-        let eq_term =
-          T.sub
-            (T.var (V.mk_var (prime v)))
-            (T.add (T.var (V.mk_var v)) rhs)
-          |> to_apron
+      let vars = formula_free_program_vars body in
+      let pre_vars =
+        VarSet.filter (not % flip VarMap.mem unprime) vars
+      in
+      let low f v = match V.lower v with
+        | Some v -> f v
+        | None   -> false
+      in
+      let man = NumDomain.polka_loose_manager () in
+      let pre_guard =
+        F.abstract man ~exists:(Some (low (flip VarSet.mem pre_vars))) body
+      in
+      let post_guard =
+        (* replace modified unprimed variables with double-primed variables,
+           and replace primed variables by unprimed variables.  After the
+           substitution, the guard is defined on pre-state variables only.  *)
+        let sigma v = match V.lower v with
+          | Some var ->
+            if VarSet.mem var modified then
+              T.var (V.mk_var (Var.prime (Var.prime var)))
+            else if VarMap.mem var unprime then
+              T.var (V.mk_var (VarMap.find var unprime))
+            else T.var v
+          | None -> T.var v
         in
-        Tcons0.make eq_term Tcons0.EQ
+        let post_vars = VarSet.union pre_vars modified in
+        let p = low (flip VarSet.mem post_vars) in
+        F.abstract man ~exists:(Some p) (F.subst sigma body)
       in
-      List.map constraint_of_rec_eq abstract.stratified
-    in
-    let ineq_constraints =
-      let primify v = match V.lower v with
-        | Some pv -> T.var (V.mk_var (prime pv))
+      let stratified = stratified_recurrence_equations modified body in
+      let induction_vars =
+        List.fold_left
+          (fun set (iv, _) -> VarSet.add iv set)
+          VarSet.empty
+          stratified
+      in
+      let non_induction_vars = VarSet.diff modified induction_vars in
+      let inequations =
+        linear_recurrence_inequations induction_vars non_induction_vars body
+      in
+      { precondition = pre_guard;
+        postcondition = post_guard;
+        modified = modified;
+        stratified = stratified;
+        inequations = inequations }
+
+    let alpha tr =
+      let body =
+        F.linearize (fun () -> V.mk_real_tmp "nonlin") (to_formula tr)
+      in
+      let modified = VarSet.of_enum (M.keys tr.transform) in
+      alpha_formula body modified
+
+    let format_abstract formatter abstract =
+      Format.fprintf formatter
+        "{@[<v 0>pre:@;  @[<v 0>%a@]@;post:@;  @[<v 0>%a@]@;"
+        F.format (F.of_abstract abstract.precondition)
+        F.format (F.of_abstract abstract.postcondition);
+      Format.fprintf formatter
+        "recurrences:@;  @[<v 0>%a@;%a@]@]}"
+        (ApakEnum.pp_print_enum_nobox
+           ~pp_sep:(fun formatter () -> Format.pp_print_break formatter 0 0)
+           (fun formatter (lhs, rhs) ->
+              Format.fprintf formatter "%a' = %a + %a"
+                Var.format lhs
+                Var.format lhs
+                T.format rhs))
+        (BatList.enum abstract.stratified)
+        (ApakEnum.pp_print_enum_nobox
+           ~pp_sep:(fun formatter () -> Format.pp_print_break formatter 0 0)
+           (fun formatter (lhs, op, rhs) ->
+              Format.fprintf formatter "(%a)' %s (%a) + %a"
+                T.format lhs
+                (match op with
+                 | `Eq -> "="
+                 | `Leq -> "<=")
+                T.format lhs
+                T.format rhs))
+        (BatList.enum abstract.inequations)
+
+    let abstract_vars abstract =
+      VarSet.union
+        (formula_free_program_vars (F.of_abstract abstract.precondition))
+        (formula_free_program_vars (F.of_abstract abstract.postcondition))
+      |> VarSet.union (VarSet.map Var.prime abstract.modified)
+      |> List.fold_right (fun (v, rhs) vars ->
+          VarSet.union (VarSet.add v vars) (term_free_program_vars rhs))
+        abstract.stratified
+      |> List.fold_right (fun (lhs, _, rhs) vars ->
+          VarSet.union
+            (term_free_program_vars lhs)
+            (VarSet.union (term_free_program_vars rhs) vars))
+        abstract.inequations
+
+    let hull_of_abstract abstract =
+      let vars = abstract_vars abstract in
+      let prime = Var.prime in
+      let open Apron in
+      let env = T.D.Env.of_enum (VarSet.enum vars /@ V.mk_var) in
+      let to_apron = T.to_apron env in
+      let eq_constraints =
+        let constraint_of_rec_eq (v, rhs) =
+          let eq_term =
+            T.sub
+              (T.var (V.mk_var (prime v)))
+              (T.add (T.var (V.mk_var v)) rhs)
+            |> to_apron
+          in
+          Tcons0.make eq_term Tcons0.EQ
+        in
+        List.map constraint_of_rec_eq abstract.stratified
+      in
+      let ineq_constraints =
+        let primify v = match V.lower v with
+          | Some pv -> T.var (V.mk_var (prime pv))
+          | None -> assert false
+        in
+        let constraint_of_rec_ineq (lhs, op, rhs) =
+          let term =
+            T.sub
+              (T.subst primify lhs)
+              (T.add lhs rhs)
+            |> to_apron
+          in
+          match op with
+          | `Eq -> Tcons0.make term Tcons0.EQ
+          | `Leq -> Tcons0.make term Tcons0.SUPEQ
+        in
+        List.map constraint_of_rec_ineq abstract.inequations
+      in
+
+      { T.D.prop =
+          Abstract0.of_tcons_array
+            (get_manager ())
+            (T.D.Env.int_dim env)
+            (T.D.Env.real_dim env)
+            (Array.of_list (eq_constraints@ineq_constraints));
+        T.D.env = env }
+
+    let abstract_equal x y =
+      T.D.equal (hull_of_abstract x) (hull_of_abstract y)
+
+    let abstract_widen x y =
+      let body =
+        F.of_abstract (T.D.widen (hull_of_abstract x) (hull_of_abstract y))
+      in
+      let modified = VarSet.union x.modified y.modified in
+      alpha_formula body modified
+
+    let abstract_join x y =
+      let body =
+        F.of_abstract (T.D.join (hull_of_abstract x) (hull_of_abstract y))
+      in
+      let modified = VarSet.union x.modified y.modified in
+      alpha_formula body modified
+  end
+
+  module Split = struct
+    type hull = Polka.loose Polka.t T.D.t
+    type abstract =
+      | Leaf of Base.abstract
+      | Split of F.t * abstract * hull * abstract
+
+    let rec format_abstract formatter = function
+      | Leaf base -> Base.format_abstract formatter base
+      | Split (predicate, first, transfer, second) ->
+        Format.fprintf formatter "@[<v 2>Split %a@;%a@;%a@;%a@]"
+          F.format predicate
+          format_abstract first
+          T.D.format transfer
+          format_abstract second
+
+    let tr_of_hull hull modified =
+      let transform =
+        let nondet v =
+          T.var (V.mk_tmp ("nondet_" ^ (Var.show v)) (Var.typ v))
+        in
+        VarSet.fold
+          (fun v transform -> M.add v (nondet v) transform)
+          modified
+          M.empty
+      in
+      let sigma v = match V.lower v with
+        | Some pv ->
+          begin
+            try M.find pv transform
+            with Not_found -> T.var v
+          end
         | None -> assert false
       in
-      let constraint_of_rec_ineq (lhs, op, rhs) =
-        let term =
-          T.sub
-            (T.subst primify lhs)
-            (T.add lhs rhs)
-          |> to_apron
-        in
-        match op with
-        | `Eq -> Tcons0.make term Tcons0.EQ
-        | `Leq -> Tcons0.make term Tcons0.SUPEQ
+      { guard = F.subst sigma (F.of_abstract hull);
+        transform = transform }
+
+    let alpha_formula_split body modified predicates =
+      let alpha_base body =
+        let p v = V.lower v != None in
+        F.abstract (get_manager ()) ~exists:(Some p) body
       in
-      List.map constraint_of_rec_ineq abstract.inequations
-    in
+      let postify =
+        F.subst (fun v -> match V.lower v with
+            | Some pv ->
+              if VarSet.mem pv modified then
+                T.var (V.mk_var (Var.prime pv))
+              else
+                T.var v
+            | None -> assert false)
+      in
+      let rec go predicates body =
+        match predicates with
+        | [] -> Leaf (Base.alpha_formula body modified)
+        | (predicate::predicates)  ->
+          logf "Splitting on predicate: %a" F.format predicate;
+          let not_predicate = F.negate predicate in
+          let post_predicate = postify predicate in
+          let post_not_predicate = postify not_predicate in
+          let tt = F.conj predicate (F.conj body post_predicate) in
+          let tf = F.conj predicate (F.conj body post_not_predicate) in
+          let ff = F.conj not_predicate (F.conj body post_not_predicate) in
+          let ft = F.conj not_predicate (F.conj body post_predicate) in
+          if not (F.is_sat tf) then
+            let ff_abstract = go predicates ff in
+            let tt_abstract = go predicates tt in
+            Split (predicate, ff_abstract, alpha_base ft, tt_abstract)
+          else if not (F.is_sat ft) then
+            let ff_abstract = go predicates ff in
+            let tt_abstract = go predicates tt in
+            Split (not_predicate, tt_abstract, alpha_base tf, ff_abstract)
+          else
+            go predicates body
+      in
+      go predicates body
 
-    { T.D.prop =
-        Abstract0.of_tcons_array
-          (get_manager ())
-          (T.D.Env.int_dim env)
-          (T.D.Env.real_dim env)
-          (Array.of_list (eq_constraints@ineq_constraints));
-      T.D.env = env }
+    let rec split_modified = function
+      | Leaf abstract -> abstract.Base.modified
+      | Split (_, first, _, _) -> split_modified first
 
-  let abstract_equal x y =
-    T.D.equal (hull_of_abstract x) (hull_of_abstract y)
+    let abstract_star split =
+      let modified = split_modified split in
+      let rec go = function
+        | Leaf base -> Base.abstract_star base
+        | Split (predicate, first, transfer, second) ->
+          let tr_transfer = tr_of_hull transfer modified in
+          mul (go first) (add one (mul tr_transfer (go second)))
+      in
+      go split
 
-  let abstract_widen x y =
-    let body =
-      F.of_abstract (T.D.widen (hull_of_abstract x) (hull_of_abstract y))
-    in
-    let modified = VarSet.union x.modified y.modified in
-    alpha_formula body modified
+    module FormulaSet = Putil.Set.Make(F)
+
+    let alpha tr =
+      let modified = VarSet.of_enum (M.keys tr.transform) in
+      let body =
+        F.linearize (fun () -> V.mk_real_tmp "nonlin") (to_formula tr)
+      in
+      let is_relevant predicate =
+        F.is_sat (F.conj body predicate)
+        && F.is_sat (F.conj body (F.negate predicate))
+      in
+      let alg = function
+        | OAnd (xs, ys) | OOr (xs, ys) -> FormulaSet.union xs ys
+        | OAtom atom ->
+          begin match atom with
+            | LeqZ t when VSet.is_empty (term_free_tmp_vars t) ->
+              FormulaSet.singleton (F.leqz t)
+            | LtZ t when VSet.is_empty (term_free_tmp_vars t) ->
+              FormulaSet.singleton (F.ltz t)
+            | EqZ t when VSet.is_empty (term_free_tmp_vars t) ->
+              FormulaSet.singleton (F.eqz t)
+            | _ -> FormulaSet.empty
+          end
+      in
+      let predicates =
+        FormulaSet.elements (F.eval alg tr.guard)
+        |> List.filter is_relevant
+      in
+      alpha_formula_split body modified predicates
+
+    let rec abstract_equal x y =
+      match x, y with
+      | Leaf x, Leaf y -> Base.abstract_equal x y
+      | Split (px, lx, mx, rx), Split (py, ly, my, ry) ->
+        F.equal px py
+        && T.D.equal mx my
+        && abstract_equal lx ly
+        && abstract_equal rx ry
+      | _, _ -> false
+
+    let rec unsplit left transfer right =
+      let rec join_hull hull = function
+        | Leaf x ->
+          let join_hull_x =
+            T.D.join hull (Base.hull_of_abstract x)
+            |> F.of_abstract
+          in
+          Leaf (Base.alpha_formula join_hull_x x.Base.modified)
+        | Split (predicate, left, tr, right) ->
+          Split (predicate,
+                 join_hull hull left,
+                 T.D.join hull tr,
+                 join_hull hull right)
+      in
+      abstract_join left right |> join_hull transfer
+    and abstract_join x y =
+      match x, y with
+      | Leaf x, Leaf y -> Leaf (Base.abstract_join x y)
+      | Split (px, lx, mx, rx), Split (py, ly, my, ry) ->
+        let cmp = F.compare px py in
+        if cmp < 0 then
+          abstract_join (unsplit lx mx rx) y
+        else if cmp > 0 then
+          abstract_join x (unsplit ly my ry)
+        else
+          Split (px, abstract_join lx ly, T.D.join mx my, abstract_join rx ry)
+      | _, Split (py, ly, my, ry) ->
+        abstract_join x (unsplit ly my ry)
+      | Split (px, lx, mx, rx), _ ->
+        abstract_join (unsplit lx mx rx) y
+    
+    let rec abstract_widen x y =
+      match x, y with
+      | Leaf x, Leaf y -> Leaf (Base.abstract_widen x y)
+      | Split (px, lx, mx, rx), Split (py, ly, my, ry) ->
+        let cmp = F.compare px py in
+        if cmp < 0 then
+          abstract_join (unsplit lx mx rx) y
+        else if cmp > 0 then
+          abstract_join x (unsplit ly my ry)
+        else
+          Split (px,
+                 abstract_widen lx ly,
+                 T.D.widen mx my,
+                 abstract_widen rx ry)
+      | _, Split (py, ly, my, ry) ->
+        abstract_widen x (unsplit ly my ry)
+      | Split (px, lx, mx, rx), _ ->
+        abstract_widen (unsplit lx mx rx) y
+  end
+
+  let abstract_star = Split.abstract_star
+
+  let alpha tr =
+    if !Cra.K.opt_split_loops then
+      Split.alpha tr
+    else
+      Split.Leaf (Base.alpha tr)
+
+  let format_abstract = Split.format_abstract
+
+  let abstract_widen = Split.abstract_widen
+
+  let abstract_equal = Split.abstract_equal
 
   let star x =
     let abstract = alpha x in
     let res = abstract_star abstract in
     logf "Body:@\n @[%a@]" format x;
-    logf "Abstract:@\n @[%a@]" format_abstract abstract;
+    logf "Abstract:@\n @[%a@]" Split.format_abstract abstract;
     logf "Result:@\n @[%a@]" format res;
     res
-
-  let _ =
-    let simplify_dillig =
-      F.simplify_dillig_nonlinear (fun () -> V.mk_tmp "nonlin" TyInt)
-    in
-    F.opt_simplify_strategy := [F.qe_partial; simplify_dillig]
 end
 
 (*******************************************************************************
@@ -659,51 +869,51 @@ let tr_bexpr bexpr =
 let weight def =
   let open K in
   match def.dkind with
-  | Assume phi -> K.assume (tr_bexpr phi)
+  | Assume phi -> assume (tr_bexpr phi)
   | Assign (lhs, rhs) ->
     if typ_has_offsets (Var.get_type lhs) then begin
       match tr_expr rhs with
       | TPointer rhs ->
-        BatList.reduce K.mul [
-          K.assign (VVal lhs) rhs.ptr_val;
-          K.assign (VPos lhs) rhs.ptr_pos;
-          K.assign (VWidth lhs) rhs.ptr_width;
+        BatList.reduce mul [
+          assign (VVal lhs) rhs.ptr_val;
+          assign (VPos lhs) rhs.ptr_pos;
+          assign (VWidth lhs) rhs.ptr_width;
         ]
       | TInt tint -> begin
           (match Var.get_type lhs, rhs with
            | (_, Havoc _) | (Concrete Dynamic, _) -> ()
            | _ -> Log.errorf "Ill-typed pointer assignment: %a" Def.format def);
-          BatList.reduce K.mul [
-            K.assign (VVal lhs) tint;
-            K.assign (VPos lhs) (T.var (V.mk_tmp "type_err" TyInt));
-            K.assign (VWidth lhs) (T.var (V.mk_tmp "type_err" TyInt))
+          BatList.reduce mul [
+            assign (VVal lhs) tint;
+            assign (VPos lhs) (T.var (V.mk_tmp "type_err" TyInt));
+            assign (VWidth lhs) (T.var (V.mk_tmp "type_err" TyInt))
           ]
         end
-    end else K.assign (VVal lhs) (tr_expr_val rhs)
+    end else assign (VVal lhs) (tr_expr_val rhs)
   | Store (lhs, _) ->
     (* Havoc all the variables lhs could point to *)
     let open Pa in
     let add_target memloc tr = match memloc with
       | (MAddr v, offset) ->
         if typ_has_offsets (Var.get_type (v,offset)) then begin
-          BatList.reduce K.mul [
+          BatList.reduce mul [
             tr;
-            K.assign (VVal (v,offset)) (T.var (V.mk_tmp "store" TyInt));
-            K.assign (VPos (v,offset)) (T.var (V.mk_tmp "store" TyInt));
-            K.assign (VWidth (v,offset)) (T.var (V.mk_tmp "store" TyInt))
+            assign (VVal (v,offset)) (T.var (V.mk_tmp "store" TyInt));
+            assign (VPos (v,offset)) (T.var (V.mk_tmp "store" TyInt));
+            assign (VWidth (v,offset)) (T.var (V.mk_tmp "store" TyInt))
           ]
         end else begin
-          K.mul tr (K.assign (VVal (v,offset)) (T.var (V.mk_tmp "store" TyInt)))
+          mul tr (assign (VVal (v,offset)) (T.var (V.mk_tmp "store" TyInt)))
         end
       | _, _ -> tr
     in
     MemLoc.Set.fold add_target (resolve_ap lhs) one
   | Builtin Exit -> zero
   | Builtin (Alloc (v, size, _)) ->
-    BatList.reduce K.mul [
-      K.assign (VVal v) (T.var (V.mk_tmp "alloc" TyInt));
-      K.assign (VWidth v) (tr_expr_val size);
-      K.assign (VPos v) T.zero
+    BatList.reduce mul [
+      assign (VVal v) (T.var (V.mk_tmp "alloc" TyInt));
+      assign (VWidth v) (tr_expr_val size);
+      assign (VPos v) T.zero
     ]
   | Builtin AtomicBegin | Builtin AtomicEnd
   | Builtin (Acquire _) | Builtin (Release _)
