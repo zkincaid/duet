@@ -680,6 +680,57 @@ module RecurrenceAnalysis (Var : Var) = struct
     logf "Abstract:@\n @[%a@]" Split.format_abstract abstract;
     logf "Result:@\n @[%a@]" format res;
     res
+
+  (* Compute the post-condition of a transition *)
+  let range tr =
+    (* replace modified pre-state variables with skolem constants *)
+    let havoc_pre v = match V.lower v with
+      | Some pv ->
+        if M.mem pv tr.transform then
+          T.var (V.mk_tmp ("fresh_" ^ (Var.show pv)) (Var.typ pv))
+        else
+          T.var v
+      | None -> T.var v
+    in
+    M.fold (fun lhs rhs range ->
+        F.conj (F.eq (T.var (V.mk_var lhs)) (T.subst havoc_pre rhs)) range)
+      tr.transform
+      (F.subst havoc_pre tr.guard)
+
+  let range_hull tr =
+    F.abstract
+      ~exists:(Some (fun v -> V.lower v != None))
+      (get_manager ())
+      (range tr)
+
+  let opt_star_lc_rec = ref true
+  let star_lc left_context tr =
+    if !opt_star_lc_rec then
+      let alpha_left left =
+        alpha { tr with guard = F.conj tr.guard (range left) }
+      in
+      let rec fix body =
+        let loop = abstract_star body in
+        let next_body = alpha_left (mul left_context loop) in
+        if abstract_equal body next_body then
+          loop
+        else
+          fix (abstract_widen body next_body)
+      in
+      fix (alpha_left left_context)
+    else
+      let rec fix pre =
+        let body =
+          alpha { tr with guard = F.conj tr.guard (F.of_abstract pre) }
+        in
+        let loop = abstract_star body in
+        let post = range_hull (mul left_context loop) in
+        if T.D.equal pre post then
+          loop
+        else
+          fix (T.D.widen pre post)
+      in
+      fix (range_hull left_context)
 end
 
 (*******************************************************************************
@@ -1156,6 +1207,12 @@ let qe_lme_pvars f =
 let linearize _ = K.F.linearize (fun () -> K.V.mk_tmp "nonlin" TyInt)
 
 let () =
+  CmdLine.register_config
+    ("-cra-star-lc-hull",
+     Arg.Clear K.opt_star_lc_rec,
+     " Widen in convex hulls for left context star")
+
+let () =
   Callback.register "compose_callback" K.mul;
   Callback.register "union_callback" K.add;
   Callback.register "one_callback" (fun () -> K.one);
@@ -1257,4 +1314,6 @@ let () =
         (RG.blocks rg)
         |> BatEnum.find (fun block -> entry = (RG.block_entry rg block).did)
       in
-      (block, Varinfo.show block))
+      (block, Varinfo.show block));
+  Callback.register "star_lc" K.star_lc;
+  Callback.register "tensor_star_lc" KK.star_lc
