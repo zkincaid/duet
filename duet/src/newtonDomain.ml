@@ -593,7 +593,7 @@ module RecurrenceAnalysis (Var : Var) = struct
           end
       in
       let predicates =
-        FormulaSet.elements (F.eval alg tr.guard)
+        FormulaSet.elements (F.eval alg body)
         |> List.filter is_relevant
       in
       alpha_formula_split body modified predicates
