@@ -209,22 +209,27 @@ module K = struct
   let exists p tr =
     Log.time "Existential quantification" (exists p) tr
 
+  module FormulaSet = Putil.Set.Make(F)
+
   (* Split loops using the atomic predicates that (1) appear in the guard of
      the loop body and (2) are expressed over pre-state variables, and then
      compute star *)
   let star_split tr =
     let tr = linearize tr in
     let alg = function
-      | OAnd (xs, ys) | OOr (xs, ys) -> xs@ys
+      | OAnd (xs, ys) | OOr (xs, ys) -> FormulaSet.union xs ys
       | OAtom atom ->
         begin match atom with
-          | LeqZ t when VSet.is_empty (term_free_tmp_vars t) -> [F.leqz t]
-          | LtZ t when VSet.is_empty (term_free_tmp_vars t) -> [F.ltz t]
-          | EqZ t when VSet.is_empty (term_free_tmp_vars t) -> [F.eqz t]
-          | _ -> []
+          | LeqZ t when VSet.is_empty (term_free_tmp_vars t) ->
+            FormulaSet.singleton (F.leqz t)
+          | LtZ t when VSet.is_empty (term_free_tmp_vars t) ->
+            FormulaSet.singleton (F.ltz t)
+          | EqZ t when VSet.is_empty (term_free_tmp_vars t) ->
+            FormulaSet.singleton (F.eqz t)
+          | _ -> FormulaSet.empty
         end
     in
-    let predicates = F.eval alg tr.guard in
+    let predicates = FormulaSet.elements (F.eval alg tr.guard) in
     let rec go predicates tr =
       match predicates with
       | [] -> star tr
