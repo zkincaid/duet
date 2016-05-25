@@ -1221,7 +1221,13 @@ let () =
   CmdLine.register_config
     ("-cra-star-lc-hull",
      Arg.Clear K.opt_star_lc_rec,
-     " Widen in convex hulls for left context star")
+     " Widen in convex hulls for left context star");
+  CmdLine.register_config
+    ("-cra-disable-simplify",
+     Arg.Unit (fun () ->
+         K.F.opt_simplify_strategy := [];
+         KK.F.opt_simplify_strategy := []),
+     " Disable formula simplification in CRA")
 
 let () =
   Callback.register "compose_callback" K.mul;
