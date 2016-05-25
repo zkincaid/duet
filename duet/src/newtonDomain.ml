@@ -216,7 +216,7 @@ module RecurrenceAnalysis (Var : Var) = struct
         let non_induction = ref vars in
         let equations =
           VarSet.fold (fun v equations ->
-              match find_recurrence v (!non_induction) with
+              match find_recurrence v vars with
               | None -> equations
               | Some rhs ->
                 found_recurrence := true;
@@ -504,10 +504,16 @@ module RecurrenceAnalysis (Var : Var) = struct
           modified
           M.empty
       in
+      let prime_map =
+        VarSet.fold (fun v prime_map ->
+            M.add (Var.prime v) (M.find v transform) prime_map)
+          modified
+          M.empty
+      in
       let sigma v = match V.lower v with
         | Some pv ->
           begin
-            try M.find pv transform
+            try M.find pv prime_map
             with Not_found -> T.var v
           end
         | None -> assert false
@@ -541,14 +547,17 @@ module RecurrenceAnalysis (Var : Var) = struct
           let tf = F.conj predicate (F.conj body post_not_predicate) in
           let ff = F.conj not_predicate (F.conj body post_not_predicate) in
           let ft = F.conj not_predicate (F.conj body post_predicate) in
-          if not (F.is_sat tf) then
-            let ff_abstract = go predicates ff in
-            let tt_abstract = go predicates tt in
-            Split (predicate, ff_abstract, alpha_base ft, tt_abstract)
-          else if not (F.is_sat ft) then
-            let ff_abstract = go predicates ff in
-            let tt_abstract = go predicates tt in
-            Split (not_predicate, tt_abstract, alpha_base tf, ff_abstract)
+          if F.is_sat tt && F.is_sat ff then
+            if not (F.is_sat tf) then
+              let ff_abstract = go predicates ff in
+              let tt_abstract = go predicates tt in
+              Split (predicate, ff_abstract, alpha_base ft, tt_abstract)
+            else if not (F.is_sat ft) then
+              let ff_abstract = go predicates ff in
+              let tt_abstract = go predicates tt in
+              Split (not_predicate, tt_abstract, alpha_base tf, ff_abstract)
+            else
+              go predicates body
           else
             go predicates body
       in
@@ -564,7 +573,9 @@ module RecurrenceAnalysis (Var : Var) = struct
         | Leaf base -> Base.abstract_star base
         | Split (predicate, first, transfer, second) ->
           let tr_transfer = tr_of_hull transfer modified in
-          mul (go first) (add one (mul tr_transfer (go second)))
+          mul
+            (go first)
+            (mul (add one tr_transfer) (go second))
       in
       go split
 
