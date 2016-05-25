@@ -442,6 +442,26 @@ module Dioid (Var : Var) = struct
 
     let p x = V.lower x != None in
     F.abstract ~exists:(Some p) man phi
+
+  let linearize tr =
+    let fresh_skolem v =
+      T.var (V.mk_tmp ("fresh_" ^ (Var.show v)) (Var.typ v))
+    in
+    let transform =
+      M.fold (fun v rhs transform ->
+          M.add v (fresh_skolem v) transform)
+        tr.transform
+        M.empty
+    in
+    let guard =
+      M.fold (fun v rhs guard ->
+          F.conj (F.eq (M.find v transform) rhs) guard)
+        tr.transform
+        tr.guard
+      |> F.linearize (fun () -> V.mk_tmp "nonlin" TyInt)
+    in
+    { transform = transform;
+      guard = guard }
 end
 
 module Make (Var : Var) = struct

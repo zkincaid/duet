@@ -213,6 +213,7 @@ module K = struct
      the loop body and (2) are expressed over pre-state variables, and then
      compute star *)
   let star_split tr =
+    let tr = linearize tr in
     let alg = function
       | OAnd (xs, ys) | OOr (xs, ys) -> xs@ys
       | OAtom atom ->
