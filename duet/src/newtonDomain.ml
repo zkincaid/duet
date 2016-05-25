@@ -538,16 +538,18 @@ module RecurrenceAnalysis (Var : Var) = struct
       let rec go predicates body =
         match predicates with
         | [] -> Leaf (Base.alpha_formula body modified)
-        | (predicate::predicates)  ->
-          logf "Splitting on predicate: %a" F.format predicate;
+        | (predicate::predicates) ->
           let not_predicate = F.negate predicate in
-          let post_predicate = postify predicate in
-          let post_not_predicate = postify not_predicate in
-          let tt = F.conj predicate (F.conj body post_predicate) in
-          let tf = F.conj predicate (F.conj body post_not_predicate) in
-          let ff = F.conj not_predicate (F.conj body post_not_predicate) in
-          let ft = F.conj not_predicate (F.conj body post_predicate) in
-          if F.is_sat tt && F.is_sat ff then
+          if (F.is_sat (F.conj body predicate)
+              && F.is_sat (F.conj body not_predicate))
+          then begin
+            logf "Splitting on predicate: %a" F.format predicate;
+            let post_predicate = postify predicate in
+            let post_not_predicate = postify not_predicate in
+            let tt = F.conj predicate (F.conj body post_predicate) in
+            let tf = F.conj predicate (F.conj body post_not_predicate) in
+            let ff = F.conj not_predicate (F.conj body post_not_predicate) in
+            let ft = F.conj not_predicate (F.conj body post_predicate) in
             if not (F.is_sat tf) then
               let ff_abstract = go predicates ff in
               let tt_abstract = go predicates tt in
@@ -557,8 +559,8 @@ module RecurrenceAnalysis (Var : Var) = struct
               let tt_abstract = go predicates tt in
               Split (not_predicate, tt_abstract, alpha_base tf, ff_abstract)
             else
-              go predicates body
-          else
+               go predicates body
+          end else
             go predicates body
       in
       go predicates body
@@ -583,30 +585,30 @@ module RecurrenceAnalysis (Var : Var) = struct
 
     let alpha tr =
       let modified = VarSet.of_enum (M.keys tr.transform) in
+      let prime_modified = VarSet.map Var.prime modified in
       let body =
         F.linearize (fun () -> V.mk_real_tmp "nonlin") (to_formula tr)
-      in
-      let is_relevant predicate =
-        F.is_sat (F.conj body predicate)
-        && F.is_sat (F.conj body (F.negate predicate))
       in
       let alg = function
         | OAnd (xs, ys) | OOr (xs, ys) -> FormulaSet.union xs ys
         | OAtom atom ->
+          let pre_state_term t =
+            VSet.is_empty (term_free_tmp_vars t)
+            && not (VarSet.exists
+                      (flip VarSet.mem prime_modified)
+                      (term_free_program_vars t))
+          in
           begin match atom with
-            | LeqZ t when VSet.is_empty (term_free_tmp_vars t) ->
+            | LeqZ t when pre_state_term t ->
               FormulaSet.singleton (F.leqz t)
-            | LtZ t when VSet.is_empty (term_free_tmp_vars t) ->
+            | LtZ t when pre_state_term t ->
               FormulaSet.singleton (F.ltz t)
-            | EqZ t when VSet.is_empty (term_free_tmp_vars t) ->
+            | EqZ t when pre_state_term t ->
               FormulaSet.singleton (F.eqz t)
             | _ -> FormulaSet.empty
           end
       in
-      let predicates =
-        FormulaSet.elements (F.eval alg body)
-        |> List.filter is_relevant
-      in
+      let predicates = FormulaSet.elements (F.eval alg body) in
       alpha_formula_split body modified predicates
 
     let rec abstract_equal x y =
