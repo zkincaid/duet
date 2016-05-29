@@ -362,6 +362,10 @@ let tr_expr expr =
     | OHavoc typ -> TInt (T.var (V.mk_tmp "havoc" (tr_typ typ)))
     | OConstant (CInt (k, _)) -> TInt (T.int (ZZ.of_int k))
     | OConstant (CFloat (k, _)) -> TInt (T.const (QQ.of_float k))
+    | OConstant (CString str) ->
+      TPointer { ptr_val = T.var (V.mk_tmp "tr" TyInt);
+                 ptr_width = T.int (ZZ.of_int (String.length str));
+                 ptr_pos = T.zero }
     | OCast (_, expr) -> expr
     | OBinaryOp (a, op, b, _) -> term_binop op a b
 
@@ -428,7 +432,9 @@ let weight def =
       | TInt tint -> begin
           (match Var.get_type lhs, rhs with
            | (_, Havoc _) | (Concrete Dynamic, _) -> ()
-           | _ -> Log.errorf "Ill-typed pointer assignment: %a" Def.format def);
+           | _ -> Log.errorf "Ill-typed pointer assignment on line %d: %a"
+                    (Def.get_location def).Cil.line
+                    Def.format def);
           BatList.reduce K.mul [
             K.assign (VVal lhs) tint;
             K.assign (VPos lhs) (T.var (V.mk_tmp "type_err" TyInt));

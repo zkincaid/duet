@@ -854,6 +854,10 @@ let tr_expr expr =
     | OHavoc typ -> TInt (T.var (V.mk_tmp "havoc" (tr_typ typ)))
     | OConstant (CInt (k, _)) -> TInt (T.int (ZZ.of_int k))
     | OConstant (CFloat (k, _)) -> TInt (T.const (QQ.of_float k))
+    | OConstant (CString str) ->
+      TPointer { ptr_val = T.var (V.mk_tmp "tr" TyInt);
+                 ptr_width = T.int (ZZ.of_int (String.length str));
+                 ptr_pos = T.zero }
     | OCast (_, expr) -> expr
     | OBinaryOp (a, op, b, _) -> term_binop op a b
 
