@@ -480,21 +480,19 @@ module RecurrenceAnalysis (Var : Var) = struct
   end
 
   module Split = struct
-    type hull = Polka.loose Polka.t T.D.t
     type abstract =
       | Leaf of Base.abstract
-      | Split of F.t * abstract * hull * abstract
+      | Split of F.t * abstract * abstract
 
     let rec format_abstract formatter = function
       | Leaf base -> Base.format_abstract formatter base
-      | Split (predicate, first, transfer, second) ->
-        Format.fprintf formatter "@[<v 2>Split %a@;%a@;%a@;%a@]"
+      | Split (predicate, first, second) ->
+        Format.fprintf formatter "@[<v 2>Split %a@;%a@;%a@]"
           F.format predicate
           format_abstract first
-          T.D.format transfer
           format_abstract second
 
-    let tr_of_hull hull modified =
+    let tr_of_body body modified =
       let transform =
         let nondet v =
           T.var (V.mk_tmp ("nondet_" ^ (Var.show v)) (Var.typ v))
@@ -518,14 +516,16 @@ module RecurrenceAnalysis (Var : Var) = struct
           end
         | None -> assert false
       in
-      { guard = F.subst sigma (F.of_abstract hull);
+      { guard = F.subst sigma body;
         transform = transform }
 
+    let rec split_modified = function
+      | Leaf abstract -> abstract.Base.modified
+      | Split (_, first, _) -> split_modified first
+
+    module FormulaSet = Putil.Set.Make(F)
+
     let alpha_formula_split body modified predicates =
-      let alpha_base body =
-        let p v = V.lower v != None in
-        F.abstract (get_manager ()) ~exists:(Some p) body
-      in
       let postify =
         F.subst (fun v -> match V.lower v with
             | Some pv ->
@@ -538,50 +538,41 @@ module RecurrenceAnalysis (Var : Var) = struct
       let rec go predicates body =
         match predicates with
         | [] -> Leaf (Base.alpha_formula body modified)
-        | (predicate::predicates) ->
-          let not_predicate = F.negate predicate in
-          if (F.is_sat (F.conj body predicate)
-              && F.is_sat (F.conj body not_predicate))
+        | (phi::predicates) ->
+          let not_phi = F.negate phi in
+          if (F.is_sat (F.conj body phi)
+              && F.is_sat (F.conj body not_phi))
           then begin
-            logf "Splitting on predicate: %a" F.format predicate;
-            let post_predicate = postify predicate in
-            let post_not_predicate = postify not_predicate in
-            let tt = F.conj predicate (F.conj body post_predicate) in
-            let tf = F.conj predicate (F.conj body post_not_predicate) in
-            let ff = F.conj not_predicate (F.conj body post_not_predicate) in
-            let ft = F.conj not_predicate (F.conj body post_predicate) in
-            if not (F.is_sat tf) then
-              let ff_abstract = go predicates ff in
-              let tt_abstract = go predicates tt in
-              Split (predicate, ff_abstract, alpha_base ft, tt_abstract)
-            else if not (F.is_sat ft) then
-              let ff_abstract = go predicates ff in
-              let tt_abstract = go predicates tt in
-              Split (not_predicate, tt_abstract, alpha_base tf, ff_abstract)
+            logf "Splitting on predicate: %a" F.format phi;
+            let post_phi = postify phi in
+            let post_not_phi = postify not_phi in
+            let phi_body = F.conj phi body in
+            let not_phi_body = F.conj not_phi body in
+            if not (F.is_sat (F.conj phi_body post_not_phi)) then
+              (* {phi} tr {phi} -> tr* = ([not phi]tr)*([phi]tr)* *)
+              let left_abstract = go predicates not_phi_body in
+              let right_abstract = go predicates phi_body in
+              Split (phi, left_abstract, right_abstract)
+            else if not (F.is_sat (F.conj not_phi_body post_phi)) then
+              (* {not phi} tr {not phi} -> tr* = ([phi]tr)*([not phi]tr)* *)
+              let left_abstract = go predicates phi_body in
+              let right_abstract = go predicates not_phi_body in
+              Split (not_phi, left_abstract, right_abstract)
             else
-               go predicates body
+              go predicates body
           end else
             go predicates body
       in
       go predicates body
 
-    let rec split_modified = function
-      | Leaf abstract -> abstract.Base.modified
-      | Split (_, first, _, _) -> split_modified first
-
     let abstract_star split =
       let modified = split_modified split in
       let rec go = function
         | Leaf base -> Base.abstract_star base
-        | Split (predicate, first, transfer, second) ->
-          let tr_transfer = tr_of_hull transfer modified in
-          mul
-            (go first)
-            (mul (add one tr_transfer) (go second))
+        | Split (predicate, first, second) ->
+          mul (go first) (go second)
       in
       go split
-
-    module FormulaSet = Putil.Set.Make(F)
 
     let alpha tr =
       let modified = VarSet.of_enum (M.keys tr.transform) in
@@ -614,62 +605,45 @@ module RecurrenceAnalysis (Var : Var) = struct
     let rec abstract_equal x y =
       match x, y with
       | Leaf x, Leaf y -> Base.abstract_equal x y
-      | Split (px, lx, mx, rx), Split (py, ly, my, ry) ->
+      | Split (px, lx, rx), Split (py, ly, ry) ->
         F.equal px py
-        && T.D.equal mx my
         && abstract_equal lx ly
         && abstract_equal rx ry
       | _, _ -> false
 
-    let rec unsplit left transfer right =
-      let rec join_hull hull = function
-        | Leaf x ->
-          let join_hull_x =
-            T.D.join hull (Base.hull_of_abstract x)
-            |> F.of_abstract
-          in
-          Leaf (Base.alpha_formula join_hull_x x.Base.modified)
-        | Split (predicate, left, tr, right) ->
-          Split (predicate,
-                 join_hull hull left,
-                 T.D.join hull tr,
-                 join_hull hull right)
-      in
-      abstract_join left right |> join_hull transfer
-    and abstract_join x y =
+    let rec abstract_join x y =
       match x, y with
       | Leaf x, Leaf y -> Leaf (Base.abstract_join x y)
-      | Split (px, lx, mx, rx), Split (py, ly, my, ry) ->
+      | Split (px, lx, rx), Split (py, ly, ry) ->
         let cmp = F.compare px py in
         if cmp < 0 then
-          abstract_join (unsplit lx mx rx) y
+          abstract_join (abstract_join lx rx) y
         else if cmp > 0 then
-          abstract_join x (unsplit ly my ry)
+          abstract_join x (abstract_join ly ry)
         else
-          Split (px, abstract_join lx ly, T.D.join mx my, abstract_join rx ry)
-      | _, Split (py, ly, my, ry) ->
-        abstract_join x (unsplit ly my ry)
-      | Split (px, lx, mx, rx), _ ->
-        abstract_join (unsplit lx mx rx) y
+          Split (px, abstract_join lx ly, abstract_join rx ry)
+      | _, Split (py, ly, ry) ->
+        abstract_join x (abstract_join ly ry)
+      | Split (px, lx, rx), _ ->
+        abstract_join (abstract_join lx rx) y
     
     let rec abstract_widen x y =
       match x, y with
       | Leaf x, Leaf y -> Leaf (Base.abstract_widen x y)
-      | Split (px, lx, mx, rx), Split (py, ly, my, ry) ->
+      | Split (px, lx, rx), Split (py, ly, ry) ->
         let cmp = F.compare px py in
         if cmp < 0 then
-          abstract_join (unsplit lx mx rx) y
+          abstract_join (abstract_join lx rx) y
         else if cmp > 0 then
-          abstract_join x (unsplit ly my ry)
+          abstract_join x (abstract_join ly ry)
         else
           Split (px,
                  abstract_widen lx ly,
-                 T.D.widen mx my,
                  abstract_widen rx ry)
-      | _, Split (py, ly, my, ry) ->
-        abstract_widen x (unsplit ly my ry)
-      | Split (px, lx, mx, rx), _ ->
-        abstract_widen (unsplit lx mx rx) y
+      | _, Split (py, ly, ry) ->
+        abstract_widen x (abstract_join ly ry)
+      | Split (px, lx, rx), _ ->
+        abstract_widen (abstract_join lx rx) y
   end
 
   let abstract_star = Split.abstract_star

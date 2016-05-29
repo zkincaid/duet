@@ -232,21 +232,19 @@ module K = struct
     let predicates = FormulaSet.elements (F.eval alg tr.guard) in
     let rec go predicates tr =
       match predicates with
-      | [] -> star tr
-      | (predicate::predicates) when
-          F.is_sat (F.conj tr.guard predicate) &&
-          F.is_sat (F.conj tr.guard (F.negate predicate)) ->
-        logf "Splitting on predicate: %a" F.format predicate;
-        let tr_predicate = assume predicate in
-        let tr_not_predicate = assume (F.negate predicate) in
-        let tr_tt = mul (mul tr_predicate tr) tr_predicate in
-        let tr_tf = mul (mul tr_predicate tr) tr_not_predicate in
-        let tr_ff = mul (mul tr_not_predicate tr) tr_not_predicate in
-        let tr_ft = mul (mul tr_not_predicate tr) tr_predicate in
-        if not (F.is_sat tr_tf.guard) then
-          mul (go predicates tr_ff) (add one (mul tr_ft (go predicates tr_tt)))
-        else if not (F.is_sat tr_ft.guard) then
-          mul (go predicates tr_tt) (add one (mul tr_tf (go predicates tr_ff)))
+      | [] -> Log.time "cra:base-star" star tr
+      | (phi::predicates) when
+          F.is_sat (F.conj tr.guard phi) &&
+          F.is_sat (F.conj tr.guard (F.negate phi)) ->
+        logf "Splitting on predicate: %a" F.format phi;
+        let assume_phi = assume phi in
+        let assume_not_phi = assume (F.negate phi) in
+        let phi_tr = mul assume_phi tr in
+        let not_phi_tr = mul assume_not_phi tr in
+        if not (F.is_sat (mul phi_tr assume_not_phi).guard) then
+          mul (go predicates not_phi_tr) (go predicates phi_tr)
+        else if not (F.is_sat (mul not_phi_tr assume_phi).guard) then
+          mul (go predicates phi_tr) (go predicates not_phi_tr)
         else
           go predicates tr
       | (_::predicates) -> go predicates tr
@@ -255,9 +253,9 @@ module K = struct
 
   let star tr =
     if !opt_split_loops then
-      star_split tr
+      Log.time "cra:split-star" star_split tr
     else
-      star tr
+      Log.time "cra:base-star" star tr
 
 (*
   let simplify tr = tr
