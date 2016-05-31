@@ -163,7 +163,7 @@ let simplify file =
       | Cil.GFun(fd,_) -> Oneret.oneret fd;
       | _ -> ());
   Cil.visitCilFile (new arrayAccessVisitor) file;
-  Simplemem.simplemem file;
+  ignore (Simplemem.simplemem file);
   Cil.visitCilFile (new loopVisitor) file;
   Cil.visitCilFile (new switchVisitor) file;
   Cfg.clearFileCFG file;
@@ -413,6 +413,17 @@ let tr_instr ctx instr =
       | None   -> None
     in
     let mk_def kind = mk_single (Def.mk ~loc:loc kind) in
+    let mk_havoc lhs typ =
+      match lhs with
+      | Variable v -> mk_def (Assign (v, Havoc typ))
+      | Deref expr ->
+        let tmp =
+          CfgIr.mk_local_var ctx.ctx_func "__tmp" (Expr.get_type expr)
+        in
+        mk_seq
+          (mk_def (Assign (tmp, Havoc typ)))
+          (mk_def (Store (Deref expr, AccessPath (Variable tmp))))
+    in
     begin match v.Cil.vname, lhs, List.map tr_expr args with
       | ("assume", None, [x])
       | ("__VERIFIER_assume", None, [x]) ->
@@ -461,19 +472,19 @@ let tr_instr ctx instr =
         (* todo: should be non-negative *)
         mk_def (Assign (v, Havoc (Concrete (Int unknown_width))))
 
-      | ("__VERIFIER_nondet_char", Some (Variable v), []) ->
-        mk_def (Assign (v, Havoc (Concrete (Int 1))))
-      | ("__VERIFIER_nondet_int", Some (Variable v), []) ->
-        mk_def (Assign (v, Havoc (Concrete (Int machine_int_width))))
-      | ("__VERIFIER_nondet_long", Some (Variable v), []) ->
+      | ("__VERIFIER_nondet_char", Some lhs, []) ->
+        mk_havoc lhs (Concrete (Int 1))
+      | ("__VERIFIER_nondet_int", Some lhs, []) ->
+        mk_havoc lhs (Concrete (Int machine_int_width))
+      | ("__VERIFIER_nondet_long", Some lhs, []) ->
         let sz = type_size (Cil.TInt (Cil.ILong, [])) in
-        mk_def (Assign (v, Havoc (Concrete (Int sz))))
-      | ("__VERIFIER_nondet_pointer", Some (Variable v), []) ->
-        mk_def (Assign (v, Havoc (Concrete (Int pointer_width))))
-      | ("__VERIFIER_nondet_uint", Some (Variable v), []) ->
-        let havoc = mk_def (Assign (v, Havoc (Concrete (Int unknown_width)))) in
+        mk_havoc lhs (Concrete (Int sz))
+      | ("__VERIFIER_nondet_pointer", Some lhs, []) ->
+        mk_havoc lhs (Concrete (Int pointer_width))
+      | ("__VERIFIER_nondet_uint", Some lhs, []) ->
+        let havoc = mk_havoc lhs (Concrete (Int unknown_width)) in
         let assume =
-          mk_def (Assume (Atom (Le, Expr.zero, AccessPath (Variable v))))
+          mk_def (Assume (Atom (Le, Expr.zero, AccessPath lhs)))
         in
         mk_seq havoc assume
 
