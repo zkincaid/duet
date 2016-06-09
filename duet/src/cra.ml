@@ -515,10 +515,6 @@ let _ =
      Arg.Set K.opt_recurrence_ineq,
      " Solve simple recurrence inequations");
   CmdLine.register_config
-    ("-cra-higher-rec-ineq",
-     Arg.Set K.opt_higher_recurrence_ineq,
-     " Solve higher recurrence inequations");
-  CmdLine.register_config
     ("-cra-no-polyrec",
      Arg.Clear K.opt_polyrec,
      " Turn off polyhedral recurrences");
@@ -534,7 +530,6 @@ let _ =
     ("-qe",
      Arg.String set_qe,
      " Set default quantifier elimination strategy (lme,cover,z3)")
-
 
 let analyze file =
   match file.entry_points with

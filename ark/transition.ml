@@ -475,7 +475,6 @@ module Make (Var : Var) = struct
   let opt_higher_recurrence = ref true
   let opt_disjunctive_recurrence_eq = ref false
   let opt_recurrence_ineq = ref false
-  let opt_higher_recurrence_ineq = ref false
   let opt_unroll_loop = ref false
   let opt_loop_guard = ref (Some convex_hull)
   let opt_polyrec = ref true
@@ -1085,76 +1084,6 @@ module Make (Var : Var) = struct
     let star_guard = F.disj plus_guard zero_guard in
     { ctx.loop with guard = F.conj ctx.loop.guard star_guard }
 
-  (* Compute recurrence relations of the form
-     x + ay + b <= x' <= x + cy + d
-  *)
-  let higher_recurrence_ineq ctx =
-    let primed_vars = VarSet.of_enum (M.keys ctx.loop.transform /@ Var.prime) in
-    let is_induction_var v = match V.lower v with
-      | Some var ->
-        begin
-          try (Incr.Env.find var ctx.induction_vars) != None
-          with Not_found ->
-            (* v is either a primed variable or was not updated in the loop
-               body *)
-            not (VarSet.mem var primed_vars)
-        end
-      | None     -> false
-    in
-    let rewrite =
-      let sigma v = match V.lower v with
-        | Some x ->
-          begin
-            try
-              match Incr.Env.find x ctx.induction_vars with
-              | Some incr -> Incr.to_term incr ctx.loop_counter
-              | None -> assert false
-            with Not_found ->
-              (* We only fall into this case if v is not updated in the loop
-                 body (v is not in the domain of tr.transform) *)
-              T.var v
-          end
-        | None -> T.var v
-      in
-      T.subst sigma
-    in
-    let formula_of_bounds t bounds =
-      let f (pred, bound) =
-        let bound = T.mul ctx.loop_counter (rewrite bound) in
-        match pred with
-        | Plt  -> F.lt t bound
-        | Pgt  -> F.gt t bound
-        | Pleq -> F.leq t bound
-        | Pgeq -> F.geq t bound
-        | Peq  -> F.eq t bound
-      in
-      BatEnum.fold F.conj F.top (BatEnum.map f (BatList.enum bounds))
-    in
-    let g v incr tr =
-      match incr with
-      | Some _ -> tr
-      | None ->
-        logf "Compute symbolic bounds for variable: %a"
-          Var.format v;
-        let delta =
-          T.sub (T.var (V.mk_var (Var.prime v))) (T.var (V.mk_var v))
-        in
-        let bounds =
-          try F.symbolic_bounds is_induction_var ctx.phi delta
-          with Not_found -> assert false
-        in
-        let nondet =
-          T.var (V.mk_tmp ("nondet_" ^ (Var.show v)) (Var.typ v))
-        in
-        let bounds_formula = formula_of_bounds nondet bounds in
-        logf "Bounds: %a" F.format bounds_formula;
-        { transform = M.add v (T.add (T.var (V.mk_var v)) nondet) tr.transform;
-          guard = F.conj (formula_of_bounds nondet bounds) tr.guard }
-    in
-    let loop = Incr.Env.fold g ctx.induction_vars ctx.loop in
-    { ctx with loop = loop }
-
-
   let star tr =
     logf "Loop body:@\n%a" format tr;
     let mk_nondet v _ =
@@ -1189,7 +1118,6 @@ module Make (Var : Var) = struct
         (!opt_higher_recurrence, higher_induction_vars);
         (!opt_disjunctive_recurrence_eq, disj_induction_vars);
         (!opt_recurrence_ineq, recurrence_ineq);
-        (!opt_higher_recurrence_ineq, higher_recurrence_ineq);
         (!opt_polyrec, polyrec);
       ]
     in

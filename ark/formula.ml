@@ -85,7 +85,6 @@ module type S = sig
   val subst : (T.V.t -> T.t) -> t -> t
   val select_disjunct : (T.V.t -> QQ.t) -> t -> t option
   val affine_hull : t -> T.V.t list -> T.Linterm.t list
-  val symbolic_bounds : (T.V.t -> bool) -> t -> T.t -> (pred * T.t) list
   val optimize : (T.t list) -> t -> Interval.interval list
   val disj_optimize : (T.t list) -> t -> Interval.interval list list
 
@@ -990,83 +989,6 @@ module Make (T : Term.S) = struct
 
   let abstract_assume man x phi = abstract man (conj (of_abstract x) phi)
 
-  (** [symbolic_bounds p phi t] computes a set of bounds for the real term [t]
-      which are implied by property [phi], and where each variable in each
-      bound satisfies [p]. *)
-  let symbolic_bounds p phi t =
-    let open Apron in
-    let open NumDomain in
-    let open D in
-    let open Lincons0 in
-    let man = NumDomain.polka_strict_manager () in
-    let vars = term_free_vars t in
-    let x = D.add_vars (VarSet.enum vars) (abstract man phi) in
-    let tdim = Env.dimension x.env in (* unused real dimension to store t *)
-    let change =
-      { Dim.dim = [| Env.dimension x.env |];
-        Dim.intdim = 0;
-        Dim.realdim = 1 }
-    in
-    let prop = Abstract0.add_dimensions man x.prop change false in
-    let prop =
-      Abstract0.assign_texpr_array
-        man
-        prop
-        [| tdim |]
-        [| T.to_apron x.env t |]
-        None
-    in
-    let x = D.exists man p { prop = prop; env = x.env } in
-    let tdim = Env.dimension x.env in (* tdim gets shifted by projection *)
-
-    let show v =
-      if v == tdim then "$" else T.V.show (Env.var_of_dim x.env v)
-    in
-    logf "Symbound projection: %a" (Abstract0.print show) x.prop;
-
-    let lincons = Abstract0.to_lincons_array man x.prop in
-    let symbounds = ref [] in
-    for i = 0 to Array.length lincons - 1 do
-      let linexpr = lincons.(i).linexpr0 in
-      match qq_of_coeff (Linexpr0.get_coeff linexpr tdim) with
-      | Some tcoeff ->
-        (* constraints that do not involve tdim are irrelevant *)
-        if not (QQ.equal tcoeff QQ.zero) then begin
-          let pred = match lincons.(i).typ, QQ.lt tcoeff QQ.zero with
-            | (SUPEQ, true)  -> Pleq
-            | (SUPEQ, false) -> Pgeq
-            | (SUP, true)    -> Plt
-            | (SUP, false)   -> Pgt
-            | (EQ, true)     -> Peq
-            | (EQ, false)    -> Peq
-            | (_, _)         -> assert false
-          in
-          let symbound =
-            let t = match qq_of_coeff (Linexpr0.get_cst linexpr) with
-              | Some k ->
-                assert (not (QQ.equal tcoeff QQ.zero));
-                ref (T.const (QQ.negate (QQ.div k tcoeff)))
-              | None -> assert false
-            in
-            let f coeff dim =
-              if dim != tdim then begin match qq_of_coeff coeff with
-                | Some c ->
-                  assert (not (QQ.equal tcoeff QQ.zero));
-                  let coeff = T.const (QQ.negate (QQ.div c tcoeff)) in
-                  let term = T.mul (T.var (Env.var_of_dim x.env dim)) coeff in
-                  t := T.add (!t) term
-                | None -> ()
-              end
-            in
-            Linexpr0.iter f linexpr;
-            !t
-          in
-          symbounds := (pred, symbound)::(!symbounds)
-        end
-      | None -> ()
-    done;
-    !symbounds
-
   (****************************************************************************)
   (* Quantifier elimination                                                   *)
   (****************************************************************************)
@@ -1905,9 +1827,6 @@ module Make (T : Term.S) = struct
       Log.time "Formula linearization" (!opt_linearize_strategy mk_tmp) phi
     with Unsat -> bottom
 
-  let symbolic_bounds p phi term =
-    Log.time "symbolic_bounds" (symbolic_bounds p phi) term
-
   exception Unbounded (* Internal to qe_cover *)
   let qe_cover p phi =
     let fv = formula_free_vars phi in
@@ -2139,6 +2058,74 @@ module Make (T : Term.S) = struct
     | Atom (LeqZ t) -> fprintf formatter "@[%a <= 0@]" T.format t
     | Atom (EqZ t) -> fprintf formatter "@[%a == 0@]" T.format t
     | Atom (LtZ t) -> fprintf formatter "@[%a < 0@]" T.format t
+
+  (*
+  let abstract ?exists:(p=None) man phi =
+    let open D in
+    let env = mk_env phi in
+    let env_proj = match p with
+      | Some p -> D.Env.filter p env
+      | None   -> env
+    in
+    let projected_vars =
+      match p with
+      | Some p -> 
+        BatList.of_enum (BatEnum.filter (not % p) (D.Env.vars env))
+      | None -> []
+    in
+    let s = new Smt.solver in
+    let disjuncts = ref 0 in
+    let rec go prop =
+      s#push ();
+      s#assrt (Smt.mk_not (to_smt (of_abstract prop)));
+      match Log.time "lazy_dnf/sat" s#check () with
+      | Smt.Unsat -> prop
+      | Smt.Undef ->
+        begin
+          Log.errorf "lazy_dnf timed out (%d disjuncts)" (!disjuncts);
+          raise Timeout
+        end
+      | Smt.Sat -> begin
+          let m = s#get_model () in
+          let valuation = m#eval_qq % T.V.to_smt in
+          s#pop ();
+          incr disjuncts;
+          logf "[%d] abstract lazy_dnf" (!disjuncts);
+          let disjunct = match Polyhedron.select_polyhedron valuation phi with
+            | Some d -> d
+            | None -> assert false
+          in
+(*
+          let disjunct =
+            Polyhedron.try_fme (List.fold_right VarSet.add projected_vars VarSet.empty) disjunct
+          in
+*)
+          let projected_disjunct =
+            List.fold_left
+              (fun poly x -> Polyhedron.polyhedron_project m x poly)
+              disjunct
+              projected_vars
+          in
+          go (D.join prop (Polyhedron.to_apron env_proj man projected_disjunct))
+        end
+    in
+    s#assrt (to_smt phi);
+    try
+      Log.time "Abstraction" go (D.bottom man env_proj)
+    with Timeout -> begin
+        Log.errorf "Symbolic abstraction timed out; returning top";
+        D.top man env_proj
+      end
+       | Not_found -> assert false
+*)
+(*
+  let abstract ?exists:(p=None) man phi =
+    let a1 = abstract ~exists:p man phi in
+    let a2 = abstract2 ~exists:p man phi in
+    assert (D.leq a2 a1);
+    assert (D.leq a1 a2);
+    a2
+*)
 
   module Syntax = struct
     let ( && ) x y = conj x y

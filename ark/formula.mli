@@ -206,8 +206,6 @@ module type S = sig
 
   val affine_hull : t -> T.V.t list -> T.Linterm.t list
 
-  val symbolic_bounds : (T.V.t -> bool) -> t -> T.t -> (pred * T.t) list
-
   val optimize : (T.t list) -> t -> Interval.interval list
   val disj_optimize : (T.t list) -> t -> Interval.interval list list
 
