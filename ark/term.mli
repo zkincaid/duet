@@ -86,6 +86,9 @@ module type S = sig
   val to_linterm : t -> Linterm.t option
   val of_linterm : Linterm.t -> t
 
+  val apron_of_linterm : D.env -> Linterm.t -> NumDomain.linear_term
+  val linterm_of_apron : D.env -> NumDomain.linear_term -> Linterm.t
+
   (** [nudge_up t] computes a term which is greater than or equal to [t]
       (regardless of the interpretation of the variables in [t]), and which
       uses rational constants of a smaller bitwidth. *)

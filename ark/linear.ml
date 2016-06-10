@@ -296,6 +296,10 @@ module Defaults (E : Impl.Basis) = struct
   let sum = BatEnum.fold E.add E.zero
 
   let term dim coeff = E.add_term dim coeff E.zero
+
+  let pivot dim vec =
+    let coeff = E.find dim vec in
+    (coeff, E.add (E.negate (term dim coeff)) vec)
 end
 
 module Expr = struct
@@ -303,6 +307,7 @@ module Expr = struct
     include Impl.Basis
     val sub : t -> t -> t
     val of_enum : (dim * base) BatEnum.t -> t
+    val pivot : dim -> t -> (base * t)
     val to_smt : (dim -> Smt.ast) -> (base -> Smt.ast) -> t -> Smt.ast
     val transpose : t list -> dim list -> dim list -> t list
     val sum : t BatEnum.t -> t
@@ -458,6 +463,7 @@ module Affine = struct
     type var
     include Expr.S with type dim = var affine
     val const : base -> t
+    val const_of : t -> base option
     val const_coeff : t -> base
     val var_bindings : t -> (var * base) BatEnum.t
     val var_bindings_ordered : t -> (var * base) BatEnum.t
@@ -520,6 +526,7 @@ module Affine = struct
     include Defaults(I)
 
     let const k = (L.zero, k)
+    let const_of (lin, k) = if L.equal lin L.zero then Some k else None
     let const_coeff (_, k) = k
     let var_bindings (lt, _) = L.enum lt
     let var_bindings_ordered (lt, _) = L.enum_ordered lt

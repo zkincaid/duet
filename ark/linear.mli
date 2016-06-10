@@ -39,12 +39,13 @@ module Expr : sig
     val var : dim -> t
     val sub : t -> t -> t
     val of_enum : (dim * base) BatEnum.t -> t
+    val pivot : dim -> t -> (base * t)
     val to_smt : (dim -> Smt.ast) -> (base -> Smt.ast) -> t -> Smt.ast
 
     (** Transpose a system of linear equations.  The length of [rows] should
-        	match length of [equations], and the variables each equation should be
-        	all belong to the list [columns].  The result is a system of linear
-        	equations over the row variables. *)
+        match length of [equations], and the variables each equation
+        should be all belong to the list [columns].  The result is a
+        system of linear equations over the row variables. *)
     val transpose : t list -> dim list -> dim list -> t list
     val sum : t BatEnum.t -> t
     val term : dim -> base -> t
@@ -115,6 +116,7 @@ module Affine : sig
     type var
     include Expr.S with type dim = var affine
     val const : base -> t
+    val const_of : t -> base option
     val const_coeff : t -> base
     val var_bindings : t -> (var * base) BatEnum.t
     val var_bindings_ordered : t -> (var * base) BatEnum.t

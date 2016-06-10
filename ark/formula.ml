@@ -671,6 +671,20 @@ module Make (T : Term.S) = struct
     type t = { eq : L.t list;
                leq : L.t list }
 
+    let enum polyhedron =
+      BatEnum.append
+        (BatList.enum polyhedron.eq /@ (fun t -> `EqZero t))
+        (BatList.enum polyhedron.leq /@ (fun t -> `LeqZero t))
+
+    let format formatter p =
+      let pp_elt formatter = function
+        | `EqZero t -> Format.fprintf formatter "%a = 0" L.format t
+        | `LeqZero t -> Format.fprintf formatter "%a <= 0" L.format t
+      in
+      let pp_sep formatter () = Format.fprintf formatter "@;" in
+      Format.fprintf formatter "@[<v 0>%a@]"
+        (ApakEnum.pp_print_enum_nobox ~pp_sep pp_elt) (enum p)
+
     let conjoin x y =
       { eq = x.eq @ y.eq;
         leq = x.leq @ y.leq }
@@ -706,26 +720,50 @@ module Make (T : Term.S) = struct
       big_conj (BatEnum.append eqs leqs)
 
     let fourier_motzkin v p =
-      let (occ, rest) = List.partition (nonzero_coeff v) p.leq in
-      let normalize t =
-        let coeff = L.var_coeff v t in
-        let t = L.add_term (AVar v) (QQ.negate coeff) t in
-        (coeff, L.scalar_mul (QQ.inverse coeff) t)
-      in
-      let f (pos, neg) t =
-        let (coeff, t) = normalize t in
-        if QQ.leq coeff QQ.zero then (pos, t::neg)
-        else (t::pos, neg)
-      in
-      let (pos, neg) = List.fold_left f ([],[]) occ in
-      let occ =
-        let pairs =
-          ApakEnum.cartesian_product (BatList.enum pos) (BatList.enum neg)
+      try
+        let eq_term = BatList.find (nonzero_coeff v) p.eq in
+        let (a, t) = L.pivot (AVar v) eq_term in
+        let replacement = L.scalar_mul (QQ.inverse (QQ.negate a)) t in
+        let replace t =
+          let (a, rest) = L.pivot (AVar v) t in
+          if QQ.equal a QQ.zero then
+            Some t
+          else
+            let new_term = L.add (L.scalar_mul a replacement) rest in
+            match L.const_of new_term with
+            | Some k ->
+              assert (QQ.leq k QQ.zero);
+              None
+            | None -> Some new_term
         in
-        BatList.of_enum (BatEnum.map (fun (p, n) -> L.sub p n) pairs)
-      in
-      { eq = p.eq;
-        leq = occ@rest }
+        { eq = BatList.filter_map replace p.eq;
+          leq = BatList.filter_map replace p.leq }
+      with Not_found ->
+        let (occ, rest) = List.partition (nonzero_coeff v) p.leq in
+        let normalize term =
+          (* a*v + t <= 0 *)
+          let (a, t) = L.pivot (AVar v) term in
+          let toa = L.scalar_mul (QQ.inverse (QQ.negate a)) t in
+          if QQ.lt a QQ.zero then
+            `Lower toa
+          else
+            `Upper toa
+        in
+        let (lower, upper) =
+          List.fold_left (fun (lower, upper) t ->
+              match normalize t with
+              | `Lower t -> (t::lower, upper)
+              | `Upper t -> (lower, t::upper))
+            ([],[])
+            occ
+        in
+        let fm_occ =
+          ApakEnum.cartesian_product (BatList.enum lower) (BatList.enum upper)
+          /@ (fun (lower, upper) -> L.sub lower upper)
+          |> BatList.of_enum
+        in
+        { eq = p.eq;
+          leq = fm_occ@rest }
 
     let occurrence_map vars p =
       let f m t =
@@ -769,21 +807,11 @@ module Make (T : Term.S) = struct
     let to_apron env man p =
       let open Apron in
       let open D in
-
-      (*      let env = Env.of_enum (VarSet.enum (vars p)) in*)
-      let apron_term t =
-        let mk (v, coeff) =
-          (NumDomain.coeff_of_qq coeff, Env.dim_of_var env v)
-        in
-        Linexpr0.of_list None
-          (BatList.of_enum (BatEnum.map mk (L.var_bindings t)))
-          (Some (NumDomain.coeff_of_qq (L.const_coeff t)))
-      in
       let apron_leq t =
-        Lincons0.make (apron_term (L.negate t)) Lincons0.SUPEQ
+        Lincons0.make (T.apron_of_linterm env (L.negate t)) Lincons0.SUPEQ
       in
       let apron_eq t =
-        Lincons0.make (apron_term t) Lincons0.EQ
+        Lincons0.make (T.apron_of_linterm env t) Lincons0.EQ
       in
       let constraints =
         (List.map apron_eq p.eq) @ (List.map apron_leq p.leq)
@@ -795,6 +823,7 @@ module Make (T : Term.S) = struct
             (Env.real_dim env)
             (Array.of_list constraints);
         env = env }
+    let to_apron env man p = Log.time "to_apron" (to_apron env man) p
 
     let term_to_smt =
       let to_smt = function
@@ -864,6 +893,127 @@ module Make (T : Term.S) = struct
     let simplify p =
       Log.time "Polyhedron.simplify" simplify p
 
+    (* Given a valuation m and a (topologically closed) formula phi in LIRA,
+       find a cube p of the DNF of phi such that m |= p |= phi.  Similar to
+       select_disjunct, except expressed as a polyhedron rather than a
+       formula. *)
+    let select m phi =
+      let f = function
+        | OAtom (LeqZ t) ->
+          (try
+             if QQ.leq (T.evaluate m t) QQ.zero then
+               Some (of_atom (LeqZ t))
+             else
+               None
+           with Divide_by_zero -> None)
+        | OAtom (LtZ t) ->
+          (try
+             if QQ.lt (T.evaluate m t) QQ.zero then
+               Some (of_atom (LeqZ t))
+             else
+               None
+           with Divide_by_zero -> None)
+        | OAtom (EqZ t) ->
+          (try
+             if QQ.equal (T.evaluate m t) QQ.zero then
+               Some (of_atom (EqZ t))
+             else
+               None
+           with Divide_by_zero -> None)
+        | OAnd (Some phi, Some psi) -> Some (conjoin phi psi)
+        | OAnd (_, _) -> None
+        | OOr (x, None) | OOr (_, x) -> x
+      in
+      eval f phi
+
+    (* Model-guided term selection based on Loos-Weispfenning *)
+    let select_term m x polyhedron =
+      let module L = T.Linterm in
+      let x_val = T.evaluate m (T.var x) in
+      let term_val = T.evaluate m % T.of_linterm in
+      try
+        let (a, t) =
+          L.pivot (AVar x) (BatList.find (nonzero_coeff x) polyhedron.eq)
+        in
+        assert (not (QQ.equal a QQ.zero));
+        `Term (L.scalar_mul (QQ.inverse (QQ.negate a)) t)
+      with Not_found ->
+        let lower_bound t =
+          (* constraint is a*x + t <= 0 *)
+          let (a, t) = L.pivot (AVar x) t in
+          if QQ.geq a QQ.zero then
+            None
+          else
+            Some (L.scalar_mul (QQ.inverse (QQ.negate a)) t)
+        in
+        match BatList.filter_map lower_bound polyhedron.leq with
+        | [] -> `MinusInfinity
+        | (t::ts) ->
+          let glb =
+            List.fold_left (fun glb t ->
+                if QQ.lt (term_val glb) (term_val t) then t else glb)
+              t
+              ts
+          in
+          if QQ.equal (term_val glb) x_val then
+            `Term glb
+          else
+            `PlusEpsilon glb
+
+    (* Model-guided projection of a polyhedron.  Given a point m within a
+       polyhedron p and a dimension x, compute a polyhedron q such that m|_x
+       is within q, and q is a subset of p|_x (using |_x to denote projection
+       of dimension x) *)
+    let local_project m x polyhedron =
+      let mk_eqz t =
+        match L.const_of t with
+        | Some k ->
+          assert (QQ.equal k QQ.zero);
+          None
+        | _ -> Some t
+      in
+      let mk_leqz t =
+        match L.const_of t with
+        | Some k ->
+          assert (QQ.leq k QQ.zero);
+          None
+        | _ -> Some t
+      in
+      match select_term m x polyhedron with
+      | `Term t ->
+        let eq =
+          BatList.filter_map (fun term ->
+              let (a, rest) = L.pivot (AVar x) term in
+              mk_eqz (L.add (L.scalar_mul a t) rest))
+            polyhedron.eq
+        in
+        let leq =
+          BatList.filter_map (fun term ->
+              let (a, rest) = L.pivot (AVar x) term in
+              mk_leqz (L.add (L.scalar_mul a t) rest))
+            polyhedron.leq
+        in
+        { eq; leq }
+      | `PlusEpsilon t ->
+        { eq = polyhedron.eq;
+          leq =
+            BatList.filter_map (fun term ->
+                let (a, rest) = L.pivot (AVar x) term in
+                mk_leqz (L.add (L.scalar_mul a t) rest))
+              polyhedron.leq }
+      | `MinusInfinity ->
+        { eq = polyhedron.eq;
+          leq =
+            BatList.filter_map (fun term ->
+                let coeff = L.var_coeff x term in
+                if QQ.equal coeff QQ.zero then
+                  mk_leqz term
+                else
+                  (assert (QQ.gt coeff QQ.zero);
+                   None))
+              polyhedron.leq }
+    let local_project m x polyhedron =
+      Log.time "local_project" (local_project m x) polyhedron
   end
 
   let top_closure =
@@ -941,6 +1091,8 @@ module Make (T : Term.S) = struct
           (Env.real_dim env)
           (Array.of_list (eval alg phi));
       env = env }
+  let to_apron man env phi =
+    Log.time "to_apron" (to_apron man env) phi
 
   let of_abstract x =
     let open Apron in
@@ -958,7 +1110,8 @@ module Make (T : Term.S) = struct
     in
     let join prop disjunct =
       let new_prop = match p with
-        | Some p -> D.exists man p (to_apron man env disjunct)
+        | Some p ->
+          Log.time "Projection" (D.exists man p) (to_apron man env disjunct)
         | None   -> to_apron man env disjunct
       in
       D.join prop new_prop
@@ -1226,7 +1379,10 @@ module Make (T : Term.S) = struct
     in
     let rec go equalities =
       match space#check () with
-      | Smt.Unsat | Smt.Undef -> equalities
+      | Smt.Unsat -> equalities
+      | Smt.Undef -> (* give up; return the equalities we have so far *)
+        Log.errorf "Affine hull timed out";
+        equalities
       | Smt.Sat ->
         let candidate = extract_linterm (space#get_model ()) in
         let candidate_formula =
@@ -1380,7 +1536,9 @@ module Make (T : Term.S) = struct
     logf "done (Nonlinear equations)";
     match s#check () with
     | Smt.Sat -> affine_hull_impl s (VarSet.elements vars)
-    | Smt.Undef -> []
+    | Smt.Undef ->
+      Log.errorf "Timeout: nonlinear_equalities";
+      []
     | Smt.Unsat -> raise Unsat
 
   (* Split a formula into a linear formula and a set of nonlinear equations by
@@ -2059,8 +2217,9 @@ module Make (T : Term.S) = struct
     | Atom (EqZ t) -> fprintf formatter "@[%a == 0@]" T.format t
     | Atom (LtZ t) -> fprintf formatter "@[%a < 0@]" T.format t
 
-  (*
-  let abstract ?exists:(p=None) man phi =
+  (* Same as abstract, except local polyhedral projection is used instead of
+     projection in Apron's abstract domain. *)
+  let local_abstract ?exists:(p=None) man phi =
     let open D in
     let env = mk_env phi in
     let env_proj = match p with
@@ -2091,22 +2250,18 @@ module Make (T : Term.S) = struct
           s#pop ();
           incr disjuncts;
           logf "[%d] abstract lazy_dnf" (!disjuncts);
-          let disjunct = match Polyhedron.select_polyhedron valuation phi with
+          let disjunct = match Polyhedron.select valuation phi with
             | Some d -> d
             | None -> assert false
           in
-(*
-          let disjunct =
-            Polyhedron.try_fme (List.fold_right VarSet.add projected_vars VarSet.empty) disjunct
-          in
-*)
           let projected_disjunct =
             List.fold_left
-              (fun poly x -> Polyhedron.polyhedron_project m x poly)
+              (fun poly x -> Polyhedron.local_project valuation x poly)
               disjunct
               projected_vars
+            |> Polyhedron.to_apron env_proj man
           in
-          go (D.join prop (Polyhedron.to_apron env_proj man projected_disjunct))
+          go (D.join prop projected_disjunct)
         end
     in
     s#assrt (to_smt phi);
@@ -2117,15 +2272,8 @@ module Make (T : Term.S) = struct
         D.top man env_proj
       end
        | Not_found -> assert false
-*)
-(*
-  let abstract ?exists:(p=None) man phi =
-    let a1 = abstract ~exists:p man phi in
-    let a2 = abstract2 ~exists:p man phi in
-    assert (D.leq a2 a1);
-    assert (D.leq a1 a2);
-    a2
-*)
+
+  let abstract ?exists:(p=None) man phi = local_abstract ~exists:p man phi
 
   module Syntax = struct
     let ( && ) x y = conj x y

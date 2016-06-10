@@ -59,6 +59,9 @@ module type S = sig
   val to_linterm : t -> Linterm.t option
   val of_linterm : Linterm.t -> t
 
+  val apron_of_linterm : D.env -> Linterm.t -> NumDomain.linear_term
+  val linterm_of_apron : D.env -> NumDomain.linear_term -> Linterm.t
+
 
   val nudge_up : ?accuracy:int -> t -> t
   val nudge_down : ?accuracy:int -> t -> t
@@ -533,6 +536,28 @@ module Make (V : Var) = struct
         end
     in
     go (Texpr0.to_expr texpr)
+
+  let apron_of_linterm env vec =
+    let open Apron in
+    let mk (v, coeff) =
+      (NumDomain.coeff_of_qq coeff, D.Env.dim_of_var env v)
+    in
+    Linexpr0.of_list None
+      (BatList.of_enum (BatEnum.map mk (Linterm.var_bindings vec)))
+      (Some (NumDomain.coeff_of_qq (Linterm.const_coeff vec)))
+
+  let linterm_of_apron env linexpr =
+    let open Apron in
+    let vec = ref Linterm.zero in
+    Linexpr0.iter (fun coeff dim ->
+        match NumDomain.qq_of_coeff coeff with
+        | Some qq ->
+          vec := Linterm.add_term (AVar (D.Env.var_of_dim env dim)) qq (!vec)
+        | None -> assert false)
+      linexpr;
+    match NumDomain.qq_of_coeff (Linexpr0.get_cst linexpr) with
+    | Some qq -> Linterm.add_term AConst qq (!vec)
+    | None -> assert false
 
   let nudge ?(accuracy=(!opt_default_accuracy)) t = match to_linterm t with
     | None -> (t, t)

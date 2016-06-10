@@ -7,6 +7,8 @@ open ArkPervasives
 type dim = int
 type term = Texpr0.t
 type atom = Tcons0.t
+type linear_term = Linexpr0.t
+type linear_constraint = Lincons0.t
 
 let qq_of_scalar = function
   | Scalar.Float k -> QQ.of_float k
