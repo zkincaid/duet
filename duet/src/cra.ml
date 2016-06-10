@@ -286,7 +286,6 @@ let _ =
   opt_loop_guard := Some F.exists;
   (* opt_loop_guard := None; *)
   opt_recurrence_ineq := false;
-  opt_higher_recurrence_ineq := false;
   opt_unroll_loop := false;
   opt_polyrec := true;
   F.opt_qe_strategy := (fun p phi -> F.qe_lme p (F.qe_partial p phi));
