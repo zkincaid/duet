@@ -452,14 +452,31 @@ module RecurrenceAnalysis (Var : Var) = struct
         in
         List.map constraint_of_rec_ineq abstract.inequations
       in
-
-      { T.D.prop =
-          Abstract0.of_tcons_array
-            (get_manager ())
-            (T.D.Env.int_dim env)
-            (T.D.Env.real_dim env)
-            (Array.of_list (eq_constraints@ineq_constraints));
-        T.D.env = env }
+      let postcondition =
+        let postify v = match V.lower v with
+          | Some pv ->
+            if VarSet.mem pv abstract.modified then
+              T.var (V.mk_var (prime pv))
+            else
+              T.var v
+          | None -> assert false
+        in
+        F.of_abstract abstract.postcondition
+        |> F.subst postify
+        |> F.abstract (get_manager())
+      in
+      let recurrences =
+        { T.D.prop =
+            Abstract0.of_tcons_array
+              (get_manager ())
+              (T.D.Env.int_dim env)
+              (T.D.Env.real_dim env)
+              (Array.of_list (eq_constraints@ineq_constraints));
+          T.D.env = env }
+      in
+      T.D.meet
+        recurrences
+        (T.D.meet abstract.precondition postcondition)
 
     let abstract_equal x y =
       T.D.equal (hull_of_abstract x) (hull_of_abstract y)
@@ -566,7 +583,6 @@ module RecurrenceAnalysis (Var : Var) = struct
       go predicates body
 
     let abstract_star split =
-      let modified = split_modified split in
       let rec go = function
         | Leaf base -> Base.abstract_star base
         | Split (predicate, first, second) ->
