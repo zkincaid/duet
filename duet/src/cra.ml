@@ -279,29 +279,6 @@ module A = Interproc.MakePathExpr(K)
 (* Linearization as a simplifier *)
 let linearize _ = K.F.linearize (fun () -> K.V.mk_tmp "nonlin" TyInt)
 
-let _ =
-  let open K in
-  opt_higher_recurrence := true;
-  opt_disjunctive_recurrence_eq := false;
-  opt_loop_guard := Some F.exists;
-  (* opt_loop_guard := None; *)
-  opt_recurrence_ineq := false;
-  opt_unroll_loop := false;
-  opt_polyrec := true;
-  F.opt_qe_strategy := (fun p phi -> F.qe_lme p (F.qe_partial p phi));
-  F.opt_linearize_strategy := F.linearize_opt;
-
-  (* This slows down the analysis, but is required for making "K.equiv" do the
-     right thing when comparing with Newton *)
-  (* F.opt_simplify_strategy := [F.qe_lme] *)
-  (*  F.opt_simplify_strategy := [F.qe_partial]*)
-
-  (* chenged simplifying strategy *)
-  let simplify_dillig =
-    F.simplify_dillig_nonlinear (fun () -> V.mk_tmp "nonlin" TyInt)
-  in
-  F.opt_simplify_strategy := [F.qe_partial; simplify_dillig]
-
 type ptr_term =
   { ptr_val : K.T.t;
     ptr_pos : K.T.t;
@@ -482,7 +459,6 @@ let set_qe = function
   | "trivial" -> K.F.opt_qe_strategy := K.F.qe_trivial
   | s -> Log.errorf "Unrecognized QE strategy: `%s`" s; assert false
 
-
 let abstract_guard man p phi =
   K.F.of_abstract (K.F.abstract man ~exists:(Some p) phi)
 
@@ -661,6 +637,18 @@ let analyze file =
       end
     end
   | _ -> assert false
+
+let _ =
+  let open K in
+  opt_higher_recurrence := true;
+  opt_disjunctive_recurrence_eq := false;
+  set_guard "polka";
+  opt_recurrence_ineq := false;
+  opt_unroll_loop := false;
+  opt_polyrec := true;
+  F.opt_qe_strategy := (fun p phi -> F.qe_lme p (F.qe_partial p phi));
+  F.opt_linearize_strategy := F.linearize_trivial;
+  F.opt_simplify_strategy := []
 
 let _ =
   CmdLine.register_pass

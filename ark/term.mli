@@ -77,6 +77,10 @@ module type S = sig
       interpret variables.   May raise [Ark.Divide_by_zero]. *)
   val evaluate : (V.t -> QQ.t) -> t -> QQ.t
 
+  (** Given an environment [env] and a linear term [t], evaluate [t], using
+      [env] to interpret variables. *)
+  val evaluate_linterm : (V.t -> QQ.t) -> Linterm.t -> QQ.t
+
   val is_linear : t -> bool
   val split_linear : t -> t * ((t * QQ.t) list)
 

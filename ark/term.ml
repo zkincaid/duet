@@ -49,6 +49,7 @@ module type S = sig
   val to_smt : t -> Smt.ast
   val subst : (V.t -> t) -> t -> t
   val evaluate : (V.t -> QQ.t) -> t -> QQ.t
+  val evaluate_linterm : (V.t -> QQ.t) -> Linterm.t -> QQ.t
 
   val is_linear : t -> bool
   val split_linear : t -> t * ((t * QQ.t) list)
@@ -61,7 +62,6 @@ module type S = sig
 
   val apron_of_linterm : D.env -> Linterm.t -> NumDomain.linear_term
   val linterm_of_apron : D.env -> NumDomain.linear_term -> Linterm.t
-
 
   val nudge_up : ?accuracy:int -> t -> t
   val nudge_down : ?accuracy:int -> t -> t
@@ -387,6 +387,12 @@ module Make (V : Var) = struct
     in
     eval alg t
 *)
+
+  let evaluate_linterm env vec =
+    BatEnum.fold
+      (fun value (dim, coeff) -> QQ.add value (QQ.mul (env dim) coeff))
+      (Linterm.const_coeff vec)
+      (Linterm.var_bindings vec)
 
   (* May raise divide-by-zero *)
   let evaluate env term =

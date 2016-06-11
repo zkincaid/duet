@@ -898,33 +898,47 @@ module Make (T : Term.S) = struct
        select_disjunct, except expressed as a polyhedron rather than a
        formula. *)
     let select m phi =
-      let f = function
-        | OAtom (LeqZ t) ->
-          (try
-             if QQ.leq (T.evaluate m t) QQ.zero then
-               Some (of_atom (LeqZ t))
-             else
-               None
-           with Divide_by_zero -> None)
-        | OAtom (LtZ t) ->
-          (try
-             if QQ.lt (T.evaluate m t) QQ.zero then
-               Some (of_atom (LeqZ t))
-             else
-               None
-           with Divide_by_zero -> None)
-        | OAtom (EqZ t) ->
-          (try
-             if QQ.equal (T.evaluate m t) QQ.zero then
-               Some (of_atom (EqZ t))
-             else
-               None
-           with Divide_by_zero -> None)
-        | OAnd (Some phi, Some psi) -> Some (conjoin phi psi)
-        | OAnd (_, _) -> None
-        | OOr (x, None) | OOr (_, x) -> x
-      in
-      eval f phi
+      M.memo_recursive ~size:991 (fun eval x ->
+          match x.node with
+          | Or xs ->
+            begin
+              try
+                Some (BatEnum.find_map eval (Hset.enum xs))
+              with Not_found -> None
+            end
+          | And xs ->
+            let e = Hset.enum xs in
+            let rec go p =
+              match BatEnum.get e with
+              | Some elt ->
+                begin
+                  match eval elt with
+                  | Some elt_p -> go (conjoin p elt_p)
+                  | None -> None
+                end
+              | None -> Some p
+            in
+            go { eq = []; leq = [] }
+          | Atom atom ->
+            try
+              match atom with
+              | LeqZ t ->
+                if QQ.leq (T.evaluate m t) QQ.zero then
+                  Some (of_atom (LeqZ t))
+                else
+                  None
+              | LtZ t ->
+                if QQ.lt (T.evaluate m t) QQ.zero then
+                  Some (of_atom (LtZ t))
+                else
+                  None
+              | EqZ t ->
+                if QQ.equal (T.evaluate m t) QQ.zero then
+                  Some (of_atom (EqZ t))
+                else
+                  None
+            with Divide_by_zero -> None)
+        phi
 
     (* Model-guided term selection based on Loos-Weispfenning *)
     let select_term m x polyhedron =
@@ -961,59 +975,96 @@ module Make (T : Term.S) = struct
             `PlusEpsilon glb
 
     (* Model-guided projection of a polyhedron.  Given a point m within a
-       polyhedron p and a dimension x, compute a polyhedron q such that m|_x
-       is within q, and q is a subset of p|_x (using |_x to denote projection
-       of dimension x) *)
-    let local_project m x polyhedron =
-      let mk_eqz t =
-        match L.const_of t with
-        | Some k ->
-          assert (QQ.equal k QQ.zero);
-          None
-        | _ -> Some t
-      in
-      let mk_leqz t =
-        match L.const_of t with
+       polyhedron p and a set of dimension xs, compute a polyhedron q such
+       that m|_xs is within q, and q is a subset of p|_xs (using |_xs to
+       denote projection of dimensions xs) *)
+    let local_project m xs polyhedron =
+      (* Replace x with replacement in term representing an (in)equality
+         constraint.  Return None if the resulting (in)equality is trivial. *)
+      let replace_term x replacement term =
+        let (a, t) = L.pivot (AVar x) term in
+        let replaced = L.add (L.scalar_mul a replacement) t in
+        match L.const_of replaced with
         | Some k ->
           assert (QQ.leq k QQ.zero);
           None
-        | _ -> Some t
+        | None -> Some replaced
       in
-      match select_term m x polyhedron with
-      | `Term t ->
-        let eq =
-          BatList.filter_map (fun term ->
-              let (a, rest) = L.pivot (AVar x) term in
-              mk_eqz (L.add (L.scalar_mul a t) rest))
-            polyhedron.eq
-        in
-        let leq =
-          BatList.filter_map (fun term ->
-              let (a, rest) = L.pivot (AVar x) term in
-              mk_leqz (L.add (L.scalar_mul a t) rest))
-            polyhedron.leq
-        in
-        { eq; leq }
-      | `PlusEpsilon t ->
-        { eq = polyhedron.eq;
-          leq =
-            BatList.filter_map (fun term ->
-                let (a, rest) = L.pivot (AVar x) term in
-                mk_leqz (L.add (L.scalar_mul a t) rest))
-              polyhedron.leq }
-      | `MinusInfinity ->
-        { eq = polyhedron.eq;
-          leq =
-            BatList.filter_map (fun term ->
-                let coeff = L.var_coeff x term in
-                if QQ.equal coeff QQ.zero then
-                  mk_leqz term
+      (* Project a single variable *)
+      let project_one polyhedron x =
+        (* occ is the set of equations involving x, nonocc is the set of
+           equations that don't *)
+        let (occ, nonocc) = List.partition (nonzero_coeff x) polyhedron.eq in
+        match occ with
+        | (term::rest) ->
+          (* If x is involved in an equation a*x + t = 0, replace x with -t/a
+             everywhere *)
+          let (a, t) = L.pivot (AVar x) term in
+          let toa = L.scalar_mul (QQ.inverse (QQ.negate a)) t in
+          { eq =
+              List.fold_left (fun eqs eq ->
+                  match replace_term x toa eq with
+                  | Some eq -> eq::eqs
+                  | None -> eqs)
+                nonocc
+                rest;
+            leq = BatList.filter_map (replace_term x toa) polyhedron.leq }
+        | [] ->
+          (* If no equations involve x, find a least upper bound or greatest
+             lower bound for x *)
+          let (occ, nonocc) = List.partition (nonzero_coeff x) polyhedron.leq in
+          let (lower, upper) =
+            List.fold_left (fun (lower, upper) t ->
+                let (a, t) = L.pivot (AVar x) t in
+                let bound = L.scalar_mul (QQ.inverse (QQ.negate a)) t in
+                (* constraint is a*x + t <= 0, which is either x <= bound or
+                   bound <= x, depending on the sign of a *)
+                if QQ.gt a QQ.zero then
+                  (lower, bound::upper)
                 else
-                  (assert (QQ.gt coeff QQ.zero);
-                   None))
-              polyhedron.leq }
-    let local_project m x polyhedron =
-      Log.time "local_project" (local_project m x) polyhedron
+                  (bound::lower, upper))
+              ([], [])
+              occ
+          in
+          match lower, upper with
+          | [], _ | _, [] ->
+            (* no lower bound or no upper bounds -> just remove all
+               constraints involving x *)
+            { eq = polyhedron.eq; leq = nonocc }
+          | (lt::lower), (ut::upper) ->
+            let term_val = T.evaluate_linterm m in
+            if List.length lower < List.length upper then
+              let glb =
+                List.fold_left (fun glb t ->
+                    if QQ.lt (term_val glb) (term_val t) then t else glb)
+                  lt
+                  lower
+              in
+              { eq = polyhedron.eq;
+                leq = (BatList.filter_map (replace_term x glb) occ)@nonocc }
+            else
+              let lub =
+                List.fold_left (fun lub t ->
+                    if QQ.lt (term_val t) (term_val lub) then t else lub)
+                  ut
+                  upper
+              in
+              { eq = polyhedron.eq;
+                leq = (BatList.filter_map (replace_term x lub) occ)@nonocc }
+    in
+    List.fold_left project_one polyhedron xs
+
+    let local_project m xs polyhedron =
+      Log.time "local_project" (local_project m xs) polyhedron
+
+    (* Check whether a given point belongs to a polyhedron *)
+    let mem m polyhedron =
+      List.for_all
+        (fun t -> QQ.equal (T.evaluate_linterm m t) QQ.zero)
+        polyhedron.eq
+      && List.for_all
+        (fun t -> QQ.leq (T.evaluate_linterm m t) QQ.zero)
+        polyhedron.leq
   end
 
   let top_closure =
@@ -1433,16 +1484,17 @@ module Make (T : Term.S) = struct
     let env = Env.of_enum (BatList.enum vars) in
     let man = Polka.manager_alloc_equalities () in
 
-    let to_apron = T.to_apron env in
     let mk_eq_prop m =
       let mk_cons v =
-        Tcons0.make
-          (to_apron (T.sub (T.var v) (T.const (m#eval_qq (T.V.to_smt v)))))
-          Tcons0.EQ
+        Lincons0.make
+          (T.apron_of_linterm env
+             (T.Linterm.add_term (AVar v) QQ.one
+                (T.Linterm.const (QQ.negate (m#eval_qq (T.V.to_smt v))))))
+          Lincons0.EQ
       in
       let cons = BatList.map mk_cons vars in
       { prop =
-          Abstract0.of_tcons_array
+          Abstract0.of_lincons_array
             man
             (Env.int_dim env)
             (Env.real_dim env)
@@ -2250,15 +2302,13 @@ module Make (T : Term.S) = struct
           s#pop ();
           incr disjuncts;
           logf "[%d] abstract lazy_dnf" (!disjuncts);
-          let disjunct = match Polyhedron.select valuation phi with
+          let disjunct =
+            match Log.time "poly select" (Polyhedron.select valuation) phi with
             | Some d -> d
             | None -> assert false
           in
           let projected_disjunct =
-            List.fold_left
-              (fun poly x -> Polyhedron.local_project valuation x poly)
-              disjunct
-              projected_vars
+            Polyhedron.local_project valuation projected_vars disjunct
             |> Polyhedron.to_apron env_proj man
           in
           go (D.join prop projected_disjunct)
