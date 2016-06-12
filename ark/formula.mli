@@ -69,8 +69,9 @@ module type S = sig
 
   (** Convert a formula to a (possibly weaker) abstract value.  Optionally
       project the resulting abstract value onto a subset of the free variables
-      in the formula (this is faster than abstracting and then projecting. *)
+      in the formula (this is faster than abstracting and then projecting). *)
   val abstract : ?exists:(T.V.t -> bool) option ->
+    ?solver:(Smt.solver) ->
     'a Apron.Manager.t ->
     t ->
     'a T.D.t
@@ -204,7 +205,7 @@ module type S = sig
       clause (or return [None] if no such clause exists). *)
   val select_disjunct : (T.V.t -> QQ.t) -> t -> t option
 
-  val affine_hull : t -> T.V.t list -> T.Linterm.t list
+  val affine_hull : ?solver:(Smt.solver) -> t -> T.V.t list -> T.Linterm.t list
 
   val optimize : (T.t list) -> t -> Interval.interval list
   val disj_optimize : (T.t list) -> t -> Interval.interval list list

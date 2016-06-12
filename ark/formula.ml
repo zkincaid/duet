@@ -42,6 +42,7 @@ module type S = sig
 
   val of_abstract : 'a T.D.t -> t
   val abstract : ?exists:(T.V.t -> bool) option ->
+    ?solver:(Smt.solver) ->
     'a Apron.Manager.t ->
     t ->
     'a T.D.t
@@ -84,7 +85,7 @@ module type S = sig
   val map : (T.t atom -> t) -> t -> t
   val subst : (T.V.t -> T.t) -> t -> t
   val select_disjunct : (T.V.t -> QQ.t) -> t -> t option
-  val affine_hull : t -> T.V.t list -> T.Linterm.t list
+  val affine_hull : ?solver:(Smt.solver) -> t -> T.V.t list -> T.Linterm.t list
   val optimize : (T.t list) -> t -> Interval.interval list
   val disj_optimize : (T.t list) -> t -> Interval.interval list list
 
@@ -991,7 +992,7 @@ module Make (T : Term.S) = struct
         | None -> Some replaced
       in
       (* Project a single variable *)
-      let project_one polyhedron x =
+      let project_one x polyhedron =
         (* occ is the set of equations involving x, nonocc is the set of
            equations that don't *)
         let (occ, nonocc) = List.partition (nonzero_coeff x) polyhedron.eq in
@@ -1051,8 +1052,8 @@ module Make (T : Term.S) = struct
               in
               { eq = polyhedron.eq;
                 leq = (BatList.filter_map (replace_term x lub) occ)@nonocc }
-    in
-    List.fold_left project_one polyhedron xs
+      in
+      VarSet.fold project_one xs polyhedron
 
     let local_project m xs polyhedron =
       Log.time "local_project" (local_project m xs) polyhedron
@@ -1503,9 +1504,10 @@ module Make (T : Term.S) = struct
     in
     let rec go prop =
       s#push ();
-
       s#assrt (Smt.mk_not (to_smt (of_abstract prop)));
-      match s#check () with
+      let result = s#check () in
+      s#pop ();
+      match result with
       | Smt.Unsat -> prop
       | Smt.Undef ->
         begin
@@ -1514,7 +1516,6 @@ module Make (T : Term.S) = struct
         end
       | Smt.Sat -> begin
           let neweq = mk_eq_prop (s#get_model ()) in
-          s#pop ();
           go (join prop neweq)
         end
     in
@@ -2114,12 +2115,14 @@ module Make (T : Term.S) = struct
       (List.fold_left (fun phi simpl -> simpl p phi) phi)
       (!opt_simplify_strategy)
 
-  let affine_hull phi vars =
+  let affine_hull ?solver:(s=new Smt.solver) phi vars =
     try
-      let s = new Smt.solver in
+      s#push ();
       s#assrt (to_smt phi);
-      affine_hull_impl s vars
-    with Timeout -> []
+      let res = affine_hull_impl s vars in
+      s#pop ();
+      res
+    with Timeout -> (s#pop (); [])
 
   let interpolate phi psi =
     let open Z3 in
@@ -2271,7 +2274,7 @@ module Make (T : Term.S) = struct
 
   (* Same as abstract, except local polyhedral projection is used instead of
      projection in Apron's abstract domain. *)
-  let local_abstract ?exists:(p=None) man phi =
+  let local_abstract ?exists:(p=None) s man phi =
     let open D in
     let env = mk_env phi in
     let env_proj = match p with
@@ -2280,20 +2283,21 @@ module Make (T : Term.S) = struct
     in
     let projected_vars =
       match p with
-      | Some p -> 
-        BatList.of_enum (BatEnum.filter (not % p) (D.Env.vars env))
-      | None -> []
+      | Some p -> VarSet.of_enum (BatEnum.filter (not % p) (D.Env.vars env))
+      | None -> VarSet.empty
     in
-    let s = new Smt.solver in
     let disjuncts = ref 0 in
     let rec go prop =
       s#push ();
       s#assrt (Smt.mk_not (to_smt (of_abstract prop)));
       match Log.time "lazy_dnf/sat" s#check () with
-      | Smt.Unsat -> prop
+      | Smt.Unsat ->
+        s#pop ();
+        prop
       | Smt.Undef ->
         begin
           Log.errorf "lazy_dnf timed out (%d disjuncts)" (!disjuncts);
+          s#pop ();
           raise Timeout
         end
       | Smt.Sat -> begin
@@ -2314,16 +2318,21 @@ module Make (T : Term.S) = struct
           go (D.join prop projected_disjunct)
         end
     in
-    s#assrt (to_smt phi);
     try
       Log.time "Abstraction" go (D.bottom man env_proj)
     with Timeout -> begin
         Log.errorf "Symbolic abstraction timed out; returning top";
+        s#pop ();
         D.top man env_proj
       end
        | Not_found -> assert false
 
-  let abstract ?exists:(p=None) man phi = local_abstract ~exists:p man phi
+  let abstract ?exists:(p=None) ?solver:(s=new Smt.solver) man phi =
+    s#push ();
+    s#assrt (to_smt phi);
+    let res = local_abstract ~exists:p s man phi in
+    s#pop ();
+    res
 
   module Syntax = struct
     let ( && ) x y = conj x y

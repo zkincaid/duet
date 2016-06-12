@@ -110,7 +110,7 @@ module Env = struct
         end
       in
       let clen = alen + blen - (common 0 0 0) in
-      let c = Array.create clen (Obj.magic ()) in
+      let c = Array.make clen (Obj.magic ()) in
       let rec go i j k =
         if k < clen then begin
           if i == alen then (c.(k) <- b.(j); go i (j + 1) (k + 1))
@@ -165,8 +165,8 @@ module Env = struct
         | TyReal -> (int, real + 1)
       in
       let (int, real) = S.fold count vars (0, 0) in
-      let int_dim = Array.create int (Obj.magic ()) in
-      let real_dim = Array.create real (Obj.magic ()) in
+      let int_dim = Array.make int (Obj.magic ()) in
+      let real_dim = Array.make real (Obj.magic ()) in
       let int_max = ref 0 in
       let real_max = ref 0 in
       let f v = match V.typ v with
@@ -184,8 +184,12 @@ module Env = struct
       | TyReal -> (Array.length env.int_dim) + (search v env.real_dim)
     let var_of_dim env dim =
       let intd = Array.length env.int_dim in
-      if dim >= intd then env.real_dim.(dim - intd)
-      else env.int_dim.(dim)
+      if dim >= intd then
+        try
+          env.real_dim.(dim - intd)
+        with Invalid_argument _ -> invalid_arg "Env.var_of_dim: out of bounds"
+      else
+        env.int_dim.(dim)
     let typ_of_dim env dim =
       if dim >= (Array.length env.int_dim) then TyReal else TyInt
     let equal e0 e1 = compare e0 e1 = 0
@@ -194,7 +198,7 @@ module Env = struct
     let dimension env = int_dim env + real_dim env
     let vars env =
       BatEnum.append (BatArray.enum env.int_dim) (BatArray.enum env.real_dim)
-    let dimensions env = 0 -- (dimension env)
+    let dimensions env = 0 -- ((dimension env) - 1)
     let filter p env =
       { int_dim = BatArray.filter p env.int_dim;
         real_dim = BatArray.filter p env.real_dim }
@@ -225,6 +229,7 @@ module type S = sig
   val exists : 'a Manager.t -> (var -> bool) -> 'a t -> 'a t
   val add_vars : var BatEnum.t -> 'a t -> 'a t
   val boxify : 'a t -> 'a t
+  val rename : (var -> var) -> 'a t -> 'a t
 end
 
 module Make (V : Var) = struct
@@ -337,4 +342,25 @@ module Make (V : Var) = struct
           (Env.real_dim x.env)
           (Abstract0.to_box man x.prop);
       env = x.env }
+
+  let rename f x =
+    let env = Env.vars x.env /@ f |> Env.of_enum in
+    let dimensions = Env.dimensions x.env |> BatArray.of_enum in
+    let replacements =
+      let g var =
+        Linexpr0.of_list None
+          [(scalar_one, Env.dim_of_var env (f (Env.var_of_dim x.env var)))]
+          None
+      in
+      Array.map g dimensions
+    in
+    let prop =
+      Abstract0.substitute_linexpr_array
+        (man x.prop)
+        x.prop
+        dimensions
+        replacements
+        None
+    in
+    { env; prop }
 end

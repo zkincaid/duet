@@ -60,7 +60,7 @@ module RecurrenceAnalysis (Var : Var) = struct
 
     let abstract_star abstract =
       let loop_counter = T.var (V.mk_int_tmp "K") in
-      (* In an recurrence environment, absence of a binding for a variable
+      (* In a recurrence environment, absence of a binding for a variable
          indicates that the variable is not modified (i.e., the variable
          satisfies the recurrence x' = x + 0).  We initialize the environment
          to bind None to each modified variable. *)
@@ -152,14 +152,14 @@ module RecurrenceAnalysis (Var : Var) = struct
       { transform = transform;
         guard = F.disj plus_guard zero_guard }
 
-    let stratified_recurrence_equations modified body =
+    let stratified_recurrence_equations ?solver:(solver=new Smt.solver) modified body =
       let mk_avar v = AVar (V.mk_var v) in
       let primed_vars = VarSet.map Var.prime modified in
       let vars =
         let free_vars = formula_free_program_vars body in
         BatList.of_enum (VarSet.enum free_vars /@ V.mk_var)
       in
-      let equalities = F.affine_hull body vars in
+      let equalities = F.affine_hull ~solver:solver body vars in
       logf "Extracted equalities:@ %a"
         Show.format<T.Linterm.t list> equalities;
       let (s, coeffs) = farkas equalities vars in
@@ -318,7 +318,7 @@ module RecurrenceAnalysis (Var : Var) = struct
       []
       (BatArray.enum (Apron.Abstract0.to_tcons_array man hull.T.D.prop))
 
-    let alpha_formula body modified =
+    let alpha_formula ?solver:(s=new Smt.solver) body modified =
       let unprime =
         VarMap.of_enum (VarSet.enum modified /@ (fun v -> (Var.prime v, v)))
       in
@@ -331,27 +331,35 @@ module RecurrenceAnalysis (Var : Var) = struct
         | None   -> false
       in
       let man = NumDomain.polka_loose_manager () in
+      s#push ();
+      s#assrt (F.to_smt body);
       let pre_guard =
-        F.abstract man ~exists:(Some (low (flip VarSet.mem pre_vars))) body
+        F.abstract
+          man
+          ~exists:(Some (low (flip VarSet.mem pre_vars)))
+          ~solver:s
+          body
       in
       let post_guard =
-        (* replace modified unprimed variables with double-primed variables,
-           and replace primed variables by unprimed variables.  After the
-           substitution, the guard is defined on pre-state variables only.  *)
-        let sigma v = match V.lower v with
-          | Some var ->
-            if VarSet.mem var modified then
-              T.var (V.mk_var (Var.prime (Var.prime var)))
-            else if VarMap.mem var unprime then
-              T.var (V.mk_var (VarMap.find var unprime))
-            else T.var v
-          | None -> T.var v
+        let post_vars =
+          VarSet.union
+            (VarSet.diff pre_vars modified)
+            (VarSet.map Var.prime modified)
         in
-        let post_vars = VarSet.union pre_vars modified in
         let p = low (flip VarSet.mem post_vars) in
-        F.abstract man ~exists:(Some p) (F.subst sigma body)
+        F.abstract man ~exists:(Some p) ~solver:s body
+        |> T.D.rename (fun v ->
+            match V.lower v with
+            | Some v ->
+              if VarMap.mem v unprime then
+                V.mk_var (VarMap.find v unprime)
+              else
+                V.mk_var v
+            | None -> assert false)
       in
-      let stratified = stratified_recurrence_equations modified body in
+      let stratified =
+        stratified_recurrence_equations ~solver:s modified body
+      in
       let induction_vars =
         List.fold_left
           (fun set (iv, _) -> VarSet.add iv set)
@@ -362,6 +370,7 @@ module RecurrenceAnalysis (Var : Var) = struct
       let inequations =
         linear_recurrence_inequations induction_vars non_induction_vars body
       in
+      s#pop ();
       { precondition = pre_guard;
         postcondition = post_guard;
         modified = modified;
@@ -498,16 +507,25 @@ module RecurrenceAnalysis (Var : Var) = struct
 
   module Split = struct
     type abstract =
+      | Split of (F.t * abstract * abstract) list
       | Leaf of Base.abstract
-      | Split of F.t * abstract * abstract
 
-    let rec format_abstract formatter = function
-      | Leaf base -> Base.format_abstract formatter base
-      | Split (predicate, first, second) ->
+    let rec format_abstract formatter abstract =
+      let pp_split formatter (predicate, first, second) =
         Format.fprintf formatter "@[<v 2>Split %a@;%a@;%a@]"
           F.format predicate
           format_abstract first
           format_abstract second
+      in
+      match abstract with
+      | Leaf base -> Base.format_abstract formatter base
+      | Split [split] -> pp_split formatter split
+      | Split xs ->
+        Format.fprintf formatter "@[<v 2>And %a@]"
+          (ApakEnum.pp_print_enum
+             ~pp_sep:(fun formatter () -> Format.pp_print_break formatter 0 0)
+             pp_split)
+          (BatList.enum xs)
 
     let tr_of_body body modified =
       let transform =
@@ -538,11 +556,15 @@ module RecurrenceAnalysis (Var : Var) = struct
 
     let rec split_modified = function
       | Leaf abstract -> abstract.Base.modified
-      | Split (_, first, _) -> split_modified first
+      | Split [] -> assert false
+      | Split ((_, first, _)::_) -> split_modified first
 
     module FormulaSet = Putil.Set.Make(F)
 
     let alpha_formula_split body modified predicates =
+      let body =
+        F.qe_partial (fun v -> V.lower v != None) body
+      in
       let postify =
         F.subst (fun v -> match V.lower v with
             | Some pv ->
@@ -552,43 +574,108 @@ module RecurrenceAnalysis (Var : Var) = struct
                 T.var v
             | None -> assert false)
       in
+      let s = new Smt.solver in
+      s#assrt (F.to_smt body);
+      let sat_modulo_tr phi =
+        s#push ();
+        s#assrt (F.to_smt phi);
+        let res = s#check () in
+        s#pop ();
+        res
+      in
+      let is_split_predicate phi =
+        (sat_modulo_tr phi = Smt.Sat)
+        && (sat_modulo_tr (F.negate phi) = Smt.Sat)
+      in
+
+      let split =
+        predicates |> BatList.filter_map (fun phi ->
+            if is_split_predicate phi then
+              let not_phi = F.negate phi in
+              let post_phi = postify phi in
+              let post_not_phi = postify not_phi in
+              let phi_body = F.conj phi body in
+              let not_phi_body = F.conj not_phi body in
+              if sat_modulo_tr (F.conj phi post_not_phi) = Smt.Unsat then
+                (* {phi} tr {phi} -> tr* = ([not phi]tr)*([phi]tr)* *)
+                let left_abstract =
+                  Base.alpha_formula ~solver:s not_phi_body modified
+                in
+                let right_abstract =
+                  Base.alpha_formula ~solver:s phi_body modified
+                in
+                Some (phi, Leaf left_abstract, Leaf right_abstract)
+              else if sat_modulo_tr (F.conj not_phi post_phi) = Smt.Unsat then
+                (* {not phi} tr {not phi} -> tr* = ([phi]tr)*([not phi]tr)* *)
+                let left_abstract =
+                  Base.alpha_formula ~solver:s phi_body modified
+                in
+                let right_abstract =
+                  Base.alpha_formula ~solver:s not_phi_body modified
+                in
+                Some (not_phi, Leaf left_abstract, Leaf right_abstract)
+              else
+                None
+            else
+              None)
+      in
+      match split with
+      | [] -> Leaf (Base.alpha_formula body modified)
+      | xs -> Split xs
+
+  (* tree-style split predicates *)
+(*
       let rec go predicates body =
+        let s = new Smt.solver in
+        let sat_modulo_tr phi =
+          s#push ();
+          s#assrt (F.to_smt phi);
+          let res = s#check () in
+          s#pop ();
+          res
+        in
+        s#assrt (F.to_smt body);
         match predicates with
         | [] -> Leaf (Base.alpha_formula body modified)
         | (phi::predicates) ->
           let not_phi = F.negate phi in
-          if (F.is_sat (F.conj body phi)
-              && F.is_sat (F.conj body not_phi))
+          if (sat_modulo_tr phi = Smt.Sat) && (sat_modulo_tr not_phi = Smt.Sat)
           then begin
             logf "Splitting on predicate: %a" F.format phi;
             let post_phi = postify phi in
             let post_not_phi = postify not_phi in
             let phi_body = F.conj phi body in
             let not_phi_body = F.conj not_phi body in
-            if not (F.is_sat (F.conj phi_body post_not_phi)) then
+            if sat_modulo_tr (F.conj phi post_not_phi) = Smt.Unsat then
               (* {phi} tr {phi} -> tr* = ([not phi]tr)*([phi]tr)* *)
               let left_abstract = go predicates not_phi_body in
               let right_abstract = go predicates phi_body in
-              Split (phi, left_abstract, right_abstract)
-            else if not (F.is_sat (F.conj not_phi_body post_phi)) then
+              Split [(phi, left_abstract, right_abstract)]
+            else if sat_modulo_tr (F.conj not_phi post_phi) = Smt.Unsat then
               (* {not phi} tr {not phi} -> tr* = ([phi]tr)*([not phi]tr)* *)
               let left_abstract = go predicates phi_body in
               let right_abstract = go predicates not_phi_body in
-              Split (not_phi, left_abstract, right_abstract)
+              Split [(not_phi, left_abstract, right_abstract)]
             else
               go predicates body
           end else
             go predicates body
       in
       go predicates body
+*)
 
-    let abstract_star split =
-      let rec go = function
-        | Leaf base -> Base.abstract_star base
-        | Split (predicate, first, second) ->
-          mul (go first) (go second)
+    let rec abstract_star abstract =
+      let abstract_star_split (predicate, first, second) =
+        mul (abstract_star first) (abstract_star second)
       in
-      go split
+      match abstract with
+      | Leaf base -> Base.abstract_star base
+      | Split [] -> assert false
+      | Split (x::xs) ->
+        List.fold_left
+          meet
+          (abstract_star_split x)
+          (List.map abstract_star_split xs)
 
     let alpha tr =
       let modified = VarSet.of_enum (M.keys tr.transform) in
@@ -615,51 +702,106 @@ module RecurrenceAnalysis (Var : Var) = struct
             | _ -> FormulaSet.empty
           end
       in
-      let predicates = FormulaSet.elements (F.eval alg body) in
+      let predicates =
+        FormulaSet.fold (fun phi predicates ->
+            if FormulaSet.mem (F.negate phi) predicates then
+              predicates
+            else
+              FormulaSet.add phi predicates)
+          (F.eval alg tr.guard)
+          FormulaSet.empty
+        |> FormulaSet.elements
+      in
+
       alpha_formula_split body modified predicates
 
     let rec abstract_equal x y =
       match x, y with
       | Leaf x, Leaf y -> Base.abstract_equal x y
-      | Split (px, lx, rx), Split (py, ly, ry) ->
-        F.equal px py
-        && abstract_equal lx ly
-        && abstract_equal rx ry
+      | Split xs, Split ys ->
+        let rec split_equal (px, lx, rx) (py, ly, ry) =
+          F.equal px py
+          && abstract_equal lx ly
+          && abstract_equal rx ry
+        in
+        begin
+          try
+            BatList.for_all2 split_equal xs ys
+          with Invalid_argument _ -> false
+        end
       | _, _ -> false
 
     let rec abstract_join x y =
+      let cons x abstract = match abstract with
+        | Split xs -> Split (x::xs)
+        | Leaf _ -> Split [x]
+      in
       match x, y with
       | Leaf x, Leaf y -> Leaf (Base.abstract_join x y)
-      | Split (px, lx, rx), Split (py, ly, ry) ->
-        let cmp = F.compare px py in
-        if cmp < 0 then
-          abstract_join (abstract_join lx rx) y
-        else if cmp > 0 then
-          abstract_join x (abstract_join ly ry)
-        else
-          Split (px, abstract_join lx ly, abstract_join rx ry)
-      | _, Split (py, ly, ry) ->
-        abstract_join x (abstract_join ly ry)
-      | Split (px, lx, rx), _ ->
-        abstract_join (abstract_join lx rx) y
-    
+      | Split xs, Split ys ->
+        let rec go xs ys = match xs, ys with
+          | (px, lx, rx)::xs, (py, ly, ry)::ys when F.compare px py = 0 ->
+            cons (px, abstract_join lx ly, abstract_join rx ry) (go xs ys)
+          | (px, lx, rx)::xs, (py, ly, ry)::ys when F.compare px py < 0 ->
+            begin
+              match abstract_join lx rx with
+              | Split xs' -> go (xs'@xs) ys
+              | Leaf x when BatList.is_empty xs ->
+                abstract_join (Leaf x) (abstract_join ly ry)
+              | Leaf x -> go xs ((py, ly, ry)::ys)
+            end
+          | (px, lx, rx)::xs, (py, ly, ry)::ys ->
+            begin
+              match abstract_join ly ry with
+              | Split ys' -> go xs (ys'@ys)
+              | Leaf y when BatList.is_empty ys ->
+                abstract_join (abstract_join lx rx) (Leaf y)
+              | Leaf y -> go ((px, lx, rx)::xs) ys
+            end
+          | [], _ | _, [] -> assert false
+        in
+        go xs ys
+      | Leaf x, Split ((_,ly,ry)::ys) ->
+        abstract_join (Leaf x) (abstract_join ly ry)
+      | Split ((_,lx,rx)::ys), Leaf y->
+        abstract_join (abstract_join lx rx) (Leaf y)
+      | Split [], Leaf _ | Leaf _, Split [] -> assert false
+
     let rec abstract_widen x y =
+      let cons x abstract = match abstract with
+        | Split xs -> Split (x::xs)
+        | Leaf _ -> Split [x]
+      in
       match x, y with
       | Leaf x, Leaf y -> Leaf (Base.abstract_widen x y)
-      | Split (px, lx, rx), Split (py, ly, ry) ->
-        let cmp = F.compare px py in
-        if cmp < 0 then
-          abstract_join (abstract_join lx rx) y
-        else if cmp > 0 then
-          abstract_join x (abstract_join ly ry)
-        else
-          Split (px,
-                 abstract_widen lx ly,
-                 abstract_widen rx ry)
-      | _, Split (py, ly, ry) ->
-        abstract_widen x (abstract_join ly ry)
-      | Split (px, lx, rx), _ ->
-        abstract_widen (abstract_join lx rx) y
+      | Split xs, Split ys ->
+        let rec go xs ys = match xs, ys with
+          | (px, lx, rx)::xs, (py, ly, ry)::ys when F.compare px py = 0 ->
+            cons (px, abstract_widen lx ly, abstract_widen rx ry) (go xs ys)
+          | (px, lx, rx)::xs, (py, ly, ry)::ys when F.compare px py < 0 ->
+            begin
+              match abstract_join lx rx with
+              | Split xs' -> go (xs'@xs) ys
+              | Leaf x when BatList.is_empty xs ->
+                abstract_join (Leaf x) (abstract_join ly ry)
+              | Leaf x -> go xs ((py, ly, ry)::ys)
+            end
+          | (px, lx, rx)::xs, (py, ly, ry)::ys ->
+            begin
+              match abstract_join ly ry with
+              | Split ys' -> go xs (ys'@ys)
+              | Leaf y when BatList.is_empty ys ->
+                abstract_join (abstract_join lx rx) (Leaf y)
+              | Leaf y -> go ((px, lx, rx)::xs) ys
+            end
+          | [], _ | _, [] -> assert false
+        in
+        go xs ys
+      | Leaf x, Split ((_,ly,ry)::ys) ->
+        abstract_widen (Leaf x) (abstract_join ly ry)
+      | Split ((_,lx,rx)::ys), Leaf y->
+        abstract_join (abstract_join lx rx) (Leaf y)
+      | Split [], Leaf _ | Leaf _, Split [] -> assert false
   end
 
   let abstract_star = Split.abstract_star

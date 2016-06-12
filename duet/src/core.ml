@@ -452,6 +452,7 @@ module Var = struct
   let unsubscript var = subscript var 0
   let get_subscript v = (fst v).vsubscript
   let mk varinfo = (varinfo, OffsetFixed 0)
+  let get_id (v,_) = v.vid
 end
 
 (* Functions on expressions ***************************************************)

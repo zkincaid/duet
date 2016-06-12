@@ -175,6 +175,7 @@ module Var : sig
   val unsubscript : var -> var
   val get_subscript : var -> int
   val mk : varinfo -> var
+  val get_id : t -> int
 end
 
 module Offset : sig

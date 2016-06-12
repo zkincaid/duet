@@ -247,7 +247,7 @@ module ApronInterpretation = struct
     if add = 0 then num_av else
       let current_dim = (Abstract0.dimension (get_man()) num_av).intd in
       Abstract0.add_dimensions (get_man()) num_av
-        { dim = Array.create add current_dim;
+        { dim = Array.make add current_dim;
           intdim = add;
           realdim = 0 }
         false
@@ -813,6 +813,7 @@ module ApronInterpretation = struct
               | Mul -> Expr.mul left right
               | Div -> Expr.div left right
               | Mod -> Expr.modulo left right
+              | Pow -> assert false
             end
         end
     in

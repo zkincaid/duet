@@ -3,6 +3,8 @@ open Apron
 open BatPervasives
 open ArkPervasives
 
+include Log.Make(struct let name = "ark.linear" end)
+
 module type Var = sig
   include Putil.Ordered
 end
@@ -559,7 +561,7 @@ struct
   let is_empty x = E.equal x E.zero
 
   let solve sys =
-    Log.logf "Solving system:@\n @[%a@]" Fmt.format sys;
+    logf "Solving system:@\n @[%a@]" Fmt.format sys;
     let rec reduce fin sys =
       match sys with
       | [] -> fin

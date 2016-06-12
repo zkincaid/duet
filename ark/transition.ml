@@ -234,6 +234,19 @@ module Dioid (Var : Var) = struct
 
   let add left right =
     let left_guard = ref left.guard in
+
+    let sigma_tmp =
+      Memo.memo (fun (_, typ, name) -> T.var (V.mk_tmp name typ))
+    in
+    let sigma v = match v with
+      | V.PVar var -> T.var v
+      | V.TVar (id, typ, name) -> sigma_tmp (id, typ, name)
+    in
+    let right =
+      { transform = M.map (T.subst sigma) right.transform;
+        guard = F.subst sigma right.guard }
+    in
+
     let right_guard = ref right.guard in
     let left_eq s t =
       left_guard := F.conj (!left_guard) (F.eq s t)
@@ -244,16 +257,27 @@ module Dioid (Var : Var) = struct
     let transform =
       let merge v x y =
         let varname = "phi_" ^ (Var.show v) in
+        let skolem_term term =
+          match T.to_var term with
+          | Some var -> V.lower var = None
+          | None -> false
+        in
+        let tmp =
+          match x, y with
+          | Some rhs, _ when skolem_term rhs -> rhs
+          | _, Some rhs when skolem_term rhs -> rhs
+          | _, _ -> T.var (V.mk_tmp varname (Var.typ v))
+        in
         match x, y with
         | Some s, Some t ->
-          if T.equal s t then Some s else begin
-            let tmp = T.var (V.mk_tmp varname (Var.typ v)) in
+          if T.equal s t then
+            Some s
+          else begin
             left_eq tmp s;
             right_eq tmp t;
             Some tmp
           end
         | Some s, None ->
-          let tmp = T.var (V.mk_tmp varname (Var.typ v)) in
           left_eq tmp s;
           right_eq tmp (T.var (V.mk_var v));
           Some tmp
@@ -268,6 +292,31 @@ module Dioid (Var : Var) = struct
     in
     { transform = transform;
       guard = F.disj (!left_guard) (!right_guard) }
+
+  let meet x y =
+    (* The transform is x's transform, and guard the is the conjunction of x's
+       guard and and y's guard, along with y's transform. *)
+    let post_term v tr =
+      if M.mem v tr.transform then
+        M.find v tr.transform
+      else
+        T.var (V.mk_var v)
+    in
+    let guard =
+      M.fold (fun v rhs guard ->
+          F.conj guard (F.eq rhs (post_term v x)))
+        y.transform
+        (F.conj x.guard y.guard)
+    in
+    { transform = x.transform;
+      guard = guard }
+
+  let meet x y =
+    logf "@\nmeet@\n%a@\n%a@\n%a@\n/meet"
+      format x
+      format y
+      format (meet x y);
+    meet x y
 
   let one =
     { transform = M.empty;
@@ -445,13 +494,14 @@ module Dioid (Var : Var) = struct
 
   let linearize tr =
     let fresh_skolem v =
-      T.var (V.mk_tmp ("fresh_" ^ (Var.show v)) (Var.typ v))
+      V.mk_tmp ("fresh_" ^ (Var.show v)) (Var.typ v)
     in
-    let transform =
-      M.fold (fun v rhs transform ->
-          M.add v (fresh_skolem v) transform)
+    let (transform, skolem) =
+      M.fold (fun v rhs (transform, skolem) ->
+          let sk = fresh_skolem v in
+          (M.add v (T.var sk) transform, VSet.add sk skolem))
         tr.transform
-        M.empty
+        (M.empty, VSet.empty)
     in
     let guard =
       M.fold (fun v rhs guard ->
@@ -459,6 +509,7 @@ module Dioid (Var : Var) = struct
         tr.transform
         tr.guard
       |> F.linearize (fun () -> V.mk_tmp "nonlin" TyInt)
+      |> F.qe_partial (fun v -> V.lower v != None || VSet.mem v skolem)
     in
     { transform = transform;
       guard = guard }
@@ -600,6 +651,8 @@ module Make (Var : Var) = struct
     { loop : t;  (* Transition representing the loop summary *)
       phi : F.t; (* Formula representing the loop body *)
 
+      solver : Smt.solver;
+
       (* Induction variables are variables with exact recurrences (defined by
          equalities of the form x' = x + p(y), where p(y) is a
          polynomial in induction variables of lower strata) *)
@@ -616,8 +669,7 @@ module Make (Var : Var) = struct
   (* Find recurrences of the form x' = x + c *)
   let simple_induction_vars ctx =
     let open Incr in
-    let s = new Smt.solver in
-    s#assrt (F.to_smt ctx.phi);
+    let s = ctx.solver in
     let m = match s#check () with
       | Smt.Unsat -> raise Unsat
       | Smt.Undef -> raise Undef
@@ -783,7 +835,7 @@ module Make (Var : Var) = struct
       let free_vars = formula_free_program_vars ctx.phi in
       BatList.of_enum (VarSet.enum free_vars /@ V.mk_var)
     in
-    let equalities = F.affine_hull ctx.phi vars in
+    let equalities = F.affine_hull ~solver:ctx.solver ctx.phi vars in
     logf "Extracted equalities:@ %a"
       Show.format<T.Linterm.t list> equalities;
     let (s, coeffs) = farkas equalities vars in
@@ -1103,10 +1155,13 @@ module Make (Var : Var) = struct
     let linear_body =
       F.linearize (fun () -> V.mk_real_tmp "nonlin") (to_formula tr)
     in
+    let solver = new Smt.solver in
+    solver#assrt (F.to_smt linear_body);
     let ctx =
       { induction_vars = induction_vars;
         phi = linear_body;
         loop_counter = loop_counter;
+        solver = solver;
         loop = loop }
     in
     let ctx = simple_induction_vars ctx in

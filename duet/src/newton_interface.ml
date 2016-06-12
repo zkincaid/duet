@@ -66,8 +66,6 @@ let analyze_basic file =
           | _ -> ()
         );
       set_vertices (RG.block_entry rg main).did (RG.block_exit rg main).did;
-      let local _ _ = false in
-      let query = A.mk_query rg NewtonDomain.weight local main in
       set_cWeight K.zero
     end
   | _ -> assert false

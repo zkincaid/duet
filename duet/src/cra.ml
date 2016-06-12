@@ -229,28 +229,100 @@ module K = struct
           | _ -> FormulaSet.empty
         end
     in
-    let predicates = FormulaSet.elements (F.eval alg tr.guard) in
-    let rec go predicates tr =
-      match predicates with
-      | [] -> Log.time "cra:base-star" star tr
-      | (phi::predicates) when
-          F.is_sat (F.conj tr.guard phi) &&
-          F.is_sat (F.conj tr.guard (F.negate phi)) ->
-        logf "Splitting on predicate: %a" F.format phi;
-        let assume_phi = assume phi in
-        let assume_not_phi = assume (F.negate phi) in
-        let phi_tr = mul assume_phi tr in
-        let not_phi_tr = mul assume_not_phi tr in
-        if not (F.is_sat (mul phi_tr assume_not_phi).guard) then
-          mul (go predicates not_phi_tr) (go predicates phi_tr)
-        else if not (F.is_sat (mul not_phi_tr assume_phi).guard) then
-          mul (go predicates phi_tr) (go predicates not_phi_tr)
-        else
-          go predicates tr
-      | (_::predicates) -> go predicates tr
+    let star tr = Log.time "cra:base-star" star tr in
+    let predicates =
+      FormulaSet.fold (fun phi predicates ->
+          if FormulaSet.mem (F.negate phi) predicates then
+            predicates
+          else
+            FormulaSet.add phi predicates)
+        (F.eval alg tr.guard)
+        FormulaSet.empty
+      |> FormulaSet.elements
     in
-    go predicates tr
-
+    let s = new Smt.solver in
+    let postify =
+      F.subst (fun v -> match V.lower v with
+          | Some pv ->
+            if M.mem pv tr.transform then
+              T.var (V.mk_var (Voc.prime pv))
+            else
+              T.var v
+          | None -> assert false)
+    in
+    s#assrt (F.to_smt (to_formula tr));
+    match s#check () with
+    | Smt.Unsat -> one
+    | Smt.Undef -> assert false
+    | Smt.Sat -> begin
+        let sat_modulo_tr phi =
+          s#push ();
+          s#assrt phi;
+          let res = s#check () in
+          s#pop ();
+          res
+        in
+        let is_split_predicate phi =
+          (sat_modulo_tr (F.to_smt phi) = Smt.Sat)
+          && (sat_modulo_tr (Smt.mk_not (F.to_smt phi)) = Smt.Sat)
+        in
+        let split_loops =
+          predicates |> BatList.filter_map (fun phi ->
+              if Log.time "is_split_predicate" is_split_predicate phi
+              then begin
+                let assume_phi = assume phi in
+                let assume_not_phi = assume (F.negate phi) in
+                let phi_tr = mul assume_phi tr in
+                let not_phi_tr = mul assume_not_phi tr in
+                let phi_inv = (* unsat <=> phi is a loop invariant *)
+                  Smt.mk_and [F.to_smt phi;
+                              F.to_smt (postify (F.negate phi))]
+                in
+                let not_phi_inv = (* unsat <=> !phi is a loop invariant *)
+                  Smt.mk_and [Smt.mk_not (F.to_smt phi);
+                              F.to_smt (postify phi)]
+                in
+                if sat_modulo_tr phi_inv = Smt.Unsat then
+                  if sat_modulo_tr not_phi_inv = Smt.Unsat then
+                    (logf "Splitting on predicate: %a" F.format phi;
+                     Some (add (star not_phi_tr) (star phi_tr)))
+                  else
+                    (logf "Splitting on predicate: %a" F.format phi;
+                     Some (mul (star not_phi_tr) (star phi_tr)))
+                else if sat_modulo_tr not_phi_inv = Smt.Unsat then
+                  (logf "Splitting on predicate: %a" F.format phi;
+                   Some (mul (star phi_tr) (star not_phi_tr)))
+                else
+                  None
+              end else
+                None)
+        in
+        match split_loops with
+        | [] -> star tr
+        | (x::xs) -> List.fold_left meet x xs
+      end
+  (* tree-style split predicates *)
+        (*
+        let rec go predicates tr =
+          match predicates with
+          | [] -> Log.time "cra:base-star" star tr
+          | (phi::predicates) when is_split_predicate phi ->
+            logf "Splitting on predicate: %a" F.format phi;
+            let assume_phi = assume phi in
+            let assume_not_phi = assume (F.negate phi) in
+            let phi_tr = mul assume_phi tr in
+            let not_phi_tr = mul assume_not_phi tr in
+            if not (F.is_sat (mul phi_tr assume_not_phi).guard) then
+              mul (go predicates not_phi_tr) (go predicates phi_tr)
+            else if not (F.is_sat (mul not_phi_tr assume_phi).guard) then
+              mul (go predicates phi_tr) (go predicates not_phi_tr)
+            else
+              go predicates tr
+          | (_::predicates) -> go predicates tr
+        in
+        go predicates tr
+      end
+*)
   let star tr =
     if !opt_split_loops then
       Log.time "cra:split-star" star_split tr
@@ -642,7 +714,7 @@ let _ =
   let open K in
   opt_higher_recurrence := true;
   opt_disjunctive_recurrence_eq := false;
-  set_guard "polka";
+  set_guard "qe";
   opt_recurrence_ineq := false;
   opt_unroll_loop := false;
   opt_polyrec := true;
