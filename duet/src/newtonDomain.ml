@@ -1426,7 +1426,6 @@ let left_context tr =
   in
   { K.guard = guard;
     K.transform = transform }
-  |> K.transpose
 
 let right_context tr =
   let lower_temporary =
