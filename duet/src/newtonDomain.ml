@@ -1577,4 +1577,9 @@ let () =
   Callback.register "domain_hull" K.domain_hull;
   Callback.register "range_hull" K.range_hull;
   Callback.register "tensor_domain_hull" KK.domain_hull;
-  Callback.register "tensor_range_hull" KK.range_hull
+  Callback.register "tensor_range_hull" KK.range_hull;
+  Callback.register "domain" (fun tr -> { K.one with guard = tr.K.guard });
+  Callback.register "range" K.range_hull;
+  Callback.register "tensor_domain" (fun tr ->
+      { KK.one with guard = tr.KK.guard });
+  Callback.register "tensor_range" KK.range
