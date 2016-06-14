@@ -848,6 +848,12 @@ module RecurrenceAnalysis (Var : Var) = struct
       (get_manager ())
       (range tr)
 
+  let domain_hull tr =
+    F.abstract
+      ~exists:(Some (fun v -> V.lower v != None))
+      (get_manager ())
+      tr.guard
+
   let opt_star_lc_rec = ref true
   let star_lc left_context tr =
     if !opt_star_lc_rec then
@@ -876,6 +882,45 @@ module RecurrenceAnalysis (Var : Var) = struct
           fix (T.D.widen pre post)
       in
       fix (range_hull left_context)
+
+  let star_rc right_context tr =
+    let sigma_tmp =
+      Memo.memo (fun (_, typ, name) -> T.var (V.mk_tmp name typ))
+    in
+    let sigma v = match v with
+      | V.PVar var -> begin
+          try M.find var tr.transform
+          with Not_found -> T.var v
+        end
+      | V.TVar (id, typ, name) -> sigma_tmp (id, typ, name)
+    in
+    if !opt_star_lc_rec then
+      let alpha_right right =
+        alpha { tr with guard = F.conj tr.guard (F.subst sigma right.guard) }
+      in
+      let rec fix body =
+        let loop = abstract_star body in
+        let next_body = alpha_right (mul loop right_context) in
+        if abstract_equal body next_body then
+          loop
+        else
+          fix (abstract_widen body next_body)
+      in
+      fix (alpha_right right_context)
+    else
+      let rec fix pre =
+        let body =
+          alpha { tr with
+                  guard = F.conj tr.guard (F.subst sigma (F.of_abstract pre)) }
+        in
+        let loop = abstract_star body in
+        let post = domain_hull (mul loop right_context) in
+        if T.D.equal pre post then
+          loop
+        else
+          fix (T.D.widen pre post)
+      in
+      fix (domain_hull right_context)
 end
 
 (*******************************************************************************
@@ -1355,6 +1400,59 @@ let qe_lme_pvars f =
 (* Linearization as a simplifier *)
 let linearize _ = K.F.linearize (fun () -> K.V.mk_tmp "nonlin" TyInt)
 
+module VMemo = Memo.Make(V)
+
+let left_context tr =
+  let lower_temporary =
+    Memo.memo (fun (id, typ, name) -> K.V.mk_tmp name typ)
+  in
+  let fresh_skolem =
+    VMemo.memo (fun v -> K.T.var (K.V.mk_tmp ("fresh_" ^ (V.show v)) (V.typ v)))
+  in
+  let substitution = function
+    | KK.V.PVar (Left v) -> K.T.var (K.V.mk_var v)
+    | KK.V.PVar (Right v) -> fresh_skolem v
+    | KK.V.TVar (id, typ, name) -> K.T.var (lower_temporary (id, typ, name))
+  in
+  let guard = lower_formula substitution tr.KK.guard in
+  let transform =
+    KK.M.fold
+      (fun v rhs transform ->
+         match v with
+         | Left v -> K.M.add v (lower_term substitution rhs) transform
+         | Right v -> transform)
+      tr.KK.transform
+      K.M.empty
+  in
+  { K.guard = guard;
+    K.transform = transform }
+  |> K.transpose
+
+let right_context tr =
+  let lower_temporary =
+    Memo.memo (fun (id, typ, name) -> K.V.mk_tmp name typ)
+  in
+  let fresh_skolem =
+    VMemo.memo (fun v -> K.T.var (K.V.mk_tmp ("fresh_" ^ (V.show v)) (V.typ v)))
+  in
+  let substitution = function
+    | KK.V.PVar (Left v) -> fresh_skolem v
+    | KK.V.PVar (Right v) -> K.T.var (K.V.mk_var v)
+    | KK.V.TVar (id, typ, name) -> K.T.var (lower_temporary (id, typ, name))
+  in
+  let guard = lower_formula substitution tr.KK.guard in
+  let transform =
+    KK.M.fold
+      (fun v rhs transform ->
+         match v with
+         | Left _ -> transform
+         | Right v -> K.M.add v (lower_term substitution rhs) transform)
+      tr.KK.transform
+      K.M.empty
+  in
+  { K.guard = guard;
+    K.transform = transform }
+
 let () =
   CmdLine.register_config
     ("-cra-star-lc-hull",
@@ -1471,4 +1569,12 @@ let () =
       in
       (block, Varinfo.show block));
   Callback.register "star_lc" K.star_lc;
-  Callback.register "tensor_star_lc" KK.star_lc
+  Callback.register "tensor_star_lc" KK.star_lc;
+  Callback.register "star_rc" K.star_rc;
+  Callback.register "tensor_star_rc" KK.star_rc;
+  Callback.register "left_context_callback" left_context;
+  Callback.register "right_context_callback" right_context;
+  Callback.register "domain_hull" K.domain_hull;
+  Callback.register "range_hull" K.range_hull;
+  Callback.register "tensor_domain_hull" KK.domain_hull;
+  Callback.register "tensor_range_hull" KK.range_hull

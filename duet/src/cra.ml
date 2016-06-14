@@ -719,7 +719,7 @@ let _ =
   opt_unroll_loop := false;
   opt_polyrec := true;
   F.opt_qe_strategy := (fun p phi -> F.qe_lme p (F.qe_partial p phi));
-  F.opt_linearize_strategy := F.linearize_trivial;
+  F.opt_linearize_strategy := F.linearize_opt;
   F.opt_simplify_strategy := []
 
 let _ =
