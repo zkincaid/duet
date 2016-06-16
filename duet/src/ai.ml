@@ -763,6 +763,7 @@ module ApronInterpretation = struct
     | Builtin (Fork _) -> av
     | Builtin (Acquire _) | Builtin (Release _) -> av
     | Builtin AtomicBegin | Builtin AtomicEnd -> av
+    | Builtin (PrintBounds _) -> av
     | Builtin Exit -> bottom (get_domain av)
 
   module REnv = Putil.PInt.Map

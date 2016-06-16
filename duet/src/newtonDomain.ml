@@ -1599,6 +1599,9 @@ let () =
   Callback.register "abstract_widen_callback" K.abstract_widen;
   Callback.register "tensor_abstract_widen_callback" KK.abstract_widen;
 
+  Callback.register "widen_callback" K.widen;
+  Callback.register "tensor_widen_callback" KK.widen;
+
   Callback.register "abstract_star_callback" K.abstract_star;
   Callback.register "tensor_abstract_star_callback" KK.abstract_star;
 
