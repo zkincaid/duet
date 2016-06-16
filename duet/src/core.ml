@@ -230,6 +230,7 @@ type builtin =
   | AtomicBegin
   | AtomicEnd
   | Exit
+  | PrintBounds of var
 
 (** Definition kind *)
 and defkind =
@@ -698,6 +699,8 @@ let format_builtin formatter = function
   | AtomicBegin -> Format.pp_print_string formatter "atomic_begin"
   | AtomicEnd -> Format.pp_print_string formatter "atomic_end"
   | Exit -> Format.pp_print_string formatter "exit"
+  | PrintBounds v ->
+    Format.fprintf formatter "print_bounds(%a)" Var.format v
 
 (** Pretty printing for definitions (needs to be rewritten) *)
 let format_dk formatter = function
@@ -1217,6 +1220,7 @@ let dk_get_defs defkind = match defkind with
   | Builtin (Acquire _) | Builtin (Release _) -> AP.Set.empty
   | Builtin AtomicBegin | Builtin AtomicEnd -> AP.Set.empty
   | Builtin Exit -> AP.Set.empty
+  | Builtin PrintBounds _ -> AP.Set.empty
 
 let dk_assigned_var = function
   | Assign (v, _)
@@ -1230,7 +1234,8 @@ let dk_assigned_var = function
   | Builtin (Fork (None, _, _))
   | Builtin (Acquire _) | Builtin (Release _)
   | Builtin AtomicBegin | Builtin AtomicEnd
-  | Builtin Exit ->
+  | Builtin Exit
+  | Builtin (PrintBounds _) ->
     None
 
 let rec lhs_accessed = function
@@ -1254,6 +1259,7 @@ let dk_get_accessed = function
   | Builtin (Acquire expr) | Builtin (Release expr) -> Expr.accessed expr
   | Builtin AtomicBegin | Builtin AtomicEnd -> AP.Set.empty
   | Builtin Exit -> AP.Set.empty
+  | Builtin (PrintBounds v) -> AP.Set.singleton (Variable v)
 
 let lhs_free_vars = function
   | Variable v -> Var.Set.singleton v
@@ -1283,6 +1289,7 @@ let dk_free_vars = function
   | Builtin (Acquire expr) | Builtin (Release expr) -> Expr.free_vars expr
   | Builtin AtomicBegin | Builtin AtomicEnd -> Var.Set.empty
   | Builtin Exit -> Var.Set.empty
+  | Builtin (PrintBounds v) -> Var.Set.singleton v
 
 let exprlist_uses =
   let f l e = AP.Set.union (Expr.get_uses e) l in
@@ -1305,6 +1312,7 @@ let rec dk_get_uses = function
   | Builtin (Release expr) -> Expr.get_uses expr
   | Builtin AtomicBegin | Builtin AtomicEnd -> AP.Set.empty
   | Builtin Exit -> AP.Set.empty
+  | Builtin (PrintBounds v) -> AP.Set.singleton (Variable v)
 
 module Def = struct
   include Putil.MakeCoreType(struct

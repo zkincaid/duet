@@ -488,6 +488,9 @@ let tr_instr ctx instr =
         in
         mk_seq havoc assume
 
+      | ("__VERIFIER_print_hull", None, [AccessPath (Variable x)]) ->
+        mk_def (Builtin (PrintBounds x))
+
       (* CPROVER builtins *)
       | ("__CPROVER_atomic_begin", None, []) -> mk_def (Builtin AtomicBegin)
       | ("__CPROVER_atomic_end", None, []) -> mk_def (Builtin AtomicEnd)

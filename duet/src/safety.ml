@@ -21,6 +21,7 @@ let aps_referenced def =
     | Builtin (Acquire _) | Builtin (Release _)
     | Builtin AtomicBegin | Builtin AtomicEnd
     | Builtin Exit -> AP.Set.empty
+    | Builtin (PrintBounds v) -> AP.Set.singleton (Variable v)
   in
   AP.Set.union lhs_aps (Def.get_accessed def)
 

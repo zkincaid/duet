@@ -518,7 +518,8 @@ let weight def =
   | Builtin AtomicBegin | Builtin AtomicEnd
   | Builtin (Acquire _) | Builtin (Release _)
   | Builtin (Free _)
-  | Initial | Assert (_, _) | AssertMemSafe (_, _) | Return None -> one
+  | Initial | Assert (_, _) | AssertMemSafe (_, _) | Return None
+  | Builtin (PrintBounds _) -> one
   | _ ->
     Log.errorf "No translation for definition: %a" Def.format def;
     assert false
@@ -577,6 +578,112 @@ let _ =
     ("-qe",
      Arg.String set_qe,
      " Set default quantifier elimination strategy (lme,cover,z3)")
+
+
+let print_var_bounds formatter (tick_var, tr) =
+  let tick_var = VVal tick_var in
+  let sigma v =
+    match K.V.lower v with
+    | Some pv ->
+      if V.equal pv tick_var then K.T.zero else K.T.var v
+    | None -> K.T.var v
+  in
+  let pre_vars =
+    K.VarSet.remove tick_var (K.formula_free_program_vars tr.K.guard)
+  in
+
+  (* Create & define synthetic dimensions *)
+  let synthetic_dimensions = BatEnum.empty () in
+  let synthetic_definitions = BatEnum.empty () in
+  let ite_eq t cond bthen belse =
+    K.F.disj
+      (K.F.conj cond (K.F.eq t bthen))
+      (K.F.conj (K.F.negate cond) (K.F.eq t belse))
+  in
+  pre_vars |> K.VarSet.iter (fun v ->
+      let zero_to_x = K.V.mk_tmp ("[0," ^ (V.show v) ^ "]") TyReal in
+      let zero_to_x_term = K.T.var zero_to_x in
+      let v_term = K.T.var (K.V.mk_var v) in
+      BatEnum.push synthetic_dimensions zero_to_x;
+      BatEnum.push synthetic_definitions
+        (ite_eq zero_to_x_term (K.F.geq v_term K.T.zero) v_term K.T.zero));
+  ApakEnum.cartesian_product
+    (K.VarSet.enum pre_vars)
+    (K.VarSet.enum pre_vars)
+  |> BatEnum.iter (fun (x, y) ->
+      let xt = K.T.var (K.V.mk_var x) in
+      let yt = K.T.var (K.V.mk_var y) in
+      if not (V.equal x y) then begin
+        let x_to_y =
+          K.V.mk_tmp ("[" ^ (V.show x) ^ "," ^ (V.show y) ^ "]") TyReal
+        in
+        BatEnum.push synthetic_dimensions x_to_y;
+        BatEnum.push synthetic_definitions
+          (ite_eq (K.T.var x_to_y) (K.F.lt xt yt) (K.T.sub yt xt) K.T.zero)
+      end;
+      let x_times_y =
+        K.V.mk_tmp ("(" ^ (V.show x) ^ "*" ^ (V.show y) ^ ")") TyReal
+      in
+      BatEnum.push synthetic_dimensions x_times_y;
+      BatEnum.push synthetic_definitions
+        (K.F.eq (K.T.var x_times_y) (K.T.mul xt yt)));
+
+  let synth_dimensions = K.VSet.of_enum synthetic_dimensions in
+  let defs = K.F.big_conj synthetic_definitions in
+  let man = NumDomain.polka_loose_manager () in
+  let phi =
+    K.F.conj
+      (K.F.conj (K.F.subst sigma tr.K.guard) defs)
+      (K.F.eq
+         (K.T.var (K.V.mk_var tick_var))
+         (K.T.subst sigma (K.M.find tick_var tr.K.transform)))
+  in
+  Log.errorf "%a" K.F.format phi;
+  let hull =
+    K.F.conj
+      (K.F.conj (K.F.subst sigma tr.K.guard) defs)
+      (K.F.eq
+         (K.T.var (K.V.mk_var tick_var))
+         (K.T.subst sigma (K.M.find tick_var tr.K.transform)))
+    |> K.F.linearize (fun () -> K.V.mk_tmp "nonlin" TyInt)
+    |> K.F.abstract ~exists:(Some (fun v -> K.VSet.mem v synth_dimensions
+                                            || K.V.lower v != None))
+                                    (*|| K.V.equal v (K.V.mk_var tick_var)))*) man
+  in
+  let tick_dim = AVar (K.V.mk_var tick_var) in
+  let print_tcons tcons =
+    let open Apron in
+    let open Tcons0 in
+    match K.T.to_linterm (K.T.of_apron hull.K.T.D.env tcons.texpr0) with
+    | None -> ()
+    | Some t ->
+      let (a, t) = K.T.Linterm.pivot tick_dim t in
+      if QQ.equal a QQ.zero then
+        ()
+      else begin
+        let bound =
+          K.T.Linterm.scalar_mul (QQ.negate (QQ.inverse a)) t
+          |> K.T.of_linterm
+        in
+        match tcons.typ with
+        | EQ ->
+          Format.fprintf formatter "%a = %a@;"
+            V.format tick_var
+            K.T.format bound
+        | SUPEQ when QQ.lt QQ.zero a ->
+          Format.fprintf formatter "%a >= %a@;"
+            V.format tick_var
+            K.T.format bound
+        | SUPEQ when QQ.lt a QQ.zero ->
+          Format.fprintf formatter "%a <= %a@;"
+            V.format tick_var
+            K.T.format bound
+        | _ -> ()
+      end
+  in
+  BatArray.iter
+    print_tcons
+    (Apron.Abstract0.to_tcons_array man hull.K.F.T.D.prop)
 
 let analyze file =
   match file.entry_points with
@@ -710,11 +817,51 @@ let analyze file =
     end
   | _ -> assert false
 
+let resource_bound_analysis file =
+  match file.entry_points with
+  | [main] -> begin
+      let rg = Interproc.make_recgraph file in
+      let rg =
+        if !forward_inv_gen
+        then Log.phase "Forward invariant generation" decorate rg
+        else rg
+      in
+      let local func_name =
+        if defined_function func_name (get_gfile()) then begin
+          let func = lookup_function func_name (get_gfile()) in
+          let vars =
+            Varinfo.Set.remove (return_var func_name)
+              (Varinfo.Set.of_enum
+                 (BatEnum.append
+                    (BatList.enum func.formals)
+                    (BatList.enum func.locals)))
+          in
+          fun x -> (Varinfo.Set.mem (fst (var_of_value x)) vars)
+        end else (fun _ -> false)
+      in
+      let query = A.mk_query rg weight local main in
+      RG.blocks rg |> BatEnum.iter (fun block ->
+          Format.printf "Resource bounds for %a:@\n" Varinfo.format block;
+          let summary = A.get_summary query block in
+          let tick_var =
+            let p v = V.show v = "__cost" in
+            try
+              Some (BatEnum.find p (K.M.keys summary.K.transform))
+            with Not_found -> None
+          in
+          match tick_var with
+          | Some (VVal tick_var) ->
+            Format.printf "@[<v 0>%a@]@\n@\n" print_var_bounds (tick_var, summary)
+          | _ -> Format.printf "No bounds for tick@\n"
+        )
+    end
+  | _ -> assert false
+
 let _ =
   let open K in
   opt_higher_recurrence := true;
   opt_disjunctive_recurrence_eq := false;
-  set_guard "qe";
+  set_guard "polka";
   opt_recurrence_ineq := false;
   opt_unroll_loop := false;
   opt_polyrec := true;
@@ -724,4 +871,6 @@ let _ =
 
 let _ =
   CmdLine.register_pass
-    ("-cra", analyze, " Compositional recurrence analysis")
+    ("-cra", analyze, " Compositional recurrence analysis");
+  CmdLine.register_pass
+    ("-rba", resource_bound_analysis, " Resource bound analysis")

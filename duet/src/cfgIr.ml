@@ -421,6 +421,7 @@ let rewrite sub_expr sub_bexpr sub_ap sub_var file =
     | AtomicBegin -> AtomicBegin
     | AtomicEnd -> AtomicEnd
     | Exit -> Exit
+    | PrintBounds v -> PrintBounds (sub_var v)
   in
   let sub_def d =
     let dk =
@@ -706,7 +707,8 @@ let split_atomic_func func =
       let (expr, seq) = split_expr expr in
       def.dkind <- Builtin (Release (expr));
       seq
-    | Builtin AtomicBegin | Builtin AtomicEnd | Builtin Exit -> []
+    | Builtin AtomicBegin | Builtin AtomicEnd | Builtin Exit
+    | Builtin (PrintBounds _) -> []
   in
   List.iter (fun def ->
       let seq = split_def def in

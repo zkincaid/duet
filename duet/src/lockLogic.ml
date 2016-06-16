@@ -111,6 +111,7 @@ module MakePath (P : Predicate with type var = Var.t) = struct
       | Alloc (v, e, targ) -> assign (Variable v) (Havoc (Var.get_type v)) pw
       | Free _
       | Fork (_, _, _)
+      | PrintBounds _
       | AtomicBegin
       | AtomicEnd          -> one
       | Exit               -> zero

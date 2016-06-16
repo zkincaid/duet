@@ -128,6 +128,7 @@ type builtin =
   | AtomicBegin
   | AtomicEnd
   | Exit
+  | PrintBounds of var
 
 (** Definition kind *)
 and defkind =
