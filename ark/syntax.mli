@@ -58,6 +58,9 @@ val refine : 'a context -> ('a, typ_fo) expr -> [ `Term of 'a term
                                                 | `Formula of 'a formula ]
 
 
+val pp_expr : ?env:(string Env.t) -> 'a context ->
+  Format.formatter -> ('a, 'b) expr -> unit
+
 val size : ('a, 'typ_fo) expr -> int
 
 val mk_const : 'a context -> symbol -> ('a, 'typ) expr
@@ -171,6 +174,8 @@ val mk_lt : 'a context -> 'a term -> 'a term -> 'a formula
 val mk_leq : 'a context -> 'a term -> 'a term -> 'a formula
 val mk_true : 'a context -> 'a formula
 val mk_false : 'a context -> 'a formula
+val mk_iff : 'a context -> 'a formula -> 'a formula -> 'a formula
+val mk_implies : 'a context -> 'a formula -> 'a formula -> 'a formula
 
 val eliminate_ite : 'a context -> 'a formula -> 'a formula
 

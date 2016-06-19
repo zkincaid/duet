@@ -1124,7 +1124,27 @@ module CSS = struct
     let unsat_skeleton = ref Skeleton.empty in
     let ark = smt_ctx#ark in
     match initialize_pair select_term smt_ctx qf_pre phi with
-    | `Unsat -> `Unsat
+    | `Unsat ->
+      (* Matrix is unsat -> any unsat strategy is winning *)
+      let path =
+        qf_pre |> List.map (function
+            | `Forall, k ->
+              begin match typ_symbol ark k with
+                | `TyReal ->
+                  `Exists (k, Skeleton.MReal (Linear.const_linterm QQ.zero))
+                | `TyInt ->
+                  let vt =
+                    { term = Linear.const_linterm QQ.zero;
+                      divisor = 1;
+                      offset = ZZ.zero }
+                  in
+                  `Exists (k, Skeleton.MInt vt)
+                | `TyBool -> `Exists (k, Skeleton.MBool true)
+                | _ -> assert false
+              end
+            | `Exists, k -> `Forall k)
+      in
+      `Unsat (Skeleton.add_path ark path Skeleton.empty)
     | `Unknown -> `Unknown
     | `Sat (sat_ctx, unsat_ctx) ->
       let round = ref 0 in
@@ -1156,7 +1176,7 @@ module CSS = struct
         | `Sat paths -> (reset sat_ctx;
                          List.iter (add_path sat_ctx) paths;
                          is_sat ())
-        | `Unsat -> `Unsat
+        | `Unsat -> `Unsat unsat_ctx.skeleton
         | `Unknown -> `Unknown
       in
       is_sat ()
@@ -1230,27 +1250,11 @@ let simsat_forward_core smt_ctx qf_pre phi =
       (qf_pre, phi, false)
   in
   match CSS.initialize_pair select_term smt_ctx qf_pre phi with
-  | `Unsat ->
-    (* Matrix is unsat -> any unsat strategy is winning *)
-    let path =
-      qf_pre |> List.map (function
-          | `Forall, k ->
-            begin match typ_symbol ark k with
-              | `TyReal ->
-                `Exists (k, Skeleton.MReal (Linear.const_linterm QQ.zero))
-              | `TyInt ->
-                let vt =
-                  { term = Linear.const_linterm QQ.zero;
-                    divisor = 1;
-                    offset = ZZ.zero }
-                in
-                `Exists (k, Skeleton.MInt vt)
-              | `TyBool -> `Exists (k, Skeleton.MBool true)
-              | _ -> assert false
-            end
-          | `Exists, k -> `Forall k)
-    in
-    `Unsat (Skeleton.add_path ark path Skeleton.empty)
+  | `Unsat skeleton ->
+    if negate then
+      `Sat skeleton
+    else
+      `Unsat skeleton
   | `Unknown -> `Unknown
   | `Sat (sat_ctx, unsat_ctx) ->
     let not_phi = sat_ctx.CSS.not_formula in
@@ -1421,7 +1425,7 @@ let simsat_core smt_ctx qf_pre phi =
     | `TyFun (_, _) -> assert false
   in
   match CSS.initialize_pair select_term smt_ctx qf_pre phi with
-  | `Unsat -> `Unsat
+  | `Unsat _ -> `Unsat
   | `Unknown -> `Unknown
   | `Sat (sat_ctx, unsat_ctx) ->
     CSS.reset unsat_ctx;
@@ -1488,7 +1492,7 @@ let maximize_feasible smt_ctx phi t =
     CSS.initialize_pair select_term smt_ctx qf_pre_unbounded phi_unbounded
   in
   match init with
-  | `Unsat -> `MinusInfinity
+  | `Unsat _ -> `MinusInfinity
   | `Unknown -> `Unknown
   | `Sat (sat_ctx, unsat_ctx) ->
     (* Skolem constant associated with the (universally quantified) objective
@@ -1650,7 +1654,7 @@ let easy_sat smt_ctx phi =
     | `TyFun (_, _) -> assert false
   in
   match CSS.initialize_pair select_term smt_ctx qf_pre phi with
-  | `Unsat -> `Unsat
+  | `Unsat _ -> `Unsat
   | `Unknown -> `Unknown
   | `Sat (sat_ctx, unsat_ctx) ->
     match CSS.get_counter_strategy select_term sat_ctx with
@@ -1659,7 +1663,8 @@ let easy_sat smt_ctx phi =
     | `Sat _ -> `Unknown
 
 
-type 'a strategy = Strategy of ('a formula * Skeleton.move * 'a strategy) list
+type 'a strategy =
+    Strategy of ('a formula * ('a,typ_fo) expr * 'a strategy) list
 
 let rec pp_strategy ark formatter (Strategy xs) =
   let open Format in
@@ -1673,7 +1678,7 @@ let rec pp_strategy ark formatter (Strategy xs) =
   and pp_elt formatter (guard, move, sub_strategy) =
     fprintf formatter "%a --> %a%a"
       (Formula.pp ark) guard
-      (Skeleton.pp_move ark) move
+      (pp_expr ark) move
       pp sub_strategy
   in
   fprintf formatter "@[<v 0>%a@]"
@@ -1723,7 +1728,14 @@ let extract_strategy smt_ctx skeleton phi =
             | ([], _) -> assert false
             | ((guard::interp), sub_strategy) ->
               let guard = mk_not ark guard in
-              (interp, (guard, move, sub_strategy)::strategy))
+              let move_term =
+                match move with
+                | MInt vt -> (term_of_virtual_term ark vt :> ('a, typ_fo) expr)
+                | MReal linterm -> (of_linterm ark linterm :> ('a, typ_fo) expr)
+                | MBool true -> (mk_true ark :> ('a, typ_fo) expr)
+                | MBool false -> (mk_false ark :> ('a, typ_fo) expr)
+              in
+              (interp, (guard, move_term, sub_strategy)::strategy))
           (interp, [])
           (MM.enum mm)
         |> (fun (interp, xs) -> (interp, Strategy xs))
@@ -1737,10 +1749,10 @@ let extract_strategy smt_ctx skeleton phi =
 let winning_strategy smt_ctx qf_pre phi =
   match simsat_forward_core smt_ctx qf_pre phi with
   | `Sat skeleton ->
-    logf "Formula is SAT.  Extracting strategy.";
+    Log.errorf "Formula is SAT.  Extracting strategy.";
     `Sat (extract_strategy smt_ctx skeleton phi)
   | `Unsat skeleton ->
-    logf "Formula is UNSAT.  Extracting strategy.";
+    Log.errorf "Formula is UNSAT.  Extracting strategy.";
     `Unsat (extract_strategy smt_ctx skeleton (mk_not smt_ctx#ark phi))
   | `Unknown -> `Unknown
 
@@ -1758,13 +1770,13 @@ let check_strategy smt_ctx qf_pre phi strategy =
         xs |> List.map (fun (guard, move, sub_strategy) ->
             let move_formula =
               let open Skeleton in
-              match move with
-              | MInt vt ->
-                mk_eq ark (mk_const ark k) (term_of_virtual_term ark vt)
-              | MReal linterm ->
-                mk_eq ark (mk_const ark k) (of_linterm ark linterm)
-              | MBool true -> mk_const ark k
-              | MBool false -> mk_not ark (mk_const ark k)
+              match refine smt_ctx#ark move with
+              | `Term t -> mk_eq smt_ctx#ark (mk_const ark k) t
+              | `Formula phi ->
+                match Formula.destruct smt_ctx#ark phi with
+                | `Tru -> mk_const ark k
+                | `Fls -> mk_not ark (mk_const ark k)
+                | _ -> assert false
             in
             mk_and ark [guard; move_formula; go qf_pre sub_strategy])
         |> mk_or ark
@@ -1777,3 +1789,57 @@ let check_strategy smt_ctx qf_pre phi strategy =
   in
   let strategy_formula = go qf_pre strategy in
   smt_ctx#is_sat (mk_and ark [strategy_formula; mk_not ark phi]) = `Unsat
+
+type skeleton = Skeleton.t
+
+let destruct_skeleton ark skeleton =
+  let open Skeleton in
+  match skeleton with
+  | SEmpty -> `Empty
+  | SForall (k, sk, skeleton) -> `Forall (k, sk, skeleton)
+  | SExists (k, mm) ->
+    let moves =
+      MM.enum mm
+      /@ (fun (move, skeleton) ->
+          let move_term =
+            match move with
+            | MInt vt -> (term_of_virtual_term ark vt :> ('a, typ_fo) expr)
+            | MReal linterm -> (of_linterm ark linterm :> ('a, typ_fo) expr)
+            | MBool true -> (mk_true ark :> ('a, typ_fo) expr)
+            | MBool false -> (mk_false ark :> ('a, typ_fo) expr)
+          in
+          (move_term, skeleton))
+      |> BatList.of_enum
+    in
+    `Exists (k, moves)
+
+let destruct_skeleton_block ark skeleton =
+  let rec destruct_exists skeleton =
+    match destruct_skeleton ark skeleton with
+    | `Exists (k, moves) ->
+      moves |> List.map (fun (move, sub_skeleton) ->
+          destruct_exists sub_skeleton |> List.map (fun (block, skel) ->
+              ((k, move)::block, skel)))
+      |> List.concat
+    | `Empty | `Forall (_, _, _) -> [([], skeleton)]
+  in
+  let rec destruct_forall skeleton =
+    let open Skeleton in
+    match skeleton with
+    | SForall (k, sk, sub_skeleton) ->
+      let (block, rest) = destruct_forall sub_skeleton in
+      ((k, sk)::block, rest)
+    | _ -> ([], skeleton)
+  in
+  let open Skeleton in
+  match skeleton with
+  | SExists (_, _) ->
+    `Exists (destruct_exists skeleton)
+  | SForall (_, _, _) ->
+    let (block, rest) = destruct_forall skeleton in
+    `Forall (block, rest)
+  | SEmpty -> `Empty
+
+let winning_skeleton smt_ctx qf_pre phi = simsat_forward_core smt_ctx qf_pre phi
+
+let pp_skeleton = Skeleton.pp

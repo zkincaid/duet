@@ -20,16 +20,17 @@ let symbol_of_string =
 %token OBJECTIVE
 %token <string> ID
 %token <QQ.t> REAL
-%token ADD MINUS MUL
+%token ADD MINUS MUL DIV
 %token AND OR NOT
-%token EQ LEQ LT GT
+%token EQ LEQ GEQ LT GT
 %token FORALL EXISTS
 %token LPAREN RPAREN
 %token LBRACKET RBRACKET
 %token LBRACE RBRACE
+%token INIT SAFE REACH VARS
 
-%left ADD
-%left MUL
+%left ADD MINUS
+%left MUL DIV
 %nonassoc UMINUS
 
 %start math_main
@@ -38,6 +39,8 @@ let symbol_of_string =
 %type <ArkAst.term * ArkAst.formula> math_opt_main
 %start smt2_formula
 %type <ArkAst.formula> smt2_formula
+%type <Syntax.symbol list * Syntax.symbol list * ArkAst.formula * ArkAst.formula * ArkAst.formula> game
+%start game
 
 %%
 
@@ -78,7 +81,6 @@ math_term:
     | MINUS; t = math_term { Ctx.mk_neg t } %prec UMINUS
 ;
 
-
 smt2_formula:
   | LPAREN; phi = up_smt2_formula; RPAREN { phi }
 ;
@@ -99,3 +101,60 @@ up_smt2_term:
   | MINUS; t = smt2_term { Ctx.mk_neg t }
   | k = REAL { Ctx.mk_real k }
 ;
+
+game_additive_term:
+  | s = game_multiplicative_term; ADD; t = game_additive_term {
+						  Ctx.mk_add [s; t]
+						}
+  | s = game_multiplicative_term; MINUS; t = game_additive_term {
+						    Ctx.mk_sub s t
+						  }
+  | t = game_multiplicative_term { t }
+;
+
+game_multiplicative_term:
+  | s = game_multiplicative_term; MUL; t = game_multiplicative_term {
+						  Ctx.mk_mul [s; t]
+						}
+  | s = game_multiplicative_term; DIV; t = game_multiplicative_term {
+						  Ctx.mk_div s t
+						}
+  | t = game_atomic_term { t }
+;
+
+game_atomic_term:
+  | LPAREN; t = game_additive_term; RPAREN { t }
+  | v = ID { Ctx.mk_const (symbol_of_string v) }
+  | k = REAL { Ctx.mk_real k }
+  ;
+
+game_disj_formula:
+  | disjuncts = separated_nonempty_list(OR,game_conj_formula) { Ctx.mk_or disjuncts }
+  ;
+
+game_conj_formula:
+  | conjuncts = separated_nonempty_list(AND,game_atomic_formula) { Ctx.mk_and conjuncts }
+  ;
+
+game_atomic_formula:
+  | s = game_additive_term; LEQ; t = game_additive_term { Ctx.mk_leq s t }
+  | s = game_additive_term; GEQ; t = game_additive_term { Ctx.mk_leq t s }
+  | s = game_additive_term; LT; t = game_additive_term { Ctx.mk_lt s t }
+  | s = game_additive_term; GT; t = game_additive_term { Ctx.mk_lt t s }
+  | s = game_additive_term; EQ; t = game_additive_term { Ctx.mk_eq s t }
+  | NOT; LPAREN; phi = game_disj_formula; RPAREN { Ctx.mk_not phi }
+  | LPAREN; phi = game_disj_formula; RPAREN { phi }
+  ;
+
+game:
+  | VARS; vars = separated_nonempty_list(COMMA,ID);
+    INIT; init = game_disj_formula;
+    SAFE; safe = game_disj_formula;
+    REACH; reach = game_disj_formula;
+    EOF {
+	let primed_vars =
+	  List.map (fun v -> symbol_of_string (v ^ "'")) vars
+	in
+	(List.map symbol_of_string vars, primed_vars, init, safe, reach)
+      }
+  ;

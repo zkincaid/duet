@@ -292,7 +292,7 @@ and z3_of_formula ark z3 phi =
       in
       let z3sym = z3_of_symbol z3 predicate in
       let decl = Z3.FuncDecl.mk_func_decl z3 z3sym param_sorts return_sort in
-      Z3.Expr.mk_app z3 decl (List.map (z3_of_expr ark z3) args)
+         Z3.Expr.mk_app z3 decl (List.map (z3_of_expr ark z3) args)
     | `Ite (cond, bthen, belse) -> Z3.Boolean.mk_ite z3 cond bthen belse
   in
   Formula.eval ark alg phi

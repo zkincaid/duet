@@ -12,7 +12,7 @@ duet: setup.ml setup.data duet/src/config.ml
 	cp duet.native duet/duet
 
 ark: setup.ml setup.data
-	ocamlbuild ark/test_ark.native -tag debug
+	ocamlbuild ark/test_ark.native ark/arkTop.native -tag debug
 
 apak: setup.ml setup.data
 	ocamlbuild apak/test_apak.byte -tag debug

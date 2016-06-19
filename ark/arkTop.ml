@@ -1,5 +1,6 @@
 open ArkAst
 open Apak
+open Game
 
 module Ctx = ArkAst.Ctx
 module Infix = Syntax.Infix(Ctx)
@@ -48,6 +49,19 @@ let load_math_opt filename =
                 pos.pos_lnum
                 (pos.pos_cnum - pos.pos_bol + 1))
 
+let load_game filename =
+  let open Lexing in
+  let lexbuf = Lexing.from_channel (open_in filename) in
+  lexbuf.lex_curr_p <- { lexbuf.lex_curr_p with pos_fname = filename };
+  try ArkParse.game ArkLex.game_token lexbuf with
+  | _ ->
+    let open Lexing in
+    let pos = lexbuf.lex_curr_p in
+    failwith (Printf.sprintf "Parse error: %s:%d:%d"
+                filename
+                pos.pos_lnum
+                (pos.pos_cnum - pos.pos_bol + 1))
+
 let print_result = function
   | `Sat -> Log.logf ~level:`always "sat"
   | `Unsat -> Log.logf ~level:`always "unsat"
@@ -57,8 +71,12 @@ let _ =
   Log.colorize := true;
   let i =
     match Sys.argv.(1) with
-    | "verbose" -> Log.verbosity_level := `info; 2
-    | "trace" -> Log.verbosity_level := `trace; 2
+    | "verbose" ->
+      (Log.set_verbosity_level "ark.game" `info; 2)
+      (*Log.verbosity_level := `info; 2*)
+    | "trace" ->
+      (Log.set_verbosity_level "ark.game" `trace; 2)
+      (*Log.verbosity_level := `trace; 2*)
     | _ -> 1
   in
   match Sys.argv.(i) with
@@ -208,5 +226,27 @@ let _ =
       []
       (smt_ctx#of_formula (RandomFormula.mk_random_formula ctx))
     |> print_endline
-
+  | "safety" ->
+    let open Syntax in
+    let (vars, primed_vars, start, safe, reach) = load_game Sys.argv.(i+1) in
+    let map =
+      List.fold_left2
+        (fun map x x' ->
+           Symbol.Map.add x (Ctx.mk_const x')
+             (Symbol.Map.add x' (Ctx.mk_const x) map))
+        Symbol.Map.empty
+        vars
+        primed_vars
+    in
+    let reach =
+      substitute_const ctx (fun x -> Symbol.Map.find x map) reach
+    in
+    Format.printf "Reach:@\n%a@\n" (Formula.pp ctx) reach;
+    begin
+      match Game.solve smt_ctx (vars, primed_vars) ~start ~safe ~reach with
+      | None -> Format.printf "Reachability player wins.@\n"
+      | Some strategy ->
+        Format.printf "Winning strategy:@\n%a@\n" Game.GameTree.pp strategy;
+        Format.printf "Safety player wins.@\n"
+    end;
   | x -> Log.fatalf "Unknown command: `%s'" x

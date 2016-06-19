@@ -21,7 +21,8 @@ val qe_mbp : 'a smt_context -> 'a formula -> 'a formula
 (** Alternating quantifier satisfiability *)
 val easy_sat : 'a smt_context -> 'a formula -> [ `Sat | `Unsat | `Unknown ]
 
-type 'a strategy
+type 'a strategy =
+    Strategy of ('a formula * ('a,typ_fo) expr * 'a strategy) list
 
 type quantifier_prefix = ([`Forall | `Exists] * symbol) list
 
@@ -42,3 +43,26 @@ val check_strategy : 'a smt_context -> quantifier_prefix -> 'a formula ->
   'a strategy -> bool
 
 val normalize : 'a context -> 'a formula -> quantifier_prefix * 'a formula
+
+type skeleton
+
+val pp_skeleton : 'a context -> Format.formatter -> skeleton -> unit
+
+val destruct_skeleton : 'a context -> skeleton ->
+  [ `Forall of symbol * symbol * skeleton
+  | `Exists of symbol * (('a,typ_fo) expr * skeleton) list
+  | `Empty ]
+
+(** Desruct a skeleton by extracting the first *block* of quantifiers (maximal
+    contiguous sequence of existential or universal quantifiers *)
+val destruct_skeleton_block : 'a context -> skeleton ->
+  [ `Forall of (symbol * symbol) list * skeleton
+  | `Exists of ((symbol * ('a,typ_fo) expr) list * skeleton) list
+  | `Empty ]
+
+(** Compute a winning strategy for either the SAT player or the UNSAT
+    player *)
+val winning_skeleton : 'a smt_context -> quantifier_prefix -> 'a formula ->
+  [ `Sat of skeleton
+  | `Unsat of skeleton
+  | `Unknown ]

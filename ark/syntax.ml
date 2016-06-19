@@ -227,6 +227,12 @@ let mk_or ctx disjuncts = ctx.mk Or disjuncts
 let mk_forall ctx ?name:(name="_") typ phi = ctx.mk (Forall (name, typ)) [phi]
 let mk_exists ctx ?name:(name="_") typ phi = ctx.mk (Exists (name, typ)) [phi]
 
+let mk_iff ctx phi psi =
+  mk_or ctx [mk_and ctx [phi; psi];
+             mk_and ctx [mk_not ctx phi; mk_not ctx psi]]
+
+let mk_implies ctx phi psi = mk_or ctx [mk_not ctx phi; psi]
+
 let mk_ite ctx cond bthen belse = ctx.mk Ite [cond; bthen; belse]
 
 (* Avoid capture by incrementing bound variables *)

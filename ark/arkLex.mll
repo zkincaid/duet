@@ -38,13 +38,14 @@ rule math_token = parse
 | eof { EOF }
 
 and smt2token = parse
-| whitespace { math_token lexbuf }
-| newline  { next_line lexbuf; math_token lexbuf }
+| whitespace { smt2token lexbuf }
+| newline  { next_line lexbuf; smt2token lexbuf }
 | "and" { AND }
 | "or" { OR }
 | "forall" { FORALL }
 | "exists" { EXISTS }
 | "<=" { LEQ }
+| ">=" { LEQ }
 | "=" { EQ }
 | "<" { LT }
 | ">" { GT }
@@ -54,5 +55,30 @@ and smt2token = parse
 | "(" { LPAREN }
 | ")" { RPAREN }
 | ['_' 'a'-'z' 'A'-'Z' '$' '?']['_' 'a'-'z' 'A'-'Z' '0'-'9']* as lxm { ID(lxm) }
+| ['-']?['0'-'9']+['/']?['0'-'9']* as lxm { REAL(QQ.of_string lxm) }
+| eof { EOF }
+
+and game_token = parse
+| whitespace { game_token lexbuf }
+| newline  { next_line lexbuf; game_token lexbuf }
+| "&&" { AND }
+| "||" { OR }
+| "!" { NOT }
+| "<=" { LEQ }
+| ">=" { GEQ }
+| "=" { EQ }
+| "<" { LT }
+| ">" { GT }
+| "*" { MUL }
+| "+" { ADD }
+| "-" { MINUS }
+| "(" { LPAREN }
+| ")" { RPAREN }
+| "," { COMMA }
+| "init:" { INIT }
+| "safe:" { SAFE }
+| "reach:" { REACH }
+| "vars:" { VARS }
+| ['_' 'a'-'z' 'A'-'Z' '$' '?']['_' 'a'-'z' 'A'-'Z' '0'-'9''\'']* as lxm { ID(lxm) }
 | ['-']?['0'-'9']+['/']?['0'-'9']* as lxm { REAL(QQ.of_string lxm) }
 | eof { EOF }
