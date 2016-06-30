@@ -60,7 +60,8 @@ module RecurrenceAnalysis (Var : Var) = struct
 
     let format_abstract formatter abstract =
       Format.fprintf formatter
-        "{@[<v 0>pre:@;  @[<v 0>%a@]@;post:@;  @[<v 0>%a@]@;"
+        "{@[<v 0>mod:@;  @[<v 0>%a@]pre:@;  @[<v 0>%a@]@;post:@;  @[<v 0>%a@]@;"
+        VarSet.format abstract.modified
         F.format (F.of_abstract abstract.precondition)
         F.format (F.of_abstract abstract.postcondition);
       Format.fprintf formatter
