@@ -247,17 +247,23 @@ module RecurrenceAnalysis (Var : Var) = struct
         let non_induction = ref vars in
         let equations =
           VarSet.fold (fun v equations ->
-              match find_recurrence v vars with
-              | None -> equations
-              | Some rhs ->
-                found_recurrence := true;
-                non_induction := VarSet.remove v (!non_induction);
-                (v, rhs)::equations)
+              if has_coeff v && has_coeff (Var.prime v) then
+                match find_recurrence v vars with
+                | None -> equations
+                | Some rhs ->
+                  found_recurrence := true;
+                  non_induction := VarSet.remove v (!non_induction);
+                  (v, rhs)::equations
+              else
+                equations)
             vars
             equations
         in
         if !found_recurrence then fix equations (!non_induction)
         else equations
+      in
+      let vars =
+        VarSet.filter (fun v -> has_coeff v && has_coeff (Var.prime v)) modified
       in
       List.rev (fix [] modified)
 
