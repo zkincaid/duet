@@ -60,7 +60,7 @@ module RecurrenceAnalysis (Var : Var) = struct
 
     let format_abstract formatter abstract =
       Format.fprintf formatter
-        "{@[<v 0>mod:@;  @[<v 0>%a@]pre:@;  @[<v 0>%a@]@;post:@;  @[<v 0>%a@]@;"
+        "{@[<v 0>mod:@;  @[<v 0>%a@]@;pre:@;  @[<v 0>%a@]@;post:@;  @[<v 0>%a@]@;"
         VarSet.format abstract.modified
         F.format (F.of_abstract abstract.precondition)
         F.format (F.of_abstract abstract.postcondition);
@@ -190,7 +190,7 @@ module RecurrenceAnalysis (Var : Var) = struct
         let free_vars = formula_free_program_vars body in
         BatList.of_enum (VarSet.enum free_vars /@ V.mk_var)
       in
-      let equalities = F.affine_hull ~solver:solver body vars in
+      let equalities = F.affine_hull body vars in
       logf "Extracted equalities:@ %a"
         Show.format<T.Linterm.t list> equalities;
       let (s, coeffs) = farkas equalities vars in
@@ -368,7 +368,6 @@ module RecurrenceAnalysis (Var : Var) = struct
         F.abstract
           man
           ~exists:(Some (low (flip VarSet.mem pre_vars)))
-          ~solver:s
           body
       in
       let post_guard =
@@ -378,7 +377,7 @@ module RecurrenceAnalysis (Var : Var) = struct
             (VarSet.map Var.prime modified)
         in
         let p = low (flip VarSet.mem post_vars) in
-        F.abstract man ~exists:(Some p) ~solver:s body
+        F.abstract man ~exists:(Some p) body
         |> T.D.rename (fun v ->
             match V.lower v with
             | Some v ->
@@ -389,7 +388,7 @@ module RecurrenceAnalysis (Var : Var) = struct
             | None -> assert false)
       in
       let stratified =
-        stratified_recurrence_equations ~solver:s modified body
+        stratified_recurrence_equations modified body
       in
       let induction_vars =
         List.fold_left
@@ -603,19 +602,19 @@ module RecurrenceAnalysis (Var : Var) = struct
               if sat_modulo_tr (F.conj phi post_not_phi) = Smt.Unsat then
                 (* {phi} tr {phi} -> tr* = ([not phi]tr)*([phi]tr)* *)
                 let left_abstract =
-                  Base.alpha_formula ~solver:s not_phi_body modified
+                  Base.alpha_formula not_phi_body modified
                 in
                 let right_abstract =
-                  Base.alpha_formula ~solver:s phi_body modified
+                  Base.alpha_formula phi_body modified
                 in
                 Some (phi, Leaf left_abstract, Leaf right_abstract)
               else if sat_modulo_tr (F.conj not_phi post_phi) = Smt.Unsat then
                 (* {not phi} tr {not phi} -> tr* = ([phi]tr)*([not phi]tr)* *)
                 let left_abstract =
-                  Base.alpha_formula ~solver:s phi_body modified
+                  Base.alpha_formula phi_body modified
                 in
                 let right_abstract =
-                  Base.alpha_formula ~solver:s not_phi_body modified
+                  Base.alpha_formula not_phi_body modified
                 in
                 Some (not_phi, Leaf left_abstract, Leaf right_abstract)
               else
