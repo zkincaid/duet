@@ -58,6 +58,33 @@ module RecurrenceAnalysis (Var : Var) = struct
         stratified : (Var.t * T.t) list;
         inequations : (T.t * [ `Leq | `Eq ] * T.t) list }
 
+    let format_abstract formatter abstract =
+      Format.fprintf formatter
+        "{@[<v 0>pre:@;  @[<v 0>%a@]@;post:@;  @[<v 0>%a@]@;"
+        F.format (F.of_abstract abstract.precondition)
+        F.format (F.of_abstract abstract.postcondition);
+      Format.fprintf formatter
+        "recurrences:@;  @[<v 0>%a@;%a@]@]}"
+        (ApakEnum.pp_print_enum_nobox
+           ~pp_sep:(fun formatter () -> Format.pp_print_break formatter 0 0)
+           (fun formatter (lhs, rhs) ->
+              Format.fprintf formatter "%a' = %a + %a"
+                Var.format lhs
+                Var.format lhs
+                T.format rhs))
+        (BatList.enum abstract.stratified)
+        (ApakEnum.pp_print_enum_nobox
+           ~pp_sep:(fun formatter () -> Format.pp_print_break formatter 0 0)
+           (fun formatter (lhs, op, rhs) ->
+              Format.fprintf formatter "(%a)' %s (%a) + %a"
+                T.format lhs
+                (match op with
+                 | `Eq -> "="
+                 | `Leq -> "<=")
+                T.format lhs
+                T.format rhs))
+        (BatList.enum abstract.inequations)
+
     let abstract_star abstract =
       let loop_counter = T.var (V.mk_int_tmp "K") in
       (* In a recurrence environment, absence of a binding for a variable
@@ -75,7 +102,10 @@ module RecurrenceAnalysis (Var : Var) = struct
            right-hand-side *)
         match Incr.eval env rhs with
         | Some rhs_closed -> Incr.summation rhs_closed
-        | None -> assert false
+        | None ->
+          Log.errorf "Stratification error for iterate:@\n%a"
+            format_abstract abstract;
+          assert false
       in
       (* Close all stratified recurrence equations *)
       let (env, transform) =
@@ -383,33 +413,6 @@ module RecurrenceAnalysis (Var : Var) = struct
       in
       let modified = VarSet.of_enum (M.keys tr.transform) in
       alpha_formula body modified
-
-    let format_abstract formatter abstract =
-      Format.fprintf formatter
-        "{@[<v 0>pre:@;  @[<v 0>%a@]@;post:@;  @[<v 0>%a@]@;"
-        F.format (F.of_abstract abstract.precondition)
-        F.format (F.of_abstract abstract.postcondition);
-      Format.fprintf formatter
-        "recurrences:@;  @[<v 0>%a@;%a@]@]}"
-        (ApakEnum.pp_print_enum_nobox
-           ~pp_sep:(fun formatter () -> Format.pp_print_break formatter 0 0)
-           (fun formatter (lhs, rhs) ->
-              Format.fprintf formatter "%a' = %a + %a"
-                Var.format lhs
-                Var.format lhs
-                T.format rhs))
-        (BatList.enum abstract.stratified)
-        (ApakEnum.pp_print_enum_nobox
-           ~pp_sep:(fun formatter () -> Format.pp_print_break formatter 0 0)
-           (fun formatter (lhs, op, rhs) ->
-              Format.fprintf formatter "(%a)' %s (%a) + %a"
-                T.format lhs
-                (match op with
-                 | `Eq -> "="
-                 | `Leq -> "<=")
-                T.format lhs
-                T.format rhs))
-        (BatList.enum abstract.inequations)
 
     let abstract_vars abstract =
       VarSet.union
