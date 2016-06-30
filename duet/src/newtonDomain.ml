@@ -1590,8 +1590,8 @@ let () =
   Callback.register "tensorCompose_callback" KK.mul;
   Callback.register "tensorUnion_callback" KK.add;
   Callback.register "tensorStar_callback" KK.star;
-  Callback.register "tensorZero_callback" KK.zero;
-  Callback.register "tensorOne_callback" KK.one;
+  Callback.register "tensorZero_callback" (fun () -> KK.zero);
+  Callback.register "tensorOne_callback" (fun () -> KK.one);
 
   Callback.register "alpha_hat_callback" K.alpha;
   Callback.register "tensor_alpha_hat_callback" KK.alpha;
