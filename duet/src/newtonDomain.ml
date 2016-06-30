@@ -259,10 +259,7 @@ module RecurrenceAnalysis (Var : Var) = struct
         if !found_recurrence then fix equations (!non_induction)
         else equations
       in
-      let vars =
-        VarSet.filter (fun v -> has_coeff v && has_coeff (Var.prime v)) modified
-      in
-      List.rev (fix [] vars)
+      List.rev (fix [] modified)
 
     let linear_recurrence_inequations induction_vars non_induction_vars body =
       (* each non-induction variable x is associated with a delta variable,
