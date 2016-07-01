@@ -367,7 +367,7 @@ module Dioid (Var : Var) = struct
       | Some var -> T.var (if p var then v else rename var)
       | None -> T.var v
     in
-    { transform = transform;
+    { transform = M.map (T.subst sigma) transform;
       guard = F.subst sigma tr.guard }
 
   (* Overapproximate a transition with a transition such that each the right
