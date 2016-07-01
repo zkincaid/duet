@@ -457,8 +457,8 @@ module RecurrenceAnalysis (Var : Var) = struct
         let constraint_of_rec_ineq (lhs, op, rhs) =
           let term =
             T.sub
-              (T.subst primify lhs)
               (T.add lhs rhs)
+              (T.subst primify lhs)
             |> to_apron
           in
           match op with
