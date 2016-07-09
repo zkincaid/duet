@@ -774,35 +774,27 @@ module RecurrenceAnalysis (Var : Var) = struct
       | Split [], Leaf _ | Leaf _, Split [] -> assert false
 
     let rec abstract_widen x y =
-      let cons x abstract = match abstract with
-        | Split xs -> Split (x::xs)
-        | Leaf _ -> Split [x]
-      in
       match x, y with
       | Leaf x, Leaf y -> Leaf (Base.abstract_widen x y)
       | Split xs, Split ys ->
         let rec go xs ys = match xs, ys with
           | (px, lx, rx)::xs, (py, ly, ry)::ys when F.compare px py = 0 ->
-            cons (px, abstract_widen lx ly, abstract_widen rx ry) (go xs ys)
+            (px, abstract_widen lx ly, abstract_widen rx ry)::(go xs ys)
           | (px, lx, rx)::xs, (py, ly, ry)::ys when F.compare px py < 0 ->
-            begin
-              match abstract_join lx rx with
-              | Split xs' -> go (xs'@xs) ys
-              | Leaf x when BatList.is_empty xs ->
-                abstract_join (Leaf x) (abstract_join ly ry)
-              | Leaf x -> go xs ((py, ly, ry)::ys)
-            end
+            go xs ((py, ly, ry)::ys)
           | (px, lx, rx)::xs, (py, ly, ry)::ys ->
-            begin
-              match abstract_join ly ry with
-              | Split ys' -> go xs (ys'@ys)
-              | Leaf y when BatList.is_empty ys ->
-                abstract_join (abstract_join lx rx) (Leaf y)
-              | Leaf y -> go ((px, lx, rx)::xs) ys
-            end
-          | [], _ | _, [] -> assert false
+            go ((px, lx, rx)::xs) ys
+          | [], _ | _, [] -> []
         in
-        go xs ys
+        begin
+          match go xs ys with
+          | [] -> begin match xs, ys with
+              | (px, lx, rx)::_, (py, ly, ry)::_ ->
+                abstract_widen (abstract_join lx rx) (abstract_join ly ry)
+              | _ -> assert false
+            end
+          | cases -> Split cases
+        end
       | Leaf x, Split ((_,ly,ry)::ys) ->
         abstract_widen (Leaf x) (abstract_join ly ry)
       | Split ((_,lx,rx)::ys), Leaf y->
