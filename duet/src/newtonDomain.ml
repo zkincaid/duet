@@ -714,11 +714,10 @@ module RecurrenceAnalysis (Var : Var) = struct
               predicates
             else
               FormulaSet.add phi predicates)
-          (F.eval alg tr.guard)
+          (F.eval alg body)
           FormulaSet.empty
         |> FormulaSet.elements
       in
-
       alpha_formula_split body modified predicates
 
     let rec abstract_equal x y =

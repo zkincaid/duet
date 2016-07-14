@@ -2322,7 +2322,6 @@ module Make (T : Term.S) = struct
       Log.time "Abstraction" go (D.bottom man env_proj)
     with Timeout -> begin
         Log.errorf "Symbolic abstraction timed out; returning top";
-        s#pop ();
         D.top man env_proj
       end
        | Not_found -> assert false
