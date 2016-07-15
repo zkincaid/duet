@@ -167,11 +167,57 @@ module RecurrenceAnalysis (Var : Var) = struct
         in
         F.of_abstract abstract.postcondition |> F.subst sigma
       in
+      (* The next-to-last iterate must satisfy the pre-condition of the loop *)
+      let penultimate_guard =
+        let prev_counter = T.sub loop_counter T.one in
+        (* maps each variable to a term representing its value in the
+           penultimate iteration *)
+        let prev_map =
+          Incr.Env.fold (fun var rhs prev_map ->
+              match rhs with
+              | Some cf -> M.add var (Incr.to_term cf prev_counter) prev_map
+              | None ->
+                let nondet =
+                  V.mk_tmp ("nondet_" ^ (Var.show var)) (Var.typ var)
+                in
+                M.add var (T.var nondet) prev_map)
+            env
+            M.empty
+        in
+        let prev v =
+          match V.lower v with
+          | Some var -> M.find var prev_map
+          | None -> assert false
+        in
+        let delta_prev_subst v = match V.lower v with
+          | Some pv -> begin
+              try T.sub (M.find pv prev_map) (T.var v)
+              with Not_found -> T.var v
+            end
+          | _ -> assert false
+        in
+        (* Close all linear recurrence inequations to get constraints on the
+           next-to-last iterate. *)
+        let ineqs =
+          abstract.inequations |> List.map (fun (lhs, op, rhs) ->
+              let cf = Incr.to_term (close_sum env rhs) prev_counter in
+              let lhs_delta = T.subst delta_prev_subst lhs in
+              match op with
+              | `Leq -> F.leq lhs_delta cf
+              | `Eq -> F.eq lhs_delta cf)
+          |> BatList.enum |> F.big_conj
+        in
+        let prev_precondition =
+          abstract.precondition |> F.of_abstract |> F.subst prev
+        in
+        F.conj ineqs prev_precondition
+      in
       let plus_guard =
         F.big_conj (BatList.enum [
             ineqs;
             (F.of_abstract abstract.precondition);
             postcondition;
+            penultimate_guard;
             (F.geq loop_counter T.one)])
       in
       let zero_guard =
