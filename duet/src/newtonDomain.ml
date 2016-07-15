@@ -186,7 +186,9 @@ module RecurrenceAnalysis (Var : Var) = struct
         in
         let prev v =
           match V.lower v with
-          | Some var -> M.find var prev_map
+          | Some var ->
+            (try M.find var prev_map
+             with Not_found -> T.var v)
           | None -> assert false
         in
         let delta_prev_subst v = match V.lower v with
