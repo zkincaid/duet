@@ -76,6 +76,11 @@ module type S = sig
     t ->
     'a T.D.t
 
+  (** Maximum number of abstraction rounds used by [!abstract] before a
+      trivial solution is returned.  -1 allows an unbounded number of
+      rounds. *)
+  val opt_abstract_limit : int ref
+
   (** Abstract post-condition of an assigment *)
   val abstract_assign : 'a Apron.Manager.t ->
     'a T.D.t ->

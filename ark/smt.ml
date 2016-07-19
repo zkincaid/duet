@@ -4,7 +4,7 @@ open ArkPervasives
 let context = ref None
 let opts = ref [ ("timeout", "5000");
                  ("model", "true") ]
-
+let opt_timeout = ref 5000
 type lbool = Sat | Unsat | Undef
                deriving (Show)
 
@@ -33,7 +33,14 @@ let get_context () =
 let mk_int_sort () = Arithmetic.Integer.mk_sort (get_context ())
 let mk_bool_sort () = Boolean.mk_sort (get_context ())
 let mk_real_sort () = Arithmetic.Real.mk_sort (get_context ())
-let mk_solver () = Solver.mk_solver (get_context ()) None
+let mk_solver () =
+  let params = Params.mk_params (get_context ()) in
+  let timeout_param = Symbol.mk_string (get_context ()) "timeout" in
+  Params.add_int params timeout_param (!opt_timeout);
+  let solver = Solver.mk_solver (get_context ()) None in
+  Solver.set_parameters solver params;
+  solver
+
 let mk_fixedpoint () = Fixedpoint.mk_fixedpoint (get_context ())
 
 let ast_to_string ast = Expr.to_string ast

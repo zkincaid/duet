@@ -46,6 +46,7 @@ module type S = sig
     'a Apron.Manager.t ->
     t ->
     'a T.D.t
+  val opt_abstract_limit : int ref
   val abstract_assign : 'a Apron.Manager.t ->
     'a T.D.t ->
     T.V.t ->
@@ -1433,7 +1434,7 @@ module Make (T : Term.S) = struct
       match space#check () with
       | Smt.Unsat -> equalities
       | Smt.Undef -> (* give up; return the equalities we have so far *)
-        Log.errorf "Affine hull timed out";
+        Log.errorf "Affine hull timed out: %s" (space#get_reason_unknown());
         equalities
       | Smt.Sat ->
         let candidate = extract_linterm (space#get_model ()) in
@@ -2103,8 +2104,6 @@ module Make (T : Term.S) = struct
     let vars = BatList.of_enum (BatEnum.filter (not % p) (VarSet.enum fv)) in
     let ctx = Smt.get_context () in
     let simplify = Tactic.mk_tactic ctx "simplify" in
-    let solve_eqs = Tactic.mk_tactic ctx "solve-eqs" in
-    let simplify = Tactic.and_then ctx simplify solve_eqs [] in
     let g = Goal.mk_goal ctx false false false in
     Goal.add g [Smt.mk_exists_const (List.map T.V.to_smt vars) (to_smt phi)];
     of_apply_result (Tactic.apply simplify g None)
@@ -2272,6 +2271,8 @@ module Make (T : Term.S) = struct
     | Atom (EqZ t) -> fprintf formatter "@[%a == 0@]" T.format t
     | Atom (LtZ t) -> fprintf formatter "@[%a < 0@]" T.format t
 
+  let opt_abstract_limit = ref (-1)
+
   (* Same as abstract, except local polyhedral projection is used instead of
      projection in Apron's abstract domain. *)
   let local_abstract ?exists:(p=None) s man phi =
@@ -2306,16 +2307,23 @@ module Make (T : Term.S) = struct
           s#pop ();
           incr disjuncts;
           logf "[%d] abstract lazy_dnf" (!disjuncts);
-          let disjunct =
-            match Log.time "poly select" (Polyhedron.select valuation) phi with
-            | Some d -> d
-            | None -> assert false
-          in
-          let projected_disjunct =
-            Polyhedron.local_project valuation projected_vars disjunct
-            |> Polyhedron.to_apron env_proj man
-          in
-          go (D.join prop projected_disjunct)
+          if (!disjuncts) = (!opt_abstract_limit) then begin
+            Log.errorf "Met symbolic abstraction limit; returning top";
+            D.top man env_proj
+          end else begin
+            let disjunct =
+              match
+                Log.time "Poly.select" (Polyhedron.select valuation) phi
+              with
+              | Some d -> d
+              | None -> assert false
+            in
+            let projected_disjunct =
+              Polyhedron.local_project valuation projected_vars disjunct
+              |> Polyhedron.to_apron env_proj man
+            in
+            go (D.join prop projected_disjunct)
+          end
         end
     in
     try

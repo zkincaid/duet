@@ -152,4 +152,10 @@ let parse filename =
 
 let _ =
   register_pass
-    ("-split-atomic", CfgIr.split_atomic, " Split commands into atomic instructions")
+    ("-split-atomic",
+     CfgIr.split_atomic,
+     " Split commands into atomic instructions");
+  register_config
+    ("-z3-timeout",
+     Arg.Set_int Ark.Smt.opt_timeout,
+     " Set Z3 solver timeout (milliseconds)")
