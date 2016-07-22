@@ -11,17 +11,23 @@ let error_count = ref 0
 let safe_count = ref 0
 let unreachable_count = ref 0
 
+let output_file = ref ""
+
 let log_error loc txt = 
   incr error_count;
   errors := (loc,txt)::(!errors);
-  let ofile = open_out_gen [Open_creat; Open_text; Open_append] 0o640 "../WALi-OpenNWA/Examples/cprover/tests/regression/outputs/__result.out" in
-  Printf.fprintf ofile "FAIL ";
-  close_out ofile
+  if !output_file <> "" then begin
+    let ofile = open_out_gen [Open_creat; Open_text; Open_append] 0o640 !output_file in
+    Printf.fprintf ofile "FAIL ";
+    close_out ofile
+  end
 
 let log_safe () = incr safe_count;
-  let ofile = open_out_gen [Open_creat; Open_text; Open_append] 0o640 "../WALi-OpenNWA/Examples/cprover/tests/regression/outputs/__result.out" in
-  Printf.fprintf ofile "PASS ";
-  close_out ofile
+  if !output_file <> "" then begin
+    let ofile = open_out_gen [Open_creat; Open_text; Open_append] 0o640 !output_file in
+    Printf.fprintf ofile "PASS ";
+    close_out ofile
+  end
 
 let log_safe_unreachable () = incr safe_count; incr unreachable_count
 
