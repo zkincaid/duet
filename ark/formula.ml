@@ -1532,7 +1532,7 @@ module Make (T : Term.S) = struct
     BatList.of_enum (BatEnum.map to_lineq tcons)
 
   let affine_hull_impl s vars =
-    Log.time "Affine hull" (affine_hull_rsy s) vars
+    Log.time "Affine hull" (affine_hull_ceg s) vars
 
   module TMap = Putil.Map.Make(T)
 
