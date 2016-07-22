@@ -122,28 +122,6 @@ let formula_of_bounds t bounds =
   in
   BatEnum.fold F.conj F.top (BatEnum.map f (BatList.enum bounds))
 
-let symbound1 () =
-  let x = T.var "x" in
-  let y = T.var "y" in
-  let z = T.var "z" in
-  let two = T.const (QQ.of_int 2) in
-  let phi = x <= y && (two * y) <= z in
-  let p = not % (StrVar.equal "y") in
-  let phi2 = formula_of_bounds y (F.symbolic_bounds p phi y) in
-  assert_equal ~cmp:F.equiv ~printer:F.show phi phi2
-
-let symbound2 () =
-  let x = T.var "x" in
-  let y = T.var "y" in
-  let z = T.var "z" in
-  let two = T.const (QQ.of_int 2) in
-  let three = T.const (QQ.of_int 3) in
-  let phi = x <= T.zero && (x / three) > (two * y) + z in
-  let p = not % (StrVar.equal "y") in
-  let phi1 = (two * y) + z < (x / three) in
-  let phi2 = formula_of_bounds y (F.symbolic_bounds p phi y) in
-  assert_equal ~cmp:F.equiv ~printer:F.show phi1 phi2
-
 (* Check that Apron's expression evaluation agrees with ark's *)
 let assert_eval_equal t =
   let apron_ivl =
@@ -185,8 +163,6 @@ let suite = "Numerical" >:::
               "assign1" >:: assign1;
               "assign2" >:: assign2;
               "assign3" >:: assign3;
-              "symbound1" >:: symbound1;
-              "symbound2" >:: symbound2;
               "modulo" >:: modulo;
               "div" >:: div
             ]
