@@ -1608,7 +1608,13 @@ let () =
      Arg.Unit (fun () ->
          K.F.opt_simplify_strategy := [];
          KK.F.opt_simplify_strategy := []),
-     " Disable formula simplification in CRA")
+     " Disable formula simplification in CRA");
+  CmdLine.register_config
+    ("-cra-abstract-limit",
+     Arg.Int (fun k ->
+         K.F.opt_abstract_limit := k;
+         KK.F.opt_abstract_limit := k),
+     " Set max number of rounds for symbolic abstraction")
 
 let () =
   Callback.register "compose_callback" K.mul;
