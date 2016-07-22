@@ -95,6 +95,9 @@ let display_graphs_arg =
    Arg.Set display_graphs,
    " Display graphs (requires Eye of Gnome)")
 
+let test_mode_arg = 
+  ("-test", Arg.Set_string Report.output_file, " Set an output file in test mode")
+
 let pass_args : (key * spec * doc) list ref = ref []
 
 let debug_args = ref
@@ -103,6 +106,7 @@ let debug_args = ref
       debug_phase_arg;
       sanity_check_arg;
       display_graphs_arg;
+      test_mode_arg;
     ]
 
 let config_args = ref
