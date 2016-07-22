@@ -1506,17 +1506,19 @@ module Make (T : Term.S) = struct
     let rec go prop =
       s#push ();
       s#assrt (Smt.mk_not (to_smt (of_abstract prop)));
-      let result = s#check () in
-      s#pop ();
-      match result with
-      | Smt.Unsat -> prop
+      match s#check () with
+      | Smt.Unsat ->
+        s#pop ();
+        prop
       | Smt.Undef ->
         begin
           Log.errorf "Affine hull timed out";
+          s#pop ();
           raise Timeout
         end
       | Smt.Sat -> begin
           let neweq = mk_eq_prop (s#get_model ()) in
+          s#pop ();
           go (join prop neweq)
         end
     in
