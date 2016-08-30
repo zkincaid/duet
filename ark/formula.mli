@@ -227,6 +227,13 @@ module type S = sig
       formatting more robust.  Should be used for regression testing. *)
   val format_robust : Format.formatter -> t -> unit
 
+  val var_bounds : (string -> typ -> T.V.t) ->
+    T.V.t list ->
+    T.V.t ->
+    'a Apron.Manager.t ->
+    t ->
+    'a T.D.t
+
   module Syntax : sig
     val ( && ) : t -> t -> t
     val ( || ) : t -> t -> t

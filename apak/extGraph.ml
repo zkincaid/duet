@@ -1301,7 +1301,7 @@ module DfsTree = struct
 
     (** Process a DFS tree bottom-up. *)
     let fold_dfs_tree f tree =
-      let children = Array.create tree.size [] in
+      let children = Array.make tree.size [] in
       for v = (tree.size - 1) downto 1 do
         let parent = tree.parent.(v) in
         let value = f (tree.vertex.(v)) (children.(v)) in
@@ -1314,7 +1314,7 @@ module DfsTree = struct
       match tree.max_dfs with
       | Some max_dfs -> max_dfs
       | None ->
-        let max_dfs = Array.create tree.size 0 in
+        let max_dfs = Array.make tree.size 0 in
         let f v children =
           let v_dfs = get_dfs_num v tree in
           let v_max = List.fold_left max v_dfs children in

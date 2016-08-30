@@ -1,4 +1,4 @@
-ocamlbuild duet/src/duet.cmx duet/src/newton_interface.cmx
+ocamlbuild duet/src/duet.cmx duet/src/newton_interface.cmx duet/src/duet.native
 if [ $? != 0 ]; then
     exit -1
 fi

@@ -172,6 +172,25 @@ module Dioid (Var : Var) = struct
     in
     F.eval f phi
 
+  let term_free_vars term =
+    let open Term in
+    let f = function
+      | OVar v -> VSet.singleton v
+      | OConst _ -> VSet.empty
+      | OAdd (x,y) | OMul (x,y) | ODiv (x,y) | OMod (x,y) -> VSet.union x y
+      | OFloor x -> x
+    in
+    T.eval f term
+
+  let formula_free_vars phi =
+    let open Formula in
+    let f = function
+      | OOr (x,y) | OAnd (x,y) -> VSet.union x y
+      | OAtom (LeqZ t) | OAtom (EqZ t) | OAtom (LtZ t) ->
+        term_free_vars t
+    in
+    F.eval f phi
+
   (* alpha equivalence - only works for normalized transitions! *)
   let equiv x y =
     let sigma =

@@ -100,6 +100,13 @@ module type S = sig
 
   val format_robust : Format.formatter -> t -> unit
 
+  val var_bounds : (string -> typ -> T.V.t) ->
+    T.V.t list ->
+    T.V.t ->
+    'a Apron.Manager.t ->
+    t ->
+    'a T.D.t
+
   module Syntax : sig
     val ( && ) : t -> t -> t
     val ( || ) : t -> t -> t
@@ -673,6 +680,15 @@ module Make (T : Term.S) = struct
     type t = { eq : L.t list;
                leq : L.t list }
 
+    let dimensions polyhedron =
+      let linterm_dimensions vec =
+        L.var_bindings vec /@ fst |> VarSet.of_enum
+      in
+      let add_dim dims vec =
+        VarSet.union (linterm_dimensions vec) dims
+      in
+      List.fold_left add_dim VarSet.empty (polyhedron.eq@polyhedron.leq)
+
     let enum polyhedron =
       BatEnum.append
         (BatList.enum polyhedron.eq /@ (fun t -> `EqZero t))
@@ -1108,16 +1124,7 @@ module Make (T : Term.S) = struct
           logf "[%d] lazy_dnf" (!disjuncts);
           let disjunct = match select_disjunct (m#eval_qq % T.V.to_smt) phi with
             | Some d -> d
-            | None -> begin (* This should be impossible. *)
-                Log.errorf "Couldn't select disjunct for formula:";
-                (*	    let phi = unsat_residual (m#eval_qq % T.V.to_smt) phi in*)
-                Log.errorf
-                  "%a\nwith model:\n%s"
-                  format phi
-                  (m#to_string ());
-                Log.errorf "Smt:\n%s\n" (Smt.ast_to_string (to_smt phi));
-                assert false
-              end
+            | None -> assert false
           in
           go (join prop disjunct)
         end
@@ -1300,7 +1307,7 @@ module Make (T : Term.S) = struct
     in
 
     let phi_bound_vars = bound_vars phi in
-    logf "QE_PARTIAL: %a" VarSet.format phi_bound_vars;
+    logf ~level:`trace "QE_PARTIAL: %a" VarSet.format phi_bound_vars;
     let mk_subst rewrite = fun x ->
       try T.V.Map.find x rewrite with Not_found -> T.var x
     in
@@ -1336,7 +1343,7 @@ module Make (T : Term.S) = struct
             let term = T.subst (mk_subst rewrite) term in
             match orient_equation (flip VarSet.mem vars) term with
             | Some (v, rhs) ->
-              logf "Found rewrite: %a --> %a"
+              logf ~level:`trace "Found rewrite: %a --> %a"
                 T.V.format v
                 T.format rhs;
 
@@ -1349,7 +1356,7 @@ module Make (T : Term.S) = struct
               in
               (T.V.Map.add v rhs rewrite, noneqs)
             | None ->
-              logf "Could not orient equation %a=0"
+              logf ~level:`trace "Could not orient equation %a=0"
                 T.format term;
               (rewrite, (eqz term)::noneqs)
           in
@@ -1403,7 +1410,13 @@ module Make (T : Term.S) = struct
   module V = T.V
   module A = Linear.AffineVar(V)
 
-  let linterm_smt = T.Linterm.to_smt (A.to_smt V.to_smt) Smt.const_qq
+  let linterm_smt =
+    let num_const qq =
+      match QQ.to_zz qq with
+      | Some zz -> Smt.const_zz zz
+      | None -> Smt.const_qq qq
+    in
+    T.Linterm.to_smt (A.to_smt V.to_smt) num_const
 
   (* Counter-example based extraction of the affine hull of a formula.  This
      works by repeatedly posing new (linearly independent) equations; each
@@ -1512,7 +1525,8 @@ module Make (T : Term.S) = struct
         prop
       | Smt.Undef ->
         begin
-          Log.errorf "Affine hull timed out";
+          Log.errorf "Affine hull timed out: %s" (s#get_reason_unknown());
+          logf ~level:`trace "%s" (s#to_string());
           s#pop ();
           raise Timeout
         end
@@ -1583,13 +1597,13 @@ module Make (T : Term.S) = struct
   let nonlinear_equalities map phi vars =
     let s = new Smt.solver in
     let assert_nl_eq nl_term var =
-      logf "  %a = %a" V.format var T.format nl_term;
+      logf ~level:`trace "  %a = %a" V.format var T.format nl_term;
       s#assrt (Smt.mk_eq (uninterpreted_nonlinear_term nl_term) (V.to_smt var))
     in
     s#assrt (to_smt phi);
-    logf "Nonlinear equations:";
+    logf ~level:`trace "Nonlinear equations:";
     TMap.iter assert_nl_eq map;
-    logf "done (Nonlinear equations)";
+    logf ~level:`trace "done (Nonlinear equations)";
     match s#check () with
     | Smt.Sat -> affine_hull_impl s (VarSet.elements vars)
     | Smt.Undef ->
@@ -2318,7 +2332,10 @@ module Make (T : Term.S) = struct
                 Log.time "Poly.select" (Polyhedron.select valuation) phi
               with
               | Some d -> d
-              | None -> assert false
+              | None -> begin
+                  assert (m#sat (to_smt phi));
+                  assert false
+                end
             in
             let projected_disjunct =
               Polyhedron.local_project valuation projected_vars disjunct
@@ -2352,4 +2369,171 @@ module Make (T : Term.S) = struct
     let ( <= ) x y = leq x y
     let ( >= ) x y = geq x y
   end
+
+  module VPMap = BatMap.Make(struct
+      type t = T.V.t * T.V.t deriving (Compare, Show)
+      let compare = Compare_t.compare
+    end)
+
+  let rec distinct_pairs enum =
+    match BatEnum.get enum with
+    | None -> BatEnum.empty ()
+    | Some first ->
+      let rest = distinct_pairs (BatEnum.clone enum) in
+      BatEnum.append (enum /@ (fun x -> (first, x))) rest
+
+  let var_bounds fresh vars tick_var man phi =
+    let s = new Smt.solver in
+    let phi = nudge ~accuracy:1 phi in
+    let zero = fresh "0" TyInt in
+    s#assrt (to_smt phi);
+    s#assrt (to_smt (eqz (T.var zero)));
+
+    (* Synthetic dimensions for intervals *)
+    let intervals =
+      distinct_pairs (BatList.enum (zero::vars))
+      |> BatEnum.fold (fun map (x, y) ->
+          let x_to_y =
+            fresh ("[" ^ (T.V.show x) ^ "," ^ (T.V.show y) ^ "]") TyReal
+          in
+          VPMap.add (x, y) x_to_y map)
+        VPMap.empty
+    in
+
+    (* Environment with all free variables in phi *)
+    let env_phi =
+      VarSet.union
+        (VarSet.of_enum (BatList.enum (tick_var::vars)))
+        (formula_free_vars phi)
+      |> VarSet.enum
+      |> D.Env.of_enum
+    in
+    (* Projected environment *)
+    let env_proj = D.Env.of_list (tick_var::vars) in
+    (* Projected environment + synthetic dimensions *)
+    let env_synth =
+      VarSet.union
+        (VarSet.of_enum (VPMap.values intervals))
+        (VarSet.of_enum (BatList.enum (zero::tick_var::vars)))
+      |> VarSet.enum
+      |> D.Env.of_enum
+    in
+    let keep_vars = VarSet.of_enum (BatList.enum (tick_var::vars)) in
+    let projected_vars =
+      BatEnum.filter
+        (fun x -> not (VarSet.mem x keep_vars))
+        (D.Env.vars env_phi)
+      |> VarSet.of_enum
+    in
+    let disjuncts = ref 0 in
+    let rec go (vars, prop, prop_synth) =
+      s#push ();
+      s#assrt (Smt.mk_not (to_smt (of_abstract prop)));
+      match Log.time "lazy_dnf/sat" s#check () with
+      | Smt.Unsat ->
+        s#pop ();
+        prop_synth
+      | Smt.Undef ->
+        begin
+          Log.errorf "lazy_dnf timed out (%d disjuncts): %s"
+            (!disjuncts)
+            (s#get_reason_unknown());
+          s#pop ();
+          raise Timeout
+        end
+      | Smt.Sat -> begin
+          let m = s#get_model () in
+          let valuation = m#eval_qq % T.V.to_smt in
+          s#pop ();
+          incr disjuncts;
+          if (!disjuncts) = (!opt_abstract_limit) then begin
+            Log.errorf "Met symbolic abstraction limit; returning top";
+            D.top man env_synth
+          end else begin
+            let disjunct =
+              match
+                Log.time "Poly.select" (Polyhedron.select valuation) phi
+              with
+              | Some d -> d |> Polyhedron.simplify_minimal
+              | None -> assert false
+            in
+            let projected_disjunct =
+              Polyhedron.conjoin
+                (Polyhedron.of_atom (EqZ (T.var zero)))
+                (Polyhedron.local_project valuation projected_vars disjunct)
+            in
+            let dims =
+              VarSet.union
+                vars
+                (Polyhedron.dimensions projected_disjunct)
+            in
+            let projected_disjunct =
+              projected_disjunct |> Polyhedron.to_apron env_synth man
+            in
+            let add_interval (x,y) x_to_y prop =
+              let open D in
+              let open Apron in
+              if (VarSet.mem x dims && VarSet.mem y dims) then begin
+                let x_to_y_cmp_0 = (* [x,y] *)
+                  T.apron_of_linterm env_synth
+                    (T.Linterm.add_term (AVar x_to_y) QQ.one
+                       (T.Linterm.const QQ.zero))
+                in
+                let x_to_y_cmp_diff = (* [x,y] - (y - x) *)
+                  T.apron_of_linterm env_synth
+                    (T.Linterm.of_enum (BatList.enum [
+                         (AVar x_to_y, QQ.one);
+                         (AVar x, QQ.one);
+                         (AVar y, QQ.negate QQ.one)
+                       ]))
+                in
+                (* prop /\ [x,y] >= y - x /\ [x,y] >= 0*)
+                let prop_ub =
+                  Abstract0.meet_lincons_array man prop.prop
+                    [| Lincons0.make x_to_y_cmp_diff Lincons0.SUPEQ;
+                       Lincons0.make x_to_y_cmp_0 Lincons0.SUPEQ |]
+                in
+                (* prop_ub /\ [x,y] = 0 *)
+                let prop_0 =
+                  Abstract0.meet_lincons_array man prop_ub
+                    [| Lincons0.make x_to_y_cmp_0 Lincons0.EQ |]
+                in
+                (* prop_ub /\ [x,y] = y - x *)
+                let prop_diff =
+                  Abstract0.meet_lincons_array man prop_ub
+                    [| Lincons0.make x_to_y_cmp_diff Lincons0.EQ |]
+                in
+                { prop = Abstract0.join man prop_0 prop_diff;
+                  env = prop.env }
+              end else
+                let x_to_y_geq_0 =
+                  Lincons0.make
+                    (T.apron_of_linterm env_synth
+                       (T.Linterm.add_term (AVar x_to_y) QQ.one
+                          (T.Linterm.const QQ.zero)))
+                    Lincons0.SUPEQ
+                in
+                { prop =
+                    (Abstract0.meet_lincons_array man prop.prop
+                       [| x_to_y_geq_0 |]);
+                  env = prop.env}
+            in
+            let disjunct_with_defs =
+              VPMap.fold add_interval intervals projected_disjunct
+            in
+            let prop_synth =
+              VPMap.fold add_interval intervals prop_synth
+            in
+            go (dims,
+                D.join prop projected_disjunct,
+                D.join prop_synth disjunct_with_defs)
+          end
+        end
+    in
+    try
+      Log.time "Abstraction" go (VarSet.empty, D.bottom man env_proj, D.bottom man env_synth)
+    with Timeout -> begin
+        Log.errorf "Symbolic abstraction timed out; returning top";
+        D.top man env_synth
+      end
 end

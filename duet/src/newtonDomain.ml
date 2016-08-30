@@ -1504,64 +1504,25 @@ let print_var_bounds formatter tick_var tr =
   let pre_vars =
     K.VarSet.remove tick_var (K.formula_free_program_vars tr.K.guard)
   in
-
-  (* Create & define synthetic dimensions *)
-  let synthetic_dimensions = BatEnum.empty () in
-  let synthetic_definitions = BatEnum.empty () in
-  let ite_eq t cond bthen belse =
-    K.F.disj
-      (K.F.conj cond (K.F.eq t bthen))
-      (K.F.conj (K.F.negate cond) (K.F.eq t belse))
-  in
-  pre_vars |> K.VarSet.iter (fun v ->
-      let zero_to_x = K.V.mk_tmp ("[0," ^ (V.show v) ^ "]") TyReal in
-      let zero_to_x_term = K.T.var zero_to_x in
-      let v_term = K.T.var (K.V.mk_var v) in
-      BatEnum.push synthetic_dimensions zero_to_x;
-      BatEnum.push synthetic_definitions
-        (ite_eq zero_to_x_term (K.F.geq v_term K.T.zero) v_term K.T.zero));
-  ApakEnum.cartesian_product
-    (K.VarSet.enum pre_vars)
-    (K.VarSet.enum pre_vars)
-  |> BatEnum.iter (fun (x, y) ->
-      let xt = K.T.var (K.V.mk_var x) in
-      let yt = K.T.var (K.V.mk_var y) in
-      if not (V.equal x y) then begin
-        let x_to_y =
-          K.V.mk_tmp ("[" ^ (V.show x) ^ "," ^ (V.show y) ^ "]") TyReal
-        in
-        BatEnum.push synthetic_dimensions x_to_y;
-        BatEnum.push synthetic_definitions
-          (ite_eq (K.T.var x_to_y) (K.F.lt xt yt) (K.T.sub yt xt) K.T.zero)
-      end;
-      let x_times_y =
-        K.V.mk_tmp ("(" ^ (V.show x) ^ "*" ^ (V.show y) ^ ")") TyReal
-      in
-      BatEnum.push synthetic_dimensions x_times_y;
-      BatEnum.push synthetic_definitions
-        (K.F.eq (K.T.var x_times_y) (K.T.mul xt yt)));
-
-  let synth_dimensions = K.VSet.of_enum synthetic_dimensions in
-  let defs = K.F.big_conj synthetic_definitions in
   let man = NumDomain.polka_loose_manager () in
-  let phi =
+  let lin_phi =
     K.F.conj
-      (K.F.conj (K.F.subst sigma tr.K.guard) defs)
-      (K.F.eq
-         (K.T.var (K.V.mk_var tick_var))
-         (K.T.subst sigma (K.M.find tick_var tr.K.transform)))
-  in
-  let hull =
-    K.F.conj
-      (K.F.conj (K.F.subst sigma tr.K.guard) defs)
+      (K.F.subst sigma tr.K.guard)
       (K.F.eq
          (K.T.var (K.V.mk_var tick_var))
          (K.T.subst sigma (K.M.find tick_var tr.K.transform)))
     |> K.F.linearize (fun () -> K.V.mk_tmp "nonlin" TyInt)
-    |> K.F.abstract
-      ~exists:(Some (fun v -> K.VSet.mem v synth_dimensions
-                              || K.V.lower v != None))
-      man
+    (*    |> K.F.qe_partial (fun v -> K.V.lower v != None)*)
+    |> K.F.simplify_z3 (fun _ -> true)
+  in
+  let program_vars =
+    (K.VarSet.remove tick_var (K.formula_free_program_vars lin_phi)
+     |> K.VarSet.enum)
+    /@ K.V.mk_var
+    |> BatList.of_enum
+  in
+  let hull =
+    lin_phi |> K.F.var_bounds K.V.mk_tmp program_vars (K.V.mk_var tick_var) man
   in
   let tick_dim = AVar (K.V.mk_var tick_var) in
   let print_tcons tcons =
