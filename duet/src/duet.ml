@@ -13,10 +13,9 @@ open Cra
 open Dependence
 open ConcDep
 
-let usage_msg = "Duet program analyzer\nUsage: duet [OPTIONS] file.[c|bp]"
+let usage_msg = "Duet program analyzer\nUsage: duet [OPTIONS] file.[c|bp|duet]"
 
 let anon_fun s = ignore (CmdLine.parse s)
-
 
 let _ =
   Sys.set_signal Sys.sigtstp (Sys.Signal_handle (fun _ -> Log.print_stats ()));

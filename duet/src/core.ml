@@ -246,6 +246,7 @@ and defkind =
 
 and def =
   { did : int;
+    dloc : Cil.location;
     mutable dkind : defkind }
 
 (** Open types for folding *)
@@ -1333,15 +1334,12 @@ module Def = struct
   (* To keep track of the max_id of the definition hash table *)
   let def_max_id = ref 0
   let def_increase_id () = def_max_id := !(def_max_id) + 1; !def_max_id;;
-  let location_map = Hashtbl.create 991
 
   let mk ?(loc=Cil.locUnknown) dk =
     let id = def_increase_id () in
-    Hashtbl.add location_map id loc;
-    { did = id; dkind = dk }
-  let get_location def =
-    try Hashtbl.find location_map def.did
-    with Not_found -> Cil.locUnknown
+    { did = id; dloc = loc; dkind = dk }
+
+  let get_location def = def.dloc
 
   let clone def = mk ~loc:(get_location def) def.dkind
   let initial = mk Initial
@@ -1352,4 +1350,7 @@ module Def = struct
 
   let free_vars def = dk_free_vars def.dkind
   let assigned_var def = dk_assigned_var def.dkind
+  let set_max_id k =
+    if k > !def_max_id then
+      def_max_id := k
 end

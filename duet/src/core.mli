@@ -144,6 +144,7 @@ and defkind =
 
 and def =
   { did : int;
+    dloc : Cil.location;
     mutable dkind : defkind }
 
 module Varinfo: sig
@@ -337,4 +338,5 @@ module Def : sig
   val clone : t -> t
   val mk : ?loc:Cil.location -> defkind -> t
   val get_location : t -> Cil.location
+  val set_max_id : int -> unit
 end

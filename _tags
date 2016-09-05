@@ -1,5 +1,5 @@
 # OASIS_START
-# DO NOT EDIT (digest: 7db262395701b36121456d7da148ca1d)
+# DO NOT EDIT (digest: 83b5d05cb3bb1cf1d3d68187cc3bf863)
 # Ignore VCS directories, you can use the same kind of rule outside
 # OASIS_START/STOP if you want to exclude directories that contains
 # useless stuff for the build process
@@ -91,6 +91,16 @@ true: annot, bin_annot
 <ark/*.ml{,i,y}>: pkg_oUnit
 <ark/*.ml{,i,y}>: pkg_ocamlgraph
 <ark/*.ml{,i,y}>: use_apak
+# Library libduet
+"duet/src/libduet.cmxs": use_libduet
+"duet/src/core.cmx": for-pack(Libduet)
+"duet/src/cmdLine.cmx": for-pack(Libduet)
+"duet/src/cfgIr.cmx": for-pack(Libduet)
+"duet/src/pa.cmx": for-pack(Libduet)
+"duet/src/afg.cmx": for-pack(Libduet)
+"duet/src/ast.cmx": for-pack(Libduet)
+"duet/src/hlir.cmx": for-pack(Libduet)
+<duet/src/*.ml{,i,y}>: oasis_library_libduet_ccopt
 # Executable duet
 <duet/src/*.ml{,i,y}>: oasis_executable_duet_ccopt
 "duet/src/duet.native": pkg_Z3

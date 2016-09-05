@@ -162,4 +162,16 @@ let _ =
   register_config
     ("-z3-timeout",
      Arg.Set_int Ark.Smt.opt_timeout,
-     " Set Z3 solver timeout (milliseconds)")
+     " Set Z3 solver timeout (milliseconds)");
+  register_pass
+    ("-dump-cfgir",
+     (fun file -> CfgIr.write_file file stdout),
+     " Dump CFG IR");
+  register_parser ("duet",
+                   fun filename ->
+                     let chan = open_in filename in
+                     let file = CfgIr.read_file chan in
+                     close_in chan;
+                     CfgIr.iter_defs (fun def -> Core.Def.set_max_id def.did) file;
+                     file)
+

@@ -716,3 +716,7 @@ let split_atomic_func func =
     ) (Cfg.fold_vertex (fun x y -> x::y) func.cfg [])
 
 let split_atomic file = List.iter split_atomic_func file.funcs
+
+let read_file = Marshal.from_channel
+
+let write_file file chan = Marshal.to_channel chan file []

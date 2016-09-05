@@ -86,3 +86,9 @@ val normalize : file -> unit
 
 (** Normalize a file so that every definition executes atomically. *)
 val split_atomic : file -> unit
+
+(** Read a file from a channel *)
+val read_file : in_channel -> file
+
+(** Write a file from a channel *)
+val write_file : file -> out_channel -> unit
