@@ -159,10 +159,6 @@ let _ =
     ("-split-atomic",
      CfgIr.split_atomic,
      " Split commands into atomic instructions");
-  register_config
-    ("-z3-timeout",
-     Arg.Set_int Ark.Smt.opt_timeout,
-     " Set Z3 solver timeout (milliseconds)");
   register_pass
     ("-dump-cfgir",
      (fun file -> CfgIr.write_file file stdout),
