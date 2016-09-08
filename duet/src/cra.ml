@@ -873,4 +873,8 @@ let _ =
   CmdLine.register_pass
     ("-cra", analyze, " Compositional recurrence analysis");
   CmdLine.register_pass
-    ("-rba", resource_bound_analysis, " Resource bound analysis")
+    ("-rba", resource_bound_analysis, " Resource bound analysis");
+  CmdLine.register_config
+    ("-z3-timeout",
+     Arg.Set_int Ark.Smt.opt_timeout,
+     " Set Z3 solver timeout (milliseconds)");
