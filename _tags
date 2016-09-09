@@ -1,5 +1,5 @@
 # OASIS_START
-# DO NOT EDIT (digest: 83b5d05cb3bb1cf1d3d68187cc3bf863)
+# DO NOT EDIT (digest: 88bd4ff5486ea48b675b13b18a474850)
 # Ignore VCS directories, you can use the same kind of rule outside
 # OASIS_START/STOP if you want to exclude directories that contains
 # useless stuff for the build process
@@ -100,6 +100,8 @@ true: annot, bin_annot
 "duet/src/afg.cmx": for-pack(Libduet)
 "duet/src/ast.cmx": for-pack(Libduet)
 "duet/src/hlir.cmx": for-pack(Libduet)
+"duet/src/translateCbp.cmx": for-pack(Libduet)
+"duet/src/translateCil.cmx": for-pack(Libduet)
 <duet/src/*.ml{,i,y}>: oasis_library_libduet_ccopt
 # Executable duet
 <duet/src/*.ml{,i,y}>: oasis_executable_duet_ccopt

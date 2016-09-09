@@ -58,8 +58,9 @@ Library libduet
   FindlibName:      libduet
   Pack:             true
   CCOpt:            -g -rdynamic
-  InternalModules:  Core, CmdLine, CfgIr, Pa, Afg, Ast, Hlir
-  BuildDepends:     deriving, deriving.syntax, apak
+  InternalModules:  Core, CmdLine, CfgIr, Pa, Afg, Ast, Hlir, TranslateCbp,
+                    TranslateCil
+  BuildDepends:     deriving, deriving.syntax, apak, cil, cil.default-features
   Install:          false
   XMETADescription: Duet Core IR
 

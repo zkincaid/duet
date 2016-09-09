@@ -9,17 +9,17 @@ build: setup.ml setup.data
 	cp duet.native duet/duet
 
 duet: setup.ml setup.data duet/src/config.ml
-	ocamlbuild duet/src/duet.native -tag debug
+	ocamlbuild duet/src/duet.native
 	cp duet.native duet/duet
 
 libduet: setup.ml setup.data
 	ocamlbuild duet/src/libduet.cma
 
 ark: setup.ml setup.data
-	ocamlbuild ark/test_ark.native -tag debug
+	ocamlbuild ark/test_ark.native
 
 apak: setup.ml setup.data
-	ocamlbuild apak/test_apak.byte -tag debug
+	ocamlbuild apak/test_apak.byte
 
 setup.ml: _oasis
 	oasis setup

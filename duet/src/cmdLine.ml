@@ -167,7 +167,8 @@ let _ =
                    fun filename ->
                      let chan = open_in filename in
                      let file = CfgIr.read_file chan in
+                     let open Core in
                      close_in chan;
-                     CfgIr.iter_defs (fun def -> Core.Def.set_max_id def.did) file;
+                     CfgIr.iter_defs (fun def -> Def.set_max_id def.did) file;
                      file)
 
