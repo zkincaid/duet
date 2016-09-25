@@ -4,7 +4,9 @@ open Smt
 exception Divide_by_zero
 
 type 'a interpretation
+
 val pp : Format.formatter -> 'a interpretation -> unit
+
 val empty : 'a context -> 'a interpretation
 val add_real : symbol -> QQ.t -> 'a interpretation -> 'a interpretation
 val add_bool : symbol -> bool -> 'a interpretation -> 'a interpretation
@@ -14,7 +16,12 @@ val value : 'a interpretation -> symbol -> [`Real of QQ.t | `Bool of bool]
 val of_model : 'a context -> 'a smt_model -> symbol list -> 'a interpretation
 val enum : 'a interpretation ->
   (symbol * [`Real of QQ.t | `Bool of bool]) BatEnum.t
+
+(** Replace constant symbols by their interpretations within an expression.  A
+    constant symbol that is not defined within the interpretation is not
+    replaced. *)
 val substitute : 'a interpretation -> ('a,'typ) expr -> ('a,'typ) expr
+
 val evaluate_term : 'a interpretation ->
   ?env:[`Real of QQ.t | `Bool of bool] Env.t ->
   'a term ->
