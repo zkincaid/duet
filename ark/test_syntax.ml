@@ -4,7 +4,7 @@ open Syntax
 module Ctx = MakeSimplifyingContext ()
 module Infix = Syntax.Infix(Ctx)
 let ctx = Ctx.context
-let smt_ctx = Smt.mk_context ctx []
+let smt_ctx = ArkZ3.mk_context ctx []
 
 let x = Ctx.mk_const (Ctx.mk_symbol ~name:"x" `TyInt)
 let y = Ctx.mk_const (Ctx.mk_symbol ~name:"y" `TyInt)

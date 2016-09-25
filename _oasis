@@ -12,9 +12,7 @@ Library apak
   Path:             apak
   FindlibName:      apak
   Pack:             true
-  Modules:          DisjointSet, Dll, Enumeration, EvalLink, ExtGraph, Fixpoint,
-  	            Ka, Lattice, Log, Loop, Memo, Monoid, Pathexp, Persistent,
-                    RecGraph, Semilattice, Sese, Sig, Tagged, Putil
+  Modules:          DisjointSet, Dll, Enumeration, EvalLink, ExtGraph, Fixpoint,Ka, Lattice, Log, Loop, Memo, Monoid, Pathexp, Persistent, RecGraph, Semilattice, Sese, Sig, Tagged, Putil
   BuildDepends:     ppx_deriving, ppx_deriving.show, ppx_deriving.ord, batteries, ocamlgraph
   Install:          false
   XMETADescription: Algebraic Program Analysis Kit
@@ -23,26 +21,23 @@ Executable test_apak
   Build$:       flag(tests)
   Path:         apak
   MainIs:       test_apak.ml
-  BuildDepends: ppx_deriving, ppx_deriving.show, ppx_deriving.ord, batteries,
-                ocamlgraph, oUnit
+  BuildDepends: ppx_deriving, ppx_deriving.show, ppx_deriving.ord, batteries, ocamlgraph, oUnit
   Install:      false
 
 Library "ark"
   Path:             ark
   FindlibName:      ark
   Pack:             true
-  Modules:  QQ, ZZ, Syntax, Interval, Smt, Linear, Interpretation, Abstract,
-  	    Quantifier
-  BuildDepends:     ppx_deriving, ppx_deriving.show, ppx_deriving.ord, apak, gmp, camlidl, apron, Z3
-  Install:          false
+  Modules:  QQ, ZZ, Syntax, Interval, Smt, ArkZ3, ArkMathsat, Linear, Interpretation, Abstract, Quantifier
+  BuildDepends:     ppx_deriving, ppx_deriving.show, ppx_deriving.ord, apak, gmp, camlidl, apron, Z3, mathsat
+  Install:         false
   XMETADescription: Arithmetic Reasoning Kit
 
 Executable test_ark
   Build$:         flag(tests)
   Path:           ark
   MainIs:         test_ark.ml
-  BuildDepends:   ppx_deriving, ppx_deriving.ord, apak, gmp, camlidl, apron,
-                  apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, oUnit
+  BuildDepends:   ppx_deriving, ppx_deriving.ord, apak, gmp, camlidl, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, oUnit, mathsat
   CompiledObject: native
   Install:        false
 
@@ -50,8 +45,7 @@ Executable arktop
   Build$:         flag(tests)
   Path:           ark
   MainIs:         arkTop.ml
-  BuildDepends:   ppx_deriving, ppx_deriving.ord, apak, gmp, camlidl, apron,
-                  apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, oUnit
+  BuildDepends:   ppx_deriving, ppx_deriving.ord, apak, gmp, camlidl, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, mathsat
   CompiledObject: native
   Install:        false
 
@@ -75,8 +69,7 @@ Executable test_patools
 
 Executable patools
   Path:       patools
-  BuildDepends: ppx_deriving, ppx_deriving.show, ppx_deriving.ord, apak, Z3,
-                buddy, pa
+  BuildDepends: ppx_deriving, ppx_deriving.show, ppx_deriving.ord, apak, Z3, buddy, pa
   MainIs: patools.ml
   CCOpt: -annot
   CompiledObject: native
@@ -84,10 +77,7 @@ Executable patools
 Executable duet
   Path:           duet
   MainIs:         duet.ml
-  BuildDepends:   ppx_deriving, ppx_deriving.show, ppx_deriving.ord,
-                  apak, gmp, camlidl, apron,
-                  apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, ark,
-                  cil, cil.default-features, buddy, pa
+  BuildDepends:   ppx_deriving, ppx_deriving.show, ppx_deriving.ord, apak, gmp, camlidl, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, ark, cil, cil.default-features, buddy, pa
   CompiledObject: native
   Install:        false
 

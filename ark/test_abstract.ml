@@ -6,7 +6,7 @@ open Syntax
 module Ctx = MakeSimplifyingContext ()
 module Infix = Syntax.Infix(Ctx)
 let ctx = Ctx.context
-let smt_ctx = Smt.mk_context ctx []
+let smt_ctx = ArkZ3.mk_context ctx []
 
 let rsym = Ctx.mk_symbol ~name:"r" `TyReal
 let ssym = Ctx.mk_symbol ~name:"s" `TyReal
@@ -42,8 +42,8 @@ let affine_hull1 () =
     let open Infix in
     x = y && y = z + (int 1)
   in
-  let hull = affine_hull smt_ctx phi [xsym; ysym; zsym] in
-  let hull_xz = affine_hull smt_ctx phi [xsym; zsym] in
+  let hull = affine_hull ctx phi [xsym; ysym; zsym] in
+  let hull_xz = affine_hull ctx phi [xsym; zsym] in
   assert_equiv_formula phi (hull_formula hull);
   assert_equiv_formula
     (Ctx.mk_eq x (Ctx.mk_add [z; int 1]))
@@ -54,7 +54,7 @@ let affine_hull2 () =
     let open Infix in
     (x = y || x = z)
   in
-  let hull = affine_hull smt_ctx phi [xsym;ysym;zsym] in
+  let hull = affine_hull ctx phi [xsym;ysym;zsym] in
   assert_equiv_formula Ctx.mk_true (hull_formula hull)
 
 let affine_hull3 () =
@@ -62,9 +62,9 @@ let affine_hull3 () =
     let open Infix in
     ((w = x && x = y) || (w = z && z = y))
   in
-  let hull = affine_hull smt_ctx phi [wsym;xsym;ysym;zsym] in
-  let hull_xyz = affine_hull smt_ctx phi [xsym;ysym;zsym] in
-  let hull_wy = affine_hull smt_ctx phi [wsym;ysym] in
+  let hull = affine_hull ctx phi [wsym;xsym;ysym;zsym] in
+  let hull_xyz = affine_hull ctx phi [xsym;ysym;zsym] in
+  let hull_wy = affine_hull ctx phi [wsym;ysym] in
   assert_equiv_formula (Ctx.mk_eq w y) (hull_formula hull);
   assert_equiv_formula Ctx.mk_true (hull_formula hull_xyz);
   assert_equiv_formula (Ctx.mk_eq w y) (hull_formula hull_wy)
@@ -74,12 +74,12 @@ let affine_hull4 () =
     let open Infix in
     x <= w && ((w <= x && x = y) || (w = z && z = y))
   in
-  let hull = affine_hull smt_ctx phi [wsym;ysym] in
+  let hull = affine_hull ctx phi [wsym;ysym] in
   assert_equiv_formula (Ctx.mk_eq w y) (hull_formula hull)
 
 let affine_hull5 () =
   let phi = Ctx.mk_eq x (int 12) in
-  let hull = affine_hull smt_ctx phi [xsym] in
+  let hull = affine_hull ctx phi [xsym] in
   assert_equiv_formula phi (hull_formula hull)
 
 let affine_hull6 () =
@@ -92,7 +92,7 @@ let affine_hull6 () =
     let open Infix in
     z = (int 1) && w = y
   in
-  let hull = affine_hull smt_ctx phi [wsym;xsym;ysym;zsym] in
+  let hull = affine_hull ctx phi [wsym;xsym;ysym;zsym] in
   assert_equiv_formula phi_hull (hull_formula hull)
 
 let optimize1 () =
@@ -100,7 +100,7 @@ let optimize1 () =
     let open Infix in
     (int 0) <= r && r <= (int 1)
   in
-  assert_equiv_formula phi (Abstract.boxify smt_ctx phi [r])
+  assert_equiv_formula phi (Abstract.boxify ctx phi [r])
 
 let optimize2 () =
   let phi =
@@ -116,17 +116,17 @@ let optimize2 () =
     let open Infix in
     (int (-3)) <= (r + s) && (r + s) <= (int 29)
   in
-  assert_equiv_formula phi (Abstract.boxify smt_ctx phi [r; s]);
-  assert_equiv_formula phi_r (Abstract.boxify smt_ctx phi [r]);
+  assert_equiv_formula phi (Abstract.boxify ctx phi [r; s]);
+  assert_equiv_formula phi_r (Abstract.boxify ctx phi [r]);
   assert_equiv_formula phi_rs
-		       (Abstract.boxify smt_ctx phi [Ctx.mk_add [r; s]])
+		       (Abstract.boxify ctx phi [Ctx.mk_add [r; s]])
 
 let optimize3 () =
   let phi =
     let open Infix in
     (int 0) <= r && s <= (int 1)
   in
-  assert_equiv_formula phi (Abstract.boxify smt_ctx phi [r; s])
+  assert_equiv_formula phi (Abstract.boxify ctx phi [r; s])
 
 let optimize4 () =
   let phi =
@@ -137,7 +137,7 @@ let optimize4 () =
     let open Infix in
     (int 1) <= r && r <= (int 5)
   in
-  assert_equiv_formula phi_closed (Abstract.boxify smt_ctx phi [r])
+  assert_equiv_formula phi_closed (Abstract.boxify ctx phi [r])
 
 (*
 let optimize5 () =

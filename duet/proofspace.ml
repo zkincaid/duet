@@ -41,7 +41,7 @@ module Ctx = MakeSimplifyingContext()
 module IVMemo = Memo.Make(IV)
 
 let ctx = Ctx.context
-let smt_ctx = Smt.mk_context ctx []
+let smt_ctx = ArkZ3.mk_context ctx []
 
 
 let symbol_table = Hashtbl.create 991

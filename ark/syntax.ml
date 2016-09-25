@@ -15,6 +15,7 @@ type typ_bool = [ `TyBool ]
 type 'a typ_fun = [ `TyFun of (typ_fo list) * 'a ]
 
 type symbol = int
+  [@@deriving ord]
 
 let pp_typ_fo formatter = function
   | `TyReal -> Format.pp_print_string formatter "real"
@@ -80,6 +81,7 @@ module DynArray = BatDynArray
 
 module Symbol = struct
   type t = symbol
+  let compare = Pervasives.compare
   module Set = BatSet.Make(Apak.Putil.PInt)
   module Map = BatMap.Make(Apak.Putil.PInt)
 end
@@ -228,6 +230,8 @@ let mk_forall ctx ?name:(name="_") typ phi = ctx.mk (Forall (name, typ)) [phi]
 let mk_exists ctx ?name:(name="_") typ phi = ctx.mk (Exists (name, typ)) [phi]
 
 let mk_ite ctx cond bthen belse = ctx.mk Ite [cond; bthen; belse]
+let mk_iff ctx phi psi =
+  mk_or ctx [mk_and ctx [phi; psi]; mk_and ctx [mk_not ctx phi; mk_not ctx psi]]
 
 (* Avoid capture by incrementing bound variables *)
 let rec decapture ctx depth incr sexpr =
@@ -1068,4 +1072,23 @@ module MakeSimplifyingContext () = struct
       type t = unit
       let context = context
     end)
+end
+
+class type ['a] smt_model = object
+  method eval_int : 'a term -> ZZ.t
+  method eval_real : 'a term -> QQ.t
+  method sat :  'a formula -> bool
+  method to_string : unit -> string
+end
+
+class type ['a] smt_solver = object
+  method add : ('a formula) list -> unit
+  method push : unit -> unit
+  method pop : int -> unit
+  method reset : unit -> unit
+  method check : ('a formula) list -> [ `Sat | `Unsat | `Unknown ]
+  method to_string : unit -> string
+  method get_model : unit -> [ `Sat of 'a smt_model | `Unsat | `Unknown ]
+  method get_unsat_core : ('a formula) list ->
+    [ `Sat | `Unsat of ('a formula) list | `Unknown ]
 end

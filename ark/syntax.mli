@@ -42,8 +42,11 @@ val int_of_symbol : symbol -> int
 
 val symbol_of_int : int -> symbol
 
+val compare_symbol : symbol -> symbol -> int
+
 module Symbol : sig
   type t = symbol
+  val compare : t -> t -> int
   module Set : BatSet.S with type elt = symbol
   module Map : BatMap.S with type key = symbol
 end
@@ -57,7 +60,6 @@ type 'a formula = ('a, typ_bool) expr
 val refine : 'a context -> ('a, typ_fo) expr -> [ `Term of 'a term
                                                 | `Formula of 'a formula ]
 
-
 val size : ('a, 'typ_fo) expr -> int
 
 val mk_const : 'a context -> symbol -> ('a, 'typ) expr
@@ -69,6 +71,8 @@ val mk_var : 'a context -> int -> typ_fo -> ('a, 'typ) expr
 val mk_ite : 'a context -> 'a formula -> ('a, 'typ) expr -> ('a, 'typ) expr ->
   ('a, 'typ) expr
 
+val mk_iff : 'a context -> 'a formula -> 'a formula -> 'a formula
+
 val substitute : 'a context ->
   (int -> ('a,'b) expr) -> ('a,'typ) expr -> ('a,'typ) expr
 
@@ -79,7 +83,7 @@ val fold_constants : (symbol -> 'a -> 'a) -> ('b, 'c) expr -> 'a -> 'a
 
 (** {3 Expression rewriting} *)
 
-(** A rewriter is a function which transforms an expression into another.  {b
+(** A rewriter is a function that transforms an expression into another.  {b
     The transformation should preserve types}; if not, [rewrite] will fail. *)
 type 'a rewriter = ('a, typ_fo) expr -> ('a, typ_fo) expr
 
@@ -187,6 +191,27 @@ module Formula : sig
   val existential_closure : 'a context -> 'a formula -> 'a formula
   val skolemize_free : 'a context -> 'a formula -> 'a formula
   val prenex : 'a context -> 'a formula -> 'a formula
+end
+
+(** {2 Satisfiability modulo theories} *)
+
+class type ['a] smt_model = object
+  method eval_int : 'a term -> ZZ.t
+  method eval_real : 'a term -> QQ.t
+  method sat :  'a formula -> bool
+  method to_string : unit -> string
+end
+
+class type ['a] smt_solver = object
+  method add : ('a formula) list -> unit
+  method push : unit -> unit
+  method pop : int -> unit
+  method reset : unit -> unit
+  method check : ('a formula) list -> [ `Sat | `Unsat | `Unknown ]
+  method to_string : unit -> string
+  method get_model : unit -> [ `Sat of 'a smt_model | `Unsat | `Unknown ]
+  method get_unsat_core : ('a formula) list ->
+    [ `Sat | `Unsat of ('a formula) list | `Unknown ]
 end
 
 (** {2 Contexts} *)

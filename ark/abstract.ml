@@ -15,9 +15,8 @@ module VM = Putil.Map.Make(Linear.QQVector)
    hull) or there is a counter-example point which shows that it is not.
    Counter-example points are collecting in a system of linear equations where
    the variables are the coefficients of candidate equations. *)
-let affine_hull (smt_ctx : 'a Smt.smt_context) phi constants =
-  let ark = smt_ctx#ark in
-  let solver = smt_ctx#mk_solver () in
+let affine_hull ark phi constants =
+  let solver = Smt.mk_solver ark in
   solver#add [phi];
   let next_row =
     let n = ref (-1) in
@@ -79,8 +78,7 @@ let affine_hull (smt_ctx : 'a Smt.smt_context) phi constants =
   in
   go [] QQMatrix.zero constants
 
-let boxify smt_ctx phi terms =
-  let ark = smt_ctx#ark in
+let boxify ark phi terms =
   let mk_box t ivl =
     let lower =
       match Interval.lower ivl with
@@ -94,7 +92,7 @@ let boxify smt_ctx phi terms =
     in
     lower@upper
   in
-  match smt_ctx#optimize_box phi terms with
+  match ArkZ3.optimize_box ark phi terms with
   | `Sat intervals ->
     mk_and ark (List.concat (List.map2 mk_box terms intervals))
   | `Unsat -> mk_false ark
