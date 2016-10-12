@@ -223,9 +223,9 @@ module type Context = sig
   type formula = (t, typ_bool) expr
 
   val mk_symbol : ?name:string -> typ -> symbol
-  val mk_const : symbol -> ('a, 'typ) expr
-  val mk_app : symbol -> ('a, 'b) expr list -> ('a, 'typ) expr
-  val mk_var : int -> typ_fo -> ('a, 'typ) expr
+  val mk_const : symbol -> (t, 'typ) expr
+  val mk_app : symbol -> (t, 'b) expr list -> (t, 'typ) expr
+  val mk_var : int -> typ_fo -> (t, 'typ) expr
   val mk_add : term list -> term
   val mk_mul : term list -> term
   val mk_div : term -> term -> term
