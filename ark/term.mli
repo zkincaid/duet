@@ -51,6 +51,8 @@ module type S = sig
   val exp : t -> int -> t
 
   (** {2 Term deconstructors} *)
+  val destruct : t -> (t,V.t) open_term
+
   (** [eval] is a fold for terms.  More precisely, terms are initial objects
       in the category of term-algebras, and [eval alg] gives the (unique)
       morphism from the initial algebra to [alg]. *)

@@ -1429,19 +1429,20 @@ module Make (T : Term.S) = struct
     let const_var = A.to_smt V.to_smt AConst in
     let space = new Smt.solver in (* solution space for implied equalities *)
     let extract_linterm m =
-      let f term v =
-        T.Linterm.add_term
-          (AVar v)
-          (m#eval_qq (V.to_smt v))
-          term
-      in
       let const_term =
         T.Linterm.add_term
           AConst
           (m#eval_qq const_var)
           T.Linterm.zero
       in
-      List.fold_left f const_term vars
+      List.fold_left (fun term v ->
+          T.Linterm.add_term
+            (AVar v)
+            (m#eval_qq (V.to_smt v))
+            term
+        )
+        const_term
+        vars
     in
     let rec go equalities =
       match space#check () with

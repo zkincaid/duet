@@ -42,6 +42,8 @@ module type S = sig
   val qq_linterm : (t * QQ.t) BatEnum.t -> t
   val exp : t -> int -> t
 
+  val destruct : t -> (t,V.t) open_term
+
   val eval : ('a,V.t) term_algebra -> t -> 'a
   val typ : t -> typ
   val to_const : t -> QQ.t option
@@ -243,6 +245,27 @@ module Make (V : Var) = struct
       let hash t = t.hkey
       let equal s t = s.tag == t.tag
     end)
+
+  let rec destruct x = match x.node with
+    | Floor v -> OFloor v
+    | Add (x, y) -> OAdd (x, y)
+    | Mul (x, y) -> OMul (x, y)
+    | Div (x, y) -> ODiv (x, y)
+    | Mod (x, y) -> OMod (x, y)
+    | Lin lx ->
+      begin
+        match BatList.of_enum (Linterm.enum lx) with
+        | [] -> OConst QQ.zero
+        | [(AVar v, base)] ->
+          if QQ.equal base QQ.one then
+            OVar v
+          else
+            OMul (var v, const base)
+        | [(AConst, base)] -> OConst base
+        | (dim,base)::rest ->
+          OAdd (of_linterm (Linterm.add_term dim base Linterm.zero),
+                of_linterm (Linterm.of_enum (BatList.enum rest)))
+      end
 
   let eval alg =
     M.memo_recursive ~size:991 (fun eval x ->
