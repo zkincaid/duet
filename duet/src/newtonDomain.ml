@@ -1275,7 +1275,13 @@ module V = Cra.V
 
 (* Tensored vocabulary *)
 type vv = Left of V.t | Right of V.t
-              deriving (Show, Compare)
+              deriving (Compare)
+module Show_vv = Deriving_Show.Defaults(struct
+    type a = vv
+    let rec format formatter = function
+      | Left v -> Format.fprintf formatter "left_%a" V.format v
+      | Right v -> Format.fprintf formatter "right_%a" V.format v
+  end)
 
 module VV = struct
   module I = struct
