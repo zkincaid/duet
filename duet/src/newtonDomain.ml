@@ -86,7 +86,7 @@ module RecurrenceAnalysis (Var : Var) = struct
                 T.format rhs))
         (BatList.enum abstract.inequations)
 
-    let abstract_star abstract =
+    let abstract_star ?guard:(guard=F.top) abstract =
       let loop_counter = T.var (V.mk_int_tmp "K") in
       (* In a recurrence environment, absence of a binding for a variable
          indicates that the variable is not modified (i.e., the variable
@@ -218,6 +218,7 @@ module RecurrenceAnalysis (Var : Var) = struct
         F.big_conj (BatList.enum [
             ineqs;
             (F.of_abstract abstract.precondition);
+            guard;
             postcondition;
             penultimate_guard;
             (F.geq loop_counter T.one)])
@@ -715,12 +716,14 @@ module RecurrenceAnalysis (Var : Var) = struct
       go predicates body
 *)
 
-    let rec abstract_star abstract =
+    let rec abstract_star ?guard:(guard=F.top) abstract =
       let abstract_star_split (predicate, first, second) =
-        mul (abstract_star first) (abstract_star second)
+        mul
+          (abstract_star ~guard:(F.conj guard predicate) first)
+          (abstract_star ~guard:(F.conj guard (F.negate predicate)) second)
       in
       match abstract with
-      | Leaf base -> Base.abstract_star base
+      | Leaf base -> Base.abstract_star ~guard base
       | Split [] -> assert false
       | Split (x::xs) ->
         List.fold_left
@@ -1611,8 +1614,11 @@ let () =
   Callback.register "widen_callback" K.widen;
   Callback.register "tensor_widen_callback" KK.widen;
 
-  Callback.register "abstract_star_callback" K.abstract_star;
-  Callback.register "tensor_abstract_star_callback" KK.abstract_star;
+  (* Don't eta reduce - abstract_star has an optional parameter *)
+  Callback.register "abstract_star_callback"
+    (fun tr -> K.abstract_star tr);
+  Callback.register "tensor_abstract_star_callback"
+    (fun tr -> KK.abstract_star tr);
 
   Callback.register "print_abstract_callback" (fun indent abstract ->
      Putil.pp_string (fun formatter abstract ->
