@@ -656,7 +656,7 @@ module RecurrenceAnalysis (Var : Var) = struct
                 let right_abstract =
                   Base.alpha_formula phi_body modified
                 in
-                Some (phi, Leaf left_abstract, Leaf right_abstract)
+                Some (not_phi, Leaf left_abstract, Leaf right_abstract)
               else if sat_modulo_tr (F.conj not_phi post_phi) = Smt.Unsat then
                 (* {not phi} tr {not phi} -> tr* = ([phi]tr)*([not phi]tr)* *)
                 let left_abstract =
@@ -665,7 +665,7 @@ module RecurrenceAnalysis (Var : Var) = struct
                 let right_abstract =
                   Base.alpha_formula not_phi_body modified
                 in
-                Some (not_phi, Leaf left_abstract, Leaf right_abstract)
+                Some (phi, Leaf left_abstract, Leaf right_abstract)
               else
                 None
             else
