@@ -2399,6 +2399,18 @@ module Make (T : Term.S) = struct
           VPMap.add (x, y) x_to_y map)
         VPMap.empty
     in
+    VPMap.iter
+      (fun (x,y) x_to_y ->
+         let x_to_y = T.var x_to_y in
+         let diff = T.sub (T.var y) (T.var x) in
+         s#assrt (to_smt
+                    (disj
+                       (eq x_to_y T.zero)
+                       (eq x_to_y diff)));
+         s#assrt (to_smt (geq x_to_y T.zero));
+         s#assrt (to_smt (geq x_to_y diff));
+      )
+      intervals;
 
     (* Environment with all free variables in phi *)
     let env_phi =
@@ -2408,8 +2420,6 @@ module Make (T : Term.S) = struct
       |> VarSet.enum
       |> D.Env.of_enum
     in
-    (* Projected environment *)
-    let env_proj = D.Env.of_list (tick_var::vars) in
     (* Projected environment + synthetic dimensions *)
     let env_synth =
       VarSet.union
@@ -2426,9 +2436,9 @@ module Make (T : Term.S) = struct
       |> VarSet.of_enum
     in
     let disjuncts = ref 0 in
-    let rec go (vars, prop, prop_synth) =
+    let rec go (vars, prop_synth) =
       s#push ();
-      s#assrt (Smt.mk_not (to_smt (of_abstract prop)));
+      s#assrt (Smt.mk_not (to_smt (of_abstract prop_synth)));
       match Log.time "lazy_dnf/sat" s#check () with
       | Smt.Unsat ->
         s#pop ();
@@ -2524,14 +2534,12 @@ module Make (T : Term.S) = struct
             let prop_synth =
               VPMap.fold add_interval intervals prop_synth
             in
-            go (dims,
-                D.join prop projected_disjunct,
-                D.join prop_synth disjunct_with_defs)
+            go (dims, D.join prop_synth disjunct_with_defs)
           end
         end
     in
     try
-      Log.time "Abstraction" go (VarSet.empty, D.bottom man env_proj, D.bottom man env_synth)
+      Log.time "Abstraction" go (VarSet.empty, D.bottom man env_synth)
     with Timeout -> begin
         Log.errorf "Symbolic abstraction timed out; returning top";
         D.top man env_synth
