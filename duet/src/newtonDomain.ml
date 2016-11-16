@@ -1580,6 +1580,13 @@ let () =
          KK.F.opt_abstract_limit := k),
      " Set max number of rounds for symbolic abstraction")
 
+module KVMemo = Memo.Make(K.V)
+
+(* Replace every integer variable by a real variable *)
+let real_relaxation phi =
+  let rename = Memo.memo (fun v -> K.T.var (K.V.mk_tmp (K.V.show v) TyReal)) in
+  K.F.subst rename phi
+
 let () =
   Callback.register "compose_callback" K.mul;
   Callback.register "union_callback" K.add;

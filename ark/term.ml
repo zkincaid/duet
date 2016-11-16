@@ -118,7 +118,7 @@ module Make (V : Var) = struct
           | Div (x,y) ->
             Format.fprintf formatter "@[(%a)@ / (%a)@]" format x format y
           | Mod (x,y) ->
-            Format.fprintf formatter "@[(%a)@ %@ (%a)@]" format x format y
+            Format.fprintf formatter "@[(%a)@ %% (%a)@]" format x format y
           | Floor x ->
             Format.fprintf formatter "floor(%a)" format x
       end)
@@ -279,9 +279,7 @@ module Make (V : Var) = struct
     eval f t
 
   let modulo x y =
-    if typ x != TyInt then
-      invalid_arg ("Term.modulo: non-integral dividend: " ^ T.show x)
-    else if typ y != TyInt then
+    if typ y != TyInt then
       invalid_arg ("Term.modulo: non-integral divisor: " ^ T.show y)
     else
       hashcons (Mod (x, y))

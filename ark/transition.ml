@@ -717,7 +717,7 @@ module Make (Var : Var) = struct
           logf "No recurrence for %a" Var.format v;
           None
         | Smt.Undef ->
-          Log.errorf "Timeout in simple induction variable detection!";
+          Log.errorf "Timeout in simple induction variable detection (%s)" (s#to_string());
           None
       in
       s#pop ();

@@ -942,17 +942,20 @@ module Make (T : Term.S) = struct
               match atom with
               | LeqZ t ->
                 if QQ.leq (T.evaluate m t) QQ.zero then
-                  Some (of_atom (LeqZ t))
+                  (try Some (of_atom (LeqZ t))
+                   with Nonlinear -> Some { eq = []; leq = [] })
                 else
                   None
               | LtZ t ->
                 if QQ.lt (T.evaluate m t) QQ.zero then
-                  Some (of_atom (LtZ t))
+                  (try Some (of_atom (LtZ t))
+                   with Nonlinear -> Some { eq = []; leq = [] })
                 else
                   None
               | EqZ t ->
                 if QQ.equal (T.evaluate m t) QQ.zero then
-                  Some (of_atom (EqZ t))
+                  (try Some (of_atom (EqZ t))
+                   with Nonlinear -> Some { eq = []; leq = [] })
                 else
                   None
             with Divide_by_zero -> None)
@@ -2041,6 +2044,7 @@ module Make (T : Term.S) = struct
       let nl_bounds = big_conj (TMap.enum nonlinear /@ mk_nl_bounds) in
       conj lin_phi nl_bounds
     end
+
   let linearize_trivial mk_tmp phi = fst (split_linear mk_tmp phi)
   let linearize_opt mk_tmp phi =
     try linearize_opt mk_tmp phi
