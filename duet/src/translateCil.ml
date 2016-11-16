@@ -329,7 +329,7 @@ let rec tr_expr = function
     failwith "Address of label (&&) is not supported: GCC extension."
   | Cil.StartOf l ->
     (* Conversion of an array type to a pointer type *)
-    addr_of (tr_lval l)
+    AccessPath (tr_lval l)
   | Cil.Question (test, left, right, typ) -> assert false
 
 (* If ptr is a pointer and i is an integer, we convert
