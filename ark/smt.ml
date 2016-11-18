@@ -22,7 +22,7 @@ class type ['a] smt_solver = object
     [ `Sat | `Unsat of ('a formula) list | `Unknown ]
 end
 
-let mk_solver ark = (ArkMathsat.mk_solver ark :> 'a smt_solver)
+let mk_solver ark = (ArkZ3.mk_solver ark :> 'a smt_solver)
 
 let get_model ark phi =
   let solver = mk_solver ark in
