@@ -89,20 +89,6 @@ module RecurrenceAnalysis (Var : Var) = struct
                 T.format rhs))
         (BatList.enum abstract.inequations)
 
-    (* Format a term representing the right hand side of a recurrence *)
-    let format_rhs_sexpr formatter term =
-      let open Format in
-      let rec go formatter term = match T.destruct term with
-        | OVar v -> fprintf formatter "@[(%a k)@]" T.V.format v
-        | OConst k -> QQ.format formatter k
-        | OAdd (x, y) ->  fprintf formatter "@[(+ %a %a)@]" go x go y
-        | OMul (x, y) ->  fprintf formatter "@[(* %a %a)@]" go x go y
-        | ODiv (x, y) ->  fprintf formatter "@[(/ %a %a)@]" go x go y
-        | OMod (x, y) ->  fprintf formatter "@[(mod %a %a)@]" go x go y
-        | OFloor x ->  fprintf formatter "@[(floor %a)@]" go x
-      in
-      go formatter term
-
     let abstract_star ?guard:(guard=F.top) abstract =
       let loop_counter = T.var (V.mk_int_tmp "K") in
       (* In a recurrence environment, absence of a binding for a variable
@@ -125,56 +111,88 @@ module RecurrenceAnalysis (Var : Var) = struct
             format_abstract abstract;
           assert false
       in
+
+      let format_cf_sexpr formatter cf =
+        let open Format in
+        let open Incr in
+        let rec format_binop_list op pp_elt formatter = function
+          | [] -> assert false
+          | [x] -> pp_elt formatter x
+          | x::xs ->
+            fprintf formatter "(@[%s@ %a@ %a@])"
+              op
+              pp_elt x
+              (format_binop_list op pp_elt) xs
+        in
+        let format_monomial formatter (order, cq) =
+          if order == 0 then
+            fprintf formatter
+              "(Const %a)"
+              QQ.format cq
+          else
+            fprintf formatter
+              "(Mult (Const %a) %a)"
+              QQ.format cq
+              (format_binop_list "Mult"
+                 (fun formatter _ ->
+                    pp_print_string formatter "(SVar k)"))
+              (BatList.of_enum (1 -- order))
+        in
+        let format_uvp formatter px =
+          format_binop_list
+            "Add"
+            format_monomial
+            formatter
+            (BatList.of_enum (P.enum px))
+        in
+        let format_elt formatter (dim, px) =
+          match dim with
+          | AVar v ->
+            fprintf
+              formatter
+              "(Mult %a (OVar %a (SConst 0)))"
+              format_uvp px
+              Var.format v
+          | AConst -> format_uvp formatter px
+        in
+        format_binop_list
+          "Add"
+          format_elt
+          formatter
+          (BatList.of_enum (Cf.enum cf))
+      in
+
       (* Close all stratified recurrence equations *)
       let (env, transform) =
         List.fold_left (fun (env, transform) (var, rhs) ->
             let cf =
               Incr.Cf.add_term (AVar var) Incr.P.one (close_sum env rhs)
             in
-            let format_cf_sexpr formatter cf =
-              let open Format in
-              let open Incr in
-              let pp_sep formatter () = Format.fprintf formatter "@ " in
-              let format_monomial formatter (order, cq) =
-                if order == 0 then
-                  QQ.format formatter cq
-                else
-                  fprintf formatter
-                    "(* %a %a)"
-                    QQ.format cq
-                    (ApakEnum.pp_print_enum
-                       ~pp_sep
-                       (fun formatter _ -> pp_print_string formatter "k"))
-                    (1 -- order)
-              in
-              let format_uvp formatter px =
-                fprintf
-                  formatter
-                  "(+ %a)"
-                  (ApakEnum.pp_print_enum ~pp_sep format_monomial) (P.enum px)
-              in
-              let format_elt formatter (dim, px) =
-                match dim with
-                | AVar v ->
-                  fprintf
-                    formatter
-                    "(* %a %a)"
-                    format_uvp px
-                    Var.format v
-                | AConst -> format_uvp formatter px
-              in
-              fprintf
-                formatter
-                "(+ %a)"
-                (ApakEnum.pp_print_enum ~pp_sep format_elt) (Cf.enum cf)
-            in
             logf "@[Closed form for %a: %a@]"
               Var.format var
               Incr.Cf.format cf;
             (match Incr.eval env rhs with
              | Some rhs_closed ->
-               Format.fprintf fmt "@[<v 5>(rec (= (%a k) @[(+ (%a (- k 1)) %a)@])@;(= (%a k) %a))@]@\n"
-                 Var.format var Var.format var format_rhs_sexpr rhs
+               Format.fprintf
+                 fmt
+                 "/*@[<v 1>@;Recurrence: %a' = @[<hov 1>%a + %a@]@;"
+                 Var.format var
+                 Var.format var
+                 Incr.Cf.format rhs_closed;
+               Format.fprintf
+                 fmt
+                 "Closed form: %a' = @[<hov 1>%a@] @]@\n*/@\n"
+                 Var.format var
+                 Incr.Cf.format cf;
+               Format.fprintf
+                 fmt
+                 "@[<v 5>(rec (Equation @[(OVar %a (SAdd (SSVar k) (SConst 1)))@;@[(Add (OVar %a (SSVar k)) %a)@]@])@;"
+                 Var.format var
+                 Var.format var
+                 format_cf_sexpr rhs_closed;
+               Format.fprintf
+                 fmt
+                 "(Equation @[(OVar %a (SAdd (SSVar k) (SConst 1)))@;%a@]))@]@\n"
                  Var.format var format_cf_sexpr cf;
                Pervasives.flush chan
              | None -> ());
