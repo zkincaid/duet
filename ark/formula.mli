@@ -186,6 +186,14 @@ module type S = sig
   (** Linearize by dropping nonlinear terms.  *)
   val linearize_trivial : (unit -> T.V.t) -> t -> t
 
+  (** Linearize (using the same strategy as [linearize_opt]) and also return a
+      set of non-linear equations that are implied by the loop body.
+      Non-linear equations are represented as a mapping from variables to
+      non-linear terms. The non-linear terms are restricted to use a subset of
+      variables specified by the second argument. *)
+  val linearize_partial : (unit -> T.V.t) -> (T.V.t -> bool) -> t ->
+    t * (T.t T.V.Map.t)
+
   (** Default linearization strategy.  If not set, defaults to
       [linearize_opt]. *)
   val opt_linearize_strategy : ((unit -> T.V.t) -> t -> t) ref

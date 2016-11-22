@@ -557,10 +557,23 @@ module Make (Var : Var) = struct
     (* Polynomials with rational coefficients *)
     module P = Linear.Expr.MakePolynomial(QQ)
     module Gauss = Linear.GaussElim(QQ)(P)
-    module Env = Putil.Map.Make(Var)
 
     (* Closed forms *)
-    module Cf = Linear.Affine.LiftMap(Var)(Env)(P)
+    module Cf = struct
+      include Linear.Affine.LiftMap(T)(Putil.Map.Make(T))(P)
+      let mul x y =
+        let mul_dim x y = match x,y with
+          | AConst, AConst -> AConst
+          | AConst, AVar v | AVar v, AConst -> AVar v
+          | AVar x, AVar y -> AVar (T.mul x y)
+        in
+        (enum x)
+        /@ (fun (xdim, xcoeff) ->
+            (enum y)
+            /@ (fun (ydim, ycoeff) -> (mul_dim xdim ydim, P.mul xcoeff ycoeff))
+            |> of_enum)
+        |> sum
+    end
 
     let cf_compose cf p =
       let f (dim, coeff) = (dim, P.compose coeff p) in
@@ -568,23 +581,54 @@ module Make (Var : Var) = struct
     let k_minus_1 = P.add_term 1 QQ.one (P.const (QQ.negate QQ.one))
 
     let eval env t =
+      let alg = function
+        | OVar v ->
+          begin
+            match env v with
+            | Some cf -> Some (cf_compose cf k_minus_1)
+            | None -> None
+          end
+        | OConst qq -> Some (Cf.const (P.const qq))
+        | OAdd (Some x, Some y) -> Some (Cf.add x y)
+        | OMul (Some x, Some y) -> Some (Cf.mul x y)
+        | ODiv (Some x, Some y) ->
+          let (const_coeff, yrest) = Cf.pivot AConst y in
+          if Cf.equal yrest Cf.zero && P.order const_coeff = 0 then
+            Some (Cf.scalar_mul (P.const (QQ.inverse (P.find 0 const_coeff))) x)
+          else
+            None
+        | OAdd (_, _) | OMul (_, _) | ODiv (_, _) | OMod (_, _) | OFloor _ ->
+          None
+      in
+      T.eval alg t
+(*
+
+      | OConst of QQ.t
+      | OAdd of 'a * 'a
+      | OMul of 'a * 'a
+      | ODiv of 'a * 'a
+      | OMod of 'a * 'a
+      | OFloor of 'a
+
       match T.to_linterm t with
       | None -> None
       | Some lt ->
         let f (dim, coeff) =
           match dim with
           | AConst -> Cf.const (P.const coeff)
-          | AVar (V.TVar _) -> raise Not_found
-          | AVar (V.PVar v) ->
+          | AVar v ->
+            
+        in
             if Env.mem v env then begin
               match Env.find v env with
               | Some cf ->
-                Cf.scalar_mul (P.const coeff) (cf_compose cf k_minus_1)
+                
               | None -> raise Not_found
             end else begin
+              assert (V.lower v != None);
               (* if v isn't in env, it isn't in the domain of the
                  transformation, and so hasn't been modified along the path *)
-              Cf.term (AVar v) (P.const coeff)
+              Cf.term (AVar (T.var v)) (P.const coeff)
             end
         in
         try
@@ -596,6 +640,7 @@ module Make (Var : Var) = struct
               (Env.format Show.format<Cf.t option>) env;
             None
           end
+                            *)
 
     (* Given a polynomial p, compute a polynomial q such that for any k, q(k)
        = p(0) + p(1) + ... + p(k-1) *)
@@ -653,13 +698,13 @@ module Make (Var : Var) = struct
         T.sum (BatEnum.map to_term (P.enum px))
       in
       let to_term (dim, px) = match dim with
-        | AVar v -> T.mul (polynomial_term px) (T.var (V.mk_var v))
+        | AVar term -> T.mul (polynomial_term px) term
         | AConst -> polynomial_term px
       in
       T.sum (BatEnum.map to_term (Cf.enum cf))
   end
 
-  module VarMap = Incr.Env
+  module VarMap = Putil.Map.Make(Var)
 
   (* Linear terms with rational efficients *)
   module QQTerm = Linear.Expr.Make(Var)(QQ)
@@ -675,7 +720,7 @@ module Make (Var : Var) = struct
       (* Induction variables are variables with exact recurrences (defined by
          equalities of the form x' = x + p(y), where p(y) is a
          polynomial in induction variables of lower strata) *)
-      induction_vars : Incr.Cf.t option Incr.Env.t;
+      induction_vars : Incr.Cf.t option VarMap.t;
 
       (* Variable term representing the loop iteration *)
       loop_counter : T.t }
@@ -710,9 +755,9 @@ module Make (Var : Var) = struct
             Var.format v
             QQ.format incr;
           let increment = Cf.const (P.add_term 1 incr P.zero) in
-          let cf = Cf.add_term (AVar v) P.one increment in
+          let cf = Cf.add_term (AVar (T.var (V.mk_var v))) P.one increment in
           logf "Closed form: %a" Cf.format cf;
-          Some (Cf.add_term (AVar v) P.one increment)
+          Some (Cf.add_term (AVar (T.var (V.mk_var v))) P.one increment)
         | Smt.Sat ->
           logf "No recurrence for %a" Var.format v;
           None
@@ -726,53 +771,10 @@ module Make (Var : Var) = struct
     let induction_vars =
       Log.time
         "(Simple) induction variable detection"
-        (Incr.Env.mapi induction_var)
+        (VarMap.mapi induction_var)
         ctx.induction_vars
     in
     { ctx with induction_vars = induction_vars }
-
-  (* Find "recurrences" of the form
-     x' = x + c \/ x' = x + d
-  *)
-  let disj_induction_vars ctx =
-    let vars =
-      Incr.Env.fold
-        (fun v recurrence vs -> match recurrence with
-           | None -> v::vs
-           | Some _ -> vs)
-        ctx.induction_vars
-        []
-    in
-    let deltas =
-      List.map
-        (fun v -> T.sub (T.var (V.mk_var (Var.prime v))) (T.var (V.mk_var v)))
-        vars
-    in
-    let cases = F.disj_optimize deltas ctx.phi in
-    let case_vars = List.map (fun case -> T.var (V.mk_int_tmp "K")) cases in
-    let f loop v cases =
-      let g sum case_var ivl = match sum, Interval.const_of ivl with
-        | (Some sum, Some k_ivl) ->
-          Some (T.add (T.mul case_var (T.const k_ivl)) sum)
-        | (_, _) -> None
-      in
-      match BatList.fold_left2 g (Some T.zero) case_vars cases with
-      | Some sum ->
-        { loop with guard = F.conj loop.guard
-                        (F.eq (T.add (T.var (V.mk_var v)) (M.find v loop.transform)) sum) }
-      | None -> loop
-    in
-    let loop = BatList.fold_left2 f ctx.loop vars (BatList.transpose cases) in
-
-    let sum = List.fold_left T.add T.zero case_vars in
-    let guard =
-      List.fold_left
-        F.conj
-        (F.eq sum ctx.loop_counter)
-        (List.map (fun v -> F.leqz (T.neg v)) case_vars)
-    in
-    let loop = { loop with guard = F.conj loop.guard guard } in
-    { ctx with loop = loop }
 
   (* Higher induction variables *********************************************)
   (* There are two algorithms here: simple_higher_induction_vars, which uses
@@ -780,33 +782,32 @@ module Make (Var : Var) = struct
      generally misses induction variables when there are branches or nested
      loops within the loop body); and higher_induction_vars, which uses a more
      complicated scheme which is (hopefully) complete. *)
+  let env_of_induction_vars induction_vars v =
+    match V.lower v with
+    | Some var ->
+      if VarMap.mem var induction_vars then
+        VarMap.find var induction_vars
+      else
+        (* if v isn't in induction_vars, it isn't in the domain of the
+             transformation, and so hasn't been modified along the path *)
+        Some (Incr.Cf.term (AVar (T.var v)) (Incr.P.const QQ.one))
+    | None -> None
 
-  let closed_form env loop_counter v rhs =
+  let closed_form induction_vars loop_counter v rhs =
+    let env = env_of_induction_vars induction_vars in
     match Incr.eval env rhs with
     | Some rhs_closed ->
       let cf =
-        Incr.Cf.add_term (AVar v) Incr.P.one (Incr.summation rhs_closed)
+        Incr.Cf.add_term
+          (AVar (T.var (V.mk_var v)))
+          Incr.P.one
+          (Incr.summation rhs_closed)
       in
       logf "Closed form for %a: %a"
         Var.format v
         Incr.Cf.format cf;
       Some cf
     | None -> None
-
-  let simple_higher_induction_vars tr env loop_counter =
-    let check v rhs =
-      closed_form env loop_counter v (T.sub rhs (T.var (V.mk_var v)))
-    in
-    let g v rhs env =
-      try begin match Incr.Env.find v env with
-        | Some _ -> env
-        | None -> begin
-            match check v rhs with
-            | Some incr -> Incr.Env.add v (Some incr) env
-            | None -> env
-          end end with Not_found -> assert false
-    in
-    M.fold g tr.transform env
 
   module AMap = BatMap.Make(Linear.AffineVar(V))
   let farkas equations vars =
@@ -877,12 +878,12 @@ module Make (Var : Var) = struct
       s#assrt (Smt.mk_eq (get_coeff (Var.prime v)) (Smt.const_int (-1)));
 
       (* The coefficient of a non-induction variable (other than v) must be
-         	 0 *)
-      Incr.Env.iter (fun x rhs ->
+         0 *)
+      VarMap.iter (fun x rhs ->
           match rhs with
           | None -> assert_zero_coeff x
           | Some _ -> ()
-        ) (Incr.Env.remove v ctx.induction_vars);
+        ) (VarMap.remove v ctx.induction_vars);
 
       (* The coefficient of a primed variable (other than v') must be 0 *)
       VarSet.iter assert_zero_coeff (VarSet.remove (Var.prime v) primed_vars);
@@ -926,7 +927,7 @@ module Make (Var : Var) = struct
           None
     in
     let rec fix iv =
-      let iv = Incr.Env.mapi check iv in
+      let iv = VarMap.mapi check iv in
       if !found_recurrence then begin
         found_recurrence := false;
         fix iv
@@ -1026,7 +1027,7 @@ module Make (Var : Var) = struct
       let is_induction_var v = match V.lower v with
         | Some var ->
           begin
-            try (Incr.Env.find var ctx.induction_vars) != None
+            try (VarMap.find var ctx.induction_vars) != None
             with Not_found -> false
           end
         | None -> false
@@ -1060,7 +1061,8 @@ module Make (Var : Var) = struct
             let rhs_term =
               BatEnum.fold f (T.const (T.Linterm.const_coeff lt)) nondeltas
             in
-            match Incr.eval ctx.induction_vars rhs_term with
+            let env = env_of_induction_vars ctx.induction_vars in
+            match Incr.eval env rhs_term with
             | Some cf -> Incr.to_term (Incr.summation cf) ctx.loop_counter
             | None -> assert false
           in
@@ -1167,9 +1169,9 @@ module Make (Var : Var) = struct
     in
     let induction_vars =
       M.fold
-        (fun v _ env -> Incr.Env.add v None env)
+        (fun v _ env -> VarMap.add v None env)
         tr.transform
-        Incr.Env.empty
+        VarMap.empty
     in
     let linear_body =
       F.linearize (fun () -> V.mk_real_tmp "nonlin") (to_formula tr)
@@ -1190,7 +1192,6 @@ module Make (Var : Var) = struct
     let ctx =
       List.fold_left context_transform ctx [
         (!opt_higher_recurrence, higher_induction_vars);
-        (!opt_disjunctive_recurrence_eq, disj_induction_vars);
         (!opt_recurrence_ineq, recurrence_ineq);
         (!opt_polyrec, polyrec);
       ]
@@ -1207,7 +1208,7 @@ module Make (Var : Var) = struct
         M.add v t transform
       | None -> transform
     in
-    let transform = Incr.Env.fold close ctx.induction_vars ctx.loop.transform in
+    let transform = VarMap.fold close ctx.induction_vars ctx.loop.transform in
 
     let loop = { ctx.loop with transform = transform } in
 

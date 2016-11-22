@@ -1352,8 +1352,8 @@ module DfsTree = struct
       in
       let size = G.nb_vertex graph in
       let dfs_num = HT.create (2*size) in
-      let vertex = Array.create size init in
-      let parent = Array.create size 0 in
+      let vertex = Array.make size init in
+      let parent = Array.make size 0 in
       let rec dfs v =
         let n = next_dfs_num () in
         let get_dfs_num w =
@@ -1412,7 +1412,7 @@ module DfsTree = struct
 
     let vertices tree = BatArray.enum tree.vertex
     let leaves tree =
-      let internal = Array.create tree.size false in
+      let internal = Array.make tree.size false in
       let last = tree.size - 1 in
       let f v =
         if internal.(v) then None

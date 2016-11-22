@@ -179,6 +179,7 @@ end = struct
       let fold_vertex = WGLoop.fold_vertex
       let iter_vertex = WGLoop.iter_vertex
       let nb_vertex = WGLoop.nb_vertex
+      let iter_succ = WGLoop.iter_succ
     end)
 
   module VMemo = Memo.Make(WGV)
