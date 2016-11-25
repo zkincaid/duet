@@ -81,6 +81,8 @@ val substitute_const : 'a context ->
 
 val fold_constants : (symbol -> 'a -> 'a) -> ('b, 'c) expr -> 'a -> 'a
 
+val symbols : ('a, 'b) expr -> Symbol.Set.t
+
 (** {3 Expression rewriting} *)
 
 (** A rewriter is a function that transforms an expression into another.  {b

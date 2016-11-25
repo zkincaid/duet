@@ -128,8 +128,9 @@ module ZZVector = struct
       (enum u)
 
   let pp formatter vec =
-    IntMap.values vec
-    |> Format.fprintf formatter "[@[%a@]]" (ApakEnum.pp_print_enum ZZ.pp)
+    let pp_elt formatter (k, v) = Format.fprintf formatter "%d:%a" k ZZ.pp v in
+    IntMap.enum vec
+    |> Format.fprintf formatter "[@[%a@]]" (ApakEnum.pp_print_enum pp_elt)
 
   let show = Putil.mk_show pp
   let compare = compare ZZ.compare
@@ -150,8 +151,9 @@ module QQVector = struct
       (enum u)
 
   let pp formatter vec =
-    IntMap.values vec
-    |> Format.fprintf formatter "[%a]" (ApakEnum.pp_print_enum QQ.pp)
+    let pp_elt formatter (k, v) = Format.fprintf formatter "%d:%a" k QQ.pp v in
+    IntMap.enum vec
+    |> Format.fprintf formatter "[@[%a@]]" (ApakEnum.pp_print_enum pp_elt)
 
   let show = Putil.mk_show pp
   let compare = compare QQ.compare

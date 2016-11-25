@@ -2,12 +2,15 @@ open Syntax
 open Linear
 open BatPervasives
 open Apak
+open Polyhedron
 
 include Log.Make(struct let name = "ark.abstract" end)
 
 module V = Linear.QQVector
 module VS = Putil.Set.Make(Linear.QQVector)
 module VM = Putil.Map.Make(Linear.QQVector)
+
+let opt_abstract_limit = ref (-1)
 
 (* Counter-example based extraction of the affine hull of a formula.  This
    works by repeatedly posing new (linearly independent) equations; each
@@ -97,3 +100,54 @@ let boxify ark phi terms =
     mk_and ark (List.concat (List.map2 mk_box terms intervals))
   | `Unsat -> mk_false ark
   | `Unknown -> assert false
+
+let abstract ?exists:(p=fun x -> true) ark man phi =
+  let solver = Smt.mk_solver ark in
+  let phi_symbols = symbols phi in
+  let projected_symbols = Symbol.Set.filter (not % p) phi_symbols in
+  let symbol_list = Symbol.Set.elements phi_symbols in
+  let env_proj = ArkApron.Env.of_set ark (Symbol.Set.filter p phi_symbols) in
+
+  let disjuncts = ref 0 in
+  let rec go prop =
+    solver#push ();
+    solver#add [mk_not ark (ArkApron.formula_of_property prop)];
+    match Log.time "lazy_dnf/sat" solver#get_model () with
+    | `Unsat ->
+      solver#pop 1;
+      prop
+    | `Unknown ->
+      begin
+        Log.errorf "abstraction timed out (%d disjuncts); returning top"
+          (!disjuncts);
+        solver#pop 1;
+        ArkApron.top man env_proj
+      end
+    | `Sat model -> begin
+        let interp = Interpretation.of_model ark model symbol_list in
+        let valuation = model#eval_real % (mk_const ark) in
+        solver#pop 1;
+        incr disjuncts;
+        logf "[%d] abstract lazy_dnf" (!disjuncts);
+        if (!disjuncts) = (!opt_abstract_limit) then begin
+          Log.errorf "Met symbolic abstraction limit; returning top";
+          ArkApron.top man env_proj
+        end else begin
+          let disjunct =
+            match Interpretation.select_implicant interp phi with
+            | Some d -> Polyhedron.polyhedron_of_implicant ark d
+            | None -> begin
+                assert (model#sat phi);
+                assert false
+              end
+          in
+          let projected_disjunct =
+            Polyhedron.local_project valuation projected_symbols disjunct
+            |> Polyhedron.to_apron env_proj man
+          in
+          go (ArkApron.join prop projected_disjunct)
+        end
+      end
+  in
+  solver#add [phi];
+  Log.time "Abstraction" go (ArkApron.bottom man env_proj)

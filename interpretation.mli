@@ -42,7 +42,6 @@ val select_implicant : 'a interpretation ->
   'a formula ->
   ('a formula list) option
 
-
 val destruct_atom : 'a context ->
   'a formula ->
   [ `Comparison of ([`Lt | `Leq | `Eq] * 'a term * 'a term)
