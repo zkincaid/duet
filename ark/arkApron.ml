@@ -433,3 +433,23 @@ let meet_lcons property constraints =
              (Abstract0.manager property.prop)
              property.prop
              (BatArray.of_list constraints) }
+
+let formula_of_tcons env tcons =
+  let open Tcons0 in
+  let t = term_of_texpr env tcons.texpr0 in
+  let ark = env.Env.ark in
+  let zero = mk_real ark QQ.zero in
+  match tcons.typ with
+  | EQ      -> mk_eq ark t zero
+  | SUPEQ   -> mk_leq ark zero t
+  | SUP     -> mk_lt ark zero t
+  | DISEQ   -> mk_not ark (mk_eq ark t zero)
+  | EQMOD _ -> assert false (* todo *)
+
+let formula_of_property property =
+  let ark = property.env.Env.ark in
+  let man = man property.prop in
+  BatArray.enum (Abstract0.to_tcons_array man property.prop)
+  /@ (formula_of_tcons property.env)
+  |> BatList.of_enum
+  |> mk_and ark

@@ -7,8 +7,8 @@ all: build
 build: setup.ml setup.data
 	$(SETUP) -build
 
-duet: setup.ml setup.data duet/src/config.ml
-	ocamlbuild duet/src/duet.native -tag debug
+duet: setup.ml setup.data duet/config.ml
+	ocamlbuild duet/duet.native -tag debug
 	cp duet.native duet/duet
 
 ark: setup.ml setup.data

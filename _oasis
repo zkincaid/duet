@@ -28,7 +28,7 @@ Library "ark"
   Path:             ark
   FindlibName:      ark
   Pack:             true
-  Modules:  QQ, ZZ, Syntax, Interval, Smt, ArkZ3, ArkMathsat, Linear, Interpretation, Abstract, Quantifier
+  Modules:  QQ, ZZ, Syntax, Interval, Smt, ArkZ3, ArkMathsat, Linear, Interpretation, ArkApron, Polyhedron, Abstract, Quantifier
   BuildDepends:     ppx_deriving, ppx_deriving.show, ppx_deriving.ord, apak, gmp, camlidl, apron, Z3, mathsat
   Install:         false
   XMETADescription: Arithmetic Reasoning Kit

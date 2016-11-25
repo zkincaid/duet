@@ -1,7 +1,7 @@
 open OUnit
 open Abstract
 open Syntax
-
+open ArkApron
 
 module Ctx = MakeSimplifyingContext ()
 module Infix = Syntax.Infix(Ctx)
@@ -153,6 +153,66 @@ let optimize5 () =
   | _ -> assert false
 *)
 
+let polka = Polka.manager_alloc_loose ()
+
+let abstract1 () =
+  let phi =
+    let open Infix in
+    (int 1) < r && r < (int 5)
+  in
+  let phi_closed =
+    let open Infix in
+    (int 1) <= r && r <= (int 5)
+  in
+  assert_equiv_formula
+    phi_closed
+    (ArkApron.formula_of_property (Abstract.abstract ctx polka phi))
+
+let abstract2 () =
+  let phi =
+    let open Infix in
+    (int 1) < r && r < s && r < (int 5)
+  in
+  let phi_closed =
+    let open Infix in
+    (int 1) <= r && r <= (int 5)
+  in
+  let phi_abstract =
+    Abstract.abstract ~exists:((=) rsym) ctx polka phi
+    |> ArkApron.formula_of_property
+  in
+  assert_equiv_formula phi_closed phi_abstract
+
+let abstract3 () =
+  let phi =
+    let open Infix in
+    ((w = x && x = y) || (w = z && z = y))
+  in
+  let phi_abstract =
+    Abstract.abstract ctx polka phi
+    |> ArkApron.formula_of_property
+  in
+  assert_equiv_formula (Ctx.mk_eq w y) phi_abstract
+
+(* Convex hull of { (0,0), (0,1), (1,1) } *)
+let abstract4 () =
+  let phi =
+    let open Infix in
+    (x = (int 0) && y = (int 0))
+    || (x = (int 1) && y = (int 1))
+    || (x = (int 0) && y = (int 1))
+  in
+  let phi_abstract =
+    Abstract.abstract ctx polka phi
+    |> ArkApron.formula_of_property
+  in
+  let psi =
+    let open Infix in
+    ((int 0) <= x && x <= y)
+    && ((int 0) <= y && y <= (int 1))
+  in
+  assert_equiv_formula psi phi_abstract
+
 let suite = "Abstract" >::: [
     "affine_hull1" >:: affine_hull1;
     "affine_hull2" >:: affine_hull2;
@@ -165,4 +225,8 @@ let suite = "Abstract" >::: [
     "optimize3" >:: optimize3;
     "optimize4" >:: optimize4;
     (*    "optimize5" >:: optimize5;*)
+    "abstract1" >:: abstract1;
+    "abstract2" >:: abstract2;
+    "abstract3" >:: abstract3;
+    "abstract4" >:: abstract4;
   ]

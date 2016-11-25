@@ -67,3 +67,5 @@ val tcons_gtz : texpr -> tcons
 val lcons_geqz : lexpr -> lcons
 val lcons_eqz : lexpr -> lcons
 val lcons_gtz : lexpr -> lcons
+
+val formula_of_property : ('a,'abs) property -> 'a formula

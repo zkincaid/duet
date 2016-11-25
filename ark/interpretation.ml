@@ -7,6 +7,8 @@ type 'a interpretation =
   { ark : 'a context;
     map : [ `Bool of bool | `Real of QQ.t ] SM.t }
 
+let value interp k = SM.find k interp.map
+
 let empty ark =
   { ark = ark;
     map = SM.empty }
@@ -30,8 +32,6 @@ let bool interp k =
   match SM.find k interp.map with
   | `Bool v -> v
   | _ -> invalid_arg "bool: constant symbol is not Boolean"
-
-let value interp k = SM.find k interp.map
 
 let pp formatter interp =
   let pp_val formatter = function

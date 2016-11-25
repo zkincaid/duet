@@ -288,6 +288,8 @@ let fold_constants f sexpr acc =
   in
   go acc sexpr
 
+let symbols sexpr = fold_constants Symbol.Set.add sexpr Symbol.Set.empty
+
 let vars sexpr =
   let rec go depth sexpr =
     let Node (label, children, _) = sexpr.obj in
@@ -1035,6 +1037,7 @@ module MakeSimplifyingContext () = struct
           | xs -> hc Add xs
         end
 
+      | Mul, xs when List.exists is_zero xs -> mk (Real QQ.zero) []
       | Mul, xs ->
         begin match List.filter (not % is_one) xs with
           | [] -> mk (Real QQ.one) []
