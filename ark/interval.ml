@@ -202,11 +202,10 @@ let floor x =
   { lower = map_opt (QQ.of_zz % QQ.floor) x.lower;
     upper = map_opt (QQ.of_zz % QQ.floor) x.upper }
 
-(*
 let of_apron ivl =
   let cvt scalar =
     if Apron.Scalar.is_infty scalar == 0
-    then Some (NumDomain.qq_of_scalar scalar)
+    then Some (ArkApron.qq_of_scalar scalar)
     else None
   in
   make (cvt ivl.Apron.Interval.inf) (cvt ivl.Apron.Interval.sup)
@@ -221,7 +220,6 @@ let apron_of { lower; upper } =
     | None -> Apron.Scalar.of_infty 1
   in
   Apron.Interval.of_scalar lo hi
- *)
 
 let const_of { lower; upper } =
   match upper, lower with

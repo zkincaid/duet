@@ -33,6 +33,11 @@ let assert_equiv_formula s t =
   assert_equal ~printer:(Formula.show ctx) ~cmp:(smt_ctx#equiv) s t
 let assert_equal_qq x y =
   assert_equal ~printer:QQ.show ~cmp:QQ.equal x y
+let assert_implies phi psi =
+  if not (smt_ctx#implies phi psi) then
+    assert_failure (Printf.sprintf "%s\ndoes not imply\n%s"
+                      (Formula.show ctx phi)
+                      (Formula.show ctx psi))
 
 
 let hull_formula hull = Ctx.mk_and (List.map (Ctx.mk_eq (int 0)) hull)
@@ -213,6 +218,71 @@ let abstract4 () =
   in
   assert_equiv_formula psi phi_abstract
 
+let linearize1 () =
+  let phi =
+    let open Infix in
+    (int 0) <= x
+    && x <= (int 1000)
+    && y = x * x
+    && (int 1000000) <= y
+  in
+  let psi =
+    let open Infix in
+    (x = int 1000) && (y = int 1000000)
+  in
+  assert_implies (linearize ctx phi) psi
+
+let linearize2 () =
+  let phi =
+    let open Infix in
+    (int 1) <= x
+    && x <= (int 1)
+    && w = (int 0)
+    && z = y / x + w * y
+  in
+  assert_implies (linearize ctx phi) (Ctx.mk_eq z y)
+
+let linearize3 () =
+  let phi =
+    let open Infix in
+    w <= x
+    && (int 0) <= y
+    && (int 0) <= w
+    && z = x * y
+  in
+  assert_implies (linearize ctx phi) (Ctx.mk_leq (int 0) z)
+
+(* easier version of linearization5: y * y appears twice, but we when we
+   replace nonlinear terms by variables we lose that information. *)
+let linearize4 () =
+  let phi =
+    let open Infix in
+    x = y * y && z = y * y + (int 1)
+  in
+  assert_implies (linearize ctx phi) (Ctx.mk_lt x z)
+
+(* to pass this test case, we need linearization to be smart enough to see
+   that x = y implies x * x = y * y *)
+let linearize5 () =
+  let phi =
+    let open Infix in
+    x = y && z = x * x && z = y * y + (int 1)
+  in
+  assert_implies (linearize ctx phi) Ctx.mk_false
+
+let linearize6 () =
+  let open Infix in
+  let phi =
+    (int 3) <= y && y <= (int 10)
+    && (int 0) <= x
+    && z = x mod y
+  in
+  let lin_phi = linearize ctx phi in
+  assert_implies lin_phi (z < (int 10));
+  assert_implies lin_phi ((int 0) <= z);
+  assert_implies lin_phi (z <= x)
+
+
 let suite = "Abstract" >::: [
     "affine_hull1" >:: affine_hull1;
     "affine_hull2" >:: affine_hull2;
@@ -229,4 +299,10 @@ let suite = "Abstract" >::: [
     "abstract2" >:: abstract2;
     "abstract3" >:: abstract3;
     "abstract4" >:: abstract4;
+    "linearize1" >:: linearize1;
+    "linearize2" >:: linearize2;
+    "linearize3" >:: linearize3;
+    "linearize4" >:: linearize4;
+    "linearize5" >:: linearize5;
+    "linearize6" >:: linearize6;
   ]

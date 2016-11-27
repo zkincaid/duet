@@ -21,3 +21,13 @@ val abstract : ?exists:(symbol -> bool) ->
   'abs Apron.Manager.t ->
   'a formula ->
   ('a,'abs) ArkApron.property
+
+(** Replace non-linear arithmetic with uninterpreted functions.  The
+    uninterpreted function symbols are named symbols: mul, div, and mod.  This
+    rewriter is safe to apply top-down or bottom-up. *)
+val nonlinear_uninterpreted_rewriter : 'a context ->
+  ('a,typ_fo) expr ->
+  ('a,typ_fo) expr
+
+(** Compute a linear approximation of a non-linear formula. *)
+val linearize : 'a context -> 'a formula -> 'a formula
