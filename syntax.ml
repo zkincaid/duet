@@ -35,6 +35,8 @@ let pp_typ formatter = function
 let pp_typ_arith = pp_typ
 let pp_typ_fo = pp_typ
 
+let subtype s t = s = t || (s = `TyInt && t = `TyReal)
+
 type label =
   | True
   | False
@@ -158,6 +160,7 @@ let size expr =
 type 'a context =
   { hashcons : HC.t;
     symbols : (string * typ) DynArray.t;
+    named_symbols : (string,int) Hashtbl.t;
     mk : label -> (sexpr hobj) list -> sexpr hobj
   }
 
@@ -165,13 +168,30 @@ let mk_symbol ctx ?(name="K") typ =
   DynArray.add ctx.symbols (name, typ);
   DynArray.length ctx.symbols - 1
 
+let register_named_symbol ctx name typ =
+  if Hashtbl.mem ctx.named_symbols name then
+    invalid_arg ("register_named_symbol: The name `"
+                 ^ name
+                 ^ "' has already been registered")
+  else
+    Hashtbl.add ctx.named_symbols name (mk_symbol ctx ~name typ)
+
+let get_named_symbol ctx name = Hashtbl.find ctx.named_symbols name
+
+let is_registered_name ctx name = Hashtbl.mem ctx.named_symbols name
+
+let symbol_name ctx sym =
+  let name = fst (DynArray.get ctx.symbols sym) in
+  if is_registered_name ctx name then Some name
+  else None
+
 let typ_symbol ctx = snd % DynArray.get ctx.symbols
 let pp_symbol ctx formatter symbol =
   Format.fprintf formatter "%s:%d"
     (fst (DynArray.get ctx.symbols symbol))
     symbol
 
-let show_symbol ctx = Apak.Putil.mk_show (pp_symbol ctx)
+let show_symbol ctx symbol = fst (DynArray.get ctx.symbols symbol)
 let symbol_of_int x = x
 let int_of_symbol x = x
 
@@ -283,7 +303,7 @@ let fold_constants f sexpr acc =
   let rec go acc sexpr =
     let Node (label, children, _) = sexpr.obj in
     match label with
-    | App k -> f k acc
+    | App k -> List.fold_left go (f k acc) children
     | _ -> List.fold_left go acc children
   in
   go acc sexpr
@@ -313,6 +333,34 @@ let refine ctx sexpr =
   | Node (_, _, `TyInt) -> `Term sexpr
   | Node (_, _, `TyReal) -> `Term sexpr
   | Node (_, _, `TyBool) -> `Formula sexpr
+
+let destruct ctx sexpr =
+  match sexpr.obj with
+  | Node (Real qq, [], _) -> `Real qq
+  | Node (App k, [], `TyBool) -> `Proposition (`Const k)
+  | Node (App k, [], _) -> `Const k
+  | Node (App func, args, _) -> `App (func, args)
+  | Node (Var (v, `TyReal), [], _) -> `Var (v, `TyReal)
+  | Node (Var (v, `TyInt), [], _) -> `Var (v, `TyInt)
+  | Node (Var (v, `TyBool), [], _) -> `Proposition (`Var v)
+  | Node (Add, sum, _) -> `Add sum
+  | Node (Mul, product, _) -> `Mul product
+  | Node (Div, [s; t], _) -> `Binop (`Div, s, t)
+  | Node (Mod, [s; t], _) -> `Binop (`Mod, s, t)
+  | Node (Floor, [t], _) -> `Unop (`Floor, t)
+  | Node (Neg, [t], _) -> `Unop (`Neg, t)
+  | Node (Ite, [cond; bthen; belse], _) -> `Ite (cond, bthen, belse)
+  | Node (True, [], _) -> `Tru
+  | Node (False, [], _) -> `Fls
+  | Node (And, conjuncts, _) -> `And conjuncts
+  | Node (Or, disjuncts, _) -> `Or disjuncts
+  | Node (Not, [phi], _) -> `Not phi
+  | Node (Exists (name, typ), [phi], _) -> `Quantify (`Exists, name, typ, phi)
+  | Node (Forall (name, typ), [phi], _) -> `Quantify (`Forall, name, typ, phi)
+  | Node (Eq, [s; t], _) -> `Atom (`Eq, s, t)
+  | Node (Leq, [s; t], _) -> `Atom (`Leq, s, t)
+  | Node (Lt, [s; t], _) -> `Atom (`Lt, s, t)
+  | Node (_, _, _) -> assert false
 
 module Expr = struct
   type t = sexpr hobj
@@ -682,14 +730,14 @@ let node_typ symbols label children =
       | `TyFun (args, ret) ->
         if List.length args != List.length children then
           invalid_arg "Arity mis-match in function application";
-        if (BatList.exists2
-              (fun typ { obj = Node (_, _, typ') } -> typ != typ')
+        if (BatList.for_all2
+              (fun typ { obj = Node (_, _, typ') } -> subtype typ' typ)
               args
               children)
         then
-          invalid_arg "Mis-matched types in function application"
-        else
           ret
+        else
+          invalid_arg "Mis-matched types in function application"
       | `TyInt when children = [] -> `TyInt
       | `TyReal when children = [] -> `TyReal
       | `TyBool when children = [] -> `TyBool
@@ -729,6 +777,12 @@ let term_typ _ node =
   | Node (_, _, `TyInt) -> `TyInt
   | Node (_, _, `TyReal) -> `TyReal
   | Node (_, _, `TyBool) -> invalid_arg "term_typ: not an arithmetic term"
+
+let expr_typ _ node =
+  match node.obj with
+  | Node (_, _, `TyInt) -> `TyInt
+  | Node (_, _, `TyReal) -> `TyReal
+  | Node (_, _, `TyBool) -> `TyBool
 
 type 'a rewriter = ('a, typ_fo) expr -> ('a, typ_fo) expr
 
@@ -960,7 +1014,8 @@ module MakeContext () = struct
       let typ = node_typ symbols label children in
       HC.hashcons hashcons (Node (label, children, typ))
     in
-    { hashcons; symbols; mk }
+    let named_symbols = Hashtbl.create 991 in
+    { hashcons; symbols; named_symbols; mk }
 
   include ImplicitContext(struct
       type t = unit
@@ -976,6 +1031,7 @@ module MakeSimplifyingContext () = struct
   let context =
     let hashcons = HC.create 991 in
     let symbols = DynArray.make 512 in
+    let named_symbols = Hashtbl.create 991 in
     let true_ = HC.hashcons hashcons (Node (True, [], `TyBool)) in
     let false_ = HC.hashcons hashcons (Node (False, [], `TyBool)) in
     let rec mk label children =
@@ -1069,7 +1125,7 @@ module MakeSimplifyingContext () = struct
 
       | _, _ -> hc label children
     in
-    { hashcons; symbols; mk }
+    { hashcons; symbols; named_symbols; mk }
 
   include ImplicitContext(struct
       type t = unit

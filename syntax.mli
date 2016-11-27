@@ -32,6 +32,22 @@ type symbol
 
 val mk_symbol : 'a context -> ?name:string -> typ -> symbol
 
+(** Register a named symbol.  The strings identifying named symbols must be
+    unique.  The symbol associated with a name can be retrieved with
+    [get_named_symbol]. *)
+val register_named_symbol : 'a context -> string -> typ -> unit
+
+(** Test if a name is already associated with a symbol *)
+val is_registered_name : 'a context -> string -> bool
+
+(** Retrieve the symbol associated with a given name.  Raises [Not_found] if
+    there is no such symbol. *)
+val get_named_symbol : 'a context -> string -> symbol
+
+(** Retrieve the name of a named symbol.  Evaluates to [None] for ordinary
+    (non-named) symbols. *)
+val symbol_name : 'a context -> symbol -> string option
+
 val pp_symbol : 'a context -> Format.formatter -> symbol -> unit
 
 val typ_symbol : 'a context -> symbol -> typ
@@ -60,7 +76,31 @@ type 'a formula = ('a, typ_bool) expr
 val refine : 'a context -> ('a, typ_fo) expr -> [ `Term of 'a term
                                                 | `Formula of 'a formula ]
 
-val size : ('a, 'typ_fo) expr -> int
+val destruct : 'a context -> ('a, 'b) expr -> [
+    | `Real of QQ.t
+    | `Const of symbol
+    | `App of symbol * (('a, typ_fo) expr list)
+    | `Var of int * typ_arith
+    | `Add of ('a term) list
+    | `Mul of ('a term) list
+    | `Binop of [ `Div | `Mod ] * ('a term) * ('a term)
+    | `Unop of [ `Floor | `Neg ] * ('a term)
+    | `Ite of ('a formula) * ('a,'b) expr * ('a,'b) expr
+    | `Tru
+    | `Fls
+    | `And of ('a formula) list
+    | `Or of ('a formula) list
+    | `Not of ('a formula)
+    | `Quantify of [`Exists | `Forall] * string * typ_fo * ('a formula)
+    | `Atom of [`Eq | `Leq | `Lt] * ('b term) * ('b term)
+    | `Proposition of [ `Const of symbol
+                      | `Var of int
+                      | `App of symbol * (('b, typ_fo) expr) list ]
+  ]
+
+val expr_typ : 'a context -> ('a, 'b) expr -> typ
+
+val size : ('a, 'b) expr -> int
 
 val mk_const : 'a context -> symbol -> ('a, 'typ) expr
 
