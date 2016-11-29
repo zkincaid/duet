@@ -1,8 +1,16 @@
 open Apak
 open BatPervasives
 
-module Alphabet = Putil.PString
-module A = PredicateAutomata.Make(Alphabet)(Putil.PString)
+module PString = Putil.MakeCoreType(struct
+    type t = string
+    let hash = Hashtbl.hash
+    let equal = (=)
+    let compare = Pervasives.compare
+    let pp = Format.pp_print_string
+  end)
+
+module Alphabet = PString
+module A = PredicateAutomata.Make(Alphabet)(PString)
 module Bounded = PredicateAutomata.MakeBounded(A)
 module Empty = PredicateAutomata.MakeEmpty(A)
 module F = PaFormula

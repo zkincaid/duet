@@ -128,6 +128,8 @@ module Make (A : Alphabet) (P : Predicate) = struct
 
   let arity pa predicate = PHT.find pa.arity predicate
 
+  let show_predicate = Apak.Putil.mk_show P.pp
+
   let add_predicate pa predicate arity =
     if mem_vocabulary pa predicate then
       invalid_arg "PredicateAutomata.add_predicate: already belongs \
@@ -144,7 +146,13 @@ module Make (A : Alphabet) (P : Predicate) = struct
     else
       pa.accepting <- PSet.add predicate pa.accepting
 
-  let transitions pa predicate = PHT.find pa.delta predicate
+  let transitions pa predicate =
+    if not (mem_vocabulary pa predicate) then
+      invalid_arg ("PredicateAutomata.transitions: predicate `"
+                   ^ (show_predicate predicate)
+                   ^ "' does not belong to the vocabulary of the input PA")
+    else
+      PHT.find pa.delta predicate
 
   let transition pa predicate letter =
     (* Find all applicable transition rules and take the disjunction *)
@@ -695,7 +703,7 @@ module MakeReachabilityGraph (A : sig
         succ_vertex
         Config.pp config
     in
-    successors arg.pa (label arg vertex) |> BatEnum.iter add_succ;
+    successors arg.pa config |> BatEnum.iter add_succ;
     logf ~level:`trace ~attributes:[`Blue;`Bold] "@]"
 
   (* u covers v *)
@@ -781,7 +789,7 @@ struct
         /@ (fun i ->
             A.successors pa config i
             /@ (fun (letters, succ) -> (A.LetterSet.choose letters, i, succ)))
-        |> BatEnum.concat
+         |> BatEnum.concat)
     end)
 
   (* Trivial incremental solver: just re-run the emptiness query from
