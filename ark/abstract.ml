@@ -331,7 +331,6 @@ let nonlinear_uninterpreted ark expr =
   rewrite ark ~up:(nonlinear_uninterpreted_rewriter ark) expr
 
 let purify_rewriter ark table =
-  let zero = mk_real ark QQ.zero in
   fun expr ->
     match destruct ark expr with
     | `Quantify (_, _, _, _) -> invalid_arg "purify: free variable"

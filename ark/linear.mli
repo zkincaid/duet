@@ -24,6 +24,7 @@ module type Vector = sig
   val of_term : scalar -> dim -> t
 
   val enum : t -> (scalar * dim) BatEnum.t
+  val of_enum : (scalar * dim) BatEnum.t -> t
   val coeff : dim -> t -> scalar
 
   val pivot : dim -> t -> scalar * t

@@ -29,6 +29,7 @@ module type Vector = sig
   val add_term : scalar -> dim -> t -> t
   val of_term : scalar -> dim -> t
   val enum : t -> (scalar * dim) BatEnum.t
+  val of_enum : (scalar * dim) BatEnum.t -> t
   val coeff : dim -> t -> scalar
   val pivot : dim -> t -> scalar * t
   val pp : Format.formatter -> t -> unit
@@ -93,6 +94,8 @@ module AbelianGroupMap (M : Map) (G : AbelianGroup) = struct
   let coeff dim vec = try M.find dim vec with Not_found -> G.zero
 
   let enum vec = M.enum vec /@ (fun (x,y) -> (y,x))
+
+  let of_enum = BatEnum.fold (fun vec (x,y) -> add_term x y vec) zero
 
   let equal = M.equal G.equal
 

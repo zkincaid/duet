@@ -789,7 +789,7 @@ struct
         /@ (fun i ->
             A.successors pa config i
             /@ (fun (letters, succ) -> (A.LetterSet.choose letters, i, succ)))
-         |> BatEnum.concat)
+         |> BatEnum.concat
     end)
 
   (* Trivial incremental solver: just re-run the emptiness query from
