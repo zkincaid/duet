@@ -187,6 +187,7 @@ class type ['a] smt_context = object
   method is_sat : 'a formula -> [ `Sat | `Unsat | `Unknown ]
   method qe_sat : 'a formula -> [ `Sat | `Unsat | `Unknown ]
   method qe : 'a formula -> 'a formula
+  method simplify : 'a formula -> 'a formula
   method get_model : 'a formula -> [ `Sat of 'a smt_model | `Unsat | `Unknown ]
   method interpolate_seq : 'a formula list ->
     [ `Sat of 'a smt_model | `Unsat of 'a formula list | `Unknown ]
@@ -493,6 +494,13 @@ let mk_context : 'a context -> (string * string) list -> 'a smt_context
         let g = Goal.mk_goal z3 false false false in
         Goal.add g [of_formula phi];
         of_apply_result (Tactic.apply qe g None)
+
+      method simplify phi =
+        let open Z3 in
+        let simpl = Tactic.mk_tactic z3 "simplify" in
+        let g = Goal.mk_goal z3 false false false in
+        Goal.add g [of_formula phi];
+        of_apply_result (Tactic.apply simpl g None)
 
       method qe_sat phi =
         let open Z3 in

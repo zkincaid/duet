@@ -72,6 +72,8 @@ class type ['a] smt_context = object
 
   method qe : 'a formula -> 'a formula
 
+  method simplify : 'a formula -> 'a formula
+
   method interpolate_seq : 'a formula list ->
     [ `Sat of 'a smt_model | `Unsat of 'a formula list | `Unknown ]
 

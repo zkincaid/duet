@@ -66,3 +66,5 @@ val winning_skeleton : 'a smt_context -> quantifier_prefix -> 'a formula ->
   [ `Sat of skeleton
   | `Unsat of skeleton
   | `Unknown ]
+
+val minimize_skeleton : 'a smt_context -> skeleton -> 'a formula -> skeleton

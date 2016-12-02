@@ -1101,14 +1101,14 @@ module CSS = struct
         (Skeleton.nb_paths sat_ctx.skeleton);
       match get_counter_strategy select_term sat_ctx with
       | `Sat paths -> (List.iter (add_path unsat_ctx) paths; is_unsat ())
-      | `Unsat -> `Sat
+      | `Unsat -> `Sat sat_ctx.skeleton
       | `Unknown -> `Unknown
     and is_unsat () =
       logf ~attributes:[`Blue;`Bold] "Checking if UNSAT wins (%d)"
         (Skeleton.nb_paths unsat_ctx.skeleton);
       match get_counter_strategy select_term unsat_ctx with
       | `Sat paths -> (List.iter (add_path sat_ctx) paths; is_sat ())
-      | `Unsat -> `Unsat
+      | `Unsat -> `Unsat unsat_ctx.skeleton
       | `Unknown -> `Unknown
     in
     is_sat ()
@@ -1425,7 +1425,7 @@ let simsat_core smt_ctx qf_pre phi =
     | `TyFun (_, _) -> assert false
   in
   match CSS.initialize_pair select_term smt_ctx qf_pre phi with
-  | `Unsat _ -> `Unsat
+  | `Unsat skeleton -> `Unsat skeleton
   | `Unknown -> `Unknown
   | `Sat (sat_ctx, unsat_ctx) ->
     CSS.reset unsat_ctx;
@@ -1438,7 +1438,10 @@ let simsat smt_ctx phi =
   let qf_pre =
     (List.map (fun k -> (`Exists, k)) (Symbol.Set.elements constants))@qf_pre
   in
-  simsat_core smt_ctx qf_pre phi
+  match simsat_core smt_ctx qf_pre phi with
+  | `Unsat _ -> `Unsat
+  | `Sat _ -> `Sat
+  | `Unknown -> `Unknown
 
 let simsat_forward smt_ctx phi =
   let ark = smt_ctx#ark in
@@ -1514,12 +1517,12 @@ let maximize_feasible smt_ctx phi t =
       end;
       match CSS.is_sat select_term sat_ctx unsat_ctx with
       | `Unknown -> `Unknown
-      | `Sat ->
+      | `Sat _ ->
         begin match bound with
           | Some b -> `Bounded b
           | None -> `Infinity
         end
-      | `Unsat ->
+      | `Unsat _ ->
 
         (* Find the largest constant which has been selected as an (UNSAT)
            move for the objective bound, and the associated sub-skeleton *)
@@ -1843,3 +1846,42 @@ let destruct_skeleton_block ark skeleton =
 let winning_skeleton smt_ctx qf_pre phi = simsat_forward_core smt_ctx qf_pre phi
 
 let pp_skeleton = Skeleton.pp
+
+let minimize_skeleton ctx skeleton phi =
+  let solver = ctx#mk_solver () in
+  let paths = Skeleton.paths skeleton in
+  let path_guards =
+    List.map (fun _ -> mk_const ctx#ark (mk_symbol ctx#ark `TyBool)) paths
+  in
+  let psis =
+    let winning_formula path =
+      Skeleton.path_winning_formula ctx#ark path skeleton phi
+    in
+    List.map2 (fun path guard ->
+        mk_or ctx#ark [mk_not ctx#ark guard;
+                       mk_not ctx#ark (winning_formula path)])
+      paths
+      path_guards
+  in
+  let path_of_guard guard =
+    List.fold_left2 (fun res g path ->
+        if Formula.equal g guard then Some path
+        else res)
+      None
+      path_guards
+      paths
+    |> (function
+        | Some x -> x
+        | None -> assert false)
+  in
+  solver#add psis;
+  match solver#get_unsat_core path_guards with
+  | `Sat -> assert false
+  | `Unknown -> assert false
+  | `Unsat core ->
+    List.fold_left
+      (fun skeleton core_guard ->
+         try Skeleton.add_path ctx#ark (path_of_guard core_guard) skeleton
+         with Redundant_path -> skeleton)
+      Skeleton.empty
+      core

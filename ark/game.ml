@@ -315,6 +315,7 @@ end = struct
       assert (refine = [])
 
   let simple_tree_interpolant smt_ctx root children =
+    let children = List.map smt_ctx#simplify children in
     let pattern =
       let interp_pattern =
         List.map
@@ -392,10 +393,13 @@ end = struct
     let p2r_formula = mk_and ark path_to_root in
     let v_depth = depth v in
     let p u =
-      let u_annotation =
-        substitute_var_to_level game_tree v_depth u.annotation
-      in
-      game_tree.ctx#implies p2r_formula u_annotation
+      match u.state with
+      | Expanded _ ->
+        let u_annotation =
+          substitute_var_to_level game_tree v_depth u.annotation
+        in
+        game_tree.ctx#implies p2r_formula u_annotation
+      | _ -> false
     in
     match find_depth_bounded game_tree v_depth p with
     | None -> false
@@ -425,7 +429,7 @@ end = struct
           end
 
   (* Formula representing the safety player's skeleton losing the unrolled
-     game *)
+     game.   *)
   let rec losing game_tree skeleton x_map =
     let ark = game_tree.ctx#ark in
     match Quantifier.destruct_skeleton_block ark skeleton with
@@ -434,11 +438,29 @@ end = struct
           let move_map = (* ys -> moves *)
             let subst v =
               try
+                assert (Hashtbl.mem game_tree.level_to_var v);
                 Symbol.Map.find (Hashtbl.find game_tree.level_to_var v) x_map
-              with Not_found -> assert false
+              with Not_found ->
+                Log.errorf "Failed to find: %a" (pp_symbol ark) (Hashtbl.find game_tree.level_to_var v);
+                Log.errorf "SK: %a" (Quantifier.pp_skeleton ark) skeleton;
+                assert false
             in
             List.fold_left2
               (fun map y (_, m) ->
+                 let subst v =
+                   if Symbol.Map.mem (Hashtbl.find game_tree.level_to_var v) map then
+                     Symbol.Map.find (Hashtbl.find game_tree.level_to_var v) map
+                   else
+                     try
+                       Symbol.Map.find
+                         (Hashtbl.find game_tree.level_to_var v)
+                         x_map
+                     with Not_found ->
+                       (Log.errorf "moves: %a"
+                          (ApakEnum.pp_print_enum (pp_expr ark))
+                          (BatList.enum moves /@ snd);
+                        assert false)
+                 in
                  Symbol.Map.add y (substitute_const ark subst m) map)
               Symbol.Map.empty
               game_tree.ys
@@ -493,22 +515,66 @@ end = struct
     in
     if not (force_cover game_tree vertex) then
       let losing_branches = losing game_tree skeleton x_map in
+
+      let vertex_formula =
+        match vertex.parent with
+        | Some (_, guard, move) ->
+          (* guard(x_lev) *)
+          let level = (-1) in
+          let guard =
+            substitute_var_to_level game_tree level guard
+          in
+          (* y -> move(x_lev) *)
+          let move_map = 
+            List.fold_left2
+              (fun map y m ->
+                 Symbol.Map.add
+                   y
+                   (substitute_var_to_level game_tree level m)
+                   map)
+              Symbol.Map.empty
+              game_tree.ys
+              move
+          in
+          (* reach(move(x_lev),x) *)
+          let reach =
+            let subst v =
+              try Symbol.Map.find v move_map
+              with Not_found -> mk_const ark v
+            in
+            substitute_const ark subst game_tree.reach
+          in
+          mk_and ark [guard; reach; vertex.annotation]
+        | None -> game_tree.start
+      in
+
       let interp =
-        simple_tree_interpolant game_tree.ctx vertex.annotation losing_branches
+        simple_tree_interpolant game_tree.ctx vertex_formula losing_branches
       in
       match interp with
-      | `Sat -> assert false
+      | `Sat ->
+        Log.errorf "vf: %a" (Formula.pp ark) vertex_formula;
+        List.iter (fun br -> Log.errorf "branch: %a" (Formula.pp ark) br) losing_branches;
+        assert false
       | `Unknown -> assert false
       | `Unsat not_guards ->
-        let guards =
-          BatList.map
-            (fun not_guard ->
-               rewrite ark ~down:(nnf_rewriter ark) (mk_not ark not_guard))
-            not_guards
-        in
-        let alternatives =
+        let (guards, alternatives) =
           match Quantifier.destruct_skeleton_block ark skeleton with
-          | `Exists alternatives -> alternatives
+          | `Exists alternatives ->
+            let true_ = mk_true ark in
+            List.fold_right2 (fun not_guard alt (guards, alts) ->
+                if Formula.equal true_ not_guard then
+                  (guards, alts)
+                else
+                  let guard =
+                    mk_not ark not_guard
+                    |> rewrite ark ~down:(nnf_rewriter ark)
+                    |> game_tree.ctx#simplify
+                  in
+                  (guard::guards, alt::alts))
+              not_guards
+              alternatives
+              ([], [])
           | _ -> assert false
         in
         let children =
@@ -519,13 +585,14 @@ end = struct
               let id = game_tree.max_vertex + 1 in
               game_tree.max_vertex <- id;
               { id = id;
-                annotation = mk_true ark; (* really should not use this *)
+                annotation = mk_true ark;
                 state = Open;
                 covers = [];
                 parent = Some (vertex, guard, moves) })
             alternatives
             guards
         in
+        vertex.annotation <- mk_or ark guards;
         vertex.state <- Expanded children;
         List.iter2 (fun (_, sub_skeleton) child ->
             let (guard, move) = match child.parent with
@@ -534,6 +601,8 @@ end = struct
             in
             match Quantifier.destruct_skeleton_block ark sub_skeleton with
             | `Forall (_, sub_sub_skeleton) ->
+              paste game_tree sub_sub_skeleton child
+            (*
               (* guard(x_lev) *)
               let level = (-1) in
               let guard =
@@ -572,6 +641,7 @@ end = struct
                   paste game_tree sub_sub_skeleton child
                 | _ -> assert false
               end
+*)
             | `Empty -> ()
             | _ -> assert false)
           alternatives
@@ -615,6 +685,9 @@ end = struct
     match Quantifier.winning_skeleton game_tree.ctx game_prefix game_matrix with
     | `Sat skeleton ->
       let (x_map, skeleton) =
+        let skeleton =
+          Quantifier.minimize_skeleton game_tree.ctx skeleton game_matrix
+        in
         match Quantifier.destruct_skeleton_block ark skeleton with
         | `Forall (block, sub_skeleton) ->
           let x_map =
@@ -696,14 +769,14 @@ let solve smt_ctx (xs, ys) ~start ~safe ~reach =
 
     assert (GameTree.well_labeled game_tree);
     assert((!nb_rounds) < 100);
-    if GameTree.expand_vertex game_tree v 2 then
+    if GameTree.expand_vertex game_tree v 1 then
       match GameTree.get_open game_tree with
       | Some u -> go u
       | None -> Some game_tree
     else
       None
   in
-  if GameTree.expand_vertex game_tree (GameTree.root game_tree) 2 then
+  if GameTree.expand_vertex game_tree (GameTree.root game_tree) 1 then
     match GameTree.get_open game_tree with
     | Some u -> go u
     | None -> Some game_tree

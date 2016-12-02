@@ -249,4 +249,19 @@ let _ =
         Format.printf "Winning strategy:@\n%a@\n" Game.GameTree.pp strategy;
         Format.printf "Safety player wins.@\n"
     end;
+  | "bounded" ->
+    let phi = load_formula Sys.argv.(i+1) in
+    let (qf_pre, matrix) = Quantifier.normalize ctx phi in
+    begin
+      match Quantifier.winning_strategy smt_ctx qf_pre matrix with
+      | `Sat strategy ->
+        Format.printf "Sat player wins:@\n%a@\n"
+          (Quantifier.pp_strategy ctx) strategy
+      | `Unsat strategy ->
+        Format.printf "Unsat player wins:@\n%a@\n"
+          (Quantifier.pp_strategy ctx) strategy
+      | `Unknown ->
+        Format.printf "Could not find winning strategy!"
+    end
+
   | x -> Log.fatalf "Unknown command: `%s'" x
