@@ -54,8 +54,7 @@ Library pa
   Pack:       true
   FindlibName:      pa
   InternalModules:  PaSmt, PaFormula, Struct, PredicateAutomata
-  BuildDepends: ppx_deriving, ppx_deriving.show, ppx_deriving.ord, apak, Z3,
-                buddy
+  BuildDepends: ppx_deriving, ppx_deriving.show, ppx_deriving.ord, apak, Z3
   Install:          false
   XMETADescription: Predicate Automata tools
 
@@ -63,13 +62,13 @@ Executable test_patools
   Path:         patools
   MainIs:       test_patools.ml
   BuildDepends: ppx_deriving, ppx_deriving.show, ppx_deriving.ord, apak, Z3,
-                oUnit, buddy, pa
+                oUnit, pa
   Install:      false
   CompiledObject: native
 
 Executable patools
   Path:       patools
-  BuildDepends: ppx_deriving, ppx_deriving.show, ppx_deriving.ord, apak, Z3, buddy, pa
+  BuildDepends: ppx_deriving, ppx_deriving.show, ppx_deriving.ord, apak, Z3, pa
   MainIs: patools.ml
   CCOpt: -annot
   CompiledObject: native
@@ -77,7 +76,7 @@ Executable patools
 Executable duet
   Path:           duet
   MainIs:         duet.ml
-  BuildDepends:   ppx_deriving, ppx_deriving.show, ppx_deriving.ord, apak, gmp, camlidl, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, ark, cil, cil.default-features, buddy, pa
+  BuildDepends:   ppx_deriving, ppx_deriving.show, ppx_deriving.ord, apak, gmp, camlidl, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, ark, cil, cil.default-features, pa
   CompiledObject: native
   Install:        false
 

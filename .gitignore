@@ -25,9 +25,8 @@ myocamlbuild.ml
 *.mllib
 ark/META
 apak/META
-duet/regression/working/
+pa/META
 duet/config.ml
-configure
 autom4te.cache
 config.status
 duet/duet
