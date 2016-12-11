@@ -109,6 +109,12 @@ module type S = sig
     t ->
     'a T.D.t
 
+  val var_bounds_nonlinear : (string -> typ -> T.V.t) ->
+    (T.V.t -> bool) ->
+    T.V.t ->
+    t ->
+    ((Polka.loose Polka.t) T.D.t) * (T.t T.V.Map.t)
+
   module Syntax : sig
     val ( && ) : t -> t -> t
     val ( || ) : t -> t -> t
@@ -698,16 +704,22 @@ module Make (T : Term.S) = struct
 
     let format formatter p =
       let pp_elt formatter = function
-        | `EqZero t -> Format.fprintf formatter "%a = 0" L.format t
-        | `LeqZero t -> Format.fprintf formatter "%a <= 0" L.format t
+        | `EqZero t -> Format.fprintf formatter "@[<hov 2>%a = 0@]" L.format t
+        | `LeqZero t -> Format.fprintf formatter "@[<hov 2>%a <= 0@]" L.format t
       in
       let pp_sep formatter () = Format.fprintf formatter "@;" in
       Format.fprintf formatter "@[<v 0>%a@]"
         (ApakEnum.pp_print_enum_nobox ~pp_sep pp_elt) (enum p)
 
+    let eq s t = { eq = [L.sub s t]; leq = [] }
+    let leq s t = { eq = []; leq = [L.sub s t] }
+    let geq s t = { eq = []; leq = [L.sub t s] }
+
     let conjoin x y =
       { eq = x.eq @ y.eq;
         leq = x.leq @ y.leq }
+
+    let top = { eq = []; leq = [] }
 
     let nonzero_coeff v t = not (QQ.equal (L.var_coeff v t) QQ.zero)
 
@@ -938,26 +950,26 @@ module Make (T : Term.S) = struct
                 end
               | None -> Some p
             in
-            go { eq = []; leq = [] }
+            go top
           | Atom atom ->
             try
               match atom with
               | LeqZ t ->
                 if QQ.leq (T.evaluate m t) QQ.zero then
                   (try Some (of_atom (LeqZ t))
-                   with Nonlinear -> Some { eq = []; leq = [] })
+                   with Nonlinear -> Some top)
                 else
                   None
               | LtZ t ->
                 if QQ.lt (T.evaluate m t) QQ.zero then
                   (try Some (of_atom (LtZ t))
-                   with Nonlinear -> Some { eq = []; leq = [] })
+                   with Nonlinear -> Some top)
                 else
                   None
               | EqZ t ->
                 if QQ.equal (T.evaluate m t) QQ.zero then
                   (try Some (of_atom (EqZ t))
-                   with Nonlinear -> Some { eq = []; leq = [] })
+                   with Nonlinear -> Some top)
                 else
                   None
             with Divide_by_zero -> None)
@@ -1088,6 +1100,8 @@ module Make (T : Term.S) = struct
       && List.for_all
         (fun t -> QQ.leq (T.evaluate_linterm m t) QQ.zero)
         polyhedron.leq
+
+    let big_conj enum = BatEnum.fold conjoin top enum
   end
 
   let top_closure =
@@ -1855,10 +1869,11 @@ module Make (T : Term.S) = struct
     else Log.time "optimize" (optimize ts) phi
 
   module LinBound = struct
-    type t = { upper : T.t list;
-               lower : T.t list;
+    module Lin = T.Linterm
+    type t = { upper : Lin.t list;
+               lower : Lin.t list;
                interval : Interval.interval }
-        deriving (Compare, Show)
+        deriving (Show)
 
     let format = Show_t.format
     let show = Show_t.show
@@ -1870,8 +1885,8 @@ module Make (T : Term.S) = struct
       BatList.of_enum (BatEnum.map (uncurry f) zs)
 
     let add x y =
-      { upper = cartesian T.add x.upper y.lower;
-        lower = cartesian T.add x.lower y.lower;
+      { upper = cartesian Lin.add x.upper y.lower;
+        lower = cartesian Lin.add x.lower y.lower;
         interval = Interval.add x.interval y.interval }
 
     let of_interval ivl =
@@ -1886,24 +1901,28 @@ module Make (T : Term.S) = struct
     let mul_interval ivl x =
       if Interval.is_nonnegative ivl then
         let upper = match Interval.upper ivl with
-          | Some k -> List.map (T.mul (T.const k)) x.upper
-          | None -> []
+          | Some k when not (QQ.equal k QQ.zero) ->
+            List.map (Lin.scalar_mul k) x.upper
+          | _ -> []
         in
         let lower = match Interval.lower ivl with
-          | Some k -> List.map (T.mul (T.const k)) x.lower
-          | None -> []
+          | Some k when not (QQ.equal k QQ.zero) ->
+            List.map (Lin.scalar_mul k) x.lower
+          | _ -> []
         in
         { upper = upper;
           lower = lower;
           interval = Interval.mul ivl x.interval }
       else if Interval.is_nonpositive ivl then
         let upper = match Interval.upper ivl with
-          | Some k -> List.map (T.mul (T.const k)) x.lower
-          | None -> []
+          | Some k when not (QQ.equal k QQ.zero) ->
+            List.map (Lin.scalar_mul k) x.lower
+          | _ -> []
         in
         let lower = match Interval.lower ivl with
-          | Some k -> List.map (T.mul (T.const k)) x.upper
-          | None -> []
+          | Some k when not (QQ.equal k QQ.zero) ->
+            List.map (Lin.scalar_mul k) x.upper
+          | _ -> []
         in
         { upper = upper;
           lower = lower;
@@ -1922,8 +1941,8 @@ module Make (T : Term.S) = struct
 
     let negate x =
       { interval = Interval.negate x.interval;
-        upper = List.map T.neg x.lower;
-        lower = List.map T.neg x.upper }
+        upper = List.map Lin.negate x.lower;
+        lower = List.map Lin.negate x.upper }
 
     let div x y =
       match Interval.lower y.interval, Interval.upper y.interval with
@@ -1931,12 +1950,12 @@ module Make (T : Term.S) = struct
         if Interval.elem QQ.zero y.interval then top
         else if QQ.equal a b then begin
           if QQ.gt a QQ.zero then
-            { lower = List.map (flip T.div (T.const a)) x.lower;
-              upper = List.map (flip T.div (T.const a)) x.upper;
+            { lower = List.map (Lin.scalar_mul (QQ.inverse a)) x.lower;
+              upper = List.map (Lin.scalar_mul (QQ.inverse a)) x.upper;
               interval = Interval.div x.interval y.interval }
           else
-            { lower = List.map (flip T.div (T.const a)) x.upper;
-              upper = List.map (flip T.div (T.const a)) x.lower;
+            { lower = List.map (Lin.scalar_mul (QQ.inverse a)) x.upper;
+              upper = List.map (Lin.scalar_mul (QQ.inverse a)) x.lower;
               interval = Interval.div x.interval y.interval }
         end else of_interval (Interval.div x.interval y.interval) (* todo *)
       | _, _ -> of_interval (Interval.div x.interval y.interval)
@@ -1955,15 +1974,19 @@ module Make (T : Term.S) = struct
         if Interval.is_nonnegative x.interval then
           { interval = ivl;
             lower = [];
-            upper = x.upper@(List.map (flip T.sub T.one) (y.upper)) }
+            upper = x.upper@(List.map
+                               (Lin.add (Lin.const (QQ.of_int (-1))))
+                               y.upper) }
         else if Interval.is_nonpositive x.interval then
           { interval = ivl;
-            lower = x.lower@(List.map (T.add T.one % T.neg) y.upper);
+            lower = x.lower@(List.map
+                               (Lin.add (Lin.const QQ.one) % Lin.negate)
+                               y.upper);
             upper = [] }
         else
           { interval = ivl;
-            lower = List.map (T.add T.one % T.neg) y.upper;
-            upper = List.map (flip T.sub T.one) y.upper }
+            lower = List.map (Lin.add (Lin.const QQ.one) % Lin.negate) y.upper;
+            upper = List.map (Lin.add (Lin.const (QQ.of_int (-1)))) y.upper }
 
     let make lower upper interval =
       { lower = lower; upper = upper; interval = interval }
@@ -1971,6 +1994,48 @@ module Make (T : Term.S) = struct
     let upper x = x.upper
     let interval x = x.interval
     let floor x = make [] [] (Interval.floor x.interval)
+
+    let linearize_term bounds =
+      let alg = function
+        | OVar v ->
+          let ivl =
+            try T.V.Map.find v bounds
+            with Not_found -> Interval.top
+          in
+          make [Lin.var (AVar v)] [Lin.var (AVar v)] ivl
+        | OConst k -> of_interval (Interval.const k)
+        | OAdd (x, y) -> add x y
+        | OMul (x, y) -> mul x y
+        | ODiv (x, y) -> div x y
+        | OMod (x, y) -> modulo x y
+        | OFloor x -> floor x
+      in
+      T.eval alg
+
+    (* Given a mapping from variables to bounds, a variable, and a term
+       compute symbolic bounds for the term and synthesize a polyhedron that
+       constrains the variable falls within those bounds.  *)
+    let mk_bounds bounds v term =
+      let var = Lin.var (AVar v) in
+      let linearized = linearize_term bounds term in
+      let open Polyhedron in
+      let symbolic_lo =
+        big_conj (BatList.enum (lower linearized) /@ (geq var))
+      in
+      let symbolic_hi =
+        big_conj (BatList.enum (upper linearized) /@ (leq var))
+      in
+      let const_lo =
+        match Interval.lower (interval linearized) with
+        | Some k -> leq (Lin.const k) var
+        | None -> top
+      in
+      let const_hi =
+        match Interval.upper (interval linearized) with
+        | Some k -> leq var (Lin.const k)
+        | None -> top
+      in
+      conjoin symbolic_lo (conjoin symbolic_hi (conjoin const_lo const_hi))
   end
 
   let linearize_opt mk_tmp phi =
@@ -2012,41 +2077,10 @@ module Make (T : Term.S) = struct
           var_list
           box
       in
-      let linearize_term = function
-        | OVar v ->
-          let ivl =
-            try T.V.Map.find v bounds
-            with Not_found -> Interval.top
-          in
-          LinBound.make [T.var v] [T.var v] ivl
-        | OConst k -> LinBound.of_interval (Interval.const k)
-        | OAdd (x, y) -> LinBound.add x y
-        | OMul (x, y) -> LinBound.mul x y
-        | ODiv (x, y) -> LinBound.div x y
-        | OMod (x, y) -> LinBound.modulo x y
-        | OFloor x -> LinBound.floor x
-      in
       let mk_nl_bounds (term, var) =
-        let var = T.var var in
-        let linearized = T.eval linearize_term term in
-        let symbolic_lo =
-          big_conj (BatList.enum (LinBound.lower linearized) /@ (geq var))
-        in
-        let symbolic_hi =
-          big_conj (BatList.enum (LinBound.upper linearized) /@ (leq var))
-        in
-        let const_lo = match Interval.lower (LinBound.interval linearized) with
-          | Some k -> leq (T.const k) var
-          | None -> top
-        in
-        let const_hi = match Interval.upper (LinBound.interval linearized) with
-          | Some k -> leq var (T.const k)
-          | None -> top
-        in
-        conj symbolic_lo (conj symbolic_hi (conj const_lo const_hi))
+        Polyhedron.to_formula (LinBound.mk_bounds bounds var term)
       in
-      let nl_bounds = big_conj (TMap.enum nonlinear /@ mk_nl_bounds) in
-      conj lin_phi nl_bounds
+      conj lin_phi (big_conj (TMap.enum nonlinear /@ mk_nl_bounds))
     end
 
   let linearize_trivial mk_tmp phi = fst (split_linear mk_tmp phi)
@@ -2577,7 +2611,7 @@ module Make (T : Term.S) = struct
         List.fold_left f lin_phi eqs
       in
 
-      (* Variables which appear in nonlinear terms *)
+      (* Variables that appear in nonlinear terms *)
       let var_list =
         let f t _ set = VarSet.union (term_free_vars t) set in
         VarSet.elements (TMap.fold f nonlinear VarSet.empty)
@@ -2592,41 +2626,12 @@ module Make (T : Term.S) = struct
           var_list
           box
       in
-      let linearize_term = function
-        | OVar v ->
-          let ivl =
-            try T.V.Map.find v bounds
-            with Not_found -> Interval.top
-          in
-          LinBound.make [T.var v] [T.var v] ivl
-        | OConst k -> LinBound.of_interval (Interval.const k)
-        | OAdd (x, y) -> LinBound.add x y
-        | OMul (x, y) -> LinBound.mul x y
-        | ODiv (x, y) -> LinBound.div x y
-        | OMod (x, y) -> LinBound.modulo x y
-        | OFloor x -> LinBound.floor x
-      in
       let mk_nl_bounds (term, var) =
-        let var = T.var var in
-        let linearized = T.eval linearize_term term in
-        let symbolic_lo =
-          big_conj (BatList.enum (LinBound.lower linearized) /@ (geq var))
-        in
-        let symbolic_hi =
-          big_conj (BatList.enum (LinBound.upper linearized) /@ (leq var))
-        in
-        let const_lo = match Interval.lower (LinBound.interval linearized) with
-          | Some k -> leq (T.const k) var
-          | None -> top
-        in
-        let const_hi = match Interval.upper (LinBound.interval linearized) with
-          | Some k -> leq var (T.const k)
-          | None -> top
-        in
-        conj symbolic_lo (conj symbolic_hi (conj const_lo const_hi))
+        Polyhedron.to_formula (LinBound.mk_bounds bounds var term)
       in
-      let nl_bounds = big_conj (TMap.enum nonlinear /@ mk_nl_bounds) in
-      let linearized = conj lin_phi nl_bounds in
+      let linearized =
+        conj lin_phi (big_conj (TMap.enum nonlinear /@ mk_nl_bounds))
+      in
 
       (* Compute equations over un-projected vars & vars that appear in
          non-linear terms *)
@@ -2651,7 +2656,7 @@ module Make (T : Term.S) = struct
         List.fold_left (fun rewrite term ->
             match orient_linear_equation (flip VarSet.mem elim_vars) term with
             | Some (v, rhs) ->
-              Log.errorf "Found rewrite: %a --> %a"
+              logf ~level:`trace "Found rewrite: %a --> %a"
                 T.V.format v
                 T.format rhs;
 
@@ -2679,117 +2684,373 @@ module Make (T : Term.S) = struct
             if VarSet.for_all p (term_free_vars term_rewrite) then
               T.V.Map.add var term_rewrite map
             else
-              (Log.errorf ":(";map))
+              map)
           nonlinear
           T.V.Map.empty
       in
       (linearized, safe_nl_map)
     end
 
-(*
-  let conjunctive_hull ?exists:(exists=(fun _ -> true)) phi =
-    let s = new Smt.solver in
-    let vars = formula_free_vars phi in
+  (* Strengthen a property with bounds for non-linear terms *)
+  let strengthen_property_nonlinear prop nonlinear =
+    (* Variables that appear in non-linear terms *)
+    let var_list =
+      let f _ t set = VarSet.union (term_free_vars t) set in
+      VarSet.elements (T.V.Map.fold f nonlinear VarSet.empty)
+    in
 
-    let (lin_phi, nonlinear) = split_linear mk_tmp phi in
-    (* Variables introduced to represent nonlinear terms *)
-    let nl_vars =
-      TMap.fold (fun _ v set -> VarSet.add v set) nonlinear VarSet.empty
+    let env = prop.D.env in
+    let man = D.manager prop in
+
+    (* Compute concrete intervals for all variables that appear in non-linear
+       terms *)
+    let intervals =
+      List.fold_left
+        (fun m v ->
+           let open D in
+           let ivl =
+             Apron.Abstract0.bound_linexpr
+               man
+               prop.prop
+               (T.apron_of_linterm env (T.Linterm.var (AVar v)))
+             |> Interval.of_apron
+           in
+           T.V.Map.add v ivl m)
+        T.V.Map.empty
+        var_list
+    in
+    let precond term =
+      VarSet.fold (fun v precond ->
+          let ivl = T.V.Map.find v intervals in
+          let precond = match Interval.lower ivl with
+            | Some lo -> conj precond (leq (T.const lo) (T.var v))
+            | None -> precond
+          in
+          match Interval.upper ivl with
+          | Some hi -> conj precond (leq (T.var v) (T.const hi))
+          | None -> precond)
+        (term_free_vars term)
+        top
+    in
+    let (bounds, integrity) =
+      T.V.Map.fold
+        (fun var term (bounds, integrity) ->
+           let term_bounds = LinBound.mk_bounds intervals var term in
+           logf ~level:`info "Integrity(%a): %a => %a" T.format term format (precond term) Polyhedron.format term_bounds;
+           (Polyhedron.conjoin bounds term_bounds,
+            conj integrity
+              (disj (negate (precond term)) (Polyhedron.to_formula term_bounds))))
+        nonlinear
+        (Polyhedron.top, top)
+    in
+    let strengthened_prop = D.meet prop (Polyhedron.to_apron env man bounds) in
+    (strengthened_prop, integrity)
+
+  module Gauss = Linear.GaussElim(QQ)(T.Linterm)
+
+  let abstract_nonlinear_ivl fresh p ivl_vars man phi =
+    let s = new Smt.solver in
+    let (lin_phi, init_nonlinear) =
+      let mk_tmp () = fresh "nonlin" TyInt in
+      split_linear mk_tmp phi
+    in
+    let zero = fresh "0" TyInt in
+    let lin_phi = conj lin_phi (eqz (T.var zero)) in
+
+    let nonlinear = ref init_nonlinear in
+
+    (* Set of all variables in lin_phi and nonlinear.  When a fresh temporary
+       is introduced, it is added to vars. *)
+    let vars =
+      ref (TMap.fold
+             (fun term v set ->
+                VarSet.add v (VarSet.union (term_free_vars term) set))
+             init_nonlinear
+             (formula_free_vars lin_phi))
+    in
+    (* Mapping from temporaries to non-linear terms that only involve
+      *non-projected* variables.  When a new such non-linear term is created,
+       it is added to safe_nonlinear. *)
+    let safe_nonlinear =
+      ref (TMap.fold
+             (fun term var map ->
+                if VarSet.for_all p (term_free_vars term) then
+                  T.V.Map.add var term map
+                else
+                  map)
+             init_nonlinear
+             T.V.Map.empty)
+    in
+
+    TMap.iter (fun term v ->
+        logf ~level:`info "Nonlinear term: %a = %a" T.V.format v T.format term)
+      init_nonlinear;
+
+    (* Synthetic dimensions for intervals *)
+    let intervals =
+      distinct_pairs (BatList.enum (zero::ivl_vars))
+      |> BatEnum.fold (fun map (x, y) ->
+          let x_to_y =
+            fresh ("[" ^ (T.V.show x) ^ "," ^ (T.V.show y) ^ "]") TyReal
+          in
+          VPMap.add (x, y) x_to_y map)
+        VPMap.empty
+    in
+    let interval_vars = VarSet.of_enum (VPMap.values intervals) in
+    vars := VarSet.union (!vars) (VarSet.add zero interval_vars);
+
+    (* Project a property onto the non-projected variables and variables that
+       correspond to non-linear terms over non-projected variables *)
+    let project prop =
+      D.exists
+        man
+        (fun x -> p x
+                  || T.V.equal x zero (* zero is here so that we can evaluate
+                                         intervals after projection *)
+                  || VarSet.mem x interval_vars
+                  || T.V.Map.mem x (!safe_nonlinear))
+        prop
+    in
+
+    let add_safe_term var term =
+      safe_nonlinear := T.V.Map.add var term (!safe_nonlinear);
+      vars := VarSet.add var (!vars);
+      nonlinear := TMap.add term var (!nonlinear)
+    in
+
+    (* Count the number of models we've found for phi -- give up if it
+       researches opt_abstract_limit *)
+    let disjuncts = ref 0 in
+    let rec go prop =
+      logf ~level:`info ~attributes:[`Green] "prop: %a" D.format prop;
+      s#push ();
+      s#assrt (Smt.mk_not (to_smt (of_abstract prop)));
+
+      match Log.time "lazy_dnf/sat" s#check () with
+      | Smt.Unsat ->
+        s#pop ();
+        prop
+      | Smt.Undef ->
+        begin
+          Log.errorf "lazy_dnf timed out (%d disjuncts)" (!disjuncts);
+          s#pop ();
+          raise Timeout
+        end
+      | Smt.Sat -> begin
+          let m = s#get_model () in
+          let valuation = m#eval_qq % T.V.to_smt in
+          s#pop ();
+          incr disjuncts;
+          logf "[%d] abstract lazy_dnf" (!disjuncts);
+          if (!disjuncts) = (!opt_abstract_limit) then begin
+            project (D.top man (D.Env.of_enum (VarSet.enum (!vars))))
+          end else begin
+            let disjunct =
+              match
+                Log.time "Poly.select" (Polyhedron.select valuation) lin_phi
+              with
+              | Some d ->
+                let env = D.Env.of_enum (VarSet.enum (!vars)) in
+                logf ~level:`info "Disjunct: %a" Polyhedron.format d;
+                Polyhedron.to_apron env man d
+              | None -> begin
+                  assert (m#sat (to_smt phi));
+                  assert false
+                end
+            in
+
+            (* Orient equalities as rewrite rules to eliminate variable that
+               should be projected out of the formula *)
+            let equalities =
+              BatList.map
+                (T.linterm_of_apron disjunct.D.env)
+                (D.affine_hull disjunct)
+            in
+            let rewrite =
+              let keep = function
+                | AVar x -> p x
+                | AConst -> true
+              in
+              List.fold_left
+                (fun map (x,rhs) ->
+                   match x with
+                   | AVar x ->
+                     logf ~level:`info "Found rewrite: %a --> %a"
+                       T.V.format x
+                       T.Linterm.format rhs;
+                     T.V.Map.add x (T.of_linterm rhs) map
+                   | AConst -> assert false)
+                T.V.Map.empty
+                (Gauss.orient keep equalities)
+            in
+
+            (* For each non-linear term t in phi, try to re-write t in terms
+               of /un-projected/ variables.  If it is possible, add it to the
+               table of non-linear terms, and generate an equality between the
+               term and its rewritten form. *)
+            let (new_nonlinear, new_nonlinear_eqs) =
+              TMap.fold (fun term var (new_nonlinear, eqs) ->
+                  let term_rewrite =
+                    T.subst (fun x ->
+                        try T.V.Map.find x rewrite with Not_found -> T.var x)
+                      term
+                  in
+                  (* Make a equation (polyhedron) over variables *)
+                  let mk_var_eq x y =
+                    Polyhedron.eq
+                      (T.Linterm.var (AVar x))
+                      (T.Linterm.var (AVar y))
+                  in
+                  let term_rewrite_vars = term_free_vars term_rewrite in
+                  if (not (VarSet.is_empty term_rewrite_vars)
+                      && VarSet.for_all p term_rewrite_vars) then
+                    (* term_rewrite is an interesting term: it's non-constant,
+                       and over only variables that satisfy p.  *)
+
+                    let (var_rewrite, new_nonlinear) =
+                      if TMap.mem term_rewrite (!nonlinear) then
+                        (TMap.find term_rewrite (!nonlinear), new_nonlinear)
+                      else begin
+                        let var_rewrite = fresh "nonlin" (T.V.typ var) in
+                        add_safe_term  var_rewrite term_rewrite;
+                        logf ~level:`info ~attributes:[`Green]
+                          "New safe nonlinear term: %a = %a = %a"
+                          T.V.format var
+                          T.V.format var_rewrite
+                          T.format term_rewrite;
+                        (* Add the defining equality var_rewrite =
+                           term_rewrite to the context *)
+                        s#assrt (to_smt (eq (T.var var_rewrite) term_rewrite));
+                        (var_rewrite,
+                         T.V.Map.add var_rewrite term_rewrite new_nonlinear)
+                      end
+                    in
+
+                    (* Create integrity constraint for term = term_rewrite *)
+                    let precond =
+                      VarSet.enum (term_free_vars term)
+                      |> BatEnum.filter_map (fun x ->
+                          if T.V.Map.mem x rewrite then
+                            Some (eq (T.var x) (T.V.Map.find x rewrite))
+                          else
+                            None)
+                      |> big_conj
+                    in
+                    logf ~level:`info
+                      "Integrity: %a => %a"
+                      format precond
+                      format (eq (T.var var_rewrite) (T.var var));
+                    s#assrt (Smt.mk_implies
+                               (to_smt precond)
+                               (to_smt (eq (T.var var_rewrite) (T.var var))));
+
+                    (new_nonlinear,
+                     Polyhedron.conjoin (mk_var_eq var var_rewrite) eqs)
+                  else
+                    (new_nonlinear, eqs))
+                (!nonlinear)
+                (T.V.Map.empty, Polyhedron.top)
+            in
+
+            let (prop,prop_integrity) =
+              strengthen_property_nonlinear
+                (D.add_vars (T.V.Map.keys new_nonlinear) prop)
+                new_nonlinear
+            in
+            let (disjunct,disjunct_integrity) =
+              let (disjunct, disjunct_integrity) =
+                strengthen_property_nonlinear
+                  (D.add_vars (T.V.Map.keys (!safe_nonlinear)) disjunct)
+                  (!safe_nonlinear)
+              in
+              let env = disjunct.D.env in
+              (D.meet
+                 disjunct
+                 (Polyhedron.to_apron env man new_nonlinear_eqs),
+               disjunct_integrity)
+            in
+
+            let disjunct = project disjunct in
+
+            (* Strengthen disjunct with interval definitions *)
+            let disjunct =
+              let env = disjunct.D.env in
+              let add_interval (x,y) x_to_y prop =
+                let open D in
+                let open Apron in
+                let x_to_y_cmp_0 = (* [x,y] *)
+                  T.apron_of_linterm env
+                    (T.Linterm.add_term (AVar x_to_y) QQ.one
+                       (T.Linterm.const QQ.zero))
+                in
+                let x_to_y_cmp_diff = (* [x,y] - (y - x) *)
+                  T.apron_of_linterm env
+                    (T.Linterm.of_enum (BatList.enum [
+                         (AVar x_to_y, QQ.one);
+                         (AVar x, QQ.one);
+                         (AVar y, QQ.negate QQ.one)
+                       ]))
+                in
+                (* prop /\ [x,y] >= y - x /\ [x,y] >= 0*)
+                let prop_ub =
+                  Abstract0.meet_lincons_array man prop.prop
+                    [| Lincons0.make x_to_y_cmp_diff Lincons0.SUPEQ;
+                       Lincons0.make x_to_y_cmp_0 Lincons0.SUPEQ |]
+                in
+                (* prop_ub /\ [x,y] = 0 *)
+                let prop_0 =
+                  Abstract0.meet_lincons_array man prop_ub
+                    [| Lincons0.make x_to_y_cmp_0 Lincons0.EQ |]
+                in
+                (* prop_ub /\ [x,y] = y - x *)
+                let prop_diff =
+                  Abstract0.meet_lincons_array man prop_ub
+                    [| Lincons0.make x_to_y_cmp_diff Lincons0.EQ |]
+                in
+                { prop = Abstract0.join man prop_0 prop_diff;
+                  env = env }
+              in
+              try VPMap.fold add_interval intervals disjunct
+              with Not_found -> assert false
+            in
+
+            s#assrt (to_smt prop_integrity);
+            s#assrt (to_smt disjunct_integrity);
+            logf ~level:`info "strong disjunct: %a" D.format disjunct;
+            logf ~level:`info "strong prop: %a" D.format prop;
+            go (D.join prop disjunct)
+          end
+        end
     in
     s#assrt (to_smt lin_phi);
-    nonlinear |> TMap.iter (fun nl_term var ->
+    init_nonlinear |> TMap.iter (fun nl_term var ->
         s#assrt (Smt.mk_eq
                    (uninterpreted_nonlinear_term nl_term)
                    (V.to_smt var)));
-
-    (* Variables which appear in nonlinear terms *)
-    let var_list =
-      let f t _ set = VarSet.union (term_free_vars t) set in
-      VarSet.elements (TMap.fold f nonlinear VarSet.empty)
+    VPMap.iter
+      (fun (x,y) x_to_y ->
+         let x_to_y = T.var x_to_y in
+         let diff = T.sub (T.var y) (T.var x) in
+         s#assrt (to_smt
+                    (disj
+                       (eq x_to_y T.zero)
+                       (eq x_to_y diff)));
+         s#assrt (to_smt (geq x_to_y T.zero));
+         s#assrt (to_smt (geq x_to_y diff));
+      )
+      intervals;
+    let prop =
+      go (project (D.bottom man (D.Env.of_enum (VarSet.enum (!vars)))))
     in
-    let bounds =
-      List.fold_left2
-        (fun m v ivl -> T.V.Map.add v ivl m)
-        T.V.Map.empty
-        var_list
-        (optimize (List.map T.var var_list) lin_phi)
+    (prop, !safe_nonlinear)
+
+  let var_bounds_nonlinear fresh p tick_var phi =
+    let man = NumDomain.polka_loose_manager () in
+    let ivl_vars =
+      formula_free_vars phi
+      |> VarSet.filter p
+      |> VarSet.remove tick_var
+      |> VarSet.elements
     in
-    let linearize_term = function
-      | OVar v ->
-        let ivl =
-          try T.V.Map.find v bounds
-          with Not_found -> Interval.top
-        in
-        LinBound.make [T.var v] [T.var v] ivl
-      | OConst k -> LinBound.of_interval (Interval.const k)
-      | OAdd (x, y) -> LinBound.add x y
-      | OMul (x, y) -> LinBound.mul x y
-      | ODiv (x, y) -> LinBound.div x y
-      | OMod (x, y) -> LinBound.modulo x y
-      | OFloor x -> LinBound.floor x
-    in
-    let mk_nl_bounds (term, var) =
-      let var = T.var var in
-      let linearized = T.eval linearize_term term in
-      let symbolic_lo =
-        big_conj (BatList.enum (LinBound.lower linearized) /@ (geq var))
-      in
-      let symbolic_hi =
-        big_conj (BatList.enum (LinBound.upper linearized) /@ (leq var))
-      in
-      let const_lo = match Interval.lower (LinBound.interval linearized) with
-        | Some k -> leq (T.const k) var
-        | None -> top
-      in
-      let const_hi = match Interval.upper (LinBound.interval linearized) with
-        | Some k -> leq var (T.const k)
-        | None -> top
-      in
-      conj symbolic_lo (conj symbolic_hi (conj const_lo const_hi))
-    in
-    let nl_bounds = big_conj (TMap.enum nonlinear /@ mk_nl_bounds) in
-    conj lin_phi nl_bounds
-
-  (* Orient a set of equations as rewrite rules to eliminate variable that
-     should be projected out of the formula *)
-  let rewrite =
-    List.fold_left (fun rewrite term ->
-        match orient_equation (flip VarSet.mem vars) term with
-        | Some (v, rhs) ->
-          logf ~level:`trace "Found rewrite: %a --> %a"
-            T.V.format v
-            T.format rhs;
-
-          (* Rewrite RHS of every rewrite rule to eliminate v *)
-          let sub x =
-            if T.V.equal x v then rhs else T.var x
-          in
-          let rewrite = T.V.Map.map (T.subst sub) rewrite in
-          T.V.Map.add v rhs rewrite
-        | None ->
-          logf ~level:`trace "Could not orient equation %a=0"
-            T.format term;
-          rewrite)
-      T.V.Map.empty
-      affine_hull
-  in
-
-  (* For each non-linear term t in phi, try to re-write t in terms of
-     /un-projected/ variables *)
-  let safe_nl_map =
-    TMap.fold (fun map term var ->
-        let term_rewrite = T.subst sub term in
-        if T.V.Set.forall exists (term_free_vars term_rewrite) then
-          T.V.Map.add var term_rewrite map
-        else
-          map)
-      T.V.Map.empty
-      nonlinear
-  in
-
-  let man = NumDomain.polka_loose_manager () in
-  let ex v = exists v || T.V.Map.mem v safe_nl_map in
-  (local_abstract ~exists:ex s man phi, safe_nl_map)
-*)  
-
+    abstract_nonlinear_ivl fresh p ivl_vars man phi
 end

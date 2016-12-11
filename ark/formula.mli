@@ -242,6 +242,17 @@ module type S = sig
     t ->
     'a T.D.t
 
+  (** [var_bounds_linear fresh p tick phi] computes inequations implied by
+      [phi] over the variables that satisfy [p] ([tick] is assumed to satisfy
+      [p]).  Intervals are introduced for variables that satisfy [p], except
+      for [tick].  The bounds are represented by a polyhedron and a mapping
+      from dimensions of the polyhedron to non-linear terms.  *)
+  val var_bounds_nonlinear : (string -> typ -> T.V.t) ->
+    (T.V.t -> bool) ->
+    T.V.t ->
+    t ->
+    ((Polka.loose Polka.t) T.D.t) * (T.t T.V.Map.t)
+
   module Syntax : sig
     val ( && ) : t -> t -> t
     val ( || ) : t -> t -> t

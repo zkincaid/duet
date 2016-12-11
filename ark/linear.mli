@@ -135,4 +135,9 @@ exception Many_solutions
 
 module GaussElim (F : Field.S) (E : Expr.S with type base = F.t) : sig
   val solve : (E.t * F.t) list -> (E.dim -> F.t)
+
+  (** Given a predicate on dimensions and a list of terms (all implicitly
+      equal to zero), orient the equations as rewrite rules that eliminate
+      dimensions that don't satisfy the predicate. *)
+  val orient : (E.dim -> bool) -> E.t list -> (E.dim * E.t) list
 end

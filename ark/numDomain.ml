@@ -230,6 +230,8 @@ module type S = sig
   val add_vars : var BatEnum.t -> 'a t -> 'a t
   val boxify : 'a t -> 'a t
   val rename : (var -> var) -> 'a t -> 'a t
+  val manager : 'a t -> 'a Manager.t
+  val affine_hull : 'a t -> linear_term list
 end
 
 module Make (V : Var) = struct
@@ -243,6 +245,7 @@ module Make (V : Var) = struct
   type env = Env.t
 
   let man prop = Abstract0.manager prop
+  let manager x = man x.prop
 
   let format formatter x =
     Abstract0.print (V.show % (Env.var_of_dim x.env)) formatter x.prop
@@ -363,4 +366,13 @@ module Make (V : Var) = struct
         None
     in
     { env; prop }
+
+  let affine_hull x =
+    let open Lincons0 in
+    BatArray.enum (Abstract0.to_lincons_array (man x.prop) x.prop)
+    |> BatEnum.filter_map (fun lcons ->
+        match lcons.typ with
+        | EQ -> Some lcons.linexpr0
+        | _ -> None)
+    |> BatList.of_enum
 end

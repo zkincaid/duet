@@ -1198,7 +1198,6 @@ let tr_expr expr =
   in
   Expr.fold alg expr
 
-
 let tr_expr_val expr = match tr_expr expr with
   | TInt x -> x
   | TPointer x -> x.ptr_val
@@ -1569,36 +1568,35 @@ let print_var_bounds formatter tick_var tr =
       if V.equal pv tick_var then K.T.zero else K.T.var v
     | None -> K.T.var v
   in
-  let man = NumDomain.polka_loose_manager () in
-  let (lin_phi, nl_map) =
+  let phi =
     K.F.conj
       (K.F.subst sigma tr.K.guard)
       (K.F.eq
          (K.T.var (K.V.mk_var tick_var))
          (K.T.subst sigma (K.M.find tick_var tr.K.transform)))
-    |> K.F.linearize_partial
-      (fun () -> K.V.mk_tmp "nonlin" TyInt)
-      (fun v -> K.V.lower v != None)
   in
+
+  let (bounds, nl_map) =
+    let is_global v = match K.V.lower v with
+      | Some (VVal v) | Some (VPos v) | Some (VWidth v) -> Var.is_global v
+      | None -> false
+    in
+    K.F.var_bounds_nonlinear
+      K.V.mk_tmp
+      is_global
+      (K.V.mk_var tick_var)
+      phi
+  in
+
   let nl_rewrite x =
     try K.T.V.Map.find x nl_map with Not_found -> K.T.var x
   in
-  let lin_phi = K.F.simplify_z3 (fun _ -> true) lin_phi in
-  let program_vars =
-    (K.VarSet.remove tick_var (K.formula_free_program_vars lin_phi)
-     |> K.VarSet.enum)
-    /@ K.V.mk_var
-    |> BatList.of_enum
-  in
-  let nl_vars = BatList.of_enum (K.T.V.Map.keys nl_map) in
-  let hull =
-    lin_phi |> K.F.var_bounds K.V.mk_tmp (program_vars@nl_vars) (K.V.mk_var tick_var) man
-  in
+
   let tick_dim = AVar (K.V.mk_var tick_var) in
   let print_tcons tcons =
     let open Apron in
     let open Tcons0 in
-    match K.T.to_linterm (K.T.of_apron hull.K.T.D.env tcons.texpr0) with
+    match K.T.to_linterm (K.T.of_apron bounds.K.T.D.env tcons.texpr0) with
     | None -> ()
     | Some t ->
       let (a, t) = K.T.Linterm.pivot tick_dim t in
@@ -1626,9 +1624,10 @@ let print_var_bounds formatter tick_var tr =
         | _ -> ()
       end
   in
+  let man = K.F.T.D.manager bounds in
   BatArray.iter
     print_tcons
-    (Apron.Abstract0.to_tcons_array man hull.K.F.T.D.prop)
+    (Apron.Abstract0.to_tcons_array man bounds.K.F.T.D.prop)
 
 let () =
   CmdLine.register_config
