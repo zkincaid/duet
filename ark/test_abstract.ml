@@ -282,6 +282,13 @@ let linearize6 () =
   assert_implies lin_phi ((int 0) <= z);
   assert_implies lin_phi (z <= x)
 
+let linearize7 () =
+  let open Infix in
+  let phi =
+    w = x * y && x <= (int 0) && y <= (int 0)
+  in
+  let lin_phi = linearize ctx phi in
+  assert_implies lin_phi ((int 0) <= w)
 
 let suite = "Abstract" >::: [
     "affine_hull1" >:: affine_hull1;
@@ -305,4 +312,5 @@ let suite = "Abstract" >::: [
     "linearize4" >:: linearize4;
     "linearize5" >:: linearize5;
     "linearize6" >:: linearize6;
+    "linearize7" >:: linearize7;
   ]

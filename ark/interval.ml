@@ -58,7 +58,10 @@ let add x y =
     { lower = lower; upper = upper }
 
 let mul_const k x =
-  if equal x bottom then bottom
+  if equal x bottom then
+    bottom
+  else if QQ.equal k QQ.zero then
+    zero
   else if QQ.lt k QQ.zero then begin
     { lower = map_opt (QQ.mul k) x.upper;
       upper = map_opt (QQ.mul k) x.lower }
