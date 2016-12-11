@@ -34,7 +34,6 @@ val elem : QQ.t -> t -> bool
 val lower : t -> QQ.t option
 val upper : t -> QQ.t option
 
-(*
 val of_apron : Apron.Interval.t -> t
 val apron_of : t -> Apron.Interval.t
- *)
+
