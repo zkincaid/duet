@@ -3,8 +3,6 @@ open Linear
 open BatPervasives
 open Apak
 
-open ArkMathsat
-
 include Log.Make(struct let name = "ark.quantifier" end)
 
 exception Equal_term of Linear.QQVector.t
