@@ -16,7 +16,7 @@ module MakeFG (G : Graph.Sig.I) : FlowGraph with type t = G.t
 
 module Pack : sig
   type pair
-  module SetMap : (Map.S with type key = AP.Set.t)
+  module SetMap : (BatMap.S with type key = AP.Set.t)
   module PowerSet : Putil.Set.S with type elt = AP.Set.t
   module PairSet : Putil.Set.S with type elt = pair
   val fst : pair -> AP.t
