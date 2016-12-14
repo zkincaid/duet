@@ -115,6 +115,12 @@ module type S = sig
     t ->
     ((Polka.loose Polka.t) T.D.t) * (T.t T.V.Map.t)
 
+  val abstract_nonlinear : (string -> typ -> T.V.t) ->
+    (T.V.t -> bool) ->
+    'a Apron.Manager.t ->
+    t ->
+    ('a T.D.t) * (T.t T.V.Map.t)
+
   module Syntax : sig
     val ( && ) : t -> t -> t
     val ( || ) : t -> t -> t
@@ -2841,7 +2847,7 @@ module Make (T : Term.S) = struct
           let valuation = m#eval_qq % T.V.to_smt in
           s#pop ();
           incr disjuncts;
-          logf "[%d] abstract lazy_dnf" (!disjuncts);
+          logf "[%d] abstract_nonlinear lazy_dnf" (!disjuncts);
           if (!disjuncts) = (!opt_abstract_limit) then begin
             project (D.top man (D.Env.of_enum (VarSet.enum (!vars))))
           end else begin
@@ -3041,6 +3047,7 @@ module Make (T : Term.S) = struct
       intervals;
     let prop =
       go (project (D.bottom man (D.Env.of_enum (VarSet.enum (!vars)))))
+      |> D.exists man (not % T.V.equal zero)
     in
     (prop, !safe_nonlinear)
 
@@ -3053,4 +3060,8 @@ module Make (T : Term.S) = struct
       |> VarSet.elements
     in
     abstract_nonlinear_ivl fresh p ivl_vars man phi
+
+  let abstract_nonlinear fresh p man phi =
+    abstract_nonlinear_ivl fresh p [] man phi
+
 end

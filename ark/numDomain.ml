@@ -232,6 +232,7 @@ module type S = sig
   val rename : (var -> var) -> 'a t -> 'a t
   val manager : 'a t -> 'a Manager.t
   val affine_hull : 'a t -> linear_term list
+  val linear_substitution : (var -> linear_term) -> 'a t -> 'a t
 end
 
 module Make (V : Var) = struct
@@ -366,6 +367,20 @@ module Make (V : Var) = struct
         None
     in
     { env; prop }
+
+  let linear_substitution f x =
+    let dimensions = Env.dimensions x.env |> BatArray.of_enum in
+    let replacements =
+      Env.vars x.env |> BatArray.of_enum |> Array.map f
+    in
+    { env = x.env;
+      prop =
+      Abstract0.substitute_linexpr_array
+        (man x.prop)
+        x.prop
+        dimensions
+        replacements
+        None }
 
   let affine_hull x =
     let open Lincons0 in

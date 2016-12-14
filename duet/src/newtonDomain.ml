@@ -99,6 +99,7 @@ module RecurrenceAnalysis (Var : Var) = struct
 
     let abstract_star ?guard:(guard=F.top) abstract =
       let loop_counter = T.var (V.mk_int_tmp "K") in
+      let man = get_manager () in
       (* In a recurrence environment, absence of a binding for a variable
          indicates that the variable is not modified (i.e., the variable
          satisfies the recurrence x' = x + 0).  We initialize the environment
@@ -212,7 +213,7 @@ module RecurrenceAnalysis (Var : Var) = struct
             env
             M.empty
         in
-        let prev v =
+        let rec prev v =
           match V.lower v with
           | Some var ->
             (try M.find var prev_map
@@ -238,14 +239,25 @@ module RecurrenceAnalysis (Var : Var) = struct
           |> BatList.enum |> F.big_conj
         in
         let prev_precondition =
-          abstract.precondition |> F.of_abstract |> F.subst prev
+          abstract.precondition
+          |> T.D.exists man (fun v -> V.lower v != None)
+          |> F.of_abstract
+          |> F.subst prev
         in
         F.conj ineqs prev_precondition
+      in
+      let precondition =
+        (F.of_abstract abstract.precondition)
+        |> F.subst (fun v -> match V.lower v with
+            | Some _ -> T.var v
+            | None ->
+              try T.V.Map.find v abstract.nonlinear
+              with Not_found -> assert false)
       in
       let plus_guard =
         F.big_conj (BatList.enum [
             ineqs;
-            (F.of_abstract abstract.precondition);
+            precondition;
             guard;
             postcondition;
             penultimate_guard;
@@ -260,14 +272,30 @@ module RecurrenceAnalysis (Var : Var) = struct
       { transform = transform;
         guard = F.disj plus_guard zero_guard }
 
-    let stratified_recurrence_equations ?solver:(solver=new Smt.solver) modified body =
+    let stratified_recurrence_equations modified body =
+      let man = T.D.manager body in
       let mk_avar v = AVar (V.mk_var v) in
       let primed_vars = VarSet.map Var.prime modified in
-      let vars =
-        let free_vars = formula_free_program_vars body in
-        BatList.of_enum (VarSet.enum free_vars /@ V.mk_var)
+      (* remove constant dimensions *)
+      let body =
+        T.D.exists
+          man
+          (fun v ->
+             let ivl =
+               Apron.Abstract0.bound_texpr
+                 man
+                 body.T.D.prop
+                 (T.to_apron body.T.D.env (T.var v))
+               |> Interval.of_apron
+             in
+             Interval.const_of ivl = None)
+          body
       in
-      let equalities = F.affine_hull body vars in
+      let env = body.T.D.env in
+      let vars = BatList.of_enum (T.D.Env.vars env) in
+      let equalities =
+        T.D.affine_hull body |> List.map (T.linterm_of_apron env)
+      in
       logf "Extracted equalities:@ %a"
         Show.format<T.Linterm.t list> equalities;
       let (s, coeffs) = farkas equalities vars in
@@ -350,12 +378,16 @@ module RecurrenceAnalysis (Var : Var) = struct
           non_induction_vars
           VarMap.empty
       in
+      let man = T.D.manager body in
       let rev_delta_vars = (* reverse mapping of delta_vars *)
         VarMap.fold
           (fun var delta rev -> V.Map.add delta var rev)
           delta_vars
           V.Map.empty
       in
+      (* Add delta variables to body's environment *)
+      let body = T.D.add_vars (VarMap.values delta_vars) body in
+
       (* For every non-induction var x, substitute x -> x' - delta(x) in the
          loop body.  This produces a formula equivalent to
             phi /\ { delta(y) = y'-y : y is a non-induction var }
@@ -364,23 +396,23 @@ module RecurrenceAnalysis (Var : Var) = struct
       let phi =
         let delta_subst v = match v with
           | V.PVar pv when VarMap.mem pv delta_vars ->
-            T.sub
-              (T.var (V.mk_var (Var.prime pv)))
-              (T.var (VarMap.find pv delta_vars))
-          | _ -> T.var v
+            T.Linterm.of_enum (BatList.enum [
+                (AVar (V.mk_var (Var.prime pv)), QQ.one);
+                (AVar (VarMap.find pv delta_vars), QQ.of_int (-1))
+              ])
+            |> T.apron_of_linterm body.T.D.env
+          | _ ->
+            T.Linterm.term (AVar v) QQ.one
+            |> T.apron_of_linterm body.T.D.env
         in
-        F.subst delta_subst body
+        T.D.linear_substitution delta_subst body
       in
-      let man = NumDomain.polka_loose_manager () in
       let hull =
         let is_induction_var v = VSet.mem v induction_vars in
         (* Project all variables except the delta vars & induction vars *)
         let p v = V.Map.mem v rev_delta_vars || is_induction_var v in
-        F.abstract ~exists:(Some p) man phi
+        T.D.exists man p phi
       in
-      logf ~level:`always ~attributes:[`Blue] "Convex hull: %a" F.format phi;
-      logf ~level:`always ~attributes:[`Blue] "Convex hull: %a" VSet.format induction_vars;
-      logf ~level:`always ~attributes:[`Blue] "Convex hull: %a" F.T.D.format hull;
       let recur ineqs tcons =
         let open Apron in
         let open Tcons0 in
@@ -425,35 +457,36 @@ module RecurrenceAnalysis (Var : Var) = struct
         []
         (BatArray.enum (Apron.Abstract0.to_tcons_array man hull.T.D.prop))
 
-    let alpha_formula ?solver:(s=new Smt.solver) body modified nonlinear =
+    let alpha_polyhedron abstract_body modified nonlinear =
       let unprime =
         VarMap.of_enum (VarSet.enum modified /@ (fun v -> (Var.prime v, v)))
       in
-      let vars = formula_free_program_vars body in
-      let pre_vars =
-        VarSet.filter (not % flip VarMap.mem unprime) vars
+      let man = T.D.manager abstract_body in
+      let prestate_nonlinear =
+        nonlinear |> T.V.Map.filter (fun _ term ->
+            VSet.for_all
+              (fun v -> match V.lower v with
+                 | Some v -> not (VarMap.mem v unprime)
+                 | None -> false)
+              (term_free_vars term))
       in
-      let low f v = match V.lower v with
-        | Some v -> f v
-        | None   -> false
-      in
-      let man = NumDomain.polka_loose_manager () in
-      s#push ();
-      s#assrt (F.to_smt body);
       let pre_guard =
-        F.abstract
-          man
-          ~exists:(Some (low (flip VarSet.mem pre_vars)))
-          body
+        let pre_vars =
+          T.D.Env.vars abstract_body.T.D.env
+          |> BatEnum.filter (fun v -> match V.lower v with
+              | Some v -> not (VarMap.mem v unprime)
+              | None -> T.V.Map.mem v prestate_nonlinear)
+          |> VSet.of_enum
+        in
+        T.D.exists man (flip VSet.mem pre_vars) abstract_body
       in
       let post_guard =
-        let post_vars =
-          VarSet.union
-            (VarSet.diff pre_vars modified)
-            (VarSet.map Var.prime modified)
-        in
-        let p = low (flip VarSet.mem post_vars) in
-        F.abstract man ~exists:(Some p) body
+        abstract_body
+        |> T.D.exists man (fun v -> match V.lower v with
+            | Some v ->
+              (* either post-var or unmodified pre-var *)
+              not (VarSet.mem v modified)
+            | None -> false)
         |> T.D.rename (fun v ->
             match V.lower v with
             | Some v ->
@@ -464,7 +497,9 @@ module RecurrenceAnalysis (Var : Var) = struct
             | None -> assert false)
       in
       let stratified =
-        stratified_recurrence_equations modified body
+        stratified_recurrence_equations
+          modified
+          (T.D.exists man (fun v -> V.lower v != None) abstract_body)
       in
       let induction_vars =
         List.fold_left
@@ -479,11 +514,16 @@ module RecurrenceAnalysis (Var : Var) = struct
           stratified
       in
       let nonlinear_induction =
+        (* Find non-linear terms where every free variable is a pre-state
+           induction variable.  TODO: we should also be able to post-state
+           induction variables - that will require modifying abstract_star. *)
         T.V.Map.fold (fun var term set ->
             let is_non_induction v =
               match V.lower v with
-              | Some var -> VarSet.mem var non_induction_vars
-              | None -> false
+              | Some var ->
+                (VarSet.mem var non_induction_vars)
+                || (VarMap.mem var unprime)
+              | None -> true
             in
             if VSet.exists is_non_induction (term_free_vars term) then
               set
@@ -492,14 +532,12 @@ module RecurrenceAnalysis (Var : Var) = struct
           nonlinear
           VSet.empty
       in
-
       let inequations =
         linear_recurrence_inequations
           (VSet.union induction_vars nonlinear_induction)
           non_induction_vars
-          body
+          abstract_body
       in
-      s#pop ();
       { precondition = pre_guard;
         postcondition = post_guard;
         modified = modified;
@@ -507,19 +545,20 @@ module RecurrenceAnalysis (Var : Var) = struct
         inequations = inequations;
         nonlinear = nonlinear }
 
+    let alpha_formula body modified =
+      let man = NumDomain.polka_loose_manager () in
+      let (abstract_body, nonlinear) =
+        F.abstract_nonlinear
+          V.mk_tmp
+          (fun v -> V.lower v != None)
+          man
+          body
+      in
+      alpha_polyhedron abstract_body modified nonlinear
+
     let alpha tr =
       let modified = VarSet.of_enum (M.keys tr.transform) in
-      let primed_vars = VarSet.map Var.prime modified in
-      let (body, nonlinear) =
-        F.linearize_partial
-          (fun () -> V.mk_real_tmp "nonlin")
-          (fun v ->
-             match V.lower v with
-             | Some v -> not (VarSet.mem v primed_vars)
-             | None -> false)
-          (to_formula tr)
-      in
-      alpha_formula body modified nonlinear
+      alpha_formula (to_formula tr) modified
 
     let abstract_vars abstract =
       VarSet.union
@@ -536,10 +575,15 @@ module RecurrenceAnalysis (Var : Var) = struct
         abstract.inequations
 
     let hull_of_abstract abstract =
-      let vars = abstract_vars abstract in
+      let program_vars = abstract_vars abstract in
       let prime = Var.prime in
       let open Apron in
-      let env = T.D.Env.of_enum (VarSet.enum vars /@ V.mk_var) in
+      let env =
+        BatEnum.append
+          (T.V.Map.keys abstract.nonlinear)
+          (VarSet.enum program_vars /@ V.mk_var)
+        |> T.D.Env.of_enum
+      in
       let to_apron = T.to_apron env in
       let eq_constraints =
         let constraint_of_rec_eq (v, rhs) =
@@ -575,14 +619,12 @@ module RecurrenceAnalysis (Var : Var) = struct
         let postify v = match V.lower v with
           | Some pv ->
             if VarSet.mem pv abstract.modified then
-              T.var (V.mk_var (prime pv))
+              V.mk_var (prime pv)
             else
-              T.var v
+              v
           | None -> assert false
         in
-        F.of_abstract abstract.postcondition
-        |> F.subst postify
-        |> F.abstract (get_manager())
+        T.D.rename postify abstract.postcondition
       in
       let recurrences =
         { T.D.prop =
@@ -597,22 +639,72 @@ module RecurrenceAnalysis (Var : Var) = struct
         recurrences
         (T.D.meet abstract.precondition postcondition)
 
+    let synth_hull_of_abstract x = (hull_of_abstract x, x.nonlinear)
+
+    module TMap = Putil.Map.Make(T)
+
+    let merge_synthetic (x, x_synthetic) (y, y_synthetic) =
+      let man = get_manager () in
+      let rev_synthetic map =
+        T.V.Map.fold
+          (fun x t rev -> TMap.add t x rev)
+          map
+          TMap.empty
+      in
+      let x_rev = rev_synthetic x_synthetic in
+      let y_rev = rev_synthetic y_synthetic in
+      let rev =
+        TMap.merge (fun _ s t -> match s,t with
+            | Some x, Some y -> Some x
+            | _, _ -> None)
+          x_rev
+          y_rev
+      in
+      let synthetic =
+        TMap.fold
+          (fun t x synthetic -> T.V.Map.add x t synthetic)
+          rev
+          T.V.Map.empty
+      in
+      let x =
+        T.D.exists
+          man
+          (fun v -> V.lower v != None || T.V.Map.mem v synthetic)
+          x
+      in
+      let y =
+        T.D.exists
+          man
+          (fun v -> V.lower v != None
+                    || TMap.mem (T.V.Map.find v y_synthetic) rev)
+          y
+        |> T.D.rename (fun v ->
+            if V.lower v != None then v
+            else TMap.find (T.V.Map.find v y_synthetic) rev)
+      in
+      (x, y, synthetic)
+
     let abstract_equal x y =
-      T.D.equal (hull_of_abstract x) (hull_of_abstract y)
+      let (x_hull, y_hull, _) =
+        merge_synthetic (synth_hull_of_abstract x) (synth_hull_of_abstract y)
+      in
+      T.D.equal x_hull y_hull
 
     let abstract_widen x y =
-      let body =
-        F.of_abstract (T.D.widen (hull_of_abstract x) (hull_of_abstract y))
+      let (x_hull, y_hull, synthetic) =
+        merge_synthetic (synth_hull_of_abstract x) (synth_hull_of_abstract y)
       in
+      let body = T.D.widen x_hull y_hull in
       let modified = VarSet.union x.modified y.modified in
-      alpha_formula body modified T.V.Map.empty
+      alpha_polyhedron body modified synthetic
 
     let abstract_join x y =
-      let body =
-        F.of_abstract (T.D.join (hull_of_abstract x) (hull_of_abstract y))
+      let (x_hull, y_hull, synthetic) =
+        merge_synthetic (synth_hull_of_abstract x) (synth_hull_of_abstract y)
       in
+      let body = T.D.join x_hull y_hull in
       let modified = VarSet.union x.modified y.modified in
-      alpha_formula body modified T.V.Map.empty
+      alpha_polyhedron body modified synthetic
   end
 
   module Split = struct
@@ -671,10 +763,9 @@ module RecurrenceAnalysis (Var : Var) = struct
 
     module FormulaSet = Putil.Set.Make(F)
 
-    let alpha_formula_split body modified predicates nonlinear =
-      let body =
-        (*        F.qe_partqial (fun v -> V.lower v != None) body*)
-        body
+    let alpha_formula_split body modified predicates =
+      let lin_body =
+        F.linearize_trivial (fun () -> V.mk_real_tmp "nonlin") body
       in
       let postify =
         F.subst (fun v -> match V.lower v with
@@ -686,7 +777,7 @@ module RecurrenceAnalysis (Var : Var) = struct
             | None -> assert false)
       in
       let s = new Smt.solver in
-      s#assrt (F.to_smt body);
+      s#assrt (F.to_smt lin_body);
       let sat_modulo_tr phi =
         s#push ();
         s#assrt (F.to_smt phi);
@@ -710,19 +801,19 @@ module RecurrenceAnalysis (Var : Var) = struct
               if sat_modulo_tr (F.conj phi post_not_phi) = Smt.Unsat then
                 (* {phi} tr {phi} -> tr* = ([not phi]tr)*([phi]tr)* *)
                 let left_abstract =
-                  Base.alpha_formula not_phi_body modified nonlinear
+                  Base.alpha_formula not_phi_body modified
                 in
                 let right_abstract =
-                  Base.alpha_formula phi_body modified nonlinear
+                  Base.alpha_formula phi_body modified
                 in
                 Some (not_phi, Leaf left_abstract, Leaf right_abstract)
               else if sat_modulo_tr (F.conj not_phi post_phi) = Smt.Unsat then
                 (* {not phi} tr {not phi} -> tr* = ([phi]tr)*([not phi]tr)* *)
                 let left_abstract =
-                  Base.alpha_formula phi_body modified nonlinear
+                  Base.alpha_formula phi_body modified
                 in
                 let right_abstract =
-                  Base.alpha_formula not_phi_body modified nonlinear
+                  Base.alpha_formula not_phi_body modified
                 in
                 Some (phi, Leaf left_abstract, Leaf right_abstract)
               else
@@ -731,7 +822,7 @@ module RecurrenceAnalysis (Var : Var) = struct
               None)
       in
       match split with
-      | [] -> Leaf (Base.alpha_formula body modified nonlinear)
+      | [] -> Leaf (Base.alpha_formula body modified)
       | xs -> Split xs
 
   (* tree-style split predicates *)
@@ -793,30 +884,23 @@ module RecurrenceAnalysis (Var : Var) = struct
     let alpha tr =
       let modified = VarSet.of_enum (M.keys tr.transform) in
       let prime_modified = VarSet.map Var.prime modified in
-      let (body, nonlinear) =
-        F.linearize_partial
-          (fun () -> V.mk_real_tmp "nonlin")
-          (fun v ->
-             match V.lower v with
-             | Some v -> not (VarSet.mem v prime_modified)
-             | None -> false)
-          (to_formula tr)
-      in
+      let body = to_formula tr in
       let alg = function
         | OAnd (xs, ys) | OOr (xs, ys) -> FormulaSet.union xs ys
         | OAtom atom ->
-          let pre_state_term t =
+          let pre_state_linear_term t =
             VSet.is_empty (term_free_tmp_vars t)
             && not (VarSet.exists
                       (flip VarSet.mem prime_modified)
                       (term_free_program_vars t))
+            && (T.to_linterm t != None)
           in
           begin match atom with
-            | LeqZ t when pre_state_term t ->
+            | LeqZ t when pre_state_linear_term t ->
               FormulaSet.singleton (F.leqz t)
-            | LtZ t when pre_state_term t ->
+            | LtZ t when pre_state_linear_term t ->
               FormulaSet.singleton (F.ltz t)
-            | EqZ t when pre_state_term t ->
+            | EqZ t when pre_state_linear_term t ->
               FormulaSet.singleton (F.eqz t)
             | _ -> FormulaSet.empty
           end
@@ -831,7 +915,7 @@ module RecurrenceAnalysis (Var : Var) = struct
           FormulaSet.empty
         |> FormulaSet.elements
       in
-      alpha_formula_split body modified predicates nonlinear
+      alpha_formula_split body modified predicates
 
     let rec abstract_equal x y =
       match x, y with
@@ -1649,11 +1733,6 @@ let () =
 
 module KVMemo = Memo.Make(K.V)
 
-(* Replace every integer variable by a real variable *)
-let real_relaxation phi =
-  let rename = Memo.memo (fun v -> K.T.var (K.V.mk_tmp (K.V.show v) TyReal)) in
-  K.F.subst rename phi
-
 let () =
   Callback.register "compose_callback" K.mul;
   Callback.register "union_callback" K.add;
@@ -1742,8 +1821,7 @@ let () =
      Format.fprintf formatter "%a" K.format tr;
      Format.pp_close_box formatter ()) tr);
   Callback.register "is_sat_callback" (fun tr ->
-      try K.F.is_sat tr.K.guard
-      with Formula.Timeout -> K.F.is_sat (linearize () tr.K.guard));
+      K.F.is_sat_nonlinear K.V.mk_tmp tr.K.guard != Smt.Unsat);
   Callback.register "is_sat_linear_callback" (fun tr ->
       K.F.is_sat (linearize () tr.K.guard));
   Callback.register "print_stats_callback" Log.print_stats;

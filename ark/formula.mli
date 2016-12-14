@@ -253,6 +253,12 @@ module type S = sig
     t ->
     ((Polka.loose Polka.t) T.D.t) * (T.t T.V.Map.t)
 
+  val abstract_nonlinear : (string -> typ -> T.V.t) ->
+    (T.V.t -> bool) ->
+    'a Apron.Manager.t ->
+    t ->
+    ('a T.D.t) * (T.t T.V.Map.t)
+
   module Syntax : sig
     val ( && ) : t -> t -> t
     val ( || ) : t -> t -> t
