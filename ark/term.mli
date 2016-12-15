@@ -67,6 +67,8 @@ module type S = sig
   (** Determine a term equivalent to a variable (and if so, which). *)
   val to_var : t -> V.t option
 
+  val destruct_mul : t -> (t * t) option
+
   (** {2 Misc operations} *)
   val to_smt : t -> Smt.ast
 

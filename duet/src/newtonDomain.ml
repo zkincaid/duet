@@ -127,30 +127,30 @@ module RecurrenceAnalysis (Var : Var) = struct
         (* Substitute closed forms for lower induction vars into the
            right-hand-side *)
         match Incr.eval env rhs with
-        | Some rhs_closed -> Incr.summation rhs_closed
-        | None ->
-          Log.errorf "Stratification error for iterate:@\n%a"
-            format_abstract abstract;
-          assert false
+        | Some rhs_closed -> Some (Incr.summation rhs_closed)
+        | None -> None
       in
 
       (* Close all stratified recurrence equations *)
       let (env, transform) =
         List.fold_left (fun (env, transform) (var, rhs) ->
-            let cf =
-              Incr.Cf.add_term
-                (AVar (T.var (V.mk_var var)))
-                Incr.P.one
-                (close_sum env rhs)
-            in
-            logf "@[Closed form for %a: %a@]"
-              Var.format var
-              Incr.Cf.format cf;
-            let env = VarMap.add var (Some cf) env in
-            let transform =
-              M.add var (Incr.to_term cf loop_counter) transform
-            in
-            (env, transform))
+            match close_sum env rhs with
+            | None -> (env, transform)
+            | Some close_rhs ->
+              let cf =
+                Incr.Cf.add_term
+                  (AVar (T.var (V.mk_var var)))
+                  Incr.P.one
+                  close_rhs
+              in
+              logf "@[Closed form for %a: %a@]"
+                Var.format var
+                Incr.Cf.format cf;
+              let env = VarMap.add var (Some cf) env in
+              let transform =
+                M.add var (Incr.to_term cf loop_counter) transform
+              in
+              (env, transform))
           (induction_vars, M.empty)
           abstract.stratified
       in
@@ -178,11 +178,14 @@ module RecurrenceAnalysis (Var : Var) = struct
       (* Close all linear recurrence inequations *)
       let ineqs =
         abstract.inequations |> List.map (fun (lhs, op, rhs) ->
-            let cf = Incr.to_term (close_sum env rhs) loop_counter in
-            let lhs_delta = T.subst delta_subst lhs in
-            match op with
-            | `Leq -> F.leq lhs_delta cf
-            | `Eq -> F.eq lhs_delta cf)
+            match close_sum env rhs with
+            | None -> F.top
+            | Some close_rhs ->
+              let cf = Incr.to_term close_rhs loop_counter in
+              let lhs_delta = T.subst delta_subst lhs in
+              match op with
+              | `Leq -> F.leq lhs_delta cf
+              | `Eq -> F.eq lhs_delta cf)
         |> BatList.enum |> F.big_conj
       in
       let postcondition =
@@ -213,12 +216,32 @@ module RecurrenceAnalysis (Var : Var) = struct
             env
             M.empty
         in
+        (* Find non-linear terms over induction variables *)
+        let safe_nonlinear =
+          let is_induction_var v =
+            match V.lower v with
+            | Some v ->
+              not (VarSet.mem v abstract.modified)
+              || VarMap.find v env != None
+            | None -> false
+          in
+          T.V.Map.fold
+            (fun v term set ->
+               if VSet.for_all is_induction_var (term_free_vars term) then
+                 VSet.add v set
+               else
+                 set)
+            abstract.nonlinear
+            VSet.empty
+        in
         let rec prev v =
           match V.lower v with
           | Some var ->
             (try M.find var prev_map
              with Not_found -> T.var v)
-          | None -> assert false
+          | None ->
+            assert (VSet.mem v safe_nonlinear);
+            T.subst prev (T.V.Map.find v abstract.nonlinear)
         in
         let delta_prev_subst v = match V.lower v with
           | Some pv -> begin
@@ -231,7 +254,10 @@ module RecurrenceAnalysis (Var : Var) = struct
            next-to-last iterate. *)
         let ineqs =
           abstract.inequations |> List.map (fun (lhs, op, rhs) ->
-              let cf = Incr.to_term (close_sum env rhs) prev_counter in
+            match close_sum env rhs with
+            | None -> F.top
+            | Some close_rhs ->
+              let cf = Incr.to_term close_rhs prev_counter in
               let lhs_delta = T.subst delta_prev_subst lhs in
               match op with
               | `Leq -> F.leq lhs_delta cf
@@ -240,7 +266,8 @@ module RecurrenceAnalysis (Var : Var) = struct
         in
         let prev_precondition =
           abstract.precondition
-          |> T.D.exists man (fun v -> V.lower v != None)
+          |> T.D.exists man
+            (fun v -> V.lower v != None || VSet.mem v safe_nonlinear)
           |> F.of_abstract
           |> F.subst prev
         in

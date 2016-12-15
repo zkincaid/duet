@@ -581,6 +581,29 @@ module Make (Var : Var) = struct
     let k_minus_1 = P.add_term 1 QQ.one (P.const (QQ.negate QQ.one))
 
     let eval env t =
+      (* Lower a degree-0 cf term to a regular term *)
+      let lower_cf cf =
+        try
+          let lowered =
+            Cf.enum cf
+            /@ (function
+                | (AVar dim, coeff) ->
+                  if P.order coeff = 0 then
+                    let (const_coeff, _) = P.pivot 0 coeff in
+                    T.mul (T.const const_coeff) dim
+                  else
+                    raise Not_found
+                | (AConst, coeff) ->
+                  if P.order coeff = 0 then
+                    let (const_coeff, _) = P.pivot 0 coeff in
+                    (T.const const_coeff)
+                  else
+                    raise Not_found)
+            |> T.sum
+          in
+          Some lowered
+        with Not_found -> None
+      in
       let alg = function
         | OVar v ->
           begin
@@ -597,50 +620,15 @@ module Make (Var : Var) = struct
             Some (Cf.scalar_mul (P.const (QQ.inverse (P.find 0 const_coeff))) x)
           else
             None
+        | OMod (Some x, Some y) ->
+          begin match lower_cf x, lower_cf y with
+            | Some x, Some y -> Some (Cf.term (AVar (T.modulo x y)) P.one)
+            | _, _ -> None
+          end
         | OAdd (_, _) | OMul (_, _) | ODiv (_, _) | OMod (_, _) | OFloor _ ->
           None
       in
       T.eval alg t
-(*
-
-      | OConst of QQ.t
-      | OAdd of 'a * 'a
-      | OMul of 'a * 'a
-      | ODiv of 'a * 'a
-      | OMod of 'a * 'a
-      | OFloor of 'a
-
-      match T.to_linterm t with
-      | None -> None
-      | Some lt ->
-        let f (dim, coeff) =
-          match dim with
-          | AConst -> Cf.const (P.const coeff)
-          | AVar v ->
-            
-        in
-            if Env.mem v env then begin
-              match Env.find v env with
-              | Some cf ->
-                
-              | None -> raise Not_found
-            end else begin
-              assert (V.lower v != None);
-              (* if v isn't in env, it isn't in the domain of the
-                 transformation, and so hasn't been modified along the path *)
-              Cf.term (AVar (T.var v)) (P.const coeff)
-            end
-        in
-        try
-          Some (Cf.sum (BatEnum.map f (T.Linterm.enum lt)))
-        with Not_found -> begin
-            logf "Failed to evaluate closed form for %a"
-              T.format t;
-            logf "Environment: %a"
-              (Env.format Show.format<Cf.t option>) env;
-            None
-          end
-                            *)
 
     (* Given a polynomial p, compute a polynomial q such that for any k, q(k)
        = p(0) + p(1) + ... + p(k-1) *)

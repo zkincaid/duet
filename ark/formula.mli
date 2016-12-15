@@ -204,6 +204,7 @@ module type S = sig
   val to_smt : t -> Smt.ast
 
   val is_sat : t -> bool
+  val is_sat_nonlinear : (string -> typ -> T.V.t) -> t -> Smt.lbool
   val implies : t -> t -> bool
   val equiv : t -> t -> bool
 

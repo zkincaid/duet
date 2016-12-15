@@ -83,6 +83,7 @@ module type S = sig
   val of_smt : ?bound_vars:(T.V.t list) -> ?var_smt:(Smt.symbol -> T.t) -> Smt.ast -> t
   val to_smt : t -> Smt.ast
   val is_sat : t -> bool
+  val is_sat_nonlinear : (string -> typ -> T.V.t) -> t -> Smt.lbool
   val implies : t -> t -> bool
   val equiv : t -> t -> bool
   val map : (T.t atom -> t) -> t -> t
@@ -410,6 +411,11 @@ module Make (T : Term.S) = struct
       | EqZ t -> eqz (term_subst t)
     in
     map subst_atom
+
+  let is_numeral_smt ast =
+    let open Z3 in
+    let open Z3enums in
+    AST.get_ast_kind (Expr.ast_of_expr ast) = NUMERAL_AST
 
   let of_smt ?(bound_vars=[]) ?(var_smt=(T.var % T.V.of_smt)) ast =
     let open Z3 in
@@ -1108,6 +1114,57 @@ module Make (T : Term.S) = struct
         polyhedron.leq
 
     let big_conj enum = BatEnum.fold conjoin top enum
+
+    let farkas fresh polyhedron =
+      let eq_lambdas =
+        List.map (fun _ -> fresh "lambda" TyReal) polyhedron.eq
+      in
+      let leq_lambdas =
+        List.map (fun _ -> fresh "lambda" TyReal) polyhedron.leq
+      in
+      let leqs =
+        List.map
+          (fun lambda -> L.term (AVar lambda) (QQ.of_int (-1)))
+          leq_lambdas
+      in
+      let lambdas = eq_lambdas@leq_lambdas in
+      let (columns,kcolumn) =
+        BatList.fold_left2 (fun (cols,kcol) lambda t ->
+            BatEnum.fold
+              (fun (cols, kcol) (dim, coeff) ->
+                 match dim with
+                 | AConst -> (cols, L.add_term (AVar lambda) coeff kcol)
+                 | AVar v ->
+                   let col' =
+                     L.add_term (AVar lambda) coeff (T.V.Map.find v cols)
+                   in
+                   (T.V.Map.add v col' cols, kcol))
+              (cols,kcol)
+              (L.enum t))
+          (VarSet.fold
+             (fun v m -> T.V.Map.add v L.zero m)
+             (dimensions polyhedron)
+             T.V.Map.empty,
+           L.zero)
+          lambdas
+          (polyhedron.eq@polyhedron.leq)
+      in
+      ({ eq = []; leq = leqs }, lambdas, columns, kcolumn)
+
+    let of_apron x =
+      let open Apron in
+      let open Lincons0 in
+      let man = D.manager x in
+      BatArray.enum (Abstract0.to_lincons_array man x.D.prop)
+      /@ (fun lincons ->
+          let t = T.linterm_of_apron x.D.env lincons.linexpr0 in
+           match lincons.typ with
+             | EQ      -> {eq = [t]; leq = []}
+             | SUPEQ   -> {eq = []; leq = [L.negate t]}
+             | SUP     -> {eq = []; leq = [L.negate t]}
+             | DISEQ   -> assert false
+             | EQMOD _ -> assert false)
+      |> big_conj
   end
 
   let top_closure =
@@ -1603,7 +1660,11 @@ module Make (T : Term.S) = struct
           | None   -> (Smt.const_qq k, TyReal)
         end
       | OAdd ((x,x_typ),(y,y_typ)) -> (Smt.add x y, join_typ x_typ y_typ)
-      | OMul ((x,x_typ),(y,y_typ)) -> (mk_mul x y, join_typ x_typ y_typ)
+      | OMul ((x,x_typ),(y,y_typ)) when (is_numeral_smt x
+                                         || is_numeral_smt y) ->
+        (Smt.mul x y, join_typ x_typ y_typ)
+      | OMul ((x,x_typ),(y,y_typ)) ->
+        (mk_mul x y, join_typ x_typ y_typ)
       | ODiv ((x,x_typ),(y,y_typ)) ->
         let x = match x_typ with
           | TyReal -> x
@@ -1614,6 +1675,8 @@ module Make (T : Term.S) = struct
           | TyInt  -> (Smt.mk_int2real y)
         in
         (mk_div x y, TyReal)
+      | OMod ((x,TyInt),(y,TyInt)) when is_numeral_smt y ->
+        (Smt.mk_mod x y, TyInt)
       | OMod ((x,TyInt),(y,TyInt)) -> (mk_mod x y, TyInt)
       | OMod (_, _) -> assert false
       | OFloor (x, _) -> (Smt.mk_real2int x, TyInt)
@@ -2698,7 +2761,8 @@ module Make (T : Term.S) = struct
     end
 
   (* Strengthen a property with bounds for non-linear terms *)
-  let strengthen_property_nonlinear prop nonlinear =
+  let strengthen_property_nonlinear fresh prop nonlinear =
+    let module L = T.Linterm in
     (* Variables that appear in non-linear terms *)
     let var_list =
       let f _ t set = VarSet.union (term_free_vars t) set in
@@ -2738,19 +2802,126 @@ module Make (T : Term.S) = struct
         (term_free_vars term)
         top
     in
-    let (bounds, integrity) =
-      T.V.Map.fold
-        (fun var term (bounds, integrity) ->
-           let term_bounds = LinBound.mk_bounds intervals var term in
-           logf ~level:`info "Integrity(%a): %a => %a" T.format term format (precond term) Polyhedron.format term_bounds;
-           (Polyhedron.conjoin bounds term_bounds,
-            conj integrity
-              (disj (negate (precond term)) (Polyhedron.to_formula term_bounds))))
-        nonlinear
-        (Polyhedron.top, top)
+    let bounds = ref Polyhedron.top in
+    let integrity = ref top in
+    let add_bound precondition bound =
+      let new_integrity =
+        disj (negate precondition) (Polyhedron.to_formula bound)
+      in
+      logf ~level:`info "Integrity: %a => %a"
+        format precondition
+        Polyhedron.format bound;
+      assert (implies (of_abstract prop) precondition);
+      integrity := conj (!integrity) new_integrity;
+      bounds := Polyhedron.conjoin (!bounds) bound
     in
-    let strengthened_prop = D.meet prop (Polyhedron.to_apron env man bounds) in
-    (strengthened_prop, integrity)
+
+    nonlinear |> T.V.Map.iter (fun var term ->
+        let term_bounds = LinBound.mk_bounds intervals var term in
+        add_bound (precond term) term_bounds);
+
+    (* In the previous, we used bounds on variables to infer bounds on
+       non-linear terms.  In the remainder, we we use bounds on non-linear
+       terms to infer bounds on variables.  For example, if we have x*y <=
+       10*x and x is non-negative, then we can infer y <= 10. *)
+    let (lambda_constraints, lambdas, columns, kcolumn) =
+      Polyhedron.farkas fresh (Polyhedron.of_apron prop)
+    in
+    let lambda_env = D.Env.of_list lambdas in
+    (* find optimal [a,b] s.t. prop |= a*x <= var <= b*x *)
+    let implied_coeff_interval var x =
+      let feasible =
+        T.V.Map.fold (fun v t p ->
+            let v_constraint =
+              if T.V.equal var v || T.V.equal x v then
+                Polyhedron.top
+              else
+                Polyhedron.eq t (L.const QQ.zero)
+            in
+            Polyhedron.conjoin p v_constraint)
+          columns
+          (Polyhedron.conjoin
+             lambda_constraints
+             (Polyhedron.leq (L.const QQ.zero) kcolumn))
+        |> Polyhedron.to_apron lambda_env man
+      in
+      let x_col_bounds feasible =
+        Apron.Abstract0.bound_linexpr
+          man
+          feasible.D.prop
+          (T.apron_of_linterm lambda_env (T.V.Map.find x columns))
+        |> Interval.of_apron
+      in
+      let upper =
+        let feasible_upper =
+          (Polyhedron.eq (T.V.Map.find var columns) (L.const QQ.one))
+          |> Polyhedron.to_apron lambda_env man
+          |> D.meet feasible
+        in
+        let ivl = x_col_bounds feasible_upper in
+        if Interval.equal ivl Interval.bottom then
+          None
+        else
+          match Interval.upper ivl with
+          | Some upper -> Some (QQ.negate upper)
+          | None -> None
+      in
+      let lower =
+        let feasible_lower =
+          (Polyhedron.eq (T.V.Map.find var columns) (L.const (QQ.of_int (-1))))
+          |> Polyhedron.to_apron lambda_env man
+          |> D.meet feasible
+        in
+        let ivl = x_col_bounds feasible_lower in
+        if Interval.equal ivl Interval.bottom then
+          None
+        else
+          match Interval.upper ivl with
+          | Some upper -> Some upper
+          | None -> None
+      in
+      (lower, upper)
+    in
+    (* var represents the term x*y.  add_coeff_bounds finds bounds for y that
+       are implied by bounds for x*y. *)
+    let add_coeff_bounds var x y =
+      let x_ivl = T.V.Map.find x intervals in
+      if (Interval.is_nonnegative x_ivl (* 0 <= x *)
+          && T.V.Map.mem var columns) then begin
+        let (a_lo, a_hi) = implied_coeff_interval var x in
+        begin match a_lo with
+          | None -> ()
+          | Some lo ->
+            add_bound
+              (conj
+                 (leq T.zero (T.var x))
+                 (leq (T.mul (T.const lo) (T.var x)) (T.var var)))
+              (Polyhedron.leq (L.const lo) (L.var (AVar y)))
+        end;
+        begin match a_hi with
+          | None -> ()
+          | Some hi ->
+            add_bound
+              (conj
+                 (leq T.zero (T.var x))
+                 (leq (T.var var) (T.mul (T.const hi) (T.var x))))
+              (Polyhedron.leq (L.var (AVar y)) (L.const hi))
+        end
+        (* to do: add bounds for the x <= 0 case as well *)
+      end
+    in
+    nonlinear |> T.V.Map.iter (fun var term ->
+        match T.destruct_mul term with
+        | Some (y, x) ->
+          begin match T.to_var x, T.to_var y with
+            | Some xv, Some yv ->
+              add_coeff_bounds var xv yv;
+              add_coeff_bounds var yv xv;
+            | _, _ -> ()
+          end
+        | None -> ());
+
+  (D.meet prop (Polyhedron.to_apron env man (!bounds)), !integrity)
 
   module Gauss = Linear.GaussElim(QQ)(T.Linterm)
 
@@ -2838,9 +3009,9 @@ module Make (T : Term.S) = struct
         prop
       | Smt.Undef ->
         begin
-          Log.errorf "lazy_dnf timed out (%d disjuncts)" (!disjuncts);
+          Log.errorf "abstract_nonlinear timed out (%d disjuncts)" (!disjuncts);
           s#pop ();
-          raise Timeout
+          project (D.top man (D.Env.of_enum (VarSet.enum (!vars))))
         end
       | Smt.Sat -> begin
           let m = s#get_model () in
@@ -2857,13 +3028,13 @@ module Make (T : Term.S) = struct
               with
               | Some d ->
                 let env = D.Env.of_enum (VarSet.enum (!vars)) in
-                logf ~level:`info "Disjunct: %a" Polyhedron.format d;
                 Polyhedron.to_apron env man d
               | None -> begin
                   assert (m#sat (to_smt phi));
                   assert false
                 end
             in
+            logf ~level:`info "Disjunct: %a" Polyhedron.format (Polyhedron.of_apron disjunct);
 
             (* Orient equalities as rewrite rules to eliminate variable that
                should be projected out of the formula *)
@@ -2960,12 +3131,14 @@ module Make (T : Term.S) = struct
 
             let (prop,prop_integrity) =
               strengthen_property_nonlinear
+                fresh
                 (D.add_vars (T.V.Map.keys new_nonlinear) prop)
                 new_nonlinear
             in
             let (disjunct,disjunct_integrity) =
               let (disjunct, disjunct_integrity) =
                 strengthen_property_nonlinear
+                  fresh
                   (D.add_vars (T.V.Map.keys (!safe_nonlinear)) disjunct)
                   (!safe_nonlinear)
               in
@@ -3064,4 +3237,98 @@ module Make (T : Term.S) = struct
   let abstract_nonlinear fresh p man phi =
     abstract_nonlinear_ivl fresh p [] man phi
 
+  let is_sat_nonlinear fresh phi =
+    let man = NumDomain.polka_loose_manager () in
+    let s = new Smt.solver in
+    let (lin_phi, nonlinear) =
+      let mk_tmp () = fresh "nonlin" TyInt in
+      split_linear mk_tmp phi
+    in
+    (* Replace every integer variable by a real variable *)
+    let real_relaxation =
+      Memo.memo (fun v -> T.var (fresh (T.V.show v) TyReal))
+    in
+    let rev_nonlinear =
+      TMap.fold
+        (fun t x synthetic -> T.V.Map.add x t synthetic)
+        nonlinear
+        T.V.Map.empty
+    in
+    (* Set of all variables in lin_phi and nonlinear.  When a fresh temporary
+       is introduced, it is added to vars. *)
+    let vars =
+      ref (TMap.fold
+             (fun term v set ->
+                VarSet.add v (VarSet.union (term_free_vars term) set))
+             nonlinear
+             (formula_free_vars lin_phi))
+    in
+
+    TMap.iter (fun term v ->
+        logf ~level:`info "Nonlinear term: %a = %a" T.V.format v T.format term)
+      nonlinear;
+
+    (* Count the number of models we've found for phi -- give up if it
+       researches opt_abstract_limit *)
+    let disjuncts = ref 0 in
+    let rec go () =
+      match s#check () with
+      | Smt.Unsat -> Smt.Unsat
+      | Smt.Undef -> Smt.Undef
+      | Smt.Sat -> begin
+          let m = s#get_model () in
+          let valuation = m#eval_qq % T.V.to_smt in
+          incr disjuncts;
+          logf "[%d] is_sat_nonlinear" (!disjuncts);
+          if (!disjuncts) = (!opt_abstract_limit) then
+            Smt.Undef
+          else begin
+            let disjunct =
+              match
+                Log.time "Poly.select" (Polyhedron.select valuation) lin_phi
+              with
+              | Some d ->
+                let env = D.Env.of_enum (VarSet.enum (!vars)) in
+                Polyhedron.to_apron env man d
+              | None -> begin
+                  assert (m#sat (to_smt phi));
+                  assert false
+                end
+            in
+            logf ~level:`info "Disjunct: %a"
+              Polyhedron.format (Polyhedron.of_apron disjunct);
+            let (disjunct, disjunct_integrity) =
+              strengthen_property_nonlinear
+                fresh
+                (D.add_vars (TMap.values nonlinear) disjunct)
+                rev_nonlinear
+            in
+            s#assrt (to_smt disjunct_integrity);
+            if D.is_bottom disjunct then begin
+              go ()
+            end else begin
+              logf ~level:`trace ~attributes:[`Red] "Trying real solver";
+              let real_solver = new Smt.solver in
+              let disjunct_f = of_abstract disjunct in
+              nonlinear |> TMap.iter (fun nl_term var ->
+                    real_solver#assrt (to_smt (subst
+                                                 real_relaxation
+                                                 (eq nl_term (T.var var)))));
+              real_solver#assrt (to_smt (subst real_relaxation disjunct_f));
+              match real_solver#check () with
+              | Smt.Undef -> Smt.Undef
+              | Smt.Sat -> Smt.Undef
+              | Smt.Unsat ->
+                s#assrt (to_smt (negate disjunct_f));
+                go ()
+            end
+          end
+        end
+    in
+    s#assrt (to_smt lin_phi);
+    nonlinear |> TMap.iter (fun nl_term var ->
+        s#assrt (Smt.mk_eq
+                   (uninterpreted_nonlinear_term nl_term)
+                   (V.to_smt var)));
+    go ()
 end
