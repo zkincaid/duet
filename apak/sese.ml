@@ -209,7 +209,7 @@ module Make(G : G) = struct
     let infty = size + 1 in
     let fold_backedges f = UDfsTree.fold_backedges f graph tree in
     let iter_backedges f v = fold_backedges (fun x () -> ignore (f x)) v () in
-    let vertex_cls = Array.create size (-1) in
+    let vertex_cls = Array.make size (-1) in
     let max_class = ref 0 in
     let new_class () =
       let cls = !max_class in
@@ -225,8 +225,8 @@ module Make(G : G) = struct
 
     (* For each vertex v, maintain a list of the (capping) backedges from a
        descendent of v to v. *)
-    let backedges = Array.create size [] in
-    let capping_backedges = Array.create size [] in
+    let backedges = Array.make size [] in
+    let capping_backedges = Array.make size [] in
     let push_backedge u v blist =
       let edge = mk_edge u v in
       let edge_dll_node = Dll.push edge blist in
@@ -339,7 +339,7 @@ module Make(G : G) = struct
         end
     in
     if !Log.debug_mode then begin
-      let classes = Array.create num_cls [] in
+      let classes = Array.make num_cls [] in
       ExtG.iter_edges (fun v u ->
           classes.(cls v u) <- (name v, name u)::classes.(cls v u)
         ) g;
@@ -353,7 +353,7 @@ module Make(G : G) = struct
        to the number of edges of that CEC that have not yet been visited, so
        that we can determine whether an edge begins a canonical SESE
        region. *)
-    let cls_size = Array.create num_cls 0 in
+    let cls_size = Array.make num_cls 0 in
     ExtG.iter_edges
       (fun v u ->
          try cls_size.(cls v u) <- cls_size.(cls v u) + 1

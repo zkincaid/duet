@@ -46,6 +46,7 @@ module type S = sig
   val typ : t -> typ
   val to_const : t -> QQ.t option
   val to_var : t -> V.t option
+  val destruct_mul : t -> (t * t) option
   val to_smt : t -> Smt.ast
   val subst : (V.t -> t) -> t -> t
   val evaluate : (V.t -> QQ.t) -> t -> QQ.t
@@ -118,7 +119,7 @@ module Make (V : Var) = struct
           | Div (x,y) ->
             Format.fprintf formatter "@[(%a)@ / (%a)@]" format x format y
           | Mod (x,y) ->
-            Format.fprintf formatter "@[(%a)@ %@ (%a)@]" format x format y
+            Format.fprintf formatter "@[(%a)@ %% (%a)@]" format x format y
           | Floor x ->
             Format.fprintf formatter "floor(%a)" format x
       end)
@@ -196,6 +197,10 @@ module Make (V : Var) = struct
         | Some (AVar v, base) when QQ.equal base QQ.one -> Some v
         | _ -> None
       end
+    | _ -> None
+
+  let destruct_mul x = match x.node with
+    | Mul (y, z) -> Some (y, z)
     | _ -> None
 
   let mul x y =
@@ -279,9 +284,7 @@ module Make (V : Var) = struct
     eval f t
 
   let modulo x y =
-    if typ x != TyInt then
-      invalid_arg ("Term.modulo: non-integral dividend: " ^ T.show x)
-    else if typ y != TyInt then
+    if typ y != TyInt then
       invalid_arg ("Term.modulo: non-integral divisor: " ^ T.show y)
     else
       hashcons (Mod (x, y))

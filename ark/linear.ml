@@ -39,7 +39,7 @@ let pp_print_sum pp zero formatter enum =
   if BatEnum.is_empty enum then
     zero formatter ()
   else
-    ApakEnum.pp_print_enum
+    ApakEnum.pp_print_enum_nobox
       ~pp_sep:(fun formatter () -> Format.fprintf formatter "@ + ")
       pp
       formatter
@@ -559,6 +559,36 @@ struct
 
   let is_zero x = F.equal x F.zero
   let is_empty x = E.equal x E.zero
+
+  let orient p sys =
+    let rec reduce fin sys =
+      match sys with
+      | [] -> fin
+      | (eq::rest) ->
+        if is_empty eq then
+          reduce fin rest
+        else
+          try
+            let (var, coeff) =
+              BatEnum.find (fun (var, _) -> not (p var)) (E.enum_ordered eq)
+            in
+            let coeff_inv = F.inverse coeff in
+            let sub eq' =
+              try
+                let coeff' = E.find var eq' in
+                let k = F.negate (F.mul coeff_inv coeff') in
+                E.add (E.scalar_mul k eq) eq'
+              with Not_found -> eq'
+            in
+            let rhs =
+              E.scalar_mul (F.negate coeff_inv) (snd (E.pivot var eq))
+            in
+            reduce
+              ((var,rhs)::(List.map (fun (v, rhs) -> (v, sub rhs)) fin))
+              (List.map sub rest)
+          with Not_found -> reduce fin rest (* No variable to eliminate *)
+    in
+    reduce [] sys
 
   let solve sys =
     logf "Solving system:@\n @[%a@]" Fmt.format sys;

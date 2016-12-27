@@ -186,6 +186,14 @@ module type S = sig
   (** Linearize by dropping nonlinear terms.  *)
   val linearize_trivial : (unit -> T.V.t) -> t -> t
 
+  (** Linearize (using the same strategy as [linearize_opt]) and also return a
+      set of non-linear equations that are implied by the loop body.
+      Non-linear equations are represented as a mapping from variables to
+      non-linear terms. The non-linear terms are restricted to use a subset of
+      variables specified by the second argument. *)
+  val linearize_partial : (unit -> T.V.t) -> (T.V.t -> bool) -> t ->
+    t * (T.t T.V.Map.t)
+
   (** Default linearization strategy.  If not set, defaults to
       [linearize_opt]. *)
   val opt_linearize_strategy : ((unit -> T.V.t) -> t -> t) ref
@@ -196,6 +204,7 @@ module type S = sig
   val to_smt : t -> Smt.ast
 
   val is_sat : t -> bool
+  val is_sat_nonlinear : (string -> typ -> T.V.t) -> t -> Smt.lbool
   val implies : t -> t -> bool
   val equiv : t -> t -> bool
 
@@ -233,6 +242,23 @@ module type S = sig
     'a Apron.Manager.t ->
     t ->
     'a T.D.t
+
+  (** [var_bounds_linear fresh p tick phi] computes inequations implied by
+      [phi] over the variables that satisfy [p] ([tick] is assumed to satisfy
+      [p]).  Intervals are introduced for variables that satisfy [p], except
+      for [tick].  The bounds are represented by a polyhedron and a mapping
+      from dimensions of the polyhedron to non-linear terms.  *)
+  val var_bounds_nonlinear : (string -> typ -> T.V.t) ->
+    (T.V.t -> bool) ->
+    T.V.t ->
+    t ->
+    ((Polka.loose Polka.t) T.D.t) * (T.t T.V.Map.t)
+
+  val abstract_nonlinear : (string -> typ -> T.V.t) ->
+    (T.V.t -> bool) ->
+    'a Apron.Manager.t ->
+    t ->
+    ('a T.D.t) * (T.t T.V.Map.t)
 
   module Syntax : sig
     val ( && ) : t -> t -> t
