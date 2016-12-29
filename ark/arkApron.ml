@@ -455,3 +455,8 @@ let formula_of_property property =
   |> mk_and ark
 
 let get_manager property = man property.prop
+
+(* Evaluate a closed expression to an interval *)
+let eval_texpr expr =
+  let man = Box.manager_alloc () in
+  Abstract0.bound_texpr man (Abstract0.top man 0 0) expr

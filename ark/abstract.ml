@@ -185,12 +185,14 @@ module SymInterval = struct
     let ark = x.ark in
     if Interval.is_nonnegative ivl then
       let upper = match Interval.upper ivl with
-        | Some k -> List.map (fun x -> mk_mul ark [mk_real ark k; x]) x.upper
-        | None -> []
+        | Some k when not (QQ.equal k QQ.zero) ->
+          List.map (fun x -> mk_mul ark [mk_real ark k; x]) x.upper
+        | _ -> []
       in
       let lower = match Interval.lower ivl with
-        | Some k -> List.map (fun x -> mk_mul ark [mk_real ark k; x]) x.lower
-        | None -> []
+        | Some k when not (QQ.equal k QQ.zero) ->
+          List.map (fun x -> mk_mul ark [mk_real ark k; x]) x.lower
+        | _ -> []
       in
       { ark = ark;
         upper = upper;
@@ -198,12 +200,14 @@ module SymInterval = struct
         interval = Interval.mul ivl x.interval }
     else if Interval.is_nonpositive ivl then
       let upper = match Interval.upper ivl with
-        | Some k -> List.map (fun x -> mk_mul ark [mk_real ark k; x]) x.lower
-        | None -> []
+        | Some k when not (QQ.equal k QQ.zero) ->
+          List.map (fun x -> mk_mul ark [mk_real ark k; x]) x.lower
+        | _ -> []
       in
       let lower = match Interval.lower ivl with
-        | Some k -> List.map (fun x -> mk_mul ark [mk_real ark k; x]) x.upper
-        | None -> []
+        | Some k when not (QQ.equal k QQ.zero) ->
+          List.map (fun x -> mk_mul ark [mk_real ark k; x]) x.upper
+        | _ -> []
       in
       { ark = ark;
         upper = upper;
