@@ -282,6 +282,14 @@ let linearize6 () =
   assert_implies lin_phi ((int 0) <= z);
   assert_implies lin_phi (z <= x)
 
+let linearize7 () =
+  let open Infix in
+  let phi =
+    w = x * y && x <= (int 0) && y <= (int 0)
+  in
+  let lin_phi = linearize ctx phi in
+  assert_implies lin_phi ((int 0) <= w)
+
 (* Convex hull of { (0,0), (0,1), (1,1) } *)
 let nonlinear_abstract1 () =
   let phi =
@@ -343,6 +351,7 @@ let suite = "Abstract" >::: [
     "linearize4" >:: linearize4;
     "linearize5" >:: linearize5;
     "linearize6" >:: linearize6;
+    "linearize7" >:: linearize7;
     "nonlinear_abstract1" >:: nonlinear_abstract1;
     "nonlinear_abstract2" >:: nonlinear_abstract2;
   ]

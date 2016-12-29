@@ -71,3 +71,6 @@ val lcons_eqz : lexpr -> lcons
 val lcons_gtz : lexpr -> lcons
 
 val formula_of_property : ('a,'abs) property -> 'a formula
+
+(** Evaluate an expression in the environment Top. *)
+val eval_texpr : texpr -> Apron.Interval.t
