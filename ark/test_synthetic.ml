@@ -183,6 +183,18 @@ let exists2 () =
   in
   assert_implies (Synthetic.to_atoms phi) psi
 
+let exists3 () =
+  let phi =
+    (let open Infix in
+     Synthetic.of_atoms ctx [x <= y; y <= z])
+    |> Synthetic.exists (fun sym -> sym != ysym)
+  in
+  let psi =
+    let open Infix in
+    [x <= z]
+  in
+  assert_implies (Synthetic.to_atoms phi) psi
+
 let suite = "Synthetic" >::: [
     "roundtrip1" >:: roundtrip1;
     "roundtrip2" >:: roundtrip2;
@@ -196,4 +208,5 @@ let suite = "Synthetic" >::: [
     "join2" >:: join2;
     "exist1" >:: exists1;
     "exist2" >:: exists2;
+    "exist3" >:: exists3;
   ]

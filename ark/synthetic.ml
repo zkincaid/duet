@@ -935,11 +935,12 @@ let exists ?integrity:(integrity=(fun _ -> ())) p property =
     if remove_int > 0 || remove_real > 0 then
       let remove =
         BatEnum.append
-          (new_int -- abstract_dim.intd)
+          (new_int -- (abstract_dim.intd - 1))
           ((abstract_dim.intd + new_real)
-           -- (abstract_dim.intd + abstract_dim.reald))
+           -- (abstract_dim.intd + abstract_dim.reald - 1))
         |> BatArray.of_enum
       in
+      assert (remove_int + remove_real = (Array.length remove));
       Abstract0.remove_dimensions
         (get_manager ())
         abstract
