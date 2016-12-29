@@ -327,6 +327,29 @@ let nonlinear_uninterpreted_rewriter ark =
       (term :> ('a,typ_fo) expr)
     | _ -> expr
 
+let nonlinear_interpreted_rewriter ark =
+  ensure_nonlinear_symbols ark;
+  let mul = get_named_symbol ark "mul" in
+  let div = get_named_symbol ark "div" in
+  let modulo = get_named_symbol ark "mod" in
+  let to_term expr =
+    match refine ark expr with
+    | `Term t -> t
+    | `Formula _ -> assert false
+  in
+  fun expr ->
+    match destruct ark expr with
+    | `App (func, [x; y]) when func = mul ->
+      (mk_mul ark [to_term x; to_term y] :> ('a,typ_fo) expr)
+    | `App (func, [x; y]) when func = div ->
+      (mk_div ark (to_term x) (to_term y) :> ('a,typ_fo) expr)
+    | `App (func, [x; y]) when func = modulo ->
+      (mk_mod ark (to_term x) (to_term y) :> ('a,typ_fo) expr)
+    | _ -> expr
+
+let nonlinear_interpreted ark expr =
+  rewrite ark ~up:(nonlinear_interpreted_rewriter ark) expr
+
 let nonlinear_uninterpreted ark expr =
   rewrite ark ~up:(nonlinear_uninterpreted_rewriter ark) expr
 
@@ -485,3 +508,108 @@ let linearize ark phi =
       logf ~level:`warn "linearize: optimization failed";
       lin_phi
   end
+
+let is_sat ark phi =
+  let solver = Smt.mk_solver ark in
+  let uninterp_phi = nonlinear_uninterpreted ark phi in
+  let (lin_phi, nonlinear) = purify ark uninterp_phi in
+  let symbol_list = Symbol.Set.elements (symbols lin_phi) in
+  let nonlinear_defs =
+    Symbol.Map.enum nonlinear
+    /@ (fun (symbol, expr) ->
+        match refine ark expr with
+        | `Term t -> mk_eq ark (mk_const ark symbol) t
+        | `Formula phi -> mk_iff ark (mk_const ark symbol) phi)
+    |> BatList.of_enum
+    |> mk_and ark
+  in
+  let nonlinear = Symbol.Map.map (nonlinear_interpreted ark) nonlinear in
+  let replace_defs =
+    substitute_const
+      ark
+      (fun x ->
+         try Symbol.Map.find x nonlinear
+         with Not_found -> mk_const ark x)
+  in
+  solver#add [lin_phi];
+  solver#add [nonlinear_defs];
+  let integrity psi =
+    solver#add [nonlinear_uninterpreted ark psi]
+  in
+  let rec go () =
+    match solver#get_model () with
+    | `Unsat -> `Unsat
+    | `Unknown -> `Unknown
+    | `Sat model ->
+      let interp = Interpretation.of_model ark model symbol_list in
+      match Interpretation.select_implicant interp lin_phi with
+      | None -> assert false
+      | Some implicant ->
+        let constraints =
+          Synthetic.of_atoms ark ~integrity (List.map replace_defs implicant)
+        in
+        if Synthetic.is_bottom constraints then
+          go ()
+        else
+          `Unknown
+  in
+  go ()
+
+
+let abstract_nonlinear ?exists:(p=fun x -> true) ark phi =
+  logf "Abstracting formula@\n%a"
+    (Formula.pp ark) phi;
+  let solver = Smt.mk_solver ark in
+  let uninterp_phi = nonlinear_uninterpreted ark phi in
+  let (lin_phi, nonlinear) = purify ark uninterp_phi in
+  let symbol_list = Symbol.Set.elements (symbols lin_phi) in
+  let nonlinear_defs =
+    Symbol.Map.enum nonlinear
+    /@ (fun (symbol, expr) ->
+        match refine ark expr with
+        | `Term t -> mk_eq ark (mk_const ark symbol) t
+        | `Formula phi -> mk_iff ark (mk_const ark symbol) phi)
+    |> BatList.of_enum
+    |> mk_and ark
+  in
+  let nonlinear = Symbol.Map.map (nonlinear_interpreted ark) nonlinear in
+  let replace_defs =
+    substitute_const
+      ark
+      (fun x ->
+         try Symbol.Map.find x nonlinear
+         with Not_found -> mk_const ark x)
+  in
+  solver#add [lin_phi];
+  solver#add [nonlinear_defs];
+  let integrity psi =
+    solver#add [nonlinear_uninterpreted ark psi]
+  in
+  let rec go property =
+    logf ~level:`trace "Blocking clause %a" Synthetic.pp property;
+    let blocking_clause =
+      Synthetic.to_formula property
+      |> nonlinear_uninterpreted ark
+      |> mk_not ark
+    in
+    solver#add [blocking_clause];
+    match solver#get_model () with
+    | `Unsat -> property
+    | `Unknown ->
+      logf ~level:`warn "Symbolic abstraction failed; returning top";
+      Synthetic.top ark
+    | `Sat model ->
+      let interp = Interpretation.of_model ark model symbol_list in
+      match Interpretation.select_implicant interp lin_phi with
+      | None -> assert false
+      | Some implicant ->
+        let new_property =
+          Synthetic.of_atoms ark ~integrity (List.map replace_defs implicant)
+          |> Synthetic.exists ~integrity p
+        in
+        go (Synthetic.join ~integrity property new_property)
+  in
+  let result = go (Synthetic.bottom ark) in
+  logf "Abstraction result:@\n%a" Synthetic.pp result;
+  result
+

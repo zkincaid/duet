@@ -1,6 +1,7 @@
 open ArkAst
 open Apak
 open ArkApron
+open Synthetic
 
 module Ctx = ArkAst.Ctx
 module Infix = Syntax.Infix(Ctx)
@@ -209,5 +210,9 @@ let _ =
       []
       (smt_ctx#of_formula (RandomFormula.mk_random_formula ctx))
     |> print_endline
+
+  | "sat-nonlinear" ->
+    let phi = load_formula Sys.argv.(i+1) in
+    print_result (Abstract.is_sat ctx (snd (Quantifier.normalize ctx phi)))
 
   | x -> Log.fatalf "Unknown command: `%s'" x

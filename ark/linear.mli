@@ -70,6 +70,11 @@ end
     b]. Raises [No_solution] if there is no solution. *)
 val solve_exn : QQMatrix.t -> QQVector.t -> QQVector.t
 
+(** Given a predicate on dimensions and a list of terms (all implicitly equal
+    to zero), orient the equations as rewrite rules that eliminate dimensions
+    that don't satisfy the predicate. *)
+val orient : (int -> bool) -> QQVector.t list -> (int * QQVector.t) list
+
 val vector_right_mul : QQMatrix.t -> QQVector.t -> QQVector.t
 
 val solve : QQMatrix.t -> QQVector.t -> QQVector.t option

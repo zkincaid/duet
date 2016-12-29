@@ -282,6 +282,44 @@ let linearize6 () =
   assert_implies lin_phi ((int 0) <= z);
   assert_implies lin_phi (z <= x)
 
+(* Convex hull of { (0,0), (0,1), (1,1) } *)
+let nonlinear_abstract1 () =
+  let phi =
+    let open Infix in
+    (x = (int 0) && y = (int 0))
+    || (x = (int 1) && y = (int 1))
+    || (x = (int 0) && y = (int 1))
+  in
+  let phi_abstract =
+    Synthetic.to_formula (Abstract.abstract_nonlinear ctx phi)
+  in
+  let psi =
+    let open Infix in
+    ((int 0) <= x && x <= y)
+    && ((int 0) <= y && y <= (int 1))
+  in
+  assert_equiv_formula psi phi_abstract
+
+let nonlinear_abstract2 () =
+  let phi =
+    let open Infix in
+    (x = y && z = x * x && (int 2) <= z)
+    || (w = y && z = w * w && z <= (int 100))
+  in
+  let phi_abstract =
+    let abstract =
+      Abstract.abstract_nonlinear
+        ~exists:(fun sym -> sym = zsym || sym = ysym)
+        ctx
+        phi
+    in
+    Synthetic.to_formula abstract
+  in
+  let psi =
+    let open Infix in
+    z = y * y
+  in
+  assert_equiv_formula psi phi_abstract
 
 let suite = "Abstract" >::: [
     "affine_hull1" >:: affine_hull1;
@@ -305,4 +343,6 @@ let suite = "Abstract" >::: [
     "linearize4" >:: linearize4;
     "linearize5" >:: linearize5;
     "linearize6" >:: linearize6;
+    "nonlinear_abstract1" >:: nonlinear_abstract1;
+    "nonlinear_abstract2" >:: nonlinear_abstract2;
   ]
