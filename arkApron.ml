@@ -453,3 +453,5 @@ let formula_of_property property =
   /@ (formula_of_tcons property.env)
   |> BatList.of_enum
   |> mk_and ark
+
+let get_manager property = man property.prop

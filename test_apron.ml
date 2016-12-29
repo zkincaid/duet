@@ -83,7 +83,7 @@ let env1 () =
   assert_equal ~cmp:equal ~printer:show prop3 prop4
 
 let env2 () =
-  let env1 = Env.of_list ctx [wsym; xsym; ysym] in
+  let env1 = Env.of_list ctx [wsym; xsym; zsym] in
   let env2 = Env.of_list ctx [xsym; ysym; zsym] in
   let env3 = Env.of_list ctx [wsym; xsym; ysym; zsym] in
   let man = Polka.manager_alloc_loose () in
@@ -100,4 +100,5 @@ let suite = "ArkApron" >::: [
     "roundtrip4" >:: roundtrip4;
     "roundtrip5" >:: roundtrip5;
     "env1" >:: env1;
+    "env2" >:: env2;
   ]

@@ -288,10 +288,41 @@ let solve_exn mat b =
   in
   logf "Solution: %a" QQVector.pp res;
   res
-    
+
 let solve mat b =
   try Some (solve_exn mat b)
   with No_solution -> None
+
+let orient p system =
+  let module V = QQVector in
+  let rec reduce fin sys =
+    match sys with
+    | [] -> fin
+    | (eq::rest) ->
+      if V.equal eq V.zero then
+        reduce fin rest
+      else
+        try
+          let (coeff, dim) =
+            BatEnum.find (fun (_, dim) -> not (p dim)) (V.enum eq)
+          in
+          let coeff_inv = QQ.inverse coeff in
+          let sub eq' =
+            try
+              let coeff' = V.coeff dim eq' in
+              let k = QQ.negate (QQ.mul coeff_inv coeff') in
+              V.add (V.scalar_mul k eq) eq'
+            with Not_found -> eq'
+          in
+          let rhs =
+            V.scalar_mul (QQ.negate coeff_inv) (snd (V.pivot dim eq))
+          in
+          reduce
+            ((dim,rhs)::(List.map (fun (dim, rhs) -> (dim, sub rhs)) fin))
+            (List.map sub rest)
+        with Not_found -> reduce fin rest (* No variable to eliminate *)
+  in
+  reduce [] system
 
 let vector_right_mul m v =
   m|> IntMap.filter_map (fun _ row ->

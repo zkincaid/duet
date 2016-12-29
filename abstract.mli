@@ -31,3 +31,10 @@ val nonlinear_uninterpreted_rewriter : 'a context ->
 
 (** Compute a linear approximation of a non-linear formula. *)
 val linearize : 'a context -> 'a formula -> 'a formula
+
+val is_sat : 'a context -> 'a formula -> [ `Sat | `Unsat | `Unknown ]
+
+val abstract_nonlinear : ?exists:(symbol -> bool) ->
+  'a context ->
+  'a formula ->
+  'a Synthetic.t

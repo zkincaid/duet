@@ -35,6 +35,8 @@ type ('a,'abs) property
 val pp : Format.formatter -> ('a,'abs) property -> unit
 val show : ('a,'abs) property -> string
 
+val get_manager : ('a, 'abs) property -> 'abs Manager.t
+
 val is_bottom : ('a,'abs) property -> bool
 val is_top : ('a,'abs) property -> bool
 

@@ -1,5 +1,6 @@
 open BatPervasives
 open Apak
+open Syntax
 
 type t =
   { lower : QQ.t option;
