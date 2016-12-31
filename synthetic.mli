@@ -11,9 +11,7 @@ val join : ?integrity:('a formula -> unit) -> 'a t -> 'a t -> 'a t
 
 val equal : 'a t -> 'a t -> bool
 
-(*
 val widen : 'a t -> 'a t -> 'a t
-*)
 
 val of_atoms : 'a context ->
   ?integrity:('a formula -> unit) ->
