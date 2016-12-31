@@ -43,6 +43,7 @@ module IntSet = Apak.Tagged.PTSet(Int)
 type sd_term = Mul of V.t * V.t
              | Div of V.t * V.t
              | Mod of V.t * V.t
+             | Floor of V.t
              | App of symbol * (V.t list)
 
 (* Env needs to map a set of synthetic terms into an initial segment of the
@@ -89,6 +90,7 @@ module Env = struct
     | Mul (x, y) -> mk_mul env.ark [term_of_vec env x; term_of_vec env y]
     | Div (x, y) -> mk_div env.ark (term_of_vec env x) (term_of_vec env y)
     | Mod (x, y) -> mk_mod env.ark (term_of_vec env x) (term_of_vec env y)
+    | Floor x -> mk_floor env.ark (term_of_vec env x)
     | App (func, args) -> mk_app env.ark func (List.map (term_of_vec env) args)
 
   and term_of_vec env vec =
@@ -156,10 +158,11 @@ module Env = struct
   let pp formatter env =
     Format.fprintf formatter "[@[<v 0>";
     env.id_def |> A.iteri (fun id _ ->
-        Format.fprintf formatter "%d -> %a (%d)@;"
+        Format.fprintf formatter "%d -> %a (%d, %s)@;"
           id
           (Term.pp env.ark) (term_of_id env id)
-          (dim_of_id env id));
+          (dim_of_id env id)
+          (match type_of_id env id with | `TyInt -> "int" | `TyReal -> "real"));
     Format.fprintf formatter "@]]"
 
   let rec pp_vector env formatter vec =
@@ -193,6 +196,9 @@ module Env = struct
       Format.fprintf formatter "@[<hov 1>(%a)@ mod (%a)@]"
         (pp_vector env) x
         (pp_vector env) y
+    | Floor x ->
+      Format.fprintf formatter "floor(@[%a@])"
+        (pp_vector env) x
     | App (const, []) ->
       Format.fprintf formatter "%a" (pp_symbol env.ark) const
     | App (func, args) ->
@@ -202,15 +208,17 @@ module Env = struct
         (ApakEnum.pp_print_enum ~pp_sep:pp_comma (pp_vector env))
         (BatList.enum args)
 
-  let get_term_id env t =
+  let get_term_id ?(register=true) env t =
     if Hashtbl.mem env.term_id t then
       Hashtbl.find env.term_id t
-    else
+    else if register then
       let id = A.length env.id_def in
       let (typ, level) = match t with
         | Mul (s, t) | Mod (s, t) ->
           (join_typ (type_of_vec env s) (type_of_vec env t),
            max (level_of_vec env s) (level_of_vec env t))
+        | Floor x ->
+          (`TyInt, level_of_vec env x)
         | Div (s, t) ->
           (`TyReal, max (level_of_vec env s) (level_of_vec env t))
         | App (func, args) ->
@@ -236,6 +244,8 @@ module Env = struct
         id
         (pp_sd_term env) t;
       id
+    else
+      raise Not_found
 
   let const_of_vec vec =
     let (const_coeff, rest) = V.pivot const_id vec in
@@ -244,11 +254,11 @@ module Env = struct
     else
       None
 
-  let vec_of_term env =
+  let vec_of_term ?(register=true) env =
     let alg = function
       | `Real k -> V.of_term k const_id
       | `Const symbol | `App (symbol, []) ->
-        V.of_term QQ.one (get_term_id env (App (symbol, [])))
+        V.of_term QQ.one (get_term_id ~register env (App (symbol, [])))
       | `App (_, _) -> assert false (* to do *)
       | `Var (_, _) -> assert false (* to do *)
       | `Add xs -> List.fold_left V.add V.zero xs
@@ -265,18 +275,27 @@ module Env = struct
         begin match xs with
           | [] -> V.of_term k const_id
           | x::xs ->
-            let mul x y = V.of_term QQ.one (get_term_id env (Mul (x, y))) in
+            let mul x y =
+              V.of_term QQ.one (get_term_id ~register env (Mul (x, y)))
+            in
             V.scalar_mul k (List.fold_left mul x xs)
         end
       | `Binop (`Div, x, y) ->
-        V.of_term QQ.one (get_term_id env (Div (x, y)))
+        V.of_term QQ.one (get_term_id ~register env (Div (x, y)))
       | `Binop (`Mod, x, y) ->
-        V.of_term QQ.one (get_term_id env (Mod (x, y)))
-      | `Unop (`Floor, x) -> assert false (* to do *)
+        V.of_term QQ.one (get_term_id ~register env (Mod (x, y)))
+      | `Unop (`Floor, x) ->
+        V.of_term QQ.one (get_term_id ~register env (Floor x))
       | `Unop (`Neg, x) -> V.negate x
       | `Ite (_, _, _) -> assert false (* No ites in implicants *)
     in
     Term.eval env.ark alg
+
+  let mem_term env t =
+    try
+      ignore (vec_of_term ~register:false env t);
+      true
+    with Not_found -> false
 
   let vec_of_linexpr env linexpr =
     let vec = ref V.zero in
@@ -296,6 +315,7 @@ module Env = struct
     Linexpr0.of_list None
       (BatList.of_enum (BatEnum.map mk (V.enum rest)))
       (Some (coeff_of_qq const_coeff))
+
 end
 
 let pp_vector = Env.pp_vector
@@ -503,6 +523,15 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
             add_bound (mk_true ark) (mk_eq ark term term')
         | _ -> ()
       done
+    | Floor x ->
+      for id' = id + 1 to Env.dim property.env - 1 do
+        match Env.sd_term_of_id property.env id' with
+        | Floor x' ->
+          if sat_vec_equation (!strong_property) x x' then
+            let term' = Env.term_of_id property.env id' in
+            add_bound (mk_true ark) (mk_eq ark term term')
+        | _ -> ()
+      done
   done;
 
   (* Compute bounds for synthetic dimensions using the bounds of their
@@ -552,7 +581,7 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
       let x_ivl = bound_vec (!strong_property) x in
       let y_ivl = bound_vec (!strong_property) y in
       let x_term = Env.term_of_vec env x in
-      let y_term = Env.term_of_vec env x in
+      let y_term = Env.term_of_vec env y in
 
       go (x,x_ivl,x_term) (y,y_ivl,y_term);
       go (y,y_ivl,y_term) (x,x_ivl,x_term);
@@ -580,6 +609,14 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
       (match Interval.upper mul_ivl with
        | Some hi -> add_bound precondition (mk_leq ark term (mk_real ark hi))
        | None -> ())
+
+    | Floor x ->
+      let x_term = Env.term_of_vec env x in
+      let _true = mk_true ark in
+      add_bound _true (mk_leq ark term x_term);
+      add_bound _true (mk_lt ark
+                         (mk_add ark [x_term; mk_real ark (QQ.of_int (-1))])
+                         term)
 
     (* TO DO *)
     | Div (x, y) -> ()
@@ -799,6 +836,34 @@ let affine_hull property =
       | _ -> None)
   |> BatList.of_enum
 
+(* Remove dimensions from an abstract value so that it has the specified
+   number of integer and real dimensions n*)
+let apron_set_dimensions new_int new_real abstract =
+  let open Dim in
+  let abstract_dim = Abstract0.dimension (get_manager ()) abstract in
+  let remove_int = abstract_dim.intd - new_int in
+  let remove_real = abstract_dim.reald - new_real in
+  if remove_int > 0 || remove_real > 0 then
+    let remove =
+      BatEnum.append
+        (new_int -- (abstract_dim.intd - 1))
+        ((abstract_dim.intd + new_real)
+         -- (abstract_dim.intd + abstract_dim.reald - 1))
+      |> BatArray.of_enum
+    in
+    logf "Remove %d int, %d real: %a" remove_int remove_real
+      (ApakEnum.pp_print_enum Format.pp_print_int) (BatArray.enum remove);
+    assert (remove_int + remove_real = (Array.length remove));
+    Abstract0.remove_dimensions
+      (get_manager ())
+      abstract
+      { dim = remove;
+        intdim = remove_int;
+        realdim = remove_real }
+  else
+    abstract
+
+
 let exists ?integrity:(integrity=(fun _ -> ())) p property =
   let ark = Env.ark property.env in
   let env = property.env in
@@ -885,7 +950,27 @@ let exists ?integrity:(integrity=(fun _ -> ())) p property =
   in
 
   (* Ensure abstract has enough dimensions to be able to interpret the
-     substitution *)
+     substitution.  The substituion is interpreted within an implicit
+     ("virtual") environment. *)
+  let virtual_int_dim =
+    max (Env.int_dim env) (Env.int_dim new_env)
+  in
+  let virtual_dim_of_id id =
+    let open Env in
+    match type_of_id new_env id with
+    | `TyInt -> ArkUtil.search id new_env.int_dim
+    | `TyReal -> virtual_int_dim + (ArkUtil.search id new_env.real_dim)
+  in
+  let virtual_linexpr_of_vec vec =
+    let mk (coeff, id) =
+      (coeff_of_qq coeff, virtual_dim_of_id id)
+    in
+    let (const_coeff, rest) = V.pivot Env.const_id vec in
+    Linexpr0.of_list None
+      (BatList.of_enum (BatEnum.map mk (V.enum rest)))
+      (Some (coeff_of_qq const_coeff))
+  in
+
   let abstract =
     let int_dims = Env.int_dim env in
     let real_dims = Env.real_dim env in
@@ -893,8 +978,8 @@ let exists ?integrity:(integrity=(fun _ -> ())) p property =
     let added_real = max 0 ((Env.real_dim new_env) - real_dims) in
     let added =
       BatEnum.append
-        ((0 -- (added_int - 1)) /@ (+) int_dims)
-        ((0 -- (added_real - 1)) /@ (+) (int_dims + real_dims))
+        ((0 -- (added_int - 1)) /@ (fun _ -> int_dims))
+        ((0 -- (added_real - 1)) /@ (fun _ -> int_dims + real_dims))
       |> BatArray.of_enum
     in
     Abstract0.add_dimensions
@@ -920,35 +1005,67 @@ let exists ?integrity:(integrity=(fun _ -> ())) p property =
       (get_manager ())
       abstract
       (BatArray.of_list (List.map fst (!substitution)))
-      (BatArray.of_list (List.map (Env.linexpr_of_vec env % snd) (!substitution)))
+      (BatArray.of_list (List.map (virtual_linexpr_of_vec % snd) (!substitution)))
       None
   in
 
   (* Remove extra dimensions *)
   let abstract =
-    let open Dim in
-    let abstract_dim = Abstract0.dimension (get_manager ()) abstract in
-    let new_int = Env.int_dim new_env in
-    let new_real = Env.real_dim new_env in
-    let remove_int = abstract_dim.intd - new_int in
-    let remove_real = abstract_dim.reald - new_real in
-    if remove_int > 0 || remove_real > 0 then
-      let remove =
-        BatEnum.append
-          (new_int -- (abstract_dim.intd - 1))
-          ((abstract_dim.intd + new_real)
-           -- (abstract_dim.intd + abstract_dim.reald - 1))
-        |> BatArray.of_enum
-      in
-      assert (remove_int + remove_real = (Array.length remove));
-      Abstract0.remove_dimensions
-        (get_manager ())
-        abstract
-        { dim = remove;
-          intdim = remove_int;
-          realdim = remove_real }
-    else
+    apron_set_dimensions
+      (Env.int_dim new_env)
+      (Env.real_dim new_env)
       abstract
   in
-  { env = new_env;
-    abstract = abstract }
+  let result =
+    { env = new_env;
+      abstract = abstract }
+  in
+  logf "Projection result: %a" pp result;
+  result
+
+let widen property property' =
+  let ark = Env.ark property.env in
+  let widen_env = Env.mk_empty ark in
+  for id = 0 to (Env.dim property.env) - 1 do
+    let term = Env.term_of_id property.env id in
+    if Env.mem_term property'.env term then
+      ignore (Env.vec_of_term widen_env term)
+  done;
+
+  (* Project onto intersected environment *)
+  let project property =
+    let forget = ref [] in
+    let substitution = ref [] in
+    for id = 0 to (Env.dim property.env) - 1 do
+      let term = Env.term_of_id property.env id in
+      let dim = Env.dim_of_id property.env id in
+      if Env.mem_term widen_env term then
+        substitution := (dim, Env.vec_of_term widen_env term)::(!substitution)
+      else
+        forget := dim::(!forget)
+    done;
+    let abstract =
+      Abstract0.forget_array
+        (get_manager ())
+        property.abstract
+        (Array.of_list (List.rev (!forget)))
+        false
+    in
+    let abstract =
+      Abstract0.substitute_linexpr_array
+        (get_manager ())
+        abstract
+        (BatArray.of_list (List.map fst (!substitution)))
+        (BatArray.of_list
+           (List.map (Env.linexpr_of_vec widen_env % snd) (!substitution)))
+        None
+    in
+    apron_set_dimensions
+      (Env.int_dim widen_env)
+      (Env.real_dim widen_env)
+      abstract
+  in
+  let abstract = project property in
+  let abstract' = project property' in
+  { env = widen_env;
+    abstract = Abstract0.widening (get_manager ()) abstract abstract' }

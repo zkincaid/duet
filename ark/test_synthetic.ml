@@ -9,6 +9,13 @@ module Infix = Syntax.Infix(Ctx)
 let ctx = Ctx.context
 let smt_ctx = ArkZ3.mk_context ctx []
 
+let qsym = Ctx.mk_symbol ~name:"q" `TyReal
+let rsym = Ctx.mk_symbol ~name:"r" `TyReal
+let ssym = Ctx.mk_symbol ~name:"s" `TyReal
+let q : 'a term = Ctx.mk_const qsym
+let r : 'a term = Ctx.mk_const rsym
+let s : 'a term = Ctx.mk_const ssym
+
 let vsym = Ctx.mk_symbol ~name:"v" `TyInt
 let wsym = Ctx.mk_symbol ~name:"w" `TyInt
 let xsym = Ctx.mk_symbol ~name:"x" `TyInt
@@ -195,6 +202,61 @@ let exists3 () =
   in
   assert_implies (Synthetic.to_atoms phi) psi
 
+let exists4 () =
+  let phi =
+    (let open Infix in
+     Synthetic.of_atoms ctx [x = q; y = r; y <= q])
+    |> Synthetic.exists (fun sym -> sym = xsym || sym = rsym)
+  in
+  let psi =
+    let open Infix in
+    [r <= x]
+  in
+  assert_implies (Synthetic.to_atoms phi) psi
+
+let widen1 () =
+  let phi =
+    let open Infix in
+    Synthetic.of_atoms ctx [x = int 0; y = int 1]
+  in
+  let psi =
+    let open Infix in
+    Synthetic.of_atoms ctx [y = int 1; z = int 0]
+  in
+  let top_formula =
+    let open Infix in
+    Synthetic.of_atoms ctx [x = int 0; z = int 0]
+  in
+  let result =
+    let open Infix in
+    [y <= int 1; int 1 <= y]
+  in
+  assert_implies (Synthetic.to_atoms (Synthetic.widen phi psi)) result;
+  assert_equal
+    ~printer:Synthetic.show
+    ~cmp:Synthetic.equal
+    (Synthetic.top ctx)
+    (Synthetic.join (Synthetic.widen phi psi) top_formula)
+
+let widen2 () =
+  let phi =
+    let open Infix in
+    Synthetic.of_atoms ctx [x = y * y; (int 2) <= y; x <= (int 100)]
+  in
+  let psi =
+    let open Infix in
+    Synthetic.of_atoms ctx [(int 4) <= x; x <= (int 101); (int 2) <= y]
+  in
+  let result =
+    let open Infix in
+    Synthetic.of_atoms ctx [(int 2) <= y]
+  in
+  assert_equal
+    ~printer:Synthetic.show
+    ~cmp:Synthetic.equal
+    result
+    (Synthetic.widen phi psi)
+
 let suite = "Synthetic" >::: [
     "roundtrip1" >:: roundtrip1;
     "roundtrip2" >:: roundtrip2;
@@ -209,4 +271,7 @@ let suite = "Synthetic" >::: [
     "exist1" >:: exists1;
     "exist2" >:: exists2;
     "exist3" >:: exists3;
+    "exist4" >:: exists4;
+    "widen1" >:: widen1;
+    "widen2" >:: widen2;
   ]

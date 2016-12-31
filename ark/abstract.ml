@@ -616,4 +616,3 @@ let abstract_nonlinear ?exists:(p=fun x -> true) ark phi =
   let result = go (Synthetic.bottom ark) in
   logf "Abstraction result:@\n%a" Synthetic.pp result;
   result
-
