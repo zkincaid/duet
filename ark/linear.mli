@@ -141,3 +141,33 @@ module GaussElim (F : Field.S) (E : Expr.S with type base = F.t) : sig
       dimensions that don't satisfy the predicate. *)
   val orient : (E.dim -> bool) -> E.t list -> (E.dim * E.t) list
 end
+
+module type Vector = sig
+  type t
+  type dim
+  type scalar
+
+  val equal : t -> t -> bool
+  val compare : t -> t -> int
+  val add : t -> t -> t
+  val scalar_mul : scalar -> t -> t
+  val negate : t -> t
+  val dot : t -> t -> scalar
+
+  val zero : t
+  val add_term : scalar -> dim -> t -> t
+  val of_term : scalar -> dim -> t
+
+  val enum : t -> (scalar * dim) BatEnum.t
+  val of_enum : (scalar * dim) BatEnum.t -> t
+  val coeff : dim -> t -> scalar
+
+  val pivot : dim -> t -> scalar * t
+
+  val pp : Format.formatter -> t -> unit
+  val show : t -> string
+end
+
+module QQVector : Vector with type dim = int and type scalar = QQ.t
+
+val orient : (int -> bool) -> QQVector.t list -> (int * QQVector.t) list
