@@ -260,6 +260,28 @@ module type S = sig
     t ->
     ('a T.D.t) * (T.t T.V.Map.t)
 
+  module Synthetic : sig
+    type t
+    val pp : Format.formatter -> t -> unit
+    val simple_join : t -> t -> t
+    val equal : t -> t -> bool
+    val project : (T.V.t -> bool) -> t -> t
+    val widen : t -> t -> t
+    val rename : (T.V.t -> T.V.t) -> t -> t
+    val symbols : t -> T.V.t BatEnum.t
+    val affine_hull : t -> T.Linterm.t list
+  end
+
+  val abstract_synthetic : (string -> typ -> T.V.t) ->
+    ?exists:(T.V.t -> bool) ->
+    t ->
+    Synthetic.t
+
+  val destruct_atom : t -> [ `Comparison of [ `Leq | `Eq | `Lt ] * T.t * T.t ]
+  val formula_of_synthetic : Synthetic.t -> t
+  val atoms_of_synthetic : Synthetic.t -> t list
+  val synthetic_of_atoms : t list -> Synthetic.t
+
   module Syntax : sig
     val ( && ) : t -> t -> t
     val ( || ) : t -> t -> t
