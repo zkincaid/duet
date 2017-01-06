@@ -70,7 +70,7 @@ module type S = sig
   val destruct_mul : t -> (t * t) option
 
   (** {2 Misc operations} *)
-  val to_smt : t -> Smt.ast
+  val to_smt : ?smt_var:(V.t -> Smt.ast) -> t -> Smt.ast
 
   (** Apply a substitution *)
   val subst : (V.t -> t) -> t -> t

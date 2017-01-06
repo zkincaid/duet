@@ -47,7 +47,7 @@ module type S = sig
   val to_const : t -> QQ.t option
   val to_var : t -> V.t option
   val destruct_mul : t -> (t * t) option
-  val to_smt : t -> Smt.ast
+  val to_smt : ?smt_var:(V.t -> Smt.ast) -> t -> Smt.ast
   val subst : (V.t -> t) -> t -> t
   val evaluate : (V.t -> QQ.t) -> t -> QQ.t
   val evaluate_linterm : (V.t -> QQ.t) -> Linterm.t -> QQ.t
@@ -299,7 +299,7 @@ module Make (V : Var) = struct
     Log.logf ~level:level "Median bucket:\t%d" median;
     Log.logf ~level:level "Max bucket:\t%d" max
 
-  let to_smt =
+  let to_smt ?(smt_var=V.to_smt) =
     let alg = function
       | OVar v -> (V.to_smt v, V.typ v)
       | OConst k ->

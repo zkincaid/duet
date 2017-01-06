@@ -81,7 +81,7 @@ module type S = sig
   val opt_linearize_strategy : ((unit -> T.V.t) -> t -> t) ref
 
   val of_smt : ?bound_vars:(T.V.t list) -> ?var_smt:(Smt.symbol -> T.t) -> Smt.ast -> t
-  val to_smt : t -> Smt.ast
+  val to_smt : ?smt_var:(T.V.t -> Smt.ast) -> t -> Smt.ast
   val is_sat : t -> bool
   val is_sat_nonlinear : (string -> typ -> T.V.t) -> t -> Smt.lbool
   val implies : t -> t -> bool
@@ -102,6 +102,8 @@ module type S = sig
   val interpolate : t -> t -> t option
 
   val format_robust : Format.formatter -> t -> unit
+
+  val to_smtlib2 : t -> string
 
   val var_bounds : (string -> typ -> T.V.t) ->
     T.V.t list ->
@@ -390,11 +392,11 @@ module Make (T : Term.S) = struct
     try eval alg phi; true
     with Nonlinear -> false
 
-  let to_smt =
+  let to_smt ?(smt_var=T.V.to_smt) =
     let alg = function
-      | OAtom (LeqZ t) -> Smt.mk_le (T.to_smt t) (Smt.const_int 0)
-      | OAtom (LtZ t) -> Smt.mk_lt (T.to_smt t) (Smt.const_int 0)
-      | OAtom (EqZ t) -> Smt.mk_eq (T.to_smt t) (Smt.const_int 0)
+      | OAtom (LeqZ t) -> Smt.mk_le (T.to_smt ~smt_var t) (Smt.const_int 0)
+      | OAtom (LtZ t) -> Smt.mk_lt (T.to_smt ~smt_var t) (Smt.const_int 0)
+      | OAtom (EqZ t) -> Smt.mk_eq (T.to_smt ~smt_var t) (Smt.const_int 0)
       | OAnd (x, y) -> Smt.conj x y
       | OOr (x, y) -> Smt.disj x y
     in
@@ -4642,4 +4644,31 @@ module Make (T : Term.S) = struct
   let formula_of_synthetic = Synthetic.to_formula
   let atoms_of_synthetic = Synthetic.to_atoms
   let synthetic_of_atoms atoms = Synthetic.of_atoms () atoms
+
+  module VarMemo = Memo.Make(T.V)
+
+  let to_smtlib2 phi =
+    let solver = new Smt.solver in
+    let ctx = Smt.get_context() in
+    let strings = Hashtbl.create 991 in
+    let smt_var =
+      VarMemo.memo (fun var ->
+          let symbol =
+            (* find a unique string that can be used to identify the variable *)
+            let rec go string =
+              if Hashtbl.mem strings string then
+                go (string ^ "p")
+              else begin
+                Hashtbl.add strings string ();
+                string
+              end
+            in
+            Z3.Symbol.mk_string ctx (go (T.V.show var))
+          in
+          match T.V.typ var with
+          | TyInt -> Smt.mk_int_const symbol
+          | TyReal -> Smt.mk_real_const symbol)
+    in
+    solver#assrt (to_smt ~smt_var phi);
+    solver#to_string ()
 end

@@ -1775,4 +1775,6 @@ let () =
               Format.pp_open_vbox formatter indent;
               Format.pp_print_break formatter 0 0;
               print_var_bounds formatter tick_var tr;
-              Format.pp_close_box formatter ()) (tick_var, tr))
+              Format.pp_close_box formatter ()) (tick_var, tr));
+  Callback.register "print_smtlib" (K.F.to_smtlib % K.to_formula);
+  Callback.register "tensor_print_smtlib" (KK.F.to_smtlib % KK.to_formula)

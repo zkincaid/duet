@@ -201,7 +201,7 @@ module type S = sig
   (** {2 Misc operations} *)
 
   val of_smt : ?bound_vars:(T.V.t list) -> ?var_smt:(Smt.symbol -> T.t) -> Smt.ast -> t
-  val to_smt : t -> Smt.ast
+  val to_smt : ?smt_var:(T.V.t -> Smt.ast) -> t -> Smt.ast
 
   val is_sat : t -> bool
   val is_sat_nonlinear : (string -> typ -> T.V.t) -> t -> Smt.lbool
@@ -235,6 +235,9 @@ module type S = sig
   (** As [format], but additionally apply some transformations to make the
       formatting more robust.  Should be used for regression testing. *)
   val format_robust : Format.formatter -> t -> unit
+
+  (** Satisfiability query for a formula in SMTLIB2 format. *)
+  val to_smtlib2 : t -> string
 
   val var_bounds : (string -> typ -> T.V.t) ->
     T.V.t list ->
