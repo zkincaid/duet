@@ -2,15 +2,11 @@ open InterIR
 open CfgIr
 open Core
 open Printf
-<<<<<<< HEAD
 open String
-=======
->>>>>>> Newton/ICRA conversion implementation 1.0
 
 let tmp_file = ref {filename="tmp";threads=[];funcs=[];entry_points=[];vars=[];types=[];globinit=None}
 let glob_map = ref []
 let fvars = ref []
-<<<<<<< HEAD
 let print_list = ref []
 let current_loc_map = ref []
 let current_arg_map = ref []
@@ -19,11 +15,6 @@ let tick_list = ref []
 let assume_assert_file = "assume_assert.txt"
 let cfg_out_file = "intercfg.txt"
 let print_file = "print.txt"
-=======
-let current_loc_map = ref []
-let current_arg_map = ref []
-let tick_list = ref []
->>>>>>> Newton/ICRA conversion implementation 1.0
 
 
 let rec convert_type t =
@@ -124,32 +115,19 @@ let convert_insts (inst : inst) =
     Assign(l,r) -> (
       let l_var = get_lvar l in
       let r_val = convert_lsum r in
-<<<<<<< HEAD
       [Core.Def.mk (Assign(l_var, r_val))]
-=======
-      Core.Def.mk (Assign(l_var, r_val))
->>>>>>> Newton/ICRA conversion implementation 1.0
     )
   | BinExpr(a,l,bop,r) -> (
       let a_var = get_lvar a in
       let l_val = convert_lsum l in
       let r_val = convert_lsum r in
       let binop = convert_binop bop in
-<<<<<<< HEAD
       [Core.Def.mk (Assign (a_var,Core.BinaryOp(l_val,binop,r_val,Core.Concrete(Int(4)))))]
     )
   | Assert(cond, str) -> (
     match cond with
       Jmp -> [Core.Def.mk (Assume (Core.Bexpr.ktrue))]
     | NonDet -> [Core.Def.mk (Assume (Core.Bexpr.ktrue))]
-=======
-      Core.Def.mk (Assign (a_var,Core.BinaryOp(l_val,binop,r_val,Core.Concrete(Int(4)))))
-    )
-  | Assert(cond, str) -> (
-    match cond with
-      Jmp -> Core.Def.mk (Assume (Core.Bexpr.ktrue))
-    | NonDet -> Core.Def.mk (Assume (Core.Bexpr.ktrue))
->>>>>>> Newton/ICRA conversion implementation 1.0
     | Cond(l,cop,r) -> (
       let l_val = convert_lsum l in
       let r_val = convert_lsum r in
@@ -157,22 +135,13 @@ let convert_insts (inst : inst) =
       let duet_cond = (
         if switch then begin Core.Atom(op,r_val,l_val) end else begin Core.Atom(op, l_val, r_val) end
       ) in
-<<<<<<< HEAD
       [Core.Def.mk (Assert(duet_cond,str))]
-=======
-      Core.Def.mk (Assert(duet_cond,str))
->>>>>>> Newton/ICRA conversion implementation 1.0
       )
     )
   | Assume(cond) -> (
     match cond with
-<<<<<<< HEAD
       Jmp -> [Core.Def.mk (Assume (Core.Bexpr.ktrue))]
     | NonDet -> [Core.Def.mk (Assume (Core.Bexpr.ktrue))]
-=======
-      Jmp -> Core.Def.mk (Assume (Core.Bexpr.ktrue))
-    | NonDet -> Core.Def.mk (Assume (Core.Bexpr.ktrue))
->>>>>>> Newton/ICRA conversion implementation 1.0
     | Cond(l,cop,r) -> (
       let l_val = convert_lsum l in
       let r_val = convert_lsum r in
@@ -180,28 +149,18 @@ let convert_insts (inst : inst) =
       let duet_cond = (
         if switch then begin Core.Atom(op,r_val,l_val) end else begin Core.Atom(op, l_val, r_val) end
       ) in
-<<<<<<< HEAD
       [Core.Def.mk (Assume(duet_cond))]
-=======
-      Core.Def.mk (Assume(duet_cond))
->>>>>>> Newton/ICRA conversion implementation 1.0
       )
     )
   | Tick(bname,v) -> let lvar = get_lvar bname in
                      let lval = convert_lsum bname in
                      let rval = convert_lsum v in
-<<<<<<< HEAD
                      let tick_assume = Core.Def.mk (Assume(Core.Atom(Core.Le,Core.Constant(CInt(0,4)),lval))) in
                      let tick_assume_2 = Core.Def.mk (Assume(Core.Atom(Core.Le,Core.Constant(CInt(0,4)),Core.BinaryOp(lval,Core.Add,rval,Core.Concrete(Int(4)))))) in
                      let tick = Core.Def.mk (Assign (lvar,Core.BinaryOp(lval,Core.Add,rval,Core.Concrete(Int(4))))) in
                      let tick_tail = [tick_assume;tick_assume_2;tick] in
                      tick_list := !tick_list @ tick_tail;
                      []
-=======
-                     let tick = Core.Def.mk (Assign (lvar,Core.BinaryOp(lval,Core.Add,rval,Core.Concrete(Int(4))))) in
-                     tick_list := tick :: !tick_list;
-                     Core.Def.mk (Assume (Core.Bexpr.ktrue))
->>>>>>> Newton/ICRA conversion implementation 1.0
   | Call(a,name,args) -> (
     let func_var = Core.AddrOf(Variable(List.assoc name !fvars)) in
     let asgn_var = (
@@ -213,20 +172,12 @@ let convert_insts (inst : inst) =
       convert_lsum var
     ) in
     let arg_list = List.map create_arg args in
-<<<<<<< HEAD
     [Core.Def.mk (Call(asgn_var,func_var,arg_list))]
-=======
-    Core.Def.mk (Call(asgn_var,func_var,arg_list))
->>>>>>> Newton/ICRA conversion implementation 1.0
   )
 
 let mk_pt dfunc inst =
   let def = convert_insts inst in
-<<<<<<< HEAD
   List.map (CfgBuilder.mk_single dfunc.cfg) def
-=======
-  CfgBuilder.mk_single dfunc.cfg def
->>>>>>> Newton/ICRA conversion implementation 1.0
 
 (*let rec remove_insts hd tl =
   match tl with
@@ -238,7 +189,6 @@ let mk_pt dfunc inst =
     | _ -> hd :: (remove_insts comp (List.tl tl))
   )*)
 
-<<<<<<< HEAD
 let convert_str_val string_val =
   try
     let int_val = int_of_string string_val in
@@ -305,8 +255,6 @@ let create_ABExpr (_,blk_type_expr) =
   let convertedbexpr = convert_bexpr bexpr assume in
   (blk,convertedbexpr)
 
-=======
->>>>>>> Newton/ICRA conversion implementation 1.0
 let convert_funcs cs_func =
   let blist = cs_func.fbody in
   let cfg = CfgIr.Cfg.create () in
@@ -316,7 +264,6 @@ let convert_funcs cs_func =
     CfgIr.locals = [];
     CfgIr.cfg = CfgIr.Cfg.create ();
     CfgIr.file = Some(!tmp_file) } in
-<<<<<<< HEAD
   let cur_f_inserts = List.filter (function (a,b) -> (String.compare a cs_func.fname) = 0) !func_insert_map in
   current_loc_map := [];
   current_arg_map := [];
@@ -324,29 +271,17 @@ let convert_funcs cs_func =
   current_arg_map := List.map func_convert_local cs_func.fargs;
   current_loc_map := List.map func_convert_local cs_func.flocs;
   let converted_inserts = List.map create_ABExpr cur_f_inserts in
-=======
-  current_loc_map := [];
-  current_arg_map := [];
-  let func_convert_local x = convert_local duet_func x in
-  current_loc_map := List.map func_convert_local cs_func.flocs;
-  current_arg_map := List.map func_convert_local cs_func.fargs;
->>>>>>> Newton/ICRA conversion implementation 1.0
   let (_,arg_list) = List.split !current_arg_map in
   let arg_vars = List.map fst arg_list in
   let duet_func = {duet_func with CfgIr.formals = arg_vars} in
   let init_vertex = Core.Def.mk (Assume (Core.Bexpr.ktrue)) in
   let block_map = ref [] in
   let mk_func_pt = mk_pt duet_func in
-<<<<<<< HEAD
   let convert_blks x blk = (
-=======
-  let convert_blks blk = (
->>>>>>> Newton/ICRA conversion implementation 1.0
     let num_insts = List.length blk.binsts in
     let cfg_insts = (
       if num_insts > 0 then begin
       List.map mk_func_pt blk.binsts end
-<<<<<<< HEAD
       else [[CfgBuilder.mk_skip duet_func.cfg]]
     ) in
     let mk_t_pt = CfgBuilder.mk_single duet_func.cfg in
@@ -354,40 +289,21 @@ let convert_funcs cs_func =
     let (_,cur_blk_inserts) = List.split (List.filter (function (a,b) -> (a = x)) converted_inserts) in
     let as_pt_lst = List.map mk_t_pt cur_blk_inserts in
     let updated_list = (List.flatten cfg_insts) @ tick_pt_list @ as_pt_lst in
-=======
-      else [CfgBuilder.mk_skip duet_func.cfg]
-    ) in
-    let mk_t_pt = CfgBuilder.mk_single duet_func.cfg in
-    let tick_pt_list = List.map mk_t_pt !tick_list in
-    let updated_list = cfg_insts @ tick_pt_list in
->>>>>>> Newton/ICRA conversion implementation 1.0
     tick_list := [];
     let cur_block = CfgBuilder.mk_block duet_func.cfg updated_list in
     block_map := !block_map @ [cur_block];
   ) in
-<<<<<<< HEAD
   Array.iteri convert_blks blist;
-=======
-  Array.iter convert_blks blist;
->>>>>>> Newton/ICRA conversion implementation 1.0
   CfgBuilder.mk_seq duet_func.cfg (CfgBuilder.mk_single duet_func.cfg init_vertex) (List.hd !block_map);
   let blk_array = Array.of_list !block_map in
     let create_branches x blk = (
       let end_point = blk.btype in
       match end_point with
         Return(ret) -> (
-<<<<<<< HEAD
-=======
-        let bvar = get_var (InterIR.Var("bytecodecost",Int(4))) in
-        let ph = Core.Def.mk (Builtin (PrintBounds bvar)) in
-        let ph_pt = CfgBuilder.mk_single duet_func.cfg ph in
-        let current_blk = Array.get blk_array x in
->>>>>>> Newton/ICRA conversion implementation 1.0
         let ret_point = (match ret with
           None -> CfgBuilder.mk_single duet_func.cfg (Core.Def.mk (Return None))
         | Some(ret_v) -> (let ret_var = get_value ret_v in
           CfgBuilder.mk_single duet_func.cfg (Core.Def.mk (Return (Some(ret_var)))))) in
-<<<<<<< HEAD
         let print_hull = List.mem cs_func.fname !print_list in
         let current_blk = Array.get blk_array x in
         if print_hull then begin
@@ -401,11 +317,6 @@ let convert_funcs cs_func =
           CfgBuilder.mk_seq duet_func.cfg current_blk ret_point;
           ()
         end)
-=======
-        CfgBuilder.mk_seq duet_func.cfg current_blk ph_pt;
-        CfgBuilder.mk_seq duet_func.cfg ph_pt ret_point;
-        ())
->>>>>>> Newton/ICRA conversion implementation 1.0
       | Branch(children) ->
         (
           let condition = blk.bcond in
@@ -418,10 +329,6 @@ let convert_funcs cs_func =
             let duet_cond = (
             if switch then begin Core.Atom(op,right,left) end else begin Core.Atom(op,left,right) end
             ) in
-<<<<<<< HEAD
-=======
-            let duet_cond = Core.Atom(op,left,right) in
->>>>>>> Newton/ICRA conversion implementation 1.0
             let then_child = Array.get blk_array (List.hd children) in
             let else_child = Array.get blk_array  (List.hd (List.tl children))  in
             let bthen = CfgBuilder.mk_seq duet_func.cfg (CfgBuilder.mk_single duet_func.cfg (Core.Def.mk (Assume duet_cond))) then_child in
@@ -478,7 +385,6 @@ let create_func_var cs_func =
     Core.Concrete(Func(ret_type, type_list)) end ) in
   (cs_func.fname, mk_global_var !tmp_file cs_func.fname ftype)
 
-<<<<<<< HEAD
 let line_stream_of_channel channel =
   Stream.from
     (fun _ ->
@@ -523,13 +429,6 @@ let convert_duet () =
   let glos = TranslateCS.get_globs () in
   create_print_list ();
   create_assume_assert_list ();
-=======
-let convert_duet () =
-  TranslateCS.convert_cs ();
-  let func_list = TranslateCS.get_funcs () in
-  (*TranslateCS.print_functions ();*)
-  let glos = TranslateCS.get_globs () in
->>>>>>> Newton/ICRA conversion implementation 1.0
   glob_map := List.map convert_global glos;
   fvars := List.map create_func_var func_list;
   let duet_func_list = List.map convert_funcs func_list in
