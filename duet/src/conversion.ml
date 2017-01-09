@@ -244,7 +244,6 @@ let convert_funcs cs_func =
             let duet_cond = (
             if switch then begin Core.Atom(op,right,left) end else begin Core.Atom(op,left,right) end
             ) in
-            let duet_cond = Core.Atom(op,left,right) in
             let then_child = Array.get blk_array (List.hd children) in
             let else_child = Array.get blk_array  (List.hd (List.tl children))  in
             let bthen = CfgBuilder.mk_seq duet_func.cfg (CfgBuilder.mk_single duet_func.cfg (Core.Def.mk (Assume duet_cond))) then_child in
