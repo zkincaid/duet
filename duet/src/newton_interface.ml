@@ -72,7 +72,12 @@ let analyze_basic file =
           | _ -> ()
         );
       set_vertices (RG.block_entry rg main).did (RG.block_exit rg main).did;
-      set_cWeight K.zero
+      set_cWeight K.zero;
+      Callback.register "procedure_of_vertex_callback" (fun vertex ->
+          (Interproc.RG.vertices rg)
+          |> BatEnum.find (fun (block, v) -> vertex = v.did)
+          |> fst
+          |> Varinfo.show)
     end
   | _ -> assert false
 
