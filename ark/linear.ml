@@ -3,16 +3,19 @@ open Syntax
 open BatPervasives
 
 include Log.Make(struct let name = "linear" end)
-module type Ring = sig
-  type t
 
+module type AbelianGroup = sig
+  type t
   val equal : t -> t -> bool
   val add : t -> t -> t
-  val mul : t -> t -> t
   val negate : t -> t
   val zero : t
+end
+
+module type Ring = sig
+  include AbelianGroup
+  val mul : t -> t -> t
   val one : t
-  val pp : Format.formatter -> t -> unit
 end
 
 module type Vector = sig
@@ -20,7 +23,6 @@ module type Vector = sig
   type dim
   type scalar
   val equal : t -> t -> bool
-  val compare : t -> t -> int
   val add : t -> t -> t
   val scalar_mul : scalar -> t -> t
   val negate : t -> t
@@ -32,8 +34,6 @@ module type Vector = sig
   val of_enum : (scalar * dim) BatEnum.t -> t
   val coeff : dim -> t -> scalar
   val pivot : dim -> t -> scalar * t
-  val pp : Format.formatter -> t -> unit
-  val show : t -> string
 end
 
 module type Map = sig
@@ -52,14 +52,6 @@ module type Map = sig
     'a t ->
     'b t ->
     'c t
-end
-
-module type AbelianGroup = sig
-  type t
-  val equal : t -> t -> bool
-  val add : t -> t -> t
-  val negate : t -> t
-  val zero : t
 end
 
 module AbelianGroupMap (M : Map) (G : AbelianGroup) = struct
@@ -109,6 +101,21 @@ module AbelianGroupMap (M : Map) (G : AbelianGroup) = struct
     (coeff dim vec, M.remove dim vec)
 end
 
+module RingMap (M : Map) (R : Ring) = struct
+  include AbelianGroupMap(M)(R)
+
+  let scalar_mul k vec =
+    if R.equal k R.one then vec
+    else if R.equal k R.zero then M.empty
+    else M.map (fun coeff -> R.mul k coeff) vec
+
+  let dot u v =
+    BatEnum.fold
+      (fun sum (co, i) -> R.add sum (R.mul co (coeff i v)))
+      R.zero
+      (enum u)
+end
+
 module Int = struct
   type t = int [@@deriving show,ord]
   let tag k = k
@@ -117,18 +124,7 @@ module IntMap = Apak.Tagged.PTMap(Int)
 module IntSet = Apak.Tagged.PTSet(Int)
 
 module ZZVector = struct
-  include AbelianGroupMap(IntMap)(ZZ)
-
-  let scalar_mul k vec =
-    if ZZ.equal k ZZ.one then vec
-    else if ZZ.equal k ZZ.zero then IntMap.empty
-    else IntMap.map (fun coeff -> ZZ.mul k coeff) vec
-
-  let dot u v =
-    BatEnum.fold
-      (fun sum (co, i) -> ZZ.add sum (ZZ.mul co (coeff i v)))
-      ZZ.zero
-      (enum u)
+  include RingMap(IntMap)(ZZ)
 
   let pp formatter vec =
     let pp_elt formatter (k, v) = Format.fprintf formatter "%d:%a" k ZZ.pp v in
@@ -140,18 +136,7 @@ module ZZVector = struct
 end
 
 module QQVector = struct
-  include AbelianGroupMap(IntMap)(QQ)
-
-  let scalar_mul k vec =
-    if QQ.equal k QQ.one then vec
-    else if QQ.equal k QQ.zero then IntMap.empty
-    else IntMap.map (fun coeff -> QQ.mul k coeff) vec
-
-  let dot u v =
-    BatEnum.fold
-      (fun sum (co, i) -> QQ.add sum (QQ.mul co (coeff i v)))
-      QQ.zero
-      (enum u)
+  include RingMap(IntMap)(QQ)
 
   let pp formatter vec =
     let pp_elt formatter (k, v) = Format.fprintf formatter "%d:%a" k QQ.pp v in

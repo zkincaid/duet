@@ -13,7 +13,6 @@ module type Vector = sig
   type scalar
 
   val equal : t -> t -> bool
-  val compare : t -> t -> int
   val add : t -> t -> t
   val scalar_mul : scalar -> t -> t
   val negate : t -> t
@@ -28,13 +27,21 @@ module type Vector = sig
   val coeff : dim -> t -> scalar
 
   val pivot : dim -> t -> scalar * t
+end
 
+module ZZVector : sig
+  include Vector with type dim = int and type scalar = ZZ.t
+  val compare : t -> t -> int
   val pp : Format.formatter -> t -> unit
   val show : t -> string
 end
 
-module ZZVector : Vector with type dim = int and type scalar = ZZ.t
-module QQVector : Vector with type dim = int and type scalar = QQ.t
+module QQVector : sig
+  include Vector with type dim = int and type scalar = QQ.t
+  val compare : t -> t -> int
+  val pp : Format.formatter -> t -> unit
+  val show : t -> string
+end
 
 module QQMatrix : sig
   type t
@@ -65,6 +72,47 @@ module QQMatrix : sig
   val pp : Format.formatter -> t -> unit
   val show : t -> string
 end
+
+module type AbelianGroup = sig
+  type t
+  val equal : t -> t -> bool
+  val add : t -> t -> t
+  val negate : t -> t
+  val zero : t
+end
+
+module type Ring = sig
+  type t
+  val equal : t -> t -> bool
+  val add : t -> t -> t
+  val negate : t -> t
+  val zero : t
+  val mul : t -> t -> t
+  val one : t
+end
+
+(** Lift a map type over a ring to a left-module *)
+module RingMap
+    (M : sig
+       type 'a t
+       type key
+
+       val equal : ('a -> 'a -> bool) -> 'a t -> 'a t -> bool
+       val compare : ('a -> 'a -> int) -> 'a t -> 'a t -> int
+       val enum : 'a t -> (key * 'a) BatEnum.t
+       val map : ('a -> 'b) -> 'a t -> 'b t
+       val find : key -> 'a t -> 'a
+       val add : key -> 'a -> 'a t -> 'a t
+       val remove : key -> 'a t -> 'a t
+       val empty : 'a t
+       val merge : (key -> 'a option -> 'b option -> 'c option) ->
+         'a t ->
+         'b t ->
+         'c t
+     end)
+    (R : Ring) : Vector with type t = R.t M.t
+                         and type dim = M.key
+                         and type scalar = R.t
 
 (** [solve_exn mat b] computes a rational vector [x] such that [mat*x =
     b]. Raises [No_solution] if there is no solution. *)
