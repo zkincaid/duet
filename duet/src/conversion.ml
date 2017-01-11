@@ -6,9 +6,12 @@ open Printf
 let tmp_file = ref {filename="tmp";threads=[];funcs=[];entry_points=[];vars=[];types=[];globinit=None}
 let glob_map = ref []
 let fvars = ref []
+let print_list = ref []
 let current_loc_map = ref []
 let current_arg_map = ref []
 let tick_list = ref []
+let cfg_out_file = "intercfg.txt"
+let print_file = "print.txt"
 
 
 let rec convert_type t =
@@ -109,19 +112,19 @@ let convert_insts (inst : inst) =
     Assign(l,r) -> (
       let l_var = get_lvar l in
       let r_val = convert_lsum r in
-      Core.Def.mk (Assign(l_var, r_val))
+      [Core.Def.mk (Assign(l_var, r_val))]
     )
   | BinExpr(a,l,bop,r) -> (
       let a_var = get_lvar a in
       let l_val = convert_lsum l in
       let r_val = convert_lsum r in
       let binop = convert_binop bop in
-      Core.Def.mk (Assign (a_var,Core.BinaryOp(l_val,binop,r_val,Core.Concrete(Int(4)))))
+      [Core.Def.mk (Assign (a_var,Core.BinaryOp(l_val,binop,r_val,Core.Concrete(Int(4)))))]
     )
   | Assert(cond, str) -> (
     match cond with
-      Jmp -> Core.Def.mk (Assume (Core.Bexpr.ktrue))
-    | NonDet -> Core.Def.mk (Assume (Core.Bexpr.ktrue))
+      Jmp -> [Core.Def.mk (Assume (Core.Bexpr.ktrue))]
+    | NonDet -> [Core.Def.mk (Assume (Core.Bexpr.ktrue))]
     | Cond(l,cop,r) -> (
       let l_val = convert_lsum l in
       let r_val = convert_lsum r in
@@ -129,13 +132,13 @@ let convert_insts (inst : inst) =
       let duet_cond = (
         if switch then begin Core.Atom(op,r_val,l_val) end else begin Core.Atom(op, l_val, r_val) end
       ) in
-      Core.Def.mk (Assert(duet_cond,str))
+      [Core.Def.mk (Assert(duet_cond,str))]
       )
     )
   | Assume(cond) -> (
     match cond with
-      Jmp -> Core.Def.mk (Assume (Core.Bexpr.ktrue))
-    | NonDet -> Core.Def.mk (Assume (Core.Bexpr.ktrue))
+      Jmp -> [Core.Def.mk (Assume (Core.Bexpr.ktrue))]
+    | NonDet -> [Core.Def.mk (Assume (Core.Bexpr.ktrue))]
     | Cond(l,cop,r) -> (
       let l_val = convert_lsum l in
       let r_val = convert_lsum r in
@@ -143,15 +146,18 @@ let convert_insts (inst : inst) =
       let duet_cond = (
         if switch then begin Core.Atom(op,r_val,l_val) end else begin Core.Atom(op, l_val, r_val) end
       ) in
-      Core.Def.mk (Assume(duet_cond))
+      [Core.Def.mk (Assume(duet_cond))]
       )
     )
   | Tick(bname,v) -> let lvar = get_lvar bname in
                      let lval = convert_lsum bname in
                      let rval = convert_lsum v in
+                     let tick_assume = Core.Def.mk (Assume(Core.Atom(Core.Le,Core.Constant(CInt(0,4)),lval))) in
+                     let tick_assume_2 = Core.Def.mk (Assume(Core.Atom(Core.Le,Core.Constant(CInt(0,4)),Core.BinaryOp(lval,Core.Add,rval,Core.Concrete(Int(4)))))) in
                      let tick = Core.Def.mk (Assign (lvar,Core.BinaryOp(lval,Core.Add,rval,Core.Concrete(Int(4))))) in
-                     tick_list := tick :: !tick_list;
-                     Core.Def.mk (Assume (Core.Bexpr.ktrue))
+                     let tick_tail = [tick_assume;tick_assume_2;tick] in
+                     tick_list := !tick_list @ tick_tail;
+                     []
   | Call(a,name,args) -> (
     let func_var = Core.AddrOf(Variable(List.assoc name !fvars)) in
     let asgn_var = (
@@ -163,12 +169,12 @@ let convert_insts (inst : inst) =
       convert_lsum var
     ) in
     let arg_list = List.map create_arg args in
-    Core.Def.mk (Call(asgn_var,func_var,arg_list))
+    [Core.Def.mk (Call(asgn_var,func_var,arg_list))]
   )
 
 let mk_pt dfunc inst =
   let def = convert_insts inst in
-  CfgBuilder.mk_single dfunc.cfg def
+  List.map (CfgBuilder.mk_single dfunc.cfg) def
 
 (*let rec remove_insts hd tl =
   match tl with
@@ -205,11 +211,11 @@ let convert_funcs cs_func =
     let cfg_insts = (
       if num_insts > 0 then begin
       List.map mk_func_pt blk.binsts end
-      else [CfgBuilder.mk_skip duet_func.cfg]
+      else [[CfgBuilder.mk_skip duet_func.cfg]]
     ) in
     let mk_t_pt = CfgBuilder.mk_single duet_func.cfg in
     let tick_pt_list = List.map mk_t_pt !tick_list in
-    let updated_list = cfg_insts @ tick_pt_list in
+    let updated_list = (List.flatten cfg_insts) @ tick_pt_list in
     tick_list := [];
     let cur_block = CfgBuilder.mk_block duet_func.cfg updated_list in
     block_map := !block_map @ [cur_block];
@@ -221,17 +227,23 @@ let convert_funcs cs_func =
       let end_point = blk.btype in
       match end_point with
         Return(ret) -> (
-        let bvar = get_var (InterIR.Var("bytecodecost",Int(4))) in
-        let ph = Core.Def.mk (Builtin (PrintBounds bvar)) in
-        let ph_pt = CfgBuilder.mk_single duet_func.cfg ph in
-        let current_blk = Array.get blk_array x in
         let ret_point = (match ret with
           None -> CfgBuilder.mk_single duet_func.cfg (Core.Def.mk (Return None))
         | Some(ret_v) -> (let ret_var = get_value ret_v in
           CfgBuilder.mk_single duet_func.cfg (Core.Def.mk (Return (Some(ret_var)))))) in
-        CfgBuilder.mk_seq duet_func.cfg current_blk ph_pt;
-        CfgBuilder.mk_seq duet_func.cfg ph_pt ret_point;
-        ())
+        let print_hull = List.mem cs_func.fname !print_list in
+        let current_blk = Array.get blk_array x in
+        if print_hull then begin
+          let bvar = get_var (InterIR.Var("bytecodecost",Int(4))) in
+          let ph = Core.Def.mk (Builtin (PrintBounds bvar)) in
+          let ph_pt = CfgBuilder.mk_single duet_func.cfg ph in
+          CfgBuilder.mk_seq duet_func.cfg current_blk ph_pt;
+          CfgBuilder.mk_seq duet_func.cfg ph_pt ret_point;
+          ()  end
+        else begin
+          CfgBuilder.mk_seq duet_func.cfg current_blk ret_point;
+          ()
+        end)
       | Branch(children) ->
         (
           let condition = blk.bcond in
@@ -300,11 +312,31 @@ let create_func_var cs_func =
     Core.Concrete(Func(ret_type, type_list)) end ) in
   (cs_func.fname, mk_global_var !tmp_file cs_func.fname ftype)
 
+let line_stream_of_channel channel =
+  Stream.from
+    (fun _ ->
+      try Some (input_line channel) with End_of_file -> None);;
+
+let create_print_list () =
+  let ic = open_in print_file in
+  try
+    Stream.iter
+      (fun line ->
+        print_list := line :: !print_list;)
+      (line_stream_of_channel ic);
+    close_in ic
+  with e ->
+    close_in ic;
+    raise e
+
 let convert_duet () =
   TranslateCS.convert_cs ();
   let func_list = TranslateCS.get_funcs () in
-  (*TranslateCS.print_functions ();*)
+  let oc = open_out cfg_out_file in
+  TranslateCS.print_functions oc;
+  close_out oc;
   let glos = TranslateCS.get_globs () in
+  create_print_list ();
   glob_map := List.map convert_global glos;
   fvars := List.map create_func_var func_list;
   let duet_func_list = List.map convert_funcs func_list in
