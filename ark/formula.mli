@@ -6,6 +6,8 @@ open ArkPervasives
 exception Nonlinear
 exception Timeout
 
+val abstraction_timeout : float ref
+
 module type S = sig
   type t
   include Putil.Hashed.S with type t := t

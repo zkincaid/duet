@@ -9,6 +9,8 @@ exception Timeout
 include Log.Make(struct let name = "ark.formula" end)
 module L = Log
 
+let abstraction_timeout = ref 60.0
+
 module type S = sig
   type t
   include Putil.Hashed.S with type t := t
@@ -2955,14 +2957,19 @@ module Make (T : Term.S) = struct
 
   module Gauss = Linear.GaussElim(QQ)(T.Linterm)
 
-  let abstract_nonlinear_ivl fresh p ivl_vars man phi =
+  exception Timeout
+  let abstract_nonlinear_ivl fresh p intervals man phi =
+    let start_time = Unix.gettimeofday () in
+    let check_timeout () =
+      let time = (Unix.gettimeofday ()) -. start_time in
+      if time > !abstraction_timeout then
+        raise Timeout
+    in
     let s = new Smt.solver in
     let (lin_phi, init_nonlinear) =
       let mk_tmp () = fresh "nonlin" TyInt in
       split_linear mk_tmp phi
     in
-    let zero = fresh "0" TyInt in
-    let lin_phi = conj lin_phi (eqz (T.var zero)) in
 
     let nonlinear = ref init_nonlinear in
 
@@ -2993,18 +3000,8 @@ module Make (T : Term.S) = struct
         logf ~level:`info "Nonlinear term: %a = %a" T.V.format v T.format term)
       init_nonlinear;
 
-    (* Synthetic dimensions for intervals *)
-    let intervals =
-      distinct_pairs (BatList.enum (zero::ivl_vars))
-      |> BatEnum.fold (fun map (x, y) ->
-          let x_to_y =
-            fresh ("[" ^ (T.V.show x) ^ "," ^ (T.V.show y) ^ "]") TyReal
-          in
-          VPMap.add (x, y) x_to_y map)
-        VPMap.empty
-    in
     let interval_vars = VarSet.of_enum (VPMap.values intervals) in
-    vars := VarSet.union (!vars) (VarSet.add zero interval_vars);
+    vars := VarSet.union (!vars) interval_vars;
 
     (* Project a property onto the non-projected variables and variables that
        correspond to non-linear terms over non-projected variables *)
@@ -3012,8 +3009,6 @@ module Make (T : Term.S) = struct
       D.exists
         man
         (fun x -> p x
-                  || T.V.equal x zero (* zero is here so that we can evaluate
-                                         intervals after projection *)
                   || VarSet.mem x interval_vars
                   || T.V.Map.mem x (!safe_nonlinear))
         prop
@@ -3029,6 +3024,7 @@ module Make (T : Term.S) = struct
        researches opt_abstract_limit *)
     let disjuncts = ref 0 in
     let rec go prop =
+      check_timeout ();
       logf ~level:`info ~attributes:[`Green] "prop: %a" D.format prop;
       s#push ();
       s#assrt (Smt.mk_not (to_smt (of_abstract prop)));
@@ -3158,7 +3154,6 @@ module Make (T : Term.S) = struct
                 (!nonlinear)
                 (T.V.Map.empty, Polyhedron.top)
             in
-
             let (prop,prop_integrity) =
               strengthen_property_nonlinear
                 fresh
@@ -3216,13 +3211,13 @@ module Make (T : Term.S) = struct
                   Abstract0.meet_lincons_array man prop_ub
                     [| Lincons0.make x_to_y_cmp_diff Lincons0.EQ |]
                 in
+                check_timeout ();
                 { prop = Abstract0.join man prop_0 prop_diff;
                   env = env }
               in
               try VPMap.fold add_interval intervals disjunct
               with Not_found -> assert false
             in
-
             s#assrt (to_smt prop_integrity);
             s#assrt (to_smt disjunct_integrity);
             logf ~level:`info "strong disjunct: %a" D.format disjunct;
@@ -3250,7 +3245,6 @@ module Make (T : Term.S) = struct
       intervals;
     let prop =
       go (project (D.bottom man (D.Env.of_enum (VarSet.enum (!vars)))))
-      |> D.exists man (not % T.V.equal zero)
     in
     (prop, !safe_nonlinear)
 
@@ -3262,10 +3256,50 @@ module Make (T : Term.S) = struct
       |> VarSet.remove tick_var
       |> VarSet.elements
     in
-    abstract_nonlinear_ivl fresh p ivl_vars man phi
+    let zero = fresh "0" TyInt in
+    let phi = conj phi (eqz (T.var zero)) in
+    let p x =
+      T.V.equal x zero (* zero is here so that we can evaluate intervals after
+                          projection *)
+      || p x
+    in
+    (* Synthetic dimensions for intervals *)
+    let intervals =
+      distinct_pairs (BatList.enum (zero::ivl_vars))
+      |> BatEnum.fold (fun map (x, y) ->
+          let x_to_y =
+            fresh ("[" ^ (T.V.show x) ^ "," ^ (T.V.show y) ^ "]") TyReal
+          in
+          VPMap.add (x, y) x_to_y map)
+        VPMap.empty
+    in
+    let (prop, nonlinear) =
+      try
+        abstract_nonlinear_ivl fresh p intervals man phi
+      with Timeout -> begin
+          try
+            logf ~level:`warn "var_bounds timed out; trying fewer intervals";
+            let intervals =
+              List.fold_left
+                (fun map x ->
+                  let x_ivl =
+                    fresh ("[0," ^ (T.V.show x) ^ "]") TyReal
+                  in
+                  VPMap.add (zero, x) x_ivl map)
+                VPMap.empty
+                ivl_vars
+            in
+            abstract_nonlinear_ivl fresh p intervals man phi
+          with Timeout -> begin
+              logf ~level:`warn "var_bounds timed out";
+              (D.top man D.Env.empty, T.V.Map.empty)
+            end
+        end
+    in
+    (D.exists man (not % T.V.equal zero) prop, nonlinear)
 
   let abstract_nonlinear fresh p man phi =
-    abstract_nonlinear_ivl fresh p [] man phi
+    abstract_nonlinear_ivl fresh p VPMap.empty man phi
 
   let is_sat_nonlinear fresh phi =
     let man = NumDomain.polka_loose_manager () in
