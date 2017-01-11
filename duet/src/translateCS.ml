@@ -1169,97 +1169,97 @@ let blk_preds = ref []
   let get_main () = !main
 
 
-let print_bop op =
+let print_bop oc op =
   match op with
-  | Add -> Printf.printf " + "
-  | Sub -> Printf.printf " - "
-  | Mult -> Printf.printf " * "
-  | Div -> Printf.printf " / "
-  | Rem -> Printf.printf " Mod "
-  | LShift -> Printf.printf " << "
-  | RShift -> Printf.printf " >> "
-  | BXor -> Printf.printf " ^ "
-  | BAnd -> Printf.printf " & "
-  | BOr -> Printf.printf " | "
+  | Add -> Printf.fprintf oc " + "
+  | Sub -> Printf.fprintf oc " - "
+  | Mult -> Printf.fprintf oc " * "
+  | Div -> Printf.fprintf oc " / "
+  | Rem -> Printf.fprintf oc " Mod "
+  | LShift -> Printf.fprintf oc " << "
+  | RShift -> Printf.fprintf oc " >> "
+  | BXor -> Printf.fprintf oc " ^ "
+  | BAnd -> Printf.fprintf oc " & "
+  | BOr -> Printf.fprintf oc " | "
 
-let print_var x =
+let print_var oc x =
   match x with
-    | Var(n,Array(_)) -> Printf.printf "%s[] " n
-    | Var(n,_) -> Printf.printf "%s " n
-    | Constant(v,s) -> Printf.printf "%d " v
+    | Var(n,Array(_)) -> Printf.fprintf oc "%s[] " n
+    | Var(n,_) -> Printf.fprintf oc "%s " n
+    | Constant(v,s) -> Printf.fprintf oc "%d " v
 
-let rec print_lsum lsum =
+let rec print_lsum oc lsum =
   match lsum with
-    LExpr(l,binop,r) -> print_lsum l; print_bop binop; print_lsum r
-  | UNeg(v) -> Printf.printf "-"; print_lsum v
-  | LVal(v) -> print_var v
-  | ArrayAccess(v,i) -> print_var v; Printf.printf "["; print_lsum i; Printf.printf "]"
-  | LNeg(v) -> Printf.printf "!"; print_lsum v
-  | Havoc -> Printf.printf "*"
+    LExpr(l,binop,r) -> print_lsum oc l; print_bop oc binop; print_lsum oc r
+  | UNeg(v) -> Printf.fprintf oc "-"; print_lsum oc v
+  | LVal(v) -> print_var oc v
+  | ArrayAccess(v,i) -> print_var oc v; Printf.fprintf oc "["; print_lsum oc i; Printf.fprintf oc "]"
+  | LNeg(v) -> Printf.fprintf oc "!"; print_lsum oc v
+  | Havoc -> Printf.fprintf oc "*"
 
-let print_cop comp =
+let print_cop oc comp =
   match comp with
-    GTE -> Printf.printf " >= "
-  | GT -> Printf.printf " > "
-  | LTE -> Printf.printf " <= "
-  | LT -> Printf.printf " < "
-  | NE -> Printf.printf " ~= "
-  | EQ -> Printf.printf " == "
+    GTE -> Printf.fprintf oc " >= "
+  | GT -> Printf.fprintf oc " > "
+  | LTE -> Printf.fprintf oc " <= "
+  | LT -> Printf.fprintf oc " < "
+  | NE -> Printf.fprintf oc " ~= "
+  | EQ -> Printf.fprintf oc " == "
 
-let print_cond cond =
+let print_cond oc cond =
   match cond with
-    | Cond(lsum,comp,rsum) -> print_lsum lsum; print_cop comp; print_lsum rsum
-    | _ -> Printf.printf ""
+    | Cond(lsum,comp,rsum) -> print_lsum oc lsum; print_cop oc comp; print_lsum oc rsum
+    | _ -> Printf.fprintf oc ""
 
-let print_inst inst =
+let print_inst oc inst =
   match inst with
-    | Tick(v,r) -> Printf.printf "Tick: "; print_lsum r; Printf.printf "\n"
-    | Assert(cond,str) -> Printf.printf "Assert: %s" str; Printf.printf "\n"
-    | Assume(cond) -> Printf.printf "Assume: "; print_cond cond; Printf.printf "\n"
-    | BinExpr(a,b,bop,c) -> print_lsum a; Printf.printf " = "; print_lsum b; print_bop bop; print_lsum c; Printf.printf "\n"
-    | Assign(x,y) -> print_lsum x; Printf.printf " = "; print_lsum y; Printf.printf "\n"
+    | Tick(v,r) -> Printf.fprintf oc "Tick: "; print_lsum oc r; Printf.fprintf oc "\n"
+    | Assert(cond,str) -> Printf.fprintf oc "Assert: %s" str; Printf.fprintf oc "\n"
+    | Assume(cond) -> Printf.fprintf oc "Assume: "; print_cond oc cond; Printf.fprintf oc "\n"
+    | BinExpr(a,b,bop,c) -> print_lsum oc a; Printf.fprintf oc " = "; print_lsum oc b; print_bop oc bop; print_lsum oc c; Printf.fprintf oc "\n"
+    | Assign(x,y) -> print_lsum oc x; Printf.fprintf oc " = "; print_lsum oc y; Printf.fprintf oc "\n"
     | Call(ret,callee,args) -> (match ret with
-                                  | Some(v) -> print_lsum v; Printf.printf " = "
-                                  | None -> Printf.printf "");
-                                Printf.printf "%s: " callee; List.iter print_lsum args; Printf.printf "\n"
+                                  | Some(v) -> (print_lsum oc v); Printf.fprintf oc " = "
+                                  | None -> Printf.fprintf oc "");
+                                Printf.fprintf oc "%s: " callee; List.iter (print_lsum oc) args; Printf.fprintf oc "\n"
 
-let print_blk blk =
-  Printf.printf "Preds: \n";
-  List.iter (Printf.printf "%d ") blk.bpreds;
-  Printf.printf "\n";
-  List.iter print_inst blk.binsts;
+let print_blk oc blk =
+  Printf.fprintf oc "Preds: \n";
+  List.iter (Printf.fprintf oc "%d ") blk.bpreds;
+  Printf.fprintf oc "\n";
+  List.iter (print_inst oc) blk.binsts;
   let etype = blk.btype in
   match etype with
-      Return(Some(ret_var)) -> Printf.printf "Ret: "; print_var ret_var; Printf.printf "\n"
-    | Return(None) -> Printf.printf "Ret: <void>\n"
+      Return(Some(ret_var)) -> Printf.fprintf oc "Ret: "; (print_var oc) ret_var; Printf.fprintf oc "\n"
+    | Return(None) -> Printf.fprintf oc "Ret: <void>\n"
     | Branch(children) -> (
       let cond = blk.bcond in
       match cond with
-        Some(NonDet) -> Printf.printf "If (*): "; List.iter (Printf.printf "b%d ") children; Printf.printf "\n"
-      | Some(Jmp) -> Printf.printf "Jmp: "; List.iter (Printf.printf "b%d ") children; Printf.printf "\n"
-      | Some(c) -> Printf.printf "If ("; print_cond c; Printf.printf ") b%d " (List.hd children); Printf.printf "else b%d\n" (List.hd (List.tl  children))
-      | None -> Printf.printf "ncond: "; List.iter (Printf.printf "b%d ") children
+        Some(NonDet) -> Printf.fprintf oc "If (*): "; List.iter (Printf.fprintf oc "b%d ") children; Printf.fprintf oc "\n"
+      | Some(Jmp) -> Printf.fprintf oc "Jmp: "; List.iter (Printf.fprintf oc "b%d ") children; Printf.fprintf oc "\n"
+      | Some(c) -> Printf.fprintf oc "If ("; (print_cond oc c); Printf.fprintf oc ") b%d " (List.hd children); Printf.fprintf oc "else b%d\n" (List.hd (List.tl  children))
+      | None -> Printf.fprintf oc "ncond: "; List.iter (Printf.fprintf oc "b%d ") children
     )
 
 
-let print_fn f =
-  Printf.printf "\n";
-  Printf.printf "FName: %s\n" f.fname;
-  Printf.printf "Locs: \n";
-  List.iter print_var f.flocs;
-  Printf.printf "\n";
-  Printf.printf "Args: \n";
-  List.iter print_var f.fargs;
-  Printf.printf "\n";
+let print_fn oc f =
+  Printf.fprintf oc "\n";
+  Printf.fprintf oc "FName: %s\n" f.fname;
+  Printf.fprintf oc "Locs: \n";
+  List.iter (print_var oc) f.flocs;
+  Printf.fprintf oc "\n";
+  Printf.fprintf oc "Args: \n";
+  List.iter (print_var oc) f.fargs;
+  Printf.fprintf oc "\n";
   let num_blks = Array.length f.fbody in
   for b = 0 to num_blks - 1 do
     let cur_blk = Array.get f.fbody b in
-    Printf.printf "b%d:\n" b;
-    print_blk cur_blk
+    Printf.fprintf oc "b%d:\n" b;
+    (print_blk oc) cur_blk
   done
 
-let print_functions () =
-  Printf.printf "Globs: \n";
-  List.iter (print_var) !glos;
-  Printf.printf "\n";
-  List.iter print_fn !procs_lst
+let print_functions oc =
+  Printf.fprintf oc "Globs: \n";
+  List.iter (print_var oc) !glos;
+  Printf.fprintf oc "\n";
+  List.iter (print_fn oc) !procs_lst
