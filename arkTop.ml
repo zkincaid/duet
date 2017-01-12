@@ -1,7 +1,6 @@
 open ArkAst
 open Apak
 open ArkApron
-open Synthetic
 
 module Ctx = ArkAst.Ctx
 module Infix = Syntax.Infix(Ctx)

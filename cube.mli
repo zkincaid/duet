@@ -1,6 +1,5 @@
 open Syntax
 
-
 type 'a t
 
 val pp : Format.formatter -> 'a t -> unit

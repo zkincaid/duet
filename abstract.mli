@@ -37,4 +37,4 @@ val is_sat : 'a context -> 'a formula -> [ `Sat | `Unsat | `Unknown ]
 val abstract_nonlinear : ?exists:(symbol -> bool) ->
   'a context ->
   'a formula ->
-  'a Synthetic.t
+  'a Cube.t
