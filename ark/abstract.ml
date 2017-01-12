@@ -550,9 +550,9 @@ let is_sat ark phi =
       | None -> assert false
       | Some implicant ->
         let constraints =
-          Synthetic.of_atoms ark ~integrity (List.map replace_defs implicant)
+          Cube.of_atoms ark ~integrity (List.map replace_defs implicant)
         in
-        if Synthetic.is_bottom constraints then
+        if Cube.is_bottom constraints then
           go ()
         else
           `Unknown
@@ -590,9 +590,9 @@ let abstract_nonlinear ?exists:(p=fun x -> true) ark phi =
     solver#add [nonlinear_uninterpreted ark psi]
   in
   let rec go property =
-    logf ~level:`trace "Blocking clause %a" Synthetic.pp property;
+    logf ~level:`trace "Blocking clause %a" Cube.pp property;
     let blocking_clause =
-      Synthetic.to_formula property
+      Cube.to_formula property
       |> nonlinear_uninterpreted ark
       |> mk_not ark
     in
@@ -601,18 +601,18 @@ let abstract_nonlinear ?exists:(p=fun x -> true) ark phi =
     | `Unsat -> property
     | `Unknown ->
       logf ~level:`warn "Symbolic abstraction failed; returning top";
-      Synthetic.top ark
+      Cube.top ark
     | `Sat model ->
       let interp = Interpretation.of_model ark model symbol_list in
       match Interpretation.select_implicant interp lin_phi with
       | None -> assert false
       | Some implicant ->
         let new_property =
-          Synthetic.of_atoms ark ~integrity (List.map replace_defs implicant)
-          |> Synthetic.exists ~integrity p
+          Cube.of_atoms ark ~integrity (List.map replace_defs implicant)
+          |> Cube.exists ~integrity p
         in
-        go (Synthetic.join ~integrity property new_property)
+        go (Cube.join ~integrity property new_property)
   in
-  let result = go (Synthetic.bottom ark) in
-  logf "Abstraction result:@\n%a" Synthetic.pp result;
+  let result = go (Cube.bottom ark) in
+  logf "Abstraction result:@\n%a" Cube.pp result;
   result

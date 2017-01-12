@@ -38,7 +38,7 @@ let assert_implies phi psi =
       let not_atom =
         rewrite ctx ~down:(nnf_rewriter ctx) (mk_not ctx atom)
       in
-      if not (Synthetic.is_bottom (Synthetic.of_atoms ctx (not_atom::phi))) then
+      if not (Cube.is_bottom (Cube.of_atoms ctx (not_atom::phi))) then
         assert_failure (Printf.sprintf "%s\ndoes not imply\n%s"
                           (Formula.show ctx (mk_and ctx phi))
                           (Formula.show ctx atom)))
@@ -50,8 +50,8 @@ let roundtrip1 () =
      w + y <= (int 0)]
   in
   let phi =
-    Synthetic.of_atoms ctx atoms
-    |> Synthetic.to_atoms
+    Cube.of_atoms ctx atoms
+    |> Cube.to_atoms
     |> mk_and ctx
   in
   let psi = mk_and ctx atoms in
@@ -64,8 +64,8 @@ let roundtrip2 () =
      ((y * z * z) / x) <= (int 0)]
   in
   let phi =
-    Synthetic.of_atoms ctx atoms
-    |> Synthetic.to_atoms
+    Cube.of_atoms ctx atoms
+    |> Cube.to_atoms
     |> mk_and ctx
   in
   let psi = mk_and ctx atoms in
@@ -139,125 +139,125 @@ let strengthen6 () =
 let join1 () =
   let phi =
     let open Infix in
-    Synthetic.of_atoms ctx [x = int 0; y = int 1]
+    Cube.of_atoms ctx [x = int 0; y = int 1]
   in
   let psi =
     let open Infix in
-    Synthetic.of_atoms ctx [int 0 <= x; x = y * y]
+    Cube.of_atoms ctx [int 0 <= x; x = y * y]
   in
   let result =
     let open Infix in
     [x <= y * y]
   in
-  assert_implies (Synthetic.to_atoms (Synthetic.join phi psi)) result
+  assert_implies (Cube.to_atoms (Cube.join phi psi)) result
 
 let join2 () =
   let phi =
     let open Infix in
-    Synthetic.of_atoms ctx [x = int 0; y = int 1]
+    Cube.of_atoms ctx [x = int 0; y = int 1]
   in
   let psi =
     let open Infix in
-    Synthetic.of_atoms ctx [y = int 2; x = int 1]
+    Cube.of_atoms ctx [y = int 2; x = int 1]
   in
   let result =
     let open Infix in
     [x <= y]
   in
-  assert_implies (Synthetic.to_atoms (Synthetic.join phi psi)) result
+  assert_implies (Cube.to_atoms (Cube.join phi psi)) result
 
 let exists1 () =
   let phi =
     (let open Infix in
-     Synthetic.of_atoms ctx [x = y; z = y * y])
-    |> Synthetic.exists (fun sym -> sym = xsym || sym = zsym)
+     Cube.of_atoms ctx [x = y; z = y * y])
+    |> Cube.exists (fun sym -> sym = xsym || sym = zsym)
   in
   let psi =
     let open Infix in
     [z <= x * x; x * x <= z]
   in
-  assert_implies (Synthetic.to_atoms phi) psi
+  assert_implies (Cube.to_atoms phi) psi
 
 let exists2 () =
   let phi =
     (let open Infix in
-     Synthetic.of_atoms ctx [x = y; z <= y * y; w <= x * x])
-    |> Synthetic.exists (fun sym -> sym = xsym || sym = zsym || sym = wsym)
+     Cube.of_atoms ctx [x = y; z <= y * y; w <= x * x])
+    |> Cube.exists (fun sym -> sym = xsym || sym = zsym || sym = wsym)
   in
   let psi =
     let open Infix in
     [z <= x * x; w <= x * x]
   in
-  assert_implies (Synthetic.to_atoms phi) psi
+  assert_implies (Cube.to_atoms phi) psi
 
 let exists3 () =
   let phi =
     (let open Infix in
-     Synthetic.of_atoms ctx [x <= y; y <= z])
-    |> Synthetic.exists (fun sym -> sym != ysym)
+     Cube.of_atoms ctx [x <= y; y <= z])
+    |> Cube.exists (fun sym -> sym != ysym)
   in
   let psi =
     let open Infix in
     [x <= z]
   in
-  assert_implies (Synthetic.to_atoms phi) psi
+  assert_implies (Cube.to_atoms phi) psi
 
 let exists4 () =
   let phi =
     (let open Infix in
-     Synthetic.of_atoms ctx [x = q; y = r; y <= q])
-    |> Synthetic.exists (fun sym -> sym = xsym || sym = rsym)
+     Cube.of_atoms ctx [x = q; y = r; y <= q])
+    |> Cube.exists (fun sym -> sym = xsym || sym = rsym)
   in
   let psi =
     let open Infix in
     [r <= x]
   in
-  assert_implies (Synthetic.to_atoms phi) psi
+  assert_implies (Cube.to_atoms phi) psi
 
 let widen1 () =
   let phi =
     let open Infix in
-    Synthetic.of_atoms ctx [x = int 0; y = int 1]
+    Cube.of_atoms ctx [x = int 0; y = int 1]
   in
   let psi =
     let open Infix in
-    Synthetic.of_atoms ctx [y = int 1; z = int 0]
+    Cube.of_atoms ctx [y = int 1; z = int 0]
   in
   let top_formula =
     let open Infix in
-    Synthetic.of_atoms ctx [x = int 0; z = int 0]
+    Cube.of_atoms ctx [x = int 0; z = int 0]
   in
   let result =
     let open Infix in
     [y <= int 1; int 1 <= y]
   in
-  assert_implies (Synthetic.to_atoms (Synthetic.widen phi psi)) result;
+  assert_implies (Cube.to_atoms (Cube.widen phi psi)) result;
   assert_equal
-    ~printer:Synthetic.show
-    ~cmp:Synthetic.equal
-    (Synthetic.top ctx)
-    (Synthetic.join (Synthetic.widen phi psi) top_formula)
+    ~printer:Cube.show
+    ~cmp:Cube.equal
+    (Cube.top ctx)
+    (Cube.join (Cube.widen phi psi) top_formula)
 
 let widen2 () =
   let phi =
     let open Infix in
-    Synthetic.of_atoms ctx [x = y * y; (int 2) <= y; x <= (int 100)]
+    Cube.of_atoms ctx [x = y * y; (int 2) <= y; x <= (int 100)]
   in
   let psi =
     let open Infix in
-    Synthetic.of_atoms ctx [(int 4) <= x; x <= (int 101); (int 2) <= y]
+    Cube.of_atoms ctx [(int 4) <= x; x <= (int 101); (int 2) <= y]
   in
   let result =
     let open Infix in
-    Synthetic.of_atoms ctx [(int 2) <= y]
+    Cube.of_atoms ctx [(int 2) <= y]
   in
   assert_equal
-    ~printer:Synthetic.show
-    ~cmp:Synthetic.equal
+    ~printer:Cube.show
+    ~cmp:Cube.equal
     result
-    (Synthetic.widen phi psi)
+    (Cube.widen phi psi)
 
-let suite = "Synthetic" >::: [
+let suite = "Cube" >::: [
     "roundtrip1" >:: roundtrip1;
     "roundtrip2" >:: roundtrip2;
     "strengthen1" >:: strengthen1;

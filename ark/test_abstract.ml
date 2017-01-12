@@ -299,7 +299,7 @@ let nonlinear_abstract1 () =
     || (x = (int 0) && y = (int 1))
   in
   let phi_abstract =
-    Synthetic.to_formula (Abstract.abstract_nonlinear ctx phi)
+    Cube.to_formula (Abstract.abstract_nonlinear ctx phi)
   in
   let psi =
     let open Infix in
@@ -321,7 +321,7 @@ let nonlinear_abstract2 () =
         ctx
         phi
     in
-    Synthetic.to_formula abstract
+    Cube.to_formula abstract
   in
   let psi =
     let open Infix in
