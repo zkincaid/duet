@@ -316,6 +316,7 @@ module Make (V : Var) = struct
         | TyReal -> incr realdim
       end
     done;
+
     let prop =
       Abstract0.remove_dimensions
         man

@@ -3028,7 +3028,6 @@ module Make (T : Term.S) = struct
       logf ~level:`info ~attributes:[`Green] "prop: %a" D.format prop;
       s#push ();
       s#assrt (Smt.mk_not (to_smt (of_abstract prop)));
-
       match Log.time "lazy_dnf/sat" s#check () with
       | Smt.Unsat ->
         s#pop ();
@@ -3201,6 +3200,7 @@ module Make (T : Term.S) = struct
                     [| Lincons0.make x_to_y_cmp_diff Lincons0.SUPEQ;
                        Lincons0.make x_to_y_cmp_0 Lincons0.SUPEQ |]
                 in
+                (*
                 (* prop_ub /\ [x,y] = 0 *)
                 let prop_0 =
                   Abstract0.meet_lincons_array man prop_ub
@@ -3211,8 +3211,9 @@ module Make (T : Term.S) = struct
                   Abstract0.meet_lincons_array man prop_ub
                     [| Lincons0.make x_to_y_cmp_diff Lincons0.EQ |]
                 in
+                *)
                 check_timeout ();
-                { prop = Abstract0.join man prop_0 prop_diff;
+                { prop = prop_ub; (*Abstract0.join man prop_0 prop_diff;*)
                   env = env }
               in
               try VPMap.fold add_interval intervals disjunct
@@ -3235,10 +3236,12 @@ module Make (T : Term.S) = struct
       (fun (x,y) x_to_y ->
          let x_to_y = T.var x_to_y in
          let diff = T.sub (T.var y) (T.var x) in
+         (*
          s#assrt (to_smt
                     (disj
                        (eq x_to_y T.zero)
                        (eq x_to_y diff)));
+*)
          s#assrt (to_smt (geq x_to_y T.zero));
          s#assrt (to_smt (geq x_to_y diff));
       )
@@ -3273,30 +3276,27 @@ module Make (T : Term.S) = struct
           VPMap.add (x, y) x_to_y map)
         VPMap.empty
     in
-    let (prop, nonlinear) =
-      try
-        abstract_nonlinear_ivl fresh p intervals man phi
-      with Timeout -> begin
-          try
-            logf ~level:`warn "var_bounds timed out; trying fewer intervals";
-            let intervals =
-              List.fold_left
-                (fun map x ->
-                  let x_ivl =
-                    fresh ("[0," ^ (T.V.show x) ^ "]") TyReal
-                  in
-                  VPMap.add (zero, x) x_ivl map)
-                VPMap.empty
-                ivl_vars
-            in
-            abstract_nonlinear_ivl fresh p intervals man phi
-          with Timeout -> begin
-              logf ~level:`warn "var_bounds timed out";
-              (D.top man D.Env.empty, T.V.Map.empty)
-            end
-        end
-    in
-    (D.exists man (not % T.V.equal zero) prop, nonlinear)
+    try
+      abstract_nonlinear_ivl fresh p intervals man phi
+    with Timeout -> begin
+        try
+          logf ~level:`warn "var_bounds timed out; trying fewer intervals";
+          let intervals =
+            List.fold_left
+              (fun map x ->
+                 let x_ivl =
+                   fresh ("[0," ^ (T.V.show x) ^ "]") TyReal
+                 in
+                 VPMap.add (zero, x) x_ivl map)
+              VPMap.empty
+              ivl_vars
+          in
+          abstract_nonlinear_ivl fresh p intervals man phi
+        with Timeout -> begin
+            logf ~level:`warn "var_bounds timed out";
+            (D.top man D.Env.empty, T.V.Map.empty)
+          end
+      end
 
   let abstract_nonlinear fresh p man phi =
     abstract_nonlinear_ivl fresh p VPMap.empty man phi
