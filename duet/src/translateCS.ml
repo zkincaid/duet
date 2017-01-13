@@ -892,7 +892,7 @@ let blk_preds = ref []
       List.map post_process_block blocks
 
   (* **********function to print locals for a procedure *)
-  let get_locals proc = (*C4B-FLOCS*)
+  let get_locals proc args = (*C4B-FLOCS*)
   let ret = ref [] in
   (try
     let locals = ((Swig.invoke proc) "local_symbols" (Swig.C_void)) in
@@ -927,16 +927,22 @@ let blk_preds = ref []
               let ptd_to = ((Swig.invoke ptr_type) "as_ast" (Swig.C_void)) in
               let type_string = Swig.get_string ((Swig.invoke ptd_to) "as_string" (Swig.C_void)) in
               let ty = get_type type_string in
+                if not (List.mem (Var(name_length,Int(4))) args) then begin
                 ret := Var(name_length,Int(4)) :: !ret;
                 ret := Var(name_array,Array(ty)) :: !ret;
+                end
               end
               else begin
                 let ty = get_type sym_type_str in
+                if not (List.mem (Var(name_str,ty)) args) then begin
                 ret := Var(name_str,ty)::!ret end
+                end
             end
             else begin
               let ty = get_type sym_type_str in
+              if not (List.mem (Var(name_str,ty)) args) then begin
               ret := Var(name_str,ty)::!ret end
+              end
           end;
         with
           | _ -> (
@@ -960,16 +966,22 @@ let blk_preds = ref []
               let ptd_to = ((Swig.invoke ptr_type) "as_ast" (Swig.C_void)) in
               let type_string = Swig.get_string ((Swig.invoke ptd_to) "as_string" (Swig.C_void)) in
               let ty = get_type type_string in
+              if not (List.mem (Var(name_length,Int(4))) args) then begin
                 ret := Var(name_length,Int(4)) :: !ret;
                 ret := Var(name_array,Array(ty)) :: !ret;
               end
+              end
               else begin
                 let ty = get_type sym_type_str in
+                if not (List.mem (Var(name_str,ty)) args) then begin
                 ret := Var(name_str,ty)::!ret end
+                end
             end
             else begin
               let ty = get_type sym_type_str in
-              ret := Var(name_str,ty)::!ret end));
+              if not (List.mem (Var(name_str,ty)) args) then begin
+              ret := Var(name_str,ty)::!ret end
+              end));
     done
   with
   | _ -> ());
@@ -1087,7 +1099,7 @@ let blk_preds = ref []
         let proc_name = (Swig.get_string ((Swig.invoke proc) "name" Swig.C_void)) in  (*C4B-FNAME*)
     if proc_name <> "assert" && proc_name <> "#System_Initialization" then begin
       let args = get_funargs proc in
-          let locs = get_locals proc in
+      let locs = get_locals proc args in
       let start_funct = !temp_func in
       let funct = {start_funct with fname=proc_name; fargs=args; flocs=locs} in
       procs_lst := !procs_lst @ [funct];

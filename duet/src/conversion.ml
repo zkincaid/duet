@@ -198,8 +198,8 @@ let convert_funcs cs_func =
   current_loc_map := [];
   current_arg_map := [];
   let func_convert_local x = convert_local duet_func x in
-  current_loc_map := List.map func_convert_local cs_func.flocs;
   current_arg_map := List.map func_convert_local cs_func.fargs;
+  current_loc_map := List.map func_convert_local cs_func.flocs;
   let (_,arg_list) = List.split !current_arg_map in
   let arg_vars = List.map fst arg_list in
   let duet_func = {duet_func with CfgIr.formals = arg_vars} in
