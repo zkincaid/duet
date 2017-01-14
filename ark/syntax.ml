@@ -143,6 +143,8 @@ type ('a,'b) open_formula = [
                     | `App of symbol * ('b, typ_fo) expr list ]
 ]
 
+exception Quit
+
 let size expr =
   let open Apak.Putil.PInt in
   let counted = ref Set.empty in
@@ -501,6 +503,22 @@ module ExprHT = struct
   let enum = HT.enum
 end
 
+module ExprMap = struct
+  module M = BatMap.Make(Expr)
+  type ('a, 'typ, 'b) t = 'b M.t
+  let empty = M.empty
+  let add = M.add
+  let map = M.map
+  let filter = M.filter
+  let filter_map = M.filter_map
+  let remove = M.remove
+  let find = M.find
+  let keys = M.keys
+  let values = M.values
+  let enum = M.enum
+  let merge = M.merge
+end
+
 module ExprMemo = Apak.Memo.Make(Expr)
 
 module Term = struct
@@ -536,6 +554,15 @@ module Term = struct
       | _ -> invalid_arg "eval: not a term"
     in
     go t
+
+  let eval_partial ctx alg t =
+    let alg' term =
+      match alg term with
+      | Some t -> t
+      | None -> raise Quit
+    in
+    try Some (eval ctx alg' t)
+    with Quit -> None
 
   let destruct ctx t = match t.obj with
     | Node (Real qq, [], _) -> `Real qq

@@ -11,7 +11,8 @@ let suite = "Main" >::: [
     Test_apron.suite;
     Test_quantifier.suite;
     Test_cube.suite;
-    Test_abstract.suite
+    Test_abstract.suite;
+    Test_iteration.suite
 ]
 
 let _ =

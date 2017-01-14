@@ -151,6 +151,22 @@ module ExprHT : sig
   val enum : ('a, 'typ, 'b) t -> (('a, 'typ) expr * 'b) BatEnum.t
 end
 
+module ExprMap : sig
+  type ('a, 'typ, 'b) t
+  val empty : ('a, 'typ, 'b) t
+  val add : ('a, 'typ) expr -> 'b -> ('a, 'typ, 'b) t -> ('a, 'typ, 'b) t
+  val remove : ('a, 'typ) expr -> ('a, 'typ, 'b) t -> ('a, 'typ, 'b) t
+  val filter : (('a, 'typ) expr -> 'b -> bool) -> ('a, 'typ, 'b) t -> ('a, 'typ, 'b) t
+  val filter_map : (('a, 'typ) expr -> 'b -> 'c option) -> ('a, 'typ, 'b) t -> ('a, 'typ, 'c) t
+  val map : ('b -> 'c) -> ('a, 'typ, 'b) t -> ('a, 'typ, 'c) t
+  val find : ('a, 'typ) expr -> ('a, 'typ, 'b) t -> 'b
+  val keys : ('a, 'typ, 'b) t -> (('a, 'typ) expr) BatEnum.t
+  val values : ('a, 'typ, 'b) t -> 'b BatEnum.t
+  val enum : ('a, 'typ, 'b) t -> (('a, 'typ) expr * 'b) BatEnum.t
+  val merge : ((('a, 'typ) expr) -> 'b option -> 'c option -> 'd option) ->
+    ('a, 'typ, 'b) t -> ('a, 'typ, 'c) t -> ('a, 'typ, 'd) t
+end
+
 (** {2 Terms} *)
 
 type ('a,'b) open_term = [
@@ -186,6 +202,7 @@ module Term : sig
   val show : ?env:(string Env.t) -> 'a context -> 'a term -> string
   val destruct : 'a context -> 'a term -> ('a term, 'a) open_term
   val eval : 'a context -> (('b, 'a) open_term -> 'b) -> 'a term -> 'b
+  val eval_partial : 'a context -> (('b, 'a) open_term -> 'b option) -> 'a term -> 'b option
 end
 
 (** {2 Formulas} *)

@@ -19,6 +19,7 @@ module type Vector = sig
   val dot : t -> t -> scalar
 
   val zero : t
+  val is_zero : t -> bool
   val add_term : scalar -> dim -> t -> t
   val of_term : scalar -> dim -> t
 

@@ -28,6 +28,7 @@ module type Vector = sig
   val negate : t -> t
   val dot : t -> t -> scalar
   val zero : t
+  val is_zero : t -> bool
   val add_term : scalar -> dim -> t -> t
   val of_term : scalar -> dim -> t
   val enum : t -> (scalar * dim) BatEnum.t
@@ -59,26 +60,28 @@ module AbelianGroupMap (M : Map) (G : AbelianGroup) = struct
   type dim = M.key
   type scalar = G.t
 
-  let is_zero x = G.equal x G.zero
+  let is_scalar_zero x = G.equal x G.zero
 
   let zero = M.empty
+
+  let is_zero = M.equal G.equal zero
 
   let add u v =
     let f _ a b =
       match a, b with
       | Some a, Some b ->
         let sum = G.add a b in
-        if is_zero sum then None else Some sum
+        if is_scalar_zero sum then None else Some sum
       | Some x, None | None, Some x -> Some x
       | None, None -> assert false
     in
     M.merge f u v
 
   let add_term coeff dim vec =
-    if is_zero coeff then vec else begin
+    if is_scalar_zero coeff then vec else begin
       try
         let sum = G.add coeff (M.find dim vec) in
-        if not (is_zero sum) then M.add dim sum vec
+        if not (is_scalar_zero sum) then M.add dim sum vec
         else M.remove dim vec
       with Not_found -> M.add dim coeff vec
     end
@@ -183,6 +186,12 @@ module QQMatrix = struct
     /@ (fun (i, row) -> IntMap.enum row /@ (fun (j, coeff) -> (i, j, coeff)))
     |> BatEnum.concat
 
+  let row_set mat =
+    BatEnum.fold
+      (fun set (i, _) -> IntSet.add i set)
+      IntSet.empty
+      (rowsi mat)
+
   let column_set mat =
     rowsi mat
     |> BatEnum.fold (fun set (_, row) ->
@@ -251,13 +260,19 @@ let solve_exn mat b =
       let next_row' =
         QQVector.scalar_mul (QQ.negate (QQ.inverse cell)) next_row'
       in
-      let f row =
+      let f _ row =
         let (coeff, row') = QQVector.pivot column row in
-        QQVector.add
-          row'
-          (QQVector.scalar_mul coeff next_row')
+        let row'' =
+          QQVector.add
+            row'
+            (QQVector.scalar_mul coeff next_row')
+        in
+        if QQVector.is_zero row'' then
+          None
+        else
+          Some row''
       in
-      reduce ((column,next_row')::finished) (IntMap.map f mat')
+      reduce ((column,next_row')::finished) (IntMap.filter_map f mat')
   in
   let rr = reduce [] mat in
   let rec backprop soln = function
