@@ -60,11 +60,12 @@ let solve2 () =
   assert_equal ~printer:QQVector.show b2 (vector_right_mul m x2)
 
 let solve3 () =
-  let m = mk_matrix [[1; 2; 3];
-                     [2; 0; 1];
-                     [3; 2; 4]]
+  let m = mk_matrix [[1; 0; 2];
+                     [2; 1; 0];
+                     [3; 1; 1];
+                     [0; 1; 1]]
   in
-  let b = mk_vector [1; 2; 3] in
+  let b = mk_vector [1; 2; 3; 4] in
   assert_bool
     "Unsolvable system of linear equations"
      (solve m b = None)
@@ -77,6 +78,15 @@ let solve4 () =
   let x = solve_exn m b in
   assert_equal ~printer:QQVector.show b (vector_right_mul m x)
 
+let solve5 () =
+  let m = mk_matrix [[1; 0; 0];
+                     [1; 0; 0];
+                     [0; 0; 1]]
+  in
+  let b = mk_vector [1; 1] in
+  let x = solve_exn m b in
+  assert_equal ~printer:QQVector.show b (vector_right_mul m x)
+
 
 let suite = "Linear" >::: [
     "dot" >:: dot;
@@ -85,4 +95,5 @@ let suite = "Linear" >::: [
     "solve2" >:: solve2;
     "solve3" >:: solve3;
     "solve4" >:: solve4;
+    "solve5" >:: solve5;
   ]

@@ -3,6 +3,7 @@ module type Univariate = sig
   val order : t -> int
   val mul : t -> t -> t
   val one : t
+  val scalar : scalar -> t
   val compose : t -> t -> t
 
   (** The polynomial [p(x) = x] *)

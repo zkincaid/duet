@@ -332,7 +332,7 @@ let simplify_atom ark op s t =
 
 let mk_divides ark divisor term =
   assert (ZZ.lt ZZ.zero divisor);
-  if ZZ.equal divisor ZZ.one || V.equal term V.zero then
+  if ZZ.equal divisor ZZ.one || V.is_zero term then
     mk_true ark
   else
     let gcd = ZZ.gcd (coefficient_gcd term) divisor in
@@ -344,7 +344,7 @@ let mk_divides ark divisor term =
 
 let mk_not_divides ark divisor term =
   assert(ZZ.lt ZZ.zero divisor);
-  if ZZ.equal divisor ZZ.one || V.equal term V.zero then
+  if ZZ.equal divisor ZZ.one || V.is_zero term then
     mk_false ark
   else
     let gcd = ZZ.gcd (coefficient_gcd term) divisor in

@@ -559,7 +559,6 @@ let is_sat ark phi =
   in
   go ()
 
-
 let abstract_nonlinear ?exists:(p=fun x -> true) ark phi =
   logf "Abstracting formula@\n%a"
     (Formula.pp ark) phi;

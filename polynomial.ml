@@ -7,6 +7,7 @@ module type Univariate = sig
   val order : t -> int
   val mul : t -> t -> t
   val one : t
+  val scalar : scalar -> t
   val compose : t -> t -> t
   val identity : t
   val eval : t -> scalar -> scalar
@@ -24,7 +25,9 @@ module Uvp(R : Ring) = struct
 
   let order p = IntMap.fold (fun power _ hi -> max hi power) p 0
 
-  let one = of_term R.one 0
+  let scalar k = of_term k 0
+
+  let one = scalar R.one
 
   let identity = of_term R.one 1
 

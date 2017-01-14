@@ -26,6 +26,10 @@ let qq_of_coeff = function
   | Coeff.Scalar s -> Some (qq_of_scalar s)
   | Coeff.Interval _ -> None
 
+let qq_of_coeff_exn = function
+  | Coeff.Scalar s -> qq_of_scalar s
+  | Coeff.Interval _ -> invalid_arg "qq_of_coeff_exn: argument must be a scalar"
+
 let coeff_of_qq = Coeff.s_of_mpqf
 
 let scalar_zero = Coeff.s_of_int 0
@@ -177,7 +181,7 @@ module Env = struct
           (pp_sd_term env) (sd_term_of_id env id)
     in
     let pp_sep formatter () = Format.fprintf formatter " +@ " in
-    if V.equal vec V.zero then
+    if V.is_zero vec then
       Format.pp_print_string formatter "0"
     else
       Format.fprintf formatter "@[<hov 1>%a@]"
@@ -249,7 +253,7 @@ module Env = struct
 
   let const_of_vec vec =
     let (const_coeff, rest) = V.pivot const_id vec in
-    if V.equal V.zero rest then
+    if V.is_zero rest then
       Some const_coeff
     else
       None
@@ -864,7 +868,11 @@ let apron_set_dimensions new_int new_real abstract =
     abstract
 
 
-let exists ?integrity:(integrity=(fun _ -> ())) p property =
+let exists
+    ?integrity:(integrity=(fun _ -> ()))
+    ?subterm:(subterm=(fun _ -> true))
+    p
+    property =
   let ark = Env.ark property.env in
   let env = property.env in
 
@@ -873,8 +881,9 @@ let exists ?integrity:(integrity=(fun _ -> ())) p property =
   let rewrite_map =
     let keep id =
       id = Env.const_id || match Env.sd_term_of_id property.env id with
-      | App (symbol, []) -> p symbol
-      | _ -> false
+      | App (symbol, []) -> p symbol && subterm symbol
+      | _ -> false (* to do: should allow terms containing only non-projected
+                      symbols that are allowed as subterms *)
     in
     List.fold_left
       (fun map (id, rhs) ->
@@ -1069,3 +1078,40 @@ let widen property property' =
   let abstract' = project property' in
   { env = widen_env;
     abstract = Abstract0.widening (get_manager ()) abstract abstract' }
+
+let farkas_equalities property =
+  let open Lincons0 in
+  let constraints =
+    BatArray.enum (Abstract0.to_lincons_array (get_manager ()) property.abstract)
+    |> BatEnum.filter_map (fun lcons ->
+        match lcons.typ with
+        | EQ -> Some lcons.linexpr0
+        | _ -> None)
+    |> BatArray.of_enum
+  in
+  let nb_columns =
+    let dim = Abstract0.dimension (get_manager ()) property.abstract in
+    (* one extra column for the constant *)
+    dim.Dim.intd + dim.Dim.reald + 1
+  in
+  let columns =
+    Array.init nb_columns (fun _ -> V.zero)
+  in
+  for row = 0 to Array.length constraints - 1 do
+    constraints.(row) |> Linexpr0.iter (fun coeff col ->
+        columns.(col) <- V.add_term (qq_of_coeff_exn coeff) row columns.(col));
+    columns.(nb_columns - 1) <- V.add_term
+        (qq_of_coeff_exn (Linexpr0.get_cst constraints.(row)))
+        row
+        columns.(nb_columns - 1)
+  done;
+  Array.mapi (fun id column ->
+      let term =
+        if id = (nb_columns - 1) then
+          mk_real (Env.ark property.env) QQ.one
+        else
+          Env.term_of_id property.env id
+      in
+      (term, column))
+    columns
+  |> Array.to_list
