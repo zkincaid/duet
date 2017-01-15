@@ -515,7 +515,12 @@ let linearize ark phi =
 
 let is_sat ark phi =
   let solver = Smt.mk_solver ark in
-  let uninterp_phi = nonlinear_uninterpreted ark phi in
+  let uninterp_phi =
+    rewrite ark
+      ~down:(nnf_rewriter ark)
+      ~up:(nonlinear_uninterpreted_rewriter ark)
+      phi
+  in
   let (lin_phi, nonlinear) = purify ark uninterp_phi in
   let symbol_list = Symbol.Set.elements (symbols lin_phi) in
   let nonlinear_defs =
