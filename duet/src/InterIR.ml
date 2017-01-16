@@ -7,15 +7,15 @@ type vtype =
   | Pointer of vtype
   | Array of vtype
 
-type variable = 
-  | Var of string * vtype 
+type variable =
+  | Var of string * vtype
   | Constant of int * int
 
-type binop = 
-  | Add 
+type binop =
+  | Add
   | Sub
-  | Mult 
-  | Div 
+  | Mult
+  | Div
   | Rem
   | LShift
   | RShift
@@ -51,7 +51,7 @@ type branch =
 
 type inst =
   | Assign of lsum * lsum
-  | BinExpr of lsum * lsum * binop * lsum 
+  | BinExpr of lsum * lsum * binop * lsum
   | Call of lsum option * string * lsum list
   | Tick of lsum * lsum
   | Assert of cond * string
@@ -74,4 +74,3 @@ type func =
   ; fbody: bblock array
   ; fret: variable option
   }
-

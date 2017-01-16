@@ -1,6 +1,4 @@
 public class Rand {
 
-	public static int Rand() {return 0;}
-
+    public static int Rand() {return 0;}
 }
-

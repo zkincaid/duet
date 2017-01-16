@@ -10,4 +10,3 @@ module M:Plugin_interface.PLUGIN =
 
 let () =
  Plugin_interface.p := Some (module M:Plugin_interface.PLUGIN)
-

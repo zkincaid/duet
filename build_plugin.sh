@@ -20,4 +20,3 @@ mv ../../../duet/src/plugin_impl.cmi plugin_impl.cmi
 cd ../../..
 
 echo "****** Successful end of make_libduet.sh ******"
-

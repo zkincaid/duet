@@ -7,21 +7,21 @@ let main = ref {fname = " main "; fargs = []; flocs = []; fbody = (Array.of_list
 let prev_call = ref false
 let was_assert = ref false
 let cur_locs = ref []
-let cur_args = ref [] 
+let cur_args = ref []
 let temp_func = ref {fname = ""; fargs = []; flocs = []; fbody = (Array.of_list [{bpreds = [-1]; binsts = []; btype = Branch([1]); bcond = None}; {bpreds = [0]; binsts = []; btype = Return(None); bcond = None}]); fret = None}
 let node_id = ref 0
-let blk_preds = ref [] 
+let blk_preds = ref []
 
 
 
   (* Determine the type of the variable based on the type name *)
-  let get_type t_name = 
+  let get_type t_name =
     if ((String.compare t_name "int") = 0) or ((String.compare t_name "type:[c:integer] int") = 0) then begin
       Int(4)
     end
     else if ((String.compare t_name "void") = 0) or ((String.compare t_name "type:[c:void] void") = 0) then begin
       Void
-    end 
+    end
     else if ((String.compare t_name "long long") = 0) or ((String.compare t_name "type:[c:integer] long long") = 0) then begin
       Int(8)
     end
@@ -36,7 +36,7 @@ let blk_preds = ref []
   (* Parse a variable and return the integer or variable representation *)
   let rec parse_var f =
   let f_ast = ((Swig.invoke f) "as_ast" (Swig.C_void)) in
-  let f_class = ((Swig.invoke f_ast) "get_class" (Swig.C_void)) in 
+  let f_class = ((Swig.invoke f_ast) "get_class" (Swig.C_void)) in
   let f_class_super = ((Swig.invoke f_class) "superclass" (Swig.C_void)) in
   let f_class_super_str = Swig.get_string ((Swig.invoke f_class_super) "as_string" (Swig.C_void)) in
   let f_class_str = Swig.get_string ((Swig.invoke f_class) "as_string" (Swig.C_void)) in
@@ -44,37 +44,37 @@ let blk_preds = ref []
   let f_class_super_super_str = Swig.get_string ((Swig.invoke f_class_super_super) "as_string" (Swig.C_void)) in
   if (String.compare f_class_str "c:integer-value-32") = 0 then begin
     let int_fields = ((Swig.invoke f_ast) "fields" (Swig.C_void)) in
-    let i_fld = ((Swig.invoke int_fields) "[]" (Swig.C_int 0)) in		
+    let i_fld = ((Swig.invoke int_fields) "[]" (Swig.C_int 0)) in
     let int_val = Swig.get_int ((Swig.invoke i_fld) "as_int32" (Swig.C_void)) in
       LVal(Constant(int_val,4))
   end
   else if (String.compare f_class_str "c:integer-value-64") = 0 then begin
     let int_fields = ((Swig.invoke f_ast) "fields" (Swig.C_void)) in
-    let i_fld = ((Swig.invoke int_fields) "[]" (Swig.C_int 0)) in		
+    let i_fld = ((Swig.invoke int_fields) "[]" (Swig.C_int 0)) in
     let int_val = Swig.get_int ((Swig.invoke i_fld) "as_int32" (Swig.C_void)) in
       LVal(Constant(int_val,8))
   end
   else if (String.compare f_class_str "c:integer-value-128") = 0 then begin
     let int_fields = ((Swig.invoke f_ast) "fields" (Swig.C_void)) in
-    let i_fld = ((Swig.invoke int_fields) "[]" (Swig.C_int 0)) in		
+    let i_fld = ((Swig.invoke int_fields) "[]" (Swig.C_int 0)) in
     let int_val = Swig.get_int ((Swig.invoke i_fld) "as_int32" (Swig.C_void)) in
       LVal(Constant(int_val,16))
   end
   else if (String.compare f_class_str "c:uinteger-value-32") = 0 then begin
     let int_fields = ((Swig.invoke f_ast) "fields" (Swig.C_void)) in
-    let i_fld = ((Swig.invoke int_fields) "[]" (Swig.C_int 0)) in		
+    let i_fld = ((Swig.invoke int_fields) "[]" (Swig.C_int 0)) in
     let int_val = Swig.get_int ((Swig.invoke i_fld) "as_int32" (Swig.C_void)) in
       LVal(Constant(int_val,4))
   end
   else if (String.compare f_class_str "c:uinteger-value-64") = 0 then begin
     let int_fields = ((Swig.invoke f_ast) "fields" (Swig.C_void)) in
-    let i_fld = ((Swig.invoke int_fields) "[]" (Swig.C_int 0)) in		
+    let i_fld = ((Swig.invoke int_fields) "[]" (Swig.C_int 0)) in
     let int_val = Swig.get_int ((Swig.invoke i_fld) "as_int32" (Swig.C_void)) in
       LVal(Constant(int_val,8))
   end
   else if (String.compare f_class_str "c:integer-value-128") = 0 then begin
     let int_fields = ((Swig.invoke f_ast) "fields" (Swig.C_void)) in
-    let i_fld = ((Swig.invoke int_fields) "[]" (Swig.C_int 0)) in		
+    let i_fld = ((Swig.invoke int_fields) "[]" (Swig.C_int 0)) in
     let int_val = Swig.get_int ((Swig.invoke i_fld) "as_int32" (Swig.C_void)) in
       LVal(Constant(int_val,16))
   end
@@ -87,12 +87,12 @@ let blk_preds = ref []
     let sym_type_str = Swig.get_string ((Swig.invoke sym_type) "as_string" (Swig.C_void)) in
     let ty = get_type sym_type_str in
     let name = ((Swig.invoke f_ast) "[]" (Cs._ast_ordinal_NC_NAME(Swig.C_void))) in
-    let name_str = (Swig.get_string ((Swig.invoke name) "as_str" (Swig.C_void))) in	
+    let name_str = (Swig.get_string ((Swig.invoke name) "as_str" (Swig.C_void))) in
     (if not (List.mem (Var(name_str,ty)) !cur_args) then begin
     (* Add static class variables to global list, if needed *)
     (if not (List.mem (Var(name_str,ty)) !glos) then begin
       (if not (List.mem (Var(name_str,ty)) !cur_locs) then begin
-         cur_locs := (Var(name_str,ty)) :: !cur_locs end) 
+         cur_locs := (Var(name_str,ty)) :: !cur_locs end)
       end)
     end);
     LVal(Var(name_str,ty))
@@ -103,8 +103,8 @@ let blk_preds = ref []
       let fields = ((Swig.invoke f_ast) "fields" (Swig.C_void)) in
       let neg_field = ((Swig.invoke fields) "[]" (Swig.C_int 0)) in
       let x = parse_var neg_field in
-	UNeg(x)
-      end 
+    UNeg(x)
+      end
     else begin
       LVal(Constant(0,4))
     end
@@ -127,16 +127,16 @@ let blk_preds = ref []
     (if not (List.mem (Var(name_length_str,ty)) !cur_args) then begin
       (if not (List.mem (Var(name_length_str,ty)) !glos) then begin
         (if not (List.mem (Var(name_length_str,ty)) !cur_locs) then begin
-         cur_locs := (Var(name_length_str,ty)) :: !cur_locs end) 
+         cur_locs := (Var(name_length_str,ty)) :: !cur_locs end)
       end)
     end);
     LVal(Var(name_length_str,ty))
-	
+
   (*A helper function to recurisvely parse lsums*)
   let rec parse_lsum f : lsum option =
   let f_string = Swig.get_string ((Swig.invoke f) "as_string" (Swig.C_void)) in
   let f_ast = ((Swig.invoke f) "as_ast" (Swig.C_void)) in
-  let f_class = ((Swig.invoke f_ast) "get_class" (Swig.C_void)) in 
+  let f_class = ((Swig.invoke f_ast) "get_class" (Swig.C_void)) in
   let f_class_super = ((Swig.invoke f_class) "superclass" (Swig.C_void)) in
   let f_class_super_str = Swig.get_string ((Swig.invoke f_class_super) "as_string" (Swig.C_void)) in
   let f_class_str = Swig.get_string ((Swig.invoke f_class) "as_string" (Swig.C_void)) in
@@ -145,37 +145,37 @@ let blk_preds = ref []
   (* The lsum is an integer, return a C4B integer value *)
   if (String.compare f_class_str "c:integer-value-32") = 0 then begin
     let int_fields = ((Swig.invoke f_ast) "fields" (Swig.C_void)) in
-    let i_fld = ((Swig.invoke int_fields) "[]" (Swig.C_int 0)) in		
+    let i_fld = ((Swig.invoke int_fields) "[]" (Swig.C_int 0)) in
     let int_val = Swig.get_int ((Swig.invoke i_fld) "as_int32" (Swig.C_void)) in
       Some(LVal(Constant(int_val,4)))
   end
   else if (String.compare f_class_str "c:integer-value-64") = 0 then begin
     let int_fields = ((Swig.invoke f_ast) "fields" (Swig.C_void)) in
-    let i_fld = ((Swig.invoke int_fields) "[]" (Swig.C_int 0)) in		
+    let i_fld = ((Swig.invoke int_fields) "[]" (Swig.C_int 0)) in
     let int_val = Swig.get_int ((Swig.invoke i_fld) "as_int32" (Swig.C_void)) in
       Some(LVal(Constant(int_val,8)))
   end
   else if (String.compare f_class_str "c:integer-value-128") = 0 then begin
     let int_fields = ((Swig.invoke f_ast) "fields" (Swig.C_void)) in
-    let i_fld = ((Swig.invoke int_fields) "[]" (Swig.C_int 0)) in		
+    let i_fld = ((Swig.invoke int_fields) "[]" (Swig.C_int 0)) in
     let int_val = Swig.get_int ((Swig.invoke i_fld) "as_int32" (Swig.C_void)) in
       Some(LVal(Constant(int_val,16)))
   end
   else if (String.compare f_class_str "c:uinteger-value-32") = 0 then begin
     let int_fields = ((Swig.invoke f_ast) "fields" (Swig.C_void)) in
-    let i_fld = ((Swig.invoke int_fields) "[]" (Swig.C_int 0)) in		
+    let i_fld = ((Swig.invoke int_fields) "[]" (Swig.C_int 0)) in
     let int_val = Swig.get_int ((Swig.invoke i_fld) "as_int32" (Swig.C_void)) in
       Some(LVal(Constant(int_val,4)))
   end
   else if (String.compare f_class_str "c:uinteger-value-64") = 0 then begin
     let int_fields = ((Swig.invoke f_ast) "fields" (Swig.C_void)) in
-    let i_fld = ((Swig.invoke int_fields) "[]" (Swig.C_int 0)) in		
+    let i_fld = ((Swig.invoke int_fields) "[]" (Swig.C_int 0)) in
     let int_val = Swig.get_int ((Swig.invoke i_fld) "as_int32" (Swig.C_void)) in
       Some(LVal(Constant(int_val,8)))
   end
   else if (String.compare f_class_str "c:integer-value-128") = 0 then begin
     let int_fields = ((Swig.invoke f_ast) "fields" (Swig.C_void)) in
-    let i_fld = ((Swig.invoke int_fields) "[]" (Swig.C_int 0)) in		
+    let i_fld = ((Swig.invoke int_fields) "[]" (Swig.C_int 0)) in
     let int_val = Swig.get_int ((Swig.invoke i_fld) "as_int32" (Swig.C_void)) in
       Some(LVal(Constant(int_val,16)))
   end
@@ -195,7 +195,7 @@ let blk_preds = ref []
         (if not (List.mem (Var(name_str,ty)) !cur_locs) then begin
           cur_locs := Var(name_str,ty) :: !cur_locs
         end)
-      end) 
+      end)
     end);
     Some(LVal(Var(name_str,ty)))
    end
@@ -207,12 +207,12 @@ let blk_preds = ref []
        match neg_field with
          Some(n) -> Some(UNeg(n))
        | None -> None
-     end 
+     end
     else begin
     (* It's a binary op of two Lsums, so parse it if possible - otherwise return a nondet value *)
     let sub_fields = ((Swig.invoke f_ast) "fields" (Swig.C_void)) in
     let left = parse_lsum ((Swig.invoke sub_fields) "[]" (Swig.C_int 0)) in
-    match left with 
+    match left with
       None -> None
     | Some(lft) -> (
       let right = parse_lsum ((Swig.invoke sub_fields) "[]" (Swig.C_int 1)) in
@@ -220,7 +220,7 @@ let blk_preds = ref []
         None -> None
         | Some(rgt) -> (
           let possible_op = String.sub f_class_str 2 1 in
-          (match possible_op with  
+          (match possible_op with
             "+" -> Some(LExpr(lft,Add,rgt))
           | "-" -> Some(LExpr(lft,Sub,rgt))
           | "*" -> Some(LExpr(lft,Mult,rgt))
@@ -244,7 +244,7 @@ let blk_preds = ref []
         match right with
           None -> None
           | Some(rgt) -> (
-            (match possible_op with 
+            (match possible_op with
               "&" -> Some(LExpr(lft,BAnd,rgt))
             | "<" -> Some(LExpr(lft,LShift,rgt))
             | ">" -> Some(LExpr(lft,RShift,rgt))
@@ -258,7 +258,7 @@ let blk_preds = ref []
   else begin
     None
   end
-  
+
   let parse_array_access f =
     let f_ast = ((Swig.invoke f) "as_ast" (Swig.C_void)) in
     let f_fields = ((Swig.invoke f_ast) "fields" (Swig.C_void)) in
@@ -288,7 +288,7 @@ let blk_preds = ref []
     let ptr_type = ((Swig.invoke l_ast) "[]" (Cs._ast_ordinal_NC_POINTED_TO(Swig.C_void))) in
     let ptd_to = ((Swig.invoke ptr_type) "as_ast" (Swig.C_void)) in
     let type_string = Swig.get_string ((Swig.invoke ptd_to) "as_string" (Swig.C_void)) in
-    let ty = get_type type_string in 
+    let ty = get_type type_string in
     let f_index_field = ((Swig.invoke f_sub_fields) "[]" (Swig.C_int 1)) in
     let f_index_ast = ((Swig.invoke f_index_field) "as_ast" (Swig.C_void)) in
     let f_index_val_fields = ((Swig.invoke f_index_ast) "fields" (Swig.C_void)) in
@@ -296,11 +296,11 @@ let blk_preds = ref []
     let int_val = parse_lsum f_index_field in
     let rh = (match int_val with
       Some(x) -> x
-      | _ -> LVal(Constant(0,4))) in 
+      | _ -> LVal(Constant(0,4))) in
     (if not (List.mem (Var(name_array_str,Array(ty))) !cur_args) then begin
       (if not (List.mem (Var(name_array_str,Array(ty))) !glos) then begin
         (if not (List.mem (Var(name_array_str,Array(ty))) !cur_locs) then begin
-         cur_locs := (Var(name_array_str,Array(ty))) :: !cur_locs end) 
+         cur_locs := (Var(name_array_str,Array(ty))) :: !cur_locs end)
       end)
     end);
     ArrayAccess(Var(name_array_str,Array(ty)),rh)
@@ -308,30 +308,30 @@ let blk_preds = ref []
 
 
   (* Flip the conditional value based on the string representation *)
-  let get_conditional str flp = 
+  let get_conditional str flp =
   if (String.contains str '>') then begin
     if (String.contains str '=') then begin
-      if flp then LT else GTE      
+      if flp then LT else GTE
     end
     else begin
-      if flp then LTE else GT	        
+      if flp then LTE else GT
     end
-  end 
+  end
   else if (String.contains str '<') then begin
     if (String.contains str '=') then begin
-      if flp then GT else LTE        
+      if flp then GT else LTE
     end
     else begin
       if flp then GTE else LT
     end
   end
   else if (String.contains str '!') then begin
-    if flp then EQ else NE      	    
+    if flp then EQ else NE
   end
   else begin
     if flp then NE else EQ
   end;;
-	
+
   (*Returns a string representing the arguments to a function call*)
   let rec get_param_vars size loc actuals_in p_str =
   if (size == loc) then []
@@ -344,7 +344,7 @@ let blk_preds = ref []
     let sym_type = ((Swig.invoke p_ast) "[]" (Cs._ast_ordinal_NC_TYPE(Swig.C_void))) in
     let sym_type_str = Swig.get_string ((Swig.invoke sym_type) "as_string" (Swig.C_void)) in
     if (String.length sym_type_str > 33) then begin
-      let sub_type = String.sub sym_type_str 23 10 in 
+      let sub_type = String.sub sym_type_str 23 10 in
       if ((String.compare sub_type "java_array") = 0) then begin
         let name_length = name_str ^ "_length" in
         let name_array = name_str ^ "_array" in
@@ -363,8 +363,8 @@ let blk_preds = ref []
         let ptr_type = ((Swig.invoke ptr_t_ast) "[]" (Cs._ast_ordinal_NC_POINTED_TO(Swig.C_void))) in
         let ptd_to = ((Swig.invoke ptr_type) "as_ast" (Swig.C_void)) in
         let type_string = Swig.get_string ((Swig.invoke ptd_to) "as_string" (Swig.C_void)) in
-        let ty = get_type type_string in  
-        let l_var = LVal(Var(name_length,Int(4))) in 
+        let ty = get_type type_string in
+        let l_var = LVal(Var(name_length,Int(4))) in
         let a_var = LVal(Var(name_array,Array(ty))) in
         [l_var;a_var] @ (get_param_vars size (loc + 1) actuals_in p_str)
       end else begin
@@ -383,17 +383,17 @@ let blk_preds = ref []
   let rec iter_points size point =
   if (size == 0) then point
   else
-  let curPoint = ((Swig.invoke point) "solitary_cfg_target" (Swig.C_void)) in 
+  let curPoint = ((Swig.invoke point) "solitary_cfg_target" (Swig.C_void)) in
   let point_string = Swig.get_string ((Swig.invoke curPoint) "as_string" (Swig.C_void)) in
   (*Printf.printf "iterpoint: %s\n" point_string;*)
   iter_points (size-1) curPoint;;
 
   (* Given a binary op, convert it to + or - (or the opposite if necessary) *)
-  let convert_op op_str = 
+  let convert_op op_str =
     if (String.compare op_str "+") = 0 then begin Add end
     else if (String.compare op_str "-") = 0 then begin Sub end
-    else if (String.compare op_str "*") = 0 then begin Mult end 
-    else if (String.compare op_str "/") = 0 then begin Div end 
+    else if (String.compare op_str "*") = 0 then begin Mult end
+    else if (String.compare op_str "/") = 0 then begin Div end
     else if (String.compare op_str "%") = 0 then begin Rem end
     else begin Rem end
 
@@ -420,16 +420,16 @@ let blk_preds = ref []
       prev_call := false;
       let func_name = (Swig.get_string ((Swig.invoke point) "as_string" (Swig.C_void))) in
       (*We are at an assert type: IAssert of cond*)
-      if (String.compare func_name "[call-site] LAssert::Assert:void(boolean)") = 0 then begin 
+      if (String.compare func_name "[call-site] LAssert::Assert:void(boolean)") = 0 then begin
         let pred = ((Swig.invoke point) "cfg_predecessors" (Swig.C_void)) in
         let pv = ((Swig.invoke pred) "to_vector" (Swig.C_void)) in
         let cond_edge = ((Swig.invoke pv) "[]" (Swig.C_int 0)) in
         let condit = ((Swig.invoke cond_edge) "get_first" (Swig.C_void)) in
-	(*Printf.printf "ass: %s\n" (Swig.get_string ((Swig.invoke condit) "as_string" (Swig.C_void)));*)        
-	let assign_ast = ((Swig.invoke condit) "get_ast" (Cs._ast_family_C_NORMALIZED(Swig.C_void))) in
+    (*Printf.printf "ass: %s\n" (Swig.get_string ((Swig.invoke condit) "as_string" (Swig.C_void)));*)
+    let assign_ast = ((Swig.invoke condit) "get_ast" (Cs._ast_family_C_NORMALIZED(Swig.C_void))) in
         let fields = ((Swig.invoke assign_ast) "fields" (Swig.C_void)) in
         let rhs = ((Swig.invoke fields) "[]" (Swig.C_int 1)) in
-	let pred_string = (Swig.get_string ((Swig.invoke rhs) "as_string" (Swig.C_void))) in
+    let pred_string = (Swig.get_string ((Swig.invoke rhs) "as_string" (Swig.C_void))) in
         let cond_ast = ((Swig.invoke rhs) "as_ast" (Cs._ast_family_C_NORMALIZED(Swig.C_void))) in
         let cond_class = ((Swig.invoke cond_ast) "get_class" (Swig.C_void)) in
         let cond_class_str = (Swig.get_string ((Swig.invoke cond_class) "as_string" (Swig.C_void))) in
@@ -444,12 +444,12 @@ let blk_preds = ref []
         let left_hand = parse_lsum ((Swig.invoke fields2) "[]" (Swig.C_int 0)) in
         let right_hand = parse_lsum ((Swig.invoke fields2) "[]" (Swig.C_int 1)) in
         was_assert := true;
-        match left_hand with 
-          None -> [] 
+        match left_hand with
+          None -> []
         | Some (lft) -> (
           match right_hand with
             None -> []
-          | Some(rgt) ->                
+          | Some(rgt) ->
             [Assert(Cond(lft,cond,rgt),assert_string)]
          );
       end
@@ -464,7 +464,7 @@ let blk_preds = ref []
         (*Get the string representation of the arguments*)
         let var_list = (if (act_in_size > 0) then begin
           get_param_vars act_in_size 0 actuals_in ""
-	end
+    end
         else [])
         in
         was_assert := true;
@@ -484,10 +484,10 @@ let blk_preds = ref []
         (if not (List.mem (Var(assign,ty)) !cur_args) then begin
           (if not (List.mem (Var(assign,ty)) !glos) then begin
             (if not (List.mem (Var(assign,ty)) !cur_locs) then begin
-               cur_locs := Var(assign,ty) :: !cur_locs end) 
+               cur_locs := Var(assign,ty) :: !cur_locs end)
           end)
         end);
-	[Assign(LVal(Var(assign,ty)),Havoc)]
+    [Assign(LVal(Var(assign,ty)),Havoc)]
       end
       else begin
       (* This is regular function call *)
@@ -503,7 +503,7 @@ let blk_preds = ref []
         (*Get the string representation of the arguments*)
         let var_list = (if (act_in_size > 0) then begin
           get_param_vars act_in_size 0 actuals_in ""
-	end
+    end
         else [])
         in
         let cur_funct = List.find (fun x -> x.fname = fn_name) !procs_lst in
@@ -527,16 +527,16 @@ let blk_preds = ref []
         (if not (List.mem (Var(assign,ty)) !cur_args) then begin
           (if not (List.mem (Var(assign,ty)) !glos) then begin
             (if not (List.mem (Var(assign,ty)) !cur_locs) then begin
-               cur_locs := Var(assign,ty) :: !cur_locs end) 
+               cur_locs := Var(assign,ty) :: !cur_locs end)
           end)
         end);
         if same_length then begin
-	  [Call(Some(LVal(Var(assign,ty))),fn_name,var_list)]
-	end else begin
+      [Call(Some(LVal(Var(assign,ty))),fn_name,var_list)]
+    end else begin
           [Call(Some(LVal(Var(assign,ty))),fn_name,[])]
         end
       end else
-        if same_length then begin		
+        if same_length then begin
           [Call(None,fn_name,var_list)]
         end else begin
           [Call(None,fn_name,[])]
@@ -553,7 +553,7 @@ let blk_preds = ref []
     let ast_class = ((Swig.invoke exp_ast) "get_class" (Swig.C_void)) in
     let ast_string = (Swig.get_string ((Swig.invoke ast_class) "as_string" (Swig.C_void))) in
     (*Printf.printf "ASTExpressionClass: %s\n" ast_string;*)
-    if (String.compare ast_string "c:assume-expr") = 0 then begin     
+    if (String.compare ast_string "c:assume-expr") = 0 then begin
       let fields = ((Swig.invoke exp_ast) "fields" (Swig.C_void)) in
       let f1 = ((Swig.invoke fields) "[]" (Swig.C_int 0)) in  let pred = ((Swig.invoke point) "cfg_predecessors" (Swig.C_void)) in
       let cond_ast = ((Swig.invoke f1) "as_ast" (Cs._ast_family_C_NORMALIZED(Swig.C_void))) in
@@ -567,12 +567,12 @@ let blk_preds = ref []
       (* cond is lsum*comp*lsum*)
       let left_hand = parse_lsum ((Swig.invoke fields2) "[]" (Swig.C_int 0)) in
       let right_hand = parse_lsum ((Swig.invoke fields2) "[]" (Swig.C_int 1)) in
-      match left_hand with 
-        None -> [] 
+      match left_hand with
+        None -> []
       | Some (lft) -> (
         match right_hand with
           None -> []
-        | Some(rgt) ->                
+        | Some(rgt) ->
           [Assume(Cond(lft,cond,rgt))]
        );
     end
@@ -582,17 +582,17 @@ let blk_preds = ref []
     let f1_ast = ((Swig.invoke f1) "as_ast" (Swig.C_void)) in
     let f1_class = ((Swig.invoke f1_ast) "get_class" (Swig.C_void)) in
     let f1_class_str = Swig.get_string ((Swig.invoke f1_class) "as_string" (Swig.C_void)) in
-    let array_store = ref false in 
+    let array_store = ref false in
     let lh = (if ((String.compare "c:dot" f1_class_str) = 0) then begin
       let f1_fields = ((Swig.invoke f1_ast) "fields" (Swig.C_void)) in
       let f1_f1 = ((Swig.invoke f1_fields) "[]" (Swig.C_int 0)) in
       array_store := true;
       parse_length f1_f1 end
-      else if ((String.compare "c:ptr" f1_class_str) = 0) then begin 
+      else if ((String.compare "c:ptr" f1_class_str) = 0) then begin
       array_store := true;
       parse_array_access f1 end
-      else begin 
-        let f1_name = ((Swig.invoke f1_ast) "[]" (Cs._ast_ordinal_NC_NAME(Swig.C_void))) in 
+      else begin
+        let f1_name = ((Swig.invoke f1_ast) "[]" (Cs._ast_ordinal_NC_NAME(Swig.C_void))) in
         let f1_name_str = Swig.get_string ((Swig.invoke f1_name) "as_str" (Swig.C_void)) in
         let sym_type = ((Swig.invoke f1_ast) "[]" (Cs._ast_ordinal_NC_TYPE(Swig.C_void))) in
         let sym_type_str = Swig.get_string ((Swig.invoke sym_type) "as_string" (Swig.C_void)) in
@@ -601,8 +601,8 @@ let blk_preds = ref []
         (if not (List.mem (Var(f1_name_str,ty)) !cur_args) then begin
           (if not (List.mem (Var(f1_name_str,ty)) !glos) then begin
             (if not (List.mem (Var(f1_name_str,ty)) !cur_locs) then begin
-               cur_locs := Var(f1_name_str,ty) :: !cur_locs end) 
-          end) 
+               cur_locs := Var(f1_name_str,ty) :: !cur_locs end)
+          end)
         end);
         LVal(Var(f1_name_str,ty)) end) in
     let f2 = ((Swig.invoke fields) "[]" (Swig.C_int 1)) in
@@ -617,17 +617,17 @@ let blk_preds = ref []
       let f2_f1 = ((Swig.invoke f2_fields) "[]" (Swig.C_int 0)) in
       let f2_f1_ast = ((Swig.invoke f2_f1) "as_ast" (Swig.C_void)) in
       (* check for negative nums, they lack some of the fields below *)
-      if !array_store then begin 
+      if !array_store then begin
             let f2_f2 = ((Swig.invoke f2_fields) "[]" (Swig.C_int 1)) in
         let f_var = parse_var f2_f2 in
-        let f_var2 = parse_var f2_f1 in 
+        let f_var2 = parse_var f2_f1 in
         let f1_possible_op = (String.sub f2_class_str 2 1) in
         let op = convert_op f1_possible_op in
           [BinExpr(lh,f_var2,op,f_var)]
         end
       else begin
-        let f2_f1_name_str = Swig.get_string ((Swig.invoke ((Swig.invoke f2_f1_ast) "[]" (Cs._ast_ordinal_NC_NAME(Swig.C_void)))) "as_str" (Swig.C_void)) in 
-        let f1_name = ((Swig.invoke f1_ast) "[]" (Cs._ast_ordinal_NC_NAME(Swig.C_void))) in 
+        let f2_f1_name_str = Swig.get_string ((Swig.invoke ((Swig.invoke f2_f1_ast) "[]" (Cs._ast_ordinal_NC_NAME(Swig.C_void)))) "as_str" (Swig.C_void)) in
+        let f1_name = ((Swig.invoke f1_ast) "[]" (Cs._ast_ordinal_NC_NAME(Swig.C_void))) in
         let f1_name_str = Swig.get_string ((Swig.invoke f1_name) "as_str" (Swig.C_void)) in
         if ((String.compare f2_f1_name_str f1_name_str) = 0) then begin
         let f2_f2 = ((Swig.invoke f2_fields) "[]" (Swig.C_int 1)) in
@@ -639,28 +639,28 @@ let blk_preds = ref []
       else begin
         let f2_f2 = ((Swig.invoke f2_fields) "[]" (Swig.C_int 1)) in
         let f_var = parse_var f2_f2 in
-        let f_var2 = parse_var f2_f1 in 
+        let f_var2 = parse_var f2_f1 in
         let f1_possible_op = (String.sub f2_class_str 2 1) in
         let op = convert_op f1_possible_op in
           [BinExpr(lh,f_var2,op,f_var)]
         end end
-    end 
+    end
     else if (String.compare f2_class_super_str "c:logical") = 0 then begin
       let f2_fields = ((Swig.invoke f2_ast) "fields" (Swig.C_void)) in
       let f2_f1 = ((Swig.invoke f2_fields) "[]" (Swig.C_int 0)) in
       let f2_f1_ast = ((Swig.invoke f2_f1) "as_ast" (Swig.C_void)) in
-      (* check for negative nums, they lack some of the fields below *) 
-      if !array_store then begin 
+      (* check for negative nums, they lack some of the fields below *)
+      if !array_store then begin
         let f2_f2 = ((Swig.invoke f2_fields) "[]" (Swig.C_int 1)) in
         let f_var = parse_var f2_f2 in
-        let f_var2 = parse_var f2_f1 in 
+        let f_var2 = parse_var f2_f1 in
         let f1_possible_op = (String.sub f2_class_str 2 1) in
         let op = convert_bop f1_possible_op in
           [BinExpr(lh,f_var2,op,f_var)]
         end
       else begin
-        let f2_f1_name_str = Swig.get_string ((Swig.invoke ((Swig.invoke f2_f1_ast) "[]" (Cs._ast_ordinal_NC_NAME(Swig.C_void)))) "as_str" (Swig.C_void)) in 
-        let f1_name = ((Swig.invoke f1_ast) "[]" (Cs._ast_ordinal_NC_NAME(Swig.C_void))) in 
+        let f2_f1_name_str = Swig.get_string ((Swig.invoke ((Swig.invoke f2_f1_ast) "[]" (Cs._ast_ordinal_NC_NAME(Swig.C_void)))) "as_str" (Swig.C_void)) in
+        let f1_name = ((Swig.invoke f1_ast) "[]" (Cs._ast_ordinal_NC_NAME(Swig.C_void))) in
         let f1_name_str = Swig.get_string ((Swig.invoke f1_name) "as_str" (Swig.C_void)) in
         if ((String.compare f2_f1_name_str f1_name_str) = 0) then begin
         let f2_f2 = ((Swig.invoke f2_fields) "[]" (Swig.C_int 1)) in
@@ -672,7 +672,7 @@ let blk_preds = ref []
       else begin
         let f2_f2 = ((Swig.invoke f2_fields) "[]" (Swig.C_int 1)) in
         let f_var = parse_var f2_f2 in
-        let f_var2 = parse_var f2_f1 in 
+        let f_var2 = parse_var f2_f1 in
         let f1_possible_op = (String.sub f2_class_str 2 1) in
         let op = convert_bop f1_possible_op in
           [BinExpr(lh,f_var2,op,f_var)]
@@ -684,15 +684,15 @@ let blk_preds = ref []
     if ((String.compare "c:dot" f2_class_str) = 0) then begin
       let f2_fields = ((Swig.invoke f2_ast) "fields" (Swig.C_void)) in
       let f2_f1 = ((Swig.invoke f2_fields) "[]" (Swig.C_int 0)) in
-      let rh = parse_length f2_f1 in 
+      let rh = parse_length f2_f1 in
       [Assign(lh,rh)] end
-    else if ((String.compare "c:ptr" f2_class_str) = 0) then begin 
+    else if ((String.compare "c:ptr" f2_class_str) = 0) then begin
       let f2_fields = ((Swig.invoke f2_ast) "fields" (Swig.C_void)) in
       let rh = parse_array_access f2 in
       [Assign(lh,rh)] end
     else begin
     let f_var = parse_var f2 in
-    let f1_name = ((Swig.invoke f1_ast) "[]" (Cs._ast_ordinal_NC_NAME(Swig.C_void))) in 
+    let f1_name = ((Swig.invoke f1_ast) "[]" (Cs._ast_ordinal_NC_NAME(Swig.C_void))) in
     let f1_name_str = Swig.get_string ((Swig.invoke f1_name) "as_str" (Swig.C_void)) in
     let bc = String.compare f1_name_str "bytecodecost" in
     if bc = 0 then begin
@@ -702,11 +702,11 @@ let blk_preds = ref []
     end
     end
     end
-    with 
+    with
       | _ -> []
     end
   end
-  else begin 
+  else begin
     prev_call := false;
     []
   end
@@ -714,7 +714,7 @@ let blk_preds = ref []
   | _ -> []
 
   (* For a list of points, iterate and convert the current point *)
-  let rec convert_instructions current last inst_list prev_list = 
+  let rec convert_instructions current last inst_list prev_list =
   let point_string = Swig.get_string ((Swig.invoke current) "as_string" (Swig.C_void)) in
   (*Printf.printf "point: %s\n" point_string;*)
   let last_string = Swig.get_string ((Swig.invoke last) "as_string" (Swig.C_void)) in
@@ -733,7 +733,7 @@ let blk_preds = ref []
       inst_list @ prev_list end
   ) in
   was_assert := false;
-  let equality = Swig.get_bool ((Swig.invoke next_point) "==" (last)) in 
+  let equality = Swig.get_bool ((Swig.invoke next_point) "==" (last)) in
   if equality then begin
     inst_list @ prev_list @ next_list
   end else begin
@@ -742,7 +742,7 @@ let blk_preds = ref []
   end;;
 
   (* For each block, convert the points of instructions *)
-  let convert_block_insts block = 
+  let convert_block_insts block =
   let f_point = ((Swig.invoke block) "first_point" (Swig.C_void)) in
   let l_point = ((Swig.invoke block) "last_point" (Swig.C_void)) in
     convert_instructions f_point l_point [] [];;
@@ -758,7 +758,7 @@ let blk_preds = ref []
     (*Get the string reresentation of the comparison operator - this can be 1 or 2 characters long*)
     let conditional = (try String.sub cond_class_str 2 2 with
       Invalid_argument _ -> (String.sub cond_class_str 2 1)) in
-    let cond = get_conditional conditional false in 
+    let cond = get_conditional conditional false in
     let fields2 = ((Swig.invoke cond_ast) "fields" (Swig.C_void)) in
     let left_hand = parse_lsum ((Swig.invoke fields2) "[]" (Swig.C_int 0)) in
     let right_hand = parse_lsum ((Swig.invoke fields2) "[]" (Swig.C_int 1)) in
@@ -773,11 +773,11 @@ let blk_preds = ref []
   else
       Some(Jmp)
 
-  (* Takes the current functions return variable, a basic block, the list of  all ready visited basic blocks, and a precondition 
+  (* Takes the current functions return variable, a basic block, the list of  all ready visited basic blocks, and a precondition
   and returns the list of basic block representations for all the later blocks, the list of all ready visited block ids, the current id, and the list of
   block predecessors for this block *)
   let rec get_blocks_helper basic_block return_var already_checked : (bblock list * (int * int) list * int * (int * int) list) =
-  let inst_list = convert_block_insts basic_block in 
+  let inst_list = convert_block_insts basic_block in
   let first_point = ((Swig.invoke basic_block) "first_point" (Swig.C_void)) in
   let point_string = Swig.get_string ((Swig.invoke first_point) "as_string" (Swig.C_void)) in
   let last_point = ((Swig.invoke basic_block) "last_point" (Swig.C_void)) in
@@ -802,7 +802,7 @@ let blk_preds = ref []
       let is_point = List.mem_assoc point_id !blk_preds in
       (* If this this block isn't in the list of block preds for the child block, add it *)
       (if not (is_point) then begin
-	  blk_preds := ((point_id, [cur_id]) :: !blk_preds);
+      blk_preds := ((point_id, [cur_id]) :: !blk_preds);
       end
       else begin
         let cur_preds = List.assoc point_id !blk_preds in
@@ -848,28 +848,28 @@ let blk_preds = ref []
     let cur_bp = [(cur_id,f_point_id)] in
     [ret_block],cur_ac,cur_id,cur_bp
   end
-	
-  (* ***********wrapper for getting blocks, post processing back edges *) 
-  let get_blocks point_node return_var already_checked: bblock list = 
+
+  (* ***********wrapper for getting blocks, post processing back edges *)
+  let get_blocks point_node return_var already_checked: bblock list =
     let null_prec = None in
     node_id := 0;
     blk_preds := [];
     let entry_block = ((Swig.invoke point_node) "get_basic_block" (Swig.C_void)) in
     let blocks, point_to_block_id_map, _, block_to_point_map = (get_blocks_helper entry_block return_var already_checked) in
     let cur_id = ref 0 in
-    let post_process_block block = 
+    let post_process_block block =
       (match block with
       {btype=btyp} ->
         let fix_ids x : int =
           if x < 0 then
             let id = 0 - x in
             if (List.mem_assoc (id) point_to_block_id_map)
-            then (List.assoc id point_to_block_id_map) 
+            then (List.assoc id point_to_block_id_map)
             else (begin
-              Printf.printf "***BACK EDGE FOR NODE [%d] NOT FOUND IN MAP -- ERROR.\n" id ; 
+              Printf.printf "***BACK EDGE FOR NODE [%d] NOT FOUND IN MAP -- ERROR.\n" id ;
               -1
              end)
-           else 
+           else
              x
         in
         let new_branch = (match btyp with
@@ -882,7 +882,7 @@ let blk_preds = ref []
           Printf.printf "ERROR: MISSING BB ID\n";
             1 end
         else List.assoc !cur_id block_to_point_map) in
-        let preds = 
+        let preds =
           (if not (List.mem_assoc p_id !blk_preds) then begin [-1] end
           else begin List.assoc p_id !blk_preds end) in
         cur_id := !cur_id + 1;
@@ -892,10 +892,10 @@ let blk_preds = ref []
       List.map post_process_block blocks
 
   (* **********function to print locals for a procedure *)
-  let get_locals proc = (*C4B-FLOCS*)
+  let get_locals proc args = (*C4B-FLOCS*)
   let ret = ref [] in
   (try
-    let locals = ((Swig.invoke proc) "local_symbols" (Swig.C_void)) in  
+    let locals = ((Swig.invoke proc) "local_symbols" (Swig.C_void)) in
     while not (Swig.get_bool ((Swig.invoke locals) "at_end" (Swig.C_void))) do
       let symbol = ((Swig.invoke locals) "__ref__" (Swig.C_void)) in
         ((Swig.invoke locals) "advance" (Swig.C_void));
@@ -910,8 +910,8 @@ let blk_preds = ref []
             let sym_type = ((Swig.invoke symbol) "get_type" (Cs._ast_family_C_NORMALIZED(Swig.C_void))) in
             let sym_type_str = Swig.get_string ((Swig.invoke sym_type) "as_string" (Swig.C_void)) in
             if (String.length sym_type_str > 16) then begin
-              let sub_type = String.sub sym_type_str 7 10 in 
-              if ((String.compare sub_type "java_array") = 0) then begin 
+              let sub_type = String.sub sym_type_str 7 10 in
+              if ((String.compare sub_type "java_array") = 0) then begin
                 let name_length = name_str ^ "_length" in
                 let name_array = name_str ^ "_array" in
                 let p_fields = ((Swig.invoke param_ast) "fields" (Swig.C_void)) in
@@ -926,25 +926,31 @@ let blk_preds = ref []
               let ptr_type = ((Swig.invoke ptr_t) "[]" (Cs._ast_ordinal_NC_POINTED_TO(Swig.C_void))) in
               let ptd_to = ((Swig.invoke ptr_type) "as_ast" (Swig.C_void)) in
               let type_string = Swig.get_string ((Swig.invoke ptd_to) "as_string" (Swig.C_void)) in
-              let ty = get_type type_string in  
+              let ty = get_type type_string in
+                if not (List.mem (Var(name_length,Int(4))) args) then begin
                 ret := Var(name_length,Int(4)) :: !ret;
                 ret := Var(name_array,Array(ty)) :: !ret;
+                end
               end
-              else begin 
+              else begin
                 let ty = get_type sym_type_str in
+                if not (List.mem (Var(name_str,ty)) args) then begin
                 ret := Var(name_str,ty)::!ret end
+                end
             end
-            else begin 
+            else begin
               let ty = get_type sym_type_str in
+              if not (List.mem (Var(name_str,ty)) args) then begin
               ret := Var(name_str,ty)::!ret end
+              end
           end;
         with
           | _ -> (
           let sym_type = ((Swig.invoke symbol) "get_type" (Cs._ast_family_C_NORMALIZED(Swig.C_void))) in
             let sym_type_str = Swig.get_string ((Swig.invoke sym_type) "as_string" (Swig.C_void)) in
             if (String.length sym_type_str > 16) then begin
-              let sub_type = String.sub sym_type_str 7 10 in 
-              if ((String.compare sub_type "java_array") = 0) then begin 
+              let sub_type = String.sub sym_type_str 7 10 in
+              if ((String.compare sub_type "java_array") = 0) then begin
                 let name_length = name_str ^ "_length" in
                 let name_array = name_str ^ "_array" in
                 let p_fields = ((Swig.invoke param_ast) "fields" (Swig.C_void)) in
@@ -959,17 +965,23 @@ let blk_preds = ref []
               let ptr_type = ((Swig.invoke ptr_t) "[]" (Cs._ast_ordinal_NC_POINTED_TO(Swig.C_void))) in
               let ptd_to = ((Swig.invoke ptr_type) "as_ast" (Swig.C_void)) in
               let type_string = Swig.get_string ((Swig.invoke ptd_to) "as_string" (Swig.C_void)) in
-              let ty = get_type type_string in  
+              let ty = get_type type_string in
+              if not (List.mem (Var(name_length,Int(4))) args) then begin
                 ret := Var(name_length,Int(4)) :: !ret;
                 ret := Var(name_array,Array(ty)) :: !ret;
               end
-              else begin 
+              end
+              else begin
                 let ty = get_type sym_type_str in
+                if not (List.mem (Var(name_str,ty)) args) then begin
                 ret := Var(name_str,ty)::!ret end
+                end
             end
-            else begin 
+            else begin
               let ty = get_type sym_type_str in
-              ret := Var(name_str,ty)::!ret end));
+              if not (List.mem (Var(name_str,ty)) args) then begin
+              ret := Var(name_str,ty)::!ret end
+              end));
     done
   with
   | _ -> ());
@@ -979,8 +991,8 @@ let blk_preds = ref []
   let get_funargs proc = (*C4B-FARGS*)
   let ret = ref [] in
     (try
-      let args = ((Swig.invoke proc) "formal_ins_vector" (Swig.C_void)) in  
-      let size = (Swig.get_int ((Swig.invoke args) "size" (Swig.C_void))) in	        
+      let args = ((Swig.invoke proc) "formal_ins_vector" (Swig.C_void)) in
+      let size = (Swig.get_int ((Swig.invoke args) "size" (Swig.C_void))) in
       for j = 0 to (size - 1) do
         let arg = ((Swig.invoke args) "[]" (Swig.C_int j)) in
         let arg_ast = ((Swig.invoke arg) "get_ast" (Cs._ast_family_C_NORMALIZED(Swig.C_void))) in
@@ -994,8 +1006,8 @@ let blk_preds = ref []
             let sym_type = ((Swig.invoke param_ast) "[]" (Cs._ast_ordinal_NC_TYPE(Swig.C_void))) in
             let sym_type_str = Swig.get_string ((Swig.invoke sym_type) "as_string" (Swig.C_void)) in
             if (String.length sym_type_str > 33) then begin
-              let sub_type = String.sub sym_type_str 23 10 in 
-              if ((String.compare sub_type "java_array") = 0) then begin 
+              let sub_type = String.sub sym_type_str 23 10 in
+              if ((String.compare sub_type "java_array") = 0) then begin
                 let name_length = name_str ^ "_length" in
                 let name_array = name_str ^ "_array" in
               let p_fields = ((Swig.invoke param_ast) "fields" (Swig.C_void)) in
@@ -1010,7 +1022,7 @@ let blk_preds = ref []
               let ptr_type = ((Swig.invoke ptr_t) "[]" (Cs._ast_ordinal_NC_POINTED_TO(Swig.C_void))) in
               let ptd_to = ((Swig.invoke ptr_type) "as_ast" (Swig.C_void)) in
               let type_string = Swig.get_string ((Swig.invoke ptd_to) "as_string" (Swig.C_void)) in
-              let ty = get_type type_string in  
+              let ty = get_type type_string in
                 ret := (List.append !ret [Var(name_length,Int(4))]);
                 ret := (List.append !ret [Var(name_array,Array(ty))]);
               end
@@ -1019,10 +1031,10 @@ let blk_preds = ref []
                 ret := (List.append !ret [Var(name_str,ty)]);
               end;
             end
-            else begin 
+            else begin
               let ty = get_type sym_type_str in
               ret := (List.append !ret [Var(name_str,ty)]);
-            end; 
+            end;
       done
     with
     | _ -> ());
@@ -1031,7 +1043,7 @@ let blk_preds = ref []
 
   (* Get the list of globals for the compunit *)
   let update_glos c_unit =
-    (try 
+    (try
       let g_it = ((Swig.invoke c_unit) "global_symbols" (Swig.C_void)) in
       while not (Swig.get_bool ((Swig.invoke g_it) "at_end" (Swig.C_void))) do
         let cur_sym = ((Swig.invoke g_it) "__ref__" (Swig.C_void)) in
@@ -1041,10 +1053,10 @@ let blk_preds = ref []
           let sym_type_str = Swig.get_string ((Swig.invoke sym_type) "as_string" (Swig.C_void)) in
           let g_name = (Swig.get_string ((Swig.invoke cur_sym) "name" (Swig.C_void))) in
           if (String.length sym_type_str > 16) then begin
-            let sub_type = String.sub sym_type_str 7 10 in 
+            let sub_type = String.sub sym_type_str 7 10 in
             if ((String.compare sub_type "java_array") = 0) then begin
               let g_name_length = g_name ^ "_length" in
-              let g_name_array = g_name ^ "_array" in         
+              let g_name_array = g_name ^ "_array" in
               let g_ast = ((Swig.invoke cur_sym) "get_ast" (Swig.C_void)) in
               let g_fields = ((Swig.invoke g_ast) "fields" (Swig.C_void)) in
               let typ = ((Swig.invoke g_fields) "[]" (Swig.C_int 1)) in
@@ -1068,7 +1080,7 @@ let blk_preds = ref []
           end
           else begin
           let ty = get_type sym_type_str in
-          glos := Var(g_name,ty) :: !glos end 
+          glos := Var(g_name,ty) :: !glos end
         end
       done
     with
@@ -1083,15 +1095,15 @@ let blk_preds = ref []
       let num_procs = (Swig.get_int ((Swig.invoke procs) "size" Swig.C_void)) in
       (* For each procedure, create a temporary function. *)
       for i = 0 to (num_procs - 1) do
-	let proc = ((Swig.invoke procs) "[]" (Swig.C_int i)) in
+    let proc = ((Swig.invoke procs) "[]" (Swig.C_int i)) in
         let proc_name = (Swig.get_string ((Swig.invoke proc) "name" Swig.C_void)) in  (*C4B-FNAME*)
-	if proc_name <> "assert" && proc_name <> "#System_Initialization" then begin
-	  let args = get_funargs proc in
-          let locs = get_locals proc in
-	  let start_funct = !temp_func in 
-	  let funct = {start_funct with fname=proc_name; fargs=args; flocs=locs} in
-	  procs_lst := !procs_lst @ [funct];
-	end
+    if proc_name <> "assert" && proc_name <> "#System_Initialization" then begin
+      let args = get_funargs proc in
+      let locs = get_locals proc args in
+      let start_funct = !temp_func in
+      let funct = {start_funct with fname=proc_name; fargs=args; flocs=locs} in
+      procs_lst := !procs_lst @ [funct];
+    end
       done;
       for j = 0 to (num_procs - 1) do
       (* For each procedure - translate it to a C4B func desc *)
@@ -1103,27 +1115,27 @@ let blk_preds = ref []
         let main_attr = Cs._func_attrs_MAIN(Swig.C_void) in
         let comp = Swig.get_bool ((Swig.invoke attr) "==" (main_attr)) in
         if proc_name <> "assert" && proc_name <> "#System_Initialization" then begin
-	(* Try to get some IR elements *)
-	(try 
+    (* Try to get some IR elements *)
+    (try
           (try
-	  let proc_entry_bb = ((Swig.invoke proc) "entry_basic_block" (Swig.C_void)) in
-	  let proc_entry_first_point = ((Swig.invoke proc_entry_bb) "first_point" (Swig.C_void)) in
+      let proc_entry_bb = ((Swig.invoke proc) "entry_basic_block" (Swig.C_void)) in
+      let proc_entry_first_point = ((Swig.invoke proc_entry_bb) "first_point" (Swig.C_void)) in
           let cur_funct = List.find (fun x -> x.fname = proc_name) !procs_lst in
           let f_locs = cur_funct.flocs in
-          let return_var = (match (List.filter (fun elt -> match elt with Var(elt_string, typ) -> 
+          let return_var = (match (List.filter (fun elt -> match elt with Var(elt_string, typ) ->
                                                                                                   let name_l = String.length elt_string in
                                                                                                   if name_l > 7 then begin
                                                                                                     let start_value = name_l - 7 in
                                                                                                     let sub_ret = String.sub elt_string start_value 7 in
                                                                                                     (String.compare sub_ret "$return") = 0
                                                                                                   end else false
-							   | _ -> false) f_locs) with
+                               | _ -> false) f_locs) with
               ret_var :: _ -> Some(ret_var)
               | [] -> None) in
-	  cur_args := cur_funct.fargs;
-	  cur_locs := f_locs;
-	  let block_list = get_blocks proc_entry_first_point return_var [] in
-	  let blocks = Array.of_list block_list in 
+      cur_args := cur_funct.fargs;
+      cur_locs := f_locs;
+      let block_list = get_blocks proc_entry_first_point return_var [] in
+      let blocks = Array.of_list block_list in
           if (comp) then begin
               let entry_block = Array.get blocks 0 in
               let new_inst = Assign(LVal(Var("bytecodecost",Int(4))),LVal(Constant(0,4))) in
@@ -1132,19 +1144,19 @@ let blk_preds = ref []
               let new_entry_block = {entry_block with binsts=updated_binsts} in
               Array.set blocks 0 new_entry_block;
           end;
-	  let updated_list = List.filter (fun y -> y.fname <> proc_name) !procs_lst in
-	  let funct = (if (Array.length blocks > 0) then begin 
-	    {cur_funct with fbody=blocks; flocs = !cur_locs; fret = return_var} end else begin
-	    {cur_funct with flocs = !cur_locs; fret = return_var} end) in
-	  procs_lst := updated_list @ [funct];
-	  if (comp) then begin
-	      main := funct;
-	  end
-        with 
+      let updated_list = List.filter (fun y -> y.fname <> proc_name) !procs_lst in
+      let funct = (if (Array.length blocks > 0) then begin
+        {cur_funct with fbody=blocks; flocs = !cur_locs; fret = return_var} end else begin
+        {cur_funct with flocs = !cur_locs; fret = return_var} end) in
+      procs_lst := updated_list @ [funct];
+      if (comp) then begin
+          main := funct;
+      end
+        with
         | _ -> let updated_list = List.filter (fun y -> y.fname <> proc_name) !procs_lst in
                procs_lst := updated_list;);
         with
-        | _ -> ()); 
+        | _ -> ());
         end
       done
     with
@@ -1152,7 +1164,7 @@ let blk_preds = ref []
 
   (*Main driver code*)
   let convert_cs () =
-    let prog = Cs._project_current(Swig.C_void) in 
+    let prog = Cs._project_current(Swig.C_void) in
     let c_vector = ((Swig.invoke prog) "compunits_vector" (Swig.C_void)) in
     let c_size = (Swig.get_int ((Swig.invoke c_vector) "size" (Swig.C_void))) in
     for n = 0 to (c_size - 1) do
@@ -1169,97 +1181,97 @@ let blk_preds = ref []
   let get_main () = !main
 
 
-let print_bop op =
+let print_bop oc op =
   match op with
-  | Add -> Printf.printf " + " 
-  | Sub -> Printf.printf " - "
-  | Mult -> Printf.printf " * "
-  | Div -> Printf.printf " / "
-  | Rem -> Printf.printf " Mod "
-  | LShift -> Printf.printf " << "
-  | RShift -> Printf.printf " >> "
-  | BXor -> Printf.printf " ^ "
-  | BAnd -> Printf.printf " & "
-  | BOr -> Printf.printf " | "
+  | Add -> Printf.fprintf oc " + "
+  | Sub -> Printf.fprintf oc " - "
+  | Mult -> Printf.fprintf oc " * "
+  | Div -> Printf.fprintf oc " / "
+  | Rem -> Printf.fprintf oc " Mod "
+  | LShift -> Printf.fprintf oc " << "
+  | RShift -> Printf.fprintf oc " >> "
+  | BXor -> Printf.fprintf oc " ^ "
+  | BAnd -> Printf.fprintf oc " & "
+  | BOr -> Printf.fprintf oc " | "
 
-let print_var x =
+let print_var oc x =
   match x with
-    | Var(n,Array(_)) -> Printf.printf "%s[] " n
-    | Var(n,_) -> Printf.printf "%s " n
-    | Constant(v,s) -> Printf.printf "%d " v
+    | Var(n,Array(_)) -> Printf.fprintf oc "%s[] " n
+    | Var(n,_) -> Printf.fprintf oc "%s " n
+    | Constant(v,s) -> Printf.fprintf oc "%d " v
 
-let rec print_lsum lsum =
+let rec print_lsum oc lsum =
   match lsum with
-    LExpr(l,binop,r) -> print_lsum l; print_bop binop; print_lsum r
-  | UNeg(v) -> Printf.printf "-"; print_lsum v
-  | LVal(v) -> print_var v
-  | ArrayAccess(v,i) -> print_var v; Printf.printf "["; print_lsum i; Printf.printf "]"
-  | LNeg(v) -> Printf.printf "!"; print_lsum v
-  | Havoc -> Printf.printf "*"
+    LExpr(l,binop,r) -> print_lsum oc l; print_bop oc binop; print_lsum oc r
+  | UNeg(v) -> Printf.fprintf oc "-"; print_lsum oc v
+  | LVal(v) -> print_var oc v
+  | ArrayAccess(v,i) -> print_var oc v; Printf.fprintf oc "["; print_lsum oc i; Printf.fprintf oc "]"
+  | LNeg(v) -> Printf.fprintf oc "!"; print_lsum oc v
+  | Havoc -> Printf.fprintf oc "*"
 
-let print_cop comp = 
+let print_cop oc comp =
   match comp with
-    GTE -> Printf.printf " >= "
-  | GT -> Printf.printf " > "
-  | LTE -> Printf.printf " <= "
-  | LT -> Printf.printf " < "
-  | NE -> Printf.printf " ~= "
-  | EQ -> Printf.printf " == "
+    GTE -> Printf.fprintf oc " >= "
+  | GT -> Printf.fprintf oc " > "
+  | LTE -> Printf.fprintf oc " <= "
+  | LT -> Printf.fprintf oc " < "
+  | NE -> Printf.fprintf oc " ~= "
+  | EQ -> Printf.fprintf oc " == "
 
-let print_cond cond = 
+let print_cond oc cond =
   match cond with
-    | Cond(lsum,comp,rsum) -> print_lsum lsum; print_cop comp; print_lsum rsum
-    | _ -> Printf.printf ""
+    | Cond(lsum,comp,rsum) -> print_lsum oc lsum; print_cop oc comp; print_lsum oc rsum
+    | _ -> Printf.fprintf oc ""
 
-let print_inst inst =
+let print_inst oc inst =
   match inst with
-    | Tick(v,r) -> Printf.printf "Tick: "; print_lsum r; Printf.printf "\n"
-    | Assert(cond,str) -> Printf.printf "Assert: %s" str; Printf.printf "\n"
-    | Assume(cond) -> Printf.printf "Assume: "; print_cond cond; Printf.printf "\n"
-    | BinExpr(a,b,bop,c) -> print_lsum a; Printf.printf " = "; print_lsum b; print_bop bop; print_lsum c; Printf.printf "\n"
-    | Assign(x,y) -> print_lsum x; Printf.printf " = "; print_lsum y; Printf.printf "\n"
+    | Tick(v,r) -> Printf.fprintf oc "Tick: "; print_lsum oc r; Printf.fprintf oc "\n"
+    | Assert(cond,str) -> Printf.fprintf oc "Assert: %s" str; Printf.fprintf oc "\n"
+    | Assume(cond) -> Printf.fprintf oc "Assume: "; print_cond oc cond; Printf.fprintf oc "\n"
+    | BinExpr(a,b,bop,c) -> print_lsum oc a; Printf.fprintf oc " = "; print_lsum oc b; print_bop oc bop; print_lsum oc c; Printf.fprintf oc "\n"
+    | Assign(x,y) -> print_lsum oc x; Printf.fprintf oc " = "; print_lsum oc y; Printf.fprintf oc "\n"
     | Call(ret,callee,args) -> (match ret with
-                                  | Some(v) -> print_lsum v; Printf.printf " = "
-                                  | None -> Printf.printf ""); 
-                                Printf.printf "%s: " callee; List.iter print_lsum args; Printf.printf "\n"
+                                  | Some(v) -> (print_lsum oc v); Printf.fprintf oc " = "
+                                  | None -> Printf.fprintf oc "");
+                                Printf.fprintf oc "%s: " callee; List.iter (print_lsum oc) args; Printf.fprintf oc "\n"
 
-let print_blk blk = 
-  Printf.printf "Preds: \n";
-  List.iter (Printf.printf "%d ") blk.bpreds;
-  Printf.printf "\n";
-  List.iter print_inst blk.binsts;
-  let etype = blk.btype in 
+let print_blk oc blk =
+  Printf.fprintf oc "Preds: \n";
+  List.iter (Printf.fprintf oc "%d ") blk.bpreds;
+  Printf.fprintf oc "\n";
+  List.iter (print_inst oc) blk.binsts;
+  let etype = blk.btype in
   match etype with
-      Return(Some(ret_var)) -> Printf.printf "Ret: "; print_var ret_var; Printf.printf "\n"
-    | Return(None) -> Printf.printf "Ret: <void>\n"
+      Return(Some(ret_var)) -> Printf.fprintf oc "Ret: "; (print_var oc) ret_var; Printf.fprintf oc "\n"
+    | Return(None) -> Printf.fprintf oc "Ret: <void>\n"
     | Branch(children) -> (
       let cond = blk.bcond in
-      match cond with 
-        Some(NonDet) -> Printf.printf "If (*): "; List.iter (Printf.printf "b%d ") children; Printf.printf "\n"
-      | Some(Jmp) -> Printf.printf "Jmp: "; List.iter (Printf.printf "b%d ") children; Printf.printf "\n"
-      | Some(c) -> Printf.printf "If ("; print_cond c; Printf.printf ") b%d " (List.hd children); Printf.printf "else b%d\n" (List.hd (List.tl  children))
-      | None -> Printf.printf "ncond: "; List.iter (Printf.printf "b%d ") children
-    ) 
+      match cond with
+        Some(NonDet) -> Printf.fprintf oc "If (*): "; List.iter (Printf.fprintf oc "b%d ") children; Printf.fprintf oc "\n"
+      | Some(Jmp) -> Printf.fprintf oc "Jmp: "; List.iter (Printf.fprintf oc "b%d ") children; Printf.fprintf oc "\n"
+      | Some(c) -> Printf.fprintf oc "If ("; (print_cond oc c); Printf.fprintf oc ") b%d " (List.hd children); Printf.fprintf oc "else b%d\n" (List.hd (List.tl  children))
+      | None -> Printf.fprintf oc "ncond: "; List.iter (Printf.fprintf oc "b%d ") children
+    )
 
 
-let print_fn f = 
-  Printf.printf "\n";
-  Printf.printf "FName: %s\n" f.fname;
-  Printf.printf "Locs: \n";
-  List.iter print_var f.flocs;
-  Printf.printf "\n";
-  Printf.printf "Args: \n";
-  List.iter print_var f.fargs;
-  Printf.printf "\n";
+let print_fn oc f =
+  Printf.fprintf oc "\n";
+  Printf.fprintf oc "FName: %s\n" f.fname;
+  Printf.fprintf oc "Locs: \n";
+  List.iter (print_var oc) f.flocs;
+  Printf.fprintf oc "\n";
+  Printf.fprintf oc "Args: \n";
+  List.iter (print_var oc) f.fargs;
+  Printf.fprintf oc "\n";
   let num_blks = Array.length f.fbody in
   for b = 0 to num_blks - 1 do
     let cur_blk = Array.get f.fbody b in
-    Printf.printf "b%d:\n" b;
-    print_blk cur_blk
+    Printf.fprintf oc "b%d:\n" b;
+    (print_blk oc) cur_blk
   done
 
-let print_functions () = 
-  Printf.printf "Globs: \n";
-  List.iter (print_var) !glos;
-  Printf.printf "\n";
-  List.iter print_fn !procs_lst
+let print_functions oc =
+  Printf.fprintf oc "Globs: \n";
+  List.iter (print_var oc) !glos;
+  Printf.fprintf oc "\n";
+  List.iter (print_fn oc) !procs_lst

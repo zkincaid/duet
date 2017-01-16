@@ -882,3 +882,7 @@ let _ =
     ("-z3-timeout",
      Arg.Set_int Ark.Smt.opt_timeout,
      " Set Z3 solver timeout (milliseconds)");
+  CmdLine.register_config
+    ("-cra-abstraction-timeout",
+     Arg.Set_float Ark.Formula.abstraction_timeout,
+     " Time limit for symbolic abstraction");

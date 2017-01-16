@@ -1736,13 +1736,6 @@ let () =
           let v = Cra.VVal (Var.mk vi) in
           assign v (T.var (V.mk_tmp "havoc" (Voc.typ v))))
       |> BatEnum.reduce mul);
-  Callback.register "procedure_of_entry_callback" (fun rg entry ->
-      let open Interproc in
-      let block =
-        (RG.blocks rg)
-        |> BatEnum.find (fun block -> entry = (RG.block_entry rg block).did)
-      in
-      (block, Varinfo.show block));
   Callback.register "star_lc" K.star_lc;
   Callback.register "tensor_star_lc" KK.star_lc;
   Callback.register "star_rc" K.star_rc;
@@ -1775,4 +1768,6 @@ let () =
               Format.pp_open_vbox formatter indent;
               Format.pp_print_break formatter 0 0;
               print_var_bounds formatter tick_var tr;
-              Format.pp_close_box formatter ()) (tick_var, tr))
+              Format.pp_close_box formatter ()) (tick_var, tr));
+  Callback.register "print_smtlib" (K.F.to_smtlib2 % K.to_formula);
+  Callback.register "tensor_print_smtlib" (KK.F.to_smtlib2 % KK.to_formula)
