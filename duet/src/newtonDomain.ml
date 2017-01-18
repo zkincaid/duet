@@ -1770,4 +1770,13 @@ let () =
               print_var_bounds formatter tick_var tr;
               Format.pp_close_box formatter ()) (tick_var, tr));
   Callback.register "print_smtlib" (K.F.to_smtlib2 % K.to_formula);
-  Callback.register "tensor_print_smtlib" (KK.F.to_smtlib2 % KK.to_formula)
+  Callback.register "tensor_print_smtlib" (KK.F.to_smtlib2 % KK.to_formula);
+  Callback.register "get_global_var" (fun name ->
+      let open CfgIr in
+      let file = get_gfile() in
+      (BatList.enum file.vars)
+      |> BatEnum.find_map (fun v ->
+          if (Varinfo.show v) = name then
+            Some (Varinfo.get_id v)
+          else
+            None))

@@ -165,6 +165,7 @@ module Varinfo: sig
   val set_global : t -> unit
   val subscript : t -> int -> varinfo
   val get_subscript : t -> int
+  val get_id : t -> int
 end
 
 module Var : sig
