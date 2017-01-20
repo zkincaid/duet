@@ -419,102 +419,31 @@ let blk_preds = ref []
     else if (String.compare node_kind_str "call-site") = 0 then begin
       prev_call := false;
       let func_name = (Swig.get_string ((Swig.invoke point) "as_string" (Swig.C_void))) in
-      (*We are at an assert type: IAssert of cond*)
-      if (String.compare func_name "[call-site] LAssert::Assert:void(boolean)") = 0 then begin
-        let pred = ((Swig.invoke point) "cfg_predecessors" (Swig.C_void)) in
-        let pv = ((Swig.invoke pred) "to_vector" (Swig.C_void)) in
-        let cond_edge = ((Swig.invoke pv) "[]" (Swig.C_int 0)) in
-        let condit = ((Swig.invoke cond_edge) "get_first" (Swig.C_void)) in
-    (*Printf.printf "ass: %s\n" (Swig.get_string ((Swig.invoke condit) "as_string" (Swig.C_void)));*)
-    let assign_ast = ((Swig.invoke condit) "get_ast" (Cs._ast_family_C_NORMALIZED(Swig.C_void))) in
-        let fields = ((Swig.invoke assign_ast) "fields" (Swig.C_void)) in
-        let rhs = ((Swig.invoke fields) "[]" (Swig.C_int 1)) in
-    let pred_string = (Swig.get_string ((Swig.invoke rhs) "as_string" (Swig.C_void))) in
-        let cond_ast = ((Swig.invoke rhs) "as_ast" (Cs._ast_family_C_NORMALIZED(Swig.C_void))) in
-        let cond_class = ((Swig.invoke cond_ast) "get_class" (Swig.C_void)) in
-        let cond_class_str = (Swig.get_string ((Swig.invoke cond_class) "as_string" (Swig.C_void))) in
-        let assert_string = "!(" ^ (String.sub pred_string 8 ((String.length pred_string - 8))) ^ ")" in
-        (*Printf.printf "assert_string: %s\n" assert_string;*)
-        (*Get the string reresentation of the comparison operator - this can be 1 or 2 characters long*)
-        let conditional = (try String.sub cond_class_str 2 2 with
-          Invalid_argument _ -> (String.sub cond_class_str 2 1)) in
-        let cond = get_conditional conditional true in
-        let fields2 = ((Swig.invoke cond_ast) "fields" (Swig.C_void)) in
-        (* cond is lsum*comp*lsum*)
-        let left_hand = parse_lsum ((Swig.invoke fields2) "[]" (Swig.C_int 0)) in
-        let right_hand = parse_lsum ((Swig.invoke fields2) "[]" (Swig.C_int 1)) in
-        was_assert := true;
-        match left_hand with
-          None -> []
-        | Some (lft) -> (
-          match right_hand with
-            None -> []
-          | Some(rgt) ->
-            [Assert(Cond(lft,cond,rgt),assert_string)]
-         );
-      end
-      else begin (*C4B-CALL*)
       (*ICall of id option * id * var list *)
-      (* This is a special `tick` function.  Create a tick instruction *)
-      if (String.compare func_name "[call-site] LRand::Rand:int()") = 0 then begin
-        let call_ast = ((Swig.invoke point) "get_ast" (Cs._ast_family_C_NORMALIZED(Swig.C_void))) in
-        let fields = ((Swig.invoke call_ast) "fields" (Swig.C_void)) in
-        let actuals_in = ((Swig.invoke point) "actuals_in_as_list" (Swig.C_void)) in
-        let act_in_size = Swig.get_int ((Swig.invoke actuals_in) "size" (Swig.C_void)) in
-        (*Get the string representation of the arguments*)
-        let var_list = (if (act_in_size > 0) then begin
-          get_param_vars act_in_size 0 actuals_in ""
-    end
-        else [])
-        in
-        was_assert := true;
-        let actuals_out = ((Swig.invoke point) "actuals_out_as_list" (Swig.C_void)) in
-        let act_out_size = Swig.get_int ((Swig.invoke actuals_out) "size" (Swig.C_void)) in
-        (*Iterate through the following points until the return point is reached*)
-        let c_point = iter_points act_in_size point in
-        let cur_point = iter_points (act_out_size+1) c_point in
-        let return_ast = ((Swig.invoke cur_point) "get_ast" (Cs._ast_family_C_NORMALIZED(Swig.C_void))) in
-        let assign_fields = ((Swig.invoke return_ast) "fields" (Swig.C_void)) in
-        let assign_field = (Swig.invoke assign_fields) "[]" (Swig.C_int 0) in
-        let assign_ast = (Swig.invoke assign_field) "as_ast" (Swig.C_void) in
-        let sym_type = ((Swig.invoke assign_ast) "[]" (Cs._ast_ordinal_NC_TYPE(Swig.C_void))) in
-        let sym_type_str = Swig.get_string ((Swig.invoke sym_type) "as_string" (Swig.C_void)) in
-        let ty = get_type sym_type_str in
-        let assign = Swig.get_string ((Swig.invoke ((Swig.invoke assign_ast) "[]" (Cs._ast_ordinal_NC_NAME(Swig.C_void)))) "as_str" (Swig.C_void)) in
-        (if not (List.mem (Var(assign,ty)) !cur_args) then begin
-          (if not (List.mem (Var(assign,ty)) !glos) then begin
-            (if not (List.mem (Var(assign,ty)) !cur_locs) then begin
-               cur_locs := Var(assign,ty) :: !cur_locs end)
-          end)
-        end);
-    [Assign(LVal(Var(assign,ty)),Havoc)]
-      end
-      else begin
       (* This is regular function call *)
-        prev_call := false;
-        let call_ast = ((Swig.invoke point) "get_ast" (Cs._ast_family_C_NORMALIZED(Swig.C_void))) in
-        let fields = ((Swig.invoke call_ast) "fields" (Swig.C_void)) in
-        let call_name = ((Swig.invoke fields) "[]" (Swig.C_int 0)) in
-        let call_name_ast = ((Swig.invoke call_name) "as_ast" (Swig.C_void)) in
-        let call_name_ast_str = Swig.get_string ((Swig.invoke call_name_ast) "as_string" (Swig.C_void)) in
-        let fn_name = (String.sub func_name 12 ((String.length func_name)-12)) in
-        let actuals_in = ((Swig.invoke point) "actuals_in_as_list" (Swig.C_void)) in
-        let act_in_size = Swig.get_int ((Swig.invoke actuals_in) "size" (Swig.C_void)) in
-        (*Get the string representation of the arguments*)
-        let var_list = (if (act_in_size > 0) then begin
-          get_param_vars act_in_size 0 actuals_in ""
-    end
-        else [])
-        in
-        let cur_funct = List.find (fun x -> x.fname = fn_name) !procs_lst in
-        let arg_list = cur_funct.fargs in
-        let same_length = (List.length arg_list = List.length var_list) in
-        let actuals_out = ((Swig.invoke point) "actuals_out_as_list" (Swig.C_void)) in
-        let act_out_size = Swig.get_int ((Swig.invoke actuals_out) "size" (Swig.C_void)) in
-        (*Iterate through the following points until the return point is reached*)
-        let c_point = iter_points act_in_size point in
-        if (act_out_size > 0) then begin
-          prev_call := true;
+      let call_ast = ((Swig.invoke point) "get_ast" (Cs._ast_family_C_NORMALIZED(Swig.C_void))) in
+      let fields = ((Swig.invoke call_ast) "fields" (Swig.C_void)) in
+      let call_name = ((Swig.invoke fields) "[]" (Swig.C_int 0)) in
+      let call_name_ast = ((Swig.invoke call_name) "as_ast" (Swig.C_void)) in
+      let call_name_ast_str = Swig.get_string ((Swig.invoke call_name_ast) "as_string" (Swig.C_void)) in
+      let fn_name = (String.sub func_name 12 ((String.length func_name)-12)) in
+      let actuals_in = ((Swig.invoke point) "actuals_in_as_list" (Swig.C_void)) in
+      let act_in_size = Swig.get_int ((Swig.invoke actuals_in) "size" (Swig.C_void)) in
+      (*Get the string representation of the arguments*)
+      let var_list = (if (act_in_size > 0) then begin
+        get_param_vars act_in_size 0 actuals_in ""
+      end
+      else [])
+      in
+      let cur_funct = List.find (fun x -> x.fname = fn_name) !procs_lst in
+      let arg_list = cur_funct.fargs in
+      let same_length = (List.length arg_list = List.length var_list) in
+      let actuals_out = ((Swig.invoke point) "actuals_out_as_list" (Swig.C_void)) in
+      let act_out_size = Swig.get_int ((Swig.invoke actuals_out) "size" (Swig.C_void)) in
+      (*Iterate through the following points until the return point is reached*)
+      let c_point = iter_points act_in_size point in
+      if (act_out_size > 0) then begin
+        prev_call := true;
         let cur_point = iter_points (act_out_size+1) c_point in
         let return_ast = ((Swig.invoke cur_point) "get_ast" (Cs._ast_family_C_NORMALIZED(Swig.C_void))) in
         let assign_fields = ((Swig.invoke return_ast) "fields" (Swig.C_void)) in
@@ -531,11 +460,11 @@ let blk_preds = ref []
           end)
         end);
         if same_length then begin
-      [Call(Some(LVal(Var(assign,ty))),fn_name,var_list)]
-    end else begin
+          [Call(Some(LVal(Var(assign,ty))),fn_name,var_list)]
+        end else begin
           [Call(Some(LVal(Var(assign,ty))),fn_name,[])]
         end
-      end else
+      end else begin
         if same_length then begin
           [Call(None,fn_name,var_list)]
         end else begin
@@ -543,175 +472,155 @@ let blk_preds = ref []
         end
       end
     end
-  end
-  (* This is a normal expression, create an appropriate C4B instruction, either set or increment *)
-  else if (String.compare node_kind_str "expression") = 0 then begin (*C4B-INC, C4B-SET*)
-    if !prev_call then begin prev_call := false; [] end else begin
-    try
-    (* Grab the field information from the AST *)
-    let exp_ast = ((Swig.invoke point) "get_ast" (Cs._ast_family_C_NORMALIZED(Swig.C_void))) in
-    let ast_class = ((Swig.invoke exp_ast) "get_class" (Swig.C_void)) in
-    let ast_string = (Swig.get_string ((Swig.invoke ast_class) "as_string" (Swig.C_void))) in
-    (*Printf.printf "ASTExpressionClass: %s\n" ast_string;*)
-    if (String.compare ast_string "c:assume-expr") = 0 then begin
-      let fields = ((Swig.invoke exp_ast) "fields" (Swig.C_void)) in
-      let f1 = ((Swig.invoke fields) "[]" (Swig.C_int 0)) in  let pred = ((Swig.invoke point) "cfg_predecessors" (Swig.C_void)) in
-      let cond_ast = ((Swig.invoke f1) "as_ast" (Cs._ast_family_C_NORMALIZED(Swig.C_void))) in
-      let cond_class = ((Swig.invoke cond_ast) "get_class" (Swig.C_void)) in
-      let cond_class_str = (Swig.get_string ((Swig.invoke cond_class) "as_string" (Swig.C_void))) in
-      (*Get the string reresentation of the comparison operator - this can be 1 or 2 characters long*)
-      let conditional = (try String.sub cond_class_str 2 2 with
-        Invalid_argument _ -> (String.sub cond_class_str 2 1)) in
-      let cond = get_conditional conditional true in
-      let fields2 = ((Swig.invoke cond_ast) "fields" (Swig.C_void)) in
-      (* cond is lsum*comp*lsum*)
-      let left_hand = parse_lsum ((Swig.invoke fields2) "[]" (Swig.C_int 0)) in
-      let right_hand = parse_lsum ((Swig.invoke fields2) "[]" (Swig.C_int 1)) in
-      match left_hand with
-        None -> []
-      | Some (lft) -> (
-        match right_hand with
-          None -> []
-        | Some(rgt) ->
-          [Assume(Cond(lft,cond,rgt))]
-       );
-    end
-    else begin
-    let fields = ((Swig.invoke exp_ast) "fields" (Swig.C_void)) in
-    let f1 = ((Swig.invoke fields) "[]" (Swig.C_int 0)) in
-    let f1_ast = ((Swig.invoke f1) "as_ast" (Swig.C_void)) in
-    let f1_class = ((Swig.invoke f1_ast) "get_class" (Swig.C_void)) in
-    let f1_class_str = Swig.get_string ((Swig.invoke f1_class) "as_string" (Swig.C_void)) in
-    let array_store = ref false in
-    let lh = (if ((String.compare "c:dot" f1_class_str) = 0) then begin
-      let f1_fields = ((Swig.invoke f1_ast) "fields" (Swig.C_void)) in
-      let f1_f1 = ((Swig.invoke f1_fields) "[]" (Swig.C_int 0)) in
-      array_store := true;
-      parse_length f1_f1 end
-      else if ((String.compare "c:ptr" f1_class_str) = 0) then begin
-      array_store := true;
-      parse_array_access f1 end
-      else begin
-        let f1_name = ((Swig.invoke f1_ast) "[]" (Cs._ast_ordinal_NC_NAME(Swig.C_void))) in
-        let f1_name_str = Swig.get_string ((Swig.invoke f1_name) "as_str" (Swig.C_void)) in
-        let sym_type = ((Swig.invoke f1_ast) "[]" (Cs._ast_ordinal_NC_TYPE(Swig.C_void))) in
-        let sym_type_str = Swig.get_string ((Swig.invoke sym_type) "as_string" (Swig.C_void)) in
-        let ty = get_type sym_type_str in
-        (* Add the left hand value to the local list if needed *)
-        (if not (List.mem (Var(f1_name_str,ty)) !cur_args) then begin
-          (if not (List.mem (Var(f1_name_str,ty)) !glos) then begin
-            (if not (List.mem (Var(f1_name_str,ty)) !cur_locs) then begin
-               cur_locs := Var(f1_name_str,ty) :: !cur_locs end)
-          end)
-        end);
-        LVal(Var(f1_name_str,ty)) end) in
-    let f2 = ((Swig.invoke fields) "[]" (Swig.C_int 1)) in
-    let f2_ast = ((Swig.invoke f2) "as_ast" (Swig.C_void)) in
-    let f2_str = Swig.get_string ((Swig.invoke f2_ast) "as_string" (Swig.C_void)) in
-    let f2_class = ((Swig.invoke f2_ast) "get_class" (Swig.C_void)) in
-    let f2_class_str = Swig.get_string ((Swig.invoke f2_class) "as_string" (Swig.C_void)) in
-    let f2_class_super = ((Swig.invoke f2_class) "superclass" (Swig.C_void)) in
-    let f2_class_super_str = Swig.get_string ((Swig.invoke f2_class_super) "as_string" (Swig.C_void)) in
-    if (String.compare f2_class_super_str "c:arithmetic") = 0 then begin
-      let f2_fields = ((Swig.invoke f2_ast) "fields" (Swig.C_void)) in
-      let f2_f1 = ((Swig.invoke f2_fields) "[]" (Swig.C_int 0)) in
-      let f2_f1_ast = ((Swig.invoke f2_f1) "as_ast" (Swig.C_void)) in
-      (* check for negative nums, they lack some of the fields below *)
-      if !array_store then begin
-            let f2_f2 = ((Swig.invoke f2_fields) "[]" (Swig.C_int 1)) in
-        let f_var = parse_var f2_f2 in
-        let f_var2 = parse_var f2_f1 in
-        let f1_possible_op = (String.sub f2_class_str 2 1) in
-        let op = convert_op f1_possible_op in
-          [BinExpr(lh,f_var2,op,f_var)]
-        end
-      else begin
-        let f2_f1_name_str = Swig.get_string ((Swig.invoke ((Swig.invoke f2_f1_ast) "[]" (Cs._ast_ordinal_NC_NAME(Swig.C_void)))) "as_str" (Swig.C_void)) in
-        let f1_name = ((Swig.invoke f1_ast) "[]" (Cs._ast_ordinal_NC_NAME(Swig.C_void))) in
-        let f1_name_str = Swig.get_string ((Swig.invoke f1_name) "as_str" (Swig.C_void)) in
-        if ((String.compare f2_f1_name_str f1_name_str) = 0) then begin
-        let f2_f2 = ((Swig.invoke f2_fields) "[]" (Swig.C_int 1)) in
-        let f_var = parse_var f2_f2 in
-        let f_var2 = parse_var f2_f1 in
-        let op = convert_op (String.sub f2_class_str 2 1) in
-          [BinExpr(lh,f_var2,op,f_var)]
-        end
-      else begin
-        let f2_f2 = ((Swig.invoke f2_fields) "[]" (Swig.C_int 1)) in
-        let f_var = parse_var f2_f2 in
-        let f_var2 = parse_var f2_f1 in
-        let f1_possible_op = (String.sub f2_class_str 2 1) in
-        let op = convert_op f1_possible_op in
-          [BinExpr(lh,f_var2,op,f_var)]
-        end end
-    end
-    else if (String.compare f2_class_super_str "c:logical") = 0 then begin
-      let f2_fields = ((Swig.invoke f2_ast) "fields" (Swig.C_void)) in
-      let f2_f1 = ((Swig.invoke f2_fields) "[]" (Swig.C_int 0)) in
-      let f2_f1_ast = ((Swig.invoke f2_f1) "as_ast" (Swig.C_void)) in
-      (* check for negative nums, they lack some of the fields below *)
-      if !array_store then begin
-        let f2_f2 = ((Swig.invoke f2_fields) "[]" (Swig.C_int 1)) in
-        let f_var = parse_var f2_f2 in
-        let f_var2 = parse_var f2_f1 in
-        let f1_possible_op = (String.sub f2_class_str 2 1) in
-        let op = convert_bop f1_possible_op in
-          [BinExpr(lh,f_var2,op,f_var)]
-        end
-      else begin
-        let f2_f1_name_str = Swig.get_string ((Swig.invoke ((Swig.invoke f2_f1_ast) "[]" (Cs._ast_ordinal_NC_NAME(Swig.C_void)))) "as_str" (Swig.C_void)) in
-        let f1_name = ((Swig.invoke f1_ast) "[]" (Cs._ast_ordinal_NC_NAME(Swig.C_void))) in
-        let f1_name_str = Swig.get_string ((Swig.invoke f1_name) "as_str" (Swig.C_void)) in
-        if ((String.compare f2_f1_name_str f1_name_str) = 0) then begin
-        let f2_f2 = ((Swig.invoke f2_fields) "[]" (Swig.C_int 1)) in
-        let f_var = parse_var f2_f2 in
-        let f_var2 = parse_var f2_f1 in
-        let op = convert_bop (String.sub f2_class_str 2 1) in
-          [BinExpr(lh,f_var2,op,f_var)]
-        end
-      else begin
-        let f2_f2 = ((Swig.invoke f2_fields) "[]" (Swig.C_int 1)) in
-        let f_var = parse_var f2_f2 in
-        let f_var2 = parse_var f2_f1 in
-        let f1_possible_op = (String.sub f2_class_str 2 1) in
-        let op = convert_bop f1_possible_op in
-          [BinExpr(lh,f_var2,op,f_var)]
-        end end
+    (* This is a normal expression, create an appropriate C4B instruction, either set or increment *)
+    else if (String.compare node_kind_str "expression") = 0 then begin (*C4B-INC, C4B-SET*)
+      if !prev_call then begin prev_call := false; [] end else begin
+        try
+          (* Grab the field information from the AST *)
+          let exp_ast = ((Swig.invoke point) "get_ast" (Cs._ast_family_C_NORMALIZED(Swig.C_void))) in
+          let ast_class = ((Swig.invoke exp_ast) "get_class" (Swig.C_void)) in
+          let ast_string = (Swig.get_string ((Swig.invoke ast_class) "as_string" (Swig.C_void))) in
+          (*Printf.printf "ASTExpressionClass: %s\n" ast_string;*)
+          let fields = ((Swig.invoke exp_ast) "fields" (Swig.C_void)) in
+          let f1 = ((Swig.invoke fields) "[]" (Swig.C_int 0)) in
+          let f1_ast = ((Swig.invoke f1) "as_ast" (Swig.C_void)) in
+          let f1_class = ((Swig.invoke f1_ast) "get_class" (Swig.C_void)) in
+          let f1_class_str = Swig.get_string ((Swig.invoke f1_class) "as_string" (Swig.C_void)) in
+          let array_store = ref false in
+          let lh = (if ((String.compare "c:dot" f1_class_str) = 0) then begin
+              let f1_fields = ((Swig.invoke f1_ast) "fields" (Swig.C_void)) in
+              let f1_f1 = ((Swig.invoke f1_fields) "[]" (Swig.C_int 0)) in
+              array_store := true;
+              parse_length f1_f1 end
+            else if ((String.compare "c:ptr" f1_class_str) = 0) then begin
+              array_store := true;
+              parse_array_access f1 end
+            else begin
+              let f1_name = ((Swig.invoke f1_ast) "[]" (Cs._ast_ordinal_NC_NAME(Swig.C_void))) in
+              let f1_name_str = Swig.get_string ((Swig.invoke f1_name) "as_str" (Swig.C_void)) in
+              let sym_type = ((Swig.invoke f1_ast) "[]" (Cs._ast_ordinal_NC_TYPE(Swig.C_void))) in
+              let sym_type_str = Swig.get_string ((Swig.invoke sym_type) "as_string" (Swig.C_void)) in
+              let ty = get_type sym_type_str in
+              (* Add the left hand value to the local list if needed *)
+              (if not (List.mem (Var(f1_name_str,ty)) !cur_args) then begin
+                (if not (List.mem (Var(f1_name_str,ty)) !glos) then begin
+                  (if not (List.mem (Var(f1_name_str,ty)) !cur_locs) then begin
+                    cur_locs := Var(f1_name_str,ty) :: !cur_locs end)
+                end)
+              end);
+              LVal(Var(f1_name_str,ty)) end) in
+          let f2 = ((Swig.invoke fields) "[]" (Swig.C_int 1)) in
+          let f2_ast = ((Swig.invoke f2) "as_ast" (Swig.C_void)) in
+          let f2_str = Swig.get_string ((Swig.invoke f2_ast) "as_string" (Swig.C_void)) in
+          let f2_class = ((Swig.invoke f2_ast) "get_class" (Swig.C_void)) in
+          let f2_class_str = Swig.get_string ((Swig.invoke f2_class) "as_string" (Swig.C_void)) in
+          let f2_class_super = ((Swig.invoke f2_class) "superclass" (Swig.C_void)) in
+          let f2_class_super_str = Swig.get_string ((Swig.invoke f2_class_super) "as_string" (Swig.C_void)) in
+          if (String.compare f2_class_super_str "c:arithmetic") = 0 then begin
+            let f2_fields = ((Swig.invoke f2_ast) "fields" (Swig.C_void)) in
+            let f2_f1 = ((Swig.invoke f2_fields) "[]" (Swig.C_int 0)) in
+            let f2_f1_ast = ((Swig.invoke f2_f1) "as_ast" (Swig.C_void)) in
+            (* check for negative nums, they lack some of the fields below *)
+            if !array_store then begin
+              let f2_f2 = ((Swig.invoke f2_fields) "[]" (Swig.C_int 1)) in
+              let f_var = parse_var f2_f2 in
+              let f_var2 = parse_var f2_f1 in
+              let f1_possible_op = (String.sub f2_class_str 2 1) in
+              let op = convert_op f1_possible_op in
+              [BinExpr(lh,f_var2,op,f_var)]
+            end
+            else begin
+              let f2_f1_name_str = Swig.get_string ((Swig.invoke ((Swig.invoke f2_f1_ast) "[]" (Cs._ast_ordinal_NC_NAME(Swig.C_void)))) "as_str" (Swig.C_void)) in
+              let f1_name = ((Swig.invoke f1_ast) "[]" (Cs._ast_ordinal_NC_NAME(Swig.C_void))) in
+              let f1_name_str = Swig.get_string ((Swig.invoke f1_name) "as_str" (Swig.C_void)) in
+              if ((String.compare f2_f1_name_str f1_name_str) = 0) then begin
+                let f2_f2 = ((Swig.invoke f2_fields) "[]" (Swig.C_int 1)) in
+                let f_var = parse_var f2_f2 in
+                let f_var2 = parse_var f2_f1 in
+                let op = convert_op (String.sub f2_class_str 2 1) in
+                [BinExpr(lh,f_var2,op,f_var)]
+              end
+              else begin
+                let f2_f2 = ((Swig.invoke f2_fields) "[]" (Swig.C_int 1)) in
+                let f_var = parse_var f2_f2 in
+                let f_var2 = parse_var f2_f1 in
+                let f1_possible_op = (String.sub f2_class_str 2 1) in
+                let op = convert_op f1_possible_op in
+                [BinExpr(lh,f_var2,op,f_var)]
+              end 
+            end
+          end
+          else if (String.compare f2_class_super_str "c:logical") = 0 then begin
+            let f2_fields = ((Swig.invoke f2_ast) "fields" (Swig.C_void)) in
+            let f2_f1 = ((Swig.invoke f2_fields) "[]" (Swig.C_int 0)) in
+            let f2_f1_ast = ((Swig.invoke f2_f1) "as_ast" (Swig.C_void)) in
+            (* check for negative nums, they lack some of the fields below *)
+            if !array_store then begin
+              let f2_f2 = ((Swig.invoke f2_fields) "[]" (Swig.C_int 1)) in
+              let f_var = parse_var f2_f2 in
+              let f_var2 = parse_var f2_f1 in
+              let f1_possible_op = (String.sub f2_class_str 2 1) in
+              let op = convert_bop f1_possible_op in
+              [BinExpr(lh,f_var2,op,f_var)]
+            end
+            else begin
+              let f2_f1_name_str = Swig.get_string ((Swig.invoke ((Swig.invoke f2_f1_ast) "[]" (Cs._ast_ordinal_NC_NAME(Swig.C_void)))) "as_str" (Swig.C_void)) in
+              let f1_name = ((Swig.invoke f1_ast) "[]" (Cs._ast_ordinal_NC_NAME(Swig.C_void))) in
+              let f1_name_str = Swig.get_string ((Swig.invoke f1_name) "as_str" (Swig.C_void)) in
+              if ((String.compare f2_f1_name_str f1_name_str) = 0) then begin
+                let f2_f2 = ((Swig.invoke f2_fields) "[]" (Swig.C_int 1)) in
+                let f_var = parse_var f2_f2 in
+                let f_var2 = parse_var f2_f1 in
+                let op = convert_bop (String.sub f2_class_str 2 1) in
+                [BinExpr(lh,f_var2,op,f_var)]
+              end
+              else begin
+                let f2_f2 = ((Swig.invoke f2_fields) "[]" (Swig.C_int 1)) in
+                let f_var = parse_var f2_f2 in
+                let f_var2 = parse_var f2_f1 in
+                let f1_possible_op = (String.sub f2_class_str 2 1) in
+                let op = convert_bop f1_possible_op in
+                [BinExpr(lh,f_var2,op,f_var)]
+              end 
+            end
+          end
+          (*else if  Dot class (this means struct access) *)
+          else begin
+            (*Printf.printf "SuperClass: %s\n" f2_class_super_str;*)
+            if ((String.compare "c:dot" f2_class_str) = 0) then begin
+              let f2_fields = ((Swig.invoke f2_ast) "fields" (Swig.C_void)) in
+              let f2_f1 = ((Swig.invoke f2_fields) "[]" (Swig.C_int 0)) in
+              let rh = parse_length f2_f1 in
+              [Assign(lh,rh)]
+            end
+            else if ((String.compare "c:ptr" f2_class_str) = 0) then begin
+              let f2_fields = ((Swig.invoke f2_ast) "fields" (Swig.C_void)) in
+              let rh = parse_array_access f2 in
+              [Assign(lh,rh)]
+            end
+            else begin
+              let f_var = parse_var f2 in
+              let f1_name = ((Swig.invoke f1_ast) "[]" (Cs._ast_ordinal_NC_NAME(Swig.C_void))) in
+              let f1_name_str = Swig.get_string ((Swig.invoke f1_name) "as_str" (Swig.C_void)) in
+              let bc = String.compare f1_name_str "bytecodecost" in
+              if bc = 0 then begin
+                [Tick(lh,f_var)]
+              end
+              else begin
+                [Assign(lh,f_var)]
+              end
+            end
+          end
+        with
+          | _ -> []
       end
-    (*else if  Dot class (this means struct access) *)
+    end
     else begin
-    (*Printf.printf "SuperClass: %s\n" f2_class_super_str;*)
-    if ((String.compare "c:dot" f2_class_str) = 0) then begin
-      let f2_fields = ((Swig.invoke f2_ast) "fields" (Swig.C_void)) in
-      let f2_f1 = ((Swig.invoke f2_fields) "[]" (Swig.C_int 0)) in
-      let rh = parse_length f2_f1 in
-      [Assign(lh,rh)] end
-    else if ((String.compare "c:ptr" f2_class_str) = 0) then begin
-      let f2_fields = ((Swig.invoke f2_ast) "fields" (Swig.C_void)) in
-      let rh = parse_array_access f2 in
-      [Assign(lh,rh)] end
-    else begin
-    let f_var = parse_var f2 in
-    let f1_name = ((Swig.invoke f1_ast) "[]" (Cs._ast_ordinal_NC_NAME(Swig.C_void))) in
-    let f1_name_str = Swig.get_string ((Swig.invoke f1_name) "as_str" (Swig.C_void)) in
-    let bc = String.compare f1_name_str "bytecodecost" in
-    if bc = 0 then begin
-      [Tick(lh,f_var)] end
-    else begin
-      [Assign(lh,f_var)] end
+      prev_call := false;
+      []
     end
-    end
-    end
-    with
-      | _ -> []
-    end
-  end
-  else begin
-    prev_call := false;
-    []
-  end
   with
-  | _ -> []
+    | _ -> []
 
   (* For a list of points, iterate and convert the current point *)
   let rec convert_instructions current last inst_list prev_list =
@@ -1106,9 +1015,9 @@ let blk_preds = ref []
     end
       done;
       for j = 0 to (num_procs - 1) do
-      (* For each procedure - translate it to a C4B func desc *)
+      (* For each procedure - translate it to a intermediate func desc *)
         let proc = ((Swig.invoke procs) "[]" (Swig.C_int j)) in
-        let proc_name = (Swig.get_string ((Swig.invoke proc) "name" Swig.C_void)) in  (*C4B-FNAME*)
+        let proc_name = (Swig.get_string ((Swig.invoke proc) "name" Swig.C_void)) in
         let ps = ((Swig.invoke proc) "get_symbol" (Swig.C_void)) in
         let attr = ((Swig.invoke ps) "get_func_attrs" (Swig.C_void)) in
         (* Check to see if the function is the main function *)
@@ -1159,7 +1068,7 @@ let blk_preds = ref []
         | _ -> ());
         end
       done
-    with
+    with 
     | _ -> Printf.printf "    ***Failure getting procedures\n") ;;
 
   (*Main driver code*)
