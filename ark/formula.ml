@@ -2957,6 +2957,19 @@ module Make (T : Term.S) = struct
 
   module Gauss = Linear.GaussElim(QQ)(T.Linterm)
 
+  let nonlinear_uninterpreted =
+    let alg = function
+      | OAtom (LeqZ t) ->
+        Smt.mk_le (uninterpreted_nonlinear_term t) (Smt.const_int 0)
+      | OAtom (LtZ t) ->
+        Smt.mk_lt (uninterpreted_nonlinear_term t) (Smt.const_int 0)
+      | OAtom (EqZ t) ->
+        Smt.mk_eq (uninterpreted_nonlinear_term t) (Smt.const_int 0)
+      | OAnd (x, y) -> Smt.conj x y
+      | OOr (x, y) -> Smt.disj x y
+    in
+    eval alg
+
   exception Timeout
   let abstract_nonlinear_ivl fresh p intervals man phi =
     let start_time = Unix.gettimeofday () in
@@ -3027,7 +3040,7 @@ module Make (T : Term.S) = struct
       check_timeout ();
       logf ~level:`info ~attributes:[`Green] "prop: %a" D.format prop;
       s#push ();
-      s#assrt (Smt.mk_not (to_smt (of_abstract prop)));
+      s#assrt (Smt.mk_not (nonlinear_uninterpreted (of_abstract prop)));
       match Log.time "lazy_dnf/sat" s#check () with
       | Smt.Unsat ->
         s#pop ();
@@ -3122,7 +3135,8 @@ module Make (T : Term.S) = struct
                           T.format term_rewrite;
                         (* Add the defining equality var_rewrite =
                            term_rewrite to the context *)
-                        s#assrt (to_smt (eq (T.var var_rewrite) term_rewrite));
+                        s#assrt (nonlinear_uninterpreted
+                                   (eq (T.var var_rewrite) term_rewrite));
                         (var_rewrite,
                          T.V.Map.add var_rewrite term_rewrite new_nonlinear)
                       end
@@ -3219,8 +3233,8 @@ module Make (T : Term.S) = struct
               try VPMap.fold add_interval intervals disjunct
               with Not_found -> assert false
             in
-            s#assrt (to_smt prop_integrity);
-            s#assrt (to_smt disjunct_integrity);
+            s#assrt (nonlinear_uninterpreted prop_integrity);
+            s#assrt (nonlinear_uninterpreted disjunct_integrity);
             logf ~level:`info "strong disjunct: %a" D.format disjunct;
             logf ~level:`info "strong prop: %a" D.format prop;
             go (D.join prop disjunct)
@@ -4596,19 +4610,6 @@ module Make (T : Term.S) = struct
           | _ -> None)
       |> BatList.of_enum
   end
-
-  let nonlinear_uninterpreted =
-    let alg = function
-      | OAtom (LeqZ t) ->
-        Smt.mk_le (uninterpreted_nonlinear_term t) (Smt.const_int 0)
-      | OAtom (LtZ t) ->
-        Smt.mk_lt (uninterpreted_nonlinear_term t) (Smt.const_int 0)
-      | OAtom (EqZ t) ->
-        Smt.mk_eq (uninterpreted_nonlinear_term t) (Smt.const_int 0)
-      | OAnd (x, y) -> Smt.conj x y
-      | OOr (x, y) -> Smt.disj x y
-    in
-    eval alg
 
   let abstract_synthetic fresh ?exists:(p=fun x -> true) phi =
     let ark = () in
