@@ -159,6 +159,8 @@ module Varinfo = struct
     let clone = mk_global v.vname v.vtyp in
     clone.vviz <- v.vviz;
     clone
+
+  let get_id v = v.vid
 end
 
 type offset =

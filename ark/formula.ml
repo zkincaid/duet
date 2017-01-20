@@ -2957,6 +2957,19 @@ module Make (T : Term.S) = struct
 
   module Gauss = Linear.GaussElim(QQ)(T.Linterm)
 
+  let nonlinear_uninterpreted =
+    let alg = function
+      | OAtom (LeqZ t) ->
+        Smt.mk_le (uninterpreted_nonlinear_term t) (Smt.const_int 0)
+      | OAtom (LtZ t) ->
+        Smt.mk_lt (uninterpreted_nonlinear_term t) (Smt.const_int 0)
+      | OAtom (EqZ t) ->
+        Smt.mk_eq (uninterpreted_nonlinear_term t) (Smt.const_int 0)
+      | OAnd (x, y) -> Smt.conj x y
+      | OOr (x, y) -> Smt.disj x y
+    in
+    eval alg
+
   exception Timeout
   let abstract_nonlinear_ivl fresh p intervals man phi =
     let start_time = Unix.gettimeofday () in
@@ -3027,8 +3040,7 @@ module Make (T : Term.S) = struct
       check_timeout ();
       logf ~level:`info ~attributes:[`Green] "prop: %a" D.format prop;
       s#push ();
-      s#assrt (Smt.mk_not (to_smt (of_abstract prop)));
-
+      s#assrt (Smt.mk_not (nonlinear_uninterpreted (of_abstract prop)));
       match Log.time "lazy_dnf/sat" s#check () with
       | Smt.Unsat ->
         s#pop ();
@@ -3123,7 +3135,8 @@ module Make (T : Term.S) = struct
                           T.format term_rewrite;
                         (* Add the defining equality var_rewrite =
                            term_rewrite to the context *)
-                        s#assrt (to_smt (eq (T.var var_rewrite) term_rewrite));
+                        s#assrt (nonlinear_uninterpreted
+                                   (eq (T.var var_rewrite) term_rewrite));
                         (var_rewrite,
                          T.V.Map.add var_rewrite term_rewrite new_nonlinear)
                       end
@@ -3201,6 +3214,7 @@ module Make (T : Term.S) = struct
                     [| Lincons0.make x_to_y_cmp_diff Lincons0.SUPEQ;
                        Lincons0.make x_to_y_cmp_0 Lincons0.SUPEQ |]
                 in
+                (*
                 (* prop_ub /\ [x,y] = 0 *)
                 let prop_0 =
                   Abstract0.meet_lincons_array man prop_ub
@@ -3211,15 +3225,16 @@ module Make (T : Term.S) = struct
                   Abstract0.meet_lincons_array man prop_ub
                     [| Lincons0.make x_to_y_cmp_diff Lincons0.EQ |]
                 in
+                *)
                 check_timeout ();
-                { prop = Abstract0.join man prop_0 prop_diff;
+                { prop = prop_ub; (*Abstract0.join man prop_0 prop_diff;*)
                   env = env }
               in
               try VPMap.fold add_interval intervals disjunct
               with Not_found -> assert false
             in
-            s#assrt (to_smt prop_integrity);
-            s#assrt (to_smt disjunct_integrity);
+            s#assrt (nonlinear_uninterpreted prop_integrity);
+            s#assrt (nonlinear_uninterpreted disjunct_integrity);
             logf ~level:`info "strong disjunct: %a" D.format disjunct;
             logf ~level:`info "strong prop: %a" D.format prop;
             go (D.join prop disjunct)
@@ -3235,10 +3250,12 @@ module Make (T : Term.S) = struct
       (fun (x,y) x_to_y ->
          let x_to_y = T.var x_to_y in
          let diff = T.sub (T.var y) (T.var x) in
+         (*
          s#assrt (to_smt
                     (disj
                        (eq x_to_y T.zero)
                        (eq x_to_y diff)));
+*)
          s#assrt (to_smt (geq x_to_y T.zero));
          s#assrt (to_smt (geq x_to_y diff));
       )
@@ -3273,30 +3290,27 @@ module Make (T : Term.S) = struct
           VPMap.add (x, y) x_to_y map)
         VPMap.empty
     in
-    let (prop, nonlinear) =
-      try
-        abstract_nonlinear_ivl fresh p intervals man phi
-      with Timeout -> begin
-          try
-            logf ~level:`warn "var_bounds timed out; trying fewer intervals";
-            let intervals =
-              List.fold_left
-                (fun map x ->
-                  let x_ivl =
-                    fresh ("[0," ^ (T.V.show x) ^ "]") TyReal
-                  in
-                  VPMap.add (zero, x) x_ivl map)
-                VPMap.empty
-                ivl_vars
-            in
-            abstract_nonlinear_ivl fresh p intervals man phi
-          with Timeout -> begin
-              logf ~level:`warn "var_bounds timed out";
-              (D.top man D.Env.empty, T.V.Map.empty)
-            end
-        end
-    in
-    (D.exists man (not % T.V.equal zero) prop, nonlinear)
+    try
+      abstract_nonlinear_ivl fresh p intervals man phi
+    with Timeout -> begin
+        try
+          logf ~level:`warn "var_bounds timed out; trying fewer intervals";
+          let intervals =
+            List.fold_left
+              (fun map x ->
+                 let x_ivl =
+                   fresh ("[0," ^ (T.V.show x) ^ "]") TyReal
+                 in
+                 VPMap.add (zero, x) x_ivl map)
+              VPMap.empty
+              ivl_vars
+          in
+          abstract_nonlinear_ivl fresh p intervals man phi
+        with Timeout -> begin
+            logf ~level:`warn "var_bounds timed out";
+            (D.top man D.Env.empty, T.V.Map.empty)
+          end
+      end
 
   let abstract_nonlinear fresh p man phi =
     abstract_nonlinear_ivl fresh p VPMap.empty man phi
@@ -4596,19 +4610,6 @@ module Make (T : Term.S) = struct
           | _ -> None)
       |> BatList.of_enum
   end
-
-  let nonlinear_uninterpreted =
-    let alg = function
-      | OAtom (LeqZ t) ->
-        Smt.mk_le (uninterpreted_nonlinear_term t) (Smt.const_int 0)
-      | OAtom (LtZ t) ->
-        Smt.mk_lt (uninterpreted_nonlinear_term t) (Smt.const_int 0)
-      | OAtom (EqZ t) ->
-        Smt.mk_eq (uninterpreted_nonlinear_term t) (Smt.const_int 0)
-      | OAnd (x, y) -> Smt.conj x y
-      | OOr (x, y) -> Smt.disj x y
-    in
-    eval alg
 
   let abstract_synthetic fresh ?exists:(p=fun x -> true) phi =
     let ark = () in

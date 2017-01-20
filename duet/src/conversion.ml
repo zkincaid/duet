@@ -2,6 +2,7 @@ open InterIR
 open CfgIr
 open Core
 open Printf
+open String
 
 let tmp_file = ref {filename="tmp";threads=[];funcs=[];entry_points=[];vars=[];types=[];globinit=None}
 let glob_map = ref []
@@ -9,7 +10,9 @@ let fvars = ref []
 let print_list = ref []
 let current_loc_map = ref []
 let current_arg_map = ref []
+let func_insert_map = ref []
 let tick_list = ref []
+let assume_assert_file = "assume_assert.txt"
 let cfg_out_file = "intercfg.txt"
 let print_file = "print.txt"
 
@@ -186,6 +189,72 @@ let mk_pt dfunc inst =
     | _ -> hd :: (remove_insts comp (List.tl tl))
   )*)
 
+let convert_str_val string_val =
+  try
+    let int_val = int_of_string string_val in
+    Core.Constant(CInt(int_val,4))
+  with Failure "int_of_string" ->
+    AccessPath(Variable(get_var (InterIR.Var(string_val,InterIR.Int(4)))))
+
+let convert_string_expr str_op lhs rhs =
+  match str_op with
+    "*" -> Core.BinaryOp(lhs,Mult,rhs,Core.Concrete(Int(4)))
+    | "+" -> Core.BinaryOp(lhs,Add,rhs,Core.Concrete(Int(4)))
+    | "-" -> Core.BinaryOp(lhs,Minus,rhs,Core.Concrete(Int(4)))
+    | "/" -> Core.BinaryOp(lhs,Div,rhs,Core.Concrete(Int(4)))
+    | "%" -> Core.BinaryOp(lhs,Mod,rhs,Core.Concrete(Int(4)))
+    | "==" -> Core.BoolExpr(Core.Atom(Core.Eq,lhs,rhs))
+    | "!=" -> Core.BoolExpr(Core.Atom(Core.Ne,lhs,rhs))
+    | "<=" -> Core.BoolExpr(Core.Atom(Core.Le,lhs,rhs))
+    | ">=" -> Core.BoolExpr(Core.Atom(Core.Le,rhs,lhs))
+    | "<" -> Core.BoolExpr(Core.Atom(Core.Lt,lhs,rhs))
+    | ">" -> Core.BoolExpr(Core.Atom(Core.Lt,rhs,lhs))
+    | "||" -> (match lhs with
+              Core.BoolExpr(l) -> (match rhs with
+                                  Core.BoolExpr(r) -> Core.BoolExpr(Core.Or(l,r))))
+    | "&&" -> (match lhs with
+              Core.BoolExpr(l) -> (match rhs with
+                                  Core.BoolExpr(r) -> Core.BoolExpr(Core.And(l,r))))
+
+let rec convert_string_vals str_list =
+  let str_head = List.hd str_list in
+  if String.contains str_head '(' then begin
+    let str_op = String.sub str_head 1 ((String.length str_head) - 1) in
+    let (lhs,rhs_string_list) = convert_string_vals (List.tl str_list) in
+    let (rhs,upper_string_list) = convert_string_vals rhs_string_list in
+    let sub_expr = convert_string_expr str_op lhs rhs in
+    (sub_expr,upper_string_list)
+  end
+  else begin
+    let f_val = ref str_head in
+    while String.contains !f_val ')' do
+      f_val := String.sub !f_val 0 ((String.length !f_val) - 1)
+    done;
+    let return_val = convert_str_val !f_val in
+    (return_val,(List.tl str_list))
+  end
+
+let convert_bexpr stringbexpr is_assume =
+  let split_bexpr = Str.split (Str.regexp_string ",") stringbexpr in
+  let string_op = List.hd split_bexpr in
+  let (lhs,rhs_string) = convert_string_vals (List.tl split_bexpr) in
+  let (rhs,_) = convert_string_vals rhs_string in
+  let top_bexpr = convert_string_expr string_op lhs rhs in
+  match top_bexpr with
+    Core.BoolExpr(bexpr) -> (
+  if is_assume then begin
+    Core.Def.mk (Core.Assume(bexpr)) end
+  else begin
+    Core.Def.mk (Core.Assert(bexpr,stringbexpr)) end )
+
+let create_ABExpr (_,blk_type_expr) =
+  let blk = int_of_string (List.hd blk_type_expr) in
+  let type_expr = List.tl blk_type_expr in
+  let assume = (String.compare "Assume" (List.hd type_expr)) == 0 in
+  let bexpr = List.hd (List.tl type_expr) in
+  let convertedbexpr = convert_bexpr bexpr assume in
+  (blk,convertedbexpr)
+
 let convert_funcs cs_func =
   let blist = cs_func.fbody in
   let cfg = CfgIr.Cfg.create () in
@@ -195,18 +264,20 @@ let convert_funcs cs_func =
     CfgIr.locals = [];
     CfgIr.cfg = CfgIr.Cfg.create ();
     CfgIr.file = Some(!tmp_file) } in
+  let cur_f_inserts = List.filter (function (a,b) -> (String.compare a cs_func.fname) = 0) !func_insert_map in
   current_loc_map := [];
   current_arg_map := [];
   let func_convert_local x = convert_local duet_func x in
   current_arg_map := List.map func_convert_local cs_func.fargs;
   current_loc_map := List.map func_convert_local cs_func.flocs;
+  let converted_inserts = List.map create_ABExpr cur_f_inserts in
   let (_,arg_list) = List.split !current_arg_map in
   let arg_vars = List.map fst arg_list in
   let duet_func = {duet_func with CfgIr.formals = arg_vars} in
   let init_vertex = Core.Def.mk (Assume (Core.Bexpr.ktrue)) in
   let block_map = ref [] in
   let mk_func_pt = mk_pt duet_func in
-  let convert_blks blk = (
+  let convert_blks x blk = (
     let num_insts = List.length blk.binsts in
     let cfg_insts = (
       if num_insts > 0 then begin
@@ -215,12 +286,14 @@ let convert_funcs cs_func =
     ) in
     let mk_t_pt = CfgBuilder.mk_single duet_func.cfg in
     let tick_pt_list = List.map mk_t_pt !tick_list in
-    let updated_list = (List.flatten cfg_insts) @ tick_pt_list in
+    let (_,cur_blk_inserts) = List.split (List.filter (function (a,b) -> (a = x)) converted_inserts) in
+    let as_pt_lst = List.map mk_t_pt cur_blk_inserts in
+    let updated_list = (List.flatten cfg_insts) @ tick_pt_list @ as_pt_lst in
     tick_list := [];
     let cur_block = CfgBuilder.mk_block duet_func.cfg updated_list in
     block_map := !block_map @ [cur_block];
   ) in
-  Array.iter convert_blks blist;
+  Array.iteri convert_blks blist;
   CfgBuilder.mk_seq duet_func.cfg (CfgBuilder.mk_single duet_func.cfg init_vertex) (List.hd !block_map);
   let blk_array = Array.of_list !block_map in
     let create_branches x blk = (
@@ -317,6 +390,24 @@ let line_stream_of_channel channel =
     (fun _ ->
       try Some (input_line channel) with End_of_file -> None);;
 
+
+let initial_insert_create line =
+  let initial_split = Str.split (Str.regexp_string ";") line in
+  (List.hd initial_split, List.tl initial_split)
+
+let create_assume_assert_list () =
+  let ic = open_in assume_assert_file in
+  try
+    Stream.iter
+      (fun line ->
+        let b_insert = initial_insert_create line in
+        func_insert_map := b_insert :: !func_insert_map;)
+      (line_stream_of_channel ic);
+    close_in ic
+  with e ->
+    close_in ic;
+    raise e
+
 let create_print_list () =
   let ic = open_in print_file in
   try
@@ -337,6 +428,7 @@ let convert_duet () =
   close_out oc;
   let glos = TranslateCS.get_globs () in
   create_print_list ();
+  create_assume_assert_list ();
   glob_map := List.map convert_global glos;
   fvars := List.map create_func_var func_list;
   let duet_func_list = List.map convert_funcs func_list in
