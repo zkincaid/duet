@@ -208,7 +208,7 @@ and z3_of_term (ark : 'a context) z3 (term : 'a term) =
         | Some zz -> Z3.Arithmetic.Integer.mk_numeral_s z3 (ZZ.show zz)
         | None -> Z3.Arithmetic.Real.mk_numeral_s z3 (QQ.show qq)
       end
-    | `Const sym | `App (sym, []) ->
+    | `App (sym, []) ->
       let sort = match typ_symbol ark sym with
         | `TyInt -> sort_of_typ z3 `TyInt
         | `TyReal -> sort_of_typ z3 `TyReal
@@ -258,7 +258,7 @@ and z3_of_formula ark z3 phi =
     | `Atom (`Lt, s, t) -> Z3.Arithmetic.mk_lt z3 (of_term s) (of_term t)
     | `Proposition (`Var i) ->
       Z3.Quantifier.mk_bound z3 i (sort_of_typ z3 `TyBool)
-    | `Proposition (`Const p) | `Proposition (`App (p, [])) ->
+    | `Proposition (`App (p, [])) ->
       let decl =
         Z3.FuncDecl.mk_const_decl z3
           (z3_of_symbol z3 p)

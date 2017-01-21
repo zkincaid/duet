@@ -75,7 +75,7 @@ let abstract_iter_cube ark cube tr_symbols =
     let coeff_vec =
       List.fold_left (fun map (term, vec) ->
           match Term.destruct ark term with
-          | `Const sym -> Symbol.Map.add sym vec map
+          | `App (sym, []) -> Symbol.Map.add sym vec map
           | _ -> map)
         Symbol.Map.empty
         equalities
@@ -176,7 +176,7 @@ let abstract_iter_cube ark cube tr_symbols =
     (* try to rewrite a term as (delta_term + term) where delta_term contains
        only delta vars and term contains no delta vars *)
     let alg = function
-      | `Const sym | `App (sym, []) ->
+      | `App (sym, []) ->
         if Symbol.Map.mem sym post_map then
           Some (mk_const ark sym, zero_term)
         else
@@ -340,7 +340,7 @@ module Cf = struct
 
   let of_term ark env =
     let rec alg = function
-      | `Const v | `App (v, []) ->
+      | `App (v, []) ->
         begin
           match env v with
           | Some cf -> Some (compose cf k_minus_1)
@@ -352,7 +352,7 @@ module Cf = struct
           | None -> None
           | Some t ->
             begin match Term.destruct ark t with
-              | `Const func' when func = func' ->
+              | `App (func', []) when func = func' ->
                 let args' =
                   BatList.filter_map
                     (fun arg ->

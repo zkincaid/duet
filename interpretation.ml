@@ -81,7 +81,7 @@ let substitute interpretation =
 let rec evaluate_term interp ?(env=Env.empty) term =
   let f = function
     | `Real qq -> qq
-    | `Const k | `App (k, []) -> real interp k
+    | `App (k, []) -> real interp k
     | `Var (i, _) ->
       begin match Env.find env i with
         | `Real qq -> qq
@@ -128,7 +128,7 @@ and evaluate_formula interp ?(env=Env.empty) phi =
       end
     | `Not v -> not v
     | `Ite (cond, bthen, belse) -> if cond then bthen else belse
-    | `Proposition (`Const k) -> bool interp k
+    | `Proposition (`App (k, [])) -> bool interp k
     | `Proposition (`Var i) ->
       begin match Env.find env i with
         | `Bool v -> v
@@ -149,7 +149,7 @@ let select_implicant interp ?(env=Env.empty) phi =
   let ark = interp.ark in
   let rec term t =
     match Term.destruct ark t with
-    | `Real _ | `Const _ | `App (_, []) | `Var (_, _) -> (t, [])
+    | `Real _ | `App (_, []) | `Var (_, _) -> (t, [])
     | `Add xs ->
       let (summands, implicant) =
         List.fold_right
@@ -246,7 +246,7 @@ let select_implicant interp ?(env=Env.empty) phi =
           end
         with Divide_by_zero -> None
       end
-    | `Proposition (`Const p) ->
+    | `Proposition (`App (p, [])) ->
       if bool interp p then Some [phi]
       else None
     | `Proposition (`Var v) ->
@@ -257,7 +257,7 @@ let select_implicant interp ?(env=Env.empty) phi =
       end
     | `Not psi ->
       begin match Formula.destruct ark psi with
-        | `Proposition (`Const p) ->
+        | `Proposition (`App (p, [])) ->
           if not (bool interp p) then
             Some [phi]
           else
@@ -297,11 +297,12 @@ let select_implicant interp ?(env=Env.empty) phi =
 let destruct_atom ark phi =
   match Formula.destruct ark phi with
   | `Atom (op, s, t) -> `Comparison (op, s, t)
-  | `Proposition (`Const k) -> `Literal (`Pos, `Const k)
+  | `Proposition (`App (k, [])) ->
+    `Literal (`Pos, `Const k)
   | `Proposition (`Var i) -> `Literal (`Pos, `Var i)
   | `Not psi ->
     begin match Formula.destruct ark psi with
-      | `Proposition (`Const k) -> `Literal (`Neg, `Const k)
+      | `Proposition (`App (k, [])) -> `Literal (`Neg, `Const k)
       | `Proposition (`Var i) -> `Literal (`Neg, `Var i)
       | _ -> invalid_arg "destruct_atomic: not atomic"
     end

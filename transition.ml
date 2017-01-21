@@ -229,7 +229,7 @@ struct
         M.fold (fun v rhs m ->
             match Term.destruct ark rhs,
                   Term.destruct ark (M.find v y.transform) with
-            | `Const a, `Const b -> Symbol.Map.add a (mk_const ark b) m
+            | `App (a, []), `App (b, []) -> Symbol.Map.add a (mk_const ark b) m
             | _, _ -> assert false)
           x.transform
           Symbol.Map.empty

@@ -361,6 +361,7 @@ let purify_rewriter ark table =
   fun expr ->
     match destruct ark expr with
     | `Quantify (_, _, _, _) -> invalid_arg "purify: free variable"
+    | `App (func, []) -> expr
     | `App (func, args) ->
       let sym =
         try
@@ -423,7 +424,7 @@ let linearize ark phi =
       (* compute a symbolic interval for a term *)
       let rec linearize_term term =
         match Term.destruct ark term with
-        | `Const sym ->
+        | `App (sym, []) ->
           (try Symbol.Map.find sym env
            with Not_found -> assert false)
         | `Real k -> SymInterval.of_interval ark (Interval.const k)

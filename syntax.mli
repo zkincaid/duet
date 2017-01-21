@@ -82,7 +82,6 @@ val refine : 'a context -> ('a, typ_fo) expr -> [ `Term of 'a term
 
 val destruct : 'a context -> ('a, 'b) expr -> [
     | `Real of QQ.t
-    | `Const of symbol
     | `App of symbol * (('a, typ_fo) expr list)
     | `Var of int * typ_arith
     | `Add of ('a term) list
@@ -97,8 +96,7 @@ val destruct : 'a context -> ('a, 'b) expr -> [
     | `Not of ('a formula)
     | `Quantify of [`Exists | `Forall] * string * typ_fo * ('a formula)
     | `Atom of [`Eq | `Leq | `Lt] * ('b term) * ('b term)
-    | `Proposition of [ `Const of symbol
-                      | `Var of int
+    | `Proposition of [ `Var of int
                       | `App of symbol * (('b, typ_fo) expr) list ]
   ]
 
@@ -175,7 +173,6 @@ end
 
 type ('a,'b) open_term = [
   | `Real of QQ.t
-  | `Const of symbol
   | `App of symbol * (('b, typ_fo) expr list)
   | `Var of int * typ_arith
   | `Add of 'a list
@@ -222,8 +219,7 @@ type ('a,'b) open_formula = [
   | `Not of 'a
   | `Quantify of [`Exists | `Forall] * string * typ_fo * 'a
   | `Atom of [`Eq | `Leq | `Lt] * ('b term) * ('b term)
-  | `Proposition of [ `Const of symbol
-                    | `Var of int
+  | `Proposition of [ `Var of int
                     | `App of symbol * (('b, typ_fo) expr) list ]
   | `Ite of 'a * 'a * 'a
 ]
