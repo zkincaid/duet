@@ -18,8 +18,6 @@ val star : ?exists:(symbol -> bool) ->
   (symbol * symbol) list ->
   'a formula
 
-(*
 val join : 'a iter -> 'a iter -> 'a iter
 val widen : 'a iter -> 'a iter -> 'a iter
-val equal : 'a iter -> 'a iter -> 'a iter
-*)
+val equal : 'a iter -> 'a iter -> bool

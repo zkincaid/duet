@@ -64,6 +64,10 @@ type ('a,'typ) expr = sexpr hobj
 type 'a term = ('a, typ_arith) expr
 type 'a formula = ('a, typ_bool) expr
 
+let compare_expr s t = Pervasives.compare s.tag t.tag
+let compare_formula = compare_expr
+let compare_term = compare_expr
+
 module HC = BatHashcons.MakeTable(struct
     type t = sexpr
     let equal (Node (label, args, typ)) (Node (label', args', typ')) =
@@ -977,6 +981,7 @@ module type Context = sig
   val mk_add : term list -> term
   val mk_mul : term list -> term
   val mk_div : term -> term -> term
+  val mk_idiv : term -> term -> term
   val mk_mod : term -> term -> term
   val mk_real : QQ.t -> term
   val mk_floor : term -> term
@@ -1009,6 +1014,7 @@ module ImplicitContext(C : sig
   let mk_add = mk_add context
   let mk_mul = mk_mul context
   let mk_div = mk_div context
+  let mk_idiv = mk_idiv context
   let mk_mod = mk_mod context
   let mk_real = mk_real context
   let mk_floor = mk_floor context

@@ -73,6 +73,10 @@ type ('a, +'typ) expr
 type 'a term = ('a, typ_arith) expr
 type 'a formula = ('a, typ_bool) expr
 
+val compare_expr : ('a,'typ) expr -> ('a,'typ) expr -> int
+val compare_formula : 'a formula -> 'a formula -> int
+val compare_expr : 'a term -> 'a term -> int
+
 val refine : 'a context -> ('a, typ_fo) expr -> [ `Term of 'a term
                                                 | `Formula of 'a formula ]
 
@@ -184,6 +188,9 @@ type ('a,'b) open_term = [
 val mk_add : 'a context -> 'a term list -> 'a term
 val mk_mul : 'a context -> 'a term list -> 'a term
 val mk_div : 'a context -> 'a term -> 'a term -> 'a term
+
+(** Integer division.  Equivalent to floor(div(x/y)). *)
+val mk_idiv : 'a context -> 'a term -> 'a term -> 'a term
 val mk_mod : 'a context -> 'a term -> 'a term -> 'a term
 val mk_real : 'a context -> QQ.t -> 'a term
 val mk_floor : 'a context -> 'a term -> 'a term
@@ -288,6 +295,7 @@ module type Context = sig
   val mk_add : term list -> term
   val mk_mul : term list -> term
   val mk_div : term -> term -> term
+  val mk_idiv : term -> term -> term
   val mk_mod : term -> term -> term
   val mk_real : QQ.t -> term
   val mk_floor : term -> term

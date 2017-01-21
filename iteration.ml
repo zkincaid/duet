@@ -521,5 +521,42 @@ let closure (iter : 'a iter) : 'a formula =
     ]
   ]
 
+let cube_of_iter iter =
+  let eq_constraints =
+    iter.stratified |> List.map (fun (post, pre, incr) ->
+        mk_eq iter.ark
+          (mk_const iter.ark post)
+          (mk_add iter.ark [mk_const iter.ark pre; incr]))
+  in
+  let ineq_constraints =
+    iter.inequations |> List.map (fun (post, op, pre, incr) ->
+        let rhs =
+          mk_add iter.ark [pre; incr]
+        in
+        match op with
+        | `Eq -> mk_eq iter.ark post rhs
+        | `Leq -> mk_leq iter.ark post rhs)
+  in
+  let postcondition = Cube.to_atoms iter.postcondition in
+  let precondition = Cube.to_atoms iter.precondition in
+  Cube.of_atoms
+    iter.ark
+    (eq_constraints@ineq_constraints@postcondition@precondition)
+
+let equal iter iter' =
+  Cube.equal (cube_of_iter iter) (cube_of_iter iter')
+
+let widen iter iter' =
+  let body = Cube.widen (cube_of_iter iter) (cube_of_iter iter') in
+  assert(iter.symbols = iter'.symbols);
+  abstract_iter_cube iter.ark body iter.symbols
+
+let join iter iter' =
+  let body =
+    Cube.join (cube_of_iter iter) (cube_of_iter iter')
+  in
+  assert(iter.symbols = iter'.symbols);
+  abstract_iter_cube iter.ark body iter.symbols
+
 let star ?(exists=fun x -> true) ark phi symbols =
   closure (abstract_iter ~exists ark phi symbols)

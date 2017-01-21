@@ -12,7 +12,8 @@ let suite = "Main" >::: [
     Test_quantifier.suite;
     Test_cube.suite;
     Test_abstract.suite;
-    Test_iteration.suite
+    Test_iteration.suite;
+    Test_transition.suite;
 ]
 
 let _ =
