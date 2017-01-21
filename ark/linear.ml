@@ -376,7 +376,7 @@ let linterm_of ark term =
   in
   let alg = function
     | `Real qq -> real qq
-    | `Const k | `App (k, []) -> of_term QQ.one (dim_of_sym k)
+    | `App (k, []) -> of_term QQ.one (dim_of_sym k)
     | `Var (_, _) | `App (_, _) -> raise Nonlinear
     | `Add sum -> List.fold_left add zero sum
     | `Mul sum -> List.fold_left mul (real QQ.one) sum

@@ -27,13 +27,14 @@ let substitute_const ark sigma expr =
               (mk_leq ark (simplify s) (simplify t) :> ('a, typ_fo) expr)
             | `Atom (`Lt, s, t) ->
               (mk_lt ark (simplify s) (simplify t) :> ('a, typ_fo) expr)
-            | `Proposition (`Const k) -> (sigma k :> ('a, typ_fo) expr)
+            | `Proposition (`App (k, [])) ->
+              (sigma k :> ('a, typ_fo) expr)
             | _ -> expr
           with Nonlinear -> expr
         end
       | `Term t ->
         begin match Term.destruct ark t with
-          | `Const k -> (sigma k :> ('a, typ_fo) expr)
+          | `App (k, []) -> (sigma k :> ('a, typ_fo) expr)
           | `Binop (`Mod, s, t) ->
             begin
               try

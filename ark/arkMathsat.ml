@@ -55,7 +55,7 @@ and msat_of_term (ark : 'a context) msat decl_of_sym (term : 'a term) =
         | Some zz -> Mathsat.msat_make_number msat (ZZ.show zz)
         | None -> Mathsat.msat_make_number msat (QQ.show qq)
       end
-    | `Const sym | `App (sym, []) ->
+    | `App (sym, []) ->
       Mathsat.msat_make_constant msat (decl_of_sym sym)
 
     | `App (func, args) ->
@@ -101,7 +101,7 @@ and msat_of_formula ark msat decl_of_sym phi =
       Mathsat.msat_make_not msat
         (Mathsat.msat_make_leq msat (of_term t) (of_term s))
     | `Proposition (`Var _) -> invalid_arg "msat_of: variable"
-    | `Proposition (`Const sym) | `Proposition (`App (sym, [])) ->
+    | `Proposition (`App (sym, [])) ->
       Mathsat.msat_make_constant msat (decl_of_sym sym)
     | `Proposition (`App (predicate, args)) ->
       Mathsat.msat_make_uf msat

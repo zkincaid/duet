@@ -261,7 +261,7 @@ module Env = struct
   let vec_of_term ?(register=true) env =
     let alg = function
       | `Real k -> V.of_term k const_id
-      | `Const symbol | `App (symbol, []) ->
+      | `App (symbol, []) ->
         V.of_term QQ.one (get_term_id ~register env (App (symbol, [])))
       | `App (_, _) -> assert false (* to do *)
       | `Var (_, _) -> assert false (* to do *)
@@ -873,6 +873,7 @@ let exists
     ?subterm:(subterm=(fun _ -> true))
     p
     property =
+
   let ark = Env.ark property.env in
   let env = property.env in
 

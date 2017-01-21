@@ -351,7 +351,7 @@ let texpr_of_term env t =
         | Some _ -> (Cst (coeff_of_qq qq), `TyInt)
         | None   -> (Cst (coeff_of_qq qq), `TyReal)
       end
-    | `Const sym | `App (sym, []) ->
+    | `App (sym, []) ->
       (Dim (Env.dim_of_var env sym), typ_symbol env.Env.ark sym)
     | `App (_, _) | `Ite (_, _, _) | `Var (_, _) -> assert false
     | `Add terms ->

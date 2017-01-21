@@ -123,7 +123,6 @@ let rec flatten_sexpr label sexpr =
 
 type ('a, 'b) open_term = [
   | `Real of QQ.t
-  | `Const of int
   | `App of symbol * (('b, typ_fo) expr list)
   | `Var of int * typ_arith
   | `Add of 'a list
@@ -142,8 +141,7 @@ type ('a,'b) open_formula = [
   | `Quantify of [`Exists | `Forall] * string * typ_fo * 'a
   | `Atom of [`Eq | `Leq | `Lt] * 'b term * 'b term
   | `Ite of 'a * 'a * 'a
-  | `Proposition of [ `Const of int
-                    | `Var of int
+  | `Proposition of [ `Var of int
                     | `App of symbol * ('b, typ_fo) expr list ]
 ]
 
@@ -343,8 +341,6 @@ let refine ctx sexpr =
 let destruct ctx sexpr =
   match sexpr.obj with
   | Node (Real qq, [], _) -> `Real qq
-  | Node (App k, [], `TyBool) -> `Proposition (`Const k)
-  | Node (App k, [], _) -> `Const k
   | Node (App func, args, _) -> `App (func, args)
   | Node (Var (v, `TyReal), [], _) -> `Var (v, `TyReal)
   | Node (Var (v, `TyInt), [], _) -> `Var (v, `TyInt)
@@ -535,8 +531,6 @@ module Term = struct
     let rec go t =
       match t.obj with
       | Node (Real qq, [], _) -> alg (`Real qq)
-      | Node (App k, [], `TyBool) -> invalid_arg "eval: not a term"
-      | Node (App k, [], `TyReal) -> alg (`Const k)
       | Node (App func, args, `TyBool) -> invalid_arg "eval: not a term"
       | Node (App func, args, `TyInt) | Node (App func, args, `TyReal) ->
         alg (`App (func, args))
@@ -570,10 +564,7 @@ module Term = struct
 
   let destruct ctx t = match t.obj with
     | Node (Real qq, [], _) -> `Real qq
-    | Node (App k, [], `TyBool) -> invalid_arg "destruct: not a term"
-    | Node (App k, [], `TyInt) | Node (App k, [], `TyReal) ->
-      `Const k
-    | Node (App func, args, `TyBool) -> invalid_arg "destruct: not a term"
+    | Node (App _, _, `TyBool) -> invalid_arg "destruct: not a term"
     | Node (App func, args, `TyInt) | Node (App func, args, `TyReal) ->
       `App (func, args)
     | Node (Var (v, typ), [], _) ->
@@ -614,7 +605,6 @@ module Formula = struct
     | Node (Eq, [s; t], _) -> `Atom (`Eq, s, t)
     | Node (Leq, [s; t], _) -> `Atom (`Leq, s, t)
     | Node (Lt, [s; t], _) -> `Atom (`Lt, s, t)
-    | Node (App k, [], `TyBool) -> `Proposition (`Const k)
     | Node (Var (v, `TyBool), [], _) -> `Proposition (`Var v)
     | Node (App f, args, `TyBool) -> `Proposition (`App (f, args))
     | Node (Ite, [cond; bthen; belse], `TyBool) -> `Ite (cond, bthen, belse)
@@ -702,7 +692,6 @@ module Formula = struct
       | `Quantify (`Forall, name, typ, (qf_pre, phi)) ->
         (`Forall (name, typ)::qf_pre, phi)
       | `Not (qf_pre, phi) -> (negate_prefix qf_pre, mk_not ctx phi)
-      | `Proposition (`Const p) -> ([], mk_const ctx p)
       | `Proposition (`Var i) -> ([], mk_var ctx i `TyBool)
       | `Proposition (`App (p, args)) -> ([], mk_app ctx p args)
       | `Ite (cond, bthen, belse) ->
@@ -868,7 +857,7 @@ let eliminate_ite ctx phi =
     match Term.destruct ctx term with
     | `Ite (cond, bthen, belse) ->
       `Ite (elim_ite cond, promote_ite bthen, promote_ite belse)
-    | `Real _ | `Const _ | `Var (_, _) -> `Term term
+    | `Real _ | `Var (_, _) -> `Term term
     | `Add xs -> map_ite (fun xs -> `Term (mk_add ctx xs)) (ite_list xs)
     | `Mul xs -> map_ite (fun xs -> `Term (mk_mul ctx xs)) (ite_list xs)
     | `Binop (`Div, x, y) ->
@@ -921,7 +910,6 @@ let eliminate_ite ctx phi =
           (fun s -> map_ite (fun t -> `Term (mk_atom op s t)) promote_t)
           (promote_ite s)
         |> ite_formula
-      | `Proposition (`Const k) -> mk_const ctx k
       | `Proposition (`Var i) -> mk_var ctx i `TyBool
       | `Proposition (`App (func, args)) ->
         List.fold_right (fun x rest ->
