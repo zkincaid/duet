@@ -93,4 +93,17 @@ module Make
 
   (** The condition under which a transition may be executed. *)
   val guard : t -> C.t formula
+
+  (** Given a path (list of transitions) and a post-condition formula,
+      determine whether the path implies the post-condition.  If yes, return a
+      sequence of intermediate assertions that support the proof. *)
+  val interpolate : t list -> C.t formula -> [ `Valid of C.t formula list
+                                             | `Invalid
+                                             | `Unknown ]
+
+  (** Given a pre-condition [P], a path [path], and a post-condition [Q],
+      determine whether the Hoare triple [{P}path{Q}] is valid. *)
+  val valid_triple : C.t formula -> t list -> C.t formula -> [ `Valid
+                                                             | `Invalid
+                                                             | `Unknown ]
 end

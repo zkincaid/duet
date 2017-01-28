@@ -67,7 +67,7 @@ let assert_post tr phi =
                       (Formula.show ctx phi)
                       (T.show tr))
 
-let assert_equal = assert_equal ~cmp:T.equal ~printer:T.show
+let assert_equal_tr = assert_equal ~cmp:T.equal ~printer:T.show
 
 let mk_block = BatList.reduce T.mul
 
@@ -189,7 +189,57 @@ let equal1 () =
       T.assign "x" y;
     ]
   in
-  assert_equal tr1 tr2
+  assert_equal_tr tr1 tr2
+
+let assert_valid pre tr post =
+  if (T.valid_triple pre [tr] post) != `Valid then
+    assert_failure (Printf.sprintf "Invalid Hoare triple: {%s} %s {%s}"
+                      (Formula.show ctx pre)
+                      (T.show tr)
+                      (Formula.show ctx post))
+
+let check_interpolant path post itp =
+  let rec go path itp =
+    match path, itp with
+    | tr::path, pre::post::itp ->
+      assert_valid pre tr post;
+      go path (post::itp)
+    | [], [_] -> ()
+    | _, _ -> assert false
+  in
+  go path (Ctx.mk_true::itp)
+
+let interpolate1 () =
+  let path =
+    let open Infix in
+    [T.assign "x" (int 0);
+     T.assign "y" (int 0);
+     T.assume (x < (int 10));
+     T.assign "x" (x + (int 1));
+     T.assign "y" (y + (int 1));
+     T.assume ((int 10) <= x);
+     T.assume ((int 10) < x || x < (int 10))]
+  in
+  let post = Ctx.mk_false in
+  match T.interpolate path post with
+  | `Valid itp ->
+    check_interpolant path post itp
+  | _ -> assert_failure "Invalid post-condition"
+
+let interpolate2 () =
+  let path =
+    let open Infix in
+    [T.assume (x < (int 10));
+     T.assign "x" (x + (int 1));
+     T.assign "y" (y + (int 1));
+     T.assume ((int 10) <= x);
+     T.assume ((int 10) < x || x < (int 10))]
+  in
+  let post = Ctx.mk_false in
+  match T.interpolate path post with
+  | `Valid itp ->
+    check_interpolant path post itp
+  | _ -> assert_failure "Invalid post-condition"
 
 let suite = "Transition" >::: [
     "degree1" >:: degree1;
@@ -197,4 +247,6 @@ let suite = "Transition" >::: [
     "degree3" >:: degree3;
     "inc_nondet" >:: inc_nondet;
     "equal1" >:: equal1;
+    "interpolate1" >:: interpolate1;
+    "interpolate2" >:: interpolate2;
   ]
