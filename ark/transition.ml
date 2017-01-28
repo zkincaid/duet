@@ -264,4 +264,57 @@ struct
   let mem_transform x tr = M.mem x tr.transform
   let get_transform x tr = M.find x tr.transform
   let guard tr = tr.guard
+
+  let interpolate trs post =
+    let z3 = ArkZ3.mk_context ark [] in
+    let unsubscript_tbl = Hashtbl.create 991 in
+    let subscript_tbl = Hashtbl.create 991 in
+    let subscript sym =
+      try
+        Hashtbl.find subscript_tbl sym
+      with Not_found -> mk_const ark sym
+    in
+    let unsubscript sym =
+      try
+        Hashtbl.find unsubscript_tbl sym
+      with Not_found -> mk_const ark sym
+    in
+    (* Convert tr into a formula, and simultaneously update the subscript
+       table *)
+    let to_ss_formula tr =
+      let (ss, phis) =
+        M.fold (fun var term (ss, phis) ->
+            let var_sym = Var.symbol_of var in
+            let var_ss_sym = mk_symbol ark (Var.typ var :> typ) in
+            let var_ss_term = mk_const ark var_ss_sym in
+            let term_ss = substitute_const ark subscript term in
+            Hashtbl.add unsubscript_tbl var_ss_sym (mk_const ark var_sym);
+            ((var_sym, var_ss_term)::ss,
+             mk_eq ark var_ss_term term_ss::phis))
+          tr.transform
+          ([], [substitute_const ark subscript tr.guard])
+      in
+      List.iter (fun (k, v) -> Hashtbl.add subscript_tbl k v) ss;
+      mk_and ark phis
+    in
+    let seq =
+      List.fold_left
+        (fun subscripted tr ->
+           (to_ss_formula tr)::subscripted)
+        []
+        trs
+    in
+    let ss_post = substitute_const ark subscript (mk_not ark post) in
+    match z3#interpolate_seq (List.rev (ss_post::seq)) with
+    | `Sat m -> `Invalid
+    | `Unknown -> `Unknown
+    | `Unsat itp ->
+      `Valid (List.map (substitute_const ark unsubscript) itp)
+
+  let valid_triple phi path post =
+    let path_not_post = List.fold_right mul path (assume (mk_not ark post)) in
+    match Smt.is_sat ark (mk_and ark [phi; path_not_post.guard]) with
+    | `Sat -> `Invalid
+    | `Unknown -> `Unknown
+    | `Unsat -> `Valid
 end
