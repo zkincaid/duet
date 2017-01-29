@@ -18,7 +18,13 @@ let tr_typ typ =
   | _ -> `TyInt
 
 module PInt = Putil.PInt
+module Ctx = Syntax.MakeSimplifyingContext ()
+module Atomicity = Dependence.AtomicityAnalysis
 
+let ctx = Ctx.context
+let smt_ctx = ArkZ3.mk_context ctx []
+
+(* Indexed variables -- variables paired with thread identifiers *)
 module IV = struct
   module I = struct
     type t = Var.t * int [@@deriving ord]
@@ -33,32 +39,32 @@ module IV = struct
     let hash (v, i) = Hashtbl.hash (Var.hash v, i)
   end
   include I
+
   let typ = tr_typ % Var.get_type % fst
-  let subscript (v, i) ss = (Var.subscript v ss, i)
+
+  module Memo = Memo.Make(I)
+  module Set = BatSet.Make(I)
+  module HT = BatHashtbl.Make(I)
+
+  let sym_to_var = Hashtbl.create 991
+  let var_to_sym = HT.create 991
+
+  let symbol_of var =
+    if HT.mem var_to_sym var then
+      HT.find var_to_sym var
+    else begin
+      let sym = Ctx.mk_symbol ~name:(show var) (typ var) in
+      HT.add var_to_sym var sym;
+      Hashtbl.add sym_to_var sym var;
+      sym
+    end
+
+  let of_symbol sym =
+    if Hashtbl.mem sym_to_var sym then
+      Some (Hashtbl.find sym_to_var sym)
+    else
+      None
 end
-
-module Ctx = MakeSimplifyingContext()
-module IVMemo = Memo.Make(IV)
-
-let ctx = Ctx.context
-let smt_ctx = ArkZ3.mk_context ctx []
-
-
-let symbol_table = Hashtbl.create 991
-
-let of_symbol symbol =
-  try Some (Hashtbl.find symbol_table symbol)
-  with Not_found -> None
-
-let symbol_of =
-  IVMemo.memo (fun iv ->
-      let symbol = mk_symbol ctx ~name:(IV.show iv) (IV.typ iv) in
-      Hashtbl.add symbol_table symbol iv;
-      symbol)
-
-let loc = Var.mk (Varinfo.mk_local "@" (Concrete (Int unknown_width)))
-
-module VarSet = BatSet.Make(IV)
 
 module P = struct
   type t = Ctx.formula
@@ -75,21 +81,94 @@ module P = struct
   let big_disj enum = Ctx.mk_or (BatList.of_enum enum)
   let constants phi =
     fold_constants
-      (fun i s ->
-         match of_symbol i with
-         | Some v -> VarSet.add v s
-         | None -> s)
+      (fun sym set ->
+         match IV.of_symbol sym with
+         | Some v -> IV.Set.add v set
+         | None -> set)
       phi
-      VarSet.empty
+      IV.Set.empty
 end
 
-let program_var v = Ctx.mk_const (symbol_of v)
+module Tr = Transition.Make(Ctx)(IV)
+module Block = struct
+  module Elt = struct
+    type t =
+      [ `Fork of Varinfo.t
+      | `Initial
+      | `Transition of Tr.t ]
+      [@@deriving ord]
+      
+    let equal a b = compare a b = 0
+
+    let hash = function
+      | `Initial -> 0
+      | `Fork thread -> Hashtbl.hash (0, Varinfo.hash thread)
+      | `Transition tr -> Hashtbl.hash (1, 0) (* TODO *)
+
+    let pp formatter block = match block with
+      | `Initial -> Format.pp_print_string formatter "Initial"
+      | `Fork thread -> Format.fprintf formatter "fork(%a)" Varinfo.pp thread
+      | `Transition tr -> Tr.pp formatter tr
+  end
+
+  include Elt
+
+  let show x = Putil.mk_show pp x
+
+  let default = `Transition Tr.one
+
+  module Set = Putil.Hashed.Set.Make(Elt)
+  module Map = Putil.Map.Make(Elt)
+  module HT = BatHashtbl.Make(Elt)
+end
+
+module G = ExtGraph.Persistent.Digraph.MakeBidirectionalLabeled(PInt)(Block)
+
+module Letter = struct
+  include G.E
+  let equal x y = compare x y = 0
+  let hash edge = Hashtbl.hash (src edge, dst edge)
+  let pp formatter edge = Block.pp formatter (label edge)
+  let block = label
+  let transition_of index e =
+    match label e with
+    | `Fork _ | `Initial -> Tr.one
+    | `Transition tr ->
+      let reindex sym =
+        match IV.of_symbol sym with
+        | None -> Ctx.mk_const sym
+        | Some (v, i) ->
+          if Var.is_shared v then
+            Ctx.mk_const sym
+          else
+            Ctx.mk_const (IV.symbol_of (v, index))
+      in
+      let assign =
+        Tr.transform tr
+        /@ (fun ((v, i), term) ->
+            let term = substitute_const ctx reindex term in
+            if Var.is_shared v then
+              ((v,i), term)
+            else
+              ((v,index), term))
+        |> BatList.of_enum
+      in
+      Tr.mul
+        (Tr.assume (substitute_const ctx reindex (Tr.guard tr)))
+        (Tr.parallel_assign assign)
+
+  module Set = BatSet.Make(G.E)
+  module Map = BatMap.Make(G.E)
+end
+
+type block_graph =
+  { graph : G.t; (* graph containing control flow graph of all threads *)
+    initial : int Varinfo.Map.t; (* map each thread to its initial vertex *)
+    mhp : Letter.Set.t PInt.Map.t; (* may happen in parallel *)
+    error : int (* designated error vertex *) }
 
 module PA = PredicateAutomata.Make
-    (struct
-      include Def
-      let pp formatter def = Format.fprintf formatter "<%a>" pp def
-    end)
+    (Letter)
     (struct
       include P
       let pp formatter p = Format.fprintf formatter "{%a}" pp p
@@ -122,47 +201,46 @@ let arity phi =
   let f m (v, idx) =
     if Var.is_shared v then m else max m idx
   in
-  BatEnum.fold f 0 (VarSet.enum (P.constants phi))
+  BatEnum.fold f 0 (IV.Set.enum (P.constants phi))
 
 (* not_assign is a set of all definitions which are not assignments.  assign
    maps each variable to the set of definitions which assign to it *)
 type assign_table =
-  { not_assign : Def.Set.t;
-    assign : Def.Set.t Var.Map.t }
+  { alphabet : Letter.Set.t;
+    assign : Letter.Set.t Var.Map.t }
 
 let get_assign v table =
   try Var.Map.find v table.assign
-  with Not_found -> Def.Set.empty
+  with Not_found -> Letter.Set.empty
 
 let make_assign_table alphabet =
-  let assign = ref Var.Map.empty in
-  let find_assign v =
-    try Var.Map.find v (!assign)
-    with Not_found -> Def.Set.empty
+  let assign =
+    Letter.Set.fold (fun letter assign ->
+        match Letter.block letter with
+        | `Initial | `Fork _ -> assign
+        | `Transition tr ->
+          BatEnum.fold (fun assign ((v, _), _) ->
+              let letters =
+                try
+                  Letter.Set.add letter (Var.Map.find v assign)
+                with Not_found ->
+                  Letter.Set.singleton letter
+              in
+              Var.Map.add v letters assign)
+            assign
+            (Tr.transform tr))
+      alphabet
+      Var.Map.empty
   in
-  let add_assign v def =
-    let defs = Def.Set.add def (find_assign v) in
-    assign := Var.Map.add v defs (!assign)
-  in
-  let not_assign = ref Def.Set.empty in
-  let add_not_assign def = not_assign := Def.Set.add def (!not_assign) in
-  let add_def def =
-    match def.dkind with
-    | Assign (v, expr) ->
-      add_assign v def
-    | _ -> add_not_assign def
-  in
-  Def.Set.iter add_def alphabet;
-  { not_assign = !not_assign;
-    assign = !assign }
+  { alphabet; assign }
 
 (* Given an assertion phi, add transitions corresponding to Hoare triples of
-   the form { phi } def { phi }, where def does not assign to any variable in
+   the form { phi } tr { phi }, where tr does not assign to any variable in
    phi. *)
 let add_stable solver assign_table assertion =
   let program_vars = P.constants assertion in
   let unindexed_program_vars =
-    VarSet.enum program_vars /@ fst |> Var.Set.of_enum
+    IV.Set.enum program_vars /@ fst |> Var.Set.of_enum
   in
   let arity = arity assertion in
   let stable =
@@ -170,87 +248,67 @@ let add_stable solver assign_table assertion =
       assertion
       (BatList.of_enum ((1 -- arity) /@ (fun i -> PaFormula.Var i)))
   in
-  let f v v_defs stable_defs =
-    if Var.Set.mem v unindexed_program_vars then
-      stable_defs
-    else
-      Def.Set.union v_defs stable_defs
-  in
 
   (* Add stable transition for definitions which do not write to any variable
      that appears in assertion *)
+  let (unstable, local_unstable) =
+    let (global_unstable, local_unstable) =
+      Var.Set.fold (fun v (local, global) ->
+          if Var.is_shared v then
+            (local, Letter.Set.union global (get_assign v assign_table))
+          else
+            (Letter.Set.union local (get_assign v assign_table), global))
+        unindexed_program_vars
+        (Letter.Set.empty, Letter.Set.empty)
+    in
+    let unstable =
+      Letter.Set.union global_unstable local_unstable
+    in
+    (unstable,
+     Letter.Set.diff local_unstable global_unstable)
+  in
+
   E.conjoin_transition
     solver
     assertion
-    (Var.Map.fold f assign_table.assign assign_table.not_assign)
+    (Letter.Set.diff assign_table.alphabet unstable)
     (negate_paformula stable);
 
-  (* Add conditional stable transitions for definitions which write to local
+  (* Add conditional stable transitions for definitions that write to local
      variables that appear in the assertion *)
-  let add_stable v =
-    let rhs =
-      (1 -- arity) |> BatEnum.fold (fun rhs i ->
-          let open PaFormula in
-          if VarSet.mem (v, i) program_vars then
-            mk_and rhs (mk_neq (Var 0) (Var i))
-          else
-            rhs)
-        stable
-    in
-    E.conjoin_transition
-      solver
-      assertion
-      (get_assign v assign_table)
-      (negate_paformula rhs)
-  in
-  unindexed_program_vars |> Var.Set.iter (fun v ->
-      if not (Var.is_shared v) then add_stable v)
+  local_unstable |> Letter.Set.iter (fun letter ->
+      let tr = match Letter.block letter with
+        | `Transition tr -> tr (* only block transitions may be unstable *)
+        | _ -> assert false
+      in
+      let rhs =
+        let index_set =
+          IV.Set.enum program_vars |> BatEnum.fold (fun set (v, i) ->
+              if Tr.mem_transform (v, 0) tr then
+                PInt.Set.add i set
+              else
+                set)
+            PInt.Set.empty
+        in
+        let open PaFormula in
+        PInt.Set.fold (fun i rhs ->
+            mk_and rhs (mk_neq (Var 0) (Var i)))
+          index_set
+          stable
+      in
+      E.conjoin_transition
+        solver
+        assertion
+        (Letter.Set.singleton letter)
+        (negate_paformula rhs))
 
-(* Subscripting *)
-type ss =
-  { ssglobal : int Var.Map.t;
-    sslocal : (int Var.Map.t) PInt.Map.t }
+let gensym typ = Ctx.mk_const (Ctx.mk_symbol ~name:"havoc" typ)
 
-let ss_init =
-  { ssglobal = Var.Map.empty;
-    sslocal = PInt.Map.empty }
-
-let subscript ss i =
-  let lookup map x =
-    try Var.Map.find x map
-    with Not_found -> 0
-  in
-  let local =
-    try PInt.Map.find i ss.sslocal
-    with Not_found -> Var.Map.empty
-  in
-  fun x ->
-    if Var.is_shared x then IV.subscript (x,0) (lookup ss.ssglobal x)
-    else IV.subscript (x,i) (lookup local x)
-
-let subscript_incr ss i x =
-  let lookup map x =
-    try Var.Map.find x map
-    with Not_found -> 0
-  in
-  if Var.is_shared x then
-    { ss with ssglobal = Var.Map.add x (1+lookup ss.ssglobal x) ss.ssglobal }
-  else
-    let local =
-      try PInt.Map.find i ss.sslocal
-      with Not_found -> Var.Map.empty
-    in
-    let sub = 1 + lookup local x in
-    { ss with sslocal = PInt.Map.add i (Var.Map.add x sub local) ss.sslocal }
-
-let gensym =
-  let n = ref (-1) in
-  fun () -> incr n; !n
-
-let subscript_expr ss i =
-  let subscript = subscript ss i in
+(* Convert a Core IR expression into a term.  Local variables are interpreted
+   as the locals of tid. *)
+let index_expr index =
   let alg = function
-    | OHavoc typ -> Ctx.mk_var (gensym ()) (tr_typ typ)
+    | OHavoc typ -> gensym (tr_typ typ)
     | OConstant (CInt (k, _)) -> Ctx.mk_real (QQ.of_int k)
     | OConstant (CFloat (k, _)) -> Ctx.mk_real (QQ.of_float k)
     | OCast (_, expr) -> expr
@@ -260,35 +318,28 @@ let subscript_expr ss i =
 
     | OUnaryOp (Neg, a, _) -> Ctx.mk_neg a
 
-    | OAccessPath (Variable v) -> program_var (subscript v)
+    | OAccessPath (Variable v) -> Ctx.mk_const (IV.symbol_of (v, index))
 
     (* No real translations for anything else -- just return a free var "tr"
        (which just acts like a havoc). *)
-    | OBinaryOp (a, _, b, typ) -> Ctx.mk_var (gensym ()) (tr_typ typ)
-    | OUnaryOp (_, _, typ) -> Ctx.mk_var (gensym ()) (tr_typ typ)
-    | OBoolExpr _ -> Ctx.mk_var (gensym ()) `TyInt
-    | OAccessPath ap -> Ctx.mk_var (gensym ()) (tr_typ (AP.get_type ap))
-    | OConstant _ -> Ctx.mk_var (gensym ()) `TyInt
-    | OAddrOf _ -> Ctx.mk_var (gensym ()) `TyInt
+    | OBinaryOp (a, _, b, typ) -> gensym (tr_typ typ)
+    | OUnaryOp (_, _, typ) -> gensym (tr_typ typ)
+    | OBoolExpr _ -> gensym `TyInt
+    | OAccessPath ap -> gensym (tr_typ (AP.get_type ap))
+    | OConstant _ -> gensym `TyInt
+    | OAddrOf _ -> gensym `TyInt
   in
   Expr.fold alg
 
-let unsubscript =
-  let sigma sym =
-    match of_symbol sym with
-    | Some (v, _) -> program_var (v, 0)
-    | None -> assert false
-  in
-  substitute_const ctx sigma
-
-let subscript_bexpr ss i bexpr =
-  let subscript = subscript_expr ss i in
+(* Convert a Core IR boolean expression into a formula.  Local variables are
+   interpreted as the locals of tid. *)
+let index_bexpr tid =
   let alg = function
-    | Core.OAnd (a, b) -> Ctx.mk_and [a; b]
-    | Core.OOr (a, b) -> Ctx.mk_or [a; b]
-    | Core.OAtom (pred, x, y) ->
-      let x = subscript x in
-      let y = subscript y in
+    | OAnd (a, b) -> Ctx.mk_and [a; b]
+    | OOr (a, b) -> Ctx.mk_or [a; b]
+    | OAtom (pred, x, y) ->
+      let x = index_expr tid x in
+      let y = index_expr tid y in
       begin
         match pred with
         | Lt -> Ctx.mk_lt x y
@@ -297,33 +348,33 @@ let subscript_bexpr ss i bexpr =
         | Ne -> Ctx.mk_not (Ctx.mk_eq x y)
       end
   in
-  Formula.existential_closure ctx (Bexpr.fold alg bexpr)
-
-let generalize_atom phi =
-  let subst = BatDynArray.make 10 in
-  let rev_subst = BatHashtbl.create 31 in
-  let generalize i =
-    try BatHashtbl.find rev_subst i
-    with Not_found -> begin
-        let id = BatDynArray.length subst in
-        BatHashtbl.add rev_subst i id;
-        BatDynArray.add subst i;
-        id
-      end
-  in
-  let sigma v =
-    match of_symbol v with
-    | Some (v, tid) ->
-      let iv =
-        if Var.is_shared v then (v, tid) else (v, 1 + generalize tid)
-      in
-      program_var (IV.subscript iv 0)
-    | None -> assert false
-  in
-  let gen_phi = substitute_const ctx sigma phi in
-  (gen_phi, BatDynArray.to_list subst)
+  Bexpr.fold alg
 
 let generalize i phi psi =
+  let generalize_atom phi =
+    let subst = BatDynArray.make 10 in
+    let rev_subst = BatHashtbl.create 31 in
+    let generalize i =
+      try BatHashtbl.find rev_subst i
+      with Not_found -> begin
+          let id = BatDynArray.length subst in
+          BatHashtbl.add rev_subst i id;
+          BatDynArray.add subst i;
+          id
+        end
+    in
+    let sigma sym =
+      match IV.of_symbol sym with
+      | Some (v, tid) ->
+        let iv =
+          if Var.is_shared v then (v, tid) else (v, 1 + generalize tid)
+        in
+        Ctx.mk_const (IV.symbol_of iv)
+      | None -> assert false
+    in
+    let gen_phi = substitute_const ctx sigma phi in
+    (gen_phi, BatDynArray.to_list subst)
+  in
   let subst = BatDynArray.make 10 in
   let rev_subst = BatHashtbl.create 31 in
   BatDynArray.add subst i;
@@ -337,13 +388,13 @@ let generalize i phi psi =
         id
       end
   in
-  let sigma v =
-    match of_symbol v with
+  let sigma sym =
+    match IV.of_symbol sym with
     | Some (v, tid) ->
       let iv =
         if Var.is_shared v then (v, tid) else (v, generalize tid)
       in
-      program_var (IV.subscript iv 0)
+      Ctx.mk_const (IV.symbol_of iv)
     | None -> assert false
   in
   let gen_phi = substitute_const ctx sigma phi in
@@ -371,54 +422,46 @@ let generalize i phi psi =
   in
   (subst, gen_phi, rhs)
 
-let generalize i phi psi =
-  try generalize i phi psi
-  with _ -> assert false
-
-(* Given a trace <a_0 : i_0> ... <a_n : i_n>, produces the sequence
-   (a_0, i_0, phi_0) ... (a_n, i_n, phi_n)
-   where the sequence of phis is the SSA form of the trace.
-*)
-let trace_formulae trace =
-  let f (ss, rest) (def, i) = match def.dkind with
-    | Assume phi -> (ss, (i, def, subscript_bexpr ss i phi)::rest)
-    | Assign (v, expr) ->
-      let rhs = subscript_expr ss i expr in
-      let ss' = subscript_incr ss i v in
-      let assign =
-        Ctx.mk_eq (program_var (subscript ss' i v)) rhs
-        |> Formula.existential_closure ctx
-      in
-      (ss', (i, def, assign)::rest)
-    | _ -> (ss, (i, def, Ctx.mk_true)::rest)
-  in
-  List.rev (snd (List.fold_left f (ss_init, []) trace))
-
+(* Given an infeasible trace, construct Hoare triples proving its
+   infeasibility and add corresponding *negated* transitions to the PA
+   solver. *)
 let construct solver assign_table trace =
-  let rec go post = function
-    | ((i, tr, phi)::rest) ->
-      let phis = BatList.map (fun (_,_,phi) -> phi) rest in
-      let a = Ctx.mk_and phis in
-      let b = Ctx.mk_and [phi; Ctx.mk_not post] in
-      let itp = match smt_ctx#interpolate_seq [a; b] with
-        | `Unsat [itp] -> itp
-        | _ ->
-          Log.fatalf "Failed to interpolate! %a / %a" P.pp a P.pp b
-      in
-      let letters = Def.Set.singleton tr in
-      if P.compare (unsubscript post) (unsubscript itp) = 0 then begin
-        Log.logf "Skipping transition: [#%d] %a" i Def.pp tr;
-        let (_, lhs, rhs) = generalize i post itp in
+  let rec go trace itp post =
+    match trace, itp with
+    | ((letter, tid)::trace, pre::itp) ->
+      let letters = Letter.Set.singleton letter in
+      let pre = rewrite ctx ~down:(nnf_rewriter ctx) pre in
+      if P.compare pre post = 0 then begin
+        Log.logf "Skipping transition: [#%d] %a" tid Letter.pp letter;
+        let (_, lhs, rhs) = generalize tid post pre in
         let lhs_arity = arity lhs in
         if not (E.mem_vocabulary solver lhs) then begin
           E.add_accepting_predicate solver lhs lhs_arity;
           add_stable solver assign_table lhs
         end;
         E.conjoin_transition solver lhs letters (negate_paformula rhs);
-        go itp rest
+        go trace itp pre
       end else begin
-        BatEnum.iter (flip go rest) (P.conjuncts itp);
-        let (_, lhs, rhs) = generalize i post itp in
+        begin match BatList.of_enum (P.conjuncts pre) with
+          | [] -> ()
+          | [pre] -> go trace itp pre
+          | preconditions ->
+            (* if the interpolant is a non-trivial conjunction, process each
+               conjunct separately *)
+            let transitions =
+              List.rev_map
+                (fun (letter, tid) -> Letter.transition_of tid letter)
+              trace
+            in
+            preconditions |> List.iter (fun pre ->
+                let itp =
+                  match Tr.interpolate transitions pre with
+                  | `Valid itp -> List.tl (List.rev itp)
+                  | _ -> Log.fatalf "Failed to interpolate!"
+                in
+                go trace itp pre)
+        end;
+        let (_, lhs, rhs) = generalize tid post pre in
         let lhs_arity = arity lhs in
         if not (E.mem_vocabulary solver lhs) then begin
           E.add_accepting_predicate solver lhs lhs_arity;
@@ -428,82 +471,177 @@ let construct solver assign_table trace =
           "Added PA transition:@\n @[{%a}(%a)@]@\n --( [#0] %a )-->@\n @[%a@]"
           P.pp lhs
           (ApakEnum.pp_print_enum Format.pp_print_int) (1 -- lhs_arity)
-          Def.pp tr
+          Letter.pp letter
           PA.pp_formula rhs;
         E.conjoin_transition solver lhs letters (negate_paformula rhs)
       end
 
-    | [] -> assert false
+    | x, y -> assert (x = [] && y = [])
   in
-  go Ctx.mk_false (List.rev (trace_formulae trace))
+  let transitions =
+    List.map (fun (letter, tid) -> Letter.transition_of tid letter) trace
+  in
+  match Tr.interpolate transitions Ctx.mk_false with
+  | `Valid itp -> go (List.rev trace) (List.tl (List.rev itp)) Ctx.mk_false
+  | _ -> Log.fatalf "Failed to interpolate!"
+
 let construct solver trace =
   Log.time "PA construction" (construct solver) trace
 
-module PHT = Hashtbl.Make(P)
-module PSet = BatSet.Make(P)
+let mk_block_graph file =
+  let rg = Interproc.remove_skip (Interproc.make_recgraph file) in
+  let main = match file.CfgIr.entry_points with
+    | [x] -> x
+    | _   -> failwith "PA: No support for multiple entry points"
+  in
+  let block_of_def def =
+    match def.dkind with
+    | Assume phi ->
+      `Transition (Tr.assume (index_bexpr 0 phi))
+    | Assign (v, expr) ->
+      `Transition (Tr.assign (v, 0) (index_expr 0 expr))
+    | Builtin (Fork (_, expr, _)) ->
+      let func = match Expr.strip_casts expr with
+        | AddrOf (Variable (func, OffsetFixed 0)) -> func
+        | _ -> assert false
+      in
+      `Fork func
+    | _ ->
+      `Transition (Tr.assume Ctx.mk_true)
+  in
+  let add_graph graph g = 
+    Interproc.RG.G.fold_edges (fun u v g ->
+        G.add_edge_e g (G.E.create u.did (block_of_def u) v.did))
+      graph
+      g
+  in
+  let fresh_id () = (Def.mk (Assume (Bexpr.ktrue))).did in
+  let (graph, initial) =
+    BatEnum.fold (fun (g, initial) (thread, body) ->
+        let g = add_graph body g in
+        let old_entry = (Interproc.RG.block_entry rg thread).did in
+        let new_entry = fresh_id () in
+        let g =
+          G.add_edge_e g (G.E.create new_entry `Initial old_entry)
+        in
+        (g, Varinfo.Map.add thread new_entry initial))
+      (G.empty, Varinfo.Map.empty)
+      (Interproc.RG.bodies rg)
+  in
+  let error = -1 in
+  
+  let graph = (* add error transitions for asserts *)
+    BatEnum.fold (fun g (_, def) ->
+        match def.dkind with
+      | Assert (phi, _) ->
+        let block =
+          `Transition (Tr.assume (Ctx.mk_not (index_bexpr 0 phi)))
+        in
+        G.add_edge_e g (G.E.create def.did block error)
+      | _ -> g)
+      graph
+      (Interproc.RG.vertices rg)
+  in
+  (* TODO: for correctness, all we need is to make sure that transitions of
+     the main thread do not happen in parallel with each other and initial
+     transitions don't happen in parallel with anything.  We might be able to
+     get a significant reduction with a more accurate MHP analysis *)
+  let mhp =
+    let main_thread_vertices =
+      Interproc.RG.G.fold_vertex (fun v vertices ->
+          PInt.Set.add v.did vertices)
+        (Interproc.RG.block_body rg main)
+        PInt.Set.empty
+    in
+    let alphabet =
+      BatEnum.fold
+        (flip Letter.Set.add)
+        Letter.Set.empty
+        (G.edges_e graph)
+    in
+    let thread_letters =
+      Letter.Set.filter
+        (fun e -> not (PInt.Set.mem (Letter.src e) main_thread_vertices))
+        alphabet
+    in
+    let mhp =
+      G.fold_vertex (fun v mhp ->
+          let mhp_letter =
+            if PInt.Set.mem v main_thread_vertices then
+              thread_letters
+            else
+              alphabet
+          in
+        PInt.Map.add v mhp_letter mhp)
+        graph
+        PInt.Map.empty
+    in
 
-let program_automaton file rg =
+    (* remove mhp entries for vertices within atomic sections *)
+    let mhp =
+      let open CfgIr in
+      List.fold_left (fun mhp func ->
+          let result =
+            Atomicity.do_analysis func.cfg (fun _ -> None)
+          in
+          BatEnum.fold (fun mhp (v, level) ->
+              match level with
+              | Some lvl when lvl > 0 ->
+                PInt.Map.add v.did Letter.Set.empty mhp
+              | _ -> mhp)
+            mhp
+            (Atomicity.enum_output result))
+        mhp
+        file.funcs
+    in
+
+    (* remove mhp entries for initial vertices *)
+    Varinfo.Map.fold (fun thread v mhp ->
+        PInt.Map.add v Letter.Set.empty mhp)
+      initial
+      mhp
+  in
+  { graph; initial; mhp; error }
+
+let program_automaton file =
   let open Interproc in
   let main = match file.CfgIr.entry_points with
     | [x] -> x
     | _   -> failwith "PA: No support for multiple entry points"
   in
+  let block_graph = mk_block_graph file in
 
   (* Map each control location to a unique monadic predicate symbol *)
-  let loc_pred def =
-    Ctx.mk_eq (program_var (loc,1)) (Ctx.mk_real (QQ.of_int def.did))
+  let loc_pred =
+    let pred = Ctx.mk_symbol ~name:"@" (`TyFun ([`TyInt], `TyBool)) in
+    fun vertex ->
+      Ctx.mk_app pred [Ctx.mk_real (QQ.of_int vertex)]
+  in
+
+  let init_vertex thread =
+    try Varinfo.Map.find thread block_graph.initial
+    with Not_found -> assert false
   in
 
   (* Nullary error predicate: asserts are replaced with guarded transitions to
      error. *)
-  let err = loc_pred (Def.mk (Assume Bexpr.ktrue)) in
-
-  (* Unary atomic predicate for implementing atomic sections. *)
-  let atomic = loc_pred (Def.mk (Assume Bexpr.ktrue)) in
+  let err = Ctx.mk_const (Ctx.mk_symbol ~name:"err" `TyBool) in
 
   (* Nullary loc predicate ensures that whenever a new thread executes a
      command its program counter is instantiated properly. *)
-  let loc = Ctx.mk_true in
+  let loc = Ctx.mk_const (Ctx.mk_symbol ~name:"loc" `TyBool) in
 
-  (* Transitions to the error state *)
-  let err_tr =
-    let module M = Memo.Make(Def) in
-    M.memo (fun def ->
-        match def.dkind with
-        | Assert (phi, _) ->
-          Def.mk ~loc:(Def.get_location def) (Assume (Bexpr.negate phi))
-        | _ -> assert false)
-  in
-  (* Thread creation transitions *)
-  let init_tr =
-    let module M = Memo.Make(Varinfo) in
-    M.memo (fun thread -> Def.mk Initial)
-  in
-
-  let is_assert def =
-    match def.dkind with
-    | Assert (_, _) -> true
-    | _ -> false
-  in
   let alphabet =
-    let alphabet = ref Def.Set.empty in
-    RG.vertices rg |> BatEnum.iter (fun (_, def) ->
-        alphabet := Def.Set.add def (!alphabet);
-        if is_assert def then alphabet := Def.Set.add (err_tr def) (!alphabet)
-      );
-    RG.blocks rg |> BatEnum.iter (fun thread ->
-        if not (Varinfo.equal thread main) then
-          alphabet := Def.Set.add (init_tr thread) (!alphabet)
-      );
-    !alphabet
+    BatEnum.fold
+      (flip Letter.Set.add)
+      Letter.Set.empty
+      (G.edges_e block_graph.graph)
   in
   let vocabulary =
-    let vocab = ref [(loc, 0); (err, 0); (atomic, 1)] in
-    RG.vertices rg |> BatEnum.iter (fun (_, def) ->
-        vocab := (loc_pred def, 1)::(!vocab));
-    RG.blocks rg |> BatEnum.iter (fun func ->
-        vocab := (loc_pred (init_tr func), 1)::(!vocab));
-    !vocab
+    G.fold_vertex
+      (fun v vocab -> (loc_pred v, 1)::vocab)
+      block_graph.graph
+      [(loc, 0); (err, 0)]
   in
   let initial_formula =
     PaFormula.mk_and (PaFormula.mk_atom loc []) (PaFormula.mk_atom err [])
@@ -513,91 +651,48 @@ let program_automaton file rg =
       alphabet
       vocabulary
       initial_formula
-      [loc; loc_pred (RG.block_entry rg main)]
+      [loc; loc_pred (init_vertex main)]
   in
   let add_single_transition lhs letter rhs =
-    PA.add_transition pa lhs (Def.Set.singleton letter) rhs
+    PA.add_transition pa lhs (Letter.Set.singleton letter) rhs
   in
 
-  BatEnum.iter (fun (thread, body) ->
+  G.edges_e block_graph.graph |> BatEnum.iter (fun letter ->
+      let src = Letter.src letter in
+      let tgt = Letter.dst letter in
       let open PaFormula in
-      RG.G.iter_edges (fun u v ->
-          (* delta(tgt(sigma)(i),sigma:j) = (i = j) *)
-          add_single_transition (loc_pred v) u (mk_eq (Var 0) (Var 1))
-        ) body;
 
-      RG.G.iter_vertex (fun u ->
-          begin match u.dkind with
-            | Builtin AtomicEnd ->
-              (* delta(loc, sigma:i) = loc /\ src(sigma)(i) /\ atomic(i) *)
-              add_single_transition loc u
-                (mk_and
-                   (mk_and (mk_atom loc []) (mk_atom atomic [Var 0]))
-                   (mk_atom (loc_pred u) [Var 0]));
-            | _ ->
-              (* delta(loc, sigma:i) = loc /\ src(sigma)(i) *)
-              add_single_transition loc u (mk_and
-                                             (mk_atom loc [])
-                                             (mk_atom (loc_pred u) [Var 0]))
-          end;
-          Log.logf "1.1";
-          begin match u.dkind with
-            | Builtin AtomicBegin -> add_single_transition atomic u mk_true
-            | _ -> 
-              add_single_transition atomic u
-                (mk_and (mk_eq (Var 0) (Var 1)) (mk_atom atomic [Var 1]))
-          end;
-          match u.dkind with
-          | Assert (_, _) ->
-            (* Guarded transition to the error state *)
-            add_single_transition err (err_tr u) mk_true;
+      begin match Letter.block letter with
+        | `Fork thread ->
+          (* delta(init-t(i), fork(t):j) = true *)
+          add_single_transition (loc_pred (init_vertex thread)) letter mk_true
+        | _ -> ()
+      end;
 
-            (* delta(loc, sigma:i) = loc /\ src(sigma)(i) *)
-            add_single_transition
-              loc
-              (err_tr u)
-              (mk_and (mk_atom loc []) (mk_atom (loc_pred u) [Var 0]))
+      (* delta(err,sigma:i) = true *)
+      if tgt = block_graph.error then
+        add_single_transition err letter mk_true;
 
-          | Builtin (Fork (_, expr, _)) ->
-            (* delta(init-t(i), fork(t):j) = true *)
-            let func = match Expr.strip_casts expr with
-              | AddrOf (Variable (func, OffsetFixed 0)) -> func
-              | _ -> assert false
-            in
-            add_single_transition (loc_pred (init_tr func)) u mk_true
-          | _ -> ()
-        ) body;
+      (* delta(tgt(sigma)(i),sigma:j) = (i = j) *)
+      add_single_transition (loc_pred tgt) letter (mk_eq (Var 0) (Var 1));
 
-      if not (Varinfo.equal thread main) then begin
-        let entry = loc_pred (RG.block_entry rg thread) in
-        let init = init_tr thread in
-        add_single_transition loc init (mk_atom loc []);
-        add_single_transition entry init (mk_and
-                                            (mk_eq (Var 0) (Var 1))
-                                            (mk_atom (loc_pred init) [Var 0]))
-      end
-    ) (RG.bodies rg);
+      (* delta(loc(),sigma:i) = loc /\ src(sigma)(i) *)
+      add_single_transition loc letter (mk_and
+                                          (mk_atom loc [])
+                                          (mk_atom (loc_pred src) [Var 0])));
 
-  (* delta(u(i), v:j) = u(i) /\ i != j *)
-  RG.vertices rg |> BatEnum.iter (fun (ublk, u) ->
+  (* delta(v(i), sigma:j) = v(i) /\ i != j *)
+  G.vertices block_graph.graph |> BatEnum.iter (fun v ->
       let open PaFormula in
-      let u = loc_pred u in
-      let rhs = mk_and (mk_atom u [Var 1]) (mk_neq (Var 0) (Var 1)) in
-
-      RG.vertices rg |> BatEnum.iter (fun (vblk, v) ->
-          (* only one copy of main is running *)
-          if not (Varinfo.equal ublk main) || not (Varinfo.equal vblk main) then
-            add_single_transition u v rhs);
-      RG.blocks rg |> BatEnum.iter (fun thread ->
-          if not (Varinfo.equal thread main) then
-            add_single_transition u (init_tr thread) rhs));
-
+      let mhp = PInt.Map.find v block_graph.mhp in
+      let v = loc_pred v in
+      let rhs = mk_and (mk_atom v [Var 1]) (mk_neq (Var 0) (Var 1)) in
+      PA.add_transition pa v mhp rhs);
   pa
 
 let verify file =
   let open PA in
-  let rg = Interproc.remove_skip (Interproc.make_recgraph file) in
-  let program_pa = program_automaton file rg in
+  let program_pa = program_automaton file in
   let assign_table = make_assign_table (alphabet program_pa) in
 
   let empty_proofspace_pa =
@@ -631,13 +726,17 @@ let verify file =
     match check () with
     | Some trace ->
       logf ~attributes:[`Bold] "@\nFound error trace (%d):" (!number_cex);
-      List.iter (fun (def, id) ->
-          logf "  [#%d] %a" id Def.pp def
+      List.iter (fun (letter, id) ->
+          logf "  [#%d] %a" id Letter.pp letter
         ) trace;
       logf ""; (* newline *)
       let trace_formula =
-        BatList.enum (trace_formulae trace)
-        /@ (fun (_,_,phi) -> phi) |> P.big_conj
+        List.fold_right
+          (fun (letter, index) tr ->
+             Tr.mul (Letter.transition_of index letter) tr)
+          trace
+          Tr.one
+        |> Tr.guard
       in
       begin
         match smt_ctx#is_sat trace_formula with
@@ -646,8 +745,8 @@ let verify file =
             "Verification result: Unsafe";
           print_info ();
           logf ~level:`info ~attributes:[`Bold] "  Error trace:";
-          List.iter (fun (def, id) ->
-              logf ~level:`info "    [#%d] %a" id Def.pp def
+          List.iter (fun (letter, id) ->
+              logf ~level:`info "    [#%d] %a" id Letter.pp letter
             ) trace
         | `Unsat ->
           construct solver assign_table trace;
@@ -658,8 +757,8 @@ let verify file =
             "Verification result: Unknown";
           print_info ();
           logf ~level:`info ~attributes:[`Bold] "  Could not verify trace:";
-          List.iter (fun (def, id) ->
-              logf ~level:`info "    [#%d] %a" id Def.pp def
+          List.iter (fun (letter, id) ->
+              logf ~level:`info "    [#%d] %a" id Letter.pp letter
             ) trace
       end
     | None ->
