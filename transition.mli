@@ -52,6 +52,11 @@ module Make
       [v]. *)
   val assign : var -> C.t term -> t
 
+  (** Parallel assignment of a list of terms to a list of variables.  If a
+      variable appears multiple times as a target for an assignment, the rightmost
+      assignment is taken. *)
+  val parallel_assign : (var * C.t term) list -> t
+
   (** Assign a list of variables non-deterministic values. *)
   val havoc : var list -> t
 
@@ -91,12 +96,17 @@ module Make
       variables (and Skolem constants) *)
   val get_transform : var -> t -> C.t term
 
+  (** Enumerate the variables and values assigned in a transition. *)
+  val transform : t -> (var * C.t term) BatEnum.t
+
   (** The condition under which a transition may be executed. *)
   val guard : t -> C.t formula
 
-  (** Given a path (list of transitions) and a post-condition formula,
-      determine whether the path implies the post-condition.  If yes, return a
-      sequence of intermediate assertions that support the proof. *)
+  (** Given a path (list of transitions [tr_1 ... tr_n]) and a post-condition
+      formula, determine whether the path implies the post-condition.  If yes,
+      return a sequence of intermediate assertions [phi_1 ... phi_n] that
+      support the proof (for each [i], [{ phi_{i-1} } tr_i { phi_i }] holds,
+      where [phi_0] is [true] and [phi_n] implies the post-condition). *)
   val interpolate : t list -> C.t formula -> [ `Valid of C.t formula list
                                              | `Invalid
                                              | `Unknown ]

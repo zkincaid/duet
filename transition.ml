@@ -35,21 +35,32 @@ struct
   let ark = C.context
 
   let pp formatter tr =
-    Format.fprintf formatter
-      "{@[<v 0>transform:@;  @[<v 0>%a@]@;guard:@;  @[<v 0>%a@]@]}"
-      (ApakEnum.pp_print_enum_nobox
-         ~pp_sep:(fun formatter () -> Format.pp_print_break formatter 0 0)
-         (fun formatter (lhs, rhs) ->
-            Format.fprintf formatter "%a := %a"
-              Var.pp lhs
-              (Term.pp ark) rhs))
-          (M.enum tr.transform)
-          (Formula.pp ark) tr.guard
+    Format.fprintf formatter "{@[<hov 1>@[<v 0>";
+    ApakEnum.pp_print_enum_nobox
+       ~pp_sep:(fun formatter () -> Format.pp_print_break formatter 0 0)
+       (fun formatter (lhs, rhs) ->
+          Format.fprintf formatter "%a := %a"
+            Var.pp lhs
+            (Term.pp ark) rhs)
+       formatter
+       (M.enum tr.transform);
+    Format.fprintf formatter "@]";
+    begin match Formula.destruct ark tr.guard with
+      | `Tru -> ()
+      | _ ->
+        Format.fprintf formatter "when@;@[<v 0>%a@]" (Formula.pp ark) tr.guard
+    end;
+    Format.fprintf formatter "@]}"
 
   let show = Apak.Putil.mk_show pp
 
   let assign v term =
     { transform = M.add v term M.empty;
+      guard = mk_true ark }
+
+  let parallel_assign assignment =
+    { transform =
+        List.fold_left (fun m (v, term) -> M.add v term m) M.empty assignment;
       guard = mk_true ark }
 
   let assume guard = { transform = M.empty; guard = guard }
@@ -263,6 +274,7 @@ struct
 
   let mem_transform x tr = M.mem x tr.transform
   let get_transform x tr = M.find x tr.transform
+  let transform tr = M.enum tr.transform
   let guard tr = tr.guard
 
   let interpolate trs post =
@@ -317,4 +329,5 @@ struct
     | `Sat -> `Invalid
     | `Unknown -> `Unknown
     | `Unsat -> `Valid
+
 end
