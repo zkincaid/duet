@@ -2,6 +2,8 @@ open Syntax
 open Apak
 open BatPervasives
 
+include Log.Make(struct let name = "ark.transition" end)
+
 module type Var = sig
   type t
   val pp : Format.formatter -> t -> unit
@@ -35,35 +37,38 @@ struct
   let ark = C.context
 
   let pp formatter tr =
-    Format.fprintf formatter "{@[<hov 1>@[<v 0>";
+    Format.fprintf formatter "{@[<v 0>";
     ApakEnum.pp_print_enum_nobox
        ~pp_sep:(fun formatter () -> Format.pp_print_break formatter 0 0)
        (fun formatter (lhs, rhs) ->
-          Format.fprintf formatter "%a := %a"
+          Format.fprintf formatter "%a := @[%a@]"
             Var.pp lhs
             (Term.pp ark) rhs)
        formatter
        (M.enum tr.transform);
-    Format.fprintf formatter "@]";
     begin match Formula.destruct ark tr.guard with
       | `Tru -> ()
       | _ ->
-        Format.fprintf formatter "when@;@[<v 0>%a@]" (Formula.pp ark) tr.guard
+        if not (M.is_empty tr.transform) then
+          Format.pp_print_break formatter 0 0;
+        Format.fprintf formatter "when @[<v 0>%a@]" (Formula.pp ark) tr.guard
     end;
     Format.fprintf formatter "@]}"
 
   let show = Apak.Putil.mk_show pp
 
+  let construct guard assignment =
+    { transform =
+        List.fold_left (fun m (v, term) -> M.add v term m) M.empty assignment;
+      guard = guard }
+
   let assign v term =
     { transform = M.add v term M.empty;
       guard = mk_true ark }
 
-  let parallel_assign assignment =
-    { transform =
-        List.fold_left (fun m (v, term) -> M.add v term m) M.empty assignment;
-      guard = mk_true ark }
+  let parallel_assign assignment = construct (mk_true ark) assignment
 
-  let assume guard = { transform = M.empty; guard = guard }
+  let assume guard = construct guard []
 
   let havoc vars =
     let transform =
@@ -78,13 +83,20 @@ struct
     { transform = transform; guard = mk_true ark }
 
   let mul left right =
-    (* To do: also get rid of conflicting existentials *)
-    let left_subst =
-      fun sym ->
-        match Var.of_symbol sym with
-        | Some var when M.mem var left.transform ->
+    let fresh_skolem =
+      Memo.memo (fun sym ->
+          let name = show_symbol ark sym in
+          let typ = typ_symbol ark sym in
+          mk_const ark (mk_symbol ark ~name typ))
+    in
+    let left_subst sym =
+      match Var.of_symbol sym with
+      | Some var ->
+        if M.mem var left.transform then
           M.find var left.transform
-        | _ -> mk_const ark sym
+        else
+          mk_const ark sym
+      | None -> fresh_skolem sym
     in
     let guard =
       mk_and ark [left.guard;
@@ -278,6 +290,20 @@ struct
   let guard tr = tr.guard
 
   let interpolate trs post =
+    let trs =
+      trs |> List.map (fun tr ->
+          let fresh_skolem =
+            Memo.memo (fun sym ->
+                match Var.of_symbol sym with
+                | Some v -> mk_const ark sym
+                | None ->
+                  let name = show_symbol ark sym in
+                  let typ = typ_symbol ark sym in
+                  mk_const ark (mk_symbol ark ~name typ))
+          in
+          { transform = M.map (substitute_const ark fresh_skolem) tr.transform;
+            guard = substitute_const ark fresh_skolem tr.guard })
+    in
     let z3 = ArkZ3.mk_context ark [] in
     let unsubscript_tbl = Hashtbl.create 991 in
     let subscript_tbl = Hashtbl.create 991 in
