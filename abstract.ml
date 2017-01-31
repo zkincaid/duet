@@ -531,7 +531,6 @@ let is_sat ark phi =
         | `Term t -> mk_eq ark (mk_const ark symbol) t
         | `Formula phi -> mk_iff ark (mk_const ark symbol) phi)
     |> BatList.of_enum
-    |> mk_and ark
   in
   let nonlinear = Symbol.Map.map (nonlinear_interpreted ark) nonlinear in
   let replace_defs =
@@ -542,7 +541,7 @@ let is_sat ark phi =
          with Not_found -> mk_const ark x)
   in
   solver#add [lin_phi];
-  solver#add [nonlinear_defs];
+  solver#add nonlinear_defs;
   let integrity psi =
     solver#add [nonlinear_uninterpreted ark psi]
   in
