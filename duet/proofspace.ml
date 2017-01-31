@@ -91,35 +91,22 @@ end
 
 module Tr = Transition.Make(Ctx)(IV)
 module Block = struct
-  module Elt = struct
-    type t =
-      [ `Fork of Varinfo.t
-      | `Initial
-      | `Transition of Tr.t ]
-      [@@deriving ord]
-      
-    let equal a b = compare a b = 0
+  type t =
+    [ `Fork of Varinfo.t
+    | `Initial
+    | `Transition of Tr.t ]
+    [@@deriving ord]
 
-    let hash = function
-      | `Initial -> 0
-      | `Fork thread -> Hashtbl.hash (0, Varinfo.hash thread)
-      | `Transition tr -> Hashtbl.hash (1, 0) (* TODO *)
+  let equal a b = compare a b = 0
 
-    let pp formatter block = match block with
-      | `Initial -> Format.pp_print_string formatter "Initial"
-      | `Fork thread -> Format.fprintf formatter "fork(%a)" Varinfo.pp thread
-      | `Transition tr -> Tr.pp formatter tr
-  end
-
-  include Elt
+  let pp formatter block = match block with
+    | `Initial -> Format.pp_print_string formatter "Initial"
+    | `Fork thread -> Format.fprintf formatter "fork(%a)" Varinfo.pp thread
+    | `Transition tr -> Tr.pp formatter tr
 
   let show x = Putil.mk_show pp x
 
   let default = `Transition Tr.one
-
-  module Set = Putil.Hashed.Set.Make(Elt)
-  module Map = Putil.Map.Make(Elt)
-  module HT = BatHashtbl.Make(Elt)
 end
 
 module G = ExtGraph.Persistent.Digraph.MakeBidirectionalLabeled(PInt)(Block)

@@ -44,6 +44,9 @@ module Make
   val pp : Format.formatter -> t -> unit
   val show : t -> string
 
+  (** Guarded parallel assignment *)
+  val construct : C.t formula -> (var * C.t term) list -> t
+
   (** [assume phi] is a transition that doesn't modify any variables, but can
       only be executed when [phi] holds *)
   val assume : C.t formula -> t
