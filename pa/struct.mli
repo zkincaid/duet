@@ -12,6 +12,7 @@ end
 module type S = sig
   type t
   type predicate
+  module Predicate : Symbol with type t = predicate
   val pp : Format.formatter -> t -> unit
   val show : t -> string
   val equal : t -> t -> bool
@@ -20,6 +21,7 @@ module type S = sig
 
   (** Enumerate the propositions which hold in a structure *)
   val props : t -> (predicate * int list) BatEnum.t
+  val preds : t -> predicate BatEnum.t
 
   val universe_size : t -> int
   val universe : t -> int BatEnum.t

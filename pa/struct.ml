@@ -15,12 +15,14 @@ end
 module type S = sig
   type t
   type predicate
+  module Predicate : Symbol with type t = predicate
   val pp : Format.formatter -> t -> unit
   val show : t -> string
   val equal : t -> t -> bool
   val hash : t -> int
   val compare : t -> t -> int
   val props : t -> (predicate * int list) BatEnum.t
+  val preds : t -> predicate BatEnum.t
   val universe_size : t -> int
   val universe : t -> int BatEnum.t
   val make : ?size:int -> (predicate * int list) BatEnum.t -> t
@@ -50,7 +52,8 @@ module F = PaFormula
 module Make (P : Symbol) = struct
   type predicate = P.t
   type atom = P.t * int list [@@deriving ord]
-
+  module Predicate = P
+                        
   let pp_atom formatter (p,args) =
     Format.fprintf formatter "@[%a(%a)@]"
       P.pp p
@@ -263,9 +266,9 @@ module Make (P : Symbol) = struct
 
   (* Is there an embedding (injective homomorphism) of x into y? *)
   let embeds x y =
-    (x.universe <= y.universe)
+(*    (x.universe <= y.universe)
     && (AtomSet.cardinal x.prop <= AtomSet.cardinal y.prop)
-    && (AtomSet.subset x.prop y.prop || begin
+    && (AtomSet.subset x.prop y.prop || begin *)
         let x_sigs = mk_sig_map x in
         let y_sigs = mk_sig_map y in
         let check map =
@@ -286,7 +289,80 @@ module Make (P : Symbol) = struct
             BatEnum.exists f (KMap.enum y_sigs)
         in
         go (BatList.of_enum (universe x)) y_sigs KMap.empty
-      end)
+  (*      end) *)
+
+  module PSet = BatSet.Make(P)
+
+  (* Gets a list of all predicate symbols *)
+  let get_preds str =
+    let f (head, args) preds =
+      PSet.add head preds
+    in
+    AtomSet.fold f str.prop PSet.empty
+
+  let preds str = PSet.enum (get_preds str)
+
+  (* Gets a list of all predicate variables *)
+  let get_ids str =
+    let f (head, args) ids =
+      let g ids id =
+        KSet.add id ids
+      in
+      List.fold_left g ids args
+    in
+    AtomSet.fold f str.prop KSet.empty
+
+  module Graph = BiGraph.Make(Putil.PInt)
+
+  let mk_edges x_ids x_sigs y_ids y_sigs =
+    let f x_id e =
+      let g y_id e =
+        if Sig.subset (KMap.find x_id x_sigs) (KMap.find y_id y_sigs) then
+          Graph.EdgeSet.add (x_id, y_id) e
+        else
+          e
+      in
+      KSet.fold g y_ids e
+    in
+    KSet.fold f x_ids Graph.EdgeSet.empty
+
+  let mk_graph x y =
+    let u = get_ids x in
+    let v = get_ids y in
+    let x_sigs = mk_sig_map x in
+    let y_sigs = mk_sig_map y in
+    let e = mk_edges u x_sigs v y_sigs in
+    Graph.make (KSet.enum u) (KSet.enum v) (Graph.EdgeSet.enum e)
+
+  let check_graph g =
+    (Graph.e_size g) >= (Graph.u_size g)
+    && begin
+        let f (u, v) (uSet, vSet) =
+          ((KSet.add u uSet), (KSet.add v vSet))
+      in
+      let (ue, ve) = Graph.EdgeSet.fold f g.e (KSet.empty, KSet.empty) in (* vertices incident to edges in U, V *)
+      (Graph.u_size g) <= (KSet.cardinal ue)
+      && (Graph.u_size g) <= (KSet.cardinal ve) 
+    end
+
+  let embeds' x y =
+    let g = mk_graph x y in
+    (check_graph g)
+    && ((Graph.max_matching g) = (Graph.u_size g))
+
+  let embeds x y =
+    (x.universe <= y.universe)
+    && (AtomSet.cardinal x.prop <= AtomSet.cardinal y.prop)
+    && (PSet.subset (get_preds x) (get_preds y)) (* note this line is necessary to check for atomic predicates *)
+    && (AtomSet.subset x.prop y.prop || begin
+    let monadic str =
+      let f (head, args) =
+        (List.length args) <= 1
+      in
+      AtomSet.for_all f str.prop
+    in
+    if (monadic x) && (monadic y) then embeds' x y else embeds x y
+  end)
 
   let make ?size:(size=(-1)) prop_enum =
     let prop = AtomSet.of_enum prop_enum in
