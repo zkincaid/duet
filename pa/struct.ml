@@ -265,31 +265,27 @@ module Make (P : Symbol) = struct
     BatEnum.fold f KMap.empty (universe str)
 
   (* Is there an embedding (injective homomorphism) of x into y? *)
-  let embeds x y =
-(*    (x.universe <= y.universe)
-    && (AtomSet.cardinal x.prop <= AtomSet.cardinal y.prop)
-    && (AtomSet.subset x.prop y.prop || begin *)
-        let x_sigs = mk_sig_map x in
-        let y_sigs = mk_sig_map y in
-        let check map =
-          let f (head,args) =
-            AtomSet.mem (head, List.map (fun x -> KMap.find x map) args) y.prop
-          in
-          AtomSet.for_all f x.prop
+  let embeds_naive x y =
+    let x_sigs = mk_sig_map x in
+    let y_sigs = mk_sig_map y in
+    let check map =
+      let f (head,args) =
+        AtomSet.mem (head, List.map (fun x -> KMap.find x map) args) y.prop
+      in
+      AtomSet.for_all f x.prop
+    in
+    let rec go xs y_sigs map = match xs with
+      | [] -> check map
+      | (x::xs) ->
+        let x_sig = KMap.find x x_sigs in
+        let f (y,y_sig) =
+          Sig.subset x_sig y_sig
+          &&
+          (go xs (KMap.remove y y_sigs) (KMap.add x y map))
         in
-        let rec go xs y_sigs map = match xs with
-          | [] -> check map
-          | (x::xs) ->
-            let x_sig = KMap.find x x_sigs in
-            let f (y,y_sig) =
-              Sig.subset x_sig y_sig
-              &&
-              (go xs (KMap.remove y y_sigs) (KMap.add x y map))
-            in
-            BatEnum.exists f (KMap.enum y_sigs)
-        in
-        go (BatList.of_enum (universe x)) y_sigs KMap.empty
-  (*      end) *)
+        BatEnum.exists f (KMap.enum y_sigs)
+    in
+    go (BatList.of_enum (universe x)) y_sigs KMap.empty
 
   module PSet = BatSet.Make(P)
 
@@ -312,48 +308,44 @@ module Make (P : Symbol) = struct
     in
     AtomSet.fold f str.prop KSet.empty
 
-  module Graph = BiGraph.Make(Putil.PInt)
+  module Graph = Matching.Make(Putil.PInt)
 
-  let mk_edges x_ids x_sigs y_ids y_sigs =
-    let f x_id e =
-      let g y_id e =
-        if Sig.subset (KMap.find x_id x_sigs) (KMap.find y_id y_sigs) then
-          Graph.EdgeSet.add (x_id, y_id) e
-        else
-          e
-      in
-      KSet.fold g y_ids e
-    in
-    KSet.fold f x_ids Graph.EdgeSet.empty
-
+  (* Create a Bipartite Graph from structures X and Y
+     Where X embeds Y -> |max_matching G| = |U|
+     For monadic structures this is a bimplication
+  *)
   let mk_graph x y =
+    let mk_edges x_ids x_sigs y_ids y_sigs = (* Create an Enumeration of Edges *)
+      let e = BatEnum.empty() in
+      let f x_id =
+        let g y_id =
+          if Sig.subset (KMap.find x_id x_sigs) (KMap.find y_id y_sigs) then
+            BatEnum.push e (x_id, y_id)
+        in
+        KSet.iter g y_ids
+      in
+      KSet.iter f x_ids; e
+    in
     let u = get_ids x in
     let v = get_ids y in
     let x_sigs = mk_sig_map x in
     let y_sigs = mk_sig_map y in
     let e = mk_edges u x_sigs v y_sigs in
-    Graph.make (KSet.enum u) (KSet.enum v) (Graph.EdgeSet.enum e)
+    Graph.make (KSet.enum u) (KSet.enum v) e
 
-  let check_graph g =
-    (Graph.e_size g) >= (Graph.u_size g)
-    && begin
-        let f (u, v) (uSet, vSet) =
-          ((KSet.add u uSet), (KSet.add v vSet))
-      in
-      let (ue, ve) = Graph.EdgeSet.fold f g.e (KSet.empty, KSet.empty) in (* vertices incident to edges in U, V *)
-      (Graph.u_size g) <= (KSet.cardinal ue)
-      && (Graph.u_size g) <= (KSet.cardinal ve) 
-    end
-
-  let embeds' x y =
+  (* Is there an embedding (injective homomorphism) of x into y? 
+     Only gauranteed to work with monadic structures *)
+  let embeds_matching x y =
     let g = mk_graph x y in
-    (check_graph g)
+    (Graph.incident_u g) >= (Graph.u_size g)       (* Quick check to see if |max_matching g| <= |U| *)
+    && (Graph.incident_v g) >= (Graph.u_size g)
     && ((Graph.max_matching g) = (Graph.u_size g))
 
+  (* Is there an embedding (injective homomorphism) of x into y? *)
   let embeds x y =
     (x.universe <= y.universe)
     && (AtomSet.cardinal x.prop <= AtomSet.cardinal y.prop)
-    && (PSet.subset (get_preds x) (get_preds y)) (* note this line is necessary to check for atomic predicates *)
+    (* && (PSet.subset (get_preds x) (get_preds y)) (* this is always true when using Search Tree *) *)
     && (AtomSet.subset x.prop y.prop || begin
     let monadic str =
       let f (head, args) =
@@ -361,7 +353,7 @@ module Make (P : Symbol) = struct
       in
       AtomSet.for_all f str.prop
     in
-    if (monadic x) && (monadic y) then embeds' x y else embeds x y
+    if (monadic x) && (monadic y) then embeds_matching x y else embeds_naive x y
   end)
 
   let make ?size:(size=(-1)) prop_enum =

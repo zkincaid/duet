@@ -19,10 +19,24 @@ module type S = sig
 
   val empty : baseSet -> (elt -> baseSet) -> t
   val make  : baseSet -> (elt -> baseSet) -> elt BatSet.t -> t
+
+  exception Item_not_known
   val insert : t -> elt -> unit
   val covered : (elt -> elt -> bool) -> t -> elt -> elt option
 end
 
+(* Elt is the type of elements stored in the tree
+
+   Where sets of Base elements label the nodes of
+   the tree.
+
+   The function project, takes elements to be inserted
+   / searched and gets the corresponding set of Base
+   elements.
+
+   The search function performs a range search
+   (similar to a K-D tree).
+ *)
 module Make (Base : Element) (Elt : Element) = struct
   module BaseSet = BatSet.Make(Base)
   module EltSet = BatSet.Make(Elt)
@@ -45,12 +59,14 @@ module Make (Base : Element) (Elt : Element) = struct
 
   let empty elts proj = { project = proj; elements = elts; tree = Leaf }
 
-  (* This Inserts an ElementSet into the tree
-     The path prefix is decided based on subset ordering *)
   let pp_base formatter b =
     Format.fprintf formatter "{%a}"
     (ApakEnum.pp_print_enum Base.pp) (BaseSet.enum b)
 
+  (* This Inserts an ElementSet into the tree
+     The path prefix is decided based on subset ordering
+     of the element's projection.
+  *)
   exception Item_not_known
   let insert stree item =
     let iblist = BaseSet.elements (stree.project item) in (* project item to base set *)
@@ -65,7 +81,7 @@ module Make (Base : Element) (Elt : Element) = struct
         end
       | i :: iblist' ->
         match elist with
-          [] -> raise Item_not_known
+          [] -> print_endline "insert"; raise Item_not_known
         | e :: elist ->
           match tree with
             Leaf ->
@@ -80,8 +96,10 @@ module Make (Base : Element) (Elt : Element) = struct
                 Node {data; left = (go elist iblist left); right}
       in stree.tree <- go elist iblist stree.tree
 
+  (* Makes a Search Tree by creating an empty tree and
+     inserting each item into the tree *)
   let make elts proj items =
-    let tree = empty proj elts in
+    let tree = empty elts proj in
     let f item =
       insert tree item
     in
@@ -90,26 +108,27 @@ module Make (Base : Element) (Elt : Element) = struct
 
   (* This performs the actual search
      returns true if there exists a elt in tree
-     such that (f elt item) *)
-  let covered f stree item =
-    let neg : int ref = ref 0 in
-    let pos : int ref = ref 0 in
-    let inc x = x := !x + 1 in
+     such that (f elt item)
+
+     This only works if (f elt item) =>
+     (project elt) is a subset of (project item)
+  *)
+  let covered p stree item =
     let iblist = BaseSet.elements (stree.project item) in
     let elist = BaseSet.elements stree.elements in
-    let g data =
-      let h d opt =
+    let f data =
+      let g d opt =
         match opt with
-          None -> if (f d item) then begin inc pos; Some d end else begin inc neg; None end
+          None -> if (p d item) then Some d else None
         | Some _ -> opt
       in
-      EltSet.fold h data None
+      EltSet.fold g data None
     in
     let rec go elist iblist tree =
       match tree with
         Leaf -> None
       | Node {data; left; right} ->
-        match g data with
+        match f data with
           Some x -> Some x
         | None ->
           begin
@@ -126,7 +145,6 @@ module Make (Base : Element) (Elt : Element) = struct
                   else
                     (go elist iblist left)
           end
-    in let ret = go elist iblist stree.tree in
-       (*       print_int !neg; print_string " "; print_int !pos; print_newline(); *)
-       ret
+    in go elist iblist stree.tree
+
 end
