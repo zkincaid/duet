@@ -34,17 +34,13 @@ module Make (V : Vertex) = struct
 
   module VertexSet = BatSet.Make(V)
   module VertexMap = BatMap.Make(V)
-  module VMap = BatMap.Make(V)
-  module VoptMap = BatMap.Make(struct
-    type t = V.t option [@@deriving ord]
-  end)
 
   (* Adjacency map representation for a BiPartite Graph *)
   type t =
     { u : VertexSet.t;
       v : VertexSet.t;
       adj_u : VertexSet.t VertexMap.t;  (* v in adj_u[u] -> (u, v) in E *)
-      adj_v : VertexSet.t VertexMap.t } (* u in adj_v[v] -> (u, v) in E *)
+      adj_v : VertexSet.t VertexMap.t } (* u in adj_v[v] -> (u, v) in E *) (* Not necessary for matching algorithm *)
 
   let pp formatter graph =
     Format.fprintf formatter "{U: {%a}, V: {%a}}"
@@ -88,82 +84,79 @@ module Make (V : Vertex) = struct
      performs a breadth first search to determine
      the distance of vertices in U from a free vertex *)
   let bfs u adj_u pair_u pair_v =
-    let init u pair_u =
-      let q = Queue.create() in
-      let f u dist =
-        match VMap.find u pair_u with
-          None -> (Queue.add u q); VoptMap.add (Some u) 0 dist
-        | Some v -> VoptMap.add (Some u) max_int dist
-      in
-      (VertexSet.fold f u VoptMap.empty), q
+    let q = Queue.create() in
+    let init u dist =
+      match VertexMap.find u pair_u with
+        None -> (Queue.add u q); VertexMap.add u 0 dist
+      | Some _ -> VertexMap.add u max_int dist
     in
-    let (dist, q) = init u pair_u in
-    let dist = VoptMap.add None max_int dist in
+    let dNone : int ref = ref max_int in
     let rec go dist =
-      if (Queue.is_empty q) then dist
+      if (Queue.is_empty q) then (dist, !dNone)
       else
         let u = Queue.take q in
-        let du = VoptMap.find (Some u) dist in
-        if du < (VoptMap.find None dist) then
+        let du = VertexMap.find u dist in
+        if du < !dNone then
           let f v dist =
-            let pv = (VMap.find v pair_v) in
-            if (VoptMap.find pv dist) = max_int then
-              match pv with
-                None -> VoptMap.add pv (du + 1) dist
-              | Some u -> (Queue.add u q); VoptMap.add pv (du + 1) dist
-            else dist
+            match (VertexMap.find v pair_v) with
+              None -> (if (!dNone) = max_int then dNone := (du + 1)); dist
+            | Some u ->
+               if (VertexMap.find u dist) = max_int then
+                 begin (Queue.add u q); VertexMap.add u (du + 1) dist end
+               else dist
           in
-          if (VMap.mem u adj_u) then
-            go (VertexSet.fold f (VMap.find u adj_u) dist)
-          else
-            go dist
+          if (VertexMap.mem u adj_u) then
+            go (VertexSet.fold f (VertexMap.find u adj_u) dist)
+          else go dist
         else go dist
-    in go dist
+    in go (VertexSet.fold init u VertexMap.empty)
 
   (* Performs a Depth First Search to perform the
-     path alternation of the Hopcroft-Karp algorithm *)
-  let rec dfs u adj_u pair_u pair_v dist =
-    match u with
-      None -> pair_u, pair_v, true
-    | Some u ->
-      let f v (pair_u, pair_v, b) =
-        if b then
-          (pair_u, pair_v, b)
-        else
-          let pv = VMap.find v pair_v in
-          if (VoptMap.find pv dist) = (VoptMap.find (Some u) dist) + 1 then
-            let (pair_u, pair_v, b) = dfs pv adj_u pair_u pair_v dist in
-            if b then
-              (VMap.add u (Some v) pair_u), (VMap.add v (Some u) pair_v), true
-            else
-              (pair_u, pair_v, false)
-          else
-            (pair_u, pair_v, false)
-      in
-      if (VMap.mem u adj_u) then
-        VertexSet.fold f (VMap.find u adj_u) (pair_u, pair_v, false)
+     path alternation of the Hopcroft-Karp algorithm
+     Finds the shortest one then flips path and returns
+   *)
+  let rec dfs u adj_u pair_u pair_v dist dNone du =
+    let f v (pair_u, pair_v, b) =
+      if b then (pair_u, pair_v, b)
       else
-        (pair_u, pair_v, false)
-
+        match VertexMap.find v pair_v with
+          None -> if dNone = (du + 1) then
+                    (VertexMap.add u (Some v) pair_u), (VertexMap.add v (Some u) pair_v), true
+                  else pair_u, pair_v, false
+        | Some u ->
+           if (VertexMap.find u dist) = (du + 1) then
+           begin
+             let pair_u, pair_v, b = dfs u adj_u pair_u pair_v dist dNone (du + 1) in
+             if b then
+               (VertexMap.add u (Some v) pair_u), (VertexMap.add v (Some u) pair_v), true
+             else
+               pair_u, pair_v, false
+           end
+           else pair_u, pair_v, false
+    in
+    if (VertexMap.mem u adj_u) then
+      VertexSet.fold f (VertexMap.find u adj_u) (pair_u, pair_v, false)
+    else
+      pair_u, pair_v, false
+             
   (* Implements the Hopcroft-Karp algorithm for finding
      a maximum cardinality bipartite graph matching
      returns the cardinality of the produced matching *)
   let max_matching graph =
-    let (adj_u, adj_v) = (graph.adj_u, graph.adj_v) in
     let f v map =
-      VMap.add v None map
+      VertexMap.add v None map
     in
-    let pair_u = VertexSet.fold f graph.u (VMap.empty) in
-    let pair_v = VertexSet.fold f graph.v (VMap.empty) in
+    let pair_u = VertexSet.fold f graph.u (VertexMap.empty) in
+    let pair_v = VertexSet.fold f graph.v (VertexMap.empty) in
     let rec go (pair_u, pair_v, matches) =
-      let dist = bfs graph.u adj_u pair_u pair_v in
-      if (VoptMap.find None dist) = max_int then
+      let dist, dNone = bfs graph.u graph.adj_u pair_u pair_v in
+      if dNone = max_int then
         matches
       else
         let f u (pair_u, pair_v, matches) =
-          match VMap.find u pair_u with
+          match VertexMap.find u pair_u with
             None ->
-            let (pair_u, pair_v, b) = dfs (Some u) adj_u pair_u pair_v dist in
+            let (pair_u, pair_v, b) = dfs u graph.adj_u pair_u pair_v dist dNone 0 in
             if b then
               pair_u, pair_v, (matches + 1)
             else
