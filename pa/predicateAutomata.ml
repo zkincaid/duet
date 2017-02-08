@@ -625,7 +625,10 @@ module MakeReachabilityGraph (A : sig
                                                     same length *)
       cover : (id,id) Hashtbl.t; (* partial maps a vertex v to a vertex u such
                                     that v is covered by u *)
-      mutable searchTree : PredicateTree.t
+      mutable searchTree : PredicateTree.t (* to ensure that covering is
+                                              acyclic, searchTree should
+                                              include only those vertices that
+                                              have already been expanded. *)
     }
 
   let label arg vertex =
@@ -702,9 +705,6 @@ module MakeReachabilityGraph (A : sig
     let id = DA.length arg.label in
     DA.add arg.label label;
     DA.add arg.parent parent;
-    (try PredicateTree.insert arg.searchTree id with
-      PredicateTree.Item_not_known -> logf ~level:`always "%a" Config.pp label; failwith "Error: Unknown Predicate Symbol"
-    );
     add_worklist arg id;
     id
 
@@ -712,6 +712,7 @@ module MakeReachabilityGraph (A : sig
     let config = label arg vertex in
     logf ~level:`trace ~attributes:[`Blue;`Bold] "Expanding vertex:";
     logf ~level:`trace "@[[%d] %a" vertex Config.pp config;
+    PredicateTree.insert arg.searchTree vertex;
     let add_succ (letter, k, config) =
       let succ_vertex =
         add_vertex arg ~parent:(Some (letter, k, vertex)) config
@@ -727,7 +728,6 @@ module MakeReachabilityGraph (A : sig
 
   (* u covers v *)
   let add_cover arg u v =
-    assert (u < v);
     Hashtbl.add arg.cover v u
 
   (* Given a vertex v, try to find another vertex u which covers v.  If such a
@@ -772,7 +772,7 @@ module MakeReachabilityGraph (A : sig
     find_cover 0
 
   let close_all arg vertex =
-    let embeds x y = x < y && (Config.embeds (label arg x) (label arg y)) in
+    let embeds x y = Config.embeds (label arg x) (label arg y) in
     match PredicateTree.covered embeds arg.searchTree vertex with
       None -> false
     | Some u ->
