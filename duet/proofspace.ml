@@ -140,9 +140,32 @@ module Letter = struct
               ((v,index), term))
         |> BatList.of_enum
       in
-      Tr.mul
-        (Tr.assume (substitute_const ctx reindex (Tr.guard tr)))
-        (Tr.parallel_assign assign)
+      Tr.construct
+        (substitute_const ctx reindex (Tr.guard tr))
+        assign
+
+  let is_local e =
+    match label e with
+    | `Fork _ | `Initial -> false
+    | `Transition tr ->
+      let has_globals expr =
+        fold_constants (fun sym global ->
+            global
+            || (match IV.of_symbol sym with
+                | Some (v, _) when Var.is_shared v -> true
+                | _ -> false))
+          expr
+          false
+      in
+      not (has_globals (Tr.guard tr)
+           || BatEnum.exists
+                (fun ((v,_), term) -> Var.is_shared v || (has_globals term))
+                (Tr.transform tr))
+
+  let is_transition e =
+    match label e with
+    | `Transition _ -> true
+    | _ -> false
 
   module Set = BatSet.Make(G.E)
   module Map = BatMap.Make(G.E)
@@ -529,6 +552,44 @@ let mk_block_graph file =
       graph
       (Interproc.RG.vertices rg)
   in
+
+  let graph =
+    (* Collapse non-loop, non-endpoint vertices such that either (1) all
+       outgoing edges are local transitions (2) all incoming edges are local
+       transitions. *)
+    G.fold_vertex (fun v g ->
+        let preds = G.pred_e g v in
+        let succs = G.succ_e g v in
+        if (not (G.mem_edge g v v) (* non-loop *)
+            && List.length preds > 0 && List.length succs > 0 (* non-endpoint *)
+            && ((List.for_all Letter.is_local succs
+                 && List.for_all Letter.is_transition preds)
+                || (List.for_all Letter.is_local preds
+                    && List.for_all Letter.is_transition succs)))
+        then
+          List.fold_left (fun g pred ->
+              List.fold_left (fun g succ ->
+                  match Letter.label pred, Letter.label succ with
+                  | `Transition tr, `Transition tr' ->
+                    let mul_letter =
+                      Letter.create
+                        (Letter.src pred)
+                        (`Transition (Tr.mul tr tr'))
+                        (Letter.dst succ)
+                    in
+                    G.add_edge_e g mul_letter
+                  | _, _ -> assert false)
+                g
+                succs)
+            (G.remove_vertex g v)
+            preds
+        else
+          g)
+      graph
+      graph
+  in
+
+
   (* TODO: for correctness, all we need is to make sure that transitions of
      the main thread do not happen in parallel with each other and initial
      transitions don't happen in parallel with anything.  We might be able to
