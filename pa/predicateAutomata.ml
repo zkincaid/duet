@@ -598,6 +598,7 @@ module MakeReachabilityGraph (A : sig
     module Config : Struct.S with type predicate = predicate
                               and type t = config
     val pp_letter : Format.formatter -> letter -> unit
+    val vocabulary : t -> (predicate * int) BatEnum.t
     val successors : t -> config -> (letter * int * config) BatEnum.t
   end) = struct
   open A
@@ -613,6 +614,8 @@ module MakeReachabilityGraph (A : sig
         | r -> r
     end)
 
+  module PredicateTree = SearchTree.Make(Config.Predicate)(Apak.Putil.PInt)
+
   type arg =
     { mutable worklist : WVSet.t;
       pa : t;
@@ -620,16 +623,10 @@ module MakeReachabilityGraph (A : sig
       parent : ((letter * int * id) option) DA.t; (* Invariant: label & parent
                                                     should always have the
                                                     same length *)
-      cover : (id,id) Hashtbl.t (* partial maps a vertex v to a vertex u such
-                                   that v is covered by u *)
+      cover : (id,id) Hashtbl.t; (* partial maps a vertex v to a vertex u such
+                                    that v is covered by u *)
+      mutable searchTree : PredicateTree.t
     }
-
-  let make pa =
-    { worklist = WVSet.empty;
-      pa = pa;
-      label = DA.make 2048;
-      parent = DA.make 2048;
-      cover = Hashtbl.create 991 }
 
   let label arg vertex =
     let nb_vertex = DA.length arg.label in
@@ -637,6 +634,25 @@ module MakeReachabilityGraph (A : sig
       DA.get arg.label vertex
     else 
       Log.invalid_argf "label: vertex %d does not exist" vertex
+
+  module PSet = BatSet.Make(Config.Predicate)
+  let make pa =
+    let preds pa =
+      let f (p, ar) preds =
+        PSet.add p preds
+      in BatSet.fold f (BatSet.of_enum (A.vocabulary pa)) PSet.empty
+    in
+    let arg =
+    { worklist = WVSet.empty;
+      pa = pa;
+      label = DA.make 2048;
+      parent = DA.make 2048;
+      cover = Hashtbl.create 991;
+      searchTree = PredicateTree.empty (preds pa) (fun _ -> PSet.empty)
+    }
+    in
+    arg.searchTree <- PredicateTree.empty (preds pa) (fun x -> PSet.of_enum (Config.preds (label arg x)));
+    arg
 
   let parent arg vertex =
     let nb_vertex = DA.length arg.parent in
@@ -686,6 +702,9 @@ module MakeReachabilityGraph (A : sig
     let id = DA.length arg.label in
     DA.add arg.label label;
     DA.add arg.parent parent;
+    (try PredicateTree.insert arg.searchTree id with
+      PredicateTree.Item_not_known -> logf ~level:`always "%a" Config.pp label; failwith "Error: Unknown Predicate Symbol"
+    );
     add_worklist arg id;
     id
 
@@ -751,6 +770,22 @@ module MakeReachabilityGraph (A : sig
         find_cover (u + 1)
     in
     find_cover 0
+
+  let close_all arg vertex =
+    let embeds x y = x < y && (Config.embeds (label arg x) (label arg y)) in
+    match PredicateTree.covered embeds arg.searchTree vertex with
+      None -> false
+    | Some u ->
+       begin
+         let config = label arg vertex in
+         add_cover arg u vertex;
+         logf ~level:`trace ~attributes:[`Green;`Bold]
+           "Covered vertex: [%d] %a"
+           vertex
+           Config.pp config;
+         logf ~level:`trace " by [%d] %a" u Config.pp (label arg u);
+         true
+       end
 end
 
 module MakeEmpty (A : sig
@@ -833,7 +868,7 @@ struct
 
     (* Add initial configurations to the ARG *)
     Config.min_models 1 (initial pa) |> BatEnum.iter (fun config ->
-        ignore (Arg.add_vertex arg config));
+           ignore (Arg.add_vertex arg config));
 
     fix arg
 end
