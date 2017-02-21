@@ -189,20 +189,12 @@ let mk_pt dfunc inst =
     | _ -> hd :: (remove_insts comp (List.tl tl))
   )*)
 
-let convert_str_val string_val =
-  try
-    let int_val = int_of_string string_val in
-    Core.Constant(CInt(int_val,4))
-  with Failure "int_of_string" ->
-    AccessPath(Variable(get_var (InterIR.Var(string_val,InterIR.Int(4)))))
-
-let convert_string_expr str_op lhs rhs =
-  match str_op with
+let convert_parsed_binary opString lhs rhs =
+  match opString with 
     "*" -> Core.BinaryOp(lhs,Mult,rhs,Core.Concrete(Int(4)))
     | "+" -> Core.BinaryOp(lhs,Add,rhs,Core.Concrete(Int(4)))
     | "-" -> Core.BinaryOp(lhs,Minus,rhs,Core.Concrete(Int(4)))
     | "/" -> Core.BinaryOp(lhs,Div,rhs,Core.Concrete(Int(4)))
-    | "%" -> Core.BinaryOp(lhs,Mod,rhs,Core.Concrete(Int(4)))
     | "==" -> Core.BoolExpr(Core.Atom(Core.Eq,lhs,rhs))
     | "!=" -> Core.BoolExpr(Core.Atom(Core.Ne,lhs,rhs))
     | "<=" -> Core.BoolExpr(Core.Atom(Core.Le,lhs,rhs))
@@ -216,31 +208,25 @@ let convert_string_expr str_op lhs rhs =
               Core.BoolExpr(l) -> (match rhs with
                                   Core.BoolExpr(r) -> Core.BoolExpr(Core.And(l,r))))
 
-let rec convert_string_vals str_list =
-  let str_head = List.hd str_list in
-  if String.contains str_head '(' then begin
-    let str_op = String.sub str_head 1 ((String.length str_head) - 1) in
-    let (lhs,rhs_string_list) = convert_string_vals (List.tl str_list) in
-    let (rhs,upper_string_list) = convert_string_vals rhs_string_list in
-    let sub_expr = convert_string_expr str_op lhs rhs in
-    (sub_expr,upper_string_list)
-  end
-  else begin
-    let f_val = ref str_head in
-    while String.contains !f_val ')' do
-      f_val := String.sub !f_val 0 ((String.length !f_val) - 1)
-    done;
-    let return_val = convert_str_val !f_val in
-    (return_val,(List.tl str_list))
-  end
+let convert_parsed_unary opString sub_e =
+  match opString with
+    "-" -> Core.UnaryOp(Core.Neg,sub_e,Core.Concrete(Int(4)))
+    | "!" -> Core.UnaryOp(Core.BNot,sub_e,Core.Concrete(Int(4)))
 
-let convert_bexpr stringbexpr is_assume =
-  let split_bexpr = Str.split (Str.regexp_string ",") stringbexpr in
-  let string_op = List.hd split_bexpr in
-  let (lhs,rhs_string) = convert_string_vals (List.tl split_bexpr) in
-  let (rhs,_) = convert_string_vals rhs_string in
-  let top_bexpr = convert_string_expr string_op lhs rhs in
-  match top_bexpr with
+let rec convert_parsed_expr parsed_bexpr =
+  match parsed_bexpr with 
+    Assumeassertparser.Op1(opString, e) -> let sub_e = convert_parsed_expr e in
+                          convert_parsed_unary opString sub_e
+    | Op2(e1, opString, e2) -> let sub_e1 = convert_parsed_expr e1 in
+                               let sub_e2 = convert_parsed_expr e2 in
+                               convert_parsed_binary opString sub_e1 sub_e2
+    | Int(i) -> Core.Constant(CInt(i,4))
+    | Id(x) -> AccessPath(Variable(get_var (InterIR.Var(x,InterIR.Int(4)))))
+
+let convert_bexpr parsed_bexpr is_assume =
+  let bexpr = convert_parsed_expr parsed_bexpr in
+  let stringbexpr = Assumeassertparser.toString parsed_bexpr in
+  match bexpr with
     Core.BoolExpr(bexpr) -> (
   if is_assume then begin
     Core.Def.mk (Core.Assume(bexpr)) end
@@ -252,7 +238,11 @@ let create_ABExpr (_,blk_type_expr) =
   let type_expr = List.tl blk_type_expr in
   let assume = (String.compare "Assume" (List.hd type_expr)) == 0 in
   let bexpr = List.hd (List.tl type_expr) in
-  let convertedbexpr = convert_bexpr bexpr assume in
+  Printf.printf "yay\n";
+  let tmp = Assumeassertparser.parse_expression bexpr in
+  let c_string = Assumeassertparser.toString tmp in
+  Printf.printf "parsed: %s\n" c_string;
+  let convertedbexpr = convert_bexpr tmp assume in
   (blk,convertedbexpr)
 
 let convert_funcs cs_func =
