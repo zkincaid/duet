@@ -503,10 +503,21 @@ module ExprHT = struct
   let enum = HT.enum
 end
 
+module ExprSet = struct
+  module S = BatSet.Make(Expr)
+  type ('a, 'typ) t = S.t
+  let empty = S.empty
+  let add = S.add
+  let union = S.union
+  let inter = S.inter
+  let enum = S.enum
+end
+
 module ExprMap = struct
   module M = BatMap.Make(Expr)
   type ('a, 'typ, 'b) t = 'b M.t
   let empty = M.empty
+  let is_empty = M.is_empty
   let add = M.add
   let map = M.map
   let filter = M.filter
