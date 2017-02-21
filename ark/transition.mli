@@ -69,8 +69,9 @@ module Make
   (** Non-deterministically choose between two transitions *)
   val add : t -> t -> t
 
-  (** Over-approximate the transitive closure of a transition *)
-  val star : t -> t
+  (** Over-approximate the transitive closure of a transition.  If split is
+      set (default), then loop splitting is turned on. *)
+  val star : ?split:bool -> t -> t
 
   (** Unexecutable transition (unit of [add]). *)
   val zero : t

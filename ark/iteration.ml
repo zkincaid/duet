@@ -560,3 +560,221 @@ let join iter iter' =
 
 let star ?(exists=fun x -> true) ark phi symbols =
   closure (abstract_iter ~exists ark phi symbols)
+
+let bottom ark symbols =
+  { ark = ark;
+    symbols = symbols;
+    precondition = Cube.bottom ark;
+    postcondition = Cube.bottom ark;
+    stratified = [];
+    inequations = [] }
+
+module Split = struct
+  type 'a split_iter = ('a, typ_bool, ('a iter * 'a iter)) ExprMap.t
+
+  let ark split_iter =
+    match BatEnum.get (ExprMap.values split_iter) with
+    | Some (iter, _) -> iter.ark
+    | None -> assert false
+
+  let tr_symbols split_iter =
+    match BatEnum.get (ExprMap.values split_iter) with
+    | Some (iter, _) -> iter.symbols
+    | None -> assert false
+
+  let pp formatter split_iter =
+    let pp_elt formatter (pred,(left,right)) =
+      Format.fprintf formatter "[@[<v 0>%a@; %a@; %a@]]"
+        (Formula.pp (ark split_iter)) pred
+        pp_iter left
+        pp_iter right
+    in
+    Format.fprintf formatter "<Split @[<v 0>%a@]>"
+      (ApakEnum.pp_print_enum pp_elt) (ExprMap.enum split_iter)
+
+  (* Lower a split iter into an iter by picking an arbitary split and joining
+     both sides. *)
+  let lower_split split_iter =
+    match BatEnum.get (ExprMap.values split_iter) with
+    | Some (iter, iter') -> join iter iter'
+    | None -> assert false
+
+  let lift_split iter =
+    ExprMap.add
+      (mk_true iter.ark)
+      (iter, bottom iter.ark iter.symbols)
+      ExprMap.empty
+
+  let abstract_iter ?(exists=fun x -> true) ark body tr_symbols =
+    let post_symbols =
+      List.fold_left (fun set (_,s') ->
+          Symbol.Set.add s' set)
+        Symbol.Set.empty
+        tr_symbols
+    in
+    let predicates =
+      let preds = ref ExprSet.empty in
+      let prestate sym = exists sym && not (Symbol.Set.mem sym post_symbols) in
+      let rr expr =
+        match destruct ark expr with
+        | `Not phi ->
+          if Symbol.Set.for_all prestate (symbols phi) then
+            preds := ExprSet.add phi (!preds);
+          expr
+        | _ -> expr
+      in
+      ignore (rewrite ark ~up:rr body);
+      BatList.of_enum (ExprSet.enum (!preds))
+    in
+    let uninterp_body =
+      rewrite ark
+        ~up:(Abstract.nonlinear_uninterpreted_rewriter ark)
+        body
+    in
+    let solver = Smt.mk_solver ark in
+    solver#add [uninterp_body];
+    let sat_modulo_body psi =
+      solver#push ();
+      solver#add [psi];
+      let result = solver#check [] in
+      solver#pop 1;
+      result
+    in
+    let is_split_predicate psi =
+      (sat_modulo_body psi = `Sat)
+      && (sat_modulo_body (mk_not ark psi) = `Sat)
+    in
+    let post_map =
+      List.fold_left
+        (fun map (s, s') ->
+           Symbol.Map.add s (mk_const ark s') map)
+        Symbol.Map.empty
+        tr_symbols
+    in
+    let postify =
+      let subst sym =
+        if Symbol.Map.mem sym post_map then
+          Symbol.Map.find sym post_map
+        else
+          mk_const ark sym
+      in
+      substitute_const ark subst
+    in
+    let add_split_predicate split_iter psi =
+      if is_split_predicate psi then
+        let not_psi = mk_not ark psi in
+        let post_psi = postify psi in
+        let post_not_psi = postify not_psi in
+        let psi_body = mk_and ark [body; psi] in
+        let not_psi_body = mk_and ark [body; not_psi] in
+        if sat_modulo_body (mk_and ark [psi; post_not_psi]) = `Unsat then
+          (* {psi} body {psi} -> body* = ([not psi]body)*([psi]body)* *)
+          let left_abstract =
+            abstract_iter ~exists ark not_psi_body tr_symbols
+          in
+          let right_abstract =
+            abstract_iter ~exists ark psi_body tr_symbols
+          in
+          ExprMap.add psi (left_abstract, right_abstract) split_iter
+        else if sat_modulo_body (mk_and ark [not_psi; post_psi]) = `Unsat then
+          (* {not phi} body {not phi} -> body* = ([phi]body)*([not phi]body)* *)
+          let left_abstract =
+            abstract_iter ~exists ark psi_body tr_symbols
+          in
+          let right_abstract =
+            abstract_iter ~exists ark not_psi_body tr_symbols
+          in
+          ExprMap.add psi (left_abstract, right_abstract) split_iter
+        else
+          split_iter
+      else
+        split_iter
+    in
+    let split_iter =
+      List.fold_left add_split_predicate ExprMap.empty predicates
+    in
+    (* If there are no predicates that can split the loop, split on true *)
+    let split_iter =
+      if ExprMap.is_empty split_iter then
+        ExprMap.add
+          (mk_true ark)
+          (abstract_iter ~exists ark body tr_symbols,
+           bottom ark tr_symbols)
+          ExprMap.empty
+      else
+        split_iter
+    in
+    logf "abstract: %a" (Formula.pp ark) body;
+    logf "iter: %a" pp split_iter;
+    split_iter
+
+  let sequence ark symbols phi psi =
+    let (phi_map, psi_map) =
+      List.fold_left (fun (phi_map, psi_map) (sym, sym') ->
+          let mid_name = "mid_" ^ (show_symbol ark sym) in
+          let mid_symbol =
+            mk_symbol ark ~name:mid_name (typ_symbol ark sym)
+          in
+          let mid = mk_const ark mid_symbol in
+          (Symbol.Map.add sym' mid phi_map,
+           Symbol.Map.add sym mid psi_map))
+        (Symbol.Map.empty, Symbol.Map.empty)
+        symbols
+    in
+    let phi_subst symbol =
+      if Symbol.Map.mem symbol phi_map then
+        Symbol.Map.find symbol phi_map
+      else
+        mk_const ark symbol
+    in
+    let psi_subst symbol =
+      if Symbol.Map.mem symbol psi_map then
+        Symbol.Map.find symbol psi_map
+      else
+        mk_const ark symbol
+    in
+    mk_and ark [substitute_const ark phi_subst phi;
+                substitute_const ark psi_subst psi]
+
+  let closure split_iter =
+    let ark = ark split_iter in
+    let symbols = tr_symbols split_iter in
+    ExprMap.values split_iter
+    /@ (fun (left, right) -> (sequence ark symbols (closure left) (closure right)))
+    |> BatList.of_enum
+    |> mk_and ark
+
+  let join split_iter split_iter' =
+    let f _ a b = match a,b with
+      | Some (a_left, a_right), Some (b_left, b_right) ->
+        Some (join a_left b_left, join a_right b_right)
+      | _, _ -> None
+    in
+    let split_join = ExprMap.merge f split_iter split_iter' in
+    if ExprMap.is_empty split_join then
+      lift_split (join (lower_split split_iter) (lower_split split_iter))
+    else
+      split_join
+
+  let widen split_iter split_iter' =
+    let f _ a b = match a,b with
+      | Some (a_left, a_right), Some (b_left, b_right) ->
+        Some (widen a_left b_left, widen a_right b_right)
+      | _, _ -> None
+    in
+    let split_widen = ExprMap.merge f split_iter split_iter' in
+    if ExprMap.is_empty split_widen then
+      lift_split (widen (lower_split split_iter) (lower_split split_iter))
+    else
+      split_widen
+
+  let equal split_iter split_iter' =
+    BatEnum.for_all
+      (fun ((p,(l,r)), (p',(l',r'))) ->
+         Formula.equal p p'
+         && equal l l'
+         && equal r r')
+      (BatEnum.combine
+         (ExprMap.enum split_iter,
+          ExprMap.enum split_iter'))
+end

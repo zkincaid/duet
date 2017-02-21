@@ -174,6 +174,52 @@ let inc_nondet () =
   in
   assert_post tr post
 
+let split () =
+  let tr =
+    let open Infix in
+    mk_block [
+      T.assume ((int 0) <= n);
+      T.assign "x" (int 0);
+      T.assign "y" (int 0);
+      T.havoc ["z"];
+      mk_while (x + y < n) [
+        mk_if (z <= (int 0)) [
+          T.assign "x" (x + (int 1));
+        ] [
+          T.assign "y" (y + (int 1));
+        ]
+      ]
+    ]
+  in
+  let post =
+    let open Infix in
+    x = n || y = n
+  in
+  assert_post tr post
+
+let split2 () =
+  let tr =
+    let open Infix in
+    mk_block [
+      T.assign "n" (int 100);
+      T.assign "x" (int 0);
+      T.assign "y" (int 0);
+      T.havoc ["z"];
+      mk_while (x + y < n) [
+        mk_if (x < (int 50)) [
+          T.assign "x" (x + (int 1));
+        ] [
+          T.assign "y" (y + (int 1));
+        ]
+      ]
+    ]
+  in
+  let post =
+    let open Infix in
+    x = y
+  in
+  assert_post tr post
+
 let equal1 () =
   let tr1 =
     let open Infix in
@@ -246,6 +292,8 @@ let suite = "Transition" >::: [
     "degree2" >:: degree2;
     "degree3" >:: degree3;
     "inc_nondet" >:: inc_nondet;
+    "split" >:: split;
+    "split2" >:: split2;
     "equal1" >:: equal1;
     "interpolate1" >:: interpolate1;
     "interpolate2" >:: interpolate2;

@@ -147,7 +147,7 @@ struct
     in
     { guard; transform }
 
-  let star tr =
+  let star ?(split=true) tr =
     let (tr_symbols, transform, post_def) =
       M.fold (fun var term (symbols, transform, post_def) ->
           let pre_sym = Var.symbol_of var in
@@ -174,7 +174,11 @@ struct
         | None -> Symbol.Set.mem x post_symbols
     in
     let guard =
-      Iteration.star ~exists ark (mk_and ark (tr.guard::post_def)) tr_symbols
+      if split then
+        Iteration.Split.abstract_iter ~exists ark (mk_and ark (tr.guard::post_def)) tr_symbols
+        |> Iteration.Split.closure
+      else
+        Iteration.star ~exists ark (mk_and ark (tr.guard::post_def)) tr_symbols
     in
     { transform; guard }
 

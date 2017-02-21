@@ -5,7 +5,7 @@ void mult(int r, int i) {
 	mult(r + m, i + 1);
     } else {
 	assert(i == n);
-	assert(r == n * m);
+	assert(r == m * n);
     }
 }
 void main() { 

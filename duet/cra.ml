@@ -479,7 +479,7 @@ let analyze file =
             let path_condition =
               Ctx.mk_and [K.guard path; Ctx.mk_not phi]
             in
-            logf "Path condition:@\n%a" K.pp path;
+            logf "Path condition:@\n%a" (Syntax.Formula.pp Ctx.context) path_condition;
 
             begin match Smt.is_sat Ctx.context path_condition with
               | `Sat -> Report.log_error (Def.get_location def) msg

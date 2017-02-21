@@ -153,9 +153,19 @@ module ExprHT : sig
   val enum : ('a, 'typ, 'b) t -> (('a, 'typ) expr * 'b) BatEnum.t
 end
 
+module ExprSet : sig
+  type ('a, 'typ) t
+  val empty : ('a, 'typ) t
+  val add : ('a, 'typ) expr -> ('a, 'typ) t -> ('a, 'typ) t
+  val union : ('a, 'typ) t -> ('a, 'typ) t -> ('a, 'typ) t
+  val inter : ('a, 'typ) t -> ('a, 'typ) t -> ('a, 'typ) t
+  val enum : ('a, 'typ) t -> (('a, 'typ) expr) BatEnum.t
+end
+
 module ExprMap : sig
   type ('a, 'typ, 'b) t
   val empty : ('a, 'typ, 'b) t
+  val is_empty : ('a, 'typ, 'b) t -> bool
   val add : ('a, 'typ) expr -> 'b -> ('a, 'typ, 'b) t -> ('a, 'typ, 'b) t
   val remove : ('a, 'typ) expr -> ('a, 'typ, 'b) t -> ('a, 'typ, 'b) t
   val filter : (('a, 'typ) expr -> 'b -> bool) -> ('a, 'typ, 'b) t -> ('a, 'typ, 'b) t
