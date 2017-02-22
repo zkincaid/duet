@@ -9,7 +9,6 @@ build: setup.ml setup.data
 
 duet: setup.ml setup.data duet/config.ml
 	ocamlbuild duet/duet.native -tag debug
-	cp duet.native duet/duet
 
 ark: setup.ml setup.data
 	ocamlbuild ark/test_ark.native -tag debug

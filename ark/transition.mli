@@ -26,6 +26,9 @@ module Make
       transition. *)
   type t
 
+  (** Iteration domain.  See {!Iteration}. *)
+  type iter
+
   type var = Var.t
 
       (** Test whether two transitions are equal up to logical equivalence and
@@ -120,4 +123,18 @@ module Make
   val valid_triple : C.t formula -> t list -> C.t formula -> [ `Valid
                                                              | `Invalid
                                                              | `Unknown ]
+
+  (** Iteration domain.  See {!Iteration}. *)
+  module Iter : sig
+    val alpha : ?split:bool -> t -> iter
+    val closure : iter -> t
+
+    val equal : iter -> iter -> bool
+
+    val widen : iter -> iter -> iter
+    val join : iter -> iter -> iter
+
+    val pp : Format.formatter -> iter -> unit
+    val show : iter -> string
+  end
 end
