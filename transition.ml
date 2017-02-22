@@ -29,6 +29,8 @@ struct
     { transform : (C.t term) M.t;
       guard : C.t formula }
 
+  type iter = C.t Iteration.Split.split_iter
+
   let compare x y =
     match Formula.compare x.guard y.guard with
     | 0 -> M.compare Term.compare x.transform x.transform
@@ -147,40 +149,71 @@ struct
     in
     { guard; transform }
 
-  let star ?(split=true) tr =
-    let (tr_symbols, transform, post_def) =
-      M.fold (fun var term (symbols, transform, post_def) ->
-          let pre_sym = Var.symbol_of var in
-          let post_sym =
+  module Iter = struct
+
+    (* Canonical names for post-state symbols.  Having canonical names
+       simplifies equality testing and widening. *)
+    let post_symbol =
+      Memo.memo (fun sym ->
+          match Var.of_symbol sym with
+          | Some var ->
             mk_symbol ark ~name:(Var.show var ^ "'") (Var.typ var :> typ)
-          in
-          let post_term = mk_const ark post_sym in
-          ((pre_sym,post_sym)::symbols,
-           M.add var post_term transform,
-           (mk_eq ark post_term term)::post_def))
-        tr.transform
-        ([], M.empty, [])
-    in
-    let exists =
-      let post_symbols =
-        List.fold_left
-          (fun set (_, sym') -> Symbol.Set.add sym' set)
-          Symbol.Set.empty
-          tr_symbols
+          | None -> assert false)
+
+    let alpha ?(split=true) tr =
+      let (tr_symbols, post_def) =
+        M.fold (fun var term (symbols, post_def) ->
+            let pre_sym = Var.symbol_of var in
+            let post_sym = post_symbol pre_sym in
+            let post_term = mk_const ark post_sym in
+            ((pre_sym,post_sym)::symbols,
+             (mk_eq ark post_term term)::post_def))
+          tr.transform
+          ([], [])
       in
-      fun x ->
-        match Var.of_symbol x with
-        | Some _ -> true
-        | None -> Symbol.Set.mem x post_symbols
-    in
-    let guard =
+      let exists =
+        let post_symbols =
+          List.fold_left
+            (fun set (_, sym') -> Symbol.Set.add sym' set)
+            Symbol.Set.empty
+            tr_symbols
+        in
+        fun x ->
+          match Var.of_symbol x with
+          | Some _ -> true
+          | None -> Symbol.Set.mem x post_symbols
+      in
       if split then
         Iteration.Split.abstract_iter ~exists ark (mk_and ark (tr.guard::post_def)) tr_symbols
-        |> Iteration.Split.closure
       else
-        Iteration.star ~exists ark (mk_and ark (tr.guard::post_def)) tr_symbols
-    in
-    { transform; guard }
+        Iteration.abstract_iter ~exists ark (mk_and ark (tr.guard::post_def)) tr_symbols
+        |> Iteration.Split.lift_split
+
+    let closure iter =
+      let transform =
+        List.fold_left (fun tr (pre, post) ->
+            match Var.of_symbol pre with
+            | Some v -> M.add v (mk_const ark post) tr
+            | None -> assert false)
+          M.empty
+          (Iteration.Split.tr_symbols iter)
+      in
+      { transform = transform;
+        guard = Iteration.Split.closure iter }
+
+    let join = Iteration.Split.join
+
+    let widen = Iteration.Split.widen
+
+    let equal = Iteration.Split.equal
+
+    let pp = Iteration.Split.pp_split_iter
+
+    let show = Iteration.Split.show_split_iter
+  end
+
+  let star ?(split=true) tr =
+    Iter.closure (Iter.alpha ~split tr)
 
   let zero =
     { transform = M.empty; guard = mk_false ark }

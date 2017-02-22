@@ -46,6 +46,8 @@ let pp_iter formatter iter =
             (Term.pp ark) incr))
     (BatList.enum iter.inequations)
 
+let show_iter x = Putil.mk_show pp_iter x
+
 let abstract_iter_cube ark cube tr_symbols =
   let pre_symbols =
     List.fold_left (fun set (s,_) ->
@@ -569,6 +571,8 @@ let bottom ark symbols =
     stratified = [];
     inequations = [] }
 
+let tr_symbols iter = iter.symbols
+
 module Split = struct
   type 'a split_iter = ('a, typ_bool, ('a iter * 'a iter)) ExprMap.t
 
@@ -582,7 +586,7 @@ module Split = struct
     | Some (iter, _) -> iter.symbols
     | None -> assert false
 
-  let pp formatter split_iter =
+  let pp_split_iter formatter split_iter =
     let pp_elt formatter (pred,(left,right)) =
       Format.fprintf formatter "[@[<v 0>%a@; %a@; %a@]]"
         (Formula.pp (ark split_iter)) pred
@@ -591,6 +595,8 @@ module Split = struct
     in
     Format.fprintf formatter "<Split @[<v 0>%a@]>"
       (ApakEnum.pp_print_enum pp_elt) (ExprMap.enum split_iter)
+
+  let show_split_iter x = Putil.mk_show pp_split_iter x
 
   (* Lower a split iter into an iter by picking an arbitary split and joining
      both sides. *)
@@ -705,7 +711,7 @@ module Split = struct
         split_iter
     in
     logf "abstract: %a" (Formula.pp ark) body;
-    logf "iter: %a" pp split_iter;
+    logf "iter: %a" pp_split_iter split_iter;
     split_iter
 
   let sequence ark symbols phi psi =
