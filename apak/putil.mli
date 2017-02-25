@@ -2,31 +2,21 @@
 
 module type S =
 sig
-  type t deriving (Show)
-  val format : Format.formatter -> t -> unit
-  val show : t -> string
-end
-
-module type SimpleFormatter = sig
-  type a
-  val format : Format.formatter -> a -> unit
-end
-module MakeFmt (S : SimpleFormatter) : sig
-  val format : Format.formatter -> S.a -> unit
-  val show : S.a -> string
-  module Show_t : Deriving_Show.Show with type a = S.a
+  type t
+  val pp : Format.formatter -> t -> unit
 end
 
 module type OrderedMix =
 sig
-  type t deriving (Compare)
+  type t
   val compare : t -> t -> int
 end
 
 module type Ordered =
 sig
-  include S
-  include OrderedMix with type t := t
+  type t
+  val pp : Format.formatter -> t -> unit
+  val compare : t -> t -> int
 end
 
 module Set : sig
@@ -100,7 +90,7 @@ module Map : sig
     val values : 'a t -> 'a BatEnum.t
     val enum : 'a t -> (key * 'a) BatEnum.t
     val of_enum : (key * 'a) BatEnum.t -> 'a t
-    val format :
+    val pp :
       (Format.formatter -> 'a -> unit) -> Format.formatter -> 'a t -> unit
   end
   module Make (Key : Ordered) : S with type key = Key.t
@@ -187,7 +177,7 @@ module TotalFunction : sig
       (M : Map.S)
       (Codomain : sig
          type t
-         val format : Format.formatter -> t -> unit
+         val pp : Format.formatter -> t -> unit
          val equal : t -> t -> bool
        end) :
     S with type dom = M.key
@@ -241,11 +231,12 @@ end
 
 module type CoreTypeBasis = sig
   include Ordered
-  val equal : t -> t -> bool
   val hash : t -> int
 end
 module type CoreType = sig
   include CoreTypeBasis
+  val show : t -> string
+  val equal : t -> t -> bool
   module HT : BatHashtbl.S with type key = t
   module Map : Map.S with type key = t
   module Set : Hashed.Set.S with type elt = t
@@ -257,8 +248,8 @@ module PInt : CoreType with type t = int
 module PChar : CoreType with type t = char
 module PUnit : CoreType with type t = unit
 
-val format_list : (Format.formatter -> 'a -> unit) -> Format.formatter -> 'a list -> unit
-val pp_string : (Format.formatter -> 'a -> unit) -> 'a -> string
+val pp_print_list : (Format.formatter -> 'a -> unit) -> Format.formatter -> 'a list -> unit
+val mk_show : (Format.formatter -> 'a -> unit) -> 'a -> string
 
 val set_load_path : string -> unit
 val set_temp_dir : string -> unit

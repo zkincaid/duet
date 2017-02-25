@@ -48,38 +48,19 @@ module Make(G : G) = struct
   module M = Memo.Make(G.V)
   let id = ref (-1)
   let name = M.memo (fun _ -> incr id; !id)
-  let pp formatter v = Format.pp_print_int formatter (name v)
+  module V = struct
+    include G.V
+    let pp formatter v = Format.pp_print_int formatter (name v)
+  end
 
-  module GD = ExtGraph.Display.MakeSimple(ExtG)(struct
-      type t = G.V.t
-      include Putil.MakeFmt(struct
-          type a = t
-          let format = pp
-        end)
-    end)
-
+  module GD = ExtGraph.Display.MakeSimple(ExtG)(V)
   module GScc = Loop.SccInfo.Make(ExtG)
   module DfsTree = ExtGraph.DfsTree.Make(ExtG)
 
-  type e = G.V.t * G.V.t
+  type e = V.t * V.t
 
   module GE = struct
-    type t = G.V.t * G.V.t
-    module Compare_t = struct
-      type a = t
-      let compare (a,b) (c,d) =
-        match G.V.compare a c with
-        | 0 -> G.V.compare b d
-        | x -> x
-    end
-    let compare = Compare_t.compare
-    include Putil.MakeFmt(struct
-        type a = t
-        let format formatter (a, b) =
-          Format.fprintf formatter "(%a,%a)"
-            pp a
-            pp b
-      end)
+    type t = V.t * V.t [@@deriving show,ord]
   end
   module ESet = Putil.Set.Make(GE)
 
@@ -126,13 +107,13 @@ module Make(G : G) = struct
     in
     add_vertex (go ([init], empty)) init
 
-  let rec format_pst pp formatter (PSTNode (s, e, children)) =
+  let rec pp_pst pp_elt formatter (PSTNode (s, e, children)) =
     Format.fprintf formatter "@[{(%a->%a) ==> (%a->%a) : %a}@]"
-      pp (fst s)
-      pp (snd s)
-      pp (fst e)
-      pp (snd e)
-      (Putil.format_list (format_pst pp)) children
+      pp_elt (fst s)
+      pp_elt (snd s)
+      pp_elt (fst e)
+      pp_elt (snd e)
+      (Putil.pp_print_list (pp_pst pp_elt)) children
 
   type cec_edge =
     { mutable recent_size : int;
@@ -344,7 +325,7 @@ module Make(G : G) = struct
           classes.(cls v u) <- (name v, name u)::classes.(cls v u)
         ) g;
       for i = 0 to num_cls - 1 do
-        Log.debugf "CEC %d: %a" i Show.format<(int*int) list> classes.(i)
+        Log.debugf "CEC %d: %s" i ([%derive.show: (int*int) list] classes.(i))
       done
     end;
 
@@ -404,7 +385,7 @@ module Make(G : G) = struct
   let construct_pst init g =
     try
       let pst = construct_pst init g in
-      Log.debugf "Pst: %a" (format_pst pp) pst;
+      Log.debugf "Pst: %a" (pp_pst V.pp) pst;
       pst
     with e -> begin
         Log.error "Failed to construct program structure tree";
@@ -412,28 +393,16 @@ module Make(G : G) = struct
       end
 
   module Vertex = struct
-    type atom = G.V.t
+    type atom = V.t
     type block = int
-    type ('a, 'b) typ = ('a, 'b) RecGraph.seq_typ
+    type ('a, 'b) typ = [ `Atom of 'a | `Block of 'b ]
+        [@@deriving show,ord]
 
     include Putil.MakeCoreType(struct
         open RecGraph
-        type t = (G.V.t, int) typ
-        include Putil.MakeFmt(struct
-            type a = t
-            let format formatter = function
-              | `Atom v    -> Format.fprintf formatter "Atom %a" pp v
-              | `Block blk -> Format.fprintf formatter "Block %d" blk
-          end)
-        module Compare_t = struct
-          type a = t
-          let compare u v = match u, v with
-            | `Atom u,  `Atom v  -> G.V.compare u v
-            | `Atom _,  _       -> 1
-            | _,       `Atom _  -> -1
-            | `Block u, `Block v -> Pervasives.compare u v
-        end
-        let compare = Compare_t.compare
+        type t = (V.t, int) typ
+            [@@deriving show,ord]
+
         let equal u v = compare u v = 0
         let hash = function
           | `Atom v  -> Hashtbl.hash (G.V.hash v, 0)
@@ -474,7 +443,7 @@ module Make(G : G) = struct
     let open Pervasives in
     let emit s = output_string ch (s ^ "\n") in
     let max_region = ref 0 in
-    let vstring v = String.escaped (Putil.pp_string pp v) in
+    let vstring v = String.escaped (Putil.mk_show V.pp v) in
     let new_region () =
       let id = !max_region in
       max_region := id + 1;
@@ -543,7 +512,7 @@ module Make(G : G) = struct
     let enclose (s0,s1) (e0,e1) g =
       let block = get_block_id () in
       Log.debugf "Enclose(%d) (%a->%a) ==> (%a->%a)"
-        block pp s0 pp s1 pp e0 pp e1;
+        block V.pp s0 V.pp s1 V.pp e0 V.pp e1;
 
       let g = enclose block (vertex s1) (vertex e0) (vertex e1) g in
       HT.add ht s1 (`Block block);

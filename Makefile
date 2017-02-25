@@ -2,15 +2,19 @@ SETUP = ocaml setup.ml
 
 all: build
 
-.PHONY: build duet ark apak
+.PHONY: build duet ark apak patools
 
 build: setup.ml setup.data
 	$(SETUP) -build
-	cp duet.native duet/duet
 
 duet: setup.ml setup.data duet/src/config.ml
-	ocamlbuild duet/src/duet.native
-	cp duet.native duet/duet
+	ocamlbuild duet/duet.native
+
+newton:
+	ocamlbuild duet/duet.cmx duet/newton_interface.cmx duet/duet.native
+        # -verbose to the ocamlfind command for debugging
+#	cd _build/duet && ocamlfind ocamlopt -output-obj -g -linkpkg -package camlidl -package Z3 -package batteries -package apron.polkaMPQ -package apron.boxMPQ -package apron.octMPQ -package deriving -package ocamlgraph -package cil -package cil.default-features -o libduet.so ../apak/apakEnum.cmx ../apak/apak.cmx ../ark/ark.cmx core.cmx afg.cmx ast.cmx hlir.cmx report.cmx cfgIr.cmx cmdLine.cmx pointerAnalysis.cmx call.cmx solve.cmx ai.cmx config.cmx datalog.cmx inline.cmx bddpa.cmx interproc.cmx cra.cmx translateCil.cmx cbpAst.cmx cbpLex.cmx cbpParse.cmx translateCbp.cmx eqLogic.cmx lockLogic.cmx exponential.cmx live.cmx dg.cmx aliasLogic.cmx concDep.cmx newtonDomain.cmx newton_interface.cmx dominator.cmx inferFrames.cmx dependence.cmx safety.cmx duet.cmx || exit 1
+	cd _build/duet && ocamlfind ocamlopt -output-obj -g -linkpkg -package camlidl -package Z3 -package mathsat -package ppx_deriving -package batteries -package apron.polkaMPQ -package apron.boxMPQ -package apron.octMPQ -package deriving -package ocamlgraph -package cil -package cil.default-features -o libduet.so ../apak/apakEnum.cmx ../apak/apak.cmx ../ark/ark.cmx core.cmx afg.cmx ast.cmx hlir.cmx report.cmx cfgIr.cmx cmdLine.cmx pointerAnalysis.cmx call.cmx solve.cmx ai.cmx config.cmx datalog.cmx inline.cmx bddpa.cmx interproc.cmx cra.cmx translateCil.cmx cbpAst.cmx cbpLex.cmx cbpParse.cmx translateCbp.cmx newtonDomain.cmx newton_interface.cmx safety.cmx duet.cmx || exit 1
 
 libduet: setup.ml setup.data
 	ocamlbuild duet/src/libduet.cma
@@ -20,6 +24,9 @@ ark: setup.ml setup.data
 
 apak: setup.ml setup.data
 	ocamlbuild apak/test_apak.byte
+
+patools: setup.ml setup.data
+	ocamlbuild patools/patools.native -tag debug
 
 setup.ml: _oasis
 	oasis setup
@@ -42,5 +49,5 @@ uninstall:
 reinstall:
 	$(SETUP) -reinstall
 
-doc:
+doc: setup.ml setup.data
 	$(SETUP) -doc

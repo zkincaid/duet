@@ -1,12 +1,20 @@
 open OUnit
+open ArkParse
 
 let suite = "Main" >::: [
-    Test_pervasives.suite;
+    Test_scalar.suite;
+    Test_syntax.suite;
+    Test_smt.suite;
     Test_interval.suite;
-    Test_formula.suite;
-    Test_numdomain.suite;
-    Test_transition.suite
-  ]
+    Test_linear.suite;
+    Test_polynomial.suite;
+    Test_apron.suite;
+    Test_quantifier.suite;
+    Test_cube.suite;
+    Test_abstract.suite;
+    Test_iteration.suite;
+    Test_transition.suite;
+]
 
 let _ =
   Printexc.record_backtrace true;

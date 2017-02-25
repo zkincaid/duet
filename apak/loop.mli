@@ -97,5 +97,5 @@ module Wto (G : G) : sig
   val create_widening : G.t -> G.V.t wto * (G.V.t -> bool)
 end
 
-val format_wto :
+val pp_wto :
   (Format.formatter -> 'a -> unit) -> Format.formatter -> 'a wto -> unit

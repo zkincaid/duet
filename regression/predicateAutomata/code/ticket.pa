@@ -1,0 +1,126 @@
+start: {fls}() \/ (exists i. {olds<s}() /\ {olds<m}(i)).
+final: none.
+
+(* { s = m(i) /\ m(i) = m(j) - 1 }  s++ : i  { s = m(j) } *)
+{s=m}(j) --( s++ : i )-> i != j /\ {s=m}(i) /\ {mi=mj-1}(i,j).
+
+(* { true }  m(1) := t++  { m(1) < t } *)
+{m<t}(i) --( m=t++ : j )-> i = j \/ {m<t}(i).
+
+(* { true }  m(i) = t++  { m(i) = t - 1 } *)
+{m=t-1}(i) --( m=t++ : j )-> i = j.
+
+(* { m(i) = t - 1 }  m(j) = t++  { m(1) = m(2) - 1 } *)
+{mi=mj-1}(i,j) --( m=t++ : k )-> j = k /\ {m=t-1}(i).
+
+(* { m(i) < t }  m(j) = t++  { m(i) < t - 1 } *)
+{m<t-1}(i) --( m=t++ : j )-> i != j /\ {m<t}(i).
+
+(* { m(i) < t - 1 } m(j) = t++ { m(i) < m(j) - 1 } *)
+{mi<mj-1}(i,j) --( m=t++ : k )-> j = k /\ {m<t-1}(i).
+
+(* { s = m(j) /\ m(j) < m(i) - 1 }  s++ : j  { s < m(i) } *)
+{s<m}(i) --( s++ : j )-> {s=m}(j) /\ {mi<mj-1}(j,i).
+{s<m}(i) --( m=t++ : j )-> if i = j then {s<t}() else {s<m}(i).
+
+(* { s = m(i) /\ m(i) < t-1 }  s++ : i  { s < t } *)
+{s<t}() --( s++ : i )-> {s=m}(i) /\ {m<t-1}(i).
+{s<t}() --( m=t++ : i )-> {s<t}() \/ {s=t}().
+
+(* { s < m(j) }  [m(j) <= s]  { false } *)
+{fls}() --( [m<=s] : i )-> {s<m}(i) \/ {fls}().
+{fls}() --( [m>s] : i )-> {s=m}(i) \/ {fls}().
+
+(* { old(s) <= s /\ s < t }  m(i)=t++ { old(s) < m(i) } *)
+{olds<m}(i) --( m=t++ : j )-> if i = j then {olds<=s}() /\ {s<t}() else {olds<m}(i).
+
+(* { old(s) <= s } [m>s] : i { old(s) < m(i) } *)
+{olds<m}(i) --( [m>s] : j )-> if i = j then {olds<=s}() else {olds<m}(i).
+
+(* { old(s) <= s /\ s < m } s++ : j { old(s) < m }  *)
+{olds<m}(i) --( s++ : j )-> {olds<=s}() /\ {s<m}(i).
+
+{olds<s}() --( [m<=s] : i )-> {s<m}(i) \/ {olds<s}().
+{olds<s}() --( s++ : i )-> {olds<=s}().
+
+
+{s=m}(i) --( m=t++ : j )-> if i = j then {s=t}()
+                           else {s=m}(i).
+{s=m}(i) --( [m<=s] : j )-> {s=m}(i).
+
+
+(* { s=m(j) /\ m(j)=m(i)-1 } s++ : j { s=m(i) } *)
+{s=m}(i) --( s++ : j )-> i != j /\ {mi=mj-1}(j,i) /\ {s=m}(j).
+
+{s=t}() --( [s=t] : i )-> true.
+{s=t}() --( s++ : i )-> {s=m}(i) /\ {m=t-1}(i).
+
+{olds<=s}() --( $ : i )-> true.
+
+(* boring ***************************************************************************)
+{s=t}() --( $ : j )-> {s=t}().
+{s=t}() --( [m<=s] : i )-> {s=t}().
+{s=t}() --( [m>s] : i )-> {s=t}().
+
+{s<t}() --( $ : j )-> {s<t}().
+{s<t}() --( [m<=s] : i )-> {s<t}().
+{s<t}() --( [m>s] : i )-> {s<t}().
+{s<t}() --( [s=t] : i )-> {s<t}().
+
+{fls}() --( $ : i )-> {fls}().
+{fls}() --( m=t++ : i )-> {fls}().
+{fls}() --( s++ : i )-> {fls}().
+{fls}() --( [s=t] : i )-> {fls}().
+
+{olds<=s}() --( [m>s] : i )-> {olds<=s}().
+{olds<=s}() --( [s=t] : i )-> {olds<=s}().
+{olds<=s}() --( m=t++ : i )-> {olds<=s}().
+
+{olds<s}() --( [m>s] : i )-> {olds<s}().
+{olds<s}() --( [s=t] : i )-> {olds<s}().
+{olds<s}() --( m=t++ : i )-> {olds<s}().
+
+
+{s=m}(i) --( $ : j )-> {s=m}(i).
+{s=m}(i) --( [m>s] : j )-> {s=m}(i).
+{s=m}(i) --( [s=t] : j )-> {s=m}(i).
+
+{s<m}(i) --( $ : j )-> {s<m}(i).
+{s<m}(i) --( [m<=s] : j )-> {s<m}(i).
+{s<m}(i) --( [m>s] : j )-> {s<m}(i).
+{s<m}(i) --( [s=t] : j )-> {s<m}(i).
+
+{olds<m}(i) --( [m<=s] : j )-> {olds<m}(i).
+{olds<m}(i) --( [s=t] : j )-> {olds<m}(i).
+
+{m=t-1}(i) --( $ : j )-> {m=t-1}(i).
+{m=t-1}(i) --( [m>s] : j )-> {m=t-1}(i).
+{m=t-1}(i) --( [s=t] : j )-> {m=t-1}(i).
+{m=t-1}(i) --( [m<=s] : j )-> {m=t-1}(i).
+{m=t-1}(i) --( s++ : j )-> {m=t-1}(i).
+
+{m<t-1}(i) --( $ : j )-> {m<t-1}(i).
+{m<t-1}(i) --( [m>s] : j )-> {m<t-1}(i).
+{m<t-1}(i) --( [s=t] : j )-> {m<t-1}(i).
+{m<t-1}(i) --( [m<=s] : j )-> {m<t-1}(i).
+{m<t-1}(i) --( s++ : j )-> {m<t-1}(i).
+
+{m<t}(i) --( $ : j )-> {m<t}(i).
+{m<t}(i) --( [m>s] : j )-> {m<t}(i).
+{m<t}(i) --( [s=t] : j )-> {m<t}(i).
+{m<t}(i) --( [m<=s] : j )-> {m<t}(i).
+{m<t}(i) --( s++ : j )-> {m<t}(i).
+
+{mi=mj-1}(i,j) --( $ : k )-> {mi=mj-1}(i,j).
+{mi=mj-1}(i,j) --( [m>s] : k )-> {mi=mj-1}(i,j).
+{mi=mj-1}(i,j) --( [s=t] : k )-> {mi=mj-1}(i,j).
+{mi=mj-1}(i,j) --( [m<=s] : k )-> {mi=mj-1}(i,j).
+{mi=mj-1}(i,j) --( s++ : k )-> {mi=mj-1}(i,j).
+{mi=mj-1}(i,j) --( m=t++ : k )-> k != i /\ k != j /\ {mi=mj-1}(i,j).
+
+{mi<mj-1}(i,j) --( $ : k )-> {mi<mj-1}(i,j).
+{mi<mj-1}(i,j) --( [m>s] : k )-> {mi<mj-1}(i,j).
+{mi<mj-1}(i,j) --( [s=t] : k )-> {mi<mj-1}(i,j).
+{mi<mj-1}(i,j) --( [m<=s] : k )-> {mi<mj-1}(i,j).
+{mi<mj-1}(i,j) --( s++ : k )-> {mi<mj-1}(i,j).
+{mi<mj-1}(i,j) --( m=t++ : k )-> k != i /\ k != j /\ {mi<mj-1}(i,j).

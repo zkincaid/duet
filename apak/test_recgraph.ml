@@ -15,12 +15,9 @@ module V = struct
     type t =
       | A of int
       | B of string
-            deriving (Show,Compare)
+            [@@deriving show,ord]
     let equal = (=)
-    let compare = Compare_t.compare
     let hash = Hashtbl.hash
-    let format = Show_t.format
-    let show = Show_t.show
   end
   include M
   module HT = BatHashtbl.Make(M)

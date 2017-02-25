@@ -1,35 +1,34 @@
 open BatPervasives
 open Apak
-open ArkPervasives
+open Syntax
 
-type interval =
+type t =
   { lower : QQ.t option;
     upper : QQ.t option }
-    deriving (Compare)
+    [@@deriving ord]
 
-module Show_interval = Deriving_Show.Defaults(struct
-    type a = interval
-    let format formatter x =
-      Format.fprintf formatter "[%s, %s]"
-        (match x.lower with
-         | Some lo -> QQ.show lo
-         | None -> "-oo")
-        (match x.upper with
-         | Some hi -> QQ.show hi
-         | None -> "+oo")
-  end)
-let format = Show_interval.format
-let show = Show_interval.show
+let equal x y = compare x y = 0
 
+let pp formatter x =
+  Format.fprintf
+    formatter
+    "[%s, %s]"
+    (match x.lower with
+     | Some lo -> QQ.show lo
+     | None -> "-oo")
+    (match x.upper with
+     | Some hi -> QQ.show hi
+     | None -> "+oo")
 
-let compare = Compare_interval.compare
+let show = Putil.mk_show pp
+
 let bottom = { lower = Some QQ.one; upper = Some QQ.zero }
 let top = { lower = None; upper = None }
 let const k = { lower = Some k; upper = Some k }
 let zero = const QQ.zero
 let normalize x =
   match x.lower, x.upper with
-  | (Some lo, Some hi) when QQ.gt lo hi -> bottom
+  | (Some lo, Some hi) when QQ.lt hi lo -> bottom
   | (_, _) -> x
 
 let make_bounded lo hi = normalize { lower = Some lo; upper = Some hi }
@@ -60,9 +59,10 @@ let add x y =
     { lower = lower; upper = upper }
 
 let mul_const k x =
-  if equal x bottom then bottom
+  if equal x bottom then
+    bottom
   else if QQ.equal k QQ.zero then
-    const QQ.zero
+    zero
   else if QQ.lt k QQ.zero then begin
     { lower = map_opt (QQ.mul k) x.upper;
       upper = map_opt (QQ.mul k) x.lower }
@@ -77,28 +77,28 @@ let join x y =
   else {
     lower =
       begin match x.lower, y.lower with
-        | Some x, Some y -> Some (QQ.min x y)
-        | _, _ -> None
+	    | Some x, Some y -> Some (QQ.min x y)
+	    | _, _ -> None
       end;
     upper =
       begin match x.upper, y.upper with
-        | Some x, Some y -> Some (QQ.max x y)
-        | _, _ -> None
+	    | Some x, Some y -> Some (QQ.max x y)
+	    | _, _ -> None
       end
   }
 
 let meet x y = normalize {
-    lower =
-      begin match x.lower, y.lower with
-        | None, x | x, None -> x
-        | Some x, Some y -> Some (QQ.max x y)
-      end;
-    upper =
-      begin match x.upper, y.upper with
-        | None, x | x, None -> x
-        | Some x, Some y -> Some (QQ.min x y)
-      end
-  }
+  lower =
+    begin match x.lower, y.lower with
+    | None, x | x, None -> x
+    | Some x, Some y -> Some (QQ.max x y)
+    end;
+  upper =
+    begin match x.upper, y.upper with
+    | None, x | x, None -> x
+    | Some x, Some y -> Some (QQ.min x y)
+    end
+}
 
 (* Is every member of the interval x inside the interval y? *)
 let leq x y = equal x (meet x y)
@@ -137,11 +137,11 @@ let is_negative x =
 
 let elem a x =
   begin match x.lower with
-    | Some b -> QQ.leq b a
-    | None -> true
+  | Some b -> QQ.leq b a
+  | None -> true
   end && begin match x.upper with
-    | Some b -> QQ.leq a b
-    | None -> true
+  | Some b -> QQ.leq a b
+  | None -> true
   end
 
 let mul x y =
@@ -152,25 +152,25 @@ let mul x y =
     | None, None -> top
     | None, Some a ->
       if is_nonnegative y then
-        { lower = None; upper = (mul_const a y).upper }
+	{ lower = None; upper = (mul_const a y).upper }
       else if is_nonpositive y then
-        { lower = (mul_const a y).lower; upper = None }
+	{ lower = (mul_const a y).lower; upper = None }
       else top
     | Some a, None ->
       if is_nonpositive y then
-        { lower = None; upper = (mul_const a y).upper }
+	{ lower = None; upper = (mul_const a y).upper }
       else if is_nonnegative y then
-        { lower = (mul_const a y).lower; upper = None }
+	{ lower = (mul_const a y).lower; upper = None }
       else top
   end
 
 let div x y =
   if equal x bottom || equal y bottom then bottom
   else begin match y.lower, y.upper with
-    | Some a, Some b ->
-      if elem QQ.zero y then top
-      else join (mul_const (QQ.inverse a) x) (mul_const (QQ.inverse b) x)
-    | _, _ -> top (* todo *)
+  | Some a, Some b ->
+    if elem QQ.zero y then top
+    else join (mul_const (QQ.inverse a) x) (mul_const (QQ.inverse b) x)
+  | _, _ -> top (* todo *)
   end
 
 let abs x =
@@ -195,10 +195,10 @@ let modulo x y =
     (* |y| is sufficiently large for "mod y" be a no-op on x *)
     | Some lo when strictly_left (abs x) (const lo) -> x
     | _ ->
-      let y_1 = map_opt (flip QQ.sub QQ.one) y.upper in (* |y|-1 *)
-      let divisor_ivl = { lower = map_opt QQ.negate y_1; upper = y_1 } in
-      let dividend_ivl = join x zero in
-      meet divisor_ivl dividend_ivl
+       let y_1 = map_opt (flip QQ.sub QQ.one) y.upper in (* |y|-1 *)
+       let divisor_ivl = { lower = map_opt QQ.negate y_1; upper = y_1 } in
+       let dividend_ivl = join x zero in
+       meet divisor_ivl dividend_ivl
 
 let upper x = x.upper
 let lower x = x.lower
@@ -209,7 +209,7 @@ let floor x =
 let of_apron ivl =
   let cvt scalar =
     if Apron.Scalar.is_infty scalar == 0
-    then Some (NumDomain.qq_of_scalar scalar)
+    then Some (ArkApron.qq_of_scalar scalar)
     else None
   in
   make (cvt ivl.Apron.Interval.inf) (cvt ivl.Apron.Interval.sup)

@@ -1,1239 +1,395 @@
+open Syntax
 open Apak
-open ArkPervasives
 open BatPervasives
-open Hashcons
 
 include Log.Make(struct let name = "ark.transition" end)
 
 module type Var = sig
-  include Putil.Ordered
-  val prime : t -> t
-  val to_smt : t -> Smt.ast
-  val of_smt : Smt.symbol -> t
-  val hash : t -> int
-  val equal : t -> t -> bool
-  val typ : t -> typ
-  val tag : t -> int
+  type t
+  val pp : Format.formatter -> t -> unit
+  val show : t -> string
+  val typ : t -> [ `TyInt | `TyReal ]
+  val compare : t -> t -> int
+  val symbol_of : t -> symbol
+  val of_symbol : symbol -> t option
 end
 
-module type Transition = sig
-  include Sig.KA.Quantified.Ordered.S
-  type term
-  type formula
-  val assign : var -> term -> t
-  val assume : formula -> t
-end
+module Make
+    (C : sig
+       type t
+       val context : t context
+     end)
+    (Var : Var) =
+struct
+  module M = BatMap.Make(Var)
 
-(* Max ID for temporary variables *)
-let max_id = ref 0
-
-module Dioid (Var : Var) = struct
-  open Term
-
-  (* Variables *)
-  module V = struct
-    module I = struct
-      type t =
-        | PVar of Var.t
-        | TVar of int * typ * string
-                    deriving (Compare)
-      include Putil.MakeFmt(struct
-          type a = t
-          let format formatter = function
-            | PVar v -> Var.format formatter v
-            | TVar (id,_,name) -> Format.fprintf formatter "%s!%d" name id
-        end)
-      let format = Show_t.format
-      let show = Show_t.show
-      let tag = function
-        | TVar (id, _, _) -> id lsl 1 + 1
-        | PVar v -> Var.tag v lsl 1
-    end
-    include I
-    module Map = Tagged.PTMap(I)
-
-    let compare = Compare_t.compare
-    let equal x y = compare x y = 0
-
-    let hash = function
-      | PVar v -> (Var.hash v) lsl 1
-      | TVar (id,_,_) -> (Hashtbl.hash id) lsl 1 + 1
-    let lower = function
-      | PVar v -> Some v
-      | TVar _ -> None
-    let mk_tmp name typ =
-      incr max_id;
-      TVar (!max_id, typ, name)
-    let mk_int_tmp name = mk_tmp name TyInt
-    let mk_real_tmp name = mk_tmp name TyReal
-    let mk_var v = PVar v
-    let to_smt = function
-      | PVar x -> Var.to_smt x
-      | TVar (id,TyInt,name) ->
-        Smt.int_var (name ^ "!" ^ (string_of_int id) ^ "!TyInt")
-      | TVar (id,TyReal,name) ->
-        Smt.real_var (name ^ "!" ^ (string_of_int id) ^ "!TyReal")
-
-    let of_smt sym = match Smt.symbol_refine sym with
-      | Smt.Symbol_string str -> begin
-          try
-            let f name id typ = match typ with
-              | "TyReal" -> TVar (id,TyReal,name)
-              | "TyInt"  -> TVar (id,TyInt,name)
-              | _        -> raise (Scanf.Scan_failure "Invalid type identifier")
-            in
-            if BatString.exists str "!"
-            then Scanf.sscanf str "%[^!]!%d!%s" f
-            else PVar (Var.of_smt sym)
-          with Scanf.Scan_failure _ -> PVar (Var.of_smt sym)
-        end
-      | Smt.Symbol_int _ -> PVar (Var.of_smt sym)
-
-    let typ = function
-      | TVar (_, typ, _) -> typ
-      | PVar v           -> Var.typ v
-  end
-
-  module T = Term.Make(V)
-  module F = Formula.Make(T)
-  module M = Putil.MonoMap.Ordered.Make(Var)(T)
-  module VarMemo = Memo.Make(Var)
-  module VarSet = Putil.Set.Make(Var)
-  module VSet = Putil.Set.Make(V)
-
-  type t =
-    { transform: M.t;
-      guard: F.t }
-      deriving (Compare)
   type var = Var.t
 
-  let compare = Compare_t.compare
+  type t =
+    { transform : (C.t term) M.t;
+      guard : C.t formula }
 
-  include Putil.MakeFmt(struct
-      type a = t
-      let format formatter tr =
-        Format.fprintf formatter
-          "{@[<v 0>transform:@;  @[<v 0>%a@]@;guard:@;  @[<v 0>%a@]@]}"
-          (ApakEnum.pp_print_enum_nobox
-             ~pp_sep:(fun formatter () -> Format.pp_print_break formatter 0 0)
-             (fun formatter (lhs, rhs) ->
-                Format.fprintf formatter "%a := %a"
-                  Var.format lhs
-                  T.format rhs))
-          (M.enum tr.transform)
+  type iter = C.t Iteration.Split.split_iter
 
-          F.format tr.guard
-    end)
+  let compare x y =
+    match Formula.compare x.guard y.guard with
+    | 0 -> M.compare Term.compare x.transform y.transform
+    | x -> x
 
-  let modifies x =
-    M.fold (fun v _ set -> VarSet.add v set) x.transform VarSet.empty
+  let ark = C.context
 
-  let term_free_program_vars term =
-    let open Term in
-    let f = function
-      | OVar v -> begin match V.lower v with
-          | Some v -> VarSet.singleton v
-          | None -> VarSet.empty
-        end
-      | OConst _ -> VarSet.empty
-      | OAdd (x,y) | OMul (x,y) | ODiv (x,y) | OMod (x,y) -> VarSet.union x y
-      | OFloor x -> x
-    in
-    T.eval f term
+  let pp formatter tr =
+    Format.fprintf formatter "{@[<v 0>";
+    ApakEnum.pp_print_enum_nobox
+       ~pp_sep:(fun formatter () -> Format.pp_print_break formatter 0 0)
+       (fun formatter (lhs, rhs) ->
+          Format.fprintf formatter "%a := @[%a@]"
+            Var.pp lhs
+            (Term.pp ark) rhs)
+       formatter
+       (M.enum tr.transform);
+    begin match Formula.destruct ark tr.guard with
+      | `Tru -> ()
+      | _ ->
+        if not (M.is_empty tr.transform) then
+          Format.pp_print_break formatter 0 0;
+        Format.fprintf formatter "when @[<v 0>%a@]" (Formula.pp ark) tr.guard
+    end;
+    Format.fprintf formatter "@]}"
 
-  let formula_free_program_vars phi =
-    let open Formula in
-    let f = function
-      | OOr (x,y) | OAnd (x,y) -> VarSet.union x y
-      | OAtom (LeqZ t) | OAtom (EqZ t) | OAtom (LtZ t) ->
-        term_free_program_vars t
-    in
-    F.eval f phi
+  let show = Apak.Putil.mk_show pp
 
-  let term_free_tmp_vars term =
-    let open Term in
-    let f = function
-      | OVar v -> begin match V.lower v with
-          | Some _ -> VSet.empty
-          | None   -> VSet.singleton v
-        end
-      | OConst _ -> VSet.empty
-      | OAdd (x,y) | OMul (x,y) | ODiv (x,y) | OMod (x,y) -> VSet.union x y
-      | OFloor x -> x
-    in
-    T.eval f term
-
-  let formula_free_tmp_vars phi =
-    let open Formula in
-    let f = function
-      | OOr (x,y) | OAnd (x,y) -> VSet.union x y
-      | OAtom (LeqZ t) | OAtom (EqZ t) | OAtom (LtZ t) ->
-        term_free_tmp_vars t
-    in
-    F.eval f phi
-
-  let term_free_vars term =
-    let open Term in
-    let f = function
-      | OVar v -> VSet.singleton v
-      | OConst _ -> VSet.empty
-      | OAdd (x,y) | OMul (x,y) | ODiv (x,y) | OMod (x,y) -> VSet.union x y
-      | OFloor x -> x
-    in
-    T.eval f term
-
-  let formula_free_vars phi =
-    let open Formula in
-    let f = function
-      | OOr (x,y) | OAnd (x,y) -> VSet.union x y
-      | OAtom (LeqZ t) | OAtom (EqZ t) | OAtom (LtZ t) ->
-        term_free_vars t
-    in
-    F.eval f phi
-
-  (* alpha equivalence - only works for normalized transitions! *)
-  let equiv x y =
-    let sigma =
-      let f v rhs m =
-        match T.to_var rhs, T.to_var (M.find v y.transform) with
-        | Some a, Some b -> V.Map.add a b m
-        | _, _ -> assert false
-      in
-      let map = M.fold f x.transform V.Map.empty in
-      fun v ->
-        try T.var (V.Map.find v map)
-        with Not_found -> T.var v
-    in
-    let x_guard = F.subst sigma x.guard in
-    F.equiv x_guard y.guard
-
-  exception Not_normal (* Not externally visible *)
-  let is_normal x =
-    let add_rhs _ rhs set = match T.to_var rhs with
-      | Some v ->
-        if VSet.mem v set || V.lower v != None then raise Not_normal
-        else VSet.add v set
-      | None -> raise Not_normal
-    in
-    try
-      let allowed_vars = M.fold add_rhs x.transform VSet.empty in
-      VSet.subset (formula_free_tmp_vars x.guard) allowed_vars
-    with Not_normal -> false
-
-  let equal x y =
-    compare x y = 0
-    || (VarSet.equal (modifies x) (modifies y)
-        && is_normal x && is_normal y
-        && equiv x y)
-
-  let mul left right =
-    let sigma_tmp =
-      Memo.memo (fun (_, typ, name) -> T.var (V.mk_tmp name typ))
-    in
-    let sigma v = match v with
-      | V.PVar var -> begin
-          try M.find var left.transform
-          with Not_found -> T.var v
-        end
-      | V.TVar (id, typ, name) -> sigma_tmp (id, typ, name)
-    in
-
-    let transform = M.map (T.subst sigma) right.transform in
-
-    (* Add bindings from left transform for variables that are not written in
-       right *)
-    let f v term tr =
-      if M.mem v tr then tr else M.add v term tr
-    in
-    let transform = M.fold f left.transform transform in
-
-    let guard = F.conj left.guard (F.subst sigma right.guard) in
-    { transform = transform;
+  let construct guard assignment =
+    { transform =
+        List.fold_left (fun m (v, term) -> M.add v term m) M.empty assignment;
       guard = guard }
 
-  let add left right =
-    let left_guard = ref left.guard in
+  let assign v term =
+    { transform = M.add v term M.empty;
+      guard = mk_true ark }
 
-    let sigma_tmp =
-      Memo.memo (fun (_, typ, name) -> T.var (V.mk_tmp name typ))
-    in
-    let sigma v = match v with
-      | V.PVar var -> T.var v
-      | V.TVar (id, typ, name) -> sigma_tmp (id, typ, name)
-    in
-    let right =
-      { transform = M.map (T.subst sigma) right.transform;
-        guard = F.subst sigma right.guard }
-    in
+  let parallel_assign assignment = construct (mk_true ark) assignment
 
-    let right_guard = ref right.guard in
-    let left_eq s t =
-      left_guard := F.conj (!left_guard) (F.eq s t)
+  let assume guard = construct guard []
+
+  let havoc vars =
+    let transform =
+      List.fold_left (fun transform v ->
+          M.add
+            v
+            (mk_const ark (mk_symbol ark ~name:"havoc" (Var.typ v :> typ)))
+            transform)
+        M.empty
+        vars
     in
-    let right_eq s t =
-      right_guard := F.conj (!right_guard) (F.eq s t)
+    { transform = transform; guard = mk_true ark }
+
+  let mul left right =
+    let fresh_skolem =
+      Memo.memo (fun sym ->
+          let name = show_symbol ark sym in
+          let typ = typ_symbol ark sym in
+          mk_const ark (mk_symbol ark ~name typ))
+    in
+    let left_subst sym =
+      match Var.of_symbol sym with
+      | Some var ->
+        if M.mem var left.transform then
+          M.find var left.transform
+        else
+          mk_const ark sym
+      | None -> fresh_skolem sym
+    in
+    let guard =
+      mk_and ark [left.guard;
+                  substitute_const ark left_subst right.guard]
     in
     let transform =
+      M.fold (fun var term transform ->
+          if M.mem var transform then
+            transform
+          else
+            M.add var term transform)
+        left.transform
+        (M.map (substitute_const ark left_subst) right.transform)
+    in
+    { transform; guard }
+
+  let add left right =
+    let left_eq = ref [] in
+    let right_eq = ref [] in
+    let transform =
       let merge v x y =
-        let varname = "phi_" ^ (Var.show v) in
-        let skolem_term term =
-          match T.to_var term with
-          | Some var -> V.lower var = None
-          | None -> false
-        in
-        let tmp =
-          match x, y with
-          | Some rhs, _ when skolem_term rhs -> rhs
-          | _, Some rhs when skolem_term rhs -> rhs
-          | _, _ -> T.var (V.mk_tmp varname (Var.typ v))
-        in
         match x, y with
-        | Some s, Some t ->
-          if T.equal s t then
-            Some s
-          else begin
-            left_eq tmp s;
-            right_eq tmp t;
-            Some tmp
-          end
-        | Some s, None ->
-          left_eq tmp s;
-          right_eq tmp (T.var (V.mk_var v));
-          Some tmp
-        | None, Some t ->
-          let tmp = T.var (V.mk_tmp varname (Var.typ v)) in
-          left_eq tmp (T.var (V.mk_var v));
-          right_eq tmp t;
-          Some tmp
-        | None, None -> assert false
+        | Some s, Some t when Term.equal s t -> Some s
+        | _, _ ->
+          let phi =
+            mk_symbol ark ~name:("phi_" ^ (Var.show v)) ((Var.typ v) :> typ)
+            |> mk_const ark
+          in
+          let left_term =
+            match x with
+            | Some s -> s
+            | None -> mk_const ark (Var.symbol_of v)
+          in
+          let right_term =
+            match y with
+            | Some t -> t
+            | None -> mk_const ark (Var.symbol_of v)
+          in
+          left_eq := (mk_eq ark left_term phi)::(!left_eq);
+          right_eq := (mk_eq ark right_term phi)::(!right_eq);
+          Some phi
       in
       M.merge merge left.transform right.transform
     in
-    { transform = transform;
-      guard = F.disj (!left_guard) (!right_guard) }
+    let guard =
+      mk_or ark [mk_and ark (left.guard::(!left_eq));
+                 mk_and ark (right.guard::(!right_eq))]
+    in
+    { guard; transform }
 
-  let meet x y =
-    (* The transform is x's transform, and guard the is the conjunction of x's
-       guard and and y's guard, along with y's transform. *)
-    let post_term v tr =
-      if M.mem v tr.transform then
-        M.find v tr.transform
+  module Iter = struct
+
+    (* Canonical names for post-state symbols.  Having canonical names
+       simplifies equality testing and widening. *)
+    let post_symbol =
+      Memo.memo (fun sym ->
+          match Var.of_symbol sym with
+          | Some var ->
+            mk_symbol ark ~name:(Var.show var ^ "'") (Var.typ var :> typ)
+          | None -> assert false)
+
+    let alpha ?(split=true) tr =
+      let (tr_symbols, post_def) =
+        M.fold (fun var term (symbols, post_def) ->
+            let pre_sym = Var.symbol_of var in
+            let post_sym = post_symbol pre_sym in
+            let post_term = mk_const ark post_sym in
+            ((pre_sym,post_sym)::symbols,
+             (mk_eq ark post_term term)::post_def))
+          tr.transform
+          ([], [])
+      in
+      let exists =
+        let post_symbols =
+          List.fold_left
+            (fun set (_, sym') -> Symbol.Set.add sym' set)
+            Symbol.Set.empty
+            tr_symbols
+        in
+        fun x ->
+          match Var.of_symbol x with
+          | Some _ -> true
+          | None -> Symbol.Set.mem x post_symbols
+      in
+      if split then
+        Iteration.Split.abstract_iter ~exists ark (mk_and ark (tr.guard::post_def)) tr_symbols
       else
-        T.var (V.mk_var v)
-    in
-    let guard =
-      M.fold (fun v rhs guard ->
-          F.conj guard (F.eq rhs (post_term v x)))
-        y.transform
-        (F.conj x.guard y.guard)
-    in
-    { transform = x.transform;
-      guard = guard }
+        Iteration.abstract_iter ~exists ark (mk_and ark (tr.guard::post_def)) tr_symbols
+        |> Iteration.Split.lift_split
 
-  let meet x y =
-    logf "@\nmeet@\n%a@\n%a@\n%a@\n/meet"
-      format x
-      format y
-      format (meet x y);
-    meet x y
-
-  let one =
-    { transform = M.empty;
-      guard = F.top }
-
-  let zero =
-    { transform = M.empty;
-      guard = F.bottom }
-
-  (* Convert a transition into a formula over primed/unprimed variables *)
-  let to_formula tr =
-    let f var term phi =
-      F.conj (F.eq (T.var (V.mk_var (Var.prime var))) term) phi
-    in
-    M.fold f tr.transform tr.guard
-
-  let to_smt tr =
-    let guard = F.to_smt tr.guard in
-    let f var term phi =
-      Smt.conj (Smt.mk_eq (Var.to_smt (Var.prime var)) (T.to_smt term)) phi
-    in
-    M.fold f tr.transform guard
-
-  let assign var term =
-    { transform = M.singleton var term;
-      guard = F.top }
-
-  let assume phi =
-    { transform = M.empty;
-      guard = phi }
-
-  let simplify tr =
-    let f _ term free = VSet.union free (term_free_tmp_vars term) in
-    let guard = tr.guard in
-    let rhs_vars = M.fold f tr.transform VSet.empty in
-    let p x = match V.lower x with
-      | Some _ -> true
-      | None -> VSet.mem x rhs_vars
-    in
-    { tr with guard = F.simplify p guard }
-
-  let simplify tr = Log.time "Transition simplification" simplify tr
-
-  let exists p tr =
-    let transform = M.filter (fun k _ -> p k) tr.transform in
-    let rename = VarMemo.memo (fun v -> V.mk_tmp (Var.show v) (Var.typ v)) in
-    let sigma v = match V.lower v with
-      | Some var -> T.var (if p var then v else rename var)
-      | None -> T.var v
-    in
-    { transform = M.map (T.subst sigma) transform;
-      guard = F.subst sigma tr.guard }
-
-  (* Overapproximate a transition with a transition such that each the right
-     hand side of every transformation is a unique variable, and the only free
-     temporary variables in the guard are on the right hand side of a
-     transformation.  *)
-  let normalize tr =
-    let fresh v =
-      T.var (V.mk_tmp ("normal_" ^ (Var.show v)) (Var.typ v))
-    in
-    let transform = M.mapi (fun v _ -> fresh v) tr.transform in
-    let f (v, t) = F.eq (M.find v tr.transform) t in
-    let eqs = F.big_conj (BatEnum.map f (M.enum transform)) in
-    let guard =
-      F.linearize
-        (fun () -> V.mk_tmp "nonlin" TyReal)
-        (F.conj tr.guard eqs)
-    in
-    simplify { guard = guard; transform = transform }
-
-  let normalize tr =
-    try
-      normalize tr
-    with Formula.Timeout ->
-      (Log.errorf "Timeout in transition normalization.";
-       raise Formula.Timeout)
-
-
-  let widen_man = ref (NumDomain.polka_loose_manager ())
-  let widen x y =
-    let phi = to_formula (normalize x) in
-    let psi = to_formula (normalize y) in
-    let p v = match V.lower v with
-      | Some _ -> true
-      | None   -> false
-    in
-    let phi_abstract = F.abstract ~exists:(Some p) (!widen_man) phi in
-    let psi_abstract = F.abstract ~exists:(Some p) (!widen_man) psi in
-    let widen = F.of_abstract (F.T.D.widen phi_abstract psi_abstract) in
-    let fresh v = T.var (V.mk_tmp (Var.show v) (Var.typ v)) in
-    let unprime =
-      M.of_enum (M.enum y.transform /@ (fun (v,_) -> (Var.prime v, fresh v)))
-    in
-    let transform =
-      M.mapi (fun v _ -> M.find (Var.prime v) unprime) y.transform
-    in
-
-    let sigma v = match V.lower v with
-      | Some var ->
-        begin
-          try M.find var unprime
-          with Not_found -> T.var v
-        end
-      | None -> T.var v
-    in
-    { guard = F.subst sigma widen;
-      transform = transform }
-
-  let widen x y =
-    try
-      if VarSet.equal (modifies x) (modifies y) then widen x y
-      else y
-    with Formula.Timeout ->
-      (Log.errorf "Timeout in widening.";
-       raise Formula.Timeout)
-
-  let post_formula tr =
-    let phi =
-      F.linearize
-        (fun () -> V.mk_tmp "nonlin" TyReal)
-        (to_formula tr)
-    in
-    let var = T.var % V.mk_var in
-    let unprime =
-      M.of_enum (M.enum tr.transform /@ (fun (v,_) -> (Var.prime v, var v)))
-    in
-    let p v = match V.lower v with
-      | Some v -> not (M.mem v tr.transform)
-      | None -> false
-    in
-    let sigma v = match V.lower v with
-      | Some v -> if M.mem v unprime then M.find v unprime else var v
-      | None   -> assert false
-    in
-    F.subst sigma (F.exists p phi)
-
-  let abstract_post man tr prop =
-    let phi =
-      F.conj
-        (F.linearize
-           (fun () -> V.mk_tmp "nonlin" TyReal)
-           (to_formula tr))
-        (F.of_abstract prop)
-    in
-    let unprime =
-      M.enum tr.transform
-      /@ (fun (v,_) -> (Var.prime v, T.var (V.mk_var v)))
-      |> M.of_enum
-    in
-    let old =
-      VarMemo.memo
-        (fun v -> T.var (V.mk_tmp ((Var.show v) ^ "_old") (Var.typ v)))
-    in
-    let sigma x = match V.lower x with
-      | Some v ->
-        if M.mem v unprime then M.find v unprime
-        else if M.mem v tr.transform then old v
-        else T.var x
-      | None -> T.var x
-    in
-    let phi = F.subst sigma phi in
-    let phi =
-      if Box.manager_is_box man then
-        let fv =
-          List.map (T.var % V.mk_var)
-            (VarSet.elements (formula_free_program_vars phi))
-        in
-        F.boxify fv phi
-      else phi
-    in
-
-    let p x = V.lower x != None in
-    F.abstract ~exists:(Some p) man phi
-
-  let linearize tr =
-    let fresh_skolem v =
-      V.mk_tmp ("fresh_" ^ (Var.show v)) (Var.typ v)
-    in
-    let (transform, skolem) =
-      M.fold (fun v rhs (transform, skolem) ->
-          let sk = fresh_skolem v in
-          (M.add v (T.var sk) transform, VSet.add sk skolem))
-        tr.transform
-        (M.empty, VSet.empty)
-    in
-    let guard =
-      M.fold (fun v rhs guard ->
-          F.conj (F.eq (M.find v transform) rhs) guard)
-        tr.transform
-        tr.guard
-      |> F.linearize (fun () -> V.mk_tmp "nonlin" TyInt)
-      |> F.qe_partial (fun v -> V.lower v != None || VSet.mem v skolem)
-    in
-    { transform = transform;
-      guard = guard }
-end
-
-module Make (Var : Var) = struct
-  include Dioid(Var)
-
-  let convex_hull p phi =
-    let man = NumDomain.polka_strict_manager () in
-    F.of_abstract (F.abstract ~exists:(Some p) man phi)
-
-  (* Iteration operator options *)
-  let opt_higher_recurrence = ref true
-  let opt_disjunctive_recurrence_eq = ref false
-  let opt_recurrence_ineq = ref false
-  let opt_unroll_loop = ref false
-  let opt_loop_guard = ref (Some convex_hull)
-  let opt_polyrec = ref true
-
-  (**************************************************************************)
-  (* Implementation of iteration operator *)
-  (**************************************************************************)
-  module Incr = struct
-
-    (* Polynomials with rational coefficients *)
-    module P = Linear.Expr.MakePolynomial(QQ)
-    module Gauss = Linear.GaussElim(QQ)(P)
-
-    (* Closed forms *)
-    module Cf = struct
-      include Linear.Affine.LiftMap(T)(Putil.Map.Make(T))(P)
-      let mul x y =
-        let mul_dim x y = match x,y with
-          | AConst, AConst -> AConst
-          | AConst, AVar v | AVar v, AConst -> AVar v
-          | AVar x, AVar y -> AVar (T.mul x y)
-        in
-        (enum x)
-        /@ (fun (xdim, xcoeff) ->
-            (enum y)
-            /@ (fun (ydim, ycoeff) -> (mul_dim xdim ydim, P.mul xcoeff ycoeff))
-            |> of_enum)
-        |> sum
-    end
-
-    let cf_compose cf p =
-      let f (dim, coeff) = (dim, P.compose coeff p) in
-      Cf.of_enum (BatEnum.map f (Cf.enum cf))
-    let k_minus_1 = P.add_term 1 QQ.one (P.const (QQ.negate QQ.one))
-
-    let eval env t =
-      (* Lower a degree-0 cf term to a regular term *)
-      let lower_cf cf =
-        try
-          let lowered =
-            Cf.enum cf
-            /@ (function
-                | (AVar dim, coeff) ->
-                  if P.order coeff = 0 then
-                    let (const_coeff, _) = P.pivot 0 coeff in
-                    T.mul (T.const const_coeff) dim
-                  else
-                    raise Not_found
-                | (AConst, coeff) ->
-                  if P.order coeff = 0 then
-                    let (const_coeff, _) = P.pivot 0 coeff in
-                    (T.const const_coeff)
-                  else
-                    raise Not_found)
-            |> T.sum
-          in
-          Some lowered
-        with Not_found -> None
+    let closure iter =
+      let transform =
+        List.fold_left (fun tr (pre, post) ->
+            match Var.of_symbol pre with
+            | Some v -> M.add v (mk_const ark post) tr
+            | None -> assert false)
+          M.empty
+          (Iteration.Split.tr_symbols iter)
       in
-      let alg = function
-        | OVar v ->
-          begin
-            match env v with
-            | Some cf -> Some (cf_compose cf k_minus_1)
-            | None -> None
-          end
-        | OConst qq -> Some (Cf.const (P.const qq))
-        | OAdd (Some x, Some y) -> Some (Cf.add x y)
-        | OMul (Some x, Some y) -> Some (Cf.mul x y)
-        | ODiv (Some x, Some y) ->
-          let (const_coeff, yrest) = Cf.pivot AConst y in
-          if Cf.equal yrest Cf.zero && P.order const_coeff = 0 then
-            Some (Cf.scalar_mul (P.const (QQ.inverse (P.find 0 const_coeff))) x)
-          else
-            None
-        | OMod (Some x, Some y) ->
-          begin match lower_cf x, lower_cf y with
-            | Some x, Some y -> Some (Cf.term (AVar (T.modulo x y)) P.one)
-            | _, _ -> None
-          end
-        | OAdd (_, _) | OMul (_, _) | ODiv (_, _) | OMod (_, _) | OFloor _ ->
-          None
-      in
-      T.eval alg t
+      { transform = transform;
+        guard = Iteration.Split.closure iter }
 
-    (* Given a polynomial p, compute a polynomial q such that for any k, q(k)
-       = p(0) + p(1) + ... + p(k-1) *)
-    let polynomial_summation : P.t -> P.t = fun p ->
-      let open BatEnum in
-      let order = (P.order p) + 1 in (* order of q is 1 + order of p *)
+    let join = Iteration.Split.join
 
-      (* Create a system of linear equalities:
-           c_n*0^n + ... + c_1*0 + c_0 = p(0)
-           c_n*1^n + ... + c_1*1 + c_0 = p(0) + p(1)
-           c_n*2^n + ... + c_1*2 + c_0 = p(0) + p(1) + p(2)
-           ...
-           c_n*n^n + ... + c_1*n + c_0 = p(0) + p(1) + ... + p(n)
+    let widen = Iteration.Split.widen
 
-         We then solve for the c_i coefficients to get q
-      *)
-      let rec mk_sys k =
-        if k = 0 then begin
-          let rhs = QQ.zero in
-          let lhs = P.var 0 in
-          (rhs, [(lhs,rhs)])
-        end else begin
-          assert (k > 0);
-          let (prev, rest) = mk_sys (k - 1) in
-          let rhs = QQ.add prev (P.eval p (QQ.of_int k)) in
-          let vars = BatEnum.(---) 1 order in
-          let lhs =
-            let qq_k = QQ.of_int k in
-            let f (rx, last) ord =
-              let next = QQ.mul last qq_k in
-              (P.add_term ord next rx, next)
-            in
-            fst (BatEnum.fold f (P.one, QQ.one) vars)
-          in
-          (rhs, (lhs,rhs)::rest)
-        end
-      in
+    let equal = Iteration.Split.equal
 
-      let sys = snd (mk_sys order) in
-      let soln = Gauss.solve sys in
-      let vars = BatEnum.range ~until:order 0 in
-      let add_order lin k = P.add_term k (soln k) lin in
-      BatEnum.fold add_order P.zero vars
+    let pp = Iteration.Split.pp_split_iter
 
-    let summation cf =
-      let f (x, p) = (x, polynomial_summation p) in
-      Cf.of_enum (BatEnum.map f (Cf.enum cf))
-
-    (* Convert a closed form into a term by instantiating the variable in the
-       polynomial coefficients of the closed form *)
-    let to_term cf var =
-      let open BatEnum in
-      let polynomial_term px =
-        let to_term (order, cq) = T.mul (T.const cq) (T.exp var order) in
-        T.sum (BatEnum.map to_term (P.enum px))
-      in
-      let to_term (dim, px) = match dim with
-        | AVar term -> T.mul (polynomial_term px) term
-        | AConst -> polynomial_term px
-      in
-      T.sum (BatEnum.map to_term (Cf.enum cf))
+    let show = Iteration.Split.show_split_iter
   end
 
-  module VarMap = Putil.Map.Make(Var)
+  let star ?(split=true) tr =
+    Iter.closure (Iter.alpha ~split tr)
 
-  (* Linear terms with rational efficients *)
-  module QQTerm = Linear.Expr.Make(Var)(QQ)
+  let zero =
+    { transform = M.empty; guard = mk_false ark }
 
-  (* Iteration operator context.  The iteration operator is defined as a
-     sequence of iteration context transformers. *)
-  type iteration_context =
-    { loop : t;  (* Transition representing the loop summary *)
-      phi : F.t; (* Formula representing the loop body *)
+  let one =
+    { transform = M.empty; guard = mk_true ark }
 
-      solver : Smt.solver;
+  let is_zero tr =
+    match Formula.destruct ark tr.guard with
+    | `Fls -> true
+    | _ -> false
 
-      (* Induction variables are variables with exact recurrences (defined by
-         equalities of the form x' = x + p(y), where p(y) is a
-         polynomial in induction variables of lower strata) *)
-      induction_vars : Incr.Cf.t option VarMap.t;
+  let is_one tr =
+    match Formula.destruct ark tr.guard with
+    | `Tru -> M.is_empty tr.transform
+    | _ -> false
 
-      (* Variable term representing the loop iteration *)
-      loop_counter : T.t }
-
-  (* Hack to simplify control flow when a loop body is unsatisfiable.
-     Should't be visible outside this module. *)
-  exception Unsat
-  exception Undef
-
-  (* Find recurrences of the form x' = x + c *)
-  let simple_induction_vars ctx =
-    let open Incr in
-    let s = ctx.solver in
-    let m = match s#check () with
-      | Smt.Unsat -> raise Unsat
-      | Smt.Undef -> raise Undef
-      | Smt.Sat -> s#get_model ()
-    in
-    let induction_var v _ =
-      let incr =
-        QQ.sub
-          (m#eval_qq (Var.to_smt (Var.prime v)))
-          (m#eval_qq (Var.to_smt v))
-      in
-      let diff = Smt.sub (Var.to_smt (Var.prime v)) (Var.to_smt v) in
-      s#push();
-      s#assrt (Smt.mk_not (Smt.mk_eq diff (Smt.const_qq incr)));
-      let res = match s#check () with
-        | Smt.Unsat ->
-          logf "Found recurrence: %a' = %a + %a"
-            Var.format v
-            Var.format v
-            QQ.format incr;
-          let increment = Cf.const (P.add_term 1 incr P.zero) in
-          let cf = Cf.add_term (AVar (T.var (V.mk_var v))) P.one increment in
-          logf "Closed form: %a" Cf.format cf;
-          Some (Cf.add_term (AVar (T.var (V.mk_var v))) P.one increment)
-        | Smt.Sat ->
-          logf "No recurrence for %a" Var.format v;
-          None
-        | Smt.Undef ->
-          Log.errorf "Timeout in simple induction variable detection (%s)" (s#to_string());
-          None
-      in
-      s#pop ();
-      res
-    in
-    let induction_vars =
-      Log.time
-        "(Simple) induction variable detection"
-        (VarMap.mapi induction_var)
-        ctx.induction_vars
-    in
-    { ctx with induction_vars = induction_vars }
-
-  (* Higher induction variables *********************************************)
-  (* There are two algorithms here: simple_higher_induction_vars, which uses
-     the transform map to discover recurrence relations (which means that it
-     generally misses induction variables when there are branches or nested
-     loops within the loop body); and higher_induction_vars, which uses a more
-     complicated scheme which is (hopefully) complete. *)
-  let env_of_induction_vars induction_vars v =
-    match V.lower v with
-    | Some var ->
-      if VarMap.mem var induction_vars then
-        VarMap.find var induction_vars
-      else
-        (* if v isn't in induction_vars, it isn't in the domain of the
-             transformation, and so hasn't been modified along the path *)
-        Some (Incr.Cf.term (AVar (T.var v)) (Incr.P.const QQ.one))
-    | None -> None
-
-  let closed_form induction_vars loop_counter v rhs =
-    let env = env_of_induction_vars induction_vars in
-    match Incr.eval env rhs with
-    | Some rhs_closed ->
-      let cf =
-        Incr.Cf.add_term
-          (AVar (T.var (V.mk_var v)))
-          Incr.P.one
-          (Incr.summation rhs_closed)
-      in
-      logf "Closed form for %a: %a"
-        Var.format v
-        Incr.Cf.format cf;
-      Some cf
-    | None -> None
-
-  module AMap = BatMap.Make(Linear.AffineVar(V))
-  let farkas equations vars =
-    let lambdas =
-      List.map (fun _ -> AVar (V.mk_real_tmp "lambda")) equations
-    in
-    let s = new Smt.solver in
-    let columns = AConst::(List.map (fun x -> AVar x) vars) in
-
-    (* Build var -> smt var mappings -- we need to do this because just
-       calling V.to_smt will produce integer-sorted variables and we need
-       them to be rational-sorted. *)
-    let column_smt =
-      BatEnum.foldi
-        (fun i c m -> AMap.add c (Smt.real_var ("c$" ^ (string_of_int i))) m)
-        AMap.empty
-        (BatList.enum columns)
-    in
-    let lambda_smt =
-      let lambda_smt = function
-        | AVar v -> Smt.real_var (F.T.V.show v)
-        | AConst -> Smt.real_var "k$"
-      in
-      List.fold_left
-        (fun m lambda -> AMap.add lambda (lambda_smt lambda) m)
-        AMap.empty
-        lambdas
-    in
-
-    let assrt (v, sum) =
-      let sum =
-        F.T.Linterm.to_smt (fun x -> AMap.find x lambda_smt) Smt.const_qq sum
-      in
-      s#assrt (Smt.mk_eq (AMap.find v column_smt) sum)
-    in
-    let equations_tr = T.Linterm.transpose equations lambdas columns in
-    BatEnum.iter assrt (BatEnum.combine
-                          (BatList.enum columns, BatList.enum equations_tr));
-    (s, column_smt)
-
-  let higher_induction_vars ctx =
-    let mk_avar v = AVar (V.mk_var v) in
-    let primed_vars = VarSet.of_enum (M.keys ctx.loop.transform /@ Var.prime) in
-    let vars =
-      let free_vars = formula_free_program_vars ctx.phi in
-      BatList.of_enum (VarSet.enum free_vars /@ V.mk_var)
-    in
-    let equalities = F.affine_hull ~solver:ctx.solver ctx.phi vars in
-    logf "Extracted equalities:@ %a"
-      Show.format<T.Linterm.t list> equalities;
-    let (s, coeffs) = farkas equalities vars in
-    let get_coeff v = AMap.find (mk_avar v) coeffs in
-    (* A variable has a coefficient iff it is involved in an equality. *)
-    let has_coeff v = AMap.mem (mk_avar v) coeffs in
-
-    let remove_coeff x coeffs = AMap.remove (AVar (V.mk_var x)) coeffs in
-    let assert_zero_coeff v =
-      try s#assrt (Smt.mk_eq (get_coeff v) (Smt.const_int 0))
-      with Not_found ->
-        (* No coefficient assigned to v => we may assume it's zero without
-           	   asserting anything *)
-        ()
-    in
-    let find_recurrence v =
-      s#push ();
-
-      s#assrt (Smt.mk_eq (get_coeff v) (Smt.const_int 1));
-      s#assrt (Smt.mk_eq (get_coeff (Var.prime v)) (Smt.const_int (-1)));
-
-      (* The coefficient of a non-induction variable (other than v) must be
-         0 *)
-      VarMap.iter (fun x rhs ->
-          match rhs with
-          | None -> assert_zero_coeff x
-          | Some _ -> ()
-        ) (VarMap.remove v ctx.induction_vars);
-
-      (* The coefficient of a primed variable (other than v') must be 0 *)
-      VarSet.iter assert_zero_coeff (VarSet.remove (Var.prime v) primed_vars);
-
-      match s#check () with
-      | Smt.Unsat | Smt.Undef -> (s#pop (); None)
-      | Smt.Sat ->
-        let m = s#get_model () in
-        let f v coeff ts =
-          match v with
-          | AVar v -> (T.var v, m#eval_qq coeff)::ts
-          | AConst -> (T.one, m#eval_qq coeff)::ts
-        in
-        (* Remove v & v' terms -- we want the term t such that v' = v + t, and
-           we already set the coefficients of v and v'
-           appropriately *)
-        let coeffs = remove_coeff v (remove_coeff (Var.prime v) coeffs) in
-        s#pop ();
-        let incr = T.qq_linterm (BatList.enum (AMap.fold f coeffs [])) in
-        logf "Found recurrence: %a' = %a + %a"
-          Var.format v
-          Var.format v
-          T.format incr;
-        Some incr
-    in
-    let found_recurrence = ref false in
-    let check v rhs =
-      match rhs with
-      | Some cf -> Some cf
-      | None ->
-        if has_coeff v && has_coeff (Var.prime v) then begin
-          match find_recurrence v with
-          | Some rhs ->
-            found_recurrence := true;
-            closed_form ctx.induction_vars ctx.loop_counter v rhs
-          | None -> None
-        end
+  let widen x y =
+    (* Introduce fresh symbols for variables in the transform of x/y, then
+       abstract x and y to a cube over pre-symbols and these fresh symbols.
+       Widen in the cube domain, then covert back to a formula. *)
+    let (transform, post_sym) =
+      let add (map, post) var =
+        if M.mem var map then
+          (map, post)
         else
-          (* v isn't involved in any equalities => can't satisfy any
-             recurrences*)
-          None
+          let name = Var.show var ^ "'" in
+          let sym = mk_symbol ark ~name (Var.typ var :> typ) in
+          (M.add var (mk_const ark sym) map, Symbol.Set.add sym post)
+      in
+      BatEnum.fold
+        add
+        (BatEnum.fold add (M.empty, Symbol.Set.empty) (M.keys y.transform))
+        (M.keys x.transform)
     in
-    let rec fix iv =
-      let iv = VarMap.mapi check iv in
-      if !found_recurrence then begin
-        found_recurrence := false;
-        fix iv
-      end else iv
+    let exists sym =
+      match Var.of_symbol sym with
+      | Some v -> true
+      | None -> Symbol.Set.mem sym post_sym
     in
-    { ctx with induction_vars = fix ctx.induction_vars }
-
-  (* Simple recurrence inequations.  E.g., x + 0 <= x' <= x + 1. *)
-  let recurrence_ineq ctx =
-    let non_induction =
-      let f (v, r) = match r with
-        | Some _ -> None
-        | None   -> Some v
-      in
-      BatList.of_enum (BatEnum.filter_map f (VarMap.enum ctx.induction_vars))
-    in
-    let deltas =
-      let f v =
-        T.sub (T.var (V.mk_var (Var.prime v))) (T.var (V.mk_var v))
-      in
-      List.map f non_induction
-    in
-    let bounds = F.optimize deltas ctx.phi in
-    let h tr (v, ivl) =
-      let delta =
-        try T.sub (M.find v tr.transform) (T.var (V.mk_var v))
-        with Not_found -> assert false
-      in
-      let lower = match Interval.lower ivl with
-        | Some bound ->
-          F.leq (T.mul ctx.loop_counter (T.const bound)) delta
-        | None -> F.top
-      in
-      let upper = match Interval.upper ivl with
-        | Some bound ->
-          F.leq delta (T.mul ctx.loop_counter (T.const bound))
-        | None -> F.top
-      in
-      let lo_string = match Interval.lower ivl with
-        | Some lo -> (QQ.show lo) ^ " <= "
-        | None -> ""
-      in
-      let hi_string = match Interval.upper ivl with
-        | Some hi -> " <= " ^ (QQ.show hi)
-        | None -> ""
-      in
-      logf "Bounds for %a: %s%a'-%a%s"
-        Var.format v
-        lo_string
-        Var.format v
-        Var.format v
-        hi_string;
-      { tr with guard = F.conj (F.conj lower upper) tr.guard }
-    in
-    let loop =
-      BatEnum.fold h ctx.loop (BatEnum.combine (BatList.enum non_induction,
-                                                BatList.enum bounds))
-    in
-    { ctx with loop = loop }
-
-  (* Polyhedral recurrences *)
-  let polyrec ctx =
-    let non_induction =
-      let f (v, r) = match r with
-        | Some _ -> None
-        | None   -> Some v
-      in
-      BatList.of_enum (BatEnum.filter_map f (VarMap.enum ctx.induction_vars))
-    in
-    let deltas =
-      let f v =
-        T.sub (T.var (V.mk_var (Var.prime v))) (T.var (V.mk_var v))
-      in
-      List.map f non_induction
-    in
-    let fresh v = V.mk_tmp ("delta_" ^ (Var.show v)) (Var.typ v) in
-    let delta_vars = List.map fresh non_induction in
-    let phi =
-      List.fold_left2
-        (fun v dv d -> F.conj v (F.eq (T.var dv) d))
-        ctx.phi
-        delta_vars
-        deltas
-    in
-    let delta_map =
-      let add m dv v =
-        V.Map.add
-          dv
-          (T.sub (M.find v ctx.loop.transform) (T.var (V.mk_var v)))
-          m
-      in
-      List.fold_left2 add V.Map.empty delta_vars non_induction
-    in
-    let man = NumDomain.polka_strict_manager () in
-    let poly =
-      let delta_var_set = VSet.of_enum (BatList.enum delta_vars) in
-      let is_induction_var v = match V.lower v with
-        | Some var ->
-          begin
-            try (VarMap.find var ctx.induction_vars) != None
-            with Not_found -> false
-          end
-        | None -> false
-      in
-      let p v =
-        VSet.mem v delta_var_set || is_induction_var v
-      in
-      F.abstract ~exists:(Some p) man phi
-    in
-    logf "Polyhedron: %a" F.T.D.format poly;
-    let recur tcons =
-      let open Apron in
-      let open Tcons0 in
-      let open T.D in
-      let t = T.of_apron poly.env tcons.texpr0 in
-      match T.to_linterm t with
-      | None -> F.top
-      | Some lt -> begin
-          let p (x,_) = V.Map.mem x delta_map in
-          let (deltas, nondeltas) =
-            BatEnum.partition p (T.Linterm.var_bindings lt)
-          in
-          let lhs =
-            let f lhs (dv, coeff) =
-              T.add lhs (T.mul (T.const coeff) (V.Map.find dv delta_map))
+    let to_cube z =
+      let eqs =
+        M.fold (fun var term eqs ->
+            let term' =
+              if M.mem var z.transform then
+                M.find var z.transform
+              else
+                mk_const ark (Var.symbol_of var)
             in
-            BatEnum.fold f T.zero deltas
-          in
-          let rhs =
-            let f rhs (v, coeff) = T.add rhs (T.mul (T.const coeff) (T.var v)) in
-            let rhs_term =
-              BatEnum.fold f (T.const (T.Linterm.const_coeff lt)) nondeltas
-            in
-            let env = env_of_induction_vars ctx.induction_vars in
-            match Incr.eval env rhs_term with
-            | Some cf -> Incr.to_term (Incr.summation cf) ctx.loop_counter
-            | None -> assert false
-          in
-          let res =
-            match tcons.typ with
-            | EQ      -> F.eqz (T.add lhs rhs)
-            | SUPEQ   -> F.leqz (T.neg (T.add lhs rhs))
-            | SUP     -> F.ltz (T.neg (T.add lhs rhs))
-            | DISEQ   -> assert false (* impossible *)
-            | EQMOD _ -> assert false (* todo *)
-          in
-          if T.equal lhs T.zero then F.top else begin
-            logf "Polyhedral recurrence: %a" F.format res;
-            res
-          end
-        end
-    in
-    let tcons =
-      BatArray.enum (Apron.Abstract0.to_tcons_array man poly.T.D.prop)
-    in
-    let loop =
-      { ctx.loop with guard =
-                        F.conj ctx.loop.guard (F.big_conj (BatEnum.map recur tcons)) }
-    in
-    { ctx with loop = loop }
-  let polyrec ctx = Log.time "polyrec" polyrec ctx
-
-  let loop_guard exists ctx =
-    let primed_vars = VarSet.of_enum (M.keys ctx.loop.transform /@ Var.prime) in
-    let unprime =
-      VarMap.of_enum (M.enum ctx.loop.transform
-                      /@ (fun (v,_) -> (Var.prime v, v)))
-    in
-    let vars = formula_free_program_vars ctx.phi in
-    let pre_vars =
-      VarSet.filter (not % flip VarMap.mem unprime) vars
-    in
-    let post_vars =
-      VarSet.union
-        (VarSet.filter (not % flip M.mem ctx.loop.transform) pre_vars)
-        primed_vars
-    in
-    let low f v = match V.lower v with
-      | Some v -> f v
-      | None   -> false
-    in
-    let pre_guard =
-      F.nudge (exists (low (flip VarSet.mem pre_vars)) ctx.phi)
-    in
-    let post_guard =
-      F.nudge (exists (low (flip VarSet.mem post_vars)) ctx.phi)
-    in
-    let sigma v = match V.lower v with
-      | Some x ->
-        if VarMap.mem x unprime
-        then M.find (VarMap.find x unprime) ctx.loop.transform
-        else T.var v
-      | None -> assert false (* impossible *)
-    in
-    let post_guard = F.subst sigma post_guard in
-    let penultimate_guard =
-      let loop_counter = match T.to_var ctx.loop_counter with
-        | Some v -> v
-        | None -> assert false
+            (mk_eq ark term term')::eqs)
+          transform
+          []
       in
-      let p v = V.equal v loop_counter || V.lower v != None in
-      let phi = mul ctx.loop (assume pre_guard) in
-      let sigma v =
-        if V.equal v loop_counter then T.sub (T.var v) T.one
-        else T.var v
+      mk_and ark (z.guard::eqs)
+      |> Abstract.abstract_nonlinear ~exists ark
+    in
+    let guard =
+      Cube.widen (to_cube x) (to_cube y)
+      |> Cube.to_formula
+    in
+    { transform; guard }
+
+  let widen x y =
+    if is_zero x then y
+    else if is_zero y then x
+    else widen x y
+
+  (* alpha equivalence - only works for normalized transitions! *)
+  let equiv x y =
+    try (
+    let sigma =
+      let map =
+        M.fold (fun v rhs m ->
+            match Term.destruct ark rhs,
+                  Term.destruct ark (M.find v y.transform) with
+            | `App (a, []), `App (b, []) -> Symbol.Map.add a (mk_const ark b) m
+            | _, _ -> assert false)
+          x.transform
+          Symbol.Map.empty
       in
-      logf "penultimate_guard_phi:@\n%a" F.format phi.guard;
-      F.subst sigma (exists p (F.linearize (fun () -> V.mk_real_tmp "nonlin")
-                                 phi.guard))
+      fun sym ->
+        try Symbol.Map.find sym map
+        with Not_found -> mk_const ark sym
     in
-    logf "pre_guard:@\n%a" F.format pre_guard;
-    logf "post_guard:@\n%a" F.format post_guard;
-    logf "penultimate_guard:@\n%a" F.format penultimate_guard;
-    let plus_guard =
-      F.big_conj (BatList.enum [
-          pre_guard;
-          post_guard;
-          penultimate_guard;
-          (F.geq ctx.loop_counter T.one)])
-    in
-    let zero_guard =
-      let eq (v, t) = F.eq (T.var (V.mk_var v)) t in
-      F.conj
-        (F.eqz ctx.loop_counter)
-        (F.big_conj (BatEnum.map eq (M.enum ctx.loop.transform)))
-    in
-    let star_guard = F.disj plus_guard zero_guard in
-    { ctx.loop with guard = F.conj ctx.loop.guard star_guard }
+    let x_guard = substitute_const ark sigma x.guard in
+    match Smt.is_sat ark (mk_not ark (mk_iff ark x_guard y.guard)) with
+    | `Unsat -> true
+    | _ -> false)
+    with Not_found -> false
 
-  let star tr =
-    logf "Loop body:@\n%a" format tr;
-    let mk_nondet v _ =
-      T.var (V.mk_tmp ("nondet_" ^ (Var.show v)) (Var.typ v))
+  let equal x y = compare x y = 0 || equiv x y
+  let exists p tr =
+    let transform = M.filter (fun k _ -> p k) tr.transform in
+    let rename =
+      Memo.memo (fun sym ->
+          mk_symbol ark ~name:(show_symbol ark sym) (typ_symbol ark sym))
     in
-    let loop_counter = T.var (V.mk_int_tmp "K") in
-    let loop =
-      { transform = M.mapi mk_nondet tr.transform;
-        guard = F.leqz (T.neg loop_counter) }
-    in
-    let induction_vars =
-      M.fold
-        (fun v _ env -> VarMap.add v None env)
-        tr.transform
-        VarMap.empty
-    in
-    let linear_body =
-      F.linearize (fun () -> V.mk_real_tmp "nonlin") (to_formula tr)
-    in
-    let solver = new Smt.solver in
-    solver#assrt (F.to_smt linear_body);
-    let ctx =
-      { induction_vars = induction_vars;
-        phi = linear_body;
-        loop_counter = loop_counter;
-        solver = solver;
-        loop = loop }
-    in
-    let ctx = simple_induction_vars ctx in
-    let context_transform ctx (do_transform, transform) =
-      if do_transform then transform ctx else ctx
-    in
-    let ctx =
-      List.fold_left context_transform ctx [
-        (!opt_higher_recurrence, higher_induction_vars);
-        (!opt_recurrence_ineq, recurrence_ineq);
-        (!opt_polyrec, polyrec);
-      ]
-    in
-
-    (* Compute closed forms for induction variables *)
-    let close v incr transform =
-      match incr with
-      | Some incr ->
-        let t = Incr.to_term incr ctx.loop_counter in
-        logf "Closed term for %a: %a"
-          Var.format v
-          T.format t;
-        M.add v t transform
-      | None -> transform
-    in
-    let transform = VarMap.fold close ctx.induction_vars ctx.loop.transform in
-
-    let loop = { ctx.loop with transform = transform } in
-
-    let loop =
-      match !opt_loop_guard with
-      | Some ex -> loop_guard ex { ctx with loop = loop }
-      | None -> loop
-    in
-    let loop =
-      if !opt_unroll_loop then add one (mul loop tr)
-      else loop
-    in
-    logf "Loop summary: %a" format loop;
-    loop
-
-  let star tr =
-    try
-      star tr
-    with
-    | Unsat -> one
-    | Undef ->
-      let mk_nondet v _ =
-        T.var (V.mk_tmp ("nondet_" ^ (Var.show v)) (Var.typ v))
+    let sigma sym =
+      let sym' = match Var.of_symbol sym with
+        | Some v -> if p v then sym else rename sym
+        | None -> sym
       in
-      Log.errorf "Gave up in loop computation";
-      { guard = F.top;
-        transform = M.mapi mk_nondet tr.transform }
+      mk_const ark sym'
+    in
+    { transform = M.map (substitute_const ark sigma) transform;
+      guard = substitute_const ark sigma tr.guard }
 
-  let format_robust formatter tr =
-    Format.fprintf formatter
-      "{@[<v 0>transform:@;  @[<v 0>%a@]@;guard:@;  @[<v 0>%a@]@]}"
-      (ApakEnum.pp_print_enum_nobox
-         ~pp_sep:(fun formatter () -> Format.pp_print_break formatter 0 0)
-         (fun formatter (lhs, rhs) ->
-            Format.fprintf formatter "%a := %a"
-              Var.format lhs
-              T.format rhs))
-      (M.enum tr.transform)
-      F.format_robust tr.guard
+  let mem_transform x tr = M.mem x tr.transform
+  let get_transform x tr = M.find x tr.transform
+  let transform tr = M.enum tr.transform
+  let guard tr = tr.guard
+
+  let interpolate trs post =
+    let trs =
+      trs |> List.map (fun tr ->
+          let fresh_skolem =
+            Memo.memo (fun sym ->
+                match Var.of_symbol sym with
+                | Some v -> mk_const ark sym
+                | None ->
+                  let name = show_symbol ark sym in
+                  let typ = typ_symbol ark sym in
+                  mk_const ark (mk_symbol ark ~name typ))
+          in
+          { transform = M.map (substitute_const ark fresh_skolem) tr.transform;
+            guard = substitute_const ark fresh_skolem tr.guard })
+    in
+    let z3 = ArkZ3.mk_context ark [] in
+    let unsubscript_tbl = Hashtbl.create 991 in
+    let subscript_tbl = Hashtbl.create 991 in
+    let subscript sym =
+      try
+        Hashtbl.find subscript_tbl sym
+      with Not_found -> mk_const ark sym
+    in
+    let unsubscript sym =
+      try
+        Hashtbl.find unsubscript_tbl sym
+      with Not_found -> mk_const ark sym
+    in
+    (* Convert tr into a formula, and simultaneously update the subscript
+       table *)
+    let to_ss_formula tr =
+      let (ss, phis) =
+        M.fold (fun var term (ss, phis) ->
+            let var_sym = Var.symbol_of var in
+            let var_ss_sym = mk_symbol ark (Var.typ var :> typ) in
+            let var_ss_term = mk_const ark var_ss_sym in
+            let term_ss = substitute_const ark subscript term in
+            Hashtbl.add unsubscript_tbl var_ss_sym (mk_const ark var_sym);
+            ((var_sym, var_ss_term)::ss,
+             mk_eq ark var_ss_term term_ss::phis))
+          tr.transform
+          ([], [substitute_const ark subscript tr.guard])
+      in
+      List.iter (fun (k, v) -> Hashtbl.add subscript_tbl k v) ss;
+      mk_and ark phis
+    in
+    let seq =
+      List.fold_left
+        (fun subscripted tr ->
+           (to_ss_formula tr)::subscripted)
+        []
+        trs
+    in
+    let ss_post = substitute_const ark subscript (mk_not ark post) in
+    match z3#interpolate_seq (List.rev (ss_post::seq)) with
+    | `Sat m -> `Invalid
+    | `Unknown -> `Unknown
+    | `Unsat itp ->
+      `Valid (List.map (substitute_const ark unsubscript) itp)
+
+  let valid_triple phi path post =
+    let path_not_post = List.fold_right mul path (assume (mk_not ark post)) in
+    match Smt.is_sat ark (mk_and ark [phi; path_not_post.guard]) with
+    | `Sat -> `Invalid
+    | `Unknown -> `Unknown
+    | `Unsat -> `Valid
 end

@@ -1,41 +1,38 @@
-open ArkPervasives
+type t
 
-type interval deriving (Show,Compare)
+val compare : t -> t -> int
+val equal : t -> t -> bool
+val pp : Format.formatter -> t -> unit
+val show : t -> string
 
-val make : QQ.t option -> QQ.t option -> interval
-val make_bounded : QQ.t -> QQ.t -> interval
-val top : interval
-val bottom : interval
-val const : QQ.t -> interval
-val zero : interval
-val const_of : interval -> QQ.t option
+val make : QQ.t option -> QQ.t option -> t
+val make_bounded : QQ.t -> QQ.t -> t
+val top : t
+val bottom : t
+val const : QQ.t -> t
+val zero : t
+val const_of : t -> QQ.t option
 
-val negate : interval -> interval
+val negate : t -> t
 
-val format : Format.formatter -> interval -> unit
-val show : interval -> string
+val mul : t -> t -> t
+val div : t -> t -> t
+val modulo : t -> t -> t
+val add : t -> t -> t
+val floor : t -> t
 
-val compare : interval -> interval -> int
-val equal : interval -> interval -> bool
+val join : t -> t -> t
+val meet : t -> t -> t
+val leq : t -> t -> bool
 
-val mul : interval -> interval -> interval
-val div : interval -> interval -> interval
-val modulo : interval -> interval -> interval
-val add : interval -> interval -> interval
-val floor : interval -> interval
+val is_nonnegative : t -> bool
+val is_nonpositive : t -> bool
+val is_negative : t -> bool
+val is_positive : t -> bool
+val elem : QQ.t -> t -> bool
 
-val join : interval -> interval -> interval
-val meet : interval -> interval -> interval
-val leq : interval -> interval -> bool
+val lower : t -> QQ.t option
+val upper : t -> QQ.t option
 
-val is_nonnegative : interval -> bool
-val is_nonpositive : interval -> bool
-val is_negative : interval -> bool
-val is_positive : interval -> bool
-val elem : QQ.t -> interval -> bool
-
-val lower : interval -> QQ.t option
-val upper : interval -> QQ.t option
-
-val of_apron : Apron.Interval.t -> interval
-val apron_of : interval -> Apron.Interval.t
+val of_apron : Apron.Interval.t -> t
+val apron_of : t -> Apron.Interval.t

@@ -1,0 +1,857 @@
+start: ({true}() /\ {@[#1] = 30}() /\ {false}()).
+final: {true}, {false}, {@[#1] = 10}, {count <= 4}, {count <= 1},
+         {count <= 0}, {count <= 2}, {count <= 3}.
+{@[#1] = 30}() --( <33 : initial> : i )-> false.
+{@[#1] = 30}() --( <15 : arg=param0> : i )-> false.
+{@[#1] = 30}() --( <13 : return=__retres2> : i )-> false.
+{@[#1] = 30}() --( <12 : __retres2=(*void)0> : i )-> false.
+{@[#1] = 30}() --( <11 : count=(count+1)> : i )-> false.
+{@[#1] = 30}() --( <27 : fork(&thread)> : i )-> false.
+{@[#1] = 30}() --( <25 : param0=(*void)(*void)0> : i )-> false.
+{@[#1] = 30}() --( <24 : fork(&thread)> : i )-> false.
+{@[#1] = 30}() --( <22 : param0=(*void)(*void)0> : i )-> false.
+{@[#1] = 30}() --( <21 : fork(&thread)> : i )-> false.
+{@[#1] = 30}() --( <19 : param0=(*void)(*void)0> : i )-> false.
+{@[#1] = 30}() --( <18 : fork(&thread)> : i )-> false.
+{@[#1] = 30}() --( <16 : param0=(*void)(*void)0> : i )-> false.
+{@[#1] = 30}() --( <10 : assume(0<=0)> : i )-> false.
+{@[#1] = 30}() --( <9 : return=*> : i )-> false.
+{@[#1] = 30}() --( <32 : assume(4<count)> : i )-> true.
+{@[#1] = 30}() --( <7 : assert(count<=4) : count <= 4> : i )-> false.
+{@[#1] = 30}() --( <2 : count=0> : i )-> false.
+
+{false}() --( <33 : initial> : i )-> ({false}() /\ {false}() /\ {false}()
+                                        /\ {false}() /\ {false}()).
+{false}() --( <15 : arg=param0> : i )-> ({false}() /\ {false}() /\ {false}()
+                                           /\ {false}() /\ {false}()).
+{false}() --( <13 : return=__retres2> : i )-> ({false}() /\ {false}()
+                                                 /\ {false}() /\ {false}()
+                                                 /\ {false}()).
+{false}() --( <12 : __retres2=(*void)0> : i )-> ({false}() /\ {false}()
+                                                   /\ {false}() /\ {false}()
+                                                   /\ {false}()).
+{false}() --( <11 : count=(count+1)> : i )-> ({false}() /\ {false}()
+                                                /\ {false}() /\ {false}()
+                                                /\ {false}()).
+{false}() --( <27 : fork(&thread)> : i )-> ({false}() /\ {false}()
+                                              /\ {false}() /\ {false}()
+                                              /\ {false}()).
+{false}() --( <25 : param0=(*void)(*void)0> : i )-> ({false}() /\ {false}()
+                                                       /\ {false}()
+                                                       /\ {false}()
+                                                       /\ {false}()).
+{false}() --( <24 : fork(&thread)> : i )-> ({false}() /\ {false}()
+                                              /\ {false}() /\ {false}()
+                                              /\ {false}()).
+{false}() --( <22 : param0=(*void)(*void)0> : i )-> ({false}() /\ {false}()
+                                                       /\ {false}()
+                                                       /\ {false}()
+                                                       /\ {false}()).
+{false}() --( <21 : fork(&thread)> : i )-> ({false}() /\ {false}()
+                                              /\ {false}() /\ {false}()
+                                              /\ {false}()).
+{false}() --( <19 : param0=(*void)(*void)0> : i )-> ({false}() /\ {false}()
+                                                       /\ {false}()
+                                                       /\ {false}()
+                                                       /\ {false}()).
+{false}() --( <18 : fork(&thread)> : i )-> ({false}() /\ {false}()
+                                              /\ {false}() /\ {false}()
+                                              /\ {false}()).
+{false}() --( <16 : param0=(*void)(*void)0> : i )-> ({false}() /\ {false}()
+                                                       /\ {false}()
+                                                       /\ {false}()
+                                                       /\ {false}()).
+{false}() --( <10 : assume(0<=0)> : i )-> ({false}() /\ {false}()
+                                             /\ {false}() /\ {false}()
+                                             /\ {false}()).
+{false}() --( <9 : return=*> : i )-> ({false}() /\ {false}() /\ {false}()
+                                        /\ {false}() /\ {false}()).
+{false}() --( <32 : assume(4<count)> : i )-> ({false}() /\ {count <= 4}()
+                                                /\ {false}()
+                                                /\ {count <= 1}()
+                                                /\ {false}()
+                                                /\ {count <= 2}()
+                                                /\ {false}()
+                                                /\ {count <= 3}()
+                                                /\ {false}()
+                                                /\ {count <= 4}()).
+{false}() --( <7 : assert(count<=4) : count <= 4> : i )-> ({false}()
+                                                             /\ {false}()
+                                                             /\ {false}()
+                                                             /\ {false}()
+                                                             /\ {false}()).
+{false}() --( <2 : count=0> : i )-> ({false}() /\ {false}() /\ {false}()
+                                       /\ {false}() /\ {false}()).
+
+{@[#1] = 25}(i) --( <33 : initial> : j )-> ({@[#1] = 25}(i) /\ j != i).
+{@[#1] = 25}(i) --( <15 : arg=param0> : j )-> ({@[#1] = 25}(i) /\ j != i).
+{@[#1] = 25}(i) --( <13 : return=__retres2> : j )-> ({@[#1] = 25}(i)
+                                                       /\ j != i).
+{@[#1] = 25}(i) --( <12 : __retres2=(*void)0> : j )-> ({@[#1] = 25}(i)
+                                                         /\ j != i).
+{@[#1] = 25}(i) --( <11 : count=(count+1)> : j )-> ({@[#1] = 25}(i) /\ j != i).
+{@[#1] = 25}(i) --( <27 : fork(&thread)> : j )-> false.
+{@[#1] = 25}(i) --( <25 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 25}(i) --( <24 : fork(&thread)> : j )-> false.
+{@[#1] = 25}(i) --( <22 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 25}(i) --( <21 : fork(&thread)> : j )-> false.
+{@[#1] = 25}(i) --( <19 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 25}(i) --( <18 : fork(&thread)> : j )-> j = i.
+{@[#1] = 25}(i) --( <16 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 25}(i) --( <10 : assume(0<=0)> : j )-> false.
+{@[#1] = 25}(i) --( <9 : return=*> : j )-> false.
+{@[#1] = 25}(i) --( <32 : assume(4<count)> : j )-> false.
+{@[#1] = 25}(i) --( <7 : assert(count<=4) : count <= 4> : j )-> false.
+{@[#1] = 25}(i) --( <2 : count=0> : j )-> false.
+
+{@[#1] = 12}(i) --( <33 : initial> : j )-> ({@[#1] = 12}(i) /\ j != i).
+{@[#1] = 12}(i) --( <15 : arg=param0> : j )-> ({@[#1] = 12}(i) /\ j != i).
+{@[#1] = 12}(i) --( <13 : return=__retres2> : j )-> ({@[#1] = 12}(i)
+                                                       /\ j != i).
+{@[#1] = 12}(i) --( <12 : __retres2=(*void)0> : j )-> ({@[#1] = 12}(i)
+                                                         /\ j != i).
+{@[#1] = 12}(i) --( <11 : count=(count+1)> : j )-> (j = i
+                                                      \/ ({@[#1] = 12}(i)
+                                                            /\ j != i)).
+{@[#1] = 12}(i) --( <27 : fork(&thread)> : j )-> ({@[#1] = 12}(i) /\ j != i).
+{@[#1] = 12}(i) --( <25 : param0=(*void)(*void)0> : j )-> ({@[#1] = 12}(i)
+                                                             /\ j != i).
+{@[#1] = 12}(i) --( <24 : fork(&thread)> : j )-> ({@[#1] = 12}(i) /\ j != i).
+{@[#1] = 12}(i) --( <22 : param0=(*void)(*void)0> : j )-> ({@[#1] = 12}(i)
+                                                             /\ j != i).
+{@[#1] = 12}(i) --( <21 : fork(&thread)> : j )-> ({@[#1] = 12}(i) /\ j != i).
+{@[#1] = 12}(i) --( <19 : param0=(*void)(*void)0> : j )-> ({@[#1] = 12}(i)
+                                                             /\ j != i).
+{@[#1] = 12}(i) --( <18 : fork(&thread)> : j )-> ({@[#1] = 12}(i) /\ j != i).
+{@[#1] = 12}(i) --( <16 : param0=(*void)(*void)0> : j )-> ({@[#1] = 12}(i)
+                                                             /\ j != i).
+{@[#1] = 12}(i) --( <10 : assume(0<=0)> : j )-> ({@[#1] = 12}(i) /\ j != i).
+{@[#1] = 12}(i) --( <9 : return=*> : j )-> ({@[#1] = 12}(i) /\ j != i).
+{@[#1] = 12}(i) --( <32 : assume(4<count)> : j )-> false.
+{@[#1] = 12}(i) --( <7 : assert(count<=4) : count <= 4> : j )-> ({@[#1] = 12}(
+                                                                 i) /\ 
+                                                                   j != i).
+{@[#1] = 12}(i) --( <2 : count=0> : j )-> ({@[#1] = 12}(i) /\ j != i).
+
+{@[#1] = 7}(i) --( <33 : initial> : j )-> ({@[#1] = 7}(i) /\ j != i).
+{@[#1] = 7}(i) --( <15 : arg=param0> : j )-> ({@[#1] = 7}(i) /\ j != i).
+{@[#1] = 7}(i) --( <13 : return=__retres2> : j )-> ({@[#1] = 7}(i) /\ j != i).
+{@[#1] = 7}(i) --( <12 : __retres2=(*void)0> : j )-> ({@[#1] = 7}(i)
+                                                        /\ j != i).
+{@[#1] = 7}(i) --( <11 : count=(count+1)> : j )-> ({@[#1] = 7}(i) /\ j != i).
+{@[#1] = 7}(i) --( <27 : fork(&thread)> : j )-> false.
+{@[#1] = 7}(i) --( <25 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 7}(i) --( <24 : fork(&thread)> : j )-> j = i.
+{@[#1] = 7}(i) --( <22 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 7}(i) --( <21 : fork(&thread)> : j )-> false.
+{@[#1] = 7}(i) --( <19 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 7}(i) --( <18 : fork(&thread)> : j )-> false.
+{@[#1] = 7}(i) --( <16 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 7}(i) --( <10 : assume(0<=0)> : j )-> false.
+{@[#1] = 7}(i) --( <9 : return=*> : j )-> false.
+{@[#1] = 7}(i) --( <32 : assume(4<count)> : j )-> false.
+{@[#1] = 7}(i) --( <7 : assert(count<=4) : count <= 4> : j )-> false.
+{@[#1] = 7}(i) --( <2 : count=0> : j )-> false.
+
+{@[#1] = 33}(i) --( <33 : initial> : j )-> false.
+{@[#1] = 33}(i) --( <15 : arg=param0> : j )-> false.
+{@[#1] = 33}(i) --( <13 : return=__retres2> : j )-> false.
+{@[#1] = 33}(i) --( <12 : __retres2=(*void)0> : j )-> false.
+{@[#1] = 33}(i) --( <11 : count=(count+1)> : j )-> false.
+{@[#1] = 33}(i) --( <27 : fork(&thread)> : j )-> true.
+{@[#1] = 33}(i) --( <25 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 33}(i) --( <24 : fork(&thread)> : j )-> true.
+{@[#1] = 33}(i) --( <22 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 33}(i) --( <21 : fork(&thread)> : j )-> true.
+{@[#1] = 33}(i) --( <19 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 33}(i) --( <18 : fork(&thread)> : j )-> true.
+{@[#1] = 33}(i) --( <16 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 33}(i) --( <10 : assume(0<=0)> : j )-> false.
+{@[#1] = 33}(i) --( <9 : return=*> : j )-> false.
+{@[#1] = 33}(i) --( <32 : assume(4<count)> : j )-> false.
+{@[#1] = 33}(i) --( <7 : assert(count<=4) : count <= 4> : j )-> false.
+{@[#1] = 33}(i) --( <2 : count=0> : j )-> false.
+
+{@[#1] = 16}(i) --( <33 : initial> : j )-> ({@[#1] = 16}(i) /\ j != i).
+{@[#1] = 16}(i) --( <15 : arg=param0> : j )-> ({@[#1] = 16}(i) /\ j != i).
+{@[#1] = 16}(i) --( <13 : return=__retres2> : j )-> ({@[#1] = 16}(i)
+                                                       /\ j != i).
+{@[#1] = 16}(i) --( <12 : __retres2=(*void)0> : j )-> ({@[#1] = 16}(i)
+                                                         /\ j != i).
+{@[#1] = 16}(i) --( <11 : count=(count+1)> : j )-> ({@[#1] = 16}(i) /\ j != i).
+{@[#1] = 16}(i) --( <27 : fork(&thread)> : j )-> false.
+{@[#1] = 16}(i) --( <25 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 16}(i) --( <24 : fork(&thread)> : j )-> false.
+{@[#1] = 16}(i) --( <22 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 16}(i) --( <21 : fork(&thread)> : j )-> j = i.
+{@[#1] = 16}(i) --( <19 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 16}(i) --( <18 : fork(&thread)> : j )-> false.
+{@[#1] = 16}(i) --( <16 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 16}(i) --( <10 : assume(0<=0)> : j )-> false.
+{@[#1] = 16}(i) --( <9 : return=*> : j )-> false.
+{@[#1] = 16}(i) --( <32 : assume(4<count)> : j )-> false.
+{@[#1] = 16}(i) --( <7 : assert(count<=4) : count <= 4> : j )-> false.
+{@[#1] = 16}(i) --( <2 : count=0> : j )-> false.
+
+{@[#1] = 2}(i) --( <33 : initial> : j )-> ({@[#1] = 2}(i) /\ j != i).
+{@[#1] = 2}(i) --( <15 : arg=param0> : j )-> ({@[#1] = 2}(i) /\ j != i).
+{@[#1] = 2}(i) --( <13 : return=__retres2> : j )-> ({@[#1] = 2}(i) /\ j != i).
+{@[#1] = 2}(i) --( <12 : __retres2=(*void)0> : j )-> ({@[#1] = 2}(i)
+                                                        /\ j != i).
+{@[#1] = 2}(i) --( <11 : count=(count+1)> : j )-> ({@[#1] = 2}(i) /\ j != i).
+{@[#1] = 2}(i) --( <27 : fork(&thread)> : j )-> false.
+{@[#1] = 2}(i) --( <25 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 2}(i) --( <24 : fork(&thread)> : j )-> false.
+{@[#1] = 2}(i) --( <22 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 2}(i) --( <21 : fork(&thread)> : j )-> false.
+{@[#1] = 2}(i) --( <19 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 2}(i) --( <18 : fork(&thread)> : j )-> false.
+{@[#1] = 2}(i) --( <16 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 2}(i) --( <10 : assume(0<=0)> : j )-> j = i.
+{@[#1] = 2}(i) --( <9 : return=*> : j )-> false.
+{@[#1] = 2}(i) --( <32 : assume(4<count)> : j )-> false.
+{@[#1] = 2}(i) --( <7 : assert(count<=4) : count <= 4> : j )-> false.
+{@[#1] = 2}(i) --( <2 : count=0> : j )-> false.
+
+{count <= 1}() --( <33 : initial> : i )-> ({count <= 1}() /\ {count <= 1}()
+                                             /\ {count <= 1}()
+                                             /\ {count <= 1}()
+                                             /\ {count <= 1}()
+                                             /\ {count <= 1}()
+                                             /\ {count <= 1}()).
+{count <= 1}() --( <15 : arg=param0> : i )-> ({count <= 1}()
+                                                /\ {count <= 1}()
+                                                /\ {count <= 1}()
+                                                /\ {count <= 1}()
+                                                /\ {count <= 1}()
+                                                /\ {count <= 1}()
+                                                /\ {count <= 1}()).
+{count <= 1}() --( <13 : return=__retres2> : i )-> ({count <= 1}()
+                                                      /\ {count <= 1}()
+                                                      /\ {count <= 1}()
+                                                      /\ {count <= 1}()).
+{count <= 1}() --( <12 : __retres2=(*void)0> : i )-> ({count <= 1}()
+                                                        /\ {count <= 1}()
+                                                        /\ {count <= 1}()
+                                                        /\ {count <= 1}()).
+{count <= 1}() --( <11 : count=(count+1)> : i )-> ({count <= 0}()
+                                                     /\ {count <= 0}()
+                                                     /\ {count <= 0}()
+                                                     /\ {count <= 0}()).
+{count <= 1}() --( <27 : fork(&thread)> : i )-> ({count <= 1}()
+                                                   /\ {count <= 1}()
+                                                   /\ {count <= 1}()
+                                                   /\ {count <= 1}()
+                                                   /\ {count <= 1}()).
+{count <= 1}() --( <25 : param0=(*void)(*void)0> : i )-> ({count <= 1}()
+                                                            /\ {count <= 1}()
+                                                            /\ {count <= 1}()
+                                                            /\ {count <= 1}()
+                                                            /\ {count <= 1}()
+                                                            /\ {count <= 1}()
+                                                            /\ {count <= 1}()).
+{count <= 1}() --( <24 : fork(&thread)> : i )-> ({count <= 1}()
+                                                   /\ {count <= 1}()
+                                                   /\ {count <= 1}()
+                                                   /\ {count <= 1}()
+                                                   /\ {count <= 1}()).
+{count <= 1}() --( <22 : param0=(*void)(*void)0> : i )-> ({count <= 1}()
+                                                            /\ {count <= 1}()
+                                                            /\ {count <= 1}()
+                                                            /\ {count <= 1}()
+                                                            /\ {count <= 1}()).
+{count <= 1}() --( <21 : fork(&thread)> : i )-> ({count <= 1}()
+                                                   /\ {count <= 1}()
+                                                   /\ {count <= 1}()
+                                                   /\ {count <= 1}()).
+{count <= 1}() --( <19 : param0=(*void)(*void)0> : i )-> ({count <= 1}()
+                                                            /\ {count <= 1}()
+                                                            /\ {count <= 1}()
+                                                            /\ {count <= 1}()).
+{count <= 1}() --( <18 : fork(&thread)> : i )-> ({count <= 1}()
+                                                   /\ {count <= 1}()
+                                                   /\ {count <= 1}()
+                                                   /\ {count <= 1}()
+                                                   /\ {count <= 1}()
+                                                   /\ {count <= 1}()
+                                                   /\ {count <= 1}()
+                                                   /\ {count <= 1}()).
+{count <= 1}() --( <16 : param0=(*void)(*void)0> : i )-> ({count <= 1}()
+                                                            /\ {count <= 1}()
+                                                            /\ {count <= 1}()
+                                                            /\ {count <= 1}()
+                                                            /\ {count <= 1}()).
+{count <= 1}() --( <10 : assume(0<=0)> : i )-> ({count <= 1}()
+                                                  /\ {count <= 1}()
+                                                  /\ {count <= 1}()
+                                                  /\ {count <= 1}()).
+{count <= 1}() --( <9 : return=*> : i )-> ({count <= 1}() /\ {count <= 1}()
+                                             /\ {count <= 1}()
+                                             /\ {count <= 1}()).
+{count <= 1}() --( <32 : assume(4<count)> : i )-> ({count <= 1}()
+                                                     /\ {count <= 1}()
+                                                     /\ {count <= 1}()
+                                                     /\ {count <= 1}()).
+{count <= 1}() --( <7 : assert(count<=4) : count <= 4> : i )-> ({count <= 1}(
+                                                                )
+                                                                  /\ 
+                                                                  {count <= 1}(
+                                                                  )
+                                                                  /\ 
+                                                                  {count <= 1}(
+                                                                  )
+                                                                  /\ 
+                                                                  {count <= 1}(
+                                                                  )).
+{count <= 1}() --( <2 : count=0> : i )-> true.
+
+{@[#1] = 18}(i) --( <33 : initial> : j )-> ({@[#1] = 18}(i) /\ j != i).
+{@[#1] = 18}(i) --( <15 : arg=param0> : j )-> ({@[#1] = 18}(i) /\ j != i).
+{@[#1] = 18}(i) --( <13 : return=__retres2> : j )-> ({@[#1] = 18}(i)
+                                                       /\ j != i).
+{@[#1] = 18}(i) --( <12 : __retres2=(*void)0> : j )-> ({@[#1] = 18}(i)
+                                                         /\ j != i).
+{@[#1] = 18}(i) --( <11 : count=(count+1)> : j )-> ({@[#1] = 18}(i) /\ j != i).
+{@[#1] = 18}(i) --( <27 : fork(&thread)> : j )-> false.
+{@[#1] = 18}(i) --( <25 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 18}(i) --( <24 : fork(&thread)> : j )-> false.
+{@[#1] = 18}(i) --( <22 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 18}(i) --( <21 : fork(&thread)> : j )-> false.
+{@[#1] = 18}(i) --( <19 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 18}(i) --( <18 : fork(&thread)> : j )-> false.
+{@[#1] = 18}(i) --( <16 : param0=(*void)(*void)0> : j )-> j = i.
+{@[#1] = 18}(i) --( <10 : assume(0<=0)> : j )-> false.
+{@[#1] = 18}(i) --( <9 : return=*> : j )-> false.
+{@[#1] = 18}(i) --( <32 : assume(4<count)> : j )-> false.
+{@[#1] = 18}(i) --( <7 : assert(count<=4) : count <= 4> : j )-> false.
+{@[#1] = 18}(i) --( <2 : count=0> : j )-> false.
+
+{@[#1] = 13}(i) --( <33 : initial> : j )-> ({@[#1] = 13}(i) /\ j != i).
+{@[#1] = 13}(i) --( <15 : arg=param0> : j )-> ({@[#1] = 13}(i) /\ j != i).
+{@[#1] = 13}(i) --( <13 : return=__retres2> : j )-> ({@[#1] = 13}(i)
+                                                       /\ j != i).
+{@[#1] = 13}(i) --( <12 : __retres2=(*void)0> : j )-> (j = i
+                                                         \/ ({@[#1] = 13}(i)
+                                                               /\ j != i)).
+{@[#1] = 13}(i) --( <11 : count=(count+1)> : j )-> ({@[#1] = 13}(i) /\ j != i).
+{@[#1] = 13}(i) --( <27 : fork(&thread)> : j )-> ({@[#1] = 13}(i) /\ j != i).
+{@[#1] = 13}(i) --( <25 : param0=(*void)(*void)0> : j )-> ({@[#1] = 13}(i)
+                                                             /\ j != i).
+{@[#1] = 13}(i) --( <24 : fork(&thread)> : j )-> ({@[#1] = 13}(i) /\ j != i).
+{@[#1] = 13}(i) --( <22 : param0=(*void)(*void)0> : j )-> ({@[#1] = 13}(i)
+                                                             /\ j != i).
+{@[#1] = 13}(i) --( <21 : fork(&thread)> : j )-> ({@[#1] = 13}(i) /\ j != i).
+{@[#1] = 13}(i) --( <19 : param0=(*void)(*void)0> : j )-> ({@[#1] = 13}(i)
+                                                             /\ j != i).
+{@[#1] = 13}(i) --( <18 : fork(&thread)> : j )-> ({@[#1] = 13}(i) /\ j != i).
+{@[#1] = 13}(i) --( <16 : param0=(*void)(*void)0> : j )-> ({@[#1] = 13}(i)
+                                                             /\ j != i).
+{@[#1] = 13}(i) --( <10 : assume(0<=0)> : j )-> ({@[#1] = 13}(i) /\ j != i).
+{@[#1] = 13}(i) --( <9 : return=*> : j )-> ({@[#1] = 13}(i) /\ j != i).
+{@[#1] = 13}(i) --( <32 : assume(4<count)> : j )-> false.
+{@[#1] = 13}(i) --( <7 : assert(count<=4) : count <= 4> : j )-> ({@[#1] = 13}(
+                                                                 i) /\ 
+                                                                   j != i).
+{@[#1] = 13}(i) --( <2 : count=0> : j )-> ({@[#1] = 13}(i) /\ j != i).
+
+{count <= 0}() --( <33 : initial> : i )-> ({count <= 0}() /\ {count <= 0}()
+                                             /\ {count <= 0}()
+                                             /\ {count <= 0}()
+                                             /\ {count <= 0}()
+                                             /\ {count <= 0}()
+                                             /\ {count <= 0}()
+                                             /\ {count <= 0}()).
+{count <= 0}() --( <15 : arg=param0> : i )-> ({count <= 0}()
+                                                /\ {count <= 0}()
+                                                /\ {count <= 0}()
+                                                /\ {count <= 0}()
+                                                /\ {count <= 0}()
+                                                /\ {count <= 0}()
+                                                /\ {count <= 0}()
+                                                /\ {count <= 0}()).
+{count <= 0}() --( <13 : return=__retres2> : i )-> ({count <= 0}()
+                                                      /\ {count <= 0}()
+                                                      /\ {count <= 0}()
+                                                      /\ {count <= 0}()).
+{count <= 0}() --( <12 : __retres2=(*void)0> : i )-> ({count <= 0}()
+                                                        /\ {count <= 0}()
+                                                        /\ {count <= 0}()
+                                                        /\ {count <= 0}()).
+{count <= 0}() --( <11 : count=(count+1)> : i )-> true.
+{count <= 0}() --( <27 : fork(&thread)> : i )-> ({count <= 0}()
+                                                   /\ {count <= 0}()
+                                                   /\ {count <= 0}()
+                                                   /\ {count <= 0}()).
+{count <= 0}() --( <25 : param0=(*void)(*void)0> : i )-> ({count <= 0}()
+                                                            /\ {count <= 0}()
+                                                            /\ {count <= 0}()
+                                                            /\ {count <= 0}()).
+{count <= 0}() --( <24 : fork(&thread)> : i )-> ({count <= 0}()
+                                                   /\ {count <= 0}()
+                                                   /\ {count <= 0}()
+                                                   /\ {count <= 0}()).
+{count <= 0}() --( <22 : param0=(*void)(*void)0> : i )-> ({count <= 0}()
+                                                            /\ {count <= 0}()
+                                                            /\ {count <= 0}()
+                                                            /\ {count <= 0}()).
+{count <= 0}() --( <21 : fork(&thread)> : i )-> ({count <= 0}()
+                                                   /\ {count <= 0}()
+                                                   /\ {count <= 0}()
+                                                   /\ {count <= 0}()
+                                                   /\ {count <= 0}()
+                                                   /\ {count <= 0}()
+                                                   /\ {count <= 0}()
+                                                   /\ {count <= 0}()).
+{count <= 0}() --( <19 : param0=(*void)(*void)0> : i )-> ({count <= 0}()
+                                                            /\ {count <= 0}()
+                                                            /\ {count <= 0}()
+                                                            /\ {count <= 0}()
+                                                            /\ {count <= 0}()
+                                                            /\ {count <= 0}()
+                                                            /\ {count <= 0}()
+                                                            /\ {count <= 0}()).
+{count <= 0}() --( <18 : fork(&thread)> : i )-> ({count <= 0}()
+                                                   /\ {count <= 0}()
+                                                   /\ {count <= 0}()
+                                                   /\ {count <= 0}()).
+{count <= 0}() --( <16 : param0=(*void)(*void)0> : i )-> ({count <= 0}()
+                                                            /\ {count <= 0}()
+                                                            /\ {count <= 0}()
+                                                            /\ {count <= 0}()
+                                                            /\ {count <= 0}()
+                                                            /\ {count <= 0}()
+                                                            /\ {count <= 0}()).
+{count <= 0}() --( <10 : assume(0<=0)> : i )-> ({count <= 0}()
+                                                  /\ {count <= 0}()
+                                                  /\ {count <= 0}()
+                                                  /\ {count <= 0}()).
+{count <= 0}() --( <9 : return=*> : i )-> ({count <= 0}() /\ {count <= 0}()
+                                             /\ {count <= 0}()
+                                             /\ {count <= 0}()).
+{count <= 0}() --( <32 : assume(4<count)> : i )-> ({count <= 0}()
+                                                     /\ {count <= 0}()
+                                                     /\ {count <= 0}()
+                                                     /\ {count <= 0}()).
+{count <= 0}() --( <7 : assert(count<=4) : count <= 4> : i )-> ({count <= 0}(
+                                                                )
+                                                                  /\ 
+                                                                  {count <= 0}(
+                                                                  )
+                                                                  /\ 
+                                                                  {count <= 0}(
+                                                                  )
+                                                                  /\ 
+                                                                  {count <= 0}(
+                                                                  )).
+{count <= 0}() --( <2 : count=0> : i )-> false.
+
+{@[#1] = 31}(i) --( <33 : initial> : j )-> false.
+{@[#1] = 31}(i) --( <15 : arg=param0> : j )-> (j = i /\ {@[#1] = 31}(i)).
+{@[#1] = 31}(i) --( <13 : return=__retres2> : j )-> (j = i /\ {@[#1] = 31}(i)).
+{@[#1] = 31}(i) --( <12 : __retres2=(*void)0> : j )-> (j = i
+                                                         /\ {@[#1] = 31}(i)).
+{@[#1] = 31}(i) --( <11 : count=(count+1)> : j )-> (j = i /\ {@[#1] = 31}(i)).
+{@[#1] = 31}(i) --( <27 : fork(&thread)> : j )-> (j = i /\ {@[#1] = 31}(i)).
+{@[#1] = 31}(i) --( <25 : param0=(*void)(*void)0> : j )-> (j = i
+                                                             /\ {@[#1] = 31}(
+                                                                i)).
+{@[#1] = 31}(i) --( <24 : fork(&thread)> : j )-> (j = i /\ {@[#1] = 31}(i)).
+{@[#1] = 31}(i) --( <22 : param0=(*void)(*void)0> : j )-> (j = i
+                                                             /\ {@[#1] = 31}(
+                                                                i)).
+{@[#1] = 31}(i) --( <21 : fork(&thread)> : j )-> (j = i /\ {@[#1] = 31}(i)).
+{@[#1] = 31}(i) --( <19 : param0=(*void)(*void)0> : j )-> (j = i
+                                                             /\ {@[#1] = 31}(
+                                                                i)).
+{@[#1] = 31}(i) --( <18 : fork(&thread)> : j )-> (j = i /\ {@[#1] = 31}(i)).
+{@[#1] = 31}(i) --( <16 : param0=(*void)(*void)0> : j )-> (j = i
+                                                             /\ {@[#1] = 31}(
+                                                                i)).
+{@[#1] = 31}(i) --( <10 : assume(0<=0)> : j )-> (j = i /\ {@[#1] = 31}(i)).
+{@[#1] = 31}(i) --( <9 : return=*> : j )-> (j = i /\ {@[#1] = 31}(i)).
+{@[#1] = 31}(i) --( <32 : assume(4<count)> : j )-> false.
+{@[#1] = 31}(i) --( <7 : assert(count<=4) : count <= 4> : j )-> (j = i
+                                                                   /\ 
+                                                                   {@[#1] = 31}(
+                                                                   i)).
+{@[#1] = 31}(i) --( <2 : count=0> : j )-> (j = i /\ {@[#1] = 31}(i)).
+
+{@[#1] = 15}(i) --( <33 : initial> : j )-> ((j = i /\ {@[#1] = 33}(j))
+                                              \/ ({@[#1] = 15}(i) /\ j != i)).
+{@[#1] = 15}(i) --( <15 : arg=param0> : j )-> ({@[#1] = 15}(i) /\ j != i).
+{@[#1] = 15}(i) --( <13 : return=__retres2> : j )-> ({@[#1] = 15}(i)
+                                                       /\ j != i).
+{@[#1] = 15}(i) --( <12 : __retres2=(*void)0> : j )-> ({@[#1] = 15}(i)
+                                                         /\ j != i).
+{@[#1] = 15}(i) --( <11 : count=(count+1)> : j )-> ({@[#1] = 15}(i) /\ j != i).
+{@[#1] = 15}(i) --( <27 : fork(&thread)> : j )-> ({@[#1] = 15}(i) /\ j != i).
+{@[#1] = 15}(i) --( <25 : param0=(*void)(*void)0> : j )-> ({@[#1] = 15}(i)
+                                                             /\ j != i).
+{@[#1] = 15}(i) --( <24 : fork(&thread)> : j )-> ({@[#1] = 15}(i) /\ j != i).
+{@[#1] = 15}(i) --( <22 : param0=(*void)(*void)0> : j )-> ({@[#1] = 15}(i)
+                                                             /\ j != i).
+{@[#1] = 15}(i) --( <21 : fork(&thread)> : j )-> ({@[#1] = 15}(i) /\ j != i).
+{@[#1] = 15}(i) --( <19 : param0=(*void)(*void)0> : j )-> ({@[#1] = 15}(i)
+                                                             /\ j != i).
+{@[#1] = 15}(i) --( <18 : fork(&thread)> : j )-> ({@[#1] = 15}(i) /\ j != i).
+{@[#1] = 15}(i) --( <16 : param0=(*void)(*void)0> : j )-> ({@[#1] = 15}(i)
+                                                             /\ j != i).
+{@[#1] = 15}(i) --( <10 : assume(0<=0)> : j )-> ({@[#1] = 15}(i) /\ j != i).
+{@[#1] = 15}(i) --( <9 : return=*> : j )-> ({@[#1] = 15}(i) /\ j != i).
+{@[#1] = 15}(i) --( <32 : assume(4<count)> : j )-> false.
+{@[#1] = 15}(i) --( <7 : assert(count<=4) : count <= 4> : j )-> ({@[#1] = 15}(
+                                                                 i) /\ 
+                                                                   j != i).
+{@[#1] = 15}(i) --( <2 : count=0> : j )-> ({@[#1] = 15}(i) /\ j != i).
+
+{count <= 3}() --( <33 : initial> : i )-> ({count <= 3}() /\ {count <= 3}()
+                                             /\ {count <= 3}()).
+{count <= 3}() --( <15 : arg=param0> : i )-> ({count <= 3}()
+                                                /\ {count <= 3}()
+                                                /\ {count <= 3}()).
+{count <= 3}() --( <13 : return=__retres2> : i )-> ({count <= 3}()
+                                                      /\ {count <= 3}()).
+{count <= 3}() --( <12 : __retres2=(*void)0> : i )-> ({count <= 3}()
+                                                        /\ {count <= 3}()).
+{count <= 3}() --( <11 : count=(count+1)> : i )-> ({count <= 2}()
+                                                     /\ {count <= 2}()).
+{count <= 3}() --( <27 : fork(&thread)> : i )-> ({count <= 3}()
+                                                   /\ {count <= 3}()).
+{count <= 3}() --( <25 : param0=(*void)(*void)0> : i )-> ({count <= 3}()
+                                                            /\ {count <= 3}()).
+{count <= 3}() --( <24 : fork(&thread)> : i )-> ({count <= 3}()
+                                                   /\ {count <= 3}()
+                                                   /\ {count <= 3}()
+                                                   /\ {count <= 3}()).
+{count <= 3}() --( <22 : param0=(*void)(*void)0> : i )-> ({count <= 3}()
+                                                            /\ {count <= 3}()
+                                                            /\ {count <= 3}()).
+{count <= 3}() --( <21 : fork(&thread)> : i )-> ({count <= 3}()
+                                                   /\ {count <= 3}()).
+{count <= 3}() --( <19 : param0=(*void)(*void)0> : i )-> ({count <= 3}()
+                                                            /\ {count <= 3}()).
+{count <= 3}() --( <18 : fork(&thread)> : i )-> ({count <= 3}()
+                                                   /\ {count <= 3}()).
+{count <= 3}() --( <16 : param0=(*void)(*void)0> : i )-> ({count <= 3}()
+                                                            /\ {count <= 3}()).
+{count <= 3}() --( <10 : assume(0<=0)> : i )-> ({count <= 3}()
+                                                  /\ {count <= 3}()).
+{count <= 3}() --( <9 : return=*> : i )-> ({count <= 3}() /\ {count <= 3}()).
+{count <= 3}() --( <32 : assume(4<count)> : i )-> ({count <= 3}()
+                                                     /\ {count <= 3}()).
+{count <= 3}() --( <7 : assert(count<=4) : count <= 4> : i )-> ({count <= 3}(
+                                                                )
+                                                                  /\ 
+                                                                  {count <= 3}(
+                                                                  )).
+{count <= 3}() --( <2 : count=0> : i )-> true.
+
+{@[#1] = 24}(i) --( <33 : initial> : j )-> ({@[#1] = 24}(i) /\ j != i).
+{@[#1] = 24}(i) --( <15 : arg=param0> : j )-> ({@[#1] = 24}(i) /\ j != i).
+{@[#1] = 24}(i) --( <13 : return=__retres2> : j )-> ({@[#1] = 24}(i)
+                                                       /\ j != i).
+{@[#1] = 24}(i) --( <12 : __retres2=(*void)0> : j )-> ({@[#1] = 24}(i)
+                                                         /\ j != i).
+{@[#1] = 24}(i) --( <11 : count=(count+1)> : j )-> ({@[#1] = 24}(i) /\ j != i).
+{@[#1] = 24}(i) --( <27 : fork(&thread)> : j )-> false.
+{@[#1] = 24}(i) --( <25 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 24}(i) --( <24 : fork(&thread)> : j )-> false.
+{@[#1] = 24}(i) --( <22 : param0=(*void)(*void)0> : j )-> j = i.
+{@[#1] = 24}(i) --( <21 : fork(&thread)> : j )-> false.
+{@[#1] = 24}(i) --( <19 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 24}(i) --( <18 : fork(&thread)> : j )-> false.
+{@[#1] = 24}(i) --( <16 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 24}(i) --( <10 : assume(0<=0)> : j )-> false.
+{@[#1] = 24}(i) --( <9 : return=*> : j )-> false.
+{@[#1] = 24}(i) --( <32 : assume(4<count)> : j )-> false.
+{@[#1] = 24}(i) --( <7 : assert(count<=4) : count <= 4> : j )-> false.
+{@[#1] = 24}(i) --( <2 : count=0> : j )-> false.
+
+{@[#1] = 19}(i) --( <33 : initial> : j )-> ({@[#1] = 19}(i) /\ j != i).
+{@[#1] = 19}(i) --( <15 : arg=param0> : j )-> ({@[#1] = 19}(i) /\ j != i).
+{@[#1] = 19}(i) --( <13 : return=__retres2> : j )-> ({@[#1] = 19}(i)
+                                                       /\ j != i).
+{@[#1] = 19}(i) --( <12 : __retres2=(*void)0> : j )-> ({@[#1] = 19}(i)
+                                                         /\ j != i).
+{@[#1] = 19}(i) --( <11 : count=(count+1)> : j )-> ({@[#1] = 19}(i) /\ j != i).
+{@[#1] = 19}(i) --( <27 : fork(&thread)> : j )-> false.
+{@[#1] = 19}(i) --( <25 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 19}(i) --( <24 : fork(&thread)> : j )-> false.
+{@[#1] = 19}(i) --( <22 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 19}(i) --( <21 : fork(&thread)> : j )-> false.
+{@[#1] = 19}(i) --( <19 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 19}(i) --( <18 : fork(&thread)> : j )-> false.
+{@[#1] = 19}(i) --( <16 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 19}(i) --( <10 : assume(0<=0)> : j )-> false.
+{@[#1] = 19}(i) --( <9 : return=*> : j )-> false.
+{@[#1] = 19}(i) --( <32 : assume(4<count)> : j )-> false.
+{@[#1] = 19}(i) --( <7 : assert(count<=4) : count <= 4> : j )-> false.
+{@[#1] = 19}(i) --( <2 : count=0> : j )-> j = i.
+
+{count <= 4}() --( <33 : initial> : i )-> ({count <= 4}() /\ {count <= 4}()).
+{count <= 4}() --( <15 : arg=param0> : i )-> ({count <= 4}()
+                                                /\ {count <= 4}()).
+{count <= 4}() --( <13 : return=__retres2> : i )-> ({count <= 4}()
+                                                      /\ {count <= 4}()).
+{count <= 4}() --( <12 : __retres2=(*void)0> : i )-> ({count <= 4}()
+                                                        /\ {count <= 4}()).
+{count <= 4}() --( <11 : count=(count+1)> : i )-> {count <= 3}().
+{count <= 4}() --( <27 : fork(&thread)> : i )-> ({count <= 4}()
+                                                   /\ {count <= 4}()
+                                                   /\ {count <= 4}()).
+{count <= 4}() --( <25 : param0=(*void)(*void)0> : i )-> ({count <= 4}()
+                                                            /\ {count <= 4}()
+                                                            /\ {count <= 4}()).
+{count <= 4}() --( <24 : fork(&thread)> : i )-> ({count <= 4}()
+                                                   /\ {count <= 4}()
+                                                   /\ {count <= 4}()).
+{count <= 4}() --( <22 : param0=(*void)(*void)0> : i )-> ({count <= 4}()
+                                                            /\ {count <= 4}()
+                                                            /\ {count <= 4}()).
+{count <= 4}() --( <21 : fork(&thread)> : i )-> ({count <= 4}()
+                                                   /\ {count <= 4}()
+                                                   /\ {count <= 4}()).
+{count <= 4}() --( <19 : param0=(*void)(*void)0> : i )-> ({count <= 4}()
+                                                            /\ {count <= 4}()
+                                                            /\ {count <= 4}()).
+{count <= 4}() --( <18 : fork(&thread)> : i )-> ({count <= 4}()
+                                                   /\ {count <= 4}()
+                                                   /\ {count <= 4}()).
+{count <= 4}() --( <16 : param0=(*void)(*void)0> : i )-> ({count <= 4}()
+                                                            /\ {count <= 4}()
+                                                            /\ {count <= 4}()).
+{count <= 4}() --( <10 : assume(0<=0)> : i )-> ({count <= 4}()
+                                                  /\ {count <= 4}()).
+{count <= 4}() --( <9 : return=*> : i )-> ({count <= 4}() /\ {count <= 4}()).
+{count <= 4}() --( <32 : assume(4<count)> : i )-> ({count <= 4}()
+                                                     /\ {count <= 4}()).
+{count <= 4}() --( <7 : assert(count<=4) : count <= 4> : i )-> ({count <= 4}(
+                                                                )
+                                                                  /\ 
+                                                                  {count <= 4}(
+                                                                  )).
+{count <= 4}() --( <2 : count=0> : i )-> false.
+
+{@[#1] = 11}(i) --( <33 : initial> : j )-> ({@[#1] = 11}(i) /\ j != i).
+{@[#1] = 11}(i) --( <15 : arg=param0> : j )-> (j = i
+                                                 \/ ({@[#1] = 11}(i)
+                                                       /\ j != i)).
+{@[#1] = 11}(i) --( <13 : return=__retres2> : j )-> ({@[#1] = 11}(i)
+                                                       /\ j != i).
+{@[#1] = 11}(i) --( <12 : __retres2=(*void)0> : j )-> ({@[#1] = 11}(i)
+                                                         /\ j != i).
+{@[#1] = 11}(i) --( <11 : count=(count+1)> : j )-> ({@[#1] = 11}(i) /\ j != i).
+{@[#1] = 11}(i) --( <27 : fork(&thread)> : j )-> ({@[#1] = 11}(i) /\ j != i).
+{@[#1] = 11}(i) --( <25 : param0=(*void)(*void)0> : j )-> ({@[#1] = 11}(i)
+                                                             /\ j != i).
+{@[#1] = 11}(i) --( <24 : fork(&thread)> : j )-> ({@[#1] = 11}(i) /\ j != i).
+{@[#1] = 11}(i) --( <22 : param0=(*void)(*void)0> : j )-> ({@[#1] = 11}(i)
+                                                             /\ j != i).
+{@[#1] = 11}(i) --( <21 : fork(&thread)> : j )-> ({@[#1] = 11}(i) /\ j != i).
+{@[#1] = 11}(i) --( <19 : param0=(*void)(*void)0> : j )-> ({@[#1] = 11}(i)
+                                                             /\ j != i).
+{@[#1] = 11}(i) --( <18 : fork(&thread)> : j )-> ({@[#1] = 11}(i) /\ j != i).
+{@[#1] = 11}(i) --( <16 : param0=(*void)(*void)0> : j )-> ({@[#1] = 11}(i)
+                                                             /\ j != i).
+{@[#1] = 11}(i) --( <10 : assume(0<=0)> : j )-> ({@[#1] = 11}(i) /\ j != i).
+{@[#1] = 11}(i) --( <9 : return=*> : j )-> ({@[#1] = 11}(i) /\ j != i).
+{@[#1] = 11}(i) --( <32 : assume(4<count)> : j )-> false.
+{@[#1] = 11}(i) --( <7 : assert(count<=4) : count <= 4> : j )-> ({@[#1] = 11}(
+                                                                 i) /\ 
+                                                                   j != i).
+{@[#1] = 11}(i) --( <2 : count=0> : j )-> ({@[#1] = 11}(i) /\ j != i).
+
+{@[#1] = 21}(i) --( <33 : initial> : j )-> ({@[#1] = 21}(i) /\ j != i).
+{@[#1] = 21}(i) --( <15 : arg=param0> : j )-> ({@[#1] = 21}(i) /\ j != i).
+{@[#1] = 21}(i) --( <13 : return=__retres2> : j )-> ({@[#1] = 21}(i)
+                                                       /\ j != i).
+{@[#1] = 21}(i) --( <12 : __retres2=(*void)0> : j )-> ({@[#1] = 21}(i)
+                                                         /\ j != i).
+{@[#1] = 21}(i) --( <11 : count=(count+1)> : j )-> ({@[#1] = 21}(i) /\ j != i).
+{@[#1] = 21}(i) --( <27 : fork(&thread)> : j )-> false.
+{@[#1] = 21}(i) --( <25 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 21}(i) --( <24 : fork(&thread)> : j )-> false.
+{@[#1] = 21}(i) --( <22 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 21}(i) --( <21 : fork(&thread)> : j )-> false.
+{@[#1] = 21}(i) --( <19 : param0=(*void)(*void)0> : j )-> j = i.
+{@[#1] = 21}(i) --( <18 : fork(&thread)> : j )-> false.
+{@[#1] = 21}(i) --( <16 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 21}(i) --( <10 : assume(0<=0)> : j )-> false.
+{@[#1] = 21}(i) --( <9 : return=*> : j )-> false.
+{@[#1] = 21}(i) --( <32 : assume(4<count)> : j )-> false.
+{@[#1] = 21}(i) --( <7 : assert(count<=4) : count <= 4> : j )-> false.
+{@[#1] = 21}(i) --( <2 : count=0> : j )-> false.
+
+{count <= 2}() --( <33 : initial> : i )-> ({count <= 2}() /\ {count <= 2}()
+                                             /\ {count <= 2}()
+                                             /\ {count <= 2}()
+                                             /\ {count <= 2}()).
+{count <= 2}() --( <15 : arg=param0> : i )-> ({count <= 2}()
+                                                /\ {count <= 2}()
+                                                /\ {count <= 2}()
+                                                /\ {count <= 2}()
+                                                /\ {count <= 2}()).
+{count <= 2}() --( <13 : return=__retres2> : i )-> ({count <= 2}()
+                                                      /\ {count <= 2}()
+                                                      /\ {count <= 2}()).
+{count <= 2}() --( <12 : __retres2=(*void)0> : i )-> ({count <= 2}()
+                                                        /\ {count <= 2}()
+                                                        /\ {count <= 2}()).
+{count <= 2}() --( <11 : count=(count+1)> : i )-> ({count <= 1}()
+                                                     /\ {count <= 1}()
+                                                     /\ {count <= 1}()).
+{count <= 2}() --( <27 : fork(&thread)> : i )-> ({count <= 2}()
+                                                   /\ {count <= 2}()
+                                                   /\ {count <= 2}()
+                                                   /\ {count <= 2}()
+                                                   /\ {count <= 2}()
+                                                   /\ {count <= 2}()).
+{count <= 2}() --( <25 : param0=(*void)(*void)0> : i )-> ({count <= 2}()
+                                                            /\ {count <= 2}()
+                                                            /\ {count <= 2}()
+                                                            /\ {count <= 2}()).
+{count <= 2}() --( <24 : fork(&thread)> : i )-> ({count <= 2}()
+                                                   /\ {count <= 2}()
+                                                   /\ {count <= 2}()
+                                                   /\ {count <= 2}()).
+{count <= 2}() --( <22 : param0=(*void)(*void)0> : i )-> ({count <= 2}()
+                                                            /\ {count <= 2}()
+                                                            /\ {count <= 2}()
+                                                            /\ {count <= 2}()
+                                                            /\ {count <= 2}()).
+{count <= 2}() --( <21 : fork(&thread)> : i )-> ({count <= 2}()
+                                                   /\ {count <= 2}()
+                                                   /\ {count <= 2}()).
+{count <= 2}() --( <19 : param0=(*void)(*void)0> : i )-> ({count <= 2}()
+                                                            /\ {count <= 2}()
+                                                            /\ {count <= 2}()).
+{count <= 2}() --( <18 : fork(&thread)> : i )-> ({count <= 2}()
+                                                   /\ {count <= 2}()
+                                                   /\ {count <= 2}()).
+{count <= 2}() --( <16 : param0=(*void)(*void)0> : i )-> ({count <= 2}()
+                                                            /\ {count <= 2}()
+                                                            /\ {count <= 2}()).
+{count <= 2}() --( <10 : assume(0<=0)> : i )-> ({count <= 2}()
+                                                  /\ {count <= 2}()
+                                                  /\ {count <= 2}()).
+{count <= 2}() --( <9 : return=*> : i )-> ({count <= 2}() /\ {count <= 2}()
+                                             /\ {count <= 2}()).
+{count <= 2}() --( <32 : assume(4<count)> : i )-> ({count <= 2}()
+                                                     /\ {count <= 2}()
+                                                     /\ {count <= 2}()).
+{count <= 2}() --( <7 : assert(count<=4) : count <= 4> : i )-> ({count <= 2}(
+                                                                )
+                                                                  /\ 
+                                                                  {count <= 2}(
+                                                                  )
+                                                                  /\ 
+                                                                  {count <= 2}(
+                                                                  )).
+{count <= 2}() --( <2 : count=0> : i )-> true.
+
+{@[#1] = 22}(i) --( <33 : initial> : j )-> ({@[#1] = 22}(i) /\ j != i).
+{@[#1] = 22}(i) --( <15 : arg=param0> : j )-> ({@[#1] = 22}(i) /\ j != i).
+{@[#1] = 22}(i) --( <13 : return=__retres2> : j )-> ({@[#1] = 22}(i)
+                                                       /\ j != i).
+{@[#1] = 22}(i) --( <12 : __retres2=(*void)0> : j )-> ({@[#1] = 22}(i)
+                                                         /\ j != i).
+{@[#1] = 22}(i) --( <11 : count=(count+1)> : j )-> ({@[#1] = 22}(i) /\ j != i).
+{@[#1] = 22}(i) --( <27 : fork(&thread)> : j )-> j = i.
+{@[#1] = 22}(i) --( <25 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 22}(i) --( <24 : fork(&thread)> : j )-> false.
+{@[#1] = 22}(i) --( <22 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 22}(i) --( <21 : fork(&thread)> : j )-> false.
+{@[#1] = 22}(i) --( <19 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 22}(i) --( <18 : fork(&thread)> : j )-> false.
+{@[#1] = 22}(i) --( <16 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 22}(i) --( <10 : assume(0<=0)> : j )-> false.
+{@[#1] = 22}(i) --( <9 : return=*> : j )-> false.
+{@[#1] = 22}(i) --( <32 : assume(4<count)> : j )-> false.
+{@[#1] = 22}(i) --( <7 : assert(count<=4) : count <= 4> : j )-> false.
+{@[#1] = 22}(i) --( <2 : count=0> : j )-> false.
+
+{@[#1] = 9}(i) --( <33 : initial> : j )-> ({@[#1] = 9}(i) /\ j != i).
+{@[#1] = 9}(i) --( <15 : arg=param0> : j )-> ({@[#1] = 9}(i) /\ j != i).
+{@[#1] = 9}(i) --( <13 : return=__retres2> : j )-> ({@[#1] = 9}(i) /\ j != i).
+{@[#1] = 9}(i) --( <12 : __retres2=(*void)0> : j )-> ({@[#1] = 9}(i)
+                                                        /\ j != i).
+{@[#1] = 9}(i) --( <11 : count=(count+1)> : j )-> ({@[#1] = 9}(i) /\ j != i).
+{@[#1] = 9}(i) --( <27 : fork(&thread)> : j )-> false.
+{@[#1] = 9}(i) --( <25 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 9}(i) --( <24 : fork(&thread)> : j )-> false.
+{@[#1] = 9}(i) --( <22 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 9}(i) --( <21 : fork(&thread)> : j )-> false.
+{@[#1] = 9}(i) --( <19 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 9}(i) --( <18 : fork(&thread)> : j )-> false.
+{@[#1] = 9}(i) --( <16 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 9}(i) --( <10 : assume(0<=0)> : j )-> false.
+{@[#1] = 9}(i) --( <9 : return=*> : j )-> false.
+{@[#1] = 9}(i) --( <32 : assume(4<count)> : j )-> false.
+{@[#1] = 9}(i) --( <7 : assert(count<=4) : count <= 4> : j )-> j = i.
+{@[#1] = 9}(i) --( <2 : count=0> : j )-> false.
+
+{@[#1] = 10}(i) --( <33 : initial> : j )-> ({@[#1] = 10}(i) /\ j != i).
+{@[#1] = 10}(i) --( <15 : arg=param0> : j )-> ({@[#1] = 10}(i) /\ j != i).
+{@[#1] = 10}(i) --( <13 : return=__retres2> : j )-> ({@[#1] = 10}(i)
+                                                       /\ j != i).
+{@[#1] = 10}(i) --( <12 : __retres2=(*void)0> : j )-> ({@[#1] = 10}(i)
+                                                         /\ j != i).
+{@[#1] = 10}(i) --( <11 : count=(count+1)> : j )-> ({@[#1] = 10}(i) /\ j != i).
+{@[#1] = 10}(i) --( <27 : fork(&thread)> : j )-> false.
+{@[#1] = 10}(i) --( <25 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 10}(i) --( <24 : fork(&thread)> : j )-> false.
+{@[#1] = 10}(i) --( <22 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 10}(i) --( <21 : fork(&thread)> : j )-> false.
+{@[#1] = 10}(i) --( <19 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 10}(i) --( <18 : fork(&thread)> : j )-> false.
+{@[#1] = 10}(i) --( <16 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 10}(i) --( <10 : assume(0<=0)> : j )-> false.
+{@[#1] = 10}(i) --( <9 : return=*> : j )-> false.
+{@[#1] = 10}(i) --( <32 : assume(4<count)> : j )-> false.
+{@[#1] = 10}(i) --( <7 : assert(count<=4) : count <= 4> : j )-> false.
+{@[#1] = 10}(i) --( <2 : count=0> : j )-> false.
+
+{true}() --( <33 : initial> : i )-> {true}().
+{true}() --( <15 : arg=param0> : i )-> ({true}() /\ {@[#1] = 15}(i)).
+{true}() --( <13 : return=__retres2> : i )-> ({true}() /\ {@[#1] = 13}(i)).
+{true}() --( <12 : __retres2=(*void)0> : i )-> ({true}() /\ {@[#1] = 12}(i)).
+{true}() --( <11 : count=(count+1)> : i )-> ({true}() /\ {@[#1] = 11}(i)).
+{true}() --( <27 : fork(&thread)> : i )-> ({true}() /\ {@[#1] = 27}(i)).
+{true}() --( <25 : param0=(*void)(*void)0> : i )-> ({true}()
+                                                      /\ {@[#1] = 25}(i)).
+{true}() --( <24 : fork(&thread)> : i )-> ({true}() /\ {@[#1] = 24}(i)).
+{true}() --( <22 : param0=(*void)(*void)0> : i )-> ({true}()
+                                                      /\ {@[#1] = 22}(i)).
+{true}() --( <21 : fork(&thread)> : i )-> ({true}() /\ {@[#1] = 21}(i)).
+{true}() --( <19 : param0=(*void)(*void)0> : i )-> ({true}()
+                                                      /\ {@[#1] = 19}(i)).
+{true}() --( <18 : fork(&thread)> : i )-> ({true}() /\ {@[#1] = 18}(i)).
+{true}() --( <16 : param0=(*void)(*void)0> : i )-> ({true}()
+                                                      /\ {@[#1] = 16}(i)).
+{true}() --( <10 : assume(0<=0)> : i )-> ({true}() /\ {@[#1] = 10}(i)).
+{true}() --( <9 : return=*> : i )-> ({true}() /\ {@[#1] = 9}(i)).
+{true}() --( <32 : assume(4<count)> : i )-> ({true}() /\ {@[#1] = 7}(i)).
+{true}() --( <7 : assert(count<=4) : count <= 4> : i )-> ({true}()
+                                                            /\ {@[#1] = 7}(i)).
+{true}() --( <2 : count=0> : i )-> ({true}() /\ {@[#1] = 2}(i)).
+
+{@[#1] = 27}(i) --( <33 : initial> : j )-> ({@[#1] = 27}(i) /\ j != i).
+{@[#1] = 27}(i) --( <15 : arg=param0> : j )-> ({@[#1] = 27}(i) /\ j != i).
+{@[#1] = 27}(i) --( <13 : return=__retres2> : j )-> ({@[#1] = 27}(i)
+                                                       /\ j != i).
+{@[#1] = 27}(i) --( <12 : __retres2=(*void)0> : j )-> ({@[#1] = 27}(i)
+                                                         /\ j != i).
+{@[#1] = 27}(i) --( <11 : count=(count+1)> : j )-> ({@[#1] = 27}(i) /\ j != i).
+{@[#1] = 27}(i) --( <27 : fork(&thread)> : j )-> false.
+{@[#1] = 27}(i) --( <25 : param0=(*void)(*void)0> : j )-> j = i.
+{@[#1] = 27}(i) --( <24 : fork(&thread)> : j )-> false.
+{@[#1] = 27}(i) --( <22 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 27}(i) --( <21 : fork(&thread)> : j )-> false.
+{@[#1] = 27}(i) --( <19 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 27}(i) --( <18 : fork(&thread)> : j )-> false.
+{@[#1] = 27}(i) --( <16 : param0=(*void)(*void)0> : j )-> false.
+{@[#1] = 27}(i) --( <10 : assume(0<=0)> : j )-> false.
+{@[#1] = 27}(i) --( <9 : return=*> : j )-> false.
+{@[#1] = 27}(i) --( <32 : assume(4<count)> : j )-> false.
+{@[#1] = 27}(i) --( <7 : assert(count<=4) : count <= 4> : j )-> false.
+{@[#1] = 27}(i) --( <2 : count=0> : j )-> false.

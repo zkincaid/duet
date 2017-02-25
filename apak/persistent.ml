@@ -292,15 +292,15 @@ module DisjointSet = struct
         try IntMap.find (find ds elt) map
         with Not_found -> elt
 
-    include Putil.MakeFmt(struct
-        type a = t
-        let format formatter ds =
-          let pp = M.Show_t.format_list formatter in
-          let lst = to_list ds in
-          Format.pp_open_box formatter 0;
-          List.iter pp lst;
-          Format.pp_close_box formatter ();
-      end)
+    let pp formatter ds =
+      let pp_elt elt =
+        Format.pp_print_string formatter ([%derive.show : M.t list] elt)
+      in
+      Format.pp_open_box formatter 0;
+      List.iter pp_elt (to_list ds);
+      Format.pp_close_box formatter ()
+
+    let show = Putil.mk_show pp
 
     let iter f ds = Map.iter (fun s _ -> f s) ds.map
     let fold f ds x = Map.fold (fun s _ -> f s) ds.map x

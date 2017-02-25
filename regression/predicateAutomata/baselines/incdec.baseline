@@ -1,0 +1,4 @@
+Invariant is inductive w.r.t. $
+Invariant is inductive w.r.t. [x>0]
+Invariant is inductive w.r.t. x++
+Invariant is inductive w.r.t. x--

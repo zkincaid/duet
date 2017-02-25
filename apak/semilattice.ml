@@ -19,11 +19,7 @@ module FunctionSpace = struct
     struct
       type dom = M.key
       type cod = Codomain.t
-      type t = cod M.t
-      include Putil.MakeFmt(struct
-          type a = t
-          let format formatter map = M.format Codomain.format formatter map
-        end)
+      type t = Codomain.t M.t [@@deriving show]
 
       let equal = M.equal Codomain.equal
       let bottom = M.empty
@@ -122,17 +118,12 @@ module Bounded = struct
     | Bottom
     | Value of 'a
 
-  let format_bounded pp formatter = function
+  let pp_bounded pp formatter = function
     | Bottom -> Format.pp_print_string formatter "_|_"
     | Value x -> pp formatter x
 
   module Lift(S : Sig.Semilattice.S) = struct
-    type t = S.t bounded
-
-    include Putil.MakeFmt(struct
-        type a = t
-        let format = format_bounded S.format
-      end)
+    type t = S.t bounded [@@deriving show]
 
     let join d e = match (d, e) with
       | (Bottom, x) | (x, Bottom) -> x
@@ -144,19 +135,14 @@ module Bounded = struct
     let bottom = Bottom
   end
   module Monoid (S : Sig.Semilattice.Bounded.S) = struct
-    type t = S.t deriving (Show)
-    let format = Show_t.format
-    let show = Show_t.show
+    type t = S.t [@@deriving show]
     let equal = S.equal
     let mul = S.join
     let unit = S.bottom
   end
   module Ordered = struct
     module Monoid(S : Sig.Semilattice.Bounded.Ordered.S) = struct
-      type t = S.t deriving (Show,Compare)
-      let format = Show_t.format
-      let show = Show_t.show
-      let compare = Compare_t.compare
+      type t = S.t [@@deriving show,ord]
       let equal = S.equal
       let mul = S.join
       let unit = S.bottom

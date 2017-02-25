@@ -352,9 +352,10 @@ module Wto (G : G) = struct
     (from_sccg sccg, SCCG.is_header sccg)
 end
 
-let rec format_wto pp formatter wto =
+let rec pp_wto pp_elt formatter wto =
   let rec pp_item formatter = function
-    | WSimple x -> Format.fprintf formatter "%a@;" pp x
-    | WLoop xs  -> Putil.format_list pp_item formatter xs
+    | WSimple x -> Format.fprintf formatter "%a@;" pp_elt x
+    | WLoop xs  ->
+      Format.fprintf formatter "[@[%a@]]" (Putil.pp_print_list pp_item) wto
   in
-  Putil.format_list pp_item formatter wto
+  Format.fprintf formatter "[@[%a@]]" (Putil.pp_print_list pp_item) wto

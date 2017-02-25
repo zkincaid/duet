@@ -18,14 +18,13 @@ module AddZero(M : sig
     val one : t
   end) = struct
   type t = Zero | Nonzero of M.t
-               deriving (Compare)
-  include Putil.MakeFmt(struct
-      type a = t
-      let format formatter = function
-        | Zero -> Format.pp_print_int formatter 0
-        | Nonzero x -> M.format formatter x
-    end)
-  let compare = Compare_t.compare
+               [@@deriving ord]
+
+  let pp formatter = function
+    | Zero -> Format.pp_print_int formatter 0
+    | Nonzero x -> M.pp formatter x
+  let show = Putil.mk_show pp
+
   let equal x y = match x,y with
     | (Nonzero x, Nonzero y) -> M.equal x y
     | (Zero, Zero) -> true
@@ -57,11 +56,7 @@ module ReducedDisjCompletion (M : sig
     val implies : t -> t -> bool
   end) = struct
   module S = Putil.Set.Make(M)
-  type t = S.t deriving (Show,Compare)
-
-  let format = Show_t.format
-  let show = Show_t.show
-  let compare = Compare_t.compare
+  type t = S.t [@@deriving show,ord]
 
   let equal x y = compare x y = 0
   let zero = S.empty
@@ -111,11 +106,7 @@ end
     ensure that star does not diverge.  *)
 module DisjCompletion (M : Sig.Monoid.Ordered.S) = struct
   module S = Putil.Set.Make(M)
-  type t = S.t deriving (Show,Compare)
-
-  let format = Show_t.format
-  let show = Show_t.show
-  let compare = S.compare
+  type t = S.t [@@deriving show,ord]
 
   let equal x y = compare x y = 0
   let zero = S.empty
@@ -144,9 +135,7 @@ end
 
 module AdditiveMonoid (K : S) : Sig.Monoid.S with type t = K.t =
 struct
-  type t = K.t deriving (Show)
-  let format = Show_t.format
-  let show = Show_t.show
+  type t = K.t [@@deriving show]
 
   let mul = K.add
   let equal = K.equal
@@ -155,9 +144,7 @@ end
 
 module MultiplicativeMonoid (K : S) : Sig.Monoid.S with type t = K.t =
 struct
-  type t = K.t deriving (Show)
-  let format = Show_t.format
-  let show = Show_t.show
+  type t = K.t [@@deriving show]
 
   let mul = K.mul
   let equal = K.equal
@@ -172,10 +159,7 @@ module FunctionSpace = struct
     module M = Putil.MonoMap.Make(Domain)(Codomain)
     type t = { map : M.t;
                default : Codomain.t }
-        deriving (Show)
-
-    let format = Show_t.format
-    let show = Show_t.show
+        [@@deriving show]
 
     let equal f g =
       Codomain.equal f.default g.default
@@ -230,10 +214,7 @@ struct
   module M = Putil.MonoMap.Ordered.Make(Domain)(Codomain)
   type t = { map : M.t;
              default : Codomain.t }
-      deriving (Show, Compare)
-  let format = Show_t.format
-  let show = Show_t.show
-  let compare = Compare_t.compare
+      [@@deriving show,ord]
 
   let equal f g =
     Codomain.equal f.default g.default
@@ -319,22 +300,16 @@ module MakePointedFS
 struct
   type path = { left : Codomain.t;
                 right : Codomain.t }
-      deriving (Show,Compare)
+      [@@deriving show,ord]
   module Path = struct
-    type t = path deriving (Show,Compare)
-    let format = Show_t.format
-    let show = Show_t.show
-    let compare = Compare_t.compare
+    type t = path [@@deriving show,ord]
   end
   module M = Putil.MonoMap.Ordered.Make(Domain)(Path)
   type t = { map : M.t;
              default : Codomain.t }
-      deriving (Show, Compare)
-  let format = Show_t.format
-  let show = Show_t.show
-  let compare = Compare_t.compare
+      [@@deriving show,ord]
 
-  let path_equal x y = Compare.compare<path> x y = 0
+  let path_equal x y = Path.compare x y = 0
 
   let path_add x y =
     { left = Codomain.add x.left y.left;
@@ -427,14 +402,12 @@ module Ordered = struct
 
   module AdditiveMonoid (K : Ordered.S) = struct
     include AdditiveMonoid(K)
-    module Compare_t = K.Compare_t
-    let compare = Compare_t.compare
+    let compare = K.compare
   end
 
   module MultiplicativeMonoid (K : Ordered.S) = struct
     include MultiplicativeMonoid(K)
     let compare = K.compare
-    module Compare_t = K.Compare_t
   end
 end
 
@@ -452,16 +425,13 @@ struct
     | PosInfinity
     | NegInfinity
     | Z of int
-          deriving (Compare)
+          [@@deriving ord]
+  let pp formatter = function
+    | PosInfinity -> Format.pp_print_string formatter "+infinity"
+    | NegInfinity -> Format.pp_print_string formatter "-infinity"
+    | Z x -> Format.pp_print_int formatter x
+  let show = Putil.mk_show pp
 
-  include Putil.MakeFmt(struct
-      type a = t
-      let format formatter = function
-        | PosInfinity -> Format.pp_print_string formatter "+infinity"
-        | NegInfinity -> Format.pp_print_string formatter "-infinity"
-        | Z x -> Format.pp_print_int formatter x
-    end)
-  let compare = Compare_t.compare
   let equal = (=)
 
   let star = function

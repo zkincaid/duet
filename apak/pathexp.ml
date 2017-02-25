@@ -32,7 +32,7 @@ end = struct
       for j = 0 to size - 1 do
         if not (K.equal m.(i).(j) K.zero) then begin
           Log.debug ((string_of_int i) ^ ":" ^ (string_of_int j));
-          Log.debug_pp K.format m.(i).(j);
+          Log.debug_pp K.pp m.(i).(j);
         end
       done
     done
@@ -189,11 +189,8 @@ end = struct
 
   module WGD = ExtGraph.Display.MakeSimple(WG)(struct
       type t = WG.V.t
-      include Putil.MakeFmt(struct
-          type a = t
-          let format formatter v =
-            Format.fprintf formatter "Vertex %d" (get_id v)
-        end)
+      let pp formatter v =
+        Format.fprintf formatter "Vertex %d" (get_id v)
     end)
   let fold_dom : (WG.V.t -> 'a -> 'a) -> WG.t -> 'a -> 'a
     = fun f g acc ->
@@ -205,7 +202,7 @@ end = struct
       let rec go acc v =
         match v.vtype with
         | Simple v ->
-          L.logf "Visit: %d" (get_id v);
+          L.logf ~level:`trace "Visit: %d" (get_id v);
           f v acc
         | Scc scc -> go_graph scc.entries (scc.backedges@scc.exits) scc.graph acc
       and go_graph initial exits graph acc =
@@ -299,15 +296,13 @@ end = struct
     WGVMemo.memo (fun _ -> incr id; !id)
   module ReGD = ExtGraph.Display.MakeSimple(Re.G)(struct
       type t = Re.G.V.t
-      include Putil.MakeFmt(struct
-          type a = t
-          let format formatter =
-            let open RecGraph in
-            function
-            | `Block k -> Format.fprintf formatter "Block %d" k
-            | `Atom k -> Format.fprintf formatter "Atom %d" (get_id k)
-        end)
+      let pp formatter =
+        let open RecGraph in
+        function
+        | `Block k -> Format.fprintf formatter "Block %d" k
+        | `Atom k -> Format.fprintf formatter "Atom %d" (get_id k)
     end)
+
   let fold_sese f wg acc =
     let open RecGraph in
     let rg = Re.construct wg dummy_start dummy_end in
@@ -315,7 +310,7 @@ end = struct
     let rec visit v acc =
       match v with
       | `Block block ->
-        L.logf "Enter block %d" block;
+        L.logf ~level:`trace "Enter block %d" block;
         let bentry = Re.block_entry rg block in
         let bexit = Re.block_exit rg block in
         let go v acc =
@@ -327,10 +322,10 @@ end = struct
           if Re.G.V.equal bentry bexit then visit bentry acc
           else visit bentry (visit bexit acc)
         in
-        L.logf "Exit block %d" block;
+        L.logf ~level:`trace "Exit block %d" block;
         res
       | `Atom atom ->
-        L.logf "Visit: %d" (get_id atom);
+        L.logf ~level:`trace "Visit: %d" (get_id atom);
         f atom acc
     in
     fold_body visit (Re.block_body rg 0) acc
@@ -675,7 +670,7 @@ struct
         ~level:`info
         ~attributes:[`Cyan]
         "Computing summary for block `%a`"
-        Block.format block;
+        Block.pp block;
       let body = R.block_body query.recgraph block in
       let src = R.block_entry query.recgraph block in
       let tgt = R.block_exit query.recgraph block in
@@ -698,8 +693,8 @@ struct
       (Some (update K.widen));
     let f k s =
       L.logf "  Summary for %a:@\n    @[%a@]"
-        Block.format k
-        K.format s
+        Block.pp k
+        K.pp s
     in
     L.logf "Summaries:";
     HT.iter f query.summaries
@@ -724,7 +719,7 @@ struct
 
     let p2c_summaries = HT.create 32 in
     let block_succ_weights (block, graph) =
-      L.logf "Compute paths to call vertices in `%a`" Block.format block;
+      L.logf "Compute paths to call vertices in `%a`" Block.pp block;
       let src = R.block_entry query.recgraph block in
       let path = Summarize.single_src_v graph weight src in
       let ht = HT.create 32 in
@@ -773,7 +768,7 @@ struct
         end
     in
     let f (block, body) =
-      L.logf "Intraprocedural paths in `%a`" Block.format block;
+      L.logf "Intraprocedural paths in `%a`" Block.pp block;
       let block_path = to_block block in
       let block_entry = R.block_entry query.recgraph block in
       let from_block =

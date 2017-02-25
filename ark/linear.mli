@@ -1,146 +1,11 @@
-(** Linear terms and various linear algebra operations. *)
+open Syntax
 
-open Apak
-open ArkPervasives
-open Hashcons
+(** Various operations for the vector space [int -> QQ] *)
 
-(** Variable (dimension) signature *)
-module type Var = sig
-  include Putil.Ordered
-end
-
-(** Hashed variable (dimension) signature *)
-module type HVar = Putil.Hashed.S
-
-(** Augment a variable type with a new dimension for constants.  Linear
-    expressions over Affine(V) are equivalent to affine expressions over V. *)
-module AffineVar (V : Var) : sig
-  include Var with type t = V.t affine
-  val to_smt : (V.t -> Smt.ast) -> t -> Smt.ast
-end
-
-module Expr : sig
-  module type S = sig
-    include Putil.S
-
-    type dim
-    type base
-    val scalar_mul : base -> t -> t
-    val add : t -> t -> t
-    val negate : t -> t
-    val equal : t -> t -> bool
-    val zero : t
-    val find : dim -> t -> base
-    val enum : t -> (dim * base) BatEnum.t
-    val add_term : dim -> base -> t -> t
-    val min_binding : t -> (dim * base)
-    val max_binding : t -> (dim * base)
-    val enum_ordered : t -> (dim * base) BatEnum.t
-    val var : dim -> t
-    val sub : t -> t -> t
-    val of_enum : (dim * base) BatEnum.t -> t
-    val pivot : dim -> t -> (base * t)
-    val to_smt : (dim -> Smt.ast) -> (base -> Smt.ast) -> t -> Smt.ast
-
-    (** Transpose a system of linear equations.  The length of [rows] should
-        match length of [equations], and the variables each equation
-        should be all belong to the list [columns].  The result is a
-        system of linear equations over the row variables. *)
-    val transpose : t list -> dim list -> dim list -> t list
-    val sum : t BatEnum.t -> t
-    val term : dim -> base -> t
-  end
-
-  (** Linear expressions implemented with standard maps *)
-  module Make (V : Var) (R : Ring.S) : S with type dim = V.t
-                                          and type base = R.t
-
-  (** Linear expressions implemented with Patricia trees.  This should support
-      faster addition than the [Make] functor. *)
-  module HMake (V : HVar) (R : Ring.S) : S with type dim = V.t hash_consed
-                                            and type base = R.t
-                                            and type t = (V.t, R.t) Hmap.t
-
-  module LiftMap
-      (V : Var)
-      (M : Putil.Map.S with type key = V.t)
-      (R : Ring.S)
-    : S with type dim = V.t
-         and type base = R.t
-         and type t = R.t M.t
-
-  (** Univariate polynomials with coefficients in R *)
-  module MakePolynomial (R : Ring.S) : sig
-    include S with type dim = int
-               and type base = R.t
-
-    (** Multiplicative unit *)
-    val one : t
-
-    (** Constant polynomial *)
-    val const : R.t -> t
-
-    (** Multiple a polynomial by a monomial *)
-    val mul_term : int -> R.t -> t -> t
-
-    (** Multiply two polynomials *)
-    val mul : t -> t -> t
-
-    (** Constant exponentiation of a polynomial *)
-    val exp : t -> int -> t
-
-    (** Functional composition of two polynomials *)
-    val compose : t -> t -> t
-
-    (** Given a polynomial [p] and a ring element [x], compute [p(x)]. *)
-    val eval : t -> R.t -> R.t
-
-    (** Highest degree of the terms of a polynomial *)
-    val order : t -> int
-  end
-
-  module Hashed : sig
-    module type S = sig
-      include S
-      val hash : t -> int
-      val equal : t -> t -> bool
-    end
-    module HMake (V : HVar) (R : Ring.Hashed.S) : S
-      with type dim = V.t Hashcons.hash_consed
-       and type base = R.t
-  end
-end
-
-module Affine : sig
-  module type S = sig
-    type var
-    include Expr.S with type dim = var affine
-    val const : base -> t
-    val const_of : t -> base option
-    val const_coeff : t -> base
-    val var_bindings : t -> (var * base) BatEnum.t
-    val var_bindings_ordered : t -> (var * base) BatEnum.t
-    val var_coeff : var -> t -> base
-  end
-  module LiftMap
-      (V : Var)
-      (M : Putil.Map.S with type key = V.t)
-      (R : Ring.S) : S with type var = V.t
-                        and type base = R.t
-
-end
-
+(** Raised for unsolvable systems of linear equations *)
 exception No_solution
-exception Many_solutions
 
-module GaussElim (F : Field.S) (E : Expr.S with type base = F.t) : sig
-  val solve : (E.t * F.t) list -> (E.dim -> F.t)
-
-  (** Given a predicate on dimensions and a list of terms (all implicitly
-      equal to zero), orient the equations as rewrite rules that eliminate
-      dimensions that don't satisfy the predicate. *)
-  val orient : (E.dim -> bool) -> E.t list -> (E.dim * E.t) list
-end
+exception Nonlinear
 
 module type Vector = sig
   type t
@@ -148,13 +13,13 @@ module type Vector = sig
   type scalar
 
   val equal : t -> t -> bool
-  val compare : t -> t -> int
   val add : t -> t -> t
   val scalar_mul : scalar -> t -> t
   val negate : t -> t
   val dot : t -> t -> scalar
 
   val zero : t
+  val is_zero : t -> bool
   val add_term : scalar -> dim -> t -> t
   val of_term : scalar -> dim -> t
 
@@ -163,11 +28,146 @@ module type Vector = sig
   val coeff : dim -> t -> scalar
 
   val pivot : dim -> t -> scalar * t
+end
+
+module ZZVector : sig
+  include Vector with type dim = int and type scalar = ZZ.t
+  val compare : t -> t -> int
+  val pp : Format.formatter -> t -> unit
+  val show : t -> string
+end
+
+module QQVector : sig
+  include Vector with type dim = int and type scalar = QQ.t
+  val compare : t -> t -> int
+  val pp : Format.formatter -> t -> unit
+  val show : t -> string
+end
+
+module QQMatrix : sig
+  type t
+  type dim = int
+  type scalar = QQ.t
+
+  val equal : t -> t -> bool
+  val add : t -> t -> t
+  val scalar_mul : scalar -> t -> t
+  val mul : t -> t -> t
+
+  val zero : t
+
+  val row : dim -> t -> QQVector.t
+
+  val add_row : dim -> QQVector.t -> t -> t
+
+  val add_column : dim -> QQVector.t -> t -> t
+
+  val pivot : dim -> t -> QQVector.t * t
+
+  val transpose : t -> t
+
+  val entry : dim -> dim -> t -> scalar
+
+  val entries : t -> (dim * dim * scalar) BatEnum.t
 
   val pp : Format.formatter -> t -> unit
   val show : t -> string
 end
 
-module QQVector : Vector with type dim = int and type scalar = QQ.t
+module type AbelianGroup = sig
+  type t
+  val equal : t -> t -> bool
+  val add : t -> t -> t
+  val negate : t -> t
+  val zero : t
+end
 
+module type Ring = sig
+  type t
+  val equal : t -> t -> bool
+  val add : t -> t -> t
+  val negate : t -> t
+  val zero : t
+  val mul : t -> t -> t
+  val one : t
+end
+
+(** Lift a map type over a ring to a left-module *)
+module RingMap
+    (M : sig
+       type 'a t
+       type key
+
+       val equal : ('a -> 'a -> bool) -> 'a t -> 'a t -> bool
+       val compare : ('a -> 'a -> int) -> 'a t -> 'a t -> int
+       val enum : 'a t -> (key * 'a) BatEnum.t
+       val map : ('a -> 'b) -> 'a t -> 'b t
+       val find : key -> 'a t -> 'a
+       val add : key -> 'a -> 'a t -> 'a t
+       val remove : key -> 'a t -> 'a t
+       val empty : 'a t
+       val merge : (key -> 'a option -> 'b option -> 'c option) ->
+         'a t ->
+         'b t ->
+         'c t
+     end)
+    (R : Ring) : Vector with type t = R.t M.t
+                         and type dim = M.key
+                         and type scalar = R.t
+
+(** [solve_exn mat b] computes a rational vector [x] such that [mat*x =
+    b]. Raises [No_solution] if there is no solution. *)
+val solve_exn : QQMatrix.t -> QQVector.t -> QQVector.t
+
+(** Given a predicate on dimensions and a list of terms (all implicitly equal
+    to zero), orient the equations as rewrite rules that eliminate dimensions
+    that don't satisfy the predicate. *)
 val orient : (int -> bool) -> QQVector.t list -> (int * QQVector.t) list
+
+val vector_right_mul : QQMatrix.t -> QQVector.t -> QQVector.t
+
+val solve : QQMatrix.t -> QQVector.t -> QQVector.t option
+
+(** {2 Affine terms} *)
+
+(** Various operations for manipulating affine terms over symbols, represented
+    as rational vectors *)
+
+(** Map a symbol to a dimension.  The following equations hold:
+    - [sym_of_dim (dim_of_sym sym) = Some sym]
+    - [sym_of_dim const_dim = None] *)
+val sym_of_dim : int -> symbol option
+
+(** Map a dimension to symbol.  The following equations hold:
+    - [sym_of_dim (dim_of_sym sym) = Some sym]
+    - [sym_of_dim const_dim = None] *)
+val dim_of_sym : symbol -> int
+
+(** Dimension for representing the coefficient of the constant 1. *)
+val const_dim : int
+
+(** Representation of a rational number as an affine term.  The equation
+    [const_of_linterm (const_linterm qq) = Some qq] must hold. *)
+val const_linterm : QQ.t -> QQVector.t
+
+(** Convert an affine term to a rational number, if possible.  The equation
+    [const_of_linterm (const_linterm qq) = Some qq] must hold. *)
+val const_of_linterm : QQVector.t -> QQ.t option
+
+(** Convert a rational vector representing an affine term.  Raises [Nonlinear]
+    if the input term is non-linear. *)
+val linterm_of : 'a context -> 'a term -> QQVector.t
+
+(** Convert a rational vector to an affine term.  The equation [of_linterm ark
+    (linterm_of ark t) = t] must hold. *)
+val of_linterm : 'a context -> QQVector.t -> 'a term
+
+(** Pretty-print an affine term *)
+val pp_linterm : 'a context -> Format.formatter -> QQVector.t -> unit
+
+(** [evaluate_linterm env t] evaluates the affine term t in the environment
+    [env] *)
+val evaluate_linterm : (symbol -> QQ.t) -> QQVector.t -> QQ.t
+
+(** Count the number of dimensions with non-zero coefficients *)
+val linterm_size : QQVector.t -> int

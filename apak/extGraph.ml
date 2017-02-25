@@ -45,6 +45,8 @@ module type Vertex = sig
   module Set : Putil.Hashed.Set.S with type elt = t
 end
 
+let display_image = ref "eog"
+
 let display_dot output_dot graph =
   Putil.with_temp_filename "graph" ".png"
     (fun output -> Putil.with_temp_file "graph" ".dot"
@@ -52,9 +54,13 @@ let display_dot output_dot graph =
            output_dot tc graph;
            close_out tc;
            let cmd =
-             Printf.sprintf "dot %s -Tpng > %s && eog %s" tn output output
+             Printf.sprintf "dot %s -Tpng > %s && %s %s"
+               tn
+               output
+               (!display_image)
+               output
            in
-           ignore(Sys.command cmd)))
+           ignore (Sys.command cmd)))
 
 
 (* The following module is copied (and slightly modified) from
@@ -1564,7 +1570,8 @@ module Display = struct
     module Display = struct
       include D
       include G
-      let vertex_name x = "\"" ^ (String.escaped (S.show x)) ^ "\""
+      let vertex_name x =
+        "\"" ^ (String.escaped ((Putil.mk_show S.pp) x)) ^ "\""
       let get_subgraph v =  None
       let default_vertex_attributes _ = []
       let default_edge_attributes _ = []
@@ -1589,7 +1596,7 @@ module Display = struct
       let graph_attributes _ = []
       let vertex_attributes _ = []
       let edge_attributes e =
-        [`Label (String.escaped (Show_edge.show (G.E.label e)))]
+        [`Label (String.escaped ((Putil.mk_show Show_edge.pp) (G.E.label e)))]
     end)
 
   module MakeStructural (G : G) = struct
@@ -1599,10 +1606,7 @@ module Display = struct
       let name = M.memo (fun _ -> incr id; !id) in
       let module Show_v = struct
         type t = G.V.t
-        include Putil.MakeFmt(struct
-            type a = t
-            let format formatter v = Format.pp_print_int formatter (name v)
-          end)
+        let pp formatter v = Format.pp_print_int formatter (name v)
       end
       in
       let module D = MakeSimple(G)(Show_v) in
