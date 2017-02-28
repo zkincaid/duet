@@ -36,6 +36,7 @@ let to_zz qq =
   let (num, den) = to_zzfrac qq in
   if Mpz.cmp den (Mpzf.of_int 1) == 0 then Some num
   else None
+let to_int qq = BatOption.Monad.bind (to_zz qq) ZZ.to_int
 let to_float qq = Mpqf.to_float qq
 
 let numerator = Mpqf.get_num

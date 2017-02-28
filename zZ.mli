@@ -20,14 +20,12 @@ val negate : t -> t
   
 val sub : t -> t -> t
 
-(** Integer division conforming to C99:
-    [a == (a/b)*b + a%b],
-    division truncates towards zero *)
+(** Integer division conforming to SMTLIB2:
+    [a == (a/b)*b + a%b] and [0 <= a%b < |b|] *)
 val div : t -> t -> t
 
-(** Modulo conforming to C99:
-    [a == (a/b)*b + a%b],
-    division truncates towards zero *)
+(** Modulo conforming to SMTLIB2:
+    [a == (a/b)*b + a%b] and [0 <= a%b < |b|] *)
 val modulo : t -> t -> t
 
 val gcd : t -> t -> t

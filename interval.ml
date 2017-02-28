@@ -189,16 +189,10 @@ let modulo x y =
     bottom
   else if elem QQ.zero y then top
   else
-    (* mod y is the same as mod |y| *)
-    let y = abs y in
-    match y.lower with
-    (* |y| is sufficiently large for "mod y" be a no-op on x *)
-    | Some lo when strictly_left (abs x) (const lo) -> x
-    | _ ->
-       let y_1 = map_opt (flip QQ.sub QQ.one) y.upper in (* |y|-1 *)
-       let divisor_ivl = { lower = map_opt QQ.negate y_1; upper = y_1 } in
-       let dividend_ivl = join x zero in
-       meet divisor_ivl dividend_ivl
+    (* TODO: this is a coarse abstraction *)
+    let y_1 = map_opt (flip QQ.sub QQ.one) y.upper in (* |y|-1 *)
+    let divisor_ivl = { lower = Some QQ.zero; upper = y_1 } in
+    divisor_ivl
 
 let upper x = x.upper
 let lower x = x.lower
