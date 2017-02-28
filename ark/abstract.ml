@@ -625,3 +625,101 @@ let abstract_nonlinear ?exists:(p=fun x -> true) ark phi =
   let result = go (Cube.bottom ark) in
   logf "Abstraction result:@\n%a" Cube.pp result;
   result
+
+let ensure_min_max ark =
+  List.iter
+    (fun (name, typ) ->
+       if not (is_registered_name ark name) then
+         register_named_symbol ark name typ)
+    [("min", `TyFun ([`TyReal; `TyReal], `TyReal));
+     ("max", `TyFun ([`TyReal; `TyReal], `TyReal))]
+
+let symbolic_bounds ?exists:(p=fun x -> true) ark phi symbol =
+  ensure_min_max ark;
+  let min = get_named_symbol ark "min" in
+  let max = get_named_symbol ark "max" in
+  let mk_min x y = mk_app ark min [x; y] in
+  let mk_max x y = mk_app ark max [x; y] in
+
+  let symbol_term = mk_const ark symbol in
+  let subterm x = x != symbol in
+  let solver = Smt.mk_solver ark in
+  let uninterp_phi =
+    rewrite ark
+      ~down:(nnf_rewriter ark)
+      ~up:(nonlinear_uninterpreted_rewriter ark)
+      phi
+  in
+  let (lin_phi, nonlinear) = purify ark uninterp_phi in
+  let symbol_list = Symbol.Set.elements (symbols lin_phi) in
+  let nonlinear_defs =
+    Symbol.Map.enum nonlinear
+    /@ (fun (symbol, expr) ->
+        match refine ark expr with
+        | `Term t -> mk_eq ark (mk_const ark symbol) t
+        | `Formula phi -> mk_iff ark (mk_const ark symbol) phi)
+    |> BatList.of_enum
+    |> mk_and ark
+  in
+  let nonlinear = Symbol.Map.map (nonlinear_interpreted ark) nonlinear in
+  let replace_defs =
+    substitute_const
+      ark
+      (fun x ->
+         try Symbol.Map.find x nonlinear
+         with Not_found -> mk_const ark x)
+  in
+  solver#add [lin_phi];
+  solver#add [nonlinear_defs];
+  let integrity psi =
+    solver#add [nonlinear_uninterpreted ark psi]
+  in
+  let rec go (lower, upper) =
+    match solver#get_model () with
+    | `Unsat -> (lower, upper)
+    | `Unknown ->
+      logf ~level:`warn "Symbolic abstraction failed; returning top";
+      ([[]], [[]])
+    | `Sat model ->
+      let interp = Interpretation.of_model ark model symbol_list in
+      match Interpretation.select_implicant interp lin_phi with
+      | None -> assert false
+      | Some implicant ->
+        let (cube_lower, cube_upper) =
+          let cube =
+            Cube.of_atoms ark ~integrity (List.map replace_defs implicant)
+            |> Cube.exists ~integrity ~subterm p
+          in
+          Cube.symbolic_bounds cube symbol
+        in
+        let lower_blocking =
+          List.map
+            (fun lower_bound -> mk_lt ark symbol_term lower_bound)
+            cube_lower
+          |> mk_or ark
+        in
+        let upper_blocking =
+          List.map
+            (fun upper_bound -> mk_lt ark upper_bound symbol_term)
+            cube_upper
+          |> mk_or ark
+        in
+        Log.errorf "Upper block: %a" (Formula.pp ark) upper_blocking;
+        Log.errorf "Lower block: %a" (Formula.pp ark) lower_blocking;
+        solver#add [mk_or ark [lower_blocking; upper_blocking]];
+        go (cube_lower::lower, cube_upper::upper)
+  in
+  let (lower, upper) = go ([], []) in
+  let lower =
+    if List.mem [] lower then
+      None
+    else
+      Some (BatList.reduce mk_min (List.map (BatList.reduce mk_max) lower))
+  in
+  let upper =
+    if List.mem [] upper then
+      None
+    else
+      Some (BatList.reduce mk_max (List.map (BatList.reduce mk_min) upper))
+  in
+  (lower, upper)

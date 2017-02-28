@@ -1116,3 +1116,38 @@ let farkas_equalities property =
       (term, column))
     columns
   |> Array.to_list
+
+let symbolic_bounds cube symbol =
+  let ark = Env.ark cube.env in
+  let zero = mk_real ark QQ.zero in
+  let vec = Env.vec_of_term ~register:false cube.env (mk_const ark symbol) in
+  match BatList.of_enum (V.enum vec) with
+  | [(coeff, id)] ->
+    assert (QQ.equal coeff QQ.one);
+
+    let constraints =
+      Abstract0.to_lincons_array (get_manager ()) cube.abstract
+    in
+    BatEnum.fold (fun (lower, upper) lincons ->
+        let open Lincons0 in
+        let vec = Env.vec_of_linexpr cube.env lincons.linexpr0 in
+        let (a, t) = V.pivot id vec in
+        if QQ.equal a QQ.zero then
+          (lower, upper)
+        else
+          let bound =
+            V.scalar_mul (QQ.negate (QQ.inverse a)) t
+            |> Env.term_of_vec cube.env
+          in
+          match lincons.typ with
+          | EQ -> (bound::lower, bound::upper)
+          | SUP | SUPEQ ->
+            if QQ.lt QQ.zero a then
+              (bound::lower, upper)
+            else
+              (lower, bound::upper)
+          | _ -> (lower, upper)
+      )
+      ([], [])
+      (BatArray.enum constraints)
+  | _ -> assert false
