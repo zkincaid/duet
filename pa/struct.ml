@@ -274,7 +274,8 @@ module Make (P : Symbol) = struct
       in
       AtomSet.for_all f x.prop
     in
-    let rec go xs y_sigs map = match xs with
+    let rec go xs y_sigs map =
+      match xs with
       | [] -> check map
       | (x::xs) ->
         let x_sig = KMap.find x x_sigs in
@@ -345,7 +346,7 @@ module Make (P : Symbol) = struct
   let embeds x y =
     (x.universe <= y.universe)
     && (AtomSet.cardinal x.prop <= AtomSet.cardinal y.prop)
-    (* && (PSet.subset (get_preds x) (get_preds y)) (* this is always true when using Search Tree *) *)
+    && (PSet.subset (get_preds x) (get_preds y)) (* this is always true when using Search Tree *)
     && (AtomSet.subset x.prop y.prop || begin
     let monadic str =
       let f (head, args) =

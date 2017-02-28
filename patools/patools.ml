@@ -84,6 +84,19 @@ let load_word filename =
                 pos.pos_lnum
                 (pos.pos_cnum - pos.pos_bol + 1))
 
+let load_structs filename =
+  let open Lexing in
+  let lexbuf = Lexing.from_channel (open_in filename) in
+  lexbuf.lex_curr_p <- { lexbuf.lex_curr_p with pos_fname = filename };
+  try StructParse.main StructLex.token lexbuf with
+  | StructParse.Error ->
+    let open Lexing in
+    let pos = lexbuf.lex_curr_p in
+    failwith (Printf.sprintf "Parse error: %s:%d:%d"
+                filename
+                pos.pos_lnum
+                (pos.pos_cnum - pos.pos_bol + 1))
+
 let pp_formula phi = F.pp Format.pp_print_string Format.pp_print_int phi
 
 let bounded_empty = Bounded.bounded_empty
@@ -287,6 +300,43 @@ let run pa word =
     logf "<- Accepting";
   final
 
+let rec check_embeddings structs reName =
+  (* Renames arguments to be from 1 to n *)
+  let rename str =
+    let inv = BatDynArray.create() in (* Inverse Mapping *)
+    BatDynArray.add inv 0;            (* Psuedo 1-indexing *)
+    let f (str, map) (head, args) =
+      let g (args, map) arg =
+        if (Putil.PInt.Map.mem arg map) then
+          ((Putil.PInt.Map.find arg map) :: args), map
+        else
+          begin
+            BatDynArray.add inv arg;
+            ((BatDynArray.length inv) :: args), (Putil.PInt.Map.add arg (BatDynArray.length inv) map)
+          end
+      in
+      let (args, m) = List.fold_left g ([], map) args in
+      (Config.add head args str), m
+    in
+    let (str, map) = (BatEnum.fold f ((Config.empty 1), Putil.PInt.Map.empty) (Config.props str)) in
+    str, inv
+  in
+  let rec go structs =
+    match structs with
+    | [] -> ()
+    | (c, c') :: structs' ->
+       (if reName then
+         begin
+           let str, inv = rename c in
+           let str', inv' = rename c' in
+           print_endline (if Config.embeds str str' then "True" else "False")
+         end
+       else
+         print_endline (if Config.embeds c c' then "True" else "False"));
+       go structs'
+  in go structs
+  
+
 let _ =
   Log.verbosity_level := `info;
   match Sys.argv.(1) with
@@ -327,6 +377,11 @@ let _ =
           size
       | Some _ -> ()
     end
+  | "embeds" ->
+     if Array.length Sys.argv > 3 then
+       check_embeddings (load_structs Sys.argv.(3)) (match Sys.argv.(2) with | "rename" -> true | _ -> false)
+     else
+       check_embeddings (load_structs Sys.argv.(2)) false
   | "diff-check" ->
     let program = load_automaton Sys.argv.(2) in
     let proof = load_automaton Sys.argv.(3) in
