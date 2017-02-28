@@ -704,8 +704,6 @@ let symbolic_bounds ?exists:(p=fun x -> true) ark phi symbol =
             cube_upper
           |> mk_or ark
         in
-        Log.errorf "Upper block: %a" (Formula.pp ark) upper_blocking;
-        Log.errorf "Lower block: %a" (Formula.pp ark) lower_blocking;
         solver#add [mk_or ark [lower_blocking; upper_blocking]];
         go (cube_lower::lower, cube_upper::upper)
   in
