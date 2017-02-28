@@ -34,7 +34,7 @@ struct
   let compare x y =
     match Formula.compare x.guard y.guard with
     | 0 -> M.compare Term.compare x.transform y.transform
-    | x -> x
+    | cmp -> cmp
 
   let ark = C.context
 

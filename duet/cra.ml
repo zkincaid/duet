@@ -170,6 +170,7 @@ let map_value f = function
   | VWidth v -> VWidth (f v)
 
 module Ctx = Syntax.MakeSimplifyingContext ()
+let ark = Ctx.context
 
 module V = struct
 
@@ -496,9 +497,87 @@ let analyze file =
     end
   | _ -> assert false
 
+let resource_bound_analysis file =
+  match file.entry_points with
+  | [main] -> begin
+      let rg = Interproc.make_recgraph file in
+      let rg =
+        if !forward_inv_gen
+        then Log.phase "Forward invariant generation" decorate rg
+        else rg
+      in
+
+      let local func_name =
+        if defined_function func_name (get_gfile()) then begin
+          let func = lookup_function func_name (get_gfile()) in
+          let vars =
+            Varinfo.Set.remove (return_var func_name)
+              (Varinfo.Set.of_enum
+                 (BatEnum.append
+                    (BatList.enum func.formals)
+                    (BatList.enum func.locals)))
+          in
+          logf "Locals for %a: %a"
+            Varinfo.pp func_name
+            Varinfo.Set.pp vars;
+          fun x -> (Varinfo.Set.mem (fst (var_of_value x)) vars)
+        end else (fun _ -> false)
+      in
+      let query = A.mk_query rg weight local main in
+      let cost =
+        let open CfgIr in
+        let file = get_gfile () in
+        let is_cost v = (Varinfo.show v) = "__cost" in
+        try
+          VVal (Var.mk (List.find is_cost file.vars))
+        with Not_found ->
+          Log.fatalf "Could not find __cost variable"
+      in
+      let cost_symbol = V.symbol_of cost in
+      let exists x =
+        match V.of_symbol x with
+        | Some v -> Var.is_global (var_of_value v)
+        | None -> false
+      in
+
+      A.HT.iter (fun procedure summary ->
+          logf ~level:`always "Procedure: %a" Varinfo.pp procedure;
+          (* replace cost with 0, add constraint cost = rhs *)
+          let guard =
+            let subst x =
+              if x = cost_symbol then
+                Ctx.mk_real QQ.zero
+              else
+                Ctx.mk_const x
+            in
+            let rhs =
+              Syntax.substitute_const ark subst (K.get_transform cost summary)
+            in
+            Ctx.mk_and [Syntax.substitute_const ark subst (K.guard summary);
+                        Ctx.mk_eq (Ctx.mk_const cost_symbol) rhs ]
+          in
+          let (lower, upper) =
+            Abstract.symbolic_bounds ~exists ark guard cost_symbol
+          in
+          begin match lower with
+            | Some lower ->
+              logf ~level:`always "%a <= cost" (Syntax.Term.pp ark) lower
+            | None -> ()
+          end;
+          begin match upper with
+            | Some upper ->
+              logf ~level:`always "cost <= %a" (Syntax.Term.pp ark) upper
+            | None -> ()
+          end)
+        (A.get_summaries query)
+    end
+  | _ -> assert false
+
 let _ =
   CmdLine.register_pass
-    ("-cra", analyze, " Compositional recurrence analysis")
+    ("-cra", analyze, " Compositional recurrence analysis");
+  CmdLine.register_pass
+    ("-rba", resource_bound_analysis, " Resource bound analysis")
   (*
   CmdLine.register_config
     ("-z3-timeout",

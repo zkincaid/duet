@@ -257,6 +257,26 @@ let widen2 () =
     result
     (Cube.widen phi psi)
 
+let abstract_bounds cube symbol =
+  let symbol_term = Ctx.mk_const symbol in
+  let (lower, upper) = Cube.symbolic_bounds cube symbol in
+  let lower = List.map (fun lb -> Ctx.mk_leq lb symbol_term) lower in
+  let upper = List.map (fun ub -> Ctx.mk_leq symbol_term ub) upper in
+  Log.errorf "L> %a" Cube.pp (Cube.of_atoms ctx lower);
+  Log.errorf "U> %a" Cube.pp (Cube.of_atoms ctx upper);
+  lower@upper
+
+let symbound () =
+  let open Infix in
+  let phi =
+    [x = y; x <= (int 2); z <= x; r <= s]
+  in
+  let x_bounds = abstract_bounds (Cube.of_atoms ctx phi) xsym in
+  assert_implies x_bounds [x <= y];
+  assert_implies x_bounds [y <= x];
+  assert_implies x_bounds [x <= (int 2)];
+  assert_implies x_bounds [z <= x]
+
 let suite = "Cube" >::: [
     "roundtrip1" >:: roundtrip1;
     "roundtrip2" >:: roundtrip2;
@@ -274,4 +294,5 @@ let suite = "Cube" >::: [
     "exist4" >:: exists4;
     "widen1" >:: widen1;
     "widen2" >:: widen2;
+    "symbound" >:: symbound;
   ]

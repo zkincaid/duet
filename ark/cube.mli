@@ -30,10 +30,6 @@ val exists : ?integrity:('a formula -> unit) ->
   'a t ->
   'a t
 
-(*
-val upper_bounds : 'a t -> 'a term -> ('a term) list
-*)
-
 val top : 'a context -> 'a t
 
 val bottom : 'a context -> 'a t
@@ -48,3 +44,7 @@ val is_top : 'a t -> bool
     [cube |= (vector0 . v) term0 + ... + (vectorn . v) termn = 0]
     where [.] represents the dot product. *)
 val farkas_equalities : 'a t -> ('a term * Linear.QQVector.t) list
+
+(** Given a cube [cube] and a symbol [symbol], compute a list of lower bounds
+    and upper bounds for [symbol] that are implied by [cube]. *)
+val symbolic_bounds : 'a t -> symbol -> ('a term) list * ('a term) list
