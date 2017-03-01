@@ -116,14 +116,13 @@ class switchVisitor = object (self)
     let replace_cases stmt =
       let targets = ref [] in
       let add_target exp = targets := (stmt, exp)::(!targets) in
-      let f lbl = match lbl with
-        | Label _        -> lbl
-        | Case (exp,loc) -> add_target (Some exp); mk_label loc
-        | Default loc    -> add_target None; mk_label loc
-        | CaseRange (_, _, _) ->
-          failwith "CaseRange not supported: GCC extension."
-      in
-      stmt.labels <- List.map f stmt.labels;
+      stmt.labels <- List.map (function
+          | Label _  as lbl -> lbl
+          | Case (exp, loc) -> add_target (Some exp); mk_label loc
+          | Default loc -> add_target None; mk_label loc
+          | CaseRange (_, _, _) ->
+            Log.fatalf "CaseRange not supported: GCC extension."
+        ) stmt.labels;
       !targets
     in
 
@@ -146,7 +145,7 @@ class switchVisitor = object (self)
       let targets = List.concat (List.map replace_cases block.bstmts) in
       let break_target_label = mk_label locUnknown in
       let branching =
-        List.fold_right (mk_if exp) targets (mkEmptyStmt ())
+        List.fold_right (mk_if exp) targets (mkStmt (Goto (ref break_target, locUnknown)))
       in
       let kind =  Block (mkBlock [branching;
                                   mkStmt (Block block);
