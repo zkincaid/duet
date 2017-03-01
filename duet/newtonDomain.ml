@@ -442,6 +442,41 @@ let detensor_transpose tensored_tr =
     guard
     (VMap.enum transform |> BatList.of_enum)
 
+let print_var_bounds formatter cost tr =
+  let open Format in
+  let cost_symbol = V.symbol_of cost in
+  let exists x =
+    x = cost_symbol || match V.of_symbol x with
+    | Some v -> Var.is_global (var_of_value v)
+    | None -> false
+  in
+  let guard =
+    let subst x =
+      if x = cost_symbol then
+        Ctx.mk_real QQ.zero
+      else
+        Ctx.mk_const x
+    in
+    let rhs =
+      Syntax.substitute_const ark subst (K.get_transform cost tr)
+    in
+    Ctx.mk_and [Syntax.substitute_const ark subst (K.guard tr);
+                Ctx.mk_eq (Ctx.mk_const cost_symbol) rhs ]
+  in
+  let (lower, upper) =
+    Abstract.symbolic_bounds ~exists ark guard cost_symbol
+  in
+  begin match lower with
+    | Some lower ->
+      fprintf formatter "%a <= %a@\n" (Syntax.Term.pp ark) lower V.pp cost
+    | None -> ()
+  end;
+  begin match upper with
+    | Some upper ->
+      fprintf formatter "%a <= %a@\n" V.pp cost (Syntax.Term.pp ark) upper
+    | None -> ()
+  end
+
 let () =
   Callback.register "compose_callback" (fun x y -> let res = K.mul x y in
                                          logf "Compose %a %a %a" K.pp x K.pp y K.pp res;
@@ -537,7 +572,23 @@ let () =
        abstract);
 
   Callback.register "print_var_bounds_callback" (fun indent varid tr ->
-      "Not yet implemented");
+      let tick_var =
+        let p (v, _) = match v with
+          | VVal v -> (Var.get_id v) = varid
+          | _ -> false
+        in
+        try
+          Some (fst (BatEnum.find p (K.transform tr)))
+        with Not_found -> None
+      in
+      match tick_var with
+      | None -> "No bounds"
+      | Some tick_var ->
+        Putil.mk_show (fun formatter (tick_var, tr) ->
+            Format.pp_open_vbox formatter indent;
+            Format.pp_print_break formatter 0 0;
+            print_var_bounds formatter tick_var tr;
+            Format.pp_close_box formatter ()) (tick_var, tr));
 
   Callback.register "simplify_callback" (fun tr -> tr);
   Callback.register "tensorSimplify_callback" (fun tr -> tr);
@@ -553,25 +604,3 @@ let () =
 
   Callback.register "print_smtlib" (fun tr -> "not yet implemented");
   Callback.register "tensor_print_smtlib" (fun tr -> "not yet implemented")
-
-(*
-
-  Callback.register "print_var_bounds_callback" (fun indent varid tr ->
-        let tick_var =
-          let p = function
-            | VVal v -> (Var.get_id v) = varid
-            | _ -> false
-          in
-          try
-            Some (BatEnum.find p (K.M.keys tr.K.transform))
-          with Not_found -> None
-        in
-        match tick_var with
-        | None -> "No bounds"
-        | Some tick_var ->
-          Putil.pp_string (fun formatter (tick_var, tr) ->
-              Format.pp_open_vbox formatter indent;
-              Format.pp_print_break formatter 0 0;
-              print_var_bounds formatter tick_var tr;
-              Format.pp_close_box formatter ()) (tick_var, tr));
-*)
