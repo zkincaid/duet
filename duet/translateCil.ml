@@ -751,7 +751,20 @@ let parse filename =
     in
     ignore (Sys.command pp_cmd);
     let file = simplify (Frontc.parse preprocessed ()) in
-    tr_file filename file
+    let cfgir = tr_file filename file in
+    let open CfgIr in
+    cfgir.funcs |> List.iter (fun func ->
+        let name = Varinfo.show func.fname in
+        if BatString.starts_with name "__VERIFIER_atomic" then begin
+          let atomic_begin = Def.mk (Builtin AtomicBegin) in
+          let initial = Cfg.initial_vertex func.cfg in
+          Cfg.add_vertex func.cfg atomic_begin;
+          Cfg.add_edge func.cfg atomic_begin initial;
+          Cfg.enum_terminal func.cfg |> BatEnum.iter (fun terminal ->
+              insert_pre (Def.mk (Builtin AtomicEnd)) terminal func.cfg)
+        end
+      );
+    cfgir
   in
   Putil.with_temp_filename base ".i" go
 
