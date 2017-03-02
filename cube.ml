@@ -1119,7 +1119,6 @@ let farkas_equalities property =
 
 let symbolic_bounds cube symbol =
   let ark = Env.ark cube.env in
-  let zero = mk_real ark QQ.zero in
   let vec = Env.vec_of_term ~register:false cube.env (mk_const ark symbol) in
   match BatList.of_enum (V.enum vec) with
   | [(coeff, id)] ->
