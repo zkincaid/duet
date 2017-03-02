@@ -75,7 +75,7 @@ type 'a formula = ('a, typ_bool) expr
 
 val compare_expr : ('a,'typ) expr -> ('a,'typ) expr -> int
 val compare_formula : 'a formula -> 'a formula -> int
-val compare_expr : 'a term -> 'a term -> int
+val compare_term : 'a term -> 'a term -> int
 
 val refine : 'a context -> ('a, typ_fo) expr -> [ `Term of 'a term
                                                 | `Formula of 'a formula ]
@@ -249,6 +249,11 @@ val mk_true : 'a context -> 'a formula
 val mk_false : 'a context -> 'a formula
 
 val eliminate_ite : 'a context -> 'a formula -> 'a formula
+
+(** Print a formula as a satisfiability query in SMTLIB2 format.  The query
+    includes function declarations and (check-sat). *)
+val pp_smtlib2 : ?env:(string Env.t) -> 'a context ->
+    Format.formatter -> 'a formula -> unit
 
 module Formula : sig
   type 'a t = 'a formula
