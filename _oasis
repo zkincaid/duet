@@ -29,7 +29,7 @@ Library "ark"
   FindlibName:      ark
   Pack:             true
   Modules:  ArkUtil, QQ, ZZ, Syntax, Interval, Smt, ArkZ3, ArkMathsat, Linear, Polynomial, Interpretation, ArkApron, Polyhedron, Cube, Abstract, Quantifier, Iteration, Transition
-  BuildDepends:     ppx_deriving, ppx_deriving.show, ppx_deriving.ord, apak, gmp, camlidl, apron, Z3, mathsat
+  BuildDepends:     ppx_deriving, ppx_deriving.show, ppx_deriving.ord, apak, gmp, camlidl, apron, Z3, mathsat, ocrs
   Install:         false
   XMETADescription: Arithmetic Reasoning Kit
 
@@ -37,7 +37,7 @@ Executable test_ark
   Build$:         flag(tests)
   Path:           ark
   MainIs:         test_ark.ml
-  BuildDepends:   ppx_deriving, ppx_deriving.ord, apak, gmp, camlidl, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, oUnit, mathsat
+  BuildDepends:   ppx_deriving, ppx_deriving.ord, apak, gmp, camlidl, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, oUnit, mathsat, ocrs
   CompiledObject: native
   Install:        false
 
@@ -57,7 +57,7 @@ Executable arktop
   Build$:         flag(tests)
   Path:           ark
   MainIs:         arkTop.ml
-  BuildDepends:   ppx_deriving, ppx_deriving.ord, apak, gmp, camlidl, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, mathsat
+  BuildDepends:   ppx_deriving, ppx_deriving.ord, apak, gmp, camlidl, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, mathsat, ocrs
   CompiledObject: native
   Install:        false
 
@@ -88,7 +88,7 @@ Executable patools
 Executable duet
   Path:           duet
   MainIs:         duet.ml
-  BuildDepends:   ppx_deriving, ppx_deriving.show, ppx_deriving.ord, apak, gmp, camlidl, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, ark, cil, cil.default-features, pa
+  BuildDepends:   ppx_deriving, ppx_deriving.show, ppx_deriving.ord, apak, gmp, camlidl, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, ark, cil, cil.default-features, pa, ocrs
   CompiledObject: native
   Install:        false
 

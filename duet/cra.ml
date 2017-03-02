@@ -10,6 +10,25 @@ module G = RG.G
 
 include Log.Make(struct let name = "cra" end)
 
+let forward_inv_gen = ref false
+let use_ocrs = ref false
+let split_loops = ref false
+
+let _ =
+  CmdLine.register_config
+    ("-cra-forward-inv",
+     Arg.Set forward_inv_gen,
+     " Forward invariant generation");
+  CmdLine.register_config
+    ("-cra-split-loops",
+     Arg.Set split_loops,
+     " Turn on loop splitting");
+  CmdLine.register_config
+    ("-use-ocrs",
+     Arg.Set use_ocrs,
+     " Use OCRS for recurrence solving")
+
+
 (* Decorate the program with numerical invariants *)
 
 module MakeDecorator(M : sig
@@ -214,7 +233,10 @@ end
 module K = struct
   include Transition.Make(Ctx)(V)
 
-  let star x = Log.time "cra:star" star x
+  let star x =
+    Log.time "cra:star"
+      (star ~split:(!split_loops) ~use_ocrs:(!use_ocrs))
+      x
 
   let add x y =
     if is_zero x then y
@@ -394,14 +416,6 @@ let weight def =
   | _ ->
     Log.errorf "No translation for definition: %a" Def.pp def;
     assert false
-
-let forward_inv_gen = ref false
-
-let _ =
-  CmdLine.register_config
-    ("-cra-forward-inv",
-     Arg.Set forward_inv_gen,
-     " Forward invariant generation")
 
 let analyze file =
   match file.entry_points with

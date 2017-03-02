@@ -14,6 +14,8 @@ val abstract_iter : ?exists:(symbol -> bool) ->
 
 val closure : 'a iter -> 'a formula
 
+val closure_ocrs : 'a iter -> 'a formula
+
 val star : ?exists:(symbol -> bool) ->
   'a context ->
   'a formula ->
@@ -34,7 +36,7 @@ module Split : sig
     'a formula ->
     (symbol * symbol) list ->
     'a split_iter
-  val closure : 'a split_iter -> 'a formula
+  val closure : ?use_ocrs:bool -> 'a split_iter -> 'a formula
   val join : 'a split_iter -> 'a split_iter -> 'a split_iter
   val widen : 'a split_iter -> 'a split_iter -> 'a split_iter
   val equal : 'a split_iter -> 'a split_iter -> bool

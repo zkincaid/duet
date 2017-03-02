@@ -740,6 +740,7 @@ let program_automaton file =
 
 let verify file =
   let open PA in
+  Inline.inline_file file;
   let program_pa = program_automaton file in
   let assign_table = make_assign_table (alphabet program_pa) in
 

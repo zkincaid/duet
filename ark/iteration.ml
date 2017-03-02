@@ -523,6 +523,151 @@ let closure (iter : 'a iter) : 'a formula =
     ]
   ]
 
+exception No_translation
+let closure_ocrs iter =
+  let open Ocrs in
+  let open Type_def in
+
+  let loop_counter_sym = mk_symbol iter.ark ~name:"K" `TyInt in
+  let loop_counter = mk_const iter.ark loop_counter_sym in
+
+  let string_of_symbol = string_of_int % int_of_symbol in
+  let symbol_of_string = symbol_of_int % int_of_string in
+
+  let post_map = (* map pre-state vars to post-state vars *)
+    List.fold_left (fun map (pre, post) ->
+        Symbol.Map.add pre post map)
+      Symbol.Map.empty
+      iter.symbols
+  in
+
+  let pre_map = (* map post-state vars to pre-state vars *)
+    List.fold_left (fun map (pre, post) ->
+        Symbol.Map.add post pre map)
+      Symbol.Map.empty
+      iter.symbols
+  in
+
+  (* pre/post subscripts *)
+  let ss_pre = SSVar "k" in
+  let ss_post = SAdd ("k", 1) in
+
+  let expr_of_term =
+    let alg = function
+      | `App (sym, []) ->
+        if Symbol.Map.mem sym pre_map then
+          (* sym is a post-state var -- replace it with pre-state var *)
+          Output_variable (string_of_symbol (Symbol.Map.find sym pre_map),
+                           ss_post)
+        else if Symbol.Map.mem sym pre_map then
+          Output_variable (string_of_symbol sym,
+                           ss_pre)
+        else
+          Symbolic_Constant (string_of_symbol sym)
+      | `App (sym, _) -> assert false (* to do *)
+      | `Real k -> Rational (Mpfr.of_float (QQ.to_float k) Mpfr.Near)
+      | `Add xs -> Sum xs
+      | `Mul xs -> Product xs
+      | `Binop (`Div, x, y) -> Divide (x, y)
+      | `Unop (`Neg, x) -> Minus (Rational (Mpfr.of_int 0 Mpfr.Near), x)
+      | `Binop (`Mod, _, _) | `Unop (`Floor, _) -> raise No_translation
+      | `Ite (_, _, _) | `Var (_, _) -> assert false
+    in
+    Term.eval iter.ark alg
+  in
+
+  let rec term_of_expr = function
+    | Plus (x, y) -> mk_add iter.ark [term_of_expr x; term_of_expr y]
+    | Minus (x, y) -> mk_sub iter.ark (term_of_expr x) (term_of_expr y)
+    | Times (x, y) -> mk_mul iter.ark [term_of_expr x; term_of_expr y]
+    | Divide (x, y) -> mk_div iter.ark (term_of_expr x) (term_of_expr y)
+    | Product xs -> mk_mul iter.ark (List.map term_of_expr xs)
+    | Sum xs -> mk_add iter.ark (List.map term_of_expr xs)
+    | Symbolic_Constant name -> mk_const iter.ark (symbol_of_string name)
+    | Base_case (name, index) ->
+      assert (index = 0);
+      mk_const iter.ark (symbol_of_string name)
+    | Input_variable name ->
+      assert (name = "k");
+      loop_counter
+    | Output_variable (name, subscript) ->
+      assert (subscript = ss_post);
+      Symbol.Map.find (symbol_of_string name) post_map
+      |> mk_const iter.ark
+    | Rational k ->
+      (* TODO: rounding error *)
+      mk_real iter.ark (QQ.of_float (Mpfr.to_float k))
+    | Undefined -> assert false
+    | Pow (x, Rational k) ->
+      (* TODO: rounding error *)
+      let base = term_of_expr x in
+      (1 -- int_of_float (Mpfr.to_float k))
+      /@ (fun _ -> base)
+      |> BatList.of_enum
+      |> mk_mul iter.ark
+    | Log (_, _) | Pow (_, _) | Binomial (_, _) | Factorial _ -> assert false
+  in
+
+  let recurrences =
+    let filter_map f xs =
+      let g x =
+        try Some (f x)
+        with No_translation -> None
+      in
+      BatList.filter_map g xs
+    in
+    let stratified =
+      filter_map (fun (post, pre, term) ->
+          (Output_variable (string_of_symbol pre, ss_post),
+           Equals (Output_variable (string_of_symbol pre, ss_post),
+                   Plus (Output_variable (string_of_symbol pre, ss_pre),
+                         expr_of_term term))))
+        iter.stratified
+    in
+    let inequations =
+      (* $ is a placeholder variable that we use to avoid sending OCRS
+         recurrences on terms *)
+      filter_map (fun (post, op, pre, term) ->
+          let lhs = Output_variable ("$", ss_post) in
+          let rhs =
+            Plus (Output_variable ("$", ss_pre),
+                  expr_of_term term)
+          in
+          let ineq =
+            match op with
+            | `Eq -> Equals (lhs, rhs)
+            | `Leq -> LessEq (lhs, rhs)
+          in
+          (expr_of_term pre, ineq))
+        iter.inequations
+    in
+    stratified@inequations
+  in
+  let closed =
+    let to_formula = function
+      | Equals (x, y) -> mk_eq iter.ark (term_of_expr x) (term_of_expr y)
+      | LessEq (x, y) -> mk_leq iter.ark (term_of_expr x) (term_of_expr y)
+      | Less (x, y) -> mk_lt iter.ark (term_of_expr x) (term_of_expr y)
+      | GreaterEq (x, y) -> mk_leq iter.ark (term_of_expr y) (term_of_expr x)
+      | Greater (x, y) -> mk_lt iter.ark (term_of_expr y) (term_of_expr x)
+    in
+    List.map to_formula (Ocrs.solve_rec_list_pair recurrences)
+  in
+  let zero_iter =
+    List.map (fun (sym, sym') ->
+        mk_eq iter.ark (mk_const iter.ark sym) (mk_const iter.ark sym'))
+      iter.symbols
+    |> mk_and iter.ark
+  in
+  mk_or iter.ark [
+    zero_iter;
+    mk_and iter.ark ([
+        Cube.to_formula iter.precondition;
+        mk_leq iter.ark (mk_real iter.ark QQ.one) loop_counter;
+        Cube.to_formula iter.postcondition
+      ]@closed)
+  ]
+
 let cube_of_iter iter =
   let eq_constraints =
     iter.stratified |> List.map (fun (post, pre, incr) ->
@@ -742,11 +887,18 @@ module Split = struct
     mk_and ark [substitute_const ark phi_subst phi;
                 substitute_const ark psi_subst psi]
 
-  let closure split_iter =
+  let closure ?(use_ocrs=false) split_iter =
     let ark = ark split_iter in
     let symbols = tr_symbols split_iter in
+    let base_closure =
+      if use_ocrs then
+        closure_ocrs
+      else
+        closure
+    in
     ExprMap.values split_iter
-    /@ (fun (left, right) -> (sequence ark symbols (closure left) (closure right)))
+    /@ (fun (left, right) ->
+        (sequence ark symbols (base_closure left) (base_closure right)))
     |> BatList.of_enum
     |> mk_and ark
 
