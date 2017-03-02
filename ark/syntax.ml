@@ -941,6 +941,185 @@ let eliminate_ite ctx phi =
   in
   elim_ite phi
 
+let rec pp_smtlib2 ?(env=Env.empty) ctx formatter expr =
+  let open Format in
+  let pp_sep = pp_print_space in
+
+  (* Legal characters in an SMTLIB2 symbol *)
+  let legal_char x =
+    BatChar.is_letter x || BatChar.is_digit x
+    || BatString.contains "~!@$%^&*_-+=<>.?/" x
+  in
+  (* Convert a string to a valid SMTLIB2 symbol *)
+  let symbol_of_string name =
+    if BatEnum.for_all legal_char (BatString.enum name) then
+      name
+    else
+      let replaced =
+        BatString.map (fun c ->
+            if legal_char c || BatString.contains " \"#'(),;:`{}" c then
+              c
+            else
+              '?')
+          name
+      in
+      "|" ^ replaced ^ "|"
+  in
+    
+  (* find a unique string that can be used to identify each symbol *)
+  let strings = Hashtbl.create 991 in
+  let symbol_name = Hashtbl.create 991 in
+  Symbol.Set.iter (fun symbol ->
+      let name = symbol_of_string (fst (DynArray.get ctx.symbols symbol)) in
+      if Hashtbl.mem strings name then
+        let rec go n =
+          let name' = name ^ (string_of_int n) in
+          if Hashtbl.mem strings name' then
+            go (n + 1)
+          else begin
+            Hashtbl.add strings name' ();
+            Hashtbl.add symbol_name symbol name'
+          end
+        in
+        go 0
+      else begin
+        Hashtbl.add strings name ();
+        Hashtbl.add symbol_name symbol name
+      end)
+    (symbols expr);
+
+  fprintf formatter "@[<v 0>";
+  (* print declarations *)
+  symbol_name |> Hashtbl.iter (fun symbol name ->
+      let pp_typ_fo formatter = function
+        | `TyReal -> pp_print_string formatter "Real"
+        | `TyInt -> pp_print_string formatter "Int"
+        | `TyBool -> pp_print_string formatter "Bool"
+      in        
+      match typ_symbol ctx symbol with
+      | `TyReal -> fprintf formatter "(declare-const %s Real)@;" name
+      | `TyInt -> fprintf formatter "(declare-const %s Int)@;" name
+      | `TyBool -> fprintf formatter "(declare-const %s Bool)@;" name
+      | `TyFun (args, ret) ->
+        fprintf formatter "(declare-fun %s (%a) %a)@;"
+          name
+          (ApakEnum.pp_print_enum ~pp_sep pp_typ_fo) (BatList.enum args)
+          pp_typ_fo ret
+    );
+
+  let rec go env formatter expr =
+    let Node (label, children, _) = expr.obj in
+    match label, children with
+    | Real qq, [] ->
+      let (num, den) = QQ.to_zzfrac qq in
+      if ZZ.equal den ZZ.one then
+        ZZ.pp formatter num
+      else
+        fprintf formatter "(/ %a %a)"
+          ZZ.pp num
+          ZZ.pp den
+    | App k, [] ->
+      pp_print_string formatter (Hashtbl.find symbol_name k)
+    | App func, args ->
+      fprintf formatter "(%s %a)"
+        (Hashtbl.find symbol_name func)
+        (ApakEnum.pp_print_enum ~pp_sep (go env)) (BatList.enum args)
+    | Var (v, typ), [] ->
+      (try fprintf formatter "?%s_%d" (Env.find env v) v
+       with Not_found -> fprintf formatter "[free:%d]" v)
+    | Add, terms ->
+      fprintf formatter "(+ @[";
+      ApakEnum.pp_print_enum
+        ~pp_sep
+        (go env)
+        formatter
+        (BatList.enum terms);
+      fprintf formatter "@])"
+    | Mul, terms ->
+      fprintf formatter "(* @[";
+      ApakEnum.pp_print_enum
+        ~pp_sep
+        (go env)
+        formatter
+        (BatList.enum terms);
+      fprintf formatter "@])"
+    | Div, [s; t] ->
+      fprintf formatter "(/@[%a@ %a@])"
+        (go env) s
+        (go env) t
+    | Mod, [s; t] ->
+      fprintf formatter "(mod @[%a@ %a@])"
+        (go env) s
+        (go env) t
+    | Floor, [t] ->
+      fprintf formatter "(floor @[%a@])" (go env) t
+    | Neg, [{obj = Node (Real qq, [], _)}] ->
+      QQ.pp formatter (QQ.negate qq)
+    | Neg, [{obj = Node (App _, _, _)} as t]
+    | Neg, [t] -> fprintf formatter "(- @[%a@])" (go env) t
+    | True, [] -> pp_print_string formatter "true"
+    | False, [] -> pp_print_string formatter "false"
+    | Not, [phi] ->
+      fprintf formatter "(not @[%a@])" (go env) phi
+    | And, conjuncts ->
+      fprintf formatter "(and @[";
+      ApakEnum.pp_print_enum
+        ~pp_sep
+        (go env)
+        formatter
+        (BatList.enum (List.concat (List.map (flatten_sexpr And) conjuncts)));
+      fprintf formatter "@])"
+    | Or, disjuncts ->
+      fprintf formatter "(or @[";
+      ApakEnum.pp_print_enum
+        ~pp_sep
+        (go env)
+        formatter
+        (BatList.enum (List.concat (List.map (flatten_sexpr Or) disjuncts)));
+      fprintf formatter "@])"
+    | Eq, [x; y] ->
+      fprintf formatter "(= @[%a %a@])"
+        (go env) x
+        (go env) y
+    | Leq, [x; y] ->
+      fprintf formatter "(<= @[%a %a@])"
+        (go env) x
+        (go env) y
+    | Lt, [x; y] ->
+      fprintf formatter "(< @[%a %a@])"
+        (go env) x
+        (go env) y
+    | Exists (name, typ), [psi] | Forall (name, typ), [psi] ->
+      let (quantifier_name, varinfo, psi) =
+        match label with
+        | Exists (_, _) ->
+          let (varinfo, psi) = flatten_existential psi in
+          ("exists", (name, typ)::varinfo, psi)
+        | Forall (_, _) ->
+          let (varinfo, psi) = flatten_universal psi in
+          ("forall", (name, typ)::varinfo, psi)
+        | _ -> assert false
+      in
+      let env =
+        List.fold_left (fun env (x,_) -> Env.push x env) env varinfo
+      in
+      fprintf formatter "(@[%s@ (" quantifier_name;
+      ApakEnum.pp_print_enum
+        ~pp_sep
+        (fun formatter (name, typ) ->
+           fprintf formatter "(%s %a)" name pp_typ typ)
+        formatter
+        (BatList.enum varinfo);
+      fprintf formatter ")@ %a@])" (go env) psi
+    | Ite, [cond; bthen; belse] ->
+      fprintf formatter "(ite @[%a@ %a@ %a@])"
+        (go env) cond
+        (go env) bthen
+        (go env) belse
+    | _ -> failwith "pp_expr_smtlib2: ill-formed expression"
+  in
+  fprintf formatter "(assert %a)@;(check-sat)@]" (go env) expr;
+
 module Infix (C : sig
     type t
     val context : t context
