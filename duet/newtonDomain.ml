@@ -608,5 +608,11 @@ let () =
 
   Callback.register "is_sat_linear_callback" (fun tr -> assert false);
 
-  Callback.register "print_smtlib" (fun tr -> "not yet implemented");
-  Callback.register "tensor_print_smtlib" (fun tr -> "not yet implemented")
+  Callback.register "print_smtlib" (fun tr ->
+      Putil.mk_show (fun formatter tr ->
+          Syntax.pp_smtlib2 ark formatter (K.guard tr)
+        ) tr);
+  Callback.register "tensor_print_smtlib" (fun tr ->
+      Putil.mk_show (fun formatter tr ->
+          Syntax.pp_smtlib2 ark formatter (KK.guard tr)
+        ) tr)
