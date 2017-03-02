@@ -26,7 +26,7 @@ On MacOS, you can install these packages (except Java and MathSAT) with:
 Next, add the [sv-opam](https://github.com/zkincaid/sv-opam) OPAM repository, and install the rest of duet's dependencies.  These are built from source, so grab a coffee &mdash; this may take a long time.
 ```
  opam remote add sv git://github.com/zkincaid/sv-opam.git
- opam install ocamlgraph batteries cil oasis ppx_deriving Z3 apron ounit menhir mathsat
+ opam install ocamlgraph batteries cil oasis ppx_deriving Z3 apron ounit menhir mathsat OCRS
 ```
 
 ### Building Duet

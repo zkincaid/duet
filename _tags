@@ -1,5 +1,5 @@
 # OASIS_START
-# DO NOT EDIT (digest: 390dbd1d6fd575e18ebed15f6ad66c27)
+# DO NOT EDIT (digest: 02eef91c322331aaed4c40475af3913a)
 # Ignore VCS directories, you can use the same kind of rule outside
 # OASIS_START/STOP if you want to exclude directories that contains
 # useless stuff for the build process
@@ -80,6 +80,7 @@ true: annot, bin_annot
 "ark/test_ark.native": pkg_mathsat
 "ark/test_ark.native": pkg_oUnit
 "ark/test_ark.native": pkg_ocamlgraph
+"ark/test_ark.native": pkg_ocrs
 "ark/test_ark.native": pkg_ppx_deriving
 "ark/test_ark.native": pkg_ppx_deriving.ord
 "ark/test_ark.native": pkg_ppx_deriving.show
@@ -96,6 +97,7 @@ true: annot, bin_annot
 "ark/arkTop.native": pkg_gmp
 "ark/arkTop.native": pkg_mathsat
 "ark/arkTop.native": pkg_ocamlgraph
+"ark/arkTop.native": pkg_ocrs
 "ark/arkTop.native": pkg_ppx_deriving
 "ark/arkTop.native": pkg_ppx_deriving.ord
 "ark/arkTop.native": pkg_ppx_deriving.show
@@ -110,6 +112,7 @@ true: annot, bin_annot
 <ark/*.ml{,i,y}>: pkg_gmp
 <ark/*.ml{,i,y}>: pkg_mathsat
 <ark/*.ml{,i,y}>: pkg_ocamlgraph
+<ark/*.ml{,i,y}>: pkg_ocrs
 <ark/*.ml{,i,y}>: pkg_ppx_deriving
 <ark/*.ml{,i,y}>: pkg_ppx_deriving.ord
 <ark/*.ml{,i,y}>: pkg_ppx_deriving.show
@@ -169,6 +172,7 @@ true: annot, bin_annot
 "duet/duet.native": pkg_gmp
 "duet/duet.native": pkg_mathsat
 "duet/duet.native": pkg_ocamlgraph
+"duet/duet.native": pkg_ocrs
 "duet/duet.native": pkg_ppx_deriving
 "duet/duet.native": pkg_ppx_deriving.ord
 "duet/duet.native": pkg_ppx_deriving.show
@@ -187,6 +191,7 @@ true: annot, bin_annot
 <duet/*.ml{,i,y}>: pkg_gmp
 <duet/*.ml{,i,y}>: pkg_mathsat
 <duet/*.ml{,i,y}>: pkg_ocamlgraph
+<duet/*.ml{,i,y}>: pkg_ocrs
 <duet/*.ml{,i,y}>: pkg_ppx_deriving
 <duet/*.ml{,i,y}>: pkg_ppx_deriving.ord
 <duet/*.ml{,i,y}>: pkg_ppx_deriving.show
