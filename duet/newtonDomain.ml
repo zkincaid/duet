@@ -492,12 +492,18 @@ let () =
   Callback.register "zero_callback" (fun () -> K.zero);
   Callback.register "tensorZero_callback" (fun () -> KK.zero);
 
-  Callback.register "star_callback" (fun x -> K.star x);
-  Callback.register "tensorStar_callback" (fun x -> KK.star x);
-  Callback.register "alpha_hat_callback" (fun x -> K.Iter.alpha x);
-  Callback.register "tensor_alpha_hat_callback" (fun x -> KK.Iter.alpha x);
-  Callback.register "abstract_star_callback" K.Iter.closure;
-  Callback.register "tensor_abstract_star_callback" KK.Iter.closure;
+  Callback.register "star_callback" (fun x ->
+      K.star ~split:(!Cra.split_loops) ~use_ocrs:(!Cra.use_ocrs) x);
+  Callback.register "tensorStar_callback" (fun x ->
+      KK.star ~split:(!Cra.split_loops) ~use_ocrs:(!Cra.use_ocrs) x);
+  Callback.register "alpha_hat_callback" (fun x ->
+      K.Iter.alpha ~split:(!Cra.split_loops) x);
+  Callback.register "tensor_alpha_hat_callback" (fun x ->
+      KK.Iter.alpha ~split:(!Cra.split_loops) x);
+  Callback.register "abstract_star_callback" (fun x ->
+      K.Iter.closure ~use_ocrs:(!Cra.use_ocrs) x);
+  Callback.register "tensor_abstract_star_callback" (fun x ->
+      KK.Iter.closure ~use_ocrs:(!Cra.use_ocrs) x);
 
   Callback.register "abstract_equiv_callback" K.Iter.equal;
   Callback.register "tensor_abstract_equiv_callback" KK.Iter.equal;
