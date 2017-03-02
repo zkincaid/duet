@@ -74,7 +74,7 @@ module Make
 
   (** Over-approximate the transitive closure of a transition.  If split is
       set (default), then loop splitting is turned on. *)
-  val star : ?split:bool -> t -> t
+  val star : ?split:bool -> ?use_ocrs:bool -> t -> t
 
   (** Unexecutable transition (unit of [add]). *)
   val zero : t
@@ -127,7 +127,7 @@ module Make
   (** Iteration domain.  See {!Iteration}. *)
   module Iter : sig
     val alpha : ?split:bool -> t -> iter
-    val closure : iter -> t
+    val closure : ?use_ocrs:bool -> iter -> t
 
     val equal : iter -> iter -> bool
 

@@ -189,7 +189,7 @@ struct
         Iteration.abstract_iter ~exists ark (mk_and ark (tr.guard::post_def)) tr_symbols
         |> Iteration.Split.lift_split
 
-    let closure iter =
+    let closure ?(use_ocrs=false) iter =
       let transform =
         List.fold_left (fun tr (pre, post) ->
             match Var.of_symbol pre with
@@ -199,7 +199,7 @@ struct
           (Iteration.Split.tr_symbols iter)
       in
       { transform = transform;
-        guard = Iteration.Split.closure iter }
+        guard = Iteration.Split.closure ~use_ocrs iter }
 
     let join = Iteration.Split.join
 
@@ -212,8 +212,8 @@ struct
     let show = Iteration.Split.show_split_iter
   end
 
-  let star ?(split=true) tr =
-    Iter.closure (Iter.alpha ~split tr)
+  let star ?(split=true) ?(use_ocrs=false) tr =
+    Iter.closure ~use_ocrs (Iter.alpha ~split tr)
 
   let zero =
     { transform = M.empty; guard = mk_false ark }
