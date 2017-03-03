@@ -565,11 +565,11 @@ let closure_ocrs iter =
         else
           Symbolic_Constant (string_of_symbol sym)
       | `App (sym, _) -> assert false (* to do *)
-      | `Real k -> Rational (Mpfr.of_float (QQ.to_float k) Mpfr.Near)
+      | `Real k -> Rational (Mpqf.to_mpq k)
       | `Add xs -> Sum xs
       | `Mul xs -> Product xs
       | `Binop (`Div, x, y) -> Divide (x, y)
-      | `Unop (`Neg, x) -> Minus (Rational (Mpfr.of_int 0 Mpfr.Near), x)
+      | `Unop (`Neg, x) -> Minus (Rational (Mpq.of_int 0), x)
       | `Binop (`Mod, _, _) | `Unop (`Floor, _) -> raise No_translation
       | `Ite (_, _, _) | `Var (_, _) -> assert false
     in
@@ -594,17 +594,19 @@ let closure_ocrs iter =
       assert (subscript = ss_post);
       Symbol.Map.find (symbol_of_string name) post_map
       |> mk_const iter.ark
-    | Rational k ->
-      (* TODO: rounding error *)
-      mk_real iter.ark (QQ.of_float (Mpfr.to_float k))
+    | Rational k -> mk_real iter.ark (Mpqf.of_mpq k)
     | Undefined -> assert false
     | Pow (x, Rational k) ->
-      (* TODO: rounding error *)
       let base = term_of_expr x in
-      (1 -- int_of_float (Mpfr.to_float k))
-      /@ (fun _ -> base)
-      |> BatList.of_enum
-      |> mk_mul iter.ark
+      begin
+        match QQ.to_int (Mpqf.of_mpq k) with
+        | Some k ->
+          (1 -- k)
+          /@ (fun _ -> base)
+          |> BatList.of_enum
+          |> mk_mul iter.ark
+        | None -> assert false
+      end
     | Log (_, _) | Pow (_, _) | Binomial (_, _) | Factorial _ -> assert false
   in
 
