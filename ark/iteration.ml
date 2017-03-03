@@ -436,7 +436,7 @@ let abstract_iter ?(exists=fun x -> true) ark phi symbols =
   in
   abstract_iter_cube ark cube symbols
 
-let closure (iter : 'a iter) : 'a formula =
+let closure ?(guard=None) (iter : 'a iter) : 'a formula =
   let loop_counter_sym = mk_symbol iter.ark ~name:"K" `TyInt in
   let loop_counter = mk_const iter.ark loop_counter_sym in
 
@@ -511,7 +511,10 @@ let closure (iter : 'a iter) : 'a formula =
       iter.symbols
     |> mk_and iter.ark
   in
-
+  let guard = match guard with
+    | None -> mk_true iter.ark
+    | Some guard -> guard
+  in
   mk_or iter.ark [
     zero_iter;
     mk_and iter.ark [
@@ -519,12 +522,13 @@ let closure (iter : 'a iter) : 'a formula =
       mk_leq iter.ark (mk_real iter.ark QQ.one) loop_counter;
       stratified;
       inequations;
-      Cube.to_formula iter.postcondition
+      Cube.to_formula iter.postcondition;
+      guard
     ]
   ]
 
 exception No_translation
-let closure_ocrs iter =
+let closure_ocrs ?(guard=None) iter =
   let open Ocrs in
   let open Type_def in
 
@@ -565,11 +569,11 @@ let closure_ocrs iter =
         else
           Symbolic_Constant (string_of_symbol sym)
       | `App (sym, _) -> assert false (* to do *)
-      | `Real k -> Rational (Mpfr.of_float (QQ.to_float k) Mpfr.Near)
+      | `Real k -> Rational (Mpqf.to_mpq k)
       | `Add xs -> Sum xs
       | `Mul xs -> Product xs
       | `Binop (`Div, x, y) -> Divide (x, y)
-      | `Unop (`Neg, x) -> Minus (Rational (Mpfr.of_int 0 Mpfr.Near), x)
+      | `Unop (`Neg, x) -> Minus (Rational (Mpq.of_int 0), x)
       | `Binop (`Mod, _, _) | `Unop (`Floor, _) -> raise No_translation
       | `Ite (_, _, _) | `Var (_, _) -> assert false
     in
@@ -594,17 +598,19 @@ let closure_ocrs iter =
       assert (subscript = ss_post);
       Symbol.Map.find (symbol_of_string name) post_map
       |> mk_const iter.ark
-    | Rational k ->
-      (* TODO: rounding error *)
-      mk_real iter.ark (QQ.of_float (Mpfr.to_float k))
+    | Rational k -> mk_real iter.ark (Mpqf.of_mpq k)
     | Undefined -> assert false
     | Pow (x, Rational k) ->
-      (* TODO: rounding error *)
       let base = term_of_expr x in
-      (1 -- int_of_float (Mpfr.to_float k))
-      /@ (fun _ -> base)
-      |> BatList.of_enum
-      |> mk_mul iter.ark
+      begin
+        match QQ.to_int (Mpqf.of_mpq k) with
+        | Some k ->
+          (1 -- k)
+          /@ (fun _ -> base)
+          |> BatList.of_enum
+          |> mk_mul iter.ark
+        | None -> assert false
+      end
     | Log (_, _) | Pow (_, _) | Binomial (_, _) | Factorial _ -> assert false
   in
 
@@ -659,12 +665,17 @@ let closure_ocrs iter =
       iter.symbols
     |> mk_and iter.ark
   in
+  let guard = match guard with
+    | None -> mk_true iter.ark
+    | Some guard -> guard
+  in
   mk_or iter.ark [
     zero_iter;
     mk_and iter.ark ([
         Cube.to_formula iter.precondition;
         mk_leq iter.ark (mk_real iter.ark QQ.one) loop_counter;
-        Cube.to_formula iter.postcondition
+        Cube.to_formula iter.postcondition;
+        guard
       ]@closed)
   ]
 
@@ -769,6 +780,16 @@ module Split = struct
       let rr expr =
         match destruct ark expr with
         | `Not phi ->
+          if Symbol.Set.for_all prestate (symbols phi) then
+            preds := ExprSet.add phi (!preds);
+          expr
+        | `Atom (op, s, t) ->
+          let phi =
+            match op with
+            | `Eq -> mk_eq ark s t
+            | `Leq -> mk_leq ark s t
+            | `Lt -> mk_lt ark s t
+          in
           if Symbol.Set.for_all prestate (symbols phi) then
             preds := ExprSet.add phi (!preds);
           expr
@@ -896,9 +917,12 @@ module Split = struct
       else
         closure
     in
-    ExprMap.values split_iter
-    /@ (fun (left, right) ->
-        (sequence ark symbols (base_closure left) (base_closure right)))
+    ExprMap.enum split_iter
+    /@ (fun (predicate, (left, right)) ->
+        let not_predicate = mk_not ark predicate in
+        (sequence ark symbols
+           (base_closure ~guard:(Some predicate) left)
+           (base_closure ~guard:(Some not_predicate) right)))
     |> BatList.of_enum
     |> mk_and ark
 

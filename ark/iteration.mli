@@ -12,9 +12,9 @@ val abstract_iter : ?exists:(symbol -> bool) ->
   (symbol * symbol) list ->
   'a iter
 
-val closure : 'a iter -> 'a formula
+val closure : ?guard:('a formula option) -> 'a iter -> 'a formula
 
-val closure_ocrs : 'a iter -> 'a formula
+val closure_ocrs : ?guard:('a formula option) -> 'a iter -> 'a formula
 
 val star : ?exists:(symbol -> bool) ->
   'a context ->
