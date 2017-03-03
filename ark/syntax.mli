@@ -95,7 +95,7 @@ val destruct : 'a context -> ('a, 'b) expr -> [
     | `Or of ('a formula) list
     | `Not of ('a formula)
     | `Quantify of [`Exists | `Forall] * string * typ_fo * ('a formula)
-    | `Atom of [`Eq | `Leq | `Lt] * ('b term) * ('b term)
+    | `Atom of [`Eq | `Leq | `Lt] * ('a term) * ('a term)
     | `Proposition of [ `Var of int
                       | `App of symbol * (('b, typ_fo) expr) list ]
   ]

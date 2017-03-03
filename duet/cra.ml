@@ -448,7 +448,7 @@ let analyze file =
         | Assert (_, _) | AssertMemSafe _ -> true
         | _             -> false
       in
-        let check_assert def path =
+      let check_assert def path =
         match def.dkind with
         | AssertMemSafe (expr, msg) -> begin
             match tr_expr expr with
@@ -473,7 +473,6 @@ let analyze file =
                 let path_condition =
                   Ctx.mk_and [K.guard path; Ctx.mk_not phi]
                 in
-
                 match Smt.is_sat Ctx.context path_condition with
                 | `Sat -> Report.log_error (Def.get_location def) msg
                 | `Unsat -> Report.log_safe ()
