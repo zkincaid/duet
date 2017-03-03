@@ -64,7 +64,7 @@ module K = struct
       let guard = Syntax.substitute_const ark substitution (guard tr) in
       Ctx.mk_and (guard::transform_equations)
     in
-    mul (assume guard) rev_transform
+    construct guard (BatList.of_enum (transform rev_transform))
 
   let top_local block =
     let open CfgIr in
@@ -378,7 +378,7 @@ let tensor tr_left tr_right =
       (K.transform tr_left
        /@ (fun (v, rhs) -> (Left v, inject_left rhs)))
       (K.transform tr_right
-       /@ (fun (v, rhs) -> (Right v, inject_left rhs)))
+       /@ (fun (v, rhs) -> (Right v, inject_right rhs)))
     |> BatList.of_enum
   in
   let guard =
