@@ -1,7 +1,8 @@
 open Syntax
 open BatPervasives
+open Apak
 
-include Apak.Log.Make(struct let name = "ark.arkZ3" end)
+include Log.Make(struct let name = "ark.arkZ3" end)
 
 exception Unknown_result
 
@@ -380,7 +381,7 @@ class ['a] z3_solver (context : 'a context) z3 s =
 
     method check args =
       let res =
-        Apak.Log.time "solver.check" (Z3.Solver.check s) (List.map of_formula args)
+        Log.time "solver.check" (Z3.Solver.check s) (List.map of_formula args)
       in
       match res with
       | Z3.Solver.SATISFIABLE -> `Sat
@@ -536,7 +537,7 @@ let mk_context : 'a context -> (string * string) list -> 'a z3_context
               (* x + epsilon *)
               Some (qq_val (List.hd (Z3.Expr.get_args lo)))
             else
-              Apak.Log.fatalf "Smt.optimize_box: %s" (Z3.Expr.to_string lo)
+              Log.fatalf "Smt.optimize_box: %s" (Z3.Expr.to_string lo)
           in
           let upper =
             let hi = get_lower hi in
@@ -548,7 +549,7 @@ let mk_context : 'a context -> (string * string) list -> 'a z3_context
               (* x - epsilon *)
               Some (qq_val (List.hd (Z3.Expr.get_args hi)))
             else
-              Apak.Log.fatalf "Smt.optimize_box: %s" (Z3.Expr.to_string hi)
+              Log.fatalf "Smt.optimize_box: %s" (Z3.Expr.to_string hi)
           in
           Interval.make lower upper
         in
@@ -561,7 +562,7 @@ let mk_context : 'a context -> (string * string) list -> 'a z3_context
         let ast = Z3.SMT.parse_smtlib2_string z3 str [] [] [] [] in
         let sym_of_decl =
           let cos =
-            Apak.Memo.memo (fun (name, typ) -> mk_symbol context ~name typ)
+            Memo.memo (fun (name, typ) -> mk_symbol context ~name typ)
           in
           fun decl ->
             let open Z3 in
