@@ -282,15 +282,15 @@ struct
     else widen x y
 
   (* alpha equivalence - only works for normalized transitions! *)
+  exception Not_normal
   let equiv x y =
-    try (
     let sigma =
       let map =
         M.fold (fun v rhs m ->
             match Term.destruct ark rhs,
                   Term.destruct ark (M.find v y.transform) with
             | `App (a, []), `App (b, []) -> Symbol.Map.add a (mk_const ark b) m
-            | _, _ -> assert false)
+            | _ -> raise Not_normal)
           x.transform
           Symbol.Map.empty
       in
@@ -299,10 +299,13 @@ struct
         with Not_found -> mk_const ark sym
     in
     let x_guard = substitute_const ark sigma x.guard in
-    match Smt.is_sat ark (mk_not ark (mk_iff ark x_guard y.guard)) with
+    match Abstract.is_sat ark (mk_not ark (mk_iff ark x_guard y.guard)) with
     | `Unsat -> true
-    | _ -> false)
-    with Not_found -> false
+    | _ -> false
+  let equiv x y =
+    try equiv x y
+    with | Not_found -> false
+         | Not_normal -> false
 
   let equal x y = compare x y = 0 || equiv x y
   let exists p tr =
