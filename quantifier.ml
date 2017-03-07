@@ -196,6 +196,7 @@ let mbp_virtual_term ark interp x atoms =
 
   let get_vt atom =
     match Interpretation.destruct_atom ark atom with
+    | `Tru -> None
     | `Literal (_, _) -> None
     | `Comparison (op, s, t) ->
       let t =
@@ -648,6 +649,7 @@ let select_real_term ark interp x atoms =
   let x_val = Interpretation.real interp x in
   let bound_of_atom atom =
     match Interpretation.destruct_atom ark atom with
+    | `Tru -> (None, None)
     | `Literal (_, _) -> (None, None)
     | `Comparison (op, s, t) ->
       let t = V.add (linterm_of ark s) (V.negate (linterm_of ark t)) in
@@ -730,7 +732,7 @@ let select_int_term ark interp x atoms =
     List.fold_left
       (fun delta atom ->
          match Interpretation.destruct_atom ark atom with
-         | `Literal (_, _) -> delta
+         | `Tru | `Literal (_, _) -> delta
          | `Comparison (op, s, t) ->
            match simplify_atom ark op s t with
            | `Divides (divisor, t) | `NotDivides (divisor, t) ->
@@ -756,7 +758,7 @@ let select_int_term ark interp x atoms =
   in
   let bound_of_atom atom =
     match Interpretation.destruct_atom ark atom with
-    | `Literal (_, _) -> `None
+    | `Tru | `Literal (_, _) -> `None
     | `Comparison (op, s, t) ->
       match simplify_atom ark op s t with
       | `CompareZero (op, t) ->

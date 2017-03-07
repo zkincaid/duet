@@ -306,5 +306,6 @@ let destruct_atom ark phi =
       | `Proposition (`Var i) -> `Literal (`Neg, `Var i)
       | _ -> invalid_arg "destruct_atomic: not atomic"
     end
+  | `Tru -> `Tru
   | _ ->
     invalid_arg "destruct_atomic: not atomic"
