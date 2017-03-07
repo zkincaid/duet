@@ -246,7 +246,7 @@ let abstract_iter_cube ark cube tr_symbols =
                None
              else
                Some (postify lhs, op, lhs, mk_neg ark rhs))
-      | `Literal (_, _) -> None
+      | `Tru | `Literal (_, _) -> None
     in
     BatList.filter_map recur (Cube.to_atoms diff_cube)
   in
