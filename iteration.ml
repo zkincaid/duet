@@ -847,7 +847,7 @@ module Split = struct
           let right_abstract =
             abstract_iter ~exists ark psi_body tr_symbols
           in
-          ExprMap.add psi (left_abstract, right_abstract) split_iter
+          ExprMap.add not_psi (left_abstract, right_abstract) split_iter
         else if sat_modulo_body (mk_and ark [not_psi; post_psi]) = `Unsat then
           (* {not phi} body {not phi} -> body* = ([phi]body)*([not phi]body)* *)
           let left_abstract =
