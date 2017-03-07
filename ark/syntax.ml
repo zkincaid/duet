@@ -1116,7 +1116,7 @@ let rec pp_smtlib2 ?(env=Env.empty) ctx formatter expr =
         (go env) cond
         (go env) bthen
         (go env) belse
-    | _ -> failwith "pp_expr_smtlib2: ill-formed expression"
+    | _ -> failwith "pp_smtlib2: ill-formed expression"
   in
   fprintf formatter "(assert %a)@;(check-sat)@]" (go env) expr;
 
