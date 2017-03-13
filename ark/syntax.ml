@@ -511,6 +511,7 @@ module ExprSet = struct
   let union = S.union
   let inter = S.inter
   let enum = S.enum
+  let mem = S.mem
 end
 
 module ExprMap = struct
@@ -1296,6 +1297,11 @@ module MakeSimplifyingContext () = struct
 
       | Not, [phi] when is_true phi -> false_
       | Not, [phi] when is_false phi -> true_
+      | Not, [phi] ->
+        begin match phi.obj with
+          | Node (Not, [psi], _) -> psi
+          | _ -> hc Not [phi]
+        end
 
       | Add, xs ->
         begin match List.filter (not % is_zero) xs with

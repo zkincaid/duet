@@ -160,6 +160,7 @@ module ExprSet : sig
   val union : ('a, 'typ) t -> ('a, 'typ) t -> ('a, 'typ) t
   val inter : ('a, 'typ) t -> ('a, 'typ) t -> ('a, 'typ) t
   val enum : ('a, 'typ) t -> (('a, 'typ) expr) BatEnum.t
+  val mem : ('a, 'typ) expr -> ('a, 'typ) t -> bool
 end
 
 module ExprMap : sig
