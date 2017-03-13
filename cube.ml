@@ -935,7 +935,7 @@ let exists
     | None ->
       let term = Env.term_of_id env id in
       let term_rewrite = rewrite term in
-      if Symbol.Set.for_all p (symbols term_rewrite) then
+      if Symbol.Set.for_all (fun x -> p x && subterm x) (symbols term_rewrite) then
 
         (* Add integrity constraint for term = term_rewrite *)
         let precondition =

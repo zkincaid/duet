@@ -61,11 +61,9 @@ let abstract_iter_cube ark cube tr_symbols =
       Symbol.Set.empty
       tr_symbols
   in
-(*
   let is_symbolic_constant x =
     not (Symbol.Set.mem x pre_symbols || Symbol.Set.mem x post_symbols)
   in
-*)
   let precondition =
     Cube.exists (not % flip Symbol.Set.mem post_symbols) cube
   in
@@ -74,39 +72,37 @@ let abstract_iter_cube ark cube tr_symbols =
   in
   let (stratified, non_induction) =
     let equalities = Cube.farkas_equalities cube in
-    let coeff_vec =
-      List.fold_left (fun map (term, vec) ->
+    (* Matrix consisting of one row for each dimension of the cube that is
+       associated with a term that contains a transition variable; the row
+       contains the Farkas column for that dimension *)
+    let matrix =
+      BatList.fold_lefti (fun m id (term, column) ->
+          if Symbol.Set.for_all is_symbolic_constant (symbols term) then
+            m
+          else
+            QQMatrix.add_row id column m)
+        QQMatrix.zero
+        equalities
+    in
+    let row_of_symbol =
+      BatList.fold_lefti (fun map id (term, _) ->
           match Term.destruct ark term with
-          | `App (sym, []) -> Symbol.Map.add sym vec map
+          | `App (sym, []) -> Symbol.Map.add sym id map
           | _ -> map)
         Symbol.Map.empty
         equalities
-    in
-    let eq_table = ExprHT.create 991 in
-    List.iter (fun (term, vec) -> ExprHT.add eq_table term vec) equalities;
-    (* Matrix consisting of one row for each pre/post symbol, which contains
-       the coefficient vector for that symbol *)
-    let matrix =
-      Symbol.Set.fold (fun sym m ->
-          let sym_coeff =
-            try
-              Symbol.Map.find sym coeff_vec
-            with Not_found -> V.zero
-          in
-          QQMatrix.add_row (int_of_symbol sym) sym_coeff m)
-        (Symbol.Set.union pre_symbols post_symbols)
-        QQMatrix.zero
     in
     let rec go induction non_induction tail matrix =
       match non_induction with
       | [] -> (List.rev induction, tail)
       | (sym,sym')::non_induction ->
         (* coefficient of sym' must be -1, coefficent of sym must be 1 *)
+        let sym_row = Symbol.Map.find sym row_of_symbol in
         let diff =
           V.add_term
             (QQ.of_int (-1))
-            (int_of_symbol sym')
-            (V.of_term QQ.one (int_of_symbol sym))
+            (Symbol.Map.find sym' row_of_symbol)
+            (V.of_term QQ.one sym_row)
         in
         match Linear.solve matrix diff with
         | Some solution ->
@@ -126,16 +122,25 @@ let abstract_iter_cube ark cube tr_symbols =
             (sym', sym, rhs)::induction
           in
           (* Remove sym row from the matrix.  sym' row stays to ensure that
-             recurrences are only over pre-state variables. *)
-          let (_, matrix) = QQMatrix.pivot (int_of_symbol sym) matrix in
+             recurrences are only over pre-state variables.
+
+             TODO: Should also filter out rows corresponding to terms
+             involving only induction variables.  *)
+          let (_, matrix) = QQMatrix.pivot sym_row matrix in
           go induction (non_induction@tail) [] matrix
         | None ->
           go induction non_induction ((sym,sym')::tail) matrix
     in
-    go [] tr_symbols [] matrix
+    (* Filter out transition symbols without associated rows in the matrix --
+       those are not induction variables *)
+    let non_induction =
+      List.filter (fun (s,s') ->
+          Symbol.Map.mem s row_of_symbol && Symbol.Map.mem s' row_of_symbol)
+        tr_symbols
+    in
+    go [] non_induction [] matrix
   in
   let inequations =
-
     (* For every non-induction var x, substitute x -> x' - x in the loop body;
        the project out all post-variables.  In the resulting cube, the var
        x should be interpreted as the difference x'-x. *)
@@ -423,13 +428,13 @@ module Cf = struct
 end
 
 let abstract_iter ?(exists=fun x -> true) ark phi symbols =
-  let tr_symbols =
-    List.fold_left (fun set (s,s') ->
-        Symbol.Set.add s (Symbol.Set.add s' set))
+  let post_symbols =
+    List.fold_left (fun set (_,s') ->
+        Symbol.Set.add s' set)
       Symbol.Set.empty
       symbols
   in
-  let subterm x = not (Symbol.Set.mem x tr_symbols) in
+  let subterm x = not (Symbol.Set.mem x post_symbols) in
   let cube = 
     Abstract.abstract_nonlinear ~exists ark phi
     |> Cube.exists ~subterm (fun _ -> true)
