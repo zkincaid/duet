@@ -529,6 +529,7 @@ module ExprMap = struct
   let values = M.values
   let enum = M.enum
   let merge = M.merge
+  let fold = M.fold
 end
 
 module ExprMemo = Apak.Memo.Make(Expr)

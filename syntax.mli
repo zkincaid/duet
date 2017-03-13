@@ -178,6 +178,7 @@ module ExprMap : sig
   val enum : ('a, 'typ, 'b) t -> (('a, 'typ) expr * 'b) BatEnum.t
   val merge : ((('a, 'typ) expr) -> 'b option -> 'c option -> 'd option) ->
     ('a, 'typ, 'b) t -> ('a, 'typ, 'c) t -> ('a, 'typ, 'd) t
+  val fold : (('a, 'typ) expr -> 'b -> 'c -> 'c) -> ('a, 'typ, 'b) t -> 'c -> 'c
 end
 
 (** {2 Terms} *)
