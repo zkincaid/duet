@@ -795,8 +795,16 @@ module Split = struct
             | `Leq -> mk_leq ark s t
             | `Lt -> mk_lt ark s t
           in
+          begin
           if Symbol.Set.for_all prestate (symbols phi) then
-            preds := ExprSet.add phi (!preds);
+            let redundant = match op with
+              | `Eq -> false
+              | `Leq -> ExprSet.mem (mk_lt ark t s) (!preds)
+              | `Lt -> ExprSet.mem (mk_lt ark t s) (!preds)
+            in
+            if not redundant then
+              preds := ExprSet.add phi (!preds)
+          end;
           expr
         | _ -> expr
       in
