@@ -307,5 +307,6 @@ let destruct_atom ark phi =
       | _ -> invalid_arg "destruct_atomic: not atomic (not)"
     end
   | `Fls -> `Comparison (`Eq, mk_real ark QQ.zero, mk_real ark QQ.one)
+  | `Tru -> `Tru
   | _ ->
     invalid_arg ("destruct_atomic: not atomic: " ^ (Formula.show ark phi))

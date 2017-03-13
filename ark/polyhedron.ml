@@ -74,7 +74,7 @@ let polyhedron_of_implicant ark conjuncts =
         leq = [V.add
                  (Linear.linterm_of ark x)
                  (V.negate (Linear.linterm_of ark y))] }
-    | `Literal (_, _) -> top
+    | `Tru | `Literal (_, _) -> top
   in
   List.fold_left conjoin top (List.map linearize conjuncts)
 

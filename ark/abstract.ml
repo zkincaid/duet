@@ -533,11 +533,19 @@ let is_sat ark phi =
     |> BatList.of_enum
   in
   let nonlinear = Symbol.Map.map (nonlinear_interpreted ark) nonlinear in
+  let rec replace_defs_term term =
+    substitute_const
+      ark
+      (fun x ->
+         try replace_defs_term (Symbol.Map.find x nonlinear)
+         with Not_found -> mk_const ark x)
+      term
+  in
   let replace_defs =
     substitute_const
       ark
       (fun x ->
-         try Symbol.Map.find x nonlinear
+         try replace_defs_term (Symbol.Map.find x nonlinear)
          with Not_found -> mk_const ark x)
   in
   solver#add [lin_phi];
@@ -586,11 +594,19 @@ let abstract_nonlinear ?exists:(p=fun x -> true) ark phi =
     |> mk_and ark
   in
   let nonlinear = Symbol.Map.map (nonlinear_interpreted ark) nonlinear in
+  let rec replace_defs_term term =
+    substitute_const
+      ark
+      (fun x ->
+         try replace_defs_term (Symbol.Map.find x nonlinear)
+         with Not_found -> mk_const ark x)
+      term
+  in
   let replace_defs =
     substitute_const
       ark
       (fun x ->
-         try Symbol.Map.find x nonlinear
+         try replace_defs_term (Symbol.Map.find x nonlinear)
          with Not_found -> mk_const ark x)
   in
   solver#add [lin_phi];
@@ -662,11 +678,19 @@ let symbolic_bounds ?exists:(p=fun x -> true) ark phi symbol =
     |> mk_and ark
   in
   let nonlinear = Symbol.Map.map (nonlinear_interpreted ark) nonlinear in
+  let rec replace_defs_term term =
+    substitute_const
+      ark
+      (fun x ->
+         try replace_defs_term (Symbol.Map.find x nonlinear)
+         with Not_found -> mk_const ark x)
+      term
+  in
   let replace_defs =
     substitute_const
       ark
       (fun x ->
-         try Symbol.Map.find x nonlinear
+         try replace_defs_term (Symbol.Map.find x nonlinear)
          with Not_found -> mk_const ark x)
   in
   solver#add [lin_phi];

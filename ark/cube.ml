@@ -404,6 +404,10 @@ let lincons_of_atom env atom =
          env
          (V.add (Env.vec_of_term env y) (V.negate (Env.vec_of_term env x))))
       Lincons0.EQ
+  | `Tru ->
+    Lincons0.make
+      (Linexpr0.of_list None [] None) (* zero *)
+      Lincons0.EQ
   | `Literal (_, _) -> assert false
 
 let bound_vec property vec =
@@ -771,6 +775,7 @@ let of_atoms ark ?integrity:(integrity=(fun _ -> ())) atoms =
     | `Comparison (_, x, y) ->
       ignore (Env.vec_of_term env x);
       ignore (Env.vec_of_term env y)
+    | `Tru -> ()
     | `Literal (_, _) -> assert false
   in
   List.iter register_terms atoms;
@@ -791,6 +796,7 @@ let common_env property property' =
     | `Comparison (_, x, y) ->
       ignore (Env.vec_of_term env x);
       ignore (Env.vec_of_term env y);
+    | `Tru -> ()
     | `Literal (_, _) -> assert false
   in
   let atoms = to_atoms property in
@@ -929,7 +935,7 @@ let exists
     | None ->
       let term = Env.term_of_id env id in
       let term_rewrite = rewrite term in
-      if Symbol.Set.for_all p (symbols term_rewrite) then
+      if Symbol.Set.for_all (fun x -> p x && subterm x) (symbols term_rewrite) then
 
         (* Add integrity constraint for term = term_rewrite *)
         let precondition =

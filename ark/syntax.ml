@@ -511,6 +511,7 @@ module ExprSet = struct
   let union = S.union
   let inter = S.inter
   let enum = S.enum
+  let mem = S.mem
 end
 
 module ExprMap = struct
@@ -528,6 +529,7 @@ module ExprMap = struct
   let values = M.values
   let enum = M.enum
   let merge = M.merge
+  let fold = M.fold
 end
 
 module ExprMemo = Apak.Memo.Make(Expr)
@@ -1116,7 +1118,7 @@ let rec pp_smtlib2 ?(env=Env.empty) ctx formatter expr =
         (go env) cond
         (go env) bthen
         (go env) belse
-    | _ -> failwith "pp_expr_smtlib2: ill-formed expression"
+    | _ -> failwith "pp_smtlib2: ill-formed expression"
   in
   fprintf formatter "(assert %a)@;(check-sat)@]" (go env) expr;
 
@@ -1296,6 +1298,11 @@ module MakeSimplifyingContext () = struct
 
       | Not, [phi] when is_true phi -> false_
       | Not, [phi] when is_false phi -> true_
+      | Not, [phi] ->
+        begin match phi.obj with
+          | Node (Not, [psi], _) -> psi
+          | _ -> hc Not [phi]
+        end
 
       | Add, xs ->
         begin match List.filter (not % is_zero) xs with

@@ -351,6 +351,23 @@ let mod_abstract () =
   in
   assert_equiv_formula psi phi_abstract
 
+let degree3_abstract () =
+  let phi =
+    let open Infix in
+    (x <= y * y * y)
+  in
+  let phi_abstract =
+    let abstract =
+      Abstract.abstract_nonlinear ctx phi
+    in
+    Cube.to_formula abstract
+  in
+  let psi =
+    let open Infix in
+    x <= y * y * y
+  in
+  assert_equiv_formula psi phi_abstract
+
 let suite = "Abstract" >::: [
     "affine_hull1" >:: affine_hull1;
     "affine_hull2" >:: affine_hull2;
@@ -377,4 +394,5 @@ let suite = "Abstract" >::: [
     "nonlinear_abstract1" >:: nonlinear_abstract1;
     "nonlinear_abstract2" >:: nonlinear_abstract2;
     "mod_abstract" >:: mod_abstract;
+    "degree3_abstract" >:: degree3_abstract
   ]

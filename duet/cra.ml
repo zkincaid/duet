@@ -162,7 +162,14 @@ let tr_typ typ = match resolve_type typ with
   | Pointer _ -> `TyInt
   | Enum _ -> `TyInt
   | Array _ -> `TyInt
-  | Dynamic -> `TyReal
+  | Dynamic ->
+    (* TODO : we should conservatively translate Dynamic as a real, but SMT
+       solvers struggled with the resulting mixed int/real constraints.  To
+       make this sound we should do a type analysis to determine when a
+       dynamic type can be narrowed to an int.  The main place this comes up
+       is in formal parameters, which are typed dynamic to make indirect calls
+       easier to handle. *)
+    `TyInt
   | _ -> `TyInt
 
 type value =

@@ -7,13 +7,221 @@ include Log.Make(struct let name = "ark.iteration" end)
 module V = Linear.QQVector
 module QQMatrix = Linear.QQMatrix
 
+module RingMap(R : Linear.Ring) = struct
+  type 'a t = ('a, typ_arith, R.t) ExprMap.t
+
+  let zero = ExprMap.empty
+
+  let enum = ExprMap.enum
+
+  let add u v =
+    let f _ a b =
+      match a, b with
+      | Some a, Some b ->
+        let sum = R.add a b in
+        if R.equal sum R.zero then None else Some sum
+      | Some x, None | None, Some x -> Some x
+      | None, None -> assert false
+    in
+    ExprMap.merge f u v
+
+  let add_term coeff dim vec =
+    if R.equal coeff R.zero then vec else begin
+      try
+        let sum = R.add coeff (ExprMap.find dim vec) in
+        if not (R.equal sum R.zero) then ExprMap.add dim sum vec
+        else ExprMap.remove dim vec
+      with Not_found -> ExprMap.add dim coeff vec
+    end
+
+  let term coeff dim = add_term coeff dim zero
+
+  let const ark scalar = add_term scalar (mk_real ark QQ.one) zero
+
+  let of_enum enum =
+    BatEnum.fold (fun t (dim, coeff) -> add_term coeff dim t) zero enum
+
+  let mul ark u v =
+    ApakEnum.cartesian_product
+      (enum u)
+      (enum v)
+    /@ (fun ((xdim, xcoeff), (ydim, ycoeff)) ->
+        (mk_mul ark [xdim; ydim], R.mul xcoeff ycoeff))
+    |> of_enum
+end
+
+module ExprVec = struct
+  include RingMap(QQ)
+
+  let of_term ark term =
+    let rec go term =
+      match Term.destruct ark term with
+      | `Add xs -> List.fold_left (fun x y -> add x (go y)) zero xs
+      | `Real k -> const ark k
+      | `Mul xs ->
+        let (coeff, product) =
+          List.fold_right (fun term (coeff, product) ->
+              match Term.destruct ark term with
+              | `Real k -> (QQ.mul coeff k, product)
+              | _ -> (coeff, term::product))
+            xs
+            (QQ.one, [])
+        in
+        ExprMap.add (mk_mul ark product) coeff ExprMap.empty
+      | _ -> ExprMap.add term QQ.one ExprMap.empty
+    in
+    go term
+
+  let term_of ark sum =
+    ExprMap.fold (fun term coeff terms ->
+        if QQ.equal coeff QQ.one then
+          term::terms
+        else
+          (mk_mul ark [mk_real ark coeff; term])::terms)
+      sum
+      []
+    |> mk_add ark
+end
+
+module QQUvp = Polynomial.QQUvp
+module Cf = struct
+  include RingMap(QQUvp)
+
+  let k_minus_1 = QQUvp.add_term QQ.one 1 (QQUvp.scalar (QQ.of_int (-1)))
+
+  (* Compose a closed form with a uvp *)
+  let compose cf p =
+    ExprMap.filter_map
+      (fun _ coeff ->
+         let coeff' = QQUvp.compose coeff p in
+         if QQUvp.is_zero coeff' then
+           None
+         else
+           Some coeff')
+      cf
+
+  let scalar_mul scalar vec =
+    if QQUvp.is_zero scalar then
+      zero
+    else
+      ExprMap.map (QQUvp.mul scalar) vec
+
+  exception Quit
+
+  (* Lower a degree-0 cf to a regular term *)
+  let term_of_0 ark cf =
+    try
+      let lowered =
+        enum cf
+        /@ (fun (dim, coeff) ->
+            let (const_coeff, higher_order) = QQUvp.pivot 0 coeff in
+            if QQUvp.equal higher_order QQUvp.zero then
+              mk_mul ark [mk_real ark const_coeff; dim]
+            else
+              raise Quit)
+        |> BatList.of_enum
+        |> mk_add ark
+      in
+      Some lowered
+    with Quit -> None
+
+  let of_term ark env =
+    let rec alg = function
+      | `App (v, []) ->
+        begin
+          match env v with
+          | Some cf -> Some (compose cf k_minus_1)
+          | None -> None
+        end
+      | `App (func, args) ->
+        begin
+          match BatOption.bind (env func) (term_of_0 ark) with
+          | None -> None
+          | Some t ->
+            begin match Term.destruct ark t with
+              | `App (func', []) when func = func' ->
+                let args' =
+                  BatList.filter_map
+                    (fun arg ->
+                       match refine ark arg with
+                       | `Term t ->
+                         BatOption.bind (Term.eval_partial ark alg t) (term_of_0 ark)
+                       | `Formula _ -> None)
+                    args
+                in
+                if List.length args = List.length args' then
+                  Some (term QQUvp.one (mk_app ark func args'))
+                else
+                  None
+              | _ -> None
+            end
+        end
+      | `Real k -> Some (const ark (QQUvp.scalar k))
+      | `Add xs -> Some (List.fold_left add zero xs)
+      | `Mul [] -> Some (const ark (QQUvp.scalar QQ.one))
+      | `Mul (x::xs) -> Some (List.fold_left (mul ark) x xs)
+      | `Binop (`Div, x, y) ->
+        (* to do: if denomenator is a constant then the numerator can be loop dependent *)
+        begin match term_of_0 ark x, term_of_0 ark y with
+          | Some x, Some y -> Some (term QQUvp.one (mk_div ark x y))
+          | _, _ -> None
+        end
+      | `Binop (`Mod, x, y) ->
+        begin match term_of_0 ark x, term_of_0 ark y with
+          | Some x, Some y -> Some (term QQUvp.one (mk_mod ark x y))
+          | _, _ -> None
+        end
+      | `Unop (`Floor, x) ->
+        begin match term_of_0 ark x with
+          | Some x -> Some (term QQUvp.one (mk_floor ark x))
+          | None -> None
+        end
+      | `Unop (`Neg, x) -> Some (scalar_mul (QQUvp.negate QQUvp.one) x)
+      | `Ite (_, _, _) -> None
+      | `Var (_, _) -> None
+    in
+    Term.eval_partial ark alg
+
+  let summation cf =
+    (* QQUvp.summation computes q(n) = sum_{i=0}^n p(i); shift to compute
+       q(n) = sum_{i=1}^n p(i) *)
+    let sum_from_1 px =
+      QQUvp.add_term (QQ.negate (QQUvp.eval px QQ.zero)) 0 (QQUvp.summation px)
+    in
+    ExprMap.map sum_from_1 cf
+
+  (* Convert a closed form into a term by instantiating the variable in the
+     polynomial coefficients of the closed form *)
+  let term_of ark cf k =
+    let polynomial_term px =
+      QQUvp.enum px
+      /@ (fun (coeff, order) ->
+          mk_mul ark
+            ((mk_real ark coeff)::(BatList.of_enum ((1 -- order) /@ (fun _ -> k)))))
+      |> BatList.of_enum
+      |> mk_add ark
+    in
+    enum cf
+    /@ (fun (term, px) -> mk_mul ark [term; polynomial_term px])
+    |> BatList.of_enum
+    |> mk_add ark
+end
+
+type 'a exponential =
+  { exp_lhs : 'a term;
+    exp_op : [ `Leq | `Eq ];
+    exp_coeff : QQ.t;
+    exp_rhs : 'a term;
+    exp_add : 'a term }
+
 type 'a iter =
   { ark : 'a context;
     symbols : (symbol * symbol) list;
     precondition : 'a Cube.t;
     postcondition : 'a Cube.t;
     stratified : (symbol * symbol * 'a term) list;
-    inequations : ('a term * [ `Leq | `Eq ] * 'a term * 'a term) list }
+    inequations : ('a term * [ `Leq | `Eq ] * 'a term * 'a term) list;
+    exponential : ('a exponential) list }
 
 let pp_iter formatter iter =
   let ark = iter.ark in
@@ -25,7 +233,7 @@ let pp_iter formatter iter =
     Cube.pp iter.precondition
     Cube.pp iter.postcondition;
   Format.fprintf formatter
-    "recurrences:@;  @[<v 0>%a@;%a@]}"
+    "recurrences:@;  @[<v 0>%a@;%a@;%a@]}"
     (ApakEnum.pp_print_enum_nobox
        ~pp_sep:(fun formatter () -> Format.pp_print_break formatter 0 0)
        (fun formatter (sym', sym, incr) ->
@@ -45,6 +253,18 @@ let pp_iter formatter iter =
             (Term.pp ark) pre
             (Term.pp ark) incr))
     (BatList.enum iter.inequations)
+    (ApakEnum.pp_print_enum_nobox
+       ~pp_sep:(fun formatter () -> Format.pp_print_break formatter 0 0)
+       (fun formatter { exp_lhs; exp_op; exp_coeff; exp_rhs; exp_add } ->
+          Format.fprintf formatter "(%a) %s %a * (%a) + %a"
+            (Term.pp ark) exp_lhs
+            (match exp_op with
+             | `Eq -> "="
+             | `Leq -> "<=")
+            QQ.pp exp_coeff
+            (Term.pp ark) exp_rhs
+            (Term.pp ark) exp_add))
+    (BatList.enum iter.exponential)
 
 let show_iter x = Putil.mk_show pp_iter x
 
@@ -61,11 +281,9 @@ let abstract_iter_cube ark cube tr_symbols =
       Symbol.Set.empty
       tr_symbols
   in
-(*
   let is_symbolic_constant x =
     not (Symbol.Set.mem x pre_symbols || Symbol.Set.mem x post_symbols)
   in
-*)
   let precondition =
     Cube.exists (not % flip Symbol.Set.mem post_symbols) cube
   in
@@ -74,39 +292,37 @@ let abstract_iter_cube ark cube tr_symbols =
   in
   let (stratified, non_induction) =
     let equalities = Cube.farkas_equalities cube in
-    let coeff_vec =
-      List.fold_left (fun map (term, vec) ->
+    (* Matrix consisting of one row for each dimension of the cube that is
+       associated with a term that contains a transition variable; the row
+       contains the Farkas column for that dimension *)
+    let matrix =
+      BatList.fold_lefti (fun m id (term, column) ->
+          if Symbol.Set.for_all is_symbolic_constant (symbols term) then
+            m
+          else
+            QQMatrix.add_row id column m)
+        QQMatrix.zero
+        equalities
+    in
+    let row_of_symbol =
+      BatList.fold_lefti (fun map id (term, _) ->
           match Term.destruct ark term with
-          | `App (sym, []) -> Symbol.Map.add sym vec map
+          | `App (sym, []) -> Symbol.Map.add sym id map
           | _ -> map)
         Symbol.Map.empty
         equalities
-    in
-    let eq_table = ExprHT.create 991 in
-    List.iter (fun (term, vec) -> ExprHT.add eq_table term vec) equalities;
-    (* Matrix consisting of one row for each pre/post symbol, which contains
-       the coefficient vector for that symbol *)
-    let matrix =
-      Symbol.Set.fold (fun sym m ->
-          let sym_coeff =
-            try
-              Symbol.Map.find sym coeff_vec
-            with Not_found -> V.zero
-          in
-          QQMatrix.add_row (int_of_symbol sym) sym_coeff m)
-        (Symbol.Set.union pre_symbols post_symbols)
-        QQMatrix.zero
     in
     let rec go induction non_induction tail matrix =
       match non_induction with
       | [] -> (List.rev induction, tail)
       | (sym,sym')::non_induction ->
         (* coefficient of sym' must be -1, coefficent of sym must be 1 *)
+        let sym_row = Symbol.Map.find sym row_of_symbol in
         let diff =
           V.add_term
             (QQ.of_int (-1))
-            (int_of_symbol sym')
-            (V.of_term QQ.one (int_of_symbol sym))
+            (Symbol.Map.find sym' row_of_symbol)
+            (V.of_term QQ.one sym_row)
         in
         match Linear.solve matrix diff with
         | Some solution ->
@@ -126,16 +342,25 @@ let abstract_iter_cube ark cube tr_symbols =
             (sym', sym, rhs)::induction
           in
           (* Remove sym row from the matrix.  sym' row stays to ensure that
-             recurrences are only over pre-state variables. *)
-          let (_, matrix) = QQMatrix.pivot (int_of_symbol sym) matrix in
+             recurrences are only over pre-state variables.
+
+             TODO: Should also filter out rows corresponding to terms
+             involving only induction variables.  *)
+          let (_, matrix) = QQMatrix.pivot sym_row matrix in
           go induction (non_induction@tail) [] matrix
         | None ->
           go induction non_induction ((sym,sym')::tail) matrix
     in
-    go [] tr_symbols [] matrix
+    (* Filter out transition symbols without associated rows in the matrix --
+       those are not induction variables *)
+    let non_induction =
+      List.filter (fun (s,s') ->
+          Symbol.Map.mem s row_of_symbol && Symbol.Map.mem s' row_of_symbol)
+        tr_symbols
+    in
+    go [] non_induction [] matrix
   in
   let inequations =
-
     (* For every non-induction var x, substitute x -> x' - x in the loop body;
        the project out all post-variables.  In the resulting cube, the var
        x should be interpreted as the difference x'-x. *)
@@ -246,190 +471,78 @@ let abstract_iter_cube ark cube tr_symbols =
                None
              else
                Some (postify lhs, op, lhs, mk_neg ark rhs))
-      | `Literal (_, _) -> None
+      | `Tru | `Literal (_, _) -> None
     in
     BatList.filter_map recur (Cube.to_atoms diff_cube)
+  in
+  let exponential =
+    BatList.enum non_induction
+    /@ (fun (sym, sym') ->
+        let subterm = is_symbolic_constant in
+        let keep x =
+          is_symbolic_constant x || x = sym || x = sym'
+        in
+        Cube.exists ~subterm keep cube
+        |> Cube.to_atoms
+        |> BatList.filter_map (fun atom ->
+            match Interpretation.destruct_atom ark atom with
+            | `Comparison (op, s, t) ->
+              let incr = ExprVec.of_term ark (mk_sub ark s t) in
+              begin
+                try
+                  let sym_term = mk_const ark sym in
+                  let sym'_term = mk_const ark sym' in
+                  let sym_coeff = ExprMap.find sym_term incr in
+                  let sym'_coeff = ExprMap.find sym'_term incr in
+                  if QQ.equal sym_coeff QQ.zero || QQ.equal sym'_coeff QQ.zero then
+                    None
+                  else
+                    let (exp_lhs, lhs_coeff) =
+                      if QQ.lt sym'_coeff QQ.zero then
+                        (mk_neg ark sym'_term, QQ.negate sym'_coeff)
+                      else
+                        (sym'_term, sym'_coeff)
+                    in
+                    let exp_add =
+                      ExprMap.map
+                        (fun k -> QQ.negate (QQ.div k lhs_coeff))
+                        (ExprMap.add sym_term QQ.zero
+                           (ExprMap.add sym'_term QQ.zero incr))
+                      |> ExprVec.term_of ark
+                    in
+                    let exp_coeff = QQ.negate (QQ.div sym_coeff lhs_coeff) in
+                    let exp_op = match op with
+                      | `Leq -> `Leq
+                      | `Lt -> `Leq
+                      | `Eq -> `Eq
+                    in
+                    Some { exp_lhs;
+                           exp_rhs = sym_term;
+                           exp_add;
+                           exp_coeff;
+                           exp_op }
+                with Not_found -> None
+              end
+            | `Tru | `Literal (_, _) -> None))
+    |> BatEnum.fold (@) []
   in
   { ark;
     symbols = tr_symbols;
     precondition;
     postcondition;
     stratified;
-    inequations }
+    inequations;
+    exponential }
 
-
-module QQUvp = Polynomial.QQUvp
-module IntMap = Apak.Putil.PInt.Map
-module Cf = struct
-  type 'a t = ('a, typ_arith, QQUvp.t) ExprMap.t
-
-  let zero = ExprMap.empty
-
-  let enum = ExprMap.enum
-  
-  let k_minus_1 = QQUvp.add_term QQ.one 1 (QQUvp.scalar (QQ.of_int (-1)))
-
-  (* Compose a closed form with a uvp *)
-  let compose cf p =
-    ExprMap.filter_map
-      (fun _ coeff ->
-         let coeff' = QQUvp.compose coeff p in
-         if QQUvp.is_zero coeff' then
-           None
-         else
-           Some coeff')
-      cf
-
-  let add u v =
-    let f _ a b =
-      match a, b with
-      | Some a, Some b ->
-        let sum = QQUvp.add a b in
-        if QQUvp.is_zero sum then None else Some sum
-      | Some x, None | None, Some x -> Some x
-      | None, None -> assert false
-    in
-    ExprMap.merge f u v
-
-  let add_term coeff dim vec =
-    if QQUvp.is_zero coeff then vec else begin
-      try
-        let sum = QQUvp.add coeff (ExprMap.find dim vec) in
-        if not (QQUvp.is_zero sum) then ExprMap.add dim sum vec
-        else ExprMap.remove dim vec
-      with Not_found -> ExprMap.add dim coeff vec
-    end
-
-  let term coeff dim = add_term coeff dim zero
-
-  let const ark uvp = add_term uvp (mk_real ark QQ.one) zero
-
-  let of_enum enum =
-    BatEnum.fold (fun t (dim, coeff) -> add_term coeff dim t) zero enum
-  
-  let mul ark u v =
-    ApakEnum.cartesian_product
-      (enum u)
-      (enum v)
-    /@ (fun ((xdim, xcoeff), (ydim, ycoeff)) ->
-        (mk_mul ark [xdim; ydim], QQUvp.mul xcoeff ycoeff))
-    |> of_enum
-
-  let scalar_mul scalar vec =
-    if QQUvp.is_zero scalar then
-      zero
-    else
-      ExprMap.map (QQUvp.mul scalar) vec
-
-  exception Quit
-  
-  (* Lower a degree-0 cf to a regular term *)
-  let term_of_0 ark cf =
-    try
-      let lowered =
-        enum cf
-        /@ (fun (dim, coeff) ->
-            let (const_coeff, higher_order) = QQUvp.pivot 0 coeff in
-            if QQUvp.equal higher_order QQUvp.zero then
-              mk_mul ark [mk_real ark const_coeff; dim]
-            else
-              raise Quit)
-        |> BatList.of_enum
-        |> mk_add ark
-      in
-      Some lowered
-    with Quit -> None
-
-  let of_term ark env =
-    let rec alg = function
-      | `App (v, []) ->
-        begin
-          match env v with
-          | Some cf -> Some (compose cf k_minus_1)
-          | None -> None
-        end
-      | `App (func, args) ->
-        begin
-          match BatOption.bind (env func) (term_of_0 ark) with
-          | None -> None
-          | Some t ->
-            begin match Term.destruct ark t with
-              | `App (func', []) when func = func' ->
-                let args' =
-                  BatList.filter_map
-                    (fun arg ->
-                       match refine ark arg with
-                       | `Term t ->
-                         BatOption.bind (Term.eval_partial ark alg t) (term_of_0 ark)
-                       | `Formula _ -> None)
-                    args
-                in
-                if List.length args = List.length args' then
-                  Some (term QQUvp.one (mk_app ark func args'))
-                else
-                  None
-              | _ -> None
-            end
-        end
-      | `Real k -> Some (const ark (QQUvp.scalar k))
-      | `Add xs -> Some (List.fold_left add zero xs)
-      | `Mul [] -> Some (const ark (QQUvp.scalar QQ.one))
-      | `Mul (x::xs) -> Some (List.fold_left (mul ark) x xs)
-      | `Binop (`Div, x, y) ->
-        (* to do: if denomenator is a constant then the numerator can be loop dependent *)
-        begin match term_of_0 ark x, term_of_0 ark y with
-          | Some x, Some y -> Some (term QQUvp.one (mk_div ark x y))
-          | _, _ -> None
-        end
-      | `Binop (`Mod, x, y) ->
-        begin match term_of_0 ark x, term_of_0 ark y with
-          | Some x, Some y -> Some (term QQUvp.one (mk_mod ark x y))
-          | _, _ -> None
-        end
-      | `Unop (`Floor, x) ->
-        begin match term_of_0 ark x with
-          | Some x -> Some (term QQUvp.one (mk_floor ark x))
-          | None -> None
-        end
-      | `Unop (`Neg, x) -> Some (scalar_mul (QQUvp.negate QQUvp.one) x)
-      | `Ite (_, _, _) -> None
-      | `Var (_, _) -> None
-    in
-    Term.eval_partial ark alg
-
-  let summation cf =
-    (* QQUvp.summation computes q(n) = sum_{i=0}^n p(i); shift to compute
-       q(n) = sum_{i=1}^n p(i) *)
-    let sum_from_1 px =
-      QQUvp.add_term (QQ.negate (QQUvp.eval px QQ.zero)) 0 (QQUvp.summation px)
-    in
-    ExprMap.map sum_from_1 cf
-  
-  (* Convert a closed form into a term by instantiating the variable in the
-     polynomial coefficients of the closed form *)
-  let term_of ark cf k =
-    let polynomial_term px =
-      QQUvp.enum px
-      /@ (fun (coeff, order) ->
-          mk_mul ark
-            ((mk_real ark coeff)::(BatList.of_enum ((1 -- order) /@ (fun _ -> k)))))
-      |> BatList.of_enum
-      |> mk_add ark
-    in
-    enum cf
-    /@ (fun (term, px) -> mk_mul ark [term; polynomial_term px])
-    |> BatList.of_enum
-    |> mk_add ark
-end
 
 let abstract_iter ?(exists=fun x -> true) ark phi symbols =
-  let tr_symbols =
-    List.fold_left (fun set (s,s') ->
-        Symbol.Set.add s (Symbol.Set.add s' set))
+  let post_symbols =
+    List.fold_left (fun set (_,s') ->
+        Symbol.Set.add s' set)
       Symbol.Set.empty
       symbols
   in
-  let subterm x = not (Symbol.Set.mem x tr_symbols) in
+  let subterm x = not (Symbol.Set.mem x post_symbols) in
   let cube = 
     Abstract.abstract_nonlinear ~exists ark phi
     |> Cube.exists ~subterm (fun _ -> true)
@@ -532,6 +645,12 @@ let closure_ocrs ?(guard=None) iter =
   let open Ocrs in
   let open Type_def in
 
+  let pow =
+    if not (is_registered_name iter.ark "pow") then
+      register_named_symbol iter.ark "pow" (`TyFun ([`TyReal; `TyReal], `TyReal));
+    get_named_symbol iter.ark "pow"
+  in
+
   let loop_counter_sym = mk_symbol iter.ark ~name:"K" `TyInt in
   let loop_counter = mk_const iter.ark loop_counter_sym in
 
@@ -611,7 +730,12 @@ let closure_ocrs ?(guard=None) iter =
           |> mk_mul iter.ark
         | None -> assert false
       end
-    | Log (_, _) | Pow (_, _) | Binomial (_, _) | Factorial _ -> assert false
+    | Pow (x, y) ->
+      let base = term_of_expr x in
+      let exp = term_of_expr y in
+      mk_app iter.ark pow [base; exp]
+
+    | Log (_, _) | Binomial (_, _) | Factorial _ -> assert false
   in
 
   let recurrences =
@@ -647,8 +771,27 @@ let closure_ocrs ?(guard=None) iter =
           (expr_of_term pre, ineq))
         iter.inequations
     in
-    stratified@inequations
+    let exponential =
+      (* $ is a placeholder variable that we use to avoid sending OCRS
+         recurrences on terms *)
+      List.map (fun { exp_lhs; exp_op; exp_coeff; exp_rhs; exp_add } ->
+          let lhs = Output_variable ("$", ss_post) in
+          let rhs =
+            Plus (Product [Rational (Mpqf.to_mpq exp_coeff);
+                           Output_variable ("$", ss_pre)],
+                  expr_of_term exp_add)
+          in
+          let ineq =
+            match exp_op with
+            | `Eq -> Equals (lhs, rhs)
+            | `Leq -> LessEq (lhs, rhs)
+          in
+          (expr_of_term exp_rhs, ineq))
+        iter.exponential
+    in
+    stratified@inequations@exponential
   in
+
   let closed =
     let to_formula = function
       | Equals (x, y) -> mk_eq iter.ark (term_of_expr x) (term_of_expr y)
@@ -695,11 +838,22 @@ let cube_of_iter iter =
         | `Eq -> mk_eq iter.ark post rhs
         | `Leq -> mk_leq iter.ark post rhs)
   in
+  let exponential_constraints =
+    iter.exponential |> List.map (fun r ->
+        let rhs =
+          mk_add iter.ark [mk_mul iter.ark [mk_real iter.ark r.exp_coeff;
+                                           r.exp_rhs];
+                           r.exp_add]
+        in
+        match r.exp_op with
+        | `Eq -> mk_eq iter.ark r.exp_lhs rhs
+        | `Leq -> mk_leq iter.ark r.exp_lhs rhs)
+  in
   let postcondition = Cube.to_atoms iter.postcondition in
   let precondition = Cube.to_atoms iter.precondition in
   Cube.of_atoms
     iter.ark
-    (eq_constraints@ineq_constraints@postcondition@precondition)
+    (eq_constraints@ineq_constraints@exponential_constraints@postcondition@precondition)
 
 let equal iter iter' =
   Cube.equal (cube_of_iter iter) (cube_of_iter iter')
@@ -725,7 +879,8 @@ let bottom ark symbols =
     precondition = Cube.bottom ark;
     postcondition = Cube.bottom ark;
     stratified = [];
-    inequations = [] }
+    inequations = [];
+    exponential = [] }
 
 let tr_symbols iter = iter.symbols
 
@@ -790,8 +945,16 @@ module Split = struct
             | `Leq -> mk_leq ark s t
             | `Lt -> mk_lt ark s t
           in
+          begin
           if Symbol.Set.for_all prestate (symbols phi) then
-            preds := ExprSet.add phi (!preds);
+            let redundant = match op with
+              | `Eq -> false
+              | `Leq -> ExprSet.mem (mk_lt ark t s) (!preds)
+              | `Lt -> ExprSet.mem (mk_lt ark t s) (!preds)
+            in
+            if not redundant then
+              preds := ExprSet.add phi (!preds)
+          end;
           expr
         | _ -> expr
       in
@@ -847,7 +1010,7 @@ module Split = struct
           let right_abstract =
             abstract_iter ~exists ark psi_body tr_symbols
           in
-          ExprMap.add psi (left_abstract, right_abstract) split_iter
+          ExprMap.add not_psi (left_abstract, right_abstract) split_iter
         else if sat_modulo_body (mk_and ark [not_psi; post_psi]) = `Unsat then
           (* {not phi} body {not phi} -> body* = ([phi]body)*([not phi]body)* *)
           let left_abstract =
