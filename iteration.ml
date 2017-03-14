@@ -233,7 +233,7 @@ let pp_iter formatter iter =
     Cube.pp iter.precondition
     Cube.pp iter.postcondition;
   Format.fprintf formatter
-    "recurrences:@;  @[<v 0>%a@;%a@;%a@]}"
+    "recurrences:@;  @[<v 0>%a@;%a@;%a@]@]}"
     (ApakEnum.pp_print_enum_nobox
        ~pp_sep:(fun formatter () -> Format.pp_print_break formatter 0 0)
        (fun formatter (sym', sym, incr) ->
@@ -768,7 +768,7 @@ let closure_ocrs ?(guard=None) iter =
             | `Eq -> Equals (lhs, rhs)
             | `Leq -> LessEq (lhs, rhs)
           in
-          (expr_of_term pre, ineq))
+          (expr_of_term post, ineq))
         iter.inequations
     in
     let exponential =
@@ -786,7 +786,7 @@ let closure_ocrs ?(guard=None) iter =
             | `Eq -> Equals (lhs, rhs)
             | `Leq -> LessEq (lhs, rhs)
           in
-          (expr_of_term exp_rhs, ineq))
+          (expr_of_term exp_lhs, ineq))
         iter.exponential
     in
     stratified@inequations@exponential

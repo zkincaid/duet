@@ -259,11 +259,21 @@ module Env = struct
       None
 
   let vec_of_term ?(register=true) env =
-    let alg = function
+    let rec alg = function
       | `Real k -> V.of_term k const_id
       | `App (symbol, []) ->
         V.of_term QQ.one (get_term_id ~register env (App (symbol, [])))
-      | `App (_, _) -> assert false (* to do *)
+
+      | `App (symbol, xs) ->
+        let xs =
+          List.map (fun x ->
+              match refine env.ark x with
+              | `Term t -> Term.eval env.ark alg t
+              | `Formula _ -> assert false (* TODO *))
+            xs
+        in
+        V.of_term QQ.one (get_term_id ~register env (App (symbol, xs)))
+
       | `Var (_, _) -> assert false (* to do *)
       | `Add xs -> List.fold_left V.add V.zero xs
       | `Mul xs ->
