@@ -48,6 +48,11 @@ module RingMap(R : Linear.Ring) = struct
     /@ (fun ((xdim, xcoeff), (ydim, ycoeff)) ->
         (mk_mul ark [xdim; ydim], R.mul xcoeff ycoeff))
     |> of_enum
+
+  let coeff x vec =
+    try
+      ExprMap.find x vec
+    with Not_found -> R.zero
 end
 
 module ExprVec = struct
@@ -207,12 +212,17 @@ module Cf = struct
     |> mk_add ark
 end
 
+(*    x'    <=       (3 * x) +  y + 1
+      --    --        -         -----
+   exp_lhs exp_op exp_coeff    exp_add *)
 type 'a exponential =
   { exp_lhs : 'a term;
-    exp_op : [ `Leq | `Eq ];
+    exp_op : [ `Leq | `Eq | `Geq ];
     exp_coeff : QQ.t;
     exp_rhs : 'a term;
     exp_add : 'a term }
+
+
 
 type 'a iter =
   { ark : 'a context;
@@ -260,7 +270,8 @@ let pp_iter formatter iter =
             (Term.pp ark) exp_lhs
             (match exp_op with
              | `Eq -> "="
-             | `Leq -> "<=")
+             | `Leq -> "<="
+             | `Geq -> ">=")
             QQ.pp exp_coeff
             (Term.pp ark) exp_rhs
             (Term.pp ark) exp_add))
@@ -487,35 +498,36 @@ let abstract_iter_cube ark cube tr_symbols =
         |> BatList.filter_map (fun atom ->
             match Interpretation.destruct_atom ark atom with
             | `Comparison (op, s, t) ->
-              let incr = ExprVec.of_term ark (mk_sub ark s t) in
+              let recurrence = ExprVec.of_term ark (mk_sub ark s t) in
               begin
                 try
+                  let exp_lhs = mk_const ark sym' in
                   let sym_term = mk_const ark sym in
-                  let sym'_term = mk_const ark sym' in
-                  let sym_coeff = ExprMap.find sym_term incr in
-                  let sym'_coeff = ExprMap.find sym'_term incr in
-                  if QQ.equal sym_coeff QQ.zero || QQ.equal sym'_coeff QQ.zero then
+                  let rhs_coeff = ExprVec.coeff sym_term recurrence in
+                  let lhs_coeff = ExprVec.coeff exp_lhs recurrence in
+                  if QQ.equal lhs_coeff QQ.zero || QQ.equal rhs_coeff QQ.zero then
                     None
                   else
-                    let (exp_lhs, lhs_coeff) =
-                      if QQ.lt sym'_coeff QQ.zero then
-                        (mk_neg ark sym'_term, QQ.negate sym'_coeff)
-                      else
-                        (sym'_term, sym'_coeff)
+                    (* cube |= lhs_coeff*sym' + rhs_coeff*sym + t </= 0.
+                       Case coeff' > 0:
+                         sym </= -(sym_coeff/sym'_coeff)sym - t/sym'_coeff
+                       Case coeff' < 0:
+                        -sym <= -(sym_coeff/|sym'_coeff|)sym - t/|sym'_coeff|
+                    *)
+                    let exp_op =
+                      match op with
+                      | `Leq | `Lt when QQ.lt QQ.zero lhs_coeff -> `Leq
+                      | `Leq | `Lt -> `Geq
+                      | `Eq -> `Eq
                     in
                     let exp_add =
                       ExprMap.map
                         (fun k -> QQ.negate (QQ.div k lhs_coeff))
                         (ExprMap.add sym_term QQ.zero
-                           (ExprMap.add sym'_term QQ.zero incr))
+                           (ExprMap.add exp_lhs QQ.zero recurrence))
                       |> ExprVec.term_of ark
                     in
-                    let exp_coeff = QQ.negate (QQ.div sym_coeff lhs_coeff) in
-                    let exp_op = match op with
-                      | `Leq -> `Leq
-                      | `Lt -> `Leq
-                      | `Eq -> `Eq
-                    in
+                    let exp_coeff = QQ.negate (QQ.div rhs_coeff lhs_coeff) in
                     Some { exp_lhs;
                            exp_rhs = sym_term;
                            exp_add;
@@ -785,6 +797,7 @@ let closure_ocrs ?(guard=None) iter =
             match exp_op with
             | `Eq -> Equals (lhs, rhs)
             | `Leq -> LessEq (lhs, rhs)
+            | `Geq -> GreaterEq (lhs, rhs)
           in
           (expr_of_term exp_lhs, ineq))
         iter.exponential
@@ -847,7 +860,8 @@ let cube_of_iter iter =
         in
         match r.exp_op with
         | `Eq -> mk_eq iter.ark r.exp_lhs rhs
-        | `Leq -> mk_leq iter.ark r.exp_lhs rhs)
+        | `Leq -> mk_leq iter.ark r.exp_lhs rhs
+        | `Geq -> mk_leq iter.ark rhs r.exp_lhs)
   in
   let postcondition = Cube.to_atoms iter.postcondition in
   let precondition = Cube.to_atoms iter.precondition in
