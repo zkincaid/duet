@@ -183,10 +183,13 @@ struct
           | Some _ -> true
           | None -> Symbol.Set.mem x post_symbols
       in
+      let body =
+        Simplify.simplify_terms ark (mk_and ark (tr.guard::post_def))
+      in
       if split then
-        Iteration.Split.abstract_iter ~exists ark (mk_and ark (tr.guard::post_def)) tr_symbols
+        Iteration.Split.abstract_iter ~exists ark body tr_symbols
       else
-        Iteration.abstract_iter ~exists ark (mk_and ark (tr.guard::post_def)) tr_symbols
+        Iteration.abstract_iter ~exists ark body tr_symbols
         |> Iteration.Split.lift_split
 
     let closure ?(use_ocrs=false) iter =
