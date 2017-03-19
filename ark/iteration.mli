@@ -2,7 +2,6 @@ open Syntax
 
 type 'a iter
 
-
 val pp_iter : Format.formatter -> 'a iter -> unit
 val show_iter : 'a iter -> string
 

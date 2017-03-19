@@ -7,90 +7,11 @@ include Log.Make(struct let name = "ark.iteration" end)
 module V = Linear.QQVector
 module QQMatrix = Linear.QQMatrix
 
-module RingMap(R : Linear.Ring) = struct
-  type 'a t = ('a, typ_arith, R.t) ExprMap.t
-
-  let zero = ExprMap.empty
-
-  let enum = ExprMap.enum
-
-  let add u v =
-    let f _ a b =
-      match a, b with
-      | Some a, Some b ->
-        let sum = R.add a b in
-        if R.equal sum R.zero then None else Some sum
-      | Some x, None | None, Some x -> Some x
-      | None, None -> assert false
-    in
-    ExprMap.merge f u v
-
-  let add_term coeff dim vec =
-    if R.equal coeff R.zero then vec else begin
-      try
-        let sum = R.add coeff (ExprMap.find dim vec) in
-        if not (R.equal sum R.zero) then ExprMap.add dim sum vec
-        else ExprMap.remove dim vec
-      with Not_found -> ExprMap.add dim coeff vec
-    end
-
-  let term coeff dim = add_term coeff dim zero
-
-  let const ark scalar = add_term scalar (mk_real ark QQ.one) zero
-
-  let of_enum enum =
-    BatEnum.fold (fun t (dim, coeff) -> add_term coeff dim t) zero enum
-
-  let mul ark u v =
-    ApakEnum.cartesian_product
-      (enum u)
-      (enum v)
-    /@ (fun ((xdim, xcoeff), (ydim, ycoeff)) ->
-        (mk_mul ark [xdim; ydim], R.mul xcoeff ycoeff))
-    |> of_enum
-
-  let coeff x vec =
-    try
-      ExprMap.find x vec
-    with Not_found -> R.zero
-end
-
-module ExprVec = struct
-  include RingMap(QQ)
-
-  let of_term ark term =
-    let rec go term =
-      match Term.destruct ark term with
-      | `Add xs -> List.fold_left (fun x y -> add x (go y)) zero xs
-      | `Real k -> const ark k
-      | `Mul xs ->
-        let (coeff, product) =
-          List.fold_right (fun term (coeff, product) ->
-              match Term.destruct ark term with
-              | `Real k -> (QQ.mul coeff k, product)
-              | _ -> (coeff, term::product))
-            xs
-            (QQ.one, [])
-        in
-        ExprMap.add (mk_mul ark product) coeff ExprMap.empty
-      | _ -> ExprMap.add term QQ.one ExprMap.empty
-    in
-    go term
-
-  let term_of ark sum =
-    ExprMap.fold (fun term coeff terms ->
-        if QQ.equal coeff QQ.one then
-          term::terms
-        else
-          (mk_mul ark [mk_real ark coeff; term])::terms)
-      sum
-      []
-    |> mk_add ark
-end
+module ExprVec = Linear.ExprQQVector
 
 module QQUvp = Polynomial.QQUvp
 module Cf = struct
-  include RingMap(QQUvp)
+  include Linear.MakeExprRingMap(QQUvp)
 
   let k_minus_1 = QQUvp.add_term QQ.one 1 (QQUvp.scalar (QQ.of_int (-1)))
 
@@ -166,7 +87,8 @@ module Cf = struct
       | `Mul [] -> Some (const ark (QQUvp.scalar QQ.one))
       | `Mul (x::xs) -> Some (List.fold_left (mul ark) x xs)
       | `Binop (`Div, x, y) ->
-        (* to do: if denomenator is a constant then the numerator can be loop dependent *)
+        (* to do: if denomenator is a constant then the numerator can be loop
+           dependent *)
         begin match term_of_0 ark x, term_of_0 ark y with
           | Some x, Some y -> Some (term QQUvp.one (mk_div ark x y))
           | _, _ -> None
@@ -508,12 +430,6 @@ let abstract_iter_cube ark cube tr_symbols =
                   if QQ.equal lhs_coeff QQ.zero || QQ.equal rhs_coeff QQ.zero then
                     None
                   else
-                    (* cube |= lhs_coeff*sym' + rhs_coeff*sym + t </= 0.
-                       Case coeff' > 0:
-                         sym </= -(sym_coeff/sym'_coeff)sym - t/sym'_coeff
-                       Case coeff' < 0:
-                        -sym <= -(sym_coeff/|sym'_coeff|)sym - t/|sym'_coeff|
-                    *)
                     let exp_op =
                       match op with
                       | `Leq | `Lt when QQ.lt QQ.zero lhs_coeff -> `Leq

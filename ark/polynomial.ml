@@ -132,3 +132,76 @@ module QQUvp = struct
     let coeffs = Linear.solve_exn mat b in
     of_enum (V.enum coeffs)
 end
+
+module Monomial = struct
+  type dim = int
+  type t = dim IntMap.t
+
+  let one = IntMap.empty
+
+  let mul =
+    let f _ a b =
+      match a, b with
+      | Some a, Some b ->
+        if a + b = 0 then None else Some (a + b)
+      | Some x, None | None, Some x -> Some x
+      | None, None -> assert false
+    in
+    IntMap.merge f
+
+  let mul_term dim power monomial =
+    if power = 0 then monomial else begin
+      try
+        let power' = power + (IntMap.find dim monomial) in
+        if power' = 0 then
+          IntMap.remove dim monomial
+        else
+          IntMap.add dim power' monomial
+      with Not_found -> IntMap.add dim power monomial
+    end
+
+  let power dim monomial = try IntMap.find dim monomial with Not_found -> 0
+
+  let enum = IntMap.enum
+
+  let of_enum = BatEnum.fold (fun monomial (x,y) -> mul_term x y monomial) one
+
+  let equal = IntMap.equal (=)
+
+  let compare = IntMap.compare Pervasives.compare
+
+  let singleton dim power = mul_term dim power one
+
+  let pivot dim monomial =
+    (power dim monomial, IntMap.remove dim monomial)
+end
+
+module Mvp = struct
+  module MM = BatMap.Make(Monomial)
+  include Linear.RingMap(MM)(QQ)
+
+  let monomial_scalar_mul coeff monomial p =
+    if QQ.equal coeff QQ.zero then
+      zero
+    else
+      (MM.enum p)
+      /@ (fun (monomial', coeff') ->
+          (Monomial.mul monomial monomial', QQ.mul coeff coeff'))
+      |> MM.of_enum
+
+  let monomial_mul = monomial_scalar_mul QQ.one
+
+  let mul p q =
+    BatEnum.fold
+      (fun r (monomial, coeff) ->
+         add r (monomial_scalar_mul coeff monomial q))
+      zero
+      (MM.enum p)
+
+  let scalar k = of_term k Monomial.one
+
+  let one = of_term QQ.one Monomial.one
+
+  let of_dim dim =
+    of_term QQ.one (Monomial.singleton dim 1)
+end

@@ -238,6 +238,116 @@ module QQMatrix = struct
       (rowsi mat)
 end
 
+module type ExprRingMap = sig
+  type scalar
+  type 'a t = ('a, typ_arith, scalar) ExprMap.t
+
+  val zero : 'a t
+  val one : 'a context -> 'a t
+  val add : 'a t -> 'a t -> 'a t
+  val mul : 'a context -> 'a t -> 'a t -> 'a t
+  val scalar_mul : scalar -> 'a t -> 'a t
+  val negate : 'a t -> 'a t
+  val const : 'a context -> scalar -> 'a t
+  val term : scalar -> 'a term -> 'a t
+  val add_term : scalar -> 'a term -> 'a t -> 'a t
+  val enum : 'a t -> ('a term * scalar) BatEnum.t
+  val of_enum : ('a term * scalar) BatEnum.t -> 'a t
+  val coeff : 'a term -> 'a t -> scalar
+end
+
+module MakeExprRingMap(R : Ring) = struct
+  type scalar = R.t
+  type 'a t = ('a, typ_arith, R.t) ExprMap.t
+
+  let zero = ExprMap.empty
+
+  let enum = ExprMap.enum
+
+  let add u v =
+    let f _ a b =
+      match a, b with
+      | Some a, Some b ->
+        let sum = R.add a b in
+        if R.equal sum R.zero then None else Some sum
+      | Some x, None | None, Some x -> Some x
+      | None, None -> assert false
+    in
+    ExprMap.merge f u v
+
+  let add_term coeff dim vec =
+    if R.equal coeff R.zero then vec else begin
+      try
+        let sum = R.add coeff (ExprMap.find dim vec) in
+        if not (R.equal sum R.zero) then ExprMap.add dim sum vec
+        else ExprMap.remove dim vec
+      with Not_found -> ExprMap.add dim coeff vec
+    end
+
+  let term coeff dim = add_term coeff dim zero
+
+  let const ark scalar = add_term scalar (mk_real ark QQ.one) zero
+
+  let of_enum enum =
+    BatEnum.fold (fun t (dim, coeff) -> add_term coeff dim t) zero enum
+
+  let mul ark u v =
+    ApakEnum.cartesian_product
+      (enum u)
+      (enum v)
+    /@ (fun ((xdim, xcoeff), (ydim, ycoeff)) ->
+        (mk_mul ark [xdim; ydim], R.mul xcoeff ycoeff))
+    |> of_enum
+
+  let coeff x vec =
+    try
+      ExprMap.find x vec
+    with Not_found -> R.zero
+
+  let scalar_mul k vec =
+    if R.equal k R.one then vec
+    else if R.equal k R.zero then ExprMap.empty
+    else ExprMap.map (fun coeff -> R.mul k coeff) vec
+
+  let negate vec = ExprMap.map R.negate vec
+
+  let sub u v = add u (negate v)
+
+  let one ark = const ark R.one
+end
+
+module ExprQQVector = struct
+  include MakeExprRingMap(QQ)
+
+  let rec of_term ark =
+    let alg = function
+      | `Add xs -> List.fold_left add zero xs
+      | `Mul xs -> List.fold_left (mul ark) (one ark) xs
+      | `Real k -> const ark k
+      | `Unop (`Neg, x) -> negate x
+      | `Unop (`Floor, x) -> term QQ.one (mk_floor ark (term_of ark x))
+      | `App (f, args) -> term QQ.one (mk_app ark f args)
+      | `Binop (`Div, x, y) ->
+        term QQ.one (mk_div ark (term_of ark x) (term_of ark y))
+      | `Binop (`Mod, x, y) ->
+        term QQ.one (mk_mod ark (term_of ark x) (term_of ark y))
+      | `Ite (cond, bthen, belse) ->
+        term QQ.one (mk_ite ark cond (term_of ark bthen) (term_of ark belse))
+      | `Var (v, typ) -> term QQ.one (mk_var ark v (typ :> typ_fo))
+    in
+    Term.eval ark alg
+
+  and term_of ark sum =
+    ExprMap.fold (fun term coeff terms ->
+        if QQ.equal coeff QQ.one then
+          term::terms
+        else
+          (mk_mul ark [mk_real ark coeff; term])::terms)
+      sum
+      []
+    |> mk_add ark
+end
+
 exception No_solution
 
 let solve_exn mat b =
