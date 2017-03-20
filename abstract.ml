@@ -298,13 +298,17 @@ let ensure_nonlinear_symbols ark =
          register_named_symbol ark name typ)
     [("mul", `TyFun ([`TyReal; `TyReal], `TyReal));
      ("div", `TyFun ([`TyReal; `TyReal], `TyReal));
-     ("mod", `TyFun ([`TyReal; `TyReal], `TyReal))]
+     ("mod", `TyFun ([`TyReal; `TyReal], `TyReal));
+     ("imul", `TyFun ([`TyInt; `TyInt], `TyInt));
+     ("imod", `TyFun ([`TyInt; `TyInt], `TyInt))]
 
 let nonlinear_uninterpreted_rewriter ark =
   ensure_nonlinear_symbols ark;
   let mul = get_named_symbol ark "mul" in
   let div = get_named_symbol ark "div" in
   let modulo = get_named_symbol ark "mod" in
+  let imul = get_named_symbol ark "imul" in
+  let imodulo = get_named_symbol ark "imod" in
   fun expr ->
     match destruct ark expr with
     | `Binop (`Div, x, y) ->
@@ -316,7 +320,10 @@ let nonlinear_uninterpreted_rewriter ark =
     | `Binop (`Mod, x, y) ->
       begin match Term.destruct ark y with
         | `Real k when not (QQ.equal k QQ.zero) -> expr
-        | _ -> mk_app ark modulo [x; y]
+        | _ ->
+          match expr_typ ark x, expr_typ ark y with
+          | `TyInt, `TyInt -> mk_app ark imodulo [x; y]
+          | _, _ -> mk_app ark modulo [x; y]
       end
     | `Mul (x::xs) ->
       let term =
@@ -324,7 +331,10 @@ let nonlinear_uninterpreted_rewriter ark =
             match Term.destruct ark x, Term.destruct ark y with
             | `Real x, `Real y -> mk_real ark (QQ.mul x y)
             | `Real _, _ | _, `Real _ -> mk_mul ark [x; y]
-            | _, _ -> mk_app ark mul [x; y])
+            | _, _ ->
+              match expr_typ ark x, expr_typ ark y with
+              | `TyInt, `TyInt -> mk_app ark imul [x; y]
+              | _, _ -> mk_app ark mul [x; y])
           x
           xs
       in
@@ -336,6 +346,8 @@ let nonlinear_interpreted_rewriter ark =
   let mul = get_named_symbol ark "mul" in
   let div = get_named_symbol ark "div" in
   let modulo = get_named_symbol ark "mod" in
+  let imul = get_named_symbol ark "imul" in
+  let imodulo = get_named_symbol ark "imod" in
   let to_term expr =
     match refine ark expr with
     | `Term t -> t
@@ -343,11 +355,11 @@ let nonlinear_interpreted_rewriter ark =
   in
   fun expr ->
     match destruct ark expr with
-    | `App (func, [x; y]) when func = mul ->
+    | `App (func, [x; y]) when func = mul || func = imul ->
       (mk_mul ark [to_term x; to_term y] :> ('a,typ_fo) expr)
     | `App (func, [x; y]) when func = div ->
       (mk_div ark (to_term x) (to_term y) :> ('a,typ_fo) expr)
-    | `App (func, [x; y]) when func = modulo ->
+    | `App (func, [x; y]) when func = modulo || func = imodulo ->
       (mk_mod ark (to_term x) (to_term y) :> ('a,typ_fo) expr)
     | _ -> expr
 
@@ -447,10 +459,12 @@ let linearize ark phi =
           SymInterval.mul linbound_minus_one (linearize_term x)
         | `App (func, args) ->
           begin match symbol_name ark func, List.map (refine ark) args with
+            | (Some "imul", [`Term x; `Term y])
             | (Some "mul", [`Term x; `Term y]) ->
               SymInterval.mul (linearize_term x) (linearize_term y)
             | (Some "div", [`Term x; `Term y]) ->
               SymInterval.div (linearize_term x) (linearize_term y)
+            | (Some "imod", [`Term x; `Term y])
             | (Some "mod", [`Term x; `Term y]) ->
               SymInterval.modulo (linearize_term x) (linearize_term y)
             | _ -> SymInterval.top ark

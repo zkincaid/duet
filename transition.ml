@@ -302,7 +302,8 @@ struct
         with Not_found -> mk_const ark sym
     in
     let x_guard = substitute_const ark sigma x.guard in
-    match Abstract.is_sat ark (mk_not ark (mk_iff ark x_guard y.guard)) with
+    let equiv = Simplify.simplify_terms ark (mk_iff ark x_guard y.guard) in
+    match Abstract.is_sat ark (mk_not ark equiv) with
     | `Unsat -> true
     | _ -> false
   let equiv x y =

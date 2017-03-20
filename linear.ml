@@ -2,7 +2,7 @@ open Apak
 open Syntax
 open BatPervasives
 
-include Log.Make(struct let name = "linear" end)
+include Log.Make(struct let name = "ark.linear" end)
 
 module type AbelianGroup = sig
   type t
