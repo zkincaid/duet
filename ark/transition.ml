@@ -183,10 +183,13 @@ struct
           | Some _ -> true
           | None -> Symbol.Set.mem x post_symbols
       in
+      let body =
+        Simplify.simplify_terms ark (mk_and ark (tr.guard::post_def))
+      in
       if split then
-        Iteration.Split.abstract_iter ~exists ark (mk_and ark (tr.guard::post_def)) tr_symbols
+        Iteration.Split.abstract_iter ~exists ark body tr_symbols
       else
-        Iteration.abstract_iter ~exists ark (mk_and ark (tr.guard::post_def)) tr_symbols
+        Iteration.abstract_iter ~exists ark body tr_symbols
         |> Iteration.Split.lift_split
 
     let closure ?(use_ocrs=false) iter =
@@ -299,7 +302,8 @@ struct
         with Not_found -> mk_const ark sym
     in
     let x_guard = substitute_const ark sigma x.guard in
-    match Abstract.is_sat ark (mk_not ark (mk_iff ark x_guard y.guard)) with
+    let equiv = Simplify.simplify_terms ark (mk_iff ark x_guard y.guard) in
+    match Abstract.is_sat ark (mk_not ark equiv) with
     | `Unsat -> true
     | _ -> false
   let equiv x y =

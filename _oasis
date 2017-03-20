@@ -24,11 +24,11 @@ Executable test_apak
   BuildDepends: ppx_deriving, ppx_deriving.show, ppx_deriving.ord, batteries, ocamlgraph, oUnit
   Install:      false
 
-Library "ark"
+Library ark
   Path:             ark
   FindlibName:      ark
   Pack:             true
-  Modules:  ArkUtil, QQ, ZZ, Syntax, Interval, Smt, ArkZ3, ArkMathsat, Linear, Polynomial, Interpretation, ArkApron, Polyhedron, Cube, Abstract, Quantifier, Iteration, Transition
+  Modules:  ArkUtil, QQ, ZZ, Syntax, Interval, Smt, ArkZ3, ArkMathsat, Linear, Polynomial, Interpretation, ArkApron, Polyhedron, Simplify, Cube, Abstract, Quantifier, Iteration, Transition
   BuildDepends:     ppx_deriving, ppx_deriving.show, ppx_deriving.ord, apak, gmp, camlidl, apron, Z3, mathsat, ocrs
   Install:         false
   XMETADescription: Arithmetic Reasoning Kit
