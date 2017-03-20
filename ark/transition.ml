@@ -184,7 +184,7 @@ struct
           | None -> Symbol.Set.mem x post_symbols
       in
       let body =
-        Simplify.simplify_terms ark (mk_and ark (tr.guard::post_def))
+        ArkSimplify.simplify_terms ark (mk_and ark (tr.guard::post_def))
       in
       if split then
         Iteration.Split.abstract_iter ~exists ark body tr_symbols
@@ -302,7 +302,7 @@ struct
         with Not_found -> mk_const ark sym
     in
     let x_guard = substitute_const ark sigma x.guard in
-    let equiv = Simplify.simplify_terms ark (mk_iff ark x_guard y.guard) in
+    let equiv = ArkSimplify.simplify_terms ark (mk_iff ark x_guard y.guard) in
     match Abstract.is_sat ark (mk_not ark equiv) with
     | `Unsat -> true
     | _ -> false

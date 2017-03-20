@@ -65,7 +65,7 @@ true: annot, bin_annot
 "ark/interpretation.cmx": for-pack(Ark)
 "ark/arkApron.cmx": for-pack(Ark)
 "ark/polyhedron.cmx": for-pack(Ark)
-"ark/simplify.cmx": for-pack(Ark)
+"ark/arkSimplify.cmx": for-pack(Ark)
 "ark/cube.cmx": for-pack(Ark)
 "ark/abstract.cmx": for-pack(Ark)
 "ark/quantifier.cmx": for-pack(Ark)
