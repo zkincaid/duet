@@ -4,26 +4,6 @@ open Apak
 
 include Log.Make(struct let name = "ark.simplify" end)
 
-(*
-let simplify_terms_rewriter ark expr =
-  match destruct ark expr with
-  | `Atom (op, s, t) ->
-    let simplified_term =
-      ExprVec.term_of ark (ExprVec.of_term ark (mk_sub ark s t))
-    in
-    let zero = mk_real ark QQ.zero in
-    let result = match op with
-      | `Leq -> mk_leq ark simplified_term zero
-      | `Lt -> mk_lt ark simplified_term zero
-      | `Eq -> mk_eq ark simplified_term zero 
-    in
-    (result :> ('a,typ_fo) expr)
-  | _ -> expr
-
-let simplify_terms ark expr =
-  rewrite ark ~up:(simplify_terms_rewriter ark) expr
-*)
-
 module TermPolynomial = struct
   type 'a polynomial_context =
     { ark : 'a context;

@@ -479,7 +479,7 @@ let analyze file =
 
                 let path_condition =
                   Ctx.mk_and [K.guard path; Ctx.mk_not phi]
-                  |> Simplify.simplify_terms ark
+                  |> ArkSimplify.simplify_terms ark
                 in
                 match Abstract.is_sat Ctx.context path_condition with
                 | `Sat -> Report.log_error (Def.get_location def) msg
@@ -500,7 +500,7 @@ let analyze file =
             let phi = Syntax.substitute_const Ctx.context sigma phi in
             let path_condition =
               Ctx.mk_and [K.guard path; Ctx.mk_not phi]
-              |> Simplify.simplify_terms ark
+              |> ArkSimplify.simplify_terms ark
             in
             logf "Path condition:@\n%a" (Syntax.pp_smtlib2 Ctx.context) path_condition;
 
