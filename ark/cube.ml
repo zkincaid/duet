@@ -10,7 +10,7 @@ module Linexpr0 = Apron.Linexpr0
 module Lincons0 = Apron.Lincons0
 module Dim = Apron.Dim
 
-include Log.Make(struct let name = "ark.synthetic" end)
+include Log.Make(struct let name = "ark.cube" end)
 
 module Int = struct
   type t = int [@@deriving show,ord]
