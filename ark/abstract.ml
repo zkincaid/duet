@@ -629,12 +629,12 @@ let abstract_nonlinear ?exists:(p=fun x -> true) ark phi =
     solver#add [nonlinear_uninterpreted ark psi]
   in
   let rec go property =
-    logf ~level:`trace "Blocking clause %a" Cube.pp property;
     let blocking_clause =
       Cube.to_formula property
       |> nonlinear_uninterpreted ark
       |> mk_not ark
     in
+    logf ~level:`trace "Blocking clause %a" (Formula.pp ark) blocking_clause;
     solver#add [blocking_clause];
     match solver#get_model () with
     | `Unsat -> property
