@@ -1,11 +1,27 @@
 open OUnit
 open Polynomial
+open BatPervasives
 
 let mk_uvp vec =
   List.fold_left
     (fun vec (i, k) -> QQUvp.add_term k i vec)
     QQUvp.zero
     (List.mapi (fun i k -> (i, QQ.of_int k)) vec)
+
+module MvpInfix = struct
+  let ( + ) = Mvp.add
+  let ( - ) = Mvp.sub
+  let ( * ) = Mvp.mul
+  let int k = Mvp.scalar (QQ.of_int k)
+  let dim k = Mvp.of_dim (Char.code k)
+end
+
+let assert_equal_mvp p q =
+  let pp_dim formatter i =
+    Format.pp_print_string formatter (Char.escaped (Char.chr i))
+  in
+  let show = Apak.Putil.mk_show (Mvp.pp pp_dim) in
+  assert_equal ~printer:show ~cmp:Mvp.equal p q
 
 let test_mul () =
   let p = mk_uvp [1; 1] in
@@ -43,6 +59,70 @@ let test_summation2 () = (* Gauss sum *)
   in
   assert_equal ~printer:QQUvp.show r (QQUvp.summation p)
 
+let test_rewrite1 () =
+  let open MvpInfix in
+  let x = dim 'x' in
+  let y = dim 'y' in
+  let rewrite =
+    Rewrite.mk_rewrite Monomial.deglex [
+      x * x - (int 2);
+      y * y + x * y + (int 1)
+    ]
+  in
+  assert_equal_mvp (int (-1)) (Rewrite.reduce rewrite (y * y * y * y))
+
+(* Linear system of equations *)
+let test_rewrite2 () =
+  let open MvpInfix in
+  let x = dim 'x' in
+  let y = dim 'y' in
+  let z = dim 'z' in
+  let rewrite =
+    Rewrite.mk_rewrite Monomial.lex [
+      (int 2) * x - (int 2) * y + (int 4) * z + (int 2);
+      (int 3) * x + (int 2) * y - z - (int 1);
+      (int (-2)) * x + y - (int 2) * z;
+    ]
+  in
+  assert_equal_mvp (int 1) (Rewrite.reduce rewrite x);
+  assert_equal_mvp (int (-2)) (Rewrite.reduce rewrite y);
+  assert_equal_mvp (int (-2)) (Rewrite.reduce rewrite z)
+
+let test_grobner1 () =
+  let open MvpInfix in
+  let a = dim 'a' in
+  let b = dim 'b' in
+  let c = dim 'c' in
+  let x = dim 'x' in
+  let y = dim 'y' in
+  let z = dim 'z' in
+  let rewrite =
+    Rewrite.mk_rewrite Monomial.degrevlex [
+      a * x * x + b * x + c;
+      a * y * y + b * y + c;
+      z * (x - y) - (int 1);
+    ] |> Rewrite.grobner_basis
+  in
+  let p = a * x * y - c in
+  let q = a * (x + y) + b in
+  assert_equal_mvp (int 0) (Rewrite.reduce rewrite p);
+  assert_equal_mvp (int 0) (Rewrite.reduce rewrite q)
+
+let test_grobner2 () =
+  let open MvpInfix in
+  let x = dim 'x' in
+  let y = dim 'y' in
+  let rewrite =
+    Rewrite.mk_rewrite Monomial.degrevlex [
+      x * x - y;
+      x * x * x - x
+    ] |> Rewrite.grobner_basis
+  in
+  let p = x * y - x in
+  let q = y * y - y in
+  assert_equal_mvp (int 0) (Rewrite.reduce rewrite p);
+  assert_equal_mvp (int 0) (Rewrite.reduce rewrite q)
+
 let suite = "Polynomial" >::: [
     "mul" >:: test_mul;
     "compose1" >:: test_compose1;
@@ -50,4 +130,8 @@ let suite = "Polynomial" >::: [
     "eval" >:: test_eval;
     "test_summation1" >:: test_summation1;
     "test_summation2" >:: test_summation2;
+    "test_rewrite1" >:: test_rewrite1;
+    "test_rewrite2" >:: test_rewrite2;
+    "test_grobner1" >:: test_grobner1;
+    "test_grobner2" >:: test_grobner2;
   ]

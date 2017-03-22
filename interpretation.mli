@@ -45,5 +45,4 @@ val select_implicant : 'a interpretation ->
 val destruct_atom : 'a context ->
   'a formula ->
   [ `Comparison of ([`Lt | `Leq | `Eq] * 'a term * 'a term)
-  | `Literal of ([ `Pos | `Neg ] * [ `Const of symbol | `Var of int ])
-  | `Tru ]
+  | `Literal of ([ `Pos | `Neg ] * [ `Const of symbol | `Var of int ]) ]

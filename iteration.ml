@@ -404,7 +404,7 @@ let abstract_iter_cube ark cube tr_symbols =
                None
              else
                Some (postify lhs, op, lhs, mk_neg ark rhs))
-      | `Tru | `Literal (_, _) -> None
+      | `Literal (_, _) -> None
     in
     BatList.filter_map recur (Cube.to_atoms diff_cube)
   in
@@ -451,7 +451,7 @@ let abstract_iter_cube ark cube tr_symbols =
                            exp_op }
                 with Not_found -> None
               end
-            | `Tru | `Literal (_, _) -> None))
+            | `Literal (_, _) -> None))
     |> BatEnum.fold (@) []
   in
   { ark;

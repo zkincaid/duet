@@ -306,6 +306,9 @@ let destruct_atom ark phi =
       | `Proposition (`Var i) -> `Literal (`Neg, `Var i)
       | _ -> invalid_arg "destruct_atomic: not atomic"
     end
-  | `Tru -> `Tru
+  | `Tru ->
+    let zero = mk_real ark QQ.zero in
+    `Comparison (`Eq, zero, zero)
+  | `Fls -> `Comparison (`Eq, mk_real ark QQ.zero, mk_real ark QQ.one)
   | _ ->
     invalid_arg "destruct_atomic: not atomic"
