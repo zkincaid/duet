@@ -431,25 +431,10 @@ let analyze file =
         then Log.phase "Forward invariant generation" decorate rg
         else rg
       in
-
-      (*    BatEnum.iter (Interproc.RGD.display % snd) (RG.bodies rg);*)
-
-      let local func_name =
-        if defined_function func_name (get_gfile()) then begin
-          let func = lookup_function func_name (get_gfile()) in
-          let vars =
-            Varinfo.Set.remove (return_var func_name)
-              (Varinfo.Set.of_enum
-                 (BatEnum.append
-                    (BatList.enum func.formals)
-                    (BatList.enum func.locals)))
-          in
-          logf "Locals for %a: %a"
-            Varinfo.pp func_name
-            Varinfo.Set.pp vars;
-          fun x -> (Varinfo.Set.mem (fst (var_of_value x)) vars)
-        end else (fun _ -> false)
-      in
+(*
+      BatEnum.iter (Interproc.RGD.display % snd) (RG.bodies rg);
+*)
+      let local _ v = not (Var.is_global (var_of_value v)) in
       let query = A.mk_query rg weight local main in
       let is_assert def = match def.dkind with
         | Assert (_, _) | AssertMemSafe _ -> true
@@ -531,22 +516,7 @@ let resource_bound_analysis file =
         else rg
       in
 
-      let local func_name =
-        if defined_function func_name (get_gfile()) then begin
-          let func = lookup_function func_name (get_gfile()) in
-          let vars =
-            Varinfo.Set.remove (return_var func_name)
-              (Varinfo.Set.of_enum
-                 (BatEnum.append
-                    (BatList.enum func.formals)
-                    (BatList.enum func.locals)))
-          in
-          logf "Locals for %a: %a"
-            Varinfo.pp func_name
-            Varinfo.Set.pp vars;
-          fun x -> (Varinfo.Set.mem (fst (var_of_value x)) vars)
-        end else (fun _ -> false)
-      in
+      let local _ v = not (Var.is_global (var_of_value v)) in
       let query = A.mk_query rg weight local main in
       let cost =
         let open CfgIr in
