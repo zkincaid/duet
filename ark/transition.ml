@@ -306,6 +306,7 @@ struct
     match Abstract.is_sat ark (mk_not ark equiv) with
     | `Unsat -> true
     | _ -> false
+
   let equiv x y =
     try equiv x y
     with | Not_found -> false
