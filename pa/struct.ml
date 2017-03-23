@@ -334,13 +334,18 @@ module Make (P : Symbol) = struct
     let e = mk_edges u x_sigs v y_sigs in
     Graph.make (KSet.enum u) (KSet.enum v) e
 
+  module MatchCPP = MatchingCPP.Make(P)
+
   (* Is there an embedding (injective homomorphism) of x into y? 
      Only gauranteed to work with monadic structures *)
   let embeds_matching x y =
-    let g = mk_graph x y in
-    (Graph.incident_u g) >= (Graph.u_size g)       (* Quick check to see if |max_matching g| <= |U| *)
-    && (Graph.incident_v g) >= (Graph.u_size g)
-    && ((Graph.max_matching g) = (Graph.u_size g))
+    ((x.universe >= 10) && MatchCPP.embeds (MatchCPP.make (x.universe ) (props x) (y.universe) (props y))) ||
+    begin
+      let g = mk_graph x y in
+         (Graph.incident_u g) >= (Graph.u_size g)       (* Quick check to see if |max_matching g| <= |U| *)
+      && (Graph.incident_v g) >= (Graph.u_size g)
+      && ((Graph.max_matching g) = (Graph.u_size g))
+    end
 
   (* Is there an embedding (injective homomorphism) of x into y? *)
   let embeds x y =

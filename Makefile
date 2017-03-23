@@ -5,6 +5,7 @@ all: build
 .PHONY: build duet ark apak patools
 
 build: setup.ml setup.data
+	rm -rf _build/pa/pa.a
 	$(SETUP) -build
 
 duet: setup.ml setup.data duet/config.ml
