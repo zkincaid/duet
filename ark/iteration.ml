@@ -404,7 +404,7 @@ let abstract_iter_cube ark cube tr_symbols =
                None
              else
                Some (postify lhs, op, lhs, mk_neg ark rhs))
-      | `Tru | `Literal (_, _) -> None
+      | `Literal (_, _) -> None
     in
     BatList.filter_map recur (Cube.to_atoms diff_cube)
   in
@@ -451,7 +451,7 @@ let abstract_iter_cube ark cube tr_symbols =
                            exp_op }
                 with Not_found -> None
               end
-            | `Tru | `Literal (_, _) -> None))
+            | `Literal (_, _) -> None))
     |> BatEnum.fold (@) []
   in
   { ark;
@@ -610,7 +610,7 @@ let closure_ocrs ?(guard=None) iter =
           (* sym is a post-state var -- replace it with pre-state var *)
           Output_variable (string_of_symbol (Symbol.Map.find sym pre_map),
                            ss_post)
-        else if Symbol.Map.mem sym pre_map then
+        else if Symbol.Map.mem sym post_map then
           Output_variable (string_of_symbol sym,
                            ss_pre)
         else
@@ -720,7 +720,6 @@ let closure_ocrs ?(guard=None) iter =
     in
     stratified@inequations@exponential
   in
-
   let closed =
     let to_formula = function
       | Equals (x, y) -> mk_eq iter.ark (term_of_expr x) (term_of_expr y)

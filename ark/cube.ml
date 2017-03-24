@@ -3,6 +3,8 @@ open Apak
 open BatPervasives
 
 module V = Linear.QQVector
+module Monomial = Polynomial.Monomial
+module P = Polynomial.Mvp
 module Scalar = Apron.Scalar
 module Coeff = Apron.Coeff
 module Abstract0 = Apron.Abstract0
@@ -330,6 +332,34 @@ module Env = struct
       (BatList.of_enum (BatEnum.map mk (V.enum rest)))
       (Some (coeff_of_qq const_coeff))
 
+  let rec polynomial_of_id env id =
+    match sd_term_of_id env id with
+    | Mul (x, y) -> P.mul (polynomial_of_vec env x) (polynomial_of_vec env y)
+    | _ -> P.of_dim id
+
+  and polynomial_of_vec env vec =
+    let (const_coeff, vec) = V.pivot const_id vec in
+    V.enum vec
+    /@ (fun (coeff, id) -> P.scalar_mul coeff (polynomial_of_id env id))
+    |> BatEnum.fold P.add (P.scalar const_coeff)
+
+  let term_of_polynomial env p =
+    (P.enum p)
+    /@ (fun (coeff, monomial) ->
+        let product =
+          BatEnum.fold
+            (fun product (id, power) ->
+               let term = term_of_id env id in
+               BatEnum.fold
+                 (fun product _ -> term::product)
+                 product
+                 (1 -- power))
+            [mk_real env.ark coeff]
+            (Monomial.enum monomial)
+        in
+        mk_mul env.ark product)
+    |> BatList.of_enum
+    |> mk_add env.ark
 end
 
 let pp_vector = Env.pp_vector
@@ -347,28 +377,69 @@ let get_manager =
 
 type 'a t =
   { env : 'a Env.t;
-    abstract : (Polka.strict Polka.t) Abstract0.t }
+    mutable abstract : (Polka.strict Polka.t) Abstract0.t;
+    (* int_dim and real_dim keep track of the number of dimensions in the
+       abstract value associated with a cube, which can get out of sync with the
+       number of dimensions known to the environment (by registering new terms).
+       update_env gets them back into sync *)
+    mutable int_dim : int;
+    mutable real_dim : int; }
 
 let pp formatter property =
   Abstract0.print
     (fun dim ->
        Apak.Putil.mk_show
-        (pp_sd_term property.env)
+         (pp_sd_term property.env)
          (Env.sd_term_of_id property.env (Env.id_of_dim property.env dim)))
     formatter
     property.abstract
 
 let show property = Apak.Putil.mk_show pp property
 
+(* Should be called when new terms are registered in the environment attached
+   to a cube *)
+let update_env cube =
+  let int_dim = Env.int_dim cube.env in
+  let real_dim = Env.real_dim cube.env in
+  let added_int = max 0 (int_dim - cube.int_dim) in
+  let added_real = max 0 (real_dim - cube.real_dim) in
+  let added =
+    BatEnum.append
+      ((1 -- added_int) /@ (fun _ -> cube.int_dim))
+      ((1 -- added_real) /@ (fun _ -> cube.int_dim + cube.real_dim))
+    |> BatArray.of_enum
+  in
+  if added_int + added_real > 0 then begin
+    logf "update env: adding %d integer and %d real dimension(s)"
+      added_int
+      added_real;
+    let abstract =
+      Abstract0.add_dimensions
+        (get_manager ())
+        cube.abstract
+        { Dim.dim = added;
+          Dim.intdim = added_int;
+          Dim.realdim = added_real }
+        false
+    in
+    cube.abstract <- abstract;
+    cube.int_dim <- int_dim;
+    cube.real_dim <- real_dim
+  end
+
 let top context =
   { env = Env.mk_empty context;
-    abstract = Abstract0.top (get_manager ()) 0 0 }
+    abstract = Abstract0.top (get_manager ()) 0 0;
+    int_dim = 0;
+    real_dim = 0 }
 
 let is_top property = Abstract0.is_top (get_manager ()) property.abstract
 
 let bottom context =
   { env = Env.mk_empty context;
-    abstract = Abstract0.bottom (get_manager ()) 0 0 }
+    abstract = Abstract0.bottom (get_manager ()) 0 0;
+    int_dim = 0;
+    real_dim = 0 }
 
 let is_bottom property = Abstract0.is_bottom (get_manager ()) property.abstract
 
@@ -413,10 +484,6 @@ let lincons_of_atom env atom =
       (Env.linexpr_of_vec
          env
          (V.add (Env.vec_of_term env y) (V.negate (Env.vec_of_term env x))))
-      Lincons0.EQ
-  | `Tru ->
-    Lincons0.make
-      (Linexpr0.of_list None [] None) (* zero *)
       Lincons0.EQ
   | `Literal (_, _) -> assert false
 
@@ -480,76 +547,88 @@ let apron_farkas abstract =
   done;
   (lambda_abstract, columns)
 
+let affine_hull property =
+  let open Lincons0 in
+  BatArray.enum (Abstract0.to_lincons_array (get_manager ()) property.abstract)
+  |> BatEnum.filter_map (fun lcons ->
+      match lcons.typ with
+      | EQ -> Some (Env.vec_of_linexpr property.env lcons.linexpr0)
+      | _ -> None)
+  |> BatList.of_enum
+
 let strengthen ?integrity:(integrity=(fun _ -> ())) property =
-  let strong_property = ref property in
   let env = property.env in
   let ark = Env.ark env in
+  let zero = mk_real ark QQ.zero in
   let add_bound precondition bound =
     logf ~level:`info "Integrity: %a => %a"
       (Formula.pp ark) precondition
       (Formula.pp ark) bound;
     integrity (mk_or ark [mk_not ark precondition; bound]);
-    strong_property := { !strong_property
-                         with abstract = Abstract0.meet_lincons_array
-                                  (get_manager ())
-                                  (!strong_property).abstract
-                                  [| lincons_of_atom env bound |] }
+
+    ignore (lincons_of_atom env bound);
+    update_env property;
+    let abstract =
+      Abstract0.meet_lincons_array
+        (get_manager ())
+        property.abstract
+        [| lincons_of_atom env bound |]
+    in
+    property.abstract <- abstract
   in
 
-  logf ~level:`trace "Before strengthen: %a" pp property;
+  logf "Before strengthen: %a" pp property;
 
-  (* Add congruence equations: xs = ys |= f(xs) = f(ys) *)
+  let cube_affine_hull = affine_hull property in
+  let affine_hull_formula =
+    cube_affine_hull
+    |> List.map (fun vec -> mk_eq ark (Env.term_of_vec property.env vec) zero)
+    |> mk_and ark
+  in
+  let rewrite =
+    ref (List.map (Env.polynomial_of_vec property.env) cube_affine_hull
+         |> Polynomial.Rewrite.mk_rewrite Monomial.degrevlex
+         |> Polynomial.Rewrite.grobner_basis)
+  in
+  let pp_dim formatter i =
+    Term.pp ark formatter (Env.term_of_id property.env i)
+  in
+  logf "Rewrite: @[<v 0>%a@]" (Polynomial.Rewrite.pp pp_dim) (!rewrite);
+  let reduce_vec vec =
+    Env.polynomial_of_vec property.env vec
+    |> Polynomial.Rewrite.reduce (!rewrite)
+    |> Env.term_of_polynomial property.env
+  in
   for id = 0 to Env.dim property.env - 1 do
     let term = Env.term_of_id property.env id in
+    (* TODO: track the equations that were actually used in reductions rather
+       than just using the affine hull as the precondition. *)
+    let reduced_term =
+      match Env.sd_term_of_id property.env id with
+      | App (func, args) -> mk_app ark func (List.map reduce_vec args)
+      | Div (num, den) -> mk_div ark (reduce_vec num) (reduce_vec den)
+      | Mod (num, den) -> mk_mod ark (reduce_vec num) (reduce_vec den)
+      | Floor t -> mk_floor ark (reduce_vec t)
+      | Mul (_, _) ->
+        Env.polynomial_of_id env id
+        |> Polynomial.Rewrite.reduce (!rewrite)
+        |> Env.term_of_polynomial property.env
+    in
+    add_bound affine_hull_formula (mk_eq ark term reduced_term);
     match Env.sd_term_of_id property.env id with
-    | Mul (x, y) ->
-      for id' = id + 1 to Env.dim property.env - 1 do
-        match Env.sd_term_of_id property.env id' with
-        | Mul (x', y') ->
-          if (sat_vec_equation (!strong_property) x x'
-              && sat_vec_equation (!strong_property) y y') then
-            let term' = Env.term_of_id property.env id' in
-            add_bound (mk_true ark) (mk_eq ark term term')
-        | _ -> ()
-      done
-    | Div (x, y) ->
-      for id' = id + 1 to Env.dim property.env - 1 do
-        match Env.sd_term_of_id property.env id' with
-        | Div (x', y') ->
-          if (sat_vec_equation (!strong_property) x x'
-              && sat_vec_equation (!strong_property) y y') then
-            let term' = Env.term_of_id property.env id' in
-            add_bound (mk_true ark) (mk_eq ark term term')
-        | _ -> ()
-      done
-    | Mod (x, y) ->
-      for id' = id + 1 to Env.dim property.env - 1 do
-        match Env.sd_term_of_id property.env id' with
-        | Mod (x', y') ->
-          if (sat_vec_equation (!strong_property) x x'
-              && sat_vec_equation (!strong_property) y y') then
-            let term' = Env.term_of_id property.env id' in
-            add_bound (mk_true ark) (mk_eq ark term term')
-        | _ -> ()
-      done
-    | App (func, args) ->
-      for id' = id + 1 to Env.dim property.env - 1 do
-        match Env.sd_term_of_id property.env id' with
-        | App (func', args') when func = func' ->
-          if List.for_all2 (sat_vec_equation (!strong_property)) args args' then
-            let term' = Env.term_of_id property.env id' in
-            add_bound (mk_true ark) (mk_eq ark term term')
-        | _ -> ()
-      done
-    | Floor x ->
-      for id' = id + 1 to Env.dim property.env - 1 do
-        match Env.sd_term_of_id property.env id' with
-        | Floor x' ->
-          if sat_vec_equation (!strong_property) x x' then
-            let term' = Env.term_of_id property.env id' in
-            add_bound (mk_true ark) (mk_eq ark term term')
-        | _ -> ()
-      done
+    | Mul (_, _) -> ()
+    | _ ->
+      let reduced_term_polynomial =
+        Env.vec_of_term property.env reduced_term
+        |> Env.polynomial_of_vec property.env
+      in
+      let term_reduced_zero = (* reduced_term - term is a zero polynomial *)
+        let open Polynomial.Mvp in
+        add
+          (mul (scalar (QQ.of_int (-1))) (of_dim id))
+          reduced_term_polynomial
+      in
+      rewrite := Polynomial.Rewrite.add_saturate (!rewrite) term_reduced_zero
   done;
 
   (* Compute bounds for synthetic dimensions using the bounds of their
@@ -596,8 +675,8 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
           ()
       in
 
-      let x_ivl = bound_vec (!strong_property) x in
-      let y_ivl = bound_vec (!strong_property) y in
+      let x_ivl = bound_vec property x in
+      let y_ivl = bound_vec property y in
       let x_term = Env.term_of_vec env x in
       let y_term = Env.term_of_vec env y in
 
@@ -647,7 +726,7 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
      y <= 10. *)
   let (lambda_constraints, columns) =
     try
-      apron_farkas (!strong_property).abstract
+      apron_farkas property.abstract
     with Invalid_argument _ -> assert false
   in
   let kcolumn = Array.length columns - 1 in
@@ -726,7 +805,7 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
   (* sd represents the term x*y.  add_coeff_bounds finds bounds for y that
      are implied by bounds for x*y. *)
   let add_coeff_bounds sd x y =
-    let x_ivl = bound_vec (!strong_property) (V.of_term QQ.one x) in
+    let x_ivl = bound_vec property (V.of_term QQ.one x) in
     let x_term = Env.term_of_id env x in
     let y_term = Env.term_of_id env y in
     let sd_term = Env.term_of_id env sd in
@@ -774,9 +853,9 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
     | _ -> ()
   done;
 
-  logf ~level:`trace "After strengthen: %a" pp (!strong_property);
+  logf ~level:`trace "After strengthen: %a" pp property;
 
-  !strong_property
+  property
 
 let of_atoms ark ?integrity:(integrity=(fun _ -> ())) atoms =
   let env = Env.mk_empty ark in
@@ -785,18 +864,19 @@ let of_atoms ark ?integrity:(integrity=(fun _ -> ())) atoms =
     | `Comparison (_, x, y) ->
       ignore (Env.vec_of_term env x);
       ignore (Env.vec_of_term env y)
-    | `Tru -> ()
     | `Literal (_, _) -> assert false
   in
   List.iter register_terms atoms;
+  let int_dim = Env.int_dim env in
+  let real_dim = Env.real_dim env in
   let abstract =
     Abstract0.of_lincons_array
       (get_manager ())
-      (Env.int_dim env)
-      (Env.real_dim env)
+      int_dim
+      real_dim
       (Array.of_list (List.map (lincons_of_atom env) atoms))
   in
-  strengthen ~integrity { env; abstract }
+  strengthen ~integrity { env; abstract; int_dim; real_dim }
 
 let common_env property property' =
   let ark = Env.ark property.env in
@@ -806,29 +886,30 @@ let common_env property property' =
     | `Comparison (_, x, y) ->
       ignore (Env.vec_of_term env x);
       ignore (Env.vec_of_term env y);
-    | `Tru -> ()
     | `Literal (_, _) -> assert false
   in
   let atoms = to_atoms property in
   let atoms' = to_atoms property' in
   List.iter register_terms atoms;
   List.iter register_terms atoms';
+  let int_dim = Env.int_dim env in
+  let real_dim = Env.real_dim env in
   let abstract =
     Abstract0.of_lincons_array
       (get_manager ())
-      (Env.int_dim env)
-      (Env.real_dim env)
+      int_dim
+      real_dim
       (Array.of_list (List.map (lincons_of_atom env) atoms))
   in
   let abstract' =
     Abstract0.of_lincons_array
       (get_manager ())
-      (Env.int_dim env)
-      (Env.real_dim env)
+      int_dim
+      real_dim
       (Array.of_list (List.map (lincons_of_atom env) atoms'))
   in
-  ({ env = env; abstract = abstract },
-   { env = env; abstract = abstract' })
+  ({ env = env; abstract = abstract; int_dim; real_dim },
+   { env = env; abstract = abstract'; int_dim; real_dim })
 
 let join ?integrity:(integrity=(fun _ -> ())) property property' =
   if is_bottom property then property'
@@ -837,7 +918,12 @@ let join ?integrity:(integrity=(fun _ -> ())) property property' =
     let (property, property') = common_env property property' in
     let property = strengthen ~integrity property in
     let property' = strengthen ~integrity property' in
+    update_env property; (* strengthening property' may add dimensions to the
+                            common environment -- add those dimensions to
+                            property *)
     { env = property.env;
+      int_dim = property.int_dim;
+      real_dim = property.real_dim;
       abstract =
         Abstract0.join (get_manager ()) property.abstract property'.abstract }
 
@@ -846,15 +932,6 @@ let equal property property' =
   let property = strengthen property in
   let property' = strengthen property' in
   Abstract0.is_eq (get_manager ()) property.abstract property'.abstract
-
-let affine_hull property =
-  let open Lincons0 in
-  BatArray.enum (Abstract0.to_lincons_array (get_manager ()) property.abstract)
-  |> BatEnum.filter_map (fun lcons ->
-      match lcons.typ with
-      | EQ -> Some (Env.vec_of_linexpr property.env lcons.linexpr0)
-      | _ -> None)
-  |> BatList.of_enum
 
 (* Remove dimensions from an abstract value so that it has the specified
    number of integer and real dimensions n*)
@@ -1044,6 +1121,8 @@ let exists
   in
   let result =
     { env = new_env;
+      int_dim = Env.int_dim new_env;
+      real_dim = Env.real_dim new_env;
       abstract = abstract }
   in
   logf "Projection result: %a" pp result;
@@ -1094,6 +1173,8 @@ let widen property property' =
   let abstract = project property in
   let abstract' = project property' in
   { env = widen_env;
+    int_dim = Env.int_dim widen_env;
+    real_dim = Env.real_dim widen_env;
     abstract = Abstract0.widening (get_manager ()) abstract abstract' }
 
 let farkas_equalities property =
