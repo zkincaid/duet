@@ -524,7 +524,7 @@ let () =
   Callback.register "eq_callback" (fun x y -> K.compare x y = 0);
 
   Callback.register "is_sat_callback" (fun tr ->
-      Smt.is_sat ark (K.guard tr) != `Unsat);
+      Abstract.is_sat ark (K.guard tr) != `Unsat);
 
   Callback.register "get_global_var" (fun name ->
       let open CfgIr in
