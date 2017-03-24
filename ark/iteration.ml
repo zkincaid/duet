@@ -696,7 +696,7 @@ let closure_ocrs ?(guard=None) iter =
             | `Eq -> Equals (lhs, rhs)
             | `Leq -> LessEq (lhs, rhs)
           in
-          (expr_of_term post, ineq))
+          (expr_of_term pre, ineq))
         iter.inequations
     in
     let exponential =
@@ -715,7 +715,7 @@ let closure_ocrs ?(guard=None) iter =
             | `Leq -> LessEq (lhs, rhs)
             | `Geq -> GreaterEq (lhs, rhs)
           in
-          (expr_of_term exp_lhs, ineq))
+          (expr_of_term exp_rhs, ineq))
         iter.exponential
     in
     stratified@inequations@exponential
