@@ -286,12 +286,13 @@ let abstract_iter_cube ark cube tr_symbols =
     in
     (* Filter out transition symbols without associated rows in the matrix --
        those are not induction variables *)
-    let non_induction =
-      List.filter (fun (s,s') ->
+    let (candidates, non_induction) =
+      List.partition (fun (s,s') ->
           Symbol.Map.mem s row_of_symbol && Symbol.Map.mem s' row_of_symbol)
         tr_symbols
     in
-    go [] non_induction [] matrix
+    let (induction, non_induction') = go [] candidates [] matrix in
+    (induction, non_induction@non_induction')
   in
   let inequations =
     (* For every non-induction var x, substitute x -> x' - x in the loop body;
@@ -314,6 +315,9 @@ let abstract_iter_cube ark cube tr_symbols =
       in
       substitute_const ark subst
     in
+    (* Replace each non-induction pre-state variable v with the difference
+       (v'-v) and project out post-state variables.  Pre-state induction
+       variables ("delta variables") now represent the difference (v'-v) *)
     let diff_cube =
       let delta_subst sym =
         if Symbol.Map.mem sym post_map then
