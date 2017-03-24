@@ -43,7 +43,6 @@ let stats_arg =
 let colorize_arg =
   ("-color", Arg.Set Log.colorize, " Use ANSI colors")
 
-
 let lib_arg =
   ("-lib",
    Arg.Set_string library_path,
@@ -78,6 +77,17 @@ let fail_malloc_arg =
 let fail_fork_arg =
   ("-fail-fork", Arg.Set fail_fork, " Allow forks to fail")
 
+let default_solver_arg =
+  ("-smt-solver",
+   Arg.String (fun arg ->
+       let solver = match String.lowercase arg with
+         | "z3" -> `Z3
+         | "mathsat" -> `Mathsat
+         | _ ->
+           Log.fatalf "SMT solver `%s' is invalid" arg
+       in
+       Ark.Smt.set_default_solver solver),
+   " Set default SMT solver")
 
 (** Debug args *)
 let debug_arg =
@@ -129,6 +139,7 @@ let config_args = ref
       temp_dir_arg;
       fail_malloc_arg;
       fail_fork_arg;
+      default_solver_arg;
     ]
 
 let passes : (CfgIr.file -> unit) list ref = ref []

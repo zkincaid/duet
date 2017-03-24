@@ -642,7 +642,7 @@ let closure_ocrs ?(guard=None) iter =
       assert (name = "k");
       loop_counter
     | Output_variable (name, subscript) ->
-      assert (subscript = ss_post);
+      assert (subscript = ss_pre);
       Symbol.Map.find (symbol_of_string name) post_map
       |> mk_const iter.ark
     | Rational k -> mk_real iter.ark (Mpqf.of_mpq k)
@@ -676,7 +676,7 @@ let closure_ocrs ?(guard=None) iter =
     in
     let stratified =
       filter_map (fun (post, pre, term) ->
-          (Output_variable (string_of_symbol pre, ss_post),
+          (Output_variable (string_of_symbol pre, ss_pre),
            Equals (Output_variable (string_of_symbol pre, ss_post),
                    Plus (Output_variable (string_of_symbol pre, ss_pre),
                          expr_of_term term))))
@@ -696,7 +696,7 @@ let closure_ocrs ?(guard=None) iter =
             | `Eq -> Equals (lhs, rhs)
             | `Leq -> LessEq (lhs, rhs)
           in
-          (expr_of_term post, ineq))
+          (expr_of_term pre, ineq))
         iter.inequations
     in
     let exponential =
@@ -715,7 +715,7 @@ let closure_ocrs ?(guard=None) iter =
             | `Leq -> LessEq (lhs, rhs)
             | `Geq -> GreaterEq (lhs, rhs)
           in
-          (expr_of_term exp_lhs, ineq))
+          (expr_of_term exp_rhs, ineq))
         iter.exponential
     in
     stratified@inequations@exponential
