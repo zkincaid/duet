@@ -250,8 +250,8 @@ module Monomial = struct
           if a = b then go m' n'
           else if a < b then `Lt
           else `Gt
-        else if x < y then `Lt
-        else `Gt
+        else if x < y then `Gt
+        else `Lt
     in
     go mlist nlist
 
