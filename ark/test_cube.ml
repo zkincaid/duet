@@ -262,8 +262,6 @@ let abstract_bounds cube symbol =
   let (lower, upper) = Cube.symbolic_bounds cube symbol in
   let lower = List.map (fun lb -> Ctx.mk_leq lb symbol_term) lower in
   let upper = List.map (fun ub -> Ctx.mk_leq symbol_term ub) upper in
-  Log.errorf "L> %a" Cube.pp (Cube.of_atoms ctx lower);
-  Log.errorf "U> %a" Cube.pp (Cube.of_atoms ctx upper);
   lower@upper
 
 let symbound () =
