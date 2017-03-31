@@ -902,6 +902,11 @@ module Split = struct
     let solver = Smt.mk_solver ark in
     solver#add [uninterp_body];
     let sat_modulo_body psi =
+      let psi =
+        rewrite ark
+          ~up:(Abstract.nonlinear_uninterpreted_rewriter ark)
+          psi
+      in
       solver#push ();
       solver#add [psi];
       let result = solver#check [] in

@@ -222,6 +222,15 @@ module Monomial = struct
     in
     IntMap.merge f
 
+  let gcd =
+    let f _ a b =
+      match a, b with
+      | Some a, Some b -> Some (min a b)
+      | Some x, None | None, Some x -> None
+      | None, None -> assert false
+    in
+    IntMap.merge f
+
   let total_degree m =
     IntMap.fold (fun _ degree total -> degree + total) m 0
 
@@ -250,8 +259,8 @@ module Monomial = struct
           if a = b then go m' n'
           else if a < b then `Lt
           else `Gt
-        else if x < y then `Lt
-        else `Gt
+        else if x < y then `Gt
+        else `Lt
     in
     go mlist nlist
 
@@ -313,6 +322,27 @@ module Mvp = struct
 
   let of_dim dim =
     of_term QQ.one (Monomial.singleton dim 1)
+
+  module V = Linear.QQVector
+  let of_vec ?(const=Linear.const_dim) vec =
+    let (const_coeff, vec) = V.pivot const vec in
+    V.enum vec
+    /@ (fun (coeff, id) -> scalar_mul coeff (of_dim id))
+    |> BatEnum.fold add (scalar const_coeff)
+
+  exception Nonlinear
+  let vec_of ?(const=Linear.const_dim) p =
+    try
+      let vec =
+        enum p /@ (fun (coeff, monomial) ->
+          match BatList.of_enum (Monomial.enum monomial) with
+          | [(x,1)] -> (coeff, x)
+          | [] -> (coeff, const)
+          | _ -> raise Nonlinear)
+        |> V.of_enum
+      in
+      Some vec
+    with Nonlinear -> None
 end
 
 module Rewrite = struct
@@ -495,4 +525,32 @@ module Rewrite = struct
       let pairs = List.map (fun r -> ((m,rhs), r)) rewrite.rules in
       { order = rewrite.order;
         rules = buchberger rewrite.order ((m,rhs)::rewrite.rules) pairs }
+
+  let grobner_basis rewrite =
+    List.fold_left (fun rewrite (m,rhs) ->
+        match reduce_op rewrite ((QQ.negate QQ.one, m)::rhs) with
+        | [] -> rewrite
+        | [(c,m)] when Monomial.equal m Monomial.one ->
+          (* Inconsistent -- return (1 = 0) *)
+          assert (not (QQ.equal c QQ.zero));
+          { order = rewrite.order; rules = [(Monomial.one, [])] }
+        | (c,m)::rest ->
+          assert (not (QQ.equal c QQ.zero));
+          let rhs =
+            op_monomial_scalar_mul (QQ.negate (QQ.inverse c)) Monomial.one rest
+          in
+          let rules = rewrite.rules in
+          let pairs =
+            BatList.filter_map (fun (m',rhs') ->
+                if Monomial.equal (Monomial.gcd m m') Monomial.one then
+                  None
+                else
+                  Some ((m,rhs), (m',rhs')))
+              rewrite.rules
+          in
+          { order = rewrite.order;
+            rules = buchberger rewrite.order ((m,rhs)::rules) pairs }
+      )
+      { order = rewrite.order; rules = [] }
+      rewrite.rules
 end

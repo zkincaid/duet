@@ -65,11 +65,11 @@ let test_rewrite1 () =
   let y = dim 'y' in
   let rewrite =
     Rewrite.mk_rewrite Monomial.deglex [
-      x * x - (int 2);
-      y * y + x * y + (int 1)
+      y * y - (int 2);
+      x * x + y * x + (int 1)
     ]
   in
-  assert_equal_mvp (int (-1)) (Rewrite.reduce rewrite (y * y * y * y))
+  assert_equal_mvp (int (-1)) (Rewrite.reduce rewrite (x * x * x * x))
 
 (* Linear system of equations *)
 let test_rewrite2 () =

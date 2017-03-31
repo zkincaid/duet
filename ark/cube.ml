@@ -332,17 +332,6 @@ module Env = struct
       (BatList.of_enum (BatEnum.map mk (V.enum rest)))
       (Some (coeff_of_qq const_coeff))
 
-  let rec polynomial_of_id env id =
-    match sd_term_of_id env id with
-    | Mul (x, y) -> P.mul (polynomial_of_vec env x) (polynomial_of_vec env y)
-    | _ -> P.of_dim id
-
-  and polynomial_of_vec env vec =
-    let (const_coeff, vec) = V.pivot const_id vec in
-    V.enum vec
-    /@ (fun (coeff, id) -> P.scalar_mul coeff (polynomial_of_id env id))
-    |> BatEnum.fold P.add (P.scalar const_coeff)
-
   let term_of_polynomial env p =
     (P.enum p)
     /@ (fun (coeff, monomial) ->
@@ -364,6 +353,9 @@ end
 
 let pp_vector = Env.pp_vector
 let pp_sd_term = Env.pp_sd_term
+
+let vec_of_poly = P.vec_of ~const:Env.const_id
+let poly_of_vec = P.of_vec ~const:Env.const_id
 
 let get_manager =
   let manager = ref None in
@@ -560,14 +552,7 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
   let env = property.env in
   let ark = Env.ark env in
   let zero = mk_real ark QQ.zero in
-  let add_bound precondition bound =
-    logf ~level:`info "Integrity: %a => %a"
-      (Formula.pp ark) precondition
-      (Formula.pp ark) bound;
-    integrity (mk_or ark [mk_not ark precondition; bound]);
-
-    ignore (lincons_of_atom env bound);
-    update_env property;
+  let add_bound_unsafe bound =
     let abstract =
       Abstract0.meet_lincons_array
         (get_manager ())
@@ -576,17 +561,43 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
     in
     property.abstract <- abstract
   in
+  let add_bound precondition bound =
+    logf ~level:`info "Integrity: %a => %a"
+      (Formula.pp ark) precondition
+      (Formula.pp ark) bound;
+    integrity (mk_or ark [mk_not ark precondition; bound]);
+
+    ignore (lincons_of_atom env bound);
+    update_env property;
+    add_bound_unsafe bound
+  in
 
   logf "Before strengthen: %a" pp property;
 
   let cube_affine_hull = affine_hull property in
   let affine_hull_formula =
-    cube_affine_hull
-    |> List.map (fun vec -> mk_eq ark (Env.term_of_vec property.env vec) zero)
-    |> mk_and ark
+    ref (cube_affine_hull
+         |> List.map (fun vec -> mk_eq ark (Env.term_of_vec property.env vec) zero)
+         |> mk_and ark)
   in
+  (* Rewrite maintains a Grobner basis for the coordinate ideal + the ideal of
+     polynomials vanishing on the underlying polyhedron of the cube *)
   let rewrite =
-    ref (List.map (Env.polynomial_of_vec property.env) cube_affine_hull
+    let polyhedron_ideal =
+      List.map poly_of_vec cube_affine_hull
+    in
+    let coordinate_ideal =
+      BatEnum.filter_map (fun id ->
+          match Env.sd_term_of_id property.env id with
+          | Mul (x, y) ->
+            Some (P.sub
+                    (P.of_dim id)
+                    (P.mul (poly_of_vec x) (poly_of_vec y)))
+          | _ -> None)
+        (0 -- (Env.dim property.env - 1))
+      |> BatList.of_enum
+    in
+    ref (polyhedron_ideal@coordinate_ideal
          |> Polynomial.Rewrite.mk_rewrite Monomial.degrevlex
          |> Polynomial.Rewrite.grobner_basis)
   in
@@ -595,40 +606,70 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
   in
   logf "Rewrite: @[<v 0>%a@]" (Polynomial.Rewrite.pp pp_dim) (!rewrite);
   let reduce_vec vec =
-    Env.polynomial_of_vec property.env vec
-    |> Polynomial.Rewrite.reduce (!rewrite)
+    Polynomial.Rewrite.reduce (!rewrite) (poly_of_vec vec)
     |> Env.term_of_polynomial property.env
   in
-  for id = 0 to Env.dim property.env - 1 do
-    let term = Env.term_of_id property.env id in
-    (* TODO: track the equations that were actually used in reductions rather
-       than just using the affine hull as the precondition. *)
-    let reduced_term =
-      match Env.sd_term_of_id property.env id with
-      | App (func, args) -> mk_app ark func (List.map reduce_vec args)
-      | Div (num, den) -> mk_div ark (reduce_vec num) (reduce_vec den)
-      | Mod (num, den) -> mk_mod ark (reduce_vec num) (reduce_vec den)
-      | Floor t -> mk_floor ark (reduce_vec t)
-      | Mul (_, _) ->
-        Env.polynomial_of_id env id
-        |> Polynomial.Rewrite.reduce (!rewrite)
-        |> Env.term_of_polynomial property.env
-    in
-    add_bound affine_hull_formula (mk_eq ark term reduced_term);
-    match Env.sd_term_of_id property.env id with
-    | Mul (_, _) -> ()
-    | _ ->
-      let reduced_term_polynomial =
-        Env.vec_of_term property.env reduced_term
-        |> Env.polynomial_of_vec property.env
+
+  (* Equational saturation.  A polyhedron P is equationally saturated if every
+     degree-1 polynomial in the ideal of polynomials vanishing on P + the
+     coordinate ideal vanishes on P.  This procedure computes the greatest
+     equationally saturated polyhedron contained in the underlying cube of the
+     polyhedron.  *)
+  let saturated = ref false in
+
+  (* Hashtable mapping canonical forms of nonlinear terms to their
+     representative terms. *)
+  let canonical = ExprHT.create 991 in
+  while not !saturated do
+    saturated := true;
+    for id = 0 to Env.dim property.env - 1 do
+      let term = Env.term_of_id property.env id in
+      (* TODO: track the equations that were actually used in reductions rather
+         than just using the affine hull as the precondition. *)
+      let reduced_id =
+        match vec_of_poly (Polynomial.Rewrite.reduce (!rewrite) (P.of_dim id)) with
+        | Some p -> p
+        | None ->
+          (* Reducing a linear polynomial must result in another linear polynomial *)
+          assert false
       in
-      let term_reduced_zero = (* reduced_term - term is a zero polynomial *)
-        let open Polynomial.Mvp in
-        add
-          (mul (scalar (QQ.of_int (-1))) (of_dim id))
-          reduced_term_polynomial
+      let reduced_term = Env.term_of_vec property.env reduced_id in
+      add_bound (!affine_hull_formula) (mk_eq ark term reduced_term);
+
+      (* congruence closure *)
+      let add_canonical reduced =
+        (* Add [reduced->term] to the canonical map.  Or if there's already a
+           mapping [reduced->rep], add the equation rep=term *)
+        if ExprHT.mem canonical reduced then
+          (* Don't need an integrity formula (congruence is free), so don't call add_bound. *)
+          add_bound_unsafe (mk_eq ark term (ExprHT.find canonical reduced))
+        else
+          ExprHT.add canonical reduced term
       in
-      rewrite := Polynomial.Rewrite.add_saturate (!rewrite) term_reduced_zero
+      begin match Env.sd_term_of_id property.env id with
+      | App (_, []) | Mul (_, _) -> ()
+      | App (func, args) ->
+        add_canonical (mk_app ark func (List.map reduce_vec args))
+      | Div (num, den) ->
+        add_canonical (mk_div ark (reduce_vec num) (reduce_vec den))
+      | Mod (num, den) ->
+        add_canonical (mk_mod ark (reduce_vec num) (reduce_vec den))
+      | Floor t ->
+        add_canonical (mk_floor ark (reduce_vec t))
+      end;
+    done;
+    (* Check for new polynomials vanishing on the underlying polyhedron *)
+    affine_hull property |> List.iter (fun vec ->
+        let reduced =
+          Polynomial.Rewrite.reduce (!rewrite) (poly_of_vec vec)
+        in
+        if not (P.equal P.zero reduced) then begin
+          let reduced_term = Env.term_of_polynomial property.env reduced in
+          saturated := false;
+          rewrite := Polynomial.Rewrite.add_saturate (!rewrite) reduced;
+          affine_hull_formula := mk_and ark [!affine_hull_formula;
+                                             mk_eq ark reduced_term zero]
+        end);
   done;
 
   (* Compute bounds for synthetic dimensions using the bounds of their
