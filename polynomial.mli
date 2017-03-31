@@ -77,6 +77,17 @@ module Mvp : sig
   val one : t
   val scalar : QQ.t -> t
   val of_dim : Monomial.dim -> t
+
+  (** Convert a rational vector to a linear polynomial, where each dimension
+      corresponds to a variable except the designated [const] dimension, which
+      is treated at a constant 1. *)
+  val of_vec : ?const:int -> Linear.QQVector.t -> t
+
+  (** Convert a linear polynomial to a vector, where each dimension
+      corresponds to a variable except the designated [const] dimension, which
+      is treated at a constant 1.  Return [None] if the polynomial is
+      not linear. *)
+  val vec_of : ?const:int -> t -> Linear.QQVector.t option
 end
 
 (** Rewrite systems for multi-variate polynomials. A polynomial rewrite system
