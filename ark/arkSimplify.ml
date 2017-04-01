@@ -91,3 +91,55 @@ let simplify_terms_rewriter ark =
 
 let simplify_terms ark expr =
   rewrite ark ~up:(simplify_terms_rewriter ark) expr
+
+module ExprVec = Linear.ExprQQVector
+let qe_partial_implicant ark p implicant =
+  let subst map expr =
+    substitute_const ark (fun sym ->
+        try Symbol.Map.find sym map
+        with Not_found -> mk_const ark sym)
+      expr
+  in
+  let (rewrite, implicant) =
+    List.fold_left (fun (rewrite, implicant) atom ->
+        match Interpretation.destruct_atom ark atom with
+        | `Comparison (`Eq, x, y) ->
+          let diff =
+            ExprVec.of_term ark (subst rewrite (mk_sub ark x y))
+          in
+          (* A symbol can be eliminated if it appears in the equation, and
+             isn't *trapped*.  A symbol is trapped if it appears as subterm of
+             another term.  *)
+          let (trapped, elim) =
+            BatEnum.fold (fun (trapped, elim) (term, _) ->
+                match Term.destruct ark term with
+                | `App (sym, _) ->
+                  if p sym then (trapped, elim)
+                  else (trapped, Symbol.Set.add sym elim)
+                | _ -> (Symbol.Set.union trapped (symbols term)), elim)
+              (Symbol.Set.empty, Symbol.Set.empty)
+              (ExprVec.enum diff)
+          in
+          let elim = Symbol.Set.diff elim trapped in
+          if Symbol.Set.is_empty elim then
+            (rewrite, atom::implicant)
+          else
+            let sym = Symbol.Set.min_elt elim in
+            let (coeff, rest) = ExprVec.pivot (mk_const ark sym) diff in
+            let rhs =
+              ExprVec.scalar_mul (QQ.negate (QQ.inverse coeff)) rest
+              |> ExprVec.term_of ark
+            in
+            let rewrite =
+              Symbol.Map.map
+                      (substitute_const ark (fun sym' ->
+                    if sym = sym' then rhs
+                    else mk_const ark sym'))
+                      rewrite
+            in
+            (Symbol.Map.add sym rhs rewrite, implicant)
+        | _ -> (rewrite, atom::implicant))
+      (Symbol.Map.empty, [])
+      implicant
+  in
+  List.map (subst rewrite) implicant
