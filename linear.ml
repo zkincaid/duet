@@ -254,6 +254,7 @@ module type ExprRingMap = sig
   val enum : 'a t -> ('a term * scalar) BatEnum.t
   val of_enum : ('a term * scalar) BatEnum.t -> 'a t
   val coeff : 'a term -> 'a t -> scalar
+  val pivot : 'a term -> 'a t -> scalar * 'a t
 end
 
 module MakeExprRingMap(R : Ring) = struct
@@ -314,6 +315,9 @@ module MakeExprRingMap(R : Ring) = struct
   let sub u v = add u (negate v)
 
   let one ark = const ark R.one
+
+  let pivot x vec =
+    (coeff x vec, ExprMap.remove x vec)
 end
 
 module ExprQQVector = struct

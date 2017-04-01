@@ -133,6 +133,7 @@ module type ExprRingMap = sig
   val enum : 'a t -> ('a term * scalar) BatEnum.t
   val of_enum : ('a term * scalar) BatEnum.t -> 'a t
   val coeff : 'a term -> 'a t -> scalar
+  val pivot : 'a term -> 'a t -> scalar * 'a t
 end
 
 module MakeExprRingMap (R : Ring) : ExprRingMap with type scalar = R.t

@@ -10,3 +10,9 @@ end
 
 val simplify_terms_rewriter : 'a context -> 'a rewriter
 val simplify_terms : 'a context -> ('a,'b) expr -> ('a,'b) expr
+
+(** Try to eliminate "easy" variables from a conjunction of atomic formulas *)
+val qe_partial_implicant : 'a context ->
+  (symbol -> bool) ->
+  ('a formula) list ->
+  ('a formula) list

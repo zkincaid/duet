@@ -647,7 +647,9 @@ let abstract_nonlinear ?exists:(p=fun x -> true) ark phi =
       | None -> assert false
       | Some implicant ->
         let new_property =
-          Cube.of_atoms ark ~integrity (List.map replace_defs implicant)
+          List.map replace_defs implicant
+          |> ArkSimplify.qe_partial_implicant ark p
+          |> Cube.of_atoms ark ~integrity
           |> Cube.exists ~integrity p
         in
         go (Cube.join ~integrity property new_property)
