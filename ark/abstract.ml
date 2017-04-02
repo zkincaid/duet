@@ -297,7 +297,7 @@ let ensure_nonlinear_symbols ark =
        if not (is_registered_name ark name) then
          register_named_symbol ark name typ)
     [("mul", `TyFun ([`TyReal; `TyReal], `TyReal));
-     ("div", `TyFun ([`TyReal; `TyReal], `TyReal));
+     ("inv", `TyFun ([`TyReal], `TyReal));
      ("mod", `TyFun ([`TyReal; `TyReal], `TyReal));
      ("imul", `TyFun ([`TyInt; `TyInt], `TyInt));
      ("imod", `TyFun ([`TyInt; `TyInt], `TyInt))]
@@ -305,17 +305,18 @@ let ensure_nonlinear_symbols ark =
 let nonlinear_uninterpreted_rewriter ark =
   ensure_nonlinear_symbols ark;
   let mul = get_named_symbol ark "mul" in
-  let div = get_named_symbol ark "div" in
+  let inv = get_named_symbol ark "inv" in
   let modulo = get_named_symbol ark "mod" in
   let imul = get_named_symbol ark "imul" in
   let imodulo = get_named_symbol ark "imod" in
   fun expr ->
     match destruct ark expr with
     | `Binop (`Div, x, y) ->
-      begin match Term.destruct ark y with
-        | `Real k when not (QQ.equal k QQ.zero) ->
+      begin match Term.destruct ark x, Term.destruct ark y with
+        | (_, `Real k) when not (QQ.equal k QQ.zero) -> (* division by constant -> scalar mul *)
           (mk_mul ark [mk_real ark (QQ.inverse k); x] :> ('a,typ_fo) expr)
-        | _ -> mk_app ark div [x; y]
+        | (`Real k, _) -> (mk_mul ark [x; mk_app ark inv [y]] :> ('a,typ_fo) expr)
+        | _ -> mk_app ark mul [x; mk_app ark inv [y]]
       end
     | `Binop (`Mod, x, y) ->
       begin match Term.destruct ark y with
@@ -344,7 +345,7 @@ let nonlinear_uninterpreted_rewriter ark =
 let nonlinear_interpreted_rewriter ark =
   ensure_nonlinear_symbols ark;
   let mul = get_named_symbol ark "mul" in
-  let div = get_named_symbol ark "div" in
+  let inv = get_named_symbol ark "inv" in
   let modulo = get_named_symbol ark "mod" in
   let imul = get_named_symbol ark "imul" in
   let imodulo = get_named_symbol ark "imod" in
@@ -357,8 +358,8 @@ let nonlinear_interpreted_rewriter ark =
     match destruct ark expr with
     | `App (func, [x; y]) when func = mul || func = imul ->
       (mk_mul ark [to_term x; to_term y] :> ('a,typ_fo) expr)
-    | `App (func, [x; y]) when func = div ->
-      (mk_div ark (to_term x) (to_term y) :> ('a,typ_fo) expr)
+    | `App (func, [x]) when func = inv ->
+      (mk_div ark (mk_real ark QQ.one) (to_term x) :> ('a,typ_fo) expr)
     | `App (func, [x; y]) when func = modulo || func = imodulo ->
       (mk_mod ark (to_term x) (to_term y) :> ('a,typ_fo) expr)
     | _ -> expr

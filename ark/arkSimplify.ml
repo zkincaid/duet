@@ -113,7 +113,7 @@ let qe_partial_implicant ark p implicant =
           let (trapped, elim) =
             BatEnum.fold (fun (trapped, elim) (term, _) ->
                 match Term.destruct ark term with
-                | `App (sym, _) ->
+                | `App (sym, []) ->
                   if p sym then (trapped, elim)
                   else (trapped, Symbol.Set.add sym elim)
                 | _ -> (Symbol.Set.union trapped (symbols term)), elim)
