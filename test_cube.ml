@@ -61,7 +61,7 @@ let roundtrip2 () =
   let atoms =
     let open Infix in
     [(x * y) <= (int 0);
-     ((y * z * z) / x) <= (int 0)]
+     ((y * z * z) * ((int 1) / x)) <= (int 0)]
   in
   let phi =
     Cube.of_atoms ctx atoms

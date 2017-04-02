@@ -47,7 +47,7 @@ module IntSet = Apak.Tagged.PTSet(Int)
    over these dimensions, with the special dimension (-1) corresponding to the
    number 1.  *)
 type sd_term = Mul of V.t * V.t
-             | Div of V.t * V.t
+             | Inv of V.t
              | Mod of V.t * V.t
              | Floor of V.t
              | App of symbol * (V.t list)
@@ -94,7 +94,7 @@ module Env = struct
   let rec term_of_id env id =
     match sd_term_of_id env id with
     | Mul (x, y) -> mk_mul env.ark [term_of_vec env x; term_of_vec env y]
-    | Div (x, y) -> mk_div env.ark (term_of_vec env x) (term_of_vec env y)
+    | Inv x -> mk_div env.ark (mk_real env.ark QQ.one) (term_of_vec env x)
     | Mod (x, y) -> mk_mod env.ark (term_of_vec env x) (term_of_vec env y)
     | Floor x -> mk_floor env.ark (term_of_vec env x)
     | App (func, args) -> mk_app env.ark func (List.map (term_of_vec env) args)
@@ -194,10 +194,9 @@ module Env = struct
       Format.fprintf formatter "@[<hov 1>(%a)@ * (%a)@]"
         (pp_vector env) x
         (pp_vector env) y
-    | Div (x, y) ->
-      Format.fprintf formatter "@[<hov 1>(%a)@ /(%a)@]"
+    | Inv x ->
+      Format.fprintf formatter "1/(@[<hov 1>%a@])"
         (pp_vector env) x
-        (pp_vector env) y
     | Mod (x, y) ->
       Format.fprintf formatter "@[<hov 1>(%a)@ mod (%a)@]"
         (pp_vector env) x
@@ -225,8 +224,8 @@ module Env = struct
            max (level_of_vec env s) (level_of_vec env t))
         | Floor x ->
           (`TyInt, level_of_vec env x)
-        | Div (s, t) ->
-          (`TyReal, max (level_of_vec env s) (level_of_vec env t))
+        | Inv x ->
+          (`TyReal, level_of_vec env x)
         | App (func, args) ->
           let typ =
             match typ_symbol env.ark func with
@@ -297,7 +296,12 @@ module Env = struct
             V.scalar_mul k (List.fold_left mul x xs)
         end
       | `Binop (`Div, x, y) ->
-        V.of_term QQ.one (get_term_id ~register env (Div (x, y)))
+        let denomenator = V.of_term QQ.one (get_term_id ~register env (Inv y)) in
+        let (k, xrest) = V.pivot const_id x in
+        if V.equal xrest V.zero then
+          V.scalar_mul k denomenator
+        else
+          V.of_term QQ.one (get_term_id ~register env (Mul (x, denomenator)))
       | `Binop (`Mod, x, y) ->
         V.of_term QQ.one (get_term_id ~register env (Mod (x, y)))
       | `Unop (`Floor, x) ->
@@ -593,6 +597,8 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
             Some (P.sub
                     (P.of_dim id)
                     (P.mul (poly_of_vec x) (poly_of_vec y)))
+          | Inv x ->
+            Some (P.sub (P.mul (poly_of_vec x) (P.of_dim id)) (P.scalar QQ.one))
           | _ -> None)
         (0 -- (Env.dim property.env - 1))
       |> BatList.of_enum
@@ -650,8 +656,8 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
       | App (_, []) | Mul (_, _) -> ()
       | App (func, args) ->
         add_canonical (mk_app ark func (List.map reduce_vec args))
-      | Div (num, den) ->
-        add_canonical (mk_div ark (reduce_vec num) (reduce_vec den))
+      | Inv t ->
+        add_canonical (mk_div ark (mk_real ark QQ.one) (reduce_vec t))
       | Mod (num, den) ->
         add_canonical (mk_mod ark (reduce_vec num) (reduce_vec den))
       | Floor t ->
