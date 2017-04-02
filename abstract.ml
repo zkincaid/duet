@@ -434,7 +434,7 @@ let linearize ark phi =
         SymInterval.of_interval ark (Interval.const (QQ.negate QQ.one))
       in
       (* compute a symbolic interval for a term *)
-      let rec linearize_term term =
+      let rec linearize_term env term =
         match Term.destruct ark term with
         | `App (sym, []) ->
           (try Symbol.Map.find sym env
@@ -442,65 +442,76 @@ let linearize ark phi =
         | `Real k -> SymInterval.of_interval ark (Interval.const k)
         | `Add sum ->
           List.fold_left
-            (fun linbound t -> SymInterval.add linbound (linearize_term t))
+            (fun linbound t -> SymInterval.add linbound (linearize_term env t))
             linbound_zero
             sum
         | `Mul prod ->
           List.fold_left
-            (fun linbound t -> SymInterval.mul linbound (linearize_term t))
+            (fun linbound t -> SymInterval.mul linbound (linearize_term env t))
             linbound_one
             prod
         | `Binop (`Div, x, y) ->
-          SymInterval.div (linearize_term x) (linearize_term y)
+          SymInterval.div (linearize_term env x) (linearize_term env y)
         | `Binop (`Mod, x, y) ->
-          SymInterval.modulo (linearize_term x) (linearize_term y)
-        | `Unop (`Floor, x) -> SymInterval.floor (linearize_term x)
+          SymInterval.modulo (linearize_term env x) (linearize_term env y)
+        | `Unop (`Floor, x) -> SymInterval.floor (linearize_term env x)
         | `Unop (`Neg, x) ->
-          SymInterval.mul linbound_minus_one (linearize_term x)
+          SymInterval.mul linbound_minus_one (linearize_term env x)
         | `App (func, args) ->
           begin match symbol_name ark func, List.map (refine ark) args with
             | (Some "imul", [`Term x; `Term y])
             | (Some "mul", [`Term x; `Term y]) ->
-              SymInterval.mul (linearize_term x) (linearize_term y)
-            | (Some "div", [`Term x; `Term y]) ->
-              SymInterval.div (linearize_term x) (linearize_term y)
+              SymInterval.mul (linearize_term env x) (linearize_term env y)
+            | (Some "inv", [`Term x]) ->
+              let one = SymInterval.of_interval ark (Interval.const QQ.one) in
+              SymInterval.div one (linearize_term env x)
             | (Some "imod", [`Term x; `Term y])
             | (Some "mod", [`Term x; `Term y]) ->
-              SymInterval.modulo (linearize_term x) (linearize_term y)
+              SymInterval.modulo (linearize_term env x) (linearize_term env y)
             | _ -> SymInterval.top ark
           end
         | `Var (_, _) | `Ite (_, _, _) -> assert false
       in
       (* conjoin symbolic intervals for all non-linear terms *)
       let bounds =
-        (Symbol.Map.enum nonlinear)
-        /@ (fun (symbol, expr) ->
-            match refine ark expr with
-            | `Formula _ -> mk_true ark
-            | `Term term ->
-              let bounds = linearize_term term in
-              let const = mk_const ark symbol in
-              let lower =
-                let terms =
-                  match Interval.lower (SymInterval.interval bounds) with
-                  | Some k -> (mk_real ark k)::(SymInterval.lower bounds)
-                  | None -> (SymInterval.lower bounds)
+        let (_, bounds) =
+          Symbol.Map.fold (fun symbol expr (env, bounds) ->
+              match refine ark expr with
+              | `Formula _ -> (env, bounds)
+              | `Term term ->
+                let term_bounds = linearize_term env term in
+                let const = mk_const ark symbol in
+                let lower =
+                  let terms =
+                    match Interval.lower (SymInterval.interval term_bounds) with
+                    | Some k -> (mk_real ark k)::(SymInterval.lower term_bounds)
+                    | None -> (SymInterval.lower term_bounds)
+                  in
+                  List.map (fun lo -> mk_leq ark lo const) terms
+                  |> mk_and ark
                 in
-                List.map (fun lo -> mk_leq ark lo const) terms
-                |> mk_and ark
-              in
-              let upper =
-                let terms =
-                  match Interval.upper (SymInterval.interval bounds) with
-                  | Some k -> (mk_real ark k)::(SymInterval.upper bounds)
-                  | None -> (SymInterval.upper bounds)
+                let upper =
+                  let terms =
+                    match Interval.upper (SymInterval.interval term_bounds) with
+                    | Some k -> (mk_real ark k)::(SymInterval.upper term_bounds)
+                    | None -> (SymInterval.upper term_bounds)
+                  in
+                  List.map (fun hi -> mk_leq ark const hi) terms
+                  |> mk_and ark
                 in
-                List.map (fun hi -> mk_leq ark const hi) terms
-                |> mk_and ark
-              in
-              mk_and ark [lower; upper])
-        |> BatList.of_enum
-        |> mk_and ark
+                let ivl =
+                  if Symbol.Map.mem symbol env then
+                    SymInterval.meet
+                      term_bounds
+                      (Symbol.Map.find symbol env)
+                  else
+                    term_bounds
+                in
+                (Symbol.Map.add symbol ivl env, lower::(upper::bounds)))
+            nonlinear
+            (env, [])
+        in
+        mk_and ark bounds
       in
       (* Implied equations over non-linear terms *)
       let nonlinear_eqs =
