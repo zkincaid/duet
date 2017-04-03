@@ -660,7 +660,7 @@ let abstract_nonlinear ?exists:(p=fun x -> true) ark phi =
       | Some implicant ->
         let new_property =
           List.map replace_defs implicant
-          |> ArkSimplify.qe_partial_implicant ark p
+          (*          |> ArkSimplify.qe_partial_implicant ark p*)
           |> Cube.of_atoms ark ~integrity
           |> Cube.exists ~integrity p
         in

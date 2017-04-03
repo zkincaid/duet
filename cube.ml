@@ -552,6 +552,15 @@ let affine_hull property =
       | _ -> None)
   |> BatList.of_enum
 
+let polynomial_cone property =
+  let open Lincons0 in
+  BatArray.enum (Abstract0.to_lincons_array (get_manager ()) property.abstract)
+  |> BatEnum.filter_map (fun lcons ->
+      match lcons.typ with
+      | SUPEQ | SUP -> Some (poly_of_vec (Env.vec_of_linexpr property.env lcons.linexpr0))
+      | _ -> None)
+  |> BatList.of_enum
+
 let strengthen ?integrity:(integrity=(fun _ -> ())) property =
   let env = property.env in
   let ark = Env.ark env in
@@ -577,6 +586,19 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
   in
 
   logf "Before strengthen: %a" pp property;
+
+
+  for id = 0 to Env.dim property.env - 1 do
+    match Env.sd_term_of_id property.env id with
+    | Mul (x, y) ->
+      if not (Interval.elem QQ.zero (bound_vec property x)) then
+        ignore (Env.get_term_id property.env (Inv x));
+      if not (Interval.elem QQ.zero (bound_vec property y)) then
+        ignore (Env.get_term_id property.env (Inv y))
+    | _ -> ()
+  done;
+
+  update_env property;
 
   let cube_affine_hull = affine_hull property in
   let affine_hull_formula =
@@ -762,146 +784,80 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
                          (mk_add ark [x_term; mk_real ark (QQ.of_int (-1))])
                          term)
 
+    | Inv x ->
+      (* TODO: preconditions can be weakened *)
+      let x_ivl = bound_vec property x in
+      let x_term = Env.term_of_vec env x in
+      let precondition =
+        let lower =
+          match Interval.lower x_ivl with
+          | Some lo -> [mk_leq ark (mk_real ark lo) x_term]
+          | None -> []
+        in
+        let upper =
+          match Interval.upper x_ivl with
+          | Some hi -> [mk_leq ark x_term (mk_real ark hi)]
+          | None -> []
+        in
+        mk_and ark (lower@upper)
+      in
+      let inv_ivl = Interval.div (Interval.const QQ.one) x_ivl in
+      begin match Interval.lower inv_ivl with
+        | Some lo -> add_bound precondition (mk_leq ark (mk_real ark lo) term)
+        | _ -> ()
+      end;
+      begin match Interval.upper inv_ivl with
+        | Some hi -> add_bound precondition (mk_leq ark term (mk_real ark hi))
+        | _ -> ()
+      end
+
     (* TO DO *)
-    | Div (x, y) -> ()
     | Mod (x, y) -> ()
     | App (func, args) -> ()
   done;
 
-  (* Use bounds on synthetic dimensions to compute bounds on operands.  For
-     example, if we have x*y <= 10*x and x is non-negative, then we can infer
-     y <= 10. *)
-  let (lambda_constraints, columns) =
-    try
-      apron_farkas property.abstract
-    with Invalid_argument _ -> assert false
+  let mk_geqz p = (* p >= 0 *)
+    mk_leq ark (mk_neg ark (Env.term_of_polynomial property.env p)) zero
   in
-  let kcolumn = Array.length columns - 1 in
-
-  (* find optimal [a,b] s.t. prop |= a*x <= sd <= b*x *)
-  let implied_coeff_interval sd x =
-    let col_constraints =
-      Array.map
-        (fun column -> Lincons0.make column Lincons0.EQ)
-        columns
-    in
-    (* replace x, sd, and constant column constraint with trivial ones *)
-    let trivial = Lincons0.make (Linexpr0.make None) Lincons0.EQ in
-    col_constraints.(Env.dim_of_id env x) <- trivial;
-    col_constraints.(Env.dim_of_id env sd) <- trivial;
-    col_constraints.(kcolumn) <- trivial;
-
-    let feasible =
-      Abstract0.meet_lincons_array
-        (get_manager ())
-        lambda_constraints
-        col_constraints
-    in
-    let x_col_bounds feasible =
-      Abstract0.bound_linexpr
-        (get_manager ())
-        feasible
-        columns.(Env.dim_of_id env x)
-      |> Interval.of_apron
-    in
-
-    let upper =
-      let sd_column_minus_one = Linexpr0.copy columns.(Env.dim_of_id env sd) in
-      Linexpr0.set_cst sd_column_minus_one (coeff_of_qq QQ.one);
-
-      let neg_const_column = Linexpr0.make None in
-      columns.(kcolumn) |> Linexpr0.iter (fun coeff dim ->
-          Linexpr0.set_coeff neg_const_column dim (Coeff.neg coeff));
-
-      let feasible_upper =
-        Abstract0.meet_lincons_array
-          (get_manager ())
-          feasible
-          [| Lincons0.make sd_column_minus_one Lincons0.EQ;
-             Lincons0.make neg_const_column Lincons0.SUPEQ |]
-      in
-      let ivl = x_col_bounds feasible_upper in
-      if Interval.equal ivl Interval.bottom then
-        None
-      else
-        match Interval.lower ivl with
-        | Some lower -> Some lower
-        | None -> None
-    in
-    let lower =
-      let sd_column_one = Linexpr0.copy columns.(Env.dim_of_id env sd) in
-      Linexpr0.set_cst sd_column_one (coeff_of_qq (QQ.of_int (-1)));
-      let feasible_lower =
-        Abstract0.meet_lincons_array
-          (get_manager ())
-          feasible
-          [| Lincons0.make sd_column_one Lincons0.EQ;
-             Lincons0.make columns.(kcolumn) Lincons0.SUPEQ |]
-      in
-      let ivl = x_col_bounds feasible_lower in
-      if Interval.equal ivl Interval.bottom then
-        None
-      else
-        match Interval.upper ivl with
-        | Some upper -> Some (QQ.negate upper)
-        | None -> None
-    in
-    (lower, upper)
+  let rec add_products = function
+    | [] -> ()
+    | (p::cone) ->
+      cone |> List.iter (fun q ->
+          match vec_of_poly (Polynomial.Rewrite.reduce (!rewrite) (P.mul p q)) with
+          | Some r ->
+            let precondition =
+              mk_and ark [!affine_hull_formula;
+                          mk_geqz p;
+                          mk_geqz q]
+            in
+            let r_geqz = (* r >= 0 *)
+              mk_leq ark (Env.term_of_vec property.env (V.negate r)) zero
+            in
+            add_bound precondition r_geqz
+          | None -> ());
+      add_products cone
   in
+  add_products (polynomial_cone property);
 
-  (* sd represents the term x*y.  add_coeff_bounds finds bounds for y that
-     are implied by bounds for x*y. *)
-  let add_coeff_bounds sd x y =
-    let x_ivl = bound_vec property (V.of_term QQ.one x) in
-    let x_term = Env.term_of_id env x in
-    let y_term = Env.term_of_id env y in
-    let sd_term = Env.term_of_id env sd in
-
-    if Interval.is_nonnegative x_ivl then begin (* 0 <= x *)
-      let (a_lo, a_hi) = implied_coeff_interval sd x in
-      begin match a_lo with
+  (* Tighten integral dimensions *)
+  for id = 0 to Env.dim property.env - 1 do
+    match Env.type_of_id property.env id with
+    | `TyInt ->
+      let term = Env.term_of_id property.env id in
+      let interval = bound_vec property (V.of_term QQ.one id) in
+      begin
+        match Interval.lower interval with
+        | Some lo -> add_bound_unsafe (mk_leq ark (mk_real ark lo) term)
         | None -> ()
-        | Some lo ->
-          add_bound
-            (mk_and ark [mk_leq ark (mk_real ark QQ.zero) x_term;
-                         mk_leq ark
-                           (mk_mul ark [mk_real ark lo; x_term])
-                           sd_term])
-            (mk_leq ark (mk_real ark lo) y_term)
       end;
-      begin match a_hi with
+      begin
+        match Interval.upper interval with
+        | Some hi -> add_bound_unsafe (mk_leq ark term (mk_real ark hi))
         | None -> ()
-        | Some hi ->
-          add_bound
-            (mk_and ark [mk_leq ark (mk_real ark QQ.zero) x_term;
-                         mk_leq ark
-                           sd_term
-                           (mk_mul ark [mk_real ark hi; x_term])])
-            (mk_leq ark y_term (mk_real ark hi))
-      end
-      (* to do: add bounds for the x <= 0 case as well *)
-    end
-  in
-
-  for id = 0 to Env.dim env - 1 do
-    let id_of_vec vec =
-      match BatList.of_enum (V.enum vec) with
-      | [(coeff, id)] when QQ.equal coeff QQ.one -> Some id
-      | _ -> None
-    in
-    match Env.sd_term_of_id env id with
-    | Mul (x, y) ->
-      begin match id_of_vec x, id_of_vec y with
-        | Some x, Some y ->
-          add_coeff_bounds id x y;
-          add_coeff_bounds id y x;
-        | _, _ -> ()
       end
     | _ -> ()
   done;
-
   logf ~level:`trace "After strengthen: %a" pp property;
-
   property
 
 let of_atoms ark ?integrity:(integrity=(fun _ -> ())) atoms =

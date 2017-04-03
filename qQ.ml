@@ -60,6 +60,10 @@ let floor x =
   let (num, den) = to_zzfrac x in
   Mpzf.fdiv_q num den
 
+let ceiling x =
+  let (num, den) = to_zzfrac x in
+  Mpzf.cdiv_q num den
+
 let min x y = if leq x y then x else y
 let max x y = if leq x y then y else x
 let abs = Mpqf.abs
@@ -106,10 +110,6 @@ and nudge_up ?(accuracy=(!opt_default_accuracy)) x =
     else
       let lo = nudge_down ~accuracy:(accuracy - 1) (of_zzfrac den r) in
       add (of_zz q) (inverse lo)
-
-let floor x =
-  let (num, den) = to_zzfrac x in
-  Mpzf.fdiv_q num den
 
 let idiv x y =
   if compare y zero = 0 then invalid_arg "QQ.idiv: divide by zero";
