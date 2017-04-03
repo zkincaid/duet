@@ -1,34 +1,33 @@
+# loop free
+pointer_arith: duet.native -cra @code/pointer_arith.c
+interproc: duet.native -cra @code/interproc.c
+# linear
+count_by_1: duet.native -cra @code/count_by_1.c
+count_by_1_variant: duet.native -cra @code/count_by_1_variant.c
 count_up_down_safe: duet.native -cra @code/count_up_down_safe.c
 count_up_down_unsafe: duet.native -cra @code/count_up_down_unsafe.c
-sum01_safe: duet.native -cra @code/sum01_safe.c
-sum01_unsafe: duet.native -cra @code/sum01_unsafe.c
-sum01_bug02_sum01_bug02_base.case_unsafe: duet.native -cra @code/sum01_bug02_sum01_bug02_base.case_unsafe.c
-sum01_bug02_unsafe: duet.native -cra @code/sum01_bug02_unsafe.c
-sum03_safe: duet.native -cra @code/sum03_safe.c
-sum03_unsafe: duet.native -cra @code/sum03_unsafe.c
-sum04_safe: duet.native -cra @code/sum04_safe.c
-sum04_unsafe: duet.native -cra @code/sum04_unsafe.c
-trex01_safe: duet.native -cra @code/trex01_safe.c
-trex01_unsafe: duet.native -cra @code/trex01_unsafe.c
-trex02_safe: duet.native -cra @code/trex02_safe.c
-trex02_safe2: duet.native -cra @code/trex02_safe2.c
-trex02_unsafe: duet.native -cra @code/trex02_unsafe.c
-trex03_safe: duet.native -cra-forward-inv  -cra @code/trex03_safe.c
-trex03_unsafe: duet.native -cra @code/trex03_unsafe.c
-trex04_safe: duet.native -cra @code/trex04_safe.c
-terminator_02_safe: duet.native -cra @code/terminator_02_safe.c
-terminator_02_unsafe: duet.native -cra @code/terminator_02_unsafe.c
-terminator_03_safe: duet.native -cra @code/terminator_03_safe.c
-terminator_03_unsafe: duet.native -cra @code/terminator_03_unsafe.c
-sum01_real_safe: duet.native -cra @code/sum01_real_safe.c
-sum02_safe: duet.native -cra-forward-inv -cra @code/sum02_safe.c
+nested: duet.native -cra @code/nested.c
+count_by_2: duet.native -cra @code/count_by_2.c
+count_by_nondet: duet.native -cra @code/count_by_nondet.c
 rec1: duet.native -cra @code/rec1.c
 rec2: duet.native -cra @code/rec2.c
 rec1-param: duet.native -cra @code/rec1-param.c
 rec2-param: duet.native -cra @code/rec2-param.c
+half: duet.native -cra-split-loops -cra @code/half.c
+# memory
 mem: duet.native -check-array-bounds -cra @code/mem.c
 mem2: duet.native -check-array-bounds -cra @code/mem2.c
-pointer_arith: duet.native -cra @code/pointer_arith.c
-subtract_real: duet.native -cra @code/subtract_real.c
-#Z3 struggles with these constraints
-#mult-rec: duet.native -cra @code/mult-rec.c
+# nonlinear
+count_by_k: duet.native -cra @code/count_by_k.c
+quotient: duet.native -cra-forward-inv -cra @code/quotient.c
+quotient2: duet.native -cra-split-loops -cra @code/quotient.c
+divide: duet.native -cra @code/divide.c
+factor: duet.native -cra @code/factor.c
+mult: duet.native -cra @code/mult.c
+mult-rec: duet.native -cra @code/mult-rec.c
+exponential: duet.native -use-ocrs -cra @code/exponential.c
+gauss_sum: duet.native -cra @code/gauss_sum.c
+degree3_monomial: duet.native -cra-split-loops -cra @code/degree3_monomial.c
+degree3_binomial: duet.native -cra-split-loops -cra @code/degree3_binomial.c
+degree4_monomial: duet.native -cra-split-loops -cra @code/degree4_monomial.c
+degree4_binomial: duet.native -cra-split-loops -cra @code/degree4_binomial.c

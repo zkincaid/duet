@@ -61,7 +61,7 @@ let roundtrip2 () =
   let atoms =
     let open Infix in
     [(x * y) <= (int 0);
-     ((y * z * z) / x) <= (int 0)]
+     ((y * z * z) * ((int 1) / x)) <= (int 0)]
   in
   let phi =
     Cube.of_atoms ctx atoms
@@ -241,7 +241,7 @@ let widen1 () =
 let widen2 () =
   let phi =
     let open Infix in
-    Cube.of_atoms ctx [x = y * y; (int 2) <= y; x <= (int 100)]
+    Cube.of_atoms ctx [x <= y * y; (int 2) <= y; x <= (int 100)]
   in
   let psi =
     let open Infix in

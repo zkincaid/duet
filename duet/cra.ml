@@ -7,12 +7,33 @@ open Pathexp
 
 module RG = Interproc.RG
 module G = RG.G
+module Ctx = Syntax.MakeSimplifyingContext ()
+let ark = Ctx.context
 
 include Log.Make(struct let name = "cra" end)
 
 let forward_inv_gen = ref false
 let use_ocrs = ref false
 let split_loops = ref false
+let dump_goals = ref false
+let nb_goals = ref 0
+
+let dump_goal loc path_condition =
+  if !dump_goals then begin
+    let filename =
+      Format.sprintf "%s%d-line%d.smt2"
+        (Filename.chop_extension (Filename.basename loc.Cil.file))
+        (!nb_goals)
+        loc.Cil.line
+    in
+    let chan = Pervasives.open_out filename in
+    let formatter = Format.formatter_of_out_channel chan in
+    logf ~level:`always "Writing goal formula to %s" filename;
+    Syntax.pp_smtlib2 ark formatter path_condition;
+    Format.pp_print_newline formatter ();
+    Pervasives.close_out chan;
+    incr nb_goals
+  end
 
 let _ =
   CmdLine.register_config
@@ -26,8 +47,11 @@ let _ =
   CmdLine.register_config
     ("-use-ocrs",
      Arg.Set use_ocrs,
-     " Use OCRS for recurrence solving")
-
+     " Use OCRS for recurrence solving");
+  CmdLine.register_config
+    ("-dump-goals",
+     Arg.Set dump_goals,
+     " Output goal assertions in SMTLIB2 format")
 
 (* Decorate the program with numerical invariants *)
 
@@ -194,9 +218,6 @@ let map_value f = function
   | VVal v -> VVal (f v)
   | VPos v -> VPos (f v)
   | VWidth v -> VWidth (f v)
-
-module Ctx = Syntax.MakeSimplifyingContext ()
-let ark = Ctx.context
 
 module V = struct
 
@@ -468,6 +489,7 @@ let analyze file =
                   Ctx.mk_and [K.guard path; Ctx.mk_not phi]
                   |> ArkSimplify.simplify_terms ark
                 in
+                dump_goal (Def.get_location def) path_condition;
                 match Abstract.is_sat Ctx.context path_condition with
                 | `Sat -> Report.log_error (Def.get_location def) msg
                 | `Unsat -> Report.log_safe ()
@@ -490,7 +512,7 @@ let analyze file =
               |> ArkSimplify.simplify_terms ark
             in
             logf "Path condition:@\n%a" (Syntax.pp_smtlib2 Ctx.context) path_condition;
-
+            dump_goal (Def.get_location def) path_condition;
             begin match Abstract.is_sat Ctx.context path_condition with
               | `Sat -> Report.log_error (Def.get_location def) msg
               | `Unsat -> Report.log_safe ()
