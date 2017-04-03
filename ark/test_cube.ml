@@ -241,7 +241,7 @@ let widen1 () =
 let widen2 () =
   let phi =
     let open Infix in
-    Cube.of_atoms ctx [x = y * y; (int 2) <= y; x <= (int 100)]
+    Cube.of_atoms ctx [x <= y * y; (int 2) <= y; x <= (int 100)]
   in
   let psi =
     let open Infix in

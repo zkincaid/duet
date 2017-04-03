@@ -24,6 +24,7 @@ val one : t
 val negate : t -> t
 val inverse : t -> t
 val floor : t -> ZZ.t
+val ceiling : t -> ZZ.t
 val sub : t -> t -> t
 val exp : t -> int -> t
 

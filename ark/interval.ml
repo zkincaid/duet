@@ -223,3 +223,7 @@ let const_of { lower; upper } =
   match upper, lower with
   | Some hi, Some lo when QQ.equal hi lo -> Some hi
   | _ -> None
+
+let integral x =
+  { lower = map_opt (QQ.of_zz % QQ.ceiling) x.lower;
+    upper = map_opt (QQ.of_zz % QQ.floor) x.upper }
