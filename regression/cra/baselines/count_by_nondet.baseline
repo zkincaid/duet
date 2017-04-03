@@ -1,0 +1,4 @@
+./regression/cra/code/count_by_nondet.c:11 >> k <= 1000000
+
+1 errors total
+0 safe assertions
