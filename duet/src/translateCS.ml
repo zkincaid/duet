@@ -33,6 +33,30 @@ let blk_preds = ref []
     end
 
 
+  let parse_dot d_ast =
+    let fields = ((Swig.invoke d_ast) "fields" (Swig.C_void)) in
+    let field = ((Swig.invoke fields) "[]" (Swig.C_int 1)) in
+    let field_t = ((Swig.invoke field) "[]" (Cs._ast_ordinal_NC_NAME(Swig.C_void))) in
+    let field_str = Swig.get_string ((Swig.invoke field_t) "as_str" (Swig.C_void)) in
+    (*Printf.printf "field_stirng: %s\n" field_str;*)
+    let strct = ((Swig.invoke fields) "[]" (Swig.C_int 0)) in
+    let strct_ast = ((Swig.invoke strct) "as_ast" (Swig.C_void)) in
+    let strct_fields = ((Swig.invoke strct_ast) "fields" (Swig.C_void)) in
+    let strct_n = ((Swig.invoke strct_fields) "[]" (Swig.C_int 0)) in
+    let strct_name = ((Swig.invoke strct_n) "[]" (Cs._ast_ordinal_NC_NAME(Swig.C_void))) in
+    let strct_str = Swig.get_string ((Swig.invoke strct_name) "as_str" (Swig.C_void)) in
+    (*Printf.printf "strct_str: %s\n" strct_str;*)
+    let field_name = (if (String.compare field_str "ub") = 0 then begin "upper" end else begin "lower" end) in
+    let strct_field_name = strct_str ^ "_" ^ field_name in
+    (*Printf.printf "strc_field_name: %s\n" strct_field_name;*)
+    (if not (List.mem (Var(strct_field_name,Int(4))) !cur_args) then begin
+      (if not (List.mem (Var(strct_field_name,Int(4))) !glos) then begin
+        (if not (List.mem (Var(strct_field_name,Int(4))) !cur_locs) then begin
+         cur_locs := (Var(strct_field_name,Int(4))) :: !cur_locs end)
+      end)
+    end);
+    LVal(Var(strct_field_name,Int(4)))
+
   (* Parse a variable and return the integer or variable representation *)
   let rec parse_var f =
   let f_ast = ((Swig.invoke f) "as_ast" (Swig.C_void)) in
@@ -88,6 +112,10 @@ let blk_preds = ref []
     let ty = get_type sym_type_str in
     let name = ((Swig.invoke f_ast) "[]" (Cs._ast_ordinal_NC_NAME(Swig.C_void))) in
     let name_str = (Swig.get_string ((Swig.invoke name) "as_str" (Swig.C_void))) in
+    if (String.compare name_str "nondetI") = 0 then begin
+      Havoc
+    end
+    else begin
     (if not (List.mem (Var(name_str,ty)) !cur_args) then begin
     (* Add static class variables to global list, if needed *)
     (if not (List.mem (Var(name_str,ty)) !glos) then begin
@@ -97,6 +125,9 @@ let blk_preds = ref []
     end);
     LVal(Var(name_str,ty))
   end
+  end
+  else if (String.compare f_class_str "c:dot") = 0 then begin
+    parse_dot f_ast end
   (* It is a unary - value, get the variable value*)
   else if (String.compare f_class_super_str "c:arithmetic") = 0 then begin
     if (String.compare f_class_str "c:unary-") = 0 then begin
@@ -261,9 +292,32 @@ let blk_preds = ref []
 
   let parse_array_access f =
     let f_ast = ((Swig.invoke f) "as_ast" (Swig.C_void)) in
+    let f_string = Swig.get_string ((Swig.invoke f_ast) "as_string" (Swig.C_void)) in
     let f_fields = ((Swig.invoke f_ast) "fields" (Swig.C_void)) in
     let f_sub = ((Swig.invoke f_fields) "[]" (Swig.C_int 0)) in
     let f_sub_ast = ((Swig.invoke f_sub) "as_ast" (Swig.C_void)) in
+    let f_string2 = Swig.get_string ((Swig.invoke f_sub_ast) "as_string" (Swig.C_void)) in
+    let f_sub_ast_type = ((Swig.invoke f_sub_ast) "[]" (Cs._ast_ordinal_NC_TYPE(Swig.C_void))) in
+    let f_sub_type_string = Swig.get_string ((Swig.invoke f_sub_ast_type) "as_string" (Swig.C_void)) in
+    if (String.compare f_sub_type_string "type:[c:pointer] struct abs_interval*") = 0 then
+    begin
+      let name_u = f_string2^"_upper" in
+      let name_l = f_string2^"_lower" in
+      (if not (List.mem (Var(name_u,Int(4))) !cur_args) then begin
+                (if not (List.mem (Var(name_u,Int(4))) !glos) then begin
+                  (if not (List.mem (Var(name_u,Int(4))) !cur_locs) then begin
+                    cur_locs := Var(name_u,Int(4)) :: !cur_locs end)
+                end)
+              end);
+      (if not (List.mem (Var(name_l,Int(4))) !cur_args) then begin
+                (if not (List.mem (Var(name_l,Int(4))) !glos) then begin
+                  (if not (List.mem (Var(name_l,Int(4))) !cur_locs) then begin
+                    cur_locs := Var(name_l,Int(4)) :: !cur_locs end)
+                end)
+              end);
+      LVal(Var(f_string2,Int(4)))
+    end
+    else begin
     let f_sub_fields = ((Swig.invoke f_sub_ast) "fields" (Swig.C_void)) in
     let f_var_field = ((Swig.invoke f_sub_fields) "[]" (Swig.C_int 0)) in
     let f_var_ast = ((Swig.invoke f_var_field) "as_ast" (Swig.C_void)) in
@@ -304,6 +358,7 @@ let blk_preds = ref []
       end)
     end);
     ArrayAccess(Var(name_array_str,Array(ty)),rh)
+    end
 
 
 
@@ -339,13 +394,14 @@ let blk_preds = ref []
     let param = ((Swig.invoke actuals_in) "[]" (Swig.C_int loc)) in
     let p_ast = ((Swig.invoke param) "get_ast" (Cs._ast_family_C_NORMALIZED(Swig.C_void))) in
     let p_field = (Swig.invoke ((Swig.invoke p_ast) "fields" (Swig.C_void))) "[]" (Swig.C_int 1) in
-    let name = ((Swig.invoke p_field) "[]" (Cs._ast_ordinal_NC_NAME(Swig.C_void))) in
-    let name_str = Swig.get_string ((Swig.invoke name) "as_str" (Swig.C_void)) in
+    let param_str = Swig.get_string ((Swig.invoke p_field) "as_string" (Swig.C_void)) in
     let sym_type = ((Swig.invoke p_ast) "[]" (Cs._ast_ordinal_NC_TYPE(Swig.C_void))) in
     let sym_type_str = Swig.get_string ((Swig.invoke sym_type) "as_string" (Swig.C_void)) in
     if (String.length sym_type_str > 33) then begin
-      let sub_type = String.sub sym_type_str 23 10 in
+      let sub_type = String.sub sym_type_str 24 10 in
       if ((String.compare sub_type "java_array") = 0) then begin
+        let name = ((Swig.invoke p_field) "[]" (Cs._ast_ordinal_NC_NAME(Swig.C_void))) in
+        let name_str = Swig.get_string ((Swig.invoke name) "as_str" (Swig.C_void)) in
         let name_length = name_str ^ "_length" in
         let name_array = name_str ^ "_array" in
         let p_fields = ((Swig.invoke p_ast) "fields" (Swig.C_void)) in
@@ -367,7 +423,39 @@ let blk_preds = ref []
         let l_var = LVal(Var(name_length,Int(4))) in
         let a_var = LVal(Var(name_array,Array(ty))) in
         [l_var;a_var] @ (get_param_vars size (loc + 1) actuals_in p_str)
-      end else begin
+      end
+      else if (String.length sym_type_str > 35) then begin
+        let sub_type_a = String.sub sym_type_str 24 12 in
+        (*Printf.printf "psub_str: %s\n" sub_type_a;*)
+        if ((String.compare sub_type_a "abs_interval") = 0) then begin
+          try 
+            let name = ((Swig.invoke p_field) "[]" (Cs._ast_ordinal_NC_NAME(Swig.C_void))) in
+            let name_str = Swig.get_string ((Swig.invoke name) "as_str" (Swig.C_void)) in
+            let name_upper = name_str ^ "_upper" in
+            let name_lower = name_str ^ "_lower" in
+            let ub_var = LVal(Var(name_upper,Int(4))) in
+            let lb_var = LVal(Var(name_lower,Int(4))) in
+            [ub_var;lb_var] @ (get_param_vars size (loc + 1) actuals_in p_str)
+          with _ -> 
+            let p_fields = ((Swig.invoke p_ast) "fields" (Swig.C_void)) in
+            let addr = ((Swig.invoke p_fields) "[]" (Swig.C_int 1)) in
+            let addr_ast = ((Swig.invoke addr) "as_ast" (Swig.C_void)) in
+            let a_fields = ((Swig.invoke addr_ast) "fields" (Swig.C_void)) in
+            let exprs = ((Swig.invoke a_fields) "[]" (Swig.C_int 0)) in
+            let exprs_ast = ((Swig.invoke exprs) "as_ast" (Swig.C_void)) in
+            let e_fields = ((Swig.invoke exprs_ast) "fields" (Swig.C_void)) in
+            let f0 = ((Swig.invoke e_fields) "[]" (Swig.C_int 0)) in 
+            let lb = parse_var f0 in
+            let f1 = ((Swig.invoke e_fields) "[]" (Swig.C_int 1)) in
+            let ub = parse_var f1 in
+            [ub;lb] @ (get_param_vars size (loc + 1) actuals_in p_str)
+        end
+        else begin
+          let p_var = parse_var p_field in
+          p_var :: (get_param_vars size (loc + 1) actuals_in p_str)
+        end
+      end
+      else begin
         let p_var = parse_var p_field in
         p_var :: (get_param_vars size (loc + 1) actuals_in p_str)
       end
@@ -404,6 +492,7 @@ let blk_preds = ref []
     else if (String.compare op_str "<") = 0 then begin LShift end
     else if (String.compare op_str ">") = 0 then begin RShift end
     else begin RShift end
+
 
   (*Returns the inst representing an instruction - If the point doesn't represent an inst, return _*)
   let point_to_inst point =
@@ -481,17 +570,74 @@ let blk_preds = ref []
           let ast_class = ((Swig.invoke exp_ast) "get_class" (Swig.C_void)) in
           let ast_string = (Swig.get_string ((Swig.invoke ast_class) "as_string" (Swig.C_void))) in
           (*Printf.printf "ASTExpressionClass: %s\n" ast_string;*)
+          if (String.compare ast_string "c:assume-expr") = 0 then begin
+            let fields = ((Swig.invoke exp_ast) "fields" (Swig.C_void)) in
+            let f1 = ((Swig.invoke fields) "[]" (Swig.C_int 0)) in  let pred = ((Swig.invoke point) "cfg_predecessors" (Swig.C_void)) in
+            let cond_ast = ((Swig.invoke f1) "as_ast" (Cs._ast_family_C_NORMALIZED(Swig.C_void))) in
+            let cond_class = ((Swig.invoke cond_ast) "get_class" (Swig.C_void)) in
+            let cond_class_str = (Swig.get_string ((Swig.invoke cond_class) "as_string" (Swig.C_void))) in
+            (*Get the string reresentation of the comparison operator - this can be 1 or 2 characters long*)
+            let conditional = (try String.sub cond_class_str 2 2 with
+              Invalid_argument _ -> (String.sub cond_class_str 2 1)) in
+            let cond = get_conditional conditional false in
+            let fields2 = ((Swig.invoke cond_ast) "fields" (Swig.C_void)) in
+            (* cond is lsum*comp*lsum*)
+            let lh = ((Swig.invoke fields2) "[]" (Swig.C_int 0)) in
+            let rh = ((Swig.invoke fields2) "[]" (Swig.C_int 1)) in
+            let lh_ast = ((Swig.invoke lh) "as_ast" (Swig.C_void)) in
+            let rh_ast = ((Swig.invoke rh) "as_ast" (Swig.C_void)) in
+            let lh_class = ((Swig.invoke lh_ast) "get_class" (Swig.C_void)) in
+            let lh_class_str = Swig.get_string ((Swig.invoke lh_class) "as_string" (Swig.C_void)) in
+            let left_hand = (if (String.compare lh_class_str "c:dot") = 0 then
+              Some(parse_dot lh_ast) else
+              parse_lsum lh) in
+            let rh_class = ((Swig.invoke rh_ast) "get_class" (Swig.C_void)) in
+            let rh_class_str = Swig.get_string ((Swig.invoke rh_class) "as_string" (Swig.C_void)) in
+            let right_hand = (if (String.compare rh_class_str "c:dot") = 0 then
+              Some(parse_dot rh_ast) else
+              parse_lsum rh) in
+            match left_hand with
+              None -> []
+            | Some (lft) -> (
+              match right_hand with
+                None -> []
+              | Some(rgt) -> 
+              [Assume(Cond(lft,cond,rgt))]
+            );
+          end
+          else begin
           let fields = ((Swig.invoke exp_ast) "fields" (Swig.C_void)) in
           let f1 = ((Swig.invoke fields) "[]" (Swig.C_int 0)) in
           let f1_ast = ((Swig.invoke f1) "as_ast" (Swig.C_void)) in
           let f1_class = ((Swig.invoke f1_ast) "get_class" (Swig.C_void)) in
           let f1_class_str = Swig.get_string ((Swig.invoke f1_class) "as_string" (Swig.C_void)) in
+          (*Printf.printf "f1_class: %s\n" f1_class_str;*)
           let array_store = ref false in
           let lh = (if ((String.compare "c:dot" f1_class_str) = 0) then begin
               let f1_fields = ((Swig.invoke f1_ast) "fields" (Swig.C_void)) in
               let f1_f1 = ((Swig.invoke f1_fields) "[]" (Swig.C_int 0)) in
+              let f1_f1_ast = ((Swig.invoke f1_f1) "as_ast" (Swig.C_void)) in
+              let f1_f1_field = ((Swig.invoke f1_f1_ast) "fields" (Swig.C_void)) in
+              let f1_f1_f0 = ((Swig.invoke f1_f1_field) "[]" (Swig.C_int 0)) in
+              let f1_f1_f0_ast = ((Swig.invoke f1_f1_f0) "as_ast" (Swig.C_void)) in
+              let f1_f1_f0_class = ((Swig.invoke f1_f1_f0_ast) "[]" (Cs._ast_ordinal_NC_TYPE(Swig.C_void))) in 
+              let f1_f1_f0_class_str = Swig.get_string ((Swig.invoke f1_f1_f0_class) "as_string" (Swig.C_void)) in
               array_store := true;
-              parse_length f1_f1 end
+              if (String.length f1_f1_f0_class_str > 35) then begin
+                let sub_str = (String.sub f1_f1_f0_class_str 24 12) in
+                (*Printf.printf "sub_str: %s\n" sub_str;*)
+                if (String.compare sub_str "abs_interval") = 0 then begin
+                  (*Printf.printf "Yay!\n";*)
+                  parse_dot f1_ast
+                end
+                else begin
+                  parse_length f1_f1
+                end
+              end
+              else begin
+                parse_length f1_f1 
+              end 
+            end
             else if ((String.compare "c:ptr" f1_class_str) = 0) then begin
               array_store := true;
               parse_array_access f1 end
@@ -590,7 +736,26 @@ let blk_preds = ref []
             if ((String.compare "c:dot" f2_class_str) = 0) then begin
               let f2_fields = ((Swig.invoke f2_ast) "fields" (Swig.C_void)) in
               let f2_f1 = ((Swig.invoke f2_fields) "[]" (Swig.C_int 0)) in
-              let rh = parse_length f2_f1 in
+              let f2_f1_ast = ((Swig.invoke f2_f1) "as_ast" (Swig.C_void)) in
+              let f2_f1_field = ((Swig.invoke f2_f1_ast) "fields" (Swig.C_void)) in
+              let f2_f1_f0 = ((Swig.invoke f2_f1_field) "[]" (Swig.C_int 0)) in
+              let f2_f1_f0_ast = ((Swig.invoke f2_f1_f0) "as_ast" (Swig.C_void)) in
+              let f2_f1_f0_class = ((Swig.invoke f2_f1_f0_ast) "[]" (Cs._ast_ordinal_NC_TYPE(Swig.C_void))) in 
+              let f2_f1_f0_class_str = Swig.get_string ((Swig.invoke f2_f1_f0_class) "as_string" (Swig.C_void)) in
+              (*Printf.printf "dot_string: %s\n" f2_f1_f0_class_str;*)
+              array_store := true;
+              let rh = (if (String.length f2_f1_f0_class_str > 35) then begin
+                let sub_str = (String.sub f2_f1_f0_class_str 24 12) in
+                if (String.compare sub_str "abs_interval") = 0 then begin
+                  parse_dot f2_ast
+                end
+                else begin
+                  parse_length f2_f1
+                end
+              end 
+              else begin
+                parse_length f2_f1 
+              end) in
               [Assign(lh,rh)]
             end
             else if ((String.compare "c:ptr" f2_class_str) = 0) then begin
@@ -599,6 +764,33 @@ let blk_preds = ref []
               [Assign(lh,rh)]
             end
             else begin
+              if (String.compare f2_class_str "c:exprs") = 0 then begin
+                let name = (match lh with LVal(Var(rh_name,_)) ->
+                rh_name
+                | _ -> "") in
+                let name_u = name ^ "_upper" in
+                let name_l = name ^ "_lower" in
+                let l_var = LVal(Var(name_l,Int(4))) in
+                let u_var = LVal(Var(name_u,Int(4))) in
+                let f2_fields = ((Swig.invoke f2_ast) "fields" (Swig.C_void)) in
+                let f2_f1 = ((Swig.invoke f2_fields) "[]" (Swig.C_int 0)) in
+                let f2_f1_ast = ((Swig.invoke f2_f1) "as_ast" (Swig.C_void)) in
+                let f2_f1_string = Swig.get_string ((Swig.invoke f2_f1_ast) "as_string" (Swig.C_void)) in
+                let f2_f2 = ((Swig.invoke f2_fields) "[]" (Swig.C_int 1)) in
+                let f2_f2_ast = ((Swig.invoke f2_f2) "as_ast" (Swig.C_void)) in
+                try 
+                let f2_f1_class = ((Swig.invoke f2_f1_ast) "[]" (Cs._ast_ordinal_NC_TYPE(Swig.C_void))) in
+                let f2_f1_class_str = Swig.get_string ((Swig.invoke f2_f1_class) "as_string" (Swig.C_void)) in
+                let rh_l = parse_var f2_f1 in
+                let rh_u = parse_var f2_f2 in
+                [Assign(l_var,rh_l);Assign(u_var,rh_u)]
+                with _ -> (
+                  let rh_l = parse_dot f2_f1_ast in
+                  let rh_u = parse_dot f2_f2_ast in 
+                  [Assign(l_var,rh_l);Assign(u_var,rh_u)]
+                )
+              end
+              else begin
               let f_var = parse_var f2 in
               let f1_name = ((Swig.invoke f1_ast) "[]" (Cs._ast_ordinal_NC_NAME(Swig.C_void))) in
               let f1_name_str = Swig.get_string ((Swig.invoke f1_name) "as_str" (Swig.C_void)) in
@@ -609,8 +801,10 @@ let blk_preds = ref []
               else begin
                 [Assign(lh,f_var)]
               end
+              end
             end
           end
+        end
         with
           | _ -> []
       end
@@ -824,34 +1018,51 @@ let blk_preds = ref []
                 let name_length = name_str ^ "_length" in
                 let name_array = name_str ^ "_array" in
                 let p_fields = ((Swig.invoke param_ast) "fields" (Swig.C_void)) in
-              let typ = ((Swig.invoke p_fields) "[]" (Swig.C_int 1)) in
-              let typ_ast = ((Swig.invoke typ) "as_ast" (Swig.C_void)) in
-              let typ_fields = ((Swig.invoke typ_ast) "fields" (Swig.C_void)) in
-              let ty_f = ((Swig.invoke typ_fields) "[]" (Swig.C_int 1)) in
-              let array_t = ((Swig.invoke ty_f) "as_ast" (Swig.C_void)) in
-              let array_t_fields = ((Swig.invoke array_t) "fields" (Swig.C_void)) in
-              let array_type = ((Swig.invoke array_t_fields) "[]" (Swig.C_int 1)) in
-              let ptr_t = ((Swig.invoke array_type) "as_ast" (Swig.C_void)) in
-              let ptr_type = ((Swig.invoke ptr_t) "[]" (Cs._ast_ordinal_NC_POINTED_TO(Swig.C_void))) in
-              let ptd_to = ((Swig.invoke ptr_type) "as_ast" (Swig.C_void)) in
-              let type_string = Swig.get_string ((Swig.invoke ptd_to) "as_string" (Swig.C_void)) in
-              let ty = get_type type_string in
+                let typ = ((Swig.invoke p_fields) "[]" (Swig.C_int 1)) in
+                let typ_ast = ((Swig.invoke typ) "as_ast" (Swig.C_void)) in
+                let typ_fields = ((Swig.invoke typ_ast) "fields" (Swig.C_void)) in
+                let ty_f = ((Swig.invoke typ_fields) "[]" (Swig.C_int 1)) in
+                let array_t = ((Swig.invoke ty_f) "as_ast" (Swig.C_void)) in
+                let array_t_fields = ((Swig.invoke array_t) "fields" (Swig.C_void)) in
+                let array_type = ((Swig.invoke array_t_fields) "[]" (Swig.C_int 1)) in
+                let ptr_t = ((Swig.invoke array_type) "as_ast" (Swig.C_void)) in
+                let ptr_type = ((Swig.invoke ptr_t) "[]" (Cs._ast_ordinal_NC_POINTED_TO(Swig.C_void))) in
+                let ptd_to = ((Swig.invoke ptr_type) "as_ast" (Swig.C_void)) in
+                let type_string = Swig.get_string ((Swig.invoke ptd_to) "as_string" (Swig.C_void)) in
+                let ty = get_type type_string in
                 if not (List.mem (Var(name_length,Int(4))) args) then begin
-                ret := Var(name_length,Int(4)) :: !ret;
-                ret := Var(name_array,Array(ty)) :: !ret;
+                  ret := Var(name_length,Int(4)) :: !ret;
+                  ret := Var(name_array,Array(ty)) :: !ret;
+                end
+              end
+              else if (String.length sym_type_str > 18) then begin
+                let sub_type_a = String.sub sym_type_str 7 12 in
+                if ((String.compare sub_type_a "abs_interval") = 0) then begin
+                  let name_upper = name_str ^ "_upper" in
+                  let name_lower = name_str ^ "_lower" in
+                  if not (List.mem (Var(name_upper,Int(4))) args) then begin
+                    ret := Var(name_upper,Int(4)) :: !ret;
+                    ret := Var(name_lower,Int(4)) :: !ret;
+                  end
+                end
+                else begin
+                  let ty = get_type sym_type_str in
+                  if not (List.mem (Var(name_str,ty)) args) then begin
+                    ret := (List.append !ret [Var(name_str,ty)]);
+                  end
                 end
               end
               else begin
                 let ty = get_type sym_type_str in
                 if not (List.mem (Var(name_str,ty)) args) then begin
-                ret := Var(name_str,ty)::!ret end
-                end
+                  ret := Var(name_str,ty)::!ret end
+              end
             end
             else begin
               let ty = get_type sym_type_str in
               if not (List.mem (Var(name_str,ty)) args) then begin
-              ret := Var(name_str,ty)::!ret end
-              end
+                ret := Var(name_str,ty)::!ret end
+            end
           end;
         with
           | _ -> (
@@ -863,34 +1074,51 @@ let blk_preds = ref []
                 let name_length = name_str ^ "_length" in
                 let name_array = name_str ^ "_array" in
                 let p_fields = ((Swig.invoke param_ast) "fields" (Swig.C_void)) in
-              let typ = ((Swig.invoke p_fields) "[]" (Swig.C_int 1)) in
-              let typ_ast = ((Swig.invoke typ) "as_ast" (Swig.C_void)) in
-              let typ_fields = ((Swig.invoke typ_ast) "fields" (Swig.C_void)) in
-              let ty_f = ((Swig.invoke typ_fields) "[]" (Swig.C_int 1)) in
-              let array_t = ((Swig.invoke ty_f) "as_ast" (Swig.C_void)) in
-              let array_t_fields = ((Swig.invoke array_t) "fields" (Swig.C_void)) in
-              let array_type = ((Swig.invoke array_t_fields) "[]" (Swig.C_int 1)) in
-              let ptr_t = ((Swig.invoke array_type) "as_ast" (Swig.C_void)) in
-              let ptr_type = ((Swig.invoke ptr_t) "[]" (Cs._ast_ordinal_NC_POINTED_TO(Swig.C_void))) in
-              let ptd_to = ((Swig.invoke ptr_type) "as_ast" (Swig.C_void)) in
-              let type_string = Swig.get_string ((Swig.invoke ptd_to) "as_string" (Swig.C_void)) in
-              let ty = get_type type_string in
-              if not (List.mem (Var(name_length,Int(4))) args) then begin
-                ret := Var(name_length,Int(4)) :: !ret;
-                ret := Var(name_array,Array(ty)) :: !ret;
+                let typ = ((Swig.invoke p_fields) "[]" (Swig.C_int 1)) in
+                let typ_ast = ((Swig.invoke typ) "as_ast" (Swig.C_void)) in
+                let typ_fields = ((Swig.invoke typ_ast) "fields" (Swig.C_void)) in
+                let ty_f = ((Swig.invoke typ_fields) "[]" (Swig.C_int 1)) in
+                let array_t = ((Swig.invoke ty_f) "as_ast" (Swig.C_void)) in
+                let array_t_fields = ((Swig.invoke array_t) "fields" (Swig.C_void)) in
+                let array_type = ((Swig.invoke array_t_fields) "[]" (Swig.C_int 1)) in
+                let ptr_t = ((Swig.invoke array_type) "as_ast" (Swig.C_void)) in
+                let ptr_type = ((Swig.invoke ptr_t) "[]" (Cs._ast_ordinal_NC_POINTED_TO(Swig.C_void))) in
+                let ptd_to = ((Swig.invoke ptr_type) "as_ast" (Swig.C_void)) in
+                let type_string = Swig.get_string ((Swig.invoke ptd_to) "as_string" (Swig.C_void)) in
+                let ty = get_type type_string in
+                if not (List.mem (Var(name_length,Int(4))) args) then begin
+                  ret := Var(name_length,Int(4)) :: !ret;
+                  ret := Var(name_array,Array(ty)) :: !ret;
+                end
               end
+              else if (String.length sym_type_str > 18) then begin
+                let sub_type_a = String.sub sym_type_str 7 12 in
+                if ((String.compare sub_type_a "abs_interval") = 0) then begin
+                  let name_upper = name_str ^ "_upper" in
+                  let name_lower = name_str ^ "_lower" in
+                  if not (List.mem (Var(name_upper,Int(4))) args) then begin
+                    ret := Var(name_upper,Int(4)) :: !ret;
+                    ret := Var(name_lower,Int(4)) :: !ret;
+                  end
+                end
+                else begin
+                  let ty = get_type sym_type_str in
+                  if not (List.mem (Var(name_str,ty)) args) then begin
+                    ret := (List.append !ret [Var(name_str,ty)]);
+                  end
+                end
               end
               else begin
                 let ty = get_type sym_type_str in
                 if not (List.mem (Var(name_str,ty)) args) then begin
-                ret := Var(name_str,ty)::!ret end
-                end
+                  ret := Var(name_str,ty)::!ret end
+              end
             end
             else begin
               let ty = get_type sym_type_str in
               if not (List.mem (Var(name_str,ty)) args) then begin
-              ret := Var(name_str,ty)::!ret end
-              end));
+                ret := Var(name_str,ty)::!ret end
+            end));
     done
   with
   | _ -> ());
@@ -915,25 +1143,38 @@ let blk_preds = ref []
             let sym_type = ((Swig.invoke param_ast) "[]" (Cs._ast_ordinal_NC_TYPE(Swig.C_void))) in
             let sym_type_str = Swig.get_string ((Swig.invoke sym_type) "as_string" (Swig.C_void)) in
             if (String.length sym_type_str > 33) then begin
-              let sub_type = String.sub sym_type_str 23 10 in
+              let sub_type = String.sub sym_type_str 24 10 in
               if ((String.compare sub_type "java_array") = 0) then begin
                 let name_length = name_str ^ "_length" in
                 let name_array = name_str ^ "_array" in
-              let p_fields = ((Swig.invoke param_ast) "fields" (Swig.C_void)) in
-              let typ = ((Swig.invoke p_fields) "[]" (Swig.C_int 1)) in
-              let typ_ast = ((Swig.invoke typ) "as_ast" (Swig.C_void)) in
-              let typ_fields = ((Swig.invoke typ_ast) "fields" (Swig.C_void)) in
-              let ty_f = ((Swig.invoke typ_fields) "[]" (Swig.C_int 1)) in
-              let array_t = ((Swig.invoke ty_f) "as_ast" (Swig.C_void)) in
-              let array_t_fields = ((Swig.invoke array_t) "fields" (Swig.C_void)) in
-              let array_type = ((Swig.invoke array_t_fields) "[]" (Swig.C_int 1)) in
-              let ptr_t = ((Swig.invoke array_type) "as_ast" (Swig.C_void)) in
-              let ptr_type = ((Swig.invoke ptr_t) "[]" (Cs._ast_ordinal_NC_POINTED_TO(Swig.C_void))) in
-              let ptd_to = ((Swig.invoke ptr_type) "as_ast" (Swig.C_void)) in
-              let type_string = Swig.get_string ((Swig.invoke ptd_to) "as_string" (Swig.C_void)) in
-              let ty = get_type type_string in
+                let p_fields = ((Swig.invoke param_ast) "fields" (Swig.C_void)) in
+                let typ = ((Swig.invoke p_fields) "[]" (Swig.C_int 1)) in
+                let typ_ast = ((Swig.invoke typ) "as_ast" (Swig.C_void)) in
+                let typ_fields = ((Swig.invoke typ_ast) "fields" (Swig.C_void)) in
+                let ty_f = ((Swig.invoke typ_fields) "[]" (Swig.C_int 1)) in
+                let array_t = ((Swig.invoke ty_f) "as_ast" (Swig.C_void)) in
+                let array_t_fields = ((Swig.invoke array_t) "fields" (Swig.C_void)) in
+                let array_type = ((Swig.invoke array_t_fields) "[]" (Swig.C_int 1)) in
+                let ptr_t = ((Swig.invoke array_type) "as_ast" (Swig.C_void)) in
+                let ptr_type = ((Swig.invoke ptr_t) "[]" (Cs._ast_ordinal_NC_POINTED_TO(Swig.C_void))) in
+                let ptd_to = ((Swig.invoke ptr_type) "as_ast" (Swig.C_void)) in
+                let type_string = Swig.get_string ((Swig.invoke ptd_to) "as_string" (Swig.C_void)) in
+                let ty = get_type type_string in
                 ret := (List.append !ret [Var(name_length,Int(4))]);
                 ret := (List.append !ret [Var(name_array,Array(ty))]);
+              end
+              else if (String.length sym_type_str > 35) then begin
+                let sub_type_a = String.sub sym_type_str 24 12 in
+                if ((String.compare sub_type_a "abs_interval") = 0) then begin
+                  let name_upper = name_str ^ "_upper" in
+                  let name_lower = name_str ^ "_lower" in
+                  ret := (List.append !ret [Var(name_upper,Int(4))]);
+                  ret := (List.append !ret [Var(name_lower,Int(4))]);
+                end
+                else begin
+                  let ty = get_type sym_type_str in
+                  ret := (List.append !ret [Var(name_str,ty)]);
+                end
               end
               else begin
                 let ty = get_type sym_type_str in
@@ -983,13 +1224,28 @@ let blk_preds = ref []
               glos := Var(g_name_length,Int(4)) :: !glos;
               glos := Var(g_name_array,Array(ty)) :: !glos;
             end
+            else if (String.length sym_type_str > 18) then begin
+              let sub_type_a = String.sub sym_type_str 7 12 in
+              if ((String.compare sub_type_a "abs_interval") = 0) then begin
+                let g_name_upper = g_name ^ "_upper" in
+                let g_name_lower = g_name ^ "_lower" in
+                glos := Var(g_name_upper,Int(4)) :: !glos;
+                glos := Var(g_name_lower,Int(4)) :: !glos;
+              end
+              else begin
+                let ty = get_type sym_type_str in
+                glos := Var(g_name,ty) :: !glos
+              end
+            end
             else begin
               let ty = get_type sym_type_str in
-              glos := Var(g_name,ty) :: !glos end;
+              glos := Var(g_name,ty) :: !glos 
+            end;
           end
           else begin
-          let ty = get_type sym_type_str in
-          glos := Var(g_name,ty) :: !glos end
+            let ty = get_type sym_type_str in
+            glos := Var(g_name,ty) :: !glos 
+          end
         end
       done
     with
