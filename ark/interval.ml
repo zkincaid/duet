@@ -227,3 +227,37 @@ let const_of { lower; upper } =
 let integral x =
   { lower = map_opt (QQ.of_zz % QQ.ceiling) x.lower;
     upper = map_opt (QQ.of_zz % QQ.floor) x.upper }
+
+let log base x =
+  if equal base bottom || equal x bottom then bottom
+  else
+    match base.lower with
+    | Some base_lo when QQ.lt QQ.one base_lo ->
+      (* Naive integral lower/upper approximation of log.  TODO: make this
+         more accurate. *)
+      let lower =
+        match base.upper, x.lower with
+        | Some base, Some lo when QQ.leq QQ.one lo ->
+          let rec lo_log curr log =
+            if QQ.lt lo curr then
+              log - 1
+            else
+              lo_log (QQ.mul base curr) (log + 1)
+          in
+          Some (QQ.of_int (lo_log base 1))
+        | _, _ -> None
+      in
+      let upper =
+        match x.upper with
+        | Some hi when QQ.leq QQ.one hi  ->
+          let rec hi_log curr log =
+            if QQ.leq hi curr then
+              log
+            else
+              hi_log (QQ.mul base_lo curr) (log + 1)
+          in
+          Some (QQ.of_int (hi_log QQ.one 0))
+        | _ -> None
+      in
+      { lower; upper }
+    | _ -> top

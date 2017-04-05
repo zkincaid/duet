@@ -9,6 +9,14 @@ module Infix = Syntax.Infix(Ctx)
 let ctx = Ctx.context
 let smt_ctx = ArkZ3.mk_context ctx []
 
+let (pow, log) =
+  Cube.ensure_nonlinear_symbols ctx;
+  (get_named_symbol ctx "pow",
+   get_named_symbol ctx "log")
+
+let mk_log (base : 'a term) (x : 'a term) = mk_app ctx log [base; x]
+let mk_pow (base : 'a term) (exp : 'a term) = mk_app ctx pow [base; exp]
+
 let qsym = Ctx.mk_symbol ~name:"q" `TyReal
 let rsym = Ctx.mk_symbol ~name:"r" `TyReal
 let ssym = Ctx.mk_symbol ~name:"s" `TyReal
@@ -275,6 +283,13 @@ let symbound () =
   assert_implies x_bounds [x <= (int 2)];
   assert_implies x_bounds [z <= x]
 
+let powlog () =
+  let open Infix in
+  let phi =
+    [(int 1) <= x; x <= mk_pow (int 2) y; y + (int 1) = mk_log (int 2) x]
+  in
+  assert_implies phi [(int 1) <= (int 0)]
+
 let suite = "Cube" >::: [
     "roundtrip1" >:: roundtrip1;
     "roundtrip2" >:: roundtrip2;
@@ -293,4 +308,5 @@ let suite = "Cube" >::: [
     "widen1" >:: widen1;
     "widen2" >:: widen2;
     "symbound" >:: symbound;
+    "powlog" >:: powlog;
   ]

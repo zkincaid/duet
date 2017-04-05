@@ -31,3 +31,4 @@ degree3_monomial: duet.native -cra-split-loops -cra @code/degree3_monomial.c
 degree3_binomial: duet.native -cra-split-loops -cra @code/degree3_binomial.c
 degree4_monomial: duet.native -cra-split-loops -cra @code/degree4_monomial.c
 degree4_binomial: duet.native -cra-split-loops -cra @code/degree4_binomial.c
+power_log: duet.native -use-ocrs -cra @code/power_log.c
