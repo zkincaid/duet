@@ -52,6 +52,15 @@ type sd_term = Mul of V.t * V.t
              | Floor of V.t
              | App of symbol * (V.t list)
 
+
+let ensure_nonlinear_symbols ark =
+  List.iter
+    (fun (name, typ) ->
+       if not (is_registered_name ark name) then
+         register_named_symbol ark name typ)
+    [("pow", (`TyFun ([`TyReal; `TyReal], `TyReal)));
+     ("log", (`TyFun ([`TyReal; `TyReal], `TyReal)))]
+
 (* Env needs to map a set of synthetic terms into an initial segment of the
    naturals, with all of the integer-typed synthetic terms mapped to smaller
    naturals than real-typed synthetic terms *)
@@ -336,6 +345,19 @@ module Env = struct
       (BatList.of_enum (BatEnum.map mk (V.enum rest)))
       (Some (coeff_of_qq const_coeff))
 
+  (** Convert a vector / id to a polynomial *without multiplicative
+      coordinates*.  Multiplicative coordinates are expanded into
+      higher-degree polynomials over non-multiplicative coordinates. *)
+  let rec hi_poly_of_id env id =
+     match sd_term_of_id env id with
+     | Mul (x, y) -> P.mul (hi_poly_of_vec env x) (hi_poly_of_vec env y)
+     | _ -> P.of_dim id
+  and hi_poly_of_vec env vec =
+     let (const_coeff, vec) = V.pivot const_id vec in
+     V.enum vec
+     /@ (fun (coeff, id) -> P.scalar_mul coeff (hi_poly_of_id env id))
+    |> BatEnum.fold P.add (P.scalar const_coeff)
+
   let term_of_polynomial env p =
     (P.enum p)
     /@ (fun (coeff, monomial) ->
@@ -562,9 +584,13 @@ let polynomial_cone property =
   |> BatList.of_enum
 
 let strengthen ?integrity:(integrity=(fun _ -> ())) property =
+  ensure_nonlinear_symbols (Env.ark property.env);
   let env = property.env in
   let ark = Env.ark env in
   let zero = mk_real ark QQ.zero in
+  let pow = get_named_symbol ark "pow" in
+  let log = get_named_symbol ark "log" in
+  let mk_log (base : 'a term) (x : 'a term) = mk_app ark log [base; x] in
   let add_bound_unsafe bound =
     let abstract =
       Abstract0.meet_lincons_array
@@ -586,7 +612,6 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
   in
 
   logf "Before strengthen: %a" pp property;
-
 
   for id = 0 to Env.dim property.env - 1 do
     match Env.sd_term_of_id property.env id with
@@ -637,6 +662,66 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
     Polynomial.Rewrite.reduce (!rewrite) (poly_of_vec vec)
     |> Env.term_of_polynomial property.env
   in
+
+  (* pow-log rule *)
+  begin
+    let is_positive_vec vec =
+      Interval.is_positive (bound_vec property vec)
+    in
+    let is_positive_poly p =
+      match vec_of_poly (Polynomial.Rewrite.reduce (!rewrite) p) with
+      | Some v -> is_positive_vec v
+      | None -> false (* conservative *)
+    in
+    let exponential_dimensions =
+      BatEnum.filter_map (fun id ->
+          match Env.sd_term_of_id property.env id with
+          | App (func, [base; exp]) when func = pow && is_positive_vec base ->
+            Some (id, Env.term_of_vec property.env base, Env.term_of_vec property.env exp)
+          | _ -> None)
+        (0 -- (Env.dim property.env - 1))
+      |> BatList.of_enum
+    in
+    let open Lincons0 in
+    Abstract0.to_lincons_array (get_manager ()) property.abstract
+    |> BatArray.iter (fun lcons ->
+        let p =
+          Env.hi_poly_of_vec property.env (Env.vec_of_linexpr property.env lcons.linexpr0)
+        in
+        exponential_dimensions |> List.iter (fun (id, base, exp) ->
+            (* Rewrite p as m*(base^exp) - t *)
+            let (m, t) =
+              let id_monomial = Monomial.singleton id 1 in
+              BatEnum.fold (fun (m, t) (coeff, monomial) ->
+                  match Monomial.div monomial id_monomial with
+                  | Some m' -> (P.add_term coeff m' m, t)
+                  | None -> (m, P.add_term (QQ.negate coeff) monomial t))
+                (P.zero, P.zero)
+                (P.enum p)
+            in
+            if is_positive_poly m && is_positive_poly t then
+              let m_term = Env.term_of_polynomial property.env m in
+              let t_term = Env.term_of_polynomial property.env t in
+              let log_m = mk_log base m_term in
+              let log_t = mk_log base t_term in
+              update_env property;
+              (* base > 0 /\ m > 0 /\ t > 0 /\ m*(base^exp) - t >= 0 ==>
+                 log(base,m) + exp >= log(base,t) *)
+              let mk_compare =
+                match lcons.typ with
+                | EQ -> mk_eq
+                | SUP | SUPEQ -> mk_leq
+                | _ -> assert false
+              in
+              let precondition =
+                mk_and ark [mk_lt ark zero base;
+                            mk_lt ark zero m_term;
+                            mk_lt ark zero t_term;
+                            mk_compare ark zero (Env.term_of_polynomial property.env p)]
+              in
+              add_bound precondition (mk_compare ark log_t (mk_add ark [exp; log_m]))))
+  end;
+
 
   (* Equational saturation.  A polyhedron P is equationally saturated if every
      degree-1 polynomial in the ideal of polynomials vanishing on P + the
@@ -706,7 +791,7 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
     let term = Env.term_of_id property.env id in
     match Env.sd_term_of_id property.env id with
     | Mul (x, y) ->
-    let go (x,x_ivl,x_term) (y,y_ivl,y_term) =
+      let go (x,x_ivl,x_term) (y,y_ivl,y_term) =
         if Interval.is_nonnegative y_ivl then
           begin
             let y_nonnegative = mk_leq ark (mk_real ark QQ.zero) y_term in
@@ -810,6 +895,30 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
         | Some hi -> add_bound precondition (mk_leq ark term (mk_real ark hi))
         | _ -> ()
       end
+
+    | App (func, [base; exp]) when func = log ->
+      let base_ivl = bound_vec property base in
+      let exp_ivl = bound_vec property exp in
+
+      let mk_interval t ivl =
+        let lo = match Interval.lower ivl with
+          | Some lo -> mk_leq ark (mk_real ark lo) t
+          | None -> mk_true ark
+        in
+        let hi = match Interval.upper ivl with
+          | Some hi -> mk_leq ark t (mk_real ark hi)
+          | None -> mk_true ark
+        in
+        (lo, hi)
+      in
+      let precondition =
+        let (lo,hi) = mk_interval (Env.term_of_vec env base) base_ivl in
+        let (lo',hi') = mk_interval (Env.term_of_vec env exp) exp_ivl in
+        mk_and ark [lo;hi;lo';hi']
+      in
+      let (lo,hi) = mk_interval term (Interval.log base_ivl exp_ivl) in
+      add_bound precondition lo;
+      add_bound precondition hi
 
     (* TO DO *)
     | Mod (x, y) -> ()

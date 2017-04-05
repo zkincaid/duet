@@ -48,3 +48,7 @@ val farkas_equalities : 'a t -> ('a term * Linear.QQVector.t) list
 (** Given a cube [cube] and a symbol [symbol], compute a list of lower bounds
     and upper bounds for [symbol] that are implied by [cube]. *)
 val symbolic_bounds : 'a t -> symbol -> ('a term) list * ('a term) list
+
+(** Ensure that the named symbols [pow : Real x Real -> Real] and [log : Real
+    x Real -> Real] belong to a given context. *)
+val ensure_nonlinear_symbols : 'a context -> unit
