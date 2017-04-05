@@ -577,11 +577,9 @@ let closure_ocrs ?(guard=None) iter =
   let open Ocrs in
   let open Type_def in
 
-  let pow =
-    if not (is_registered_name iter.ark "pow") then
-      register_named_symbol iter.ark "pow" (`TyFun ([`TyReal; `TyReal], `TyReal));
-    get_named_symbol iter.ark "pow"
-  in
+  Cube.ensure_nonlinear_symbols iter.ark;
+  let pow = get_named_symbol iter.ark "pow" in
+  let log = get_named_symbol iter.ark "log" in
 
   let loop_counter_sym = mk_symbol iter.ark ~name:"K" `TyInt in
   let loop_counter = mk_const iter.ark loop_counter_sym in
@@ -608,7 +606,7 @@ let closure_ocrs ?(guard=None) iter =
   let ss_post = SAdd ("k", 1) in
 
   let expr_of_term =
-    let alg = function
+    let rec alg = function
       | `App (sym, []) ->
         if Symbol.Map.mem sym pre_map then
           (* sym is a post-state var -- replace it with pre-state var *)
@@ -619,6 +617,19 @@ let closure_ocrs ?(guard=None) iter =
                            ss_pre)
         else
           Symbolic_Constant (string_of_symbol sym)
+      | `App (func, [x; y]) when func = pow ->
+        begin match refine iter.ark x, refine iter.ark y with
+          | `Term x, `Term y ->
+            Pow (Term.eval iter.ark alg x,
+                 Term.eval iter.ark alg y)
+          | _ -> assert false
+        end
+      | `App (func, [x; y]) when func = log ->
+        begin match destruct iter.ark x, refine iter.ark y with
+          | `Real k, `Term y ->
+            Log (Mpqf.to_mpq k, Term.eval iter.ark alg y)
+          | _ -> assert false
+        end
       | `App (sym, _) -> assert false (* to do *)
       | `Real k -> Rational (Mpqf.to_mpq k)
       | `Add xs -> Sum xs
@@ -666,8 +677,11 @@ let closure_ocrs ?(guard=None) iter =
       let base = term_of_expr x in
       let exp = term_of_expr y in
       mk_app iter.ark pow [base; exp]
+    | Log (base, x) ->
+      let x = term_of_expr x in
+      mk_app iter.ark log [mk_real iter.ark (Mpqf.of_mpq base); x]
 
-    | Log (_, _) | Binomial (_, _) | Factorial _ -> assert false
+    | Binomial (_, _) | Factorial _ -> assert false
   in
 
   let recurrences =

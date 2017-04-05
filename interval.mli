@@ -38,3 +38,5 @@ val of_apron : Apron.Interval.t -> t
 val apron_of : t -> Apron.Interval.t
 
 val integral : t -> t
+
+val log : t -> t -> t
