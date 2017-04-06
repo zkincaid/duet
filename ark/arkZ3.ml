@@ -213,14 +213,14 @@ and z3_of_term (ark : 'a context) z3 (term : 'a term) =
       let sort = match typ_symbol ark sym with
         | `TyInt -> sort_of_typ z3 `TyInt
         | `TyReal -> sort_of_typ z3 `TyReal
-        | `TyBool | `TyFun (_,_) -> invalid_arg "z3_of.term"
+        | `TyBool | `TyFun (_,_) -> invalid_arg "z3_of.term: ill-typed application"
       in
       let decl = Z3.FuncDecl.mk_const_decl z3 (z3_of_symbol z3 sym) sort in
       Z3.Expr.mk_const_f z3 decl
 
     | `App (func, args) ->
       let (param_sorts, return_sort) = match typ_symbol ark func with
-        | `TyInt | `TyReal | `TyBool -> invalid_arg "z3_of.term"
+        | `TyInt | `TyReal | `TyBool -> invalid_arg "z3_of.term: ill-typed application"
         | `TyFun (params, return) ->
           (List.map (sort_of_typ z3) params, sort_of_typ z3 return)
       in
@@ -228,7 +228,7 @@ and z3_of_term (ark : 'a context) z3 (term : 'a term) =
       let decl = Z3.FuncDecl.mk_func_decl z3 z3sym param_sorts return_sort in
       Z3.Expr.mk_app z3 decl (List.map (z3_of_expr ark z3) args)
 
-    | `Var (i, `TyFun (_, _)) | `Var (i, `TyBool) -> invalid_arg "z3_of.term"
+    | `Var (i, `TyFun (_, _)) | `Var (i, `TyBool) -> invalid_arg "z3_of.term: variable"
     | `Var (i, `TyInt) ->
       Z3.Quantifier.mk_bound z3 i (sort_of_typ z3 `TyInt)
     | `Var (i, `TyReal) ->
@@ -268,7 +268,7 @@ and z3_of_formula ark z3 phi =
       Z3.Expr.mk_const_f z3 decl
     | `Proposition (`App (predicate, args)) ->
       let (param_sorts, return_sort) = match typ_symbol ark predicate with
-        | `TyInt | `TyReal | `TyBool -> invalid_arg "z3_of.term"
+        | `TyInt | `TyReal | `TyBool -> invalid_arg "z3_of.term: ill-typed application"
         | `TyFun (params, return) ->
           (List.map (sort_of_typ z3) params, sort_of_typ z3 return)
       in
@@ -348,9 +348,9 @@ let formula_of_z3 context phi =
   |  _ -> invalid_arg "formula_of"
 
 
-class ['a] z3_model (context : 'a context) z3 m =
-  let of_formula = z3_of_formula context z3 in
-  let of_term = z3_of_term context z3 in
+class ['a] z3_model (ark : 'a context) z3 m =
+  let of_formula = z3_of_formula ark z3 in
+  let of_term = z3_of_term ark z3 in
   object(self)
     method eval_int term =
       match Z3.Model.eval m (of_term term) true with
@@ -366,6 +366,48 @@ class ['a] z3_model (context : 'a context) z3 m =
       match Z3.Model.eval m (of_formula phi) true with
       | Some x -> bool_val x
       | None -> assert false
+
+    method eval_fun func =
+      let (param_sorts, return_sort, formals) =
+        match typ_symbol ark func with
+        | `TyInt | `TyReal | `TyBool -> assert false
+        | `TyFun (params, return) ->
+          (List.map (sort_of_typ z3) params,
+           sort_of_typ z3 return,
+           List.mapi (fun i typ -> mk_var ark i typ) params)
+      in
+      let z3sym = z3_of_symbol z3 func in
+      let decl = Z3.FuncDecl.mk_func_decl z3 z3sym param_sorts return_sort in
+      match Z3.Model.get_func_interp m decl with
+      | None -> assert false
+      | Some interp ->
+        let default =
+          of_z3 ark sym_of_decl
+            (Z3.Model.FuncInterp.get_else interp)
+        in
+        let mk_eq x y = (* type-generic equality *)
+          match refine ark x, refine ark y with
+          | `Term x, `Term y ->
+            (mk_eq ark x y :> ('a, 'typ_fo) Syntax.expr)
+          | `Formula x, `Formula y ->
+            (mk_iff ark x y :> ('a, 'typ_fo) Syntax.expr)
+          | _, _ -> assert false
+        in
+        List.fold_right (fun entry rest ->
+            let value =
+              Z3.Model.FuncInterp.FuncEntry.get_value entry
+              |> of_z3 ark sym_of_decl
+            in
+            let cond =
+              List.map2 (fun formal value ->
+                  mk_eq formal (of_z3 ark sym_of_decl value))
+                formals
+                (Z3.Model.FuncInterp.FuncEntry.get_args entry)
+              |> mk_and ark
+            in
+            mk_ite ark cond value rest)
+          (Z3.Model.FuncInterp.get_entries interp)
+          default
 
     method to_string () = Z3.Model.to_string m
   end

@@ -990,6 +990,9 @@ let of_atoms ark ?integrity:(integrity=(fun _ -> ())) atoms =
   in
   strengthen ~integrity { env; abstract; int_dim; real_dim }
 
+let of_atoms ark ?integrity:(integrity=(fun _ -> ())) atoms =
+  Log.time "cube.of_atom" (of_atoms ark ~integrity) atoms
+
 let common_env property property' =
   let ark = Env.ark property.env in
   let env = Env.mk_empty ark in

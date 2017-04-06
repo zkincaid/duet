@@ -1,11 +1,12 @@
 open Syntax
+open BatPervasives
 
 exception Divide_by_zero
 
 module SM = Symbol.Map
 type 'a interpretation =
   { ark : 'a context;
-    map : [ `Bool of bool | `Real of QQ.t ] SM.t }
+    map : [ `Bool of bool | `Real of QQ.t | `Fun of ('a, typ_fo) expr ] SM.t }
 
 let value interp k = SM.find k interp.map
 
@@ -23,6 +24,11 @@ let add_bool k v interp =
   | `TyBool -> { interp with map = SM.add k (`Bool v) interp.map }
   | _ -> invalid_arg "add_boolean: constant symbol is non-boolean"
 
+let add_fun k v interp =
+  match typ_symbol interp.ark k with
+  | `TyFun (_, _) -> { interp with map = SM.add k (`Fun v) interp.map }
+  | _ -> invalid_arg "add_fun: constant symbol has arity zero"
+
 let real interp k =
   match SM.find k interp.map with
   | `Real v -> v
@@ -38,14 +44,29 @@ let pp formatter interp =
     | `Bool true -> Format.pp_print_string formatter "true"
     | `Bool false -> Format.pp_print_string formatter "false"
     | `Real q -> QQ.pp formatter q
+    | _ -> assert false
   in
   let pp_elt formatter (key, value) =
-    Format.fprintf formatter "@[%a@ => %a@]"
-      (pp_symbol interp.ark) key
-      pp_val value
+    match typ_symbol interp.ark key, value with
+    | `TyFun (params, _), `Fun body ->
+      let formals =
+        BatEnum.fold (fun formals i ->
+            (Char.escaped (Char.chr (122 - i)))::formals)
+          []
+          (0 -- (List.length params - 1))
+      in
+      let env = List.fold_right Env.push formals Env.empty in
+      Format.fprintf formatter "%a(@[%a@]) => @[<hov 1>%a@]"
+        (pp_symbol interp.ark) key
+        (ApakEnum.pp_print_enum Format.pp_print_string) (BatList.enum formals)
+        (pp_expr ~env interp.ark) body
+    | _ ->
+      Format.fprintf formatter "%a => @[<hov 1>%a@]"
+        (pp_symbol interp.ark) key
+        pp_val value
   in
-  Format.fprintf formatter "[@[%a@]]"
-    (ApakEnum.pp_print_enum pp_elt) (SM.enum interp.map)
+  Format.fprintf formatter "[@[<v 0>%a@]]"
+    (ApakEnum.pp_print_enum_nobox pp_elt) (SM.enum interp.map)
 
 let of_model ark model symbols =
   List.fold_left
@@ -61,31 +82,65 @@ let of_model ark model symbols =
            k
            (model#sat (mk_const ark k))
            interp
-       | `TyFun _ -> assert false)
+       | `TyFun (params, ret) ->
+         add_fun
+           k
+           (model#eval_fun k)
+           interp)
     (empty ark)
     symbols
 
 let enum interp = SM.enum interp.map
 
-let substitute interpretation =
+let unfold_app interpretation func actuals =
   let ark = interpretation.ark in
-  substitute_const ark (fun sym ->
-      try
-        begin match value interpretation sym with
-          | `Real qq -> (mk_real ark qq :> ('a, typ) expr)
-          | `Bool true -> (mk_true ark :> ('a, typ) expr)
-          | `Bool false -> (mk_false ark :> ('a, typ) expr)
+  match value interpretation func with
+  | `Fun body ->
+    let env =
+      List.fold_right Env.push actuals Env.empty
+    in
+    substitute ark (Env.find env) body
+  | _ ->
+    invalid_arg "unfold_app: not a function symbol"
+
+let substitute interpretation expr =
+  let ark = interpretation.ark in
+  rewrite ark ~up:(fun expr ->
+      match destruct ark expr with
+      | `App (sym, []) ->
+        begin
+          try
+            (match value interpretation sym with
+             | `Real qq -> (mk_real ark qq :> ('a, typ_fo) expr)
+             | `Bool true -> (mk_true ark :> ('a, typ_fo) expr)
+             | `Bool false -> (mk_false ark :> ('a, typ_fo) expr)
+             | `Fun _ -> assert false)
+          with Not_found -> expr
         end
-      with Not_found -> mk_const ark sym)
+      | `App (func, actuals) ->
+        begin
+          try
+            unfold_app interpretation func actuals
+          with Not_found -> expr
+        end
+      | _ -> expr)
+    expr
 
 let rec evaluate_term interp ?(env=Env.empty) term =
   let f = function
     | `Real qq -> qq
     | `App (k, []) -> real interp k
+    | `App (func, args) ->
+      begin match refine interp.ark (unfold_app interp func args) with
+        | `Term t ->
+          evaluate_term interp ~env t
+        | `Formula _ ->
+          invalid_arg "evaluate_term: ill-typed function application"
+      end
     | `Var (i, _) ->
       begin match Env.find env i with
         | `Real qq -> qq
-        | _ -> invalid_arg "evaluate_term: ill-typed variable"
+        | `Bool _ -> invalid_arg "evaluate_term: ill-typed variable"
       end
     | `Add xs -> List.fold_left QQ.add QQ.zero xs
     | `Mul xs -> List.fold_left QQ.mul QQ.one xs
@@ -97,7 +152,6 @@ let rec evaluate_term interp ?(env=Env.empty) term =
     | `Binop (`Mod, t, modulus) -> QQ.modulo t modulus
     | `Unop (`Floor, t) -> QQ.of_zz (QQ.floor t)
     | `Unop (`Neg, t) -> QQ.negate t
-    | `App (_, _) -> invalid_arg "evaluate_term: application"
     | `Ite (cond, bthen, belse) ->
       if evaluate_formula interp ~env cond then
         bthen
@@ -129,13 +183,18 @@ and evaluate_formula interp ?(env=Env.empty) phi =
     | `Not v -> not v
     | `Ite (cond, bthen, belse) -> if cond then bthen else belse
     | `Proposition (`App (k, [])) -> bool interp k
+    | `Proposition (`App (func, args)) ->
+      begin match refine interp.ark (unfold_app interp func args) with
+        | `Formula phi ->
+          evaluate_formula interp ~env phi
+        | `Term _ ->
+          invalid_arg "evaluate_term: ill-typed function application"
+      end
     | `Proposition (`Var i) ->
       begin match Env.find env i with
         | `Bool v -> v
         | _ -> invalid_arg "evaluate_formula: ill-typed variable"
       end
-    | `Proposition (`App (_, _)) ->
-      invalid_arg "evaluate_formula: function application"
     | `Quantify (_, _, _, _) -> invalid_arg "evalutate_formula: quantifier"
   in
   try
@@ -150,6 +209,15 @@ let select_implicant interp ?(env=Env.empty) phi =
   let rec term t =
     match Term.destruct ark t with
     | `Real _ | `App (_, []) | `Var (_, _) -> (t, [])
+    | `App (func, args) ->
+      let (args, implicant) =
+        List.fold_right (fun arg (args, impl) ->
+            let (arg, arg_impl) = expr arg in
+            (arg::args, arg_impl@impl))
+          args
+          ([], [])
+      in
+      (mk_app ark func args, implicant)
     | `Add xs ->
       let (summands, implicant) =
         List.fold_right
@@ -186,7 +254,6 @@ let select_implicant interp ?(env=Env.empty) phi =
         | `Neg -> mk_neg ark t_term
       in
       (term, t_impl)
-    | `App (_, _) -> invalid_arg "select_implicant: application"
     | `Ite (cond, bthen, belse) ->
       begin match formula cond with
         | Some implicant ->
@@ -290,7 +357,34 @@ let select_implicant interp ?(env=Env.empty) phi =
             end
           | None -> None
       end
-    | `Proposition (`App (_, _)) | `Quantify _ -> invalid_arg "select_implicant"
+    | `Proposition (`App (func, args)) ->
+      if evaluate_formula interp ~env (mk_app ark func args) then
+        let (args, implicant) =
+          List.fold_right (fun arg (args, impl) ->
+              let (arg, arg_impl) = expr arg in
+              (arg::args, arg_impl@impl))
+            args
+            ([], [])
+        in
+        Some ((mk_app ark func args)::implicant)
+      else
+        None
+    | `Quantify _ -> invalid_arg "select_implicant"
+  and expr x =
+    match refine ark x with
+    | `Term t ->
+      let (t_term, t_impl) = term t in
+      ((t_term :> ('a,typ_fo) expr), t_impl)
+    | `Formula phi ->
+      if evaluate_formula interp ~env phi then
+        match formula phi with
+        | Some phi_impl -> ((mk_true ark :> ('a,typ_fo) expr), phi_impl)
+        | None -> assert false
+      else
+        let not_phi = rewrite ark ~down:(nnf_rewriter ark) (mk_not ark phi) in
+        match formula not_phi with
+        | Some phi_impl -> ((mk_false ark :> ('a,typ_fo) expr), phi_impl)
+        | None -> assert false
   in
   formula phi
 
