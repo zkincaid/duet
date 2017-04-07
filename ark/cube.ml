@@ -1137,7 +1137,13 @@ let exists
     | None ->
       let term = Env.term_of_id env id in
       let term_rewrite = rewrite term in
-      if Symbol.Set.for_all (fun x -> p x && subterm x) (symbols term_rewrite) then
+      let safe_symbol x =
+        match typ_symbol ark x with
+        | `TyReal | `TyInt | `TyBool -> p x && subterm x
+        | `TyFun (_, _) -> true (* don't project function symbols --
+                                   particularly not log/pow *)
+      in
+      if Symbol.Set.for_all safe_symbol (symbols term_rewrite) then
 
         (* Add integrity constraint for term = term_rewrite *)
         let precondition =
