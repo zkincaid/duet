@@ -557,33 +557,35 @@ let resource_bound_analysis file =
       in
 
       A.HT.iter (fun procedure summary ->
-          logf ~level:`always "Procedure: %a" Varinfo.pp procedure;
-          (* replace cost with 0, add constraint cost = rhs *)
-          let guard =
-            let subst x =
-              if x = cost_symbol then
-                Ctx.mk_real QQ.zero
-              else
-                Ctx.mk_const x
+          if K.mem_transform cost summary then begin
+            logf ~level:`always "Procedure: %a" Varinfo.pp procedure;
+            (* replace cost with 0, add constraint cost = rhs *)
+            let guard =
+              let subst x =
+                if x = cost_symbol then
+                  Ctx.mk_real QQ.zero
+                else
+                  Ctx.mk_const x
+              in
+              let rhs =
+                Syntax.substitute_const ark subst (K.get_transform cost summary)
+              in
+              Ctx.mk_and [Syntax.substitute_const ark subst (K.guard summary);
+                          Ctx.mk_eq (Ctx.mk_const cost_symbol) rhs ]
             in
-            let rhs =
-              Syntax.substitute_const ark subst (K.get_transform cost summary)
+            let (lower, upper) =
+              Abstract.symbolic_bounds ~exists ark guard cost_symbol
             in
-            Ctx.mk_and [Syntax.substitute_const ark subst (K.guard summary);
-                        Ctx.mk_eq (Ctx.mk_const cost_symbol) rhs ]
-          in
-          let (lower, upper) =
-            Abstract.symbolic_bounds ~exists ark guard cost_symbol
-          in
-          begin match lower with
-            | Some lower ->
-              logf ~level:`always "%a <= cost" (Syntax.Term.pp ark) lower
-            | None -> ()
-          end;
-          begin match upper with
-            | Some upper ->
-              logf ~level:`always "cost <= %a" (Syntax.Term.pp ark) upper
-            | None -> ()
+            begin match lower with
+              | Some lower ->
+                logf ~level:`always "%a <= cost" (Syntax.Term.pp ark) lower
+              | None -> ()
+            end;
+            begin match upper with
+              | Some upper ->
+                logf ~level:`always "cost <= %a" (Syntax.Term.pp ark) upper
+              | None -> ()
+            end
           end)
         (A.get_summaries query)
     end
