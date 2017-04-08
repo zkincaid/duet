@@ -586,7 +586,8 @@ let resource_bound_analysis file =
                 logf ~level:`always "cost <= %a" (Syntax.Term.pp ark) upper
               | None -> ()
             end
-          end)
+          end else
+            logf ~level:`always "Procedure %a has zero cost" Varinfo.pp procedure)
         (A.get_summaries query)
     end
   | _ -> assert false
