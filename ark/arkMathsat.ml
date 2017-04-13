@@ -194,6 +194,9 @@ class ['a] msat_solver (ark : 'a context) =
                 | _ -> invalid_arg "sat: not a formula"
                          
               method to_string () = "<<msat_model>>"
+
+              method eval_fun symbol =
+                (failwith "MathSAT eval_fun not supported" :> ('a,'b) expr)
             end
           in
           `Sat m

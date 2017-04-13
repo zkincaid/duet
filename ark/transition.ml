@@ -218,6 +218,7 @@ struct
   let star ?(split=true) ?(use_ocrs=false) tr =
     Iter.closure ~use_ocrs (Iter.alpha ~split tr)
 
+
   let zero =
     { transform = M.empty; guard = mk_false ark }
 

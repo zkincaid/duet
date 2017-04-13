@@ -330,6 +330,7 @@ module Env = struct
     let vec = ref V.zero in
     Linexpr0.iter (fun coeff dim ->
         match qq_of_coeff coeff with
+        | Some qq when QQ.equal QQ.zero qq -> ()
         | Some qq ->
           vec := V.add_term qq (id_of_dim env dim) (!vec)
         | None -> assert false)
@@ -375,6 +376,18 @@ module Env = struct
         mk_mul env.ark product)
     |> BatList.of_enum
     |> mk_add env.ark
+
+  let atom_of_lincons env lincons =
+    let open Lincons0 in
+    let term =
+      term_of_vec env (vec_of_linexpr env lincons.linexpr0)
+    in
+    let zero = mk_real env.ark QQ.zero in
+    match lincons.typ with
+    | EQ -> mk_eq env.ark term zero
+    | SUPEQ -> mk_leq env.ark zero term
+    | SUP -> mk_lt env.ark zero term
+    | DISEQ | EQMOD _ -> assert false
 end
 
 let pp_vector = Env.pp_vector
@@ -413,6 +426,10 @@ let pp formatter property =
     property.abstract
 
 let show property = Apak.Putil.mk_show pp property
+
+let env_consistent cube =
+  Env.int_dim cube.env = cube.int_dim
+  && Env.real_dim cube.env = cube.real_dim
 
 (* Should be called when new terms are registered in the environment attached
    to a cube *)
@@ -462,20 +479,8 @@ let bottom context =
 let is_bottom property = Abstract0.is_bottom (get_manager ()) property.abstract
 
 let to_atoms property =
-  let open Lincons0 in
-  let ark = Env.ark property.env in
-  let zero = mk_real ark QQ.zero in
   BatArray.enum (Abstract0.to_lincons_array (get_manager ()) property.abstract)
-  /@ (fun lincons ->
-      let term =
-        Env.vec_of_linexpr property.env lincons.linexpr0
-        |> Env.term_of_vec property.env
-      in
-      match lincons.typ with
-      | EQ -> mk_eq ark term zero
-      | SUPEQ -> mk_leq ark zero term
-      | SUP -> mk_lt ark zero term
-      | DISEQ | EQMOD _ -> assert false)
+  /@ (Env.atom_of_lincons property.env)
   |> BatList.of_enum
 
 let to_formula property =
@@ -665,19 +670,27 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
 
   (* pow-log rule *)
   begin
-    let is_positive_vec vec =
-      Interval.is_positive (bound_vec property vec)
+    let vec_sign vec =
+      let ivl = bound_vec property vec in
+      if Interval.is_positive ivl then
+        `Positive
+      else if Interval.is_negative ivl then
+        `Negative
+      else
+        `Unknown
     in
-    let is_positive_poly p =
+    let polynomial_sign p =
       match vec_of_poly (Polynomial.Rewrite.reduce (!rewrite) p) with
-      | Some v -> is_positive_vec v
-      | None -> false (* conservative *)
+      | Some v -> vec_sign v
+      | None -> `Unknown
     in
     let exponential_dimensions =
       BatEnum.filter_map (fun id ->
           match Env.sd_term_of_id property.env id with
-          | App (func, [base; exp]) when func = pow && is_positive_vec base ->
-            Some (id, Env.term_of_vec property.env base, Env.term_of_vec property.env exp)
+          | App (func, [base; exp]) when func = pow && vec_sign base = `Positive ->
+            Some (id,
+                  Env.term_of_vec property.env base,
+                  Env.term_of_vec property.env exp)
           | _ -> None)
         (0 -- (Env.dim property.env - 1))
       |> BatList.of_enum
@@ -686,7 +699,9 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
     Abstract0.to_lincons_array (get_manager ()) property.abstract
     |> BatArray.iter (fun lcons ->
         let p =
-          Env.hi_poly_of_vec property.env (Env.vec_of_linexpr property.env lcons.linexpr0)
+          Env.hi_poly_of_vec
+            property.env
+            (Env.vec_of_linexpr property.env lcons.linexpr0)
         in
         exponential_dimensions |> List.iter (fun (id, base, exp) ->
             (* Rewrite p as m*(base^exp) - t *)
@@ -699,7 +714,15 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
                 (P.zero, P.zero)
                 (P.enum p)
             in
-            if is_positive_poly m && is_positive_poly t then
+            let m_sign = polynomial_sign m in
+            let t_sign = polynomial_sign t in
+            if m_sign != `Unknown && m_sign = t_sign then
+              let (m, t) =
+                if m_sign = `Positive then
+                  (m, t)
+                else
+                  (P.negate m, P.negate t)
+              in
               let m_term = Env.term_of_polynomial property.env m in
               let t_term = Env.term_of_polynomial property.env t in
               let log_m = mk_log base m_term in
@@ -707,21 +730,24 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
               update_env property;
               (* base > 0 /\ m > 0 /\ t > 0 /\ m*(base^exp) - t >= 0 ==>
                  log(base,m) + exp >= log(base,t) *)
-              let mk_compare =
-                match lcons.typ with
-                | EQ -> mk_eq
-                | SUP | SUPEQ -> mk_leq
-                | _ -> assert false
-              in
-              let precondition =
+              let hypothesis =
                 mk_and ark [mk_lt ark zero base;
                             mk_lt ark zero m_term;
                             mk_lt ark zero t_term;
-                            mk_compare ark zero (Env.term_of_polynomial property.env p)]
+                            Env.atom_of_lincons property.env lcons]
               in
-              add_bound precondition (mk_compare ark log_t (mk_add ark [exp; log_m]))))
+              let conclusion =
+                match lcons.typ, m_sign with
+                | EQ, _ ->
+                  mk_eq ark log_t (mk_add ark [exp; log_m])
+                | SUP, `Positive | SUPEQ, `Positive ->
+                  mk_leq ark log_t (mk_add ark [exp; log_m])
+                | SUP, `Negative | SUPEQ, `Negative ->
+                  mk_leq ark (mk_add ark [exp; log_m]) log_t
+                | _, _ -> assert false
+              in
+              add_bound hypothesis conclusion))
   end;
-
 
   (* Equational saturation.  A polyhedron P is equationally saturated if every
      degree-1 polynomial in the ideal of polynomials vanishing on P + the
@@ -743,7 +769,8 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
         match vec_of_poly (Polynomial.Rewrite.reduce (!rewrite) (P.of_dim id)) with
         | Some p -> p
         | None ->
-          (* Reducing a linear polynomial must result in another linear polynomial *)
+          (* Reducing a linear polynomial must result in another linear
+             polynomial *)
           assert false
       in
       let reduced_term = Env.term_of_vec property.env reduced_id in
@@ -754,7 +781,8 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
         (* Add [reduced->term] to the canonical map.  Or if there's already a
            mapping [reduced->rep], add the equation rep=term *)
         if ExprHT.mem canonical reduced then
-          (* Don't need an integrity formula (congruence is free), so don't call add_bound. *)
+          (* Don't need an integrity formula (congruence is free), so don't
+             call add_bound. *)
           add_bound_unsafe (mk_eq ark term (ExprHT.find canonical reduced))
         else
           ExprHT.add canonical reduced term
@@ -990,6 +1018,9 @@ let of_atoms ark ?integrity:(integrity=(fun _ -> ())) atoms =
   in
   strengthen ~integrity { env; abstract; int_dim; real_dim }
 
+let of_atoms ark ?integrity:(integrity=(fun _ -> ())) atoms =
+  Log.time "cube.of_atom" (of_atoms ark ~integrity) atoms
+
 let common_env property property' =
   let ark = Env.ark property.env in
   let env = Env.mk_empty ark in
@@ -1072,6 +1103,75 @@ let apron_set_dimensions new_int new_real abstract =
   else
     abstract
 
+(** Project a set of coordinates out of an abstract value *)
+let forget_ids env abstract forget =
+  let forget_dims =
+    Array.of_list (List.map (Env.dim_of_id env) forget)
+  in
+  BatArray.sort Pervasives.compare forget_dims;
+  Abstract0.forget_array
+    (get_manager ())
+    abstract
+    forget_dims
+    false
+
+(* Get a list of symbolic lower and upper bounds for a vector, expressed in
+   terms of identifiers that do not belong to forget *)
+let symbolic_bounds_vec cube vec forget =
+  assert (env_consistent cube);
+
+  (* Add one real dimension to store the vector *)
+  let vec_dim = cube.int_dim + cube.real_dim in
+  let abstract =
+    Abstract0.add_dimensions
+      (get_manager ())
+      cube.abstract
+      { Dim.dim = [| vec_dim |];
+        Dim.intdim = 0;
+        Dim.realdim = 1 }
+      false
+  in
+  (* Store the vector in vec_dim *)
+  begin
+    let linexpr = Env.linexpr_of_vec cube.env vec in
+    Linexpr0.set_coeff linexpr vec_dim (Coeff.s_of_int (-1));
+    Abstract0.meet_lincons_array_with
+      (get_manager ())
+      abstract
+      [| Lincons0.make linexpr Lincons0.SUPEQ |]
+  end;
+  (* Project undesired identifiers *)
+  let abstract = forget_ids cube.env abstract forget in
+
+  (* Compute bounds *)
+  let lower = ref [] in
+  let upper = ref [] in
+  Abstract0.to_lincons_array (get_manager ()) abstract
+  |> BatArray.iter (fun lincons ->
+      let open Lincons0 in
+      let a =
+        qq_of_coeff_exn (Linexpr0.get_coeff lincons.linexpr0 vec_dim)
+      in
+      if not (QQ.equal a QQ.zero) then begin
+        (* Write lincons.linexpr0 as "vec comp bound" *)
+        Linexpr0.set_coeff lincons.linexpr0 vec_dim (coeff_of_qq QQ.zero);
+        let bound =
+          Env.vec_of_linexpr cube.env lincons.linexpr0
+          |> V.scalar_mul (QQ.negate (QQ.inverse a))
+          |> Env.term_of_vec cube.env
+        in
+        match lincons.typ with
+        | SUP | SUPEQ ->
+          if QQ.lt QQ.zero a then
+            lower := bound::(!lower)
+          else
+            upper := bound::(!upper)
+        | EQ ->
+          lower := bound::(!lower);
+          upper := bound::(!upper)
+        | _ -> ()
+      end);
+  (!lower, !upper)
 
 let exists
     ?integrity:(integrity=(fun _ -> ()))
@@ -1111,15 +1211,89 @@ let exists
          try Symbol.Map.find symbol rewrite_map
          with Not_found -> mk_const ark symbol)
   in
+  let safe_symbol x =
+    match typ_symbol ark x with
+    | `TyReal | `TyInt | `TyBool -> p x && subterm x
+    | `TyFun (_, _) -> true (* don't project function symbols -- particularly
+                               not log/pow *)
+  in
 
-  let forget = ref [] in
-  let substitution = ref [] in
-  let new_env = Env.mk_empty ark in
   let symbol_of id =
     match Env.sd_term_of_id env id with
     | App (symbol, []) -> Some symbol
     | _ -> None
   in
+
+  (* Coordinates that must be projected out *)
+  let forget =
+    BatEnum.filter (fun id ->
+        match symbol_of id with
+        | Some symbol -> not (p symbol)
+        | None ->
+          let term = Env.term_of_id env id in
+          let term_rewrite = rewrite term in
+          not (Symbol.Set.for_all safe_symbol (symbols term_rewrite)))
+      (0 -- (Env.dim env - 1))
+    |> BatList.of_enum
+  in
+
+  (***************************************************************************
+   * Find new non-linear terms to improve the projection
+   ***************************************************************************)
+  ensure_nonlinear_symbols (Env.ark property.env);
+  let log = get_named_symbol ark "log" in
+
+  let add_bound_unsafe bound =
+    let abstract =
+      Abstract0.meet_lincons_array
+        (get_manager ())
+        property.abstract
+        [| lincons_of_atom env bound |]
+    in
+    property.abstract <- abstract
+  in
+  let add_bound precondition bound =
+    logf ~level:`info "Integrity: %a => %a"
+      (Formula.pp ark) precondition
+      (Formula.pp ark) bound;
+    integrity (mk_or ark [mk_not ark precondition; bound]);
+
+    ignore (lincons_of_atom env bound);
+
+    update_env property;
+    add_bound_unsafe bound
+  in
+  forget |> List.iter (fun id ->
+      let term = Env.term_of_id env id in
+      match Env.sd_term_of_id env id with
+      | App (symbol, [base; x]) when symbol = log ->
+        (* If 1 < base then
+             lo <= x <= hi ==> log(base,lo) <= log(base, x) <= log(base,hi) *)
+        begin
+          match BatList.of_enum (V.enum base) with
+          | [(base,base_id)] when base_id = Env.const_id
+                               && QQ.lt QQ.one base ->
+            let (lower, upper) = symbolic_bounds_vec property x forget in
+            let x_term = Env.term_of_vec env x in
+            let base_term = mk_real ark base in
+            lower |> List.iter (fun lo ->
+                add_bound
+                  (mk_leq ark lo x_term)
+                  (mk_leq ark (mk_app ark log [base_term; lo]) term));
+            upper |> List.iter (fun hi ->
+                add_bound
+                  (mk_leq ark x_term hi)
+                  (mk_leq ark term (mk_app ark log [base_term; hi])))
+          | _ -> ()
+        end
+      | _ -> ());
+
+  (***************************************************************************
+   * Build environment of the projection and a translation into the projected
+   * environment.
+   ***************************************************************************)
+  let substitution = ref [] in
+  let new_env = Env.mk_empty ark in
   for id = 0 to Env.dim env - 1 do
     let dim = Env.dim_of_id env id in
     match symbol_of id with
@@ -1128,13 +1302,11 @@ let exists
         if p symbol then
           let rewrite_vec = Env.vec_of_term new_env (mk_const ark symbol) in
           substitution := (dim, rewrite_vec)::(!substitution)
-        else
-          forget := dim::(!forget);
       end
     | None ->
       let term = Env.term_of_id env id in
       let term_rewrite = rewrite term in
-      if Symbol.Set.for_all (fun x -> p x && subterm x) (symbols term_rewrite) then
+      if Symbol.Set.for_all safe_symbol (symbols term_rewrite) then
 
         (* Add integrity constraint for term = term_rewrite *)
         let precondition =
@@ -1152,17 +1324,9 @@ let exists
 
         let rewrite_vec = Env.vec_of_term new_env term_rewrite in
         substitution := (dim, rewrite_vec)::(!substitution)
-      else
-        forget := dim::(!forget)
   done;
 
-  let abstract =
-    Abstract0.forget_array
-      (get_manager ())
-      property.abstract
-      (Array.of_list (List.rev (!forget)))
-      false
-  in
+  let abstract = forget_ids property.env property.abstract forget in
 
   (* Ensure abstract has enough dimensions to be able to interpret the
      substitution.  The substituion is interpreted within an implicit

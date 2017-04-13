@@ -12,6 +12,7 @@ module Env : sig
   val empty : 'a t
   val push : 'a -> 'a t -> 'a t
   val find : 'a t -> int -> 'a
+  val enum : 'a t -> 'a BatEnum.t
 end
 
 (** {2 Types} *)
@@ -76,6 +77,9 @@ type 'a formula = ('a, typ_bool) expr
 val compare_expr : ('a,'typ) expr -> ('a,'typ) expr -> int
 val compare_formula : 'a formula -> 'a formula -> int
 val compare_term : 'a term -> 'a term -> int
+
+val pp_expr : ?env:(string Env.t) -> 'a context ->
+  Format.formatter -> ('a,'b) expr -> unit
 
 val refine : 'a context -> ('a, typ_fo) expr -> [ `Term of 'a term
                                                 | `Formula of 'a formula ]
@@ -277,6 +281,7 @@ end
 class type ['a] smt_model = object
   method eval_int : 'a term -> ZZ.t
   method eval_real : 'a term -> QQ.t
+  method eval_fun : symbol -> ('a, typ_fo) expr
   method sat :  'a formula -> bool
   method to_string : unit -> string
 end

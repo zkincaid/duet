@@ -108,6 +108,7 @@ module Env = struct
     try List.nth xs i
     with Failure _ -> raise Not_found
   let empty = []
+  let enum = BatList.enum
 end
 
 let rec eval_sexpr alg sexpr =
@@ -1354,6 +1355,7 @@ end
 class type ['a] smt_model = object
   method eval_int : 'a term -> ZZ.t
   method eval_real : 'a term -> QQ.t
+  method eval_fun : symbol -> ('a, typ_fo) expr
   method sat :  'a formula -> bool
   method to_string : unit -> string
 end

@@ -10,12 +10,17 @@ val pp : Format.formatter -> 'a interpretation -> unit
 val empty : 'a context -> 'a interpretation
 val add_real : symbol -> QQ.t -> 'a interpretation -> 'a interpretation
 val add_bool : symbol -> bool -> 'a interpretation -> 'a interpretation
+val add_fun : symbol -> ('a,typ_fo) expr -> 'a interpretation -> 'a interpretation
 val real : 'a interpretation -> symbol -> QQ.t
 val bool : 'a interpretation -> symbol -> bool
-val value : 'a interpretation -> symbol -> [`Real of QQ.t | `Bool of bool]
+val value : 'a interpretation -> symbol -> [`Real of QQ.t
+                                           | `Bool of bool
+                                           | `Fun of ('a, typ_fo) expr ]
 val of_model : 'a context -> 'a smt_model -> symbol list -> 'a interpretation
 val enum : 'a interpretation ->
-  (symbol * [`Real of QQ.t | `Bool of bool]) BatEnum.t
+  (symbol * [ `Real of QQ.t
+            | `Bool of bool
+            | `Fun of ('a, typ_fo) expr ]) BatEnum.t
 
 (** Replace constant symbols by their interpretations within an expression.  A
     constant symbol that is not defined within the interpretation is not

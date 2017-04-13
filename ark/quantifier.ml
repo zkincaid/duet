@@ -1257,7 +1257,8 @@ let simsat_forward_core ark qf_pre phi =
           | (k, `Bool false) ->
             ctx.solver#add [mk_not ark (mk_const ark k)]
           | (k, `Bool true) ->
-            ctx.solver#add [mk_const ark k])
+            ctx.solver#add [mk_const ark k]
+          | (_, `Fun _) -> ())
         (Interpretation.enum parameter_interp)
     in
     let mk_sat_ctx skeleton parameter_interp =
