@@ -43,6 +43,7 @@ module type S = sig
   (** Is there an embedding (injective homomorphism) from the first structure
       into the second? *)
   val embeds : t -> t -> bool
+  val embeds_novel : t -> t -> bool
 
   (** [union s s'] is a structure whose universe is the union of the universes
       of [s] and [s'] and whose interpretation of each predicate [p] is the

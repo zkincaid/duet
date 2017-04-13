@@ -34,6 +34,7 @@ module type S = sig
     t BatEnum.t
   val substructure : t -> t -> bool
   val embeds : t -> t -> bool
+  val embeds_novel : t -> t -> bool
   val union : t -> t -> t
   val empty : int -> t
   val full : (predicate * int) BatEnum.t -> int -> t
@@ -335,6 +336,7 @@ module Make (P : Symbol) = struct
     Graph.make (KSet.enum u) (KSet.enum v) e
 
   module MatchCPP = MatchingCPP.Make(P)
+  module Embeds = Embeds.Make(P)
 
   (* Is there an embedding (injective homomorphism) of x into y? 
      Only gauranteed to work with monadic structures *)
@@ -346,6 +348,13 @@ module Make (P : Symbol) = struct
       && (Graph.incident_v g) >= (Graph.u_size g)
       && ((Graph.max_matching g) = (Graph.u_size g))
     end
+
+  let embeds_novel x y =
+    (x.universe <= y.universe)
+    && (AtomSet.cardinal x.prop <= AtomSet.cardinal y.prop)
+    && (PSet.subset (get_preds x) (get_preds y)) (* this is always true when using Search Tree *)
+    && (AtomSet.subset x.prop y.prop ||
+       (Embeds.embeds (Embeds.make x.universe (props x) y.universe (props y))))
 
   (* Is there an embedding (injective homomorphism) of x into y? *)
   let embeds x y =
