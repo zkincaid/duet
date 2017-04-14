@@ -431,7 +431,8 @@ let abstract_iter_cube ark cube tr_symbols =
                   let sym_term = mk_const ark sym in
                   let rhs_coeff = ExprVec.coeff sym_term recurrence in
                   let lhs_coeff = ExprVec.coeff exp_lhs recurrence in
-                  if QQ.equal lhs_coeff QQ.zero || QQ.equal rhs_coeff QQ.zero then
+                  if QQ.equal lhs_coeff QQ.zero || QQ.equal rhs_coeff QQ.zero
+                  then
                     None
                   else
                     let exp_op =

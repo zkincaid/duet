@@ -391,9 +391,9 @@ let rec pp_expr ?(env=Env.empty) ctx formatter expr =
   | Real qq, [] -> QQ.pp formatter qq
   | App k, [] -> pp_symbol ctx formatter k
   | App func, args ->
-    fprintf formatter "%a(%a)"
+    fprintf formatter "%a(@[%a@])"
       (pp_symbol ctx) func
-      (ApakEnum.pp_print_enum (pp_expr ~env ctx)) (BatList.enum args)
+      (ApakEnum.pp_print_enum_nobox (pp_expr ~env ctx)) (BatList.enum args)
   | Var (v, typ), [] ->
     (try fprintf formatter "[%s:%d]" (Env.find env v) v
      with Not_found -> fprintf formatter "[free:%d]" v)
