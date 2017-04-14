@@ -748,12 +748,14 @@ let symbolic_bounds ?exists:(p=fun x -> true) ark phi symbol =
           List.map
             (fun lower_bound -> mk_lt ark symbol_term lower_bound)
             cube_lower
+          |> List.map (nonlinear_uninterpreted ark)
           |> mk_or ark
         in
         let upper_blocking =
           List.map
             (fun upper_bound -> mk_lt ark upper_bound symbol_term)
             cube_upper
+          |> List.map (nonlinear_uninterpreted ark)
           |> mk_or ark
         in
         solver#add [mk_or ark [lower_blocking; upper_blocking]];
