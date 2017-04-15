@@ -615,4 +615,9 @@ let () =
   Callback.register "tensor_print_smtlib" (fun tr ->
       Putil.mk_show (fun formatter tr ->
           Syntax.pp_smtlib2 ark formatter (KK.guard tr)
-        ) tr)
+        ) tr);
+
+  Callback.register "top_callback" (fun () ->
+      let open CfgIr in
+      let file = get_gfile() in
+      K.havoc (List.map (fun vi -> Cra.VVal (Var.mk vi)) file.vars))
