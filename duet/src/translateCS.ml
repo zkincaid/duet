@@ -115,6 +115,12 @@ let blk_preds = ref []
     if (String.compare name_str "nondetI") = 0 then begin
       Havoc
     end
+    else if (String.compare name_str "nondetC") = 0 then begin
+      Havoc
+    end
+    else if (String.compare name_str "nondetZ") = 0 then begin
+      Havoc
+    end
     else begin
     (if not (List.mem (Var(name_str,ty)) !cur_args) then begin
     (* Add static class variables to global list, if needed *)
