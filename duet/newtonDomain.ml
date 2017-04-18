@@ -416,7 +416,8 @@ let detensor_transpose tensored_tr =
   let lower =
     let merge sym = match VV.of_symbol sym with
       | Some (Left v) | Some (Right v) when VMap.mem v substitution_map ->
-      VMap.find v substitution_map
+        VMap.find v substitution_map
+      | Some (Left v) | Some (Right v) -> Ctx.mk_const (V.symbol_of v)
       | _ -> Ctx.mk_const sym
     in
     fun x -> Syntax.substitute_const ark merge x
@@ -478,9 +479,7 @@ let print_var_bounds formatter cost tr =
   end
 
 let () =
-  Callback.register "compose_callback" (fun x y -> let res = K.mul x y in
-                                         logf "Compose %a %a %a" K.pp x K.pp y K.pp res;
-                                         res);
+  Callback.register "compose_callback" K.mul;
   Callback.register "tensorCompose_callback" KK.mul;
 
   Callback.register "union_callback" K.add;
