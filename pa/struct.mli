@@ -44,6 +44,7 @@ module type S = sig
       into the second? *)
   val embeds : t -> t -> bool
   val embeds_novel : t -> t -> bool
+  val embeds_novel2 : t -> t -> bool
 
   (** [union s s'] is a structure whose universe is the union of the universes
       of [s] and [s'] and whose interpretation of each predicate [p] is the

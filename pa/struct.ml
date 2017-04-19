@@ -35,6 +35,7 @@ module type S = sig
   val substructure : t -> t -> bool
   val embeds : t -> t -> bool
   val embeds_novel : t -> t -> bool
+  val embeds_novel2 : t -> t -> bool
   val union : t -> t -> t
   val empty : int -> t
   val full : (predicate * int) BatEnum.t -> int -> t
@@ -341,7 +342,7 @@ module Make (P : Symbol) = struct
   (* Is there an embedding (injective homomorphism) of x into y? 
      Only gauranteed to work with monadic structures *)
   let embeds_matching x y =
-    ((x.universe >= 10) && MatchCPP.embeds (MatchCPP.make (x.universe ) (props x) (y.universe) (props y))) ||
+    ((x.universe >= 10) && MatchCPP.embeds (MatchCPP.make (x.universe) (props x) (y.universe) (props y))) ||
     begin
       let g = mk_graph x y in
          (Graph.incident_u g) >= (Graph.u_size g)       (* Quick check to see if |max_matching g| <= |U| *)
@@ -355,6 +356,13 @@ module Make (P : Symbol) = struct
     && (PSet.subset (get_preds x) (get_preds y)) (* this is always true when using Search Tree *)
     && (AtomSet.subset x.prop y.prop ||
        (Embeds.embeds (Embeds.make x.universe (props x) y.universe (props y))))
+
+  let embeds_novel2 x y =
+    (x.universe <= y.universe)
+    && (AtomSet.cardinal x.prop <= AtomSet.cardinal y.prop)
+    && (PSet.subset (get_preds x) (get_preds y)) (* this is always true when using Search Tree *)
+    && (AtomSet.subset x.prop y.prop ||
+       (MatchCPP.embeds (MatchCPP.make (x.universe) (props x) (y.universe) (props y))))
 
   (* Is there an embedding (injective homomorphism) of x into y? *)
   let embeds x y =

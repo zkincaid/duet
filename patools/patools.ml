@@ -329,10 +329,10 @@ let rec check_embeddings structs reName =
          begin
            let str, inv = rename c in
            let str', inv' = rename c' in
-           print_endline (if Config.embeds_novel str str' then "True" else "False")
+           print_endline (if Config.embeds_novel2 str str' then "True" else "False")
          end
        else
-         print_endline (if Config.embeds_novel c c' then "True" else "False"));
+         print_endline (if Config.embeds_novel2 c c' then "True" else "False"));
        go structs'
   in go structs  
 

@@ -37,7 +37,7 @@ module Make (Predicate : Symbol) = struct
 
   (* Just store this in a nice way to pass to C *)
   let make univ1 props1 univ2 probs2 =
-    let make_list str = BatRefList.to_list (BatRefList.of_enum str) in
+    let make_list str = BatEnum.fold (fun tl hd -> hd :: tl) [] str in
     { str1 = (univ1, make_list props1);
       str2 = (univ2, make_list probs2)}
 
