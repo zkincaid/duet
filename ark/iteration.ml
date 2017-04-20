@@ -139,12 +139,10 @@ end
    exp_lhs exp_op exp_coeff    exp_add *)
 type 'a exponential =
   { exp_lhs : 'a term;
-    exp_op : [ `Leq | `Eq | `Geq ];
+    exp_op : [ `Leq | `Eq ];
     exp_coeff : QQ.t;
     exp_rhs : 'a term;
     exp_add : 'a term }
-
-
 
 type 'a iter =
   { ark : 'a context;
@@ -152,7 +150,6 @@ type 'a iter =
     precondition : 'a Cube.t;
     postcondition : 'a Cube.t;
     stratified : (symbol * symbol * 'a term) list;
-    inequations : ('a term * [ `Leq | `Eq ] * 'a term * 'a term) list;
     exponential : ('a exponential) list }
 
 let pp_iter formatter iter =
@@ -165,7 +162,7 @@ let pp_iter formatter iter =
     Cube.pp iter.precondition
     Cube.pp iter.postcondition;
   Format.fprintf formatter
-    "recurrences:@;  @[<v 0>%a@;%a@;%a@]@]}"
+    "recurrences:@;  @[<v 0>%a@;%a@]@]}"
     (ApakEnum.pp_print_enum_nobox
        ~pp_sep:(fun formatter () -> Format.pp_print_break formatter 0 0)
        (fun formatter (sym', sym, incr) ->
@@ -176,30 +173,144 @@ let pp_iter formatter iter =
     (BatList.enum iter.stratified)
     (ApakEnum.pp_print_enum_nobox
        ~pp_sep:(fun formatter () -> Format.pp_print_break formatter 0 0)
-       (fun formatter (post, op, pre, incr) ->
-          Format.fprintf formatter "(%a) %s (%a) + %a"
-            (Term.pp ark) post
-            (match op with
-             | `Eq -> "="
-             | `Leq -> "<=")
-            (Term.pp ark) pre
-            (Term.pp ark) incr))
-    (BatList.enum iter.inequations)
-    (ApakEnum.pp_print_enum_nobox
-       ~pp_sep:(fun formatter () -> Format.pp_print_break formatter 0 0)
        (fun formatter { exp_lhs; exp_op; exp_coeff; exp_rhs; exp_add } ->
           Format.fprintf formatter "(%a) %s %a * (%a) + %a"
             (Term.pp ark) exp_lhs
             (match exp_op with
              | `Eq -> "="
-             | `Leq -> "<="
-             | `Geq -> ">=")
+             | `Leq -> "<=")
             QQ.pp exp_coeff
             (Term.pp ark) exp_rhs
             (Term.pp ark) exp_add))
     (BatList.enum iter.exponential)
 
 let show_iter x = Putil.mk_show pp_iter x
+
+let exponential_rec ark cube non_induction post_symbols base =
+  let post_map =
+    (* map from non-induction pre-state vars to their post-state
+       counterparts *)
+    List.fold_left
+      (fun map (sym, sym') -> Symbol.Map.add sym sym' map)
+      Symbol.Map.empty
+      non_induction
+  in
+  let postify =
+    let subst sym =
+      if Symbol.Map.mem sym post_map then
+        mk_const ark (Symbol.Map.find sym post_map)
+      else
+        mk_const ark sym
+    in
+    substitute_const ark subst
+  in
+  (* Replace each non-induction pre-state variable v with the difference
+     (v'-v)/base and project out post-state variables.  Pre-state induction
+     variables ("delta variables") now represent the difference (v'-base*v) *)
+  let diff_cube =
+    let delta_subst sym =
+      if Symbol.Map.mem sym post_map then
+        (* non-induction var *)
+        mk_mul ark [mk_real ark (QQ.inverse base);
+                    mk_add ark [mk_const ark (Symbol.Map.find sym post_map);
+                                mk_neg ark (mk_const ark sym)]]
+      else
+        mk_const ark sym
+    in
+    let rewrite = substitute_const ark delta_subst in
+    (* don't allow delta vars as subterms *)
+    let subterm sym = not (Symbol.Map.mem sym post_map) in
+    Cube.to_atoms cube
+    |> List.map rewrite
+    |> Cube.of_atoms ark
+    |> Cube.exists ~subterm (not % flip Symbol.Set.mem post_symbols)
+  in
+
+  let zero_term = mk_real ark QQ.zero in
+  (* try to rewrite a term as (delta_term + term) where delta_term contains
+     only delta vars and term contains no delta vars *)
+  let alg = function
+    | `App (sym, []) ->
+      if Symbol.Map.mem sym post_map then
+        Some (mk_const ark sym, zero_term)
+      else
+        Some (zero_term, mk_const ark sym)
+    | `App (func, args) ->
+      let is_delta sym = Symbol.Map.mem sym post_map in
+      if List.exists (Symbol.Set.exists is_delta % symbols) args then
+        None
+      else
+        Some (zero_term, mk_app ark func args)
+    | `Real k ->
+      Some (zero_term, mk_real ark k)
+    | `Add xs ->
+      Some (mk_add ark (List.map fst xs), mk_add ark (List.map snd xs))
+    | `Mul xs ->
+      let mul x (lhs', rhs') =
+        match x with
+        | None -> None
+        | Some (lhs, rhs) ->
+          if Term.equal lhs zero_term then
+            if Term.equal lhs' zero_term then
+              Some (zero_term, mk_mul ark [rhs; rhs'])
+            else
+              match Term.destruct ark rhs with
+              | `Real _ -> Some (mk_mul ark [rhs; lhs'], mk_mul ark [rhs; rhs'])
+              | _ -> None
+          else if Term.equal lhs' zero_term then
+            match Term.destruct ark rhs' with
+            | `Real _ -> Some (mk_mul ark [rhs'; lhs], mk_mul ark [rhs'; rhs])
+            | _ -> None
+          else
+            None
+      in
+      List.fold_left mul (Some (List.hd xs)) (List.tl xs)
+    | `Binop (`Div, (lhs,rhs), (lhs',rhs')) ->
+      if Term.equal lhs' zero_term then
+        if Term.equal lhs zero_term then
+          Some (zero_term, mk_div ark rhs rhs')
+        else
+          match Term.destruct ark rhs' with
+          | `Real _ -> Some (mk_div ark lhs rhs', mk_div ark rhs rhs')
+          | _ -> None
+      else
+        None
+    | `Binop (`Mod, (lhs,rhs), (lhs',rhs')) ->
+      if Term.equal lhs' zero_term && Term.equal lhs zero_term then
+        Some (zero_term, mk_mod ark rhs rhs')
+      else
+        None
+    | `Unop (`Floor, (lhs,rhs)) ->
+      if Term.equal lhs zero_term then
+        Some (zero_term, mk_floor ark rhs)
+      else
+        None
+    | `Unop (`Neg, (lhs,rhs)) ->
+      Some (mk_neg ark lhs, mk_neg ark rhs)
+    | `Ite (_, _, _) | `Var (_, _) -> None
+  in
+  let recur atom =
+    match Interpretation.destruct_atom ark atom with
+    | `Comparison (op, s, t) ->
+      let op = match op with
+        | `Leq -> `Leq
+        | `Lt -> `Leq
+        | `Eq -> `Eq
+      in
+      BatOption.bind
+        (Term.eval_partial ark alg (mk_sub ark s t))
+        (fun (lhs, rhs) ->
+           if Term.equal lhs zero_term then
+             None
+           else
+             Some { exp_lhs = postify lhs;
+                    exp_coeff = base;
+                    exp_op = op;
+                    exp_rhs = lhs;
+                    exp_add = mk_neg ark rhs })
+    | `Literal (_, _) -> None
+  in
+  BatList.filter_map recur (Cube.to_atoms diff_cube)
 
 let abstract_iter_cube ark cube tr_symbols =
   let pre_symbols =
@@ -294,179 +405,17 @@ let abstract_iter_cube ark cube tr_symbols =
     let (induction, non_induction') = go [] candidates [] matrix in
     (induction, non_induction@non_induction')
   in
-  let inequations =
-    (* For every non-induction var x, substitute x -> x' - x in the loop body;
-       the project out all post-variables.  In the resulting cube, the var
-       x should be interpreted as the difference x'-x. *)
-    let post_map =
-      (* map from non-induction pre-state vars to their post-state
-         counterparts *)
-      List.fold_left
-        (fun map (sym, sym') -> Symbol.Map.add sym sym' map)
-        Symbol.Map.empty
-        non_induction
-    in
-    let postify =
-      let subst sym =
-        if Symbol.Map.mem sym post_map then
-          mk_const ark (Symbol.Map.find sym post_map)
-        else
-          mk_const ark sym
-      in
-      substitute_const ark subst
-    in
-    (* Replace each non-induction pre-state variable v with the difference
-       (v'-v) and project out post-state variables.  Pre-state induction
-       variables ("delta variables") now represent the difference (v'-v) *)
-    let diff_cube =
-      let delta_subst sym =
-        if Symbol.Map.mem sym post_map then
-          (* non-induction var *)
-          mk_add ark [mk_const ark (Symbol.Map.find sym post_map);
-                      mk_neg ark (mk_const ark sym)]
-        else
-          mk_const ark sym
-      in
-      let rewrite = substitute_const ark delta_subst in
-      (* don't allow delta vars as subterms *)
-      let subterm sym = not (Symbol.Map.mem sym post_map) in
-      Cube.to_atoms cube
-      |> List.map rewrite
-      |> Cube.of_atoms ark
-      |> Cube.exists ~subterm (not % flip Symbol.Set.mem post_symbols)
-    in
-
-    let zero_term = mk_real ark QQ.zero in
-    (* try to rewrite a term as (delta_term + term) where delta_term contains
-       only delta vars and term contains no delta vars *)
-    let alg = function
-      | `App (sym, []) ->
-        if Symbol.Map.mem sym post_map then
-          Some (mk_const ark sym, zero_term)
-        else
-          Some (zero_term, mk_const ark sym)
-      | `Real k ->
-        Some (zero_term, mk_real ark k)
-      | `Add xs ->
-        Some (mk_add ark (List.map fst xs), mk_add ark (List.map snd xs))
-      | `Mul xs ->
-        let mul x (lhs', rhs') =
-          match x with
-          | None -> None
-          | Some (lhs, rhs) ->
-            if Term.equal lhs zero_term then
-              if Term.equal lhs' zero_term then
-                Some (zero_term, mk_mul ark [rhs; rhs'])
-              else
-                match Term.destruct ark rhs with
-                | `Real _ -> Some (mk_mul ark [rhs; lhs'], mk_mul ark [rhs; rhs'])
-                | _ -> None
-            else if Term.equal lhs' zero_term then
-              match Term.destruct ark rhs' with
-              | `Real _ -> Some (mk_mul ark [rhs'; lhs], mk_mul ark [rhs'; rhs])
-              | _ -> None
-            else
-              None
-        in
-        List.fold_left mul (Some (List.hd xs)) (List.tl xs)
-      | `Binop (`Div, (lhs,rhs), (lhs',rhs')) ->
-        if Term.equal lhs' zero_term then
-          if Term.equal lhs zero_term then
-            Some (zero_term, mk_div ark rhs rhs')
-          else
-            match Term.destruct ark rhs' with
-            | `Real _ -> Some (mk_div ark lhs rhs', mk_div ark rhs rhs')
-            | _ -> None
-        else
-          None
-      | `Binop (`Mod, (lhs,rhs), (lhs',rhs')) ->
-        if Term.equal lhs' zero_term && Term.equal lhs zero_term then
-          Some (zero_term, mk_mod ark rhs rhs')
-        else
-          None
-      | `Unop (`Floor, (lhs,rhs)) ->
-        if Term.equal lhs zero_term then
-          Some (zero_term, mk_floor ark rhs)
-        else
-          None
-      | `Unop (`Neg, (lhs,rhs)) ->
-        Some (mk_neg ark lhs, mk_neg ark rhs)
-      | `App (_, _) | `Ite (_, _, _) | `Var (_, _) -> None
-    in
-    let recur atom =
-      match Interpretation.destruct_atom ark atom with
-      | `Comparison (op, s, t) ->
-        let op = match op with
-          | `Leq -> `Leq
-          | `Lt -> `Leq
-          | `Eq -> `Eq
-        in
-        BatOption.bind
-          (Term.eval_partial ark alg (mk_sub ark s t))
-          (fun (lhs, rhs) ->
-             if Term.equal lhs zero_term then
-               None
-             else
-               Some (postify lhs, op, lhs, mk_neg ark rhs))
-      | `Literal (_, _) -> None
-    in
-    BatList.filter_map recur (Cube.to_atoms diff_cube)
-  in
   let exponential =
-    BatList.enum non_induction
-    /@ (fun (sym, sym') ->
-        let subterm = is_symbolic_constant in
-        let keep x =
-          is_symbolic_constant x || x = sym || x = sym'
-        in
-        Cube.exists ~subterm keep cube
-        |> Cube.to_atoms
-        |> BatList.filter_map (fun atom ->
-            match Interpretation.destruct_atom ark atom with
-            | `Comparison (op, s, t) ->
-              let recurrence = ExprVec.of_term ark (mk_sub ark s t) in
-              begin
-                try
-                  let exp_lhs = mk_const ark sym' in
-                  let sym_term = mk_const ark sym in
-                  let rhs_coeff = ExprVec.coeff sym_term recurrence in
-                  let lhs_coeff = ExprVec.coeff exp_lhs recurrence in
-                  if QQ.equal lhs_coeff QQ.zero || QQ.equal rhs_coeff QQ.zero
-                  then
-                    None
-                  else
-                    let exp_op =
-                      match op with
-                      | `Leq | `Lt when QQ.lt QQ.zero lhs_coeff -> `Leq
-                      | `Leq | `Lt -> `Geq
-                      | `Eq -> `Eq
-                    in
-                    let exp_add =
-                      ExprMap.map
-                        (fun k -> QQ.negate (QQ.div k lhs_coeff))
-                        (ExprMap.add sym_term QQ.zero
-                           (ExprMap.add exp_lhs QQ.zero recurrence))
-                      |> ExprVec.term_of ark
-                    in
-                    let exp_coeff = QQ.negate (QQ.div rhs_coeff lhs_coeff) in
-                    Some { exp_lhs;
-                           exp_rhs = sym_term;
-                           exp_add;
-                           exp_coeff;
-                           exp_op }
-                with Not_found -> None
-              end
-            | `Literal (_, _) -> None))
-    |> BatEnum.fold (@) []
+    exponential_rec ark cube non_induction post_symbols (QQ.of_int 1)
+    @(exponential_rec ark cube non_induction post_symbols (QQ.of_int 2))
+    @(exponential_rec ark cube non_induction post_symbols (QQ.of_frac 1 2))
   in
   { ark;
     symbols = tr_symbols;
     precondition;
     postcondition;
     stratified;
-    inequations;
     exponential }
-
 
 let abstract_iter ?(exists=fun x -> true) ark phi symbols =
   let post_symbols =
@@ -540,15 +489,18 @@ let closure ?(guard=None) (iter : 'a iter) : 'a formula =
   in
 
   let inequations =
-    BatList.filter_map (fun (post, op, pre, incr) ->
-        match close_sum induction_vars incr with
-        | None -> None
-        | Some cf ->
-          let rhs = mk_add iter.ark [pre; Cf.term_of iter.ark cf loop_counter] in
-          match op with
-          | `Leq -> Some (mk_leq iter.ark post rhs)
-          | `Eq -> Some (mk_eq iter.ark post rhs))
-      iter.inequations
+    BatList.filter_map (fun { exp_lhs; exp_op; exp_coeff; exp_rhs; exp_add } ->
+        if QQ.equal exp_coeff QQ.one then
+          match close_sum induction_vars exp_add with
+          | None -> None
+          | Some cf ->
+            let rhs = mk_add iter.ark [exp_rhs; Cf.term_of iter.ark cf loop_counter] in
+            match exp_op with
+            | `Leq -> Some (mk_leq iter.ark exp_lhs rhs)
+            | `Eq -> Some (mk_eq iter.ark exp_lhs rhs)
+        else
+          None)
+      iter.exponential
     |> mk_and iter.ark
   in
   let zero_iter =
@@ -674,6 +626,17 @@ let closure_ocrs ?(guard=None) iter =
           |> mk_mul iter.ark
         | None -> assert false
       end
+    | Pow (Rational k, y) ->
+      let k = Mpqf.of_mpq k in
+      let (base, exp) =
+        if QQ.lt QQ.zero k && QQ.lt k QQ.one then
+          (mk_real iter.ark (QQ.inverse k),
+           mk_neg iter.ark (term_of_expr y))
+        else
+          (mk_real iter.ark k,
+           term_of_expr y)
+      in
+      mk_app iter.ark pow [base; exp]
     | Pow (x, y) ->
       let base = term_of_expr x in
       let exp = term_of_expr y in
@@ -686,37 +649,18 @@ let closure_ocrs ?(guard=None) iter =
   in
 
   let recurrences =
-    let filter_map f xs =
-      let g x =
-        try Some (f x)
-        with No_translation -> None
-      in
-      BatList.filter_map g xs
+    let filter_translate f xs =
+      xs |> BatList.filter_map (fun x ->
+          try Some (f x)
+          with No_translation -> None)
     in
     let stratified =
-      filter_map (fun (post, pre, term) ->
+      filter_translate (fun (post, pre, term) ->
           (Output_variable (string_of_symbol pre, ss_pre),
            Equals (Output_variable (string_of_symbol pre, ss_post),
                    Plus (Output_variable (string_of_symbol pre, ss_pre),
                          expr_of_term term))))
         iter.stratified
-    in
-    let inequations =
-      (* $ is a placeholder variable that we use to avoid sending OCRS
-         recurrences on terms *)
-      filter_map (fun (post, op, pre, term) ->
-          let lhs = Output_variable ("$", ss_post) in
-          let rhs =
-            Plus (Output_variable ("$", ss_pre),
-                  expr_of_term term)
-          in
-          let ineq =
-            match op with
-            | `Eq -> Equals (lhs, rhs)
-            | `Leq -> LessEq (lhs, rhs)
-          in
-          (expr_of_term pre, ineq))
-        iter.inequations
     in
     let exponential =
       (* $ is a placeholder variable that we use to avoid sending OCRS
@@ -732,12 +676,11 @@ let closure_ocrs ?(guard=None) iter =
             match exp_op with
             | `Eq -> Equals (lhs, rhs)
             | `Leq -> LessEq (lhs, rhs)
-            | `Geq -> GreaterEq (lhs, rhs)
           in
           (expr_of_term exp_rhs, ineq))
         iter.exponential
     in
-    stratified@inequations@exponential
+    stratified@exponential
   in
   let closed =
     let to_formula = function
@@ -776,15 +719,6 @@ let cube_of_iter iter =
           (mk_const iter.ark post)
           (mk_add iter.ark [mk_const iter.ark pre; incr]))
   in
-  let ineq_constraints =
-    iter.inequations |> List.map (fun (post, op, pre, incr) ->
-        let rhs =
-          mk_add iter.ark [pre; incr]
-        in
-        match op with
-        | `Eq -> mk_eq iter.ark post rhs
-        | `Leq -> mk_leq iter.ark post rhs)
-  in
   let exponential_constraints =
     iter.exponential |> List.map (fun r ->
         let rhs =
@@ -794,14 +728,13 @@ let cube_of_iter iter =
         in
         match r.exp_op with
         | `Eq -> mk_eq iter.ark r.exp_lhs rhs
-        | `Leq -> mk_leq iter.ark r.exp_lhs rhs
-        | `Geq -> mk_leq iter.ark rhs r.exp_lhs)
+        | `Leq -> mk_leq iter.ark r.exp_lhs rhs)
   in
   let postcondition = Cube.to_atoms iter.postcondition in
   let precondition = Cube.to_atoms iter.precondition in
   Cube.of_atoms
     iter.ark
-    (eq_constraints@ineq_constraints@exponential_constraints@postcondition@precondition)
+    (eq_constraints@exponential_constraints@postcondition@precondition)
 
 let equal iter iter' =
   Cube.equal (cube_of_iter iter) (cube_of_iter iter')
@@ -827,7 +760,6 @@ let bottom ark symbols =
     precondition = Cube.bottom ark;
     postcondition = Cube.bottom ark;
     stratified = [];
-    inequations = [];
     exponential = [] }
 
 let tr_symbols iter = iter.symbols
