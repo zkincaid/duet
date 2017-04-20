@@ -39,8 +39,8 @@ val is_bottom : 'a t -> bool
 val is_top : 'a t -> bool
 
 (** Compute a representation of the set of equalities that are entailed by a
-    given cube as a list [(term0, vector0),...,(termn,vectorn)].  The interpretation of this
-    representation is that for any vector v,
+    given cube as a list [(term0, vector0),...,(termn,vectorn)].  The
+    interpretation of this representation is that for any vector v,
     [cube |= (vector0 . v) term0 + ... + (vectorn . v) termn = 0]
     where [.] represents the dot product. *)
 val farkas_equalities : 'a t -> ('a term * Linear.QQVector.t) list

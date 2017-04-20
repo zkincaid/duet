@@ -1,2 +1,13 @@
-0 errors total
-0 safe assertions
+Procedure: logn
+min:168(0,
+        max:169(1,
+                (log:22(2, ((6 * param0:10) + -8))
+                   + (-1 * log:22(2, ((4 * param0:10) + -6)))))) <= cost
+cost <= max:169(0, log:22(2, ((2 * param0:10) + -2)))
+Procedure: main
+4 <= cost
+Procedure: nlogn
+max:169((param0:10 + (-1 * ((-1 * log:22(2, param0:10)) * param0:10))),
+        (param0:10 + (-1 * (log:22(2, ((2 * param0:10) + -3)) * param0:10))
+           + (-1 * ((-1 * log:22(2, ((3 * param0:10) + -4))) * param0:10)))) <= cost
+cost <= (param0:10 + (log:22(2, ((2 * param0:10) + -2)) * param0:10))

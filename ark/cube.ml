@@ -445,7 +445,7 @@ let update_env cube =
     |> BatArray.of_enum
   in
   if added_int + added_real > 0 then begin
-    logf "update env: adding %d integer and %d real dimension(s)"
+    logf ~level:`trace "update env: adding %d integer and %d real dimension(s)"
       added_int
       added_real;
     let abstract =
@@ -606,7 +606,7 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
     property.abstract <- abstract
   in
   let add_bound precondition bound =
-    logf ~level:`info "Integrity: %a => %a"
+    logf ~level:`trace "Integrity: %a => %a"
       (Formula.pp ark) precondition
       (Formula.pp ark) bound;
     integrity (mk_or ark [mk_not ark precondition; bound]);
@@ -618,6 +618,7 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
 
   logf "Before strengthen: %a" pp property;
 
+  update_env property;
   for id = 0 to Env.dim property.env - 1 do
     match Env.sd_term_of_id property.env id with
     | Mul (x, y) ->
@@ -627,9 +628,8 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
         ignore (Env.get_term_id property.env (Inv y))
     | _ -> ()
   done;
-
   update_env property;
-
+  
   let cube_affine_hull = affine_hull property in
   let affine_hull_formula =
     ref (cube_affine_hull
@@ -994,7 +994,7 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
       end
     | _ -> ()
   done;
-  logf ~level:`trace "After strengthen: %a" pp property;
+  logf "After strengthen: %a" pp property;
   property
 
 let of_atoms ark ?integrity:(integrity=(fun _ -> ())) atoms =
@@ -1091,7 +1091,7 @@ let apron_set_dimensions new_int new_real abstract =
          -- (abstract_dim.intd + abstract_dim.reald - 1))
       |> BatArray.of_enum
     in
-    logf "Remove %d int, %d real: %a" remove_int remove_real
+    logf ~level:`trace "Remove %d int, %d real: %a" remove_int remove_real
       (ApakEnum.pp_print_enum Format.pp_print_int) (BatArray.enum remove);
     assert (remove_int + remove_real = (Array.length remove));
     Abstract0.remove_dimensions
@@ -1196,7 +1196,7 @@ let exists
          match Env.sd_term_of_id env id with
          | App (symbol, []) ->
            let rhs_term = Env.term_of_vec env rhs in
-           logf ~level:`info "Found rewrite: %a --> %a"
+           logf ~level:`trace "Found rewrite: %a --> %a"
              (pp_symbol ark) symbol
              (Term.pp ark) rhs_term;
            Symbol.Map.add symbol rhs_term map
@@ -1253,7 +1253,7 @@ let exists
     property.abstract <- abstract
   in
   let add_bound precondition bound =
-    logf ~level:`info "Integrity: %a => %a"
+    logf ~level:`trace "Integrity: %a => %a"
       (Formula.pp ark) precondition
       (Formula.pp ark) bound;
     integrity (mk_or ark [mk_not ark precondition; bound]);

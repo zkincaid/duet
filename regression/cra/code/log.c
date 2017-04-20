@@ -16,7 +16,7 @@ void nlogn(int n) {
     }
 }
 
-int main() {
+void main() {
     int n = __VERIFIER_nondet_int();
     nlogn(n);
 }
