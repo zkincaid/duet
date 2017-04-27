@@ -7,6 +7,7 @@
 #include <map>
 #include <queue>
 #include <stack>
+#include <cmath>
 using namespace std;
 
 /* The type of edges in the universe graph */
@@ -42,16 +43,16 @@ struct decision{
   vector<vpair> edges; /* edges removed due to this decision */
 };
 
-void make_graph(const vector<vector<uint64_t>>& sigs1, const vector<vector<uint64_t>>& sigs2,
+void make_graph(const vector<vector<uint8_t>>& sigs1, const vector<vector<uint8_t>>& sigs2,
 		vector<vector<edge>>& ajd_u, vector<vector<edge>>& adj_v);
 void make_pgraph(const vector<vector<edge>>& adj_u, const vector<vector<edge>>& adj_v,
 		 const vector<prop>& u_label, const vector<prop>& v_label, vector<vector<int>>& pgraph);
 bool has_edge(const vector<vector<edge>>& adj, size_t u, size_t v);
 void unit_prop(vector<vector<edge>>& adj_u, vector<vector<edge>>& adj_v, vector<vpair>& removed);
 void print_graph(const vector<vector<int>>& adj_u);
-bool embedding(const vector<vector<uint64_t>>& sigs1, const vector<vector<uint64_t>>& sigs2,
+bool embedding(const vector<vector<uint8_t>>& sigs1, const vector<vector<uint8_t>>& sigs2,
 	       const vector<prop>& pu_label, const vector<prop>& pv_label);
-size_t max_matching(const vector<vector<edge>>& adj, vector<int>& match1, vector<int>& match2, vector<int>& vis, int iter);
+size_t max_matching(const vector<vector<edge>>& adj, vector<int>& match1, vector<int>& match2, vector<int>& vis);
 bool dfs(const vector<vector<edge>>& adj, vector<int>& match1, vector<int>& match2, vector<int>& vis, int x, int iter);
 void find_conflicts(const vector<vector<int>>& pgraph, const vector<prop>& u_label, const vector<prop>& v_label,
 	            const vector<int>& matching, vector<int>& confs);
@@ -72,7 +73,7 @@ extern "C" {
     CAMLparam2(str1, str2);
     CAMLlocal3(head, propList, predList);
     
-    vector<vector<uint64_t> > sig1, sig2;   /* Signature of str1 and str2 respectively */
+    vector<vector<uint8_t> > sig1, sig2;    /* Signature of str1 and str2 respectively */
     sig1.resize(Int_val(Field(str1, 0))+1); /* Resize to respective universe size */
     sig2.resize(Int_val(Field(str2, 0))+1);
     map<string, size_t> preds;              /* Mapping from predicate symbols to [0 .. n] */
@@ -101,10 +102,11 @@ extern "C" {
 	arg = Int_val(head);
 	tmp.vars.push_back(arg);
 
-	if (sig1[arg].size() <= (predi >> 6)){
-	  sig1[arg].resize((predi >> 6) + 1, 0);
+	if (sig1[arg].size() <= predi){
+	  sig1[arg].resize(predi + 1, 0);
 	}
-	sig1[arg][predi >> 6] |= (1 << (predi & 63)); /* >> 6 = / 64 and (& 63) = % 64 */
+	if (sig1[arg][predi] != 255)
+  	  ++sig1[arg][predi];
 	
 	predList = Field(predList, 1);
 	++predi;
@@ -131,10 +133,11 @@ extern "C" {
 	arg = Int_val(head);
         tmp.vars.push_back(arg);
 	
-	if (sig2[arg].size() <= (predi >> 6)){
-	  sig2[arg].resize((predi >> 6)+1, 0);
+	if (sig2[arg].size() <= predi){
+	  sig2[arg].resize(predi + 1, 0);
 	}
-	sig2[arg][predi >> 6] |= (1 << (predi & 63)); /* >> 6 = / 64 and (& 63) = % 64 */
+	if (sig2[arg][predi] != 255)
+  	  ++sig2[arg][predi];
 
 	predList = Field(predList, 1);
 	++predi;
@@ -194,50 +197,97 @@ void print_pgraph(const vector<vector<int>>& pgraph, const vector<prop>& u_label
   }
 }
 
+void print_stats(const vector<vector<int>>& pgraph, const vector<vector<edge>>& adj){
+  double mean(0);
+  double var(0);
+  size_t min((pgraph.size()) ? pgraph[0].size(): 0), max(0);
+  for (size_t i = 0; i < pgraph.size(); ++i){
+    var += pgraph[i].size() * pgraph[i].size();
+    mean += pgraph[i].size();
+    min = (min < pgraph[i].size())? min : pgraph[i].size();
+    max = (pgraph[i].size() < max)? max : pgraph[i].size();
+  }
+  var /= pgraph.size();
+  mean /= pgraph.size();
+  var -= mean;
+  var = sqrt(var);
+  printf ("Pgraph branch factor: -- mean = %f -- std = %f -- min = %lu -- max = %lu -- num = %lu\n", mean, var, min, max, pgraph.size());
+  mean = var = max = 0;
+  min = (adj.size())? adj[1].size() : 0;
+  for (size_t i = 1; i < adj.size(); ++i){
+    var += adj[i].size() * adj[i].size();
+    mean += adj[i].size();
+    min = (min < adj[i].size())? min : adj[i].size();
+    max = (adj[i].size() < max)? max : adj[i].size();
+  }
+  var /= (adj.size() - 1);
+  mean /= (adj.size() - 1);
+  var -= mean;
+  var = sqrt(var);
+  printf("Ugraph branch factor: mean = %f -- std = %f -- min = %lu -- max = %lu -- num = %lu\n", mean, var, min, max, adj.size()-1);
+}
+
+
 /* Is there an injective homomorphism between (pu_label, sigs1) and (pv_label, sigs2)
    More specifically the two structures they represent */
-bool embedding(const vector<vector<uint64_t>>& sigs1, const vector<vector<uint64_t>>& sigs2,
+bool embedding(const vector<vector<uint8_t>>& sigs1, const vector<vector<uint8_t>>& sigs2,
 	       const vector<prop>& pu_label, const vector<prop>& pv_label){
   vector<vector<edge>> adj_u, adj_v;
   make_graph(sigs1, sigs2, adj_u, adj_v); /* Populate the universe graph */
   vector<vector<int>> p_graph;
   make_pgraph(adj_u, adj_v, pu_label, pv_label, p_graph); /* Populate the propisition graph */
   vector<int> match1, match2, vis, conflicts;
-  int iter;
 
   match1.resize(adj_u.size(), -1);
   match2.resize(adj_v.size(), -1);
   vis.resize(adj_u.size(), 0);
-  size_t ans;
+  size_t ans, num(0);
 
   stack<decision> decisions;
+
+  print_stats(p_graph, adj_u);
   
   do {
-    iter = 0;
-    std::fill(vis.begin(), vis.end(), 0);                 /* Reset variables for matching problem */
-    std::fill(match1.begin(), match1.end(), -1);
-    std::fill(match2.begin(), match2.end(), -1);
-    ans = max_matching(adj_u, match1, match2, vis, iter); /* Compute maximum cardinality matching */
+    std::fill(vis.begin(), vis.end(), 0);           /* Reset variables for matching problem */
+    ans = max_matching(adj_u, match1, match2, vis); /* Compute maximum cardinality matching */
+    ++num;
+
 
     if (ans != adj_u.size()){
       backtrack(decisions, p_graph, pu_label, pv_label, adj_u, adj_v);
     } else {
       find_conflicts(p_graph, pu_label, pv_label, match1, conflicts);
       if (conflicts.size() == 0){
-	return true;
+        printf("iterations: %lu\n", num);
+        return true;
       }
       if (!choose(decisions, conflicts, p_graph, pu_label, pv_label, adj_u, adj_v)){
         backtrack(decisions, p_graph, pu_label, pv_label, adj_u, adj_v);
+      } else {
+	vector<vpair>& edges = decisions.top().edges;
+	for (size_t i = 0; i < edges.size(); ++i){
+	  if (match1[edges[i].u] == edges[i].v){
+	    match1[edges[i].u] = -1;
+	    match2[edges[i].v] = -1;
+	  }
+	}
+	for (size_t i = 0; i < match1.size(); ++i){
+	  if (match1[i] != -1 && !has_edge(adj_u, i, match1[i])){
+	    match2[match1[i]] = -1;
+	    match1[i] = -1;
+	  }
+	}
       }
     }
   } while(!decisions.empty());
+  printf("iterations: %lu\n", num);
   return false;
 }
 
-bool subset(const vector<uint64_t>& sig1, const vector<uint64_t>& sig2){
+bool subset(const vector<uint8_t>& sig1, const vector<uint8_t>& sig2){
   bool subset(sig1.size() <= sig2.size());
   for (size_t i = 0; subset && i < sig1.size(); ++i){ /* assert(sig1.size() <= sig2.size()) */
-    subset = ((sig1[i] & sig2[i]) == sig1[i]);
+    subset = sig1[i] <= sig2[i];
   }
   return subset;
 }
@@ -280,7 +330,7 @@ void unit_prop(vector<vector<edge>>& adj_u, vector<vector<edge>>& adj_v, vector<
 }
 
 /* Makes the universe graph */
-void make_graph(const vector<vector<uint64_t> >& sigs1, const vector<vector<uint64_t> >& sigs2,
+void make_graph(const vector<vector<uint8_t> >& sigs1, const vector<vector<uint8_t> >& sigs2,
 		 vector<vector<edge>>& adj_u, vector<vector<edge>>& adj_v){
   adj_u.resize(sigs1.size()); /* assume adj_u and adj_v are previously empty / cleared */
   adj_v.resize(sigs2.size());
@@ -341,11 +391,10 @@ void make_pgraph(const vector<vector<edge>>& adj_u, const vector<vector<edge>>& 
 
 
 /* Ford Fulkerson Max Flow Algorithm (Specialized to Bipartite Graphs) */
-size_t max_matching(const vector<vector<edge>>& adj, vector<int>& match1, vector<int>& match2, vector<int>& vis, int iter){
+size_t max_matching(const vector<vector<edge>>& adj, vector<int>& match1, vector<int>& match2, vector<int>& vis){
   size_t ans = 1;
   for (size_t i = 1; i < adj.size(); ++i){
-    ++iter;
-    ans += dfs(adj, match1, match2, vis, i, iter);
+    ans += (match1[i] != -1) || dfs(adj, match1, match2, vis, i, i);
   }
   return ans;
 }
@@ -448,11 +497,27 @@ void backtrack(stack<decision>& decisions, const vector<vector<int>>& pgraph, co
   }
 }
 
+/* computes the number of times a variable is involved in some conflict */
+vector<size_t> num_conflicts(const vector<vector<int>>& pgraph, const vector<prop>& u_label, const vector<int>& confs){
+  vector<size_t> num_involved;
+  for (size_t i = 0; i < confs.size(); ++i){
+    for (size_t j = 0; j < u_label[confs[i]].vars.size(); ++j){
+      size_t arg = u_label[confs[i]].vars[j];
+      if (num_involved.size() <= arg) num_involved.resize(arg+1, 0);
+      ++num_involved[arg];
+    }
+  }
+  return num_involved;
+}
+
 /* Selects a vertex in pgraph.U to decide on next (only trying vertices that
    can be consistent with decisions already made) */
 bool choose(stack<decision>& decisions, const vector<int>& confs,
 	    const vector<vector<int>>& pgraph, const vector<prop>& u_label, const vector<prop>& v_label,
 	    vector<vector<edge>>& adj_u, vector<vector<edge>>& adj_v){
+  vector<size_t> num_involved = num_conflicts(pgraph, u_label, confs);
+  size_t best_u(0), best_v(0), best_j(0);
+  double best_val(0);
   for (size_t i = 0, pu; i < confs.size(); ++i){
     pu = confs[i];
     for (size_t j = 0, pv, k; j < pgraph[pu].size(); ++j){
@@ -461,10 +526,25 @@ bool choose(stack<decision>& decisions, const vector<int>& confs,
 	if (!has_edge(adj_u, u_label[pu].vars[k], v_label[pv].vars[k])) break;
       }
       if (k == u_label[pu].vars.size()){
-	decisions.push(decision(pu, j, remove_edges(u_label[pu].vars, v_label[pv].vars, adj_u, adj_v)));
-	return true;
+     	double val(0);
+	for (k = 0; k < u_label[pu].vars.size(); ++k){
+	  val += num_involved[u_label[pu].vars[k]];
+	}
+	val /= u_label[pu].vars.size(); /* average number of involved conflicts */
+	if (best_val < val){
+	  best_val = val;
+	  best_u = pu;
+	  best_v = pv;
+	  best_j = j;
+	}
+        /* decisions.push(decision(pu, j, remove_edges(u_label[pu].vars, v_label[pv].vars, adj_u, adj_v)));
+	   return true; */
       }
     }
+  }
+  if (best_val != 0){
+    decisions.push(decision(best_u, best_j, remove_edges(u_label[best_u].vars, v_label[best_v].vars, adj_u, adj_v)));
+    return true;
   }
   return false;
 }
