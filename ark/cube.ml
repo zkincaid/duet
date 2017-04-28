@@ -948,8 +948,19 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
       add_bound precondition lo;
       add_bound precondition hi
 
-    (* TO DO *)
-    | Mod (x, y) -> ()
+    | Mod (x, y) ->
+      let y_ivl = bound_vec property y in
+      let zero = mk_real ark QQ.zero in
+      add_bound_unsafe (mk_leq ark zero term);
+      if Interval.is_positive y_ivl then
+        let y_term = Env.term_of_vec env y in
+        add_bound (mk_lt ark zero y_term) (mk_lt ark term y_term)
+      else if Interval.is_negative y_ivl then
+        let y_term = Env.term_of_vec env y in
+        add_bound (mk_lt ark y_term zero) (mk_lt ark term (mk_neg ark y_term))
+      else
+        ()
+
     | App (func, args) -> ()
   done;
 
@@ -1077,7 +1088,7 @@ let equal property property' =
   Abstract0.is_eq (get_manager ()) property.abstract property'.abstract
 
 (* Remove dimensions from an abstract value so that it has the specified
-   number of integer and real dimensions n*)
+   number of integer and real dimensions *)
 let apron_set_dimensions new_int new_real abstract =
   let open Dim in
   let abstract_dim = Abstract0.dimension (get_manager ()) abstract in
@@ -1387,7 +1398,6 @@ let exists
       (BatArray.of_list (List.map (virtual_linexpr_of_vec % snd) (!substitution)))
       None
   in
-
   (* Remove extra dimensions *)
   let abstract =
     apron_set_dimensions
