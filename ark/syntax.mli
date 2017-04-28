@@ -202,12 +202,21 @@ val mk_add : 'a context -> 'a term list -> 'a term
 val mk_mul : 'a context -> 'a term list -> 'a term
 val mk_div : 'a context -> 'a term -> 'a term -> 'a term
 
-(** Integer division.  Equivalent to floor(div(x/y)). *)
+(** C99 integer division.  Equivalent to truncate(x/y). *)
 val mk_idiv : 'a context -> 'a term -> 'a term -> 'a term
 val mk_mod : 'a context -> 'a term -> 'a term -> 'a term
 val mk_real : 'a context -> QQ.t -> 'a term
 val mk_floor : 'a context -> 'a term -> 'a term
+val mk_ceiling : 'a context -> 'a term -> 'a term
+
+(** [truncate(t)] removes the fractional part of [t] (rounding it towards
+    0).  *)
+val mk_truncate : 'a context -> 'a term -> 'a term
+
+(** Unary negation *)
 val mk_neg : 'a context -> 'a term -> 'a term
+
+(** Subtraction *)
 val mk_sub : 'a context -> 'a term -> 'a term -> 'a term
 
 val term_typ : 'a context -> 'a term -> typ_arith
