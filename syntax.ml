@@ -212,7 +212,7 @@ let mk_neg ctx t = ctx.mk Neg [t]
 let mk_div ctx s t = ctx.mk Div [s; t]
 let mk_mod ctx s t = ctx.mk Mod [s; t]
 let mk_floor ctx t = ctx.mk Floor [t]
-let mk_idiv ctx s t = mk_floor ctx (mk_div ctx s t)
+let mk_ceiling ctx t = mk_neg ctx (mk_floor ctx (mk_neg ctx t))
 
 let mk_add ctx = function
   | [] -> mk_zero ctx
@@ -257,6 +257,24 @@ let mk_exists ctx ?name:(name="_") typ phi = ctx.mk (Exists (name, typ)) [phi]
 let mk_ite ctx cond bthen belse = ctx.mk Ite [cond; bthen; belse]
 let mk_iff ctx phi psi =
   mk_or ctx [mk_and ctx [phi; psi]; mk_and ctx [mk_not ctx phi; mk_not ctx psi]]
+
+let mk_truncate ctx t =
+  mk_ite ctx
+    (mk_leq ctx (mk_zero ctx) t)
+    (mk_floor ctx t)
+    (mk_ceiling ctx t)
+
+(* Equivalent to mk_truncate ctx (mk_div ctx s t), but with built-in sign
+   analysis *)
+let mk_idiv ctx s t =
+  let zero = mk_zero ctx in
+  let div = mk_div ctx s t in
+  let s_pos = mk_leq ctx zero s in
+  let t_pos = mk_leq ctx zero t in
+  mk_ite ctx
+    (mk_iff ctx s_pos t_pos)
+    (mk_floor ctx div)
+    (mk_ceiling ctx div)
 
 (* Avoid capture by incrementing bound variables *)
 let rec decapture ctx depth incr sexpr =
