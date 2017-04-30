@@ -1082,10 +1082,13 @@ let join ?integrity:(integrity=(fun _ -> ())) property property' =
         Abstract0.join (get_manager ()) property.abstract property'.abstract }
 
 let equal property property' =
-  let (property, property') = common_env property property' in
-  let property = strengthen property in
-  let property' = strengthen property' in
-  Abstract0.is_eq (get_manager ()) property.abstract property'.abstract
+  let ark = Env.ark property.env in
+  let phi = Nonlinear.uninterpret ark (to_formula property) in
+  let phi' = Nonlinear.uninterpret ark (to_formula property') in
+  match Smt.is_sat ark (mk_not ark (mk_iff ark phi phi')) with
+  | `Sat -> false
+  | `Unsat -> true
+  | `Unknown -> assert false
 
 (* Remove dimensions from an abstract value so that it has the specified
    number of integer and real dimensions *)
