@@ -52,3 +52,24 @@ val symbolic_bounds : 'a t -> symbol -> ('a term) list * ('a term) list
 (** Ensure that the named symbols [pow : Real x Real -> Real] and [log : Real
     x Real -> Real] belong to a given context. *)
 val ensure_nonlinear_symbols : 'a context -> unit
+
+(** Compute a cube that over-approximates a given formula *)
+val abstract : ?exists:(symbol -> bool) -> 'a context -> 'a formula -> 'a t
+
+(** Check if a formula is satisfiable by computing an over-approximating cube
+    and checking whether it is feasible.  This procedure improves on the naive
+    implementation by returning [`Unknown] as soon as it finds a disjunct that
+    it can't prove to be infeasible.  *)
+val is_sat : 'a context -> 'a formula -> [ `Sat | `Unsat | `Unknown ]
+
+(** Compute lower and upper bounds for a symbol that are implied by the given
+    formula (if they exist).  The upper and lower bounds may involve only
+    symbols that satisfy the exist predicate, and may involve the functions
+    [max] and [min] (binary named symbols).  (For example, if [x] is bounded
+    above by [0] and [y], then the upper bound computed by [symbolic_bounds]
+    is [min(0,y)]). *)
+val symbolic_bounds_formula : ?exists:(symbol -> bool) ->
+  'a context ->
+  'a formula ->
+  symbol ->
+  ('a term) option * ('a term) option

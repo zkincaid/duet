@@ -951,7 +951,7 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
     | Mod (x, y) ->
       let y_ivl = bound_vec property y in
       let zero = mk_real ark QQ.zero in
-      add_bound_unsafe (mk_leq ark zero term);
+      add_bound (mk_true ark) (mk_leq ark zero term);
       if Interval.is_positive y_ivl then
         let y_term = Env.term_of_vec env y in
         add_bound (mk_lt ark zero y_term) (mk_lt ark term y_term)
@@ -1533,3 +1533,239 @@ let symbolic_bounds cube symbol =
       ([], [])
       (BatArray.enum constraints)
   | _ -> assert false
+
+let is_sat ark phi =
+  let solver = Smt.mk_solver ark in
+  let uninterp_phi =
+    rewrite ark
+      ~down:(nnf_rewriter ark)
+      ~up:(Nonlinear.uninterpret_rewriter ark)
+      phi
+  in
+  let (lin_phi, nonlinear) = ArkSimplify.purify ark uninterp_phi in
+  let symbol_list = Symbol.Set.elements (symbols lin_phi) in
+  let nonlinear_defs =
+    Symbol.Map.enum nonlinear
+    /@ (fun (symbol, expr) ->
+        match refine ark expr with
+        | `Term t -> mk_eq ark (mk_const ark symbol) t
+        | `Formula phi -> mk_iff ark (mk_const ark symbol) phi)
+    |> BatList.of_enum
+  in
+  let nonlinear = Symbol.Map.map (Nonlinear.interpret ark) nonlinear in
+  let rec replace_defs_term term =
+    substitute_const
+      ark
+      (fun x ->
+         try replace_defs_term (Symbol.Map.find x nonlinear)
+         with Not_found -> mk_const ark x)
+      term
+  in
+  let replace_defs =
+    substitute_const
+      ark
+      (fun x ->
+         try replace_defs_term (Symbol.Map.find x nonlinear)
+         with Not_found -> mk_const ark x)
+  in
+  solver#add [lin_phi];
+  solver#add nonlinear_defs;
+  let integrity psi =
+    solver#add [Nonlinear.uninterpret ark psi]
+  in
+  let rec go () =
+    match solver#get_model () with
+    | `Unsat -> `Unsat
+    | `Unknown -> `Unknown
+    | `Sat model ->
+      let interp = Interpretation.of_model ark model symbol_list in
+      match Interpretation.select_implicant interp lin_phi with
+      | None -> assert false
+      | Some implicant ->
+        let constraints =
+          of_atoms ark ~integrity (List.map replace_defs implicant)
+        in
+        if is_bottom constraints then
+          go ()
+        else
+          `Unknown
+  in
+  go ()
+
+let abstract ?exists:(p=fun x -> true) ark phi =
+  logf "Abstracting formula@\n%a"
+    (Formula.pp ark) phi;
+  let solver = Smt.mk_solver ark in
+  let uninterp_phi =
+    rewrite ark
+      ~down:(nnf_rewriter ark)
+      ~up:(Nonlinear.uninterpret_rewriter ark)
+      phi
+  in
+  let (lin_phi, nonlinear) = ArkSimplify.purify ark uninterp_phi in
+  let symbol_list = Symbol.Set.elements (symbols lin_phi) in
+  let nonlinear_defs =
+    Symbol.Map.enum nonlinear
+    /@ (fun (symbol, expr) ->
+        match refine ark expr with
+        | `Term t -> mk_eq ark (mk_const ark symbol) t
+        | `Formula phi -> mk_iff ark (mk_const ark symbol) phi)
+    |> BatList.of_enum
+    |> mk_and ark
+  in
+  let nonlinear = Symbol.Map.map (Nonlinear.interpret ark) nonlinear in
+  let rec replace_defs_term term =
+    substitute_const
+      ark
+      (fun x ->
+         try replace_defs_term (Symbol.Map.find x nonlinear)
+         with Not_found -> mk_const ark x)
+      term
+  in
+  let replace_defs =
+    substitute_const
+      ark
+      (fun x ->
+         try replace_defs_term (Symbol.Map.find x nonlinear)
+         with Not_found -> mk_const ark x)
+  in
+  solver#add [lin_phi];
+  solver#add [nonlinear_defs];
+  let integrity psi =
+    solver#add [Nonlinear.uninterpret ark psi]
+  in
+  let rec go property =
+    let blocking_clause =
+      to_formula property
+      |> Nonlinear.uninterpret ark
+      |> mk_not ark
+    in
+    logf ~level:`trace "Blocking clause %a" (Formula.pp ark) blocking_clause;
+    solver#add [blocking_clause];
+    match solver#get_model () with
+    | `Unsat -> property
+    | `Unknown ->
+      logf ~level:`warn "Symbolic abstraction failed; returning top";
+      top ark
+    | `Sat model ->
+      let interp = Interpretation.of_model ark model symbol_list in
+      match Interpretation.select_implicant interp lin_phi with
+      | None -> assert false
+      | Some implicant ->
+        let new_property =
+          List.map replace_defs implicant
+          (*          |> ArkSimplify.qe_partial_implicant ark p*)
+          |> of_atoms ark ~integrity
+          |> exists ~integrity p
+        in
+        go (join ~integrity property new_property)
+  in
+  let result = go (bottom ark) in
+  logf "Abstraction result:@\n%a" pp result;
+  result
+
+let ensure_min_max ark =
+  List.iter
+    (fun (name, typ) ->
+       if not (is_registered_name ark name) then
+         register_named_symbol ark name typ)
+    [("min", `TyFun ([`TyReal; `TyReal], `TyReal));
+     ("max", `TyFun ([`TyReal; `TyReal], `TyReal))]
+
+let symbolic_bounds_formula ?exists:(p=fun x -> true) ark phi symbol =
+  ensure_min_max ark;
+  let min = get_named_symbol ark "min" in
+  let max = get_named_symbol ark "max" in
+  let mk_min x y = mk_app ark min [x; y] in
+  let mk_max x y = mk_app ark max [x; y] in
+
+  let symbol_term = mk_const ark symbol in
+  let subterm x = x != symbol in
+  let solver = Smt.mk_solver ark in
+  let uninterp_phi =
+    rewrite ark
+      ~down:(nnf_rewriter ark)
+      ~up:(Nonlinear.uninterpret_rewriter ark)
+      phi
+  in
+  let (lin_phi, nonlinear) = ArkSimplify.purify ark uninterp_phi in
+  let symbol_list = Symbol.Set.elements (symbols lin_phi) in
+  let nonlinear_defs =
+    Symbol.Map.enum nonlinear
+    /@ (fun (symbol, expr) ->
+        match refine ark expr with
+        | `Term t -> mk_eq ark (mk_const ark symbol) t
+        | `Formula phi -> mk_iff ark (mk_const ark symbol) phi)
+    |> BatList.of_enum
+    |> mk_and ark
+  in
+  let nonlinear = Symbol.Map.map (Nonlinear.interpret ark) nonlinear in
+  let rec replace_defs_term term =
+    substitute_const
+      ark
+      (fun x ->
+         try replace_defs_term (Symbol.Map.find x nonlinear)
+         with Not_found -> mk_const ark x)
+      term
+  in
+  let replace_defs =
+    substitute_const
+      ark
+      (fun x ->
+         try replace_defs_term (Symbol.Map.find x nonlinear)
+         with Not_found -> mk_const ark x)
+  in
+  solver#add [lin_phi];
+  solver#add [nonlinear_defs];
+  let integrity psi =
+    solver#add [Nonlinear.uninterpret ark psi]
+  in
+  let rec go (lower, upper) =
+    match solver#get_model () with
+    | `Unsat -> (lower, upper)
+    | `Unknown ->
+      logf ~level:`warn "Symbolic abstraction failed; returning top";
+      ([[]], [[]])
+    | `Sat model ->
+      let interp = Interpretation.of_model ark model symbol_list in
+      match Interpretation.select_implicant interp lin_phi with
+      | None -> assert false
+      | Some implicant ->
+        let (cube_lower, cube_upper) =
+          let cube =
+            of_atoms ark ~integrity (List.map replace_defs implicant)
+            |> exists ~integrity ~subterm p
+          in
+          symbolic_bounds cube symbol
+        in
+        let lower_blocking =
+          List.map
+            (fun lower_bound -> mk_lt ark symbol_term lower_bound)
+            cube_lower
+          |> List.map (Nonlinear.uninterpret ark)
+          |> mk_or ark
+        in
+        let upper_blocking =
+          List.map
+            (fun upper_bound -> mk_lt ark upper_bound symbol_term)
+            cube_upper
+          |> List.map (Nonlinear.uninterpret ark)
+          |> mk_or ark
+        in
+        solver#add [mk_or ark [lower_blocking; upper_blocking]];
+        go (cube_lower::lower, cube_upper::upper)
+  in
+  let (lower, upper) = go ([], []) in
+  let lower =
+    if List.mem [] lower then
+      None
+    else
+      Some (BatList.reduce mk_min (List.map (BatList.reduce mk_max) lower))
+  in
+  let upper =
+    if List.mem [] upper then
+      None
+    else
+      Some (BatList.reduce mk_max (List.map (BatList.reduce mk_min) upper))
+  in
+  (lower, upper)

@@ -488,7 +488,7 @@ let analyze file =
                   |> ArkSimplify.simplify_terms ark
                 in
                 dump_goal (Def.get_location def) path_condition;
-                match Abstract.is_sat Ctx.context path_condition with
+                match Cube.is_sat Ctx.context path_condition with
                 | `Sat -> Report.log_error (Def.get_location def) msg
                 | `Unsat -> Report.log_safe ()
                 | `Unknown ->
@@ -511,7 +511,7 @@ let analyze file =
             in
             logf "Path condition:@\n%a" (Syntax.pp_smtlib2 Ctx.context) path_condition;
             dump_goal (Def.get_location def) path_condition;
-            begin match Abstract.is_sat Ctx.context path_condition with
+            begin match Cube.is_sat Ctx.context path_condition with
               | `Sat -> Report.log_error (Def.get_location def) msg
               | `Unsat -> Report.log_safe ()
               | `Unknown ->
@@ -574,7 +574,7 @@ let resource_bound_analysis file =
                           Ctx.mk_eq (Ctx.mk_const cost_symbol) rhs ]
             in
             let (lower, upper) =
-              Abstract.symbolic_bounds ~exists ark guard cost_symbol
+              Cube.symbolic_bounds_formula ~exists ark guard cost_symbol
             in
             begin match lower with
               | Some lower ->

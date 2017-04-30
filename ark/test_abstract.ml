@@ -2,6 +2,7 @@ open OUnit
 open Abstract
 open Syntax
 open ArkApron
+open Nonlinear
 
 module Ctx = MakeSimplifyingContext ()
 module Infix = Syntax.Infix(Ctx)
@@ -299,7 +300,7 @@ let nonlinear_abstract1 () =
     || (x = (int 0) && y = (int 1))
   in
   let phi_abstract =
-    Cube.to_formula (Abstract.abstract_nonlinear ctx phi)
+    Cube.to_formula (Cube.abstract ctx phi)
   in
   let psi =
     let open Infix in
@@ -316,7 +317,7 @@ let nonlinear_abstract2 () =
   in
   let phi_abstract =
     let abstract =
-      Abstract.abstract_nonlinear
+      Cube.abstract
         ~exists:(fun sym -> sym = zsym || sym = ysym)
         ctx
         phi
@@ -338,7 +339,7 @@ let mod_abstract () =
   in
   let phi_abstract =
     let abstract =
-      Abstract.abstract_nonlinear
+      Cube.abstract
         ctx
         phi
     in
@@ -358,7 +359,7 @@ let degree3_abstract () =
   in
   let phi_abstract =
     let abstract =
-      Abstract.abstract_nonlinear ctx phi
+      Cube.abstract ctx phi
     in
     Cube.to_formula abstract
   in
@@ -375,7 +376,7 @@ let lt_abstract () =
   in
   let phi_abstract =
     let abstract =
-      Abstract.abstract_nonlinear ctx phi
+      Cube.abstract ctx phi
     in
     Cube.to_formula abstract
   in

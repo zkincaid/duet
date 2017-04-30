@@ -426,7 +426,7 @@ let abstract_iter ?(exists=fun x -> true) ark phi symbols =
   in
   let subterm x = not (Symbol.Set.mem x post_symbols) in
   let cube = 
-    Abstract.abstract_nonlinear ~exists ark phi
+    Cube.abstract ~exists ark phi
     |> Cube.exists ~subterm (fun _ -> true)
   in
   abstract_iter_cube ark cube symbols
@@ -843,7 +843,7 @@ module Split = struct
     in
     let uninterp_body =
       rewrite ark
-        ~up:(Abstract.nonlinear_uninterpreted_rewriter ark)
+        ~up:(Nonlinear.uninterpret_rewriter ark)
         body
     in
     let solver = Smt.mk_solver ark in
@@ -851,7 +851,7 @@ module Split = struct
     let sat_modulo_body psi =
       let psi =
         rewrite ark
-          ~up:(Abstract.nonlinear_uninterpreted_rewriter ark)
+          ~up:(Nonlinear.uninterpret_rewriter ark)
           psi
       in
       solver#push ();
