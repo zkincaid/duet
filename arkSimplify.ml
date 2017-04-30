@@ -143,3 +143,31 @@ let qe_partial_implicant ark p implicant =
       implicant
   in
   List.map (subst rewrite) implicant
+
+let purify_rewriter ark table =
+  fun expr ->
+    match destruct ark expr with
+    | `Quantify (_, _, _, _) -> invalid_arg "purify: free variable"
+    | `App (func, []) -> expr
+    | `App (func, args) ->
+      let sym =
+        try
+          ExprHT.find table expr
+        with Not_found ->
+          let sym = mk_symbol ark ~name:"uninterp" (expr_typ ark expr) in
+          ExprHT.add table expr sym;
+          sym
+      in
+      mk_const ark sym
+    | _ -> expr
+
+let purify ark expr =
+  let table = ExprHT.create 991 in
+  let expr' = rewrite ark ~up:(purify_rewriter ark table) expr in
+  let map =
+    BatEnum.fold
+      (fun map (term, sym) -> Symbol.Map.add sym term map)
+      Symbol.Map.empty
+      (ExprHT.enum table)
+  in
+  (expr', map)

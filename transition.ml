@@ -272,7 +272,7 @@ struct
           []
       in
       mk_and ark (z.guard::eqs)
-      |> Abstract.abstract_nonlinear ~exists ark
+      |> Cube.abstract ~exists ark
     in
     let guard =
       Cube.widen (to_cube x) (to_cube y)
@@ -304,7 +304,7 @@ struct
     in
     let x_guard = substitute_const ark sigma x.guard in
     let equiv = ArkSimplify.simplify_terms ark (mk_iff ark x_guard y.guard) in
-    match Abstract.is_sat ark (mk_not ark equiv) with
+    match Cube.is_sat ark (mk_not ark equiv) with
     | `Unsat -> true
     | _ -> false
 

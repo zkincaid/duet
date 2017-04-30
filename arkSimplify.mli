@@ -16,3 +16,9 @@ val qe_partial_implicant : 'a context ->
   (symbol -> bool) ->
   ('a formula) list ->
   ('a formula) list
+
+(** Purify function applications in a ground formula: replace each function
+    application within a formula with a fresh symbol, and return both the
+    resulting formula and a mapping from the fresh symbols to the terms they
+    define. *)
+val purify : 'a context -> 'a formula -> ('a formula * (('a,typ_fo) expr) Symbol.Map.t)
