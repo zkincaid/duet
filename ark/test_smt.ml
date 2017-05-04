@@ -161,7 +161,7 @@ let implicant1 () =
   match smt_ctx#get_model phi with
   | `Sat m ->
     let interp = Interpretation.of_model ctx m [fsym; xsym; ysym] in
-    begin match Interpretation. select_implicant interp phi with
+    begin match Interpretation.select_implicant interp phi with
       | Some implicant ->
         List.iter (fun psi ->
             assert_bool "is_model"
