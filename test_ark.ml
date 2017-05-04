@@ -10,7 +10,7 @@ let suite = "Main" >::: [
     Test_polynomial.suite;
     Test_apron.suite;
     Test_quantifier.suite;
-    Test_cube.suite;
+    Test_wedge.suite;
     Test_abstract.suite;
     Test_iteration.suite;
     Test_transition.suite;

@@ -53,7 +53,7 @@ let assert_not_implies phi psi =
                       (Formula.show ctx psi))
 
 let assert_implies_nonlinear phi psi =
-  match Cube.is_sat ctx (mk_and ctx [phi; mk_not ctx psi]) with
+  match Wedge.is_sat ctx (mk_and ctx [phi; mk_not ctx psi]) with
   | `Unsat -> ()
   | `Sat | `Unknown ->
     assert_failure (Printf.sprintf "%s\ndoes not imply\n%s"

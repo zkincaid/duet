@@ -300,7 +300,7 @@ let nonlinear_abstract1 () =
     || (x = (int 0) && y = (int 1))
   in
   let phi_abstract =
-    Cube.to_formula (Cube.abstract ctx phi)
+    Wedge.to_formula (Wedge.abstract ctx phi)
   in
   let psi =
     let open Infix in
@@ -317,12 +317,12 @@ let nonlinear_abstract2 () =
   in
   let phi_abstract =
     let abstract =
-      Cube.abstract
+      Wedge.abstract
         ~exists:(fun sym -> sym = zsym || sym = ysym)
         ctx
         phi
     in
-    Cube.to_formula abstract
+    Wedge.to_formula abstract
   in
   let psi =
     let open Infix in
@@ -339,11 +339,11 @@ let mod_abstract () =
   in
   let phi_abstract =
     let abstract =
-      Cube.abstract
+      Wedge.abstract
         ctx
         phi
     in
-    Cube.to_formula abstract
+    Wedge.to_formula abstract
   in
   let psi =
     let open Infix in
@@ -359,9 +359,9 @@ let degree3_abstract () =
   in
   let phi_abstract =
     let abstract =
-      Cube.abstract ctx phi
+      Wedge.abstract ctx phi
     in
-    Cube.to_formula abstract
+    Wedge.to_formula abstract
   in
   let psi =
     let open Infix in
@@ -376,9 +376,9 @@ let lt_abstract () =
   in
   let phi_abstract =
     let abstract =
-      Cube.abstract ctx phi
+      Wedge.abstract ctx phi
     in
-    Cube.to_formula abstract
+    Wedge.to_formula abstract
   in
   assert_equiv_formula phi phi_abstract
 
