@@ -51,3 +51,14 @@ val destruct_atom : 'a context ->
   'a formula ->
   [ `Comparison of ([`Lt | `Leq | `Eq] * 'a term * 'a term)
   | `Literal of ([ `Pos | `Neg ] * [ `Const of symbol | `Var of int ]) ]
+
+(** Given an a model [m] and a formula [phi] such that [m |= phi], attempt to
+    compute a new interpretation [m'] such that [m' |= phi], [m(x) = m'(x)] for
+    all constant symbols and non-real functions, and for all real functions [f],
+    [m'(f)] is affine.  Return [`Unsat] if there is no such [m'], or [`Unknown] if
+    the status of the associated SMT query could not be determined. *)
+val affine_interpretation : 'a interpretation ->
+  'a formula ->
+  [ `Sat of 'a interpretation
+  | `Unsat
+  | `Unknown ]
