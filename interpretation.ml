@@ -406,3 +406,59 @@ let destruct_atom ark phi =
   | `Fls -> `Comparison (`Eq, mk_real ark QQ.zero, mk_real ark QQ.one)
   | _ ->
     invalid_arg "destruct_atomic: not atomic"
+
+let affine_interpretation interp phi =
+  let ark = interp.ark in
+  (* Replace each function's interpretation f(x1,...,xn) = body with
+     f(x1,...,xn) = a1*x1 + ... + an*xn + b; leave the interpretation of other
+     symbols unchanged.  *)
+  let symbols = ref [] in
+  let fresh_real () =
+    let sym = mk_symbol ark `TyReal in
+    symbols := sym::(!symbols);
+    mk_const ark sym
+  in
+  let symbolic_affine_interp =
+    BatEnum.fold
+      (fun interp (sym,sym_interp) ->
+         match sym_interp with
+         | `Bool b -> add_bool sym b interp
+         | `Real k -> add_real sym k interp
+         | `Fun body ->
+           match typ_symbol ark sym with
+           | `TyFun (args, `TyReal) when List.for_all ((=) `TyReal) args ->
+             let lin_body =
+               (0 -- (List.length args - 1))
+               /@ (fun i ->
+                   mk_mul ark [mk_var ark i `TyReal; fresh_real ()])
+               |> BatList.of_enum
+             in
+             let affine_body =
+               (mk_add ark (fresh_real()::lin_body)
+                :> ('a,typ_fo) expr)
+             in
+             add_fun sym affine_body interp
+           | _ ->
+             add_fun sym body interp)
+      (empty ark)
+      (enum interp)
+  in
+  (* phi' is non-linear if there are nested function applications. *)
+  let phi' = substitute symbolic_affine_interp phi in
+  match Smt.get_model ark phi' with
+  | `Unsat -> `Unsat
+  | `Unknown -> `Unknown
+  | `Sat m ->
+    let coeff_interp = of_model ark m (!symbols) in
+    let affine_interp =
+      BatEnum.fold
+        (fun interp (sym,sym_interp) ->
+           match sym_interp with
+           | `Bool b -> add_bool sym b interp
+           | `Real k -> add_real sym k interp
+           | `Fun body ->
+             add_fun sym (substitute coeff_interp body) interp)
+        (empty ark)
+        (enum symbolic_affine_interp)
+    in
+    `Sat affine_interp
