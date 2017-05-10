@@ -75,7 +75,7 @@ let blk_preds = ref []
   else if (String.compare f_class_str "c:integer-value-64") = 0 then begin
     let int_fields = ((Swig.invoke f_ast) "fields" (Swig.C_void)) in
     let i_fld = ((Swig.invoke int_fields) "[]" (Swig.C_int 0)) in
-    let int_val = Swig.get_int ((Swig.invoke i_fld) "as_int32" (Swig.C_void)) in
+    let int_val = Swig.get_int ((Swig.invoke i_fld) "as_int64" (Swig.C_void)) in
       LVal(Constant(int_val,8))
   end
   else if (String.compare f_class_str "c:integer-value-128") = 0 then begin
@@ -515,6 +515,17 @@ let blk_preds = ref []
       prev_call := false;
       let func_name = (Swig.get_string ((Swig.invoke point) "as_string" (Swig.C_void))) in
       (*ICall of id option * id * var list *)
+      if (String.compare func_name "[call-site] Ljava/lang/Thread::sleep:void(long)") = 0 then begin
+        let actuals_in = ((Swig.invoke point) "actuals_in_as_list" (Swig.C_void)) in
+        let act_in_size = Swig.get_int ((Swig.invoke actuals_in) "size" (Swig.C_void)) in
+        let var_list = get_param_vars act_in_size 0 actuals_in "" in
+        let var_slp = List.hd var_list in
+        match var_slp with
+          LVal(Constant(a,b)) -> let slp_val = a*10 in
+                                 [Tick(LVal(Var("bytecodecost",Int(4))),LVal(Constant(slp_val,4)))]
+          | _ ->  [Tick(LVal(Var("bytecodecost",Int(4))),LVal(Constant(1,4)))]
+      end
+      else begin
       (* This is regular function call *)
       let call_ast = ((Swig.invoke point) "get_ast" (Cs._ast_family_C_NORMALIZED(Swig.C_void))) in
       let fields = ((Swig.invoke call_ast) "fields" (Swig.C_void)) in
@@ -566,6 +577,7 @@ let blk_preds = ref []
           [Call(None,fn_name,[])]
         end
       end
+    end
     end
     (* This is a normal expression, create an appropriate C4B instruction, either set or increment *)
     else if (String.compare node_kind_str "expression") = 0 then begin (*C4B-INC, C4B-SET*)
