@@ -237,8 +237,8 @@ struct
 
   let widen x y =
     (* Introduce fresh symbols for variables in the transform of x/y, then
-       abstract x and y to a cube over pre-symbols and these fresh symbols.
-       Widen in the cube domain, then covert back to a formula. *)
+       abstract x and y to a wedge over pre-symbols and these fresh symbols.
+       Widen in the wedge domain, then covert back to a formula. *)
     let (transform, post_sym) =
       let add (map, post) var =
         if M.mem var map then
@@ -258,7 +258,7 @@ struct
       | Some v -> true
       | None -> Symbol.Set.mem sym post_sym
     in
-    let to_cube z =
+    let to_wedge z =
       let eqs =
         M.fold (fun var term eqs ->
             let term' =
@@ -272,11 +272,11 @@ struct
           []
       in
       mk_and ark (z.guard::eqs)
-      |> Abstract.abstract_nonlinear ~exists ark
+      |> Wedge.abstract ~exists ark
     in
     let guard =
-      Cube.widen (to_cube x) (to_cube y)
-      |> Cube.to_formula
+      Wedge.widen (to_wedge x) (to_wedge y)
+      |> Wedge.to_formula
     in
     { transform; guard }
 
@@ -304,7 +304,7 @@ struct
     in
     let x_guard = substitute_const ark sigma x.guard in
     let equiv = ArkSimplify.simplify_terms ark (mk_iff ark x_guard y.guard) in
-    match Abstract.is_sat ark (mk_not ark equiv) with
+    match Wedge.is_sat ark (mk_not ark equiv) with
     | `Unsat -> true
     | _ -> false
 

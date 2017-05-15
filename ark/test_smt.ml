@@ -31,6 +31,10 @@ let f : Ctx.term * Ctx.formula -> Ctx.term =
 
 let p = Ctx.mk_symbol ~name:"p" (`TyFun ([`TyInt; `TyBool], `TyBool))
 
+let hsym = Ctx.mk_symbol ~name:"h" (`TyFun ([`TyReal; `TyReal], `TyReal))
+let h : Ctx.term * Ctx.term -> Ctx.term =
+  fun (x, y) -> Ctx.mk_app hsym [x; y]
+
 let frac num den = Ctx.mk_real (QQ.of_frac num den)
 let int k = Ctx.mk_real (QQ.of_int k)
 
@@ -161,7 +165,7 @@ let implicant1 () =
   match smt_ctx#get_model phi with
   | `Sat m ->
     let interp = Interpretation.of_model ctx m [fsym; xsym; ysym] in
-    begin match Interpretation. select_implicant interp phi with
+    begin match Interpretation.select_implicant interp phi with
       | Some implicant ->
         List.iter (fun psi ->
             assert_bool "is_model"
@@ -169,6 +173,25 @@ let implicant1 () =
           implicant
       | None -> assert false
     end
+  | _ -> assert false
+
+let affine_interp1 () =
+  let phi =
+    let open Infix in
+    h(x, y) = h(y, x)
+    && x < y
+    && h(x, (int 0)) = x
+    && h(y, (int 0)) = y
+  in
+  match smt_ctx#get_model phi with
+  | `Sat m ->
+    let interp = Interpretation.of_model ctx m [hsym; xsym; ysym] in
+    let has_affine_interp =
+      match Interpretation.affine_interpretation interp phi with
+      | `Sat _ -> true
+      | _ -> false
+    in
+    assert_bool "has_affine_interp" has_affine_interp
   | _ -> assert false
 
 let suite = "SMT" >:::
@@ -183,4 +206,5 @@ let suite = "SMT" >:::
     "interpolate3" >:: interpolate3;
     "interpretation1" >:: interpretation1;
     "implicant1" >:: implicant1;
+    "affine_interp1" >:: affine_interp1;
   ]

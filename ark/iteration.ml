@@ -147,8 +147,8 @@ type 'a exponential =
 type 'a iter =
   { ark : 'a context;
     symbols : (symbol * symbol) list;
-    precondition : 'a Cube.t;
-    postcondition : 'a Cube.t;
+    precondition : 'a Wedge.t;
+    postcondition : 'a Wedge.t;
     stratified : (symbol * symbol * 'a term) list;
     exponential : ('a exponential) list }
 
@@ -159,8 +159,8 @@ let pp_iter formatter iter =
     (ApakEnum.pp_print_enum (pp_symbol ark)) (BatList.enum iter.symbols /@ fst)
     (ApakEnum.pp_print_enum (pp_symbol ark)) (BatList.enum iter.symbols /@ snd);
   Format.fprintf formatter "pre:@;  @[<v 0>%a@]@;post:@;  @[<v 0>%a@]@;"
-    Cube.pp iter.precondition
-    Cube.pp iter.postcondition;
+    Wedge.pp iter.precondition
+    Wedge.pp iter.postcondition;
   Format.fprintf formatter
     "recurrences:@;  @[<v 0>%a@;%a@]@]}"
     (ApakEnum.pp_print_enum_nobox
@@ -186,7 +186,7 @@ let pp_iter formatter iter =
 
 let show_iter x = Putil.mk_show pp_iter x
 
-let exponential_rec ark cube non_induction post_symbols base =
+let exponential_rec ark wedge non_induction post_symbols base =
   let post_map =
     (* map from non-induction pre-state vars to their post-state
        counterparts *)
@@ -207,7 +207,7 @@ let exponential_rec ark cube non_induction post_symbols base =
   (* Replace each non-induction pre-state variable v with the difference
      (v'-v)/base and project out post-state variables.  Pre-state induction
      variables ("delta variables") now represent the difference (v'-base*v) *)
-  let diff_cube =
+  let diff_wedge =
     let delta_subst sym =
       if Symbol.Map.mem sym post_map then
         (* non-induction var *)
@@ -220,10 +220,10 @@ let exponential_rec ark cube non_induction post_symbols base =
     let rewrite = substitute_const ark delta_subst in
     (* don't allow delta vars as subterms *)
     let subterm sym = not (Symbol.Map.mem sym post_map) in
-    Cube.to_atoms cube
+    Wedge.to_atoms wedge
     |> List.map rewrite
-    |> Cube.of_atoms ark
-    |> Cube.exists ~subterm (not % flip Symbol.Set.mem post_symbols)
+    |> Wedge.of_atoms ark
+    |> Wedge.exists ~subterm (not % flip Symbol.Set.mem post_symbols)
   in
 
   let zero_term = mk_real ark QQ.zero in
@@ -310,9 +310,9 @@ let exponential_rec ark cube non_induction post_symbols base =
                     exp_add = mk_neg ark rhs })
     | `Literal (_, _) -> None
   in
-  BatList.filter_map recur (Cube.to_atoms diff_cube)
+  BatList.filter_map recur (Wedge.to_atoms diff_wedge)
 
-let abstract_iter_cube ark cube tr_symbols =
+let abstract_iter_wedge ark wedge tr_symbols =
   let pre_symbols =
     List.fold_left (fun set (s,_) ->
         Symbol.Set.add s set)
@@ -329,14 +329,14 @@ let abstract_iter_cube ark cube tr_symbols =
     not (Symbol.Set.mem x pre_symbols || Symbol.Set.mem x post_symbols)
   in
   let precondition =
-    Cube.exists (not % flip Symbol.Set.mem post_symbols) cube
+    Wedge.exists (not % flip Symbol.Set.mem post_symbols) wedge
   in
   let postcondition =
-    Cube.exists (not % flip Symbol.Set.mem pre_symbols) cube
+    Wedge.exists (not % flip Symbol.Set.mem pre_symbols) wedge
   in
   let (stratified, non_induction) =
-    let equalities = Cube.farkas_equalities cube in
-    (* Matrix consisting of one row for each dimension of the cube that is
+    let equalities = Wedge.farkas_equalities wedge in
+    (* Matrix consisting of one row for each dimension of the wedge that is
        associated with a term that contains a transition variable; the row
        contains the Farkas column for that dimension *)
     let matrix =
@@ -406,9 +406,9 @@ let abstract_iter_cube ark cube tr_symbols =
     (induction, non_induction@non_induction')
   in
   let exponential =
-    exponential_rec ark cube non_induction post_symbols (QQ.of_int 1)
-    @(exponential_rec ark cube non_induction post_symbols (QQ.of_int 2))
-    @(exponential_rec ark cube non_induction post_symbols (QQ.of_frac 1 2))
+    exponential_rec ark wedge non_induction post_symbols (QQ.of_int 1)
+    @(exponential_rec ark wedge non_induction post_symbols (QQ.of_int 2))
+    @(exponential_rec ark wedge non_induction post_symbols (QQ.of_frac 1 2))
   in
   { ark;
     symbols = tr_symbols;
@@ -425,11 +425,11 @@ let abstract_iter ?(exists=fun x -> true) ark phi symbols =
       symbols
   in
   let subterm x = not (Symbol.Set.mem x post_symbols) in
-  let cube = 
-    Abstract.abstract_nonlinear ~exists ark phi
-    |> Cube.exists ~subterm (fun _ -> true)
+  let wedge =
+    Wedge.abstract ~exists ark phi
+    |> Wedge.exists ~subterm (fun _ -> true)
   in
-  abstract_iter_cube ark cube symbols
+  abstract_iter_wedge ark wedge symbols
 
 let closure ?(guard=None) (iter : 'a iter) : 'a formula =
   let loop_counter_sym = mk_symbol iter.ark ~name:"K" `TyInt in
@@ -516,11 +516,11 @@ let closure ?(guard=None) (iter : 'a iter) : 'a formula =
   mk_or iter.ark [
     zero_iter;
     mk_and iter.ark [
-      Cube.to_formula iter.precondition;
+      Wedge.to_formula iter.precondition;
       mk_leq iter.ark (mk_real iter.ark QQ.one) loop_counter;
       stratified;
       inequations;
-      Cube.to_formula iter.postcondition;
+      Wedge.to_formula iter.postcondition;
       guard
     ]
   ]
@@ -530,7 +530,7 @@ let closure_ocrs ?(guard=None) iter =
   let open Ocrs in
   let open Type_def in
 
-  Cube.ensure_nonlinear_symbols iter.ark;
+  Wedge.ensure_nonlinear_symbols iter.ark;
   let pow = get_named_symbol iter.ark "pow" in
   let log = get_named_symbol iter.ark "log" in
 
@@ -705,14 +705,14 @@ let closure_ocrs ?(guard=None) iter =
   mk_or iter.ark [
     zero_iter;
     mk_and iter.ark ([
-        Cube.to_formula iter.precondition;
+        Wedge.to_formula iter.precondition;
         mk_leq iter.ark (mk_real iter.ark QQ.one) loop_counter;
-        Cube.to_formula iter.postcondition;
+        Wedge.to_formula iter.postcondition;
         guard
       ]@closed)
   ]
 
-let cube_of_iter iter =
+let wedge_of_iter iter =
   let eq_constraints =
     iter.stratified |> List.map (fun (post, pre, incr) ->
         mk_eq iter.ark
@@ -730,26 +730,26 @@ let cube_of_iter iter =
         | `Eq -> mk_eq iter.ark r.exp_lhs rhs
         | `Leq -> mk_leq iter.ark r.exp_lhs rhs)
   in
-  let postcondition = Cube.to_atoms iter.postcondition in
-  let precondition = Cube.to_atoms iter.precondition in
-  Cube.of_atoms
+  let postcondition = Wedge.to_atoms iter.postcondition in
+  let precondition = Wedge.to_atoms iter.precondition in
+  Wedge.of_atoms
     iter.ark
     (eq_constraints@exponential_constraints@postcondition@precondition)
 
 let equal iter iter' =
-  Cube.equal (cube_of_iter iter) (cube_of_iter iter')
+  Wedge.equal (wedge_of_iter iter) (wedge_of_iter iter')
 
 let widen iter iter' =
-  let body = Cube.widen (cube_of_iter iter) (cube_of_iter iter') in
+  let body = Wedge.widen (wedge_of_iter iter) (wedge_of_iter iter') in
   assert(iter.symbols = iter'.symbols);
-  abstract_iter_cube iter.ark body iter.symbols
+  abstract_iter_wedge iter.ark body iter.symbols
 
 let join iter iter' =
   let body =
-    Cube.join (cube_of_iter iter) (cube_of_iter iter')
+    Wedge.join (wedge_of_iter iter) (wedge_of_iter iter')
   in
   assert(iter.symbols = iter'.symbols);
-  abstract_iter_cube iter.ark body iter.symbols
+  abstract_iter_wedge iter.ark body iter.symbols
 
 let star ?(exists=fun x -> true) ark phi symbols =
   closure (abstract_iter ~exists ark phi symbols)
@@ -757,8 +757,8 @@ let star ?(exists=fun x -> true) ark phi symbols =
 let bottom ark symbols =
   { ark = ark;
     symbols = symbols;
-    precondition = Cube.bottom ark;
-    postcondition = Cube.bottom ark;
+    precondition = Wedge.bottom ark;
+    postcondition = Wedge.bottom ark;
     stratified = [];
     exponential = [] }
 
@@ -843,7 +843,7 @@ module Split = struct
     in
     let uninterp_body =
       rewrite ark
-        ~up:(Abstract.nonlinear_uninterpreted_rewriter ark)
+        ~up:(Nonlinear.uninterpret_rewriter ark)
         body
     in
     let solver = Smt.mk_solver ark in
@@ -851,7 +851,7 @@ module Split = struct
     let sat_modulo_body psi =
       let psi =
         rewrite ark
-          ~up:(Abstract.nonlinear_uninterpreted_rewriter ark)
+          ~up:(Nonlinear.uninterpret_rewriter ark)
           psi
       in
       solver#push ();

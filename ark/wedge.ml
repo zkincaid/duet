@@ -12,7 +12,7 @@ module Linexpr0 = Apron.Linexpr0
 module Lincons0 = Apron.Lincons0
 module Dim = Apron.Dim
 
-include Log.Make(struct let name = "ark.cube" end)
+include Log.Make(struct let name = "ark.wedge" end)
 
 module Int = struct
   type t = int [@@deriving show,ord]
@@ -410,38 +410,38 @@ type 'a t =
   { env : 'a Env.t;
     mutable abstract : (Polka.strict Polka.t) Abstract0.t;
     (* int_dim and real_dim keep track of the number of dimensions in the
-       abstract value associated with a cube, which can get out of sync with the
+       abstract value associated with a wedge, which can get out of sync with the
        number of dimensions known to the environment (by registering new terms).
        update_env gets them back into sync *)
     mutable int_dim : int;
     mutable real_dim : int; }
 
-let pp formatter property =
+let pp formatter wedge =
   Abstract0.print
     (fun dim ->
        Apak.Putil.mk_show
-         (pp_sd_term property.env)
-         (Env.sd_term_of_id property.env (Env.id_of_dim property.env dim)))
+         (pp_sd_term wedge.env)
+         (Env.sd_term_of_id wedge.env (Env.id_of_dim wedge.env dim)))
     formatter
-    property.abstract
+    wedge.abstract
 
-let show property = Apak.Putil.mk_show pp property
+let show wedge = Apak.Putil.mk_show pp wedge
 
-let env_consistent cube =
-  Env.int_dim cube.env = cube.int_dim
-  && Env.real_dim cube.env = cube.real_dim
+let env_consistent wedge =
+  Env.int_dim wedge.env = wedge.int_dim
+  && Env.real_dim wedge.env = wedge.real_dim
 
 (* Should be called when new terms are registered in the environment attached
-   to a cube *)
-let update_env cube =
-  let int_dim = Env.int_dim cube.env in
-  let real_dim = Env.real_dim cube.env in
-  let added_int = max 0 (int_dim - cube.int_dim) in
-  let added_real = max 0 (real_dim - cube.real_dim) in
+   to a wedge *)
+let update_env wedge =
+  let int_dim = Env.int_dim wedge.env in
+  let real_dim = Env.real_dim wedge.env in
+  let added_int = max 0 (int_dim - wedge.int_dim) in
+  let added_real = max 0 (real_dim - wedge.real_dim) in
   let added =
     BatEnum.append
-      ((1 -- added_int) /@ (fun _ -> cube.int_dim))
-      ((1 -- added_real) /@ (fun _ -> cube.int_dim + cube.real_dim))
+      ((1 -- added_int) /@ (fun _ -> wedge.int_dim))
+      ((1 -- added_real) /@ (fun _ -> wedge.int_dim + wedge.real_dim))
     |> BatArray.of_enum
   in
   if added_int + added_real > 0 then begin
@@ -451,15 +451,15 @@ let update_env cube =
     let abstract =
       Abstract0.add_dimensions
         (get_manager ())
-        cube.abstract
+        wedge.abstract
         { Dim.dim = added;
           Dim.intdim = added_int;
           Dim.realdim = added_real }
         false
     in
-    cube.abstract <- abstract;
-    cube.int_dim <- int_dim;
-    cube.real_dim <- real_dim
+    wedge.abstract <- abstract;
+    wedge.int_dim <- int_dim;
+    wedge.real_dim <- real_dim
   end
 
 let top context =
@@ -468,7 +468,7 @@ let top context =
     int_dim = 0;
     real_dim = 0 }
 
-let is_top property = Abstract0.is_top (get_manager ()) property.abstract
+let is_top wedge = Abstract0.is_top (get_manager ()) wedge.abstract
 
 let bottom context =
   { env = Env.mk_empty context;
@@ -476,16 +476,16 @@ let bottom context =
     int_dim = 0;
     real_dim = 0 }
 
-let is_bottom property = Abstract0.is_bottom (get_manager ()) property.abstract
+let is_bottom wedge = Abstract0.is_bottom (get_manager ()) wedge.abstract
 
-let to_atoms property =
-  BatArray.enum (Abstract0.to_lincons_array (get_manager ()) property.abstract)
-  /@ (Env.atom_of_lincons property.env)
+let to_atoms wedge =
+  BatArray.enum (Abstract0.to_lincons_array (get_manager ()) wedge.abstract)
+  /@ (Env.atom_of_lincons wedge.env)
   |> BatList.of_enum
 
-let to_formula property =
-  let ark = Env.ark property.env in
-  mk_and ark (to_atoms property)
+let to_formula wedge =
+  let ark = Env.ark wedge.env in
+  mk_and ark (to_atoms wedge)
 
 let lincons_of_atom env atom =
   let ark = Env.ark env in
@@ -510,21 +510,21 @@ let lincons_of_atom env atom =
       Lincons0.EQ
   | `Literal (_, _) -> assert false
 
-let bound_vec property vec =
+let bound_vec wedge vec =
   Abstract0.bound_linexpr
     (get_manager ())
-    property.abstract
-    (Env.linexpr_of_vec property.env vec)
+    wedge.abstract
+    (Env.linexpr_of_vec wedge.env vec)
   |> Interval.of_apron
 
-(* Test whether property |= x = y *)
-let sat_vec_equation property x y =
+(* Test whether wedge |= x = y *)
+let sat_vec_equation wedge x y =
   let eq_constraint =
     Lincons0.make
-      (Env.linexpr_of_vec property.env (V.add x (V.negate y)))
+      (Env.linexpr_of_vec wedge.env (V.add x (V.negate y)))
       Lincons0.EQ
   in
-  Abstract0.sat_lincons (get_manager ()) property.abstract eq_constraint
+  Abstract0.sat_lincons (get_manager ()) wedge.abstract eq_constraint
 
 let apron_farkas abstract =
   let open Lincons0 in
@@ -570,27 +570,27 @@ let apron_farkas abstract =
   done;
   (lambda_abstract, columns)
 
-let affine_hull property =
+let affine_hull wedge =
   let open Lincons0 in
-  BatArray.enum (Abstract0.to_lincons_array (get_manager ()) property.abstract)
+  BatArray.enum (Abstract0.to_lincons_array (get_manager ()) wedge.abstract)
   |> BatEnum.filter_map (fun lcons ->
       match lcons.typ with
-      | EQ -> Some (Env.vec_of_linexpr property.env lcons.linexpr0)
+      | EQ -> Some (Env.vec_of_linexpr wedge.env lcons.linexpr0)
       | _ -> None)
   |> BatList.of_enum
 
-let polynomial_cone property =
+let polynomial_cone wedge =
   let open Lincons0 in
-  BatArray.enum (Abstract0.to_lincons_array (get_manager ()) property.abstract)
+  BatArray.enum (Abstract0.to_lincons_array (get_manager ()) wedge.abstract)
   |> BatEnum.filter_map (fun lcons ->
       match lcons.typ with
-      | SUPEQ | SUP -> Some (poly_of_vec (Env.vec_of_linexpr property.env lcons.linexpr0))
+      | SUPEQ | SUP -> Some (poly_of_vec (Env.vec_of_linexpr wedge.env lcons.linexpr0))
       | _ -> None)
   |> BatList.of_enum
 
-let strengthen ?integrity:(integrity=(fun _ -> ())) property =
-  ensure_nonlinear_symbols (Env.ark property.env);
-  let env = property.env in
+let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
+  ensure_nonlinear_symbols (Env.ark wedge.env);
+  let env = wedge.env in
   let ark = Env.ark env in
   let zero = mk_real ark QQ.zero in
   let pow = get_named_symbol ark "pow" in
@@ -600,10 +600,10 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
     let abstract =
       Abstract0.meet_lincons_array
         (get_manager ())
-        property.abstract
+        wedge.abstract
         [| lincons_of_atom env bound |]
     in
-    property.abstract <- abstract
+    wedge.abstract <- abstract
   in
   let add_bound precondition bound =
     logf ~level:`trace "Integrity: %a => %a"
@@ -612,39 +612,39 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
     integrity (mk_or ark [mk_not ark precondition; bound]);
 
     ignore (lincons_of_atom env bound);
-    update_env property;
+    update_env wedge;
     add_bound_unsafe bound
   in
 
-  logf "Before strengthen: %a" pp property;
+  logf "Before strengthen: %a" pp wedge;
 
-  update_env property;
-  for id = 0 to Env.dim property.env - 1 do
-    match Env.sd_term_of_id property.env id with
+  update_env wedge;
+  for id = 0 to Env.dim wedge.env - 1 do
+    match Env.sd_term_of_id wedge.env id with
     | Mul (x, y) ->
-      if not (Interval.elem QQ.zero (bound_vec property x)) then
-        ignore (Env.get_term_id property.env (Inv x));
-      if not (Interval.elem QQ.zero (bound_vec property y)) then
-        ignore (Env.get_term_id property.env (Inv y))
+      if not (Interval.elem QQ.zero (bound_vec wedge x)) then
+        ignore (Env.get_term_id wedge.env (Inv x));
+      if not (Interval.elem QQ.zero (bound_vec wedge y)) then
+        ignore (Env.get_term_id wedge.env (Inv y))
     | _ -> ()
   done;
-  update_env property;
+  update_env wedge;
   
-  let cube_affine_hull = affine_hull property in
+  let wedge_affine_hull = affine_hull wedge in
   let affine_hull_formula =
-    ref (cube_affine_hull
-         |> List.map (fun vec -> mk_eq ark (Env.term_of_vec property.env vec) zero)
+    ref (wedge_affine_hull
+         |> List.map (fun vec -> mk_eq ark (Env.term_of_vec wedge.env vec) zero)
          |> mk_and ark)
   in
   (* Rewrite maintains a Grobner basis for the coordinate ideal + the ideal of
-     polynomials vanishing on the underlying polyhedron of the cube *)
+     polynomials vanishing on the underlying polyhedron of the wedge *)
   let rewrite =
     let polyhedron_ideal =
-      List.map poly_of_vec cube_affine_hull
+      List.map poly_of_vec wedge_affine_hull
     in
     let coordinate_ideal =
       BatEnum.filter_map (fun id ->
-          match Env.sd_term_of_id property.env id with
+          match Env.sd_term_of_id wedge.env id with
           | Mul (x, y) ->
             Some (P.sub
                     (P.of_dim id)
@@ -652,7 +652,7 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
           | Inv x ->
             Some (P.sub (P.mul (poly_of_vec x) (P.of_dim id)) (P.scalar QQ.one))
           | _ -> None)
-        (0 -- (Env.dim property.env - 1))
+        (0 -- (Env.dim wedge.env - 1))
       |> BatList.of_enum
     in
     ref (polyhedron_ideal@coordinate_ideal
@@ -660,18 +660,18 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
          |> Polynomial.Rewrite.grobner_basis)
   in
   let pp_dim formatter i =
-    Term.pp ark formatter (Env.term_of_id property.env i)
+    Term.pp ark formatter (Env.term_of_id wedge.env i)
   in
   logf "Rewrite: @[<v 0>%a@]" (Polynomial.Rewrite.pp pp_dim) (!rewrite);
   let reduce_vec vec =
     Polynomial.Rewrite.reduce (!rewrite) (poly_of_vec vec)
-    |> Env.term_of_polynomial property.env
+    |> Env.term_of_polynomial wedge.env
   in
 
   (* pow-log rule *)
   begin
     let vec_sign vec =
-      let ivl = bound_vec property vec in
+      let ivl = bound_vec wedge vec in
       if Interval.is_positive ivl then
         `Positive
       else if Interval.is_negative ivl then
@@ -686,22 +686,22 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
     in
     let exponential_dimensions =
       BatEnum.filter_map (fun id ->
-          match Env.sd_term_of_id property.env id with
+          match Env.sd_term_of_id wedge.env id with
           | App (func, [base; exp]) when func = pow && vec_sign base = `Positive ->
             Some (id,
-                  Env.term_of_vec property.env base,
-                  Env.term_of_vec property.env exp)
+                  Env.term_of_vec wedge.env base,
+                  Env.term_of_vec wedge.env exp)
           | _ -> None)
-        (0 -- (Env.dim property.env - 1))
+        (0 -- (Env.dim wedge.env - 1))
       |> BatList.of_enum
     in
     let open Lincons0 in
-    Abstract0.to_lincons_array (get_manager ()) property.abstract
+    Abstract0.to_lincons_array (get_manager ()) wedge.abstract
     |> BatArray.iter (fun lcons ->
         let p =
           Env.hi_poly_of_vec
-            property.env
-            (Env.vec_of_linexpr property.env lcons.linexpr0)
+            wedge.env
+            (Env.vec_of_linexpr wedge.env lcons.linexpr0)
         in
         exponential_dimensions |> List.iter (fun (id, base, exp) ->
             (* Rewrite p as m*(base^exp) - t *)
@@ -723,18 +723,18 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
                 else
                   (P.negate m, P.negate t)
               in
-              let m_term = Env.term_of_polynomial property.env m in
-              let t_term = Env.term_of_polynomial property.env t in
+              let m_term = Env.term_of_polynomial wedge.env m in
+              let t_term = Env.term_of_polynomial wedge.env t in
               let log_m = mk_log base m_term in
               let log_t = mk_log base t_term in
-              update_env property;
+              update_env wedge;
               (* base > 0 /\ m > 0 /\ t > 0 /\ m*(base^exp) - t >= 0 ==>
                  log(base,m) + exp >= log(base,t) *)
               let hypothesis =
                 mk_and ark [mk_lt ark zero base;
                             mk_lt ark zero m_term;
                             mk_lt ark zero t_term;
-                            Env.atom_of_lincons property.env lcons]
+                            Env.atom_of_lincons wedge.env lcons]
               in
               let conclusion =
                 match lcons.typ, m_sign with
@@ -752,7 +752,7 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
   (* Equational saturation.  A polyhedron P is equationally saturated if every
      degree-1 polynomial in the ideal of polynomials vanishing on P + the
      coordinate ideal vanishes on P.  This procedure computes the greatest
-     equationally saturated polyhedron contained in the underlying cube of the
+     equationally saturated polyhedron contained in the underlying wedge of the
      polyhedron.  *)
   let saturated = ref false in
 
@@ -761,8 +761,8 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
   let canonical = ExprHT.create 991 in
   while not !saturated do
     saturated := true;
-    for id = 0 to Env.dim property.env - 1 do
-      let term = Env.term_of_id property.env id in
+    for id = 0 to Env.dim wedge.env - 1 do
+      let term = Env.term_of_id wedge.env id in
       (* TODO: track the equations that were actually used in reductions rather
          than just using the affine hull as the precondition. *)
       let reduced_id =
@@ -773,7 +773,7 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
              polynomial *)
           assert false
       in
-      let reduced_term = Env.term_of_vec property.env reduced_id in
+      let reduced_term = Env.term_of_vec wedge.env reduced_id in
       add_bound (!affine_hull_formula) (mk_eq ark term reduced_term);
 
       (* congruence closure *)
@@ -787,7 +787,7 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
         else
           ExprHT.add canonical reduced term
       in
-      begin match Env.sd_term_of_id property.env id with
+      begin match Env.sd_term_of_id wedge.env id with
       | App (_, []) | Mul (_, _) -> ()
       | App (func, args) ->
         add_canonical (mk_app ark func (List.map reduce_vec args))
@@ -800,12 +800,12 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
       end;
     done;
     (* Check for new polynomials vanishing on the underlying polyhedron *)
-    affine_hull property |> List.iter (fun vec ->
+    affine_hull wedge |> List.iter (fun vec ->
         let reduced =
           Polynomial.Rewrite.reduce (!rewrite) (poly_of_vec vec)
         in
         if not (P.equal P.zero reduced) then begin
-          let reduced_term = Env.term_of_polynomial property.env reduced in
+          let reduced_term = Env.term_of_polynomial wedge.env reduced in
           saturated := false;
           rewrite := Polynomial.Rewrite.add_saturate (!rewrite) reduced;
           affine_hull_formula := mk_and ark [!affine_hull_formula;
@@ -815,9 +815,9 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
 
   (* Compute bounds for synthetic dimensions using the bounds of their
      operands *)
-  for id = 0 to Env.dim property.env - 1 do
-    let term = Env.term_of_id property.env id in
-    match Env.sd_term_of_id property.env id with
+  for id = 0 to Env.dim wedge.env - 1 do
+    let term = Env.term_of_id wedge.env id in
+    match Env.sd_term_of_id wedge.env id with
     | Mul (x, y) ->
       let go (x,x_ivl,x_term) (y,y_ivl,y_term) =
         if Interval.is_nonnegative y_ivl then
@@ -857,8 +857,8 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
           ()
       in
 
-      let x_ivl = bound_vec property x in
-      let y_ivl = bound_vec property y in
+      let x_ivl = bound_vec wedge x in
+      let y_ivl = bound_vec wedge y in
       let x_term = Env.term_of_vec env x in
       let y_term = Env.term_of_vec env y in
 
@@ -899,7 +899,7 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
 
     | Inv x ->
       (* TODO: preconditions can be weakened *)
-      let x_ivl = bound_vec property x in
+      let x_ivl = bound_vec wedge x in
       let x_term = Env.term_of_vec env x in
       let precondition =
         let lower =
@@ -925,8 +925,8 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
       end
 
     | App (func, [base; exp]) when func = log ->
-      let base_ivl = bound_vec property base in
-      let exp_ivl = bound_vec property exp in
+      let base_ivl = bound_vec wedge base in
+      let exp_ivl = bound_vec wedge exp in
 
       let mk_interval t ivl =
         let lo = match Interval.lower ivl with
@@ -949,9 +949,9 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
       add_bound precondition hi
 
     | Mod (x, y) ->
-      let y_ivl = bound_vec property y in
+      let y_ivl = bound_vec wedge y in
       let zero = mk_real ark QQ.zero in
-      add_bound_unsafe (mk_leq ark zero term);
+      add_bound (mk_true ark) (mk_leq ark zero term);
       if Interval.is_positive y_ivl then
         let y_term = Env.term_of_vec env y in
         add_bound (mk_lt ark zero y_term) (mk_lt ark term y_term)
@@ -965,7 +965,7 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
   done;
 
   let mk_geqz p = (* p >= 0 *)
-    mk_leq ark (mk_neg ark (Env.term_of_polynomial property.env p)) zero
+    mk_leq ark (mk_neg ark (Env.term_of_polynomial wedge.env p)) zero
   in
   let rec add_products = function
     | [] -> ()
@@ -979,20 +979,20 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
                           mk_geqz q]
             in
             let r_geqz = (* r >= 0 *)
-              mk_leq ark (Env.term_of_vec property.env (V.negate r)) zero
+              mk_leq ark (Env.term_of_vec wedge.env (V.negate r)) zero
             in
             add_bound precondition r_geqz
           | None -> ());
       add_products cone
   in
-  add_products (polynomial_cone property);
+  add_products (polynomial_cone wedge);
 
   (* Tighten integral dimensions *)
-  for id = 0 to Env.dim property.env - 1 do
-    match Env.type_of_id property.env id with
+  for id = 0 to Env.dim wedge.env - 1 do
+    match Env.type_of_id wedge.env id with
     | `TyInt ->
-      let term = Env.term_of_id property.env id in
-      let interval = bound_vec property (V.of_term QQ.one id) in
+      let term = Env.term_of_id wedge.env id in
+      let interval = bound_vec wedge (V.of_term QQ.one id) in
       begin
         match Interval.lower interval with
         | Some lo -> add_bound_unsafe (mk_leq ark (mk_real ark lo) term)
@@ -1005,8 +1005,8 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) property =
       end
     | _ -> ()
   done;
-  logf "After strengthen: %a" pp property;
-  property
+  logf "After strengthen: %a" pp wedge;
+  wedge
 
 let of_atoms ark ?integrity:(integrity=(fun _ -> ())) atoms =
   let env = Env.mk_empty ark in
@@ -1030,10 +1030,10 @@ let of_atoms ark ?integrity:(integrity=(fun _ -> ())) atoms =
   strengthen ~integrity { env; abstract; int_dim; real_dim }
 
 let of_atoms ark ?integrity:(integrity=(fun _ -> ())) atoms =
-  Log.time "cube.of_atom" (of_atoms ark ~integrity) atoms
+  Log.time "wedge.of_atom" (of_atoms ark ~integrity) atoms
 
-let common_env property property' =
-  let ark = Env.ark property.env in
+let common_env wedge wedge' =
+  let ark = Env.ark wedge.env in
   let env = Env.mk_empty ark in
   let register_terms atom =
     match Interpretation.destruct_atom ark atom with
@@ -1042,8 +1042,8 @@ let common_env property property' =
       ignore (Env.vec_of_term env y);
     | `Literal (_, _) -> assert false
   in
-  let atoms = to_atoms property in
-  let atoms' = to_atoms property' in
+  let atoms = to_atoms wedge in
+  let atoms' = to_atoms wedge' in
   List.iter register_terms atoms;
   List.iter register_terms atoms';
   let int_dim = Env.int_dim env in
@@ -1065,27 +1065,30 @@ let common_env property property' =
   ({ env = env; abstract = abstract; int_dim; real_dim },
    { env = env; abstract = abstract'; int_dim; real_dim })
 
-let join ?integrity:(integrity=(fun _ -> ())) property property' =
-  if is_bottom property then property'
-  else if is_bottom property' then property
+let join ?integrity:(integrity=(fun _ -> ())) wedge wedge' =
+  if is_bottom wedge then wedge'
+  else if is_bottom wedge' then wedge
   else
-    let (property, property') = common_env property property' in
-    let property = strengthen ~integrity property in
-    let property' = strengthen ~integrity property' in
-    update_env property; (* strengthening property' may add dimensions to the
+    let (wedge, wedge') = common_env wedge wedge' in
+    let wedge = strengthen ~integrity wedge in
+    let wedge' = strengthen ~integrity wedge' in
+    update_env wedge; (* strengthening wedge' may add dimensions to the
                             common environment -- add those dimensions to
-                            property *)
-    { env = property.env;
-      int_dim = property.int_dim;
-      real_dim = property.real_dim;
+                            wedge *)
+    { env = wedge.env;
+      int_dim = wedge.int_dim;
+      real_dim = wedge.real_dim;
       abstract =
-        Abstract0.join (get_manager ()) property.abstract property'.abstract }
+        Abstract0.join (get_manager ()) wedge.abstract wedge'.abstract }
 
-let equal property property' =
-  let (property, property') = common_env property property' in
-  let property = strengthen property in
-  let property' = strengthen property' in
-  Abstract0.is_eq (get_manager ()) property.abstract property'.abstract
+let equal wedge wedge' =
+  let ark = Env.ark wedge.env in
+  let phi = Nonlinear.uninterpret ark (to_formula wedge) in
+  let phi' = Nonlinear.uninterpret ark (to_formula wedge') in
+  match Smt.is_sat ark (mk_not ark (mk_iff ark phi phi')) with
+  | `Sat -> false
+  | `Unsat -> true
+  | `Unknown -> assert false
 
 (* Remove dimensions from an abstract value so that it has the specified
    number of integer and real dimensions *)
@@ -1128,15 +1131,15 @@ let forget_ids env abstract forget =
 
 (* Get a list of symbolic lower and upper bounds for a vector, expressed in
    terms of identifiers that do not belong to forget *)
-let symbolic_bounds_vec cube vec forget =
-  assert (env_consistent cube);
+let symbolic_bounds_vec wedge vec forget =
+  assert (env_consistent wedge);
 
   (* Add one real dimension to store the vector *)
-  let vec_dim = cube.int_dim + cube.real_dim in
+  let vec_dim = wedge.int_dim + wedge.real_dim in
   let abstract =
     Abstract0.add_dimensions
       (get_manager ())
-      cube.abstract
+      wedge.abstract
       { Dim.dim = [| vec_dim |];
         Dim.intdim = 0;
         Dim.realdim = 1 }
@@ -1144,7 +1147,7 @@ let symbolic_bounds_vec cube vec forget =
   in
   (* Store the vector in vec_dim *)
   begin
-    let linexpr = Env.linexpr_of_vec cube.env vec in
+    let linexpr = Env.linexpr_of_vec wedge.env vec in
     Linexpr0.set_coeff linexpr vec_dim (Coeff.s_of_int (-1));
     Abstract0.meet_lincons_array_with
       (get_manager ())
@@ -1152,7 +1155,7 @@ let symbolic_bounds_vec cube vec forget =
       [| Lincons0.make linexpr Lincons0.SUPEQ |]
   end;
   (* Project undesired identifiers *)
-  let abstract = forget_ids cube.env abstract forget in
+  let abstract = forget_ids wedge.env abstract forget in
 
   (* Compute bounds *)
   let lower = ref [] in
@@ -1167,9 +1170,9 @@ let symbolic_bounds_vec cube vec forget =
         (* Write lincons.linexpr0 as "vec comp bound" *)
         Linexpr0.set_coeff lincons.linexpr0 vec_dim (coeff_of_qq QQ.zero);
         let bound =
-          Env.vec_of_linexpr cube.env lincons.linexpr0
+          Env.vec_of_linexpr wedge.env lincons.linexpr0
           |> V.scalar_mul (QQ.negate (QQ.inverse a))
-          |> Env.term_of_vec cube.env
+          |> Env.term_of_vec wedge.env
         in
         match lincons.typ with
         | SUP | SUPEQ ->
@@ -1188,16 +1191,16 @@ let exists
     ?integrity:(integrity=(fun _ -> ()))
     ?subterm:(subterm=(fun _ -> true))
     p
-    property =
+    wedge =
 
-  let ark = Env.ark property.env in
-  let env = property.env in
+  let ark = Env.ark wedge.env in
+  let env = wedge.env in
 
   (* Orient equalities as rewrite rules to eliminate variables that should be
      projected out of the formula *)
   let rewrite_map =
     let keep id =
-      id = Env.const_id || match Env.sd_term_of_id property.env id with
+      id = Env.const_id || match Env.sd_term_of_id wedge.env id with
       | App (symbol, []) -> p symbol && subterm symbol
       | _ -> false (* to do: should allow terms containing only non-projected
                       symbols that are allowed as subterms *)
@@ -1213,7 +1216,7 @@ let exists
            Symbol.Map.add symbol rhs_term map
          | _ -> map)
       Symbol.Map.empty
-      (Linear.orient keep (affine_hull property))
+      (Linear.orient keep (affine_hull wedge))
   in
   let rewrite =
     substitute_const
@@ -1251,17 +1254,17 @@ let exists
   (***************************************************************************
    * Find new non-linear terms to improve the projection
    ***************************************************************************)
-  ensure_nonlinear_symbols (Env.ark property.env);
+  ensure_nonlinear_symbols (Env.ark wedge.env);
   let log = get_named_symbol ark "log" in
 
   let add_bound_unsafe bound =
     let abstract =
       Abstract0.meet_lincons_array
         (get_manager ())
-        property.abstract
+        wedge.abstract
         [| lincons_of_atom env bound |]
     in
-    property.abstract <- abstract
+    wedge.abstract <- abstract
   in
   let add_bound precondition bound =
     logf ~level:`trace "Integrity: %a => %a"
@@ -1271,7 +1274,7 @@ let exists
 
     ignore (lincons_of_atom env bound);
 
-    update_env property;
+    update_env wedge;
     add_bound_unsafe bound
   in
   forget |> List.iter (fun id ->
@@ -1284,7 +1287,7 @@ let exists
           match BatList.of_enum (V.enum base) with
           | [(base,base_id)] when base_id = Env.const_id
                                && QQ.lt QQ.one base ->
-            let (lower, upper) = symbolic_bounds_vec property x forget in
+            let (lower, upper) = symbolic_bounds_vec wedge x forget in
             let x_term = Env.term_of_vec env x in
             let base_term = mk_real ark base in
             lower |> List.iter (fun lo ->
@@ -1337,7 +1340,7 @@ let exists
         substitution := (dim, rewrite_vec)::(!substitution)
   done;
 
-  let abstract = forget_ids property.env property.abstract forget in
+  let abstract = forget_ids wedge.env wedge.abstract forget in
 
   (* Ensure abstract has enough dimensions to be able to interpret the
      substitution.  The substituion is interpreted within an implicit
@@ -1414,22 +1417,22 @@ let exists
   logf "Projection result: %a" pp result;
   result
 
-let widen property property' =
-  let ark = Env.ark property.env in
+let widen wedge wedge' =
+  let ark = Env.ark wedge.env in
   let widen_env = Env.mk_empty ark in
-  for id = 0 to (Env.dim property.env) - 1 do
-    let term = Env.term_of_id property.env id in
-    if Env.mem_term property'.env term then
+  for id = 0 to (Env.dim wedge.env) - 1 do
+    let term = Env.term_of_id wedge.env id in
+    if Env.mem_term wedge'.env term then
       ignore (Env.vec_of_term widen_env term)
   done;
 
   (* Project onto intersected environment *)
-  let project property =
+  let project wedge =
     let forget = ref [] in
     let substitution = ref [] in
-    for id = 0 to (Env.dim property.env) - 1 do
-      let term = Env.term_of_id property.env id in
-      let dim = Env.dim_of_id property.env id in
+    for id = 0 to (Env.dim wedge.env) - 1 do
+      let term = Env.term_of_id wedge.env id in
+      let dim = Env.dim_of_id wedge.env id in
       if Env.mem_term widen_env term then
         substitution := (dim, Env.vec_of_term widen_env term)::(!substitution)
       else
@@ -1438,7 +1441,7 @@ let widen property property' =
     let abstract =
       Abstract0.forget_array
         (get_manager ())
-        property.abstract
+        wedge.abstract
         (Array.of_list (List.rev (!forget)))
         false
     in
@@ -1456,17 +1459,17 @@ let widen property property' =
       (Env.real_dim widen_env)
       abstract
   in
-  let abstract = project property in
-  let abstract' = project property' in
+  let abstract = project wedge in
+  let abstract' = project wedge' in
   { env = widen_env;
     int_dim = Env.int_dim widen_env;
     real_dim = Env.real_dim widen_env;
     abstract = Abstract0.widening (get_manager ()) abstract abstract' }
 
-let farkas_equalities property =
+let farkas_equalities wedge =
   let open Lincons0 in
   let constraints =
-    BatArray.enum (Abstract0.to_lincons_array (get_manager ()) property.abstract)
+    BatArray.enum (Abstract0.to_lincons_array (get_manager ()) wedge.abstract)
     |> BatEnum.filter_map (fun lcons ->
         match lcons.typ with
         | EQ -> Some lcons.linexpr0
@@ -1474,7 +1477,7 @@ let farkas_equalities property =
     |> BatArray.of_enum
   in
   let nb_columns =
-    let dim = Abstract0.dimension (get_manager ()) property.abstract in
+    let dim = Abstract0.dimension (get_manager ()) wedge.abstract in
     (* one extra column for the constant *)
     dim.Dim.intd + dim.Dim.reald + 1
   in
@@ -1492,34 +1495,34 @@ let farkas_equalities property =
   Array.mapi (fun id column ->
       let term =
         if id = (nb_columns - 1) then
-          mk_real (Env.ark property.env) QQ.one
+          mk_real (Env.ark wedge.env) QQ.one
         else
-          Env.term_of_id property.env id
+          Env.term_of_id wedge.env id
       in
       (term, column))
     columns
   |> Array.to_list
 
-let symbolic_bounds cube symbol =
-  let ark = Env.ark cube.env in
-  let vec = Env.vec_of_term ~register:false cube.env (mk_const ark symbol) in
+let symbolic_bounds wedge symbol =
+  let ark = Env.ark wedge.env in
+  let vec = Env.vec_of_term ~register:false wedge.env (mk_const ark symbol) in
   match BatList.of_enum (V.enum vec) with
   | [(coeff, id)] ->
     assert (QQ.equal coeff QQ.one);
 
     let constraints =
-      Abstract0.to_lincons_array (get_manager ()) cube.abstract
+      Abstract0.to_lincons_array (get_manager ()) wedge.abstract
     in
     BatEnum.fold (fun (lower, upper) lincons ->
         let open Lincons0 in
-        let vec = Env.vec_of_linexpr cube.env lincons.linexpr0 in
+        let vec = Env.vec_of_linexpr wedge.env lincons.linexpr0 in
         let (a, t) = V.pivot id vec in
         if QQ.equal a QQ.zero then
           (lower, upper)
         else
           let bound =
             V.scalar_mul (QQ.negate (QQ.inverse a)) t
-            |> Env.term_of_vec cube.env
+            |> Env.term_of_vec wedge.env
           in
           match lincons.typ with
           | EQ -> (bound::lower, bound::upper)
@@ -1533,3 +1536,247 @@ let symbolic_bounds cube symbol =
       ([], [])
       (BatArray.enum constraints)
   | _ -> assert false
+
+let is_sat ark phi =
+  let solver = Smt.mk_solver ark in
+  let uninterp_phi =
+    rewrite ark
+      ~down:(nnf_rewriter ark)
+      ~up:(Nonlinear.uninterpret_rewriter ark)
+      phi
+  in
+  let (lin_phi, nonlinear) = ArkSimplify.purify ark uninterp_phi in
+  let symbol_list = Symbol.Set.elements (symbols lin_phi) in
+  let nonlinear_defs =
+    Symbol.Map.enum nonlinear
+    /@ (fun (symbol, expr) ->
+        match refine ark expr with
+        | `Term t -> mk_eq ark (mk_const ark symbol) t
+        | `Formula phi -> mk_iff ark (mk_const ark symbol) phi)
+    |> BatList.of_enum
+  in
+  let nonlinear = Symbol.Map.map (Nonlinear.interpret ark) nonlinear in
+  let rec replace_defs_term term =
+    substitute_const
+      ark
+      (fun x ->
+         try replace_defs_term (Symbol.Map.find x nonlinear)
+         with Not_found -> mk_const ark x)
+      term
+  in
+  let replace_defs =
+    substitute_const
+      ark
+      (fun x ->
+         try replace_defs_term (Symbol.Map.find x nonlinear)
+         with Not_found -> mk_const ark x)
+  in
+  solver#add [lin_phi];
+  solver#add nonlinear_defs;
+  let integrity psi =
+    solver#add [Nonlinear.uninterpret ark psi]
+  in
+  let rec go () =
+    match solver#get_model () with
+    | `Unsat -> `Unsat
+    | `Unknown -> `Unknown
+    | `Sat model ->
+      let interp = Interpretation.of_model ark model symbol_list in
+      match Interpretation.select_implicant interp lin_phi with
+      | None -> assert false
+      | Some implicant ->
+        let constraints =
+          of_atoms ark ~integrity (List.map replace_defs implicant)
+        in
+        if is_bottom constraints then
+          go ()
+        else
+          `Unknown
+  in
+  go ()
+
+let abstract ?exists:(p=fun x -> true) ark phi =
+  logf "Abstracting formula@\n%a"
+    (Formula.pp ark) phi;
+  let solver = Smt.mk_solver ark in
+  let uninterp_phi =
+    rewrite ark
+      ~down:(nnf_rewriter ark)
+      ~up:(Nonlinear.uninterpret_rewriter ark)
+      phi
+  in
+  let (lin_phi, nonlinear) = ArkSimplify.purify ark uninterp_phi in
+  let symbol_list = Symbol.Set.elements (symbols lin_phi) in
+  let nonlinear_defs =
+    Symbol.Map.enum nonlinear
+    /@ (fun (symbol, expr) ->
+        match refine ark expr with
+        | `Term t -> mk_eq ark (mk_const ark symbol) t
+        | `Formula phi -> mk_iff ark (mk_const ark symbol) phi)
+    |> BatList.of_enum
+    |> mk_and ark
+  in
+  let nonlinear = Symbol.Map.map (Nonlinear.interpret ark) nonlinear in
+  let rec replace_defs_term term =
+    substitute_const
+      ark
+      (fun x ->
+         try replace_defs_term (Symbol.Map.find x nonlinear)
+         with Not_found -> mk_const ark x)
+      term
+  in
+  let replace_defs =
+    substitute_const
+      ark
+      (fun x ->
+         try replace_defs_term (Symbol.Map.find x nonlinear)
+         with Not_found -> mk_const ark x)
+  in
+  solver#add [lin_phi];
+  solver#add [nonlinear_defs];
+  let integrity psi =
+    solver#add [Nonlinear.uninterpret ark psi]
+  in
+  let rec go wedge =
+    let blocking_clause =
+      to_formula wedge
+      |> Nonlinear.uninterpret ark
+      |> mk_not ark
+    in
+    logf ~level:`trace "Blocking clause %a" (Formula.pp ark) blocking_clause;
+    solver#add [blocking_clause];
+    match solver#get_model () with
+    | `Unsat -> wedge
+    | `Unknown ->
+      logf ~level:`warn "Symbolic abstraction failed; returning top";
+      top ark
+    | `Sat model ->
+      let interp = Interpretation.of_model ark model symbol_list in
+      match Interpretation.select_implicant interp lin_phi with
+      | None -> assert false
+      | Some implicant ->
+        let new_wedge =
+          List.map replace_defs implicant
+          (*          |> ArkSimplify.qe_partial_implicant ark p*)
+          |> of_atoms ark ~integrity
+          |> exists ~integrity p
+        in
+        go (join ~integrity wedge new_wedge)
+  in
+  let result = go (bottom ark) in
+  logf "Abstraction result:@\n%a" pp result;
+  result
+
+let ensure_min_max ark =
+  List.iter
+    (fun (name, typ) ->
+       if not (is_registered_name ark name) then
+         register_named_symbol ark name typ)
+    [("min", `TyFun ([`TyReal; `TyReal], `TyReal));
+     ("max", `TyFun ([`TyReal; `TyReal], `TyReal))]
+
+let symbolic_bounds_formula ?exists:(p=fun x -> true) ark phi symbol =
+  ensure_min_max ark;
+  let min = get_named_symbol ark "min" in
+  let max = get_named_symbol ark "max" in
+  let mk_min x y =
+    match Term.destruct ark x, Term.destruct ark y with
+    | `Real xr, `Real yr -> mk_real ark (QQ.min xr yr)
+    | _, _ -> mk_app ark min [x; y]
+  in
+  let mk_max x y =
+    match Term.destruct ark x, Term.destruct ark y with
+    | `Real xr, `Real yr -> mk_real ark (QQ.max xr yr)
+    | _, _ -> mk_app ark max [x; y]
+  in
+
+  let symbol_term = mk_const ark symbol in
+  let subterm x = x != symbol in
+  let solver = Smt.mk_solver ark in
+  let uninterp_phi =
+    rewrite ark
+      ~down:(nnf_rewriter ark)
+      ~up:(Nonlinear.uninterpret_rewriter ark)
+      phi
+  in
+  let (lin_phi, nonlinear) = ArkSimplify.purify ark uninterp_phi in
+  let symbol_list = Symbol.Set.elements (symbols lin_phi) in
+  let nonlinear_defs =
+    Symbol.Map.enum nonlinear
+    /@ (fun (symbol, expr) ->
+        match refine ark expr with
+        | `Term t -> mk_eq ark (mk_const ark symbol) t
+        | `Formula phi -> mk_iff ark (mk_const ark symbol) phi)
+    |> BatList.of_enum
+    |> mk_and ark
+  in
+  let nonlinear = Symbol.Map.map (Nonlinear.interpret ark) nonlinear in
+  let rec replace_defs_term term =
+    substitute_const
+      ark
+      (fun x ->
+         try replace_defs_term (Symbol.Map.find x nonlinear)
+         with Not_found -> mk_const ark x)
+      term
+  in
+  let replace_defs =
+    substitute_const
+      ark
+      (fun x ->
+         try replace_defs_term (Symbol.Map.find x nonlinear)
+         with Not_found -> mk_const ark x)
+  in
+  solver#add [lin_phi];
+  solver#add [nonlinear_defs];
+  let integrity psi =
+    solver#add [Nonlinear.uninterpret ark psi]
+  in
+  let rec go (lower, upper) =
+    match solver#get_model () with
+    | `Unsat -> (lower, upper)
+    | `Unknown ->
+      logf ~level:`warn "Symbolic abstraction failed; returning top";
+      ([[]], [[]])
+    | `Sat model ->
+      let interp = Interpretation.of_model ark model symbol_list in
+      match Interpretation.select_implicant interp lin_phi with
+      | None -> assert false
+      | Some implicant ->
+        let (wedge_lower, wedge_upper) =
+          let wedge =
+            of_atoms ark ~integrity (List.map replace_defs implicant)
+            |> exists ~integrity ~subterm p
+          in
+          symbolic_bounds wedge symbol
+        in
+        let lower_blocking =
+          List.map
+            (fun lower_bound -> mk_lt ark symbol_term lower_bound)
+            wedge_lower
+          |> List.map (Nonlinear.uninterpret ark)
+          |> mk_or ark
+        in
+        let upper_blocking =
+          List.map
+            (fun upper_bound -> mk_lt ark upper_bound symbol_term)
+            wedge_upper
+          |> List.map (Nonlinear.uninterpret ark)
+          |> mk_or ark
+        in
+        solver#add [mk_or ark [lower_blocking; upper_blocking]];
+        go (wedge_lower::lower, wedge_upper::upper)
+  in
+  let (lower, upper) = go ([], []) in
+  let lower =
+    if List.mem [] lower then
+      None
+    else
+      Some (BatList.reduce mk_min (List.map (BatList.reduce mk_max) lower))
+  in
+  let upper =
+    if List.mem [] upper then
+      None
+    else
+      Some (BatList.reduce mk_max (List.map (BatList.reduce mk_min) upper))
+  in
+  (lower, upper)

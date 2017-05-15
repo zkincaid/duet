@@ -1,5 +1,5 @@
 # OASIS_START
-# DO NOT EDIT (digest: 459aa129b0eea29e3c59dd2fb528c984)
+# DO NOT EDIT (digest: 0fb9a03eaa0b7acd7b704a52075c9129)
 # Ignore VCS directories, you can use the same kind of rule outside
 # OASIS_START/STOP if you want to exclude directories that contains
 # useless stuff for the build process
@@ -52,7 +52,6 @@ true: annot, bin_annot
 <apak/*.ml{,i,y}>: pkg_ppx_deriving.show
 # Library ark
 "ark/ark.cmxs": use_ark
-"ark/arkUtil.cmx": for-pack(Ark)
 "ark/qQ.cmx": for-pack(Ark)
 "ark/zZ.cmx": for-pack(Ark)
 "ark/syntax.cmx": for-pack(Ark)
@@ -66,8 +65,9 @@ true: annot, bin_annot
 "ark/arkApron.cmx": for-pack(Ark)
 "ark/polyhedron.cmx": for-pack(Ark)
 "ark/arkSimplify.cmx": for-pack(Ark)
-"ark/cube.cmx": for-pack(Ark)
 "ark/abstract.cmx": for-pack(Ark)
+"ark/nonlinear.cmx": for-pack(Ark)
+"ark/wedge.cmx": for-pack(Ark)
 "ark/quantifier.cmx": for-pack(Ark)
 "ark/iteration.cmx": for-pack(Ark)
 "ark/transition.cmx": for-pack(Ark)
