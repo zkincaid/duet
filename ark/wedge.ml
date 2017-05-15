@@ -1679,8 +1679,16 @@ let symbolic_bounds_formula ?exists:(p=fun x -> true) ark phi symbol =
   ensure_min_max ark;
   let min = get_named_symbol ark "min" in
   let max = get_named_symbol ark "max" in
-  let mk_min x y = mk_app ark min [x; y] in
-  let mk_max x y = mk_app ark max [x; y] in
+  let mk_min x y =
+    match Term.destruct ark x, Term.destruct ark y with
+    | `Real xr, `Real yr -> mk_real ark (QQ.min xr yr)
+    | _, _ -> mk_app ark min [x; y]
+  in
+  let mk_max x y =
+    match Term.destruct ark x, Term.destruct ark y with
+    | `Real xr, `Real yr -> mk_real ark (QQ.max xr yr)
+    | _, _ -> mk_app ark max [x; y]
+  in
 
   let symbol_term = mk_const ark symbol in
   let subterm x = x != symbol in
