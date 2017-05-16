@@ -465,7 +465,7 @@ let print_var_bounds formatter cost tr =
                 Ctx.mk_eq (Ctx.mk_const cost_symbol) rhs ]
   in
   let (lower, upper) =
-    Abstract.symbolic_bounds ~exists ark guard cost_symbol
+    Wedge.symbolic_bounds_formula ~exists ark guard cost_symbol
   in
   begin match lower with
     | Some lower ->
@@ -523,7 +523,7 @@ let () =
   Callback.register "eq_callback" (fun x y -> K.compare x y = 0);
 
   Callback.register "is_sat_callback" (fun tr ->
-      Abstract.is_sat ark (K.guard tr) != `Unsat);
+      Wedge.is_sat ark (K.guard tr) != `Unsat);
 
   Callback.register "get_global_var" (fun name ->
       let open CfgIr in
