@@ -521,7 +521,7 @@ let blk_preds = ref []
         let var_list = get_param_vars act_in_size 0 actuals_in "" in
         let var_slp = List.hd var_list in
         match var_slp with 
-          LVal(Constant(a,b)) -> let slp_val = a*1000 in
+          LVal(Constant(a,b)) -> let slp_val = a*1000000 in
                                  [Tick(LVal(Var("bytecodecost",Int(4))),LVal(Constant(slp_val,4)))]
           | _ ->  [Tick(LVal(Var("bytecodecost",Int(4))),LVal(Constant(1,4)))]
       end
