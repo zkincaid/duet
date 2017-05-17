@@ -70,6 +70,9 @@ module QQMatrix : sig
 
   val entries : t -> (dim * dim * scalar) BatEnum.t
 
+  val nb_rows : t -> int
+  val nb_columns : t -> int
+
   val pp : Format.formatter -> t -> unit
   val show : t -> string
 end
@@ -158,6 +161,10 @@ val orient : (int -> bool) -> QQVector.t list -> (int * QQVector.t) list
 val vector_right_mul : QQMatrix.t -> QQVector.t -> QQVector.t
 
 val solve : QQMatrix.t -> QQVector.t -> QQVector.t option
+
+(** Given two matrices A and B, compute matrices C and D such that CA = DB is a
+    basis for the intersection of the rowspaces of A and B *)
+val intersect_rowspace : QQMatrix.t -> QQMatrix.t -> (QQMatrix.t * QQMatrix.t)
 
 (** {2 Affine terms} *)
 

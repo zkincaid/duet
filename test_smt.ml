@@ -194,6 +194,24 @@ let affine_interp1 () =
     assert_bool "has_affine_interp" has_affine_interp
   | _ -> assert false
 
+let affine_interp2 () =
+  let phi =
+    let open Infix in
+    h(x, y) < h(y, x)
+    && h(x, z) < h(y, z)
+    && h(x, z) < h(y, y)
+  in
+  match smt_ctx#get_model phi with
+  | `Sat m ->
+    let interp = Interpretation.of_model ctx m [hsym; xsym; ysym; zsym] in
+    (match Interpretation.affine_interpretation interp phi with
+     | `Sat m ->
+       Apak.Log.errorf "%a" Interpretation.pp m;
+       assert_bool "is_model"
+         (Interpretation.evaluate_formula m phi)
+     | _ -> assert false)
+  | _ -> assert false
+
 let suite = "SMT" >:::
   [
     "roundtrip0" >:: roundtrip0;
@@ -207,4 +225,5 @@ let suite = "SMT" >:::
     "interpretation1" >:: interpretation1;
     "implicant1" >:: implicant1;
     "affine_interp1" >:: affine_interp1;
+    "affine_interp2" >:: affine_interp2;
   ]

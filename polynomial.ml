@@ -343,6 +343,8 @@ module Mvp = struct
       in
       Some vec
     with Nonlinear -> None
+
+  let compare = MM.compare QQ.compare
 end
 
 module Rewrite = struct

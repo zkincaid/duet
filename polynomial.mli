@@ -72,6 +72,7 @@ module Mvp : sig
   include Linear.Vector with type dim = Monomial.t
                          and type scalar = QQ.t
   val pp : (Format.formatter -> int -> unit) -> Format.formatter -> t -> unit
+  val compare : t -> t -> int
   val mul : t -> t -> t
   val sub : t -> t -> t
   val one : t
