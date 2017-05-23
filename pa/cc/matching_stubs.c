@@ -9,35 +9,18 @@
 #include <stack>
 #include <cmath>
 #include <limits>
+#include <functional>
 #include "graph.h"
+#include "embedding.h"
 using namespace std;
 
-/* The label for the proposition graph (pgraph) (simply the predicate symbol and list of arguments) */
-struct prop{
-  prop(size_t p = 0) : pred(p) {}
-  size_t pred;
-  vector<int> vars;
-};
-
-/* The type of decisions. It's a vertex in pgraph.U and position in it's adjacency list
-   representing an edge of the predicate graph we must satisfy.
-   edges, are the edges of the universe graph we removed in-order to gaurantee the
-   decision is satisfied */
-struct decision{
-  decision(size_t pu = 0, size_t ppos = 0) : u(pu), pos(ppos) {}
-  decision(size_t pu, size_t ppos, const vector<Graph::VertexPair>& e) : u(pu), pos(ppos), u_edges(e) {}
-  size_t u;                          /* pgraph vertex decided on */
-  size_t pos;                        /* position of edge */
-  vector<Graph::VertexPair> u_edges; /* edges removed due to this decision */
-};
-
-Graph make_graph(const vector<vector<uint8_t>>& sigs1, const vector<vector<uint8_t>>& sigs2);
-LabeledGraph<prop, prop> make_pgraph(const Graph& u_graph, const vector<prop>& u_label, const vector<prop>& v_label);
-bool embedding(const vector<vector<uint8_t>>& sigs1, const vector<vector<uint8_t>>& sigs2,
-	       const vector<prop>& pu_label, const vector<prop>& pv_label);
-void find_conflicts(const LabeledGraph<prop, prop>& p_graph, const vector<int>& matching, vector<int>& confs);
-void backtrack(stack<decision>& decisions, const LabeledGraph<prop, prop>& p_graph, Graph& u_graph);
-bool choose(stack<decision>& decisions, const vector<int>& confs, const LabeledGraph<prop, prop>& p_graph, Graph& u_graph);
+bool embedding(Embedding emb);
+void find_conflicts(const Embedding& emb, const vector<int>& matching, vector<int>& confs);
+//void find_conflicts(const LabeledGraph<prop, prop>& p_graph, const vector<int>& matching, vector<int>& confs);
+void backtrack(stack<decision>& decisions, Embedding& emb);
+//void backtrack(stack<decision>& decisions, const LabeledGraph<prop, prop>& p_graph, Graph& u_graph);
+bool choose(stack<decision>& decisions, const vector<int>& confs, Embedding& emb);
+//bool choose(stack<decision>& decisions, const vector<int>& confs, const LabeledGraph<prop, prop>& p_graph, Graph& u_graph);
 
 /**********************************************************
   This is the function that is called by the ocaml code
@@ -123,16 +106,17 @@ extern "C" {
 	pv_label.push_back(tmp);
       }
     }
-    CAMLreturn(Val_bool(embedding(sig1, sig2, pu_label, pv_label)));
+    CAMLreturn(Val_bool(embedding(std::move(Embedding(sig1, sig2, pu_label, pv_label)))));
   }
 }
 
-/* Is there an injective homomorphism between (pu_label, sigs1) and (pv_label, sigs2)
-   More specifically the two structures they represent */
-bool embedding(const vector<vector<uint8_t>>& sigs1, const vector<vector<uint8_t>>& sigs2,
-	       const vector<prop>& pu_label, const vector<prop>& pv_label){
-  Graph u_graph = make_graph(sigs1, sigs2);
-  LabeledGraph<prop, prop> p_graph = make_pgraph(u_graph, pu_label, pv_label);
+/* Is there an injective homomorphism from the source vertices (U)
+   to target vertices (V) of emb.universe_graph satisfying the
+   constraints of emb.predicate_graph ? */
+bool embedding(Embedding emb){
+  if (!emb.get_valid()) return false;
+  Graph& u_graph = emb.get_universe_graph();
+
   vector<int> match1, match2, vis, conflicts;
 
   match1.resize(u_graph.uSize(), -1);
@@ -147,17 +131,16 @@ bool embedding(const vector<vector<uint8_t>>& sigs1, const vector<vector<uint8_t
     ans = u_graph.max_matching(match1, match2, vis); /* Compute maximum cardinality matching */
     ++num;
 
-
     if (ans != u_graph.uSize()){
-      backtrack(decisions, p_graph, u_graph);
+      backtrack(decisions, emb);
     } else {
-      find_conflicts(p_graph, match1, conflicts);
+      find_conflicts(emb, match1, conflicts);
       if (conflicts.size() == 0){
         printf("iterations: %lu\n", num);
         return true;
       }
-      if (!choose(decisions, conflicts, p_graph, u_graph)){
-        backtrack(decisions, p_graph, u_graph);
+      if (!choose(decisions, conflicts, emb)){
+        backtrack(decisions, emb);
       } else {
 	vector<Graph::VertexPair>& edges = decisions.top().u_edges;
 	for (size_t i = 0; i < edges.size(); ++i){
@@ -180,64 +163,9 @@ bool embedding(const vector<vector<uint8_t>>& sigs1, const vector<vector<uint8_t
   return false;
 }
 
-bool subset(const vector<uint8_t>& sig1, const vector<uint8_t>& sig2){
-  bool subset(sig1.size() <= sig2.size());
-  for (size_t i = 0; subset && i < sig1.size(); ++i){ /* assert(sig1.size() <= sig2.size()) */
-    subset = sig1[i] <= sig2[i];
-  }
-  return subset;
-}
-
-/* Makes the universe graph */
-Graph make_graph(const vector<vector<uint8_t> >& sigs1, const vector<vector<uint8_t> >& sigs2){
-  Graph g(sigs1.size(), sigs2.size());
-  vector<vector<int>> adj;
-  adj.resize(sigs1.size());
-
-  /* use adj as placeholder in order to safely parallel ize */
-  #pragma omp parallel for schedule(guided)
-  for (size_t i = 1; i < sigs1.size(); ++i){
-    for (size_t j = 1; j < sigs2.size(); ++j){
-      if (subset(sigs1[i], sigs2[j])){
-	adj[i].push_back(j);
-      }
-    }
-  }
-
-  /* create reverse edges for quick lookup */
-  for (size_t i = 1; i < adj.size(); ++i){
-    for (size_t j = 0; j < adj[i].size(); ++j){
-      g.add_edge(i, adj[i][j]);
-    }
-  }
-
-  vector<Graph::VertexPair> tmp; /* It doesn't mater what is removed */
-  g.unit_prop(tmp);
-  return g;
-}
-
-/* Makes the predicate graph. There is an edge from i \in [0, u_label.size()) to
-   j \in [0, v_label.size()) if u_label[i].prop == v_label[j].prop and
-   forall (u, v) \in u_label[i].vars x v_label[j], (u, v) is in the universe graph */
-LabeledGraph<prop,prop> make_pgraph(const Graph& u_graph, const vector<prop>& u_label, const vector<prop>& v_label){
-  LabeledGraph<prop, prop> p_graph(u_label, v_label);
-
-  for (size_t i = 0; i < u_label.size(); ++i){
-    for (size_t j = 0; j < v_label.size(); ++j){
-      if (u_label[i].pred == v_label[j].pred){
-       	bool mem(true);
-	for (size_t k = 0; mem && k < u_label[i].vars.size(); ++k){
-	  mem = u_graph.has_edge(u_label[i].vars[k], v_label[j].vars[k]);
-	}
-	if (mem) p_graph.add_edge(i, j);
-      }
-    }
-  }
-  return p_graph;
-}
-
 /* Finds all vertices in pgraph.U that are violated by the candidate matching */
-void find_conflicts(const LabeledGraph<prop, prop>& p_graph, const vector<int>& matching, vector<int>& confs){
+void find_conflicts(const Embedding& emb, const vector<int>& matching, vector<int>& confs){
+  const LabeledGraph<prop, prop>& p_graph = emb.get_predicate_graph();
   confs.clear();
   for (size_t i = 0, j, k; i < p_graph.uSize(); ++i){
     const vector<Graph::Edge>& adj = p_graph.uAdj(i);
@@ -257,7 +185,9 @@ void find_conflicts(const LabeledGraph<prop, prop>& p_graph, const vector<int>& 
    with all previous decisions 
    This is done by maintaining consistence with the universe graph that is forced
    to be consistent with all previously made decisions */
-void backtrack(stack<decision>& decisions, const LabeledGraph<prop, prop>& p_graph, Graph& u_graph){
+void backtrack(stack<decision>& decisions, Embedding& emb){
+  const LabeledGraph<prop, prop>& p_graph = emb.get_predicate_graph();
+  Graph& u_graph = emb.get_universe_graph();
   while(!decisions.empty()){
     decision d = decisions.top(); decisions.pop();
     for (size_t i = 0; i < d.u_edges.size(); ++i){
@@ -271,8 +201,16 @@ void backtrack(stack<decision>& decisions, const LabeledGraph<prop, prop>& p_gra
         if (!u_graph.has_edge(u_vars[k], v_vars[k])) break;
       }
       if (k == u_vars.size()){
-        decisions.push(decision(d.u, d.pos, u_graph.remove_edges(u_vars, v_vars)));
-        return;
+	vector<Graph::VertexPair> uedges = u_graph.remove_edges(u_vars, v_vars);
+	u_graph.unit_prop(uedges);
+  	if (u_graph.unit_prop(uedges)){
+  	  decisions.emplace(d.u, d.pos, uedges);
+	  return;
+	} else {
+	  for (size_t i = 0; i < uedges.size(); ++i){
+	    u_graph.add_edge(uedges[i].u, uedges[i].v);
+	  }
+	}
       }
     }
   }
@@ -293,12 +231,28 @@ vector<size_t> num_conflicts(const LabeledGraph<prop, prop>& p_graph, const vect
 
 /* Selects a vertex in pgraph.U to decide on next (only trying vertices that
    can be consistent with decisions already made) */
-bool choose(stack<decision>& decisions, const vector<int>& confs, const LabeledGraph<prop, prop>& p_graph, Graph& u_graph){
+bool choose(stack<decision>& decisions, const vector<int>& confs, Embedding& emb){
+  const LabeledGraph<prop, prop>& p_graph = emb.get_predicate_graph();
+  Graph& u_graph = emb.get_universe_graph();
+
   vector<size_t> num_involved = num_conflicts(p_graph, confs);
-  size_t best_u(0), best_v(0), best_j(0);
-  double best_val = 0;
-  for (size_t i = 0, pu; i < confs.size(); ++i){
-    pu = confs[i];
+
+  /* Priority Queue of conflicts ranked by hueristic value (smaller is better) */
+  auto cmp = [](const pair<double, size_t>& l, const pair<double, size_t>& r){ return l.first < r.first; };
+  priority_queue<pair<double, size_t>, vector<pair<double, size_t>>, decltype(cmp)> q(cmp);
+
+  for (size_t i = 0; i < confs.size(); ++i){
+    const vector<int>& vars = p_graph.getULabel(confs[i]).vars;
+    double val(0);
+    for (size_t j = 0; j < vars.size(); ++j){
+      val += num_involved[vars[j]];
+    }
+    val /= vars.size(); /* average number of involved conflicts */
+    q.push(make_pair(val, confs[i]));
+  }
+
+  while (!q.empty()){
+    size_t pu = q.top().second; q.pop();
     const vector<Graph::Edge>& adj = p_graph.uAdj(pu);
     const vector<int>& u_vars = p_graph.getULabel(pu).vars;
     for (size_t j = 0, pv, k; j < adj.size(); ++j){
@@ -308,25 +262,17 @@ bool choose(stack<decision>& decisions, const vector<int>& confs, const LabeledG
 	if (!u_graph.has_edge(u_vars[k], v_vars[k])) break;
       }
       if (k == u_vars.size()){
-     	double val(0);
-	for (k = 0; k < u_vars.size(); ++k){
-	  val += num_involved[u_vars[k]];
+	vector<Graph::VertexPair> uedges = u_graph.remove_edges(p_graph.getULabel(pu).vars, p_graph.getVLabel(pv).vars);
+	if (u_graph.unit_prop(uedges)){
+  	  decisions.emplace(pu, j, uedges);
+	  return true;
+	} else {
+	  for (size_t i = 0; i < uedges.size(); ++i){
+  	    u_graph.add_edge(uedges[i].u, uedges[i].v);
+	  }
 	}
-	val /= u_vars.size(); /* average number of involved conflicts */
-	if (best_val < val){
-	  best_val = val;
-	  best_u = pu;
-	  best_v = pv;
-	  best_j = j;
-	}
-        /* decisions.push(decision(pu, j, remove_edges(u_label[pu].vars, v_label[pv].vars, adj_u, adj_v)));
-	   return true; */
       }
     }
-  }
-  if (best_val != 0){
-    decisions.push(decision(best_u, best_j, u_graph.remove_edges(p_graph.getULabel(best_u).vars, p_graph.getVLabel(best_v).vars)));
-    return true;
   }
   return false;
 }

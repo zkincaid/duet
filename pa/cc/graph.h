@@ -12,8 +12,8 @@
 #include <vector>
 #include <queue>
 
-#ifndef CM_GRAPH
-#define CM_GRAPH
+#ifndef CM_GRAPH_H
+#define CM_GRAPH_H
 
 /************************************************************
   A Bipartite Graph represented as two adjacency lists --
@@ -91,10 +91,11 @@ class Graph{
     return ans;
   }
 
-  void unit_prop(std::vector<VertexPair>& removed){
+  bool unit_prop(std::vector<VertexPair>& removed){
     std::queue<size_t> units;
-    for (size_t i = 0; i < adj_u.size(); ++i){
-      if (adj_u[i].size() == 1) units.push(i);
+    for (size_t i = 1; i < adj_u.size(); ++i){
+      if (adj_u[i].size() == 0) return false;
+      if (adj_u[i].size() == 1 && adj_v[adj_u[i][0].vertex].size() != 1) units.push(i);
     }
     size_t u;
     Edge v, k, l;
@@ -118,9 +119,12 @@ class Graph{
 	adj_v[v.vertex].clear();
 	adj_v[v.vertex].push_back(Edge(u, 0));
 	adj_u[u][0].position = 0;
+      } else if (adj_u[u].size() == 0) { /* We can never have a covering matching if u is incident to 0 edges */
+	return false;
       }
       units.pop();
     }
+    return true;
   }
 
   /* Remove all edges inconsistent with U[i] |-> V[i],
@@ -160,7 +164,6 @@ class Graph{
       adj_v[v].clear();
       adj_v[v].push_back(Edge(u, 0));
     }
-    unit_prop(removed);
     return removed;
   }
 
@@ -190,9 +193,17 @@ class Graph{
 template <class UT, class VT>
 class LabeledGraph : public Graph {
  public:
+  LabeledGraph () {}
+  
+  /* use copy semantics for vectors */
   LabeledGraph (const std::vector<UT>& u_label, const std::vector<VT>& v_label) :
     Graph(u_label.size(), v_label.size()),
     labels_u(u_label), labels_v(v_label) {}
+
+  /* should use move semantics for vectors */
+  LabeledGraph (std::vector<UT>& u_label, std::vector<VT>& v_label) :
+    Graph(u_label.size(), v_label.size()),
+    labels_u(std::move(u_label)), labels_v(std::move(v_label)) {}
 
   /*****************************
    Get the label at vertex u / v
