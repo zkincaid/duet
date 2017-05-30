@@ -16,11 +16,8 @@ using namespace std;
 
 bool embedding(Embedding emb);
 void find_conflicts(const Embedding& emb, const vector<int>& matching, vector<int>& confs);
-//void find_conflicts(const LabeledGraph<prop, prop>& p_graph, const vector<int>& matching, vector<int>& confs);
 void backtrack(stack<decision>& decisions, Embedding& emb);
-//void backtrack(stack<decision>& decisions, const LabeledGraph<prop, prop>& p_graph, Graph& u_graph);
 bool choose(stack<decision>& decisions, const vector<int>& confs, Embedding& emb);
-//bool choose(stack<decision>& decisions, const vector<int>& confs, const LabeledGraph<prop, prop>& p_graph, Graph& u_graph);
 
 /**********************************************************
   This is the function that is called by the ocaml code
@@ -125,7 +122,7 @@ bool embedding(Embedding emb){
   size_t ans, num(0);
 
   stack<decision> decisions;
-  
+
   do {
     std::fill(vis.begin(), vis.end(), 0);            /* Reset variables for matching problem */
     ans = u_graph.max_matching(match1, match2, vis); /* Compute maximum cardinality matching */
@@ -186,10 +183,30 @@ void find_conflicts(const Embedding& emb, const vector<int>& matching, vector<in
    This is done by maintaining consistence with the universe graph that is forced
    to be consistent with all previously made decisions */
 void backtrack(stack<decision>& decisions, Embedding& emb){
-  const LabeledGraph<prop, prop>& p_graph = emb.get_predicate_graph();
-  Graph& u_graph = emb.get_universe_graph();
   while(!decisions.empty()){
-    decision d = decisions.top(); decisions.pop();
+    decision& d = decisions.top();
+    emb.add_back(d.p_edges, d.u_edges);
+    for (; ++d.pos < d.pu_adj.size();){
+      d.p_edges.clear(); d.u_edges.clear();
+      emb.choose_constraint(d.u, d.pu_adj[d.pos].vertex, d.p_edges, d.u_edges);
+      if (!emb.get_valid()){
+	emb.add_back(d.p_edges, d.u_edges);
+      } else {
+	return;
+      }
+    }
+    decisions.pop();
+    /*
+    for (size_t i = 0; i < adj.size(); ++i){
+      p_removed.clear(); u_removed.clear();
+      emb.choose_constraint(pu, adj[i].vertex, p_removed, u_removed);
+      if (!emb.get_valid()){
+	emb.add_back(p_removed, u_removed);
+      } else {
+	decisions.emplace(pu, i, u_removed, p_removed, adj);
+      }
+    }
+
     for (size_t i = 0; i < d.u_edges.size(); ++i){
       u_graph.add_edge(d.u_edges[i].u, d.u_edges[i].v);
     }
@@ -202,8 +219,8 @@ void backtrack(stack<decision>& decisions, Embedding& emb){
       }
       if (k == u_vars.size()){
 	vector<Graph::VertexPair> uedges = u_graph.remove_edges(u_vars, v_vars);
-	u_graph.unit_prop(uedges);
-  	if (u_graph.unit_prop(uedges)){
+	vector<int> junk;
+  	if (u_graph.unit_prop(uedges, junk, junk)){
   	  decisions.emplace(d.u, d.pos, uedges);
 	  return;
 	} else {
@@ -212,7 +229,7 @@ void backtrack(stack<decision>& decisions, Embedding& emb){
 	  }
 	}
       }
-    }
+      }*/
   }
 }
 
@@ -233,7 +250,6 @@ vector<size_t> num_conflicts(const LabeledGraph<prop, prop>& p_graph, const vect
    can be consistent with decisions already made) */
 bool choose(stack<decision>& decisions, const vector<int>& confs, Embedding& emb){
   const LabeledGraph<prop, prop>& p_graph = emb.get_predicate_graph();
-  Graph& u_graph = emb.get_universe_graph();
 
   vector<size_t> num_involved = num_conflicts(p_graph, confs);
 
@@ -250,10 +266,21 @@ bool choose(stack<decision>& decisions, const vector<int>& confs, Embedding& emb
     val /= vars.size(); /* average number of involved conflicts */
     q.push(make_pair(val, confs[i]));
   }
-
+  
+  vector<Graph::VertexPair> p_removed, u_removed;
   while (!q.empty()){
     size_t pu = q.top().second; q.pop();
-    const vector<Graph::Edge>& adj = p_graph.uAdj(pu);
+    vector<Graph::Edge> adj = p_graph.uAdj(pu);
+    for (size_t i = 0; i < adj.size(); ++i){
+      p_removed.clear(); u_removed.clear();
+      emb.choose_constraint(pu, adj[i].vertex, p_removed, u_removed);
+      if (!emb.get_valid()){
+	emb.add_back(p_removed, u_removed);
+      } else {
+	decisions.emplace(pu, i, u_removed, p_removed, adj);
+      }
+    }
+    /*
     const vector<int>& u_vars = p_graph.getULabel(pu).vars;
     for (size_t j = 0, pv, k; j < adj.size(); ++j){
       pv = adj[j].vertex;
@@ -263,7 +290,8 @@ bool choose(stack<decision>& decisions, const vector<int>& confs, Embedding& emb
       }
       if (k == u_vars.size()){
 	vector<Graph::VertexPair> uedges = u_graph.remove_edges(p_graph.getULabel(pu).vars, p_graph.getVLabel(pv).vars);
-	if (u_graph.unit_prop(uedges)){
+	vector<int> junk;
+	if (u_graph.unit_prop(uedges, junk, junk)){
   	  decisions.emplace(pu, j, uedges);
 	  return true;
 	} else {
@@ -272,7 +300,7 @@ bool choose(stack<decision>& decisions, const vector<int>& confs, Embedding& emb
 	  }
 	}
       }
-    }
+      } */
   }
   return false;
 }

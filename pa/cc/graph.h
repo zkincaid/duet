@@ -11,6 +11,7 @@
  *******************************************************************/
 #include <vector>
 #include <queue>
+#include <cassert>
 
 #ifndef CM_GRAPH_H
 #define CM_GRAPH_H
@@ -73,8 +74,9 @@ class Graph{
     if (adj_v.size() <= v){
       adj_v.resize(v+1);
     }
-    adj_u[u].push_back(Edge(v, adj_v[v].size()));
-    adj_v[v].push_back(Edge(u, adj_u[u].size() - 1));
+    adj_u[u].emplace_back(v, adj_v[v].size());
+    adj_v[v].emplace_back(u, adj_u[u].size() - 1);
+    assert (check());
   }
 
   /* Ford Fulkerson algorithm for Bipartite Maximum Matching
@@ -91,34 +93,32 @@ class Graph{
     return ans;
   }
 
-  bool unit_prop(std::vector<VertexPair>& removed){
+  bool unit_prop(std::vector<VertexPair>& removed, std::vector<int>& u_units, std::vector<int>& v_units){
     std::queue<size_t> units;
     for (size_t i = 1; i < adj_u.size(); ++i){
       if (adj_u[i].size() == 0) return false;
       if (adj_u[i].size() == 1 && adj_v[adj_u[i][0].vertex].size() != 1) units.push(i);
     }
     size_t u;
-    Edge v, k, l;
+    Edge k, v;
     while(!units.empty()){
       u = units.front();
       if (adj_u[u].size() == 1){
 	v = adj_u[u][0];
-	for (size_t i = 0; i < adj_v[v.vertex].size(); ++i){
+  	u_units.push_back(u); v_units.push_back(v.vertex);
+	size_t i = 0;
+	while (i < adj_v[v.vertex].size()){
 	  k = adj_v[v.vertex][i];
 	  if (k.vertex != u){
-	    adj_u[k.vertex][k.position] = adj_u[k.vertex][adj_u[k.vertex].size()-1];
-	    l = adj_u[k.vertex][k.position];
-	    adj_v[l.vertex][l.position].position = k.position;
-	    adj_u[k.vertex].pop_back();
-	    if (adj_u[k.vertex].size() == 1){
+	    remove_edge(k.vertex, k.position);
+	    removed.emplace_back(k.vertex, v.vertex);
+	    if (adj_u[k.vertex].size() == 1 && adj_v[adj_u[k.vertex][0].vertex].size() != 1){
 	      units.push(k.vertex);
 	    }
-	    removed.push_back(VertexPair(k.vertex, v.vertex));
+	  } else {
+	    ++i;
 	  }
 	}
-	adj_v[v.vertex].clear();
-	adj_v[v.vertex].push_back(Edge(u, 0));
-	adj_u[u][0].position = 0;
       } else if (adj_u[u].size() == 0) { /* We can never have a covering matching if u is incident to 0 edges */
 	return false;
       }
@@ -127,44 +127,117 @@ class Graph{
     return true;
   }
 
+  /* Remove a single edge
+     Assumption:
+       ajd_u[u][pos] = {v, pos'} <->
+       adj_v[v][pos'] = {u, pos}
+   */
+  void remove_edge(size_t u, size_t pos){
+    Edge k = adj_u[u][pos], l;
+    if (pos != adj_u[u].size() - 1){
+      adj_u[u][pos] = l = adj_u[u].back();
+      adj_v[l.vertex][l.position].position = pos;
+    }
+    if (k.position != adj_v[k.vertex].size()-1){
+      adj_v[k.vertex][k.position] = l = adj_v[k.vertex].back();
+      adj_u[l.vertex][l.position].position = k.position;
+    }
+    adj_u[u].pop_back();
+    adj_v[k.vertex].pop_back();
+  }
+
   /* Remove all edges inconsistent with U[i] |-> V[i],
      Assumptions:
        U.size() == V.size()
-       has_edge(U[i], V[i]) = true
    */
   std::vector<VertexPair> remove_edges(const std::vector<int>& U, const std::vector<int>& V){
     std::vector<VertexPair> removed;
-    Edge k, l;
     for (size_t i = 0; i < U.size(); ++i){
       size_t u(U[i]), v(V[i]);
-      /* Remove anything adjacent to u */
-      for (size_t j = 0; j < adj_u[u].size(); ++j){
-	k = adj_u[u][j];
-	if (k.vertex != v){
-	  adj_v[k.vertex][k.position] = adj_v[k.vertex][adj_v[k.vertex].size()-1];
-	  l = adj_v[k.vertex][k.position];
-	  adj_u[l.vertex][l.position].position = k.position;
-	  adj_v[k.vertex].pop_back();
-	  removed.push_back(VertexPair(u, k.vertex));
+      size_t j = 0;
+      /* Remove anything adjacent to u that is not v */
+      while (j < adj_u[u].size()){
+	if (adj_u[u][j].vertex != v){
+	  removed.emplace_back(u, adj_u[u][j].vertex);
+	  remove_edge(u, j);
+	} else {
+	  ++j;
 	}
       }
-      adj_u[u].clear();
-      adj_u[u].push_back(Edge(v,0));
-      /* remove anything adjacent to v */
-      for (size_t j = 0; j < adj_v[v].size(); ++j){
-	k = adj_v[v][j];
-	if (k.vertex != u){
-          adj_u[k.vertex][k.position] = adj_u[k.vertex][adj_u[k.vertex].size()-1];
-	  l = adj_u[k.vertex][k.position];
-	  adj_v[l.vertex][l.position].position = k.position;
-	  adj_u[k.vertex].pop_back();
-	  removed.push_back(VertexPair(k.vertex, v));
-        }
+      j = 0;
+      /* Remove anything adjacent to v that is not u */
+      while (j < adj_v[v].size()){
+	if (adj_v[v][j].vertex != u){
+	  removed.emplace_back(adj_v[v][j].vertex, v);
+	  remove_edge(adj_v[v][j].vertex, adj_v[v][j].position);
+	} else {
+	  ++j;
+	}
       }
-      adj_v[v].clear();
-      adj_v[v].push_back(Edge(u, 0));
     }
     return removed;
+  }
+
+  /* Print the adjacency list of the graph [u -> v] */
+  void print_graph() const {
+    for (size_t i = 0; i < adj_u.size(); ++i){
+      printf("%lu |-> {", i);
+      for (size_t j = 0; j < adj_u[i].size(); ++j){
+	if (j != adj_u[i].size() -1){
+  	  printf("[%lu, %lu], ", adj_u[i][j].vertex, adj_u[i][j].position);
+	} else {
+	  printf("[%lu, %lu]", adj_u[i][j].vertex, adj_u[i][j].position);
+	}
+      }
+      printf("}\n");
+    }
+  }
+
+  /* Print the reverse adjacency list of the graph [v -> u] */
+  void print_vgraph() const {
+    for (size_t i = 0; i < adj_v.size(); ++i){
+      printf("%lu |- {", i);
+      for (size_t j = 0; j < adj_v[i].size(); ++j){
+	if (j != adj_v[i].size() - 1){
+  	  printf("[%lu, %lu], ", adj_v[i][j].vertex, adj_v[i][j].position);
+	} else {
+	  printf("[%lu, %lu]", adj_v[i][j].vertex, adj_v[i][j].position);
+	}
+      }
+      printf("}\n");
+    }
+  }
+
+  /* Does the graph invariant hold: useful for debugging issues */
+  bool check() const {
+    Edge k;
+    for (size_t i = 0; i < adj_u.size(); ++i){
+      for (size_t j = 0; j < adj_u[i].size(); ++j){
+	k = adj_u[i][j];
+	if (k.vertex < adj_v.size() && k.position < adj_v[k.vertex].size()){
+  	  k = adj_v[k.vertex][k.position];
+	  if (k.vertex != i || k.position != j){
+	    return false;
+	  }
+	} else {
+	  return false;
+	}
+      }
+    }
+    for (size_t i = 0; i < adj_v.size(); ++i){
+      for (size_t j = 0; j < adj_v[i].size(); ++j){
+	k = adj_v[i][j];
+	if (k.vertex < adj_u.size() && k.position < adj_u[k.vertex].size()){
+	  k = adj_u[k.vertex][k.position];
+	  if (k.vertex != i || k.position != j){
+	    return false;
+	  }
+	} else {
+	  return false;
+	}
+      }
+    }
+    return true;
   }
 
  private:
