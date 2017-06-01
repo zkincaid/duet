@@ -166,6 +166,10 @@ val solve : QQMatrix.t -> QQVector.t -> QQVector.t option
     basis for the intersection of the rowspaces of A and B *)
 val intersect_rowspace : QQMatrix.t -> QQMatrix.t -> (QQMatrix.t * QQMatrix.t)
 
+(** Given two matrices A and B, compute a matrix C such that CB = A (if one
+    exists).  If A and B are invertible, then C is exactly AB^{-1}. *)
+val divide_right : QQMatrix.t -> QQMatrix.t -> QQMatrix.t option
+
 (** {2 Affine terms} *)
 
 (** Various operations for manipulating affine terms over symbols, represented
