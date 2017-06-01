@@ -171,7 +171,7 @@ class Embedding{
      and performs "arc consistency" */
   void choose_constraint(size_t pu, size_t pv, std::vector<Graph::VertexPair>& p_removed,
 			 std::vector<Graph::VertexPair>& u_removed){
-    const std::vector<int>& u_vars = p_graph_.getULabel(pu).vars;
+    /*    const std::vector<int>& u_vars = p_graph_.getULabel(pu).vars;
     const std::vector<int>& v_vars = p_graph_.getVLabel(pv).vars;
     for (size_t i = 0; valid_ && i < u_vars.size(); ++i){
       valid_ = u_graph_.has_edge(u_vars[i], v_vars[i]);
@@ -182,12 +182,10 @@ class Embedding{
     std::vector<Graph::VertexPair> tmp = u_graph_.remove_edges(u_vars, v_vars);
     u_removed.insert(u_removed.end(), tmp.begin(), tmp.end());
     std::vector<int> junk;
-    valid_ = u_graph_.unit_prop(u_removed, junk, junk);
-    /*
-    std::vector<Graph::VertexPair> tmp = u_graph_.remove_edges(p_graph_.getULabel(pu).vars, p_graph_.getVLabel(pv).vars);
-    u_removed.insert(u_removed.end(), tmp.begin(), tmp.end());
-    std::vector<int> junk;
-    valid_ = u_graph_.unit_prop(u_removed, junk, junk);
+    valid_ = u_graph_.unit_prop(u_removed, junk, junk); */
+
+    
+
     std::vector<int> matches;
     matches.resize(u_graph_.uSize(), -1);
 
@@ -195,11 +193,9 @@ class Embedding{
 
     std::vector<int> pu_units, pv_units;
     pu_units.push_back(pu), pv_units.push_back(pv);
-    tmp = p_graph_.remove_edges(pu_units, pv_units);
+    tmp = std::move(p_graph_.remove_edges(pu_units, pv_units));
     p_removed.insert(p_removed.begin(), tmp.begin(), tmp.end());
     if (!p_graph_.unit_prop(p_removed, pu_units, pv_units)) valid_ = false;
-    printf("-----------------------------------------------------------------------------------------------\n");
-    p_graph_.print_graph();
 
     while (valid_ && pu_units.size() != 0){
       std::vector<int> uu_units, uv_units;
@@ -211,29 +207,22 @@ class Embedding{
 	    matches[u_vars[k]] = v_vars[k];
 	    uu_units.push_back(u_vars[k]);
 	    uv_units.push_back(v_vars[k]);
-	  } else if (matches[u_vars[k]] != v_vars[k]){ */ /* Universe Inconsistency */ /*
+	  } else if (matches[u_vars[k]] != v_vars[k]){ /* Universe Inconsistency */
 	    valid_ = false;
 	  }
 	}
       }
       if (!valid_) break;
-      printf("\nu_graph_\n");
-      for (size_t i = 0; i < uu_units.size(); ++i){
-	printf("(%d, %d), ", uu_units[i], uv_units[i]);
-      }
-      std::vector<Graph::VertexPair> tmp = u_graph_.remove_edges(uu_units, uv_units);
+      tmp = std::move(u_graph_.remove_edges(uu_units, uv_units));
       u_removed.insert(u_removed.begin(), tmp.begin(), tmp.end());
       uu_units.clear(); uv_units.clear();
       if (!u_graph_.unit_prop(u_removed, uu_units, uv_units)){
 	valid_ = false;
 	break;
       }
-      printf("u_graph_ ENDED\n");
       pu_units.clear(); pv_units.clear();
-      filter(uu_units, uv_units, p_removed, pu_units, pv_units);
+      //filter(uu_units, uv_units, p_removed, pu_units, pv_units);
     }
-    printf("******************************************************************************************************\n");
-    p_graph_.print_graph(); */
   }
 
   /* Remove any edge inconsistent with U[i] |-> V[i] in the universe graph */
