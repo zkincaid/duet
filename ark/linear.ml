@@ -505,6 +505,19 @@ let intersect_rowspace a b =
       | None -> ()));
   (!c, !d)
 
+let divide_right a b =
+  try
+    let b_tr = QQMatrix.transpose b in
+    let div =
+      BatEnum.fold (fun div (i, row) ->
+          Log.errorf "On row %d" i;
+          QQMatrix.add_row i (solve_exn b_tr row) div)
+        QQMatrix.zero
+        (QQMatrix.rowsi a)
+    in
+    Some div
+  with No_solution -> None
+
 (* Affine expressions over constant symbols.  dim_of_sym, const_dim, and
    sym_of_dim are used to translate between symbols and the dimensions of the
    coordinate space. *)
