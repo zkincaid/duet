@@ -300,7 +300,7 @@ let run pa word =
     logf "<- Accepting";
   final
 
-let rec check_embeddings structs reName =
+let check_embeddings embeds structs reName =
   (* Renames arguments to be from 1 to n *)
   let rename str =
     let inv = BatDynArray.create() in (* Inverse Mapping *)
@@ -329,10 +329,10 @@ let rec check_embeddings structs reName =
          begin
            let str, inv = rename c in
            let str', inv' = rename c' in
-           print_endline (if Config.embeds_novel2 str str' then "True" else "False")
+           print_endline (if embeds str str' then "True" else "False")
          end
        else
-         print_endline (if Config.embeds_novel2 c c' then "True" else "False"));
+         print_endline (if embeds c c' then "True" else "False"));
        go structs'
   in go structs  
 
@@ -378,9 +378,14 @@ let _ =
     end
   | "embeds" ->
      if Array.length Sys.argv > 3 then
-       check_embeddings (load_structs Sys.argv.(3)) (match Sys.argv.(2) with | "rename" -> true | _ -> false)
+       check_embeddings Config.embeds_novel2 (load_structs Sys.argv.(3)) (match Sys.argv.(2) with | "rename" -> true | _ -> false)
      else
-       check_embeddings (load_structs Sys.argv.(2)) false
+       check_embeddings Config.embeds_novel2 (load_structs Sys.argv.(2)) false
+  | "uembeds" ->
+     if Array.length Sys.argv > 3 then
+       check_embeddings Config.uembeds (load_structs Sys.argv.(3)) (match Sys.argv.(2) with | "rename" -> true | _ -> false)
+     else
+       check_embeddings Config.uembeds (load_structs Sys.argv.(2)) false
   | "diff-check" ->
     let program = load_automaton Sys.argv.(2) in
     let proof = load_automaton Sys.argv.(3) in

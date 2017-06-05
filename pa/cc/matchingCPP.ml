@@ -24,6 +24,8 @@ module type S = sig
 
   (* run the embedding problem in C / C++ *)
   val embeds : t -> bool
+
+  val uembeds : t -> bool
 end
 
 module Make (Predicate : Symbol) = struct
@@ -42,9 +44,11 @@ module Make (Predicate : Symbol) = struct
       str2 = (univ2, make_list probs2)}
 
   (* The actual call to the c function *)
-  external embedsCPP : str -> str ->  bool = "embedsOCAML"
+  external embedsCPP : str -> str -> bool ->  bool = "embedsOCAML"
 
   (* Uncouple record *)
-  let embeds embedding = embedsCPP embedding.str1 embedding.str2
+  let embeds embedding = embedsCPP embedding.str1 embedding.str2 true
+
+  let uembeds embedding = embedsCPP embedding.str1 embedding.str2 false
 
 end

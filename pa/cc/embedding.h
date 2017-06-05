@@ -49,6 +49,15 @@ struct decision{
   std::vector<Graph::Edge> pu_adj;
 };
 
+struct udecision{
+    size_t u;
+    size_t v;
+    std::vector<Graph::VertexPair> remove_u;
+    std::vector<Graph::VertexPair> remove_p;
+    udecision(size_t _u, size_t _v) : u(_u), v(_v) { }
+    udecision(size_t _u, size_t _v, std::vector<Graph::VertexPair>& _remove_u, std::vector<Graph::VertexPair>& _remove_p) : u(_u), v(_v), remove_u(_remove_u), remove_p(_remove_u) { }
+};
+
 /* Assume sig1 and sig2 represent multisets of elements */
 bool subset(const std::vector<uint8_t>& sig1, const std::vector<uint8_t>& sig2){
   bool subset(sig1.size() <= sig2.size());
@@ -171,6 +180,7 @@ class Embedding{
      and performs "arc consistency" */
   void choose_constraint(size_t pu, size_t pv, std::vector<Graph::VertexPair>& p_removed,
 			 std::vector<Graph::VertexPair>& u_removed){
+
     /*    const std::vector<int>& u_vars = p_graph_.getULabel(pu).vars;
     const std::vector<int>& v_vars = p_graph_.getVLabel(pv).vars;
     for (size_t i = 0; valid_ && i < u_vars.size(); ++i){
@@ -183,8 +193,6 @@ class Embedding{
     u_removed.insert(u_removed.end(), tmp.begin(), tmp.end());
     std::vector<int> junk;
     valid_ = u_graph_.unit_prop(u_removed, junk, junk); */
-
-    
 
     std::vector<int> matches;
     matches.resize(u_graph_.uSize(), -1);
@@ -213,6 +221,7 @@ class Embedding{
 	}
       }
       if (!valid_) break;
+
       tmp = std::move(u_graph_.remove_edges(uu_units, uv_units));
       u_removed.insert(u_removed.begin(), tmp.begin(), tmp.end());
       uu_units.clear(); uv_units.clear();
@@ -223,6 +232,20 @@ class Embedding{
       pu_units.clear(); pv_units.clear();
       //filter(uu_units, uv_units, p_removed, pu_units, pv_units);
     }
+  }
+
+  /* Commit to a decision and ensure arc consistency. */
+  void decide(udecision& d) {
+      std::vector<int> u_units, v_units;
+      std::vector<Graph::VertexPair> tmp;
+
+      u_units.push_back(d.u);
+      v_units.push_back(d.v);
+
+      tmp = std::move(u_graph_.remove_edges(u_units, v_units));
+      d.remove_u.insert(d.remove_u.begin(), tmp.begin(), tmp.end());
+
+      ufilter(d.remove_u, d.remove_p);
   }
 
   /* Remove any edge inconsistent with U[i] |-> V[i] in the universe graph */
@@ -256,6 +279,73 @@ class Embedding{
       }
     }
     if (!p_graph_.unit_prop(removed, pu_units, pv_units)) valid_ = false;
+  }
+
+  void ufilter(std::vector<Graph::VertexPair>& remove_u, std::vector<Graph::VertexPair>& remove_p) {
+      bool filtered = true; // More filtering to do?
+      while (valid_ && filtered) {
+	  filtered = false;
+	  for (size_t p = 0; p < p_graph_.uSize(); ++p){
+	      const std::vector<Graph::Edge>& p_adj = p_graph_.uAdj(p);
+	      const std::vector<int>& p_vars = p_graph_.getULabel(p).vars;
+
+	      /* For each edge p(x_1,...,x_n) -> q(y_1, ..., y_n) in the
+		 predicate graph, ensure that each of x_1 -> y_1, ..., x_n ->
+		 y_n is the universe graph. */
+	      size_t q = 0;
+	      while (q < p_adj.size()) {
+		  const std::vector<int>& q_vars = p_graph_.getVLabel(p_adj[q].vertex).vars;
+		  bool remove_pq = false;
+		  for (size_t i = 0; !remove_pq && i < p_vars.size(); ++i) {
+		      const std::vector<Graph::Edge>& u_adj = u_graph_.uAdj(p_vars[i]);
+		      size_t v;
+		      // check if x_i -> y_i
+		      for (v = 0; v < u_adj.size() && u_adj[v].vertex != (size_t)q_vars[i]; v++) ;
+		      if (v == u_adj.size()) {
+			  remove_pq = true;
+		      }
+		  }
+		  if (remove_pq) {
+		      remove_p.emplace_back(p, p_adj[q].vertex);
+		      p_graph_.remove_edge(p, q);
+		      filtered = true;
+		  } else {
+		      q++;
+		  }
+	      }
+	      if (p_adj.size() == 0) {
+		  valid_ = false;
+		  return;
+	      }
+
+	      /* Suppose that x_i -> y.  Then there must be some p(x_1,...,x_n) ->
+		 q(y_1, ..., y_n) in the predicate graph with y = y_i */
+	      for (size_t i = 0; i < p_vars.size(); ++i) {
+		  const std::vector<Graph::Edge>& xi_adj = u_graph_.uAdj(p_vars[i]);
+		  size_t y = 0;
+		  while (y < xi_adj.size()) {
+		      bool remove_xiy = true;
+		      for (size_t q = 0; remove_xiy && q < p_adj.size(); ++q){
+			  const std::vector<int>& q_vars = p_graph_.getVLabel(p_adj[q].vertex).vars;
+			  if (xi_adj[y].vertex == (size_t)q_vars[i]) {
+			      remove_xiy = false;
+			  }
+		      }
+		      if (remove_xiy) {
+			  remove_u.emplace_back(p_vars[i], xi_adj[y].vertex);
+			  u_graph_.remove_edge(p_vars[i], y);
+			  filtered = true;
+		      } else {
+			  y++;
+		      }
+		  }
+		  if (xi_adj.size() == 0) {
+		      valid_ = false;
+		      return;
+		  }
+	      }
+	  }
+      }
   }
 
   void add_back(const std::vector<Graph::VertexPair>& p_edges, const std::vector<Graph::VertexPair>& u_edges){

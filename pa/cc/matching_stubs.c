@@ -12,9 +12,13 @@
 #include <functional>
 #include "graph.h"
 #include "embedding.h"
+
+#define TRACE false
+
 using namespace std;
 
 bool embedding(Embedding emb);
+bool uembedding(Embedding emb);
 void find_conflicts(const Embedding& emb, const vector<int>& matching, vector<int>& confs);
 void backtrack(stack<decision>& decisions, Embedding& emb);
 bool choose(stack<decision>& decisions, const vector<int>& confs, Embedding& emb);
@@ -26,8 +30,8 @@ bool choose(stack<decision>& decisions, const vector<int>& confs, Embedding& emb
   Which determines if str1 is embedded in str2.
 ***********************************************************/
 extern "C" {
-  CAMLprim value embedsOCAML(value str1, value str2){ /* str = int * (string * int list) list */
-    CAMLparam2(str1, str2);
+  CAMLprim value embedsOCAML(value str1, value str2, value algo){ /* str = int * (string * int list) list */
+    CAMLparam3(str1, str2, algo);
     CAMLlocal3(head, propList, predList);
     
     vector<vector<uint8_t> > sig1, sig2;    /* Signature of str1 and str2 respectively */
@@ -103,7 +107,14 @@ extern "C" {
 	pv_label.push_back(tmp);
       }
     }
-    CAMLreturn(Val_bool(embedding(std::move(Embedding(sig1, sig2, pu_label, pv_label)))));
+
+    bool result;
+    if(Int_val(algo)) {
+	result = embedding(std::move(Embedding(sig1, sig2, pu_label, pv_label)));
+    } else {
+	result = uembedding(std::move(Embedding(sig1, sig2, pu_label, pv_label)));
+    }
+    CAMLreturn(Val_bool(result));
   }
 }
 
@@ -119,7 +130,7 @@ bool embedding(Embedding emb){
   match1.resize(u_graph.uSize(), -1);
   match2.resize(u_graph.vSize(), -1);
   vis.resize(u_graph.uSize(), 0);
-  size_t ans, num(0);
+  size_t ans, num(0), bt(0);
 
   stack<decision> decisions;
 
@@ -128,16 +139,25 @@ bool embedding(Embedding emb){
     ans = u_graph.max_matching(match1, match2, vis); /* Compute maximum cardinality matching */
     ++num;
 
+#if TRACE
+    printf("iterations: %lu\tbacktrack: %lu\tlevel: %lu\n", num, bt, decisions.size());
+#endif
+
     if (ans != u_graph.uSize()){
       backtrack(decisions, emb);
+      bt++;
     } else {
       find_conflicts(emb, match1, conflicts);
       if (conflicts.size() == 0){
-        printf("iterations: %lu\n", num);
+#if TRACE
+	printf("iterations: %lu\tbacktrack: %lu\tlevel: %lu\n", num, bt, decisions.size());
+#endif
         return true;
       }
+
       if (!choose(decisions, conflicts, emb)){
         backtrack(decisions, emb);
+	bt++;
       } else {
 	vector<Graph::VertexPair>& edges = decisions.top().u_edges;
 	for (size_t i = 0; i < edges.size(); ++i){
@@ -156,9 +176,133 @@ bool embedding(Embedding emb){
       }
     }
   } while(!decisions.empty());
-  printf("iterations: %lu\n", num);
+
+#if TRACE
+  printf("iterations: %lu\nbacktrack: %lu\n", num, bt);
+#endif
+
   return false;
 }
+
+
+void ubacktrack(Embedding &emb, stack<udecision> &decisions) {
+    Graph& u_graph = emb.get_universe_graph();
+    udecision& d = decisions.top();
+
+    emb.add_back(d.remove_p, d.remove_u);
+
+    // Remove the (d.u -> d.v) edge
+    size_t pos;
+    const vector<Graph::Edge>& adj = u_graph.uAdj(d.u);
+    for(pos = 0; pos < adj.size() && adj[pos].vertex != d.v; pos++) ;
+    assert(pos < adj.size());
+    u_graph.remove_edge(d.u, pos);
+
+    decisions.pop();
+
+    // Blame the (d.u -> d.v) edge removal on the previous decision
+    if (decisions.size() > 0) {
+	udecision& prev = decisions.top();
+	prev.remove_u.emplace_back(d.u, d.v);
+    }
+}
+
+bool uembedding(Embedding emb){
+  {
+      vector<Graph::VertexPair> p_removed, u_removed;
+      emb.ufilter(p_removed, u_removed);
+  }
+
+  if (!emb.get_valid()) return false;
+  Graph& u_graph = emb.get_universe_graph();
+  const LabeledGraph<prop, prop>& p_graph = emb.get_predicate_graph();
+
+  vector<int> match1, match2, vis, conflicts;
+
+  match1.resize(u_graph.uSize(), -1);
+  match2.resize(u_graph.vSize(), -1);
+  vis.resize(u_graph.uSize(), 0);
+  size_t ans, num(0), bt(0);
+
+  stack<udecision> decisions;
+  while (1) {
+      num++;
+
+#if TRACE
+      printf("iterations: %lu\tbacktrack: %lu\tlevel: %lu\n", num, bt, decisions.size());
+#endif
+
+      for (size_t i = 0; i < match1.size(); ++i){
+	  if (match1[i] != -1 && !u_graph.has_edge(i, match1[i])){
+	      match2[match1[i]] = -1;
+	      match1[i] = -1;
+	  }
+      }
+
+      std::fill(vis.begin(), vis.end(), 0);            /* Reset variables for matching problem */
+      ans = u_graph.max_matching(match1, match2, vis); /* Compute maximum cardinality matching */
+      if (ans != u_graph.uSize()) {
+#if TRACE
+	  printf("Backtrack: no total matching\n");
+#endif
+	  if (decisions.size() >= 1) {
+	      bt++;
+	      ubacktrack(emb, decisions);
+	      continue;
+	  } else {
+	      return false;
+	  }
+      }
+
+      find_conflicts(emb, match1, conflicts);
+      if (conflicts.size() == 0){
+	  return true;
+      }
+      // just pick the first conflict
+      const vector<int>& conflict_vars = p_graph.getULabel(conflicts[0]).vars;
+
+      // Find a decision variable (involved in the conflict and has out-degree > 1)
+      size_t i;
+      for (i = 0; i < conflict_vars.size() && u_graph.uAdj(conflict_vars[i]).size() <= 1; ++i) ;
+      if (i == conflict_vars.size()) {
+	  // No decision variables in the conflict.  This is possible only if
+	  // the input graph is not arc consistent.
+#if TRACE
+	  printf("Backtrack: no decision variables in conflict\n");
+#endif
+	  if (decisions.size() >= 1) {
+	      bt++;
+	      ubacktrack(emb, decisions);
+	      continue;
+	  } else {
+	      return false;
+	  }
+      }
+      size_t d_var = conflict_vars[i];
+
+#if TRACE
+      printf("Decision: %lu -> %lu\n", d_var, match1[d_var]);
+#endif
+
+      decisions.emplace(d_var, match1[d_var]);
+      udecision& d = decisions.top();
+      emb.decide(d);
+
+#if TRACE
+      printf("Removed %lu P-graph edges and %lu U-graph edges\n",
+	     d.remove_p.size(),
+	     d.remove_u.size());
+#endif
+      if (!emb.get_valid()) {
+#if TRACE
+	  printf("Backtrack: arc inconsistent\n");
+#endif
+	  bt++;
+	  ubacktrack(emb, decisions);
+      }
+  }
+}
+
 
 /* Finds all vertices in pgraph.U that are violated by the candidate matching */
 void find_conflicts(const Embedding& emb, const vector<int>& matching, vector<int>& confs){
