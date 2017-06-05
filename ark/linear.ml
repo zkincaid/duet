@@ -2,17 +2,20 @@ open Apak
 open Syntax
 open BatPervasives
 
-include Log.Make(struct let name = "linear" end)
-module type Ring = sig
-  type t
+include Log.Make(struct let name = "ark.linear" end)
 
+module type AbelianGroup = sig
+  type t
   val equal : t -> t -> bool
   val add : t -> t -> t
-  val mul : t -> t -> t
   val negate : t -> t
   val zero : t
+end
+
+module type Ring = sig
+  include AbelianGroup
+  val mul : t -> t -> t
   val one : t
-  val pp : Format.formatter -> t -> unit
 end
 
 module type Vector = sig
@@ -20,19 +23,18 @@ module type Vector = sig
   type dim
   type scalar
   val equal : t -> t -> bool
-  val compare : t -> t -> int
   val add : t -> t -> t
   val scalar_mul : scalar -> t -> t
   val negate : t -> t
   val dot : t -> t -> scalar
   val zero : t
+  val is_zero : t -> bool
   val add_term : scalar -> dim -> t -> t
   val of_term : scalar -> dim -> t
   val enum : t -> (scalar * dim) BatEnum.t
+  val of_enum : (scalar * dim) BatEnum.t -> t
   val coeff : dim -> t -> scalar
   val pivot : dim -> t -> scalar * t
-  val pp : Format.formatter -> t -> unit
-  val show : t -> string
 end
 
 module type Map = sig
@@ -53,39 +55,33 @@ module type Map = sig
     'c t
 end
 
-module type AbelianGroup = sig
-  type t
-  val equal : t -> t -> bool
-  val add : t -> t -> t
-  val negate : t -> t
-  val zero : t
-end
-
 module AbelianGroupMap (M : Map) (G : AbelianGroup) = struct
   type t = G.t M.t
   type dim = M.key
   type scalar = G.t
 
-  let is_zero x = G.equal x G.zero
+  let is_scalar_zero x = G.equal x G.zero
 
   let zero = M.empty
+
+  let is_zero = M.equal G.equal zero
 
   let add u v =
     let f _ a b =
       match a, b with
       | Some a, Some b ->
         let sum = G.add a b in
-        if is_zero sum then None else Some sum
+        if is_scalar_zero sum then None else Some sum
       | Some x, None | None, Some x -> Some x
       | None, None -> assert false
     in
     M.merge f u v
 
   let add_term coeff dim vec =
-    if is_zero coeff then vec else begin
+    if is_scalar_zero coeff then vec else begin
       try
         let sum = G.add coeff (M.find dim vec) in
-        if not (is_zero sum) then M.add dim sum vec
+        if not (is_scalar_zero sum) then M.add dim sum vec
         else M.remove dim vec
       with Not_found -> M.add dim coeff vec
     end
@@ -93,6 +89,8 @@ module AbelianGroupMap (M : Map) (G : AbelianGroup) = struct
   let coeff dim vec = try M.find dim vec with Not_found -> G.zero
 
   let enum vec = M.enum vec /@ (fun (x,y) -> (y,x))
+
+  let of_enum = BatEnum.fold (fun vec (x,y) -> add_term x y vec) zero
 
   let equal = M.equal G.equal
 
@@ -106,6 +104,21 @@ module AbelianGroupMap (M : Map) (G : AbelianGroup) = struct
     (coeff dim vec, M.remove dim vec)
 end
 
+module RingMap (M : Map) (R : Ring) = struct
+  include AbelianGroupMap(M)(R)
+
+  let scalar_mul k vec =
+    if R.equal k R.one then vec
+    else if R.equal k R.zero then M.empty
+    else M.map (fun coeff -> R.mul k coeff) vec
+
+  let dot u v =
+    BatEnum.fold
+      (fun sum (co, i) -> R.add sum (R.mul co (coeff i v)))
+      R.zero
+      (enum u)
+end
+
 module Int = struct
   type t = int [@@deriving show,ord]
   let tag k = k
@@ -114,44 +127,24 @@ module IntMap = Apak.Tagged.PTMap(Int)
 module IntSet = Apak.Tagged.PTSet(Int)
 
 module ZZVector = struct
-  include AbelianGroupMap(IntMap)(ZZ)
-
-  let scalar_mul k vec =
-    if ZZ.equal k ZZ.one then vec
-    else if ZZ.equal k ZZ.zero then IntMap.empty
-    else IntMap.map (fun coeff -> ZZ.mul k coeff) vec
-
-  let dot u v =
-    BatEnum.fold
-      (fun sum (co, i) -> ZZ.add sum (ZZ.mul co (coeff i v)))
-      ZZ.zero
-      (enum u)
+  include RingMap(IntMap)(ZZ)
 
   let pp formatter vec =
-    IntMap.values vec
-    |> Format.fprintf formatter "[@[%a@]]" (ApakEnum.pp_print_enum ZZ.pp)
+    let pp_elt formatter (k, v) = Format.fprintf formatter "%d:%a" k ZZ.pp v in
+    IntMap.enum vec
+    |> Format.fprintf formatter "[@[%a@]]" (ApakEnum.pp_print_enum pp_elt)
 
   let show = Putil.mk_show pp
   let compare = compare ZZ.compare
 end
 
 module QQVector = struct
-  include AbelianGroupMap(IntMap)(QQ)
-
-  let scalar_mul k vec =
-    if QQ.equal k QQ.one then vec
-    else if QQ.equal k QQ.zero then IntMap.empty
-    else IntMap.map (fun coeff -> QQ.mul k coeff) vec
-
-  let dot u v =
-    BatEnum.fold
-      (fun sum (co, i) -> QQ.add sum (QQ.mul co (coeff i v)))
-      QQ.zero
-      (enum u)
+  include RingMap(IntMap)(QQ)
 
   let pp formatter vec =
-    IntMap.values vec
-    |> Format.fprintf formatter "[%a]" (ApakEnum.pp_print_enum QQ.pp)
+    let pp_elt formatter (k, v) = Format.fprintf formatter "%d:%a" k QQ.pp v in
+    IntMap.enum vec
+    |> Format.fprintf formatter "[@[%a@]]" (ApakEnum.pp_print_enum pp_elt)
 
   let show = Putil.mk_show pp
   let compare = compare QQ.compare
@@ -193,12 +186,23 @@ module QQMatrix = struct
     /@ (fun (i, row) -> IntMap.enum row /@ (fun (j, coeff) -> (i, j, coeff)))
     |> BatEnum.concat
 
+  let row_set mat =
+    BatEnum.fold
+      (fun set (i, _) -> IntSet.add i set)
+      IntSet.empty
+      (rowsi mat)
+
   let column_set mat =
     rowsi mat
     |> BatEnum.fold (fun set (_, row) ->
         IntMap.enum row
         |> BatEnum.fold (fun set (j, _) -> IntSet.add j set) set)
       IntSet.empty
+
+  let nb_rows mat =
+    BatEnum.fold (fun nb _ -> nb + 1) 0 (rowsi mat)
+
+  let nb_columns mat = IntSet.cardinal (column_set mat)
 
   let pp formatter mat =
     let cols = column_set mat in
@@ -239,6 +243,120 @@ module QQMatrix = struct
       (rowsi mat)
 end
 
+module type ExprRingMap = sig
+  type scalar
+  type 'a t = ('a, typ_arith, scalar) ExprMap.t
+
+  val zero : 'a t
+  val one : 'a context -> 'a t
+  val add : 'a t -> 'a t -> 'a t
+  val mul : 'a context -> 'a t -> 'a t -> 'a t
+  val scalar_mul : scalar -> 'a t -> 'a t
+  val negate : 'a t -> 'a t
+  val const : 'a context -> scalar -> 'a t
+  val term : scalar -> 'a term -> 'a t
+  val add_term : scalar -> 'a term -> 'a t -> 'a t
+  val enum : 'a t -> ('a term * scalar) BatEnum.t
+  val of_enum : ('a term * scalar) BatEnum.t -> 'a t
+  val coeff : 'a term -> 'a t -> scalar
+  val pivot : 'a term -> 'a t -> scalar * 'a t
+end
+
+module MakeExprRingMap(R : Ring) = struct
+  type scalar = R.t
+  type 'a t = ('a, typ_arith, R.t) ExprMap.t
+
+  let zero = ExprMap.empty
+
+  let enum = ExprMap.enum
+
+  let add u v =
+    let f _ a b =
+      match a, b with
+      | Some a, Some b ->
+        let sum = R.add a b in
+        if R.equal sum R.zero then None else Some sum
+      | Some x, None | None, Some x -> Some x
+      | None, None -> assert false
+    in
+    ExprMap.merge f u v
+
+  let add_term coeff dim vec =
+    if R.equal coeff R.zero then vec else begin
+      try
+        let sum = R.add coeff (ExprMap.find dim vec) in
+        if not (R.equal sum R.zero) then ExprMap.add dim sum vec
+        else ExprMap.remove dim vec
+      with Not_found -> ExprMap.add dim coeff vec
+    end
+
+  let term coeff dim = add_term coeff dim zero
+
+  let const ark scalar = add_term scalar (mk_real ark QQ.one) zero
+
+  let of_enum enum =
+    BatEnum.fold (fun t (dim, coeff) -> add_term coeff dim t) zero enum
+
+  let mul ark u v =
+    ApakEnum.cartesian_product
+      (enum u)
+      (enum v)
+    /@ (fun ((xdim, xcoeff), (ydim, ycoeff)) ->
+        (mk_mul ark [xdim; ydim], R.mul xcoeff ycoeff))
+    |> of_enum
+
+  let coeff x vec =
+    try
+      ExprMap.find x vec
+    with Not_found -> R.zero
+
+  let scalar_mul k vec =
+    if R.equal k R.one then vec
+    else if R.equal k R.zero then ExprMap.empty
+    else ExprMap.map (fun coeff -> R.mul k coeff) vec
+
+  let negate vec = ExprMap.map R.negate vec
+
+  let sub u v = add u (negate v)
+
+  let one ark = const ark R.one
+
+  let pivot x vec =
+    (coeff x vec, ExprMap.remove x vec)
+end
+
+module ExprQQVector = struct
+  include MakeExprRingMap(QQ)
+
+  let rec of_term ark =
+    let alg = function
+      | `Add xs -> List.fold_left add zero xs
+      | `Mul xs -> List.fold_left (mul ark) (one ark) xs
+      | `Real k -> const ark k
+      | `Unop (`Neg, x) -> negate x
+      | `Unop (`Floor, x) -> term QQ.one (mk_floor ark (term_of ark x))
+      | `App (f, args) -> term QQ.one (mk_app ark f args)
+      | `Binop (`Div, x, y) ->
+        term QQ.one (mk_div ark (term_of ark x) (term_of ark y))
+      | `Binop (`Mod, x, y) ->
+        term QQ.one (mk_mod ark (term_of ark x) (term_of ark y))
+      | `Ite (cond, bthen, belse) ->
+        term QQ.one (mk_ite ark cond (term_of ark bthen) (term_of ark belse))
+      | `Var (v, typ) -> term QQ.one (mk_var ark v (typ :> typ_fo))
+    in
+    Term.eval ark alg
+
+  and term_of ark sum =
+    ExprMap.fold (fun term coeff terms ->
+        if QQ.equal coeff QQ.one then
+          term::terms
+        else
+          (mk_mul ark [mk_real ark coeff; term])::terms)
+      sum
+      []
+    |> mk_add ark
+end
+
 exception No_solution
 
 let solve_exn mat b =
@@ -261,13 +379,19 @@ let solve_exn mat b =
       let next_row' =
         QQVector.scalar_mul (QQ.negate (QQ.inverse cell)) next_row'
       in
-      let f row =
+      let f _ row =
         let (coeff, row') = QQVector.pivot column row in
-        QQVector.add
-          row'
-          (QQVector.scalar_mul coeff next_row')
+        let row'' =
+          QQVector.add
+            row'
+            (QQVector.scalar_mul coeff next_row')
+        in
+        if QQVector.is_zero row'' then
+          None
+        else
+          Some row''
       in
-      reduce ((column,next_row')::finished) (IntMap.map f mat')
+      reduce ((column,next_row')::finished) (IntMap.filter_map f mat')
   in
   let rr = reduce [] mat in
   let rec backprop soln = function
@@ -283,16 +407,103 @@ let solve_exn mat b =
   in
   logf "Solution: %a" QQVector.pp res;
   res
-    
+
 let solve mat b =
   try Some (solve_exn mat b)
   with No_solution -> None
+
+let orient p system =
+  let module V = QQVector in
+  let rec reduce fin sys =
+    match sys with
+    | [] -> fin
+    | (eq::rest) ->
+      if V.equal eq V.zero then
+        reduce fin rest
+      else
+        try
+          let (coeff, dim) =
+            BatEnum.find (fun (_, dim) -> not (p dim)) (V.enum eq)
+          in
+          let coeff_inv = QQ.inverse coeff in
+          let sub eq' =
+            try
+              let coeff' = V.coeff dim eq' in
+              let k = QQ.negate (QQ.mul coeff_inv coeff') in
+              V.add (V.scalar_mul k eq) eq'
+            with Not_found -> eq'
+          in
+          let rhs =
+            V.scalar_mul (QQ.negate coeff_inv) (snd (V.pivot dim eq))
+          in
+          reduce
+            ((dim,rhs)::(List.map (fun (dim, rhs) -> (dim, sub rhs)) fin))
+            (List.map sub rest)
+        with Not_found -> reduce fin rest (* No variable to eliminate *)
+  in
+  reduce [] system
 
 let vector_right_mul m v =
   m|> IntMap.filter_map (fun _ row ->
       let cell = QQVector.dot row v in
       if QQ.equal cell QQ.zero then None
       else Some cell)
+
+let intersect_rowspace a b =
+  (* Create a system lambda_1*A - lambda_2*B = 0.  lambda_1's occupy even
+     columns and lambda_2's occupy odd. *)
+  let mat_a =
+    BatEnum.fold
+      (fun mat (i, j, k) -> QQMatrix.add_entry j (2*i) k mat)
+      QQMatrix.zero
+      (QQMatrix.entries a)
+  in
+  let mat =
+    ref (BatEnum.fold
+           (fun mat (i, j, k) -> QQMatrix.add_entry j (2*i + 1) (QQ.negate k) mat)
+           mat_a
+           (QQMatrix.entries b))
+  in
+  let c = ref QQMatrix.zero in
+  let d = ref QQMatrix.zero in
+  let c_rows = ref 0 in
+  let d_rows = ref 0 in
+  let mat_rows =
+    ref (BatEnum.fold (fun m (i, _) -> max m i) 0 (QQMatrix.rowsi (!mat)) + 1)
+  in
+
+  (* Loop through the columns col of A/B, trying to find a vector in the
+     intersection of the row spaces of A and B and which has 1 in col's entry.
+     If yes, add it the linear combinations to C/D, and add a constraint to
+     mat that (in all future rows of CA), col's entry is 0.  This ensures that
+     the rows of CA are linearly independent. *)
+  (* to do: repeatedly solving super systems of the same system of equations
+       -- can be made more efficient *)
+  (QQMatrix.rowsi (!mat))
+  |> (BatEnum.iter (fun (col, _) ->
+      let mat' =
+        QQMatrix.add_row
+          (!mat_rows)
+          (QQMatrix.row col mat_a)
+          (!mat)
+      in
+      match solve mat' (QQVector.of_term QQ.one (!mat_rows)) with
+      | Some solution ->
+        let (c_row, d_row) =
+          BatEnum.fold (fun (c_row, d_row) (entry, i) ->
+              if i mod 2 = 0 then
+                (QQVector.add_term entry (i/2) c_row, d_row)
+              else
+                (c_row, QQVector.add_term entry (i/2) d_row))
+            (QQVector.zero, QQVector.zero)
+            (QQVector.enum solution)
+        in
+        c := QQMatrix.add_row (!c_rows) c_row (!c);
+        d := QQMatrix.add_row (!d_rows) d_row (!d);
+        mat := mat';
+        incr c_rows; incr d_rows; incr mat_rows
+      | None -> ()));
+  (!c, !d)
 
 (* Affine expressions over constant symbols.  dim_of_sym, const_dim, and
    sym_of_dim are used to translate between symbols and the dimensions of the
@@ -340,7 +551,7 @@ let linterm_of ark term =
   in
   let alg = function
     | `Real qq -> real qq
-    | `Const k | `App (k, []) -> of_term QQ.one (dim_of_sym k)
+    | `App (k, []) -> of_term QQ.one (dim_of_sym k)
     | `Var (_, _) | `App (_, _) -> raise Nonlinear
     | `Add sum -> List.fold_left add zero sum
     | `Mul sum -> List.fold_left mul (real QQ.one) sum

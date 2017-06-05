@@ -4,11 +4,10 @@ void mult(int r, int i) {
     if (i < n) {
 	mult(r + m, i + 1);
     } else {
-	assert(i == n);
-	assert(r == n * m);
+	__VERIFIER_assert(r == m * n);
     }
 }
 void main() { 
-    assume(n > 0);
+    __VERIFIER_assume(n > 0);
     mult(0, 0);
 }

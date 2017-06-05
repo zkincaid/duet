@@ -1,12 +1,14 @@
 #include <pthread.h>
 
 int in_critical;
-int s = 0;
-int t = 0;
+int s;
+int t;
 void* thread(void *arg) {
     int m;
+    __VERIFIER_atomic_begin();
     m = t++;
-    assume (s == m)
+    __VERIFIER_atomic_end();
+    assume (s == m);
     in_critical = 1;
     assert(in_critical == 1);
     in_critical = 0;

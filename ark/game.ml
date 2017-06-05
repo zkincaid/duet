@@ -8,7 +8,7 @@ include Log.Make(struct let name = "ark.game" end)
 module GameTree : sig
   type 'a t
   type 'a vertex
-  val empty : 'a smt_context ->
+  val empty : 'a context ->
     (symbol list * symbol list) ->
     start:('a formula) -> 
     safe:('a formula) ->
@@ -34,7 +34,7 @@ end = struct
       parent : ('a vertex * 'a formula * (('a, typ_fo) expr list)) option }
 
   type 'a t =
-    { ctx : 'a smt_context;
+    { ark : 'a context;
       xs : symbol list;
       ys : symbol list;
       safe : 'a formula;
@@ -47,16 +47,16 @@ end = struct
 
   let root game_tree = game_tree.root
 
-  let empty ctx (xs,ys) ~start ~safe ~reach =
+  let empty ark (xs,ys) ~start ~safe ~reach =
     assert (List.length xs == List.length ys);
     let root =
       { id = 0;
-        annotation = mk_true ctx#ark;
+        annotation = mk_true ark;
         state = Open;
         covers = [];
         parent = None }
     in
-    { ctx = ctx;
+    { ark = ark;
       xs = xs;
       ys = ys;
       safe = safe;
@@ -68,7 +68,7 @@ end = struct
       level_to_var = Hashtbl.create 991 }
 
   let var_to_level game_tree level sym =
-    let ark = game_tree.ctx#ark in
+    let ark = game_tree.ark in
     try Hashtbl.find game_tree.var_to_level (sym, level)
     with Not_found ->
       begin
@@ -84,11 +84,11 @@ end = struct
       end
     
   let substitute_var_to_level game_tree level =
-    let ark = game_tree.ctx#ark in
+    let ark = game_tree.ark in
     substitute_const ark (mk_const ark % var_to_level game_tree level)
 
   let substitute_level_to_var game_tree =
-    let ark = game_tree.ctx#ark in
+    let ark = game_tree.ark in
     let f sym =
       try mk_const ark (Hashtbl.find game_tree.level_to_var sym)
       with Not_found -> assert false
@@ -129,8 +129,8 @@ end = struct
 
   (* Verify well-labeledness conditions *)
   let well_labeled game_tree =
-    let ark = game_tree.ctx#ark in
-    let entails = game_tree.ctx#implies in
+    let ark = game_tree.ark in
+    let entails phi psi = Smt.entails game_tree.ark phi psi = `Yes in
     let rec well_labeled_vertex v =
       let child_guards =
         children v |> List.map (fun c -> match c.parent with
@@ -215,7 +215,7 @@ end = struct
      path u_0...u_n and the reachability player is constrained to satisfy the
      guards along the path *)
   let path_to_root_formula game_tree vertex =
-    let ark = game_tree.ctx#ark in
+    let ark = game_tree.ark in
     let rec path_to_root_formula vertex depth =
       match vertex.parent with
       | Some (parent, guard, moves) ->
@@ -254,7 +254,7 @@ end = struct
   (* Unroll the game k so that the safety player makes k moves (and the
      reachability player makes k-1), using variable indices starting at i *)
   let rec unroll game_tree i k =
-    let ark = game_tree.ctx#ark in
+    let ark = game_tree.ark in
     if k <= 1 then
       substitute_var_to_level game_tree i game_tree.safe
     else
@@ -288,21 +288,19 @@ end = struct
      coverings that are no longer implied.  The consecution condition is not
      checked. *)
   let strengthen_annotation game_tree vertex refinement =
-    let ark = game_tree.ctx#ark in
-    let smt_ctx = game_tree.ctx in
+    let ark = game_tree.ark in
     let new_annotation = mk_and ark [refinement; vertex.annotation] in
     vertex.annotation <- new_annotation;
     let (covers, uncovered) =
       List.partition
-        (fun v -> (smt_ctx#implies v.annotation new_annotation))
+        (fun v -> (Smt.entails ark v.annotation new_annotation = `Yes))
         vertex.covers
     in
     vertex.covers <- covers;
     uncovered |> List.iter (fun v -> v.state <- Open)
 
   let rec refine_path_to_root game_tree vertex refine =
-    let ark = game_tree.ctx#ark in
-    let smt_ctx = game_tree.ctx in
+    let ark = game_tree.ark in
     let (phi, refine) = match refine with
       | (x::xs) -> (rewrite ark ~down:(nnf_rewriter ark) x, xs)
       | [] -> assert false
@@ -314,7 +312,8 @@ end = struct
     | None ->
       assert (refine = [])
 
-  let simple_tree_interpolant smt_ctx root children =
+  let simple_tree_interpolant ark root children =
+    let smt_ctx = ArkZ3.mk_context ark [] in
     let children = List.map smt_ctx#simplify children in
     let pattern =
       let interp_pattern =
@@ -334,7 +333,7 @@ end = struct
   (* Try to find an ancestor of v to cover it. *)
   let find_cover game_tree v =
     let rec find_cover u =
-      if game_tree.ctx#implies v.annotation u.annotation then
+      if Smt.entails game_tree.ark v.annotation u.annotation = `Yes then
         Some u
       else
         match u.parent with
@@ -347,7 +346,6 @@ end = struct
       match find_cover parent with
       | Some cov ->
         logf ~level:`trace "Found cover: %d covers %d" cov.id v.id ;
-        let ark = game_tree.ctx#ark in
         v.state <- Covered cov;
         cov.covers <- v::cov.covers;
         true
@@ -363,7 +361,7 @@ end = struct
           vertex.annotation::(BatList.flatten (List.map (go (d + 1)) children))
         | _ -> [vertex.annotation]
     in
-    mk_or (game_tree.ctx#ark) (go 0 game_tree.root)
+    mk_or (game_tree.ark) (go 0 game_tree.root)
 
   (* find a vertex at less than a given depth that satisfies a given
      predicate *)
@@ -388,7 +386,7 @@ end = struct
     go 0 game_tree.root
 
   let force_cover game_tree v =
-    let ark = game_tree.ctx#ark in
+    let ark = game_tree.ark in
     let path_to_root = path_to_root_formula game_tree v in
     let p2r_formula = mk_and ark path_to_root in
     let v_depth = depth v in
@@ -398,7 +396,7 @@ end = struct
         let u_annotation =
           substitute_var_to_level game_tree v_depth u.annotation
         in
-        game_tree.ctx#implies p2r_formula u_annotation
+        Smt.entails ark p2r_formula u_annotation = `Yes
       | _ -> false
     in
     match find_depth_bounded game_tree v_depth p with
@@ -411,14 +409,15 @@ end = struct
           |> mk_not ark
         in
         let seq = List.rev (cov_annotation::path_to_root) in
-        match game_tree.ctx#interpolate_seq seq with
+        let smt_ctx = ArkZ3.mk_context ark [] in
+        match smt_ctx#interpolate_seq seq with
         | `Sat _ | `Unknown -> assert false
         | `Unsat interpolants ->
           let annotations =
             List.rev_map (substitute_level_to_var game_tree) interpolants
           in
           refine_path_to_root game_tree v annotations;
-          if game_tree.ctx#implies v.annotation cov.annotation then begin
+          if Smt.entails ark v.annotation cov.annotation = `Yes then begin
             logf ~level:`trace "Force cover successful.";
             v.state <- Covered cov;
             cov.covers <- v::cov.covers;
@@ -431,7 +430,7 @@ end = struct
   (* Formula representing the safety player's skeleton losing the unrolled
      game.   *)
   let rec losing game_tree skeleton x_map =
-    let ark = game_tree.ctx#ark in
+    let ark = game_tree.ark in
     match Quantifier.destruct_skeleton_block ark skeleton with
     | `Exists alternatives ->
       List.map (fun (moves, sub_skeleton) ->
@@ -506,7 +505,8 @@ end = struct
     | _ -> assert false
 
   let rec paste game_tree skeleton vertex =
-    let ark = game_tree.ctx#ark in
+    let ark = game_tree.ark in
+    let smt_ctx = ArkZ3.mk_context ark [] in
     let x_map =
       List.fold_left
         (fun map x -> Symbol.Map.add x (mk_const ark x) map)
@@ -549,7 +549,7 @@ end = struct
       in
 
       let interp =
-        simple_tree_interpolant game_tree.ctx vertex_formula losing_branches
+        simple_tree_interpolant game_tree.ark vertex_formula losing_branches
       in
       match interp with
       | `Sat ->
@@ -569,7 +569,7 @@ end = struct
                   let guard =
                     mk_not ark not_guard
                     |> rewrite ark ~down:(nnf_rewriter ark)
-                    |> game_tree.ctx#simplify
+                    |> smt_ctx#simplify
                   in
                   (guard::guards, alt::alts))
               not_guards
@@ -650,7 +650,7 @@ end = struct
   
   let rec expand_vertex game_tree vertex k =
     logf ~level:`info "Expanding vertex #%d" vertex.id;
-    let ark = game_tree.ctx#ark in
+    let ark = game_tree.ark in
     let vertex_depth = depth vertex in
     let rec prefix level =
       if level < vertex_depth then
@@ -682,11 +682,11 @@ end = struct
       |> rewrite ark ~down:(nnf_rewriter ark)
     in
     let game_prefix = prefix 0 in
-    match Quantifier.winning_skeleton game_tree.ctx game_prefix game_matrix with
+    match Quantifier.winning_skeleton ark game_prefix game_matrix with
     | `Sat skeleton ->
       let (x_map, skeleton) =
         let skeleton =
-          Quantifier.minimize_skeleton game_tree.ctx skeleton game_matrix
+          Quantifier.minimize_skeleton ark skeleton game_matrix
         in
         match Quantifier.destruct_skeleton_block ark skeleton with
         | `Forall (block, sub_skeleton) ->
@@ -707,7 +707,8 @@ end = struct
         |> rewrite ark ~down:(nnf_rewriter ark)
       in
       begin
-        match game_tree.ctx#interpolate_seq (List.rev (lost::path_to_root)) with
+        let smt_ctx = ArkZ3.mk_context ark [] in
+        match smt_ctx#interpolate_seq (List.rev (lost::path_to_root)) with
         | `Sat _ | `Unknown -> assert false
         | `Unsat interpolants ->
           let annotations =
@@ -736,7 +737,7 @@ end = struct
 
   let pp formatter game_tree =
     let open Format in
-    let ark = game_tree.ctx#ark in
+    let ark = game_tree.ark in
     let pp_sep formatter () = Format.fprintf formatter "@;" in
     let rec go formatter v =
       let (guard, moves) = match v.parent with
@@ -757,8 +758,8 @@ end = struct
       (ApakEnum.pp_print_enum_nobox ~pp_sep go) (BatList.enum (children root))
 end
 
-let solve smt_ctx (xs, ys) ~start ~safe ~reach =
-  let game_tree = GameTree.empty smt_ctx (xs, ys) ~start ~safe ~reach in
+let solve ark (xs, ys) ~start ~safe ~reach =
+  let game_tree = GameTree.empty ark (xs, ys) ~start ~safe ~reach in
   let nb_rounds = ref 0 in
   let rec go v =
     incr nb_rounds;

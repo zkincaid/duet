@@ -24,6 +24,7 @@ val one : t
 val negate : t -> t
 val inverse : t -> t
 val floor : t -> ZZ.t
+val ceiling : t -> ZZ.t
 val sub : t -> t -> t
 val exp : t -> int -> t
 
@@ -31,6 +32,8 @@ val numerator : t -> ZZ.t
 val denominator : t -> ZZ.t
 val to_zz : t -> ZZ.t option
 val to_zzfrac : t -> ZZ.t * ZZ.t
+val to_float : t -> float
+val to_int : t -> int option
 
 val of_string : string -> t
 val of_int : int -> t

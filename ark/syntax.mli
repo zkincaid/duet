@@ -12,6 +12,7 @@ module Env : sig
   val empty : 'a t
   val push : 'a -> 'a t -> 'a t
   val find : 'a t -> int -> 'a
+  val enum : 'a t -> 'a BatEnum.t
 end
 
 (** {2 Types} *)
@@ -32,6 +33,22 @@ type symbol
 
 val mk_symbol : 'a context -> ?name:string -> typ -> symbol
 
+(** Register a named symbol.  The strings identifying named symbols must be
+    unique.  The symbol associated with a name can be retrieved with
+    [get_named_symbol]. *)
+val register_named_symbol : 'a context -> string -> typ -> unit
+
+(** Test if a name is already associated with a symbol *)
+val is_registered_name : 'a context -> string -> bool
+
+(** Retrieve the symbol associated with a given name.  Raises [Not_found] if
+    there is no such symbol. *)
+val get_named_symbol : 'a context -> string -> symbol
+
+(** Retrieve the name of a named symbol.  Evaluates to [None] for ordinary
+    (non-named) symbols. *)
+val symbol_name : 'a context -> symbol -> string option
+
 val pp_symbol : 'a context -> Format.formatter -> symbol -> unit
 
 val typ_symbol : 'a context -> symbol -> typ
@@ -42,8 +59,11 @@ val int_of_symbol : symbol -> int
 
 val symbol_of_int : int -> symbol
 
+val compare_symbol : symbol -> symbol -> int
+
 module Symbol : sig
   type t = symbol
+  val compare : t -> t -> int
   module Set : BatSet.S with type elt = symbol
   module Map : BatMap.S with type key = symbol
 end
@@ -54,14 +74,39 @@ type ('a, +'typ) expr
 type 'a term = ('a, typ_arith) expr
 type 'a formula = ('a, typ_bool) expr
 
+val compare_expr : ('a,'typ) expr -> ('a,'typ) expr -> int
+val compare_formula : 'a formula -> 'a formula -> int
+val compare_term : 'a term -> 'a term -> int
+
+val pp_expr : ?env:(string Env.t) -> 'a context ->
+  Format.formatter -> ('a,'b) expr -> unit
+
 val refine : 'a context -> ('a, typ_fo) expr -> [ `Term of 'a term
                                                 | `Formula of 'a formula ]
 
+val destruct : 'a context -> ('a, 'b) expr -> [
+    | `Real of QQ.t
+    | `App of symbol * (('a, typ_fo) expr list)
+    | `Var of int * typ_arith
+    | `Add of ('a term) list
+    | `Mul of ('a term) list
+    | `Binop of [ `Div | `Mod ] * ('a term) * ('a term)
+    | `Unop of [ `Floor | `Neg ] * ('a term)
+    | `Ite of ('a formula) * ('a,'b) expr * ('a,'b) expr
+    | `Tru
+    | `Fls
+    | `And of ('a formula) list
+    | `Or of ('a formula) list
+    | `Not of ('a formula)
+    | `Quantify of [`Exists | `Forall] * string * typ_fo * ('a formula)
+    | `Atom of [`Eq | `Leq | `Lt] * ('a term) * ('a term)
+    | `Proposition of [ `Var of int
+                      | `App of symbol * (('b, typ_fo) expr) list ]
+  ]
 
-val pp_expr : ?env:(string Env.t) -> 'a context ->
-  Format.formatter -> ('a, 'b) expr -> unit
+val expr_typ : 'a context -> ('a, 'b) expr -> typ
 
-val size : ('a, 'typ_fo) expr -> int
+val size : ('a, 'b) expr -> int
 
 val mk_const : 'a context -> symbol -> ('a, 'typ) expr
 
@@ -72,6 +117,8 @@ val mk_var : 'a context -> int -> typ_fo -> ('a, 'typ) expr
 val mk_ite : 'a context -> 'a formula -> ('a, 'typ) expr -> ('a, 'typ) expr ->
   ('a, 'typ) expr
 
+val mk_iff : 'a context -> 'a formula -> 'a formula -> 'a formula
+
 val substitute : 'a context ->
   (int -> ('a,'b) expr) -> ('a,'typ) expr -> ('a,'typ) expr
 
@@ -80,9 +127,11 @@ val substitute_const : 'a context ->
 
 val fold_constants : (symbol -> 'a -> 'a) -> ('b, 'c) expr -> 'a -> 'a
 
+val symbols : ('a, 'b) expr -> Symbol.Set.t
+
 (** {3 Expression rewriting} *)
 
-(** A rewriter is a function which transforms an expression into another.  {b
+(** A rewriter is a function that transforms an expression into another.  {b
     The transformation should preserve types}; if not, [rewrite] will fail. *)
 type 'a rewriter = ('a, typ_fo) expr -> ('a, typ_fo) expr
 
@@ -108,11 +157,38 @@ module ExprHT : sig
   val enum : ('a, 'typ, 'b) t -> (('a, 'typ) expr * 'b) BatEnum.t
 end
 
+module ExprSet : sig
+  type ('a, 'typ) t
+  val empty : ('a, 'typ) t
+  val add : ('a, 'typ) expr -> ('a, 'typ) t -> ('a, 'typ) t
+  val union : ('a, 'typ) t -> ('a, 'typ) t -> ('a, 'typ) t
+  val inter : ('a, 'typ) t -> ('a, 'typ) t -> ('a, 'typ) t
+  val enum : ('a, 'typ) t -> (('a, 'typ) expr) BatEnum.t
+  val mem : ('a, 'typ) expr -> ('a, 'typ) t -> bool
+end
+
+module ExprMap : sig
+  type ('a, 'typ, 'b) t
+  val empty : ('a, 'typ, 'b) t
+  val is_empty : ('a, 'typ, 'b) t -> bool
+  val add : ('a, 'typ) expr -> 'b -> ('a, 'typ, 'b) t -> ('a, 'typ, 'b) t
+  val remove : ('a, 'typ) expr -> ('a, 'typ, 'b) t -> ('a, 'typ, 'b) t
+  val filter : (('a, 'typ) expr -> 'b -> bool) -> ('a, 'typ, 'b) t -> ('a, 'typ, 'b) t
+  val filter_map : (('a, 'typ) expr -> 'b -> 'c option) -> ('a, 'typ, 'b) t -> ('a, 'typ, 'c) t
+  val map : ('b -> 'c) -> ('a, 'typ, 'b) t -> ('a, 'typ, 'c) t
+  val find : ('a, 'typ) expr -> ('a, 'typ, 'b) t -> 'b
+  val keys : ('a, 'typ, 'b) t -> (('a, 'typ) expr) BatEnum.t
+  val values : ('a, 'typ, 'b) t -> 'b BatEnum.t
+  val enum : ('a, 'typ, 'b) t -> (('a, 'typ) expr * 'b) BatEnum.t
+  val merge : ((('a, 'typ) expr) -> 'b option -> 'c option -> 'd option) ->
+    ('a, 'typ, 'b) t -> ('a, 'typ, 'c) t -> ('a, 'typ, 'd) t
+  val fold : (('a, 'typ) expr -> 'b -> 'c -> 'c) -> ('a, 'typ, 'b) t -> 'c -> 'c
+end
+
 (** {2 Terms} *)
 
 type ('a,'b) open_term = [
   | `Real of QQ.t
-  | `Const of symbol
   | `App of symbol * (('b, typ_fo) expr list)
   | `Var of int * typ_arith
   | `Add of 'a list
@@ -125,10 +201,22 @@ type ('a,'b) open_term = [
 val mk_add : 'a context -> 'a term list -> 'a term
 val mk_mul : 'a context -> 'a term list -> 'a term
 val mk_div : 'a context -> 'a term -> 'a term -> 'a term
+
+(** C99 integer division.  Equivalent to truncate(x/y). *)
+val mk_idiv : 'a context -> 'a term -> 'a term -> 'a term
 val mk_mod : 'a context -> 'a term -> 'a term -> 'a term
 val mk_real : 'a context -> QQ.t -> 'a term
 val mk_floor : 'a context -> 'a term -> 'a term
+val mk_ceiling : 'a context -> 'a term -> 'a term
+
+(** [truncate(t)] removes the fractional part of [t] (rounding it towards
+    0).  *)
+val mk_truncate : 'a context -> 'a term -> 'a term
+
+(** Unary negation *)
 val mk_neg : 'a context -> 'a term -> 'a term
+
+(** Subtraction *)
 val mk_sub : 'a context -> 'a term -> 'a term -> 'a term
 
 val term_typ : 'a context -> 'a term -> typ_arith
@@ -143,6 +231,7 @@ module Term : sig
   val show : ?env:(string Env.t) -> 'a context -> 'a term -> string
   val destruct : 'a context -> 'a term -> ('a term, 'a) open_term
   val eval : 'a context -> (('b, 'a) open_term -> 'b) -> 'a term -> 'b
+  val eval_partial : 'a context -> (('b, 'a) open_term -> 'b option) -> 'a term -> 'b option
 end
 
 (** {2 Formulas} *)
@@ -155,8 +244,7 @@ type ('a,'b) open_formula = [
   | `Not of 'a
   | `Quantify of [`Exists | `Forall] * string * typ_fo * 'a
   | `Atom of [`Eq | `Leq | `Lt] * ('b term) * ('b term)
-  | `Proposition of [ `Const of symbol
-                    | `Var of int
+  | `Proposition of [ `Var of int
                     | `App of symbol * (('b, typ_fo) expr) list ]
   | `Ite of 'a * 'a * 'a
 ]
@@ -179,6 +267,11 @@ val mk_implies : 'a context -> 'a formula -> 'a formula -> 'a formula
 
 val eliminate_ite : 'a context -> 'a formula -> 'a formula
 
+(** Print a formula as a satisfiability query in SMTLIB2 format.  The query
+    includes function declarations and (check-sat). *)
+val pp_smtlib2 : ?env:(string Env.t) -> 'a context ->
+    Format.formatter -> 'a formula -> unit
+
 module Formula : sig
   type 'a t = 'a formula
   val equal : 'a formula -> 'a formula -> bool
@@ -194,6 +287,28 @@ module Formula : sig
   val prenex : 'a context -> 'a formula -> 'a formula
 end
 
+(** {2 Satisfiability modulo theories} *)
+
+class type ['a] smt_model = object
+  method eval_int : 'a term -> ZZ.t
+  method eval_real : 'a term -> QQ.t
+  method eval_fun : symbol -> ('a, typ_fo) expr
+  method sat :  'a formula -> bool
+  method to_string : unit -> string
+end
+
+class type ['a] smt_solver = object
+  method add : ('a formula) list -> unit
+  method push : unit -> unit
+  method pop : int -> unit
+  method reset : unit -> unit
+  method check : ('a formula) list -> [ `Sat | `Unsat | `Unknown ]
+  method to_string : unit -> string
+  method get_model : unit -> [ `Sat of 'a smt_model | `Unsat | `Unknown ]
+  method get_unsat_core : ('a formula) list ->
+    [ `Sat | `Unsat of ('a formula) list | `Unknown ]
+end
+
 (** {2 Contexts} *)
 
 module type Context = sig
@@ -203,12 +318,13 @@ module type Context = sig
   type formula = (t, typ_bool) expr
 
   val mk_symbol : ?name:string -> typ -> symbol
-  val mk_const : symbol -> ('a, 'typ) expr
-  val mk_app : symbol -> ('a, 'b) expr list -> ('a, 'typ) expr
-  val mk_var : int -> typ_fo -> ('a, 'typ) expr
+  val mk_const : symbol -> (t, 'typ) expr
+  val mk_app : symbol -> (t, 'b) expr list -> (t, 'typ) expr
+  val mk_var : int -> typ_fo -> (t, 'typ) expr
   val mk_add : term list -> term
   val mk_mul : term list -> term
   val mk_div : term -> term -> term
+  val mk_idiv : term -> term -> term
   val mk_mod : term -> term -> term
   val mk_real : QQ.t -> term
   val mk_floor : term -> term

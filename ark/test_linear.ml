@@ -60,11 +60,12 @@ let solve2 () =
   assert_equal ~printer:QQVector.show b2 (vector_right_mul m x2)
 
 let solve3 () =
-  let m = mk_matrix [[1; 2; 3];
-                     [2; 0; 1];
-                     [3; 2; 4]]
+  let m = mk_matrix [[1; 0; 2];
+                     [2; 1; 0];
+                     [3; 1; 1];
+                     [0; 1; 1]]
   in
-  let b = mk_vector [1; 2; 3] in
+  let b = mk_vector [1; 2; 3; 4] in
   assert_bool
     "Unsolvable system of linear equations"
      (solve m b = None)
@@ -77,6 +78,49 @@ let solve4 () =
   let x = solve_exn m b in
   assert_equal ~printer:QQVector.show b (vector_right_mul m x)
 
+let solve5 () =
+  let m = mk_matrix [[1; 0; 0];
+                     [1; 0; 0];
+                     [0; 0; 1]]
+  in
+  let b = mk_vector [1; 1] in
+  let x = solve_exn m b in
+  assert_equal ~printer:QQVector.show b (vector_right_mul m x)
+
+let rowspace1 () =
+  let a = mk_matrix [[1; 0; 0];
+                     [1; 1; 1];
+                     [0; 0; 1]]
+  in
+  let b = mk_matrix [[1; 0; 0];
+                     [1; 1; 1];
+                     [0; 1; 1]]
+  in
+  let (c, d) = intersect_rowspace a b in
+  assert_equal (QQMatrix.nb_rows c) 2;
+  assert_equal ~printer:QQMatrix.show (QQMatrix.mul c a) (QQMatrix.mul d b)
+
+let rowspace2 () =
+  let a = mk_matrix [[1; 1; 0];
+                     [1; 1; 1]]
+  in
+  let b = mk_matrix [[1; 0; 0];
+                     [0; 1; 1]]
+  in
+  let rowspace = mk_matrix [[1; 1; 1]] in
+  let (c, d) = intersect_rowspace a b in
+  assert_equal ~printer:QQMatrix.show rowspace (QQMatrix.mul d b)
+
+let rowspace3 () =
+  let a = mk_matrix [[1; 1; 0; 0];
+                     [0; 2; -1; 1]]
+  in
+  let b = mk_matrix [[1; 0; 2; 1];
+                     [0; 1; 1; 1]]
+  in
+  let rowspace = mk_matrix [[]] in
+  let (c, d) = intersect_rowspace a b in
+  assert_equal ~printer:QQMatrix.show rowspace (QQMatrix.mul d b)
 
 let suite = "Linear" >::: [
     "dot" >:: dot;
@@ -85,4 +129,8 @@ let suite = "Linear" >::: [
     "solve2" >:: solve2;
     "solve3" >:: solve3;
     "solve4" >:: solve4;
+    "solve5" >:: solve5;
+    "rowspace1" >:: rowspace1;
+    "rowspace2" >:: rowspace2;
+    "rowspace3" >:: rowspace3;
   ]

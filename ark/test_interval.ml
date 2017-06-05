@@ -22,60 +22,33 @@ let mul1 () =
   assert_equal (Interval.mul x y)
 	       (Interval.make_bounded (QQ.of_int (-50)) (QQ.of_int (-2)))
 
-(*
+
+let mul_zero () =
+  let x = Interval.make_bounded (QQ.of_int (-10)) (QQ.of_int 1) in
+  assert_equal (Interval.mul Interval.zero x) Interval.zero;
+  assert_equal (Interval.mul x Interval.zero) Interval.zero
+
+let mul_signs () =
+  let neg = Interval.make None (Some (QQ.of_int 0)) in
+  let pos = Interval.make (Some (QQ.of_int 0)) None in
+  assert_equal pos (Interval.mul neg neg);
+  assert_equal pos (Interval.mul pos pos);
+  assert_equal neg (Interval.mul pos neg);
+  assert_equal neg (Interval.mul neg pos)
+
 let apron_op op typ x y =
-  let open Apron in
-  Texpr0.binop op typ Texpr0.Zero
-	       (Texpr0.cst (Coeff.Interval (apron_of x)))
-	       (Texpr0.cst (Coeff.Interval (apron_of y)))
-  |> NumDomain.eval_texpr
-  |> of_apron
-
-let apron_mod = apron_op Apron.Texpr0.Mod Apron.Texpr0.Int
-
-let mod1 () =
-  let x = Interval.make_bounded (QQ.of_int 1) (QQ.of_int 5) in
-  let y = Interval.negate x in
-  assert_equal (Interval.modulo x y) (apron_mod x y);
-  assert_equal (Interval.modulo y x) (apron_mod y x);
-  assert_equal (Interval.modulo x x) (apron_mod x x);
-  assert_equal (Interval.modulo y y) (apron_mod y y)
-
-let mod2 () =
-  let x = Interval.make_bounded (QQ.of_int (-1)) (QQ.of_int 5) in
-  let y = Interval.make (Some (QQ.of_int 1)) None in
-  let neg_x = Interval.negate x in
-  let neg_y = Interval.negate y in
-  (* Apron is overly conservative here *)
-  assert_equal (Interval.modulo x y)
-	       (Interval.make_bounded (QQ.of_int (-1)) (QQ.of_int 5));
-  assert_equal (Interval.modulo neg_x neg_y)
-	       (Interval.make_bounded (QQ.of_int (-5)) (QQ.of_int 1));
-
-  assert_equal (Interval.modulo y x) (apron_mod y x);
-  assert_equal (Interval.modulo x x) (apron_mod x x)
-
-(*  assert_equal (Interval.modulo y y) (apron_mod y y)*)
-
-let mod3 () =
-  let x = Interval.make_bounded (QQ.of_int 4) (QQ.of_int 5) in
-  let y = Interval.make_bounded (QQ.of_int 1) (QQ.of_int 3) in
-  let neg_x = Interval.negate x in
-  let neg_y = Interval.negate y in
-  assert_equal (Interval.modulo x y) (apron_mod x y);
-  assert_equal (Interval.modulo y x) (apron_mod y x);
-  assert_equal (Interval.modulo neg_x neg_y) (apron_mod neg_x neg_y);
-  assert_equal (Interval.modulo neg_y neg_x) (apron_mod neg_y neg_x)
- *)
+  let open Apron.Texpr0 in
+  binop op typ Zero
+    (cst (Apron.Coeff.Interval (Interval.apron_of x)))
+    (cst (Apron.Coeff.Interval (Interval.apron_of y)))
+  |> ArkApron.eval_texpr
+  |> Interval.of_apron
 
 let suite = "Interval" >:::
   [
     "join_bottom" >:: join_bottom;
     "empty_meet" >:: empty_meet;
-    "mul1" >:: empty_meet;
-(*
-    "mod1" >:: mod1;
-    "mod2" >:: mod2;
-    "mod3" >:: mod3;
- *)
+    "mul1" >:: mul1;
+    "mul_zero" >:: mul_zero;
+    "mul_signs" >:: mul_signs;
   ]

@@ -132,7 +132,7 @@ class ['a] model (ctx : 'a ctx) m = object(self)
     Model.to_string m
   method get_func_interp rel =
     try Model.get_func_interp m (ctx#decl_of_rel rel)
-    with Z3native.Exception _ ->
+    with Z3.Error _ ->
       (* Sometimes get_func_interp raises "invalid argument" -- possible bug
          in Z3 API? *)
       None
@@ -141,7 +141,7 @@ class ['a] model (ctx : 'a ctx) m = object(self)
       match Model.get_const_interp m (ctx#decl_of_rel rel) with
       | Some x -> Some (bool_val x)
       | None -> invalid_arg "No interpretation"
-    with Z3native.Exception _ -> None
+    with Z3.Error _ -> None
 
 end
 

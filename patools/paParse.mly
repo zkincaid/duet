@@ -44,7 +44,7 @@ main:
     transitions = list(transition);
     EOF
       {
-        let module StringSet = Putil.PString.Set in
+        let module StringSet = Patop.PString.Set in
         let alphabet =
           let f set (_, (letter,_), _) = StringSet.add letter set in
           List.fold_left f StringSet.empty transitions

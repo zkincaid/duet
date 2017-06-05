@@ -1,12 +1,13 @@
 open ArkAst
 open Apak
 open Game
+open ArkApron
 
 module Ctx = ArkAst.Ctx
 module Infix = Syntax.Infix(Ctx)
 let ctx = Ctx.context
-let smt_ctx = Smt.mk_context ctx [("model", "true");
-                                  ("unsat_core", "true")]
+let smt_ctx = ArkZ3.mk_context ctx [("model", "true");
+                                    ("unsat_core", "true")]
 
 let file_contents filename =
   let chan = open_in filename in
@@ -82,23 +83,23 @@ let _ =
   match Sys.argv.(i) with
   | "sat" ->
     let phi = load_formula Sys.argv.(i+1) in
-    print_result (Quantifier.simsat smt_ctx phi)
+    print_result (Quantifier.simsat ctx phi)
     (*    Apak.Log.print_stats ()*)
 
   | "sat-forward" ->
     let phi = load_formula Sys.argv.(i+1) in
-    print_result (Quantifier.simsat_forward smt_ctx phi)
+    print_result (Quantifier.simsat_forward ctx phi)
 
   | "easysat" ->
     let phi = load_formula Sys.argv.(i+1) in
-    print_result (Quantifier.easy_sat smt_ctx phi)
+    print_result (Quantifier.easy_sat ctx phi)
 
   | "sat-z3" ->
     let phi = load_formula Sys.argv.(i+1) in
     print_result (smt_ctx#is_sat phi)
   | "sat-mbp" ->
     let phi = load_formula Sys.argv.(i+1) in
-    let psi = Quantifier.qe_mbp smt_ctx phi in
+    let psi = Quantifier.qe_mbp ctx phi in
     print_result (smt_ctx#is_sat psi)
   | "sat-z3qe" ->
     let phi = load_formula Sys.argv.(i+1) in
@@ -109,7 +110,7 @@ let _ =
     let z3 = Z3.mk_context [] in
     let t =
       Z3.Tactic.and_then z3
-        (Smt.mk_quantifier_simplify_tactic z3)
+        (ArkZ3.mk_quantifier_simplify_tactic z3)
         (Z3.Tactic.mk_tactic z3 "qsat")
         []
     in
@@ -128,11 +129,11 @@ let _ =
 
   | "qe-mbp" ->
     let phi = load_formula Sys.argv.(i+1) in
-    let psi = Quantifier.qe_mbp smt_ctx phi in
+    let psi = Quantifier.qe_mbp ctx phi in
     Log.logf ~level:`always "%a" (Syntax.Formula.pp ctx) psi
   | "opt" ->
     let (objective, phi) = load_math_opt Sys.argv.(i+1) in
-    begin match Quantifier.maximize smt_ctx phi objective with
+    begin match Quantifier.maximize ctx phi objective with
       | `Bounded b ->
         Log.logf ~level:`always "Upper bound: %a" QQ.pp b;
       | `Infinity ->
@@ -144,7 +145,7 @@ let _ =
     end
   | "opt-mbp" ->
     let (objective, phi) = load_math_opt Sys.argv.(i+1) in
-    let psi = Quantifier.qe_mbp smt_ctx phi in
+    let psi = Quantifier.qe_mbp ctx phi in
     begin match smt_ctx#optimize_box psi [objective] with
       | `Sat [ivl] ->
         begin match Interval.upper ivl with
@@ -243,7 +244,7 @@ let _ =
     in
     Format.printf "Reach:@\n%a@\n" (Formula.pp ctx) reach;
     begin
-      match Game.solve smt_ctx (vars, primed_vars) ~start ~safe ~reach with
+      match Game.solve ctx (vars, primed_vars) ~start ~safe ~reach with
       | None -> Format.printf "Reachability player wins.@\n"
       | Some strategy ->
         Format.printf "Winning strategy:@\n%a@\n" Game.GameTree.pp strategy;
@@ -253,7 +254,7 @@ let _ =
     let phi = load_formula Sys.argv.(i+1) in
     let (qf_pre, matrix) = Quantifier.normalize ctx phi in
     begin
-      match Quantifier.winning_strategy smt_ctx qf_pre matrix with
+      match Quantifier.winning_strategy ctx qf_pre matrix with
       | `Sat strategy ->
         Format.printf "Sat player wins:@\n%a@\n"
           (Quantifier.pp_strategy ctx) strategy
@@ -263,5 +264,9 @@ let _ =
       | `Unknown ->
         Format.printf "Could not find winning strategy!"
     end
+
+  | "sat-nonlinear" ->
+    let phi = load_formula Sys.argv.(i+1) in
+    print_result (Wedge.is_sat ctx (snd (Quantifier.normalize ctx phi)))
 
   | x -> Log.fatalf "Unknown command: `%s'" x

@@ -128,6 +128,8 @@ module Make (A : Alphabet) (P : Predicate) = struct
 
   let arity pa predicate = PHT.find pa.arity predicate
 
+  let show_predicate = Apak.Putil.mk_show P.pp
+
   let add_predicate pa predicate arity =
     if mem_vocabulary pa predicate then
       invalid_arg "PredicateAutomata.add_predicate: already belongs \
@@ -144,7 +146,13 @@ module Make (A : Alphabet) (P : Predicate) = struct
     else
       pa.accepting <- PSet.add predicate pa.accepting
 
-  let transitions pa predicate = PHT.find pa.delta predicate
+  let transitions pa predicate =
+    if not (mem_vocabulary pa predicate) then
+      invalid_arg ("PredicateAutomata.transitions: predicate `"
+                   ^ (show_predicate predicate)
+                   ^ "' does not belong to the vocabulary of the input PA")
+    else
+      PHT.find pa.delta predicate
 
   let transition pa predicate letter =
     (* Find all applicable transition rules and take the disjunction *)
@@ -590,6 +598,7 @@ module MakeReachabilityGraph (A : sig
     module Config : Struct.S with type predicate = predicate
                               and type t = config
     val pp_letter : Format.formatter -> letter -> unit
+    val vocabulary : t -> (predicate * int) BatEnum.t
     val successors : t -> config -> (letter * int * config) BatEnum.t
   end) = struct
   open A
@@ -605,6 +614,8 @@ module MakeReachabilityGraph (A : sig
         | r -> r
     end)
 
+  module PredicateTree = SearchTree.Make(Config.Predicate)(Apak.Putil.PInt)
+
   type arg =
     { mutable worklist : WVSet.t;
       pa : t;
@@ -612,16 +623,13 @@ module MakeReachabilityGraph (A : sig
       parent : ((letter * int * id) option) DA.t; (* Invariant: label & parent
                                                     should always have the
                                                     same length *)
-      cover : (id,id) Hashtbl.t (* partial maps a vertex v to a vertex u such
-                                   that v is covered by u *)
+      cover : (id,id) Hashtbl.t; (* partial maps a vertex v to a vertex u such
+                                    that v is covered by u *)
+      mutable searchTree : PredicateTree.t (* to ensure that covering is
+                                              acyclic, searchTree should
+                                              include only those vertices that
+                                              have already been expanded. *)
     }
-
-  let make pa =
-    { worklist = WVSet.empty;
-      pa = pa;
-      label = DA.make 2048;
-      parent = DA.make 2048;
-      cover = Hashtbl.create 991 }
 
   let label arg vertex =
     let nb_vertex = DA.length arg.label in
@@ -629,6 +637,25 @@ module MakeReachabilityGraph (A : sig
       DA.get arg.label vertex
     else 
       Log.invalid_argf "label: vertex %d does not exist" vertex
+
+  module PSet = BatSet.Make(Config.Predicate)
+  let make pa =
+    let preds pa =
+      let f (p, ar) preds =
+        PSet.add p preds
+      in BatSet.fold f (BatSet.of_enum (A.vocabulary pa)) PSet.empty
+    in
+    let arg =
+    { worklist = WVSet.empty;
+      pa = pa;
+      label = DA.make 2048;
+      parent = DA.make 2048;
+      cover = Hashtbl.create 991;
+      searchTree = PredicateTree.empty (preds pa) (fun _ -> PSet.empty)
+    }
+    in
+    arg.searchTree <- PredicateTree.empty (preds pa) (fun x -> PSet.of_enum (Config.preds (label arg x)));
+    arg
 
   let parent arg vertex =
     let nb_vertex = DA.length arg.parent in
@@ -685,6 +712,7 @@ module MakeReachabilityGraph (A : sig
     let config = label arg vertex in
     logf ~level:`trace ~attributes:[`Blue;`Bold] "Expanding vertex:";
     logf ~level:`trace "@[[%d] %a" vertex Config.pp config;
+    PredicateTree.insert arg.searchTree vertex;
     let add_succ (letter, k, config) =
       let succ_vertex =
         add_vertex arg ~parent:(Some (letter, k, vertex)) config
@@ -695,12 +723,11 @@ module MakeReachabilityGraph (A : sig
         succ_vertex
         Config.pp config
     in
-    successors arg.pa (label arg vertex) |> BatEnum.iter add_succ;
+    successors arg.pa config |> BatEnum.iter add_succ;
     logf ~level:`trace ~attributes:[`Blue;`Bold] "@]"
 
   (* u covers v *)
   let add_cover arg u v =
-    assert (u < v);
     Hashtbl.add arg.cover v u
 
   (* Given a vertex v, try to find another vertex u which covers v.  If such a
@@ -743,6 +770,22 @@ module MakeReachabilityGraph (A : sig
         find_cover (u + 1)
     in
     find_cover 0
+
+  let close_all arg vertex =
+    let embeds x y = Config.embeds (label arg x) (label arg y) in
+    match PredicateTree.covered embeds arg.searchTree vertex with
+      None -> false
+    | Some u ->
+       begin
+         let config = label arg vertex in
+         add_cover arg u vertex;
+         logf ~level:`trace ~attributes:[`Green;`Bold]
+           "Covered vertex: [%d] %a"
+           vertex
+           Config.pp config;
+         logf ~level:`trace " by [%d] %a" u Config.pp (label arg u);
+         true
+       end
 end
 
 module MakeEmpty (A : sig
@@ -781,7 +824,7 @@ struct
         /@ (fun i ->
             A.successors pa config i
             /@ (fun (letters, succ) -> (A.LetterSet.choose letters, i, succ)))
-        |> BatEnum.concat
+         |> BatEnum.concat
     end)
 
   (* Trivial incremental solver: just re-run the emptiness query from
@@ -825,7 +868,7 @@ struct
 
     (* Add initial configurations to the ARG *)
     Config.min_models 1 (initial pa) |> BatEnum.iter (fun config ->
-        ignore (Arg.add_vertex arg config));
+           ignore (Arg.add_vertex arg config));
 
     fix arg
 end

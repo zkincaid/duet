@@ -1,5 +1,5 @@
 # OASIS_START
-# DO NOT EDIT (digest: 2dce32801609906eca74ab1e6fac5caa)
+# DO NOT EDIT (digest: 28a5d9a91c4503abeb83173b690e4871)
 # Ignore VCS directories, you can use the same kind of rule outside
 # OASIS_START/STOP if you want to exclude directories that contains
 # useless stuff for the build process
@@ -56,10 +56,20 @@ true: annot, bin_annot
 "ark/syntax.cmx": for-pack(Ark)
 "ark/interval.cmx": for-pack(Ark)
 "ark/smt.cmx": for-pack(Ark)
+"ark/arkZ3.cmx": for-pack(Ark)
+"ark/arkMathsat.cmx": for-pack(Ark)
 "ark/linear.cmx": for-pack(Ark)
+"ark/polynomial.cmx": for-pack(Ark)
 "ark/interpretation.cmx": for-pack(Ark)
+"ark/arkApron.cmx": for-pack(Ark)
+"ark/polyhedron.cmx": for-pack(Ark)
+"ark/arkSimplify.cmx": for-pack(Ark)
 "ark/abstract.cmx": for-pack(Ark)
+"ark/nonlinear.cmx": for-pack(Ark)
+"ark/wedge.cmx": for-pack(Ark)
 "ark/quantifier.cmx": for-pack(Ark)
+"ark/iteration.cmx": for-pack(Ark)
+"ark/transition.cmx": for-pack(Ark)
 # Executable test_ark
 "ark/test_ark.native": pkg_Z3
 "ark/test_ark.native": pkg_apron
@@ -69,12 +79,15 @@ true: annot, bin_annot
 "ark/test_ark.native": pkg_batteries
 "ark/test_ark.native": pkg_camlidl
 "ark/test_ark.native": pkg_gmp
+"ark/test_ark.native": pkg_mathsat
 "ark/test_ark.native": pkg_oUnit
 "ark/test_ark.native": pkg_ocamlgraph
+"ark/test_ark.native": pkg_ocrs
 "ark/test_ark.native": pkg_ppx_deriving
 "ark/test_ark.native": pkg_ppx_deriving.ord
 "ark/test_ark.native": pkg_ppx_deriving.show
 "ark/test_ark.native": use_apak
+<ark/*.ml{,i,y}>: pkg_oUnit
 # Executable arktop
 "ark/arkTop.native": pkg_Z3
 "ark/arkTop.native": pkg_apron
@@ -84,8 +97,9 @@ true: annot, bin_annot
 "ark/arkTop.native": pkg_batteries
 "ark/arkTop.native": pkg_camlidl
 "ark/arkTop.native": pkg_gmp
-"ark/arkTop.native": pkg_oUnit
+"ark/arkTop.native": pkg_mathsat
 "ark/arkTop.native": pkg_ocamlgraph
+"ark/arkTop.native": pkg_ocrs
 "ark/arkTop.native": pkg_ppx_deriving
 "ark/arkTop.native": pkg_ppx_deriving.ord
 "ark/arkTop.native": pkg_ppx_deriving.show
@@ -98,8 +112,9 @@ true: annot, bin_annot
 <ark/*.ml{,i,y}>: pkg_batteries
 <ark/*.ml{,i,y}>: pkg_camlidl
 <ark/*.ml{,i,y}>: pkg_gmp
-<ark/*.ml{,i,y}>: pkg_oUnit
+<ark/*.ml{,i,y}>: pkg_mathsat
 <ark/*.ml{,i,y}>: pkg_ocamlgraph
+<ark/*.ml{,i,y}>: pkg_ocrs
 <ark/*.ml{,i,y}>: pkg_ppx_deriving
 <ark/*.ml{,i,y}>: pkg_ppx_deriving.ord
 <ark/*.ml{,i,y}>: pkg_ppx_deriving.show
@@ -112,7 +127,6 @@ true: annot, bin_annot
 "pa/predicateAutomata.cmx": for-pack(Pa)
 <pa/*.ml{,i,y}>: pkg_Z3
 <pa/*.ml{,i,y}>: pkg_batteries
-<pa/*.ml{,i,y}>: pkg_buddy
 <pa/*.ml{,i,y}>: pkg_ocamlgraph
 <pa/*.ml{,i,y}>: pkg_ppx_deriving
 <pa/*.ml{,i,y}>: pkg_ppx_deriving.ord
@@ -121,7 +135,6 @@ true: annot, bin_annot
 # Executable test_patools
 "patools/test_patools.native": pkg_Z3
 "patools/test_patools.native": pkg_batteries
-"patools/test_patools.native": pkg_buddy
 "patools/test_patools.native": pkg_oUnit
 "patools/test_patools.native": pkg_ocamlgraph
 "patools/test_patools.native": pkg_ppx_deriving
@@ -134,7 +147,6 @@ true: annot, bin_annot
 <patools/*.ml{,i,y}>: oasis_executable_patools_ccopt
 "patools/patools.native": pkg_Z3
 "patools/patools.native": pkg_batteries
-"patools/patools.native": pkg_buddy
 "patools/patools.native": pkg_ocamlgraph
 "patools/patools.native": pkg_ppx_deriving
 "patools/patools.native": pkg_ppx_deriving.ord
@@ -143,7 +155,6 @@ true: annot, bin_annot
 "patools/patools.native": use_pa
 <patools/*.ml{,i,y}>: pkg_Z3
 <patools/*.ml{,i,y}>: pkg_batteries
-<patools/*.ml{,i,y}>: pkg_buddy
 <patools/*.ml{,i,y}>: pkg_ocamlgraph
 <patools/*.ml{,i,y}>: pkg_ppx_deriving
 <patools/*.ml{,i,y}>: pkg_ppx_deriving.ord
@@ -157,12 +168,13 @@ true: annot, bin_annot
 "duet/duet.native": pkg_apron.octMPQ
 "duet/duet.native": pkg_apron.polkaMPQ
 "duet/duet.native": pkg_batteries
-"duet/duet.native": pkg_buddy
 "duet/duet.native": pkg_camlidl
 "duet/duet.native": pkg_cil
 "duet/duet.native": pkg_cil.default-features
 "duet/duet.native": pkg_gmp
+"duet/duet.native": pkg_mathsat
 "duet/duet.native": pkg_ocamlgraph
+"duet/duet.native": pkg_ocrs
 "duet/duet.native": pkg_ppx_deriving
 "duet/duet.native": pkg_ppx_deriving.ord
 "duet/duet.native": pkg_ppx_deriving.show
@@ -175,12 +187,13 @@ true: annot, bin_annot
 <duet/*.ml{,i,y}>: pkg_apron.octMPQ
 <duet/*.ml{,i,y}>: pkg_apron.polkaMPQ
 <duet/*.ml{,i,y}>: pkg_batteries
-<duet/*.ml{,i,y}>: pkg_buddy
 <duet/*.ml{,i,y}>: pkg_camlidl
 <duet/*.ml{,i,y}>: pkg_cil
 <duet/*.ml{,i,y}>: pkg_cil.default-features
 <duet/*.ml{,i,y}>: pkg_gmp
+<duet/*.ml{,i,y}>: pkg_mathsat
 <duet/*.ml{,i,y}>: pkg_ocamlgraph
+<duet/*.ml{,i,y}>: pkg_ocrs
 <duet/*.ml{,i,y}>: pkg_ppx_deriving
 <duet/*.ml{,i,y}>: pkg_ppx_deriving.ord
 <duet/*.ml{,i,y}>: pkg_ppx_deriving.show

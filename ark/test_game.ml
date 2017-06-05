@@ -6,7 +6,7 @@ open Apak
 module Ctx = MakeSimplifyingContext ()
 module Infix = Syntax.Infix(Ctx)
 let ctx = Ctx.context
-let smt_ctx = Smt.mk_context ctx []
+let smt_ctx = ArkZ3.mk_context ctx []
 
 let wsym = Ctx.mk_symbol ~name:"w" `TyReal
 let xsym = Ctx.mk_symbol ~name:"x" `TyReal
@@ -34,7 +34,7 @@ let reach1 () =
     let open Infix in
     x = y + (int 1)
   in
-  assert_equal None (Game.solve smt_ctx ([xsym],[ysym]) ~start ~safe ~reach)
+  assert_equal None (Game.solve ctx ([xsym],[ysym]) ~start ~safe ~reach)
 
 let safe1 () =
   let start =
@@ -51,7 +51,7 @@ let safe1 () =
   in
   assert_bool
     "No winning strategy for safety player"
-    ((Game.solve smt_ctx ([xsym],[ysym]) ~start ~safe ~reach) != None)
+    ((Game.solve ctx ([xsym],[ysym]) ~start ~safe ~reach) != None)
 
 let b1 = Ctx.mk_symbol ~name:"b1" `TyReal
 let b2 = Ctx.mk_symbol ~name:"b2" `TyReal
@@ -118,7 +118,7 @@ let cinderella1 () =
   assert_bool
     "No winning strategy for safety player"
     ((Game.solve
-        smt_ctx
+        ctx
         (buckets,buckets')
         ~start:bucket_init
         ~safe:(cinderella (frac 30 10))

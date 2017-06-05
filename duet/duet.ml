@@ -9,7 +9,7 @@ open TranslateCil
 open TranslateCbp
 
 (* Analyses *)
-(*open Cra*)
+open Cra
 open Proofspace
 open Dependence
 open ConcDep

@@ -27,13 +27,14 @@ let substitute_const ark sigma expr =
               (mk_leq ark (simplify s) (simplify t) :> ('a, typ_fo) expr)
             | `Atom (`Lt, s, t) ->
               (mk_lt ark (simplify s) (simplify t) :> ('a, typ_fo) expr)
-            | `Proposition (`Const k) -> (sigma k :> ('a, typ_fo) expr)
+            | `Proposition (`App (k, [])) ->
+              (sigma k :> ('a, typ_fo) expr)
             | _ -> expr
           with Nonlinear -> expr
         end
       | `Term t ->
         begin match Term.destruct ark t with
-          | `Const k -> (sigma k :> ('a, typ_fo) expr)
+          | `App (k, []) -> (sigma k :> ('a, typ_fo) expr)
           | `Binop (`Mod, s, t) ->
             begin
               try
@@ -332,7 +333,7 @@ let simplify_atom ark op s t =
 
 let mk_divides ark divisor term =
   assert (ZZ.lt ZZ.zero divisor);
-  if ZZ.equal divisor ZZ.one || V.equal term V.zero then
+  if ZZ.equal divisor ZZ.one || V.is_zero term then
     mk_true ark
   else
     let gcd = ZZ.gcd (coefficient_gcd term) divisor in
@@ -344,7 +345,7 @@ let mk_divides ark divisor term =
 
 let mk_not_divides ark divisor term =
   assert(ZZ.lt ZZ.zero divisor);
-  if ZZ.equal divisor ZZ.one || V.equal term V.zero then
+  if ZZ.equal divisor ZZ.one || V.is_zero term then
     mk_false ark
   else
     let gcd = ZZ.gcd (coefficient_gcd term) divisor in
@@ -897,8 +898,7 @@ module CSS = struct
       (* solver for the *negation* of the winning formula for skeleton (unsat
          iff there is a winning SAT strategy for formula which conforms to
          skeleton) *)
-      solver : 'a Smt.smt_solver;
-      smt : 'a Smt.smt_context;
+      solver : 'a Syntax.smt_solver;
       ark : 'a context;
     }
 
@@ -1019,13 +1019,12 @@ module CSS = struct
 
   (* Check to see if the matrix of a prenex formula is satisfiable.  If it is,
      initialize a sat/unsat strategy skeleton pair. *)
-  let initialize_pair select_term smt_ctx qf_pre phi =
-    match smt_ctx#get_model phi with
+  let initialize_pair select_term ark qf_pre phi =
+    match Smt.get_model ark phi with
     | `Unsat -> `Unsat
     | `Unknown -> `Unknown
     | `Sat m ->
       logf "Found initial model";
-      let ark = smt_ctx#ark in
       let phi_model = Interpretation.of_model ark m (List.map snd qf_pre) in
       (* Create paths for sat_skeleton & unsat_skeleton *)
       let f (qt, x) (sat_path, unsat_path, atoms) =
@@ -1053,13 +1052,12 @@ module CSS = struct
         let win =
           Skeleton.path_winning_formula ark sat_path skeleton phi
         in
-        let solver = smt_ctx#mk_solver () in
+        let solver = Smt.mk_solver ark in
         solver#add [mk_not ark win];
         { formula = phi;
           not_formula = not_phi;
           skeleton = skeleton;
           solver = solver;
-          smt = smt_ctx;
           ark = ark }
       in
       let unsat_ctx =
@@ -1067,13 +1065,12 @@ module CSS = struct
         let win =
           Skeleton.path_winning_formula ark unsat_path skeleton not_phi
         in
-        let solver = smt_ctx#mk_solver () in
+        let solver = Smt.mk_solver ark in
         solver#add [mk_not ark win];
         { formula = not_phi;
           not_formula = phi;
           skeleton = skeleton;
           solver = solver;
-          smt = smt_ctx;
           ark = ark }
       in
       logf "Initial SAT strategy:@\n%a"
@@ -1120,10 +1117,9 @@ module CSS = struct
      loop (paper beats rock beats scissors beats paper...), so we detect
      cycles by saving every strategy we've found and quitting when we get a
      repeat or when we hit max_improve_rounds. *)
-  let initialize_pair select_term smt_ctx qf_pre phi =
+  let initialize_pair select_term ark qf_pre phi =
     let unsat_skeleton = ref Skeleton.empty in
-    let ark = smt_ctx#ark in
-    match initialize_pair select_term smt_ctx qf_pre phi with
+    match initialize_pair select_term ark qf_pre phi with
     | `Unsat ->
       (* Matrix is unsat -> any unsat strategy is winning *)
       let path =
@@ -1182,7 +1178,7 @@ module CSS = struct
       is_sat ()
 
   let minimize_skeleton param_interp ctx =
-    let solver = ctx.smt#mk_solver () in
+    let solver = ArkZ3.mk_solver ctx.ark in
     let paths = Skeleton.paths ctx.skeleton in
     let path_guards =
       List.map (fun _ -> mk_const ctx.ark (mk_symbol ctx.ark `TyBool)) paths
@@ -1222,8 +1218,7 @@ module CSS = struct
         core
 end
 
-let simsat_forward_core smt_ctx qf_pre phi =
-  let ark = smt_ctx#ark in
+let simsat_forward_core ark qf_pre phi =
   let select_term model x atoms =
     match typ_symbol ark x with
     | `TyInt -> Skeleton.MInt (select_int_term ark model x atoms)
@@ -1249,7 +1244,7 @@ let simsat_forward_core smt_ctx qf_pre phi =
     | _ ->
       (qf_pre, phi, false)
   in
-  match CSS.initialize_pair select_term smt_ctx qf_pre phi with
+  match CSS.initialize_pair select_term ark qf_pre phi with
   | `Unsat skeleton ->
     if negate then
       `Sat skeleton
@@ -1266,7 +1261,8 @@ let simsat_forward_core smt_ctx qf_pre phi =
           | (k, `Bool false) ->
             ctx.solver#add [mk_not ark (mk_const ark k)]
           | (k, `Bool true) ->
-            ctx.solver#add [mk_const ark k])
+            ctx.solver#add [mk_const ark k]
+          | (_, `Fun _) -> ())
         (Interpretation.enum parameter_interp)
     in
     let mk_sat_ctx skeleton parameter_interp =
@@ -1275,8 +1271,7 @@ let simsat_forward_core smt_ctx qf_pre phi =
         { formula = phi;
           not_formula = not_phi;
           skeleton = skeleton;
-          solver = smt_ctx#mk_solver ();
-          smt = smt_ctx;
+          solver = Smt.mk_solver ark;
           ark = ark }
       in
       let win =
@@ -1293,8 +1288,7 @@ let simsat_forward_core smt_ctx qf_pre phi =
         { formula = not_phi;
           not_formula = phi;
           skeleton = skeleton;
-          solver = smt_ctx#mk_solver ();
-          smt = smt_ctx;
+          solver = Smt.mk_solver ark;
           ark = ark }
       in
       let win =
@@ -1415,8 +1409,7 @@ let simsat_forward_core smt_ctx qf_pre phi =
     | `Sat skeleton -> if negate then `Unsat skeleton else `Sat skeleton
     | `Unsat skeleton -> if negate then `Sat skeleton else `Unsat skeleton
 
-let simsat_core smt_ctx qf_pre phi =
-  let ark = smt_ctx#ark in
+let simsat_core ark qf_pre phi =
   let select_term model x phi =
     match typ_symbol ark x with
     | `TyInt -> Skeleton.MInt (select_int_term ark model x phi)
@@ -1424,39 +1417,36 @@ let simsat_core smt_ctx qf_pre phi =
     | `TyBool -> Skeleton.MBool (Interpretation.bool model x)
     | `TyFun (_, _) -> assert false
   in
-  match CSS.initialize_pair select_term smt_ctx qf_pre phi with
+  match CSS.initialize_pair select_term ark qf_pre phi with
   | `Unsat skeleton -> `Unsat skeleton
   | `Unknown -> `Unknown
   | `Sat (sat_ctx, unsat_ctx) ->
     CSS.reset unsat_ctx;
     CSS.is_sat select_term sat_ctx unsat_ctx
 
-let simsat smt_ctx phi =
-  let ark = smt_ctx#ark in
+let simsat ark phi =
   let constants = fold_constants Symbol.Set.add phi Symbol.Set.empty in
   let (qf_pre, phi) = normalize ark phi in
   let qf_pre =
     (List.map (fun k -> (`Exists, k)) (Symbol.Set.elements constants))@qf_pre
   in
-  match simsat_core smt_ctx qf_pre phi with
+  match simsat_core ark qf_pre phi with
   | `Unsat _ -> `Unsat
   | `Sat _ -> `Sat
   | `Unknown -> `Unknown
 
-let simsat_forward smt_ctx phi =
-  let ark = smt_ctx#ark in
+let simsat_forward ark phi =
   let constants = fold_constants Symbol.Set.add phi Symbol.Set.empty in
   let (qf_pre, phi) = normalize ark phi in
   let qf_pre =
     (List.map (fun k -> (`Exists, k)) (Symbol.Set.elements constants))@qf_pre
   in
-  match simsat_forward_core smt_ctx qf_pre phi with
+  match simsat_forward_core ark qf_pre phi with
   | `Sat _ -> `Sat
   | `Unsat _ -> `Unsat
   | `Unknown -> `Unknown
 
-let maximize_feasible smt_ctx phi t =
-  let ark = smt_ctx#ark in
+let maximize_feasible ark phi t =
   let objective_constants = fold_constants Symbol.Set.add t Symbol.Set.empty in
   let constants = fold_constants Symbol.Set.add phi objective_constants in
   let (qf_pre, phi) = normalize ark phi in
@@ -1492,7 +1482,7 @@ let maximize_feasible smt_ctx phi t =
   in
   CSS.max_improve_rounds := 1;
   let init =
-    CSS.initialize_pair select_term smt_ctx qf_pre_unbounded phi_unbounded
+    CSS.initialize_pair select_term ark qf_pre_unbounded phi_unbounded
   in
   match init with
   | `Unsat _ -> `MinusInfinity
@@ -1542,7 +1532,7 @@ let maximize_feasible smt_ctx phi t =
                     [mk_not ark win_not_unbounded;
                      mk_eq ark (mk_real ark move_val) (mk_const ark objective)]
                 in
-                smt_ctx#is_sat win = `Unsat)
+                Smt.is_sat ark win = `Unsat)
               (Skeleton.MM.enum mm)
             /@ (fun (v, skeleton) -> match Skeleton.const_of_move v with
                 | Some qq -> (qq, skeleton)
@@ -1573,7 +1563,7 @@ let maximize_feasible smt_ctx phi t =
           |> mk_not ark
         in
         logf "Bounded phi:@\n%a" (Formula.pp ark) bounded_phi;
-        begin match smt_ctx#optimize_box bounded_phi [t] with
+        begin match ArkZ3.optimize_box ark bounded_phi [t] with
           | `Unknown ->
             Log.errorf "Failed to optimize - returning conservative bound";
             begin match bound with
@@ -1594,19 +1584,18 @@ let maximize_feasible smt_ctx phi t =
     in
     check_bound None
 
-let maximize smt_ctx phi t =
-  match simsat smt_ctx phi with
-  | `Sat -> maximize_feasible smt_ctx phi t
+let maximize ark phi t =
+  match simsat ark phi with
+  | `Sat -> maximize_feasible ark phi t
   | `Unsat -> `MinusInfinity
   | `Unknown -> `Unknown
 
 exception Unknown
-let qe_mbp smt_ctx phi =
-  let ark = smt_ctx#ark in
+let qe_mbp ark phi =
   let (qf_pre, phi) = normalize ark phi in
   let phi = eliminate_ite ark phi in
   let exists x phi =
-    let solver = smt_ctx#mk_solver () in
+    let solver = Smt.mk_solver ark in
     let disjuncts = ref [] in
     let constants =
       fold_constants Symbol.Set.add phi (Symbol.Set.singleton x)
@@ -1642,8 +1631,7 @@ let qe_mbp smt_ctx phi =
     qf_pre
     phi
 
-let easy_sat smt_ctx phi =
-  let ark = smt_ctx#ark in
+let easy_sat ark phi =
   let constants = fold_constants Symbol.Set.add phi Symbol.Set.empty in
   let (qf_pre, phi) = normalize ark phi in
   let qf_pre =
@@ -1656,7 +1644,7 @@ let easy_sat smt_ctx phi =
     | `TyBool -> Skeleton.MBool (Interpretation.bool model x)
     | `TyFun (_, _) -> assert false
   in
-  match CSS.initialize_pair select_term smt_ctx qf_pre phi with
+  match CSS.initialize_pair select_term ark qf_pre phi with
   | `Unsat _ -> `Unsat
   | `Unknown -> `Unknown
   | `Sat (sat_ctx, unsat_ctx) ->
@@ -1691,9 +1679,9 @@ let rec pp_strategy ark formatter (Strategy xs) =
 let show_strategy ark = Apak.Putil.mk_show (pp_strategy ark)
 
 (* Extract a winning strategy from a skeleton *)
-let extract_strategy smt_ctx skeleton phi =
-  let ark = smt_ctx#ark in
+let extract_strategy ark skeleton phi =
   let open Skeleton in
+  let smt_ctx = ArkZ3.mk_context ark [] in
   let rec go subst = function
     | SEmpty ->
       let psi = mk_not ark (List.fold_left (fun a f -> f a) phi subst) in
@@ -1749,18 +1737,17 @@ let extract_strategy smt_ctx skeleton phi =
   | (_, None, Some _) -> assert false
   | (_, _, _) -> assert false
 
-let winning_strategy smt_ctx qf_pre phi =
-  match simsat_forward_core smt_ctx qf_pre phi with
+let winning_strategy ark qf_pre phi =
+  match simsat_forward_core ark qf_pre phi with
   | `Sat skeleton ->
-    Log.errorf "Formula is SAT.  Extracting strategy.";
-    `Sat (extract_strategy smt_ctx skeleton phi)
+    logf "Formula is SAT.  Extracting strategy.";
+    `Sat (extract_strategy ark skeleton phi)
   | `Unsat skeleton ->
-    Log.errorf "Formula is UNSAT.  Extracting strategy.";
-    `Unsat (extract_strategy smt_ctx skeleton (mk_not smt_ctx#ark phi))
+    logf "Formula is UNSAT.  Extracting strategy.";
+    `Unsat (extract_strategy ark skeleton (mk_not ark phi))
   | `Unknown -> `Unknown
 
-let check_strategy smt_ctx qf_pre phi strategy =
-  let ark = smt_ctx#ark in
+let check_strategy ark qf_pre phi strategy =
   (* go qf_pre strategy computes a formula whose models correspond to playing
      phi according to the strategy *)
   let rec go qf_pre (Strategy xs) =
@@ -1773,10 +1760,10 @@ let check_strategy smt_ctx qf_pre phi strategy =
         xs |> List.map (fun (guard, move, sub_strategy) ->
             let move_formula =
               let open Skeleton in
-              match refine smt_ctx#ark move with
-              | `Term t -> mk_eq smt_ctx#ark (mk_const ark k) t
+              match refine ark move with
+              | `Term t -> mk_eq ark (mk_const ark k) t
               | `Formula phi ->
-                match Formula.destruct smt_ctx#ark phi with
+                match Formula.destruct ark phi with
                 | `Tru -> mk_const ark k
                 | `Fls -> mk_not ark (mk_const ark k)
                 | _ -> assert false
@@ -1791,7 +1778,7 @@ let check_strategy smt_ctx qf_pre phi strategy =
     | (`Forall, _)::qf_pre -> go qf_pre (Strategy xs)
   in
   let strategy_formula = go qf_pre strategy in
-  smt_ctx#is_sat (mk_and ark [strategy_formula; mk_not ark phi]) = `Unsat
+  Smt.is_sat ark (mk_and ark [strategy_formula; mk_not ark phi]) = `Unsat
 
 type skeleton = Skeleton.t
 
@@ -1843,23 +1830,23 @@ let destruct_skeleton_block ark skeleton =
     `Forall (block, rest)
   | SEmpty -> `Empty
 
-let winning_skeleton smt_ctx qf_pre phi = simsat_forward_core smt_ctx qf_pre phi
+let winning_skeleton ark qf_pre phi = simsat_forward_core ark qf_pre phi
 
 let pp_skeleton = Skeleton.pp
 
-let minimize_skeleton ctx skeleton phi =
-  let solver = ctx#mk_solver () in
+let minimize_skeleton ark skeleton phi =
+  let solver = Smt.mk_solver ark in
   let paths = Skeleton.paths skeleton in
   let path_guards =
-    List.map (fun _ -> mk_const ctx#ark (mk_symbol ctx#ark `TyBool)) paths
+    List.map (fun _ -> mk_const ark (mk_symbol ark `TyBool)) paths
   in
   let psis =
     let winning_formula path =
-      Skeleton.path_winning_formula ctx#ark path skeleton phi
+      Skeleton.path_winning_formula ark path skeleton phi
     in
     List.map2 (fun path guard ->
-        mk_or ctx#ark [mk_not ctx#ark guard;
-                       mk_not ctx#ark (winning_formula path)])
+        mk_or ark [mk_not ark guard;
+                       mk_not ark (winning_formula path)])
       paths
       path_guards
   in
@@ -1881,7 +1868,7 @@ let minimize_skeleton ctx skeleton phi =
   | `Unsat core ->
     List.fold_left
       (fun skeleton core_guard ->
-         try Skeleton.add_path ctx#ark (path_of_guard core_guard) skeleton
+         try Skeleton.add_path ark (path_of_guard core_guard) skeleton
          with Redundant_path -> skeleton)
       Skeleton.empty
       core

@@ -1,0 +1,4 @@
+./regression/cra/code/factor.c:6 >> i <= n
+
+1 errors total
+0 safe assertions

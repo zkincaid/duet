@@ -1,7 +1,6 @@
 void main() { 
-    int i, n,m,r;//n = rand(), m = rand(), r;
-
-    assume(n > 0);
+    int i, n,m,r;
+    __VERIFIER_assume(n > 0);
     i = 0;
     r = 0;
     m = m;
@@ -10,6 +9,5 @@ void main() {
 	r = r + m;
 	i++;
     }
-    assert(i == n);
-    assert(r == n * m);
+    __VERIFIER_assert(r == n * m);
 }

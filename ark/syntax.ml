@@ -15,6 +15,7 @@ type typ_bool = [ `TyBool ]
 type 'a typ_fun = [ `TyFun of (typ_fo list) * 'a ]
 
 type symbol = int
+  [@@deriving ord]
 
 let pp_typ_fo formatter = function
   | `TyReal -> Format.pp_print_string formatter "real"
@@ -33,6 +34,8 @@ let pp_typ formatter = function
 
 let pp_typ_arith = pp_typ
 let pp_typ_fo = pp_typ
+
+let subtype s t = s = t || (s = `TyInt && t = `TyReal)
 
 type label =
   | True
@@ -61,6 +64,10 @@ type ('a,'typ) expr = sexpr hobj
 type 'a term = ('a, typ_arith) expr
 type 'a formula = ('a, typ_bool) expr
 
+let compare_expr s t = Pervasives.compare s.tag t.tag
+let compare_formula = compare_expr
+let compare_term = compare_expr
+
 module HC = BatHashcons.MakeTable(struct
     type t = sexpr
     let equal (Node (label, args, typ)) (Node (label', args', typ')) =
@@ -80,6 +87,7 @@ module DynArray = BatDynArray
 
 module Symbol = struct
   type t = symbol
+  let compare = Pervasives.compare
   module Set = BatSet.Make(Apak.Putil.PInt)
   module Map = BatMap.Make(Apak.Putil.PInt)
 end
@@ -100,6 +108,7 @@ module Env = struct
     try List.nth xs i
     with Failure _ -> raise Not_found
   let empty = []
+  let enum = BatList.enum
 end
 
 let rec eval_sexpr alg sexpr =
@@ -115,7 +124,6 @@ let rec flatten_sexpr label sexpr =
 
 type ('a, 'b) open_term = [
   | `Real of QQ.t
-  | `Const of int
   | `App of symbol * (('b, typ_fo) expr list)
   | `Var of int * typ_arith
   | `Add of 'a list
@@ -134,10 +142,11 @@ type ('a,'b) open_formula = [
   | `Quantify of [`Exists | `Forall] * string * typ_fo * 'a
   | `Atom of [`Eq | `Leq | `Lt] * 'b term * 'b term
   | `Ite of 'a * 'a * 'a
-  | `Proposition of [ `Const of int
-                    | `Var of int
+  | `Proposition of [ `Var of int
                     | `App of symbol * ('b, typ_fo) expr list ]
 ]
+
+exception Quit
 
 let size expr =
   let open Apak.Putil.PInt in
@@ -156,6 +165,7 @@ let size expr =
 type 'a context =
   { hashcons : HC.t;
     symbols : (string * typ) DynArray.t;
+    named_symbols : (string,int) Hashtbl.t;
     mk : label -> (sexpr hobj) list -> sexpr hobj
   }
 
@@ -163,13 +173,30 @@ let mk_symbol ctx ?(name="K") typ =
   DynArray.add ctx.symbols (name, typ);
   DynArray.length ctx.symbols - 1
 
+let register_named_symbol ctx name typ =
+  if Hashtbl.mem ctx.named_symbols name then
+    invalid_arg ("register_named_symbol: The name `"
+                 ^ name
+                 ^ "' has already been registered")
+  else
+    Hashtbl.add ctx.named_symbols name (mk_symbol ctx ~name typ)
+
+let get_named_symbol ctx name = Hashtbl.find ctx.named_symbols name
+
+let is_registered_name ctx name = Hashtbl.mem ctx.named_symbols name
+
+let symbol_name ctx sym =
+  let name = fst (DynArray.get ctx.symbols sym) in
+  if is_registered_name ctx name then Some name
+  else None
+
 let typ_symbol ctx = snd % DynArray.get ctx.symbols
 let pp_symbol ctx formatter symbol =
   Format.fprintf formatter "%s:%d"
     (fst (DynArray.get ctx.symbols symbol))
     symbol
 
-let show_symbol ctx = Apak.Putil.mk_show (pp_symbol ctx)
+let show_symbol ctx symbol = fst (DynArray.get ctx.symbols symbol)
 let symbol_of_int x = x
 let int_of_symbol x = x
 
@@ -185,7 +212,7 @@ let mk_neg ctx t = ctx.mk Neg [t]
 let mk_div ctx s t = ctx.mk Div [s; t]
 let mk_mod ctx s t = ctx.mk Mod [s; t]
 let mk_floor ctx t = ctx.mk Floor [t]
-let mk_idiv ctx s t = mk_floor ctx (mk_div ctx s t)
+let mk_ceiling ctx t = mk_neg ctx (mk_floor ctx (mk_neg ctx t))
 
 let mk_add ctx = function
   | [] -> mk_zero ctx
@@ -234,6 +261,26 @@ let mk_iff ctx phi psi =
 let mk_implies ctx phi psi = mk_or ctx [mk_not ctx phi; psi]
 
 let mk_ite ctx cond bthen belse = ctx.mk Ite [cond; bthen; belse]
+let mk_iff ctx phi psi =
+  mk_or ctx [mk_and ctx [phi; psi]; mk_and ctx [mk_not ctx phi; mk_not ctx psi]]
+
+let mk_truncate ctx t =
+  mk_ite ctx
+    (mk_leq ctx (mk_zero ctx) t)
+    (mk_floor ctx t)
+    (mk_ceiling ctx t)
+
+(* Equivalent to mk_truncate ctx (mk_div ctx s t), but with built-in sign
+   analysis *)
+let mk_idiv ctx s t =
+  let zero = mk_zero ctx in
+  let div = mk_div ctx s t in
+  let s_pos = mk_leq ctx zero s in
+  let t_pos = mk_leq ctx zero t in
+  mk_ite ctx
+    (mk_iff ctx s_pos t_pos)
+    (mk_floor ctx div)
+    (mk_ceiling ctx div)
 
 (* Avoid capture by incrementing bound variables *)
 let rec decapture ctx depth incr sexpr =
@@ -285,10 +332,12 @@ let fold_constants f sexpr acc =
   let rec go acc sexpr =
     let Node (label, children, _) = sexpr.obj in
     match label with
-    | App k -> f k acc
+    | App k -> List.fold_left go (f k acc) children
     | _ -> List.fold_left go acc children
   in
   go acc sexpr
+
+let symbols sexpr = fold_constants Symbol.Set.add sexpr Symbol.Set.empty
 
 let vars sexpr =
   let rec go depth sexpr =
@@ -313,6 +362,32 @@ let refine ctx sexpr =
   | Node (_, _, `TyInt) -> `Term sexpr
   | Node (_, _, `TyReal) -> `Term sexpr
   | Node (_, _, `TyBool) -> `Formula sexpr
+
+let destruct ctx sexpr =
+  match sexpr.obj with
+  | Node (Real qq, [], _) -> `Real qq
+  | Node (App func, args, _) -> `App (func, args)
+  | Node (Var (v, `TyReal), [], _) -> `Var (v, `TyReal)
+  | Node (Var (v, `TyInt), [], _) -> `Var (v, `TyInt)
+  | Node (Var (v, `TyBool), [], _) -> `Proposition (`Var v)
+  | Node (Add, sum, _) -> `Add sum
+  | Node (Mul, product, _) -> `Mul product
+  | Node (Div, [s; t], _) -> `Binop (`Div, s, t)
+  | Node (Mod, [s; t], _) -> `Binop (`Mod, s, t)
+  | Node (Floor, [t], _) -> `Unop (`Floor, t)
+  | Node (Neg, [t], _) -> `Unop (`Neg, t)
+  | Node (Ite, [cond; bthen; belse], _) -> `Ite (cond, bthen, belse)
+  | Node (True, [], _) -> `Tru
+  | Node (False, [], _) -> `Fls
+  | Node (And, conjuncts, _) -> `And conjuncts
+  | Node (Or, disjuncts, _) -> `Or disjuncts
+  | Node (Not, [phi], _) -> `Not phi
+  | Node (Exists (name, typ), [phi], _) -> `Quantify (`Exists, name, typ, phi)
+  | Node (Forall (name, typ), [phi], _) -> `Quantify (`Forall, name, typ, phi)
+  | Node (Eq, [s; t], _) -> `Atom (`Eq, s, t)
+  | Node (Leq, [s; t], _) -> `Atom (`Leq, s, t)
+  | Node (Lt, [s; t], _) -> `Atom (`Lt, s, t)
+  | Node (_, _, _) -> assert false
 
 module Expr = struct
   type t = sexpr hobj
@@ -340,9 +415,9 @@ let rec pp_expr ?(env=Env.empty) ctx formatter expr =
   | Real qq, [] -> QQ.pp formatter qq
   | App k, [] -> pp_symbol ctx formatter k
   | App func, args ->
-    fprintf formatter "%a(%a)"
+    fprintf formatter "%a(@[%a@])"
       (pp_symbol ctx) func
-      (ApakEnum.pp_print_enum (pp_expr ~env ctx)) (BatList.enum args)
+      (ApakEnum.pp_print_enum_nobox (pp_expr ~env ctx)) (BatList.enum args)
   | Var (v, typ), [] ->
     (try fprintf formatter "[%s:%d]" (Env.find env v) v
      with Not_found -> fprintf formatter "[free:%d]" v)
@@ -453,6 +528,35 @@ module ExprHT = struct
   let enum = HT.enum
 end
 
+module ExprSet = struct
+  module S = BatSet.Make(Expr)
+  type ('a, 'typ) t = S.t
+  let empty = S.empty
+  let add = S.add
+  let union = S.union
+  let inter = S.inter
+  let enum = S.enum
+  let mem = S.mem
+end
+
+module ExprMap = struct
+  module M = BatMap.Make(Expr)
+  type ('a, 'typ, 'b) t = 'b M.t
+  let empty = M.empty
+  let is_empty = M.is_empty
+  let add = M.add
+  let map = M.map
+  let filter = M.filter
+  let filter_map = M.filter_map
+  let remove = M.remove
+  let find = M.find
+  let keys = M.keys
+  let values = M.values
+  let enum = M.enum
+  let merge = M.merge
+  let fold = M.fold
+end
+
 module ExprMemo = Apak.Memo.Make(Expr)
 
 module Term = struct
@@ -465,8 +569,6 @@ module Term = struct
     let rec go t =
       match t.obj with
       | Node (Real qq, [], _) -> alg (`Real qq)
-      | Node (App k, [], `TyBool) -> invalid_arg "eval: not a term"
-      | Node (App k, [], `TyReal) -> alg (`Const k)
       | Node (App func, args, `TyBool) -> invalid_arg "eval: not a term"
       | Node (App func, args, `TyInt) | Node (App func, args, `TyReal) ->
         alg (`App (func, args))
@@ -489,12 +591,18 @@ module Term = struct
     in
     go t
 
+  let eval_partial ctx alg t =
+    let alg' term =
+      match alg term with
+      | Some t -> t
+      | None -> raise Quit
+    in
+    try Some (eval ctx alg' t)
+    with Quit -> None
+
   let destruct ctx t = match t.obj with
     | Node (Real qq, [], _) -> `Real qq
-    | Node (App k, [], `TyBool) -> invalid_arg "destruct: not a term"
-    | Node (App k, [], `TyInt) | Node (App k, [], `TyReal) ->
-      `Const k
-    | Node (App func, args, `TyBool) -> invalid_arg "destruct: not a term"
+    | Node (App _, _, `TyBool) -> invalid_arg "destruct: not a term"
     | Node (App func, args, `TyInt) | Node (App func, args, `TyReal) ->
       `App (func, args)
     | Node (Var (v, typ), [], _) ->
@@ -535,7 +643,6 @@ module Formula = struct
     | Node (Eq, [s; t], _) -> `Atom (`Eq, s, t)
     | Node (Leq, [s; t], _) -> `Atom (`Leq, s, t)
     | Node (Lt, [s; t], _) -> `Atom (`Lt, s, t)
-    | Node (App k, [], `TyBool) -> `Proposition (`Const k)
     | Node (Var (v, `TyBool), [], _) -> `Proposition (`Var v)
     | Node (App f, args, `TyBool) -> `Proposition (`App (f, args))
     | Node (Ite, [cond; bthen; belse], `TyBool) -> `Ite (cond, bthen, belse)
@@ -623,7 +730,6 @@ module Formula = struct
       | `Quantify (`Forall, name, typ, (qf_pre, phi)) ->
         (`Forall (name, typ)::qf_pre, phi)
       | `Not (qf_pre, phi) -> (negate_prefix qf_pre, mk_not ctx phi)
-      | `Proposition (`Const p) -> ([], mk_const ctx p)
       | `Proposition (`Var i) -> ([], mk_var ctx i `TyBool)
       | `Proposition (`App (p, args)) -> ([], mk_app ctx p args)
       | `Ite (cond, bthen, belse) ->
@@ -682,14 +788,14 @@ let node_typ symbols label children =
       | `TyFun (args, ret) ->
         if List.length args != List.length children then
           invalid_arg "Arity mis-match in function application";
-        if (BatList.exists2
-              (fun typ { obj = Node (_, _, typ') } -> typ != typ')
+        if (BatList.for_all2
+              (fun typ { obj = Node (_, _, typ') } -> subtype typ' typ)
               args
               children)
         then
-          invalid_arg "Mis-matched types in function application"
-        else
           ret
+        else
+          invalid_arg "Mis-matched types in function application"
       | `TyInt when children = [] -> `TyInt
       | `TyReal when children = [] -> `TyReal
       | `TyBool when children = [] -> `TyBool
@@ -729,6 +835,12 @@ let term_typ _ node =
   | Node (_, _, `TyInt) -> `TyInt
   | Node (_, _, `TyReal) -> `TyReal
   | Node (_, _, `TyBool) -> invalid_arg "term_typ: not an arithmetic term"
+
+let expr_typ _ node =
+  match node.obj with
+  | Node (_, _, `TyInt) -> `TyInt
+  | Node (_, _, `TyReal) -> `TyReal
+  | Node (_, _, `TyBool) -> `TyBool
 
 type 'a rewriter = ('a, typ_fo) expr -> ('a, typ_fo) expr
 
@@ -783,7 +895,7 @@ let eliminate_ite ctx phi =
     match Term.destruct ctx term with
     | `Ite (cond, bthen, belse) ->
       `Ite (elim_ite cond, promote_ite bthen, promote_ite belse)
-    | `Real _ | `Const _ | `Var (_, _) -> `Term term
+    | `Real _ | `Var (_, _) -> `Term term
     | `Add xs -> map_ite (fun xs -> `Term (mk_add ctx xs)) (ite_list xs)
     | `Mul xs -> map_ite (fun xs -> `Term (mk_mul ctx xs)) (ite_list xs)
     | `Binop (`Div, x, y) ->
@@ -836,7 +948,6 @@ let eliminate_ite ctx phi =
           (fun s -> map_ite (fun t -> `Term (mk_atom op s t)) promote_t)
           (promote_ite s)
         |> ite_formula
-      | `Proposition (`Const k) -> mk_const ctx k
       | `Proposition (`Var i) -> mk_var ctx i `TyBool
       | `Proposition (`App (func, args)) ->
         List.fold_right (fun x rest ->
@@ -856,6 +967,185 @@ let eliminate_ite ctx phi =
     Formula.eval ctx alg phi
   in
   elim_ite phi
+
+let rec pp_smtlib2 ?(env=Env.empty) ctx formatter expr =
+  let open Format in
+  let pp_sep = pp_print_space in
+
+  (* Legal characters in an SMTLIB2 symbol *)
+  let legal_char x =
+    BatChar.is_letter x || BatChar.is_digit x
+    || BatString.contains "~!@$%^&*_-+=<>.?/" x
+  in
+  (* Convert a string to a valid SMTLIB2 symbol *)
+  let symbol_of_string name =
+    if BatEnum.for_all legal_char (BatString.enum name) then
+      name
+    else
+      let replaced =
+        BatString.map (fun c ->
+            if legal_char c || BatString.contains " \"#'(),;:`{}" c then
+              c
+            else
+              '?')
+          name
+      in
+      "|" ^ replaced ^ "|"
+  in
+    
+  (* find a unique string that can be used to identify each symbol *)
+  let strings = Hashtbl.create 991 in
+  let symbol_name = Hashtbl.create 991 in
+  Symbol.Set.iter (fun symbol ->
+      let name = symbol_of_string (fst (DynArray.get ctx.symbols symbol)) in
+      if Hashtbl.mem strings name then
+        let rec go n =
+          let name' = name ^ (string_of_int n) in
+          if Hashtbl.mem strings name' then
+            go (n + 1)
+          else begin
+            Hashtbl.add strings name' ();
+            Hashtbl.add symbol_name symbol name'
+          end
+        in
+        go 0
+      else begin
+        Hashtbl.add strings name ();
+        Hashtbl.add symbol_name symbol name
+      end)
+    (symbols expr);
+
+  fprintf formatter "@[<v 0>";
+  (* print declarations *)
+  symbol_name |> Hashtbl.iter (fun symbol name ->
+      let pp_typ_fo formatter = function
+        | `TyReal -> pp_print_string formatter "Real"
+        | `TyInt -> pp_print_string formatter "Int"
+        | `TyBool -> pp_print_string formatter "Bool"
+      in        
+      match typ_symbol ctx symbol with
+      | `TyReal -> fprintf formatter "(declare-const %s Real)@;" name
+      | `TyInt -> fprintf formatter "(declare-const %s Int)@;" name
+      | `TyBool -> fprintf formatter "(declare-const %s Bool)@;" name
+      | `TyFun (args, ret) ->
+        fprintf formatter "(declare-fun %s (%a) %a)@;"
+          name
+          (ApakEnum.pp_print_enum ~pp_sep pp_typ_fo) (BatList.enum args)
+          pp_typ_fo ret
+    );
+
+  let rec go env formatter expr =
+    let Node (label, children, _) = expr.obj in
+    match label, children with
+    | Real qq, [] ->
+      let (num, den) = QQ.to_zzfrac qq in
+      if ZZ.equal den ZZ.one then
+        ZZ.pp formatter num
+      else
+        fprintf formatter "(/ %a %a)"
+          ZZ.pp num
+          ZZ.pp den
+    | App k, [] ->
+      pp_print_string formatter (Hashtbl.find symbol_name k)
+    | App func, args ->
+      fprintf formatter "(%s %a)"
+        (Hashtbl.find symbol_name func)
+        (ApakEnum.pp_print_enum ~pp_sep (go env)) (BatList.enum args)
+    | Var (v, typ), [] ->
+      (try fprintf formatter "?%s_%d" (Env.find env v) v
+       with Not_found -> fprintf formatter "[free:%d]" v)
+    | Add, terms ->
+      fprintf formatter "(+ @[";
+      ApakEnum.pp_print_enum
+        ~pp_sep
+        (go env)
+        formatter
+        (BatList.enum terms);
+      fprintf formatter "@])"
+    | Mul, terms ->
+      fprintf formatter "(* @[";
+      ApakEnum.pp_print_enum
+        ~pp_sep
+        (go env)
+        formatter
+        (BatList.enum terms);
+      fprintf formatter "@])"
+    | Div, [s; t] ->
+      fprintf formatter "(/@[%a@ %a@])"
+        (go env) s
+        (go env) t
+    | Mod, [s; t] ->
+      fprintf formatter "(mod @[%a@ %a@])"
+        (go env) s
+        (go env) t
+    | Floor, [t] ->
+      fprintf formatter "(floor @[%a@])" (go env) t
+    | Neg, [{obj = Node (Real qq, [], _)}] ->
+      QQ.pp formatter (QQ.negate qq)
+    | Neg, [{obj = Node (App _, _, _)} as t]
+    | Neg, [t] -> fprintf formatter "(- @[%a@])" (go env) t
+    | True, [] -> pp_print_string formatter "true"
+    | False, [] -> pp_print_string formatter "false"
+    | Not, [phi] ->
+      fprintf formatter "(not @[%a@])" (go env) phi
+    | And, conjuncts ->
+      fprintf formatter "(and @[";
+      ApakEnum.pp_print_enum
+        ~pp_sep
+        (go env)
+        formatter
+        (BatList.enum (List.concat (List.map (flatten_sexpr And) conjuncts)));
+      fprintf formatter "@])"
+    | Or, disjuncts ->
+      fprintf formatter "(or @[";
+      ApakEnum.pp_print_enum
+        ~pp_sep
+        (go env)
+        formatter
+        (BatList.enum (List.concat (List.map (flatten_sexpr Or) disjuncts)));
+      fprintf formatter "@])"
+    | Eq, [x; y] ->
+      fprintf formatter "(= @[%a %a@])"
+        (go env) x
+        (go env) y
+    | Leq, [x; y] ->
+      fprintf formatter "(<= @[%a %a@])"
+        (go env) x
+        (go env) y
+    | Lt, [x; y] ->
+      fprintf formatter "(< @[%a %a@])"
+        (go env) x
+        (go env) y
+    | Exists (name, typ), [psi] | Forall (name, typ), [psi] ->
+      let (quantifier_name, varinfo, psi) =
+        match label with
+        | Exists (_, _) ->
+          let (varinfo, psi) = flatten_existential psi in
+          ("exists", (name, typ)::varinfo, psi)
+        | Forall (_, _) ->
+          let (varinfo, psi) = flatten_universal psi in
+          ("forall", (name, typ)::varinfo, psi)
+        | _ -> assert false
+      in
+      let env =
+        List.fold_left (fun env (x,_) -> Env.push x env) env varinfo
+      in
+      fprintf formatter "(@[%s@ (" quantifier_name;
+      ApakEnum.pp_print_enum
+        ~pp_sep
+        (fun formatter (name, typ) ->
+           fprintf formatter "(%s %a)" name pp_typ typ)
+        formatter
+        (BatList.enum varinfo);
+      fprintf formatter ")@ %a@])" (go env) psi
+    | Ite, [cond; bthen; belse] ->
+      fprintf formatter "(ite @[%a@ %a@ %a@])"
+        (go env) cond
+        (go env) bthen
+        (go env) belse
+    | _ -> failwith "pp_smtlib2: ill-formed expression"
+  in
+  fprintf formatter "(assert %a)@;(check-sat)@]" (go env) expr;
 
 module Infix (C : sig
     type t
@@ -896,6 +1186,7 @@ module type Context = sig
   val mk_add : term list -> term
   val mk_mul : term list -> term
   val mk_div : term -> term -> term
+  val mk_idiv : term -> term -> term
   val mk_mod : term -> term -> term
   val mk_real : QQ.t -> term
   val mk_floor : term -> term
@@ -928,6 +1219,7 @@ module ImplicitContext(C : sig
   let mk_add = mk_add context
   let mk_mul = mk_mul context
   let mk_div = mk_div context
+  let mk_idiv = mk_idiv context
   let mk_mod = mk_mod context
   let mk_real = mk_real context
   let mk_floor = mk_floor context
@@ -960,7 +1252,8 @@ module MakeContext () = struct
       let typ = node_typ symbols label children in
       HC.hashcons hashcons (Node (label, children, typ))
     in
-    { hashcons; symbols; mk }
+    let named_symbols = Hashtbl.create 991 in
+    { hashcons; symbols; named_symbols; mk }
 
   include ImplicitContext(struct
       type t = unit
@@ -976,6 +1269,7 @@ module MakeSimplifyingContext () = struct
   let context =
     let hashcons = HC.create 991 in
     let symbols = DynArray.make 512 in
+    let named_symbols = Hashtbl.create 991 in
     let true_ = HC.hashcons hashcons (Node (True, [], `TyBool)) in
     let false_ = HC.hashcons hashcons (Node (False, [], `TyBool)) in
     let rec mk label children =
@@ -1029,6 +1323,11 @@ module MakeSimplifyingContext () = struct
 
       | Not, [phi] when is_true phi -> false_
       | Not, [phi] when is_false phi -> true_
+      | Not, [phi] ->
+        begin match phi.obj with
+          | Node (Not, [psi], _) -> psi
+          | _ -> hc Not [phi]
+        end
 
       | Add, xs ->
         begin match List.filter (not % is_zero) xs with
@@ -1037,6 +1336,7 @@ module MakeSimplifyingContext () = struct
           | xs -> hc Add xs
         end
 
+      | Mul, xs when List.exists is_zero xs -> mk (Real QQ.zero) []
       | Mul, xs ->
         begin match List.filter (not % is_one) xs with
           | [] -> mk (Real QQ.one) []
@@ -1068,10 +1368,30 @@ module MakeSimplifyingContext () = struct
 
       | _, _ -> hc label children
     in
-    { hashcons; symbols; mk }
+    { hashcons; symbols; named_symbols; mk }
 
   include ImplicitContext(struct
       type t = unit
       let context = context
     end)
+end
+
+class type ['a] smt_model = object
+  method eval_int : 'a term -> ZZ.t
+  method eval_real : 'a term -> QQ.t
+  method eval_fun : symbol -> ('a, typ_fo) expr
+  method sat :  'a formula -> bool
+  method to_string : unit -> string
+end
+
+class type ['a] smt_solver = object
+  method add : ('a formula) list -> unit
+  method push : unit -> unit
+  method pop : int -> unit
+  method reset : unit -> unit
+  method check : ('a formula) list -> [ `Sat | `Unsat | `Unknown ]
+  method to_string : unit -> string
+  method get_model : unit -> [ `Sat of 'a smt_model | `Unsat | `Unknown ]
+  method get_unsat_core : ('a formula) list ->
+    [ `Sat | `Unsat of ('a formula) list | `Unknown ]
 end

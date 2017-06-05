@@ -1,5 +1,6 @@
 open BatPervasives
 open Apak
+open Syntax
 
 type t =
   { lower : QQ.t option;
@@ -58,7 +59,10 @@ let add x y =
     { lower = lower; upper = upper }
 
 let mul_const k x =
-  if equal x bottom then bottom
+  if equal x bottom then
+    bottom
+  else if QQ.equal k QQ.zero then
+    zero
   else if QQ.lt k QQ.zero then begin
     { lower = map_opt (QQ.mul k) x.upper;
       upper = map_opt (QQ.mul k) x.lower }
@@ -185,16 +189,10 @@ let modulo x y =
     bottom
   else if elem QQ.zero y then top
   else
-    (* mod y is the same as mod |y| *)
-    let y = abs y in
-    match y.lower with
-    (* |y| is sufficiently large for "mod y" be a no-op on x *)
-    | Some lo when strictly_left (abs x) (const lo) -> x
-    | _ ->
-       let y_1 = map_opt (flip QQ.sub QQ.one) y.upper in (* |y|-1 *)
-       let divisor_ivl = { lower = map_opt QQ.negate y_1; upper = y_1 } in
-       let dividend_ivl = join x zero in
-       meet divisor_ivl dividend_ivl
+    (* TODO: this is a coarse abstraction *)
+    let y_1 = map_opt (flip QQ.sub QQ.one) y.upper in (* |y|-1 *)
+    let divisor_ivl = { lower = Some QQ.zero; upper = y_1 } in
+    divisor_ivl
 
 let upper x = x.upper
 let lower x = x.lower
@@ -202,11 +200,10 @@ let floor x =
   { lower = map_opt (QQ.of_zz % QQ.floor) x.lower;
     upper = map_opt (QQ.of_zz % QQ.floor) x.upper }
 
-(*
 let of_apron ivl =
   let cvt scalar =
     if Apron.Scalar.is_infty scalar == 0
-    then Some (NumDomain.qq_of_scalar scalar)
+    then Some (ArkApron.qq_of_scalar scalar)
     else None
   in
   make (cvt ivl.Apron.Interval.inf) (cvt ivl.Apron.Interval.sup)
@@ -221,9 +218,46 @@ let apron_of { lower; upper } =
     | None -> Apron.Scalar.of_infty 1
   in
   Apron.Interval.of_scalar lo hi
- *)
 
 let const_of { lower; upper } =
   match upper, lower with
   | Some hi, Some lo when QQ.equal hi lo -> Some hi
   | _ -> None
+
+let integral x =
+  { lower = map_opt (QQ.of_zz % QQ.ceiling) x.lower;
+    upper = map_opt (QQ.of_zz % QQ.floor) x.upper }
+
+let log base x =
+  if equal base bottom || equal x bottom then bottom
+  else
+    match base.lower with
+    | Some base_lo when QQ.lt QQ.one base_lo ->
+      (* Naive integral lower/upper approximation of log.  TODO: make this
+         more accurate. *)
+      let lower =
+        match base.upper, x.lower with
+        | Some base, Some lo when QQ.leq QQ.one lo ->
+          let rec lo_log curr log =
+            if QQ.lt lo curr then
+              log - 1
+            else
+              lo_log (QQ.mul base curr) (log + 1)
+          in
+          Some (QQ.of_int (lo_log base 1))
+        | _, _ -> None
+      in
+      let upper =
+        match x.upper with
+        | Some hi when QQ.leq QQ.one hi  ->
+          let rec hi_log curr log =
+            if QQ.leq hi curr then
+              log
+            else
+              hi_log (QQ.mul base_lo curr) (log + 1)
+          in
+          Some (QQ.of_int (hi_log QQ.one 0))
+        | _ -> None
+      in
+      { lower; upper }
+    | _ -> top

@@ -13,27 +13,36 @@ module type Vector = sig
   type scalar
 
   val equal : t -> t -> bool
-  val compare : t -> t -> int
   val add : t -> t -> t
   val scalar_mul : scalar -> t -> t
   val negate : t -> t
   val dot : t -> t -> scalar
 
   val zero : t
+  val is_zero : t -> bool
   val add_term : scalar -> dim -> t -> t
   val of_term : scalar -> dim -> t
 
   val enum : t -> (scalar * dim) BatEnum.t
+  val of_enum : (scalar * dim) BatEnum.t -> t
   val coeff : dim -> t -> scalar
 
   val pivot : dim -> t -> scalar * t
+end
 
+module ZZVector : sig
+  include Vector with type dim = int and type scalar = ZZ.t
+  val compare : t -> t -> int
   val pp : Format.formatter -> t -> unit
   val show : t -> string
 end
 
-module ZZVector : Vector with type dim = int and type scalar = ZZ.t
-module QQVector : Vector with type dim = int and type scalar = QQ.t
+module QQVector : sig
+  include Vector with type dim = int and type scalar = QQ.t
+  val compare : t -> t -> int
+  val pp : Format.formatter -> t -> unit
+  val show : t -> string
+end
 
 module QQMatrix : sig
   type t
@@ -61,17 +70,101 @@ module QQMatrix : sig
 
   val entries : t -> (dim * dim * scalar) BatEnum.t
 
+  val nb_rows : t -> int
+  val nb_columns : t -> int
+
   val pp : Format.formatter -> t -> unit
   val show : t -> string
 end
+
+module type AbelianGroup = sig
+  type t
+  val equal : t -> t -> bool
+  val add : t -> t -> t
+  val negate : t -> t
+  val zero : t
+end
+
+module type Ring = sig
+  type t
+  val equal : t -> t -> bool
+  val add : t -> t -> t
+  val negate : t -> t
+  val zero : t
+  val mul : t -> t -> t
+  val one : t
+end
+
+(** Lift a map type over a ring to a left-module *)
+module RingMap
+    (M : sig
+       type 'a t
+       type key
+
+       val equal : ('a -> 'a -> bool) -> 'a t -> 'a t -> bool
+       val compare : ('a -> 'a -> int) -> 'a t -> 'a t -> int
+       val enum : 'a t -> (key * 'a) BatEnum.t
+       val map : ('a -> 'b) -> 'a t -> 'b t
+       val find : key -> 'a t -> 'a
+       val add : key -> 'a -> 'a t -> 'a t
+       val remove : key -> 'a t -> 'a t
+       val empty : 'a t
+       val merge : (key -> 'a option -> 'b option -> 'c option) ->
+         'a t ->
+         'b t ->
+         'c t
+     end)
+    (R : Ring) : Vector with type t = R.t M.t
+                         and type dim = M.key
+                         and type scalar = R.t
+
+
+(** As RingMap, except with ExprMap as the map type *)
+module type ExprRingMap = sig
+  type scalar
+  type 'a t = ('a, typ_arith, scalar) ExprMap.t
+
+  val zero : 'a t
+  val one : 'a context -> 'a t
+  val add : 'a t -> 'a t -> 'a t
+  val mul : 'a context -> 'a t -> 'a t -> 'a t
+  val scalar_mul : scalar -> 'a t -> 'a t
+  val negate : 'a t -> 'a t
+  val const : 'a context -> scalar -> 'a t
+  val term : scalar -> 'a term -> 'a t
+  val add_term : scalar -> 'a term -> 'a t -> 'a t
+  val enum : 'a t -> ('a term * scalar) BatEnum.t
+  val of_enum : ('a term * scalar) BatEnum.t -> 'a t
+  val coeff : 'a term -> 'a t -> scalar
+  val pivot : 'a term -> 'a t -> scalar * 'a t
+end
+
+module MakeExprRingMap (R : Ring) : ExprRingMap with type scalar = R.t
+
+(** Vector of terms with rational coefficients. *)
+module ExprQQVector : sig
+  include ExprRingMap with type scalar = QQ.t
+  val of_term : 'a context -> 'a term -> 'a t
+  val term_of : 'a context -> 'a t -> 'a term
+end
+
 
 (** [solve_exn mat b] computes a rational vector [x] such that [mat*x =
     b]. Raises [No_solution] if there is no solution. *)
 val solve_exn : QQMatrix.t -> QQVector.t -> QQVector.t
 
+(** Given a predicate on dimensions and a list of terms (all implicitly equal
+    to zero), orient the equations as rewrite rules that eliminate dimensions
+    that don't satisfy the predicate. *)
+val orient : (int -> bool) -> QQVector.t list -> (int * QQVector.t) list
+
 val vector_right_mul : QQMatrix.t -> QQVector.t -> QQVector.t
 
 val solve : QQMatrix.t -> QQVector.t -> QQVector.t option
+
+(** Given two matrices A and B, compute matrices C and D such that CA = DB is a
+    basis for the intersection of the rowspaces of A and B *)
+val intersect_rowspace : QQMatrix.t -> QQMatrix.t -> (QQMatrix.t * QQMatrix.t)
 
 (** {2 Affine terms} *)
 

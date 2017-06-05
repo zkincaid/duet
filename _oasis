@@ -12,9 +12,7 @@ Library apak
   Path:             apak
   FindlibName:      apak
   Pack:             true
-  Modules:          DisjointSet, Dll, Enumeration, EvalLink, ExtGraph, Fixpoint,
-  	            Ka, Lattice, Log, Loop, Memo, Monoid, Pathexp, Persistent,
-                    RecGraph, Semilattice, Sese, Sig, Tagged, Putil
+  Modules:          DisjointSet, Dll, Enumeration, EvalLink, ExtGraph, Fixpoint,Ka, Lattice, Log, Loop, Memo, Monoid, Pathexp, Persistent, RecGraph, Semilattice, Sese, Sig, Tagged, Putil
   BuildDepends:     ppx_deriving, ppx_deriving.show, ppx_deriving.ord, batteries, ocamlgraph
   Install:          false
   XMETADescription: Algebraic Program Analysis Kit
@@ -23,26 +21,23 @@ Executable test_apak
   Build$:       flag(tests)
   Path:         apak
   MainIs:       test_apak.ml
-  BuildDepends: ppx_deriving, ppx_deriving.show, ppx_deriving.ord, batteries,
-                ocamlgraph, oUnit
+  BuildDepends: ppx_deriving, ppx_deriving.show, ppx_deriving.ord, batteries, ocamlgraph, oUnit
   Install:      false
 
-Library "ark"
+Library ark
   Path:             ark
   FindlibName:      ark
   Pack:             true
-  Modules:  QQ, ZZ, Syntax, Interval, Smt, Linear, Interpretation, Abstract,
-  	    Quantifier
-  BuildDepends:     ppx_deriving, ppx_deriving.show, ppx_deriving.ord, apak, gmp, camlidl, apron, Z3
-  Install:          false
+  Modules:  QQ, ZZ, Syntax, Interval, Smt, ArkZ3, ArkMathsat, Linear, Polynomial, Interpretation, ArkApron, Polyhedron, ArkSimplify, Abstract, Nonlinear, Wedge, Quantifier, Iteration, Transition
+  BuildDepends:     ppx_deriving, ppx_deriving.show, ppx_deriving.ord, apak, gmp, camlidl, apron, Z3, mathsat, ocrs
+  Install:         false
   XMETADescription: Arithmetic Reasoning Kit
 
 Executable test_ark
   Build$:         flag(tests)
   Path:           ark
   MainIs:         test_ark.ml
-  BuildDepends:   ppx_deriving, ppx_deriving.ord, apak, gmp, camlidl, apron,
-                  apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, oUnit
+  BuildDepends:   ppx_deriving, ppx_deriving.ord, apak, gmp, camlidl, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, oUnit, mathsat, ocrs
   CompiledObject: native
   Install:        false
 
@@ -50,8 +45,7 @@ Executable arktop
   Build$:         flag(tests)
   Path:           ark
   MainIs:         arkTop.ml
-  BuildDepends:   ppx_deriving, ppx_deriving.ord, apak, gmp, camlidl, apron,
-                  apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, oUnit
+  BuildDepends:   ppx_deriving, ppx_deriving.ord, apak, gmp, camlidl, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, mathsat, ocrs
   CompiledObject: native
   Install:        false
 
@@ -60,8 +54,7 @@ Library pa
   Pack:       true
   FindlibName:      pa
   InternalModules:  PaSmt, PaFormula, Struct, PredicateAutomata
-  BuildDepends: ppx_deriving, ppx_deriving.show, ppx_deriving.ord, apak, Z3,
-                buddy
+  BuildDepends: ppx_deriving, ppx_deriving.show, ppx_deriving.ord, apak, Z3
   Install:          false
   XMETADescription: Predicate Automata tools
 
@@ -69,14 +62,13 @@ Executable test_patools
   Path:         patools
   MainIs:       test_patools.ml
   BuildDepends: ppx_deriving, ppx_deriving.show, ppx_deriving.ord, apak, Z3,
-                oUnit, buddy, pa
+                oUnit, pa
   Install:      false
   CompiledObject: native
 
 Executable patools
   Path:       patools
-  BuildDepends: ppx_deriving, ppx_deriving.show, ppx_deriving.ord, apak, Z3,
-                buddy, pa
+  BuildDepends: ppx_deriving, ppx_deriving.show, ppx_deriving.ord, apak, Z3, pa
   MainIs: patools.ml
   CCOpt: -annot
   CompiledObject: native
@@ -84,10 +76,7 @@ Executable patools
 Executable duet
   Path:           duet
   MainIs:         duet.ml
-  BuildDepends:   ppx_deriving, ppx_deriving.show, ppx_deriving.ord,
-                  apak, gmp, camlidl, apron,
-                  apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, ark,
-                  cil, cil.default-features, buddy, pa
+  BuildDepends:   ppx_deriving, ppx_deriving.show, ppx_deriving.ord, apak, gmp, camlidl, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, ark, cil, cil.default-features, pa, ocrs
   CompiledObject: native
   Install:        false
 
