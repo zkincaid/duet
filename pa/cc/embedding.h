@@ -189,19 +189,19 @@ class Embedding{
     if (!valid_){
       return;
     }
-    std::vector<Graph::VertexPair> tmp = u_graph_.remove_edges(u_vars, v_vars);
+    std::vector<Graph::VertexPair> tmp = u_graph_.commit_edges(u_vars, v_vars);
     u_removed.insert(u_removed.end(), tmp.begin(), tmp.end());
     std::vector<int> junk;
     valid_ = u_graph_.unit_prop(u_removed, junk, junk); */
 
-    std::vector<int> matches;
+    /*    std::vector<int> matches;
     matches.resize(u_graph_.uSize(), -1);
 
     std::vector<Graph::VertexPair> tmp;
 
     std::vector<int> pu_units, pv_units;
     pu_units.push_back(pu), pv_units.push_back(pv);
-    tmp = std::move(p_graph_.remove_edges(pu_units, pv_units));
+    tmp = std::move(p_graph_.commit_edges(pu_units, pv_units));
     p_removed.insert(p_removed.begin(), tmp.begin(), tmp.end());
     if (!p_graph_.unit_prop(p_removed, pu_units, pv_units)) valid_ = false;
 
@@ -215,14 +215,14 @@ class Embedding{
 	    matches[u_vars[k]] = v_vars[k];
 	    uu_units.push_back(u_vars[k]);
 	    uv_units.push_back(v_vars[k]);
-	  } else if (matches[u_vars[k]] != v_vars[k]){ /* Universe Inconsistency */
+	    } else if (matches[u_vars[k]] != v_vars[k]){ */ /* Universe Inconsistency */ /*
 	    valid_ = false;
 	  }
 	}
       }
       if (!valid_) break;
 
-      tmp = std::move(u_graph_.remove_edges(uu_units, uv_units));
+      tmp = std::move(u_graph_.commit_edges(uu_units, uv_units));
       u_removed.insert(u_removed.begin(), tmp.begin(), tmp.end());
       uu_units.clear(); uv_units.clear();
       if (!u_graph_.unit_prop(u_removed, uu_units, uv_units)){
@@ -231,7 +231,12 @@ class Embedding{
       }
       pu_units.clear(); pv_units.clear();
       //filter(uu_units, uv_units, p_removed, pu_units, pv_units);
-    }
+      } */
+
+    std::vector<Graph::VertexPair> tmp;
+    tmp = std::move(u_graph_.commit_edges(p_graph_.getULabel(pu).vars, p_graph_.getVLabel(pv).vars));
+    u_removed.insert(u_removed.end(), tmp.begin(), tmp.end());
+    ufilter(u_removed, p_removed);
   }
 
   /* Commit to a decision and ensure arc consistency. */
@@ -242,7 +247,7 @@ class Embedding{
       u_units.push_back(d.u);
       v_units.push_back(d.v);
 
-      tmp = std::move(u_graph_.remove_edges(u_units, v_units));
+      tmp = std::move(u_graph_.commit_edges(u_units, v_units));
       d.remove_u.insert(d.remove_u.begin(), tmp.begin(), tmp.end());
 
       ufilter(d.remove_u, d.remove_p);

@@ -150,7 +150,7 @@ class Graph{
      Assumptions:
        U.size() == V.size()
    */
-  std::vector<VertexPair> remove_edges(const std::vector<int>& U, const std::vector<int>& V){
+  std::vector<VertexPair> commit_edges(const std::vector<int>& U, const std::vector<int>& V){
     std::vector<VertexPair> removed;
     for (size_t i = 0; i < U.size(); ++i){
       size_t u(U[i]), v(V[i]);

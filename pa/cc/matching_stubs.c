@@ -362,7 +362,7 @@ void backtrack(stack<decision>& decisions, Embedding& emb){
         if (!u_graph.has_edge(u_vars[k], v_vars[k])) break;
       }
       if (k == u_vars.size()){
-	vector<Graph::VertexPair> uedges = u_graph.remove_edges(u_vars, v_vars);
+	vector<Graph::VertexPair> uedges = u_graph.commit_edges(u_vars, v_vars);
 	vector<int> junk;
   	if (u_graph.unit_prop(uedges, junk, junk)){
   	  decisions.emplace(d.u, d.pos, uedges);
@@ -422,6 +422,7 @@ bool choose(stack<decision>& decisions, const vector<int>& confs, Embedding& emb
 	emb.add_back(p_removed, u_removed);
       } else {
 	decisions.emplace(pu, i, u_removed, p_removed, adj);
+	return true;
       }
     }
     /*
@@ -433,7 +434,7 @@ bool choose(stack<decision>& decisions, const vector<int>& confs, Embedding& emb
 	if (!u_graph.has_edge(u_vars[k], v_vars[k])) break;
       }
       if (k == u_vars.size()){
-	vector<Graph::VertexPair> uedges = u_graph.remove_edges(p_graph.getULabel(pu).vars, p_graph.getVLabel(pv).vars);
+	vector<Graph::VertexPair> uedges = u_graph.commit_edges(p_graph.getULabel(pu).vars, p_graph.getVLabel(pv).vars);
 	vector<int> junk;
 	if (u_graph.unit_prop(uedges, junk, junk)){
   	  decisions.emplace(pu, j, uedges);
