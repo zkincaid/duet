@@ -123,6 +123,23 @@ let test_grobner2 () =
   assert_equal_mvp (int 0) (Rewrite.reduce rewrite p);
   assert_equal_mvp (int 0) (Rewrite.reduce rewrite q)
 
+let test_grobner_elim () =
+  let open MvpInfix in
+  let x = dim 'x' in
+  let y = dim 'y' in
+  let elim_order =
+    Monomial.block [fun d -> d = (Char.code 'x')] Monomial.degrevlex
+  in
+  let rewrite =
+    Rewrite.mk_rewrite elim_order [
+      x - y * y;
+      x * x - x
+    ] |> Rewrite.grobner_basis
+  in
+  let p = x * x * y - x in
+  let q = y * y * y - y * y in
+  assert_equal_mvp q (Rewrite.reduce rewrite p)
+
 let suite = "Polynomial" >::: [
     "mul" >:: test_mul;
     "compose1" >:: test_compose1;
@@ -134,4 +151,5 @@ let suite = "Polynomial" >::: [
     "test_rewrite2" >:: test_rewrite2;
     "test_grobner1" >:: test_grobner1;
     "test_grobner2" >:: test_grobner2;
+    "test_grobner_elim" >:: test_grobner_elim;
   ]
