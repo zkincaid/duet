@@ -272,6 +272,28 @@ module Monomial = struct
       | `Gt -> `Lt
     in
     graded compare_degree revlex
+
+  let split_block p m =
+    IntMap.fold (fun dim pow (t,f) ->
+        if p dim then
+          (IntMap.add dim pow t, f)
+        else
+          (t, IntMap.add dim pow f))
+      m
+      (IntMap.empty, IntMap.empty)
+
+  let block blocks compare_block =
+    let rec compare blocks m n =
+      match blocks with
+      | [] -> compare_block m n
+      | (block::blocks) ->
+        let (m1,m2) = split_block block m in
+        let (n1,n2) = split_block block n in
+        match compare_block m1 n1 with
+        | `Eq -> compare blocks m2 n2
+        | cmp -> cmp
+    in
+    compare blocks
 end
 
 module Mvp = struct
@@ -458,8 +480,8 @@ module Rewrite = struct
     { rules; order }
 
   let buchberger order rules pairs =
-    (* Suppose m1 = rhs1 and m2 = rhs1.  Let m the least common multiple of m1
-       and m2, and let m1*r1 = m = m2*r2.  Then we have m = rhs1*r1 and m =
+    (* Suppose m1 = rhs1 and m2 = rhs1.  Let m be the least common multiple of
+       m1 and m2, and let m1*r1 = m = m2*r2.  Then we have m = rhs1*r1 and m =
        rhs2*r1.  It follows that rhs1*r1 - rhs2*r2 = 0.  spoly computes this
        polynomial. *)
     let spoly (m1, rhs1) (m2, rhs2) =

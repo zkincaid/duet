@@ -65,6 +65,17 @@ module Monomial : sig
 
   (** Compare by total degree, then reverse lexicographic order *)
   val degrevlex : t -> t -> [ `Eq | `Lt | `Gt ]
+
+  (** Given a list of *subsets* of dimensions [p1, ..., pn], a monomial [m]
+      can be considered as a list of monomials ("blocks") [m1, ..., mn, m0],
+      where each [mi] contains the dimensions that belong to [pi] (and not to
+      any lower [i]), and m0 contains the dimensions not belonging to any pi.
+      Given a monomial ordering for comparing blocks, the block ordering is
+      the lexicographic ordering on monomials viewed as lists of blocks. *)
+  val block :
+    ((dim -> bool) list) ->
+    (t -> t -> [ `Eq | `Lt | `Gt ]) ->
+    (t -> t -> [ `Eq | `Lt | `Gt ])
 end
 
 (** Multi-variate polynomials *)
