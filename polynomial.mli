@@ -1,5 +1,7 @@
 (** Polynomials *)
 
+open Syntax
+
 (** Signature of univariate polynmials *)
 module type Univariate = sig
   include Linear.Vector with type dim = int
@@ -76,6 +78,8 @@ module Monomial : sig
     ((dim -> bool) list) ->
     (t -> t -> [ `Eq | `Lt | `Gt ]) ->
     (t -> t -> [ `Eq | `Lt | `Gt ])
+
+  val term_of : ('a context) -> (dim -> 'a term) -> t -> 'a term
 end
 
 (** Multi-variate polynomials *)
@@ -100,6 +104,15 @@ module Mvp : sig
       is treated at a constant 1.  Return [None] if the polynomial is
       not linear. *)
   val vec_of : ?const:int -> t -> Linear.QQVector.t option
+
+  val term_of : ('a context) -> (Monomial.dim -> 'a term) -> t -> 'a term
+
+  (** Exponentiation by a positive integer *)
+  val exp : t -> int -> t
+
+  (** Generalization of polynomial composition -- substitute each dimension
+      for a multivariate polynomial *)
+  val substitute : (Monomial.dim -> t) -> t -> t
 end
 
 (** Rewrite systems for multi-variate polynomials. A polynomial rewrite system
@@ -135,4 +148,6 @@ module Rewrite : sig
 
   (** Add a new zero-polynomial to a rewrite system and saturate *)
   val add_saturate : t -> Mvp.t -> t
+
+  val generators : t -> Mvp.t list
 end
