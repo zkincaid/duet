@@ -294,6 +294,13 @@ module Monomial = struct
         | cmp -> cmp
     in
     compare blocks
+
+  let term_of ark dim_term m =
+    IntMap.fold (fun dim pow product ->
+        (Syntax.mk_pow ark (dim_term dim) pow)::product)
+      m
+      []
+    |> Syntax.mk_mul ark
 end
 
 module Mvp = struct
@@ -366,7 +373,37 @@ module Mvp = struct
       Some vec
     with Nonlinear -> None
 
+  let term_of ark dim_term p =
+    MM.fold (fun monomial coeff sum ->
+        (Syntax.mk_mul ark [Syntax.mk_real ark coeff;
+                            Monomial.term_of ark dim_term monomial])::sum)
+      p
+      []
+    |> Syntax.mk_add ark
+
   let compare = MM.compare QQ.compare
+
+  let rec exp p n =
+    if n = 0 then one
+    else if n = 1 then p
+    else begin
+      let q = exp p (n / 2) in
+      let q_squared = mul q q in
+      if n mod 2 = 0 then q_squared
+      else mul q q_squared
+    end
+
+  let substitute subst p =
+    MM.fold (fun monomial coeff p ->
+        let q =
+          Monomial.IntMap.fold (fun dim pow q ->
+              mul q (exp (subst dim) pow))
+            monomial
+            one
+        in
+        add p (scalar_mul coeff q))
+      p
+      zero
 end
 
 module Rewrite = struct
@@ -577,4 +614,7 @@ module Rewrite = struct
       )
       { order = rewrite.order; rules = [] }
       rewrite.rules
+
+  let generators rewrite =
+    List.map (fun (lt, op) -> mvp_of_op ((QQ.of_int (-1), lt)::op)) rewrite.rules
 end
