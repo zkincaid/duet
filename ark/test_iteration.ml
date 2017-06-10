@@ -5,6 +5,7 @@ open ArkApron
 
 module Ctx = MakeSimplifyingContext ()
 module Infix = Syntax.Infix(Ctx)
+module QQMatrix = Linear.QQMatrix
 let ctx = Ctx.context
 let smt_ctx = ArkZ3.mk_context ctx []
 

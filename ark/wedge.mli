@@ -73,3 +73,9 @@ val symbolic_bounds_formula : ?exists:(symbol -> bool) ->
   'a formula ->
   symbol ->
   ('a term) option * ('a term) option
+
+val coordinate_system : 'a t -> 'a CoordinateSystem.t
+
+val polyhedron : 'a t -> ([ `Eq | `Geq ] * Linear.QQVector.t) list
+
+val vanishing_ideal : 'a t -> Polynomial.Mvp.t list
