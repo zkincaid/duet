@@ -374,7 +374,11 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
                     (P.of_dim id)
                     (P.mul (poly_of_vec x) (poly_of_vec y)))
           | `Inv x ->
-            Some (P.sub (P.mul (poly_of_vec x) (P.of_dim id)) (P.scalar QQ.one))
+            let interval = bound_vec wedge x in
+            if Interval.elem QQ.zero interval then
+              None
+            else
+              Some (P.sub (P.mul (poly_of_vec x) (P.of_dim id)) (P.scalar QQ.one))
           | _ -> None)
         (0 -- (CS.dim wedge.cs - 1))
       |> BatList.of_enum
