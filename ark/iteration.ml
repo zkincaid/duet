@@ -589,7 +589,9 @@ let closure_ocrs ?(guard=None) iter =
       | `Mul xs -> Product xs
       | `Binop (`Div, x, y) -> Divide (x, y)
       | `Unop (`Neg, x) -> Minus (Rational (Mpq.of_int 0), x)
-      | `Binop (`Mod, _, _) | `Unop (`Floor, _) -> raise No_translation
+      | `Binop (`Mod, x, y) -> Mod (x, y)
+      | `Unop (`Floor, Divide (x, Rational y)) -> IDivide (x, y)
+      | `Unop (`Floor, _) -> raise No_translation
       | `Ite (_, _, _) | `Var (_, _) -> assert false
     in
     Term.eval iter.ark alg
@@ -644,8 +646,11 @@ let closure_ocrs ?(guard=None) iter =
     | Log (base, x) ->
       let x = term_of_expr x in
       mk_app iter.ark log [mk_real iter.ark (Mpqf.of_mpq base); x]
-
-    | Binomial (_, _) | Factorial _ -> assert false
+    | IDivide (x, y) ->
+      mk_idiv iter.ark (term_of_expr x) (mk_real iter.ark (Mpqf.of_mpq y))
+    | Mod (x, y) ->
+      mk_mod iter.ark (term_of_expr x) (term_of_expr y)
+    | Binomial (_, _) | Factorial _ | Sin _ | Cos _ | Arctan _ | Pi -> assert false
   in
 
   let recurrences =
