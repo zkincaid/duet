@@ -226,6 +226,16 @@ let mk_mul ctx = function
 
 let mk_sub ctx s t = mk_add ctx [s; mk_neg ctx t]
 
+let rec mk_pow ctx t n =
+  if n = 0 then mk_one ctx
+  else if n = 1 then t
+  else if n < 0 then mk_div ctx (mk_one ctx) (mk_pow ctx t (-n))
+  else
+    let q = mk_pow ctx t (n / 2) in
+    let q_squared = mk_mul ctx [q; q] in
+    if n mod 2 = 0 then q_squared
+    else mk_mul ctx [q; q_squared]
+
 let mk_true ctx = ctx.mk True []
 let mk_false ctx = ctx.mk False []
 let mk_leq ctx s t = ctx.mk Leq [s; t]

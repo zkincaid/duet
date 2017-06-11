@@ -1,5 +1,7 @@
 (** Polynomials *)
 
+open Syntax
+
 (** Signature of univariate polynmials *)
 module type Univariate = sig
   include Linear.Vector with type dim = int
@@ -65,6 +67,19 @@ module Monomial : sig
 
   (** Compare by total degree, then reverse lexicographic order *)
   val degrevlex : t -> t -> [ `Eq | `Lt | `Gt ]
+
+  (** Given a list of *subsets* of dimensions [p1, ..., pn], a monomial [m]
+      can be considered as a list of monomials ("blocks") [m1, ..., mn, m0],
+      where each [mi] contains the dimensions that belong to [pi] (and not to
+      any lower [i]), and m0 contains the dimensions not belonging to any pi.
+      Given a monomial ordering for comparing blocks, the block ordering is
+      the lexicographic ordering on monomials viewed as lists of blocks. *)
+  val block :
+    ((dim -> bool) list) ->
+    (t -> t -> [ `Eq | `Lt | `Gt ]) ->
+    (t -> t -> [ `Eq | `Lt | `Gt ])
+
+  val term_of : ('a context) -> (dim -> 'a term) -> t -> 'a term
 end
 
 (** Multi-variate polynomials *)
@@ -72,6 +87,7 @@ module Mvp : sig
   include Linear.Vector with type dim = Monomial.t
                          and type scalar = QQ.t
   val pp : (Format.formatter -> int -> unit) -> Format.formatter -> t -> unit
+  val compare : t -> t -> int
   val mul : t -> t -> t
   val sub : t -> t -> t
   val one : t
@@ -88,6 +104,15 @@ module Mvp : sig
       is treated at a constant 1.  Return [None] if the polynomial is
       not linear. *)
   val vec_of : ?const:int -> t -> Linear.QQVector.t option
+
+  val term_of : ('a context) -> (Monomial.dim -> 'a term) -> t -> 'a term
+
+  (** Exponentiation by a positive integer *)
+  val exp : t -> int -> t
+
+  (** Generalization of polynomial composition -- substitute each dimension
+      for a multivariate polynomial *)
+  val substitute : (Monomial.dim -> t) -> t -> t
 end
 
 (** Rewrite systems for multi-variate polynomials. A polynomial rewrite system
@@ -123,4 +148,6 @@ module Rewrite : sig
 
   (** Add a new zero-polynomial to a rewrite system and saturate *)
   val add_saturate : t -> Mvp.t -> t
+
+  val generators : t -> Mvp.t list
 end

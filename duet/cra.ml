@@ -15,6 +15,7 @@ include Log.Make(struct let name = "cra" end)
 let forward_inv_gen = ref false
 let use_ocrs = ref false
 let split_loops = ref false
+let matrix_rec = ref false
 let dump_goals = ref false
 let nb_goals = ref 0
 
@@ -48,6 +49,10 @@ let _ =
     ("-use-ocrs",
      Arg.Set use_ocrs,
      " Use OCRS for recurrence solving");
+  CmdLine.register_config
+    ("-cra-matrix",
+     Arg.Set matrix_rec,
+     "  Matrix recurrences");
   CmdLine.register_config
     ("-dump-goals",
      Arg.Set dump_goals,
@@ -260,11 +265,50 @@ end
 
 module K = struct
   include Transition.Make(Ctx)(V)
+  module DPoly = struct
+    module WV = Iteration.WedgeVector
+    module SplitWV = Iteration.Split(WV)
+    include Iteration.Sum(WV)(SplitWV)
+    let abstract_iter ?(exists=fun x -> true) ark phi symbols =
+      if !split_loops then
+        right (SplitWV.abstract_iter ~exists ark phi symbols)
+      else
+        left (WV.abstract_iter ~exists ark phi symbols)
+  end
+  module DOcrs = struct
+    module WV = Iteration.WedgeVectorOCRS
+    module SplitWV = Iteration.Split(WV)
+    include Iteration.Sum(WV)(SplitWV)
+    let abstract_iter ?(exists=fun x -> true) ark phi symbols =
+      if !split_loops then
+        right (SplitWV.abstract_iter ~exists ark phi symbols)
+      else
+        left (WV.abstract_iter ~exists ark phi symbols)
+  end
+  module DMatrix = struct
+    module WM = Iteration.WedgeMatrix
+    module SplitWM = Iteration.Split(WM)
+    include Iteration.Sum(WM)(SplitWM)
+    let abstract_iter ?(exists=fun x -> true) ark phi symbols =
+      if !split_loops then
+        right (SplitWM.abstract_iter ~exists ark phi symbols)
+      else
+        left (WM.abstract_iter ~exists ark phi symbols)
+  end
+  module D = struct
+    module Vec = Iteration.Sum(DPoly)(DOcrs)
+    include Iteration.Sum(Vec)(DMatrix)
+    let abstract_iter ?(exists=fun x -> true) ark phi symbols =
+      if !matrix_rec then
+        right (DMatrix.abstract_iter ~exists ark phi symbols)
+      else if !use_ocrs then
+        left (Vec.right (DOcrs.abstract_iter ~exists ark phi symbols))
+      else
+        left (Vec.left (DPoly.abstract_iter ~exists ark phi symbols))
+  end
+  module I = Iter(D)
 
-  let star x =
-    Log.time "cra:star"
-      (star ~split:(!split_loops) ~use_ocrs:(!use_ocrs))
-      x
+  let star x = Log.time "cra:star" I.star x
 
   let add x y =
     if is_zero x then y

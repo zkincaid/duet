@@ -1,5 +1,5 @@
 # OASIS_START
-# DO NOT EDIT (digest: 07299e16c2d4fcd6b91d8a7a7e32a50a)
+# DO NOT EDIT (digest: 0cd7f95b5ca703a99466b8fabc5fb3ef)
 # Ignore VCS directories, you can use the same kind of rule outside
 # OASIS_START/STOP if you want to exclude directories that contains
 # useless stuff for the build process
@@ -68,6 +68,7 @@ true: annot, bin_annot
 "ark/arkSimplify.cmx": for-pack(Ark)
 "ark/abstract.cmx": for-pack(Ark)
 "ark/nonlinear.cmx": for-pack(Ark)
+"ark/coordinateSystem.cmx": for-pack(Ark)
 "ark/wedge.cmx": for-pack(Ark)
 "ark/quantifier.cmx": for-pack(Ark)
 "ark/iteration.cmx": for-pack(Ark)

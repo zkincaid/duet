@@ -272,6 +272,35 @@ module Monomial = struct
       | `Gt -> `Lt
     in
     graded compare_degree revlex
+
+  let split_block p m =
+    IntMap.fold (fun dim pow (t,f) ->
+        if p dim then
+          (IntMap.add dim pow t, f)
+        else
+          (t, IntMap.add dim pow f))
+      m
+      (IntMap.empty, IntMap.empty)
+
+  let block blocks compare_block =
+    let rec compare blocks m n =
+      match blocks with
+      | [] -> compare_block m n
+      | (block::blocks) ->
+        let (m1,m2) = split_block block m in
+        let (n1,n2) = split_block block n in
+        match compare_block m1 n1 with
+        | `Eq -> compare blocks m2 n2
+        | cmp -> cmp
+    in
+    compare blocks
+
+  let term_of ark dim_term m =
+    IntMap.fold (fun dim pow product ->
+        (Syntax.mk_pow ark (dim_term dim) pow)::product)
+      m
+      []
+    |> Syntax.mk_mul ark
 end
 
 module Mvp = struct
@@ -343,6 +372,38 @@ module Mvp = struct
       in
       Some vec
     with Nonlinear -> None
+
+  let term_of ark dim_term p =
+    MM.fold (fun monomial coeff sum ->
+        (Syntax.mk_mul ark [Syntax.mk_real ark coeff;
+                            Monomial.term_of ark dim_term monomial])::sum)
+      p
+      []
+    |> Syntax.mk_add ark
+
+  let compare = MM.compare QQ.compare
+
+  let rec exp p n =
+    if n = 0 then one
+    else if n = 1 then p
+    else begin
+      let q = exp p (n / 2) in
+      let q_squared = mul q q in
+      if n mod 2 = 0 then q_squared
+      else mul q q_squared
+    end
+
+  let substitute subst p =
+    MM.fold (fun monomial coeff p ->
+        let q =
+          Monomial.IntMap.fold (fun dim pow q ->
+              mul q (exp (subst dim) pow))
+            monomial
+            one
+        in
+        add p (scalar_mul coeff q))
+      p
+      zero
 end
 
 module Rewrite = struct
@@ -456,8 +517,8 @@ module Rewrite = struct
     { rules; order }
 
   let buchberger order rules pairs =
-    (* Suppose m1 = rhs1 and m2 = rhs1.  Let m the least common multiple of m1
-       and m2, and let m1*r1 = m = m2*r2.  Then we have m = rhs1*r1 and m =
+    (* Suppose m1 = rhs1 and m2 = rhs1.  Let m be the least common multiple of
+       m1 and m2, and let m1*r1 = m = m2*r2.  Then we have m = rhs1*r1 and m =
        rhs2*r1.  It follows that rhs1*r1 - rhs2*r2 = 0.  spoly computes this
        polynomial. *)
     let spoly (m1, rhs1) (m2, rhs2) =
@@ -553,4 +614,7 @@ module Rewrite = struct
       )
       { order = rewrite.order; rules = [] }
       rewrite.rules
+
+  let generators rewrite =
+    List.map (fun (lt, op) -> mvp_of_op ((QQ.of_int (-1), lt)::op)) rewrite.rules
 end

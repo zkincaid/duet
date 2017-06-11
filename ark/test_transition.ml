@@ -30,7 +30,12 @@ module V = struct
     else
       None
 end
-module T = Transition.Make(Ctx)(V)
+module T = struct
+  module SemiRing = Transition.Make(Ctx)(V)
+  include SemiRing
+  module I = SemiRing.Iter(Iteration.Split(Iteration.WedgeVector))
+  let star = I.star
+end
 
 let () =
   V.register_var "i" `TyInt;

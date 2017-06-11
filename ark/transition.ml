@@ -29,8 +29,6 @@ struct
     { transform : (C.t term) M.t;
       guard : C.t formula }
 
-  type iter = C.t Iteration.Split.split_iter
-
   let compare x y =
     match Formula.compare x.guard y.guard with
     | 0 -> M.compare Term.compare x.transform y.transform
@@ -149,18 +147,19 @@ struct
     in
     { guard; transform }
 
-  module Iter = struct
+  (* Canonical names for post-state symbols.  Having canonical names
+     simplifies equality testing and widening. *)
+  let post_symbol =
+    Memo.memo (fun sym ->
+        match Var.of_symbol sym with
+        | Some var ->
+          mk_symbol ark ~name:(Var.show var ^ "'") (Var.typ var :> typ)
+        | None -> assert false)
 
-    (* Canonical names for post-state symbols.  Having canonical names
-       simplifies equality testing and widening. *)
-    let post_symbol =
-      Memo.memo (fun sym ->
-          match Var.of_symbol sym with
-          | Some var ->
-            mk_symbol ark ~name:(Var.show var ^ "'") (Var.typ var :> typ)
-          | None -> assert false)
+  module Iter(D : Iteration.Domain) = struct
+    type iter = C.t D.t
 
-    let alpha ?(split=true) tr =
+    let alpha tr =
       let (tr_symbols, post_def) =
         M.fold (fun var term (symbols, post_def) ->
             let pre_sym = Var.symbol_of var in
@@ -186,38 +185,27 @@ struct
       let body =
         ArkSimplify.simplify_terms ark (mk_and ark (tr.guard::post_def))
       in
-      if split then
-        Iteration.Split.abstract_iter ~exists ark body tr_symbols
-      else
-        Iteration.abstract_iter ~exists ark body tr_symbols
-        |> Iteration.Split.lift_split
+      D.abstract_iter ~exists ark body tr_symbols
 
-    let closure ?(use_ocrs=false) iter =
+    let closure iter =
       let transform =
         List.fold_left (fun tr (pre, post) ->
             match Var.of_symbol pre with
             | Some v -> M.add v (mk_const ark post) tr
             | None -> assert false)
           M.empty
-          (Iteration.Split.tr_symbols iter)
+          (D.tr_symbols iter)
       in
       { transform = transform;
-        guard = Iteration.Split.closure ~use_ocrs iter }
+        guard = D.closure iter }
 
-    let join = Iteration.Split.join
-
-    let widen = Iteration.Split.widen
-
-    let equal = Iteration.Split.equal
-
-    let pp = Iteration.Split.pp_split_iter
-
-    let show = Iteration.Split.show_split_iter
+    let join = D.join
+    let widen = D.widen
+    let equal = D.equal
+    let pp = D.pp
+    let show = D.show
+    let star = closure % alpha
   end
-
-  let star ?(split=true) ?(use_ocrs=false) tr =
-    Iter.closure ~use_ocrs (Iter.alpha ~split tr)
-
 
   let zero =
     { transform = M.empty; guard = mk_false ark }

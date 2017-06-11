@@ -199,6 +199,11 @@ module QQMatrix = struct
         |> BatEnum.fold (fun set (j, _) -> IntSet.add j set) set)
       IntSet.empty
 
+  let nb_rows mat =
+    BatEnum.fold (fun nb _ -> nb + 1) 0 (rowsi mat)
+
+  let nb_columns mat = IntSet.cardinal (column_set mat)
+
   let pp formatter mat =
     let cols = column_set mat in
     let pp_entry row formatter j =
@@ -214,7 +219,10 @@ module QQMatrix = struct
     if equal mat zero then
       Format.pp_print_int formatter 0
     else
-      ApakEnum.pp_print_enum ~indent:0 ~pp_sep pp_row formatter (rows mat)
+      Format.fprintf formatter "@[<v 0>%a x %a@;%a@]"
+        IntSet.pp (row_set mat)
+        IntSet.pp cols
+        (ApakEnum.pp_print_enum_nobox ~pp_sep pp_row) (rows mat)
 
   let show = Putil.mk_show pp
     
@@ -443,6 +451,74 @@ let vector_right_mul m v =
       let cell = QQVector.dot row v in
       if QQ.equal cell QQ.zero then None
       else Some cell)
+
+let intersect_rowspace a b =
+  (* Create a system lambda_1*A - lambda_2*B = 0.  lambda_1's occupy even
+     columns and lambda_2's occupy odd. *)
+  let mat_a =
+    BatEnum.fold
+      (fun mat (i, j, k) -> QQMatrix.add_entry j (2*i) k mat)
+      QQMatrix.zero
+      (QQMatrix.entries a)
+  in
+  let mat =
+    ref (BatEnum.fold
+           (fun mat (i, j, k) -> QQMatrix.add_entry j (2*i + 1) (QQ.negate k) mat)
+           mat_a
+           (QQMatrix.entries b))
+  in
+  let c = ref QQMatrix.zero in
+  let d = ref QQMatrix.zero in
+  let c_rows = ref 0 in
+  let d_rows = ref 0 in
+  let mat_rows =
+    ref (BatEnum.fold (fun m (i, _) -> max m i) 0 (QQMatrix.rowsi (!mat)) + 1)
+  in
+
+  (* Loop through the columns col of A/B, trying to find a vector in the
+     intersection of the row spaces of A and B and which has 1 in col's entry.
+     If yes, add it the linear combinations to C/D, and add a constraint to
+     mat that (in all future rows of CA), col's entry is 0.  This ensures that
+     the rows of CA are linearly independent. *)
+  (* to do: repeatedly solving super systems of the same system of equations
+       -- can be made more efficient *)
+  (QQMatrix.rowsi (!mat))
+  |> (BatEnum.iter (fun (col, _) ->
+      let mat' =
+        QQMatrix.add_row
+          (!mat_rows)
+          (QQMatrix.row col mat_a)
+          (!mat)
+      in
+      match solve mat' (QQVector.of_term QQ.one (!mat_rows)) with
+      | Some solution ->
+        let (c_row, d_row) =
+          BatEnum.fold (fun (c_row, d_row) (entry, i) ->
+              if i mod 2 = 0 then
+                (QQVector.add_term entry (i/2) c_row, d_row)
+              else
+                (c_row, QQVector.add_term entry (i/2) d_row))
+            (QQVector.zero, QQVector.zero)
+            (QQVector.enum solution)
+        in
+        c := QQMatrix.add_row (!c_rows) c_row (!c);
+        d := QQMatrix.add_row (!d_rows) d_row (!d);
+        mat := mat';
+        incr c_rows; incr d_rows; incr mat_rows
+      | None -> ()));
+  (!c, !d)
+
+let divide_right a b =
+  try
+    let b_tr = QQMatrix.transpose b in
+    let div =
+      BatEnum.fold (fun div (i, row) ->
+          QQMatrix.add_row i (solve_exn b_tr row) div)
+        QQMatrix.zero
+        (QQMatrix.rowsi a)
+    in
+    Some div
+  with No_solution -> None
 
 (* Affine expressions over constant symbols.  dim_of_sym, const_dim, and
    sym_of_dim are used to translate between symbols and the dimensions of the

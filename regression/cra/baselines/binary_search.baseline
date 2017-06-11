@@ -1,9 +1,9 @@
 Procedure __VERIFIER_nondet has zero cost
 Procedure: main
-min:129(min:129(2, 1), 0) <= cost
+0 <= cost
 Procedure: search
-min:129(min:129(min:129(max:130(1, log:7(2, (param0:23 + 1))), 2), 1), 0) <= cost
-cost <= max:130(max:130(max:130(min:129(param0:23, log:7(2, (param0:23 + 1))),
-                                min:129(param0:23, log:7(2, (param0:23 + 1)))),
+min:110(min:110(min:110(max:111(1, log:7(2, (param0:23 + 1))), 2), 1), 0) <= cost
+cost <= max:111(max:111(max:111(min:110(param0:23, log:7(2, (param0:23 + 1))),
+                                min:110(param0:23, log:7(2, (param0:23 + 1)))),
                         1),
                 0)
