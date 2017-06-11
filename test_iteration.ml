@@ -6,6 +6,11 @@ open ArkApron
 module Ctx = MakeSimplifyingContext ()
 module Infix = Syntax.Infix(Ctx)
 module QQMatrix = Linear.QQMatrix
+module WV = struct
+  include Iteration.WedgeVector
+  let star ctx symbols phi = closure (abstract_iter ctx symbols phi)
+end
+
 let ctx = Ctx.context
 let smt_ctx = ArkZ3.mk_context ctx []
 
@@ -71,7 +76,7 @@ let prepost () =
   let closure =
     let open Infix in
     !(x = x')
-    && Iteration.star ctx phi tr_symbols
+    && WV.star ctx phi tr_symbols
   in
   assert_implies closure (Ctx.mk_leq (int 0) x);
   assert_implies closure (Ctx.mk_leq (int 0) x')
@@ -84,7 +89,7 @@ let simple_induction () =
     && y' = y + z
     && z = (int 3)
   in
-  let closure = Iteration.star ctx phi tr_symbols in
+  let closure = WV.star ctx phi tr_symbols in
   let result =
     let open Infix in
     (int 2)*(w' - w) = x' - x
@@ -102,7 +107,7 @@ let count_by_1 () =
   let closure =
     let open Infix in
     x = (int 0)
-    && Iteration.star ctx phi tr_symbols
+    && WV.star ctx phi tr_symbols
     && y <= x'
     && (int 0) <= y
   in
@@ -122,7 +127,7 @@ let count_by_2 () =
   let closure =
     let open Infix in
     x = (int 0)
-    && Iteration.star ctx phi tr_symbols
+    && WV.star ctx phi tr_symbols
     && y <= x'
     && (int 0) <= y
   in
@@ -144,7 +149,7 @@ let stratified1 () =
     x' = x + (int 1)
     && y' = y + z
   in
-  let closure = Iteration.star ctx phi tr_symbols in
+  let closure = WV.star ctx phi tr_symbols in
   let result =
     let open Infix in
     z*(x' - x) = (y' - y)
@@ -162,7 +167,7 @@ let stratified2 () =
     let open Infix in
     x = (int 0)
     && y = (int 0)
-    && Iteration.star ctx phi tr_symbols
+    && WV.star ctx phi tr_symbols
   in
   let result =
     let open Infix in
@@ -181,7 +186,7 @@ let count_by_k () =
     let open Infix in
     x = (int 0)
     && (int 1) <= z
-    && Iteration.star ctx phi tr_symbols
+    && WV.star ctx phi tr_symbols
     && y <= x'
   in
   let result =
@@ -207,7 +212,7 @@ let ineq1 () =
     x = (int 0)
     && y = (int 0)
     && z = (int 0)
-    && Iteration.star ctx phi tr_symbols
+    && WV.star ctx phi tr_symbols
   in
   let result =
     let open Infix in
@@ -229,7 +234,7 @@ let ineq2 () =
     let open Infix in
     x = (int 0)
     && y = (int 0)
-    && Iteration.star ctx phi tr_symbols
+    && WV.star ctx phi tr_symbols
   in
   let result =
     let open Infix in
@@ -249,7 +254,7 @@ let stratified_ineq1 () =
     let open Infix in
     x = (int 0)
     && y = (int 0)
-    && Iteration.star ctx phi tr_symbols
+    && WV.star ctx phi tr_symbols
   in
   let result =
     let open Infix in
