@@ -259,11 +259,37 @@ end
 
 module K = struct
   include Transition.Make(Ctx)(V)
+  module DPoly = struct
+    module WV = Iteration.WedgeVector
+    module SplitWV = Iteration.Split(WV)
+    include Iteration.Sum(WV)(SplitWV)
+    let abstract_iter ?(exists=fun x -> true) ark phi symbols =
+      if !split_loops then
+        right (SplitWV.abstract_iter ~exists ark phi symbols)
+      else
+        left (WV.abstract_iter ~exists ark phi symbols)
+  end
+  module DOcrs = struct
+    module WV = Iteration.WedgeVectorOCRS
+    module SplitWV = Iteration.Split(WV)
+    include Iteration.Sum(WV)(SplitWV)
+    let abstract_iter ?(exists=fun x -> true) ark phi symbols =
+      if !split_loops then
+        right (SplitWV.abstract_iter ~exists ark phi symbols)
+      else
+        left (WV.abstract_iter ~exists ark phi symbols)
+  end
+  module D = struct
+    include Iteration.Sum(DPoly)(DOcrs)
+    let abstract_iter ?(exists=fun x -> true) ark phi symbols =
+      if !use_ocrs then
+        right (DOcrs.abstract_iter ~exists ark phi symbols)
+      else
+        left (DPoly.abstract_iter ~exists ark phi symbols)
+  end
+  module I = Iter(D)
 
-  let star x =
-    Log.time "cra:star"
-      (star ~split:(!split_loops) ~use_ocrs:(!use_ocrs))
-      x
+  let star x = Log.time "cra:star" I.star x
 
   let add x y =
     if is_zero x then y
