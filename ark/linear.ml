@@ -219,7 +219,10 @@ module QQMatrix = struct
     if equal mat zero then
       Format.pp_print_int formatter 0
     else
-      ApakEnum.pp_print_enum ~indent:0 ~pp_sep pp_row formatter (rows mat)
+      Format.fprintf formatter "@[<v 0>%a x %a@;%a@]"
+        IntSet.pp (row_set mat)
+        IntSet.pp cols
+        (ApakEnum.pp_print_enum_nobox ~pp_sep pp_row) (rows mat)
 
   let show = Putil.mk_show pp
     
@@ -510,7 +513,6 @@ let divide_right a b =
     let b_tr = QQMatrix.transpose b in
     let div =
       BatEnum.fold (fun div (i, row) ->
-          Log.errorf "On row %d" i;
           QQMatrix.add_row i (solve_exn b_tr row) div)
         QQMatrix.zero
         (QQMatrix.rowsi a)
