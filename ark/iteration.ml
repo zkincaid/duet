@@ -933,7 +933,6 @@ module WedgeMatrix = struct
        This ensures that the rows of C are linearly independent. *)
     (* to do: repeatedly solving super systems of the same system of equations
          -- can be made more efficient *)
-    (*  (QQMatrix.rowsi (!mat))*)
     (QQMatrix.rowsi b)
     |> (BatEnum.iter (fun (r, _) ->
         let col = 2*r + 1 in
@@ -1386,7 +1385,7 @@ module WedgeMatrix = struct
       (Wedge.to_atoms iter.precondition)@(Wedge.to_atoms iter.postcondition)
     in
     let (offset, atoms) =
-      BatList.fold_left (fun (offset,atoms) recurrence ->
+      BatList.fold_left (fun (offset, atoms) recurrence ->
           let size = Array.length recurrence.rec_add in
           (offset+size,
            (rec_atoms (mk_eq iter.ark) offset recurrence)@atoms))

@@ -206,7 +206,6 @@ let affine_interp2 () =
     let interp = Interpretation.of_model ctx m [hsym; xsym; ysym; zsym] in
     (match Interpretation.affine_interpretation interp phi with
      | `Sat m ->
-       Apak.Log.errorf "%a" Interpretation.pp m;
        assert_bool "is_model"
          (Interpretation.evaluate_formula m phi)
      | _ -> assert false)

@@ -146,6 +146,11 @@ module Rewrite : sig
       no more rewrite rules apply *)
   val reduce : t -> Mvp.t -> Mvp.t
 
+  (** Reduce a multi-variate polynomial using the given rewrite rules until no
+      more rewrite rules apply.  Return both the reduced polynomial and the
+      polynomials used during reduction. *)
+  val preduce : t -> Mvp.t -> (Mvp.t * Mvp.t list)
+
   (** Add a new zero-polynomial to a rewrite system and saturate *)
   val add_saturate : t -> Mvp.t -> t
 
