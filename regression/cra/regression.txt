@@ -34,3 +34,4 @@ degree4_binomial: duet.native -cra-split-loops -cra @code/degree4_binomial.c
 power_log: duet.native -use-ocrs -cra @code/power_log.c
 log: duet.native -cra-split-loops -use-ocrs -rba @code/log.c
 binary_search: duet.native -use-ocrs -rba @code/binary_search.c
+fib_secure: duet.native -cra-matrix -cra @code/fib_secure.c

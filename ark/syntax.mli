@@ -117,6 +117,8 @@ val mk_var : 'a context -> int -> typ_fo -> ('a, 'typ) expr
 val mk_ite : 'a context -> 'a formula -> ('a, 'typ) expr -> ('a, 'typ) expr ->
   ('a, 'typ) expr
 
+val mk_if : 'a context -> 'a formula -> 'a formula -> 'a formula
+
 val mk_iff : 'a context -> 'a formula -> 'a formula -> 'a formula
 
 val substitute : 'a context ->

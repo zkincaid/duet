@@ -340,6 +340,11 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
     meet_atoms wedge [bound]
   in
 
+  let provenance_formula ps =
+    List.map (fun p -> mk_eq ark (CS.term_of_polynomial cs p) zero) ps
+    |> mk_and ark
+  in
+
   logf "Before strengthen: %a" pp wedge;
 
   update_env wedge;
@@ -355,11 +360,6 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
   update_env wedge;
   
   let wedge_affine_hull = affine_hull wedge in
-  let affine_hull_formula =
-    ref (wedge_affine_hull
-         |> List.map (fun vec -> mk_eq ark (CS.term_of_vec wedge.cs vec) zero)
-         |> mk_and ark)
-  in
   (* Rewrite maintains a Grobner basis for the coordinate ideal + the ideal of
      polynomials vanishing on the underlying polyhedron of the wedge *)
   let rewrite =
@@ -370,15 +370,25 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
       BatEnum.filter_map (fun id ->
           match CS.destruct_coordinate wedge.cs id with
           | `Mul (x, y) ->
-            Some (P.sub
-                    (P.of_dim id)
-                    (P.mul (poly_of_vec x) (poly_of_vec y)))
+            let p =
+              P.sub
+                (P.of_dim id)
+                (P.mul (poly_of_vec x) (poly_of_vec y))
+            in
+            integrity (mk_eq ark (CS.term_of_polynomial cs p) zero);
+            Some p
           | `Inv x ->
             let interval = bound_vec wedge x in
             if Interval.elem QQ.zero interval then
               None
-            else
-              Some (P.sub (P.mul (poly_of_vec x) (P.of_dim id)) (P.scalar QQ.one))
+            else begin
+              let p =
+                P.sub (P.mul (poly_of_vec x) (P.of_dim id)) (P.scalar QQ.one)
+              in
+              integrity (mk_or ark [mk_eq ark (CS.term_of_vec cs x) zero;
+                                    mk_eq ark (CS.term_of_polynomial cs p) zero]);
+              Some p
+            end
           | _ -> None)
         (0 -- (CS.dim wedge.cs - 1))
       |> BatList.of_enum
@@ -391,10 +401,6 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
     Term.pp ark formatter (CS.term_of_coordinate wedge.cs i)
   in
   logf "Rewrite: @[<v 0>%a@]" (Polynomial.Rewrite.pp pp_dim) (!rewrite);
-  let reduce_vec vec =
-    Polynomial.Rewrite.reduce (!rewrite) (poly_of_vec vec)
-    |> CS.term_of_polynomial wedge.cs
-  in
 
   (* pow-log rule *)
   begin
@@ -487,44 +493,76 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
   (* Hashtable mapping canonical forms of nonlinear terms to their
      representative terms. *)
   let canonical = ExprHT.create 991 in
+
+  let reduce_vec vec =
+    let (p, provenance) =
+      Polynomial.Rewrite.preduce (!rewrite) (poly_of_vec vec)
+    in
+    let p_term = CS.term_of_polynomial wedge.cs p in
+    let term = CS.term_of_vec wedge.cs vec in
+    let integrity =
+      if Term.equal p_term term then
+        mk_true ark
+      else
+        mk_if ark
+          (provenance_formula provenance)
+          (mk_eq ark (CS.term_of_vec wedge.cs vec) p_term)
+    in
+    (p_term, integrity)
+  in
   while not !saturated do
     saturated := true;
     for id = 0 to CS.dim wedge.cs - 1 do
       let term = CS.term_of_coordinate wedge.cs id in
-      (* TODO: track the equations that were actually used in reductions rather
-         than just using the affine hull as the precondition. *)
-      let reduced_id =
-        match vec_of_poly (Polynomial.Rewrite.reduce (!rewrite) (P.of_dim id)) with
-        | Some p -> p
+      let (reduced_id, provenance) =
+        let (poly, provenance) =
+          Polynomial.Rewrite.preduce (!rewrite) (P.of_dim id)
+        in
+        match vec_of_poly poly with
+        | Some p -> (p, provenance_formula provenance)
         | None ->
           (* Reducing a linear polynomial must result in another linear
              polynomial *)
           assert false
       in
       let reduced_term = CS.term_of_vec wedge.cs reduced_id in
-      add_bound (!affine_hull_formula) (mk_eq ark term reduced_term);
+      if not (Term.equal term reduced_term) then
+        add_bound provenance (mk_eq ark term reduced_term);
 
       (* congruence closure *)
-      let add_canonical reduced =
+      let add_canonical reduced provenance =
         (* Add [reduced->term] to the canonical map.  Or if there's already a
            mapping [reduced->rep], add the equation rep=term *)
-        if ExprHT.mem canonical reduced then
-          (* Don't need an integrity formula (congruence is free), so don't
-             call add_bound. *)
+        if ExprHT.mem canonical reduced then begin
+          logf ~level:`trace "Integrity: %a" (Formula.pp ark) provenance;
+          integrity provenance;
           meet_atoms wedge [mk_eq ark term (ExprHT.find canonical reduced)]
-        else
+        end else
           ExprHT.add canonical reduced term
       in
       begin match CS.destruct_coordinate wedge.cs id with
       | `App (_, []) | `Mul (_, _) -> ()
       | `App (func, args) ->
-        add_canonical (mk_app ark func (List.map reduce_vec args))
+        let (args, provenance) =
+          List.fold_right (fun arg (args, provenance) ->
+              let (arg',provenance') = reduce_vec arg in
+              (arg'::args, provenance'::provenance))
+            args
+            ([], [])
+        in
+        add_canonical
+          (mk_app ark func args)
+          (mk_and ark provenance)
       | `Inv t ->
-        add_canonical (mk_div ark (mk_real ark QQ.one) (reduce_vec t))
+        let (t', provenance) = reduce_vec t in
+        add_canonical (mk_div ark (mk_real ark QQ.one) t') provenance
       | `Mod (num, den) ->
-        add_canonical (mk_mod ark (reduce_vec num) (reduce_vec den))
+        let (num', nprov) = reduce_vec num in
+        let (den', dprov) = reduce_vec den in
+        add_canonical (mk_mod ark num' den') provenance
       | `Floor t ->
-        add_canonical (mk_floor ark (reduce_vec t))
+        let (t', provenance) = reduce_vec t in
+        add_canonical (mk_floor ark t') provenance
       end;
     done;
     (* Check for new polynomials vanishing on the underlying polyhedron *)
@@ -533,11 +571,8 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
           Polynomial.Rewrite.reduce (!rewrite) (poly_of_vec vec)
         in
         if not (P.equal P.zero reduced) then begin
-          let reduced_term = CS.term_of_polynomial wedge.cs reduced in
           saturated := false;
           rewrite := Polynomial.Rewrite.add_saturate (!rewrite) reduced;
-          affine_hull_formula := mk_and ark [!affine_hull_formula;
-                                             mk_eq ark reduced_term zero]
         end);
   done;
 
@@ -699,10 +734,13 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
     | [] -> ()
     | (p::cone) ->
       cone |> List.iter (fun q ->
-          match vec_of_poly (Polynomial.Rewrite.reduce (!rewrite) (P.mul p q)) with
+          let (r, provenance) =
+            Polynomial.Rewrite.preduce (!rewrite) (P.mul p q)
+          in
+          match vec_of_poly r with
           | Some r ->
             let precondition =
-              mk_and ark [!affine_hull_formula;
+              mk_and ark [provenance_formula provenance;
                           mk_geqz p;
                           mk_geqz q]
             in
@@ -723,13 +761,15 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
       let interval = bound_vec wedge (V.of_term QQ.one id) in
       begin
         match Interval.lower interval with
-        | Some lo -> meet_atoms wedge [mk_leq ark (mk_real ark lo) term]
-        | None -> ()
+        | Some lo when QQ.to_zz lo = None ->
+          meet_atoms wedge [mk_leq ark (mk_real ark lo) term]
+        | _ -> ()
       end;
       begin
         match Interval.upper interval with
-        | Some hi -> meet_atoms wedge [mk_leq ark term (mk_real ark hi)]
-        | None -> ()
+        | Some hi when QQ.to_zz hi = None ->
+          meet_atoms wedge [mk_leq ark term (mk_real ark hi)]
+        | _ -> ()
       end
     | _ -> ()
   done;
@@ -812,6 +852,7 @@ let join ?integrity:(integrity=(fun _ -> ())) wedge wedge' =
     let (wedge, wedge') = common_cs wedge wedge' in
     let wedge = strengthen ~integrity wedge in
     let wedge' = strengthen ~integrity wedge' in
+
     update_env wedge; (* strengthening wedge' may add dimensions to the common
                          coordinate system -- add those dimensions to wedge's
                          environment *)

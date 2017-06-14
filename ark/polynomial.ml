@@ -411,8 +411,10 @@ module Rewrite = struct
      monomials *descend* in some admissible order. *)
   type op = (QQ.t * Monomial.t) list
 
+  module P = BatSet.Make(Mvp)
+
   type t =
-    { rules : (Monomial.t * op) list;
+    { rules : (Monomial.t * op * P.t) list;
       order : Monomial.t -> Monomial.t -> [ `Eq | `Lt | `Gt ] }
 
   let pp_op pp_dim formatter op =
@@ -435,7 +437,7 @@ module Rewrite = struct
   let pp pp_dim formatter rewrite =
     ApakEnum.pp_print_enum_nobox
       ~pp_sep:(fun formatter () -> Format.fprintf formatter "@;")
-      (fun formatter (lhs, rhs) ->
+      (fun formatter (lhs, rhs, _) ->
          Format.fprintf formatter "%a --> @[<hov 2>%a@]"
            (Monomial.pp pp_dim) lhs
            (pp_op pp_dim) rhs)
@@ -474,28 +476,41 @@ module Rewrite = struct
 
   let rec reduce_op rewrite polynomial =
     match polynomial with
-    | [] -> []
+    | [] -> ([], P.empty)
     | (c, m)::polynomial' ->
       try
-        let reduced =
-          BatList.find_map (fun (n, p) ->
+        let (reduced, provenance) =
+          BatList.find_map (fun (n, p, provenance) ->
               match Monomial.div m n with
-              | Some remainder -> Some (op_monomial_scalar_mul c remainder p)
+              | Some remainder ->
+                Some (op_monomial_scalar_mul c remainder p, provenance)
               | None -> None)
             rewrite.rules
         in
-        reduce_op rewrite (op_add rewrite.order reduced polynomial')
+        let (reduced', provenance') =
+          reduce_op rewrite (op_add rewrite.order reduced polynomial')
+        in
+        (reduced', P.union provenance provenance')
       with Not_found ->
-        op_add rewrite.order [(c, m)] (reduce_op rewrite polynomial')
+        let (reduced, provenance) = reduce_op rewrite polynomial' in
+        (op_add rewrite.order [(c, m)] reduced, provenance)
+
+  let preduce rewrite polynomial =
+    let (reduced, provenance) =
+      reduce_op rewrite (op_of_mvp rewrite.order polynomial)
+    in
+    (mvp_of_op reduced, P.elements provenance)
 
   let reduce rewrite polynomial =
-    reduce_op rewrite (op_of_mvp rewrite.order polynomial)
-    |> mvp_of_op
+    let (reduced, _) =
+      reduce_op rewrite (op_of_mvp rewrite.order polynomial)
+    in
+    mvp_of_op reduced
 
   let mk_rewrite order polynomials =
     let rules =
       List.fold_left (fun rules polynomial ->
-          let op =
+          let (op, provenance) =
             op_of_mvp order polynomial
             |> reduce_op { rules; order }
           in
@@ -506,11 +521,14 @@ module Rewrite = struct
             let rhs =
               op_monomial_scalar_mul (QQ.negate (QQ.inverse c)) Monomial.one rest
             in
+            let new_rule = (m, rhs, P.add polynomial provenance) in
             let rules =
-              let rewrite = { rules = [(m,rhs)]; order = order } in
-              List.map (fun (n, p) -> (n, reduce_op rewrite p)) rules
+              let rewrite = { rules = [new_rule]; order = order } in
+              List.map (fun (n, p, provenance) ->
+                  let (p',provenance') = reduce_op rewrite p in
+                  (n, p', P.union provenance provenance')) rules
             in
-            (m, rhs)::rules)
+            new_rule::rules)
         []
         polynomials
     in
@@ -521,36 +539,40 @@ module Rewrite = struct
        m1 and m2, and let m1*r1 = m = m2*r2.  Then we have m = rhs1*r1 and m =
        rhs2*r1.  It follows that rhs1*r1 - rhs2*r2 = 0.  spoly computes this
        polynomial. *)
-    let spoly (m1, rhs1) (m2, rhs2) =
+    let spoly (m1, rhs1, provenance1) (m2, rhs2, provenance2) =
       let m = Monomial.lcm m1 m2 in
       let r1 = BatOption.get (Monomial.div m m1) in
       let r2 = BatOption.get (Monomial.div m m2) in
-      op_add
-        order
-        (op_monomial_scalar_mul QQ.one r1 rhs1)
-        (op_monomial_scalar_mul (QQ.of_int (-1)) r2 rhs2)
+      (op_add
+         order
+         (op_monomial_scalar_mul QQ.one r1 rhs1)
+         (op_monomial_scalar_mul (QQ.of_int (-1)) r2 rhs2),
+       P.union provenance1 provenance2)
     in
     let pp_dim formatter i =
       Format.pp_print_string formatter (Char.escaped (Char.chr i))
     in
+    let lhs (x, _, _) = x in
+    let rhs (_, x, _) = x in
     let rec go rules pairs =
       match pairs with
       | [] -> rules
       | (r1, r2)::pairs ->
         logf ~level:`trace  "Pair:";
         logf ~level:`trace  "  @[%a@] --> @[<hov 2>%a@]"
-          (Monomial.pp pp_dim) (fst r1)
-          (pp_op pp_dim) (snd r1);
+          (Monomial.pp pp_dim) (lhs r1)
+          (pp_op pp_dim) (rhs r1);
         logf ~level:`trace  "  @[%a@] --> @[<hov 2>%a@]"
-          (Monomial.pp pp_dim) (fst r2)
-          (pp_op pp_dim) (snd r2);
-        match reduce_op { order = order; rules = rules } (spoly r1 r2) with
-        | [] -> go rules pairs
-        | [(c,m)] when Monomial.equal m Monomial.one ->
+          (Monomial.pp pp_dim) (lhs r2)
+          (pp_op pp_dim) (rhs r2);
+        let (sp, provenance) = spoly r1 r2 in
+        match reduce_op { order = order; rules = rules } sp with
+        | ([], _) -> go rules pairs
+        | ([(c,m)], provenance') when Monomial.equal m Monomial.one ->
           (* Inconsistent -- return (1 = 0) *)
           assert (not (QQ.equal c QQ.zero));
-          [(Monomial.one, [])]
-        | (c,m)::rest ->
+          [(Monomial.one, [], P.union provenance provenance')]
+        | ((c,m)::rest, provenance') ->
           assert (not (QQ.equal c QQ.zero));
           let rhs =
             op_monomial_scalar_mul (QQ.negate (QQ.inverse c)) Monomial.one rest
@@ -559,7 +581,8 @@ module Rewrite = struct
           logf ~level:`trace "  @[%a@] --> @[<hov 2>%a@]"
             (Monomial.pp pp_dim) m
             (pp_op pp_dim) rhs;
-          go ((m,rhs)::rules) (pairs@(List.map (fun r -> ((m,rhs), r)) rules))
+          let new_rule = (m,rhs,P.union provenance provenance') in
+          go (new_rule::rules) (pairs@(List.map (fun r -> (new_rule, r)) rules))
     in
     go rules pairs
 
@@ -572,49 +595,56 @@ module Rewrite = struct
       rules = buchberger rewrite.order rewrite.rules initial_pairs }
 
   let add_saturate rewrite p =
+    let provenance = P.singleton p in
     match reduce_op rewrite (op_of_mvp rewrite.order p) with
-    | [] -> rewrite
-    | [(c,m)] when Monomial.equal m Monomial.one ->
+    | ([], _) -> rewrite
+    | ([(c,m)], provenance') when Monomial.equal m Monomial.one ->
       (* Inconsistent -- return (1 = 0) *)
       assert (not (QQ.equal c QQ.zero));
-      { order = rewrite.order; rules = [(Monomial.one, [])] }
-    | (c,m)::rest ->
+      { order = rewrite.order;
+        rules = [(Monomial.one, [], P.union provenance provenance')] }
+    | ((c,m)::rest, provenance') ->
       assert (not (QQ.equal c QQ.zero));
       let rhs =
         op_monomial_scalar_mul (QQ.negate (QQ.inverse c)) Monomial.one rest
       in
-      let pairs = List.map (fun r -> ((m,rhs), r)) rewrite.rules in
+      let new_rule = (m, rhs, P.union provenance provenance') in
+      let pairs = List.map (fun r -> (new_rule, r)) rewrite.rules in
       { order = rewrite.order;
-        rules = buchberger rewrite.order ((m,rhs)::rewrite.rules) pairs }
+        rules = buchberger rewrite.order (new_rule::rewrite.rules) pairs }
 
   let grobner_basis rewrite =
-    List.fold_left (fun rewrite (m,rhs) ->
+    List.fold_left (fun rewrite (m,rhs,provenance) ->
         match reduce_op rewrite ((QQ.negate QQ.one, m)::rhs) with
-        | [] -> rewrite
-        | [(c,m)] when Monomial.equal m Monomial.one ->
+        | ([], _) -> rewrite
+        | ([(c,m)], provenance') when Monomial.equal m Monomial.one ->
           (* Inconsistent -- return (1 = 0) *)
           assert (not (QQ.equal c QQ.zero));
-          { order = rewrite.order; rules = [(Monomial.one, [])] }
-        | (c,m)::rest ->
+          { order = rewrite.order;
+            rules = [(Monomial.one, [], P.union provenance provenance')] }
+        | ((c,m)::rest, provenance') ->
           assert (not (QQ.equal c QQ.zero));
           let rhs =
             op_monomial_scalar_mul (QQ.negate (QQ.inverse c)) Monomial.one rest
           in
           let rules = rewrite.rules in
+          let new_rule = (m,rhs,P.union provenance provenance') in
           let pairs =
-            BatList.filter_map (fun (m',rhs') ->
+            BatList.filter_map (fun (m',rhs',provenance') ->
                 if Monomial.equal (Monomial.gcd m m') Monomial.one then
                   None
                 else
-                  Some ((m,rhs), (m',rhs')))
+                  Some (new_rule, (m',rhs',provenance')))
               rewrite.rules
           in
           { order = rewrite.order;
-            rules = buchberger rewrite.order ((m,rhs)::rules) pairs }
+            rules = buchberger rewrite.order (new_rule::rules) pairs }
       )
       { order = rewrite.order; rules = [] }
       rewrite.rules
 
   let generators rewrite =
-    List.map (fun (lt, op) -> mvp_of_op ((QQ.of_int (-1), lt)::op)) rewrite.rules
+    List.map
+      (fun (lt, op, _) -> mvp_of_op ((QQ.of_int (-1), lt)::op))
+      rewrite.rules
 end

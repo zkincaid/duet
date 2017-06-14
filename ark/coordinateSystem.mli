@@ -71,6 +71,8 @@ val polynomial_of_term : 'a t -> 'a term -> Polynomial.Mvp.t
     over non-multiplicative coordinates. *)
 val polynomial_of_vec : 'a t -> Linear.QQVector.t -> Polynomial.Mvp.t
 
+val polynomial_of_coordinate : 'a t -> int -> Polynomial.Mvp.t
+
 val term_of_polynomial : 'a t -> Polynomial.Mvp.t -> 'a term
 
 (** Does a coordinate system admit the given term? *)

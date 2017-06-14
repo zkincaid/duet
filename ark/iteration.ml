@@ -739,6 +739,14 @@ module WedgeVectorOCRS = struct
         mk_idiv iter.ark (term_of_expr x) (mk_real iter.ark (Mpqf.of_mpq y))
       | Mod (x, y) ->
         mk_mod iter.ark (term_of_expr x) (term_of_expr y)
+      | Iif (func, arg) ->
+        assert (arg = "k");
+        let sym =
+          if is_registered_name iter.ark func then
+            register_named_symbol iter.ark func (`TyFun ([`TyInt], `TyReal));
+          get_named_symbol iter.ark func
+        in
+        mk_app iter.ark sym [loop_counter]
       | Binomial (_, _) | Factorial _ | Sin _ | Cos _ | Arctan _ | Pi ->
         assert false
     in
@@ -933,7 +941,6 @@ module WedgeMatrix = struct
        This ensures that the rows of C are linearly independent. *)
     (* to do: repeatedly solving super systems of the same system of equations
          -- can be made more efficient *)
-    (*  (QQMatrix.rowsi (!mat))*)
     (QQMatrix.rowsi b)
     |> (BatEnum.iter (fun (r, _) ->
         let col = 2*r + 1 in
@@ -1226,6 +1233,14 @@ module WedgeMatrix = struct
     let ss_pre = SSVar "k" in
     let ss_post = SAdd ("k", 1) in
 
+    (* Map identifiers to their closed forms, so that they can be used in the
+       additive term of recurrences at higher strata *)
+    let cf =
+      Array.make (Array.length iter.term_of_id) (Rational (Mpqf.to_mpq QQ.zero))
+    in
+    for i = 0 to iter.nb_constants - 1 do
+      cf.(i) <- Symbolic_Constant (string_of_int i)
+    done;
     let rec term_of_expr = function
       | Plus (x, y) -> mk_add iter.ark [term_of_expr x; term_of_expr y]
       | Minus (x, y) -> mk_sub iter.ark (term_of_expr x) (term_of_expr y)
@@ -1280,13 +1295,16 @@ module WedgeMatrix = struct
         mk_idiv iter.ark (term_of_expr x) (mk_real iter.ark (Mpqf.of_mpq y))
       | Mod (x, y) ->
         mk_mod iter.ark (term_of_expr x) (term_of_expr y)
+      | Iif (func, arg) ->
+        assert (arg = "k");
+        let sym =
+          if not (is_registered_name iter.ark func) then
+            register_named_symbol iter.ark func (`TyFun ([`TyInt], `TyReal));
+          get_named_symbol iter.ark func
+        in
+        mk_app iter.ark sym [loop_counter]
       | Binomial (_, _) | Factorial _ | Sin _ | Cos _ | Arctan _ | Pi ->
         assert false
-    in
-    (* Map identifiers to their closed forms, so that they can be used in the
-       additive term of recurrences at higher strata *)
-    let cf =
-      Array.make (Array.length iter.term_of_id) (Rational (Mpqf.to_mpq QQ.zero))
     in
     let rec close offset closed = function
       | [] -> mk_and iter.ark closed
@@ -1326,7 +1344,11 @@ module WedgeMatrix = struct
           | Greater (x, y) -> mk_lt iter.ark (term_of_expr y) (term_of_expr x)
         in
         let recurrence_closed_formula = List.map to_formula recurrence_closed in
-
+        recurrence_closed |> List.iteri (fun i ineq ->
+            match ineq with
+            | Equals (x, y) | LessEq (x, y) | Less (x, y)
+            | GreaterEq (x, y) | Greater (x, y) ->
+              cf.(offset + i) <- y);
         close (offset + size) (recurrence_closed_formula@closed) rest
     in
     let closed = close iter.nb_constants [] iter.rec_eq in
@@ -1386,7 +1408,7 @@ module WedgeMatrix = struct
       (Wedge.to_atoms iter.precondition)@(Wedge.to_atoms iter.postcondition)
     in
     let (offset, atoms) =
-      BatList.fold_left (fun (offset,atoms) recurrence ->
+      BatList.fold_left (fun (offset, atoms) recurrence ->
           let size = Array.length recurrence.rec_add in
           (offset+size,
            (rec_atoms (mk_eq iter.ark) offset recurrence)@atoms))
