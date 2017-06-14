@@ -267,6 +267,7 @@ let mk_exists ctx ?name:(name="_") typ phi = ctx.mk (Exists (name, typ)) [phi]
 let mk_ite ctx cond bthen belse = ctx.mk Ite [cond; bthen; belse]
 let mk_iff ctx phi psi =
   mk_or ctx [mk_and ctx [phi; psi]; mk_and ctx [mk_not ctx phi; mk_not ctx psi]]
+let mk_if ctx phi psi = mk_or ctx [mk_not ctx phi; psi]
 
 let mk_truncate ctx t =
   mk_ite ctx
