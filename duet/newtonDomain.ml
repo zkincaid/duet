@@ -21,7 +21,7 @@ type value = Cra.value =
   | VWidth of Var.t
 
 module K = struct
-  include Transition.Make(Ctx)(V)
+  include Cra.MakeTransition(V)
 
   let project tr =
     let is_global v = Var.is_global (Cra.var_of_value v) in
@@ -314,7 +314,8 @@ end
 module KK = struct
   module Voc = V
   module VocMap = Map.Make(Voc)
-  include Transition.Make(Ctx)(VV)
+  include Cra.MakeTransition(VV)
+
 
   (* Detensor-transpose local variables and remove them from the footprint *)
   let project tr =
@@ -491,24 +492,18 @@ let () =
   Callback.register "zero_callback" (fun () -> K.zero);
   Callback.register "tensorZero_callback" (fun () -> KK.zero);
 
-  Callback.register "star_callback" (fun x ->
-      K.star ~split:(!Cra.split_loops) ~use_ocrs:(!Cra.use_ocrs) x);
-  Callback.register "tensorStar_callback" (fun x ->
-      KK.star ~split:(!Cra.split_loops) ~use_ocrs:(!Cra.use_ocrs) x);
-  Callback.register "alpha_hat_callback" (fun x ->
-      K.Iter.alpha ~split:(!Cra.split_loops) x);
-  Callback.register "tensor_alpha_hat_callback" (fun x ->
-      KK.Iter.alpha ~split:(!Cra.split_loops) x);
-  Callback.register "abstract_star_callback" (fun x ->
-      K.Iter.closure ~use_ocrs:(!Cra.use_ocrs) x);
-  Callback.register "tensor_abstract_star_callback" (fun x ->
-      KK.Iter.closure ~use_ocrs:(!Cra.use_ocrs) x);
+  Callback.register "star_callback" K.star;
+  Callback.register "tensorStar_callback" KK.star;
+  Callback.register "alpha_hat_callback" K.I.alpha;
+  Callback.register "tensor_alpha_hat_callback" KK.I.alpha;
+  Callback.register "abstract_star_callback" K.I.closure;
+  Callback.register "tensor_abstract_star_callback" KK.I.closure;
 
-  Callback.register "abstract_equiv_callback" K.Iter.equal;
-  Callback.register "tensor_abstract_equiv_callback" KK.Iter.equal;
+  Callback.register "abstract_equiv_callback" K.I.equal;
+  Callback.register "tensor_abstract_equiv_callback" KK.I.equal;
 
-  Callback.register "abstract_widen_callback" K.Iter.widen;
-  Callback.register "tensor_abstract_widen_callback" KK.Iter.widen;
+  Callback.register "abstract_widen_callback" K.I.widen;
+  Callback.register "tensor_abstract_widen_callback" KK.I.widen;
 
   Callback.register "print_callback" K.show;
   Callback.register "tensoredPrint_callback" KK.show;
@@ -565,14 +560,14 @@ let () =
      Putil.mk_show (fun formatter abstract ->
           Format.pp_open_vbox formatter indent;
           Format.pp_print_break formatter 0 0;
-          Format.fprintf formatter "%a" K.Iter.pp abstract;
+          Format.fprintf formatter "%a" K.I.pp abstract;
           Format.pp_close_box formatter ())
        abstract);
   Callback.register "tensor_print_abstract_callback" (fun indent abstract ->
      Putil.mk_show (fun formatter abstract ->
           Format.pp_open_vbox formatter indent;
           Format.pp_print_break formatter 0 0;
-          Format.fprintf formatter "%a" KK.Iter.pp abstract;
+          Format.fprintf formatter "%a" KK.I.pp abstract;
           Format.pp_close_box formatter ())
        abstract);
 

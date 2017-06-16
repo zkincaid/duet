@@ -225,7 +225,6 @@ let map_value f = function
   | VWidth v -> VWidth (f v)
 
 module V = struct
-
   module I = struct
     type t = value [@@deriving ord]
     let pp formatter = function
@@ -263,7 +262,7 @@ module V = struct
       None
 end
 
-module K = struct
+module MakeTransition(V : Transition.Var) = struct
   include Transition.Make(Ctx)(V)
   module DPoly = struct
     module WV = Iteration.WedgeVector
@@ -321,6 +320,8 @@ module K = struct
     else if is_one y then x
     else mul x y
 end
+
+module K = MakeTransition(V)
 module A = Interproc.MakePathExpr(K)
 
 type ptr_term =
