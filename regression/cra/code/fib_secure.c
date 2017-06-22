@@ -8,16 +8,18 @@ void main() {
     __VERIFIER_assume(n1 == n2);
     __VERIFIER_assume(k1 == k2);
     __VERIFIER_assume(l1 == l2);
+    // variant 1
     while(n1 > 0) {
 	f11 = f11 + f12;
 	f12 = f11 - f12;
-	n1--;
+	n1 --;
     }
     if (f11 > k1) {
 	l1 = 1;
     } else {
 	l1 = 0;
     }
+    // variant 2
     while(n2 > 0) {
 	f21 = f21 + f22;
 	f22 = f21 - f22;

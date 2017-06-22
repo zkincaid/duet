@@ -160,15 +160,15 @@ end = struct
   module HT = Hashtbl.Make(G.V)
 
   let eval st graph lookup vertex =
-    logf "Transfer %a@\n" A.pp_vertex vertex;
+    logf ~level:`trace "Transfer %a@\n" A.pp_vertex vertex;
 
     let input = A.flow_in st graph lookup vertex in
-    logf "Input:@\n%a@\n" A.pp_absval input;
+    logf ~level:`trace "Input:@\n%a@\n" A.pp_absval input;
 
     (* Don't compute output until input is printed - it gives us better
        traces. *)
     let output = A.transfer st input vertex in
-    logf "Output:@\n%a@\n" A.pp_absval output;
+    logf ~level:`trace "Output:@\n%a@\n" A.pp_absval output;
 
     output
 

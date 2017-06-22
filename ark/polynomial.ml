@@ -534,6 +534,15 @@ module Rewrite = struct
     in
     { rules; order }
 
+  let rec insert_rule (m,rhs,provenance) rules =
+    match rules with
+    | [] -> [(m,rhs,provenance)]
+    | (m',rhs',provenance')::rules' ->
+      if Monomial.total_degree m <= Monomial.total_degree m' then
+        (m,rhs,provenance)::rules
+      else
+        (m',rhs',provenance')::(insert_rule (m,rhs,provenance) rules')
+
   let buchberger order rules pairs =
     (* Suppose m1 = rhs1 and m2 = rhs1.  Let m be the least common multiple of
        m1 and m2, and let m1*r1 = m = m2*r2.  Then we have m = rhs1*r1 and m =
@@ -582,17 +591,14 @@ module Rewrite = struct
             (Monomial.pp pp_dim) m
             (pp_op pp_dim) rhs;
           let new_rule = (m,rhs,P.union provenance provenance') in
-          go (new_rule::rules) (pairs@(List.map (fun r -> (new_rule, r)) rules))
+          go
+            (insert_rule new_rule rules)
+            (pairs@(List.map (fun r -> (new_rule, r)) rules))
     in
     go rules pairs
 
-  let grobner_basis rewrite =
-    let initial_pairs =
-      ApakEnum.distinct_pairs (BatList.enum rewrite.rules)
-      |> BatList.of_enum
-    in
-    { order = rewrite.order;
-      rules = buchberger rewrite.order rewrite.rules initial_pairs }
+  let buchberger order rules pairs =
+    Log.time "buchberger" (buchberger order rules) pairs
 
   let add_saturate rewrite p =
     let provenance = P.singleton p in
@@ -637,8 +643,9 @@ module Rewrite = struct
                   Some (new_rule, (m',rhs',provenance')))
               rewrite.rules
           in
+          let new_rules = insert_rule new_rule rules in
           { order = rewrite.order;
-            rules = buchberger rewrite.order (new_rule::rules) pairs }
+            rules = buchberger rewrite.order new_rules pairs }
       )
       { order = rewrite.order; rules = [] }
       rewrite.rules

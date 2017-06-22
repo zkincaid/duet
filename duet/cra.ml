@@ -80,11 +80,6 @@ module MakeDecorator(M : sig
       | Deref _ -> true
     let safe_cyl av aps = I.cyl (I.inject av aps) aps
     let transfer _ flow_in def =
-(*
-      Log.logf 0 "Transfer: %a" Def.format def;
-      let flow_in_i = I.inject flow_in (Def.get_uses def) in
-      Log.logf 0 "Input: %a" I.format flow_in_i;
-*)
       let res = 
         match def.dkind with
         | Call (None, AddrOf (Variable (func, OffsetFixed 0)), []) ->
@@ -159,6 +154,7 @@ module MakeDecorator(M : sig
         let value = NumAnalysis.output result v in
         let bexpr = ApronI.bexpr_of_av value in
         let def = Def.mk (Assume bexpr) in
+        logf "Found invariant at %a: %a" Def.pp v ApronI.pp value;
         G.split body v ~pred:v ~succ:def
       in
       BatEnum.fold f body (enum_loop_headers body)
