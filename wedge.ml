@@ -1409,6 +1409,9 @@ let abstract ?exists:(p=fun x -> true) ark phi =
   let integrity psi =
     solver#add [Nonlinear.uninterpret ark psi]
   in
+  let uninterpret_implicant implicant =
+    mk_and ark (List.map (Nonlinear.uninterpret ark) implicant)
+  in
   let rec go wedge =
     let blocking_clause =
       to_formula wedge
@@ -1427,10 +1430,15 @@ let abstract ?exists:(p=fun x -> true) ark phi =
       match Interpretation.select_implicant interp lin_phi with
       | None -> assert false
       | Some implicant ->
-        let new_wedge =
+        let implicant' =
           List.map replace_defs implicant
-          (*          |> ArkSimplify.qe_partial_implicant ark p*)
-          |> of_atoms ark ~integrity
+          |> ArkSimplify.qe_partial_implicant ark p
+        in
+        solver#add [mk_if ark
+                      (uninterpret_implicant implicant)
+                      (uninterpret_implicant implicant')];
+        let new_wedge =
+          of_atoms ark ~integrity implicant'
           |> exists ~integrity p
         in
         go (join ~integrity wedge new_wedge)
