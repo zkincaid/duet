@@ -1,18 +1,18 @@
 Procedure: logn
-min:170(0,
-        max:171(1,
-                (log:22(2, ((6 * param0:10) + -8))
-                   + (-1 * log:22(2, ((4 * param0:10) + -6)))))) <= cost
-cost <= max:171(0, log:22(2, ((2 * param0:10) + -2)))
+min:172(0,
+        max:173(max:173(1, log:22(2, param0:10)),
+                ((-1 * log:22(2, ((4 * param0:10) + -6)))
+                   + log:22(2, ((6 * param0:10) + -8))))) <= cost
+cost <= max:173(0, log:22(2, ((2 * param0:10) + -2)))
 Procedure: main
 1 <= cost
 Procedure: nlogn
-min:170(1,
-        max:171((param0:10
+min:172(1,
+        max:173((param0:10 + (-1 * ((-1 * log:22(2, param0:10)) * param0:10))),
+                (param0:10
+                   + (-1 * (log:22(2, ((2 * param0:10) + -3)) * param0:10))
                    + (-1
                         * ((-1 * log:22(2, ((3 * param0:10) + -4)))
-                             * param0:10))
-                   + (-1 * (log:22(2, ((2 * param0:10) + -3)) * param0:10))),
-                (2 * param0:10))) <= cost
-cost <= max:171(1,
+                             * param0:10))))) <= cost
+cost <= max:173(1,
                 (param0:10 + (log:22(2, ((2 * param0:10) + -2)) * param0:10)))
