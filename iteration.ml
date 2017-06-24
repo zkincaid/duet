@@ -793,7 +793,8 @@ module WedgeVectorOCRS = struct
         | GreaterEq (x, y) -> mk_leq iter.ark (term_of_expr y) (term_of_expr x)
         | Greater (x, y) -> mk_lt iter.ark (term_of_expr y) (term_of_expr x)
       in
-      List.map to_formula (Ocrs.solve_rec_list_pair recurrences)
+      Log.time "OCRS"
+        (List.map to_formula) (Ocrs.solve_rec_list_pair recurrences)
     in
     mk_and iter.ark ([
         Wedge.to_formula iter.precondition;
@@ -1334,7 +1335,7 @@ module WedgeMatrix = struct
                      ocrs_add)
           in
           logf "Matrix recurrence:@\n%s" (Mat_helpers.matrix_rec_to_string mat_rec);
-          Ocrs.solve_mat_recurrence mat_rec
+          Log.time "OCRS" Ocrs.solve_mat_recurrence mat_rec
         in
         let to_formula = function
           | Equals (x, y) -> mk_eq iter.ark (term_of_expr x) (term_of_expr y)

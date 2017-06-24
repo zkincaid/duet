@@ -43,3 +43,13 @@ let merge_array ?compare:(compare = Pervasives.compare) a b =
   in
   go 0 0 0;
   c
+
+let rec exp mul one p n =
+  if n = 0 then one
+  else if n = 1 then p
+  else begin
+    let q = exp mul one p (n / 2) in
+    let q_squared = mul q q in
+    if n mod 2 = 0 then q_squared
+    else mul q q_squared
+  end

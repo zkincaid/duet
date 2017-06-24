@@ -26,6 +26,7 @@ let bottom = { lower = Some QQ.one; upper = Some QQ.zero }
 let top = { lower = None; upper = None }
 let const k = { lower = Some k; upper = Some k }
 let zero = const QQ.zero
+let one = const QQ.one
 let normalize x =
   match x.lower, x.upper with
   | (Some lo, Some hi) when QQ.lt hi lo -> bottom
@@ -261,3 +262,15 @@ let log base x =
       in
       { lower; upper }
     | _ -> top
+
+let rec exp_const ivl n =
+  if n = 0 then one
+  else if n = 1 then ivl
+  else begin
+    let q = exp_const ivl (n / 2) in
+    let q_squared =
+      meet (mul q q) (make (Some QQ.zero) None)
+    in
+    if n mod 2 = 0 then q_squared
+    else mul q q_squared
+  end
