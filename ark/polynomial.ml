@@ -46,15 +46,7 @@ module Uvp(R : Ring) = struct
       zero
       (ApakEnum.cartesian_product (IntMap.enum p) (IntMap.enum q))
 
-  let rec exp p n =
-    if n = 0 then one
-    else if n = 1 then p
-    else begin
-      let q = exp p (n / 2) in
-      let q_squared = mul q q in
-      if n mod 2 = 0 then q_squared
-      else mul q q_squared
-    end
+  let exp = ArkUtil.exp mul one
 
   let compose p q =
     let rec go n = function
@@ -359,19 +351,21 @@ module Mvp = struct
     /@ (fun (coeff, id) -> scalar_mul coeff (of_dim id))
     |> BatEnum.fold add (scalar const_coeff)
 
-  exception Nonlinear
+  let split_linear ?(const=Linear.const_dim) p =
+    MM.fold (fun monomial coeff (vec, poly) ->
+        match BatList.of_enum (Monomial.enum monomial) with
+        | [] -> (V.add_term coeff const vec, poly)
+        | [(x,1)] -> (V.add_term coeff x vec, poly)
+        | _ -> (vec, add_term coeff monomial poly))
+      p
+      (V.zero, zero)
+
   let vec_of ?(const=Linear.const_dim) p =
-    try
-      let vec =
-        enum p /@ (fun (coeff, monomial) ->
-          match BatList.of_enum (Monomial.enum monomial) with
-          | [(x,1)] -> (coeff, x)
-          | [] -> (coeff, const)
-          | _ -> raise Nonlinear)
-        |> V.of_enum
-      in
+    let (vec, q) = split_linear ~const p in
+    if equal q zero then
       Some vec
-    with Nonlinear -> None
+    else
+      None
 
   let term_of ark dim_term p =
     MM.fold (fun monomial coeff sum ->
@@ -383,15 +377,7 @@ module Mvp = struct
 
   let compare = MM.compare QQ.compare
 
-  let rec exp p n =
-    if n = 0 then one
-    else if n = 1 then p
-    else begin
-      let q = exp p (n / 2) in
-      let q_squared = mul q q in
-      if n mod 2 = 0 then q_squared
-      else mul q q_squared
-    end
+  let exp = ArkUtil.exp mul one
 
   let substitute subst p =
     MM.fold (fun monomial coeff p ->
@@ -404,6 +390,26 @@ module Mvp = struct
         add p (scalar_mul coeff q))
       p
       zero
+
+  let div_monomial p m =
+    MM.fold (fun n coeff p ->
+        match p with
+        | Some p ->
+          begin match Monomial.div n m with
+            | Some q -> Some (add_term coeff q p)
+            | None -> None
+          end
+        | None -> None)
+      p
+      (Some zero)
+
+  let dimensions p =
+    let module S = Putil.PInt.Set in
+    MM.fold (fun m _ set ->
+        Monomial.IntMap.fold (fun dim _ set -> S.add dim set) m set)
+      p
+      S.empty
+    |> S.enum
 end
 
 module Rewrite = struct

@@ -99,6 +99,10 @@ module Mvp : sig
       is treated at a constant 1. *)
   val of_vec : ?const:int -> Linear.QQVector.t -> t
 
+  (** Write a polynomial as a sum [t + p], where [t] is a linear term and [p]
+      is a polynomial in which every monomial has degree >= 2 *)
+  val split_linear : ?const:int -> t -> (Linear.QQVector.t * t)
+
   (** Convert a linear polynomial to a vector, where each dimension
       corresponds to a variable except the designated [const] dimension, which
       is treated at a constant 1.  Return [None] if the polynomial is
@@ -113,6 +117,12 @@ module Mvp : sig
   (** Generalization of polynomial composition -- substitute each dimension
       for a multivariate polynomial *)
   val substitute : (Monomial.dim -> t) -> t -> t
+
+  (** Divide a polynomial by a monomial *)
+  val div_monomial : t -> Monomial.t -> t option
+
+  (** Enumerate the set of dimensions that appear in a polynomial *)
+  val dimensions : t -> int BatEnum.t
 end
 
 (** Rewrite systems for multi-variate polynomials. A polynomial rewrite system

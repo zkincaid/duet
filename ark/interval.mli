@@ -11,6 +11,7 @@ val top : t
 val bottom : t
 val const : QQ.t -> t
 val zero : t
+val one : t
 val const_of : t -> QQ.t option
 
 val negate : t -> t
@@ -40,3 +41,7 @@ val apron_of : t -> Apron.Interval.t
 val integral : t -> t
 
 val log : t -> t -> t
+
+(** [const_power ivl k] computes an interval surrounding the set the set
+    [{ x^k : x in ivl }]. *)
+val exp_const : t -> int -> t
