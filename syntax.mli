@@ -127,6 +127,9 @@ val substitute : 'a context ->
 val substitute_const : 'a context ->
   (symbol -> ('a,'b) expr) -> ('a,'typ) expr -> ('a,'typ) expr
 
+val substitute_map : 'a context ->
+  (('a,'b) expr Symbol.Map.t) -> ('a,'typ) expr -> ('a,'typ) expr
+
 val fold_constants : (symbol -> 'a -> 'a) -> ('b, 'c) expr -> 'a -> 'a
 
 val symbols : ('a, 'b) expr -> Symbol.Set.t
