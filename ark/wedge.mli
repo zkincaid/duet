@@ -54,7 +54,11 @@ val symbolic_bounds : 'a t -> symbol -> ('a term) list * ('a term) list
 val ensure_nonlinear_symbols : 'a context -> unit
 
 (** Compute a wedge that over-approximates a given formula *)
-val abstract : ?exists:(symbol -> bool) -> 'a context -> 'a formula -> 'a t
+val abstract : ?exists:(symbol -> bool) ->
+  ?subterm:(symbol -> bool) ->
+  'a context ->
+  'a formula ->
+  'a t
 
 (** Check if a formula is satisfiable by computing an over-approximating wedge
     and checking whether it is feasible.  This procedure improves on the naive

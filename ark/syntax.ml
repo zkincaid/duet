@@ -333,6 +333,15 @@ let substitute_const ctx subst sexpr =
   in
   go 0 sexpr
 
+let substitute_map ctx map sexpr =
+  let subst sym =
+    if Symbol.Map.mem sym map then
+      Symbol.Map.find sym map
+    else
+      mk_const ctx sym
+  in
+  substitute_const ctx subst sexpr
+
 let fold_constants f sexpr acc =
   let rec go acc sexpr =
     let Node (label, children, _) = sexpr.obj in
