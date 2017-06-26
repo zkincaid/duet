@@ -1644,7 +1644,7 @@ let is_sat ark phi =
   in
   go ()
 
-let abstract ?exists:(p=fun x -> true) ark phi =
+let abstract ?exists:(p=fun x -> true) ?(subterm=fun x -> true) ark phi =
   logf "Abstracting formula@\n%a"
     (Formula.pp ark) phi;
   let solver = Smt.mk_solver ark in
@@ -1716,7 +1716,7 @@ let abstract ?exists:(p=fun x -> true) ark phi =
                       (uninterpret_implicant implicant')];
         let new_wedge =
           of_atoms ark ~integrity implicant'
-          |> exists ~integrity p
+          |> exists ~integrity ~subterm p
         in
         go (join ~integrity wedge new_wedge)
   in

@@ -175,6 +175,25 @@ let reflexive_closure ark tr_symbols formula =
   in
   mk_or ark [identity; formula]
 
+let pre_symbols tr_symbols =
+  List.fold_left (fun set (s,_) ->
+      Symbol.Set.add s set)
+    Symbol.Set.empty
+    tr_symbols
+
+let post_symbols tr_symbols =
+  List.fold_left (fun set (_,s') ->
+      Symbol.Set.add s' set)
+    Symbol.Set.empty
+    tr_symbols
+
+(* Map from pre-state vars to their post-state counterparts *)
+let post_map tr_symbols =
+  List.fold_left
+    (fun map (sym, sym') -> Symbol.Map.add sym sym' map)
+    Symbol.Map.empty
+    tr_symbols
+
 module WedgeVector = struct
   (*    x'    <=       (3 * x) +  y + 1
         --    --        -         -----
@@ -355,18 +374,8 @@ module WedgeVector = struct
     BatList.filter_map recur (Wedge.to_atoms diff_wedge)
 
   let abstract_iter_wedge ark wedge tr_symbols =
-    let pre_symbols =
-      List.fold_left (fun set (s,_) ->
-          Symbol.Set.add s set)
-        Symbol.Set.empty
-        tr_symbols
-    in
-    let post_symbols =
-      List.fold_left (fun set (_,s') ->
-          Symbol.Set.add s' set)
-        Symbol.Set.empty
-        tr_symbols
-    in
+    let pre_symbols = pre_symbols tr_symbols in
+    let post_symbols = post_symbols tr_symbols in
     let is_symbolic_constant x =
       not (Symbol.Set.mem x pre_symbols || Symbol.Set.mem x post_symbols)
     in
@@ -841,12 +850,7 @@ module WedgeMatrix = struct
 
   let pp formatter iter =
     let ark = iter.ark in
-    let post_map =
-      List.fold_left
-        (fun map (sym, sym') -> Symbol.Map.add sym sym' map)
-        Symbol.Map.empty
-        iter.symbols
-    in
+    let post_map = post_map iter.symbols in
     let postify =
       let subst sym =
         if Symbol.Map.mem sym post_map then
@@ -982,7 +986,7 @@ module WedgeMatrix = struct
 
   (* Given a wedge w, compute A,B,C such that w |= Ax' = BAx + Cy, and such that
      the row space of A is maximal. *)
-  let extract_affine_transformation ark wedge tr_symbols rec_terms =
+  let extract_affine_transformation ark wedge tr_symbols rec_terms rec_ideal =
     let cs = Wedge.coordinate_system wedge in
 
     (* pre_dims is a set of dimensions corresponding to pre-state
@@ -992,15 +996,13 @@ module WedgeMatrix = struct
       List.fold_left (fun (pre_map, pre_dims) (s,s') ->
           let id_of_sym sym =
             try
-              Some (CS.cs_term_id cs (`App (sym, [])))
-            with Not_found -> None
+              CS.cs_term_id cs (`App (sym, []))
+            with Not_found ->
+              assert false
           in
-          match id_of_sym s, id_of_sym s' with
-          | Some pre, Some post -> (IntMap.add post pre pre_map,
-                                    IntSet.add pre pre_dims)
-          | Some pre, None -> (pre_map, IntSet.add pre pre_dims)
-          | None, Some post -> (IntMap.add post post pre_map, pre_dims)
-          | None, None -> (pre_map, pre_dims))
+          let pre = id_of_sym s in
+          let post = id_of_sym s' in
+          (IntMap.add post pre pre_map, IntSet.add pre pre_dims))
         (IntMap.empty, IntSet.empty)
         tr_symbols
     in
@@ -1008,7 +1010,7 @@ module WedgeMatrix = struct
     let cs_dim = CS.dim cs in
     let additive_dim x = x >= cs_dim in
     let rec_term_rewrite =
-      let ideal = ref [] in
+      let ideal = ref rec_ideal in
       let elim_order =
         Monomial.block [not % additive_dim] Monomial.degrevlex
       in
@@ -1024,8 +1026,13 @@ module WedgeMatrix = struct
       Polynomial.Rewrite.mk_rewrite elim_order (!ideal)
     in
     let basis =
-      List.map
-        (Polynomial.Rewrite.reduce rec_term_rewrite)
+      BatList.filter_map
+        (fun x ->
+           let x' = Polynomial.Rewrite.reduce rec_term_rewrite x in
+           if QQMvp.equal x' QQMvp.zero then
+             None
+           else
+             Some x')
         (Wedge.vanishing_ideal wedge)
     in
 
@@ -1071,7 +1078,7 @@ module WedgeMatrix = struct
                     QQMvp.zero)
                 pc
             in
-            if V.is_zero vecA || V.is_zero vecB then
+            if V.is_zero vecA then
               (mA,mB,pvc,i)
             else
               (QQMatrix.add_row i vecA mA,
@@ -1115,24 +1122,43 @@ module WedgeMatrix = struct
   let abstract_iter_wedge ark wedge tr_symbols =
     logf "--------------- Abstracting wedge ---------------@\n%a)" Wedge.pp wedge;
     let cs = Wedge.coordinate_system wedge in
-    let pre_symbols =
-      List.fold_left (fun set (s,_) ->
-          Symbol.Set.add s set)
-        Symbol.Set.empty
-        tr_symbols
-    in
-    let post_symbols =
-      List.fold_left (fun set (_,s') ->
-          Symbol.Set.add s' set)
-        Symbol.Set.empty
-        tr_symbols
-    in
+    let pre_symbols = pre_symbols tr_symbols in
+    let post_symbols = post_symbols tr_symbols in
     let precondition =
       Wedge.exists (not % flip Symbol.Set.mem post_symbols) wedge
     in
     let postcondition =
       Wedge.exists (not % flip Symbol.Set.mem pre_symbols) wedge
     in
+    let (rec_wedge, rec_sym) =
+      let (non_recursive, rec_sym) =
+        List.fold_left (fun (set, rec_sym) (s,s') ->
+            if CS.admits cs (mk_const ark s) && CS.admits cs (mk_const ark s') then
+              (set, (s,s')::rec_sym)
+            else
+              (Symbol.Set.add s (Symbol.Set.add s' set), rec_sym))
+          (Symbol.Set.empty, [])
+          tr_symbols
+      in
+      if Symbol.Set.is_empty non_recursive then
+        (wedge, rec_sym)
+      else
+        (Wedge.exists (not % flip Symbol.Set.mem non_recursive) wedge, rec_sym)
+    in
+    let cs = Wedge.coordinate_system rec_wedge in
+    let post_coord_map =
+      (* map pre-state coordinates to their post-state counterparts *)
+      List.fold_left
+        (fun map (sym, sym') ->
+           try
+             let coord = CS.cs_term_id cs (`App (sym, [])) in
+             let coord' = CS.cs_term_id cs (`App (sym', [])) in
+             IntMap.add coord coord' map
+           with Not_found -> map)
+        IntMap.empty
+        tr_symbols
+    in
+
     let term_of_id = DArray.create () in
 
     (* Detect constant terms *)
@@ -1155,10 +1181,12 @@ module WedgeMatrix = struct
     let nb_constants = DArray.length term_of_id in
 
     (* Detect stratified recurrences *)
-    let rec fix () =
+    let rec fix rec_ideal =
+      let offset = DArray.length term_of_id in
       logf "New stratum (%d recurrence terms)" (DArray.length term_of_id);
+      assert(DArray.length term_of_id < 10);
       let (mA,mB,rec_add) =
-        extract_affine_transformation ark wedge tr_symbols term_of_id
+        extract_affine_transformation ark rec_wedge rec_sym term_of_id rec_ideal
       in
       let size = Array.length rec_add in
       if size = 0 then
@@ -1169,12 +1197,44 @@ module WedgeMatrix = struct
               Array.init size (fun col ->
                   QQMatrix.entry row col mB))
         in
+        let rec_ideal' = ref rec_ideal in
+        let mAB = QQMatrix.mul mA mB in
         for i = 0 to size - 1 do
           DArray.add term_of_id (CS.term_of_vec cs (QQMatrix.row i mA))
         done;
-        { rec_transform; rec_add }::(fix ())
+        for i = 0 to size - 1 do
+          let rec_eq =
+            let lhs =
+              QQMvp.of_vec ~const:CS.const_id (QQMatrix.row i mA)
+              |> QQMvp.substitute (fun coord ->
+                  assert (IntMap.mem coord post_coord_map);
+                  QQMvp.of_dim (IntMap.find coord post_coord_map))
+            in
+            let add =
+              QQMvp.substitute (fun i ->
+                  (CS.polynomial_of_term cs (DArray.get term_of_id i)))
+                rec_add.(i)
+            in
+            let rhs =
+              BatEnum.fold (fun p (coeff, i) ->
+                  if i = CS.const_id then
+                    QQMvp.add (QQMvp.scalar coeff) p
+                  else
+                    QQMvp.add p
+                      (QQMvp.scalar_mul coeff
+                         (CS.polynomial_of_term cs
+                            (DArray.get term_of_id (offset + i)))))
+                QQMvp.zero
+                (V.enum (QQMatrix.row i mB))
+              |> QQMvp.add add
+            in
+            QQMvp.add lhs (QQMvp.negate rhs)
+          in
+          rec_ideal' := rec_eq::(!rec_ideal')
+        done;
+        { rec_transform; rec_add }::(fix (!rec_ideal'))
     in
-    let rec_eq = fix () in
+    let rec_eq = fix [] in
     let result =
     { ark;
       symbols = tr_symbols;
@@ -1197,8 +1257,7 @@ module WedgeMatrix = struct
     in
     let subterm x = not (Symbol.Set.mem x post_symbols) in
     let wedge =
-      Wedge.abstract ~exists ark phi
-      |> Wedge.exists ~subterm (fun _ -> true)
+      Wedge.abstract ~exists ~subterm ark phi
     in
     abstract_iter_wedge ark wedge symbols
 
@@ -1214,10 +1273,7 @@ module WedgeMatrix = struct
     let loop_counter = mk_const iter.ark loop_counter_sym in
 
     let post_map = (* map pre-state vars to post-state vars *)
-      List.fold_left (fun map (pre, post) ->
-          Symbol.Map.add pre post map)
-        Symbol.Map.empty
-        iter.symbols
+      post_map iter.symbols
     in
 
     let postify =
