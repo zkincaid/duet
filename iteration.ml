@@ -248,14 +248,9 @@ module WedgeVector = struct
   let show x = Putil.mk_show pp x
 
   let exponential_rec ark wedge non_induction post_symbols base =
-    let post_map =
-      (* map from non-induction pre-state vars to their post-state
-         counterparts *)
-      List.fold_left
-        (fun map (sym, sym') -> Symbol.Map.add sym sym' map)
-        Symbol.Map.empty
-        non_induction
-    in
+    (* map from non-induction pre-state vars to their post-state
+       counterparts *)
+    let post_map = post_map non_induction in
     let postify =
       let subst sym =
         if Symbol.Map.mem sym post_map then
@@ -1119,6 +1114,258 @@ module WedgeMatrix = struct
     logf " B: @[%a@]" QQMatrix.pp mB;
     (mA,mB,pvc)
 
+  let extract_leq ark wedge tr_symbols =
+    let open Apron in
+    let cs = Wedge.coordinate_system wedge in
+    let man = Polka.manager_alloc_loose () in
+    let coeff_of_qq = Coeff.s_of_mpqf in
+    let qq_of_coeff = function
+      | Coeff.Scalar (Scalar.Float k) -> QQ.of_float k
+      | Coeff.Scalar (Scalar.Mpqf k)  -> k
+      | Coeff.Scalar (Scalar.Mpfrf k) -> Mpfrf.to_mpqf k
+      | Coeff.Interval _ -> assert false
+    in
+    let linexpr_of_vec vec =
+      let mk (coeff, id) = (coeff_of_qq coeff, id) in
+      let (const_coeff, rest) = V.pivot CS.const_id vec in
+      Linexpr0.of_list None
+        (BatList.of_enum (BatEnum.map mk (V.enum rest)))
+        (Some (coeff_of_qq const_coeff))
+    in
+    let vec_of_linexpr linexpr =
+      let vec = ref V.zero in
+      linexpr |> Linexpr0.iter (fun coeff dim ->
+          vec := V.add_term (qq_of_coeff coeff) dim (!vec));
+      V.add_term (qq_of_coeff (Linexpr0.get_cst linexpr)) CS.const_id (!vec)
+    in
+
+    let cs_dim = CS.dim cs in
+    let tr_coord =
+      try
+        List.map (fun (s,s') ->
+            (CS.cs_term_id cs (`App (s, [])),
+             CS.cs_term_id cs (`App (s', []))))
+          tr_symbols
+        |> Array.of_list
+      with Not_found -> assert false
+    in
+
+    let rec fix polyhedron =
+      let open Lincons0 in
+      (* Polyhedron is of the form Ax' <= Bx + Cy, or equivalently,
+         [-A B C]*[x' x y] >= 0. constraints is an array consisting of the
+         rows of [-A B C].  *)
+      logf "Polyhedron: %a"
+        (Abstract0.print
+           ((Apak.Putil.mk_show (Term.pp ark)) % CS.term_of_coordinate cs))
+        polyhedron;
+      let constraints = DArray.create () in
+      Abstract0.to_lincons_array man polyhedron
+      |> Array.iter (fun lincons ->
+          let vec = vec_of_linexpr lincons.linexpr0 in
+          DArray.add constraints vec;
+          if lincons.typ = EQ then
+            DArray.add constraints (V.negate vec));
+      let nb_constraints = DArray.length constraints in
+
+      (* vu_cone is the cone { [v u] : u >= 0, v >= 0 uA = vB } *)
+      let vu_cone =
+        let pos_constraints = (* u >= 0, v >= 0 *)
+          Array.init (2 * nb_constraints) (fun i ->
+              Lincons0.make
+                (Linexpr0.of_list None [(coeff_of_qq QQ.one, i)] None)
+                SUPEQ)
+          |> Abstract0.of_lincons_array man 0 (2 * nb_constraints)
+        in
+        Array.init (Array.length tr_coord) (fun i ->
+            let (pre, post) = tr_coord.(i) in
+            let linexpr = Linexpr0.make None in
+            for j = 0 to nb_constraints - 1 do
+              let vec = DArray.get constraints j in
+              Linexpr0.set_coeff linexpr j (coeff_of_qq (V.coeff pre vec));
+              Linexpr0.set_coeff
+                linexpr
+                (j + nb_constraints)
+                (coeff_of_qq (V.coeff post vec));
+            done;
+            Lincons0.make linexpr Lincons0.EQ)
+        |> Abstract0.meet_lincons_array man pos_constraints
+      in
+      (* Project vu_cone onto the v dimensions and compute generators. *)
+      let v_generators =
+        Abstract0.remove_dimensions
+          man
+          vu_cone
+          { Dim.dim =
+              (Array.init nb_constraints (fun i -> nb_constraints + i));
+            Dim.intdim = 0;
+            Dim.realdim = nb_constraints }
+        |> Abstract0.to_generator_array man
+      in
+      (* new_constraints is v_generators * [-A B C]*)
+      let new_constraints =
+        Array.fold_right (fun gen nc ->
+            let open Generator0 in
+            let vec = vec_of_linexpr gen.linexpr0 in
+            let row =
+              BatEnum.fold (fun new_row (coeff, dim) ->
+                  assert (dim < nb_constraints);
+                  V.scalar_mul coeff (DArray.get constraints dim)
+                  |> V.add new_row)
+                V.zero
+                (V.enum vec)
+              |> linexpr_of_vec
+            in
+            assert (QQ.equal QQ.zero (V.coeff CS.const_id vec));
+            if gen.typ = RAY then
+              (Lincons0.make row Lincons0.SUPEQ)::nc
+            else if gen.typ = VERTEX then begin
+              assert (V.equal V.zero vec); (* should be the origin *)
+              nc
+            end else
+              assert false)
+          v_generators
+          []
+        |> Array.of_list
+      in
+      let new_polyhedron =
+        Abstract0.of_lincons_array man 0 (CS.dim cs) new_constraints
+      in
+      if Abstract0.is_eq man polyhedron new_polyhedron then
+        if nb_constraints = 0 then
+          (QQMatrix.zero,
+           Array.make 0 (Array.make 0 QQ.zero),
+           Array.make 0 QQMvp.zero)
+        else
+          let mA =
+            BatEnum.fold (fun mA i ->
+                let row =
+                  BatEnum.fold (fun row j ->
+                      let (pre, post) = tr_coord.(j) in
+                      V.add_term
+                        (QQ.negate (V.coeff post (DArray.get constraints i)))
+                        pre
+                        row)
+                    V.zero
+                    (0 -- (Array.length tr_coord - 1))
+                in
+                QQMatrix.add_row i row mA)
+              QQMatrix.zero
+              (0 -- (nb_constraints - 1))
+          in
+
+          (* Find a non-negative M such that B=M*A *)
+          let m_entries = (* corresponds to one generic row of M *)
+            Array.init nb_constraints (fun i -> mk_symbol ark `TyReal)
+          in
+          (* Each entry of M must be non-negative *)
+          let pos_constraints =
+            List.map (fun sym ->
+                mk_leq ark (mk_real ark QQ.zero) (mk_const ark sym))
+              (Array.to_list m_entries)
+          in
+          let m_times_a =
+            (0 -- (Array.length tr_coord - 1))
+            /@ (fun i ->
+                let (pre, post) = tr_coord.(i) in
+                (0 -- (nb_constraints - 1))
+                /@ (fun j ->
+                    mk_mul ark [mk_const ark m_entries.(j);
+                                mk_real ark (QQMatrix.entry j pre mA)])
+                |> BatList.of_enum
+                |> mk_add ark)
+            |> BatArray.of_enum
+          in
+          (* B[i,j] = M[i,1]*A[1,j] + ... + M[i,n]*A[n,j] *)
+          let mB =
+            Array.init nb_constraints (fun i ->
+                let row_constraints =
+                  (0 -- (Array.length tr_coord - 1))
+                  /@ (fun j ->
+                      let (pre, post) = tr_coord.(j) in
+                      mk_eq ark
+                        m_times_a.(j)
+                        (mk_real ark (V.coeff pre (DArray.get constraints i))))
+                  |> BatList.of_enum
+                in
+                let s = Smt.mk_solver ark in
+                s#add pos_constraints;
+                s#add row_constraints;
+                let model =
+                  (* First try for a simple recurrence, then fall back *)
+                  s#push ();
+                  (0 -- (Array.length m_entries - 1))
+                  /@ (fun j ->
+                      if i = j then
+                        mk_true ark
+                      else
+                        mk_eq ark (mk_const ark m_entries.(j)) (mk_real ark QQ.zero))
+                  |> BatList.of_enum
+                  |> s#add;
+                  match s#get_model () with
+                  | `Sat model -> model
+                  | _ ->
+                    s#pop 1;
+                    match s#get_model () with
+                    | `Sat model -> model
+                    | _ -> assert false
+                in
+                Array.init nb_constraints (fun i ->
+                    model#eval_real (mk_const ark m_entries.(i))))
+          in
+          let pvc =
+            Array.init nb_constraints (fun i ->
+                QQMvp.scalar (V.coeff CS.const_id (DArray.get constraints i)))
+          in
+          (mA,mB,pvc)
+      else
+        fix (Abstract0.widening man polyhedron new_polyhedron)
+    in
+    (* TODO: reduce each halfspace *)
+    let polyhedron =
+      let constraints =
+        BatList.filter_map
+          (function
+            | (`Eq, vec) ->
+              Some (Lincons0.make (linexpr_of_vec vec) Lincons0.EQ)
+            | (`Geq, vec) ->
+              Some (Lincons0.make (linexpr_of_vec vec) Lincons0.SUPEQ))
+          (Wedge.polyhedron wedge)
+        |> Array.of_list
+      in
+      Abstract0.of_lincons_array
+        man
+        0
+        (CS.dim cs)
+        constraints
+    in
+    let tr_coord_set =
+      Array.fold_left
+        (fun set (d,d') -> IntSet.add d (IntSet.add d' set))
+        IntSet.empty
+        tr_coord
+    in
+    let forget =
+      let non_tr_coord =
+        BatEnum.fold (fun non_tr dim ->
+            if IntSet.mem dim tr_coord_set then
+              non_tr
+            else
+              dim::non_tr)
+          []
+          (0 -- (CS.dim cs - 1))
+      in
+      Array.of_list (List.rev non_tr_coord)
+    in
+    let polyhedron =
+      Abstract0.forget_array
+        man
+        polyhedron
+        forget
+        false
+    in
+    fix polyhedron
+
   let abstract_iter_wedge ark wedge tr_symbols =
     logf "--------------- Abstracting wedge ---------------@\n%a)" Wedge.pp wedge;
     let cs = Wedge.coordinate_system wedge in
@@ -1235,6 +1482,14 @@ module WedgeMatrix = struct
         { rec_transform; rec_add }::(fix (!rec_ideal'))
     in
     let rec_eq = fix [] in
+    let rec_leq =
+      let (mA, rec_transform, rec_add) = extract_leq ark rec_wedge rec_sym in
+      let size = Array.length rec_add in
+      for i = 0 to size - 1 do
+        DArray.add term_of_id (CS.term_of_vec cs (QQMatrix.row i mA))
+      done;
+      { rec_transform; rec_add }
+    in
     let result =
     { ark;
       symbols = tr_symbols;
@@ -1243,7 +1498,7 @@ module WedgeMatrix = struct
       nb_constants;
       term_of_id = DArray.to_array term_of_id;
       rec_eq = rec_eq;
-      rec_leq = rec_empty }
+      rec_leq = rec_leq }
     in
     logf "=============== Wedge/Matrix recurrence ===============@\n%a)" pp result;
     result
@@ -1363,58 +1618,70 @@ module WedgeMatrix = struct
       | Binomial (_, _) | Factorial _ | Sin _ | Cos _ | Arctan _ | Pi ->
         assert false
     in
+    let close_matrix_rec recurrence offset =
+      let size = Array.length recurrence.rec_add in
+      let dim_vec = Array.init size (fun i -> string_of_int (offset+i)) in
+      let ocrs_transform =
+        Array.map (Array.map Mpqf.to_mpq) recurrence.rec_transform
+      in
+      let ocrs_add =
+        Array.init size (fun i ->
+            let cf_monomial m =
+              Monomial.enum m
+              /@ (fun (id, pow) -> Pow (cf.(id), Rational (Mpq.of_int pow)))
+              |> BatList.of_enum
+            in
+            QQMvp.enum recurrence.rec_add.(i)
+            /@ (fun (coeff, m) ->
+                Product (Rational (Mpqf.to_mpq coeff)::(cf_monomial m)))
+            |> (fun x -> Sum (BatList.of_enum x)))
+      in
+      let recurrence_closed =
+        let mat_rec =
+          VEquals (Ovec (dim_vec, ss_post),
+                   ocrs_transform,
+                   Ovec (dim_vec, ss_pre),
+                   ocrs_add)
+        in
+        logf "Matrix recurrence:@\n%s" (Mat_helpers.matrix_rec_to_string mat_rec);
+        Log.time "OCRS" Ocrs.solve_mat_recurrence mat_rec
+      in
+      recurrence_closed
+    in
     let rec close offset closed = function
-      | [] -> mk_and iter.ark closed
+      | [] -> (mk_and iter.ark closed, offset)
       | (recurrence::rest) ->
         let size = Array.length recurrence.rec_add in
-        let dim_vec = Array.init size (fun i -> string_of_int (offset+i)) in
-        let ocrs_transform =
-          Array.map (Array.map Mpqf.to_mpq) recurrence.rec_transform
-        in
-        let ocrs_add =
-          Array.init size (fun i ->
-              let cf_monomial m =
-                Monomial.enum m
-                /@ (fun (id, pow) -> Pow (cf.(id), Rational (Mpq.of_int pow)))
-                |> BatList.of_enum
-              in
-              QQMvp.enum recurrence.rec_add.(i)
-              /@ (fun (coeff, m) ->
-                  Product (Rational (Mpqf.to_mpq coeff)::(cf_monomial m)))
-              |> (fun x -> Sum (BatList.of_enum x)))
-        in
-        let recurrence_closed =
-          let mat_rec =
-            VEquals (Ovec (dim_vec, ss_post),
-                     ocrs_transform,
-                     Ovec (dim_vec, ss_pre),
-                     ocrs_add)
-          in
-          logf "Matrix recurrence:@\n%s" (Mat_helpers.matrix_rec_to_string mat_rec);
-          Log.time "OCRS" Ocrs.solve_mat_recurrence mat_rec
-        in
+        let recurrence_closed = close_matrix_rec recurrence offset in
         let to_formula = function
-          | Equals (x, y) -> mk_eq iter.ark (term_of_expr x) (term_of_expr y)
-          | LessEq (x, y) -> mk_leq iter.ark (term_of_expr x) (term_of_expr y)
-          | Less (x, y) -> mk_lt iter.ark (term_of_expr x) (term_of_expr y)
-          | GreaterEq (x, y) -> mk_leq iter.ark (term_of_expr y) (term_of_expr x)
-          | Greater (x, y) -> mk_lt iter.ark (term_of_expr y) (term_of_expr x)
+          | Equals (x, y) -> mk_eq iter.ark (term_of_expr y) (term_of_expr x)
+          | _ -> assert false
         in
-        let recurrence_closed_formula = List.map to_formula recurrence_closed in
         recurrence_closed |> List.iteri (fun i ineq ->
             match ineq with
             | Equals (x, y) | LessEq (x, y) | Less (x, y)
             | GreaterEq (x, y) | Greater (x, y) ->
               cf.(offset + i) <- y);
+        let recurrence_closed_formula = List.map to_formula recurrence_closed in
         close (offset + size) (recurrence_closed_formula@closed) rest
     in
-    let closed = close iter.nb_constants [] iter.rec_eq in
+    let (closed, offset) = close iter.nb_constants [] iter.rec_eq in
+    let closed_leq =
+      let to_formula = function
+        | Equals (x, y) -> mk_leq iter.ark (term_of_expr y) (term_of_expr x)
+        | _ -> assert false
+      in
+      let recurrence_closed = close_matrix_rec iter.rec_leq offset in
+      List.map to_formula recurrence_closed
+      |> mk_and iter.ark
+    in
     mk_and iter.ark [
         Wedge.to_formula iter.precondition;
         mk_leq iter.ark (mk_real iter.ark QQ.one) loop_counter;
         Wedge.to_formula iter.postcondition;
-        closed
-      ]
+        closed;
+        closed_leq
+    ]
 
   let closure iter =
     reflexive_closure iter.ark iter.symbols (closure_plus iter)
