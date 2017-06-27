@@ -240,24 +240,28 @@ let log base x =
         match base.upper, x.lower with
         | Some base, Some lo when QQ.leq QQ.one lo ->
           let rec lo_log curr log =
-            if QQ.lt lo curr then
-              log - 1
+            if log > 32 then
+              None
+            else if QQ.lt lo curr then
+              Some (QQ.of_int (log - 1))
             else
               lo_log (QQ.mul base curr) (log + 1)
           in
-          Some (QQ.of_int (lo_log base 1))
+          lo_log base 1
         | _, _ -> None
       in
       let upper =
         match x.upper with
         | Some hi when QQ.leq QQ.one hi  ->
           let rec hi_log curr log =
-            if QQ.leq hi curr then
-              log
+            if log > 32 then
+              None
+            else if QQ.leq hi curr then
+              Some (QQ.of_int log)
             else
               hi_log (QQ.mul base_lo curr) (log + 1)
           in
-          Some (QQ.of_int (hi_log QQ.one 0))
+          (hi_log QQ.one 0)
         | _ -> None
       in
       { lower; upper }
