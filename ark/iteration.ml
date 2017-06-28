@@ -1139,7 +1139,6 @@ module WedgeMatrix = struct
       V.add_term (qq_of_coeff (Linexpr0.get_cst linexpr)) CS.const_id (!vec)
     in
 
-    let cs_dim = CS.dim cs in
     let tr_coord =
       try
         List.map (fun (s,s') ->
@@ -1445,7 +1444,6 @@ module WedgeMatrix = struct
                   QQMatrix.entry row col mB))
         in
         let rec_ideal' = ref rec_ideal in
-        let mAB = QQMatrix.mul mA mB in
         for i = 0 to size - 1 do
           DArray.add term_of_id (CS.term_of_vec cs (QQMatrix.row i mA))
         done;
@@ -1644,7 +1642,7 @@ module WedgeMatrix = struct
                    ocrs_add)
         in
         logf "Matrix recurrence:@\n%s" (Mat_helpers.matrix_rec_to_string mat_rec);
-        Log.time "OCRS" Ocrs.solve_mat_recurrence mat_rec
+        Log.time "OCRS" (Ocrs.solve_mat_recurrence mat_rec) false
       in
       recurrence_closed
     in
