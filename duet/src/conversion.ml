@@ -248,9 +248,9 @@ let create_ABExpr (_,blk_type_expr) =
   let blk = int_of_string (List.hd blk_type_expr) in
   let type_expr = List.tl blk_type_expr in
   let assume = (String.compare "Assume" (List.hd type_expr)) == 0 in
-  let bexpr = List.hd (List.tl type_expr) in\
+  let bexpr = List.hd (List.tl type_expr) in
   let tmp = Assumeassertparser.parse_expression bexpr in
-  let c_string = Assumeassertparser.toString tmp in\
+  let c_string = Assumeassertparser.toString tmp in
   let convertedbexpr = convert_bexpr tmp assume in
   (blk,convertedbexpr)
 
