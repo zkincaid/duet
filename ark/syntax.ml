@@ -1380,6 +1380,10 @@ module MakeSimplifyingContext () = struct
           | _, _ -> hc Div [num; den]
         end
 
+      | Ite, [cond; bthen; _] when is_true cond -> bthen
+      | Ite, [cond; _; belse] when is_false cond -> belse
+      | Ite, [_; x; y] when x.tag = y.tag -> x
+
       | _, _ -> hc label children
     in
     { hashcons; symbols; named_symbols; mk }

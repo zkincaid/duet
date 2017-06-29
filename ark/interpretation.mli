@@ -47,6 +47,11 @@ val select_implicant : 'a interpretation ->
   'a formula ->
   ('a formula list) option
 
+val select_ite : 'a interpretation ->
+  ?env:[`Real of QQ.t | `Bool of bool] Env.t ->
+  ('a,'b) expr ->
+  (('a,'b) expr) * ('a formula list)
+
 val destruct_atom : 'a context ->
   'a formula ->
   [ `Comparison of ([`Lt | `Leq | `Eq] * 'a term * 'a term)
