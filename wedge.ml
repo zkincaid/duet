@@ -1800,8 +1800,16 @@ let symbolic_bounds_formula ?exists:(p=fun x -> true) ark phi symbol =
       | None -> assert false
       | Some implicant ->
         let (wedge_lower, wedge_upper) =
+          let implicant =
+            List.map replace_defs implicant
+            |> List.map (fun atom ->
+                let (atom', conditions) = Interpretation.select_ite interp atom in
+                atom'::conditions)
+            |> BatList.concat
+          in
           let wedge =
-            of_atoms ark ~integrity (List.map replace_defs implicant)
+            implicant
+            |> of_atoms ark ~integrity
             |> exists ~integrity ~subterm p
           in
           symbolic_bounds wedge symbol

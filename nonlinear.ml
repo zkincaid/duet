@@ -151,8 +151,8 @@ let ensure_symbols ark =
     [("mul", `TyFun ([`TyReal; `TyReal], `TyReal));
      ("inv", `TyFun ([`TyReal], `TyReal));
      ("mod", `TyFun ([`TyReal; `TyReal], `TyReal));
-     ("imul", `TyFun ([`TyInt; `TyInt], `TyInt));
-     ("imod", `TyFun ([`TyInt; `TyInt], `TyInt))]
+     ("imul", `TyFun ([`TyReal; `TyReal], `TyInt));
+     ("imod", `TyFun ([`TyReal; `TyReal], `TyInt))]
 
 let uninterpret_rewriter ark =
   ensure_symbols ark;
