@@ -747,7 +747,7 @@ module WedgeVectorOCRS = struct
         assert (arg = "k");
         let sym =
           if is_registered_name iter.ark func then
-            register_named_symbol iter.ark func (`TyFun ([`TyInt], `TyReal));
+            register_named_symbol iter.ark func (`TyFun ([`TyReal], `TyReal));
           get_named_symbol iter.ark func
         in
         mk_app iter.ark sym [loop_counter]
@@ -1430,7 +1430,6 @@ module WedgeMatrix = struct
     let rec fix rec_ideal =
       let offset = DArray.length term_of_id in
       logf "New stratum (%d recurrence terms)" (DArray.length term_of_id);
-      assert(DArray.length term_of_id < 10);
       let (mA,mB,rec_add) =
         extract_affine_transformation ark rec_wedge rec_sym term_of_id rec_ideal
       in
@@ -1609,7 +1608,7 @@ module WedgeMatrix = struct
         assert (arg = "k");
         let sym =
           if not (is_registered_name iter.ark func) then
-            register_named_symbol iter.ark func (`TyFun ([`TyInt], `TyReal));
+            register_named_symbol iter.ark func (`TyFun ([`TyReal], `TyReal));
           get_named_symbol iter.ark func
         in
         mk_app iter.ark sym [loop_counter]
