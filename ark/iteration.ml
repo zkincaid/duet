@@ -1668,9 +1668,12 @@ module WedgeMatrix = struct
         | Equals (x, y) -> mk_leq iter.ark (term_of_expr y) (term_of_expr x)
         | _ -> assert false
       in
-      let recurrence_closed = close_matrix_rec iter.rec_leq offset in
-      List.map to_formula recurrence_closed
-      |> mk_and iter.ark
+      if Array.length iter.rec_leq.rec_add > 0 then
+        let recurrence_closed = close_matrix_rec iter.rec_leq offset in
+        List.map to_formula recurrence_closed
+        |> mk_and iter.ark
+      else
+        mk_true iter.ark
     in
     mk_and iter.ark [
         Wedge.to_formula iter.precondition;
