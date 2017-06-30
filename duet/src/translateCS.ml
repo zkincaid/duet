@@ -1296,7 +1296,8 @@ let blk_preds = ref []
         let attr = ((Swig.invoke ps) "get_func_attrs" (Swig.C_void)) in
         (* Check to see if the function is the main function *)
         let main_attr = Cs._func_attrs_MAIN(Swig.C_void) in
-        let comp = Swig.get_bool ((Swig.invoke attr) "==" (main_attr)) in
+        let atr_str = Swig.get_string ((Swig.invoke attr) "name" (Swig.C_void)) in
+        let comp = ((String.compare atr_str "main") = 0) in
         if proc_name <> "assert" && proc_name <> "#System_Initialization" then begin
     (* Try to get some IR elements *)
     (try
@@ -1343,7 +1344,7 @@ let blk_preds = ref []
         end
       done
     with 
-    | _ -> Printf.printf "    ***Failure getting procedures\n") ;;
+    | e -> let msg = Printexc.to_string e in Printf.printf "%s\n" msg) ;;
 
   (*Main driver code*)
   let convert_cs () =
