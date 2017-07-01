@@ -1665,7 +1665,7 @@ module WedgeMatrix = struct
     let (closed, offset) = close iter.nb_constants [] iter.rec_eq in
     let closed_leq =
       let to_formula = function
-        | Equals (x, y) -> mk_leq iter.ark (term_of_expr y) (term_of_expr x)
+        | Equals (x, y) -> mk_leq iter.ark (term_of_expr x) (term_of_expr y)
         | _ -> assert false
       in
       if Array.length iter.rec_leq.rec_add > 0 then
