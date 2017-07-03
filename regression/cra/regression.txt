@@ -25,13 +25,13 @@ divide: duet.native -cra @code/divide.c
 factor: duet.native -cra @code/factor.c
 mult: duet.native -cra @code/mult.c
 mult-rec: duet.native -cra @code/mult-rec.c
-exponential: duet.native -use-ocrs -cra @code/exponential.c
+exponential: duet.native -cra-matrix -cra @code/exponential.c
 gauss_sum: duet.native -cra @code/gauss_sum.c
-degree3_monomial: duet.native -cra-split-loops -cra @code/degree3_monomial.c
-degree3_binomial: duet.native -cra-split-loops -cra @code/degree3_binomial.c
-degree4_monomial: duet.native -cra-split-loops -cra @code/degree4_monomial.c
-degree4_binomial: duet.native -cra-split-loops -cra @code/degree4_binomial.c
-power_log: duet.native -use-ocrs -cra-forward-inv -cra @code/power_log.c
-log: duet.native -cra-split-loops -use-ocrs -rba @code/log.c
-binary_search: duet.native -use-ocrs -rba @code/binary_search.c
+degree3_monomial: duet.native -cra-split-loops -cra-matrix -cra @code/degree3_monomial.c
+degree3_binomial: duet.native -cra-split-loops -cra-matrix -cra @code/degree3_binomial.c
+degree4_monomial: duet.native -cra-split-loops -cra-matrix -cra @code/degree4_monomial.c
+degree4_binomial: duet.native -cra-split-loops -cra-matrix -cra @code/degree4_binomial.c
+power_log: duet.native -cra-matrix -cra-forward-inv -cra @code/power_log.c
+log: duet.native -cra-split-loops -cra-matrix -rba @code/log.c
+binary_search: duet.native -cra-matrix -rba @code/binary_search.c
 fib_secure: duet.native -cra-matrix -cra @code/fib_secure.c
