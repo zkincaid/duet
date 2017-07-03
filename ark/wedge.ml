@@ -1151,9 +1151,6 @@ let exists
   in
   List.iter (fun (_,_,thm) -> integrity thm) safe_coordinates;
 
-  (* Number of dimensions before adding new (safe) terms *)
-  let wedge_dim = CS.dim cs in
-
   (* Coordinates that must be projected out *)
   let forget =
     List.fold_left (fun set (i, _, _) ->
@@ -1474,6 +1471,11 @@ let widen wedge wedge' =
     cs = widen_cs;
     env = widen_env;
     abstract = Abstract0.widening (get_manager ()) abstract abstract' }
+
+let widen wedge wedge' =
+  if is_top wedge' then top wedge.ark
+  else if is_bottom wedge' then wedge
+  else widen wedge wedge'
 
 let farkas_equalities wedge =
   let open Lincons0 in
