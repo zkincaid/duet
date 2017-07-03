@@ -77,3 +77,10 @@ val term_of_polynomial : 'a t -> Polynomial.Mvp.t -> 'a term
 
 (** Does a coordinate system admit the given term? *)
 val admits : 'a t -> 'a term -> bool
+
+val project_ideal : 'a t ->
+  Polynomial.Mvp.t list ->
+  ?subterm:(symbol -> bool) ->
+  (symbol -> bool) ->
+  (int * 'a term * 'a formula) list
+

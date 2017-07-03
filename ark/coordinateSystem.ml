@@ -5,6 +5,7 @@ open BatPervasives
 module V = Linear.QQVector
 module Monomial = Polynomial.Monomial
 module P = Polynomial.Mvp
+module Rewrite = Polynomial.Rewrite
 
 include Log.Make(struct let name = "ark.coordinateSystem" end)
 
@@ -279,3 +280,105 @@ let term_of_polynomial cs = P.term_of cs.ark (term_of_coordinate cs)
 
 let admit_term cs term = ignore (vec_of_term ~admit:true cs term)
 let admit_cs_term cs term = ignore (cs_term_id ~admit:true cs term)
+
+exception Unsafe
+let project_ideal cs ideal ?(subterm=fun x -> true) keep =
+  let dimension = dim cs in
+  let ark = cs.ark in
+  let subterm x = subterm x && keep x in
+  let safe_term = Array.make dimension None in
+  let integrity = Array.make dimension (mk_true ark) in
+  for i = 0 to dimension - 1 do
+    let term = term_of_coordinate cs i in
+    if Symbol.Set.for_all subterm (symbols term) then
+      safe_term.(i) <- Some term
+  done;
+  let is_unsafe k = safe_term.(k) = None in
+  let order =
+    Monomial.block [is_unsafe] Monomial.degrevlex
+  in
+  let safe_term_of_coordinate k =
+    match safe_term.(k) with
+    | None -> raise Unsafe
+    | Some t -> t
+  in
+  let continue = ref true in
+  while !continue do
+    continue := false;
+    let rewrite =
+      Rewrite.mk_rewrite order ideal
+      |> Rewrite.grobner_basis
+    in
+    let safe_term_of_polynomial p =
+      let (p, provenance) = Rewrite.preduce rewrite p in
+      let term = P.term_of ark safe_term_of_coordinate p in
+      let safe_term_constraints =
+        P.dimensions p
+        /@ (fun i ->
+            let term = term_of_coordinate cs i in
+            let term' = safe_term_of_coordinate i in
+            mk_eq ark term term')
+        |> BatList.of_enum
+      in
+      let provenance_constraints =
+        List.map (fun q ->
+            mk_eq ark (term_of_polynomial cs q) (mk_real ark QQ.zero))
+          provenance
+      in
+      (term, mk_and ark (provenance_constraints@safe_term_constraints))
+    in
+    let safe_term_of_vec vec =
+      safe_term_of_polynomial (polynomial_of_vec cs vec)
+    in
+    for i = 0 to dimension - 1 do
+      if safe_term.(i) = None then begin
+        try
+          let (safe, hypothesis) =
+            match destruct_coordinate cs i with
+            | `Inv x ->
+              let (x', integrity) = safe_term_of_vec x in
+              (mk_div ark (mk_real ark QQ.one) x', integrity)
+            | `Mul (x, y) ->
+              let (x', xintegrity) = safe_term_of_vec x in
+              let (y', yintegrity) = safe_term_of_vec y in
+              (mk_mul ark [x'; y'], mk_and ark [xintegrity; yintegrity])
+              (* safe_term_of_polynomial (polynomial_of_coordinate cs i) *)
+            | `Mod (x, y) ->
+              let (x', xintegrity) = safe_term_of_vec x in
+              let (y', yintegrity) = safe_term_of_vec y in
+              (mk_mod ark x' y', mk_and ark [xintegrity; yintegrity])
+            | `Floor x ->
+              let (x', integrity) = safe_term_of_vec x in
+              (mk_floor ark x', integrity)
+            | `App (_, []) -> raise Unsafe
+            | `App (func, args) when keep func ->
+              let safe = List.map safe_term_of_vec args in
+              let args' = List.map fst safe in
+              let integrity = List.map snd safe in
+              (mk_app ark func args', mk_and ark integrity)
+            | `App (_, _) -> raise Unsafe
+          in
+          let conclusion = mk_eq ark safe (term_of_coordinate cs i) in
+          logf ~level:`trace "Safe: %a -> %a" (Term.pp ark) (term_of_coordinate cs i)
+            (Term.pp ark) safe;
+          safe_term.(i) <- Some safe;
+          integrity.(i) <- mk_if ark hypothesis conclusion;
+          continue := true
+        with Unsafe -> ()
+      end
+    done
+  done;
+  for i = 0 to dimension - 1 do
+    match destruct_coordinate cs i with
+    | `App (sym, []) ->
+      if keep sym then
+        safe_term.(i) <- Some (mk_const ark sym)
+    | _ -> ()
+  done;
+  BatEnum.fold (fun safe i ->
+      let id = dimension - i in
+      match safe_term.(id) with
+      | Some t -> (id, t, integrity.(id))::safe
+      | None -> safe)
+    []
+    (1 -- dimension)

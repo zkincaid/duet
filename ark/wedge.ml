@@ -352,6 +352,63 @@ let polynomial_cone wedge =
       | _ -> None)
   |> BatList.of_enum
 
+let vanishing_ideal wedge =
+  let open Lincons0 in
+  let ideal = ref [] in
+  let add p = ideal := p::(!ideal) in
+  Abstract0.to_lincons_array (get_manager ()) wedge.abstract
+  |> Array.iter (fun lcons ->
+      match lcons.typ with
+      | EQ ->
+        let vec = vec_of_linexpr wedge.env lcons.linexpr0 in
+        add (CS.polynomial_of_vec wedge.cs vec)
+      | _ -> ());
+  for id = 0 to CS.dim wedge.cs - 1 do
+    match CS.destruct_coordinate wedge.cs id with
+    | `Inv x ->
+      let interval = bound_vec wedge x in
+      if not (Interval.elem QQ.zero interval) then
+        add (P.sub (P.mul (poly_of_vec x) (P.of_dim id)) (P.scalar QQ.one))
+    | _ -> ()
+  done;
+  !ideal
+
+let coordinate_ideal ?integrity:(integrity=(fun _ -> ())) wedge =
+  let ark = wedge.ark in
+  let cs = wedge.cs in
+  let zero = mk_real ark QQ.zero in
+  let polyhedron_ideal =
+    List.map poly_of_vec (affine_hull wedge)
+  in
+  let coordinate_ideal =
+    BatEnum.filter_map (fun id ->
+        match CS.destruct_coordinate wedge.cs id with
+        | `Mul (x, y) ->
+          let p =
+            P.sub
+              (P.of_dim id)
+              (P.mul (poly_of_vec x) (poly_of_vec y))
+          in
+          integrity (mk_eq ark (CS.term_of_polynomial cs p) zero);
+          Some p
+        | `Inv x ->
+          let interval = bound_vec wedge x in
+          if Interval.elem QQ.zero interval then
+            None
+          else begin
+            let p =
+              P.sub (P.mul (poly_of_vec x) (P.of_dim id)) (P.scalar QQ.one)
+            in
+            integrity (mk_or ark [mk_eq ark (CS.term_of_vec cs x) zero;
+                                  mk_eq ark (CS.term_of_polynomial cs p) zero]);
+            Some p
+          end
+        | _ -> None)
+      (0 -- (CS.dim cs - 1))
+    |> BatList.of_enum
+  in
+  polyhedron_ideal@coordinate_ideal
+
 let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
   ensure_nonlinear_symbols wedge.ark;
   assert (env_consistent wedge);
@@ -375,42 +432,11 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
 
   logf "Before strengthen: %a" pp wedge;
 
-  let wedge_affine_hull = affine_hull wedge in
   (* Rewrite maintains a Grobner basis for the coordinate ideal + the ideal of
      polynomials vanishing on the underlying polyhedron of the wedge *)
   let rewrite =
-    let polyhedron_ideal =
-      List.map poly_of_vec wedge_affine_hull
-    in
-    let coordinate_ideal =
-      BatEnum.filter_map (fun id ->
-          match CS.destruct_coordinate wedge.cs id with
-          | `Mul (x, y) ->
-            let p =
-              P.sub
-                (P.of_dim id)
-                (P.mul (poly_of_vec x) (poly_of_vec y))
-            in
-            integrity (mk_eq ark (CS.term_of_polynomial cs p) zero);
-            Some p
-          | `Inv x ->
-            let interval = bound_vec wedge x in
-            if Interval.elem QQ.zero interval then
-              None
-            else begin
-              let p =
-                P.sub (P.mul (poly_of_vec x) (P.of_dim id)) (P.scalar QQ.one)
-              in
-              integrity (mk_or ark [mk_eq ark (CS.term_of_vec cs x) zero;
-                                    mk_eq ark (CS.term_of_polynomial cs p) zero]);
-              Some p
-            end
-          | _ -> None)
-        (0 -- (CS.dim wedge.cs - 1))
-      |> BatList.of_enum
-    in
-    ref (polyhedron_ideal@coordinate_ideal
-         |> Polynomial.Rewrite.mk_rewrite Monomial.degrevlex
+    let ideal = coordinate_ideal ~integrity wedge in
+    ref (Polynomial.Rewrite.mk_rewrite Monomial.degrevlex ideal
          |> Polynomial.Rewrite.grobner_basis)
   in
   let pp_dim formatter i =
@@ -1112,63 +1138,28 @@ let exists
     ?subterm:(subterm=(fun _ -> true))
     p
     wedge =
-
   let ark = wedge.ark in
   let cs = wedge.cs in
+  ensure_nonlinear_symbols ark;
+  let log = get_named_symbol ark "log" in
+  let pow = get_named_symbol ark "pow" in
 
-  (* Orient equalities as rewrite rules to eliminate variables that should be
-     projected out of the formula *)
-  let rewrite_map =
-    let keep id =
-      id = CS.const_id || match CS.destruct_coordinate cs id with
-      | `App (symbol, []) -> p symbol && subterm symbol
-      | _ -> false (* to do: should allow terms containing only non-projected
-                      symbols that are allowed as subterms *)
-    in
-    List.fold_left
-      (fun map (id, rhs) ->
-         match CS.destruct_coordinate cs id with
-         | `App (symbol, []) ->
-           let rhs_term = CS.term_of_vec cs rhs in
-           logf ~level:`trace "Found rewrite: %a --> %a"
-             (pp_symbol ark) symbol
-             (Term.pp ark) rhs_term;
-           Symbol.Map.add symbol rhs_term map
-         | _ -> map)
-      Symbol.Map.empty
-      (Linear.orient keep (affine_hull wedge))
+  let keep x = p x || x = log || x = pow in
+  let subterm x = keep x && subterm x in
+  let safe_coordinates =
+    CS.project_ideal cs (coordinate_ideal ~integrity wedge) ~subterm keep
   in
-  let rewrite =
-    substitute_const
-      ark
-      (fun symbol ->
-         try Symbol.Map.find symbol rewrite_map
-         with Not_found -> mk_const ark symbol)
-  in
-  let safe_symbol x =
-    match typ_symbol ark x with
-    | `TyReal | `TyInt | `TyBool -> p x && subterm x
-    | `TyFun (_, _) -> true (* don't project function symbols -- particularly
-                               not log/pow *)
-  in
+  List.iter (fun (_,_,thm) -> integrity thm) safe_coordinates;
 
-  let symbol_of id =
-    match CS.destruct_coordinate cs id with
-    | `App (symbol, []) -> Some symbol
-    | _ -> None
-  in
+  (* Number of dimensions before adding new (safe) terms *)
+  let wedge_dim = CS.dim cs in
 
   (* Coordinates that must be projected out *)
   let forget =
-    (0 -- (CS.dim cs - 1)) |> BatEnum.filter (fun id ->
-        assert(id >= 0);
-        match symbol_of id with
-        | Some symbol -> not (p symbol)
-        | None ->
-          let term = CS.term_of_coordinate cs id in
-          let term_rewrite = rewrite term in
-          not (Symbol.Set.for_all safe_symbol (symbols term_rewrite)))
-    |> IntSet.of_enum
+    List.fold_left (fun set (i, _, _) ->
+        IntSet.remove i set)
+      (IntSet.of_enum (0 -- (CS.dim cs - 1)))
+      safe_coordinates
   in
 
   let safe_vector vec = (* to do: rewrite first *)
@@ -1177,18 +1168,101 @@ let exists
   in
 
   (***************************************************************************
+   * Build environment of the projection and a translation into the projected
+   * environment.
+   ***************************************************************************)
+  let new_cs = CS.mk_empty ark in
+  let substitution =
+    safe_coordinates |> List.map (fun (id,term,_) ->
+        let dim = dim_of_id wedge.cs wedge.env id in
+        let rewrite_vec = CS.vec_of_term ~admit:true new_cs term in
+        (dim, rewrite_vec))
+  in
+  let new_env = mk_env new_cs in
+  let abstract = forget_ids wedge wedge.abstract (IntSet.elements forget) in
+
+  (* Ensure abstract has enough dimensions to be able to interpret the
+     substitution.  The substituion is interpreted within an implicit
+     ("virtual") environment. *)
+  let virtual_int_dim =
+    max (CS.int_dim cs) (CS.int_dim new_cs)
+  in
+  let virtual_dim_of_id id =
+    let open Env in
+    match CS.type_of_id new_cs id with
+    | `TyInt -> ArkUtil.search id new_env.int_dim
+    | `TyReal -> virtual_int_dim + (ArkUtil.search id new_env.real_dim)
+  in
+  let virtual_linexpr_of_vec vec =
+    let mk (coeff, id) =
+      (coeff_of_qq coeff, virtual_dim_of_id id)
+    in
+    let (const_coeff, rest) = V.pivot CS.const_id vec in
+    Linexpr0.of_list None
+      (BatList.of_enum (BatEnum.map mk (V.enum rest)))
+      (Some (coeff_of_qq const_coeff))
+  in
+
+  let abstract =
+    let int_dims = A.length wedge.env.int_dim in
+    let real_dims = A.length wedge.env.real_dim in
+    let added_int = max 0 ((A.length new_env.int_dim) - int_dims) in
+    let added_real = max 0 ((A.length new_env.real_dim) - real_dims) in
+    let added =
+      BatEnum.append
+        ((0 -- (added_int - 1)) /@ (fun _ -> int_dims))
+        ((0 -- (added_real - 1)) /@ (fun _ -> int_dims + real_dims))
+      |> BatArray.of_enum
+    in
+    Abstract0.add_dimensions
+      (get_manager ())
+      abstract
+      { Dim.dim = added;
+        Dim.intdim = added_int;
+        Dim.realdim = added_real }
+      false
+  in
+
+  logf ~level:`trace "Env (%d): %a"
+    (List.length substitution)
+    CS.pp new_cs;
+  substitution |> List.iter (fun (dim, replacement) ->
+      logf ~level:`trace "Replace %a => %a"
+        (Term.pp ark) (CS.term_of_coordinate wedge.cs (id_of_dim wedge.env dim))
+        (CS.pp_vector new_cs) replacement);
+
+  let abstract =
+    Abstract0.substitute_linexpr_array
+      (get_manager ())
+      abstract
+      (BatArray.of_list (List.map fst substitution))
+      (BatArray.of_list (List.map (virtual_linexpr_of_vec % snd) substitution))
+      None
+  in
+
+  (* Remove extra dimensions *)
+  let abstract =
+    apron_set_dimensions
+      (A.length new_env.int_dim)
+      (A.length new_env.real_dim)
+      abstract
+  in
+  let result =
+    { ark = ark;
+      cs = new_cs;
+      env = new_env;
+      abstract = abstract }
+  in
+
+  (***************************************************************************
    * Find new non-linear terms to improve the projection
    ***************************************************************************)
-  ensure_nonlinear_symbols ark;
-  let log = get_named_symbol ark "log" in
-  let pow = get_named_symbol ark "pow" in
-
   let add_bound precondition bound =
     logf ~level:`trace "Integrity: %a => %a"
       (Formula.pp ark) precondition
       (Formula.pp ark) bound;
     integrity (mk_if ark precondition bound);
-    meet_atoms wedge [bound]
+    meet_atoms result [bound]
   in
   (* find a polynomial p such that p*interp(i) = interp(j).  The coordinate j
      is assumed to be non-multiplicative. *)
@@ -1256,6 +1330,7 @@ let exists
             let t_ivl = bound_vec wedge t in
             let p_term = CS.term_of_polynomial cs p in
             let t_term = CS.term_of_vec cs t in
+
             (* integrity constraint needed to prove bounds for p *)
             let p_ivl_integrity =
               let (v,q) = P.split_linear p in
@@ -1323,7 +1398,7 @@ let exists
               integrity p_ivl_integrity;
               add_bound hypothesis conclusion);
 
-     | `App (symbol, [base; x]) when symbol = log ->
+      | `App (symbol, [base; x]) when symbol = log ->
         (* If 1 < base then
              lo <= x <= hi ==> log(base,lo) <= log(base, x) <= log(base,hi) *)
         begin
@@ -1347,121 +1422,6 @@ let exists
         end
       | _ -> ());
 
-  (***************************************************************************
-   * Build environment of the projection and a translation into the projected
-   * environment.
-   ***************************************************************************)
-  let substitution = ref [] in
-  let new_cs = CS.mk_empty ark in
-  for id = 0 to CS.dim cs - 1 do
-    let dim = dim_of_id wedge.cs wedge.env id in
-    match symbol_of id with
-    | Some symbol ->
-      begin
-        if p symbol then
-          let rewrite_vec =
-            CS.vec_of_term ~admit:true new_cs (mk_const ark symbol)
-          in
-          substitution := (dim, rewrite_vec)::(!substitution)
-      end
-    | None ->
-      let term = CS.term_of_coordinate cs id in
-      let term_rewrite = rewrite term in
-      if Symbol.Set.for_all safe_symbol (symbols term_rewrite) then
-
-        (* Add integrity constraint for term = term_rewrite *)
-        let precondition =
-          Symbol.Set.enum (symbols term)
-          |> BatEnum.filter_map (fun x ->
-              if Symbol.Map.mem x rewrite_map then
-                Some (mk_eq ark (mk_const ark x) (Symbol.Map.find x rewrite_map))
-              else
-                None)
-          |> BatList.of_enum
-          |> mk_and ark
-        in
-        integrity (mk_or ark [mk_not ark precondition;
-                              mk_eq ark term term_rewrite]);
-
-        let rewrite_vec = CS.vec_of_term ~admit:true new_cs term_rewrite in
-        substitution := (dim, rewrite_vec)::(!substitution)
-  done;
-  let new_env = mk_env new_cs in
-
-  let abstract = forget_ids wedge wedge.abstract (IntSet.elements forget) in
-
-  (* Ensure abstract has enough dimensions to be able to interpret the
-     substitution.  The substituion is interpreted within an implicit
-     ("virtual") environment. *)
-  let virtual_int_dim =
-    max (CS.int_dim cs) (CS.int_dim new_cs)
-  in
-  let virtual_dim_of_id id =
-    let open Env in
-    match CS.type_of_id new_cs id with
-    | `TyInt -> ArkUtil.search id new_env.int_dim
-    | `TyReal -> virtual_int_dim + (ArkUtil.search id new_env.real_dim)
-  in
-  let virtual_linexpr_of_vec vec =
-    let mk (coeff, id) =
-      (coeff_of_qq coeff, virtual_dim_of_id id)
-    in
-    let (const_coeff, rest) = V.pivot CS.const_id vec in
-    Linexpr0.of_list None
-      (BatList.of_enum (BatEnum.map mk (V.enum rest)))
-      (Some (coeff_of_qq const_coeff))
-  in
-
-  let abstract =
-    let int_dims = A.length wedge.env.int_dim in
-    let real_dims = A.length wedge.env.real_dim in
-    let added_int = max 0 ((A.length new_env.int_dim) - int_dims) in
-    let added_real = max 0 ((A.length new_env.real_dim) - real_dims) in
-    let added =
-      BatEnum.append
-        ((0 -- (added_int - 1)) /@ (fun _ -> int_dims))
-        ((0 -- (added_real - 1)) /@ (fun _ -> int_dims + real_dims))
-      |> BatArray.of_enum
-    in
-    Abstract0.add_dimensions
-      (get_manager ())
-      abstract
-      { Dim.dim = added;
-        Dim.intdim = added_int;
-        Dim.realdim = added_real }
-      false
-  in
-
-  Log.logf ~level:`trace "Env (%d): %a"
-    (List.length (!substitution))
-    CS.pp new_cs;
-  List.iter (fun (dim, replacement) ->
-      Log.logf ~level:`trace "Replace %a => %a"
-        (Term.pp ark) (CS.term_of_coordinate wedge.cs (id_of_dim wedge.env dim))
-        (CS.pp_vector new_cs) replacement)
-    (!substitution);
-
-  let abstract =
-    Abstract0.substitute_linexpr_array
-      (get_manager ())
-      abstract
-      (BatArray.of_list (List.map fst (!substitution)))
-      (BatArray.of_list (List.map (virtual_linexpr_of_vec % snd) (!substitution)))
-      None
-  in
-  (* Remove extra dimensions *)
-  let abstract =
-    apron_set_dimensions
-      (A.length new_env.int_dim)
-      (A.length new_env.real_dim)
-      abstract
-  in
-  let result =
-    { ark = ark;
-      cs = new_cs;
-      env = new_env;
-      abstract = abstract }
-  in
   logf "Projection result: %a" pp result;
   result
 
@@ -1788,6 +1748,9 @@ let symbolic_bounds_formula ?exists:(p=fun x -> true) ark phi symbol =
   let integrity psi =
     solver#add [Nonlinear.uninterpret ark psi]
   in
+  let uninterpret_implicant implicant =
+    mk_and ark (List.map (Nonlinear.uninterpret ark) implicant)
+  in
   let rec go (lower, upper) =
     match solver#get_model () with
     | `Unsat -> (lower, upper)
@@ -1800,15 +1763,19 @@ let symbolic_bounds_formula ?exists:(p=fun x -> true) ark phi symbol =
       | None -> assert false
       | Some implicant ->
         let (wedge_lower, wedge_upper) =
-          let implicant =
+          let implicant' =
             List.map replace_defs implicant
+            |> ArkSimplify.qe_partial_implicant ark p
+          in
+          solver#add [mk_if ark
+                        (uninterpret_implicant implicant)
+                        (uninterpret_implicant implicant')];
+          let wedge =
+            implicant'
             |> List.map (fun atom ->
                 let (atom', conditions) = Interpretation.select_ite interp atom in
                 atom'::conditions)
             |> BatList.concat
-          in
-          let wedge =
-            implicant
             |> of_atoms ark ~integrity
             |> exists ~integrity ~subterm p
           in
@@ -1857,24 +1824,3 @@ let polyhedron wedge =
       | EQ -> Some (`Eq, vec_of_linexpr wedge.env lcons.linexpr0)
       | _ -> None)
   |> BatList.of_enum
-
-let vanishing_ideal wedge =
-  let open Lincons0 in
-  let ideal = ref [] in
-  let add p = ideal := p::(!ideal) in
-  Abstract0.to_lincons_array (get_manager ()) wedge.abstract
-  |> Array.iter (fun lcons ->
-      match lcons.typ with
-      | EQ ->
-        let vec = vec_of_linexpr wedge.env lcons.linexpr0 in
-        add (CS.polynomial_of_vec wedge.cs vec)
-      | _ -> ());
-  for id = 0 to CS.dim wedge.cs - 1 do
-    match CS.destruct_coordinate wedge.cs id with
-    | `Inv x ->
-      let interval = bound_vec wedge x in
-      if not (Interval.elem QQ.zero interval) then
-        add (P.sub (P.mul (poly_of_vec x) (P.of_dim id)) (P.scalar QQ.one))
-    | _ -> ()
-  done;
-  !ideal
