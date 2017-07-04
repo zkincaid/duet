@@ -1718,7 +1718,7 @@ module WedgeMatrix = struct
                 else
                   let jterm =
                     mk_mul iter.ark [mk_real iter.ark coeff;
-                                     iter.term_of_id.(offset + i)]
+                                     iter.term_of_id.(offset + j)]
                   in
                   jterm::rhs)
               [rhs_add]
