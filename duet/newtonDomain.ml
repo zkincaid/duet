@@ -470,12 +470,20 @@ let print_var_bounds formatter cost tr =
   in
   begin match lower with
     | Some lower ->
-      fprintf formatter "%a <= %a@\n" (Syntax.Term.pp ark) lower V.pp cost
+      fprintf formatter "%a <= %a@\n" (Syntax.Term.pp ark) lower V.pp cost;
+      fprintf formatter "%a is o(%a)@\n"
+        V.pp cost
+        BigO.pp (BigO.of_term ark lower)
+
     | None -> ()
   end;
   begin match upper with
     | Some upper ->
-      fprintf formatter "%a <= %a@\n" V.pp cost (Syntax.Term.pp ark) upper
+      fprintf formatter "%a <= %a@\n" V.pp cost (Syntax.Term.pp ark) upper;
+      fprintf formatter "%a is O(%a)@\n"
+        V.pp cost
+        BigO.pp (BigO.of_term ark upper)
+
     | None -> ()
   end
 
