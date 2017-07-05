@@ -620,12 +620,18 @@ let resource_bound_analysis file =
             in
             begin match lower with
               | Some lower ->
-                logf ~level:`always "%a <= cost" (Syntax.Term.pp ark) lower
+                logf ~level:`always "%a <= cost" (Syntax.Term.pp ark) lower;
+                logf ~level:`always "%a is o(%a)"
+                  Varinfo.pp procedure
+                  BigO.pp (BigO.of_term ark lower)
               | None -> ()
             end;
             begin match upper with
               | Some upper ->
-                logf ~level:`always "cost <= %a" (Syntax.Term.pp ark) upper
+                logf ~level:`always "cost <= %a" (Syntax.Term.pp ark) upper;
+                logf ~level:`always "%a is O(%a)"
+                  Varinfo.pp procedure
+                  BigO.pp (BigO.of_term ark upper)
               | None -> ()
             end
           end else
