@@ -746,7 +746,7 @@ module WedgeVectorOCRS = struct
       | Iif (func, arg) ->
         assert (arg = "k");
         let sym =
-          if is_registered_name iter.ark func then
+          if not (is_registered_name iter.ark func) then
             register_named_symbol iter.ark func (`TyFun ([`TyReal], `TyReal));
           get_named_symbol iter.ark func
         in
