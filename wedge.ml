@@ -1815,6 +1815,9 @@ let symbolic_bounds_formula ?exists:(p=fun x -> true) ark phi symbol =
   in
   (lower, upper)
 
+let symbolic_bounds_formula ?(exists=fun x -> true) ark phi symbol =
+  Log.time "symbolic_bounds_formula" (symbolic_bounds_formula ~exists ark phi) symbol
+
 let coordinate_system wedge = wedge.cs
 
 let polyhedron wedge =

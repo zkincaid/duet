@@ -53,6 +53,8 @@ val symbolic_bounds : 'a t -> symbol -> ('a term) list * ('a term) list
     x Real -> Real] belong to a given context. *)
 val ensure_nonlinear_symbols : 'a context -> unit
 
+val ensure_min_max : 'a context -> unit
+
 (** Compute a wedge that over-approximates a given formula *)
 val abstract : ?exists:(symbol -> bool) ->
   ?subterm:(symbol -> bool) ->
