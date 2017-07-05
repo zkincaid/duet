@@ -1597,7 +1597,12 @@ let is_sat ark phi =
       | None -> assert false
       | Some implicant ->
         let constraints =
-          of_atoms ark ~integrity (List.map replace_defs implicant)
+          List.map replace_defs implicant
+          |> List.map (fun atom ->
+              let (atom', conditions) = Interpretation.select_ite interp atom in
+              atom'::conditions)
+          |> BatList.concat
+          |> of_atoms ark ~integrity
         in
         if is_bottom constraints then
           go ()
@@ -1677,7 +1682,12 @@ let abstract ?exists:(p=fun x -> true) ?(subterm=fun x -> true) ark phi =
                       (uninterpret_implicant implicant)
                       (uninterpret_implicant implicant')];
         let new_wedge =
-          of_atoms ark ~integrity implicant'
+          implicant'
+          |> List.map (fun atom ->
+              let (atom', conditions) = Interpretation.select_ite interp atom in
+              atom'::conditions)
+          |> BatList.concat
+          |> of_atoms ark ~integrity
           |> exists ~integrity ~subterm p
         in
         go (join ~integrity wedge new_wedge)
