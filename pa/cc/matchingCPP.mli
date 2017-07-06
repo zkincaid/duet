@@ -23,8 +23,8 @@ module type S = sig
 
   (* run the embedding problem in C / C++ *)
   val embeds : t -> bool
-
   val uembeds : t -> bool
+  val cembeds : t -> bool
 end
 
 module Make (Predicate : Symbol) : S with type predicate = Predicate.t

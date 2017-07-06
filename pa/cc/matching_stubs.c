@@ -109,10 +109,20 @@ extern "C" {
     }
 
     bool result;
-    if(Int_val(algo)) {
-	result = embedding(std::move(Embedding(sig1, sig2, pu_label, pv_label)));
-    } else {
+    switch (Int_val(algo)){
+      case 0:
 	result = uembedding(std::move(Embedding(sig1, sig2, pu_label, pv_label)));
+	break;
+      case 1:
+	result = embedding(std::move(Embedding(sig1, sig2, pu_label, pv_label)));
+	break;
+      case 2:
+	printf("Place Holder for Minizinc\n");
+	result = false;
+        break;
+      default:
+	printf("Error: Invalid Algorithm Choice %d\n", Int_val(algo));
+	exit(-1);
     }
     CAMLreturn(Val_bool(result));
   }

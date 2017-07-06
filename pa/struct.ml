@@ -37,6 +37,7 @@ module type S = sig
   val embeds_novel : t -> t -> bool
   val embeds_novel2 : t -> t -> bool
   val uembeds : t -> t -> bool
+  val cembeds : t -> t -> bool
   val union : t -> t -> t
   val empty : int -> t
   val full : (predicate * int) BatEnum.t -> int -> t
@@ -372,6 +373,13 @@ module Make (P : Symbol) = struct
     && (AtomSet.subset x.prop y.prop ||
        (MatchCPP.uembeds (MatchCPP.make (x.universe) (props x) (y.universe) (props y))))
 
+  let cembeds x y =
+    (x.universe <= y.universe)
+    && (AtomSet.cardinal x.prop <= AtomSet.cardinal y.prop)
+    && (PSet.subset (get_preds x) (get_preds y)) (* this is always true when using Search Tree *)
+    && (AtomSet.subset x.prop y.prop ||
+       (MatchCPP.cembeds (MatchCPP.make (x.universe) (props x) (y.universe) (props y))))
+
   (* Is there an embedding (injective homomorphism) of x into y? *)
   let embeds x y =
     (x.universe <= y.universe)
@@ -386,6 +394,8 @@ module Make (P : Symbol) = struct
     in
     if (monadic x) && (monadic y) then embeds_matching x y else embeds_naive x y
   end)
+
+  let embeds x y = if (x.universe >= 10) then uembeds x y else embeds_naive x y
 
   let make ?size:(size=(-1)) prop_enum =
     let prop = AtomSet.of_enum prop_enum in
