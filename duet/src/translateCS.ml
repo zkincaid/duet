@@ -873,9 +873,13 @@ let blk_preds = ref []
   let node_kind = ((Swig.invoke point) "get_kind" (Swig.C_void)) in
   let node_kind_str = (Swig.get_string ((Swig.invoke node_kind) "as_string" (Swig.C_void))) in
   if ((String.compare node_kind_str "control-point") = 0) then begin
+    Printf.printf "Control_point\n";
     let cond_ast = ((Swig.invoke point) "get_ast" (Cs._ast_family_C_NORMALIZED(Swig.C_void))) in
     let cond_class = ((Swig.invoke cond_ast) "get_class" (Swig.C_void)) in
     let cond_class_str = (Swig.get_string ((Swig.invoke cond_class) "as_string" (Swig.C_void))) in
+    if ((String.compare cond_class_str "c:variable") = 0 ) then begin
+      Some(NonDet)
+    end else begin
     (*Get the string reresentation of the comparison operator - this can be 1 or 2 characters long*)
     let conditional = (try String.sub cond_class_str 2 2 with
       Invalid_argument _ -> (String.sub cond_class_str 2 1)) in
@@ -890,6 +894,7 @@ let blk_preds = ref []
           None -> Some(NonDet)
         | Some(rgt) -> Some(Cond(lft,cond,rgt))
     )
+  end
   end
   else
       Some(Jmp)
@@ -907,7 +912,6 @@ let blk_preds = ref []
   let size = (Swig.get_int ((Swig.invoke cfg_targets_v) "size" (Swig.C_void))) in
   let cur_id = !node_id in
   node_id := !node_id + 1;
-  (*Printf.printf "BB\n";*)
   if size > 0 then begin
     let collected_blocks = ref [] in
     let children_block_ids = ref [] in
