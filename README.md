@@ -51,7 +51,7 @@ There are three main program analyses implemented in Duet:
 
 * Data flow graphs (POPL'12): `duet -coarsen FILE`
 * Heap data flow graphs: `duet -hdfg FILE`
-* Compositional recurrence analysis: `duet -cra FILE` (*disabled* in the ark2 branch)
+* Compositional recurrence analysis: `duet -cra FILE`
 * Proof spaces: `duet -proofspace FILE`
 
 Duet supports two file types (and guesses which to use by file extension): C programs (.c), Boolean programs (.bp).

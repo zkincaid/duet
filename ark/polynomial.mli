@@ -1,5 +1,7 @@
 (** Polynomials *)
 
+open Syntax
+
 (** Signature of univariate polynmials *)
 module type Univariate = sig
   include Linear.Vector with type dim = int
@@ -65,6 +67,19 @@ module Monomial : sig
 
   (** Compare by total degree, then reverse lexicographic order *)
   val degrevlex : t -> t -> [ `Eq | `Lt | `Gt ]
+
+  (** Given a list of *subsets* of dimensions [p1, ..., pn], a monomial [m]
+      can be considered as a list of monomials ("blocks") [m1, ..., mn, m0],
+      where each [mi] contains the dimensions that belong to [pi] (and not to
+      any lower [i]), and m0 contains the dimensions not belonging to any pi.
+      Given a monomial ordering for comparing blocks, the block ordering is
+      the lexicographic ordering on monomials viewed as lists of blocks. *)
+  val block :
+    ((dim -> bool) list) ->
+    (t -> t -> [ `Eq | `Lt | `Gt ]) ->
+    (t -> t -> [ `Eq | `Lt | `Gt ])
+
+  val term_of : ('a context) -> (dim -> 'a term) -> t -> 'a term
 end
 
 (** Multi-variate polynomials *)
@@ -84,11 +99,30 @@ module Mvp : sig
       is treated at a constant 1. *)
   val of_vec : ?const:int -> Linear.QQVector.t -> t
 
+  (** Write a polynomial as a sum [t + p], where [t] is a linear term and [p]
+      is a polynomial in which every monomial has degree >= 2 *)
+  val split_linear : ?const:int -> t -> (Linear.QQVector.t * t)
+
   (** Convert a linear polynomial to a vector, where each dimension
       corresponds to a variable except the designated [const] dimension, which
       is treated at a constant 1.  Return [None] if the polynomial is
       not linear. *)
   val vec_of : ?const:int -> t -> Linear.QQVector.t option
+
+  val term_of : ('a context) -> (Monomial.dim -> 'a term) -> t -> 'a term
+
+  (** Exponentiation by a positive integer *)
+  val exp : t -> int -> t
+
+  (** Generalization of polynomial composition -- substitute each dimension
+      for a multivariate polynomial *)
+  val substitute : (Monomial.dim -> t) -> t -> t
+
+  (** Divide a polynomial by a monomial *)
+  val div_monomial : t -> Monomial.t -> t option
+
+  (** Enumerate the set of dimensions that appear in a polynomial *)
+  val dimensions : t -> int BatEnum.t
 end
 
 (** Rewrite systems for multi-variate polynomials. A polynomial rewrite system
@@ -122,6 +156,13 @@ module Rewrite : sig
       no more rewrite rules apply *)
   val reduce : t -> Mvp.t -> Mvp.t
 
+  (** Reduce a multi-variate polynomial using the given rewrite rules until no
+      more rewrite rules apply.  Return both the reduced polynomial and the
+      polynomials used during reduction. *)
+  val preduce : t -> Mvp.t -> (Mvp.t * Mvp.t list)
+
   (** Add a new zero-polynomial to a rewrite system and saturate *)
   val add_saturate : t -> Mvp.t -> t
+
+  val generators : t -> Mvp.t list
 end

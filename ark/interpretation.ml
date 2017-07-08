@@ -462,3 +462,24 @@ let affine_interpretation interp phi =
         (enum symbolic_affine_interp)
     in
     `Sat affine_interp
+
+let select_ite interp ?(env=Env.empty) expr =
+  let conditions = ref [] in
+  let rewriter expr =
+    match destruct interp.ark expr with
+    | `Ite (cond, bthen, belse) ->
+      if evaluate_formula interp ~env cond then begin
+        conditions := cond::(!conditions);
+        bthen
+      end else begin
+        let cond' =
+          mk_not interp.ark cond
+          |> rewrite interp.ark ~down:(nnf_rewriter interp.ark)
+        in
+        conditions := cond'::(!conditions);
+        belse
+      end
+    | _ -> expr
+  in
+  let expr' = rewrite interp.ark ~down:rewriter expr in
+  (expr', !conditions)

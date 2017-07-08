@@ -226,6 +226,16 @@ let mk_mul ctx = function
 
 let mk_sub ctx s t = mk_add ctx [s; mk_neg ctx t]
 
+let rec mk_pow ctx t n =
+  if n = 0 then mk_one ctx
+  else if n = 1 then t
+  else if n < 0 then mk_div ctx (mk_one ctx) (mk_pow ctx t (-n))
+  else
+    let q = mk_pow ctx t (n / 2) in
+    let q_squared = mk_mul ctx [q; q] in
+    if n mod 2 = 0 then q_squared
+    else mk_mul ctx [q; q_squared]
+
 let mk_true ctx = ctx.mk True []
 let mk_false ctx = ctx.mk False []
 let mk_leq ctx s t = ctx.mk Leq [s; t]
@@ -263,6 +273,7 @@ let mk_implies ctx phi psi = mk_or ctx [mk_not ctx phi; psi]
 let mk_ite ctx cond bthen belse = ctx.mk Ite [cond; bthen; belse]
 let mk_iff ctx phi psi =
   mk_or ctx [mk_and ctx [phi; psi]; mk_and ctx [mk_not ctx phi; mk_not ctx psi]]
+let mk_if ctx phi psi = mk_or ctx [mk_not ctx phi; psi]
 
 let mk_truncate ctx t =
   mk_ite ctx
@@ -327,6 +338,15 @@ let substitute_const ctx subst sexpr =
     ctx.mk label (List.map (go depth) children)
   in
   go 0 sexpr
+
+let substitute_map ctx map sexpr =
+  let subst sym =
+    if Symbol.Map.mem sym map then
+      Symbol.Map.find sym map
+    else
+      mk_const ctx sym
+  in
+  substitute_const ctx subst sexpr
 
 let fold_constants f sexpr acc =
   let rec go acc sexpr =
@@ -1365,6 +1385,10 @@ module MakeSimplifyingContext () = struct
           | _, Node (Real den, [], _) when QQ.equal den QQ.one -> num
           | _, _ -> hc Div [num; den]
         end
+
+      | Ite, [cond; bthen; _] when is_true cond -> bthen
+      | Ite, [cond; _; belse] when is_false cond -> belse
+      | Ite, [_; x; y] when x.tag = y.tag -> x
 
       | _, _ -> hc label children
     in

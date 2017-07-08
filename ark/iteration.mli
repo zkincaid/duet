@@ -1,44 +1,38 @@
 open Syntax
 
-type 'a iter
+module type PreDomain = sig
+  type 'a t
+  val pp : Format.formatter -> 'a t -> unit
+  val show : 'a t -> string
+  val closure : 'a t -> 'a formula
+  val join : 'a t -> 'a t -> 'a t
+  val widen : 'a t -> 'a t -> 'a t
+  val equal : 'a t -> 'a t -> bool
+  val tr_symbols : 'a t -> (symbol * symbol) list
+end
 
-val pp_iter : Format.formatter -> 'a iter -> unit
-val show_iter : 'a iter -> string
-
-val abstract_iter : ?exists:(symbol -> bool) ->
-  'a context ->
-  'a formula ->
-  (symbol * symbol) list ->
-  'a iter
-
-val closure : ?guard:('a formula option) -> 'a iter -> 'a formula
-
-val closure_ocrs : ?guard:('a formula option) -> 'a iter -> 'a formula
-
-val star : ?exists:(symbol -> bool) ->
-  'a context ->
-  'a formula ->
-  (symbol * symbol) list ->
-  'a formula
-
-val join : 'a iter -> 'a iter -> 'a iter
-val widen : 'a iter -> 'a iter -> 'a iter
-val equal : 'a iter -> 'a iter -> bool
-val tr_symbols : 'a iter -> (symbol * symbol) list
-
-module Split : sig
-  type 'a split_iter
-  val pp_split_iter : Format.formatter -> 'a split_iter -> unit
-  val show_split_iter : 'a split_iter -> string
+module type Domain = sig
+  include PreDomain
   val abstract_iter : ?exists:(symbol -> bool) ->
     'a context ->
     'a formula ->
     (symbol * symbol) list ->
-    'a split_iter
-  val closure : ?use_ocrs:bool -> 'a split_iter -> 'a formula
-  val join : 'a split_iter -> 'a split_iter -> 'a split_iter
-  val widen : 'a split_iter -> 'a split_iter -> 'a split_iter
-  val equal : 'a split_iter -> 'a split_iter -> bool
-  val tr_symbols : 'a split_iter -> (symbol * symbol) list
-  val lift_split : 'a iter -> 'a split_iter
+    'a t
+end
+
+module type DomainPlus = sig
+  include Domain
+  val closure_plus : 'a t -> 'a formula
+end
+
+module WedgeVector : DomainPlus
+module WedgeVectorOCRS : DomainPlus
+module WedgeMatrix : DomainPlus
+
+module Split(Iter : DomainPlus) : Domain
+
+module Sum (A : PreDomain) (B : PreDomain) : sig
+  include PreDomain
+  val left : 'a A.t -> 'a t
+  val right : 'a B.t -> 'a t
 end

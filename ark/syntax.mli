@@ -117,6 +117,8 @@ val mk_var : 'a context -> int -> typ_fo -> ('a, 'typ) expr
 val mk_ite : 'a context -> 'a formula -> ('a, 'typ) expr -> ('a, 'typ) expr ->
   ('a, 'typ) expr
 
+val mk_if : 'a context -> 'a formula -> 'a formula -> 'a formula
+
 val mk_iff : 'a context -> 'a formula -> 'a formula -> 'a formula
 
 val substitute : 'a context ->
@@ -124,6 +126,9 @@ val substitute : 'a context ->
 
 val substitute_const : 'a context ->
   (symbol -> ('a,'b) expr) -> ('a,'typ) expr -> ('a,'typ) expr
+
+val substitute_map : 'a context ->
+  (('a,'b) expr Symbol.Map.t) -> ('a,'typ) expr -> ('a,'typ) expr
 
 val fold_constants : (symbol -> 'a -> 'a) -> ('b, 'c) expr -> 'a -> 'a
 
@@ -201,6 +206,7 @@ type ('a,'b) open_term = [
 val mk_add : 'a context -> 'a term list -> 'a term
 val mk_mul : 'a context -> 'a term list -> 'a term
 val mk_div : 'a context -> 'a term -> 'a term -> 'a term
+val mk_pow : 'a context -> 'a term -> int -> 'a term
 
 (** C99 integer division.  Equivalent to truncate(x/y). *)
 val mk_idiv : 'a context -> 'a term -> 'a term -> 'a term

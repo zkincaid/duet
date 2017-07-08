@@ -219,7 +219,10 @@ module QQMatrix = struct
     if equal mat zero then
       Format.pp_print_int formatter 0
     else
-      ApakEnum.pp_print_enum ~indent:0 ~pp_sep pp_row formatter (rows mat)
+      Format.fprintf formatter "@[<v 0>%a x %a@;%a@]"
+        IntSet.pp (row_set mat)
+        IntSet.pp cols
+        (ApakEnum.pp_print_enum_nobox ~pp_sep pp_row) (rows mat)
 
   let show = Putil.mk_show pp
     
@@ -504,6 +507,18 @@ let intersect_rowspace a b =
         incr c_rows; incr d_rows; incr mat_rows
       | None -> ()));
   (!c, !d)
+
+let divide_right a b =
+  try
+    let b_tr = QQMatrix.transpose b in
+    let div =
+      BatEnum.fold (fun div (i, row) ->
+          QQMatrix.add_row i (solve_exn b_tr row) div)
+        QQMatrix.zero
+        (QQMatrix.rowsi a)
+    in
+    Some div
+  with No_solution -> None
 
 (* Affine expressions over constant symbols.  dim_of_sym, const_dim, and
    sym_of_dim are used to translate between symbols and the dimensions of the

@@ -46,15 +46,7 @@ module Uvp(R : Ring) = struct
       zero
       (ApakEnum.cartesian_product (IntMap.enum p) (IntMap.enum q))
 
-  let rec exp p n =
-    if n = 0 then one
-    else if n = 1 then p
-    else begin
-      let q = exp p (n / 2) in
-      let q_squared = mul q q in
-      if n mod 2 = 0 then q_squared
-      else mul q q_squared
-    end
+  let exp = ArkUtil.exp mul one
 
   let compose p q =
     let rec go n = function
@@ -272,6 +264,35 @@ module Monomial = struct
       | `Gt -> `Lt
     in
     graded compare_degree revlex
+
+  let split_block p m =
+    IntMap.fold (fun dim pow (t,f) ->
+        if p dim then
+          (IntMap.add dim pow t, f)
+        else
+          (t, IntMap.add dim pow f))
+      m
+      (IntMap.empty, IntMap.empty)
+
+  let block blocks compare_block =
+    let rec compare blocks m n =
+      match blocks with
+      | [] -> compare_block m n
+      | (block::blocks) ->
+        let (m1,m2) = split_block block m in
+        let (n1,n2) = split_block block n in
+        match compare_block m1 n1 with
+        | `Eq -> compare blocks m2 n2
+        | cmp -> cmp
+    in
+    compare blocks
+
+  let term_of ark dim_term m =
+    IntMap.fold (fun dim pow product ->
+        (Syntax.mk_pow ark (dim_term dim) pow)::product)
+      m
+      []
+    |> Syntax.mk_mul ark
 end
 
 module Mvp = struct
@@ -330,21 +351,65 @@ module Mvp = struct
     /@ (fun (coeff, id) -> scalar_mul coeff (of_dim id))
     |> BatEnum.fold add (scalar const_coeff)
 
-  exception Nonlinear
+  let split_linear ?(const=Linear.const_dim) p =
+    MM.fold (fun monomial coeff (vec, poly) ->
+        match BatList.of_enum (Monomial.enum monomial) with
+        | [] -> (V.add_term coeff const vec, poly)
+        | [(x,1)] -> (V.add_term coeff x vec, poly)
+        | _ -> (vec, add_term coeff monomial poly))
+      p
+      (V.zero, zero)
+
   let vec_of ?(const=Linear.const_dim) p =
-    try
-      let vec =
-        enum p /@ (fun (coeff, monomial) ->
-          match BatList.of_enum (Monomial.enum monomial) with
-          | [(x,1)] -> (coeff, x)
-          | [] -> (coeff, const)
-          | _ -> raise Nonlinear)
-        |> V.of_enum
-      in
+    let (vec, q) = split_linear ~const p in
+    if equal q zero then
       Some vec
-    with Nonlinear -> None
+    else
+      None
+
+  let term_of ark dim_term p =
+    MM.fold (fun monomial coeff sum ->
+        (Syntax.mk_mul ark [Syntax.mk_real ark coeff;
+                            Monomial.term_of ark dim_term monomial])::sum)
+      p
+      []
+    |> Syntax.mk_add ark
 
   let compare = MM.compare QQ.compare
+
+  let exp = ArkUtil.exp mul one
+
+  let substitute subst p =
+    MM.fold (fun monomial coeff p ->
+        let q =
+          Monomial.IntMap.fold (fun dim pow q ->
+              mul q (exp (subst dim) pow))
+            monomial
+            one
+        in
+        add p (scalar_mul coeff q))
+      p
+      zero
+
+  let div_monomial p m =
+    MM.fold (fun n coeff p ->
+        match p with
+        | Some p ->
+          begin match Monomial.div n m with
+            | Some q -> Some (add_term coeff q p)
+            | None -> None
+          end
+        | None -> None)
+      p
+      (Some zero)
+
+  let dimensions p =
+    let module S = Putil.PInt.Set in
+    MM.fold (fun m _ set ->
+        Monomial.IntMap.fold (fun dim _ set -> S.add dim set) m set)
+      p
+      S.empty
+    |> S.enum
 end
 
 module Rewrite = struct
@@ -352,8 +417,10 @@ module Rewrite = struct
      monomials *descend* in some admissible order. *)
   type op = (QQ.t * Monomial.t) list
 
+  module P = BatSet.Make(Mvp)
+
   type t =
-    { rules : (Monomial.t * op) list;
+    { rules : (Monomial.t * op * P.t) list;
       order : Monomial.t -> Monomial.t -> [ `Eq | `Lt | `Gt ] }
 
   let pp_op pp_dim formatter op =
@@ -376,7 +443,7 @@ module Rewrite = struct
   let pp pp_dim formatter rewrite =
     ApakEnum.pp_print_enum_nobox
       ~pp_sep:(fun formatter () -> Format.fprintf formatter "@;")
-      (fun formatter (lhs, rhs) ->
+      (fun formatter (lhs, rhs, _) ->
          Format.fprintf formatter "%a --> @[<hov 2>%a@]"
            (Monomial.pp pp_dim) lhs
            (pp_op pp_dim) rhs)
@@ -415,28 +482,41 @@ module Rewrite = struct
 
   let rec reduce_op rewrite polynomial =
     match polynomial with
-    | [] -> []
+    | [] -> ([], P.empty)
     | (c, m)::polynomial' ->
       try
-        let reduced =
-          BatList.find_map (fun (n, p) ->
+        let (reduced, provenance) =
+          BatList.find_map (fun (n, p, provenance) ->
               match Monomial.div m n with
-              | Some remainder -> Some (op_monomial_scalar_mul c remainder p)
+              | Some remainder ->
+                Some (op_monomial_scalar_mul c remainder p, provenance)
               | None -> None)
             rewrite.rules
         in
-        reduce_op rewrite (op_add rewrite.order reduced polynomial')
+        let (reduced', provenance') =
+          reduce_op rewrite (op_add rewrite.order reduced polynomial')
+        in
+        (reduced', P.union provenance provenance')
       with Not_found ->
-        op_add rewrite.order [(c, m)] (reduce_op rewrite polynomial')
+        let (reduced, provenance) = reduce_op rewrite polynomial' in
+        (op_add rewrite.order [(c, m)] reduced, provenance)
+
+  let preduce rewrite polynomial =
+    let (reduced, provenance) =
+      reduce_op rewrite (op_of_mvp rewrite.order polynomial)
+    in
+    (mvp_of_op reduced, P.elements provenance)
 
   let reduce rewrite polynomial =
-    reduce_op rewrite (op_of_mvp rewrite.order polynomial)
-    |> mvp_of_op
+    let (reduced, _) =
+      reduce_op rewrite (op_of_mvp rewrite.order polynomial)
+    in
+    mvp_of_op reduced
 
   let mk_rewrite order polynomials =
     let rules =
       List.fold_left (fun rules polynomial ->
-          let op =
+          let (op, provenance) =
             op_of_mvp order polynomial
             |> reduce_op { rules; order }
           in
@@ -447,51 +527,67 @@ module Rewrite = struct
             let rhs =
               op_monomial_scalar_mul (QQ.negate (QQ.inverse c)) Monomial.one rest
             in
+            let new_rule = (m, rhs, P.add polynomial provenance) in
             let rules =
-              let rewrite = { rules = [(m,rhs)]; order = order } in
-              List.map (fun (n, p) -> (n, reduce_op rewrite p)) rules
+              let rewrite = { rules = [new_rule]; order = order } in
+              List.map (fun (n, p, provenance) ->
+                  let (p',provenance') = reduce_op rewrite p in
+                  (n, p', P.union provenance provenance')) rules
             in
-            (m, rhs)::rules)
+            new_rule::rules)
         []
         polynomials
     in
     { rules; order }
 
+  let rec insert_rule (m,rhs,provenance) rules =
+    match rules with
+    | [] -> [(m,rhs,provenance)]
+    | (m',rhs',provenance')::rules' ->
+      if Monomial.total_degree m <= Monomial.total_degree m' then
+        (m,rhs,provenance)::rules
+      else
+        (m',rhs',provenance')::(insert_rule (m,rhs,provenance) rules')
+
   let buchberger order rules pairs =
-    (* Suppose m1 = rhs1 and m2 = rhs1.  Let m the least common multiple of m1
-       and m2, and let m1*r1 = m = m2*r2.  Then we have m = rhs1*r1 and m =
+    (* Suppose m1 = rhs1 and m2 = rhs1.  Let m be the least common multiple of
+       m1 and m2, and let m1*r1 = m = m2*r2.  Then we have m = rhs1*r1 and m =
        rhs2*r1.  It follows that rhs1*r1 - rhs2*r2 = 0.  spoly computes this
        polynomial. *)
-    let spoly (m1, rhs1) (m2, rhs2) =
+    let spoly (m1, rhs1, provenance1) (m2, rhs2, provenance2) =
       let m = Monomial.lcm m1 m2 in
       let r1 = BatOption.get (Monomial.div m m1) in
       let r2 = BatOption.get (Monomial.div m m2) in
-      op_add
-        order
-        (op_monomial_scalar_mul QQ.one r1 rhs1)
-        (op_monomial_scalar_mul (QQ.of_int (-1)) r2 rhs2)
+      (op_add
+         order
+         (op_monomial_scalar_mul QQ.one r1 rhs1)
+         (op_monomial_scalar_mul (QQ.of_int (-1)) r2 rhs2),
+       P.union provenance1 provenance2)
     in
     let pp_dim formatter i =
       Format.pp_print_string formatter (Char.escaped (Char.chr i))
     in
+    let lhs (x, _, _) = x in
+    let rhs (_, x, _) = x in
     let rec go rules pairs =
       match pairs with
       | [] -> rules
       | (r1, r2)::pairs ->
         logf ~level:`trace  "Pair:";
         logf ~level:`trace  "  @[%a@] --> @[<hov 2>%a@]"
-          (Monomial.pp pp_dim) (fst r1)
-          (pp_op pp_dim) (snd r1);
+          (Monomial.pp pp_dim) (lhs r1)
+          (pp_op pp_dim) (rhs r1);
         logf ~level:`trace  "  @[%a@] --> @[<hov 2>%a@]"
-          (Monomial.pp pp_dim) (fst r2)
-          (pp_op pp_dim) (snd r2);
-        match reduce_op { order = order; rules = rules } (spoly r1 r2) with
-        | [] -> go rules pairs
-        | [(c,m)] when Monomial.equal m Monomial.one ->
+          (Monomial.pp pp_dim) (lhs r2)
+          (pp_op pp_dim) (rhs r2);
+        let (sp, provenance) = spoly r1 r2 in
+        match reduce_op { order = order; rules = rules } sp with
+        | ([], _) -> go rules pairs
+        | ([(c,m)], provenance') when Monomial.equal m Monomial.one ->
           (* Inconsistent -- return (1 = 0) *)
           assert (not (QQ.equal c QQ.zero));
-          [(Monomial.one, [])]
-        | (c,m)::rest ->
+          [(Monomial.one, [], P.union provenance provenance')]
+        | ((c,m)::rest, provenance') ->
           assert (not (QQ.equal c QQ.zero));
           let rhs =
             op_monomial_scalar_mul (QQ.negate (QQ.inverse c)) Monomial.one rest
@@ -500,59 +596,68 @@ module Rewrite = struct
           logf ~level:`trace "  @[%a@] --> @[<hov 2>%a@]"
             (Monomial.pp pp_dim) m
             (pp_op pp_dim) rhs;
-          go ((m,rhs)::rules) (pairs@(List.map (fun r -> ((m,rhs), r)) rules))
+          let new_rule = (m,rhs,P.union provenance provenance') in
+          go
+            (insert_rule new_rule rules)
+            (pairs@(List.map (fun r -> (new_rule, r)) rules))
     in
     go rules pairs
 
-  let grobner_basis rewrite =
-    let initial_pairs =
-      ApakEnum.distinct_pairs (BatList.enum rewrite.rules)
-      |> BatList.of_enum
-    in
-    { order = rewrite.order;
-      rules = buchberger rewrite.order rewrite.rules initial_pairs }
+  let buchberger order rules pairs =
+    Log.time "buchberger" (buchberger order rules) pairs
 
   let add_saturate rewrite p =
+    let provenance = P.singleton p in
     match reduce_op rewrite (op_of_mvp rewrite.order p) with
-    | [] -> rewrite
-    | [(c,m)] when Monomial.equal m Monomial.one ->
+    | ([], _) -> rewrite
+    | ([(c,m)], provenance') when Monomial.equal m Monomial.one ->
       (* Inconsistent -- return (1 = 0) *)
       assert (not (QQ.equal c QQ.zero));
-      { order = rewrite.order; rules = [(Monomial.one, [])] }
-    | (c,m)::rest ->
+      { order = rewrite.order;
+        rules = [(Monomial.one, [], P.union provenance provenance')] }
+    | ((c,m)::rest, provenance') ->
       assert (not (QQ.equal c QQ.zero));
       let rhs =
         op_monomial_scalar_mul (QQ.negate (QQ.inverse c)) Monomial.one rest
       in
-      let pairs = List.map (fun r -> ((m,rhs), r)) rewrite.rules in
+      let new_rule = (m, rhs, P.union provenance provenance') in
+      let pairs = List.map (fun r -> (new_rule, r)) rewrite.rules in
       { order = rewrite.order;
-        rules = buchberger rewrite.order ((m,rhs)::rewrite.rules) pairs }
+        rules = buchberger rewrite.order (new_rule::rewrite.rules) pairs }
 
   let grobner_basis rewrite =
-    List.fold_left (fun rewrite (m,rhs) ->
+    List.fold_left (fun rewrite (m,rhs,provenance) ->
         match reduce_op rewrite ((QQ.negate QQ.one, m)::rhs) with
-        | [] -> rewrite
-        | [(c,m)] when Monomial.equal m Monomial.one ->
+        | ([], _) -> rewrite
+        | ([(c,m)], provenance') when Monomial.equal m Monomial.one ->
           (* Inconsistent -- return (1 = 0) *)
           assert (not (QQ.equal c QQ.zero));
-          { order = rewrite.order; rules = [(Monomial.one, [])] }
-        | (c,m)::rest ->
+          { order = rewrite.order;
+            rules = [(Monomial.one, [], P.union provenance provenance')] }
+        | ((c,m)::rest, provenance') ->
           assert (not (QQ.equal c QQ.zero));
           let rhs =
             op_monomial_scalar_mul (QQ.negate (QQ.inverse c)) Monomial.one rest
           in
           let rules = rewrite.rules in
+          let new_rule = (m,rhs,P.union provenance provenance') in
           let pairs =
-            BatList.filter_map (fun (m',rhs') ->
+            BatList.filter_map (fun (m',rhs',provenance') ->
                 if Monomial.equal (Monomial.gcd m m') Monomial.one then
                   None
                 else
-                  Some ((m,rhs), (m',rhs')))
+                  Some (new_rule, (m',rhs',provenance')))
               rewrite.rules
           in
+          let new_rules = insert_rule new_rule rules in
           { order = rewrite.order;
-            rules = buchberger rewrite.order ((m,rhs)::rules) pairs }
+            rules = buchberger rewrite.order new_rules pairs }
       )
       { order = rewrite.order; rules = [] }
+      rewrite.rules
+
+  let generators rewrite =
+    List.map
+      (fun (lt, op, _) -> mvp_of_op ((QQ.of_int (-1), lt)::op))
       rewrite.rules
 end

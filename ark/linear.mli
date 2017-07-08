@@ -58,9 +58,13 @@ module QQMatrix : sig
 
   val row : dim -> t -> QQVector.t
 
+  val rowsi : t -> (dim * QQVector.t) BatEnum.t
+
   val add_row : dim -> QQVector.t -> t -> t
 
   val add_column : dim -> QQVector.t -> t -> t
+
+  val add_entry : dim -> dim -> QQ.t -> t -> t
 
   val pivot : dim -> t -> QQVector.t * t
 
@@ -165,6 +169,11 @@ val solve : QQMatrix.t -> QQVector.t -> QQVector.t option
 (** Given two matrices A and B, compute matrices C and D such that CA = DB is a
     basis for the intersection of the rowspaces of A and B *)
 val intersect_rowspace : QQMatrix.t -> QQMatrix.t -> (QQMatrix.t * QQMatrix.t)
+
+(** Given two matrices A and B, compute a matrix C such that CB = A (if one
+    exists).  C exists when the rowspace of B is contained in the rowspace of
+    A.  If A and B are invertible, then C is exactly AB^{-1}. *)
+val divide_right : QQMatrix.t -> QQMatrix.t -> QQMatrix.t option
 
 (** {2 Affine terms} *)
 

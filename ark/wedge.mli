@@ -53,8 +53,14 @@ val symbolic_bounds : 'a t -> symbol -> ('a term) list * ('a term) list
     x Real -> Real] belong to a given context. *)
 val ensure_nonlinear_symbols : 'a context -> unit
 
+val ensure_min_max : 'a context -> unit
+
 (** Compute a wedge that over-approximates a given formula *)
-val abstract : ?exists:(symbol -> bool) -> 'a context -> 'a formula -> 'a t
+val abstract : ?exists:(symbol -> bool) ->
+  ?subterm:(symbol -> bool) ->
+  'a context ->
+  'a formula ->
+  'a t
 
 (** Check if a formula is satisfiable by computing an over-approximating wedge
     and checking whether it is feasible.  This procedure improves on the naive
@@ -73,3 +79,9 @@ val symbolic_bounds_formula : ?exists:(symbol -> bool) ->
   'a formula ->
   symbol ->
   ('a term) option * ('a term) option
+
+val coordinate_system : 'a t -> 'a CoordinateSystem.t
+
+val polyhedron : 'a t -> ([ `Eq | `Geq ] * Linear.QQVector.t) list
+
+val vanishing_ideal : 'a t -> Polynomial.Mvp.t list
