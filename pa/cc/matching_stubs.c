@@ -352,7 +352,7 @@ bool cembedding(Embedding emb){
     close(pipe_read[1]);
 
     /* run minizinc */
-    execlp("minizinc", "minizinc", "./tmp.mzn", NULL);
+    execlp("mzn-gecode", "mzn-gecode", "./tmp.mzn", NULL);
     perror("Failed to launch minizinc\n");
     exit(-1);
   } else if (process_id < 0){
