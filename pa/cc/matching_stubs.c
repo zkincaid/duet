@@ -10,6 +10,9 @@
 #include <cmath>
 #include <limits>
 #include <functional>
+#include <unistd.h>
+#include <sys/wait.h>
+#include <string.h>
 #include "graph.h"
 #include "embedding.h"
 
@@ -19,6 +22,7 @@ using namespace std;
 
 bool embedding(Embedding emb);
 bool uembedding(Embedding emb);
+bool cembedding(Embedding emb);
 void find_conflicts(const Embedding& emb, const vector<int>& matching, vector<int>& confs);
 void backtrack(stack<decision>& decisions, Embedding& emb);
 bool choose(stack<decision>& decisions, const vector<int>& confs, Embedding& emb);
@@ -117,8 +121,7 @@ extern "C" {
 	result = embedding(std::move(Embedding(sig1, sig2, pu_label, pv_label)));
 	break;
       case 2:
-	printf("Place Holder for Minizinc\n");
-	result = false;
+	result = cembedding(std::move(Embedding(sig1, sig2, pu_label, pv_label)));
         break;
       default:
 	printf("Error: Invalid Algorithm Choice %d\n", Int_val(algo));
@@ -313,6 +316,124 @@ bool uembedding(Embedding emb){
   }
 }
 
+bool cembedding(Embedding emb){
+  {
+    vector<Graph::VertexPair> p_removed, u_removed;
+    emb.ufilter(p_removed, u_removed);
+  }
+  if (!emb.get_valid()) return false;
+  const Graph& u_graph = emb.get_universe_graph();
+
+  //int pipe_write[2];
+  int pipe_read[2];
+  pid_t process_id;
+
+  /*
+  if (pipe(pipe_write) || pipe(pipe_read)){
+    printf("Error: unable to create pipe\n");
+    exit(-1);
+  }
+  */
+  if (pipe(pipe_read)){
+    printf("Error: unable to create pipe\n");
+    exit(-1);
+  }
+  
+  process_id = fork();
+  if (process_id == 0){
+    /*
+      dup2(pipe_write[0],STDIN_FILENO); */
+    dup2(pipe_read[1], STDOUT_FILENO);
+    /* Close the not needed file descriptors */
+    /*
+    close(pipe_write[0]);
+    close(pipe_write[1]); */
+    close(pipe_read[0]);
+    close(pipe_read[1]);
+
+    /* run minizinc */
+    execlp("minizinc", "minizinc", "./tmp.mzn", NULL);
+    perror("Failed to launch minizinc\n");
+    exit(-1);
+  } else if (process_id < 0){
+    printf("Error: unable to launch minizinc\n");
+    exit(-1);
+  }
+  //close(pipe_write[0]); /* we will only read from this pipe */
+  close(pipe_read[1]);  /* we will only write to this pipe */
+
+  FILE *minizinc_write, *minizinc_read;
+  minizinc_write = fopen("./tmp.mzn", "w");
+  minizinc_read  = fdopen(pipe_read[0],  "r");
+
+  fprintf(minizinc_write, "include \"alldifferent.mzn\";\n\n");
+  
+  for (size_t i = 1; i < u_graph.uSize(); ++i){
+    const std::vector<Graph::Edge>& adj = u_graph.uAdj(i);
+    fprintf(minizinc_write, "var 1..%lu: x%lu;\n", adj.size(), i);
+    fprintf(minizinc_write, "array [1..%lu] of int: Dx%lu = [", adj.size(), i);
+    for (size_t j = 0; j < adj.size(); ++j){
+      fprintf(minizinc_write, "%lu", adj[j].vertex);
+      if (j+1 != adj.size()){
+	fprintf(minizinc_write, ", ");
+      }
+    }
+    fprintf(minizinc_write, "];\n\n");
+  }
+  fprintf(minizinc_write, "constraint alldifferent([");
+  for (size_t i = 1; i < u_graph.uSize(); ++i){
+    fprintf(minizinc_write, "Dx%lu[x%lu]", i, i);
+    if (i+1 != u_graph.uSize()){
+      fprintf(minizinc_write, ", ");
+    }
+  }
+  fprintf(minizinc_write, "]);\n\n");
+  
+  const LabeledGraph<prop, prop>& p_graph = emb.get_predicate_graph();
+  for (size_t i = 0; i < p_graph.uSize(); ++i){
+    if (p_graph.getULabel(i).vars.size() < 2) continue;
+    fprintf(minizinc_write, "constraint ");
+    const std::vector<Graph::Edge>& adj = p_graph.uAdj(i);
+    const std::vector<int>& u_vars = p_graph.getULabel(i).vars;
+    for (size_t j = 0; j < adj.size(); ++j){
+      if (j != 0){
+	fprintf(minizinc_write, " \\/ ");
+      }
+      const std::vector<int>& v_vars = p_graph.getVLabel(adj[j].vertex).vars;
+      fprintf(minizinc_write, "(");
+      for (size_t k = 0; k < u_vars.size(); ++k){
+	if (k != 0){
+	  fprintf(minizinc_write, " /\\ ");
+	}
+	fprintf(minizinc_write, "Dx%d[x%d] = %d", u_vars[k], u_vars[k], v_vars[k]);
+      }
+      fprintf(minizinc_write, ")");
+    }
+    fprintf(minizinc_write, ";\n\n");    
+  }
+  fprintf(minizinc_write, "solve satisfy;\n\n");
+  fprintf(minizinc_write, "output[\"=SAT=\"];\n");
+  fclose(minizinc_write);
+
+  int ret(0);
+  char buff[1024];
+  if (fgets(buff, sizeof(buff), minizinc_read) == NULL){
+    printf("Failed to read output of minizinc\n");
+    exit(-1);
+  }
+  if (strstr(buff, "=SAT=")){
+    waitpid(process_id, &ret, 0);
+    fclose(minizinc_read);
+    close(pipe_read[0]);
+    return true;
+  } else {
+    waitpid(process_id, &ret, 0);
+    fclose(minizinc_read);
+    close(pipe_read[0]);
+  }
+  return false;
+}
+
 
 /* Finds all vertices in pgraph.U that are violated by the candidate matching */
 void find_conflicts(const Embedding& emb, const vector<int>& matching, vector<int>& confs){
@@ -350,40 +471,6 @@ void backtrack(stack<decision>& decisions, Embedding& emb){
       }
     }
     decisions.pop();
-    /*
-    for (size_t i = 0; i < adj.size(); ++i){
-      p_removed.clear(); u_removed.clear();
-      emb.choose_constraint(pu, adj[i].vertex, p_removed, u_removed);
-      if (!emb.get_valid()){
-	emb.add_back(p_removed, u_removed);
-      } else {
-	decisions.emplace(pu, i, u_removed, p_removed, adj);
-      }
-    }
-
-    for (size_t i = 0; i < d.u_edges.size(); ++i){
-      u_graph.add_edge(d.u_edges[i].u, d.u_edges[i].v);
-    }
-    const vector<Graph::Edge>& adj = p_graph.uAdj(d.u);
-    const vector<int>& u_vars = p_graph.getULabel(d.u).vars;
-    for (size_t k; ++d.pos < adj.size();){
-      const vector<int>& v_vars = p_graph.getVLabel(adj[d.pos].vertex).vars;
-      for (k = 0; k < u_vars.size(); ++k){
-        if (!u_graph.has_edge(u_vars[k], v_vars[k])) break;
-      }
-      if (k == u_vars.size()){
-	vector<Graph::VertexPair> uedges = u_graph.commit_edges(u_vars, v_vars);
-	vector<int> junk;
-  	if (u_graph.unit_prop(uedges, junk, junk)){
-  	  decisions.emplace(d.u, d.pos, uedges);
-	  return;
-	} else {
-	  for (size_t i = 0; i < uedges.size(); ++i){
-	    u_graph.add_edge(uedges[i].u, uedges[i].v);
-	  }
-	}
-      }
-      }*/
   }
 }
 
@@ -435,27 +522,6 @@ bool choose(stack<decision>& decisions, const vector<int>& confs, Embedding& emb
 	return true;
       }
     }
-    /*
-    const vector<int>& u_vars = p_graph.getULabel(pu).vars;
-    for (size_t j = 0, pv, k; j < adj.size(); ++j){
-      pv = adj[j].vertex;
-      const vector<int>& v_vars = p_graph.getVLabel(pv).vars;
-      for (k = 0; k < u_vars.size(); ++k){
-	if (!u_graph.has_edge(u_vars[k], v_vars[k])) break;
-      }
-      if (k == u_vars.size()){
-	vector<Graph::VertexPair> uedges = u_graph.commit_edges(p_graph.getULabel(pu).vars, p_graph.getVLabel(pv).vars);
-	vector<int> junk;
-	if (u_graph.unit_prop(uedges, junk, junk)){
-  	  decisions.emplace(pu, j, uedges);
-	  return true;
-	} else {
-	  for (size_t i = 0; i < uedges.size(); ++i){
-  	    u_graph.add_edge(uedges[i].u, uedges[i].v);
-	  }
-	}
-      }
-      } */
   }
   return false;
 }
