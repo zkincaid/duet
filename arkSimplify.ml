@@ -171,3 +171,43 @@ let purify ark expr =
       (ExprHT.enum table)
   in
   (expr', map)
+
+module SymDS = Apak.DisjointSet.Make(struct
+    include Symbol
+    let hash = Hashtbl.hash
+    let equal = (=)
+  end)
+let partition_implicant implicant =
+  let (zero_group, implicant) =
+    List.partition (fun atom -> Symbol.Set.is_empty (symbols atom)) implicant
+  in
+  if implicant = [] then
+    [zero_group]
+  else begin
+    let ds = SymDS.create 991 in
+    implicant |> List.iter (fun atom ->
+        let (sym, rest) = Symbol.Set.pop (symbols atom) in
+        let rep = SymDS.find ds sym in
+        Symbol.Set.iter (fun sym' -> ignore (SymDS.union (SymDS.find ds sym') rep)) rest);
+    let rev_map =
+      SymDS.reverse_map ds Symbol.Set.empty Symbol.Set.add
+    in
+    let find_rep symbol = Symbol.Set.choose (rev_map symbol) in
+    let map =
+      List.fold_left (fun map atom ->
+          let equiv_class = find_rep (Symbol.Set.choose (symbols atom)) in
+          if Symbol.Map.mem equiv_class map then
+            Symbol.Map.add equiv_class (atom::(Symbol.Map.find equiv_class map)) map
+          else
+            Symbol.Map.add equiv_class [atom] map)
+        Symbol.Map.empty
+        implicant
+    in
+    let partitioned_implicant =
+      BatList.of_enum (Symbol.Map.values map)
+    in
+    if zero_group = [] then
+      partitioned_implicant
+    else
+      zero_group::partitioned_implicant
+  end
