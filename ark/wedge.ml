@@ -1023,6 +1023,12 @@ let join ?integrity:(integrity=(fun _ -> ())) wedge wedge' =
       abstract =
         Abstract0.join (get_manager ()) wedge.abstract wedge'.abstract }
 
+let meet wedge wedge' =
+  if is_top wedge then wedge'
+  else if is_top wedge' then wedge
+  else
+    (meet_atoms wedge (to_atoms wedge'); wedge)
+
 let join ?integrity:(integrity=(fun _ -> ())) wedge wedge' =
   Log.time "wedge join" (join ~integrity wedge) wedge'
 

@@ -1,6 +1,7 @@
 Procedure __VERIFIER_nondet has zero cost
 Procedure: main
 0 <= cost
+main is o(1)
 Procedure: search
 min:121(min:121(min:121(max:122(max:122(1,
                                         ((-1
@@ -23,9 +24,11 @@ min:121(min:121(min:121(max:122(max:122(1,
                                    + 1))),
                 1),
         0) <= cost
+search is o(1)
 cost <= max:122(max:122(max:122(param0:23,
                                 min:121(param0:23,
                                         ((-1 * log:7(2, 3))
                                            + log:7(2, (3 * param0:23)) + 1))),
                         1),
                 0)
+search is O(n)
