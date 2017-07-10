@@ -1,6 +1,5 @@
 open Syntax
 open BatPervasives
-open Apak
 
 include Log.Make(struct let name = "ark.arkZ3" end)
 

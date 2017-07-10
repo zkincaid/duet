@@ -1,4 +1,3 @@
-open Apak
 open OUnit
 open BatPervasives
 open Syntax

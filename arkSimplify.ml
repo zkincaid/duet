@@ -1,6 +1,5 @@
 open Syntax
 open BatPervasives
-open Apak
 
 include Log.Make(struct let name = "ark.simplify" end)
 
@@ -172,7 +171,7 @@ let purify ark expr =
   in
   (expr', map)
 
-module SymDS = Apak.DisjointSet.Make(struct
+module SymDS = DisjointSet.Make(struct
     include Symbol
     let hash = Hashtbl.hash
     let equal = (=)

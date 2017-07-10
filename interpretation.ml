@@ -58,7 +58,7 @@ let pp formatter interp =
       let env = List.fold_right Env.push formals Env.empty in
       Format.fprintf formatter "%a(@[%a@]) => @[<hov 1>%a@]"
         (pp_symbol interp.ark) key
-        (ApakEnum.pp_print_enum Format.pp_print_string) (BatList.enum formals)
+        (ArkUtil.pp_print_enum Format.pp_print_string) (BatList.enum formals)
         (pp_expr ~env interp.ark) body
     | _ ->
       Format.fprintf formatter "%a => @[<hov 1>%a@]"
@@ -66,7 +66,7 @@ let pp formatter interp =
         pp_val value
   in
   Format.fprintf formatter "[@[<v 0>%a@]]"
-    (ApakEnum.pp_print_enum_nobox pp_elt) (SM.enum interp.map)
+    (ArkUtil.pp_print_enum_nobox pp_elt) (SM.enum interp.map)
 
 let of_model ark model symbols =
   List.fold_left
