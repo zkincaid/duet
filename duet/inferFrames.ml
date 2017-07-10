@@ -1,5 +1,6 @@
 open Core
 open CfgIr
+open Ark
 open Apak
 open BatPervasives
 
@@ -35,7 +36,7 @@ module D = struct
         AP.Set.pp set
     in
     Format.fprintf formatter "[%a]"
-      (ApakEnum.pp_print_enum pp_elt)
+      (ArkUtil.pp_print_enum pp_elt)
       (M.enum set)
 
   let compact set =
@@ -204,7 +205,7 @@ let infer_frames file =
 *)
 
 module MemLoc = PointerAnalysis.MemLoc
-module DS = DisjointSet.Make(MemLoc)
+module DS = Ark.DisjointSet.Make(MemLoc)
 
 let memlocs ap_set =
   let f ap = MemLoc.Set.union (PointerAnalysis.resolve_ap ap) in

@@ -1,6 +1,7 @@
 (** Common operations for pointer analyses *)
 
 open Core
+open Ark
 open Apak
 open CfgIr
 

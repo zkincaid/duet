@@ -4,6 +4,7 @@
     numerical domains. *)
 module S = Set
 open Core
+open Ark
 open Apak
 open Ai
 open CfgIr

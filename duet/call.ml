@@ -1,5 +1,6 @@
 open Core
 open CfgIr
+open Ark
 open Apak
 
 (** Static callgraph *)

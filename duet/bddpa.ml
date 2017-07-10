@@ -6,9 +6,11 @@
 
 open Core
 open CfgIr
+open Ark
 open Apak
 open Datalog
 open PointerAnalysis
+
 
 (* Enumerations for converting to/from integers for datalog *******************)
 module DefEnum = Enumeration.Make(Def)

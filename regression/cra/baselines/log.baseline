@@ -1,7 +1,7 @@
 Procedure: logn
 min:161(0, max:162(1, log:22(2, param0:10))) <= cost
 logn is o(1)
-cost <= max:162(0, log:22(2, ((2 * param0:10) + -2)))
+cost <= max:162(0, log:22(2, (-2 + (2 * param0:10))))
 logn is O(log(n))
 Procedure: main
 1 <= cost

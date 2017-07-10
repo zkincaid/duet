@@ -1,6 +1,5 @@
 open Pervasives
 open BatPervasives
-open Apak
 
 module type Vertex = sig
   type t

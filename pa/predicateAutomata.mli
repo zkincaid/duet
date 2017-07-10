@@ -1,5 +1,3 @@
-open Apak
-
 module type Alphabet = sig
   type t
   val pp : Format.formatter -> t -> unit

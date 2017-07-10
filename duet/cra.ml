@@ -227,7 +227,7 @@ module V = struct
       | VVal v -> Var.pp formatter v
       | VWidth v -> Format.fprintf formatter "%a@@width" Var.pp v
       | VPos v -> Format.fprintf formatter "%a@@pos" Var.pp v
-    let show = Putil.mk_show pp
+    let show = ArkUtil.mk_show pp
     let equal x y = compare x y = 0
     let hash = function
       | VVal v -> Hashtbl.hash (Var.hash v, 0)

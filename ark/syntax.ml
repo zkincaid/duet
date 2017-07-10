@@ -29,7 +29,7 @@ let pp_typ formatter = function
   | `TyFun (dom, cod) ->
     let pp_sep formatter () = Format.fprintf formatter "@ * " in
     Format.fprintf formatter "(@[%a@ -> %a@])"
-      (ApakEnum.pp_print_enum ~pp_sep pp_typ_fo) (BatList.enum dom)
+      (ArkUtil.pp_print_enum ~pp_sep pp_typ_fo) (BatList.enum dom)
       pp_typ_fo cod
 
 let pp_typ_arith = pp_typ
@@ -88,8 +88,8 @@ module DynArray = BatDynArray
 module Symbol = struct
   type t = symbol
   let compare = Pervasives.compare
-  module Set = BatSet.Make(Apak.Putil.PInt)
-  module Map = BatMap.Make(Apak.Putil.PInt)
+  module Set = ArkUtil.Int.Set
+  module Map = ArkUtil.Int.Map
 end
 
 module Var = struct
@@ -97,8 +97,8 @@ module Var = struct
     type t = int * typ_fo [@@deriving show,ord]
   end
   include I
-  module Set = Apak.Putil.Set.Make(I)
-  module Map = Apak.Putil.Map.Make(I)
+  module Set = BatSet.Make(I)
+  module Map = BatMap.Make(I)
 end
 
 module Env = struct
@@ -149,7 +149,7 @@ type ('a,'b) open_formula = [
 exception Quit
 
 let size expr =
-  let open Apak.Putil.PInt in
+  let open ArkUtil.Int in
   let counted = ref Set.empty in
   let rec go sexpr =
     let (Node (_, children, _)) = sexpr.obj in
@@ -431,13 +431,13 @@ let rec pp_expr ?(env=Env.empty) ctx formatter expr =
   | App func, args ->
     fprintf formatter "%a(@[%a@])"
       (pp_symbol ctx) func
-      (ApakEnum.pp_print_enum_nobox (pp_expr ~env ctx)) (BatList.enum args)
+      (ArkUtil.pp_print_enum_nobox (pp_expr ~env ctx)) (BatList.enum args)
   | Var (v, typ), [] ->
     (try fprintf formatter "[%s:%d]" (Env.find env v) v
      with Not_found -> fprintf formatter "[free:%d]" v)
   | Add, terms ->
     fprintf formatter "(@[";
-    ApakEnum.pp_print_enum
+    ArkUtil.pp_print_enum
       ~pp_sep:(fun formatter () -> fprintf formatter "@ + ")
       (pp_expr ~env ctx)
       formatter
@@ -445,7 +445,7 @@ let rec pp_expr ?(env=Env.empty) ctx formatter expr =
     fprintf formatter "@])"
   | Mul, terms ->
     fprintf formatter "(@[";
-    ApakEnum.pp_print_enum
+    ArkUtil.pp_print_enum
       ~pp_sep:(fun formatter () -> fprintf formatter "@ * ")
       (pp_expr ~env ctx)
       formatter
@@ -473,7 +473,7 @@ let rec pp_expr ?(env=Env.empty) ctx formatter expr =
     fprintf formatter "!(@[%a@])" (pp_expr ~env ctx) phi
   | And, conjuncts ->
     fprintf formatter "(@[";
-    ApakEnum.pp_print_enum
+    ArkUtil.pp_print_enum
       ~pp_sep:(fun formatter () -> fprintf formatter "@ /\\ ")
       (pp_expr ~env ctx)
       formatter
@@ -481,7 +481,7 @@ let rec pp_expr ?(env=Env.empty) ctx formatter expr =
     fprintf formatter "@])"
   | Or, disjuncts ->
     fprintf formatter "(@[";
-    ApakEnum.pp_print_enum
+    ArkUtil.pp_print_enum
       ~pp_sep:(fun formatter () -> fprintf formatter "@ \\/ ")
       (pp_expr ~env ctx)
       formatter
@@ -514,7 +514,7 @@ let rec pp_expr ?(env=Env.empty) ctx formatter expr =
         List.fold_left (fun env (x,_) -> Env.push x env) env varinfo
       in
       fprintf formatter "(@[%s@ " quantifier_name;
-      ApakEnum.pp_print_enum
+      ArkUtil.pp_print_enum
         ~pp_sep:pp_print_space
         (fun formatter (name, typ) ->
            fprintf formatter "(%s : %a)" name pp_typ typ)
@@ -571,7 +571,7 @@ module ExprMap = struct
   let fold = M.fold
 end
 
-module ExprMemo = Apak.Memo.Make(Expr)
+module ExprMemo = Memo.Make(Expr)
 
 module Term = struct
   type 'a t = 'a term
@@ -637,7 +637,7 @@ module Term = struct
     | _ -> invalid_arg "destruct: not a term"
 
   let pp = pp_expr
-  let show ?(env=Env.empty) ctx t = Apak.Putil.mk_show (pp ~env ctx) t
+  let show ?(env=Env.empty) ctx t = ArkUtil.mk_show (pp ~env ctx) t
 end
 
 module Formula = struct
@@ -677,7 +677,7 @@ module Formula = struct
         alg (`Ite (eval ctx alg cond, eval ctx alg bthen, eval ctx alg belse))
 
   let pp = pp_expr
-  let show ?(env=Env.empty) ctx t = Apak.Putil.mk_show (pp ~env ctx) t
+  let show ?(env=Env.empty) ctx t = ArkUtil.mk_show (pp ~env ctx) t
 
   let existential_closure ctx phi =
     let vars = vars phi in
@@ -688,12 +688,12 @@ module Formula = struct
         Var.Set.fold (fun (v, typ) m ->
             incr n;
             types.(!n) <- typ;
-            Apak.Putil.PInt.Map.add v (mk_var ctx (!n) typ) m
+            ArkUtil.Int.Map.add v (mk_var ctx (!n) typ) m
           )
           vars
-          Apak.Putil.PInt.Map.empty
+          ArkUtil.Int.Map.empty
       in
-      fun v -> Apak.Putil.PInt.Map.find v map
+      fun v -> ArkUtil.Int.Map.find v map
     in
     Array.fold_left
       (fun psi typ -> mk_exists ctx typ psi)
@@ -702,7 +702,7 @@ module Formula = struct
 
   let skolemize_free ctx phi =
     let skolem =
-      Apak.Memo.memo (fun (i, typ) -> mk_const ctx (mk_symbol ctx typ))
+      Memo.memo (fun (i, typ) -> mk_const ctx (mk_symbol ctx typ))
     in
     let rec go sexpr =
       let (Node (label, children, _)) = sexpr.obj in
@@ -1044,7 +1044,7 @@ let rec pp_smtlib2 ?(env=Env.empty) ctx formatter expr =
       | `TyFun (args, ret) ->
         fprintf formatter "(declare-fun %s (%a) %a)@;"
           name
-          (ApakEnum.pp_print_enum ~pp_sep pp_typ_fo) (BatList.enum args)
+          (ArkUtil.pp_print_enum ~pp_sep pp_typ_fo) (BatList.enum args)
           pp_typ_fo ret
     );
 
@@ -1064,13 +1064,13 @@ let rec pp_smtlib2 ?(env=Env.empty) ctx formatter expr =
     | App func, args ->
       fprintf formatter "(%s %a)"
         (Hashtbl.find symbol_name func)
-        (ApakEnum.pp_print_enum ~pp_sep (go env)) (BatList.enum args)
+        (ArkUtil.pp_print_enum ~pp_sep (go env)) (BatList.enum args)
     | Var (v, typ), [] ->
       (try fprintf formatter "?%s_%d" (Env.find env v) v
        with Not_found -> fprintf formatter "[free:%d]" v)
     | Add, terms ->
       fprintf formatter "(+ @[";
-      ApakEnum.pp_print_enum
+      ArkUtil.pp_print_enum
         ~pp_sep
         (go env)
         formatter
@@ -1078,7 +1078,7 @@ let rec pp_smtlib2 ?(env=Env.empty) ctx formatter expr =
       fprintf formatter "@])"
     | Mul, terms ->
       fprintf formatter "(* @[";
-      ApakEnum.pp_print_enum
+      ArkUtil.pp_print_enum
         ~pp_sep
         (go env)
         formatter
@@ -1104,7 +1104,7 @@ let rec pp_smtlib2 ?(env=Env.empty) ctx formatter expr =
       fprintf formatter "(not @[%a@])" (go env) phi
     | And, conjuncts ->
       fprintf formatter "(and @[";
-      ApakEnum.pp_print_enum
+      ArkUtil.pp_print_enum
         ~pp_sep
         (go env)
         formatter
@@ -1112,7 +1112,7 @@ let rec pp_smtlib2 ?(env=Env.empty) ctx formatter expr =
       fprintf formatter "@])"
     | Or, disjuncts ->
       fprintf formatter "(or @[";
-      ApakEnum.pp_print_enum
+      ArkUtil.pp_print_enum
         ~pp_sep
         (go env)
         formatter
@@ -1145,7 +1145,7 @@ let rec pp_smtlib2 ?(env=Env.empty) ctx formatter expr =
         List.fold_left (fun env (x,_) -> Env.push x env) env varinfo
       in
       fprintf formatter "(@[%s@ (" quantifier_name;
-      ApakEnum.pp_print_enum
+      ArkUtil.pp_print_enum
         ~pp_sep
         (fun formatter (name, typ) ->
            fprintf formatter "(%s %a)" name pp_typ typ)

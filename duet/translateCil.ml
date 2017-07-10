@@ -2,6 +2,7 @@
 
 open Core
 open Expr
+open Ark
 open Apak
 open Pretty
 open Ast

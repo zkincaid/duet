@@ -2,7 +2,7 @@
 
 open Core
 open CfgIr
-open Apak
+open Ark
 open Call
 
 let emit_cfg caller callee ret params preds succs =

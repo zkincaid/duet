@@ -1,14 +1,13 @@
 open Syntax
 open BatPervasives
-open Apak
 
 include Log.Make(struct let name = "ark.iteration" end)
 
 module V = Linear.QQVector
 module QQMatrix = Linear.QQMatrix
 
-module IntSet = Putil.PInt.Set
-module IntMap = Putil.PInt.Map
+module IntSet = ArkUtil.Int.Set
+module IntMap = ArkUtil.Int.Map
 module DArray = BatDynArray
 
 module QQUvp = Polynomial.QQUvp
@@ -217,14 +216,14 @@ module WedgeVector = struct
     let ark = iter.ark in
     Format.fprintf formatter
       "{@[<v 0>pre symbols:@;  @[<v 0>%a@]@;post symbols:@;  @[<v 0>%a@]@;"
-      (ApakEnum.pp_print_enum (pp_symbol ark)) (BatList.enum iter.symbols /@ fst)
-      (ApakEnum.pp_print_enum (pp_symbol ark)) (BatList.enum iter.symbols /@ snd);
+      (ArkUtil.pp_print_enum (pp_symbol ark)) (BatList.enum iter.symbols /@ fst)
+      (ArkUtil.pp_print_enum (pp_symbol ark)) (BatList.enum iter.symbols /@ snd);
     Format.fprintf formatter "pre:@;  @[<v 0>%a@]@;post:@;  @[<v 0>%a@]@;"
       Wedge.pp iter.precondition
       Wedge.pp iter.postcondition;
     Format.fprintf formatter
       "recurrences:@;  @[<v 0>%a@;%a@]@]}"
-      (ApakEnum.pp_print_enum_nobox
+      (ArkUtil.pp_print_enum_nobox
          ~pp_sep:(fun formatter () -> Format.pp_print_break formatter 0 0)
          (fun formatter (sym', sym, incr) ->
             Format.fprintf formatter "%a = %a + %a"
@@ -232,7 +231,7 @@ module WedgeVector = struct
               (pp_symbol ark) sym
               (Term.pp ark) incr))
       (BatList.enum iter.stratified)
-      (ApakEnum.pp_print_enum_nobox
+      (ArkUtil.pp_print_enum_nobox
          ~pp_sep:(fun formatter () -> Format.pp_print_break formatter 0 0)
          (fun formatter { exp_lhs; exp_op; exp_coeff; exp_rhs; exp_add } ->
             Format.fprintf formatter "(%a) %s %a * (%a) + %a"
@@ -245,7 +244,7 @@ module WedgeVector = struct
               (Term.pp ark) exp_add))
       (BatList.enum iter.exponential)
 
-  let show x = Putil.mk_show pp x
+  let show x = ArkUtil.mk_show pp x
 
   let exponential_rec ark wedge non_induction post_symbols base =
     (* map from non-induction pre-state vars to their post-state
@@ -882,8 +881,8 @@ module WedgeMatrix = struct
     in
     Format.fprintf formatter
       "{@[<v 0>pre symbols:@;  @[<v 0>%a@]@;post symbols:@;  @[<v 0>%a@]@;"
-      (ApakEnum.pp_print_enum (pp_symbol ark)) (BatList.enum iter.symbols /@ fst)
-      (ApakEnum.pp_print_enum (pp_symbol ark)) (BatList.enum iter.symbols /@ snd);
+      (ArkUtil.pp_print_enum (pp_symbol ark)) (BatList.enum iter.symbols /@ fst)
+      (ArkUtil.pp_print_enum (pp_symbol ark)) (BatList.enum iter.symbols /@ snd);
     Format.fprintf formatter "pre:@;  @[<v 0>%a@]@;post:@;  @[<v 0>%a@]@;recurrences:@;  @[<v 0>"
       Wedge.pp iter.precondition
       Wedge.pp iter.postcondition;
@@ -897,7 +896,7 @@ module WedgeMatrix = struct
     pp_rec "<=" offset formatter iter.rec_leq;
     Format.fprintf formatter "@]@]}"
 
-  let show x = Putil.mk_show pp x
+  let show x = ArkUtil.mk_show pp x
 
   (* Are most coefficients of a vector negative? *)
   let is_vector_negative vec =
@@ -1156,7 +1155,7 @@ module WedgeMatrix = struct
          rows of [-A B C].  *)
       logf "Polyhedron: %a"
         (Abstract0.print
-           ((Apak.Putil.mk_show (Term.pp ark)) % CS.term_of_coordinate cs))
+           ((ArkUtil.mk_show (Term.pp ark)) % CS.term_of_coordinate cs))
         polyhedron;
       let constraints = DArray.create () in
       Abstract0.to_lincons_array man polyhedron
@@ -1780,9 +1779,9 @@ module Split (Iter : DomainPlus) = struct
         Iter.pp right
     in
     Format.fprintf formatter "<Split @[<v 0>%a@]>"
-      (ApakEnum.pp_print_enum pp_elt) (ExprMap.enum split_iter.split)
+      (ArkUtil.pp_print_enum pp_elt) (ExprMap.enum split_iter.split)
 
-  let show x = Putil.mk_show pp x
+  let show x = ArkUtil.mk_show pp x
 
   (* Lower a split iter into an iter by picking an arbitary split and joining
      both sides. *)

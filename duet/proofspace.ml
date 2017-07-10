@@ -33,7 +33,7 @@ module IV = struct
       if Var.is_shared var then Var.pp formatter var
       else Format.fprintf formatter "%a[#%d]" Var.pp var i
 
-    let show = Putil.mk_show pp
+    let show = ArkUtil.mk_show pp
 
     let equal x y = compare x y = 0
     let hash (v, i) = Hashtbl.hash (Var.hash v, i)
@@ -104,7 +104,7 @@ module Block = struct
     | `Fork thread -> Format.fprintf formatter "fork(%a)" Varinfo.pp thread
     | `Transition tr -> Tr.pp formatter tr
 
-  let show x = Putil.mk_show pp x
+  let show x = ArkUtil.mk_show pp x
 
   let default = `Transition Tr.one
 end
@@ -428,7 +428,7 @@ let generalize i phi psi =
     PaFormula.big_conj
       (BatEnum.append
          (BatList.enum props)
-         (ApakEnum.distinct_pairs vars /@ mk_eq))
+         (ArkUtil.distinct_pairs vars /@ mk_eq))
   in
   (subst, gen_phi, rhs)
 
@@ -480,7 +480,7 @@ let construct solver assign_table trace =
         Log.logf
           "Added PA transition:@\n @[{%a}(%a)@]@\n --( [#0] %a )-->@\n @[%a@]"
           P.pp lhs
-          (ApakEnum.pp_print_enum Format.pp_print_int) (1 -- lhs_arity)
+          (ArkUtil.pp_print_enum Format.pp_print_int) (1 -- lhs_arity)
           Letter.pp letter
           PA.pp_formula rhs;
         E.conjoin_transition solver lhs letters (negate_paformula rhs)

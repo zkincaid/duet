@@ -1,9 +1,7 @@
-open Apak
-
 type t = Mpzf.t
 
 let pp = Mpzf.print
-let show = Putil.mk_show pp
+let show = ArkUtil.mk_show pp
 
 let hash x = Hashtbl.hash (Mpzf.to_string x)
 

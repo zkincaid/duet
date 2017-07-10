@@ -1,3 +1,5 @@
+open Ark
+
 (** Persistent, dynamic array *)
 module Array = struct
   type 'a t = 'a data ref
@@ -300,7 +302,7 @@ module DisjointSet = struct
       List.iter pp_elt (to_list ds);
       Format.pp_close_box formatter ()
 
-    let show = Putil.mk_show pp
+    let show = ArkUtil.mk_show pp
 
     let iter f ds = Map.iter (fun s _ -> f s) ds.map
     let fold f ds x = Map.fold (fun s _ -> f s) ds.map x

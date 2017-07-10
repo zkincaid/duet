@@ -1,3 +1,5 @@
+open Ark
+
 module type G = sig
   include Graph.Sig.G
   val vertices : t -> V.t BatEnum.t
@@ -1571,7 +1573,7 @@ module Display = struct
       include D
       include G
       let vertex_name x =
-        "\"" ^ (String.escaped ((Putil.mk_show S.pp) x)) ^ "\""
+        "\"" ^ (String.escaped ((ArkUtil.mk_show S.pp) x)) ^ "\""
       let get_subgraph v =  None
       let default_vertex_attributes _ = []
       let default_edge_attributes _ = []
@@ -1596,7 +1598,7 @@ module Display = struct
       let graph_attributes _ = []
       let vertex_attributes _ = []
       let edge_attributes e =
-        [`Label (String.escaped ((Putil.mk_show Show_edge.pp) (G.E.label e)))]
+        [`Label (String.escaped ((ArkUtil.mk_show Show_edge.pp) (G.E.label e)))]
     end)
 
   module MakeStructural (G : G) = struct
@@ -1780,6 +1782,6 @@ module Build = struct
       BatEnum.fold
         add_edge
         g
-        (ApakEnum.cartesian_product predecessors successors)
+        (ArkUtil.cartesian_product predecessors successors)
   end
 end

@@ -1,10 +1,9 @@
-open Apak
 type t = Mpqf.t
 
 let opt_default_accuracy = ref (-1)
 
 let pp = Mpqf.print
-let show = Putil.mk_show pp
+let show = ArkUtil.mk_show pp
 
 let compare = Mpqf.cmp
 let equal = Mpqf.equal
