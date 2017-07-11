@@ -3,8 +3,8 @@ import sys
 
 universe = int(sys.argv[1])
 predicates = int(sys.argv[2])
-p_predicate = float(sys.argv[3])/predicates
-p_edge = float(sys.argv[4])/universe
+p_predicate = float(sys.argv[3])
+p_edge = float(sys.argv[4])
 
 comma = False
 sys.stdout.write("{")
