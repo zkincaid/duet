@@ -873,7 +873,6 @@ let blk_preds = ref []
   let node_kind = ((Swig.invoke point) "get_kind" (Swig.C_void)) in
   let node_kind_str = (Swig.get_string ((Swig.invoke node_kind) "as_string" (Swig.C_void))) in
   if ((String.compare node_kind_str "control-point") = 0) then begin
-    Printf.printf "Control_point\n";
     let cond_ast = ((Swig.invoke point) "get_ast" (Cs._ast_family_C_NORMALIZED(Swig.C_void))) in
     let cond_class = ((Swig.invoke cond_ast) "get_class" (Swig.C_void)) in
     let cond_class_str = (Swig.get_string ((Swig.invoke cond_class) "as_string" (Swig.C_void))) in
