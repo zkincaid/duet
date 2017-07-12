@@ -148,6 +148,33 @@ type ('a,'b) open_formula = [
 
 exception Quit
 
+class type ['a] smt_model = object
+  method eval_int : 'a term -> ZZ.t
+  method eval_real : 'a term -> QQ.t
+  method eval_fun : symbol -> ('a, typ_fo) expr
+  method sat :  'a formula -> bool
+  method to_string : unit -> string
+end
+
+class type ['a] smt_solver = object
+  method add : ('a formula) list -> unit
+  method push : unit -> unit
+  method pop : int -> unit
+  method reset : unit -> unit
+  method check : ('a formula) list -> [ `Sat | `Unsat | `Unknown ]
+  method to_string : unit -> string
+  method get_model : unit -> [ `Sat of 'a smt_model | `Unsat | `Unknown ]
+  method get_unsat_core : ('a formula) list ->
+    [ `Sat | `Unsat of ('a formula) list | `Unknown ]
+end
+
+type 'a context =
+  { hashcons : HC.t;
+    symbols : (string * typ) DynArray.t;
+    named_symbols : (string,int) Hashtbl.t;
+    mk : label -> (sexpr hobj) list -> sexpr hobj;
+  }
+
 let size expr =
   let open ArkUtil.Int in
   let counted = ref Set.empty in
@@ -161,13 +188,6 @@ let size expr =
     end
   in
   go expr
-
-type 'a context =
-  { hashcons : HC.t;
-    symbols : (string * typ) DynArray.t;
-    named_symbols : (string,int) Hashtbl.t;
-    mk : label -> (sexpr hobj) list -> sexpr hobj
-  }
 
 let mk_symbol ctx ?(name="K") typ =
   DynArray.add ctx.symbols (name, typ);
@@ -370,6 +390,27 @@ let vars sexpr =
       (List.map (go depth) children)
   in
   go 0 sexpr
+
+let free_vars sexpr =
+  let table = BatHashtbl.create 991 in
+  let add_var v typ =
+    if BatHashtbl.mem table v then
+      (if not (BatHashtbl.find table v = typ) then
+         invalid_arg "free_vars: ill-formed expression")
+    else
+      BatHashtbl.add table v typ
+  in
+  let rec go depth sexpr =
+    let Node (label, children, _) = sexpr.obj in
+    match label with
+    | Exists (_, _) | Forall (_, _) ->
+      List.iter (go (depth + 1)) children
+    | Var (v, typ) when v >= depth ->
+      add_var (v - depth) typ
+    | _ -> List.iter (go depth) children
+  in
+  go 0 sexpr;
+  table
 
 let refine ctx sexpr =
   match sexpr.obj with
@@ -679,7 +720,7 @@ module Formula = struct
   let pp = pp_expr
   let show ?(env=Env.empty) ctx t = ArkUtil.mk_show (pp ~env ctx) t
 
-  let existential_closure ctx phi =
+  let quantify_closure quantify ctx phi =
     let vars = vars phi in
     let types = Array.make (Var.Set.cardinal vars) `TyInt in
     let rename =
@@ -696,9 +737,12 @@ module Formula = struct
       fun v -> ArkUtil.Int.Map.find v map
     in
     Array.fold_left
-      (fun psi typ -> mk_exists ctx typ psi)
+      (fun psi typ -> quantify typ psi)
       (substitute ctx rename phi)
       types
+
+  let existential_closure ctx = quantify_closure (mk_exists ctx) ctx
+  let universal_closure ctx = quantify_closure (mk_forall ctx) ctx
 
   let skolemize_free ctx phi =
     let skolem =
@@ -1392,24 +1436,4 @@ module MakeSimplifyingContext () = struct
       type t = unit
       let context = context
     end)
-end
-
-class type ['a] smt_model = object
-  method eval_int : 'a term -> ZZ.t
-  method eval_real : 'a term -> QQ.t
-  method eval_fun : symbol -> ('a, typ_fo) expr
-  method sat :  'a formula -> bool
-  method to_string : unit -> string
-end
-
-class type ['a] smt_solver = object
-  method add : ('a formula) list -> unit
-  method push : unit -> unit
-  method pop : int -> unit
-  method reset : unit -> unit
-  method check : ('a formula) list -> [ `Sat | `Unsat | `Unknown ]
-  method to_string : unit -> string
-  method get_model : unit -> [ `Sat of 'a smt_model | `Unsat | `Unknown ]
-  method get_unsat_core : ('a formula) list ->
-    [ `Sat | `Unsat of ('a formula) list | `Unknown ]
 end
