@@ -1,5 +1,4 @@
 open Syntax
-open Apak
 open BatPervasives
 
 include Log.Make(struct let name = "ark.transition" end)
@@ -29,18 +28,16 @@ struct
     { transform : (C.t term) M.t;
       guard : C.t formula }
 
-  type iter = C.t Iteration.Split.split_iter
-
   let compare x y =
     match Formula.compare x.guard y.guard with
-    | 0 -> M.compare Term.compare x.transform x.transform
-    | x -> x
+    | 0 -> M.compare Term.compare x.transform y.transform
+    | cmp -> cmp
 
   let ark = C.context
 
   let pp formatter tr =
     Format.fprintf formatter "{@[<v 0>";
-    ApakEnum.pp_print_enum_nobox
+    ArkUtil.pp_print_enum_nobox
        ~pp_sep:(fun formatter () -> Format.pp_print_break formatter 0 0)
        (fun formatter (lhs, rhs) ->
           Format.fprintf formatter "%a := @[%a@]"
@@ -57,7 +54,7 @@ struct
     end;
     Format.fprintf formatter "@]}"
 
-  let show = Apak.Putil.mk_show pp
+  let show = ArkUtil.mk_show pp
 
   let construct guard assignment =
     { transform =
@@ -149,18 +146,19 @@ struct
     in
     { guard; transform }
 
-  module Iter = struct
+  (* Canonical names for post-state symbols.  Having canonical names
+     simplifies equality testing and widening. *)
+  let post_symbol =
+    Memo.memo (fun sym ->
+        match Var.of_symbol sym with
+        | Some var ->
+          mk_symbol ark ~name:(Var.show var ^ "'") (Var.typ var :> typ)
+        | None -> assert false)
 
-    (* Canonical names for post-state symbols.  Having canonical names
-       simplifies equality testing and widening. *)
-    let post_symbol =
-      Memo.memo (fun sym ->
-          match Var.of_symbol sym with
-          | Some var ->
-            mk_symbol ark ~name:(Var.show var ^ "'") (Var.typ var :> typ)
-          | None -> assert false)
+  module Iter(D : Iteration.Domain) = struct
+    type iter = C.t D.t
 
-    let alpha ?(split=true) tr =
+    let alpha tr =
       let (tr_symbols, post_def) =
         M.fold (fun var term (symbols, post_def) ->
             let pre_sym = Var.symbol_of var in
@@ -183,11 +181,10 @@ struct
           | Some _ -> true
           | None -> Symbol.Set.mem x post_symbols
       in
-      if split then
-        Iteration.Split.abstract_iter ~exists ark (mk_and ark (tr.guard::post_def)) tr_symbols
-      else
-        Iteration.abstract_iter ~exists ark (mk_and ark (tr.guard::post_def)) tr_symbols
-        |> Iteration.Split.lift_split
+      let body =
+        ArkSimplify.simplify_terms ark (mk_and ark (tr.guard::post_def))
+      in
+      D.abstract_iter ~exists ark body tr_symbols
 
     let closure iter =
       let transform =
@@ -196,24 +193,18 @@ struct
             | Some v -> M.add v (mk_const ark post) tr
             | None -> assert false)
           M.empty
-          (Iteration.Split.tr_symbols iter)
+          (D.tr_symbols iter)
       in
       { transform = transform;
-        guard = Iteration.Split.closure iter }
+        guard = D.closure iter }
 
-    let join = Iteration.Split.join
-
-    let widen = Iteration.Split.widen
-
-    let equal = Iteration.Split.equal
-
-    let pp = Iteration.Split.pp_split_iter
-
-    let show = Iteration.Split.show_split_iter
+    let join = D.join
+    let widen = D.widen
+    let equal = D.equal
+    let pp = D.pp
+    let show = D.show
+    let star = closure % alpha
   end
-
-  let star ?(split=true) tr =
-    Iter.closure (Iter.alpha ~split tr)
 
   let zero =
     { transform = M.empty; guard = mk_false ark }
@@ -233,8 +224,8 @@ struct
 
   let widen x y =
     (* Introduce fresh symbols for variables in the transform of x/y, then
-       abstract x and y to a cube over pre-symbols and these fresh symbols.
-       Widen in the cube domain, then covert back to a formula. *)
+       abstract x and y to a wedge over pre-symbols and these fresh symbols.
+       Widen in the wedge domain, then covert back to a formula. *)
     let (transform, post_sym) =
       let add (map, post) var =
         if M.mem var map then
@@ -254,7 +245,7 @@ struct
       | Some v -> true
       | None -> Symbol.Set.mem sym post_sym
     in
-    let to_cube z =
+    let to_wedge z =
       let eqs =
         M.fold (fun var term eqs ->
             let term' =
@@ -268,11 +259,11 @@ struct
           []
       in
       mk_and ark (z.guard::eqs)
-      |> Abstract.abstract_nonlinear ~exists ark
+      |> Wedge.abstract ~exists ark
     in
     let guard =
-      Cube.widen (to_cube x) (to_cube y)
-      |> Cube.to_formula
+      Wedge.widen (to_wedge x) (to_wedge y)
+      |> Wedge.to_formula
     in
     { transform; guard }
 
@@ -282,15 +273,15 @@ struct
     else widen x y
 
   (* alpha equivalence - only works for normalized transitions! *)
+  exception Not_normal
   let equiv x y =
-    try (
     let sigma =
       let map =
         M.fold (fun v rhs m ->
             match Term.destruct ark rhs,
                   Term.destruct ark (M.find v y.transform) with
             | `App (a, []), `App (b, []) -> Symbol.Map.add a (mk_const ark b) m
-            | _, _ -> assert false)
+            | _ -> raise Not_normal)
           x.transform
           Symbol.Map.empty
       in
@@ -299,10 +290,15 @@ struct
         with Not_found -> mk_const ark sym
     in
     let x_guard = substitute_const ark sigma x.guard in
-    match Smt.is_sat ark (mk_not ark (mk_iff ark x_guard y.guard)) with
+    let equiv = ArkSimplify.simplify_terms ark (mk_iff ark x_guard y.guard) in
+    match Wedge.is_sat ark (mk_not ark equiv) with
     | `Unsat -> true
-    | _ -> false)
-    with Not_found -> false
+    | _ -> false
+
+  let equiv x y =
+    try equiv x y
+    with | Not_found -> false
+         | Not_normal -> false
 
   let equal x y = compare x y = 0 || equiv x y
   let exists p tr =

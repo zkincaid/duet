@@ -1,3 +1,4 @@
+open Ark
 let load_path       = ref ["."]
 let temp_dir        = ref (None : string option)
 
@@ -7,18 +8,6 @@ let set_temp_dir str = temp_dir := Some str
 include BatEnum.Infix
 include BatPervasives
 module List = BatList
-
-let mk_show pp x =
-  let b = Buffer.create 16 in
-  let formatter = Format.formatter_of_buffer b in
-  Format.fprintf formatter "@[<hov 0>%a@]@?" pp x;
-  Buffer.sub b 0 (Buffer.length b)
-
-let pp_print_list pp_elt formatter xs =
-  let sep formatter () = Format.fprintf formatter ";@ " in
-  Format.fprintf formatter "[%a]"
-    (ApakEnum.pp_print_enum ~pp_sep:sep pp_elt)
-    (BatList.enum xs)
 
 module type S =
 sig
@@ -81,8 +70,8 @@ module Set = struct
 
     let pp formatter set =
       Format.fprintf formatter "{@[%a@]}"
-        (ApakEnum.pp_print_enum Ord.pp) (enum set)
-    let show = mk_show pp
+        (ArkUtil.pp_print_enum Ord.pp) (enum set)
+    let show = ArkUtil.mk_show pp
   end
 end
 
@@ -133,7 +122,7 @@ module Map = struct
           pp_val value;
       in
       Format.fprintf formatter "[@[%a@]]"
-        (ApakEnum.pp_print_enum pp_elt) (enum map)
+        (ArkUtil.pp_print_enum pp_elt) (enum map)
   end
 end
 
@@ -197,8 +186,8 @@ module MonoMap = struct
           Val.pp value;
       in
       Format.fprintf formatter "[@[%a@]]"
-        (ApakEnum.pp_print_enum pp_elt) (M.enum map)
-    let show = mk_show pp
+        (ArkUtil.pp_print_enum pp_elt) (M.enum map)
+    let show = ArkUtil.mk_show pp
   end
 
   module Ordered = struct
@@ -249,7 +238,7 @@ module TotalFunction = struct
       Format.fprintf format "{@[map: %a;@ default: %a@]}"
         (M.pp Codomain.pp) map.map
         Codomain.pp map.default
-    let show = mk_show pp
+    let show = ArkUtil.mk_show pp
 
     let equal f g =
       Codomain.equal f.default g.default
@@ -414,7 +403,7 @@ module MakeCoreType (M : CoreTypeBasis) = struct
     let equal x y = compare x y = 0
   end
   include AM
-  let show = mk_show pp
+  let show = ArkUtil.mk_show pp
   module HT = BatHashtbl.Make(AM)
   module Map = Map.Make(M)
   module Set = Hashed.Set.Make(AM)

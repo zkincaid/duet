@@ -6,8 +6,56 @@ open BatPervasives
 
 module RG = Interproc.RG
 module G = RG.G
+module Ctx = Syntax.MakeSimplifyingContext ()
+let ark = Ctx.context
 
 include Log.Make(struct let name = "cra" end)
+
+let forward_inv_gen = ref false
+let use_ocrs = ref false
+let split_loops = ref false
+let matrix_rec = ref false
+let dump_goals = ref false
+let nb_goals = ref 0
+
+let dump_goal loc path_condition =
+  if !dump_goals then begin
+    let filename =
+      Format.sprintf "%s%d-line%d.smt2"
+        (Filename.chop_extension (Filename.basename loc.Cil.file))
+        (!nb_goals)
+        loc.Cil.line
+    in
+    let chan = Pervasives.open_out filename in
+    let formatter = Format.formatter_of_out_channel chan in
+    logf ~level:`always "Writing goal formula to %s" filename;
+    Syntax.pp_smtlib2 ark formatter path_condition;
+    Format.pp_print_newline formatter ();
+    Pervasives.close_out chan;
+    incr nb_goals
+  end
+
+let _ =
+  CmdLine.register_config
+    ("-cra-forward-inv",
+     Arg.Set forward_inv_gen,
+     " Forward invariant generation");
+  CmdLine.register_config
+    ("-cra-split-loops",
+     Arg.Set split_loops,
+     " Turn on loop splitting");
+  CmdLine.register_config
+    ("-use-ocrs",
+     Arg.Set use_ocrs,
+     " Use OCRS for recurrence solving");
+  CmdLine.register_config
+    ("-cra-matrix",
+     Arg.Set matrix_rec,
+     "  Matrix recurrences");
+  CmdLine.register_config
+    ("-dump-goals",
+     Arg.Set dump_goals,
+     " Output goal assertions in SMTLIB2 format")
 
 (* Decorate the program with numerical invariants *)
 
@@ -32,11 +80,6 @@ module MakeDecorator(M : sig
       | Deref _ -> true
     let safe_cyl av aps = I.cyl (I.inject av aps) aps
     let transfer _ flow_in def =
-(*
-      Log.logf 0 "Transfer: %a" Def.format def;
-      let flow_in_i = I.inject flow_in (Def.get_uses def) in
-      Log.logf 0 "Input: %a" I.format flow_in_i;
-*)
       let res = 
         match def.dkind with
         | Call (None, AddrOf (Variable (func, OffsetFixed 0)), []) ->
@@ -111,6 +154,7 @@ module MakeDecorator(M : sig
         let value = NumAnalysis.output result v in
         let bexpr = ApronI.bexpr_of_av value in
         let def = Def.mk (Assume bexpr) in
+        logf "Found invariant at %a: %a" Def.pp v ApronI.pp value;
         G.split body v ~pred:v ~succ:def
       in
       BatEnum.fold f body (enum_loop_headers body)
@@ -142,7 +186,14 @@ let tr_typ typ = match resolve_type typ with
   | Pointer _ -> `TyInt
   | Enum _ -> `TyInt
   | Array _ -> `TyInt
-  | Dynamic -> `TyReal
+  | Dynamic ->
+    (* TODO : we should conservatively translate Dynamic as a real, but SMT
+       solvers struggled with the resulting mixed int/real constraints.  To
+       make this sound we should do a type analysis to determine when a
+       dynamic type can be narrowed to an int.  The main place this comes up
+       is in formal parameters, which are typed dynamic to make indirect calls
+       easier to handle. *)
+    `TyInt
   | _ -> `TyInt
 
 type value =
@@ -168,8 +219,6 @@ let map_value f = function
   | VPos v -> VPos (f v)
   | VWidth v -> VWidth (f v)
 
-module Ctx = Syntax.MakeSimplifyingContext ()
-
 module V = struct
 
   module I = struct
@@ -178,7 +227,7 @@ module V = struct
       | VVal v -> Var.pp formatter v
       | VWidth v -> Format.fprintf formatter "%a@@width" Var.pp v
       | VPos v -> Format.fprintf formatter "%a@@pos" Var.pp v
-    let show = Putil.mk_show pp
+    let show = ArkUtil.mk_show pp
     let equal x y = compare x y = 0
     let hash = function
       | VVal v -> Hashtbl.hash (Var.hash v, 0)
@@ -211,8 +260,50 @@ end
 
 module K = struct
   include Transition.Make(Ctx)(V)
+  module DPoly = struct
+    module WV = Iteration.WedgeVector
+    module SplitWV = Iteration.Split(WV)
+    include Iteration.Sum(WV)(SplitWV)
+    let abstract_iter ?(exists=fun x -> true) ark phi symbols =
+      if !split_loops then
+        right (SplitWV.abstract_iter ~exists ark phi symbols)
+      else
+        left (WV.abstract_iter ~exists ark phi symbols)
+  end
+  module DOcrs = struct
+    module WV = Iteration.WedgeVectorOCRS
+    module SplitWV = Iteration.Split(WV)
+    include Iteration.Sum(WV)(SplitWV)
+    let abstract_iter ?(exists=fun x -> true) ark phi symbols =
+      if !split_loops then
+        right (SplitWV.abstract_iter ~exists ark phi symbols)
+      else
+        left (WV.abstract_iter ~exists ark phi symbols)
+  end
+  module DMatrix = struct
+    module WM = Iteration.WedgeMatrix
+    module SplitWM = Iteration.Split(WM)
+    include Iteration.Sum(WM)(SplitWM)
+    let abstract_iter ?(exists=fun x -> true) ark phi symbols =
+      if !split_loops then
+        right (SplitWM.abstract_iter ~exists ark phi symbols)
+      else
+        left (WM.abstract_iter ~exists ark phi symbols)
+  end
+  module D = struct
+    module Vec = Iteration.Sum(DPoly)(DOcrs)
+    include Iteration.Sum(Vec)(DMatrix)
+    let abstract_iter ?(exists=fun x -> true) ark phi symbols =
+      if !matrix_rec then
+        right (DMatrix.abstract_iter ~exists ark phi symbols)
+      else if !use_ocrs then
+        left (Vec.right (DOcrs.abstract_iter ~exists ark phi symbols))
+      else
+        left (Vec.left (DPoly.abstract_iter ~exists ark phi symbols))
+  end
+  module I = Iter(D)
 
-  let star x = Log.time "cra:star" star x
+  let star x = Log.time "cra:star" I.star x
 
   let add x y =
     if is_zero x then y
@@ -392,14 +483,6 @@ let weight def =
     Log.errorf "No translation for definition: %a" Def.pp def;
     assert false
 
-let forward_inv_gen = ref false
-
-let _ =
-  CmdLine.register_config
-    ("-cra-forward-inv",
-     Arg.Set forward_inv_gen,
-     " Forward invariant generation")
-
 let analyze file =
   match file.entry_points with
   | [main] -> begin
@@ -409,31 +492,16 @@ let analyze file =
         then Log.phase "Forward invariant generation" decorate rg
         else rg
       in
-
-      (*    BatEnum.iter (Interproc.RGD.display % snd) (RG.bodies rg);*)
-
-      let local func_name =
-        if defined_function func_name (get_gfile()) then begin
-          let func = lookup_function func_name (get_gfile()) in
-          let vars =
-            Varinfo.Set.remove (return_var func_name)
-              (Varinfo.Set.of_enum
-                 (BatEnum.append
-                    (BatList.enum func.formals)
-                    (BatList.enum func.locals)))
-          in
-          logf "Locals for %a: %a"
-            Varinfo.pp func_name
-            Varinfo.Set.pp vars;
-          fun x -> (Varinfo.Set.mem (fst (var_of_value x)) vars)
-        end else (fun _ -> false)
-      in
+(*
+      BatEnum.iter (Interproc.RGD.display % snd) (RG.bodies rg);
+*)
+      let local _ v = not (Var.is_global (var_of_value v)) in
       let query = A.mk_query rg weight local main in
       let is_assert def = match def.dkind with
         | Assert (_, _) | AssertMemSafe _ -> true
         | _             -> false
       in
-        let check_assert def path =
+      let check_assert def path =
         match def.dkind with
         | AssertMemSafe (expr, msg) -> begin
             match tr_expr expr with
@@ -457,9 +525,10 @@ let analyze file =
 
                 let path_condition =
                   Ctx.mk_and [K.guard path; Ctx.mk_not phi]
+                  |> ArkSimplify.simplify_terms ark
                 in
-
-                match Smt.is_sat Ctx.context path_condition with
+                dump_goal (Def.get_location def) path_condition;
+                match Wedge.is_sat Ctx.context path_condition with
                 | `Sat -> Report.log_error (Def.get_location def) msg
                 | `Unsat -> Report.log_safe ()
                 | `Unknown ->
@@ -478,10 +547,11 @@ let analyze file =
             let phi = Syntax.substitute_const Ctx.context sigma phi in
             let path_condition =
               Ctx.mk_and [K.guard path; Ctx.mk_not phi]
+              |> ArkSimplify.simplify_terms ark
             in
-            logf "Path condition:@\n%a" (Syntax.Formula.pp Ctx.context) path_condition;
-
-            begin match Smt.is_sat Ctx.context path_condition with
+            logf "Path condition:@\n%a" (Syntax.pp_smtlib2 Ctx.context) path_condition;
+            dump_goal (Def.get_location def) path_condition;
+            begin match Wedge.is_sat Ctx.context path_condition with
               | `Sat -> Report.log_error (Def.get_location def) msg
               | `Unsat -> Report.log_safe ()
               | `Unknown ->
@@ -498,6 +568,78 @@ let analyze file =
     end
   | _ -> assert false
 
+let resource_bound_analysis file =
+  match file.entry_points with
+  | [main] -> begin
+      let rg = Interproc.make_recgraph file in
+      let rg =
+        if !forward_inv_gen
+        then Log.phase "Forward invariant generation" decorate rg
+        else rg
+      in
+
+      let local _ v = not (Var.is_global (var_of_value v)) in
+      let query = A.mk_query rg weight local main in
+      let cost =
+        let open CfgIr in
+        let file = get_gfile () in
+        let is_cost v = (Varinfo.show v) = "__cost" in
+        try
+          VVal (Var.mk (List.find is_cost file.vars))
+        with Not_found ->
+          Log.fatalf "Could not find __cost variable"
+      in
+      let cost_symbol = V.symbol_of cost in
+      let exists x =
+        match V.of_symbol x with
+        | Some v -> Var.is_global (var_of_value v)
+        | None -> false
+      in
+
+      A.HT.iter (fun procedure summary ->
+          if K.mem_transform cost summary then begin
+            logf ~level:`always "Procedure: %a" Varinfo.pp procedure;
+            (* replace cost with 0, add constraint cost = rhs *)
+            let guard =
+              let subst x =
+                if x = cost_symbol then
+                  Ctx.mk_real QQ.zero
+                else
+                  Ctx.mk_const x
+              in
+              let rhs =
+                Syntax.substitute_const ark subst (K.get_transform cost summary)
+              in
+              Ctx.mk_and [Syntax.substitute_const ark subst (K.guard summary);
+                          Ctx.mk_eq (Ctx.mk_const cost_symbol) rhs ]
+            in
+            let (lower, upper) =
+              Wedge.symbolic_bounds_formula ~exists ark guard cost_symbol
+            in
+            begin match lower with
+              | Some lower ->
+                logf ~level:`always "%a <= cost" (Syntax.Term.pp ark) lower;
+                logf ~level:`always "%a is o(%a)"
+                  Varinfo.pp procedure
+                  BigO.pp (BigO.of_term ark lower)
+              | None -> ()
+            end;
+            begin match upper with
+              | Some upper ->
+                logf ~level:`always "cost <= %a" (Syntax.Term.pp ark) upper;
+                logf ~level:`always "%a is O(%a)"
+                  Varinfo.pp procedure
+                  BigO.pp (BigO.of_term ark upper)
+              | None -> ()
+            end
+          end else
+            logf ~level:`always "Procedure %a has zero cost" Varinfo.pp procedure)
+        (A.get_summaries query)
+    end
+  | _ -> assert false
+
 let _ =
   CmdLine.register_pass
-    ("-cra", analyze, " Compositional recurrence analysis")
+    ("-cra", analyze, " Compositional recurrence analysis");
+  CmdLine.register_pass
+    ("-rba", resource_bound_analysis, " Resource bound analysis")

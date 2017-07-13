@@ -1,6 +1,5 @@
 open Pervasives
 open BatPervasives
-open Apak
 
 module type Element = sig
   type t

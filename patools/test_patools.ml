@@ -1,5 +1,5 @@
 open OUnit
-open Apak
+open Ark
 open Patop
 
 module Struct = Patop.A.Config
@@ -27,7 +27,7 @@ let models () =
   let msg =
     Format.asprintf "%a |= %a"
       Struct.pp m
-      (F.pp Putil.PString.pp Putil.PInt.pp) phi
+      (F.pp Format.pp_print_string Format.pp_print_int) phi
   in
   assert_bool msg (Struct.models m phi)
 
@@ -40,7 +40,7 @@ let min_models () =
     let msg =
       Format.asprintf "%a |= %a"
         Struct.pp m
-        (F.pp Putil.PString.pp Putil.PInt.pp) phi
+        (F.pp Format.pp_print_string Format.pp_print_int) phi
     in
     assert_bool msg (Struct.models m phi)
   in
@@ -63,7 +63,7 @@ let bounded_check_post pa phi =
         A.succs pa config (alpha, i)
       in
       let all_succs =
-        (ApakEnum.cartesian_product
+        (ArkUtil.cartesian_product
            (Struct.min_models size phi)
            (1 -- size))
         /@ succs

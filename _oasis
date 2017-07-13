@@ -12,8 +12,8 @@ Library apak
   Path:             apak
   FindlibName:      apak
   Pack:             true
-  Modules:          DisjointSet, Dll, Enumeration, EvalLink, ExtGraph, Fixpoint,Ka, Lattice, Log, Loop, Memo, Monoid, Pathexp, Persistent, RecGraph, Semilattice, Sese, Sig, Tagged, Putil
-  BuildDepends:     ppx_deriving, ppx_deriving.show, ppx_deriving.ord, batteries, ocamlgraph
+  Modules:          Dll, Enumeration, EvalLink, ExtGraph, Fixpoint,Ka, Lattice, Loop, Monoid, Pathexp, Persistent, RecGraph, Semilattice, Sese, Sig, Tagged, Putil
+  BuildDepends:     batteries, ppx_deriving, ppx_deriving.show, ppx_deriving.ord, ocamlgraph, Z3, mathsat, ark
   Install:          false
   XMETADescription: Algebraic Program Analysis Kit
 
@@ -21,15 +21,16 @@ Executable test_apak
   Build$:       flag(tests)
   Path:         apak
   MainIs:       test_apak.ml
-  BuildDepends: ppx_deriving, ppx_deriving.show, ppx_deriving.ord, batteries, ocamlgraph, oUnit
+  BuildDepends: batteries, ppx_deriving, ppx_deriving.show, ppx_deriving.ord, ocamlgraph, Z3, mathsat, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, ark, oUnit
+  CompiledObject: native
   Install:      false
 
-Library "ark"
+Library ark
   Path:             ark
   FindlibName:      ark
   Pack:             true
-  Modules:  QQ, ZZ, Syntax, Interval, Smt, ArkZ3, ArkMathsat, Linear, Polynomial, Interpretation, ArkApron, Polyhedron, Cube, Abstract, Quantifier, Iteration, Transition
-  BuildDepends:     ppx_deriving, ppx_deriving.show, ppx_deriving.ord, apak, gmp, camlidl, apron, Z3, mathsat
+  Modules:  ArkUtil, Log, DisjointSet, Memo, QQ, ZZ, Syntax, Interval, Smt, ArkZ3, ArkMathsat, Linear, Polynomial, Interpretation, ArkApron, Polyhedron, ArkSimplify, Abstract, Nonlinear, CoordinateSystem, Wedge, Quantifier, Iteration, Transition, BigO
+  BuildDepends:     batteries, ppx_deriving, ppx_deriving.show, ppx_deriving.ord, gmp, camlidl, apron, Z3, mathsat, ocrs
   Install:         false
   XMETADescription: Arithmetic Reasoning Kit
 
@@ -37,7 +38,7 @@ Executable test_ark
   Build$:         flag(tests)
   Path:           ark
   MainIs:         test_ark.ml
-  BuildDepends:   ppx_deriving, ppx_deriving.ord, apak, gmp, camlidl, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, oUnit, mathsat
+  BuildDepends:   batteries, ppx_deriving, ppx_deriving.ord, gmp, camlidl, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, oUnit, mathsat, ocrs
   CompiledObject: native
   Install:        false
 
@@ -45,7 +46,7 @@ Executable arktop
   Build$:         flag(tests)
   Path:           ark
   MainIs:         arkTop.ml
-  BuildDepends:   ppx_deriving, ppx_deriving.ord, apak, gmp, camlidl, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, mathsat
+  BuildDepends:   batteries, ppx_deriving, ppx_deriving.ord, gmp, camlidl, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, mathsat, ocrs
   CompiledObject: native
   Install:        false
 
@@ -64,21 +65,20 @@ Library pa
   Pack: true
   FindlibName:      pa
   InternalModules:  PaSmt, PaFormula, Struct, PredicateAutomata, Matching
-  BuildDepends: ppx_deriving, ppx_deriving.show, ppx_deriving.ord, apak, Z3, matchingCC
+  BuildDepends: ppx_deriving, ppx_deriving.show, ppx_deriving.ord, ark, Z3, matchingCC
   Install:          false
   XMETADescription: Predicate Automata tools
 
 Executable test_patools
   Path:         patools
   MainIs:       test_patools.ml
-  BuildDepends: ppx_deriving, ppx_deriving.show, ppx_deriving.ord, apak, Z3,
-                oUnit, pa
+  BuildDepends: batteries, ppx_deriving, ppx_deriving.show, ppx_deriving.ord, ark, Z3, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, pa, oUnit
   Install:      false
   CompiledObject: native
 
 Executable patools
   Path:       patools
-  BuildDepends: ppx_deriving, ppx_deriving.show, ppx_deriving.ord, apak, Z3, pa, matchingCC
+  BuildDepends: ppx_deriving, ppx_deriving.show, ppx_deriving.ord, ark, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, pa, matchingCC
   MainIs: patools.ml
   CCOpt: -annot
   CompiledObject: native
@@ -86,7 +86,7 @@ Executable patools
 Executable duet
   Path:           duet
   MainIs:         duet.ml
-  BuildDepends:   ppx_deriving, ppx_deriving.show, ppx_deriving.ord, apak, gmp, camlidl, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, ark, cil, cil.default-features, pa, matchingCC
+  BuildDepends:   batteries, ppx_deriving, ppx_deriving.show, ppx_deriving.ord, gmp, camlidl, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, ark, apak, cil, cil.default-features, pa, matchingCC, ocrs
   CompiledObject: native
   Install:        false
 
@@ -106,7 +106,7 @@ Test patools
   run$:      flag(tests)
 
 Test regression
-  Command:   ./regression.sh run pa coarsen hdfg chdfg proofspace
+  Command:   ./regression.sh run pa coarsen hdfg chdfg proofspace cra
   TestTools: duet
   run$:      flag(tests)
 
@@ -114,4 +114,4 @@ Document API
   Title: API reference for Ark
   Type: OCamlbuild (0.4)
   XOCamlbuildPath: .
-  XOCamlbuildLibraries: apak, ark
+  XOCamlbuildLibraries: ark, apak

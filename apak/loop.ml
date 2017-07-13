@@ -1,3 +1,4 @@
+open Ark
 type ('a, 'b) scc =
   { graph : 'b;
     mutable entries : 'a list;
@@ -356,6 +357,6 @@ let rec pp_wto pp_elt formatter wto =
   let rec pp_item formatter = function
     | WSimple x -> Format.fprintf formatter "%a@;" pp_elt x
     | WLoop xs  ->
-      Format.fprintf formatter "[@[%a@]]" (Putil.pp_print_list pp_item) wto
+      Format.fprintf formatter "[@[%a@]]" (ArkUtil.pp_print_list pp_item) wto
   in
-  Format.fprintf formatter "[@[%a@]]" (Putil.pp_print_list pp_item) wto
+  Format.fprintf formatter "[@[%a@]]" (ArkUtil.pp_print_list pp_item) wto

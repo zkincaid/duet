@@ -1,6 +1,7 @@
 open Core
 open CfgIr
 open Apak
+open Ark
 
 (* TODO: Address of generates no equality *)
 (* -----------------Domains *)

@@ -11,7 +11,7 @@ let pp_pos formatter pos =
     (pos.pos_cnum - pos.pos_bol + 1)
 
 let symbol_of_string =
-  Apak.Memo.memo (fun name -> Ctx.mk_symbol ~name `TyReal)
+  Memo.memo (fun name -> Ctx.mk_symbol ~name `TyReal)
 
 %}
 

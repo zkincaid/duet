@@ -2,6 +2,7 @@
 
 open Core
 open Expr
+open Ark
 open Apak
 open Pretty
 open Ast
@@ -116,14 +117,13 @@ class switchVisitor = object (self)
     let replace_cases stmt =
       let targets = ref [] in
       let add_target exp = targets := (stmt, exp)::(!targets) in
-      let f lbl = match lbl with
-        | Label _        -> lbl
-        | Case (exp,loc) -> add_target (Some exp); mk_label loc
-        | Default loc    -> add_target None; mk_label loc
-        | CaseRange (_, _, _) ->
-          failwith "CaseRange not supported: GCC extension."
-      in
-      stmt.labels <- List.map f stmt.labels;
+      stmt.labels <- List.map (function
+          | Label _  as lbl -> lbl
+          | Case (exp, loc) -> add_target (Some exp); mk_label loc
+          | Default loc -> add_target None; mk_label loc
+          | CaseRange (_, _, _) ->
+            Log.fatalf "CaseRange not supported: GCC extension."
+        ) stmt.labels;
       !targets
     in
 
@@ -146,7 +146,7 @@ class switchVisitor = object (self)
       let targets = List.concat (List.map replace_cases block.bstmts) in
       let break_target_label = mk_label locUnknown in
       let branching =
-        List.fold_right (mk_if exp) targets (mkEmptyStmt ())
+        List.fold_right (mk_if exp) targets (mkStmt (Goto (ref break_target, locUnknown)))
       in
       let kind =  Block (mkBlock [branching;
                                   mkStmt (Block block);
@@ -752,7 +752,20 @@ let parse filename =
     in
     ignore (Sys.command pp_cmd);
     let file = simplify (Frontc.parse preprocessed ()) in
-    tr_file filename file
+    let cfgir = tr_file filename file in
+    let open CfgIr in
+    cfgir.funcs |> List.iter (fun func ->
+        let name = Varinfo.show func.fname in
+        if BatString.starts_with name "__VERIFIER_atomic" then begin
+          let atomic_begin = Def.mk (Builtin AtomicBegin) in
+          let initial = Cfg.initial_vertex func.cfg in
+          Cfg.add_vertex func.cfg atomic_begin;
+          Cfg.add_edge func.cfg atomic_begin initial;
+          Cfg.enum_terminal func.cfg |> BatEnum.iter (fun terminal ->
+              insert_pre (Def.mk (Builtin AtomicEnd)) terminal func.cfg)
+        end
+      );
+    cfgir
   in
   Putil.with_temp_filename base ".i" go
 

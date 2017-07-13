@@ -1,3 +1,5 @@
+open Ark
+
 (** Implementation of program structure trees.  More details can be found in
     Richard Johnson, David Pearson, and Keshav Pingali, "The Program Structure
     Tree: Computing Control Regions in Linear Time". *)
@@ -113,7 +115,7 @@ module Make(G : G) = struct
       pp_elt (snd s)
       pp_elt (fst e)
       pp_elt (snd e)
-      (Putil.pp_print_list (pp_pst pp_elt)) children
+      (ArkUtil.pp_print_list (pp_pst pp_elt)) children
 
   type cec_edge =
     { mutable recent_size : int;
@@ -443,7 +445,7 @@ module Make(G : G) = struct
     let open Pervasives in
     let emit s = output_string ch (s ^ "\n") in
     let max_region = ref 0 in
-    let vstring v = String.escaped (Putil.mk_show V.pp v) in
+    let vstring v = String.escaped (ArkUtil.mk_show V.pp v) in
     let new_region () =
       let id = !max_region in
       max_region := id + 1;
@@ -636,7 +638,7 @@ module Make(G : G) = struct
             BatEnum.fold
               (fun g (u,v) -> R.G.add_edge g u v)
               R.G.empty
-              (ApakEnum.adjacent_pairs (BatList.enum lr))
+              (ArkUtil.adjacent_pairs (BatList.enum lr))
           in
           (R.add_block rg lr_name lrg ~entry:start ~exit:finish, g)
         end else (rg, g)

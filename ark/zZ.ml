@@ -1,9 +1,7 @@
-open Apak
-
 type t = Mpzf.t
 
 let pp = Mpzf.print
-let show = Putil.mk_show pp
+let show = ArkUtil.mk_show pp
 
 let hash x = Hashtbl.hash (Mpzf.to_string x)
 
@@ -21,8 +19,8 @@ let negate = Mpzf.neg
 let one = Mpzf.of_int 1
 let zero = Mpzf.of_int 0
 
-let modulo = Mpzf.tdiv_r
-let div = Mpzf.tdiv_q
+let modulo = Mpzf.fdiv_r
+let div = Mpzf.fdiv_q
 
 let gcd = Mpzf.gcd
 let lcm = Mpzf.lcm

@@ -1,5 +1,4 @@
 open ArkAst
-open Apak
 open ArkApron
 
 module Ctx = ArkAst.Ctx
@@ -212,6 +211,6 @@ let _ =
 
   | "sat-nonlinear" ->
     let phi = load_formula Sys.argv.(i+1) in
-    print_result (Abstract.is_sat ctx (snd (Quantifier.normalize ctx phi)))
+    print_result (Wedge.is_sat ctx (snd (Quantifier.normalize ctx phi)))
 
   | x -> Log.fatalf "Unknown command: `%s'" x

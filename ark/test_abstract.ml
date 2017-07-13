@@ -2,6 +2,7 @@ open OUnit
 open Abstract
 open Syntax
 open ArkApron
+open Nonlinear
 
 module Ctx = MakeSimplifyingContext ()
 module Infix = Syntax.Infix(Ctx)
@@ -299,7 +300,7 @@ let nonlinear_abstract1 () =
     || (x = (int 0) && y = (int 1))
   in
   let phi_abstract =
-    Cube.to_formula (Abstract.abstract_nonlinear ctx phi)
+    Wedge.to_formula (Wedge.abstract ctx phi)
   in
   let psi =
     let open Infix in
@@ -316,18 +317,70 @@ let nonlinear_abstract2 () =
   in
   let phi_abstract =
     let abstract =
-      Abstract.abstract_nonlinear
+      Wedge.abstract
         ~exists:(fun sym -> sym = zsym || sym = ysym)
         ctx
         phi
     in
-    Cube.to_formula abstract
+    Wedge.to_formula abstract
   in
   let psi =
     let open Infix in
     z = y * y
   in
   assert_equiv_formula psi phi_abstract
+
+let mod_abstract () =
+  let phi =
+    let open Infix in
+    ((int 0) <= z)
+    && ((x = (int 1) && z mod (int 2) = (int 1))
+        || (x = (int 0) && z mod (int 2) = (int 0)))
+  in
+  let phi_abstract =
+    let abstract =
+      Wedge.abstract
+        ctx
+        phi
+    in
+    Wedge.to_formula abstract
+  in
+  let psi =
+    let open Infix in
+    (int 0) <= z && x = z mod (int 2)
+    && (int 0) <= x && x <= (int 1)
+  in
+  assert_equiv_formula psi phi_abstract
+
+let degree3_abstract () =
+  let phi =
+    let open Infix in
+    (x <= y * y * y)
+  in
+  let phi_abstract =
+    let abstract =
+      Wedge.abstract ctx phi
+    in
+    Wedge.to_formula abstract
+  in
+  let psi =
+    let open Infix in
+    x <= y * y * y
+  in
+  assert_equiv_formula psi phi_abstract
+
+let lt_abstract () =
+  let phi =
+    let open Infix in
+    (x < y * y)
+  in
+  let phi_abstract =
+    let abstract =
+      Wedge.abstract ctx phi
+    in
+    Wedge.to_formula abstract
+  in
+  assert_equiv_formula phi phi_abstract
 
 let suite = "Abstract" >::: [
     "affine_hull1" >:: affine_hull1;
@@ -354,4 +407,7 @@ let suite = "Abstract" >::: [
     "linearize7" >:: linearize7;
     "nonlinear_abstract1" >:: nonlinear_abstract1;
     "nonlinear_abstract2" >:: nonlinear_abstract2;
+    "mod_abstract" >:: mod_abstract;
+    "degree3_abstract" >:: degree3_abstract;
+    "lt_abstract" >:: lt_abstract
   ]

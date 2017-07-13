@@ -1,6 +1,6 @@
 open Pervasives
 open BatPervasives
-open Apak
+open Ark
 
 include Log.Make(struct let name = "SearchTree" end)
 
@@ -61,7 +61,7 @@ module Make (Base : Element) (Elt : Element) = struct
 
   let pp_base formatter b =
     Format.fprintf formatter "{%a}"
-    (ApakEnum.pp_print_enum Base.pp) (BaseSet.enum b)
+    (ArkUtil.pp_print_enum Base.pp) (BaseSet.enum b)
 
   (* This Inserts an ElementSet into the tree
      The path prefix is decided based on subset ordering

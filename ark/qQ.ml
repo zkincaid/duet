@@ -1,10 +1,9 @@
-open Apak
 type t = Mpqf.t
 
 let opt_default_accuracy = ref (-1)
 
 let pp = Mpqf.print
-let show = Putil.mk_show pp
+let show = ArkUtil.mk_show pp
 
 let compare = Mpqf.cmp
 let equal = Mpqf.equal
@@ -36,7 +35,8 @@ let to_zz qq =
   let (num, den) = to_zzfrac qq in
   if Mpz.cmp den (Mpzf.of_int 1) == 0 then Some num
   else None
-let to_float qq = Mpqf.to_float qq
+let to_int qq = BatOption.Monad.bind (to_zz qq) ZZ.to_int
+let to_float = Mpqf.to_float
 
 let numerator = Mpqf.get_num
 let denominator = Mpqf.get_den
@@ -58,6 +58,10 @@ let exp x k =
 let floor x =
   let (num, den) = to_zzfrac x in
   Mpzf.fdiv_q num den
+
+let ceiling x =
+  let (num, den) = to_zzfrac x in
+  Mpzf.cdiv_q num den
 
 let min x y = if leq x y then x else y
 let max x y = if leq x y then y else x
@@ -105,10 +109,6 @@ and nudge_up ?(accuracy=(!opt_default_accuracy)) x =
     else
       let lo = nudge_down ~accuracy:(accuracy - 1) (of_zzfrac den r) in
       add (of_zz q) (inverse lo)
-
-let floor x =
-  let (num, den) = to_zzfrac x in
-  Mpzf.fdiv_q num den
 
 let idiv x y =
   if compare y zero = 0 then invalid_arg "QQ.idiv: divide by zero";

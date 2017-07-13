@@ -29,7 +29,7 @@ let pp_typ formatter = function
   | `TyFun (dom, cod) ->
     let pp_sep formatter () = Format.fprintf formatter "@ * " in
     Format.fprintf formatter "(@[%a@ -> %a@])"
-      (ApakEnum.pp_print_enum ~pp_sep pp_typ_fo) (BatList.enum dom)
+      (ArkUtil.pp_print_enum ~pp_sep pp_typ_fo) (BatList.enum dom)
       pp_typ_fo cod
 
 let pp_typ_arith = pp_typ
@@ -88,8 +88,8 @@ module DynArray = BatDynArray
 module Symbol = struct
   type t = symbol
   let compare = Pervasives.compare
-  module Set = BatSet.Make(Apak.Putil.PInt)
-  module Map = BatMap.Make(Apak.Putil.PInt)
+  module Set = ArkUtil.Int.Set
+  module Map = ArkUtil.Int.Map
 end
 
 module Var = struct
@@ -97,8 +97,8 @@ module Var = struct
     type t = int * typ_fo [@@deriving show,ord]
   end
   include I
-  module Set = Apak.Putil.Set.Make(I)
-  module Map = Apak.Putil.Map.Make(I)
+  module Set = BatSet.Make(I)
+  module Map = BatMap.Make(I)
 end
 
 module Env = struct
@@ -108,6 +108,7 @@ module Env = struct
     try List.nth xs i
     with Failure _ -> raise Not_found
   let empty = []
+  let enum = BatList.enum
 end
 
 let rec eval_sexpr alg sexpr =
@@ -147,8 +148,35 @@ type ('a,'b) open_formula = [
 
 exception Quit
 
+class type ['a] smt_model = object
+  method eval_int : 'a term -> ZZ.t
+  method eval_real : 'a term -> QQ.t
+  method eval_fun : symbol -> ('a, typ_fo) expr
+  method sat :  'a formula -> bool
+  method to_string : unit -> string
+end
+
+class type ['a] smt_solver = object
+  method add : ('a formula) list -> unit
+  method push : unit -> unit
+  method pop : int -> unit
+  method reset : unit -> unit
+  method check : ('a formula) list -> [ `Sat | `Unsat | `Unknown ]
+  method to_string : unit -> string
+  method get_model : unit -> [ `Sat of 'a smt_model | `Unsat | `Unknown ]
+  method get_unsat_core : ('a formula) list ->
+    [ `Sat | `Unsat of ('a formula) list | `Unknown ]
+end
+
+type 'a context =
+  { hashcons : HC.t;
+    symbols : (string * typ) DynArray.t;
+    named_symbols : (string,int) Hashtbl.t;
+    mk : label -> (sexpr hobj) list -> sexpr hobj;
+  }
+
 let size expr =
-  let open Apak.Putil.PInt in
+  let open ArkUtil.Int in
   let counted = ref Set.empty in
   let rec go sexpr =
     let (Node (_, children, _)) = sexpr.obj in
@@ -160,13 +188,6 @@ let size expr =
     end
   in
   go expr
-
-type 'a context =
-  { hashcons : HC.t;
-    symbols : (string * typ) DynArray.t;
-    named_symbols : (string,int) Hashtbl.t;
-    mk : label -> (sexpr hobj) list -> sexpr hobj
-  }
 
 let mk_symbol ctx ?(name="K") typ =
   DynArray.add ctx.symbols (name, typ);
@@ -211,7 +232,7 @@ let mk_neg ctx t = ctx.mk Neg [t]
 let mk_div ctx s t = ctx.mk Div [s; t]
 let mk_mod ctx s t = ctx.mk Mod [s; t]
 let mk_floor ctx t = ctx.mk Floor [t]
-let mk_idiv ctx s t = mk_floor ctx (mk_div ctx s t)
+let mk_ceiling ctx t = mk_neg ctx (mk_floor ctx (mk_neg ctx t))
 
 let mk_add ctx = function
   | [] -> mk_zero ctx
@@ -224,6 +245,16 @@ let mk_mul ctx = function
   | product -> ctx.mk Mul product
 
 let mk_sub ctx s t = mk_add ctx [s; mk_neg ctx t]
+
+let rec mk_pow ctx t n =
+  if n = 0 then mk_one ctx
+  else if n = 1 then t
+  else if n < 0 then mk_div ctx (mk_one ctx) (mk_pow ctx t (-n))
+  else
+    let q = mk_pow ctx t (n / 2) in
+    let q_squared = mk_mul ctx [q; q] in
+    if n mod 2 = 0 then q_squared
+    else mk_mul ctx [q; q_squared]
 
 let mk_true ctx = ctx.mk True []
 let mk_false ctx = ctx.mk False []
@@ -256,6 +287,25 @@ let mk_exists ctx ?name:(name="_") typ phi = ctx.mk (Exists (name, typ)) [phi]
 let mk_ite ctx cond bthen belse = ctx.mk Ite [cond; bthen; belse]
 let mk_iff ctx phi psi =
   mk_or ctx [mk_and ctx [phi; psi]; mk_and ctx [mk_not ctx phi; mk_not ctx psi]]
+let mk_if ctx phi psi = mk_or ctx [mk_not ctx phi; psi]
+
+let mk_truncate ctx t =
+  mk_ite ctx
+    (mk_leq ctx (mk_zero ctx) t)
+    (mk_floor ctx t)
+    (mk_ceiling ctx t)
+
+(* Equivalent to mk_truncate ctx (mk_div ctx s t), but with built-in sign
+   analysis *)
+let mk_idiv ctx s t =
+  let zero = mk_zero ctx in
+  let div = mk_div ctx s t in
+  let s_pos = mk_leq ctx zero s in
+  let t_pos = mk_leq ctx zero t in
+  mk_ite ctx
+    (mk_iff ctx s_pos t_pos)
+    (mk_floor ctx div)
+    (mk_ceiling ctx div)
 
 (* Avoid capture by incrementing bound variables *)
 let rec decapture ctx depth incr sexpr =
@@ -303,6 +353,15 @@ let substitute_const ctx subst sexpr =
   in
   go 0 sexpr
 
+let substitute_map ctx map sexpr =
+  let subst sym =
+    if Symbol.Map.mem sym map then
+      Symbol.Map.find sym map
+    else
+      mk_const ctx sym
+  in
+  substitute_const ctx subst sexpr
+
 let fold_constants f sexpr acc =
   let rec go acc sexpr =
     let Node (label, children, _) = sexpr.obj in
@@ -331,6 +390,27 @@ let vars sexpr =
       (List.map (go depth) children)
   in
   go 0 sexpr
+
+let free_vars sexpr =
+  let table = BatHashtbl.create 991 in
+  let add_var v typ =
+    if BatHashtbl.mem table v then
+      (if not (BatHashtbl.find table v = typ) then
+         invalid_arg "free_vars: ill-formed expression")
+    else
+      BatHashtbl.add table v typ
+  in
+  let rec go depth sexpr =
+    let Node (label, children, _) = sexpr.obj in
+    match label with
+    | Exists (_, _) | Forall (_, _) ->
+      List.iter (go (depth + 1)) children
+    | Var (v, typ) when v >= depth ->
+      add_var (v - depth) typ
+    | _ -> List.iter (go depth) children
+  in
+  go 0 sexpr;
+  table
 
 let refine ctx sexpr =
   match sexpr.obj with
@@ -390,15 +470,15 @@ let rec pp_expr ?(env=Env.empty) ctx formatter expr =
   | Real qq, [] -> QQ.pp formatter qq
   | App k, [] -> pp_symbol ctx formatter k
   | App func, args ->
-    fprintf formatter "%a(%a)"
+    fprintf formatter "%a(@[%a@])"
       (pp_symbol ctx) func
-      (ApakEnum.pp_print_enum (pp_expr ~env ctx)) (BatList.enum args)
+      (ArkUtil.pp_print_enum_nobox (pp_expr ~env ctx)) (BatList.enum args)
   | Var (v, typ), [] ->
     (try fprintf formatter "[%s:%d]" (Env.find env v) v
      with Not_found -> fprintf formatter "[free:%d]" v)
   | Add, terms ->
     fprintf formatter "(@[";
-    ApakEnum.pp_print_enum
+    ArkUtil.pp_print_enum
       ~pp_sep:(fun formatter () -> fprintf formatter "@ + ")
       (pp_expr ~env ctx)
       formatter
@@ -406,7 +486,7 @@ let rec pp_expr ?(env=Env.empty) ctx formatter expr =
     fprintf formatter "@])"
   | Mul, terms ->
     fprintf formatter "(@[";
-    ApakEnum.pp_print_enum
+    ArkUtil.pp_print_enum
       ~pp_sep:(fun formatter () -> fprintf formatter "@ * ")
       (pp_expr ~env ctx)
       formatter
@@ -434,7 +514,7 @@ let rec pp_expr ?(env=Env.empty) ctx formatter expr =
     fprintf formatter "!(@[%a@])" (pp_expr ~env ctx) phi
   | And, conjuncts ->
     fprintf formatter "(@[";
-    ApakEnum.pp_print_enum
+    ArkUtil.pp_print_enum
       ~pp_sep:(fun formatter () -> fprintf formatter "@ /\\ ")
       (pp_expr ~env ctx)
       formatter
@@ -442,7 +522,7 @@ let rec pp_expr ?(env=Env.empty) ctx formatter expr =
     fprintf formatter "@])"
   | Or, disjuncts ->
     fprintf formatter "(@[";
-    ApakEnum.pp_print_enum
+    ArkUtil.pp_print_enum
       ~pp_sep:(fun formatter () -> fprintf formatter "@ \\/ ")
       (pp_expr ~env ctx)
       formatter
@@ -475,7 +555,7 @@ let rec pp_expr ?(env=Env.empty) ctx formatter expr =
         List.fold_left (fun env (x,_) -> Env.push x env) env varinfo
       in
       fprintf formatter "(@[%s@ " quantifier_name;
-      ApakEnum.pp_print_enum
+      ArkUtil.pp_print_enum
         ~pp_sep:pp_print_space
         (fun formatter (name, typ) ->
            fprintf formatter "(%s : %a)" name pp_typ typ)
@@ -511,6 +591,7 @@ module ExprSet = struct
   let union = S.union
   let inter = S.inter
   let enum = S.enum
+  let mem = S.mem
 end
 
 module ExprMap = struct
@@ -528,9 +609,10 @@ module ExprMap = struct
   let values = M.values
   let enum = M.enum
   let merge = M.merge
+  let fold = M.fold
 end
 
-module ExprMemo = Apak.Memo.Make(Expr)
+module ExprMemo = Memo.Make(Expr)
 
 module Term = struct
   type 'a t = 'a term
@@ -596,7 +678,7 @@ module Term = struct
     | _ -> invalid_arg "destruct: not a term"
 
   let pp = pp_expr
-  let show ?(env=Env.empty) ctx t = Apak.Putil.mk_show (pp ~env ctx) t
+  let show ?(env=Env.empty) ctx t = ArkUtil.mk_show (pp ~env ctx) t
 end
 
 module Formula = struct
@@ -636,9 +718,9 @@ module Formula = struct
         alg (`Ite (eval ctx alg cond, eval ctx alg bthen, eval ctx alg belse))
 
   let pp = pp_expr
-  let show ?(env=Env.empty) ctx t = Apak.Putil.mk_show (pp ~env ctx) t
+  let show ?(env=Env.empty) ctx t = ArkUtil.mk_show (pp ~env ctx) t
 
-  let existential_closure ctx phi =
+  let quantify_closure quantify ctx phi =
     let vars = vars phi in
     let types = Array.make (Var.Set.cardinal vars) `TyInt in
     let rename =
@@ -647,21 +729,24 @@ module Formula = struct
         Var.Set.fold (fun (v, typ) m ->
             incr n;
             types.(!n) <- typ;
-            Apak.Putil.PInt.Map.add v (mk_var ctx (!n) typ) m
+            ArkUtil.Int.Map.add v (mk_var ctx (!n) typ) m
           )
           vars
-          Apak.Putil.PInt.Map.empty
+          ArkUtil.Int.Map.empty
       in
-      fun v -> Apak.Putil.PInt.Map.find v map
+      fun v -> ArkUtil.Int.Map.find v map
     in
     Array.fold_left
-      (fun psi typ -> mk_exists ctx typ psi)
+      (fun psi typ -> quantify typ psi)
       (substitute ctx rename phi)
       types
 
+  let existential_closure ctx = quantify_closure (mk_exists ctx) ctx
+  let universal_closure ctx = quantify_closure (mk_forall ctx) ctx
+
   let skolemize_free ctx phi =
     let skolem =
-      Apak.Memo.memo (fun (i, typ) -> mk_const ctx (mk_symbol ctx typ))
+      Memo.memo (fun (i, typ) -> mk_const ctx (mk_symbol ctx typ))
     in
     let rec go sexpr =
       let (Node (label, children, _)) = sexpr.obj in
@@ -941,6 +1026,185 @@ let eliminate_ite ctx phi =
   in
   elim_ite phi
 
+let rec pp_smtlib2 ?(env=Env.empty) ctx formatter expr =
+  let open Format in
+  let pp_sep = pp_print_space in
+
+  (* Legal characters in an SMTLIB2 symbol *)
+  let legal_char x =
+    BatChar.is_letter x || BatChar.is_digit x
+    || BatString.contains "~!@$%^&*_-+=<>.?/" x
+  in
+  (* Convert a string to a valid SMTLIB2 symbol *)
+  let symbol_of_string name =
+    if BatEnum.for_all legal_char (BatString.enum name) then
+      name
+    else
+      let replaced =
+        BatString.map (fun c ->
+            if legal_char c || BatString.contains " \"#'(),;:`{}" c then
+              c
+            else
+              '?')
+          name
+      in
+      "|" ^ replaced ^ "|"
+  in
+    
+  (* find a unique string that can be used to identify each symbol *)
+  let strings = Hashtbl.create 991 in
+  let symbol_name = Hashtbl.create 991 in
+  Symbol.Set.iter (fun symbol ->
+      let name = symbol_of_string (fst (DynArray.get ctx.symbols symbol)) in
+      if Hashtbl.mem strings name then
+        let rec go n =
+          let name' = name ^ (string_of_int n) in
+          if Hashtbl.mem strings name' then
+            go (n + 1)
+          else begin
+            Hashtbl.add strings name' ();
+            Hashtbl.add symbol_name symbol name'
+          end
+        in
+        go 0
+      else begin
+        Hashtbl.add strings name ();
+        Hashtbl.add symbol_name symbol name
+      end)
+    (symbols expr);
+
+  fprintf formatter "@[<v 0>";
+  (* print declarations *)
+  symbol_name |> Hashtbl.iter (fun symbol name ->
+      let pp_typ_fo formatter = function
+        | `TyReal -> pp_print_string formatter "Real"
+        | `TyInt -> pp_print_string formatter "Int"
+        | `TyBool -> pp_print_string formatter "Bool"
+      in        
+      match typ_symbol ctx symbol with
+      | `TyReal -> fprintf formatter "(declare-const %s Real)@;" name
+      | `TyInt -> fprintf formatter "(declare-const %s Int)@;" name
+      | `TyBool -> fprintf formatter "(declare-const %s Bool)@;" name
+      | `TyFun (args, ret) ->
+        fprintf formatter "(declare-fun %s (%a) %a)@;"
+          name
+          (ArkUtil.pp_print_enum ~pp_sep pp_typ_fo) (BatList.enum args)
+          pp_typ_fo ret
+    );
+
+  let rec go env formatter expr =
+    let Node (label, children, _) = expr.obj in
+    match label, children with
+    | Real qq, [] ->
+      let (num, den) = QQ.to_zzfrac qq in
+      if ZZ.equal den ZZ.one then
+        ZZ.pp formatter num
+      else
+        fprintf formatter "(/ %a %a)"
+          ZZ.pp num
+          ZZ.pp den
+    | App k, [] ->
+      pp_print_string formatter (Hashtbl.find symbol_name k)
+    | App func, args ->
+      fprintf formatter "(%s %a)"
+        (Hashtbl.find symbol_name func)
+        (ArkUtil.pp_print_enum ~pp_sep (go env)) (BatList.enum args)
+    | Var (v, typ), [] ->
+      (try fprintf formatter "?%s_%d" (Env.find env v) v
+       with Not_found -> fprintf formatter "[free:%d]" v)
+    | Add, terms ->
+      fprintf formatter "(+ @[";
+      ArkUtil.pp_print_enum
+        ~pp_sep
+        (go env)
+        formatter
+        (BatList.enum terms);
+      fprintf formatter "@])"
+    | Mul, terms ->
+      fprintf formatter "(* @[";
+      ArkUtil.pp_print_enum
+        ~pp_sep
+        (go env)
+        formatter
+        (BatList.enum terms);
+      fprintf formatter "@])"
+    | Div, [s; t] ->
+      fprintf formatter "(/@[%a@ %a@])"
+        (go env) s
+        (go env) t
+    | Mod, [s; t] ->
+      fprintf formatter "(mod @[%a@ %a@])"
+        (go env) s
+        (go env) t
+    | Floor, [t] ->
+      fprintf formatter "(floor @[%a@])" (go env) t
+    | Neg, [{obj = Node (Real qq, [], _)}] ->
+      QQ.pp formatter (QQ.negate qq)
+    | Neg, [{obj = Node (App _, _, _)} as t]
+    | Neg, [t] -> fprintf formatter "(- @[%a@])" (go env) t
+    | True, [] -> pp_print_string formatter "true"
+    | False, [] -> pp_print_string formatter "false"
+    | Not, [phi] ->
+      fprintf formatter "(not @[%a@])" (go env) phi
+    | And, conjuncts ->
+      fprintf formatter "(and @[";
+      ArkUtil.pp_print_enum
+        ~pp_sep
+        (go env)
+        formatter
+        (BatList.enum (List.concat (List.map (flatten_sexpr And) conjuncts)));
+      fprintf formatter "@])"
+    | Or, disjuncts ->
+      fprintf formatter "(or @[";
+      ArkUtil.pp_print_enum
+        ~pp_sep
+        (go env)
+        formatter
+        (BatList.enum (List.concat (List.map (flatten_sexpr Or) disjuncts)));
+      fprintf formatter "@])"
+    | Eq, [x; y] ->
+      fprintf formatter "(= @[%a %a@])"
+        (go env) x
+        (go env) y
+    | Leq, [x; y] ->
+      fprintf formatter "(<= @[%a %a@])"
+        (go env) x
+        (go env) y
+    | Lt, [x; y] ->
+      fprintf formatter "(< @[%a %a@])"
+        (go env) x
+        (go env) y
+    | Exists (name, typ), [psi] | Forall (name, typ), [psi] ->
+      let (quantifier_name, varinfo, psi) =
+        match label with
+        | Exists (_, _) ->
+          let (varinfo, psi) = flatten_existential psi in
+          ("exists", (name, typ)::varinfo, psi)
+        | Forall (_, _) ->
+          let (varinfo, psi) = flatten_universal psi in
+          ("forall", (name, typ)::varinfo, psi)
+        | _ -> assert false
+      in
+      let env =
+        List.fold_left (fun env (x,_) -> Env.push x env) env varinfo
+      in
+      fprintf formatter "(@[%s@ (" quantifier_name;
+      ArkUtil.pp_print_enum
+        ~pp_sep
+        (fun formatter (name, typ) ->
+           fprintf formatter "(%s %a)" name pp_typ typ)
+        formatter
+        (BatList.enum varinfo);
+      fprintf formatter ")@ %a@])" (go env) psi
+    | Ite, [cond; bthen; belse] ->
+      fprintf formatter "(ite @[%a@ %a@ %a@])"
+        (go env) cond
+        (go env) bthen
+        (go env) belse
+    | _ -> failwith "pp_smtlib2: ill-formed expression"
+  in
+  fprintf formatter "(assert %a)@;(check-sat)@]" (go env) expr;
+
 module Infix (C : sig
     type t
     val context : t context
@@ -1117,6 +1381,11 @@ module MakeSimplifyingContext () = struct
 
       | Not, [phi] when is_true phi -> false_
       | Not, [phi] when is_false phi -> true_
+      | Not, [phi] ->
+        begin match phi.obj with
+          | Node (Not, [psi], _) -> psi
+          | _ -> hc Not [phi]
+        end
 
       | Add, xs ->
         begin match List.filter (not % is_zero) xs with
@@ -1155,6 +1424,10 @@ module MakeSimplifyingContext () = struct
           | _, _ -> hc Div [num; den]
         end
 
+      | Ite, [cond; bthen; _] when is_true cond -> bthen
+      | Ite, [cond; _; belse] when is_false cond -> belse
+      | Ite, [_; x; y] when x.tag = y.tag -> x
+
       | _, _ -> hc label children
     in
     { hashcons; symbols; named_symbols; mk }
@@ -1163,23 +1436,4 @@ module MakeSimplifyingContext () = struct
       type t = unit
       let context = context
     end)
-end
-
-class type ['a] smt_model = object
-  method eval_int : 'a term -> ZZ.t
-  method eval_real : 'a term -> QQ.t
-  method sat :  'a formula -> bool
-  method to_string : unit -> string
-end
-
-class type ['a] smt_solver = object
-  method add : ('a formula) list -> unit
-  method push : unit -> unit
-  method pop : int -> unit
-  method reset : unit -> unit
-  method check : ('a formula) list -> [ `Sat | `Unsat | `Unknown ]
-  method to_string : unit -> string
-  method get_model : unit -> [ `Sat of 'a smt_model | `Unsat | `Unknown ]
-  method get_unsat_core : ('a formula) list ->
-    [ `Sat | `Unsat of ('a formula) list | `Unknown ]
 end

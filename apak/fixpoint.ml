@@ -1,3 +1,4 @@
+open Ark
 open Loop
 
 (** Compute a fixpoint over a weak topological order *)

@@ -1,6 +1,6 @@
 open Pervasives
 open BatPervasives
-open Apak
+open Ark
 
 include Log.Make(struct let name = "BiGraph" end)
 
@@ -44,8 +44,8 @@ module Make (V : Vertex) = struct
 
   let pp formatter graph =
     Format.fprintf formatter "{U: {%a}, V: {%a}}"
-    (ApakEnum.pp_print_enum V.pp) (VertexSet.enum graph.u)
-    (ApakEnum.pp_print_enum V.pp) (VertexSet.enum graph.v)
+    (ArkUtil.pp_print_enum V.pp) (VertexSet.enum graph.u)
+    (ArkUtil.pp_print_enum V.pp) (VertexSet.enum graph.v)
 
   (* An empty BiPartite Graph *)
   let empty = 

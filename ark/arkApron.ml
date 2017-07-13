@@ -1,6 +1,5 @@
 (** Numerical abstract domains *)
 open Apron
-open Apak
 open BatPervasives
 open Syntax
 
@@ -34,7 +33,7 @@ module Env = struct
 
   let pp formatter env =
     let pp_array formatter arr =
-      ApakEnum.pp_print_enum_nobox
+      ArkUtil.pp_print_enum_nobox
         (pp_symbol env.ark)
         formatter (BatArray.enum arr)
     in
@@ -117,7 +116,7 @@ module Env = struct
     let real_change =
       List.map (fun x -> x + idim) (inject_array a.real_dim b.real_dim)
     in
-    let change = Array.of_list (int_change @ real_change) in 
+    let change = Array.of_list (int_change @ real_change) in
     { Dim.dim = change;
       Dim.intdim = List.length int_change;
       Dim.realdim = List.length real_change }
@@ -187,7 +186,7 @@ let pp formatter x =
     formatter
     x.prop
 
-let show x = Apak.Putil.mk_show pp x
+let show x = ArkUtil.mk_show pp x
 
 let is_bottom x = Abstract0.is_bottom (man x.prop) x.prop
 

@@ -26,9 +26,6 @@ module Make
       transition. *)
   type t
 
-  (** Iteration domain.  See {!Iteration}. *)
-  type iter
-
   type var = Var.t
 
       (** Test whether two transitions are equal up to logical equivalence and
@@ -71,10 +68,6 @@ module Make
 
   (** Non-deterministically choose between two transitions *)
   val add : t -> t -> t
-
-  (** Over-approximate the transitive closure of a transition.  If split is
-      set (default), then loop splitting is turned on. *)
-  val star : ?split:bool -> t -> t
 
   (** Unexecutable transition (unit of [add]). *)
   val zero : t
@@ -125,9 +118,11 @@ module Make
                                                              | `Unknown ]
 
   (** Iteration domain.  See {!Iteration}. *)
-  module Iter : sig
-    val alpha : ?split:bool -> t -> iter
+  module Iter (I : Iteration.Domain) : sig
+    type iter = C.t I.t
+    val alpha : t -> iter
     val closure : iter -> t
+    val star : t -> t
 
     val equal : iter -> iter -> bool
 

@@ -1,5 +1,4 @@
 open BatPervasives
-open Apak
 open Syntax
 
 type t =
@@ -20,12 +19,13 @@ let pp formatter x =
      | Some hi -> QQ.show hi
      | None -> "+oo")
 
-let show = Putil.mk_show pp
+let show = ArkUtil.mk_show pp
 
 let bottom = { lower = Some QQ.one; upper = Some QQ.zero }
 let top = { lower = None; upper = None }
 let const k = { lower = Some k; upper = Some k }
 let zero = const QQ.zero
+let one = const QQ.one
 let normalize x =
   match x.lower, x.upper with
   | (Some lo, Some hi) when QQ.lt hi lo -> bottom
@@ -189,16 +189,10 @@ let modulo x y =
     bottom
   else if elem QQ.zero y then top
   else
-    (* mod y is the same as mod |y| *)
-    let y = abs y in
-    match y.lower with
-    (* |y| is sufficiently large for "mod y" be a no-op on x *)
-    | Some lo when strictly_left (abs x) (const lo) -> x
-    | _ ->
-       let y_1 = map_opt (flip QQ.sub QQ.one) y.upper in (* |y|-1 *)
-       let divisor_ivl = { lower = map_opt QQ.negate y_1; upper = y_1 } in
-       let dividend_ivl = join x zero in
-       meet divisor_ivl dividend_ivl
+    (* TODO: this is a coarse abstraction *)
+    let y_1 = map_opt (flip QQ.sub QQ.one) y.upper in (* |y|-1 *)
+    let divisor_ivl = { lower = Some QQ.zero; upper = y_1 } in
+    divisor_ivl
 
 let upper x = x.upper
 let lower x = x.lower
@@ -229,3 +223,57 @@ let const_of { lower; upper } =
   match upper, lower with
   | Some hi, Some lo when QQ.equal hi lo -> Some hi
   | _ -> None
+
+let integral x =
+  { lower = map_opt (QQ.of_zz % QQ.ceiling) x.lower;
+    upper = map_opt (QQ.of_zz % QQ.floor) x.upper }
+
+let log base x =
+  if equal base bottom || equal x bottom then bottom
+  else
+    match base.lower with
+    | Some base_lo when QQ.lt QQ.one base_lo ->
+      (* Naive integral lower/upper approximation of log.  TODO: make this
+         more accurate. *)
+      let lower =
+        match base.upper, x.lower with
+        | Some base, Some lo when QQ.leq QQ.one lo ->
+          let rec lo_log curr log =
+            if log > 32 then
+              None
+            else if QQ.lt lo curr then
+              Some (QQ.of_int (log - 1))
+            else
+              lo_log (QQ.mul base curr) (log + 1)
+          in
+          lo_log base 1
+        | _, _ -> None
+      in
+      let upper =
+        match x.upper with
+        | Some hi when QQ.leq QQ.one hi  ->
+          let rec hi_log curr log =
+            if log > 32 then
+              None
+            else if QQ.leq hi curr then
+              Some (QQ.of_int log)
+            else
+              hi_log (QQ.mul base_lo curr) (log + 1)
+          in
+          (hi_log QQ.one 0)
+        | _ -> None
+      in
+      { lower; upper }
+    | _ -> top
+
+let rec exp_const ivl n =
+  if n = 0 then one
+  else if n = 1 then ivl
+  else begin
+    let q = exp_const ivl (n / 2) in
+    let q_squared =
+      meet (mul q q) (make (Some QQ.zero) None)
+    in
+    if n mod 2 = 0 then q_squared
+    else mul q q_squared
+  end

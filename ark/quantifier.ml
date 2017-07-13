@@ -1,7 +1,6 @@
 open Syntax
 open Linear
 open BatPervasives
-open Apak
 
 include Log.Make(struct let name = "ark.quantifier" end)
 
@@ -10,8 +9,8 @@ exception Equal_term of Linear.QQVector.t
 type quantifier_prefix = ([`Forall | `Exists] * symbol) list
 
 module V = Linear.QQVector
-module VS = Putil.Set.Make(Linear.QQVector)
-module VM = Putil.Map.Make(Linear.QQVector)
+module VS = BatSet.Make(Linear.QQVector)
+module VM = BatMap.Make(Linear.QQVector)
 
 let substitute_const ark sigma expr =
   let simplify t = of_linterm ark (linterm_of ark t) in
@@ -493,7 +492,7 @@ module Skeleton = struct
         let pp_sep formatter () = Format.fprintf formatter "@;" in
         fprintf formatter "@[<v 2>(exists %a:@;@[<v 0>%a@])@]"
           (pp_symbol ark) k
-          (ApakEnum.pp_print_enum_nobox ~pp_sep pp_elt) (MM.enum mm)
+          (ArkUtil.pp_print_enum_nobox ~pp_sep pp_elt) (MM.enum mm)
       | SEmpty -> ()
     in
     pp formatter skeleton
@@ -1257,7 +1256,8 @@ let simsat_forward_core ark qf_pre phi =
           | (k, `Bool false) ->
             ctx.solver#add [mk_not ark (mk_const ark k)]
           | (k, `Bool true) ->
-            ctx.solver#add [mk_const ark k])
+            ctx.solver#add [mk_const ark k]
+          | (_, `Fun _) -> ())
         (Interpretation.enum parameter_interp)
     in
     let mk_sat_ctx skeleton parameter_interp =
@@ -1655,7 +1655,7 @@ let rec pp_strategy ark formatter (Strategy xs) =
     | (Strategy []) -> ()
     | (Strategy xs) ->
       fprintf formatter "@;  @[<v 0>%a@]"
-        (ApakEnum.pp_print_enum_nobox ~pp_sep pp_elt)
+        (ArkUtil.pp_print_enum_nobox ~pp_sep pp_elt)
         (BatList.enum xs)
   and pp_elt formatter (guard, move, sub_strategy) =
     fprintf formatter "%a --> %a%a"
@@ -1664,10 +1664,10 @@ let rec pp_strategy ark formatter (Strategy xs) =
       pp sub_strategy
   in
   fprintf formatter "@[<v 0>%a@]"
-    (ApakEnum.pp_print_enum_nobox ~pp_sep pp_elt)
+    (ArkUtil.pp_print_enum_nobox ~pp_sep pp_elt)
     (BatList.enum xs)
 
-let show_strategy ark = Apak.Putil.mk_show (pp_strategy ark)
+let show_strategy ark = ArkUtil.mk_show (pp_strategy ark)
 
 (* Extract a winning strategy from a skeleton *)
 let extract_strategy ark skeleton phi =

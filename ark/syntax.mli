@@ -12,6 +12,7 @@ module Env : sig
   val empty : 'a t
   val push : 'a -> 'a t -> 'a t
   val find : 'a t -> int -> 'a
+  val enum : 'a t -> 'a BatEnum.t
 end
 
 (** {2 Types} *)
@@ -75,7 +76,10 @@ type 'a formula = ('a, typ_bool) expr
 
 val compare_expr : ('a,'typ) expr -> ('a,'typ) expr -> int
 val compare_formula : 'a formula -> 'a formula -> int
-val compare_expr : 'a term -> 'a term -> int
+val compare_term : 'a term -> 'a term -> int
+
+val pp_expr : ?env:(string Env.t) -> 'a context ->
+  Format.formatter -> ('a,'b) expr -> unit
 
 val refine : 'a context -> ('a, typ_fo) expr -> [ `Term of 'a term
                                                 | `Formula of 'a formula ]
@@ -95,12 +99,14 @@ val destruct : 'a context -> ('a, 'b) expr -> [
     | `Or of ('a formula) list
     | `Not of ('a formula)
     | `Quantify of [`Exists | `Forall] * string * typ_fo * ('a formula)
-    | `Atom of [`Eq | `Leq | `Lt] * ('b term) * ('b term)
+    | `Atom of [`Eq | `Leq | `Lt] * ('a term) * ('a term)
     | `Proposition of [ `Var of int
                       | `App of symbol * (('b, typ_fo) expr) list ]
   ]
 
 val expr_typ : 'a context -> ('a, 'b) expr -> typ
+
+val free_vars : ('a, 'b) expr -> (int, typ_fo) BatHashtbl.t
 
 val size : ('a, 'b) expr -> int
 
@@ -113,6 +119,8 @@ val mk_var : 'a context -> int -> typ_fo -> ('a, 'typ) expr
 val mk_ite : 'a context -> 'a formula -> ('a, 'typ) expr -> ('a, 'typ) expr ->
   ('a, 'typ) expr
 
+val mk_if : 'a context -> 'a formula -> 'a formula -> 'a formula
+
 val mk_iff : 'a context -> 'a formula -> 'a formula -> 'a formula
 
 val substitute : 'a context ->
@@ -120,6 +128,9 @@ val substitute : 'a context ->
 
 val substitute_const : 'a context ->
   (symbol -> ('a,'b) expr) -> ('a,'typ) expr -> ('a,'typ) expr
+
+val substitute_map : 'a context ->
+  (('a,'b) expr Symbol.Map.t) -> ('a,'typ) expr -> ('a,'typ) expr
 
 val fold_constants : (symbol -> 'a -> 'a) -> ('b, 'c) expr -> 'a -> 'a
 
@@ -160,6 +171,7 @@ module ExprSet : sig
   val union : ('a, 'typ) t -> ('a, 'typ) t -> ('a, 'typ) t
   val inter : ('a, 'typ) t -> ('a, 'typ) t -> ('a, 'typ) t
   val enum : ('a, 'typ) t -> (('a, 'typ) expr) BatEnum.t
+  val mem : ('a, 'typ) expr -> ('a, 'typ) t -> bool
 end
 
 module ExprMap : sig
@@ -177,6 +189,7 @@ module ExprMap : sig
   val enum : ('a, 'typ, 'b) t -> (('a, 'typ) expr * 'b) BatEnum.t
   val merge : ((('a, 'typ) expr) -> 'b option -> 'c option -> 'd option) ->
     ('a, 'typ, 'b) t -> ('a, 'typ, 'c) t -> ('a, 'typ, 'd) t
+  val fold : (('a, 'typ) expr -> 'b -> 'c -> 'c) -> ('a, 'typ, 'b) t -> 'c -> 'c
 end
 
 (** {2 Terms} *)
@@ -195,13 +208,23 @@ type ('a,'b) open_term = [
 val mk_add : 'a context -> 'a term list -> 'a term
 val mk_mul : 'a context -> 'a term list -> 'a term
 val mk_div : 'a context -> 'a term -> 'a term -> 'a term
+val mk_pow : 'a context -> 'a term -> int -> 'a term
 
-(** Integer division.  Equivalent to floor(div(x/y)). *)
+(** C99 integer division.  Equivalent to truncate(x/y). *)
 val mk_idiv : 'a context -> 'a term -> 'a term -> 'a term
 val mk_mod : 'a context -> 'a term -> 'a term -> 'a term
 val mk_real : 'a context -> QQ.t -> 'a term
 val mk_floor : 'a context -> 'a term -> 'a term
+val mk_ceiling : 'a context -> 'a term -> 'a term
+
+(** [truncate(t)] removes the fractional part of [t] (rounding it towards
+    0).  *)
+val mk_truncate : 'a context -> 'a term -> 'a term
+
+(** Unary negation *)
 val mk_neg : 'a context -> 'a term -> 'a term
+
+(** Subtraction *)
 val mk_sub : 'a context -> 'a term -> 'a term -> 'a term
 
 val term_typ : 'a context -> 'a term -> typ_arith
@@ -250,6 +273,11 @@ val mk_false : 'a context -> 'a formula
 
 val eliminate_ite : 'a context -> 'a formula -> 'a formula
 
+(** Print a formula as a satisfiability query in SMTLIB2 format.  The query
+    includes function declarations and (check-sat). *)
+val pp_smtlib2 : ?env:(string Env.t) -> 'a context ->
+    Format.formatter -> 'a formula -> unit
+
 module Formula : sig
   type 'a t = 'a formula
   val equal : 'a formula -> 'a formula -> bool
@@ -261,6 +289,7 @@ module Formula : sig
   val destruct : 'a context -> 'a formula -> ('a formula, 'a) open_formula
   val eval : 'a context -> (('b, 'a) open_formula -> 'b) -> 'a formula -> 'b
   val existential_closure : 'a context -> 'a formula -> 'a formula
+  val universal_closure : 'a context -> 'a formula -> 'a formula
   val skolemize_free : 'a context -> 'a formula -> 'a formula
   val prenex : 'a context -> 'a formula -> 'a formula
 end
@@ -270,6 +299,7 @@ end
 class type ['a] smt_model = object
   method eval_int : 'a term -> ZZ.t
   method eval_real : 'a term -> QQ.t
+  method eval_fun : symbol -> ('a, typ_fo) expr
   method sat :  'a formula -> bool
   method to_string : unit -> string
 end

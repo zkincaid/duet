@@ -9,17 +9,17 @@ void loop() {
 void main() {
     x = 0;
     loop();
-    switch (rand()) {
+    switch (__VERIFIER_nondet_int()) {
     case 0:
-	assert(x <= 1); // unsafe
+	__VERIFIER_assert(x <= 1); // unsafe
 	break;
     case 1:
-	assert(x >= 0); // safe
+	__VERIFIER_assert(x >= 0); // safe
 	break;
     case 2:
-	assert(x <= 10); // safe
+	__VERIFIER_assert(x <= 10); // safe
 	break;
     default:
-	assert(x == 10); // safe
+	__VERIFIER_assert(x == 10); // safe
     }
 }
