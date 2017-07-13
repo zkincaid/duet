@@ -78,7 +78,7 @@ module type S = sig
   val post : t -> formula -> letter -> formula
   val concrete_post : t -> formula -> (letter * int) -> formula
   val succs : t -> config -> (letter * int) -> config BatEnum.t
-  val successors : t -> config -> int -> (letter_set * config) BatEnum.t
+  val successors : t -> config -> int -> (letter * config) BatEnum.t
   val pred : t -> config -> (letter * int) -> config
   val accepting_formula : t -> formula -> bool
   val accepting : t -> config -> bool
@@ -588,6 +588,7 @@ module Make (A : Alphabet) (P : Predicate) = struct
         List.concat (List.map f (transitions pa q)))
     |> BatEnum.fold combine [(alphabet pa, Config.empty succ_size)]
     |> BatList.enum
+    |> BatEnum.map (fun (letters, config) -> (LetterSet.choose letters, config))
 end
 
 module MakeReachabilityGraph (A : sig
@@ -599,7 +600,7 @@ module MakeReachabilityGraph (A : sig
                               and type t = config
     val pp_letter : Format.formatter -> letter -> unit
     val vocabulary : t -> (predicate * int) BatEnum.t
-    val successors : t -> config -> (letter * int * config) BatEnum.t
+    val successors : t -> config -> int -> (letter * config) BatEnum.t
   end) = struct
   open A
   type id = int
@@ -619,6 +620,7 @@ module MakeReachabilityGraph (A : sig
   type arg =
     { mutable worklist : WVSet.t;
       pa : t;
+      max_index : int;
       label : config DA.t;
       parent : ((letter * int * id) option) DA.t; (* Invariant: label & parent
                                                     should always have the
@@ -639,7 +641,7 @@ module MakeReachabilityGraph (A : sig
       Log.invalid_argf "label: vertex %d does not exist" vertex
 
   module PSet = BatSet.Make(Config.Predicate)
-  let make pa =
+  let make pa max_index =
     let preds pa =
       let f (p, ar) preds =
         PSet.add p preds
@@ -648,6 +650,7 @@ module MakeReachabilityGraph (A : sig
     let arg =
     { worklist = WVSet.empty;
       pa = pa;
+      max_index = max_index;
       label = DA.make 2048;
       parent = DA.make 2048;
       cover = Hashtbl.create 991;
@@ -713,7 +716,7 @@ module MakeReachabilityGraph (A : sig
     logf ~level:`trace ~attributes:[`Blue;`Bold] "Expanding vertex:";
     logf ~level:`trace "@[[%d] %a" vertex Config.pp config;
     PredicateTree.insert arg.searchTree vertex;
-    let add_succ (letter, k, config) =
+    let add_succ k (letter, config) =
       let succ_vertex =
         add_vertex arg ~parent:(Some (letter, k, vertex)) config
       in
@@ -723,7 +726,15 @@ module MakeReachabilityGraph (A : sig
         succ_vertex
         Config.pp config
     in
-    successors arg.pa config |> BatEnum.iter add_succ;
+    let max_index =
+      if arg.max_index >= 0 then
+        min arg.max_index (Config.universe_size config + 1)
+      else
+        (Config.universe_size config + 1)
+    in
+    (1 -- max_index)
+    |> BatEnum.iter (fun i ->
+        BatEnum.iter (add_succ i) (successors arg.pa config i));
     logf ~level:`trace ~attributes:[`Blue;`Bold] "@]"
 
   (* u covers v *)
@@ -803,7 +814,7 @@ module MakeEmpty (A : sig
     end
     val pp_letter : Format.formatter -> letter -> unit
     val alphabet : t -> letter_set
-    val successors : t -> config -> int -> (letter_set * config) BatEnum.t
+    val successors : t -> config -> int -> (letter * config) BatEnum.t
     val accepting : t -> config -> bool
     val initial : t -> formula
     val conjoin_transition : t -> predicate -> letter_set -> formula -> unit
@@ -817,15 +828,7 @@ module MakeEmpty (A : sig
 struct
   open A
 
-  module Arg = MakeReachabilityGraph(struct
-      include A
-      let successors pa config =
-        (1 -- (Config.universe_size config + 1))
-        /@ (fun i ->
-            A.successors pa config i
-            /@ (fun (letters, succ) -> (A.LetterSet.choose letters, i, succ)))
-         |> BatEnum.concat
-    end)
+  module Arg = MakeReachabilityGraph(A)
 
   (* Trivial incremental solver: just re-run the emptiness query from
      scratch *)
@@ -850,7 +853,7 @@ struct
 
   let vocabulary = A.vocabulary
 
-  let find_word pa =
+  let find_word ?(max_index=(-1)) pa =
     let rec fix arg =
       match Arg.pick_worklist arg with
       | Some v ->
@@ -864,7 +867,7 @@ struct
         end
       | None -> None
     in
-    let arg = Arg.make pa in
+    let arg = Arg.make pa max_index in
 
     (* Add initial configurations to the ARG *)
     Config.min_models 1 (initial pa) |> BatEnum.iter (fun config ->
@@ -873,19 +876,10 @@ struct
     fix arg
 end
 
-
 module MakeBounded (A : S) = struct
   open A
 
-  module Arg = MakeReachabilityGraph(struct
-      include A
-      let successors pa config =
-        Config.universe config
-        /@ (fun i ->
-            A.successors pa config i
-            /@ (fun (letters, succ) -> (A.LetterSet.choose letters, i, succ)))
-        |> BatEnum.concat
-    end)
+  module Arg = MakeReachabilityGraph(A)
 
   (* Find a reachable configuration that satisfies the predicate p *)
   let bounded_search pa size p =
@@ -902,7 +896,7 @@ module MakeBounded (A : S) = struct
         end
       | None -> None
     in
-    let arg = Arg.make pa in
+    let arg = Arg.make pa size in
 
     (* Add initial configurations to the ARG *)
     Config.min_models size (initial pa) |> BatEnum.iter (fun config ->

@@ -111,6 +111,32 @@ end
 
 module G = ExtGraph.Persistent.Digraph.MakeBidirectionalLabeled(PInt)(Block)
 
+module ThreadCount = struct
+  type t = int option [@@deriving ord,show]
+  type var = unit
+  let equal x y = compare x y = 0
+  let exists _ x = x
+  let one = Some 0
+  let zero = Some 0
+  let add x y = match x, y with
+    | Some x, Some y -> Some (max x y)
+    | _, _ -> None
+  let mul x y = match x, y with
+    | Some x, Some y -> Some (x + y)
+    | _, _ -> None
+  let star x = match x with
+    | Some 0 -> Some 0
+    | _ -> None
+  let widen x y = match x, y with
+    | Some 0, x | x, Some 0 -> x
+    | Some x, Some y when x = y -> Some x
+    | _, _ -> None
+  let fork = function
+    | Some k -> Some (k + 1)
+    | None -> None
+end
+module TCA = Interproc.MakeParPathExpr(ThreadCount)
+
 module Letter = struct
   include G.E
   let equal x y = compare x y = 0
@@ -751,6 +777,23 @@ let verify file =
       (PaFormula.mk_atom Ctx.mk_false [])
       []
   in
+  let max_index =
+    (* redundant -- recgraph has already been computed *)
+    let rg = Interproc.make_recgraph file in
+    let main = match file.CfgIr.entry_points with
+      | [x] -> x
+      | _   -> failwith "PA: No support for multiple entry points"
+    in
+    let query = TCA.mk_query rg (fun _ -> Some 0) (fun _ _ -> true) main in
+    match TCA.get_summary query main with
+    | Some x ->
+      logf "Found bound on number of threads: %d" x;
+      x
+    | None ->
+      logf "No static bound on number of threads";
+      -1
+  in
+
   (* { false } def { false } *)
   PA.add_transition
     empty_proofspace_pa
@@ -763,7 +806,7 @@ let verify file =
   in
 
   let check () =
-    Log.time "PA emptiness" E.find_word solver
+    Log.time "PA emptiness" (E.find_word ~max_index) solver
   in
   let number_cex = ref 0 in
   let print_info () =

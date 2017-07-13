@@ -113,7 +113,7 @@ module type S = sig
 
   (** [successors pa config index] computes a set of [index]-labeled
       successors of a configuration [config]. *)
-  val successors : t -> config -> int -> (letter_set * config) BatEnum.t
+  val successors : t -> config -> int -> (letter * config) BatEnum.t
 
   val pred : t -> config -> (letter * int) -> config
 
@@ -148,7 +148,7 @@ module MakeEmpty (A : sig
     end
     val pp_letter : Format.formatter -> letter -> unit
     val alphabet : t -> letter_set
-    val successors : t -> config -> int -> (letter_set * config) BatEnum.t
+    val successors : t -> config -> int -> (letter * config) BatEnum.t
     val accepting : t -> config -> bool
     val initial : t -> formula
     val conjoin_transition : t -> predicate -> letter_set -> formula -> unit
@@ -183,7 +183,7 @@ module MakeEmpty (A : sig
 
   val mem_vocabulary : solver -> A.predicate -> bool
 
-  val find_word : solver -> ((A.letter * int) list) option
+  val find_word : ?max_index:int -> solver -> ((A.letter * int) list) option
 
   val alphabet : solver -> A.letter_set
   val vocabulary : solver -> (A.predicate * int) BatEnum.t
