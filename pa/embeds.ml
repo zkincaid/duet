@@ -1,6 +1,6 @@
 open Pervasives
 open BatPervasives
-open Apak
+open Ark
 
 include Log.Make(struct let name = "Embeds" end)
 
@@ -148,7 +148,7 @@ module Make (Predicate : Symbol) = struct
       str2 = (univ2, (BatSet.of_enum probs2))}
 
   module DA = BatDynArray
-  module Vset = BatSet.Make(Putil.PInt)
+  module Vset = ArkUtil.Int.Set
   module BitSet = BatBitSet
   module PMap = BatMap.Make(Predicate)
   type u_graph = { u : Vset.t DA.t;
@@ -209,10 +209,10 @@ module Make (Predicate : Symbol) = struct
     (!edges)
 
   let print_u_graph (g : u_graph) : unit =
-    DA.iteri (fun i adj -> logf ~level:`always "%d {%a}" i (ApakEnum.pp_print_enum Format.pp_print_int) (Vset.enum adj)) g.u
+    DA.iteri (fun i adj -> logf ~level:`always "%d {%a}" i (ArkUtil.pp_print_enum Format.pp_print_int) (Vset.enum adj)) g.u
 
   let print_p_graph (g : p_graph) : unit =
-    DA.iteri (fun i adj -> logf ~level:`always "%d {%a}" i (ApakEnum.pp_print_enum Format.pp_print_int) (DA.enum adj)) g.u
+    DA.iteri (fun i adj -> logf ~level:`always "%d {%a}" i (ArkUtil.pp_print_enum Format.pp_print_int) (DA.enum adj)) g.u
 
   (* Make Universe Graph (Potential mappings of variables in str1 to variables in str2) *)
   let make_ugraph (emb : t) : u_graph =

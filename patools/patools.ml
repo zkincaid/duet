@@ -307,18 +307,18 @@ let check_embeddings embeds structs reName =
     BatDynArray.add inv 0;            (* Psuedo 1-indexing *)
     let f (str, map) (head, args) =
       let g (args, map) arg =
-        if (Putil.PInt.Map.mem arg map) then
-          ((Putil.PInt.Map.find arg map) :: args), map
+        if (ArkUtil.Int.Map.mem arg map) then
+          ((ArkUtil.Int.Map.find arg map) :: args), map
         else
           begin
             BatDynArray.add inv arg;
-            ((BatDynArray.length inv) :: args), (Putil.PInt.Map.add arg (BatDynArray.length inv) map)
+            ((BatDynArray.length inv) :: args), (ArkUtil.Int.Map.add arg (BatDynArray.length inv) map)
           end
       in
       let (args, m) = List.fold_left g ([], map) args in
       (Config.add head args str), m
     in
-    let (str, map) = (BatEnum.fold f ((Config.empty 1), Putil.PInt.Map.empty) (Config.props str)) in
+    let (str, map) = (BatEnum.fold f ((Config.empty 1), ArkUtil.Int.Map.empty) (Config.props str)) in
     str, inv
   in
   let rec go structs =
