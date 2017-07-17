@@ -15,6 +15,8 @@
 #include <string.h>
 #include "graph.h"
 #include "embedding.h"
+#include "gecode_embedding.h"
+#include <gecode/search.hh>
 
 #define TRACE false
 
@@ -322,114 +324,14 @@ bool cembedding(Embedding emb){
     emb.ufilter(p_removed, u_removed);
   }
   if (!emb.get_valid()) return false;
-  const Graph& u_graph = emb.get_universe_graph();
 
-  //int pipe_write[2];
-  int pipe_read[2];
-  pid_t process_id;
-
-  /*
-  if (pipe(pipe_write) || pipe(pipe_read)){
-    printf("Error: unable to create pipe\n");
-    exit(-1);
-  }
-  */
-  if (pipe(pipe_read)){
-    printf("Error: unable to create pipe\n");
-    exit(-1);
-  }
-  
-  process_id = fork();
-  if (process_id == 0){
-    /*
-      dup2(pipe_write[0],STDIN_FILENO); */
-    dup2(pipe_read[1], STDOUT_FILENO);
-    /* Close the not needed file descriptors */
-    /*
-    close(pipe_write[0]);
-    close(pipe_write[1]); */
-    close(pipe_read[0]);
-    close(pipe_read[1]);
-
-    /* run minizinc */
-    execlp("mzn-gecode", "mzn-gecode", "./tmp.mzn", NULL);
-    perror("Failed to launch minizinc\n");
-    exit(-1);
-  } else if (process_id < 0){
-    printf("Error: unable to launch minizinc\n");
-    exit(-1);
-  }
-  //close(pipe_write[0]); /* we will only read from this pipe */
-  close(pipe_read[1]);  /* we will only write to this pipe */
-
-  FILE *minizinc_write, *minizinc_read;
-  minizinc_write = fopen("./tmp.mzn", "w");
-  minizinc_read  = fdopen(pipe_read[0],  "r");
-
-  fprintf(minizinc_write, "include \"alldifferent.mzn\";\n\n");
-  
-  for (size_t i = 1; i < u_graph.uSize(); ++i){
-    const std::vector<Graph::Edge>& adj = u_graph.uAdj(i);
-    fprintf(minizinc_write, "var 1..%lu: x%lu;\n", adj.size(), i);
-    fprintf(minizinc_write, "array [1..%lu] of int: Dx%lu = [", adj.size(), i);
-    for (size_t j = 0; j < adj.size(); ++j){
-      fprintf(minizinc_write, "%lu", adj[j].vertex);
-      if (j+1 != adj.size()){
-	fprintf(minizinc_write, ", ");
-      }
-    }
-    fprintf(minizinc_write, "];\n\n");
-  }
-  fprintf(minizinc_write, "constraint alldifferent([");
-  for (size_t i = 1; i < u_graph.uSize(); ++i){
-    fprintf(minizinc_write, "Dx%lu[x%lu]", i, i);
-    if (i+1 != u_graph.uSize()){
-      fprintf(minizinc_write, ", ");
-    }
-  }
-  fprintf(minizinc_write, "]);\n\n");
-  
-  const LabeledGraph<prop, prop>& p_graph = emb.get_predicate_graph();
-  for (size_t i = 0; i < p_graph.uSize(); ++i){
-    if (p_graph.getULabel(i).vars.size() < 2) continue;
-    fprintf(minizinc_write, "constraint ");
-    const std::vector<Graph::Edge>& adj = p_graph.uAdj(i);
-    const std::vector<int>& u_vars = p_graph.getULabel(i).vars;
-    for (size_t j = 0; j < adj.size(); ++j){
-      if (j != 0){
-	fprintf(minizinc_write, " \\/ ");
-      }
-      const std::vector<int>& v_vars = p_graph.getVLabel(adj[j].vertex).vars;
-      fprintf(minizinc_write, "(");
-      for (size_t k = 0; k < u_vars.size(); ++k){
-	if (k != 0){
-	  fprintf(minizinc_write, " /\\ ");
-	}
-	fprintf(minizinc_write, "Dx%d[x%d] = %d", u_vars[k], u_vars[k], v_vars[k]);
-      }
-      fprintf(minizinc_write, ")");
-    }
-    fprintf(minizinc_write, ";\n\n");    
-  }
-  fprintf(minizinc_write, "solve satisfy;\n\n");
-  fprintf(minizinc_write, "output[\"=SAT=\"];\n");
-  fclose(minizinc_write);
-
-  int ret(0);
-  char buff[1024];
-  if (fgets(buff, sizeof(buff), minizinc_read) == NULL){
-    printf("Failed to read output of minizinc\n");
-    exit(-1);
-  }
-  if (strstr(buff, "=SAT=")){
-    waitpid(process_id, &ret, 0);
-    fclose(minizinc_read);
-    close(pipe_read[0]);
+  ConstraintEmbedding* cemb = new ConstraintEmbedding(emb);
+  Gecode::DFS<ConstraintEmbedding> e(cemb);
+  (void) cemb->status();
+  delete cemb;
+  if ((cemb = e.next())) {
+    delete cemb;
     return true;
-  } else {
-    waitpid(process_id, &ret, 0);
-    fclose(minizinc_read);
-    close(pipe_read[0]);
   }
   return false;
 }
