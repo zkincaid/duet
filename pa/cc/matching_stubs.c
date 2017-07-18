@@ -277,12 +277,12 @@ bool uembedding(Embedding emb){
       map<int, int> conflicts_involved;
       bool valid(false);
       for (size_t i = 0; i < conflicts.size(); ++i){
-	const vector<int>& conflict_vars = p_graph.getULabel(conflicts[0]).vars;
+	const vector<int>& conflict_vars = p_graph.getULabel(conflicts[i]).vars;
 	valid = false;
 	for (size_t j = 0; j < conflict_vars.size(); ++j){
-	  if (u_graph.uAdj(conflict_vars[i]).size() > 1){
+	  if (u_graph.uAdj(conflict_vars[j]).size() > 1){
 	    valid = true;
-	    ++conflicts_involved[conflict_vars[i]];
+	    ++conflicts_involved[conflict_vars[j]];
 	  }
 	}
 	if (!valid){
@@ -309,6 +309,7 @@ bool uembedding(Embedding emb){
 	  maxv = it->second;
 	}
       }
+      assert(d_var != 0);
 
 #if TRACE
       printf("Decision: %lu -> %lu\n", d_var, match1[d_var]);
