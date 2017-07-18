@@ -120,8 +120,7 @@ class Embedding{
     }
     for (size_t i = 0; i < p_graph_.uSize(); ++i){
       if (p_graph_.uAdj(i).size() == 1){
-	std::vector<Graph::VertexPair> junk;
-        choose_constraint(i, p_graph_.uAdj(i)[0].vertex, junk, junk);
+	(void) u_graph_.commit_edges(p_graph_.getULabel(i).vars, p_graph_.getVLabel(p_graph_.uAdj(i)[0].vertex).vars);
 	break;
       } else if (p_graph_.uAdj(i).size() == 0){
 	valid_ = false;

@@ -53,9 +53,9 @@ Executable arktop
 Library matchingCC
   Path: pa/cc
   Modules: MatchingCPP
-  CSources: matching_stubs.c, graph.h, embedding.h
+  CSources: matching_stubs.c, graph.h, embedding.h, gecode_embedding.h
   CCOpt: -x c++ -std=c++11 -O2 -Wall -Wextra -Wno-unused-parameter -fopenmp
-  CClib: -lstdc++ -lgomp
+  CClib: -lstdc++ -lgomp -lgecodesearch -lgecodeint -lgecodekernel -lgecodesupport
   BuildDepends: apak
   Install: false
   XMETADescription: Bipartite Matching in C / C++

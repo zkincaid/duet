@@ -273,27 +273,42 @@ bool uembedding(Embedding emb){
       if (conflicts.size() == 0){
 	  return true;
       }
-      // just pick the first conflict
-      const vector<int>& conflict_vars = p_graph.getULabel(conflicts[0]).vars;
-
-      // Find a decision variable (involved in the conflict and has out-degree > 1)
-      size_t i;
-      for (i = 0; i < conflict_vars.size() && u_graph.uAdj(conflict_vars[i]).size() <= 1; ++i) ;
-      if (i == conflict_vars.size()) {
-	  // No decision variables in the conflict.  This is possible only if
+      // Pick variable involved in most conflicts
+      map<int, int> conflicts_involved;
+      bool valid(false);
+      for (size_t i = 0; i < conflicts.size(); ++i){
+	const vector<int>& conflict_vars = p_graph.getULabel(conflicts[0]).vars;
+	valid = false;
+	for (size_t j = 0; j < conflict_vars.size(); ++j){
+	  if (u_graph.uAdj(conflict_vars[i]).size() > 1){
+	    valid = true;
+	    ++conflicts_involved[conflict_vars[i]];
+	  }
+	}
+	if (!valid){
+	  // No decision variable found in conflict. This is possible only if
 	  // the input graph is not arc consistent.
 #if TRACE
 	  printf("Backtrack: no decision variables in conflict\n");
 #endif
 	  if (decisions.size() >= 1) {
-	      bt++;
-	      ubacktrack(emb, decisions);
-	      continue;
+	    bt++;
+	    ubacktrack(emb, decisions);
+	    break;
 	  } else {
-	      return false;
+	    return false;
 	  }
+	}
       }
-      size_t d_var = conflict_vars[i];
+      if (!valid) continue;
+      size_t d_var = 0;
+      int maxv = 0;
+      for (map<int, int>::iterator it = conflicts_involved.begin(); it != conflicts_involved.end(); ++ it){
+	if (maxv < it->second){
+	  d_var = it->first;
+	  maxv = it->second;
+	}
+      }
 
 #if TRACE
       printf("Decision: %lu -> %lu\n", d_var, match1[d_var]);
