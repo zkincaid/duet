@@ -1790,7 +1790,10 @@ let symbolic_bounds_formula ?exists:(p=fun x -> true) ark phi symbol =
             |> of_atoms ark ~integrity
             |> exists ~integrity ~subterm p
           in
-          symbolic_bounds wedge symbol
+          if CS.admits wedge.cs (mk_const ark symbol) then
+            symbolic_bounds wedge symbol
+          else
+            ([], [])
         in
         let lower_blocking =
           List.map
