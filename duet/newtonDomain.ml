@@ -539,40 +539,40 @@ let () =
             None));
 
   Callback.register "print_robust_callback" (fun indent tr ->
-      Putil.mk_show (fun formatter tr ->
+      ArkUtil.mk_show (fun formatter tr ->
           Format.pp_open_vbox formatter indent;
           Format.pp_print_break formatter 0 0;
           Format.fprintf formatter "%a" K.pp tr;
           Format.pp_close_box formatter ()) tr);
   Callback.register "tensor_print_robust_callback" (fun indent tr ->
-      Putil.mk_show (fun formatter tr ->
+      ArkUtil.mk_show (fun formatter tr ->
           Format.pp_open_vbox formatter indent;
           Format.pp_print_break formatter 0 0;
           Format.fprintf formatter "%a" KK.pp tr;
           Format.pp_close_box formatter ()) tr);
 
   Callback.register "print_indent_callback" (fun indent tr ->
-      Putil.mk_show (fun formatter tr ->
+      ArkUtil.mk_show (fun formatter tr ->
           Format.pp_open_vbox formatter indent;
           Format.pp_print_break formatter 0 0;
           Format.fprintf formatter "%a" K.pp tr;
           Format.pp_close_box formatter ()) tr);
   Callback.register "tensor_print_indent_callback" (fun indent tr ->
-      Putil.mk_show (fun formatter tr ->
+      ArkUtil.mk_show (fun formatter tr ->
           Format.pp_open_vbox formatter indent;
           Format.pp_print_break formatter 0 0;
           Format.fprintf formatter "%a" KK.pp tr;
           Format.pp_close_box formatter ()) tr);
 
   Callback.register "print_abstract_callback" (fun indent abstract ->
-     Putil.mk_show (fun formatter abstract ->
+     ArkUtil.mk_show (fun formatter abstract ->
           Format.pp_open_vbox formatter indent;
           Format.pp_print_break formatter 0 0;
           Format.fprintf formatter "%a" K.I.pp abstract;
           Format.pp_close_box formatter ())
        abstract);
   Callback.register "tensor_print_abstract_callback" (fun indent abstract ->
-     Putil.mk_show (fun formatter abstract ->
+     ArkUtil.mk_show (fun formatter abstract ->
           Format.pp_open_vbox formatter indent;
           Format.pp_print_break formatter 0 0;
           Format.fprintf formatter "%a" KK.I.pp abstract;
@@ -592,7 +592,7 @@ let () =
       match tick_var with
       | None -> "No bounds"
       | Some tick_var ->
-        Putil.mk_show (fun formatter (tick_var, tr) ->
+        ArkUtil.mk_show (fun formatter (tick_var, tr) ->
             Format.pp_open_vbox formatter indent;
             Format.pp_print_break formatter 0 0;
             print_var_bounds formatter tick_var tr;
@@ -611,11 +611,11 @@ let () =
   Callback.register "is_sat_linear_callback" (fun tr -> assert false);
 
   Callback.register "print_smtlib" (fun tr ->
-      Putil.mk_show (fun formatter tr ->
+      ArkUtil.mk_show (fun formatter tr ->
           Syntax.pp_smtlib2 ark formatter (K.guard tr)
         ) tr);
   Callback.register "tensor_print_smtlib" (fun tr ->
-      Putil.mk_show (fun formatter tr ->
+      ArkUtil.mk_show (fun formatter tr ->
           Syntax.pp_smtlib2 ark formatter (KK.guard tr)
         ) tr);
 
