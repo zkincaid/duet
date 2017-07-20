@@ -1813,19 +1813,22 @@ let symbolic_bounds_formula ?exists:(p=fun x -> true) ark phi symbol =
         go (wedge_lower::lower, wedge_upper::upper)
   in
   let (lower, upper) = go ([], []) in
-  let lower =
-    if List.mem [] lower then
-      None
+  if lower = [] then
+    `Unsat
+  else
+    let lower =
+      if List.mem [] lower then
+        None
     else
       Some (BatList.reduce mk_min (List.map (BatList.reduce mk_max) lower))
-  in
-  let upper =
-    if List.mem [] upper then
-      None
-    else
-      Some (BatList.reduce mk_max (List.map (BatList.reduce mk_min) upper))
-  in
-  (lower, upper)
+    in
+    let upper =
+      if List.mem [] upper then
+        None
+      else
+        Some (BatList.reduce mk_max (List.map (BatList.reduce mk_min) upper))
+    in
+    `Sat (lower, upper)
 
 let symbolic_bounds_formula ?(exists=fun x -> true) ark phi symbol =
   Log.time "symbolic_bounds_formula" (symbolic_bounds_formula ~exists ark phi) symbol
