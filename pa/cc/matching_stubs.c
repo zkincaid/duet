@@ -5,6 +5,7 @@
 #include <string>
 #include <cstdint>
 #include <map>
+#include <set>
 #include <queue>
 #include <stack>
 #include <cmath>
@@ -19,6 +20,12 @@
 #include <gecode/search.hh>
 
 #define TRACE false
+
+/* Variable Selection */
+enum Var_selection {
+  MIN_DOMAIN_SIZE,
+  MAX_CONFLICTS,
+};
 
 using namespace std;
 
@@ -222,6 +229,66 @@ void ubacktrack(Embedding &emb, stack<udecision> &decisions) {
     }
 }
 
+size_t select_variable(const Embedding& emb, const vector<int>& conflicts, Var_selection sel){
+  const Graph& u_graph = emb.get_universe_graph();
+  const LabeledGraph<prop, prop>& p_graph = emb.get_predicate_graph();
+
+  if (sel == MIN_DOMAIN_SIZE) {
+    set<int> vars;
+  
+    for (size_t i = 0; i < conflicts.size(); ++i){
+      const vector<int>& cvars = p_graph.getULabel(conflicts[i]).vars;
+      bool valid(false);
+      for (size_t j = 0; j < cvars.size(); ++j){
+        if (u_graph.uAdj(cvars[j]).size() > 1){
+          vars.insert(cvars[j]);
+          valid = true;
+        }
+      }
+      if (!valid){ /* valid == false -> emb is arc inconsistent */
+        return 0;
+      }
+    }
+
+    size_t best_var = 0;
+    size_t min_val = u_graph.vSize() + 1; // MAX_VALUE + 1
+    for (set<int>::iterator it = vars.begin(); it != vars.end(); ++it){
+      if (min_val > u_graph.uAdj(*it).size()){
+        best_var = *it;
+        min_val = u_graph.uAdj(*it).size();
+      }
+    }
+    assert (best_var != 0);
+    return best_var;
+  } else { /* sel == MAX_CONFLICTS */
+    map<int, int> vars;
+
+    for (size_t i = 0; i < conflicts.size(); ++i){
+      const vector<int>& cvars = p_graph.getULabel(conflicts[i]).vars;
+      bool valid(false);
+      for (size_t j = 0; j < cvars.size(); ++j){
+	if (u_graph.uAdj(cvars[j]).size() > 1){
+	  ++vars[cvars[j]];
+	  valid = true;
+	}
+      }
+      if (!valid){
+	return 0;
+      }
+    }
+    size_t best_var = 0;
+    int max_val = 0;
+    for (map<int, int>::iterator it = vars.begin(); it != vars.end(); ++it){
+      if (max_val < it->second){
+	best_var = it->first;
+	max_val = it->second;
+      }
+    }
+    assert (best_var != 0);
+    return best_var;
+  }
+}
+
 bool uembedding(Embedding emb){
   {
       vector<Graph::VertexPair> p_removed, u_removed;
@@ -230,7 +297,6 @@ bool uembedding(Embedding emb){
 
   if (!emb.get_valid()) return false;
   Graph& u_graph = emb.get_universe_graph();
-  const LabeledGraph<prop, prop>& p_graph = emb.get_predicate_graph();
 
   vector<int> match1, match2, vis, conflicts;
 
@@ -271,46 +337,21 @@ bool uembedding(Embedding emb){
 
       find_conflicts(emb, match1, conflicts);
       if (conflicts.size() == 0){
-	  return true;
+	return true;
       }
-      // Pick variable involved in most conflicts
-      map<int, int> conflicts_involved;
-      bool valid(false);
-      for (size_t i = 0; i < conflicts.size(); ++i){
-	const vector<int>& conflict_vars = p_graph.getULabel(conflicts[i]).vars;
-	valid = false;
-	for (size_t j = 0; j < conflict_vars.size(); ++j){
-	  if (u_graph.uAdj(conflict_vars[j]).size() > 1){
-	    valid = true;
-	    ++conflicts_involved[conflict_vars[j]];
-	  }
-	}
-	if (!valid){
-	  // No decision variable found in conflict. This is possible only if
-	  // the input graph is not arc consistent.
+      size_t d_var = select_variable(emb, conflicts, MAX_CONFLICTS);
+      if (d_var == 0){ /* d_var only equals 0 if emb is arc inconsistent */
 #if TRACE
-	  printf("Backtrack: no decision variables in conflict\n");
+        printf("Backtrack: no decision variables in conflict\n");
 #endif
-	  if (decisions.size() >= 1) {
-	    bt++;
-	    ubacktrack(emb, decisions);
-	    break;
-	  } else {
-	    return false;
-	  }
+        if (decisions.size() >= 1) {
+	  bt++;
+	  ubacktrack(emb, decisions);
+	  continue;
+	} else {
+	  return false;
 	}
       }
-      if (!valid) continue;
-      size_t d_var = 0;
-      int maxv = 0;
-      for (map<int, int>::iterator it = conflicts_involved.begin(); it != conflicts_involved.end(); ++ it){
-	if (maxv < it->second){
-	  d_var = it->first;
-	  maxv = it->second;
-	}
-      }
-      assert(d_var != 0);
-
 #if TRACE
       printf("Decision: %lu -> %lu\n", d_var, match1[d_var]);
 #endif
