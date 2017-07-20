@@ -465,27 +465,28 @@ let print_var_bounds formatter cost tr =
     Ctx.mk_and [Syntax.substitute_const ark subst (K.guard tr);
                 Ctx.mk_eq (Ctx.mk_const cost_symbol) rhs ]
   in
-  let (lower, upper) =
-    Wedge.symbolic_bounds_formula ~exists ark guard cost_symbol
-  in
-  begin match lower with
-    | Some lower ->
-      fprintf formatter "%a <= %a@\n" (Syntax.Term.pp ark) lower V.pp cost;
-      fprintf formatter "%a is o(%a)@\n"
-        V.pp cost
-        BigO.pp (BigO.of_term ark lower)
+  match Wedge.symbolic_bounds_formula ~exists ark guard cost_symbol with
+  | `Sat (lower, upper) ->
+    begin match lower with
+      | Some lower ->
+        fprintf formatter "%a <= %a@\n" (Syntax.Term.pp ark) lower V.pp cost;
+        fprintf formatter "%a is o(%a)@\n"
+          V.pp cost
+          BigO.pp (BigO.of_term ark lower)
 
-    | None -> ()
-  end;
-  begin match upper with
-    | Some upper ->
-      fprintf formatter "%a <= %a@\n" V.pp cost (Syntax.Term.pp ark) upper;
-      fprintf formatter "%a is O(%a)@\n"
-        V.pp cost
-        BigO.pp (BigO.of_term ark upper)
+      | None -> ()
+    end;
+    begin match upper with
+      | Some upper ->
+        fprintf formatter "%a <= %a@\n" V.pp cost (Syntax.Term.pp ark) upper;
+        fprintf formatter "%a is O(%a)@\n"
+          V.pp cost
+          BigO.pp (BigO.of_term ark upper)
 
-    | None -> ()
-  end
+      | None -> ()
+    end
+  | `Unsat ->
+    fprintf formatter "unreachable@\n"
 
 let () =
   Callback.register "compose_callback" K.mul;
