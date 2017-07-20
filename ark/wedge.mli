@@ -78,7 +78,7 @@ val symbolic_bounds_formula : ?exists:(symbol -> bool) ->
   'a context ->
   'a formula ->
   symbol ->
-  ('a term) option * ('a term) option
+  [ `Sat of ('a term) option * ('a term) option | `Unsat ]
 
 val coordinate_system : 'a t -> 'a CoordinateSystem.t
 

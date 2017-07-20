@@ -615,25 +615,27 @@ let resource_bound_analysis file =
               Ctx.mk_and [Syntax.substitute_const ark subst (K.guard summary);
                           Ctx.mk_eq (Ctx.mk_const cost_symbol) rhs ]
             in
-            let (lower, upper) =
-              Wedge.symbolic_bounds_formula ~exists ark guard cost_symbol
-            in
-            begin match lower with
-              | Some lower ->
-                logf ~level:`always "%a <= cost" (Syntax.Term.pp ark) lower;
-                logf ~level:`always "%a is o(%a)"
-                  Varinfo.pp procedure
-                  BigO.pp (BigO.of_term ark lower)
-              | None -> ()
-            end;
-            begin match upper with
-              | Some upper ->
-                logf ~level:`always "cost <= %a" (Syntax.Term.pp ark) upper;
-                logf ~level:`always "%a is O(%a)"
+            match Wedge.symbolic_bounds_formula ~exists ark guard cost_symbol with
+            | `Sat (lower, upper) ->
+              begin match lower with
+                | Some lower ->
+                  logf ~level:`always "%a <= cost" (Syntax.Term.pp ark) lower;
+                  logf ~level:`always "%a is o(%a)"
+                    Varinfo.pp procedure
+                    BigO.pp (BigO.of_term ark lower)
+                | None -> ()
+              end;
+              begin match upper with
+                | Some upper ->
+                  logf ~level:`always "cost <= %a" (Syntax.Term.pp ark) upper;
+                  logf ~level:`always "%a is O(%a)"
                   Varinfo.pp procedure
                   BigO.pp (BigO.of_term ark upper)
-              | None -> ()
-            end
+                | None -> ()
+              end
+            | `Unsat ->
+              logf ~level:`always "%a is infeasible"
+                Varinfo.pp procedure
           end else
             logf ~level:`always "Procedure %a has zero cost" Varinfo.pp procedure)
         (A.get_summaries query)
