@@ -1,13 +1,17 @@
-open Apak
 open BatPervasives
+open Ark
 
-module PString = Putil.MakeCoreType(struct
+module PString = struct
+  module I = struct
     type t = string
     let hash = Hashtbl.hash
     let equal = (=)
     let compare = Pervasives.compare
     let pp = Format.pp_print_string
-  end)
+  end
+  include I
+  module Set = BatSet.Make(I)
+end
 
 module Alphabet = PString
 module A = PredicateAutomata.Make(Alphabet)(PString)
@@ -15,9 +19,9 @@ module Bounded = PredicateAutomata.MakeBounded(A)
 module Empty = PredicateAutomata.MakeEmpty(A)
 module F = PaFormula
 
-let pp_print_list = Apak.Putil.pp_print_list
-let pp_formula phi = F.pp Putil.PString.pp Putil.PInt.pp phi
-let show_formula = Putil.mk_show pp_formula
+let pp_print_list = ArkUtil.pp_print_list
+let pp_formula phi = F.pp Format.pp_print_string Format.pp_print_int phi
+let show_formula = ArkUtil.mk_show pp_formula
 
 let exists x phi = F.const_exists ~name:(Some x) x phi
 
@@ -66,7 +70,7 @@ let of_cfa entry edges =
     mk_or (mk_and (mk_eq x y) phi) (mk_and (mk_neq x y) psi)
   in
   (* Stable actions *)
-  ApakEnum.cartesian_product (BatList.enum locations) (BatList.enum locations)
+  ArkUtil.cartesian_product (BatList.enum locations) (BatList.enum locations)
   |> BatEnum.iter (fun (x, y) ->
       add_transition
         pa

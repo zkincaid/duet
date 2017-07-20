@@ -106,6 +106,8 @@ val destruct : 'a context -> ('a, 'b) expr -> [
 
 val expr_typ : 'a context -> ('a, 'b) expr -> typ
 
+val free_vars : ('a, 'b) expr -> (int, typ_fo) BatHashtbl.t
+
 val size : ('a, 'b) expr -> int
 
 val mk_const : 'a context -> symbol -> ('a, 'typ) expr
@@ -287,6 +289,7 @@ module Formula : sig
   val destruct : 'a context -> 'a formula -> ('a formula, 'a) open_formula
   val eval : 'a context -> (('b, 'a) open_formula -> 'b) -> 'a formula -> 'b
   val existential_closure : 'a context -> 'a formula -> 'a formula
+  val universal_closure : 'a context -> 'a formula -> 'a formula
   val skolemize_free : 'a context -> 'a formula -> 'a formula
   val prenex : 'a context -> 'a formula -> 'a formula
 end

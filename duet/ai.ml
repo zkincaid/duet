@@ -1,6 +1,7 @@
 (** Abstract interpretation utilities, and an interface to APRON for numerical
     domains *)
 open Core
+open Ark
 open Apak
 open Apron
 
@@ -181,7 +182,7 @@ module ApronInterpretation = struct
     else if is_bottom av then
       Format.pp_print_string formatter "_|_"
     else
-      ApakEnum.pp_print_enum
+      ArkUtil.pp_print_enum
         ~pp_sep:(fun formatter () -> Format.fprintf formatter "@ && ")
         pp_elt
         formatter

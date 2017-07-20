@@ -1,5 +1,4 @@
 open ArkAst
-open Apak
 open ArkApron
 
 module Ctx = ArkAst.Ctx

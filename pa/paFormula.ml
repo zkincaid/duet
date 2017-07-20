@@ -1,9 +1,9 @@
 open Batteries
-open Apak
+open Ark
 
 let sep formatter () = Format.fprintf formatter ";@ "
 let pp_print_list ?(pp_sep=sep) pp_elt formatter xs =
-    ApakEnum.pp_print_enum ~pp_sep pp_elt formatter (BatList.enum xs)
+    ArkUtil.pp_print_enum ~pp_sep pp_elt formatter (BatList.enum xs)
 
 let rec alpha_of_int i =
   assert (i >= 0);
@@ -288,7 +288,7 @@ let pp pp_rel pp_const formatter phi =
         else var_names.(num_vars - n - 1)
       in
       fprintf formatter "(@[forall@ ";
-      ApakEnum.pp_print_enum
+      ArkUtil.pp_print_enum
         ~pp_sep:pp_print_space
         pp_print_string
         formatter
@@ -304,7 +304,7 @@ let pp pp_rel pp_const formatter phi =
         else var_names.(num_vars - n - 1)
       in
       fprintf formatter "(@[exists@ ";
-      ApakEnum.pp_print_enum
+      ArkUtil.pp_print_enum
         ~pp_sep:pp_print_space
         pp_print_string
         formatter
@@ -318,7 +318,7 @@ let pp pp_rel pp_const formatter phi =
     | Atom (rel, params) ->
       fprintf formatter "@[%a(@[%a@])@]"
         pp_rel rel
-        (ApakEnum.pp_print_enum (pp_term env))
+        (ArkUtil.pp_print_enum (pp_term env))
         (BatList.enum params)
     | True -> pp_print_string formatter "true"
     | False -> pp_print_string formatter "false"
@@ -358,7 +358,7 @@ let tptp3_pp pp_rel pp_const formatter phi =
         else var_names.(num_vars - n - 1)
       in
       fprintf formatter "(@[![";
-      ApakEnum.pp_print_enum
+      ArkUtil.pp_print_enum
         ~pp_sep:pp_print_space
         pp_print_string
         formatter
@@ -374,7 +374,7 @@ let tptp3_pp pp_rel pp_const formatter phi =
         else var_names.(num_vars - n - 1)
       in
       fprintf formatter "(@[?[";
-      ApakEnum.pp_print_enum
+      ArkUtil.pp_print_enum
         ~pp_sep:pp_print_space
         pp_print_string
         formatter
@@ -428,7 +428,7 @@ let smtlib2_pp pp_rel pp_const formatter phi =
         else var_names.(num_vars - n - 1)
       in
       fprintf formatter "(@[forall ((";
-      ApakEnum.pp_print_enum
+      ArkUtil.pp_print_enum
         ~pp_sep:(fun f () -> fprintf f " Int) (")
         pp_print_string
         formatter
@@ -444,7 +444,7 @@ let smtlib2_pp pp_rel pp_const formatter phi =
         else var_names.(num_vars - n - 1)
       in
       fprintf formatter "(@[exists ((";
-      ApakEnum.pp_print_enum
+      ArkUtil.pp_print_enum
         ~pp_sep:(fun f () -> fprintf f " Int) (")
         pp_print_string
         formatter

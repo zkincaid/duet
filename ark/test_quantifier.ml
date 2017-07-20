@@ -1,7 +1,6 @@
 open OUnit
 open Quantifier
 open Syntax
-open Apak
 
 module Ctx = MakeSimplifyingContext ()
 module Infix = Syntax.Infix(Ctx)

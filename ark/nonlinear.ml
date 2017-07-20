@@ -1,5 +1,4 @@
 open Syntax
-open Apak
 open BatPervasives
 
 include Log.Make(struct let name = "ark.nonlinear" end)
@@ -12,7 +11,7 @@ module SymInterval = struct
                 interval : Interval.t }
 
   let cartesian ark f xs ys =
-    ApakEnum.cartesian_product (BatList.enum xs) (BatList.enum ys)
+    ArkUtil.cartesian_product (BatList.enum xs) (BatList.enum ys)
     /@ (fun (x,y) -> f ark [x;y])
     |> BatList.of_enum
 

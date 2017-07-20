@@ -1,3 +1,4 @@
+open Ark
 open BatPervasives
 
 module type Tagged = sig
@@ -415,7 +416,7 @@ module PTSet (T : Tagged) : Putil.Hashed.Set.S with type elt = T.t = struct
 
   let pp formatter set =
     Format.fprintf formatter "{%a}"
-      (ApakEnum.pp_print_enum T.pp)
+      (ArkUtil.pp_print_enum T.pp)
       (enum set)
 end
 
@@ -746,7 +747,7 @@ module PTMap (T : Tagged) = struct
       Format.pp_close_box formatter ();
     in
     Format.fprintf formatter "[%a]"
-      (ApakEnum.pp_print_enum pp_elt)
+      (ArkUtil.pp_print_enum pp_elt)
       (enum map)
 end
 
@@ -762,7 +763,7 @@ end = struct
       let hash x = Hashtbl.hash (tag x)
       let equal x y = (tag x) = (tag y)
     end)
-  let show = Putil.mk_show pp
+  let show = ArkUtil.mk_show pp
   let compare x y = compare (tag x) (tag y)
   let hash x = Hashtbl.hash (tag x)
   let equal x y = (tag x) = (tag y)

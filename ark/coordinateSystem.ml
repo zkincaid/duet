@@ -1,5 +1,4 @@
 open Syntax
-open Apak
 open BatPervasives
 
 module V = Linear.QQVector
@@ -8,13 +7,6 @@ module P = Polynomial.Mvp
 module Rewrite = Polynomial.Rewrite
 
 include Log.Make(struct let name = "ark.coordinateSystem" end)
-
-module Int = struct
-  type t = int [@@deriving show,ord]
-  let tag k = k
-end
-module IntMap = Apak.Tagged.PTMap(Int)
-module IntSet = Apak.Tagged.PTSet(Int)
 
 type cs_term = [ `Mul of V.t * V.t
                | `Inv of V.t
@@ -137,7 +129,7 @@ let rec pp_vector cs formatter vec =
     Format.pp_print_string formatter "0"
   else
     Format.fprintf formatter "@[<hov 1>%a@]"
-      (ApakEnum.pp_print_enum ~pp_sep pp_elt) (V.enum vec)
+      (ArkUtil.pp_print_enum ~pp_sep pp_elt) (V.enum vec)
 
 and pp_cs_term cs formatter = function
   | `Mul (x, y) ->
@@ -160,7 +152,7 @@ and pp_cs_term cs formatter = function
     let pp_comma formatter () = Format.fprintf formatter ",@ " in
     Format.fprintf formatter "%a(@[<hov 1>%a@])"
       (pp_symbol cs.ark) func
-      (ApakEnum.pp_print_enum ~pp_sep:pp_comma (pp_vector cs))
+      (ArkUtil.pp_print_enum ~pp_sep:pp_comma (pp_vector cs))
       (BatList.enum args)
 
 let cs_term_id ?(admit=false) cs t =

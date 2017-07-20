@@ -248,9 +248,6 @@ module PInt : CoreType with type t = int
 module PChar : CoreType with type t = char
 module PUnit : CoreType with type t = unit
 
-val pp_print_list : (Format.formatter -> 'a -> unit) -> Format.formatter -> 'a list -> unit
-val mk_show : (Format.formatter -> 'a -> unit) -> 'a -> string
-
 val set_load_path : string -> unit
 val set_temp_dir : string -> unit
 

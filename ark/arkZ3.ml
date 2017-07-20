@@ -1,6 +1,5 @@
 open Syntax
 open BatPervasives
-open Apak
 
 include Log.Make(struct let name = "ark.arkZ3" end)
 
@@ -197,6 +196,16 @@ let mk_quantified ctx qt ?name:(name="_") typ phi =
 
 let z3_of_symbol z3 sym = Z3.Symbol.mk_int z3 (int_of_symbol sym)
 
+let decl_of_symbol z3 ark sym =
+  let (param_sorts, return_sort) = match typ_symbol ark sym with
+    | `TyInt | `TyReal | `TyBool ->
+      invalid_arg "decl_of_symbol: not a function symbol"
+    | `TyFun (params, return) ->
+      (List.map (sort_of_typ z3) params, sort_of_typ z3 return)
+  in
+  let z3sym = z3_of_symbol z3 sym in
+  Z3.FuncDecl.mk_func_decl z3 z3sym param_sorts return_sort
+
 let rec z3_of_expr ark z3 expr =
   match refine ark expr with
   | `Term t -> z3_of_term ark z3 t
@@ -219,13 +228,7 @@ and z3_of_term (ark : 'a context) z3 (term : 'a term) =
       Z3.Expr.mk_const_f z3 decl
 
     | `App (func, args) ->
-      let (param_sorts, return_sort) = match typ_symbol ark func with
-        | `TyInt | `TyReal | `TyBool -> invalid_arg "z3_of.term: ill-typed application"
-        | `TyFun (params, return) ->
-          (List.map (sort_of_typ z3) params, sort_of_typ z3 return)
-      in
-      let z3sym = z3_of_symbol z3 func in
-      let decl = Z3.FuncDecl.mk_func_decl z3 z3sym param_sorts return_sort in
+      let decl = decl_of_symbol z3 ark func in
       Z3.Expr.mk_app z3 decl (List.map (z3_of_expr ark z3) args)
 
     | `Var (i, `TyFun (_, _)) | `Var (i, `TyBool) -> invalid_arg "z3_of.term: variable"
@@ -250,6 +253,16 @@ and z3_of_formula ark z3 phi =
     | `Tru -> Z3.Boolean.mk_true z3
     | `Fls -> Z3.Boolean.mk_false z3
     | `And conjuncts -> Z3.Boolean.mk_and z3 conjuncts
+    | `Or [phi; psi] ->
+      begin match Z3.AST.get_ast_kind (Z3.Expr.ast_of_expr phi) with
+        | Z3enums.APP_AST -> begin
+            let decl = Z3.Expr.get_func_decl phi in
+            match Z3.FuncDecl.get_decl_kind decl, Z3.Expr.get_args phi with
+            | (Z3enums.OP_NOT, [phi]) -> Z3.Boolean.mk_implies z3 phi psi
+            | (_, _) -> Z3.Boolean.mk_or z3 [phi; psi]
+          end
+        | _ -> Z3.Boolean.mk_or z3 [phi; psi]
+      end
     | `Or disjuncts -> Z3.Boolean.mk_or z3 disjuncts
     | `Not phi -> Z3.Boolean.mk_not z3 phi
     | `Quantify (qt, name, typ, phi) ->
@@ -267,13 +280,7 @@ and z3_of_formula ark z3 phi =
       in
       Z3.Expr.mk_const_f z3 decl
     | `Proposition (`App (predicate, args)) ->
-      let (param_sorts, return_sort) = match typ_symbol ark predicate with
-        | `TyInt | `TyReal | `TyBool -> invalid_arg "z3_of.term: ill-typed application"
-        | `TyFun (params, return) ->
-          (List.map (sort_of_typ z3) params, sort_of_typ z3 return)
-      in
-      let z3sym = z3_of_symbol z3 predicate in
-      let decl = Z3.FuncDecl.mk_func_decl z3 z3sym param_sorts return_sort in
+      let decl = decl_of_symbol z3 ark predicate in
       Z3.Expr.mk_app z3 decl (List.map (z3_of_expr ark z3) args)
     | `Ite (cond, bthen, belse) -> Z3.Boolean.mk_ite z3 cond bthen belse
   in
@@ -368,16 +375,12 @@ class ['a] z3_model (ark : 'a context) z3 m =
       | None -> assert false
 
     method eval_fun func =
-      let (param_sorts, return_sort, formals) =
-        match typ_symbol ark func with
-        | `TyInt | `TyReal | `TyBool -> assert false
-        | `TyFun (params, return) ->
-          (List.map (sort_of_typ z3) params,
-           sort_of_typ z3 return,
-           List.mapi (fun i typ -> mk_var ark i typ) params)
+      let decl = decl_of_symbol z3 ark func in
+      let formals = match typ_symbol ark func with
+        | `TyFun (params, _) ->
+          List.mapi (fun i typ -> mk_var ark i typ) params
+        | _ -> invalid_arg "eval_fun: not a function"
       in
-      let z3sym = z3_of_symbol z3 func in
-      let decl = Z3.FuncDecl.mk_func_decl z3 z3sym param_sorts return_sort in
       match Z3.Model.get_func_interp m decl with
       | None -> assert false
       | Some interp ->
@@ -631,3 +634,107 @@ let is_sat ark phi = (mk_context ark [])#is_sat phi
 
 let optimize_box ark phi objectives =
   (mk_context ark [])#optimize_box phi objectives
+
+
+module CHC = struct
+  type 'a solver =
+    { ctx : 'a z3_context;
+      error : symbol;
+      fp : Z3.Fixedpoint.fixedpoint }
+
+  let mk_solver ctx =
+    let fp = Z3.Fixedpoint.mk_fixedpoint ctx#z3 in
+    let error = mk_symbol ctx#ark ~name:"error" (`TyFun ([], `TyBool)) in
+    let error_decl = decl_of_symbol ctx#z3 ctx#ark error in
+    let params = Z3.Params.mk_params ctx#z3 in
+    let sym x = Z3.Symbol.mk_string ctx#z3 x in
+    Z3.Params.add_bool params (sym "xform.slice") false;
+    Z3.Params.add_bool params (sym "xform.inline_linear") false;
+    Z3.Params.add_bool params (sym "xform.inline_eager") false;
+    Z3.Fixedpoint.set_parameters fp params;
+
+    Z3.Fixedpoint.register_relation fp error_decl;
+    { ctx; error; fp }
+
+  let register_relation solver relation =
+    let decl = decl_of_symbol solver.ctx#z3 solver.ctx#ark relation in
+    Z3.Fixedpoint.register_relation solver.fp decl
+
+  let add solver phis =
+    Z3.Fixedpoint.add solver.fp (List.map solver.ctx#of_formula phis)
+
+  let pop solver = Z3.Fixedpoint.pop solver.fp
+
+  let push solver = Z3.Fixedpoint.push solver.fp
+
+  module M = ArkUtil.Int.Map
+  let add_rule solver hypothesis conclusion =
+    let ark = solver.ctx#ark in
+    let var_table = free_vars (mk_if ark hypothesis conclusion) in
+    let rename =
+      let table = Hashtbl.create 991 in
+      BatHashtbl.enum var_table
+      |> BatEnum.iteri (fun i (j, typ) -> Hashtbl.add table j (mk_var ark i typ));
+      fun i -> Hashtbl.find table i
+    in
+    let rule =
+      match destruct ark conclusion with
+      | `App (_, _) ->
+        let hypothesis =
+          solver.ctx#of_formula (substitute ark rename hypothesis)
+        in
+        let conclusion =
+          solver.ctx#of_formula (substitute ark rename conclusion)
+        in
+        Z3.Boolean.mk_implies solver.ctx#z3 hypothesis conclusion
+      | _ ->
+        let hypothesis =
+          mk_and ark [hypothesis; (mk_not ark conclusion)]
+          |> substitute ark rename
+          |> solver.ctx#of_formula
+        in
+        let conclusion =
+          mk_app ark solver.error []
+          |> solver.ctx#of_formula
+        in
+        Z3.Boolean.mk_implies solver.ctx#z3 hypothesis conclusion
+    in
+    let quantified_rule =
+      let types =
+        BatHashtbl.values var_table
+        /@ (sort_of_typ solver.ctx#z3)
+        |> BatList.of_enum
+      in
+      let names =
+        List.map (fun _ -> Z3.Symbol.mk_string solver.ctx#z3 "_") types
+      in
+      Z3.Quantifier.mk_forall
+        solver.ctx#z3
+        types
+        names
+        rule
+        None
+        []
+        []
+        None
+        None
+      |> Z3.Quantifier.expr_of_quantifier
+    in
+    Z3.Fixedpoint.add_rule solver.fp quantified_rule None
+
+  let check solver assumptions =
+    let goal = solver.ctx#of_formula (mk_app solver.ctx#ark solver.error []) in
+    match Z3.Fixedpoint.query solver.fp goal with
+    | Z3.Solver.UNSATISFIABLE -> `Sat
+    | Z3.Solver.SATISFIABLE -> `Unsat
+    | Z3.Solver.UNKNOWN -> `Unknown
+
+  let get_solution solver relation =
+    let ark = solver.ctx#ark in
+    let decl = decl_of_symbol solver.ctx#z3 ark relation in
+    match Z3.Fixedpoint.get_cover_delta solver.fp (-1) decl with
+    | Some inv -> solver.ctx#formula_of inv
+    | None -> assert false
+
+  let to_string solver = Z3.Fixedpoint.to_string solver.fp
+end

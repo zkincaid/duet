@@ -20,7 +20,7 @@ let assert_equal_mvp p q =
   let pp_dim formatter i =
     Format.pp_print_string formatter (Char.escaped (Char.chr i))
   in
-  let show = Apak.Putil.mk_show (Mvp.pp pp_dim) in
+  let show = ArkUtil.mk_show (Mvp.pp pp_dim) in
   assert_equal ~printer:show ~cmp:Mvp.equal p q
 
 let test_mul () =

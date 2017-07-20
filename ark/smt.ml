@@ -1,7 +1,7 @@
 open Syntax
 open BatPervasives
 
-include Apak.Log.Make(struct let name = "ark.smt" end)
+include Log.Make(struct let name = "ark.smt" end)
 let default_solver = ref `Z3
 
 let mk_solver ark =

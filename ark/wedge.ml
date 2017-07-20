@@ -1,5 +1,4 @@
 open Syntax
-open Apak
 open BatPervasives
 
 module V = Linear.QQVector
@@ -12,16 +11,10 @@ module Linexpr0 = Apron.Linexpr0
 module Lincons0 = Apron.Lincons0
 module Dim = Apron.Dim
 
-module Int = struct
-  type t = int [@@deriving show,ord]
-  let tag k = k
-end
-
-module IntMap = Apak.Tagged.PTMap(Int)
-module IntSet = Apak.Tagged.PTSet(Int)
-
 module CS = CoordinateSystem
 module A = BatDynArray
+
+module IntSet = ArkUtil.Int.Set
 
 include Log.Make(struct let name = "ark.wedge" end)
 
@@ -138,13 +131,13 @@ let atom_of_lincons wedge lincons =
 let pp formatter wedge =
   Abstract0.print
     (fun dim ->
-       Apak.Putil.mk_show
+       ArkUtil.mk_show
          (Term.pp wedge.ark)
          (CS.term_of_coordinate wedge.cs (id_of_dim wedge.env dim)))
     formatter
     wedge.abstract
 
-let show wedge = Apak.Putil.mk_show pp wedge
+let show wedge = ArkUtil.mk_show pp wedge
 
 let env_consistent wedge =
   CS.dim wedge.cs = (A.length wedge.env.int_dim) + (A.length wedge.env.real_dim)
@@ -1023,6 +1016,12 @@ let join ?integrity:(integrity=(fun _ -> ())) wedge wedge' =
       abstract =
         Abstract0.join (get_manager ()) wedge.abstract wedge'.abstract }
 
+let meet wedge wedge' =
+  if is_top wedge then wedge'
+  else if is_top wedge' then wedge
+  else
+    (meet_atoms wedge (to_atoms wedge'); wedge)
+
 let join ?integrity:(integrity=(fun _ -> ())) wedge wedge' =
   Log.time "wedge join" (join ~integrity wedge) wedge'
 
@@ -1051,7 +1050,7 @@ let apron_set_dimensions new_int new_real abstract =
       |> BatArray.of_enum
     in
     logf ~level:`trace "Remove %d int, %d real: %a" remove_int remove_real
-      (ApakEnum.pp_print_enum Format.pp_print_int) (BatArray.enum remove);
+      (ArkUtil.pp_print_enum Format.pp_print_int) (BatArray.enum remove);
     assert (remove_int + remove_real = (Array.length remove));
     Abstract0.remove_dimensions
       (get_manager ())
@@ -1791,7 +1790,10 @@ let symbolic_bounds_formula ?exists:(p=fun x -> true) ark phi symbol =
             |> of_atoms ark ~integrity
             |> exists ~integrity ~subterm p
           in
-          symbolic_bounds wedge symbol
+          if CS.admits wedge.cs (mk_const ark symbol) then
+            symbolic_bounds wedge symbol
+          else
+            ([], [])
         in
         let lower_blocking =
           List.map

@@ -133,7 +133,7 @@ class ['a] msat_solver (ark : 'a context) =
   in
   let decl_table = Hashtbl.create 991 in
   let decl_of_sym =
-    Apak.Memo.memo (fun sym ->
+    Memo.memo (fun sym ->
         let name = show_symbol ark sym in
         let typ = msat_type (typ_symbol ark sym) in
         let decl = Mathsat.msat_declare_function msat name typ in

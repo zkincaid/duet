@@ -1,6 +1,5 @@
 open Syntax
 open BatPervasives
-open Apak
 
 module V = Linear.QQVector
 type t = { eq : V.t list;
@@ -18,7 +17,7 @@ let pp formatter polyhedron =
   in
   let pp_sep formatter () = Format.fprintf formatter "@;" in
   Format.fprintf formatter "@[<v 0>%a@]"
-    (ApakEnum.pp_print_enum_nobox ~pp_sep pp_elt) (enum polyhedron)
+    (ArkUtil.pp_print_enum_nobox ~pp_sep pp_elt) (enum polyhedron)
 
 let conjoin x y =
   { eq = List.rev_append x.eq y.eq;

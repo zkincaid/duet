@@ -1,4 +1,3 @@
-open Apak
 open Syntax
 open BatPervasives
 
@@ -119,12 +118,8 @@ module RingMap (M : Map) (R : Ring) = struct
       (enum u)
 end
 
-module Int = struct
-  type t = int [@@deriving show,ord]
-  let tag k = k
-end
-module IntMap = Apak.Tagged.PTMap(Int)
-module IntSet = Apak.Tagged.PTSet(Int)
+module IntMap = ArkUtil.Int.Map
+module IntSet = ArkUtil.Int.Set
 
 module ZZVector = struct
   include RingMap(IntMap)(ZZ)
@@ -132,9 +127,9 @@ module ZZVector = struct
   let pp formatter vec =
     let pp_elt formatter (k, v) = Format.fprintf formatter "%d:%a" k ZZ.pp v in
     IntMap.enum vec
-    |> Format.fprintf formatter "[@[%a@]]" (ApakEnum.pp_print_enum pp_elt)
+    |> Format.fprintf formatter "[@[%a@]]" (ArkUtil.pp_print_enum pp_elt)
 
-  let show = Putil.mk_show pp
+  let show = ArkUtil.mk_show pp
   let compare = compare ZZ.compare
 end
 
@@ -144,9 +139,9 @@ module QQVector = struct
   let pp formatter vec =
     let pp_elt formatter (k, v) = Format.fprintf formatter "%d:%a" k QQ.pp v in
     IntMap.enum vec
-    |> Format.fprintf formatter "[@[%a@]]" (ApakEnum.pp_print_enum pp_elt)
+    |> Format.fprintf formatter "[@[%a@]]" (ArkUtil.pp_print_enum pp_elt)
 
-  let show = Putil.mk_show pp
+  let show = ArkUtil.mk_show pp
   let compare = compare QQ.compare
 end
 
@@ -211,7 +206,7 @@ module QQMatrix = struct
     in
     let pp_row formatter row =
       Format.fprintf formatter "[%a]"
-        (ApakEnum.pp_print_enum (pp_entry row)) (IntSet.enum cols)
+        (ArkUtil.pp_print_enum (pp_entry row)) (IntSet.enum cols)
     in
     let pp_sep formatter () =
       Format.fprintf formatter "@\n"
@@ -222,9 +217,9 @@ module QQMatrix = struct
       Format.fprintf formatter "@[<v 0>%a x %a@;%a@]"
         IntSet.pp (row_set mat)
         IntSet.pp cols
-        (ApakEnum.pp_print_enum_nobox ~pp_sep pp_row) (rows mat)
+        (ArkUtil.pp_print_enum_nobox ~pp_sep pp_row) (rows mat)
 
-  let show = Putil.mk_show pp
+  let show = ArkUtil.mk_show pp
     
   let transpose mat =
     entries mat
@@ -301,7 +296,7 @@ module MakeExprRingMap(R : Ring) = struct
     BatEnum.fold (fun t (dim, coeff) -> add_term coeff dim t) zero enum
 
   let mul ark u v =
-    ApakEnum.cartesian_product
+    ArkUtil.cartesian_product
       (enum u)
       (enum v)
     /@ (fun ((xdim, xcoeff), (ydim, ycoeff)) ->

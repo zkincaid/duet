@@ -1,5 +1,4 @@
 open Syntax
-open Apak
 open BatPervasives
 
 include Log.Make(struct let name = "ark.transition" end)
@@ -38,7 +37,7 @@ struct
 
   let pp formatter tr =
     Format.fprintf formatter "{@[<v 0>";
-    ApakEnum.pp_print_enum_nobox
+    ArkUtil.pp_print_enum_nobox
        ~pp_sep:(fun formatter () -> Format.pp_print_break formatter 0 0)
        (fun formatter (lhs, rhs) ->
           Format.fprintf formatter "%a := @[%a@]"
@@ -55,7 +54,7 @@ struct
     end;
     Format.fprintf formatter "@]}"
 
-  let show = Apak.Putil.mk_show pp
+  let show = ArkUtil.mk_show pp
 
   let construct guard assignment =
     { transform =

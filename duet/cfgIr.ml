@@ -2,6 +2,7 @@
 open Core
 open Afg
 open Ast
+open Ark
 open Apak
 
 module DefMemo = Memo.Make(Def)
@@ -537,7 +538,7 @@ let from_func_ast file func_ast =
   let process_stmt stmt =
     match stmt_kind stmt with
     | Instr (d::ds as defs) ->
-      ApakEnum.adjacent_pairs (BatList.enum defs)
+      ArkUtil.adjacent_pairs (BatList.enum defs)
       |> BatEnum.iter (fun (x,y) -> Cfg.add_edge cfg x y);
       List.iter (Cfg.add_edge cfg (BatList.last defs)) (next_defs stmt)
     | ForkGoto _ ->

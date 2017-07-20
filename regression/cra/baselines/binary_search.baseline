@@ -1,31 +1,44 @@
 Procedure __VERIFIER_nondet has zero cost
 Procedure: main
 0 <= cost
+main is o(1)
 Procedure: search
 min:121(min:121(min:121(max:122(max:122(1,
-                                        ((-1
-                                            * log:7(2, ((3 * param0:23) + 12)))
-                                           + log:7(2, ((12 * param0:23) + 12)))),
-                                ((-1 * log:7(2, 6))
-                                   + log:7(2, ((3 * param0:23) + 6)))),
-                        max:122(max:122(2,
-                                        ((-1
-                                            * log:7(2,
-                                                    ((12 * param0:23)
-                                                       + (-9 * __cost:0) + 21)))
-                                           + log:7(2, ((12 * param0:23) + 12))
-                                           + 1)),
-                                (log:7(2, ((3 * param0:23) + 6))
+                                        (log:7(2, (12 + (12 * param0:23)))
+                                           + (-1
+                                                * log:7(2,
+                                                        (12 + (3 * param0:23)))))),
+                                (log:7(2, (6 + (3 * param0:23)))
+                                   + (-1 * log:7(2, 6)))),
+                        max:122(max:122(max:122(2,
+                                                (1
+                                                   + log:7(2,
+                                                           (4
+                                                              + (4
+                                                                   * param0:23)))
+                                                   + (-1
+                                                        * log:7(2,
+                                                                (7
+                                                                   + (
+                                                                   4
+                                                                    * param0:23)
+                                                                   + (
+                                                                   -3
+                                                                    * __cost:0)))))),
+                                        (1 + log:7(2, (8 + (2 * param0:23)))
+                                           + (-1
+                                                * log:7(2,
+                                                        (8 + (2 * param0:23)))))),
+                                (1 + log:7(2, (4 + (2 * param0:23)))
                                    + (-1
                                         * log:7(2,
-                                                ((3 * param0:23)
-                                                   + (-3 * __cost:0) + 9)))
-                                   + 1))),
+                                                (6 + (2 * param0:23)
+                                                   + (-2 * __cost:0))))))),
                 1),
         0) <= cost
+search is o(1)
 cost <= max:122(max:122(max:122(param0:23,
-                                min:121(param0:23,
-                                        ((-1 * log:7(2, 3))
-                                           + log:7(2, (3 * param0:23)) + 1))),
+                                min:121(param0:23, log:7(2, (2 * param0:23)))),
                         1),
                 0)
+search is O(n)

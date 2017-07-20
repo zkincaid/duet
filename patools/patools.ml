@@ -1,5 +1,5 @@
-open Apak
 open Patop
+open Ark
 
 include Log.Make(struct let name = "patools" end)
 module F = PaFormula
@@ -116,7 +116,7 @@ let bounded_check_emptiness_certificate pa phi =
                 exit (-1)
               end
             ) (A.succs pa config label)
-        ) (ApakEnum.cartesian_product
+        ) (ArkUtil.cartesian_product
              (Alphabet.Set.enum (A.alphabet pa))
              (A.Config.universe config))
     ) (A.Config.min_models 2 phi)
@@ -140,7 +140,7 @@ let model_of_z3 m predicates size =
           if Smt.bool_val (get_else interp) then begin
             let full =
               BatList.of_enum ((1 -- k) /@ (fun _ -> (1 -- size)))
-              |> ApakEnum.tuples 
+              |> ArkUtil.tuples
               |> BatEnum.fold (fun m tuple ->
                   Config.add p tuple m
                 ) (Config.empty size)
