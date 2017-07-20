@@ -25,6 +25,7 @@
 enum Var_selection {
   MIN_DOMAIN_SIZE,
   MAX_CONFLICTS,
+  MAX_CONFLICT_HISTORY,
 };
 
 using namespace std;
@@ -232,8 +233,10 @@ void ubacktrack(Embedding &emb, stack<udecision> &decisions) {
 size_t select_variable(const Embedding& emb, const vector<int>& conflicts, Var_selection sel){
   const Graph& u_graph = emb.get_universe_graph();
   const LabeledGraph<prop, prop>& p_graph = emb.get_predicate_graph();
+  static vector<size_t> conflict_history;
+  if (conflict_history.size() < u_graph.uSize()){ conflict_history.resize(u_graph.uSize(), 0); }
 
-  if (sel == MIN_DOMAIN_SIZE) {
+  if (sel == MIN_DOMAIN_SIZE || sel == MAX_CONFLICT_HISTORY) {
     set<int> vars;
   
     for (size_t i = 0; i < conflicts.size(); ++i){
@@ -243,6 +246,7 @@ size_t select_variable(const Embedding& emb, const vector<int>& conflicts, Var_s
         if (u_graph.uAdj(cvars[j]).size() > 1){
           vars.insert(cvars[j]);
           valid = true;
+  	  ++conflict_history[cvars[j]]; // increment conflict history even on non-decision variables
         }
       }
       if (!valid){ /* valid == false -> emb is arc inconsistent */
@@ -251,11 +255,21 @@ size_t select_variable(const Embedding& emb, const vector<int>& conflicts, Var_s
     }
 
     size_t best_var = 0;
-    size_t min_val = u_graph.vSize() + 1; // MAX_VALUE + 1
-    for (set<int>::iterator it = vars.begin(); it != vars.end(); ++it){
-      if (min_val > u_graph.uAdj(*it).size()){
-        best_var = *it;
-        min_val = u_graph.uAdj(*it).size();
+    if (sel == MIN_DOMAIN_SIZE){
+      size_t min_val = u_graph.vSize() + 1; // MAX_VALUE + 1
+      for (set<int>::iterator it = vars.begin(); it != vars.end(); ++it){
+        if (min_val > u_graph.uAdj(*it).size()){
+          best_var = *it;
+          min_val = u_graph.uAdj(*it).size();
+        }
+      }
+    } else {
+      size_t max_val = 0;
+      for (set<int>::iterator it = vars.begin(); it != vars.end(); ++it){
+	if (max_val < conflict_history[*it]){
+	  best_var = *it;
+	  max_val = conflict_history[*it];
+	}
       }
     }
     assert (best_var != 0);
@@ -339,7 +353,7 @@ bool uembedding(Embedding emb){
       if (conflicts.size() == 0){
 	return true;
       }
-      size_t d_var = select_variable(emb, conflicts, MAX_CONFLICTS);
+      size_t d_var = select_variable(emb, conflicts, MAX_CONFLICT_HISTORY);
       if (d_var == 0){ /* d_var only equals 0 if emb is arc inconsistent */
 #if TRACE
         printf("Backtrack: no decision variables in conflict\n");
