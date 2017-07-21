@@ -219,7 +219,9 @@ void ubacktrack(Embedding &emb, stack<udecision> &decisions) {
     const vector<Graph::Edge>& adj = u_graph.uAdj(d.u);
     for(pos = 0; pos < adj.size() && adj[pos].vertex != d.v; pos++) ;
     assert(pos < adj.size());
+    bool check = u_graph.check();
     u_graph.remove_edge(d.u, pos);
+    assert (!check || u_graph.check());
 
     decisions.pop();
 
@@ -236,7 +238,7 @@ size_t select_variable(const Embedding& emb, const vector<int>& conflicts, Var_s
   static vector<size_t> conflict_history;
   if (conflict_history.size() < u_graph.uSize()){ conflict_history.resize(u_graph.uSize(), 0); }
 
-  if (sel == MIN_DOMAIN_SIZE || sel == MAX_CONFLICT_HISTORY) {
+  if (sel == MIN_DOMAIN_SIZE || sel == MAX_CONFLICTS) {
     set<int> vars;
   
     for (size_t i = 0; i < conflicts.size(); ++i){
@@ -267,6 +269,9 @@ size_t select_variable(const Embedding& emb, const vector<int>& conflicts, Var_s
       size_t max_val = 0;
       for (set<int>::iterator it = vars.begin(); it != vars.end(); ++it){
 	if (max_val < conflict_history[*it]){
+	  best_var = *it;
+	  max_val = conflict_history[*it];
+	} else if (max_val == conflict_history[*it] && u_graph.uAdj(*it).size() < u_graph.uAdj(best_var).size()){
 	  best_var = *it;
 	  max_val = conflict_history[*it];
 	}

@@ -182,7 +182,7 @@ class Embedding{
     std::vector<Graph::VertexPair> tmp;
     tmp = std::move(u_graph_.commit_edges(p_graph_.getULabel(pu).vars, p_graph_.getVLabel(pv).vars));
     u_removed.insert(u_removed.end(), tmp.begin(), tmp.end());
-    ufilter(u_removed, p_removed);
+    filter(u_removed, p_removed); /* emperically, filter tends to do better than ufilter for this */
   }
 
   /* Commit to a decision and ensure arc consistency. */
@@ -196,7 +196,61 @@ class Embedding{
       tmp = std::move(u_graph_.commit_edges(u_units, v_units));
       d.remove_u.insert(d.remove_u.begin(), tmp.begin(), tmp.end());
 
-      ufilter(d.remove_u, d.remove_p);
+      ufilter(d.remove_u, d.remove_p); /* emperically, ufilter tends to do better than filter for this */
+  }
+
+  void filter(std::vector<Graph::VertexPair>& remove_u, std::vector<Graph::VertexPair>& remove_p) {
+    for (size_t ru = 0; valid_ && ru != remove_u.size(); ++ru){
+      size_t u = remove_u[ru].u;
+      size_t v = remove_u[ru].v;
+      const std::vector<Graph::Edge>& preds = u_inv_label_[u];
+      for (size_t i = 0; i < preds.size(); ++i){
+	size_t p = preds[i].vertex;
+	size_t k = preds[i].position;
+	const std::vector<Graph::Edge>& p_adj = p_graph_.uAdj(p);
+	const std::vector<int>& p_vars = p_graph_.getULabel(p).vars;
+
+	size_t q = 0;
+	while (q < p_adj.size()) {
+	  const std::vector<int>& q_vars = p_graph_.getVLabel(p_adj[q].vertex).vars;
+	  if ((size_t)q_vars[k] == v){
+	    remove_p.emplace_back(p, p_adj[q].vertex);
+	    p_graph_.remove_edge(p, q);
+	  } else {
+	    q++;
+	  }
+	}
+	if (p_adj.size() == 0){
+	  valid_ = false;
+	  return;
+	}
+	/* Suppose that x_i -> y.  Then there must be some p(x_1,...,x_n) ->
+	   q(y_1, ..., y_n) in the predicate graph with y = y_i */
+	for (size_t i = 0; i < p_vars.size(); ++i) {
+	  const std::vector<Graph::Edge>& xi_adj = u_graph_.uAdj(p_vars[i]);
+	  size_t y = 0;
+	  while (y < xi_adj.size()) {
+	    bool remove_xiy = true;
+	    for (size_t q = 0; remove_xiy && q < p_adj.size(); ++q){
+	      const std::vector<int>& q_vars = p_graph_.getVLabel(p_adj[q].vertex).vars;
+	      if (xi_adj[y].vertex == (size_t)q_vars[i]) {
+	        remove_xiy = false;
+	      }
+	    }
+	    if (remove_xiy) {
+	      remove_u.emplace_back(p_vars[i], xi_adj[y].vertex);
+	      u_graph_.remove_edge(p_vars[i], y);
+	    } else {
+	      y++;
+	    }
+	  }
+	  if (xi_adj.size() == 0) {
+	    valid_ = false;
+	    return;
+	  }
+        }
+      }
+    }
   }
 
   void ufilter(std::vector<Graph::VertexPair>& remove_u, std::vector<Graph::VertexPair>& remove_p) {
@@ -206,7 +260,6 @@ class Embedding{
 	  for (size_t p = 0; p < p_graph_.uSize(); ++p){
 	      const std::vector<Graph::Edge>& p_adj = p_graph_.uAdj(p);
 	      const std::vector<int>& p_vars = p_graph_.getULabel(p).vars;
-
 	      /* For each edge p(x_1,...,x_n) -> q(y_1, ..., y_n) in the
 		 predicate graph, ensure that each of x_1 -> y_1, ..., x_n ->
 		 y_n is the universe graph. */
@@ -235,7 +288,6 @@ class Embedding{
 		  valid_ = false;
 		  return;
 	      }
-
 	      /* Suppose that x_i -> y.  Then there must be some p(x_1,...,x_n) ->
 		 q(y_1, ..., y_n) in the predicate graph with y = y_i */
 	      for (size_t i = 0; i < p_vars.size(); ++i) {

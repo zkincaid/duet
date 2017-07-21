@@ -76,7 +76,6 @@ class Graph{
     }
     adj_u[u].emplace_back(v, adj_v[v].size());
     adj_v[v].emplace_back(u, adj_u[u].size() - 1);
-    assert (check());
   }
 
   /* Ford Fulkerson algorithm for Bipartite Maximum Matching
@@ -217,9 +216,11 @@ class Graph{
 	if (k.vertex < adj_v.size() && k.position < adj_v[k.vertex].size()){
   	  k = adj_v[k.vertex][k.position];
 	  if (k.vertex != i || k.position != j){
+	    printf("Error: u_reverse_mapping not correct (%lu, %lu)\n", i, j);
 	    return false;
 	  }
 	} else {
+	  printf("Error: u_forward out of bounds (%lu, %lu)\n", i, j);
 	  return false;
 	}
       }
@@ -230,9 +231,11 @@ class Graph{
 	if (k.vertex < adj_u.size() && k.position < adj_u[k.vertex].size()){
 	  k = adj_u[k.vertex][k.position];
 	  if (k.vertex != i || k.position != j){
+	    printf("Error: v_reverse_mapping not correct (%lu, %lu)\n", i, j);
 	    return false;
 	  }
 	} else {
+	  printf("Error: v_forward out of bounds (%lu, %lu)\n", i, j);
 	  return false;
 	}
       }
