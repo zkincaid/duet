@@ -169,10 +169,8 @@ let convert_insts (inst : inst) =
   | Tick(bname,v) -> let lvar = get_lvar bname in
                      let lval = convert_lsum bname in
                      let rval = convert_lsum v in
-                     let tick_assume = Core.Def.mk (Assume(Core.Atom(Core.Le,Core.Constant(CInt(0,4)),lval))) in
-                     let tick_assume_2 = Core.Def.mk (Assume(Core.Atom(Core.Le,Core.Constant(CInt(0,4)),Core.BinaryOp(lval,Core.Add,rval,Core.Concrete(Int(4)))))) in
                      let tick = Core.Def.mk (Assign (lvar,Core.BinaryOp(lval,Core.Add,rval,Core.Concrete(Int(4))))) in
-                     let tick_tail = [tick_assume;tick_assume_2;tick] in
+                     let tick_tail = [tick] in
                      tick_list := !tick_list @ tick_tail;
                      []
   | Call(a,name,args) -> (
