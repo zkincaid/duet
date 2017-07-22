@@ -238,7 +238,7 @@ size_t select_variable(const Embedding& emb, const vector<int>& conflicts, Var_s
   static vector<size_t> conflict_history;
   if (conflict_history.size() < u_graph.uSize()){ conflict_history.resize(u_graph.uSize(), 0); }
 
-  if (sel == MIN_DOMAIN_SIZE || sel == MAX_CONFLICTS) {
+  if (sel == MIN_DOMAIN_SIZE || sel == MAX_CONFLICT_HISTORY) {
     set<int> vars;
   
     for (size_t i = 0; i < conflicts.size(); ++i){
@@ -358,7 +358,7 @@ bool uembedding(Embedding emb){
       if (conflicts.size() == 0){
 	return true;
       }
-      size_t d_var = select_variable(emb, conflicts, MAX_CONFLICT_HISTORY);
+      size_t d_var = select_variable(emb, conflicts, MAX_CONFLICTS);
       if (d_var == 0){ /* d_var only equals 0 if emb is arc inconsistent */
 #if TRACE
         printf("Backtrack: no decision variables in conflict\n");
