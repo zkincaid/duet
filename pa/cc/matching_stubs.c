@@ -5,12 +5,12 @@
 #include <string>
 #include <cstdint>
 #include <map>
-#include <set>
 #include <queue>
 #include <stack>
 #include <cmath>
 #include <limits>
 #include <functional>
+#include <limits>
 #include <unistd.h>
 #include <sys/wait.h>
 #include <string.h>
@@ -23,9 +23,12 @@
 
 /* Variable Selection */
 enum Var_selection {
-  MIN_DOMAIN_SIZE,
-  MAX_CONFLICTS,
-  MAX_CONFLICT_HISTORY,
+  MIN_REMAINING_VALUES = 0,  // min = even
+  MAX_REMAINING_VALUES = 1,  // max = odd
+  MIN_CONFLICTS = 2,
+  MAX_CONFLICTS = 3,
+  MIN_CONFLICT_HISTORY = 4,
+  MAX_CONFLICT_HISTORY = 5,
 };
 
 using namespace std;
@@ -238,56 +241,42 @@ size_t select_variable(const Embedding& emb, const vector<int>& conflicts, Var_s
   static vector<size_t> conflict_history;
   if (conflict_history.size() < u_graph.uSize()){ conflict_history.resize(u_graph.uSize(), 0); }
 
-  if (sel == MIN_DOMAIN_SIZE || sel == MAX_CONFLICT_HISTORY) {
-    set<int> vars;
-  
+  map<int, int> vars;
+  if (sel == MIN_REMAINING_VALUES){
     for (size_t i = 0; i < conflicts.size(); ++i){
       const vector<int>& cvars = p_graph.getULabel(conflicts[i]).vars;
       bool valid(false);
       for (size_t j = 0; j < cvars.size(); ++j){
         if (u_graph.uAdj(cvars[j]).size() > 1){
-          vars.insert(cvars[j]);
+  	  vars[cvars[j]] = u_graph.uAdj(cvars[j]).size();
           valid = true;
-  	  ++conflict_history[cvars[j]]; // increment conflict history even on non-decision variables
-        }
+	}
       }
-      if (!valid){ /* valid == false -> emb is arc inconsistent */
+      if (!valid){
         return 0;
       }
     }
-
-    size_t best_var = 0;
-    if (sel == MIN_DOMAIN_SIZE){
-      size_t min_val = u_graph.vSize() + 1; // MAX_VALUE + 1
-      for (set<int>::iterator it = vars.begin(); it != vars.end(); ++it){
-        if (min_val > u_graph.uAdj(*it).size()){
-          best_var = *it;
-          min_val = u_graph.uAdj(*it).size();
-        }
-      }
-    } else {
-      size_t max_val = 0;
-      for (set<int>::iterator it = vars.begin(); it != vars.end(); ++it){
-	if (max_val < conflict_history[*it]){
-	  best_var = *it;
-	  max_val = conflict_history[*it];
-	} else if (max_val == conflict_history[*it] && u_graph.uAdj(*it).size() < u_graph.uAdj(best_var).size()){
-	  best_var = *it;
-	  max_val = conflict_history[*it];
+  } else if (sel == MIN_CONFLICTS || sel == MAX_CONFLICTS) {
+    for (size_t i = 0; i < conflicts.size(); ++i){
+      const vector<int>& cvars = p_graph.getULabel(conflicts[i]).vars;
+      bool valid(false);
+      for (size_t j = 0; j < cvars.size(); ++j){	
+        if (u_graph.uAdj(cvars[j]).size() > 1){
+	  ++vars[cvars[j]]; // increment # of conflicts cvars[j] was involved in
+          valid = true;
 	}
       }
+      if (!valid){
+        return 0;
+      }
     }
-    assert (best_var != 0);
-    return best_var;
-  } else { /* sel == MAX_CONFLICTS */
-    map<int, int> vars;
-
+  } else { // sel == MIN_CONFLICT_HISTORY || sel == MAX_CONFLICT_HISTORY
     for (size_t i = 0; i < conflicts.size(); ++i){
       const vector<int>& cvars = p_graph.getULabel(conflicts[i]).vars;
       bool valid(false);
       for (size_t j = 0; j < cvars.size(); ++j){
 	if (u_graph.uAdj(cvars[j]).size() > 1){
-	  ++vars[cvars[j]];
+	  vars[cvars[j]] = ++conflict_history[cvars[j]];
 	  valid = true;
 	}
       }
@@ -295,7 +284,10 @@ size_t select_variable(const Embedding& emb, const vector<int>& conflicts, Var_s
 	return 0;
       }
     }
-    size_t best_var = 0;
+  }
+
+  size_t best_var = 0;
+  if (sel & 1){ // MAX
     int max_val = 0;
     for (map<int, int>::iterator it = vars.begin(); it != vars.end(); ++it){
       if (max_val < it->second){
@@ -303,9 +295,17 @@ size_t select_variable(const Embedding& emb, const vector<int>& conflicts, Var_s
 	max_val = it->second;
       }
     }
-    assert (best_var != 0);
-    return best_var;
+  } else { // MIN
+    int min_val = numeric_limits<int>::max();
+    for (map<int, int>::iterator it = vars.begin(); it != vars.end(); ++it){
+      if (min_val > it->second){
+	best_var = it->first;
+	min_val = it->second;
+      }
+    }
   }
+  assert(best_var != 0);
+  return best_var;
 }
 
 bool uembedding(Embedding emb){
