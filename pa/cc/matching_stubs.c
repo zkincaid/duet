@@ -1,10 +1,13 @@
 #include <caml/mlvalues.h>
 #include <caml/memory.h>
 #include <cstdio>
+#include <cstdlib>
+#include <ctime>
 #include <vector>
 #include <string>
 #include <cstdint>
 #include <map>
+#include <set>
 #include <queue>
 #include <stack>
 #include <cmath>
@@ -24,11 +27,14 @@
 /* Variable Selection */
 enum Var_selection {
   MIN_REMAINING_VALUES = 0,  // min = even
-  MAX_REMAINING_VALUES = 1,  // max = odd
-  MIN_CONFLICTS = 2,
-  MAX_CONFLICTS = 3,
-  MIN_CONFLICT_HISTORY = 4,
-  MAX_CONFLICT_HISTORY = 5,
+  MAX_REMAINING_VALUES,  // = 1 max = odd
+  MIN_CONFLICTS,
+  MAX_CONFLICTS,
+  MIN_CONFLICT_HISTORY,
+  MAX_CONFLICT_HISTORY,
+  FIRST_VAR,
+  WEIGHTED_RANDOM_VAR, // weighted by # conflicts
+  UNIFORM_RANDOM_VAR,
 };
 
 using namespace std;
@@ -235,12 +241,54 @@ void ubacktrack(Embedding &emb, stack<udecision> &decisions) {
     }
 }
 
-size_t select_variable(const Embedding& emb, const vector<int>& conflicts, Var_selection sel){
+size_t select_variable(const Embedding& emb, const vector<int>& conflicts, Var_selection sel, vector<size_t>& conflict_history){
   const Graph& u_graph = emb.get_universe_graph();
   const LabeledGraph<prop, prop>& p_graph = emb.get_predicate_graph();
-  static vector<size_t> conflict_history;
-  if (conflict_history.size() < u_graph.uSize()){ conflict_history.resize(u_graph.uSize(), 0); }
 
+  if (sel == FIRST_VAR){
+    const vector<int>& cvars = p_graph.getULabel(conflicts[0]).vars;
+    for (size_t i = 0; i < cvars.size(); ++i){
+      if (u_graph.uAdj(cvars[i]).size() > 1){
+	return cvars[i];
+      }
+    }
+    return 0;
+  } else if (sel == WEIGHTED_RANDOM_VAR){
+    vector<int> vars;
+    for (size_t i = 0; i < conflicts.size(); ++i){
+      const vector<int>& cvars = p_graph.getULabel(conflicts[i]).vars;
+      bool valid(false);
+      for (size_t j = 0; j < cvars.size(); ++j){
+	if (u_graph.uAdj(cvars[j]).size() > 1){
+	  vars.push_back(cvars[j]);
+	  valid = true;
+	}
+      }
+      if (!valid){
+	return 0;
+      }
+    }
+    return vars[rand()%vars.size()];
+  } else if (sel == UNIFORM_RANDOM_VAR){
+    set<int> vars;
+    for (size_t i = 0; i < conflicts.size(); ++i){
+      const vector<int>& cvars = p_graph.getULabel(conflicts[i]).vars;
+      bool valid(false);
+      for (size_t j = 0; j < cvars.size(); ++j){
+	if (u_graph.uAdj(cvars[j]).size() > 1){
+	  vars.insert(cvars[j]);
+	  valid = true;
+	}
+      }
+      if (!valid){
+	return 0;
+      }
+    }
+    set<int>::iterator it = vars.begin();
+    size_t var = rand()%vars.size();
+    for (size_t i = 0;  i < var; ++i) ++it;
+    return *it;
+  }
   map<int, int> vars;
   if (sel == MIN_REMAINING_VALUES){
     for (size_t i = 0; i < conflicts.size(); ++i){
@@ -313,6 +361,9 @@ bool uembedding(Embedding emb){
       vector<Graph::VertexPair> p_removed, u_removed;
       emb.ufilter(p_removed, u_removed);
   }
+  srand(time(NULL));
+  vector<size_t> conflict_history;
+  conflict_history.resize(emb.get_universe_graph().uSize(), 0);
 
   if (!emb.get_valid()) return false;
   Graph& u_graph = emb.get_universe_graph();
@@ -358,7 +409,7 @@ bool uembedding(Embedding emb){
       if (conflicts.size() == 0){
 	return true;
       }
-      size_t d_var = select_variable(emb, conflicts, MAX_CONFLICTS);
+      size_t d_var = select_variable(emb, conflicts, MIN_REMAINING_VALUES, conflict_history);
       if (d_var == 0){ /* d_var only equals 0 if emb is arc inconsistent */
 #if TRACE
         printf("Backtrack: no decision variables in conflict\n");
