@@ -290,7 +290,7 @@ size_t select_variable(const Embedding& emb, const vector<int>& conflicts, Var_s
     return *it;
   }
   map<int, int> vars;
-  if (sel == MIN_REMAINING_VALUES){
+  if (sel == MIN_REMAINING_VALUES || sel == MAX_REMAINING_VALUES){
     for (size_t i = 0; i < conflicts.size(); ++i){
       const vector<int>& cvars = p_graph.getULabel(conflicts[i]).vars;
       bool valid(false);
