@@ -53,16 +53,14 @@ bool choose(stack<decision>& decisions, const vector<int>& confs, Embedding& emb
   Which determines if str1 is embedded in str2.
 ***********************************************************/
 extern "C" {
-  CAMLprim value embedsOCAML(value str1, value str2, value algo){ /* str = int * (string * int list) list */
+  CAMLprim value embedsOCAML(value str1, value str2, value algo){ /* str = int * (int * int list) list */
     CAMLparam3(str1, str2, algo);
     CAMLlocal3(head, propList, predList);
     
     vector<vector<uint8_t> > sig1, sig2;    /* Signature of str1 and str2 respectively */
     sig1.resize(Int_val(Field(str1, 0))+1); /* Resize to respective universe size */
     sig2.resize(Int_val(Field(str2, 0))+1);
-    map<string, size_t> preds;              /* Mapping from predicate symbols to [0 .. n] */
     size_t predi, count(0);
-    string pred;
     int arg;
 
     vector<prop> pu_label, pv_label;
@@ -75,11 +73,7 @@ extern "C" {
       propList = Field(propList, 1);    /* tl propList */
       predList = Field(head, 1);
 
-      pred = String_val(Field(head, 0));
-      if (preds.count(pred) == 0){
-	preds[pred] = count;
-      }
-      predi = preds[pred];
+      predi = Int_val(Field(head, 0));
       tmp = prop(predi);
       while (predList != Val_emptylist){
 	head = Field(predList, 0);
@@ -108,9 +102,7 @@ extern "C" {
       propList = Field(propList, 1);    /* tl propList */
       predList = Field(head, 1);
 
-      pred = String_val(Field(head, 0));
-      if (preds.count(pred) == 0) continue; /* This has no affect on embedding problem */
-      predi = preds[pred];
+      predi = Int_val(Field(head,0));
       tmp = prop(predi);
       while (predList != Val_emptylist){
 	head = Field(predList, 0);
