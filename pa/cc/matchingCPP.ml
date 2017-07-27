@@ -30,16 +30,21 @@ end
 
 module Make (Predicate : Symbol) = struct
   type predicate = Predicate.t
-  type str = (int * (predicate * int list) list)
+  type str = (int * (int * int list) list)
   type t = { str1 : str;
              str2 : str}
 
   let empty = { str1 = (0, []);
                 str2 = (0, []) }
 
+  module M = Memo.Make(Predicate)
   (* Just store this in a nice way to pass to C *)
   let make univ1 props1 univ2 probs2 =
-    let make_list str = BatEnum.fold (fun tl hd -> hd :: tl) [] str in
+    let max_id = ref (-1) in
+    let rename = M.memo (fun p -> incr max_id; !max_id) in
+    let make_list str =
+      BatEnum.fold (fun tl (p, args) -> (rename p, args) :: tl) [] str
+    in
     { str1 = (univ1, make_list props1);
       str2 = (univ2, make_list probs2)}
 
