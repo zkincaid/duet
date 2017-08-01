@@ -15,7 +15,7 @@ end
 
 module Alphabet = PString
 module A = PredicateAutomata.Make(Alphabet)(PString)
-module Bounded = PredicateAutomata.MakeBounded(A)
+module Bounded = PredicateAutomata.MakeBounded(A)(SearchTree.Make)
 module Empty = PredicateAutomata.MakeEmpty(A)
 module F = PaFormula
 

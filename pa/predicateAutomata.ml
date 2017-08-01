@@ -601,7 +601,9 @@ module MakeReachabilityGraph (A : sig
     val pp_letter : Format.formatter -> letter -> unit
     val vocabulary : t -> (predicate * int) BatEnum.t
     val successors : t -> config -> int -> (letter * config) BatEnum.t
-  end) = struct
+  end)
+  (PredicateTreeMake : functor (B : SearchTree.Element) (C: SearchTree.Element) ->
+                       SearchTree.S with type baseSet = BatSet.Make(B).t and type elt = C.t) = struct
   open A
   type id = int
   module DA = BatDynArray
@@ -613,9 +615,9 @@ module MakeReachabilityGraph (A : sig
         match compare a c with
         | 0 -> compare b d
         | r -> r
-    end)
+      end)
 
-  module PredicateTree = SearchTree.Make(Config.Predicate)(ArkUtil.Int)
+  module PredicateTree = PredicateTreeMake(Config.Predicate)(ArkUtil.Int)
 
   type arg =
     { mutable worklist : WVSet.t;
@@ -824,11 +826,13 @@ module MakeEmpty (A : sig
     val mem_vocabulary : t -> predicate -> bool
     val vocabulary : t -> (predicate * int) BatEnum.t
     val pp : Format.formatter -> t -> unit
-  end) =
-struct
+  end)
+  (PredicateTreeMake : functor (B : SearchTree.Element) (C: SearchTree.Element) ->
+                       SearchTree.S with type baseSet = BatSet.Make(B).t and type elt = C.t) =
+  struct
   open A
 
-  module Arg = MakeReachabilityGraph(A)
+  module Arg = MakeReachabilityGraph(A)(PredicateTreeMake)
 
   (* Trivial incremental solver: just re-run the emptiness query from
      scratch *)
@@ -876,10 +880,11 @@ struct
     fix arg
 end
 
-module MakeBounded (A : S) = struct
+module MakeBounded (A : S) (PredicateTreeMake : functor (B : SearchTree.Element) (C: SearchTree.Element) ->
+                                                SearchTree.S with type baseSet = BatSet.Make(B).t and type elt = C.t) = struct
   open A
 
-  module Arg = MakeReachabilityGraph(A)
+  module Arg = MakeReachabilityGraph(A)(PredicateTreeMake)
 
   (* Find a reachable configuration that satisfies the predicate p *)
   let bounded_search pa size p =

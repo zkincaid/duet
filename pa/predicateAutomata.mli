@@ -158,7 +158,8 @@ module MakeEmpty (A : sig
     val mem_vocabulary : t -> predicate -> bool
     val vocabulary : t -> (predicate * int) BatEnum.t
     val pp : Format.formatter -> t -> unit
-  end) : sig
+  end) (PredicateTreeMake : functor (B : SearchTree.Element) (C: SearchTree.Element) ->
+                            SearchTree.S with type baseSet = BatSet.Make(B).t and type elt = C.t) : sig
   type solver
   val pp : Format.formatter -> solver -> unit
 
@@ -189,7 +190,9 @@ module MakeEmpty (A : sig
   val vocabulary : solver -> (A.predicate * int) BatEnum.t
 end
 
-module MakeBounded (A : S) : sig
+module MakeBounded (A : S) (PredicateTreeMake : functor (B : SearchTree.Element) (C: SearchTree.Element) ->
+                                                SearchTree.S with type baseSet = BatSet.Make(B).t and type elt = C.t) : sig
+
   (** [bounded_empty pa bound] finds [Some] word which is accepted by [pa] and
       uses only indexed letters with index [<= bound]; [None] if there are no
       such words. *)

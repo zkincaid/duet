@@ -210,7 +210,7 @@ module PA = PredicateAutomata.Make
       let pp formatter p = Format.fprintf formatter "{%a}" pp p
     end)
 
-module E = PredicateAutomata.MakeEmpty(PA)
+module E = PredicateAutomata.MakeEmpty(PA)(SearchTree.Make)
 
 (* Negate a PA formula.  Atoms are left unchanged, predicates in the resulting
    formula should be interpreted negatively.  negate_paformula is only applied
