@@ -801,6 +801,25 @@ module MakeReachabilityGraph (A : sig
        end
 end
 
+(* Signature of MakeEmpty Module (when applied to an A and PredicateTreeMake module) *)
+module type MakeEmptySig = sig
+  type solver
+  type pa
+  type predicate
+  type formula
+  type letter
+  type letter_set
+  val pp : Format.formatter -> solver -> unit
+  val mk_solver : pa -> solver
+  val conjoin_transition : solver -> predicate -> letter_set -> formula -> unit
+  val add_predicate : solver -> predicate -> int -> unit
+  val add_accepting_predicate : solver -> predicate -> int -> unit
+  val mem_vocabulary : solver -> predicate -> bool
+  val find_word : ?max_index:int -> solver -> ((letter * int) list) option
+  val alphabet : solver -> letter_set
+  val vocabulary : solver -> (predicate * int) BatEnum.t
+end
+
 module MakeEmpty (A : sig
     type t
     type letter
@@ -837,6 +856,12 @@ module MakeEmpty (A : sig
   (* Trivial incremental solver: just re-run the emptiness query from
      scratch *)
   type solver = A.t
+  type pa = A.t
+  type predicate = A.predicate
+  type formula = A.formula
+  type letter = A.letter
+  type letter_set = A.letter_set
+
 
   let mk_solver pa = pa
   let pp = A.pp
