@@ -1394,13 +1394,23 @@ module MakeSimplifyingContext () = struct
           | xs -> hc Add xs
         end
 
-      | Mul, xs when List.exists is_zero xs -> mk (Real QQ.zero) []
       | Mul, xs ->
-        begin match List.filter (not % is_one) xs with
-          | [] -> mk (Real QQ.one) []
-          | [x] -> x
-          | xs -> hc Mul xs
-        end
+        let (const, non_const) =
+          List.fold_right (fun x (const, non_const) ->
+              match x.obj with
+              | Node (Real xv, [], _) -> (QQ.mul xv const, non_const)
+              | _ -> (const, x::non_const))
+            xs
+            (QQ.one, [])
+        in
+        if QQ.equal const QQ.zero then
+          mk (Real QQ.zero) []
+        else if non_const = [] then
+          mk (Real const) []
+        else if QQ.equal const QQ.one then
+          hc Mul non_const
+        else
+          hc Mul ((mk (Real const) [])::non_const)
 
       | Neg, [x] ->
         begin match x.obj with
