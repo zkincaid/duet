@@ -1,11 +1,28 @@
 Procedure: logn
-min:161(0, max:162(1, log:22(2, param0:10))) <= cost
+min:167(0, max:168(1, log:22(2, param0:10))) <= cost
 logn is o(1)
-cost <= max:162(0, log:22(2, (-2 + (2 * param0:10))))
+cost <= max:168(0, log:22(2, (-2 + (2 * param0:10))))
 logn is O(log(n))
 Procedure: main
-1 <= cost
+min:167(1,
+        max:168(4,
+                (1 + __cost':154
+                   + (-1 * log:22(2, (-2 + (2 * mid_param0:141))))))) <= cost
 main is o(1)
+cost <= max:168(1,
+                ((-1 * log:22(2, mid_param0:141)) + __cost':154
+                   + log:22(2, (-2 + __cost:0))))
+main is O(??)
 Procedure: nlogn
-min:161(1, (2 * param0:10)) <= cost
+min:167(1,
+        max:168(max:168((1 + log:22(2, param0:10)),
+                        (log:22(2, param0:10)
+                           + (-1 * log:22(2, (-2 + (2 * param0:10))))
+                           + __cost':113)),
+                (2 * param0:10))) <= cost
 nlogn is o(1)
+cost <= max:168(1,
+                min:167(((-1 * log:22(2, param0:10))
+                           + log:22(2, (-2 + (2 * param0:10))) + __cost':113),
+                        (1 + log:22(2, (-2 + (2 * param0:10))))))
+nlogn is O(??)
