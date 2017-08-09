@@ -1,22 +1,6 @@
 open OUnit
 open Syntax
-
-module Ctx = MakeSimplifyingContext ()
-module Infix = Syntax.Infix(Ctx)
-let ctx = Ctx.context
-let smt_ctx = ArkZ3.mk_context ctx []
-
-let r = Ctx.mk_const (Ctx.mk_symbol ~name:"r" `TyReal)
-let s = Ctx.mk_const (Ctx.mk_symbol ~name:"s" `TyReal)
-
-let wsym = Ctx.mk_symbol ~name:"w" `TyInt
-let xsym = Ctx.mk_symbol ~name:"x" `TyInt
-let ysym = Ctx.mk_symbol ~name:"y" `TyInt
-let zsym = Ctx.mk_symbol ~name:"z" `TyInt
-let w = Ctx.mk_const wsym
-let x = Ctx.mk_const xsym
-let y = Ctx.mk_const ysym
-let z = Ctx.mk_const zsym
+open Test_pervasives
 
 let b = Ctx.mk_const (Ctx.mk_symbol ~name:"b" `TyBool)
 
@@ -34,14 +18,6 @@ let p = Ctx.mk_symbol ~name:"p" (`TyFun ([`TyInt; `TyBool], `TyBool))
 let hsym = Ctx.mk_symbol ~name:"h" (`TyFun ([`TyReal; `TyReal], `TyReal))
 let h : Ctx.term * Ctx.term -> Ctx.term =
   fun (x, y) -> Ctx.mk_app hsym [x; y]
-
-let frac num den = Ctx.mk_real (QQ.of_frac num den)
-let int k = Ctx.mk_real (QQ.of_int k)
-
-let assert_equal_term s t =
-  assert_equal ~printer:(Term.show ctx)  s t
-let assert_equal_formula s t =
-  assert_equal ~printer:(Formula.show ctx) s t
 
 let roundtrip0 () =
   let tru = mk_true ctx in
