@@ -126,7 +126,7 @@ module RingMap
 (** As RingMap, except with ExprMap as the map type *)
 module type ExprRingMap = sig
   type scalar
-  type 'a t = ('a, typ_arith, scalar) ExprMap.t
+  type 'a t = ('a, typ_arith, scalar) Expr.Map.t
 
   val zero : 'a t
   val one : 'a context -> 'a t

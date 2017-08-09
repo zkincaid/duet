@@ -32,7 +32,7 @@ let add_array_bounds file =
         | Deref expr ->
           let loc = Def.get_location def in
           let msg =
-            "memory safe: " ^ (Expr.show (Expr.strip_all_casts expr)) in
+            "memory safe: " ^ (Aexpr.show (Aexpr.strip_all_casts expr)) in
           let d = Def.mk ~loc:loc (AssertMemSafe (expr, msg)) in
           insert_pre d def func.cfg
         | _ -> ()
@@ -63,7 +63,7 @@ let add_null_pointer_derefs file =
         | Deref expr ->
           let loc = Def.get_location def in
           let msg =
-            "nonnull: " ^ (Expr.show (Expr.strip_all_casts expr))
+            "nonnull: " ^ (Aexpr.show (Aexpr.strip_all_casts expr))
           in
           let d = Def.mk ~loc:loc (Assert (Atom (null_ne expr), msg)) in
           insert_pre d def func.cfg

@@ -45,7 +45,7 @@ type context =
     store : MemBase.t * Offset.t * Offset.t * MemBase.t * Offset.t -> unit;
     alloc : MemBase.t * Offset.t * MemBase.t * Offset.t -> unit;
     new_tmp : unit -> MemBase.t;
-    mutable indirect_calls : (Var.t option * expr * expr list) list }
+    mutable indirect_calls : (Var.t option * aexpr * aexpr list) list }
 
 let mk_context file d =
   (* x.of1 := y.of2 + of3 *)
@@ -238,32 +238,32 @@ let emit_call ctx (lhs, v, args) =
 let emit_structure ctx file =
   let get_lhs = get_lhs ctx in
 
-  let assign_expr = emit_assign ctx in
+  let assign_aexpr = emit_assign ctx in
   let vdef func def = match def.dkind with
-    | Store (lhs, rhs) -> assign_expr lhs rhs
-    | Assign (var, rhs) -> assign_expr (Variable var) rhs
+    | Store (lhs, rhs) -> assign_aexpr lhs rhs
+    | Assign (var, rhs) -> assign_aexpr (Variable var) rhs
     | Builtin (Alloc (lhs, _, _)) ->
       (* todo: this can be simplified now that lhs is a variable *)
       let (var, of1) = get_lhs (Variable lhs) in
       ctx.alloc (var, of1, MAlloc def, OffsetFixed 0)
 
-    | Call (lhs, expr, args) ->
-      begin match Expr.strip_casts expr with
+    | Call (lhs, aexpr, args) ->
+      begin match Aexpr.strip_casts aexpr with
         | AddrOf (Variable (v, OffsetFixed 0)) -> (* Direct call *)
           emit_call ctx (lhs, v, args)
         | _ -> (* Indirect call *)
-          ctx.indirect_calls <- (lhs, expr, args)::ctx.indirect_calls
+          ctx.indirect_calls <- (lhs, aexpr, args)::ctx.indirect_calls
       end
 
-    | Builtin (Fork (_, expr, args)) ->
-      begin match Expr.strip_casts expr with
+    | Builtin (Fork (_, aexpr, args)) ->
+      begin match Aexpr.strip_casts aexpr with
         | AddrOf (Variable (v, OffsetFixed 0)) -> (* Direct fork *)
           emit_call ctx (None, v, args)
         | _ -> (* Indirect fork *)
-          ctx.indirect_calls <- (None, expr, args)::ctx.indirect_calls
+          ctx.indirect_calls <- (None, aexpr, args)::ctx.indirect_calls
       end
 
-    | Return (Some x) -> assign_expr (Variable (Var.mk (return_var func))) x
+    | Return (Some x) -> assign_aexpr (Variable (Var.mk (return_var func))) x
     | _ -> ()
   in
   let vdef func def =
@@ -302,9 +302,9 @@ let ap_points_to pt ap =
   with Higher_ap simple_rhs ->
     Log.fatalf "Higher-level AP: `%a'" SimpleRhs.pp simple_rhs
 
-let expr_points_to pt expr =
+let aexpr_points_to pt aexpr =
   try
-    match simplify_expr expr with
+    match simplify_expr aexpr with
     | VConst _ -> MemLoc.Set.empty
     | VRhs rhs ->
       let add rhs set =
@@ -321,13 +321,13 @@ let expr_points_to pt expr =
   with Higher_ap simple_rhs ->
     Log.fatalf "Higher-level AP: `%a'" SimpleRhs.pp simple_rhs
 
-let resolve_call pt expr =
-  let targets = match Expr.strip_casts expr with
-    | AccessPath (Deref x) -> expr_points_to pt x
-    | AddrOf _ -> expr_points_to pt expr
-    | AccessPath (Variable _) -> expr_points_to pt expr
-    | expr ->
-      Log.errorf "Couldn't resolve call to `%a'" Expr.pp expr;
+let resolve_call pt aexpr =
+  let targets = match Aexpr.strip_casts aexpr with
+    | AccessPath (Deref x) -> aexpr_points_to pt x
+    | AddrOf _ -> aexpr_points_to pt aexpr
+    | AccessPath (Variable _) -> aexpr_points_to pt aexpr
+    | aexpr ->
+      Log.errorf "Couldn't resolve call to `%a'" Aexpr.pp aexpr;
       assert false
   in
   let add_call x set = match x with
@@ -401,7 +401,7 @@ class pa file =
     inherit ptr_anal file
     val instance = solve file
     method ap_points_to = ap_points_to instance
-    method expr_points_to = expr_points_to instance
+    method expr_points_to = aexpr_points_to instance
     method iter f = MemLoc.HT.iter f instance
   end
 
@@ -439,7 +439,7 @@ let _ =
     let check def = match def.dkind with
       | Assert (Or (Atom (Lt, p, q),
                     Atom (Lt, q0, p0)), msg)
-        when Expr.equal p p0 && Expr.equal q q0 ->
+        when Aexpr.equal p p0 && Aexpr.equal q q0 ->
         let memloc_is_alias x y =
           if (snd x) = OffsetUnknown || (snd y) = OffsetUnknown
           then MemBase.equal (fst x) (fst y)

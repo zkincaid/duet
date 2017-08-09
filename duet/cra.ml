@@ -99,7 +99,7 @@ module MakeDecorator(M : sig
           begin
             match resolve_type (Var.get_type var) with
             | Int _ | Pointer _ | Dynamic ->
-              if AP.Set.exists nonvariable (Expr.get_uses expr)
+              if AP.Set.exists nonvariable (Aexpr.get_uses expr)
               then safe_cyl flow_in (AP.Set.singleton (Variable var))
               else I.transfer def (I.inject flow_in (Def.get_uses def))
             | _ -> flow_in
@@ -402,7 +402,7 @@ let tr_expr expr =
     | OAccessPath ap -> TInt (nondet_const "tr" (tr_typ (AP.get_type ap)))
     | OConstant _ -> TInt (nondet_const "tr" `TyInt)
   in
-  Expr.fold alg expr
+  Aexpr.fold alg expr
 
 let tr_expr_val expr = match tr_expr expr with
   | TInt x -> x

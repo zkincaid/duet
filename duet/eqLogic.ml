@@ -284,7 +284,7 @@ module MakeFormula (Minterm : Hashed.ConjFormula with type var = Var.t) : sig
   module Transition : sig
     include Sig.KA.Ordered.S
     val exists : (Var.t -> bool) -> t -> t
-    val assign : ap -> expr -> Minterm.pred -> t
+    val assign : ap -> aexpr -> Minterm.pred -> t
     val assume : bexpr -> Var.Set.t -> Minterm.pred -> t
     val fold_minterms : (Minterm.t -> 'a -> 'a) -> t -> 'a -> 'a
     val get_frame : t -> Var.Set.t
@@ -444,7 +444,7 @@ end = struct
     (** Add the appropriate equalities for the transition relation for an
         assignment statement [lhs := rhs] to pred. *)
     let assign lhs rhs pred =
-      match lhs, Expr.strip_casts rhs with
+      match lhs, Aexpr.strip_casts rhs with
       | (Variable x, AccessPath (Variable y)) ->
         let eqs = [(Var.subscript x 1, Var.subscript y 0);
                    (Var.subscript y 0, Var.subscript y 1)]

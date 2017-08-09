@@ -206,7 +206,7 @@ let vec_of_term ?(admit=false) cs =
     | `App (symbol, xs) ->
       let xs =
         List.map (fun x ->
-            match refine cs.ark x with
+            match Expr.refine cs.ark x with
             | `Term t -> Term.eval cs.ark alg t
             | `Formula _ -> assert false) (* TODO *)
           xs

@@ -48,7 +48,7 @@ module Cf = struct
 
   (* Compose a closed form with a uvp *)
   let compose cf p =
-    ExprMap.filter_map
+    Expr.Map.filter_map
       (fun _ coeff ->
          let coeff' = QQUvp.compose coeff p in
          if QQUvp.is_zero coeff' then
@@ -61,7 +61,7 @@ module Cf = struct
     if QQUvp.is_zero scalar then
       zero
     else
-      ExprMap.map (QQUvp.mul scalar) vec
+      Expr.Map.map (QQUvp.mul scalar) vec
 
   exception Quit
 
@@ -100,7 +100,7 @@ module Cf = struct
                 let args' =
                   BatList.filter_map
                     (fun arg ->
-                       match refine ark arg with
+                       match Expr.refine ark arg with
                        | `Term t ->
                          BatOption.bind (Term.eval_partial ark alg t) (term_of_0 ark)
                        | `Formula _ -> None)
@@ -146,7 +146,7 @@ module Cf = struct
     let sum_from_1 px =
       QQUvp.add_term (QQ.negate (QQUvp.eval px QQ.zero)) 0 (QQUvp.summation px)
     in
-    ExprMap.map sum_from_1 cf
+    Expr.Map.map sum_from_1 cf
 
   (* Convert a closed form into a term by instantiating the variable in the
      polynomial coefficients of the closed form *)
@@ -663,14 +663,14 @@ module WedgeVectorOCRS = struct
           else
             Symbolic_Constant (string_of_symbol sym)
         | `App (func, [x; y]) when func = pow ->
-          begin match refine iter.ark x, refine iter.ark y with
+          begin match Expr.refine iter.ark x, Expr.refine iter.ark y with
             | `Term x, `Term y ->
               Pow (Term.eval iter.ark alg x,
                    Term.eval iter.ark alg y)
             | _ -> assert false
           end
         | `App (func, [x; y]) when func = log ->
-          begin match destruct iter.ark x, refine iter.ark y with
+          begin match destruct iter.ark x, Expr.refine iter.ark y with
             | `Real k, `Term y ->
               Log (Mpqf.to_mpq k, Term.eval iter.ark alg y)
             | _ -> assert false
@@ -1764,10 +1764,10 @@ end
 module Split (Iter : DomainPlus) = struct
   type 'a t =
     { ark : 'a context;
-      split : ('a, typ_bool, 'a Iter.t * 'a Iter.t) ExprMap.t }
+      split : ('a, typ_bool, 'a Iter.t * 'a Iter.t) Expr.Map.t }
 
   let tr_symbols split_iter =
-    match BatEnum.get (ExprMap.values split_iter.split) with
+    match BatEnum.get (Expr.Map.values split_iter.split) with
     | Some (iter, _) -> Iter.tr_symbols iter
     | None -> assert false
 
@@ -1779,14 +1779,14 @@ module Split (Iter : DomainPlus) = struct
         Iter.pp right
     in
     Format.fprintf formatter "<Split @[<v 0>%a@]>"
-      (ArkUtil.pp_print_enum pp_elt) (ExprMap.enum split_iter.split)
+      (ArkUtil.pp_print_enum pp_elt) (Expr.Map.enum split_iter.split)
 
   let show x = ArkUtil.mk_show pp x
 
   (* Lower a split iter into an iter by picking an arbitary split and joining
      both sides. *)
   let lower_split split_iter =
-    match BatEnum.get (ExprMap.values split_iter.split) with
+    match BatEnum.get (Expr.Map.values split_iter.split) with
     | Some (iter, iter') -> Iter.join iter iter'
     | None -> assert false
 
@@ -1794,10 +1794,10 @@ module Split (Iter : DomainPlus) = struct
 
   let lift_split ark iter =
     { ark = ark;
-      split = (ExprMap.add
+      split = (Expr.Map.add
                  (mk_true ark)
                  (iter, base_bottom ark (Iter.tr_symbols iter))
-                 ExprMap.empty) }
+                 Expr.Map.empty) }
 
   let abstract_iter ?(exists=fun x -> true) ark body tr_symbols =
     let post_symbols =
@@ -1807,13 +1807,13 @@ module Split (Iter : DomainPlus) = struct
         tr_symbols
     in
     let predicates =
-      let preds = ref ExprSet.empty in
+      let preds = ref Expr.Set.empty in
       let prestate sym = exists sym && not (Symbol.Set.mem sym post_symbols) in
       let rr expr =
         match destruct ark expr with
         | `Not phi ->
           if Symbol.Set.for_all prestate (symbols phi) then
-            preds := ExprSet.add phi (!preds);
+            preds := Expr.Set.add phi (!preds);
           expr
         | `Atom (op, s, t) ->
           let phi =
@@ -1826,17 +1826,17 @@ module Split (Iter : DomainPlus) = struct
           if Symbol.Set.for_all prestate (symbols phi) then
             let redundant = match op with
               | `Eq -> false
-              | `Leq -> ExprSet.mem (mk_lt ark t s) (!preds)
-              | `Lt -> ExprSet.mem (mk_lt ark t s) (!preds)
+              | `Leq -> Expr.Set.mem (mk_lt ark t s) (!preds)
+              | `Lt -> Expr.Set.mem (mk_lt ark t s) (!preds)
             in
             if not redundant then
-              preds := ExprSet.add phi (!preds)
+              preds := Expr.Set.add phi (!preds)
           end;
           expr
         | _ -> expr
       in
       ignore (rewrite ark ~up:rr body);
-      BatList.of_enum (ExprSet.enum (!preds))
+      BatList.of_enum (Expr.Set.enum (!preds))
     in
     let uninterp_body =
       rewrite ark
@@ -1892,7 +1892,7 @@ module Split (Iter : DomainPlus) = struct
           let right_abstract =
             Iter.abstract_iter ~exists ark psi_body tr_symbols
           in
-          ExprMap.add not_psi (left_abstract, right_abstract) split_iter
+          Expr.Map.add not_psi (left_abstract, right_abstract) split_iter
         else if sat_modulo_body (mk_and ark [not_psi; post_psi]) = `Unsat then
           (* {not phi} body {not phi} -> body* = ([phi]body)*([not phi]body)* *)
           let left_abstract =
@@ -1901,23 +1901,23 @@ module Split (Iter : DomainPlus) = struct
           let right_abstract =
             Iter.abstract_iter ~exists ark not_psi_body tr_symbols
           in
-          ExprMap.add psi (left_abstract, right_abstract) split_iter
+          Expr.Map.add psi (left_abstract, right_abstract) split_iter
         else
           split_iter
       else
         split_iter
     in
     let split_iter =
-      List.fold_left add_split_predicate ExprMap.empty predicates
+      List.fold_left add_split_predicate Expr.Map.empty predicates
     in
     (* If there are no predicates that can split the loop, split on true *)
     let split_iter =
-      if ExprMap.is_empty split_iter then
-        ExprMap.add
+      if Expr.Map.is_empty split_iter then
+        Expr.Map.add
           (mk_true ark)
           (Iter.abstract_iter ~exists ark body tr_symbols,
            base_bottom ark tr_symbols)
-          ExprMap.empty
+          Expr.Map.empty
       else
         split_iter
     in
@@ -1957,7 +1957,7 @@ module Split (Iter : DomainPlus) = struct
   let closure split_iter =
     let ark = split_iter.ark in
     let symbols = tr_symbols split_iter in
-    ExprMap.enum split_iter.split
+    Expr.Map.enum split_iter.split
     /@ (fun (predicate, (left, right)) ->
         let not_predicate = mk_not ark predicate in
         let left_closure =
@@ -1978,8 +1978,8 @@ module Split (Iter : DomainPlus) = struct
         Some (Iter.join a_left b_left, Iter.join a_right b_right)
       | _, _ -> None
     in
-    let split_join = ExprMap.merge f split_iter.split split_iter'.split in
-    if ExprMap.is_empty split_join then
+    let split_join = Expr.Map.merge f split_iter.split split_iter'.split in
+    if Expr.Map.is_empty split_join then
       lift_split
         split_iter.ark
         (Iter.join (lower_split split_iter) (lower_split split_iter))
@@ -1993,8 +1993,8 @@ module Split (Iter : DomainPlus) = struct
         Some (Iter.widen a_left b_left, Iter.widen a_right b_right)
       | _, _ -> None
     in
-    let split_widen = ExprMap.merge f split_iter.split split_iter'.split in
-    if ExprMap.is_empty split_widen then
+    let split_widen = Expr.Map.merge f split_iter.split split_iter'.split in
+    if Expr.Map.is_empty split_widen then
       lift_split
         split_iter.ark
         (Iter.widen (lower_split split_iter) (lower_split split_iter))
@@ -2009,8 +2009,8 @@ module Split (Iter : DomainPlus) = struct
          && Iter.equal l l'
          && Iter.equal r r')
       (BatEnum.combine
-         (ExprMap.enum split_iter.split,
-          ExprMap.enum split_iter'.split))
+         (Expr.Map.enum split_iter.split,
+          Expr.Map.enum split_iter'.split))
 end
 
 module Sum (A : PreDomain) (B : PreDomain) = struct

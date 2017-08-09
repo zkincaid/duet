@@ -147,7 +147,7 @@ type 'a visitAction =
                        there are any changes to the children *)
   | ChangeTo of 'a (** Replace the node *)
 class type astVisitor = object
-  method vexpr : expr -> expr visitAction
+  method vexpr : aexpr -> aexpr visitAction
   method vbexpr : bexpr -> bexpr visitAction
   method vap : ap -> ap visitAction
   method vstmt : stmt -> stmt visitAction
