@@ -42,6 +42,7 @@ let rec compare x y =
 
 let mul x y =
   match x, y with
+  | Polynomial 0, x | x, Polynomial 0 -> x
   | Polynomial x, Polynomial y -> Polynomial (x + y)
   | Exp b, Exp b' -> Exp (QQ.max b b')
   | _, _ -> Unknown
