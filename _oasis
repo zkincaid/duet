@@ -29,7 +29,7 @@ Library ark
   Path:             ark
   FindlibName:      ark
   Pack:             true
-  Modules:  ArkUtil, Log, DisjointSet, Memo, QQ, ZZ, Syntax, Interval, Smt, ArkZ3, ArkMathsat, Linear, Polynomial, Interpretation, ArkApron, Polyhedron, ArkSimplify, Abstract, Nonlinear, CoordinateSystem, Wedge, Quantifier, Iteration, Transition, BigO
+  Modules:  ArkUtil, Log, DisjointSet, Memo, QQ, ZZ, Syntax, Interval, Smt, ArkZ3, ArkMathsat, Linear, Polynomial, Interpretation, ArkApron, Polyhedron, ArkSimplify, Abstract, Nonlinear, CoordinateSystem, Wedge, Quantifier, Iteration, Transition, BigO, Hoare
   BuildDepends:     batteries, ppx_deriving, ppx_deriving.show, ppx_deriving.ord, gmp, camlidl, apron, Z3, mathsat, ocrs
   Install:         false
   XMETADescription: Arithmetic Reasoning Kit

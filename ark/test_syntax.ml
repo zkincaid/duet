@@ -24,8 +24,8 @@ let substitute () =
   let subst =
     let open Infix in
     function
-    | 0 -> x
-    | 2 -> (var 0 `TyInt)
+    | (0, _) -> x
+    | (2, _) -> (var 0 `TyInt)
     | _ -> raise Not_found
   in
   let phi =

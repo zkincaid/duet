@@ -124,7 +124,7 @@ val mk_if : 'a context -> 'a formula -> 'a formula -> 'a formula
 val mk_iff : 'a context -> 'a formula -> 'a formula -> 'a formula
 
 val substitute : 'a context ->
-  (int -> ('a,'b) expr) -> ('a,'typ) expr -> ('a,'typ) expr
+  ((int * typ_fo) -> ('a,'b) expr) -> ('a,'typ) expr -> ('a,'typ) expr
 
 val substitute_const : 'a context ->
   (symbol -> ('a,'b) expr) -> ('a,'typ) expr -> ('a,'typ) expr

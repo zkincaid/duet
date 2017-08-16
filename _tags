@@ -1,5 +1,5 @@
 # OASIS_START
-# DO NOT EDIT (digest: b41a248c40d1a352ff449eabc86638a9)
+# DO NOT EDIT (digest: 0302458db00d9c3916a4d043925c1c5f)
 # Ignore VCS directories, you can use the same kind of rule outside
 # OASIS_START/STOP if you want to exclude directories that contains
 # useless stuff for the build process
@@ -41,6 +41,7 @@ true: annot, bin_annot
 "ark/iteration.cmx": for-pack(Ark)
 "ark/transition.cmx": for-pack(Ark)
 "ark/bigO.cmx": for-pack(Ark)
+"ark/hoare.cmx": for-pack(Ark)
 <ark/*.ml{,i,y}>: pkg_ppx_deriving.show
 # Executable test_apak
 "apak/test_apak.native": pkg_Z3

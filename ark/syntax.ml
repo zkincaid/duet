@@ -329,11 +329,11 @@ let substitute ctx subst sexpr =
     match label with
     | Exists (_, _) | Forall (_, _) ->
       go_children label (depth + 1) children
-    | Var (v, _) ->
+    | Var (v, t) ->
       if v < depth then (* bound var *)
         sexpr
       else
-        decapture ctx 0 depth (subst (v - depth))
+        decapture ctx 0 depth (subst ((v - depth), t))
     | _ -> go_children label depth children
   and go_children label depth children =
     ctx.mk label (List.map (go depth) children)
@@ -734,7 +734,7 @@ module Formula = struct
           vars
           ArkUtil.Int.Map.empty
       in
-      fun v -> ArkUtil.Int.Map.find v map
+      fun (v, t) -> ArkUtil.Int.Map.find v map
     in
     Array.fold_left
       (fun psi typ -> quantify typ psi)

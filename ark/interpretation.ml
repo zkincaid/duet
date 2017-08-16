@@ -99,7 +99,7 @@ let unfold_app interpretation func actuals =
     let env =
       List.fold_right Env.push actuals Env.empty
     in
-    substitute ark (Env.find env) body
+    substitute ark (fun (v, t) -> Env.find env v) body
   | _ ->
     invalid_arg "unfold_app: not a function symbol"
 
