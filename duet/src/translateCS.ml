@@ -11,7 +11,7 @@ let cur_args = ref []
 let temp_func = ref {fname = ""; fargs = []; flocs = []; fbody = (Array.of_list [{bpreds = [-1]; binsts = []; btype = Branch([1]); bcond = None}; {bpreds = [0]; binsts = []; btype = Return(None); bcond = None}]); fret = None}
 let node_id = ref 0
 let blk_preds = ref []
-
+let was_dot = ref false
 
 
   (* Determine the type of the variable based on the type name *)
@@ -646,6 +646,7 @@ let blk_preds = ref []
                 (*Printf.printf "sub_str: %s\n" sub_str;*)
                 if (String.compare sub_str "abs_interval") = 0 then begin
                   (*Printf.printf "Yay!\n";*)
+                  was_dot := true;
                   parse_dot f1_ast
                 end
                 else begin
@@ -750,7 +751,7 @@ let blk_preds = ref []
           end
           (*else if  Dot class (this means struct access) *)
           else begin
-            (*Printf.printf "SuperClass: %s\n" f2_class_super_str;*)
+            (*Printf.printf "Class: %s\n" f2_class_str;*)
             if ((String.compare "c:dot" f2_class_str) = 0) then begin
               let f2_fields = ((Swig.invoke f2_ast) "fields" (Swig.C_void)) in
               let f2_f1 = ((Swig.invoke f2_fields) "[]" (Swig.C_int 0)) in
@@ -782,6 +783,7 @@ let blk_preds = ref []
               [Assign(lh,rh)]
             end
             else begin
+              (*Printf.printf "Correct\n";*)
               if (String.compare f2_class_str "c:exprs") = 0 then begin
                 let name = (match lh with LVal(Var(rh_name,_)) ->
                 rh_name
@@ -810,8 +812,14 @@ let blk_preds = ref []
               end
               else begin
               let f_var = parse_var f2 in
-              let f1_name = ((Swig.invoke f1_ast) "[]" (Cs._ast_ordinal_NC_NAME(Swig.C_void))) in
-              let f1_name_str = Swig.get_string ((Swig.invoke f1_name) "as_str" (Swig.C_void)) in
+              let f1_name_str = (if !was_dot then begin
+                match lh with LVal(Var(f1_name, num)) -> f1_name
+                      | _ -> "error"
+              end else begin 
+                 let f1_name = ((Swig.invoke f1_ast) "[]" (Cs._ast_ordinal_NC_NAME(Swig.C_void))) in
+                 Swig.get_string ((Swig.invoke f1_name) "as_str" (Swig.C_void))
+              end) in
+              was_dot := false;
               let bc = String.compare f1_name_str "bytecodecost" in
               if bc = 0 then begin
                 [Tick(lh,f_var)]
@@ -1358,6 +1366,7 @@ let blk_preds = ref []
       let c_unit = ((Swig.invoke c_vector) "[]" (Swig.C_int n)) in
       update_glos c_unit
     done ;
+    Printf.printf "ends";
     get_functions prog
 
 
