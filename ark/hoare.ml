@@ -85,6 +85,25 @@ module MakeSolver(Ctx : Syntax.Context) (Var : Transition.Var) = struct
 
   let check_solution solver = CHC.check solver.solver []
 
-  let get_solution solver = []
+  let get_solution solver =
+    let get_triple trips (pre, trans, post) =
+      let rec subst =
+        let rewriter expr =
+          match destruct ark expr with
+          | `App (_, []) -> expr
+          | `App (rel, args) ->
+             (substitute ark
+                (fun (v, t) -> List.nth args v)
+                (CHC.get_solution solver.solver rel) :> ('a, typ_fo) Syntax.expr)
+          | _ -> expr
+        in
+        function
+        | [] -> []
+        | rel :: rels ->
+           (rewrite ark ~down:rewriter rel) :: (subst rels)
+      in
+      (subst pre, trans, subst post) :: trips
+    in
+    DA.fold_left get_triple [] solver.triples
 
 end
