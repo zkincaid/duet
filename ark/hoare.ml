@@ -49,18 +49,15 @@ module MakeSolver(Ctx : Syntax.Context) (Var : Transition.Var) = struct
     in
     let fresh =
       let ind : int ref = ref (-1) in
-      let proj_type typ : typ_fo =
-        match typ with
-        | `TyInt  -> `TyInt
-        | `TyReal -> `TyReal
-        | `TyBool -> `TyBool
-        | _ -> assert false
-      in
       Memo.memo (fun sym ->
-          incr ind;
-          mk_var ark (!ind) (proj_type (typ_symbol ark sym)))
+          match typ_symbol ark sym with
+          | `TyInt  -> incr ind; mk_var ark (!ind) `TyInt
+          | `TyReal -> incr ind; mk_var ark (!ind) `TyReal
+          | `TyBool -> incr ind; mk_var ark (!ind) `TyBool
+          | _ -> mk_const ark sym
+        )
     in
-    let body =
+    let body = (* conjunct all preconditions and guard of the transition *)
       let rec go rels =
         match rels with
         | [] -> substitute_const ark fresh (Transition.guard trans)
@@ -74,7 +71,7 @@ module MakeSolver(Ctx : Syntax.Context) (Var : Transition.Var) = struct
            substitute_const ark fresh (Transition.get_transform v trans)
         | _ -> fresh sym
       in
-      let rec go posts =
+      let rec go posts = (* add a rule for each post condition *)
         match posts with
         | [] -> ()
         | post :: posts -> CHC.add_rule solver.solver body (substitute_const ark postify post); go posts
