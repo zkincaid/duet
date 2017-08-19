@@ -584,7 +584,7 @@ module Rewrite = struct
        P.union provenance1 provenance2)
     in
     let pp_dim formatter i =
-      Format.pp_print_string formatter (Char.escaped (Char.chr i))
+      Format.pp_print_string formatter (Char.escaped (Char.chr (65 + i)))
     in
     let lhs (x, _, _) = x in
     let rhs (_, x, _) = x in
