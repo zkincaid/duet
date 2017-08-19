@@ -1018,8 +1018,8 @@ let join ?integrity:(integrity=(fun _ -> ())) wedge wedge' =
   else
     let (wedge, wedge') = common_cs wedge wedge' in
     let wedge = strengthen ~integrity wedge in
+    update_env wedge';
     let wedge' = strengthen ~integrity wedge' in
-
     update_env wedge; (* strengthening wedge' may add dimensions to the common
                          coordinate system -- add those dimensions to wedge's
                          environment *)

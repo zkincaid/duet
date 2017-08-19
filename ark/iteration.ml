@@ -193,6 +193,83 @@ let post_map tr_symbols =
     Symbol.Map.empty
     tr_symbols
 
+let term_of_ocrs ark loop_counter pre_term_of_id post_term_of_id =
+  let open Ocrs in
+  let open Type_def in
+  let ss_pre = SSVar "k" in
+  let pow = get_named_symbol ark "pow" in
+  let log = get_named_symbol ark "log" in
+  let rec go = function
+    | Plus (x, y) -> mk_add ark [go x; go y]
+    | Minus (x, y) -> mk_sub ark (go x) (go y)
+    | Times (x, y) -> mk_mul ark [go x; go y]
+    | Divide (x, y) -> mk_div ark (go x) (go y)
+    | Product xs -> mk_mul ark (List.map go xs)
+    | Sum xs -> mk_add ark (List.map go xs)
+    | Symbolic_Constant name -> pre_term_of_id name
+    | Base_case (name, index) ->
+      assert (index = 0);
+      pre_term_of_id name
+    | Input_variable name ->
+      assert (name = "k");
+      loop_counter
+    | Output_variable (name, subscript) ->
+      assert (subscript = ss_pre);
+      post_term_of_id name
+    | Rational k -> mk_real ark (Mpqf.of_mpq k)
+    | Undefined -> assert false
+    | Pow (x, Rational k) ->
+      let base = go x in
+      begin
+        match QQ.to_int (Mpqf.of_mpq k) with
+        | Some k ->
+          (1 -- k)
+          /@ (fun _ -> base)
+          |> BatList.of_enum
+          |> mk_mul ark
+        | None -> assert false
+      end
+    | Pow (Rational k, y) ->
+      let k = Mpqf.of_mpq k in
+      let (base, exp) =
+        if QQ.lt QQ.zero k && QQ.lt k QQ.one then
+          (mk_real ark (QQ.inverse k),
+           mk_neg ark (go y))
+        else
+          (mk_real ark k,
+           go y)
+      in
+      mk_app ark pow [base; exp]
+    | Pow (x, y) ->
+      let base = go x in
+      let exp = go y in
+      mk_app ark pow [base; exp]
+    | Log (base, x) ->
+      let x = go x in
+      mk_app ark log [mk_real ark (Mpqf.of_mpq base); x]
+    | IDivide (x, y) ->
+      mk_idiv ark (go x) (mk_real ark (Mpqf.of_mpq y))
+    | Mod (x, y) ->
+      mk_mod ark (go x) (go y)
+    | Iif (func, ss) ->
+      let arg =
+        match ss with
+        | SSVar "k" -> loop_counter
+        | SAdd ("k", i) ->
+          mk_add ark [loop_counter; mk_real ark (QQ.of_int i)]
+        | _ -> assert false
+      in
+      let sym =
+        if not (is_registered_name ark func) then
+          register_named_symbol ark func (`TyFun ([`TyReal], `TyReal));
+        get_named_symbol ark func
+      in
+      mk_app ark sym [arg]
+    | Binomial (_, _) | Factorial _ | Sin _ | Cos _ | Arctan _ | Pi | Shift (_, _) ->
+      assert false
+  in
+  go
+
 module WedgeVector = struct
   (*    x'    <=       (3 * x) +  y + 1
         --    --        -         -----
@@ -689,71 +766,16 @@ module WedgeVectorOCRS = struct
       Term.eval iter.ark alg
     in
 
-    let rec term_of_expr = function
-      | Plus (x, y) -> mk_add iter.ark [term_of_expr x; term_of_expr y]
-      | Minus (x, y) -> mk_sub iter.ark (term_of_expr x) (term_of_expr y)
-      | Times (x, y) -> mk_mul iter.ark [term_of_expr x; term_of_expr y]
-      | Divide (x, y) -> mk_div iter.ark (term_of_expr x) (term_of_expr y)
-      | Product xs -> mk_mul iter.ark (List.map term_of_expr xs)
-      | Sum xs -> mk_add iter.ark (List.map term_of_expr xs)
-      | Symbolic_Constant name -> mk_const iter.ark (symbol_of_string name)
-      | Base_case (name, index) ->
-        assert (index = 0);
+    let term_of_expr =
+      let pre_term_of_id name =
         mk_const iter.ark (symbol_of_string name)
-      | Input_variable name ->
-        assert (name = "k");
-        loop_counter
-      | Output_variable (name, subscript) ->
-        assert (subscript = ss_pre);
+      in
+      let post_term_of_id name =
         Symbol.Map.find (symbol_of_string name) post_map
         |> mk_const iter.ark
-      | Rational k -> mk_real iter.ark (Mpqf.of_mpq k)
-      | Undefined -> assert false
-      | Pow (x, Rational k) ->
-        let base = term_of_expr x in
-        begin
-          match QQ.to_int (Mpqf.of_mpq k) with
-          | Some k ->
-            (1 -- k)
-            /@ (fun _ -> base)
-            |> BatList.of_enum
-            |> mk_mul iter.ark
-          | None -> assert false
-        end
-      | Pow (Rational k, y) ->
-        let k = Mpqf.of_mpq k in
-        let (base, exp) =
-          if QQ.lt QQ.zero k && QQ.lt k QQ.one then
-            (mk_real iter.ark (QQ.inverse k),
-             mk_neg iter.ark (term_of_expr y))
-          else
-            (mk_real iter.ark k,
-             term_of_expr y)
-        in
-        mk_app iter.ark pow [base; exp]
-      | Pow (x, y) ->
-        let base = term_of_expr x in
-        let exp = term_of_expr y in
-        mk_app iter.ark pow [base; exp]
-      | Log (base, x) ->
-        let x = term_of_expr x in
-        mk_app iter.ark log [mk_real iter.ark (Mpqf.of_mpq base); x]
-      | IDivide (x, y) ->
-        mk_idiv iter.ark (term_of_expr x) (mk_real iter.ark (Mpqf.of_mpq y))
-      | Mod (x, y) ->
-        mk_mod iter.ark (term_of_expr x) (term_of_expr y)
-      | Iif (func, arg) ->
-        assert (arg = "k");
-        let sym =
-          if not (is_registered_name iter.ark func) then
-            register_named_symbol iter.ark func (`TyFun ([`TyReal], `TyReal));
-          get_named_symbol iter.ark func
-        in
-        mk_app iter.ark sym [loop_counter]
-      | Binomial (_, _) | Factorial _ | Sin _ | Cos _ | Arctan _ | Pi ->
-        assert false
+      in
+      term_of_ocrs iter.ark loop_counter pre_term_of_id post_term_of_id
     in
-
     let recurrences =
       let filter_translate f xs =
         xs |> BatList.filter_map (fun x ->
@@ -789,12 +811,27 @@ module WedgeVectorOCRS = struct
       stratified@exponential
     in
     let closed =
-      let to_formula = function
-        | Equals (x, y) -> mk_eq iter.ark (term_of_expr x) (term_of_expr y)
-        | LessEq (x, y) -> mk_leq iter.ark (term_of_expr x) (term_of_expr y)
-        | Less (x, y) -> mk_lt iter.ark (term_of_expr x) (term_of_expr y)
-        | GreaterEq (x, y) -> mk_leq iter.ark (term_of_expr y) (term_of_expr x)
-        | Greater (x, y) -> mk_lt iter.ark (term_of_expr y) (term_of_expr x)
+      let mk_int k = mk_real iter.ark (QQ.of_int k) in
+      let to_formula (PieceWiseIneq (ivar, pieces)) =
+        assert (ivar = "k");
+        let piece_to_formula (ivl, ineq) =
+          let hypothesis = match ivl with
+            | Bounded (lo, hi) ->
+              mk_and iter.ark [mk_leq iter.ark (mk_int lo) loop_counter;
+                               mk_leq iter.ark loop_counter (mk_int hi)]
+            | BoundBelow lo ->
+              mk_and iter.ark [mk_leq iter.ark (mk_int lo) loop_counter]
+          in
+          let conclusion = match ineq with
+            | Equals (x, y) -> mk_eq iter.ark (term_of_expr x) (term_of_expr y)
+            | LessEq (x, y) -> mk_leq iter.ark (term_of_expr x) (term_of_expr y)
+            | Less (x, y) -> mk_lt iter.ark (term_of_expr x) (term_of_expr y)
+            | GreaterEq (x, y) -> mk_leq iter.ark (term_of_expr y) (term_of_expr x)
+            | Greater (x, y) -> mk_lt iter.ark (term_of_expr y) (term_of_expr x)
+          in
+          mk_if iter.ark hypothesis conclusion
+        in
+        mk_and iter.ark (List.map piece_to_formula pieces)
       in
       Log.time "OCRS"
         (List.map to_formula) (Ocrs.solve_rec_list_pair recurrences)
@@ -1517,8 +1554,6 @@ module WedgeMatrix = struct
     let open Type_def in
 
     Wedge.ensure_nonlinear_symbols iter.ark;
-    let pow = get_named_symbol iter.ark "pow" in
-    let log = get_named_symbol iter.ark "log" in
 
     let loop_counter_sym = mk_symbol iter.ark ~name:"K" `TyInt in
     let loop_counter = mk_const iter.ark loop_counter_sym in
@@ -1549,70 +1584,15 @@ module WedgeMatrix = struct
     for i = 0 to iter.nb_constants - 1 do
       cf.(i) <- Symbolic_Constant (string_of_int i)
     done;
-    let rec term_of_expr = function
-      | Plus (x, y) -> mk_add iter.ark [term_of_expr x; term_of_expr y]
-      | Minus (x, y) -> mk_sub iter.ark (term_of_expr x) (term_of_expr y)
-      | Times (x, y) -> mk_mul iter.ark [term_of_expr x; term_of_expr y]
-      | Divide (x, y) -> mk_div iter.ark (term_of_expr x) (term_of_expr y)
-      | Product xs -> mk_mul iter.ark (List.map term_of_expr xs)
-      | Sum xs -> mk_add iter.ark (List.map term_of_expr xs)
-      | Symbolic_Constant name ->
+    let term_of_expr =
+      let pre_term_of_id name =
         iter.term_of_id.(int_of_string name)
-      | Base_case (name, index) ->
-        assert (index = 0);
-        iter.term_of_id.(int_of_string name)
-      | Input_variable name ->
-        assert (name = "k");
-        loop_counter
-      | Output_variable (name, subscript) ->
-        assert (subscript = ss_pre);
+      in
+      let post_term_of_id name =
         let id = int_of_string name in
         postify (iter.term_of_id.(id))
-      | Rational k -> mk_real iter.ark (Mpqf.of_mpq k)
-      | Undefined -> assert false
-      | Pow (x, Rational k) ->
-        let base = term_of_expr x in
-        begin
-          match QQ.to_int (Mpqf.of_mpq k) with
-          | Some k ->
-            (1 -- k)
-            /@ (fun _ -> base)
-            |> BatList.of_enum
-            |> mk_mul iter.ark
-          | None -> assert false
-        end
-      | Pow (Rational k, y) ->
-        let k = Mpqf.of_mpq k in
-        let (base, exp) =
-          if QQ.lt QQ.zero k && QQ.lt k QQ.one then
-            (mk_real iter.ark (QQ.inverse k),
-             mk_neg iter.ark (term_of_expr y))
-          else
-            (mk_real iter.ark k,
-             term_of_expr y)
-        in
-        mk_app iter.ark pow [base; exp]
-      | Pow (x, y) ->
-        let base = term_of_expr x in
-        let exp = term_of_expr y in
-        mk_app iter.ark pow [base; exp]
-      | Log (base, x) ->
-        let x = term_of_expr x in
-        mk_app iter.ark log [mk_real iter.ark (Mpqf.of_mpq base); x]
-      | IDivide (x, y) ->
-        mk_idiv iter.ark (term_of_expr x) (mk_real iter.ark (Mpqf.of_mpq y))
-      | Mod (x, y) ->
-        mk_mod iter.ark (term_of_expr x) (term_of_expr y)
-      | Iif (func, arg) ->
-        assert (arg = "k");
-        let sym =
-          if not (is_registered_name iter.ark func) then
-            register_named_symbol iter.ark func (`TyFun ([`TyReal], `TyReal));
-          get_named_symbol iter.ark func
-        in
-        mk_app iter.ark sym [loop_counter]
-      | Binomial (_, _) | Factorial _ | Sin _ | Cos _ | Arctan _ | Pi ->
-        assert false
+      in
+      term_of_ocrs iter.ark loop_counter pre_term_of_id post_term_of_id
     in
     let close_matrix_rec recurrence offset =
       let size = Array.length recurrence.rec_add in
@@ -1644,28 +1624,64 @@ module WedgeMatrix = struct
       in
       recurrence_closed
     in
+    let mk_int k = mk_real iter.ark (QQ.of_int k) in
     let rec close offset closed = function
       | [] -> (mk_and iter.ark closed, offset)
       | (recurrence::rest) ->
         let size = Array.length recurrence.rec_add in
         let recurrence_closed = close_matrix_rec recurrence offset in
+        (*
         let to_formula = function
           | Equals (x, y) -> mk_eq iter.ark (term_of_expr y) (term_of_expr x)
           | _ -> assert false
         in
+*)
+        let to_formula ineq =
+          let PieceWiseIneq (ivar, pieces) = Deshift.deshift_ineq ineq in
+          assert (ivar = "k");
+          let piece_to_formula (ivl, ineq) =
+            let hypothesis = match ivl with
+              | Bounded (lo, hi) ->
+                mk_and iter.ark [mk_leq iter.ark (mk_int lo) loop_counter;
+                                 mk_leq iter.ark loop_counter (mk_int hi)]
+              | BoundBelow lo -> 
+                mk_and iter.ark [mk_leq iter.ark (mk_int lo) loop_counter]
+            in
+            let conclusion = match ineq with
+              | Equals (x, y) -> mk_eq iter.ark (term_of_expr x) (term_of_expr y)
+              | _ -> assert false
+            in
+            mk_if iter.ark hypothesis conclusion
+          in
+          mk_and iter.ark (List.map piece_to_formula pieces)
+        in
         recurrence_closed |> List.iteri (fun i ineq ->
             match ineq with
-            | Equals (x, y) | LessEq (x, y) | Less (x, y)
-            | GreaterEq (x, y) | Greater (x, y) ->
-              cf.(offset + i) <- y);
+            | Equals (x, y) -> cf.(offset + i) <- y
+            | _ -> assert false);
         let recurrence_closed_formula = List.map to_formula recurrence_closed in
         close (offset + size) (recurrence_closed_formula@closed) rest
     in
     let (closed, offset) = close iter.nb_constants [] iter.rec_eq in
     let closed_leq =
-      let to_formula = function
-        | Equals (x, y) -> mk_leq iter.ark (term_of_expr x) (term_of_expr y)
-        | _ -> assert false
+      let to_formula ineq =
+        let PieceWiseIneq (ivar, pieces) = Deshift.deshift_ineq ineq in
+        assert (ivar = "k");
+        let piece_to_formula (ivl, ineq) =
+          let hypothesis = match ivl with
+            | Bounded (lo, hi) ->
+              mk_and iter.ark [mk_leq iter.ark (mk_int lo) loop_counter;
+                               mk_leq iter.ark loop_counter (mk_int hi)]
+            | BoundBelow lo ->
+              mk_and iter.ark [mk_leq iter.ark (mk_int lo) loop_counter]
+          in
+          let conclusion = match ineq with
+            | Equals (x, y) -> mk_leq iter.ark (term_of_expr x) (term_of_expr y)
+            | _ -> assert false
+          in
+          mk_if iter.ark hypothesis conclusion
+        in
+        mk_and iter.ark (List.map piece_to_formula pieces)
       in
       if Array.length iter.rec_leq.rec_add > 0 then
         let recurrence_closed = close_matrix_rec iter.rec_leq offset in
