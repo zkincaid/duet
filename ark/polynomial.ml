@@ -414,12 +414,50 @@ end
 module Rewrite = struct
   (* An ordered polynomial (coefficient, monomial) pairs such that the
      monomials *descend* in some admissible order. *)
-  type op = (QQ.t * Monomial.t) list
+  type op = (QQ.t * Monomial.t) list [@@deriving ord]
 
   module P = BatSet.Make(Mvp)
 
+  type rule = Monomial.t * op * P.t [@@deriving ord]
+
+  (* Priority queue of pairs of polynomials, ordered by total degree of the
+     LCM of their leading monomials *)
+  module PairQueue = struct
+    type pair = int * rule * rule [@@deriving ord]
+
+    module H = BatHeap.Make(struct
+        type t = pair [@@deriving ord]
+      end)
+    let insert queue (x, y) =
+      let (m, _, _) = x in
+      let (m', _, _) = y in
+      let deg = Monomial.total_degree (Monomial.lcm m m') in
+      if compare_rule x y < 0 then
+        H.insert queue (deg, x, y)
+      else
+        H.insert queue (deg, y, x)
+    let pop queue =
+      if queue = H.empty then
+        None
+      else
+        let (_, x, y) = H.find_min queue in
+        Some ((x, y), H.del_min queue)
+    let empty = H.empty
+    let mem queue (x, y) =
+      let (m, _, _) = x in
+      let (m', _, _) = y in
+      let deg = Monomial.total_degree (Monomial.lcm m m') in
+      let elt =
+        if compare_rule x y < 0 then
+          (deg, x, y)
+        else
+          (deg, y, x)
+      in
+      BatEnum.exists ((=) 0 % compare_pair elt) (H.enum queue)
+  end
+
   type t =
-    { rules : (Monomial.t * op * P.t) list;
+    { rules : rule list;
       order : Monomial.t -> Monomial.t -> [ `Eq | `Lt | `Gt ] }
 
   let pp_op pp_dim formatter op =
@@ -549,24 +587,21 @@ module Rewrite = struct
         else
           (m',rhs',provenance')::(insert (m,rhs,provenance) rules')
     in
-    let reduce_rule (m, rhs, provenance) =
-      let reduced =
-        reduce_op {order = order; rules = [rule] } ((QQ.negate QQ.one, m)::rhs)
-      in
-      match reduced with
-      | ([], _) -> None
-      | ([(c,m)], provenance') when Monomial.equal m Monomial.one ->
-        (* Inconsistent -- return (1 = 0) *)
-        assert (not (QQ.equal c QQ.zero));
-        Some (Monomial.one, [], P.union provenance provenance')
-      | ((c,m)::rest, provenance') ->
-        assert (not (QQ.equal c QQ.zero));
-        let rhs =
-          op_monomial_scalar_mul (QQ.negate (QQ.inverse c)) Monomial.one rest
-        in
-        Some (m, rhs, P.union provenance provenance')
+    insert rule rules
+
+  (* Buchberger's second criterion *)
+  let criterion2 r r' pairs rules =
+    let lcm =
+      let (m, _, _) = r in
+      let (m', _, _) = r' in
+      Monomial.lcm m m'
     in
-    insert rule (BatList.filter_map reduce_rule rules)
+    List.exists (fun rule ->
+        let (m, _, _) = rule in
+        (Monomial.div m lcm) != None
+        && not (PairQueue.mem pairs (r, rule))
+        && not (PairQueue.mem pairs (r', rule)))
+      rules
 
   let buchberger order rules pairs =
     (* Suppose m1 = rhs1 and m2 = rhs1.  Let m be the least common multiple of
@@ -589,9 +624,9 @@ module Rewrite = struct
     let lhs (x, _, _) = x in
     let rhs (_, x, _) = x in
     let rec go rules pairs =
-      match pairs with
-      | [] -> rules
-      | (r1, r2)::pairs ->
+      match PairQueue.pop pairs with
+      | None -> rules
+      | Some ((r1, r2), pairs) ->
         logf ~level:`trace  "Pair:";
         logf ~level:`trace  "  @[%a@] --> @[<hov 2>%a@]"
           (Monomial.pp pp_dim) (lhs r1)
@@ -616,22 +651,58 @@ module Rewrite = struct
             (Monomial.pp pp_dim) m
             (pp_op pp_dim) rhs;
           let new_rule = (m,rhs,P.union provenance provenance') in
-          let new_pairs =
-            BatList.filter_map (fun (m',rhs',provenance') ->
-                if Monomial.equal (Monomial.gcd m m') Monomial.one then
-                  None
-                else
-                  Some (new_rule, (m',rhs',provenance')))
+          let pairs =
+            List.fold_left (fun pairs rule ->
+                match rule with
+                | (m', _, _) when Monomial.equal (Monomial.gcd m m') Monomial.one ->
+                  pairs
+                | _ ->
+                  PairQueue.insert pairs (new_rule, rule))
+              pairs
               rules
           in
           go
             (insert_rule order new_rule rules)
-            (pairs@new_pairs)
+            pairs
     in
     go rules pairs
 
   let buchberger order rules pairs =
     Log.time "buchberger" (buchberger order rules) pairs
+
+  let compare_rule (m,rhs,provenance) (m',rhs',provenance') =
+    match Pervasives.compare (Monomial.total_degree m) (Monomial.total_degree m') with
+    | 0 ->
+      begin match Monomial.compare m m' with
+        | 0 -> Pervasives.compare rhs rhs'
+        | x -> x
+      end
+    | x -> x
+
+  (* Ensure that every basis polynomial is irreducible w.r.t. every other basis polynomial *)
+  let reduce_rewrite rewrite =
+    let rec go left right =
+      match right with
+      | [] -> left
+      | ((m, rhs, provenance)::right) ->
+        match reduce_op {rewrite with rules=left@right} ((QQ.negate QQ.one, m)::rhs) with
+        | ([], _) -> go left right
+        | ([(c,m)], provenance') when Monomial.equal m Monomial.one ->
+          (* Inconsistent -- return (1 = 0) *)
+          assert (not (QQ.equal c QQ.zero));
+          [(Monomial.one, [], P.union provenance provenance')]
+        | ((c,m)::rest, provenance') ->
+          assert (not (QQ.equal c QQ.zero));
+          let rhs =
+            op_monomial_scalar_mul (QQ.negate (QQ.inverse c)) Monomial.one rest
+          in
+          go ((m, rhs, P.union provenance provenance')::left) right
+    in
+    let rules =
+      go [] (BatList.sort_unique compare_rule rewrite.rules)
+      |> BatList.sort_unique compare_rule
+    in
+    { order = rewrite.order; rules = rules }
 
   let add_saturate_op rewrite op provenance =
     match reduce_op rewrite op with
@@ -647,18 +718,61 @@ module Rewrite = struct
         op_monomial_scalar_mul (QQ.negate (QQ.inverse c)) Monomial.one rest
       in
       let new_rule = (m, rhs, P.union provenance provenance') in
-      let pairs = List.map (fun r -> (new_rule, r)) rewrite.rules in
+      let pairs =
+        List.fold_left (fun pairs rule ->
+            match rule with
+            | (m', _, _) when Monomial.equal (Monomial.gcd m m') Monomial.one ->
+              pairs
+            | _ ->
+              PairQueue.insert pairs (new_rule, rule))
+          PairQueue.empty
+          rewrite.rules
+      in
       { order = rewrite.order;
-        rules = buchberger rewrite.order (new_rule::rewrite.rules) pairs }
+        rules = buchberger rewrite.order
+            (insert_rule rewrite.order new_rule rewrite.rules)
+            pairs }
+      |> reduce_rewrite
 
   let add_saturate rewrite p =
     add_saturate_op rewrite (op_of_mvp rewrite.order p) (P.singleton p)
 
   let grobner_basis rewrite =
-    List.fold_left (fun rewrite (m,rhs,provenance) ->
-        add_saturate_op rewrite ((QQ.negate QQ.one, m)::rhs) provenance)
-      { order = rewrite.order; rules = [] }
-      rewrite.rules
+    let pp_dim formatter i =
+      Format.pp_print_string formatter (Char.escaped (Char.chr (65 + i)))
+    in
+
+    logf "Compute a Grobner basis for:@\n@[<v 0>%a@]"
+      (pp pp_dim) rewrite;
+
+    let rewrite = reduce_rewrite rewrite in
+    let pairs =
+      let rec go pairs rules =
+        match rules with
+        | [] -> pairs
+        | (rule::rules) ->
+          let pairs =
+            let (m, _, _) = rule in
+            List.fold_left (fun pairs rule' ->
+                match rule' with
+                | (m', _, _) when Monomial.equal (Monomial.gcd m m') Monomial.one ->
+                  pairs
+                | _ -> PairQueue.insert pairs (rule, rule'))
+              pairs
+              rules
+          in
+          go pairs rules
+      in
+      go PairQueue.empty rewrite.rules
+    in
+
+    let grobner =
+      { order = rewrite.order; rules = buchberger rewrite.order rewrite.rules pairs }
+      |> reduce_rewrite
+    in
+    logf "Grobner basis:@\n@[<v 0>%a@]"
+      (pp pp_dim) grobner;
+    grobner
 
   let generators rewrite =
     List.map
