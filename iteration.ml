@@ -1630,12 +1630,6 @@ module WedgeMatrix = struct
       | (recurrence::rest) ->
         let size = Array.length recurrence.rec_add in
         let recurrence_closed = close_matrix_rec recurrence offset in
-        (*
-        let to_formula = function
-          | Equals (x, y) -> mk_eq iter.ark (term_of_expr y) (term_of_expr x)
-          | _ -> assert false
-        in
-*)
         let to_formula ineq =
           let PieceWiseIneq (ivar, pieces) = Deshift.deshift_ineq ineq in
           assert (ivar = "k");
