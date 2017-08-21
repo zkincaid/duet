@@ -180,7 +180,7 @@ let tr_expr expr =
     | OAccessPath ap ->
       TInt (Ctx.mk_const (Ctx.mk_symbol ~name:"tr" (tr_typ (AP.get_type ap))))
   in
-  Expr.fold alg expr
+  Aexpr.fold alg expr
 
 let tr_expr_val expr = match tr_expr expr with
   | TInt x -> x

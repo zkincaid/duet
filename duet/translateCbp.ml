@@ -85,32 +85,32 @@ struct
       | OTrue -> constant_bool 1
       | OFalse -> constant_bool 0
       | OBinop (CbpAst.Implies, left, right) ->
-        let left = Bexpr.of_expr left in
-        let right = Bexpr.of_expr right in
+        let left = Bexpr.of_aexpr left in
+        let right = Bexpr.of_aexpr right in
         BoolExpr (Or (Bexpr.negate left, right))
       | OBinop (CbpAst.Xor, left, right) ->
-        let left = Bexpr.of_expr left in
-        let right = Bexpr.of_expr right in
+        let left = Bexpr.of_aexpr left in
+        let right = Bexpr.of_aexpr right in
         BoolExpr (Or (And (left, Bexpr.negate right),
                       And (Bexpr.negate left, right)))
       | OBinop (CbpAst.And, left, right) ->
-        let left = Bexpr.of_expr left in
-        let right = Bexpr.of_expr right in
+        let left = Bexpr.of_aexpr left in
+        let right = Bexpr.of_aexpr right in
         BoolExpr (And (left, right))
       | OBinop (CbpAst.Or, left, right) ->
-        let left = Bexpr.of_expr left in
-        let right = Bexpr.of_expr right in
+        let left = Bexpr.of_aexpr left in
+        let right = Bexpr.of_aexpr right in
         BoolExpr (Or (left, right))
       | OBinop (CbpAst.Eq, left, right) ->
         BoolExpr (Atom (Eq, left, right))
       | OBinop (CbpAst.Neq, left, right) ->
         BoolExpr (Atom (Ne, left, right))
       | OBinop (CbpAst.Choose, left, right) ->
-        let left = Bexpr.simplify (Bexpr.of_expr left) in
-        let right = Bexpr.simplify (Bexpr.of_expr right) in
+        let left = Bexpr.simplify (Bexpr.of_aexpr left) in
+        let right = Bexpr.simplify (Bexpr.of_aexpr right) in
         (* SLAM *)
         if (Bexpr.equal left (Bexpr.negate right)) then BoolExpr left
-        else BoolExpr (Or (And (Bexpr.of_expr (Havoc typ_bool),
+        else BoolExpr (Or (And (Bexpr.of_aexpr (Havoc typ_bool),
                                 Bexpr.negate right),
                            left))
 
@@ -123,13 +123,13 @@ struct
 
       (* Getafix *)
       (*	    BoolExpr (Or (Or (left, right), Bexpr.of_expr Havoc)) *)
-      | ONot expr -> BoolExpr (Bexpr.negate (Bexpr.of_expr expr))
+      | ONot expr -> BoolExpr (Bexpr.negate (Bexpr.of_aexpr expr))
       | CbpAst.OHavoc -> Havoc typ_bool
       | OTernary _ -> raise (No_translation "ternary as expr")
       | OVar v -> ap_of_var v
       | OPrimeVar v -> ap_of_var v
     in
-    (fun expr -> Expr.simplify (CbpAst.fold_expr f expr))
+    (fun expr -> Aexpr.simplify (CbpAst.fold_expr f expr))
 
   (* Translate expr, apply f to the translation, and return a list of
      statements equivalent such that the translated expr yields the
@@ -147,7 +147,7 @@ struct
 
   let translate_stmt func =
     let mk_branch bthen belse cond =
-      let c = Bexpr.of_expr cond in
+      let c = Bexpr.of_aexpr cond in
       [Hlir.mk_if S.file c bthen belse]
     in
     let with_expr = with_expr func in
@@ -217,13 +217,13 @@ struct
         add_stmt_tr stmt
           (with_expr_stmt tr_stmt expr
              (fun e ->
-                let cond = Bexpr.of_expr e in
+                let cond = Bexpr.of_aexpr e in
                 let msg = Bexpr.show cond in
                 [stmt_of_def (Assert (cond, msg))]))
       | CbpAst.Assume expr ->
         add_stmt_tr stmt
           (with_expr_stmt tr_stmt expr
-             (fun e -> [stmt_of_def (Assume (Bexpr.of_expr e))]))
+             (fun e -> [stmt_of_def (Assume (Bexpr.of_aexpr e))]))
       | CbpAst.Call ([], func, args) ->
         let f arg g =
           fun args -> with_expr tr_stmt arg (fun e -> g (e::args))
@@ -256,7 +256,7 @@ struct
       | CbpAst.While (cond, body) ->
         let tr = add_sk_tr stmt (Instr []) in
         let (pre, cond) = remove_havoc func tr_stmt cond in
-        let cond = Bexpr.of_expr (translate_expr cond) in
+        let cond = Bexpr.of_aexpr (translate_expr cond) in
         let body = List.map tr_stmt body in
         let loop_start = Hlir.mk_skip S.file in
         let loop_end = Hlir.mk_skip S.file in
@@ -284,7 +284,7 @@ struct
     and split_assume expr =
       let mk_assume expr =
         with_expr tr_stmt expr
-          (fun e -> [stmt_of_def (Assume (Bexpr.of_expr e))])
+          (fun e -> [stmt_of_def (Assume (Bexpr.of_aexpr e))])
       in
       if CbpAst.expr_height expr <= 5 then mk_assume expr
       else begin

@@ -36,7 +36,7 @@ class virtual ptr_anal : CfgIr.file -> object
     method virtual ap_points_to : ap -> MemLoc.Set.t
 
     (** Possible points-to targets of an expression  *)
-    method virtual expr_points_to : expr -> MemLoc.Set.t
+    method virtual expr_points_to : aexpr -> MemLoc.Set.t
 
     (** Determine whether two access paths may be aliased (as lvalues). *)
     method may_alias : ap -> ap -> bool
@@ -49,11 +49,11 @@ class virtual ptr_anal : CfgIr.file -> object
     (** Possible targets of a function call expression.  This is really just the
         variable locations an expression could evaluate to.  [resolve_call] does
         not guarantee that the variables returned are function typed. *)
-    method resolve_call : expr -> Varinfo.Set.t
+    method resolve_call : aexpr -> Varinfo.Set.t
 
     (** Check whether a function call may have an undefined target (a function
         without available source code). *)
-    method has_undefined_target : expr -> bool
+    method has_undefined_target : aexpr -> bool
   end
 
 (** {2 Simplification} *)
@@ -109,14 +109,14 @@ module MakeEval : functor (Rhs : sig
                              val join : t -> t -> t
                            end) ->
 sig
-  val eval : expr -> (ap -> Rhs.t) -> Rhs.t value
+  val eval : aexpr -> (ap -> Rhs.t) -> Rhs.t value
 end
 
 
 exception Higher_ap of SimpleRhs.t
 
 val simplify_ap : ap -> SimpleAP.Set.t
-val simplify_expr : expr -> SimpleRhs.Set.t value
+val simplify_expr : aexpr -> SimpleRhs.Set.t value
 
 (** {2 Default pointer analysis operations} *)
 
@@ -130,11 +130,11 @@ val set_pa : ptr_anal -> unit
 val set_init : (CfgIr.file -> ptr_anal) -> unit
 
 val ap_points_to : ap -> MemLoc.Set.t
-val expr_points_to : expr -> MemLoc.Set.t
+val expr_points_to : aexpr -> MemLoc.Set.t
 val may_alias : ap -> ap -> bool
 val resolve_ap : ap -> MemLoc.Set.t
-val resolve_call : expr -> Varinfo.Set.t
-val has_undefined_target : expr -> bool
+val resolve_call : aexpr -> Varinfo.Set.t
+val has_undefined_target : aexpr -> bool
 val ap_is_shared : ap -> bool
 
 (** Simplify function calls by passing parameters and return variables through

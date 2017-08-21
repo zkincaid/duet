@@ -92,6 +92,13 @@ Executable duet
   CompiledObject: native
   Install:        false
 
+Executable cca
+  Path:           cca
+  MainIs:         cca.ml
+  BuildDepends:   batteries, ppx_deriving, ppx_deriving.show, ppx_deriving.ord, gmp, camlidl, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, ark, apak, cil, cil.default-features, pa, ocrs
+  CompiledObject: native
+  Install:        false
+
 Test apak
   Command:   $test_apak
   TestTools: test_apak

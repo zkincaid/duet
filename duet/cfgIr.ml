@@ -448,7 +448,7 @@ let normalize file =
   let normalize_func func =
     let str_const_rhs def = match def.dkind with
       | Store (lhs, rhs) ->
-        begin match Expr.strip_casts rhs with
+        begin match Aexpr.strip_casts rhs with
           | Constant (CString _) ->
             let tmp =
               mk_local_var func
@@ -506,7 +506,7 @@ let from_func_ast file func_ast =
         | ForkGoto tgt ->
           let thread_name = add_thread (lookup_stmt file tgt) in
           let fork =
-            Expr.addr_of (Variable (Var.mk thread_name))
+            Aexpr.addr_of (Variable (Var.mk thread_name))
           in
           Def.mk (Builtin (Fork (None, fork, [])))
         | _ -> failwith "add_fork: Not a fork!")
@@ -646,10 +646,10 @@ let split_atomic_func func =
         (Variable v, [])
     | Deref expr ->
       let (expr, seq) = split_expr expr in
-      let tmp = mk_local_var func "tmp_deref" (Expr.get_type expr) in
+      let tmp = mk_local_var func "tmp_deref" (Aexpr.get_type expr) in
       let tmp_def = Def.mk (Assign (tmp, AccessPath (Deref expr))) in
       (Variable tmp, tmp_def::seq)
-  and split_expr expr = Expr.deep_fold f_expr f_bexpr expr
+  and split_expr expr = Aexpr.deep_fold f_expr f_bexpr expr
   and split_bexpr expr = Bexpr.deep_fold f_expr f_bexpr expr
   in
   let split_def def = match def.dkind with

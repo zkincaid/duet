@@ -2,9 +2,8 @@ open OUnit
 open Abstract
 open Syntax
 open ArkApron
+open Test_pervasives
 
-module Ctx = MakeSimplifyingContext ()
-module Infix = Syntax.Infix(Ctx)
 module V = struct
   type t = string
 
@@ -53,12 +52,6 @@ let i = Ctx.mk_const (V.symbol_of "i")
 let j = Ctx.mk_const (V.symbol_of "j")
 let k = Ctx.mk_const (V.symbol_of "k")
 let n = Ctx.mk_const (V.symbol_of "n")
-
-let ctx = Ctx.context
-let smt_ctx = ArkZ3.mk_context ctx []
-
-let frac num den = Ctx.mk_real (QQ.of_frac num den)
-let int k = Ctx.mk_real (QQ.of_int k)
 
 let assert_post tr phi =
   let not_post =

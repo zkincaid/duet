@@ -243,7 +243,7 @@ end
 
 module type ExprRingMap = sig
   type scalar
-  type 'a t = ('a, typ_arith, scalar) ExprMap.t
+  type 'a t = ('a, typ_arith, scalar) Expr.Map.t
 
   val zero : 'a t
   val one : 'a context -> 'a t
@@ -262,11 +262,11 @@ end
 
 module MakeExprRingMap(R : Ring) = struct
   type scalar = R.t
-  type 'a t = ('a, typ_arith, R.t) ExprMap.t
+  type 'a t = ('a, typ_arith, R.t) Expr.Map.t
 
-  let zero = ExprMap.empty
+  let zero = Expr.Map.empty
 
-  let enum = ExprMap.enum
+  let enum = Expr.Map.enum
 
   let add u v =
     let f _ a b =
@@ -277,15 +277,15 @@ module MakeExprRingMap(R : Ring) = struct
       | Some x, None | None, Some x -> Some x
       | None, None -> assert false
     in
-    ExprMap.merge f u v
+    Expr.Map.merge f u v
 
   let add_term coeff dim vec =
     if R.equal coeff R.zero then vec else begin
       try
-        let sum = R.add coeff (ExprMap.find dim vec) in
-        if not (R.equal sum R.zero) then ExprMap.add dim sum vec
-        else ExprMap.remove dim vec
-      with Not_found -> ExprMap.add dim coeff vec
+        let sum = R.add coeff (Expr.Map.find dim vec) in
+        if not (R.equal sum R.zero) then Expr.Map.add dim sum vec
+        else Expr.Map.remove dim vec
+      with Not_found -> Expr.Map.add dim coeff vec
     end
 
   let term coeff dim = add_term coeff dim zero
@@ -305,22 +305,22 @@ module MakeExprRingMap(R : Ring) = struct
 
   let coeff x vec =
     try
-      ExprMap.find x vec
+      Expr.Map.find x vec
     with Not_found -> R.zero
 
   let scalar_mul k vec =
     if R.equal k R.one then vec
-    else if R.equal k R.zero then ExprMap.empty
-    else ExprMap.map (fun coeff -> R.mul k coeff) vec
+    else if R.equal k R.zero then Expr.Map.empty
+    else Expr.Map.map (fun coeff -> R.mul k coeff) vec
 
-  let negate vec = ExprMap.map R.negate vec
+  let negate vec = Expr.Map.map R.negate vec
 
   let sub u v = add u (negate v)
 
   let one ark = const ark R.one
 
   let pivot x vec =
-    (coeff x vec, ExprMap.remove x vec)
+    (coeff x vec, Expr.Map.remove x vec)
 end
 
 module ExprQQVector = struct
@@ -345,7 +345,7 @@ module ExprQQVector = struct
     Term.eval ark alg
 
   and term_of ark sum =
-    ExprMap.fold (fun term coeff terms ->
+    Expr.Map.fold (fun term coeff terms ->
         if QQ.equal coeff QQ.one then
           term::terms
         else

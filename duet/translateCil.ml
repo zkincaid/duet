@@ -1,7 +1,7 @@
 (** Utilities for translating from Cil's IR to ours *)
 
 open Core
-open Expr
+open Aexpr
 open Ark
 open Apak
 open Pretty
@@ -286,7 +286,7 @@ let rec tr_expr = function
     (match op with
      | Cil.Neg -> UnaryOp (Neg, expr, typ)
      | Cil.BNot -> UnaryOp (BNot, expr, typ)
-     | Cil.LNot -> BoolExpr (Bexpr.negate (Bexpr.of_expr expr)))
+     | Cil.LNot -> BoolExpr (Bexpr.negate (Bexpr.of_aexpr expr)))
   | Cil.BinOp (op, ce1, ce2, ctyp) ->
     let e1 = tr_expr ce1 in
     let e2 = tr_expr ce2 in
@@ -310,10 +310,10 @@ let rec tr_expr = function
      | Cil.Ne ->
        BoolExpr (Or (Atom (Lt, e1, e2),
                      Atom (Lt, e2, e1)))
-     | Cil.LAnd -> BoolExpr (And (Bexpr.of_expr e1, Bexpr.of_expr e2))
-     | Cil.LOr -> BoolExpr (Or (Bexpr.of_expr e1, Bexpr.of_expr e2))
+     | Cil.LAnd -> BoolExpr (And (Bexpr.of_aexpr e1, Bexpr.of_aexpr e2))
+     | Cil.LOr -> BoolExpr (Or (Bexpr.of_aexpr e1, Bexpr.of_aexpr e2))
      | Cil.IndexPI | Cil.PlusPI -> (* these are equivalent *)
-       let offset_typ = Expr.get_type e2 in
+       let offset_typ = Aexpr.get_type e2 in
        let offset = BinaryOp (e2, Mult, ptr_type_size ctyp, offset_typ) in
        BinaryOp (e1, Add, offset, typ)
      | Cil.MinusPI | Cil.MinusPP -> (* these are equivalent *)
@@ -321,7 +321,7 @@ let rec tr_expr = function
            let delta = BinaryOp (e1, Minus, e2, typ) in
            BinaryOp (delta, Div, ptr_type_size (Cil.typeOf ce1), typ)
          end else begin
-          let offset_typ = Expr.get_type e2 in
+          let offset_typ = Aexpr.get_type e2 in
           let offset = BinaryOp (e2, Mult, ptr_type_size ctyp, offset_typ) in
           BinaryOp (e1, Minus, offset, typ)
         end))
@@ -380,7 +380,7 @@ and tr_lval lval =
         let offset = OffsetFixed (type_size elt_typ * calc_expr i) in
         do_offset (AP.offset ap offset) elt_typ next
       with Not_constant _ ->
-        do_offset (Deref (Expr.add (addr_of ap) (tr_expr i))) elt_typ next
+        do_offset (Deref (Aexpr.add (addr_of ap) (tr_expr i))) elt_typ next
   in
   let base = match fst lval with
     | Cil.Var vi -> Variable (Var.mk (variable_of_varinfo vi))
@@ -420,7 +420,7 @@ let tr_instr ctx instr =
       | Variable v -> mk_def (Assign (v, Havoc typ))
       | Deref expr ->
         let tmp =
-          CfgIr.mk_local_var ctx.ctx_func "__tmp" (Expr.get_type expr)
+          CfgIr.mk_local_var ctx.ctx_func "__tmp" (Aexpr.get_type expr)
         in
         mk_seq
           (mk_def (Assign (tmp, Havoc typ)))
@@ -429,7 +429,7 @@ let tr_instr ctx instr =
     begin match v.Cil.vname, lhs, List.map tr_expr args with
       | ("assume", None, [x])
       | ("__VERIFIER_assume", None, [x]) ->
-        mk_def (Assume (Bexpr.of_expr x))
+        mk_def (Assume (Bexpr.of_aexpr x))
       | ("assert", None, [x])
       | ("__VERIFIER_assert", None, [x]) -> begin
           (* Pretty print the cil expression for the error message - it should
@@ -437,7 +437,7 @@ let tr_instr ctx instr =
           match args with
           | [cil_arg] ->
             let error_msg = Pretty.sprint ~width:80 (Cil.d_exp () cil_arg) in
-            mk_def (Assert (Bexpr.of_expr x, error_msg))
+            mk_def (Assert (Bexpr.of_aexpr x, error_msg))
           | _ -> assert false
         end
       | ("__VERIFIER_error", None, []) ->
@@ -486,7 +486,7 @@ let tr_instr ctx instr =
       | ("__VERIFIER_nondet_uint", Some lhs, []) ->
         let havoc = mk_havoc lhs (Concrete (Int unknown_width)) in
         let assume =
-          mk_def (Assume (Atom (Le, Expr.zero, AccessPath lhs)))
+          mk_def (Assume (Atom (Le, Aexpr.zero, AccessPath lhs)))
         in
         mk_seq havoc assume
 
@@ -509,7 +509,7 @@ let tr_instr ctx instr =
                       tr_expr (Cil.Lval (Cil.Var v, Cil.NoOffset)),
                       args))
       | (_, Some (Deref expr), args) ->
-        let tmp = CfgIr.mk_local_var ctx.ctx_func "__tmp" (Expr.get_type expr) in
+        let tmp = CfgIr.mk_local_var ctx.ctx_func "__tmp" (Aexpr.get_type expr) in
         let call =
           mk_def (Call (Some tmp,
                         tr_expr (Cil.Lval (Cil.Var v, Cil.NoOffset)),
@@ -530,7 +530,7 @@ let tr_instr ctx instr =
         mk_single (Def.mk ~loc:loc (Call (Some v, func, args)))
       | None -> mk_single (Def.mk ~loc:loc (Call (None, func, args)))
       | Some (Deref expr) ->
-        let tmp = CfgIr.mk_local_var ctx.ctx_func "__tmp" (Expr.get_type expr) in
+        let tmp = CfgIr.mk_local_var ctx.ctx_func "__tmp" (Aexpr.get_type expr) in
         let call = mk_single (Def.mk ~loc:loc (Call (Some tmp, func, args))) in
         let store =
           mk_single
@@ -563,7 +563,7 @@ let rec tr_stmtkind ctx stmt =
     mk_if
       ~loc
       cfg
-      (Bexpr.of_expr (tr_expr cond))
+      (Bexpr.of_aexpr (tr_expr cond))
       (mk_block cfg (List.map (tr_stmt ctx) bthen.Cil.bstmts))
       (mk_block cfg (List.map (tr_stmt ctx) belse.Cil.bstmts))
   | _ -> assert false
@@ -582,7 +582,7 @@ let add_array_initializer v il =
   | Cil.TArray (typ, Some size, _) ->
     begin
       let size =
-        Expr.const_int (type_size typ * calc_expr size)
+        Aexpr.const_int (type_size typ * calc_expr size)
       in
       let lhs = Var.mk (variable_of_varinfo v) in
       let def =
@@ -685,7 +685,7 @@ let define_args file =
   let define0 =
     Def.mk (Assume (Bexpr.ge
                       (AccessPath (Variable (Var.mk argc)))
-                      Expr.zero))
+                      Aexpr.zero))
   in
   let define1 =
     Def.mk (Builtin (Alloc (Var.mk argv,

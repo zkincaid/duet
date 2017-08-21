@@ -42,6 +42,7 @@ let rec compare x y =
 
 let mul x y =
   match x, y with
+  | Polynomial 0, x | x, Polynomial 0 -> x
   | Polynomial x, Polynomial y -> Polynomial (x + y)
   | Exp b, Exp b' -> Exp (QQ.max b b')
   | _, _ -> Unknown
@@ -83,7 +84,7 @@ let of_term ark term =
     | `Real _ -> Polynomial 0
     | `App (const, []) -> Polynomial 1
     | `App (func, [base; exp]) when func = pow ->
-      let exp = match refine ark exp with
+      let exp = match Expr.refine ark exp with
         | `Term t -> t
         | _ -> assert false
       in
@@ -92,7 +93,7 @@ let of_term ark term =
         | _ , _ -> Unknown
       end
     | `App (func, [base; exp]) when func = log ->
-      let exp = match refine ark exp with
+      let exp = match Expr.refine ark exp with
         | `Term t -> t
         | _ -> assert false
       in
@@ -104,13 +105,13 @@ let of_term ark term =
         | _ -> Unknown
       end
     | `App (func, [x; y]) when func = min ->
-      let (x, y) = match refine ark x, refine ark y with
+      let (x, y) = match Expr.refine ark x, Expr.refine ark y with
         | (`Term s, `Term t) -> (s, t)
         | (_, _) -> assert false
       in
       minimum (go x) (go y)
     | `App (func, [x; y]) when func = max ->
-      let (x, y) = match refine ark x, refine ark y with
+      let (x, y) = match Expr.refine ark x, Expr.refine ark y with
         | (`Term s, `Term t) -> (s, t)
         | (_, _) -> assert false
       in

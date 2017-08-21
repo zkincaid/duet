@@ -647,7 +647,7 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
 
   (* Hashtable mapping canonical forms of nonlinear terms to their
      representative terms. *)
-  let canonical = ExprHT.create 991 in
+  let canonical = Expr.HT.create 991 in
 
   let reduce_vec vec =
     let (p, provenance) =
@@ -688,12 +688,12 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
       let add_canonical reduced provenance =
         (* Add [reduced->term] to the canonical map.  Or if there's already a
            mapping [reduced->rep], add the equation rep=term *)
-        if ExprHT.mem canonical reduced then begin
+        if Expr.HT.mem canonical reduced then begin
           logf ~level:`trace "Integrity: %a" (Formula.pp ark) provenance;
           integrity provenance;
-          meet_atoms wedge [mk_eq ark term (ExprHT.find canonical reduced)]
+          meet_atoms wedge [mk_eq ark term (Expr.HT.find canonical reduced)]
         end else
-          ExprHT.add canonical reduced term
+          Expr.HT.add canonical reduced term
       in
       begin match CS.destruct_coordinate wedge.cs id with
         | `App (_, []) | `Mul (_, _) -> ()
@@ -1018,8 +1018,8 @@ let join ?integrity:(integrity=(fun _ -> ())) wedge wedge' =
   else
     let (wedge, wedge') = common_cs wedge wedge' in
     let wedge = strengthen ~integrity wedge in
+    update_env wedge';
     let wedge' = strengthen ~integrity wedge' in
-
     update_env wedge; (* strengthening wedge' may add dimensions to the common
                          coordinate system -- add those dimensions to wedge's
                          environment *)
@@ -1601,7 +1601,7 @@ let is_sat ark phi =
   let nonlinear_defs =
     Symbol.Map.enum nonlinear
     /@ (fun (symbol, expr) ->
-        match refine ark expr with
+        match Expr.refine ark expr with
         | `Term t -> mk_eq ark (mk_const ark symbol) t
         | `Formula phi -> mk_iff ark (mk_const ark symbol) phi)
     |> BatList.of_enum
@@ -1666,7 +1666,7 @@ let abstract ?exists:(p=fun x -> true) ?(subterm=fun x -> true) ark phi =
   let nonlinear_defs =
     Symbol.Map.enum nonlinear
     /@ (fun (symbol, expr) ->
-        match refine ark expr with
+        match Expr.refine ark expr with
         | `Term t -> mk_eq ark (mk_const ark symbol) t
         | `Formula phi -> mk_iff ark (mk_const ark symbol) phi)
     |> BatList.of_enum
@@ -1773,7 +1773,7 @@ let symbolic_bounds_formula ?exists:(p=fun x -> true) ark phi symbol =
   let nonlinear_defs =
     Symbol.Map.enum nonlinear
     /@ (fun (symbol, expr) ->
-        match refine ark expr with
+        match Expr.refine ark expr with
         | `Term t -> mk_eq ark (mk_const ark symbol) t
         | `Formula phi -> mk_iff ark (mk_const ark symbol) phi)
     |> BatList.of_enum
