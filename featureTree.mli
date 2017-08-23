@@ -1,7 +1,8 @@
 (** A feature tree organizes a collection by vectors of integer features.
     Each element of the universe from which the collection is drawn is
     associated with a feature vector; multiple elements may be associated with
-    the same feature vector.  The feature tree can be queried for *)
+    the same feature vector.  Queries on the collection are parameterized by a
+    bounding feature vector (one sided range queries).  *)
 
 type 'a t
 val empty : ('a -> int array) -> 'a t
