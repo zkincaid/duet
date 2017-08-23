@@ -609,18 +609,29 @@ module MakeReachabilityGraph (A : sig
   module DA = BatDynArray
 
   (* Set of vertices, weighted by some heuristic value *)
-  module WVSet = Set.Make(struct
-      type t = int * int
-      let compare (a,b) (c,d) =
-        match compare a c with
-        | 0 -> compare b d
-        | r -> r
+  module Worklist = struct
+    module H = BatHeap.Make(struct
+        type t = int * int
+        let compare (a,b) (c,d) =
+          match compare a c with
+          | 0 -> compare b d
+          | r -> r
       end)
+    type t = H.t
+    let empty = H.empty
+    let pick worklist =
+      if worklist = H.empty then
+        None
+      else
+        Some (H.find_min worklist, H.del_min worklist)
+    let insert h v worklist =
+      H.insert worklist (h, v)
+  end
 
   module PredicateTree = PredicateTreeMake(Config.Predicate)(ArkUtil.Int)
 
   type arg =
-    { mutable worklist : WVSet.t;
+    { mutable worklist : Worklist.t;
       pa : t;
       max_index : int;
       label : config DA.t;
@@ -650,7 +661,7 @@ module MakeReachabilityGraph (A : sig
       in BatSet.fold f (BatSet.of_enum (A.vocabulary pa)) PSet.empty
     in
     let arg =
-    { worklist = WVSet.empty;
+    { worklist = Worklist.empty;
       pa = pa;
       max_index = max_index;
       label = DA.make 2048;
@@ -694,14 +705,13 @@ module MakeReachabilityGraph (A : sig
     go 0 v
 
   let add_worklist arg v =
-    arg.worklist <- WVSet.add (hval arg v, v) arg.worklist
+    arg.worklist <- Worklist.insert (hval arg v) v arg.worklist
 
   let pick_worklist arg =
-    if WVSet.is_empty arg.worklist then
-      None
-    else
-      let (h, v) = WVSet.min_elt arg.worklist in
-      arg.worklist <- WVSet.remove (h, v) arg.worklist;
+    match Worklist.pick arg.worklist with
+    | None -> None
+    | Some ((_, v), worklist) ->
+      arg.worklist <- worklist;
       Some v
 
   (* Add a new vertex to an ARG, with a given parent and label, and add it to

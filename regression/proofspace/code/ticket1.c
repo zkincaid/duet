@@ -26,4 +26,5 @@ void main() {
     s = t = 0;
     pthread_create(&th, NULL, thread, NULL);
     pthread_create(&th, NULL, thread, NULL);
+    pthread_create(&th, NULL, thread, NULL);
 }

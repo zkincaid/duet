@@ -5,7 +5,7 @@ int g;
 void* thread(void *arg) {
     int x;
     x = g;
-    g = g + x;
+    g = 2*x;
     return NULL;
 }
 
