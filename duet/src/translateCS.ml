@@ -1366,7 +1366,6 @@ let was_dot = ref false
       let c_unit = ((Swig.invoke c_vector) "[]" (Swig.C_int n)) in
       update_glos c_unit
     done ;
-    Printf.printf "ends";
     get_functions prog
 
 
