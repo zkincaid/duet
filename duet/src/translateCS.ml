@@ -695,15 +695,27 @@ let was_dot = ref false
               [BinExpr(lh,f_var2,op,f_var)]
             end
             else begin
-              let f2_f1_name_str = Swig.get_string ((Swig.invoke ((Swig.invoke f2_f1_ast) "[]" (Cs._ast_ordinal_NC_NAME(Swig.C_void)))) "as_str" (Swig.C_void)) in
-              let f1_name = ((Swig.invoke f1_ast) "[]" (Cs._ast_ordinal_NC_NAME(Swig.C_void))) in
-              let f1_name_str = Swig.get_string ((Swig.invoke f1_name) "as_str" (Swig.C_void)) in
-              if ((String.compare f2_f1_name_str f1_name_str) = 0) then begin
-                let f2_f2 = ((Swig.invoke f2_fields) "[]" (Swig.C_int 1)) in
-                let f_var = parse_var f2_f2 in
-                let f_var2 = parse_var f2_f1 in
-                let op = convert_op (String.sub f2_class_str 2 1) in
-                [BinExpr(lh,f_var2,op,f_var)]
+              let f2_f1_class = ((Swig.invoke f2_f1_ast) "get_class" (Swig.C_void)) in
+              let f2_f1_class_str = Swig.get_string ((Swig.invoke f2_f1_class) "as_string" (Swig.C_void)) in
+                if ((String.compare f2_f1_class_str "c:variable") = 0) then begin
+                let f2_f1_name_str = Swig.get_string ((Swig.invoke ((Swig.invoke f2_f1_ast) "[]" (Cs._ast_ordinal_NC_NAME(Swig.C_void)))) "as_str" (Swig.C_void)) in
+                let f1_name = ((Swig.invoke f1_ast) "[]" (Cs._ast_ordinal_NC_NAME(Swig.C_void))) in
+                let f1_name_str = Swig.get_string ((Swig.invoke f1_name) "as_str" (Swig.C_void)) in
+                if ((String.compare f2_f1_name_str f1_name_str) = 0) then begin
+                  let f2_f2 = ((Swig.invoke f2_fields) "[]" (Swig.C_int 1)) in
+                  let f_var = parse_var f2_f2 in
+                  let f_var2 = parse_var f2_f1 in
+                  let op = convert_op (String.sub f2_class_str 2 1) in
+                  [BinExpr(lh,f_var2,op,f_var)]
+                end
+                else begin
+                  let f2_f2 = ((Swig.invoke f2_fields) "[]" (Swig.C_int 1)) in
+                  let f_var = parse_var f2_f2 in
+                  let f_var2 = parse_var f2_f1 in
+                  let f1_possible_op = (String.sub f2_class_str 2 1) in
+                  let op = convert_op f1_possible_op in
+                  [BinExpr(lh,f_var2,op,f_var)]
+                end
               end
               else begin
                 let f2_f2 = ((Swig.invoke f2_fields) "[]" (Swig.C_int 1)) in
@@ -712,7 +724,7 @@ let was_dot = ref false
                 let f1_possible_op = (String.sub f2_class_str 2 1) in
                 let op = convert_op f1_possible_op in
                 [BinExpr(lh,f_var2,op,f_var)]
-              end 
+              end
             end
           end
           else if (String.compare f2_class_super_str "c:logical") = 0 then begin
