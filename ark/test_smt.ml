@@ -318,6 +318,18 @@ let chc3 () =
   in
   verify_chc [psym1; qsym1; rsym1; psym2; qsym2; rsym2] rules
 
+let chc4 () =
+  let pre_sym = Ctx.mk_symbol ~name:"pre" (`TyFun ([`TyInt; `TyInt], `TyBool)) in
+  let pre (x, y) = Ctx.mk_app pre_sym  [x; y] in
+  let rules =
+    let open Infix in
+    let (-->) x y = (x, y) in
+    let v0 = var 0 `TyInt in
+    let v1 = var 1 `TyInt in
+    [(pre(v0, v1)) --> (v0 + (int 1) < v1)]
+  in
+  verify_chc [pre_sym] rules
+
 let suite = "SMT" >:::
   [
     "roundtrip0" >:: roundtrip0;
@@ -334,5 +346,8 @@ let suite = "SMT" >:::
     "affine_interp2" >:: affine_interp2;
     "chc1" >:: chc1;
     "chc2" >:: chc2;
+    (*
     "chc3" >:: chc3;
+     *)
+    "chc4" >:: chc4;
   ]

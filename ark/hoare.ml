@@ -18,6 +18,22 @@ module MakeSolver(Ctx : Syntax.Context) (Var : Transition.Var) = struct
 
   let ark = Ctx.context
 
+  let pp_triple formatter (pre, trans, post) =
+    let open Format in
+    fprintf formatter "{";
+    ArkUtil.pp_print_enum ~pp_sep:(fun formatter () -> fprintf formatter " /\\ ")
+                          (pp_expr ark)
+                          formatter
+                          (BatList.enum pre);
+    fprintf formatter "} ";
+    Transition.pp formatter trans;
+    fprintf formatter " {";
+    ArkUtil.pp_print_enum ~pp_sep:(fun formatter () -> fprintf formatter " /\\ ")
+                          (pp_expr ark)
+                          formatter
+                          (BatList.enum post);
+    fprintf formatter "}"
+
   type t = {
       smt_ctx : Ctx.t z3_context;
       solver : Ctx.t CHC.solver;
@@ -74,7 +90,8 @@ module MakeSolver(Ctx : Syntax.Context) (Var : Transition.Var) = struct
       let rec go posts = (* add a rule for each post condition *)
         match posts with
         | [] -> ()
-        | post :: posts -> CHC.add_rule solver.solver body (substitute_const ark postify post); go posts
+        | post :: posts -> CHC.add_rule solver.solver body (substitute_const ark postify post);
+                           go posts
       in
       go posts
     in

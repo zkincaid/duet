@@ -3,6 +3,8 @@ open Abstract
 open Syntax
 open ArkApron
 
+include Log.Make(struct let name = "ark.test_transition" end)
+
 module Ctx = MakeSimplifyingContext ()
 module Infix = Syntax.Infix(Ctx)
 module V = struct
@@ -46,13 +48,13 @@ let () =
   V.register_var "y" `TyInt;
   V.register_var "z" `TyInt
 
-let x = Ctx.mk_const (V.symbol_of "x")
-let y = Ctx.mk_const (V.symbol_of "y")
-let z = Ctx.mk_const (V.symbol_of "z")
 let i = Ctx.mk_const (V.symbol_of "i")
 let j = Ctx.mk_const (V.symbol_of "j")
 let k = Ctx.mk_const (V.symbol_of "k")
 let n = Ctx.mk_const (V.symbol_of "n")
+let x = Ctx.mk_const (V.symbol_of "x")
+let y = Ctx.mk_const (V.symbol_of "y")
+let z = Ctx.mk_const (V.symbol_of "z")
 
 let ctx = Ctx.context
 let smt_ctx = ArkZ3.mk_context ctx []
@@ -292,6 +294,35 @@ let interpolate2 () =
     check_interpolant path post itp
   | _ -> assert_failure "Invalid post-condition"
 
+let hoare () =
+  let module Solver = Hoare.MakeSolver(Ctx)(V) in
+  let solver = Solver.mk_solver in
+  let pre_sym = Ctx.mk_symbol ~name:"pre" (`TyFun ([`TyInt; `TyInt], `TyBool)) in
+  let pre (x, y) = Ctx.mk_app pre_sym [x; y] in
+  let open Infix in
+  let post (x, y) = x < y in
+  let command = mk_block
+                  [T.assign "x" (x + (int 1))] in
+  Solver.register_triple solver ([pre(x, y)], command, [post(x, y)]);
+  begin
+    match Solver.check_solution solver with
+    | `Sat -> ()
+    | _ -> assert_failure "CHC unable to find satisfiable pre-condition"
+  end;
+  let triples = Solver.get_solution solver in
+  let rec go rels =
+    match rels with
+    | [] -> tru
+    | [p] -> p
+    | p :: rels -> p && (go rels)
+  in
+  List.iter (fun (pre, trans, post) ->
+      logf ~level:`always "%a" Solver.pp_triple (pre, trans, post);
+      match T.SemiRing.valid_triple (go pre) [trans] (go post) with
+      | `Valid -> ()
+      | _ -> assert_failure "Invalid Hoare Triple") triples
+
+
 let suite = "Transition" >::: [
     "degree1" >:: degree1;
     "degree2" >:: degree2;
@@ -302,4 +333,5 @@ let suite = "Transition" >::: [
     "equal1" >:: equal1;
     "interpolate1" >:: interpolate1;
     "interpolate2" >:: interpolate2;
+    "hoare" >:: hoare;
   ]
