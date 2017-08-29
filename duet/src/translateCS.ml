@@ -515,17 +515,7 @@ let was_dot = ref false
       prev_call := false;
       let func_name = (Swig.get_string ((Swig.invoke point) "as_string" (Swig.C_void))) in
       (*ICall of id option * id * var list *)
-      if (String.compare func_name "[call-site] Ljava/lang/Thread::sleep:void(long)") = 0 then begin
-        let actuals_in = ((Swig.invoke point) "actuals_in_as_list" (Swig.C_void)) in
-        let act_in_size = Swig.get_int ((Swig.invoke actuals_in) "size" (Swig.C_void)) in
-        let var_list = get_param_vars act_in_size 0 actuals_in "" in
-        let var_slp = List.hd var_list in
-        match var_slp with
-          LVal(Constant(a,b)) -> let slp_val = a*1000000 in
-                                 [Tick(LVal(Var("bytecodecost",Int(4))),LVal(Constant(slp_val,4)))]
-          | _ ->  [Tick(LVal(Var("bytecodecost",Int(4))),LVal(Constant(1,4)))]
-      end
-      else begin
+      begin
       (* This is regular function call *)
       let call_ast = ((Swig.invoke point) "get_ast" (Cs._ast_family_C_NORMALIZED(Swig.C_void))) in
       let fields = ((Swig.invoke call_ast) "fields" (Swig.C_void)) in
@@ -1343,14 +1333,6 @@ let was_dot = ref false
       cur_locs := f_locs;
       let block_list = get_blocks proc_entry_first_point return_var [] in
       let blocks = Array.of_list block_list in
-          if (comp) then begin
-              let entry_block = Array.get blocks 0 in
-              let new_inst = Assign(LVal(Var("bytecodecost",Int(4))),LVal(Constant(0,4))) in
-              let inst_list = entry_block.binsts in
-              let updated_binsts = new_inst :: inst_list in
-              let new_entry_block = {entry_block with binsts=updated_binsts} in
-              Array.set blocks 0 new_entry_block;
-          end;
       let updated_list = List.filter (fun y -> y.fname <> proc_name) !procs_lst in
       let funct = (if (Array.length blocks > 0) then begin
         {cur_funct with fbody=blocks; flocs = !cur_locs; fret = return_var} end else begin
