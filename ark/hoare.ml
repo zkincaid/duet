@@ -110,7 +110,7 @@ module MakeSolver(Ctx : Syntax.Context) (Var : Transition.Var) = struct
           | `App (_, []) -> expr
           | `App (rel, args) ->
              (substitute ark
-                (fun (v, t) -> List.nth args v)
+                (fun (v, _) -> List.nth args v)
                 (CHC.get_solution solver.solver rel) :> ('a, typ_fo) Syntax.expr)
           | _ -> expr
         in

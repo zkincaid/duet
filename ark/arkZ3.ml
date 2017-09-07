@@ -732,9 +732,12 @@ module CHC = struct
   let get_solution solver relation =
     let ark = solver.ctx#ark in
     let decl = decl_of_symbol solver.ctx#z3 ark relation in
-    match Z3.Fixedpoint.get_cover_delta solver.fp (-1) decl with
-    | Some inv -> solver.ctx#formula_of inv
-    | None -> assert false
+    if Z3.Fixedpoint.get_num_levels solver.fp decl = 0 then
+      mk_false ark (* 0 levels -> never appears in the head of a rule *)
+    else
+      match Z3.Fixedpoint.get_cover_delta solver.fp (-1) decl with
+      | Some inv -> solver.ctx#formula_of inv
+      | None -> assert false
 
   let to_string solver = Z3.Fixedpoint.to_string solver.fp
 end

@@ -346,8 +346,6 @@ let suite = "SMT" >:::
     "affine_interp2" >:: affine_interp2;
     "chc1" >:: chc1;
     "chc2" >:: chc2;
-    (*
     "chc3" >:: chc3;
-     *)
     "chc4" >:: chc4;
   ]
