@@ -7,7 +7,7 @@ all: build
 build: setup.ml setup.data
 	$(SETUP) -build
 
-duet: setup.ml setup.data duet/src/config.ml
+duet: setup.ml setup.data duet/config.ml
 	ocamlbuild duet/duet.native
 
 newton:
@@ -16,7 +16,7 @@ newton:
 	cd _build/duet && ocamlfind ocamlopt -output-obj -g -linkpkg -package camlidl -package Z3 -package mathsat -package ppx_deriving -package batteries -package apron.polkaMPQ -package apron.boxMPQ -package apron.octMPQ -package deriving -package ocamlgraph -package cil -package cil.default-features -package ocrs -o libduet.so ../apak/apakEnum.cmx ../apak/apak.cmx ../ark/ark.cmx core.cmx afg.cmx ast.cmx hlir.cmx report.cmx cfgIr.cmx cmdLine.cmx pointerAnalysis.cmx call.cmx solve.cmx ai.cmx config.cmx datalog.cmx inline.cmx bddpa.cmx interproc.cmx cra.cmx translateCil.cmx cbpAst.cmx cbpLex.cmx cbpParse.cmx translateCbp.cmx newtonDomain.cmx newton_interface.cmx safety.cmx duet.cmx || exit 1
 
 libduet: setup.ml setup.data
-	ocamlbuild duet/src/libduet.cma
+	ocamlbuild duet/libduet.cma
 
 ark: setup.ml setup.data
 	ocamlbuild ark/test_ark.native
