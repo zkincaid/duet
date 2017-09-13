@@ -7,6 +7,7 @@ open Safety
 (* Frontends *)
 open TranslateCil
 open TranslateCbp
+open Conversion
 
 (* Analyses *)
 open Cra
@@ -18,7 +19,7 @@ let usage_msg = "Duet program analyzer\nUsage: duet [OPTIONS] file.[c|bp|duet]"
 
 let anon_fun s = ignore (CmdLine.parse s)
 
-let duet_main () =
+let () =
   Sys.set_signal Sys.sigtstp (Sys.Signal_handle (fun _ -> Log.print_stats ()));
   let spec_list = CmdLine.spec_list () in
   Arg.parse (Arg.align spec_list) anon_fun usage_msg;
