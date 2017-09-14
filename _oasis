@@ -48,8 +48,7 @@ Library libduet
   FindlibName:      libduet
   Pack:             true
   CCOpt:            -g -rdynamic
-  InternalModules:  Core, CmdLine, CfgIr, PointerAnalysis, Afg, Ast, Hlir, TranslateCbp,
-                    TranslateCil
+  InternalModules:  Core, CmdLine, CfgIr, InterIR, Conversion, TranslateCS, Duet_plugin, PointerAnalysis, Afg, Ast, Hlir, TranslateCbp, TranslateCil
   BuildDepends:     ppx_deriving, apak, cil, cil.default-features
   Install:          false
   XMETADescription: Duet Core IR

@@ -7,6 +7,7 @@ open Safety
 (* Frontends *)
 open TranslateCil
 open TranslateCbp
+open Conversion
 
 (* Analyses *)
 open Cra
