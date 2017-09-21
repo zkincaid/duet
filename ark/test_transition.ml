@@ -294,16 +294,8 @@ let interpolate2 () =
     check_interpolant path post itp
   | _ -> assert_failure "Invalid post-condition"
 
-let hoare () =
+let check_hoare solver =
   let module Solver = Hoare.MakeSolver(Ctx)(V) in
-  let solver = Solver.mk_solver in
-  let pre_sym = Ctx.mk_symbol ~name:"pre" (`TyFun ([`TyInt; `TyInt], `TyBool)) in
-  let pre (x, y) = Ctx.mk_app pre_sym [x; y] in
-  let open Infix in
-  let post (x, y) = x < y in
-  let command = mk_block
-                  [T.assign "x" (x + (int 1))] in
-  Solver.register_triple solver ([pre(x, y)], command, [post(x, y)]);
   begin
     match Solver.check_solution solver with
     | `Sat -> ()
@@ -311,6 +303,7 @@ let hoare () =
   end;
   let triples = Solver.get_solution solver in
   let rec go rels =
+    let open Infix in
     match rels with
     | [] -> tru
     | [p] -> p
@@ -321,7 +314,33 @@ let hoare () =
       match T.SemiRing.valid_triple (go pre) [trans] (go post) with
       | `Valid -> ()
       | _ -> assert_failure "Invalid Hoare Triple") triples
+          
+let hoare1 () =
+  let module Solver = Hoare.MakeSolver(Ctx)(V) in
+  let solver = Solver.mk_solver in
+  let pre_sym = Ctx.mk_symbol ~name:"pre" (`TyFun ([`TyInt; `TyInt], `TyBool)) in
+  let pre (x, y) = Ctx.mk_app pre_sym [x; y] in
+  let open Infix in
+  let post (x, y) = x < y in
+  let command = mk_block [T.assign "x" (x + (int 1))] in
+  Solver.register_triple solver ([pre(x,y)], command, [post(x,y)]);
+  check_hoare solver
 
+let hoare2 () =
+  let module Solver = Hoare.MakeSolver(Ctx)(V) in
+  let solver = Solver.mk_solver in
+  let p_sym = Ctx.mk_symbol ~name:"p" (`TyFun ([`TyInt; `TyInt], `TyBool)) in
+  let q_sym = Ctx.mk_symbol ~name:"q" (`TyFun ([`TyInt; `TyInt], `TyBool)) in
+  let r_sym = Ctx.mk_symbol ~name:"r" (`TyFun ([`TyInt; `TyInt], `TyBool)) in
+  let p(x, y) = Ctx.mk_app p_sym [x; y] in
+  let q(x, y) = Ctx.mk_app q_sym [x; y] in
+  let r(x, y) = Ctx.mk_app r_sym [x; y] in
+  let open Infix in
+  Solver.register_triple solver ([tru], T.assign "x" (int 0), [p(x, y)]);
+  Solver.register_triple solver ([p(x,y)], T.assign "y" (int 0), [q(x,y)]);
+  Solver.register_triple solver ([q(x,y)], mk_while (y = x) [T.assign "x" (x + (int 1))], [r(x,y)]);
+  Solver.register_triple solver ([r(x,y)], T.assume (x < (int 0)), [fls]);
+  check_hoare solver
 
 let suite = "Transition" >::: [
     "degree1" >:: degree1;
@@ -333,5 +352,6 @@ let suite = "Transition" >::: [
     "equal1" >:: equal1;
     "interpolate1" >:: interpolate1;
     "interpolate2" >:: interpolate2;
-    "hoare" >:: hoare;
+    "hoare1" >:: hoare1;
+    "hoare2" >:: hoare2;
   ]
