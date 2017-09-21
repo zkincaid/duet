@@ -651,6 +651,7 @@ module CHC = struct
     Z3.Params.add_bool params (sym "xform.slice") false;
     Z3.Params.add_bool params (sym "xform.inline_linear") false;
     Z3.Params.add_bool params (sym "xform.inline_eager") false;
+    Z3.Params.add_bool params (sym "pdr.utvpi") false;
     Z3.Fixedpoint.set_parameters fp params;
 
     Z3.Fixedpoint.register_relation fp error_decl;

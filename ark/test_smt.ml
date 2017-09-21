@@ -326,7 +326,9 @@ let chc4 () =
     let (-->) x y = (x, y) in
     let v0 = var 0 `TyInt in
     let v1 = var 1 `TyInt in
-    [(pre(v0, v1)) --> (v0 + (int 1) < v1)]
+    let v2 = var 2 `TyInt in
+    [(tru) --> (pre(v0, v1));
+     (pre(v0, v1) && v2 = v0 + (int 1))--> (v2 < v1)]
   in
   verify_chc [pre_sym] rules
 
@@ -346,8 +348,6 @@ let suite = "SMT" >:::
     "affine_interp2" >:: affine_interp2;
     "chc1" >:: chc1;
     "chc2" >:: chc2;
-    (*
     "chc3" >:: chc3;
-     *)
     "chc4" >:: chc4;
   ]

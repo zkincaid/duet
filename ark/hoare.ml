@@ -47,6 +47,9 @@ module MakeSolver(Ctx : Syntax.Context) (Var : Transition.Var) = struct
       triples = DA.create();
     }
 
+  let get_solver solver =
+    solver.solver
+
   (*
      register {[P(...) ; Q(...); x = 3; y < x]} transition {[R(...); S(...)]}
      as P(...) /\ Q(...) /\ x = 3 /\ y < x /\ transition.guard --> R(...)

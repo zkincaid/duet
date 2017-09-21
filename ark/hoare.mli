@@ -8,6 +8,7 @@ module MakeSolver (Ctx : Syntax.Context) (Var : Transition.Var) : sig
   val pp_triple : Format.formatter -> triple -> unit
 
   val mk_solver : t
+  val get_solver : t -> Ctx.t ArkZ3.CHC.solver
   val register_triple : t -> triple -> unit
   val check_solution : t -> [ `Sat | `Unsat | `Unknown ]
   val get_solution : t -> triple list
