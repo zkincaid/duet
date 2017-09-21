@@ -317,7 +317,7 @@ let hoare () =
     | p :: rels -> p && (go rels)
   in
   List.iter (fun (pre, trans, post) ->
-      logf ~level:`always "%a" Solver.pp_triple (pre, trans, post);
+      logf "%a" Solver.pp_triple (pre, trans, post);
       match T.SemiRing.valid_triple (go pre) [trans] (go post) with
       | `Valid -> ()
       | _ -> assert_failure "Invalid Hoare Triple") triples
