@@ -47,6 +47,7 @@ module type S = sig
   val embeds_novel2 : t -> t -> bool
   val uembeds : t -> t -> bool
   val cembeds : t -> t -> bool
+  val str2mzn : t -> t -> bool
 
   (** [union s s'] is a structure whose universe is the union of the universes
       of [s] and [s'] and whose interpretation of each predicate [p] is the

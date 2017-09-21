@@ -414,8 +414,13 @@ let _ =
   | "cembeds" ->
      if Array.length Sys.argv > 3 then
        check_embeddings Config.cembeds (load_structs Sys.argv.(3)) (match Sys.argv.(2) with | "rename" -> true | _ -> false)
-   else
+     else
        check_embeddings Config.cembeds (load_structs Sys.argv.(2)) false
+  | "str2mzn" ->
+     if Array.length Sys.argv > 3 then
+       check_embeddings Config.str2mzn (load_structs Sys.argv.(3)) (match Sys.argv.(2) with | "rename" -> true | _ -> false)
+     else
+       check_embeddings Config.str2mzn (load_structs Sys.argv.(2)) false
   | "diff-check" ->
     let program = load_automaton Sys.argv.(2) in
     let proof = load_automaton Sys.argv.(3) in
