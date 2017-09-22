@@ -2,7 +2,7 @@ SETUP = ocaml setup.ml
 
 all: build
 
-.PHONY: build duet ark apak patools test
+.PHONY: build duet ark apak patools test cca
 
 build: setup.ml setup.data
 	rm -rf _build/pa/pa.a
@@ -19,6 +19,9 @@ apak: setup.ml setup.data
 
 patools: setup.ml setup.data
 	ocamlbuild patools/patools.native -tag debug
+
+cca: setup.ml setup.data
+	ocamlbuild cca/cca.native -tag debug
 
 setup.ml: _oasis
 	oasis setup

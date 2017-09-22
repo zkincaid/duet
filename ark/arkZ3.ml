@@ -207,7 +207,7 @@ let decl_of_symbol z3 ark sym =
   Z3.FuncDecl.mk_func_decl z3 z3sym param_sorts return_sort
 
 let rec z3_of_expr ark z3 expr =
-  match refine ark expr with
+  match Expr.refine ark expr with
   | `Term t -> z3_of_term ark z3 t
   | `Formula phi -> z3_of_formula ark z3 phi
 
@@ -289,12 +289,12 @@ and z3_of_formula ark z3 phi =
 type 'a gexpr = ('a, typ_fo) Syntax.expr
 let of_z3 context sym_of_decl expr =
   let term expr =
-    match refine context expr with
+    match Expr.refine context expr with
     | `Term t -> t
     | _ -> invalid_arg "of_z3.term"
   in
   let formula expr =
-    match refine context expr with
+    match Expr.refine context expr with
     | `Formula phi -> phi
     | _ -> invalid_arg "of_z3.formula"
   in
@@ -322,7 +322,7 @@ let of_z3 context sym_of_decl expr =
     | `Quantify (`Forall, name, typ, phi) ->
       (mk_forall context ~name:name typ (formula phi) :> 'a gexpr)
     | `Atom (`Eq, s, t) ->
-      begin match refine context s, refine context t with
+      begin match Expr.refine context s, Expr.refine context t with
         | `Term s, `Term t -> (mk_eq context s t :> 'a gexpr)
         | `Formula phi, `Formula psi ->
           (mk_or context [mk_and context [phi; psi];
@@ -345,12 +345,12 @@ let sym_of_decl decl =
   symbol_of_int (Z3.Symbol.get_int sym)
 
 let term_of_z3 context term =
-  match refine context (of_z3 context sym_of_decl term) with
+  match Expr.refine context (of_z3 context sym_of_decl term) with
   | `Term t -> t
   | _ -> invalid_arg "term_of"
 
 let formula_of_z3 context phi =
-  match refine context (of_z3 context sym_of_decl phi) with
+  match Expr.refine context (of_z3 context sym_of_decl phi) with
   | `Formula phi -> phi
   |  _ -> invalid_arg "formula_of"
 
@@ -389,7 +389,7 @@ class ['a] z3_model (ark : 'a context) z3 m =
             (Z3.Model.FuncInterp.get_else interp)
         in
         let mk_eq x y = (* type-generic equality *)
-          match refine ark x, refine ark y with
+          match Expr.refine ark x, Expr.refine ark y with
           | `Term x, `Term y ->
             (mk_eq ark x y :> ('a, 'typ_fo) Syntax.expr)
           | `Formula x, `Formula y ->
@@ -615,7 +615,7 @@ let mk_context : 'a context -> (string * string) list -> 'a z3_context
             assert (FuncDecl.get_domain decl = []);
             cos (Symbol.to_string sym, typ_of_sort (FuncDecl.get_range decl))
         in
-        match refine context (of_z3 context sym_of_decl ast) with
+        match Expr.refine context (of_z3 context sym_of_decl ast) with
         | `Formula phi -> phi
         | `Term _ -> invalid_arg "load_smtlib2"
     end

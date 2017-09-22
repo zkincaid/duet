@@ -83,15 +83,15 @@ struct
           if PG.nb_edges component_graph.(i) > 0 then begin
 
             (* If a component has no incoming entry vertices, select an
-               		 arbitrary one to be the entry. *)
+               arbitrary one to be the entry. *)
             if VSet.cardinal entries.(i) = 0 then begin
               let v = extract_vertex component_graph.(i) in
               entries.(i) <- VSet.singleton v
             end;
 
             (* Remove edges coming into the entry vertices, so that "cut" is
-               		 no longer strongly connected, then recursively decompose
-               		 cut *)
+               no longer strongly connected, then recursively
+               decompose cut *)
             let backedges = ref VSet.empty in
             let remove_backedge v p g =
               backedges := VSet.add p (!backedges);

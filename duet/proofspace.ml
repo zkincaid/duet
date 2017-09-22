@@ -90,6 +90,7 @@ module P = struct
 end
 
 module Tr = Transition.Make(Ctx)(IV)
+
 module Block = struct
   type t =
     [ `Fork of Varinfo.t
@@ -375,7 +376,7 @@ let index_expr index =
     | OConstant _ -> gensym `TyInt
     | OAddrOf _ -> gensym `TyInt
   in
-  Expr.fold alg
+  Aexpr.fold alg
 
 (* Convert a Core IR boolean expression into a formula.  Local variables are
    interpreted as the locals of tid. *)
@@ -548,7 +549,7 @@ let mk_block_graph file =
     | Assign (v, expr) ->
       `Transition (Tr.assign (v, 0) (index_expr 0 expr))
     | Builtin (Fork (_, expr, _)) ->
-      let func = match Expr.strip_casts expr with
+      let func = match Aexpr.strip_casts expr with
         | AddrOf (Variable (func, OffsetFixed 0)) -> func
         | _ -> assert false
       in

@@ -1,7 +1,7 @@
 (** Core contains the core type definitions and conversion functions used by
     our internal representations, including the type [ap] of access paths and
     [expr] of expressions.  Further operations on expr can be found in
-    [Expr]. *)
+    [AExpr]. *)
 open Apak
 open Ark
 open BatPervasives
@@ -179,21 +179,21 @@ type constant =
 (** Access paths *)
 type ap =
   | Variable      of var
-  | Deref         of expr
+  | Deref         of aexpr
 
 (** Boolean expressions (in negation normal form) *)
 and bexpr =
-  | Atom          of (pred * expr * expr)
+  | Atom          of (pred * aexpr * aexpr)
   | And           of (bexpr * bexpr)
   | Or            of (bexpr * bexpr)
 
 (** Expressions *)
-and expr =
+and aexpr =
   | Havoc         of typ
   | Constant      of constant
-  | Cast          of typ * expr
-  | BinaryOp      of expr * binop * expr * typ
-  | UnaryOp       of unop * expr * typ
+  | Cast          of typ * aexpr
+  | BinaryOp      of aexpr * binop * aexpr * typ
+  | UnaryOp       of unop * aexpr * typ
   | AccessPath    of ap
   | BoolExpr      of bexpr
   | AddrOf        of ap
@@ -205,25 +205,25 @@ type alloc_target =
 
 (** Builtin definitions *)
 type builtin =
-  | Alloc of (var * expr * alloc_target)
-  | Free of expr
-  | Fork of (var option * expr * expr list)
-  | Acquire of expr
-  | Release of expr
+  | Alloc of (var * aexpr * alloc_target)
+  | Free of aexpr
+  | Fork of (var option * aexpr * aexpr list)
+  | Acquire of aexpr
+  | Release of aexpr
   | AtomicBegin
   | AtomicEnd
   | Exit
 
 (** Definition kind *)
 and defkind =
-  | Assign of (var * expr)
-  | Store of (ap * expr)
-  | Call of (var option * expr * expr list)
+  | Assign of (var * aexpr)
+  | Store of (ap * aexpr)
+  | Call of (var option * aexpr * aexpr list)
   | Assume of bexpr
   | Initial
   | Assert of bexpr * string
-  | AssertMemSafe of expr * string
-  | Return of expr option
+  | AssertMemSafe of aexpr * string
+  | Return of aexpr option
   | Builtin of builtin
 
 and def =
@@ -233,7 +233,7 @@ and def =
 let compare_def x y = compare x.did y.did
 
 (** Open types for folding *)
-type ('a, 'b, 'c) open_expr =
+type ('a, 'b, 'c) open_aexpr =
   | OHavoc         of typ
   | OConstant      of constant
   | OCast          of typ * 'a
@@ -247,7 +247,7 @@ type ('a, 'b) open_bexpr =
   | OAnd of ('b * 'b)
   | OOr of ('b * 'b)
 
-type ('a, 'b, 'c) expr_algebra = ('a, 'b, 'c) open_expr -> 'a
+type ('a, 'b, 'c) aexpr_algebra = ('a, 'b, 'c) open_aexpr -> 'a
 type ('a, 'b) bexpr_algebra = ('a, 'b) open_bexpr -> 'b
 
 
@@ -434,14 +434,14 @@ module Var = struct
 end
 
 (* Functions on expressions ***************************************************)
-let rec fold_expr_only f = function
+let rec fold_aexpr_only f = function
   | Havoc typ -> f (OHavoc typ)
   | Constant c -> f (OConstant c)
-  | Cast (typ, expr) -> f (OCast (typ, fold_expr_only f expr))
+  | Cast (typ, aexpr) -> f (OCast (typ, fold_aexpr_only f aexpr))
   | BinaryOp (a, op, b, typ) ->
-    f (OBinaryOp (fold_expr_only f a, op, fold_expr_only f b, typ))
+    f (OBinaryOp (fold_aexpr_only f a, op, fold_aexpr_only f b, typ))
   | UnaryOp (op, a, typ) ->
-    f (OUnaryOp (op, fold_expr_only f a, typ))
+    f (OUnaryOp (op, fold_aexpr_only f a, typ))
   | AccessPath ap -> f (OAccessPath ap)
   | BoolExpr bexpr -> f (OBoolExpr bexpr)
   | AddrOf ap -> f (OAddrOf ap)
@@ -451,32 +451,32 @@ let rec fold_bexpr_only f = function
   | Or (x, y) -> f (OOr (fold_bexpr_only f x, fold_bexpr_only f y))
   | Atom (p, x, y) -> f (OAtom (p, x, y))
 
-let rec fold_expr f g =
+let rec fold_aexpr f g =
   let h = function
     | OBoolExpr bexpr -> f (OBoolExpr (fold_bexpr f g bexpr))
     | OHavoc typ -> f (OHavoc typ)
     | OConstant c -> f (OConstant c)
-    | OCast (typ, expr) -> f (OCast (typ, expr))
+    | OCast (typ, aexpr) -> f (OCast (typ, aexpr))
     | OBinaryOp (a, op, b, typ) -> f (OBinaryOp (a, op, b, typ))
     | OUnaryOp (op, a, typ) -> f (OUnaryOp (op, a, typ))
     | OAccessPath ap -> f (OAccessPath ap)
     | OAddrOf ap -> f (OAddrOf ap)
   in
-  fold_expr_only h
+  fold_aexpr_only h
 and fold_bexpr f g =
   let h = function
     | OAtom (pred, left, right) ->
-      g (OAtom (pred, fold_expr f g left, fold_expr f g right))
+      g (OAtom (pred, fold_aexpr f g left, fold_aexpr f g right))
     | OAnd (x, y) -> g (OAnd (x, y))
     | OOr (x, y) -> g (OOr (x, y))
   in
   fold_bexpr_only h
 
-let expr_of_offset = function
+let aexpr_of_offset = function
   | OffsetUnknown -> Havoc (Concrete (Int unknown_width))
   | OffsetFixed n -> Constant (CInt (n, unknown_width))
 
-let rec expr_type = function
+let rec aexpr_type = function
   | Havoc typ -> typ
   | Constant (CInt (_, ik)) -> Concrete (Int ik)
   | Constant (CString _) ->
@@ -517,18 +517,18 @@ and ap_type ap =
 let to_pointer_offset = function
   | BinaryOp (ptr, Add, Constant (CInt (off, _)), typ)
   | BinaryOp (Constant (CInt (off, _)), Add, ptr, typ) -> begin
-      match resolve_type (expr_type ptr) with
+      match resolve_type (aexpr_type ptr) with
       | Pointer _ -> Some (ptr, off)
       | _ -> None
     end
   | _ -> None
 
-let rec pp_expr formatter = function
+let rec pp_aexpr formatter = function
   | Havoc _ -> Format.pp_print_string formatter "*"
   | Cast (typ, ex) ->
     Format.fprintf formatter "(%a)%a"
       pp_typ typ
-      pp_expr ex
+      pp_aexpr ex
   | BinaryOp (ex1, b, ex2, tp) ->
     let op = match b with
       | Add    -> "+"
@@ -543,15 +543,15 @@ let rec pp_expr formatter = function
       | BOr    -> "|"
     in
     Format.fprintf formatter "@[<hov 0>(%a%s%a)@]"
-      pp_expr ex1
+      pp_aexpr ex1
       op
-      pp_expr ex2
+      pp_aexpr ex2
   | UnaryOp (u, ex, tp) ->
     let op = match u with
       | Neg  -> "-"
       | BNot -> "~"
     in
-    Format.fprintf formatter "%s%a" op pp_expr ex
+    Format.fprintf formatter "%s%a" op pp_aexpr ex
   | Constant (CInt (i, _)) -> Format.pp_print_int formatter i
   | Constant (CString s) -> Format.fprintf formatter "\"%s\"" s
   | Constant (CChar c) -> Format.pp_print_char formatter c
@@ -576,30 +576,30 @@ and pp_bexpr formatter  = function
       | Ne -> "!="
     in
     Format.fprintf formatter "%a%s%a"
-      pp_expr left
+      pp_aexpr left
       pred
-      pp_expr right
+      pp_aexpr right
 and pp_ap formatter = function
   | Variable v -> Var.pp formatter v
-  | Deref expr -> match to_pointer_offset expr with
-    | Some (ptr, offset) -> begin match resolve_type (expr_type expr) with
+  | Deref aexpr -> match to_pointer_offset aexpr with
+    | Some (ptr, offset) -> begin match resolve_type (aexpr_type aexpr) with
         | Pointer typ -> begin
             match resolve_offset typ (OffsetFixed offset) with
             | Some [] | None ->
-              Format.fprintf formatter "(*%a)" pp_expr expr
+              Format.fprintf formatter "(*%a)" pp_aexpr aexpr
             | Some xs ->
               Format.fprintf formatter "(%a)->%s"
-                pp_expr ptr
+                pp_aexpr ptr
                 (String.concat "." (List.map (fun f -> f.finame) xs))
           end
-        | _ -> Format.fprintf formatter "(*%a)" pp_expr expr
+        | _ -> Format.fprintf formatter "(*%a)" pp_aexpr aexpr
       end
-    | None -> Format.fprintf formatter "(*%a)" pp_expr expr
+    | None -> Format.fprintf formatter "(*%a)" pp_aexpr aexpr
 
-let show_expr = ArkUtil.mk_show pp_expr
+let show_aexpr = ArkUtil.mk_show pp_aexpr
 let show_bexpr = ArkUtil.mk_show pp_bexpr
 
-let hash_expr_alg hash_ap = function
+let hash_aexpr_alg hash_ap = function
   | OAccessPath a -> hash_ap a lsl 2
   | OAddrOf a -> hash_ap a lsl 2 + 1
   | x -> Hashtbl.hash x lsl 2 + 2
@@ -607,33 +607,33 @@ let hash_bexpr_alg = Hashtbl.hash
 
 let rec ap_hash = function
   | Variable v -> Var.hash v lsl 1
-  | Deref expr -> (expr_hash expr) lsl 1 + 1
-and expr_hash expr =
-  fold_expr (hash_expr_alg ap_hash) hash_bexpr_alg expr
+  | Deref aexpr -> (aexpr_hash aexpr) lsl 1 + 1
+and aexpr_hash aexpr =
+  fold_aexpr (hash_aexpr_alg ap_hash) hash_bexpr_alg aexpr
 and bexpr_hash bexpr =
-  fold_bexpr (hash_expr_alg ap_hash) hash_bexpr_alg bexpr
+  fold_bexpr (hash_aexpr_alg ap_hash) hash_bexpr_alg bexpr
 
 let rec strip_all_casts_ap = function
   | Variable v -> Variable v
-  | Deref expr -> Deref (strip_all_casts_expr expr)
-and strip_all_casts_expr expr =
+  | Deref aexpr -> Deref (strip_all_casts_aexpr aexpr)
+and strip_all_casts_aexpr aexpr =
   let f = function
     | OHavoc typ -> Havoc typ
     | OConstant const -> Constant const
-    | OCast (_, expr) -> expr
+    | OCast (_, aexpr) -> aexpr
     | OBinaryOp (a, op, b, typ) -> BinaryOp (a, op, b, typ)
     | OUnaryOp (op, a, typ) -> UnaryOp (op, a, typ)
     | OAccessPath ap -> AccessPath (strip_all_casts_ap ap)
     | OBoolExpr b -> BoolExpr (strip_all_casts_bexpr b)
     | OAddrOf ap -> AccessPath (strip_all_casts_ap ap)
   in
-  fold_expr_only f expr
+  fold_aexpr_only f aexpr
 and strip_all_casts_bexpr bexpr =
   let f = function
     | OAnd (a, b) -> And (a, b)
     | OOr (a, b) -> Or (a, b)
     | OAtom (pred, a, b) ->
-      Atom (pred, strip_all_casts_expr a, strip_all_casts_expr b)
+      Atom (pred, strip_all_casts_aexpr a, strip_all_casts_aexpr b)
   in
   fold_bexpr_only f bexpr
 
@@ -649,55 +649,55 @@ let pp_builtin formatter = function
   | Alloc (lhs, size, AllocHeap) ->
     Format.fprintf formatter "%a = malloc(%a)"
       Var.pp lhs
-      pp_expr size
+      pp_aexpr size
   | Alloc (lhs, size, AllocStack) ->
     Format.fprintf formatter "%a = alloca(%a)"
       Var.pp lhs
-      pp_expr size
-  | Free (expr) -> Format.fprintf formatter "free(%a)" pp_expr expr
+      pp_aexpr size
+  | Free (aexpr) -> Format.fprintf formatter "free(%a)" pp_aexpr aexpr
   | Fork (lhs, func, args) ->
     begin match lhs with
       | Some v -> Format.fprintf formatter "%a = " Var.pp v
       | None    -> ()
     end;
-    Format.fprintf formatter "fork(@[%a" pp_expr func;
+    Format.fprintf formatter "fork(@[%a" pp_aexpr func;
     if args != [] then
       Format.fprintf formatter ",@ %a"
-        (ArkUtil.pp_print_enum pp_expr) (BatList.enum args);
+        (ArkUtil.pp_print_enum pp_aexpr) (BatList.enum args);
     Format.fprintf formatter "@])"
-  | Acquire lock -> Format.fprintf formatter "acquire(%a)" pp_expr lock
-  | Release lock -> Format.fprintf formatter "release(%a)" pp_expr lock
+  | Acquire lock -> Format.fprintf formatter "acquire(%a)" pp_aexpr lock
+  | Release lock -> Format.fprintf formatter "release(%a)" pp_aexpr lock
   | AtomicBegin -> Format.pp_print_string formatter "atomic_begin"
   | AtomicEnd -> Format.pp_print_string formatter "atomic_end"
   | Exit -> Format.pp_print_string formatter "exit"
 
 (** Pretty printing for definitions (needs to be rewritten) *)
 let pp_dk formatter = function
-  | Assign (var, expr) ->
+  | Assign (var, aexpr) ->
     Format.fprintf formatter "%a=%a"
       Var.pp var
-      pp_expr expr
-  | Store (ap, expr) ->
+      pp_aexpr aexpr
+  | Store (ap, aexpr) ->
     Format.fprintf formatter "%a=%a"
       pp_ap ap
-      pp_expr expr
+      pp_aexpr aexpr
   | Call (None, func, args) ->
     Format.fprintf formatter "%a(%a)"
-      pp_expr func
-      (ArkUtil.pp_print_enum pp_expr) (BatList.enum args)
+      pp_aexpr func
+      (ArkUtil.pp_print_enum pp_aexpr) (BatList.enum args)
   | Call (Some lhs, func, args) ->
     Format.fprintf formatter "%a=%a(%a)"
       Var.pp lhs
-      pp_expr func
-      (ArkUtil.pp_print_enum pp_expr) (BatList.enum args)
-  | Assume expr -> Format.fprintf formatter "assume(%a)" pp_bexpr expr
+      pp_aexpr func
+      (ArkUtil.pp_print_enum pp_aexpr) (BatList.enum args)
+  | Assume aexpr -> Format.fprintf formatter "assume(%a)" pp_bexpr aexpr
   | Initial -> Format.pp_print_string formatter "initial"
   | Assert (e,msg) ->
     Format.fprintf formatter "assert(%a) : %s" pp_bexpr e msg
   | AssertMemSafe (e,msg) ->
-    Format.fprintf formatter "memsafe(%a) : %s" pp_expr e msg
+    Format.fprintf formatter "memsafe(%a) : %s" pp_aexpr e msg
   | Return None -> Format.pp_print_string formatter "return"
-  | Return (Some e) -> Format.fprintf formatter "return %a" pp_expr e
+  | Return (Some e) -> Format.fprintf formatter "return %a" pp_aexpr e
   | Builtin b -> pp_builtin formatter b
 
 let pp_def formatter def =
@@ -720,10 +720,10 @@ let eval_binop op i j = match op with
   | BOr    -> i lor j
 
 (******************************************************************************)
-let expr_apply apply_ap f = function
+let aexpr_apply apply_ap f = function
   | OHavoc typ -> f (Havoc typ)
   | OConstant c -> f (Constant c)
-  | OCast (typ, expr) -> f (Cast (typ, expr))
+  | OCast (typ, aexpr) -> f (Cast (typ, aexpr))
   | OBinaryOp (a, op, b, typ) -> f (BinaryOp (a, op, b, typ))
   | OUnaryOp (op, a, typ) -> f (UnaryOp (op, a, typ))
   | OBoolExpr b -> f (BoolExpr b)
@@ -734,10 +734,10 @@ let bexpr_apply f = function
   | OAnd (a, b) -> f (And (a, b))
   | OOr (a, b) -> f (Or (a, b))
 
-let expr_identity f_ap = function
+let aexpr_identity f_ap = function
   | OHavoc typ -> Havoc typ
   | OConstant c -> Constant c
-  | OCast (typ, expr) -> Cast (typ, expr)
+  | OCast (typ, aexpr) -> Cast (typ, aexpr)
   | OBinaryOp (a, op, b, typ) -> BinaryOp (a, op, b, typ)
   | OUnaryOp (op, a, typ) -> UnaryOp (op, a, typ)
   | OBoolExpr b -> BoolExpr b
@@ -748,10 +748,10 @@ let bexpr_identity = function
   | OAnd (a, b) -> And (a, b)
   | OOr (a, b) -> Or (a, b)
 
-let expr_partial_identity f_ap = function
+let aexpr_partial_identity f_ap = function
   | OHavoc typ -> Some (Havoc typ)
   | OConstant c -> Some (Constant c)
-  | OCast (typ, Some expr) -> Some (Cast (typ, expr))
+  | OCast (typ, Some aexpr) -> Some (Cast (typ, aexpr))
   | OCast (_, _) -> None
   | OBinaryOp (Some left, op, Some right, typ) ->
     Some (BinaryOp (left, op, right, typ))
@@ -777,7 +777,7 @@ let bexpr_partial_identity = function
   | OOr (_, _) -> None
 
 (* A variable is free in an expression if it occurs in that expression. *)
-let free_vars_expr_alg free_vars_ap = function
+let free_vars_aexpr_alg free_vars_ap = function
   | OHavoc _ | OConstant _ -> Var.Set.empty
   | OAddrOf ap | OAccessPath ap -> free_vars_ap ap
   | OUnaryOp (_, uses, _) | OCast (_, uses) | OBoolExpr uses -> uses
@@ -786,13 +786,13 @@ let free_vars_bexpr_alg = function
   | OAtom (_, left, right) | OAnd (left, right) | OOr (left, right) ->
     Var.Set.union left right
 
-let rec free_vars_expr expr =
-  fold_expr (free_vars_expr_alg free_vars_ap) free_vars_bexpr_alg expr
+let rec free_vars_aexpr aexpr =
+  fold_aexpr (free_vars_aexpr_alg free_vars_ap) free_vars_bexpr_alg aexpr
 and free_vars_bexpr bexpr =
-  fold_bexpr (free_vars_expr_alg free_vars_ap) free_vars_bexpr_alg bexpr
+  fold_bexpr (free_vars_aexpr_alg free_vars_ap) free_vars_bexpr_alg bexpr
 and free_vars_ap = function
   | Variable v -> Var.Set.singleton v
-  | Deref expr -> free_vars_expr expr
+  | Deref aexpr -> free_vars_aexpr aexpr
 
 module CoreAP =
   Putil.MakeCoreType(struct
@@ -803,9 +803,9 @@ module CoreAP =
 (* An access path is used by an expression if it is read, but is not a
    subexpression of another access path.  If a value is provided for every
    used access path, then that expression can be evaluated. *)
-let uses_expr_alg expr_uses = function
+let uses_aexpr_alg aexpr_uses = function
   | OAccessPath x -> CoreAP.Set.singleton x
-  | OAddrOf (Deref x) -> expr_uses x
+  | OAddrOf (Deref x) -> aexpr_uses x
   | OHavoc _ | OConstant _ | OAddrOf _ -> CoreAP.Set.empty
   | OUnaryOp (_, uses, _) | OCast (_, uses) | OBoolExpr uses -> uses
   | OBinaryOp (use1, _, use2, _) -> CoreAP.Set.union use1 use2
@@ -813,77 +813,77 @@ let uses_bexpr_alg = function
   | OAtom (_, left, right) | OAnd (left, right) | OOr (left, right) ->
     CoreAP.Set.union left right
 
-let rec get_uses_expr expr =
-  fold_expr (uses_expr_alg get_uses_expr) uses_bexpr_alg expr
-let get_uses_bexpr = fold_bexpr (uses_expr_alg get_uses_expr) uses_bexpr_alg
+let rec get_uses_aexpr aexpr =
+  fold_aexpr (uses_aexpr_alg get_uses_aexpr) uses_bexpr_alg aexpr
+let get_uses_bexpr = fold_bexpr (uses_aexpr_alg get_uses_aexpr) uses_bexpr_alg
 
 (* An access path is accessed by an expression if it is read in the concrete
    execution of that expression.  *)
-let rec accessed_expr = function
+let rec accessed_aexpr = function
   | Havoc _ | Constant _ -> CoreAP.Set.empty
-  | Cast (_, expr) -> accessed_expr expr
+  | Cast (_, aexpr) -> accessed_aexpr aexpr
   | BinaryOp (left, _, right, _) ->
-    CoreAP.Set.union (accessed_expr left) (accessed_expr right)
-  | UnaryOp (_, expr, _) -> accessed_expr expr
+    CoreAP.Set.union (accessed_aexpr left) (accessed_aexpr right)
+  | UnaryOp (_, aexpr, _) -> accessed_aexpr aexpr
   | AccessPath ap -> CoreAP.Set.add ap (accessed_ap ap)
   | BoolExpr bexpr -> accessed_bexpr bexpr
-  | AddrOf (Deref expr) -> accessed_expr expr
+  | AddrOf (Deref aexpr) -> accessed_aexpr aexpr
   | AddrOf (Variable _) -> CoreAP.Set.empty
 and accessed_bexpr = function
   | Atom (_, left, right) ->
-    CoreAP.Set.union (accessed_expr left) (accessed_expr right)
+    CoreAP.Set.union (accessed_aexpr left) (accessed_aexpr right)
   | And (left, right) | Or (left, right) ->
     CoreAP.Set.union (accessed_bexpr left) (accessed_bexpr right)
 and accessed_ap ap =
   CoreAP.Set.add ap (match ap with
-      | Deref expr -> accessed_expr expr
+      | Deref aexpr -> accessed_aexpr aexpr
       | Variable _ -> CoreAP.Set.empty)
 
 
 (** Substitute an access path within an expression *)
-let rec subst_ap_expr f =
-  fold_expr (expr_identity (subst_ap_ap f)) bexpr_identity
+let rec subst_ap_aexpr f =
+  fold_aexpr (aexpr_identity (subst_ap_ap f)) bexpr_identity
 
 (** Substitute an access path within a Boolean expression *)
 and subst_ap_bexpr f =
-  fold_bexpr (expr_identity (subst_ap_ap f)) bexpr_identity
+  fold_bexpr (aexpr_identity (subst_ap_ap f)) bexpr_identity
 
 (** Substitute an access path within an access path *)
 and subst_ap_ap f = function
   | Variable _ as var -> f var
-  | Deref expr -> f (Deref (subst_ap_expr f expr))
+  | Deref aexpr -> f (Deref (subst_ap_aexpr f aexpr))
 
 (** Substitute an expression within an expression *)
-let rec subst_expr_expr f =
-  fold_expr (expr_apply (subst_expr_ap f) f) bexpr_identity
+let rec subst_aexpr_aexpr f =
+  fold_aexpr (aexpr_apply (subst_aexpr_ap f) f) bexpr_identity
 
 (** Substitute an expression within a Boolean expression *)
-and subst_expr_bexpr f =
-  fold_bexpr (expr_apply (subst_expr_ap f) f) bexpr_identity
+and subst_aexpr_bexpr f =
+  fold_bexpr (aexpr_apply (subst_aexpr_ap f) f) bexpr_identity
 
 (** Substitute an expression within an access path *)
-and subst_expr_ap f = function
-  | Deref expr -> Deref (subst_expr_expr f expr)
+and subst_aexpr_ap f = function
+  | Deref aexpr -> Deref (subst_aexpr_aexpr f aexpr)
   | Variable _ as var -> var
 
-let rec subst_var_expr f =
-  fold_expr (expr_identity (subst_var_ap f)) bexpr_identity
+let rec subst_var_aexpr f =
+  fold_aexpr (aexpr_identity (subst_var_ap f)) bexpr_identity
 
 (** Substitute a variable within a Boolean expression *)
 and subst_var_bexpr f =
-  fold_bexpr (expr_identity (subst_var_ap f)) bexpr_identity
+  fold_bexpr (aexpr_identity (subst_var_ap f)) bexpr_identity
 
 (** Substitute a variable within an access path *)
 and subst_var_ap f = function
   | Variable var -> Variable (f var)
-  | Deref expr -> Deref (subst_var_expr f expr)
+  | Deref aexpr -> Deref (subst_var_aexpr f aexpr)
 
-let rec psubst_var_expr f =
-  fold_expr (expr_partial_identity (psubst_var_ap f)) bexpr_partial_identity
+let rec psubst_var_aexpr f =
+  fold_aexpr (aexpr_partial_identity (psubst_var_ap f)) bexpr_partial_identity
 
 (** Partial substitution of a variable within a Boolean expression *)
 and psubst_var_bexpr f =
-  fold_bexpr (expr_partial_identity (psubst_var_ap f)) bexpr_partial_identity
+  fold_bexpr (aexpr_partial_identity (psubst_var_ap f)) bexpr_partial_identity
 
 (** Partial substitution of a variable within an access path *)
 and psubst_var_ap f = function
@@ -891,18 +891,18 @@ and psubst_var_ap f = function
       | Some var -> Some (Variable var)
       | None     -> None
     end
-  | Deref expr -> begin match psubst_var_expr f expr with
-      | Some expr -> Some (Deref expr)
+  | Deref aexpr -> begin match psubst_var_aexpr f aexpr with
+      | Some aexpr -> Some (Deref aexpr)
       | None      -> None
     end
 
 type bexpr_val = BTrue | BFalse | BHavoc | BNone
 
-let expr_zero = Constant (CInt (0, unknown_width))
-let expr_one = Constant (CInt (1, unknown_width))
-let bexpr_true = Atom (Ne, expr_one, expr_zero)
-let bexpr_false = Atom (Eq, expr_one, expr_zero)
-let bexpr_havoc = Atom (Ne, (Havoc (Concrete (Int 1))), expr_zero)
+let aexpr_zero = Constant (CInt (0, unknown_width))
+let aexpr_one = Constant (CInt (1, unknown_width))
+let bexpr_true = Atom (Ne, aexpr_one, aexpr_zero)
+let bexpr_false = Atom (Eq, aexpr_one, aexpr_zero)
+let bexpr_havoc = Atom (Ne, (Havoc (Concrete (Int 1))), aexpr_zero)
 let bexpr_equal x y = compare_bexpr x y = 0
 
 let (simplify_expr, simplify_bexpr) =
@@ -933,7 +933,7 @@ let (simplify_expr, simplify_bexpr) =
       (match op with
        | Neg -> Constant (CInt (0 - i, ik))
        | BNot -> Constant (CInt (lnot i, ik)))
-    | OUnaryOp (op, expr, typ) -> UnaryOp (op, expr, typ)
+    | OUnaryOp (op, aexpr, typ) -> UnaryOp (op, aexpr, typ)
     | OAccessPath ap -> AccessPath ap
     | OBoolExpr expr ->
       (match constant_bexpr expr with
@@ -972,7 +972,7 @@ let (simplify_expr, simplify_bexpr) =
        | Ne -> tr_bool (i != j))
     | OAtom (pred, a, b) -> Atom (pred, a, b)
   in
-  (fold_expr f g, fold_bexpr f g)
+  (fold_aexpr f g, fold_bexpr f g)
 
 (******************************************************************************)
 (** Access paths *)
@@ -982,7 +982,7 @@ module AP = struct
   let get_ctype ap = resolve_type (get_type ap)
 
   let addr_of = function
-    | Deref expr -> expr
+    | Deref aexpr -> aexpr
     | var        -> AddrOf var
 
   let rec get_visibility = function
@@ -997,7 +997,7 @@ module AP = struct
   let subst_var = subst_var_ap
   let psubst_var = psubst_var_ap
   let subst_ap = subst_ap_ap
-  let subst_expr = subst_expr_ap
+  let subst_aexpr = subst_aexpr_ap
   let free_vars = free_vars_ap
   let accessed = accessed_ap
 
@@ -1005,17 +1005,17 @@ module AP = struct
 
   (** Access an offset of an access path *)
   let offset ap offset = match ap with
-    | Deref expr ->
-      Deref (BinaryOp (expr, Add, expr_of_offset offset, expr_type expr))
+    | Deref aexpr ->
+      Deref (BinaryOp (aexpr, Add, aexpr_of_offset offset, aexpr_type aexpr))
     | Variable (v, vof) -> Variable (v, Offset.add vof offset)
 end
 
 (******************************************************************************)
 (** Expressions *)
-module Expr = struct
+module Aexpr = struct
   include Putil.MakeCoreType(struct
-      type t = expr [@@deriving show,ord]
-      let hash = expr_hash
+      type t = aexpr [@@deriving show,ord]
+      let hash = aexpr_hash
     end)
 
   (* todo: conversion rules *)
@@ -1027,7 +1027,7 @@ module Expr = struct
   let neg x = UnaryOp (Neg, x, Concrete Dynamic)
   let addr_of ap =
     match ap with
-    | Deref expr -> expr
+    | Deref aexpr -> aexpr
     | Variable v -> begin
         (fst v).vaddr_taken <- true;
         AddrOf ap
@@ -1038,23 +1038,23 @@ module Expr = struct
   let one = const_int 1
   let null typ = Cast (typ, zero)
 
-  let subst_var = subst_var_expr
-  let psubst_var = psubst_var_expr
-  let subst_ap = subst_ap_expr
-  let subst_expr = subst_expr_expr
+  let subst_var = subst_var_aexpr
+  let psubst_var = psubst_var_aexpr
+  let subst_ap = subst_ap_aexpr
+  let subst_aexpr = subst_aexpr_aexpr
 
-  let free_vars = free_vars_expr
-  let accessed = accessed_expr
-  let get_uses = get_uses_expr
+  let free_vars = free_vars_aexpr
+  let accessed = accessed_aexpr
+  let get_uses = get_uses_aexpr
 
   let simplify = simplify_expr
   let rec strip_casts exp = match exp with
     | Cast (_, exp) -> strip_casts exp
     | _ -> exp
-  let strip_all_casts = strip_all_casts_expr
-  let get_type = expr_type
-  let fold = fold_expr_only
-  let deep_fold = fold_expr
+  let strip_all_casts = strip_all_casts_aexpr
+  let get_type = aexpr_type
+  let fold = fold_aexpr_only
+  let deep_fold = fold_aexpr
 end
 
 (******************************************************************************)
@@ -1077,17 +1077,17 @@ module Bexpr = struct
   let gt left right = Atom (Lt, right, left)
   let ge left right = Atom (Le, right, left)
 
-  let of_expr = function
+  let of_aexpr = function
     | BoolExpr b -> b
-    | expr        -> Atom (Ne, expr, Expr.zero)
-  let ktrue = Atom (Le, Expr.zero, Expr.zero)
+    | aexpr      -> Atom (Ne, aexpr, Aexpr.zero)
+  let ktrue = Atom (Le, Aexpr.zero, Aexpr.zero)
   let kfalse = negate ktrue
-  let havoc = of_expr (Havoc (Concrete (Int 1)))
+  let havoc = of_aexpr (Havoc (Concrete (Int 1)))
 
   let subst_var = subst_var_bexpr
   let psubst_var = psubst_var_bexpr
   let subst_ap = subst_ap_bexpr
-  let subst_expr = subst_expr_bexpr
+  let subst_aexpr = subst_aexpr_bexpr
 
   let free_vars = free_vars_bexpr
   let accessed = accessed_bexpr
@@ -1127,7 +1127,7 @@ let dk_get_defs defkind = match defkind with
   | Call (None, _, _) -> AP.Set.empty
   | Assume expr -> Bexpr.get_uses expr
   | Assert (expr, _) -> Bexpr.get_uses expr
-  | AssertMemSafe (expr, _) -> Expr.get_uses expr
+  | AssertMemSafe (expr, _) -> Aexpr.get_uses expr
   | Initial -> AP.Set.empty
   | Return _ -> AP.Set.empty
   | Builtin (Alloc (lhs, _, _)) -> AP.Set.singleton (Variable lhs)
@@ -1155,23 +1155,23 @@ let dk_assigned_var = function
 
 let rec lhs_accessed = function
   | Variable v -> AP.Set.empty
-  | Deref expr -> Expr.accessed expr
+  | Deref aexpr -> Aexpr.accessed aexpr
 
 let dk_get_accessed = function
-  | Assign (_, rhs) -> Expr.accessed rhs
+  | Assign (_, rhs) -> Aexpr.accessed rhs
   | Store (ap, rhs) ->
-    AP.Set.union (lhs_accessed ap) (Expr.accessed rhs)
+    AP.Set.union (lhs_accessed ap) (Aexpr.accessed rhs)
   | Call (_, callee, args) | Builtin (Fork (_, callee, args)) -> 
-    let f rest expr = AP.Set.union (Expr.accessed expr) rest in
-    List.fold_left f (Expr.accessed callee) args
+    let f rest expr = AP.Set.union (Aexpr.accessed expr) rest in
+    List.fold_left f (Aexpr.accessed callee) args
   | Assume bexpr | Assert (bexpr, _) -> Bexpr.accessed bexpr
-  | AssertMemSafe (expr, _) -> Expr.accessed expr
+  | AssertMemSafe (expr, _) -> Aexpr.accessed expr
   | Initial -> AP.Set.empty
-  | Return (Some expr) -> Expr.accessed expr
+  | Return (Some expr) -> Aexpr.accessed expr
   | Return None -> AP.Set.empty
-  | Builtin (Alloc (_, expr, _)) -> Expr.accessed expr
-  | Builtin (Free expr) -> Expr.accessed expr
-  | Builtin (Acquire expr) | Builtin (Release expr) -> Expr.accessed expr
+  | Builtin (Alloc (_, expr, _)) -> Aexpr.accessed expr
+  | Builtin (Free expr) -> Aexpr.accessed expr
+  | Builtin (Acquire expr) | Builtin (Release expr) -> Aexpr.accessed expr
   | Builtin AtomicBegin | Builtin AtomicEnd -> AP.Set.empty
   | Builtin Exit -> AP.Set.empty
 
@@ -1180,49 +1180,49 @@ let lhs_free_vars = function
   | ap -> AP.free_vars ap
 
 let dk_free_vars = function
-  | Assign (var, rhs) -> Var.Set.add var (Expr.free_vars rhs)
+  | Assign (var, rhs) -> Var.Set.add var (Aexpr.free_vars rhs)
   | Store (ap, rhs) ->
-    Var.Set.union (lhs_free_vars ap) (Expr.free_vars rhs)
+    Var.Set.union (lhs_free_vars ap) (Aexpr.free_vars rhs)
   | Call (lhs, callee, args) ->
-    let f rest exp = Var.Set.union (Expr.free_vars exp) rest in
-    let accessed = List.fold_left f (Expr.free_vars callee) args in
+    let f rest exp = Var.Set.union (Aexpr.free_vars exp) rest in
+    let accessed = List.fold_left f (Aexpr.free_vars callee) args in
     begin match lhs with
       | Some v -> Var.Set.add v accessed
       | None -> accessed
     end
   | Assume bexpr | Assert (bexpr, _) -> Bexpr.free_vars bexpr
-  | AssertMemSafe (expr, _) -> Expr.free_vars expr
+  | AssertMemSafe (expr, _) -> Aexpr.free_vars expr
   | Initial -> Var.Set.empty
-  | Return (Some expr) -> Expr.free_vars expr
+  | Return (Some expr) -> Aexpr.free_vars expr
   | Return None -> Var.Set.empty
   | Builtin (Alloc (lhs, expr, _)) ->
-    Var.Set.add lhs (Expr.free_vars expr)
+    Var.Set.add lhs (Aexpr.free_vars expr)
   | Builtin (Fork (Some lhs, _, _)) -> Var.Set.singleton lhs
   | Builtin (Fork (None, _, _)) -> Var.Set.empty
-  | Builtin (Free expr) -> Expr.free_vars expr
-  | Builtin (Acquire expr) | Builtin (Release expr) -> Expr.free_vars expr
+  | Builtin (Free expr) -> Aexpr.free_vars expr
+  | Builtin (Acquire expr) | Builtin (Release expr) -> Aexpr.free_vars expr
   | Builtin AtomicBegin | Builtin AtomicEnd -> Var.Set.empty
   | Builtin Exit -> Var.Set.empty
 
 let exprlist_uses =
-  let f l e = AP.Set.union (Expr.get_uses e) l in
+  let f l e = AP.Set.union (Aexpr.get_uses e) l in
   List.fold_left f AP.Set.empty
 
 let rec dk_get_uses = function
-  | Assign (_, expr) -> Expr.get_uses expr
-  | Store (_, expr) -> Expr.get_uses expr
+  | Assign (_, expr) -> Aexpr.get_uses expr
+  | Store (_, expr) -> Aexpr.get_uses expr
   | Call (_, func, args) -> exprlist_uses (func::args)
   | Assume expr -> Bexpr.get_uses expr
   | Initial -> AP.Set.empty
   | Assert (expr, _) -> Bexpr.get_uses expr
-  | AssertMemSafe (expr, _) -> Expr.get_uses expr
+  | AssertMemSafe (expr, _) -> Aexpr.get_uses expr
   | Return None -> AP.Set.empty
-  | Return (Some expr) -> Expr.get_uses expr
-  | Builtin (Alloc (_, expr, _)) -> Expr.get_uses expr
-  | Builtin (Free expr) -> Expr.get_uses expr
+  | Return (Some expr) -> Aexpr.get_uses expr
+  | Builtin (Alloc (_, expr, _)) -> Aexpr.get_uses expr
+  | Builtin (Free expr) -> Aexpr.get_uses expr
   | Builtin (Fork (_, func, args)) -> exprlist_uses (func::args)
-  | Builtin (Acquire expr) -> Expr.get_uses expr
-  | Builtin (Release expr) -> Expr.get_uses expr
+  | Builtin (Acquire expr) -> Aexpr.get_uses expr
+  | Builtin (Release expr) -> Aexpr.get_uses expr
   | Builtin AtomicBegin | Builtin AtomicEnd -> AP.Set.empty
   | Builtin Exit -> AP.Set.empty
 

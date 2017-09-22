@@ -412,12 +412,6 @@ let free_vars sexpr =
   go 0 sexpr;
   table
 
-let refine ctx sexpr =
-  match sexpr.obj with
-  | Node (_, _, `TyInt) -> `Term sexpr
-  | Node (_, _, `TyReal) -> `Term sexpr
-  | Node (_, _, `TyBool) -> `Formula sexpr
-
 let destruct ctx sexpr =
   match sexpr.obj with
   | Node (Real qq, [], _) -> `Real qq
@@ -443,13 +437,6 @@ let destruct ctx sexpr =
   | Node (Leq, [s; t], _) -> `Atom (`Leq, s, t)
   | Node (Lt, [s; t], _) -> `Atom (`Lt, s, t)
   | Node (_, _, _) -> assert false
-
-module Expr = struct
-  type t = sexpr hobj
-  let equal s t = s.tag = t.tag
-  let compare s t = Pervasives.compare s.tag t.tag
-  let hash t = t.hcode
-end
 
 let rec flatten_universal phi = match phi.obj with
   | Node (Forall (name, typ), [phi], _) ->
@@ -569,50 +556,66 @@ let rec pp_expr ?(env=Env.empty) ctx formatter expr =
       (pp_expr ~env ctx) belse
   | _ -> failwith "pp_expr: ill-formed expression"
 
-module ExprHT = struct
-  module HT = BatHashtbl.Make(Expr)
-  type ('a, 'typ, 'b) t = 'b HT.t
-  let create = HT.create
-  let add = HT.add
-  let replace = HT.replace
-  let remove = HT.remove
-  let find = HT.find
-  let mem = HT.mem
-  let keys = HT.keys
-  let values = HT.values
-  let enum = HT.enum
-end
+module Expr = struct
+  module Inner = struct
+    type t = sexpr hobj
+    let equal s t = s.tag = t.tag
+    let compare s t = Pervasives.compare s.tag t.tag
+    let hash t = t.hcode
+  end
+  include Inner
 
-module ExprSet = struct
-  module S = BatSet.Make(Expr)
-  type ('a, 'typ) t = S.t
-  let empty = S.empty
-  let add = S.add
-  let union = S.union
-  let inter = S.inter
-  let enum = S.enum
-  let mem = S.mem
-end
+  let refine ctx sexpr =
+    match sexpr.obj with
+    | Node (_, _, `TyInt) -> `Term sexpr
+    | Node (_, _, `TyReal) -> `Term sexpr
+    | Node (_, _, `TyBool) -> `Formula sexpr
 
-module ExprMap = struct
-  module M = BatMap.Make(Expr)
-  type ('a, 'typ, 'b) t = 'b M.t
-  let empty = M.empty
-  let is_empty = M.is_empty
-  let add = M.add
-  let map = M.map
-  let filter = M.filter
-  let filter_map = M.filter_map
-  let remove = M.remove
-  let find = M.find
-  let keys = M.keys
-  let values = M.values
-  let enum = M.enum
-  let merge = M.merge
-  let fold = M.fold
-end
+  let pp = pp_expr
 
-module ExprMemo = Memo.Make(Expr)
+  module HT = struct
+    module HT = BatHashtbl.Make(Inner)
+    type ('a, 'typ, 'b) t = 'b HT.t
+    let create = HT.create
+    let add = HT.add
+    let replace = HT.replace
+    let remove = HT.remove
+    let find = HT.find
+    let mem = HT.mem
+    let keys = HT.keys
+    let values = HT.values
+    let enum = HT.enum
+  end
+
+  module Set = struct
+    module S = BatSet.Make(Inner)
+    type ('a, 'typ) t = S.t
+    let empty = S.empty
+    let add = S.add
+    let union = S.union
+    let inter = S.inter
+    let enum = S.enum
+    let mem = S.mem
+  end
+
+  module Map = struct
+    module M = BatMap.Make(Inner)
+    type ('a, 'typ, 'b) t = 'b M.t
+    let empty = M.empty
+    let is_empty = M.is_empty
+    let add = M.add
+    let map = M.map
+    let filter = M.filter
+    let filter_map = M.filter_map
+    let remove = M.remove
+    let find = M.find
+    let keys = M.keys
+    let values = M.values
+    let enum = M.enum
+    let merge = M.merge
+    let fold = M.fold
+  end
+end
 
 module Term = struct
   type 'a t = 'a term
@@ -972,7 +975,7 @@ let eliminate_ite ctx phi =
       map_ite (fun t -> `Term (mk_floor ctx t)) (promote_ite x)
     | `App (func, args) ->
       List.fold_right (fun x rest ->
-          match refine ctx x with
+          match Expr.refine ctx x with
           | `Formula phi ->
             let phi = elim_ite phi in
             map_ite (fun xs -> `Term (phi::xs)) rest
@@ -1009,7 +1012,7 @@ let eliminate_ite ctx phi =
       | `Proposition (`Var i) -> mk_var ctx i `TyBool
       | `Proposition (`App (func, args)) ->
         List.fold_right (fun x rest ->
-            match refine ctx x with
+            match Expr.refine ctx x with
             | `Formula phi ->
               let phi = elim_ite phi in
               map_ite (fun xs -> `Term (phi::xs)) rest
@@ -1394,13 +1397,23 @@ module MakeSimplifyingContext () = struct
           | xs -> hc Add xs
         end
 
-      | Mul, xs when List.exists is_zero xs -> mk (Real QQ.zero) []
       | Mul, xs ->
-        begin match List.filter (not % is_one) xs with
-          | [] -> mk (Real QQ.one) []
-          | [x] -> x
-          | xs -> hc Mul xs
-        end
+        let (const, non_const) =
+          List.fold_right (fun x (const, non_const) ->
+              match x.obj with
+              | Node (Real xv, [], _) -> (QQ.mul xv const, non_const)
+              | _ -> (const, x::non_const))
+            xs
+            (QQ.one, [])
+        in
+        if QQ.equal const QQ.zero then
+          mk (Real QQ.zero) []
+        else if non_const = [] then
+          mk (Real const) []
+        else if QQ.equal const QQ.one then
+          hc Mul non_const
+        else
+          hc Mul ((mk (Real const) [])::non_const)
 
       | Neg, [x] ->
         begin match x.obj with

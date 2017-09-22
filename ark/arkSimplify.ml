@@ -16,16 +16,16 @@ module TermPolynomial = struct
   type 'a t = Mvp.t
 
   let mk_context ark =
-    let table = ExprHT.create 991 in
+    let table = Expr.HT.create 991 in
     let enum = DynArray.create () in
     let of_int = DynArray.get enum in
     let int_of term =
-      if ExprHT.mem table term then
-        ExprHT.find table term
+      if Expr.HT.mem table term then
+        Expr.HT.find table term
       else
         let id = DynArray.length enum in
         DynArray.add enum term;
-        ExprHT.add table term id;
+        Expr.HT.add table term id;
         id
     in
     { ark; of_int; int_of }
@@ -151,23 +151,23 @@ let purify_rewriter ark table =
     | `App (func, args) ->
       let sym =
         try
-          ExprHT.find table expr
+          Expr.HT.find table expr
         with Not_found ->
           let sym = mk_symbol ark ~name:"uninterp" (expr_typ ark expr) in
-          ExprHT.add table expr sym;
+          Expr.HT.add table expr sym;
           sym
       in
       mk_const ark sym
     | _ -> expr
 
 let purify ark expr =
-  let table = ExprHT.create 991 in
+  let table = Expr.HT.create 991 in
   let expr' = rewrite ark ~up:(purify_rewriter ark table) expr in
   let map =
     BatEnum.fold
       (fun map (term, sym) -> Symbol.Map.add sym term map)
       Symbol.Map.empty
-      (ExprHT.enum table)
+      (Expr.HT.enum table)
   in
   (expr', map)
 

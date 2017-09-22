@@ -1,24 +1,6 @@
 open OUnit
 open Syntax
-
-module Ctx = MakeSimplifyingContext ()
-module Infix = Syntax.Infix(Ctx)
-let ctx = Ctx.context
-let smt_ctx = ArkZ3.mk_context ctx []
-
-let x = Ctx.mk_const (Ctx.mk_symbol ~name:"x" `TyInt)
-let y = Ctx.mk_const (Ctx.mk_symbol ~name:"y" `TyInt)
-let z = Ctx.mk_const (Ctx.mk_symbol ~name:"z" `TyInt)
-
-let frac num den = Ctx.mk_real (QQ.of_frac num den)
-let int k = Ctx.mk_real (QQ.of_int k)
-
-let assert_equal_term s t =
-  assert_equal ~printer:(Term.show ctx) s t
-let assert_equal_formula s t =
-  assert_equal ~printer:(Formula.show ctx) s t
-let assert_equiv_formula s t =
-  assert_equal ~printer:(Formula.show ctx) ~cmp:(smt_ctx#equiv) s t
+open Test_pervasives
 
 let substitute () =
   let subst =

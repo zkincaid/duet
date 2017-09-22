@@ -105,7 +105,7 @@ module MakePath (P : Predicate with type var = Var.t) = struct
     let pw = P.pred_weight def in
     let weight_builtin bi = match bi with
       | Acquire e
-      | Release e -> assume Bexpr.ktrue (Expr.free_vars e) pw
+      | Release e -> assume Bexpr.ktrue (Aexpr.free_vars e) pw
       | Alloc (v, e, targ) -> assign (Variable v) (Havoc (Var.get_type v)) pw
       | Free _
       | Fork (_, _, _)
@@ -118,7 +118,7 @@ module MakePath (P : Predicate with type var = Var.t) = struct
     | Call   (vo, e, elst) -> failwith "Lock logic: Call encountered"
     | Assume be
     | Assert (be, _)       -> assume be (Bexpr.free_vars be) pw
-    | AssertMemSafe (e, s) -> assume (Bexpr.of_expr e) (Expr.free_vars e) pw
+    | AssertMemSafe (e, s) -> assume (Bexpr.of_aexpr e) (Aexpr.free_vars e) pw
     | Initial              -> one
     | Return eo            -> failwith "Lock logic: Return encountered"
     | Builtin bi -> weight_builtin bi
@@ -334,7 +334,7 @@ module Domain = struct
       du_c  = DUMap.mul a.du a.du_c }
 end
 
-let get_func e = match Expr.strip_all_casts e with
+let get_func e = match Aexpr.strip_all_casts e with
   | AccessPath (Variable (func, voff)) -> func
   | AddrOf     (Variable (func, voff)) -> func
   | _  -> failwith "Lock Logic: Called/Forked expression not a function"

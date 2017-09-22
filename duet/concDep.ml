@@ -103,7 +103,7 @@ module Make(MakeEQ :
       | Store (lhs, rhs) -> assign_weight lhs
       | Assign (lhs, rhs) -> assign_weight (Variable lhs)
       | Assume be | Assert (be, _) -> assume_weight be
-      | AssertMemSafe (e, _) -> assume_weight (Bexpr.of_expr e)
+      | AssertMemSafe (e, _) -> assume_weight (Bexpr.of_aexpr e)
       | Builtin (Alloc (lhs, _, _)) -> assign_weight (Variable lhs)
       | _ -> AP.Set.empty
   end
@@ -250,14 +250,14 @@ module Make(MakeEQ :
   let unify a b =
     let unify e e' =
       let vs = Var.Set.filter
-          (fun v -> is_pointer_type (Var.get_type v)) (Expr.free_vars e)
+          (fun v -> is_pointer_type (Var.get_type v)) (Aexpr.free_vars e)
       in
       let vs' = Var.Set.filter
-          (fun v -> is_pointer_type (Var.get_type v)) (Expr.free_vars e')
+          (fun v -> is_pointer_type (Var.get_type v)) (Aexpr.free_vars e')
       in
       let v  = Var.Set.choose vs  in
       let v' = Var.Set.choose vs' in
-      if e = (Expr.subst_var (fun v'' -> if v' = v'' then v else v'') e')
+      if e = (Aexpr.subst_var (fun v'' -> if v' = v'' then v else v'') e')
       then [(v, v')]
       else []
     in
@@ -692,18 +692,18 @@ module Make(MakeEQ :
       let acq_weight e =
         let ls   = LockPred.make_acq (get_deref e) in
         let kill = AP.Set.empty in
-        LK.TR.assume Bexpr.ktrue (Expr.free_vars e) (ls, kill)
+        LK.TR.assume Bexpr.ktrue (Aexpr.free_vars e) (ls, kill)
       in
       let rel_weight e =
         let ls   = LockPred.make_rel (get_deref e) in
         let kill = AP.Set.empty in
-        LK.TR.assume Bexpr.ktrue (Expr.free_vars e) (ls, kill)
+        LK.TR.assume Bexpr.ktrue (Aexpr.free_vars e) (ls, kill)
       in
       match def.dkind with
       | Assign (lhs, rhs) -> assign_weight (Variable lhs) rhs
       | Store  (lhs, rhs) -> assign_weight lhs rhs
       | Assume be | Assert (be, _) -> assume_weight be
-      | AssertMemSafe (e, s) -> assume_weight (Bexpr.of_expr e)
+      | AssertMemSafe (e, s) -> assume_weight (Bexpr.of_aexpr e)
       | Builtin (Alloc (lhs, _, _)) -> assign_weight (Variable lhs) (Havoc (Var.get_type lhs))
       | Builtin Exit -> LK.TR.zero
       | Builtin (Acquire e) -> acq_weight e
@@ -736,7 +736,7 @@ module Make(MakeEQ :
       | Store (lhs, rhs) -> assign_weight lhs rhs
       | Assign (lhs, rhs) when may_use_conc lhs -> assign_weight (Variable lhs) rhs
       | Assume be | Assert (be, _) -> RDMap.unit (*assume_weight be*)
-      | AssertMemSafe (e, _) -> assume_weight (Bexpr.of_expr e)
+      | AssertMemSafe (e, _) -> assume_weight (Bexpr.of_aexpr e)
       (* Doesn't handle offsets at the moment *)
       | Builtin (Alloc (lhs, _, _)) when may_use_conc lhs
         -> assign_weight (Variable lhs) (Havoc (Var.get_type lhs))
