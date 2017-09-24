@@ -99,7 +99,7 @@ let load_structs filename =
 
 let pp_formula phi = F.pp Format.pp_print_string Format.pp_print_int phi
 
-let bounded_empty = Bounded.bounded_empty
+let bounded_empty = Empty.bounded_empty
 
 let empty pa = Empty.find_word (Empty.mk_solver pa)
 
@@ -269,7 +269,7 @@ let check_emptiness_certificate pa phi =
   
 let check_invariant pa phi =
   logf "Checking invariant:@\n%a" pp_formula phi;
-  Bounded.bounded_invariant pa 2 phi
+  Empty.bounded_invariant pa 2 phi
 
 let run pa word =
   let ctx = new Smt.ctx [("model", "true")] in

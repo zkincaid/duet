@@ -133,8 +133,6 @@ module Make (A : Alphabet) (P : Predicate) :
      and type letter = A.t
      and type letter_set = A.Set.t
 
-
-
 module MakeEmpty (A : sig
     type t
     type letter
@@ -193,9 +191,6 @@ module MakeEmpty (A : sig
   (** Flag controlling the representation of configuration sets.  If [true], a
       list representation is used. *)
   val config_set_list : bool ref
-end
-
-module MakeBounded (A : S) : sig
 
   (** [bounded_empty pa bound] finds [Some] word which is accepted by [pa] and
       uses only indexed letters with index [<= bound]; [None] if there are no

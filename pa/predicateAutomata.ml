@@ -603,252 +603,6 @@ module MakeReachabilityGraph (A : sig
     val successors : t -> config -> int -> (letter * config) BatEnum.t
   end) = struct
   open A
-  type id = int
-  module DA = BatDynArray
-
-  (* Set of vertices, weighted by some heuristic value *)
-  module Worklist = struct
-    module H = BatHeap.Make(struct
-        type t = int * int
-        let compare (a,b) (c,d) =
-          match compare a c with
-          | 0 -> compare b d
-          | r -> r
-      end)
-    type t = H.t
-    let empty = H.empty
-    let pick worklist =
-      if worklist = H.empty then
-        None
-      else
-        Some (H.find_min worklist, H.del_min worklist)
-    let insert h v worklist =
-      H.insert worklist (h, v)
-  end
-
-  type config_set =
-    { insert : id -> unit;
-      covered : id -> id option }
-
-  module PredicateTree = SearchTree.Make(Config.Predicate)(ArkUtil.Int)
-
-  module PSet = BatSet.Make(Config.Predicate)
-
-  let config_set_list = ref false
-
-  let empty_set pa label =
-    let embeds x y = Config.embeds (DA.get label x) (DA.get label y) in
-    if !config_set_list then
-      let list = ref [] in
-      let insert elt =
-        list := elt::(!list)
-      in
-      let covered x =
-        try Some (BatList.find (flip embeds x) (!list))
-        with Not_found -> None
-      in
-      { insert; covered }
-    else
-      let vocabulary =
-        BatEnum.fold
-          (fun vocab (p, _) -> PSet.add p vocab)
-          PSet.empty
-          (A.vocabulary pa)
-      in
-      let support vertex =
-        PSet.of_enum (Config.preds (DA.get label vertex))
-      in
-      let pt =
-        PredicateTree.empty vocabulary support
-      in
-      { insert = PredicateTree.insert pt;
-        covered = PredicateTree.covered embeds pt }
-
-  type arg =
-    { mutable worklist : Worklist.t;
-      pa : t;
-      max_index : int;
-      label : config DA.t;
-      parent : ((letter * int * id) option) DA.t; (* Invariant: label & parent
-                                                     should always have the
-                                                     same length *)
-      cover : (id,id) Hashtbl.t; (* partial maps a vertex v to a vertex u such
-                                    that v is covered by u *)
-      expanded : config_set (* set of expanded configurations *)
-    }
-
-  let label arg vertex =
-    let nb_vertex = DA.length arg.label in
-    if 0 <= vertex && vertex < nb_vertex then
-      DA.get arg.label vertex
-    else 
-      Log.invalid_argf "label: vertex %d does not exist" vertex
-
-  let make pa max_index =
-    let label = DA.make 2048 in
-    { worklist = Worklist.empty;
-      pa = pa;
-      max_index = max_index;
-      label = label;
-      parent = DA.make 2048;
-      cover = Hashtbl.create 991;
-      expanded = empty_set pa label
-    }
-
-  let parent arg vertex =
-    let nb_vertex = DA.length arg.parent in
-    if 0 <= vertex && vertex < nb_vertex then
-      DA.get arg.parent vertex
-    else 
-      Log.invalid_argf "parent: vertex %d does not exist" vertex
-
-  let rec path_to_root arg v path =
-    match parent arg v with
-    | Some (a,i,p) ->
-      path_to_root arg p ((a,i)::path)
-    | None -> List.rev path
-
-  let rec print_path_to_root arg v =
-    logf "%a" Config.pp (label arg v);
-    match parent arg v with
-    | Some (a,i,p) ->
-      logf "  <%a : %d>" pp_letter a i;
-      print_path_to_root arg p
-    | None -> ()
-
-  (* Heuristic value = max thread id on path to v *)
-  let hval arg v =
-    let rec go hval v =
-      match parent arg v with
-      | Some (_, i, p) ->
-        go (max i hval) p
-      | None -> hval
-    in
-    go 0 v
-
-  let add_worklist arg v =
-    arg.worklist <- Worklist.insert (hval arg v) v arg.worklist
-
-  let pick_worklist arg =
-    match Worklist.pick arg.worklist with
-    | None -> None
-    | Some ((_, v), worklist) ->
-      arg.worklist <- worklist;
-      Some v
-
-  (* Add a new vertex to an ARG, with a given parent and label, and add it to
-     the worklist.  Returns an identifier for that vertex. *)
-  let add_vertex arg ?(parent=None) label =
-    let id = DA.length arg.label in
-    DA.add arg.label label;
-    DA.add arg.parent parent;
-    add_worklist arg id;
-    id
-
-  let expand arg vertex =
-    let config = label arg vertex in
-    logf ~level:`trace ~attributes:[`Blue;`Bold] "Expanding vertex:";
-    logf ~level:`trace "@[[%d] %a" vertex Config.pp config;
-    arg.expanded.insert vertex;
-    let add_succ k (letter, config) =
-      let succ_vertex =
-        add_vertex arg ~parent:(Some (letter, k, vertex)) config
-      in
-      logf ~level:`trace " --(%d : %a)->@\n  @[[%d] %a@]"
-        k
-        pp_letter letter
-        succ_vertex
-        Config.pp config
-    in
-    let max_index =
-      if arg.max_index >= 0 then
-        min arg.max_index (Config.universe_size config + 1)
-      else
-        (Config.universe_size config + 1)
-    in
-    (1 -- max_index)
-    |> BatEnum.iter (fun i ->
-        BatEnum.iter (add_succ i) (successors arg.pa config i));
-    logf ~level:`trace ~attributes:[`Blue;`Bold] "@]"
-
-  (* u covers v *)
-  let add_cover arg u v =
-    Hashtbl.add arg.cover v u
-
-  (* Given a vertex v, try to find another vertex u which covers v.  If such a
-     vertex is found, add the cover relation and return true.  Only look at
-     ancestors of v in the ARG. *)
-  let close_ancestor arg vertex =
-    let config = label arg vertex in
-    let rec find_covering_ancestor v =
-      match parent arg v with
-      | Some (a,i,p) ->
-        if Config.embeds (label arg p) config then begin
-          add_cover arg p vertex;
-          logf ~level:`trace ~attributes:[`Green;`Bold] "Covered vertex:";
-          logf ~level:`trace " [%d] %a" vertex Config.pp config;
-          logf ~level:`trace "by ancestor@\n [%d] %a" p Config.pp (label arg p);
-          true
-        end else find_covering_ancestor p
-      | None -> false
-    in
-    find_covering_ancestor vertex
-
-  (* Same as close_ancestor, except search through all vertices with lower
-     id's *)
-  let close_all arg vertex =
-    let config = label arg vertex in
-    let rec find_cover u =
-      if u >= vertex then
-        false
-      else if Config.embeds (DA.get arg.label u) config then
-        begin
-          add_cover arg u vertex;
-          logf ~level:`trace ~attributes:[`Green;`Bold]
-            "Covered vertex: [%d] %a"
-            vertex
-            Config.pp config;
-          logf ~level:`trace " by [%d] %a" u Config.pp (label arg u);
-          true
-        end
-      else
-        find_cover (u + 1)
-    in
-    find_cover 0
-
-  let close_all arg vertex =
-    match arg.expanded.covered vertex with
-      None -> false
-    | Some u ->
-       begin
-         let config = label arg vertex in
-         add_cover arg u vertex;
-         logf ~level:`trace ~attributes:[`Green;`Bold]
-           "Covered vertex: [%d] %a"
-           vertex
-           Config.pp config;
-         logf ~level:`trace " by [%d] %a" u Config.pp (label arg u);
-         true
-       end
-end
-
-(* Signature of MakeEmpty Module (when applied to an A and PredicateTreeMake module) *)
-module type MakeEmptySig = sig
-  type solver
-  type pa
-  type predicate
-  type formula
-  type letter
-  type letter_set
-  val pp : Format.formatter -> solver -> unit
-  val mk_solver : pa -> solver
-  val conjoin_transition : solver -> predicate -> letter_set -> formula -> unit
-  val add_predicate : solver -> predicate -> int -> unit
-  val add_accepting_predicate : solver -> predicate -> int -> unit
-  val mem_vocabulary : solver -> predicate -> bool
-  val find_word : ?max_index:int -> solver -> ((letter * int) list) option
-  val alphabet : solver -> letter_set
-  val vocabulary : solver -> (predicate * int) BatEnum.t
 end
 
 module MakeEmpty (A : sig
@@ -880,8 +634,235 @@ module MakeEmpty (A : sig
   struct
   open A
 
-  module Arg = MakeReachabilityGraph(A)
-  let config_set_list = Arg.config_set_list
+  let config_set_list = ref false
+
+  module Arg = struct
+    type id = int
+    module DA = BatDynArray
+
+    (* Set of vertices, weighted by some heuristic value *)
+    module Worklist = struct
+      module H = BatHeap.Make(struct
+          type t = int * int
+          let compare (a,b) (c,d) =
+            match compare a c with
+            | 0 -> compare b d
+            | r -> r
+        end)
+      type t = H.t
+      let empty = H.empty
+      let pick worklist =
+        if worklist = H.empty then
+          None
+        else
+          Some (H.find_min worklist, H.del_min worklist)
+      let insert h v worklist =
+        H.insert worklist (h, v)
+    end
+
+    type config_set =
+      { insert : id -> unit;
+        covered : id -> id option }
+
+    module PredicateTree = SearchTree.Make(Config.Predicate)(ArkUtil.Int)
+
+    module PSet = BatSet.Make(Config.Predicate)
+
+    let empty_set pa label =
+      let embeds x y = Config.embeds (DA.get label x) (DA.get label y) in
+      if !config_set_list then
+        let list = ref [] in
+        let insert elt =
+          list := elt::(!list)
+        in
+        let covered x =
+          try Some (BatList.find (flip embeds x) (!list))
+          with Not_found -> None
+        in
+        { insert; covered }
+      else
+        let vocabulary =
+          BatEnum.fold
+            (fun vocab (p, _) -> PSet.add p vocab)
+            PSet.empty
+            (A.vocabulary pa)
+        in
+        let support vertex =
+          PSet.of_enum (Config.preds (DA.get label vertex))
+        in
+        let pt =
+          PredicateTree.empty vocabulary support
+        in
+        { insert = PredicateTree.insert pt;
+          covered = PredicateTree.covered embeds pt }
+
+    type arg =
+      { mutable worklist : Worklist.t;
+        pa : t;
+        max_index : int;
+        label : config DA.t;
+        parent : ((letter * int * id) option) DA.t; (* Invariant: label & parent
+                                                       should always have the
+                                                       same length *)
+        cover : (id,id) Hashtbl.t; (* partial maps a vertex v to a vertex u such
+                                      that v is covered by u *)
+        expanded : config_set (* set of expanded configurations *)
+      }
+
+    let label arg vertex =
+      let nb_vertex = DA.length arg.label in
+      if 0 <= vertex && vertex < nb_vertex then
+        DA.get arg.label vertex
+      else 
+        Log.invalid_argf "label: vertex %d does not exist" vertex
+
+    let make pa max_index =
+      let label = DA.make 2048 in
+      { worklist = Worklist.empty;
+        pa = pa;
+        max_index = max_index;
+        label = label;
+        parent = DA.make 2048;
+        cover = Hashtbl.create 991;
+        expanded = empty_set pa label
+      }
+
+    let parent arg vertex =
+      let nb_vertex = DA.length arg.parent in
+      if 0 <= vertex && vertex < nb_vertex then
+        DA.get arg.parent vertex
+      else 
+        Log.invalid_argf "parent: vertex %d does not exist" vertex
+
+    let rec path_to_root arg v path =
+      match parent arg v with
+      | Some (a,i,p) ->
+        path_to_root arg p ((a,i)::path)
+      | None -> List.rev path
+
+    let rec print_path_to_root arg v =
+      logf "%a" Config.pp (label arg v);
+      match parent arg v with
+      | Some (a,i,p) ->
+        logf "  <%a : %d>" pp_letter a i;
+        print_path_to_root arg p
+      | None -> ()
+
+    (* Heuristic value = max thread id on path to v *)
+    let hval arg v =
+      let rec go hval v =
+        match parent arg v with
+        | Some (_, i, p) ->
+          go (max i hval) p
+        | None -> hval
+      in
+      go 0 v
+
+    let add_worklist arg v =
+      arg.worklist <- Worklist.insert (hval arg v) v arg.worklist
+
+    let pick_worklist arg =
+      match Worklist.pick arg.worklist with
+      | None -> None
+      | Some ((_, v), worklist) ->
+        arg.worklist <- worklist;
+        Some v
+
+    (* Add a new vertex to an ARG, with a given parent and label, and add it
+       to the worklist.  Returns an identifier for that vertex. *)
+    let add_vertex arg ?(parent=None) label =
+      let id = DA.length arg.label in
+      DA.add arg.label label;
+      DA.add arg.parent parent;
+      add_worklist arg id;
+      id
+
+    let expand arg vertex =
+      let config = label arg vertex in
+      logf ~level:`trace ~attributes:[`Blue;`Bold] "Expanding vertex:";
+      logf ~level:`trace "@[[%d] %a" vertex Config.pp config;
+      arg.expanded.insert vertex;
+      let add_succ k (letter, config) =
+        let succ_vertex =
+          add_vertex arg ~parent:(Some (letter, k, vertex)) config
+        in
+        logf ~level:`trace " --(%d : %a)->@\n  @[[%d] %a@]"
+          k
+          pp_letter letter
+          succ_vertex
+          Config.pp config
+      in
+      let max_index =
+        if arg.max_index >= 0 then
+          min arg.max_index (Config.universe_size config + 1)
+        else
+          (Config.universe_size config + 1)
+      in
+      (1 -- max_index)
+      |> BatEnum.iter (fun i ->
+          BatEnum.iter (add_succ i) (successors arg.pa config i));
+      logf ~level:`trace ~attributes:[`Blue;`Bold] "@]"
+
+    (* u covers v *)
+    let add_cover arg u v =
+      Hashtbl.add arg.cover v u
+
+    (* Given a vertex v, try to find another vertex u which covers v.  If such a
+       vertex is found, add the cover relation and return true.  Only look at
+       ancestors of v in the ARG. *)
+    let close_ancestor arg vertex =
+      let config = label arg vertex in
+      let rec find_covering_ancestor v =
+        match parent arg v with
+        | Some (a,i,p) ->
+          if Config.embeds (label arg p) config then begin
+            add_cover arg p vertex;
+            logf ~level:`trace ~attributes:[`Green;`Bold] "Covered vertex:";
+            logf ~level:`trace " [%d] %a" vertex Config.pp config;
+            logf ~level:`trace "by ancestor@\n [%d] %a" p Config.pp (label arg p);
+            true
+          end else find_covering_ancestor p
+        | None -> false
+      in
+      find_covering_ancestor vertex
+
+    (* Same as close_ancestor, except search through all vertices with lower
+       id's *)
+    let close_all arg vertex =
+      let config = label arg vertex in
+      let rec find_cover u =
+        if u >= vertex then
+          false
+        else if Config.embeds (DA.get arg.label u) config then
+          begin
+            add_cover arg u vertex;
+            logf ~level:`trace ~attributes:[`Green;`Bold]
+              "Covered vertex: [%d] %a"
+              vertex
+              Config.pp config;
+            logf ~level:`trace " by [%d] %a" u Config.pp (label arg u);
+            true
+          end
+        else
+          find_cover (u + 1)
+      in
+      find_cover 0
+
+    let close_all arg vertex =
+      match arg.expanded.covered vertex with
+        None -> false
+      | Some u ->
+        begin
+          let config = label arg vertex in
+          add_cover arg u vertex;
+          logf ~level:`trace ~attributes:[`Green;`Bold]
+            "Covered vertex: [%d] %a"
+            vertex
+            Config.pp config;
+          logf ~level:`trace " by [%d] %a" u Config.pp (label arg u);
+          true
+        end
+  end
 
   (* Trivial incremental solver: just re-run the emptiness query from
      scratch *)
@@ -933,12 +914,6 @@ module MakeEmpty (A : sig
            ignore (Arg.add_vertex arg config));
 
     fix arg
-end
-
-module MakeBounded (A : S) = struct
-  open A
-
-  module Arg = MakeReachabilityGraph(A)
 
   (* Find a reachable configuration that satisfies the predicate p *)
   let bounded_search pa size p =
@@ -966,4 +941,5 @@ module MakeBounded (A : S) = struct
   let bounded_empty pa size = bounded_search pa size (accepting pa)
   let bounded_invariant pa size phi =
     bounded_search pa size (not % flip Config.models phi)
+
 end
