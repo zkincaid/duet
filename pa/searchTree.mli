@@ -23,5 +23,3 @@ module type S = sig
 end
 
 module Make (Base : Element) (Elt : Element) : S with type baseSet = BatSet.Make(Base).t with type elt = Elt.t
-
-module MakeList (Base : Element) (Elt : Element) : S with type baseSet = BatSet.Make(Base).t with type elt = Elt.t

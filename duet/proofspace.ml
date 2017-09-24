@@ -212,15 +212,6 @@ module PA = PredicateAutomata.Make
     end)
 
 module E = PredicateAutomata.MakeEmpty(PA)
-module type ESig = PredicateAutomata.MakeEmptySig
-                    with type solver = PA.t
-                     and type pa = PA.t
-                     and type predicate = PA.predicate
-                     and type formula = PA.formula
-                     and type letter = PA.letter
-                     and type letter_set = PA.letter_set
-let e = ref (module E(SearchTree.Make) : ESig)
-
 
 (* Negate a PA formula.  Atoms are left unchanged, predicates in the resulting
    formula should be interpreted negatively.  negate_paformula is only applied
@@ -284,7 +275,6 @@ let make_assign_table alphabet =
    the form { phi } tr { phi }, where tr does not assign to any variable in
    phi. *)
 let add_stable solver assign_table assertion =
-  let module E = (val !e) in
   let program_vars = P.constants assertion in
   let unindexed_program_vars =
     IV.Set.enum program_vars /@ fst |> Var.Set.of_enum
@@ -473,7 +463,6 @@ let generalize i phi psi =
    infeasibility and add corresponding *negated* transitions to the PA
    solver. *)
 let construct solver assign_table trace =
-  let module E = (val !e) in
   let rec go trace itp post =
     match trace, itp with
     | ((letter, tid)::trace, pre::itp) ->
@@ -777,7 +766,6 @@ let program_automaton file =
   pa
 
 let verify file =
-  let module E = (val !e) in 
   let open PA in
   Inline.inline_file file;
   let program_pa = program_automaton file in
@@ -877,4 +865,4 @@ let _ =
   CmdLine.register_pass
     ("-proofspace", verify, " Proof space");
   CmdLine.register_config
-    ("-simple", Arg.Unit (fun _ -> e := (module E(SearchTree.MakeList) : ESig)), " use list of structs")
+    ("-simple", Arg.Set E.config_set_list, " use list of structs")

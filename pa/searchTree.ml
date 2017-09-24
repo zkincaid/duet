@@ -148,22 +148,3 @@ module Make (Base : Element) (Elt : Element) = struct
     in go elist iblist stree.tree
 
 end
-
-module MakeList (Base : Element) (Elt : Element) = struct
-  type baseSet = BatSet.Make(Base).t
-  type elt = Elt.t
-  type t = elt list ref
-
-  let empty _ _ = ref []
-  let make _ _ elems = ref (BatSet.to_list elems)
-
-  exception Item_not_known
-  let insert elems elem = elems := elem :: !elems
-
-  let covered covers elems item =
-    let rec go l =
-      match l with
-      | [] -> None
-      | elem :: l -> if covers elem item then Some elem else go l
-    in go !elems
-end
