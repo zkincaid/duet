@@ -271,6 +271,18 @@ let make_assign_table alphabet =
   in
   { alphabet; assign }
 
+let is_stable letter assertion =
+  let program_vars = P.constants assertion in
+  let unindexed_program_vars =
+    IV.Set.enum program_vars /@ fst |> Var.Set.of_enum
+  in
+  match Letter.block letter with
+  | `Initial | `Fork _ -> true
+  | `Transition tr ->
+    BatEnum.for_all (fun ((v, _), _) ->
+        not (Var.Set.mem v unindexed_program_vars))
+      (Tr.transform tr)
+
 (* Given an assertion phi, add transitions corresponding to Hoare triples of
    the form { phi } tr { phi }, where tr does not assign to any variable in
    phi. *)
@@ -476,7 +488,8 @@ let construct solver assign_table trace =
           E.add_accepting_predicate solver lhs lhs_arity;
           add_stable solver assign_table lhs
         end;
-        E.conjoin_transition solver lhs letters (negate_paformula rhs);
+        if not (is_stable letter post) then
+          E.conjoin_transition solver lhs letters (negate_paformula rhs);
         go trace itp pre
       end else begin
         begin match BatList.of_enum (P.conjuncts pre) with

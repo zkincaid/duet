@@ -224,12 +224,17 @@ let mk_and phi psi =
   match phi, psi with
   | False, x | x, False -> False
   | True, x | x, True -> x
-  | _, _ -> And (phi, psi)
+  | _, _ ->
+    if phi = psi then phi
+    else And (phi, psi)
+
 let mk_or phi psi =
   match phi, psi with
   | True, x | x, True -> True
   | False, x | x, False -> x
-  | _, _ -> Or (phi, psi)
+  | _, _ ->
+    if phi = psi then phi
+    else Or (phi, psi)
 let mk_eq x y =
   match x, y with
   | Var i, Var j when i = j -> True
