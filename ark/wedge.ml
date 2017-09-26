@@ -54,6 +54,19 @@ let mk_log ark (base : 'a term) (x : 'a term) =
     let log = get_named_symbol ark "log" in
     mk_app ark log [base; x]
 
+let mk_pow ark (base : 'a term) (x : 'a term) =
+  match Term.destruct ark x with
+  | `Real power ->
+    begin match QQ.to_int power with
+      | Some power -> mk_pow ark base power
+      | None ->
+        let pow = get_named_symbol ark "pow" in
+        mk_app ark pow [base; x]
+    end
+  | _ ->
+    let pow = get_named_symbol ark "pow" in
+    mk_app ark pow [base; x]
+
 let vec_of_poly = P.vec_of ~const:CS.const_id
 let poly_of_vec = P.of_vec ~const:CS.const_id
 
@@ -634,7 +647,7 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
 
   (* Hashtable mapping canonical forms of nonlinear terms to their
      representative terms. *)
-  let canonical = ExprHT.create 991 in
+  let canonical = Expr.HT.create 991 in
 
   let reduce_vec vec =
     let (p, provenance) =
@@ -675,12 +688,12 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
       let add_canonical reduced provenance =
         (* Add [reduced->term] to the canonical map.  Or if there's already a
            mapping [reduced->rep], add the equation rep=term *)
-        if ExprHT.mem canonical reduced then begin
+        if Expr.HT.mem canonical reduced then begin
           logf ~level:`trace "Integrity: %a" (Formula.pp ark) provenance;
           integrity provenance;
-          meet_atoms wedge [mk_eq ark term (ExprHT.find canonical reduced)]
+          meet_atoms wedge [mk_eq ark term (Expr.HT.find canonical reduced)]
         end else
-          ExprHT.add canonical reduced term
+          Expr.HT.add canonical reduced term
       in
       begin match CS.destruct_coordinate wedge.cs id with
         | `App (_, []) | `Mul (_, _) -> ()
@@ -1005,8 +1018,8 @@ let join ?integrity:(integrity=(fun _ -> ())) wedge wedge' =
   else
     let (wedge, wedge') = common_cs wedge wedge' in
     let wedge = strengthen ~integrity wedge in
+    update_env wedge';
     let wedge' = strengthen ~integrity wedge' in
-
     update_env wedge; (* strengthening wedge' may add dimensions to the common
                          coordinate system -- add those dimensions to wedge's
                          environment *)
@@ -1096,7 +1109,7 @@ let symbolic_bounds_vec wedge vec forget =
     Abstract0.meet_lincons_array_with
       (get_manager ())
       abstract
-      [| Lincons0.make linexpr Lincons0.SUPEQ |]
+      [| Lincons0.make linexpr Lincons0.EQ |]
   end;
   (* Project undesired identifiers *)
   let abstract = forget_ids wedge abstract forget in
@@ -1104,6 +1117,7 @@ let symbolic_bounds_vec wedge vec forget =
   (* Compute bounds *)
   let lower = ref [] in
   let upper = ref [] in
+
   Abstract0.to_lincons_array (get_manager ()) abstract
   |> BatArray.iter (fun lincons ->
       let open Lincons0 in
@@ -1281,6 +1295,8 @@ let exists
          |= log_b(p) + s >= log_b(t) *)
       (* p*b^s + t >= 0 /\ b > 1 /\ p <= 0 && t >= 0
          |= log_b(p) + s <= log_b(t) *)
+      (* s >= t /\ b > 1 |= b^s >= b^t *)
+      (* s <= t /\ b > 1 |= b^s <= b^t *)
       | `App (symbol, [b; s])
         when (symbol = pow && safe_vector b && gt_one b) ->
 
@@ -1394,6 +1410,31 @@ let exists
               integrity p_ivl_integrity;
               add_bound hypothesis conclusion);
 
+        let (lower_t, upper_t) =
+          symbolic_bounds_vec wedge
+            (CS.vec_of_term cs term)
+            (IntSet.elements forget)
+        in
+        let (lower, upper) = symbolic_bounds_vec wedge s (IntSet.elements forget) in
+        lower |> List.iter (fun lo ->
+            upper_t |> List.iter (fun hi ->
+                let hypothesis =
+                  mk_and ark [mk_lt ark (mk_real ark QQ.one) b_term;
+                              mk_leq ark lo s_term;
+                              mk_leq ark term hi]
+                in
+                let conclusion = mk_leq ark (mk_pow ark b_term lo) hi in
+                add_bound hypothesis conclusion));
+        upper |> List.iter (fun hi ->
+            lower_t |> List.iter (fun lo ->
+                let hypothesis =
+                  mk_and ark [mk_lt ark (mk_real ark QQ.one) b_term;
+                              mk_leq ark s_term hi;
+                              mk_leq ark lo term]
+                in
+                let conclusion = mk_leq ark lo (mk_pow ark b_term hi) in
+                add_bound hypothesis conclusion));
+
       | `App (symbol, [base; x]) when symbol = log ->
         (* If 1 < base then
              lo <= x <= hi ==> log(base,lo) <= log(base, x) <= log(base,hi) *)
@@ -1409,11 +1450,11 @@ let exists
             lower |> List.iter (fun lo ->
                 add_bound
                   (mk_leq ark lo x_term)
-                  (mk_leq ark (mk_app ark log [base_term; lo]) term));
+                  (mk_leq ark (mk_log ark base_term lo) term));
             upper |> List.iter (fun hi ->
                 add_bound
                   (mk_leq ark x_term hi)
-                  (mk_leq ark term (mk_app ark log [base_term; hi])))
+                  (mk_leq ark term (mk_log ark base_term hi)))
           | _ -> ()
         end
       | _ -> ());
@@ -1560,7 +1601,7 @@ let is_sat ark phi =
   let nonlinear_defs =
     Symbol.Map.enum nonlinear
     /@ (fun (symbol, expr) ->
-        match refine ark expr with
+        match Expr.refine ark expr with
         | `Term t -> mk_eq ark (mk_const ark symbol) t
         | `Formula phi -> mk_iff ark (mk_const ark symbol) phi)
     |> BatList.of_enum
@@ -1625,7 +1666,7 @@ let abstract ?exists:(p=fun x -> true) ?(subterm=fun x -> true) ark phi =
   let nonlinear_defs =
     Symbol.Map.enum nonlinear
     /@ (fun (symbol, expr) ->
-        match refine ark expr with
+        match Expr.refine ark expr with
         | `Term t -> mk_eq ark (mk_const ark symbol) t
         | `Formula phi -> mk_iff ark (mk_const ark symbol) phi)
     |> BatList.of_enum
@@ -1732,7 +1773,7 @@ let symbolic_bounds_formula ?exists:(p=fun x -> true) ark phi symbol =
   let nonlinear_defs =
     Symbol.Map.enum nonlinear
     /@ (fun (symbol, expr) ->
-        match refine ark expr with
+        match Expr.refine ark expr with
         | `Term t -> mk_eq ark (mk_const ark symbol) t
         | `Formula phi -> mk_iff ark (mk_const ark symbol) phi)
     |> BatList.of_enum
@@ -1790,7 +1831,10 @@ let symbolic_bounds_formula ?exists:(p=fun x -> true) ark phi symbol =
             |> of_atoms ark ~integrity
             |> exists ~integrity ~subterm p
           in
-          symbolic_bounds wedge symbol
+          if CS.admits wedge.cs (mk_const ark symbol) then
+            symbolic_bounds wedge symbol
+          else
+            ([], [])
         in
         let lower_blocking =
           List.map
@@ -1810,19 +1854,22 @@ let symbolic_bounds_formula ?exists:(p=fun x -> true) ark phi symbol =
         go (wedge_lower::lower, wedge_upper::upper)
   in
   let (lower, upper) = go ([], []) in
-  let lower =
-    if List.mem [] lower then
-      None
+  if lower = [] then
+    `Unsat
+  else
+    let lower =
+      if List.mem [] lower then
+        None
     else
       Some (BatList.reduce mk_min (List.map (BatList.reduce mk_max) lower))
-  in
-  let upper =
-    if List.mem [] upper then
-      None
-    else
-      Some (BatList.reduce mk_max (List.map (BatList.reduce mk_min) upper))
-  in
-  (lower, upper)
+    in
+    let upper =
+      if List.mem [] upper then
+        None
+      else
+        Some (BatList.reduce mk_max (List.map (BatList.reduce mk_min) upper))
+    in
+    `Sat (lower, upper)
 
 let symbolic_bounds_formula ?(exists=fun x -> true) ark phi symbol =
   Log.time "symbolic_bounds_formula" (symbolic_bounds_formula ~exists ark phi) symbol

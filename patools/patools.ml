@@ -99,19 +99,9 @@ let load_structs filename =
 
 let pp_formula phi = F.pp Format.pp_print_string Format.pp_print_int phi
 
-let bounded_empty = Bounded.bounded_empty
+let bounded_empty = Empty.bounded_empty
 
-let empty pa use_simple =
-  if use_simple then
-    begin
-      let module Empty = Empty(SearchTree.MakeList) in
-      Empty.find_word (Empty.mk_solver pa)
-    end
-  else
-    begin
-      let module Empty = Empty(SearchTree.Make) in
-      Empty.find_word (Empty.mk_solver pa)
-    end
+let empty pa = Empty.find_word (Empty.mk_solver pa)
 
 let complement = A.negate
 
@@ -279,7 +269,7 @@ let check_emptiness_certificate pa phi =
   
 let check_invariant pa phi =
   logf "Checking invariant:@\n%a" pp_formula phi;
-  Bounded.bounded_invariant pa 2 phi
+  Empty.bounded_invariant pa 2 phi
 
 let run pa word =
   let ctx = new Smt.ctx [("model", "true")] in
@@ -370,26 +360,21 @@ let _ =
     let size = int_of_string Sys.argv.(3) in
     A.pp_ground size Format.std_formatter pa
   | "empty" ->
-     if Array.length Sys.argv > 3 then
-       begin
-         let pa = load_automaton Sys.argv.(3) in
-         begin match empty pa (match Sys.argv.(2) with | "simple" -> true | _ -> false) with
-         | None ->
-            logf ~level:`always
-                 "The input predicate automaton accepts an empty language"
-         | Some _ -> ()
-         end
-       end
-     else
-       begin
-         let pa = load_automaton Sys.argv.(2) in
-         begin match empty pa false with
-         | None ->
-            logf ~level:`always
-                 "The input predicate automaton accepts an empty language"
-         | Some _ -> ()
-         end
-       end
+    let pa =
+      if Array.length Sys.argv > 3 then begin
+        (match Sys.argv.(2) with
+         | "simple" -> Empty.config_set_list := true
+         | _ -> ());
+        load_automaton Sys.argv.(3)
+      end else load_automaton Sys.argv.(2)
+    in
+    begin
+      match empty pa with
+      | None ->
+        logf ~level:`always
+          "The input predicate automaton accepts an empty language"
+      | Some _ -> ()
+    end
   | "bounded-empty" ->
     let pa = load_automaton Sys.argv.(2) in
     let size = int_of_string Sys.argv.(3) in

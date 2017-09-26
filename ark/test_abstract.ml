@@ -3,43 +3,7 @@ open Abstract
 open Syntax
 open ArkApron
 open Nonlinear
-
-module Ctx = MakeSimplifyingContext ()
-module Infix = Syntax.Infix(Ctx)
-let ctx = Ctx.context
-let smt_ctx = ArkZ3.mk_context ctx []
-
-let rsym = Ctx.mk_symbol ~name:"r" `TyReal
-let ssym = Ctx.mk_symbol ~name:"s" `TyReal
-
-let wsym = Ctx.mk_symbol ~name:"w" `TyInt
-let xsym = Ctx.mk_symbol ~name:"x" `TyInt
-let ysym = Ctx.mk_symbol ~name:"y" `TyInt
-let zsym = Ctx.mk_symbol ~name:"z" `TyInt
-
-let r = mk_const ctx rsym
-let s = mk_const ctx ssym
-
-let w = mk_const ctx wsym
-let x = mk_const ctx xsym
-let y = mk_const ctx ysym
-let z = mk_const ctx zsym
-
-let frac num den = Ctx.mk_real (QQ.of_frac num den)
-let int k = Ctx.mk_real (QQ.of_int k)
-
-let assert_equal_term s t =
-  assert_equal ~printer:(Term.show ctx) s t
-let assert_equiv_formula s t =
-  assert_equal ~printer:(Formula.show ctx) ~cmp:(smt_ctx#equiv) s t
-let assert_equal_qq x y =
-  assert_equal ~printer:QQ.show ~cmp:QQ.equal x y
-let assert_implies phi psi =
-  if not (smt_ctx#implies phi psi) then
-    assert_failure (Printf.sprintf "%s\ndoes not imply\n%s"
-                      (Formula.show ctx phi)
-                      (Formula.show ctx psi))
-
+open Test_pervasives
 
 let hull_formula hull = Ctx.mk_and (List.map (Ctx.mk_eq (int 0)) hull)
 

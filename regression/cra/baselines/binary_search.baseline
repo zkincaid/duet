@@ -3,14 +3,14 @@ Procedure: main
 0 <= cost
 main is o(1)
 Procedure: search
-min:121(min:121(min:121(max:122(max:122(1,
+min:127(min:127(min:127(max:128(max:128(1,
                                         (log:7(2, (12 + (12 * param0:23)))
                                            + (-1
                                                 * log:7(2,
                                                         (12 + (3 * param0:23)))))),
                                 (log:7(2, (6 + (3 * param0:23)))
                                    + (-1 * log:7(2, 6)))),
-                        max:122(max:122(max:122(2,
+                        max:128(max:128(max:128(2,
                                                 (1
                                                    + log:7(2,
                                                            (4
@@ -37,8 +37,8 @@ min:121(min:121(min:121(max:122(max:122(1,
                 1),
         0) <= cost
 search is o(1)
-cost <= max:122(max:122(max:122(param0:23,
-                                min:121(param0:23, log:7(2, (2 * param0:23)))),
+cost <= max:128(max:128(max:128(param0:23,
+                                min:127(param0:23, log:7(2, (2 * param0:23)))),
                         1),
                 0)
 search is O(n)

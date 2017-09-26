@@ -133,42 +133,6 @@ module Make (A : Alphabet) (P : Predicate) :
      and type letter = A.t
      and type letter_set = A.Set.t
 
-module type MakeEmptySig = sig
-  type solver
-  type pa
-  type predicate
-  type formula
-  type letter
-  type letter_set
-  val pp : Format.formatter -> solver -> unit
-
-  val mk_solver : pa -> solver
-
-  (** [conjoin_transition solver q sigma phi] adds destructively updates the
-      PA in [solver] by adding the transition rule [delta(q,sigma) = phi /\
-      psi], where [psi] was the previous transition rule for [(q,sigma)]. *)
-  val conjoin_transition : solver ->
-    predicate ->
-    letter_set ->
-    formula ->
-    unit
-
-  (** Add a predicate to the vocabulary of a solver.  Initially,
-      [delta(q,sigma) = true] for all letters sigma. *)
-  val add_predicate : solver -> predicate -> int -> unit
-
-  (** Add a predicate to the vocabulary of a solver, and make it accepting.
-      Initially, [delta(q,sigma) = true] for all letters sigma. *)
-  val add_accepting_predicate : solver -> predicate -> int -> unit
-
-  val mem_vocabulary : solver -> predicate -> bool
-
-  val find_word : ?max_index:int -> solver -> ((letter * int) list) option
-
-  val alphabet : solver -> letter_set
-  val vocabulary : solver -> (predicate * int) BatEnum.t
-end
-
 module MakeEmpty (A : sig
     type t
     type letter
@@ -194,17 +158,39 @@ module MakeEmpty (A : sig
     val mem_vocabulary : t -> predicate -> bool
     val vocabulary : t -> (predicate * int) BatEnum.t
     val pp : Format.formatter -> t -> unit
-  end) (PredicateTreeMake : functor (B : SearchTree.Element) (C: SearchTree.Element) ->
-                            SearchTree.S with type baseSet = BatSet.Make(B).t and type elt = C.t) :
-  MakeEmptySig with type solver = A.t
-                and type pa = A.t
-                and type predicate = A.predicate
-                and type formula = A.formula
-                and type letter = A.letter
-                and type letter_set = A.letter_set
+  end) : sig
+  type solver
+  val pp : Format.formatter -> solver -> unit
 
-module MakeBounded (A : S) (PredicateTreeMake : functor (B : SearchTree.Element) (C: SearchTree.Element) ->
-                                                SearchTree.S with type baseSet = BatSet.Make(B).t and type elt = C.t) : sig
+  val mk_solver : A.t -> solver
+
+  (** [conjoin_transition solver q sigma phi] adds destructively updates the
+      PA in [solver] by adding the transition rule [delta(q,sigma) = phi /\
+      psi], where [psi] was the previous transition rule for [(q,sigma)]. *)
+  val conjoin_transition : solver ->
+    A.predicate ->
+    A.letter_set ->
+    A.formula ->
+    unit
+
+  (** Add a predicate to the vocabulary of a solver.  Initially,
+      [delta(q,sigma) = true] for all letters sigma. *)
+  val add_predicate : solver -> A.predicate -> int -> unit
+
+  (** Add a predicate to the vocabulary of a solver, and make it accepting.
+      Initially, [delta(q,sigma) = true] for all letters sigma. *)
+  val add_accepting_predicate : solver -> A.predicate -> int -> unit
+
+  val mem_vocabulary : solver -> A.predicate -> bool
+
+  val find_word : ?max_index:int -> solver -> ((A.letter * int) list) option
+
+  val alphabet : solver -> A.letter_set
+  val vocabulary : solver -> (A.predicate * int) BatEnum.t
+
+  (** Flag controlling the representation of configuration sets.  If [true], a
+      list representation is used. *)
+  val config_set_list : bool ref
 
   (** [bounded_empty pa bound] finds [Some] word which is accepted by [pa] and
       uses only indexed letters with index [<= bound]; [None] if there are no

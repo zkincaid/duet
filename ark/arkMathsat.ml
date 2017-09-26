@@ -6,12 +6,12 @@ type 'a gexpr = ('a, typ_fo) expr
 
 let of_msat ark msat_env sym_of_decl expr =
   let term expr =
-    match refine ark expr with
+    match Expr.refine ark expr with
     | `Term t -> t
     | _ -> invalid_arg "of_mathsat.term"
   in
   let formula expr =
-    match refine ark expr with
+    match Expr.refine ark expr with
     | `Formula phi -> phi
     | _ -> invalid_arg "of_mathsat.formula"
   in
@@ -44,7 +44,7 @@ let of_msat ark msat_env sym_of_decl expr =
   go expr
 
 let rec msat_of_expr ark msat decl_of_sym expr  =
-  match refine ark expr with
+  match Expr.refine ark expr with
   | `Term t -> msat_of_term ark msat decl_of_sym t
   | `Formula phi -> msat_of_formula ark msat decl_of_sym phi
 

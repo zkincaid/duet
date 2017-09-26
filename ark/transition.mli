@@ -117,6 +117,11 @@ module Make
                                                              | `Invalid
                                                              | `Unknown ]
 
+  val defines : t -> var list
+  val uses : t -> var list
+
+  val abstract_post : (C.t,'abs) ArkApron.property -> t -> (C.t,'abs) ArkApron.property
+
   (** Iteration domain.  See {!Iteration}. *)
   module Iter (I : Iteration.Domain) : sig
     type iter = C.t I.t

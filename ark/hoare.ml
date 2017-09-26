@@ -22,14 +22,14 @@ module MakeSolver(Ctx : Syntax.Context) (Var : Transition.Var) = struct
     let open Format in
     fprintf formatter "{";
     ArkUtil.pp_print_enum ~pp_sep:(fun formatter () -> fprintf formatter " /\\ ")
-                          (pp_expr ark)
+                          (Expr.pp ark)
                           formatter
                           (BatList.enum pre);
     fprintf formatter "} ";
     Transition.pp formatter trans;
     fprintf formatter " {";
     ArkUtil.pp_print_enum ~pp_sep:(fun formatter () -> fprintf formatter " /\\ ")
-                          (pp_expr ark)
+                          (Expr.pp ark)
                           formatter
                           (BatList.enum post);
     fprintf formatter "}"

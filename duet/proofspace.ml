@@ -90,6 +90,7 @@ module P = struct
 end
 
 module Tr = Transition.Make(Ctx)(IV)
+
 module Block = struct
   type t =
     [ `Fork of Varinfo.t
@@ -211,15 +212,6 @@ module PA = PredicateAutomata.Make
     end)
 
 module E = PredicateAutomata.MakeEmpty(PA)
-module type ESig = PredicateAutomata.MakeEmptySig
-                    with type solver = PA.t
-                     and type pa = PA.t
-                     and type predicate = PA.predicate
-                     and type formula = PA.formula
-                     and type letter = PA.letter
-                     and type letter_set = PA.letter_set
-let e = ref (module E(SearchTree.Make) : ESig)
-
 
 (* Negate a PA formula.  Atoms are left unchanged, predicates in the resulting
    formula should be interpreted negatively.  negate_paformula is only applied
@@ -279,11 +271,22 @@ let make_assign_table alphabet =
   in
   { alphabet; assign }
 
+let is_stable letter assertion =
+  let program_vars = P.constants assertion in
+  let unindexed_program_vars =
+    IV.Set.enum program_vars /@ fst |> Var.Set.of_enum
+  in
+  match Letter.block letter with
+  | `Initial | `Fork _ -> true
+  | `Transition tr ->
+    BatEnum.for_all (fun ((v, _), _) ->
+        not (Var.Set.mem v unindexed_program_vars))
+      (Tr.transform tr)
+
 (* Given an assertion phi, add transitions corresponding to Hoare triples of
    the form { phi } tr { phi }, where tr does not assign to any variable in
    phi. *)
 let add_stable solver assign_table assertion =
-  let module E = (val !e) in
   let program_vars = P.constants assertion in
   let unindexed_program_vars =
     IV.Set.enum program_vars /@ fst |> Var.Set.of_enum
@@ -375,7 +378,7 @@ let index_expr index =
     | OConstant _ -> gensym `TyInt
     | OAddrOf _ -> gensym `TyInt
   in
-  Expr.fold alg
+  Aexpr.fold alg
 
 (* Convert a Core IR boolean expression into a formula.  Local variables are
    interpreted as the locals of tid. *)
@@ -472,7 +475,6 @@ let generalize i phi psi =
    infeasibility and add corresponding *negated* transitions to the PA
    solver. *)
 let construct solver assign_table trace =
-  let module E = (val !e) in
   let rec go trace itp post =
     match trace, itp with
     | ((letter, tid)::trace, pre::itp) ->
@@ -486,7 +488,8 @@ let construct solver assign_table trace =
           E.add_accepting_predicate solver lhs lhs_arity;
           add_stable solver assign_table lhs
         end;
-        E.conjoin_transition solver lhs letters (negate_paformula rhs);
+        if not (is_stable letter post) then
+          E.conjoin_transition solver lhs letters (negate_paformula rhs);
         go trace itp pre
       end else begin
         begin match BatList.of_enum (P.conjuncts pre) with
@@ -548,7 +551,7 @@ let mk_block_graph file =
     | Assign (v, expr) ->
       `Transition (Tr.assign (v, 0) (index_expr 0 expr))
     | Builtin (Fork (_, expr, _)) ->
-      let func = match Expr.strip_casts expr with
+      let func = match Aexpr.strip_casts expr with
         | AddrOf (Variable (func, OffsetFixed 0)) -> func
         | _ -> assert false
       in
@@ -776,7 +779,6 @@ let program_automaton file =
   pa
 
 let verify file =
-  let module E = (val !e) in 
   let open PA in
   Inline.inline_file file;
   let program_pa = program_automaton file in
@@ -876,4 +878,4 @@ let _ =
   CmdLine.register_pass
     ("-proofspace", verify, " Proof space");
   CmdLine.register_config
-    ("-simple", Arg.Unit (fun _ -> e := (module E(SearchTree.MakeList) : ESig)), " use list of structs")
+    ("-simple", Arg.Set E.config_set_list, " use list of structs")

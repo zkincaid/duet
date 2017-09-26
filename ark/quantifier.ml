@@ -15,7 +15,7 @@ module VM = BatMap.Make(Linear.QQVector)
 let substitute_const ark sigma expr =
   let simplify t = of_linterm ark (linterm_of ark t) in
   rewrite ark ~up:(fun expr ->
-      match refine ark expr with
+      match Expr.refine ark expr with
       | `Formula phi ->
         begin
           try
@@ -66,7 +66,7 @@ let select_implicant ark interp ?(env=Env.empty) phi =
 
 let map_atoms ark f phi =
   let rewriter expr =
-    match refine ark expr with
+    match Expr.refine ark expr with
     | `Formula phi ->
       begin match Formula.destruct ark phi with
         | `Atom (op, s, t) -> (f op s t :> ('a, typ_fo) expr)
@@ -240,7 +240,7 @@ let normalize ark phi =
   let phi = Formula.prenex ark phi in
   let zero = mk_real ark QQ.zero in
   let rewriter env expr =
-    match refine ark expr with
+    match Expr.refine ark expr with
     | `Formula phi ->
       (begin match Formula.destruct ark phi with
          | `Proposition (`Var i) -> mk_const ark (Env.find env i)

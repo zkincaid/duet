@@ -2,11 +2,10 @@ open OUnit
 open Abstract
 open Syntax
 open ArkApron
+open Test_pervasives
 
 include Log.Make(struct let name = "ark.test_transition" end)
 
-module Ctx = MakeSimplifyingContext ()
-module Infix = Syntax.Infix(Ctx)
 module V = struct
   type t = string
 
@@ -55,12 +54,6 @@ let n = Ctx.mk_const (V.symbol_of "n")
 let x = Ctx.mk_const (V.symbol_of "x")
 let y = Ctx.mk_const (V.symbol_of "y")
 let z = Ctx.mk_const (V.symbol_of "z")
-
-let ctx = Ctx.context
-let smt_ctx = ArkZ3.mk_context ctx []
-
-let frac num den = Ctx.mk_real (QQ.of_frac num den)
-let int k = Ctx.mk_real (QQ.of_int k)
 
 let assert_post tr phi =
   let not_post =
