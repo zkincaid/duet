@@ -14,7 +14,7 @@ let tr_typ typ =
   | Pointer _ -> `TyInt
   | Enum _ -> `TyInt
   | Array _ -> `TyInt
-  | Dynamic -> `TyReal
+  | Dynamic -> `TyInt
   | _ -> `TyInt
 
 module PInt = Putil.PInt
@@ -534,6 +534,79 @@ let construct solver assign_table trace =
   match Tr.interpolate transitions Ctx.mk_false with
   | `Valid itp -> go (List.rev trace) (List.tl (List.rev itp)) Ctx.mk_false
   | _ -> Log.fatalf "Failed to interpolate!"
+
+let construct solver assign_table trace =
+  let module Solver = Hoare.MakeSolver(Ctx)(IV) in
+  let hoare_solver = Solver.mk_solver in
+  let add_triples trace =
+    let transitions =
+      List.map (fun (letter, tid) -> Letter.transition_of tid letter) trace
+    in
+    let vars =
+      let module VarSet = BatSet.Make(IV) in
+      VarSet.to_list
+        (List.fold_left (fun vars trans ->
+           List.fold_left (fun vars var -> VarSet.add var vars) vars (Tr.defines trans)
+           ) VarSet.empty transitions)
+    in
+    let vars_type  = List.map IV.typ vars in
+    let vars_const = List.map (fun var -> Ctx.mk_const (IV.symbol_of var)) vars in
+    let get_pred var_types =
+      Ctx.mk_symbol (`TyFun (var_types, `TyBool))
+    in
+    let rec go pre transitions =
+      match transitions with
+      | trans :: [] -> Solver.register_triple hoare_solver ([pre], trans, [Ctx.mk_false])
+      | trans :: transitions ->
+         begin
+           let post = Ctx.mk_app (get_pred vars_type) vars_const in
+           Solver.register_triple hoare_solver ([pre], trans, [post]);
+           go post transitions
+         end
+      | [] -> assert false
+    in go Ctx.mk_true transitions
+  in
+  let rec go trace triples =
+    match trace, triples with
+    | (letter, tid) :: trace, (pre, trans, post) :: triples ->
+       let mk_conj phi =
+         match phi with
+         | [] -> Ctx.mk_true
+         | [phi] -> rewrite ctx ~down:(nnf_rewriter ctx) phi
+         | phi -> Ctx.mk_and (List.rev_map (rewrite ctx ~down:(nnf_rewriter ctx)) phi)
+       in
+       let letters = Letter.Set.singleton letter in
+       let pre = mk_conj pre in
+       let post = mk_conj post in
+       let (_, lhs, rhs) = generalize tid post pre in
+       let lhs_arity = arity lhs in
+       Log.logf ~level:`always "%a" Solver.pp_triple ([pre], trans, [post]);
+       List.iter (fun psi ->
+           if not (E.mem_vocabulary solver psi) then begin
+               E.add_accepting_predicate solver psi (arity psi);
+               add_stable solver assign_table psi
+             end
+         ) (lhs :: (BatList.of_enum  (P.conjuncts lhs)));
+       if P.compare pre post = 0 then begin
+           if not (is_stable letter post) then
+             E.conjoin_transition solver lhs letters (negate_paformula rhs)
+         end else begin
+           Log.logf
+             "Added PA transition:@\n @[{%a}(%a)@]@\n --( [#0] %a )-->@\n @[%a@]"
+             P.pp lhs
+             (ArkUtil.pp_print_enum Format.pp_print_int) (1 -- lhs_arity)
+             Letter.pp letter
+             PA.pp_formula rhs;
+           E.conjoin_transition solver lhs letters (negate_paformula rhs)
+         end;
+       go trace triples
+    | x, y -> assert (x = [] && y = [])
+  in
+  let trace = List.filter (fun (letter, tid) -> Tr.compare (Letter.transition_of tid letter) Tr.one != 0) trace in
+  add_triples trace;
+  match Solver.check_solution hoare_solver with
+  | `Sat -> go trace (Solver.get_solution hoare_solver)
+  | _ -> Log.fatalf "Failed to find hoare triples"
 
 let construct solver trace =
   Log.time "PA construction" (construct solver) trace
