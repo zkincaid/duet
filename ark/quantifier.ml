@@ -1,7 +1,6 @@
 open Syntax
 open Linear
 open BatPervasives
-open Apak
 
 include Log.Make(struct let name = "ark.quantifier" end)
 
@@ -10,13 +9,13 @@ exception Equal_term of Linear.QQVector.t
 type quantifier_prefix = ([`Forall | `Exists] * symbol) list
 
 module V = Linear.QQVector
-module VS = Putil.Set.Make(Linear.QQVector)
-module VM = Putil.Map.Make(Linear.QQVector)
+module VS = BatSet.Make(Linear.QQVector)
+module VM = BatMap.Make(Linear.QQVector)
 
 let substitute_const ark sigma expr =
   let simplify t = of_linterm ark (linterm_of ark t) in
   rewrite ark ~up:(fun expr ->
-      match refine ark expr with
+      match Expr.refine ark expr with
       | `Formula phi ->
         begin
           try
@@ -67,7 +66,7 @@ let select_implicant ark interp ?(env=Env.empty) phi =
 
 let map_atoms ark f phi =
   let rewriter expr =
-    match refine ark expr with
+    match Expr.refine ark expr with
     | `Formula phi ->
       begin match Formula.destruct ark phi with
         | `Atom (op, s, t) -> (f op s t :> ('a, typ_fo) expr)
@@ -241,7 +240,7 @@ let normalize ark phi =
   let phi = Formula.prenex ark phi in
   let zero = mk_real ark QQ.zero in
   let rewriter env expr =
-    match refine ark expr with
+    match Expr.refine ark expr with
     | `Formula phi ->
       (begin match Formula.destruct ark phi with
          | `Proposition (`Var i) -> mk_const ark (Env.find env i)
@@ -493,7 +492,7 @@ module Skeleton = struct
         let pp_sep formatter () = Format.fprintf formatter "@;" in
         fprintf formatter "@[<v 2>(exists %a:@;@[<v 0>%a@])@]"
           (pp_symbol ark) k
-          (ApakEnum.pp_print_enum_nobox ~pp_sep pp_elt) (MM.enum mm)
+          (ArkUtil.pp_print_enum_nobox ~pp_sep pp_elt) (MM.enum mm)
       | SEmpty -> ()
     in
     pp formatter skeleton
@@ -1664,19 +1663,19 @@ let rec pp_strategy ark formatter (Strategy xs) =
     | (Strategy []) -> ()
     | (Strategy xs) ->
       fprintf formatter "@;  @[<v 0>%a@]"
-        (ApakEnum.pp_print_enum_nobox ~pp_sep pp_elt)
+        (ArkUtil.pp_print_enum_nobox ~pp_sep pp_elt)
         (BatList.enum xs)
   and pp_elt formatter (guard, move, sub_strategy) =
     fprintf formatter "%a --> %a%a"
       (Formula.pp ark) guard
-      (pp_expr ark) move
+      (Expr.pp ark) move
       pp sub_strategy
   in
   fprintf formatter "@[<v 0>%a@]"
-    (ApakEnum.pp_print_enum_nobox ~pp_sep pp_elt)
+    (ArkUtil.pp_print_enum_nobox ~pp_sep pp_elt)
     (BatList.enum xs)
 
-let show_strategy ark = Apak.Putil.mk_show (pp_strategy ark)
+let show_strategy ark = ArkUtil.mk_show (pp_strategy ark)
 
 (* Extract a winning strategy from a skeleton *)
 let extract_strategy ark skeleton phi =
@@ -1760,7 +1759,7 @@ let check_strategy ark qf_pre phi strategy =
         xs |> List.map (fun (guard, move, sub_strategy) ->
             let move_formula =
               let open Skeleton in
-              match refine ark move with
+              match Expr.refine ark move with
               | `Term t -> mk_eq ark (mk_const ark k) t
               | `Formula phi ->
                 match Formula.destruct ark phi with

@@ -1,5 +1,4 @@
 open Syntax
-open Apak
 open BatPervasives
 
 include Log.Make(struct let name = "ark.nonlinear" end)
@@ -12,7 +11,7 @@ module SymInterval = struct
                 interval : Interval.t }
 
   let cartesian ark f xs ys =
-    ApakEnum.cartesian_product (BatList.enum xs) (BatList.enum ys)
+    ArkUtil.cartesian_product (BatList.enum xs) (BatList.enum ys)
     /@ (fun (x,y) -> f ark [x;y])
     |> BatList.of_enum
 
@@ -202,7 +201,7 @@ let interpret_rewriter ark =
   let imul = get_named_symbol ark "imul" in
   let imodulo = get_named_symbol ark "imod" in
   let to_term expr =
-    match refine ark expr with
+    match Expr.refine ark expr with
     | `Term t -> t
     | `Formula _ -> assert false
   in
@@ -283,7 +282,7 @@ let linearize ark phi =
         | `Unop (`Neg, x) ->
           SymInterval.mul linbound_minus_one (linearize_term env x)
         | `App (func, args) ->
-          begin match symbol_name ark func, List.map (refine ark) args with
+          begin match symbol_name ark func, List.map (Expr.refine ark) args with
             | (Some "imul", [`Term x; `Term y])
             | (Some "mul", [`Term x; `Term y]) ->
               SymInterval.mul (linearize_term env x) (linearize_term env y)
@@ -301,7 +300,7 @@ let linearize ark phi =
       let bounds =
         let (_, bounds) =
           Symbol.Map.fold (fun symbol expr (env, bounds) ->
-              match refine ark expr with
+              match Expr.refine ark expr with
               | `Formula _ -> (env, bounds)
               | `Term term ->
                 let term_bounds = linearize_term env term in
@@ -343,7 +342,7 @@ let linearize ark phi =
         let nonlinear_defs =
           Symbol.Map.enum nonlinear
           /@ (fun (symbol, expr) ->
-              match refine ark expr with
+              match Expr.refine ark expr with
               | `Term t -> mk_eq ark (mk_const ark symbol) t
               | `Formula phi -> mk_iff ark (mk_const ark symbol) phi)
           |> BatList.of_enum

@@ -1,4 +1,3 @@
-open Apak
 open Syntax
 open Smt
 open BatPervasives
@@ -147,7 +146,7 @@ end = struct
           let move_formula =
             List.map2
               (fun y m ->
-                 match refine ark m with
+                 match Expr.refine ark m with
                  | `Term t -> mk_eq ark (mk_const ark y) t
                  | `Formula phi -> mk_iff ark (mk_const ark y) phi)
               game_tree.ys
@@ -203,7 +202,7 @@ end = struct
       | (`Forall, x) -> Format.fprintf formatter "A %a" (pp_symbol ark) x
       | (`Exists, x) -> Format.fprintf formatter "E %a" (pp_symbol ark) x
     in
-    ApakEnum.pp_print_enum pp_elt formatter (BatList.enum prefix)
+    ArkUtil.pp_print_enum pp_elt formatter (BatList.enum prefix)
 
   (* Let v be a vertex and let, let r = u_0 ... u_n = v be the path from the
      root to v.  For each i, let (guard_i,move_i) = M(u_i,u_{i+1}).
@@ -456,7 +455,7 @@ end = struct
                          x_map
                      with Not_found ->
                        (Log.errorf "moves: %a"
-                          (ApakEnum.pp_print_enum (pp_expr ark))
+                          (ArkUtil.pp_print_enum (Expr.pp ark))
                           (BatList.enum moves /@ snd);
                         assert false)
                  in
@@ -746,16 +745,16 @@ end = struct
       in
       fprintf formatter "@[<v 0>when@;  %a@;move (%a)@;  @[<v 0>#%d [%a]@;%a@]@]"
         (Formula.pp ark) guard
-        (ApakEnum.pp_print_enum (pp_expr ark)) (BatList.enum moves)
+        (ArkUtil.pp_print_enum (Expr.pp ark)) (BatList.enum moves)
         v.id
         (Formula.pp ark) v.annotation
-        (ApakEnum.pp_print_enum_nobox ~pp_sep go) (BatList.enum (children v))
+        (ArkUtil.pp_print_enum_nobox ~pp_sep go) (BatList.enum (children v))
     in
     let root = game_tree.root in
     fprintf formatter "#%d [%a]@;@[<v 0>%a@]"
       root.id
       (Formula.pp ark) root.annotation
-      (ApakEnum.pp_print_enum_nobox ~pp_sep go) (BatList.enum (children root))
+      (ArkUtil.pp_print_enum_nobox ~pp_sep go) (BatList.enum (children root))
 end
 
 let solve ark (xs, ys) ~start ~safe ~reach =

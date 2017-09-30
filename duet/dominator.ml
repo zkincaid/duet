@@ -2,6 +2,7 @@
 
 open Core
 open Cil
+open Ark
 open Apak
 
 module Make (G : Graph.Sig.G) = struct

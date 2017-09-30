@@ -1,6 +1,5 @@
 open Syntax
 open BatPervasives
-open Apak
 
 include Log.Make(struct let name = "ark.simplify" end)
 
@@ -17,16 +16,16 @@ module TermPolynomial = struct
   type 'a t = Mvp.t
 
   let mk_context ark =
-    let table = ExprHT.create 991 in
+    let table = Expr.HT.create 991 in
     let enum = DynArray.create () in
     let of_int = DynArray.get enum in
     let int_of term =
-      if ExprHT.mem table term then
-        ExprHT.find table term
+      if Expr.HT.mem table term then
+        Expr.HT.find table term
       else
         let id = DynArray.length enum in
         DynArray.add enum term;
-        ExprHT.add table term id;
+        Expr.HT.add table term id;
         id
     in
     { ark; of_int; int_of }
@@ -152,22 +151,62 @@ let purify_rewriter ark table =
     | `App (func, args) ->
       let sym =
         try
-          ExprHT.find table expr
+          Expr.HT.find table expr
         with Not_found ->
           let sym = mk_symbol ark ~name:"uninterp" (expr_typ ark expr) in
-          ExprHT.add table expr sym;
+          Expr.HT.add table expr sym;
           sym
       in
       mk_const ark sym
     | _ -> expr
 
 let purify ark expr =
-  let table = ExprHT.create 991 in
+  let table = Expr.HT.create 991 in
   let expr' = rewrite ark ~up:(purify_rewriter ark table) expr in
   let map =
     BatEnum.fold
       (fun map (term, sym) -> Symbol.Map.add sym term map)
       Symbol.Map.empty
-      (ExprHT.enum table)
+      (Expr.HT.enum table)
   in
   (expr', map)
+
+module SymDS = DisjointSet.Make(struct
+    include Symbol
+    let hash = Hashtbl.hash
+    let equal = (=)
+  end)
+let partition_implicant implicant =
+  let (zero_group, implicant) =
+    List.partition (fun atom -> Symbol.Set.is_empty (symbols atom)) implicant
+  in
+  if implicant = [] then
+    [zero_group]
+  else begin
+    let ds = SymDS.create 991 in
+    implicant |> List.iter (fun atom ->
+        let (sym, rest) = Symbol.Set.pop (symbols atom) in
+        let rep = SymDS.find ds sym in
+        Symbol.Set.iter (fun sym' -> ignore (SymDS.union (SymDS.find ds sym') rep)) rest);
+    let rev_map =
+      SymDS.reverse_map ds Symbol.Set.empty Symbol.Set.add
+    in
+    let find_rep symbol = Symbol.Set.choose (rev_map symbol) in
+    let map =
+      List.fold_left (fun map atom ->
+          let equiv_class = find_rep (Symbol.Set.choose (symbols atom)) in
+          if Symbol.Map.mem equiv_class map then
+            Symbol.Map.add equiv_class (atom::(Symbol.Map.find equiv_class map)) map
+          else
+            Symbol.Map.add equiv_class [atom] map)
+        Symbol.Map.empty
+        implicant
+    in
+    let partitioned_implicant =
+      BatList.of_enum (Symbol.Map.values map)
+    in
+    if zero_group = [] then
+      partitioned_implicant
+    else
+      zero_group::partitioned_implicant
+  end

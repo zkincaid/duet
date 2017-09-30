@@ -3,6 +3,7 @@
 open Core
 open CfgIr
 open Apak
+open Ark
 
 (** A "predicate" is any monoid (with multiplication interpreted as
     conjunction) with some notion of satisfiability and of variable
@@ -54,7 +55,7 @@ struct
   type pred = P.t
   module VMap = Putil.MonoMap.Make(V)(V)
   module VSet = Putil.Set.Make(V)
-  module DS = DisjointSet.Make(V)
+  module DS = Ark.DisjointSet.Make(V)
 
   (* There are two possible representations of a conjunction of equalities:
      - Canonical, which maps each variable to its equivalence class
@@ -104,7 +105,7 @@ struct
   let pp formatter x =
     let open Format in
     fprintf formatter "[|@[%a@ && %a@]|]"
-      (ApakEnum.pp_print_enum
+      (ArkUtil.pp_print_enum
          ~pp_sep:(fun formatter () -> fprintf formatter "@ && ")
          (fun formatter (x, rep) ->
             fprintf formatter "%a = %a" V.pp x V.pp rep))
@@ -283,7 +284,7 @@ module MakeFormula (Minterm : Hashed.ConjFormula with type var = Var.t) : sig
   module Transition : sig
     include Sig.KA.Ordered.S
     val exists : (Var.t -> bool) -> t -> t
-    val assign : ap -> expr -> Minterm.pred -> t
+    val assign : ap -> aexpr -> Minterm.pred -> t
     val assume : bexpr -> Var.Set.t -> Minterm.pred -> t
     val fold_minterms : (Minterm.t -> 'a -> 'a) -> t -> 'a -> 'a
     val get_frame : t -> Var.Set.t
@@ -443,7 +444,7 @@ end = struct
     (** Add the appropriate equalities for the transition relation for an
         assignment statement [lhs := rhs] to pred. *)
     let assign lhs rhs pred =
-      match lhs, Expr.strip_casts rhs with
+      match lhs, Aexpr.strip_casts rhs with
       | (Variable x, AccessPath (Variable y)) ->
         let eqs = [(Var.subscript x 1, Var.subscript y 0);
                    (Var.subscript y 0, Var.subscript y 1)]

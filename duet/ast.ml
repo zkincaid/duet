@@ -1,4 +1,5 @@
 open Core
+open Ark
 open Apak
 
 (** Statement kind *)
@@ -146,7 +147,7 @@ type 'a visitAction =
                        there are any changes to the children *)
   | ChangeTo of 'a (** Replace the node *)
 class type astVisitor = object
-  method vexpr : expr -> expr visitAction
+  method vexpr : aexpr -> aexpr visitAction
   method vbexpr : bexpr -> bexpr visitAction
   method vap : ap -> ap visitAction
   method vstmt : stmt -> stmt visitAction
@@ -170,7 +171,7 @@ module Display = struct
   include StmtCfg;;
   open Graph.Graphviz.DotAttributes;;
   let vertex_name v =
-    "\"" ^ (String.escaped (Putil.mk_show pp_stmt v)) ^ "\""
+    "\"" ^ (String.escaped (ArkUtil.mk_show pp_stmt v)) ^ "\""
   let get_subgraph v =  None
   let default_vertex_attributes _ = []
   let default_edge_attributes _ = []

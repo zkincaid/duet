@@ -99,7 +99,7 @@ module MakeDecorator(M : sig
           begin
             match resolve_type (Var.get_type var) with
             | Int _ | Pointer _ | Dynamic ->
-              if AP.Set.exists nonvariable (Expr.get_uses expr)
+              if AP.Set.exists nonvariable (Aexpr.get_uses expr)
               then safe_cyl flow_in (AP.Set.singleton (Variable var))
               else I.transfer def (I.inject flow_in (Def.get_uses def))
             | _ -> flow_in
@@ -227,7 +227,7 @@ module V = struct
       | VVal v -> Var.pp formatter v
       | VWidth v -> Format.fprintf formatter "%a@@width" Var.pp v
       | VPos v -> Format.fprintf formatter "%a@@pos" Var.pp v
-    let show = Putil.mk_show pp
+    let show = ArkUtil.mk_show pp
     let equal x y = compare x y = 0
     let hash = function
       | VVal v -> Hashtbl.hash (Var.hash v, 0)
@@ -402,7 +402,7 @@ let tr_expr expr =
     | OAccessPath ap -> TInt (nondet_const "tr" (tr_typ (AP.get_type ap)))
     | OConstant _ -> TInt (nondet_const "tr" `TyInt)
   in
-  Expr.fold alg expr
+  Aexpr.fold alg expr
 
 let tr_expr_val expr = match tr_expr expr with
   | TInt x -> x
@@ -613,25 +613,27 @@ let resource_bound_analysis file =
               Ctx.mk_and [Syntax.substitute_const ark subst (K.guard summary);
                           Ctx.mk_eq (Ctx.mk_const cost_symbol) rhs ]
             in
-            let (lower, upper) =
-              Wedge.symbolic_bounds_formula ~exists ark guard cost_symbol
-            in
-            begin match lower with
-              | Some lower ->
-                logf ~level:`always "%a <= cost" (Syntax.Term.pp ark) lower;
-                logf ~level:`always "%a is o(%a)"
-                  Varinfo.pp procedure
-                  BigO.pp (BigO.of_term ark lower)
-              | None -> ()
-            end;
-            begin match upper with
-              | Some upper ->
-                logf ~level:`always "cost <= %a" (Syntax.Term.pp ark) upper;
-                logf ~level:`always "%a is O(%a)"
+            match Wedge.symbolic_bounds_formula ~exists ark guard cost_symbol with
+            | `Sat (lower, upper) ->
+              begin match lower with
+                | Some lower ->
+                  logf ~level:`always "%a <= cost" (Syntax.Term.pp ark) lower;
+                  logf ~level:`always "%a is o(%a)"
+                    Varinfo.pp procedure
+                    BigO.pp (BigO.of_term ark lower)
+                | None -> ()
+              end;
+              begin match upper with
+                | Some upper ->
+                  logf ~level:`always "cost <= %a" (Syntax.Term.pp ark) upper;
+                  logf ~level:`always "%a is O(%a)"
                   Varinfo.pp procedure
                   BigO.pp (BigO.of_term ark upper)
-              | None -> ()
-            end
+                | None -> ()
+              end
+            | `Unsat ->
+              logf ~level:`always "%a is infeasible"
+                Varinfo.pp procedure
           end else
             logf ~level:`always "Procedure %a has zero cost" Varinfo.pp procedure)
         (A.get_summaries query)

@@ -1,6 +1,8 @@
 open Apak
 open Arg
 
+module Log = Ark.Log
+
 let parameterized   = ref false
 
 let sanity_checks   = ref true

@@ -1,5 +1,4 @@
 open BatPervasives
-open Apak
 open Syntax
 
 type t =
@@ -20,7 +19,7 @@ let pp formatter x =
      | Some hi -> QQ.show hi
      | None -> "+oo")
 
-let show = Putil.mk_show pp
+let show = ArkUtil.mk_show pp
 
 let bottom = { lower = Some QQ.one; upper = Some QQ.zero }
 let top = { lower = None; upper = None }

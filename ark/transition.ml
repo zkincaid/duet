@@ -1,5 +1,4 @@
 open Syntax
-open Apak
 open BatPervasives
 
 include Log.Make(struct let name = "ark.transition" end)
@@ -38,7 +37,7 @@ struct
 
   let pp formatter tr =
     Format.fprintf formatter "{@[<v 0>";
-    ApakEnum.pp_print_enum_nobox
+    ArkUtil.pp_print_enum_nobox
        ~pp_sep:(fun formatter () -> Format.pp_print_break formatter 0 0)
        (fun formatter (lhs, rhs) ->
           Format.fprintf formatter "%a := @[%a@]"
@@ -55,7 +54,7 @@ struct
     end;
     Format.fprintf formatter "@]}"
 
-  let show = Apak.Putil.mk_show pp
+  let show = ArkUtil.mk_show pp
 
   let construct guard assignment =
     { transform =
@@ -390,4 +389,45 @@ struct
     | `Unknown -> `Unknown
     | `Unsat -> `Valid
 
+  let defines tr =
+    M.fold
+      (fun var _ defs -> var::defs)
+      tr.transform
+      []
+
+  let uses tr =
+    M.fold
+      (fun _ term uses ->
+         Symbol.Set.union (symbols term) uses)
+      tr.transform
+      (symbols tr.guard)
+    |> Symbol.Set.enum
+    |> BatEnum.filter_map Var.of_symbol
+    |> BatList.of_enum
+
+  let abstract_post pre tr =
+    let ark = C.context in
+    let man = ArkApron.get_manager pre in
+    let exists x = Var.of_symbol x != None in
+    let fresh =
+      Memo.memo (fun sym -> mk_const ark (mk_symbol ark (typ_symbol ark sym)))
+    in
+    let tr_subst expr =
+      substitute_const ark (fun sym ->
+          match Var.of_symbol sym with
+          | Some v when mem_transform v tr -> fresh sym
+          | _ -> mk_const ark sym)
+        expr
+    in
+    let transform_formula =
+      transform tr
+      /@ (fun (lhs, rhs) ->
+          (mk_eq ark (mk_const ark (Var.symbol_of lhs)) (tr_subst rhs)))
+      |> BatList.of_enum
+    in
+    mk_and ark ((tr_subst (ArkApron.formula_of_property pre))
+                :: (tr_subst tr.guard)
+                :: transform_formula)
+    |> Nonlinear.linearize ark
+    |> Abstract.abstract ~exists ark man
 end

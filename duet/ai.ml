@@ -1,6 +1,7 @@
 (** Abstract interpretation utilities, and an interface to APRON for numerical
     domains *)
 open Core
+open Ark
 open Apak
 open Apron
 
@@ -75,7 +76,7 @@ module type Interpretation = sig
   include Domain
   val transfer : def -> t -> t
   val assert_true : bexpr -> t -> bool
-  val assert_memsafe : expr -> t -> bool
+  val assert_memsafe : aexpr -> t -> bool
   val name : string
 end
 
@@ -181,7 +182,7 @@ module ApronInterpretation = struct
     else if is_bottom av then
       Format.pp_print_string formatter "_|_"
     else
-      ApakEnum.pp_print_enum
+      ArkUtil.pp_print_enum
         ~pp_sep:(fun formatter () -> Format.fprintf formatter "@ && ")
         pp_elt
         formatter
@@ -575,7 +576,7 @@ module ApronInterpretation = struct
         VPointer p
       | _ -> VDynamic
     in
-    Expr.fold f expr
+    Aexpr.fold f expr
 
   (* Translate an atom to APRON's representation: an (expression, constraint
      type) pair *)
@@ -781,7 +782,7 @@ module ApronInterpretation = struct
     let open Coeff in
     let rec go = function
       |	Cst (Scalar s) -> begin match int_of_scalar s with
-          | Some k -> Some (Expr.const_int k)
+          | Some k -> Some (Aexpr.const_int k)
           | None -> None
         end
       | Cst (Interval _) -> None
@@ -791,7 +792,7 @@ module ApronInterpretation = struct
           | None -> None
           | Some expr ->
             begin match op with
-              | Neg -> Some (Expr.neg expr)
+              | Neg -> Some (Aexpr.neg expr)
               | Cast -> None
               | Sqrt -> None
             end
@@ -801,11 +802,11 @@ module ApronInterpretation = struct
           | (None, _) | (_, None) -> None
           | (Some left, Some right) ->
             Some begin match op with
-              | Add -> Expr.add left right
-              | Sub -> Expr.sub left right
-              | Mul -> Expr.mul left right
-              | Div -> Expr.div left right
-              | Mod -> Expr.modulo left right
+              | Add -> Aexpr.add left right
+              | Sub -> Aexpr.sub left right
+              | Mul -> Aexpr.mul left right
+              | Div -> Aexpr.div left right
+              | Mod -> Aexpr.modulo left right
               | Pow -> assert false
             end
         end
@@ -814,7 +815,7 @@ module ApronInterpretation = struct
 
   let tcons_bexpr renv tcons =
     let open Tcons0 in
-    let zero = Expr.zero in
+    let zero = Aexpr.zero in
     match apron_expr renv tcons.texpr0 with
     | None -> None
     | Some expr ->
@@ -825,7 +826,7 @@ module ApronInterpretation = struct
       | DISEQ -> Some (Atom (Ne, expr, zero))
       | EQMOD s -> begin match int_of_scalar s with
           | Some k ->
-            Some (Atom (Eq, Expr.modulo expr (Expr.const_int k), zero))
+            Some (Atom (Eq, Aexpr.modulo expr (Aexpr.const_int k), zero))
           | None -> None
         end
 

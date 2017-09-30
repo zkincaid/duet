@@ -78,12 +78,6 @@ val compare_expr : ('a,'typ) expr -> ('a,'typ) expr -> int
 val compare_formula : 'a formula -> 'a formula -> int
 val compare_term : 'a term -> 'a term -> int
 
-val pp_expr : ?env:(string Env.t) -> 'a context ->
-  Format.formatter -> ('a,'b) expr -> unit
-
-val refine : 'a context -> ('a, typ_fo) expr -> [ `Term of 'a term
-                                                | `Formula of 'a formula ]
-
 val destruct : 'a context -> ('a, 'b) expr -> [
     | `Real of QQ.t
     | `App of symbol * (('a, typ_fo) expr list)
@@ -105,6 +99,8 @@ val destruct : 'a context -> ('a, 'b) expr -> [
   ]
 
 val expr_typ : 'a context -> ('a, 'b) expr -> typ
+
+val free_vars : ('a, 'b) expr -> (int, typ_fo) BatHashtbl.t
 
 val size : ('a, 'b) expr -> int
 
@@ -149,45 +145,61 @@ val rewrite : 'a context -> ?down:('a rewriter) -> ?up:('a rewriter) ->
 (** Convert to negation normal form ({i down} pass). *)
 val nnf_rewriter : 'a context -> 'a rewriter
 
-module ExprHT : sig
-  type ('a, 'typ, 'b) t
-  val create : int -> ('a, 'typ, 'b) t
-  val add : ('a, 'typ, 'b) t -> ('a, 'typ) expr -> 'b -> unit
-  val replace : ('a, 'typ, 'b) t -> ('a, 'typ) expr -> 'b -> unit
-  val remove : ('a, 'typ, 'b) t -> ('a, 'typ) expr -> unit
-  val find : ('a, 'typ, 'b) t -> ('a, 'typ) expr -> 'b
-  val mem : ('a, 'typ, 'b) t -> ('a, 'typ) expr -> bool
-  val keys : ('a, 'typ, 'b) t -> (('a, 'typ) expr) BatEnum.t
-  val values : ('a, 'typ, 'b) t -> 'b BatEnum.t
-  val enum : ('a, 'typ, 'b) t -> (('a, 'typ) expr * 'b) BatEnum.t
-end
+module Expr : sig
+  val equal : ('a,'b) expr -> ('a,'b) expr -> bool
+  val compare : ('a,'b) expr -> ('a,'b) expr -> int
+  val pp : ?env:(string Env.t) ->
+    'a context ->
+    Format.formatter ->
+    ('a, 'b) expr ->
+    unit
+  val refine : 'a context -> ('a, typ_fo) expr -> [ `Term of 'a term
+                                                  | `Formula of 'a formula ]
 
-module ExprSet : sig
-  type ('a, 'typ) t
-  val empty : ('a, 'typ) t
-  val add : ('a, 'typ) expr -> ('a, 'typ) t -> ('a, 'typ) t
-  val union : ('a, 'typ) t -> ('a, 'typ) t -> ('a, 'typ) t
-  val inter : ('a, 'typ) t -> ('a, 'typ) t -> ('a, 'typ) t
-  val enum : ('a, 'typ) t -> (('a, 'typ) expr) BatEnum.t
-  val mem : ('a, 'typ) expr -> ('a, 'typ) t -> bool
-end
+  module HT : sig
+    type ('a, 'typ, 'b) t
+    val create : int -> ('a, 'typ, 'b) t
+    val add : ('a, 'typ, 'b) t -> ('a, 'typ) expr -> 'b -> unit
+    val replace : ('a, 'typ, 'b) t -> ('a, 'typ) expr -> 'b -> unit
+    val remove : ('a, 'typ, 'b) t -> ('a, 'typ) expr -> unit
+    val find : ('a, 'typ, 'b) t -> ('a, 'typ) expr -> 'b
+    val mem : ('a, 'typ, 'b) t -> ('a, 'typ) expr -> bool
+    val keys : ('a, 'typ, 'b) t -> (('a, 'typ) expr) BatEnum.t
+    val values : ('a, 'typ, 'b) t -> 'b BatEnum.t
+    val enum : ('a, 'typ, 'b) t -> (('a, 'typ) expr * 'b) BatEnum.t
+  end
 
-module ExprMap : sig
-  type ('a, 'typ, 'b) t
-  val empty : ('a, 'typ, 'b) t
-  val is_empty : ('a, 'typ, 'b) t -> bool
-  val add : ('a, 'typ) expr -> 'b -> ('a, 'typ, 'b) t -> ('a, 'typ, 'b) t
-  val remove : ('a, 'typ) expr -> ('a, 'typ, 'b) t -> ('a, 'typ, 'b) t
-  val filter : (('a, 'typ) expr -> 'b -> bool) -> ('a, 'typ, 'b) t -> ('a, 'typ, 'b) t
-  val filter_map : (('a, 'typ) expr -> 'b -> 'c option) -> ('a, 'typ, 'b) t -> ('a, 'typ, 'c) t
-  val map : ('b -> 'c) -> ('a, 'typ, 'b) t -> ('a, 'typ, 'c) t
-  val find : ('a, 'typ) expr -> ('a, 'typ, 'b) t -> 'b
-  val keys : ('a, 'typ, 'b) t -> (('a, 'typ) expr) BatEnum.t
-  val values : ('a, 'typ, 'b) t -> 'b BatEnum.t
-  val enum : ('a, 'typ, 'b) t -> (('a, 'typ) expr * 'b) BatEnum.t
-  val merge : ((('a, 'typ) expr) -> 'b option -> 'c option -> 'd option) ->
-    ('a, 'typ, 'b) t -> ('a, 'typ, 'c) t -> ('a, 'typ, 'd) t
-  val fold : (('a, 'typ) expr -> 'b -> 'c -> 'c) -> ('a, 'typ, 'b) t -> 'c -> 'c
+  module Set : sig
+    type ('a, 'typ) t
+    val empty : ('a, 'typ) t
+    val add : ('a, 'typ) expr -> ('a, 'typ) t -> ('a, 'typ) t
+    val union : ('a, 'typ) t -> ('a, 'typ) t -> ('a, 'typ) t
+    val inter : ('a, 'typ) t -> ('a, 'typ) t -> ('a, 'typ) t
+    val enum : ('a, 'typ) t -> (('a, 'typ) expr) BatEnum.t
+    val mem : ('a, 'typ) expr -> ('a, 'typ) t -> bool
+  end
+
+  module Map : sig
+    type ('a, 'typ, 'b) t
+    val empty : ('a, 'typ, 'b) t
+    val is_empty : ('a, 'typ, 'b) t -> bool
+    val add : ('a, 'typ) expr -> 'b -> ('a, 'typ, 'b) t -> ('a, 'typ, 'b) t
+    val remove : ('a, 'typ) expr -> ('a, 'typ, 'b) t -> ('a, 'typ, 'b) t
+    val filter : (('a, 'typ) expr -> 'b -> bool) ->
+      ('a, 'typ, 'b) t ->
+      ('a, 'typ, 'b) t
+    val filter_map : (('a, 'typ) expr -> 'b -> 'c option) ->
+      ('a, 'typ, 'b) t ->
+      ('a, 'typ, 'c) t
+    val map : ('b -> 'c) -> ('a, 'typ, 'b) t -> ('a, 'typ, 'c) t
+    val find : ('a, 'typ) expr -> ('a, 'typ, 'b) t -> 'b
+    val keys : ('a, 'typ, 'b) t -> (('a, 'typ) expr) BatEnum.t
+    val values : ('a, 'typ, 'b) t -> 'b BatEnum.t
+    val enum : ('a, 'typ, 'b) t -> (('a, 'typ) expr * 'b) BatEnum.t
+    val merge : ((('a, 'typ) expr) -> 'b option -> 'c option -> 'd option) ->
+      ('a, 'typ, 'b) t -> ('a, 'typ, 'c) t -> ('a, 'typ, 'd) t
+    val fold : (('a, 'typ) expr -> 'b -> 'c -> 'c) -> ('a, 'typ, 'b) t -> 'c -> 'c
+  end
 end
 
 (** {2 Terms} *)
@@ -289,6 +301,7 @@ module Formula : sig
   val destruct : 'a context -> 'a formula -> ('a formula, 'a) open_formula
   val eval : 'a context -> (('b, 'a) open_formula -> 'b) -> 'a formula -> 'b
   val existential_closure : 'a context -> 'a formula -> 'a formula
+  val universal_closure : 'a context -> 'a formula -> 'a formula
   val skolemize_free : 'a context -> 'a formula -> 'a formula
   val prenex : 'a context -> 'a formula -> 'a formula
 end

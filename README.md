@@ -49,17 +49,38 @@ Running Duet
 
 There are three main program analyses implemented in Duet:
 
-* Data flow graphs (POPL'12): `duet -coarsen FILE`
-* Heap data flow graphs: `duet -hdfg FILE`
-* Compositional recurrence analysis: `duet -cra FILE`
-* Proof spaces: `duet -proofspace FILE`
+* Data flow graphs: `duet.native -coarsen FILE`
+* Proof spaces: `duet.native -proofspace FILE`
+* Compositional recurrence analysis: `duet.native -cra FILE`
 
 Duet supports two file types (and guesses which to use by file extension): C programs (.c), Boolean programs (.bp).
 
-By default, Duet checks user-defined assertions. Alternatively, it can also instrument assertions as follows:
+By default, Duet checks user-defined assertions, which are specified by the built-in function `__VERIFIER_assert`. Alternatively, it can also instrument assertions as follows:
 
-    duet -check-array-bounds -check-null-deref -coarsen FILE
+    duet.native -check-array-bounds -check-null-deref -coarsen FILE
 
+
+### Data flow graphs
+
+The `-coarsen` flag implements an invariant generation procedure for multi-threaded programs with an unbounded number of threads. The analysis is described in
+* Azadeh Farzan and Zachary Kincaid: [Verification of Parameterized Concurrent Programs By Modular Reasoning about Data and Control](http://www.cs.princeton.edu/~zkincaid/pub/popl12.pdf).  POPL 2012.
+
+### Proof spaces
+
+The `-proofspace` flag implements a software model checking procedure for multi-threaded programs with an unbounded number of threads.  The procedure is described in
+* Azadeh Farzan, Zachary Kincaid, Andreas Podelski: [Proof Spaces for Unbounded Parallelism](http://www.cs.princeton.edu/~zkincaid/pub/popl15.pdf).  POPL 2015.
+
+### Compositional recurrence analysis
+
+The `-cra` flags an invariant generation procedure for sequential programs.  The analysis is described in
+* Azadeh Farzan and Zachary Kincaid: [Compositional Recurrence Analysis](http://www.cs.princeton.edu/~zkincaid/pub/fmcad15.pdf).  FMCAD 2015.
+
+Typically, it is best to run CRA with `-cra-split-loops` and `-cra-forward-inv`.  Experimental non-linear invariant generation is available using `-cra-matrix`.
+
+The interprocedural variant is described in
+* Zachary Kincaid, Jason Breck, Ashkan Forouhi Boroujeni, Thomas Reps:  [Compositional Recurrence Analysis Revisited](http://www.cs.princeton.edu/~zkincaid/pub/pldi17.pdf). PLDI 2017.
+
+is available in the *Newton-ark2* branch of this repository.  Build instructions to come.
 
 Architecture
 ============

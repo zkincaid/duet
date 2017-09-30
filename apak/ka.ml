@@ -1,3 +1,5 @@
+open Ark
+
 open Sig.KA
 
 (** Compute x* as 1 + x + xx + xxx + ... Diverges if the sequence does.*)
@@ -23,7 +25,7 @@ module AddZero(M : sig
   let pp formatter = function
     | Zero -> Format.pp_print_int formatter 0
     | Nonzero x -> M.pp formatter x
-  let show = Putil.mk_show pp
+  let show = ArkUtil.mk_show pp
 
   let equal x y = match x,y with
     | (Nonzero x, Nonzero y) -> M.equal x y
@@ -430,7 +432,7 @@ struct
     | PosInfinity -> Format.pp_print_string formatter "+infinity"
     | NegInfinity -> Format.pp_print_string formatter "-infinity"
     | Z x -> Format.pp_print_int formatter x
-  let show = Putil.mk_show pp
+  let show = ArkUtil.mk_show pp
 
   let equal = (=)
 

@@ -1,14 +1,13 @@
 open Syntax
 open Linear
 open BatPervasives
-open Apak
 open Polyhedron
 
 include Log.Make(struct let name = "ark.abstract" end)
 
 module V = Linear.QQVector
-module VS = Putil.Set.Make(Linear.QQVector)
-module VM = Putil.Map.Make(Linear.QQVector)
+module VS = BatSet.Make(Linear.QQVector)
+module VM = BatMap.Make(Linear.QQVector)
 
 let opt_abstract_limit = ref (-1)
 

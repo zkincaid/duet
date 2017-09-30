@@ -58,15 +58,15 @@ let pp formatter interp =
       let env = List.fold_right Env.push formals Env.empty in
       Format.fprintf formatter "%a(@[%a@]) => @[<hov 1>%a@]"
         (pp_symbol interp.ark) key
-        (ApakEnum.pp_print_enum Format.pp_print_string) (BatList.enum formals)
-        (pp_expr ~env interp.ark) body
+        (ArkUtil.pp_print_enum Format.pp_print_string) (BatList.enum formals)
+        (Expr.pp ~env interp.ark) body
     | _ ->
       Format.fprintf formatter "%a => @[<hov 1>%a@]"
         (pp_symbol interp.ark) key
         pp_val value
   in
   Format.fprintf formatter "[@[<v 0>%a@]]"
-    (ApakEnum.pp_print_enum_nobox pp_elt) (SM.enum interp.map)
+    (ArkUtil.pp_print_enum_nobox pp_elt) (SM.enum interp.map)
 
 let of_model ark model symbols =
   List.fold_left
@@ -131,7 +131,7 @@ let rec evaluate_term interp ?(env=Env.empty) term =
     | `Real qq -> qq
     | `App (k, []) -> real interp k
     | `App (func, args) ->
-      begin match refine interp.ark (unfold_app interp func args) with
+      begin match Expr.refine interp.ark (unfold_app interp func args) with
         | `Term t ->
           evaluate_term interp ~env t
         | `Formula _ ->
@@ -184,7 +184,7 @@ and evaluate_formula interp ?(env=Env.empty) phi =
     | `Ite (cond, bthen, belse) -> if cond then bthen else belse
     | `Proposition (`App (k, [])) -> bool interp k
     | `Proposition (`App (func, args)) ->
-      begin match refine interp.ark (unfold_app interp func args) with
+      begin match Expr.refine interp.ark (unfold_app interp func args) with
         | `Formula phi ->
           evaluate_formula interp ~env phi
         | `Term _ ->
@@ -371,7 +371,7 @@ let select_implicant interp ?(env=Env.empty) phi =
         None
     | `Quantify _ -> invalid_arg "select_implicant"
   and expr x =
-    match refine ark x with
+    match Expr.refine ark x with
     | `Term t ->
       let (t_term, t_impl) = term t in
       ((t_term :> ('a,typ_fo) expr), t_impl)

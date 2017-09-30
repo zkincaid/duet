@@ -1,13 +1,8 @@
-open Apak
 open OUnit
 open BatPervasives
 open Syntax
 open ArkApron
-
-module Ctx = MakeSimplifyingContext ()
-module Infix = Syntax.Infix(Ctx)
-let ctx = Ctx.context
-let smt_ctx = ArkZ3.mk_context ctx []
+open Test_pervasives
 
 let (pow, log) =
   Wedge.ensure_nonlinear_symbols ctx;
@@ -16,30 +11,6 @@ let (pow, log) =
 
 let mk_log (base : 'a term) (x : 'a term) = mk_app ctx log [base; x]
 let mk_pow (base : 'a term) (exp : 'a term) = mk_app ctx pow [base; exp]
-
-let qsym = Ctx.mk_symbol ~name:"q" `TyReal
-let rsym = Ctx.mk_symbol ~name:"r" `TyReal
-let ssym = Ctx.mk_symbol ~name:"s" `TyReal
-let q : 'a term = Ctx.mk_const qsym
-let r : 'a term = Ctx.mk_const rsym
-let s : 'a term = Ctx.mk_const ssym
-
-let vsym = Ctx.mk_symbol ~name:"v" `TyInt
-let wsym = Ctx.mk_symbol ~name:"w" `TyInt
-let xsym = Ctx.mk_symbol ~name:"x" `TyInt
-let ysym = Ctx.mk_symbol ~name:"y" `TyInt
-let zsym = Ctx.mk_symbol ~name:"z" `TyInt
-let v : 'a term = Ctx.mk_const vsym
-let w : 'a term = Ctx.mk_const wsym
-let x : 'a term = Ctx.mk_const xsym
-let y : 'a term = Ctx.mk_const ysym
-let z : 'a term = Ctx.mk_const zsym
-
-let frac num den = Ctx.mk_real (QQ.of_frac num den)
-let int k = Ctx.mk_real (QQ.of_int k)
-
-let assert_equiv_formula s t =
-  assert_equal ~printer:(Formula.show ctx) ~cmp:(smt_ctx#equiv) s t
 
 let assert_implies phi psi =
   psi |> List.iter (fun atom ->

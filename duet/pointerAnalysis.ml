@@ -1,6 +1,7 @@
 (** Common operations for pointer analyses *)
 
 open Core
+open Ark
 open Apak
 open CfgIr
 
@@ -117,7 +118,7 @@ struct
         in
         go 0 ap
     in
-    Expr.fold f expr
+    Aexpr.fold f expr
 end
 
 (* Simplified access path - these can appear on either side of a pointer
@@ -236,14 +237,14 @@ and simplify_expr expr =
 class virtual ptr_anal file =
   object (self)
     method virtual ap_points_to : ap -> MemLoc.Set.t
-    method virtual expr_points_to : expr -> MemLoc.Set.t
+    method virtual expr_points_to : aexpr -> MemLoc.Set.t
     method resolve_call expr =
-      let targets = match Expr.strip_casts expr with
+      let targets = match Aexpr.strip_casts expr with
         | AccessPath (Deref x) -> self#expr_points_to x
         | AddrOf x -> self#expr_points_to expr
         | AccessPath (Variable _) -> self#expr_points_to expr
         | expr -> begin
-            Log.errorf "Could not resolve call `%a'" Expr.pp expr;
+            Log.errorf "Could not resolve call `%a'" Aexpr.pp expr;
             assert false
           end
       in
@@ -364,7 +365,7 @@ let simplify_calls file =
       let skip = Def.mk (Assume (Bexpr.ktrue)) in
       let add_call target =
         let call =
-          let etc = (None, Expr.addr_of (Variable (Var.mk target)), []) in
+          let etc = (None, Aexpr.addr_of (Variable (Var.mk target)), []) in
           match tmp with
           | Call _           -> Def.mk ~loc:loc (Call etc)
           | Builtin (Fork _) -> Def.mk ~loc:loc (Builtin (Fork etc))
@@ -380,7 +381,7 @@ let simplify_calls file =
       if (Varinfo.Set.cardinal targets < 1)
       then begin
         Log.errorf "WARNING: No targets for call to `%a' on line %d"
-          Expr.pp func
+          Aexpr.pp func
           (Def.get_location def).Cil.line;
         add_call undefined
       end;

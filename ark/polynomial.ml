@@ -1,5 +1,4 @@
 open BatPervasives
-open Apak
 
 include Log.Make(struct let name = "ark.polynomial" end)
 
@@ -23,7 +22,7 @@ module Int = struct
 end
 
 module Uvp(R : Ring) = struct
-  module IntMap = Apak.Tagged.PTMap(Int)
+  module IntMap = ArkUtil.Int.Map
 
   include Linear.RingMap(IntMap)(R)
 
@@ -44,7 +43,7 @@ module Uvp(R : Ring) = struct
     BatEnum.fold
       (fun r ((pp,pc), (qp,qc)) -> add_term (R.mul pc qc) (pp + qp) r)
       zero
-      (ApakEnum.cartesian_product (IntMap.enum p) (IntMap.enum q))
+      (ArkUtil.cartesian_product (IntMap.enum p) (IntMap.enum q))
 
   let exp = ArkUtil.exp mul one
 
@@ -79,13 +78,13 @@ module QQUvp = struct
       else
         Format.fprintf formatter "@[%a*x^%d@]" QQ.pp coeff order
     in
-    ApakEnum.pp_print_enum
+    ArkUtil.pp_print_enum
       ~pp_sep:(fun formatter () -> Format.fprintf formatter "@ + ")
       pp_monomial
       formatter
       (IntMap.enum p)
 
-  let show = Apak.Putil.mk_show pp
+  let show = ArkUtil.mk_show pp
 
   let summation p =
     let module M = Linear.QQMatrix in
@@ -139,7 +138,7 @@ module Monomial = struct
     if IntMap.is_empty monomial then
       Format.pp_print_string formatter "1"
     else
-      ApakEnum.pp_print_enum_nobox
+      ArkUtil.pp_print_enum_nobox
         ~pp_sep:(fun formatter () -> Format.fprintf formatter "*")
         (fun formatter (dim, power) ->
            if power = 1 then
@@ -303,7 +302,7 @@ module Mvp = struct
     if MM.is_empty p then
       Format.pp_print_string formatter "0"
     else
-      ApakEnum.pp_print_enum_nobox
+      ArkUtil.pp_print_enum_nobox
         ~pp_sep:(fun formatter () -> Format.fprintf formatter "@ + ")
         (fun formatter (coeff, m) ->
            if QQ.equal coeff QQ.one then
@@ -404,7 +403,7 @@ module Mvp = struct
       (Some zero)
 
   let dimensions p =
-    let module S = Putil.PInt.Set in
+    let module S = ArkUtil.Int.Set in
     MM.fold (fun m _ set ->
         Monomial.IntMap.fold (fun dim _ set -> S.add dim set) m set)
       p
@@ -415,19 +414,110 @@ end
 module Rewrite = struct
   (* An ordered polynomial (coefficient, monomial) pairs such that the
      monomials *descend* in some admissible order. *)
-  type op = (QQ.t * Monomial.t) list
+  type op = (QQ.t * Monomial.t) list [@@deriving ord]
 
   module P = BatSet.Make(Mvp)
 
+  type rule = Monomial.t * op * P.t [@@deriving ord]
+
+  (* Priority queue of pairs of polynomials, ordered by total degree of the
+     LCM of their leading monomials *)
+  module PairQueue = struct
+    type pair = int * rule * rule [@@deriving ord]
+
+    module H = BatHeap.Make(struct
+        type t = pair [@@deriving ord]
+      end)
+    let insert queue (x, y) =
+      let (m, _, _) = x in
+      let (m', _, _) = y in
+      let deg = Monomial.total_degree (Monomial.lcm m m') in
+      if compare_rule x y < 0 then
+        H.insert queue (deg, x, y)
+      else
+        H.insert queue (deg, y, x)
+    let pop queue =
+      if queue = H.empty then
+        None
+      else
+        let (_, x, y) = H.find_min queue in
+        Some ((x, y), H.del_min queue)
+    let empty = H.empty
+    let mem queue (x, y) =
+      let (m, _, _) = x in
+      let (m', _, _) = y in
+      let deg = Monomial.total_degree (Monomial.lcm m m') in
+      let elt =
+        if compare_rule x y < 0 then
+          (deg, x, y)
+        else
+          (deg, y, x)
+      in
+      BatEnum.exists ((=) 0 % compare_pair elt) (H.enum queue)
+  end
+
+  module IntSet = ArkUtil.Int.Set
+
+  (* Rule set *)
+  module RS = struct
+    type t = rule FeatureTree.t
+    let enum = FeatureTree.enum
+    let features ft m = FeatureTree.features ft (m, [], P.empty)
+    let find_leq_map = FeatureTree.find_leq_map
+    let insert = FeatureTree.insert
+    let remove = FeatureTree.remove (fun x y -> compare_rule x y = 0)
+    let of_list rules =
+      let () = Random.init 63864283 in
+      let nb_dimensions =
+        let max_dim m =
+          Monomial.IntMap.fold (fun d _ m -> max d m) m 0
+        in
+        List.fold_left (fun nb_dimensions (n,op,_) ->
+            List.fold_left
+              (fun x (_, y) -> max x (max_dim y))
+              (max nb_dimensions (max_dim n))
+              op)
+          0
+          rules
+      in
+      let rec log2 n =
+        if n == 1 then
+          0
+        else
+          log2 (n / 2) + 1
+      in
+      let nb_features = (log2 (8 + nb_dimensions)) in
+      let feature_sets =
+        Array.init nb_features (fun _ ->
+            BatEnum.fold (fun set d ->
+                if Random.bool () then
+                  IntSet.add d set
+                else
+                  set)
+              IntSet.empty
+              (0 -- nb_dimensions))
+      in
+      let features (m,_,_) =
+        let fv = Array.make nb_features 0 in
+        m |> Monomial.IntMap.iter (fun d p ->
+            for i = 0 to (nb_features - 1) do
+              if IntSet.mem d feature_sets.(i) then
+                fv.(i) <- fv.(i) + p
+            done);
+        fv
+      in
+      FeatureTree.of_list features rules
+  end
+
   type t =
-    { rules : (Monomial.t * op * P.t) list;
+    { rules : RS.t;
       order : Monomial.t -> Monomial.t -> [ `Eq | `Lt | `Gt ] }
 
   let pp_op pp_dim formatter op =
     match op with
     | [] -> Format.pp_print_string formatter "0"
     | _ ->
-    ApakEnum.pp_print_enum_nobox
+    ArkUtil.pp_print_enum_nobox
       ~pp_sep:(fun formatter () -> Format.fprintf formatter "@ + ")
       (fun formatter (coeff, monomial) ->
          if QQ.equal coeff QQ.one then
@@ -441,14 +531,14 @@ module Rewrite = struct
       (BatList.enum op)
 
   let pp pp_dim formatter rewrite =
-    ApakEnum.pp_print_enum_nobox
+    ArkUtil.pp_print_enum_nobox
       ~pp_sep:(fun formatter () -> Format.fprintf formatter "@;")
       (fun formatter (lhs, rhs, _) ->
          Format.fprintf formatter "%a --> @[<hov 2>%a@]"
            (Monomial.pp pp_dim) lhs
            (pp_op pp_dim) rhs)
       formatter
-      (BatList.enum rewrite.rules)
+      (RS.enum rewrite.rules)
 
   let rec op_add order p q =
     match p, q with
@@ -486,7 +576,7 @@ module Rewrite = struct
     | (c, m)::polynomial' ->
       try
         let (reduced, provenance) =
-          BatList.find_map (fun (n, p, provenance) ->
+          RS.find_leq_map (RS.features rewrite.rules m) (fun (n, p, provenance) ->
               match Monomial.div m n with
               | Some remainder ->
                 Some (op_monomial_scalar_mul c remainder p, provenance)
@@ -514,40 +604,46 @@ module Rewrite = struct
     mvp_of_op reduced
 
   let mk_rewrite order polynomials =
-    let rules =
-      List.fold_left (fun rules polynomial ->
-          let (op, provenance) =
-            op_of_mvp order polynomial
-            |> reduce_op { rules; order }
-          in
+    let rule_list =
+      polynomials |> BatList.filter_map (fun polynomial ->
+          let op = op_of_mvp order polynomial in
           match op with
-          | [] -> rules (* reduced to 0 *)
+          | [] -> None
           | (c, m)::rest ->
             assert (not (QQ.equal c QQ.zero));
             let rhs =
               op_monomial_scalar_mul (QQ.negate (QQ.inverse c)) Monomial.one rest
             in
-            let new_rule = (m, rhs, P.add polynomial provenance) in
-            let rules =
-              let rewrite = { rules = [new_rule]; order = order } in
-              List.map (fun (n, p, provenance) ->
-                  let (p',provenance') = reduce_op rewrite p in
-                  (n, p', P.union provenance provenance')) rules
-            in
-            new_rule::rules)
-        []
-        polynomials
+            Some (m, rhs, P.singleton polynomial))
     in
-    { rules; order }
+    { rules = RS.of_list rule_list;
+      order }
 
-  let rec insert_rule (m,rhs,provenance) rules =
-    match rules with
-    | [] -> [(m,rhs,provenance)]
-    | (m',rhs',provenance')::rules' ->
-      if Monomial.total_degree m <= Monomial.total_degree m' then
-        (m,rhs,provenance)::rules
-      else
-        (m',rhs',provenance')::(insert_rule (m,rhs,provenance) rules')
+  let insert_rule order rule rules =
+    let rec insert (m,rhs,provenance) rules =
+      match rules with
+      | [] -> [(m,rhs,provenance)]
+      | (m',rhs',provenance')::rules' ->
+        if Monomial.total_degree m <= Monomial.total_degree m' then
+          (m,rhs,provenance)::rules
+        else
+          (m',rhs',provenance')::(insert (m,rhs,provenance) rules')
+    in
+    insert rule rules
+
+  (* Buchberger's second criterion *)
+  let criterion2 r r' pairs rules =
+    let lcm =
+      let (m, _, _) = r in
+      let (m', _, _) = r' in
+      Monomial.lcm m m'
+    in
+    List.exists (fun rule ->
+        let (m, _, _) = rule in
+        (Monomial.div m lcm) != None
+        && not (PairQueue.mem pairs (r, rule))
+        && not (PairQueue.mem pairs (r', rule)))
+      rules
 
   let buchberger order rules pairs =
     (* Suppose m1 = rhs1 and m2 = rhs1.  Let m be the least common multiple of
@@ -565,14 +661,14 @@ module Rewrite = struct
        P.union provenance1 provenance2)
     in
     let pp_dim formatter i =
-      Format.pp_print_string formatter (Char.escaped (Char.chr i))
+      Format.pp_print_string formatter (Char.escaped (Char.chr (65 + i)))
     in
     let lhs (x, _, _) = x in
     let rhs (_, x, _) = x in
     let rec go rules pairs =
-      match pairs with
-      | [] -> rules
-      | (r1, r2)::pairs ->
+      match PairQueue.pop pairs with
+      | None -> rules
+      | Some ((r1, r2), pairs) ->
         logf ~level:`trace  "Pair:";
         logf ~level:`trace  "  @[%a@] --> @[<hov 2>%a@]"
           (Monomial.pp pp_dim) (lhs r1)
@@ -586,7 +682,7 @@ module Rewrite = struct
         | ([(c,m)], provenance') when Monomial.equal m Monomial.one ->
           (* Inconsistent -- return (1 = 0) *)
           assert (not (QQ.equal c QQ.zero));
-          [(Monomial.one, [], P.union provenance provenance')]
+          (RS.of_list [(Monomial.one, [], P.union provenance provenance')])
         | ((c,m)::rest, provenance') ->
           assert (not (QQ.equal c QQ.zero));
           let rhs =
@@ -597,67 +693,125 @@ module Rewrite = struct
             (Monomial.pp pp_dim) m
             (pp_op pp_dim) rhs;
           let new_rule = (m,rhs,P.union provenance provenance') in
+          let pairs =
+            BatEnum.fold (fun pairs rule ->
+                match rule with
+                | (m', _, _) when Monomial.equal (Monomial.gcd m m') Monomial.one ->
+                  pairs
+                | _ ->
+                  PairQueue.insert pairs (new_rule, rule))
+              pairs
+              (RS.enum rules)
+          in
           go
-            (insert_rule new_rule rules)
-            (pairs@(List.map (fun r -> (new_rule, r)) rules))
+            (RS.insert new_rule rules)
+            pairs
     in
     go rules pairs
 
   let buchberger order rules pairs =
     Log.time "buchberger" (buchberger order rules) pairs
 
-  let add_saturate rewrite p =
-    let provenance = P.singleton p in
-    match reduce_op rewrite (op_of_mvp rewrite.order p) with
+  let compare_rule (m,rhs,provenance) (m',rhs',provenance') =
+    match Pervasives.compare (Monomial.total_degree m) (Monomial.total_degree m') with
+    | 0 ->
+      begin match Monomial.compare m m' with
+        | 0 -> Pervasives.compare rhs rhs'
+        | x -> x
+      end
+    | x -> x
+
+  (* Ensure that every basis polynomial is irreducible w.r.t. every other basis polynomial *)
+  let reduce_rewrite rewrite =
+    let rules =
+      BatEnum.fold (fun rules rule ->
+        let (m, rhs, provenance) = rule in
+        let rules = RS.remove rule rules in
+        match reduce_op {rewrite with rules=rules} ((QQ.negate QQ.one, m)::rhs) with
+        | ([], _) -> rules
+        | ([(c,m)], provenance') when Monomial.equal m Monomial.one ->
+          (* Inconsistent -- return (1 = 0) *)
+          assert (not (QQ.equal c QQ.zero));
+          RS.of_list [(Monomial.one, [], P.union provenance provenance')]
+        | ((c,m)::rest, provenance') ->
+          assert (not (QQ.equal c QQ.zero));
+          let rhs =
+            op_monomial_scalar_mul (QQ.negate (QQ.inverse c)) Monomial.one rest
+          in
+          RS.insert (m, rhs, P.union provenance provenance') rules)
+        rewrite.rules
+        (RS.enum rewrite.rules)
+    in
+    { order = rewrite.order; rules = rules }
+
+  let add_saturate_op rewrite op provenance =
+    match reduce_op rewrite op with
     | ([], _) -> rewrite
     | ([(c,m)], provenance') when Monomial.equal m Monomial.one ->
       (* Inconsistent -- return (1 = 0) *)
       assert (not (QQ.equal c QQ.zero));
       { order = rewrite.order;
-        rules = [(Monomial.one, [], P.union provenance provenance')] }
+        rules = RS.of_list [(Monomial.one, [], P.union provenance provenance')] }
     | ((c,m)::rest, provenance') ->
       assert (not (QQ.equal c QQ.zero));
       let rhs =
         op_monomial_scalar_mul (QQ.negate (QQ.inverse c)) Monomial.one rest
       in
       let new_rule = (m, rhs, P.union provenance provenance') in
-      let pairs = List.map (fun r -> (new_rule, r)) rewrite.rules in
+      let pairs =
+        BatEnum.fold (fun pairs rule ->
+            match rule with
+            | (m', _, _) when Monomial.equal (Monomial.gcd m m') Monomial.one ->
+              pairs
+            | _ ->
+              PairQueue.insert pairs (new_rule, rule))
+          PairQueue.empty
+          (RS.enum rewrite.rules)
+      in
       { order = rewrite.order;
-        rules = buchberger rewrite.order (new_rule::rewrite.rules) pairs }
+        rules = buchberger rewrite.order
+            (RS.insert new_rule rewrite.rules)
+            pairs }
+      |> reduce_rewrite
+
+  let add_saturate rewrite p =
+    add_saturate_op rewrite (op_of_mvp rewrite.order p) (P.singleton p)
 
   let grobner_basis rewrite =
-    List.fold_left (fun rewrite (m,rhs,provenance) ->
-        match reduce_op rewrite ((QQ.negate QQ.one, m)::rhs) with
-        | ([], _) -> rewrite
-        | ([(c,m)], provenance') when Monomial.equal m Monomial.one ->
-          (* Inconsistent -- return (1 = 0) *)
-          assert (not (QQ.equal c QQ.zero));
-          { order = rewrite.order;
-            rules = [(Monomial.one, [], P.union provenance provenance')] }
-        | ((c,m)::rest, provenance') ->
-          assert (not (QQ.equal c QQ.zero));
-          let rhs =
-            op_monomial_scalar_mul (QQ.negate (QQ.inverse c)) Monomial.one rest
-          in
-          let rules = rewrite.rules in
-          let new_rule = (m,rhs,P.union provenance provenance') in
-          let pairs =
-            BatList.filter_map (fun (m',rhs',provenance') ->
-                if Monomial.equal (Monomial.gcd m m') Monomial.one then
-                  None
-                else
-                  Some (new_rule, (m',rhs',provenance')))
-              rewrite.rules
-          in
-          let new_rules = insert_rule new_rule rules in
-          { order = rewrite.order;
-            rules = buchberger rewrite.order new_rules pairs }
-      )
-      { order = rewrite.order; rules = [] }
-      rewrite.rules
+    let pp_dim formatter i =
+      Format.pp_print_string formatter (Char.escaped (Char.chr (65 + i)))
+    in
+
+    logf "Compute a Grobner basis for:@\n@[<v 0>%a@]"
+      (pp pp_dim) rewrite;
+
+    let rewrite = reduce_rewrite rewrite in
+
+    logf "After reduction:@\n@[<v 0>%a@]"
+      (pp pp_dim) rewrite;
+
+    let pairs =
+      BatEnum.fold (fun pairs (rule, rule') ->
+          let (m, _, _) = rule in
+          let (m', _, _) = rule' in
+          if Monomial.equal (Monomial.gcd m m') Monomial.one then
+            pairs
+          else
+            PairQueue.insert pairs (rule, rule'))
+        PairQueue.empty
+        (ArkUtil.distinct_pairs (RS.enum rewrite.rules))
+    in
+
+    let grobner =
+      { order = rewrite.order; rules = buchberger rewrite.order rewrite.rules pairs }
+      |> reduce_rewrite
+    in
+    logf "Grobner basis:@\n@[<v 0>%a@]"
+      (pp pp_dim) grobner;
+    grobner
 
   let generators rewrite =
-    List.map
-      (fun (lt, op, _) -> mvp_of_op ((QQ.of_int (-1), lt)::op))
-      rewrite.rules
+    RS.enum rewrite.rules
+    /@ (fun (lt, op, _) -> mvp_of_op ((QQ.of_int (-1), lt)::op))
+    |> BatList.of_enum
 end

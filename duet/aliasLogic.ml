@@ -3,7 +3,8 @@ open Core
 open CfgIr
 open EqLogic
 open Apak
-open Expr
+open Ark
+open Aexpr
 
 module DG = Afg.G
 module Pack = Afg.Pack
@@ -759,7 +760,7 @@ struct
         end
       | Assume exp | Assert (exp, _) -> assume_weight def exp
       | AssertMemSafe (expr, _) ->
-        assume_weight def (Bexpr.of_expr expr)
+        assume_weight def (Bexpr.of_aexpr expr)
       | Call (_, _, _) -> RD.one
       | Return _ -> assert false
 (*
@@ -786,7 +787,7 @@ struct
           RDMap.update (Def.initial, ap) rd_tr reaching
         in
         let reaching_defs =
-          match Expr.simplify size with
+          match Aexpr.simplify size with
           | Constant (CInt (ksize, _)) ->
             let f reaching i = add_rd (OffsetFixed i) reaching in
             BatEnum.fold f tr.reaching_defs (BatInt.(--) 0 (ksize-1))
@@ -800,7 +801,7 @@ struct
       | Store (lhs, rhs) -> assign_abspath lhs rhs
       | Assign (lhs, rhs) -> assign_abspath (Variable lhs) rhs
       | Assume exp | Assert (exp, _) -> assume_abspath exp
-      | AssertMemSafe (expr, _) -> assume_abspath (Bexpr.of_expr expr)
+      | AssertMemSafe (expr, _) -> assume_abspath (Bexpr.of_aexpr expr)
       | Builtin (Alloc (lhs, _, _)) ->
         assign_abspath (Variable lhs) (Havoc (Var.get_type lhs))
       | Builtin Exit -> AbsPath.zero
@@ -1026,7 +1027,7 @@ let man = Oct.manager_alloc ()(*Box.manager_alloc ()*)
 let predicates aps =
   let add ap set =
     if is_pointer_type (AP.get_type ap)
-    then Exponential.PSet.add (Bexpr.ge (AccessPath ap) Expr.one) set
+    then Exponential.PSet.add (Bexpr.ge (AccessPath ap) Aexpr.one) set
     else set
   in
   AP.Set.fold add aps Exponential.PSet.empty

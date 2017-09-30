@@ -1,4 +1,3 @@
-open Apak
 open Syntax
 open BatPervasives
 
@@ -119,12 +118,8 @@ module RingMap (M : Map) (R : Ring) = struct
       (enum u)
 end
 
-module Int = struct
-  type t = int [@@deriving show,ord]
-  let tag k = k
-end
-module IntMap = Apak.Tagged.PTMap(Int)
-module IntSet = Apak.Tagged.PTSet(Int)
+module IntMap = ArkUtil.Int.Map
+module IntSet = ArkUtil.Int.Set
 
 module ZZVector = struct
   include RingMap(IntMap)(ZZ)
@@ -132,9 +127,9 @@ module ZZVector = struct
   let pp formatter vec =
     let pp_elt formatter (k, v) = Format.fprintf formatter "%d:%a" k ZZ.pp v in
     IntMap.enum vec
-    |> Format.fprintf formatter "[@[%a@]]" (ApakEnum.pp_print_enum pp_elt)
+    |> Format.fprintf formatter "[@[%a@]]" (ArkUtil.pp_print_enum pp_elt)
 
-  let show = Putil.mk_show pp
+  let show = ArkUtil.mk_show pp
   let compare = compare ZZ.compare
 end
 
@@ -144,9 +139,9 @@ module QQVector = struct
   let pp formatter vec =
     let pp_elt formatter (k, v) = Format.fprintf formatter "%d:%a" k QQ.pp v in
     IntMap.enum vec
-    |> Format.fprintf formatter "[@[%a@]]" (ApakEnum.pp_print_enum pp_elt)
+    |> Format.fprintf formatter "[@[%a@]]" (ArkUtil.pp_print_enum pp_elt)
 
-  let show = Putil.mk_show pp
+  let show = ArkUtil.mk_show pp
   let compare = compare QQ.compare
 end
 
@@ -211,7 +206,7 @@ module QQMatrix = struct
     in
     let pp_row formatter row =
       Format.fprintf formatter "[%a]"
-        (ApakEnum.pp_print_enum (pp_entry row)) (IntSet.enum cols)
+        (ArkUtil.pp_print_enum (pp_entry row)) (IntSet.enum cols)
     in
     let pp_sep formatter () =
       Format.fprintf formatter "@\n"
@@ -222,9 +217,9 @@ module QQMatrix = struct
       Format.fprintf formatter "@[<v 0>%a x %a@;%a@]"
         IntSet.pp (row_set mat)
         IntSet.pp cols
-        (ApakEnum.pp_print_enum_nobox ~pp_sep pp_row) (rows mat)
+        (ArkUtil.pp_print_enum_nobox ~pp_sep pp_row) (rows mat)
 
-  let show = Putil.mk_show pp
+  let show = ArkUtil.mk_show pp
     
   let transpose mat =
     entries mat
@@ -248,7 +243,7 @@ end
 
 module type ExprRingMap = sig
   type scalar
-  type 'a t = ('a, typ_arith, scalar) ExprMap.t
+  type 'a t = ('a, typ_arith, scalar) Expr.Map.t
 
   val zero : 'a t
   val one : 'a context -> 'a t
@@ -267,11 +262,11 @@ end
 
 module MakeExprRingMap(R : Ring) = struct
   type scalar = R.t
-  type 'a t = ('a, typ_arith, R.t) ExprMap.t
+  type 'a t = ('a, typ_arith, R.t) Expr.Map.t
 
-  let zero = ExprMap.empty
+  let zero = Expr.Map.empty
 
-  let enum = ExprMap.enum
+  let enum = Expr.Map.enum
 
   let add u v =
     let f _ a b =
@@ -282,15 +277,15 @@ module MakeExprRingMap(R : Ring) = struct
       | Some x, None | None, Some x -> Some x
       | None, None -> assert false
     in
-    ExprMap.merge f u v
+    Expr.Map.merge f u v
 
   let add_term coeff dim vec =
     if R.equal coeff R.zero then vec else begin
       try
-        let sum = R.add coeff (ExprMap.find dim vec) in
-        if not (R.equal sum R.zero) then ExprMap.add dim sum vec
-        else ExprMap.remove dim vec
-      with Not_found -> ExprMap.add dim coeff vec
+        let sum = R.add coeff (Expr.Map.find dim vec) in
+        if not (R.equal sum R.zero) then Expr.Map.add dim sum vec
+        else Expr.Map.remove dim vec
+      with Not_found -> Expr.Map.add dim coeff vec
     end
 
   let term coeff dim = add_term coeff dim zero
@@ -301,7 +296,7 @@ module MakeExprRingMap(R : Ring) = struct
     BatEnum.fold (fun t (dim, coeff) -> add_term coeff dim t) zero enum
 
   let mul ark u v =
-    ApakEnum.cartesian_product
+    ArkUtil.cartesian_product
       (enum u)
       (enum v)
     /@ (fun ((xdim, xcoeff), (ydim, ycoeff)) ->
@@ -310,22 +305,22 @@ module MakeExprRingMap(R : Ring) = struct
 
   let coeff x vec =
     try
-      ExprMap.find x vec
+      Expr.Map.find x vec
     with Not_found -> R.zero
 
   let scalar_mul k vec =
     if R.equal k R.one then vec
-    else if R.equal k R.zero then ExprMap.empty
-    else ExprMap.map (fun coeff -> R.mul k coeff) vec
+    else if R.equal k R.zero then Expr.Map.empty
+    else Expr.Map.map (fun coeff -> R.mul k coeff) vec
 
-  let negate vec = ExprMap.map R.negate vec
+  let negate vec = Expr.Map.map R.negate vec
 
   let sub u v = add u (negate v)
 
   let one ark = const ark R.one
 
   let pivot x vec =
-    (coeff x vec, ExprMap.remove x vec)
+    (coeff x vec, Expr.Map.remove x vec)
 end
 
 module ExprQQVector = struct
@@ -350,7 +345,7 @@ module ExprQQVector = struct
     Term.eval ark alg
 
   and term_of ark sum =
-    ExprMap.fold (fun term coeff terms ->
+    Expr.Map.fold (fun term coeff terms ->
         if QQ.equal coeff QQ.one then
           term::terms
         else

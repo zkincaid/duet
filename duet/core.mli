@@ -94,21 +94,21 @@ type constant =
 (** Access paths *)
 type ap =
   | Variable      of var
-  | Deref         of expr
+  | Deref         of aexpr
 
 (** Boolean expressions (in negation normal form) *)
 and bexpr =
-  | Atom          of (pred * expr * expr)
+  | Atom          of (pred * aexpr * aexpr)
   | And           of (bexpr * bexpr)
   | Or            of (bexpr * bexpr)
 
 (** Expressions *)
-and expr =
+and aexpr =
   | Havoc         of typ
   | Constant      of constant
-  | Cast          of typ * expr
-  | BinaryOp      of expr * binop * expr * typ
-  | UnaryOp       of unop * expr * typ
+  | Cast          of typ * aexpr
+  | BinaryOp      of aexpr * binop * aexpr * typ
+  | UnaryOp       of unop * aexpr * typ
   | AccessPath    of ap
   | BoolExpr      of bexpr
   | AddrOf        of ap (** It is not generally safe to use this
@@ -121,25 +121,25 @@ type alloc_target =
 
 (** Builtin definitions *)
 type builtin =
-  | Alloc of (var * expr * alloc_target)
-  | Free of expr
-  | Fork of (var option * expr * expr list)
-  | Acquire of expr
-  | Release of expr
+  | Alloc of (var * aexpr * alloc_target)
+  | Free of aexpr
+  | Fork of (var option * aexpr * aexpr list)
+  | Acquire of aexpr
+  | Release of aexpr
   | AtomicBegin
   | AtomicEnd
   | Exit
 
 (** Definition kind *)
 and defkind =
-  | Assign of (var * expr)
-  | Store of (ap * expr)
-  | Call of (var option * expr * expr list)
+  | Assign of (var * aexpr)
+  | Store of (ap * aexpr)
+  | Call of (var option * aexpr * aexpr list)
   | Assume of bexpr
   | Initial
   | Assert of bexpr * string
-  | AssertMemSafe of expr * string
-  | Return of expr option
+  | AssertMemSafe of aexpr * string
+  | Return of aexpr option
   | Builtin of builtin
 
 and def =
@@ -208,7 +208,7 @@ val eval_binop : binop -> int -> int -> int
 
 (** {2 Expression folding } *)
 
-type ('a, 'b, 'c) open_expr =
+type ('a, 'b, 'c) open_aexpr =
   | OHavoc         of typ
   | OConstant      of constant
   | OCast          of typ * 'a
@@ -222,7 +222,7 @@ type ('a, 'b) open_bexpr =
   | OAnd of ('b * 'b)
   | OOr of ('b * 'b)
 
-type ('a, 'b, 'c) expr_algebra = ('a, 'b, 'c) open_expr -> 'a
+type ('a, 'b, 'c) aexpr_algebra = ('a, 'b, 'c) open_aexpr -> 'a
 type ('a, 'b) bexpr_algebra = ('a, 'b) open_bexpr -> 'b
 
 (** {2 Access paths } *)
@@ -238,7 +238,7 @@ module AP : sig
 
   val accessed : t -> Set.t
   val free_vars : t -> Var.Set.t
-  val subst_expr : (expr -> expr) -> t -> t
+  val subst_aexpr : (aexpr -> aexpr) -> t -> t
   val subst_ap : (ap -> ap) -> t -> t
   val subst_var : (var -> var) -> t -> t
   val psubst_var : (var -> var option) -> t -> t option
@@ -247,8 +247,8 @@ module AP : sig
 end
 
 (** {2 Expressions } *)
-module Expr : sig
-  include Putil.CoreType with type t = expr
+module Aexpr : sig
+  include Putil.CoreType with type t = aexpr
 
   val const_int : int -> t
   val one : t
@@ -268,7 +268,7 @@ module Expr : sig
   val get_uses : t -> AP.Set.t
   val accessed : t -> AP.Set.t
   val free_vars : t -> Var.Set.t
-  val subst_expr : (expr -> expr) -> t -> t
+  val subst_aexpr : (aexpr -> aexpr) -> t -> t
   val subst_ap : (ap -> ap) -> t -> t
   val subst_var : (var -> var) -> t -> t
   val psubst_var : (var -> var option) -> t -> t option
@@ -285,8 +285,8 @@ module Expr : sig
       on. *)
   val get_type : t -> typ
 
-  val fold : ('a, bexpr, ap) expr_algebra -> t -> 'a
-  val deep_fold : ('a, 'b, ap) expr_algebra -> ('a, 'b) bexpr_algebra
+  val fold : ('a, bexpr, ap) aexpr_algebra -> t -> 'a
+  val deep_fold : ('a, 'b, ap) aexpr_algebra -> ('a, 'b) bexpr_algebra
     -> t -> 'a
 end
 
@@ -295,17 +295,17 @@ module Bexpr : sig
   include Putil.CoreType with type t = bexpr
   val negate : t -> t
   val implies : t -> t -> t
-  val gt : expr -> expr -> t
-  val ge : expr -> expr -> t
+  val gt : aexpr -> aexpr -> t
+  val ge : aexpr -> aexpr -> t
   val ktrue : t
   val kfalse : t
   val havoc : t
-  val of_expr : expr -> t
+  val of_aexpr : aexpr -> t
 
   val get_uses : t -> AP.Set.t
   val accessed : t -> AP.Set.t
   val free_vars : t -> Var.Set.t
-  val subst_expr : (expr -> expr) -> t -> t
+  val subst_aexpr : (aexpr -> aexpr) -> t -> t
   val subst_ap : (ap -> ap) -> t -> t
   val subst_var : (var -> var) -> t -> t
   val psubst_var : (var -> var option) -> t -> t option
@@ -315,8 +315,8 @@ module Bexpr : sig
   val simplify : t -> t
   val strip_all_casts : t -> t
 
-  val fold : (expr, 'b) bexpr_algebra -> t -> 'b
-  val deep_fold : ('a, 'b, ap) expr_algebra -> ('a, 'b) bexpr_algebra
+  val fold : (aexpr, 'b) bexpr_algebra -> t -> 'b
+  val deep_fold : ('a, 'b, ap) aexpr_algebra -> ('a, 'b) bexpr_algebra
     -> t -> 'b
 end
 

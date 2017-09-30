@@ -1,26 +1,10 @@
-open Apak
 open OUnit
 open BatPervasives
 open Syntax
 open ArkApron
-
-module Ctx = MakeSimplifyingContext ()
-module Infix = Syntax.Infix(Ctx)
-let ctx = Ctx.context
-
-let wsym = Ctx.mk_symbol ~name:"w" `TyInt
-let xsym = Ctx.mk_symbol ~name:"x" `TyInt
-let ysym = Ctx.mk_symbol ~name:"y" `TyInt
-let zsym = Ctx.mk_symbol ~name:"z" `TyInt
-let w : 'a term = Ctx.mk_const wsym
-let x : 'a term = Ctx.mk_const xsym
-let y : 'a term = Ctx.mk_const ysym
-let z : 'a term = Ctx.mk_const zsym
+open Test_pervasives
 
 let env = Env.of_list ctx [xsym; ysym; zsym]
-
-let frac num den = Ctx.mk_real (QQ.of_frac num den)
-let int k = Ctx.mk_real (QQ.of_int k)
 
 let roundtrip1 () =
   let t =

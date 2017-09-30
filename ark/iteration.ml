@@ -1,14 +1,13 @@
 open Syntax
 open BatPervasives
-open Apak
 
 include Log.Make(struct let name = "ark.iteration" end)
 
 module V = Linear.QQVector
 module QQMatrix = Linear.QQMatrix
 
-module IntSet = Putil.PInt.Set
-module IntMap = Putil.PInt.Map
+module IntSet = ArkUtil.Int.Set
+module IntMap = ArkUtil.Int.Map
 module DArray = BatDynArray
 
 module QQUvp = Polynomial.QQUvp
@@ -49,7 +48,7 @@ module Cf = struct
 
   (* Compose a closed form with a uvp *)
   let compose cf p =
-    ExprMap.filter_map
+    Expr.Map.filter_map
       (fun _ coeff ->
          let coeff' = QQUvp.compose coeff p in
          if QQUvp.is_zero coeff' then
@@ -62,7 +61,7 @@ module Cf = struct
     if QQUvp.is_zero scalar then
       zero
     else
-      ExprMap.map (QQUvp.mul scalar) vec
+      Expr.Map.map (QQUvp.mul scalar) vec
 
   exception Quit
 
@@ -101,7 +100,7 @@ module Cf = struct
                 let args' =
                   BatList.filter_map
                     (fun arg ->
-                       match refine ark arg with
+                       match Expr.refine ark arg with
                        | `Term t ->
                          BatOption.bind (Term.eval_partial ark alg t) (term_of_0 ark)
                        | `Formula _ -> None)
@@ -147,7 +146,7 @@ module Cf = struct
     let sum_from_1 px =
       QQUvp.add_term (QQ.negate (QQUvp.eval px QQ.zero)) 0 (QQUvp.summation px)
     in
-    ExprMap.map sum_from_1 cf
+    Expr.Map.map sum_from_1 cf
 
   (* Convert a closed form into a term by instantiating the variable in the
      polynomial coefficients of the closed form *)
@@ -194,6 +193,83 @@ let post_map tr_symbols =
     Symbol.Map.empty
     tr_symbols
 
+let term_of_ocrs ark loop_counter pre_term_of_id post_term_of_id =
+  let open Ocrs in
+  let open Type_def in
+  let ss_pre = SSVar "k" in
+  let pow = get_named_symbol ark "pow" in
+  let log = get_named_symbol ark "log" in
+  let rec go = function
+    | Plus (x, y) -> mk_add ark [go x; go y]
+    | Minus (x, y) -> mk_sub ark (go x) (go y)
+    | Times (x, y) -> mk_mul ark [go x; go y]
+    | Divide (x, y) -> mk_div ark (go x) (go y)
+    | Product xs -> mk_mul ark (List.map go xs)
+    | Sum xs -> mk_add ark (List.map go xs)
+    | Symbolic_Constant name -> pre_term_of_id name
+    | Base_case (name, index) ->
+      assert (index = 0);
+      pre_term_of_id name
+    | Input_variable name ->
+      assert (name = "k");
+      loop_counter
+    | Output_variable (name, subscript) ->
+      assert (subscript = ss_pre);
+      post_term_of_id name
+    | Rational k -> mk_real ark (Mpqf.of_mpq k)
+    | Undefined -> assert false
+    | Pow (x, Rational k) ->
+      let base = go x in
+      begin
+        match QQ.to_int (Mpqf.of_mpq k) with
+        | Some k ->
+          (1 -- k)
+          /@ (fun _ -> base)
+          |> BatList.of_enum
+          |> mk_mul ark
+        | None -> assert false
+      end
+    | Pow (Rational k, y) ->
+      let k = Mpqf.of_mpq k in
+      let (base, exp) =
+        if QQ.lt QQ.zero k && QQ.lt k QQ.one then
+          (mk_real ark (QQ.inverse k),
+           mk_neg ark (go y))
+        else
+          (mk_real ark k,
+           go y)
+      in
+      mk_app ark pow [base; exp]
+    | Pow (x, y) ->
+      let base = go x in
+      let exp = go y in
+      mk_app ark pow [base; exp]
+    | Log (base, x) ->
+      let x = go x in
+      mk_app ark log [mk_real ark (Mpqf.of_mpq base); x]
+    | IDivide (x, y) ->
+      mk_idiv ark (go x) (mk_real ark (Mpqf.of_mpq y))
+    | Mod (x, y) ->
+      mk_mod ark (go x) (go y)
+    | Iif (func, ss) ->
+      let arg =
+        match ss with
+        | SSVar "k" -> loop_counter
+        | SAdd ("k", i) ->
+          mk_add ark [loop_counter; mk_real ark (QQ.of_int i)]
+        | _ -> assert false
+      in
+      let sym =
+        if not (is_registered_name ark func) then
+          register_named_symbol ark func (`TyFun ([`TyReal], `TyReal));
+        get_named_symbol ark func
+      in
+      mk_app ark sym [arg]
+    | Binomial (_, _) | Factorial _ | Sin _ | Cos _ | Arctan _ | Pi | Shift (_, _) ->
+      assert false
+  in
+  go
+
 module WedgeVector = struct
   (*    x'    <=       (3 * x) +  y + 1
         --    --        -         -----
@@ -217,14 +293,14 @@ module WedgeVector = struct
     let ark = iter.ark in
     Format.fprintf formatter
       "{@[<v 0>pre symbols:@;  @[<v 0>%a@]@;post symbols:@;  @[<v 0>%a@]@;"
-      (ApakEnum.pp_print_enum (pp_symbol ark)) (BatList.enum iter.symbols /@ fst)
-      (ApakEnum.pp_print_enum (pp_symbol ark)) (BatList.enum iter.symbols /@ snd);
+      (ArkUtil.pp_print_enum (pp_symbol ark)) (BatList.enum iter.symbols /@ fst)
+      (ArkUtil.pp_print_enum (pp_symbol ark)) (BatList.enum iter.symbols /@ snd);
     Format.fprintf formatter "pre:@;  @[<v 0>%a@]@;post:@;  @[<v 0>%a@]@;"
       Wedge.pp iter.precondition
       Wedge.pp iter.postcondition;
     Format.fprintf formatter
       "recurrences:@;  @[<v 0>%a@;%a@]@]}"
-      (ApakEnum.pp_print_enum_nobox
+      (ArkUtil.pp_print_enum_nobox
          ~pp_sep:(fun formatter () -> Format.pp_print_break formatter 0 0)
          (fun formatter (sym', sym, incr) ->
             Format.fprintf formatter "%a = %a + %a"
@@ -232,7 +308,7 @@ module WedgeVector = struct
               (pp_symbol ark) sym
               (Term.pp ark) incr))
       (BatList.enum iter.stratified)
-      (ApakEnum.pp_print_enum_nobox
+      (ArkUtil.pp_print_enum_nobox
          ~pp_sep:(fun formatter () -> Format.pp_print_break formatter 0 0)
          (fun formatter { exp_lhs; exp_op; exp_coeff; exp_rhs; exp_add } ->
             Format.fprintf formatter "(%a) %s %a * (%a) + %a"
@@ -245,7 +321,7 @@ module WedgeVector = struct
               (Term.pp ark) exp_add))
       (BatList.enum iter.exponential)
 
-  let show x = Putil.mk_show pp x
+  let show x = ArkUtil.mk_show pp x
 
   let exponential_rec ark wedge non_induction post_symbols base =
     (* map from non-induction pre-state vars to their post-state
@@ -664,14 +740,14 @@ module WedgeVectorOCRS = struct
           else
             Symbolic_Constant (string_of_symbol sym)
         | `App (func, [x; y]) when func = pow ->
-          begin match refine iter.ark x, refine iter.ark y with
+          begin match Expr.refine iter.ark x, Expr.refine iter.ark y with
             | `Term x, `Term y ->
               Pow (Term.eval iter.ark alg x,
                    Term.eval iter.ark alg y)
             | _ -> assert false
           end
         | `App (func, [x; y]) when func = log ->
-          begin match destruct iter.ark x, refine iter.ark y with
+          begin match destruct iter.ark x, Expr.refine iter.ark y with
             | `Real k, `Term y ->
               Log (Mpqf.to_mpq k, Term.eval iter.ark alg y)
             | _ -> assert false
@@ -690,71 +766,16 @@ module WedgeVectorOCRS = struct
       Term.eval iter.ark alg
     in
 
-    let rec term_of_expr = function
-      | Plus (x, y) -> mk_add iter.ark [term_of_expr x; term_of_expr y]
-      | Minus (x, y) -> mk_sub iter.ark (term_of_expr x) (term_of_expr y)
-      | Times (x, y) -> mk_mul iter.ark [term_of_expr x; term_of_expr y]
-      | Divide (x, y) -> mk_div iter.ark (term_of_expr x) (term_of_expr y)
-      | Product xs -> mk_mul iter.ark (List.map term_of_expr xs)
-      | Sum xs -> mk_add iter.ark (List.map term_of_expr xs)
-      | Symbolic_Constant name -> mk_const iter.ark (symbol_of_string name)
-      | Base_case (name, index) ->
-        assert (index = 0);
+    let term_of_expr =
+      let pre_term_of_id name =
         mk_const iter.ark (symbol_of_string name)
-      | Input_variable name ->
-        assert (name = "k");
-        loop_counter
-      | Output_variable (name, subscript) ->
-        assert (subscript = ss_pre);
+      in
+      let post_term_of_id name =
         Symbol.Map.find (symbol_of_string name) post_map
         |> mk_const iter.ark
-      | Rational k -> mk_real iter.ark (Mpqf.of_mpq k)
-      | Undefined -> assert false
-      | Pow (x, Rational k) ->
-        let base = term_of_expr x in
-        begin
-          match QQ.to_int (Mpqf.of_mpq k) with
-          | Some k ->
-            (1 -- k)
-            /@ (fun _ -> base)
-            |> BatList.of_enum
-            |> mk_mul iter.ark
-          | None -> assert false
-        end
-      | Pow (Rational k, y) ->
-        let k = Mpqf.of_mpq k in
-        let (base, exp) =
-          if QQ.lt QQ.zero k && QQ.lt k QQ.one then
-            (mk_real iter.ark (QQ.inverse k),
-             mk_neg iter.ark (term_of_expr y))
-          else
-            (mk_real iter.ark k,
-             term_of_expr y)
-        in
-        mk_app iter.ark pow [base; exp]
-      | Pow (x, y) ->
-        let base = term_of_expr x in
-        let exp = term_of_expr y in
-        mk_app iter.ark pow [base; exp]
-      | Log (base, x) ->
-        let x = term_of_expr x in
-        mk_app iter.ark log [mk_real iter.ark (Mpqf.of_mpq base); x]
-      | IDivide (x, y) ->
-        mk_idiv iter.ark (term_of_expr x) (mk_real iter.ark (Mpqf.of_mpq y))
-      | Mod (x, y) ->
-        mk_mod iter.ark (term_of_expr x) (term_of_expr y)
-      | Iif (func, arg) ->
-        assert (arg = "k");
-        let sym =
-          if not (is_registered_name iter.ark func) then
-            register_named_symbol iter.ark func (`TyFun ([`TyReal], `TyReal));
-          get_named_symbol iter.ark func
-        in
-        mk_app iter.ark sym [loop_counter]
-      | Binomial (_, _) | Factorial _ | Sin _ | Cos _ | Arctan _ | Pi ->
-        assert false
+      in
+      term_of_ocrs iter.ark loop_counter pre_term_of_id post_term_of_id
     in
-
     let recurrences =
       let filter_translate f xs =
         xs |> BatList.filter_map (fun x ->
@@ -790,12 +811,27 @@ module WedgeVectorOCRS = struct
       stratified@exponential
     in
     let closed =
-      let to_formula = function
-        | Equals (x, y) -> mk_eq iter.ark (term_of_expr x) (term_of_expr y)
-        | LessEq (x, y) -> mk_leq iter.ark (term_of_expr x) (term_of_expr y)
-        | Less (x, y) -> mk_lt iter.ark (term_of_expr x) (term_of_expr y)
-        | GreaterEq (x, y) -> mk_leq iter.ark (term_of_expr y) (term_of_expr x)
-        | Greater (x, y) -> mk_lt iter.ark (term_of_expr y) (term_of_expr x)
+      let mk_int k = mk_real iter.ark (QQ.of_int k) in
+      let to_formula (PieceWiseIneq (ivar, pieces)) =
+        assert (ivar = "k");
+        let piece_to_formula (ivl, ineq) =
+          let hypothesis = match ivl with
+            | Bounded (lo, hi) ->
+              mk_and iter.ark [mk_leq iter.ark (mk_int lo) loop_counter;
+                               mk_leq iter.ark loop_counter (mk_int hi)]
+            | BoundBelow lo ->
+              mk_and iter.ark [mk_leq iter.ark (mk_int lo) loop_counter]
+          in
+          let conclusion = match ineq with
+            | Equals (x, y) -> mk_eq iter.ark (term_of_expr x) (term_of_expr y)
+            | LessEq (x, y) -> mk_leq iter.ark (term_of_expr x) (term_of_expr y)
+            | Less (x, y) -> mk_lt iter.ark (term_of_expr x) (term_of_expr y)
+            | GreaterEq (x, y) -> mk_leq iter.ark (term_of_expr y) (term_of_expr x)
+            | Greater (x, y) -> mk_lt iter.ark (term_of_expr y) (term_of_expr x)
+          in
+          mk_if iter.ark hypothesis conclusion
+        in
+        mk_and iter.ark (List.map piece_to_formula pieces)
       in
       Log.time "OCRS"
         (List.map to_formula) (Ocrs.solve_rec_list_pair recurrences)
@@ -882,8 +918,8 @@ module WedgeMatrix = struct
     in
     Format.fprintf formatter
       "{@[<v 0>pre symbols:@;  @[<v 0>%a@]@;post symbols:@;  @[<v 0>%a@]@;"
-      (ApakEnum.pp_print_enum (pp_symbol ark)) (BatList.enum iter.symbols /@ fst)
-      (ApakEnum.pp_print_enum (pp_symbol ark)) (BatList.enum iter.symbols /@ snd);
+      (ArkUtil.pp_print_enum (pp_symbol ark)) (BatList.enum iter.symbols /@ fst)
+      (ArkUtil.pp_print_enum (pp_symbol ark)) (BatList.enum iter.symbols /@ snd);
     Format.fprintf formatter "pre:@;  @[<v 0>%a@]@;post:@;  @[<v 0>%a@]@;recurrences:@;  @[<v 0>"
       Wedge.pp iter.precondition
       Wedge.pp iter.postcondition;
@@ -897,7 +933,7 @@ module WedgeMatrix = struct
     pp_rec "<=" offset formatter iter.rec_leq;
     Format.fprintf formatter "@]@]}"
 
-  let show x = Putil.mk_show pp x
+  let show x = ArkUtil.mk_show pp x
 
   (* Are most coefficients of a vector negative? *)
   let is_vector_negative vec =
@@ -1156,7 +1192,7 @@ module WedgeMatrix = struct
          rows of [-A B C].  *)
       logf "Polyhedron: %a"
         (Abstract0.print
-           ((Apak.Putil.mk_show (Term.pp ark)) % CS.term_of_coordinate cs))
+           ((ArkUtil.mk_show (Term.pp ark)) % CS.term_of_coordinate cs))
         polyhedron;
       let constraints = DArray.create () in
       Abstract0.to_lincons_array man polyhedron
@@ -1518,8 +1554,6 @@ module WedgeMatrix = struct
     let open Type_def in
 
     Wedge.ensure_nonlinear_symbols iter.ark;
-    let pow = get_named_symbol iter.ark "pow" in
-    let log = get_named_symbol iter.ark "log" in
 
     let loop_counter_sym = mk_symbol iter.ark ~name:"K" `TyInt in
     let loop_counter = mk_const iter.ark loop_counter_sym in
@@ -1550,70 +1584,15 @@ module WedgeMatrix = struct
     for i = 0 to iter.nb_constants - 1 do
       cf.(i) <- Symbolic_Constant (string_of_int i)
     done;
-    let rec term_of_expr = function
-      | Plus (x, y) -> mk_add iter.ark [term_of_expr x; term_of_expr y]
-      | Minus (x, y) -> mk_sub iter.ark (term_of_expr x) (term_of_expr y)
-      | Times (x, y) -> mk_mul iter.ark [term_of_expr x; term_of_expr y]
-      | Divide (x, y) -> mk_div iter.ark (term_of_expr x) (term_of_expr y)
-      | Product xs -> mk_mul iter.ark (List.map term_of_expr xs)
-      | Sum xs -> mk_add iter.ark (List.map term_of_expr xs)
-      | Symbolic_Constant name ->
+    let term_of_expr =
+      let pre_term_of_id name =
         iter.term_of_id.(int_of_string name)
-      | Base_case (name, index) ->
-        assert (index = 0);
-        iter.term_of_id.(int_of_string name)
-      | Input_variable name ->
-        assert (name = "k");
-        loop_counter
-      | Output_variable (name, subscript) ->
-        assert (subscript = ss_pre);
+      in
+      let post_term_of_id name =
         let id = int_of_string name in
         postify (iter.term_of_id.(id))
-      | Rational k -> mk_real iter.ark (Mpqf.of_mpq k)
-      | Undefined -> assert false
-      | Pow (x, Rational k) ->
-        let base = term_of_expr x in
-        begin
-          match QQ.to_int (Mpqf.of_mpq k) with
-          | Some k ->
-            (1 -- k)
-            /@ (fun _ -> base)
-            |> BatList.of_enum
-            |> mk_mul iter.ark
-          | None -> assert false
-        end
-      | Pow (Rational k, y) ->
-        let k = Mpqf.of_mpq k in
-        let (base, exp) =
-          if QQ.lt QQ.zero k && QQ.lt k QQ.one then
-            (mk_real iter.ark (QQ.inverse k),
-             mk_neg iter.ark (term_of_expr y))
-          else
-            (mk_real iter.ark k,
-             term_of_expr y)
-        in
-        mk_app iter.ark pow [base; exp]
-      | Pow (x, y) ->
-        let base = term_of_expr x in
-        let exp = term_of_expr y in
-        mk_app iter.ark pow [base; exp]
-      | Log (base, x) ->
-        let x = term_of_expr x in
-        mk_app iter.ark log [mk_real iter.ark (Mpqf.of_mpq base); x]
-      | IDivide (x, y) ->
-        mk_idiv iter.ark (term_of_expr x) (mk_real iter.ark (Mpqf.of_mpq y))
-      | Mod (x, y) ->
-        mk_mod iter.ark (term_of_expr x) (term_of_expr y)
-      | Iif (func, arg) ->
-        assert (arg = "k");
-        let sym =
-          if not (is_registered_name iter.ark func) then
-            register_named_symbol iter.ark func (`TyFun ([`TyReal], `TyReal));
-          get_named_symbol iter.ark func
-        in
-        mk_app iter.ark sym [loop_counter]
-      | Binomial (_, _) | Factorial _ | Sin _ | Cos _ | Arctan _ | Pi ->
-        assert false
+      in
+      term_of_ocrs iter.ark loop_counter pre_term_of_id post_term_of_id
     in
     let close_matrix_rec recurrence offset =
       let size = Array.length recurrence.rec_add in
@@ -1645,28 +1624,58 @@ module WedgeMatrix = struct
       in
       recurrence_closed
     in
+    let mk_int k = mk_real iter.ark (QQ.of_int k) in
     let rec close offset closed = function
       | [] -> (mk_and iter.ark closed, offset)
       | (recurrence::rest) ->
         let size = Array.length recurrence.rec_add in
         let recurrence_closed = close_matrix_rec recurrence offset in
-        let to_formula = function
-          | Equals (x, y) -> mk_eq iter.ark (term_of_expr y) (term_of_expr x)
-          | _ -> assert false
+        let to_formula ineq =
+          let PieceWiseIneq (ivar, pieces) = Deshift.deshift_ineq ineq in
+          assert (ivar = "k");
+          let piece_to_formula (ivl, ineq) =
+            let hypothesis = match ivl with
+              | Bounded (lo, hi) ->
+                mk_and iter.ark [mk_leq iter.ark (mk_int lo) loop_counter;
+                                 mk_leq iter.ark loop_counter (mk_int hi)]
+              | BoundBelow lo -> 
+                mk_and iter.ark [mk_leq iter.ark (mk_int lo) loop_counter]
+            in
+            let conclusion = match ineq with
+              | Equals (x, y) -> mk_eq iter.ark (term_of_expr x) (term_of_expr y)
+              | _ -> assert false
+            in
+            mk_if iter.ark hypothesis conclusion
+          in
+          mk_and iter.ark (List.map piece_to_formula pieces)
         in
         recurrence_closed |> List.iteri (fun i ineq ->
             match ineq with
-            | Equals (x, y) | LessEq (x, y) | Less (x, y)
-            | GreaterEq (x, y) | Greater (x, y) ->
-              cf.(offset + i) <- y);
+            | Equals (x, y) -> cf.(offset + i) <- y
+            | _ -> assert false);
         let recurrence_closed_formula = List.map to_formula recurrence_closed in
         close (offset + size) (recurrence_closed_formula@closed) rest
     in
     let (closed, offset) = close iter.nb_constants [] iter.rec_eq in
     let closed_leq =
-      let to_formula = function
-        | Equals (x, y) -> mk_leq iter.ark (term_of_expr x) (term_of_expr y)
-        | _ -> assert false
+      let to_formula ineq =
+        let PieceWiseIneq (ivar, pieces) = Deshift.deshift_ineq ineq in
+        assert (ivar = "k");
+        let piece_to_formula (ivl, ineq) =
+          let hypothesis = match ivl with
+            | Bounded (lo, hi) ->
+              mk_and iter.ark [mk_leq iter.ark (mk_int lo) loop_counter;
+                               mk_leq iter.ark loop_counter (mk_int hi)]
+            | BoundBelow lo ->
+              mk_and iter.ark [mk_leq iter.ark (mk_int lo) loop_counter]
+          in
+          let conclusion = match ineq with
+            | Equals (x, y) -> mk_leq iter.ark (term_of_expr x) (term_of_expr y)
+            | _ -> assert false
+          in
+          mk_if iter.ark hypothesis conclusion
+        in
+        mk_and iter.ark (List.map piece_to_formula pieces)
       in
       if Array.length iter.rec_leq.rec_add > 0 then
         let recurrence_closed = close_matrix_rec iter.rec_leq offset in
@@ -1765,10 +1774,10 @@ end
 module Split (Iter : DomainPlus) = struct
   type 'a t =
     { ark : 'a context;
-      split : ('a, typ_bool, 'a Iter.t * 'a Iter.t) ExprMap.t }
+      split : ('a, typ_bool, 'a Iter.t * 'a Iter.t) Expr.Map.t }
 
   let tr_symbols split_iter =
-    match BatEnum.get (ExprMap.values split_iter.split) with
+    match BatEnum.get (Expr.Map.values split_iter.split) with
     | Some (iter, _) -> Iter.tr_symbols iter
     | None -> assert false
 
@@ -1780,14 +1789,14 @@ module Split (Iter : DomainPlus) = struct
         Iter.pp right
     in
     Format.fprintf formatter "<Split @[<v 0>%a@]>"
-      (ApakEnum.pp_print_enum pp_elt) (ExprMap.enum split_iter.split)
+      (ArkUtil.pp_print_enum pp_elt) (Expr.Map.enum split_iter.split)
 
-  let show x = Putil.mk_show pp x
+  let show x = ArkUtil.mk_show pp x
 
   (* Lower a split iter into an iter by picking an arbitary split and joining
      both sides. *)
   let lower_split split_iter =
-    match BatEnum.get (ExprMap.values split_iter.split) with
+    match BatEnum.get (Expr.Map.values split_iter.split) with
     | Some (iter, iter') -> Iter.join iter iter'
     | None -> assert false
 
@@ -1795,10 +1804,10 @@ module Split (Iter : DomainPlus) = struct
 
   let lift_split ark iter =
     { ark = ark;
-      split = (ExprMap.add
+      split = (Expr.Map.add
                  (mk_true ark)
                  (iter, base_bottom ark (Iter.tr_symbols iter))
-                 ExprMap.empty) }
+                 Expr.Map.empty) }
 
   let abstract_iter ?(exists=fun x -> true) ark body tr_symbols =
     let post_symbols =
@@ -1808,13 +1817,13 @@ module Split (Iter : DomainPlus) = struct
         tr_symbols
     in
     let predicates =
-      let preds = ref ExprSet.empty in
+      let preds = ref Expr.Set.empty in
       let prestate sym = exists sym && not (Symbol.Set.mem sym post_symbols) in
       let rr expr =
         match destruct ark expr with
         | `Not phi ->
           if Symbol.Set.for_all prestate (symbols phi) then
-            preds := ExprSet.add phi (!preds);
+            preds := Expr.Set.add phi (!preds);
           expr
         | `Atom (op, s, t) ->
           let phi =
@@ -1827,17 +1836,17 @@ module Split (Iter : DomainPlus) = struct
           if Symbol.Set.for_all prestate (symbols phi) then
             let redundant = match op with
               | `Eq -> false
-              | `Leq -> ExprSet.mem (mk_lt ark t s) (!preds)
-              | `Lt -> ExprSet.mem (mk_lt ark t s) (!preds)
+              | `Leq -> Expr.Set.mem (mk_lt ark t s) (!preds)
+              | `Lt -> Expr.Set.mem (mk_lt ark t s) (!preds)
             in
             if not redundant then
-              preds := ExprSet.add phi (!preds)
+              preds := Expr.Set.add phi (!preds)
           end;
           expr
         | _ -> expr
       in
       ignore (rewrite ark ~up:rr body);
-      BatList.of_enum (ExprSet.enum (!preds))
+      BatList.of_enum (Expr.Set.enum (!preds))
     in
     let uninterp_body =
       rewrite ark
@@ -1893,7 +1902,7 @@ module Split (Iter : DomainPlus) = struct
           let right_abstract =
             Iter.abstract_iter ~exists ark psi_body tr_symbols
           in
-          ExprMap.add not_psi (left_abstract, right_abstract) split_iter
+          Expr.Map.add not_psi (left_abstract, right_abstract) split_iter
         else if sat_modulo_body (mk_and ark [not_psi; post_psi]) = `Unsat then
           (* {not phi} body {not phi} -> body* = ([phi]body)*([not phi]body)* *)
           let left_abstract =
@@ -1902,23 +1911,23 @@ module Split (Iter : DomainPlus) = struct
           let right_abstract =
             Iter.abstract_iter ~exists ark not_psi_body tr_symbols
           in
-          ExprMap.add psi (left_abstract, right_abstract) split_iter
+          Expr.Map.add psi (left_abstract, right_abstract) split_iter
         else
           split_iter
       else
         split_iter
     in
     let split_iter =
-      List.fold_left add_split_predicate ExprMap.empty predicates
+      List.fold_left add_split_predicate Expr.Map.empty predicates
     in
     (* If there are no predicates that can split the loop, split on true *)
     let split_iter =
-      if ExprMap.is_empty split_iter then
-        ExprMap.add
+      if Expr.Map.is_empty split_iter then
+        Expr.Map.add
           (mk_true ark)
           (Iter.abstract_iter ~exists ark body tr_symbols,
            base_bottom ark tr_symbols)
-          ExprMap.empty
+          Expr.Map.empty
       else
         split_iter
     in
@@ -1958,7 +1967,7 @@ module Split (Iter : DomainPlus) = struct
   let closure split_iter =
     let ark = split_iter.ark in
     let symbols = tr_symbols split_iter in
-    ExprMap.enum split_iter.split
+    Expr.Map.enum split_iter.split
     /@ (fun (predicate, (left, right)) ->
         let not_predicate = mk_not ark predicate in
         let left_closure =
@@ -1979,8 +1988,8 @@ module Split (Iter : DomainPlus) = struct
         Some (Iter.join a_left b_left, Iter.join a_right b_right)
       | _, _ -> None
     in
-    let split_join = ExprMap.merge f split_iter.split split_iter'.split in
-    if ExprMap.is_empty split_join then
+    let split_join = Expr.Map.merge f split_iter.split split_iter'.split in
+    if Expr.Map.is_empty split_join then
       lift_split
         split_iter.ark
         (Iter.join (lower_split split_iter) (lower_split split_iter))
@@ -1994,8 +2003,8 @@ module Split (Iter : DomainPlus) = struct
         Some (Iter.widen a_left b_left, Iter.widen a_right b_right)
       | _, _ -> None
     in
-    let split_widen = ExprMap.merge f split_iter.split split_iter'.split in
-    if ExprMap.is_empty split_widen then
+    let split_widen = Expr.Map.merge f split_iter.split split_iter'.split in
+    if Expr.Map.is_empty split_widen then
       lift_split
         split_iter.ark
         (Iter.widen (lower_split split_iter) (lower_split split_iter))
@@ -2010,8 +2019,8 @@ module Split (Iter : DomainPlus) = struct
          && Iter.equal l l'
          && Iter.equal r r')
       (BatEnum.combine
-         (ExprMap.enum split_iter.split,
-          ExprMap.enum split_iter'.split))
+         (Expr.Map.enum split_iter.split,
+          Expr.Map.enum split_iter'.split))
 end
 
 module Sum (A : PreDomain) (B : PreDomain) = struct

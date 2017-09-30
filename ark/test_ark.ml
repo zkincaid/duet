@@ -2,6 +2,7 @@ open OUnit
 open ArkParse
 
 let suite = "Main" >::: [
+    Test_memo.suite;
     Test_scalar.suite;
     Test_syntax.suite;
     Test_smt.suite;

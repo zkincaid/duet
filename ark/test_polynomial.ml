@@ -20,7 +20,7 @@ let assert_equal_mvp p q =
   let pp_dim formatter i =
     Format.pp_print_string formatter (Char.escaped (Char.chr i))
   in
-  let show = Apak.Putil.mk_show (Mvp.pp pp_dim) in
+  let show = ArkUtil.mk_show (Mvp.pp pp_dim) in
   assert_equal ~printer:show ~cmp:Mvp.equal p q
 
 let test_mul () =
@@ -82,7 +82,7 @@ let test_rewrite2 () =
       (int 2) * x - (int 2) * y + (int 4) * z + (int 2);
       (int 3) * x + (int 2) * y - z - (int 1);
       (int (-2)) * x + y - (int 2) * z;
-    ]
+    ] |> Rewrite.reduce_rewrite
   in
   assert_equal_mvp (int 1) (Rewrite.reduce rewrite x);
   assert_equal_mvp (int (-2)) (Rewrite.reduce rewrite y);

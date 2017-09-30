@@ -33,7 +33,7 @@ module IV = struct
       if Var.is_shared var then Var.pp formatter var
       else Format.fprintf formatter "%a[#%d]" Var.pp var i
 
-    let show = Putil.mk_show pp
+    let show = ArkUtil.mk_show pp
 
     let equal x y = compare x y = 0
     let hash (v, i) = Hashtbl.hash (Var.hash v, i)
@@ -90,6 +90,7 @@ module P = struct
 end
 
 module Tr = Transition.Make(Ctx)(IV)
+
 module Block = struct
   type t =
     [ `Fork of Varinfo.t
@@ -104,12 +105,38 @@ module Block = struct
     | `Fork thread -> Format.fprintf formatter "fork(%a)" Varinfo.pp thread
     | `Transition tr -> Tr.pp formatter tr
 
-  let show x = Putil.mk_show pp x
+  let show x = ArkUtil.mk_show pp x
 
   let default = `Transition Tr.one
 end
 
 module G = ExtGraph.Persistent.Digraph.MakeBidirectionalLabeled(PInt)(Block)
+
+module ThreadCount = struct
+  type t = int option [@@deriving ord,show]
+  type var = unit
+  let equal x y = compare x y = 0
+  let exists _ x = x
+  let one = Some 0
+  let zero = Some 0
+  let add x y = match x, y with
+    | Some x, Some y -> Some (max x y)
+    | _, _ -> None
+  let mul x y = match x, y with
+    | Some x, Some y -> Some (x + y)
+    | _, _ -> None
+  let star x = match x with
+    | Some 0 -> Some 0
+    | _ -> None
+  let widen x y = match x, y with
+    | Some 0, x | x, Some 0 -> x
+    | Some x, Some y when x = y -> Some x
+    | _, _ -> None
+  let fork = function
+    | Some k -> Some (k + 1)
+    | None -> None
+end
+module TCA = Interproc.MakeParPathExpr(ThreadCount)
 
 module Letter = struct
   include G.E
@@ -339,7 +366,7 @@ let index_expr index =
     | OConstant _ -> gensym `TyInt
     | OAddrOf _ -> gensym `TyInt
   in
-  Expr.fold alg
+  Aexpr.fold alg
 
 (* Convert a Core IR boolean expression into a formula.  Local variables are
    interpreted as the locals of tid. *)
@@ -428,7 +455,7 @@ let generalize i phi psi =
     PaFormula.big_conj
       (BatEnum.append
          (BatList.enum props)
-         (ApakEnum.distinct_pairs vars /@ mk_eq))
+         (ArkUtil.distinct_pairs vars /@ mk_eq))
   in
   (subst, gen_phi, rhs)
 
@@ -480,7 +507,7 @@ let construct solver assign_table trace =
         Log.logf
           "Added PA transition:@\n @[{%a}(%a)@]@\n --( [#0] %a )-->@\n @[%a@]"
           P.pp lhs
-          (ApakEnum.pp_print_enum Format.pp_print_int) (1 -- lhs_arity)
+          (ArkUtil.pp_print_enum Format.pp_print_int) (1 -- lhs_arity)
           Letter.pp letter
           PA.pp_formula rhs;
         E.conjoin_transition solver lhs letters (negate_paformula rhs)
@@ -511,7 +538,7 @@ let mk_block_graph file =
     | Assign (v, expr) ->
       `Transition (Tr.assign (v, 0) (index_expr 0 expr))
     | Builtin (Fork (_, expr, _)) ->
-      let func = match Expr.strip_casts expr with
+      let func = match Aexpr.strip_casts expr with
         | AddrOf (Variable (func, OffsetFixed 0)) -> func
         | _ -> assert false
       in
@@ -751,6 +778,23 @@ let verify file =
       (PaFormula.mk_atom Ctx.mk_false [])
       []
   in
+  let max_index =
+    (* redundant -- recgraph has already been computed *)
+    let rg = Interproc.make_recgraph file in
+    let main = match file.CfgIr.entry_points with
+      | [x] -> x
+      | _   -> failwith "PA: No support for multiple entry points"
+    in
+    let query = TCA.mk_query rg (fun _ -> Some 0) (fun _ _ -> true) main in
+    match TCA.get_summary query main with
+    | Some x ->
+      logf "Found bound on number of threads: %d" x;
+      x
+    | None ->
+      logf "No static bound on number of threads";
+      -1
+  in
+
   (* { false } def { false } *)
   PA.add_transition
     empty_proofspace_pa
@@ -763,7 +807,7 @@ let verify file =
   in
 
   let check () =
-    Log.time "PA emptiness" E.find_word solver
+    Log.time "PA emptiness" (E.find_word ~max_index) solver
   in
   let number_cex = ref 0 in
   let print_info () =

@@ -1,22 +1,6 @@
 open OUnit
 open Syntax
-
-module Ctx = MakeSimplifyingContext ()
-module Infix = Syntax.Infix(Ctx)
-let ctx = Ctx.context
-let smt_ctx = ArkZ3.mk_context ctx []
-
-let r = Ctx.mk_const (Ctx.mk_symbol ~name:"r" `TyReal)
-let s = Ctx.mk_const (Ctx.mk_symbol ~name:"s" `TyReal)
-
-let wsym = Ctx.mk_symbol ~name:"w" `TyInt
-let xsym = Ctx.mk_symbol ~name:"x" `TyInt
-let ysym = Ctx.mk_symbol ~name:"y" `TyInt
-let zsym = Ctx.mk_symbol ~name:"z" `TyInt
-let w = Ctx.mk_const wsym
-let x = Ctx.mk_const xsym
-let y = Ctx.mk_const ysym
-let z = Ctx.mk_const zsym
+open Test_pervasives
 
 let b = Ctx.mk_const (Ctx.mk_symbol ~name:"b" `TyBool)
 
@@ -34,14 +18,6 @@ let p = Ctx.mk_symbol ~name:"p" (`TyFun ([`TyInt; `TyBool], `TyBool))
 let hsym = Ctx.mk_symbol ~name:"h" (`TyFun ([`TyReal; `TyReal], `TyReal))
 let h : Ctx.term * Ctx.term -> Ctx.term =
   fun (x, y) -> Ctx.mk_app hsym [x; y]
-
-let frac num den = Ctx.mk_real (QQ.of_frac num den)
-let int k = Ctx.mk_real (QQ.of_int k)
-
-let assert_equal_term s t =
-  assert_equal ~printer:(Term.show ctx)  s t
-let assert_equal_formula s t =
-  assert_equal ~printer:(Formula.show ctx) s t
 
 let roundtrip0 () =
   let tru = mk_true ctx in
@@ -211,6 +187,113 @@ let affine_interp2 () =
      | _ -> assert false)
   | _ -> assert false
 
+let substitute_solution fp expr =
+  let rewriter expr =
+    match destruct ctx expr with
+    | `App (k, []) -> expr
+    | `App (relation, args) ->
+      (substitute ctx
+         (List.nth args)
+         (ArkZ3.CHC.get_solution fp relation) :> ('a,typ_fo) expr)
+    | _ -> expr
+  in
+  rewrite ctx ~down:rewriter expr
+
+let verify_chc relations rules =
+  let solver = ArkZ3.CHC.mk_solver smt_ctx in
+  List.iter (ArkZ3.CHC.register_relation solver) relations;
+  rules |> List.iter (fun (hypothesis, conclusion) ->
+      ArkZ3.CHC.add_rule solver hypothesis conclusion);
+  assert_equal (ArkZ3.CHC.check solver []) `Sat;
+  rules |> List.iter (fun (hypothesis, conclusion) ->
+      let check =
+        mk_and ctx [hypothesis; (mk_not ctx conclusion)]
+        |> substitute_solution solver
+        |> Formula.existential_closure ctx
+      in
+      assert_equal (Smt.is_sat ctx check) `Unsat)
+
+let chc1 () =
+  let psym = Ctx.mk_symbol ~name:"p" (`TyFun ([`TyInt; `TyInt], `TyBool)) in
+  let qsym = Ctx.mk_symbol ~name:"q" (`TyFun ([`TyInt; `TyInt], `TyBool)) in
+  let p (x, y) = Ctx.mk_app psym [x; y] in
+  let q (x, y) = Ctx.mk_app qsym [x; y] in
+
+  let rules =
+    let open Infix in
+    let (-->) x y = (x, y) in
+    let v0 = var 0 `TyInt in
+    let v1 = var 1 `TyInt in
+    let v2 = var 2 `TyInt in
+    [(v0 = (int 0) && (int 0) <= v1) --> p(v0, v1);
+     (p(v0, v1) && v0 < v1 && v2 = v0 + (int 1)) --> p(v2, v1);
+     (p(v0, v1) && v1 <= v0) --> q(v0, v1);
+     q(v0, v1) --> (v0 = v1)]
+  in
+  verify_chc [psym; qsym] rules
+
+let chc2 () =
+  let psym = Ctx.mk_symbol ~name:"p" (`TyFun ([`TyInt; `TyInt], `TyBool)) in
+  let qsym = Ctx.mk_symbol ~name:"q" (`TyFun ([`TyInt; `TyInt], `TyBool)) in
+  let p (x, y) = Ctx.mk_app psym [x; y] in
+  let q (x, y) = Ctx.mk_app qsym [x; y] in
+
+  let rules =
+    let open Infix in
+    let (-->) x y = (x, y) in
+    let v0 = var 0 `TyInt in
+    let v1 = var 1 `TyInt in
+    let v2 = var 2 `TyInt in
+    [(v0 = (int 0) && (int 0) <= v1) --> p(v0, v1);
+     (p(v0, v1) && v0 < v1 && v2 = v0 + (int 2)) --> p(v2, v1);
+     (p(v0, v1) && v1 <= v0) --> q(v0, v1);
+     q(v0, v1) --> (v0 = v1)]
+  in
+  let solver = ArkZ3.CHC.mk_solver smt_ctx in
+  List.iter (ArkZ3.CHC.register_relation solver) [psym; qsym];
+  rules |> List.iter (fun (hypothesis, conclusion) ->
+      ArkZ3.CHC.add_rule solver hypothesis conclusion);
+  assert_equal (ArkZ3.CHC.check solver []) `Unsat
+
+let chc3 () =
+  let psym1 = Ctx.mk_symbol ~name:"p1" (`TyFun ([`TyInt; `TyInt], `TyBool)) in
+  let qsym1 = Ctx.mk_symbol ~name:"q1" (`TyFun ([`TyInt; `TyInt], `TyBool)) in
+  let rsym1 = Ctx.mk_symbol ~name:"r1" (`TyFun ([`TyInt; `TyInt], `TyBool)) in
+  let psym2 = Ctx.mk_symbol ~name:"p2" (`TyFun ([`TyInt; `TyInt], `TyBool)) in
+  let qsym2 = Ctx.mk_symbol ~name:"q2" (`TyFun ([`TyInt; `TyInt], `TyBool)) in
+  let rsym2 = Ctx.mk_symbol ~name:"r2" (`TyFun ([`TyInt; `TyInt], `TyBool)) in
+  let p1 (x, y) = Ctx.mk_app psym1 [x; y] in
+  let q1 (x, y) = Ctx.mk_app qsym1 [x; y] in
+  let r1 (x, y) = Ctx.mk_app rsym1 [x; y] in
+  let p2 (x, y) = Ctx.mk_app psym2 [x; y] in
+  let q2 (x, y) = Ctx.mk_app qsym2 [x; y] in
+  let r2 (x, y) = Ctx.mk_app rsym2 [x; y] in
+
+  let rules =
+    let open Infix in
+    let (-->) x y = (x, y) in
+    let v0 = var 0 `TyInt in
+    let v1 = var 1 `TyInt in
+    let v2 = var 2 `TyInt in
+    [((int 1) <= v0) --> p1(v0,v1);
+     ((int 1) <= v0) --> p2(v0,v2);
+
+     (p1(v0,v1) && p2(v0,v2)) --> q1(v0,v0);
+     (p1(v0,v1) && p2(v0,v2)) --> p2(v0,v2);
+
+     (q1(v0,v1) && p2(v0,v2)) --> q1(v0,v1);
+     (q1(v0,v1) && p2(v0,v2)) --> q2(v0,v0);
+
+     (q1(v0,v1) && q2(v0,v2)) --> r1(v0 + v1,v1);
+     (q1(v0,v1) && q2(v0,v2)) --> q2(v0 + v1,v2);
+
+     (r1(v0,v1) && q2(v0,v2)) --> r1(v0 + v2,v1);
+     (r1(v0,v1) && q2(v0,v2)) --> r2(v0 + v2,v2);
+
+     (r1(v0,v1) && r2(v0,v2)) --> ((int 2) <= v0)]
+  in
+  verify_chc [psym1; qsym1; rsym1; psym2; qsym2; rsym2] rules
+
 let suite = "SMT" >:::
   [
     "roundtrip0" >:: roundtrip0;
@@ -225,4 +308,7 @@ let suite = "SMT" >:::
     "implicant1" >:: implicant1;
     "affine_interp1" >:: affine_interp1;
     "affine_interp2" >:: affine_interp2;
+    "chc1" >:: chc1;
+    "chc2" >:: chc2;
+    "chc3" >:: chc3;
   ]
