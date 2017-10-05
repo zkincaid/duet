@@ -149,6 +149,8 @@ module Rewrite : sig
     Mvp.t list ->
     t
 
+  val reduce_rewrite : t -> t
+
   (** Saturate a polynomial rewrite system with implied equalities  *)
   val grobner_basis : t -> t
 
