@@ -481,7 +481,7 @@ let mk_context : 'a context -> (string * string) list -> 'a z3_context
       method term_of = term_of
       method formula_of = formula_of
       method mk_solver () =
-        new z3_solver context z3 (Z3.Solver.mk_simple_solver z3)
+        new z3_solver context z3 (Z3.Solver.mk_solver z3 None)
 
       method is_sat phi =
         let s = self#mk_solver () in
@@ -622,7 +622,7 @@ let mk_context : 'a context -> (string * string) list -> 'a z3_context
 
 let mk_z3_solver ?(theory="") ctx =
   if theory = "" then
-    (new z3_solver ctx#ark ctx#z3 (Z3.Solver.mk_simple_solver ctx#z3))
+    (new z3_solver ctx#ark ctx#z3 (Z3.Solver.mk_solver ctx#z3 None))
   else
     (new z3_solver ctx#ark ctx#z3 (Z3.Solver.mk_solver_s ctx#z3 theory))
 
