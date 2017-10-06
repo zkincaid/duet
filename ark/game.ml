@@ -129,7 +129,9 @@ end = struct
   (* Verify well-labeledness conditions *)
   let well_labeled game_tree =
     let ark = game_tree.ark in
-    let entails phi psi = Smt.entails game_tree.ark phi psi = `Yes in
+    let entails phi psi =
+      Smt.entails game_tree.ark ~theory:"QF_LRA" phi psi = `Yes
+    in
     let rec well_labeled_vertex v =
       let child_guards =
         children v |> List.map (fun c -> match c.parent with
@@ -292,7 +294,8 @@ end = struct
     vertex.annotation <- new_annotation;
     let (covers, uncovered) =
       List.partition
-        (fun v -> (Smt.entails ark v.annotation new_annotation = `Yes))
+        (fun v ->
+           Smt.entails ark ~theory:"QF_LRA" v.annotation new_annotation = `Yes)
         vertex.covers
     in
     vertex.covers <- covers;
@@ -311,7 +314,73 @@ end = struct
     | None ->
       assert (refine = [])
 
-  let simple_tree_interpolant ark root children =
+  let simple_tree_interpolant_chc game_tree root children =
+    let ark = game_tree.ark in
+    let module CHC = ArkZ3.CHC in
+    let solver = CHC.mk_solver (ArkZ3.mk_context ark []) in
+    let fo_typ_symbol sym =
+      match typ_symbol ark sym with
+      | `TyInt -> `TyInt
+      | `TyReal -> `TyReal
+      | `TyBool -> `TyBool
+      | _ -> assert false
+    in
+    let relations =
+      let typ = `TyFun (List.map fo_typ_symbol game_tree.xs, `TyBool) in
+      List.map (fun _ ->
+          let sym = mk_symbol ark typ in
+          CHC.register_relation solver sym;
+          sym)
+        children
+    in
+    let vars =
+      BatList.mapi (fun i sym ->
+          mk_var ark i (fo_typ_symbol sym))
+        game_tree.xs
+    in
+    let fresh_var =
+      let max_var = ref (List.length vars) in
+      Memo.memo (fun sym ->
+          incr max_var;
+          mk_var ark (!max_var) (fo_typ_symbol sym))
+    in
+    let subst phi =
+      let assoc = List.combine game_tree.xs vars in
+      substitute_const
+        ark
+        (fun sym ->
+           try List.assoc sym assoc
+           with Not_found ->
+             fresh_var sym)
+        phi
+    in
+    List.iter2 (fun child rel ->
+        let hypothesis = subst child in
+        let conclusion = mk_app ark rel vars in
+        CHC.add_rule solver hypothesis conclusion)
+      children
+      relations;
+    let hypothesis =
+      let children = List.map (fun rel -> mk_app ark rel vars) relations in
+      mk_and ark ((subst root)::children)
+    in
+    CHC.add_rule solver hypothesis (mk_false ark);
+    match CHC.check solver [] with
+    | `Sat ->
+      let interp =
+      List.map (fun rel ->
+          substitute
+            ark
+            (mk_const ark % List.nth game_tree.xs)
+            (CHC.get_solution solver rel))
+        relations
+      in
+      `Unsat interp
+    | `Unsat -> `Sat
+    | `Unknown -> `Unknown
+
+  let simple_tree_interpolant game_tree root children =
+    let ark = game_tree.ark in
     let smt_ctx = ArkZ3.mk_context ark [] in
     let children = List.map smt_ctx#simplify children in
     let pattern =
@@ -332,7 +401,8 @@ end = struct
   (* Try to find an ancestor of v to cover it. *)
   let find_cover game_tree v =
     let rec find_cover u =
-      if Smt.entails game_tree.ark v.annotation u.annotation = `Yes then
+      if Smt.entails game_tree.ark ~theory:"QF_LRA" v.annotation u.annotation = `Yes
+      then
         Some u
       else
         match u.parent with
@@ -395,7 +465,7 @@ end = struct
         let u_annotation =
           substitute_var_to_level game_tree v_depth u.annotation
         in
-        Smt.entails ark p2r_formula u_annotation = `Yes
+        Smt.entails ark ~theory:"QF_LRA" p2r_formula u_annotation = `Yes
       | _ -> false
     in
     match find_depth_bounded game_tree v_depth p with
@@ -416,7 +486,8 @@ end = struct
             List.rev_map (substitute_level_to_var game_tree) interpolants
           in
           refine_path_to_root game_tree v annotations;
-          if Smt.entails ark v.annotation cov.annotation = `Yes then begin
+          if Smt.entails ark ~theory:"QF_LRA" v.annotation cov.annotation = `Yes
+          then begin
             logf ~level:`trace "Force cover successful.";
             v.state <- Covered cov;
             cov.covers <- v::cov.covers;
@@ -434,19 +505,11 @@ end = struct
     | `Exists alternatives ->
       List.map (fun (moves, sub_skeleton) ->
           let move_map = (* ys -> moves *)
-            let subst v =
-              try
-                assert (Hashtbl.mem game_tree.level_to_var v);
-                Symbol.Map.find (Hashtbl.find game_tree.level_to_var v) x_map
-              with Not_found ->
-                Log.errorf "Failed to find: %a" (pp_symbol ark) (Hashtbl.find game_tree.level_to_var v);
-                Log.errorf "SK: %a" (Quantifier.pp_skeleton ark) skeleton;
-                assert false
-            in
             List.fold_left2
               (fun map y (_, m) ->
                  let subst v =
-                   if Symbol.Map.mem (Hashtbl.find game_tree.level_to_var v) map then
+                   if Symbol.Map.mem (Hashtbl.find game_tree.level_to_var v) map
+                   then
                      Symbol.Map.find (Hashtbl.find game_tree.level_to_var v) map
                    else
                      try
@@ -546,15 +609,11 @@ end = struct
           mk_and ark [guard; reach; vertex.annotation]
         | None -> game_tree.start
       in
-
       let interp =
-        simple_tree_interpolant game_tree.ark vertex_formula losing_branches
+        simple_tree_interpolant game_tree vertex_formula losing_branches
       in
       match interp with
-      | `Sat ->
-        Log.errorf "vf: %a" (Formula.pp ark) vertex_formula;
-        List.iter (fun br -> Log.errorf "branch: %a" (Formula.pp ark) br) losing_branches;
-        assert false
+      | `Sat -> assert false
       | `Unknown -> assert false
       | `Unsat not_guards ->
         let (guards, alternatives) =
@@ -594,59 +653,14 @@ end = struct
         vertex.annotation <- mk_or ark guards;
         vertex.state <- Expanded children;
         List.iter2 (fun (_, sub_skeleton) child ->
-            let (guard, move) = match child.parent with
-              | Some (_, guard, move) -> (guard, move)
-              | None -> assert false
-            in
             match Quantifier.destruct_skeleton_block ark sub_skeleton with
             | `Forall (_, sub_sub_skeleton) ->
               paste game_tree sub_sub_skeleton child
-            (*
-              (* guard(x_lev) *)
-              let level = (-1) in
-              let guard =
-                substitute_var_to_level game_tree level guard
-              in
-              (* y -> move(x_lev) *)
-              let move_map = 
-                List.fold_left2
-                  (fun map y m ->
-                     Symbol.Map.add
-                       y
-                       (substitute_var_to_level game_tree level m)
-                       map)
-                  Symbol.Map.empty
-                  game_tree.ys
-                  move
-              in
-              (* reach(move(x_lev),x) *)
-              let reach =
-                let subst v =
-                  try Symbol.Map.find v move_map
-                  with Not_found -> mk_const ark v
-                in
-                substitute_const ark subst game_tree.reach
-              in
-              let lose =
-                mk_and ark (losing game_tree sub_sub_skeleton x_map)
-              in
-              begin
-                match
-                  game_tree.ctx#interpolate_seq [mk_and ark [guard; reach];
-                                                 lose]
-                with
-                | `Unsat [annotation] ->
-                  strengthen_annotation game_tree child annotation;
-                  paste game_tree sub_sub_skeleton child
-                | _ -> assert false
-              end
-*)
             | `Empty -> ()
             | _ -> assert false)
           alternatives
           children
 
-  
   let rec expand_vertex game_tree vertex k =
     logf ~level:`info "Expanding vertex #%d" vertex.id;
     let ark = game_tree.ark in
@@ -748,7 +762,10 @@ end = struct
         (ArkUtil.pp_print_enum (Expr.pp ark)) (BatList.enum moves)
         v.id
         (Formula.pp ark) v.annotation
-        (ArkUtil.pp_print_enum_nobox ~pp_sep go) (BatList.enum (children v))
+        (ArkUtil.pp_print_enum_nobox ~pp_sep go) (BatList.enum (children v));
+      match v.state with
+      | Covered x -> fprintf formatter "Covered by #%d" x.id
+      | _ -> ()
     in
     let root = game_tree.root in
     fprintf formatter "#%d [%a]@;@[<v 0>%a@]"
@@ -767,8 +784,7 @@ let solve ark (xs, ys) ~start ~safe ~reach =
       (!nb_rounds);
     logf ~level:`info "%a" GameTree.pp game_tree;
 
-    assert (GameTree.well_labeled game_tree);
-    assert((!nb_rounds) < 100);
+    (*    assert (GameTree.well_labeled game_tree);*)
     if GameTree.expand_vertex game_tree v 1 then
       match GameTree.get_open game_tree with
       | Some u -> go u
@@ -782,4 +798,3 @@ let solve ark (xs, ys) ~start ~safe ~reach =
     | None -> Some game_tree
   else
     None
-

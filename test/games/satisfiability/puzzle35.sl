@@ -1,0 +1,10 @@
+(set-logic LIA)
+(synth-fun fives ((x Int)) Int)
+(synth-fun threes ((x Int)) Int)
+
+(declare-var x Int)
+(constraint (<= 0 (threes x)))
+(constraint (<= 0 (fives x)))
+(constraint (or (<= x 14)
+                (= (+ (* 3 (threes x)) (* 5 (fives x))) x)))
+(check-synth)

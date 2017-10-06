@@ -6,11 +6,22 @@ include Log.Make(struct let name = "ark.quantifier" end)
 
 exception Equal_term of Linear.QQVector.t
 
+
 type quantifier_prefix = ([`Forall | `Exists] * symbol) list
 
 module V = Linear.QQVector
 module VS = BatSet.Make(Linear.QQVector)
 module VM = BatMap.Make(Linear.QQVector)
+
+let theory_of_qf_prefix ark qf_pre =
+  List.fold_left (fun theory (_, x) ->
+      match theory, typ_symbol ark x with
+      | "", `TyInt | "QF_LIA", `TyInt -> "QF_LIA"
+      | "", `TyReal | "QF_LRA", `TyReal -> "QF_LRA"
+      | _, _ -> "QF_LIRA"
+    )
+    ""
+    qf_pre
 
 let substitute_const ark sigma expr =
   let simplify t = of_linterm ark (linterm_of ark t) in
@@ -82,6 +93,8 @@ type int_virtual_term =
     divisor : int;
     offset : ZZ.t }
   [@@deriving ord]
+
+exception Equal_vt of int_virtual_term
 
 let pp_int_virtual_term ark formatter vt =
   begin
@@ -328,7 +341,20 @@ let simplify_atom ark op s t =
       | _ -> `CompareZero (`Lt, snd (zz_linterm s))
     end
   | `Leq ->
-    `CompareZero (`Leq, snd (zz_linterm s))
+    begin match Term.destruct ark s with
+      | `Binop (`Mod, dividend, modulus) ->
+
+        (* Divisibility constraint *)
+        let modulus = destruct_int modulus in
+        let (multiplier, lt) = zz_linterm dividend in
+        `Divides (ZZ.mul multiplier modulus, lt)
+      | `Unop (`Neg, x) ->
+        begin match Term.destruct ark x with
+          | `Binop (`Mod, dividend, modulus) -> `CompareZero (`Leq, V.zero)
+          | _ -> `CompareZero (`Leq, snd (zz_linterm s))
+        end
+      | _ -> `CompareZero (`Leq, snd (zz_linterm s))
+    end
 
 let mk_divides ark divisor term =
   assert (ZZ.lt ZZ.zero divisor);
@@ -409,12 +435,9 @@ module Skeleton = struct
   let evaluate_move model move =
     match move with
     | MInt vt ->
-      begin match QQ.to_zz (evaluate_linterm model vt.term) with
-        | None -> assert false
-        | Some tv ->
-          ZZ.add (Mpzf.fdiv_q tv (ZZ.of_int vt.divisor)) vt.offset
-          |> QQ.of_zz
-      end
+      QQ.floor (QQ.div (evaluate_linterm model vt.term) (QQ.of_int vt.divisor))
+      |> ZZ.add vt.offset
+      |> QQ.of_zz
     | MReal t -> evaluate_linterm model t
     | MBool _ -> invalid_arg "evaluate_move"
 
@@ -610,6 +633,15 @@ module Skeleton = struct
           @rest)
         []
         (MM.enum mm)
+
+  let qf_prefix skeleton =
+    match paths skeleton with
+    | [] -> invalid_arg "qf_prefix: empty skeleton"
+    | (path::_) ->
+      path
+      |> List.map (function
+          | `Forall k -> (`Forall, k)
+          | `Exists (k, _) -> (`Exists, k))
 end
 
 let select_real_term ark interp x atoms =
@@ -773,7 +805,7 @@ let select_int_term ark interp x atoms =
             (* ax + t (<|<=) 0 --> upper bound of floor(-t/a) *)
             (* x (<|<=) floor(-t/a) + ([[x - floor(-t/a)]] mod delta) - delta *)
             let numerator =
-              if op = `Lt then
+              if op = `Lt && QQ.to_zz (eval t) != None then
                 (* a*floor(((numerator-1) / a) < numerator *)
                 V.add_term (QQ.of_int (-1)) const_dim (V.negate t)
               else
@@ -781,9 +813,7 @@ let select_int_term ark interp x atoms =
             in
 
             let rhs_val = (* [[floor(numerator / a)]] *)
-              match QQ.to_zz (eval numerator) with
-              | Some num -> Mpzf.fdiv_q num (ZZ.of_int a)
-              | None -> assert false
+              QQ.floor (QQ.div (eval numerator) (QQ.of_int a))
             in
             let vt =
               { term = numerator;
@@ -803,7 +833,9 @@ let select_int_term ark interp x atoms =
               match op with
               | `Lt -> assert (ZZ.lt axv tv)
               | `Leq -> assert (ZZ.leq axv tv)
-              | `Eq -> assert (ZZ.equal axv tv)
+              | `Eq ->
+                assert (ZZ.equal axv tv);
+                raise (Equal_vt vt)
             end;
             `Upper (vt, evaluate_vt vt)
           else
@@ -812,15 +844,13 @@ let select_int_term ark interp x atoms =
             (* (-a)x + t <= 0 --> lower bound of ceil(t/a) = floor((t+a-1)/a) *)
             (* (-a)x + t < 0 --> lower bound of ceil(t+1/a) = floor((t+a)/a) *)
             let numerator =
-              if op = `Lt then
+              if op = `Lt && QQ.to_zz (eval t) != None then
                 V.add_term (QQ.of_int a) const_dim t
               else
                 V.add_term (QQ.of_int (a - 1)) const_dim t
             in
             let rhs_val = (* [[floor(numerator / a)]] *)
-              match QQ.to_zz (eval numerator) with
-              | Some num -> Mpzf.fdiv_q num (ZZ.of_int a)
-              | None -> assert false
+              QQ.floor (QQ.div (eval numerator) (QQ.of_int a))
             in
 
             let vt =
@@ -840,7 +870,9 @@ let select_int_term ark interp x atoms =
               match op with
               | `Lt -> assert (ZZ.lt tv axv)
               | `Leq -> assert (ZZ.leq tv axv)
-              | `Eq -> assert (ZZ.equal tv axv)
+              | `Eq ->
+                assert (ZZ.equal tv axv);
+                raise (Equal_vt vt)
             end;
             `Lower (vt, evaluate_vt vt)
         end
@@ -854,24 +886,32 @@ let select_int_term ark interp x atoms =
     in
     ZZ.add (Mpzf.fdiv_q tval (ZZ.of_int vt.divisor)) vt.offset
   in
-  match List.fold_left merge `None (List.map bound_of_atom atoms) with
-  | `Lower (vt, _) ->
-    logf ~level:`trace "Found lower bound: %a < %a"
-      (pp_int_virtual_term ark) vt
-      (pp_symbol ark) x;
-    assert (ZZ.equal (Mpzf.fdiv_r x_val delta) (Mpzf.fdiv_r (vt_val vt) delta));
-    vt
-  | `Upper (vt, _) ->
-    logf ~level:`trace "Found upper bound: %a < %a"
+  try
+    begin
+      match List.fold_left merge `None (List.map bound_of_atom atoms) with
+      | `Lower (vt, _) ->
+        logf ~level:`trace "Found lower bound: %a < %a"
+          (pp_int_virtual_term ark) vt
+          (pp_symbol ark) x;
+        assert (ZZ.equal (Mpzf.fdiv_r x_val delta) (Mpzf.fdiv_r (vt_val vt) delta));
+        vt
+      | `Upper (vt, _) ->
+        logf ~level:`trace "Found upper bound: %a < %a"
+          (pp_symbol ark) x
+          (pp_int_virtual_term ark) vt;
+        assert (ZZ.equal (Mpzf.fdiv_r x_val delta) (Mpzf.fdiv_r (vt_val vt) delta));
+        vt
+      | `None ->
+        (* Value of x is irrelevant *)
+        logf ~level:`trace "Irrelevant: %a" (pp_symbol ark) x;
+        let value = Linear.const_linterm (QQ.of_zz (ZZ.modulo x_val delta)) in
+        { term = value; divisor = 1; offset = ZZ.zero }
+    end
+  with Equal_vt vt ->
+    logf ~level:`trace "Found equal term: %a = %a"
       (pp_symbol ark) x
       (pp_int_virtual_term ark) vt;
-    assert (ZZ.equal (Mpzf.fdiv_r x_val delta) (Mpzf.fdiv_r (vt_val vt) delta));
     vt
-  | `None ->
-    (* Value of x is irrelevant *)
-    logf ~level:`trace "Irrelevant: %a" (pp_symbol ark) x;
-    let value = Linear.const_linterm (QQ.of_zz (ZZ.modulo x_val delta)) in
-    { term = value; divisor = 1; offset = ZZ.zero }
 
 let select_int_term ark interp x atoms =
   try
@@ -1023,6 +1063,7 @@ module CSS = struct
     | `Unsat -> `Unsat
     | `Unknown -> `Unknown
     | `Sat m ->
+      let theory = theory_of_qf_prefix ark qf_pre in
       logf "Found initial model";
       let phi_model = Interpretation.of_model ark m (List.map snd qf_pre) in
       (* Create paths for sat_skeleton & unsat_skeleton *)
@@ -1046,12 +1087,13 @@ module CSS = struct
         | None -> assert false
       in
       let not_phi = snd (normalize ark (mk_not ark phi)) in
+      let z3_ctx = ArkZ3.mk_context ark [] in
       let sat_ctx =
         let skeleton = Skeleton.mk_path ark sat_path in
         let win =
           Skeleton.path_winning_formula ark sat_path skeleton phi
         in
-        let solver = Smt.mk_solver ark in
+        let solver = ArkZ3.mk_z3_solver ~theory z3_ctx in
         solver#add [mk_not ark win];
         { formula = phi;
           not_formula = not_phi;
@@ -1064,7 +1106,7 @@ module CSS = struct
         let win =
           Skeleton.path_winning_formula ark unsat_path skeleton not_phi
         in
-        let solver = Smt.mk_solver ark in
+        let solver = ArkZ3.mk_z3_solver ~theory z3_ctx in
         solver#add [mk_not ark win];
         { formula = not_phi;
           not_formula = phi;
@@ -1264,13 +1306,15 @@ let simsat_forward_core ark qf_pre phi =
           | (_, `Fun _) -> ())
         (Interpretation.enum parameter_interp)
     in
+    let smt_ctx = ArkZ3.mk_context ark [] in
+    let theory = theory_of_qf_prefix ark qf_pre in
     let mk_sat_ctx skeleton parameter_interp =
       let open CSS in
       let ctx =
         { formula = phi;
           not_formula = not_phi;
           skeleton = skeleton;
-          solver = Smt.mk_solver ark;
+          solver = ArkZ3.mk_z3_solver ~theory smt_ctx;
           ark = ark }
       in
       let win =
@@ -1287,7 +1331,7 @@ let simsat_forward_core ark qf_pre phi =
         { formula = not_phi;
           not_formula = phi;
           skeleton = skeleton;
-          solver = Smt.mk_solver ark;
+          solver = ArkZ3.mk_z3_solver ~theory smt_ctx;
           ark = ark }
       in
       let win =
@@ -1564,7 +1608,7 @@ let maximize_feasible ark phi t =
         logf "Bounded phi:@\n%a" (Formula.pp ark) bounded_phi;
         begin match ArkZ3.optimize_box ark bounded_phi [t] with
           | `Unknown ->
-            Log.errorf "Failed to optimize - returning conservative bound";
+            logf ~level:`warn "Failed to optimize - returning conservative bound";
             begin match bound with
               | Some b -> `Bounded b
               | None -> `Infinity
@@ -1677,13 +1721,114 @@ let rec pp_strategy ark formatter (Strategy xs) =
 
 let show_strategy ark = ArkUtil.mk_show (pp_strategy ark)
 
+(* If phi is convex, compute an equivalent conjunctive formula; otherwise,
+   return the phi. *)
+let convex_simplify ark phi =
+  let man = Polka.manager_alloc_strict () in
+  let polyhedron =
+    Abstract.abstract ark man phi
+    |> ArkApron.formula_of_property
+  in
+  match Smt.entails ark polyhedron phi with
+  | `Yes -> polyhedron
+  | _ -> phi
+let convex_simplify ark phi =
+  try convex_simplify ark phi
+  with Linear.Nonlinear -> phi
+
 (* Extract a winning strategy from a skeleton *)
 let extract_strategy ark skeleton phi =
   let open Skeleton in
+  let theory = theory_of_qf_prefix ark (qf_prefix skeleton) in
   let smt_ctx = ArkZ3.mk_context ark [] in
-  let rec go subst = function
+  let not_phi = rewrite ark ~down:(nnf_rewriter ark) (mk_not ark phi) in
+
+  let formula_to_prop = Expr.HT.create 991 in
+  let prop_to_formula = Hashtbl.create 991 in
+  let solver = ArkZ3.mk_z3_solver ~theory smt_ctx in
+  let assumptions = ref [] in
+  let replace_formula phi =
+    let sym =
+      if Expr.HT.mem formula_to_prop phi then
+        snd (Expr.HT.find formula_to_prop phi)
+      else begin
+        let core = mk_symbol ark `TyBool in
+        let prop = mk_symbol ark `TyBool in
+        Expr.HT.add formula_to_prop phi (core,prop);
+        Hashtbl.add prop_to_formula core phi;
+
+        solver#add [mk_if ark
+                      (mk_const ark core)
+                      (mk_iff ark (mk_const ark prop) phi)];
+
+        assumptions := (mk_const ark core)::(!assumptions);
+        prop
+      end
+    in
+    mk_const ark sym
+  in
+  let rec replace_atom phi =
+    match Formula.destruct ark phi with
+    | `Tru | `Fls | `Proposition _ -> phi
+    | `Not phi -> mk_not ark phi
+    | `And xs -> mk_and ark (List.map replace_atom xs)
+    | `Or xs -> mk_or ark (List.map replace_atom xs)
+    | `Ite (cond, bthen, belse) ->
+      mk_ite ark cond (replace_atom bthen) (replace_atom belse)
+    | `Atom (_, _, _) -> replace_formula phi
+    | `Quantify (_, _, _, _) -> assert false
+  in
+  let rec mk_prop_skeleton subst = function
     | SEmpty ->
-      let psi = mk_not ark (List.fold_left (fun a f -> f a) phi subst) in
+      List.fold_left (fun a f -> f a) not_phi subst
+      |> replace_atom
+    | SForall (k, sk, skeleton) ->
+      let sk_const = mk_const ark sk in
+      let replace =
+        substitute_const ark
+          (fun sym -> if k = sym then sk_const else mk_const ark sym)
+      in
+      mk_prop_skeleton (replace::subst) skeleton
+    | SExists (k, mm) ->
+      MM.enum mm
+      /@ (fun (move, skeleton) ->
+          mk_prop_skeleton ((substitute ark k move)::subst) skeleton)
+      |> BatList.of_enum
+      |> mk_and ark
+  in
+  let prop_skeleton = mk_prop_skeleton [] skeleton in
+  solver#add [prop_skeleton];
+  let core = ref Expr.Set.empty in
+  begin
+    match solver#get_unsat_core (!assumptions) with
+    | `Unsat core_lit ->
+      core_lit |> List.iter (fun c ->
+          match Formula.destruct ark c with
+          | `Proposition (`App (c, [])) ->
+            let phi = Hashtbl.find prop_to_formula c in
+            let (_, prop) = Expr.HT.find formula_to_prop phi in
+            core := Expr.Set.add phi (!core)
+          | _ -> assert false)
+    | _ -> assert false
+  end;
+  let replace_prop expr =
+    match Expr.refine ark expr with
+    | `Formula phi ->
+      begin match Formula.destruct ark phi with
+        | `Atom (_, _, _) ->
+          if Expr.Set.mem phi (!core) then
+            expr
+          else
+            (mk_true ark :> ('a,typ_fo) expr)
+        | _ -> expr
+      end
+    | _ -> expr
+  in
+
+  let rec mk_pattern subst = function
+    | SEmpty ->
+      let psi = List.fold_left (fun a f -> f a) not_phi subst in
+      let psi = rewrite ark ~down:replace_prop psi in
       smt_ctx#of_formula psi
     | SForall (k, sk, skeleton) ->
       let sk_const = mk_const ark sk in
@@ -1691,16 +1836,17 @@ let extract_strategy ark skeleton phi =
         substitute_const ark
           (fun sym -> if k = sym then sk_const else mk_const ark sym)
       in
-      go (replace::subst) skeleton
+      mk_pattern (replace::subst) skeleton
     | SExists (k, mm) ->
       MM.enum mm
       /@ (fun (move, skeleton) ->
-          go ((substitute ark k move)::subst) skeleton
+          mk_pattern ((substitute ark k move)::subst) skeleton
           |> Z3.Interpolation.mk_interpolant smt_ctx#z3)
       |> BatList.of_enum
       |> Z3.Boolean.mk_and smt_ctx#z3
   in
-  let pattern = go [] skeleton in
+
+  let pattern = mk_pattern [] skeleton in
   let params = Z3.Params.mk_params smt_ctx#z3 in
   match Z3.Interpolation.compute_interpolant smt_ctx#z3 pattern params with
   | (_, Some interp, None) ->
@@ -1717,7 +1863,11 @@ let extract_strategy ark skeleton phi =
             match go interp skeleton with
             | ([], _) -> assert false
             | ((guard::interp), sub_strategy) ->
-              let guard = mk_not ark guard in
+              let guard =
+                mk_not ark guard
+                |> rewrite ark ~down:(nnf_rewriter ark)
+                |> convex_simplify ark
+              in
               let move_term =
                 match move with
                 | MInt vt -> (term_of_virtual_term ark vt :> ('a, typ_fo) expr)
@@ -1725,7 +1875,10 @@ let extract_strategy ark skeleton phi =
                 | MBool true -> (mk_true ark :> ('a, typ_fo) expr)
                 | MBool false -> (mk_false ark :> ('a, typ_fo) expr)
               in
-              (interp, (guard, move_term, sub_strategy)::strategy))
+              if Formula.destruct ark guard = `Fls then
+                (interp, strategy)
+              else
+                (interp, (guard, move_term, sub_strategy)::strategy))
           (interp, [])
           (MM.enum mm)
         |> (fun (interp, xs) -> (interp, Strategy xs))
@@ -1834,7 +1987,9 @@ let winning_skeleton ark qf_pre phi = simsat_forward_core ark qf_pre phi
 let pp_skeleton = Skeleton.pp
 
 let minimize_skeleton ark skeleton phi =
-  let solver = Smt.mk_solver ark in
+  let smt_ctx = ArkZ3.mk_context ark [] in
+  let theory = theory_of_qf_prefix ark (Skeleton.qf_prefix skeleton) in
+  let solver = ArkZ3.mk_z3_solver ~theory smt_ctx in
   let paths = Skeleton.paths skeleton in
   let path_guards =
     List.map (fun _ -> mk_const ark (mk_symbol ark `TyBool)) paths
@@ -1871,3 +2026,43 @@ let minimize_skeleton ark skeleton phi =
          with Redundant_path -> skeleton)
       Skeleton.empty
       core
+
+let qe_lme ark phi =
+  let (qf_pre, phi) = normalize ark phi in
+  let phi = eliminate_ite ark phi in
+  let exists x phi =
+    let solver = Smt.mk_solver ark in
+    let disjuncts = ref [] in
+    let constants =
+      fold_constants Symbol.Set.add phi (Symbol.Set.singleton x)
+      |> Symbol.Set.elements
+    in
+    let rec loop () =
+      match solver#get_model () with
+      | `Sat m ->
+        let interp = Interpretation.of_model ark m constants in
+        let implicant =
+          match select_implicant ark interp phi with
+          | Some x -> x
+          | None -> assert false
+        in
+        let vt = mbp_virtual_term ark interp x implicant in
+        let psi = virtual_substitution ark x vt phi in
+        disjuncts := psi::(!disjuncts);
+        solver#add [mk_not ark psi];
+        loop ()
+      | `Unsat -> mk_or ark (!disjuncts)
+      | `Unknown -> raise Unknown
+    in
+    solver#add [phi];
+    loop ()
+  in
+  List.fold_right
+    (fun (qt, x) phi ->
+       match qt with
+       | `Exists ->
+         exists x (snd (normalize ark phi))
+       | `Forall ->
+         mk_not ark (exists x (snd (normalize ark (mk_not ark phi)))))
+    qf_pre
+    phi

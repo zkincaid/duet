@@ -1,0 +1,7 @@
+(assert (forall ((x Int))
+		(exists ((round Int))
+			(and (= (mod round 10) 0)
+			     (forall ((m Int))
+				     (=> (= (mod m 10) 0)
+					 (<= (ite (<= x round) (- round x) (- x round))
+					     (ite (<= x m) (- m x) (- x m)))))))))

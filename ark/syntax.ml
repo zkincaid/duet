@@ -919,7 +919,13 @@ let rec nnf_rewriter ctx sexpr =
       | Node (And, conjuncts, _) -> mk_or ctx (List.map (mk_not ctx) conjuncts)
       | Node (Or, conjuncts, _) -> mk_and ctx (List.map (mk_not ctx) conjuncts)
       | Node (Leq, [s; t], _) -> mk_lt ctx t s
-      | Node (Eq, [s; t], _) -> mk_or ctx [mk_lt ctx s t; mk_lt ctx t s]
+      | Node (Eq, [s; t], _) ->
+        begin match s.obj, t.obj with
+          | Node (Mod, _, _), Node (Real x, _, _) when QQ.equal x QQ.zero ->
+            mk_lt ctx t s
+          | _, _ ->
+            mk_or ctx [mk_lt ctx s t; mk_lt ctx t s]
+        end
       | Node (Lt, [s; t], _) -> mk_leq ctx t s
       | Node (Exists (name, typ), [psi], _) ->
         mk_forall ctx ~name typ (mk_not ctx psi)
@@ -1424,6 +1430,7 @@ module MakeSimplifyingContext () = struct
       | Neg, [x] ->
         begin match x.obj with
           | Node (Real xv, [], _) -> mk (Real (QQ.negate xv)) []
+          | Node (Neg, [y], _) -> y
           | _ -> hc Neg [x]
         end
 

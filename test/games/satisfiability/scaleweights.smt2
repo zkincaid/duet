@@ -1,0 +1,13 @@
+(assert (forall ((weight Int))
+		(exists ((w1 Int) (w2 Int) (w3 Int) (w4 Int))
+			(=> (and (<= 0 weight) (<= weight 10))
+			(and
+			 (= (+ w1 (* 3 w2) (* 9 w3) (* 27 w4)) weight)
+			 (<= -1 w1)
+			 (<= w1 1)
+			 (<= -1 w2)
+			 (<= w2 1)
+			 (<= -1 w3)
+			 (<= w3 1)
+			 (<= -1 w4)
+			 (<= w4 1))))))

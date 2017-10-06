@@ -4,9 +4,9 @@ open BatPervasives
 include Log.Make(struct let name = "ark.smt" end)
 let default_solver = ref `Z3
 
-let mk_solver ark =
+let mk_solver ?(theory="") ark =
   match !default_solver with
-  | `Z3 -> (ArkZ3.mk_solver ark :> 'a smt_solver)
+  | `Z3 -> (ArkZ3.mk_solver ~theory ark :> 'a smt_solver)
   | `Mathsat -> (ArkMathsat.mk_solver ark :> 'a smt_solver)
 
 let get_model ark phi =
@@ -19,8 +19,8 @@ let is_sat ark phi =
   solver#add [phi];
   solver#check []
 
-let entails ark phi psi =
-  let solver = mk_solver ark in
+let entails ark ?(theory="") phi psi =
+  let solver = mk_solver ~theory ark in
   solver#add [phi; mk_not ark psi];
   match solver#check [] with
   | `Sat -> `No

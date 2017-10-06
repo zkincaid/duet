@@ -1,0 +1,6 @@
+(assert (forall ((x Int))
+		(exists ((fives Int) (threes Int))
+			(and (<= 0 threes)
+			     (<= 0 fives)
+			     (=> (<= 15 x)
+				 (= (+ (* 5 fives) (* 3 threes)) x))))))

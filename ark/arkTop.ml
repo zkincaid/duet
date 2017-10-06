@@ -72,11 +72,13 @@ let _ =
   let i =
     match Sys.argv.(1) with
     | "verbose" ->
-      (Log.set_verbosity_level "ark.game" `info; 2)
-      (*Log.verbosity_level := `info; 2*)
+      (Log.set_verbosity_level "ark.game" `info;
+       Log.set_verbosity_level "ark.quantifier" `info;
+       2)
     | "trace" ->
-      (Log.set_verbosity_level "ark.game" `trace; 2)
-      (*Log.verbosity_level := `trace; 2*)
+      (Log.set_verbosity_level "ark.game" `trace;
+       Log.set_verbosity_level "ark.quantifier" `trace;
+       2)
     | _ -> 1
   in
   match Sys.argv.(i) with
@@ -241,7 +243,6 @@ let _ =
     let reach =
       substitute_const ctx (fun x -> Symbol.Map.find x map) reach
     in
-    Format.printf "Reach:@\n%a@\n" (Formula.pp ctx) reach;
     begin
       match Game.solve ctx (vars, primed_vars) ~start ~safe ~reach with
       | None -> Format.printf "Reachability player wins.@\n"
@@ -250,7 +251,10 @@ let _ =
         Format.printf "Safety player wins.@\n"
     end;
   | "bounded" ->
-    let phi = load_formula Sys.argv.(i+1) in
+    let phi =
+      load_formula Sys.argv.(i+1)
+      |> Syntax.eliminate_ite ctx
+    in
     let (qf_pre, matrix) = Quantifier.normalize ctx phi in
     begin
       match Quantifier.winning_strategy ctx qf_pre matrix with

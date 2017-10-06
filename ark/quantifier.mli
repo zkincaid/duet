@@ -18,6 +18,9 @@ val maximize : 'a context -> 'a formula -> 'a term -> [ `Bounded of QQ.t
 (** Quantifier eliminiation via model-based projection *)
 val qe_mbp : 'a context -> 'a formula -> 'a formula
 
+(** Quantifier eliminiation via lazy model enumeration *)
+val qe_lme : 'a context -> 'a formula -> 'a formula
+
 (** Alternating quantifier satisfiability *)
 val easy_sat : 'a context -> 'a formula -> [ `Sat | `Unsat | `Unknown ]
 
@@ -29,7 +32,6 @@ type quantifier_prefix = ([`Forall | `Exists] * symbol) list
 val pp_strategy : 'a context -> Format.formatter -> 'a strategy -> unit
 
 val show_strategy : 'a context -> 'a strategy -> string
-
 
 (** Compute a winning SAT/UNSAT strategy for a formula.  The formula is
     represented in prenex form (quantifier prefix + matrix). *)
@@ -69,3 +71,5 @@ val winning_skeleton : 'a context -> quantifier_prefix -> 'a formula ->
   | `Unknown ]
 
 val minimize_skeleton : 'a context -> skeleton -> 'a formula -> skeleton
+
+val extract_strategy : 'a context -> skeleton -> 'a formula -> 'a strategy

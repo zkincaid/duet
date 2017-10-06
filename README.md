@@ -11,7 +11,7 @@ Duet depends on several software packages.  The following dependencies need to b
 
  + [opam](http://opam.ocaml.org) (with OCaml >= 4.02 & native compiler)
  + GMP and MPFR
- + [MathSAT](http://mathsat.fbk.eu)
+ + [MathSAT](http://mathsat.fbk.eu) **version 5.3.14** (version 5.4 is incompatible)
 
 On Ubuntu, you can install these packages (except Java and MathSAT) with:
 ```

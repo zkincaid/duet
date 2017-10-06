@@ -29,7 +29,7 @@ let symbol_of_string =
 %token LBRACE RBRACE
 %token INIT SAFE REACH VARS
 
-%left ADD MINUS
+%left ADD
 %left MUL DIV
 %nonassoc UMINUS
 

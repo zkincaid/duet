@@ -94,7 +94,9 @@ let rec eval alg ast =
       | (OP_LT, [s; t]) -> alg (`Atom (`Lt, s, t))
       | (OP_GT, [s; t]) -> alg (`Atom (`Lt, t, s))
       | (OP_ITE, [cond; s; t]) -> alg (`Ite (cond, s, t))
-      | (_, _) -> invalid_arg ("eval: unknown application: "
+      | (OP_INTERNAL, args) -> alg (`App (decl, args))
+      | (k, _) -> invalid_arg ("eval: unknown application: "
+                               ^ (string_of_int (Z3enums.int_of_decl_kind k))
                                ^ (Expr.to_string ast))
     end
   | NUMERAL_AST ->
@@ -482,7 +484,7 @@ let mk_context : 'a context -> (string * string) list -> 'a z3_context
       method term_of = term_of
       method formula_of = formula_of
       method mk_solver () =
-        new z3_solver context z3 (Z3.Solver.mk_simple_solver z3)
+        new z3_solver context z3 (Z3.Solver.mk_solver z3 None)
 
       method is_sat phi =
         let s = self#mk_solver () in
@@ -630,11 +632,11 @@ let mk_context : 'a context -> (string * string) list -> 'a z3_context
 
 let mk_z3_solver ?(theory="") ctx =
   if theory = "" then
-    (new z3_solver ctx#ark ctx#z3 (Z3.Solver.mk_simple_solver ctx#z3))
+    ctx#mk_solver ()
   else
     (new z3_solver ctx#ark ctx#z3 (Z3.Solver.mk_solver_s ctx#z3 theory))
 
-let mk_solver ark = mk_z3_solver (mk_context ark [])
+let mk_solver ?(theory="") ark = mk_z3_solver ~theory (mk_context ark [])
 
 let get_model ark phi = (mk_context ark [])#get_model phi
 
