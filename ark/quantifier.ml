@@ -1806,7 +1806,6 @@ let extract_strategy ark skeleton phi =
           match Formula.destruct ark c with
           | `Proposition (`App (c, [])) ->
             let phi = Hashtbl.find prop_to_formula c in
-            let (_, prop) = Expr.HT.find formula_to_prop phi in
             core := Expr.Set.add phi (!core)
           | _ -> assert false)
     | _ -> assert false
@@ -1930,7 +1929,13 @@ let check_strategy ark qf_pre phi strategy =
     | (`Forall, _)::qf_pre -> go qf_pre (Strategy xs)
   in
   let strategy_formula = go qf_pre strategy in
-  Smt.is_sat ark (mk_and ark [strategy_formula; mk_not ark phi]) = `Unsat
+  let theory = theory_of_qf_prefix ark qf_pre in
+  let solver = ArkZ3.mk_solver ~theory ark in
+  solver#add [strategy_formula; mk_not ark phi];
+  match solver#check [] with
+  | `Unsat -> `Valid
+  | `Unknown -> `Unknown
+  | `Sat -> `Invalid
 
 type skeleton = Skeleton.t
 

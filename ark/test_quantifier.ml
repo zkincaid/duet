@@ -68,7 +68,7 @@ let strategy1 () =
   let qf_prefix = [`Forall, xsym; `Exists, ysym] in
   match winning_strategy ctx qf_prefix phi with
   | `Sat strategy ->
-    assert_bool "strategy1" (check_strategy ctx qf_prefix phi strategy)
+    assert_equal (check_strategy ctx qf_prefix phi strategy) `Valid
   | _ -> assert false
 
 let strategy2 () =
@@ -82,7 +82,7 @@ let strategy2 () =
   in
   match winning_strategy ctx qf_prefix phi with
   | `Sat strategy ->
-    assert_bool "strategy2" (check_strategy ctx qf_prefix phi strategy)
+    assert_equal (check_strategy ctx qf_prefix phi strategy) `Valid
   | _ -> assert false
 
 let suite = "Quantifier" >::: [

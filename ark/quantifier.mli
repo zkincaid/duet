@@ -43,7 +43,7 @@ val winning_strategy : 'a context -> quantifier_prefix -> 'a formula ->
 (** Verify that a SAT strategy is in fact a winning strategy.  (To verify an
     UNSAT strategy, just negate the formula & quantifier prefix) *)
 val check_strategy : 'a context -> quantifier_prefix -> 'a formula ->
-  'a strategy -> bool
+  'a strategy -> [ `Valid | `Invalid | `Unknown ]
 
 val normalize : 'a context -> 'a formula -> quantifier_prefix * 'a formula
 
