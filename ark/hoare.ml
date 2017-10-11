@@ -87,14 +87,13 @@ module MakeSolver(Ctx : Syntax.Context) (Var : Transition.Var) = struct
       let postify sym = 
         match Var.of_symbol sym with
         | Some v when Transition.mem_transform v trans ->
-           substitute_const ark fresh (Transition.get_transform v trans)
+             substitute_const ark fresh (Transition.get_transform v trans)
         | _ -> fresh sym
       in
       let rec go posts = (* add a rule for each post condition *)
         match posts with
         | [] -> ()
-        | post :: posts -> CHC.add_rule solver.solver body (substitute_const ark postify post);
-                           go posts
+        | post :: posts -> CHC.add_rule solver.solver body (substitute_const ark postify post); go posts
       in
       go posts
     in
@@ -124,6 +123,6 @@ module MakeSolver(Ctx : Syntax.Context) (Var : Transition.Var) = struct
       in
       (subst pre, trans, subst post) :: trips
     in
-    DA.fold_left get_triple [] solver.triples
+    List.rev (DA.fold_left get_triple [] solver.triples)
 
 end

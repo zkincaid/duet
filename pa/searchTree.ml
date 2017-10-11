@@ -81,7 +81,7 @@ module Make (Base : Element) (Elt : Element) = struct
         end
       | i :: iblist' ->
         match elist with
-          [] -> print_endline "insert"; raise Item_not_known
+          [] -> Log.logf ~level:`always "insert: %a" Base.pp i; raise Item_not_known
         | e :: elist ->
           match tree with
             Leaf ->
