@@ -1,6 +1,8 @@
 (* Finite structures *)
 open PaFormula
 
+val embed : int ref
+
 module type Symbol = sig
   type t
   val hash : t -> int

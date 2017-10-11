@@ -634,7 +634,7 @@ module MakeEmpty (A : sig
   struct
   open A
 
-  let config_set_list = ref false
+  let config_set_rep = ref `PredicateTree
 
   module Arg = struct
     type id = int
@@ -665,12 +665,19 @@ module MakeEmpty (A : sig
         covered : id -> id option }
 
     module PredicateTree = SearchTree.Make(Config.Predicate)(ArkUtil.Int)
-
+    module FeatureTree = Ark.FeatureTree
     module PSet = BatSet.Make(Config.Predicate)
+
+    module PHT = BatHashtbl.Make(struct
+        type t = Config.Predicate.t * int [@@deriving ord]
+        let equal x y = compare x y =0
+        let hash (x,y) = Hashtbl.hash (Config.Predicate.hash x, y)
+      end)
 
     let empty_set pa label =
       let embeds x y = Config.embeds (DA.get label x) (DA.get label y) in
-      if !config_set_list then
+      match !config_set_rep with
+      | `List ->
         let list = ref [] in
         let insert elt =
           list := elt::(!list)
@@ -680,7 +687,7 @@ module MakeEmpty (A : sig
           with Not_found -> None
         in
         { insert; covered }
-      else
+      | `PredicateTree ->
         let vocabulary =
           BatEnum.fold
             (fun vocab (p, _) -> PSet.add p vocab)
@@ -696,6 +703,57 @@ module MakeEmpty (A : sig
         { insert = PredicateTree.insert pt;
           covered = PredicateTree.covered embeds pt }
 
+      | `FeatureTree ->
+        let () = Random.init 63864283 in
+        let nb_predicates =
+          BatEnum.count (A.vocabulary pa)
+        in
+        let rec log2 n =
+          if n = 1 then
+            0
+          else
+            log2 ((n+1) / 2) + 1
+        in
+        let nb_features = log2 nb_predicates in
+
+        let feature_sets =
+          Array.init nb_features (fun _ -> PSet.empty)
+        in
+
+        A.vocabulary pa |> BatEnum.iter (fun (p,_) ->
+            let i = Random.int nb_features in
+            feature_sets.(i) <- PSet.add p (feature_sets.(i));
+          );
+
+        let features vertex =
+          let fv = Array.make nb_features 0 in
+          Config.props (DA.get label vertex)
+          |> BatEnum.iter (fun (p, _) ->
+              for i = 0 to (nb_features - 1) do
+                if PSet.mem p feature_sets.(i) then
+                  fv.(i) <- fv.(i) + 1
+              done);
+          fv
+        in
+
+        let ft = ref (FeatureTree.empty features) in
+        let i = ref 0 in
+        let m = ref 8 in
+        let insert x =
+          ft := FeatureTree.insert x (!ft);
+          incr i;
+          if (!i) > (!m) then begin
+            i := 0;
+            m := 2*(!m);
+            ft := Log.time "rebalance" FeatureTree.rebalance (!ft)
+          end
+        in
+        let covered x =
+          try Some (FeatureTree.find_leq (features x) (flip embeds x) (!ft))
+          with Not_found -> None
+        in
+        { insert; covered }
+
     type arg =
       { mutable worklist : Worklist.t;
         pa : t;
@@ -708,6 +766,8 @@ module MakeEmpty (A : sig
                                       that v is covered by u *)
         expanded : config_set (* set of expanded configurations *)
       }
+
+    let size arg = DA.length arg.label
 
     let label arg vertex =
       let nb_vertex = DA.length arg.label in
@@ -849,7 +909,7 @@ module MakeEmpty (A : sig
       find_cover 0
 
     let close_all arg vertex =
-      match arg.expanded.covered vertex with
+      match Log.time "covered" arg.expanded.covered vertex with
         None -> false
       | Some u ->
         begin
@@ -899,13 +959,18 @@ module MakeEmpty (A : sig
       | Some v ->
         if accepting pa (Arg.label arg v) then begin
             Arg.print_path_to_root arg v;
+            logf "Explored %d vertices" (Arg.size arg);
+            logf "%d embedding queries@\n" (!Struct.embed);
             Some (Arg.path_to_root arg v [])
         end else begin
           if not (Arg.close_all arg v) then
             Arg.expand arg v;
           fix arg
         end
-      | None -> None
+      | None ->
+        logf "Explored %d vertices" (Arg.size arg);
+        logf "%d embedding queries@\n" (!Struct.embed);
+        None
     in
     let arg = Arg.make pa max_index in
 
