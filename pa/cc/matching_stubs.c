@@ -70,7 +70,6 @@ extern "C" {
 
 	  size_t predi = Int_val(Field(head, 0));
 	  prop tmp = prop(predi);
-	  int pos = 0;
 	  while (predList != Val_emptylist){
 	      head = Field(predList, 0);
 	      int arg = Int_val(head);
@@ -83,8 +82,6 @@ extern "C" {
 		  ++sig[arg][predi];
 
 	      predList = Field(predList, 1);
-	      ++predi;
-	      ++pos;
 	  }
 	  if (tmp.vars.size() >= 2){
 	      label.push_back(tmp);
