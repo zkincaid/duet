@@ -4,6 +4,9 @@ open Ark
 
 include Log.Make(struct let name = "struct" end)
 
+
+let embed = ref 0
+
 module type Symbol = sig
   type t
   val hash : t -> int
@@ -368,6 +371,7 @@ module Make (P : Symbol) = struct
        (MatchCPP.embeds (MatchCPP.make (x.universe) (props x) (y.universe) (props y))))
 
   let uembeds x y =
+    incr embed;
     (x.universe <= y.universe)
     && (AtomSet.cardinal x.prop <= AtomSet.cardinal y.prop)
     && (PSet.subset (get_preds x) (get_preds y)) (* this is always true when using Search Tree *)

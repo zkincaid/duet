@@ -951,4 +951,9 @@ let _ =
   CmdLine.register_pass
     ("-proofspace", verify, " Proof space");
   CmdLine.register_config
-    ("-simple", Arg.Set E.config_set_list, " use list of structs")
+    ("-config-rep", Arg.String (function
+         | "list" -> E.config_set_rep := `List
+         | "feature-tree" -> E.config_set_rep := `FeatureTree
+         | "predicate-tree" -> E.config_set_rep := `PredicateTree
+         | s -> Log.errorf "Unknown option to -config-rep: `%s'" s),
+     " Change representation of config sets (list, feature-tree, predicate-tree)")

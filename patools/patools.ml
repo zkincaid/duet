@@ -363,7 +363,8 @@ let _ =
     let pa =
       if Array.length Sys.argv > 3 then begin
         (match Sys.argv.(2) with
-         | "simple" -> Empty.config_set_list := true
+         | "list" -> Empty.config_set_rep := `List
+         | "featuretree" -> Empty.config_set_rep := `FeatureTree
          | _ -> ());
         load_automaton Sys.argv.(3)
       end else load_automaton Sys.argv.(2)

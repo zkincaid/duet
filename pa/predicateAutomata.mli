@@ -188,9 +188,8 @@ module MakeEmpty (A : sig
   val alphabet : solver -> A.letter_set
   val vocabulary : solver -> (A.predicate * int) BatEnum.t
 
-  (** Flag controlling the representation of configuration sets.  If [true], a
-      list representation is used. *)
-  val config_set_list : bool ref
+  (** Parameter controlling the representation of configuration sets. *)
+  val config_set_rep : [ `List | `PredicateTree | `FeatureTree ] ref
 
   (** [bounded_empty pa bound] finds [Some] word which is accepted by [pa] and
       uses only indexed letters with index [<= bound]; [None] if there are no
