@@ -177,6 +177,44 @@ class Graph{
     return removed;
   }
 
+  bool commit_edge(size_t u, size_t v, std::vector<VertexPair>& removed){
+    std::stack<VertexPair> units;
+    units.emplace(u, v);
+    while(!units.empty()) {
+	size_t u = units.top().u;
+	size_t v = units.top().v;
+	units.pop();
+
+	size_t j = 0;
+	/* Remove anything adjacent to u that is not v */
+	while (j < adj_u[u].size()){
+	    if (adj_u[u][j].vertex != v){
+		removed.emplace_back(u, adj_u[u][j].vertex);
+		remove_edge(u, j);
+	    } else {
+		++j;
+	    }
+	}
+	j = 0;
+	/* Remove anything adjacent to v that is not u */
+	while (j < adj_v[v].size()){
+	    if (adj_v[v][j].vertex != u){
+		removed.emplace_back(adj_v[v][j].vertex, v);
+		remove_edge(adj_v[v][j].vertex, adj_v[v][j].position);
+		if (adj_u[adj_v[v][j].vertex].size() == 0) {
+		    return false;
+		} else if (adj_u[adj_v[v][j].vertex].size() == 1) {
+		    units.emplace(adj_v[v][j].vertex,
+				  adj_u[adj_v[v][j].vertex][0].vertex);
+		}
+	    } else {
+		++j;
+	    }
+	}
+    }
+    return true;
+  }
+
   /* Print the adjacency list of the graph [u -> v] */
   void print_graph() const {
     for (size_t i = 0; i < adj_u.size(); ++i){
