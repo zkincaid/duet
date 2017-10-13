@@ -53,7 +53,46 @@ bool choose(stack<decision>& decisions, const vector<int>& confs, Embedding& emb
   representations and calls the embedding function
   Which determines if str1 is embedded in str2.
 ***********************************************************/
+
 extern "C" {
+
+  void read_structure(value str, vector<vector<uint8_t> > &sig, vector<prop> &label) {
+      CAMLparam1(str);
+      CAMLlocal3(head, propList, predList);
+
+      sig.resize(Int_val(Field(str, 0))+1); /* Resize to respective universe size */
+
+      propList = Field(str, 1);
+      while (propList != Val_emptylist){
+	  head = Field(propList, 0);        /* hd propList Type: (string * int list) */
+	  propList = Field(propList, 1);    /* tl propList */
+	  predList = Field(head, 1);
+
+	  size_t predi = Int_val(Field(head, 0));
+	  prop tmp = prop(predi);
+	  int pos = 0;
+	  while (predList != Val_emptylist){
+	      head = Field(predList, 0);
+	      int arg = Int_val(head);
+	      tmp.vars.push_back(arg);
+
+	      if (sig[arg].size() <= predi + 1){
+		  sig[arg].resize(predi + 1, 0);
+	      }
+	      if (sig[arg][predi] != 255)
+		  ++sig[arg][predi];
+
+	      predList = Field(predList, 1);
+	      ++predi;
+	      ++pos;
+	  }
+	  if (tmp.vars.size() >= 2){
+	      label.push_back(tmp);
+	  }
+      }
+      CAMLreturn0;
+  }
+
   CAMLprim value embedsOCAML(value str1, value str2, value algo){ /* str = int * (int * int list) list */
     CAMLparam3(str1, str2, algo);
     CAMLlocal3(head, propList, predList);
@@ -61,68 +100,9 @@ extern "C" {
     vector<vector<uint8_t> > sig1, sig2;    /* Signature of str1 and str2 respectively */
     sig1.resize(Int_val(Field(str1, 0))+1); /* Resize to respective universe size */
     sig2.resize(Int_val(Field(str2, 0))+1);
-    size_t predi, count(0);
-    int arg;
-
     vector<prop> pu_label, pv_label;
-    prop tmp;
-
-    /* Process structure 1 */
-    propList = Field(str1, 1);
-    while (propList != Val_emptylist){
-      head = Field(propList, 0);        /* hd propList Type: (string * int list) */
-      propList = Field(propList, 1);    /* tl propList */
-      predList = Field(head, 1);
-
-      predi = Int_val(Field(head, 0));
-      tmp = prop(predi);
-      while (predList != Val_emptylist){
-	head = Field(predList, 0);
-	arg = Int_val(head);
-	tmp.vars.push_back(arg);
-
-	if (sig1[arg].size() <= predi){
-	  sig1[arg].resize(predi + 1, 0);
-	}
-	if (sig1[arg][predi] != 255)
-  	  ++sig1[arg][predi];
-	
-	predList = Field(predList, 1);
-	++predi;
-      }
-      if (tmp.vars.size() >= 2){
-	pu_label.push_back(tmp);
-      }
-      if (predi > count) { count = predi; }
-    }
-
-    /* Process structure 2 */
-    propList = Field(str2, 1);
-    while (propList != Val_emptylist){
-      head = Field(propList, 0);        /* hd propList Type: (string * int list) */
-      propList = Field(propList, 1);    /* tl propList */
-      predList = Field(head, 1);
-
-      predi = Int_val(Field(head,0));
-      tmp = prop(predi);
-      while (predList != Val_emptylist){
-	head = Field(predList, 0);
-	arg = Int_val(head);
-        tmp.vars.push_back(arg);
-	
-	if (sig2[arg].size() <= predi){
-	  sig2[arg].resize(predi + 1, 0);
-	}
-	if (sig2[arg][predi] != 255)
-  	  ++sig2[arg][predi];
-
-	predList = Field(predList, 1);
-	++predi;
-      }
-      if (tmp.vars.size() >= 2){
-	pv_label.push_back(tmp);
-      }
-    }
+    read_structure(str1,sig1,pu_label);
+    read_structure(str2,sig2,pv_label);
 
     bool result;
     switch (Int_val(algo)){
