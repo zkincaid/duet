@@ -922,6 +922,8 @@ module MakeEmpty (A : sig
           logf ~level:`trace " by [%d] %a" u Config.pp (label arg u);
           true
         end
+
+    let close_all arg vertex = Log.time "Covering" (close_all arg) vertex
   end
 
   (* Trivial incremental solver: just re-run the emptiness query from

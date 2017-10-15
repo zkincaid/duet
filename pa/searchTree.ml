@@ -39,7 +39,6 @@ end
  *)
 module Make (Base : Element) (Elt : Element) = struct
   module BaseSet = BatSet.Make(Base)
-  module EltSet = BatSet.Make(Elt)
 
   type baseSet = BaseSet.t
   type elt = Elt.t
@@ -48,7 +47,7 @@ module Make (Base : Element) (Elt : Element) = struct
     Leaf
   | Node of node
   and node =
-    { mutable data : EltSet.t;
+    { mutable data : elt list;
       left : tree;
       right : tree }
 
@@ -76,8 +75,8 @@ module Make (Base : Element) (Elt : Element) = struct
         [] ->
         begin
           match tree with
-            Leaf -> Node {data = (EltSet.add item EltSet.empty); left = Leaf; right = Leaf}
-          | Node {data; left; right} -> Node {data=(EltSet.add item data); left; right}
+            Leaf -> Node {data = ([item]); left = Leaf; right = Leaf}
+          | Node {data; left; right} -> Node {data=(item :: data); left; right}
         end
       | i :: iblist' ->
         match elist with
@@ -86,9 +85,9 @@ module Make (Base : Element) (Elt : Element) = struct
           match tree with
             Leaf ->
               if Base.equal i e then
-                Node {data = EltSet.empty; left = Leaf; right = (go elist iblist' Leaf)}
+                Node {data = []; left = Leaf; right = (go elist iblist' Leaf)}
               else
-                Node {data = EltSet.empty; left = (go elist iblist Leaf); right = Leaf}
+                Node {data = []; left = (go elist iblist Leaf); right = Leaf}
           | Node {data; left; right} ->
               if Base.equal i e then
                 Node {data; left; right = (go elist iblist' right)}
@@ -108,21 +107,21 @@ module Make (Base : Element) (Elt : Element) = struct
 
   (* This performs the actual search
      returns true if there exists a elt in tree
-     such that (f elt item)
+     such that (p elt item)
 
-     This only works if (f elt item) =>
+     This only works if (p elt item) =>
      (project elt) is a subset of (project item)
   *)
   let covered p stree item =
     let iblist = BaseSet.elements (stree.project item) in
     let elist = BaseSet.elements stree.elements in
     let f data =
-      let g d opt =
+      let g opt d =
         match opt with
           None -> if (p d item) then Some d else None
         | Some _ -> opt
       in
-      EltSet.fold g data None
+      List.fold_left g None data
     in
     let rec go elist iblist tree =
       match tree with
@@ -131,20 +130,18 @@ module Make (Base : Element) (Elt : Element) = struct
         match f data with
           Some x -> Some x
         | None ->
-          begin
-            match iblist with
-              [] -> None
-            | i :: iblist' ->
-               match elist with
-                 [] -> print_endline "covered"; raise Item_not_known
-               | e :: elist ->
-                  if i = e then
-                    match go elist iblist' left with
-                      None -> (go elist iblist' right)
-                    | Some x -> Some x
-                  else
-                    (go elist iblist left)
-          end
+           match iblist, elist with
+           | i :: iblist', e :: elist ->
+              begin
+                if i = e then
+                  match go elist iblist' right with
+                  | None -> go elist iblist' left
+                  | sx -> sx
+                else
+                  go elist iblist left
+              end
+           | [], _ -> None
+           | _, [] -> raise Item_not_known
     in go elist iblist stree.tree
 
 end

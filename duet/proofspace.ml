@@ -535,6 +535,7 @@ let construct solver assign_table trace =
   | `Valid itp -> go (List.rev trace) (List.tl (List.rev itp)) Ctx.mk_false
   | _ -> Log.fatalf "Failed to interpolate!"
 
+(*
 let construct solver assign_table trace =
   let module Solver = Hoare.MakeSolver(Ctx)(IV) in
   let hoare_solver = Solver.mk_solver in
@@ -560,6 +561,7 @@ let construct solver assign_table trace =
       | trans :: transitions ->
          begin
            let post = Ctx.mk_app (get_pred vars_type) vars_const in
+           (*logf "%a" Solver.pp_triple ([pre], trans, [post]);*)
            Solver.register_triple hoare_solver ([pre], trans, [post]);
            go post transitions
          end
@@ -570,35 +572,37 @@ let construct solver assign_table trace =
     match trace, triples with
     | (letter, tid) :: trace, (pre, trans, post) :: triples ->
        let mk_conj phi =
+         let rec flatten phi =
+           List.fold_left (fun conj psi -> match (destruct ctx psi) with
+                                           | `And psi -> List.append conj (flatten psi)
+                                           | _ -> List.append conj [psi]) [] phi
+         in
          match phi with
          | [] -> Ctx.mk_true
          | [phi] -> rewrite ctx ~down:(nnf_rewriter ctx) phi
-         | phi -> Ctx.mk_and (List.rev_map (rewrite ctx ~down:(nnf_rewriter ctx)) phi)
+         | phi -> Ctx.mk_and (flatten (List.rev_map (rewrite ctx ~down:(nnf_rewriter ctx)) phi))
        in
        let letters = Letter.Set.singleton letter in
        let pre = mk_conj pre in
        let post = mk_conj post in
-       let (_, lhs, rhs) = generalize tid post pre in
-       let lhs_arity = arity lhs in
-       Log.logf ~level:`always "%a" Solver.pp_triple ([pre], trans, [post]);
+       (*Log.logf ~level:`always "%a" Solver.pp_triple ([pre], trans, [post]);*)
        List.iter (fun psi ->
+           let (_, psi, rhs) = generalize tid psi pre in
+           let psi_arity = (arity psi) in
            if not (E.mem_vocabulary solver psi) then begin
-               E.add_accepting_predicate solver psi (arity psi);
+               E.add_accepting_predicate solver psi psi_arity;
                add_stable solver assign_table psi
+             end;
+           if P.compare pre post != 0 || not (is_stable letter post) then begin
+               logf
+                 "Added PA transition:@\n @[{%a}(%a)@]@\n --( [#0] %a )-->@\n @[%a@]"
+                 P.pp psi
+                 (ArkUtil.pp_print_enum Format.pp_print_int) (1 -- psi_arity)
+                 Letter.pp letter
+                 PA.pp_formula rhs;
+               E.conjoin_transition solver psi letters (negate_paformula rhs)
              end
-         ) (lhs :: (BatList.of_enum  (P.conjuncts lhs)));
-       if P.compare pre post = 0 then begin
-           if not (is_stable letter post) then
-             E.conjoin_transition solver lhs letters (negate_paformula rhs)
-         end else begin
-           Log.logf
-             "Added PA transition:@\n @[{%a}(%a)@]@\n --( [#0] %a )-->@\n @[%a@]"
-             P.pp lhs
-             (ArkUtil.pp_print_enum Format.pp_print_int) (1 -- lhs_arity)
-             Letter.pp letter
-             PA.pp_formula rhs;
-           E.conjoin_transition solver lhs letters (negate_paformula rhs)
-         end;
+         ) ((BatList.of_enum  (P.conjuncts post)));
        go trace triples
     | x, y -> assert (x = [] && y = [])
   in
@@ -607,6 +611,7 @@ let construct solver assign_table trace =
   match Solver.check_solution hoare_solver with
   | `Sat -> go trace (Solver.get_solution hoare_solver)
   | _ -> Log.fatalf "Failed to find hoare triples"
+ *)
 
 let construct solver trace =
   Log.time "PA construction" (construct solver) trace
