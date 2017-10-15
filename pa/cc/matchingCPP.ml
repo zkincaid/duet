@@ -27,6 +27,7 @@ module type S = sig
   val uembeds : t -> bool
   val cembeds : t -> bool
   val emb2mzn : t -> bool
+  val haifacsp : t -> bool
 end
 
 module Make (Predicate : Symbol) = struct
@@ -60,4 +61,6 @@ module Make (Predicate : Symbol) = struct
   let cembeds embedding = embedsCPP embedding.str1 embedding.str2 2
 
   let emb2mzn embedding = embedsCPP embedding.str1 embedding.str2 3
+
+  let haifacsp embedding = embedsCPP embedding.str1 embedding.str2 4
 end

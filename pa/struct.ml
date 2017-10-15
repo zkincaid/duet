@@ -42,6 +42,7 @@ module type S = sig
   val uembeds : t -> t -> bool
   val cembeds : t -> t -> bool
   val str2mzn : t -> t -> bool
+  val haifacsp : t -> t -> bool
   val union : t -> t -> t
   val empty : int -> t
   val full : (predicate * int) BatEnum.t -> int -> t
@@ -390,8 +391,15 @@ module Make (P : Symbol) = struct
     && (AtomSet.cardinal x.prop <= AtomSet.cardinal y.prop)
     && (PSet.subset (get_preds x) (get_preds y)) (* this is always true when using Search Tree *)
     && (AtomSet.subset x.prop y.prop ||
-       (MatchCPP.emb2mzn (MatchCPP.make (x.universe) (props x) (y.universe) (props y))))    
-
+       (MatchCPP.emb2mzn (MatchCPP.make (x.universe) (props x) (y.universe) (props y))))
+         
+  let haifacsp x y =
+    (x.universe <= y.universe)
+    && (AtomSet.cardinal x.prop <= AtomSet.cardinal y.prop)
+    && (PSet.subset (get_preds x) (get_preds y)) (* this is always true when using Search Tree *)
+    && (AtomSet.subset x.prop y.prop ||
+       (MatchCPP.haifacsp (MatchCPP.make (x.universe) (props x) (y.universe) (props y))))    
+         
   (* Is there an embedding (injective homomorphism) of x into y? *)
   let embeds x y =
     (x.universe <= y.universe)
