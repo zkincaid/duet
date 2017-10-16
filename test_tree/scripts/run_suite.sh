@@ -3,7 +3,7 @@
 TO=600
 DIV=1000
 
-for file in `ls ../code/*.c | sort --version-sort -f`; do
+for file in `ls ../code/threader/*.c | sort --version-sort -f`; do
 
     echo -n $(basename $file)
     

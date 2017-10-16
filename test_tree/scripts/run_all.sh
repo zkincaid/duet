@@ -11,3 +11,10 @@ make
 cd test_tree/scripts/
 ./run_suite.sh > ../results/gecode_threader.txt
 ./run_count.sh > ../results/gecode_count.txt
+
+cp ../haifa/struct.ml ../../pa/struct.ml
+cd ../../
+make
+cd test_tree/scripts/
+./run_suite.sh > ../results/haifa_threader.txt
+./run_count.sh > ../results/haifa_count.txt

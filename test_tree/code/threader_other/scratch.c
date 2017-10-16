@@ -1,5 +1,6 @@
 #include<pthread.h>
 int g;
+int n;
 
 void* thr(void* arg) {
   int junk = 0;
@@ -10,7 +11,7 @@ void* thr(void* arg) {
   g++;
   junk++;
   junk++;
-  assert(g <=2);
+  assert(g <= n);
   junk++;
   junk++;
   junk++;
@@ -22,5 +23,9 @@ void* thr(void* arg) {
 void main(){
   pthread_t t;
 
-  pthread_create(&t, NULL, thr, NULL);
+  int nondet;
+  n = nondet;
+  for (int i = 0; i < n; ++i){
+    pthread_create(&t, NULL, thr, NULL);
+  }
 }

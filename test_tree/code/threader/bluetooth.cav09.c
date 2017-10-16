@@ -36,9 +36,7 @@ void* stopper(void* arg) {
 }
 
 void main() {
-  pthread_t t1, t2, t3, t4;
+  pthread_t t1, t2;
   pthread_create(&t1, NULL, adder, NULL);
   pthread_create(&t2, NULL, stopper, NULL);
-  pthread_create(&t3, NULL, adder, NULL);
-  pthread_create(&t4, NULL, stopper, NULL);
 }

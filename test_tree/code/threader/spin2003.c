@@ -1,9 +1,8 @@
 #include<pthread.h>
 
-int x=1, m=0; // the init values are ignored
+int x=1, m=0;
 
 void* thr(void* arg) {
-  m = 0;
   acquire(m); // m=0 /\ m'=1
   x = 0;
   x = 1;
@@ -13,7 +12,9 @@ void* thr(void* arg) {
 }
 
 void main(){
-  pthread_t t1;
+  pthread_t t1, t2;
 
   pthread_create(&t1, NULL, thr, NULL);
+  pthread_create(&t2, NULL, thr, NULL);
+
 }
