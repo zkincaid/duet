@@ -6,7 +6,7 @@ int t = 0;
 void* thread(void *arg) {
     int m;
     m = t++;
-    assume (s == m)
+    assume (s == m);
     in_critical = 1;
     assert(in_critical == 1);
     in_critical = 0;
