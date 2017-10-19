@@ -27,6 +27,7 @@ module type S = sig
   val cembeds : t -> bool
   val emb2mzn : t -> bool
   val haifacsp : t -> bool
+  val ortools : t -> bool
 end
 
 module Make (Predicate : Symbol) : S with type predicate = Predicate.t

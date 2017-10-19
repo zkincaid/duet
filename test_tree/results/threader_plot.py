@@ -42,7 +42,7 @@ cactus_plot(data[6], '-kh', label='Haifa + List')
 
 plt.xlabel('Instances Solved')
 plt.ylabel('Time (s)')
-plt.yscale('log')
+#plt.yscale('log')
 #plt.legend(bbox_to_anchor=(0.38,1.0), loc=2)
 plt.legend(loc=0)
 plt.show()

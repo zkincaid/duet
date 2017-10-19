@@ -51,6 +51,7 @@ module type S = sig
   val cembeds : t -> t -> bool
   val str2mzn : t -> t -> bool
   val haifacsp : t -> t -> bool
+  val ortools : t -> t -> bool
 
   (** [union s s'] is a structure whose universe is the union of the universes
       of [s] and [s'] and whose interpretation of each predicate [p] is the

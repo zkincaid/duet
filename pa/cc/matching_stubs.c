@@ -44,6 +44,7 @@ bool uembedding(Embedding emb, Var_selection sel);
 bool cembedding(Embedding emb);
 bool emb2mzn(Embedding emb);
 bool haifacsp(Embedding emb);
+bool ortools(Embedding emb);
 void find_conflicts(const Embedding& emb, const vector<int>& matching, vector<int>& confs);
 void backtrack(stack<decision>& decisions, Embedding& emb);
 bool choose(stack<decision>& decisions, const vector<int>& confs, Embedding& emb);
@@ -119,6 +120,9 @@ extern "C" {
       case 4:
         result = haifacsp(std::move(Embedding(sig1, sig2, pu_label, pv_label)));
 	break;
+      case 5:
+	result = ortools(std::move(Embedding(sig1, sig2, pu_label, pv_label)));
+        break;
       default:
 	printf("Error: Invalid Algorithm Choice %d\n", Int_val(algo));
 	exit(-1);
@@ -446,6 +450,26 @@ bool haifacsp(Embedding emb){
     if (child == 0){
       execl("/home/charlie/git_repos/duet/pa/cc/run_haifa.sh", "run_haifa.sh", NULL);
       fprintf(stderr, "Unable to launch haifacsp\n");
+      exit(-1);
+    } else if (child < 0) {
+      fprintf(stderr, "Unable to fork process\n");
+      return false;
+    } else {
+      int returnStatus;
+      waitpid(child, &returnStatus, 0);
+      return (returnStatus == 0);
+    }
+  } else {
+    return false;
+  }
+}
+
+bool ortools(Embedding emb){
+  if (emb2mzn(std::move(emb))){
+    pid_t child = fork();
+    if (child == 0){
+      execl("/home/charlie/git_repos/duet/pa/cc/run_ortools.sh", "run_ortools.sh", NULL);
+      fprintf(stderr, "Unable to launch OrTools\n");
       exit(-1);
     } else if (child < 0) {
       fprintf(stderr, "Unable to fork process\n");
