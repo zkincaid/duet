@@ -52,13 +52,14 @@ PRInt32 readWriteProc(PRFileDesc fd, void buf, PRUint32 bytes, IOOperation op)
 			if ( bytes > 20480L )
 			{
 				doingAsync = PR_TRUE;
-				{ __blockattribute__((atomic))
+				{ __VERIFIER_atomic_begin();
 				if (__COUNT__ == 0) {
 				  me_io_pending = PR_TRUE; // check for order violation
 				  __COUNT__ = __COUNT__ + 1;
 				} else {
 				  assert(0);
 				}
+				  __VERIFIER_atomic_end();
 				}
 				__START_ASYNC__ = True; // second thread can start
 				(void)PBReadAsync(pbAsync_pb);
@@ -128,13 +129,14 @@ inline void DoneWaitingOnThisThread(PRThread thread)
 
 	_PR_INTSOFF(is);
 	PR_Lock(thread_md_asyncIOLock);
-	{ __blockattribute__((atomic))
+	{ __VERIFIER_atomic_begin();
 	if (__COUNT__ == 1) {
 	  thread_io_pending = PR_FALSE; // check for order violation
 	  __COUNT__ = __COUNT__ + 1;
 	} else {
 	  assert(0);
 	}
+          __VERIFIER_atomic_end();
 	}
 	// let the waiting thread know that async IO completed 
 	PR_NotifyCondVar(thread_md_asyncIOCVar);

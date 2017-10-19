@@ -6,6 +6,18 @@ int inode;
 int m_inode=0; // protects the inode
 int m_busy=0; // protects the busy flag
 
+#define acquire(l) \
+  __VERIFIER_atomic_begin(); \
+  assume (l == 0); \
+  l = 1; \
+  __VERIFIER_atomic_end()
+
+#define release(l) \
+  __VERIFIER_atomic_begin(); \
+  assert (l == 1); \
+  l = 0; \
+  __VERIFIER_atomic_end()
+
 void* thr1(void* arg){
   glb_init(inode == busy);
   acquire(m_inode);

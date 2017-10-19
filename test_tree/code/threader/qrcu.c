@@ -7,6 +7,18 @@ int readerprogress1, readerprogress2; // byte readerprogress[N_QRCU_READERS];
 int mutex; // bit mutex = 0; updates are done in critical section, only one writer at a time
 int NONDET;
 
+#define acquire(l) \
+  __VERIFIER_atomic_begin(); \
+  assume (l == 0); \
+  l = 1; \
+  __VERIFIER_atomic_end()
+
+#define release(l) \
+  __VERIFIER_atomic_begin(); \
+  assert (l == 1); \
+  l = 0; \
+  __VERIFIER_atomic_end()
+
 void* qrcu_reader1(void* arg) {
   int myidx;
   
@@ -14,18 +26,20 @@ void* qrcu_reader1(void* arg) {
   while (1) {
     myidx = idx;
     if (NONDET) {
-      { __blockattribute__((atomic))
+      { __VERIFIER_atomic_begin();
 	assume(myidx <= 0);
 	assume(ctr1>0);
 	ctr1++;
+	__VERIFIER_atomic_end();
       }
       break;
     } else {
       if (NONDET) {
-	{ __blockattribute__((atomic))
+	{ __VERIFIER_atomic_begin();
 	  assume(myidx > 0);
 	  assume(ctr2>0);
 	  ctr2++;
+          __VERIFIER_atomic_end();
 	}
 	break;
       } else {}
@@ -47,9 +61,10 @@ void* qrcu_reader1(void* arg) {
   readerprogress1 = 2; /*** readerprogress[me] = 2 ***/
 
   /* rcu_read_unlock */
-  { __blockattribute__((atomic))
+  { __VERIFIER_atomic_begin();
       if (myidx <= 0) { ctr1--; } // use ctr1
       else { ctr2--; } // use ctr2
+    __VERIFIER_atomic_end();
   }
   return NULL;
 }
@@ -78,9 +93,10 @@ void* qrcu_updater(void* arg) {
   glb_init(mutex==0);  
 
   /* Snapshot reader state. */
-  { __blockattribute__((atomic))
+  { __VERIFIER_atomic_begin();
       readerstart1 = readerprogress1;
       readerstart2 = readerprogress2;
+    __VERIFIER_atomic_end();
   }
 
   sum_unordered;
@@ -95,7 +111,7 @@ void* qrcu_updater(void* arg) {
   }
 
   /* Verify reader progress. */
-  { __blockattribute__((atomic))
+  { __VERIFIER_atomic_begin();
       if (NONDET) {
 	assume(readerstart1 == 1);
 	assume(readerprogress1 == 1);
@@ -107,6 +123,7 @@ void* qrcu_updater(void* arg) {
 	  assert(0);
 	} else { }
       }
+    __VERIFIER_atomic_end();
   }
   /* Frontend generates too many transitions:
   { __blockattribute__((atomic))
@@ -128,18 +145,20 @@ void* qrcu_reader2(void* arg) {
   while (1) {
     myidx = idx;
     if (NONDET) {
-      { __blockattribute__((atomic))
+      { __VERIFIER_atomic_begin();
 	assume(myidx <= 0);
 	assume(ctr1>0);
 	ctr1++;
+        __VERIFIER_atomic_end();
       }
       break;
     } else {
       if (NONDET) {
-	{ __blockattribute__((atomic))
+	{ __VERIFIER_atomic_begin();
 	  assume(myidx > 0);
 	  assume(ctr2>0);
 	  ctr2++;
+          __VERIFIER_atomic_end();
 	}
 	break;
       } else {}
@@ -150,17 +169,19 @@ void* qrcu_reader2(void* arg) {
   readerprogress2 = 2; /*** readerprogress[me] = 2 ***/
 
   /* rcu_read_unlock */
-  { __blockattribute__((atomic))
+  { __VERIFIER_atomic_begin();
       if (myidx <= 0) { ctr1--; } // use ctr1
       else { ctr2--; } // use ctr2
+    __VERIFIER_atomic_end();
   }
   return NULL;
 }
 
 #define acquire_thread_id(tid, l) \
-  { __blockattribute__((atomic)) \
+  { __VERIFIER_atomic_begin(); \
     assume(l==0); \
     l = tid; \
+    __VERIFIER_atomic_end(); \
   }
 
 void main() {

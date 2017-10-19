@@ -5,10 +5,11 @@ int w, r, x, y;
 void* thread1(void* arg) { //writer
   glb_init(w==0);
   glb_init(r==0);
-  { __blockattribute__((atomic))
+  { __VERIFIER_atomic_begin();
     assume(w==0);
     assume(r==0);
     w = 1;
+    __VERIFIER_atomic_end();
   }
   x = 3;
   w = 0;
@@ -16,9 +17,10 @@ void* thread1(void* arg) { //writer
 }
 
 void* thread2(void* arg) { //reader
-  { __blockattribute__((atomic))
+  { __VERIFIER_atomic_begin();
     assume(w==0);
     r = r+1;
+    __VERIFIER_atomic_end();
   }
   y = x;
   assert(y == x);

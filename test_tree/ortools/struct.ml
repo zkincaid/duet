@@ -423,7 +423,7 @@ module Make (P : Symbol) = struct
     if (monadic x) && (monadic y) then embeds_matching x y else embeds_naive x y
   end)
 
-  let embeds x y = Log.time "Embedding" (haifacsp x) y
+  let embeds x y = Log.time "Embedding" (ortools x) y
 
   let make ?size:(size=(-1)) prop_enum =
     let prop = AtomSet.of_enum prop_enum in

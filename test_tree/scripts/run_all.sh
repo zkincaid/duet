@@ -18,3 +18,10 @@ make
 cd test_tree/scripts/
 ./run_suite.sh > ../results/haifa_threader.txt
 ./run_count.sh > ../results/haifa_count.txt
+
+cp ../ortools/struct.ml ../../pa/struct.ml
+cd ../../
+make
+cd test_tree/scripts/
+./run_suite.sh > ../results/ortools_threader.txt
+./run_count.sh > ../results/ortools_count.txt

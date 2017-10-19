@@ -2,6 +2,18 @@
 
 int x=1, m=0;
 
+#define acquire(l) \
+  __VERIFIER_atomic_begin(); \
+  assume (l == 0); \
+  l = 1; \
+  __VERIFIER_atomic_end()
+
+#define release(l) \
+  __VERIFIER_atomic_begin(); \
+  assert (l == 1); \
+  l = 0;
+  __VERIFIER_atomic_end()
+
 void* thr(void* arg) {
   acquire(m); // m=0 /\ m'=1
   x = 0;
