@@ -1,4 +1,4 @@
-y#include <pthread.h>
+#include <pthread.h>
 
 int to;
 int from;

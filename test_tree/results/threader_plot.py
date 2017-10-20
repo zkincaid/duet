@@ -32,8 +32,8 @@ def cactus_plot(data, *args, **kwargs):
     Y.append(val)
     plt.plot(X, Y, *args, **kwargs)
 
-cactus_plot(data[1], '-bs', label='Embeds + Tree')
-cactus_plot(data[2], '-yo', label='Embeds + List')
+cactus_plot(data[1], '-bs', label='MatchEmbeds + Tree')
+cactus_plot(data[2], '-yo', label='MatchEmbeds + List')
 cactus_plot(data[3], '-m*', label='Gecode + Tree')
 cactus_plot(data[4], '-gd', label='Gecode + Llist')
 cactus_plot(data[5], '-cp', label='Haifa + Tree')
