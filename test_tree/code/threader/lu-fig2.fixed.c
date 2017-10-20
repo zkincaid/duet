@@ -13,7 +13,7 @@ int __COUNT__ =0;
 
 #define release(l) \
   __VERIFIER_atomic_begin(); \
-  assert (l == 1);
+  assert (l == 1); \
   l = 0; \
   __VERIFIER_atomic_end()
 

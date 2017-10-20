@@ -19,7 +19,8 @@ int m_busy=0; // protects the busy flag
   __VERIFIER_atomic_end()
 
 void* thr1(void* arg){
-  glb_init(inode == busy);
+  //glb_init(inode == busy);
+  __VERIFIER_assume(inode == busy);
   acquire(m_inode);
   if(inode == 0){
     acquire(m_busy);

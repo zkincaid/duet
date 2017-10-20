@@ -85,12 +85,12 @@ void* qrcu_updater(void* arg) {
   int readerstart2;
   int sum;
 
-  glb_init(idx==0);
-  glb_init(ctr1==1);
-  glb_init(ctr2==0);
-  glb_init(readerprogress1==0);
-  glb_init(readerprogress2==0);
-  glb_init(mutex==0);  
+  glb_init(idx==0);                 __VERIFIER_assume(idx == 0);
+  glb_init(ctr1==1);                __VERIFIER_assume(ctr1 == 1);
+  glb_init(ctr2==0);                __VERIFIER_assume(ctr2==0);
+  glb_init(readerprogress1==0);     __VERIFIER_assume(readerprogress1==0);
+  glb_init(readerprogress2==0);     __VERIFIER_assume(readerprogress2==0);
+  glb_init(mutex==0);               __VERIFIER_assume(mutex==0);
 
   /* Snapshot reader state. */
   { __VERIFIER_atomic_begin();

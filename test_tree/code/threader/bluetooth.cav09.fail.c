@@ -14,7 +14,9 @@ void* adder(void* arg) {
   /* Begin: IoInc() */
   pendingIo = pendingIo+1;
   if (driverStoppingFlag >= 1) {
-    IoDec();
+    int PIo = pendingIo-1;
+    pendingIo = pendingIo-1;
+    if (PIo == 0) { stoppingEvent = 1; }
     status = 0;
   } else {
     status = 1;
@@ -29,7 +31,9 @@ void* adder(void* arg) {
 
 void* stopper(void* arg) {
   driverStoppingFlag = 1;
-  IoDec();
+  int PIo = pendingIo-1;
+  pendingIo = pendingIo-1;
+  if (PIo == 0) { stoppingEvent = 1; }
   while (stoppingEvent <= 0);
   stopped = 1;
   return NULL;
