@@ -38,6 +38,8 @@ cactus_plot(data[3], '-m*', label='Gecode + Tree')
 cactus_plot(data[4], '-gd', label='Gecode + Llist')
 cactus_plot(data[5], '-cp', label='Haifa + Tree')
 cactus_plot(data[6], '-kh', label='Haifa + List')
+cactus_plot(data[7], '-v', color="orange", label='OrTools + List')
+cactus_plot(data[8], '-<', color="pink", label='OrTools + List')
 # s - square, v ^ < > - triangles, o - circe, p - pentagon, * - star, h H - hexagon, x - x, d D - diamond
 
 plt.xlabel('Instances Solved')
