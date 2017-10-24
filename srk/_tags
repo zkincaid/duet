@@ -1,0 +1,87 @@
+# OASIS_START
+# DO NOT EDIT (digest: 53d415ae8e32e048a43aa84a02bc320c)
+# Ignore VCS directories, you can use the same kind of rule outside
+# OASIS_START/STOP if you want to exclude directories that contains
+# useless stuff for the build process
+true: annot, bin_annot
+<**/.svn>: -traverse
+<**/.svn>: not_hygienic
+".bzr": -traverse
+".bzr": not_hygienic
+".hg": -traverse
+".hg": not_hygienic
+".git": -traverse
+".git": not_hygienic
+"_darcs": -traverse
+"_darcs": not_hygienic
+# Library ark
+"src/ark.cmxs": use_ark
+"src/arkUtil.cmx": for-pack(Ark)
+"src/log.cmx": for-pack(Ark)
+"src/disjointSet.cmx": for-pack(Ark)
+"src/memo.cmx": for-pack(Ark)
+"src/featureTree.cmx": for-pack(Ark)
+"src/qQ.cmx": for-pack(Ark)
+"src/zZ.cmx": for-pack(Ark)
+"src/syntax.cmx": for-pack(Ark)
+"src/interval.cmx": for-pack(Ark)
+"src/smt.cmx": for-pack(Ark)
+"src/arkZ3.cmx": for-pack(Ark)
+"src/arkMathsat.cmx": for-pack(Ark)
+"src/linear.cmx": for-pack(Ark)
+"src/polynomial.cmx": for-pack(Ark)
+"src/interpretation.cmx": for-pack(Ark)
+"src/arkApron.cmx": for-pack(Ark)
+"src/polyhedron.cmx": for-pack(Ark)
+"src/arkSimplify.cmx": for-pack(Ark)
+"src/abstract.cmx": for-pack(Ark)
+"src/nonlinear.cmx": for-pack(Ark)
+"src/coordinateSystem.cmx": for-pack(Ark)
+"src/wedge.cmx": for-pack(Ark)
+"src/quantifier.cmx": for-pack(Ark)
+"src/iteration.cmx": for-pack(Ark)
+"src/transition.cmx": for-pack(Ark)
+"src/bigO.cmx": for-pack(Ark)
+<src/*.ml{,i,y}>: pkg_ppx_deriving.show
+# Executable test_ark
+"src/test_ark.native": pkg_Z3
+"src/test_ark.native": pkg_apron
+"src/test_ark.native": pkg_apron.boxMPQ
+"src/test_ark.native": pkg_apron.octMPQ
+"src/test_ark.native": pkg_apron.polkaMPQ
+"src/test_ark.native": pkg_batteries
+"src/test_ark.native": pkg_camlidl
+"src/test_ark.native": pkg_gmp
+"src/test_ark.native": pkg_mathsat
+"src/test_ark.native": pkg_oUnit
+"src/test_ark.native": pkg_ocrs
+"src/test_ark.native": pkg_ppx_deriving
+"src/test_ark.native": pkg_ppx_deriving.ord
+<src/*.ml{,i,y}>: pkg_oUnit
+# Executable arktop
+"src/arkTop.native": pkg_Z3
+"src/arkTop.native": pkg_apron
+"src/arkTop.native": pkg_apron.boxMPQ
+"src/arkTop.native": pkg_apron.octMPQ
+"src/arkTop.native": pkg_apron.polkaMPQ
+"src/arkTop.native": pkg_batteries
+"src/arkTop.native": pkg_camlidl
+"src/arkTop.native": pkg_gmp
+"src/arkTop.native": pkg_mathsat
+"src/arkTop.native": pkg_ocrs
+"src/arkTop.native": pkg_ppx_deriving
+"src/arkTop.native": pkg_ppx_deriving.ord
+<src/*.ml{,i,y}>: pkg_Z3
+<src/*.ml{,i,y}>: pkg_apron
+<src/*.ml{,i,y}>: pkg_apron.boxMPQ
+<src/*.ml{,i,y}>: pkg_apron.octMPQ
+<src/*.ml{,i,y}>: pkg_apron.polkaMPQ
+<src/*.ml{,i,y}>: pkg_batteries
+<src/*.ml{,i,y}>: pkg_camlidl
+<src/*.ml{,i,y}>: pkg_gmp
+<src/*.ml{,i,y}>: pkg_mathsat
+<src/*.ml{,i,y}>: pkg_ocrs
+<src/*.ml{,i,y}>: pkg_ppx_deriving
+<src/*.ml{,i,y}>: pkg_ppx_deriving.ord
+# OASIS_STOP
+true: use_menhir

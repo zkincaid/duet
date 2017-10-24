@@ -1,0 +1,45 @@
+OASISFormat: 0.4
+Name:        srk
+Version:     0.1.3
+Synopsis:    Symbolic Reasoning Kit
+Authors:     Zachary Kincaid
+License:     GPL-3.0
+Plugins:     META (0.4), StdFiles (0.4), DevFiles (0.4)
+AlphaFeatures: ocamlbuild_more_args
+BuildTools: ocamlbuild, ocamldoc, menhir
+
+Library ark
+  Path:             src
+  FindlibName:      ark
+  Pack:             true
+  Modules:  ArkUtil, Log, DisjointSet, Memo, FeatureTree, QQ, ZZ, Syntax, Interval, Smt, ArkZ3, ArkMathsat, Linear, Polynomial, Interpretation, ArkApron, Polyhedron, ArkSimplify, Abstract, Nonlinear, CoordinateSystem, Wedge, Quantifier, Iteration, Transition, BigO
+  BuildDepends:     batteries, ppx_deriving, ppx_deriving.show, ppx_deriving.ord, gmp, camlidl, apron, Z3, mathsat, ocrs
+  Install:         false
+  XMETADescription: Arithmetic Reasoning Kit
+
+Executable test_ark
+  Build$:         flag(tests)
+  Path:           src
+  MainIs:         test_ark.ml
+  BuildDepends:   batteries, ppx_deriving, ppx_deriving.ord, gmp, camlidl, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, oUnit, mathsat, ocrs
+  CompiledObject: native
+  Install:        false
+
+Executable arktop
+  Build$:         flag(tests)
+  Path:           src
+  MainIs:         arkTop.ml
+  BuildDepends:   batteries, ppx_deriving, ppx_deriving.ord, gmp, camlidl, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, mathsat, ocrs
+  CompiledObject: native
+  Install:        false
+
+Test ark
+  Command:   $test_ark
+  TestTools: test_ark
+  run$:      flag(tests)
+
+Document API
+  Title: API reference for Ark
+  Type: OCamlbuild (0.4)
+  XOCamlbuildPath: .
+  XOCamlbuildLibraries: ark
