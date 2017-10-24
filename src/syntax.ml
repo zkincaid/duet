@@ -29,7 +29,7 @@ let pp_typ formatter = function
   | `TyFun (dom, cod) ->
     let pp_sep formatter () = Format.fprintf formatter "@ * " in
     Format.fprintf formatter "(@[%a@ -> %a@])"
-      (ArkUtil.pp_print_enum ~pp_sep pp_typ_fo) (BatList.enum dom)
+      (SrkUtil.pp_print_enum ~pp_sep pp_typ_fo) (BatList.enum dom)
       pp_typ_fo cod
 
 let pp_typ_arith = pp_typ
@@ -88,8 +88,8 @@ module DynArray = BatDynArray
 module Symbol = struct
   type t = symbol
   let compare = Pervasives.compare
-  module Set = ArkUtil.Int.Set
-  module Map = ArkUtil.Int.Map
+  module Set = SrkUtil.Int.Set
+  module Map = SrkUtil.Int.Map
 end
 
 module Var = struct
@@ -176,7 +176,7 @@ type 'a context =
   }
 
 let size expr =
-  let open ArkUtil.Int in
+  let open SrkUtil.Int in
   let counted = ref Set.empty in
   let rec go sexpr =
     let (Node (_, children, _)) = sexpr.obj in
@@ -189,78 +189,78 @@ let size expr =
   in
   go expr
 
-let mk_symbol ctx ?(name="K") typ =
-  DynArray.add ctx.symbols (name, typ);
-  DynArray.length ctx.symbols - 1
+let mk_symbol srk ?(name="K") typ =
+  DynArray.add srk.symbols (name, typ);
+  DynArray.length srk.symbols - 1
 
-let register_named_symbol ctx name typ =
-  if Hashtbl.mem ctx.named_symbols name then
+let register_named_symbol srk name typ =
+  if Hashtbl.mem srk.named_symbols name then
     invalid_arg ("register_named_symbol: The name `"
                  ^ name
                  ^ "' has already been registered")
   else
-    Hashtbl.add ctx.named_symbols name (mk_symbol ctx ~name typ)
+    Hashtbl.add srk.named_symbols name (mk_symbol srk ~name typ)
 
-let get_named_symbol ctx name = Hashtbl.find ctx.named_symbols name
+let get_named_symbol srk name = Hashtbl.find srk.named_symbols name
 
-let is_registered_name ctx name = Hashtbl.mem ctx.named_symbols name
+let is_registered_name srk name = Hashtbl.mem srk.named_symbols name
 
-let symbol_name ctx sym =
-  let name = fst (DynArray.get ctx.symbols sym) in
-  if is_registered_name ctx name then Some name
+let symbol_name srk sym =
+  let name = fst (DynArray.get srk.symbols sym) in
+  if is_registered_name srk name then Some name
   else None
 
-let typ_symbol ctx = snd % DynArray.get ctx.symbols
-let pp_symbol ctx formatter symbol =
+let typ_symbol srk = snd % DynArray.get srk.symbols
+let pp_symbol srk formatter symbol =
   Format.fprintf formatter "%s:%d"
-    (fst (DynArray.get ctx.symbols symbol))
+    (fst (DynArray.get srk.symbols symbol))
     symbol
 
-let show_symbol ctx symbol = fst (DynArray.get ctx.symbols symbol)
+let show_symbol srk symbol = fst (DynArray.get srk.symbols symbol)
 let symbol_of_int x = x
 let int_of_symbol x = x
 
-let mk_real ctx qq = ctx.mk (Real qq) []
-let mk_zero ctx = mk_real ctx QQ.zero
-let mk_one ctx = mk_real ctx QQ.one
+let mk_real srk qq = srk.mk (Real qq) []
+let mk_zero srk = mk_real srk QQ.zero
+let mk_one srk = mk_real srk QQ.one
 
-let mk_const ctx k = ctx.mk (App k) []
-let mk_app ctx symbol actuals = ctx.mk (App symbol) actuals
-let mk_var ctx v typ = ctx.mk (Var (v, typ)) []
+let mk_const srk k = srk.mk (App k) []
+let mk_app srk symbol actuals = srk.mk (App symbol) actuals
+let mk_var srk v typ = srk.mk (Var (v, typ)) []
 
-let mk_neg ctx t = ctx.mk Neg [t]
-let mk_div ctx s t = ctx.mk Div [s; t]
-let mk_mod ctx s t = ctx.mk Mod [s; t]
-let mk_floor ctx t = ctx.mk Floor [t]
-let mk_ceiling ctx t = mk_neg ctx (mk_floor ctx (mk_neg ctx t))
+let mk_neg srk t = srk.mk Neg [t]
+let mk_div srk s t = srk.mk Div [s; t]
+let mk_mod srk s t = srk.mk Mod [s; t]
+let mk_floor srk t = srk.mk Floor [t]
+let mk_ceiling srk t = mk_neg srk (mk_floor srk (mk_neg srk t))
 
-let mk_add ctx = function
-  | [] -> mk_zero ctx
+let mk_add srk = function
+  | [] -> mk_zero srk
   | [x] -> x
-  | sum -> ctx.mk Add sum
+  | sum -> srk.mk Add sum
 
-let mk_mul ctx = function
-  | [] -> mk_one ctx
+let mk_mul srk = function
+  | [] -> mk_one srk
   | [x] -> x
-  | product -> ctx.mk Mul product
+  | product -> srk.mk Mul product
 
-let mk_sub ctx s t = mk_add ctx [s; mk_neg ctx t]
+let mk_sub srk s t = mk_add srk [s; mk_neg srk t]
 
-let rec mk_pow ctx t n =
-  if n = 0 then mk_one ctx
+let rec mk_pow srk t n =
+  if n = 0 then mk_one srk
   else if n = 1 then t
-  else if n < 0 then mk_div ctx (mk_one ctx) (mk_pow ctx t (-n))
+  else if n < 0 then mk_div srk (mk_one srk) (mk_pow srk t (-n))
   else
-    let q = mk_pow ctx t (n / 2) in
-    let q_squared = mk_mul ctx [q; q] in
+    let q = mk_pow srk t (n / 2) in
+    let q_squared = mk_mul srk [q; q] in
     if n mod 2 = 0 then q_squared
-    else mk_mul ctx [q; q_squared]
+    else mk_mul srk [q; q_squared]
 
-let mk_true ctx = ctx.mk True []
-let mk_false ctx = ctx.mk False []
-let mk_leq ctx s t = ctx.mk Leq [s; t]
-let mk_lt ctx s t = ctx.mk Lt [s; t]
-let mk_eq ctx s t = ctx.mk Eq [s; t]
+let mk_true srk = srk.mk True []
+let mk_false srk = srk.mk False []
+let mk_leq srk s t = srk.mk Leq [s; t]
+let mk_lt srk s t = srk.mk Lt [s; t]
+let mk_eq srk s t = srk.mk Eq [s; t]
 
 let is_true phi = match phi.obj with
   | Node (True, [], _) -> true
@@ -278,52 +278,52 @@ let is_one phi = match phi.obj with
   | Node (Real k, [], _) -> QQ.equal k QQ.one
   | _ -> false
 
-let mk_not ctx phi = ctx.mk Not [phi]
-let mk_and ctx conjuncts = ctx.mk And conjuncts
-let mk_or ctx disjuncts = ctx.mk Or disjuncts
-let mk_forall ctx ?name:(name="_") typ phi = ctx.mk (Forall (name, typ)) [phi]
-let mk_exists ctx ?name:(name="_") typ phi = ctx.mk (Exists (name, typ)) [phi]
+let mk_not srk phi = srk.mk Not [phi]
+let mk_and srk conjuncts = srk.mk And conjuncts
+let mk_or srk disjuncts = srk.mk Or disjuncts
+let mk_forall srk ?name:(name="_") typ phi = srk.mk (Forall (name, typ)) [phi]
+let mk_exists srk ?name:(name="_") typ phi = srk.mk (Exists (name, typ)) [phi]
 
-let mk_ite ctx cond bthen belse = ctx.mk Ite [cond; bthen; belse]
-let mk_iff ctx phi psi =
-  mk_or ctx [mk_and ctx [phi; psi]; mk_and ctx [mk_not ctx phi; mk_not ctx psi]]
-let mk_if ctx phi psi = mk_or ctx [mk_not ctx phi; psi]
+let mk_ite srk cond bthen belse = srk.mk Ite [cond; bthen; belse]
+let mk_iff srk phi psi =
+  mk_or srk [mk_and srk [phi; psi]; mk_and srk [mk_not srk phi; mk_not srk psi]]
+let mk_if srk phi psi = mk_or srk [mk_not srk phi; psi]
 
-let mk_truncate ctx t =
-  mk_ite ctx
-    (mk_leq ctx (mk_zero ctx) t)
-    (mk_floor ctx t)
-    (mk_ceiling ctx t)
+let mk_truncate srk t =
+  mk_ite srk
+    (mk_leq srk (mk_zero srk) t)
+    (mk_floor srk t)
+    (mk_ceiling srk t)
 
-(* Equivalent to mk_truncate ctx (mk_div ctx s t), but with built-in sign
+(* Equivalent to mk_truncate srk (mk_div srk s t), but with built-in sign
    analysis *)
-let mk_idiv ctx s t =
-  let zero = mk_zero ctx in
-  let div = mk_div ctx s t in
-  let s_pos = mk_leq ctx zero s in
-  let t_pos = mk_leq ctx zero t in
-  mk_ite ctx
-    (mk_iff ctx s_pos t_pos)
-    (mk_floor ctx div)
-    (mk_ceiling ctx div)
+let mk_idiv srk s t =
+  let zero = mk_zero srk in
+  let div = mk_div srk s t in
+  let s_pos = mk_leq srk zero s in
+  let t_pos = mk_leq srk zero t in
+  mk_ite srk
+    (mk_iff srk s_pos t_pos)
+    (mk_floor srk div)
+    (mk_ceiling srk div)
 
 (* Avoid capture by incrementing bound variables *)
-let rec decapture ctx depth incr sexpr =
+let rec decapture srk depth incr sexpr =
   let Node (label, children, _) = sexpr.obj in
   match label with
   | Exists (_, _) | Forall (_, _) ->
-    decapture_children ctx label (depth + 1) incr children
+    decapture_children srk label (depth + 1) incr children
   | Var (v, typ) ->
     if v < depth then
       (* v is bound *)
       sexpr
     else
-      ctx.mk (Var (v + incr, typ)) []
-  | _ -> decapture_children ctx label depth incr children
-and decapture_children ctx label depth incr children =
-  ctx.mk label (List.map (decapture ctx depth incr) children)
+      srk.mk (Var (v + incr, typ)) []
+  | _ -> decapture_children srk label depth incr children
+and decapture_children srk label depth incr children =
+  srk.mk label (List.map (decapture srk depth incr) children)
 
-let substitute ctx subst sexpr =
+let substitute srk subst sexpr =
   let rec go depth sexpr =
     let Node (label, children, _) = sexpr.obj in
     match label with
@@ -333,34 +333,34 @@ let substitute ctx subst sexpr =
       if v < depth then (* bound var *)
         sexpr
       else
-        decapture ctx 0 depth (subst (v - depth))
+        decapture srk 0 depth (subst (v - depth))
     | _ -> go_children label depth children
   and go_children label depth children =
-    ctx.mk label (List.map (go depth) children)
+    srk.mk label (List.map (go depth) children)
   in
   go 0 sexpr
 
-let substitute_const ctx subst sexpr =
+let substitute_const srk subst sexpr =
   let rec go depth sexpr =
     let Node (label, children, _) = sexpr.obj in
     match label with
     | Exists (_, _) | Forall (_, _) ->
       go_children label (depth + 1) children
-    | App k when children = [] -> decapture ctx 0 depth (subst k)
+    | App k when children = [] -> decapture srk 0 depth (subst k)
     | _ -> go_children label depth children
   and go_children label depth children =
-    ctx.mk label (List.map (go depth) children)
+    srk.mk label (List.map (go depth) children)
   in
   go 0 sexpr
 
-let substitute_map ctx map sexpr =
+let substitute_map srk map sexpr =
   let subst sym =
     if Symbol.Map.mem sym map then
       Symbol.Map.find sym map
     else
-      mk_const ctx sym
+      mk_const srk sym
   in
-  substitute_const ctx subst sexpr
+  substitute_const srk subst sexpr
 
 let fold_constants f sexpr acc =
   let rec go acc sexpr =
@@ -412,7 +412,7 @@ let free_vars sexpr =
   go 0 sexpr;
   table
 
-let destruct ctx sexpr =
+let destruct srk sexpr =
   match sexpr.obj with
   | Node (Real qq, [], _) -> `Real qq
   | Node (App func, args, _) -> `App (func, args)
@@ -450,83 +450,83 @@ let rec flatten_existential phi = match phi.obj with
     ((name,typ)::varinfo, phi')
   | _ -> ([], phi)
 
-let rec pp_expr ?(env=Env.empty) ctx formatter expr =
+let rec pp_expr ?(env=Env.empty) srk formatter expr =
   let Node (label, children, _) = expr.obj in
   let open Format in
   match label, children with
   | Real qq, [] -> QQ.pp formatter qq
-  | App k, [] -> pp_symbol ctx formatter k
+  | App k, [] -> pp_symbol srk formatter k
   | App func, args ->
     fprintf formatter "%a(@[%a@])"
-      (pp_symbol ctx) func
-      (ArkUtil.pp_print_enum_nobox (pp_expr ~env ctx)) (BatList.enum args)
+      (pp_symbol srk) func
+      (SrkUtil.pp_print_enum_nobox (pp_expr ~env srk)) (BatList.enum args)
   | Var (v, typ), [] ->
     (try fprintf formatter "[%s:%d]" (Env.find env v) v
      with Not_found -> fprintf formatter "[free:%d]" v)
   | Add, terms ->
     fprintf formatter "(@[";
-    ArkUtil.pp_print_enum
+    SrkUtil.pp_print_enum
       ~pp_sep:(fun formatter () -> fprintf formatter "@ + ")
-      (pp_expr ~env ctx)
+      (pp_expr ~env srk)
       formatter
       (BatList.enum terms);
     fprintf formatter "@])"
   | Mul, terms ->
     fprintf formatter "(@[";
-    ArkUtil.pp_print_enum
+    SrkUtil.pp_print_enum
       ~pp_sep:(fun formatter () -> fprintf formatter "@ * ")
-      (pp_expr ~env ctx)
+      (pp_expr ~env srk)
       formatter
       (BatList.enum terms);
     fprintf formatter "@])"
   | Div, [s; t] ->
     fprintf formatter "(@[%a@ / %a@])"
-      (pp_expr ~env ctx) s
-      (pp_expr ~env ctx) t
+      (pp_expr ~env srk) s
+      (pp_expr ~env srk) t
   | Mod, [s; t] ->
     fprintf formatter "(@[%a@ mod %a@])"
-      (pp_expr ~env ctx) s
-      (pp_expr ~env ctx) t
+      (pp_expr ~env srk) s
+      (pp_expr ~env srk) t
   | Floor, [t] ->
-    fprintf formatter "floor(@[%a@])" (pp_expr ~env ctx) t
+    fprintf formatter "floor(@[%a@])" (pp_expr ~env srk) t
   | Neg, [{obj = Node (Real qq, [], _)}] ->
     QQ.pp formatter (QQ.negate qq)
   | Neg, [{obj = Node (App _, _, _)} as t]
   | Neg, [{obj = Node (Var (_, _), [], _)} as t] ->
-    fprintf formatter "-%a" (pp_expr ~env ctx) t
-  | Neg, [t] -> fprintf formatter "-(@[%a@])" (pp_expr ~env ctx) t
+    fprintf formatter "-%a" (pp_expr ~env srk) t
+  | Neg, [t] -> fprintf formatter "-(@[%a@])" (pp_expr ~env srk) t
   | True, [] -> pp_print_string formatter "true"
   | False, [] -> pp_print_string formatter "false"
   | Not, [phi] ->
-    fprintf formatter "!(@[%a@])" (pp_expr ~env ctx) phi
+    fprintf formatter "!(@[%a@])" (pp_expr ~env srk) phi
   | And, conjuncts ->
     fprintf formatter "(@[";
-    ArkUtil.pp_print_enum
+    SrkUtil.pp_print_enum
       ~pp_sep:(fun formatter () -> fprintf formatter "@ /\\ ")
-      (pp_expr ~env ctx)
+      (pp_expr ~env srk)
       formatter
       (BatList.enum (List.concat (List.map (flatten_sexpr And) conjuncts)));
     fprintf formatter "@])"
   | Or, disjuncts ->
     fprintf formatter "(@[";
-    ArkUtil.pp_print_enum
+    SrkUtil.pp_print_enum
       ~pp_sep:(fun formatter () -> fprintf formatter "@ \\/ ")
-      (pp_expr ~env ctx)
+      (pp_expr ~env srk)
       formatter
       (BatList.enum (List.concat (List.map (flatten_sexpr Or) disjuncts)));
     fprintf formatter "@])"
   | Eq, [x; y] ->
     fprintf formatter "@[%a = %a@]"
-      (pp_expr ~env ctx) x
-      (pp_expr ~env ctx) y
+      (pp_expr ~env srk) x
+      (pp_expr ~env srk) y
   | Leq, [x; y] ->
     fprintf formatter "@[%a <= %a@]"
-      (pp_expr ~env ctx) x
-      (pp_expr ~env ctx) y
+      (pp_expr ~env srk) x
+      (pp_expr ~env srk) y
   | Lt, [x; y] ->
     fprintf formatter "@[%a < %a@]"
-      (pp_expr ~env ctx) x
-      (pp_expr ~env ctx) y
+      (pp_expr ~env srk) x
+      (pp_expr ~env srk) y
   | Exists (name, typ), [psi] | Forall (name, typ), [psi] ->
       let (quantifier_name, varinfo, psi) =
         match label with
@@ -542,18 +542,18 @@ let rec pp_expr ?(env=Env.empty) ctx formatter expr =
         List.fold_left (fun env (x,_) -> Env.push x env) env varinfo
       in
       fprintf formatter "(@[%s@ " quantifier_name;
-      ArkUtil.pp_print_enum
+      SrkUtil.pp_print_enum
         ~pp_sep:pp_print_space
         (fun formatter (name, typ) ->
            fprintf formatter "(%s : %a)" name pp_typ typ)
         formatter
         (BatList.enum varinfo);
-      fprintf formatter ".@ %a@])" (pp_expr ~env ctx) psi
+      fprintf formatter ".@ %a@])" (pp_expr ~env srk) psi
   | Ite, [cond; bthen; belse] ->
     fprintf formatter "ite(@[%a,@ %a,@ %a@])"
-      (pp_expr ~env ctx) cond
-      (pp_expr ~env ctx) bthen
-      (pp_expr ~env ctx) belse
+      (pp_expr ~env srk) cond
+      (pp_expr ~env srk) bthen
+      (pp_expr ~env srk) belse
   | _ -> failwith "pp_expr: ill-formed expression"
 
 module Expr = struct
@@ -565,7 +565,7 @@ module Expr = struct
   end
   include Inner
 
-  let refine ctx sexpr =
+  let refine srk sexpr =
     match sexpr.obj with
     | Node (_, _, `TyInt) -> `Term sexpr
     | Node (_, _, `TyReal) -> `Term sexpr
@@ -623,7 +623,7 @@ module Term = struct
   let compare s t = Pervasives.compare s.tag t.tag
   let hash t = t.hcode
 
-  let eval ctx alg t =
+  let eval srk alg t =
     let rec go t =
       match t.obj with
       | Node (Real qq, [], _) -> alg (`Real qq)
@@ -649,16 +649,16 @@ module Term = struct
     in
     go t
 
-  let eval_partial ctx alg t =
+  let eval_partial srk alg t =
     let alg' term =
       match alg term with
       | Some t -> t
       | None -> raise Quit
     in
-    try Some (eval ctx alg' t)
+    try Some (eval srk alg' t)
     with Quit -> None
 
-  let destruct ctx t = match t.obj with
+  let destruct srk t = match t.obj with
     | Node (Real qq, [], _) -> `Real qq
     | Node (App _, _, `TyBool) -> invalid_arg "destruct: not a term"
     | Node (App func, args, `TyInt) | Node (App func, args, `TyReal) ->
@@ -681,7 +681,7 @@ module Term = struct
     | _ -> invalid_arg "destruct: not a term"
 
   let pp = pp_expr
-  let show ?(env=Env.empty) ctx t = ArkUtil.mk_show (pp ~env ctx) t
+  let show ?(env=Env.empty) srk t = SrkUtil.mk_show (pp ~env srk) t
 end
 
 module Formula = struct
@@ -690,7 +690,7 @@ module Formula = struct
   let compare s t = Pervasives.compare s.tag t.tag
   let hash t = t.hcode
 
-  let destruct ctx phi = match phi.obj with
+  let destruct srk phi = match phi.obj with
     | Node (True, [], _) -> `Tru
     | Node (False, [], _) -> `Fls
     | Node (And, conjuncts, _) -> `And conjuncts
@@ -706,24 +706,24 @@ module Formula = struct
     | Node (Ite, [cond; bthen; belse], `TyBool) -> `Ite (cond, bthen, belse)
     | _ -> invalid_arg "destruct: not a formula"
 
-  let rec eval ctx alg phi =
-    match destruct ctx phi with
+  let rec eval srk alg phi =
+    match destruct srk phi with
       | `Tru -> alg `Tru
       | `Fls -> alg `Fls
-      | `Or disjuncts -> alg (`Or (List.map (eval ctx alg) disjuncts))
-      | `And conjuncts -> alg (`And (List.map (eval ctx alg) conjuncts))
+      | `Or disjuncts -> alg (`Or (List.map (eval srk alg) disjuncts))
+      | `And conjuncts -> alg (`And (List.map (eval srk alg) conjuncts))
       | `Quantify (qt, name, typ, phi) ->
-        alg (`Quantify (qt, name, typ, eval ctx alg phi))
-      | `Not phi -> alg (`Not (eval ctx alg phi))
+        alg (`Quantify (qt, name, typ, eval srk alg phi))
+      | `Not phi -> alg (`Not (eval srk alg phi))
       | `Atom (op, s, t) -> alg (`Atom (op, s, t))
       | `Proposition p -> alg (`Proposition p)
       | `Ite (cond, bthen, belse) ->
-        alg (`Ite (eval ctx alg cond, eval ctx alg bthen, eval ctx alg belse))
+        alg (`Ite (eval srk alg cond, eval srk alg bthen, eval srk alg belse))
 
   let pp = pp_expr
-  let show ?(env=Env.empty) ctx t = ArkUtil.mk_show (pp ~env ctx) t
+  let show ?(env=Env.empty) srk t = SrkUtil.mk_show (pp ~env srk) t
 
-  let quantify_closure quantify ctx phi =
+  let quantify_closure quantify srk phi =
     let vars = vars phi in
     let types = Array.make (Var.Set.cardinal vars) `TyInt in
     let rename =
@@ -732,34 +732,34 @@ module Formula = struct
         Var.Set.fold (fun (v, typ) m ->
             incr n;
             types.(!n) <- typ;
-            ArkUtil.Int.Map.add v (mk_var ctx (!n) typ) m
+            SrkUtil.Int.Map.add v (mk_var srk (!n) typ) m
           )
           vars
-          ArkUtil.Int.Map.empty
+          SrkUtil.Int.Map.empty
       in
-      fun v -> ArkUtil.Int.Map.find v map
+      fun v -> SrkUtil.Int.Map.find v map
     in
     Array.fold_left
       (fun psi typ -> quantify typ psi)
-      (substitute ctx rename phi)
+      (substitute srk rename phi)
       types
 
-  let existential_closure ctx = quantify_closure (mk_exists ctx) ctx
-  let universal_closure ctx = quantify_closure (mk_forall ctx) ctx
+  let existential_closure srk = quantify_closure (mk_exists srk) srk
+  let universal_closure srk = quantify_closure (mk_forall srk) srk
 
-  let skolemize_free ctx phi =
+  let skolemize_free srk phi =
     let skolem =
-      Memo.memo (fun (i, typ) -> mk_const ctx (mk_symbol ctx typ))
+      Memo.memo (fun (i, typ) -> mk_const srk (mk_symbol srk typ))
     in
     let rec go sexpr =
       let (Node (label, children, _)) = sexpr.obj in
       match label with
       | Var (i, typ) -> skolem (i, (typ :> typ))
-      | _ -> ctx.mk label (List.map go children)
+      | _ -> srk.mk label (List.map go children)
     in
     go phi
 
-  let prenex ctx phi =
+  let prenex srk phi =
     let negate_prefix =
       List.map (function
           | `Exists (name, typ) -> `Forall (name, typ)
@@ -769,49 +769,49 @@ module Formula = struct
       let f (qf_pre0, phi0) (qf_pre, phis) =
         let depth = List.length qf_pre in
         let depth0 = List.length qf_pre0 in
-        let phis = List.map (decapture ctx depth depth0) phis in
-        (qf_pre0@qf_pre, (decapture ctx 0 depth phi0)::phis)
+        let phis = List.map (decapture srk depth depth0) phis in
+        (qf_pre0@qf_pre, (decapture srk 0 depth phi0)::phis)
       in
       List.fold_right f phis ([], [])
     in
     let alg = function
-      | `Tru -> ([], mk_true ctx)
-      | `Fls -> ([], mk_false ctx)
-      | `Atom (`Eq, x, y) -> ([], mk_eq ctx x y)
-      | `Atom (`Lt, x, y) -> ([], mk_lt ctx x y)
-      | `Atom (`Leq, x, y) -> ([], mk_leq ctx x y)
+      | `Tru -> ([], mk_true srk)
+      | `Fls -> ([], mk_false srk)
+      | `Atom (`Eq, x, y) -> ([], mk_eq srk x y)
+      | `Atom (`Lt, x, y) -> ([], mk_lt srk x y)
+      | `Atom (`Leq, x, y) -> ([], mk_leq srk x y)
       | `And conjuncts ->
         let (qf_pre, conjuncts) = combine conjuncts in
-        (qf_pre, mk_and ctx conjuncts)
+        (qf_pre, mk_and srk conjuncts)
       | `Or disjuncts ->
         let (qf_pre, disjuncts) = combine disjuncts in
-        (qf_pre, mk_or ctx disjuncts)
+        (qf_pre, mk_or srk disjuncts)
       | `Quantify (`Exists, name, typ, (qf_pre, phi)) ->
         (`Exists (name, typ)::qf_pre, phi)
       | `Quantify (`Forall, name, typ, (qf_pre, phi)) ->
         (`Forall (name, typ)::qf_pre, phi)
-      | `Not (qf_pre, phi) -> (negate_prefix qf_pre, mk_not ctx phi)
-      | `Proposition (`Var i) -> ([], mk_var ctx i `TyBool)
-      | `Proposition (`App (p, args)) -> ([], mk_app ctx p args)
+      | `Not (qf_pre, phi) -> (negate_prefix qf_pre, mk_not srk phi)
+      | `Proposition (`Var i) -> ([], mk_var srk i `TyBool)
+      | `Proposition (`App (p, args)) -> ([], mk_app srk p args)
       | `Ite (cond, bthen, belse) ->
         begin match combine [cond; bthen; belse] with
           | (qf_pre, [cond; bthen; belse]) ->
-            (qf_pre, mk_ite ctx cond bthen belse)
+            (qf_pre, mk_ite srk cond bthen belse)
           | _ -> assert false
         end
     in
-    let (qf_pre, matrix) = eval ctx alg phi in
+    let (qf_pre, matrix) = eval srk alg phi in
     List.fold_right
       (fun qf phi ->
          match qf with
-         | `Exists (name, typ) -> mk_exists ctx ~name typ phi
-         | `Forall (name, typ) -> mk_forall ctx ~name typ phi)
+         | `Exists (name, typ) -> mk_exists srk ~name typ phi
+         | `Forall (name, typ) -> mk_forall srk ~name typ phi)
       qf_pre
       matrix
 end
 
-let quantify_const ctx qt sym phi =
-  let typ = match typ_symbol ctx sym with
+let quantify_const srk qt sym phi =
+  let typ = match typ_symbol srk sym with
     | `TyInt -> `TyInt
     | `TyReal -> `TyReal
     | `TyBool -> `TyBool
@@ -823,18 +823,18 @@ let quantify_const ctx qt sym phi =
           invalid_arg "mk_exists_const: not a first-order constant"
       end
   in
-  let replacement = mk_var ctx 0 typ in
+  let replacement = mk_var srk 0 typ in
   let subst k =
     if k = sym then replacement
-    else mk_const ctx k
+    else mk_const srk k
   in
-  let psi = substitute_const ctx subst (decapture ctx 0 1 phi) in
+  let psi = substitute_const srk subst (decapture srk 0 1 phi) in
   match qt with
-  | `Forall -> mk_forall ctx ~name:(show_symbol ctx sym) typ psi
-  | `Exists -> mk_exists ctx ~name:(show_symbol ctx sym) typ psi
+  | `Forall -> mk_forall srk ~name:(show_symbol srk sym) typ psi
+  | `Exists -> mk_exists srk ~name:(show_symbol srk sym) typ psi
 
-let mk_exists_const ctx = quantify_const ctx `Exists
-let mk_forall_const ctx = quantify_const ctx `Forall
+let mk_exists_const srk = quantify_const srk `Exists
+let mk_forall_const srk = quantify_const srk `Forall
 
 let node_typ symbols label children =
   match label with
@@ -905,31 +905,31 @@ let expr_typ _ node =
 
 type 'a rewriter = ('a, typ_fo) expr -> ('a, typ_fo) expr
 
-let rec nnf_rewriter ctx sexpr =
+let rec nnf_rewriter srk sexpr =
   match sexpr.obj with
   | Node (Not, [phi], _) ->
     begin match phi.obj with
-      | Node (Not, [psi], _) -> nnf_rewriter ctx psi
-      | Node (And, conjuncts, _) -> mk_or ctx (List.map (mk_not ctx) conjuncts)
-      | Node (Or, conjuncts, _) -> mk_and ctx (List.map (mk_not ctx) conjuncts)
-      | Node (Leq, [s; t], _) -> mk_lt ctx t s
-      | Node (Eq, [s; t], _) -> mk_or ctx [mk_lt ctx s t; mk_lt ctx t s]
-      | Node (Lt, [s; t], _) -> mk_leq ctx t s
+      | Node (Not, [psi], _) -> nnf_rewriter srk psi
+      | Node (And, conjuncts, _) -> mk_or srk (List.map (mk_not srk) conjuncts)
+      | Node (Or, conjuncts, _) -> mk_and srk (List.map (mk_not srk) conjuncts)
+      | Node (Leq, [s; t], _) -> mk_lt srk t s
+      | Node (Eq, [s; t], _) -> mk_or srk [mk_lt srk s t; mk_lt srk t s]
+      | Node (Lt, [s; t], _) -> mk_leq srk t s
       | Node (Exists (name, typ), [psi], _) ->
-        mk_forall ctx ~name typ (mk_not ctx psi)
+        mk_forall srk ~name typ (mk_not srk psi)
       | Node (Forall (name, typ), [psi], _) ->
-        mk_exists ctx ~name typ (mk_not ctx psi)
+        mk_exists srk ~name typ (mk_not srk psi)
       | Node (Ite, [cond; bthen; belse], `TyBool) ->
-        mk_ite ctx cond (mk_not ctx bthen) (mk_not ctx belse)
+        mk_ite srk cond (mk_not srk bthen) (mk_not srk belse)
       | _ -> sexpr
     end
   | _ -> sexpr
 
-let rec rewrite ctx ?down:(down=fun x -> x) ?up:(up=fun x -> x) sexpr =
+let rec rewrite srk ?down:(down=fun x -> x) ?up:(up=fun x -> x) sexpr =
   let (Node (label, children, typ)) = (down sexpr).obj in
-  up (ctx.mk label (List.map (rewrite ctx ~down ~up) children))
+  up (srk.mk label (List.map (rewrite srk ~down ~up) children))
 
-let eliminate_ite ctx phi =
+let eliminate_ite srk phi =
   let rec map_ite f ite =
     match ite with
     | `Term t -> f t
@@ -937,8 +937,8 @@ let eliminate_ite ctx phi =
       `Ite (cond, map_ite f bthen, map_ite f belse)
   in
   let mk_ite cond bthen belse =
-    mk_or ctx [mk_and ctx [cond; bthen];
-               mk_and ctx [mk_not ctx cond; belse]]
+    mk_or srk [mk_and srk [cond; bthen];
+               mk_and srk [mk_not srk cond; belse]]
   in
   let rec ite_formula ite =
     match ite with
@@ -948,34 +948,34 @@ let eliminate_ite ctx phi =
   in
   let mk_atom op =
     match op with
-    | `Eq -> mk_eq ctx
-    | `Leq -> mk_leq ctx
-    | `Lt -> mk_lt ctx
+    | `Eq -> mk_eq srk
+    | `Leq -> mk_leq srk
+    | `Lt -> mk_lt srk
   in
   let rec promote_ite term =
-    match Term.destruct ctx term with
+    match Term.destruct srk term with
     | `Ite (cond, bthen, belse) ->
       `Ite (elim_ite cond, promote_ite bthen, promote_ite belse)
     | `Real _ | `Var (_, _) -> `Term term
-    | `Add xs -> map_ite (fun xs -> `Term (mk_add ctx xs)) (ite_list xs)
-    | `Mul xs -> map_ite (fun xs -> `Term (mk_mul ctx xs)) (ite_list xs)
+    | `Add xs -> map_ite (fun xs -> `Term (mk_add srk xs)) (ite_list xs)
+    | `Mul xs -> map_ite (fun xs -> `Term (mk_mul srk xs)) (ite_list xs)
     | `Binop (`Div, x, y) ->
       let promote_y = promote_ite y in
       map_ite
-        (fun t -> map_ite (fun s -> `Term (mk_div ctx t s)) promote_y)
+        (fun t -> map_ite (fun s -> `Term (mk_div srk t s)) promote_y)
         (promote_ite x)
     | `Binop (`Mod, x, y) ->
       let promote_y = promote_ite y in
       map_ite
-        (fun t -> map_ite (fun s -> `Term (mk_mod ctx t s)) promote_y)
+        (fun t -> map_ite (fun s -> `Term (mk_mod srk t s)) promote_y)
         (promote_ite x)
     | `Unop (`Neg, x) ->
-      map_ite (fun t -> `Term (mk_neg ctx t)) (promote_ite x)
+      map_ite (fun t -> `Term (mk_neg srk t)) (promote_ite x)
     | `Unop (`Floor, x) ->
-      map_ite (fun t -> `Term (mk_floor ctx t)) (promote_ite x)
+      map_ite (fun t -> `Term (mk_floor srk t)) (promote_ite x)
     | `App (func, args) ->
       List.fold_right (fun x rest ->
-          match Expr.refine ctx x with
+          match Expr.refine srk x with
           | `Formula phi ->
             let phi = elim_ite phi in
             map_ite (fun xs -> `Term (phi::xs)) rest
@@ -985,7 +985,7 @@ let eliminate_ite ctx phi =
               (promote_ite t))
         args
         (`Term [])
-      |> map_ite (fun args -> `Term (mk_app ctx func args))
+      |> map_ite (fun args -> `Term (mk_app srk func args))
   and ite_list xs =
     List.fold_right (fun x ite ->
         map_ite
@@ -995,13 +995,13 @@ let eliminate_ite ctx phi =
       (`Term [])
   and elim_ite phi =
     let alg = function
-      | `Tru -> mk_true ctx
-      | `Fls -> mk_false ctx
-      | `And xs -> mk_and ctx xs
-      | `Or xs -> mk_or ctx xs
-      | `Not phi  -> mk_not ctx phi
-      | `Quantify (`Exists, name, typ, phi) -> mk_exists ctx ~name typ phi
-      | `Quantify (`Forall, name, typ, phi) -> mk_forall ctx ~name typ phi
+      | `Tru -> mk_true srk
+      | `Fls -> mk_false srk
+      | `And xs -> mk_and srk xs
+      | `Or xs -> mk_or srk xs
+      | `Not phi  -> mk_not srk phi
+      | `Quantify (`Exists, name, typ, phi) -> mk_exists srk ~name typ phi
+      | `Quantify (`Forall, name, typ, phi) -> mk_forall srk ~name typ phi
       | `Ite (cond, bthen, belse) -> mk_ite cond bthen belse
       | `Atom (op, s, t) ->
         let promote_t = promote_ite t in
@@ -1009,10 +1009,10 @@ let eliminate_ite ctx phi =
           (fun s -> map_ite (fun t -> `Term (mk_atom op s t)) promote_t)
           (promote_ite s)
         |> ite_formula
-      | `Proposition (`Var i) -> mk_var ctx i `TyBool
+      | `Proposition (`Var i) -> mk_var srk i `TyBool
       | `Proposition (`App (func, args)) ->
         List.fold_right (fun x rest ->
-            match Expr.refine ctx x with
+            match Expr.refine srk x with
             | `Formula phi ->
               let phi = elim_ite phi in
               map_ite (fun xs -> `Term (phi::xs)) rest
@@ -1022,14 +1022,14 @@ let eliminate_ite ctx phi =
                 (promote_ite t))
           args
           (`Term [])
-        |> map_ite (fun args -> `Term (mk_app ctx func args))
+        |> map_ite (fun args -> `Term (mk_app srk func args))
         |> ite_formula
     in
-    Formula.eval ctx alg phi
+    Formula.eval srk alg phi
   in
   elim_ite phi
 
-let rec pp_smtlib2 ?(env=Env.empty) ctx formatter expr =
+let rec pp_smtlib2 ?(env=Env.empty) srk formatter expr =
   let open Format in
   let pp_sep = pp_print_space in
 
@@ -1058,7 +1058,7 @@ let rec pp_smtlib2 ?(env=Env.empty) ctx formatter expr =
   let strings = Hashtbl.create 991 in
   let symbol_name = Hashtbl.create 991 in
   Symbol.Set.iter (fun symbol ->
-      let name = symbol_of_string (fst (DynArray.get ctx.symbols symbol)) in
+      let name = symbol_of_string (fst (DynArray.get srk.symbols symbol)) in
       if Hashtbl.mem strings name then
         let rec go n =
           let name' = name ^ (string_of_int n) in
@@ -1084,14 +1084,14 @@ let rec pp_smtlib2 ?(env=Env.empty) ctx formatter expr =
         | `TyInt -> pp_print_string formatter "Int"
         | `TyBool -> pp_print_string formatter "Bool"
       in        
-      match typ_symbol ctx symbol with
+      match typ_symbol srk symbol with
       | `TyReal -> fprintf formatter "(declare-const %s Real)@;" name
       | `TyInt -> fprintf formatter "(declare-const %s Int)@;" name
       | `TyBool -> fprintf formatter "(declare-const %s Bool)@;" name
       | `TyFun (args, ret) ->
         fprintf formatter "(declare-fun %s (%a) %a)@;"
           name
-          (ArkUtil.pp_print_enum ~pp_sep pp_typ_fo) (BatList.enum args)
+          (SrkUtil.pp_print_enum ~pp_sep pp_typ_fo) (BatList.enum args)
           pp_typ_fo ret
     );
 
@@ -1111,13 +1111,13 @@ let rec pp_smtlib2 ?(env=Env.empty) ctx formatter expr =
     | App func, args ->
       fprintf formatter "(%s %a)"
         (Hashtbl.find symbol_name func)
-        (ArkUtil.pp_print_enum ~pp_sep (go env)) (BatList.enum args)
+        (SrkUtil.pp_print_enum ~pp_sep (go env)) (BatList.enum args)
     | Var (v, typ), [] ->
       (try fprintf formatter "?%s_%d" (Env.find env v) v
        with Not_found -> fprintf formatter "[free:%d]" v)
     | Add, terms ->
       fprintf formatter "(+ @[";
-      ArkUtil.pp_print_enum
+      SrkUtil.pp_print_enum
         ~pp_sep
         (go env)
         formatter
@@ -1125,7 +1125,7 @@ let rec pp_smtlib2 ?(env=Env.empty) ctx formatter expr =
       fprintf formatter "@])"
     | Mul, terms ->
       fprintf formatter "(* @[";
-      ArkUtil.pp_print_enum
+      SrkUtil.pp_print_enum
         ~pp_sep
         (go env)
         formatter
@@ -1151,7 +1151,7 @@ let rec pp_smtlib2 ?(env=Env.empty) ctx formatter expr =
       fprintf formatter "(not @[%a@])" (go env) phi
     | And, conjuncts ->
       fprintf formatter "(and @[";
-      ArkUtil.pp_print_enum
+      SrkUtil.pp_print_enum
         ~pp_sep
         (go env)
         formatter
@@ -1159,7 +1159,7 @@ let rec pp_smtlib2 ?(env=Env.empty) ctx formatter expr =
       fprintf formatter "@])"
     | Or, disjuncts ->
       fprintf formatter "(or @[";
-      ArkUtil.pp_print_enum
+      SrkUtil.pp_print_enum
         ~pp_sep
         (go env)
         formatter
@@ -1192,7 +1192,7 @@ let rec pp_smtlib2 ?(env=Env.empty) ctx formatter expr =
         List.fold_left (fun env (x,_) -> Env.push x env) env varinfo
       in
       fprintf formatter "(@[%s@ (" quantifier_name;
-      ArkUtil.pp_print_enum
+      SrkUtil.pp_print_enum
         ~pp_sep
         (fun formatter (name, typ) ->
            fprintf formatter "(%s %a)" name pp_typ typ)

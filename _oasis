@@ -8,38 +8,38 @@ Plugins:     META (0.4), StdFiles (0.4), DevFiles (0.4)
 AlphaFeatures: ocamlbuild_more_args
 BuildTools: ocamlbuild, ocamldoc, menhir
 
-Library ark
+Library srk
   Path:             src
-  FindlibName:      ark
+  FindlibName:      srk
   Pack:             true
-  Modules:  ArkUtil, Log, DisjointSet, Memo, FeatureTree, QQ, ZZ, Syntax, Interval, Smt, ArkZ3, ArkMathsat, Linear, Polynomial, Interpretation, ArkApron, Polyhedron, ArkSimplify, Abstract, Nonlinear, CoordinateSystem, Wedge, Quantifier, Iteration, Transition, BigO
+  Modules:  SrkUtil, Log, DisjointSet, Memo, FeatureTree, QQ, ZZ, Syntax, Interval, Smt, SrkZ3, SrkMathsat, Linear, Polynomial, Interpretation, SrkApron, Polyhedron, SrkSimplify, Abstract, Nonlinear, CoordinateSystem, Wedge, Quantifier, Iteration, Transition, BigO
   BuildDepends:     batteries, ppx_deriving, ppx_deriving.show, ppx_deriving.ord, gmp, camlidl, apron, Z3, mathsat, ocrs
   Install:         false
-  XMETADescription: Arithmetic Reasoning Kit
+  XMETADescription: Symbolic Reasoning Kit
 
-Executable test_ark
+Executable test_srk
   Build$:         flag(tests)
   Path:           src
-  MainIs:         test_ark.ml
+  MainIs:         test_srk.ml
   BuildDepends:   batteries, ppx_deriving, ppx_deriving.ord, gmp, camlidl, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, oUnit, mathsat, ocrs
   CompiledObject: native
   Install:        false
 
-Executable arktop
+Executable bigtop
   Build$:         flag(tests)
   Path:           src
-  MainIs:         arkTop.ml
+  MainIs:         bigtop.ml
   BuildDepends:   batteries, ppx_deriving, ppx_deriving.ord, gmp, camlidl, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, mathsat, ocrs
   CompiledObject: native
   Install:        false
 
-Test ark
-  Command:   $test_ark
-  TestTools: test_ark
+Test srk
+  Command:   $test_srk
+  TestTools: test_srk
   run$:      flag(tests)
 
 Document API
-  Title: API reference for Ark
+  Title: API reference for srk
   Type: OCamlbuild (0.4)
   XOCamlbuildPath: .
-  XOCamlbuildLibraries: ark
+  XOCamlbuildLibraries: srk

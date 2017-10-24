@@ -205,8 +205,8 @@ val const_of_linterm : QQVector.t -> QQ.t option
     if the input term is non-linear. *)
 val linterm_of : 'a context -> 'a term -> QQVector.t
 
-(** Convert a rational vector to an affine term.  The equation [of_linterm ark
-    (linterm_of ark t) = t] must hold. *)
+(** Convert a rational vector to an affine term.  The equation [of_linterm srk
+    (linterm_of srk t) = t] must hold. *)
 val of_linterm : 'a context -> QQVector.t -> 'a term
 
 (** Pretty-print an affine term *)

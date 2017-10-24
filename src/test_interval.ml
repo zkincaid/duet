@@ -41,7 +41,7 @@ let apron_op op typ x y =
   binop op typ Zero
     (cst (Apron.Coeff.Interval (Interval.apron_of x)))
     (cst (Apron.Coeff.Interval (Interval.apron_of y)))
-  |> ArkApron.eval_texpr
+  |> SrkApron.eval_texpr
   |> Interval.of_apron
 
 let suite = "Interval" >:::

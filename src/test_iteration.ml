@@ -1,22 +1,22 @@
 open OUnit
 open Abstract
 open Syntax
-open ArkApron
+open SrkApron
 open Test_pervasives
 
 module QQMatrix = Linear.QQMatrix
 module WV = struct
   include Iteration.WedgeVector
-  let star ctx symbols phi = closure (abstract_iter ctx symbols phi)
+  let star srk symbols phi = closure (abstract_iter srk symbols phi)
 end
 
 let assert_implies_nonlinear phi psi =
-  match Wedge.is_sat ctx (mk_and ctx [phi; mk_not ctx psi]) with
+  match Wedge.is_sat srk (mk_and srk [phi; mk_not srk psi]) with
   | `Unsat -> ()
   | `Sat | `Unknown ->
     assert_failure (Printf.sprintf "%s\ndoes not imply\n%s"
-                      (Formula.show ctx phi)
-                      (Formula.show ctx psi))
+                      (Formula.show srk phi)
+                      (Formula.show srk psi))
 
 let tr_symbols = [(wsym,wsym');(xsym,xsym');(ysym,ysym');(zsym,zsym')]
 
@@ -28,7 +28,7 @@ let prepost () =
   let closure =
     let open Infix in
     !(x = x')
-    && WV.star ctx phi tr_symbols
+    && WV.star srk phi tr_symbols
   in
   assert_implies closure (Ctx.mk_leq (int 0) x);
   assert_implies closure (Ctx.mk_leq (int 0) x')
@@ -41,7 +41,7 @@ let simple_induction () =
     && y' = y + z
     && z = (int 3)
   in
-  let closure = WV.star ctx phi tr_symbols in
+  let closure = WV.star srk phi tr_symbols in
   let result =
     let open Infix in
     (int 2)*(w' - w) = x' - x
@@ -59,7 +59,7 @@ let count_by_1 () =
   let closure =
     let open Infix in
     x = (int 0)
-    && WV.star ctx phi tr_symbols
+    && WV.star srk phi tr_symbols
     && y <= x'
     && (int 0) <= y
   in
@@ -79,7 +79,7 @@ let count_by_2 () =
   let closure =
     let open Infix in
     x = (int 0)
-    && WV.star ctx phi tr_symbols
+    && WV.star srk phi tr_symbols
     && y <= x'
     && (int 0) <= y
   in
@@ -92,7 +92,7 @@ let count_by_2 () =
     y = (int 2) * z
   in
   assert_not_implies closure result;
-  assert_implies (mk_and ctx [closure; y_even]) result
+  assert_implies (mk_and srk [closure; y_even]) result
 
 let stratified1 () =
   let tr_symbols = [(xsym,xsym');(ysym,ysym')] in
@@ -101,7 +101,7 @@ let stratified1 () =
     x' = x + (int 1)
     && y' = y + z
   in
-  let closure = WV.star ctx phi tr_symbols in
+  let closure = WV.star srk phi tr_symbols in
   let result =
     let open Infix in
     z*(x' - x) = (y' - y)
@@ -119,7 +119,7 @@ let stratified2 () =
     let open Infix in
     x = (int 0)
     && y = (int 0)
-    && WV.star ctx phi tr_symbols
+    && WV.star srk phi tr_symbols
   in
   let result =
     let open Infix in
@@ -138,7 +138,7 @@ let count_by_k () =
     let open Infix in
     x = (int 0)
     && (int 1) <= z
-    && WV.star ctx phi tr_symbols
+    && WV.star srk phi tr_symbols
     && y <= x'
   in
   let result =
@@ -150,7 +150,7 @@ let count_by_k () =
     y = (int 100) * z
   in
   assert_not_implies closure result;
-  assert_implies (mk_and ctx [closure; z_div_y]) result
+  assert_implies (mk_and srk [closure; z_div_y]) result
 
 let ineq1 () =
   let phi =
@@ -164,7 +164,7 @@ let ineq1 () =
     x = (int 0)
     && y = (int 0)
     && z = (int 0)
-    && WV.star ctx phi tr_symbols
+    && WV.star srk phi tr_symbols
   in
   let result =
     let open Infix in
@@ -186,7 +186,7 @@ let ineq2 () =
     let open Infix in
     x = (int 0)
     && y = (int 0)
-    && WV.star ctx phi tr_symbols
+    && WV.star srk phi tr_symbols
   in
   let result =
     let open Infix in
@@ -206,7 +206,7 @@ let stratified_ineq1 () =
     let open Infix in
     x = (int 0)
     && y = (int 0)
-    && WV.star ctx phi tr_symbols
+    && WV.star srk phi tr_symbols
   in
   let result =
     let open Infix in

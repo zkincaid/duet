@@ -20,8 +20,8 @@ let h : Ctx.term * Ctx.term -> Ctx.term =
   fun (x, y) -> Ctx.mk_app hsym [x; y]
 
 let roundtrip0 () =
-  let tru = mk_true ctx in
-  let fls = mk_false ctx in
+  let tru = mk_true srk in
+  let fls = mk_false srk in
   assert_equal_formula tru (smt_ctx#formula_of (smt_ctx#of_formula tru));
   assert_equal_formula fls (smt_ctx#formula_of (smt_ctx#of_formula fls))
 
@@ -61,7 +61,7 @@ let roundtrip4 () =
 
 let is_interpolant phi psi itp =
   (smt_ctx#implies phi itp)
-  && smt_ctx#is_sat (mk_and ctx [itp; psi]) = `Unsat
+  && smt_ctx#is_sat (mk_and srk [itp; psi]) = `Unsat
 
 let interpolate1 () =
   let phi =
@@ -126,7 +126,7 @@ let interpretation1 () =
   in
   match smt_ctx#get_model phi with
   | `Sat m ->
-    let interp = Interpretation.of_model ctx m [gsym; xsym; ysym] in
+    let interp = Interpretation.of_model srk m [gsym; xsym; ysym] in
     assert_bool "is_model"
       (Interpretation.evaluate_formula interp phi)
   | _ -> assert false
@@ -140,7 +140,7 @@ let implicant1 () =
   in
   match smt_ctx#get_model phi with
   | `Sat m ->
-    let interp = Interpretation.of_model ctx m [fsym; xsym; ysym] in
+    let interp = Interpretation.of_model srk m [fsym; xsym; ysym] in
     begin match Interpretation.select_implicant interp phi with
       | Some implicant ->
         List.iter (fun psi ->
@@ -161,7 +161,7 @@ let affine_interp1 () =
   in
   match smt_ctx#get_model phi with
   | `Sat m ->
-    let interp = Interpretation.of_model ctx m [hsym; xsym; ysym] in
+    let interp = Interpretation.of_model srk m [hsym; xsym; ysym] in
     let has_affine_interp =
       match Interpretation.affine_interpretation interp phi with
       | `Sat _ -> true
@@ -179,7 +179,7 @@ let affine_interp2 () =
   in
   match smt_ctx#get_model phi with
   | `Sat m ->
-    let interp = Interpretation.of_model ctx m [hsym; xsym; ysym; zsym] in
+    let interp = Interpretation.of_model srk m [hsym; xsym; ysym; zsym] in
     (match Interpretation.affine_interpretation interp phi with
      | `Sat m ->
        assert_bool "is_model"
@@ -189,29 +189,29 @@ let affine_interp2 () =
 
 let substitute_solution fp expr =
   let rewriter expr =
-    match destruct ctx expr with
+    match destruct srk expr with
     | `App (k, []) -> expr
     | `App (relation, args) ->
-      (substitute ctx
+      (substitute srk
          (List.nth args)
-         (ArkZ3.CHC.get_solution fp relation) :> ('a,typ_fo) expr)
+         (SrkZ3.CHC.get_solution fp relation) :> ('a,typ_fo) expr)
     | _ -> expr
   in
-  rewrite ctx ~down:rewriter expr
+  rewrite srk ~down:rewriter expr
 
 let verify_chc relations rules =
-  let solver = ArkZ3.CHC.mk_solver smt_ctx in
-  List.iter (ArkZ3.CHC.register_relation solver) relations;
+  let solver = SrkZ3.CHC.mk_solver smt_ctx in
+  List.iter (SrkZ3.CHC.register_relation solver) relations;
   rules |> List.iter (fun (hypothesis, conclusion) ->
-      ArkZ3.CHC.add_rule solver hypothesis conclusion);
-  assert_equal (ArkZ3.CHC.check solver []) `Sat;
+      SrkZ3.CHC.add_rule solver hypothesis conclusion);
+  assert_equal (SrkZ3.CHC.check solver []) `Sat;
   rules |> List.iter (fun (hypothesis, conclusion) ->
       let check =
-        mk_and ctx [hypothesis; (mk_not ctx conclusion)]
+        mk_and srk [hypothesis; (mk_not srk conclusion)]
         |> substitute_solution solver
-        |> Formula.existential_closure ctx
+        |> Formula.existential_closure srk
       in
-      assert_equal (Smt.is_sat ctx check) `Unsat)
+      assert_equal (Smt.is_sat srk check) `Unsat)
 
 let chc1 () =
   let psym = Ctx.mk_symbol ~name:"p" (`TyFun ([`TyInt; `TyInt], `TyBool)) in
@@ -249,11 +249,11 @@ let chc2 () =
      (p(v0, v1) && v1 <= v0) --> q(v0, v1);
      q(v0, v1) --> (v0 = v1)]
   in
-  let solver = ArkZ3.CHC.mk_solver smt_ctx in
-  List.iter (ArkZ3.CHC.register_relation solver) [psym; qsym];
+  let solver = SrkZ3.CHC.mk_solver smt_ctx in
+  List.iter (SrkZ3.CHC.register_relation solver) [psym; qsym];
   rules |> List.iter (fun (hypothesis, conclusion) ->
-      ArkZ3.CHC.add_rule solver hypothesis conclusion);
-  assert_equal (ArkZ3.CHC.check solver []) `Unsat
+      SrkZ3.CHC.add_rule solver hypothesis conclusion);
+  assert_equal (SrkZ3.CHC.check solver []) `Unsat
 
 let chc3 () =
   let psym1 = Ctx.mk_symbol ~name:"p1" (`TyFun ([`TyInt; `TyInt], `TyBool)) in

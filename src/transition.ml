@@ -1,7 +1,7 @@
 open Syntax
 open BatPervasives
 
-include Log.Make(struct let name = "ark.transition" end)
+include Log.Make(struct let name = "srk.transition" end)
 
 module type Var = sig
   type t
@@ -33,28 +33,28 @@ struct
     | 0 -> M.compare Term.compare x.transform y.transform
     | cmp -> cmp
 
-  let ark = C.context
+  let srk = C.context
 
   let pp formatter tr =
     Format.fprintf formatter "{@[<v 0>";
-    ArkUtil.pp_print_enum_nobox
+    SrkUtil.pp_print_enum_nobox
        ~pp_sep:(fun formatter () -> Format.pp_print_break formatter 0 0)
        (fun formatter (lhs, rhs) ->
           Format.fprintf formatter "%a := @[%a@]"
             Var.pp lhs
-            (Term.pp ark) rhs)
+            (Term.pp srk) rhs)
        formatter
        (M.enum tr.transform);
-    begin match Formula.destruct ark tr.guard with
+    begin match Formula.destruct srk tr.guard with
       | `Tru -> ()
       | _ ->
         if not (M.is_empty tr.transform) then
           Format.pp_print_break formatter 0 0;
-        Format.fprintf formatter "when @[<v 0>%a@]" (Formula.pp ark) tr.guard
+        Format.fprintf formatter "when @[<v 0>%a@]" (Formula.pp srk) tr.guard
     end;
     Format.fprintf formatter "@]}"
 
-  let show = ArkUtil.mk_show pp
+  let show = SrkUtil.mk_show pp
 
   let construct guard assignment =
     { transform =
@@ -63,9 +63,9 @@ struct
 
   let assign v term =
     { transform = M.add v term M.empty;
-      guard = mk_true ark }
+      guard = mk_true srk }
 
-  let parallel_assign assignment = construct (mk_true ark) assignment
+  let parallel_assign assignment = construct (mk_true srk) assignment
 
   let assume guard = construct guard []
 
@@ -74,19 +74,19 @@ struct
       List.fold_left (fun transform v ->
           M.add
             v
-            (mk_const ark (mk_symbol ark ~name:"havoc" (Var.typ v :> typ)))
+            (mk_const srk (mk_symbol srk ~name:"havoc" (Var.typ v :> typ)))
             transform)
         M.empty
         vars
     in
-    { transform = transform; guard = mk_true ark }
+    { transform = transform; guard = mk_true srk }
 
   let mul left right =
     let fresh_skolem =
       Memo.memo (fun sym ->
-          let name = show_symbol ark sym in
-          let typ = typ_symbol ark sym in
-          mk_const ark (mk_symbol ark ~name typ))
+          let name = show_symbol srk sym in
+          let typ = typ_symbol srk sym in
+          mk_const srk (mk_symbol srk ~name typ))
     in
     let left_subst sym =
       match Var.of_symbol sym with
@@ -94,12 +94,12 @@ struct
         if M.mem var left.transform then
           M.find var left.transform
         else
-          mk_const ark sym
+          mk_const srk sym
       | None -> fresh_skolem sym
     in
     let guard =
-      mk_and ark [left.guard;
-                  substitute_const ark left_subst right.guard]
+      mk_and srk [left.guard;
+                  substitute_const srk left_subst right.guard]
     in
     let transform =
       M.fold (fun var term transform ->
@@ -108,7 +108,7 @@ struct
           else
             M.add var term transform)
         left.transform
-        (M.map (substitute_const ark left_subst) right.transform)
+        (M.map (substitute_const srk left_subst) right.transform)
     in
     { transform; guard }
 
@@ -121,28 +121,28 @@ struct
         | Some s, Some t when Term.equal s t -> Some s
         | _, _ ->
           let phi =
-            mk_symbol ark ~name:("phi_" ^ (Var.show v)) ((Var.typ v) :> typ)
-            |> mk_const ark
+            mk_symbol srk ~name:("phi_" ^ (Var.show v)) ((Var.typ v) :> typ)
+            |> mk_const srk
           in
           let left_term =
             match x with
             | Some s -> s
-            | None -> mk_const ark (Var.symbol_of v)
+            | None -> mk_const srk (Var.symbol_of v)
           in
           let right_term =
             match y with
             | Some t -> t
-            | None -> mk_const ark (Var.symbol_of v)
+            | None -> mk_const srk (Var.symbol_of v)
           in
-          left_eq := (mk_eq ark left_term phi)::(!left_eq);
-          right_eq := (mk_eq ark right_term phi)::(!right_eq);
+          left_eq := (mk_eq srk left_term phi)::(!left_eq);
+          right_eq := (mk_eq srk right_term phi)::(!right_eq);
           Some phi
       in
       M.merge merge left.transform right.transform
     in
     let guard =
-      mk_or ark [mk_and ark (left.guard::(!left_eq));
-                 mk_and ark (right.guard::(!right_eq))]
+      mk_or srk [mk_and srk (left.guard::(!left_eq));
+                 mk_and srk (right.guard::(!right_eq))]
     in
     { guard; transform }
 
@@ -152,7 +152,7 @@ struct
     Memo.memo (fun sym ->
         match Var.of_symbol sym with
         | Some var ->
-          mk_symbol ark ~name:(Var.show var ^ "'") (Var.typ var :> typ)
+          mk_symbol srk ~name:(Var.show var ^ "'") (Var.typ var :> typ)
         | None -> assert false)
 
   module Iter(D : Iteration.Domain) = struct
@@ -163,9 +163,9 @@ struct
         M.fold (fun var term (symbols, post_def) ->
             let pre_sym = Var.symbol_of var in
             let post_sym = post_symbol pre_sym in
-            let post_term = mk_const ark post_sym in
+            let post_term = mk_const srk post_sym in
             ((pre_sym,post_sym)::symbols,
-             (mk_eq ark post_term term)::post_def))
+             (mk_eq srk post_term term)::post_def))
           tr.transform
           ([], [])
       in
@@ -182,15 +182,15 @@ struct
           | None -> Symbol.Set.mem x post_symbols
       in
       let body =
-        ArkSimplify.simplify_terms ark (mk_and ark (tr.guard::post_def))
+        SrkSimplify.simplify_terms srk (mk_and srk (tr.guard::post_def))
       in
-      D.abstract_iter ~exists ark body tr_symbols
+      D.abstract_iter ~exists srk body tr_symbols
 
     let closure iter =
       let transform =
         List.fold_left (fun tr (pre, post) ->
             match Var.of_symbol pre with
-            | Some v -> M.add v (mk_const ark post) tr
+            | Some v -> M.add v (mk_const srk post) tr
             | None -> assert false)
           M.empty
           (D.tr_symbols iter)
@@ -207,18 +207,18 @@ struct
   end
 
   let zero =
-    { transform = M.empty; guard = mk_false ark }
+    { transform = M.empty; guard = mk_false srk }
 
   let one =
-    { transform = M.empty; guard = mk_true ark }
+    { transform = M.empty; guard = mk_true srk }
 
   let is_zero tr =
-    match Formula.destruct ark tr.guard with
+    match Formula.destruct srk tr.guard with
     | `Fls -> true
     | _ -> false
 
   let is_one tr =
-    match Formula.destruct ark tr.guard with
+    match Formula.destruct srk tr.guard with
     | `Tru -> M.is_empty tr.transform
     | _ -> false
 
@@ -232,8 +232,8 @@ struct
           (map, post)
         else
           let name = Var.show var ^ "'" in
-          let sym = mk_symbol ark ~name (Var.typ var :> typ) in
-          (M.add var (mk_const ark sym) map, Symbol.Set.add sym post)
+          let sym = mk_symbol srk ~name (Var.typ var :> typ) in
+          (M.add var (mk_const srk sym) map, Symbol.Set.add sym post)
       in
       BatEnum.fold
         add
@@ -252,14 +252,14 @@ struct
               if M.mem var z.transform then
                 M.find var z.transform
               else
-                mk_const ark (Var.symbol_of var)
+                mk_const srk (Var.symbol_of var)
             in
-            (mk_eq ark term term')::eqs)
+            (mk_eq srk term term')::eqs)
           transform
           []
       in
-      mk_and ark (z.guard::eqs)
-      |> Wedge.abstract ~exists ark
+      mk_and srk (z.guard::eqs)
+      |> Wedge.abstract ~exists srk
     in
     let guard =
       Wedge.widen (to_wedge x) (to_wedge y)
@@ -278,20 +278,20 @@ struct
     let sigma =
       let map =
         M.fold (fun v rhs m ->
-            match Term.destruct ark rhs,
-                  Term.destruct ark (M.find v y.transform) with
-            | `App (a, []), `App (b, []) -> Symbol.Map.add a (mk_const ark b) m
+            match Term.destruct srk rhs,
+                  Term.destruct srk (M.find v y.transform) with
+            | `App (a, []), `App (b, []) -> Symbol.Map.add a (mk_const srk b) m
             | _ -> raise Not_normal)
           x.transform
           Symbol.Map.empty
       in
       fun sym ->
         try Symbol.Map.find sym map
-        with Not_found -> mk_const ark sym
+        with Not_found -> mk_const srk sym
     in
-    let x_guard = substitute_const ark sigma x.guard in
-    let equiv = ArkSimplify.simplify_terms ark (mk_iff ark x_guard y.guard) in
-    match Wedge.is_sat ark (mk_not ark equiv) with
+    let x_guard = substitute_const srk sigma x.guard in
+    let equiv = SrkSimplify.simplify_terms srk (mk_iff srk x_guard y.guard) in
+    match Wedge.is_sat srk (mk_not srk equiv) with
     | `Unsat -> true
     | _ -> false
 
@@ -305,17 +305,17 @@ struct
     let transform = M.filter (fun k _ -> p k) tr.transform in
     let rename =
       Memo.memo (fun sym ->
-          mk_symbol ark ~name:(show_symbol ark sym) (typ_symbol ark sym))
+          mk_symbol srk ~name:(show_symbol srk sym) (typ_symbol srk sym))
     in
     let sigma sym =
       let sym' = match Var.of_symbol sym with
         | Some v -> if p v then sym else rename sym
         | None -> sym
       in
-      mk_const ark sym'
+      mk_const srk sym'
     in
-    { transform = M.map (substitute_const ark sigma) transform;
-      guard = substitute_const ark sigma tr.guard }
+    { transform = M.map (substitute_const srk sigma) transform;
+      guard = substitute_const srk sigma tr.guard }
 
   let mem_transform x tr = M.mem x tr.transform
   let get_transform x tr = M.find x tr.transform
@@ -328,27 +328,27 @@ struct
           let fresh_skolem =
             Memo.memo (fun sym ->
                 match Var.of_symbol sym with
-                | Some v -> mk_const ark sym
+                | Some v -> mk_const srk sym
                 | None ->
-                  let name = show_symbol ark sym in
-                  let typ = typ_symbol ark sym in
-                  mk_const ark (mk_symbol ark ~name typ))
+                  let name = show_symbol srk sym in
+                  let typ = typ_symbol srk sym in
+                  mk_const srk (mk_symbol srk ~name typ))
           in
-          { transform = M.map (substitute_const ark fresh_skolem) tr.transform;
-            guard = substitute_const ark fresh_skolem tr.guard })
+          { transform = M.map (substitute_const srk fresh_skolem) tr.transform;
+            guard = substitute_const srk fresh_skolem tr.guard })
     in
-    let z3 = ArkZ3.mk_context ark [] in
+    let z3 = SrkZ3.mk_context srk [] in
     let unsubscript_tbl = Hashtbl.create 991 in
     let subscript_tbl = Hashtbl.create 991 in
     let subscript sym =
       try
         Hashtbl.find subscript_tbl sym
-      with Not_found -> mk_const ark sym
+      with Not_found -> mk_const srk sym
     in
     let unsubscript sym =
       try
         Hashtbl.find unsubscript_tbl sym
-      with Not_found -> mk_const ark sym
+      with Not_found -> mk_const srk sym
     in
     (* Convert tr into a formula, and simultaneously update the subscript
        table *)
@@ -356,17 +356,17 @@ struct
       let (ss, phis) =
         M.fold (fun var term (ss, phis) ->
             let var_sym = Var.symbol_of var in
-            let var_ss_sym = mk_symbol ark (Var.typ var :> typ) in
-            let var_ss_term = mk_const ark var_ss_sym in
-            let term_ss = substitute_const ark subscript term in
-            Hashtbl.add unsubscript_tbl var_ss_sym (mk_const ark var_sym);
+            let var_ss_sym = mk_symbol srk (Var.typ var :> typ) in
+            let var_ss_term = mk_const srk var_ss_sym in
+            let term_ss = substitute_const srk subscript term in
+            Hashtbl.add unsubscript_tbl var_ss_sym (mk_const srk var_sym);
             ((var_sym, var_ss_term)::ss,
-             mk_eq ark var_ss_term term_ss::phis))
+             mk_eq srk var_ss_term term_ss::phis))
           tr.transform
-          ([], [substitute_const ark subscript tr.guard])
+          ([], [substitute_const srk subscript tr.guard])
       in
       List.iter (fun (k, v) -> Hashtbl.add subscript_tbl k v) ss;
-      mk_and ark phis
+      mk_and srk phis
     in
     let seq =
       List.fold_left
@@ -375,16 +375,16 @@ struct
         []
         trs
     in
-    let ss_post = substitute_const ark subscript (mk_not ark post) in
+    let ss_post = substitute_const srk subscript (mk_not srk post) in
     match z3#interpolate_seq (List.rev (ss_post::seq)) with
     | `Sat m -> `Invalid
     | `Unknown -> `Unknown
     | `Unsat itp ->
-      `Valid (List.map (substitute_const ark unsubscript) itp)
+      `Valid (List.map (substitute_const srk unsubscript) itp)
 
   let valid_triple phi path post =
-    let path_not_post = List.fold_right mul path (assume (mk_not ark post)) in
-    match Smt.is_sat ark (mk_and ark [phi; path_not_post.guard]) with
+    let path_not_post = List.fold_right mul path (assume (mk_not srk post)) in
+    match Smt.is_sat srk (mk_and srk [phi; path_not_post.guard]) with
     | `Sat -> `Invalid
     | `Unknown -> `Unknown
     | `Unsat -> `Valid
@@ -406,28 +406,28 @@ struct
     |> BatList.of_enum
 
   let abstract_post pre tr =
-    let ark = C.context in
-    let man = ArkApron.get_manager pre in
+    let srk = C.context in
+    let man = SrkApron.get_manager pre in
     let exists x = Var.of_symbol x != None in
     let fresh =
-      Memo.memo (fun sym -> mk_const ark (mk_symbol ark (typ_symbol ark sym)))
+      Memo.memo (fun sym -> mk_const srk (mk_symbol srk (typ_symbol srk sym)))
     in
     let tr_subst expr =
-      substitute_const ark (fun sym ->
+      substitute_const srk (fun sym ->
           match Var.of_symbol sym with
           | Some v when mem_transform v tr -> fresh sym
-          | _ -> mk_const ark sym)
+          | _ -> mk_const srk sym)
         expr
     in
     let transform_formula =
       transform tr
       /@ (fun (lhs, rhs) ->
-          (mk_eq ark (mk_const ark (Var.symbol_of lhs)) (tr_subst rhs)))
+          (mk_eq srk (mk_const srk (Var.symbol_of lhs)) (tr_subst rhs)))
       |> BatList.of_enum
     in
-    mk_and ark ((tr_subst (ArkApron.formula_of_property pre))
+    mk_and srk ((tr_subst (SrkApron.formula_of_property pre))
                 :: (tr_subst tr.guard)
                 :: transform_formula)
-    |> Nonlinear.linearize ark
-    |> Abstract.abstract ~exists ark man
+    |> Nonlinear.linearize srk
+    |> Abstract.abstract ~exists srk man
 end

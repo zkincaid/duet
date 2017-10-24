@@ -1,26 +1,26 @@
 open OUnit
 open BatPervasives
 open Syntax
-open ArkApron
+open SrkApron
 open Test_pervasives
 
 let (pow, log) =
-  Wedge.ensure_nonlinear_symbols ctx;
-  (get_named_symbol ctx "pow",
-   get_named_symbol ctx "log")
+  Wedge.ensure_nonlinear_symbols srk;
+  (get_named_symbol srk "pow",
+   get_named_symbol srk "log")
 
-let mk_log (base : 'a term) (x : 'a term) = mk_app ctx log [base; x]
-let mk_pow (base : 'a term) (exp : 'a term) = mk_app ctx pow [base; exp]
+let mk_log (base : 'a term) (x : 'a term) = mk_app srk log [base; x]
+let mk_pow (base : 'a term) (exp : 'a term) = mk_app srk pow [base; exp]
 
 let assert_implies phi psi =
   psi |> List.iter (fun atom ->
       let not_atom =
-        rewrite ctx ~down:(nnf_rewriter ctx) (mk_not ctx atom)
+        rewrite srk ~down:(nnf_rewriter srk) (mk_not srk atom)
       in
-      if not (Wedge.is_bottom (Wedge.of_atoms ctx (not_atom::phi))) then
+      if not (Wedge.is_bottom (Wedge.of_atoms srk (not_atom::phi))) then
         assert_failure (Printf.sprintf "%s\ndoes not imply\n%s"
-                          (Formula.show ctx (mk_and ctx phi))
-                          (Formula.show ctx atom)))
+                          (Formula.show srk (mk_and srk phi))
+                          (Formula.show srk atom)))
 
 let roundtrip1 () =
   let atoms =
@@ -29,11 +29,11 @@ let roundtrip1 () =
      w + y <= (int 0)]
   in
   let phi =
-    Wedge.of_atoms ctx atoms
+    Wedge.of_atoms srk atoms
     |> Wedge.to_atoms
-    |> mk_and ctx
+    |> mk_and srk
   in
-  let psi = mk_and ctx atoms in
+  let psi = mk_and srk atoms in
   assert_equiv_formula psi phi
 
 let roundtrip2 () =
@@ -43,11 +43,11 @@ let roundtrip2 () =
      ((y * z * z) * ((int 1) / x)) <= (int 0)]
   in
   let phi =
-    Wedge.of_atoms ctx atoms
+    Wedge.of_atoms srk atoms
     |> Wedge.to_atoms
-    |> mk_and ctx
+    |> mk_and srk
   in
-  let psi = mk_and ctx atoms in
+  let psi = mk_and srk atoms in
   assert_equiv_formula psi phi
 
 let strengthen1 () =
@@ -118,11 +118,11 @@ let strengthen6 () =
 let join1 () =
   let phi =
     let open Infix in
-    Wedge.of_atoms ctx [x = int 0; y = int 1]
+    Wedge.of_atoms srk [x = int 0; y = int 1]
   in
   let psi =
     let open Infix in
-    Wedge.of_atoms ctx [int 0 <= x; x = y * y]
+    Wedge.of_atoms srk [int 0 <= x; x = y * y]
   in
   let result =
     let open Infix in
@@ -133,11 +133,11 @@ let join1 () =
 let join2 () =
   let phi =
     let open Infix in
-    Wedge.of_atoms ctx [x = int 0; y = int 1]
+    Wedge.of_atoms srk [x = int 0; y = int 1]
   in
   let psi =
     let open Infix in
-    Wedge.of_atoms ctx [y = int 2; x = int 1]
+    Wedge.of_atoms srk [y = int 2; x = int 1]
   in
   let result =
     let open Infix in
@@ -148,7 +148,7 @@ let join2 () =
 let exists1 () =
   let phi =
     (let open Infix in
-     Wedge.of_atoms ctx [x = y; z = y * y])
+     Wedge.of_atoms srk [x = y; z = y * y])
     |> Wedge.exists (fun sym -> sym = xsym || sym = zsym)
   in
   let psi =
@@ -160,7 +160,7 @@ let exists1 () =
 let exists2 () =
   let phi =
     (let open Infix in
-     Wedge.of_atoms ctx [x = y; z <= y * y; w <= x * x])
+     Wedge.of_atoms srk [x = y; z <= y * y; w <= x * x])
     |> Wedge.exists (fun sym -> sym = xsym || sym = zsym || sym = wsym)
   in
   let psi =
@@ -172,7 +172,7 @@ let exists2 () =
 let exists3 () =
   let phi =
     (let open Infix in
-     Wedge.of_atoms ctx [x <= y; y <= z])
+     Wedge.of_atoms srk [x <= y; y <= z])
     |> Wedge.exists (fun sym -> sym != ysym)
   in
   let psi =
@@ -184,7 +184,7 @@ let exists3 () =
 let exists4 () =
   let phi =
     (let open Infix in
-     Wedge.of_atoms ctx [x = q; y = r; y <= q])
+     Wedge.of_atoms srk [x = q; y = r; y <= q])
     |> Wedge.exists (fun sym -> sym = xsym || sym = rsym)
   in
   let psi =
@@ -196,15 +196,15 @@ let exists4 () =
 let widen1 () =
   let phi =
     let open Infix in
-    Wedge.of_atoms ctx [x = int 0; y = int 1]
+    Wedge.of_atoms srk [x = int 0; y = int 1]
   in
   let psi =
     let open Infix in
-    Wedge.of_atoms ctx [y = int 1; z = int 0]
+    Wedge.of_atoms srk [y = int 1; z = int 0]
   in
   let top_formula =
     let open Infix in
-    Wedge.of_atoms ctx [x = int 0; z = int 0]
+    Wedge.of_atoms srk [x = int 0; z = int 0]
   in
   let result =
     let open Infix in
@@ -214,21 +214,21 @@ let widen1 () =
   assert_equal
     ~printer:Wedge.show
     ~cmp:Wedge.equal
-    (Wedge.top ctx)
+    (Wedge.top srk)
     (Wedge.join (Wedge.widen phi psi) top_formula)
 
 let widen2 () =
   let phi =
     let open Infix in
-    Wedge.of_atoms ctx [x <= y * y; (int 2) <= y; x <= (int 100)]
+    Wedge.of_atoms srk [x <= y * y; (int 2) <= y; x <= (int 100)]
   in
   let psi =
     let open Infix in
-    Wedge.of_atoms ctx [(int 4) <= x; x <= (int 101); (int 2) <= y]
+    Wedge.of_atoms srk [(int 4) <= x; x <= (int 101); (int 2) <= y]
   in
   let result =
     let open Infix in
-    Wedge.of_atoms ctx [(int 2) <= y]
+    Wedge.of_atoms srk [(int 2) <= y]
   in
   assert_equal
     ~printer:Wedge.show
@@ -248,7 +248,7 @@ let symbound () =
   let phi =
     [x = y; x <= (int 2); z <= x; r <= s]
   in
-  let x_bounds = abstract_bounds (Wedge.of_atoms ctx phi) xsym in
+  let x_bounds = abstract_bounds (Wedge.of_atoms srk phi) xsym in
   assert_implies x_bounds [x <= y];
   assert_implies x_bounds [y <= x];
   assert_implies x_bounds [x <= (int 2)];
