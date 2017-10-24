@@ -1,21 +1,21 @@
 open Syntax
 open BatPervasives
 
-include Log.Make(struct let name = "ark.smt" end)
+include Log.Make(struct let name = "srk.smt" end)
 let default_solver = ref `Z3
 
-let mk_solver ark =
+let mk_solver srk =
   match !default_solver with
-  | `Z3 -> (ArkZ3.mk_solver ark :> 'a smt_solver)
-  | `Mathsat -> (ArkMathsat.mk_solver ark :> 'a smt_solver)
+  | `Z3 -> (SrkZ3.mk_solver srk :> 'a smt_solver)
+  | `Mathsat -> (SrkMathsat.mk_solver srk :> 'a smt_solver)
 
-let get_model ark phi =
-  let solver = mk_solver ark in
+let get_model srk phi =
+  let solver = mk_solver srk in
   solver#add [phi];
   solver#get_model ()
 
-let is_sat ark phi =
-  let solver = mk_solver ark in
+let is_sat srk phi =
+  let solver = mk_solver srk in
   solver#add [phi];
   solver#check []
 

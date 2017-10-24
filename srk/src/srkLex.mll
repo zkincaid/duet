@@ -1,5 +1,5 @@
 {
-open ArkParse
+open SrkParse
 open Lexing
 let next_line lexbuf =
   let pos = lexbuf.lex_curr_p in

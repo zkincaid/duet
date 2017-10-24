@@ -9,7 +9,7 @@ let simsat1 () =
       (Ctx.mk_exists ~name:"s" `TyReal
          (Ctx.mk_lt (Ctx.mk_var 1 `TyReal) (Ctx.mk_var 0 `TyReal)))
   in
-  assert_equal `Sat (simsat ctx phi)
+  assert_equal `Sat (simsat srk phi)
 
 let mbp1 () =
   let phi =
@@ -22,7 +22,7 @@ let mbp1 () =
     let open Infix in
     r <= (int 1)
   in
-  assert_equiv_formula (qe_mbp ctx phi) psi
+  assert_equiv_formula (qe_mbp srk phi) psi
 
 let mbp2 () =
   let phi =
@@ -34,7 +34,7 @@ let mbp2 () =
                        (Ctx.mk_neg s)))
   in
   let psi = Ctx.mk_leq r (int 0) in
-  assert_equiv_formula (qe_mbp ctx phi) psi
+  assert_equiv_formula (qe_mbp srk phi) psi
 
 let sim1 () =
   let phi =
@@ -46,7 +46,7 @@ let sim1 () =
          ((Ctx.mk_not ((y < x) && (x < (int 2))))
           || x = (int 1)))
   in
-  assert_bool "sim1" (simsat ctx phi = `Sat)
+  assert_bool "sim1" (simsat srk phi = `Sat)
 
 let sim2 () =
   let phi =
@@ -57,7 +57,7 @@ let sim2 () =
       (Ctx.mk_forall ~name:"y" `TyInt
          (x <= (Ctx.mk_ite ((int 0) < y) y (Ctx.mk_neg y))))
   in
-  assert_bool "sim2" (simsat ctx phi = `Sat)
+  assert_bool "sim2" (simsat srk phi = `Sat)
 
 let strategy1 () =
   let phi =
@@ -66,9 +66,9 @@ let strategy1 () =
     || ((x < (int 0)) && (y < x))
   in
   let qf_prefix = [`Forall, xsym; `Exists, ysym] in
-  match winning_strategy ctx qf_prefix phi with
+  match winning_strategy srk qf_prefix phi with
   | `Sat strategy ->
-    assert_bool "strategy1" (check_strategy ctx qf_prefix phi strategy)
+    assert_bool "strategy1" (check_strategy srk qf_prefix phi strategy)
   | _ -> assert false
 
 let strategy2 () =
@@ -80,9 +80,9 @@ let strategy2 () =
   let qf_prefix =
     [`Forall, wsym; `Forall, xsym; `Exists, ysym; `Exists, zsym]
   in
-  match winning_strategy ctx qf_prefix phi with
+  match winning_strategy srk qf_prefix phi with
   | `Sat strategy ->
-    assert_bool "strategy2" (check_strategy ctx qf_prefix phi strategy)
+    assert_bool "strategy2" (check_strategy srk qf_prefix phi strategy)
   | _ -> assert false
 
 let suite = "Quantifier" >::: [

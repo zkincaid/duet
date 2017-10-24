@@ -1,6 +1,6 @@
 %{
 
-open Ark
+open Srk
 open CcaSyntax
 
 %}

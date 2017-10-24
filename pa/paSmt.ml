@@ -1,5 +1,5 @@
 
-include Ark.Log.Make(struct let name = "smt" end)
+include Srk.Log.Make(struct let name = "smt" end)
 
 open Z3
 open BatPervasives

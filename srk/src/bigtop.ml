@@ -1,10 +1,10 @@
-open ArkAst
-open ArkApron
+open SrkAst
+open SrkApron
 
-module Ctx = ArkAst.Ctx
+module Ctx = SrkAst.Ctx
 module Infix = Syntax.Infix(Ctx)
-let ctx = Ctx.context
-let smt_ctx = ArkZ3.mk_context ctx [("model", "true");
+let srk = Ctx.context
+let smt_srk = SrkZ3.mk_context srk [("model", "true");
                                     ("unsat_core", "true")]
 
 let file_contents filename =
@@ -19,7 +19,7 @@ let load_math_formula filename =
   let open Lexing in
   let lexbuf = Lexing.from_channel (open_in filename) in
   lexbuf.lex_curr_p <- { lexbuf.lex_curr_p with pos_fname = filename };
-  try ArkParse.math_main ArkLex.math_token lexbuf with
+  try SrkParse.math_main SrkLex.math_token lexbuf with
   | _ ->
     let open Lexing in
     let pos = lexbuf.lex_curr_p in
@@ -28,7 +28,7 @@ let load_math_formula filename =
                 pos.pos_lnum
                 (pos.pos_cnum - pos.pos_bol + 1))
 
-let load_smtlib2 filename = smt_ctx#load_smtlib2 (file_contents filename)
+let load_smtlib2 filename = smt_srk#load_smtlib2 (file_contents filename)
 
 let load_formula filename =
   if Filename.check_suffix filename "m" then load_math_formula filename
@@ -39,7 +39,7 @@ let load_math_opt filename =
   let open Lexing in
   let lexbuf = Lexing.from_channel (open_in filename) in
   lexbuf.lex_curr_p <- { lexbuf.lex_curr_p with pos_fname = filename };
-  try ArkParse.math_opt_main ArkLex.math_token lexbuf with
+  try SrkParse.math_opt_main SrkLex.math_token lexbuf with
   | _ ->
     let open Lexing in
     let pos = lexbuf.lex_curr_p in
@@ -64,34 +64,34 @@ let _ =
   match Sys.argv.(i) with
   | "sat" ->
     let phi = load_formula Sys.argv.(i+1) in
-    print_result (Quantifier.simsat ctx phi)
+    print_result (Quantifier.simsat srk phi)
     (*    Apak.Log.print_stats ()*)
 
   | "sat-forward" ->
     let phi = load_formula Sys.argv.(i+1) in
-    print_result (Quantifier.simsat_forward ctx phi)
+    print_result (Quantifier.simsat_forward srk phi)
 
   | "easysat" ->
     let phi = load_formula Sys.argv.(i+1) in
-    print_result (Quantifier.easy_sat ctx phi)
+    print_result (Quantifier.easy_sat srk phi)
 
   | "sat-z3" ->
     let phi = load_formula Sys.argv.(i+1) in
-    print_result (smt_ctx#is_sat phi)
+    print_result (smt_srk#is_sat phi)
   | "sat-mbp" ->
     let phi = load_formula Sys.argv.(i+1) in
-    let psi = Quantifier.qe_mbp ctx phi in
-    print_result (smt_ctx#is_sat psi)
+    let psi = Quantifier.qe_mbp srk phi in
+    print_result (smt_srk#is_sat psi)
   | "sat-z3qe" ->
     let phi = load_formula Sys.argv.(i+1) in
-    print_result (smt_ctx#is_sat (smt_ctx#qe phi))
+    print_result (smt_srk#is_sat (smt_srk#qe phi))
   | "qsat" ->
     let str = file_contents Sys.argv.(i+1) in
 
     let z3 = Z3.mk_context [] in
     let t =
       Z3.Tactic.and_then z3
-        (ArkZ3.mk_quantifier_simplify_tactic z3)
+        (SrkZ3.mk_quantifier_simplify_tactic z3)
         (Z3.Tactic.mk_tactic z3 "qsat")
         []
     in
@@ -105,16 +105,16 @@ let _ =
 
   | "qe-sat-unbounded" ->
     let (objective, phi) = load_math_opt Sys.argv.(i+1) in
-    let phi = Syntax.Formula.prenex ctx phi in
-    print_result (smt_ctx#qe_sat phi)
+    let phi = Syntax.Formula.prenex srk phi in
+    print_result (smt_srk#qe_sat phi)
 
   | "qe-mbp" ->
     let phi = load_formula Sys.argv.(i+1) in
-    let psi = Quantifier.qe_mbp ctx phi in
-    Log.logf ~level:`always "%a" (Syntax.Formula.pp ctx) psi
+    let psi = Quantifier.qe_mbp srk phi in
+    Log.logf ~level:`always "%a" (Syntax.Formula.pp srk) psi
   | "opt" ->
     let (objective, phi) = load_math_opt Sys.argv.(i+1) in
-    begin match Quantifier.maximize ctx phi objective with
+    begin match Quantifier.maximize srk phi objective with
       | `Bounded b ->
         Log.logf ~level:`always "Upper bound: %a" QQ.pp b;
       | `Infinity ->
@@ -126,8 +126,8 @@ let _ =
     end
   | "opt-mbp" ->
     let (objective, phi) = load_math_opt Sys.argv.(i+1) in
-    let psi = Quantifier.qe_mbp ctx phi in
-    begin match smt_ctx#optimize_box psi [objective] with
+    let psi = Quantifier.qe_mbp srk phi in
+    begin match smt_srk#optimize_box psi [objective] with
       | `Sat [ivl] ->
         begin match Interval.upper ivl with
           | Some upper ->
@@ -140,8 +140,8 @@ let _ =
     end
   | "opt-z3qe" ->
     let (objective, phi) = load_math_opt Sys.argv.(i+1) in
-    let psi = smt_ctx#qe phi in
-    begin match smt_ctx#optimize_box psi [objective] with
+    let psi = smt_srk#qe phi in
+    begin match smt_srk#optimize_box psi [objective] with
       | `Sat [ivl] ->
         begin match Interval.upper ivl with
           | Some upper ->
@@ -154,22 +154,22 @@ let _ =
     end
   | "echo" ->
     Z3.SMT.benchmark_to_smtstring
-      smt_ctx#z3
+      smt_srk#z3
       (Sys.argv.(i+1))
       ""
       "unknown"
       ""
       []
-      (smt_ctx#of_formula (load_formula Sys.argv.(i+1)))
+      (smt_srk#of_formula (load_formula Sys.argv.(i+1)))
     |> print_endline
 
   | "stats" ->
     let open Syntax in
     let phi = load_formula Sys.argv.(i+1) in
-    let phi = Formula.prenex ctx phi in
+    let phi = Formula.prenex srk phi in
     let constants = fold_constants Symbol.Set.add phi Symbol.Set.empty in
     let rec go phi =
-      match Formula.destruct ctx phi with
+      match Formula.destruct srk phi with
       | `Quantify (`Exists, name, typ, psi) -> "E" ^ (go psi)
       | `Quantify (`Forall, name, typ, psi) -> "A" ^ (go psi)
       | _ -> ""
@@ -200,17 +200,17 @@ let _ =
       | _ -> assert false
     end;
     Z3.SMT.benchmark_to_smtstring
-      smt_ctx#z3
+      smt_srk#z3
       "random"
       ""
       "unknown"
       ""
       []
-      (smt_ctx#of_formula (RandomFormula.mk_random_formula ctx))
+      (smt_srk#of_formula (RandomFormula.mk_random_formula srk))
     |> print_endline
 
   | "sat-nonlinear" ->
     let phi = load_formula Sys.argv.(i+1) in
-    print_result (Wedge.is_sat ctx (snd (Quantifier.normalize ctx phi)))
+    print_result (Wedge.is_sat srk (snd (Quantifier.normalize srk phi)))
 
   | x -> Log.fatalf "Unknown command: `%s'" x

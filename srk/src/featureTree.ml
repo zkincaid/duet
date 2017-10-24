@@ -1,6 +1,6 @@
 open BatPervasives
 
-include Log.Make(struct let name = "ark.featureTree" end)
+include Log.Make(struct let name = "srk.featureTree" end)
     
 (* feature vector *)
 type fv = int array [@@deriving ord]

@@ -1,8 +1,8 @@
 open Apak
 open BatPervasives
 open Core
-open Ark
-open Ark.Syntax
+open Srk
+open Srk.Syntax
 open Pa
 
 include Log.Make(struct let name = "proofspace" end)
@@ -22,7 +22,7 @@ module Ctx = Syntax.MakeSimplifyingContext ()
 module Atomicity = Dependence.AtomicityAnalysis
 
 let ctx = Ctx.context
-let smt_ctx = ArkZ3.mk_context ctx []
+let smt_ctx = SrkZ3.mk_context ctx []
 
 (* Indexed variables -- variables paired with thread identifiers *)
 module IV = struct
@@ -33,7 +33,7 @@ module IV = struct
       if Var.is_shared var then Var.pp formatter var
       else Format.fprintf formatter "%a[#%d]" Var.pp var i
 
-    let show = ArkUtil.mk_show pp
+    let show = SrkUtil.mk_show pp
 
     let equal x y = compare x y = 0
     let hash (v, i) = Hashtbl.hash (Var.hash v, i)
@@ -105,7 +105,7 @@ module Block = struct
     | `Fork thread -> Format.fprintf formatter "fork(%a)" Varinfo.pp thread
     | `Transition tr -> Tr.pp formatter tr
 
-  let show x = ArkUtil.mk_show pp x
+  let show x = SrkUtil.mk_show pp x
 
   let default = `Transition Tr.one
 end
@@ -455,7 +455,7 @@ let generalize i phi psi =
     PaFormula.big_conj
       (BatEnum.append
          (BatList.enum props)
-         (ArkUtil.distinct_pairs vars /@ mk_eq))
+         (SrkUtil.distinct_pairs vars /@ mk_eq))
   in
   (subst, gen_phi, rhs)
 
@@ -507,7 +507,7 @@ let construct solver assign_table trace =
         Log.logf
           "Added PA transition:@\n @[{%a}(%a)@]@\n --( [#0] %a )-->@\n @[%a@]"
           P.pp lhs
-          (ArkUtil.pp_print_enum Format.pp_print_int) (1 -- lhs_arity)
+          (SrkUtil.pp_print_enum Format.pp_print_int) (1 -- lhs_arity)
           Letter.pp letter
           PA.pp_formula rhs;
         E.conjoin_transition solver lhs letters (negate_paformula rhs)

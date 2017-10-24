@@ -1,7 +1,7 @@
 type t = Mpzf.t
 
 let pp = Mpzf.print
-let show = ArkUtil.mk_show pp
+let show = SrkUtil.mk_show pp
 
 let hash x = Hashtbl.hash (Mpzf.to_string x)
 

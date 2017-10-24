@@ -1,4 +1,4 @@
-open Ark
+open Srk
 open OUnit
 open Regex
 
@@ -78,7 +78,7 @@ module NR = NormalizedRegex(struct
 let intersects x y = NR.intersects (NR.normalize x) (NR.normalize y)
 
 let regex_string regex =
-  ArkUtil.mk_show (pp_regex Format.pp_print_char) regex
+  SrkUtil.mk_show (pp_regex Format.pp_print_char) regex
 
 let norm_string = NR.show
 

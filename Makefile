@@ -10,8 +10,8 @@ build: setup.ml setup.data
 duet: setup.ml setup.data duet/config.ml
 	ocamlbuild duet/duet.native -tag debug
 
-ark: setup.ml setup.data
-	ocamlbuild ark/test_ark.native -tag debug
+srk: setup.ml setup.data
+	ocamlbuild srk/src/test_srk.native -tag debug
 
 apak: setup.ml setup.data
 	ocamlbuild apak/test_apak.native -tag debug

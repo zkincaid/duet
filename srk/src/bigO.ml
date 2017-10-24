@@ -70,30 +70,30 @@ let maximum x y =
   | `Geq -> x
   | `Unknown -> Unknown
 
-let of_term ark term =
-  Wedge.ensure_nonlinear_symbols ark;
-  Wedge.ensure_min_max ark;
+let of_term srk term =
+  Wedge.ensure_nonlinear_symbols srk;
+  Wedge.ensure_min_max srk;
 
-  let pow = get_named_symbol ark "pow" in
-  let log = get_named_symbol ark "log" in
-  let min = get_named_symbol ark "min" in
-  let max = get_named_symbol ark "max" in
+  let pow = get_named_symbol srk "pow" in
+  let log = get_named_symbol srk "log" in
+  let min = get_named_symbol srk "min" in
+  let max = get_named_symbol srk "max" in
 
   let rec go term =
-    match Term.destruct ark term with
+    match Term.destruct srk term with
     | `Real _ -> Polynomial 0
     | `App (const, []) -> Polynomial 1
     | `App (func, [base; exp]) when func = pow ->
-      let exp = match Expr.refine ark exp with
+      let exp = match Expr.refine srk exp with
         | `Term t -> t
         | _ -> assert false
       in
-      begin match destruct ark base, go exp with
+      begin match destruct srk base, go exp with
         | `Real b, Polynomial 1 -> Exp b
         | _ , _ -> Unknown
       end
     | `App (func, [base; exp]) when func = log ->
-      let exp = match Expr.refine ark exp with
+      let exp = match Expr.refine srk exp with
         | `Term t -> t
         | _ -> assert false
       in
@@ -105,13 +105,13 @@ let of_term ark term =
         | _ -> Unknown
       end
     | `App (func, [x; y]) when func = min ->
-      let (x, y) = match Expr.refine ark x, Expr.refine ark y with
+      let (x, y) = match Expr.refine srk x, Expr.refine srk y with
         | (`Term s, `Term t) -> (s, t)
         | (_, _) -> assert false
       in
       minimum (go x) (go y)
     | `App (func, [x; y]) when func = max ->
-      let (x, y) = match Expr.refine ark x, Expr.refine ark y with
+      let (x, y) = match Expr.refine srk x, Expr.refine srk y with
         | (`Term s, `Term t) -> (s, t)
         | (_, _) -> assert false
       in

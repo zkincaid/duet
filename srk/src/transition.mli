@@ -120,7 +120,7 @@ module Make
   val defines : t -> var list
   val uses : t -> var list
 
-  val abstract_post : (C.t,'abs) ArkApron.property -> t -> (C.t,'abs) ArkApron.property
+  val abstract_post : (C.t,'abs) SrkApron.property -> t -> (C.t,'abs) SrkApron.property
 
   (** Iteration domain.  See {!Iteration}. *)
   module Iter (I : Iteration.Domain) : sig
