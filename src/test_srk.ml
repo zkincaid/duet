@@ -1,5 +1,5 @@
 open OUnit
-open ArkParse
+open SrkParse
 
 let suite = "Main" >::: [
     Test_memo.suite;
@@ -19,5 +19,5 @@ let suite = "Main" >::: [
 
 let _ =
   Printexc.record_backtrace true;
-  Printf.printf "Running ark test suite";
+  Printf.printf "Running srk test suite";
   ignore (run_test_tt_main suite)

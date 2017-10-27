@@ -1,11 +1,11 @@
 open Syntax
 open BatPervasives
 
-include Log.Make(struct let name = "ark.simplify" end)
+include Log.Make(struct let name = "srk.simplify" end)
 
 module TermPolynomial = struct
   type 'a polynomial_context =
-    { ark : 'a context;
+    { srk : 'a context;
       int_of : 'a term -> int;
       of_int : int -> 'a term }
 
@@ -15,7 +15,7 @@ module TermPolynomial = struct
 
   type 'a t = Mvp.t
 
-  let mk_context ark =
+  let mk_context srk =
     let table = Expr.HT.create 991 in
     let enum = DynArray.create () in
     let of_int = DynArray.get enum in
@@ -28,30 +28,30 @@ module TermPolynomial = struct
         Expr.HT.add table term id;
         id
     in
-    { ark; of_int; int_of }
+    { srk; of_int; int_of }
 
   let rec of_term ctx =
-    let ark = ctx.ark in
+    let srk = ctx.srk in
     let mvp_term = Mvp.of_dim % ctx.int_of in
     let alg = function
       | `Add xs -> List.fold_left Mvp.add Mvp.zero xs
       | `Mul xs -> List.fold_left Mvp.mul Mvp.one xs
       | `Real k -> Mvp.scalar k
       | `Unop (`Neg, x) -> Mvp.negate x
-      | `Unop (`Floor, x) -> mvp_term (mk_floor ark (term_of ctx x))
-      | `App (f, args) -> mvp_term (mk_app ark f args)
+      | `Unop (`Floor, x) -> mvp_term (mk_floor srk (term_of ctx x))
+      | `App (f, args) -> mvp_term (mk_app srk f args)
       | `Binop (`Div, x, y) ->
-        mvp_term (mk_div ark (term_of ctx x) (term_of ctx y))
+        mvp_term (mk_div srk (term_of ctx x) (term_of ctx y))
       | `Binop (`Mod, x, y) ->
-        mvp_term (mk_mod ark (term_of ctx x) (term_of ctx y))
+        mvp_term (mk_mod srk (term_of ctx x) (term_of ctx y))
       | `Ite (cond, bthen, belse) ->
-        mvp_term (mk_ite ark cond (term_of ctx bthen) (term_of ctx belse))
-      | `Var (v, typ) -> mvp_term (mk_var ark v (typ :> typ_fo))
+        mvp_term (mk_ite srk cond (term_of ctx bthen) (term_of ctx belse))
+      | `Var (v, typ) -> mvp_term (mk_var srk v (typ :> typ_fo))
     in
-    Term.eval ark alg
+    Term.eval srk alg
     
   and term_of ctx p =
-    let ark = ctx.ark in
+    let srk = ctx.srk in
     (Mvp.enum p)
     /@ (fun (coeff, monomial) ->
         let product =
@@ -62,56 +62,56 @@ module TermPolynomial = struct
                  (fun product _ -> term::product)
                  product
                  (1 -- power))
-            [mk_real ark coeff]
+            [mk_real srk coeff]
             (Monomial.enum monomial)
         in
-        mk_mul ark product)
+        mk_mul srk product)
     |> BatList.of_enum
-    |> mk_add ctx.ark
+    |> mk_add ctx.srk
 end
 
-let simplify_terms_rewriter ark =
-  let ctx = TermPolynomial.mk_context ark in
+let simplify_terms_rewriter srk =
+  let ctx = TermPolynomial.mk_context srk in
   fun expr ->
-    match destruct ark expr with
+    match destruct srk expr with
     | `Atom (op, s, t) ->
       let simplified_term =
         TermPolynomial.term_of ctx
-          (TermPolynomial.of_term ctx (mk_sub ark s t))
+          (TermPolynomial.of_term ctx (mk_sub srk s t))
       in
-      let zero = mk_real ark QQ.zero in
+      let zero = mk_real srk QQ.zero in
       let result = match op with
-        | `Leq -> mk_leq ark simplified_term zero
-        | `Lt -> mk_lt ark simplified_term zero
-        | `Eq -> mk_eq ark simplified_term zero 
+        | `Leq -> mk_leq srk simplified_term zero
+        | `Lt -> mk_lt srk simplified_term zero
+        | `Eq -> mk_eq srk simplified_term zero 
       in
       (result :> ('a,typ_fo) expr)
     | _ -> expr
 
-let simplify_terms ark expr =
-  rewrite ark ~up:(simplify_terms_rewriter ark) expr
+let simplify_terms srk expr =
+  rewrite srk ~up:(simplify_terms_rewriter srk) expr
 
 module ExprVec = Linear.ExprQQVector
-let qe_partial_implicant ark p implicant =
+let qe_partial_implicant srk p implicant =
   let subst map expr =
-    substitute_const ark (fun sym ->
+    substitute_const srk (fun sym ->
         try Symbol.Map.find sym map
-        with Not_found -> mk_const ark sym)
+        with Not_found -> mk_const srk sym)
       expr
   in
   let (rewrite, implicant) =
     List.fold_left (fun (rewrite, implicant) atom ->
-        match Interpretation.destruct_atom ark atom with
+        match Interpretation.destruct_atom srk atom with
         | `Comparison (`Eq, x, y) ->
           let diff =
-            ExprVec.of_term ark (subst rewrite (mk_sub ark x y))
+            ExprVec.of_term srk (subst rewrite (mk_sub srk x y))
           in
           (* A symbol can be eliminated if it appears in the equation, and
              isn't *trapped*.  A symbol is trapped if it appears as subterm of
              another term.  *)
           let (trapped, elim) =
             BatEnum.fold (fun (trapped, elim) (term, _) ->
-                match Term.destruct ark term with
+                match Term.destruct srk term with
                 | `App (sym, []) ->
                   if p sym then (trapped, elim)
                   else (trapped, Symbol.Set.add sym elim)
@@ -124,16 +124,16 @@ let qe_partial_implicant ark p implicant =
             (rewrite, atom::implicant)
           else
             let sym = Symbol.Set.min_elt elim in
-            let (coeff, rest) = ExprVec.pivot (mk_const ark sym) diff in
+            let (coeff, rest) = ExprVec.pivot (mk_const srk sym) diff in
             let rhs =
               ExprVec.scalar_mul (QQ.negate (QQ.inverse coeff)) rest
-              |> ExprVec.term_of ark
+              |> ExprVec.term_of srk
             in
             let rewrite =
               Symbol.Map.map
-                      (substitute_const ark (fun sym' ->
+                      (substitute_const srk (fun sym' ->
                     if sym = sym' then rhs
-                    else mk_const ark sym'))
+                    else mk_const srk sym'))
                       rewrite
             in
             (Symbol.Map.add sym rhs rewrite, implicant)
@@ -143,9 +143,9 @@ let qe_partial_implicant ark p implicant =
   in
   List.map (subst rewrite) implicant
 
-let purify_rewriter ark table =
+let purify_rewriter srk table =
   fun expr ->
-    match destruct ark expr with
+    match destruct srk expr with
     | `Quantify (_, _, _, _) -> invalid_arg "purify: free variable"
     | `App (func, []) -> expr
     | `App (func, args) ->
@@ -153,16 +153,16 @@ let purify_rewriter ark table =
         try
           Expr.HT.find table expr
         with Not_found ->
-          let sym = mk_symbol ark ~name:"uninterp" (expr_typ ark expr) in
+          let sym = mk_symbol srk ~name:"uninterp" (expr_typ srk expr) in
           Expr.HT.add table expr sym;
           sym
       in
-      mk_const ark sym
+      mk_const srk sym
     | _ -> expr
 
-let purify ark expr =
+let purify srk expr =
   let table = Expr.HT.create 991 in
-  let expr' = rewrite ark ~up:(purify_rewriter ark table) expr in
+  let expr' = rewrite srk ~up:(purify_rewriter srk table) expr in
   let map =
     BatEnum.fold
       (fun map (term, sym) -> Symbol.Map.add sym term map)

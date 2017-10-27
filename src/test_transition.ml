@@ -1,7 +1,7 @@
 open OUnit
 open Abstract
 open Syntax
-open ArkApron
+open SrkApron
 open Test_pervasives
 
 module V = struct
@@ -55,14 +55,14 @@ let n = Ctx.mk_const (V.symbol_of "n")
 
 let assert_post tr phi =
   let not_post =
-    rewrite ctx ~down:(nnf_rewriter ctx) (Ctx.mk_not phi)
+    rewrite srk ~down:(nnf_rewriter srk) (Ctx.mk_not phi)
   in
   let pathcond =
     T.guard (T.mul tr (T.assume not_post))
   in
   if smt_ctx#is_sat pathcond != `Unsat then
     assert_failure (Printf.sprintf "%s\n is not a post-condition of\n%s"
-                      (Formula.show ctx phi)
+                      (Formula.show srk phi)
                       (T.show tr))
 
 let assert_equal_tr = assert_equal ~cmp:T.equal ~printer:T.show
@@ -238,9 +238,9 @@ let equal1 () =
 let assert_valid pre tr post =
   if (T.valid_triple pre [tr] post) != `Valid then
     assert_failure (Printf.sprintf "Invalid Hoare triple: {%s} %s {%s}"
-                      (Formula.show ctx pre)
+                      (Formula.show srk pre)
                       (T.show tr)
-                      (Formula.show ctx post))
+                      (Formula.show srk post))
 
 let check_interpolant path post itp =
   let rec go path itp =

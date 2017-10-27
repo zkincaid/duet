@@ -1,7 +1,7 @@
 open Syntax
 open BatPervasives
 
-include Log.Make(struct let name = "ark.linear" end)
+include Log.Make(struct let name = "srk.linear" end)
 
 module type AbelianGroup = sig
   type t
@@ -118,8 +118,8 @@ module RingMap (M : Map) (R : Ring) = struct
       (enum u)
 end
 
-module IntMap = ArkUtil.Int.Map
-module IntSet = ArkUtil.Int.Set
+module IntMap = SrkUtil.Int.Map
+module IntSet = SrkUtil.Int.Set
 
 module ZZVector = struct
   include RingMap(IntMap)(ZZ)
@@ -127,9 +127,9 @@ module ZZVector = struct
   let pp formatter vec =
     let pp_elt formatter (k, v) = Format.fprintf formatter "%d:%a" k ZZ.pp v in
     IntMap.enum vec
-    |> Format.fprintf formatter "[@[%a@]]" (ArkUtil.pp_print_enum pp_elt)
+    |> Format.fprintf formatter "[@[%a@]]" (SrkUtil.pp_print_enum pp_elt)
 
-  let show = ArkUtil.mk_show pp
+  let show = SrkUtil.mk_show pp
   let compare = compare ZZ.compare
 end
 
@@ -139,9 +139,9 @@ module QQVector = struct
   let pp formatter vec =
     let pp_elt formatter (k, v) = Format.fprintf formatter "%d:%a" k QQ.pp v in
     IntMap.enum vec
-    |> Format.fprintf formatter "[@[%a@]]" (ArkUtil.pp_print_enum pp_elt)
+    |> Format.fprintf formatter "[@[%a@]]" (SrkUtil.pp_print_enum pp_elt)
 
-  let show = ArkUtil.mk_show pp
+  let show = SrkUtil.mk_show pp
   let compare = compare QQ.compare
 end
 
@@ -206,7 +206,7 @@ module QQMatrix = struct
     in
     let pp_row formatter row =
       Format.fprintf formatter "[%a]"
-        (ArkUtil.pp_print_enum (pp_entry row)) (IntSet.enum cols)
+        (SrkUtil.pp_print_enum (pp_entry row)) (IntSet.enum cols)
     in
     let pp_sep formatter () =
       Format.fprintf formatter "@\n"
@@ -217,9 +217,9 @@ module QQMatrix = struct
       Format.fprintf formatter "@[<v 0>%a x %a@;%a@]"
         IntSet.pp (row_set mat)
         IntSet.pp cols
-        (ArkUtil.pp_print_enum_nobox ~pp_sep pp_row) (rows mat)
+        (SrkUtil.pp_print_enum_nobox ~pp_sep pp_row) (rows mat)
 
-  let show = ArkUtil.mk_show pp
+  let show = SrkUtil.mk_show pp
     
   let transpose mat =
     entries mat
@@ -290,17 +290,17 @@ module MakeExprRingMap(R : Ring) = struct
 
   let term coeff dim = add_term coeff dim zero
 
-  let const ark scalar = add_term scalar (mk_real ark QQ.one) zero
+  let const srk scalar = add_term scalar (mk_real srk QQ.one) zero
 
   let of_enum enum =
     BatEnum.fold (fun t (dim, coeff) -> add_term coeff dim t) zero enum
 
-  let mul ark u v =
-    ArkUtil.cartesian_product
+  let mul srk u v =
+    SrkUtil.cartesian_product
       (enum u)
       (enum v)
     /@ (fun ((xdim, xcoeff), (ydim, ycoeff)) ->
-        (mk_mul ark [xdim; ydim], R.mul xcoeff ycoeff))
+        (mk_mul srk [xdim; ydim], R.mul xcoeff ycoeff))
     |> of_enum
 
   let coeff x vec =
@@ -317,7 +317,7 @@ module MakeExprRingMap(R : Ring) = struct
 
   let sub u v = add u (negate v)
 
-  let one ark = const ark R.one
+  let one srk = const srk R.one
 
   let pivot x vec =
     (coeff x vec, Expr.Map.remove x vec)
@@ -326,33 +326,33 @@ end
 module ExprQQVector = struct
   include MakeExprRingMap(QQ)
 
-  let rec of_term ark =
+  let rec of_term srk =
     let alg = function
       | `Add xs -> List.fold_left add zero xs
-      | `Mul xs -> List.fold_left (mul ark) (one ark) xs
-      | `Real k -> const ark k
+      | `Mul xs -> List.fold_left (mul srk) (one srk) xs
+      | `Real k -> const srk k
       | `Unop (`Neg, x) -> negate x
-      | `Unop (`Floor, x) -> term QQ.one (mk_floor ark (term_of ark x))
-      | `App (f, args) -> term QQ.one (mk_app ark f args)
+      | `Unop (`Floor, x) -> term QQ.one (mk_floor srk (term_of srk x))
+      | `App (f, args) -> term QQ.one (mk_app srk f args)
       | `Binop (`Div, x, y) ->
-        term QQ.one (mk_div ark (term_of ark x) (term_of ark y))
+        term QQ.one (mk_div srk (term_of srk x) (term_of srk y))
       | `Binop (`Mod, x, y) ->
-        term QQ.one (mk_mod ark (term_of ark x) (term_of ark y))
+        term QQ.one (mk_mod srk (term_of srk x) (term_of srk y))
       | `Ite (cond, bthen, belse) ->
-        term QQ.one (mk_ite ark cond (term_of ark bthen) (term_of ark belse))
-      | `Var (v, typ) -> term QQ.one (mk_var ark v (typ :> typ_fo))
+        term QQ.one (mk_ite srk cond (term_of srk bthen) (term_of srk belse))
+      | `Var (v, typ) -> term QQ.one (mk_var srk v (typ :> typ_fo))
     in
-    Term.eval ark alg
+    Term.eval srk alg
 
-  and term_of ark sum =
+  and term_of srk sum =
     Expr.Map.fold (fun term coeff terms ->
         if QQ.equal coeff QQ.one then
           term::terms
         else
-          (mk_mul ark [mk_real ark coeff; term])::terms)
+          (mk_mul srk [mk_real srk coeff; term])::terms)
       sum
       []
-    |> mk_add ark
+    |> mk_add srk
 end
 
 exception No_solution
@@ -542,7 +542,7 @@ let const_of_linterm v =
   if QQVector.equal rest QQVector.zero then Some k
   else None
 
-let linterm_of ark term =
+let linterm_of srk term =
   let open QQVector in
   let real qq = of_term qq const_dim in
   let pivot_const = pivot const_dim in
@@ -571,22 +571,22 @@ let linterm_of ark term =
     | `Unop (`Neg, x) -> negate x
     | `Ite (_, _, _) -> raise Nonlinear
   in
-  Term.eval ark alg term
+  Term.eval srk alg term
 
-let of_linterm ark linterm =
+let of_linterm srk linterm =
   let open QQVector in
   enum linterm
   /@ (fun (coeff, dim) ->
       match sym_of_dim dim with
       | Some k ->
-        if QQ.equal coeff QQ.one then mk_const ark k
-        else mk_mul ark [mk_real ark coeff; mk_const ark k]
-      | None -> mk_real ark coeff)
+        if QQ.equal coeff QQ.one then mk_const srk k
+        else mk_mul srk [mk_real srk coeff; mk_const srk k]
+      | None -> mk_real srk coeff)
   |> BatList.of_enum
-  |> mk_add ark
+  |> mk_add srk
 
-let pp_linterm ark formatter linterm =
-  Term.pp ark formatter (of_linterm ark linterm)
+let pp_linterm srk formatter linterm =
+  Term.pp srk formatter (of_linterm srk linterm)
 
 let evaluate_linterm interp term =
   (QQVector.enum term)

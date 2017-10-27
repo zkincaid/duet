@@ -1,7 +1,7 @@
 open Syntax
 open BatPervasives
 
-include Log.Make(struct let name = "ark.arkZ3" end)
+include Log.Make(struct let name = "srk.srkZ3" end)
 
 exception Unknown_result
 
@@ -154,7 +154,7 @@ let mk_quantifier_simplify_tactic z3 =
     mk_tactic "simplify"]
 
 class type ['a] z3_context = object
-  method ark : 'a context
+  method srk : 'a context
   method z3 : Z3.context
   method mk_solver : unit -> 'a smt_solver
 
@@ -196,8 +196,8 @@ let mk_quantified ctx qt ?name:(name="_") typ phi =
 
 let z3_of_symbol z3 sym = Z3.Symbol.mk_int z3 (int_of_symbol sym)
 
-let decl_of_symbol z3 ark sym =
-  let (param_sorts, return_sort) = match typ_symbol ark sym with
+let decl_of_symbol z3 srk sym =
+  let (param_sorts, return_sort) = match typ_symbol srk sym with
     | `TyInt | `TyReal | `TyBool ->
       invalid_arg "decl_of_symbol: not a function symbol"
     | `TyFun (params, return) ->
@@ -206,12 +206,12 @@ let decl_of_symbol z3 ark sym =
   let z3sym = z3_of_symbol z3 sym in
   Z3.FuncDecl.mk_func_decl z3 z3sym param_sorts return_sort
 
-let rec z3_of_expr ark z3 expr =
-  match Expr.refine ark expr with
-  | `Term t -> z3_of_term ark z3 t
-  | `Formula phi -> z3_of_formula ark z3 phi
+let rec z3_of_expr srk z3 expr =
+  match Expr.refine srk expr with
+  | `Term t -> z3_of_term srk z3 t
+  | `Formula phi -> z3_of_formula srk z3 phi
 
-and z3_of_term (ark : 'a context) z3 (term : 'a term) =
+and z3_of_term (srk : 'a context) z3 (term : 'a term) =
   let alg = function
     | `Real qq ->
       begin match QQ.to_zz qq with
@@ -219,7 +219,7 @@ and z3_of_term (ark : 'a context) z3 (term : 'a term) =
         | None -> Z3.Arithmetic.Real.mk_numeral_s z3 (QQ.show qq)
       end
     | `App (sym, []) ->
-      let sort = match typ_symbol ark sym with
+      let sort = match typ_symbol srk sym with
         | `TyInt -> sort_of_typ z3 `TyInt
         | `TyReal -> sort_of_typ z3 `TyReal
         | `TyBool | `TyFun (_,_) -> invalid_arg "z3_of.term: ill-typed application"
@@ -228,8 +228,8 @@ and z3_of_term (ark : 'a context) z3 (term : 'a term) =
       Z3.Expr.mk_const_f z3 decl
 
     | `App (func, args) ->
-      let decl = decl_of_symbol z3 ark func in
-      Z3.Expr.mk_app z3 decl (List.map (z3_of_expr ark z3) args)
+      let decl = decl_of_symbol z3 srk func in
+      Z3.Expr.mk_app z3 decl (List.map (z3_of_expr srk z3) args)
 
     | `Var (i, `TyFun (_, _)) | `Var (i, `TyBool) -> invalid_arg "z3_of.term: variable"
     | `Var (i, `TyInt) ->
@@ -243,12 +243,12 @@ and z3_of_term (ark : 'a context) z3 (term : 'a term) =
     | `Unop (`Floor, t) -> Z3. Arithmetic.Real.mk_real2int z3 t
     | `Unop (`Neg, t) -> Z3.Arithmetic.mk_unary_minus z3 t
     | `Ite (cond, bthen, belse) ->
-      Z3.Boolean.mk_ite z3 (z3_of_formula ark z3 cond) bthen belse
+      Z3.Boolean.mk_ite z3 (z3_of_formula srk z3 cond) bthen belse
   in
-  Term.eval ark alg term
+  Term.eval srk alg term
 
-and z3_of_formula ark z3 phi =
-  let of_term = z3_of_term ark z3 in
+and z3_of_formula srk z3 phi =
+  let of_term = z3_of_term srk z3 in
   let alg = function
     | `Tru -> Z3.Boolean.mk_true z3
     | `Fls -> Z3.Boolean.mk_false z3
@@ -280,11 +280,11 @@ and z3_of_formula ark z3 phi =
       in
       Z3.Expr.mk_const_f z3 decl
     | `Proposition (`App (predicate, args)) ->
-      let decl = decl_of_symbol z3 ark predicate in
-      Z3.Expr.mk_app z3 decl (List.map (z3_of_expr ark z3) args)
+      let decl = decl_of_symbol z3 srk predicate in
+      Z3.Expr.mk_app z3 decl (List.map (z3_of_expr srk z3) args)
     | `Ite (cond, bthen, belse) -> Z3.Boolean.mk_ite z3 cond bthen belse
   in
-  Formula.eval ark alg phi
+  Formula.eval srk alg phi
 
 type 'a gexpr = ('a, typ_fo) Syntax.expr
 let of_z3 context sym_of_decl expr =
@@ -337,7 +337,7 @@ let of_z3 context sym_of_decl expr =
   in
   eval alg expr
 
-(* sym_of_decl is sufficient for round-tripping, since ark symbols become
+(* sym_of_decl is sufficient for round-tripping, since srk symbols become
    Z3 int symbols *)
 let sym_of_decl decl =
   let sym = Z3.FuncDecl.get_name decl in
@@ -355,9 +355,9 @@ let formula_of_z3 context phi =
   |  _ -> invalid_arg "formula_of"
 
 
-class ['a] z3_model (ark : 'a context) z3 m =
-  let of_formula = z3_of_formula ark z3 in
-  let of_term = z3_of_term ark z3 in
+class ['a] z3_model (srk : 'a context) z3 m =
+  let of_formula = z3_of_formula srk z3 in
+  let of_term = z3_of_term srk z3 in
   object(self)
     method eval_int term =
       match Z3.Model.eval m (of_term term) true with
@@ -375,40 +375,40 @@ class ['a] z3_model (ark : 'a context) z3 m =
       | None -> assert false
 
     method eval_fun func =
-      let decl = decl_of_symbol z3 ark func in
-      let formals = match typ_symbol ark func with
+      let decl = decl_of_symbol z3 srk func in
+      let formals = match typ_symbol srk func with
         | `TyFun (params, _) ->
-          List.mapi (fun i typ -> mk_var ark i typ) params
+          List.mapi (fun i typ -> mk_var srk i typ) params
         | _ -> invalid_arg "eval_fun: not a function"
       in
       match Z3.Model.get_func_interp m decl with
       | None -> assert false
       | Some interp ->
         let default =
-          of_z3 ark sym_of_decl
+          of_z3 srk sym_of_decl
             (Z3.Model.FuncInterp.get_else interp)
         in
         let mk_eq x y = (* type-generic equality *)
-          match Expr.refine ark x, Expr.refine ark y with
+          match Expr.refine srk x, Expr.refine srk y with
           | `Term x, `Term y ->
-            (mk_eq ark x y :> ('a, 'typ_fo) Syntax.expr)
+            (mk_eq srk x y :> ('a, 'typ_fo) Syntax.expr)
           | `Formula x, `Formula y ->
-            (mk_iff ark x y :> ('a, 'typ_fo) Syntax.expr)
+            (mk_iff srk x y :> ('a, 'typ_fo) Syntax.expr)
           | _, _ -> assert false
         in
         List.fold_right (fun entry rest ->
             let value =
               Z3.Model.FuncInterp.FuncEntry.get_value entry
-              |> of_z3 ark sym_of_decl
+              |> of_z3 srk sym_of_decl
             in
             let cond =
               List.map2 (fun formal value ->
-                  mk_eq formal (of_z3 ark sym_of_decl value))
+                  mk_eq formal (of_z3 srk sym_of_decl value))
                 formals
                 (Z3.Model.FuncInterp.FuncEntry.get_args entry)
-              |> mk_and ark
+              |> mk_and srk
             in
-            mk_ite ark cond value rest)
+            mk_ite srk cond value rest)
           (Z3.Model.FuncInterp.get_entries interp)
           default
 
@@ -474,7 +474,7 @@ let mk_context : 'a context -> (string * string) list -> 'a z3_context
       |> mk_and context
     in
     object (self)
-      method ark = context
+      method srk = context
       method z3 = z3
       method of_term = of_term
       method of_formula = of_formula
@@ -622,42 +622,45 @@ let mk_context : 'a context -> (string * string) list -> 'a z3_context
 
 let mk_z3_solver ?(theory="") ctx =
   if theory = "" then
-    (new z3_solver ctx#ark ctx#z3 (Z3.Solver.mk_simple_solver ctx#z3))
+    (new z3_solver ctx#srk ctx#z3 (Z3.Solver.mk_simple_solver ctx#z3))
   else
-    (new z3_solver ctx#ark ctx#z3 (Z3.Solver.mk_solver_s ctx#z3 theory))
+    (new z3_solver ctx#srk ctx#z3 (Z3.Solver.mk_solver_s ctx#z3 theory))
 
-let mk_solver ark = mk_z3_solver (mk_context ark [])
+let mk_solver srk = mk_z3_solver (mk_context srk [])
 
-let get_model ark phi = (mk_context ark [])#get_model phi
+let get_model srk phi = (mk_context srk [])#get_model phi
 
-let is_sat ark phi = (mk_context ark [])#is_sat phi
+let is_sat srk phi = (mk_context srk [])#is_sat phi
 
-let optimize_box ark phi objectives =
-  (mk_context ark [])#optimize_box phi objectives
+let optimize_box srk phi objectives =
+  (mk_context srk [])#optimize_box phi objectives
 
 
 module CHC = struct
   type 'a solver =
     { ctx : 'a z3_context;
       error : symbol;
+      mutable head_relations : Symbol.Set.t;
       fp : Z3.Fixedpoint.fixedpoint }
 
   let mk_solver ctx =
     let fp = Z3.Fixedpoint.mk_fixedpoint ctx#z3 in
-    let error = mk_symbol ctx#ark ~name:"error" (`TyFun ([], `TyBool)) in
-    let error_decl = decl_of_symbol ctx#z3 ctx#ark error in
+    let error = mk_symbol ctx#srk ~name:"error" (`TyFun ([], `TyBool)) in
+    let error_decl = decl_of_symbol ctx#z3 ctx#srk error in
     let params = Z3.Params.mk_params ctx#z3 in
     let sym x = Z3.Symbol.mk_string ctx#z3 x in
     Z3.Params.add_bool params (sym "xform.slice") false;
     Z3.Params.add_bool params (sym "xform.inline_linear") false;
     Z3.Params.add_bool params (sym "xform.inline_eager") false;
+    Z3.Params.add_bool params (sym "pdr.utvpi") false;
     Z3.Fixedpoint.set_parameters fp params;
 
     Z3.Fixedpoint.register_relation fp error_decl;
-    { ctx; error; fp }
+    { ctx; error; fp; head_relations = Symbol.Set.empty }
 
   let register_relation solver relation =
-    let decl = decl_of_symbol solver.ctx#z3 solver.ctx#ark relation in
+    let srk = solver.ctx#srk in
+    let decl = decl_of_symbol solver.ctx#z3 srk relation in
     Z3.Fixedpoint.register_relation solver.fp decl
 
   let add solver phis =
@@ -667,34 +670,38 @@ module CHC = struct
 
   let push solver = Z3.Fixedpoint.push solver.fp
 
-  module M = ArkUtil.Int.Map
+  module M = SrkUtil.Int.Map
+
   let add_rule solver hypothesis conclusion =
-    let ark = solver.ctx#ark in
-    let var_table = free_vars (mk_if ark hypothesis conclusion) in
+    let srk = solver.ctx#srk in
+    (* The hypothesis is assumed to not simplify to true/false -- otherwise,
+       var_table isn't initialized *)
+    let var_table = free_vars (mk_if srk hypothesis conclusion) in
     let rename =
       let table = Hashtbl.create 991 in
       BatHashtbl.enum var_table
-      |> BatEnum.iteri (fun i (j, typ) -> Hashtbl.add table j (mk_var ark i typ));
+      |> BatEnum.iteri (fun i (j, typ) -> Hashtbl.add table j (mk_var srk i typ));
       fun i -> Hashtbl.find table i
     in
     let rule =
-      match destruct ark conclusion with
-      | `App (_, _) ->
+      match destruct srk conclusion with
+      | `App (r, _) ->
         let hypothesis =
-          solver.ctx#of_formula (substitute ark rename hypothesis)
+          solver.ctx#of_formula (substitute srk rename hypothesis)
         in
         let conclusion =
-          solver.ctx#of_formula (substitute ark rename conclusion)
+          solver.ctx#of_formula (substitute srk rename conclusion)
         in
+        solver.head_relations <- Symbol.Set.add r solver.head_relations;
         Z3.Boolean.mk_implies solver.ctx#z3 hypothesis conclusion
       | _ ->
         let hypothesis =
-          mk_and ark [hypothesis; (mk_not ark conclusion)]
-          |> substitute ark rename
+          mk_and srk [hypothesis; (mk_not srk conclusion)]
+          |> substitute srk rename
           |> solver.ctx#of_formula
         in
         let conclusion =
-          mk_app ark solver.error []
+          mk_app srk solver.error []
           |> solver.ctx#of_formula
         in
         Z3.Boolean.mk_implies solver.ctx#z3 hypothesis conclusion
@@ -722,19 +729,36 @@ module CHC = struct
     in
     Z3.Fixedpoint.add_rule solver.fp quantified_rule None
 
+  let add_rule solver hypothesis conclusion =
+    let srk = solver.ctx#srk in
+    match destruct srk (mk_if srk hypothesis conclusion) with
+    | `Tru -> ()
+    | `Fls ->
+      let err_rule =
+        Z3.Boolean.mk_implies
+          solver.ctx#z3
+          (solver.ctx#of_formula (mk_true srk))
+          (solver.ctx#of_formula (mk_app srk solver.error []))
+      in
+      Z3.Fixedpoint.add_rule solver.fp err_rule None
+    | _ -> add_rule solver hypothesis conclusion
+
   let check solver assumptions =
-    let goal = solver.ctx#of_formula (mk_app solver.ctx#ark solver.error []) in
+    let goal = solver.ctx#of_formula (mk_app solver.ctx#srk solver.error []) in
     match Z3.Fixedpoint.query solver.fp goal with
     | Z3.Solver.UNSATISFIABLE -> `Sat
     | Z3.Solver.SATISFIABLE -> `Unsat
     | Z3.Solver.UNKNOWN -> `Unknown
 
   let get_solution solver relation =
-    let ark = solver.ctx#ark in
-    let decl = decl_of_symbol solver.ctx#z3 ark relation in
-    match Z3.Fixedpoint.get_cover_delta solver.fp (-1) decl with
-    | Some inv -> solver.ctx#formula_of inv
-    | None -> assert false
+    let srk = solver.ctx#srk in
+    let decl = decl_of_symbol solver.ctx#z3 srk relation in
+    if Symbol.Set.mem relation solver.head_relations then
+      match Z3.Fixedpoint.get_cover_delta solver.fp (-1) decl with
+      | Some inv -> solver.ctx#formula_of inv
+      | None -> assert false
+    else
+      mk_false srk
 
   let to_string solver = Z3.Fixedpoint.to_string solver.fp
 end

@@ -14,9 +14,9 @@ module Dim = Apron.Dim
 module CS = CoordinateSystem
 module A = BatDynArray
 
-module IntSet = ArkUtil.Int.Set
+module IntSet = SrkUtil.Int.Set
 
-include Log.Make(struct let name = "ark.wedge" end)
+include Log.Make(struct let name = "srk.wedge" end)
 
 let qq_of_scalar = function
   | Scalar.Float k -> QQ.of_float k
@@ -36,36 +36,36 @@ let coeff_of_qq = Coeff.s_of_mpqf
 let scalar_zero = Coeff.s_of_int 0
 let scalar_one = Coeff.s_of_int 1
 
-let ensure_nonlinear_symbols ark =
+let ensure_nonlinear_symbols srk =
   List.iter
     (fun (name, typ) ->
-       if not (is_registered_name ark name) then
-         register_named_symbol ark name typ)
+       if not (is_registered_name srk name) then
+         register_named_symbol srk name typ)
     [("pow", (`TyFun ([`TyReal; `TyReal], `TyReal)));
      ("log", (`TyFun ([`TyReal; `TyReal], `TyReal)))]
 
-let mk_log ark (base : 'a term) (x : 'a term) =
-  match Term.destruct ark base, Term.destruct ark x with
+let mk_log srk (base : 'a term) (x : 'a term) =
+  match Term.destruct srk base, Term.destruct srk x with
   | `Real b, `Real x when (QQ.lt QQ.one b) && (QQ.equal x QQ.one) ->
-    mk_real ark QQ.zero
+    mk_real srk QQ.zero
   | `Real b, `Real x when (QQ.lt QQ.one b) && (QQ.equal x b) ->
-    mk_real ark QQ.one
+    mk_real srk QQ.one
   | _, _ ->
-    let log = get_named_symbol ark "log" in
-    mk_app ark log [base; x]
+    let log = get_named_symbol srk "log" in
+    mk_app srk log [base; x]
 
-let mk_pow ark (base : 'a term) (x : 'a term) =
-  match Term.destruct ark x with
+let mk_pow srk (base : 'a term) (x : 'a term) =
+  match Term.destruct srk x with
   | `Real power ->
     begin match QQ.to_int power with
-      | Some power -> mk_pow ark base power
+      | Some power -> mk_pow srk base power
       | None ->
-        let pow = get_named_symbol ark "pow" in
-        mk_app ark pow [base; x]
+        let pow = get_named_symbol srk "pow" in
+        mk_app srk pow [base; x]
     end
   | _ ->
-    let pow = get_named_symbol ark "pow" in
-    mk_app ark pow [base; x]
+    let pow = get_named_symbol srk "pow" in
+    mk_app srk pow [base; x]
 
 let vec_of_poly = P.vec_of ~const:CS.const_id
 let poly_of_vec = P.of_vec ~const:CS.const_id
@@ -88,7 +88,7 @@ type env = { int_dim : int A.t;
              real_dim : int A.t }
 
 type 'a t =
-  { ark : 'a context;
+  { srk : 'a context;
     cs : 'a CS.t;
     env : env;
     mutable abstract : (Polka.strict Polka.t) Abstract0.t }
@@ -96,8 +96,8 @@ type 'a t =
 let dim_of_id cs env id =
   let intd = A.length env.int_dim in
   match CS.type_of_id cs id with
-  | `TyInt -> ArkUtil.search id env.int_dim
-  | `TyReal -> intd + (ArkUtil.search id env.real_dim)
+  | `TyInt -> SrkUtil.search id env.int_dim
+  | `TyReal -> intd + (SrkUtil.search id env.real_dim)
 
 let id_of_dim env dim =
   let intd = A.length env.int_dim in
@@ -134,23 +134,23 @@ let atom_of_lincons wedge lincons =
   let term =
     CS.term_of_vec wedge.cs (vec_of_linexpr wedge.env lincons.linexpr0)
   in
-  let zero = mk_real wedge.ark QQ.zero in
+  let zero = mk_real wedge.srk QQ.zero in
   match lincons.typ with
-  | EQ -> mk_eq wedge.ark term zero
-  | SUPEQ -> mk_leq wedge.ark zero term
-  | SUP -> mk_lt wedge.ark zero term
+  | EQ -> mk_eq wedge.srk term zero
+  | SUPEQ -> mk_leq wedge.srk zero term
+  | SUP -> mk_lt wedge.srk zero term
   | DISEQ | EQMOD _ -> assert false
 
 let pp formatter wedge =
   Abstract0.print
     (fun dim ->
-       ArkUtil.mk_show
-         (Term.pp wedge.ark)
+       SrkUtil.mk_show
+         (Term.pp wedge.srk)
          (CS.term_of_coordinate wedge.cs (id_of_dim wedge.env dim)))
     formatter
     wedge.abstract
 
-let show wedge = ArkUtil.mk_show pp wedge
+let show wedge = SrkUtil.mk_show pp wedge
 
 let env_consistent wedge =
   CS.dim wedge.cs = (A.length wedge.env.int_dim) + (A.length wedge.env.real_dim)
@@ -202,7 +202,7 @@ let mk_env cs =
   env
 
 let top context =
-  { ark = context;
+  { srk = context;
     cs = CS.mk_empty context;
     abstract = Abstract0.top (get_manager ()) 0 0;
     env = mk_empty_env () }
@@ -210,7 +210,7 @@ let top context =
 let is_top wedge = Abstract0.is_top (get_manager ()) wedge.abstract
 
 let bottom context =
-  { ark = context;
+  { srk = context;
     cs = CS.mk_empty context;
     abstract = Abstract0.bottom (get_manager ()) 0 0;
     env = mk_empty_env () }
@@ -222,12 +222,12 @@ let to_atoms wedge =
   /@ (atom_of_lincons wedge)
   |> BatList.of_enum
 
-let to_formula wedge = mk_and wedge.ark (to_atoms wedge)
+let to_formula wedge = mk_and wedge.srk (to_atoms wedge)
 
-let lincons_of_atom ark cs env atom =
+let lincons_of_atom srk cs env atom =
   let vec_of_term = CS.vec_of_term cs in
   let linexpr_of_vec = linexpr_of_vec cs env in
-  match Interpretation.destruct_atom ark atom with
+  match Interpretation.destruct_atom srk atom with
   | `Comparison (`Lt, x, y) ->
     Lincons0.make
       (linexpr_of_vec
@@ -248,7 +248,7 @@ let lincons_of_atom ark cs env atom =
 let meet_atoms wedge atoms =
   (* Ensure that the coordinate system admits each atom *)
   atoms |> List.iter (fun atom ->
-      match Interpretation.destruct_atom wedge.ark atom with
+      match Interpretation.destruct_atom wedge.srk atom with
       | `Comparison (_, x, y) ->
         CS.admit_term wedge.cs x;
         CS.admit_term wedge.cs y
@@ -256,7 +256,7 @@ let meet_atoms wedge atoms =
   update_env wedge;
   let abstract =
     atoms
-    |> List.map (lincons_of_atom wedge.ark wedge.cs wedge.env)
+    |> List.map (lincons_of_atom wedge.srk wedge.cs wedge.env)
     |> Array.of_list
     |> Abstract0.meet_lincons_array (get_manager ()) wedge.abstract
   in
@@ -380,9 +380,9 @@ let vanishing_ideal wedge =
   !ideal
 
 let coordinate_ideal ?integrity:(integrity=(fun _ -> ())) wedge =
-  let ark = wedge.ark in
+  let srk = wedge.srk in
   let cs = wedge.cs in
-  let zero = mk_real ark QQ.zero in
+  let zero = mk_real srk QQ.zero in
   let polyhedron_ideal =
     List.map poly_of_vec (affine_hull wedge)
   in
@@ -395,7 +395,7 @@ let coordinate_ideal ?integrity:(integrity=(fun _ -> ())) wedge =
               (P.of_dim id)
               (P.mul (poly_of_vec x) (poly_of_vec y))
           in
-          integrity (mk_eq ark (CS.term_of_polynomial cs p) zero);
+          integrity (mk_eq srk (CS.term_of_polynomial cs p) zero);
           Some p
         | `Inv x ->
           let interval = bound_vec wedge x in
@@ -405,8 +405,8 @@ let coordinate_ideal ?integrity:(integrity=(fun _ -> ())) wedge =
             let p =
               P.sub (P.mul (poly_of_vec x) (P.of_dim id)) (P.scalar QQ.one)
             in
-            integrity (mk_or ark [mk_eq ark (CS.term_of_vec cs x) zero;
-                                  mk_eq ark (CS.term_of_polynomial cs p) zero]);
+            integrity (mk_or srk [mk_eq srk (CS.term_of_vec cs x) zero;
+                                  mk_eq srk (CS.term_of_polynomial cs p) zero]);
             Some p
           end
         | _ -> None)
@@ -416,24 +416,24 @@ let coordinate_ideal ?integrity:(integrity=(fun _ -> ())) wedge =
   polyhedron_ideal@coordinate_ideal
 
 let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
-  ensure_nonlinear_symbols wedge.ark;
+  ensure_nonlinear_symbols wedge.srk;
   assert (env_consistent wedge);
   let cs = wedge.cs in
-  let ark = wedge.ark in
-  let zero = mk_real ark QQ.zero in
-  let pow = get_named_symbol ark "pow" in
-  let log = get_named_symbol ark "log" in
+  let srk = wedge.srk in
+  let zero = mk_real srk QQ.zero in
+  let pow = get_named_symbol srk "pow" in
+  let log = get_named_symbol srk "log" in
   let add_bound precondition bound =
     logf ~level:`trace "Integrity: %a => %a"
-      (Formula.pp ark) precondition
-      (Formula.pp ark) bound;
-    integrity (mk_or ark [mk_not ark precondition; bound]);
+      (Formula.pp srk) precondition
+      (Formula.pp srk) bound;
+    integrity (mk_or srk [mk_not srk precondition; bound]);
     meet_atoms wedge [bound]
   in
 
   let provenance_formula ps =
-    List.map (fun p -> mk_eq ark (CS.term_of_polynomial cs p) zero) ps
-    |> mk_and ark
+    List.map (fun p -> mk_eq srk (CS.term_of_polynomial cs p) zero) ps
+    |> mk_and srk
   in
 
   logf "Before strengthen: %a" pp wedge;
@@ -446,7 +446,7 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
          |> Polynomial.Rewrite.grobner_basis)
   in
   let pp_dim formatter i =
-    Term.pp ark formatter (CS.term_of_coordinate wedge.cs i)
+    Term.pp srk formatter (CS.term_of_coordinate wedge.cs i)
   in
   logf "Rewrite: @[<v 0>%a@]" (Polynomial.Rewrite.pp pp_dim) (!rewrite);
 
@@ -476,11 +476,11 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
             begin match Interval.lower logc_ivl with
               | Some logc ->
                 let hypothesis =
-                  mk_and ark [mk_leq ark (mk_real ark lo) (CS.term_of_coordinate cs i);
-                              mk_lt ark zero (CS.term_of_vec cs b)]
+                  mk_and srk [mk_leq srk (mk_real srk lo) (CS.term_of_coordinate cs i);
+                              mk_lt srk zero (CS.term_of_vec cs b)]
                 in
                 let conclusion =
-                  mk_leq ark (mk_real ark logc) (CS.term_of_vec cs s)
+                  mk_leq srk (mk_real srk logc) (CS.term_of_vec cs s)
                 in
                 add_bound hypothesis conclusion
               | None -> ()
@@ -488,11 +488,11 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
             begin match Interval.upper ivl, Interval.upper logc_ivl with
               | Some hi, Some logc ->
                 let hypothesis =
-                  mk_and ark [mk_leq ark (CS.term_of_coordinate cs i) (mk_real ark hi);
-                              mk_lt ark zero (CS.term_of_vec cs b)]
+                  mk_and srk [mk_leq srk (CS.term_of_coordinate cs i) (mk_real srk hi);
+                              mk_lt srk zero (CS.term_of_vec cs b)]
                 in
                 let conclusion =
-                  mk_leq ark (mk_real ark logc) (CS.term_of_vec cs s)
+                  mk_leq srk (mk_real srk logc) (CS.term_of_vec cs s)
                 in
                 add_bound hypothesis conclusion
               | _, _ -> ()
@@ -518,14 +518,14 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
                 (* 0 < b && b^s <= t |= s <= log_b(t) *)
                 if Interval.is_nonnegative t_sub_bs_ivl then
                   let hypothesis =
-                    mk_and ark [mk_lt ark zero (CS.term_of_vec cs b);
-                                mk_leq ark
+                    mk_and srk [mk_lt srk zero (CS.term_of_vec cs b);
+                                mk_leq srk
                                   (CS.term_of_coordinate cs i)
                                   (CS.term_of_vec cs t);
                                 provenance_formula base_eq_prov]
                   in
                   let conclusion =
-                    mk_leq ark (CS.term_of_vec cs s) (CS.term_of_coordinate cs j)
+                    mk_leq srk (CS.term_of_vec cs s) (CS.term_of_coordinate cs j)
                   in
                   add_bound hypothesis conclusion
               end;
@@ -533,14 +533,14 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
                 (* 0 < t <= b^s |= log_b(t) <= s *)
                 if Interval.is_nonpositive t_sub_bs_ivl then
                   let hypothesis =
-                    mk_and ark [mk_lt ark zero (CS.term_of_vec cs t);
-                                mk_leq ark
+                    mk_and srk [mk_lt srk zero (CS.term_of_vec cs t);
+                                mk_leq srk
                                   (CS.term_of_vec cs t)
                                   (CS.term_of_coordinate cs i);
                                 provenance_formula base_eq_prov]
                   in
                   let conclusion =
-                    mk_leq ark (CS.term_of_coordinate cs j) (CS.term_of_vec cs s)
+                    mk_leq srk (CS.term_of_coordinate cs j) (CS.term_of_vec cs s)
                   in
                   add_bound hypothesis conclusion
               end;
@@ -563,14 +563,14 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
                   begin match Interval.lower ivl, Interval.lower logbc_ivl with
                     | Some lo, Some logbc when QQ.lt QQ.zero lo ->
                       let hypothesis =
-                        mk_and ark [mk_lt ark (mk_real ark lo) p_term;
-                                    mk_lt ark zero (CS.term_of_vec cs t);
-                                    mk_lt ark zero (CS.term_of_coordinate cs i)]
+                        mk_and srk [mk_lt srk (mk_real srk lo) p_term;
+                                    mk_lt srk zero (CS.term_of_vec cs t);
+                                    mk_lt srk zero (CS.term_of_coordinate cs i)]
                       in
                       let conclusion =
-                        mk_leq ark
-                          (mk_real ark logbc)
-                          (mk_add ark [CS.term_of_coordinate cs j;
+                        mk_leq srk
+                          (mk_real srk logbc)
+                          (mk_add srk [CS.term_of_coordinate cs j;
                                        CS.term_of_vec cs s])
                       in
                       add_bound hypothesis conclusion
@@ -580,15 +580,15 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
                   begin match Interval.upper ivl, Interval.upper logbc_ivl with
                     | Some hi, Some logbc ->
                       let hypothesis =
-                        mk_and ark [mk_lt ark p_term (mk_real ark hi);
-                                    mk_lt ark zero (CS.term_of_vec cs t);
-                                    mk_lt ark zero (CS.term_of_coordinate cs i)]
+                        mk_and srk [mk_lt srk p_term (mk_real srk hi);
+                                    mk_lt srk zero (CS.term_of_vec cs t);
+                                    mk_lt srk zero (CS.term_of_coordinate cs i)]
                       in
                       let conclusion =
-                        mk_leq ark
-                          (mk_add ark [CS.term_of_coordinate cs j;
+                        mk_leq srk
+                          (mk_add srk [CS.term_of_coordinate cs j;
                                        CS.term_of_vec cs s])
-                          (mk_real ark logbc)
+                          (mk_real srk logbc)
                       in
                       add_bound hypothesis conclusion
                     | _, _ -> ()
@@ -600,15 +600,15 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
             begin
               if vec_leq one b && vec_leq b b' && vec_leq s s' then
                 let hypothesis =
-                  mk_and ark [mk_leq ark (CS.term_of_vec cs b)
+                  mk_and srk [mk_leq srk (CS.term_of_vec cs b)
                                 (CS.term_of_vec cs b');
-                              mk_leq ark (CS.term_of_vec cs s)
+                              mk_leq srk (CS.term_of_vec cs s)
                                 (CS.term_of_vec cs s');
-                              mk_leq ark (mk_real ark QQ.one)
+                              mk_leq srk (mk_real srk QQ.one)
                                 (CS.term_of_vec cs b)]
                 in
                 let conclusion =
-                  mk_leq ark
+                  mk_leq srk
                     (CS.term_of_coordinate cs i)
                     (CS.term_of_coordinate cs j)
                 in
@@ -620,15 +620,15 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
               let jvec = V.of_term QQ.one j in
               if vec_leq one b && vec_leq b b' && vec_leq ivec jvec then
                 let hypothesis =
-                  mk_and ark [mk_leq ark (CS.term_of_vec cs b)
+                  mk_and srk [mk_leq srk (CS.term_of_vec cs b)
                                 (CS.term_of_vec cs b');
-                              mk_leq ark (CS.term_of_coordinate cs i)
+                              mk_leq srk (CS.term_of_coordinate cs i)
                                 (CS.term_of_coordinate cs j);
-                              mk_leq ark (mk_real ark QQ.one)
+                              mk_leq srk (mk_real srk QQ.one)
                                 (CS.term_of_vec cs b)]
                 in
                 let conclusion =
-                  mk_leq ark (CS.term_of_vec cs s) (CS.term_of_vec cs s')
+                  mk_leq srk (CS.term_of_vec cs s) (CS.term_of_vec cs s')
                 in
                 add_bound hypothesis conclusion
             end
@@ -657,11 +657,11 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
     let term = CS.term_of_vec wedge.cs vec in
     let integrity =
       if Term.equal p_term term then
-        mk_true ark
+        mk_true srk
       else
-        mk_if ark
+        mk_if srk
           (provenance_formula provenance)
-          (mk_eq ark (CS.term_of_vec wedge.cs vec) p_term)
+          (mk_eq srk (CS.term_of_vec wedge.cs vec) p_term)
     in
     (p_term, integrity)
   in
@@ -682,16 +682,16 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
       in
       let reduced_term = CS.term_of_vec wedge.cs reduced_id in
       if not (Term.equal term reduced_term) then
-        add_bound provenance (mk_eq ark term reduced_term);
+        add_bound provenance (mk_eq srk term reduced_term);
 
       (* congruence closure *)
       let add_canonical reduced provenance =
         (* Add [reduced->term] to the canonical map.  Or if there's already a
            mapping [reduced->rep], add the equation rep=term *)
         if Expr.HT.mem canonical reduced then begin
-          logf ~level:`trace "Integrity: %a" (Formula.pp ark) provenance;
+          logf ~level:`trace "Integrity: %a" (Formula.pp srk) provenance;
           integrity provenance;
-          meet_atoms wedge [mk_eq ark term (Expr.HT.find canonical reduced)]
+          meet_atoms wedge [mk_eq srk term (Expr.HT.find canonical reduced)]
         end else
           Expr.HT.add canonical reduced term
       in
@@ -706,18 +706,18 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
               ([], [])
           in
           add_canonical
-            (mk_app ark func args)
-            (mk_and ark provenance)
+            (mk_app srk func args)
+            (mk_and srk provenance)
         | `Inv t ->
           let (t', provenance) = reduce_vec t in
-          add_canonical (mk_div ark (mk_real ark QQ.one) t') provenance
+          add_canonical (mk_div srk (mk_real srk QQ.one) t') provenance
         | `Mod (num, den) ->
           let (num', nprov) = reduce_vec num in
           let (den', dprov) = reduce_vec den in
-          add_canonical (mk_mod ark num' den') provenance
+          add_canonical (mk_mod srk num' den') provenance
         | `Floor t ->
           let (t', provenance) = reduce_vec t in
-          add_canonical (mk_floor ark t') provenance
+          add_canonical (mk_floor srk t') provenance
       end;
     done;
     (* Check for new polynomials vanishing on the underlying polyhedron *)
@@ -740,35 +740,35 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
       let go (x,x_ivl,x_term) (y,y_ivl,y_term) =
         if Interval.is_nonnegative y_ivl then
           begin
-            let y_nonnegative = mk_leq ark (mk_real ark QQ.zero) y_term in
+            let y_nonnegative = mk_leq srk (mk_real srk QQ.zero) y_term in
             (match Interval.lower x_ivl with
              | Some lo ->
                add_bound
-                 (mk_and ark [y_nonnegative; mk_leq ark (mk_real ark lo) x_term])
-                 (mk_leq ark (CS.term_of_vec cs (V.scalar_mul lo y)) term)
+                 (mk_and srk [y_nonnegative; mk_leq srk (mk_real srk lo) x_term])
+                 (mk_leq srk (CS.term_of_vec cs (V.scalar_mul lo y)) term)
              | None -> ());
             (match Interval.upper x_ivl with
              | Some hi ->
                add_bound
-                 (mk_and ark [y_nonnegative; mk_leq ark x_term (mk_real ark hi)])
-                 (mk_leq ark term (CS.term_of_vec cs (V.scalar_mul hi y)))
+                 (mk_and srk [y_nonnegative; mk_leq srk x_term (mk_real srk hi)])
+                 (mk_leq srk term (CS.term_of_vec cs (V.scalar_mul hi y)))
 
              | None -> ())
           end
         else if Interval.is_nonpositive y_ivl then
           begin
-            let y_nonpositive = mk_leq ark y_term (mk_real ark QQ.zero) in
+            let y_nonpositive = mk_leq srk y_term (mk_real srk QQ.zero) in
             (match Interval.lower x_ivl with
              | Some lo ->
                add_bound
-                 (mk_and ark [y_nonpositive; mk_leq ark (mk_real ark lo) x_term])
-                 (mk_leq ark term (CS.term_of_vec cs (V.scalar_mul lo y)));
+                 (mk_and srk [y_nonpositive; mk_leq srk (mk_real srk lo) x_term])
+                 (mk_leq srk term (CS.term_of_vec cs (V.scalar_mul lo y)));
              | None -> ());
             (match Interval.upper x_ivl with
              | Some hi ->
                add_bound
-                 (mk_and ark [y_nonpositive; mk_leq ark x_term (mk_real ark hi)])
-                 (mk_leq ark (CS.term_of_vec cs (V.scalar_mul hi y)) term);
+                 (mk_and srk [y_nonpositive; mk_leq srk x_term (mk_real srk hi)])
+                 (mk_leq srk (CS.term_of_vec cs (V.scalar_mul hi y)) term);
              | None -> ())
           end
         else
@@ -787,32 +787,32 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
       let mk_ivl x interval =
         let lower =
           match Interval.lower interval with
-          | Some lo -> mk_leq ark (mk_real ark lo) x
-          | None -> mk_true ark
+          | Some lo -> mk_leq srk (mk_real srk lo) x
+          | None -> mk_true srk
         in
         let upper =
           match Interval.upper interval with
-          | Some hi -> mk_leq ark x (mk_real ark hi)
-          | None -> mk_true ark
+          | Some hi -> mk_leq srk x (mk_real srk hi)
+          | None -> mk_true srk
         in
-        mk_and ark [lower; upper]
+        mk_and srk [lower; upper]
       in
       let precondition =
-        mk_and ark [mk_ivl x_term x_ivl; mk_ivl y_term y_ivl]
+        mk_and srk [mk_ivl x_term x_ivl; mk_ivl y_term y_ivl]
       in
       (match Interval.lower mul_ivl with
-       | Some lo -> add_bound precondition (mk_leq ark (mk_real ark lo) term)
+       | Some lo -> add_bound precondition (mk_leq srk (mk_real srk lo) term)
        | None -> ());
       (match Interval.upper mul_ivl with
-       | Some hi -> add_bound precondition (mk_leq ark term (mk_real ark hi))
+       | Some hi -> add_bound precondition (mk_leq srk term (mk_real srk hi))
        | None -> ())
 
     | `Floor x ->
       let x_term = CS.term_of_vec cs x in
-      let _true = mk_true ark in
-      add_bound _true (mk_leq ark term x_term);
-      add_bound _true (mk_lt ark
-                         (mk_add ark [x_term; mk_real ark (QQ.of_int (-1))])
+      let _true = mk_true srk in
+      add_bound _true (mk_leq srk term x_term);
+      add_bound _true (mk_lt srk
+                         (mk_add srk [x_term; mk_real srk (QQ.of_int (-1))])
                          term)
 
     | `Inv x ->
@@ -822,23 +822,23 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
       let precondition =
         let lower =
           match Interval.lower x_ivl with
-          | Some lo -> [mk_leq ark (mk_real ark lo) x_term]
+          | Some lo -> [mk_leq srk (mk_real srk lo) x_term]
           | None -> []
         in
         let upper =
           match Interval.upper x_ivl with
-          | Some hi -> [mk_leq ark x_term (mk_real ark hi)]
+          | Some hi -> [mk_leq srk x_term (mk_real srk hi)]
           | None -> []
         in
-        mk_and ark (lower@upper)
+        mk_and srk (lower@upper)
       in
       let inv_ivl = Interval.div (Interval.const QQ.one) x_ivl in
       begin match Interval.lower inv_ivl with
-        | Some lo -> add_bound precondition (mk_leq ark (mk_real ark lo) term)
+        | Some lo -> add_bound precondition (mk_leq srk (mk_real srk lo) term)
         | _ -> ()
       end;
       begin match Interval.upper inv_ivl with
-        | Some hi -> add_bound precondition (mk_leq ark term (mk_real ark hi))
+        | Some hi -> add_bound precondition (mk_leq srk term (mk_real srk hi))
         | _ -> ()
       end
 
@@ -848,19 +848,19 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
 
       let mk_interval t ivl =
         let lo = match Interval.lower ivl with
-          | Some lo -> mk_leq ark (mk_real ark lo) t
-          | None -> mk_true ark
+          | Some lo -> mk_leq srk (mk_real srk lo) t
+          | None -> mk_true srk
         in
         let hi = match Interval.upper ivl with
-          | Some hi -> mk_leq ark t (mk_real ark hi)
-          | None -> mk_true ark
+          | Some hi -> mk_leq srk t (mk_real srk hi)
+          | None -> mk_true srk
         in
         (lo, hi)
       in
       let precondition =
         let (lo,hi) = mk_interval (CS.term_of_vec cs base) base_ivl in
         let (lo',hi') = mk_interval (CS.term_of_vec cs exp) exp_ivl in
-        mk_and ark [lo;hi;lo';hi']
+        mk_and srk [lo;hi;lo';hi']
       in
       let (lo,hi) = mk_interval term (Interval.log base_ivl exp_ivl) in
       add_bound precondition lo;
@@ -868,14 +868,14 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
 
     | `Mod (x, y) ->
       let y_ivl = bound_vec wedge y in
-      let zero = mk_real ark QQ.zero in
-      add_bound (mk_true ark) (mk_leq ark zero term);
+      let zero = mk_real srk QQ.zero in
+      add_bound (mk_true srk) (mk_leq srk zero term);
       if Interval.is_positive y_ivl then
         let y_term = CS.term_of_vec cs y in
-        add_bound (mk_lt ark zero y_term) (mk_lt ark term y_term)
+        add_bound (mk_lt srk zero y_term) (mk_lt srk term y_term)
       else if Interval.is_negative y_ivl then
         let y_term = CS.term_of_vec cs y in
-        add_bound (mk_lt ark y_term zero) (mk_lt ark term (mk_neg ark y_term))
+        add_bound (mk_lt srk y_term zero) (mk_lt srk term (mk_neg srk y_term))
       else
         ()
 
@@ -883,7 +883,7 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
   done;
 
   let mk_geqz p = (* p >= 0 *)
-    mk_leq ark (mk_neg ark (CS.term_of_polynomial wedge.cs p)) zero
+    mk_leq srk (mk_neg srk (CS.term_of_polynomial wedge.cs p)) zero
   in
   let rec add_products = function
     | [] -> ()
@@ -895,12 +895,12 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
           match vec_of_poly r with
           | Some r ->
             let precondition =
-              mk_and ark [provenance_formula provenance;
+              mk_and srk [provenance_formula provenance;
                           mk_geqz p;
                           mk_geqz q]
             in
             let r_geqz = (* r >= 0 *)
-              mk_leq ark (CS.term_of_vec wedge.cs (V.negate r)) zero
+              mk_leq srk (CS.term_of_vec wedge.cs (V.negate r)) zero
             in
             add_bound precondition r_geqz
           | None -> ());
@@ -917,13 +917,13 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
       begin
         match Interval.lower interval with
         | Some lo when QQ.to_zz lo = None ->
-          meet_atoms wedge [mk_leq ark (mk_real ark lo) term]
+          meet_atoms wedge [mk_leq srk (mk_real srk lo) term]
         | _ -> ()
       end;
       begin
         match Interval.upper interval with
         | Some hi when QQ.to_zz hi = None ->
-          meet_atoms wedge [mk_leq ark term (mk_real ark hi)]
+          meet_atoms wedge [mk_leq srk term (mk_real srk hi)]
         | _ -> ()
       end
     | _ -> ()
@@ -931,10 +931,10 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
   logf "After strengthen: %a" pp wedge;
   wedge
 
-let of_atoms ark ?integrity:(integrity=(fun _ -> ())) atoms =
-  let cs = CS.mk_empty ark in
+let of_atoms srk ?integrity:(integrity=(fun _ -> ())) atoms =
+  let cs = CS.mk_empty srk in
   let register_terms atom =
-    match Interpretation.destruct_atom ark atom with
+    match Interpretation.destruct_atom srk atom with
     | `Comparison (_, x, y) ->
       CS.admit_term cs x;
       CS.admit_term cs y
@@ -947,10 +947,10 @@ let of_atoms ark ?integrity:(integrity=(fun _ -> ())) atoms =
       (get_manager ())
       (A.length env.int_dim)
       (A.length env.real_dim)
-      (Array.of_list (List.map (lincons_of_atom ark cs env) atoms))
+      (Array.of_list (List.map (lincons_of_atom srk cs env) atoms))
   in
   let wedge =
-    { ark = ark;
+    { srk = srk;
       cs = cs;
       env = env;
       abstract = abstract }
@@ -969,14 +969,14 @@ let of_atoms ark ?integrity:(integrity=(fun _ -> ())) atoms =
   update_env wedge;
   strengthen ~integrity wedge
 
-let of_atoms ark ?integrity:(integrity=(fun _ -> ())) atoms =
-  Log.time "wedge.of_atoms" (of_atoms ark ~integrity) atoms
+let of_atoms srk ?integrity:(integrity=(fun _ -> ())) atoms =
+  Log.time "wedge.of_atoms" (of_atoms srk ~integrity) atoms
 
 let common_cs wedge wedge' =
-  let ark = wedge.ark in
-  let cs = CS.mk_empty ark in
+  let srk = wedge.srk in
+  let cs = CS.mk_empty srk in
   let register_terms atom =
-    match Interpretation.destruct_atom ark atom with
+    match Interpretation.destruct_atom srk atom with
     | `Comparison (_, x, y) ->
       CS.admit_term cs x;
       CS.admit_term cs y
@@ -989,7 +989,7 @@ let common_cs wedge wedge' =
   let env = mk_env cs in
   let env' = mk_env cs in
   let wedge =
-    { ark = ark;
+    { srk = srk;
       cs = cs;
       env = env;
       abstract =
@@ -997,10 +997,10 @@ let common_cs wedge wedge' =
           (get_manager ())
           (A.length env.int_dim)
           (A.length env.real_dim)
-          (Array.of_list (List.map (lincons_of_atom ark cs env) atoms)) }
+          (Array.of_list (List.map (lincons_of_atom srk cs env) atoms)) }
   in
   let wedge' =
-    { ark = ark;
+    { srk = srk;
       cs = cs;
       env = env';
       abstract =
@@ -1008,7 +1008,7 @@ let common_cs wedge wedge' =
           (get_manager ())
           (A.length env.int_dim)
           (A.length env.real_dim)
-          (Array.of_list (List.map (lincons_of_atom ark cs env) atoms')) }
+          (Array.of_list (List.map (lincons_of_atom srk cs env) atoms')) }
   in
   (wedge, wedge')
 
@@ -1023,7 +1023,7 @@ let join ?integrity:(integrity=(fun _ -> ())) wedge wedge' =
     update_env wedge; (* strengthening wedge' may add dimensions to the common
                          coordinate system -- add those dimensions to wedge's
                          environment *)
-    { ark = wedge.ark;
+    { srk = wedge.srk;
       cs = wedge.cs;
       env = wedge.env;
       abstract =
@@ -1039,10 +1039,10 @@ let join ?integrity:(integrity=(fun _ -> ())) wedge wedge' =
   Log.time "wedge join" (join ~integrity wedge) wedge'
 
 let equal wedge wedge' =
-  let ark = wedge.ark in
-  let phi = Nonlinear.uninterpret ark (to_formula wedge) in
-  let phi' = Nonlinear.uninterpret ark (to_formula wedge') in
-  match Smt.is_sat ark (mk_not ark (mk_iff ark phi phi')) with
+  let srk = wedge.srk in
+  let phi = Nonlinear.uninterpret srk (to_formula wedge) in
+  let phi' = Nonlinear.uninterpret srk (to_formula wedge') in
+  match Smt.is_sat srk (mk_not srk (mk_iff srk phi phi')) with
   | `Sat -> false
   | `Unsat -> true
   | `Unknown -> assert false
@@ -1063,7 +1063,7 @@ let apron_set_dimensions new_int new_real abstract =
       |> BatArray.of_enum
     in
     logf ~level:`trace "Remove %d int, %d real: %a" remove_int remove_real
-      (ArkUtil.pp_print_enum Format.pp_print_int) (BatArray.enum remove);
+      (SrkUtil.pp_print_enum Format.pp_print_int) (BatArray.enum remove);
     assert (remove_int + remove_real = (Array.length remove));
     Abstract0.remove_dimensions
       (get_manager ())
@@ -1151,11 +1151,11 @@ let exists
     ?subterm:(subterm=(fun _ -> true))
     p
     wedge =
-  let ark = wedge.ark in
+  let srk = wedge.srk in
   let cs = wedge.cs in
-  ensure_nonlinear_symbols ark;
-  let log = get_named_symbol ark "log" in
-  let pow = get_named_symbol ark "pow" in
+  ensure_nonlinear_symbols srk;
+  let log = get_named_symbol srk "log" in
+  let pow = get_named_symbol srk "pow" in
 
   let keep x = p x || x = log || x = pow in
   let subterm x = keep x && subterm x in
@@ -1181,7 +1181,7 @@ let exists
    * Build environment of the projection and a translation into the projected
    * environment.
    ***************************************************************************)
-  let new_cs = CS.mk_empty ark in
+  let new_cs = CS.mk_empty srk in
   let substitution =
     safe_coordinates |> List.map (fun (id,term,_) ->
         let dim = dim_of_id wedge.cs wedge.env id in
@@ -1200,8 +1200,8 @@ let exists
   let virtual_dim_of_id id =
     let open Env in
     match CS.type_of_id new_cs id with
-    | `TyInt -> ArkUtil.search id new_env.int_dim
-    | `TyReal -> virtual_int_dim + (ArkUtil.search id new_env.real_dim)
+    | `TyInt -> SrkUtil.search id new_env.int_dim
+    | `TyReal -> virtual_int_dim + (SrkUtil.search id new_env.real_dim)
   in
   let virtual_linexpr_of_vec vec =
     let mk (coeff, id) =
@@ -1238,7 +1238,7 @@ let exists
     CS.pp new_cs;
   substitution |> List.iter (fun (dim, replacement) ->
       logf ~level:`trace "Replace %a => %a"
-        (Term.pp ark) (CS.term_of_coordinate wedge.cs (id_of_dim wedge.env dim))
+        (Term.pp srk) (CS.term_of_coordinate wedge.cs (id_of_dim wedge.env dim))
         (CS.pp_vector new_cs) replacement);
 
   let abstract =
@@ -1258,7 +1258,7 @@ let exists
       abstract
   in
   let result =
-    { ark = ark;
+    { srk = srk;
       cs = new_cs;
       env = new_env;
       abstract = abstract }
@@ -1269,9 +1269,9 @@ let exists
    ***************************************************************************)
   let add_bound precondition bound =
     logf ~level:`trace "Integrity: %a => %a"
-      (Formula.pp ark) precondition
-      (Formula.pp ark) bound;
-    integrity (mk_if ark precondition bound);
+      (Formula.pp srk) precondition
+      (Formula.pp srk) bound;
+    integrity (mk_if srk precondition bound);
     meet_atoms result [bound]
   in
   (* find a polynomial p such that p*interp(i) = interp(j).  The coordinate j
@@ -1353,12 +1353,12 @@ let exists
                     let constraints =
                       match Interval.lower dim_ivl with
                       | Some lo ->
-                          (mk_leq ark (mk_real ark lo) dim_term)::constraints
+                          (mk_leq srk (mk_real srk lo) dim_term)::constraints
                       | None -> constraints
                     in
                     match Interval.upper dim_ivl with
                     | Some hi ->
-                      (mk_leq ark dim_term (mk_real ark hi))::constraints
+                      (mk_leq srk dim_term (mk_real srk hi))::constraints
                     | None -> constraints)
                   []
                   (P.dimensions q)
@@ -1368,43 +1368,43 @@ let exists
                 let q_term = CS.term_of_polynomial cs q in
                 let q_ivl =
                   match Interval.lower ivl with
-                  | Some lo -> [mk_leq ark (mk_real ark lo) q_term]
+                  | Some lo -> [mk_leq srk (mk_real srk lo) q_term]
                   | None -> []
                 in
                 match Interval.upper ivl with
-                | Some hi -> (mk_leq ark q_term (mk_real ark hi))::q_ivl
+                | Some hi -> (mk_leq srk q_term (mk_real srk hi))::q_ivl
                 | None -> q_ivl
               in
-              mk_if ark (mk_and ark constraints) (mk_and ark q_ivl)
+              mk_if srk (mk_and srk constraints) (mk_and srk q_ivl)
             in
             if Interval.is_positive p_ivl && Interval.is_negative t_ivl then
               let hypothesis =
-                mk_and ark [atom_of_lincons wedge lincons;
-                            mk_lt ark (mk_real ark QQ.one) b_term;
-                            mk_lt ark (mk_real ark QQ.zero) p_term;
-                            mk_lt ark t_term (mk_real ark QQ.zero)]
+                mk_and srk [atom_of_lincons wedge lincons;
+                            mk_lt srk (mk_real srk QQ.one) b_term;
+                            mk_lt srk (mk_real srk QQ.zero) p_term;
+                            mk_lt srk t_term (mk_real srk QQ.zero)]
               in
               let conclusion =
-                mk_leq ark
-                  (mk_add ark
-                     [mk_log ark b_term p_term;
+                mk_leq srk
+                  (mk_add srk
+                     [mk_log srk b_term p_term;
                       s_term])
-                  (mk_log ark b_term (mk_neg ark t_term))
+                  (mk_log srk b_term (mk_neg srk t_term))
               in
               integrity p_ivl_integrity;
               add_bound hypothesis conclusion
             else if Interval.is_negative p_ivl && Interval.is_positive t_ivl then
               let hypothesis =
-                mk_and ark [atom_of_lincons wedge lincons;
-                            mk_lt ark (mk_real ark QQ.one) b_term;
-                            mk_lt ark p_term (mk_real ark QQ.zero);
-                            mk_lt ark (mk_real ark QQ.zero) t_term]
+                mk_and srk [atom_of_lincons wedge lincons;
+                            mk_lt srk (mk_real srk QQ.one) b_term;
+                            mk_lt srk p_term (mk_real srk QQ.zero);
+                            mk_lt srk (mk_real srk QQ.zero) t_term]
               in
               let conclusion =
-                mk_leq ark
-                  (mk_log ark b_term t_term)
-                  (mk_add ark
-                     [mk_log ark b_term (mk_neg ark p_term);
+                mk_leq srk
+                  (mk_log srk b_term t_term)
+                  (mk_add srk
+                     [mk_log srk b_term (mk_neg srk p_term);
                       s_term])
               in
               integrity p_ivl_integrity;
@@ -1419,20 +1419,20 @@ let exists
         lower |> List.iter (fun lo ->
             upper_t |> List.iter (fun hi ->
                 let hypothesis =
-                  mk_and ark [mk_lt ark (mk_real ark QQ.one) b_term;
-                              mk_leq ark lo s_term;
-                              mk_leq ark term hi]
+                  mk_and srk [mk_lt srk (mk_real srk QQ.one) b_term;
+                              mk_leq srk lo s_term;
+                              mk_leq srk term hi]
                 in
-                let conclusion = mk_leq ark (mk_pow ark b_term lo) hi in
+                let conclusion = mk_leq srk (mk_pow srk b_term lo) hi in
                 add_bound hypothesis conclusion));
         upper |> List.iter (fun hi ->
             lower_t |> List.iter (fun lo ->
                 let hypothesis =
-                  mk_and ark [mk_lt ark (mk_real ark QQ.one) b_term;
-                              mk_leq ark s_term hi;
-                              mk_leq ark lo term]
+                  mk_and srk [mk_lt srk (mk_real srk QQ.one) b_term;
+                              mk_leq srk s_term hi;
+                              mk_leq srk lo term]
                 in
-                let conclusion = mk_leq ark lo (mk_pow ark b_term hi) in
+                let conclusion = mk_leq srk lo (mk_pow srk b_term hi) in
                 add_bound hypothesis conclusion));
 
       | `App (symbol, [base; x]) when symbol = log ->
@@ -1446,15 +1446,15 @@ let exists
               symbolic_bounds_vec wedge x (IntSet.elements forget)
             in
             let x_term = CS.term_of_vec cs x in
-            let base_term = mk_real ark base in
+            let base_term = mk_real srk base in
             lower |> List.iter (fun lo ->
                 add_bound
-                  (mk_leq ark lo x_term)
-                  (mk_leq ark (mk_log ark base_term lo) term));
+                  (mk_leq srk lo x_term)
+                  (mk_leq srk (mk_log srk base_term lo) term));
             upper |> List.iter (fun hi ->
                 add_bound
-                  (mk_leq ark x_term hi)
-                  (mk_leq ark term (mk_log ark base_term hi)))
+                  (mk_leq srk x_term hi)
+                  (mk_leq srk term (mk_log srk base_term hi)))
           | _ -> ()
         end
       | _ -> ());
@@ -1463,8 +1463,8 @@ let exists
   result
 
 let widen wedge wedge' =
-  let ark = wedge.ark in
-  let widen_cs = CS.mk_empty ark in
+  let srk = wedge.srk in
+  let widen_cs = CS.mk_empty srk in
   for id = 0 to (CS.dim wedge.cs) - 1 do
     let term = CS.term_of_coordinate wedge.cs id in
     if CS.admits wedge'.cs term then
@@ -1507,13 +1507,13 @@ let widen wedge wedge' =
   in
   let abstract = project wedge in
   let abstract' = project wedge' in
-  { ark = ark;
+  { srk = srk;
     cs = widen_cs;
     env = widen_env;
     abstract = Abstract0.widening (get_manager ()) abstract abstract' }
 
 let widen wedge wedge' =
-  if is_top wedge' then top wedge.ark
+  if is_top wedge' then top wedge.srk
   else if is_bottom wedge' then wedge
   else widen wedge wedge'
 
@@ -1546,7 +1546,7 @@ let farkas_equalities wedge =
   Array.mapi (fun id column ->
       let term =
         if id = (nb_columns - 1) then
-          mk_real wedge.ark QQ.one
+          mk_real wedge.srk QQ.one
         else
           CS.term_of_coordinate wedge.cs id
       in
@@ -1555,8 +1555,8 @@ let farkas_equalities wedge =
   |> Array.to_list
 
 let symbolic_bounds wedge symbol =
-  let ark = wedge.ark in
-  let vec = CS.vec_of_term wedge.cs (mk_const ark symbol) in
+  let srk = wedge.srk in
+  let vec = CS.vec_of_term wedge.cs (mk_const srk symbol) in
   match BatList.of_enum (V.enum vec) with
   | [(coeff, id)] ->
     assert (QQ.equal coeff QQ.one);
@@ -1588,51 +1588,51 @@ let symbolic_bounds wedge symbol =
       (BatArray.enum constraints)
   | _ -> assert false
 
-let is_sat ark phi =
-  let solver = Smt.mk_solver ark in
+let is_sat srk phi =
+  let solver = Smt.mk_solver srk in
   let uninterp_phi =
-    rewrite ark
-      ~down:(nnf_rewriter ark)
-      ~up:(Nonlinear.uninterpret_rewriter ark)
+    rewrite srk
+      ~down:(nnf_rewriter srk)
+      ~up:(Nonlinear.uninterpret_rewriter srk)
       phi
   in
-  let (lin_phi, nonlinear) = ArkSimplify.purify ark uninterp_phi in
+  let (lin_phi, nonlinear) = SrkSimplify.purify srk uninterp_phi in
   let symbol_list = Symbol.Set.elements (symbols lin_phi) in
   let nonlinear_defs =
     Symbol.Map.enum nonlinear
     /@ (fun (symbol, expr) ->
-        match Expr.refine ark expr with
-        | `Term t -> mk_eq ark (mk_const ark symbol) t
-        | `Formula phi -> mk_iff ark (mk_const ark symbol) phi)
+        match Expr.refine srk expr with
+        | `Term t -> mk_eq srk (mk_const srk symbol) t
+        | `Formula phi -> mk_iff srk (mk_const srk symbol) phi)
     |> BatList.of_enum
   in
-  let nonlinear = Symbol.Map.map (Nonlinear.interpret ark) nonlinear in
+  let nonlinear = Symbol.Map.map (Nonlinear.interpret srk) nonlinear in
   let rec replace_defs_term term =
     substitute_const
-      ark
+      srk
       (fun x ->
          try replace_defs_term (Symbol.Map.find x nonlinear)
-         with Not_found -> mk_const ark x)
+         with Not_found -> mk_const srk x)
       term
   in
   let replace_defs =
     substitute_const
-      ark
+      srk
       (fun x ->
          try replace_defs_term (Symbol.Map.find x nonlinear)
-         with Not_found -> mk_const ark x)
+         with Not_found -> mk_const srk x)
   in
   solver#add [lin_phi];
   solver#add nonlinear_defs;
   let integrity psi =
-    solver#add [Nonlinear.uninterpret ark psi]
+    solver#add [Nonlinear.uninterpret srk psi]
   in
   let rec go () =
     match solver#get_model () with
     | `Unsat -> `Unsat
     | `Unknown -> `Unknown
     | `Sat model ->
-      let interp = Interpretation.of_model ark model symbol_list in
+      let interp = Interpretation.of_model srk model symbol_list in
       match Interpretation.select_implicant interp lin_phi with
       | None -> assert false
       | Some implicant ->
@@ -1642,7 +1642,7 @@ let is_sat ark phi =
               let (atom', conditions) = Interpretation.select_ite interp atom in
               atom'::conditions)
           |> BatList.concat
-          |> of_atoms ark ~integrity
+          |> of_atoms srk ~integrity
         in
         if is_bottom constraints then
           go ()
@@ -1651,74 +1651,74 @@ let is_sat ark phi =
   in
   go ()
 
-let abstract ?exists:(p=fun x -> true) ?(subterm=fun x -> true) ark phi =
+let abstract ?exists:(p=fun x -> true) ?(subterm=fun x -> true) srk phi =
   logf "Abstracting formula@\n%a"
-    (Formula.pp ark) phi;
-  let solver = Smt.mk_solver ark in
+    (Formula.pp srk) phi;
+  let solver = Smt.mk_solver srk in
   let uninterp_phi =
-    rewrite ark
-      ~down:(nnf_rewriter ark)
-      ~up:(Nonlinear.uninterpret_rewriter ark)
+    rewrite srk
+      ~down:(nnf_rewriter srk)
+      ~up:(Nonlinear.uninterpret_rewriter srk)
       phi
   in
-  let (lin_phi, nonlinear) = ArkSimplify.purify ark uninterp_phi in
+  let (lin_phi, nonlinear) = SrkSimplify.purify srk uninterp_phi in
   let symbol_list = Symbol.Set.elements (symbols lin_phi) in
   let nonlinear_defs =
     Symbol.Map.enum nonlinear
     /@ (fun (symbol, expr) ->
-        match Expr.refine ark expr with
-        | `Term t -> mk_eq ark (mk_const ark symbol) t
-        | `Formula phi -> mk_iff ark (mk_const ark symbol) phi)
+        match Expr.refine srk expr with
+        | `Term t -> mk_eq srk (mk_const srk symbol) t
+        | `Formula phi -> mk_iff srk (mk_const srk symbol) phi)
     |> BatList.of_enum
-    |> mk_and ark
+    |> mk_and srk
   in
-  let nonlinear = Symbol.Map.map (Nonlinear.interpret ark) nonlinear in
+  let nonlinear = Symbol.Map.map (Nonlinear.interpret srk) nonlinear in
   let rec replace_defs_term term =
     substitute_const
-      ark
+      srk
       (fun x ->
          try replace_defs_term (Symbol.Map.find x nonlinear)
-         with Not_found -> mk_const ark x)
+         with Not_found -> mk_const srk x)
       term
   in
   let replace_defs =
     substitute_const
-      ark
+      srk
       (fun x ->
          try replace_defs_term (Symbol.Map.find x nonlinear)
-         with Not_found -> mk_const ark x)
+         with Not_found -> mk_const srk x)
   in
   solver#add [lin_phi];
   solver#add [nonlinear_defs];
   let integrity psi =
-    solver#add [Nonlinear.uninterpret ark psi]
+    solver#add [Nonlinear.uninterpret srk psi]
   in
   let uninterpret_implicant implicant =
-    mk_and ark (List.map (Nonlinear.uninterpret ark) implicant)
+    mk_and srk (List.map (Nonlinear.uninterpret srk) implicant)
   in
   let rec go wedge =
     let blocking_clause =
       to_formula wedge
-      |> Nonlinear.uninterpret ark
-      |> mk_not ark
+      |> Nonlinear.uninterpret srk
+      |> mk_not srk
     in
-    logf ~level:`trace "Blocking clause %a" (Formula.pp ark) blocking_clause;
+    logf ~level:`trace "Blocking clause %a" (Formula.pp srk) blocking_clause;
     solver#add [blocking_clause];
     match solver#get_model () with
     | `Unsat -> wedge
     | `Unknown ->
       logf ~level:`warn "Symbolic abstraction failed; returning top";
-      top ark
+      top srk
     | `Sat model ->
-      let interp = Interpretation.of_model ark model symbol_list in
+      let interp = Interpretation.of_model srk model symbol_list in
       match Interpretation.select_implicant interp lin_phi with
       | None -> assert false
       | Some implicant ->
         let implicant' =
           List.map replace_defs implicant
-          |> ArkSimplify.qe_partial_implicant ark p
+          |> SrkSimplify.qe_partial_implicant srk p
         in
-        solver#add [mk_if ark
+        solver#add [mk_if srk
                       (uninterpret_implicant implicant)
                       (uninterpret_implicant implicant')];
         let new_wedge =
@@ -1727,81 +1727,81 @@ let abstract ?exists:(p=fun x -> true) ?(subterm=fun x -> true) ark phi =
               let (atom', conditions) = Interpretation.select_ite interp atom in
               atom'::conditions)
           |> BatList.concat
-          |> of_atoms ark ~integrity
+          |> of_atoms srk ~integrity
           |> exists ~integrity ~subterm p
         in
         go (join ~integrity wedge new_wedge)
   in
-  let result = go (bottom ark) in
+  let result = go (bottom srk) in
   logf "Abstraction result:@\n%a" pp result;
   result
 
-let ensure_min_max ark =
+let ensure_min_max srk =
   List.iter
     (fun (name, typ) ->
-       if not (is_registered_name ark name) then
-         register_named_symbol ark name typ)
+       if not (is_registered_name srk name) then
+         register_named_symbol srk name typ)
     [("min", `TyFun ([`TyReal; `TyReal], `TyReal));
      ("max", `TyFun ([`TyReal; `TyReal], `TyReal))]
 
-let symbolic_bounds_formula ?exists:(p=fun x -> true) ark phi symbol =
-  ensure_min_max ark;
-  let min = get_named_symbol ark "min" in
-  let max = get_named_symbol ark "max" in
+let symbolic_bounds_formula ?exists:(p=fun x -> true) srk phi symbol =
+  ensure_min_max srk;
+  let min = get_named_symbol srk "min" in
+  let max = get_named_symbol srk "max" in
   let mk_min x y =
-    match Term.destruct ark x, Term.destruct ark y with
-    | `Real xr, `Real yr -> mk_real ark (QQ.min xr yr)
-    | _, _ -> mk_app ark min [x; y]
+    match Term.destruct srk x, Term.destruct srk y with
+    | `Real xr, `Real yr -> mk_real srk (QQ.min xr yr)
+    | _, _ -> mk_app srk min [x; y]
   in
   let mk_max x y =
-    match Term.destruct ark x, Term.destruct ark y with
-    | `Real xr, `Real yr -> mk_real ark (QQ.max xr yr)
-    | _, _ -> mk_app ark max [x; y]
+    match Term.destruct srk x, Term.destruct srk y with
+    | `Real xr, `Real yr -> mk_real srk (QQ.max xr yr)
+    | _, _ -> mk_app srk max [x; y]
   in
 
-  let symbol_term = mk_const ark symbol in
+  let symbol_term = mk_const srk symbol in
   let subterm x = x != symbol in
-  let solver = Smt.mk_solver ark in
+  let solver = Smt.mk_solver srk in
   let uninterp_phi =
-    rewrite ark
-      ~down:(nnf_rewriter ark)
-      ~up:(Nonlinear.uninterpret_rewriter ark)
+    rewrite srk
+      ~down:(nnf_rewriter srk)
+      ~up:(Nonlinear.uninterpret_rewriter srk)
       phi
   in
-  let (lin_phi, nonlinear) = ArkSimplify.purify ark uninterp_phi in
+  let (lin_phi, nonlinear) = SrkSimplify.purify srk uninterp_phi in
   let symbol_list = Symbol.Set.elements (symbols lin_phi) in
   let nonlinear_defs =
     Symbol.Map.enum nonlinear
     /@ (fun (symbol, expr) ->
-        match Expr.refine ark expr with
-        | `Term t -> mk_eq ark (mk_const ark symbol) t
-        | `Formula phi -> mk_iff ark (mk_const ark symbol) phi)
+        match Expr.refine srk expr with
+        | `Term t -> mk_eq srk (mk_const srk symbol) t
+        | `Formula phi -> mk_iff srk (mk_const srk symbol) phi)
     |> BatList.of_enum
-    |> mk_and ark
+    |> mk_and srk
   in
-  let nonlinear = Symbol.Map.map (Nonlinear.interpret ark) nonlinear in
+  let nonlinear = Symbol.Map.map (Nonlinear.interpret srk) nonlinear in
   let rec replace_defs_term term =
     substitute_const
-      ark
+      srk
       (fun x ->
          try replace_defs_term (Symbol.Map.find x nonlinear)
-         with Not_found -> mk_const ark x)
+         with Not_found -> mk_const srk x)
       term
   in
   let replace_defs =
     substitute_const
-      ark
+      srk
       (fun x ->
          try replace_defs_term (Symbol.Map.find x nonlinear)
-         with Not_found -> mk_const ark x)
+         with Not_found -> mk_const srk x)
   in
   solver#add [lin_phi];
   solver#add [nonlinear_defs];
   let integrity psi =
-    solver#add [Nonlinear.uninterpret ark psi]
+    solver#add [Nonlinear.uninterpret srk psi]
   in
   let uninterpret_implicant implicant =
-    mk_and ark (List.map (Nonlinear.uninterpret ark) implicant)
+    mk_and srk (List.map (Nonlinear.uninterpret srk) implicant)
   in
   let rec go (lower, upper) =
     match solver#get_model () with
@@ -1810,16 +1810,16 @@ let symbolic_bounds_formula ?exists:(p=fun x -> true) ark phi symbol =
       logf ~level:`warn "Symbolic abstraction failed; returning top";
       ([[]], [[]])
     | `Sat model ->
-      let interp = Interpretation.of_model ark model symbol_list in
+      let interp = Interpretation.of_model srk model symbol_list in
       match Interpretation.select_implicant interp lin_phi with
       | None -> assert false
       | Some implicant ->
         let (wedge_lower, wedge_upper) =
           let implicant' =
             List.map replace_defs implicant
-            |> ArkSimplify.qe_partial_implicant ark p
+            |> SrkSimplify.qe_partial_implicant srk p
           in
-          solver#add [mk_if ark
+          solver#add [mk_if srk
                         (uninterpret_implicant implicant)
                         (uninterpret_implicant implicant')];
           let wedge =
@@ -1828,29 +1828,29 @@ let symbolic_bounds_formula ?exists:(p=fun x -> true) ark phi symbol =
                 let (atom', conditions) = Interpretation.select_ite interp atom in
                 atom'::conditions)
             |> BatList.concat
-            |> of_atoms ark ~integrity
+            |> of_atoms srk ~integrity
             |> exists ~integrity ~subterm p
           in
-          if CS.admits wedge.cs (mk_const ark symbol) then
+          if CS.admits wedge.cs (mk_const srk symbol) then
             symbolic_bounds wedge symbol
           else
             ([], [])
         in
         let lower_blocking =
           List.map
-            (fun lower_bound -> mk_lt ark symbol_term lower_bound)
+            (fun lower_bound -> mk_lt srk symbol_term lower_bound)
             wedge_lower
-          |> List.map (Nonlinear.uninterpret ark)
-          |> mk_or ark
+          |> List.map (Nonlinear.uninterpret srk)
+          |> mk_or srk
         in
         let upper_blocking =
           List.map
-            (fun upper_bound -> mk_lt ark upper_bound symbol_term)
+            (fun upper_bound -> mk_lt srk upper_bound symbol_term)
             wedge_upper
-          |> List.map (Nonlinear.uninterpret ark)
-          |> mk_or ark
+          |> List.map (Nonlinear.uninterpret srk)
+          |> mk_or srk
         in
-        solver#add [mk_or ark [lower_blocking; upper_blocking]];
+        solver#add [mk_or srk [lower_blocking; upper_blocking]];
         go (wedge_lower::lower, wedge_upper::upper)
   in
   let (lower, upper) = go ([], []) in
@@ -1871,8 +1871,8 @@ let symbolic_bounds_formula ?exists:(p=fun x -> true) ark phi symbol =
     in
     `Sat (lower, upper)
 
-let symbolic_bounds_formula ?(exists=fun x -> true) ark phi symbol =
-  Log.time "symbolic_bounds_formula" (symbolic_bounds_formula ~exists ark phi) symbol
+let symbolic_bounds_formula ?(exists=fun x -> true) srk phi symbol =
+  Log.time "symbolic_bounds_formula" (symbolic_bounds_formula ~exists srk phi) symbol
 
 let coordinate_system wedge = wedge.cs
 

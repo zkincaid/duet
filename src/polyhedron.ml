@@ -17,7 +17,7 @@ let pp formatter polyhedron =
   in
   let pp_sep formatter () = Format.fprintf formatter "@;" in
   Format.fprintf formatter "@[<v 0>%a@]"
-    (ArkUtil.pp_print_enum_nobox ~pp_sep pp_elt) (enum polyhedron)
+    (SrkUtil.pp_print_enum_nobox ~pp_sep pp_elt) (enum polyhedron)
 
 let conjoin x y =
   { eq = List.rev_append x.eq y.eq;
@@ -28,8 +28,8 @@ let nonzero_coeff sym vec =
 
 let top = { eq = []; leq = [] }
 
-let of_formula ark phi =
-  let linearize = Linear.linterm_of ark in
+let of_formula srk phi =
+  let linearize = Linear.linterm_of srk in
   let alg = function
     | `Tru -> top
     | `Fls -> assert false (* to do *)
@@ -42,15 +42,15 @@ let of_formula ark phi =
     | `Ite (_, _, _) ->
       invalid_arg "Polyhedron.of_formula"
   in
-  Formula.eval ark alg phi
+  Formula.eval srk alg phi
 
-let to_formula ark polyhedron =
-  let zero = mk_real ark QQ.zero in
-  let term = Linear.of_linterm ark in
+let to_formula srk polyhedron =
+  let zero = mk_real srk QQ.zero in
+  let term = Linear.of_linterm srk in
   List.rev_append
-    (List.map (fun t -> mk_eq ark (term t) zero) polyhedron.eq)
-    (List.map (fun t -> mk_leq ark (term t) zero) polyhedron.leq)
-  |> mk_and ark
+    (List.map (fun t -> mk_eq srk (term t) zero) polyhedron.eq)
+    (List.map (fun t -> mk_leq srk (term t) zero) polyhedron.leq)
+  |> mk_and srk
 
 (* Check whether a given point belongs to a polyhedron *)
 let mem m polyhedron =
@@ -61,18 +61,18 @@ let mem m polyhedron =
     (fun t -> QQ.leq (Linear.evaluate_linterm m t) QQ.zero)
     polyhedron.leq
 
-let polyhedron_of_implicant ark conjuncts =
-  let linearize atom = match Interpretation.destruct_atom ark atom with
+let polyhedron_of_implicant srk conjuncts =
+  let linearize atom = match Interpretation.destruct_atom srk atom with
     | `Comparison (`Eq, x, y) ->
       { eq = [V.add
-                (Linear.linterm_of ark x)
-                (V.negate (Linear.linterm_of ark y))];
+                (Linear.linterm_of srk x)
+                (V.negate (Linear.linterm_of srk y))];
         leq = [] }
     | `Comparison (`Lt, x, y) | `Comparison (`Leq, x, y) ->
       { eq = [];
         leq = [V.add
-                 (Linear.linterm_of ark x)
-                 (V.negate (Linear.linterm_of ark y))] }
+                 (Linear.linterm_of srk x)
+                 (V.negate (Linear.linterm_of srk y))] }
     | `Literal (_, _) -> top
   in
   List.fold_left conjoin top (List.map linearize conjuncts)
@@ -158,7 +158,7 @@ let local_project m xs polyhedron =
   Symbol.Set.fold project_one xs polyhedron
 
 let to_apron env man polyhedron =
-  let open ArkApron in
+  let open SrkApron in
   let apron_leq t = lcons_geqz (lexpr_of_vec env (V.negate t)) in
   let apron_eq t = lcons_eqz (lexpr_of_vec env t) in
   (List.map apron_leq polyhedron.leq)@(List.map apron_eq polyhedron.eq)

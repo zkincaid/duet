@@ -1,7 +1,7 @@
 %{
 
 open BatPervasives
-open ArkAst
+open SrkAst
 
 let pp_pos formatter pos =
   let open Lexing in
@@ -33,11 +33,11 @@ let symbol_of_string =
 %nonassoc UMINUS
 
 %start math_main
-%type <ArkAst.formula> math_main
+%type <SrkAst.formula> math_main
 %start math_opt_main
-%type <ArkAst.term * ArkAst.formula> math_opt_main
+%type <SrkAst.term * SrkAst.formula> math_opt_main
 %start smt2_formula
-%type <ArkAst.formula> smt2_formula
+%type <SrkAst.formula> smt2_formula
 
 %%
 

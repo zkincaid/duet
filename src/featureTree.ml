@@ -1,6 +1,6 @@
 open BatPervasives
 
-include Log.Make(struct let name = "ark.featureTree" end)
+include Log.Make(struct let name = "srk.featureTree" end)
     
 (* feature vector *)
 type fv = int array [@@deriving ord]
@@ -15,6 +15,7 @@ let fv_leq a b =
 
 type 'a node =
   { value : int;
+    feature : int;
     left : 'a tree;
     right : 'a tree }
 
@@ -37,44 +38,44 @@ let rec insert_bucket fv elt = function
     begin match compare_fv fv fv' with
       | 0 -> (fv, elt::elts)::xs
       | x when x < 0 -> (fv,[elt])::((fv', elts)::xs)
-      | _ -> (fv',elts)::(insert_bucket fv elt xs)
+      | _ ->
+        (fv',elts)::(insert_bucket fv elt xs)
     end
-  | xs -> (fv,[elt])::xs
+  | [] -> [fv,[elt]]
 
-let rec mk_tree feature bucket =
-  if List.length bucket <= bucket_size || feature < 0 then
-    Leaf bucket
+let rec mk_tree nb_features bucket =
+  if List.length bucket <= bucket_size then
+    Leaf (List.sort (fun (fv, _) (fv', _) -> compare_fv fv fv') bucket)
   else
-    let bucket =
-      BatList.stable_sort
-        (fun (fv,_) (fv',_) -> Pervasives.compare fv.(feature) fv'.(feature))
-        bucket
+    let (feature,value) =
+      let len = List.length bucket in
+      let ft = fst (List.nth bucket (Random.int len)) in
+      let leq = Array.make nb_features 0 in
+      bucket |> List.iter (fun (x, _) ->
+          for i = 0 to nb_features - 1; do
+            if x.(i) <= ft.(i) then
+              leq.(i) <- leq.(i) + 1
+          done);
+      let mid = (len+1) / 2 in
+      let feature = ref 0 in
+      let size = ref (abs (mid - leq.(0))) in
+      for i = 0 to nb_features - 1; do
+        let size' = abs (mid - leq.(i)) in
+        if (size' < (!size) || (size' = (!size) && Random.bool ())) then begin
+          feature := i;
+          size := size'
+        end
+      done;
+      (!feature, ft.(!feature))
     in
-    let split_value =
-      let rec split n left right =
-        if n = 0 then
-          (left, right)
-        else
-          match right with
-          | r::rs -> split (n - 1) (r::left) right
-          | [] -> assert false
-      in
-      let rec go ls rs value =
-        match ls, rs with
-        | ((fv,_)::ls', _) when fv.(feature) < value -> fv.(feature)
-        | (_, (fv,_)::rs') when fv.(feature) > value -> value
-        | (_::ls', _::rs') -> go ls' rs' value
-        | (_, _) -> max (value - 1) 0
-      in
-      match split (bucket_size / 2 + 1) [] bucket with
-      | (left, (fv,_)::right) -> go left right fv.(feature)
-      | _ -> assert false
+    let (left, right) =
+      List.partition (fun (f,_) -> f.(feature) <= value) bucket
     in
-    let (left, right) = BatList.span (fun (fv,_) -> fv.(feature) <= split_value) bucket in
-    Node { value = split_value;
-           left = mk_tree (feature - 1) left;
-           right = mk_tree (feature - 1) right }
-           
+    Node { value = value;
+           feature = feature;
+           left = mk_tree nb_features left;
+           right = mk_tree nb_features right }
+
 let of_list features list =
   let list =
     List.map (fun elt -> (features elt, elt)) list
@@ -93,20 +94,20 @@ let of_list features list =
   | [] -> empty features
   | (fv,x)::list ->
     { features = features;
-      tree = mk_tree (Array.length fv - 1) (go [] fv [x] list) }
+      tree = mk_tree (Array.length fv) (go [] fv [x] list) }
 
 let insert elt ft =
   let fv = ft.features elt in
   let nb_features = Array.length fv in
-  let rec insert_tree feature = function
-    | Leaf bucket -> mk_tree feature (insert_bucket fv elt bucket)
+  let rec insert_tree = function
+    | Leaf bucket -> mk_tree nb_features (insert_bucket fv elt bucket)
     | Node n ->
-      if fv.(feature) <= n.value then
-        Node { n with left = insert_tree (feature - 1) n.left }
+      if fv.(n.feature) <= n.value then
+        Node { n with left = insert_tree n.left }
       else
-        Node { n with right = insert_tree (feature - 1) n.right }
+        Node { n with right = insert_tree n.right }
   in
-  { ft with tree = insert_tree (nb_features - 1) ft.tree }
+  { ft with tree = insert_tree ft.tree }
 
 let enum ft =
   let rec descend tree rest =
@@ -133,23 +134,26 @@ let enum ft =
 let features ft elt = ft.features elt
 
 let find_leq fv p ft =
+  let rec find f = function
+    | [] -> None
+    | (x::xs) -> if f x then Some x else find f xs
+  in
   let find_bucket (fv', xs) =
     if fv_leq fv' fv then
-      try Some (BatList.find p xs)
-      with Not_found -> None
+      find p xs
     else
       None
   in
-  let rec find_tree feature = function
+  let rec find_tree = function
     | Leaf xs -> BatList.find_map find_bucket xs
     | Node n ->
-      if fv.(feature) <= n.value then
-        find_tree (feature - 1) n.left
+      if fv.(n.feature) <= n.value then
+        find_tree n.left
       else
-        try find_tree (feature - 1) n.right
-        with Not_found -> find_tree (feature - 1) n.left
+        try find_tree n.left
+        with Not_found -> find_tree n.right
   in
-  find_tree (Array.length fv - 1) ft.tree
+  find_tree ft.tree
 
 let find_leq_map fv f ft =
   let find_bucket (fv', xs) =
@@ -159,16 +163,16 @@ let find_leq_map fv f ft =
     else
       None
   in
-  let rec find_tree feature = function
+  let rec find_tree = function
     | Leaf xs -> BatList.find_map find_bucket xs
     | Node n ->
-      if fv.(feature) <= n.value then
-        find_tree (feature - 1) n.left
+      if fv.(n.feature) <= n.value then
+        find_tree n.left
       else
-        try find_tree (feature - 1) n.right
-        with Not_found -> find_tree (feature - 1) n.left
+        try find_tree n.right
+        with Not_found -> find_tree n.left
   in
-  find_tree (Array.length fv - 1) ft.tree
+  find_tree ft.tree
 
 let remove equal elt ft =
   let fv = ft.features elt in
@@ -178,25 +182,27 @@ let remove equal elt ft =
     else
       (fv', xs)
   in
-  let rec remove_tree feature = function
+  let rec remove_tree = function
     | Leaf xs -> Leaf (BatList.map remove_bucket xs)
     | Node n ->
-      if fv.(feature) <= n.value then
-        Node { n with left = remove_tree (feature - 1) n.left }
+      if fv.(n.feature) <= n.value then
+        Node { n with left = remove_tree n.left }
       else
-        Node { n with right = remove_tree (feature - 1) n.right }
+        Node { n with right = remove_tree n.right }
   in
-  { ft with tree = remove_tree (Array.length fv - 1) ft.tree }
+  { ft with tree = remove_tree ft.tree }
 
 let rebalance ft =
+  let bucket = ref [] in
   let rec to_bucket = function
-    | Leaf xs -> xs
+    | Leaf xs ->
+      bucket := xs@(!bucket);
     | Node n ->
-      (to_bucket n.left)@(to_bucket n.right)
+      to_bucket n.left; to_bucket n.right
   in
-  let bucket = to_bucket ft.tree in
-  match bucket with
+  to_bucket ft.tree;
+  match !bucket with
   | [] -> empty ft.features
   | (fv,x)::list ->
     { features = ft.features;
-      tree = mk_tree (Array.length fv - 1) bucket }
+      tree = mk_tree (Array.length fv) (!bucket) }

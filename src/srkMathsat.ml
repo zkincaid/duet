@@ -4,51 +4,51 @@ open Mathsat
 
 type 'a gexpr = ('a, typ_fo) expr
 
-let of_msat ark msat_env sym_of_decl expr =
+let of_msat srk msat_env sym_of_decl expr =
   let term expr =
-    match Expr.refine ark expr with
+    match Expr.refine srk expr with
     | `Term t -> t
     | _ -> invalid_arg "of_mathsat.term"
   in
   let formula expr =
-    match Expr.refine ark expr with
+    match Expr.refine srk expr with
     | `Formula phi -> phi
     | _ -> invalid_arg "of_mathsat.formula"
   in
   let rec go expr =
     match Mathsat.msat_destruct msat_env expr with
-    | `Tru -> (mk_true ark :> 'a gexpr)
-    | `Fls -> (mk_false ark :> 'a gexpr)
-    | `Real qq -> (mk_real ark (Mpqf.of_mpq qq) :> 'a gexpr)
-    | `Add sum -> (mk_add ark (List.map (term % go) sum) :> 'a gexpr)
-    | `Mul product -> (mk_mul ark (List.map (term % go) product) :> 'a gexpr)
-    | `Unop (`Floor, t) -> (mk_floor ark (term (go t)) :> 'a gexpr)
+    | `Tru -> (mk_true srk :> 'a gexpr)
+    | `Fls -> (mk_false srk :> 'a gexpr)
+    | `Real qq -> (mk_real srk (Mpqf.of_mpq qq) :> 'a gexpr)
+    | `Add sum -> (mk_add srk (List.map (term % go) sum) :> 'a gexpr)
+    | `Mul product -> (mk_mul srk (List.map (term % go) product) :> 'a gexpr)
+    | `Unop (`Floor, t) -> (mk_floor srk (term (go t)) :> 'a gexpr)
     | `Atom (op, s, t) ->
       let (s, t) = (term (go s), term (go t)) in
       begin match op with
-        | `Eq -> (mk_eq ark s t :> 'a gexpr)
-        | `Leq -> (mk_leq ark s t :> 'a gexpr)
+        | `Eq -> (mk_eq srk s t :> 'a gexpr)
+        | `Leq -> (mk_leq srk s t :> 'a gexpr)
       end
     | `And conjuncts ->
-      (mk_and ark (List.map (formula % go) conjuncts) :> 'a gexpr)
+      (mk_and srk (List.map (formula % go) conjuncts) :> 'a gexpr)
     | `Or disjuncts ->
-      (mk_or ark (List.map (formula % go) disjuncts) :> 'a gexpr)
+      (mk_or srk (List.map (formula % go) disjuncts) :> 'a gexpr)
     | `Iff (phi, psi) ->
-      (mk_iff ark (formula (go phi)) (formula (go psi)) :> 'a gexpr)
-    | `Not phi -> (mk_not ark (formula (go phi)) :> 'a gexpr)
+      (mk_iff srk (formula (go phi)) (formula (go psi)) :> 'a gexpr)
+    | `Not phi -> (mk_not srk (formula (go phi)) :> 'a gexpr)
     | `Ite (cond, bthen, belse) ->
-      mk_ite ark (formula (go cond)) (go bthen) (go belse)
+      mk_ite srk (formula (go cond)) (go bthen) (go belse)
     | `App (decl, args) ->
-      mk_app ark (sym_of_decl decl) (List.map go args)
+      mk_app srk (sym_of_decl decl) (List.map go args)
   in
   go expr
 
-let rec msat_of_expr ark msat decl_of_sym expr  =
-  match Expr.refine ark expr with
-  | `Term t -> msat_of_term ark msat decl_of_sym t
-  | `Formula phi -> msat_of_formula ark msat decl_of_sym phi
+let rec msat_of_expr srk msat decl_of_sym expr  =
+  match Expr.refine srk expr with
+  | `Term t -> msat_of_term srk msat decl_of_sym t
+  | `Formula phi -> msat_of_formula srk msat decl_of_sym phi
 
-and msat_of_term (ark : 'a context) msat decl_of_sym (term : 'a term) =
+and msat_of_term (srk : 'a context) msat decl_of_sym (term : 'a term) =
   let alg = function
     | `Real qq -> 
       begin match QQ.to_zz qq with
@@ -61,7 +61,7 @@ and msat_of_term (ark : 'a context) msat decl_of_sym (term : 'a term) =
     | `App (func, args) ->
       Mathsat.msat_make_uf msat
         (decl_of_sym func)
-        (List.map (msat_of_expr ark msat decl_of_sym) args)
+        (List.map (msat_of_expr srk msat decl_of_sym) args)
 
     | `Var (_, _) -> invalid_arg "msat_of: var"
     | `Add [] -> Mathsat.msat_make_number msat "0"
@@ -75,14 +75,14 @@ and msat_of_term (ark : 'a context) msat decl_of_sym (term : 'a term) =
       Mathsat.msat_make_times msat (Mathsat.msat_make_number msat "-1") t
     | `Ite (cond, bthen, belse) ->
       Mathsat.msat_make_term_ite msat 
-        (msat_of_formula ark msat decl_of_sym cond)
+        (msat_of_formula srk msat decl_of_sym cond)
         bthen
         belse
   in
-  Term.eval ark alg term
+  Term.eval srk alg term
 
-and msat_of_formula ark msat decl_of_sym phi =
-  let of_term = msat_of_term ark msat decl_of_sym in
+and msat_of_formula srk msat decl_of_sym phi =
+  let of_term = msat_of_term srk msat decl_of_sym in
   let alg = function
     | `Tru -> Mathsat.msat_make_true msat
     | `Fls -> Mathsat.msat_make_false msat
@@ -106,13 +106,13 @@ and msat_of_formula ark msat decl_of_sym phi =
     | `Proposition (`App (predicate, args)) ->
       Mathsat.msat_make_uf msat
         (decl_of_sym predicate)
-        (List.map (msat_of_expr ark msat decl_of_sym) args)
+        (List.map (msat_of_expr srk msat decl_of_sym) args)
     | `Ite (cond, bthen, belse) ->
       Mathsat.msat_make_term_ite msat cond bthen belse
   in
-  Formula.eval ark alg phi
+  Formula.eval srk alg phi
 
-class ['a] msat_solver (ark : 'a context) =
+class ['a] msat_solver (srk : 'a context) =
   let msat_config =
     let cfg = msat_create_config () in
     msat_set_option cfg "model_generation" "true";
@@ -134,14 +134,14 @@ class ['a] msat_solver (ark : 'a context) =
   let decl_table = Hashtbl.create 991 in
   let decl_of_sym =
     Memo.memo (fun sym ->
-        let name = show_symbol ark sym in
-        let typ = msat_type (typ_symbol ark sym) in
+        let name = show_symbol srk sym in
+        let typ = msat_type (typ_symbol srk sym) in
         let decl = Mathsat.msat_declare_function msat name typ in
         Hashtbl.add decl_table (Mathsat.msat_decl_id decl) sym;
         decl)
   in
-  let of_formula = msat_of_formula ark msat decl_of_sym in
-  let of_term = msat_of_term ark msat decl_of_sym in
+  let of_formula = msat_of_formula srk msat decl_of_sym in
+  let of_term = msat_of_term srk msat decl_of_sym in
   object(self)
     method add formulas =
       formulas |> List.iter (fun phi ->
@@ -206,4 +206,4 @@ class ['a] msat_solver (ark : 'a context) =
       failwith "MathSAT get_unsat_core not supported"
   end
 
-let mk_solver ark = new msat_solver ark
+let mk_solver srk = new msat_solver srk

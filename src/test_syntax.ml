@@ -24,7 +24,7 @@ let substitute () =
           ((y = (var 0 `TyInt) + x)
            && x < (var 1 `TyInt)))
   in
-  assert_equal_formula (substitute ctx subst phi) psi
+  assert_equal_formula (substitute srk subst phi) psi
 
 let existential_closure1 () =
   let phi =
@@ -42,7 +42,7 @@ let existential_closure1 () =
     |> exists `TyReal
     |> exists `TyReal
   in
-  assert_equal_formula (Formula.existential_closure ctx phi) psi
+  assert_equal_formula (Formula.existential_closure srk phi) psi
 
 let existential_closure2 () =
   let phi =
@@ -59,7 +59,7 @@ let existential_closure2 () =
           && (exists `TyInt
                 ((var 0 `TyInt) = (var 2 `TyReal)))))
   in
-  assert_equal_formula (Formula.existential_closure ctx phi) psi
+  assert_equal_formula (Formula.existential_closure srk phi) psi
 
 (* This test will fail if the implementation of prenex changes the way that
    unordered quantifiers get ordered (swap var 0 and var 1 in psi). *)
@@ -78,7 +78,7 @@ let prenex () =
             ((var 1 `TyReal) = (var 2 `TyReal)
              && (var 0 `TyReal) <= (var 2 `TyReal))))
   in
-  assert_equal_formula (Formula.prenex ctx phi) psi
+  assert_equal_formula (Formula.prenex srk phi) psi
 
 let nnf () =
   let phi =
@@ -88,7 +88,7 @@ let nnf () =
        && (x <= y || x < z))
   in
   let negate psi =
-    rewrite ctx ~down:(nnf_rewriter ctx) (mk_not ctx psi)
+    rewrite srk ~down:(nnf_rewriter srk) (mk_not srk psi)
   in
   assert_equal_formula (negate (negate phi)) phi
 
@@ -97,7 +97,7 @@ let elim_ite1 () =
     let open Infix in
     (int 0) <= (Ctx.mk_ite (x < y) x y)
   in
-  assert_equiv_formula (eliminate_ite ctx phi) phi
+  assert_equiv_formula (eliminate_ite srk phi) phi
 
 let elim_ite2 () =
   let phi =
@@ -105,14 +105,14 @@ let elim_ite2 () =
     x + (Ctx.mk_ite (x < z) x z)
     <= (Ctx.mk_ite (x < y) x y) + (Ctx.mk_ite (y < z) y z)
   in
-  assert_equiv_formula (eliminate_ite ctx phi) phi
+  assert_equiv_formula (eliminate_ite srk phi) phi
 
 let elim_ite3 () =
   let phi =
     let open Infix in
     (int 0) <= x + (Ctx.mk_ite ((Ctx.mk_ite (x < z) x z) < z) x y)
   in
-  assert_equiv_formula (eliminate_ite ctx phi) phi
+  assert_equiv_formula (eliminate_ite srk phi) phi
 
 
 let suite = "Syntax" >:::

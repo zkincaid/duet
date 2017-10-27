@@ -29,19 +29,19 @@ module Env = struct
   type 'a t =
     { int_dim : symbol array;
       real_dim : symbol array;
-      ark : 'a context }
+      srk : 'a context }
 
   let pp formatter env =
     let pp_array formatter arr =
-      ArkUtil.pp_print_enum_nobox
-        (pp_symbol env.ark)
+      SrkUtil.pp_print_enum_nobox
+        (pp_symbol env.srk)
         formatter (BatArray.enum arr)
     in
     Format.fprintf formatter "@[<v 0>{int: @[%a@];@;real:@[%a@]@]"
       pp_array env.int_dim
       pp_array env.real_dim
 
-  let empty ark = { int_dim = [||]; real_dim = [||]; ark = ark }
+  let empty srk = { int_dim = [||]; real_dim = [||]; srk = srk }
 
   (* Search for an index in a sorted array *)
   let search v array =
@@ -92,7 +92,7 @@ module Env = struct
   let merge env0 env1 =
     { int_dim = merge_array env0.int_dim env1.int_dim;
       real_dim = merge_array env0.real_dim env1.real_dim;
-      ark = env0.ark }
+      srk = env0.srk }
 
   let inject_array a b =
     let alen = Array.length a in
@@ -121,18 +121,18 @@ module Env = struct
       Dim.intdim = List.length int_change;
       Dim.realdim = List.length real_change }
 
-  let of_set ark vars =
-    let count v (int, real) = match typ_symbol ark v with
+  let of_set srk vars =
+    let count v (int, real) = match typ_symbol srk v with
       | `TyInt  -> (int + 1, real)
       | `TyReal -> (int, real + 1)
-      | _ -> invalid_arg "ArkApon: environment symbols must be number-typed"
+      | _ -> invalid_arg "SrkApon: environment symbols must be number-typed"
     in
     let (int, real) = Symbol.Set.fold count vars (0, 0) in
     let int_dim = Array.make int (Obj.magic ()) in
     let real_dim = Array.make real (Obj.magic ()) in
     let int_max = ref 0 in
     let real_max = ref 0 in
-    let f v = match typ_symbol ark v with
+    let f v = match typ_symbol srk v with
       | `TyInt  -> (int_dim.(!int_max) <- v; incr int_max)
       | `TyReal -> (real_dim.(!real_max) <- v; incr real_max)
       | _ -> assert false
@@ -140,14 +140,14 @@ module Env = struct
     Symbol.Set.iter f vars;
     { int_dim = int_dim;
       real_dim = real_dim;
-      ark = ark }
+      srk = srk }
 
-  let of_enum ark e = of_set ark (Symbol.Set.of_enum e)
-  let of_list ark symbols = of_enum ark (BatList.enum symbols)
-  let dim_of_var env sym = match typ_symbol env.ark sym with
+  let of_enum srk e = of_set srk (Symbol.Set.of_enum e)
+  let of_list srk symbols = of_enum srk (BatList.enum symbols)
+  let dim_of_var env sym = match typ_symbol env.srk sym with
     | `TyInt  -> search sym env.int_dim
     | `TyReal -> (Array.length env.int_dim) + (search sym env.real_dim)
-    | _ -> invalid_arg "ArkApon: environment symbols must be number-typed"
+    | _ -> invalid_arg "SrkApon: environment symbols must be number-typed"
   let var_of_dim env dim =
     let intd = Array.length env.int_dim in
     if dim >= intd then
@@ -168,7 +168,7 @@ module Env = struct
   let filter p env =
     { int_dim = BatArray.filter p env.int_dim;
       real_dim = BatArray.filter p env.real_dim;
-      ark = env.ark }
+      srk = env.srk }
   let mem v env =
     try ignore (dim_of_var env v); true
     with Not_found -> false
@@ -182,11 +182,11 @@ let man prop = Abstract0.manager prop
 
 let pp formatter x =
   Abstract0.print
-    (show_symbol x.env.Env.ark % (Env.var_of_dim x.env))
+    (show_symbol x.env.Env.srk % (Env.var_of_dim x.env))
     formatter
     x.prop
 
-let show x = ArkUtil.mk_show pp x
+let show x = SrkUtil.mk_show pp x
 
 let is_bottom x = Abstract0.is_bottom (man x.prop) x.prop
 
@@ -248,7 +248,7 @@ let exists man p x =
       remember := v::(!remember)
     end else begin
       forget := i::(!forget);
-      match typ_symbol x.env.Env.ark v with
+      match typ_symbol x.env.Env.srk v with
       | `TyInt  -> incr intdim
       | `TyReal -> incr realdim
       | _ -> assert false
@@ -262,12 +262,12 @@ let exists man p x =
         Dim.intdim = !intdim;
         Dim.realdim = !realdim }
   in
-  let env = Env.of_enum x.env.Env.ark (BatList.enum (!remember)) in
+  let env = Env.of_enum x.env.Env.srk (BatList.enum (!remember)) in
   { prop = prop;
     env = env}
 
 let add_vars vars x =
-  let new_env = Env.merge x.env (Env.of_enum x.env.Env.ark vars) in
+  let new_env = Env.merge x.env (Env.of_enum x.env.Env.srk vars) in
   let man = man x.prop in
   let prop =
     Abstract0.add_dimensions man x.prop (Env.inject x.env new_env) false
@@ -286,7 +286,7 @@ let boxify x =
     env = x.env }
 
 let rename f x =
-  let env = Env.vars x.env /@ f |> Env.of_enum x.env.Env.ark in
+  let env = Env.vars x.env /@ f |> Env.of_enum x.env.Env.srk in
   let dimensions = Env.dimensions x.env |> BatArray.of_enum in
   let replacements =
     let g var =
@@ -351,7 +351,7 @@ let texpr_of_term env t =
         | None   -> (Cst (coeff_of_qq qq), `TyReal)
       end
     | `App (sym, []) ->
-      (Dim (Env.dim_of_var env sym), typ_symbol env.Env.ark sym)
+      (Dim (Env.dim_of_var env sym), typ_symbol env.Env.srk sym)
     | `App (_, _) | `Ite (_, _, _) | `Var (_, _) -> assert false
     | `Add terms ->
       let add (s,s_typ) (t,t_typ) =
@@ -375,34 +375,34 @@ let texpr_of_term env t =
       (Binop (Mul, Cst (coeff_of_qq (QQ.negate QQ.one)), t, atyp typ, Down),
        typ)
   in
-  Texpr0.of_expr (fst (Term.eval env.Env.ark alg t))
+  Texpr0.of_expr (fst (Term.eval env.Env.srk alg t))
 
 let term_of_texpr env texpr =
   let open Texpr0 in
-  let ark = env.Env.ark in
+  let srk = env.Env.srk in
   let rec go = function
-    | Cst (Coeff.Scalar s) -> mk_real ark (qq_of_scalar s)
+    | Cst (Coeff.Scalar s) -> mk_real srk (qq_of_scalar s)
     | Cst (Coeff.Interval _) -> assert false (* todo *)
-    | Dim d -> mk_const ark (Env.var_of_dim env d)
-    | Unop (Neg, t, _, _) -> mk_neg ark (go t)
-    | Unop (Cast, t, Int, Down) -> mk_floor ark (go t)
+    | Dim d -> mk_const srk (Env.var_of_dim env d)
+    | Unop (Neg, t, _, _) -> mk_neg srk (go t)
+    | Unop (Cast, t, Int, Down) -> mk_floor srk (go t)
     | Unop (Cast, _, _, _) | Unop (Sqrt, _, _, _) -> assert false (* todo *)
     | Binop (op, s, t, typ, round) ->
       let (s, t) = (go s, go t) in
       begin match op with
-        | Add -> mk_add ark [s; t]
-        | Sub -> mk_sub ark s t
-        | Mul -> mk_mul ark [s; t]
+        | Add -> mk_add srk [s; t]
+        | Sub -> mk_sub srk s t
+        | Mul -> mk_mul srk [s; t]
         | Mod ->
           begin match typ, round with
-            | Int, Zero -> mk_mod ark s t
+            | Int, Zero -> mk_mod srk s t
             | _, _ -> assert false
           end
         | Pow -> assert false (* todo *)
         | Div ->
           begin match typ, round with
-            | Int, Down -> (*mk_idiv ark s t*) assert false
-            | Real, _ -> mk_div ark s t
+            | Int, Down -> (*mk_idiv srk s t*) assert false
+            | Real, _ -> mk_div srk s t
             | _, _ -> assert false (* todo *)
           end
       end
@@ -436,22 +436,22 @@ let meet_lcons property constraints =
 let formula_of_tcons env tcons =
   let open Tcons0 in
   let t = term_of_texpr env tcons.texpr0 in
-  let ark = env.Env.ark in
-  let zero = mk_real ark QQ.zero in
+  let srk = env.Env.srk in
+  let zero = mk_real srk QQ.zero in
   match tcons.typ with
-  | EQ      -> mk_eq ark t zero
-  | SUPEQ   -> mk_leq ark zero t
-  | SUP     -> mk_lt ark zero t
-  | DISEQ   -> mk_not ark (mk_eq ark t zero)
+  | EQ      -> mk_eq srk t zero
+  | SUPEQ   -> mk_leq srk zero t
+  | SUP     -> mk_lt srk zero t
+  | DISEQ   -> mk_not srk (mk_eq srk t zero)
   | EQMOD _ -> assert false (* todo *)
 
 let formula_of_property property =
-  let ark = property.env.Env.ark in
+  let srk = property.env.Env.srk in
   let man = man property.prop in
   BatArray.enum (Abstract0.to_tcons_array man property.prop)
   /@ (formula_of_tcons property.env)
   |> BatList.of_enum
-  |> mk_and ark
+  |> mk_and srk
 
 let get_manager property = man property.prop
 

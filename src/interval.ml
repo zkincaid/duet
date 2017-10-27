@@ -19,7 +19,7 @@ let pp formatter x =
      | Some hi -> QQ.show hi
      | None -> "+oo")
 
-let show = ArkUtil.mk_show pp
+let show = SrkUtil.mk_show pp
 
 let bottom = { lower = Some QQ.one; upper = Some QQ.zero }
 let top = { lower = None; upper = None }
@@ -203,7 +203,7 @@ let floor x =
 let of_apron ivl =
   let cvt scalar =
     if Apron.Scalar.is_infty scalar == 0
-    then Some (ArkApron.qq_of_scalar scalar)
+    then Some (SrkApron.qq_of_scalar scalar)
     else None
   in
   make (cvt ivl.Apron.Interval.inf) (cvt ivl.Apron.Interval.sup)
