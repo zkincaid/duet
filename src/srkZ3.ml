@@ -640,6 +640,7 @@ module CHC = struct
   type 'a solver =
     { ctx : 'a z3_context;
       error : symbol;
+      mutable head_relations : Symbol.Set.t;
       fp : Z3.Fixedpoint.fixedpoint }
 
   let mk_solver ctx =
@@ -651,13 +652,15 @@ module CHC = struct
     Z3.Params.add_bool params (sym "xform.slice") false;
     Z3.Params.add_bool params (sym "xform.inline_linear") false;
     Z3.Params.add_bool params (sym "xform.inline_eager") false;
+    Z3.Params.add_bool params (sym "pdr.utvpi") false;
     Z3.Fixedpoint.set_parameters fp params;
 
     Z3.Fixedpoint.register_relation fp error_decl;
-    { ctx; error; fp }
+    { ctx; error; fp; head_relations = Symbol.Set.empty }
 
   let register_relation solver relation =
-    let decl = decl_of_symbol solver.ctx#z3 solver.ctx#srk relation in
+    let srk = solver.ctx#srk in
+    let decl = decl_of_symbol solver.ctx#z3 srk relation in
     Z3.Fixedpoint.register_relation solver.fp decl
 
   let add solver phis =
@@ -682,13 +685,14 @@ module CHC = struct
     in
     let rule =
       match destruct srk conclusion with
-      | `App (_, _) ->
+      | `App (r, _) ->
         let hypothesis =
           solver.ctx#of_formula (substitute srk rename hypothesis)
         in
         let conclusion =
           solver.ctx#of_formula (substitute srk rename conclusion)
         in
+        solver.head_relations <- Symbol.Set.add r solver.head_relations;
         Z3.Boolean.mk_implies solver.ctx#z3 hypothesis conclusion
       | _ ->
         let hypothesis =
@@ -749,9 +753,12 @@ module CHC = struct
   let get_solution solver relation =
     let srk = solver.ctx#srk in
     let decl = decl_of_symbol solver.ctx#z3 srk relation in
-    match Z3.Fixedpoint.get_cover_delta solver.fp (-1) decl with
-    | Some inv -> solver.ctx#formula_of inv
-    | None -> assert false
+    if Symbol.Set.mem relation solver.head_relations then
+      match Z3.Fixedpoint.get_cover_delta solver.fp (-1) decl with
+      | Some inv -> solver.ctx#formula_of inv
+      | None -> assert false
+    else
+      mk_false srk
 
   let to_string solver = Z3.Fixedpoint.to_string solver.fp
 end
