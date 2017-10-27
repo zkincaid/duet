@@ -1,4 +1,4 @@
-open Ark
+open Srk
 
 (** Persistent, dynamic array *)
 module Array = struct
@@ -302,7 +302,7 @@ module DisjointSet = struct
       List.iter pp_elt (to_list ds);
       Format.pp_close_box formatter ()
 
-    let show = ArkUtil.mk_show pp
+    let show = SrkUtil.mk_show pp
 
     let iter f ds = Map.iter (fun s _ -> f s) ds.map
     let fold f ds x = Map.fold (fun s _ -> f s) ds.map x

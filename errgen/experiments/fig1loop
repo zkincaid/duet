@@ -1,9 +1,0 @@
-zero = 0;
-one = 1;
-c = 1/10;
-while(true) {
-  x = 1;
-  while (x >= zero) {
-    x = x - c
-  }
-}

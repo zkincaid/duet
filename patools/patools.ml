@@ -1,5 +1,5 @@
 open Patop
-open Ark
+open Srk
 
 include Log.Make(struct let name = "patools" end)
 module F = PaFormula
@@ -131,7 +131,7 @@ let bounded_check_emptiness_certificate pa phi =
                 exit (-1)
               end
             ) (A.succs pa config label)
-        ) (ArkUtil.cartesian_product
+        ) (SrkUtil.cartesian_product
              (Alphabet.Set.enum (A.alphabet pa))
              (A.Config.universe config))
     ) (A.Config.min_models 2 phi)
@@ -155,7 +155,7 @@ let model_of_z3 m predicates size =
           if Smt.bool_val (get_else interp) then begin
             let full =
               BatList.of_enum ((1 -- k) /@ (fun _ -> (1 -- size)))
-              |> ArkUtil.tuples
+              |> SrkUtil.tuples
               |> BatEnum.fold (fun m tuple ->
                   Config.add p tuple m
                 ) (Config.empty size)
@@ -309,18 +309,18 @@ let check_embeddings embeds structs reName =
     BatDynArray.add inv 0;            (* Psuedo 1-indexing *)
     let f (str, map) (head, args) =
       let g (args, map) arg =
-        if (ArkUtil.Int.Map.mem arg map) then
-          ((ArkUtil.Int.Map.find arg map) :: args), map
+        if (SrkUtil.Int.Map.mem arg map) then
+          ((SrkUtil.Int.Map.find arg map) :: args), map
         else
           begin
             BatDynArray.add inv arg;
-            ((BatDynArray.length inv) :: args), (ArkUtil.Int.Map.add arg (BatDynArray.length inv) map)
+            ((BatDynArray.length inv) :: args), (SrkUtil.Int.Map.add arg (BatDynArray.length inv) map)
           end
       in
       let (args, m) = List.fold_left g ([], map) args in
       (Config.add head args str), m
     in
-    let (str, map) = (BatEnum.fold f ((Config.empty 1), ArkUtil.Int.Map.empty) (Config.props str)) in
+    let (str, map) = (BatEnum.fold f ((Config.empty 1), SrkUtil.Int.Map.empty) (Config.props str)) in
     str, inv
   in
   let rec go structs =

@@ -3,7 +3,7 @@
     domain. *)
 
 open Core
-open Ark
+open Srk
 open Apak
 
 (* Set of predicates *)
@@ -97,7 +97,7 @@ struct
       add (PSet.union st1 st2) (AI.meet v1 v2) func
     in
     let default = AI.meet (default f) (default g) in
-    (ArkUtil.cartesian_product (enum f) (enum g))
+    (SrkUtil.cartesian_product (enum f) (enum g))
     |> BatEnum.fold add (const default)
 end
 

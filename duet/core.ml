@@ -3,7 +3,7 @@
     [expr] of expressions.  Further operations on expr can be found in
     [AExpr]. *)
 open Apak
-open Ark
+open Srk
 open BatPervasives
 
 (** Record containing the information of enumeration *)
@@ -101,7 +101,7 @@ let compare_varinfo x y = compare (x.vid, x.vsubscript) (y.vid, y.vsubscript)
 let pp_varinfo formatter x =
   if x.vsubscript = 0 then Format.pp_print_string formatter x.vname
   else Format.fprintf formatter "%s<%d>" x.vname x.vsubscript
-let show_varinfo = ArkUtil.mk_show pp_varinfo
+let show_varinfo = SrkUtil.mk_show pp_varinfo
 
 module Varinfo = struct
   include Putil.MakeCoreType(struct
@@ -309,7 +309,7 @@ let rec pp_ctyp formatter = function
   | Enum e -> text formatter ("Enum " ^ e.enname)
   | Func (ret, args) ->
     Format.fprintf formatter "fun (%a) -> %a"
-      (ArkUtil.pp_print_list pp_typ) args
+      (SrkUtil.pp_print_list pp_typ) args
       pp_typ ret
   | Union r -> text formatter ("Union " ^ r.rname)
   | Dynamic -> text formatter "dynamic"
@@ -409,7 +409,7 @@ module Var = struct
           let pp_elt formatter f = Format.pp_print_string formatter f.finame in
           Format.fprintf formatter "%a.%a"
             Varinfo.pp var
-            (ArkUtil.pp_print_enum
+            (SrkUtil.pp_print_enum
                ~pp_sep:(fun formatter () ->
                    Format.pp_print_string formatter ".")
                pp_elt)
@@ -596,8 +596,8 @@ and pp_ap formatter = function
       end
     | None -> Format.fprintf formatter "(*%a)" pp_aexpr aexpr
 
-let show_aexpr = ArkUtil.mk_show pp_aexpr
-let show_bexpr = ArkUtil.mk_show pp_bexpr
+let show_aexpr = SrkUtil.mk_show pp_aexpr
+let show_bexpr = SrkUtil.mk_show pp_bexpr
 
 let hash_aexpr_alg hash_ap = function
   | OAccessPath a -> hash_ap a lsl 2
@@ -663,7 +663,7 @@ let pp_builtin formatter = function
     Format.fprintf formatter "fork(@[%a" pp_aexpr func;
     if args != [] then
       Format.fprintf formatter ",@ %a"
-        (ArkUtil.pp_print_enum pp_aexpr) (BatList.enum args);
+        (SrkUtil.pp_print_enum pp_aexpr) (BatList.enum args);
     Format.fprintf formatter "@])"
   | Acquire lock -> Format.fprintf formatter "acquire(%a)" pp_aexpr lock
   | Release lock -> Format.fprintf formatter "release(%a)" pp_aexpr lock
@@ -684,12 +684,12 @@ let pp_dk formatter = function
   | Call (None, func, args) ->
     Format.fprintf formatter "%a(%a)"
       pp_aexpr func
-      (ArkUtil.pp_print_enum pp_aexpr) (BatList.enum args)
+      (SrkUtil.pp_print_enum pp_aexpr) (BatList.enum args)
   | Call (Some lhs, func, args) ->
     Format.fprintf formatter "%a=%a(%a)"
       Var.pp lhs
       pp_aexpr func
-      (ArkUtil.pp_print_enum pp_aexpr) (BatList.enum args)
+      (SrkUtil.pp_print_enum pp_aexpr) (BatList.enum args)
   | Assume aexpr -> Format.fprintf formatter "assume(%a)" pp_bexpr aexpr
   | Initial -> Format.pp_print_string formatter "initial"
   | Assert (e,msg) ->
@@ -1102,7 +1102,7 @@ module Bexpr = struct
   let dnf bexpr =
     let f = function
       | OAnd (x, y) ->
-        ArkUtil.cartesian_product (BatList.enum x) (BatList.enum y)
+        SrkUtil.cartesian_product (BatList.enum x) (BatList.enum y)
         |> BatEnum.fold (fun r (x, y) -> (x @ y)::r) []
       | OOr (x, y) -> x@y
       | OAtom (p, a, b) -> [[Atom (p,a,b)]]

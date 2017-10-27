@@ -13,7 +13,7 @@ Library apak
   FindlibName:      apak
   Pack:             true
   Modules:          Dll, Enumeration, EvalLink, ExtGraph, Fixpoint,Ka, Lattice, Loop, Monoid, Pathexp, Persistent, RecGraph, Semilattice, Sese, Sig, Tagged, Putil
-  BuildDepends:     batteries, ppx_deriving, ppx_deriving.show, ppx_deriving.ord, ocamlgraph, Z3, mathsat, ark
+  BuildDepends:     batteries, ppx_deriving, ppx_deriving.show, ppx_deriving.ord, ocamlgraph, Z3, mathsat, srk
   Install:          false
   XMETADescription: Algebraic Program Analysis Kit
 
@@ -21,31 +21,31 @@ Executable test_apak
   Build$:       flag(tests)
   Path:         apak
   MainIs:       test_apak.ml
-  BuildDepends: batteries, ppx_deriving, ppx_deriving.show, ppx_deriving.ord, ocamlgraph, Z3, mathsat, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, ark, oUnit
+  BuildDepends: batteries, ppx_deriving, ppx_deriving.show, ppx_deriving.ord, ocamlgraph, Z3, mathsat, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, srk, oUnit
   CompiledObject: native
   Install:      false
 
-Library ark
-  Path:             ark
-  FindlibName:      ark
+Library srk
+  Path:             srk/src
+  FindlibName:      srk
   Pack:             true
-  Modules:  ArkUtil, Log, DisjointSet, Memo, FeatureTree, QQ, ZZ, Syntax, Interval, Smt, ArkZ3, ArkMathsat, Linear, Polynomial, Interpretation, ArkApron, Polyhedron, ArkSimplify, Abstract, Nonlinear, CoordinateSystem, Wedge, Quantifier, Iteration, Transition, BigO, Hoare
+  Modules:  SrkUtil, Log, DisjointSet, Memo, FeatureTree, QQ, ZZ, Syntax, Interval, Smt, SrkZ3, SrkMathsat, Linear, Polynomial, Interpretation, SrkApron, Polyhedron, SrkSimplify, Abstract, Nonlinear, CoordinateSystem, Wedge, Quantifier, Iteration, Transition, BigO, Hoare
   BuildDepends:     batteries, ppx_deriving, ppx_deriving.show, ppx_deriving.ord, gmp, camlidl, apron, Z3, mathsat, ocrs
   Install:         false
-  XMETADescription: Arithmetic Reasoning Kit
+  XMETADescription: Symbolic Reasoning Kit
 
-Executable test_ark
+Executable test_srk
   Build$:         flag(tests)
-  Path:           ark
-  MainIs:         test_ark.ml
+  Path:           srk/src
+  MainIs:         test_srk.ml
   BuildDepends:   batteries, ppx_deriving, ppx_deriving.ord, gmp, camlidl, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, oUnit, mathsat, ocrs
   CompiledObject: native
   Install:        false
 
-Executable arktop
+Executable bigtop
   Build$:         flag(tests)
-  Path:           ark
-  MainIs:         arkTop.ml
+  Path:           srk/src
+  MainIs:         bigtop.ml
   BuildDepends:   batteries, ppx_deriving, ppx_deriving.ord, gmp, camlidl, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, mathsat, ocrs
   CompiledObject: native
   Install:        false
@@ -65,20 +65,20 @@ Library pa
   Pack: true
   FindlibName:      pa
   InternalModules:  PaSmt, PaFormula, Struct, PredicateAutomata, Matching
-  BuildDepends: ppx_deriving, ppx_deriving.show, ppx_deriving.ord, ark, Z3, matchingCC
+  BuildDepends: ppx_deriving, ppx_deriving.show, ppx_deriving.ord, srk, Z3, matchingCC
   Install:          false
   XMETADescription: Predicate Automata tools
 
 Executable test_patools
   Path:         patools
   MainIs:       test_patools.ml
-  BuildDepends: batteries, ppx_deriving, ppx_deriving.show, ppx_deriving.ord, ark, Z3, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, pa, oUnit
+  BuildDepends: batteries, ppx_deriving, ppx_deriving.show, ppx_deriving.ord, srk, Z3, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, pa, oUnit
   Install:      false
   CompiledObject: native
 
 Executable patools
   Path:       patools
-  BuildDepends: ppx_deriving, ppx_deriving.show, ppx_deriving.ord, ark, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, pa, matchingCC
+  BuildDepends: ppx_deriving, ppx_deriving.show, ppx_deriving.ord, srk, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, pa, matchingCC
   MainIs: patools.ml
   CCOpt: -annot
   CompiledObject: native
@@ -86,14 +86,14 @@ Executable patools
 Executable duet
   Path:           duet
   MainIs:         duet.ml
-  BuildDepends:   batteries, ppx_deriving, ppx_deriving.show, ppx_deriving.ord, gmp, camlidl, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, ark, apak, cil, cil.default-features, pa, matchingCC, ocrs
+  BuildDepends:   batteries, ppx_deriving, ppx_deriving.show, ppx_deriving.ord, gmp, camlidl, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, srk, apak, cil, cil.default-features, pa, matchingCC, ocrs
   CompiledObject: native
   Install:        false
 
 Executable cca
   Path:           cca
   MainIs:         cca.ml
-  BuildDepends:   batteries, ppx_deriving, ppx_deriving.show, ppx_deriving.ord, gmp, camlidl, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, ark, apak, cil, cil.default-features, pa, ocrs
+  BuildDepends:   batteries, ppx_deriving, ppx_deriving.show, ppx_deriving.ord, gmp, camlidl, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, srk, apak, cil, cil.default-features, pa, ocrs
   CompiledObject: native
   Install:        false
 
@@ -102,9 +102,9 @@ Test apak
   TestTools: test_apak
   run$:      flag(tests)
 
-Test ark
-  Command:   $test_ark
-  TestTools: test_ark
+Test srk
+  Command:   $test_srk
+  TestTools: test_srk
   run$:      flag(tests)
 
 Test patools
@@ -118,7 +118,7 @@ Test regression
   run$:      flag(tests)
 
 Document API
-  Title: API reference for Ark
+  Title: API reference for Srk
   Type: OCamlbuild (0.4)
   XOCamlbuildPath: .
-  XOCamlbuildLibraries: ark, apak
+  XOCamlbuildLibraries: srk, apak

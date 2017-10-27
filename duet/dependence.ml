@@ -3,7 +3,7 @@ open Core
 open CfgIr
 open Solve
 open Ai
-open Ark
+open Srk
 open Apak
 
 module Pack = Var.Set
@@ -342,7 +342,7 @@ module Dependence (M : sig
 
     let entries = file.entry_points in
     let enum =
-      ArkUtil.cartesian_product (BatList.enum entries) (BatList.enum entries)
+      SrkUtil.cartesian_product (BatList.enum entries) (BatList.enum entries)
     in
     BatEnum.iter coreach enum;
 

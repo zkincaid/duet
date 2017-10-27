@@ -1,5 +1,5 @@
 # OASIS_START
-# DO NOT EDIT (digest: f8b531702cc549d446aa77c0c36e2512)
+# DO NOT EDIT (digest: d18b4ab7006e0c36475a476e4a529799)
 # Ignore VCS directories, you can use the same kind of rule outside
 # OASIS_START/STOP if you want to exclude directories that contains
 # useless stuff for the build process
@@ -14,36 +14,36 @@ true: annot, bin_annot
 ".git": not_hygienic
 "_darcs": -traverse
 "_darcs": not_hygienic
-# Library ark
-"ark/ark.cmxs": use_ark
-"ark/arkUtil.cmx": for-pack(Ark)
-"ark/log.cmx": for-pack(Ark)
-"ark/disjointSet.cmx": for-pack(Ark)
-"ark/memo.cmx": for-pack(Ark)
-"ark/featureTree.cmx": for-pack(Ark)
-"ark/qQ.cmx": for-pack(Ark)
-"ark/zZ.cmx": for-pack(Ark)
-"ark/syntax.cmx": for-pack(Ark)
-"ark/interval.cmx": for-pack(Ark)
-"ark/smt.cmx": for-pack(Ark)
-"ark/arkZ3.cmx": for-pack(Ark)
-"ark/arkMathsat.cmx": for-pack(Ark)
-"ark/linear.cmx": for-pack(Ark)
-"ark/polynomial.cmx": for-pack(Ark)
-"ark/interpretation.cmx": for-pack(Ark)
-"ark/arkApron.cmx": for-pack(Ark)
-"ark/polyhedron.cmx": for-pack(Ark)
-"ark/arkSimplify.cmx": for-pack(Ark)
-"ark/abstract.cmx": for-pack(Ark)
-"ark/nonlinear.cmx": for-pack(Ark)
-"ark/coordinateSystem.cmx": for-pack(Ark)
-"ark/wedge.cmx": for-pack(Ark)
-"ark/quantifier.cmx": for-pack(Ark)
-"ark/iteration.cmx": for-pack(Ark)
-"ark/transition.cmx": for-pack(Ark)
-"ark/bigO.cmx": for-pack(Ark)
-"ark/hoare.cmx": for-pack(Ark)
-<ark/*.ml{,i,y}>: pkg_ppx_deriving.show
+# Library srk
+"srk/src/srk.cmxs": use_srk
+"srk/src/srkUtil.cmx": for-pack(Srk)
+"srk/src/log.cmx": for-pack(Srk)
+"srk/src/disjointSet.cmx": for-pack(Srk)
+"srk/src/memo.cmx": for-pack(Srk)
+"srk/src/featureTree.cmx": for-pack(Srk)
+"srk/src/qQ.cmx": for-pack(Srk)
+"srk/src/zZ.cmx": for-pack(Srk)
+"srk/src/syntax.cmx": for-pack(Srk)
+"srk/src/interval.cmx": for-pack(Srk)
+"srk/src/smt.cmx": for-pack(Srk)
+"srk/src/srkZ3.cmx": for-pack(Srk)
+"srk/src/srkMathsat.cmx": for-pack(Srk)
+"srk/src/linear.cmx": for-pack(Srk)
+"srk/src/polynomial.cmx": for-pack(Srk)
+"srk/src/interpretation.cmx": for-pack(Srk)
+"srk/src/srkApron.cmx": for-pack(Srk)
+"srk/src/polyhedron.cmx": for-pack(Srk)
+"srk/src/srkSimplify.cmx": for-pack(Srk)
+"srk/src/abstract.cmx": for-pack(Srk)
+"srk/src/nonlinear.cmx": for-pack(Srk)
+"srk/src/coordinateSystem.cmx": for-pack(Srk)
+"srk/src/wedge.cmx": for-pack(Srk)
+"srk/src/quantifier.cmx": for-pack(Srk)
+"srk/src/iteration.cmx": for-pack(Srk)
+"srk/src/transition.cmx": for-pack(Srk)
+"srk/src/bigO.cmx": for-pack(Srk)
+"srk/src/hoare.cmx": for-pack(Srk)
+<srk/src/*.ml{,i,y}>: pkg_ppx_deriving.show
 # Executable test_apak
 "apak/test_apak.native": pkg_Z3
 "apak/test_apak.native": pkg_apron
@@ -60,7 +60,7 @@ true: annot, bin_annot
 "apak/test_apak.native": pkg_ppx_deriving
 "apak/test_apak.native": pkg_ppx_deriving.ord
 "apak/test_apak.native": pkg_ppx_deriving.show
-"apak/test_apak.native": use_ark
+"apak/test_apak.native": use_srk
 <apak/*.ml{,i,y}>: pkg_apron.boxMPQ
 <apak/*.ml{,i,y}>: pkg_apron.octMPQ
 <apak/*.ml{,i,y}>: pkg_apron.polkaMPQ
@@ -95,47 +95,47 @@ true: annot, bin_annot
 <apak/*.ml{,i,y}>: pkg_ppx_deriving
 <apak/*.ml{,i,y}>: pkg_ppx_deriving.ord
 <apak/*.ml{,i,y}>: pkg_ppx_deriving.show
-<apak/*.ml{,i,y}>: use_ark
-# Executable test_ark
-"ark/test_ark.native": pkg_Z3
-"ark/test_ark.native": pkg_apron
-"ark/test_ark.native": pkg_apron.boxMPQ
-"ark/test_ark.native": pkg_apron.octMPQ
-"ark/test_ark.native": pkg_apron.polkaMPQ
-"ark/test_ark.native": pkg_batteries
-"ark/test_ark.native": pkg_camlidl
-"ark/test_ark.native": pkg_gmp
-"ark/test_ark.native": pkg_mathsat
-"ark/test_ark.native": pkg_oUnit
-"ark/test_ark.native": pkg_ocrs
-"ark/test_ark.native": pkg_ppx_deriving
-"ark/test_ark.native": pkg_ppx_deriving.ord
-<ark/*.ml{,i,y}>: pkg_oUnit
-# Executable arktop
-"ark/arkTop.native": pkg_Z3
-"ark/arkTop.native": pkg_apron
-"ark/arkTop.native": pkg_apron.boxMPQ
-"ark/arkTop.native": pkg_apron.octMPQ
-"ark/arkTop.native": pkg_apron.polkaMPQ
-"ark/arkTop.native": pkg_batteries
-"ark/arkTop.native": pkg_camlidl
-"ark/arkTop.native": pkg_gmp
-"ark/arkTop.native": pkg_mathsat
-"ark/arkTop.native": pkg_ocrs
-"ark/arkTop.native": pkg_ppx_deriving
-"ark/arkTop.native": pkg_ppx_deriving.ord
-<ark/*.ml{,i,y}>: pkg_Z3
-<ark/*.ml{,i,y}>: pkg_apron
-<ark/*.ml{,i,y}>: pkg_apron.boxMPQ
-<ark/*.ml{,i,y}>: pkg_apron.octMPQ
-<ark/*.ml{,i,y}>: pkg_apron.polkaMPQ
-<ark/*.ml{,i,y}>: pkg_batteries
-<ark/*.ml{,i,y}>: pkg_camlidl
-<ark/*.ml{,i,y}>: pkg_gmp
-<ark/*.ml{,i,y}>: pkg_mathsat
-<ark/*.ml{,i,y}>: pkg_ocrs
-<ark/*.ml{,i,y}>: pkg_ppx_deriving
-<ark/*.ml{,i,y}>: pkg_ppx_deriving.ord
+<apak/*.ml{,i,y}>: use_srk
+# Executable test_srk
+"srk/src/test_srk.native": pkg_Z3
+"srk/src/test_srk.native": pkg_apron
+"srk/src/test_srk.native": pkg_apron.boxMPQ
+"srk/src/test_srk.native": pkg_apron.octMPQ
+"srk/src/test_srk.native": pkg_apron.polkaMPQ
+"srk/src/test_srk.native": pkg_batteries
+"srk/src/test_srk.native": pkg_camlidl
+"srk/src/test_srk.native": pkg_gmp
+"srk/src/test_srk.native": pkg_mathsat
+"srk/src/test_srk.native": pkg_oUnit
+"srk/src/test_srk.native": pkg_ocrs
+"srk/src/test_srk.native": pkg_ppx_deriving
+"srk/src/test_srk.native": pkg_ppx_deriving.ord
+<srk/src/*.ml{,i,y}>: pkg_oUnit
+# Executable bigtop
+"srk/src/bigtop.native": pkg_Z3
+"srk/src/bigtop.native": pkg_apron
+"srk/src/bigtop.native": pkg_apron.boxMPQ
+"srk/src/bigtop.native": pkg_apron.octMPQ
+"srk/src/bigtop.native": pkg_apron.polkaMPQ
+"srk/src/bigtop.native": pkg_batteries
+"srk/src/bigtop.native": pkg_camlidl
+"srk/src/bigtop.native": pkg_gmp
+"srk/src/bigtop.native": pkg_mathsat
+"srk/src/bigtop.native": pkg_ocrs
+"srk/src/bigtop.native": pkg_ppx_deriving
+"srk/src/bigtop.native": pkg_ppx_deriving.ord
+<srk/src/*.ml{,i,y}>: pkg_Z3
+<srk/src/*.ml{,i,y}>: pkg_apron
+<srk/src/*.ml{,i,y}>: pkg_apron.boxMPQ
+<srk/src/*.ml{,i,y}>: pkg_apron.octMPQ
+<srk/src/*.ml{,i,y}>: pkg_apron.polkaMPQ
+<srk/src/*.ml{,i,y}>: pkg_batteries
+<srk/src/*.ml{,i,y}>: pkg_camlidl
+<srk/src/*.ml{,i,y}>: pkg_gmp
+<srk/src/*.ml{,i,y}>: pkg_mathsat
+<srk/src/*.ml{,i,y}>: pkg_ocrs
+<srk/src/*.ml{,i,y}>: pkg_ppx_deriving
+<srk/src/*.ml{,i,y}>: pkg_ppx_deriving.ord
 # Library matchingCC
 "pa/cc/matchingCC.cmxs": use_matchingCC
 <pa/cc/*.ml{,i,y}>: oasis_library_matchingcc_ccopt
@@ -158,7 +158,7 @@ true: annot, bin_annot
 <pa/cc/*.ml{,i,y}>: pkg_ppx_deriving.ord
 <pa/cc/*.ml{,i,y}>: pkg_ppx_deriving.show
 <pa/cc/*.ml{,i,y}>: use_apak
-<pa/cc/*.ml{,i,y}>: use_ark
+<pa/cc/*.ml{,i,y}>: use_srk
 "pa/cc/matching_stubs.c": pkg_Z3
 "pa/cc/matching_stubs.c": pkg_apron
 "pa/cc/matching_stubs.c": pkg_batteries
@@ -171,7 +171,7 @@ true: annot, bin_annot
 "pa/cc/matching_stubs.c": pkg_ppx_deriving.ord
 "pa/cc/matching_stubs.c": pkg_ppx_deriving.show
 "pa/cc/matching_stubs.c": use_apak
-"pa/cc/matching_stubs.c": use_ark
+"pa/cc/matching_stubs.c": use_srk
 # Library pa
 "pa/pa.cmxs": use_pa
 "pa/paSmt.cmx": for-pack(Pa)
@@ -191,8 +191,8 @@ true: annot, bin_annot
 <pa/*.ml{,i,y}>: pkg_ppx_deriving.ord
 <pa/*.ml{,i,y}>: pkg_ppx_deriving.show
 <pa/*.ml{,i,y}>: use_apak
-<pa/*.ml{,i,y}>: use_ark
 <pa/*.ml{,i,y}>: use_matchingCC
+<pa/*.ml{,i,y}>: use_srk
 # Executable test_patools
 "patools/test_patools.native": pkg_Z3
 "patools/test_patools.native": pkg_apron
@@ -210,9 +210,9 @@ true: annot, bin_annot
 "patools/test_patools.native": pkg_ppx_deriving.ord
 "patools/test_patools.native": pkg_ppx_deriving.show
 "patools/test_patools.native": use_apak
-"patools/test_patools.native": use_ark
 "patools/test_patools.native": use_matchingCC
 "patools/test_patools.native": use_pa
+"patools/test_patools.native": use_srk
 <patools/*.ml{,i,y}>: pkg_oUnit
 # Executable patools
 <patools/*.ml{,i,y}>: oasis_executable_patools_ccopt
@@ -231,9 +231,9 @@ true: annot, bin_annot
 "patools/patools.native": pkg_ppx_deriving.ord
 "patools/patools.native": pkg_ppx_deriving.show
 "patools/patools.native": use_apak
-"patools/patools.native": use_ark
 "patools/patools.native": use_matchingCC
 "patools/patools.native": use_pa
+"patools/patools.native": use_srk
 <patools/*.ml{,i,y}>: pkg_Z3
 <patools/*.ml{,i,y}>: pkg_apron
 <patools/*.ml{,i,y}>: pkg_apron.boxMPQ
@@ -249,9 +249,9 @@ true: annot, bin_annot
 <patools/*.ml{,i,y}>: pkg_ppx_deriving.ord
 <patools/*.ml{,i,y}>: pkg_ppx_deriving.show
 <patools/*.ml{,i,y}>: use_apak
-<patools/*.ml{,i,y}>: use_ark
 <patools/*.ml{,i,y}>: use_matchingCC
 <patools/*.ml{,i,y}>: use_pa
+<patools/*.ml{,i,y}>: use_srk
 # Executable duet
 "duet/duet.native": pkg_Z3
 "duet/duet.native": pkg_apron
@@ -270,9 +270,9 @@ true: annot, bin_annot
 "duet/duet.native": pkg_ppx_deriving.ord
 "duet/duet.native": pkg_ppx_deriving.show
 "duet/duet.native": use_apak
-"duet/duet.native": use_ark
 "duet/duet.native": use_matchingCC
 "duet/duet.native": use_pa
+"duet/duet.native": use_srk
 <duet/*.ml{,i,y}>: pkg_Z3
 <duet/*.ml{,i,y}>: pkg_apron
 <duet/*.ml{,i,y}>: pkg_apron.boxMPQ
@@ -290,9 +290,9 @@ true: annot, bin_annot
 <duet/*.ml{,i,y}>: pkg_ppx_deriving.ord
 <duet/*.ml{,i,y}>: pkg_ppx_deriving.show
 <duet/*.ml{,i,y}>: use_apak
-<duet/*.ml{,i,y}>: use_ark
 <duet/*.ml{,i,y}>: use_matchingCC
 <duet/*.ml{,i,y}>: use_pa
+<duet/*.ml{,i,y}>: use_srk
 # Executable cca
 "cca/cca.native": pkg_Z3
 "cca/cca.native": pkg_apron
@@ -311,9 +311,9 @@ true: annot, bin_annot
 "cca/cca.native": pkg_ppx_deriving.ord
 "cca/cca.native": pkg_ppx_deriving.show
 "cca/cca.native": use_apak
-"cca/cca.native": use_ark
 "cca/cca.native": use_matchingCC
 "cca/cca.native": use_pa
+"cca/cca.native": use_srk
 <cca/*.ml{,i,y}>: pkg_Z3
 <cca/*.ml{,i,y}>: pkg_apron
 <cca/*.ml{,i,y}>: pkg_apron.boxMPQ
@@ -331,9 +331,9 @@ true: annot, bin_annot
 <cca/*.ml{,i,y}>: pkg_ppx_deriving.ord
 <cca/*.ml{,i,y}>: pkg_ppx_deriving.show
 <cca/*.ml{,i,y}>: use_apak
-<cca/*.ml{,i,y}>: use_ark
 <cca/*.ml{,i,y}>: use_matchingCC
 <cca/*.ml{,i,y}>: use_pa
+<cca/*.ml{,i,y}>: use_srk
 # OASIS_STOP
 "lib": not_hygienic
 true: use_menhir

@@ -1,7 +1,7 @@
 open Core
 open CfgIr
 open Apak
-open Ark
+open Srk
 
 (* TODO: Address of generates no equality *)
 (* -----------------Domains *)

@@ -1,4 +1,4 @@
-open Ark
+open Srk
 
 type 'a regex =
   | Alpha of 'a
@@ -162,7 +162,7 @@ struct
             Format.fprintf formatter "@[(%a)@]" pp x
           | _ -> pp formatter x
         in
-        ArkUtil.pp_print_enum
+        SrkUtil.pp_print_enum
           ~pp_sep:(fun _ () -> ())
           pp_elt
           formatter
@@ -170,14 +170,14 @@ struct
       | NUnion xs ->
         if NSet.is_empty xs then Format.pp_print_string formatter "{}"
         else
-          ArkUtil.pp_print_enum
+          SrkUtil.pp_print_enum
             ~pp_sep:(fun formatter () -> Format.fprintf formatter "@,+" )
             pp
             formatter
             (NSet.enum xs)
       | NComplement x ->
         Format.fprintf formatter "@[~(%a)@]" pp x
-    let show = ArkUtil.mk_show pp
+    let show = SrkUtil.mk_show pp
   end
   and NSet : Putil.Set.S with type elt = N.t = Putil.Set.Make(N)
 

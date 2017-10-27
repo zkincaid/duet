@@ -7,7 +7,7 @@ open Graph
 open Apak
 open Core
 
-module Log = Ark.Log
+module Log = Srk.Log
 
 module type FlowGraph = sig
   include Graph.Sig.I

@@ -1,5 +1,5 @@
 open Core
-open Ark
+open Srk
 open Apak
 
 (** Statement kind *)
@@ -171,7 +171,7 @@ module Display = struct
   include StmtCfg;;
   open Graph.Graphviz.DotAttributes;;
   let vertex_name v =
-    "\"" ^ (String.escaped (ArkUtil.mk_show pp_stmt v)) ^ "\""
+    "\"" ^ (String.escaped (SrkUtil.mk_show pp_stmt v)) ^ "\""
   let get_subgraph v =  None
   let default_vertex_attributes _ = []
   let default_edge_attributes _ = []

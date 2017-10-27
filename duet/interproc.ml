@@ -1,7 +1,7 @@
 open Core
 open CfgIr
 open Ai
-open Ark
+open Srk
 open Apak
 
 module Seq = struct
