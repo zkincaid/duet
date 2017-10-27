@@ -52,7 +52,7 @@ let rec insert_bucket fv elt = function
 
 let rec mk_tree nb_features bucket =
   if List.length bucket <= bucket_size then
-    Leaf bucket
+    Leaf (List.sort (fun (fv, _) (fv', _) -> compare_fv fv fv') bucket)
   else
     let (feature,value) =
       let len = List.length bucket in
@@ -200,14 +200,16 @@ let remove equal elt ft =
   { ft with tree = remove_tree ft.tree }
 
 let rebalance ft =
+  let bucket = ref [] in
   let rec to_bucket = function
-    | Leaf xs -> xs
+    | Leaf xs ->
+      bucket := xs@(!bucket);
     | Node n ->
-      (to_bucket n.left)@(to_bucket n.right)
+      to_bucket n.left; to_bucket n.right
   in
-  let bucket = to_bucket ft.tree in
-  match bucket with
+  to_bucket ft.tree;
+  match !bucket with
   | [] -> empty ft.features
   | (fv,x)::list ->
     { features = ft.features;
-      tree = mk_tree (Array.length fv - 1) bucket }
+      tree = mk_tree (Array.length fv) (!bucket) }

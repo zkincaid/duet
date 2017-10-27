@@ -640,6 +640,7 @@ module CHC = struct
   type 'a solver =
     { ctx : 'a z3_context;
       error : symbol;
+      mutable head_relations : Symbol.Set.t;
       fp : Z3.Fixedpoint.fixedpoint }
 
   let mk_solver ctx =
@@ -655,7 +656,7 @@ module CHC = struct
     Z3.Fixedpoint.set_parameters fp params;
 
     Z3.Fixedpoint.register_relation fp error_decl;
-    { ctx; error; fp }
+    { ctx; error; fp; head_relations = Symbol.Set.empty }
 
   let register_relation solver relation =
     let decl = decl_of_symbol solver.ctx#z3 solver.ctx#srk relation in
@@ -669,8 +670,11 @@ module CHC = struct
   let push solver = Z3.Fixedpoint.push solver.fp
 
   module M = SrkUtil.Int.Map
+
   let add_rule solver hypothesis conclusion =
     let srk = solver.ctx#srk in
+    (* The hypothesis is assumed to not simplify to true/false -- otherwise,
+       var_table isn't initialized *)
     let var_table = free_vars (mk_if srk hypothesis conclusion) in
     let rename =
       let table = Hashtbl.create 991 in
@@ -680,13 +684,14 @@ module CHC = struct
     in
     let rule =
       match destruct srk conclusion with
-      | `App (_, _) ->
+      | `App (r, _) ->
         let hypothesis =
           solver.ctx#of_formula (substitute srk rename hypothesis)
         in
         let conclusion =
           solver.ctx#of_formula (substitute srk rename conclusion)
         in
+        solver.head_relations <- Symbol.Set.add r solver.head_relations;
         Z3.Boolean.mk_implies solver.ctx#z3 hypothesis conclusion
       | _ ->
         let hypothesis =
@@ -723,6 +728,20 @@ module CHC = struct
     in
     Z3.Fixedpoint.add_rule solver.fp quantified_rule None
 
+  let add_rule solver hypothesis conclusion =
+    let srk = solver.ctx#srk in
+    match destruct srk (mk_if srk hypothesis conclusion) with
+    | `Tru -> ()
+    | `Fls ->
+      let err_rule =
+        Z3.Boolean.mk_implies
+          solver.ctx#z3
+          (solver.ctx#of_formula (mk_true srk))
+          (solver.ctx#of_formula (mk_app srk solver.error []))
+      in
+      Z3.Fixedpoint.add_rule solver.fp err_rule None
+    | _ -> add_rule solver hypothesis conclusion
+
   let check solver assumptions =
     let goal = solver.ctx#of_formula (mk_app solver.ctx#srk solver.error []) in
     match Z3.Fixedpoint.query solver.fp goal with
@@ -733,12 +752,12 @@ module CHC = struct
   let get_solution solver relation =
     let srk = solver.ctx#srk in
     let decl = decl_of_symbol solver.ctx#z3 srk relation in
-    if Z3.Fixedpoint.get_num_levels solver.fp decl = 0 then
-      mk_false srk (* 0 levels -> never appears in the head of a rule *)
-    else
+    if Symbol.Set.mem relation solver.head_relations then
       match Z3.Fixedpoint.get_cover_delta solver.fp (-1) decl with
       | Some inv -> solver.ctx#formula_of inv
       | None -> assert false
+    else
+      mk_false srk
 
   let to_string solver = Z3.Fixedpoint.to_string solver.fp
 end

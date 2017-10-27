@@ -308,6 +308,35 @@ let chc4 () =
   in
   verify_chc [r_sym] rules
 
+let chc_trivial_false () =
+  let psym = Ctx.mk_symbol ~name:"p" (`TyFun ([`TyInt], `TyBool)) in
+  let qsym = Ctx.mk_symbol ~name:"q" (`TyFun ([`TyInt], `TyBool)) in
+  let p x = Ctx.mk_app psym [x] in
+  let q x = Ctx.mk_app qsym [x] in
+  let rules =
+    let open Infix in
+    let (-->) x y = (x, y) in
+    let v0 = var 0 `TyInt in
+    [fls --> p(v0);
+     p(v0) --> q(v0)]
+  in
+  verify_chc [psym; qsym] rules
+
+let chc_trivial_true () =
+  let psym = Ctx.mk_symbol ~name:"p" (`TyFun ([`TyInt], `TyBool)) in
+  let qsym = Ctx.mk_symbol ~name:"q" (`TyFun ([`TyInt], `TyBool)) in
+  let p x = Ctx.mk_app psym [x] in
+  let q x = Ctx.mk_app qsym [x] in
+  let rules =
+    let open Infix in
+    let (-->) x y = (x, y) in
+    let v0 = var 0 `TyInt in
+    [tru --> p(v0);
+     (p(v0) && v0 <= (int 0)) --> q(v0);
+     (q(v0) && (int 0) < v0) --> fls]
+  in
+  verify_chc [psym; qsym] rules
+
 let suite = "SMT" >:::
   [
     "roundtrip0" >:: roundtrip0;
@@ -326,4 +355,6 @@ let suite = "SMT" >:::
     "chc2" >:: chc2;
     "chc3" >:: chc3;
     "chc4" >:: chc4;
+    "chc_trivial_false" >:: chc_trivial_false;
+    "chc_trivial_true" >:: chc_trivial_true;
   ]

@@ -40,7 +40,7 @@ module MakeSolver(Ctx : Syntax.Context) (Var : Transition.Var) = struct
       triples : triple DA.t;
     }
 
-  let mk_solver =
+  let mk_solver () =
     let smt_ctx = mk_context srk [] in
     { smt_ctx = smt_ctx;
       solver = CHC.mk_solver smt_ctx;

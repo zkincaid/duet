@@ -535,10 +535,10 @@ let construct solver assign_table trace =
   | `Valid itp -> go (List.rev trace) (List.tl (List.rev itp)) Ctx.mk_false
   | _ -> Log.fatalf "Failed to interpolate!"
 
-(*
+module Solver = Hoare.MakeSolver(Ctx)(IV)
+
 let construct solver assign_table trace =
-  let module Solver = Hoare.MakeSolver(Ctx)(IV) in
-  let hoare_solver = Solver.mk_solver in
+  let hoare_solver = Solver.mk_solver () in
   let add_triples trace =
     let transitions =
       List.map (fun (letter, tid) -> Letter.transition_of tid letter) trace
@@ -597,7 +597,7 @@ let construct solver assign_table trace =
                logf
                  "Added PA transition:@\n @[{%a}(%a)@]@\n --( [#0] %a )-->@\n @[%a@]"
                  P.pp psi
-                 (ArkUtil.pp_print_enum Format.pp_print_int) (1 -- psi_arity)
+                 (SrkUtil.pp_print_enum Format.pp_print_int) (1 -- psi_arity)
                  Letter.pp letter
                  PA.pp_formula rhs;
                E.conjoin_transition solver psi letters (negate_paformula rhs)
@@ -611,7 +611,6 @@ let construct solver assign_table trace =
   match Solver.check_solution hoare_solver with
   | `Sat -> go trace (Solver.get_solution hoare_solver)
   | _ -> Log.fatalf "Failed to find hoare triples"
- *)
 
 let construct solver trace =
   Log.time "PA construction" (construct solver) trace
