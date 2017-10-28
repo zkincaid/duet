@@ -8,6 +8,10 @@ val show : 'a t -> string
 
 val join : ?integrity:('a formula -> unit) -> 'a t -> 'a t -> 'a t
 
+val meet : 'a t -> 'a t -> 'a t
+
+val meet_atoms : 'a t -> ('a formula) list -> unit
+
 val equal : 'a t -> 'a t -> bool
 
 val widen : 'a t -> 'a t -> 'a t
@@ -49,6 +53,10 @@ val farkas_equalities : 'a t -> ('a term * Linear.QQVector.t) list
     and upper bounds for [symbol] that are implied by [wedge]. *)
 val symbolic_bounds : 'a t -> symbol -> ('a term) list * ('a term) list
 
+(** Given a wedge [wedge] and a term [term], compute a lower and upper bounds
+    for [term] within the region [wedge]. *)
+val bounds : 'a t -> 'a term -> Interval.t
+
 (** Ensure that the named symbols [pow : Real x Real -> Real] and [log : Real
     x Real -> Real] belong to a given context. *)
 val ensure_nonlinear_symbols : 'a context -> unit
@@ -85,3 +93,5 @@ val coordinate_system : 'a t -> 'a CoordinateSystem.t
 val polyhedron : 'a t -> ([ `Eq | `Geq ] * Linear.QQVector.t) list
 
 val vanishing_ideal : 'a t -> Polynomial.Mvp.t list
+
+val copy : 'a t -> 'a t

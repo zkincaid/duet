@@ -87,6 +87,10 @@ let get_manager =
 type env = { int_dim : int A.t;
              real_dim : int A.t }
 
+let copy_env env =
+  { int_dim = A.copy env.int_dim;
+    real_dim = A.copy env.real_dim }
+
 type 'a t =
   { srk : 'a context;
     cs : 'a CS.t;
@@ -1029,11 +1033,20 @@ let join ?integrity:(integrity=(fun _ -> ())) wedge wedge' =
       abstract =
         Abstract0.join (get_manager ()) wedge.abstract wedge'.abstract }
 
+let copy wedge =
+  { srk = wedge.srk;
+    cs = CS.copy wedge.cs;
+    env = copy_env wedge.env;
+    abstract = wedge.abstract }
+
 let meet wedge wedge' =
-  if is_top wedge then wedge'
-  else if is_top wedge' then wedge
-  else
-    (meet_atoms wedge (to_atoms wedge'); wedge)
+  if is_top wedge then copy wedge'
+  else if is_top wedge' then copy wedge
+  else begin
+    let wedge = copy wedge in
+    meet_atoms wedge (to_atoms wedge');
+    wedge
+  end
 
 let join ?integrity:(integrity=(fun _ -> ())) wedge wedge' =
   Log.time "wedge join" (join ~integrity wedge) wedge'
@@ -1145,12 +1158,13 @@ let symbolic_bounds_vec wedge vec forget =
       end);
   (!lower, !upper)
 
-(* TODO: needs to copy the wedge first -- it's destructively strengthend *)
+
 let exists
     ?integrity:(integrity=(fun _ -> ()))
     ?subterm:(subterm=(fun _ -> true))
     p
     wedge =
+  let wedge = copy wedge in
   let srk = wedge.srk in
   let cs = wedge.cs in
   ensure_nonlinear_symbols srk;
@@ -1556,37 +1570,41 @@ let farkas_equalities wedge =
 
 let symbolic_bounds wedge symbol =
   let srk = wedge.srk in
-  let vec = CS.vec_of_term wedge.cs (mk_const srk symbol) in
-  match BatList.of_enum (V.enum vec) with
-  | [(coeff, id)] ->
-    assert (QQ.equal coeff QQ.one);
+  let term = (mk_const srk symbol) in
+  if CS.admits wedge.cs term then
+    let vec = CS.vec_of_term wedge.cs term in
+    match BatList.of_enum (V.enum vec) with
+    | [(coeff, id)] ->
+      assert (QQ.equal coeff QQ.one);
 
-    let constraints =
-      Abstract0.to_lincons_array (get_manager ()) wedge.abstract
-    in
-    BatEnum.fold (fun (lower, upper) lincons ->
-        let open Lincons0 in
-        let vec = vec_of_linexpr wedge.env lincons.linexpr0 in
-        let (a, t) = V.pivot id vec in
-        if QQ.equal a QQ.zero then
-          (lower, upper)
-        else
-          let bound =
-            V.scalar_mul (QQ.negate (QQ.inverse a)) t
-            |> CS.term_of_vec wedge.cs
-          in
-          match lincons.typ with
-          | EQ -> (bound::lower, bound::upper)
-          | SUP | SUPEQ ->
-            if QQ.lt QQ.zero a then
-              (bound::lower, upper)
-            else
-              (lower, bound::upper)
-          | _ -> (lower, upper)
-      )
-      ([], [])
-      (BatArray.enum constraints)
-  | _ -> assert false
+      let constraints =
+        Abstract0.to_lincons_array (get_manager ()) wedge.abstract
+      in
+      BatEnum.fold (fun (lower, upper) lincons ->
+          let open Lincons0 in
+          let vec = vec_of_linexpr wedge.env lincons.linexpr0 in
+          let (a, t) = V.pivot id vec in
+          if QQ.equal a QQ.zero then
+            (lower, upper)
+          else
+            let bound =
+              V.scalar_mul (QQ.negate (QQ.inverse a)) t
+              |> CS.term_of_vec wedge.cs
+            in
+            match lincons.typ with
+            | EQ -> (bound::lower, bound::upper)
+            | SUP | SUPEQ ->
+              if QQ.lt QQ.zero a then
+                (bound::lower, upper)
+              else
+                (lower, bound::upper)
+            | _ -> (lower, upper)
+        )
+        ([], [])
+        (BatArray.enum constraints)
+    | _ -> assert false
+  else
+    ([], [])
 
 let is_sat srk phi =
   let solver = Smt.mk_solver srk in
@@ -1873,6 +1891,12 @@ let symbolic_bounds_formula ?exists:(p=fun x -> true) srk phi symbol =
 
 let symbolic_bounds_formula ?(exists=fun x -> true) srk phi symbol =
   Log.time "symbolic_bounds_formula" (symbolic_bounds_formula ~exists srk phi) symbol
+
+let bounds wedge term =
+  if CS.admits wedge.cs term then
+    bound_vec wedge (CS.vec_of_term wedge.cs term)
+  else
+    Interval.top
 
 let coordinate_system wedge = wedge.cs
 
