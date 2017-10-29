@@ -17,7 +17,6 @@ val equal : 'a t -> 'a t -> bool
 val widen : 'a t -> 'a t -> 'a t
 
 val of_atoms : 'a context ->
-  ?integrity:('a formula -> unit) ->
   ('a formula) list ->
   'a t
 
@@ -95,3 +94,7 @@ val polyhedron : 'a t -> ([ `Eq | `Geq ] * Linear.QQVector.t) list
 val vanishing_ideal : 'a t -> Polynomial.Mvp.t list
 
 val copy : 'a t -> 'a t
+
+val equational_saturation : ?integrity:('a formula -> unit) -> 'a t -> Polynomial.Rewrite.t
+
+val strengthen : ?integrity:('a formula -> unit) -> 'a t -> unit

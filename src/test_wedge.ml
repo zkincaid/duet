@@ -17,7 +17,9 @@ let assert_implies phi psi =
       let not_atom =
         rewrite srk ~down:(nnf_rewriter srk) (mk_not srk atom)
       in
-      if not (Wedge.is_bottom (Wedge.of_atoms srk (not_atom::phi))) then
+      let wedge = Wedge.of_atoms srk (not_atom::phi) in
+      Wedge.strengthen wedge;
+      if not (Wedge.is_bottom wedge) then
         assert_failure (Printf.sprintf "%s\ndoes not imply\n%s"
                           (Formula.show srk (mk_and srk phi))
                           (Formula.show srk atom)))

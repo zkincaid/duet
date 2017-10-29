@@ -419,28 +419,20 @@ let coordinate_ideal ?integrity:(integrity=(fun _ -> ())) wedge =
   in
   polyhedron_ideal@coordinate_ideal
 
-let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
-  ensure_nonlinear_symbols wedge.srk;
-  assert (env_consistent wedge);
+(* Equational saturation.  A polyhedron P is equationally saturated if every
+   degree-1 polynomial in the ideal of polynomials vanishing on P + the
+   coordinate ideal vanishes on P.  This procedure computes the greatest
+   equationally saturated polyhedron contained in the underlying wedge of the
+   polyhedron.  *)
+let equational_saturation ?integrity:(integrity=(fun _ -> ())) wedge =
   let cs = wedge.cs in
   let srk = wedge.srk in
   let zero = mk_real srk QQ.zero in
-  let pow = get_named_symbol srk "pow" in
-  let log = get_named_symbol srk "log" in
-  let add_bound precondition bound =
-    logf ~level:`trace "Integrity: %a => %a"
-      (Formula.pp srk) precondition
-      (Formula.pp srk) bound;
-    integrity (mk_or srk [mk_not srk precondition; bound]);
-    meet_atoms wedge [bound]
-  in
 
-  let provenance_formula ps =
-    List.map (fun p -> mk_eq srk (CS.term_of_polynomial cs p) zero) ps
-    |> mk_and srk
-  in
+  ensure_nonlinear_symbols wedge.srk;
+  assert (env_consistent wedge);
 
-  logf "Before strengthen: %a" pp wedge;
+  let saturated = ref false in
 
   (* Rewrite maintains a Grobner basis for the coordinate ideal + the ideal of
      polynomials vanishing on the underlying polyhedron of the wedge *)
@@ -454,204 +446,22 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
   in
   logf "Rewrite: @[<v 0>%a@]" (Polynomial.Rewrite.pp pp_dim) (!rewrite);
 
-  (* pow-log rule *)
-  let vec_sign vec =
-    let ivl = bound_vec wedge vec in
-    if Interval.is_positive ivl then
-      `Positive
-    else if Interval.is_negative ivl then
-      `Negative
-    else
-      `Unknown
-  in
-  let vec_leq x y =
-    Interval.is_nonpositive (bound_vec wedge (V.add x (V.negate y)))
-  in
-
-  for i = 0 to CS.dim wedge.cs - 1 do
-    match CS.destruct_coordinate wedge.cs i with
-    | `App (func, [b; s]) when func = pow ->
-      if vec_sign b = `Positive then begin
-        begin
-          let ivl = bound_coordinate wedge i in
-          let logc_ivl = Interval.log (bound_vec wedge b) ivl in
-          match Interval.lower ivl with
-          | Some lo when QQ.lt QQ.zero lo ->
-            begin match Interval.lower logc_ivl with
-              | Some logc ->
-                let hypothesis =
-                  mk_and srk [mk_leq srk (mk_real srk lo) (CS.term_of_coordinate cs i);
-                              mk_lt srk zero (CS.term_of_vec cs b)]
-                in
-                let conclusion =
-                  mk_leq srk (mk_real srk logc) (CS.term_of_vec cs s)
-                in
-                add_bound hypothesis conclusion
-              | None -> ()
-            end;
-            begin match Interval.upper ivl, Interval.upper logc_ivl with
-              | Some hi, Some logc ->
-                let hypothesis =
-                  mk_and srk [mk_leq srk (CS.term_of_coordinate cs i) (mk_real srk hi);
-                              mk_lt srk zero (CS.term_of_vec cs b)]
-                in
-                let conclusion =
-                  mk_leq srk (mk_real srk logc) (CS.term_of_vec cs s)
-                in
-                add_bound hypothesis conclusion
-              | _, _ -> ()
-            end
-          | _ -> ()
-        end;
-        for j = 0 to CS.dim wedge.cs - 1 do
-          match CS.destruct_coordinate wedge.cs j with
-          | `App (func, [b'; t]) when func = log->
-            let (base_eq, base_eq_prov) =
-              let (reduced, prov) =
-                P.sub (poly_of_vec b) (poly_of_vec b')
-                |> Polynomial.Rewrite.preduce (!rewrite)
-              in
-              (P.equal reduced P.zero, prov)
-            in
-            if base_eq && vec_sign t = `Positive then
-              let t_sub_bs_ivl = (* t - b^s >= 0? *)
-                V.add_term (QQ.of_int (-1)) i t
-                |> bound_vec wedge
-              in
-              begin
-                (* 0 < b && b^s <= t |= s <= log_b(t) *)
-                if Interval.is_nonnegative t_sub_bs_ivl then
-                  let hypothesis =
-                    mk_and srk [mk_lt srk zero (CS.term_of_vec cs b);
-                                mk_leq srk
-                                  (CS.term_of_coordinate cs i)
-                                  (CS.term_of_vec cs t);
-                                provenance_formula base_eq_prov]
-                  in
-                  let conclusion =
-                    mk_leq srk (CS.term_of_vec cs s) (CS.term_of_coordinate cs j)
-                  in
-                  add_bound hypothesis conclusion
-              end;
-              begin
-                (* 0 < t <= b^s |= log_b(t) <= s *)
-                if Interval.is_nonpositive t_sub_bs_ivl then
-                  let hypothesis =
-                    mk_and srk [mk_lt srk zero (CS.term_of_vec cs t);
-                                mk_leq srk
-                                  (CS.term_of_vec cs t)
-                                  (CS.term_of_coordinate cs i);
-                                provenance_formula base_eq_prov]
-                  in
-                  let conclusion =
-                    mk_leq srk (CS.term_of_coordinate cs j) (CS.term_of_vec cs s)
-                  in
-                  add_bound hypothesis conclusion
-              end;
-              begin
-                let p = (* b^s * t *)
-                  P.mul
-                    (CS.polynomial_of_coordinate cs i)
-                    (CS.polynomial_of_coordinate cs j)
-                in
-                match vec_of_poly (Polynomial.Rewrite.reduce (!rewrite) p) with
-                | None -> ()
-                | Some vec ->
-                  let ivl = bound_vec wedge vec in
-                  let p_term = CS.term_of_vec cs vec in
-                  let logbc_ivl =
-                    Interval.log (bound_vec wedge b) ivl
-                  in
-                  (* 0 < c <= (b^s)*t && 0 < t && 0 < b^s
-                     |= log_b(c) <= log_b(t) + s *)
-                  begin match Interval.lower ivl, Interval.lower logbc_ivl with
-                    | Some lo, Some logbc when QQ.lt QQ.zero lo ->
-                      let hypothesis =
-                        mk_and srk [mk_lt srk (mk_real srk lo) p_term;
-                                    mk_lt srk zero (CS.term_of_vec cs t);
-                                    mk_lt srk zero (CS.term_of_coordinate cs i)]
-                      in
-                      let conclusion =
-                        mk_leq srk
-                          (mk_real srk logbc)
-                          (mk_add srk [CS.term_of_coordinate cs j;
-                                       CS.term_of_vec cs s])
-                      in
-                      add_bound hypothesis conclusion
-                    | _, _ -> ()
-                  end;
-                  (* 0 < t && 0 < b && (b^s)*t <= c |= log_b(t) + s <= log_b(c) *)
-                  begin match Interval.upper ivl, Interval.upper logbc_ivl with
-                    | Some hi, Some logbc ->
-                      let hypothesis =
-                        mk_and srk [mk_lt srk p_term (mk_real srk hi);
-                                    mk_lt srk zero (CS.term_of_vec cs t);
-                                    mk_lt srk zero (CS.term_of_coordinate cs i)]
-                      in
-                      let conclusion =
-                        mk_leq srk
-                          (mk_add srk [CS.term_of_coordinate cs j;
-                                       CS.term_of_vec cs s])
-                          (mk_real srk logbc)
-                      in
-                      add_bound hypothesis conclusion
-                    | _, _ -> ()
-                  end
-              end
-          | `App (func, [b'; s']) when func = pow ->
-            (* 1 <= b <= b' && s <= s' |= b^s <= b'^s' *)
-            let one = V.of_term QQ.one CS.const_id in
-            begin
-              if vec_leq one b && vec_leq b b' && vec_leq s s' then
-                let hypothesis =
-                  mk_and srk [mk_leq srk (CS.term_of_vec cs b)
-                                (CS.term_of_vec cs b');
-                              mk_leq srk (CS.term_of_vec cs s)
-                                (CS.term_of_vec cs s');
-                              mk_leq srk (mk_real srk QQ.one)
-                                (CS.term_of_vec cs b)]
-                in
-                let conclusion =
-                  mk_leq srk
-                    (CS.term_of_coordinate cs i)
-                    (CS.term_of_coordinate cs j)
-                in
-                add_bound hypothesis conclusion
-            end;
-            begin
-              (* 1 <= b && b <= b' && b^s <= b'^s' |= s <= s' *)
-              let ivec = V.of_term QQ.one i in
-              let jvec = V.of_term QQ.one j in
-              if vec_leq one b && vec_leq b b' && vec_leq ivec jvec then
-                let hypothesis =
-                  mk_and srk [mk_leq srk (CS.term_of_vec cs b)
-                                (CS.term_of_vec cs b');
-                              mk_leq srk (CS.term_of_coordinate cs i)
-                                (CS.term_of_coordinate cs j);
-                              mk_leq srk (mk_real srk QQ.one)
-                                (CS.term_of_vec cs b)]
-                in
-                let conclusion =
-                  mk_leq srk (CS.term_of_vec cs s) (CS.term_of_vec cs s')
-                in
-                add_bound hypothesis conclusion
-            end
-          | _ -> ()
-        done
-      end
-    | _ -> ()
-  done;
-
-  (* Equational saturation.  A polyhedron P is equationally saturated if every
-     degree-1 polynomial in the ideal of polynomials vanishing on P + the
-     coordinate ideal vanishes on P.  This procedure computes the greatest
-     equationally saturated polyhedron contained in the underlying wedge of the
-     polyhedron.  *)
-  let saturated = ref false in
-
   (* Hashtable mapping canonical forms of nonlinear terms to their
      representative terms. *)
   let canonical = Expr.HT.create 991 in
+
+  let provenance_formula ps =
+    List.map (fun p -> mk_eq srk (CS.term_of_polynomial cs p) zero) ps
+    |> mk_and srk
+  in
+
+  let add_bound precondition bound =
+    logf ~level:`trace "Integrity: %a => %a"
+      (Formula.pp srk) precondition
+      (Formula.pp srk) bound;
+    integrity (mk_or srk [mk_not srk precondition; bound]);
+    meet_atoms wedge [bound]
+  in
 
   let reduce_vec vec =
     let (p, provenance) =
@@ -669,6 +479,7 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
     in
     (p_term, integrity)
   in
+
   while not !saturated do
     saturated := true;
     for id = 0 to CS.dim wedge.cs - 1 do
@@ -734,9 +545,23 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
           rewrite := Polynomial.Rewrite.add_saturate (!rewrite) reduced;
         end);
   done;
+  !rewrite
 
-  (* Compute bounds for synthetic dimensions using the bounds of their
-     operands *)
+(* Compute bounds for synthetic dimensions using the bounds of their
+   operands *)
+let strengthen_intervals integrity wedge =
+  let cs = wedge.cs in
+  let srk = wedge.srk in
+  let zero = mk_real srk QQ.zero in
+  let log = get_named_symbol srk "log" in
+  let add_bound precondition bound =
+    logf ~level:`trace "Integrity: %a => %a"
+      (Formula.pp srk) precondition
+      (Formula.pp srk) bound;
+    integrity (mk_or srk [mk_not srk precondition; bound]);
+    meet_atoms wedge [bound]
+  in
+
   for id = 0 to CS.dim wedge.cs - 1 do
     let term = CS.term_of_coordinate wedge.cs id in
     match CS.destruct_coordinate wedge.cs id with
@@ -744,7 +569,7 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
       let go (x,x_ivl,x_term) (y,y_ivl,y_term) =
         if Interval.is_nonnegative y_ivl then
           begin
-            let y_nonnegative = mk_leq srk (mk_real srk QQ.zero) y_term in
+            let y_nonnegative = mk_leq srk zero y_term in
             (match Interval.lower x_ivl with
              | Some lo ->
                add_bound
@@ -761,7 +586,7 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
           end
         else if Interval.is_nonpositive y_ivl then
           begin
-            let y_nonpositive = mk_leq srk y_term (mk_real srk QQ.zero) in
+            let y_nonpositive = mk_leq srk y_term zero in
             (match Interval.lower x_ivl with
              | Some lo ->
                add_bound
@@ -884,17 +709,32 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
         ()
 
     | `App (func, args) -> ()
-  done;
+  done
 
+let strengthen_products integrity rewrite wedge =
+  let cs = wedge.cs in
+  let srk = wedge.srk in
+  let zero = mk_real srk QQ.zero in
   let mk_geqz p = (* p >= 0 *)
     mk_leq srk (mk_neg srk (CS.term_of_polynomial wedge.cs p)) zero
+  in
+  let provenance_formula ps =
+    List.map (fun p -> mk_eq srk (CS.term_of_polynomial cs p) zero) ps
+    |> mk_and srk
+  in
+  let add_bound precondition bound =
+    logf ~level:`trace "Integrity: %a => %a"
+      (Formula.pp srk) precondition
+      (Formula.pp srk) bound;
+    integrity (mk_or srk [mk_not srk precondition; bound]);
+    meet_atoms wedge [bound]
   in
   let rec add_products = function
     | [] -> ()
     | (p::cone) ->
       cone |> List.iter (fun q ->
           let (r, provenance) =
-            Polynomial.Rewrite.preduce (!rewrite) (P.mul p q)
+            Polynomial.Rewrite.preduce rewrite (P.mul p q)
           in
           match vec_of_poly r with
           | Some r ->
@@ -910,9 +750,12 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
           | None -> ());
       add_products cone
   in
-  add_products (polynomial_cone wedge);
+  add_products (polynomial_cone wedge)
 
-  (* Tighten integral dimensions *)
+(* Tighten integral dimensions.  No need for integrity constraints -- the
+   added constraints are valid in all linear models. *)
+let strengthen_integral wedge =
+  let srk = wedge.srk in
   for id = 0 to CS.dim wedge.cs - 1 do
     match CS.type_of_id wedge.cs id with
     | `TyInt ->
@@ -931,11 +774,228 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
         | _ -> ()
       end
     | _ -> ()
-  done;
-  logf "After strengthen: %a" pp wedge;
-  wedge
+  done
 
-let of_atoms srk ?integrity:(integrity=(fun _ -> ())) atoms =
+let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
+  ensure_nonlinear_symbols wedge.srk;
+  assert (env_consistent wedge);
+  let cs = wedge.cs in
+  let srk = wedge.srk in
+  let zero = mk_real srk QQ.zero in
+  let log = get_named_symbol srk "log" in
+  let pow = get_named_symbol srk "pow" in
+  let add_bound precondition bound =
+    logf ~level:`trace "Integrity: %a => %a"
+      (Formula.pp srk) precondition
+      (Formula.pp srk) bound;
+    integrity (mk_or srk [mk_not srk precondition; bound]);
+    meet_atoms wedge [bound]
+  in
+
+  let provenance_formula ps =
+    List.map (fun p -> mk_eq srk (CS.term_of_polynomial cs p) zero) ps
+    |> mk_and srk
+  in
+
+  logf "Before strengthen: %a" pp wedge;
+
+  let rewrite = equational_saturation ~integrity wedge in
+
+  (* pow-log rule *)
+  let vec_sign vec =
+    let ivl = bound_vec wedge vec in
+    if Interval.is_positive ivl then
+      `Positive
+    else if Interval.is_negative ivl then
+      `Negative
+    else
+      `Unknown
+  in
+  let vec_leq x y =
+    Interval.is_nonpositive (bound_vec wedge (V.add x (V.negate y)))
+  in
+  for i = 0 to CS.dim wedge.cs - 1 do
+    match CS.destruct_coordinate wedge.cs i with
+    | `App (func, [b; s]) when func = pow ->
+      if vec_sign b = `Positive then begin
+        begin
+          let ivl = bound_coordinate wedge i in
+          let logc_ivl = Interval.log (bound_vec wedge b) ivl in
+          match Interval.lower ivl with
+          | Some lo when QQ.lt QQ.zero lo ->
+            begin match Interval.lower logc_ivl with
+              | Some logc ->
+                let hypothesis =
+                  mk_and srk [mk_leq srk (mk_real srk lo) (CS.term_of_coordinate cs i);
+                              mk_lt srk zero (CS.term_of_vec cs b)]
+                in
+                let conclusion =
+                  mk_leq srk (mk_real srk logc) (CS.term_of_vec cs s)
+                in
+                add_bound hypothesis conclusion
+              | None -> ()
+            end;
+            begin match Interval.upper ivl, Interval.upper logc_ivl with
+              | Some hi, Some logc ->
+                let hypothesis =
+                  mk_and srk [mk_leq srk (CS.term_of_coordinate cs i) (mk_real srk hi);
+                              mk_lt srk zero (CS.term_of_vec cs b)]
+                in
+                let conclusion =
+                  mk_leq srk (mk_real srk logc) (CS.term_of_vec cs s)
+                in
+                add_bound hypothesis conclusion
+              | _, _ -> ()
+            end
+          | _ -> ()
+        end;
+        for j = 0 to CS.dim wedge.cs - 1 do
+          match CS.destruct_coordinate wedge.cs j with
+          | `App (func, [b'; t]) when func = log->
+            let (base_eq, base_eq_prov) =
+              let (reduced, prov) =
+                P.sub (poly_of_vec b) (poly_of_vec b')
+                |> Polynomial.Rewrite.preduce rewrite
+              in
+              (P.equal reduced P.zero, prov)
+            in
+            if base_eq && vec_sign t = `Positive then
+              let t_sub_bs_ivl = (* t - b^s >= 0? *)
+                V.add_term (QQ.of_int (-1)) i t
+                |> bound_vec wedge
+              in
+              begin
+                (* 0 < b && b^s <= t |= s <= log_b(t) *)
+                if Interval.is_nonnegative t_sub_bs_ivl then
+                  let hypothesis =
+                    mk_and srk [mk_lt srk zero (CS.term_of_vec cs b);
+                                mk_leq srk
+                                  (CS.term_of_coordinate cs i)
+                                  (CS.term_of_vec cs t);
+                                provenance_formula base_eq_prov]
+                  in
+                  let conclusion =
+                    mk_leq srk (CS.term_of_vec cs s) (CS.term_of_coordinate cs j)
+                  in
+                  add_bound hypothesis conclusion
+              end;
+              begin
+                (* 0 < t <= b^s |= log_b(t) <= s *)
+                if Interval.is_nonpositive t_sub_bs_ivl then
+                  let hypothesis =
+                    mk_and srk [mk_lt srk zero (CS.term_of_vec cs t);
+                                mk_leq srk
+                                  (CS.term_of_vec cs t)
+                                  (CS.term_of_coordinate cs i);
+                                provenance_formula base_eq_prov]
+                  in
+                  let conclusion =
+                    mk_leq srk (CS.term_of_coordinate cs j) (CS.term_of_vec cs s)
+                  in
+                  add_bound hypothesis conclusion
+              end;
+              begin
+                let p = (* b^s * t *)
+                  P.mul
+                    (CS.polynomial_of_coordinate cs i)
+                    (CS.polynomial_of_coordinate cs j)
+                in
+                match vec_of_poly (Polynomial.Rewrite.reduce rewrite p) with
+                | None -> ()
+                | Some vec ->
+                  let ivl = bound_vec wedge vec in
+                  let p_term = CS.term_of_vec cs vec in
+                  let logbc_ivl =
+                    Interval.log (bound_vec wedge b) ivl
+                  in
+                  (* 0 < c <= (b^s)*t && 0 < t && 0 < b^s
+                     |= log_b(c) <= log_b(t) + s *)
+                  begin match Interval.lower ivl, Interval.lower logbc_ivl with
+                    | Some lo, Some logbc when QQ.lt QQ.zero lo ->
+                      let hypothesis =
+                        mk_and srk [mk_lt srk (mk_real srk lo) p_term;
+                                    mk_lt srk zero (CS.term_of_vec cs t);
+                                    mk_lt srk zero (CS.term_of_coordinate cs i)]
+                      in
+                      let conclusion =
+                        mk_leq srk
+                          (mk_real srk logbc)
+                          (mk_add srk [CS.term_of_coordinate cs j;
+                                       CS.term_of_vec cs s])
+                      in
+                      add_bound hypothesis conclusion
+                    | _, _ -> ()
+                  end;
+                  (* 0 < t && 0 < b && (b^s)*t <= c |= log_b(t) + s <= log_b(c) *)
+                  begin match Interval.upper ivl, Interval.upper logbc_ivl with
+                    | Some hi, Some logbc ->
+                      let hypothesis =
+                        mk_and srk [mk_lt srk p_term (mk_real srk hi);
+                                    mk_lt srk zero (CS.term_of_vec cs t);
+                                    mk_lt srk zero (CS.term_of_coordinate cs i)]
+                      in
+                      let conclusion =
+                        mk_leq srk
+                          (mk_add srk [CS.term_of_coordinate cs j;
+                                       CS.term_of_vec cs s])
+                          (mk_real srk logbc)
+                      in
+                      add_bound hypothesis conclusion
+                    | _, _ -> ()
+                  end
+              end
+          | `App (func, [b'; s']) when func = pow ->
+            (* 1 <= b <= b' && s <= s' |= b^s <= b'^s' *)
+            let one = V.of_term QQ.one CS.const_id in
+            begin
+              if vec_leq one b && vec_leq b b' && vec_leq s s' then
+                let hypothesis =
+                  mk_and srk [mk_leq srk (CS.term_of_vec cs b)
+                                (CS.term_of_vec cs b');
+                              mk_leq srk (CS.term_of_vec cs s)
+                                (CS.term_of_vec cs s');
+                              mk_leq srk (mk_real srk QQ.one)
+                                (CS.term_of_vec cs b)]
+                in
+                let conclusion =
+                  mk_leq srk
+                    (CS.term_of_coordinate cs i)
+                    (CS.term_of_coordinate cs j)
+                in
+                add_bound hypothesis conclusion
+            end;
+            begin
+              (* 1 <= b && b <= b' && b^s <= b'^s' |= s <= s' *)
+              let ivec = V.of_term QQ.one i in
+              let jvec = V.of_term QQ.one j in
+              if vec_leq one b && vec_leq b b' && vec_leq ivec jvec then
+                let hypothesis =
+                  mk_and srk [mk_leq srk (CS.term_of_vec cs b)
+                                (CS.term_of_vec cs b');
+                              mk_leq srk (CS.term_of_coordinate cs i)
+                                (CS.term_of_coordinate cs j);
+                              mk_leq srk (mk_real srk QQ.one)
+                                (CS.term_of_vec cs b)]
+                in
+                let conclusion =
+                  mk_leq srk (CS.term_of_vec cs s) (CS.term_of_vec cs s')
+                in
+                add_bound hypothesis conclusion
+            end
+          | _ -> ()
+        done
+      end
+    | _ -> ()
+  done;
+
+  strengthen_intervals integrity wedge;
+  strengthen_products integrity rewrite wedge;
+  strengthen_integral wedge;
+
+  ignore (equational_saturation ~integrity wedge);
+  logf "After strengthen: %a" pp wedge
+
+let of_atoms srk atoms =
   let cs = CS.mk_empty srk in
   let register_terms atom =
     match Interpretation.destruct_atom srk atom with
@@ -971,10 +1031,7 @@ let of_atoms srk ?integrity:(integrity=(fun _ -> ())) atoms =
     | _ -> ()
   done;
   update_env wedge;
-  strengthen ~integrity wedge
-
-let of_atoms srk ?integrity:(integrity=(fun _ -> ())) atoms =
-  Log.time "wedge.of_atoms" (of_atoms srk ~integrity) atoms
+  wedge
 
 let common_cs wedge wedge' =
   let srk = wedge.srk in
@@ -1021,9 +1078,9 @@ let join ?integrity:(integrity=(fun _ -> ())) wedge wedge' =
   else if is_bottom wedge' then wedge
   else
     let (wedge, wedge') = common_cs wedge wedge' in
-    let wedge = strengthen ~integrity wedge in
+    strengthen ~integrity wedge;
     update_env wedge';
-    let wedge' = strengthen ~integrity wedge' in
+    strengthen ~integrity wedge';
     update_env wedge; (* strengthening wedge' may add dimensions to the common
                          coordinate system -- add those dimensions to wedge's
                          environment *)
@@ -1660,8 +1717,9 @@ let is_sat srk phi =
               let (atom', conditions) = Interpretation.select_ite interp atom in
               atom'::conditions)
           |> BatList.concat
-          |> of_atoms srk ~integrity
+          |> of_atoms srk
         in
+        strengthen ~integrity constraints;
         if is_bottom constraints then
           go ()
         else
@@ -1745,10 +1803,14 @@ let abstract ?exists:(p=fun x -> true) ?(subterm=fun x -> true) srk phi =
               let (atom', conditions) = Interpretation.select_ite interp atom in
               atom'::conditions)
           |> BatList.concat
-          |> of_atoms srk ~integrity
+          |> of_atoms srk
           |> exists ~integrity ~subterm p
         in
-        go (join ~integrity wedge new_wedge)
+        if is_bottom wedge then begin
+          strengthen ~integrity new_wedge;
+          go new_wedge
+        end else
+          go (join ~integrity wedge new_wedge)
   in
   let result = go (bottom srk) in
   logf "Abstraction result:@\n%a" pp result;
@@ -1846,7 +1908,7 @@ let symbolic_bounds_formula ?exists:(p=fun x -> true) srk phi symbol =
                 let (atom', conditions) = Interpretation.select_ite interp atom in
                 atom'::conditions)
             |> BatList.concat
-            |> of_atoms srk ~integrity
+            |> of_atoms srk
             |> exists ~integrity ~subterm p
           in
           if CS.admits wedge.cs (mk_const srk symbol) then
