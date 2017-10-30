@@ -1,4 +1,4 @@
-open Ark
+open Srk
 open KoatParse
 open CcaSyntax
 open Apak
@@ -35,8 +35,8 @@ module MakeDecorator (M : sig
     val manager_alloc : unit -> t Apron.Manager.t
   end) = struct
   module D = struct
-    include ArkApron
-    type t = (Ctx.t, M.t) ArkApron.property
+    include SrkApron
+    type t = (Ctx.t, M.t) SrkApron.property
     let man = M.manager_alloc ()
     let top = top man (Env.empty Ctx.context)
     let bottom = bottom man (Env.empty Ctx.context)
@@ -57,8 +57,8 @@ module MakeDecorator (M : sig
       FP.analyze vertex_transfer ~edge_transfer its
     in
     BatEnum.fold (fun its v ->
-        let out = ArkApron.formula_of_property (FP.output result v) in
-        logf "Found invariant at %s: %a" v (Ark.Syntax.Formula.pp Ctx.context) out;
+        let out = SrkApron.formula_of_property (FP.output result v) in
+        logf "Found invariant at %s: %a" v (Srk.Syntax.Formula.pp Ctx.context) out;
         ITS.fold_succ_e (fun e its ->
             let its = ITS.remove_edge_e its e in
             let tr = Tr.mul (Tr.assume out) (ITS.E.label e) in

@@ -1,6 +1,6 @@
 open BatPervasives
 open PaFormula
-open Ark
+open Srk
 
 include Log.Make(struct let name = "struct" end)
 
@@ -67,7 +67,7 @@ module Make (P : Symbol) = struct
   let pp_atom formatter (p,args) =
     Format.fprintf formatter "@[%a(%a)@]"
       P.pp p
-      (ArkUtil.pp_print_enum Format.pp_print_int) (BatList.enum args)
+      (SrkUtil.pp_print_enum Format.pp_print_int) (BatList.enum args)
 
   module AtomSet = BatSet.Make(struct
       type t = atom [@@deriving ord]
@@ -78,13 +78,13 @@ module Make (P : Symbol) = struct
       prop : AtomSet.t }
 
   let pp formatter str =
-    ArkUtil.pp_print_enum
+    SrkUtil.pp_print_enum
       ~pp_sep:(fun formatter () -> Format.fprintf formatter "@ /\\ ")
       pp_atom
       formatter
       (AtomSet.enum str.prop)
 
-  let show = ArkUtil.mk_show pp
+  let show = SrkUtil.mk_show pp
 
   let pp_formula formatter phi =
     F.pp P.pp Format.pp_print_int formatter phi
@@ -135,7 +135,7 @@ module Make (P : Symbol) = struct
     let prop =
       predicates
       /@ (fun (p, k) ->
-          ArkUtil.tuples (BatList.of_enum ((1 -- k) /@ (fun _ -> (1 -- size))))
+          SrkUtil.tuples (BatList.of_enum ((1 -- k) /@ (fun _ -> (1 -- size))))
           /@ (fun tuple -> (p, tuple))
           |> AtomSet.of_enum)
       |> BatEnum.fold AtomSet.union AtomSet.empty
@@ -213,7 +213,7 @@ module Make (P : Symbol) = struct
         [{ universe = size;
            prop = AtomSet.singleton (p, List.map term_val args) }]
       | `And (phi, psi) ->
-        ArkUtil.cartesian_product
+        SrkUtil.cartesian_product
           (BatList.enum (go env phi))
           (BatList.enum (go env psi))
         /@ (uncurry union)
@@ -222,7 +222,7 @@ module Make (P : Symbol) = struct
         List.rev_append (go env phi) (go env psi)
       | `Forall (_, phi) ->
         let f strs n =
-          ArkUtil.cartesian_product
+          SrkUtil.cartesian_product
             (BatList.enum (go (n::env) phi))
             strs
           /@ uncurry union
@@ -256,8 +256,8 @@ module Make (P : Symbol) = struct
       type t = P.t * int [@@deriving ord]
     end)
 
-  module KSet = ArkUtil.Int.Set
-  module KMap = ArkUtil.Int.Map
+  module KSet = SrkUtil.Int.Set
+  module KMap = SrkUtil.Int.Map
 
   (* Compute the signature of a constant in some configuration *)
   let mk_sig i str =
@@ -319,7 +319,7 @@ module Make (P : Symbol) = struct
     in
     AtomSet.fold f str.prop KSet.empty
 
-  module Graph = Matching.Make(ArkUtil.Int)
+  module Graph = Matching.Make(SrkUtil.Int)
 
   (* Create a Bipartite Graph from structures X and Y
      Where X embeds Y -> |max_matching G| = |U|

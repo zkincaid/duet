@@ -6,7 +6,7 @@
 
 open Core
 open CfgIr
-open Ark
+open Srk
 open Apak
 open Datalog
 open PointerAnalysis

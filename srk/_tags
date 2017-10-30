@@ -1,0 +1,87 @@
+# OASIS_START
+# DO NOT EDIT (digest: 1cf91205fd83319805eef2f89cc01bbf)
+# Ignore VCS directories, you can use the same kind of rule outside
+# OASIS_START/STOP if you want to exclude directories that contains
+# useless stuff for the build process
+true: annot, bin_annot
+<**/.svn>: -traverse
+<**/.svn>: not_hygienic
+".bzr": -traverse
+".bzr": not_hygienic
+".hg": -traverse
+".hg": not_hygienic
+".git": -traverse
+".git": not_hygienic
+"_darcs": -traverse
+"_darcs": not_hygienic
+# Library srk
+"src/srk.cmxs": use_srk
+"src/srkUtil.cmx": for-pack(Srk)
+"src/log.cmx": for-pack(Srk)
+"src/disjointSet.cmx": for-pack(Srk)
+"src/memo.cmx": for-pack(Srk)
+"src/featureTree.cmx": for-pack(Srk)
+"src/qQ.cmx": for-pack(Srk)
+"src/zZ.cmx": for-pack(Srk)
+"src/syntax.cmx": for-pack(Srk)
+"src/interval.cmx": for-pack(Srk)
+"src/smt.cmx": for-pack(Srk)
+"src/srkZ3.cmx": for-pack(Srk)
+"src/srkMathsat.cmx": for-pack(Srk)
+"src/linear.cmx": for-pack(Srk)
+"src/polynomial.cmx": for-pack(Srk)
+"src/interpretation.cmx": for-pack(Srk)
+"src/srkApron.cmx": for-pack(Srk)
+"src/polyhedron.cmx": for-pack(Srk)
+"src/srkSimplify.cmx": for-pack(Srk)
+"src/abstract.cmx": for-pack(Srk)
+"src/nonlinear.cmx": for-pack(Srk)
+"src/coordinateSystem.cmx": for-pack(Srk)
+"src/wedge.cmx": for-pack(Srk)
+"src/quantifier.cmx": for-pack(Srk)
+"src/iteration.cmx": for-pack(Srk)
+"src/transition.cmx": for-pack(Srk)
+"src/bigO.cmx": for-pack(Srk)
+<src/*.ml{,i,y}>: pkg_ppx_deriving.show
+# Executable test_srk
+"src/test_srk.native": pkg_Z3
+"src/test_srk.native": pkg_apron
+"src/test_srk.native": pkg_apron.boxMPQ
+"src/test_srk.native": pkg_apron.octMPQ
+"src/test_srk.native": pkg_apron.polkaMPQ
+"src/test_srk.native": pkg_batteries
+"src/test_srk.native": pkg_camlidl
+"src/test_srk.native": pkg_gmp
+"src/test_srk.native": pkg_mathsat
+"src/test_srk.native": pkg_oUnit
+"src/test_srk.native": pkg_ocrs
+"src/test_srk.native": pkg_ppx_deriving
+"src/test_srk.native": pkg_ppx_deriving.ord
+<src/*.ml{,i,y}>: pkg_oUnit
+# Executable bigtop
+"src/bigtop.native": pkg_Z3
+"src/bigtop.native": pkg_apron
+"src/bigtop.native": pkg_apron.boxMPQ
+"src/bigtop.native": pkg_apron.octMPQ
+"src/bigtop.native": pkg_apron.polkaMPQ
+"src/bigtop.native": pkg_batteries
+"src/bigtop.native": pkg_camlidl
+"src/bigtop.native": pkg_gmp
+"src/bigtop.native": pkg_mathsat
+"src/bigtop.native": pkg_ocrs
+"src/bigtop.native": pkg_ppx_deriving
+"src/bigtop.native": pkg_ppx_deriving.ord
+<src/*.ml{,i,y}>: pkg_Z3
+<src/*.ml{,i,y}>: pkg_apron
+<src/*.ml{,i,y}>: pkg_apron.boxMPQ
+<src/*.ml{,i,y}>: pkg_apron.octMPQ
+<src/*.ml{,i,y}>: pkg_apron.polkaMPQ
+<src/*.ml{,i,y}>: pkg_batteries
+<src/*.ml{,i,y}>: pkg_camlidl
+<src/*.ml{,i,y}>: pkg_gmp
+<src/*.ml{,i,y}>: pkg_mathsat
+<src/*.ml{,i,y}>: pkg_ocrs
+<src/*.ml{,i,y}>: pkg_ppx_deriving
+<src/*.ml{,i,y}>: pkg_ppx_deriving.ord
+# OASIS_STOP
+true: use_menhir

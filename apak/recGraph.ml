@@ -1,4 +1,4 @@
-open Ark
+open Srk
 open BatPervasives
 
 type ('a, 'b) seq_typ = [ `Atom of 'a | `Block of 'b ]

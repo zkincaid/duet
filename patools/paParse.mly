@@ -1,5 +1,5 @@
 %{
-open Ark
+open Srk
 open PaFormula
 open PredicateAutomata
 open BatPervasives

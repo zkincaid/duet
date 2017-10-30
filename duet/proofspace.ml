@@ -1,8 +1,8 @@
 open Apak
 open BatPervasives
 open Core
-open Ark
-open Ark.Syntax
+open Srk
+open Srk.Syntax
 open Pa
 
 include Log.Make(struct let name = "proofspace" end)
@@ -22,7 +22,7 @@ module Ctx = Syntax.MakeSimplifyingContext ()
 module Atomicity = Dependence.AtomicityAnalysis
 
 let ctx = Ctx.context
-let smt_ctx = ArkZ3.mk_context ctx []
+let smt_ctx = SrkZ3.mk_context ctx []
 
 (* Indexed variables -- variables paired with thread identifiers *)
 module IV = struct
@@ -33,7 +33,7 @@ module IV = struct
       if Var.is_shared var then Var.pp formatter var
       else Format.fprintf formatter "%a[#%d]" Var.pp var i
 
-    let show = ArkUtil.mk_show pp
+    let show = SrkUtil.mk_show pp
 
     let equal x y = compare x y = 0
     let hash (v, i) = Hashtbl.hash (Var.hash v, i)
@@ -105,7 +105,7 @@ module Block = struct
     | `Fork thread -> Format.fprintf formatter "fork(%a)" Varinfo.pp thread
     | `Transition tr -> Tr.pp formatter tr
 
-  let show x = ArkUtil.mk_show pp x
+  let show x = SrkUtil.mk_show pp x
 
   let default = `Transition Tr.one
 end
@@ -467,7 +467,7 @@ let generalize i phi psi =
     PaFormula.big_conj
       (BatEnum.append
          (BatList.enum props)
-         (ArkUtil.distinct_pairs vars /@ mk_eq))
+         (SrkUtil.distinct_pairs vars /@ mk_eq))
   in
   (subst, gen_phi, rhs)
 
@@ -520,7 +520,7 @@ let construct solver assign_table trace =
         Log.logf
           "Added PA transition:@\n @[{%a}(%a)@]@\n --( [#0] %a )-->@\n @[%a@]"
           P.pp lhs
-          (ArkUtil.pp_print_enum Format.pp_print_int) (1 -- lhs_arity)
+          (SrkUtil.pp_print_enum Format.pp_print_int) (1 -- lhs_arity)
           Letter.pp letter
           PA.pp_formula rhs;
         E.conjoin_transition solver lhs letters (negate_paformula rhs)
@@ -535,10 +535,10 @@ let construct solver assign_table trace =
   | `Valid itp -> go (List.rev trace) (List.tl (List.rev itp)) Ctx.mk_false
   | _ -> Log.fatalf "Failed to interpolate!"
 
-(*
+module Solver = Hoare.MakeSolver(Ctx)(IV)
+
 let construct solver assign_table trace =
-  let module Solver = Hoare.MakeSolver(Ctx)(IV) in
-  let hoare_solver = Solver.mk_solver in
+  let hoare_solver = Solver.mk_solver () in
   let add_triples trace =
     let transitions =
       List.map (fun (letter, tid) -> Letter.transition_of tid letter) trace
@@ -597,7 +597,7 @@ let construct solver assign_table trace =
                logf
                  "Added PA transition:@\n @[{%a}(%a)@]@\n --( [#0] %a )-->@\n @[%a@]"
                  P.pp psi
-                 (ArkUtil.pp_print_enum Format.pp_print_int) (1 -- psi_arity)
+                 (SrkUtil.pp_print_enum Format.pp_print_int) (1 -- psi_arity)
                  Letter.pp letter
                  PA.pp_formula rhs;
                E.conjoin_transition solver psi letters (negate_paformula rhs)
@@ -611,7 +611,6 @@ let construct solver assign_table trace =
   match Solver.check_solution hoare_solver with
   | `Sat -> go trace (Solver.get_solution hoare_solver)
   | _ -> Log.fatalf "Failed to find hoare triples"
- *)
 
 let construct solver trace =
   Log.time "PA construction" (construct solver) trace

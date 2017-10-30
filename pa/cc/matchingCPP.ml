@@ -1,6 +1,6 @@
 open Pervasives
 open BatPervasives
-open Ark
+open Srk
 
 include Log.Make(struct let name = "MatchingCPP" end)
 
