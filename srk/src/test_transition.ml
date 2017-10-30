@@ -310,7 +310,7 @@ let check_hoare solver =
           
 let hoare1 () =
   let module Solver = Hoare.MakeSolver(Ctx)(V) in
-  let solver = Solver.mk_solver in
+  let solver = Solver.mk_solver () in
   let pre_sym = Ctx.mk_symbol ~name:"pre" (`TyFun ([`TyInt; `TyInt], `TyBool)) in
   let pre (x, y) = Ctx.mk_app pre_sym [x; y] in
   let open Infix in
@@ -321,7 +321,7 @@ let hoare1 () =
 
 let hoare2 () =
   let module Solver = Hoare.MakeSolver(Ctx)(V) in
-  let solver = Solver.mk_solver in
+  let solver = Solver.mk_solver () in
   let p_sym = Ctx.mk_symbol ~name:"p" (`TyFun ([`TyInt; `TyInt], `TyBool)) in
   let q_sym = Ctx.mk_symbol ~name:"q" (`TyFun ([`TyInt; `TyInt], `TyBool)) in
   let r_sym = Ctx.mk_symbol ~name:"r" (`TyFun ([`TyInt; `TyInt], `TyBool)) in
