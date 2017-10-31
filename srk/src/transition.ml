@@ -202,7 +202,6 @@ struct
     let widen = D.widen
     let equal = D.equal
     let pp = D.pp
-    let show = D.show
     let star = closure % alpha
   end
 

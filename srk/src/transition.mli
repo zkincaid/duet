@@ -135,6 +135,5 @@ module Make
     val join : iter -> iter -> iter
 
     val pp : Format.formatter -> iter -> unit
-    val show : iter -> string
   end
 end

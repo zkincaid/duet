@@ -19,7 +19,6 @@ module CS = CoordinateSystem
 module type PreDomain = sig
   type 'a t
   val pp : Format.formatter -> 'a t -> unit
-  val show : 'a t -> string
   val closure : 'a t -> 'a formula
   val join : 'a t -> 'a t -> 'a t
   val widen : 'a t -> 'a t -> 'a t
@@ -140,6 +139,30 @@ module Cf = struct
     in
     Term.eval_partial srk alg
 
+  let of_vec srk cs env monotone vec =
+    V.enum vec
+    /@ (fun (coeff, coord) ->
+        if coord == CS.const_id then
+          const srk (QQUvp.scalar coeff)
+        else
+          match CS.destruct_coordinate cs coord with
+          | `App (s, []) ->
+            begin match env s with
+              | Some cf -> scalar_mul (QQUvp.scalar coeff) (compose cf k_minus_1)
+              | None -> begin match monotone s with
+                  | Some (lo, hi) ->
+                    if QQ.lt QQ.zero coeff then hi
+                    else lo
+                  | None -> assert false
+                end
+            end
+          | _ ->
+            begin match of_term srk env (CS.term_of_coordinate cs coord) with
+              | Some cf -> scalar_mul (QQUvp.scalar coeff) cf
+              | None -> assert false
+            end)
+    |> BatEnum.fold add zero
+
   let summation cf =
     (* QQUvp.summation computes q(n) = sum_{i=0}^n p(i); shift to compute
        q(n) = sum_{i=1}^n p(i) *)
@@ -190,6 +213,12 @@ let post_symbols tr_symbols =
 let post_map tr_symbols =
   List.fold_left
     (fun map (sym, sym') -> Symbol.Map.add sym sym' map)
+    Symbol.Map.empty
+    tr_symbols
+
+let pre_map tr_symbols =
+  List.fold_left
+    (fun map (sym, sym') -> Symbol.Map.add sym' sym map)
     Symbol.Map.empty
     tr_symbols
 
@@ -287,6 +316,7 @@ module WedgeVector = struct
       precondition : 'a Wedge.t;
       postcondition : 'a Wedge.t;
       stratified : (symbol * symbol * 'a term) list;
+      monotone : (symbol * symbol * [ `Inc | `Dec ]) list;
       exponential : ('a exponential) list }
 
   let pp formatter iter =
@@ -298,6 +328,16 @@ module WedgeVector = struct
     Format.fprintf formatter "pre:@;  @[<v 0>%a@]@;post:@;  @[<v 0>%a@]@;"
       Wedge.pp iter.precondition
       Wedge.pp iter.postcondition;
+    Format.fprintf formatter "monotone variables:@;  @[<v 0>%a@]@;"
+      (SrkUtil.pp_print_enum_nobox
+         ~pp_sep:(fun formatter () -> Format.pp_print_break formatter 0 0)
+         (fun formatter (sym', sym, dir) ->
+            Format.fprintf formatter "%a is %s"
+              (pp_symbol srk) sym
+              (match dir with
+               | `Inc -> "increasing"
+               | `Dec -> "decreasing")))
+      (BatList.enum iter.monotone);
     Format.fprintf formatter
       "recurrences:@;  @[<v 0>%a@;%a@]@]}"
       (SrkUtil.pp_print_enum_nobox
@@ -320,8 +360,6 @@ module WedgeVector = struct
               (Term.pp srk) exp_rhs
               (Term.pp srk) exp_add))
       (BatList.enum iter.exponential)
-
-  let show x = SrkUtil.mk_show pp x
 
   let exponential_rec srk wedge non_induction post_symbols base =
     (* map from non-induction pre-state vars to their post-state
@@ -444,6 +482,62 @@ module WedgeVector = struct
     in
     BatList.filter_map recur (Wedge.to_atoms diff_wedge)
 
+  let monotone_exponential_rec srk wedge non_induction monotone induction =
+    let subterm sym = Symbol.Set.mem sym induction in
+    let cs = Wedge.coordinate_system wedge in
+    let id_of_sym sym =
+      CS.cs_term_id cs (`App (sym, []))
+    in
+    List.fold_left (fun recurrences (s,s') ->
+        let wedge =
+          Wedge.exists
+            ~subterm
+            (fun sym ->
+               sym = s || sym = s'
+               || Symbol.Set.mem sym induction
+               || Symbol.Set.mem sym monotone)
+            (Wedge.copy wedge)
+        in
+        let (lower, upper) = Wedge.symbolic_bounds wedge s' in
+        let recurrences =
+          List.fold_left (fun recurrences lo ->
+              let (coeff, add) = V.pivot (id_of_sym s) (CS.vec_of_term cs lo) in
+              if QQ.equal coeff QQ.zero then
+                recurrences
+              else
+                let exp_rec =
+                  { exp_lhs = mk_neg srk (mk_const srk s');
+                    exp_op = `Leq;
+                    exp_coeff = coeff;
+                    exp_rhs = mk_neg srk (mk_const srk s);
+                    exp_add = mk_neg srk (CS.term_of_vec cs add) }
+                in
+                exp_rec::recurrences)
+            recurrences
+            lower
+        in
+        List.fold_left (fun recurrences hi ->
+            let (coeff, add) = V.pivot (id_of_sym s) (CS.vec_of_term cs hi) in
+            if QQ.equal coeff QQ.zero then
+              recurrences
+            else
+              let exp_rec =
+                { exp_lhs = mk_const srk s';
+                  exp_op = `Leq;
+                  exp_coeff = coeff;
+                  exp_rhs = mk_const srk s;
+                  exp_add = CS.term_of_vec cs add }
+              in
+              exp_rec::recurrences)
+          recurrences
+          upper)
+      []
+      (List.filter
+         (fun (s,s') ->
+            CS.admits cs (mk_const srk s)
+            && CS.admits cs (mk_const srk s'))
+         non_induction)
+
   let abstract_iter_wedge srk wedge tr_symbols =
     let pre_symbols = pre_symbols tr_symbols in
     let post_symbols = post_symbols tr_symbols in
@@ -527,16 +621,43 @@ module WedgeVector = struct
       let (induction, non_induction') = go [] candidates [] matrix in
       (induction, non_induction@non_induction')
     in
+    let monotone =
+      BatList.fold_left (fun monotone (s, s') ->
+          let diff = mk_sub srk (mk_const srk s') (mk_const srk s) in
+          let box = Wedge.bounds wedge diff in
+          if Interval.is_nonnegative box then
+            (s',s,`Inc)::monotone
+          else if Interval.is_nonpositive box then
+            (s',s,`Dec)::monotone
+          else
+            monotone)
+        []
+        non_induction
+    in
+    let exponential =
+      let symbols_of triples =
+        List.fold_left (fun set (s',s,_) ->
+            Symbol.Set.add s' (Symbol.Set.add s set))
+          Symbol.Set.empty
+          triples
+      in
+      let monotone = symbols_of monotone in
+      let induction = symbols_of stratified in
+      monotone_exponential_rec srk wedge non_induction monotone induction
+    in
+    (*
     let exponential =
       exponential_rec srk wedge non_induction post_symbols (QQ.of_int 1)
       @(exponential_rec srk wedge non_induction post_symbols (QQ.of_int 2))
       @(exponential_rec srk wedge non_induction post_symbols (QQ.of_frac 1 2))
-    in
+       
+    in*)
     { srk;
       symbols = tr_symbols;
       precondition;
       postcondition;
       stratified;
+      monotone;
       exponential }
 
   let abstract_iter ?(exists=fun x -> true) srk phi symbols =
@@ -609,7 +730,7 @@ module WedgeVector = struct
         iter.symbols
       |> mk_and iter.srk
     in
-
+(*
     let inequations =
       BatList.filter_map (fun { exp_lhs; exp_op; exp_coeff; exp_rhs; exp_add } ->
           if QQ.equal exp_coeff QQ.one then
@@ -622,6 +743,51 @@ module WedgeVector = struct
               match exp_op with
               | `Leq -> Some (mk_leq iter.srk exp_lhs rhs)
               | `Eq -> Some (mk_eq iter.srk exp_lhs rhs)
+          else
+            None)
+        iter.exponential
+      |> mk_and iter.srk
+    in
+    *)
+    let cs = CS.mk_empty iter.srk in
+    let monotone_map =
+      List.fold_left (fun map (s',s,dir) ->
+          let box =
+            let s = Cf.term QQUvp.one (mk_const iter.srk s) in
+            let s' = Cf.term QQUvp.one (mk_const iter.srk s') in
+            match dir with
+            | `Inc -> (s, s')
+            | `Dec -> (s', s)
+          in
+          Symbol.Map.add s box (Symbol.Map.add s' box map))
+        Symbol.Map.empty
+        iter.monotone
+    in
+    let monotone_close_sum rhs =
+      let env sym =
+        if Symbol.Map.mem sym induction_vars then
+          Symbol.Map.find sym induction_vars
+        else
+          Some (Cf.term QQUvp.one (mk_const iter.srk sym))
+      in
+      let monotone sym =
+        try Some (Symbol.Map.find sym monotone_map)
+        with Not_found -> None
+      in
+      Cf.of_vec iter.srk cs env monotone (CS.vec_of_term ~admit:true cs rhs)
+      |> Cf.summation
+    in
+
+    let inequations =
+      BatList.filter_map (fun { exp_lhs; exp_op; exp_coeff; exp_rhs; exp_add } ->
+          if QQ.equal exp_coeff QQ.one then
+            let cf = monotone_close_sum exp_add in
+            let rhs =
+              mk_add iter.srk [exp_rhs; Cf.term_of iter.srk cf loop_counter]
+            in
+            match exp_op with
+            | `Leq -> Some (mk_leq iter.srk exp_lhs rhs)
+            | `Eq -> Some (mk_eq iter.srk exp_lhs rhs)
           else
             None)
         iter.exponential
@@ -686,6 +852,7 @@ module WedgeVector = struct
       precondition = Wedge.bottom srk;
       postcondition = Wedge.bottom srk;
       stratified = [];
+      monotone = [];
       exponential = [] }
 
   let tr_symbols iter = iter.symbols
@@ -932,8 +1099,6 @@ module WedgeMatrix = struct
     in
     pp_rec "<=" offset formatter iter.rec_leq;
     Format.fprintf formatter "@]@]}"
-
-  let show x = SrkUtil.mk_show pp x
 
   (* Are most coefficients of a vector negative? *)
   let is_vector_negative vec =
@@ -1791,8 +1956,6 @@ module Split (Iter : DomainPlus) = struct
     Format.fprintf formatter "<Split @[<v 0>%a@]>"
       (SrkUtil.pp_print_enum pp_elt) (Expr.Map.enum split_iter.split)
 
-  let show x = SrkUtil.mk_show pp x
-
   (* Lower a split iter into an iter by picking an arbitary split and joining
      both sides. *)
   let lower_split split_iter =
@@ -2023,14 +2186,274 @@ module Split (Iter : DomainPlus) = struct
           Expr.Map.enum split_iter'.split))
 end
 
+module DirectedReset = struct
+  module M = Symbol.Map
+  module QQVector = Linear.QQVector
+
+  type 'a t =
+    { srk : 'a context;
+      symbols : (symbol * symbol) list;
+
+      (* Map a subset of symbols to a direction (increasing, decreasing,
+         equal).  Resets must be defined in terms of symbols with a defined
+         diretion *)
+      increment : Interval.t M.t;
+
+      (* Map a subset of symbols to reset terms.  If a symbol x has a reset
+         term, the meaning is that on any iteration of a loop, either x
+         doesn't change or it is assigned its reset term. *)
+      reset : QQVector.t M.t;
+
+      reset_box : Interval.t M.t }
+
+
+  let pp formatter iter =
+    let open Format in
+    let srk = iter.srk in
+    let pp_direction formatter (s,s') =
+      let box = M.find s iter.increment in
+      if Interval.is_nonnegative box then
+        fprintf formatter "%a is increasing" (pp_symbol srk) s
+      else if Interval.is_nonpositive box then
+        fprintf formatter "%a is decreasing" (pp_symbol srk) s
+      else
+        fprintf formatter "No direction for %a" (pp_symbol srk) s
+    in
+    let pp_reset formatter (s, reset) =
+      fprintf formatter "Reset for %a: %a"
+        (pp_symbol srk) s
+        (Linear.pp_linterm srk) reset
+    in
+    let pp_reset_box formatter (s, reset) =
+      fprintf formatter "Reset for %a: %a"
+        (pp_symbol srk) s
+        Interval.pp reset
+    in
+    let print_enum printer formatter enum =
+      SrkUtil.pp_print_enum_nobox
+        ~pp_sep:(fun formatter () -> Format.pp_print_break formatter 0 0)
+        printer
+        formatter
+        enum
+    in
+    fprintf formatter "@[<v 0>%a@\n%a@\n%a@]"
+      (print_enum pp_direction) (BatList.enum iter.symbols)
+      (print_enum pp_reset) (M.enum iter.reset)
+      (print_enum pp_reset_box) (M.enum iter.reset_box)
+
+  let get_increments srk body tr_symbols =
+    let objectives =
+      List.map
+        (fun (s,s') -> mk_sub srk (mk_const srk s') (mk_const srk s))
+        tr_symbols
+    in
+    let boxes =
+      match SrkZ3.optimize_box srk body objectives with
+      | `Sat b -> b
+      | _ -> assert false
+    in
+    BatList.fold_left2 (fun map (s,s') box ->
+        M.add s box (M.add s' box map))
+      Symbol.Map.empty
+      tr_symbols
+      boxes
+
+  let get_reset srk body sym sym' monotone_symbols =
+    let module V = Linear.QQVector in
+    let module Mat = Linear.QQMatrix in
+    let symbols =
+      (* We want equalities that include sym' but not sym *)
+      if List.mem sym' monotone_symbols then
+        List.filter (not % (=) sym) monotone_symbols
+      else
+        sym'::monotone_symbols (* if sym' is monotone so is sym *)
+    in
+    let solver = Smt.mk_solver srk in
+    solver#add [body;
+                mk_not srk (mk_eq srk (mk_const srk sym) (mk_const srk sym'))];
+
+    let dim' = Linear.dim_of_sym sym' in
+
+    (* First row constrains that the coefficient of sym' is 1 *)
+    let mat =
+      Mat.zero
+      |> Mat.add_row 0 (V.of_term QQ.one dim')
+    in
+    let b = V.of_term QQ.one 0 in
+
+    let next_row =
+      let n = ref 0 in (* 0th row is reserved *)
+      fun () -> incr n; (!n)
+    in
+
+    let vec_one = V.of_term QQ.one 0 in
+
+    let rec go mat =
+      let row_num = next_row () in
+      match Linear.solve mat b with
+      | None -> None
+      | Some candidate ->
+        solver#push ();
+        let candidate = V.pivot dim' candidate |> snd |> V.negate in
+        let candidate_term =
+          V.enum candidate
+          /@ (fun (coeff, dim) ->
+              match Linear.sym_of_dim dim with
+              | Some const -> mk_mul srk [mk_real srk coeff; mk_const srk const]
+              | None -> mk_real srk coeff)
+          |> BatList.of_enum
+          |> mk_add srk
+        in
+        solver#add [
+          mk_not srk (mk_eq srk (mk_const srk sym') candidate_term)
+        ];
+        match solver#get_model () with
+        | `Unknown ->
+          logf ~level:`warn "get_reset: unknown result";
+          None
+        | `Unsat -> (* candidate equality is implied by phi *)
+          Some candidate
+        | `Sat point -> (* candidate equality is not implied by phi *)
+          solver#pop 1;
+          let point_row =
+            List.fold_left (fun row k ->
+                V.add_term
+                  (point#eval_real (mk_const srk k))
+                  (Linear.dim_of_sym k)
+                  row)
+              vec_one
+              symbols
+          in
+          let mat' = Mat.add_row row_num point_row mat in
+          (* We never choose the same candidate equation again, because the
+             only solutions to the system of equations mat' x = 0 are
+             equations which are satisfied by the sampled point *)
+          go mat'
+    in
+    go mat
+    
+  let get_reset_box srk body sym sym' =
+    let noninvariant_body =
+      mk_and srk [body;
+                  mk_not srk (mk_eq srk (mk_const srk sym') (mk_const srk sym))]
+    in
+    match SrkZ3.optimize_box srk noninvariant_body [mk_const srk sym'] with
+    | `Sat [box] ->
+      if Interval.equal box Interval.top then None
+      else Some box
+    | _ -> assert false
+
+  let abstract_iter ?(exists=fun x -> true) srk body tr_symbols =
+    let uninterp_body =
+      rewrite srk
+        ~up:(Nonlinear.uninterpret_rewriter srk)
+        body
+    in
+    let increment = get_increments srk uninterp_body tr_symbols in
+    let monotone_symbols =
+      List.fold_left (fun monotone (s, s') ->
+          let box = M.find s increment in
+          if Interval.is_nonnegative box || Interval.is_nonpositive box then
+            s::s'::monotone
+          else
+            monotone)
+        []
+        tr_symbols
+    in
+    let reset =
+      List.fold_left (fun resets (s,s') ->
+          match get_reset srk uninterp_body s s' monotone_symbols with
+          | Some reset -> M.add s reset resets
+          | None -> resets)
+        M.empty
+        tr_symbols
+    in
+    let reset_box =
+      List.fold_left (fun resets (s,s') ->
+          match get_reset_box srk uninterp_body s s' with
+          | Some box -> M.add s box resets
+          | None -> resets)
+        M.empty
+        tr_symbols
+    in
+    { srk; symbols=tr_symbols; increment; reset; reset_box }
+
+  let closure iter =
+    let post_map = post_map iter.symbols in
+    let pre_map = pre_map iter.symbols in
+    let srk = iter.srk in
+    iter.symbols |> BatList.filter_map (fun (s,s') ->
+        let ks = mk_const srk s in
+        let ks' = mk_const srk s' in
+        let reset_term =
+          if not (M.mem s iter.reset) then
+            []
+          else
+            let (lower, upper) =
+              BatEnum.fold
+                (fun (lower, upper) (coeff, dim) ->
+                   let coeff_term = mk_real srk coeff in
+                   match Linear.sym_of_dim dim with
+                   | None -> (* dim is the constant dimension *)
+                     (coeff_term::lower, coeff_term::upper)
+                   | Some sym ->
+                     let box = M.find sym iter.increment in
+                     let (pre_sym, post_sym) =
+                       if M.mem sym post_map then
+                         (sym, M.find sym post_map)
+                     else
+                       (M.find sym pre_map, sym)
+                     in
+                     let pre_term =
+                       mk_mul srk [coeff_term; mk_const srk pre_sym]
+                     in
+                     let post_term =
+                       mk_mul srk [coeff_term; mk_const srk post_sym]
+                     in
+                     if ((Interval.is_nonnegative box && QQ.lt QQ.zero coeff)
+                         || (Interval.is_nonpositive box && QQ.lt coeff QQ.zero))
+                     then
+                       (pre_term::lower, post_term::upper)
+                     else
+                       (post_term::lower, pre_term::upper))
+                ([], [])
+                (V.enum (M.find s iter.reset))
+            in
+            [mk_leq srk (mk_add srk lower) ks';
+             mk_leq srk ks' (mk_add srk upper)]
+        in
+        let reset_box =
+          if not (M.mem s iter.reset_box) then
+            []
+          else
+            let box = M.find s iter.reset_box in
+            let lower =
+              match Interval.lower box with
+              | Some lo -> [mk_leq srk (mk_real srk lo) ks']
+              | None -> []
+            in
+            let upper =
+              match Interval.upper box with
+              | Some hi -> [mk_leq srk ks' (mk_real srk hi)]
+              | None -> []
+            in
+            lower@upper
+        in
+        Some (mk_or iter.srk [mk_eq srk ks' ks;
+                              mk_and srk (reset_box@reset_term)]))
+    |> mk_and srk
+
+  let join iter iter' = assert false
+  let widen iter iter' = assert false
+  let equal iter iter' = assert false
+  let tr_symbols iter = iter.symbols
+end
+
 module Sum (A : PreDomain) (B : PreDomain) = struct
   type 'a t = Left of 'a A.t | Right of 'a B.t
   let pp formatter = function
     | Left a -> A.pp formatter a
     | Right b -> B.pp formatter b
-  let show = function
-    | Left a -> A.show a
-    | Right b -> B.show b
   let left a = Left a
   let right b = Right b
   let closure = function
@@ -2051,4 +2474,19 @@ module Sum (A : PreDomain) (B : PreDomain) = struct
   let tr_symbols = function
     | Left x -> A.tr_symbols x
     | Right x -> B.tr_symbols x
+end
+
+module Product (A : Domain) (B : Domain) = struct
+  type 'a t = ('a context) * ('a A.t) * ('a B.t)
+  let pp formatter (_, a, b) =
+    Format.fprintf formatter "@[<v 0>(%a,@;%a)@]" A.pp a B.pp b
+  let closure (srk, a, b) = mk_and srk [A.closure a; B.closure b]
+  let join (srk, a, b) (_, a', b') = (srk, A.join a a', B.join b b')
+  let widen (srk, a, b) (_, a', b') = (srk, A.widen a a', B.widen b b')
+  let equal (srk, a, b) (_, a', b') = A.equal a a' && B.equal b b'
+  let tr_symbols (_, a, _) = A.tr_symbols a
+  let abstract_iter ?(exists=fun x -> true) srk phi symbols =
+    (srk,
+     A.abstract_iter ~exists srk phi symbols,
+     B.abstract_iter ~exists srk phi symbols)
 end

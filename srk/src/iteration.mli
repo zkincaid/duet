@@ -3,7 +3,6 @@ open Syntax
 module type PreDomain = sig
   type 'a t
   val pp : Format.formatter -> 'a t -> unit
-  val show : 'a t -> string
   val closure : 'a t -> 'a formula
   val join : 'a t -> 'a t -> 'a t
   val widen : 'a t -> 'a t -> 'a t
@@ -28,6 +27,7 @@ end
 module WedgeVector : DomainPlus
 module WedgeVectorOCRS : DomainPlus
 module WedgeMatrix : DomainPlus
+module DirectedReset : Domain
 
 module Split(Iter : DomainPlus) : Domain
 
@@ -36,3 +36,5 @@ module Sum (A : PreDomain) (B : PreDomain) : sig
   val left : 'a A.t -> 'a t
   val right : 'a B.t -> 'a t
 end
+
+module Product (A : Domain) (B : Domain) : Domain
