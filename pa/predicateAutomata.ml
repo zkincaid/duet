@@ -1,10 +1,10 @@
 open BatPervasives
 open PaFormula
-open Ark
+open Srk
 
 let sep formatter () = Format.fprintf formatter ",@ "
 let pp_print_list ?(pp_sep=sep) pp_elt formatter xs =
-    ArkUtil.pp_print_enum ~pp_sep pp_elt formatter (BatList.enum xs)
+    SrkUtil.pp_print_enum ~pp_sep pp_elt formatter (BatList.enum xs)
 
 include Log.Make(struct let name = "pa" end)
 
@@ -102,7 +102,7 @@ module Make (A : Alphabet) (P : Predicate) = struct
   let pp_atom formatter (p,args) =
     Format.fprintf formatter "@[%a(%a)@]"
       P.pp p
-      (ArkUtil.pp_print_enum Format.pp_print_int) (BatList.enum args)
+      (SrkUtil.pp_print_enum Format.pp_print_int) (BatList.enum args)
 
 
   (* A configuration is a finite structure over the vocabulary of the PA. *)
@@ -128,7 +128,7 @@ module Make (A : Alphabet) (P : Predicate) = struct
 
   let arity pa predicate = PHT.find pa.arity predicate
 
-  let show_predicate = ArkUtil.mk_show P.pp
+  let show_predicate = SrkUtil.mk_show P.pp
 
   let add_predicate pa predicate arity =
     if mem_vocabulary pa predicate then
@@ -363,7 +363,7 @@ module Make (A : Alphabet) (P : Predicate) = struct
       Format.pp_print_string formatter "final: none.@\n"
     else
       Format.fprintf formatter "final: %a.@\n"
-        (ArkUtil.pp_print_enum P.pp) (PSet.enum pa.accepting);
+        (SrkUtil.pp_print_enum P.pp) (PSet.enum pa.accepting);
     vocabulary pa |> BatEnum.iter (fun (p, k) ->
         let arg_names =
           (0 -- (k-1)) /@ free_name |> BatList.of_enum
@@ -423,7 +423,7 @@ module Make (A : Alphabet) (P : Predicate) = struct
   let pp_ground size formatter pa =
     let open Format in
     let mk_tuples k =
-      ArkUtil.tuples (BatList.of_enum ((1 -- k) /@ (fun _ -> (1 -- size))))
+      SrkUtil.tuples (BatList.of_enum ((1 -- k) /@ (fun _ -> (1 -- size))))
     in
     let props = AHT.create 991 in
     let next = ref (-1) in
@@ -432,7 +432,7 @@ module Make (A : Alphabet) (P : Predicate) = struct
       let ht = Hashtbl.create 991 in
       BatEnum.iter (fun (letter,i) ->
           incr next; Hashtbl.add ht (letter,i) (!next)
-        ) (ArkUtil.cartesian_product (LetterSet.enum pa.alphabet) (1 -- size));
+        ) (SrkUtil.cartesian_product (LetterSet.enum pa.alphabet) (1 -- size));
       let nb_bits =
         let rec lg index n =
           if n = 0 then index else lg (index + 1) (n / 2)
@@ -470,10 +470,10 @@ module Make (A : Alphabet) (P : Predicate) = struct
           )
       );
     fprintf formatter "locations = [%a],@\n"
-      (ArkUtil.pp_print_enum Format.pp_print_int)
+      (SrkUtil.pp_print_enum Format.pp_print_int)
       (0 -- (AHT.length props - 1));
     fprintf formatter "propositions = [%a],@\n"
-      (ArkUtil.pp_print_enum
+      (SrkUtil.pp_print_enum
          (fun formatter i -> fprintf formatter "\"p%d\"" i))
       (0 -- (bits - 1));
     fprintf formatter "initial_constraint = \"%a\",@\n"
@@ -500,13 +500,13 @@ module Make (A : Alphabet) (P : Predicate) = struct
       in
       fprintf formatter "%d : \"\"\"%a\"\"\""
         (get_prop_id (p, tuple))
-        (ArkUtil.pp_print_enum
+        (SrkUtil.pp_print_enum
            ~pp_sep:(fun formatter () -> fprintf formatter "@ | ")
            pp_atr)
-        (ArkUtil.cartesian_product (LetterSet.enum pa.alphabet) (1 -- size))
+        (SrkUtil.cartesian_product (LetterSet.enum pa.alphabet) (1 -- size))
     in
     fprintf formatter "transition_function = {@\n  %a@\n},@\n"
-      (ArkUtil.pp_print_enum
+      (SrkUtil.pp_print_enum
          ~pp_sep:(fun formatter () -> fprintf formatter "@\n,")
          pp_tr)
       ((vocabulary pa)
@@ -514,7 +514,7 @@ module Make (A : Alphabet) (P : Predicate) = struct
        |> BatEnum.concat);
 
     fprintf formatter "accepting_locations = [%a]@\n"
-      (ArkUtil.pp_print_enum Format.pp_print_int)
+      (SrkUtil.pp_print_enum Format.pp_print_int)
       (vocabulary pa |> BatEnum.filter_map (fun (p, k) ->
            if PSet.mem p pa.accepting then
              Some (mk_tuples k /@ (fun tuple -> get_prop_id (p, tuple)))
@@ -539,7 +539,7 @@ module Make (A : Alphabet) (P : Predicate) = struct
       min_models
     in
     let combine x y =
-      ArkUtil.cartesian_product x y /@ (uncurry Config.union)
+      SrkUtil.cartesian_product x y /@ (uncurry Config.union)
     in
     try
       Config.props config /@ next_prop
@@ -551,7 +551,7 @@ module Make (A : Alphabet) (P : Predicate) = struct
     vocabulary pa
     /@ (fun (p, k) ->
         BatList.of_enum ((1 -- k) /@ (fun _ -> (1 -- universe)))
-        |> ArkUtil.tuples
+        |> SrkUtil.tuples
         |> BatEnum.filter_map (fun tuple ->
             if Config.models
                 ~env:(i::tuple)
@@ -615,7 +615,7 @@ module MakeReachabilityGraph (A : sig
         | r -> r
     end)
 
-  module PredicateTree = SearchTree.Make(Config.Predicate)(ArkUtil.Int)
+  module PredicateTree = SearchTree.Make(Config.Predicate)(SrkUtil.Int)
 
   type arg =
     { mutable worklist : WVSet.t;

@@ -15,11 +15,8 @@ newton:
         # -verbose to the ocamlfind command for debugging
 	cd _build/duet && ocamlfind ocamlopt -output-obj -g -linkpkg -package camlidl -package Z3 -package mathsat -package ppx_deriving -package batteries -package apron.polkaMPQ -package apron.boxMPQ -package apron.octMPQ -package deriving -package ocamlgraph -package cil -package cil.default-features -package ocrs -o libduet.so ../ark/ark.cmx ../apak/apak.cmx core.cmx afg.cmx ast.cmx hlir.cmx report.cmx cfgIr.cmx cmdLine.cmx pointerAnalysis.cmx call.cmx solve.cmx ai.cmx config.cmx datalog.cmx inline.cmx bddpa.cmx interproc.cmx cra.cmx translateCil.cmx cbpAst.cmx cbpLex.cmx cbpParse.cmx translateCbp.cmx conversion.cmx newtonDomain.cmx newton_interface.cmx safety.cmx duet.cmx || exit 1
 
-libduet: setup.ml setup.data
-	ocamlbuild duet/libduet.cma
-
-ark: setup.ml setup.data
-	ocamlbuild ark/test_ark.native
+srk: setup.ml setup.data
+	ocamlbuild srk/src/test_srk.native -tag debug
 
 apak: setup.ml setup.data
 	ocamlbuild apak/test_apak.native -tag debug

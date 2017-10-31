@@ -1,7 +1,7 @@
 open Apak
 open Arg
 
-module Log = Ark.Log
+module Log = Srk.Log
 
 let parameterized   = ref false
 
@@ -88,7 +88,7 @@ let default_solver_arg =
          | _ ->
            Log.fatalf "SMT solver `%s' is invalid" arg
        in
-       Ark.Smt.set_default_solver solver),
+       Srk.Smt.set_default_solver solver),
    " Set default SMT solver")
 
 (** Debug args *)

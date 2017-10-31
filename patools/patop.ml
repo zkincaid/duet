@@ -1,5 +1,5 @@
 open BatPervasives
-open Ark
+open Srk
 
 module PString = struct
   module I = struct
@@ -19,9 +19,9 @@ module Bounded = PredicateAutomata.MakeBounded(A)
 module Empty = PredicateAutomata.MakeEmpty(A)
 module F = PaFormula
 
-let pp_print_list = ArkUtil.pp_print_list
+let pp_print_list = SrkUtil.pp_print_list
 let pp_formula phi = F.pp Format.pp_print_string Format.pp_print_int phi
-let show_formula = ArkUtil.mk_show pp_formula
+let show_formula = SrkUtil.mk_show pp_formula
 
 let exists x phi = F.const_exists ~name:(Some x) x phi
 
@@ -70,7 +70,7 @@ let of_cfa entry edges =
     mk_or (mk_and (mk_eq x y) phi) (mk_and (mk_neq x y) psi)
   in
   (* Stable actions *)
-  ArkUtil.cartesian_product (BatList.enum locations) (BatList.enum locations)
+  SrkUtil.cartesian_product (BatList.enum locations) (BatList.enum locations)
   |> BatEnum.iter (fun (x, y) ->
       add_transition
         pa

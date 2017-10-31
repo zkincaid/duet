@@ -1,5 +1,5 @@
 open OUnit
-open Ark
+open Srk
 open Patop
 
 module Struct = Patop.A.Config
@@ -63,7 +63,7 @@ let bounded_check_post pa phi =
         A.succs pa config (alpha, i)
       in
       let all_succs =
-        (ArkUtil.cartesian_product
+        (SrkUtil.cartesian_product
            (Struct.min_models size phi)
            (1 -- size))
         /@ succs

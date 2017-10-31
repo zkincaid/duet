@@ -3,7 +3,7 @@ open Core
 open CfgIr
 open EqLogic
 open Apak
-open Ark
+open Srk
 open Aexpr
 
 module DG = Afg.G

@@ -1,6 +1,6 @@
 open Core
 open Apak
-open Ark
+open Srk
 open CfgIr
 open BatPervasives
 open Pathexp
@@ -227,7 +227,7 @@ module V = struct
       | VVal v -> Var.pp formatter v
       | VWidth v -> Format.fprintf formatter "%a@@width" Var.pp v
       | VPos v -> Format.fprintf formatter "%a@@pos" Var.pp v
-    let show = ArkUtil.mk_show pp
+    let show = SrkUtil.mk_show pp
     let equal x y = compare x y = 0
     let hash = function
       | VVal v -> Hashtbl.hash (Var.hash v, 0)
@@ -528,7 +528,7 @@ let analyze file =
 
                 let path_condition =
                   Ctx.mk_and [K.guard path; Ctx.mk_not phi]
-                  |> ArkSimplify.simplify_terms ark
+                  |> SrkSimplify.simplify_terms ark
                 in
                 dump_goal (Def.get_location def) path_condition;
                 match Wedge.is_sat Ctx.context path_condition with
@@ -550,7 +550,7 @@ let analyze file =
             let phi = Syntax.substitute_const Ctx.context sigma phi in
             let path_condition =
               Ctx.mk_and [K.guard path; Ctx.mk_not phi]
-              |> ArkSimplify.simplify_terms ark
+              |> SrkSimplify.simplify_terms ark
             in
             logf "Path condition:@\n%a" (Syntax.pp_smtlib2 Ctx.context) path_condition;
             dump_goal (Def.get_location def) path_condition;
