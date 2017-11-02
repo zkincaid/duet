@@ -1629,31 +1629,39 @@ module WedgeMatrix = struct
       | [] -> (mk_and iter.ark closed, offset)
       | (recurrence::rest) ->
         let size = Array.length recurrence.rec_add in
-        let recurrence_closed = close_matrix_rec recurrence offset in
-        let to_formula ineq =
-          let PieceWiseIneq (ivar, pieces) = Deshift.deshift_ineq ineq in
-          assert (ivar = "k");
-          let piece_to_formula (ivl, ineq) =
-            let hypothesis = match ivl with
-              | Bounded (lo, hi) ->
-                mk_and iter.ark [mk_leq iter.ark (mk_int lo) loop_counter;
-                                 mk_leq iter.ark loop_counter (mk_int hi)]
-              | BoundBelow lo -> 
-                mk_and iter.ark [mk_leq iter.ark (mk_int lo) loop_counter]
+        let recurrence_closed_formula =
+          try
+            let recurrence_closed = close_matrix_rec recurrence offset in
+            let to_formula ineq =
+              let PieceWiseIneq (ivar, pieces) = Deshift.deshift_ineq ineq in
+              assert (ivar = "k");
+              let piece_to_formula (ivl, ineq) =
+                let hypothesis = match ivl with
+                  | Bounded (lo, hi) ->
+                    mk_and iter.ark [mk_leq iter.ark (mk_int lo) loop_counter;
+                                     mk_leq iter.ark loop_counter (mk_int hi)]
+                  | BoundBelow lo ->
+                    mk_and iter.ark [mk_leq iter.ark (mk_int lo) loop_counter]
+                in
+                let conclusion = match ineq with
+                  | Equals (x, y) -> mk_eq iter.ark (term_of_expr x) (term_of_expr y)
+                  | _ -> assert false
+                in
+                mk_if iter.ark hypothesis conclusion
+              in
+              mk_and iter.ark (List.map piece_to_formula pieces)
             in
-            let conclusion = match ineq with
-              | Equals (x, y) -> mk_eq iter.ark (term_of_expr x) (term_of_expr y)
-              | _ -> assert false
-            in
-            mk_if iter.ark hypothesis conclusion
-          in
-          mk_and iter.ark (List.map piece_to_formula pieces)
+            recurrence_closed |> List.iteri (fun i ineq ->
+                match ineq with
+                | Equals (x, y) -> cf.(offset + i) <- y
+                | _ -> assert false);
+            List.map to_formula recurrence_closed
+          with _ ->
+            for i = 0 to size - 1 do
+              cf.(offset+i) <- Undefined
+            done;
+            []
         in
-        recurrence_closed |> List.iteri (fun i ineq ->
-            match ineq with
-            | Equals (x, y) -> cf.(offset + i) <- y
-            | _ -> assert false);
-        let recurrence_closed_formula = List.map to_formula recurrence_closed in
         close (offset + size) (recurrence_closed_formula@closed) rest
     in
     let (closed, offset) = close iter.nb_constants [] iter.rec_eq in

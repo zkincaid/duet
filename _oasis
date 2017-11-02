@@ -42,17 +42,6 @@ Executable test_ark
   CompiledObject: native
   Install:        false
 
-Library libduet
-  Path:             duet
-  BuildTools:       ocamlbuild
-  FindlibName:      libduet
-  Pack:             true
-  CCOpt:            -g -rdynamic
-  InternalModules:  Core, CmdLine, CfgIr, InterIR, Conversion, TranslateCS, Duet_plugin, PointerAnalysis, Afg, Ast, Hlir, TranslateCbp, TranslateCil
-  BuildDepends:     ppx_deriving, apak, cil, cil.default-features
-  Install:          false
-  XMETADescription: Duet Core IR
-
 Executable arktop
   Build$:         flag(tests)
   Path:           ark
