@@ -24,7 +24,7 @@ let affine_hull srk phi constants =
     let n = ref (-1) in
     fun () -> incr n; (!n)
   in
-  let vec_one = QQVector.of_term QQ.one 0 in
+  let vec_one = QQVector.of_term QQ.one Linear.const_dim in
   let rec go equalities mat = function
     | [] -> equalities
     | (k::ks) ->
