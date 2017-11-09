@@ -521,17 +521,13 @@ let divide_right a b =
 
 exception Nonlinear
 
+let const_dim = -1
+
 let sym_of_dim dim =
-  if dim == 0 then None
-  else if dim > 0 then Some (symbol_of_int (dim - 1))
-  else Some (symbol_of_int dim)
+  if dim >= 0 then Some (symbol_of_int dim)
+  else None
 
-let dim_of_sym k =
-  let id = int_of_symbol k in
-  if id >= 0 then id + 1
-  else id
-
-let const_dim = 0
+let dim_of_sym k = int_of_symbol k
 
 let const_linterm k = QQVector.of_term k const_dim
 
