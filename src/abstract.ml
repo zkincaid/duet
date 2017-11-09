@@ -6,8 +6,7 @@ open Polyhedron
 include Log.Make(struct let name = "srk.abstract" end)
 
 module V = Linear.QQVector
-module VS = BatSet.Make(Linear.QQVector)
-module VM = BatMap.Make(Linear.QQVector)
+module CS = CoordinateSystem
 
 let opt_abstract_limit = ref (-1)
 
@@ -103,9 +102,19 @@ let boxify srk phi terms =
 let abstract ?exists:(p=fun x -> true) srk man phi =
   let solver = Smt.mk_solver srk in
   let phi_symbols = symbols phi in
-  let projected_symbols = Symbol.Set.filter (not % p) phi_symbols in
   let symbol_list = Symbol.Set.elements phi_symbols in
   let env_proj = SrkApron.Env.of_set srk (Symbol.Set.filter p phi_symbols) in
+  let cs = CoordinateSystem.mk_empty srk in
+
+  let projected_coordinates =
+    Symbol.Set.fold (fun sym project ->
+        if p sym then
+          project
+        else
+          (CS.cs_term_id ~admit:true cs (`App (sym, [])))::project)
+      phi_symbols
+      []
+  in
 
   let disjuncts = ref 0 in
   let rec go prop =
@@ -124,7 +133,6 @@ let abstract ?exists:(p=fun x -> true) srk man phi =
       end
     | `Sat model -> begin
         let interp = Interpretation.of_model srk model symbol_list in
-        let valuation = model#eval_real % (mk_const srk) in
         solver#pop 1;
         incr disjuncts;
         logf "[%d] abstract lazy_dnf" (!disjuncts);
@@ -134,15 +142,22 @@ let abstract ?exists:(p=fun x -> true) srk man phi =
         end else begin
           let disjunct =
             match Interpretation.select_implicant interp phi with
-            | Some d -> Polyhedron.polyhedron_of_implicant srk d
+            | Some d -> Polyhedron.polyhedron_of_implicant ~admit:true cs d
             | None -> begin
                 assert (model#sat phi);
                 assert false
               end
           in
+          let valuation =
+            let table : QQ.t array =
+              Array.init (CS.dim cs) (fun i ->
+                  model#eval_real (CS.term_of_coordinate cs i))
+            in
+            fun i -> table.(i)
+          in
           let projected_disjunct =
-            Polyhedron.local_project valuation projected_symbols disjunct
-            |> Polyhedron.to_apron env_proj man
+            Polyhedron.local_project valuation projected_coordinates disjunct
+            |> Polyhedron.to_apron cs env_proj man
           in
           go (SrkApron.join prop projected_disjunct)
         end
