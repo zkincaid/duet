@@ -22,6 +22,8 @@ val pp_cs_term : 'a t -> Format.formatter -> cs_term -> unit
 
 val mk_empty : 'a context -> 'a t
 
+val get_context : 'a t -> 'a context
+
 val copy : 'a t -> 'a t
 
 (** Extend a coordinate system to admit a term *)

@@ -591,3 +591,12 @@ let evaluate_linterm interp term =
       | Some const -> QQ.mul (interp const) coeff
       | None -> coeff)
   |> BatEnum.fold QQ.add QQ.zero
+
+let evaluate_affine m term =
+  (QQVector.enum term)
+  /@ (fun (coeff, dim) ->
+      if dim == const_dim then
+        coeff
+      else
+        QQ.mul (m dim) coeff)
+  |> BatEnum.fold QQ.add QQ.zero

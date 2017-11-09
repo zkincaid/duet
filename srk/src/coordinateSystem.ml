@@ -41,6 +41,8 @@ let mk_empty srk =
     term_id = Hashtbl.create 991;
     id_def = A.create () }
 
+let get_context cs = cs.srk
+
 let copy cs =
   { srk = cs.srk;
     term_id = Hashtbl.copy cs.term_id;

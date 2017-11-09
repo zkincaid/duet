@@ -175,6 +175,8 @@ val intersect_rowspace : QQMatrix.t -> QQMatrix.t -> (QQMatrix.t * QQMatrix.t)
     A.  If A and B are invertible, then C is exactly AB^{-1}. *)
 val divide_right : QQMatrix.t -> QQMatrix.t -> QQMatrix.t option
 
+val evaluate_affine : (int -> QQ.t) -> QQVector.t -> QQ.t
+
 (** {2 Affine terms} *)
 
 (** Various operations for manipulating affine terms over symbols, represented
@@ -218,3 +220,4 @@ val evaluate_linterm : (symbol -> QQ.t) -> QQVector.t -> QQ.t
 
 (** Count the number of dimensions with non-zero coefficients *)
 val linterm_size : QQVector.t -> int
+
