@@ -25,6 +25,7 @@ module type Vector = sig
   val add : t -> t -> t
   val scalar_mul : scalar -> t -> t
   val negate : t -> t
+  val sub : t -> t -> t
   val dot : t -> t -> scalar
   val zero : t
   val is_zero : t -> bool
@@ -98,6 +99,8 @@ module AbelianGroupMap (M : Map) (G : AbelianGroup) = struct
   let of_term coeff dim = add_term coeff dim zero
 
   let negate = M.map G.negate
+
+  let sub u v = add u (negate v)
 
   let pivot dim vec =
     (coeff dim vec, M.remove dim vec)

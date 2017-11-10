@@ -1790,13 +1790,13 @@ let abstract ?exists:(p=fun x -> true) ?(subterm=fun x -> true) srk phi =
       match Interpretation.select_implicant interp lin_phi with
       | None -> assert false
       | Some implicant ->
+        let cs = CoordinateSystem.mk_empty srk in
         let implicant' =
           List.map replace_defs implicant
-          |> SrkSimplify.qe_partial_implicant srk p
+          |> Polyhedron.of_implicant ~admit:true cs
+          |> Polyhedron.try_fourier_motzkin cs p
+          |> Polyhedron.implicant_of cs
         in
-        solver#add [mk_if srk
-                      (uninterpret_implicant implicant)
-                      (uninterpret_implicant implicant')];
         let new_wedge =
           implicant'
           |> List.map (fun atom ->
@@ -1895,13 +1895,13 @@ let symbolic_bounds_formula ?exists:(p=fun x -> true) srk phi symbol =
       | None -> assert false
       | Some implicant ->
         let (wedge_lower, wedge_upper) =
+          let cs = CoordinateSystem.mk_empty srk in
           let implicant' =
             List.map replace_defs implicant
-            |> SrkSimplify.qe_partial_implicant srk p
+            |> Polyhedron.of_implicant ~admit:true cs
+            |> Polyhedron.try_fourier_motzkin cs p
+            |> Polyhedron.implicant_of cs
           in
-          solver#add [mk_if srk
-                        (uninterpret_implicant implicant)
-                        (uninterpret_implicant implicant')];
           let wedge =
             implicant'
             |> List.map (fun atom ->

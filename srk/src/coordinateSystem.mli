@@ -86,3 +86,10 @@ val project_ideal : 'a t ->
   (symbol -> bool) ->
   (int * 'a term * 'a formula) list
 
+(** Find the set of all coordinates that are associated with subterms of the
+    term associated with a given coordinate. *)
+val subcoordinates : 'a t -> int -> SrkUtil.Int.Set.t
+
+(** Find the set of all coordinates that are associated with *direct* subterms
+    of the term associated with a given coordinate. *)
+val direct_subcoordinates : 'a t -> int -> SrkUtil.Int.Set.t

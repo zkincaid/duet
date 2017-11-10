@@ -16,6 +16,7 @@ module type Vector = sig
   val add : t -> t -> t
   val scalar_mul : scalar -> t -> t
   val negate : t -> t
+  val sub : t -> t -> t
   val dot : t -> t -> scalar
 
   val zero : t
