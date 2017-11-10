@@ -376,3 +376,43 @@ let project_ideal cs ideal ?(subterm=fun x -> true) keep =
       | None -> safe)
     []
     (1 -- dimension)
+
+module IntSet = SrkUtil.Int.Set
+
+let subcoordinates cs i =
+  let rec add_vec_coordinates set v =
+    BatEnum.fold
+      (fun set (_, coord) -> add_subcoordinates set coord)
+      set
+      (V.enum v)
+  and add_subcoordinates set coord =
+    if IntSet.mem coord set then
+      set
+    else match destruct_coordinate cs coord with
+      | `App (_, args) ->
+        List.fold_left add_vec_coordinates IntSet.empty args
+      | `Mul (x, y) | `Mod (x, y) ->
+        add_vec_coordinates (add_vec_coordinates set x) y
+      | `Inv x | `Floor x ->
+        add_vec_coordinates set x
+  in
+  add_subcoordinates IntSet.empty i
+  |> IntSet.remove const_id
+
+let direct_subcoordinates cs i =
+  let add_vec_coordinates set v =
+    BatEnum.fold
+      (fun set (_, coord) -> IntSet.add coord set)
+      set
+      (V.enum v)
+  in
+  let subcoordinates =
+    match destruct_coordinate cs i with
+    | `App (_, args) ->
+      List.fold_left add_vec_coordinates IntSet.empty args
+    | `Mul (x, y) | `Mod (x, y) ->
+      add_vec_coordinates (add_vec_coordinates IntSet.empty x) y
+    | `Inv x | `Floor x ->
+      add_vec_coordinates IntSet.empty x
+  in
+  IntSet.remove const_id subcoordinates

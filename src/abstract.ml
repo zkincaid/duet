@@ -142,7 +142,7 @@ let abstract ?exists:(p=fun x -> true) srk man phi =
         end else begin
           let disjunct =
             match Interpretation.select_implicant interp phi with
-            | Some d -> Polyhedron.polyhedron_of_implicant ~admit:true cs d
+            | Some d -> Polyhedron.of_implicant ~admit:true cs d
             | None -> begin
                 assert (model#sat phi);
                 assert false
