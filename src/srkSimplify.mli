@@ -11,12 +11,6 @@ end
 val simplify_terms_rewriter : 'a context -> 'a rewriter
 val simplify_terms : 'a context -> ('a,'b) expr -> ('a,'b) expr
 
-(** Try to eliminate "easy" variables from a conjunction of atomic formulas *)
-val qe_partial_implicant : 'a context ->
-  (symbol -> bool) ->
-  ('a formula) list ->
-  ('a formula) list
-
 (** Purify function applications in a ground formula: replace each function
     application within a formula with a fresh symbol, and return both the
     resulting formula and a mapping from the fresh symbols to the terms they

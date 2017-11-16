@@ -91,58 +91,6 @@ let simplify_terms_rewriter srk =
 let simplify_terms srk expr =
   rewrite srk ~up:(simplify_terms_rewriter srk) expr
 
-module ExprVec = Linear.ExprQQVector
-let qe_partial_implicant srk p implicant =
-  let subst map expr =
-    substitute_const srk (fun sym ->
-        try Symbol.Map.find sym map
-        with Not_found -> mk_const srk sym)
-      expr
-  in
-  let (rewrite, implicant) =
-    List.fold_left (fun (rewrite, implicant) atom ->
-        match Interpretation.destruct_atom srk atom with
-        | `Comparison (`Eq, x, y) ->
-          let diff =
-            ExprVec.of_term srk (subst rewrite (mk_sub srk x y))
-          in
-          (* A symbol can be eliminated if it appears in the equation, and
-             isn't *trapped*.  A symbol is trapped if it appears as subterm of
-             another term.  *)
-          let (trapped, elim) =
-            BatEnum.fold (fun (trapped, elim) (term, _) ->
-                match Term.destruct srk term with
-                | `App (sym, []) ->
-                  if p sym then (trapped, elim)
-                  else (trapped, Symbol.Set.add sym elim)
-                | _ -> (Symbol.Set.union trapped (symbols term)), elim)
-              (Symbol.Set.empty, Symbol.Set.empty)
-              (ExprVec.enum diff)
-          in
-          let elim = Symbol.Set.diff elim trapped in
-          if Symbol.Set.is_empty elim then
-            (rewrite, atom::implicant)
-          else
-            let sym = Symbol.Set.min_elt elim in
-            let (coeff, rest) = ExprVec.pivot (mk_const srk sym) diff in
-            let rhs =
-              ExprVec.scalar_mul (QQ.negate (QQ.inverse coeff)) rest
-              |> ExprVec.term_of srk
-            in
-            let rewrite =
-              Symbol.Map.map
-                      (substitute_const srk (fun sym' ->
-                    if sym = sym' then rhs
-                    else mk_const srk sym'))
-                      rewrite
-            in
-            (Symbol.Map.add sym rhs rewrite, implicant)
-        | _ -> (rewrite, atom::implicant))
-      (Symbol.Map.empty, [])
-      implicant
-  in
-  List.map (subst rewrite) implicant
-
 let purify_rewriter srk table =
   fun expr ->
     match destruct srk expr with

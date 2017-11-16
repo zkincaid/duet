@@ -42,13 +42,14 @@ module type DomainPlus = sig
 end
 
 module Cf = struct
-  include Linear.MakeExprRingMap(QQUvp)
+  module IntMap = SrkUtil.Int.Map
+  include Linear.RingMap(IntMap)(QQUvp)
 
   let k_minus_1 = QQUvp.add_term QQ.one 1 (QQUvp.scalar (QQ.of_int (-1)))
 
   (* Compose a closed form with a uvp *)
   let compose cf p =
-    Expr.Map.filter_map
+    IntMap.filter_map
       (fun _ coeff ->
          let coeff' = QQUvp.compose coeff p in
          if QQUvp.is_zero coeff' then
@@ -61,84 +62,73 @@ module Cf = struct
     if QQUvp.is_zero scalar then
       zero
     else
-      Expr.Map.map (QQUvp.mul scalar) vec
+      IntMap.map (QQUvp.mul scalar) vec
 
-  exception Quit
+  exception No_translation
 
-  (* Lower a degree-0 cf to a regular term *)
-  let term_of_0 srk cf =
-    try
-      let lowered =
-        enum cf
-        /@ (fun (dim, coeff) ->
-            let (const_coeff, higher_order) = QQUvp.pivot 0 coeff in
-            if QQUvp.equal higher_order QQUvp.zero then
-              mk_mul srk [mk_real srk const_coeff; dim]
-            else
-              raise Quit)
-        |> BatList.of_enum
-        |> mk_add srk
-      in
-      Some lowered
-    with Quit -> None
-
-  let of_term srk env =
-    let rec alg = function
-      | `App (v, []) ->
-        begin
-          match env v with
-          | Some cf -> Some (compose cf k_minus_1)
-          | None -> None
-        end
-      | `App (func, args) ->
-        begin
-          match BatOption.bind (env func) (term_of_0 srk) with
-          | None -> None
-          | Some t ->
-            begin match Term.destruct srk t with
-              | `App (func', []) when func = func' ->
-                let args' =
-                  BatList.filter_map
-                    (fun arg ->
-                       match Expr.refine srk arg with
-                       | `Term t ->
-                         BatOption.bind (Term.eval_partial srk alg t) (term_of_0 srk)
-                       | `Formula _ -> None)
-                    args
-                in
-                if List.length args = List.length args' then
-                  Some (term QQUvp.one (mk_app srk func args'))
-                else
-                  None
-              | _ -> None
-            end
-        end
-      | `Real k -> Some (const srk (QQUvp.scalar k))
-      | `Add xs -> Some (List.fold_left add zero xs)
-      | `Mul [] -> Some (const srk (QQUvp.scalar QQ.one))
-      | `Mul (x::xs) -> Some (List.fold_left (mul srk) x xs)
-      | `Binop (`Div, x, y) ->
-        (* to do: if denomenator is a constant then the numerator can be loop
-           dependent *)
-        begin match term_of_0 srk x, term_of_0 srk y with
-          | Some x, Some y -> Some (term QQUvp.one (mk_div srk x y))
-          | _, _ -> None
-        end
-      | `Binop (`Mod, x, y) ->
-        begin match term_of_0 srk x, term_of_0 srk y with
-          | Some x, Some y -> Some (term QQUvp.one (mk_mod srk x y))
-          | _, _ -> None
-        end
-      | `Unop (`Floor, x) ->
-        begin match term_of_0 srk x with
-          | Some x -> Some (term QQUvp.one (mk_floor srk x))
-          | None -> None
-        end
-      | `Unop (`Neg, x) -> Some (scalar_mul (QQUvp.negate QQUvp.one) x)
-      | `Ite (_, _, _) -> None
-      | `Var (_, _) -> None
+  let is_constant_expr cs env expr =
+    let is_constant_sym sym =
+      match env sym with
+      | Some cf ->
+        if IntMap.cardinal cf = 1 then
+          let (coord, coeff) = IntMap.choose cf in
+          QQUvp.equal QQUvp.one coeff
+          && (CS.cs_term_id cs (`App (sym, [])) = coord)
+        else
+          false
+      | None -> false
     in
-    Term.eval_partial srk alg
+    Symbol.Set.for_all is_constant_sym (symbols expr)
+
+  let const k =
+    IntMap.add Linear.const_dim k IntMap.empty
+
+  let mul cs u v =
+    let mul_dim x y =
+      if x = Linear.const_dim then
+        y
+      else if y = Linear.const_dim then
+        x
+      else
+        CS.cs_term_id ~admit:true cs (`Mul (V.of_term QQ.one x,
+                                            V.of_term QQ.one y))
+    in
+    SrkUtil.cartesian_product (enum u) (enum v)
+    /@ (fun ((xcoeff, xdim), (ycoeff, ydim)) ->
+        (QQUvp.mul xcoeff ycoeff, mul_dim xdim ydim))
+    |> of_enum
+
+  let rec of_term cs env term =
+    let admit = true in
+    let srk = CS.get_context cs in
+    match Term.destruct srk term with
+    | `App (v, []) ->
+      begin
+        match env v with
+        | Some cf -> compose cf k_minus_1
+        | None ->
+          raise No_translation
+      end
+    | `Real k -> const (QQUvp.scalar k)
+    | `Add xs ->
+      List.fold_right (fun x cf -> add (of_term cs env x) cf) xs zero
+    | `Mul [] -> const (QQUvp.scalar QQ.one)
+    | `Mul (x::xs) ->
+      List.fold_right
+        (fun x cf -> mul cs cf (of_term cs env x))
+        xs
+        (of_term cs env x)
+    | `Unop (`Neg, x) -> negate (of_term cs env x)
+    | _ ->
+      if is_constant_expr cs env term then
+        V.enum (CS.vec_of_term ~admit cs term)
+        /@ (fun (coeff, dim) -> (dim, QQUvp.scalar coeff))
+        |> IntMap.of_enum
+      else
+        raise No_translation
+  let of_term cs env term =
+    try Some (of_term cs env term)
+    with No_translation -> None
 
   let summation cf =
     (* QQUvp.summation computes q(n) = sum_{i=0}^n p(i); shift to compute
@@ -146,23 +136,36 @@ module Cf = struct
     let sum_from_1 px =
       QQUvp.add_term (QQ.negate (QQUvp.eval px QQ.zero)) 0 (QQUvp.summation px)
     in
-    Expr.Map.map sum_from_1 cf
+    IntMap.map sum_from_1 cf
 
   (* Convert a closed form into a term by instantiating the variable in the
      polynomial coefficients of the closed form *)
-  let term_of srk cf k =
+  let term_of cs cf k =
+    let srk = CS.get_context cs in
     let polynomial_term px =
       QQUvp.enum px
       /@ (fun (coeff, order) ->
           mk_mul srk
-            ((mk_real srk coeff)::(BatList.of_enum ((1 -- order) /@ (fun _ -> k)))))
+            ((mk_real srk coeff)::(BatList.of_enum
+                                     ((1 -- order) /@ (fun _ -> k)))))
       |> BatList.of_enum
       |> mk_add srk
     in
     enum cf
-    /@ (fun (term, px) -> mk_mul srk [term; polynomial_term px])
+    /@ (fun (px, coord) ->
+        if coord = Linear.const_dim then
+          polynomial_term px
+        else
+          mk_mul srk [CS.term_of_coordinate cs coord;
+                      polynomial_term px])
     |> BatList.of_enum
     |> mk_add srk
+
+  let symbol cs p sym =
+    IntMap.add
+      (CS.cs_term_id ~admit:true cs (`App (sym, [])))
+      p
+      IntMap.empty
 end
 
 let reflexive_closure srk tr_symbols formula =
@@ -460,7 +463,7 @@ module WedgeVector = struct
       let equalities = Wedge.farkas_equalities wedge in
       (* Matrix consisting of one row for each dimension of the wedge that is
          associated with a term that contains a transition variable; the row
-         contains the Fsrkas column for that dimension *)
+         contains the Farkas column for that dimension *)
       let matrix =
         BatList.fold_lefti (fun m id (term, column) ->
             if Symbol.Set.for_all is_symbolic_constant (symbols term) then
@@ -556,6 +559,7 @@ module WedgeVector = struct
   let closure_plus (iter : 'a t) : 'a formula =
     let loop_counter_sym = mk_symbol iter.srk ~name:"K" `TyInt in
     let loop_counter = mk_const iter.srk loop_counter_sym in
+    let cs = CS.mk_empty iter.srk in
 
     (* In a recurrence environment, absence of a binding for a variable
        indicates that the variable is not modified (i.e., the variable satisfies
@@ -576,9 +580,9 @@ module WedgeVector = struct
         if Symbol.Map.mem sym induction_vars then
           Symbol.Map.find sym induction_vars
         else
-          Some (Cf.term QQUvp.one (mk_const iter.srk sym))
+          Some (Cf.symbol cs QQUvp.one sym)
       in
-      Cf.of_term iter.srk env rhs
+      Cf.of_term cs env rhs
       |> BatOption.map Cf.summation
     in
 
@@ -587,9 +591,8 @@ module WedgeVector = struct
       List.fold_left (fun induction_vars (_, sym, rhs) ->
           match close_sum induction_vars rhs with
           | Some close_rhs ->
-            let cf =
-              Cf.add_term QQUvp.one (mk_const iter.srk sym) close_rhs
-            in
+            let sym_id = CS.cs_term_id ~admit:true cs (`App (sym, [])) in
+            let cf = Cf.add_term QQUvp.one sym_id close_rhs in
             Symbol.Map.add sym (Some cf) induction_vars
           | None ->
             logf ~level:`warn "Failed to find closed form for %a"
@@ -605,7 +608,7 @@ module WedgeVector = struct
           |> BatOption.map (fun cf ->
               mk_eq iter.srk
                 (mk_const iter.srk sym')
-                (Cf.term_of iter.srk cf loop_counter)))
+                (Cf.term_of cs cf loop_counter)))
         iter.symbols
       |> mk_and iter.srk
     in
@@ -617,7 +620,7 @@ module WedgeVector = struct
             | None -> None
             | Some cf ->
               let rhs =
-                mk_add iter.srk [exp_rhs; Cf.term_of iter.srk cf loop_counter]
+                mk_add iter.srk [exp_rhs; Cf.term_of cs cf loop_counter]
               in
               match exp_op with
               | `Leq -> Some (mk_leq iter.srk exp_lhs rhs)

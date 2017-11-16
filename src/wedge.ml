@@ -1769,9 +1769,6 @@ let abstract ?exists:(p=fun x -> true) ?(subterm=fun x -> true) srk phi =
   let integrity psi =
     solver#add [Nonlinear.uninterpret srk psi]
   in
-  let uninterpret_implicant implicant =
-    mk_and srk (List.map (Nonlinear.uninterpret srk) implicant)
-  in
   let rec go wedge =
     let blocking_clause =
       to_formula wedge
@@ -1879,9 +1876,6 @@ let symbolic_bounds_formula ?exists:(p=fun x -> true) srk phi symbol =
   solver#add [nonlinear_defs];
   let integrity psi =
     solver#add [Nonlinear.uninterpret srk psi]
-  in
-  let uninterpret_implicant implicant =
-    mk_and srk (List.map (Nonlinear.uninterpret srk) implicant)
   in
   let rec go (lower, upper) =
     match solver#get_model () with
