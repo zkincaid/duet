@@ -5,6 +5,7 @@ module V = Linear.QQVector
 module Monomial = Polynomial.Monomial
 module P = Polynomial.Mvp
 module Rewrite = Polynomial.Rewrite
+module IntSet = SrkUtil.Int.Set
 
 include Log.Make(struct let name = "srk.coordinateSystem" end)
 
@@ -376,8 +377,6 @@ let project_ideal cs ideal ?(subterm=fun x -> true) keep =
       | None -> safe)
     []
     (1 -- dimension)
-
-module IntSet = SrkUtil.Int.Set
 
 let subcoordinates cs i =
   let rec add_vec_coordinates set v =

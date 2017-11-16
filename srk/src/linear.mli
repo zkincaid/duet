@@ -123,37 +123,6 @@ module RingMap
                          and type dim = M.key
                          and type scalar = R.t
 
-
-(** As RingMap, except with ExprMap as the map type *)
-module type ExprRingMap = sig
-  type scalar
-  type 'a t = ('a, typ_arith, scalar) Expr.Map.t
-
-  val zero : 'a t
-  val one : 'a context -> 'a t
-  val add : 'a t -> 'a t -> 'a t
-  val mul : 'a context -> 'a t -> 'a t -> 'a t
-  val scalar_mul : scalar -> 'a t -> 'a t
-  val negate : 'a t -> 'a t
-  val const : 'a context -> scalar -> 'a t
-  val term : scalar -> 'a term -> 'a t
-  val add_term : scalar -> 'a term -> 'a t -> 'a t
-  val enum : 'a t -> ('a term * scalar) BatEnum.t
-  val of_enum : ('a term * scalar) BatEnum.t -> 'a t
-  val coeff : 'a term -> 'a t -> scalar
-  val pivot : 'a term -> 'a t -> scalar * 'a t
-end
-
-module MakeExprRingMap (R : Ring) : ExprRingMap with type scalar = R.t
-
-(** Vector of terms with rational coefficients. *)
-module ExprQQVector : sig
-  include ExprRingMap with type scalar = QQ.t
-  val of_term : 'a context -> 'a term -> 'a t
-  val term_of : 'a context -> 'a t -> 'a term
-end
-
-
 (** [solve_exn mat b] computes a rational vector [x] such that [mat*x =
     b]. Raises [No_solution] if there is no solution. *)
 val solve_exn : QQMatrix.t -> QQVector.t -> QQVector.t
