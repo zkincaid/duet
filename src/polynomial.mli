@@ -24,7 +24,7 @@ end
 module Uvp (R : Linear.Ring) : Univariate with type scalar = R.t
 
 (** Univariate polynomials with rational coefficients *)
-module QQUvp : sig
+module QQX : sig
   include Univariate with type scalar = QQ.t
 
   val pp : Format.formatter -> t -> unit

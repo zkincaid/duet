@@ -10,7 +10,7 @@ module IntSet = SrkUtil.Int.Set
 module IntMap = SrkUtil.Int.Map
 module DArray = BatDynArray
 
-module QQUvp = Polynomial.QQUvp
+module QQX = Polynomial.QQX
 module QQMvp = Polynomial.Mvp
 module Monomial = Polynomial.Monomial
 
@@ -43,26 +43,26 @@ end
 
 module Cf = struct
   module IntMap = SrkUtil.Int.Map
-  include Linear.RingMap(IntMap)(QQUvp)
+  include Linear.RingMap(IntMap)(QQX)
 
-  let k_minus_1 = QQUvp.add_term QQ.one 1 (QQUvp.scalar (QQ.of_int (-1)))
+  let k_minus_1 = QQX.add_term QQ.one 1 (QQX.scalar (QQ.of_int (-1)))
 
   (* Compose a closed form with a uvp *)
   let compose cf p =
     IntMap.filter_map
       (fun _ coeff ->
-         let coeff' = QQUvp.compose coeff p in
-         if QQUvp.is_zero coeff' then
+         let coeff' = QQX.compose coeff p in
+         if QQX.is_zero coeff' then
            None
          else
            Some coeff')
       cf
 
   let scalar_mul scalar vec =
-    if QQUvp.is_zero scalar then
+    if QQX.is_zero scalar then
       zero
     else
-      IntMap.map (QQUvp.mul scalar) vec
+      IntMap.map (QQX.mul scalar) vec
 
   exception No_translation
 
@@ -72,7 +72,7 @@ module Cf = struct
       | Some cf ->
         if IntMap.cardinal cf = 1 then
           let (coord, coeff) = IntMap.choose cf in
-          QQUvp.equal QQUvp.one coeff
+          QQX.equal QQX.one coeff
           && (CS.cs_term_id cs (`App (sym, [])) = coord)
         else
           false
@@ -95,7 +95,7 @@ module Cf = struct
     in
     SrkUtil.cartesian_product (enum u) (enum v)
     /@ (fun ((xcoeff, xdim), (ycoeff, ydim)) ->
-        (QQUvp.mul xcoeff ycoeff, mul_dim xdim ydim))
+        (QQX.mul xcoeff ycoeff, mul_dim xdim ydim))
     |> of_enum
 
   let rec of_term cs env term =
@@ -109,10 +109,10 @@ module Cf = struct
         | None ->
           raise No_translation
       end
-    | `Real k -> const (QQUvp.scalar k)
+    | `Real k -> const (QQX.scalar k)
     | `Add xs ->
       List.fold_right (fun x cf -> add (of_term cs env x) cf) xs zero
-    | `Mul [] -> const (QQUvp.scalar QQ.one)
+    | `Mul [] -> const (QQX.scalar QQ.one)
     | `Mul (x::xs) ->
       List.fold_right
         (fun x cf -> mul cs cf (of_term cs env x))
@@ -122,7 +122,7 @@ module Cf = struct
     | _ ->
       if is_constant_expr cs env term then
         V.enum (CS.vec_of_term ~admit cs term)
-        /@ (fun (coeff, dim) -> (dim, QQUvp.scalar coeff))
+        /@ (fun (coeff, dim) -> (dim, QQX.scalar coeff))
         |> IntMap.of_enum
       else
         raise No_translation
@@ -131,10 +131,10 @@ module Cf = struct
     with No_translation -> None
 
   let summation cf =
-    (* QQUvp.summation computes q(n) = sum_{i=0}^n p(i); shift to compute
+    (* QQX.summation computes q(n) = sum_{i=0}^n p(i); shift to compute
        q(n) = sum_{i=1}^n p(i) *)
     let sum_from_1 px =
-      QQUvp.add_term (QQ.negate (QQUvp.eval px QQ.zero)) 0 (QQUvp.summation px)
+      QQX.add_term (QQ.negate (QQX.eval px QQ.zero)) 0 (QQX.summation px)
     in
     IntMap.map sum_from_1 cf
 
@@ -143,7 +143,7 @@ module Cf = struct
   let term_of cs cf k =
     let srk = CS.get_context cs in
     let polynomial_term px =
-      QQUvp.enum px
+      QQX.enum px
       /@ (fun (coeff, order) ->
           mk_mul srk
             ((mk_real srk coeff)::(BatList.of_enum
@@ -580,7 +580,7 @@ module WedgeVector = struct
         if Symbol.Map.mem sym induction_vars then
           Symbol.Map.find sym induction_vars
         else
-          Some (Cf.symbol cs QQUvp.one sym)
+          Some (Cf.symbol cs QQX.one sym)
       in
       Cf.of_term cs env rhs
       |> BatOption.map Cf.summation
@@ -592,7 +592,7 @@ module WedgeVector = struct
           match close_sum induction_vars rhs with
           | Some close_rhs ->
             let sym_id = CS.cs_term_id ~admit:true cs (`App (sym, [])) in
-            let cf = Cf.add_term QQUvp.one sym_id close_rhs in
+            let cf = Cf.add_term QQX.one sym_id close_rhs in
             Symbol.Map.add sym (Some cf) induction_vars
           | None ->
             logf ~level:`warn "Failed to find closed form for %a"
