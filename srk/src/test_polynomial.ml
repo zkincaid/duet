@@ -2,10 +2,10 @@ open OUnit
 open Polynomial
 open BatPervasives
 
-let mk_uvp vec =
+let mk_qqx vec =
   List.fold_left
-    (fun vec (i, k) -> QQUvp.add_term k i vec)
-    QQUvp.zero
+    (fun vec (i, k) -> QQX.add_term k i vec)
+    QQX.zero
     (List.mapi (fun i k -> (i, QQ.of_int k)) vec)
 
 module MvpInfix = struct
@@ -16,6 +16,9 @@ module MvpInfix = struct
   let dim k = Mvp.of_dim (Char.code k)
 end
 
+let assert_equal_qqx p q =
+  assert_equal ~cmp:QQX.equal ~printer:QQX.show p q
+
 let assert_equal_mvp p q =
   let pp_dim formatter i =
     Format.pp_print_string formatter (Char.escaped (Char.chr i))
@@ -24,40 +27,40 @@ let assert_equal_mvp p q =
   assert_equal ~printer:show ~cmp:Mvp.equal p q
 
 let test_mul () =
-  let p = mk_uvp [1; 1] in
-  let q = mk_uvp [-1; 1] in
-  let r = mk_uvp [-1; 0; 1] in
-  assert_equal ~printer:QQUvp.show r (QQUvp.mul p q)
+  let p = mk_qqx [1; 1] in
+  let q = mk_qqx [-1; 1] in
+  let r = mk_qqx [-1; 0; 1] in
+  assert_equal_qqx r (QQX.mul p q)
 
 let test_compose1 () = 
-  let p = mk_uvp [-1; 1] in
-  let q = mk_uvp [-1; 0; 1] in
-  let r = mk_uvp [0; -2; 1] in
-  assert_equal ~printer:QQUvp.show r (QQUvp.compose q p)
+  let p = mk_qqx [-1; 1] in
+  let q = mk_qqx [-1; 0; 1] in
+  let r = mk_qqx [0; -2; 1] in
+  assert_equal_qqx r (QQX.compose q p)
 
 let test_compose2 () =
-  let p = mk_uvp [1; 0; 1] in
-  let q = mk_uvp [1; 2; 3; 4] in
-  let r = mk_uvp [10; 0; 20; 0; 15; 0; 4] in
-  (*  let r = mk_uvp [6; 0; 8; 0; 3; 0; 0] in*)
-  assert_equal ~printer:QQUvp.show r (QQUvp.compose q p)
+  let p = mk_qqx [1; 0; 1] in
+  let q = mk_qqx [1; 2; 3; 4] in
+  let r = mk_qqx [10; 0; 20; 0; 15; 0; 4] in
+  (*  let r = mk_qqx [6; 0; 8; 0; 3; 0; 0] in*)
+  assert_equal_qqx r (QQX.compose q p)
 
 let test_eval () =
-  let p = mk_uvp [-1; 2; -3; 4] in  
-  assert_equal ~printer:QQ.show (QQ.of_int 23) (QQUvp.eval p (QQ.of_int 2))
+  let p = mk_qqx [-1; 2; -3; 4] in
+  assert_equal ~printer:QQ.show (QQ.of_int 23) (QQX.eval p (QQ.of_int 2))
 
 let test_summation1 () =
-  let p = mk_uvp [2] in
-  let r = mk_uvp [2; 2] in
-  assert_equal ~printer:QQUvp.show r (QQUvp.summation p)
+  let p = mk_qqx [2] in
+  let r = mk_qqx [2; 2] in
+  assert_equal_qqx r (QQX.summation p)
 
 let test_summation2 () = (* Gauss sum *)
-  let p = mk_uvp [0; 1] in
+  let p = mk_qqx [0; 1] in
   let r =
-    QQUvp.scalar_mul (QQ.inverse (QQ.of_int 2))
-      (QQUvp.mul (mk_uvp [0;1]) (mk_uvp [1;1]))
+    QQX.scalar_mul (QQ.inverse (QQ.of_int 2))
+      (QQX.mul (mk_qqx [0;1]) (mk_qqx [1;1]))
   in
-  assert_equal ~printer:QQUvp.show r (QQUvp.summation p)
+  assert_equal_qqx r (QQX.summation p)
 
 let test_rewrite1 () =
   let open MvpInfix in

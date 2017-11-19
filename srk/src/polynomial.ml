@@ -64,7 +64,7 @@ module Uvp(R : Ring) = struct
   let eval p k = fst (pivot 0 (compose p (scalar k)))
 end
 
-module QQUvp = struct
+module QQX = struct
   include Uvp(QQ)
 
   let pp formatter p =
