@@ -1,6 +1,6 @@
 open BatPervasives
 
-include Log.Make(struct let name = "ark.polynomial" end)
+include Log.Make(struct let name = "srk.polynomial" end)
 
 module type Ring = Linear.Ring
 
@@ -22,7 +22,7 @@ module Int = struct
 end
 
 module Uvp(R : Ring) = struct
-  module IntMap = ArkUtil.Int.Map
+  module IntMap = SrkUtil.Int.Map
 
   include Linear.RingMap(IntMap)(R)
 
@@ -43,9 +43,9 @@ module Uvp(R : Ring) = struct
     BatEnum.fold
       (fun r ((pp,pc), (qp,qc)) -> add_term (R.mul pc qc) (pp + qp) r)
       zero
-      (ArkUtil.cartesian_product (IntMap.enum p) (IntMap.enum q))
+      (SrkUtil.cartesian_product (IntMap.enum p) (IntMap.enum q))
 
-  let exp = ArkUtil.exp mul one
+  let exp = SrkUtil.exp mul one
 
   let compose p q =
     let rec go n = function
@@ -78,13 +78,13 @@ module QQUvp = struct
       else
         Format.fprintf formatter "@[%a*x^%d@]" QQ.pp coeff order
     in
-    ArkUtil.pp_print_enum
+    SrkUtil.pp_print_enum
       ~pp_sep:(fun formatter () -> Format.fprintf formatter "@ + ")
       pp_monomial
       formatter
       (IntMap.enum p)
 
-  let show = ArkUtil.mk_show pp
+  let show = SrkUtil.mk_show pp
 
   let summation p =
     let module M = Linear.QQMatrix in
@@ -138,7 +138,7 @@ module Monomial = struct
     if IntMap.is_empty monomial then
       Format.pp_print_string formatter "1"
     else
-      ArkUtil.pp_print_enum_nobox
+      SrkUtil.pp_print_enum_nobox
         ~pp_sep:(fun formatter () -> Format.fprintf formatter "*")
         (fun formatter (dim, power) ->
            if power = 1 then
@@ -286,12 +286,12 @@ module Monomial = struct
     in
     compare blocks
 
-  let term_of ark dim_term m =
+  let term_of srk dim_term m =
     IntMap.fold (fun dim pow product ->
-        (Syntax.mk_pow ark (dim_term dim) pow)::product)
+        (Syntax.mk_pow srk (dim_term dim) pow)::product)
       m
       []
-    |> Syntax.mk_mul ark
+    |> Syntax.mk_mul srk
 end
 
 module Mvp = struct
@@ -302,7 +302,7 @@ module Mvp = struct
     if MM.is_empty p then
       Format.pp_print_string formatter "0"
     else
-      ArkUtil.pp_print_enum_nobox
+      SrkUtil.pp_print_enum_nobox
         ~pp_sep:(fun formatter () -> Format.fprintf formatter "@ + ")
         (fun formatter (coeff, m) ->
            if QQ.equal coeff QQ.one then
@@ -366,17 +366,17 @@ module Mvp = struct
     else
       None
 
-  let term_of ark dim_term p =
+  let term_of srk dim_term p =
     MM.fold (fun monomial coeff sum ->
-        (Syntax.mk_mul ark [Syntax.mk_real ark coeff;
-                            Monomial.term_of ark dim_term monomial])::sum)
+        (Syntax.mk_mul srk [Syntax.mk_real srk coeff;
+                            Monomial.term_of srk dim_term monomial])::sum)
       p
       []
-    |> Syntax.mk_add ark
+    |> Syntax.mk_add srk
 
   let compare = MM.compare QQ.compare
 
-  let exp = ArkUtil.exp mul one
+  let exp = SrkUtil.exp mul one
 
   let substitute subst p =
     MM.fold (fun monomial coeff p ->
@@ -403,7 +403,7 @@ module Mvp = struct
       (Some zero)
 
   let dimensions p =
-    let module S = ArkUtil.Int.Set in
+    let module S = SrkUtil.Int.Set in
     MM.fold (fun m _ set ->
         Monomial.IntMap.fold (fun dim _ set -> S.add dim set) m set)
       p
@@ -456,7 +456,7 @@ module Rewrite = struct
       BatEnum.exists ((=) 0 % compare_pair elt) (H.enum queue)
   end
 
-  module IntSet = ArkUtil.Int.Set
+  module IntSet = SrkUtil.Int.Set
 
   (* Rule set *)
   module RS = struct
@@ -517,7 +517,7 @@ module Rewrite = struct
     match op with
     | [] -> Format.pp_print_string formatter "0"
     | _ ->
-    ArkUtil.pp_print_enum_nobox
+    SrkUtil.pp_print_enum_nobox
       ~pp_sep:(fun formatter () -> Format.fprintf formatter "@ + ")
       (fun formatter (coeff, monomial) ->
          if QQ.equal coeff QQ.one then
@@ -531,7 +531,7 @@ module Rewrite = struct
       (BatList.enum op)
 
   let pp pp_dim formatter rewrite =
-    ArkUtil.pp_print_enum_nobox
+    SrkUtil.pp_print_enum_nobox
       ~pp_sep:(fun formatter () -> Format.fprintf formatter "@;")
       (fun formatter (lhs, rhs, _) ->
          Format.fprintf formatter "%a --> @[<hov 2>%a@]"
@@ -799,7 +799,7 @@ module Rewrite = struct
           else
             PairQueue.insert pairs (rule, rule'))
         PairQueue.empty
-        (ArkUtil.distinct_pairs (RS.enum rewrite.rules))
+        (SrkUtil.distinct_pairs (RS.enum rewrite.rules))
     in
 
     let grobner =

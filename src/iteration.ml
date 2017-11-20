@@ -1,13 +1,13 @@
 open Syntax
 open BatPervasives
 
-include Log.Make(struct let name = "ark.iteration" end)
+include Log.Make(struct let name = "srk.iteration" end)
 
 module V = Linear.QQVector
 module QQMatrix = Linear.QQMatrix
 
-module IntSet = ArkUtil.Int.Set
-module IntMap = ArkUtil.Int.Map
+module IntSet = SrkUtil.Int.Set
+module IntMap = SrkUtil.Int.Map
 module DArray = BatDynArray
 
 module QQUvp = Polynomial.QQUvp
@@ -66,23 +66,23 @@ module Cf = struct
   exception Quit
 
   (* Lower a degree-0 cf to a regular term *)
-  let term_of_0 ark cf =
+  let term_of_0 srk cf =
     try
       let lowered =
         enum cf
         /@ (fun (dim, coeff) ->
             let (const_coeff, higher_order) = QQUvp.pivot 0 coeff in
             if QQUvp.equal higher_order QQUvp.zero then
-              mk_mul ark [mk_real ark const_coeff; dim]
+              mk_mul srk [mk_real srk const_coeff; dim]
             else
               raise Quit)
         |> BatList.of_enum
-        |> mk_add ark
+        |> mk_add srk
       in
       Some lowered
     with Quit -> None
 
-  let of_term ark env =
+  let of_term srk env =
     let rec alg = function
       | `App (v, []) ->
         begin
@@ -92,53 +92,53 @@ module Cf = struct
         end
       | `App (func, args) ->
         begin
-          match BatOption.bind (env func) (term_of_0 ark) with
+          match BatOption.bind (env func) (term_of_0 srk) with
           | None -> None
           | Some t ->
-            begin match Term.destruct ark t with
+            begin match Term.destruct srk t with
               | `App (func', []) when func = func' ->
                 let args' =
                   BatList.filter_map
                     (fun arg ->
-                       match Expr.refine ark arg with
+                       match Expr.refine srk arg with
                        | `Term t ->
-                         BatOption.bind (Term.eval_partial ark alg t) (term_of_0 ark)
+                         BatOption.bind (Term.eval_partial srk alg t) (term_of_0 srk)
                        | `Formula _ -> None)
                     args
                 in
                 if List.length args = List.length args' then
-                  Some (term QQUvp.one (mk_app ark func args'))
+                  Some (term QQUvp.one (mk_app srk func args'))
                 else
                   None
               | _ -> None
             end
         end
-      | `Real k -> Some (const ark (QQUvp.scalar k))
+      | `Real k -> Some (const srk (QQUvp.scalar k))
       | `Add xs -> Some (List.fold_left add zero xs)
-      | `Mul [] -> Some (const ark (QQUvp.scalar QQ.one))
-      | `Mul (x::xs) -> Some (List.fold_left (mul ark) x xs)
+      | `Mul [] -> Some (const srk (QQUvp.scalar QQ.one))
+      | `Mul (x::xs) -> Some (List.fold_left (mul srk) x xs)
       | `Binop (`Div, x, y) ->
         (* to do: if denomenator is a constant then the numerator can be loop
            dependent *)
-        begin match term_of_0 ark x, term_of_0 ark y with
-          | Some x, Some y -> Some (term QQUvp.one (mk_div ark x y))
+        begin match term_of_0 srk x, term_of_0 srk y with
+          | Some x, Some y -> Some (term QQUvp.one (mk_div srk x y))
           | _, _ -> None
         end
       | `Binop (`Mod, x, y) ->
-        begin match term_of_0 ark x, term_of_0 ark y with
-          | Some x, Some y -> Some (term QQUvp.one (mk_mod ark x y))
+        begin match term_of_0 srk x, term_of_0 srk y with
+          | Some x, Some y -> Some (term QQUvp.one (mk_mod srk x y))
           | _, _ -> None
         end
       | `Unop (`Floor, x) ->
-        begin match term_of_0 ark x with
-          | Some x -> Some (term QQUvp.one (mk_floor ark x))
+        begin match term_of_0 srk x with
+          | Some x -> Some (term QQUvp.one (mk_floor srk x))
           | None -> None
         end
       | `Unop (`Neg, x) -> Some (scalar_mul (QQUvp.negate QQUvp.one) x)
       | `Ite (_, _, _) -> None
       | `Var (_, _) -> None
     in
-    Term.eval_partial ark alg
+    Term.eval_partial srk alg
 
   let summation cf =
     (* QQUvp.summation computes q(n) = sum_{i=0}^n p(i); shift to compute
@@ -150,29 +150,29 @@ module Cf = struct
 
   (* Convert a closed form into a term by instantiating the variable in the
      polynomial coefficients of the closed form *)
-  let term_of ark cf k =
+  let term_of srk cf k =
     let polynomial_term px =
       QQUvp.enum px
       /@ (fun (coeff, order) ->
-          mk_mul ark
-            ((mk_real ark coeff)::(BatList.of_enum ((1 -- order) /@ (fun _ -> k)))))
+          mk_mul srk
+            ((mk_real srk coeff)::(BatList.of_enum ((1 -- order) /@ (fun _ -> k)))))
       |> BatList.of_enum
-      |> mk_add ark
+      |> mk_add srk
     in
     enum cf
-    /@ (fun (term, px) -> mk_mul ark [term; polynomial_term px])
+    /@ (fun (term, px) -> mk_mul srk [term; polynomial_term px])
     |> BatList.of_enum
-    |> mk_add ark
+    |> mk_add srk
 end
 
-let reflexive_closure ark tr_symbols formula =
+let reflexive_closure srk tr_symbols formula =
   let identity =
     List.map (fun (sym, sym') ->
-        mk_eq ark (mk_const ark sym) (mk_const ark sym'))
+        mk_eq srk (mk_const srk sym) (mk_const srk sym'))
       tr_symbols
-    |> mk_and ark
+    |> mk_and srk
   in
-  mk_or ark [identity; formula]
+  mk_or srk [identity; formula]
 
 let pre_symbols tr_symbols =
   List.fold_left (fun set (s,_) ->
@@ -193,19 +193,19 @@ let post_map tr_symbols =
     Symbol.Map.empty
     tr_symbols
 
-let term_of_ocrs ark loop_counter pre_term_of_id post_term_of_id =
+let term_of_ocrs srk loop_counter pre_term_of_id post_term_of_id =
   let open Ocrs in
   let open Type_def in
   let ss_pre = SSVar "k" in
-  let pow = get_named_symbol ark "pow" in
-  let log = get_named_symbol ark "log" in
+  let pow = get_named_symbol srk "pow" in
+  let log = get_named_symbol srk "log" in
   let rec go = function
-    | Plus (x, y) -> mk_add ark [go x; go y]
-    | Minus (x, y) -> mk_sub ark (go x) (go y)
-    | Times (x, y) -> mk_mul ark [go x; go y]
-    | Divide (x, y) -> mk_div ark (go x) (go y)
-    | Product xs -> mk_mul ark (List.map go xs)
-    | Sum xs -> mk_add ark (List.map go xs)
+    | Plus (x, y) -> mk_add srk [go x; go y]
+    | Minus (x, y) -> mk_sub srk (go x) (go y)
+    | Times (x, y) -> mk_mul srk [go x; go y]
+    | Divide (x, y) -> mk_div srk (go x) (go y)
+    | Product xs -> mk_mul srk (List.map go xs)
+    | Sum xs -> mk_add srk (List.map go xs)
     | Symbolic_Constant name -> pre_term_of_id name
     | Base_case (name, index) ->
       assert (index = 0);
@@ -216,7 +216,7 @@ let term_of_ocrs ark loop_counter pre_term_of_id post_term_of_id =
     | Output_variable (name, subscript) ->
       assert (subscript = ss_pre);
       post_term_of_id name
-    | Rational k -> mk_real ark (Mpqf.of_mpq k)
+    | Rational k -> mk_real srk (Mpqf.of_mpq k)
     | Undefined -> assert false
     | Pow (x, Rational k) ->
       let base = go x in
@@ -226,45 +226,45 @@ let term_of_ocrs ark loop_counter pre_term_of_id post_term_of_id =
           (1 -- k)
           /@ (fun _ -> base)
           |> BatList.of_enum
-          |> mk_mul ark
+          |> mk_mul srk
         | None -> assert false
       end
     | Pow (Rational k, y) ->
       let k = Mpqf.of_mpq k in
       let (base, exp) =
         if QQ.lt QQ.zero k && QQ.lt k QQ.one then
-          (mk_real ark (QQ.inverse k),
-           mk_neg ark (go y))
+          (mk_real srk (QQ.inverse k),
+           mk_neg srk (go y))
         else
-          (mk_real ark k,
+          (mk_real srk k,
            go y)
       in
-      mk_app ark pow [base; exp]
+      mk_app srk pow [base; exp]
     | Pow (x, y) ->
       let base = go x in
       let exp = go y in
-      mk_app ark pow [base; exp]
+      mk_app srk pow [base; exp]
     | Log (base, x) ->
       let x = go x in
-      mk_app ark log [mk_real ark (Mpqf.of_mpq base); x]
+      mk_app srk log [mk_real srk (Mpqf.of_mpq base); x]
     | IDivide (x, y) ->
-      mk_idiv ark (go x) (mk_real ark (Mpqf.of_mpq y))
+      mk_idiv srk (go x) (mk_real srk (Mpqf.of_mpq y))
     | Mod (x, y) ->
-      mk_mod ark (go x) (go y)
+      mk_mod srk (go x) (go y)
     | Iif (func, ss) ->
       let arg =
         match ss with
         | SSVar "k" -> loop_counter
         | SAdd ("k", i) ->
-          mk_add ark [loop_counter; mk_real ark (QQ.of_int i)]
+          mk_add srk [loop_counter; mk_real srk (QQ.of_int i)]
         | _ -> assert false
       in
       let sym =
-        if not (is_registered_name ark func) then
-          register_named_symbol ark func (`TyFun ([`TyReal], `TyReal));
-        get_named_symbol ark func
+        if not (is_registered_name srk func) then
+          register_named_symbol srk func (`TyFun ([`TyReal], `TyReal));
+        get_named_symbol srk func
       in
-      mk_app ark sym [arg]
+      mk_app srk sym [arg]
     | Binomial (_, _) | Factorial _ | Sin _ | Cos _ | Arctan _ | Pi | Shift (_, _) ->
       assert false
   in
@@ -282,7 +282,7 @@ module WedgeVector = struct
       exp_add : 'a term }
 
   type 'a t =
-    { ark : 'a context;
+    { srk : 'a context;
       symbols : (symbol * symbol) list;
       precondition : 'a Wedge.t;
       postcondition : 'a Wedge.t;
@@ -290,51 +290,51 @@ module WedgeVector = struct
       exponential : ('a exponential) list }
 
   let pp formatter iter =
-    let ark = iter.ark in
+    let srk = iter.srk in
     Format.fprintf formatter
       "{@[<v 0>pre symbols:@;  @[<v 0>%a@]@;post symbols:@;  @[<v 0>%a@]@;"
-      (ArkUtil.pp_print_enum (pp_symbol ark)) (BatList.enum iter.symbols /@ fst)
-      (ArkUtil.pp_print_enum (pp_symbol ark)) (BatList.enum iter.symbols /@ snd);
+      (SrkUtil.pp_print_enum (pp_symbol srk)) (BatList.enum iter.symbols /@ fst)
+      (SrkUtil.pp_print_enum (pp_symbol srk)) (BatList.enum iter.symbols /@ snd);
     Format.fprintf formatter "pre:@;  @[<v 0>%a@]@;post:@;  @[<v 0>%a@]@;"
       Wedge.pp iter.precondition
       Wedge.pp iter.postcondition;
     Format.fprintf formatter
       "recurrences:@;  @[<v 0>%a@;%a@]@]}"
-      (ArkUtil.pp_print_enum_nobox
+      (SrkUtil.pp_print_enum_nobox
          ~pp_sep:(fun formatter () -> Format.pp_print_break formatter 0 0)
          (fun formatter (sym', sym, incr) ->
             Format.fprintf formatter "%a = %a + %a"
-              (pp_symbol ark) sym'
-              (pp_symbol ark) sym
-              (Term.pp ark) incr))
+              (pp_symbol srk) sym'
+              (pp_symbol srk) sym
+              (Term.pp srk) incr))
       (BatList.enum iter.stratified)
-      (ArkUtil.pp_print_enum_nobox
+      (SrkUtil.pp_print_enum_nobox
          ~pp_sep:(fun formatter () -> Format.pp_print_break formatter 0 0)
          (fun formatter { exp_lhs; exp_op; exp_coeff; exp_rhs; exp_add } ->
             Format.fprintf formatter "(%a) %s %a * (%a) + %a"
-              (Term.pp ark) exp_lhs
+              (Term.pp srk) exp_lhs
               (match exp_op with
                | `Eq -> "="
                | `Leq -> "<=")
               QQ.pp exp_coeff
-              (Term.pp ark) exp_rhs
-              (Term.pp ark) exp_add))
+              (Term.pp srk) exp_rhs
+              (Term.pp srk) exp_add))
       (BatList.enum iter.exponential)
 
-  let show x = ArkUtil.mk_show pp x
+  let show x = SrkUtil.mk_show pp x
 
-  let exponential_rec ark wedge non_induction post_symbols base =
+  let exponential_rec srk wedge non_induction post_symbols base =
     (* map from non-induction pre-state vars to their post-state
        counterparts *)
     let post_map = post_map non_induction in
     let postify =
       let subst sym =
         if Symbol.Map.mem sym post_map then
-          mk_const ark (Symbol.Map.find sym post_map)
+          mk_const srk (Symbol.Map.find sym post_map)
         else
-          mk_const ark sym
+          mk_const srk sym
       in
-      substitute_const ark subst
+      substitute_const srk subst
     in
     (* Replace each non-induction pre-state variable v with the difference
        (v'-v)/base and project out post-state variables.  Pre-state induction
@@ -343,40 +343,40 @@ module WedgeVector = struct
       let delta_subst sym =
         if Symbol.Map.mem sym post_map then
           (* non-induction var *)
-          mk_mul ark [mk_real ark (QQ.inverse base);
-                      mk_add ark [mk_const ark (Symbol.Map.find sym post_map);
-                                  mk_neg ark (mk_const ark sym)]]
+          mk_mul srk [mk_real srk (QQ.inverse base);
+                      mk_add srk [mk_const srk (Symbol.Map.find sym post_map);
+                                  mk_neg srk (mk_const srk sym)]]
         else
-          mk_const ark sym
+          mk_const srk sym
       in
-      let rewrite = substitute_const ark delta_subst in
+      let rewrite = substitute_const srk delta_subst in
       (* don't allow delta vars as subterms *)
       let subterm sym = not (Symbol.Map.mem sym post_map) in
       Wedge.to_atoms wedge
       |> List.map rewrite
-      |> Wedge.of_atoms ark
+      |> Wedge.of_atoms srk
       |> Wedge.exists ~subterm (not % flip Symbol.Set.mem post_symbols)
     in
 
-    let zero_term = mk_real ark QQ.zero in
+    let zero_term = mk_real srk QQ.zero in
     (* try to rewrite a term as (delta_term + term) where delta_term contains
        only delta vars and term contains no delta vars *)
     let alg = function
       | `App (sym, []) ->
         if Symbol.Map.mem sym post_map then
-          Some (mk_const ark sym, zero_term)
+          Some (mk_const srk sym, zero_term)
         else
-          Some (zero_term, mk_const ark sym)
+          Some (zero_term, mk_const srk sym)
       | `App (func, args) ->
         let is_delta sym = Symbol.Map.mem sym post_map in
         if List.exists (Symbol.Set.exists is_delta % symbols) args then
           None
         else
-          Some (zero_term, mk_app ark func args)
+          Some (zero_term, mk_app srk func args)
       | `Real k ->
-        Some (zero_term, mk_real ark k)
+        Some (zero_term, mk_real srk k)
       | `Add xs ->
-        Some (mk_add ark (List.map fst xs), mk_add ark (List.map snd xs))
+        Some (mk_add srk (List.map fst xs), mk_add srk (List.map snd xs))
       | `Mul xs ->
         let mul x (lhs', rhs') =
           match x with
@@ -384,14 +384,14 @@ module WedgeVector = struct
           | Some (lhs, rhs) ->
             if Term.equal lhs zero_term then
               if Term.equal lhs' zero_term then
-                Some (zero_term, mk_mul ark [rhs; rhs'])
+                Some (zero_term, mk_mul srk [rhs; rhs'])
               else
-                match Term.destruct ark rhs with
-                | `Real _ -> Some (mk_mul ark [rhs; lhs'], mk_mul ark [rhs; rhs'])
+                match Term.destruct srk rhs with
+                | `Real _ -> Some (mk_mul srk [rhs; lhs'], mk_mul srk [rhs; rhs'])
                 | _ -> None
             else if Term.equal lhs' zero_term then
-              match Term.destruct ark rhs' with
-              | `Real _ -> Some (mk_mul ark [rhs'; lhs], mk_mul ark [rhs'; rhs])
+              match Term.destruct srk rhs' with
+              | `Real _ -> Some (mk_mul srk [rhs'; lhs], mk_mul srk [rhs'; rhs])
               | _ -> None
             else
               None
@@ -400,29 +400,29 @@ module WedgeVector = struct
       | `Binop (`Div, (lhs,rhs), (lhs',rhs')) ->
         if Term.equal lhs' zero_term then
           if Term.equal lhs zero_term then
-            Some (zero_term, mk_div ark rhs rhs')
+            Some (zero_term, mk_div srk rhs rhs')
           else
-            match Term.destruct ark rhs' with
-            | `Real _ -> Some (mk_div ark lhs rhs', mk_div ark rhs rhs')
+            match Term.destruct srk rhs' with
+            | `Real _ -> Some (mk_div srk lhs rhs', mk_div srk rhs rhs')
             | _ -> None
         else
           None
       | `Binop (`Mod, (lhs,rhs), (lhs',rhs')) ->
         if Term.equal lhs' zero_term && Term.equal lhs zero_term then
-          Some (zero_term, mk_mod ark rhs rhs')
+          Some (zero_term, mk_mod srk rhs rhs')
         else
           None
       | `Unop (`Floor, (lhs,rhs)) ->
         if Term.equal lhs zero_term then
-          Some (zero_term, mk_floor ark rhs)
+          Some (zero_term, mk_floor srk rhs)
         else
           None
       | `Unop (`Neg, (lhs,rhs)) ->
-        Some (mk_neg ark lhs, mk_neg ark rhs)
+        Some (mk_neg srk lhs, mk_neg srk rhs)
       | `Ite (_, _, _) | `Var (_, _) -> None
     in
     let recur atom =
-      match Interpretation.destruct_atom ark atom with
+      match Interpretation.destruct_atom srk atom with
       | `Comparison (op, s, t) ->
         let op = match op with
           | `Leq -> `Leq
@@ -430,7 +430,7 @@ module WedgeVector = struct
           | `Eq -> `Eq
         in
         BatOption.bind
-          (Term.eval_partial ark alg (mk_sub ark s t))
+          (Term.eval_partial srk alg (mk_sub srk s t))
           (fun (lhs, rhs) ->
              if Term.equal lhs zero_term then
                None
@@ -439,12 +439,12 @@ module WedgeVector = struct
                       exp_coeff = base;
                       exp_op = op;
                       exp_rhs = lhs;
-                      exp_add = mk_neg ark rhs })
+                      exp_add = mk_neg srk rhs })
       | `Literal (_, _) -> None
     in
     BatList.filter_map recur (Wedge.to_atoms diff_wedge)
 
-  let abstract_iter_wedge ark wedge tr_symbols =
+  let abstract_iter_wedge srk wedge tr_symbols =
     let pre_symbols = pre_symbols tr_symbols in
     let post_symbols = post_symbols tr_symbols in
     let is_symbolic_constant x =
@@ -460,7 +460,7 @@ module WedgeVector = struct
       let equalities = Wedge.farkas_equalities wedge in
       (* Matrix consisting of one row for each dimension of the wedge that is
          associated with a term that contains a transition variable; the row
-         contains the Farkas column for that dimension *)
+         contains the Fsrkas column for that dimension *)
       let matrix =
         BatList.fold_lefti (fun m id (term, column) ->
             if Symbol.Set.for_all is_symbolic_constant (symbols term) then
@@ -472,7 +472,7 @@ module WedgeVector = struct
       in
       let row_of_symbol =
         BatList.fold_lefti (fun map id (term, _) ->
-            match Term.destruct ark term with
+            match Term.destruct srk term with
             | `App (sym, []) -> Symbol.Map.add sym id map
             | _ -> map)
           Symbol.Map.empty
@@ -495,15 +495,15 @@ module WedgeVector = struct
             (* Add sym to induction vars *)
             let induction =
               let rhs =
-                let sym_term = mk_const ark sym in
-                let sym'_term = mk_const ark sym' in
+                let sym_term = mk_const srk sym in
+                let sym'_term = mk_const srk sym' in
                 BatList.filter_map (fun (term, coeff) ->
                     if Term.equal term sym_term || Term.equal term sym'_term then
                       None
                     else
-                      Some (mk_mul ark [mk_real ark (V.dot coeff solution); term]))
+                      Some (mk_mul srk [mk_real srk (V.dot coeff solution); term]))
                   equalities
-                |> mk_add ark
+                |> mk_add srk
               in
               (sym', sym, rhs)::induction
             in
@@ -528,18 +528,18 @@ module WedgeVector = struct
       (induction, non_induction@non_induction')
     in
     let exponential =
-      exponential_rec ark wedge non_induction post_symbols (QQ.of_int 1)
-      @(exponential_rec ark wedge non_induction post_symbols (QQ.of_int 2))
-      @(exponential_rec ark wedge non_induction post_symbols (QQ.of_frac 1 2))
+      exponential_rec srk wedge non_induction post_symbols (QQ.of_int 1)
+      @(exponential_rec srk wedge non_induction post_symbols (QQ.of_int 2))
+      @(exponential_rec srk wedge non_induction post_symbols (QQ.of_frac 1 2))
     in
-    { ark;
+    { srk;
       symbols = tr_symbols;
       precondition;
       postcondition;
       stratified;
       exponential }
 
-  let abstract_iter ?(exists=fun x -> true) ark phi symbols =
+  let abstract_iter ?(exists=fun x -> true) srk phi symbols =
     let post_symbols =
       List.fold_left (fun set (_,s') ->
           Symbol.Set.add s' set)
@@ -548,14 +548,14 @@ module WedgeVector = struct
     in
     let subterm x = not (Symbol.Set.mem x post_symbols) in
     let wedge =
-      Wedge.abstract ~exists ark phi
+      Wedge.abstract ~exists srk phi
       |> Wedge.exists ~subterm (fun _ -> true)
     in
-    abstract_iter_wedge ark wedge symbols
+    abstract_iter_wedge srk wedge symbols
 
   let closure_plus (iter : 'a t) : 'a formula =
-    let loop_counter_sym = mk_symbol iter.ark ~name:"K" `TyInt in
-    let loop_counter = mk_const iter.ark loop_counter_sym in
+    let loop_counter_sym = mk_symbol iter.srk ~name:"K" `TyInt in
+    let loop_counter = mk_const iter.srk loop_counter_sym in
 
     (* In a recurrence environment, absence of a binding for a variable
        indicates that the variable is not modified (i.e., the variable satisfies
@@ -576,9 +576,9 @@ module WedgeVector = struct
         if Symbol.Map.mem sym induction_vars then
           Symbol.Map.find sym induction_vars
         else
-          Some (Cf.term QQUvp.one (mk_const iter.ark sym))
+          Some (Cf.term QQUvp.one (mk_const iter.srk sym))
       in
-      Cf.of_term iter.ark env rhs
+      Cf.of_term iter.srk env rhs
       |> BatOption.map Cf.summation
     in
 
@@ -588,12 +588,12 @@ module WedgeVector = struct
           match close_sum induction_vars rhs with
           | Some close_rhs ->
             let cf =
-              Cf.add_term QQUvp.one (mk_const iter.ark sym) close_rhs
+              Cf.add_term QQUvp.one (mk_const iter.srk sym) close_rhs
             in
             Symbol.Map.add sym (Some cf) induction_vars
           | None ->
             logf ~level:`warn "Failed to find closed form for %a"
-              (pp_symbol iter.ark) sym;
+              (pp_symbol iter.srk) sym;
             induction_vars)
         induction_vars
         iter.stratified
@@ -603,11 +603,11 @@ module WedgeVector = struct
       BatList.filter_map (fun (sym,sym') ->
           Symbol.Map.find sym induction_vars
           |> BatOption.map (fun cf ->
-              mk_eq iter.ark
-                (mk_const iter.ark sym')
-                (Cf.term_of iter.ark cf loop_counter)))
+              mk_eq iter.srk
+                (mk_const iter.srk sym')
+                (Cf.term_of iter.srk cf loop_counter)))
         iter.symbols
-      |> mk_and iter.ark
+      |> mk_and iter.srk
     in
 
     let inequations =
@@ -617,49 +617,49 @@ module WedgeVector = struct
             | None -> None
             | Some cf ->
               let rhs =
-                mk_add iter.ark [exp_rhs; Cf.term_of iter.ark cf loop_counter]
+                mk_add iter.srk [exp_rhs; Cf.term_of iter.srk cf loop_counter]
               in
               match exp_op with
-              | `Leq -> Some (mk_leq iter.ark exp_lhs rhs)
-              | `Eq -> Some (mk_eq iter.ark exp_lhs rhs)
+              | `Leq -> Some (mk_leq iter.srk exp_lhs rhs)
+              | `Eq -> Some (mk_eq iter.srk exp_lhs rhs)
           else
             None)
         iter.exponential
-      |> mk_and iter.ark
+      |> mk_and iter.srk
     in
-    mk_and iter.ark [
+    mk_and iter.srk [
       Wedge.to_formula iter.precondition;
-      mk_leq iter.ark (mk_real iter.ark QQ.one) loop_counter;
+      mk_leq iter.srk (mk_real iter.srk QQ.one) loop_counter;
       stratified;
       inequations;
       Wedge.to_formula iter.postcondition
     ]
 
   let closure iter =
-    reflexive_closure iter.ark iter.symbols (closure_plus iter)
+    reflexive_closure iter.srk iter.symbols (closure_plus iter)
 
   let wedge_of_iter iter =
     let eq_constraints =
       iter.stratified |> List.map (fun (post, pre, incr) ->
-          mk_eq iter.ark
-            (mk_const iter.ark post)
-            (mk_add iter.ark [mk_const iter.ark pre; incr]))
+          mk_eq iter.srk
+            (mk_const iter.srk post)
+            (mk_add iter.srk [mk_const iter.srk pre; incr]))
     in
     let exponential_constraints =
       iter.exponential |> List.map (fun r ->
           let rhs =
-            mk_add iter.ark [mk_mul iter.ark [mk_real iter.ark r.exp_coeff;
+            mk_add iter.srk [mk_mul iter.srk [mk_real iter.srk r.exp_coeff;
                                               r.exp_rhs];
                              r.exp_add]
           in
           match r.exp_op with
-          | `Eq -> mk_eq iter.ark r.exp_lhs rhs
-          | `Leq -> mk_leq iter.ark r.exp_lhs rhs)
+          | `Eq -> mk_eq iter.srk r.exp_lhs rhs
+          | `Leq -> mk_leq iter.srk r.exp_lhs rhs)
     in
     let postcondition = Wedge.to_atoms iter.postcondition in
     let precondition = Wedge.to_atoms iter.precondition in
     Wedge.of_atoms
-      iter.ark
+      iter.srk
       (eq_constraints@exponential_constraints@postcondition@precondition)
 
   let equal iter iter' =
@@ -668,23 +668,23 @@ module WedgeVector = struct
   let widen iter iter' =
     let body = Wedge.widen (wedge_of_iter iter) (wedge_of_iter iter') in
     assert(iter.symbols = iter'.symbols);
-    abstract_iter_wedge iter.ark body iter.symbols
+    abstract_iter_wedge iter.srk body iter.symbols
 
   let join iter iter' =
     let body =
       Wedge.join (wedge_of_iter iter) (wedge_of_iter iter')
     in
     assert(iter.symbols = iter'.symbols);
-    abstract_iter_wedge iter.ark body iter.symbols
+    abstract_iter_wedge iter.srk body iter.symbols
 
-  let star ?(exists=fun x -> true) ark phi symbols =
-    closure (abstract_iter ~exists ark phi symbols)
+  let star ?(exists=fun x -> true) srk phi symbols =
+    closure (abstract_iter ~exists srk phi symbols)
 
-  let bottom ark symbols =
-    { ark = ark;
+  let bottom srk symbols =
+    { srk = srk;
       symbols = symbols;
-      precondition = Wedge.bottom ark;
-      postcondition = Wedge.bottom ark;
+      precondition = Wedge.bottom srk;
+      postcondition = Wedge.bottom srk;
       stratified = [];
       exponential = [] }
 
@@ -699,12 +699,12 @@ module WedgeVectorOCRS = struct
     let open Ocrs in
     let open Type_def in
 
-    Wedge.ensure_nonlinear_symbols iter.ark;
-    let pow = get_named_symbol iter.ark "pow" in
-    let log = get_named_symbol iter.ark "log" in
+    Wedge.ensure_nonlinear_symbols iter.srk;
+    let pow = get_named_symbol iter.srk "pow" in
+    let log = get_named_symbol iter.srk "log" in
 
-    let loop_counter_sym = mk_symbol iter.ark ~name:"K" `TyInt in
-    let loop_counter = mk_const iter.ark loop_counter_sym in
+    let loop_counter_sym = mk_symbol iter.srk ~name:"K" `TyInt in
+    let loop_counter = mk_const iter.srk loop_counter_sym in
 
     let string_of_symbol = string_of_int % int_of_symbol in
     let symbol_of_string = symbol_of_int % int_of_string in
@@ -740,16 +740,16 @@ module WedgeVectorOCRS = struct
           else
             Symbolic_Constant (string_of_symbol sym)
         | `App (func, [x; y]) when func = pow ->
-          begin match Expr.refine iter.ark x, Expr.refine iter.ark y with
+          begin match Expr.refine iter.srk x, Expr.refine iter.srk y with
             | `Term x, `Term y ->
-              Pow (Term.eval iter.ark alg x,
-                   Term.eval iter.ark alg y)
+              Pow (Term.eval iter.srk alg x,
+                   Term.eval iter.srk alg y)
             | _ -> assert false
           end
         | `App (func, [x; y]) when func = log ->
-          begin match destruct iter.ark x, Expr.refine iter.ark y with
+          begin match destruct iter.srk x, Expr.refine iter.srk y with
             | `Real k, `Term y ->
-              Log (Mpqf.to_mpq k, Term.eval iter.ark alg y)
+              Log (Mpqf.to_mpq k, Term.eval iter.srk alg y)
             | _ -> assert false
           end
         | `App (sym, _) -> assert false (* to do *)
@@ -763,18 +763,18 @@ module WedgeVectorOCRS = struct
         | `Unop (`Floor, _) -> raise No_translation
         | `Ite (_, _, _) | `Var (_, _) -> assert false
       in
-      Term.eval iter.ark alg
+      Term.eval iter.srk alg
     in
 
     let term_of_expr =
       let pre_term_of_id name =
-        mk_const iter.ark (symbol_of_string name)
+        mk_const iter.srk (symbol_of_string name)
       in
       let post_term_of_id name =
         Symbol.Map.find (symbol_of_string name) post_map
-        |> mk_const iter.ark
+        |> mk_const iter.srk
       in
-      term_of_ocrs iter.ark loop_counter pre_term_of_id post_term_of_id
+      term_of_ocrs iter.srk loop_counter pre_term_of_id post_term_of_id
     in
     let recurrences =
       let filter_translate f xs =
@@ -811,39 +811,39 @@ module WedgeVectorOCRS = struct
       stratified@exponential
     in
     let closed =
-      let mk_int k = mk_real iter.ark (QQ.of_int k) in
+      let mk_int k = mk_real iter.srk (QQ.of_int k) in
       let to_formula (PieceWiseIneq (ivar, pieces)) =
         assert (ivar = "k");
         let piece_to_formula (ivl, ineq) =
           let hypothesis = match ivl with
             | Bounded (lo, hi) ->
-              mk_and iter.ark [mk_leq iter.ark (mk_int lo) loop_counter;
-                               mk_leq iter.ark loop_counter (mk_int hi)]
+              mk_and iter.srk [mk_leq iter.srk (mk_int lo) loop_counter;
+                               mk_leq iter.srk loop_counter (mk_int hi)]
             | BoundBelow lo ->
-              mk_and iter.ark [mk_leq iter.ark (mk_int lo) loop_counter]
+              mk_and iter.srk [mk_leq iter.srk (mk_int lo) loop_counter]
           in
           let conclusion = match ineq with
-            | Equals (x, y) -> mk_eq iter.ark (term_of_expr x) (term_of_expr y)
-            | LessEq (x, y) -> mk_leq iter.ark (term_of_expr x) (term_of_expr y)
-            | Less (x, y) -> mk_lt iter.ark (term_of_expr x) (term_of_expr y)
-            | GreaterEq (x, y) -> mk_leq iter.ark (term_of_expr y) (term_of_expr x)
-            | Greater (x, y) -> mk_lt iter.ark (term_of_expr y) (term_of_expr x)
+            | Equals (x, y) -> mk_eq iter.srk (term_of_expr x) (term_of_expr y)
+            | LessEq (x, y) -> mk_leq iter.srk (term_of_expr x) (term_of_expr y)
+            | Less (x, y) -> mk_lt iter.srk (term_of_expr x) (term_of_expr y)
+            | GreaterEq (x, y) -> mk_leq iter.srk (term_of_expr y) (term_of_expr x)
+            | Greater (x, y) -> mk_lt iter.srk (term_of_expr y) (term_of_expr x)
           in
-          mk_if iter.ark hypothesis conclusion
+          mk_if iter.srk hypothesis conclusion
         in
-        mk_and iter.ark (List.map piece_to_formula pieces)
+        mk_and iter.srk (List.map piece_to_formula pieces)
       in
       Log.time "OCRS"
         (List.map to_formula) (Ocrs.solve_rec_list_pair recurrences)
     in
-    mk_and iter.ark ([
+    mk_and iter.srk ([
         Wedge.to_formula iter.precondition;
-        mk_leq iter.ark (mk_real iter.ark QQ.one) loop_counter;
+        mk_leq iter.srk (mk_real iter.srk QQ.one) loop_counter;
         Wedge.to_formula iter.postcondition
       ]@closed)
 
   let closure iter =
-    reflexive_closure iter.ark iter.symbols (closure_plus iter)
+    reflexive_closure iter.srk iter.symbols (closure_plus iter)
 end
 
 module WedgeMatrix = struct
@@ -870,7 +870,7 @@ module WedgeMatrix = struct
      A_1, term_of_id.(nb_constants+size(A_1)) corresponds to the first row of
      A_2, ...).  Similarly for inequations in rec_leq. *)
   type 'a t =
-    { ark : 'a context;
+    { srk : 'a context;
       symbols : (symbol * symbol) list;
       precondition : 'a Wedge.t;
       postcondition : 'a Wedge.t;
@@ -880,25 +880,25 @@ module WedgeMatrix = struct
       rec_leq : matrix_rec }
 
   let pp formatter iter =
-    let ark = iter.ark in
+    let srk = iter.srk in
     let post_map = post_map iter.symbols in
     let postify =
       let subst sym =
         if Symbol.Map.mem sym post_map then
-          mk_const ark (Symbol.Map.find sym post_map)
+          mk_const srk (Symbol.Map.find sym post_map)
         else
-          mk_const ark sym
+          mk_const srk sym
       in
-      substitute_const ark subst
+      substitute_const srk subst
     in
     let pp_id formatter id =
-      Term.pp ark formatter iter.term_of_id.(id)
+      Term.pp srk formatter iter.term_of_id.(id)
     in
     let pp_rec cmp offset formatter recurrence =
       recurrence.rec_transform |> Array.iteri (fun i row ->
           let nonzero = ref false in
           Format.fprintf formatter "(%a) %s @[<hov 1>"
-            (Term.pp ark) (postify iter.term_of_id.(offset + i))
+            (Term.pp srk) (postify iter.term_of_id.(offset + i))
             cmp;
           row |> Array.iteri (fun j coeff ->
               if not (QQ.equal coeff QQ.zero) then begin
@@ -908,7 +908,7 @@ module WedgeMatrix = struct
                   nonzero := true;
                 Format.fprintf formatter "(%a)*(%a)"
                   QQ.pp coeff
-                  (Term.pp ark) (iter.term_of_id.(offset + j))
+                  (Term.pp srk) (iter.term_of_id.(offset + j))
               end
             );
           if !nonzero then
@@ -918,8 +918,8 @@ module WedgeMatrix = struct
     in
     Format.fprintf formatter
       "{@[<v 0>pre symbols:@;  @[<v 0>%a@]@;post symbols:@;  @[<v 0>%a@]@;"
-      (ArkUtil.pp_print_enum (pp_symbol ark)) (BatList.enum iter.symbols /@ fst)
-      (ArkUtil.pp_print_enum (pp_symbol ark)) (BatList.enum iter.symbols /@ snd);
+      (SrkUtil.pp_print_enum (pp_symbol srk)) (BatList.enum iter.symbols /@ fst)
+      (SrkUtil.pp_print_enum (pp_symbol srk)) (BatList.enum iter.symbols /@ snd);
     Format.fprintf formatter "pre:@;  @[<v 0>%a@]@;post:@;  @[<v 0>%a@]@;recurrences:@;  @[<v 0>"
       Wedge.pp iter.precondition
       Wedge.pp iter.postcondition;
@@ -933,7 +933,7 @@ module WedgeMatrix = struct
     pp_rec "<=" offset formatter iter.rec_leq;
     Format.fprintf formatter "@]@]}"
 
-  let show x = ArkUtil.mk_show pp x
+  let show x = SrkUtil.mk_show pp x
 
   (* Are most coefficients of a vector negative? *)
   let is_vector_negative vec =
@@ -1017,7 +1017,7 @@ module WedgeMatrix = struct
 
   (* Given a wedge w, compute A,B,C such that w |= Ax' = BAx + Cy, and such that
      the row space of A is maximal. *)
-  let extract_affine_transformation ark wedge tr_symbols rec_terms rec_ideal =
+  let extract_affine_transformation srk wedge tr_symbols rec_terms rec_ideal =
     let cs = Wedge.coordinate_system wedge in
 
     (* pre_dims is a set of dimensions corresponding to pre-state
@@ -1075,9 +1075,9 @@ module WedgeMatrix = struct
           try
             logf "  @[%a@]" (QQMvp.pp (fun formatter i ->
                 if i < cs_dim then
-                  Format.fprintf formatter "w[%a]" (Term.pp ark) (CS.term_of_coordinate cs i)
+                  Format.fprintf formatter "w[%a]" (Term.pp srk) (CS.term_of_coordinate cs i)
                 else
-                  Format.fprintf formatter "v[%a]" (Term.pp ark) (DArray.get rec_terms (i - cs_dim)))) p;
+                  Format.fprintf formatter "v[%a]" (Term.pp srk) (DArray.get rec_terms (i - cs_dim)))) p;
             let (vecA, vecB, pc) =
               BatEnum.fold (fun (vecA, vecB, pc) (coeff, monomial) ->
                   match BatList.of_enum (Monomial.enum monomial) with
@@ -1150,7 +1150,7 @@ module WedgeMatrix = struct
     logf " B: @[%a@]" QQMatrix.pp mB;
     (mA,mB,pvc)
 
-  let extract_leq ark wedge tr_symbols =
+  let extract_leq srk wedge tr_symbols =
     let open Apron in
     let cs = Wedge.coordinate_system wedge in
     let man = Polka.manager_alloc_loose () in
@@ -1192,7 +1192,7 @@ module WedgeMatrix = struct
          rows of [-A B C].  *)
       logf "Polyhedron: %a"
         (Abstract0.print
-           ((ArkUtil.mk_show (Term.pp ark)) % CS.term_of_coordinate cs))
+           ((SrkUtil.mk_show (Term.pp srk)) % CS.term_of_coordinate cs))
         polyhedron;
       let constraints = DArray.create () in
       Abstract0.to_lincons_array man polyhedron
@@ -1291,12 +1291,12 @@ module WedgeMatrix = struct
 
           (* Find a non-negative M such that B=M*A *)
           let m_entries = (* corresponds to one generic row of M *)
-            Array.init nb_constraints (fun i -> mk_symbol ark `TyReal)
+            Array.init nb_constraints (fun i -> mk_symbol srk `TyReal)
           in
           (* Each entry of M must be non-negative *)
           let pos_constraints =
             List.map (fun sym ->
-                mk_leq ark (mk_real ark QQ.zero) (mk_const ark sym))
+                mk_leq srk (mk_real srk QQ.zero) (mk_const srk sym))
               (Array.to_list m_entries)
           in
           let m_times_a =
@@ -1305,10 +1305,10 @@ module WedgeMatrix = struct
                 let (pre, post) = tr_coord.(i) in
                 (0 -- (nb_constraints - 1))
                 /@ (fun j ->
-                    mk_mul ark [mk_const ark m_entries.(j);
-                                mk_real ark (QQMatrix.entry j pre mA)])
+                    mk_mul srk [mk_const srk m_entries.(j);
+                                mk_real srk (QQMatrix.entry j pre mA)])
                 |> BatList.of_enum
-                |> mk_add ark)
+                |> mk_add srk)
             |> BatArray.of_enum
           in
           (* B[i,j] = M[i,1]*A[1,j] + ... + M[i,n]*A[n,j] *)
@@ -1318,12 +1318,12 @@ module WedgeMatrix = struct
                   (0 -- (Array.length tr_coord - 1))
                   /@ (fun j ->
                       let (pre, post) = tr_coord.(j) in
-                      mk_eq ark
+                      mk_eq srk
                         m_times_a.(j)
-                        (mk_real ark (V.coeff pre (DArray.get constraints i))))
+                        (mk_real srk (V.coeff pre (DArray.get constraints i))))
                   |> BatList.of_enum
                 in
-                let s = Smt.mk_solver ark in
+                let s = Smt.mk_solver srk in
                 s#add pos_constraints;
                 s#add row_constraints;
                 let model =
@@ -1332,9 +1332,9 @@ module WedgeMatrix = struct
                   (0 -- (Array.length m_entries - 1))
                   /@ (fun j ->
                       if i = j then
-                        mk_true ark
+                        mk_true srk
                       else
-                        mk_eq ark (mk_const ark m_entries.(j)) (mk_real ark QQ.zero))
+                        mk_eq srk (mk_const srk m_entries.(j)) (mk_real srk QQ.zero))
                   |> BatList.of_enum
                   |> s#add;
                   match s#get_model () with
@@ -1346,7 +1346,7 @@ module WedgeMatrix = struct
                     | _ -> assert false
                 in
                 Array.init nb_constraints (fun i ->
-                    model#eval_real (mk_const ark m_entries.(i))))
+                    model#eval_real (mk_const srk m_entries.(i))))
           in
           let pvc =
             Array.init nb_constraints (fun i ->
@@ -1401,7 +1401,7 @@ module WedgeMatrix = struct
     in
     fix polyhedron
 
-  let abstract_iter_wedge ark wedge tr_symbols =
+  let abstract_iter_wedge srk wedge tr_symbols =
     logf "--------------- Abstracting wedge ---------------@\n%a)" Wedge.pp wedge;
     let cs = Wedge.coordinate_system wedge in
     let pre_symbols = pre_symbols tr_symbols in
@@ -1415,7 +1415,7 @@ module WedgeMatrix = struct
     let (rec_wedge, rec_sym) =
       let (non_recursive, rec_sym) =
         List.fold_left (fun (set, rec_sym) (s,s') ->
-            if CS.admits cs (mk_const ark s) && CS.admits cs (mk_const ark s') then
+            if CS.admits cs (mk_const srk s) && CS.admits cs (mk_const srk s') then
               (set, (s,s')::rec_sym)
             else
               (Symbol.Set.add s (Symbol.Set.add s' set), rec_sym))
@@ -1450,7 +1450,7 @@ module WedgeMatrix = struct
     let constant_symbols = ref Symbol.Set.empty in
     for i = 0 to CS.dim cs - 1 do
       let term = CS.term_of_coordinate cs i in
-      match Term.destruct ark term with
+      match Term.destruct srk term with
       | `App (sym, []) ->
         if is_symbolic_constant sym then begin
           constant_symbols := Symbol.Set.add sym (!constant_symbols);
@@ -1467,7 +1467,7 @@ module WedgeMatrix = struct
       let offset = DArray.length term_of_id in
       logf "New stratum (%d recurrence terms)" (DArray.length term_of_id);
       let (mA,mB,rec_add) =
-        extract_affine_transformation ark rec_wedge rec_sym term_of_id rec_ideal
+        extract_affine_transformation srk rec_wedge rec_sym term_of_id rec_ideal
       in
       let size = Array.length rec_add in
       if size = 0 then
@@ -1516,7 +1516,7 @@ module WedgeMatrix = struct
     in
     let rec_eq = fix [] in
     let rec_leq =
-      let (mA, rec_transform, rec_add) = extract_leq ark rec_wedge rec_sym in
+      let (mA, rec_transform, rec_add) = extract_leq srk rec_wedge rec_sym in
       let size = Array.length rec_add in
       for i = 0 to size - 1 do
         DArray.add term_of_id (CS.term_of_vec cs (QQMatrix.row i mA))
@@ -1524,7 +1524,7 @@ module WedgeMatrix = struct
       { rec_transform; rec_add }
     in
     let result =
-    { ark;
+    { srk;
       symbols = tr_symbols;
       precondition;
       postcondition;
@@ -1536,7 +1536,7 @@ module WedgeMatrix = struct
     logf "=============== Wedge/Matrix recurrence ===============@\n%a)" pp result;
     result
 
-  let abstract_iter ?(exists=fun x -> true) ark phi symbols =
+  let abstract_iter ?(exists=fun x -> true) srk phi symbols =
     let post_symbols =
       List.fold_left (fun set (_,s') ->
           Symbol.Set.add s' set)
@@ -1545,18 +1545,18 @@ module WedgeMatrix = struct
     in
     let subterm x = not (Symbol.Set.mem x post_symbols) in
     let wedge =
-      Wedge.abstract ~exists ~subterm ark phi
+      Wedge.abstract ~exists ~subterm srk phi
     in
-    abstract_iter_wedge ark wedge symbols
+    abstract_iter_wedge srk wedge symbols
 
   let closure_plus iter =
     let open Ocrs in
     let open Type_def in
 
-    Wedge.ensure_nonlinear_symbols iter.ark;
+    Wedge.ensure_nonlinear_symbols iter.srk;
 
-    let loop_counter_sym = mk_symbol iter.ark ~name:"K" `TyInt in
-    let loop_counter = mk_const iter.ark loop_counter_sym in
+    let loop_counter_sym = mk_symbol iter.srk ~name:"K" `TyInt in
+    let loop_counter = mk_const iter.srk loop_counter_sym in
 
     let post_map = (* map pre-state vars to post-state vars *)
       post_map iter.symbols
@@ -1565,11 +1565,11 @@ module WedgeMatrix = struct
     let postify =
       let subst sym =
         if Symbol.Map.mem sym post_map then
-          mk_const iter.ark (Symbol.Map.find sym post_map)
+          mk_const iter.srk (Symbol.Map.find sym post_map)
         else
-          mk_const iter.ark sym
+          mk_const iter.srk sym
       in
-      substitute_const iter.ark subst
+      substitute_const iter.srk subst
     in
 
     (* pre/post subscripts *)
@@ -1592,7 +1592,7 @@ module WedgeMatrix = struct
         let id = int_of_string name in
         postify (iter.term_of_id.(id))
       in
-      term_of_ocrs iter.ark loop_counter pre_term_of_id post_term_of_id
+      term_of_ocrs iter.srk loop_counter pre_term_of_id post_term_of_id
     in
     let close_matrix_rec recurrence offset =
       let size = Array.length recurrence.rec_add in
@@ -1624,9 +1624,9 @@ module WedgeMatrix = struct
       in
       recurrence_closed
     in
-    let mk_int k = mk_real iter.ark (QQ.of_int k) in
+    let mk_int k = mk_real iter.srk (QQ.of_int k) in
     let rec close offset closed = function
-      | [] -> (mk_and iter.ark closed, offset)
+      | [] -> (mk_and iter.srk closed, offset)
       | (recurrence::rest) ->
         let size = Array.length recurrence.rec_add in
         let recurrence_closed = close_matrix_rec recurrence offset in
@@ -1636,18 +1636,18 @@ module WedgeMatrix = struct
           let piece_to_formula (ivl, ineq) =
             let hypothesis = match ivl with
               | Bounded (lo, hi) ->
-                mk_and iter.ark [mk_leq iter.ark (mk_int lo) loop_counter;
-                                 mk_leq iter.ark loop_counter (mk_int hi)]
+                mk_and iter.srk [mk_leq iter.srk (mk_int lo) loop_counter;
+                                 mk_leq iter.srk loop_counter (mk_int hi)]
               | BoundBelow lo -> 
-                mk_and iter.ark [mk_leq iter.ark (mk_int lo) loop_counter]
+                mk_and iter.srk [mk_leq iter.srk (mk_int lo) loop_counter]
             in
             let conclusion = match ineq with
-              | Equals (x, y) -> mk_eq iter.ark (term_of_expr x) (term_of_expr y)
+              | Equals (x, y) -> mk_eq iter.srk (term_of_expr x) (term_of_expr y)
               | _ -> assert false
             in
-            mk_if iter.ark hypothesis conclusion
+            mk_if iter.srk hypothesis conclusion
           in
-          mk_and iter.ark (List.map piece_to_formula pieces)
+          mk_and iter.srk (List.map piece_to_formula pieces)
         in
         recurrence_closed |> List.iteri (fun i ineq ->
             match ineq with
@@ -1664,36 +1664,36 @@ module WedgeMatrix = struct
         let piece_to_formula (ivl, ineq) =
           let hypothesis = match ivl with
             | Bounded (lo, hi) ->
-              mk_and iter.ark [mk_leq iter.ark (mk_int lo) loop_counter;
-                               mk_leq iter.ark loop_counter (mk_int hi)]
+              mk_and iter.srk [mk_leq iter.srk (mk_int lo) loop_counter;
+                               mk_leq iter.srk loop_counter (mk_int hi)]
             | BoundBelow lo ->
-              mk_and iter.ark [mk_leq iter.ark (mk_int lo) loop_counter]
+              mk_and iter.srk [mk_leq iter.srk (mk_int lo) loop_counter]
           in
           let conclusion = match ineq with
-            | Equals (x, y) -> mk_leq iter.ark (term_of_expr x) (term_of_expr y)
+            | Equals (x, y) -> mk_leq iter.srk (term_of_expr x) (term_of_expr y)
             | _ -> assert false
           in
-          mk_if iter.ark hypothesis conclusion
+          mk_if iter.srk hypothesis conclusion
         in
-        mk_and iter.ark (List.map piece_to_formula pieces)
+        mk_and iter.srk (List.map piece_to_formula pieces)
       in
       if Array.length iter.rec_leq.rec_add > 0 then
         let recurrence_closed = close_matrix_rec iter.rec_leq offset in
         List.map to_formula recurrence_closed
-        |> mk_and iter.ark
+        |> mk_and iter.srk
       else
-        mk_true iter.ark
+        mk_true iter.srk
     in
-    mk_and iter.ark [
+    mk_and iter.srk [
         Wedge.to_formula iter.precondition;
-        mk_leq iter.ark (mk_real iter.ark QQ.one) loop_counter;
+        mk_leq iter.srk (mk_real iter.srk QQ.one) loop_counter;
         Wedge.to_formula iter.postcondition;
         closed;
         closed_leq
     ]
 
   let closure iter =
-    reflexive_closure iter.ark iter.symbols (closure_plus iter)
+    reflexive_closure iter.srk iter.symbols (closure_plus iter)
 
   let wedge_of_iter iter =
     let post_map =
@@ -1705,18 +1705,18 @@ module WedgeMatrix = struct
     let postify =
       let subst sym =
         if Symbol.Map.mem sym post_map then
-          mk_const iter.ark (Symbol.Map.find sym post_map)
+          mk_const iter.srk (Symbol.Map.find sym post_map)
         else
-          mk_const iter.ark sym
+          mk_const iter.srk sym
       in
-      substitute_const iter.ark subst
+      substitute_const iter.srk subst
     in
     let rec_atoms mk_compare offset recurrence =
       recurrence.rec_transform |> Array.mapi (fun i row ->
           let term = iter.term_of_id.(offset + i) in
           let rhs_add =
             QQMvp.term_of
-              iter.ark
+              iter.srk
               (fun j -> iter.term_of_id.(j))
               recurrence.rec_add.(i)
           in
@@ -1726,13 +1726,13 @@ module WedgeMatrix = struct
                   rhs
                 else
                   let jterm =
-                    mk_mul iter.ark [mk_real iter.ark coeff;
+                    mk_mul iter.srk [mk_real iter.srk coeff;
                                      iter.term_of_id.(offset + j)]
                   in
                   jterm::rhs)
               [rhs_add]
               row
-            |> mk_add iter.ark
+            |> mk_add iter.srk
           in
           mk_compare (postify term) rhs)
       |> BatArray.to_list
@@ -1744,14 +1744,14 @@ module WedgeMatrix = struct
       BatList.fold_left (fun (offset, atoms) recurrence ->
           let size = Array.length recurrence.rec_add in
           (offset+size,
-           (rec_atoms (mk_eq iter.ark) offset recurrence)@atoms))
+           (rec_atoms (mk_eq iter.srk) offset recurrence)@atoms))
         (iter.nb_constants, atoms)
         iter.rec_eq
     in
     let atoms =
-      (rec_atoms (mk_leq iter.ark) offset iter.rec_leq)@atoms
+      (rec_atoms (mk_leq iter.srk) offset iter.rec_leq)@atoms
     in
-    Wedge.of_atoms iter.ark atoms
+    Wedge.of_atoms iter.srk atoms
 
   let equal iter iter' =
     Wedge.equal (wedge_of_iter iter) (wedge_of_iter iter')
@@ -1759,21 +1759,21 @@ module WedgeMatrix = struct
   let widen iter iter' =
     let body = Wedge.widen (wedge_of_iter iter) (wedge_of_iter iter') in
     assert(iter.symbols = iter'.symbols);
-    abstract_iter_wedge iter.ark body iter.symbols
+    abstract_iter_wedge iter.srk body iter.symbols
 
   let join iter iter' =
     let body =
       Wedge.join (wedge_of_iter iter) (wedge_of_iter iter')
     in
     assert(iter.symbols = iter'.symbols);
-    abstract_iter_wedge iter.ark body iter.symbols
+    abstract_iter_wedge iter.srk body iter.symbols
 
   let tr_symbols iter = iter.symbols
 end
 
 module Split (Iter : DomainPlus) = struct
   type 'a t =
-    { ark : 'a context;
+    { srk : 'a context;
       split : ('a, typ_bool, 'a Iter.t * 'a Iter.t) Expr.Map.t }
 
   let tr_symbols split_iter =
@@ -1784,14 +1784,14 @@ module Split (Iter : DomainPlus) = struct
   let pp formatter split_iter =
     let pp_elt formatter (pred,(left,right)) =
       Format.fprintf formatter "[@[<v 0>%a@; %a@; %a@]]"
-        (Formula.pp split_iter.ark) pred
+        (Formula.pp split_iter.srk) pred
         Iter.pp left
         Iter.pp right
     in
     Format.fprintf formatter "<Split @[<v 0>%a@]>"
-      (ArkUtil.pp_print_enum pp_elt) (Expr.Map.enum split_iter.split)
+      (SrkUtil.pp_print_enum pp_elt) (Expr.Map.enum split_iter.split)
 
-  let show x = ArkUtil.mk_show pp x
+  let show x = SrkUtil.mk_show pp x
 
   (* Lower a split iter into an iter by picking an arbitary split and joining
      both sides. *)
@@ -1800,16 +1800,16 @@ module Split (Iter : DomainPlus) = struct
     | Some (iter, iter') -> Iter.join iter iter'
     | None -> assert false
 
-  let base_bottom ark symbols = Iter.abstract_iter ark (mk_false ark) symbols
+  let base_bottom srk symbols = Iter.abstract_iter srk (mk_false srk) symbols
 
-  let lift_split ark iter =
-    { ark = ark;
+  let lift_split srk iter =
+    { srk = srk;
       split = (Expr.Map.add
-                 (mk_true ark)
-                 (iter, base_bottom ark (Iter.tr_symbols iter))
+                 (mk_true srk)
+                 (iter, base_bottom srk (Iter.tr_symbols iter))
                  Expr.Map.empty) }
 
-  let abstract_iter ?(exists=fun x -> true) ark body tr_symbols =
+  let abstract_iter ?(exists=fun x -> true) srk body tr_symbols =
     let post_symbols =
       List.fold_left (fun set (_,s') ->
           Symbol.Set.add s' set)
@@ -1820,7 +1820,7 @@ module Split (Iter : DomainPlus) = struct
       let preds = ref Expr.Set.empty in
       let prestate sym = exists sym && not (Symbol.Set.mem sym post_symbols) in
       let rr expr =
-        match destruct ark expr with
+        match destruct srk expr with
         | `Not phi ->
           if Symbol.Set.for_all prestate (symbols phi) then
             preds := Expr.Set.add phi (!preds);
@@ -1828,16 +1828,16 @@ module Split (Iter : DomainPlus) = struct
         | `Atom (op, s, t) ->
           let phi =
             match op with
-            | `Eq -> mk_eq ark s t
-            | `Leq -> mk_leq ark s t
-            | `Lt -> mk_lt ark s t
+            | `Eq -> mk_eq srk s t
+            | `Leq -> mk_leq srk s t
+            | `Lt -> mk_lt srk s t
           in
           begin
           if Symbol.Set.for_all prestate (symbols phi) then
             let redundant = match op with
               | `Eq -> false
-              | `Leq -> Expr.Set.mem (mk_lt ark t s) (!preds)
-              | `Lt -> Expr.Set.mem (mk_lt ark t s) (!preds)
+              | `Leq -> Expr.Set.mem (mk_lt srk t s) (!preds)
+              | `Lt -> Expr.Set.mem (mk_lt srk t s) (!preds)
             in
             if not redundant then
               preds := Expr.Set.add phi (!preds)
@@ -1845,20 +1845,20 @@ module Split (Iter : DomainPlus) = struct
           expr
         | _ -> expr
       in
-      ignore (rewrite ark ~up:rr body);
+      ignore (rewrite srk ~up:rr body);
       BatList.of_enum (Expr.Set.enum (!preds))
     in
     let uninterp_body =
-      rewrite ark
-        ~up:(Nonlinear.uninterpret_rewriter ark)
+      rewrite srk
+        ~up:(Nonlinear.uninterpret_rewriter srk)
         body
     in
-    let solver = Smt.mk_solver ark in
+    let solver = Smt.mk_solver srk in
     solver#add [uninterp_body];
     let sat_modulo_body psi =
       let psi =
-        rewrite ark
-          ~up:(Nonlinear.uninterpret_rewriter ark)
+        rewrite srk
+          ~up:(Nonlinear.uninterpret_rewriter srk)
           psi
       in
       solver#push ();
@@ -1869,12 +1869,12 @@ module Split (Iter : DomainPlus) = struct
     in
     let is_split_predicate psi =
       (sat_modulo_body psi = `Sat)
-      && (sat_modulo_body (mk_not ark psi) = `Sat)
+      && (sat_modulo_body (mk_not srk psi) = `Sat)
     in
     let post_map =
       List.fold_left
         (fun map (s, s') ->
-           Symbol.Map.add s (mk_const ark s') map)
+           Symbol.Map.add s (mk_const srk s') map)
         Symbol.Map.empty
         tr_symbols
     in
@@ -1883,33 +1883,33 @@ module Split (Iter : DomainPlus) = struct
         if Symbol.Map.mem sym post_map then
           Symbol.Map.find sym post_map
         else
-          mk_const ark sym
+          mk_const srk sym
       in
-      substitute_const ark subst
+      substitute_const srk subst
     in
     let add_split_predicate split_iter psi =
       if is_split_predicate psi then
-        let not_psi = mk_not ark psi in
+        let not_psi = mk_not srk psi in
         let post_psi = postify psi in
         let post_not_psi = postify not_psi in
-        let psi_body = mk_and ark [body; psi] in
-        let not_psi_body = mk_and ark [body; not_psi] in
-        if sat_modulo_body (mk_and ark [psi; post_not_psi]) = `Unsat then
+        let psi_body = mk_and srk [body; psi] in
+        let not_psi_body = mk_and srk [body; not_psi] in
+        if sat_modulo_body (mk_and srk [psi; post_not_psi]) = `Unsat then
           (* {psi} body {psi} -> body* = ([not psi]body)*([psi]body)* *)
           let left_abstract =
-            Iter.abstract_iter ~exists ark not_psi_body tr_symbols
+            Iter.abstract_iter ~exists srk not_psi_body tr_symbols
           in
           let right_abstract =
-            Iter.abstract_iter ~exists ark psi_body tr_symbols
+            Iter.abstract_iter ~exists srk psi_body tr_symbols
           in
           Expr.Map.add not_psi (left_abstract, right_abstract) split_iter
-        else if sat_modulo_body (mk_and ark [not_psi; post_psi]) = `Unsat then
+        else if sat_modulo_body (mk_and srk [not_psi; post_psi]) = `Unsat then
           (* {not phi} body {not phi} -> body* = ([phi]body)*([not phi]body)* *)
           let left_abstract =
-            Iter.abstract_iter ~exists ark psi_body tr_symbols
+            Iter.abstract_iter ~exists srk psi_body tr_symbols
           in
           let right_abstract =
-            Iter.abstract_iter ~exists ark not_psi_body tr_symbols
+            Iter.abstract_iter ~exists srk not_psi_body tr_symbols
           in
           Expr.Map.add psi (left_abstract, right_abstract) split_iter
         else
@@ -1924,26 +1924,26 @@ module Split (Iter : DomainPlus) = struct
     let split_iter =
       if Expr.Map.is_empty split_iter then
         Expr.Map.add
-          (mk_true ark)
-          (Iter.abstract_iter ~exists ark body tr_symbols,
-           base_bottom ark tr_symbols)
+          (mk_true srk)
+          (Iter.abstract_iter ~exists srk body tr_symbols,
+           base_bottom srk tr_symbols)
           Expr.Map.empty
       else
         split_iter
     in
-    let iter = { ark = ark; split = split_iter } in
-    logf "abstract: %a" (Formula.pp ark) body;
+    let iter = { srk = srk; split = split_iter } in
+    logf "abstract: %a" (Formula.pp srk) body;
     logf "iter: %a" pp iter;
     iter
 
-  let sequence ark symbols phi psi =
+  let sequence srk symbols phi psi =
     let (phi_map, psi_map) =
       List.fold_left (fun (phi_map, psi_map) (sym, sym') ->
-          let mid_name = "mid_" ^ (show_symbol ark sym) in
+          let mid_name = "mid_" ^ (show_symbol srk sym) in
           let mid_symbol =
-            mk_symbol ark ~name:mid_name (typ_symbol ark sym)
+            mk_symbol srk ~name:mid_name (typ_symbol srk sym)
           in
-          let mid = mk_const ark mid_symbol in
+          let mid = mk_const srk mid_symbol in
           (Symbol.Map.add sym' mid phi_map,
            Symbol.Map.add sym mid psi_map))
         (Symbol.Map.empty, Symbol.Map.empty)
@@ -1953,34 +1953,34 @@ module Split (Iter : DomainPlus) = struct
       if Symbol.Map.mem symbol phi_map then
         Symbol.Map.find symbol phi_map
       else
-        mk_const ark symbol
+        mk_const srk symbol
     in
     let psi_subst symbol =
       if Symbol.Map.mem symbol psi_map then
         Symbol.Map.find symbol psi_map
       else
-        mk_const ark symbol
+        mk_const srk symbol
     in
-    mk_and ark [substitute_const ark phi_subst phi;
-                substitute_const ark psi_subst psi]
+    mk_and srk [substitute_const srk phi_subst phi;
+                substitute_const srk psi_subst psi]
 
   let closure split_iter =
-    let ark = split_iter.ark in
+    let srk = split_iter.srk in
     let symbols = tr_symbols split_iter in
     Expr.Map.enum split_iter.split
     /@ (fun (predicate, (left, right)) ->
-        let not_predicate = mk_not ark predicate in
+        let not_predicate = mk_not srk predicate in
         let left_closure =
-          mk_and ark [Iter.closure_plus left; predicate]
-          |> reflexive_closure ark symbols
+          mk_and srk [Iter.closure_plus left; predicate]
+          |> reflexive_closure srk symbols
         in
         let right_closure =
-          mk_and ark [Iter.closure_plus right; not_predicate]
-          |> reflexive_closure ark symbols
+          mk_and srk [Iter.closure_plus right; not_predicate]
+          |> reflexive_closure srk symbols
         in
-        sequence ark symbols left_closure right_closure)
+        sequence srk symbols left_closure right_closure)
     |> BatList.of_enum
-    |> mk_and ark
+    |> mk_and srk
 
   let join split_iter split_iter' =
     let f _ a b = match a,b with
@@ -1991,10 +1991,10 @@ module Split (Iter : DomainPlus) = struct
     let split_join = Expr.Map.merge f split_iter.split split_iter'.split in
     if Expr.Map.is_empty split_join then
       lift_split
-        split_iter.ark
+        split_iter.srk
         (Iter.join (lower_split split_iter) (lower_split split_iter))
     else
-      { ark = split_iter.ark;
+      { srk = split_iter.srk;
         split = split_join }
 
   let widen split_iter split_iter' =
@@ -2006,10 +2006,10 @@ module Split (Iter : DomainPlus) = struct
     let split_widen = Expr.Map.merge f split_iter.split split_iter'.split in
     if Expr.Map.is_empty split_widen then
       lift_split
-        split_iter.ark
+        split_iter.srk
         (Iter.widen (lower_split split_iter) (lower_split split_iter))
     else
-      { ark = split_iter.ark;
+      { srk = split_iter.srk;
         split = split_widen }
 
   let equal split_iter split_iter' =

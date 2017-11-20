@@ -17,7 +17,7 @@ val of_formula : 'a context -> 'a formula -> t
 (** Inverse of [of_formula] *)
 val to_formula : 'a context -> t -> 'a formula
 
-val to_apron : 'a ArkApron.Env.t -> 'abs Apron.Manager.t -> t -> ('a,'abs) ArkApron.property
+val to_apron : 'a SrkApron.Env.t -> 'abs Apron.Manager.t -> t -> ('a,'abs) SrkApron.property
 
 (** Test whether a point, representing as a map from symbols to rationals, is
     inside a polyhedron. *)

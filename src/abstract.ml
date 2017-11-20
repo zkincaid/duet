@@ -3,7 +3,7 @@ open Linear
 open BatPervasives
 open Polyhedron
 
-include Log.Make(struct let name = "ark.abstract" end)
+include Log.Make(struct let name = "srk.abstract" end)
 
 module V = Linear.QQVector
 module VS = BatSet.Make(Linear.QQVector)
@@ -17,8 +17,8 @@ let opt_abstract_limit = ref (-1)
    hull) or there is a counter-example point which shows that it is not.
    Counter-example points are collecting in a system of linear equations where
    the variables are the coefficients of candidate equations. *)
-let affine_hull ark phi constants =
-  let solver = Smt.mk_solver ark in
+let affine_hull srk phi constants =
+  let solver = Smt.mk_solver srk in
   solver#add [phi];
   let next_row =
     let n = ref (-1) in
@@ -41,13 +41,13 @@ let affine_hull ark phi constants =
           QQVector.enum candidate
           /@ (fun (coeff, dim) ->
               match sym_of_dim dim with
-              | Some const -> mk_mul ark [mk_real ark coeff; mk_const ark const]
-              | None -> mk_real ark coeff)
+              | Some const -> mk_mul srk [mk_real srk coeff; mk_const srk const]
+              | None -> mk_real srk coeff)
           |> BatList.of_enum
-          |> mk_add ark
+          |> mk_add srk
         in
         solver#add [
-          mk_not ark (mk_eq ark candidate_term (mk_real ark QQ.zero))
+          mk_not srk (mk_eq srk candidate_term (mk_real srk QQ.zero))
         ];
         match solver#get_model () with
         | `Unknown -> (* give up; return the equalities we have so far *)
@@ -66,7 +66,7 @@ let affine_hull ark phi constants =
           let point_row =
             List.fold_left (fun row k ->
                 QQVector.add_term
-                  (point#eval_real (mk_const ark k))
+                  (point#eval_real (mk_const srk k))
                   (dim_of_sym k)
                   row)
               vec_one
@@ -80,37 +80,37 @@ let affine_hull ark phi constants =
   in
   go [] QQMatrix.zero constants
 
-let boxify ark phi terms =
+let boxify srk phi terms =
   let mk_box t ivl =
     let lower =
       match Interval.lower ivl with
-      | Some lo -> [mk_leq ark (mk_real ark lo) t]
+      | Some lo -> [mk_leq srk (mk_real srk lo) t]
       | None -> []
     in
     let upper =
       match Interval.upper ivl with
-      | Some hi -> [mk_leq ark t (mk_real ark hi)]
+      | Some hi -> [mk_leq srk t (mk_real srk hi)]
       | None -> []
     in
     lower@upper
   in
-  match ArkZ3.optimize_box ark phi terms with
+  match SrkZ3.optimize_box srk phi terms with
   | `Sat intervals ->
-    mk_and ark (List.concat (List.map2 mk_box terms intervals))
-  | `Unsat -> mk_false ark
+    mk_and srk (List.concat (List.map2 mk_box terms intervals))
+  | `Unsat -> mk_false srk
   | `Unknown -> assert false
 
-let abstract ?exists:(p=fun x -> true) ark man phi =
-  let solver = Smt.mk_solver ark in
+let abstract ?exists:(p=fun x -> true) srk man phi =
+  let solver = Smt.mk_solver srk in
   let phi_symbols = symbols phi in
   let projected_symbols = Symbol.Set.filter (not % p) phi_symbols in
   let symbol_list = Symbol.Set.elements phi_symbols in
-  let env_proj = ArkApron.Env.of_set ark (Symbol.Set.filter p phi_symbols) in
+  let env_proj = SrkApron.Env.of_set srk (Symbol.Set.filter p phi_symbols) in
 
   let disjuncts = ref 0 in
   let rec go prop =
     solver#push ();
-    solver#add [mk_not ark (ArkApron.formula_of_property prop)];
+    solver#add [mk_not srk (SrkApron.formula_of_property prop)];
     match Log.time "lazy_dnf/sat" solver#get_model () with
     | `Unsat ->
       solver#pop 1;
@@ -120,21 +120,21 @@ let abstract ?exists:(p=fun x -> true) ark man phi =
         logf ~level:`warn "abstraction timed out (%d disjuncts); returning top"
           (!disjuncts);
         solver#pop 1;
-        ArkApron.top man env_proj
+        SrkApron.top man env_proj
       end
     | `Sat model -> begin
-        let interp = Interpretation.of_model ark model symbol_list in
-        let valuation = model#eval_real % (mk_const ark) in
+        let interp = Interpretation.of_model srk model symbol_list in
+        let valuation = model#eval_real % (mk_const srk) in
         solver#pop 1;
         incr disjuncts;
         logf "[%d] abstract lazy_dnf" (!disjuncts);
         if (!disjuncts) = (!opt_abstract_limit) then begin
           logf ~level:`warn "Met symbolic abstraction limit; returning top";
-          ArkApron.top man env_proj
+          SrkApron.top man env_proj
         end else begin
           let disjunct =
             match Interpretation.select_implicant interp phi with
-            | Some d -> Polyhedron.polyhedron_of_implicant ark d
+            | Some d -> Polyhedron.polyhedron_of_implicant srk d
             | None -> begin
                 assert (model#sat phi);
                 assert false
@@ -144,9 +144,9 @@ let abstract ?exists:(p=fun x -> true) ark man phi =
             Polyhedron.local_project valuation projected_symbols disjunct
             |> Polyhedron.to_apron env_proj man
           in
-          go (ArkApron.join prop projected_disjunct)
+          go (SrkApron.join prop projected_disjunct)
         end
       end
   in
   solver#add [phi];
-  Log.time "Abstraction" go (ArkApron.bottom man env_proj)
+  Log.time "Abstraction" go (SrkApron.bottom man env_proj)
