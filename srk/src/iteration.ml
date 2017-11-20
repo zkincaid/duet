@@ -463,7 +463,7 @@ module WedgeVector = struct
       let equalities = Wedge.farkas_equalities wedge in
       (* Matrix consisting of one row for each dimension of the wedge that is
          associated with a term that contains a transition variable; the row
-         contains the Farkas column for that dimension *)
+         contains the Fsrkas column for that dimension *)
       let matrix =
         BatList.fold_lefti (fun m id (term, column) ->
             if Symbol.Set.for_all is_symbolic_constant (symbols term) then
