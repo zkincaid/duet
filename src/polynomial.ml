@@ -126,6 +126,35 @@ module QQX = struct
     let (_, mat, b) = mk_sys sum_order in
     let coeffs = Linear.solve_exn mat b in
     of_enum (V.enum coeffs)
+
+  let factor p =
+    let denominator =
+      BatEnum.fold (fun d (coeff, _) ->
+          ZZ.lcm d (QQ.denominator coeff))
+        ZZ.one
+        (enum p)
+    in
+    let zzx =
+      (enum p) /@ (fun (coeff, d) ->
+          let (num, den) = QQ.to_zzfrac coeff in
+          (d, Ntl.ZZ.of_mpz (ZZ.div (ZZ.mul num denominator) den)))
+      |> BatList.of_enum
+      |> Ntl.ZZX.of_list
+    in
+    let (c, factors) = Ntl.ZZX.factor zzx in
+    let content = QQ.of_zzfrac (Ntl.ZZ.mpz_of c) denominator in
+    let factors =
+      List.map (fun (zzx, n) ->
+          let qqx =
+            BatList.enum (Ntl.ZZX.list_of zzx)
+            /@ (fun (degree, coeff) ->
+                (QQ.of_zz (Ntl.ZZ.mpz_of coeff), degree))
+            |> of_enum
+          in
+          (qqx, n))
+        factors
+    in
+    (content, factors)
 end
 
 module Monomial = struct

@@ -155,4 +155,5 @@ let suite = "Polynomial" >::: [
     "test_grobner1" >:: test_grobner1;
     "test_grobner2" >:: test_grobner2;
     "test_grobner_elim" >:: test_grobner_elim;
+    "factor" >:: factor;
   ]

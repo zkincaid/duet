@@ -1,5 +1,5 @@
 # OASIS_START
-# DO NOT EDIT (digest: 1cf91205fd83319805eef2f89cc01bbf)
+# DO NOT EDIT (digest: 5f40cc82e30a0946444dad206600fc6c)
 # Ignore VCS directories, you can use the same kind of rule outside
 # OASIS_START/STOP if you want to exclude directories that contains
 # useless stuff for the build process
@@ -53,6 +53,7 @@ true: annot, bin_annot
 "src/test_srk.native": pkg_camlidl
 "src/test_srk.native": pkg_gmp
 "src/test_srk.native": pkg_mathsat
+"src/test_srk.native": pkg_ntl
 "src/test_srk.native": pkg_oUnit
 "src/test_srk.native": pkg_ocrs
 "src/test_srk.native": pkg_ppx_deriving
@@ -68,6 +69,7 @@ true: annot, bin_annot
 "src/bigtop.native": pkg_camlidl
 "src/bigtop.native": pkg_gmp
 "src/bigtop.native": pkg_mathsat
+"src/bigtop.native": pkg_ntl
 "src/bigtop.native": pkg_ocrs
 "src/bigtop.native": pkg_ppx_deriving
 "src/bigtop.native": pkg_ppx_deriving.ord
@@ -80,6 +82,7 @@ true: annot, bin_annot
 <src/*.ml{,i,y}>: pkg_camlidl
 <src/*.ml{,i,y}>: pkg_gmp
 <src/*.ml{,i,y}>: pkg_mathsat
+<src/*.ml{,i,y}>: pkg_ntl
 <src/*.ml{,i,y}>: pkg_ocrs
 <src/*.ml{,i,y}>: pkg_ppx_deriving
 <src/*.ml{,i,y}>: pkg_ppx_deriving.ord

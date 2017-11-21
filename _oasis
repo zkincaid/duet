@@ -13,7 +13,7 @@ Library srk
   FindlibName:      srk
   Pack:             true
   Modules:  SrkUtil, Log, DisjointSet, Memo, FeatureTree, QQ, ZZ, Syntax, Interval, Smt, SrkZ3, SrkMathsat, Linear, Polynomial, Interpretation, SrkApron, Polyhedron, SrkSimplify, Abstract, Nonlinear, CoordinateSystem, Wedge, Quantifier, Iteration, Transition, BigO
-  BuildDepends:     batteries, ppx_deriving, ppx_deriving.show, ppx_deriving.ord, gmp, camlidl, apron, Z3, mathsat, ocrs
+  BuildDepends:     batteries, ppx_deriving, ppx_deriving.show, ppx_deriving.ord, gmp, camlidl, apron, Z3, mathsat, ocrs, ntl
   Install:         false
   XMETADescription: Symbolic Reasoning Kit
 
@@ -21,7 +21,7 @@ Executable test_srk
   Build$:         flag(tests)
   Path:           src
   MainIs:         test_srk.ml
-  BuildDepends:   batteries, ppx_deriving, ppx_deriving.ord, gmp, camlidl, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, oUnit, mathsat, ocrs
+  BuildDepends:   batteries, ppx_deriving, ppx_deriving.ord, gmp, camlidl, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, oUnit, mathsat, ocrs, ntl
   CompiledObject: native
   Install:        false
 
@@ -29,7 +29,7 @@ Executable bigtop
   Build$:         flag(tests)
   Path:           src
   MainIs:         bigtop.ml
-  BuildDepends:   batteries, ppx_deriving, ppx_deriving.ord, gmp, camlidl, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, mathsat, ocrs
+  BuildDepends:   batteries, ppx_deriving, ppx_deriving.ord, gmp, camlidl, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, mathsat, ocrs, ntl
   CompiledObject: native
   Install:        false
 
