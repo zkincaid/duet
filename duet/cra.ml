@@ -303,7 +303,11 @@ module K = struct
   end
   module I = Iter(D)
 
-  let star x = Log.time "cra:star" I.star x
+  let star x =
+    let result = Log.time "cra:star" I.star x in
+    logf "--------------- Loop summary ---------------";
+    logf "%a" pp result;
+    result
 
   let add x y =
     if is_zero x then y
@@ -549,7 +553,6 @@ let analyze file =
               Ctx.mk_and [K.guard path; Ctx.mk_not phi]
               |> ArkSimplify.simplify_terms ark
             in
-            logf "Path condition:@\n%a" (Syntax.pp_smtlib2 Ctx.context) path_condition;
             dump_goal (Def.get_location def) path_condition;
             begin match Wedge.is_sat Ctx.context path_condition with
               | `Sat -> Report.log_error (Def.get_location def) msg
