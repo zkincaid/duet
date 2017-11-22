@@ -1672,11 +1672,11 @@ let show_strategy srk = SrkUtil.mk_show (pp_strategy srk)
 (* Extract a winning strategy from a skeleton *)
 let extract_strategy srk skeleton phi =
   let open Skeleton in
-  let smt_ctx = SrkZ3.mk_context srk [] in
+  let z3 = Z3.mk_context [] in
   let rec go subst = function
     | SEmpty ->
       let psi = mk_not srk (List.fold_left (fun a f -> f a) phi subst) in
-      smt_ctx#of_formula psi
+      SrkZ3.z3_of_formula srk z3 psi
     | SForall (k, sk, skeleton) ->
       let sk_const = mk_const srk sk in
       let replace =
@@ -1688,13 +1688,13 @@ let extract_strategy srk skeleton phi =
       MM.enum mm
       /@ (fun (move, skeleton) ->
           go ((substitute srk k move)::subst) skeleton
-          |> Z3.Interpolation.mk_interpolant smt_ctx#z3)
+          |> Z3.Interpolation.mk_interpolant z3)
       |> BatList.of_enum
-      |> Z3.Boolean.mk_and smt_ctx#z3
+      |> Z3.Boolean.mk_and z3
   in
   let pattern = go [] skeleton in
-  let params = Z3.Params.mk_params smt_ctx#z3 in
-  match Z3.Interpolation.compute_interpolant smt_ctx#z3 pattern params with
+  let params = Z3.Params.mk_params z3 in
+  match Z3.Interpolation.compute_interpolant z3 pattern params with
   | (_, Some interp, None) ->
     let rec go interp = function
       | SEmpty -> (interp, Strategy [])
@@ -1715,7 +1715,9 @@ let extract_strategy srk skeleton phi =
           (MM.enum mm)
         |> (fun (interp, xs) -> (interp, Strategy xs))
     in
-    let (interp, strategy) = go (List.map smt_ctx#formula_of interp) skeleton in
+    let (interp, strategy) =
+      go (List.map (SrkZ3.formula_of_z3 srk) interp) skeleton
+    in
     assert (interp == []);
     strategy
   | (_, None, Some _) -> assert false

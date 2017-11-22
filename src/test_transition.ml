@@ -60,7 +60,7 @@ let assert_post tr phi =
   let pathcond =
     T.guard (T.mul tr (T.assume not_post))
   in
-  if smt_ctx#is_sat pathcond != `Unsat then
+  if Smt.is_sat srk pathcond != `Unsat then
     assert_failure (Printf.sprintf "%s\n is not a post-condition of\n%s"
                       (Formula.show srk phi)
                       (T.show tr))

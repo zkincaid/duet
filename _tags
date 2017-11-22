@@ -1,5 +1,5 @@
 # OASIS_START
-# DO NOT EDIT (digest: 5f40cc82e30a0946444dad206600fc6c)
+# DO NOT EDIT (digest: a928fd5129d0e0287fde8b680a6861bb)
 # Ignore VCS directories, you can use the same kind of rule outside
 # OASIS_START/STOP if you want to exclude directories that contains
 # useless stuff for the build process
@@ -27,7 +27,6 @@ true: annot, bin_annot
 "src/interval.cmx": for-pack(Srk)
 "src/smt.cmx": for-pack(Srk)
 "src/srkZ3.cmx": for-pack(Srk)
-"src/srkMathsat.cmx": for-pack(Srk)
 "src/linear.cmx": for-pack(Srk)
 "src/polynomial.cmx": for-pack(Srk)
 "src/interpretation.cmx": for-pack(Srk)
@@ -52,7 +51,6 @@ true: annot, bin_annot
 "src/test_srk.native": pkg_batteries
 "src/test_srk.native": pkg_camlidl
 "src/test_srk.native": pkg_gmp
-"src/test_srk.native": pkg_mathsat
 "src/test_srk.native": pkg_ntl
 "src/test_srk.native": pkg_oUnit
 "src/test_srk.native": pkg_ocrs
@@ -68,7 +66,6 @@ true: annot, bin_annot
 "src/bigtop.native": pkg_batteries
 "src/bigtop.native": pkg_camlidl
 "src/bigtop.native": pkg_gmp
-"src/bigtop.native": pkg_mathsat
 "src/bigtop.native": pkg_ntl
 "src/bigtop.native": pkg_ocrs
 "src/bigtop.native": pkg_ppx_deriving
@@ -81,7 +78,6 @@ true: annot, bin_annot
 <src/*.ml{,i,y}>: pkg_batteries
 <src/*.ml{,i,y}>: pkg_camlidl
 <src/*.ml{,i,y}>: pkg_gmp
-<src/*.ml{,i,y}>: pkg_mathsat
 <src/*.ml{,i,y}>: pkg_ntl
 <src/*.ml{,i,y}>: pkg_ocrs
 <src/*.ml{,i,y}>: pkg_ppx_deriving

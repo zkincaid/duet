@@ -22,15 +22,15 @@ let h : Ctx.term * Ctx.term -> Ctx.term =
 let roundtrip0 () =
   let tru = mk_true srk in
   let fls = mk_false srk in
-  assert_equal_formula tru (smt_ctx#formula_of (smt_ctx#of_formula tru));
-  assert_equal_formula fls (smt_ctx#formula_of (smt_ctx#of_formula fls))
+  assert_equal_formula tru (formula_of_z3 (z3_of_formula tru));
+  assert_equal_formula fls (formula_of_z3 (z3_of_formula fls))
 
 let roundtrip1 () =
   let term =
     let open Infix in
     x * x * x mod (int 10) + (frac 100 3) / (r - z + s)
   in
-  assert_equal_term term (smt_ctx#term_of (smt_ctx#of_term term))
+  assert_equal_term term (term_of_z3 (z3_of_term term))
 
 let roundtrip2 () =
   let phi =
@@ -38,7 +38,7 @@ let roundtrip2 () =
     x <= y && y <= z && x < z
     || x = y && y = z
   in
-  assert_equal_formula phi (smt_ctx#formula_of (smt_ctx#of_formula phi))
+  assert_equal_formula phi (formula_of_z3 (z3_of_formula phi))
 
 let roundtrip3 () =
   let phi =
@@ -50,18 +50,18 @@ let roundtrip3 () =
                 ((var 1 `TyInt) < (var 0 `TyReal)
                  && (var 0 `TyReal) < (var 2 `TyInt)))))
   in
-  assert_equal_formula phi (smt_ctx#formula_of (smt_ctx#of_formula phi))
+  assert_equal_formula phi (formula_of_z3 (z3_of_formula phi))
 
 let roundtrip4 () =
   let term =
     let open Infix in
     (f (x, b)) + x
   in
-  assert_equal_term term (smt_ctx#term_of (smt_ctx#of_term term))
+  assert_equal_term term (term_of_z3 (z3_of_term term))
 
 let is_interpolant phi psi itp =
-  (smt_ctx#implies phi itp)
-  && smt_ctx#is_sat (mk_and srk [itp; psi]) = `Unsat
+  (Smt.entails srk phi itp = `Yes)
+  && Smt.is_sat srk (mk_and srk [itp; psi]) = `Unsat
 
 let interpolate1 () =
   let phi =
@@ -72,11 +72,11 @@ let interpolate1 () =
     let open Infix in
     y = z && z < (int 0)
   in
-  (match smt_ctx#interpolate_seq [phi; psi] with
+  (match SrkZ3.interpolate_seq srk [phi; psi] with
    | `Unsat [itp] ->
      assert_bool "itp(y == x < 0, 0 < z = y)" (is_interpolant phi psi itp)
    | _ -> assert false);
-  (match smt_ctx#interpolate_seq [psi; phi] with
+  (match SrkZ3.interpolate_seq srk [psi; phi] with
    | `Unsat [itp] ->
      assert_bool "itp(0 < z = y, y == x < 0)" (is_interpolant psi phi itp)
    | _ -> assert false)
@@ -87,12 +87,12 @@ let interpolate2 () =
     x = (int 0) && y = x + (int 1) && y < (int 1)
   in
   let psi = Ctx.mk_true in
-  (match smt_ctx#interpolate_seq [phi; psi] with
+  (match SrkZ3.interpolate_seq srk [phi; psi] with
    | `Unsat [itp] ->
      assert_bool "itp(x = 0 /\\ y = x + 1 /\\ y < 1, true)"
        (is_interpolant phi psi itp)
    | _ -> assert false);
-  (match smt_ctx#interpolate_seq [psi; phi] with
+  (match SrkZ3.interpolate_seq srk [psi; phi] with
    | `Unsat [itp] ->
      assert_bool "itp(true, x = 0 /\\ y = x + 1 /\\ y < 1)"
        (is_interpolant psi phi itp)
@@ -107,12 +107,12 @@ let interpolate3 () =
     let open Infix in
     y = x + w && y <= (int 1)
   in
-  (match smt_ctx#interpolate_seq [phi; psi] with
+  (match SrkZ3.interpolate_seq srk [phi; psi] with
    | `Unsat [itp] ->
      assert_bool "itp(x = w = 1, y = x + w <= 1)"
        (is_interpolant phi psi itp)
    | _ -> assert false);
-  (match smt_ctx#interpolate_seq [psi; phi] with
+  (match SrkZ3.interpolate_seq srk [psi; phi] with
    | `Unsat [itp] ->
      assert_bool "itp(y = x + w <= 1, x = w = 1)"
        (is_interpolant psi phi itp)
@@ -124,7 +124,7 @@ let interpretation1 () =
     (int 0) = x && x <= y
     && g(x, y) < g(y, x) && g(int 0, int 0) = (int 0)
   in
-  match smt_ctx#get_model phi with
+  match SrkZ3.get_model srk phi with
   | `Sat m ->
     let interp = Interpretation.of_model srk m [gsym; xsym; ysym] in
     assert_bool "is_model"
@@ -138,7 +138,7 @@ let implicant1 () =
     && x <= f((int 0), (int 1) = y || (int 2)= y)
     && (y <= (int 0) || (x = (int 3)))
   in
-  match smt_ctx#get_model phi with
+  match SrkZ3.get_model srk phi with
   | `Sat m ->
     let interp = Interpretation.of_model srk m [fsym; xsym; ysym] in
     begin match Interpretation.select_implicant interp phi with
@@ -159,7 +159,7 @@ let affine_interp1 () =
     && h(x, (int 0)) = x
     && h(y, (int 0)) = y
   in
-  match smt_ctx#get_model phi with
+  match SrkZ3.get_model srk phi with
   | `Sat m ->
     let interp = Interpretation.of_model srk m [hsym; xsym; ysym] in
     let has_affine_interp =
@@ -177,7 +177,7 @@ let affine_interp2 () =
     && h(x, z) < h(y, z)
     && h(x, z) < h(y, y)
   in
-  match smt_ctx#get_model phi with
+  match SrkZ3.get_model srk phi with
   | `Sat m ->
     let interp = Interpretation.of_model srk m [hsym; xsym; ysym; zsym] in
     (match Interpretation.affine_interpretation interp phi with
@@ -200,7 +200,7 @@ let substitute_solution fp expr =
   rewrite srk ~down:rewriter expr
 
 let verify_chc relations rules =
-  let solver = SrkZ3.CHC.mk_solver smt_ctx in
+  let solver = SrkZ3.CHC.mk_solver srk z3 in
   List.iter (SrkZ3.CHC.register_relation solver) relations;
   rules |> List.iter (fun (hypothesis, conclusion) ->
       SrkZ3.CHC.add_rule solver hypothesis conclusion);
@@ -249,7 +249,7 @@ let chc2 () =
      (p(v0, v1) && v1 <= v0) --> q(v0, v1);
      q(v0, v1) --> (v0 = v1)]
   in
-  let solver = SrkZ3.CHC.mk_solver smt_ctx in
+  let solver = SrkZ3.CHC.mk_solver srk z3 in
   List.iter (SrkZ3.CHC.register_relation solver) [psym; qsym];
   rules |> List.iter (fun (hypothesis, conclusion) ->
       SrkZ3.CHC.add_rule solver hypothesis conclusion);

@@ -4,8 +4,6 @@ open SrkApron
 module Ctx = SrkAst.Ctx
 module Infix = Syntax.Infix(Ctx)
 let srk = Ctx.context
-let smt_srk = SrkZ3.mk_context srk [("model", "true");
-                                    ("unsat_core", "true")]
 
 let file_contents filename =
   let chan = open_in filename in
@@ -28,7 +26,7 @@ let load_math_formula filename =
                 pos.pos_lnum
                 (pos.pos_cnum - pos.pos_bol + 1))
 
-let load_smtlib2 filename = smt_srk#load_smtlib2 (file_contents filename)
+let load_smtlib2 filename = SrkZ3.load_smtlib2 srk (file_contents filename)
 
 let load_formula filename =
   if Filename.check_suffix filename "m" then load_math_formula filename
@@ -77,14 +75,14 @@ let _ =
 
   | "sat-z3" ->
     let phi = load_formula Sys.argv.(i+1) in
-    print_result (smt_srk#is_sat phi)
+    print_result (Smt.is_sat srk phi)
   | "sat-mbp" ->
     let phi = load_formula Sys.argv.(i+1) in
     let psi = Quantifier.qe_mbp srk phi in
-    print_result (smt_srk#is_sat psi)
+    print_result (Smt.is_sat srk psi)
   | "sat-z3qe" ->
     let phi = load_formula Sys.argv.(i+1) in
-    print_result (smt_srk#is_sat (smt_srk#qe phi))
+    print_result (Smt.is_sat srk (SrkZ3.qe srk phi))
   | "qsat" ->
     let str = file_contents Sys.argv.(i+1) in
 
@@ -106,7 +104,7 @@ let _ =
   | "qe-sat-unbounded" ->
     let (objective, phi) = load_math_opt Sys.argv.(i+1) in
     let phi = Syntax.Formula.prenex srk phi in
-    print_result (smt_srk#qe_sat phi)
+    print_result (SrkZ3.qe_sat srk phi)
 
   | "qe-mbp" ->
     let phi = load_formula Sys.argv.(i+1) in
@@ -127,7 +125,7 @@ let _ =
   | "opt-mbp" ->
     let (objective, phi) = load_math_opt Sys.argv.(i+1) in
     let psi = Quantifier.qe_mbp srk phi in
-    begin match smt_srk#optimize_box psi [objective] with
+    begin match SrkZ3.optimize_box srk psi [objective] with
       | `Sat [ivl] ->
         begin match Interval.upper ivl with
           | Some upper ->
@@ -140,8 +138,8 @@ let _ =
     end
   | "opt-z3qe" ->
     let (objective, phi) = load_math_opt Sys.argv.(i+1) in
-    let psi = smt_srk#qe phi in
-    begin match smt_srk#optimize_box psi [objective] with
+    let psi = SrkZ3.qe srk phi in
+    begin match SrkZ3.optimize_box srk psi [objective] with
       | `Sat [ivl] ->
         begin match Interval.upper ivl with
           | Some upper ->
@@ -153,14 +151,15 @@ let _ =
       | _ -> assert false
     end
   | "echo" ->
+    let z3 = Z3.mk_context [] in
     Z3.SMT.benchmark_to_smtstring
-      smt_srk#z3
+      z3
       (Sys.argv.(i+1))
       ""
       "unknown"
       ""
       []
-      (smt_srk#of_formula (load_formula Sys.argv.(i+1)))
+      (SrkZ3.z3_of_formula srk z3 (load_formula Sys.argv.(i+1)))
     |> print_endline
 
   | "stats" ->
@@ -199,14 +198,15 @@ let _ =
       | "sparse" -> RandomFormula.dense := false;
       | _ -> assert false
     end;
+    let z3 = Z3.mk_context [] in
     Z3.SMT.benchmark_to_smtstring
-      smt_srk#z3
+      z3
       "random"
       ""
       "unknown"
       ""
       []
-      (smt_srk#of_formula (RandomFormula.mk_random_formula srk))
+      (SrkZ3.z3_of_formula srk z3 (RandomFormula.mk_random_formula srk))
     |> print_endline
 
   | "sat-nonlinear" ->

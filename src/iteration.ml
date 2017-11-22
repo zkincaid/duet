@@ -1018,8 +1018,8 @@ module WedgeMatrix = struct
 
   exception IllFormedRecurrence
 
-  (* Given a wedge w, compute A,B,C such that w |= Ax' = BAx + Cy, and such that
-     the row space of A is maximal. *)
+  (* Given a wedge w, compute A,B,C such that w |= Ax' = BAx + Cy, and such
+     that the row space of A is maximal. *)
   let extract_affine_transformation srk wedge tr_symbols rec_terms rec_ideal =
     let cs = Wedge.coordinate_system wedge in
 
@@ -1078,9 +1078,11 @@ module WedgeMatrix = struct
           try
             logf "  @[%a@]" (QQMvp.pp (fun formatter i ->
                 if i < cs_dim then
-                  Format.fprintf formatter "w[%a]" (Term.pp srk) (CS.term_of_coordinate cs i)
+                  Format.fprintf formatter "w[%a]"
+                    (Term.pp srk) (CS.term_of_coordinate cs i)
                 else
-                  Format.fprintf formatter "v[%a]" (Term.pp srk) (DArray.get rec_terms (i - cs_dim)))) p;
+                  Format.fprintf formatter "v[%a]"
+                    (Term.pp srk) (DArray.get rec_terms (i - cs_dim)))) p;
             let (vecA, vecB, pc) =
               BatEnum.fold (fun (vecA, vecB, pc) (coeff, monomial) ->
                   match BatList.of_enum (Monomial.enum monomial) with
@@ -1128,8 +1130,8 @@ module WedgeMatrix = struct
     (* We have a system of the form Ax' = Bx + c, and we need one of the form
        Ax' = B'Ax + c.  If we can factor B = B'A, we're done.  Otherwise, we
        compute an m-by-n matrix D with m < n, and continue iterating with the
-       system DAx' = DBx + Dc.  The matrix D projects B onto the intersection of
-       the row spaces of A and B.  *)
+       system DAx' = DBx + Dc.  The matrix D projects B onto the intersection
+       of the row spaces of A and B.  *)
     let rec fix mA mB pvc =
       let mD = max_rowspace_projection mA mB in
       if QQMatrix.nb_rows mB = QQMatrix.nb_rows mD then

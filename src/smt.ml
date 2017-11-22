@@ -2,12 +2,8 @@ open Syntax
 open BatPervasives
 
 include Log.Make(struct let name = "srk.smt" end)
-let default_solver = ref `Z3
 
-let mk_solver srk =
-  match !default_solver with
-  | `Z3 -> (SrkZ3.mk_solver srk :> 'a smt_solver)
-  | `Mathsat -> (SrkMathsat.mk_solver srk :> 'a smt_solver)
+let mk_solver ?(theory="") srk = SrkZ3.mk_solver ~theory srk
 
 let get_model srk phi =
   let solver = mk_solver srk in
@@ -19,4 +15,18 @@ let is_sat srk phi =
   solver#add [phi];
   solver#check []
 
-let set_default_solver s = default_solver := s
+let entails srk phi psi =
+  match is_sat srk (mk_and srk [phi; mk_not srk psi]) with
+  | `Sat -> `No
+  | `Unsat -> `Yes
+  | `Unknown -> `Unknown
+
+let equiv srk phi psi =
+  let equiv_formula =
+    mk_or srk [mk_and srk [phi; mk_not srk psi];
+               mk_and srk [mk_not srk phi; psi]]
+  in
+  match is_sat srk equiv_formula with
+  | `Sat -> `No
+  | `Unsat -> `Yes
+  | `Unknown -> `Unknown

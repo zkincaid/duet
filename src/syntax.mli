@@ -298,6 +298,7 @@ module Formula : sig
   val show : ?env:(string Env.t) -> 'a context -> 'a formula -> string
   val destruct : 'a context -> 'a formula -> ('a formula, 'a) open_formula
   val eval : 'a context -> (('b, 'a) open_formula -> 'b) -> 'a formula -> 'b
+  val eval_memo : 'a context -> (('b, 'a) open_formula -> 'b) -> 'a formula -> 'b
   val existential_closure : 'a context -> 'a formula -> 'a formula
   val universal_closure : 'a context -> 'a formula -> 'a formula
   val skolemize_free : 'a context -> 'a formula -> 'a formula
@@ -389,4 +390,18 @@ module Infix (C : sig
   val ( mod ) : C.t term -> C.t term -> C.t term
   val const : symbol -> (C.t, 'typ) expr
   val var : int -> typ_fo -> (C.t, 'typ) expr
+end
+
+(** A context table is a hash table mapping contents to values.  If a context
+    is garbage collected, the corresponding entry in the table will be
+    removed.  The values stored in a context table should have pointers back
+    to their associated context.  *)
+module ContextTable : sig
+  type 'a t
+  val create : int -> 'a t
+  val add : 'a t -> 'b context -> 'a -> unit
+  val replace : 'a t -> 'b context -> 'a -> unit
+  val find : 'a t -> 'b context -> 'a
+  val mem : 'a t -> 'b context -> bool
+  val clear : 'a t -> unit
 end
