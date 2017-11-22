@@ -51,166 +51,102 @@ let print_result = function
   | `Unsat -> Log.logf ~level:`always "unsat"
   | `Unknown -> Log.logf ~level:`always "unknown"
 
-let _ =
-  Log.colorize := true;
-  let i =
-    match Sys.argv.(1) with
-    | "verbose" -> Log.verbosity_level := `info; 2
-    | "trace" -> Log.verbosity_level := `trace; 2
-    | _ -> 1
-  in
-  match Sys.argv.(i) with
-  | "sat" ->
-    let phi = load_formula Sys.argv.(i+1) in
-    print_result (Quantifier.simsat srk phi)
-    (*    Apak.Log.print_stats ()*)
+let spec_list = [
+  ("-simsat",
+   Arg.String (fun file ->
+       let phi = load_formula file in
+       print_result (Quantifier.simsat_forward srk phi)),
+   " Test satisfiability of an LRA or LIA formula (IJCAI'16)");
 
-  | "sat-forward" ->
-    let phi = load_formula Sys.argv.(i+1) in
-    print_result (Quantifier.simsat_forward srk phi)
+  ("-nlsat",
+   Arg.String (fun file ->
+       let phi = load_formula file in
+       print_result (Wedge.is_sat srk (snd (Quantifier.normalize srk phi)))),
+   " Test satisfiability of a non-linear ground formula (POPL'18)");
 
-  | "easysat" ->
-    let phi = load_formula Sys.argv.(i+1) in
-    print_result (Quantifier.easy_sat srk phi)
+  ("-stats",
+   Arg.String (fun file ->
+       let open Syntax in
+       let phi = load_formula file in
+       let phi = Formula.prenex srk phi in
+       let constants = fold_constants Symbol.Set.add phi Symbol.Set.empty in
+       let rec go phi =
+         match Formula.destruct srk phi with
+         | `Quantify (`Exists, name, typ, psi) -> "E" ^ (go psi)
+         | `Quantify (`Forall, name, typ, psi) -> "A" ^ (go psi)
+         | _ -> ""
+       in
+       let qf_pre =
+         (String.concat ""
+            (List.map (fun _ -> "E") (Symbol.Set.elements constants)))
+         ^ (go phi)
+       in
+       Format.printf "Quantifier prefix: %s" qf_pre;
+       Format.printf "Variables: %d" (String.length qf_pre);
+       Format.printf "Matrix size: %d" (size phi)),
+   " Print formula statistics");
 
-  | "sat-z3" ->
-    let phi = load_formula Sys.argv.(i+1) in
-    print_result (Smt.is_sat srk phi)
-  | "sat-mbp" ->
-    let phi = load_formula Sys.argv.(i+1) in
-    let psi = Quantifier.qe_mbp srk phi in
-    print_result (Smt.is_sat srk psi)
-  | "sat-z3qe" ->
-    let phi = load_formula Sys.argv.(i+1) in
-    print_result (Smt.is_sat srk (SrkZ3.qe srk phi))
-  | "qsat" ->
-    let str = file_contents Sys.argv.(i+1) in
+  ("-random",
+   Arg.Tuple [
+     Arg.String (fun arg ->
+         let qf_pre = ref [] in
+         String.iter (function
+             | 'E' -> qf_pre := `Exists::(!qf_pre)
+             | 'A' -> qf_pre := `Forall::(!qf_pre)
+             | _ -> assert false)
+           arg;
+         RandomFormula.quantifier_prefix := List.rev (!qf_pre));
+     Arg.Set_int RandomFormula.formula_uq_depth;
+     Arg.String (fun arg ->
+         begin match arg with
+         | "dense" -> RandomFormula.dense := true
+         | "sparse" -> RandomFormula.dense := false
+         | x -> Log.fatalf "unknown argument: %s" x;
+         end;
+         Random.self_init ();
+         let z3 = Z3.mk_context [] in
+         Z3.SMT.benchmark_to_smtstring
+           z3
+           "random"
+           ""
+           "unknown"
+           ""
+           []
+           (SrkZ3.z3_of_formula srk z3 (RandomFormula.mk_random_formula srk))
+         |> print_endline)
+   ],
+   " Generate a random formula");
 
-    let z3 = Z3.mk_context [] in
-    let t =
-      Z3.Tactic.and_then z3
-        (SrkZ3.mk_quantifier_simplify_tactic z3)
-        (Z3.Tactic.mk_tactic z3 "qsat")
-        []
-    in
-    let s = Z3.Solver.mk_solver_t z3 t in
-    Z3.Solver.add s [Z3.SMT.parse_smtlib2_string z3 str [] [] [] []];
-    begin match Z3.Solver.check s [] with
-    | Z3.Solver.SATISFIABLE -> print_endline "sat"
-    | Z3.Solver.UNSATISFIABLE -> print_endline "unsat"
-    | Z3.Solver.UNKNOWN -> print_endline "unknown"
-    end
+  ("-verbosity",
+   Arg.String (fun v -> Log.verbosity_level := (Log.level_of_string v)),
+   " Set verbosity level (higher = more verbose; defaults to 0)");
 
-  | "qe-sat-unbounded" ->
-    let (objective, phi) = load_math_opt Sys.argv.(i+1) in
-    let phi = Syntax.Formula.prenex srk phi in
-    print_result (SrkZ3.qe_sat srk phi)
+  ("-verbose",
+   Arg.String (fun v -> Log.set_verbosity_level v `info),
+   " Raise verbosity for a particular module");
 
-  | "qe-mbp" ->
-    let phi = load_formula Sys.argv.(i+1) in
-    let psi = Quantifier.qe_mbp srk phi in
-    Log.logf ~level:`always "%a" (Syntax.Formula.pp srk) psi
-  | "opt" ->
-    let (objective, phi) = load_math_opt Sys.argv.(i+1) in
-    begin match Quantifier.maximize srk phi objective with
-      | `Bounded b ->
-        Log.logf ~level:`always "Upper bound: %a" QQ.pp b;
-      | `Infinity ->
-        Log.logf ~level:`always "Upper bound: oo"
-      | `MinusInfinity ->
-        Log.logf ~level:`always "Upper bound: -oo"
-      | `Unknown ->
-        Log.logf ~level:`always "Upper bound: unknown"
-    end
-  | "opt-mbp" ->
-    let (objective, phi) = load_math_opt Sys.argv.(i+1) in
-    let psi = Quantifier.qe_mbp srk phi in
-    begin match SrkZ3.optimize_box srk psi [objective] with
-      | `Sat [ivl] ->
-        begin match Interval.upper ivl with
-          | Some upper ->
-            Log.logf ~level:`always "Upper bound: %a" QQ.pp upper
-          | None -> Log.logf ~level:`always "Upper bound: oo"
-        end
-      | `Unsat -> Log.logf ~level:`always "Unsatisfiable"
-      | `Unknown -> Log.logf ~level:`always "Unknown"
-      | _ -> assert false
-    end
-  | "opt-z3qe" ->
-    let (objective, phi) = load_math_opt Sys.argv.(i+1) in
-    let psi = SrkZ3.qe srk phi in
-    begin match SrkZ3.optimize_box srk psi [objective] with
-      | `Sat [ivl] ->
-        begin match Interval.upper ivl with
-          | Some upper ->
-            Log.logf ~level:`always "Upper bound: %a" QQ.pp upper
-          | None -> Log.logf ~level:`always "Upper bound: oo"
-        end
-      | `Unsat -> Log.logf ~level:`always "Unsatisfiable"
-      | `Unknown -> Log.logf ~level:`always "Unknown"
-      | _ -> assert false
-    end
-  | "echo" ->
-    let z3 = Z3.mk_context [] in
-    Z3.SMT.benchmark_to_smtstring
-      z3
-      (Sys.argv.(i+1))
-      ""
-      "unknown"
-      ""
-      []
-      (SrkZ3.z3_of_formula srk z3 (load_formula Sys.argv.(i+1)))
-    |> print_endline
+  ("-verbose-list",
+   Arg.Unit (fun () ->
+       print_endline "Available modules for setting verbosity:";
+       Hashtbl.iter (fun k _ ->
+           print_endline (" - " ^ k);
+         ) Log.loggers;
+       exit 0;
+     ),
+   " List modules which can be used with -verbose")
+]
 
-  | "stats" ->
-    let open Syntax in
-    let phi = load_formula Sys.argv.(i+1) in
-    let phi = Formula.prenex srk phi in
-    let constants = fold_constants Symbol.Set.add phi Symbol.Set.empty in
-    let rec go phi =
-      match Formula.destruct srk phi with
-      | `Quantify (`Exists, name, typ, psi) -> "E" ^ (go psi)
-      | `Quantify (`Forall, name, typ, psi) -> "A" ^ (go psi)
-      | _ -> ""
-    in
-    let qf_pre =
-      (String.concat ""
-         (List.map (fun _ -> "E") (Symbol.Set.elements constants)))
-      ^ (go phi)
-    in
-    Log.logf ~level:`always "Quantifier prefix: %s" qf_pre;
-    Log.logf ~level:`always "Variables: %d" (String.length qf_pre);
-    Log.logf ~level:`always "Matrix size: %d" (size phi)
+let usage_msg = "bigtop: command line interface to srk \n\
+  Usage:\n\
+  \tbigtop [options] [-simsat|-nlsat] formula.smt2\n\
+  \tbigtop [options] [-wedge|-polyhedron|-affine] formula.smt2\n\
+  \tbigtop -stats formula.smt2\n\
+  \tbigtop -random (A|E)* depth [dense|sparse]\n"
 
-  | "random" ->
-    Random.self_init ();
-    let qf_pre = ref [] in
-    String.iter (function
-        | 'E' -> qf_pre := `Exists::(!qf_pre)
-        | 'A' -> qf_pre := `Forall::(!qf_pre)
-        | _ -> assert false)
-      Sys.argv.(i+1);
-    RandomFormula.quantifier_prefix := List.rev (!qf_pre);
-    RandomFormula.formula_uq_depth := int_of_string (Sys.argv.(i + 2));
-    begin
-      match Sys.argv.(i + 3) with
-      | "dense" -> RandomFormula.dense := true;
-      | "sparse" -> RandomFormula.dense := false;
-      | _ -> assert false
-    end;
-    let z3 = Z3.mk_context [] in
-    Z3.SMT.benchmark_to_smtstring
-      z3
-      "random"
-      ""
-      "unknown"
-      ""
-      []
-      (SrkZ3.z3_of_formula srk z3 (RandomFormula.mk_random_formula srk))
-    |> print_endline
+let anon_fun s = failwith ("Unknown option: " ^ s)
 
-  | "sat-nonlinear" ->
-    let phi = load_formula Sys.argv.(i+1) in
-    print_result (Wedge.is_sat srk (snd (Quantifier.normalize srk phi)))
-
-  | x -> Log.fatalf "Unknown command: `%s'" x
+let () =
+  if Array.length Sys.argv == 1 then
+    Arg.usage (Arg.align spec_list) usage_msg
+  else
+    Arg.parse (Arg.align spec_list) anon_fun usage_msg
