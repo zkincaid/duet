@@ -33,6 +33,11 @@ module QQX : sig
   (** Given a polynomial [p(x)], compute a polynomial [q(x)] such that that
       for every integer [x >= 0], we have [q(x) = sum_{i=0}^x p(i)]. *)
   val summation : t -> t
+
+  (** Given a polynomial [p(x)], compute a factorization [p(x) = c*q1(x)^d1 *
+      ... qn(x)^dn] such that each qi is an irreducible polynomial with
+      integer coefficients. *)
+  val factor : t -> QQ.t * ((t * int) list)
 end
 
 (** Monomials *)

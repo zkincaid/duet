@@ -18,7 +18,7 @@ let opt_abstract_limit = ref (-1)
    the variables are the coefficients of candidate equations. *)
 let affine_hull srk phi constants =
   let solver = Smt.mk_solver srk in
-  solver#add [phi];
+  Smt.Solver.add solver [phi];
   let next_row =
     let n = ref (-1) in
     fun () -> incr n; (!n)
@@ -35,7 +35,7 @@ let affine_hull srk phi constants =
       match Linear.solve mat' (QQVector.of_term QQ.one row_num) with
       | None -> go equalities mat ks
       | Some candidate ->
-        solver#push ();
+        Smt.Solver.push solver;
         let candidate_term =
           QQVector.enum candidate
           /@ (fun (coeff, dim) ->
@@ -45,27 +45,27 @@ let affine_hull srk phi constants =
           |> BatList.of_enum
           |> mk_add srk
         in
-        solver#add [
+        Smt.Solver.add solver [
           mk_not srk (mk_eq srk candidate_term (mk_real srk QQ.zero))
         ];
-        match solver#get_model () with
+        match Smt.Solver.get_concrete_model solver constants with
         | `Unknown -> (* give up; return the equalities we have so far *)
           logf ~level:`warn
             "Affine hull timed out (%d equations)"
             (List.length equalities);
           equalities
         | `Unsat -> (* candidate equality is implied by phi *)
-          solver#pop 1;
+          Smt.Solver.pop solver 1;
           (* We never choose the same candidate equation again, because the
-             system of equations mat' x = 0 implies that the coefficient of k is
-             zero *)
+             system of equations mat' x = 0 implies that the coefficient of k
+             is zero *)
           go (candidate_term::equalities) mat' ks
         | `Sat point -> (* candidate equality is not implied by phi *)
-          solver#pop 1;
+          Smt.Solver.pop solver 1;
           let point_row =
             List.fold_left (fun row k ->
                 QQVector.add_term
-                  (point#eval_real (mk_const srk k))
+                  (Interpretation.real point k)
                   (dim_of_sym k)
                   row)
               vec_one
@@ -118,22 +118,24 @@ let abstract ?exists:(p=fun x -> true) srk man phi =
 
   let disjuncts = ref 0 in
   let rec go prop =
-    solver#push ();
-    solver#add [mk_not srk (SrkApron.formula_of_property prop)];
-    match Log.time "lazy_dnf/sat" solver#get_model () with
+    Smt.Solver.push solver;
+    Smt.Solver.add solver [mk_not srk (SrkApron.formula_of_property prop)];
+    let result =
+      Log.time "lazy_dnf/sat" (Smt.Solver.get_concrete_model solver) symbol_list
+    in
+    match result with
     | `Unsat ->
-      solver#pop 1;
+      Smt.Solver.pop solver 1;
       prop
     | `Unknown ->
       begin
         logf ~level:`warn "abstraction timed out (%d disjuncts); returning top"
           (!disjuncts);
-        solver#pop 1;
+        Smt.Solver.pop solver 1;
         SrkApron.top man env_proj
       end
-    | `Sat model -> begin
-        let interp = Interpretation.of_model srk model symbol_list in
-        solver#pop 1;
+    | `Sat interp -> begin
+        Smt.Solver.pop solver 1;
         incr disjuncts;
         logf "[%d] abstract lazy_dnf" (!disjuncts);
         if (!disjuncts) = (!opt_abstract_limit) then begin
@@ -143,15 +145,14 @@ let abstract ?exists:(p=fun x -> true) srk man phi =
           let disjunct =
             match Interpretation.select_implicant interp phi with
             | Some d -> Polyhedron.of_implicant ~admit:true cs d
-            | None -> begin
-                assert (model#sat phi);
-                assert false
-              end
+            | None -> assert false
           in
           let valuation =
             let table : QQ.t array =
               Array.init (CS.dim cs) (fun i ->
-                  model#eval_real (CS.term_of_coordinate cs i))
+                  Interpretation.evaluate_term
+                    interp
+                    (CS.term_of_coordinate cs i))
             in
             fun i -> table.(i)
           in
@@ -163,5 +164,5 @@ let abstract ?exists:(p=fun x -> true) srk man phi =
         end
       end
   in
-  solver#add [phi];
+  Smt.Solver.add solver [phi];
   Log.time "Abstraction" go (SrkApron.bottom man env_proj)

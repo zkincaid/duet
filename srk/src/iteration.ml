@@ -1018,8 +1018,8 @@ module WedgeMatrix = struct
 
   exception IllFormedRecurrence
 
-  (* Given a wedge w, compute A,B,C such that w |= Ax' = BAx + Cy, and such that
-     the row space of A is maximal. *)
+  (* Given a wedge w, compute A,B,C such that w |= Ax' = BAx + Cy, and such
+     that the row space of A is maximal. *)
   let extract_affine_transformation srk wedge tr_symbols rec_terms rec_ideal =
     let cs = Wedge.coordinate_system wedge in
 
@@ -1078,9 +1078,11 @@ module WedgeMatrix = struct
           try
             logf "  @[%a@]" (QQMvp.pp (fun formatter i ->
                 if i < cs_dim then
-                  Format.fprintf formatter "w[%a]" (Term.pp srk) (CS.term_of_coordinate cs i)
+                  Format.fprintf formatter "w[%a]"
+                    (Term.pp srk) (CS.term_of_coordinate cs i)
                 else
-                  Format.fprintf formatter "v[%a]" (Term.pp srk) (DArray.get rec_terms (i - cs_dim)))) p;
+                  Format.fprintf formatter "v[%a]"
+                    (Term.pp srk) (DArray.get rec_terms (i - cs_dim)))) p;
             let (vecA, vecB, pc) =
               BatEnum.fold (fun (vecA, vecB, pc) (coeff, monomial) ->
                   match BatList.of_enum (Monomial.enum monomial) with
@@ -1128,8 +1130,8 @@ module WedgeMatrix = struct
     (* We have a system of the form Ax' = Bx + c, and we need one of the form
        Ax' = B'Ax + c.  If we can factor B = B'A, we're done.  Otherwise, we
        compute an m-by-n matrix D with m < n, and continue iterating with the
-       system DAx' = DBx + Dc.  The matrix D projects B onto the intersection of
-       the row spaces of A and B.  *)
+       system DAx' = DBx + Dc.  The matrix D projects B onto the intersection
+       of the row spaces of A and B.  *)
     let rec fix mA mB pvc =
       let mD = max_rowspace_projection mA mB in
       if QQMatrix.nb_rows mB = QQMatrix.nb_rows mD then
@@ -1327,29 +1329,31 @@ module WedgeMatrix = struct
                   |> BatList.of_enum
                 in
                 let s = Smt.mk_solver srk in
-                s#add pos_constraints;
-                s#add row_constraints;
+                Smt.Solver.add s pos_constraints;
+                Smt.Solver.add s row_constraints;
                 let model =
                   (* First try for a simple recurrence, then fall back *)
-                  s#push ();
+                  Smt.Solver.push s;
                   (0 -- (Array.length m_entries - 1))
                   /@ (fun j ->
                       if i = j then
                         mk_true srk
                       else
-                        mk_eq srk (mk_const srk m_entries.(j)) (mk_real srk QQ.zero))
+                        mk_eq srk
+                          (mk_const srk m_entries.(j))
+                          (mk_real srk QQ.zero))
                   |> BatList.of_enum
-                  |> s#add;
-                  match s#get_model () with
+                  |> Smt.Solver.add s;
+                  match Smt.Solver.get_model s with
                   | `Sat model -> model
                   | _ ->
-                    s#pop 1;
-                    match s#get_model () with
+                    Smt.Solver.pop s 1;
+                    match Smt.Solver.get_model s with
                     | `Sat model -> model
                     | _ -> assert false
                 in
                 Array.init nb_constraints (fun i ->
-                    model#eval_real (mk_const srk m_entries.(i))))
+                    Interpretation.real model m_entries.(i)))
           in
           let pvc =
             Array.init nb_constraints (fun i ->
@@ -1857,17 +1861,17 @@ module Split (Iter : DomainPlus) = struct
         body
     in
     let solver = Smt.mk_solver srk in
-    solver#add [uninterp_body];
+    Smt.Solver.add solver [uninterp_body];
     let sat_modulo_body psi =
       let psi =
         rewrite srk
           ~up:(Nonlinear.uninterpret_rewriter srk)
           psi
       in
-      solver#push ();
-      solver#add [psi];
-      let result = solver#check [] in
-      solver#pop 1;
+      Smt.Solver.push solver;
+      Smt.Solver.add solver [psi];
+      let result = Smt.Solver.check solver [] in
+      Smt.Solver.pop solver 1;
       result
     in
     let is_split_predicate psi =

@@ -143,6 +143,23 @@ let test_grobner_elim () =
   let q = y * y * y - y * y in
   assert_equal_mvp q (Rewrite.reduce rewrite p)
 
+let rec mul_factors = function
+  | [] -> QQX.of_term QQ.one 0
+  | (p,n)::factors ->
+    QQX.mul (QQX.exp p n) (mul_factors factors)
+
+let qqx_of_list = QQX.of_enum % BatList.enum
+let qq = QQ.of_int
+
+let factor () =
+  let correct_factorization p =
+    let (content, factors) = QQX.factor p in
+    assert_equal_qqx p (QQX.scalar_mul content (mul_factors factors))
+  in
+  correct_factorization (qqx_of_list [(qq (-1), 0); (qq 1, 2)]);
+  correct_factorization (qqx_of_list [(QQ.of_frac 1 2, 4);
+                                      (QQ.of_frac 1 4, 2)])
+
 let suite = "Polynomial" >::: [
     "mul" >:: test_mul;
     "compose1" >:: test_compose1;
@@ -155,4 +172,5 @@ let suite = "Polynomial" >::: [
     "test_grobner1" >:: test_grobner1;
     "test_grobner2" >:: test_grobner2;
     "test_grobner_elim" >:: test_grobner_elim;
+    "factor" >:: factor;
   ]

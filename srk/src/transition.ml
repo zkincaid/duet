@@ -337,7 +337,6 @@ struct
           { transform = M.map (substitute_const srk fresh_skolem) tr.transform;
             guard = substitute_const srk fresh_skolem tr.guard })
     in
-    let z3 = SrkZ3.mk_context srk [] in
     let unsubscript_tbl = Hashtbl.create 991 in
     let subscript_tbl = Hashtbl.create 991 in
     let subscript sym =
@@ -376,7 +375,7 @@ struct
         trs
     in
     let ss_post = substitute_const srk subscript (mk_not srk post) in
-    match z3#interpolate_seq (List.rev (ss_post::seq)) with
+    match SrkZ3.interpolate_seq srk (List.rev (ss_post::seq)) with
     | `Sat m -> `Invalid
     | `Unknown -> `Unknown
     | `Unsat itp ->

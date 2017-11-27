@@ -298,32 +298,11 @@ module Formula : sig
   val show : ?env:(string Env.t) -> 'a context -> 'a formula -> string
   val destruct : 'a context -> 'a formula -> ('a formula, 'a) open_formula
   val eval : 'a context -> (('b, 'a) open_formula -> 'b) -> 'a formula -> 'b
+  val eval_memo : 'a context -> (('b, 'a) open_formula -> 'b) -> 'a formula -> 'b
   val existential_closure : 'a context -> 'a formula -> 'a formula
   val universal_closure : 'a context -> 'a formula -> 'a formula
   val skolemize_free : 'a context -> 'a formula -> 'a formula
   val prenex : 'a context -> 'a formula -> 'a formula
-end
-
-(** {2 Satisfiability modulo theories} *)
-
-class type ['a] smt_model = object
-  method eval_int : 'a term -> ZZ.t
-  method eval_real : 'a term -> QQ.t
-  method eval_fun : symbol -> ('a, typ_fo) expr
-  method sat :  'a formula -> bool
-  method to_string : unit -> string
-end
-
-class type ['a] smt_solver = object
-  method add : ('a formula) list -> unit
-  method push : unit -> unit
-  method pop : int -> unit
-  method reset : unit -> unit
-  method check : ('a formula) list -> [ `Sat | `Unsat | `Unknown ]
-  method to_string : unit -> string
-  method get_model : unit -> [ `Sat of 'a smt_model | `Unsat | `Unknown ]
-  method get_unsat_core : ('a formula) list ->
-    [ `Sat | `Unsat of ('a formula) list | `Unknown ]
 end
 
 (** {2 Contexts} *)
@@ -389,4 +368,18 @@ module Infix (C : sig
   val ( mod ) : C.t term -> C.t term -> C.t term
   val const : symbol -> (C.t, 'typ) expr
   val var : int -> typ_fo -> (C.t, 'typ) expr
+end
+
+(** A context table is a hash table mapping contents to values.  If a context
+    is garbage collected, the corresponding entry in the table will be
+    removed.  The values stored in a context table should have pointers back
+    to their associated context.  *)
+module ContextTable : sig
+  type 'a t
+  val create : int -> 'a t
+  val add : 'a t -> 'b context -> 'a -> unit
+  val replace : 'a t -> 'b context -> 'a -> unit
+  val find : 'a t -> 'b context -> 'a
+  val mem : 'a t -> 'b context -> bool
+  val clear : 'a t -> unit
 end

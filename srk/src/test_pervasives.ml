@@ -4,7 +4,11 @@ open Syntax
 module Ctx = MakeSimplifyingContext ()
 module Infix = Syntax.Infix(Ctx)
 let srk = Ctx.context
-let smt_ctx = SrkZ3.mk_context srk []
+let z3 = Z3.mk_context []
+let formula_of_z3 = SrkZ3.formula_of_z3 srk
+let z3_of_formula = SrkZ3.z3_of_formula srk z3
+let term_of_z3 = SrkZ3.term_of_z3 srk
+let z3_of_term = SrkZ3.z3_of_term srk z3
 
 let qsym = Ctx.mk_symbol ~name:"q" `TyReal
 let rsym = Ctx.mk_symbol ~name:"r" `TyReal
@@ -45,19 +49,21 @@ let assert_equal_formula s t =
   assert_equal ~printer:(Formula.show srk) s t
 
 let assert_equiv_formula s t =
-  assert_equal ~printer:(Formula.show srk) ~cmp:(smt_ctx#equiv) s t
+  assert_equal
+    ~printer:(Formula.show srk)
+    ~cmp:(fun x y -> Smt.equiv srk x y = `Yes) s t
 
 let assert_equal_qq x y =
   assert_equal ~printer:QQ.show ~cmp:QQ.equal x y
 
 let assert_implies phi psi =
-  if not (smt_ctx#implies phi psi) then
+  if not (Smt.entails srk phi psi = `Yes) then
     assert_failure (Printf.sprintf "%s\ndoes not imply\n%s"
                       (Formula.show srk phi)
                       (Formula.show srk psi))
 
 let assert_not_implies phi psi =
-  if smt_ctx#implies phi psi then
+  if (Smt.entails srk phi psi = `Yes) then
     assert_failure (Printf.sprintf "%s\nimplies\n%s"
                       (Formula.show srk phi)
                       (Formula.show srk psi))
