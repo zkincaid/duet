@@ -8,37 +8,19 @@ Plugins:     META (0.4), StdFiles (0.4), DevFiles (0.4)
 AlphaFeatures: ocamlbuild_more_args
 BuildTools: ocamlbuild, ocamldoc, menhir
 
-Library apak
-  Path:             apak
-  FindlibName:      apak
-  Pack:             true
-  Modules:          Dll, Enumeration, EvalLink, ExtGraph, Fixpoint,Ka, Lattice, Loop, Monoid, Pathexp, Persistent, RecGraph, Semilattice, Sese, Sig, Tagged, Putil
-  BuildDepends:     batteries, ppx_deriving, ppx_deriving.show, ppx_deriving.ord, ocamlgraph, Z3, mathsat, srk
-  Install:          false
-  XMETADescription: Algebraic Program Analysis Kit
-
-Executable test_apak
-  Build$:       flag(tests)
-  Path:         apak
-  MainIs:       test_apak.ml
-  BuildDepends: batteries, ppx_deriving, ppx_deriving.show, ppx_deriving.ord, ocamlgraph, Z3, mathsat, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, srk, oUnit
-  CompiledObject: native
-  Install:      false
-
 Library srk
-  Path:             srk/src
-  FindlibName:      srk
-  Pack:             true
-  Modules:  SrkUtil, Log, DisjointSet, Memo, FeatureTree, QQ, ZZ, Syntax, Interval, Smt, SrkZ3, SrkMathsat, Linear, Polynomial, Interpretation, SrkApron, Polyhedron, SrkSimplify, Abstract, Nonlinear, CoordinateSystem, Wedge, Quantifier, Iteration, Transition, BigO
-  BuildDepends:     batteries, ppx_deriving, ppx_deriving.show, ppx_deriving.ord, gmp, camlidl, apron, Z3, mathsat, ocrs
-  Install:         false
-  XMETADescription: Arithmetic Reasoning Kit
+  Path: srk/src
+  FindlibName: srk
+  Pack: true
+  Modules:  SrkUtil, Log, DisjointSet, Memo, FeatureTree, QQ, ZZ, Syntax, Interval, Smt, SrkZ3, Linear, Polynomial, Interpretation, SrkApron, Polyhedron, SrkSimplify, Abstract, Nonlinear, CoordinateSystem, Wedge, Quantifier, Iteration, Transition, BigO
+  BuildDepends:     batteries, ppx_deriving, ppx_deriving.show, ppx_deriving.ord, gmp, camlidl, apron, Z3, ocrs, ntl
+  XMETADescription: Symbolic Reasoning Kit
 
 Executable test_srk
   Build$:         flag(tests)
   Path:           srk/src
   MainIs:         test_srk.ml
-  BuildDepends:   batteries, ppx_deriving, ppx_deriving.ord, gmp, camlidl, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, oUnit, mathsat, ocrs
+  BuildDepends:   batteries, ppx_deriving, ppx_deriving.ord, gmp, camlidl, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, oUnit, ocrs, ntl
   CompiledObject: native
   Install:        false
 
@@ -46,9 +28,26 @@ Executable bigtop
   Build$:         flag(tests)
   Path:           srk/src
   MainIs:         bigtop.ml
-  BuildDepends:   batteries, ppx_deriving, ppx_deriving.ord, gmp, camlidl, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, mathsat, ocrs
+  BuildDepends:   batteries, ppx_deriving, ppx_deriving.ord, gmp, camlidl, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, ocrs, ntl
   CompiledObject: native
   Install:        false
+
+Library apak
+  Path:             apak
+  FindlibName:      apak
+  Pack:             true
+  Modules:          Dll, Enumeration, EvalLink, ExtGraph, Fixpoint,Ka, Lattice, Loop, Monoid, Pathexp, Persistent, RecGraph, Semilattice, Sese, Sig, Tagged, Putil
+  BuildDepends:     batteries, ppx_deriving, ppx_deriving.show, ppx_deriving.ord, ocamlgraph, Z3, srk
+  Install:          false
+  XMETADescription: Algebraic Program Analysis Kit
+
+Executable test_apak
+  Build$:       flag(tests)
+  Path:         apak
+  MainIs:       test_apak.ml
+  BuildDepends: batteries, ppx_deriving, ppx_deriving.show, ppx_deriving.ord, ocamlgraph, Z3, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, srk, oUnit
+  CompiledObject: native
+  Install:      false
 
 Library pa
   Path:       pa

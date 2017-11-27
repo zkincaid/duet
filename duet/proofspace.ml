@@ -22,7 +22,6 @@ module Ctx = Syntax.MakeSimplifyingContext ()
 module Atomicity = Dependence.AtomicityAnalysis
 
 let ctx = Ctx.context
-let smt_ctx = SrkZ3.mk_context ctx []
 
 (* Indexed variables -- variables paired with thread identifiers *)
 module IV = struct
@@ -832,7 +831,7 @@ let verify file =
         |> Tr.guard
       in
       begin
-        match smt_ctx#is_sat trace_formula with
+        match Smt.is_sat ctx trace_formula with
         | `Sat ->
           log ~level:`always ~attributes:[`Bold;`Red]
             "Verification result: Unsafe";
