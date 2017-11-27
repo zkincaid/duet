@@ -1329,29 +1329,31 @@ module WedgeMatrix = struct
                   |> BatList.of_enum
                 in
                 let s = Smt.mk_solver srk in
-                s#add pos_constraints;
-                s#add row_constraints;
+                Smt.Solver.add s pos_constraints;
+                Smt.Solver.add s row_constraints;
                 let model =
                   (* First try for a simple recurrence, then fall back *)
-                  s#push ();
+                  Smt.Solver.push s;
                   (0 -- (Array.length m_entries - 1))
                   /@ (fun j ->
                       if i = j then
                         mk_true srk
                       else
-                        mk_eq srk (mk_const srk m_entries.(j)) (mk_real srk QQ.zero))
+                        mk_eq srk
+                          (mk_const srk m_entries.(j))
+                          (mk_real srk QQ.zero))
                   |> BatList.of_enum
-                  |> s#add;
-                  match s#get_model () with
+                  |> Smt.Solver.add s;
+                  match Smt.Solver.get_model s with
                   | `Sat model -> model
                   | _ ->
-                    s#pop 1;
-                    match s#get_model () with
+                    Smt.Solver.pop s 1;
+                    match Smt.Solver.get_model s with
                     | `Sat model -> model
                     | _ -> assert false
                 in
                 Array.init nb_constraints (fun i ->
-                    model#eval_real (mk_const srk m_entries.(i))))
+                    Interpretation.real model m_entries.(i)))
           in
           let pvc =
             Array.init nb_constraints (fun i ->
@@ -1859,17 +1861,17 @@ module Split (Iter : DomainPlus) = struct
         body
     in
     let solver = Smt.mk_solver srk in
-    solver#add [uninterp_body];
+    Smt.Solver.add solver [uninterp_body];
     let sat_modulo_body psi =
       let psi =
         rewrite srk
           ~up:(Nonlinear.uninterpret_rewriter srk)
           psi
       in
-      solver#push ();
-      solver#add [psi];
-      let result = solver#check [] in
-      solver#pop 1;
+      Smt.Solver.push solver;
+      Smt.Solver.add solver [psi];
+      let result = Smt.Solver.check solver [] in
+      Smt.Solver.pop solver 1;
       result
     in
     let is_split_predicate psi =

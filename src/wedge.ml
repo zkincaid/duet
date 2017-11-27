@@ -1672,7 +1672,6 @@ let is_sat srk phi =
       phi
   in
   let (lin_phi, nonlinear) = SrkSimplify.purify srk uninterp_phi in
-  let symbol_list = Symbol.Set.elements (symbols lin_phi) in
   let nonlinear_defs =
     Symbol.Map.enum nonlinear
     /@ (fun (symbol, expr) ->
@@ -1697,24 +1696,23 @@ let is_sat srk phi =
          try replace_defs_term (Symbol.Map.find x nonlinear)
          with Not_found -> mk_const srk x)
   in
-  solver#add [lin_phi];
-  solver#add nonlinear_defs;
+  Smt.Solver.add solver [lin_phi];
+  Smt.Solver.add solver nonlinear_defs;
   let integrity psi =
-    solver#add [Nonlinear.uninterpret srk psi]
+    Smt.Solver.add solver [Nonlinear.uninterpret srk psi]
   in
   let rec go () =
-    match solver#get_model () with
+    match Smt.Solver.get_model solver with
     | `Unsat -> `Unsat
     | `Unknown -> `Unknown
     | `Sat model ->
-      let interp = Interpretation.of_model srk model symbol_list in
-      match Interpretation.select_implicant interp lin_phi with
+      match Interpretation.select_implicant model lin_phi with
       | None -> assert false
       | Some implicant ->
         let constraints =
           List.map replace_defs implicant
           |> List.map (fun atom ->
-              let (atom', conditions) = Interpretation.select_ite interp atom in
+              let (atom', conditions) = Interpretation.select_ite model atom in
               atom'::conditions)
           |> BatList.concat
           |> of_atoms srk
@@ -1738,7 +1736,6 @@ let abstract ?exists:(p=fun x -> true) ?(subterm=fun x -> true) srk phi =
       phi
   in
   let (lin_phi, nonlinear) = SrkSimplify.purify srk uninterp_phi in
-  let symbol_list = Symbol.Set.elements (symbols lin_phi) in
   let nonlinear_defs =
     Symbol.Map.enum nonlinear
     /@ (fun (symbol, expr) ->
@@ -1764,10 +1761,10 @@ let abstract ?exists:(p=fun x -> true) ?(subterm=fun x -> true) srk phi =
          try replace_defs_term (Symbol.Map.find x nonlinear)
          with Not_found -> mk_const srk x)
   in
-  solver#add [lin_phi];
-  solver#add [nonlinear_defs];
+  Smt.Solver.add solver [lin_phi];
+  Smt.Solver.add solver [nonlinear_defs];
   let integrity psi =
-    solver#add [Nonlinear.uninterpret srk psi]
+    Smt.Solver.add solver [Nonlinear.uninterpret srk psi]
   in
   let rec go wedge =
     let blocking_clause =
@@ -1776,15 +1773,14 @@ let abstract ?exists:(p=fun x -> true) ?(subterm=fun x -> true) srk phi =
       |> mk_not srk
     in
     logf ~level:`trace "Blocking clause %a" (Formula.pp srk) blocking_clause;
-    solver#add [blocking_clause];
-    match solver#get_model () with
+    Smt.Solver.add solver [blocking_clause];
+    match Smt.Solver.get_model solver with
     | `Unsat -> wedge
     | `Unknown ->
       logf ~level:`warn "Symbolic abstraction failed; returning top";
       top srk
     | `Sat model ->
-      let interp = Interpretation.of_model srk model symbol_list in
-      match Interpretation.select_implicant interp lin_phi with
+      match Interpretation.select_implicant model lin_phi with
       | None -> assert false
       | Some implicant ->
         let cs = CoordinateSystem.mk_empty srk in
@@ -1797,7 +1793,7 @@ let abstract ?exists:(p=fun x -> true) ?(subterm=fun x -> true) srk phi =
         let new_wedge =
           implicant'
           |> List.map (fun atom ->
-              let (atom', conditions) = Interpretation.select_ite interp atom in
+              let (atom', conditions) = Interpretation.select_ite model atom in
               atom'::conditions)
           |> BatList.concat
           |> of_atoms srk
@@ -1846,7 +1842,6 @@ let symbolic_bounds_formula ?exists:(p=fun x -> true) srk phi symbol =
       phi
   in
   let (lin_phi, nonlinear) = SrkSimplify.purify srk uninterp_phi in
-  let symbol_list = Symbol.Set.elements (symbols lin_phi) in
   let nonlinear_defs =
     Symbol.Map.enum nonlinear
     /@ (fun (symbol, expr) ->
@@ -1872,20 +1867,19 @@ let symbolic_bounds_formula ?exists:(p=fun x -> true) srk phi symbol =
          try replace_defs_term (Symbol.Map.find x nonlinear)
          with Not_found -> mk_const srk x)
   in
-  solver#add [lin_phi];
-  solver#add [nonlinear_defs];
+  Smt.Solver.add solver [lin_phi];
+  Smt.Solver.add solver [nonlinear_defs];
   let integrity psi =
-    solver#add [Nonlinear.uninterpret srk psi]
+    Smt.Solver.add solver [Nonlinear.uninterpret srk psi]
   in
   let rec go (lower, upper) =
-    match solver#get_model () with
+    match Smt.Solver.get_model solver with
     | `Unsat -> (lower, upper)
     | `Unknown ->
       logf ~level:`warn "Symbolic abstraction failed; returning top";
       ([[]], [[]])
     | `Sat model ->
-      let interp = Interpretation.of_model srk model symbol_list in
-      match Interpretation.select_implicant interp lin_phi with
+      match Interpretation.select_implicant model lin_phi with
       | None -> assert false
       | Some implicant ->
         let (wedge_lower, wedge_upper) =
@@ -1899,7 +1893,9 @@ let symbolic_bounds_formula ?exists:(p=fun x -> true) srk phi symbol =
           let wedge =
             implicant'
             |> List.map (fun atom ->
-                let (atom', conditions) = Interpretation.select_ite interp atom in
+                let (atom', conditions) =
+                  Interpretation.select_ite model atom
+                in
                 atom'::conditions)
             |> BatList.concat
             |> of_atoms srk
@@ -1924,7 +1920,7 @@ let symbolic_bounds_formula ?exists:(p=fun x -> true) srk phi symbol =
           |> List.map (Nonlinear.uninterpret srk)
           |> mk_or srk
         in
-        solver#add [mk_or srk [lower_blocking; upper_blocking]];
+        Smt.Solver.add solver [mk_or srk [lower_blocking; upper_blocking]];
         go (wedge_lower::lower, wedge_upper::upper)
   in
   let (lower, upper) = go ([], []) in

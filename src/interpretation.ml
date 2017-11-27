@@ -4,15 +4,21 @@ open BatPervasives
 exception Divide_by_zero
 
 module SM = Symbol.Map
+type 'a value = [ `Bool of bool | `Real of QQ.t | `Fun of ('a, typ_fo) expr ]
 type 'a interpretation =
   { srk : 'a context;
-    map : [ `Bool of bool | `Real of QQ.t | `Fun of ('a, typ_fo) expr ] SM.t }
-
-let value interp k = SM.find k interp.map
+    default : symbol -> 'a value;
+    mutable map : ('a value) SM.t }
 
 let empty srk =
   { srk = srk;
+    default = (fun _ -> raise Not_found);
     map = SM.empty }
+
+let wrap ?(symbols=[]) srk f =
+  { srk = srk;
+    default = f;
+    map = List.fold_left (fun m s -> SM.add s (f s) m) SM.empty symbols }
 
 let add_real k v interp =
   match typ_symbol interp.srk k with
@@ -29,13 +35,27 @@ let add_fun k v interp =
   | `TyFun (_, _) -> { interp with map = SM.add k (`Fun v) interp.map }
   | _ -> invalid_arg "add_fun: constant symbol has arity zero"
 
+let add k v interp =
+  match typ_symbol interp.srk k, v with
+  | (`TyFun (_, _), `Fun _)
+  | (`TyReal, `Real _) | (`TyInt, `Real _)
+  | (`TyBool, `Bool _) -> { interp with map = SM.add k v interp.map }
+  | _ -> invalid_arg "add: type mis-match"
+
+let value interp k =
+  try SM.find k interp.map
+  with Not_found ->
+    let v = interp.default k in
+    interp.map <- SM.add k v interp.map;
+    v
+
 let real interp k =
-  match SM.find k interp.map with
+  match value interp k with
   | `Real v -> v
   | _ -> invalid_arg "real: constant symbol is not real"
 
 let bool interp k =
-  match SM.find k interp.map with
+  match value interp k with
   | `Bool v -> v
   | _ -> invalid_arg "bool: constant symbol is not Boolean"
 
@@ -68,27 +88,6 @@ let pp formatter interp =
   Format.fprintf formatter "[@[<v 0>%a@]]"
     (SrkUtil.pp_print_enum_nobox pp_elt) (SM.enum interp.map)
 
-let of_model srk model symbols =
-  List.fold_left
-    (fun interp k ->
-       match typ_symbol srk k with
-       | `TyReal | `TyInt ->
-         add_real
-           k
-           (model#eval_real (mk_const srk k))
-           interp
-       | `TyBool ->
-         add_bool
-           k
-           (model#sat (mk_const srk k))
-           interp
-       | `TyFun (params, ret) ->
-         add_fun
-           k
-           (model#eval_fun k)
-           interp)
-    (empty srk)
-    symbols
 
 let enum interp = SM.enum interp.map
 
@@ -406,62 +405,6 @@ let destruct_atom srk phi =
   | `Fls -> `Comparison (`Eq, mk_real srk QQ.zero, mk_real srk QQ.one)
   | _ ->
     invalid_arg "destruct_atomic: not atomic"
-
-let affine_interpretation interp phi =
-  let srk = interp.srk in
-  (* Replace each function's interpretation f(x1,...,xn) = body with
-     f(x1,...,xn) = a1*x1 + ... + an*xn + b; leave the interpretation of other
-     symbols unchanged.  *)
-  let symbols = ref [] in
-  let fresh_real () =
-    let sym = mk_symbol srk `TyReal in
-    symbols := sym::(!symbols);
-    mk_const srk sym
-  in
-  let symbolic_affine_interp =
-    BatEnum.fold
-      (fun interp (sym,sym_interp) ->
-         match sym_interp with
-         | `Bool b -> add_bool sym b interp
-         | `Real k -> add_real sym k interp
-         | `Fun body ->
-           match typ_symbol srk sym with
-           | `TyFun (args, `TyReal) when List.for_all ((=) `TyReal) args ->
-             let lin_body =
-               (0 -- (List.length args - 1))
-               /@ (fun i ->
-                   mk_mul srk [mk_var srk i `TyReal; fresh_real ()])
-               |> BatList.of_enum
-             in
-             let affine_body =
-               (mk_add srk (fresh_real()::lin_body)
-                :> ('a,typ_fo) expr)
-             in
-             add_fun sym affine_body interp
-           | _ ->
-             add_fun sym body interp)
-      (empty srk)
-      (enum interp)
-  in
-  (* phi' is non-linear if there are nested function applications. *)
-  let phi' = substitute symbolic_affine_interp phi in
-  match Smt.get_model srk phi' with
-  | `Unsat -> `Unsat
-  | `Unknown -> `Unknown
-  | `Sat m ->
-    let coeff_interp = of_model srk m (!symbols) in
-    let affine_interp =
-      BatEnum.fold
-        (fun interp (sym,sym_interp) ->
-           match sym_interp with
-           | `Bool b -> add_bool sym b interp
-           | `Real k -> add_real sym k interp
-           | `Fun body ->
-             add_fun sym (substitute coeff_interp body) interp)
-        (empty srk)
-        (enum symbolic_affine_interp)
-    in
-    `Sat affine_interp
 
 let select_ite interp ?(env=Env.empty) expr =
   let conditions = ref [] in
