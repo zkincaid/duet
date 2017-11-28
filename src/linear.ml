@@ -162,6 +162,7 @@ module QQMatrix = struct
   let row = M.coeff
   let add = M.add
   let zero = M.zero
+
   let equal = M.equal
   let pivot = M.pivot
   let compare = M.compare
@@ -172,6 +173,8 @@ module QQMatrix = struct
 
   let add_entry i j k mat =
     add_row i (QQVector.of_term k j) mat
+
+  let identity = List.fold_left (fun m d -> add_entry d d QQ.one m) zero
 
   let add_column i col mat =
     BatEnum.fold
@@ -242,6 +245,37 @@ module QQMatrix = struct
            res)
       zero
       (rowsi mat)
+
+  let rational_eigenvalues m =
+    let denominator =
+      BatEnum.fold (fun d (_, _, entry) ->
+          ZZ.lcm d (QQ.denominator entry))
+        ZZ.one
+        (entries m)
+    in
+    let dims =
+      SrkUtil.Int.Set.union (row_set m) (column_set m)
+    in
+    let nb_dims = SrkUtil.Int.Set.cardinal dims in
+    let m =
+      Array.init nb_dims (fun i ->
+          Array.init nb_dims (fun j ->
+              let (num, den) = QQ.to_zzfrac (entry i j m) in
+              Ntl.ZZ.of_mpz (ZZ.div (ZZ.mul num denominator) den)))
+    in
+    let charpoly = Ntl.ZZMatrix.charpoly m in
+    let (_, factors) = Ntl.ZZX.factor charpoly in
+    factors |> BatList.filter_map (fun (p, m) ->
+        if Ntl.ZZX.degree p == 1 then
+          (* p = ax + b *)
+          let a = Ntl.ZZ.mpz_of (Ntl.ZZX.get_coeff p 1) in
+          let b = Ntl.ZZ.mpz_of (Ntl.ZZX.get_coeff p 0) in
+          let eigenvalue =
+            QQ.negate (QQ.of_zzfrac b (ZZ.mul a denominator))
+          in
+          Some (eigenvalue, m)
+        else
+          None)
 end
 
 exception No_solution

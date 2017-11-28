@@ -57,6 +57,8 @@ module QQMatrix : sig
 
   val zero : t
 
+  val identity : dim list -> t
+
   val row : dim -> t -> QQVector.t
 
   val rowsi : t -> (dim * QQVector.t) BatEnum.t
@@ -75,11 +77,18 @@ module QQMatrix : sig
 
   val entries : t -> (dim * dim * scalar) BatEnum.t
 
+  val row_set : t -> SrkUtil.Int.Set.t
+  val column_set : t -> SrkUtil.Int.Set.t
+
   val nb_rows : t -> int
   val nb_columns : t -> int
 
   val pp : Format.formatter -> t -> unit
   val show : t -> string
+
+  (** Compute a list rational eigenvalues of a matrix, along with their
+      algebraic multiplicities. *)
+  val rational_eigenvalues : t -> (QQ.t * int) list
 end
 
 module type AbelianGroup = sig
