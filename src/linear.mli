@@ -132,21 +132,30 @@ module RingMap
                          and type dim = M.key
                          and type scalar = R.t
 
+(** [nullspace mat dimensions] computes a basis for the vector space [{ x :
+    max*x = 0}], projected on to the set of dimensions [dimensions].  (Note
+    that the nullspace is not finitely generated in [int -> QQ], hence the
+    projection). *)
+val nullspace : QQMatrix.t -> int list -> QQVector.t list
+
 (** [solve_exn mat b] computes a rational vector [x] such that [mat*x =
     b]. Raises [No_solution] if there is no solution. *)
 val solve_exn : QQMatrix.t -> QQVector.t -> QQVector.t
+
+(** [solve mat b] computes a rational vector [x] such that [mat*x = b], if
+    such a vector exists.  Otherwise, return [None]. *)
+val solve : QQMatrix.t -> QQVector.t -> QQVector.t option
 
 (** Given a predicate on dimensions and a list of terms (all implicitly equal
     to zero), orient the equations as rewrite rules that eliminate dimensions
     that don't satisfy the predicate. *)
 val orient : (int -> bool) -> QQVector.t list -> (int * QQVector.t) list
 
+(** [vector_right_mul m a] computes [m*a] *)
 val vector_right_mul : QQMatrix.t -> QQVector.t -> QQVector.t
 
-val solve : QQMatrix.t -> QQVector.t -> QQVector.t option
-
-(** Given two matrices A and B, compute matrices C and D such that CA = DB is a
-    basis for the intersection of the rowspaces of A and B *)
+(** Given two matrices [A] and [B], compute matrices [C] and [D] such that [CA
+    = DB] is a basis for the intersection of the rowspaces of [A] and [B]. *)
 val intersect_rowspace : QQMatrix.t -> QQMatrix.t -> (QQMatrix.t * QQMatrix.t)
 
 (** Given two matrices A and B, compute a matrix C such that CB = A (if one

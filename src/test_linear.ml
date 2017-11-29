@@ -212,6 +212,38 @@ let rational_eigenvalues4 () =
     assert_equal m 1
   | _ -> assert false
 
+let nullspace1 () =
+  let m = mk_matrix [[1; 2; 1];
+                     [0; 1; 1];
+                     [1; 3; 2]]
+  in
+  let basis =
+    Linear.nullspace m [0; 1; 2]
+  in
+  assert_equal 1 (List.length basis);
+  basis |> List.iter (fun x ->
+      assert_equal ~printer:QQVector.show QQVector.zero (vector_right_mul m x))
+
+let nullspace2 () =
+  let m = mk_matrix [[1; 2; 1];
+                     [0; 1; 1];
+                     [1; 0; 2]]
+  in
+  assert_equal 0 (List.length (Linear.nullspace m [0; 1; 2]))
+
+let nullspace3 () =
+  let m = mk_matrix [[1; 0; 1; 1];
+                     [0; 1; 0; 0];
+                     [1; 1; 1; 1];
+                     [-1; 1; -1; -1]]
+  in
+  let basis =
+    Linear.nullspace m [0; 1; 2; 3]
+  in
+  assert_equal 2 (List.length basis);
+  basis |> List.iter (fun x ->
+      assert_equal ~printer:QQVector.show QQVector.zero (vector_right_mul m x))
+
 let suite = "Linear" >::: [
     "dot" >:: dot;
     "mul" >:: mul;
@@ -229,4 +261,7 @@ let suite = "Linear" >::: [
     "rational_eigenvalues2" >:: rational_eigenvalues2;
     "rational_eigenvalues3" >:: rational_eigenvalues3;
     "rational_eigenvalues4" >:: rational_eigenvalues4;
+    "nullspace1" >:: nullspace1;
+    "nullspace2" >:: nullspace2;
+    "nullspace3" >:: nullspace3;
   ]

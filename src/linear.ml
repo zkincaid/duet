@@ -280,18 +280,13 @@ end
 
 exception No_solution
 
-let solve_exn mat b =
-  let open QQMatrix in
-  logf "Solving system:@\nM:  %a@\nb:  %a" pp mat QQVector.pp b;
-  let columns = column_set mat in
-  let b_column = 1 + (IntSet.fold max columns 0) in
-  let mat = add_column b_column b mat in
+let row_eschelon_form mat b_column =
   let rec reduce finished mat =
-    if equal mat zero then
+    if QQMatrix.equal mat QQMatrix.zero then
       finished
     else
       let (row_num, _) = IntMap.min_binding mat in
-      let (next_row, mat') = pivot row_num mat in
+      let (next_row, mat') = QQMatrix.pivot row_num mat in
       let column =
         try BatEnum.find (fun i -> i != b_column) (IntMap.keys next_row)
         with Not_found -> raise No_solution
@@ -314,7 +309,36 @@ let solve_exn mat b =
       in
       reduce ((column,next_row')::finished) (IntMap.filter_map f mat')
   in
-  let rr = reduce [] mat in
+  reduce [] mat
+
+let nullspace mat dimensions =
+  let open QQMatrix in
+  let columns = column_set mat in
+  let b_column =
+    1 + (IntSet.fold max columns (List.fold_left max 0 dimensions))
+  in
+  let rr = row_eschelon_form mat b_column in
+  let rec backprop soln = function
+    | [] -> soln
+    | ((lhs, rhs)::rest) ->
+      backprop (QQVector.add_term (QQVector.dot soln rhs) lhs soln) rest
+  in
+  let free_dimensions =
+    List.filter (fun x ->
+        not (List.exists (fun (y, _) -> x = y) rr))
+      dimensions
+  in
+  free_dimensions |> List.map (fun d ->
+      let start = QQVector.of_term QQ.one d in
+      backprop start rr)
+
+let solve_exn mat b =
+  let open QQMatrix in
+  logf "Solving system:@\nM:  %a@\nb:  %a" pp mat QQVector.pp b;
+  let columns = column_set mat in
+  let b_column = 1 + (IntSet.fold max columns 0) in
+  let mat = add_column b_column b mat in
+  let rr = row_eschelon_form mat b_column in
   let rec backprop soln = function
     | [] -> soln
     | ((lhs, rhs)::rest) ->
