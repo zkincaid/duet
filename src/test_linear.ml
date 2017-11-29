@@ -244,6 +244,51 @@ let nullspace3 () =
   basis |> List.iter (fun x ->
       assert_equal ~printer:QQVector.show QQVector.zero (vector_right_mul m x))
 
+let rational_triangulation1 () =
+  let a = mk_matrix [[1; 0; 0];
+                     [0; 2; 0];
+                     [0; 0; 3]]
+  in
+  let (m, t) = Linear.rational_triangulation a in
+  assert_equal_qqmatrix (QQMatrix.mul m a) (QQMatrix.mul t m);
+  assert_equal 3 (QQMatrix.nb_rows t)
+
+let rational_triangulation2 () =
+  let a = mk_matrix [[6; -2; -1];
+                     [3; 1; -1];
+                     [2; -1; 2]]
+  in
+  let (m, t) = Linear.rational_triangulation a in
+  assert_equal_qqmatrix (QQMatrix.mul m a) (QQMatrix.mul t m);
+  assert_equal 3 (QQMatrix.nb_rows t)
+
+let rational_triangulation3 () =
+  let a = mk_matrix [[5; 4; 2; 1];
+                     [0; 1; -1; -1];
+                     [-1; -1; 3; 0];
+                     [1; 1; -1; 2]]
+  in
+  let (m, t) = Linear.rational_triangulation a in
+  assert_equal_qqmatrix (QQMatrix.mul m a) (QQMatrix.mul t m);
+  assert_equal 4 (QQMatrix.nb_rows t)
+
+let rational_triangulation4 () =
+  let a = mk_matrix [[0; 1; 0];
+                     [0; 0; 1];
+                     [0; 1; 1]]
+  in
+  let (m, t) = Linear.rational_triangulation a in
+  assert_equal_qqmatrix (QQMatrix.mul m a) (QQMatrix.mul t m)
+
+let rational_triangulation5 () =
+  let a = mk_matrix [[0; 1; 0];
+                     [0; 0; 1];
+                     [1; -1; 1]]
+  in
+  let (m, t) = Linear.rational_triangulation a in
+  assert_equal_qqmatrix (QQMatrix.mul m a) (QQMatrix.mul t m);
+  assert_equal 1 (QQMatrix.nb_rows t)
+
 let suite = "Linear" >::: [
     "dot" >:: dot;
     "mul" >:: mul;
@@ -264,4 +309,9 @@ let suite = "Linear" >::: [
     "nullspace1" >:: nullspace1;
     "nullspace2" >:: nullspace2;
     "nullspace3" >:: nullspace3;
+    "rational_triangulation1" >:: rational_triangulation1;
+    "rational_triangulation2" >:: rational_triangulation2;
+    "rational_triangulation3" >:: rational_triangulation3;
+    "rational_triangulation4" >:: rational_triangulation4;
+    "rational_triangulation5" >:: rational_triangulation5;
   ]

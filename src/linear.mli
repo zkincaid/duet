@@ -26,6 +26,7 @@ module type Vector = sig
 
   val enum : t -> (scalar * dim) BatEnum.t
   val of_enum : (scalar * dim) BatEnum.t -> t
+  val of_list : (scalar * dim) list -> t
   val coeff : dim -> t -> scalar
 
   val pivot : dim -> t -> scalar * t
@@ -166,6 +167,10 @@ val divide_right : QQMatrix.t -> QQMatrix.t -> QQMatrix.t option
 (** Given matrices [A] and [B], find a matrix [C] whose rows constitute a
     basis for the vector space [{ v : exists u. uA = vB }] *)
 val max_rowspace_projection : QQMatrix.t -> QQMatrix.t -> QQMatrix.t
+
+(** Given a matrix [A], find a pair of matrices [(M,T)] such that [MA = TM],
+    [T] is lower-triangular, and the rowspace of [MA] is maximal. *)
+val rational_triangulation : QQMatrix.t -> (QQMatrix.t * QQMatrix.t)
 
 val evaluate_affine : (int -> QQ.t) -> QQVector.t -> QQ.t
 

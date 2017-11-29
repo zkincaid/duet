@@ -33,6 +33,7 @@ module type Vector = sig
   val of_term : scalar -> dim -> t
   val enum : t -> (scalar * dim) BatEnum.t
   val of_enum : (scalar * dim) BatEnum.t -> t
+  val of_list : (scalar * dim) list -> t
   val coeff : dim -> t -> scalar
   val pivot : dim -> t -> scalar * t
 end
@@ -91,6 +92,8 @@ module AbelianGroupMap (M : Map) (G : AbelianGroup) = struct
   let enum vec = M.enum vec /@ (fun (x,y) -> (y,x))
 
   let of_enum = BatEnum.fold (fun vec (x,y) -> add_term x y vec) zero
+
+  let of_list = List.fold_left (fun vec (x,y) -> add_term x y vec) zero
 
   let equal = M.equal G.equal
 
@@ -517,6 +520,47 @@ let max_rowspace_projection a b =
         incr c_rows; incr mat_rows
       | None -> ()));
   !c
+
+let rational_triangulation mA =
+  let mAt = QQMatrix.transpose mA in
+  let next_row =
+    let r = ref 0 in
+    fun () ->
+      let nr = !r in
+      incr r;
+      nr
+  in
+  let dims = SrkUtil.Int.Set.elements (QQMatrix.row_set mAt) in
+  let identity = QQMatrix.identity dims in
+  List.fold_left (fun (mM, mT) (lambda, _) ->
+      let mE = (* A^t - lambda*I *)
+        QQMatrix.add mAt (QQMatrix.scalar_mul (QQ.negate lambda) identity)
+      in
+      (* Assuming that that the last row of M is v, add the Jordan chain of
+         lambda/v to M, and the corresponding Jordan block to T. *)
+      let rec add_jordan_chain_rec (mM, mT) v =
+        match solve mE v with
+        | Some u ->
+          let row = next_row () in
+          let mM = QQMatrix.add_row row u mM in
+          let t_row =
+            QQVector.of_list [(QQ.one, row-1); (lambda, row)]
+          in
+          let mT = QQMatrix.add_row row t_row mT in
+          add_jordan_chain_rec (mM, mT) u
+        | None -> (mM, mT)
+      in
+      let add_jordan_chain (mM, mT) v =
+        let row = next_row () in
+        let mM = QQMatrix.add_row row v mM in
+        let t_row = QQVector.of_term lambda row in
+        let mT = QQMatrix.add_row row t_row mT in
+        add_jordan_chain_rec (mM, mT) v
+      in
+      List.fold_left add_jordan_chain (mM, mT) (nullspace mE dims)
+    )
+    (QQMatrix.zero, QQMatrix.zero)
+    (QQMatrix.rational_eigenvalues mA)
 
 (* Affine expressions over constant symbols.  dim_of_sym, const_dim, and
    sym_of_dim are used to translate between symbols and the dimensions of the
