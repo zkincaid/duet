@@ -273,6 +273,178 @@ let term_of_ocrs srk loop_counter pre_term_of_id post_term_of_id =
   in
   go
 
+exception IllFormedRecurrence
+
+(* Are most coefficients of a vector negative? *)
+let is_vector_negative vec =
+  let sign =
+    BatEnum.fold (fun sign (coeff,_) ->
+        if QQ.lt coeff QQ.zero then
+          sign - 1
+        else
+          sign + 1)
+      0
+      (V.enum vec)
+  in
+  sign < 0
+
+(* Matrix-polynomial vector multiplication.  Assumes that the columns of m are
+   a subset of {0,...,|polyvec|-1}. *)
+let matrix_polyvec_mul m polyvec =
+  Array.init (QQMatrix.nb_rows m) (fun i ->
+      BatEnum.fold (fun p (coeff, j) ->
+          QQMvp.add p (QQMvp.scalar_mul coeff polyvec.(j)))
+        QQMvp.zero
+        (V.enum (QQMatrix.row i m)))
+
+(* Given matrices [A] and [B] representing a system of equations [Ax' = Bx],
+   find a matrix [T] and a square matrix [M] such that [y' = My] is the
+   greatest linear dynamical system that approximates [Ax' = Bx], and [T] is
+   the linear transformation into the linear dynamical system.  That is, [TB =
+   MTA], and the rowspace of [TA] is maximal. *)
+let max_lds mA mB =
+  (* We have a system of the form Ax' = Bx, we need one of the form Ax' =
+     B'Ax.  If we can factor B = B'A, we're done.  Otherwise, we compute an
+     m-by-n matrix T' with m < n, and continue iterating with the system T'Ax'
+     = T'Bx. *)
+  let rec fix mA mB mT =
+    let mT' = Linear.max_rowspace_projection mA mB in
+    if QQMatrix.nb_rows mB = QQMatrix.nb_rows mT' then
+      match Linear.divide_right mB mA with
+      | Some mM ->
+        assert (QQMatrix.equal (QQMatrix.mul mM mA) mB);
+        (mT, mM)
+      | None ->
+        (* mT's rows are linearly independent -- if it has as many rows as B,
+           then the rowspace of B is contained inside the rowspace of A, and
+           B/A is defined. *)
+        assert false
+    else
+      fix (QQMatrix.mul mT' mA) (QQMatrix.mul mT' mB) (QQMatrix.mul mT' mT)
+  in
+  let dims =
+    SrkUtil.Int.Set.elements (QQMatrix.row_set mB)
+  in
+  fix mA mB (QQMatrix.identity dims)
+
+(* Given a wedge w, compute A,B,C such that w |= Ax' = BAx + Cy, and such that
+   the row space of A is maximal. *)
+let extract_affine_transformation srk wedge tr_symbols rec_terms rec_ideal =
+  let cs = Wedge.coordinate_system wedge in
+
+  (* pre_dims is a set of dimensions corresponding to pre-state
+     dimensions. pre_map is a mapping from dimensions that correspond to
+     post-state dimensions to their pre-state counterparts *)
+  let (pre_map, pre_dims) =
+    List.fold_left (fun (pre_map, pre_dims) (s,s') ->
+        let id_of_sym sym =
+          try
+            CS.cs_term_id cs (`App (sym, []))
+          with Not_found ->
+            assert false
+        in
+        let pre = id_of_sym s in
+        let post = id_of_sym s' in
+        (IntMap.add post pre pre_map, IntSet.add pre pre_dims))
+      (IntMap.empty, IntSet.empty)
+      tr_symbols
+  in
+
+  (* An additive dimension is one that is allowed to appear as an additive
+     term *)
+  let cs_dim = CS.dim cs in
+  let additive_dim x = x >= cs_dim in
+  let rec_term_rewrite =
+    let ideal = ref rec_ideal in
+    let elim_order =
+      Monomial.block [not % additive_dim] Monomial.degrevlex
+    in
+    rec_terms |> DArray.iteri (fun i t ->
+        let vec = CS.vec_of_term cs t in
+        let p =
+          QQMvp.add_term
+            (QQ.of_int (-1))
+            (Monomial.singleton (i + cs_dim) 1)
+            (QQMvp.of_vec ~const:(CS.const_id) vec)
+        in
+        ideal := p::(!ideal));
+    Polynomial.Rewrite.mk_rewrite elim_order (!ideal)
+  in
+  let basis =
+    BatList.filter_map
+      (fun x ->
+         let x' = Polynomial.Rewrite.reduce rec_term_rewrite x in
+         if QQMvp.equal x' QQMvp.zero then
+           None
+         else
+           Some x')
+      (Wedge.vanishing_ideal wedge)
+  in
+
+  (* Write the equations in wedge as Ax' = Bx + c, where c is vector of
+     polynomials. *)
+  let (mA, mB, pvc, _) =
+    logf ~attributes:[`Bold] "Vanishing ideal:";
+    List.fold_left (fun (mA,mB,pvc,i) p ->
+        try
+          logf "  @[%a@]" (QQMvp.pp (fun formatter i ->
+              if i < cs_dim then
+                Format.fprintf formatter "w[%a]"
+                  (Term.pp srk) (CS.term_of_coordinate cs i)
+              else
+                Format.fprintf formatter "v[%a]"
+                  (Term.pp srk) (DArray.get rec_terms (i - cs_dim)))) p;
+          let (vecA, vecB, pc) =
+            BatEnum.fold (fun (vecA, vecB, pc) (coeff, monomial) ->
+                match BatList.of_enum (Monomial.enum monomial) with
+                | [(dim, 1)] when IntMap.mem dim pre_map ->
+                  (V.add_term (QQ.negate coeff) (IntMap.find dim pre_map) vecA,
+                   vecB,
+                   pc)
+                | [(dim, 1)] when IntSet.mem dim pre_dims ->
+                  (vecA, V.add_term coeff dim vecB, pc)
+                | monomial_list ->
+                  if List.for_all (additive_dim % fst) monomial_list then
+                    (vecA, vecB, QQMvp.add_term coeff monomial pc)
+                  else
+                    raise IllFormedRecurrence)
+              (V.zero, V.zero, QQMvp.zero)
+              (QQMvp.enum p)
+          in
+          let (vecA, vecB, pc) =
+            if is_vector_negative vecA then
+              (V.negate vecA, V.negate vecB, QQMvp.negate pc)
+            else
+              (vecA, vecB, pc)
+          in
+          let pc =
+            QQMvp.substitute (fun i ->
+                QQMvp.add_term
+                  QQ.one
+                  (Monomial.singleton (i - cs_dim) 1)
+                  QQMvp.zero)
+              pc
+          in
+          if V.is_zero vecA then
+            (mA,mB,pvc,i)
+          else
+            (QQMatrix.add_row i vecA mA,
+             QQMatrix.add_row i vecB mB,
+             pc::pvc,
+             i+1)
+        with IllFormedRecurrence -> (mA, mB, pvc, i))
+      (QQMatrix.zero, QQMatrix.zero, [], 0)
+      basis
+  in
+  let (mT, mB) = max_lds mA mB in
+  let mA = QQMatrix.mul mT mA in
+  let pvc = matrix_polyvec_mul mT (Array.of_list (List.rev pvc)) in
+
+  logf ~attributes:[`Blue] "Affine transformation:";
+  logf " A: @[%a@]" QQMatrix.pp mA;
+  logf " B: @[%a@]" QQMatrix.pp mB;
+  (mA, mB, pvc)
+
 module WedgeVector = struct
   (*    x'    <=       (3 * x) +  y + 1
         --    --        -         -----
@@ -937,223 +1109,6 @@ module WedgeMatrix = struct
     Format.fprintf formatter "@]@]}"
 
   let show x = SrkUtil.mk_show pp x
-
-  (* Are most coefficients of a vector negative? *)
-  let is_vector_negative vec =
-    let sign =
-      BatEnum.fold (fun sign (coeff,_) ->
-          if QQ.lt coeff QQ.zero then
-            sign - 1
-          else
-            sign + 1)
-        0
-        (V.enum vec)
-    in
-    sign < 0
-
-  (* Given matrices A and B, find a matrix C whose rows constitute a basis for
-     the vector space { v : exists u. uA = vB } *)
-  let max_rowspace_projection a b =
-    (* Create a system u*A - v*B = 0.  u's occupy even columns and v's occupy
-       odd. *)
-    let mat_a =
-      BatEnum.fold
-        (fun mat (i, j, k) -> QQMatrix.add_entry j (2*i) k mat)
-        QQMatrix.zero
-        (QQMatrix.entries a)
-    in
-    let mat =
-      ref (BatEnum.fold
-             (fun mat (i, j, k) -> QQMatrix.add_entry j (2*i + 1) (QQ.negate k) mat)
-             mat_a
-             (QQMatrix.entries b))
-    in
-    let c = ref QQMatrix.zero in
-    let c_rows = ref 0 in
-    let mat_rows =
-      ref (BatEnum.fold (fun m (i, _) -> max m i) 0 (QQMatrix.rowsi (!mat)) + 1)
-    in
-
-    (* Loop through the columns col of A/B, trying to find a vector u and v such
-       that uA = vB and v has 1 in col's entry.  If yes, add v to C, and add a
-       constraint to mat that (in all future rows of C), col's entry is 0.
-       This ensures that the rows of C are linearly independent. *)
-    (* to do: repeatedly solving super systems of the same system of equations
-         -- can be made more efficient *)
-    (QQMatrix.rowsi b)
-    |> (BatEnum.iter (fun (r, _) ->
-        let col = 2*r + 1 in
-        let mat' =
-          QQMatrix.add_row
-            (!mat_rows)
-            (V.of_term QQ.one col)
-            (!mat)
-        in
-        match Linear.solve mat' (V.of_term QQ.one (!mat_rows)) with
-        | Some solution ->
-          let c_row =
-            BatEnum.fold (fun c_row (entry, i) ->
-                if i mod 2 = 1 then
-                  V.add_term entry (i/2) c_row
-                else
-                  c_row)
-              V.zero
-              (V.enum solution)
-          in
-          assert (not (V.equal c_row V.zero));
-          c := QQMatrix.add_row (!c_rows) c_row (!c);
-          mat := mat';
-          incr c_rows; incr mat_rows
-        | None -> ()));
-    !c
-
-  (* Matrix-polynomial vector multiplication.  Assumes that the columns of m
-     are a subset of {0,...,|polyvec|-1}. *)
-  let matrix_polyvec_mul m polyvec =
-    Array.init (QQMatrix.nb_rows m) (fun i ->
-        BatEnum.fold (fun p (coeff, j) ->
-            QQMvp.add p (QQMvp.scalar_mul coeff polyvec.(j)))
-          QQMvp.zero
-          (V.enum (QQMatrix.row i m)))
-
-  exception IllFormedRecurrence
-
-  (* Given a wedge w, compute A,B,C such that w |= Ax' = BAx + Cy, and such
-     that the row space of A is maximal. *)
-  let extract_affine_transformation srk wedge tr_symbols rec_terms rec_ideal =
-    let cs = Wedge.coordinate_system wedge in
-
-    (* pre_dims is a set of dimensions corresponding to pre-state
-       dimensions. pre_map is a mapping from dimensions that correspond to
-       post-state dimensions to their pre-state counterparts *)
-    let (pre_map, pre_dims) =
-      List.fold_left (fun (pre_map, pre_dims) (s,s') ->
-          let id_of_sym sym =
-            try
-              CS.cs_term_id cs (`App (sym, []))
-            with Not_found ->
-              assert false
-          in
-          let pre = id_of_sym s in
-          let post = id_of_sym s' in
-          (IntMap.add post pre pre_map, IntSet.add pre pre_dims))
-        (IntMap.empty, IntSet.empty)
-        tr_symbols
-    in
-
-    let cs_dim = CS.dim cs in
-    let additive_dim x = x >= cs_dim in
-    let rec_term_rewrite =
-      let ideal = ref rec_ideal in
-      let elim_order =
-        Monomial.block [not % additive_dim] Monomial.degrevlex
-      in
-      rec_terms |> DArray.iteri (fun i t ->
-          let vec = CS.vec_of_term cs t in
-          let p =
-            QQMvp.add_term
-              (QQ.of_int (-1))
-              (Monomial.singleton (i + cs_dim) 1)
-              (QQMvp.of_vec ~const:(CS.const_id) vec)
-          in
-          ideal := p::(!ideal));
-      Polynomial.Rewrite.mk_rewrite elim_order (!ideal)
-    in
-    let basis =
-      BatList.filter_map
-        (fun x ->
-           let x' = Polynomial.Rewrite.reduce rec_term_rewrite x in
-           if QQMvp.equal x' QQMvp.zero then
-             None
-           else
-             Some x')
-        (Wedge.vanishing_ideal wedge)
-    in
-
-    (* Write the equations in wedge as Ax' = Bx + c, where c is vector of
-       polynomials. *)
-    let (mA, mB, pvc, _) =
-      logf ~attributes:[`Bold] "Vanishing ideal:";
-      List.fold_left (fun (mA,mB,pvc,i) p ->
-          try
-            logf "  @[%a@]" (QQMvp.pp (fun formatter i ->
-                if i < cs_dim then
-                  Format.fprintf formatter "w[%a]"
-                    (Term.pp srk) (CS.term_of_coordinate cs i)
-                else
-                  Format.fprintf formatter "v[%a]"
-                    (Term.pp srk) (DArray.get rec_terms (i - cs_dim)))) p;
-            let (vecA, vecB, pc) =
-              BatEnum.fold (fun (vecA, vecB, pc) (coeff, monomial) ->
-                  match BatList.of_enum (Monomial.enum monomial) with
-                  | [(dim, 1)] when IntMap.mem dim pre_map ->
-                    (V.add_term (QQ.negate coeff) (IntMap.find dim pre_map) vecA,
-                     vecB,
-                     pc)
-                  | [(dim, 1)] when IntSet.mem dim pre_dims ->
-                    (vecA, V.add_term coeff dim vecB, pc)
-                  | monomial_list ->
-                    if List.for_all (additive_dim % fst) monomial_list then
-                      (vecA, vecB, QQMvp.add_term coeff monomial pc)
-                    else
-                      raise IllFormedRecurrence)
-                (V.zero, V.zero, QQMvp.zero)
-                (QQMvp.enum p)        
-            in
-            let (vecA, vecB, pc) =
-              if is_vector_negative vecA then
-                (V.negate vecA, V.negate vecB, QQMvp.negate pc)
-              else
-                (vecA, vecB, pc)
-            in
-            let pc =
-              QQMvp.substitute (fun i ->
-                  QQMvp.add_term
-                    QQ.one
-                    (Monomial.singleton (i - cs_dim) 1)
-                    QQMvp.zero)
-                pc
-            in
-            if V.is_zero vecA then
-              (mA,mB,pvc,i)
-            else
-              (QQMatrix.add_row i vecA mA,
-               QQMatrix.add_row i vecB mB,
-               pc::pvc,
-               i+1)
-          with IllFormedRecurrence -> (mA, mB, pvc, i))
-        (QQMatrix.zero, QQMatrix.zero, [], 0)
-        basis
-    in
-    let pvc = Array.of_list (List.rev pvc) in
-
-    (* We have a system of the form Ax' = Bx + c, and we need one of the form
-       Ax' = B'Ax + c.  If we can factor B = B'A, we're done.  Otherwise, we
-       compute an m-by-n matrix D with m < n, and continue iterating with the
-       system DAx' = DBx + Dc.  The matrix D projects B onto the intersection
-       of the row spaces of A and B.  *)
-    let rec fix mA mB pvc =
-      let mD = max_rowspace_projection mA mB in
-      if QQMatrix.nb_rows mB = QQMatrix.nb_rows mD then
-        match Linear.divide_right mB mA with
-        | Some mB' ->
-          assert (QQMatrix.equal (QQMatrix.mul mB' mA) mB);
-          (mA, mB', pvc) (* mB = mB'*A *)
-        | None ->
-          (* D's rows are linearly independent -- if it has as many rows as B,
-             then the rowspace of B is contained inside the rowspace of A, and
-             B/A is defined. *)
-          assert false
-      else
-        fix (QQMatrix.mul mD mA) (QQMatrix.mul mD mB) (matrix_polyvec_mul mD pvc)
-    in
-    let (mA,mB,pvc) =
-      fix mA mB pvc
-    in
-    logf ~attributes:[`Blue] "Affine transformation:";
-    logf " A: @[%a@]" QQMatrix.pp mA;
-    logf " B: @[%a@]" QQMatrix.pp mB;
-    (mA,mB,pvc)
 
   let extract_leq srk wedge tr_symbols =
     let open Apron in

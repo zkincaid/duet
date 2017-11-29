@@ -462,6 +462,62 @@ let divide_right a b =
     Some div
   with No_solution -> None
 
+(* Given matrices A and B, find a matrix C whose rows constitute a basis for
+   the vector space { v : exists u. uA = vB } *)
+let max_rowspace_projection a b =
+  (* Create a system u*A - v*B = 0.  u's occupy even columns and v's occupy
+     odd. *)
+  let mat_a =
+    BatEnum.fold
+      (fun mat (i, j, k) -> QQMatrix.add_entry j (2*i) k mat)
+      QQMatrix.zero
+      (QQMatrix.entries a)
+  in
+  let mat =
+    ref (BatEnum.fold
+           (fun mat (i, j, k) -> QQMatrix.add_entry j (2*i + 1) (QQ.negate k) mat)
+           mat_a
+           (QQMatrix.entries b))
+  in
+  let c = ref QQMatrix.zero in
+  let c_rows = ref 0 in
+  let mat_rows =
+    ref (BatEnum.fold (fun m (i, _) -> max m i) 0 (QQMatrix.rowsi (!mat)) + 1)
+  in
+
+  (* Loop through the columns col of A/B, trying to find a vector u and v such
+     that uA = vB and v has 1 in col's entry.  If yes, add v to C, and add a
+     constraint to mat that (in all future rows of C), col's entry is 0.  This
+     ensures that the rows of C are linearly independent. *)
+  (* to do: repeatedly solving super systems of the same system of equations
+       -- can be made more efficient *)
+  (QQMatrix.rowsi b)
+  |> (BatEnum.iter (fun (r, _) ->
+      let col = 2*r + 1 in
+      let mat' =
+        QQMatrix.add_row
+          (!mat_rows)
+          (QQVector.of_term QQ.one col)
+          (!mat)
+      in
+      match solve mat' (QQVector.of_term QQ.one (!mat_rows)) with
+      | Some solution ->
+        let c_row =
+          BatEnum.fold (fun c_row (entry, i) ->
+              if i mod 2 = 1 then
+                QQVector.add_term entry (i/2) c_row
+              else
+                c_row)
+            QQVector.zero
+            (QQVector.enum solution)
+        in
+        assert (not (QQVector.equal c_row QQVector.zero));
+        c := QQMatrix.add_row (!c_rows) c_row (!c);
+        mat := mat';
+        incr c_rows; incr mat_rows
+      | None -> ()));
+  !c
+
 (* Affine expressions over constant symbols.  dim_of_sym, const_dim, and
    sym_of_dim are used to translate between symbols and the dimensions of the
    coordinate space. *)

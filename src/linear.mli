@@ -163,6 +163,10 @@ val intersect_rowspace : QQMatrix.t -> QQMatrix.t -> (QQMatrix.t * QQMatrix.t)
     A.  If A and B are invertible, then C is exactly AB^{-1}. *)
 val divide_right : QQMatrix.t -> QQMatrix.t -> QQMatrix.t option
 
+(** Given matrices [A] and [B], find a matrix [C] whose rows constitute a
+    basis for the vector space [{ v : exists u. uA = vB }] *)
+val max_rowspace_projection : QQMatrix.t -> QQMatrix.t -> QQMatrix.t
+
 val evaluate_affine : (int -> QQ.t) -> QQVector.t -> QQ.t
 
 (** {2 Affine terms} *)
@@ -208,4 +212,3 @@ val evaluate_linterm : (symbol -> QQ.t) -> QQVector.t -> QQ.t
 
 (** Count the number of dimensions with non-zero coefficients *)
 val linterm_size : QQVector.t -> int
-
