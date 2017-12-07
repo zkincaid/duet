@@ -66,6 +66,7 @@ val return_var : Varinfo.t -> Varinfo.t
 val is_local : func -> Varinfo.t -> bool
 val is_formal : func -> Varinfo.t -> bool
 
+val iter_vars : (Varinfo.t -> unit) -> file -> unit
 val iter_func_defs : (Varinfo.t -> Def.t -> unit) -> file -> unit
 val iter_defs : (Def.t -> unit) -> file -> unit
 

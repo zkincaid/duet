@@ -446,23 +446,20 @@ let detensor_transpose tensored_tr =
 
 let print_var_bounds formatter cost tr =
   let open Format in
-  let cost_symbol = V.symbol_of cost in
+  let cost_symbol = Ctx.mk_symbol `TyReal in
   let exists x =
     x = cost_symbol || match V.of_symbol x with
     | Some v -> Var.is_global (var_of_value v)
     | None -> false
   in
   let guard =
-    let subst x =
-      if x = cost_symbol then
-        Ctx.mk_real QQ.zero
-      else
-        Ctx.mk_const x
-    in
     let rhs =
-      Syntax.substitute_const ark subst (K.get_transform cost tr)
+      if K.mem_transform cost tr then
+        K.get_transform cost tr
+      else
+        Ctx.mk_const (V.symbol_of cost)
     in
-    Ctx.mk_and [Syntax.substitute_const ark subst (K.guard tr);
+    Ctx.mk_and [K.guard tr;
                 Ctx.mk_eq (Ctx.mk_const cost_symbol) rhs ]
   in
   match Wedge.symbolic_bounds_formula ~exists ark guard cost_symbol with
@@ -470,19 +467,21 @@ let print_var_bounds formatter cost tr =
     begin match lower with
       | Some lower ->
         fprintf formatter "%a <= %a@\n" (Syntax.Term.pp ark) lower V.pp cost;
+(*
         fprintf formatter "%a is o(%a)@\n"
           V.pp cost
           BigO.pp (BigO.of_term ark lower)
-
+*)
       | None -> ()
     end;
     begin match upper with
       | Some upper ->
-        fprintf formatter "%a <= %a@\n" V.pp cost (Syntax.Term.pp ark) upper;
+        fprintf formatter "%a <= %a@\n" V.pp cost (Syntax.Term.pp ark) upper
+        (*
         fprintf formatter "%a is O(%a)@\n"
           V.pp cost
           BigO.pp (BigO.of_term ark upper)
-
+*)
       | None -> ()
     end
   | `Unsat ->
@@ -581,17 +580,13 @@ let () =
        abstract);
 
   Callback.register "print_var_bounds_callback" (fun indent varid tr ->
-      let tick_var =
-        let p (v, _) = match v with
-          | VVal v -> (Var.get_id v) = varid
-          | _ -> false
-        in
-        try
-          Some (fst (BatEnum.find p (K.transform tr)))
-        with Not_found -> None
-      in
-      match tick_var with
-      | None -> "No bounds"
+      let tick_var = ref None in
+      CfgIr.iter_vars (fun v ->
+          if Varinfo.get_id v = varid then
+            tick_var := Some (VVal (Var.mk v))
+        ) (CfgIr.get_gfile());
+      match !tick_var with
+      | None -> Log.fatalf "Variable id %d not recognized" varid
       | Some tick_var ->
         ArkUtil.mk_show (fun formatter (tick_var, tr) ->
             Format.pp_open_vbox formatter indent;
