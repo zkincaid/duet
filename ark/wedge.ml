@@ -1564,11 +1564,24 @@ let symbolic_bounds wedge symbol =
     let constraints =
       Abstract0.to_lincons_array (get_manager ()) wedge.abstract
     in
+    let ivl =
+      bound_coordinate wedge (CS.cs_term_id wedge.cs (`App (symbol, [])))
+    in
+    let lower =
+      match Interval.lower ivl with
+      | Some x -> [mk_real ark x]
+      | None -> []
+    in
+    let upper =
+      match Interval.upper ivl with
+      | Some x -> [mk_real ark x]
+      | None -> []
+    in
     BatEnum.fold (fun (lower, upper) lincons ->
         let open Lincons0 in
         let vec = vec_of_linexpr wedge.env lincons.linexpr0 in
         let (a, t) = V.pivot id vec in
-        if QQ.equal a QQ.zero then
+        if QQ.equal a QQ.zero || (Linear.const_of_linterm t != None) then
           (lower, upper)
         else
           let bound =
@@ -1584,7 +1597,7 @@ let symbolic_bounds wedge symbol =
               (lower, bound::upper)
           | _ -> (lower, upper)
       )
-      ([], [])
+      (lower, upper)
       (BatArray.enum constraints)
   | _ -> assert false
 
