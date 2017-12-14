@@ -53,11 +53,11 @@ module IV = struct
     if HT.mem var_to_sym var then
       HT.find var_to_sym var
     else begin
-      let sym = Ctx.mk_symbol ~name:(show var) (typ var) in
-      HT.add var_to_sym var sym;
-      Hashtbl.add sym_to_var sym var;
-      sym
-    end
+        let sym = Ctx.mk_symbol ~name:(show var) (typ var) in
+        HT.add var_to_sym var sym;
+        Hashtbl.add sym_to_var sym var;
+        sym
+      end
 
   let of_symbol sym =
     if Hashtbl.mem sym_to_var sym then
@@ -82,9 +82,9 @@ module P = struct
   let constants phi =
     fold_constants
       (fun sym set ->
-         match IV.of_symbol sym with
-         | Some v -> IV.Set.add v set
-         | None -> set)
+        match IV.of_symbol sym with
+        | Some v -> IV.Set.add v set
+        | None -> set)
       phi
       IV.Set.empty
 end
@@ -96,7 +96,7 @@ module Block = struct
     [ `Fork of Varinfo.t
     | `Initial
     | `Transition of Tr.t ]
-    [@@deriving ord]
+      [@@deriving ord]
 
   let equal a b = compare a b = 0
 
@@ -474,7 +474,7 @@ let generalize i phi psi =
 (* Given an infeasible trace, construct Hoare triples proving its
    infeasibility and add corresponding *negated* transitions to the PA
    solver. *)
-let construct solver assign_table trace =
+let construct_interp solver assign_table trace =
   let rec go trace itp post =
     match trace, itp with
     | ((letter, tid)::trace, pre::itp) ->
@@ -535,39 +535,14 @@ let construct solver assign_table trace =
   | `Valid itp -> go (List.rev trace) (List.tl (List.rev itp)) Ctx.mk_false
   | _ -> Log.fatalf "Failed to interpolate!"
 
+(* Construct a proofspace from the trace given a strategy for producing
+   symbolic hoare triples.
+   add_triples : Solver.t -> (letter, tid) list -> (letter, tid) list
+ *)
 module Solver = Hoare.MakeSolver(Ctx)(IV)
-
-let construct solver assign_table trace =
+let construct solver assign_table trace add_triples =
   let hoare_solver = Solver.mk_solver () in
-  let add_triples trace =
-    let transitions =
-      List.map (fun (letter, tid) -> Letter.transition_of tid letter) trace
-    in
-    let vars =
-      let module VarSet = BatSet.Make(IV) in
-      VarSet.to_list
-        (List.fold_left (fun vars trans ->
-           List.fold_left (fun vars var -> VarSet.add var vars) vars (Tr.defines trans)
-           ) VarSet.empty transitions)
-    in
-    let vars_type  = List.map IV.typ vars in
-    let vars_const = List.map (fun var -> Ctx.mk_const (IV.symbol_of var)) vars in
-    let get_pred var_types =
-      Ctx.mk_symbol (`TyFun (var_types, `TyBool))
-    in
-    let rec go pre transitions =
-      match transitions with
-      | trans :: [] -> Solver.register_triple hoare_solver ([pre], trans, [Ctx.mk_false])
-      | trans :: transitions ->
-         begin
-           let post = Ctx.mk_app (get_pred vars_type) vars_const in
-           (*logf "%a" Solver.pp_triple ([pre], trans, [post]);*)
-           Solver.register_triple hoare_solver ([pre], trans, [post]);
-           go post transitions
-         end
-      | [] -> assert false
-    in go Ctx.mk_true transitions
-  in
+  let trace = List.filter (fun (letter, tid) -> Tr.compare (Letter.transition_of tid letter) Tr.one != 0) trace in
   let rec go trace triples =
     match trace, triples with
     | (letter, tid) :: trace, (pre, trans, post) :: triples ->
@@ -606,11 +581,146 @@ let construct solver assign_table trace =
        go trace triples
     | x, y -> assert (x = [] && y = [])
   in
-  let trace = List.filter (fun (letter, tid) -> Tr.compare (Letter.transition_of tid letter) Tr.one != 0) trace in
-  add_triples trace;
+  let trace = add_triples hoare_solver trace in
   match Solver.check_solution hoare_solver with
   | `Sat -> go trace (Solver.get_solution hoare_solver)
   | _ -> Log.fatalf "Failed to find hoare triples"
+
+let construct_sequence solver assign_table trace =
+  let add_triples hoare_solver trace =
+    let transitions =
+      List.map (fun (letter, tid) -> Letter.transition_of tid letter) trace
+    in
+    let vars =
+      IV.Set.to_list
+        (List.fold_left (fun vars trans ->
+           List.fold_left (fun vars var -> IV.Set.add var vars) vars (Tr.defines trans)
+           ) IV.Set.empty transitions)
+    in
+    let vars_type  = List.map IV.typ vars in
+    let vars_const = List.map (fun var -> Ctx.mk_const (IV.symbol_of var)) vars in
+    let get_pred var_types =
+      Ctx.mk_symbol (`TyFun (var_types, `TyBool))
+    in
+    let rec go pre transitions =
+      match transitions with
+      | trans :: [] -> Solver.register_triple hoare_solver ([pre], trans, [Ctx.mk_false])
+      | trans :: transitions ->
+         begin
+           let post = Ctx.mk_app (get_pred vars_type) vars_const in
+           (*logf "%a" Solver.pp_triple ([pre], trans, [post]);*)
+           Solver.register_triple hoare_solver ([pre], trans, [post]);
+           go post transitions
+         end
+      | [] -> assert false
+    in go Ctx.mk_true transitions; trace
+  in
+  construct solver assign_table trace add_triples
+
+let construct_loop solver assign_table trace =
+  let add_triples hoare_solver trace =
+    let transitions =
+      List.map (fun (letter, tid) -> Letter.transition_of tid letter) trace
+    in
+    let vars =
+      IV.Set.to_list
+        (List.fold_left (fun vars trans ->
+           List.fold_left (fun vars var -> IV.Set.add var vars) vars (Tr.defines trans)
+           ) IV.Set.empty transitions)
+    in
+    let vars_type  = List.map IV.typ vars in
+    let vars_const = List.map (fun var -> Ctx.mk_const (IV.symbol_of var)) vars in
+    let module DA = BatDynArray in
+    let locs = (* Compute Initial Location for each thread *)
+      DA.init ((List.fold_left (fun max (_, tid) -> if max > tid then max else tid) 0 trace) + 1)
+              (fun i -> match (try Some (List.find (fun (_, tid) -> tid == i) trace) with
+                               | _ -> None) with
+                        | None -> -1
+                        | Some (letter, _) -> Letter.src letter)
+    in
+    let get_pred var_types =
+      Memo.memo (fun _ -> Ctx.mk_symbol (`TyFun (var_types, `TyBool))) (* each location product gets a single relation symbol *)
+    in
+    let get_pred = get_pred vars_type in
+    let rec go pre trace =
+      match trace with
+      | (letter, tid) :: [] -> Solver.register_triple hoare_solver ([pre], (Letter.transition_of tid letter), [Ctx.mk_false])
+      | (letter, tid) :: trace ->
+         begin
+           DA.set locs tid (Letter.dst letter);
+           let post = Ctx.mk_app (get_pred (DA.to_list locs)) vars_const in
+           Solver.register_triple hoare_solver ([pre], (Letter.transition_of tid letter), [post]);
+           go post trace
+         end
+      | [] -> assert false
+    in go Ctx.mk_true trace; trace
+  in
+  construct solver assign_table trace add_triples
+  
+
+let construct_owici_gries solver assign_table trace =
+  let add_triples hoare_solver trace =
+    let transitions =
+      List.map (fun (letter, tid) -> Letter.transition_of tid letter) trace
+    in
+    let module DA = BatDynArray in
+    let vars =
+      let locals = DA.init ((List.fold_left (fun max (_, tid) -> if max > tid then max else tid) 0 trace) + 1) (fun _ -> IV.Set.empty) in
+      List.iter (fun trans ->
+          List.iter (fun (var, tid) ->
+              if Var.is_shared var then
+                  DA.set locals 0 (IV.Set.add (var, tid) (DA.get locals 0))
+              else
+                begin
+                  assert (tid != 0);
+                  DA.set locals tid (IV.Set.add (var, tid) (DA.get locals tid))
+                end
+            ) (Tr.defines trans)) transitions;
+      DA.map IV.Set.to_list locals
+    in
+    let vars_type  = DA.map (List.map IV.typ) vars in
+    let vars_const = DA.map (List.map (fun var -> Ctx.mk_const (IV.symbol_of var))) vars in
+    let preds = DA.init (DA.length vars) (fun _ -> []) in (* All relations per thread *)
+    let get_pred var_types =
+      Ctx.mk_symbol (`TyFun (var_types, `TyBool))
+    in
+    let letters = ref [] in
+    let rec go trace =
+      match trace with
+      | [] -> ()
+      | (letter, tid) :: trace ->
+         begin
+           let transition = Letter.transition_of tid letter in
+           let var_types = List.append (DA.get vars_type tid) (DA.get vars_type 0) in
+           let vars_const = List.append (DA.get vars_const tid) (DA.get vars_const 0) in
+           let pre =
+             match (DA.get preds tid) with
+             | phi :: _ -> phi
+             | [] -> Ctx.mk_true
+           in
+           let post = Ctx.mk_app (get_pred var_types) vars_const in
+           Solver.register_triple hoare_solver ([pre], transition, [post]); (* Consecution *)
+           letters := (letter, tid) :: (!letters);
+           DA.set preds tid (post :: (DA.get preds tid)); (* Add post to history of relations for thread tid *)
+           (* Non-interfereance triples *)
+           DA.iteri (fun id preds -> if id != tid then List.iter
+                                                         (fun phi -> letters := (letter, tid) :: (!letters);
+                                                                     Solver.register_triple hoare_solver ([pre; phi], transition, [phi])) preds
+                    ) preds;
+           go trace
+         end
+    in
+    go trace;
+    let posts = DA.fold_left (fun posts phis -> match phis with
+                                                | [] -> posts
+                                                | phi :: _ -> (phi :: posts)) [] preds
+    in
+    Solver.register_triple hoare_solver (posts, Tr.one, [Ctx.mk_false]);
+    ((`Transition Tr.one), 0) :: !letters (* Should add epsilon transition, but how? this doesn't type check :( *)
+  in
+  construct solver assign_table trace add_triples
+      
+let construct = construct_owici_gries
 
 let construct solver trace =
   Log.time "PA construction" (construct solver) trace
@@ -879,7 +989,7 @@ let verify file =
     match TCA.get_summary query main with
     | Some x ->
       logf "Found bound on number of threads: %d" x;
-      x
+      x + 1
     | None ->
       logf "No static bound on number of threads";
       -1
