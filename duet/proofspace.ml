@@ -657,7 +657,7 @@ let construct_loop solver assign_table trace =
   in
   construct solver assign_table trace add_triples
   
-
+(*
 let construct_owici_gries solver assign_table trace =
   let add_triples hoare_solver trace =
     let transitions =
@@ -721,7 +721,7 @@ let construct_owici_gries solver assign_table trace =
   construct solver assign_table trace add_triples
       
 let construct = construct_owici_gries
-
+                *)
 let construct solver trace =
   Log.time "PA construction" (construct solver) trace
 

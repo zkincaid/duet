@@ -50,6 +50,7 @@ module type S = sig
   val uembeds : t -> t -> bool
   val cembeds : t -> t -> bool
   val str2mzn : t -> t -> bool
+  val str2dimacs : t -> t -> bool
   val haifacsp : t -> t -> bool
   val ortools : t -> t -> bool
 
