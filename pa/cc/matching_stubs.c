@@ -43,6 +43,7 @@ bool embedding(Embedding emb);
 bool uembedding(Embedding emb, Var_selection sel);
 bool cembedding(Embedding emb);
 bool emb2mzn(Embedding emb);
+bool emb2dimacs(Embedding emb);
 bool haifacsp(Embedding emb);
 bool ortools(Embedding emb);
 void find_conflicts(const Embedding& emb, const vector<int>& matching, vector<int>& confs);
@@ -122,6 +123,9 @@ extern "C" {
 	break;
       case 5:
 	result = ortools(std::move(Embedding(sig1, sig2, pu_label, pv_label)));
+        break;
+      case 6:
+        result = emb2dimacs(std::move(Embedding(sig1, sig2, pu_label, pv_label)));
         break;
       default:
 	printf("Error: Invalid Algorithm Choice %d\n", Int_val(algo));
@@ -549,6 +553,15 @@ bool emb2mzn(Embedding emb){
   
   fclose(tmp_file);  
   return true;
+}
+
+bool emb2dimacs(Embedding emb){
+  {
+      vector<Graph::VertexPair> p_removed, u_removed;
+      emb.ufilter(p_removed, u_removed);
+  }
+  if (!emb.get_valid()) return false;
+  return emb.to_dimacs();
 }
 
 

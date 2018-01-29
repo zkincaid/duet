@@ -12,6 +12,10 @@
 #include <map>
 #include <queue>
 #include <cstdint>
+#include <iostream>
+#include <sstream>
+#include <utility>
+#include <string>
 #include "graph.h"
 
 #ifndef CM_EMBEDDING_H
@@ -361,6 +365,91 @@ class Embedding{
       u_graph_.add_edge(u_edges[i].u, u_edges[i].v);
     }
   }
+
+  bool to_dimacs() {
+      std::stringstream stream;
+      int max_var = 0;
+      int clauses = 0;
+      std::map<std::pair<int,int>, int> edge_var;
+  
+      FILE* tmp_file = fopen("tmp.cnf", "w");
+
+      for (size_t i = 1; i < u_graph_.uSize(); ++i){
+	  const std::vector<Graph::Edge>& adj = u_graph_.uAdj(i);
+	  for (size_t j = 0; j < adj.size(); ++j){
+	      edge_var[std::make_pair(i,adj[j].vertex)] = ++max_var;
+	      stream << " " << max_var;
+	  }
+	  stream << " 0\n";
+	  clauses++;
+      }
+
+      for (size_t i = 1; i < u_graph_.uSize(); ++i){
+	  const std::vector<Graph::Edge>& adj = u_graph_.uAdj(i);
+	  for (size_t j = 0; j < adj.size(); ++j){
+	      int e1 = edge_var[std::make_pair(i,adj[j].vertex)];
+	      for (size_t k = j+1; k < adj.size(); ++k){
+		  int e2 = edge_var[std::make_pair(i,adj[k].vertex)];
+		  stream << -e1 << " " << -e2 << " 0\n";
+		  clauses++;
+	      }
+	  }
+      }
+
+      stream << "c alldifferent\n";
+      for (size_t i = 1; i < u_graph_.vSize(); ++i){
+	  const std::vector<Graph::Edge>& adj = u_graph_.vAdj(i);
+	  for (size_t j = 0; j < adj.size(); ++j){
+	      int ji = edge_var[std::make_pair(adj[j].vertex,i)];
+	      for (size_t k = j+1; k < adj.size(); ++k){
+		  int ki = edge_var[std::make_pair(adj[k].vertex,i)];
+		  stream << -ji << " " << -ki <<  " 0\n";
+		  clauses++;
+	      }
+	  }
+      }
+
+      stream << "c higher-arity constraints\n";
+      for (size_t p = 0; p < p_graph_.uSize(); ++p){
+	  std::stringstream clausestream;
+	  const std::vector<int>& p_vars = p_graph_.getULabel(p).vars;	  
+	  const std::vector<Graph::Edge>& p_adj = p_graph_.uAdj(p);
+
+	  for (size_t q = 0; q < p_adj.size(); q++) {
+	      int c = ++max_var;
+	      const std::vector<int>& q_vars = p_graph_.getVLabel(p_adj[q].vertex).vars;
+
+	      for(size_t i = 0; i < p_vars.size(); i++) {
+		  int e = edge_var[std::make_pair(p_vars[i], q_vars[i])];
+		  stream << e << " " << -c << " 0\n";
+		  clauses++;
+	      }
+	      clausestream << " " << c;
+	  }
+
+	  stream << clausestream.str() << " 0\n";
+	  clauses++;
+      }
+
+      fprintf(tmp_file, "p cnf %d %d\n", max_var, clauses);
+      fprintf(tmp_file, "%s\n", stream.str().c_str());
+      fclose(tmp_file);
+
+      pid_t child = fork();
+      if (child == 0){
+	  execl("./run_lingeling.sh", "run_lingeling.sh", NULL);
+	  fprintf(stderr, "Unable to launch lingeling\n");
+	  exit(-1);
+      } else if (child < 0) {
+	  fprintf(stderr, "Unable to fork process\n");
+	  return false;
+      } else {
+	  int returnStatus;
+	  waitpid(child, &returnStatus, 0);
+	  return (returnStatus == 0);
+      }
+  }
+
 };
 
 #endif
