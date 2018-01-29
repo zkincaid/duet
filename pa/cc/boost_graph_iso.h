@@ -11,7 +11,7 @@ using namespace boost;
 #ifndef BOOST_SUBGRAPH_ISO_H
 #define BOOST_SUBGRAPH_ISO_H
 
-#define BSIH_DEBUG
+//#define BSIH_DEBUG
 
 template <typename PropertyMapFirst,
           typename PropertyMapSecond,
@@ -145,7 +145,7 @@ bool boost_embeds(const Embedding& emb) {
   bool is_iso(false);
   VF2_do_once_callback<graph_type, graph_type> callback(graph1, graph2, &is_iso);
 
-  vf2_subgraph_iso(graph1, graph2, std::ref(callback), vertex_order_by_mult(graph1), edges_equivalent(edge_comp).vertices_equivalent(vertex_comp));
+  vf2_subgraph_mono(graph1, graph2, std::ref(callback), vertex_order_by_mult(graph1), edges_equivalent(edge_comp).vertices_equivalent(vertex_comp));
 
   return is_iso;
 }
