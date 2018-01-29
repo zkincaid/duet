@@ -53,7 +53,7 @@ Executable bigtop
 Library matchingCC
   Path: pa/cc
   Modules: MatchingCPP
-  CSources: matching_stubs.c, graph.h, embedding.h, gecode_embedding.h
+  CSources: matching_stubs.c, graph.h, embedding.h, gecode_embedding.h, boost_graph_iso.h
   CCOpt: -x c++ -std=c++11 -O2 -Wall -Wextra -Wno-unused-parameter -fopenmp -I /home/zkincaid/src/gecode-5.1.0
   CClib: -I /home/zkincaid/src/gecode-5.1.0 -L/home/zkincaid/src/gecode-5.1.0 -lstdc++ -lgomp -lgecodesearch -lgecodeint -lgecodekernel -lgecodesupport
   BuildDepends: apak

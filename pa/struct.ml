@@ -41,6 +41,7 @@ module type S = sig
   val embeds_novel2 : t -> t -> bool
   val uembeds : t -> t -> bool
   val cembeds : t -> t -> bool
+  val bembeds : t -> t -> bool
   val str2mzn : t -> t -> bool
   val str2dimacs : t -> t -> bool
   val haifacsp : t -> t -> bool
@@ -386,7 +387,14 @@ module Make (P : Symbol) = struct
     && (AtomSet.cardinal x.prop <= AtomSet.cardinal y.prop)
     && (PSet.subset (get_preds x) (get_preds y)) (* this is always true when using Search Tree *)
     && (AtomSet.subset x.prop y.prop ||
-       (MatchCPP.cembeds (MatchCPP.make (x.universe) (props x) (y.universe) (props y))))
+          (MatchCPP.cembeds (MatchCPP.make (x.universe) (props x) (y.universe) (props y))))
+
+  let bembeds x y =
+    (x.universe <= y.universe)
+    && (AtomSet.cardinal x.prop <= AtomSet.cardinal y.prop)
+    && (PSet.subset (get_preds x) (get_preds y)) (* this is always true when using Search Tree *)
+    && (AtomSet.subset x.prop y.prop ||
+       (MatchCPP.bembeds (MatchCPP.make (x.universe) (props x) (y.universe) (props y))))
 
   let str2mzn x y =
     (x.universe <= y.universe)

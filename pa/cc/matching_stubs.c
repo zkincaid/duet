@@ -21,6 +21,7 @@
 #include "embedding.h"
 #include "gecode_embedding.h"
 #include <gecode/search.hh>
+#include "boost_graph_iso.h"
 
 #define TRACE false
 
@@ -40,6 +41,7 @@ enum Var_selection {
 using namespace std;
 
 bool embedding(Embedding emb);
+bool bembedding(Embedding emb);
 bool uembedding(Embedding emb, Var_selection sel);
 bool cembedding(Embedding emb);
 bool emb2mzn(Embedding emb);
@@ -59,7 +61,7 @@ bool choose(stack<decision>& decisions, const vector<int>& confs, Embedding& emb
 
 extern "C" {
 
-  void read_structure(value str, vector<vector<uint8_t> > &sig, vector<prop> &label) {
+  void read_structure(value str, vector<vector<uint8_t> > &sig, vector<prop> &label, vector<int>& pred_pos, size_t& next_pos) {
       CAMLparam1(str);
       CAMLlocal3(head, propList, predList);
 
@@ -72,6 +74,14 @@ extern "C" {
 	  predList = Field(head, 1);
 
 	  size_t predi = Int_val(Field(head, 0));
+	  if (predi >= pred_pos.size()){
+	    pred_pos.resize(predi + 1, -1);
+	  }
+	  if (pred_pos[predi] == -1){
+	    pred_pos[predi] = next_pos;
+	  }
+	  predi = pred_pos[predi];
+	  
 	  prop tmp = prop(predi);
 	  while (predList != Val_emptylist){
 	      head = Field(predList, 0);
@@ -85,7 +95,9 @@ extern "C" {
 		  ++sig[arg][predi];
 
 	      predList = Field(predList, 1);
+	      ++predi;
 	  }
+	  next_pos = (next_pos < predi)? predi : next_pos;
 	  if (tmp.vars.size() >= 2){
 	      label.push_back(tmp);
 	  }
@@ -101,8 +113,10 @@ extern "C" {
     sig1.resize(Int_val(Field(str1, 0))+1); /* Resize to respective universe size */
     sig2.resize(Int_val(Field(str2, 0))+1);
     vector<prop> pu_label, pv_label;
-    read_structure(str1,sig1,pu_label);
-    read_structure(str2,sig2,pv_label);
+    vector<int> pred_pos;
+    size_t next_pos = 0;
+    read_structure(str1,sig1,pu_label, pred_pos, next_pos);
+    read_structure(str2,sig2,pv_label, pred_pos, next_pos);
 
     bool result;
     switch (Int_val(algo)){
@@ -127,6 +141,9 @@ extern "C" {
       case 6:
         result = emb2dimacs(std::move(Embedding(sig1, sig2, pu_label, pv_label)));
         break;
+      case 7:
+       	result = bembedding(std::move(Embedding(sig1, sig2, pu_label, pv_label)));
+	break;
       default:
 	printf("Error: Invalid Algorithm Choice %d\n", Int_val(algo));
 	exit(-1);
@@ -339,6 +356,15 @@ size_t select_variable(const Embedding& emb, const vector<int>& conflicts, Var_s
   }
   assert(best_var != 0);
   return best_var;
+}
+
+bool bembedding(Embedding emb){
+  {
+      vector<Graph::VertexPair> p_removed, u_removed;
+      emb.ufilter(p_removed, u_removed);
+  }
+  if (!emb.get_valid()) return false;
+  return boost_embeds(emb);
 }
 
 bool uembedding(Embedding emb, Var_selection sel){

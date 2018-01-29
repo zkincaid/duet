@@ -49,6 +49,7 @@ module type S = sig
   val embeds_novel2 : t -> t -> bool
   val uembeds : t -> t -> bool
   val cembeds : t -> t -> bool
+  val bembeds : t -> t -> bool
   val str2mzn : t -> t -> bool
   val str2dimacs : t -> t -> bool
   val haifacsp : t -> t -> bool

@@ -412,6 +412,11 @@ let _ =
        check_embeddings Config.str2dimacs (load_structs Sys.argv.(3)) (match Sys.argv.(2) with | "rename" -> true | _ -> false)
      else
        check_embeddings Config.str2dimacs (load_structs Sys.argv.(2)) false
+  | "bembeds" ->
+     if Array.length Sys.argv > 3 then
+       check_embeddings Config.bembeds (load_structs Sys.argv.(3)) (match Sys.argv.(2) with | "rename" -> true | _ -> false)
+     else
+       check_embeddings Config.bembeds (load_structs Sys.argv.(2)) false
   | "haifacsp" ->
      if Array.length Sys.argv > 3 then
        check_embeddings Config.haifacsp (load_structs Sys.argv.(3)) (match Sys.argv.(2) with | "rename" -> true | _ -> false)
