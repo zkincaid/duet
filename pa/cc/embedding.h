@@ -124,6 +124,7 @@ class Embedding{
 	}
       }
     }
+    /*
     for (size_t i = 0; i < p_graph_.uSize(); ++i){
       if (p_graph_.uAdj(i).size() == 1){
 	(void) u_graph_.commit_edges(p_graph_.getULabel(i).vars, p_graph_.getVLabel(p_graph_.uAdj(i)[0].vertex).vars);
@@ -133,7 +134,7 @@ class Embedding{
 	break;
       }
     }
-
+    */
     for (size_t i = 0; i < p_graph_.uSize(); ++i){
       if (p_graph_.uAdj(i).size() == 0){
 	valid_ = false;
