@@ -359,10 +359,6 @@ size_t select_variable(const Embedding& emb, const vector<int>& conflicts, Var_s
 }
 
 bool bembedding(Embedding emb){
-  {
-      vector<Graph::VertexPair> p_removed, u_removed;
-      emb.ufilter(p_removed, u_removed);
-  }
   if (!emb.get_valid()) return false;
   return boost_embeds(emb);
 }
@@ -370,6 +366,8 @@ bool bembedding(Embedding emb){
 bool uembedding(Embedding emb, Var_selection sel){
   {
       vector<Graph::VertexPair> p_removed, u_removed;
+      std::vector<int> junk;
+      if (!emb.get_universe_graph().unit_prop(u_removed, junk, junk)) return false;
       emb.ufilter(p_removed, u_removed);
   }
   srand(time(NULL));
@@ -457,10 +455,6 @@ bool uembedding(Embedding emb, Var_selection sel){
 }
 
 bool cembedding(Embedding emb){
-  {
-    vector<Graph::VertexPair> p_removed, u_removed;
-    emb.ufilter(p_removed, u_removed);
-  }
   if (!emb.get_valid()) return false;
 
   ConstraintEmbedding* cemb = new ConstraintEmbedding(emb);
@@ -515,10 +509,6 @@ bool ortools(Embedding emb){
 }
 
 bool emb2mzn(Embedding emb){
-  {
-      vector<Graph::VertexPair> p_removed, u_removed;
-      emb.ufilter(p_removed, u_removed);
-  }
   if (!emb.get_valid()) return false;
 
   FILE* tmp_file = fopen("tmp.mzn", "w");
@@ -582,10 +572,6 @@ bool emb2mzn(Embedding emb){
 }
 
 bool emb2dimacs(Embedding emb){
-  {
-      vector<Graph::VertexPair> p_removed, u_removed;
-      emb.ufilter(p_removed, u_removed);
-  }
   if (!emb.get_valid()) return false;
   return emb.to_dimacs();
 }

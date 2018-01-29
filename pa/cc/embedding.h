@@ -101,14 +101,16 @@ class Embedding{
       }
     }
 
-    /* It doesn't matter what is removed */
-    std::vector<Graph::VertexPair> tmp;
-    std::vector<int> junk;
-    valid_ = u_graph_.unit_prop(tmp, junk, junk);
+    for (size_t i = 1; i < u_graph_.uSize(); ++i){
+      if (u_graph_.uAdj(i).size() == 0){
+	valid_ = false;
+      }
+    }
   }
 
   /* finish constructing the predicate graph */
   void fill_pgraph(){
+    if (!valid_) return;
     for (size_t i = 0; i < p_graph_.uSize(); ++i){
       const prop& u_label = p_graph_.getULabel(i);
       for (size_t j = 0; j < p_graph_.vSize(); ++j){
@@ -131,10 +133,18 @@ class Embedding{
 	break;
       }
     }
+
+    for (size_t i = 0; i < p_graph_.uSize(); ++i){
+      if (p_graph_.uAdj(i).size() == 0){
+	valid_ = false;
+	break;
+      }
+    }
   }
 
   /* construct inverse label */
   void fill_inv_label(){
+    if (!valid_) return;
     u_inv_label_.resize(u_graph_.uSize());
     for (size_t i = 0; i < p_graph_.uSize(); ++i){
       const std::vector<int>& vars = p_graph_.getULabel(i).vars;
@@ -419,10 +429,19 @@ class Embedding{
 	      int c = ++max_var;
 	      const std::vector<int>& q_vars = p_graph_.getVLabel(p_adj[q].vertex).vars;
 
-	      for(size_t i = 0; i < p_vars.size(); i++) {
+	      bool valid_clause(true);
+	      for (size_t i = 0; i < p_vars.size(); ++i){
+		auto it = edge_var.find(std::make_pair(p_vars[i], q_vars[i]));
+		if (it == edge_var.end()){
+		  valid_clause = false;
+		}
+	      }
+	      if (valid_clause){
+	        for(size_t i = 0; i < p_vars.size(); i++) {
 		  int e = edge_var[std::make_pair(p_vars[i], q_vars[i])];
 		  stream << e << " " << -c << " 0\n";
-		  clauses++;
+		  clauses++;		  
+		}
 	      }
 	      clausestream << " " << c;
 	  }
