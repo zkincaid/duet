@@ -19,24 +19,26 @@ while [[ $NB -lt 100 ]]; do
     RS=`../../../patools.native str2mzn embed.struct`
     R1=`timeout $TO ../../../patools.native cembeds embed.struct`
     R2=`timeout $TO ../../../patools.native uembeds embed.struct`
+    R3=`timeout $TO ../../../patools.native bembeds embed.struct`
+    R4=`timeout $TO ../../../patools.native str2dimacs embed.struct`
     if [[ "$RS" = "True" ]]; then
-	R3=`timeout $TO ./run_or_tools.sh tmp.mzn`
-	R4=`timeout $TO ./run_hcsp.sh tmp.mzn`
+	R5=`timeout $TO ./run_hcsp.sh tmp.mzn`
     else
-	R3="False"
-	R4="False"
+	R5="False"
     fi
-    if [[ "$R1" = "" || "$R2" = "" || "$R3" = "" || "$R4" = "" ]]; then
+    if [[ "$R1" = "" || "$R2" = "" || "$R3" = "" || "$R4" = "" || "$R5" = "" ]]; then
 	bench=`printf "$DIR/embed%03d.struct" $NB`
 	cp embed.struct $bench
 	if [ "$R1" = "" ]; then
-	    echo "gecode timeout ($R2,$R3,$R4)"
+	    echo "Gecode timeout ($R2,$R3,$R4,$R5)"
 	elif [ "$R2" = "" ]; then
-	    echo "embeds timeout ($R1,$R3,$R4)"
+	    echo "MatchEmbeds timeout ($R1,$R3,$R4,$R5)"
 	elif [ "$R3" = "" ]; then
-	    echo "or_tools timeout ($R1,$R2,$R4)"
+	    echo "VF2 timeout ($R1,$R2,$R4,$R5)"
+	elif [ "$R4" = "" ]; then
+	    echo "SAT timeout ($R1,$R2,$R3,$R5)"
 	else
-	    echo "haifa_csp timeout ($R1,$R2,$R3)"
+	    echo "haifa_csp timeout ($R1,$R2,$R3,$R5)"
 	fi
 	NB=$(($NB + 1))
     else
