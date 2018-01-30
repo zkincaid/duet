@@ -64,7 +64,7 @@ Library pa
   Path:       pa
   Pack: true
   FindlibName:      pa
-  InternalModules:  PaSmt, PaFormula, Struct, PredicateAutomata, Matching
+  InternalModules:  PaSmt, PaFormula, Struct, PredicateAutomata
   BuildDepends: ppx_deriving, ppx_deriving.show, ppx_deriving.ord, srk, Z3, matchingCC
   Install:          false
   XMETADescription: Predicate Automata tools

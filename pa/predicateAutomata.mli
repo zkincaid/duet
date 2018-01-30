@@ -191,6 +191,9 @@ module MakeEmpty (A : sig
   (** Parameter controlling the representation of configuration sets. *)
   val config_set_rep : [ `List | `PredicateTree | `FeatureTree ] ref
 
+  (** Parameter controlling the backend of the structure embedding algorithm. *)
+  val embed_set_algo : [ `MatchEmbeds | `CryptoMiniSat | `Lingeling | `HaifaCSP | `Gecode | `OrTools | `VF2] ref
+
   (** [bounded_empty pa bound] finds [Some] word which is accepted by [pa] and
       uses only indexed letters with index [<= bound]; [None] if there are no
       such words. *)

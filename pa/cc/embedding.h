@@ -124,17 +124,7 @@ class Embedding{
 	}
       }
     }
-    /*
-    for (size_t i = 0; i < p_graph_.uSize(); ++i){
-      if (p_graph_.uAdj(i).size() == 1){
-	(void) u_graph_.commit_edges(p_graph_.getULabel(i).vars, p_graph_.getVLabel(p_graph_.uAdj(i)[0].vertex).vars);
-	break;
-      } else if (p_graph_.uAdj(i).size() == 0){
-	valid_ = false;
-	break;
-      }
-    }
-    */
+
     for (size_t i = 0; i < p_graph_.uSize(); ++i){
       if (p_graph_.uAdj(i).size() == 0){
 	valid_ = false;
@@ -377,6 +367,65 @@ class Embedding{
     }
   }
 
+  bool to_mzn() {
+    FILE* tmp_file = fopen("tmp.mzn", "w");
+    fprintf(tmp_file, "include \"alldifferent.mzn\";\n\n");
+
+    for (size_t i = 1; i < u_graph_.uSize(); ++i){
+      const std::vector<Graph::Edge>& adj = u_graph_.uAdj(i);
+
+      fprintf(tmp_file, "var 1..%lu: x%lu;\n", adj.size(), i);
+      fprintf(tmp_file, "array [1..%lu] of int: Dx%lu = [", adj.size(), i);
+      for (size_t j = 0; j < adj.size(); ++j){
+	if (j+1 != adj.size()){
+	  fprintf(tmp_file, "%lu, ", adj[j].vertex);
+	} else {
+	  fprintf(tmp_file, "%lu];\n\n", adj[j].vertex);
+	}
+      }
+    }
+
+    fprintf(tmp_file, "constraint alldifferent([");
+    for (size_t i = 1; i < u_graph_.uSize(); ++i){
+      if (i+1 != u_graph_.uSize()){
+	fprintf(tmp_file, "Dx%lu[x%lu], ", i, i);
+      } else {
+	fprintf(tmp_file, "Dx%lu[x%lu]]);\n\n", i, i);
+      }
+    }
+
+    for (size_t i = 0; i < p_graph_.uSize(); ++i){
+      const std::vector<Graph::Edge>& adj = p_graph_.uAdj(i);
+      const std::vector<int>& u_vars = p_graph_.getULabel(i).vars;
+
+      fprintf(tmp_file, "constraint ");
+      for (size_t j = 0; j < adj.size(); ++j){
+	fprintf(tmp_file, "(");
+
+	const std::vector<int>& v_vars = p_graph_.getVLabel(adj[j].vertex).vars;
+	for (size_t k = 0; k < u_vars.size(); ++k){
+	  if (k+1 != u_vars.size()){
+	    fprintf(tmp_file, "Dx%d[x%d] = %d /\\ ", u_vars[k], u_vars[k], v_vars[k]);
+	  } else {
+	    fprintf(tmp_file, "Dx%d[x%d] = %d", u_vars[k], u_vars[k], v_vars[k]);
+	  }
+	}
+
+	if (j+1 != adj.size()){
+	  fprintf(tmp_file, ") \\/ ");
+	} else {
+	  fprintf(tmp_file, ")");
+	}
+      }
+      fprintf(tmp_file, ";\n\n");
+    }
+
+    fprintf(tmp_file, "solve satisfy;\n");
+
+    fclose(tmp_file);
+    return true;
+  }
+
   bool to_dimacs() {
       std::stringstream stream;
       int max_var = 0;
@@ -452,7 +501,7 @@ class Embedding{
       }
 
       fprintf(tmp_file, "p cnf %d %d\n", max_var, clauses);
-      fprintf(tmp_file, "%s\n", stream.str().c_str());
+      fprintf(tmp_file, "%s", stream.str().c_str());
       fclose(tmp_file);
 
       pid_t child = fork();

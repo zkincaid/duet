@@ -45,15 +45,15 @@ module type S = sig
   (** Is there an embedding (injective homomorphism) from the first structure
       into the second? *)
   val embeds : t -> t -> bool
-  val embeds_novel : t -> t -> bool
-  val embeds_novel2 : t -> t -> bool
-  val uembeds : t -> t -> bool
-  val cembeds : t -> t -> bool
-  val bembeds : t -> t -> bool
+  val match_embeds : t -> t -> bool
+  val crypto_mini_sat :t -> t -> bool
+  val lingeling: t -> t -> bool
+  val haifacsp : t -> t -> bool
+  val gecode : t -> t -> bool
+  val vf2 : t -> t -> bool
+  val ortools : t -> t -> bool
   val str2mzn : t -> t -> bool
   val str2dimacs : t -> t -> bool
-  val haifacsp : t -> t -> bool
-  val ortools : t -> t -> bool
 
   (** [union s s'] is a structure whose universe is the union of the universes
       of [s] and [s'] and whose interpretation of each predicate [p] is the

@@ -23,12 +23,14 @@ module type S = sig
 
   (* run the embedding problem in C / C++ *)
   val embeds : t -> bool
-  val uembeds : t -> bool
-  val cembeds : t -> bool
-  val bembeds : t -> bool
-  val emb2mzn : t -> bool
+  val match_embeds : t -> bool
+  val crypto_mini_sat : t -> bool
+  val lingeling : t -> bool
   val haifacsp : t -> bool
+  val gecode : t -> bool
+  val vf2 : t ->  bool
   val ortools : t -> bool
+  val emb2mzn : t -> bool
   val emb2dimacs : t -> bool
 end
 

@@ -40,14 +40,17 @@ enum Var_selection {
 
 using namespace std;
 
-bool embedding(Embedding emb);
-bool bembedding(Embedding emb);
-bool uembedding(Embedding emb, Var_selection sel);
-bool cembedding(Embedding emb);
+bool embeds(Embedding emb);
+bool match_embeds(Embedding emb, Var_selection sel);
+bool crypto_mini_sat(Embedding emb);
+bool lingeling(Embedding emb);
+bool haifacsp(Embedding emb);
+bool gecode(Embedding emb);
+bool vf2(Embedding emb);
+bool ortools(Embedding emb);
 bool emb2mzn(Embedding emb);
 bool emb2dimacs(Embedding emb);
-bool haifacsp(Embedding emb);
-bool ortools(Embedding emb);
+
 void find_conflicts(const Embedding& emb, const vector<int>& matching, vector<int>& confs);
 void backtrack(stack<decision>& decisions, Embedding& emb);
 bool choose(stack<decision>& decisions, const vector<int>& confs, Embedding& emb);
@@ -60,7 +63,6 @@ bool choose(stack<decision>& decisions, const vector<int>& confs, Embedding& emb
 ***********************************************************/
 
 extern "C" {
-
   void read_structure(value str, vector<vector<uint8_t> > &sig, vector<prop> &label, vector<int>& pred_pos, size_t& next_pos) {
       CAMLparam1(str);
       CAMLlocal3(head, propList, predList);
@@ -121,28 +123,34 @@ extern "C" {
     bool result;
     switch (Int_val(algo)){
       case 0:
-	result = uembedding(std::move(Embedding(sig1, sig2, pu_label, pv_label)), MIN_REMAINING_VALUES);
+	result = embeds(std::move(Embedding(sig1, sig2, pu_label, pv_label)));
 	break;
       case 1:
-	result = embedding(std::move(Embedding(sig1, sig2, pu_label, pv_label)));
+	result = match_embeds(std::move(Embedding(sig1, sig2, pu_label, pv_label)), MIN_REMAINING_VALUES);
 	break;
       case 2:
-	result = cembedding(std::move(Embedding(sig1, sig2, pu_label, pv_label)));
+	result = crypto_mini_sat(std::move(Embedding(sig1, sig2, pu_label, pv_label)));
         break;
       case 3:
-        result = emb2mzn(std::move(Embedding(sig1, sig2, pu_label, pv_label)));
+        result = lingeling(std::move(Embedding(sig1, sig2, pu_label, pv_label)));
 	break;
       case 4:
         result = haifacsp(std::move(Embedding(sig1, sig2, pu_label, pv_label)));
 	break;
       case 5:
-	result = ortools(std::move(Embedding(sig1, sig2, pu_label, pv_label)));
+	result = gecode(std::move(Embedding(sig1, sig2, pu_label, pv_label)));
         break;
       case 6:
-        result = emb2dimacs(std::move(Embedding(sig1, sig2, pu_label, pv_label)));
+        result = vf2(std::move(Embedding(sig1, sig2, pu_label, pv_label)));
         break;
       case 7:
-       	result = bembedding(std::move(Embedding(sig1, sig2, pu_label, pv_label)));
+       	result = ortools(std::move(Embedding(sig1, sig2, pu_label, pv_label)));
+	break;
+      case 8:
+       	result = emb2mzn(std::move(Embedding(sig1, sig2, pu_label, pv_label)));
+	break;
+      case 9:
+       	result = emb2dimacs(std::move(Embedding(sig1, sig2, pu_label, pv_label)));
 	break;
       default:
 	printf("Error: Invalid Algorithm Choice %d\n", Int_val(algo));
@@ -155,7 +163,7 @@ extern "C" {
 /* Is there an injective homomorphism from the source vertices (U)
    to target vertices (V) of emb.universe_graph satisfying the
    constraints of emb.predicate_graph ? */
-bool embedding(Embedding emb){
+bool embeds(Embedding emb){
   if (!emb.get_valid()) return false;
   Graph& u_graph = emb.get_universe_graph();
 
@@ -358,12 +366,7 @@ size_t select_variable(const Embedding& emb, const vector<int>& conflicts, Var_s
   return best_var;
 }
 
-bool bembedding(Embedding emb){
-  if (!emb.get_valid()) return false;
-  return boost_embeds(emb);
-}
-
-bool uembedding(Embedding emb, Var_selection sel){
+bool match_embeds(Embedding emb, Var_selection sel){
   {
       vector<Graph::VertexPair> p_removed, u_removed;
       std::vector<int> junk;
@@ -454,18 +457,44 @@ bool uembedding(Embedding emb, Var_selection sel){
   }
 }
 
-bool cembedding(Embedding emb){
-  if (!emb.get_valid()) return false;
-
-  ConstraintEmbedding* cemb = new ConstraintEmbedding(emb);
-  Gecode::DFS<ConstraintEmbedding> e(cemb);
-  (void) cemb->status();
-  delete cemb;
-  if ((cemb = e.next())) {
-    delete cemb;
-    return true;
+bool crypto_mini_sat(Embedding emb){
+  if (emb2dimacs(std::move(emb))){
+    pid_t child = fork();
+    if (child == 0){
+      execl("/home/charlie/git_repos/duet/pa/cc/run_cms.sh", "run_haifa.sh", NULL);
+      fprintf(stderr, "Unable to launch CryptoMiniSat\n");
+      exit(-1);
+    } else if (child < 0) {
+      fprintf(stderr, "Unable to fork process\n");
+      return false;
+    } else {
+      int returnStatus;
+      waitpid(child, &returnStatus, 0);
+      return (returnStatus == 0);
+    }
+  } else {
+    return false;
   }
-  return false;
+}
+
+bool lingeling(Embedding emb){
+  if (emb2dimacs(std::move(emb))){
+    pid_t child = fork();
+    if (child == 0){
+      execl("/home/charlie/git_repos/duet/pa/cc/run_lingeling.sh", "run_haifa.sh", NULL);
+      fprintf(stderr, "Unable to launch lingeling\n");
+      exit(-1);
+    } else if (child < 0) {
+      fprintf(stderr, "Unable to fork process\n");
+      return false;
+    } else {
+      int returnStatus;
+      waitpid(child, &returnStatus, 0);
+      return (returnStatus == 0);
+    }
+  } else {
+    return false;
+  }
 }
 
 bool haifacsp(Embedding emb){
@@ -486,6 +515,25 @@ bool haifacsp(Embedding emb){
   } else {
     return false;
   }
+}
+
+bool gecode(Embedding emb){
+  if (!emb.get_valid()) return false;
+
+  ConstraintEmbedding* cemb = new ConstraintEmbedding(emb);
+  Gecode::DFS<ConstraintEmbedding> e(cemb);
+  (void) cemb->status();
+  delete cemb;
+  if ((cemb = e.next())) {
+    delete cemb;
+    return true;
+  }
+  return false;
+}
+
+bool vf2(Embedding emb){
+  if (!emb.get_valid()) return false;
+  return boost_embeds(emb);
 }
 
 bool ortools(Embedding emb){
@@ -510,65 +558,7 @@ bool ortools(Embedding emb){
 
 bool emb2mzn(Embedding emb){
   if (!emb.get_valid()) return false;
-
-  FILE* tmp_file = fopen("tmp.mzn", "w");
-  fprintf(tmp_file, "include \"alldifferent.mzn\";\n\n");
-
-  const Graph& u_graph = emb.get_universe_graph();
-  for (size_t i = 1; i < u_graph.uSize(); ++i){
-    const vector<Graph::Edge>& adj = u_graph.uAdj(i);
-
-    fprintf(tmp_file, "var 1..%lu: x%lu;\n", adj.size(), i);
-    fprintf(tmp_file, "array [1..%lu] of int: Dx%lu = [", adj.size(), i);
-    for (size_t j = 0; j < adj.size(); ++j){
-      if (j+1 != adj.size()){
-	fprintf(tmp_file, "%lu, ", adj[j].vertex);
-      } else {
-	fprintf(tmp_file, "%lu];\n\n", adj[j].vertex);
-      }
-    }
-  }
-
-  fprintf(tmp_file, "constraint alldifferent([");
-  for (size_t i = 1; i < u_graph.uSize(); ++i){
-    if (i+1 != u_graph.uSize()){
-      fprintf(tmp_file, "Dx%lu[x%lu], ", i, i);
-    } else {
-      fprintf(tmp_file, "Dx%lu[x%lu]]);\n\n", i, i);
-    }
-  }
-
-  const LabeledGraph<prop, prop>& p_graph = emb.get_predicate_graph();
-  for (size_t i = 0; i < p_graph.uSize(); ++i){
-    const vector<Graph::Edge>& adj = p_graph.uAdj(i);
-    const vector<int>& u_vars = p_graph.getULabel(i).vars;
-
-    fprintf(tmp_file, "constraint ");
-    for (size_t j = 0; j < adj.size(); ++j){
-      fprintf(tmp_file, "(");
-
-      const vector<int>& v_vars = p_graph.getVLabel(adj[j].vertex).vars;
-      for (size_t k = 0; k < u_vars.size(); ++k){
-        if (k+1 != u_vars.size()){
-	  fprintf(tmp_file, "Dx%d[x%d] = %d /\\ ", u_vars[k], u_vars[k], v_vars[k]);
-	} else {
-	  fprintf(tmp_file, "Dx%d[x%d] = %d", u_vars[k], u_vars[k], v_vars[k]);
-	}
-      }
-
-      if (j+1 != adj.size()){
-        fprintf(tmp_file, ") \\/ ");
-      } else {
-	fprintf(tmp_file, ")");
-      }
-    }
-    fprintf(tmp_file, ";\n\n");
-  }
-  
-  fprintf(tmp_file, "solve satisfy;\n");
-  
-  fclose(tmp_file);  
-  return true;
+  return emb.to_mzn();
 }
 
 bool emb2dimacs(Embedding emb){

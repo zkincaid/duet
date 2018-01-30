@@ -37,15 +37,16 @@ module type S = sig
     t BatEnum.t
   val substructure : t -> t -> bool
   val embeds : t -> t -> bool
-  val embeds_novel : t -> t -> bool
-  val embeds_novel2 : t -> t -> bool
-  val uembeds : t -> t -> bool
-  val cembeds : t -> t -> bool
-  val bembeds : t -> t -> bool
+  val match_embeds : t -> t -> bool
+  val crypto_mini_sat : t -> t -> bool
+  val lingeling : t -> t -> bool
+  val haifacsp : t -> t -> bool
+  val gecode : t -> t -> bool
+  val vf2 : t -> t -> bool
+  val ortools : t -> t -> bool
   val str2mzn : t -> t -> bool
   val str2dimacs : t -> t -> bool
-  val haifacsp : t -> t -> bool
-  val ortools : t -> t -> bool
+
   val union : t -> t -> t
   val empty : int -> t
   val full : (predicate * int) BatEnum.t -> int -> t
@@ -311,135 +312,29 @@ module Make (P : Symbol) = struct
 
   let preds str = PSet.enum (get_preds str)
 
-  (* Gets a list of all predicate variables *)
-  let get_ids str =
-    let f (head, args) ids =
-      let g ids id =
-        KSet.add id ids
-      in
-      List.fold_left g ids args
-    in
-    AtomSet.fold f str.prop KSet.empty
-
-  module Graph = Matching.Make(SrkUtil.Int)
-
-  (* Create a Bipartite Graph from structures X and Y
-     Where X embeds Y -> |max_matching G| = |U|
-     For monadic structures this is a bimplication
-  *)
-  let mk_graph x y =
-    let mk_edges x_ids x_sigs y_ids y_sigs = (* Create an Enumeration of Edges *)
-      let e = BatEnum.empty() in
-      let f x_id =
-        let g y_id =
-          if Sig.subset (KMap.find x_id x_sigs) (KMap.find y_id y_sigs) then
-            BatEnum.push e (x_id, y_id)
-        in
-        KSet.iter g y_ids
-      in
-      KSet.iter f x_ids; e
-    in
-    let u = get_ids x in
-    let v = get_ids y in
-    let x_sigs = mk_sig_map x in
-    let y_sigs = mk_sig_map y in
-    let e = mk_edges u x_sigs v y_sigs in
-    Graph.make (KSet.enum u) (KSet.enum v) e
-
   module MatchCPP = MatchingCPP.Make(P)
-  module Embeds = Embeds.Make(P)
 
-  (* Is there an embedding (injective homomorphism) of x into y? 
-     Only gauranteed to work with monadic structures *)
-  let embeds_matching x y =
-    ((x.universe >= 10) && MatchCPP.embeds (MatchCPP.make (x.universe) (props x) (y.universe) (props y))) ||
-    begin
-      let g = mk_graph x y in
-         (Graph.incident_u g) >= (Graph.u_size g)       (* Quick check to see if |max_matching g| <= |U| *)
-      && (Graph.incident_v g) >= (Graph.u_size g)
-      && ((Graph.max_matching g) = (Graph.u_size g))
-    end
-
-  let embeds_novel x y =
-    (x.universe <= y.universe)
-    && (AtomSet.cardinal x.prop <= AtomSet.cardinal y.prop)
-    && (PSet.subset (get_preds x) (get_preds y)) (* this is always true when using Search Tree *)
-    && (AtomSet.subset x.prop y.prop ||
-       (Embeds.embeds (Embeds.make x.universe (props x) y.universe (props y))))
-
-  let embeds_novel2 x y =
-    (x.universe <= y.universe)
-    && (AtomSet.cardinal x.prop <= AtomSet.cardinal y.prop)
-    && (PSet.subset (get_preds x) (get_preds y)) (* this is always true when using Search Tree *)
-    && (AtomSet.subset x.prop y.prop ||
-       (MatchCPP.embeds (MatchCPP.make (x.universe) (props x) (y.universe) (props y))))
-
-  let uembeds x y =
+  let embeds f x y =
     incr embed;
     (x.universe <= y.universe)
     && (AtomSet.cardinal x.prop <= AtomSet.cardinal y.prop)
     && (PSet.subset (get_preds x) (get_preds y)) (* this is always true when using Search Tree *)
     && (AtomSet.subset x.prop y.prop ||
-       (MatchCPP.uembeds (MatchCPP.make (x.universe) (props x) (y.universe) (props y))))
+       (f (MatchCPP.make (x.universe) (props x) (y.universe) (props y))))
 
-  let cembeds x y =
-    (x.universe <= y.universe)
-    && (AtomSet.cardinal x.prop <= AtomSet.cardinal y.prop)
-    && (PSet.subset (get_preds x) (get_preds y)) (* this is always true when using Search Tree *)
-    && (AtomSet.subset x.prop y.prop ||
-          (MatchCPP.cembeds (MatchCPP.make (x.universe) (props x) (y.universe) (props y))))
+  let embeds f x y = Log.time "Embedding" (embeds f x) y
 
-  let bembeds x y =
-    (x.universe <= y.universe)
-    && (AtomSet.cardinal x.prop <= AtomSet.cardinal y.prop)
-    && (PSet.subset (get_preds x) (get_preds y)) (* this is always true when using Search Tree *)
-    && (AtomSet.subset x.prop y.prop ||
-       (MatchCPP.bembeds (MatchCPP.make (x.universe) (props x) (y.universe) (props y))))
+  let match_embeds = embeds MatchCPP.match_embeds
+  let crypto_mini_sat = embeds MatchCPP.crypto_mini_sat
+  let lingeling = embeds MatchCPP.lingeling
+  let haifacsp = embeds MatchCPP.haifacsp
+  let gecode = embeds MatchCPP.gecode
+  let vf2 = embeds MatchCPP.vf2
+  let ortools = embeds MatchCPP.ortools
+  let str2mzn = embeds MatchCPP.emb2mzn
+  let str2dimacs = embeds MatchCPP.emb2dimacs
 
-  let str2mzn x y =
-    (x.universe <= y.universe)
-    && (AtomSet.cardinal x.prop <= AtomSet.cardinal y.prop)
-    && (PSet.subset (get_preds x) (get_preds y)) (* this is always true when using Search Tree *)
-    && (AtomSet.subset x.prop y.prop ||
-       (MatchCPP.emb2mzn (MatchCPP.make (x.universe) (props x) (y.universe) (props y))))
-
-  let str2dimacs x y =
-    (x.universe <= y.universe)
-    && (AtomSet.cardinal x.prop <= AtomSet.cardinal y.prop)
-    && (PSet.subset (get_preds x) (get_preds y)) (* this is always true when using Search Tree *)
-    && (AtomSet.subset x.prop y.prop ||
-       (MatchCPP.emb2dimacs (MatchCPP.make (x.universe) (props x) (y.universe) (props y))))
-
-  let haifacsp x y =
-    (x.universe <= y.universe)
-    && (AtomSet.cardinal x.prop <= AtomSet.cardinal y.prop)
-    && (PSet.subset (get_preds x) (get_preds y)) (* this is always true when using Search Tree *)
-    && (AtomSet.subset x.prop y.prop ||
-       (MatchCPP.haifacsp (MatchCPP.make (x.universe) (props x) (y.universe) (props y))))    
-
-  let ortools x y =
-    (x.universe <= y.universe)
-    && (AtomSet.cardinal x.prop <= AtomSet.cardinal y.prop)
-    && (PSet.subset (get_preds x) (get_preds y)) (* this is always true when using Search Tree *)
-    && (AtomSet.subset x.prop y.prop ||
-       (MatchCPP.ortools (MatchCPP.make (x.universe) (props x) (y.universe) (props y))))
-
-  (* Is there an embedding (injective homomorphism) of x into y? *)
-  let embeds x y =
-    (x.universe <= y.universe)
-    && (AtomSet.cardinal x.prop <= AtomSet.cardinal y.prop)
-    && (PSet.subset (get_preds x) (get_preds y)) (* this is always true when using Search Tree *)
-    && (AtomSet.subset x.prop y.prop || begin
-    let monadic str =
-      let f (head, args) =
-        (List.length args) <= 1
-      in
-      AtomSet.for_all f str.prop
-    in
-    if (monadic x) && (monadic y) then embeds_matching x y else embeds_naive x y
-  end)
-
-  let embeds x y = Log.time "Embedding" (uembeds x) y
+  let embeds x y = Log.time "Embedding" (match_embeds x) y
 
   let make ?size:(size=(-1)) prop_enum =
     let prop = AtomSet.of_enum prop_enum in

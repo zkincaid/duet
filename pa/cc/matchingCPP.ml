@@ -24,13 +24,16 @@ module type S = sig
 
   (* run the embedding problem in C / C++ *)
   val embeds : t -> bool
-  val uembeds : t -> bool
-  val cembeds : t -> bool
-  val bembeds : t -> bool
-  val emb2mzn : t -> bool
+  val match_embeds : t -> bool
+  val crypto_mini_sat : t -> bool
+  val lingeling : t -> bool
   val haifacsp : t -> bool
+  val gecode : t -> bool
+  val vf2 : t ->  bool
   val ortools : t -> bool
+  val emb2mzn : t -> bool
   val emb2dimacs : t -> bool
+
 end
 
 module Make (Predicate : Symbol) = struct
@@ -57,19 +60,23 @@ module Make (Predicate : Symbol) = struct
   external embedsCPP : str -> str -> int ->  bool = "embedsOCAML"
 
   (* Uncouple record *)
-  let uembeds embedding = embedsCPP embedding.str1 embedding.str2 0
+  let embeds embedding = embedsCPP embedding.str1 embedding.str2 0
 
-  let embeds embedding = embedsCPP embedding.str1 embedding.str2 1
+  let match_embeds embedding = embedsCPP embedding.str1 embedding.str2 1
 
-  let cembeds embedding = embedsCPP embedding.str1 embedding.str2 2
+  let crypto_mini_sat embedding = embedsCPP embedding.str1 embedding.str2 2
 
-  let emb2mzn embedding = embedsCPP embedding.str1 embedding.str2 3
+  let lingeling embedding = embedsCPP embedding.str1 embedding.str2 3
 
   let haifacsp embedding = embedsCPP embedding.str1 embedding.str2 4
 
-  let ortools embedding = embedsCPP embedding.str1 embedding.str2 5
+  let gecode embedding = embedsCPP embedding.str1 embedding.str2 5
 
-  let emb2dimacs embedding = embedsCPP embedding.str1 embedding.str2 6
+  let vf2 embedding = embedsCPP embedding.str1 embedding.str2 6
 
-  let bembeds embedding = embedsCPP embedding.str1 embedding.str2 7
+  let ortools embedding = embedsCPP embedding.str1 embedding.str2 7
+
+  let emb2mzn embedding = embedsCPP embedding.str1 embedding.str2 8
+
+  let emb2dimacs embedding = embedsCPP embedding.str1 embedding.str2 9
 end

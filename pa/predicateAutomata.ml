@@ -621,6 +621,7 @@ module MakeEmpty (A : sig
   open A
 
   let config_set_rep = ref `PredicateTree
+  let embed_set_algo = ref `MatchEmbeds
 
   module Arg = struct
     type id = int
@@ -661,7 +662,16 @@ module MakeEmpty (A : sig
       end)
 
     let empty_set pa label =
-      let embeds x y = Config.embeds (DA.get label x) (DA.get label y) in
+      let embeds x y =
+        match !embed_set_algo with
+        | `MatchEmbeds -> Config.embeds (DA.get label x) (DA.get label y)
+        | `CryptoMiniSat -> Config.embeds (DA.get label x) (DA.get label y)
+        | `Lingeling -> Config.embeds (DA.get label x) (DA.get label y)
+        | `HaifaCSP -> Config.embeds (DA.get label x) (DA.get label y)
+        | `Gecode -> Config.embeds (DA.get label x) (DA.get label y)
+        | `OrTools -> Config.embeds (DA.get label x) (DA.get label y)
+        | `VF2 -> Config.embeds (DA.get label x) (DA.get label y)
+      in
       match !config_set_rep with
       | `List ->
         let list = ref [] in

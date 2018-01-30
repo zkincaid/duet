@@ -716,12 +716,13 @@ let construct_owici_gries solver assign_table trace =
                                                 | phi :: _ -> (phi :: posts)) [] preds
     in
     Solver.register_triple hoare_solver (posts, Tr.one, [Ctx.mk_false]);
-    ((`Transition Tr.one), 0) :: !letters (* Should add epsilon transition, but how? this doesn't type check :( *)
+    !letters
+     (* ((`Transition Tr.one), 0) :: !letters (* Should add epsilon transition, but how? this doesn't type check :( *) *)
   in
   construct solver assign_table trace add_triples
-      
-let construct = construct_owici_gries
-                *)
+ *)      
+let construct = construct_interp
+
 let construct solver trace =
   Log.time "PA construction" (construct solver) trace
 
@@ -1070,4 +1071,15 @@ let _ =
          | "feature-tree" -> E.config_set_rep := `FeatureTree
          | "predicate-tree" -> E.config_set_rep := `PredicateTree
          | s -> Log.errorf "Unknown option to -config-rep: `%s'" s),
-     " Change representation of config sets (list, feature-tree, predicate-tree)")
+     " Change representation of config sets (list, feature-tree, predicate-tree)");
+  CmdLine.register_config
+    ("-embed-algo", Arg.String (function
+         | "match-embeds" -> E.embed_set_algo := `MatchEmbeds
+         | "crypto-mini-sat" -> E.embed_set_algo := `CryptoMiniSat
+         | "lingeling" -> E.embed_set_algo := `Lingeling
+         | "haifa-csp" -> E.embed_set_algo := `HaifaCSP
+         | "gecode" -> E.embed_set_algo := `Gecode
+         | "or-tools" -> E.embed_set_algo := `OrTools
+         | "vf2" -> E.embed_set_algo := `VF2
+         | s -> Log.errorf "Unknown option to -embed-algo: `%s'" s),
+     " Change embedding algorithm implementations (match-embeds, crypto-mini-sat, lingeling, haifa-csp, gecode, or-tools, vf2)")

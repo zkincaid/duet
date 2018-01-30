@@ -336,7 +336,14 @@ let check_embeddings embeds structs reName =
        else
          print_endline (if embeds c c' then "True" else "False"));
        go structs'
-  in go structs  
+  in go structs
+
+let load_and_run_embeds f =
+  if Array.length Sys.argv > 3 then
+    check_embeddings f (load_structs Sys.argv.(3)) (match Sys.argv.(2) with | "rename" -> true | _ -> false)
+  else
+    check_embeddings f (load_structs Sys.argv.(2)) false
+
 
 let _ =
   Log.verbosity_level := `info;
@@ -387,46 +394,16 @@ let _ =
           size
       | Some _ -> ()
     end
-  | "embeds" ->
-     if Array.length Sys.argv > 3 then
-       check_embeddings Config.embeds_novel2 (load_structs Sys.argv.(3)) (match Sys.argv.(2) with | "rename" -> true | _ -> false)
-     else
-       check_embeddings Config.embeds_novel2 (load_structs Sys.argv.(2)) false
-  | "uembeds" ->
-     if Array.length Sys.argv > 3 then
-       check_embeddings Config.uembeds (load_structs Sys.argv.(3)) (match Sys.argv.(2) with | "rename" -> true | _ -> false)
-     else
-       check_embeddings Config.uembeds (load_structs Sys.argv.(2)) false
-  | "cembeds" ->
-     if Array.length Sys.argv > 3 then
-       check_embeddings Config.cembeds (load_structs Sys.argv.(3)) (match Sys.argv.(2) with | "rename" -> true | _ -> false)
-     else
-       check_embeddings Config.cembeds (load_structs Sys.argv.(2)) false
-  | "str2mzn" ->
-     if Array.length Sys.argv > 3 then
-       check_embeddings Config.str2mzn (load_structs Sys.argv.(3)) (match Sys.argv.(2) with | "rename" -> true | _ -> false)
-     else
-       check_embeddings Config.str2mzn (load_structs Sys.argv.(2)) false
-  | "str2dimacs" ->
-     if Array.length Sys.argv > 3 then
-       check_embeddings Config.str2dimacs (load_structs Sys.argv.(3)) (match Sys.argv.(2) with | "rename" -> true | _ -> false)
-     else
-       check_embeddings Config.str2dimacs (load_structs Sys.argv.(2)) false
-  | "bembeds" ->
-     if Array.length Sys.argv > 3 then
-       check_embeddings Config.bembeds (load_structs Sys.argv.(3)) (match Sys.argv.(2) with | "rename" -> true | _ -> false)
-     else
-       check_embeddings Config.bembeds (load_structs Sys.argv.(2)) false
-  | "haifacsp" ->
-     if Array.length Sys.argv > 3 then
-       check_embeddings Config.haifacsp (load_structs Sys.argv.(3)) (match Sys.argv.(2) with | "rename" -> true | _ -> false)
-     else
-       check_embeddings Config.haifacsp (load_structs Sys.argv.(2)) false
-  | "ortools" ->
-     if Array.length Sys.argv > 3 then
-       check_embeddings Config.ortools (load_structs Sys.argv.(3)) (match Sys.argv.(2) with | "rename" -> true | _ -> false)
-     else
-       check_embeddings Config.ortools (load_structs Sys.argv.(2)) false
+  | "embeds" -> load_and_run_embeds Config.embeds
+  | "match-embeds" -> load_and_run_embeds Config.match_embeds
+  | "crypto-mini-sat" -> load_and_run_embeds Config.crypto_mini_sat
+  | "lingeling" -> load_and_run_embeds Config.lingeling
+  | "haifacsp" -> load_and_run_embeds Config.haifacsp
+  | "gecode" -> load_and_run_embeds Config.gecode
+  | "vf2" -> load_and_run_embeds Config.vf2
+  | "ortools" -> load_and_run_embeds Config.ortools
+  | "str2mzn" -> load_and_run_embeds Config.str2mzn
+  | "str2dimacs" -> load_and_run_embeds Config.str2dimacs
   | "diff-check" ->
     let program = load_automaton Sys.argv.(2) in
     let proof = load_automaton Sys.argv.(3) in
