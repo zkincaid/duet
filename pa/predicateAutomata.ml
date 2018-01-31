@@ -664,13 +664,13 @@ module MakeEmpty (A : sig
     let empty_set pa label =
       let embeds x y =
         match !embed_set_algo with
-        | `MatchEmbeds -> Config.embeds (DA.get label x) (DA.get label y)
-        | `CryptoMiniSat -> Config.embeds (DA.get label x) (DA.get label y)
-        | `Lingeling -> Config.embeds (DA.get label x) (DA.get label y)
-        | `HaifaCSP -> Config.embeds (DA.get label x) (DA.get label y)
-        | `Gecode -> Config.embeds (DA.get label x) (DA.get label y)
-        | `OrTools -> Config.embeds (DA.get label x) (DA.get label y)
-        | `VF2 -> Config.embeds (DA.get label x) (DA.get label y)
+        | `MatchEmbeds -> Config.match_embeds (DA.get label x) (DA.get label y)
+        | `CryptoMiniSat -> Config.crypto_mini_sat (DA.get label x) (DA.get label y)
+        | `Lingeling -> Config.lingeling (DA.get label x) (DA.get label y)
+        | `HaifaCSP -> Config.haifacsp (DA.get label x) (DA.get label y)
+        | `Gecode -> Config.gecode (DA.get label x) (DA.get label y)
+        | `OrTools -> Config.ortools (DA.get label x) (DA.get label y)
+        | `VF2 -> Config.vf2 (DA.get label x) (DA.get label y)
       in
       match !config_set_rep with
       | `List ->

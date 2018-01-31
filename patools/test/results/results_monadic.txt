@@ -1,104 +1,107 @@
-../embed_monad_bench/embed000.struct	False	False	False	False	12	3135	2092	29
-../embed_monad_bench/embed001.struct	True	True	True	True	10	13	35	30
-../embed_monad_bench/embed002.struct	False	False	False	False	10	1077	206	28
-../embed_monad_bench/embed003.struct	True	--	True	True	10	100004	38	29
-../embed_monad_bench/embed004.struct	False	--	--	False	9	100005	100003	29
-../embed_monad_bench/embed005.struct	True	--	True	True	11	100004	48	30
-../embed_monad_bench/embed006.struct	True	--	True	True	9	100003	39	35
-../embed_monad_bench/embed007.struct	False	--	False	False	10	100004	72850	29
-../embed_monad_bench/embed008.struct	False	--	--	False	10	100003	100003	29
-../embed_monad_bench/embed009.struct	False	False	False	False	10	338	2543	28
-../embed_monad_bench/embed010.struct	False	--	--	False	10	100006	100003	35
-../embed_monad_bench/embed011.struct	True	True	True	True	13	11	33	33
-../embed_monad_bench/embed012.struct	False	False	False	False	11	56522	23477	29
-../embed_monad_bench/embed013.struct	False	--	--	False	11	100003	100003	31
-../embed_monad_bench/embed014.struct	False	--	False	False	11	100002	12370	37
-../embed_monad_bench/embed015.struct	False	--	False	False	11	100003	706	35
-../embed_monad_bench/embed016.struct	True	--	True	True	11	100003	40	35
-../embed_monad_bench/embed017.struct	False	--	--	False	10	100003	100003	28
-../embed_monad_bench/embed018.struct	False	--	False	False	11	100003	4639	31
-../embed_monad_bench/embed019.struct	True	True	True	True	10	11	57	36
-../embed_monad_bench/embed020.struct	True	--	True	True	10	100003	30	29
-../embed_monad_bench/embed021.struct	False	--	--	False	9	100003	100003	32
-../embed_monad_bench/embed022.struct	False	--	--	False	14	100008	100002	32
-../embed_monad_bench/embed023.struct	True	--	True	True	10	100003	32	30
-../embed_monad_bench/embed024.struct	False	--	--	False	11	100003	100003	29
-../embed_monad_bench/embed025.struct	False	--	--	False	11	100002	100005	30
-../embed_monad_bench/embed026.struct	False	--	--	False	9	100008	100003	32
-../embed_monad_bench/embed027.struct	True	True	True	True	11	1552	33	29
-../embed_monad_bench/embed028.struct	False	--	--	False	10	100003	100002	33
-../embed_monad_bench/embed029.struct	True	--	True	True	11	100003	48	33
-../embed_monad_bench/embed030.struct	False	--	--	False	11	100003	100004	29
-../embed_monad_bench/embed031.struct	True	--	True	True	10	100003	40	31
-../embed_monad_bench/embed032.struct	False	False	False	False	11	581	2321	27
-../embed_monad_bench/embed033.struct	True	True	True	True	11	9	28	29
-../embed_monad_bench/embed034.struct	True	True	True	True	10	10	35	28
-../embed_monad_bench/embed035.struct	True	--	True	True	11	100004	44	31
-../embed_monad_bench/embed036.struct	False	--	False	False	10	100003	4066	30
-../embed_monad_bench/embed037.struct	False	False	--	False	10	37023	100004	27
-../embed_monad_bench/embed038.struct	False	--	--	False	10	100004	100004	39
-../embed_monad_bench/embed039.struct	False	--	--	False	12	100003	100005	38
-../embed_monad_bench/embed040.struct	False	--	--	False	12	100003	100004	29
-../embed_monad_bench/embed041.struct	False	--	--	False	10	100004	100003	28
-../embed_monad_bench/embed042.struct	True	--	True	True	10	100003	43	34
-../embed_monad_bench/embed043.struct	False	False	False	False	11	6941	24328	29
-../embed_monad_bench/embed044.struct	False	--	--	False	10	100004	100003	30
-../embed_monad_bench/embed045.struct	False	False	False	False	9	1309	129	29
-../embed_monad_bench/embed046.struct	True	True	True	True	9	3432	34	27
-../embed_monad_bench/embed047.struct	False	--	--	False	10	100004	100003	29
-../embed_monad_bench/embed048.struct	False	False	False	False	10	227	2244	28
-../embed_monad_bench/embed049.struct	True	True	True	True	10	11	33	33
-../embed_monad_bench/embed050.struct	False	--	--	False	10	100004	100003	31
-../embed_monad_bench/embed051.struct	False	False	False	False	11	13919	28666	28
-../embed_monad_bench/embed052.struct	False	--	--	False	10	100005	100004	30
-../embed_monad_bench/embed053.struct	False	--	--	False	9	100003	100004	30
-../embed_monad_bench/embed054.struct	True	True	True	True	11	1586	26	30
-../embed_monad_bench/embed055.struct	False	False	False	False	11	4972	244	31
-../embed_monad_bench/embed056.struct	True	True	True	True	10	860	28	30
-../embed_monad_bench/embed057.struct	False	False	False	False	10	12461	3634	32
-../embed_monad_bench/embed058.struct	True	--	True	True	10	100003	26	29
-../embed_monad_bench/embed059.struct	False	--	False	False	11	100004	72268	32
-../embed_monad_bench/embed060.struct	False	False	False	False	9	15386	134	29
-../embed_monad_bench/embed061.struct	True	True	True	True	9	4614	22	27
-../embed_monad_bench/embed062.struct	True	True	True	True	10	20260	33	28
-../embed_monad_bench/embed063.struct	False	--	--	False	9	100002	100006	31
-../embed_monad_bench/embed064.struct	False	--	False	False	12	100004	34441	29
-../embed_monad_bench/embed065.struct	False	--	--	False	9	100003	100003	29
-../embed_monad_bench/embed066.struct	False	--	--	False	11	100003	100003	27
-../embed_monad_bench/embed067.struct	True	True	True	True	12	11	29	29
-../embed_monad_bench/embed068.struct	False	--	--	False	12	100004	100004	29
-../embed_monad_bench/embed069.struct	True	True	True	True	11	13	32	28
-../embed_monad_bench/embed070.struct	False	False	False	False	11	10440	233	29
-../embed_monad_bench/embed071.struct	True	--	True	True	12	100007	36	29
-../embed_monad_bench/embed072.struct	False	--	--	False	11	100003	100002	29
-../embed_monad_bench/embed073.struct	False	--	--	False	11	100003	100002	28
-../embed_monad_bench/embed074.struct	True	True	True	True	11	32059	29	28
-../embed_monad_bench/embed075.struct	False	False	False	False	12	90020	256	29
-../embed_monad_bench/embed076.struct	False	--	--	False	11	100006	100003	29
-../embed_monad_bench/embed077.struct	True	--	True	True	10	100003	24	28
-../embed_monad_bench/embed078.struct	False	--	--	False	10	100003	100003	29
-../embed_monad_bench/embed079.struct	False	--	--	False	12	100003	100003	29
-../embed_monad_bench/embed080.struct	False	--	--	False	12	100003	100004	29
-../embed_monad_bench/embed081.struct	False	--	--	False	11	100005	100003	29
-../embed_monad_bench/embed082.struct	False	False	False	False	11	6206	55	26
-../embed_monad_bench/embed083.struct	False	--	False	False	11	100003	10322	28
-../embed_monad_bench/embed084.struct	True	--	True	True	11	100003	39	30
-../embed_monad_bench/embed085.struct	False	False	False	False	11	526	1461	28
-../embed_monad_bench/embed086.struct	False	--	--	False	12	100003	100003	29
-../embed_monad_bench/embed087.struct	False	--	False	False	11	100003	119	29
-../embed_monad_bench/embed088.struct	True	--	True	True	12	100005	44	33
-../embed_monad_bench/embed089.struct	False	--	--	False	11	100003	100002	27
-../embed_monad_bench/embed090.struct	False	--	--	False	11	100005	100003	28
-../embed_monad_bench/embed091.struct	True	True	True	True	12	3010	37	32
-../embed_monad_bench/embed092.struct	False	False	False	False	12	73695	18893	29
-../embed_monad_bench/embed093.struct	False	--	--	False	12	100008	100003	28
-../embed_monad_bench/embed094.struct	True	True	True	True	12	12	39	31
-../embed_monad_bench/embed095.struct	True	True	True	True	11	10	39	32
-../embed_monad_bench/embed096.struct	False	--	--	False	11	100003	100003	28
-../embed_monad_bench/embed097.struct	False	--	--	False	11	100004	100003	29
-../embed_monad_bench/embed098.struct	False	--	--	False	11	100007	100003	29
-../embed_monad_bench/embed099.struct	True	--	True	True	12	100003	28	27
-Fail1: 0								
-Fail2: 64								
-Fail4: 40								
-Fail5: 0								
+../embed_monad_bench/embed000.struct	False	False	False	False	False	--	--	12	2092	1061	29	3135	100003	100032
+../embed_monad_bench/embed001.struct	True	True	True	True	True	True	True	10	35	56	30	13	11	61
+../embed_monad_bench/embed002.struct	False	False	False	False	False	--	False	10	206	45	28	1077	100031	413
+../embed_monad_bench/embed003.struct	True	True	True	True	--	--	--	10	38	120	29	100004	100021	100033
+../embed_monad_bench/embed004.struct	False	--	--	False	--	--	--	9	100003	100003	29	100005	100003	100003
+../embed_monad_bench/embed005.struct	True	True	True	True	--	--	True	11	48	44	30	100004	100008	62
+../embed_monad_bench/embed006.struct	True	True	True	True	--	True	True	9	39	58	35	100003	11	65
+../embed_monad_bench/embed007.struct	False	False	--	False	--	--	--	10	72850	100003	29	100004	100010	100003
+../embed_monad_bench/embed008.struct	False	--	--	False	--	--	--	10	100003	100003	29	100003	100003	100004
+../embed_monad_bench/embed009.struct	False	False	False	False	False	False	False	10	2543	906	28	338	18379	644
+../embed_monad_bench/embed010.struct	False	--	--	False	--	--	--	10	100003	100002	35	100006	100003	100003
+../embed_monad_bench/embed011.struct	True	True	True	True	True	True	True	13	33	27	33	11	57	57
+../embed_monad_bench/embed012.struct	False	False	--	False	False	--	False	11	23477	100012	29	56522	100003	18209
+../embed_monad_bench/embed013.struct	False	--	--	False	--	--	--	11	100003	100003	31	100003	100004	100003
+../embed_monad_bench/embed014.struct	False	False	False	False	--	--	False	11	12370	33812	37	100002	100018	20156
+../embed_monad_bench/embed015.struct	False	False	False	False	--	--	--	11	706	475	35	100003	100016	100003
+../embed_monad_bench/embed016.struct	True	True	True	True	--	True	--	11	40	279	35	100003	3260	100004
+../embed_monad_bench/embed017.struct	False	--	--	False	--	--	--	10	100003	100005	28	100003	100003	100004
+../embed_monad_bench/embed018.struct	False	False	False	False	--	--	--	11	4639	1109	31	100003	100029	100003
+../embed_monad_bench/embed019.struct	True	True	True	True	True	True	True	10	57	73	36	11	11	64
+../embed_monad_bench/embed020.struct	True	True	True	True	--	--	True	10	30	27	29	100003	100004	51
+../embed_monad_bench/embed021.struct	False	--	--	False	--	--	--	9	100003	100003	32	100003	100003	100003
+../embed_monad_bench/embed022.struct	False	--	--	False	--	--	--	14	100002	100050	32	100008	100068	100003
+../embed_monad_bench/embed023.struct	True	True	True	True	--	True	--	10	32	29	30	100003	11	100003
+../embed_monad_bench/embed024.struct	False	--	--	False	--	--	--	11	100003	100006	29	100003	100004	100008
+../embed_monad_bench/embed025.struct	False	--	--	False	--	--	--	11	100005	100003	30	100002	100003	100004
+../embed_monad_bench/embed026.struct	False	--	--	False	--	--	--	9	100003	100003	32	100008	100009	100009
+../embed_monad_bench/embed027.struct	True	True	True	True	True	True	True	11	33	28	29	1552	10	46
+../embed_monad_bench/embed028.struct	False	--	--	False	--	--	--	10	100002	100008	33	100003	100007	100003
+../embed_monad_bench/embed029.struct	True	True	True	True	--	--	True	11	48	64	33	100003	100003	65
+../embed_monad_bench/embed030.struct	False	--	--	False	--	--	--	11	100004	100003	29	100003	100005	100009
+../embed_monad_bench/embed031.struct	True	True	True	True	--	--	--	10	40	40	31	100003	100003	100007
+../embed_monad_bench/embed032.struct	False	False	False	False	False	--	False	11	2321	531	27	581	100022	182
+../embed_monad_bench/embed033.struct	True	True	True	True	True	True	True	11	28	71	29	9	10	51
+../embed_monad_bench/embed034.struct	True	True	True	True	True	--	True	10	35	33	28	10	100003	45
+../embed_monad_bench/embed035.struct	True	True	True	True	--	True	--	11	44	58	31	100004	44	100005
+../embed_monad_bench/embed036.struct	False	False	False	False	--	--	--	10	4066	615	30	100003	100004	100003
+../embed_monad_bench/embed037.struct	False	--	--	False	False	--	False	10	100004	100035	27	37023	100043	25199
+../embed_monad_bench/embed038.struct	False	--	--	False	--	--	--	10	100004	100003	39	100004	100003	100082
+../embed_monad_bench/embed039.struct	False	--	--	False	--	--	--	12	100005	100003	38	100003	100004	100247
+../embed_monad_bench/embed040.struct	False	--	--	False	--	--	--	12	100004	100003	29	100003	100003	100007
+../embed_monad_bench/embed041.struct	False	--	--	False	--	--	--	10	100003	100028	28	100004	100002	100003
+../embed_monad_bench/embed042.struct	True	True	True	True	--	--	True	10	43	54	34	100003	100003	67
+../embed_monad_bench/embed043.struct	False	False	False	False	False	--	False	11	24328	24622	29	6941	100005	2836
+../embed_monad_bench/embed044.struct	False	--	--	False	--	--	--	10	100003	100030	30	100004	100003	100009
+../embed_monad_bench/embed045.struct	False	False	False	False	False	--	False	9	129	40	29	1309	100003	3767
+../embed_monad_bench/embed046.struct	True	True	True	True	True	--	True	9	34	68	27	3432	100007	61
+../embed_monad_bench/embed047.struct	False	--	--	False	--	--	--	10	100003	100002	29	100004	100007	100005
+../embed_monad_bench/embed048.struct	False	False	False	False	False	--	False	10	2244	1517	28	227	100006	288
+../embed_monad_bench/embed049.struct	True	True	True	True	True	--	True	10	33	36	33	11	100003	76
+../embed_monad_bench/embed050.struct	False	--	--	False	--	--	--	10	100003	100008	31	100004	100005	100002
+../embed_monad_bench/embed051.struct	False	False	--	False	False	--	False	11	28666	100003	28	13919	100003	12036
+../embed_monad_bench/embed052.struct	False	--	--	False	--	--	--	10	100004	100002	30	100005	100002	100005
+../embed_monad_bench/embed053.struct	False	--	--	False	--	--	--	9	100004	100009	30	100003	100003	100003
+../embed_monad_bench/embed054.struct	True	True	True	True	True	True	True	11	26	33	30	1586	13	83
+../embed_monad_bench/embed055.struct	False	False	False	False	False	--	False	11	244	126	31	4972	100002	505
+../embed_monad_bench/embed056.struct	True	True	True	True	True	True	True	10	28	52	30	860	25	82
+../embed_monad_bench/embed057.struct	False	False	False	False	False	--	--	10	3634	2271	32	12461	100003	100005
+../embed_monad_bench/embed058.struct	True	True	True	True	--	--	--	10	26	33	29	100003	100003	100005
+../embed_monad_bench/embed059.struct	False	False	--	False	--	--	--	11	72268	100002	32	100004	100002	100003
+../embed_monad_bench/embed060.struct	False	False	False	False	False	--	False	9	134	43	29	15386	100002	1287
+../embed_monad_bench/embed061.struct	True	True	True	True	True	--	True	9	22	43	27	4614	100005	65
+../embed_monad_bench/embed062.struct	True	True	True	True	True	True	True	10	33	40	28	20260	18	6847
+../embed_monad_bench/embed063.struct	False	--	--	False	--	--	--	9	100006	100006	31	100002	100002	100004
+../embed_monad_bench/embed064.struct	False	False	--	False	--	--	--	12	34441	100006	29	100004	100003	100003
+../embed_monad_bench/embed065.struct	False	--	--	False	--	--	--	9	100003	100002	29	100003	100002	100004
+../embed_monad_bench/embed066.struct	False	--	--	False	--	--	--	11	100003	100002	27	100003	100007	100003
+../embed_monad_bench/embed067.struct	True	True	True	True	True	True	--	12	29	116	29	11	31	100002
+../embed_monad_bench/embed068.struct	False	--	--	False	--	--	--	12	100004	100003	29	100004	100003	100003
+../embed_monad_bench/embed069.struct	True	True	True	True	True	True	True	11	32	40	28	13	12	61
+../embed_monad_bench/embed070.struct	False	False	False	False	False	--	False	11	233	140	29	10440	100002	3329
+../embed_monad_bench/embed071.struct	True	True	True	True	--	--	--	12	36	53	29	100007	100003	100003
+../embed_monad_bench/embed072.struct	False	--	False	False	--	--	--	11	100002	55307	29	100003	100003	100003
+../embed_monad_bench/embed073.struct	False	--	--	False	--	--	--	11	100002	100003	28	100003	100004	100003
+../embed_monad_bench/embed074.struct	True	True	True	True	True	True	True	11	29	33	28	32059	13	66
+../embed_monad_bench/embed075.struct	False	False	False	False	False	--	False	12	256	74	29	90020	100004	283
+../embed_monad_bench/embed076.struct	False	--	--	False	--	--	--	11	100003	100003	29	100006	100005	100003
+../embed_monad_bench/embed077.struct	True	True	True	True	--	--	True	10	24	33	28	100003	100004	2662
+../embed_monad_bench/embed078.struct	False	--	--	False	--	--	--	10	100003	100004	29	100003	100003	100004
+../embed_monad_bench/embed079.struct	False	--	--	False	--	--	--	12	100003	100006	29	100003	100004	100004
+../embed_monad_bench/embed080.struct	False	--	--	False	--	--	--	12	100004	100003	29	100003	100004	100003
+../embed_monad_bench/embed081.struct	False	--	--	False	--	--	--	11	100003	100005	29	100005	100002	100009
+../embed_monad_bench/embed082.struct	False	False	False	False	False	--	False	11	55	50	26	6206	100003	2165
+../embed_monad_bench/embed083.struct	False	False	False	False	--	--	--	11	10322	15168	28	100003	100003	100007
+../embed_monad_bench/embed084.struct	True	True	True	True	--	--	--	11	39	69	30	100003	100003	100003
+../embed_monad_bench/embed085.struct	False	False	False	False	False	--	False	11	1461	210	28	526	100003	231
+../embed_monad_bench/embed086.struct	False	--	--	False	--	--	--	12	100003	100002	29	100003	100002	100003
+../embed_monad_bench/embed087.struct	False	False	False	False	--	--	False	11	119	76	29	100003	100002	160
+../embed_monad_bench/embed088.struct	True	True	True	True	--	True	--	12	44	61	33	100005	13	100003
+../embed_monad_bench/embed089.struct	False	--	--	False	--	--	--	11	100002	100002	27	100003	100006	100003
+../embed_monad_bench/embed090.struct	False	--	--	False	--	--	--	11	100003	100003	28	100005	100002	100002
+../embed_monad_bench/embed091.struct	True	True	True	True	True	--	True	12	37	80	32	3010	100002	73
+../embed_monad_bench/embed092.struct	False	False	--	False	False	--	False	12	18893	100007	29	73695	100003	16488
+../embed_monad_bench/embed093.struct	False	--	--	False	--	--	--	12	100003	100003	28	100008	100003	100005
+../embed_monad_bench/embed094.struct	True	True	True	True	True	True	True	12	39	52	31	12	10	70
+../embed_monad_bench/embed095.struct	True	True	True	True	True	True	True	11	39	64	32	10	17	76
+../embed_monad_bench/embed096.struct	False	--	--	False	--	--	--	11	100003	100003	28	100003	100003	100007
+../embed_monad_bench/embed097.struct	False	--	--	False	--	--	--	11	100003	100002	29	100004	100003	100003
+../embed_monad_bench/embed098.struct	False	--	--	False	--	--	--	11	100003	100003	29	100007	100002	100003
+../embed_monad_bench/embed099.struct	True	True	True	True	--	True	True	12	28	40	27	100003	15	92
+Fail1: 0														
+Fail2: 40														
+Fail3: 45														
+Fail4: 0														
+Fail5: 64														
+Fail6: 80														
+Fail7: 58														

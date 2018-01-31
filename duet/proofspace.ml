@@ -1041,7 +1041,8 @@ let verify file =
           logf ~level:`info ~attributes:[`Bold] "  Error trace:";
           List.iter (fun (letter, id) ->
               logf ~level:`info "    [#%d] %a" id Letter.pp letter
-            ) trace
+            ) trace;
+          logf ~level:`always "Embedding Queries %d" (PA.Config.num_queries ())
         | `Unsat ->
           construct solver assign_table trace;
           incr number_cex;
@@ -1053,7 +1054,8 @@ let verify file =
           logf ~level:`info ~attributes:[`Bold] "  Could not verify trace:";
           List.iter (fun (letter, id) ->
               logf ~level:`info "    [#%d] %a" id Letter.pp letter
-            ) trace
+            ) trace;
+          logf ~level:`always "Embedding Queries %d" (PA.Config.num_queries ())
       end
     | None ->
       log ~level:`always ~attributes:[`Bold;`Green]

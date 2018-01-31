@@ -16,11 +16,19 @@ def read_data(file_name, cols):
     print reduce(lambda x, y: x + y, n)
     return data
 
-if len(sys.argv) != 4:
-    print "Usage: %s <data_file> <time_out> <num_cols>" % sys.argv[0]
+if len(sys.argv) < 4:
+    print "Usage: %s <data_file> <time_out> <num_cols> [solver list, ...]" % sys.argv[0]
+    print "\t1 : MatchEmbeds"
+    print "\t2 : CryptoMiniSat"
+    print "\t3 : Lingeling"
+    print "\t4 : HaifaCSP"
+    print "\t5 : Gecode"
+    print "\t6 : VF2"
+    print "\t7 : OrTools"
     sys.exit(-1)
 
-data = read_data(sys.argv[1], int(sys.argv[3]))
+cols = int(sys.argv[3])
+data = read_data(sys.argv[1], cols)
 TO = int(sys.argv[2])
 
 def cactus_plot(data, *args, **kwargs):
@@ -38,20 +46,23 @@ def cactus_plot(data, *args, **kwargs):
     Y.append(val)
     plt.plot(X, Y, *args, **kwargs)
 
-
-if (int(sys.argv[3]) > 4):
-  cactus_plot(data[5], '-bs', label='MatchEmbeds')
-  cactus_plot(data[6], '-yo', label='Gecode')
-  cactus_plot(data[7], '-rh', label='VF2')
-  cactus_plot(data[8], '-m*', label='SAT')
-  cactus_plot(data[9], '-gd', label='HaifaCSP')
-else:
-  cactus_plot(data[4], '-bs', label='MatchEmbeds')
-  cactus_plot(data[5], '-yo', label='Gecode')
-  cactus_plot(data[6], '-m*', label='SAT')
-  cactus_plot(data[7], '-gd', label='HaifaCSP')
-
+solver = [("MatchEmbeds","s", "b"),
+          ("CryptoMiniSat","o", "y"),
+          ("Lingeling","h", "r"),
+          ("HaifaCSP","*", "m"),
+          ("Gecode","d", "c"),
+          ("VF2","^", "g"),
+          ("OrTools","p", "orange")]
 # s - square, v ^ < > - triangles, o - circe, p - pentagon, * - star, h H - hexagon, x - x, d D - diamond
+
+solvers = [i for i in range(cols)]
+if len(sys.argv) > 4:
+    solvers = sys.argv[4:]
+
+for i in range(len(solvers)):
+    data_ind = cols+i
+    (label, marker, color) = solver[int(solvers[i])]
+    cactus_plot(data[data_ind], '-', marker=marker, color=color, label=label)
 
 plt.xlabel('Instances Solved')
 plt.ylabel('Time (s)')

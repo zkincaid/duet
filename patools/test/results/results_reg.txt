@@ -1,105 +1,107 @@
-../embed_reg_bench/embed000.struct	True	True	--	True	True	63	63432	100003	7013	4904
-../embed_reg_bench/embed001.struct	True	True	True	True	True	36	194	35	167	2287
-../embed_reg_bench/embed002.struct	True	True	True	True	True	47	99	20	186	2030
-../embed_reg_bench/embed003.struct	True	True	True	True	True	82	497	28	648	6645
-../embed_reg_bench/embed004.struct	--	--	--	--	--	100003	100011	100003	100004	100005
-../embed_reg_bench/embed005.struct	True	True	True	True	True	128	424	35	947	8265
-../embed_reg_bench/embed006.struct	True	True	True	True	True	21	73	17	96	1097
-../embed_reg_bench/embed007.struct	True	--	--	True	True	97	100011	100006	35746	99722
-../embed_reg_bench/embed008.struct	False	False	--	False	False	17	21	100004	32	323
-../embed_reg_bench/embed009.struct	False	False	--	False	False	11	15	100003	26	90
-../embed_reg_bench/embed010.struct	False	False	False	False	False	25	636	145	95	1261
-../embed_reg_bench/embed011.struct	False	--	False	--	--	16498	100011	74089	100004	100004
-../embed_reg_bench/embed012.struct	True	--	--	--	--	193	100020	100003	100003	100006
-../embed_reg_bench/embed013.struct	False	False	False	False	False	21	874	15796	2777	31
-../embed_reg_bench/embed014.struct	True	True	--	True	True	13	14	100003	42	34
-../embed_reg_bench/embed015.struct	True	True	--	True	True	17	21	100003	45	188
-../embed_reg_bench/embed016.struct	False	--	--	--	False	17	100004	100003	100004	997
-../embed_reg_bench/embed017.struct	True	True	True	True	True	12	1987	11	25	47
-../embed_reg_bench/embed018.struct	True	True	True	True	True	69	346	21	593	6641
-../embed_reg_bench/embed019.struct	False	False	--	False	False	14	14	100007	42	32
-../embed_reg_bench/embed020.struct	False	--	--	False	--	788	100014	100003	32584	100002
-../embed_reg_bench/embed021.struct	True	True	True	True	--	8	7	8	7	100004
-../embed_reg_bench/embed022.struct	True	True	True	--	True	336	90606	625	100004	50481
-../embed_reg_bench/embed023.struct	False	--	--	False	False	201	100007	100003	7410	58405
-../embed_reg_bench/embed024.struct	True	--	--	--	--	26096	100008	100002	100003	100003
-../embed_reg_bench/embed025.struct	True	--	True	True	True	459	100008	11908	83318	64400
-../embed_reg_bench/embed026.struct	True	True	True	True	True	11	8	9	8	32656
-../embed_reg_bench/embed027.struct	True	True	--	True	True	60	329	100004	197	2602
-../embed_reg_bench/embed028.struct	True	--	True	True	--	408	100008	44254	60748	100002
-../embed_reg_bench/embed029.struct	False	--	False	False	--	2966	100013	2705	5414	100003
-../embed_reg_bench/embed030.struct	True	True	--	True	True	35	946	100007	188	2276
-../embed_reg_bench/embed031.struct	False	False	--	False	False	22	55	100004	168	2249
-../embed_reg_bench/embed032.struct	--	--	--	--	--	100004	100012	100004	100003	100003
-../embed_reg_bench/embed033.struct	True	True	--	True	True	219	18885	100005	15211	15339
-../embed_reg_bench/embed034.struct	True	True	True	True	True	119	224	44	595	6148
-../embed_reg_bench/embed035.struct	True	True	True	True	True	22	570	13	348	1455
-../embed_reg_bench/embed036.struct	False	--	False	False	False	146	100006	27	1201	31606
-../embed_reg_bench/embed037.struct	True	--	--	True	--	1039	100008	100004	16967	100003
-../embed_reg_bench/embed038.struct	True	True	True	True	True	75	3949	21	2524	9447
-../embed_reg_bench/embed039.struct	True	True	True	True	True	25	76	16	127	1492
-../embed_reg_bench/embed040.struct	True	--	--	True	True	14	100003	100004	44	400
-../embed_reg_bench/embed041.struct	True	True	True	True	True	53	1209	20	424	3419
-../embed_reg_bench/embed042.struct	True	True	True	True	True	15	1132	4345	191	278
-../embed_reg_bench/embed043.struct	True	True	True	True	True	16	2617	131	571	1405
-../embed_reg_bench/embed044.struct	True	True	True	True	True	24	10410	20	482	4725
-../embed_reg_bench/embed045.struct	True	True	--	True	True	89	291	100003	336	3777
-../embed_reg_bench/embed046.struct	True	True	True	True	True	686	3645	61	5781	39750
-../embed_reg_bench/embed047.struct	False	False	--	False	False	17	12	100004	33	34
-../embed_reg_bench/embed048.struct	--	--	--	--	--	100003	100015	100006	100004	100011
-../embed_reg_bench/embed049.struct	True	True	True	True	True	39	70	25	164	1076
-../embed_reg_bench/embed050.struct	True	True	True	True	True	41	100	23	157	1606
-../embed_reg_bench/embed051.struct	True	True	True	True	True	64	355	21	263	2769
-../embed_reg_bench/embed052.struct	True	True	True	True	True	480	2100	46	13407	26470
-../embed_reg_bench/embed053.struct	True	True	True	True	True	178	24715	14282	34879	23120
-../embed_reg_bench/embed054.struct	True	True	--	True	True	65	79420	100003	355	17093
-../embed_reg_bench/embed055.struct	True	True	True	True	True	12	11	5127	23	28
-../embed_reg_bench/embed056.struct	False	--	False	False	False	124	100009	145	954	9714
-../embed_reg_bench/embed057.struct	True	True	True	True	True	16	13	3716	27	29
-../embed_reg_bench/embed058.struct	False	--	--	False	--	204	100006	100003	9284	100002
-../embed_reg_bench/embed059.struct	True	True	True	True	True	178	1174	69	2412	10633
-../embed_reg_bench/embed060.struct	True	--	--	--	True	278	100024	100004	100003	93821
-../embed_reg_bench/embed061.struct	False	False	False	False	False	15	6610	2057	293	219
-../embed_reg_bench/embed062.struct	True	True	--	True	True	20	93	100003	64	709
-../embed_reg_bench/embed063.struct	True	True	True	True	True	86	502	21	1163	7646
-../embed_reg_bench/embed064.struct	True	True	--	True	True	14	15	100003	37	32
-../embed_reg_bench/embed065.struct	False	False	False	False	False	27	112	24	197	2575
-../embed_reg_bench/embed066.struct	False	False	--	False	False	14	16	100004	35	155
-../embed_reg_bench/embed067.struct	False	False	False	False	False	33	618	2903	48	782
-../embed_reg_bench/embed068.struct	True	True	--	True	True	15	61038	100007	40	32
-../embed_reg_bench/embed069.struct	True	True	True	True	True	205	19954	22	16837	14640
-../embed_reg_bench/embed070.struct	True	True	True	True	True	522	9389	49	19413	30410
-../embed_reg_bench/embed071.struct	False	False	False	False	False	33	635	16	70	1118
-../embed_reg_bench/embed072.struct	True	True	True	True	True	31	101	15	193	1139
-../embed_reg_bench/embed073.struct	True	True	True	True	True	26	148	15	174	1719
-../embed_reg_bench/embed074.struct	False	False	False	False	False	36	12048	119	157	3788
-../embed_reg_bench/embed075.struct	False	False	False	False	False	23	55	34	114	1403
-../embed_reg_bench/embed076.struct	True	True	True	True	True	20	41	16	81	1034
-../embed_reg_bench/embed077.struct	False	False	False	False	False	24	52	23	125	1481
-../embed_reg_bench/embed078.struct	False	--	False	False	--	643	100011	2514	77755	100002
-../embed_reg_bench/embed079.struct	True	True	--	True	True	14	11	100003	27	31
-../embed_reg_bench/embed080.struct	True	True	True	True	True	60	170	21	758	4396
-../embed_reg_bench/embed081.struct	True	True	True	True	True	36	82	22	179	1271
-../embed_reg_bench/embed082.struct	True	--	--	True	True	119	100009	100004	44643	69633
-../embed_reg_bench/embed083.struct	True	True	True	True	True	110	2891	75124	3662	7785
-../embed_reg_bench/embed084.struct	True	True	True	True	True	10	11	10	9	7890
-../embed_reg_bench/embed085.struct	True	True	True	True	True	33	490	20	227	1213
-../embed_reg_bench/embed086.struct	False	--	--	--	False	12	100003	100005	100003	31
-../embed_reg_bench/embed087.struct	True	True	--	True	True	39	1673	100003	391	1895
-../embed_reg_bench/embed088.struct	True	True	True	True	True	43	106	23	146	1690
-../embed_reg_bench/embed089.struct	True	True	True	True	True	38	81841	1832	7555	20852
-../embed_reg_bench/embed090.struct	True	True	True	True	True	802	2840	55	6329	29920
-../embed_reg_bench/embed091.struct	False	False	False	False	False	18	22	54211	45	348
-../embed_reg_bench/embed092.struct	True	True	True	True	True	16	193	10783	56	419
-../embed_reg_bench/embed093.struct	False	False	False	False	False	25	48	7496	49	1188
-../embed_reg_bench/embed094.struct	True	True	True	True	True	26	3230	342	375	2025
-../embed_reg_bench/embed095.struct	True	True	True	True	True	112	427	34	771	6176
-../embed_reg_bench/embed096.struct	False	--	False	False	False	82	100007	40	3767	7326
-../embed_reg_bench/embed097.struct	True	True	True	True	True	54	146	23	328	3418
-../embed_reg_bench/embed098.struct	True	True	True	True	True	29	87	1124	86	811
-../embed_reg_bench/embed099.struct	True	True	--	True	True	17	17	100004	33	29
-Fail1: 3
-Fail2: 23
-Fail3: 35
-Fail4: 10
-Fail5: 13
+../embed_reg_bench/embed000.struct	True	True	True	True	True	--	--	63	7013	1451	4904	63432	100003	100003
+../embed_reg_bench/embed001.struct	True	True	True	True	True	True	--	36	167	285	2287	194	35	100003
+../embed_reg_bench/embed002.struct	True	True	True	True	True	True	--	47	186	565	2030	99	20	100003
+../embed_reg_bench/embed003.struct	True	True	True	True	True	True	--	82	648	1155	6645	497	28	100009
+../embed_reg_bench/embed004.struct	--	--	--	--	--	--	--	100003	100004	100004	100005	100011	100003	100004
+../embed_reg_bench/embed005.struct	True	True	True	True	True	True	True	128	947	3081	8265	424	35	6149
+../embed_reg_bench/embed006.struct	True	True	True	True	True	True	--	21	96	288	1097	73	17	100003
+../embed_reg_bench/embed007.struct	True	True	True	True	--	--	--	97	35746	38543	99722	100011	100006	100005
+../embed_reg_bench/embed008.struct	False	False	False	False	False	--	False	17	32	28	323	21	100004	177
+../embed_reg_bench/embed009.struct	False	False	False	False	False	--	False	11	26	30	90	15	100003	78
+../embed_reg_bench/embed010.struct	False	False	False	False	False	False	--	25	95	254	1261	636	145	100003
+../embed_reg_bench/embed011.struct	False	--	--	--	--	False	--	16498	100004	100003	100004	100011	74089	100003
+../embed_reg_bench/embed012.struct	True	--	--	--	--	--	--	193	100003	100005	100006	100020	100003	100004
+../embed_reg_bench/embed013.struct	False	False	False	False	False	False	False	21	2777	723	31	874	15796	227
+../embed_reg_bench/embed014.struct	True	True	True	True	True	--	True	13	42	51	34	14	100003	70
+../embed_reg_bench/embed015.struct	True	True	True	True	True	--	True	17	45	102	188	21	100003	175
+../embed_reg_bench/embed016.struct	False	--	--	False	--	--	--	17	100004	100003	997	100004	100003	100004
+../embed_reg_bench/embed017.struct	True	True	True	True	True	True	True	12	25	75	47	1987	11	60
+../embed_reg_bench/embed018.struct	True	True	True	True	True	True	--	69	593	1549	6641	346	21	100003
+../embed_reg_bench/embed019.struct	False	False	False	False	False	--	False	14	42	59	32	14	100007	69
+../embed_reg_bench/embed020.struct	False	False	False	--	--	--	--	788	32584	42455	100002	100014	100003	100004
+../embed_reg_bench/embed021.struct	True	True	True	--	True	True	True	8	7	7	100004	7	8	7
+../embed_reg_bench/embed022.struct	True	--	True	True	True	True	--	336	100004	7543	50481	90606	625	100002
+../embed_reg_bench/embed023.struct	False	False	False	False	--	--	--	201	7410	4015	58405	100007	100003	100004
+../embed_reg_bench/embed024.struct	True	--	--	--	--	--	--	26096	100003	100003	100003	100008	100002	100003
+../embed_reg_bench/embed025.struct	True	True	--	True	--	True	--	459	83318	100004	64400	100008	11908	100004
+../embed_reg_bench/embed026.struct	True	True	True	True	True	True	True	11	8	9	32656	8	9	7
+../embed_reg_bench/embed027.struct	True	True	True	True	True	--	--	60	197	278	2602	329	100004	100005
+../embed_reg_bench/embed028.struct	True	True	True	--	--	True	--	408	60748	76559	100002	100008	44254	100003
+../embed_reg_bench/embed029.struct	False	False	False	--	--	False	--	2966	5414	22599	100003	100013	2705	100003
+../embed_reg_bench/embed030.struct	True	True	True	True	True	--	--	35	188	473	2276	946	100007	100003
+../embed_reg_bench/embed031.struct	False	False	False	False	False	--	False	22	168	175	2249	55	100004	2083
+../embed_reg_bench/embed032.struct	--	--	--	--	--	--	--	100004	100003	100003	100003	100012	100004	100008
+../embed_reg_bench/embed033.struct	True	True	True	True	True	--	--	219	15211	3034	15339	18885	100005	100003
+../embed_reg_bench/embed034.struct	True	True	True	True	True	True	True	119	595	1906	6148	224	44	4463
+../embed_reg_bench/embed035.struct	True	True	True	True	True	True	--	22	348	268	1455	570	13	100004
+../embed_reg_bench/embed036.struct	False	False	False	False	--	False	--	146	1201	1126	31606	100006	27	100003
+../embed_reg_bench/embed037.struct	True	True	True	--	--	--	--	1039	16967	38218	100003	100008	100004	100004
+../embed_reg_bench/embed038.struct	True	True	True	True	True	True	--	75	2524	2095	9447	3949	21	100004
+../embed_reg_bench/embed039.struct	True	True	True	True	True	True	True	25	127	261	1492	76	16	1135
+../embed_reg_bench/embed040.struct	True	True	True	True	--	--	--	14	44	114	400	100003	100004	100003
+../embed_reg_bench/embed041.struct	True	True	True	True	True	True	True	53	424	1039	3419	1209	20	2532
+../embed_reg_bench/embed042.struct	True	True	True	True	True	True	True	15	191	490	278	1132	4345	581
+../embed_reg_bench/embed043.struct	True	True	True	True	True	True	True	16	571	1380	1405	2617	131	4491
+../embed_reg_bench/embed044.struct	True	True	True	True	True	True	--	24	482	584	4725	10410	20	100003
+../embed_reg_bench/embed045.struct	True	True	True	True	True	--	--	89	336	1142	3777	291	100003	100003
+../embed_reg_bench/embed046.struct	True	True	True	True	True	True	--	686	5781	27762	39750	3645	61	100005
+../embed_reg_bench/embed047.struct	False	False	False	False	False	--	False	17	33	29	34	12	100004	70
+../embed_reg_bench/embed048.struct	--	--	--	--	--	--	--	100003	100004	100006	100011	100015	100006	100006
+../embed_reg_bench/embed049.struct	True	True	True	True	True	True	True	39	164	912	1076	70	25	879
+../embed_reg_bench/embed050.struct	True	True	True	True	True	True	True	41	157	341	1606	100	23	1612
+../embed_reg_bench/embed051.struct	True	True	True	True	True	True	--	64	263	880	2769	355	21	100003
+../embed_reg_bench/embed052.struct	True	True	True	True	True	True	True	480	13407	17740	26470	2100	46	21822
+../embed_reg_bench/embed053.struct	True	True	True	True	True	True	--	178	34879	34475	23120	24715	14282	100003
+../embed_reg_bench/embed054.struct	True	True	True	True	True	--	--	65	355	2721	17093	79420	100003	100002
+../embed_reg_bench/embed055.struct	True	True	True	True	True	True	True	12	23	43	28	11	5127	67
+../embed_reg_bench/embed056.struct	False	False	False	False	--	False	False	124	954	3218	9714	100009	145	60154
+../embed_reg_bench/embed057.struct	True	True	True	True	True	True	True	16	27	31	29	13	3716	50
+../embed_reg_bench/embed058.struct	False	False	False	--	--	--	--	204	9284	24586	100002	100006	100003	100002
+../embed_reg_bench/embed059.struct	True	True	True	True	True	True	True	178	2412	2832	10633	1174	69	76926
+../embed_reg_bench/embed060.struct	True	--	True	True	--	--	--	278	100003	48817	93821	100024	100004	100005
+../embed_reg_bench/embed061.struct	False	False	False	False	False	False	--	15	293	385	219	6610	2057	100032
+../embed_reg_bench/embed062.struct	True	True	True	True	True	--	--	20	64	114	709	93	100003	100013
+../embed_reg_bench/embed063.struct	True	True	True	True	True	True	True	86	1163	1992	7646	502	21	5196
+../embed_reg_bench/embed064.struct	True	True	True	True	True	--	True	14	37	49	32	15	100003	71
+../embed_reg_bench/embed065.struct	False	False	False	False	False	False	False	27	197	483	2575	112	24	17136
+../embed_reg_bench/embed066.struct	False	False	False	False	False	--	False	14	35	30	155	16	100004	173
+../embed_reg_bench/embed067.struct	False	False	False	False	False	False	--	33	48	153	782	618	2903	100003
+../embed_reg_bench/embed068.struct	True	True	True	True	True	--	True	15	40	47	32	61038	100007	65
+../embed_reg_bench/embed069.struct	True	True	True	True	True	True	--	205	16837	6470	14640	19954	22	100005
+../embed_reg_bench/embed070.struct	True	True	True	True	True	True	--	522	19413	17301	30410	9389	49	100016
+../embed_reg_bench/embed071.struct	False	False	False	False	False	False	False	33	70	209	1118	635	16	1961
+../embed_reg_bench/embed072.struct	True	True	True	True	True	True	True	31	193	1216	1139	101	15	784
+../embed_reg_bench/embed073.struct	True	True	True	True	True	True	True	26	174	749	1719	148	15	1162
+../embed_reg_bench/embed074.struct	False	False	False	False	False	False	--	36	157	255	3788	12048	119	100063
+../embed_reg_bench/embed075.struct	False	False	False	False	False	False	False	23	114	122	1403	55	34	2048
+../embed_reg_bench/embed076.struct	True	True	True	True	True	True	True	20	81	295	1034	41	16	803
+../embed_reg_bench/embed077.struct	False	False	False	False	False	False	--	24	125	155	1481	52	23	100004
+../embed_reg_bench/embed078.struct	False	False	False	--	--	False	--	643	77755	14705	100002	100011	2514	100004
+../embed_reg_bench/embed079.struct	True	True	True	True	True	--	True	14	27	29	31	11	100003	53
+../embed_reg_bench/embed080.struct	True	True	True	True	True	True	True	60	758	2094	4396	170	21	9532
+../embed_reg_bench/embed081.struct	True	True	True	True	True	True	True	36	179	710	1271	82	22	954
+../embed_reg_bench/embed082.struct	True	True	True	True	--	--	--	119	44643	30497	69633	100009	100004	100003
+../embed_reg_bench/embed083.struct	True	True	True	True	True	True	--	110	3662	2107	7785	2891	75124	100029
+../embed_reg_bench/embed084.struct	True	True	True	True	True	True	True	10	9	10	7890	11	10	9
+../embed_reg_bench/embed085.struct	True	True	True	True	True	True	--	33	227	209	1213	490	20	100004
+../embed_reg_bench/embed086.struct	False	--	--	False	--	--	--	12	100003	100002	31	100003	100005	100003
+../embed_reg_bench/embed087.struct	True	True	True	True	True	--	--	39	391	349	1895	1673	100003	100004
+../embed_reg_bench/embed088.struct	True	True	True	True	True	True	True	43	146	454	1690	106	23	1322
+../embed_reg_bench/embed089.struct	True	True	True	True	True	True	--	38	7555	8724	20852	81841	1832	100002
+../embed_reg_bench/embed090.struct	True	True	True	True	True	True	--	802	6329	21838	29920	2840	55	100003
+../embed_reg_bench/embed091.struct	False	False	False	False	False	False	False	18	45	44	348	22	54211	361
+../embed_reg_bench/embed092.struct	True	True	True	True	True	True	--	16	56	157	419	193	10783	100004
+../embed_reg_bench/embed093.struct	False	False	False	False	False	False	False	25	49	49	1188	48	7496	2141
+../embed_reg_bench/embed094.struct	True	True	True	True	True	True	--	26	375	210	2025	3230	342	100004
+../embed_reg_bench/embed095.struct	True	True	True	True	True	True	--	112	771	1742	6176	427	34	100003
+../embed_reg_bench/embed096.struct	False	False	False	False	--	False	--	82	3767	614	7326	100007	40	100003
+../embed_reg_bench/embed097.struct	True	True	True	True	True	True	True	54	328	680	3418	146	23	2872
+../embed_reg_bench/embed098.struct	True	True	True	True	True	True	True	29	86	143	811	87	1124	645
+../embed_reg_bench/embed099.struct	True	True	True	True	True	--	True	17	33	46	29	17	100004	65
+Fail1: 3														
+Fail2: 10														
+Fail3: 9														
+Fail4: 13														
+Fail5: 23														
+Fail6: 35														
+Fail7: 56														
