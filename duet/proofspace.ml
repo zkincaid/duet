@@ -1058,7 +1058,8 @@ let verify file =
     | None ->
       log ~level:`always ~attributes:[`Bold;`Green]
         "Verification result: Safe";
-      print_info ()
+      print_info ();
+      logf ~level:`always "Embedding Queries %d" (PA.Config.num_queries ())
   in
   loop ()
 

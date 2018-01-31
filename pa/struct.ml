@@ -58,6 +58,7 @@ module type S = sig
     t ->
     (predicate,int) formula ->
     (predicate,int) formula option
+  val num_queries : unit -> int
 end
 
 module F = PaFormula
@@ -321,6 +322,8 @@ module Make (P : Symbol) = struct
     && (PSet.subset (get_preds x) (get_preds y)) (* this is always true when using Search Tree *)
     && (AtomSet.subset x.prop y.prop ||
        (f (MatchCPP.make (x.universe) (props x) (y.universe) (props y))))
+
+  let num_queries _ = !embed
 
   let embeds f x y = Log.time "Embedding" (embeds f x) y
 

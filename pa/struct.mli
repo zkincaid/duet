@@ -81,6 +81,8 @@ module type S = sig
     t ->
     (predicate,int) formula ->
     (predicate,int) formula option
+
+  val num_queries : unit -> int
 end
 
 module Make (P : Symbol) : S with type predicate = P.t
