@@ -55,8 +55,8 @@ if len(data) < 2*len(solvers):
 
 for i in range(len(solvers)):
     (label, marker, color) = solver[solvers[i]]
-    plot(data[2*i+1], '-', marker=marker, color=color, label=label+'+Tree')
-    plot(data[2*(i+1)], '--', marker=marker, color=color, label=label+'+List')
+    plot(data[2*i+1], '-', marker=marker, color=color, label=label)
+    plot(data[2*(i+1)], '--', marker=marker, color=color)
 
 plt.xlabel('Number of Threads')
 plt.ylabel('Time (s)')
