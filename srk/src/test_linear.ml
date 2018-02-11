@@ -1,5 +1,6 @@
 open OUnit
 open Linear
+open Test_pervasives
 
 let mk_vector vec =
   List.fold_left
@@ -13,11 +14,23 @@ let mk_matrix mat =
     QQMatrix.zero
     (List.mapi (fun i row -> (i, mk_vector row)) mat)
 
+let mk_qqvector vec =
+  List.fold_left
+    (fun vec (i, k) -> QQVector.add_term k i vec)
+    QQVector.zero
+    (List.mapi (fun i k -> (i, k)) vec)
+
+let mk_qqmatrix mat =
+  List.fold_left
+    (fun mat (i, row) -> QQMatrix.add_row i row mat)
+    QQMatrix.zero
+    (List.mapi (fun i row -> (i, mk_qqvector row)) mat)
+
 let dot () =
   let u = mk_vector [1; 2; 3] in
   let v = mk_vector [2; 3] in
-  assert_equal ~printer:QQ.show (QQ.of_int 8) (QQVector.dot u v);
-  assert_equal ~printer:QQ.show (QQ.of_int 8) (QQVector.dot v u)
+  assert_equal_qq (QQ.of_int 8) (QQVector.dot u v);
+  assert_equal_qq (QQ.of_int 8) (QQVector.dot v u)
 
 let mul () =
   let m1 = mk_matrix [[7; 3];
@@ -151,6 +164,131 @@ let div2 () =
     assert_equal ~printer:QQMatrix.show b (QQMatrix.mul div a)
   | None -> assert false
 
+let rational_eigenvalues1 () =
+  let a = mk_matrix [[1; 2];
+                     [2; 1]]
+  in
+  match QQMatrix.rational_eigenvalues a with
+  | [(x, 1); (y, 1)] when QQ.equal x (QQ.of_int 3) ->
+    assert_equal_qq y (QQ.of_int (-1))
+  | [(x, 1); (y, 1)] ->
+    assert_equal_qq x (QQ.of_int (-1));
+    assert_equal_qq y (QQ.of_int 3);
+  | _ -> assert false
+
+let rational_eigenvalues2 () =
+  let half = QQ.of_frac 1 2 in
+  let third = QQ.of_frac 1 3 in
+  let a = mk_qqmatrix [[half; QQ.one];
+                       [QQ.zero; third]]
+  in
+  match QQMatrix.rational_eigenvalues a with
+  | [(x, 1); (y, 1)] when QQ.equal x half ->
+    assert_equal_qq y third
+  | [(x, 1); (y, 1)] ->
+    assert_equal_qq x third;
+    assert_equal_qq y half
+  | _ -> assert false
+
+let rational_eigenvalues3 () =
+  let a = mk_matrix [[0; 1; 0];
+                     [0; 0; 1];
+                     [8; -12; 6]]
+  in
+  match QQMatrix.rational_eigenvalues a with
+  | [(x, m)] ->
+    assert_equal_qq x (QQ.of_int 2);
+    assert_equal m 3
+  | _ -> assert false
+
+let rational_eigenvalues4 () =
+  let a = mk_matrix [[0; 1; 0];
+                     [0; 0; 1];
+                     [0; -1; 0]]
+  in
+  match QQMatrix.rational_eigenvalues a with
+  | [(x, m)] ->
+    assert_equal_qq x QQ.zero;
+    assert_equal m 1
+  | _ -> assert false
+
+let nullspace1 () =
+  let m = mk_matrix [[1; 2; 1];
+                     [0; 1; 1];
+                     [1; 3; 2]]
+  in
+  let basis =
+    Linear.nullspace m [0; 1; 2]
+  in
+  assert_equal 1 (List.length basis);
+  basis |> List.iter (fun x ->
+      assert_equal ~printer:QQVector.show QQVector.zero (vector_right_mul m x))
+
+let nullspace2 () =
+  let m = mk_matrix [[1; 2; 1];
+                     [0; 1; 1];
+                     [1; 0; 2]]
+  in
+  assert_equal 0 (List.length (Linear.nullspace m [0; 1; 2]))
+
+let nullspace3 () =
+  let m = mk_matrix [[1; 0; 1; 1];
+                     [0; 1; 0; 0];
+                     [1; 1; 1; 1];
+                     [-1; 1; -1; -1]]
+  in
+  let basis =
+    Linear.nullspace m [0; 1; 2; 3]
+  in
+  assert_equal 2 (List.length basis);
+  basis |> List.iter (fun x ->
+      assert_equal ~printer:QQVector.show QQVector.zero (vector_right_mul m x))
+
+let rational_triangulation1 () =
+  let a = mk_matrix [[1; 0; 0];
+                     [0; 2; 0];
+                     [0; 0; 3]]
+  in
+  let (m, t) = Linear.rational_triangulation a in
+  assert_equal_qqmatrix (QQMatrix.mul m a) (QQMatrix.mul t m);
+  assert_equal 3 (QQMatrix.nb_rows t)
+
+let rational_triangulation2 () =
+  let a = mk_matrix [[6; -2; -1];
+                     [3; 1; -1];
+                     [2; -1; 2]]
+  in
+  let (m, t) = Linear.rational_triangulation a in
+  assert_equal_qqmatrix (QQMatrix.mul m a) (QQMatrix.mul t m);
+  assert_equal 3 (QQMatrix.nb_rows t)
+
+let rational_triangulation3 () =
+  let a = mk_matrix [[5; 4; 2; 1];
+                     [0; 1; -1; -1];
+                     [-1; -1; 3; 0];
+                     [1; 1; -1; 2]]
+  in
+  let (m, t) = Linear.rational_triangulation a in
+  assert_equal_qqmatrix (QQMatrix.mul m a) (QQMatrix.mul t m);
+  assert_equal 4 (QQMatrix.nb_rows t)
+
+let rational_triangulation4 () =
+  let a = mk_matrix [[0; 1; 0];
+                     [0; 0; 1];
+                     [0; 1; 1]]
+  in
+  let (m, t) = Linear.rational_triangulation a in
+  assert_equal_qqmatrix (QQMatrix.mul m a) (QQMatrix.mul t m)
+
+let rational_triangulation5 () =
+  let a = mk_matrix [[0; 1; 0];
+                     [0; 0; 1];
+                     [1; -1; 1]]
+  in
+  let (m, t) = Linear.rational_triangulation a in
+  assert_equal_qqmatrix (QQMatrix.mul m a) (QQMatrix.mul t m);
+  assert_equal 1 (QQMatrix.nb_rows t)
+
 let suite = "Linear" >::: [
     "dot" >:: dot;
     "mul" >:: mul;
@@ -164,4 +302,16 @@ let suite = "Linear" >::: [
     "rowspace3" >:: rowspace3;
     "div1" >:: div1;
     "div2" >:: div2;
+    "rational_eigenvalues1" >:: rational_eigenvalues1;
+    "rational_eigenvalues2" >:: rational_eigenvalues2;
+    "rational_eigenvalues3" >:: rational_eigenvalues3;
+    "rational_eigenvalues4" >:: rational_eigenvalues4;
+    "nullspace1" >:: nullspace1;
+    "nullspace2" >:: nullspace2;
+    "nullspace3" >:: nullspace3;
+    "rational_triangulation1" >:: rational_triangulation1;
+    "rational_triangulation2" >:: rational_triangulation2;
+    "rational_triangulation3" >:: rational_triangulation3;
+    "rational_triangulation4" >:: rational_triangulation4;
+    "rational_triangulation5" >:: rational_triangulation5;
   ]

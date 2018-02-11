@@ -1,3 +1,5 @@
+(** Operations for manipulating numeric intervals. *)
+
 type t
 
 val compare : t -> t -> int

@@ -1,3 +1,4 @@
+(** Formula and term simplification. *)
 open Syntax
 
 module TermPolynomial : sig

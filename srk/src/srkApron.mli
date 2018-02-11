@@ -1,3 +1,5 @@
+(** Interface to {{:http://apron.cri.ensmp.fr/library/} Apron} numerical
+    abstract domain library *)
 open Apron
 open Syntax
 

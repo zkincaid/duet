@@ -1,3 +1,4 @@
+(** Interface to {{:https://github.com/Z3Prover/z3} Z3} SMT solver *)
 open Syntax
 open Interpretation
 

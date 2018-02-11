@@ -26,6 +26,7 @@ module type Vector = sig
 
   val enum : t -> (scalar * dim) BatEnum.t
   val of_enum : (scalar * dim) BatEnum.t -> t
+  val of_list : (scalar * dim) list -> t
   val coeff : dim -> t -> scalar
 
   val pivot : dim -> t -> scalar * t
@@ -57,6 +58,8 @@ module QQMatrix : sig
 
   val zero : t
 
+  val identity : dim list -> t
+
   val row : dim -> t -> QQVector.t
 
   val rowsi : t -> (dim * QQVector.t) BatEnum.t
@@ -75,11 +78,18 @@ module QQMatrix : sig
 
   val entries : t -> (dim * dim * scalar) BatEnum.t
 
+  val row_set : t -> SrkUtil.Int.Set.t
+  val column_set : t -> SrkUtil.Int.Set.t
+
   val nb_rows : t -> int
   val nb_columns : t -> int
 
   val pp : Format.formatter -> t -> unit
   val show : t -> string
+
+  (** Compute a list rational eigenvalues of a matrix, along with their
+      algebraic multiplicities. *)
+  val rational_eigenvalues : t -> (QQ.t * int) list
 end
 
 module type AbelianGroup = sig
@@ -123,27 +133,44 @@ module RingMap
                          and type dim = M.key
                          and type scalar = R.t
 
+(** [nullspace mat dimensions] computes a basis for the vector space [{ x :
+    max*x = 0}], projected on to the set of dimensions [dimensions].  (Note
+    that the nullspace is not finitely generated in [int -> QQ], hence the
+    projection). *)
+val nullspace : QQMatrix.t -> int list -> QQVector.t list
+
 (** [solve_exn mat b] computes a rational vector [x] such that [mat*x =
     b]. Raises [No_solution] if there is no solution. *)
 val solve_exn : QQMatrix.t -> QQVector.t -> QQVector.t
+
+(** [solve mat b] computes a rational vector [x] such that [mat*x = b], if
+    such a vector exists.  Otherwise, return [None]. *)
+val solve : QQMatrix.t -> QQVector.t -> QQVector.t option
 
 (** Given a predicate on dimensions and a list of terms (all implicitly equal
     to zero), orient the equations as rewrite rules that eliminate dimensions
     that don't satisfy the predicate. *)
 val orient : (int -> bool) -> QQVector.t list -> (int * QQVector.t) list
 
+(** [vector_right_mul m a] computes [m*a] *)
 val vector_right_mul : QQMatrix.t -> QQVector.t -> QQVector.t
 
-val solve : QQMatrix.t -> QQVector.t -> QQVector.t option
-
-(** Given two matrices A and B, compute matrices C and D such that CA = DB is a
-    basis for the intersection of the rowspaces of A and B *)
+(** Given two matrices [A] and [B], compute matrices [C] and [D] such that [CA
+    = DB] is a basis for the intersection of the rowspaces of [A] and [B]. *)
 val intersect_rowspace : QQMatrix.t -> QQMatrix.t -> (QQMatrix.t * QQMatrix.t)
 
 (** Given two matrices A and B, compute a matrix C such that CB = A (if one
     exists).  C exists when the rowspace of B is contained in the rowspace of
-    A.  If A and B are invertible, then C is exactly AB^{-1}. *)
+    A.  If A and B are invertible, then C is exactly AB{^-1}. *)
 val divide_right : QQMatrix.t -> QQMatrix.t -> QQMatrix.t option
+
+(** Given matrices [A] and [B], find a matrix [C] whose rows constitute a
+    basis for the vector space [{ v : exists u. uA = vB }] *)
+val max_rowspace_projection : QQMatrix.t -> QQMatrix.t -> QQMatrix.t
+
+(** Given a matrix [A], find a pair of matrices [(M,T)] such that [MA = TM],
+    [T] is lower-triangular, and the rowspace of [MA] is maximal. *)
+val rational_triangulation : QQMatrix.t -> (QQMatrix.t * QQMatrix.t)
 
 val evaluate_affine : (int -> QQ.t) -> QQVector.t -> QQ.t
 
@@ -190,4 +217,3 @@ val evaluate_linterm : (symbol -> QQ.t) -> QQVector.t -> QQ.t
 
 (** Count the number of dimensions with non-zero coefficients *)
 val linterm_size : QQVector.t -> int
-

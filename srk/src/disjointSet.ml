@@ -1,4 +1,4 @@
-(** Implementation of disjoint set data structure *)
+(** Disjoint set data structure *)
 
 module Make (M : Hashtbl.HashedType) = struct
   module HT = Hashtbl.Make(M);;

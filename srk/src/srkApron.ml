@@ -1,4 +1,3 @@
-(** Numerical abstract domains *)
 open Apron
 open BatPervasives
 open Syntax

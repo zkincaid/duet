@@ -33,6 +33,7 @@ module type Vector = sig
   val of_term : scalar -> dim -> t
   val enum : t -> (scalar * dim) BatEnum.t
   val of_enum : (scalar * dim) BatEnum.t -> t
+  val of_list : (scalar * dim) list -> t
   val coeff : dim -> t -> scalar
   val pivot : dim -> t -> scalar * t
 end
@@ -91,6 +92,8 @@ module AbelianGroupMap (M : Map) (G : AbelianGroup) = struct
   let enum vec = M.enum vec /@ (fun (x,y) -> (y,x))
 
   let of_enum = BatEnum.fold (fun vec (x,y) -> add_term x y vec) zero
+
+  let of_list = List.fold_left (fun vec (x,y) -> add_term x y vec) zero
 
   let equal = M.equal G.equal
 
@@ -162,6 +165,7 @@ module QQMatrix = struct
   let row = M.coeff
   let add = M.add
   let zero = M.zero
+
   let equal = M.equal
   let pivot = M.pivot
   let compare = M.compare
@@ -172,6 +176,8 @@ module QQMatrix = struct
 
   let add_entry i j k mat =
     add_row i (QQVector.of_term k j) mat
+
+  let identity = List.fold_left (fun m d -> add_entry d d QQ.one m) zero
 
   let add_column i col mat =
     BatEnum.fold
@@ -242,22 +248,48 @@ module QQMatrix = struct
            res)
       zero
       (rowsi mat)
+
+  let rational_eigenvalues m =
+    let denominator =
+      BatEnum.fold (fun d (_, _, entry) ->
+          ZZ.lcm d (QQ.denominator entry))
+        ZZ.one
+        (entries m)
+    in
+    let dims =
+      SrkUtil.Int.Set.union (row_set m) (column_set m)
+    in
+    let nb_dims = SrkUtil.Int.Set.cardinal dims in
+    let m =
+      Array.init nb_dims (fun i ->
+          Array.init nb_dims (fun j ->
+              let (num, den) = QQ.to_zzfrac (entry i j m) in
+              Ntl.ZZ.of_mpz (ZZ.div (ZZ.mul num denominator) den)))
+    in
+    let charpoly = Ntl.ZZMatrix.charpoly m in
+    let (_, factors) = Ntl.ZZX.factor charpoly in
+    factors |> BatList.filter_map (fun (p, m) ->
+        if Ntl.ZZX.degree p == 1 then
+          (* p = ax + b *)
+          let a = Ntl.ZZ.mpz_of (Ntl.ZZX.get_coeff p 1) in
+          let b = Ntl.ZZ.mpz_of (Ntl.ZZX.get_coeff p 0) in
+          let eigenvalue =
+            QQ.negate (QQ.of_zzfrac b (ZZ.mul a denominator))
+          in
+          Some (eigenvalue, m)
+        else
+          None)
 end
 
 exception No_solution
 
-let solve_exn mat b =
-  let open QQMatrix in
-  logf "Solving system:@\nM:  %a@\nb:  %a" pp mat QQVector.pp b;
-  let columns = column_set mat in
-  let b_column = 1 + (IntSet.fold max columns 0) in
-  let mat = add_column b_column b mat in
+let row_eschelon_form mat b_column =
   let rec reduce finished mat =
-    if equal mat zero then
+    if QQMatrix.equal mat QQMatrix.zero then
       finished
     else
       let (row_num, _) = IntMap.min_binding mat in
-      let (next_row, mat') = pivot row_num mat in
+      let (next_row, mat') = QQMatrix.pivot row_num mat in
       let column =
         try BatEnum.find (fun i -> i != b_column) (IntMap.keys next_row)
         with Not_found -> raise No_solution
@@ -280,7 +312,36 @@ let solve_exn mat b =
       in
       reduce ((column,next_row')::finished) (IntMap.filter_map f mat')
   in
-  let rr = reduce [] mat in
+  reduce [] mat
+
+let nullspace mat dimensions =
+  let open QQMatrix in
+  let columns = column_set mat in
+  let b_column =
+    1 + (IntSet.fold max columns (List.fold_left max 0 dimensions))
+  in
+  let rr = row_eschelon_form mat b_column in
+  let rec backprop soln = function
+    | [] -> soln
+    | ((lhs, rhs)::rest) ->
+      backprop (QQVector.add_term (QQVector.dot soln rhs) lhs soln) rest
+  in
+  let free_dimensions =
+    List.filter (fun x ->
+        not (List.exists (fun (y, _) -> x = y) rr))
+      dimensions
+  in
+  free_dimensions |> List.map (fun d ->
+      let start = QQVector.of_term QQ.one d in
+      backprop start rr)
+
+let solve_exn mat b =
+  let open QQMatrix in
+  logf "Solving system:@\nM:  %a@\nb:  %a" pp mat QQVector.pp b;
+  let columns = column_set mat in
+  let b_column = 1 + (IntSet.fold max columns 0) in
+  let mat = add_column b_column b mat in
+  let rr = row_eschelon_form mat b_column in
   let rec backprop soln = function
     | [] -> soln
     | ((lhs, rhs)::rest) ->
@@ -403,6 +464,103 @@ let divide_right a b =
     in
     Some div
   with No_solution -> None
+
+(* Given matrices A and B, find a matrix C whose rows constitute a basis for
+   the vector space { v : exists u. uA = vB } *)
+let max_rowspace_projection a b =
+  (* Create a system u*A - v*B = 0.  u's occupy even columns and v's occupy
+     odd. *)
+  let mat_a =
+    BatEnum.fold
+      (fun mat (i, j, k) -> QQMatrix.add_entry j (2*i) k mat)
+      QQMatrix.zero
+      (QQMatrix.entries a)
+  in
+  let mat =
+    ref (BatEnum.fold
+           (fun mat (i, j, k) -> QQMatrix.add_entry j (2*i + 1) (QQ.negate k) mat)
+           mat_a
+           (QQMatrix.entries b))
+  in
+  let c = ref QQMatrix.zero in
+  let c_rows = ref 0 in
+  let mat_rows =
+    ref (BatEnum.fold (fun m (i, _) -> max m i) 0 (QQMatrix.rowsi (!mat)) + 1)
+  in
+
+  (* Loop through the columns col of A/B, trying to find a vector u and v such
+     that uA = vB and v has 1 in col's entry.  If yes, add v to C, and add a
+     constraint to mat that (in all future rows of C), col's entry is 0.  This
+     ensures that the rows of C are linearly independent. *)
+  (* to do: repeatedly solving super systems of the same system of equations
+       -- can be made more efficient *)
+  (QQMatrix.rowsi b)
+  |> (BatEnum.iter (fun (r, _) ->
+      let col = 2*r + 1 in
+      let mat' =
+        QQMatrix.add_row
+          (!mat_rows)
+          (QQVector.of_term QQ.one col)
+          (!mat)
+      in
+      match solve mat' (QQVector.of_term QQ.one (!mat_rows)) with
+      | Some solution ->
+        let c_row =
+          BatEnum.fold (fun c_row (entry, i) ->
+              if i mod 2 = 1 then
+                QQVector.add_term entry (i/2) c_row
+              else
+                c_row)
+            QQVector.zero
+            (QQVector.enum solution)
+        in
+        assert (not (QQVector.equal c_row QQVector.zero));
+        c := QQMatrix.add_row (!c_rows) c_row (!c);
+        mat := mat';
+        incr c_rows; incr mat_rows
+      | None -> ()));
+  !c
+
+let rational_triangulation mA =
+  let mAt = QQMatrix.transpose mA in
+  let next_row =
+    let r = ref 0 in
+    fun () ->
+      let nr = !r in
+      incr r;
+      nr
+  in
+  let dims = SrkUtil.Int.Set.elements (QQMatrix.row_set mAt) in
+  let identity = QQMatrix.identity dims in
+  List.fold_left (fun (mM, mT) (lambda, _) ->
+      let mE = (* A^t - lambda*I *)
+        QQMatrix.add mAt (QQMatrix.scalar_mul (QQ.negate lambda) identity)
+      in
+      (* Assuming that that the last row of M is v, add the Jordan chain of
+         lambda/v to M, and the corresponding Jordan block to T. *)
+      let rec add_jordan_chain_rec (mM, mT) v =
+        match solve mE v with
+        | Some u ->
+          let row = next_row () in
+          let mM = QQMatrix.add_row row u mM in
+          let t_row =
+            QQVector.of_list [(QQ.one, row-1); (lambda, row)]
+          in
+          let mT = QQMatrix.add_row row t_row mT in
+          add_jordan_chain_rec (mM, mT) u
+        | None -> (mM, mT)
+      in
+      let add_jordan_chain (mM, mT) v =
+        let row = next_row () in
+        let mM = QQMatrix.add_row row v mM in
+        let t_row = QQVector.of_term lambda row in
+        let mT = QQMatrix.add_row row t_row mT in
+        add_jordan_chain_rec (mM, mT) v
+      in
+      List.fold_left add_jordan_chain (mM, mT) (nullspace mE dims)
+    )
+    (QQMatrix.zero, QQMatrix.zero)
+    (QQMatrix.rational_eigenvalues mA)
 
 (* Affine expressions over constant symbols.  dim_of_sym, const_dim, and
    sym_of_dim are used to translate between symbols and the dimensions of the

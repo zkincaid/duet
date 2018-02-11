@@ -1,3 +1,4 @@
+(** Symbolic abstraction routines. *)
 open Syntax
 open Smt
 

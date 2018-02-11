@@ -1,4 +1,4 @@
-(** Polynomials *)
+(** Polynomials and Grobner bases. *)
 
 open Syntax
 
