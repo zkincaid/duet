@@ -1,3 +1,5 @@
+(** Simplification for Big-O expressions. *)
+
 open Syntax
 type t
 val pp : Format.formatter -> t -> unit

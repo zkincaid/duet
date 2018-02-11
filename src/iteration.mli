@@ -1,3 +1,4 @@
+(** Approximate transitive closure computation. *)
 open Syntax
 
 module type PreDomain = sig

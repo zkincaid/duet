@@ -1,3 +1,5 @@
+(** Convex polyhedra. *)
+
 open Syntax
 
 type t

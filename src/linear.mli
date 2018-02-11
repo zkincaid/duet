@@ -161,7 +161,7 @@ val intersect_rowspace : QQMatrix.t -> QQMatrix.t -> (QQMatrix.t * QQMatrix.t)
 
 (** Given two matrices A and B, compute a matrix C such that CB = A (if one
     exists).  C exists when the rowspace of B is contained in the rowspace of
-    A.  If A and B are invertible, then C is exactly AB^{-1}. *)
+    A.  If A and B are invertible, then C is exactly AB{^-1}. *)
 val divide_right : QQMatrix.t -> QQMatrix.t -> QQMatrix.t option
 
 (** Given matrices [A] and [B], find a matrix [C] whose rows constitute a

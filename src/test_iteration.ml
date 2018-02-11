@@ -6,7 +6,7 @@ open Test_pervasives
 
 module QQMatrix = Linear.QQMatrix
 module WV = struct
-  include Iteration.WedgeVector
+  include Iteration.WedgeMatrix
   let star srk symbols phi = closure (abstract_iter srk symbols phi)
 end
 

@@ -1,3 +1,4 @@
+(** Transition formulas. *)
 open Syntax
 
 module type Var = sig

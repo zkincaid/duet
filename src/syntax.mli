@@ -1,4 +1,5 @@
-(** Syntactic manipulation of terms and formulas. *)
+(** Defines Formulas, Terms, Symbols, Types, and Contexts.  Syntactic
+    manipulation of terms and formulas. *)
 
 (** A context manages symbols and sharing between expressions. [context] is a
     phantom type: the ['a] type parameter ensures that expressions don't cross

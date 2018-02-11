@@ -1,5 +1,14 @@
+(** Operations for manipulating non-linear terms and formulas. *)
 open Syntax
 
+(** Ensure that a context has the following named symbols
+    - [mul] (rational multiplication)
+    - [imul] (integer multiplication)
+    - [mod] (rational modulo)
+    - [imod] (integer modulo)
+    - [inv] (rational inverse).
+    If the symbols are not present in the context [ensure_symbols] registers
+    them. *)
 val ensure_symbols : 'a context -> unit
 
 (** Replace non-linear arithmetic with uninterpreted functions.  The
@@ -15,8 +24,11 @@ val interpret_rewriter : 'a context ->
   ('a,typ_fo) expr ->
   ('a,typ_fo) expr
 
+(** Replace non-linear arithmetic with uninterpreted functions.  The
+    uninterpreted function symbols are named symbols: mul, div, and mod. *)
 val uninterpret : 'a context -> ('a,'b) expr -> ('a,'b) expr
 
+(** Replace non-linear uninterpreted functions with interpreted ones. *)
 val interpret : 'a context -> ('a,'b) expr -> ('a,'b) expr
 
 (** Compute a linear approximation of a non-linear formula. *)

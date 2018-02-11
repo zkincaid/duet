@@ -1,3 +1,5 @@
+(** Logging *)
+
 (** Verbosity levels - from BatLog *)
 type level = [ `trace | `debug | `info | `warn | `error | `fatal | `always ]
 let level_leq x y =

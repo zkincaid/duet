@@ -1,3 +1,4 @@
+(** Wedge abstract domain. *)
 open Syntax
 
 type 'a t
