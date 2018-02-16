@@ -656,72 +656,108 @@ let construct_loop solver assign_table trace =
     in go Ctx.mk_true trace; trace
   in
   construct solver assign_table trace add_triples
-  
-(*
-let construct_owici_gries solver assign_table trace =
+
+let project_trace trace num_threads =
+  let module DA = BatDynArray in
+  let traces = DA.init (num_threads + 1) (fun _ -> []) in
+  let rec go trace =
+    match trace with
+    | [] -> assert false
+    | (letter, tid) :: trace ->
+       DA.set traces tid ((letter, tid) :: (DA.get traces tid));
+       match trace with
+       | _ :: _ -> go trace
+       | [] -> tid
+  in
+  (traces, go trace)
+
+let vars transitions num_threads =
+  let module DA = BatDynArray in
+  let vars = DA.init (num_threads + 1) (fun _ -> IV.Set.empty) in
+  List.iter (fun trans ->
+      List.iter (fun (var, tid) ->
+          if Var.is_shared var then
+            DA.set vars 0 (IV.Set.add (var, tid) (DA.get vars 0))
+          else
+            begin
+              assert (tid != 0);
+              DA.set vars tid (IV.Set.add (var, tid) (DA.get vars tid))
+            end
+        ) (Tr.defines trans)) transitions;
+  DA.map IV.Set.to_list vars  
+
+let construct_owicki_gries solver assign_table trace =
   let add_triples hoare_solver trace =
     let transitions =
       List.map (fun (letter, tid) -> Letter.transition_of tid letter) trace
     in
     let module DA = BatDynArray in
-    let vars =
-      let locals = DA.init ((List.fold_left (fun max (_, tid) -> if max > tid then max else tid) 0 trace) + 1) (fun _ -> IV.Set.empty) in
-      List.iter (fun trans ->
-          List.iter (fun (var, tid) ->
-              if Var.is_shared var then
-                  DA.set locals 0 (IV.Set.add (var, tid) (DA.get locals 0))
-              else
-                begin
-                  assert (tid != 0);
-                  DA.set locals tid (IV.Set.add (var, tid) (DA.get locals tid))
-                end
-            ) (Tr.defines trans)) transitions;
-      DA.map IV.Set.to_list locals
-    in
+    let num_threads = List.fold_left (fun max (_, tid) -> if max > tid then max else tid) 0 trace in
+    let (threads, tid_err) = project_trace trace num_threads in (* threads[i] = thread i's projection of traces *)
+    let vars = vars transitions num_threads in        (* vars[0] = global variables, vars[i] = local variabls of thread i *)
     let vars_type  = DA.map (List.map IV.typ) vars in
     let vars_const = DA.map (List.map (fun var -> Ctx.mk_const (IV.symbol_of var))) vars in
-    let preds = DA.init (DA.length vars) (fun _ -> []) in (* All relations per thread *)
+    let preds = DA.init (DA.length vars) (fun _ -> []) in (* preds[i] contains each relation for thread i (in trace order) *)
     let get_pred var_types =
       Ctx.mk_symbol (`TyFun (var_types, `TyBool))
     in
     let letters = ref [] in
-    let rec go trace =
-      match trace with
-      | [] -> ()
-      | (letter, tid) :: trace ->
-         begin
-           let transition = Letter.transition_of tid letter in
-           let var_types = List.append (DA.get vars_type tid) (DA.get vars_type 0) in
-           let vars_const = List.append (DA.get vars_const tid) (DA.get vars_const 0) in
-           let pre =
-             match (DA.get preds tid) with
-             | phi :: _ -> phi
-             | [] -> Ctx.mk_true
-           in
-           let post = Ctx.mk_app (get_pred var_types) vars_const in
-           Solver.register_triple hoare_solver ([pre], transition, [post]); (* Consecution *)
-           letters := (letter, tid) :: (!letters);
-           DA.set preds tid (post :: (DA.get preds tid)); (* Add post to history of relations for thread tid *)
-           (* Non-interfereance triples *)
-           DA.iteri (fun id preds -> if id != tid then List.iter
-                                                         (fun phi -> letters := (letter, tid) :: (!letters);
-                                                                     Solver.register_triple hoare_solver ([pre; phi], transition, [phi])) preds
-                    ) preds;
-           go trace
-         end
-    in
-    go trace;
-    let posts = DA.fold_left (fun posts phis -> match phis with
-                                                | [] -> posts
-                                                | phi :: _ -> (phi :: posts)) [] preds
-    in
-    Solver.register_triple hoare_solver (posts, Tr.one, [Ctx.mk_false]);
+    (* add consecution hoare triples *)
+    DA.iteri (fun tid trace ->
+        if tid = 0 then () else
+          begin
+            let vars_type = List.append (DA.get vars_type tid) (DA.get vars_type 0) in
+            let vars_const = List.append (DA.get vars_const tid) (DA.get vars_const 0) in
+            let post = if tid = tid_err then Ctx.mk_false else Ctx.mk_app (get_pred vars_type) vars_const in
+            let rec go trace post =
+              match trace with
+              | [] -> DA.set preds tid (post :: (DA.get preds tid));
+              | (letter, tid) :: trace ->
+                 let pre =
+                   match trace with
+                   | [] -> Ctx.mk_true
+                   | _ -> Ctx.mk_app (get_pred vars_type) vars_const
+                 in
+                 let transition = Letter.transition_of tid letter in
+                 Solver.register_triple hoare_solver ([pre], transition, [post]);
+                 letters := (letter, tid) :: (!letters);
+                 DA.set preds tid (post :: DA.get preds tid);
+                 go trace pre
+            in
+            go (List.rev trace) post
+          end
+      ) threads;
+    (* Add non-interference rules *)
+    DA.iteri (fun i trace -> (* for each thread *)
+        if i = 0 then () else
+          let rec go trace pres =  (* for each command and it's precondition *)
+            match trace, pres with
+            | (letter, tid) :: trace, pre :: pres ->
+               begin
+                 DA.iteri (fun j phis -> (* for each relation from another thread *)
+                     if j = 0 || j = i then () else
+                       let rec go phis =
+                         match phis with
+                         | [] -> ()
+                         | phi :: phis ->
+                            let transition = Letter.transition_of tid letter in
+                            Solver.register_triple hoare_solver ([pre; phi], transition, [phi]);
+                            letters := (letter, tid) :: (!letters);
+                            go phis
+                       in go phis
+                   ) preds;
+                 go trace pres
+               end
+            | [], [x] -> ()
+            | _, _ -> assert false
+          in
+          go trace (DA.get preds i)
+      ) threads;
     !letters
-     (* ((`Transition Tr.one), 0) :: !letters (* Should add epsilon transition, but how? this doesn't type check :( *) *)
   in
   construct solver assign_table trace add_triples
- *)      
-let construct = construct_interp
+
+let construct = construct_owicki_gries
 
 let construct solver trace =
   Log.time "PA construction" (construct solver) trace
