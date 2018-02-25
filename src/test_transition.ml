@@ -32,7 +32,7 @@ end
 module T = struct
   module SemiRing = Transition.Make(Ctx)(V)
   include SemiRing
-  module I = SemiRing.Iter(Iteration.Split(Iteration.WedgeVector))
+  module I = SemiRing.Iter(Iteration.Split(Iteration.WedgeMatrix))
   let star = I.star
 end
 
@@ -78,7 +78,6 @@ let mk_while cond body =
   T.mul
     (T.star (mk_block ((T.assume cond)::body)))
     (T.assume (Ctx.mk_not cond))
-
 
 let degree1 () =
   let tr =
@@ -285,6 +284,25 @@ let interpolate2 () =
     check_interpolant path post itp
   | _ -> assert_failure "Invalid post-condition"
 
+let negative_eigenvalue () =
+  let tr =
+    let open Infix in
+    mk_block [
+      T.assume ((int 0) < x);
+      T.assume ((int 0) < y);
+      T.assign "n" (x + y);
+      T.assign "k" (int 0);
+      T.assume ((int 0) < y);
+      mk_while ((int 0) < x && (int 0) <= y) [
+        T.parallel_assign [("x", y);
+                           ("y", x - (int 1));
+                           ("k", k + (int 1))]
+      ]
+    ]
+  in
+  let post = mk_leq srk k n in
+  assert_post tr post
+
 let suite = "Transition" >::: [
     "degree1" >:: degree1;
     "degree2" >:: degree2;
@@ -295,4 +313,5 @@ let suite = "Transition" >::: [
     "equal1" >:: equal1;
     "interpolate1" >:: interpolate1;
     "interpolate2" >:: interpolate2;
+    "negative_eigenvalue" >:: negative_eigenvalue;
   ]

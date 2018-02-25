@@ -36,36 +36,8 @@ let coeff_of_qq = Coeff.s_of_mpqf
 let scalar_zero = Coeff.s_of_int 0
 let scalar_one = Coeff.s_of_int 1
 
-let ensure_nonlinear_symbols srk =
-  List.iter
-    (fun (name, typ) ->
-       if not (is_registered_name srk name) then
-         register_named_symbol srk name typ)
-    [("pow", (`TyFun ([`TyReal; `TyReal], `TyReal)));
-     ("log", (`TyFun ([`TyReal; `TyReal], `TyReal)))]
-
-let mk_log srk (base : 'a term) (x : 'a term) =
-  match Term.destruct srk base, Term.destruct srk x with
-  | `Real b, `Real x when (QQ.lt QQ.one b) && (QQ.equal x QQ.one) ->
-    mk_real srk QQ.zero
-  | `Real b, `Real x when (QQ.lt QQ.one b) && (QQ.equal x b) ->
-    mk_real srk QQ.one
-  | _, _ ->
-    let log = get_named_symbol srk "log" in
-    mk_app srk log [base; x]
-
-let mk_pow srk (base : 'a term) (x : 'a term) =
-  match Term.destruct srk x with
-  | `Real power ->
-    begin match QQ.to_int power with
-      | Some power -> mk_pow srk base power
-      | None ->
-        let pow = get_named_symbol srk "pow" in
-        mk_app srk pow [base; x]
-    end
-  | _ ->
-    let pow = get_named_symbol srk "pow" in
-    mk_app srk pow [base; x]
+let mk_log = Nonlinear.mk_log
+let mk_pow = Nonlinear.mk_pow
 
 let vec_of_poly = P.vec_of ~const:CS.const_id
 let poly_of_vec = P.of_vec ~const:CS.const_id
@@ -429,7 +401,7 @@ let equational_saturation ?integrity:(integrity=(fun _ -> ())) wedge =
   let srk = wedge.srk in
   let zero = mk_real srk QQ.zero in
 
-  ensure_nonlinear_symbols wedge.srk;
+  Nonlinear.ensure_symbols wedge.srk;
   assert (env_consistent wedge);
 
   let saturated = ref false in
@@ -777,7 +749,7 @@ let strengthen_integral wedge =
   done
 
 let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
-  ensure_nonlinear_symbols wedge.srk;
+  Nonlinear.ensure_symbols wedge.srk;
   assert (env_consistent wedge);
   let cs = wedge.cs in
   let srk = wedge.srk in
@@ -1224,7 +1196,7 @@ let exists
   let wedge = copy wedge in
   let srk = wedge.srk in
   let cs = wedge.cs in
-  ensure_nonlinear_symbols srk;
+  Nonlinear.ensure_symbols srk;
   let log = get_named_symbol srk "log" in
   let pow = get_named_symbol srk "pow" in
 
@@ -1664,6 +1636,7 @@ let symbolic_bounds wedge symbol =
     ([], [])
 
 let is_sat srk phi =
+  let phi = eliminate_ite srk phi in
   let solver = Smt.mk_solver srk in
   let uninterp_phi =
     rewrite srk
@@ -1711,10 +1684,6 @@ let is_sat srk phi =
       | Some implicant ->
         let constraints =
           List.map replace_defs implicant
-          |> List.map (fun atom ->
-              let (atom', conditions) = Interpretation.select_ite model atom in
-              atom'::conditions)
-          |> BatList.concat
           |> of_atoms srk
         in
         strengthen ~integrity constraints;
@@ -1726,6 +1695,7 @@ let is_sat srk phi =
   go ()
 
 let abstract ?exists:(p=fun x -> true) ?(subterm=fun x -> true) srk phi =
+  let phi = eliminate_ite srk phi in
   logf "Abstracting formula@\n%a"
     (Formula.pp srk) phi;
   let solver = Smt.mk_solver srk in
@@ -1792,10 +1762,6 @@ let abstract ?exists:(p=fun x -> true) ?(subterm=fun x -> true) srk phi =
         in
         let new_wedge =
           implicant'
-          |> List.map (fun atom ->
-              let (atom', conditions) = Interpretation.select_ite model atom in
-              atom'::conditions)
-          |> BatList.concat
           |> of_atoms srk
           |> exists ~integrity ~subterm p
         in
@@ -1818,6 +1784,7 @@ let ensure_min_max srk =
      ("max", `TyFun ([`TyReal; `TyReal], `TyReal))]
 
 let symbolic_bounds_formula ?exists:(p=fun x -> true) srk phi symbol =
+  let phi = eliminate_ite srk phi in
   ensure_min_max srk;
   let min = get_named_symbol srk "min" in
   let max = get_named_symbol srk "max" in
@@ -1892,12 +1859,6 @@ let symbolic_bounds_formula ?exists:(p=fun x -> true) srk phi symbol =
           in
           let wedge =
             implicant'
-            |> List.map (fun atom ->
-                let (atom', conditions) =
-                  Interpretation.select_ite model atom
-                in
-                atom'::conditions)
-            |> BatList.concat
             |> of_atoms srk
             |> exists ~integrity ~subterm p
           in
