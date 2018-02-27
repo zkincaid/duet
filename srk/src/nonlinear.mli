@@ -2,11 +2,13 @@
 open Syntax
 
 (** Ensure that a context has the following named symbols
-    - [mul] (rational multiplication)
+    - [mul] (real multiplication)
     - [imul] (integer multiplication)
-    - [mod] (rational modulo)
+    - [mod] (real modulo)
     - [imod] (integer modulo)
-    - [inv] (rational inverse).
+    - [inv] (real inverse).
+    - [pow] (real exponentiation)
+    - [log] (real logarithm)
     If the symbols are not present in the context [ensure_symbols] registers
     them. *)
 val ensure_symbols : 'a context -> unit
@@ -33,3 +35,7 @@ val interpret : 'a context -> ('a,'b) expr -> ('a,'b) expr
 
 (** Compute a linear approximation of a non-linear formula. *)
 val linearize : 'a context -> 'a formula -> 'a formula
+
+val mk_log : 'a context -> 'a term -> 'a term -> 'a term
+
+val mk_pow : 'a context -> 'a term -> 'a term -> 'a term

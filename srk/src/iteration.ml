@@ -200,8 +200,6 @@ let term_of_ocrs srk loop_counter pre_term_of_id post_term_of_id =
   let open Ocrs in
   let open Type_def in
   let ss_pre = SSVar "k" in
-  let pow = get_named_symbol srk "pow" in
-  let log = get_named_symbol srk "log" in
   let rec go = function
     | Plus (x, y) -> mk_add srk [go x; go y]
     | Minus (x, y) -> mk_sub srk (go x) (go y)
@@ -221,35 +219,9 @@ let term_of_ocrs srk loop_counter pre_term_of_id post_term_of_id =
       post_term_of_id name
     | Rational k -> mk_real srk (Mpqf.of_mpq k)
     | Undefined -> assert false
-    | Pow (x, Rational k) ->
-      let base = go x in
-      begin
-        match QQ.to_int (Mpqf.of_mpq k) with
-        | Some k ->
-          (1 -- k)
-          /@ (fun _ -> base)
-          |> BatList.of_enum
-          |> mk_mul srk
-        | None -> assert false
-      end
-    | Pow (Rational k, y) ->
-      let k = Mpqf.of_mpq k in
-      let (base, exp) =
-        if QQ.lt QQ.zero k && QQ.lt k QQ.one then
-          (mk_real srk (QQ.inverse k),
-           mk_neg srk (go y))
-        else
-          (mk_real srk k,
-           go y)
-      in
-      mk_app srk pow [base; exp]
-    | Pow (x, y) ->
-      let base = go x in
-      let exp = go y in
-      mk_app srk pow [base; exp]
+    | Pow (x, y) -> Nonlinear.mk_pow srk (go x) (go y)
     | Log (base, x) ->
-      let x = go x in
-      mk_app srk log [mk_real srk (Mpqf.of_mpq base); x]
+      Nonlinear.mk_log srk (mk_real srk (Mpqf.of_mpq base)) (go x)
     | IDivide (x, y) ->
       mk_idiv srk (go x) (mk_real srk (Mpqf.of_mpq y))
     | Mod (x, y) ->
@@ -874,7 +846,7 @@ module WedgeVectorOCRS = struct
     let open Ocrs in
     let open Type_def in
 
-    Wedge.ensure_nonlinear_symbols iter.srk;
+    Nonlinear.ensure_symbols iter.srk;
     let pow = get_named_symbol iter.srk "pow" in
     let log = get_named_symbol iter.srk "log" in
 
@@ -1515,7 +1487,7 @@ module WedgeMatrix = struct
     let open Ocrs in
     let open Type_def in
 
-    Wedge.ensure_nonlinear_symbols iter.srk;
+    Nonlinear.ensure_symbols iter.srk;
 
     let loop_counter_sym = mk_symbol iter.srk ~name:"K" `TyInt in
     let loop_counter = mk_const iter.srk loop_counter_sym in

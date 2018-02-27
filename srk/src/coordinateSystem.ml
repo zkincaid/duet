@@ -14,6 +14,18 @@ type cs_term = [ `Mul of V.t * V.t
                | `Mod of V.t * V.t
                | `Floor of V.t
                | `App of symbol * (V.t list) ]
+               [@@deriving ord]
+
+module HT = Hashtbl.Make(struct
+    type t = cs_term
+    let hash = function
+      | `Mul (x,y) -> Hashtbl.hash (0, V.hash x, V.hash y)
+      | `Inv x -> Hashtbl.hash (1, V.hash x)
+      | `Mod (x,y) -> Hashtbl.hash (2, V.hash x, V.hash y)
+      | `Floor x -> Hashtbl.hash (3, V.hash x)
+      | `App (f,args) -> Hashtbl.hash (4, f, List.map V.hash args)
+    let equal x y = compare_cs_term x y == 0
+  end)
 
 (* Env needs to map a set of synthetic terms into an initial segment of the
    naturals, with all of the integer-typed synthetic terms mapped to smaller
@@ -22,7 +34,7 @@ module A = BatDynArray
 
 type 'a t =
   { srk : 'a context;
-    term_id : (cs_term, int) Hashtbl.t;
+    term_id : int HT.t;
     id_def : (cs_term * int * [`TyInt | `TyReal]) A.t }
 
 let const_id = -1
@@ -36,17 +48,16 @@ let int_dim cs =
   !ints
 let real_dim cs = (dim cs) - (int_dim cs)
   
-  
 let mk_empty srk =
   { srk = srk;
-    term_id = Hashtbl.create 991;
+    term_id = HT.create 991;
     id_def = A.create () }
 
 let get_context cs = cs.srk
 
 let copy cs =
   { srk = cs.srk;
-    term_id = Hashtbl.copy cs.term_id;
+    term_id = HT.copy cs.term_id;
     id_def = A.copy cs.id_def }
 
 let destruct_coordinate cs id =
@@ -159,8 +170,8 @@ and pp_cs_term cs formatter = function
       (BatList.enum args)
 
 let cs_term_id ?(admit=false) cs t =
-  if Hashtbl.mem cs.term_id t then
-    Hashtbl.find cs.term_id t
+  if HT.mem cs.term_id t then
+    HT.find cs.term_id t
   else if admit then
     let id = A.length cs.id_def in
     let (typ, level) = match t with
@@ -184,7 +195,7 @@ let cs_term_id ?(admit=false) cs t =
         (typ, level)
     in
     A.add cs.id_def (t, level, typ);
-    Hashtbl.add cs.term_id t id;
+    HT.add cs.term_id t id;
     logf ~level:`trace "Admitted %s: %d -> %a"
       (match typ with `TyInt -> "int" | `TyReal -> "real")
       id

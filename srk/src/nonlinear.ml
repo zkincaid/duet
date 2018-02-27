@@ -141,7 +141,7 @@ module SymInterval = struct
   let floor x = make x.srk [] [] (Interval.floor x.interval)
 end
 
-(* Check if mul, div, and mod are registered, and register them if not *)
+(* Check if mul, div, mod, pow, log are registered, and register them if not *)
 let ensure_symbols srk =
   List.iter
     (fun (name, typ) ->
@@ -151,7 +151,9 @@ let ensure_symbols srk =
      ("inv", `TyFun ([`TyReal], `TyReal));
      ("mod", `TyFun ([`TyReal; `TyReal], `TyReal));
      ("imul", `TyFun ([`TyReal; `TyReal], `TyInt));
-     ("imod", `TyFun ([`TyReal; `TyReal], `TyInt))]
+     ("imod", `TyFun ([`TyReal; `TyReal], `TyInt));
+     ("pow", (`TyFun ([`TyReal; `TyReal], `TyReal)));
+     ("log", (`TyFun ([`TyReal; `TyReal], `TyReal)))]
 
 let uninterpret_rewriter srk =
   ensure_symbols srk;
@@ -362,3 +364,37 @@ let linearize srk phi =
       logf ~level:`warn "linearize: optimization failed";
       lin_phi
   end
+
+let mk_log srk (base : 'a term) (x : 'a term) =
+  match Term.destruct srk base, Term.destruct srk x with
+  | `Real b, `Real x when (QQ.lt QQ.one b) && (QQ.equal x QQ.one) ->
+    mk_real srk QQ.zero
+  | `Real b, `Real x when (QQ.lt QQ.one b) && (QQ.equal x b) ->
+    mk_real srk QQ.one
+  | _, _ ->
+    let log = get_named_symbol srk "log" in
+    mk_app srk log [base; x]
+
+let rec mk_pow srk (base : 'a term) (x : 'a term) =
+  match Term.destruct srk base with
+  | `Real b when QQ.equal b QQ.one ->
+    mk_real srk QQ.one
+  | `Real b when QQ.lt b QQ.zero ->
+    let pow = mk_pow srk (mk_real srk (QQ.negate b)) x in
+    mk_ite
+      srk
+      (mk_eq srk (mk_mod srk x (mk_real srk (QQ.of_int 2))) (mk_real srk QQ.zero))
+      pow
+      (mk_neg srk pow)
+  | _ ->
+    match Term.destruct srk x with
+    | `Real power ->
+      begin match QQ.to_int power with
+        | Some power -> Syntax.mk_pow srk base power
+        | None ->
+          let pow = get_named_symbol srk "pow" in
+        mk_app srk pow [base; x]
+      end
+    | _ ->
+      let pow = get_named_symbol srk "pow" in
+      mk_app srk pow [base; x]

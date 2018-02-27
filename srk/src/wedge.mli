@@ -1,4 +1,6 @@
-(** Wedge abstract domain. *)
+(** Wedge abstract domain.  A wedge corresponds to a conjunction of equations
+    and inequations over a vocabulary that includes addition, multiplication,
+    exponentiation, logarithm, division, and modulo. *)
 open Syntax
 
 type 'a t
@@ -57,10 +59,8 @@ val symbolic_bounds : 'a t -> symbol -> ('a term) list * ('a term) list
     for [term] within the region [wedge]. *)
 val bounds : 'a t -> 'a term -> Interval.t
 
-(** Ensure that the named symbols [pow : Real x Real -> Real] and [log : Real
-    x Real -> Real] belong to a given context. *)
-val ensure_nonlinear_symbols : 'a context -> unit
-
+(** Ensure that a context has named [max] and [min] symbols.  If the symbols
+    are not present in the context [ensure_max_min] registers them. *)
 val ensure_min_max : 'a context -> unit
 
 (** Compute a wedge that over-approximates a given formula *)

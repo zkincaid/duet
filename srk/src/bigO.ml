@@ -71,7 +71,7 @@ let maximum x y =
   | `Unknown -> Unknown
 
 let of_term srk term =
-  Wedge.ensure_nonlinear_symbols srk;
+  Nonlinear.ensure_symbols srk;
   Wedge.ensure_min_max srk;
 
   let pow = get_named_symbol srk "pow" in

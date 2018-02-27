@@ -5,7 +5,7 @@ open SrkApron
 open Test_pervasives
 
 let (pow, log) =
-  Wedge.ensure_nonlinear_symbols srk;
+  Nonlinear.ensure_symbols srk;
   (get_named_symbol srk "pow",
    get_named_symbol srk "log")
 
