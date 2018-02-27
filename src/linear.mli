@@ -37,6 +37,7 @@ module ZZVector : sig
   val compare : t -> t -> int
   val pp : Format.formatter -> t -> unit
   val show : t -> string
+  val hash : t -> int
 end
 
 module QQVector : sig
@@ -44,6 +45,7 @@ module QQVector : sig
   val compare : t -> t -> int
   val pp : Format.formatter -> t -> unit
   val show : t -> string
+  val hash : t -> int
 end
 
 module QQMatrix : sig

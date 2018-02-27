@@ -107,6 +107,12 @@ module AbelianGroupMap (M : Map) (G : AbelianGroup) = struct
 
   let pivot dim vec =
     (coeff dim vec, M.remove dim vec)
+
+  let hash ring_hash vec =
+    BatEnum.fold
+      (fun hash (k, v) -> hash + (Hashtbl.hash (k, ring_hash v)))
+      0
+      (M.enum vec)
 end
 
 module RingMap (M : Map) (R : Ring) = struct
@@ -137,6 +143,7 @@ module ZZVector = struct
 
   let show = SrkUtil.mk_show pp
   let compare = compare ZZ.compare
+  let hash = hash ZZ.hash
 end
 
 module QQVector = struct
@@ -149,6 +156,7 @@ module QQVector = struct
 
   let show = SrkUtil.mk_show pp
   let compare = compare QQ.compare
+  let hash = hash QQ.hash
 end
 
 module QQMatrix = struct

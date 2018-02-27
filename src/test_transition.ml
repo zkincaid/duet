@@ -60,7 +60,7 @@ let assert_post tr phi =
   let pathcond =
     T.guard (T.mul tr (T.assume not_post))
   in
-  if Smt.is_sat srk pathcond != `Unsat then
+  if Wedge.is_sat srk pathcond != `Unsat then
     assert_failure (Printf.sprintf "%s\n is not a post-condition of\n%s"
                       (Formula.show srk phi)
                       (T.show tr))
@@ -145,6 +145,31 @@ let degree3 () =
   let post =
     let open Infix in
     x = n*n*n
+  in
+  assert_post tr post
+
+let gauss_sum () =
+  let tr =
+    let open Infix in
+    mk_block [
+      T.assume ((int 0) <= n);
+      T.assign "i" (int 0);
+      T.assign "x" (int 0);
+      mk_while (i < n) [
+        T.assume ((int 0) <= n); (* Needed w/o forward inv gen *)
+        T.assume ((int 0) <= i); (* Needed w/o forward inv gen *)
+        T.assign "j" i;
+        T.assign "i" (i + (int 1));
+        mk_while (j < n) [
+          T.assign "j" (j + (int 1));
+          T.assign "x" (x + (int 1));
+        ]
+      ]
+    ]
+  in
+  let post =
+    let open Infix in
+    (int 2) * x <= (n*(n+(int 1)))
   in
   assert_post tr post
 
@@ -307,6 +332,7 @@ let suite = "Transition" >::: [
     "degree1" >:: degree1;
     "degree2" >:: degree2;
     "degree3" >:: degree3;
+    "gauss_sum" >:: gauss_sum;
     "inc_nondet" >:: inc_nondet;
     "split" >:: split;
     "split2" >:: split2;

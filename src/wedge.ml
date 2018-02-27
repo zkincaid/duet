@@ -272,50 +272,6 @@ let sat_vec_equation wedge x y =
   in
   Abstract0.sat_lincons (get_manager ()) wedge.abstract eq_constraint
 
-let apron_farkas abstract =
-  let open Lincons0 in
-  let constraints =
-    Abstract0.to_lincons_array (get_manager ()) abstract
-  in
-  let lambda_constraints =
-    (0 -- (Array.length constraints - 1)) |> BatEnum.filter_map (fun dim ->
-        match constraints.(dim).typ with
-        | SUP | SUPEQ ->
-          let lincons =
-            Lincons0.make
-              (Linexpr0.of_list None [(coeff_of_qq QQ.one, dim)] None)
-              SUPEQ
-          in
-          Some lincons
-        | EQ -> None
-        | DISEQ | EQMOD _ -> assert false)
-    |> BatArray.of_enum
-  in
-  let lambda_abstract =
-    Abstract0.of_lincons_array
-      (get_manager ())
-      0
-      (Array.length constraints)
-      lambda_constraints
-  in
-  let nb_columns =
-    let dim = Abstract0.dimension (get_manager ()) abstract in
-    (* one extra column for the constant *)
-    dim.Dim.intd + dim.Dim.reald + 1
-  in
-  let columns =
-    Array.init nb_columns (fun _ -> Linexpr0.make None)
-  in
-  for row = 0 to Array.length constraints - 1 do
-    constraints.(row).linexpr0 |> Linexpr0.iter (fun coeff col ->
-        Linexpr0.set_coeff columns.(col) row coeff);
-    Linexpr0.set_coeff
-      columns.(nb_columns - 1)
-      row
-      (Linexpr0.get_cst constraints.(row).linexpr0)
-  done;
-  (lambda_abstract, columns)
-
 let affine_hull wedge =
   let open Lincons0 in
   BatArray.enum (Abstract0.to_lincons_array (get_manager ()) wedge.abstract)
@@ -468,8 +424,9 @@ let equational_saturation ?integrity:(integrity=(fun _ -> ())) wedge =
           assert false
       in
       let reduced_term = CS.term_of_vec wedge.cs reduced_id in
-      if not (Term.equal term reduced_term) then
-        add_bound provenance (mk_eq srk term reduced_term);
+      if not (Term.equal term reduced_term) then begin
+        add_bound provenance (mk_eq srk term reduced_term)
+      end;
 
       (* congruence closure *)
       let add_canonical reduced provenance =
@@ -1002,6 +959,7 @@ let of_atoms srk atoms =
         CS.admit_cs_term wedge.cs (`Inv y);
     | _ -> ()
   done;
+
   update_env wedge;
   wedge
 
