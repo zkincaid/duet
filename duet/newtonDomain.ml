@@ -618,4 +618,6 @@ let () =
   Callback.register "top_callback" (fun () ->
       let open CfgIr in
       let file = get_gfile() in
-      K.havoc (List.map (fun vi -> Cra.VVal (Var.mk vi)) file.vars))
+      K.havoc (List.map (fun vi -> Cra.VVal (Var.mk vi)) file.vars));
+
+  Callback.register "print_stats" Log.print_stats
