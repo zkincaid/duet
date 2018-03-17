@@ -341,6 +341,7 @@ let extract_affine_transformation srk wedge tr_symbols rec_terms rec_ideal =
         in
         ideal := p::(!ideal));
     Polynomial.Rewrite.mk_rewrite elim_order (!ideal)
+    |> Polynomial.Rewrite.grobner_basis
   in
   let basis =
     BatList.filter_map
