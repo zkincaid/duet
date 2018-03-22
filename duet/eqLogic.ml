@@ -3,7 +3,7 @@
 open Core
 open CfgIr
 open Apak
-open Ark
+open Srk
 
 (** A "predicate" is any monoid (with multiplication interpreted as
     conjunction) with some notion of satisfiability and of variable
@@ -55,7 +55,7 @@ struct
   type pred = P.t
   module VMap = Putil.MonoMap.Make(V)(V)
   module VSet = Putil.Set.Make(V)
-  module DS = Ark.DisjointSet.Make(V)
+  module DS = Srk.DisjointSet.Make(V)
 
   (* There are two possible representations of a conjunction of equalities:
      - Canonical, which maps each variable to its equivalence class
@@ -105,7 +105,7 @@ struct
   let pp formatter x =
     let open Format in
     fprintf formatter "[|@[%a@ && %a@]|]"
-      (ArkUtil.pp_print_enum
+      (SrkUtil.pp_print_enum
          ~pp_sep:(fun formatter () -> fprintf formatter "@ && ")
          (fun formatter (x, rep) ->
             fprintf formatter "%a = %a" V.pp x V.pp rep))

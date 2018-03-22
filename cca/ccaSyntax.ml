@@ -1,4 +1,4 @@
-open Ark
+open Srk
 open Syntax
 
 module Ctx = Syntax.MakeSimplifyingContext ()

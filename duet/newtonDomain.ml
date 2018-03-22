@@ -1,6 +1,6 @@
 open Core
 open Apak
-open Ark
+open Srk
 open BatPervasives
 
 include Log.Make(struct let name = "newton" end)
@@ -10,7 +10,7 @@ module V = Cra.V
 module VMemo = Memo.Make(V)
 module VMap = BatMap.Make(V)    
 
-let ark = Ctx.context
+let srk = Ctx.context
 
 (*******************************************************************************
  * Newtonian Program Analysis via Tensor product
@@ -58,10 +58,10 @@ module K = struct
         /@ (fun (v, rhs) ->
             Ctx.mk_eq
               (Ctx.mk_const (V.symbol_of v))
-              (Syntax.substitute_const ark substitution rhs))
+              (Syntax.substitute_const srk substitution rhs))
         |> BatList.of_enum
       in
-      let guard = Syntax.substitute_const ark substitution (guard tr) in
+      let guard = Syntax.substitute_const srk substitution (guard tr) in
       Ctx.mk_and (guard::transform_equations)
     in
     construct guard (BatList.of_enum (transform rev_transform))
@@ -330,10 +330,10 @@ module KK = struct
     let transform =
       transform tr
       /@ (fun (v, rhs) ->
-          (v, Syntax.substitute_const ark substitution rhs))
+          (v, Syntax.substitute_const srk substitution rhs))
       |> BatList.of_enum
     in
-    let guard = Syntax.substitute_const ark substitution (guard tr) in
+    let guard = Syntax.substitute_const srk substitution (guard tr) in
     construct guard transform
 
     (* Remove local variables from the footprint *)
@@ -362,7 +362,7 @@ let inject_left expr =
     | Some v -> Ctx.mk_const (VV.symbol_of (Left v))
     | None -> Ctx.mk_const sym
   in
-  Syntax.substitute_const ark substitution expr
+  Syntax.substitute_const srk substitution expr
 
 let inject_right expr =
   let substitution sym =
@@ -370,7 +370,7 @@ let inject_right expr =
     | Some v -> Ctx.mk_const (VV.symbol_of (Right v))
     | None -> Ctx.mk_const sym
   in
-  Syntax.substitute_const ark substitution expr
+  Syntax.substitute_const srk substitution expr
 
 let tensor tr_left tr_right =
   (* Combined left & right transform *)
@@ -421,7 +421,7 @@ let detensor_transpose tensored_tr =
       | Some (Left v) | Some (Right v) -> Ctx.mk_const (V.symbol_of v)
       | _ -> Ctx.mk_const sym
     in
-    fun x -> Syntax.substitute_const ark merge x
+    fun x -> Syntax.substitute_const srk merge x
   in
   (* substitution_map already has all the assignments that come from the left.
      Add to substition map all the right assignments, possibly overwriting the
@@ -462,25 +462,25 @@ let print_var_bounds formatter cost tr =
     Ctx.mk_and [K.guard tr;
                 Ctx.mk_eq (Ctx.mk_const cost_symbol) rhs ]
   in
-  match Wedge.symbolic_bounds_formula ~exists ark guard cost_symbol with
+  match Wedge.symbolic_bounds_formula ~exists srk guard cost_symbol with
   | `Sat (lower, upper) ->
     begin match lower with
       | Some lower ->
-        fprintf formatter "%a <= %a@\n" (Syntax.Term.pp ark) lower V.pp cost;
+        fprintf formatter "%a <= %a@\n" (Syntax.Term.pp srk) lower V.pp cost;
 (*
         fprintf formatter "%a is o(%a)@\n"
           V.pp cost
-          BigO.pp (BigO.of_term ark lower)
+          BigO.pp (BigO.of_term srk lower)
 *)
       | None -> ()
     end;
     begin match upper with
       | Some upper ->
-        fprintf formatter "%a <= %a@\n" V.pp cost (Syntax.Term.pp ark) upper
+        fprintf formatter "%a <= %a@\n" V.pp cost (Syntax.Term.pp srk) upper
         (*
         fprintf formatter "%a is O(%a)@\n"
           V.pp cost
-          BigO.pp (BigO.of_term ark upper)
+          BigO.pp (BigO.of_term srk upper)
 *)
       | None -> ()
     end
@@ -526,7 +526,7 @@ let () =
   Callback.register "eq_callback" (fun x y -> K.compare x y = 0);
 
   Callback.register "is_sat_callback" (fun tr ->
-      Wedge.is_sat ark (K.guard tr) != `Unsat);
+      Wedge.is_sat srk (K.guard tr) != `Unsat);
 
   Callback.register "get_global_var" (fun name ->
       let open CfgIr in
@@ -539,40 +539,40 @@ let () =
             None));
 
   Callback.register "print_robust_callback" (fun indent tr ->
-      ArkUtil.mk_show (fun formatter tr ->
+      SrkUtil.mk_show (fun formatter tr ->
           Format.pp_open_vbox formatter indent;
           Format.pp_print_break formatter 0 0;
           Format.fprintf formatter "%a" K.pp tr;
           Format.pp_close_box formatter ()) tr);
   Callback.register "tensor_print_robust_callback" (fun indent tr ->
-      ArkUtil.mk_show (fun formatter tr ->
+      SrkUtil.mk_show (fun formatter tr ->
           Format.pp_open_vbox formatter indent;
           Format.pp_print_break formatter 0 0;
           Format.fprintf formatter "%a" KK.pp tr;
           Format.pp_close_box formatter ()) tr);
 
   Callback.register "print_indent_callback" (fun indent tr ->
-      ArkUtil.mk_show (fun formatter tr ->
+      SrkUtil.mk_show (fun formatter tr ->
           Format.pp_open_vbox formatter indent;
           Format.pp_print_break formatter 0 0;
           Format.fprintf formatter "%a" K.pp tr;
           Format.pp_close_box formatter ()) tr);
   Callback.register "tensor_print_indent_callback" (fun indent tr ->
-      ArkUtil.mk_show (fun formatter tr ->
+      SrkUtil.mk_show (fun formatter tr ->
           Format.pp_open_vbox formatter indent;
           Format.pp_print_break formatter 0 0;
           Format.fprintf formatter "%a" KK.pp tr;
           Format.pp_close_box formatter ()) tr);
 
   Callback.register "print_abstract_callback" (fun indent abstract ->
-     ArkUtil.mk_show (fun formatter abstract ->
+     SrkUtil.mk_show (fun formatter abstract ->
           Format.pp_open_vbox formatter indent;
           Format.pp_print_break formatter 0 0;
           Format.fprintf formatter "%a" K.I.pp abstract;
           Format.pp_close_box formatter ())
        abstract);
   Callback.register "tensor_print_abstract_callback" (fun indent abstract ->
-     ArkUtil.mk_show (fun formatter abstract ->
+     SrkUtil.mk_show (fun formatter abstract ->
           Format.pp_open_vbox formatter indent;
           Format.pp_print_break formatter 0 0;
           Format.fprintf formatter "%a" KK.I.pp abstract;
@@ -588,7 +588,7 @@ let () =
       match !tick_var with
       | None -> Log.fatalf "Variable id %d not recognized" varid
       | Some tick_var ->
-        ArkUtil.mk_show (fun formatter (tick_var, tr) ->
+        SrkUtil.mk_show (fun formatter (tick_var, tr) ->
             Format.pp_open_vbox formatter indent;
             Format.pp_print_break formatter 0 0;
             print_var_bounds formatter tick_var tr;
@@ -601,18 +601,18 @@ let () =
   Callback.register "equiv_callback" (fun _ _ -> assert false);
   Callback.register "tensorEquiv_callback" (fun _ _ -> assert false);
 
-  Callback.register "print_formula_callback" (Syntax.Formula.show ark);
-  Callback.register "tensor_print_formula_callback" (Syntax.Formula.show ark);
+  Callback.register "print_formula_callback" (Syntax.Formula.show srk);
+  Callback.register "tensor_print_formula_callback" (Syntax.Formula.show srk);
 
   Callback.register "is_sat_linear_callback" (fun tr -> assert false);
 
   Callback.register "print_smtlib" (fun tr ->
-      ArkUtil.mk_show (fun formatter tr ->
-          Syntax.pp_smtlib2 ark formatter (K.guard tr)
+      SrkUtil.mk_show (fun formatter tr ->
+          Syntax.pp_smtlib2 srk formatter (K.guard tr)
         ) tr);
   Callback.register "tensor_print_smtlib" (fun tr ->
-      ArkUtil.mk_show (fun formatter tr ->
-          Syntax.pp_smtlib2 ark formatter (KK.guard tr)
+      SrkUtil.mk_show (fun formatter tr ->
+          Syntax.pp_smtlib2 srk formatter (KK.guard tr)
         ) tr);
 
   Callback.register "top_callback" (fun () ->

@@ -1,11 +1,10 @@
-open Ark
+open Srk
 open KoatParse
 open CcaSyntax
 open Apak
 
 include Log.Make(struct let name = "cca" end)
 
-let use_ocrs = ref true
 let split_loops = ref true
 let matrix_rec = ref true
 let display_its = ref false
@@ -35,8 +34,8 @@ module MakeDecorator (M : sig
     val manager_alloc : unit -> t Apron.Manager.t
   end) = struct
   module D = struct
-    include ArkApron
-    type t = (Ctx.t, M.t) ArkApron.property
+    include SrkApron
+    type t = (Ctx.t, M.t) SrkApron.property
     let man = M.manager_alloc ()
     let top = top man (Env.empty Ctx.context)
     let bottom = bottom man (Env.empty Ctx.context)
@@ -57,8 +56,8 @@ module MakeDecorator (M : sig
       FP.analyze vertex_transfer ~edge_transfer its
     in
     BatEnum.fold (fun its v ->
-        let out = ArkApron.formula_of_property (FP.output result v) in
-        logf "Found invariant at %s: %a" v (Ark.Syntax.Formula.pp Ctx.context) out;
+        let out = SrkApron.formula_of_property (FP.output result v) in
+        logf "Found invariant at %s: %a" v (Srk.Syntax.Formula.pp Ctx.context) out;
         ITS.fold_succ_e (fun e its ->
             let its = ITS.remove_edge_e its e in
             let tr = Tr.mul (Tr.assume out) (ITS.E.label e) in
@@ -90,16 +89,6 @@ module Weight = struct
       else
         left (WV.abstract_iter ~exists ark phi symbols)
   end
-  module DOcrs = struct
-    module WV = Iteration.WedgeVectorOCRS
-    module SplitWV = Iteration.Split(WV)
-    include Iteration.Sum(WV)(SplitWV)
-    let abstract_iter ?(exists=fun x -> true) ark phi symbols =
-      if !split_loops then
-        right (SplitWV.abstract_iter ~exists ark phi symbols)
-      else
-        left (WV.abstract_iter ~exists ark phi symbols)
-  end
   module DMatrix = struct
     module WM = Iteration.WedgeMatrix
     module SplitWM = Iteration.Split(WM)
@@ -111,15 +100,12 @@ module Weight = struct
         left (WM.abstract_iter ~exists ark phi symbols)
   end
   module D = struct
-    module Vec = Iteration.Sum(DPoly)(DOcrs)
-    include Iteration.Sum(Vec)(DMatrix)
+    include Iteration.Sum(DPoly)(DMatrix)
     let abstract_iter ?(exists=fun x -> true) ark phi symbols =
       if !matrix_rec then
         right (DMatrix.abstract_iter ~exists ark phi symbols)
-      else if !use_ocrs then
-        left (Vec.right (DOcrs.abstract_iter ~exists ark phi symbols))
       else
-        left (Vec.left (DPoly.abstract_iter ~exists ark phi symbols))
+        left (DPoly.abstract_iter ~exists ark phi symbols)
   end
   module I = Iter(D)
   let star x = Log.time "cra:star" I.star x

@@ -1,6 +1,6 @@
 open Core
 open Apak
-open Ark
+open Srk
 open CfgIr
 open BatPervasives
 open Pathexp
@@ -8,14 +8,13 @@ open Pathexp
 module RG = Interproc.RG
 module G = RG.G
 module Ctx = Syntax.MakeSimplifyingContext ()
-let ark = Ctx.context
+let srk = Ctx.context
 
 include Log.Make(struct let name = "cra" end)
 
 let forward_inv_gen = ref false
-let use_ocrs = ref false
 let split_loops = ref false
-let matrix_rec = ref false
+let matrix_rec = ref true
 let dump_goals = ref false
 let nb_goals = ref 0
 
@@ -30,7 +29,7 @@ let dump_goal loc path_condition =
     let chan = Pervasives.open_out filename in
     let formatter = Format.formatter_of_out_channel chan in
     logf ~level:`always "Writing goal formula to %s" filename;
-    Syntax.pp_smtlib2 ark formatter path_condition;
+    Syntax.pp_smtlib2 srk formatter path_condition;
     Format.pp_print_newline formatter ();
     Pervasives.close_out chan;
     incr nb_goals
@@ -46,13 +45,13 @@ let _ =
      Arg.Set split_loops,
      " Turn on loop splitting");
   CmdLine.register_config
-    ("-use-ocrs",
-     Arg.Set use_ocrs,
-     " Use OCRS for recurrence solving");
-  CmdLine.register_config
     ("-cra-matrix",
      Arg.Set matrix_rec,
      "  Matrix recurrences");
+  CmdLine.register_config
+    ("-cra-no-matrix",
+     Arg.Clear matrix_rec,
+     "  Turn off matrix recurrences");
   CmdLine.register_config
     ("-dump-goals",
      Arg.Set dump_goals,
@@ -227,7 +226,7 @@ module V = struct
       | VVal v -> Var.pp formatter v
       | VWidth v -> Format.fprintf formatter "%a@@width" Var.pp v
       | VPos v -> Format.fprintf formatter "%a@@pos" Var.pp v
-    let show = ArkUtil.mk_show pp
+    let show = SrkUtil.mk_show pp
     let equal x y = compare x y = 0
     let hash = function
       | VVal v -> Hashtbl.hash (Var.hash v, 0)
@@ -264,42 +263,29 @@ module MakeTransition(V : Transition.Var) = struct
     module WV = Iteration.WedgeVector
     module SplitWV = Iteration.Split(WV)
     include Iteration.Sum(WV)(SplitWV)
-    let abstract_iter ?(exists=fun x -> true) ark phi symbols =
+    let abstract_iter ?(exists=fun x -> true) srk phi symbols =
       if !split_loops then
-        right (SplitWV.abstract_iter ~exists ark phi symbols)
+        right (SplitWV.abstract_iter ~exists srk phi symbols)
       else
-        left (WV.abstract_iter ~exists ark phi symbols)
-  end
-  module DOcrs = struct
-    module WV = Iteration.WedgeVectorOCRS
-    module SplitWV = Iteration.Split(WV)
-    include Iteration.Sum(WV)(SplitWV)
-    let abstract_iter ?(exists=fun x -> true) ark phi symbols =
-      if !split_loops then
-        right (SplitWV.abstract_iter ~exists ark phi symbols)
-      else
-        left (WV.abstract_iter ~exists ark phi symbols)
+        left (WV.abstract_iter ~exists srk phi symbols)
   end
   module DMatrix = struct
     module WM = Iteration.WedgeMatrix
     module SplitWM = Iteration.Split(WM)
     include Iteration.Sum(WM)(SplitWM)
-    let abstract_iter ?(exists=fun x -> true) ark phi symbols =
+    let abstract_iter ?(exists=fun x -> true) srk phi symbols =
       if !split_loops then
-        right (SplitWM.abstract_iter ~exists ark phi symbols)
+        right (SplitWM.abstract_iter ~exists srk phi symbols)
       else
-        left (WM.abstract_iter ~exists ark phi symbols)
+        left (WM.abstract_iter ~exists srk phi symbols)
   end
   module D = struct
-    module Vec = Iteration.Sum(DPoly)(DOcrs)
-    include Iteration.Sum(Vec)(DMatrix)
-    let abstract_iter ?(exists=fun x -> true) ark phi symbols =
+    include Iteration.Sum(DPoly)(DMatrix)
+    let abstract_iter ?(exists=fun x -> true) srk phi symbols =
       if !matrix_rec then
-        right (DMatrix.abstract_iter ~exists ark phi symbols)
-      else if !use_ocrs then
-        left (Vec.right (DOcrs.abstract_iter ~exists ark phi symbols))
+        right (DMatrix.abstract_iter ~exists srk phi symbols)
       else
-        left (Vec.left (DPoly.abstract_iter ~exists ark phi symbols))
+        left (DPoly.abstract_iter ~exists srk phi symbols)
   end
   module I = Iter(D)
 
@@ -528,7 +514,7 @@ let analyze file =
 
                 let path_condition =
                   Ctx.mk_and [K.guard path; Ctx.mk_not phi]
-                  |> ArkSimplify.simplify_terms ark
+                  |> SrkSimplify.simplify_terms srk
                 in
                 dump_goal (Def.get_location def) path_condition;
                 match Wedge.is_sat Ctx.context path_condition with
@@ -550,7 +536,7 @@ let analyze file =
             let phi = Syntax.substitute_const Ctx.context sigma phi in
             let path_condition =
               Ctx.mk_and [K.guard path; Ctx.mk_not phi]
-              |> ArkSimplify.simplify_terms ark
+              |> SrkSimplify.simplify_terms srk
             in
             logf "Path condition:@\n%a" (Syntax.pp_smtlib2 Ctx.context) path_condition;
             dump_goal (Def.get_location def) path_condition;
@@ -610,27 +596,27 @@ let resource_bound_analysis file =
                   Ctx.mk_const x
               in
               let rhs =
-                Syntax.substitute_const ark subst (K.get_transform cost summary)
+                Syntax.substitute_const srk subst (K.get_transform cost summary)
               in
-              Ctx.mk_and [Syntax.substitute_const ark subst (K.guard summary);
+              Ctx.mk_and [Syntax.substitute_const srk subst (K.guard summary);
                           Ctx.mk_eq (Ctx.mk_const cost_symbol) rhs ]
             in
-            match Wedge.symbolic_bounds_formula ~exists ark guard cost_symbol with
+            match Wedge.symbolic_bounds_formula ~exists srk guard cost_symbol with
             | `Sat (lower, upper) ->
               begin match lower with
                 | Some lower ->
-                  logf ~level:`always "%a <= cost" (Syntax.Term.pp ark) lower;
+                  logf ~level:`always "%a <= cost" (Syntax.Term.pp srk) lower;
                   logf ~level:`always "%a is o(%a)"
                     Varinfo.pp procedure
-                    BigO.pp (BigO.of_term ark lower)
+                    BigO.pp (BigO.of_term srk lower)
                 | None -> ()
               end;
               begin match upper with
                 | Some upper ->
-                  logf ~level:`always "cost <= %a" (Syntax.Term.pp ark) upper;
+                  logf ~level:`always "cost <= %a" (Syntax.Term.pp srk) upper;
                   logf ~level:`always "%a is O(%a)"
                   Varinfo.pp procedure
-                  BigO.pp (BigO.of_term ark upper)
+                  BigO.pp (BigO.of_term srk upper)
                 | None -> ()
               end
             | `Unsat ->

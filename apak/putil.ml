@@ -1,4 +1,4 @@
-open Ark
+open Srk
 let load_path       = ref ["."]
 let temp_dir        = ref (None : string option)
 
@@ -70,8 +70,8 @@ module Set = struct
 
     let pp formatter set =
       Format.fprintf formatter "{@[%a@]}"
-        (ArkUtil.pp_print_enum Ord.pp) (enum set)
-    let show = ArkUtil.mk_show pp
+        (SrkUtil.pp_print_enum Ord.pp) (enum set)
+    let show = SrkUtil.mk_show pp
   end
 end
 
@@ -122,7 +122,7 @@ module Map = struct
           pp_val value;
       in
       Format.fprintf formatter "[@[%a@]]"
-        (ArkUtil.pp_print_enum pp_elt) (enum map)
+        (SrkUtil.pp_print_enum pp_elt) (enum map)
   end
 end
 
@@ -186,8 +186,8 @@ module MonoMap = struct
           Val.pp value;
       in
       Format.fprintf formatter "[@[%a@]]"
-        (ArkUtil.pp_print_enum pp_elt) (M.enum map)
-    let show = ArkUtil.mk_show pp
+        (SrkUtil.pp_print_enum pp_elt) (M.enum map)
+    let show = SrkUtil.mk_show pp
   end
 
   module Ordered = struct
@@ -238,7 +238,7 @@ module TotalFunction = struct
       Format.fprintf format "{@[map: %a;@ default: %a@]}"
         (M.pp Codomain.pp) map.map
         Codomain.pp map.default
-    let show = ArkUtil.mk_show pp
+    let show = SrkUtil.mk_show pp
 
     let equal f g =
       Codomain.equal f.default g.default
@@ -403,7 +403,7 @@ module MakeCoreType (M : CoreTypeBasis) = struct
     let equal x y = compare x y = 0
   end
   include AM
-  let show = ArkUtil.mk_show pp
+  let show = SrkUtil.mk_show pp
   module HT = BatHashtbl.Make(AM)
   module Map = Map.Make(M)
   module Set = Hashed.Set.Make(AM)

@@ -1,7 +1,7 @@
 open Apak
 open Arg
 
-module Log = Ark.Log
+module Log = Srk.Log
 
 let parameterized   = ref false
 
@@ -79,18 +79,6 @@ let fail_malloc_arg =
 let fail_fork_arg =
   ("-fail-fork", Arg.Set fail_fork, " Allow forks to fail")
 
-let default_solver_arg =
-  ("-smt-solver",
-   Arg.String (fun arg ->
-       let solver = match String.lowercase arg with
-         | "z3" -> `Z3
-         | "mathsat" -> `Mathsat
-         | _ ->
-           Log.fatalf "SMT solver `%s' is invalid" arg
-       in
-       Ark.Smt.set_default_solver solver),
-   " Set default SMT solver")
-
 (** Debug args *)
 let debug_arg =
   ("-debug", Arg.Set Log.debug_mode, " Print debugging information")
@@ -140,8 +128,7 @@ let config_args = ref
       parameterized_arg;
       temp_dir_arg;
       fail_malloc_arg;
-      fail_fork_arg;
-      default_solver_arg;
+      fail_fork_arg
     ]
 
 let passes : (CfgIr.file -> unit) list ref = ref []

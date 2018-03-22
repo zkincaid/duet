@@ -1,7 +1,7 @@
 open CbpAst
 open Core
 open Ast
-open Ark
+open Srk
 
 exception No_translation of string
 let typ_bool = Concrete (Int bool_width)
