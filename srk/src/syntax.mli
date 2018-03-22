@@ -32,6 +32,8 @@ val pp_typ : Format.formatter -> [< typ] -> unit
     [symbol_of_int]. *)
 type symbol
 
+(** Create a fresh symbol.  Multiple calls to [mk_symbol] with the same
+    context, name, and type will always result in different symbols. *)
 val mk_symbol : 'a context -> ?name:string -> typ -> symbol
 
 (** Register a named symbol.  The strings identifying named symbols must be

@@ -285,7 +285,7 @@ let max_lds mA mB =
       match Linear.divide_right mB mA with
       | Some mM ->
         assert (QQMatrix.equal (QQMatrix.mul mM mA) mB);
-        (mT, mM)
+        (mT', mM)
       | None ->
         (* mT's rows are linearly independent -- if it has as many rows as B,
            then the rowspace of B is contained inside the rowspace of A, and
@@ -299,9 +299,9 @@ let max_lds mA mB =
   in
   fix mA mB (QQMatrix.identity dims)
 
-(* Given a wedge w, compute A,B,C such that w |= Ax' = BAx + Cy, and such that
-   the row space of A is maximal. *)
-let extract_affine_transformation srk wedge tr_symbols rec_terms rec_ideal =
+(* Write the affine hull of a wedge as Ax' = Bx + c, where c is vector of
+   polynomials in recurrence terms. *)
+let rec_affine_hull srk wedge tr_symbols rec_terms rec_ideal =
   let cs = Wedge.coordinate_system wedge in
 
   (* pre_dims is a set of dimensions corresponding to pre-state
@@ -354,8 +354,6 @@ let extract_affine_transformation srk wedge tr_symbols rec_terms rec_ideal =
       (Wedge.vanishing_ideal wedge)
   in
 
-  (* Write the equations in wedge as Ax' = Bx + c, where c is vector of
-     polynomials. *)
   let (mA, mB, pvc, _) =
     logf ~attributes:[`Bold] "Vanishing ideal:";
     List.fold_left (fun (mA,mB,pvc,i) p ->
@@ -409,6 +407,12 @@ let extract_affine_transformation srk wedge tr_symbols rec_terms rec_ideal =
       (QQMatrix.zero, QQMatrix.zero, [], 0)
       basis
   in
+  (mA, mB, pvc)
+
+(* Given a wedge w, compute A,B,C such that w |= Ax' = BAx + Cy, and such that
+   the row space of A is maximal. *)
+let extract_affine_transformation srk wedge tr_symbols rec_terms rec_ideal =
+  let (mA, mB, pvc) = rec_affine_hull srk wedge tr_symbols rec_terms rec_ideal in
   let (mT, mB) = max_lds mA mB in
   let mA = QQMatrix.mul mT mA in
   let pvc = matrix_polyvec_mul mT (Array.of_list (List.rev pvc)) in
@@ -418,583 +422,7 @@ let extract_affine_transformation srk wedge tr_symbols rec_terms rec_ideal =
   logf " B: @[%a@]" QQMatrix.pp mB;
   (mA, mB, pvc)
 
-module WedgeVector = struct
-  (*    x'    <=       (3 * x) +  y + 1
-        --    --        -         -----
-        exp_lhs exp_op exp_coeff    exp_add *)
-  type 'a exponential =
-    { exp_lhs : 'a term;
-      exp_op : [ `Leq | `Eq ];
-      exp_coeff : QQ.t;
-      exp_rhs : 'a term;
-      exp_add : 'a term }
-
-  type 'a t =
-    { srk : 'a context;
-      symbols : (symbol * symbol) list;
-      precondition : 'a Wedge.t;
-      postcondition : 'a Wedge.t;
-      stratified : (symbol * symbol * 'a term) list;
-      exponential : ('a exponential) list }
-
-  let pp formatter iter =
-    let srk = iter.srk in
-    Format.fprintf formatter
-      "{@[<v 0>pre symbols:@;  @[<v 0>%a@]@;post symbols:@;  @[<v 0>%a@]@;"
-      (SrkUtil.pp_print_enum (pp_symbol srk)) (BatList.enum iter.symbols /@ fst)
-      (SrkUtil.pp_print_enum (pp_symbol srk)) (BatList.enum iter.symbols /@ snd);
-    Format.fprintf formatter "pre:@;  @[<v 0>%a@]@;post:@;  @[<v 0>%a@]@;"
-      Wedge.pp iter.precondition
-      Wedge.pp iter.postcondition;
-    Format.fprintf formatter
-      "recurrences:@;  @[<v 0>%a@;%a@]@]}"
-      (SrkUtil.pp_print_enum_nobox
-         ~pp_sep:(fun formatter () -> Format.pp_print_break formatter 0 0)
-         (fun formatter (sym', sym, incr) ->
-            Format.fprintf formatter "%a = %a + %a"
-              (pp_symbol srk) sym'
-              (pp_symbol srk) sym
-              (Term.pp srk) incr))
-      (BatList.enum iter.stratified)
-      (SrkUtil.pp_print_enum_nobox
-         ~pp_sep:(fun formatter () -> Format.pp_print_break formatter 0 0)
-         (fun formatter { exp_lhs; exp_op; exp_coeff; exp_rhs; exp_add } ->
-            Format.fprintf formatter "(%a) %s %a * (%a) + %a"
-              (Term.pp srk) exp_lhs
-              (match exp_op with
-               | `Eq -> "="
-               | `Leq -> "<=")
-              QQ.pp exp_coeff
-              (Term.pp srk) exp_rhs
-              (Term.pp srk) exp_add))
-      (BatList.enum iter.exponential)
-
-  let show x = SrkUtil.mk_show pp x
-
-  let exponential_rec srk wedge non_induction post_symbols base =
-    (* map from non-induction pre-state vars to their post-state
-       counterparts *)
-    let post_map = post_map non_induction in
-    let postify =
-      let subst sym =
-        if Symbol.Map.mem sym post_map then
-          mk_const srk (Symbol.Map.find sym post_map)
-        else
-          mk_const srk sym
-      in
-      substitute_const srk subst
-    in
-    (* Replace each non-induction pre-state variable v with the difference
-       (v'-v)/base and project out post-state variables.  Pre-state induction
-       variables ("delta variables") now represent the difference (v'-base*v) *)
-    let diff_wedge =
-      let delta_subst sym =
-        if Symbol.Map.mem sym post_map then
-          (* non-induction var *)
-          mk_mul srk [mk_real srk (QQ.inverse base);
-                      mk_add srk [mk_const srk (Symbol.Map.find sym post_map);
-                                  mk_neg srk (mk_const srk sym)]]
-        else
-          mk_const srk sym
-      in
-      let rewrite = substitute_const srk delta_subst in
-      (* don't allow delta vars as subterms *)
-      let subterm sym = not (Symbol.Map.mem sym post_map) in
-      Wedge.to_atoms wedge
-      |> List.map rewrite
-      |> Wedge.of_atoms srk
-      |> Wedge.exists ~subterm (not % flip Symbol.Set.mem post_symbols)
-    in
-
-    let zero_term = mk_real srk QQ.zero in
-    (* try to rewrite a term as (delta_term + term) where delta_term contains
-       only delta vars and term contains no delta vars *)
-    let alg = function
-      | `App (sym, []) ->
-        if Symbol.Map.mem sym post_map then
-          Some (mk_const srk sym, zero_term)
-        else
-          Some (zero_term, mk_const srk sym)
-      | `App (func, args) ->
-        let is_delta sym = Symbol.Map.mem sym post_map in
-        if List.exists (Symbol.Set.exists is_delta % symbols) args then
-          None
-        else
-          Some (zero_term, mk_app srk func args)
-      | `Real k ->
-        Some (zero_term, mk_real srk k)
-      | `Add xs ->
-        Some (mk_add srk (List.map fst xs), mk_add srk (List.map snd xs))
-      | `Mul xs ->
-        let mul x (lhs', rhs') =
-          match x with
-          | None -> None
-          | Some (lhs, rhs) ->
-            if Term.equal lhs zero_term then
-              if Term.equal lhs' zero_term then
-                Some (zero_term, mk_mul srk [rhs; rhs'])
-              else
-                match Term.destruct srk rhs with
-                | `Real _ -> Some (mk_mul srk [rhs; lhs'], mk_mul srk [rhs; rhs'])
-                | _ -> None
-            else if Term.equal lhs' zero_term then
-              match Term.destruct srk rhs' with
-              | `Real _ -> Some (mk_mul srk [rhs'; lhs], mk_mul srk [rhs'; rhs])
-              | _ -> None
-            else
-              None
-        in
-        List.fold_left mul (Some (List.hd xs)) (List.tl xs)
-      | `Binop (`Div, (lhs,rhs), (lhs',rhs')) ->
-        if Term.equal lhs' zero_term then
-          if Term.equal lhs zero_term then
-            Some (zero_term, mk_div srk rhs rhs')
-          else
-            match Term.destruct srk rhs' with
-            | `Real _ -> Some (mk_div srk lhs rhs', mk_div srk rhs rhs')
-            | _ -> None
-        else
-          None
-      | `Binop (`Mod, (lhs,rhs), (lhs',rhs')) ->
-        if Term.equal lhs' zero_term && Term.equal lhs zero_term then
-          Some (zero_term, mk_mod srk rhs rhs')
-        else
-          None
-      | `Unop (`Floor, (lhs,rhs)) ->
-        if Term.equal lhs zero_term then
-          Some (zero_term, mk_floor srk rhs)
-        else
-          None
-      | `Unop (`Neg, (lhs,rhs)) ->
-        Some (mk_neg srk lhs, mk_neg srk rhs)
-      | `Ite (_, _, _) | `Var (_, _) -> None
-    in
-    let recur atom =
-      match Interpretation.destruct_atom srk atom with
-      | `Comparison (op, s, t) ->
-        let op = match op with
-          | `Leq -> `Leq
-          | `Lt -> `Leq
-          | `Eq -> `Eq
-        in
-        BatOption.bind
-          (Term.eval_partial srk alg (mk_sub srk s t))
-          (fun (lhs, rhs) ->
-             if Term.equal lhs zero_term then
-               None
-             else
-               Some { exp_lhs = postify lhs;
-                      exp_coeff = base;
-                      exp_op = op;
-                      exp_rhs = lhs;
-                      exp_add = mk_neg srk rhs })
-      | `Literal (_, _) -> None
-    in
-    BatList.filter_map recur (Wedge.to_atoms diff_wedge)
-
-  let abstract_iter_wedge srk wedge tr_symbols =
-    let pre_symbols = pre_symbols tr_symbols in
-    let post_symbols = post_symbols tr_symbols in
-    let is_symbolic_constant x =
-      not (Symbol.Set.mem x pre_symbols || Symbol.Set.mem x post_symbols)
-    in
-    let precondition =
-      Wedge.exists (not % flip Symbol.Set.mem post_symbols) wedge
-    in
-    let postcondition =
-      Wedge.exists (not % flip Symbol.Set.mem pre_symbols) wedge
-    in
-    let (stratified, non_induction) =
-      let equalities = Wedge.farkas_equalities wedge in
-      (* Matrix consisting of one row for each dimension of the wedge that is
-         associated with a term that contains a transition variable; the row
-         contains the Fsrkas column for that dimension *)
-      let matrix =
-        BatList.fold_lefti (fun m id (term, column) ->
-            if Symbol.Set.for_all is_symbolic_constant (symbols term) then
-              m
-            else
-              QQMatrix.add_row id column m)
-          QQMatrix.zero
-          equalities
-      in
-      let row_of_symbol =
-        BatList.fold_lefti (fun map id (term, _) ->
-            match Term.destruct srk term with
-            | `App (sym, []) -> Symbol.Map.add sym id map
-            | _ -> map)
-          Symbol.Map.empty
-          equalities
-      in
-      let rec go induction non_induction tail matrix =
-        match non_induction with
-        | [] -> (List.rev induction, tail)
-        | (sym,sym')::non_induction ->
-          (* coefficient of sym' must be -1, coefficent of sym must be 1 *)
-          let sym_row = Symbol.Map.find sym row_of_symbol in
-          let diff =
-            V.add_term
-              (QQ.of_int (-1))
-              (Symbol.Map.find sym' row_of_symbol)
-              (V.of_term QQ.one sym_row)
-          in
-          match Linear.solve matrix diff with
-          | Some solution ->
-            (* Add sym to induction vars *)
-            let induction =
-              let rhs =
-                let sym_term = mk_const srk sym in
-                let sym'_term = mk_const srk sym' in
-                BatList.filter_map (fun (term, coeff) ->
-                    if Term.equal term sym_term || Term.equal term sym'_term then
-                      None
-                    else
-                      Some (mk_mul srk [mk_real srk (V.dot coeff solution); term]))
-                  equalities
-                |> mk_add srk
-              in
-              (sym', sym, rhs)::induction
-            in
-            (* Remove sym row from the matrix.  sym' row stays to ensure that
-               recurrences are only over pre-state variables.
-
-               TODO: Should also filter out rows corresponding to terms
-               involving only induction variables.  *)
-            let (_, matrix) = QQMatrix.pivot sym_row matrix in
-            go induction (non_induction@tail) [] matrix
-          | None ->
-            go induction non_induction ((sym,sym')::tail) matrix
-      in
-      (* Filter out transition symbols without associated rows in the matrix --
-         those are not induction variables *)
-      let (candidates, non_induction) =
-        List.partition (fun (s,s') ->
-            Symbol.Map.mem s row_of_symbol && Symbol.Map.mem s' row_of_symbol)
-          tr_symbols
-      in
-      let (induction, non_induction') = go [] candidates [] matrix in
-      (induction, non_induction@non_induction')
-    in
-    let exponential =
-      exponential_rec srk wedge non_induction post_symbols (QQ.of_int 1)
-      @(exponential_rec srk wedge non_induction post_symbols (QQ.of_int 2))
-      @(exponential_rec srk wedge non_induction post_symbols (QQ.of_frac 1 2))
-    in
-    { srk;
-      symbols = tr_symbols;
-      precondition;
-      postcondition;
-      stratified;
-      exponential }
-
-  let abstract_iter ?(exists=fun x -> true) srk phi symbols =
-    let post_symbols =
-      List.fold_left (fun set (_,s') ->
-          Symbol.Set.add s' set)
-        Symbol.Set.empty
-        symbols
-    in
-    let subterm x = not (Symbol.Set.mem x post_symbols) in
-    let wedge =
-      Wedge.abstract ~exists srk phi
-      |> Wedge.exists ~subterm (fun _ -> true)
-    in
-    abstract_iter_wedge srk wedge symbols
-
-  let closure_plus (iter : 'a t) : 'a formula =
-    let loop_counter_sym = mk_symbol iter.srk ~name:"K" `TyInt in
-    let loop_counter = mk_const iter.srk loop_counter_sym in
-    let cs = CS.mk_empty iter.srk in
-
-    (* In a recurrence environment, absence of a binding for a variable
-       indicates that the variable is not modified (i.e., the variable satisfies
-       the recurrence x' = x + 0).  We initialize the environment to bind None
-       to each modified variable. *)
-    let induction_vars =
-      BatList.fold_left
-        (fun iv (s,s') ->
-           Symbol.Map.add s None
-             (Symbol.Map.add s' None iv))
-        Symbol.Map.empty
-        iter.symbols
-    in
-    (* Substitute variables on a term with their closed forms, then find the
-       closed form for the summation sum_{i=0}^loop_counter rhs(i) *)
-    let close_sum induction_vars rhs =
-      let env sym =
-        if Symbol.Map.mem sym induction_vars then
-          Symbol.Map.find sym induction_vars
-        else
-          Some (Cf.symbol cs QQX.one sym)
-      in
-      Cf.of_term cs env rhs
-      |> BatOption.map Cf.summation
-    in
-
-    (* Close all stratified recurrence equations *)
-    let induction_vars =
-      List.fold_left (fun induction_vars (_, sym, rhs) ->
-          match close_sum induction_vars rhs with
-          | Some close_rhs ->
-            let sym_id = CS.cs_term_id ~admit:true cs (`App (sym, [])) in
-            let cf = Cf.add_term QQX.one sym_id close_rhs in
-            Symbol.Map.add sym (Some cf) induction_vars
-          | None ->
-            logf ~level:`warn "Failed to find closed form for %a"
-              (pp_symbol iter.srk) sym;
-            induction_vars)
-        induction_vars
-        iter.stratified
-    in
-
-    let stratified =
-      BatList.filter_map (fun (sym,sym') ->
-          Symbol.Map.find sym induction_vars
-          |> BatOption.map (fun cf ->
-              mk_eq iter.srk
-                (mk_const iter.srk sym')
-                (Cf.term_of cs cf loop_counter)))
-        iter.symbols
-      |> mk_and iter.srk
-    in
-
-    let inequations =
-      BatList.filter_map (fun { exp_lhs; exp_op; exp_coeff; exp_rhs; exp_add } ->
-          if QQ.equal exp_coeff QQ.one then
-            match close_sum induction_vars exp_add with
-            | None -> None
-            | Some cf ->
-              let rhs =
-                mk_add iter.srk [exp_rhs; Cf.term_of cs cf loop_counter]
-              in
-              match exp_op with
-              | `Leq -> Some (mk_leq iter.srk exp_lhs rhs)
-              | `Eq -> Some (mk_eq iter.srk exp_lhs rhs)
-          else
-            None)
-        iter.exponential
-      |> mk_and iter.srk
-    in
-    mk_and iter.srk [
-      Wedge.to_formula iter.precondition;
-      mk_leq iter.srk (mk_real iter.srk QQ.one) loop_counter;
-      stratified;
-      inequations;
-      Wedge.to_formula iter.postcondition
-    ]
-
-  let closure iter =
-    reflexive_closure iter.srk iter.symbols (closure_plus iter)
-
-  let wedge_of_iter iter =
-    let eq_constraints =
-      iter.stratified |> List.map (fun (post, pre, incr) ->
-          mk_eq iter.srk
-            (mk_const iter.srk post)
-            (mk_add iter.srk [mk_const iter.srk pre; incr]))
-    in
-    let exponential_constraints =
-      iter.exponential |> List.map (fun r ->
-          let rhs =
-            mk_add iter.srk [mk_mul iter.srk [mk_real iter.srk r.exp_coeff;
-                                              r.exp_rhs];
-                             r.exp_add]
-          in
-          match r.exp_op with
-          | `Eq -> mk_eq iter.srk r.exp_lhs rhs
-          | `Leq -> mk_leq iter.srk r.exp_lhs rhs)
-    in
-    let postcondition = Wedge.to_atoms iter.postcondition in
-    let precondition = Wedge.to_atoms iter.precondition in
-    Wedge.of_atoms
-      iter.srk
-      (eq_constraints@exponential_constraints@postcondition@precondition)
-
-  let equal iter iter' =
-    Wedge.equal (wedge_of_iter iter) (wedge_of_iter iter')
-
-  let widen iter iter' =
-    let body = Wedge.widen (wedge_of_iter iter) (wedge_of_iter iter') in
-    assert(iter.symbols = iter'.symbols);
-    abstract_iter_wedge iter.srk body iter.symbols
-
-  let join iter iter' =
-    let body =
-      Wedge.join (wedge_of_iter iter) (wedge_of_iter iter')
-    in
-    assert(iter.symbols = iter'.symbols);
-    abstract_iter_wedge iter.srk body iter.symbols
-
-  let star ?(exists=fun x -> true) srk phi symbols =
-    closure (abstract_iter ~exists srk phi symbols)
-
-  let bottom srk symbols =
-    { srk = srk;
-      symbols = symbols;
-      precondition = Wedge.bottom srk;
-      postcondition = Wedge.bottom srk;
-      stratified = [];
-      exponential = [] }
-
-  let tr_symbols iter = iter.symbols
-end
-
-module WedgeVectorOCRS = struct
-  include WedgeVector
-
-  exception No_translation
-  let closure_plus iter =
-    let open Ocrs in
-    let open Type_def in
-
-    Nonlinear.ensure_symbols iter.srk;
-    let pow = get_named_symbol iter.srk "pow" in
-    let log = get_named_symbol iter.srk "log" in
-
-    let loop_counter_sym = mk_symbol iter.srk ~name:"K" `TyInt in
-    let loop_counter = mk_const iter.srk loop_counter_sym in
-
-    let string_of_symbol = string_of_int % int_of_symbol in
-    let symbol_of_string = symbol_of_int % int_of_string in
-
-    let post_map = (* map pre-state vars to post-state vars *)
-      List.fold_left (fun map (pre, post) ->
-          Symbol.Map.add pre post map)
-        Symbol.Map.empty
-        iter.symbols
-    in
-
-    let pre_map = (* map post-state vars to pre-state vars *)
-      List.fold_left (fun map (pre, post) ->
-          Symbol.Map.add post pre map)
-        Symbol.Map.empty
-        iter.symbols
-    in
-
-    (* pre/post subscripts *)
-    let ss_pre = SSVar "k" in
-    let ss_post = SAdd ("k", 1) in
-
-    let expr_of_term =
-      let rec alg = function
-        | `App (sym, []) ->
-          if Symbol.Map.mem sym pre_map then
-            (* sym is a post-state var -- replace it with pre-state var *)
-            Output_variable (string_of_symbol (Symbol.Map.find sym pre_map),
-                             ss_post)
-          else if Symbol.Map.mem sym post_map then
-            Output_variable (string_of_symbol sym,
-                             ss_pre)
-          else
-            Symbolic_Constant (string_of_symbol sym)
-        | `App (func, [x; y]) when func = pow ->
-          begin match Expr.refine iter.srk x, Expr.refine iter.srk y with
-            | `Term x, `Term y ->
-              Pow (Term.eval iter.srk alg x,
-                   Term.eval iter.srk alg y)
-            | _ -> assert false
-          end
-        | `App (func, [x; y]) when func = log ->
-          begin match destruct iter.srk x, Expr.refine iter.srk y with
-            | `Real k, `Term y ->
-              Log (Mpqf.to_mpq k, Term.eval iter.srk alg y)
-            | _ -> assert false
-          end
-        | `App (sym, _) -> assert false (* to do *)
-        | `Real k -> Rational (Mpqf.to_mpq k)
-        | `Add xs -> Sum xs
-        | `Mul xs -> Product xs
-        | `Binop (`Div, x, y) -> Divide (x, y)
-        | `Unop (`Neg, x) -> Minus (Rational (Mpq.of_int 0), x)
-        | `Binop (`Mod, x, y) -> Mod (x, y)
-        | `Unop (`Floor, Divide (x, Rational y)) -> IDivide (x, y)
-        | `Unop (`Floor, _) -> raise No_translation
-        | `Ite (_, _, _) | `Var (_, _) -> assert false
-      in
-      Term.eval iter.srk alg
-    in
-
-    let term_of_expr =
-      let pre_term_of_id name =
-        mk_const iter.srk (symbol_of_string name)
-      in
-      let post_term_of_id name =
-        Symbol.Map.find (symbol_of_string name) post_map
-        |> mk_const iter.srk
-      in
-      term_of_ocrs iter.srk loop_counter pre_term_of_id post_term_of_id
-    in
-    let recurrences =
-      let filter_translate f xs =
-        xs |> BatList.filter_map (fun x ->
-            try Some (f x)
-            with No_translation -> None)
-      in
-      let stratified =
-        filter_translate (fun (post, pre, term) ->
-            (Output_variable (string_of_symbol pre, ss_pre),
-             Equals (Output_variable (string_of_symbol pre, ss_post),
-                     Plus (Output_variable (string_of_symbol pre, ss_pre),
-                           expr_of_term term))))
-          iter.stratified
-      in
-      let exponential =
-        (* $ is a placeholder variable that we use to avoid sending OCRS
-           recurrences on terms *)
-        List.map (fun { exp_lhs; exp_op; exp_coeff; exp_rhs; exp_add } ->
-            let lhs = Output_variable ("$", ss_post) in
-            let rhs =
-              Plus (Product [Rational (Mpqf.to_mpq exp_coeff);
-                             Output_variable ("$", ss_pre)],
-                    expr_of_term exp_add)
-            in
-            let ineq =
-              match exp_op with
-              | `Eq -> Equals (lhs, rhs)
-              | `Leq -> LessEq (lhs, rhs)
-            in
-            (expr_of_term exp_rhs, ineq))
-          iter.exponential
-      in
-      stratified@exponential
-    in
-    let closed =
-      let mk_int k = mk_real iter.srk (QQ.of_int k) in
-      let to_formula (PieceWiseIneq (ivar, pieces)) =
-        assert (ivar = "k");
-        let piece_to_formula (ivl, ineq) =
-          let hypothesis = match ivl with
-            | Bounded (lo, hi) ->
-              mk_and iter.srk [mk_leq iter.srk (mk_int lo) loop_counter;
-                               mk_leq iter.srk loop_counter (mk_int hi)]
-            | BoundBelow lo ->
-              mk_and iter.srk [mk_leq iter.srk (mk_int lo) loop_counter]
-          in
-          let conclusion = match ineq with
-            | Equals (x, y) -> mk_eq iter.srk (term_of_expr x) (term_of_expr y)
-            | LessEq (x, y) -> mk_leq iter.srk (term_of_expr x) (term_of_expr y)
-            | Less (x, y) -> mk_lt iter.srk (term_of_expr x) (term_of_expr y)
-            | GreaterEq (x, y) -> mk_leq iter.srk (term_of_expr y) (term_of_expr x)
-            | Greater (x, y) -> mk_lt iter.srk (term_of_expr y) (term_of_expr x)
-          in
-          mk_if iter.srk hypothesis conclusion
-        in
-        mk_and iter.srk (List.map piece_to_formula pieces)
-      in
-      Log.time "OCRS"
-        (List.map to_formula) (Ocrs.solve_rec_list_pair recurrences)
-    in
-    mk_and iter.srk ([
-        Wedge.to_formula iter.precondition;
-        mk_leq iter.srk (mk_real iter.srk QQ.one) loop_counter;
-        Wedge.to_formula iter.postcondition
-      ]@closed)
-
-  let closure iter =
-    reflexive_closure iter.srk iter.symbols (closure_plus iter)
-end
-
-module WedgeMatrix = struct
+module Recurrence = struct
   type matrix_rec =
     { rec_transform : QQ.t array array;
       rec_add : QQMvp.t array }
@@ -1025,7 +453,7 @@ module WedgeMatrix = struct
       term_of_id : ('a term) array;
       nb_constants : int;
       rec_eq : matrix_rec list;
-      rec_leq : matrix_rec }
+      rec_leq : matrix_rec list }
 
   let pp formatter iter =
     let srk = iter.srk in
@@ -1078,12 +506,290 @@ module WedgeMatrix = struct
         iter.nb_constants
         iter.rec_eq
     in
-    pp_rec "<=" offset formatter iter.rec_leq;
+    ignore (List.fold_left (fun offset recurrence ->
+        pp_rec "<=" offset formatter recurrence;
+        (Array.length recurrence.rec_transform + offset))
+        offset
+        iter.rec_leq);
     Format.fprintf formatter "@]@]}"
 
   let show x = SrkUtil.mk_show pp x
 
-  let extract_leq srk wedge tr_symbols =
+  exception Not_a_polynomial
+
+  (* Extract a stratified system of matrix recurrences *)
+  let extract_matrix_eq srk wedge rec_sym term_of_id =
+    let cs = Wedge.coordinate_system wedge in
+    let post_coord_map =
+      (* map pre-state coordinates to their post-state counterparts *)
+      List.fold_left
+        (fun map (sym, sym') ->
+           try
+             let coord = CS.cs_term_id cs (`App (sym, [])) in
+             let coord' = CS.cs_term_id cs (`App (sym', [])) in
+             IntMap.add coord coord' map
+           with Not_found -> map)
+        IntMap.empty
+        rec_sym
+    in
+
+    (* Detect stratified recurrences *)
+    let rec fix rec_ideal =
+      let offset = DArray.length term_of_id in
+      logf "New stratum (%d recurrence terms)" (DArray.length term_of_id);
+      let (mA,mB,rec_add) =
+        extract_affine_transformation srk wedge rec_sym term_of_id rec_ideal
+      in
+      let size = Array.length rec_add in
+      if size = 0 then
+        []
+      else
+        let rec_transform =
+          Array.init size (fun row ->
+              Array.init size (fun col ->
+                  QQMatrix.entry row col mB))
+        in
+        let rec_ideal' = ref rec_ideal in
+        for i = 0 to size - 1 do
+          DArray.add term_of_id (CS.term_of_vec cs (QQMatrix.row i mA))
+        done;
+        for i = 0 to size - 1 do
+          let rec_eq =
+            let lhs =
+              QQMvp.of_vec ~const:CS.const_id (QQMatrix.row i mA)
+              |> QQMvp.substitute (fun coord ->
+                  assert (IntMap.mem coord post_coord_map);
+                  QQMvp.of_dim (IntMap.find coord post_coord_map))
+            in
+            let add =
+              QQMvp.substitute (fun i ->
+                  (CS.polynomial_of_term cs (DArray.get term_of_id i)))
+                rec_add.(i)
+            in
+            let rhs =
+              BatEnum.fold (fun p (coeff, i) ->
+                  if i = CS.const_id then
+                    QQMvp.add (QQMvp.scalar coeff) p
+                  else
+                    QQMvp.add p
+                      (QQMvp.scalar_mul coeff
+                         (CS.polynomial_of_term cs
+                            (DArray.get term_of_id (offset + i)))))
+                QQMvp.zero
+                (V.enum (QQMatrix.row i mB))
+              |> QQMvp.add add
+            in
+            QQMvp.add lhs (QQMvp.negate rhs)
+          in
+          rec_ideal' := rec_eq::(!rec_ideal')
+        done;
+        { rec_transform; rec_add }::(fix (!rec_ideal'))
+    in
+    fix []
+
+  (* Extract stratified recurrences of the form x' = x + p, where p is a
+     polynomial over induction variables of lower strata *)
+  let extract_induction_vars srk wedge tr_symbols rec_terms =
+    let cs = Wedge.coordinate_system wedge in
+
+    let id_of_sym sym =
+      try
+        CS.cs_term_id cs (`App (sym, []))
+      with Not_found -> assert false
+    in
+
+    (* An additive dimension is one that is allowed to appear as an additive
+       term *)
+    let cs_dim = CS.dim cs in
+    let additive_dim x = x >= cs_dim in
+
+    let rewrite =
+      let elim_order =
+        Monomial.block [not % additive_dim] Monomial.degrevlex
+      in
+      let rewrite =
+        ref (Polynomial.Rewrite.mk_rewrite elim_order (Wedge.vanishing_ideal wedge)
+             |> Polynomial.Rewrite.grobner_basis)
+      in
+      rec_terms |> DArray.iteri (fun i t ->
+          let vec = CS.vec_of_term cs t in
+          let p =
+            QQMvp.add_term
+              (QQ.of_int (-1))
+              (Monomial.singleton (i + cs_dim) 1)
+              (QQMvp.of_vec ~const:(CS.const_id) vec)
+          in
+          rewrite := (Polynomial.Rewrite.add_saturate (!rewrite) p));
+        rewrite
+    in
+    let recurrences = ref [] in
+    let transform_one = [|[|QQ.one|]|] in
+    let delta s s' = (* s' - s *)
+      QQMvp.sub
+        (QQMvp.of_dim (id_of_sym s'))
+        (QQMvp.of_dim (id_of_sym s))
+    in
+    let add_recurrence s s' add =
+      let polynomial =
+        QQMvp.sub
+          (QQMvp.of_dim (id_of_sym s))
+          (QQMvp.of_dim (cs_dim + (DArray.length rec_terms)))
+      in
+      let recur =
+        { rec_transform = transform_one;
+          rec_add = [|add|] }
+      in
+      DArray.add rec_terms (mk_const srk s);
+      rewrite := (Polynomial.Rewrite.add_saturate (!rewrite) polynomial);
+      recurrences := recur::(!recurrences)
+    in
+    let subst x =
+      if additive_dim x then
+        QQMvp.of_dim (x - cs_dim)
+      else
+        raise IllFormedRecurrence
+    in
+    let continue = ref true in
+    let non_induction = ref tr_symbols in
+    while !continue do
+      continue := false;
+      non_induction :=
+        List.filter (fun (s,s') ->
+            try
+              let add =
+                delta s s'
+                |> Polynomial.Rewrite.reduce (!rewrite)
+                |> QQMvp.substitute subst
+              in
+              add_recurrence s s' add;
+              continue := true;
+              false
+            with IllFormedRecurrence -> true)
+          (!non_induction)
+    done;
+    List.rev (!recurrences)
+
+  (* Extract recurrences of the form t' <= t + p, where p is a polynomial over
+     recurrence terms *)
+  let extract_vector_leq srk wedge tr_symbols term_of_id =
+    (* For each transition symbol (x,x'), allocate a symbol delta_x, which is
+       constrained to be equal to x'-x.  For each recurrence term t, allocate
+       a symbol add_t, which is constrained to be equal to (the pre-state
+       value of) t.  After projecting out all variables *except* the delta and
+       add variables, we have a wedge where each constraint corresponds to a
+       recurrence inequation. *)
+    let delta =
+      List.map (fun (s,_) ->
+          let name = "delta_" ^ (show_symbol srk s) in
+          mk_symbol srk ~name (typ_symbol srk s))
+        tr_symbols
+    in
+    let add =
+      DArray.map (fun t ->
+          let name = "a[" ^ (Term.show srk t) ^ "]" in
+          mk_symbol srk ~name (term_typ srk t :> typ))
+        term_of_id
+    in
+    let delta_map =
+      List.fold_left2 (fun map delta (s,s') ->
+          Symbol.Map.add delta (mk_const srk s) map)
+        Symbol.Map.empty
+        delta
+        tr_symbols
+    in
+    let add_map =
+      BatEnum.fold
+        (fun map i ->
+           Symbol.Map.add (DArray.get add i) (QQMvp.of_dim i) map)
+        Symbol.Map.empty
+        (0 -- (DArray.length add - 1))
+    in
+    let add_symbols =
+      DArray.fold_right Symbol.Set.add add Symbol.Set.empty
+    in
+    let diff_symbols =
+      List.fold_right Symbol.Set.add delta add_symbols
+    in
+    let constraints =
+      (List.map2 (fun delta (s,s') ->
+           mk_eq srk
+             (mk_const srk delta)
+             (mk_sub srk (mk_const srk s') (mk_const srk s)))
+          delta
+          tr_symbols)
+      @ (BatEnum.map
+           (fun i ->
+              mk_eq srk
+                (mk_const srk (DArray.get add i))
+                (DArray.get term_of_id i))
+           (0 -- ((DArray.length add) - 1))
+         |> BatList.of_enum)
+      @ (Wedge.to_atoms wedge)
+    in
+    (* Wedge over delta and add variables *)
+    let diff_wedge =
+      let subterm x = Symbol.Set.mem x add_symbols in
+      Wedge.of_atoms srk constraints
+      |> Wedge.exists ~subterm (fun x -> Symbol.Set.mem x diff_symbols)
+    in
+    logf "Diff wedge: %a" Wedge.pp diff_wedge;
+    let diff_cs = Wedge.coordinate_system diff_wedge in
+    let transform_one = [|[|QQ.one|]|] in
+    let recurrences = ref [] in
+    let add_recurrence = function
+      | (`Eq, _) ->
+        (* Skip equations -- we assume that all recurrence equations have
+           already been extracted. *)
+        ()
+      | (`Geq, t) ->
+        (* Rewrite -t as (rec_term'-rec_term) + rec_add, where rec_term is a
+           linear term and rec_add is a polynomial over recurrence terms of
+           lower strata. *)
+        let (c, t) = V.pivot Linear.const_dim (V.negate t) in
+        let (rec_term, rec_add) =
+          BatEnum.fold
+            (fun (rec_term, rec_add) (coeff, coord) ->
+               let diff_term = CS.term_of_coordinate diff_cs coord in
+               match Term.destruct srk diff_term with
+               | `App (sym, []) when Symbol.Map.mem sym delta_map ->
+                 let term =
+                   mk_mul srk [mk_real srk coeff; Symbol.Map.find sym delta_map]
+                 in
+                 (term::rec_term, rec_add)
+               | _ ->
+                 let to_mvp = function
+                   | `App (sym, []) ->
+                     (try Symbol.Map.find sym add_map
+                      with Not_found -> assert false)
+                   | `Real k -> QQMvp.scalar k
+                   | `Add xs -> List.fold_left QQMvp.add QQMvp.zero xs
+                   | `Mul xs -> List.fold_left QQMvp.mul QQMvp.one xs
+                   | _ -> raise Not_a_polynomial
+                 in
+                 let term = Term.eval srk to_mvp diff_term in
+                 (rec_term, QQMvp.add term rec_add))
+            ([], QQMvp.scalar c)
+            (V.enum t)
+        in
+        if rec_term != [] then
+          let recurrence =
+            { rec_transform = transform_one;
+              rec_add = [|QQMvp.negate rec_add|] }
+          in
+          recurrences := recurrence::(!recurrences);
+          DArray.add term_of_id (mk_add srk rec_term);
+    in
+    let add_recurrence x =
+      try add_recurrence x
+      with Not_a_polynomial -> ()
+    in
+    List.iter add_recurrence (Wedge.polyhedron diff_wedge);
+    List.rev (!recurrences)
+
+  (* Extract a system of recurrencs of the form Ax' <= BAx + b, where B has
+     only positive entries and b is a vector of polynomials in recurrence terms
+     at lower strata. *)
+  let extract_matrix_leq srk wedge tr_symbols =
     let open Apron in
     let cs = Wedge.coordinate_system wedge in
     let man = Polka.manager_alloc_loose () in
@@ -1336,7 +1042,7 @@ module WedgeMatrix = struct
     in
     fix polyhedron
 
-  let abstract_iter_wedge srk wedge tr_symbols =
+  let abstract_iter_wedge extract_eq extract_leq srk wedge tr_symbols =
     logf "--------------- Abstracting wedge ---------------@\n%a)" Wedge.pp wedge;
     let cs = Wedge.coordinate_system wedge in
     let pre_symbols = pre_symbols tr_symbols in
@@ -1363,18 +1069,6 @@ module WedgeMatrix = struct
         (Wedge.exists (not % flip Symbol.Set.mem non_recursive) wedge, rec_sym)
     in
     let cs = Wedge.coordinate_system rec_wedge in
-    let post_coord_map =
-      (* map pre-state coordinates to their post-state counterparts *)
-      List.fold_left
-        (fun map (sym, sym') ->
-           try
-             let coord = CS.cs_term_id cs (`App (sym, [])) in
-             let coord' = CS.cs_term_id cs (`App (sym', [])) in
-             IntMap.add coord coord' map
-           with Not_found -> map)
-        IntMap.empty
-        tr_symbols
-    in
 
     let term_of_id = DArray.create () in
 
@@ -1396,68 +1090,9 @@ module WedgeMatrix = struct
           DArray.add term_of_id term
     done;
     let nb_constants = DArray.length term_of_id in
-
-    (* Detect stratified recurrences *)
-    let rec fix rec_ideal =
-      let offset = DArray.length term_of_id in
-      logf "New stratum (%d recurrence terms)" (DArray.length term_of_id);
-      let (mA,mB,rec_add) =
-        extract_affine_transformation srk rec_wedge rec_sym term_of_id rec_ideal
-      in
-      let size = Array.length rec_add in
-      if size = 0 then
-        []
-      else
-        let rec_transform =
-          Array.init size (fun row ->
-              Array.init size (fun col ->
-                  QQMatrix.entry row col mB))
-        in
-        let rec_ideal' = ref rec_ideal in
-        for i = 0 to size - 1 do
-          DArray.add term_of_id (CS.term_of_vec cs (QQMatrix.row i mA))
-        done;
-        for i = 0 to size - 1 do
-          let rec_eq =
-            let lhs =
-              QQMvp.of_vec ~const:CS.const_id (QQMatrix.row i mA)
-              |> QQMvp.substitute (fun coord ->
-                  assert (IntMap.mem coord post_coord_map);
-                  QQMvp.of_dim (IntMap.find coord post_coord_map))
-            in
-            let add =
-              QQMvp.substitute (fun i ->
-                  (CS.polynomial_of_term cs (DArray.get term_of_id i)))
-                rec_add.(i)
-            in
-            let rhs =
-              BatEnum.fold (fun p (coeff, i) ->
-                  if i = CS.const_id then
-                    QQMvp.add (QQMvp.scalar coeff) p
-                  else
-                    QQMvp.add p
-                      (QQMvp.scalar_mul coeff
-                         (CS.polynomial_of_term cs
-                            (DArray.get term_of_id (offset + i)))))
-                QQMvp.zero
-                (V.enum (QQMatrix.row i mB))
-              |> QQMvp.add add
-            in
-            QQMvp.add lhs (QQMvp.negate rhs)
-          in
-          rec_ideal' := rec_eq::(!rec_ideal')
-        done;
-        { rec_transform; rec_add }::(fix (!rec_ideal'))
-    in
-    let rec_eq = fix [] in
-    let rec_leq =
-      let (mA, rec_transform, rec_add) = extract_leq srk rec_wedge rec_sym in
-      let size = Array.length rec_add in
-      for i = 0 to size - 1 do
-        DArray.add term_of_id (CS.term_of_vec cs (QQMatrix.row i mA))
-      done;
-      { rec_transform; rec_add }
-    in
+    let rec_eq = extract_eq srk rec_wedge rec_sym term_of_id in
+    let rec_leq = extract_leq srk rec_wedge rec_sym term_of_id in
+      
     let result =
     { srk;
       symbols = tr_symbols;
@@ -1471,7 +1106,7 @@ module WedgeMatrix = struct
     logf "=============== Wedge/Matrix recurrence ===============@\n%a)" pp result;
     result
 
-  let abstract_iter ?(exists=fun x -> true) srk phi symbols =
+  let abstract_iter extract_eq extract_leq ?(exists=fun x -> true) srk phi symbols =
     let post_symbols =
       List.fold_left (fun set (_,s') ->
           Symbol.Set.add s' set)
@@ -1482,7 +1117,7 @@ module WedgeMatrix = struct
     let wedge =
       Wedge.abstract ~exists ~subterm srk phi
     in
-    abstract_iter_wedge srk wedge symbols
+    abstract_iter_wedge extract_eq extract_leq srk wedge symbols
 
   let closure_plus iter =
     let open Ocrs in
@@ -1560,7 +1195,7 @@ module WedgeMatrix = struct
       recurrence_closed
     in
     let mk_int k = mk_real iter.srk (QQ.of_int k) in
-    let rec close offset closed = function
+    let rec close mk_compare offset closed = function
       | [] -> (mk_and iter.srk closed, offset)
       | (recurrence::rest) ->
         let size = Array.length recurrence.rec_add in
@@ -1577,7 +1212,7 @@ module WedgeMatrix = struct
                 mk_and iter.srk [mk_leq iter.srk (mk_int lo) loop_counter]
             in
             let conclusion = match ineq with
-              | Equals (x, y) -> mk_eq iter.srk (term_of_expr x) (term_of_expr y)
+              | Equals (x, y) -> mk_compare iter.srk (term_of_expr x) (term_of_expr y)
               | _ -> assert false
             in
             mk_if iter.srk hypothesis conclusion
@@ -1589,41 +1224,15 @@ module WedgeMatrix = struct
             | Equals (x, y) -> cf.(offset + i) <- y
             | _ -> assert false);
         let recurrence_closed_formula = List.map to_formula recurrence_closed in
-        close (offset + size) (recurrence_closed_formula@closed) rest
+        close mk_compare (offset + size) (recurrence_closed_formula@closed) rest
     in
-    let (closed, offset) = close iter.nb_constants [] iter.rec_eq in
-    let closed_leq =
-      let to_formula ineq =
-        let PieceWiseIneq (ivar, pieces) = Deshift.deshift_ineq ineq in
-        assert (ivar = "k");
-        let piece_to_formula (ivl, ineq) =
-          let hypothesis = match ivl with
-            | Bounded (lo, hi) ->
-              mk_and iter.srk [mk_leq iter.srk (mk_int lo) loop_counter;
-                               mk_leq iter.srk loop_counter (mk_int hi)]
-            | BoundBelow lo ->
-              mk_and iter.srk [mk_leq iter.srk (mk_int lo) loop_counter]
-          in
-          let conclusion = match ineq with
-            | Equals (x, y) -> mk_leq iter.srk (term_of_expr x) (term_of_expr y)
-            | _ -> assert false
-          in
-          mk_if iter.srk hypothesis conclusion
-        in
-        mk_and iter.srk (List.map piece_to_formula pieces)
-      in
-      if Array.length iter.rec_leq.rec_add > 0 then
-        let recurrence_closed = close_matrix_rec iter.rec_leq offset in
-        List.map to_formula recurrence_closed
-        |> mk_and iter.srk
-      else
-        mk_true iter.srk
-    in
+    let (closed_eq, offset) = close mk_eq iter.nb_constants [] iter.rec_eq in
+    let (closed_leq, _) = close mk_leq offset [] iter.rec_leq in
     mk_and iter.srk [
         Wedge.to_formula iter.precondition;
         mk_leq iter.srk (mk_real iter.srk QQ.one) loop_counter;
         Wedge.to_formula iter.postcondition;
-        closed;
+        closed_eq;
         closed_leq
     ]
 
@@ -1683,13 +1292,28 @@ module WedgeMatrix = struct
         (iter.nb_constants, atoms)
         iter.rec_eq
     in
-    let atoms =
-      (rec_atoms (mk_leq iter.srk) offset iter.rec_leq)@atoms
+    let (_, atoms) =
+      BatList.fold_left (fun (offset, atoms) recurrence ->
+          let size = Array.length recurrence.rec_add in
+          (offset+size,
+           (rec_atoms (mk_leq iter.srk) offset recurrence)@atoms))
+        (offset, atoms)
+        iter.rec_leq
     in
     Wedge.of_atoms iter.srk atoms
 
   let equal iter iter' =
     Wedge.equal (wedge_of_iter iter) (wedge_of_iter iter')
+
+  let tr_symbols iter = iter.symbols
+end
+
+module WedgeVector : DomainPlus = struct
+  include Recurrence
+  let abstract_iter ?(exists=fun x -> true) srk =
+    abstract_iter extract_induction_vars extract_vector_leq ~exists srk
+  let abstract_iter_wedge srk =
+    abstract_iter_wedge extract_induction_vars extract_vector_leq srk
 
   let widen iter iter' =
     let body = Wedge.widen (wedge_of_iter iter) (wedge_of_iter iter') in
@@ -1702,8 +1326,26 @@ module WedgeMatrix = struct
     in
     assert(iter.symbols = iter'.symbols);
     abstract_iter_wedge iter.srk body iter.symbols
+end
 
-  let tr_symbols iter = iter.symbols
+module WedgeMatrix : DomainPlus = struct
+  include Recurrence
+  let abstract_iter ?(exists=fun x -> true) srk =
+    abstract_iter extract_matrix_eq extract_vector_leq ~exists srk
+  let abstract_iter_wedge srk =
+    abstract_iter_wedge extract_matrix_eq extract_vector_leq srk
+
+  let widen iter iter' =
+    let body = Wedge.widen (wedge_of_iter iter) (wedge_of_iter iter') in
+    assert(iter.symbols = iter'.symbols);
+    abstract_iter_wedge iter.srk body iter.symbols
+
+  let join iter iter' =
+    let body =
+      Wedge.join (wedge_of_iter iter) (wedge_of_iter iter')
+    in
+    assert(iter.symbols = iter'.symbols);
+    abstract_iter_wedge iter.srk body iter.symbols
 end
 
 module Split (Iter : DomainPlus) = struct

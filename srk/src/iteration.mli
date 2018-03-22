@@ -27,7 +27,6 @@ module type DomainPlus = sig
 end
 
 module WedgeVector : DomainPlus
-module WedgeVectorOCRS : DomainPlus
 module WedgeMatrix : DomainPlus
 
 module Split(Iter : DomainPlus) : Domain

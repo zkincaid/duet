@@ -1424,7 +1424,9 @@ struct
         else if non_const = [] then
           mk (Real const) []
         else if QQ.equal const QQ.one then
-          hc Mul non_const
+          match non_const with
+          | [x] -> x
+          | _ -> hc Mul non_const
         else
           hc Mul ((mk (Real const) [])::non_const)
 
