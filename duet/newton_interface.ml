@@ -1,7 +1,7 @@
 open Core
 open Apak
 open CfgIr
-open Ark
+open Srk
 
 module RG = Interproc.RG
 module G = RG.G
