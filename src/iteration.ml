@@ -742,10 +742,10 @@ module Recurrence = struct
            already been extracted. *)
         ()
       | (`Geq, t) ->
-        (* Rewrite -t as (rec_term'-rec_term) + rec_add, where rec_term is a
+        (* Rewrite t>=0 as (rec_term'-rec_term) <= rec_add, where rec_term is a
            linear term and rec_add is a polynomial over recurrence terms of
            lower strata. *)
-        let (c, t) = V.pivot Linear.const_dim (V.negate t) in
+        let (c, t) = V.pivot Linear.const_dim t in
         let (rec_term, rec_add) =
           BatEnum.fold
             (fun (rec_term, rec_add) (coeff, coord) ->
@@ -753,7 +753,8 @@ module Recurrence = struct
                match Term.destruct srk diff_term with
                | `App (sym, []) when Symbol.Map.mem sym delta_map ->
                  let term =
-                   mk_mul srk [mk_real srk coeff; Symbol.Map.find sym delta_map]
+                   mk_mul srk [mk_real srk (QQ.negate coeff);
+                               Symbol.Map.find sym delta_map]
                  in
                  (term::rec_term, rec_add)
                | _ ->
@@ -766,7 +767,9 @@ module Recurrence = struct
                    | `Mul xs -> List.fold_left QQMvp.mul QQMvp.one xs
                    | _ -> raise Not_a_polynomial
                  in
-                 let term = Term.eval srk to_mvp diff_term in
+                 let term =
+                   QQMvp.scalar_mul coeff (Term.eval srk to_mvp diff_term)
+                 in
                  (rec_term, QQMvp.add term rec_add))
             ([], QQMvp.scalar c)
             (V.enum t)
@@ -774,7 +777,7 @@ module Recurrence = struct
         if rec_term != [] then
           let recurrence =
             { rec_transform = transform_one;
-              rec_add = [|QQMvp.negate rec_add|] }
+              rec_add = [|rec_add|] }
           in
           recurrences := recurrence::(!recurrences);
           DArray.add term_of_id (mk_add srk rec_term);
@@ -789,7 +792,7 @@ module Recurrence = struct
   (* Extract a system of recurrencs of the form Ax' <= BAx + b, where B has
      only positive entries and b is a vector of polynomials in recurrence terms
      at lower strata. *)
-  let extract_matrix_leq srk wedge tr_symbols =
+  let extract_matrix_leq srk wedge tr_symbols term_of_id =
     let open Apron in
     let cs = Wedge.coordinate_system wedge in
     let man = Polka.manager_alloc_loose () in
@@ -1040,7 +1043,12 @@ module Recurrence = struct
         forget
         false
     in
-    fix polyhedron
+    let (mA, rec_transform, rec_add) = fix polyhedron in
+    let size = Array.length rec_add in
+    for i = 0 to size - 1 do
+      DArray.add term_of_id (CS.term_of_vec cs (QQMatrix.row i mA))
+    done;
+    [{ rec_transform; rec_add }]
 
   let abstract_iter_wedge extract_eq extract_leq srk wedge tr_symbols =
     logf "--------------- Abstracting wedge ---------------@\n%a)" Wedge.pp wedge;
