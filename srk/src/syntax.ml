@@ -240,7 +240,7 @@ let rec mk_pow srk t n =
     let q = mk_pow srk t (n / 2) in
     let q_squared = mk_mul srk [q; q] in
     if n mod 2 = 0 then q_squared
-    else mk_mul srk [q; q_squared]
+    else mk_mul srk [t; q_squared]
 
 let mk_true srk = srk.mk True []
 let mk_false srk = srk.mk False []
