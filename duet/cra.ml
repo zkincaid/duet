@@ -11,7 +11,7 @@ let srk = Ctx.context
 
 include Log.Make(struct let name = "cra" end)
 
-let forward_inv_gen = ref false
+let forward_inv_gen = ref true
 let split_loops = ref false
 let matrix_rec = ref true
 let dump_goals = ref false
@@ -36,17 +36,13 @@ let dump_goal loc path_condition =
 
 let _ =
   CmdLine.register_config
-    ("-cra-forward-inv",
-     Arg.Set forward_inv_gen,
-     " Forward invariant generation");
+    ("-cra-no-forward-inv",
+     Arg.Clear forward_inv_gen,
+     " TUrn off forward invariant generation");
   CmdLine.register_config
     ("-cra-split-loops",
      Arg.Set split_loops,
      " Turn on loop splitting");
-  CmdLine.register_config
-    ("-cra-matrix",
-     Arg.Set matrix_rec,
-     "  Matrix recurrences");
   CmdLine.register_config
     ("-cra-no-matrix",
      Arg.Clear matrix_rec,
@@ -162,7 +158,7 @@ module MakeDecorator(M : sig
 end
 
 type abstract_domain = Box | Octagon | Polyhedron
-let default_domain = ref Box
+let default_domain = ref Octagon
 
 let decorate rg =
   match !default_domain with
