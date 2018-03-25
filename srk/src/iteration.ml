@@ -281,18 +281,22 @@ let max_lds mA mB =
      = T'Bx. *)
   let rec fix mA mB mT =
     let mT' = Linear.max_rowspace_projection mA mB in
+    let mA' = QQMatrix.mul mT' mA in
+    let mB' = QQMatrix.mul mT' mB in
+    let mT'' = QQMatrix.mul mT' mT in
     if QQMatrix.nb_rows mB = QQMatrix.nb_rows mT' then
-      match Linear.divide_right mB mA with
+      match Linear.divide_right mB' mA' with
       | Some mM ->
-        assert (QQMatrix.equal (QQMatrix.mul mM mA) mB);
-        (mT', mM)
+        assert (QQMatrix.equal (QQMatrix.mul mM mA') mB');
+
+        (mT'', mM)
       | None ->
         (* mT's rows are linearly independent -- if it has as many rows as B,
            then the rowspace of B is contained inside the rowspace of A, and
            B/A is defined. *)
         assert false
     else
-      fix (QQMatrix.mul mT' mA) (QQMatrix.mul mT' mB) (QQMatrix.mul mT' mT)
+      fix mA' mB' mT''
   in
   let dims =
     SrkUtil.Int.Set.elements (QQMatrix.row_set mB)
@@ -732,7 +736,6 @@ module Recurrence = struct
       Wedge.of_atoms srk constraints
       |> Wedge.exists ~subterm (fun x -> Symbol.Set.mem x diff_symbols)
     in
-    logf "Diff wedge: %a" Wedge.pp diff_wedge;
     let diff_cs = Wedge.coordinate_system diff_wedge in
     let transform_one = [|[|QQ.one|]|] in
     let recurrences = ref [] in

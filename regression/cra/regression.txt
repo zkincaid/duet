@@ -1,37 +1,37 @@
 # loop free
-pointer_arith: duet.native -cra @code/pointer_arith.c
-interproc: duet.native -cra @code/interproc.c
+pointer_arith: duet.native -cra-no-forward-inv -cra @code/pointer_arith.c
+interproc: duet.native -cra-no-forward-inv -cra @code/interproc.c
 # linear
-count_by_1: duet.native -cra @code/count_by_1.c
-count_by_1_variant: duet.native -cra @code/count_by_1_variant.c
-count_up_down_safe: duet.native -cra @code/count_up_down_safe.c
-count_up_down_unsafe: duet.native -cra @code/count_up_down_unsafe.c
-nested: duet.native -cra @code/nested.c
-count_by_2: duet.native -cra @code/count_by_2.c
-count_by_nondet: duet.native -cra @code/count_by_nondet.c
-rec1: duet.native -cra @code/rec1.c
-rec2: duet.native -cra @code/rec2.c
-rec1-param: duet.native -cra @code/rec1-param.c
-rec2-param: duet.native -cra @code/rec2-param.c
-half: duet.native -cra-split-loops -cra @code/half.c
+count_by_1: duet.native -cra-no-forward-inv -cra @code/count_by_1.c
+count_by_1_variant: duet.native -cra-no-forward-inv -cra @code/count_by_1_variant.c
+count_up_down_safe: duet.native -cra-no-forward-inv -cra @code/count_up_down_safe.c
+count_up_down_unsafe: duet.native -cra-no-forward-inv -cra @code/count_up_down_unsafe.c
+nested: duet.native -cra-no-forward-inv -cra @code/nested.c
+count_by_2: duet.native -cra-no-forward-inv -cra @code/count_by_2.c
+count_by_nondet: duet.native -cra-no-forward-inv -cra @code/count_by_nondet.c
+rec1: duet.native -cra-no-forward-inv -cra @code/rec1.c
+rec2: duet.native -cra-no-forward-inv -cra @code/rec2.c
+rec1-param: duet.native -cra-no-forward-inv -cra @code/rec1-param.c
+rec2-param: duet.native -cra-no-forward-inv -cra @code/rec2-param.c
+half: duet.native -cra-split-loops -cra-no-forward-inv -cra @code/half.c
 # memory
-mem: duet.native -check-array-bounds -cra @code/mem.c
-mem2: duet.native -check-array-bounds -cra @code/mem2.c
+mem: duet.native -cra-no-forward-inv -check-array-bounds -cra @code/mem.c
+mem2: duet.native -cra-no-forward-inv -check-array-bounds -cra @code/mem2.c
 # nonlinear
-count_by_k: duet.native -cra @code/count_by_k.c
-quotient: duet.native -cra-forward-inv -cra @code/quotient.c
-quotient2: duet.native -cra-split-loops -cra @code/quotient.c
-divide: duet.native -cra @code/divide.c
-factor: duet.native -cra @code/factor.c
-mult: duet.native -cra @code/mult.c
-mult-rec: duet.native -cra @code/mult-rec.c
-exponential: duet.native -cra-matrix -cra @code/exponential.c
-gauss_sum: duet.native -cra @code/gauss_sum.c
-degree3_monomial: duet.native -cra-split-loops -cra-matrix -cra @code/degree3_monomial.c
-degree3_binomial: duet.native -cra-split-loops -cra-matrix -cra @code/degree3_binomial.c
-degree4_monomial: duet.native -cra-split-loops -cra-matrix -cra @code/degree4_monomial.c
-degree4_binomial: duet.native -cra-split-loops -cra-matrix -cra @code/degree4_binomial.c
-power_log: duet.native -cra-matrix -cra-forward-inv -cra @code/power_log.c
-log: duet.native -cra-split-loops -cra-matrix -rba @code/log.c
-binary_search: duet.native -cra-matrix -rba @code/binary_search.c
-fib_secure: duet.native -cra-matrix -cra @code/fib_secure.c
+count_by_k: duet.native -cra-no-forward-inv -cra @code/count_by_k.c
+quotient: duet.native -cra @code/quotient.c
+quotient2: duet.native -cra-no-forward-inv -cra-split-loops -cra @code/quotient.c
+divide: duet.native -cra-no-forward-inv -cra @code/divide.c
+factor: duet.native -cra-no-forward-inv -cra @code/factor.c
+mult: duet.native -cra-no-forward-inv -cra @code/mult.c
+mult-rec: duet.native -cra-no-forward-inv -cra @code/mult-rec.c
+exponential: duet.native -cra-no-forward-inv -cra @code/exponential.c
+gauss_sum: duet.native -cra-no-forward-inv -cra @code/gauss_sum.c
+degree3_monomial: duet.native -cra-split-loops -cra-no-forward-inv -cra @code/degree3_monomial.c
+degree3_binomial: duet.native -cra-split-loops -cra-no-forward-inv -cra @code/degree3_binomial.c
+degree4_monomial: duet.native -cra-split-loops -cra-no-forward-inv -cra @code/degree4_monomial.c
+degree4_binomial: duet.native -cra-split-loops -cra-no-forward-inv -cra @code/degree4_binomial.c
+power_log: duet.native -cra @code/power_log.c
+log: duet.native -cra-split-loops -rba @code/log.c
+binary_search: duet.native -rba @code/binary_search.c
+fib_secure: duet.native -cra @code/fib_secure.c
