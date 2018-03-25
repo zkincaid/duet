@@ -46,7 +46,7 @@ let _ =
   CmdLine.register_config
     ("-cra-no-matrix",
      Arg.Clear matrix_rec,
-     "  Turn off matrix recurrences");
+     " Turn off matrix recurrences");
   CmdLine.register_config
     ("-dump-goals",
      Arg.Set dump_goals,
