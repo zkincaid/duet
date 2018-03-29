@@ -373,12 +373,12 @@ bool match_embeds(Embedding emb, Var_selection sel){
       if (!emb.get_universe_graph().unit_prop(u_removed, junk, junk)) return false;
       emb.ufilter(p_removed, u_removed);
   }
-  srand(time(NULL));
-  vector<size_t> conflict_history;
-  conflict_history.resize(emb.get_universe_graph().uSize(), 0);
-
   if (!emb.get_valid()) return false;
   Graph& u_graph = emb.get_universe_graph();
+
+  srand(time(NULL));
+  vector<size_t> conflict_history;
+  conflict_history.resize(u_graph.uSize(), 0);
 
   vector<int> match1, match2, vis, conflicts;
 
