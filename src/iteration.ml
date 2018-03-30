@@ -280,31 +280,48 @@ let max_lds mA mB =
      m-by-n matrix T' with m < n, and continue iterating with the system T'Ax'
      = T'Bx. *)
   let rec fix mA mB mT =
-    let mT' = Linear.max_rowspace_projection mA mB in
-    let mA' = QQMatrix.mul mT' mA in
-    let mB' = QQMatrix.mul mT' mB in
+    let mS = Linear.max_rowspace_projection mA mB in
+    (* Since matrices are sparse, need to account for 0-rows of B -- they
+       should always be in the max rowspace projection *)
+    let mT' =
+      SrkUtil.Int.Set.fold
+        (fun i (mT', nb_rows) ->
+           if V.is_zero (QQMatrix.row i mB) then
+             let mT' =
+               QQMatrix.add_row nb_rows (V.of_term QQ.one i) mT'
+             in
+             (mT', nb_rows + 1)
+           else
+             (mT', nb_rows))
+        (QQMatrix.row_set mA)
+        (mS, QQMatrix.nb_rows mB)
+      |> fst
+    in
     let mT'' = QQMatrix.mul mT' mT in
-    if QQMatrix.nb_rows mB = QQMatrix.nb_rows mT' then
-      match Linear.divide_right mB' mA' with
+    if QQMatrix.nb_rows mB = QQMatrix.nb_rows mS then
+      match Linear.divide_right mB mA with
       | Some mM ->
-        assert (QQMatrix.equal (QQMatrix.mul mM mA') mB');
+        assert (QQMatrix.equal (QQMatrix.mul mM mA) mB);
 
         (mT'', mM)
       | None ->
-        (* mT's rows are linearly independent -- if it has as many rows as B,
+        (* mS's rows are linearly independent -- if it has as many rows as B,
            then the rowspace of B is contained inside the rowspace of A, and
            B/A is defined. *)
         assert false
     else
-      fix mA' mB' mT''
+      fix (QQMatrix.mul mT' mA) (QQMatrix.mul mT' mB) mT''
+
   in
   let dims =
-    SrkUtil.Int.Set.elements (QQMatrix.row_set mB)
+    SrkUtil.Int.Set.elements
+      (SrkUtil.Int.Set.union (QQMatrix.row_set mA) (QQMatrix.row_set mB))
   in
   fix mA mB (QQMatrix.identity dims)
 
 (* Write the affine hull of a wedge as Ax' = Bx + c, where c is vector of
-   polynomials in recurrence terms. *)
+   polynomials in recurrence terms, and the non-zero rows of A are linearly
+   independent. *)
 let rec_affine_hull srk wedge tr_symbols rec_terms rec_ideal =
   let cs = Wedge.coordinate_system wedge in
 
@@ -330,6 +347,15 @@ let rec_affine_hull srk wedge tr_symbols rec_terms rec_ideal =
      term *)
   let cs_dim = CS.dim cs in
   let additive_dim x = x >= cs_dim in
+  let post_dim x = IntMap.mem x pre_map in
+  let pp_coord formatter i =
+    if i < cs_dim then
+      Format.fprintf formatter "w[%a]"
+        (Term.pp srk) (CS.term_of_coordinate cs i)
+    else
+      Format.fprintf formatter "v[%a]"
+        (Term.pp srk) (DArray.get rec_terms (i - cs_dim))
+  in
   let rec_term_rewrite =
     let ideal = ref rec_ideal in
     let elim_order =
@@ -348,6 +374,9 @@ let rec_affine_hull srk wedge tr_symbols rec_terms rec_ideal =
     |> Polynomial.Rewrite.grobner_basis
   in
   let basis =
+    let elim_order =
+      Monomial.block [not % additive_dim; not % post_dim] Monomial.degrevlex
+    in
     BatList.filter_map
       (fun x ->
          let x' = Polynomial.Rewrite.reduce rec_term_rewrite x in
@@ -356,19 +385,16 @@ let rec_affine_hull srk wedge tr_symbols rec_terms rec_ideal =
          else
            Some x')
       (Wedge.vanishing_ideal wedge)
+    |> Polynomial.Rewrite.mk_rewrite elim_order
+    |> Polynomial.Rewrite.grobner_basis
+    |> Polynomial.Rewrite.generators
   in
 
   let (mA, mB, pvc, _) =
     logf ~attributes:[`Bold] "Vanishing ideal:";
     List.fold_left (fun (mA,mB,pvc,i) p ->
         try
-          logf "  @[%a@]" (QQMvp.pp (fun formatter i ->
-              if i < cs_dim then
-                Format.fprintf formatter "w[%a]"
-                  (Term.pp srk) (CS.term_of_coordinate cs i)
-              else
-                Format.fprintf formatter "v[%a]"
-                  (Term.pp srk) (DArray.get rec_terms (i - cs_dim)))) p;
+          logf "  @[%a@]" (QQMvp.pp pp_coord) p;
           let (vecA, vecB, pc) =
             BatEnum.fold (fun (vecA, vecB, pc) (coeff, monomial) ->
                 match BatList.of_enum (Monomial.enum monomial) with
@@ -400,9 +426,28 @@ let rec_affine_hull srk wedge tr_symbols rec_terms rec_ideal =
                   QQMvp.zero)
               pc
           in
-          if V.is_zero vecA then
-            (mA,mB,pvc,i)
-          else
+          let mAt = QQMatrix.transpose mA in
+          match Linear.solve mAt vecA with
+          | Some r ->
+            (* vecA is already in the span of mA -- r*mA = vecA. *)
+            let vecB = V.sub vecB (Linear.vector_left_mul r mB) in
+            if V.is_zero vecB then
+              (mA, mB, pvc, i)
+            else
+              let pc =
+                let rpc = (* r*pvc *)
+                  BatEnum.fold (fun p (coeff, i) ->
+                      QQMvp.add p (QQMvp.scalar_mul coeff (List.nth pvc i)))
+                    QQMvp.zero
+                    (V.enum r)
+                in
+                QQMvp.sub pc rpc
+              in
+              (mA,
+               QQMatrix.add_row i vecB mB,
+               pc::pvc,
+               i+1)
+          | None ->
             (QQMatrix.add_row i vecA mA,
              QQMatrix.add_row i vecB mB,
              pc::pvc,
@@ -411,7 +456,7 @@ let rec_affine_hull srk wedge tr_symbols rec_terms rec_ideal =
       (QQMatrix.zero, QQMatrix.zero, [], 0)
       basis
   in
-  (mA, mB, pvc)
+  (mA, mB, List.rev pvc)
 
 (* Given a wedge w, compute A,B,C such that w |= Ax' = BAx + Cy, and such that
    the row space of A is maximal. *)
@@ -419,7 +464,7 @@ let extract_affine_transformation srk wedge tr_symbols rec_terms rec_ideal =
   let (mA, mB, pvc) = rec_affine_hull srk wedge tr_symbols rec_terms rec_ideal in
   let (mT, mB) = max_lds mA mB in
   let mA = QQMatrix.mul mT mA in
-  let pvc = matrix_polyvec_mul mT (Array.of_list (List.rev pvc)) in
+  let pvc = matrix_polyvec_mul mT (Array.of_list pvc) in
 
   logf ~attributes:[`Blue] "Affine transformation:";
   logf " A: @[%a@]" QQMatrix.pp mA;
@@ -1103,7 +1148,6 @@ module Recurrence = struct
     let nb_constants = DArray.length term_of_id in
     let rec_eq = extract_eq srk rec_wedge rec_sym term_of_id in
     let rec_leq = extract_leq srk rec_wedge rec_sym term_of_id in
-      
     let result =
     { srk;
       symbols = tr_symbols;
