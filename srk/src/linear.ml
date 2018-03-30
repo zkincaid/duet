@@ -400,10 +400,16 @@ let orient p system =
   reduce [] system
 
 let vector_right_mul m v =
-  m|> IntMap.filter_map (fun _ row ->
+  m |> IntMap.filter_map (fun _ row ->
       let cell = QQVector.dot row v in
       if QQ.equal cell QQ.zero then None
       else Some cell)
+
+let vector_left_mul v m =
+  IntMap.fold (fun k coeff result ->
+      QQVector.add result (QQVector.scalar_mul coeff (QQMatrix.row k m)))
+    v
+    QQVector.zero
 
 let intersect_rowspace a b =
   (* Create a system lambda_1*A - lambda_2*B = 0.  lambda_1's occupy even

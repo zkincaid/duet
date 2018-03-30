@@ -154,8 +154,11 @@ val solve : QQMatrix.t -> QQVector.t -> QQVector.t option
     that don't satisfy the predicate. *)
 val orient : (int -> bool) -> QQVector.t list -> (int * QQVector.t) list
 
-(** [vector_right_mul m a] computes [m*a] *)
+(** [vector_right_mul m v] computes [m*v] *)
 val vector_right_mul : QQMatrix.t -> QQVector.t -> QQVector.t
+
+(** [vector_left_mul v m] computes [(v^t)*m] *)
+val vector_left_mul : QQVector.t -> QQMatrix.t -> QQVector.t
 
 (** Given two matrices [A] and [B], compute matrices [C] and [D] such that [CA
     = DB] is a basis for the intersection of the rowspaces of [A] and [B]. *)
