@@ -289,6 +289,39 @@ let rational_triangulation5 () =
   assert_equal_qqmatrix (QQMatrix.mul m a) (QQMatrix.mul t m);
   assert_equal 1 (QQMatrix.nb_rows t)
 
+let max_lds1 () =
+  let a = mk_matrix [[1; 0];
+                     [0; 0]]
+  in
+  let b = mk_matrix [[1; 1];
+                     [0; 1]]
+  in
+  let (t, m) = Linear.max_lds a b in
+  let t_expected = mk_matrix [[1; -1]] in
+  let m_expected = mk_matrix [[1]] in
+  assert_equal_qqmatrix t_expected t;
+  assert_equal_qqmatrix m_expected m
+
+let max_lds2 () =
+  let a = mk_matrix [[1; 0];
+                     [0; 1];
+                     [0; 0]]
+  in
+  let b = mk_matrix [[1; 1];
+                     [1; 0];
+                     [0; 1]]
+  in
+  let (t, m) = Linear.max_lds a b in
+  let t_expected = mk_matrix [[1; 0];
+                              [0; 1]]
+  in
+  let m_expected = mk_matrix [[1; 1];
+                              [1; 0]]
+  in
+  assert_equal_qqmatrix t_expected t;
+  assert_equal_qqmatrix m_expected m
+
+
 let suite = "Linear" >::: [
     "dot" >:: dot;
     "mul" >:: mul;
@@ -314,4 +347,6 @@ let suite = "Linear" >::: [
     "rational_triangulation3" >:: rational_triangulation3;
     "rational_triangulation4" >:: rational_triangulation4;
     "rational_triangulation5" >:: rational_triangulation5;
+    "max_lds1" >:: max_lds1;
+    "max_lds2" >:: max_lds2;
   ]

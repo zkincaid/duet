@@ -269,56 +269,6 @@ let matrix_polyvec_mul m polyvec =
         QQMvp.zero
         (V.enum (QQMatrix.row i m)))
 
-(* Given matrices [A] and [B] representing a system of equations [Ax' = Bx],
-   find a matrix [T] and a square matrix [M] such that [y' = My] is the
-   greatest linear dynamical system that approximates [Ax' = Bx], and [T] is
-   the linear transformation into the linear dynamical system.  That is, [TB =
-   MTA], and the rowspace of [TA] is maximal. *)
-let max_lds mA mB =
-  (* We have a system of the form Ax' = Bx, we need one of the form Ax' =
-     B'Ax.  If we can factor B = B'A, we're done.  Otherwise, we compute an
-     m-by-n matrix T' with m < n, and continue iterating with the system T'Ax'
-     = T'Bx. *)
-  let rec fix mA mB mT =
-    let mS = Linear.max_rowspace_projection mA mB in
-    (* Since matrices are sparse, need to account for 0-rows of B -- they
-       should always be in the max rowspace projection *)
-    let mT' =
-      SrkUtil.Int.Set.fold
-        (fun i (mT', nb_rows) ->
-           if V.is_zero (QQMatrix.row i mB) then
-             let mT' =
-               QQMatrix.add_row nb_rows (V.of_term QQ.one i) mT'
-             in
-             (mT', nb_rows + 1)
-           else
-             (mT', nb_rows))
-        (QQMatrix.row_set mA)
-        (mS, QQMatrix.nb_rows mB)
-      |> fst
-    in
-    let mT'' = QQMatrix.mul mT' mT in
-    if QQMatrix.nb_rows mB = QQMatrix.nb_rows mS then
-      match Linear.divide_right mB mA with
-      | Some mM ->
-        assert (QQMatrix.equal (QQMatrix.mul mM mA) mB);
-
-        (mT'', mM)
-      | None ->
-        (* mS's rows are linearly independent -- if it has as many rows as B,
-           then the rowspace of B is contained inside the rowspace of A, and
-           B/A is defined. *)
-        assert false
-    else
-      fix (QQMatrix.mul mT' mA) (QQMatrix.mul mT' mB) mT''
-
-  in
-  let dims =
-    SrkUtil.Int.Set.elements
-      (SrkUtil.Int.Set.union (QQMatrix.row_set mA) (QQMatrix.row_set mB))
-  in
-  fix mA mB (QQMatrix.identity dims)
-
 (* Write the affine hull of a wedge as Ax' = Bx + c, where c is vector of
    polynomials in recurrence terms, and the non-zero rows of A are linearly
    independent. *)
@@ -462,7 +412,7 @@ let rec_affine_hull srk wedge tr_symbols rec_terms rec_ideal =
    the row space of A is maximal. *)
 let extract_affine_transformation srk wedge tr_symbols rec_terms rec_ideal =
   let (mA, mB, pvc) = rec_affine_hull srk wedge tr_symbols rec_terms rec_ideal in
-  let (mT, mB) = max_lds mA mB in
+  let (mT, mB) = Linear.max_lds mA mB in
   let mA = QQMatrix.mul mT mA in
   let pvc = matrix_polyvec_mul mT (Array.of_list pvc) in
 
@@ -1132,7 +1082,10 @@ module Recurrence = struct
     let is_symbolic_constant x =
       not (Symbol.Set.mem x pre_symbols || Symbol.Set.mem x post_symbols)
     in
-    let constant_symbols = ref Symbol.Set.empty in
+    let constant_symbols =
+      ref (Symbol.Set.of_list [get_named_symbol srk "log";
+                               get_named_symbol srk "pow"])
+    in
     for i = 0 to CS.dim cs - 1 do
       let term = CS.term_of_coordinate cs i in
       match Term.destruct srk term with

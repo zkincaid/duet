@@ -750,7 +750,8 @@ module Rewrite = struct
       end
     | x -> x
 
-  (* Ensure that every basis polynomial is irreducible w.r.t. every other basis polynomial *)
+  (* Ensure that every basis polynomial is irreducible w.r.t. every other
+     basis polynomial *)
   let reduce_rewrite rewrite =
     let rules =
       BatEnum.fold (fun rules rule ->
@@ -832,7 +833,8 @@ module Rewrite = struct
     in
 
     let grobner =
-      { order = rewrite.order; rules = buchberger rewrite.order rewrite.rules pairs }
+      { order = rewrite.order;
+        rules = buchberger rewrite.order rewrite.rules pairs }
       |> reduce_rewrite
     in
     logf "Grobner basis:@\n@[<v 0>%a@]"

@@ -535,6 +535,71 @@ let max_rowspace_projection a b =
       | None -> ()));
   !c
 
+let max_lds mA mB =
+  (* We have a system of the form Ax' = Bx, we need one of the form Ax' =
+     B'Ax.  If we can factor B = B'A, we're done.  Otherwise, we compute an
+     m-by-n matrix T' with m < n, and continue iterating with the system T'Ax'
+     = T'Bx. *)
+  let rec fix mA mB mT =
+    let mS = max_rowspace_projection mA mB in
+    (* Since matrices are sparse, need to account for 0-rows of B -- they
+       should always be in the max rowspace projection *)
+    let mT' =
+      SrkUtil.Int.Set.fold
+        (fun i (mT', nb_rows) ->
+           if QQVector.is_zero (QQMatrix.row i mB) then
+             let mT' =
+               QQMatrix.add_row nb_rows (QQVector.of_term QQ.one i) mT'
+             in
+             (mT', nb_rows + 1)
+           else
+             (mT', nb_rows))
+        (QQMatrix.row_set mA)
+        (mS, QQMatrix.nb_rows mB)
+      |> fst
+    in
+    let mT'' = QQMatrix.mul mT' mT in
+    if QQMatrix.nb_rows mB = QQMatrix.nb_rows mS then
+      match divide_right mB mA with
+      | Some mM ->
+        assert (QQMatrix.equal (QQMatrix.mul mM mA) mB);
+
+        (mT'', mM)
+      | None ->
+        (* mS's rows are linearly independent -- if it has as many rows as B,
+           then the rowspace of B is contained inside the rowspace of A, and
+           B/A is defined. *)
+        assert false
+    else
+      fix (QQMatrix.mul mT' mA) (QQMatrix.mul mT' mB) mT''
+
+  in
+  let dims =
+    SrkUtil.Int.Set.elements
+      (SrkUtil.Int.Set.union (QQMatrix.row_set mA) (QQMatrix.row_set mB))
+  in
+  let (mT, mM) = fix mA mB (QQMatrix.identity dims) in
+  (* Remove coordinates corresponding to zero rows of T*A *)
+  let mTA = QQMatrix.mul mT mA in
+  let mTA_rows = QQMatrix.row_set mTA in
+  BatEnum.foldi (fun i row (mT', mM') ->
+      let mT' =
+        QQMatrix.add_row i (QQMatrix.row row mT) mT'
+      in
+      let mM' =
+        let mM_row = QQMatrix.row row mM in
+        let rowi =
+          BatEnum.foldi (fun j col v ->
+              QQVector.add_term (QQVector.coeff col mM_row) j v)
+            QQVector.zero
+            (SrkUtil.Int.Set.enum mTA_rows)
+        in
+        QQMatrix.add_row i rowi mM'
+      in
+      (mT', mM'))
+    (QQMatrix.zero, QQMatrix.zero)
+    (SrkUtil.Int.Set.enum mTA_rows)
+
 let rational_triangulation mA =
   let mAt = QQMatrix.transpose mA in
   let next_row =

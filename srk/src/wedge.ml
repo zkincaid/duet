@@ -961,7 +961,6 @@ let of_atoms srk atoms =
     | _ -> ()
   done;
 *)
-
   update_env wedge;
   wedge
 
@@ -1153,6 +1152,7 @@ let exists
     ?subterm:(subterm=(fun _ -> true))
     p
     wedge =
+  logf "Projection input: %a" pp wedge;
   let wedge = copy wedge in
   let srk = wedge.srk in
   let cs = wedge.cs in
@@ -1171,6 +1171,16 @@ let exists
   let forget =
     List.fold_left (fun set (i, _, _) ->
         IntSet.remove i set)
+      (IntSet.of_enum (0 -- (CS.dim cs - 1)))
+      safe_coordinates
+  in
+  let forget_subterm =
+    List.fold_left (fun set (i, _, _) ->
+        let t = CS.term_of_coordinate cs i in
+        if Symbol.Set.for_all subterm (symbols t) then
+          IntSet.remove i set
+        else
+          set)
       (IntSet.of_enum (0 -- (CS.dim cs - 1)))
       safe_coordinates
   in
@@ -1306,22 +1316,21 @@ let exists
         (* Find inequations of the form p*b^s + t >= 0, where p is a
            polynomial over safe dimensions and t is a linear term over safe
            dimensions *)
-        IntSet.iter (fun i -> assert(i >= 0)) forget;
         let bs_multiples =
           IntSet.filter (fun j ->
               match div_coordinate j id with
               | Some q ->
                 BatEnum.for_all
-                  (fun dim -> not (IntSet.mem dim forget))
+                  (fun dim -> not (IntSet.mem dim forget_subterm))
                   (P.dimensions q)
               | None -> false)
-            forget
+            forget_subterm
         in
         let b_term = CS.term_of_vec cs b in
         let s_term = CS.term_of_vec cs s in
         (* forget unsafe dimensions that can't be factored as p*b^s *)
         let forget' =
-          IntSet.elements forget
+          IntSet.elements forget_subterm
           |> List.filter (fun x -> not (IntSet.mem x bs_multiples))
         in
         forget_ids wedge wedge.abstract forget'
@@ -1416,9 +1425,11 @@ let exists
         let (lower_t, upper_t) =
           symbolic_bounds_vec wedge
             (CS.vec_of_term cs term)
-            (IntSet.elements forget)
+            (IntSet.elements forget_subterm)
         in
-        let (lower, upper) = symbolic_bounds_vec wedge s (IntSet.elements forget) in
+        let (lower, upper) =
+          symbolic_bounds_vec wedge s (IntSet.elements forget_subterm)
+        in
         lower |> List.iter (fun lo ->
             upper_t |> List.iter (fun hi ->
                 let hypothesis =
@@ -1446,7 +1457,7 @@ let exists
           | [(base,base_id)] when base_id = CS.const_id
                                && QQ.lt QQ.one base ->
             let (lower, upper) =
-              symbolic_bounds_vec wedge x (IntSet.elements forget)
+              symbolic_bounds_vec wedge x (IntSet.elements forget_subterm)
             in
             let x_term = CS.term_of_vec cs x in
             let base_term = mk_real srk base in
