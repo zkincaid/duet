@@ -156,36 +156,39 @@ type lw_vt =
 
 (* Model-based selection of a Loos-Weispfenning virtual term *)
 let select_lw m x polyhedron =
-  (* Internally to this function, it's conveniento represent a virtual term as
-     a triple consisting of a term, its value in the model, and a flag
-     indicating whether an epsilon is required (-oo is represented by
-     None). *)
-  let merge_vt_internal x y =
-    match x, y with
-    | None, x | x, None -> x
-    | Some (_, value, _), Some (_, value', _) when QQ.lt value value' -> y
-    | Some (_, value, _), Some (_, value', _) when QQ.lt value' value -> x
-    | Some (_, _, _), Some (_, _, true) -> y
-    | _, _ -> x
-  in
-  let vt_internal =
-    P.fold (fun (p, t) vt ->
-        let (a, t) = V.pivot x t in
-        if QQ.leq a QQ.zero then
-          vt
-        else
-          (* ax + t >= 0 /\ a > 0 |= x >= t/a *)
-          let toa = V.scalar_mul (QQ.inverse (QQ.negate a)) t in
-          let strict = (p = Gt) in
-          let value = Linear.evaluate_affine m toa in
-          merge_vt_internal vt (Some (toa, value, strict)))
-      polyhedron
-      None
-  in
-  match vt_internal with
-  | None -> MinusInfinity
-  | Some (t, _, true) -> PlusEpsilon t
-  | Some (t, _, false) -> Term t
+  match select_equal_term x polyhedron with
+  | Some t -> Term t
+  | None ->
+    (* Internally to this function, it's convenient to represent a virtual
+       term as a triple consisting of a term, its value in the model, and a
+       flag indicating whether an epsilon is required (-oo is represented by
+       None). *)
+    let merge_vt_internal x y =
+      match x, y with
+      | None, x | x, None -> x
+      | Some (_, value, _), Some (_, value', _) when QQ.lt value value' -> y
+      | Some (_, value, _), Some (_, value', _) when QQ.lt value' value -> x
+      | Some (_, _, _), Some (_, _, true) -> y
+      | _, _ -> x
+    in
+    let vt_internal =
+      P.fold (fun (p, t) vt ->
+          let (a, t) = V.pivot x t in
+          if QQ.leq a QQ.zero then
+            vt
+          else
+            (* ax + t >= 0 /\ a > 0 |= x >= t/a *)
+            let toa = V.scalar_mul (QQ.inverse (QQ.negate a)) t in
+            let strict = (p = Gt) in
+            let value = Linear.evaluate_affine m toa in
+            merge_vt_internal vt (Some (toa, value, strict)))
+        polyhedron
+        None
+    in
+    match vt_internal with
+    | None -> MinusInfinity
+    | Some (t, _, true) -> PlusEpsilon t
+    | Some (t, _, false) -> Term t
 
 let substitute_lw_vt x vt polyhedron =
   match vt with
@@ -263,7 +266,7 @@ let project xs polyhedron =
                 P.add (Geq, V.sub hi lo) polyhedron)
             polyhedron
             upper)
-        polyhedron
+        rest
         lower
   in
   Log.time "Fourier-Motzkin" (List.fold_left project_one polyhedron) xs
