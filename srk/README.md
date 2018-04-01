@@ -42,7 +42,7 @@ Srk depends on several software packages.  The following dependencies need to be
 
 On Ubuntu, you can install these packages with:
 ```
- sudo apt-get install opam libgmp-dev libmpfr-dev libntl-devl
+ sudo apt-get install opam libgmp-dev libmpfr-dev libntl-dev
 ```
 
 On MacOS, you can install these packages with:

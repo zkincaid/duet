@@ -11,14 +11,14 @@ Duet depends on several software packages.  The following dependencies need to b
 
  + [opam](http://opam.ocaml.org) (with OCaml >= 4.02 & native compiler)
  + GMP and MPFR
- + [MathSAT](http://mathsat.fbk.eu)
+ + [NTL](http://www.shoup.net/ntl/): number theory library
 
-On Ubuntu, you can install these packages (except Java and MathSAT) with:
+On Ubuntu, you can install these packages (except Java) with:
 ```
- sudo apt-get install opam libgmp-dev libmpfr-dev
+ sudo apt-get install opam libgmp-dev libmpfr-dev libntl-dev default-jre
 ```
 
-On MacOS, you can install these packages (except Java and MathSAT) with:
+On MacOS, you can install these packages (except Java) with:
 ```
  brew install opam gmp mpfr
 ```
@@ -26,7 +26,7 @@ On MacOS, you can install these packages (except Java and MathSAT) with:
 Next, add the [sv-opam](https://github.com/zkincaid/sv-opam) OPAM repository, and install the rest of duet's dependencies.  These are built from source, so grab a coffee &mdash; this may take a long time.
 ```
  opam remote add sv git://github.com/zkincaid/sv-opam.git
- opam install ocamlgraph batteries cil oasis ppx_deriving Z3 apron ounit menhir mathsat OCRS
+ opam install ocamlgraph batteries cil oasis ppx_deriving Z3 apron ounit menhir OCRS ntl
 ```
 
 ### Building Duet
@@ -74,8 +74,9 @@ The `-proofspace` flag implements a software model checking procedure for multi-
 
 The `-cra` flags an invariant generation procedure for sequential programs.  The analysis is described in
 * Azadeh Farzan and Zachary Kincaid: [Compositional Recurrence Analysis](http://www.cs.princeton.edu/~zkincaid/pub/fmcad15.pdf).  FMCAD 2015.
+* Zachary Kincaid, John Cyphert, Jason Breck, Thomas Reps: [Non-Linear Reasoning For Invariant Synthesis](http://www.cs.princeton.edu/~zkincaid/pub/popl18a.pdf).  POPL 2018.
 
-Typically, it is best to run CRA with `-cra-split-loops` and `-cra-forward-inv`.  Experimental non-linear invariant generation is available using `-cra-matrix`.
+Typically, it is best to run CRA with `-cra-split-loops`.  By default, the `-cra` runs the analysis as described in POPL'18.  The FMCAD'15 analysis can be run by setting the `-cra-no-matrix` flag.
 
 The interprocedural variant is described in
 * Zachary Kincaid, Jason Breck, Ashkan Forouhi Boroujeni, Thomas Reps:  [Compositional Recurrence Analysis Revisited](http://www.cs.princeton.edu/~zkincaid/pub/pldi17.pdf). PLDI 2017.
@@ -92,7 +93,7 @@ Duet is split into several packages:
 
 * ark 
 
-  Arithmetic reasoning kit.  This is a high-level interface over Z3, MathSAT and Apron.  Most of the work of compositional recurrence analysis lives in ark.
+  Arithmetic reasoning kit.  This is a high-level interface over Z3 and Apron.  Most of the work of compositional recurrence analysis lives in ark.
 
 * pa
 
