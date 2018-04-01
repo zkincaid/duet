@@ -173,6 +173,13 @@ val divide_right : QQMatrix.t -> QQMatrix.t -> QQMatrix.t option
     basis for the vector space [{ v : exists u. uA = vB }] *)
 val max_rowspace_projection : QQMatrix.t -> QQMatrix.t -> QQMatrix.t
 
+(** Given matrices [A] and [B] representing a system of equations [Ax' = Bx],
+    find a matrix [T] and a square matrix [M] such that [y' = My] is the
+    greatest linear dynamical system that approximates [Ax' = Bx], and [T] is
+    the linear transformation into the linear dynamical system.  That is, [TB
+    = MTA], and the rowspace of [TA] is maximal. *)
+val max_lds : QQMatrix.t -> QQMatrix.t -> QQMatrix.t * QQMatrix.t
+
 (** Given a matrix [A], find a pair of matrices [(M,T)] such that [MA = TM],
     [T] is lower-triangular, and the rowspace of [MA] is maximal. *)
 val rational_triangulation : QQMatrix.t -> (QQMatrix.t * QQMatrix.t)
