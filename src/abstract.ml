@@ -147,6 +147,7 @@ let abstract ?exists:(p=fun x -> true) srk man phi =
             | Some d -> Polyhedron.of_implicant ~admit:true cs d
             | None -> assert false
           in
+
           let valuation =
             let table : QQ.t array =
               Array.init (CS.dim cs) (fun i ->
