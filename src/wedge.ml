@@ -950,6 +950,7 @@ let of_atoms srk atoms =
   in
 
   (* Add inverse coordinates for nonzero subterms of multiplicative terms *)
+(*
   for id = 0 to CS.dim wedge.cs - 1 do
     match CS.destruct_coordinate wedge.cs id with
     | `Mul (x, y) ->
@@ -959,7 +960,7 @@ let of_atoms srk atoms =
         CS.admit_cs_term wedge.cs (`Inv y);
     | _ -> ()
   done;
-
+*)
   update_env wedge;
   wedge
 

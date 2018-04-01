@@ -1082,7 +1082,10 @@ module Recurrence = struct
     let is_symbolic_constant x =
       not (Symbol.Set.mem x pre_symbols || Symbol.Set.mem x post_symbols)
     in
-    let constant_symbols = ref Symbol.Set.empty in
+    let constant_symbols =
+      ref (Symbol.Set.of_list [get_named_symbol srk "log";
+                               get_named_symbol srk "pow"])
+    in
     for i = 0 to CS.dim cs - 1 do
       let term = CS.term_of_coordinate cs i in
       match Term.destruct srk term with
