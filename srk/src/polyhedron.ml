@@ -271,6 +271,7 @@ let project xs polyhedron =
   in
   Log.time "Fourier-Motzkin" (List.fold_left project_one polyhedron) xs
 
+exception Nonlinear
 let to_apron cs env man polyhedron =
   let open SrkApron in
   let symvec v =
@@ -281,22 +282,38 @@ let to_apron cs env man polyhedron =
         else
           match CS.destruct_coordinate cs coord with
           | `App (sym, []) -> (coeff, int_of_symbol sym)
-          | _ -> invalid_arg "Polyhedron.to_apron")
+          | _ -> raise Nonlinear)
     |> V.of_enum
   in
-  let constraints =
-    P.fold (fun (p, t) cs ->
-        let c =
-          match p with
-          | Eq -> lcons_eqz (lexpr_of_vec env (symvec t))
-          | Geq -> lcons_geqz (lexpr_of_vec env (symvec t))
-          | Gt -> lcons_gtz (lexpr_of_vec env (symvec t))
-        in
-        c::cs)
+  (* In the common case that the polyhedron is over a coordinate system
+     without non-linear terms, it's faster to construct the apron abstract
+     value from linear constraints; fall back on tree constraints when
+     necessary. *)
+  let (linear, nonlinear) =
+    P.fold (fun (p, t) (linear, nonlinear) ->
+        try
+          let c =
+            match p with
+            | Eq -> lcons_eqz (lexpr_of_vec env (symvec t))
+            | Geq -> lcons_geqz (lexpr_of_vec env (symvec t))
+            | Gt -> lcons_gtz (lexpr_of_vec env (symvec t))
+          in
+          (c::linear, nonlinear)
+        with Nonlinear ->
+          let c =
+            match p with
+            | Eq -> tcons_eqz (texpr_of_term env (CS.term_of_vec cs t))
+            | Geq -> tcons_geqz (texpr_of_term env (CS.term_of_vec cs t))
+            | Gt -> tcons_gtz (texpr_of_term env (CS.term_of_vec cs t))
+          in
+          (linear, c::nonlinear)
+      )
       polyhedron
-      []
+      ([], [])
   in
-  meet_lcons (top man env) constraints
+  match nonlinear with
+  | [] -> meet_lcons (top man env) linear
+  | _ -> meet_tcons (meet_lcons (top man env) linear) nonlinear
 
 let try_fourier_motzkin cs p polyhedron =
   let projected_linear =
