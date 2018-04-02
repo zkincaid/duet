@@ -54,7 +54,7 @@ let rec exp mul one p n =
     let q = exp mul one p (n / 2) in
     let q_squared = mul q q in
     if n mod 2 = 0 then q_squared
-    else mul q q_squared
+    else mul p q_squared
   end
 
 let mk_show pp x =
