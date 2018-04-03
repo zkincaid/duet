@@ -156,36 +156,39 @@ type lw_vt =
 
 (* Model-based selection of a Loos-Weispfenning virtual term *)
 let select_lw m x polyhedron =
-  (* Internally to this function, it's conveniento represent a virtual term as
-     a triple consisting of a term, its value in the model, and a flag
-     indicating whether an epsilon is required (-oo is represented by
-     None). *)
-  let merge_vt_internal x y =
-    match x, y with
-    | None, x | x, None -> x
-    | Some (_, value, _), Some (_, value', _) when QQ.lt value value' -> y
-    | Some (_, value, _), Some (_, value', _) when QQ.lt value' value -> x
-    | Some (_, _, _), Some (_, _, true) -> y
-    | _, _ -> x
-  in
-  let vt_internal =
-    P.fold (fun (p, t) vt ->
-        let (a, t) = V.pivot x t in
-        if QQ.leq a QQ.zero then
-          vt
-        else
-          (* ax + t >= 0 /\ a > 0 |= x >= t/a *)
-          let toa = V.scalar_mul (QQ.inverse (QQ.negate a)) t in
-          let strict = (p = Gt) in
-          let value = Linear.evaluate_affine m toa in
-          merge_vt_internal vt (Some (toa, value, strict)))
-      polyhedron
-      None
-  in
-  match vt_internal with
-  | None -> MinusInfinity
-  | Some (t, _, true) -> PlusEpsilon t
-  | Some (t, _, false) -> Term t
+  match select_equal_term x polyhedron with
+  | Some t -> Term t
+  | None ->
+    (* Internally to this function, it's convenient to represent a virtual
+       term as a triple consisting of a term, its value in the model, and a
+       flag indicating whether an epsilon is required (-oo is represented by
+       None). *)
+    let merge_vt_internal x y =
+      match x, y with
+      | None, x | x, None -> x
+      | Some (_, value, _), Some (_, value', _) when QQ.lt value value' -> y
+      | Some (_, value, _), Some (_, value', _) when QQ.lt value' value -> x
+      | Some (_, _, _), Some (_, _, true) -> y
+      | _, _ -> x
+    in
+    let vt_internal =
+      P.fold (fun (p, t) vt ->
+          let (a, t) = V.pivot x t in
+          if QQ.leq a QQ.zero then
+            vt
+          else
+            (* ax + t >= 0 /\ a > 0 |= x >= t/a *)
+            let toa = V.scalar_mul (QQ.inverse (QQ.negate a)) t in
+            let strict = (p = Gt) in
+            let value = Linear.evaluate_affine m toa in
+            merge_vt_internal vt (Some (toa, value, strict)))
+        polyhedron
+        None
+    in
+    match vt_internal with
+    | None -> MinusInfinity
+    | Some (t, _, true) -> PlusEpsilon t
+    | Some (t, _, false) -> Term t
 
 let substitute_lw_vt x vt polyhedron =
   match vt with
@@ -263,11 +266,12 @@ let project xs polyhedron =
                 P.add (Geq, V.sub hi lo) polyhedron)
             polyhedron
             upper)
-        polyhedron
+        rest
         lower
   in
   Log.time "Fourier-Motzkin" (List.fold_left project_one polyhedron) xs
 
+exception Nonlinear
 let to_apron cs env man polyhedron =
   let open SrkApron in
   let symvec v =
@@ -278,22 +282,38 @@ let to_apron cs env man polyhedron =
         else
           match CS.destruct_coordinate cs coord with
           | `App (sym, []) -> (coeff, int_of_symbol sym)
-          | _ -> invalid_arg "Polyhedron.to_apron")
+          | _ -> raise Nonlinear)
     |> V.of_enum
   in
-  let constraints =
-    P.fold (fun (p, t) cs ->
-        let c =
-          match p with
-          | Eq -> lcons_eqz (lexpr_of_vec env (symvec t))
-          | Geq -> lcons_geqz (lexpr_of_vec env (symvec t))
-          | Gt -> lcons_gtz (lexpr_of_vec env (symvec t))
-        in
-        c::cs)
+  (* In the common case that the polyhedron is over a coordinate system
+     without non-linear terms, it's faster to construct the apron abstract
+     value from linear constraints; fall back on tree constraints when
+     necessary. *)
+  let (linear, nonlinear) =
+    P.fold (fun (p, t) (linear, nonlinear) ->
+        try
+          let c =
+            match p with
+            | Eq -> lcons_eqz (lexpr_of_vec env (symvec t))
+            | Geq -> lcons_geqz (lexpr_of_vec env (symvec t))
+            | Gt -> lcons_gtz (lexpr_of_vec env (symvec t))
+          in
+          (c::linear, nonlinear)
+        with Nonlinear ->
+          let c =
+            match p with
+            | Eq -> tcons_eqz (texpr_of_term env (CS.term_of_vec cs t))
+            | Geq -> tcons_geqz (texpr_of_term env (CS.term_of_vec cs t))
+            | Gt -> tcons_gtz (texpr_of_term env (CS.term_of_vec cs t))
+          in
+          (linear, c::nonlinear)
+      )
       polyhedron
-      []
+      ([], [])
   in
-  meet_lcons (top man env) constraints
+  match nonlinear with
+  | [] -> meet_lcons (top man env) linear
+  | _ -> meet_tcons (meet_lcons (top man env) linear) nonlinear
 
 let try_fourier_motzkin cs p polyhedron =
   let projected_linear =

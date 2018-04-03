@@ -106,16 +106,6 @@ let abstract ?exists:(p=fun x -> true) srk man phi =
   let env_proj = SrkApron.Env.of_set srk (Symbol.Set.filter p phi_symbols) in
   let cs = CoordinateSystem.mk_empty srk in
 
-  let projected_coordinates =
-    Symbol.Set.fold (fun sym project ->
-        if p sym then
-          project
-        else
-          (CS.cs_term_id ~admit:true cs (`App (sym, [])))::project)
-      phi_symbols
-      []
-  in
-
   let disjuncts = ref 0 in
   let rec go prop =
     Smt.Solver.push solver;
@@ -147,6 +137,7 @@ let abstract ?exists:(p=fun x -> true) srk man phi =
             | Some d -> Polyhedron.of_implicant ~admit:true cs d
             | None -> assert false
           in
+
           let valuation =
             let table : QQ.t array =
               Array.init (CS.dim cs) (fun i ->
@@ -155,6 +146,14 @@ let abstract ?exists:(p=fun x -> true) srk man phi =
                     (CS.term_of_coordinate cs i))
             in
             fun i -> table.(i)
+          in
+          let projected_coordinates =
+            BatEnum.filter (fun i ->
+                match CS.destruct_coordinate cs i with
+                | `App (sym, _) -> not (p sym)
+                | _ -> true)
+              (0 -- (CS.dim cs - 1))
+            |> BatList.of_enum
           in
           let projected_disjunct =
             Polyhedron.local_project valuation projected_coordinates disjunct

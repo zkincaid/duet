@@ -558,20 +558,19 @@ let max_lds mA mB =
         (mS, QQMatrix.nb_rows mB)
       |> fst
     in
-    let mT'' = QQMatrix.mul mT' mT in
     if QQMatrix.nb_rows mB = QQMatrix.nb_rows mS then
       match divide_right mB mA with
       | Some mM ->
         assert (QQMatrix.equal (QQMatrix.mul mM mA) mB);
 
-        (mT'', mM)
+        (mT, mM)
       | None ->
         (* mS's rows are linearly independent -- if it has as many rows as B,
            then the rowspace of B is contained inside the rowspace of A, and
            B/A is defined. *)
         assert false
     else
-      fix (QQMatrix.mul mT' mA) (QQMatrix.mul mT' mB) mT''
+      fix (QQMatrix.mul mT' mA) (QQMatrix.mul mT' mB) (QQMatrix.mul mT' mT)
 
   in
   let dims =

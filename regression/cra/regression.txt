@@ -14,6 +14,7 @@ rec2: duet.native -cra-no-forward-inv -cra @code/rec2.c
 rec1-param: duet.native -cra-no-forward-inv -cra @code/rec1-param.c
 rec2-param: duet.native -cra-no-forward-inv -cra @code/rec2-param.c
 half: duet.native -cra-split-loops -cra-no-forward-inv -cra @code/half.c
+const_false: duet.native -cra-split-loops -cra @code/const_false-unreach-call1.c
 # memory
 mem: duet.native -cra-no-forward-inv -check-array-bounds -cra @code/mem.c
 mem2: duet.native -cra-no-forward-inv -check-array-bounds -cra @code/mem2.c

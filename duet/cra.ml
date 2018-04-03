@@ -39,7 +39,7 @@ let _ =
   CmdLine.register_config
     ("-cra-no-forward-inv",
      Arg.Clear forward_inv_gen,
-     " TUrn off forward invariant generation");
+     " Turn off forward invariant generation");
   CmdLine.register_config
     ("-cra-split-loops",
      Arg.Set split_loops,
