@@ -398,3 +398,15 @@ let rec mk_pow srk (base : 'a term) (x : 'a term) =
     | _ ->
       let pow = get_named_symbol srk "pow" in
       mk_app srk pow [base; x]
+
+let optimize_box ?(context=Z3.mk_context []) srk phi objectives =
+  let objective_symbols =
+    List.map (fun t ->
+        mk_const srk (mk_symbol srk (term_typ srk t :> typ)))
+      objectives
+  in
+  let objective_eqs =
+    List.map2 (fun o o' -> mk_eq srk o o') objectives objective_symbols
+  in
+  let lin_phi = linearize srk (mk_and srk (phi::objective_eqs)) in
+  SrkZ3.optimize_box ~context srk lin_phi objective_symbols

@@ -26,6 +26,7 @@ val floor : t -> t
 
 val join : t -> t -> t
 val meet : t -> t -> t
+val widening : t -> t -> t
 val leq : t -> t -> bool
 
 val is_nonnegative : t -> bool
