@@ -406,8 +406,12 @@ let make_transition_system rg =
     Call ((RG.block_entry rg block).did, (RG.block_exit rg block).did)
   in
   let assertions = ref SrkUtil.Int.Map.empty in
+  let print_hulls = ref SrkUtil.Int.Set.empty in
   let add_assert v e =
     assertions := SrkUtil.Int.Map.add v e (!assertions)
+  in
+  let add_print_hull v =
+    print_hulls := SrkUtil.Int.Set.add v (!print_hulls)
   in
   let ts =
     BatEnum.fold (fun ts (block, graph) ->
@@ -434,6 +438,9 @@ let make_transition_system rg =
                   in
                   add_assert def.did (condition, Def.get_location def, msg);
                   Weight (K.assume condition)
+                | Builtin (PrintBounds _) ->
+                  add_print_hull def.did;
+                  Weight K.one
                 | _ -> Weight (weight def)
               in
               RG.G.fold_succ
@@ -446,7 +453,9 @@ let make_transition_system rg =
         let entry = (RG.block_entry rg block).did in
         let exit = (RG.block_exit rg block).did in
         let point_of_interest v =
-          v = entry || v = exit || SrkUtil.Int.Map.mem v (!assertions)
+          v = entry || v = exit
+          || SrkUtil.Int.Map.mem v (!assertions)
+          || SrkUtil.Int.Set.mem v (!print_hulls)
         in
 
         let tg = TS.simplify point_of_interest tg in

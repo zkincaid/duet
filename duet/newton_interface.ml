@@ -28,7 +28,7 @@ let analyze_basic file =
           match label with
           | WeightedGraph.Call (s, t) ->
             add_wpds_epsilon_rule K.one t;
-            add_wpds_call_rule K.one u v t
+            add_wpds_call_rule K.one u s v
           | WeightedGraph.Weight tr ->
             add_wpds_rule tr u v);
       assertions |> SrkUtil.Int.Map.iter (fun v (phi, loc, msg) ->
@@ -36,14 +36,14 @@ let analyze_basic file =
               (K.assume (Ctx.mk_not phi))
               v
               loc.Cil.line);
-
-(*
+      RG.vertices rg |> BatEnum.iter (fun (_, def) ->
+          match def.dkind with
           | Builtin (PrintBounds v) ->
             add_wpds_print_hull_rule
-              vertex.did
-              (Def.get_location vertex).Cil.line
+              def.did
+              (Def.get_location def).Cil.line
               (Var.get_id v)
-*)
+          | _ -> ());
       add_wpds_epsilon_rule K.one (RG.block_exit rg main).did;
       set_vertices (RG.block_entry rg main).did (RG.block_exit rg main).did;
       set_cWeight K.zero;
