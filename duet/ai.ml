@@ -624,7 +624,7 @@ module ApronInterpretation = struct
      meet of the constraint and the value *)
   and interp_bool expr av =
     match expr with
-    | And (a, b) -> meet (interp_bool a av) (interp_bool b av)
+    | And (a, b) -> interp_bool b (interp_bool a av)
     | Or (a, b) -> join (interp_bool a av) (interp_bool b av)
 
     (* Apron handles disequality inaccurately.  This seems to be a reasonable
@@ -679,7 +679,7 @@ module ApronInterpretation = struct
     { w with value = value }
 
   let assert_true bexpr av = assert_true (Bexpr.dnf bexpr) av
-  let interp_bool bexpr av = interp_bool (Bexpr.dnf bexpr) av
+  let interp_bool bexpr av = interp_bool bexpr av
 
   (* Assign pointer a freshly allocated chunk of memory of the given size
      within the given abstract value.  If !CmdLine.fail_malloc is set, then

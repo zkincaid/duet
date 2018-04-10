@@ -39,3 +39,12 @@ val linearize : 'a context -> 'a formula -> 'a formula
 val mk_log : 'a context -> 'a term -> 'a term -> 'a term
 
 val mk_pow : 'a context -> 'a term -> 'a term -> 'a term
+
+(** Given a formula phi and a list of objectives [o1,...,on], find the least
+    bounding interval for each objective within the feasible region defined by
+    the formula. *)
+val optimize_box : ?context:SrkZ3.z3_context ->
+  'a context ->
+  'a formula ->
+  ('a term) list ->
+  [ `Sat of Interval.t list | `Unsat | `Unknown ]
