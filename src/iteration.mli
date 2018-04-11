@@ -28,6 +28,8 @@ end
 
 module WedgeVector : DomainPlus
 module WedgeMatrix : DomainPlus
+module Vas : DomainPlus
+
 
 module Split(Iter : DomainPlus) : Domain
 
