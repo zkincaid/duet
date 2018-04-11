@@ -301,6 +301,7 @@ struct
          | Not_normal -> false
 
   let equal x y = compare x y = 0 || equiv x y
+
   let exists p tr =
     let transform = M.filter (fun k _ -> p k) tr.transform in
     let rename =
@@ -428,5 +429,6 @@ struct
                 :: (tr_subst tr.guard)
                 :: transform_formula)
     |> Nonlinear.linearize srk
+    |> rewrite srk ~down:(nnf_rewriter srk)
     |> Abstract.abstract ~exists srk man
 end

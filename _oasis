@@ -12,15 +12,15 @@ Library srk
   Path:             src
   FindlibName:      srk
   Pack:             true
-  Modules:  SrkUtil, Log, DisjointSet, Memo, FeatureTree, QQ, ZZ, Syntax, Interval, Smt, SrkZ3, Linear, Polynomial, Interpretation, SrkApron, Polyhedron, SrkSimplify, Abstract, Nonlinear, CoordinateSystem, Wedge, Quantifier, Iteration, Transition, BigO
-  BuildDepends:     batteries, ppx_deriving, ppx_deriving.show, ppx_deriving.ord, gmp, camlidl, apron, Z3, ocrs, ntl
+  Modules:  SrkUtil, Log, DisjointSet, Memo, FeatureTree, QQ, ZZ, Syntax, Interval, Smt, SrkZ3, Linear, Polynomial, Interpretation, SrkApron, Polyhedron, SrkSimplify, Abstract, Nonlinear, CoordinateSystem, Wedge, Quantifier, Iteration, Transition, BigO, WeightedGraph, TransitionSystem
+  BuildDepends:     batteries, ppx_deriving, ppx_deriving.show, ppx_deriving.ord, gmp, camlidl, apron, Z3, ocrs, ntl, ocamlgraph
   XMETADescription: Symbolic Reasoning Kit
 
 Executable test_srk
   Build$:         flag(tests)
   Path:           src
   MainIs:         test_srk.ml
-  BuildDepends:   batteries, ppx_deriving, ppx_deriving.ord, gmp, camlidl, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, oUnit, ocrs, ntl
+  BuildDepends:   batteries, ppx_deriving, ppx_deriving.ord, gmp, camlidl, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, oUnit, ocrs, ntl, ocamlgraph
   CompiledObject: native
   Install:        false
 
