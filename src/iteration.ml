@@ -1664,7 +1664,7 @@ module Vas : DomainPlus = struct
       begin match vsum with
         | Bottom (s1, s2) -> mk_true srk
         | Unknown (s1, s2) -> mk_true srk
-        | Abstraction v -> 
+        | Abstraction v -> failwith "test" 
       end
     in
     failwith "test"
