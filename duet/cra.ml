@@ -455,7 +455,6 @@ let make_transition_system rg =
           else
             tg
         in
-
         WG.fold_edges (fun (src, label, tgt) ts ->
             match label with
             | Weight w -> WG.add_edge ts src (Weight w) tgt
