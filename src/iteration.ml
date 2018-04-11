@@ -1637,3 +1637,113 @@ module Sum (A : PreDomain) (B : PreDomain) = struct
     | Left x -> A.tr_symbols x
     | Right x -> B.tr_symbols x
 end
+
+module Vas : DomainPlus = struct
+  include Interpretation
+  include Smt
+  module QQSet = Set.Make(QQ)
+
+
+  type vas = {dim : (symbol * symbol); res : QQSet.t ; inc : QQSet.t}
+  type vas_sum = Abstraction of vas | Bottom of (symbol * symbol) | Unknown of (symbol * symbol)
+  type 'a t = {srk : 'a context; svvas : vas_sum list; symbols : (symbol * symbol) list}
+  type poly_cases = Increment of QQ.t | Reset of QQ.t | Infinite | Unknown_Err | No_Point
+
+  let closure_plus something = failwith "not here yet"
+  let tr_symbols something= failwith "not here yet"
+  let equal s1 s2 = failwith "not here yet"
+  let widen s1 s2 = failwith "not here yet"
+  let join s1 s2 = failwith "not here yet"
+  let show s1 = failwith "nhy"
+  let pp s1 = failwith "nhy"
+
+
+  let closure vassums =
+    let srk = vassums.srk in
+    let single_vas_closure (vsum : vas_sum) =
+      begin match vsum with
+        | Bottom (s1, s2) -> mk_true srk
+        | Unknown (s1, s2) -> mk_true srk
+        | Abstraction v -> 
+      end
+    in
+    failwith "test"
+
+  let abstract_iter ?(exists=fun x -> true) (srk : 'a context) (body : 'a formula) (symbols : (symbol * symbol) list)  =
+    let polyhedron_analysis (formula : 'a formula) (dim1 : symbol) (dim2 : symbol) =
+      begin match get_model srk formula with
+        | `Unsat -> No_Point
+        | `Unknown -> Unknown_Err
+        | `Sat interpret ->
+          let d1p1 = real interpret dim1  in
+          let d2p1 = real interpret dim2 in
+          let no_reset_cond = mk_and srk [formula; (mk_not srk (mk_eq srk (mk_const srk dim2) (mk_real srk d2p1)))] in
+          begin match get_model srk no_reset_cond with
+            | `Unsat -> Reset d2p1
+            | `Unknown -> Unknown_Err
+            | `Sat interpret ->
+              let d1p2 = real interpret dim1 in
+              let d2p2 = real interpret dim2 in
+              let p1s = QQ.sub d2p1 d1p1 in
+              let p2s = QQ.sub d2p2 d1p2 in
+              begin match (QQ.equal p1s p2s) with
+                | true ->
+                  let no_inc_cond = mk_and srk [formula; (mk_not srk 
+                                                            (mk_eq srk (mk_sub srk 
+                                                                             (mk_const srk dim2)
+                                                                             (mk_const srk dim1))
+                                                               (mk_real srk p2s)))] in
+                  begin match get_model srk no_inc_cond with
+                    | `Unsat -> Increment p2s
+                    | `Unknown -> Unknown_Err
+                    | `Sat interpret -> Infinite
+                  end
+                | false -> Infinite
+              end 
+          end
+      end
+    in 
+
+    let rec pathways_info (form : 'a formula) dim1 dim2 ress incs  =
+      begin match get_model srk form with
+        | `Unsat -> Abstraction {dim = (dim1, dim2); res = (QQSet.of_list ress); inc = (QQSet.of_list incs)}
+        | `Unknown -> Unknown (dim1, dim2)
+        | `Sat interpret ->
+          begin match select_implicant interpret form with
+            | None -> Abstraction {dim = (dim1, dim2); res = (QQSet.of_list ress); inc = (QQSet.of_list incs)}
+            | Some forms ->
+              let combined_formula = mk_and srk forms in
+              begin match polyhedron_analysis combined_formula dim1 dim2 with
+                | No_Point -> assert false
+                | Infinite -> Bottom (dim1, dim2)
+                | Unknown_Err -> Unknown (dim1, dim2)
+                | Increment i -> pathways_info (mk_and srk [form; (mk_not srk (mk_and srk forms))]) dim1 dim2 ress (i :: incs)
+                | Reset r -> pathways_info (mk_and srk [form; (mk_not srk (mk_and srk forms))]) dim1 dim2 (r :: ress) incs
+              end
+          end
+      end 
+    in
+    let rec multi_sv_vas symbols =
+      begin match symbols with
+        | [] -> []
+        | (a, b) :: tl -> (pathways_info body a b [] []) :: (multi_sv_vas tl)
+      end
+    in
+    {srk = srk; svvas = multi_sv_vas symbols; symbols = symbols}
+  
+
+
+  (*let widen iter iter' =
+    let body = Wedge.widen (wedge_of_iter iter) (wedge_of_iter iter') in
+    assert(iter.symbols = iter'.symbols);
+    abstract_iter_wedge iter.srk body iter.symbols
+
+  let join iter iter' =
+    let body =
+      Wedge.join (wedge_of_iter iter) (wedge_of_iter iter')
+    in
+    assert(iter.symbols = iter'.symbols);
+    abstract_iter_wedge iter.srk body iter.symbols*)
+end
+
+
