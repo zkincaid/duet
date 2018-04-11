@@ -100,6 +100,20 @@ let meet x y = normalize {
     end
 }
 
+let widening x y =
+  let y = join x y in
+  normalize {
+    lower =
+      begin match x.lower, y.lower with
+        | Some x, Some y when QQ.equal x y -> Some x
+        | _ -> None
+      end;
+    upper =
+      begin match x.upper, y.upper with
+        | Some x, Some y when QQ.equal x y -> Some x
+        | _ -> None
+      end
+  }
 (* Is every member of the interval x inside the interval y? *)
 let leq x y = equal x (meet x y)
 
