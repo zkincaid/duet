@@ -173,7 +173,9 @@ let uninterpret_rewriter srk =
       end
     | `Binop (`Mod, x, y) ->
       begin match Term.destruct srk y with
-        | `Real k when not (QQ.equal k QQ.zero) -> expr
+        | `Real k when (not (QQ.equal k QQ.zero)
+                        && QQ.to_zz k != None
+                        && term_typ srk x = `TyInt) -> expr
         | _ ->
           match expr_typ srk x, expr_typ srk y with
           | `TyInt, `TyInt -> mk_app srk imodulo [x; y]
@@ -226,7 +228,9 @@ let uninterpret srk expr =
 let linearize srk phi =
   let uninterp_phi = uninterpret srk phi in
   let (lin_phi, nonlinear) = SrkSimplify.purify srk uninterp_phi in
-  if Symbol.Map.is_empty nonlinear then phi else begin
+  if Symbol.Map.is_empty nonlinear then
+    phi
+  else begin
     (* Symbols that appear in nonlinear terms *)
     let symbol_list =
       Symbol.Map.fold
