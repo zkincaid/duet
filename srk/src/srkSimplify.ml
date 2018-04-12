@@ -62,10 +62,10 @@ module TermPolynomial = struct
                  (fun product _ -> term::product)
                  product
                  (1 -- power))
-            [mk_real srk coeff]
+            []
             (Monomial.enum monomial)
         in
-        mk_mul srk product)
+        mk_mul srk ((mk_real srk coeff)::product))
     |> BatList.of_enum
     |> mk_add ctx.srk
 end
