@@ -59,11 +59,11 @@ let add_edge wg u weight v =
 let remove_vertex wg u =
   let labels =
     U.fold_succ
-      (fun v labels -> M.remove (u, v) wg.labels)
+      (fun v labels -> M.remove (u, v) labels)
       wg.graph
       u
       (U.fold_pred
-         (fun v labels -> M.remove (v, u) wg.labels)
+         (fun v labels -> M.remove (v, u) labels)
          wg.graph
          u
          wg.labels)
