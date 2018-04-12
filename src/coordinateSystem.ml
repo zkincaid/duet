@@ -245,7 +245,7 @@ let vec_of_term ?(admit=false) cs =
           let mul x y =
             V.of_term QQ.one (cs_term_id ~admit cs (`Mul (x, y)))
           in
-          V.scalar_mul k (List.fold_left mul x xs)
+          V.scalar_mul k (List.fold_right mul xs x)
       end
     | `Binop (`Div, x, y) ->
       let denomenator = V.of_term QQ.one (cs_term_id ~admit cs (`Inv y)) in

@@ -1608,6 +1608,7 @@ let symbolic_bounds wedge symbol =
 
 let is_sat srk phi =
   let phi = eliminate_ite srk phi in
+  let phi = SrkSimplify.simplify_terms srk phi in
   let solver = Smt.mk_solver srk in
   let uninterp_phi =
     rewrite srk
@@ -1678,6 +1679,7 @@ let is_sat srk phi =
 
 let abstract ?exists:(p=fun x -> true) ?(subterm=fun x -> true) srk phi =
   let phi = eliminate_ite srk phi in
+  let phi = SrkSimplify.simplify_terms srk phi in
   logf "Abstracting formula@\n%a"
     (Formula.pp srk) phi;
   let solver = Smt.mk_solver srk in
