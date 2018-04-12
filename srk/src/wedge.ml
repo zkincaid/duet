@@ -1653,17 +1653,28 @@ let is_sat srk phi =
       match Interpretation.select_implicant model lin_phi with
       | None -> assert false
       | Some implicant ->
-        let constraints =
+        let cs = CS.mk_empty srk in
+        let constraint_partition =
           List.map replace_defs implicant
-          |> of_atoms srk
+          |> Polyhedron.of_implicant ~admit:true cs
+          |> Polyhedron.try_fourier_motzkin cs (fun _ -> false)
+          |> Polyhedron.implicant_of cs
+          |> SrkSimplify.partition_implicant
         in
-        strengthen ~integrity constraints;
-        if is_bottom constraints then
-          go ()
-        else
+        let is_sat constraints =
+          let wedge = of_atoms srk constraints in
+          strengthen ~integrity wedge;
+          not (is_bottom wedge)
+        in
+        if List.for_all is_sat constraint_partition then
           `Unknown
+        else
+          go ()
   in
-  go ()
+  if Symbol.Map.is_empty nonlinear then
+    Smt.Solver.check solver []
+  else
+    go ()
 
 let abstract ?exists:(p=fun x -> true) ?(subterm=fun x -> true) srk phi =
   let phi = eliminate_ite srk phi in
