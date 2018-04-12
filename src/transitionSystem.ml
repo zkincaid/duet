@@ -119,6 +119,20 @@ module Make
       (add_symbols (symbols (T.guard tr)) VarSet.empty)
       (T.transform tr)
 
+  (* Variables whose abstract values may change as the result of a
+     transition *)
+  let abstract_defs tr =
+    let add_symbols =
+      Symbol.Set.fold (fun s vars ->
+          match Var.of_symbol s with
+          | Some v -> VarSet.add v vars
+          | None -> vars)
+    in
+    BatEnum.fold
+      (fun refs (var, term) -> VarSet.add var refs)
+      (add_symbols (symbols (T.guard tr)) VarSet.empty)
+      (T.transform tr)
+
   (* Interval abstract domain *)
   module Box = struct
 
@@ -217,7 +231,7 @@ module Make
               end);
         let guard = mk_and srk (!guards) in
         (* variables used/defined by tr *)
-        let vars = VarSet.elements (references tr) in
+        let vars = VarSet.elements (abstract_defs tr) in
         let objectives =
           List.map (fun v ->
               if T.mem_transform v tr then
@@ -358,7 +372,8 @@ module Make
             if (p v
                 || WG.mem_edge tg v v
                 || WG.U.in_degree ug v != 1
-                || WG.U.out_degree ug v != 1) then
+                || WG.U.out_degree ug v != 1)
+            then
               tg
             else begin
               try
