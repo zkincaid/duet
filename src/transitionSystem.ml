@@ -206,6 +206,7 @@ module Make
       mk_and srk (!boxes)
 
     let analyze (_s, label, t) prop =
+      let context = Z3.mk_context [("timeout", "100")] in
       match prop, label with
       | Bottom, _ -> Bottom
       | Store store, Call (_, _) ->
@@ -241,7 +242,7 @@ module Make
             vars
         in
         let result =
-          match Nonlinear.optimize_box srk guard objectives with
+          match Nonlinear.optimize_box ~context srk guard objectives with
           | `Sat intervals ->
             let store' =
               List.fold_left2

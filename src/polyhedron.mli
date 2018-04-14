@@ -43,5 +43,6 @@ val local_project : (int -> QQ.t) -> int list -> t -> t
 val project : int list -> t -> t
 
 (** Apply Fourier-Motzkin elimination to the subset of symbols that appear
-    linearly.  Symbols that do not appear linearly are not projected.  *)
+    linearly and are "easy" to eliminate.  Symbols that do not appear linearly
+    are not projected.  *)
 val try_fourier_motzkin : 'a CoordinateSystem.t -> (symbol -> bool) -> t -> t
