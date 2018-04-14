@@ -674,6 +674,15 @@ module Rewrite = struct
         && not (PairQueue.mem pairs (r', rule)))
       rules
 
+  let pp_dim formatter i =
+    let rec to_string i =
+      if i < 26 then
+        Char.escaped (Char.chr (97 + i))
+      else
+        (to_string (i/26)) ^ (Char.escaped (Char.chr (97 + (i mod 26))))
+    in
+    Format.pp_print_string formatter (to_string i)
+
   let buchberger order rules pairs =
     (* Suppose m1 = rhs1 and m2 = rhs1.  Let m be the least common multiple of
        m1 and m2, and let m1*r1 = m = m2*r2.  Then we have m = rhs1*r1 and m =
@@ -688,9 +697,6 @@ module Rewrite = struct
          (op_monomial_scalar_mul QQ.one r1 rhs1)
          (op_monomial_scalar_mul (QQ.of_int (-1)) r2 rhs2),
        P.union provenance1 provenance2)
-    in
-    let pp_dim formatter i =
-      Format.pp_print_string formatter (Char.escaped (Char.chr (65 + i)))
     in
     let lhs (x, _, _) = x in
     let rhs (_, x, _) = x in
@@ -808,10 +814,6 @@ module Rewrite = struct
     add_saturate_op rewrite (op_of_mvp rewrite.order p) (P.singleton p)
 
   let grobner_basis rewrite =
-    let pp_dim formatter i =
-      Format.pp_print_string formatter (Char.escaped (Char.chr (65 + i)))
-    in
-
     logf "Compute a Grobner basis for:@\n@[<v 0>%a@]"
       (pp pp_dim) rewrite;
 

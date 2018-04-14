@@ -166,7 +166,8 @@ let uninterpret_rewriter srk =
     match destruct srk expr with
     | `Binop (`Div, x, y) ->
       begin match Term.destruct srk x, Term.destruct srk y with
-        | (_, `Real k) when not (QQ.equal k QQ.zero) -> (* division by constant -> scalar mul *)
+        | (_, `Real k) when not (QQ.equal k QQ.zero) ->
+          (* division by constant -> scalar mul *)
           (mk_mul srk [mk_real srk (QQ.inverse k); x] :> ('a,typ_fo) expr)
         | (`Real k, _) -> (mk_mul srk [x; mk_app srk inv [y]] :> ('a,typ_fo) expr)
         | _ -> mk_app srk mul [x; mk_app srk inv [y]]
@@ -176,25 +177,40 @@ let uninterpret_rewriter srk =
         | `Real k when (not (QQ.equal k QQ.zero)
                         && QQ.to_zz k != None
                         && term_typ srk x = `TyInt) -> expr
+
         | _ ->
           match expr_typ srk x, expr_typ srk y with
           | `TyInt, `TyInt -> mk_app srk imodulo [x; y]
           | _, _ -> mk_app srk modulo [x; y]
       end
-    | `Mul (x::xs) ->
-      let term =
-        List.fold_left (fun x y ->
-            match Term.destruct srk x, Term.destruct srk y with
-            | `Real x, `Real y -> mk_real srk (QQ.mul x y)
-            | `Real _, _ | _, `Real _ -> mk_mul srk [x; y]
-            | _, _ ->
-              match expr_typ srk x, expr_typ srk y with
-              | `TyInt, `TyInt -> mk_app srk imul [x; y]
-              | _, _ -> mk_app srk mul [x; y])
-          x
+
+    | `Mul xs ->
+      let (coeff, ys) =
+        List.fold_right (fun y (coeff, ys) ->
+            match Term.destruct srk y with
+            | `Real k -> (QQ.mul coeff k, ys)
+            | _ -> (coeff, y::ys))
           xs
+          (QQ.one, [])
+      in
+      let coeff_term = mk_real srk coeff in
+      let term =
+        match ys with
+        | [] -> coeff_term
+        | [y] -> mk_mul srk [coeff_term; y]
+        | (y::ys) ->
+          let product =
+            List.fold_left (fun x y ->
+                match expr_typ srk x, expr_typ srk y with
+                | `TyInt, `TyInt -> mk_app srk imul [x; y]
+                | _, _ -> mk_app srk mul [x; y])
+              y
+              ys
+          in
+          mk_mul srk [coeff_term; product]
       in
       (term :> ('a,typ_fo) expr)
+
     | _ -> expr
 
 let interpret_rewriter srk =
@@ -404,6 +420,7 @@ let rec mk_pow srk (base : 'a term) (x : 'a term) =
       mk_app srk pow [base; x]
 
 let optimize_box ?(context=Z3.mk_context []) srk phi objectives =
+  let phi = SrkSimplify.simplify_terms srk phi in
   let objective_symbols =
     List.map (fun t ->
         mk_const srk (mk_symbol srk (term_typ srk t :> typ)))
@@ -412,5 +429,8 @@ let optimize_box ?(context=Z3.mk_context []) srk phi objectives =
   let objective_eqs =
     List.map2 (fun o o' -> mk_eq srk o o') objectives objective_symbols
   in
-  let lin_phi = linearize srk (mk_and srk (phi::objective_eqs)) in
-  SrkZ3.optimize_box ~context srk lin_phi objective_symbols
+  let lin_phi =
+    linearize srk (mk_and srk (phi::objective_eqs))
+  in
+  Log.time "optimize"
+    (SrkZ3.optimize_box ~context srk lin_phi) objective_symbols

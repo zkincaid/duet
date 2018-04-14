@@ -42,4 +42,7 @@ val winning_strategy : 'a context -> quantifier_prefix -> 'a formula ->
 val check_strategy : 'a context -> quantifier_prefix -> 'a formula ->
   'a strategy -> bool
 
+(** Write a formula in prenex normal form, using constant symbols instead of
+    variables. *)
 val normalize : 'a context -> 'a formula -> quantifier_prefix * 'a formula
+

@@ -232,32 +232,36 @@ let local_project m xs polyhedron =
   in
   List.fold_left project_one polyhedron xs
 
-let project xs polyhedron =
-  (* Project a single variable *)
-  let project_one polyhedron x =
-    match select_equal_term x polyhedron with
-    | Some t -> P.replace x t polyhedron
-    | None ->
-      (* If no equations involve x, find a least upper bound or greatest lower
-         bound for x *)
-      let (lower, upper, rest) =
-        P.fold (fun (p, t) (lower, upper, rest) ->
-            let (a, t) = V.pivot x t in
-            if QQ.equal a QQ.zero then
-              (lower, upper, P.add (p,t) rest)
+(* Project a single variable, as long as the number of added constraints does
+   not exceed max_add. If max_add is negative, the variable is projected no
+   matter how many constraints it adds. *)
+let project_one max_add polyhedron x =
+  match select_equal_term x polyhedron with
+  | Some t -> P.replace x t polyhedron
+  | None ->
+    (* If no equations involve x, find a least upper bound or greatest lower
+       bound for x *)
+    let (lower, upper, rest) =
+      P.fold (fun (p, t) (lower, upper, rest) ->
+          let (a, t) = V.pivot x t in
+          if QQ.equal a QQ.zero then
+            (lower, upper, P.add (p,t) rest)
+          else
+            let bound =
+              (p = Gt, V.scalar_mul (QQ.inverse (QQ.negate a)) t)
+            in
+            (* constraint is a*x + t >= 0, which is either x <= bound or bound
+               <= x, depending on the sign of a *)
+            if QQ.lt QQ.zero a then
+              (bound::lower, upper, rest)
             else
-              let bound =
-                (p = Gt, V.scalar_mul (QQ.inverse (QQ.negate a)) t)
-              in
-              (* constraint is a*x + t >= 0, which is either x <= bound or
-                 bound <= x, depending on the sign of a *)
-              if QQ.lt QQ.zero a then
-                (bound::lower, upper, rest)
-              else
-                (lower, bound::upper, rest))
-          polyhedron
-          ([], [], top)
-      in
+              (lower, bound::upper, rest))
+        polyhedron
+        ([], [], top)
+    in
+    let nb_lower = List.length lower in
+    let nb_upper = List.length upper in
+    if max_add > 0 && max_add > (nb_lower*nb_upper-nb_lower-nb_upper) then
       List.fold_left (fun polyhedron (strict, lo) ->
           List.fold_left (fun polyhedron (strict', hi) ->
               if strict || strict' then
@@ -268,8 +272,11 @@ let project xs polyhedron =
             upper)
         rest
         lower
-  in
-  Log.time "Fourier-Motzkin" (List.fold_left project_one polyhedron) xs
+    else
+      polyhedron
+
+let project xs polyhedron =
+  Log.time "Fourier-Motzkin" (List.fold_left (project_one (-1)) polyhedron) xs
 
 exception Nonlinear
 let to_apron cs env man polyhedron =
@@ -326,4 +333,5 @@ let try_fourier_motzkin cs p polyhedron =
       (0 -- (CS.dim cs - 1))
     |> IntSet.elements
   in
-  project projected_linear polyhedron
+  Log.time "Fourier-Motzkin"
+    (List.fold_left (project_one 10) polyhedron) projected_linear
