@@ -27,6 +27,9 @@ end
 
 val mk_solver : ?theory:string -> 'a context -> 'a Solver.t
 
+(** Compute a model of a formula.  The model is abstract -- it can be used to
+    evaluate terms, but its bindings may not be enumerated (see
+    [Interpretation] for more detail). *)
 val get_model : ?symbols:(symbol list) ->
   'a context ->
   'a formula ->
@@ -34,13 +37,15 @@ val get_model : ?symbols:(symbol list) ->
   | `Unsat
   | `Unknown ]
 
+(** Compute a model of a formula, and return an intepretation that binds the
+    specified subset of symbols.  If the symbol list contains all symbols of
+    the formula, then the interpretation is a model of the formula. *)
 val get_concrete_model : 'a context ->
   symbol list ->
   'a formula ->
   [ `Sat of 'a interpretation
   | `Unsat
   | `Unknown ]
-
 
 val is_sat : 'a context -> 'a formula -> [ `Sat | `Unsat | `Unknown ]
 

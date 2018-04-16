@@ -324,14 +324,14 @@ module MakeRecGraph (W : Weight) = struct
       src
       query
 
-  let mk_query rg =
+  let mk_query ?(delay=1) rg =
     let table = mk_table () in
     let context = mk_context () in
     let calls = (* All calls that appear on a call edge *)
       fold_edges (fun (_, label, _) callset ->
-            match label with
-            | Weight _ -> callset
-            | Call (en, ex) -> CallSet.add (en, ex) callset)
+          match label with
+          | Weight _ -> callset
+          | Call (en, ex) -> CallSet.add (en, ex) callset)
         rg
         CallSet.empty
     in
@@ -404,55 +404,50 @@ module MakeRecGraph (W : Weight) = struct
         | Weight _ -> true
         | Call (s, t) -> not (CallSet.mem (s, t) unstable)
       in
-      (* Stabilize summaries within a WTO component, and add to unstable all
-         calls whose value changed as a result. *)
-      let rec fix unstable wto =
+      let rec loop_calls vertices wto = (* Collect all calls within an SCC *)
         let open Graph.WeakTopological in
         match wto with
-        | Vertex call when call = callgraph_entry ->
-          unstable
+        | Vertex v -> CallSet.add v vertices
+        | Component (v, rest) ->
+          fold_left loop_calls (CallSet.add v vertices) rest
+      in
+
+      (* stabilize summaries within a WTO component, and add to unstable all
+         calls whose summary (may have) changed as a result. *)
+      let rec fix () wto =
+        let open Graph.WeakTopological in
+        match wto with
+        | Vertex call when call = callgraph_entry -> ()
         | Vertex call ->
           let pathexpr = M.find call call_pathexpr in
-          let old_weight = M.find call (!summaries) in
           let new_weight =
             eval ~table weight pathexpr
             |> W.project
           in
-          summaries := M.add call new_weight (!summaries);
-          if W.equal old_weight new_weight then
-            unstable
-          else
-            CallSet.add call unstable
+          summaries := M.add call new_weight (!summaries)
         | Component (call, rest) ->
           let pathexpr = M.find call call_pathexpr in
-          let rec fix_component unstable =
+          let unstable = loop_calls CallSet.empty wto in
+          let rec fix_component delay =
             let old_weight = M.find call (!summaries) in
             let new_weight =
               eval ~table weight pathexpr
               |> W.project
-              |> W.widen old_weight
+            in
+            let new_weight =
+              if delay > 0 then new_weight
+              else W.widen old_weight new_weight
             in
             summaries := M.add call new_weight (!summaries);
-            let unstable' =
-              if W.equal old_weight new_weight then
-                CallSet.empty
-              else
-                CallSet.singleton call
-            in
-            let unstable' = fold_left fix unstable' rest in
-            if CallSet.is_empty unstable' then
-              unstable
-            else begin
-              forget table (is_stable_edge unstable');
-              CallSet.union unstable (fix_component unstable')
+            fold_left fix () rest;
+            if not (W.equal old_weight new_weight) then begin
+              forget table (is_stable_edge unstable);
+              fix_component (delay - 1)
             end
           in
-          fix_component unstable
+          fix_component delay
       in
-      Graph.WeakTopological.fold_left
-        (fun () e -> ignore (fix CallSet.empty e))
-        ()
-        callgraph_wto;
+      Graph.WeakTopological.fold_left fix () callgraph_wto;
       let query =
         { summaries = !summaries;
           table;
