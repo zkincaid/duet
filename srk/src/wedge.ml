@@ -1608,7 +1608,10 @@ let symbolic_bounds wedge symbol =
 
 let is_sat srk phi =
   let phi = eliminate_ite srk phi in
-  let phi = SrkSimplify.simplify_terms srk phi in
+  let phi =
+    SrkSimplify.simplify_terms srk phi
+    |> SrkZ3.simplify srk
+  in
   let solver = Smt.mk_solver ~theory:"QF_LIRA" srk in
   let uninterp_phi =
     rewrite srk
