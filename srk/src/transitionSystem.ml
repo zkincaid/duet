@@ -138,22 +138,27 @@ module Make
 
     (* Variables not belonging to an interval store are implicitly mapped to
        top *)
+    type store = Interval.t VarMap.t
+
     type t =
-      | Store of Interval.t VarMap.t
+      | Store of store
       | Bottom
-    [@@deriving ord]
 
     type edge = int * tlabel * int
 
-    let pp formatter prop =
+    let pp_store formatter store =
       let open Format in
       let pp_elt formatter (v, ivl) =
         fprintf formatter "@[%a -> %a@]" Var.pp v Interval.pp ivl
       in
+      SrkUtil.pp_print_enum pp_elt formatter (VarMap.enum store)
+
+    let pp formatter prop =
+      let open Format in
       match prop with
       | Bottom -> fprintf formatter "Bottom"
       | Store s when VarMap.is_empty s -> fprintf formatter "Top"
-      | Store s -> SrkUtil.pp_print_enum pp_elt formatter (VarMap.enum s)
+      | Store s -> pp_store formatter s
 
     let equal x y = match x, y with
       | Store x, Store y -> VarMap.equal Interval.equal x y
@@ -163,28 +168,35 @@ module Make
     let bottom = Bottom
     let top = Store VarMap.empty
 
+    let widening_store =
+      VarMap.merge (fun _ x y -> match x, y with
+            | Some x, Some y ->
+              let result = Interval.widening x y in
+              if Interval.equal result Interval.top then
+                None
+              else
+                Some result
+            | _, _ -> None)
+
     let widening x y =
-      let widening _ x y = match x, y with
-        | Some x, Some y ->
-          let result = Interval.widening x y in
-          if Interval.equal result Interval.top then
-            None
-          else
-            Some result
-        | _, _ -> None
-      in
       match x, y with
       | Bottom, x | x, Bottom -> x
-      | Store x, Store y -> Store (VarMap.merge widening x y)
+      | Store x, Store y -> Store (widening_store x y)
+
+    let join_store =
+      VarMap.merge (fun _ x y -> match x, y with
+          | Some x, Some y ->
+            let result = Interval.join x y in
+            if Interval.equal result Interval.top then
+              None
+            else
+              Some result
+          | _, _ -> None)
 
     let join x y =
-      let join _ x y = match x, y with
-        | Some x, Some y -> Some (Interval.join x y)
-        | _, _ -> None
-      in
       match x, y with
       | Bottom, x | x, Bottom -> x
-      | Store x, Store y -> Store (VarMap.merge join x y)
+      | Store x, Store y -> Store (join_store x y)
 
     let is_local s =
       match Var.of_symbol s with
@@ -214,8 +226,6 @@ module Make
                  (fun v _ -> not (Var.is_global v))
                  store)
       | Store store, Weight tr ->
-        logf ~level:`trace "In: %a" pp prop;
-        logf ~level:`trace "Transition: %a" T.pp tr;
         let guards = ref [T.guard tr] in
         let push_guard x = guards := x::(!guards) in
         uses tr |> List.iter (fun v ->
@@ -263,9 +273,202 @@ module Make
                      store
                      (T.transform tr))
         in
-        logf ~level:`trace "Out: %a" pp result;
         result
   end
+
+  module PredicateSet = struct
+    include BatSet.Make(struct
+        type t = C.t formula
+        let compare = Formula.compare
+      end)
+    let pp formatter set =
+      SrkUtil.pp_print_enum (Formula.pp srk) formatter (enum set)
+  end
+
+  module PAxBox = struct
+    module PS = PredicateSet
+
+    (* An abstract state consists of a set of predicates that hold and an
+       interval store *)
+    type t =
+      | State of PS.t * Box.store
+      | Bottom
+    [@@deriving show]
+
+    type edge = int * tlabel * int
+
+    let join prop prop' =
+      match prop, prop' with
+      | Bottom, _ -> prop'
+      | _, Bottom -> prop
+      | State (predicates, store), State (predicates', store') ->
+        State (PS.inter predicates predicates',
+               Box.join_store store store')
+
+    let normalize predicates store =
+      let guard =
+        mk_and srk ((Box.to_formula store)::(PS.elements predicates))
+      in
+      let context = Z3.mk_context [("timeout", "100")] in
+      let variables =
+        let add_vars predicate =
+          Symbol.Set.fold (fun s vars ->
+              match Var.of_symbol s with
+              | Some v -> VarSet.add v vars
+              | None -> vars)
+            (symbols predicate)
+        in
+        VarSet.elements (PS.fold add_vars predicates VarSet.empty)
+      in
+      let objectives =
+        List.map (fun v -> mk_const srk (Var.symbol_of v)) variables
+      in
+      match Nonlinear.optimize_box ~context srk guard objectives with
+      | `Sat intervals ->
+        List.fold_left2 (fun store v ivl ->
+            VarMap.add v ivl store)
+          store
+          variables
+          intervals
+      | `Unknown -> store
+      | `Unsat -> invalid_arg "normalize: abstract state is inconsistent"
+
+    let widening prop prop' =
+      match prop, prop' with
+      | Bottom, _ -> prop'
+      | _, Bottom -> prop
+      | State (predicates, store), State (predicates', store') ->
+        if PS.equal predicates predicates' then
+          State (predicates,
+                 normalize predicates (Box.widening_store store store'))
+        else begin
+          assert (PS.subset predicates' predicates);
+          State (PS.inter predicates predicates', Box.join_store store store')
+        end
+
+    let equal prop prop' =
+      match prop, prop' with
+      | Bottom, Bottom -> true
+      | State (predicates, store), State (predicates', store') ->
+        PS.equal predicates predicates'
+        && VarMap.equal Interval.equal store store'
+      | _, _ -> false
+
+    let top = State (PS.empty, VarMap.empty)
+    let bottom = Bottom
+
+    (* Universe is a map from variables to the set of all predicates that
+       involve that variable *)
+    let analyze universe (s, label, t) prop =
+      match label, prop with
+      | (_, Bottom) -> bottom
+      | (Call (_, _), State (predicates, store)) ->
+        let store' =
+          match Box.analyze (s, label, t) (Box.Store store) with
+          | Box.Store store' -> store'
+          | Box.Bottom -> assert false
+        in
+        let predicates' =
+          PS.filter (fun predicate ->
+              Symbol.Set.for_all (fun sym ->
+                  match Var.of_symbol sym with
+                  | Some var -> not (Var.is_global var)
+                  | None -> true)
+                (symbols predicate))
+            predicates
+        in
+        State (predicates', store')
+      | (Weight tr, State (predicates, store)) ->
+        logf ~level:`trace "In: %a" pp (State (predicates, store));
+        logf ~level:`trace "Transition: %a" T.pp tr;
+
+        let tr' =
+          T.mul (T.assume (mk_and srk (PS.elements predicates))) tr
+        in
+
+        match Box.analyze (s, Weight tr', t) (Box.Store store) with
+        | Box.Bottom -> Bottom
+        | Box.Store store' ->
+          let context = Z3.mk_context [("timeout", "100")] in
+
+          let predicates' =
+            let solver = SrkZ3.mk_solver ~theory:"QF_LIRA" ~context srk in
+            let postify =
+              substitute_const srk (fun sym ->
+                  match Var.of_symbol sym with
+                  | Some var ->
+                    if T.mem_transform var tr' then
+                      T.get_transform var tr'
+                    else
+                      mk_const srk sym
+                  | None -> mk_const srk sym)
+            in
+            (* Predicates that hold before the transition and which are not
+               modified *)
+            let unmodified_predicates =
+              PS.filter (fun predicate ->
+                  Symbol.Set.for_all (fun sym ->
+                      match Var.of_symbol sym with
+                      | Some var -> not (T.mem_transform var tr')
+                      | None -> true)
+                    (symbols predicate))
+                predicates
+            in
+            (* Predicates that do not hold before the transition and may hold
+               after *)
+            let modified_predicates =
+              let modified =
+                VarSet.fold (fun v mu ->
+                    PS.union mu (VarMap.find_default PS.empty v universe))
+                  (abstract_defs tr)
+                  PS.empty
+              in
+              PS.elements (PS.diff modified unmodified_predicates)
+            in
+            let indicators =
+              List.map
+                (fun _ -> mk_const srk (mk_symbol srk `TyBool))
+                modified_predicates
+            in
+            SrkZ3.Solver.add solver [Nonlinear.uninterpret srk (T.guard tr')];
+
+            List.iter2 (fun p i ->
+                SrkZ3.Solver.add solver
+                  [mk_if srk
+                     i
+                     (mk_not srk (Nonlinear.uninterpret srk (postify p)))])
+              modified_predicates
+              indicators;
+
+            (* Assert relevant interval constraints *)
+            uses tr' |> List.iter (fun v ->
+                if VarMap.mem v store then
+                  let ivl = VarMap.find v store in
+                  let t = mk_const srk (Var.symbol_of v) in
+                  begin match Interval.lower ivl with
+                    | Some lo ->
+                      SrkZ3.Solver.add solver [mk_leq srk (mk_real srk lo) t]
+                    | None -> ()
+                  end;
+                  begin match Interval.upper ivl with
+                    | Some hi ->
+                      SrkZ3.Solver.add solver [mk_leq srk t (mk_real srk hi)]
+                    | None -> ()
+                  end);
+
+            List.fold_left2 (fun set predicate indicator ->
+                match SrkZ3.Solver.check solver [indicator] with
+                | `Unsat -> PS.add predicate set
+                | _ -> set)
+              unmodified_predicates
+              modified_predicates
+              indicators
+          in
+          let res = State (predicates', store') in
+          logf ~level:`trace "Out: %a" pp res;
+          res
+  end
+
   module IntervalAnalysis = Graph.ChaoticIteration.Make(WGG)(Box)
   module IntPair = struct
     type t = int * int [@@deriving ord]
@@ -356,6 +559,96 @@ module Make
               (loop_references wto)
               VarMap.empty
             |> Box.to_formula
+        in
+        logf "Found invariant at %d: %a"
+          v
+          (Formula.pp srk) invariant;
+        fold_left invariants ((v,invariant)::inv) rest
+    in
+    Graph.WeakTopological.fold_left invariants [] wto
+
+  let forward_invariants_pa predicates tg entry  =
+    let wto = Wto.recursive_scc tg entry in
+    let init v =
+      if v = entry then PAxBox.top
+      else PAxBox.bottom
+    in
+    let universe =
+      List.fold_left (fun m predicate ->
+          Symbol.Set.fold (fun sym m ->
+              match Var.of_symbol sym with
+              | Some var ->
+                VarMap.modify_def
+                  PredicateSet.empty
+                  var
+                  (PredicateSet.add predicate)
+                  m
+              | None -> m)
+            (symbols predicate)
+            m)
+        VarMap.empty
+        predicates
+    in
+    let module Analysis =
+      Graph.ChaoticIteration.Make(WGG)(struct
+        include PAxBox
+        let analyze = analyze universe
+      end)
+    in
+    let result =
+      Analysis.recurse tg wto init Graph.ChaoticIteration.FromWto 3
+    in
+    let rec loop_vertices vertices wto =
+      let open Graph.WeakTopological in
+      match wto with
+      | Vertex v -> Int.Set.add v vertices
+      | Component (v, rest) ->
+        fold_left loop_vertices (Int.Set.add v vertices) rest
+    in
+    let loop_references wto =
+      let vertices = loop_vertices Int.Set.empty wto in
+      Int.Set.fold (fun u vars ->
+          WG.fold_succ_e (fun (_, weight, v) vars ->
+              match weight with
+              | Weight tr when Int.Set.mem v vertices ->
+                VarSet.union vars (references tr)
+              | _ -> vars)
+            tg
+            u
+            vars)
+        vertices
+        VarSet.empty
+    in
+    let rec invariants inv wto =
+      let open Graph.WeakTopological in
+      match wto with
+      | Vertex v -> inv
+      | Component (v, rest) ->
+        let invariant =
+          match Analysis.M.find v result with
+          | PAxBox.Bottom -> mk_false srk
+          | PAxBox.State (predicates, store) ->
+            let relevant = loop_references wto in
+            let box_formula =
+              VarSet.fold (fun v inv ->
+                  if VarMap.mem v store then
+                    VarMap.add v (VarMap.find v store) inv
+                  else
+                    inv)
+                relevant
+                VarMap.empty
+              |> Box.to_formula
+            in
+            let relevant_predicates =
+              PredicateSet.filter (fun predicate ->
+                  Symbol.Set.exists (fun sym ->
+                      match Var.of_symbol sym with
+                      | Some var -> VarSet.mem var relevant
+                      | None -> false)
+                    (symbols predicate))
+                predicates
+            in
+            mk_and srk (box_formula::(PredicateSet.elements relevant_predicates))
         in
         logf "Found invariant at %d: %a"
           v

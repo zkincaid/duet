@@ -65,6 +65,7 @@ module Make
       read or written to by the loop. *)
   val forward_invariants : t -> vertex -> (vertex * C.t formula) list
 
+  val forward_invariants_pa : C.t formula list -> t -> vertex -> (vertex * C.t formula) list
   (** Simplify a transition system by contracting vertices that do not satisfy
       the given predicate.  Simplification does not guarantee that all such
       vertices are contracted.  In particular, simplification will not

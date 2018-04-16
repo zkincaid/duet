@@ -392,8 +392,8 @@ module TSDisplay = ExtGraph.Display.MakeLabeled
       let show = SrkUtil.mk_show pp
     end)
 
-let decorate_transition_system ts entry =
-  TS.forward_invariants ts entry
+let decorate_transition_system predicates ts entry =
+  TS.forward_invariants_pa predicates ts entry
   |> List.fold_left (fun ts (v, invariant) ->
       let fresh_id = (Def.mk (Assume Bexpr.ktrue)).did in
       WG.split_vertex ts v (Weight (K.assume invariant)) fresh_id)
@@ -441,6 +441,21 @@ let make_transition_system rg =
             graph
             TS.empty
         in
+        let predicates =
+          RG.G.fold_vertex (fun def predicates ->
+              match def.dkind  with
+              | Assume phi when Bexpr.equal phi Bexpr.ktrue ->
+                predicates
+              | Assert (phi, _) | Assume phi ->
+                Syntax.Expr.Set.add (tr_bexpr phi) predicates
+              | _ ->
+                predicates)
+            graph
+            Syntax.Expr.Set.empty
+          |> Syntax.Expr.Set.enum
+          |> BatList.of_enum
+        in
+
         let entry = (RG.block_entry rg block).did in
         let exit = (RG.block_exit rg block).did in
         let point_of_interest v =
@@ -451,7 +466,7 @@ let make_transition_system rg =
         let tg =
           if !forward_inv_gen then
             Log.phase "Forward invariant generation"
-              (decorate_transition_system tg) entry
+              (decorate_transition_system predicates tg) entry
           else
             tg
         in
