@@ -38,6 +38,9 @@ module QQX : sig
       ... qn(x)^dn] such that each qi is an irreducible polynomial with
       integer coefficients. *)
   val factor : t -> QQ.t * ((t * int) list)
+
+  (** Greatest common divisor of all coefficients. *)
+  val content : t -> QQ.t
 end
 
 (** Monomials *)
@@ -128,6 +131,9 @@ module Mvp : sig
 
   (** Enumerate the set of dimensions that appear in a polynomial *)
   val dimensions : t -> int BatEnum.t
+
+  (** Greatest common divisor of all coefficients. *)
+  val content : t -> QQ.t
 end
 
 (** Rewrite systems for multi-variate polynomials. A polynomial rewrite system

@@ -365,7 +365,9 @@ let project_ideal cs ideal ?(subterm=fun x -> true) keep =
             | `App (_, _) -> raise Unsafe
           in
           let conclusion = mk_eq srk safe (term_of_coordinate cs i) in
-          logf ~level:`trace "Safe: %a -> %a" (Term.pp srk) (term_of_coordinate cs i)
+          logf ~level:`trace "Safe: %a -> %a"
+            (Term.pp srk)
+            (term_of_coordinate cs i)
             (Term.pp srk) safe;
           safe_term.(i) <- Some safe;
           integrity.(i) <- mk_if srk hypothesis conclusion;
