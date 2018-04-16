@@ -76,8 +76,17 @@ let simplify_terms_rewriter srk =
     match destruct srk expr with
     | `Atom (op, s, t) ->
       let simplified_term =
-        TermPolynomial.term_of ctx
-          (TermPolynomial.of_term ctx (mk_sub srk s t))
+        let polynomial =
+          TermPolynomial.of_term ctx (mk_sub srk s t)
+        in
+        let c = TermPolynomial.Mvp.content polynomial in
+        let polynomial =
+          if QQ.equal c QQ.zero then
+            polynomial
+          else
+            TermPolynomial.Mvp.scalar_mul (QQ.inverse (QQ.abs c)) polynomial
+        in
+        TermPolynomial.term_of ctx polynomial
       in
       let zero = mk_real srk QQ.zero in
       let result = match op with

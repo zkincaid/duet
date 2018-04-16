@@ -87,6 +87,10 @@ val optimize_box : ?context:z3_context ->
 (** Quantifier elimination *)
 val qe : ?context:z3_context -> 'a context -> 'a formula -> 'a formula
 
+(** Simplify a formula using Z3's routines.  The resulting formula is
+    equisatisfiable, but not necessarily equivalent, to the original. *)
+val simplify : ?context:z3_context -> 'a context -> 'a formula -> 'a formula
+
 (** Parse a SMTLIB2-formatted string *)
 val load_smtlib2 : ?context:z3_context -> 'a context -> string -> 'a formula
 

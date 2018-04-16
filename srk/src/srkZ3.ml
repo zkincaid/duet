@@ -596,6 +596,34 @@ let qe ?(context=Z3.mk_context []) srk phi =
   Goal.add g [z3_of_formula srk z3 phi];
   of_apply_result srk (Tactic.apply qe g None)
 
+let simplify ?(context=Z3.mk_context []) srk phi =
+  let open Z3 in
+  let open Tactic in
+  let z3 = context in
+  let f t t' = Tactic.and_then z3 t t' [] in
+  let mk_tactic = mk_tactic z3 in
+  let sym = Symbol.mk_string z3 in
+  let solve_eqs =
+    when_ z3
+      (Probe.not_ z3 (Probe.mk_probe z3 "has-patterns"))
+      (mk_tactic "solve-eqs")
+  in
+  let simplify =
+    List.fold_left
+      (fun t t' -> Tactic.and_then z3 t t' [])
+      (mk_tactic "simplify")
+      [mk_tactic "propagate-values";
+       mk_tactic "simplify";
+       solve_eqs;
+       mk_tactic "simplify"]
+  in
+  let g = Goal.mk_goal z3 false false false in
+  Goal.add g [z3_of_formula srk z3 phi];
+  let g' = Tactic.apply simplify g None in
+  try
+    of_apply_result srk (Tactic.apply simplify g None)
+  with _ -> assert false
+
 module CHC = struct
   type 'a solver =
     { z3 : Z3.context;

@@ -65,10 +65,10 @@ val vec_of_term : ?admit:bool -> 'a t -> 'a term -> Linear.QQVector.t
 val type_of_id : 'a t -> int -> [ `TyInt | `TyReal ]
 
 (** Find a polynomial associated with an admissible term over
- *non-multiplicative* cooridnate. *)
-val polynomial_of_term : 'a t -> 'a term -> Polynomial.Mvp.t
+    {i non-multiplicative} coordinates. *)
+val polynomial_of_term : ?admit:bool -> 'a t -> 'a term -> Polynomial.Mvp.t
 
-(** Convert a vector to a polynomial *without multiplicative coordinates*.
+(** Convert a vector to a polynomial {i without multiplicative coordinates}.
     Multiplicative coordinates are expanded into higher-degree polynomials
     over non-multiplicative coordinates. *)
 val polynomial_of_vec : 'a t -> Linear.QQVector.t -> Polynomial.Mvp.t

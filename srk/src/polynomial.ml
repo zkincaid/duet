@@ -155,6 +155,12 @@ module QQX = struct
         factors
     in
     (content, factors)
+
+  let content p =
+    IntMap.fold (fun _ coeff content ->
+        QQ.gcd coeff content)
+      p
+      QQ.zero
 end
 
 module Monomial = struct
@@ -438,6 +444,12 @@ module Mvp = struct
       p
       S.empty
     |> S.enum
+
+  let content p =
+    MM.fold (fun _ coeff content ->
+        QQ.gcd coeff content)
+      p
+      QQ.zero
 end
 
 module Rewrite = struct
