@@ -66,7 +66,7 @@ val type_of_id : 'a t -> int -> [ `TyInt | `TyReal ]
 
 (** Find a polynomial associated with an admissible term over
     {i non-multiplicative} coordinates. *)
-val polynomial_of_term : ?admit:bool -> 'a t -> 'a term -> Polynomial.Mvp.t
+val polynomial_of_term : 'a t -> 'a term -> Polynomial.Mvp.t
 
 (** Convert a vector to a polynomial {i without multiplicative coordinates}.
     Multiplicative coordinates are expanded into higher-degree polynomials
