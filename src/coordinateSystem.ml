@@ -232,20 +232,20 @@ let vec_of_term ?(admit=false) cs =
     | `Mul xs ->
       (* Factor out scalar multiplication *)
       let (k, xs) =
-        List.fold_right (fun y (k,xs) ->
+        List.fold_left (fun (k,xs) y ->
             match const_of_vec y with
             | Some k' -> (QQ.mul k k', xs)
             | None -> (k, y::xs))
-          xs
           (QQ.one, [])
+          xs
       in
       begin match xs with
         | [] -> V.of_term k const_id
         | x::xs ->
           let mul x y =
-            V.of_term QQ.one (cs_term_id ~admit cs (`Mul (x, y)))
+            V.of_term QQ.one (cs_term_id ~admit cs (`Mul (y, x)))
           in
-          V.scalar_mul k (List.fold_right mul xs x)
+          V.scalar_mul k (List.fold_left mul x xs)
       end
     | `Binop (`Div, x, y) ->
       let denomenator = V.of_term QQ.one (cs_term_id ~admit cs (`Inv y)) in
@@ -273,6 +273,7 @@ let rec polynomial_of_coordinate cs id =
   match destruct_coordinate cs id with
   | `Mul (x, y) -> P.mul (polynomial_of_vec cs x) (polynomial_of_vec cs y)
   | _ -> P.of_dim id
+
 and polynomial_of_vec cs vec =
   let (const_coeff, vec) = V.pivot const_id vec in
   V.enum vec
