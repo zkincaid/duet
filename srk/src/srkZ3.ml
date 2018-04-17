@@ -501,8 +501,11 @@ let optimize_box ?(context=Z3.mk_context []) srk phi objectives =
         None
       else if Z3.Expr.to_string lo = "epsilon" then
         Some QQ.zero
+      else if Z3.Arithmetic.is_mul lo then
+        (* x * epsilon *)
+        Some QQ.zero
       else if Z3.Arithmetic.is_add lo then
-        (* x + epsilon *)
+        (* x + y*epsilon *)
         Some (qq_val (List.hd (Z3.Expr.get_args lo)))
       else
         Log.fatalf "Smt.optimize_box: %s" (Z3.Expr.to_string lo)
@@ -513,10 +516,11 @@ let optimize_box ?(context=Z3.mk_context []) srk phi objectives =
         Some (qq_val hi)
       else if Z3.Expr.to_string hi = "oo" then
         None
-      else if Z3.Expr.to_string hi = "(* (- 1) epsilon)" then
+      else if Z3.Arithmetic.is_mul hi then
+        (* x*epsilon *)
         Some QQ.zero
       else if Z3.Arithmetic.is_add hi then
-        (* x - epsilon *)
+        (* x - y*epsilon *)
         Some (qq_val (List.hd (Z3.Expr.get_args hi)))
       else
         Log.fatalf "Smt.optimize_box: %s" (Z3.Expr.to_string hi)
