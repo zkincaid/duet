@@ -341,10 +341,14 @@ module Make
         if PS.equal predicates predicates' then
           State (predicates,
                  normalize predicates (Box.widening_store store store'))
-        else begin
-          assert (PS.subset predicates' predicates);
+        else if PS.subset predicates' predicates then
           State (PS.inter predicates predicates', Box.join_store store store')
-        end
+        else
+          (* Possible if, e.g., some abstract post computation returns some
+             Unknowns *)
+          let predicates = PS.inter predicates predicates' in
+          State (predicates,
+                 normalize predicates (Box.widening_store store store'))
 
     let equal prop prop' =
       match prop, prop' with
