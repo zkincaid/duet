@@ -287,8 +287,17 @@ let interpolate2 () =
     check_interpolant path post itp
   | _ -> assert_failure "Invalid post-condition"
 
+
+module LtrTrans = struct
+  include Transition.Make(Ctx)(V)
+
+  type trans = t
+  let hash trans = Hashtbl.hash trans
+  let transition_of trans = trans
+end
+
 let check_hoare solver =
-  let module Solver = Hoare.MakeSolver(Ctx)(V) in
+  let module Solver = Hoare.MakeSolver(Ctx)(V)(LtrTrans) in
   begin
     match Solver.check_solution solver with
     | `Sat -> ()
@@ -309,7 +318,7 @@ let check_hoare solver =
       | _ -> assert_failure "Invalid Hoare Triple") triples
           
 let hoare1 () =
-  let module Solver = Hoare.MakeSolver(Ctx)(V) in
+  let module Solver = Hoare.MakeSolver(Ctx)(V)(LtrTrans) in
   let solver = Solver.mk_solver () in
   let pre_sym = Ctx.mk_symbol ~name:"pre" (`TyFun ([`TyInt; `TyInt], `TyBool)) in
   let pre (x, y) = Ctx.mk_app pre_sym [x; y] in
@@ -320,7 +329,7 @@ let hoare1 () =
   check_hoare solver
 
 let hoare2 () =
-  let module Solver = Hoare.MakeSolver(Ctx)(V) in
+  let module Solver = Hoare.MakeSolver(Ctx)(V)(LtrTrans) in
   let solver = Solver.mk_solver () in
   let p_sym = Ctx.mk_symbol ~name:"p" (`TyFun ([`TyInt; `TyInt], `TyBool)) in
   let q_sym = Ctx.mk_symbol ~name:"q" (`TyFun ([`TyInt; `TyInt], `TyBool)) in

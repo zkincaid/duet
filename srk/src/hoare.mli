@@ -1,7 +1,18 @@
 open Syntax
 open Transition
 
-module MakeSolver (Ctx : Syntax.Context) (Var : Transition.Var) : sig
+module type Letter = sig
+  type t
+  type trans
+  val hash : t -> int
+  val equal : t -> t -> bool
+  val compare : t -> t -> int
+  val pp : Format.formatter -> t -> unit
+
+  val transition_of : t -> trans
+end
+
+module MakeSolver (Ctx : Syntax.Context) (Var : Transition.Var) (Ltr : Letter with type trans = Transition.Make(Ctx)(Var).t) : sig
   type t
   type triple
 
@@ -11,5 +22,6 @@ module MakeSolver (Ctx : Syntax.Context) (Var : Transition.Var) : sig
   val get_solver : t -> Ctx.t SrkZ3.CHC.solver
   val register_triple : t -> triple -> unit
   val check_solution : t -> [ `Sat | `Unsat | `Unknown ]
+  val verify_solution : t -> [ `Valid | `Invalid | `Unknown ]
   val get_solution : t -> triple list
-end with type triple = (Ctx.formula list) * Transition.Make(Ctx)(Var).t * (Ctx.formula list)
+end with type triple = (Ctx.formula list) * Ltr.t * (Ctx.formula list)

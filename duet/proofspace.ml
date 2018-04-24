@@ -198,6 +198,22 @@ module Letter = struct
   module Map = BatMap.Make(G.E)
 end
 
+module ILetter = struct
+  type t = Letter.t * int
+  type trans = Tr.t
+
+  let equal (x, i) (y, j) = i = j && (Letter.equal x y)
+  let compare (x, i) (y, j) = if i = j then (Letter.compare x y) else (i - j)
+  let hash (ltr, tid) = Hashtbl.hash (Letter.src ltr, Letter.dst ltr, tid)
+
+  let pp formatter (ltr, tid) =
+    let open Format in
+    Letter.pp formatter ltr;
+    fprintf formatter " : %d" tid
+
+  let transition_of (ltr, tid) = Letter.transition_of tid ltr
+end
+
 type block_graph =
   { graph : G.t; (* graph containing control flow graph of all threads *)
     initial : int Varinfo.Map.t; (* map each thread to its initial vertex *)
@@ -539,13 +555,13 @@ let construct_interp solver assign_table trace =
    symbolic hoare triples.
    add_triples : Solver.t -> (letter, tid) list -> (letter, tid) list
  *)
-module Solver = Hoare.MakeSolver(Ctx)(IV)
+module Solver = Hoare.MakeSolver(Ctx)(IV)(ILetter)
 let construct solver assign_table trace add_triples =
   let hoare_solver = Solver.mk_solver () in
-  let rec go trace triples =
-    match trace, triples with
-    | (letter, tid) :: trace, (pre, trans, post) :: triples ->
-       (* logf ~level:`always "%a\n" Solver.pp_triple (pre, trans, post); *)
+  let rec go triples =
+    match triples with
+    | (pre, (letter, tid), post) :: triples ->
+       (* logf ~level:`always "%a\n" Solver.pp_triple (pre, (letter, tid), post); *)
        let mk_conj phi =
          let rec flatten phi =
            List.fold_left (fun conj psi -> match (destruct ctx psi) with
@@ -578,13 +594,15 @@ let construct solver assign_table trace add_triples =
                E.conjoin_transition solver psi letters (negate_paformula rhs)
              end
          ) ((BatList.of_enum  (P.conjuncts post)));
-       go trace triples
-    | x, y -> assert (x = [] && y = [])
+       go triples
+    | _ -> ()
   in
-  let trace = add_triples hoare_solver trace in
-  match Solver.check_solution hoare_solver with
-  | `Sat -> go trace (Solver.get_solution hoare_solver)
-  | _ -> Log.fatalf "Failed to find hoare triples"
+  add_triples hoare_solver trace;
+  match Solver.verify_solution hoare_solver with
+  | `Valid -> go (Solver.get_solution hoare_solver)
+  | _ -> List.iter (fun triple -> logf ~level:`always "%a" Solver.pp_triple triple) (Solver.get_solution hoare_solver);
+         Log.fatalf "Failed to find hoare triples"
+
 
 let construct_sequence solver assign_table trace =
   let add_triples hoare_solver trace =
@@ -602,18 +620,18 @@ let construct_sequence solver assign_table trace =
     let get_pred var_types =
       Ctx.mk_symbol (`TyFun (var_types, `TyBool))
     in
-    let rec go pre transitions =
-      match transitions with
-      | trans :: [] -> Solver.register_triple hoare_solver ([pre], trans, [Ctx.mk_false])
-      | trans :: transitions ->
+    let rec go pre trace =
+      match trace with
+      | iltr :: [] -> Solver.register_triple hoare_solver ([pre], iltr, [Ctx.mk_false])
+      | iltr :: transitions ->
          begin
            let post = Ctx.mk_app (get_pred vars_type) vars_const in
            (*logf "%a" Solver.pp_triple ([pre], trans, [post]);*)
-           Solver.register_triple hoare_solver ([pre], trans, [post]);
+           Solver.register_triple hoare_solver ([pre], iltr, [post]);
            go post transitions
          end
       | [] -> assert false
-    in go Ctx.mk_true transitions; trace
+    in go Ctx.mk_true trace
   in
   construct solver assign_table trace add_triples
 
@@ -644,16 +662,16 @@ let construct_loop solver assign_table trace =
     let get_pred = get_pred vars_type in
     let rec go pre trace =
       match trace with
-      | (letter, tid) :: [] -> Solver.register_triple hoare_solver ([pre], (Letter.transition_of tid letter), [Ctx.mk_false])
+      | (letter, tid) :: [] -> Solver.register_triple hoare_solver ([pre], (letter, tid), [Ctx.mk_false])
       | (letter, tid) :: trace ->
          begin
            DA.set locs tid (Letter.dst letter);
            let post = Ctx.mk_app (get_pred (DA.to_list locs)) vars_const in
-           Solver.register_triple hoare_solver ([pre], (Letter.transition_of tid letter), [post]);
+           Solver.register_triple hoare_solver ([pre], (letter, tid), [post]);
            go post trace
          end
       | [] -> assert false
-    in go Ctx.mk_true trace; trace
+    in go Ctx.mk_true trace
   in
   construct solver assign_table trace add_triples
 
@@ -703,7 +721,6 @@ let straight_line hsolver trace =
   let get_pred var_types =
     Ctx.mk_symbol (`TyFun (var_types, `TyBool))
   in
-  let letters = ref [] in
   let rec go trace =
     match trace with
     | [] -> ()
@@ -713,9 +730,7 @@ let straight_line hsolver trace =
        let pre = List.hd (DA.get preds tid) in
        let post = match trace with [] -> Ctx.mk_false | _ -> Ctx.mk_app (get_pred vrs_type) vrs_const in
        DA.set preds tid (post :: (DA.get preds tid));
-       let transition = Letter.transition_of tid letter in
-       Solver.register_triple hsolver ([pre], transition, [post]);
-       letters := (letter, tid) :: (!letters);
+       Solver.register_triple hsolver ([pre], (letter, tid), [post]);
        match (Letter.block letter) with
        | `Fork _ ->
           begin
@@ -726,8 +741,7 @@ let straight_line hsolver trace =
                  let vrs_const = List.append (DA.get vars_const ntid) (DA.get vars_const 0) in
                  let post = match trace with [] -> assert false | _ -> Ctx.mk_app (get_pred vrs_type) vrs_const in
                  DA.set preds ntid (post :: (DA.get preds ntid));
-                 Solver.register_triple hsolver ([pre], transition, [post]);
-                 letters := (letter, tid) :: (!letters);
+                 Solver.register_triple hsolver ([pre], (letter, tid), [post]);
                  go trace
                end
             | _ -> assert false
@@ -737,15 +751,92 @@ let straight_line hsolver trace =
   (match trace with
    | (letter, tid) :: trace -> DA.set preds tid [Ctx.mk_true]; go trace
    | _ -> assert false
-  ); (!letters, preds)
+  ); preds
 
+let happens_before_evt trace threads =
+  let module DA = BatDynArray in
+  let module LM = Letter.Map in
+  let module LS = PInt.Set in
+  (* events[tid][letter] = {i1, i2, i3} means that (letter, tid) occurs at index i1, i2, and i3 in the trace *)
+  let events = DA.init (DA.length threads) (fun _ -> LM.empty) in
+  List.iteri (fun ind (letter, tid) ->
+      let index_set = LM.find_default LS.empty letter (DA.get events tid) in
+      DA.set events tid (LM.add letter (LS.add ind index_set) (DA.get events tid))
+    ) trace;
+  (* pairs[tid][letter] = {a, b, c} means that (letter, tid) happens before all commands in thread a, b, c *)
+  let pairs = DA.init (DA.length threads) (fun _ -> LM.empty) in
+  (* This works because our only syntactic synchronization is due to forks *)
+  let rec go trace =
+    match trace with
+    | [] -> ()
+    | (letter, tid) :: trace ->
+       match Letter.block letter with
+       | `Fork _ ->
+          begin
+            let (_, ntid) = List.hd trace in (* Initial of forked thread *)
+            let set = LM.find_default LS.empty letter (DA.get pairs tid) in
+            DA.set pairs tid (LM.add letter (LS.add ntid set) (DA.get pairs tid));
+            go (List.tl trace)
+          end
+       | _ -> go trace
+  in
+  go trace;
+  (* Add transitive closure of forks *)
+  DA.iteri (fun tid hp ->
+      if tid == 0 then assert (hp == LM.empty) else
+        let rec go ids =
+          if LS.is_empty ids then ids else
+            let prop = List.fold_left (fun ids id ->
+                           LM.fold (fun _ x y -> LS.union x y) (DA.get pairs id) ids
+                         ) ids (LS.elements ids) in
+            let rest = LS.diff prop ids in
+            LS.union prop (go rest)
+        in
+        let trans = LM.map (fun ids -> go ids) hp in
+        DA.set pairs tid trans
+    ) pairs;
+  (* Add in all commands before forks to happens before relation *)
+  DA.iteri (fun tid thread ->
+      if tid == 0 then assert (thread == []) else
+        let rec go thread =
+          match thread with
+          | [] -> ()
+          | (letter, _) :: thread ->
+             let last_occ = LS.max_elt (LM.find letter (DA.get events tid)) in
+             let rec rest thread =
+               match thread with
+               | [] -> ()
+               | (ltr, _) :: thread ->
+                  (match Letter.block ltr with
+                   | `Fork _ ->
+                      begin
+                        let ltr_hp = LS.filter (fun ntid ->
+                                         match (DA.get threads ntid) with
+                                         | [] -> false
+                                         | (nltr, _ ) :: _ ->
+                                            let first_occ = LS.min_elt (LM.find nltr (DA.get events ntid)) in
+                                            last_occ < first_occ
+                                       ) (LM.find_default LS.empty ltr (DA.get pairs tid))
+                        in
+                        DA.set pairs tid (LM.add letter (LS.union ltr_hp (LM.find_default LS.empty letter (DA.get pairs tid))) (DA.get pairs tid))
+                      end
+                   | _ -> ()
+                  ); rest thread
+             in
+             rest thread; go thread (* do stupid n^2 loop -- should reverse thread to be linear *)
+        in
+        go thread
+  ) threads;
+  (* does Indexed Letter (x, t1) happens before thread t2 ? *)
+  (* Under our assumptions this is exactly the happens before relation when t1 != t2 *)
+  (fun (x, t1) (_, t2) -> LS.mem t2 (LM.find_default LS.empty x (DA.get pairs t1)))
+       
 let happens_before trace threads =
   let module DA = BatDynArray in
   let module LM = Letter.Map in
   let module LS = PInt.Set in
-  (* DA[tid][letter] = {a, b, c} meaning (letter, tid) happens before all commands in thread a, b, and c *)
+  (* pairs[tid][letter] = {a, b, c} meaning (letter, tid) happens before all commands in thread a, b, and c *)
   let pairs = DA.init (DA.length threads) (fun _ -> LM.empty) in
-  (* let pairs = ref LM.empty in *) (* (letter, tid) -> int --- maps indexed letters to threads it happens before *)
   (* This works because our only syntactic synchronization is due to forks *)
   let rec go trace =
     match trace with
@@ -806,13 +897,13 @@ let happens_before trace threads =
 
 let strong_non_interference hsolver trace preds =
   let module DA = BatDynArray in
-  let num_threads = DA.length preds in
+  let num_threads = (DA.length preds) - 1 in
   let (threads, _) = project_trace trace num_threads in
-  let hp = happens_before trace threads in
-  let letters = ref [] in
+  let hp = happens_before_evt trace threads in
   DA.iteri (fun tid thread ->
       if tid == 0 then assert (thread == []) else
-        let tid_preds = DA.get preds tid in
+        let thread = List.rev thread in
+        let tid_preds = List.rev (DA.get preds tid) in
         let rec go thread tpreds =
           match thread, tpreds with
           | ((letter, _) :: thread, pre :: tpreds) ->
@@ -824,91 +915,22 @@ let strong_non_interference hsolver trace preds =
                        | [] -> ()
                        | pre2 :: npreds ->
                           if (hp (letter, tid) (letter, ntid)) then () else
-                            begin
-                              let transition = Letter.transition_of tid letter in
-                              Solver.register_triple hsolver ([pre; pre2], transition, [pre2]);
-                              letters := (letter, tid) :: (!letters);
-                            end;
+                            Solver.register_triple hsolver ([pre; pre2], (letter, tid), [pre2]);
                           go npreds
                      in
                      go npreds
                  ) preds;
                go thread tpreds
              end
-          | x, y -> assert (x == [] && (List.length y) == 1)
+          | x, y -> (* logf ~level:`always "%d %d" (List.length x) (List.length y); *) assert (x = [] && (List.length y) <= 2)
         in
         go thread tid_preds
-    ) threads;
-  !letters
+    ) threads
 
 let construct_owicki_gries_sequence solver assign_table trace =
   let add_triples hoare_solver trace =
-    let transitions =
-      List.map (fun (letter, tid) -> Letter.transition_of tid letter) trace
-    in
-    let module DA = BatDynArray in
-    let num_threads = List.fold_left (fun max (_, tid) -> if max > tid then max else tid) 0 trace in
-    let (threads, tid_err) = project_trace trace num_threads in (* threads[i] = thread i's projection of traces *)
-    let vars = vars transitions num_threads in        (* vars[0] = global variables, vars[i] = local variabls of thread i *)
-    let vars_type  = DA.map (List.map IV.typ) vars in
-    let vars_const = DA.map (List.map (fun var -> Ctx.mk_const (IV.symbol_of var))) vars in
-    let preds = DA.init (DA.length vars) (fun _ -> []) in (* preds[i] contains each relation for thread i (in trace order) *)
-    let get_pred var_types =
-      Ctx.mk_symbol (`TyFun (var_types, `TyBool))
-    in
-    let letters = ref [] in
-    (* add consecution hoare triples *)
-    DA.iteri (fun tid trace ->
-        if tid = 0 then assert (trace = []) else
-          begin
-            let vars_type = List.append (DA.get vars_type tid) (DA.get vars_type 0) in
-            let vars_const = List.append (DA.get vars_const tid) (DA.get vars_const 0) in
-            let post = if tid = tid_err then Ctx.mk_false else Ctx.mk_app (get_pred vars_type) vars_const in
-            let rec go trace post =
-              match trace with
-              | [] -> DA.set preds tid (post :: (DA.get preds tid));
-              | (letter, tid) :: trace ->
-                 let pre =
-                   match trace with
-                   | [] -> Ctx.mk_true
-                   | _ -> Ctx.mk_app (get_pred vars_type) vars_const
-                 in
-                 let transition = Letter.transition_of tid letter in
-                 Solver.register_triple hoare_solver ([pre], transition, [post]);
-                 letters := (letter, tid) :: (!letters);
-                 DA.set preds tid (post :: DA.get preds tid);
-                 go trace pre
-            in
-            go trace post
-          end
-      ) threads;
-    (* Add non-interference rules *)
-    DA.iteri (fun i trace -> (* for each thread *)
-        if i = 0 then () else
-          let rec go trace pres =  (* for each command and it's precondition *)
-            match trace, pres with
-            | (letter, tid) :: trace, pre :: pres ->
-               begin
-                 DA.iteri (fun j phis -> (* for each relation from another thread *)
-                     if j = 0 || j = i then () else
-                       let rec go phis =
-                         match phis with
-                         | [] -> ()
-                         | phi :: phis ->
-                            let transition = Letter.transition_of tid letter in
-                            Solver.register_triple hoare_solver ([pre; phi], transition, [phi]);
-                            letters := (letter, tid) :: (!letters);
-                            go phis
-                       in go phis
-                   ) preds;
-                 go trace pres
-               end
-            | [], [x] -> ()
-            | _, _ -> assert false
-          in
-          go trace (DA.get preds i)
-      ) threads;
-    List.rev (!letters)
+    let preds = straight_line hoare_solver trace in
+    strong_non_interference hoare_solver trace preds
   in
   construct solver assign_table trace add_triples
 

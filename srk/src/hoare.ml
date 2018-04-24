@@ -5,20 +5,31 @@ open BatPervasives
 
 include Log.Make(struct let name = "srk.hoare" end)
 
-module MakeSolver(Ctx : Syntax.Context) (Var : Transition.Var) = struct
+module type Letter = sig
+  type t
+  type trans
+  val hash : t -> int
+  val equal : t -> t -> bool
+  val compare : t -> t -> int
+  val pp : Format.formatter -> t -> unit
+
+  val transition_of : t -> trans
+end
+
+module MakeSolver(Ctx : Syntax.Context) (Var : Transition.Var) (Ltr : Letter with type trans = Transition.Make(Ctx)(Var).t) = struct
 
   module Infix = Syntax.Infix(Ctx)
   module Transition = Transition.Make(Ctx)(Var)
 
-  type transition = Transition.t
+  type transition = Ltr.trans
   type formula = Ctx.formula
-  type triple = (formula list) * transition * (formula list)
+  type triple = (formula list) * Ltr.t * (formula list)
 
   module DA = BatDynArray
 
   let srk = Ctx.context
 
-  let pp_triple formatter (pre, trans, post) =
+  let pp_triple formatter (pre, ltr, post) =
     let open Format in
     fprintf formatter "{";
     SrkUtil.pp_print_enum ~pp_sep:(fun formatter () -> fprintf formatter " /\\ ")
@@ -26,7 +37,7 @@ module MakeSolver(Ctx : Syntax.Context) (Var : Transition.Var) = struct
                           formatter
                           (BatList.enum pre);
     fprintf formatter "} ";
-    Transition.pp formatter trans;
+    Ltr.pp formatter ltr;
     fprintf formatter " {";
     SrkUtil.pp_print_enum ~pp_sep:(fun formatter () -> fprintf formatter " /\\ ")
                           (Expr.pp srk)
@@ -55,7 +66,8 @@ module MakeSolver(Ctx : Syntax.Context) (Var : Transition.Var) = struct
      as P(...) /\ Q(...) /\ x = 3 /\ y < x /\ transition.guard --> R(...)
         P(...) /\ Q(...) /\ x = 3 /\ y < x /\ transition.guard --> S(...)
    *)
-  let register_triple solver (pre, trans, post) =
+  let register_triple solver (pre, ltr, post) =
+    (* logf ~level:`always "%a\n" pp_triple (pre, ltr, post); *)
     let rec register_formulas formulas =
       match formulas with
       | [] -> ()
@@ -76,6 +88,7 @@ module MakeSolver(Ctx : Syntax.Context) (Var : Transition.Var) = struct
           | _ -> mk_const srk sym
         )
     in
+    let trans = Ltr.transition_of ltr in
     let body = (* conjunct all preconditions and guard of the transition *)
       let rec go rels =
         match rels with
@@ -97,7 +110,7 @@ module MakeSolver(Ctx : Syntax.Context) (Var : Transition.Var) = struct
       in
       go posts
     in
-    DA.add solver.triples (pre, trans, post);
+    DA.add solver.triples (pre, ltr, post);
     register_formulas pre;
     register_formulas post;
     add_rules post
@@ -105,7 +118,7 @@ module MakeSolver(Ctx : Syntax.Context) (Var : Transition.Var) = struct
   let check_solution solver = CHC.check solver.solver []
 
   let get_solution solver =
-    let get_triple trips (pre, trans, post) =
+    let get_triple trips (pre, ltr, post) =
       let rec subst =
         let rewriter expr =
           match destruct srk expr with
@@ -121,8 +134,22 @@ module MakeSolver(Ctx : Syntax.Context) (Var : Transition.Var) = struct
         | rel :: rels ->
            (rewrite srk ~down:rewriter rel) :: (subst rels)
       in
-      (subst pre, trans, subst post) :: trips
+      (subst pre, ltr, subst post) :: trips
     in
     List.rev (DA.fold_left get_triple [] solver.triples)
+
+  let verify_solution solver =
+    match CHC.check solver.solver [] with
+    | `Sat ->
+       List.fold_left (fun ret (pre, ltr, post) ->
+           match ret with
+           | `Invalid -> `Invalid
+           | x ->
+              match (Transition.valid_triple (Ctx.mk_and pre) [Ltr.transition_of ltr] (Ctx.mk_and post)) with
+              | `Valid -> x
+              | y -> y
+         ) `Valid (get_solution solver)
+    | `Unsat -> `Invalid
+    | `Unknown -> `Unknown
 
 end
