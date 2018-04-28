@@ -364,15 +364,16 @@ module Solver = struct
   let reset solver = Z3.Solver.reset solver.s
 
   let check solver args =
-    let res =
-      Log.time "solver.check"
-        (Z3.Solver.check solver.s)
-        (List.map solver.of_formula args)
-    in
-    match res with
-    | Z3.Solver.SATISFIABLE -> `Sat
-    | Z3.Solver.UNSATISFIABLE -> `Unsat
-    | Z3.Solver.UNKNOWN -> `Unknown
+    let args = List.map solver.of_formula args in
+    try
+      match Log.time "solver.check" (Z3.Solver.check solver.s) args with
+      | Z3.Solver.SATISFIABLE -> `Sat
+      | Z3.Solver.UNSATISFIABLE -> `Unsat
+      | Z3.Solver.UNKNOWN -> `Unknown
+    with Z3.Error x ->
+      logf ~level:`warn "Caught Z3 exception: %s" x;
+      `Unknown
+
 
   let expr_of_sym srk z3 symbol =
     let sort =
@@ -527,10 +528,14 @@ let optimize_box ?(context=Z3.mk_context []) srk phi objectives =
     in
     Interval.make lower upper
   in
-  match check opt with
-  | Z3.Solver.SATISFIABLE -> `Sat (List.map mk_interval handles)
-  | Z3.Solver.UNSATISFIABLE -> `Unsat
-  | Z3.Solver.UNKNOWN -> `Unknown
+  try
+    match check opt with
+    | Z3.Solver.SATISFIABLE -> `Sat (List.map mk_interval handles)
+    | Z3.Solver.UNSATISFIABLE -> `Unsat
+    | Z3.Solver.UNKNOWN -> `Unknown
+  with Z3.Error x ->
+    logf ~level:`warn "Caught Z3 exception: %s" x;
+    `Unknown
 
 let interpolate_seq ?(context=Z3.mk_context []) srk seq =
   let z3 = context in
@@ -734,10 +739,14 @@ module CHC = struct
     let goal =
       z3_of_formula solver.srk solver.z3 (mk_app solver.srk solver.error [])
     in
-    match Z3.Fixedpoint.query solver.fp goal with
-    | Z3.Solver.UNSATISFIABLE -> `Sat
-    | Z3.Solver.SATISFIABLE -> `Unsat
-    | Z3.Solver.UNKNOWN -> `Unknown
+    try
+      match Z3.Fixedpoint.query solver.fp goal with
+      | Z3.Solver.UNSATISFIABLE -> `Sat
+      | Z3.Solver.SATISFIABLE -> `Unsat
+      | Z3.Solver.UNKNOWN -> `Unknown
+    with Z3.Error x ->
+      logf ~level:`warn "Caught Z3 exception: %s" x;
+      `Unknown
 
   let get_solution solver relation =
     let srk = solver.srk in
