@@ -1,5 +1,5 @@
 # OASIS_START
-# DO NOT EDIT (digest: d64576b9f603018ee764c1822b584b71)
+# DO NOT EDIT (digest: 49bf6ca12b7c925fc8488661a1c806d6)
 # Ignore VCS directories, you can use the same kind of rule outside
 # OASIS_START/STOP if you want to exclude directories that contains
 # useless stuff for the build process
@@ -47,20 +47,38 @@ true: annot, bin_annot
 <srk/src/*.ml{,i,y}>: pkg_ocamlgraph
 <srk/src/*.ml{,i,y}>: pkg_ppx_deriving.show
 # Executable test_srk
-"srk/src/test_srk.native": pkg_Z3
-"srk/src/test_srk.native": pkg_apron
-"srk/src/test_srk.native": pkg_apron.boxMPQ
-"srk/src/test_srk.native": pkg_apron.octMPQ
-"srk/src/test_srk.native": pkg_apron.polkaMPQ
-"srk/src/test_srk.native": pkg_batteries
-"srk/src/test_srk.native": pkg_camlidl
-"srk/src/test_srk.native": pkg_gmp
-"srk/src/test_srk.native": pkg_ntl
-"srk/src/test_srk.native": pkg_oUnit
-"srk/src/test_srk.native": pkg_ocrs
-"srk/src/test_srk.native": pkg_ppx_deriving
-"srk/src/test_srk.native": pkg_ppx_deriving.ord
-<srk/src/*.ml{,i,y}>: pkg_oUnit
+"srk/test/test_srk.native": pkg_Z3
+"srk/test/test_srk.native": pkg_apron
+"srk/test/test_srk.native": pkg_apron.boxMPQ
+"srk/test/test_srk.native": pkg_apron.octMPQ
+"srk/test/test_srk.native": pkg_apron.polkaMPQ
+"srk/test/test_srk.native": pkg_batteries
+"srk/test/test_srk.native": pkg_camlidl
+"srk/test/test_srk.native": pkg_gmp
+"srk/test/test_srk.native": pkg_ntl
+"srk/test/test_srk.native": pkg_oUnit
+"srk/test/test_srk.native": pkg_ocamlgraph
+"srk/test/test_srk.native": pkg_ocrs
+"srk/test/test_srk.native": pkg_ppx_deriving
+"srk/test/test_srk.native": pkg_ppx_deriving.ord
+"srk/test/test_srk.native": pkg_ppx_deriving.show
+"srk/test/test_srk.native": use_srk
+<srk/test/*.ml{,i,y}>: pkg_Z3
+<srk/test/*.ml{,i,y}>: pkg_apron
+<srk/test/*.ml{,i,y}>: pkg_apron.boxMPQ
+<srk/test/*.ml{,i,y}>: pkg_apron.octMPQ
+<srk/test/*.ml{,i,y}>: pkg_apron.polkaMPQ
+<srk/test/*.ml{,i,y}>: pkg_batteries
+<srk/test/*.ml{,i,y}>: pkg_camlidl
+<srk/test/*.ml{,i,y}>: pkg_gmp
+<srk/test/*.ml{,i,y}>: pkg_ntl
+<srk/test/*.ml{,i,y}>: pkg_oUnit
+<srk/test/*.ml{,i,y}>: pkg_ocamlgraph
+<srk/test/*.ml{,i,y}>: pkg_ocrs
+<srk/test/*.ml{,i,y}>: pkg_ppx_deriving
+<srk/test/*.ml{,i,y}>: pkg_ppx_deriving.ord
+<srk/test/*.ml{,i,y}>: pkg_ppx_deriving.show
+<srk/test/*.ml{,i,y}>: use_srk
 # Executable bigtop
 "srk/src/bigtop.native": pkg_Z3
 "srk/src/bigtop.native": pkg_apron

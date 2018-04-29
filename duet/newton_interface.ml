@@ -20,6 +20,7 @@ external add_wpds_error_rule: K.t -> int -> int -> unit = "add_wpds_error_rule"
 external add_wpds_print_hull_rule: int -> int -> int -> unit = "add_wpds_print_hull_rule"
 
 let analyze_basic file =
+  Cra.populate_offset_table file;
   match file.entry_points with
   | [main] -> begin
       let rg = Interproc.make_recgraph file in

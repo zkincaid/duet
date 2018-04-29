@@ -221,8 +221,8 @@ let rec simplify_ap = function
             (* *(&var + offset) = var[offset] *)
             SimpleAP.Set.add (Lvl0 (var, offset)) set
           | RStr _ -> set (* (I /think/) it's safe to discard string RHSs,
-                             			       since constant strings are immutable (so once
-                             			       it is derefed it can't point to anything) *)
+                             since constant strings are immutable (so once it
+                             is derefed it can't point to anything) *)
         in
         SimpleRhs.Set.fold add set SimpleAP.Set.empty
     end
