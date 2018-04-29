@@ -40,6 +40,8 @@ class arrayAccessVisitor = object (self)
                             idx,
                             typeOfLval lv)),
                 offset)
+    | Var v, Index (Const k, NoOffset) ->
+      DoChildren
     | Var v, Index (idx, offset) ->
       ChangeTo (Mem (BinOp (PlusPI,
                             Cil.mkAddrOf (Var v, NoOffset),

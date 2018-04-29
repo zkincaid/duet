@@ -231,6 +231,10 @@ let term_binop op left right = match left, op, right with
 
 let typ_has_offsets typ = is_pointer_type typ || typ = Concrete Dynamic
 
+let is_int_array typ = match resolve_type typ with
+  | Array (Concrete (Int _), _) -> true
+  | _ -> false
+
 let nondet_const name typ = Ctx.mk_const (Ctx.mk_symbol ~name typ)
 
 let tr_expr expr =
@@ -286,6 +290,59 @@ let tr_bexpr bexpr =
   in
   Bexpr.fold alg bexpr
 
+(* Populate table mapping variables to the offsets of that variable that
+   appear in the program.  Must be called before calling weight *)
+let offset_table = Varinfo.HT.create 991
+let get_offsets v = Varinfo.HT.find offset_table v
+let populate_offset_table file =
+  let add_offset (v, offset) =
+    match offset with
+    | OffsetUnknown -> ()
+    | OffsetFixed k ->
+      Varinfo.HT.modify_def Int.Set.empty v (Int.Set.add k) offset_table
+  in
+  let rec aexpr e = match e with
+    | Cast (_, e) | UnaryOp (_, e, _) -> aexpr e
+    | BinaryOp (e1, _, e2, _) -> aexpr e1; aexpr e2
+    | AddrOf a | AccessPath a -> ap a
+    | BoolExpr b -> bexpr b
+    | Havoc _ | Constant _ -> ()
+  and ap a = match a with
+    | Variable v -> add_offset v
+    | Deref e -> aexpr e
+  and bexpr b = match b with
+    | And (b1, b2) | Or (b1, b2) -> bexpr b1; bexpr b2
+    | Atom (_, e1, e2) -> aexpr e1; aexpr e2
+  in
+  file |> CfgIr.iter_defs (fun def ->
+      match def.dkind with
+      | Assign (v, e) -> add_offset v; aexpr e
+      | Store (a, e) -> ap a; aexpr e;
+      | Call (lhs, a, args) ->
+        begin match lhs with
+          | Some v -> add_offset v
+          | None -> ();
+        end;
+        aexpr a;
+        List.iter aexpr args;
+      | Assume b -> bexpr b
+      | Initial -> ()
+      | Assert (b, _) -> bexpr b
+      | AssertMemSafe (a, _) -> aexpr a
+      | Return (Some a) -> aexpr a
+      | Return None -> ()
+      | Builtin (Alloc (v, a, _)) -> add_offset v; aexpr a
+      | Builtin (Free a) -> aexpr a
+      | Builtin (Fork (lhs, a, args)) ->
+        begin match lhs with
+          | Some v -> add_offset v
+          | None -> ();
+        end;
+        aexpr a;
+        List.iter aexpr args
+      | Builtin (Acquire a) | Builtin (Release a) -> aexpr a
+      | Builtin AtomicEnd | Builtin AtomicBegin | Builtin Exit -> ())
+
 let weight def =
   let open K in
   match def.dkind with
@@ -310,10 +367,27 @@ let weight def =
           ]
         end
     end else K.assign (VVal lhs) (tr_expr_val rhs)
-  | Store (lhs, _) ->
+  | Store (lhs, rhs) ->
     (* Havoc all the variables lhs could point to *)
     let open PointerAnalysis in
+    let rhs_val, rhs_pos, rhs_width =
+      match tr_expr rhs with
+      | TPointer rhs -> rhs.ptr_val, rhs.ptr_pos, rhs.ptr_width
+      | TInt tint -> tint, (nondet_const "type_err" `TyInt), (nondet_const "type_err" `TyInt)
+    in
     let add_target memloc tr = match memloc with
+      | (MAddr v, offset) when is_int_array (Varinfo.get_type v) ->
+        begin
+          match offset with
+          | OffsetUnknown ->
+            Int.Set.fold (fun offset tr ->
+                K.add tr (K.assign (VVal (v, OffsetFixed offset)) rhs_val))
+              (get_offsets v)
+              K.one (* weak update *)
+            |> K.mul tr
+          | _ ->
+            K.mul tr (K.assign (VVal (v,offset)) rhs_val)
+        end
       | (MAddr v, offset) ->
         if typ_has_offsets (Var.get_type (v,offset)) then begin
           BatList.reduce K.mul [
@@ -485,6 +559,7 @@ let make_transition_system rg =
   (ts, !assertions)
 
 let analyze file =
+  populate_offset_table file;
   match file.entry_points with
   | [main] -> begin
       let rg = Interproc.make_recgraph file in
@@ -523,6 +598,7 @@ let analyze file =
   | _ -> assert false
 
 let resource_bound_analysis file =
+  populate_offset_table file;
   match file.entry_points with
   | [main] -> begin
       let rg = Interproc.make_recgraph file in
