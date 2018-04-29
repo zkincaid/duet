@@ -229,7 +229,9 @@ let term_binop op left right = match left, op, right with
   | (TPointer left, op, TPointer right) ->
     TInt (int_binop op left.ptr_val right.ptr_val)
 
-let typ_has_offsets typ = is_pointer_type typ || typ = Concrete Dynamic
+let typ_has_offsets typ = match resolve_type typ with
+  | Pointer _ | Func _ | Dynamic -> true
+  | _ -> false
 
 let is_int_array typ = match resolve_type typ with
   | Array (Concrete (Int _), _) -> true
