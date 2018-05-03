@@ -1649,7 +1649,6 @@ module Vas : DomainPlus = struct
   type 'a t = {srk : 'a context; svvas : vas_sum list; symbols : (symbol * symbol) list}
   type poly_cases = Increment of QQ.t | Reset of QQ.t | Infinite | Unknown_Err | No_Point
 
-  let closure_plus something = failwith "not here yet"
   let tr_symbols something= failwith "not here yet"
   let equal s1 s2 = failwith "not here yet"
   let widen s1 s2 = failwith "not here yet"
@@ -1658,7 +1657,7 @@ module Vas : DomainPlus = struct
   let pp s1 = failwith "nhy"
 
 
-  let closure vassums =
+  let closureX (x : int) vassums =
     let srk = vassums.srk in
     let single_vas_closure (vsum : vas_sum) =
       begin match vsum with
@@ -1691,10 +1690,17 @@ module Vas : DomainPlus = struct
           let base_form = compute_res_ors (QQSet.elements ress) 
               (mk_eq srk (mk_const srk d2) (mk_add srk [(mk_const srk d1); plusses])) in
           let base_form_nats = List.fold_left (fun form var -> mk_and srk [form; (mk_leq srk (mk_real srk QQ.zero) (mk_const srk var))]) base_form syms in
-          List.fold_left (fun form var -> mk_exists_const srk var form) base_form_nats syms
+          let k_largerx = mk_leq srk (mk_real srk (QQ.of_int x)) (mk_add srk (List.map (fun var -> mk_const srk var) syms)) in
+          List.fold_left (fun form var -> mk_exists_const srk var form) (mk_and srk [base_form_nats; k_largerx]) syms
       end
     in
     List.fold_left (fun form vas -> mk_and srk [form; (single_vas_closure vas)]) (mk_true srk) vassums.svvas
+
+
+
+  let closure_plus vassums = closureX 1 vassums
+
+  let closure vassums = closureX 0 vassums
 
   let abstract_iter ?(exists=fun x -> true) (srk : 'a context) (body : 'a formula) (symbols : (symbol * symbol) list)  =
     let polyhedron_analysis (formula : 'a formula) (dim1 : symbol) (dim2 : symbol) =
