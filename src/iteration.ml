@@ -1664,10 +1664,37 @@ module Vas : DomainPlus = struct
       begin match vsum with
         | Bottom (s1, s2) -> mk_true srk
         | Unknown (s1, s2) -> mk_true srk
-        | Abstraction v -> failwith "test" 
+        | Abstraction v ->
+          let incs = v.inc in
+          let ress = v.res in
+          let d1 = fst v.dim in
+          let d2 = snd v.dim in
+          let rec compute_inc_plusses incs newsymbs terml  =
+            begin match incs with
+              | [] -> (newsymbs, terml)
+              | hd :: tl -> 
+                let new_symb = mk_symbol srk `TyInt in
+                let this_mul = mk_mul srk [(mk_const srk new_symb); (mk_const srk d1)] in
+                compute_inc_plusses tl (new_symb :: newsymbs) (mk_add srk [this_mul; terml])
+            end
+          in
+          let (syms, plusses) = compute_inc_plusses (QQSet.elements incs) [] (mk_real srk QQ.zero) in
+          let rec compute_res_ors ress terml =
+            begin match ress with
+              | [] -> terml
+              | hd :: tl -> compute_res_ors tl (mk_or srk
+                                                 [(mk_eq srk (mk_const srk d2)
+                                                    (mk_add srk [(mk_real srk hd);
+                                                                 plusses])); terml])
+            end
+          in
+          let base_form = compute_res_ors (QQSet.elements ress) 
+              (mk_eq srk (mk_const srk d2) (mk_add srk [(mk_const srk d1); plusses])) in
+          let base_form_nats = List.fold_left (fun form var -> mk_and srk [form; (mk_leq srk (mk_real srk QQ.zero) (mk_const srk var))]) base_form syms in
+          List.fold_left (fun form var -> mk_exists_const srk var form) base_form_nats syms
       end
     in
-    failwith "test"
+    List.fold_left (fun form vas -> mk_and srk [form; (single_vas_closure vas)]) (mk_true srk) vassums.svvas
 
   let abstract_iter ?(exists=fun x -> true) (srk : 'a context) (body : 'a formula) (symbols : (symbol * symbol) list)  =
     let polyhedron_analysis (formula : 'a formula) (dim1 : symbol) (dim2 : symbol) =
