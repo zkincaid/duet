@@ -1649,13 +1649,13 @@ module Vas : DomainPlus = struct
   type 'a t = {srk : 'a context; svvas : vas_sum list; symbols : (symbol * symbol) list}
   type poly_cases = Increment of QQ.t | Reset of QQ.t | Infinite | Unknown_Err | No_Point
 
-  let tr_symbols something= failwith "not here yet"
   let equal s1 s2 = failwith "not here yet"
   let widen s1 s2 = failwith "not here yet"
   let join s1 s2 = failwith "not here yet"
   let show s1 = failwith "nhy"
   let pp s1 = failwith "nhy"
 
+  let tr_symbols vassums = vassums.symbols
 
   let closureX (x : int) vassums =
     let srk = vassums.srk in
