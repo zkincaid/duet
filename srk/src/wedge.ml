@@ -248,6 +248,14 @@ let bound_vec wedge vec =
 let bound_coordinate wedge coordinate =
     bound_vec wedge (V.of_term QQ.one coordinate)
 
+let bound_monomial wedge monomial =
+  BatEnum.fold (fun ivl (dim, power) ->
+      Interval.mul
+        ivl
+        (Interval.exp_const (bound_coordinate wedge dim) power))
+    (Interval.const QQ.one)
+    (Monomial.enum monomial)
+
 let bound_polynomial wedge polynomial =
   let (t, p) = P.split_linear ~const:CS.const_id polynomial in
   BatEnum.fold (fun ivl (coeff, monomial) ->
@@ -283,10 +291,11 @@ let affine_hull wedge =
 
 let polynomial_cone wedge =
   let open Lincons0 in
+  let cs = wedge.cs in
   BatArray.enum (Abstract0.to_lincons_array (get_manager ()) wedge.abstract)
   |> BatEnum.filter_map (fun lcons ->
       match lcons.typ with
-      | SUPEQ | SUP -> Some (poly_of_vec (vec_of_linexpr wedge.env lcons.linexpr0))
+      | SUPEQ | SUP -> Some (CS.polynomial_of_vec cs (vec_of_linexpr wedge.env lcons.linexpr0))
       | _ -> None)
   |> BatList.of_enum
 
@@ -681,9 +690,9 @@ let strengthen_products integrity rewrite wedge =
   in
   add_products (polynomial_cone wedge)
 
-(* Tighten integral dimensions.  No need for integrity constraints -- the
-   added constraints are valid in all linear models. *)
-let strengthen_integral wedge =
+(* Tighten integral dimensions.  No need for integrity constraints if
+   the solver supports integers, but real solver requires them. *)
+let strengthen_integral integrity wedge =
   let srk = wedge.srk in
   for id = 0 to CS.dim wedge.cs - 1 do
     match CS.type_of_id wedge.cs id with
@@ -693,17 +702,60 @@ let strengthen_integral wedge =
       begin
         match Interval.lower interval with
         | Some lo when QQ.to_zz lo = None ->
-          meet_atoms wedge [mk_leq srk (mk_real srk lo) term]
+           let lo = QQ.of_zz (QQ.ceiling lo) in
+           let bound = mk_leq srk (mk_real srk lo) term in
+           integrity (mk_or srk [mk_leq srk term (mk_real srk (QQ.sub lo QQ.one));
+                                 bound]);
+           meet_atoms wedge [bound]
         | _ -> ()
       end;
       begin
         match Interval.upper interval with
         | Some hi when QQ.to_zz hi = None ->
-          meet_atoms wedge [mk_leq srk term (mk_real srk hi)]
+           let hi = QQ.of_zz (QQ.floor hi) in
+           let bound = mk_leq srk term (mk_real srk hi) in
+           integrity (mk_or srk [mk_leq srk (mk_real srk (QQ.add hi QQ.one)) term;
+                                 bound]);
+           meet_atoms wedge [bound]
         | _ -> ()
       end
     | _ -> ()
   done
+
+let strengthen_cut integrity wedge =
+  let srk = wedge.srk in
+  let cs = wedge.cs in
+  polynomial_cone wedge
+  |> List.iter (fun p -> (* p(x) >= 0 *)
+         let (k, p) = Polynomial.Mvp.pivot Polynomial.Monomial.one p in
+         let (c, m, q) = Polynomial.Mvp.factor_gcd p in (* c*m(x)*q(x) + k >= 0 *)
+         let cm_ivl = Interval.mul (Interval.const c) (bound_monomial wedge m) in
+         match Interval.upper (Interval.div (Interval.const (QQ.negate k)) cm_ivl) with
+         | Some rhs when (Interval.is_positive cm_ivl
+                          && CS.type_of_polynomial cs q = `TyInt) ->
+            (* q(x) >= rhs *)
+            let precondition =
+              BatEnum.fold (fun pre (id, _) ->
+                  let ivl = bound_coordinate wedge id in
+                  let term = CS.term_of_coordinate cs id in
+                  let pre = match Interval.lower ivl with
+                    | Some lo -> (mk_leq srk (mk_real srk lo) term)::pre
+                    | None -> pre
+                  in
+                  match Interval.upper ivl with
+                  | Some hi -> (mk_leq srk term (mk_real srk hi))::pre
+                  | None -> pre)
+                []
+                (Monomial.enum m)
+            in
+            let bound = (* ceil(rhs) <= q(x) *)
+              mk_leq srk
+                (mk_real srk (QQ.of_zz (QQ.ceiling rhs)))
+                (CS.term_of_polynomial cs q)
+            in
+            integrity (mk_or srk [mk_not srk (mk_and srk precondition); bound]);
+            meet_atoms wedge [bound]
+         | _ -> ())
 
 let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
   Nonlinear.ensure_symbols wedge.srk;
@@ -917,9 +969,10 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
     | _ -> ()
   done;
 
+  strengthen_cut integrity wedge;
   strengthen_intervals integrity wedge;
   strengthen_products integrity rewrite wedge;
-  strengthen_integral wedge;
+  strengthen_integral integrity wedge;
 
   ignore (equational_saturation ~integrity wedge);
   logf "After strengthen: %a" pp wedge
@@ -1685,7 +1738,7 @@ let abstract ?exists:(p=fun x -> true) ?(subterm=fun x -> true) srk phi =
   let phi = SrkSimplify.simplify_terms srk phi in
   logf "Abstracting formula@\n%a"
     (Formula.pp srk) phi;
-  let solver = Smt.mk_solver ~theory:"QF_LIRA" srk in
+  let solver = Smt.mk_solver ~theory:"QF_UFLRA" srk in
   let uninterp_phi =
     rewrite srk
       ~down:(nnf_rewriter srk)

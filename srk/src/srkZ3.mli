@@ -71,6 +71,8 @@ module Solver : sig
   val get_unsat_core : 'a t ->
     ('a formula) list ->
     [ `Sat | `Unsat of ('a formula) list | `Unknown ]
+
+  val get_reason_unknown : 'a t -> string
 end
 
 val mk_solver : ?context:z3_context -> ?theory:string -> 'a context -> 'a Solver.t

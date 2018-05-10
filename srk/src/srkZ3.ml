@@ -477,6 +477,8 @@ module Solver = struct
     | `Unknown -> `Unknown
     | `Unsat ->
       `Unsat (List.map solver.formula_of (Z3.Solver.get_unsat_core solver.s))
+
+  let get_reason_unknown solver = Z3.Solver.get_reason_unknown solver.s
 end
 
 let optimize_box ?(context=Z3.mk_context []) srk phi objectives =
