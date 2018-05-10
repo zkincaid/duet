@@ -134,6 +134,11 @@ module Mvp : sig
 
   (** Greatest common divisor of all coefficients. *)
   val content : t -> QQ.t
+
+  (** Write a polynomial p(x) as c*m(x)*q(x), where c is the content
+     of p, m is the greatest common divisors of all monomials in p,
+     and q is the remainder. *)
+  val factor_gcd : t -> (QQ.t * Monomial.t * t)
 end
 
 (** Rewrite systems for multi-variate polynomials. A polynomial rewrite system
