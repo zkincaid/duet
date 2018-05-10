@@ -973,7 +973,7 @@ module MakeEmpty (A : sig
     let arg = Arg.make pa max_index in
 
     (* Add initial configurations to the ARG *)
-    Config.min_models 1 (initial pa) |> BatEnum.iter (fun config ->
+    Config.min_models 0 (initial pa) |> BatEnum.iter (fun config ->
            ignore (Arg.add_vertex arg config));
 
     fix arg

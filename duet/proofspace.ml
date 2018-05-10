@@ -1024,13 +1024,17 @@ let mk_block_graph file =
               List.fold_left (fun g succ ->
                   match Letter.label pred, Letter.label succ with
                   | `Transition tr, `Transition tr' ->
+                    let mul_tr = Tr.mul tr tr' in
                     let mul_letter =
                       Letter.create
                         (Letter.src pred)
-                        (`Transition (Tr.mul tr tr'))
+                        (`Transition mul_tr)
                         (Letter.dst succ)
                     in
-                    G.add_edge_e g mul_letter
+                    if Tr.is_zero mul_tr then
+                      g
+                    else
+                      G.add_edge_e g mul_letter
                   | _, _ -> assert false)
                 g
                 succs)
@@ -1132,6 +1136,10 @@ let program_automaton file =
      command its program counter is instantiated properly. *)
   let loc = Ctx.mk_const (Ctx.mk_symbol ~name:"loc" `TyBool) in
 
+  (* Unary predicate symbol indicating that a thread has reached init, and
+     cannot execute any more transitions *)
+  let dead = Ctx.mk_const (Ctx.mk_symbol ~name:"dead" `TyBool) in
+
   let alphabet =
     BatEnum.fold
       (flip Letter.Set.add)
@@ -1142,7 +1150,7 @@ let program_automaton file =
     G.fold_vertex
       (fun v vocab -> (loc_pred v, 1)::vocab)
       block_graph.graph
-      [(loc, 0); (err, 0)]
+      [(loc, 0); (err, 0); (dead, 1)]
   in
   let initial_formula =
     PaFormula.mk_and (PaFormula.mk_atom loc []) (PaFormula.mk_atom err [])
@@ -1152,7 +1160,7 @@ let program_automaton file =
       alphabet
       vocabulary
       initial_formula
-      [loc; loc_pred (init_vertex main)]
+      [loc; loc_pred (init_vertex main); dead]
   in
   let add_single_transition lhs letter rhs =
     PA.add_transition pa lhs (Letter.Set.singleton letter) rhs
@@ -1165,8 +1173,11 @@ let program_automaton file =
 
       begin match Letter.block letter with
         | `Fork thread ->
-          (* delta(init-t(i), fork(t):j) = true *)
-          add_single_transition (loc_pred (init_vertex thread)) letter mk_true
+          (* delta(init-t(i), fork(t):j) = dead(i) *)
+          add_single_transition
+            (loc_pred (init_vertex thread))
+            letter
+            (mk_atom dead [Var 1])
         | _ -> ()
       end;
 
@@ -1189,6 +1200,9 @@ let program_automaton file =
       let v = loc_pred v in
       let rhs = mk_and (mk_atom v [Var 1]) (mk_neq (Var 0) (Var 1)) in
       PA.add_transition pa v mhp rhs);
+  let open PaFormula in
+  PA.add_transition pa dead alphabet
+    (mk_and (mk_atom dead [Var 1]) (mk_neq (Var 0) (Var 1)));
   pa
 
 let verify file =
@@ -1214,7 +1228,7 @@ let verify file =
     let query = TCA.mk_query rg (fun _ -> Some 0) (fun _ _ -> true) main in
     match TCA.get_summary query main with
     | Some x ->
-      logf "Found bound on number of threads: %d" x;
+      logf "Found bound on number of threads: %d" (x+1);
       x + 1
     | None ->
       logf "No static bound on number of threads";
