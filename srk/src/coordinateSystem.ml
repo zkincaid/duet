@@ -112,6 +112,23 @@ let type_of_vec cs vec =
   else
     `TyReal
 
+let type_of_monomial cs monomial =
+  let is_integral (id, _) = type_of_id cs id = `TyInt in
+  if BatEnum.for_all is_integral (Polynomial.Monomial.enum monomial) then
+    `TyInt
+  else
+    `TyReal
+
+let type_of_polynomial cs polynomial =
+  let is_integral (coeff, monomial) =
+    QQ.to_zz coeff != None
+    && type_of_monomial cs monomial = `TyInt
+  in
+  if BatEnum.for_all is_integral (Polynomial.Mvp.enum polynomial) then
+    `TyInt
+  else
+    `TyReal
+
 let join_typ s t = match s,t with
   | `TyInt, `TyInt -> `TyInt
   | _, _ -> `TyReal

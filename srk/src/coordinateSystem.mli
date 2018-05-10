@@ -64,6 +64,12 @@ val vec_of_term : ?admit:bool -> 'a t -> 'a term -> Linear.QQVector.t
 
 val type_of_id : 'a t -> int -> [ `TyInt | `TyReal ]
 
+val type_of_vec : 'a t -> Linear.QQVector.t -> [ `TyInt | `TyReal ]
+
+val type_of_monomial : 'a t -> Polynomial.Monomial.t -> [ `TyInt | `TyReal ]
+
+val type_of_polynomial : 'a t -> Polynomial.Mvp.t -> [ `TyInt | `TyReal ]
+
 (** Find a polynomial associated with an admissible term over
     {i non-multiplicative} coordinates. *)
 val polynomial_of_term : 'a t -> 'a term -> Polynomial.Mvp.t

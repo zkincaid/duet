@@ -450,6 +450,27 @@ module Mvp = struct
         QQ.gcd coeff content)
       p
       QQ.zero
+
+  let factor_gcd p =
+    if MM.is_empty p then
+      (QQ.one, Monomial.one, p)
+    else
+      let ((m, c), p') = MM.pop p in
+      let (c, m) =
+        MM.fold (fun monomial coeff (c, m) ->
+            (QQ.gcd coeff c, Monomial.gcd m monomial))
+          p'
+          (c, m)
+      in
+      let q =
+        MM.fold (fun n coeff q ->
+            match Monomial.div n m with
+            | Some r -> add_term (QQ.div coeff c) r q
+            | None -> assert false)
+          p
+          zero
+      in
+      (c, m, q)
 end
 
 module Rewrite = struct
