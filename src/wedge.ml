@@ -727,13 +727,16 @@ let strengthen_cut integrity wedge =
   let cs = wedge.cs in
   polynomial_cone wedge
   |> List.iter (fun p -> (* p(x) >= 0 *)
-         let (k, p) = Polynomial.Mvp.pivot Polynomial.Monomial.one p in
-         let (c, m, q) = Polynomial.Mvp.factor_gcd p in (* c*m(x)*q(x) + k >= 0 *)
+         let (k, pmk) = Polynomial.Mvp.pivot Polynomial.Monomial.one p in
+         let (c, m, q) = Polynomial.Mvp.factor_gcd pmk in (* c*m(x)*q(x) + k >= 0 *)
          let cm_ivl = Interval.mul (Interval.const c) (bound_monomial wedge m) in
          match Interval.upper (Interval.div (Interval.const (QQ.negate k)) cm_ivl) with
          | Some rhs when (Interval.is_positive cm_ivl
                           && CS.type_of_polynomial cs q = `TyInt) ->
             (* q(x) >= rhs *)
+            let minus_p =
+              CS.term_of_polynomial cs (Polynomial.Mvp.negate p)
+            in
             let precondition =
               BatEnum.fold (fun pre (id, _) ->
                   let ivl = bound_coordinate wedge id in
@@ -745,7 +748,7 @@ let strengthen_cut integrity wedge =
                   match Interval.upper ivl with
                   | Some hi -> (mk_leq srk term (mk_real srk hi))::pre
                   | None -> pre)
-                []
+                [mk_leq srk minus_p (mk_real srk QQ.zero)]
                 (Monomial.enum m)
             in
             let bound = (* ceil(rhs) <= q(x) *)
