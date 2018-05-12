@@ -43,7 +43,7 @@ end
 
 module Cf = struct
   module IntMap = SrkUtil.Int.Map
-  include Linear.RingMap(IntMap)(QQX)
+  include Ring.RingMap(IntMap)(QQX)
 
   let k_minus_1 = QQX.add_term QQ.one 1 (QQX.scalar (QQ.of_int (-1)))
 
