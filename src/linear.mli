@@ -184,6 +184,9 @@ val max_lds : QQMatrix.t -> QQMatrix.t -> QQMatrix.t * QQMatrix.t
     [T] is lower-triangular, and the rowspace of [MA] is maximal. *)
 val rational_triangulation : QQMatrix.t -> (QQMatrix.t * QQMatrix.t)
 
+val rational_spectral_decomposition : QQMatrix.t -> (QQ.t * QQVector.t) list
+val periodic_rational_spectral_decomposition : QQMatrix.t -> (int * QQ.t * QQVector.t) list
+
 val evaluate_affine : (int -> QQ.t) -> QQVector.t -> QQ.t
 
 (** {2 Affine terms} *)
