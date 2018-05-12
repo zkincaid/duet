@@ -339,7 +339,6 @@ let rec_affine_hull srk wedge tr_symbols rec_terms rec_ideal =
     |> Polynomial.Rewrite.grobner_basis
     |> Polynomial.Rewrite.generators
   in
-
   let (mA, mB, pvc, _) =
     logf ~attributes:[`Bold] "Vanishing ideal:";
     List.fold_left (fun (mA,mB,pvc,i) p ->
