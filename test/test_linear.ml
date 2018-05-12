@@ -482,9 +482,10 @@ let prsd7 () =
      assert_equal_qq QQ.one lambda1;
      assert_equal_qq QQ.one lambda2;
      assert_equal_qq QQ.one lambda3;
-     assert_equal_qqvector (mk_vector [1; 0; 0]) v1;
+     assert_equal_qqvector (mk_vector [0; 0; 1]) v1;
      assert_equal_qqvector (mk_vector [0; 1; 0]) v2;
-     assert_equal_qqvector (mk_vector [0; 0; 1]) v3
+     assert_equal_qqvector (mk_vector [1; 0; 0]) v3
+
   | _ -> assert false
 
 let suite = "Linear" >::: [

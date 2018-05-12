@@ -7,33 +7,8 @@ exception No_solution
 
 exception Nonlinear
 
-module type Vector = sig
-  type t
-  type dim
-  type scalar
-
-  val equal : t -> t -> bool
-  val add : t -> t -> t
-  val scalar_mul : scalar -> t -> t
-  val negate : t -> t
-  val sub : t -> t -> t
-  val dot : t -> t -> scalar
-
-  val zero : t
-  val is_zero : t -> bool
-  val add_term : scalar -> dim -> t -> t
-  val of_term : scalar -> dim -> t
-
-  val enum : t -> (scalar * dim) BatEnum.t
-  val of_enum : (scalar * dim) BatEnum.t -> t
-  val of_list : (scalar * dim) list -> t
-  val coeff : dim -> t -> scalar
-
-  val pivot : dim -> t -> scalar * t
-end
-
 module ZZVector : sig
-  include Vector with type dim = int and type scalar = ZZ.t
+  include Ring.Vector with type dim = int and type scalar = ZZ.t
   val compare : t -> t -> int
   val pp : Format.formatter -> t -> unit
   val show : t -> string
@@ -41,7 +16,7 @@ module ZZVector : sig
 end
 
 module QQVector : sig
-  include Vector with type dim = int and type scalar = QQ.t
+  include Ring.Vector with type dim = int and type scalar = QQ.t
   val compare : t -> t -> int
   val pp : Format.formatter -> t -> unit
   val show : t -> string
@@ -49,42 +24,8 @@ module QQVector : sig
 end
 
 module QQMatrix : sig
-  type t
-  type dim = int
-  type scalar = QQ.t
-
-  val equal : t -> t -> bool
-  val add : t -> t -> t
-  val scalar_mul : scalar -> t -> t
-  val mul : t -> t -> t
-
-  val zero : t
-
-  val identity : dim list -> t
-
-  val row : dim -> t -> QQVector.t
-
-  val rowsi : t -> (dim * QQVector.t) BatEnum.t
-
-  val add_row : dim -> QQVector.t -> t -> t
-
-  val add_column : dim -> QQVector.t -> t -> t
-
-  val add_entry : dim -> dim -> QQ.t -> t -> t
-
-  val pivot : dim -> t -> QQVector.t * t
-
-  val transpose : t -> t
-
-  val entry : dim -> dim -> t -> scalar
-
-  val entries : t -> (dim * dim * scalar) BatEnum.t
-
-  val row_set : t -> SrkUtil.Int.Set.t
-  val column_set : t -> SrkUtil.Int.Set.t
-
-  val nb_rows : t -> int
-  val nb_columns : t -> int
+  include Ring.Matrix with type scalar = QQ.t
+                       and type vector = QQVector.t
 
   val pp : Format.formatter -> t -> unit
   val show : t -> string
@@ -93,47 +34,6 @@ module QQMatrix : sig
       algebraic multiplicities. *)
   val rational_eigenvalues : t -> (QQ.t * int) list
 end
-
-module type AbelianGroup = sig
-  type t
-  val equal : t -> t -> bool
-  val add : t -> t -> t
-  val negate : t -> t
-  val zero : t
-end
-
-module type Ring = sig
-  type t
-  val equal : t -> t -> bool
-  val add : t -> t -> t
-  val negate : t -> t
-  val zero : t
-  val mul : t -> t -> t
-  val one : t
-end
-
-(** Lift a map type over a ring to a left-module *)
-module RingMap
-    (M : sig
-       type 'a t
-       type key
-
-       val equal : ('a -> 'a -> bool) -> 'a t -> 'a t -> bool
-       val compare : ('a -> 'a -> int) -> 'a t -> 'a t -> int
-       val enum : 'a t -> (key * 'a) BatEnum.t
-       val map : ('a -> 'b) -> 'a t -> 'b t
-       val find : key -> 'a t -> 'a
-       val add : key -> 'a -> 'a t -> 'a t
-       val remove : key -> 'a t -> 'a t
-       val empty : 'a t
-       val merge : (key -> 'a option -> 'b option -> 'c option) ->
-         'a t ->
-         'b t ->
-         'c t
-     end)
-    (R : Ring) : Vector with type t = R.t M.t
-                         and type dim = M.key
-                         and type scalar = R.t
 
 (** [nullspace mat dimensions] computes a basis for the vector space [{ x :
     max*x = 0}], projected on to the set of dimensions [dimensions].  (Note

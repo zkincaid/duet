@@ -2,10 +2,8 @@ open BatPervasives
 
 include Log.Make(struct let name = "srk.polynomial" end)
 
-module type Ring = Linear.Ring
-
 module type Univariate = sig
-  include Linear.Vector with type dim = int
+  include Ring.Vector with type dim = int
   val order : t -> int
   val mul : t -> t -> t
   val one : t
@@ -21,10 +19,10 @@ module Int = struct
   let tag k = k
 end
 
-module Uvp(R : Ring) = struct
+module Uvp(R : Ring.S) = struct
   module IntMap = SrkUtil.Int.Map
 
-  include Linear.RingMap(IntMap)(R)
+  include Ring.RingMap(IntMap)(R)
 
   let order p = IntMap.fold (fun power _ hi -> max hi power) p 0
 
@@ -331,7 +329,7 @@ end
 
 module QQXs = struct
   module MM = BatMap.Make(Monomial)
-  include Linear.RingMap(MM)(QQ)
+  include Ring.RingMap(MM)(QQ)
 
   let pp pp_dim formatter p =
     if MM.is_empty p then

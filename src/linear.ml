@@ -3,138 +3,18 @@ open BatPervasives
 
 include Log.Make(struct let name = "srk.linear" end)
 
-module type AbelianGroup = sig
-  type t
-  val equal : t -> t -> bool
-  val add : t -> t -> t
-  val negate : t -> t
-  val zero : t
-end
-
-module type Ring = sig
-  include AbelianGroup
-  val mul : t -> t -> t
-  val one : t
-end
-
-module type Vector = sig
-  type t
-  type dim
-  type scalar
-  val equal : t -> t -> bool
-  val add : t -> t -> t
-  val scalar_mul : scalar -> t -> t
-  val negate : t -> t
-  val sub : t -> t -> t
-  val dot : t -> t -> scalar
-  val zero : t
-  val is_zero : t -> bool
-  val add_term : scalar -> dim -> t -> t
-  val of_term : scalar -> dim -> t
-  val enum : t -> (scalar * dim) BatEnum.t
-  val of_enum : (scalar * dim) BatEnum.t -> t
-  val of_list : (scalar * dim) list -> t
-  val coeff : dim -> t -> scalar
-  val pivot : dim -> t -> scalar * t
-end
-
-module type Map = sig
-  type 'a t
-  type key
-
-  val equal : ('a -> 'a -> bool) -> 'a t -> 'a t -> bool
-  val compare : ('a -> 'a -> int) -> 'a t -> 'a t -> int
-  val enum : 'a t -> (key * 'a) BatEnum.t
-  val map : ('a -> 'b) -> 'a t -> 'b t
-  val find : key -> 'a t -> 'a
-  val add : key -> 'a -> 'a t -> 'a t
-  val remove : key -> 'a t -> 'a t
-  val empty : 'a t
-  val merge : (key -> 'a option -> 'b option -> 'c option) ->
-    'a t ->
-    'b t ->
-    'c t
-end
-
-module AbelianGroupMap (M : Map) (G : AbelianGroup) = struct
-  type t = G.t M.t
-  type dim = M.key
-  type scalar = G.t
-
-  let is_scalar_zero x = G.equal x G.zero
-
-  let zero = M.empty
-
-  let is_zero = M.equal G.equal zero
-
-  let add u v =
-    let f _ a b =
-      match a, b with
-      | Some a, Some b ->
-        let sum = G.add a b in
-        if is_scalar_zero sum then None else Some sum
-      | Some x, None | None, Some x -> Some x
-      | None, None -> assert false
-    in
-    M.merge f u v
-
-  let add_term coeff dim vec =
-    if is_scalar_zero coeff then vec else begin
-      try
-        let sum = G.add coeff (M.find dim vec) in
-        if not (is_scalar_zero sum) then M.add dim sum vec
-        else M.remove dim vec
-      with Not_found -> M.add dim coeff vec
-    end
-
-  let coeff dim vec = try M.find dim vec with Not_found -> G.zero
-
-  let enum vec = M.enum vec /@ (fun (x,y) -> (y,x))
-
-  let of_enum = BatEnum.fold (fun vec (x,y) -> add_term x y vec) zero
-
-  let of_list = List.fold_left (fun vec (x,y) -> add_term x y vec) zero
-
-  let equal = M.equal G.equal
-
-  let compare = M.compare
-
-  let of_term coeff dim = add_term coeff dim zero
-
-  let negate = M.map G.negate
-
-  let sub u v = add u (negate v)
-
-  let pivot dim vec =
-    (coeff dim vec, M.remove dim vec)
-
+module IntMap = struct
+  include SrkUtil.Int.Map
   let hash ring_hash vec =
     BatEnum.fold
       (fun hash (k, v) -> hash + (Hashtbl.hash (k, ring_hash v)))
       0
-      (M.enum vec)
+      (enum vec)
 end
-
-module RingMap (M : Map) (R : Ring) = struct
-  include AbelianGroupMap(M)(R)
-
-  let scalar_mul k vec =
-    if R.equal k R.one then vec
-    else if R.equal k R.zero then M.empty
-    else M.map (fun coeff -> R.mul k coeff) vec
-
-  let dot u v =
-    BatEnum.fold
-      (fun sum (co, i) -> R.add sum (R.mul co (coeff i v)))
-      R.zero
-      (enum u)
-end
-
-module IntMap = SrkUtil.Int.Map
 module IntSet = SrkUtil.Int.Set
 
 module ZZVector = struct
-  include RingMap(IntMap)(ZZ)
+  include Ring.RingMap(IntMap)(ZZ)
 
   let pp formatter vec =
     let pp_elt formatter (k, v) = Format.fprintf formatter "%d:%a" k ZZ.pp v in
@@ -142,12 +22,12 @@ module ZZVector = struct
     |> Format.fprintf formatter "[@[%a@]]" (SrkUtil.pp_print_enum pp_elt)
 
   let show = SrkUtil.mk_show pp
-  let compare = compare ZZ.compare
-  let hash = hash ZZ.hash
+  let compare = IntMap.compare ZZ.compare
+  let hash = IntMap.hash ZZ.hash
 end
 
 module QQVector = struct
-  include RingMap(IntMap)(QQ)
+  include Ring.RingMap(IntMap)(QQ)
 
   let pp formatter vec =
     let pp_elt formatter (k, v) = Format.fprintf formatter "%d:%a" k QQ.pp v in
@@ -155,107 +35,14 @@ module QQVector = struct
     |> Format.fprintf formatter "[@[%a@]]" (SrkUtil.pp_print_enum pp_elt)
 
   let show = SrkUtil.mk_show pp
-  let compare = compare QQ.compare
-  let hash = hash QQ.hash
+  let compare = IntMap.compare QQ.compare
+  let hash = IntMap.hash QQ.hash
 end
 
 module QQMatrix = struct
-  module M = AbelianGroupMap(IntMap)(QQVector)
-  type t = M.t
-  type dim = int
-  type scalar = QQ.t
-
-  let scalar_mul k mat =
-    if QQ.equal k QQ.one then mat
-    else if QQ.equal k QQ.zero then IntMap.empty
-    else IntMap.map (fun vec -> QQVector.scalar_mul k vec) mat
-
-  let row = M.coeff
-  let add = M.add
-  let zero = M.zero
-
-  let equal = M.equal
-  let pivot = M.pivot
-  let compare = M.compare
-  let add_row i vec = M.add_term vec i
-  let rows = IntMap.values
-  let rowsi = IntMap.enum
-  let entry i j mat = QQVector.coeff j (row i mat)
-
-  let add_entry i j k mat =
-    add_row i (QQVector.of_term k j) mat
-
-  let identity = List.fold_left (fun m d -> add_entry d d QQ.one m) zero
-
-  let add_column i col mat =
-    BatEnum.fold
-      (fun mat (co,j) -> add_entry j i co mat)
-      mat
-      (QQVector.enum col)
-
-  let entries mat =
-    rowsi mat
-    /@ (fun (i, row) -> IntMap.enum row /@ (fun (j, coeff) -> (i, j, coeff)))
-    |> BatEnum.concat
-
-  let row_set mat =
-    BatEnum.fold
-      (fun set (i, _) -> IntSet.add i set)
-      IntSet.empty
-      (rowsi mat)
-
-  let column_set mat =
-    rowsi mat
-    |> BatEnum.fold (fun set (_, row) ->
-        IntMap.enum row
-        |> BatEnum.fold (fun set (j, _) -> IntSet.add j set) set)
-      IntSet.empty
-
-  let nb_rows mat =
-    BatEnum.fold (fun nb _ -> nb + 1) 0 (rowsi mat)
-
-  let nb_columns mat = IntSet.cardinal (column_set mat)
-
-  let pp formatter mat =
-    let cols = column_set mat in
-    let pp_entry row formatter j =
-      QQ.pp formatter (QQVector.coeff j row)
-    in
-    let pp_row formatter row =
-      Format.fprintf formatter "[%a]"
-        (SrkUtil.pp_print_enum (pp_entry row)) (IntSet.enum cols)
-    in
-    let pp_sep formatter () =
-      Format.fprintf formatter "@\n"
-    in
-    if equal mat zero then
-      Format.pp_print_int formatter 0
-    else
-      Format.fprintf formatter "@[<v 0>%a x %a@;%a@]"
-        IntSet.pp (row_set mat)
-        IntSet.pp cols
-        (SrkUtil.pp_print_enum_nobox ~pp_sep pp_row) (rows mat)
-
+  include Ring.MakeMatrix(QQ)
+  let pp = pp QQ.pp
   let show = SrkUtil.mk_show pp
-    
-  let transpose mat =
-    entries mat
-    |> BatEnum.fold (fun mat (i, j, k) -> add_entry j i k mat) zero
-
-  let mul mat mat' =
-    let tr = transpose mat' in
-    BatEnum.fold 
-      (fun res (i, row) ->
-         add_row
-           i
-           (BatEnum.fold
-              (fun res_row (j, col) ->
-                 QQVector.add_term (QQVector.dot row col) j res_row)
-              QQVector.zero
-              (rowsi tr))
-           res)
-      zero
-      (rowsi mat)
 
   let rational_eigenvalues m =
     let denominator =
@@ -296,29 +83,23 @@ let row_eschelon_form mat b_column =
     if QQMatrix.equal mat QQMatrix.zero then
       finished
     else
-      let (row_num, _) = IntMap.min_binding mat in
+      let (row_num, _) = QQMatrix.min_row mat in
       let (next_row, mat') = QQMatrix.pivot row_num mat in
       let column =
-        try BatEnum.find (fun i -> i != b_column) (IntMap.keys next_row)
+        try BatEnum.find (fun (_, i) -> i != b_column) (QQVector.enum next_row) |> snd
         with Not_found -> raise No_solution
       in
       let (cell, next_row') = QQVector.pivot column next_row in
       let next_row' =
         QQVector.scalar_mul (QQ.negate (QQ.inverse cell)) next_row'
       in
-      let f _ row =
+      let f row =
         let (coeff, row') = QQVector.pivot column row in
-        let row'' =
-          QQVector.add
-            row'
-            (QQVector.scalar_mul coeff next_row')
-        in
-        if QQVector.is_zero row'' then
-          None
-        else
-          Some row''
+        QQVector.add
+          row'
+          (QQVector.scalar_mul coeff next_row')
       in
-      reduce ((column,next_row')::finished) (IntMap.filter_map f mat')
+      reduce ((column,next_row')::finished) (QQMatrix.map_rows f mat')
   in
   reduce [] mat
 
@@ -399,17 +180,8 @@ let orient p system =
   in
   reduce [] system
 
-let vector_right_mul m v =
-  m |> IntMap.filter_map (fun _ row ->
-      let cell = QQVector.dot row v in
-      if QQ.equal cell QQ.zero then None
-      else Some cell)
-
-let vector_left_mul v m =
-  IntMap.fold (fun k coeff result ->
-      QQVector.add result (QQVector.scalar_mul coeff (QQMatrix.row k m)))
-    v
-    QQVector.zero
+let vector_right_mul = QQMatrix.vector_right_mul
+let vector_left_mul = QQMatrix.vector_left_mul
 
 let intersect_rowspace a b =
   (* Create a system lambda_1*A - lambda_2*B = 0.  lambda_1's occupy even

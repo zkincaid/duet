@@ -4,7 +4,7 @@ open Syntax
 
 (** Signature of univariate polynmials *)
 module type Univariate = sig
-  include Linear.Vector with type dim = int
+  include Ring.Vector with type dim = int
   val order : t -> int
   val mul : t -> t -> t
   val one : t
@@ -21,7 +21,7 @@ module type Univariate = sig
 end
 
 (** Univariate polynomials over a given ring *)
-module Uvp (R : Linear.Ring) : Univariate with type scalar = R.t
+module Uvp (R : Ring.S) : Univariate with type scalar = R.t
 
 (** Univariate polynomials with rational coefficients *)
 module QQX : sig
@@ -92,8 +92,8 @@ end
 
 (** Multi-variate polynomials *)
 module QQXs : sig
-  include Linear.Vector with type dim = Monomial.t
-                         and type scalar = QQ.t
+  include Ring.Vector with type dim = Monomial.t
+                       and type scalar = QQ.t
   val pp : (Format.formatter -> int -> unit) -> Format.formatter -> t -> unit
   val compare : t -> t -> int
   val mul : t -> t -> t
