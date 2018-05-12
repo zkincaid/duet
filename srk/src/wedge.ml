@@ -3,7 +3,7 @@ open BatPervasives
 
 module V = Linear.QQVector
 module Monomial = Polynomial.Monomial
-module P = Polynomial.Mvp
+module P = Polynomial.QQXs
 module Scalar = Apron.Scalar
 module Coeff = Apron.Coeff
 module Abstract0 = Apron.Abstract0
@@ -657,7 +657,7 @@ let strengthen_products integrity rewrite wedge =
     let p = Polynomial.Rewrite.reduce rewrite p in
     (* mk_geq is only used on polynomials that originate from the polynomial
        cone of the given wedge -- no need to track provenance. *)
-    mk_leq srk (CS.term_of_polynomial wedge.cs (Polynomial.Mvp.negate p)) zero
+    mk_leq srk (CS.term_of_polynomial wedge.cs (P.negate p)) zero
   in
   let provenance_formula ps =
     List.map (fun p -> mk_eq srk (CS.term_of_polynomial cs p) zero) ps
@@ -731,15 +731,15 @@ let strengthen_cut integrity rewrite wedge =
   let zero = mk_real srk QQ.zero in
   polynomial_cone wedge
   |> List.iter (fun p -> (* p(x) >= 0 *)
-      let (k, pmk) = Polynomial.Mvp.pivot Polynomial.Monomial.one p in
-      let (c, m, q) = Polynomial.Mvp.factor_gcd pmk in (* c*m(x)*q(x) + k >= 0 *)
+      let (k, pmk) = P.pivot Polynomial.Monomial.one p in
+      let (c, m, q) = P.factor_gcd pmk in (* c*m(x)*q(x) + k >= 0 *)
       let cm_ivl = Interval.mul (Interval.const c) (bound_monomial wedge m) in
       match Interval.upper (Interval.div (Interval.const (QQ.negate k)) cm_ivl) with
       | Some rhs when (Interval.is_positive cm_ivl
                        && CS.type_of_polynomial cs q = `TyInt) ->
         (* q(x) >= rhs *)
         let minus_p =
-          CS.term_of_polynomial cs (Polynomial.Mvp.negate p)
+          CS.term_of_polynomial cs (P.negate p)
         in
         let (q, provenance) =
           Polynomial.Rewrite.preduce rewrite q

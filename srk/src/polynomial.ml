@@ -329,7 +329,7 @@ module Monomial = struct
     |> Syntax.mk_mul srk
 end
 
-module Mvp = struct
+module QQXs = struct
   module MM = BatMap.Make(Monomial)
   include Linear.RingMap(MM)(QQ)
 
@@ -478,7 +478,7 @@ module Rewrite = struct
      monomials *descend* in some admissible order. *)
   type op = (QQ.t * Monomial.t) list [@@deriving ord]
 
-  module P = BatSet.Make(Mvp)
+  module P = BatSet.Make(QQXs)
 
   type rule = Monomial.t * op * P.t [@@deriving ord]
 
@@ -621,16 +621,16 @@ module Rewrite = struct
       (fun (coeff', monomial') ->
         (QQ.mul coeff coeff', Monomial.mul monomial monomial'))
 
-  let op_of_mvp order p =
-    Mvp.enum p
+  let op_of_qqxs order p =
+    QQXs.enum p
     |> BatList.of_enum
     |> BatList.sort (fun (_, m) (_, n) -> match order m n with
         | `Eq -> 0
         | `Lt -> 1
         | `Gt -> -1)
 
-  let mvp_of_op p =
-    List.fold_left (fun q (c, m) -> Mvp.MM.add m c q) Mvp.zero p
+  let qqxs_of_op p =
+    List.fold_left (fun q (c, m) -> QQXs.MM.add m c q) QQXs.zero p
 
   let rec reduce_op rewrite polynomial =
     match polynomial with
@@ -655,20 +655,20 @@ module Rewrite = struct
 
   let preduce rewrite polynomial =
     let (reduced, provenance) =
-      reduce_op rewrite (op_of_mvp rewrite.order polynomial)
+      reduce_op rewrite (op_of_qqxs rewrite.order polynomial)
     in
-    (mvp_of_op reduced, P.elements provenance)
+    (qqxs_of_op reduced, P.elements provenance)
 
   let reduce rewrite polynomial =
     let (reduced, _) =
-      reduce_op rewrite (op_of_mvp rewrite.order polynomial)
+      reduce_op rewrite (op_of_qqxs rewrite.order polynomial)
     in
-    mvp_of_op reduced
+    qqxs_of_op reduced
 
   let mk_rewrite order polynomials =
     let rule_list =
       polynomials |> BatList.filter_map (fun polynomial ->
-          let op = op_of_mvp order polynomial in
+          let op = op_of_qqxs order polynomial in
           match op with
           | [] -> None
           | (c, m)::rest ->
@@ -844,7 +844,7 @@ module Rewrite = struct
       |> reduce_rewrite
 
   let add_saturate rewrite p =
-    add_saturate_op rewrite (op_of_mvp rewrite.order p) (P.singleton p)
+    add_saturate_op rewrite (op_of_qqxs rewrite.order p) (P.singleton p)
 
   let grobner_basis rewrite =
     logf "Compute a Grobner basis for:@\n@[<v 0>%a@]"
@@ -878,6 +878,6 @@ module Rewrite = struct
 
   let generators rewrite =
     RS.enum rewrite.rules
-    /@ (fun (lt, op, _) -> mvp_of_op ((QQ.of_int (-1), lt)::op))
+    /@ (fun (lt, op, _) -> qqxs_of_op ((QQ.of_int (-1), lt)::op))
     |> BatList.of_enum
 end

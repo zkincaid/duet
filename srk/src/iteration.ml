@@ -11,7 +11,7 @@ module IntMap = SrkUtil.Int.Map
 module DArray = BatDynArray
 
 module QQX = Polynomial.QQX
-module QQMvp = Polynomial.Mvp
+module QQXs = Polynomial.QQXs
 module Monomial = Polynomial.Monomial
 
 module CS = CoordinateSystem
@@ -265,8 +265,8 @@ let is_vector_negative vec =
 let matrix_polyvec_mul m polyvec =
   Array.init (QQMatrix.nb_rows m) (fun i ->
       BatEnum.fold (fun p (coeff, j) ->
-          QQMvp.add p (QQMvp.scalar_mul coeff polyvec.(j)))
-        QQMvp.zero
+          QQXs.add p (QQXs.scalar_mul coeff polyvec.(j)))
+        QQXs.zero
         (V.enum (QQMatrix.row i m)))
 
 (* Write the affine hull of a wedge as Ax' = Bx + c, where c is vector of
@@ -314,10 +314,10 @@ let rec_affine_hull srk wedge tr_symbols rec_terms rec_ideal =
     rec_terms |> DArray.iteri (fun i t ->
         let vec = CS.vec_of_term cs t in
         let p =
-          QQMvp.add_term
+          QQXs.add_term
             (QQ.of_int (-1))
             (Monomial.singleton (i + cs_dim) 1)
-            (QQMvp.of_vec ~const:(CS.const_id) vec)
+            (QQXs.of_vec ~const:(CS.const_id) vec)
         in
         ideal := p::(!ideal));
     Polynomial.Rewrite.mk_rewrite elim_order (!ideal)
@@ -330,7 +330,7 @@ let rec_affine_hull srk wedge tr_symbols rec_terms rec_ideal =
     BatList.filter_map
       (fun x ->
          let x' = Polynomial.Rewrite.reduce rec_term_rewrite x in
-         if QQMvp.equal x' QQMvp.zero then
+         if QQXs.equal x' QQXs.zero then
            None
          else
            Some x')
@@ -343,7 +343,7 @@ let rec_affine_hull srk wedge tr_symbols rec_terms rec_ideal =
     logf ~attributes:[`Bold] "Vanishing ideal:";
     List.fold_left (fun (mA,mB,pvc,i) p ->
         try
-          logf "  @[%a@]" (QQMvp.pp pp_coord) p;
+          logf "  @[%a@]" (QQXs.pp pp_coord) p;
           let (vecA, vecB, pc) =
             BatEnum.fold (fun (vecA, vecB, pc) (coeff, monomial) ->
                 match BatList.of_enum (Monomial.enum monomial) with
@@ -355,24 +355,24 @@ let rec_affine_hull srk wedge tr_symbols rec_terms rec_ideal =
                   (vecA, V.add_term coeff dim vecB, pc)
                 | monomial_list ->
                   if List.for_all (additive_dim % fst) monomial_list then
-                    (vecA, vecB, QQMvp.add_term coeff monomial pc)
+                    (vecA, vecB, QQXs.add_term coeff monomial pc)
                   else
                     raise IllFormedRecurrence)
-              (V.zero, V.zero, QQMvp.zero)
-              (QQMvp.enum p)
+              (V.zero, V.zero, QQXs.zero)
+              (QQXs.enum p)
           in
           let (vecA, vecB, pc) =
             if is_vector_negative vecA then
-              (V.negate vecA, V.negate vecB, QQMvp.negate pc)
+              (V.negate vecA, V.negate vecB, QQXs.negate pc)
             else
               (vecA, vecB, pc)
           in
           let pc =
-            QQMvp.substitute (fun i ->
-                QQMvp.add_term
+            QQXs.substitute (fun i ->
+                QQXs.add_term
                   QQ.one
                   (Monomial.singleton (i - cs_dim) 1)
-                  QQMvp.zero)
+                  QQXs.zero)
               pc
           in
           let mAt = QQMatrix.transpose mA in
@@ -386,11 +386,11 @@ let rec_affine_hull srk wedge tr_symbols rec_terms rec_ideal =
               let pc =
                 let rpc = (* r*pvc *)
                   BatEnum.fold (fun p (coeff, i) ->
-                      QQMvp.add p (QQMvp.scalar_mul coeff (List.nth pvc i)))
-                    QQMvp.zero
+                      QQXs.add p (QQXs.scalar_mul coeff (List.nth pvc i)))
+                    QQXs.zero
                     (V.enum r)
                 in
-                QQMvp.sub pc rpc
+                QQXs.sub pc rpc
               in
               (mA,
                QQMatrix.add_row i vecB mB,
@@ -423,11 +423,11 @@ let extract_affine_transformation srk wedge tr_symbols rec_terms rec_ideal =
 module Recurrence = struct
   type matrix_rec =
     { rec_transform : QQ.t array array;
-      rec_add : QQMvp.t array }
+      rec_add : QQXs.t array }
 
   let rec_empty =
     { rec_transform = Array.make 0 (Array.make 0 QQ.zero);
-      rec_add = Array.make 0 QQMvp.zero }
+      rec_add = Array.make 0 QQXs.zero }
 
   (* Iteration domain element.  Recurrence equations have the form
      A_1 * x' = B_1 * A_1 * x + c_1
@@ -488,7 +488,7 @@ module Recurrence = struct
           if !nonzero then
             Format.fprintf formatter "@ + ";
           Format.fprintf formatter "%a@]@;"
-            (QQMvp.pp pp_id) recurrence.rec_add.(i))
+            (QQXs.pp pp_id) recurrence.rec_add.(i))
     in
     Format.fprintf formatter
       "{@[<v 0>pre symbols:@;  @[<v 0>%a@]@;post symbols:@;  @[<v 0>%a@]@;"
@@ -554,30 +554,30 @@ module Recurrence = struct
         for i = 0 to size - 1 do
           let rec_eq =
             let lhs =
-              QQMvp.of_vec ~const:CS.const_id (QQMatrix.row i mA)
-              |> QQMvp.substitute (fun coord ->
+              QQXs.of_vec ~const:CS.const_id (QQMatrix.row i mA)
+              |> QQXs.substitute (fun coord ->
                   assert (IntMap.mem coord post_coord_map);
-                  QQMvp.of_dim (IntMap.find coord post_coord_map))
+                  QQXs.of_dim (IntMap.find coord post_coord_map))
             in
             let add =
-              QQMvp.substitute (fun i ->
+              QQXs.substitute (fun i ->
                   (CS.polynomial_of_term cs (DArray.get term_of_id i)))
                 rec_add.(i)
             in
             let rhs =
               BatEnum.fold (fun p (coeff, i) ->
                   if i = CS.const_id then
-                    QQMvp.add (QQMvp.scalar coeff) p
+                    QQXs.add (QQXs.scalar coeff) p
                   else
-                    QQMvp.add p
-                      (QQMvp.scalar_mul coeff
+                    QQXs.add p
+                      (QQXs.scalar_mul coeff
                          (CS.polynomial_of_term cs
                             (DArray.get term_of_id (offset + i)))))
-                QQMvp.zero
+                QQXs.zero
                 (V.enum (QQMatrix.row i mB))
-              |> QQMvp.add add
+              |> QQXs.add add
             in
-            QQMvp.add lhs (QQMvp.negate rhs)
+            QQXs.add lhs (QQXs.negate rhs)
           in
           rec_ideal' := rec_eq::(!rec_ideal')
         done;
@@ -612,10 +612,10 @@ module Recurrence = struct
       rec_terms |> DArray.iteri (fun i t ->
           let vec = CS.vec_of_term cs t in
           let p =
-            QQMvp.add_term
+            QQXs.add_term
               (QQ.of_int (-1))
               (Monomial.singleton (i + cs_dim) 1)
-              (QQMvp.of_vec ~const:(CS.const_id) vec)
+              (QQXs.of_vec ~const:(CS.const_id) vec)
           in
           rewrite := (Polynomial.Rewrite.add_saturate (!rewrite) p));
         rewrite
@@ -623,15 +623,15 @@ module Recurrence = struct
     let recurrences = ref [] in
     let transform_one = [|[|QQ.one|]|] in
     let delta s s' = (* s' - s *)
-      QQMvp.sub
-        (QQMvp.of_dim (id_of_sym s'))
-        (QQMvp.of_dim (id_of_sym s))
+      QQXs.sub
+        (QQXs.of_dim (id_of_sym s'))
+        (QQXs.of_dim (id_of_sym s))
     in
     let add_recurrence s s' add =
       let polynomial =
-        QQMvp.sub
-          (QQMvp.of_dim (id_of_sym s))
-          (QQMvp.of_dim (cs_dim + (DArray.length rec_terms)))
+        QQXs.sub
+          (QQXs.of_dim (id_of_sym s))
+          (QQXs.of_dim (cs_dim + (DArray.length rec_terms)))
       in
       let recur =
         { rec_transform = transform_one;
@@ -643,7 +643,7 @@ module Recurrence = struct
     in
     let subst x =
       if additive_dim x then
-        QQMvp.of_dim (x - cs_dim)
+        QQXs.of_dim (x - cs_dim)
       else
         raise IllFormedRecurrence
     in
@@ -657,7 +657,7 @@ module Recurrence = struct
               let add =
                 delta s s'
                 |> Polynomial.Rewrite.reduce (!rewrite)
-                |> QQMvp.substitute subst
+                |> QQXs.substitute subst
               in
               add_recurrence s s' add;
               continue := true;
@@ -698,7 +698,7 @@ module Recurrence = struct
     let add_map =
       BatEnum.fold
         (fun map i ->
-           Symbol.Map.add (DArray.get add i) (QQMvp.of_dim i) map)
+           Symbol.Map.add (DArray.get add i) (QQXs.of_dim i) map)
         Symbol.Map.empty
         (0 -- (DArray.length add - 1))
     in
@@ -759,16 +759,16 @@ module Recurrence = struct
                    | `App (sym, []) ->
                      (try Symbol.Map.find sym add_map
                       with Not_found -> assert false)
-                   | `Real k -> QQMvp.scalar k
-                   | `Add xs -> List.fold_left QQMvp.add QQMvp.zero xs
-                   | `Mul xs -> List.fold_left QQMvp.mul QQMvp.one xs
+                   | `Real k -> QQXs.scalar k
+                   | `Add xs -> List.fold_left QQXs.add QQXs.zero xs
+                   | `Mul xs -> List.fold_left QQXs.mul QQXs.one xs
                    | _ -> raise Not_a_polynomial
                  in
                  let term =
-                   QQMvp.scalar_mul coeff (Term.eval srk to_mvp diff_term)
+                   QQXs.scalar_mul coeff (Term.eval srk to_mvp diff_term)
                  in
-                 (rec_term, QQMvp.add term rec_add))
-            ([], QQMvp.scalar c)
+                 (rec_term, QQXs.add term rec_add))
+            ([], QQXs.scalar c)
             (V.enum t)
         in
         if rec_term != [] then
@@ -909,7 +909,7 @@ module Recurrence = struct
         if nb_constraints = 0 then
           (QQMatrix.zero,
            Array.make 0 (Array.make 0 QQ.zero),
-           Array.make 0 QQMvp.zero)
+           Array.make 0 QQXs.zero)
         else
           let mA =
             BatEnum.fold (fun mA i ->
@@ -991,7 +991,7 @@ module Recurrence = struct
           in
           let pvc =
             Array.init nb_constraints (fun i ->
-                QQMvp.scalar (V.coeff CS.const_id (DArray.get constraints i)))
+                QQXs.scalar (V.coeff CS.const_id (DArray.get constraints i)))
           in
           (mA,mB,pvc)
       else
@@ -1184,7 +1184,7 @@ module Recurrence = struct
               /@ (fun (id, pow) -> Pow (cf.(id), Rational (Mpq.of_int pow)))
               |> BatList.of_enum
             in
-            QQMvp.enum recurrence.rec_add.(i)
+            QQXs.enum recurrence.rec_add.(i)
             /@ (fun (coeff, m) ->
                 Product (Rational (Mpqf.to_mpq coeff)::(cf_monomial m)))
             |> (fun x -> Sum (BatList.of_enum x)))
@@ -1266,7 +1266,7 @@ module Recurrence = struct
       recurrence.rec_transform |> Array.mapi (fun i row ->
           let term = iter.term_of_id.(offset + i) in
           let rhs_add =
-            QQMvp.term_of
+            QQXs.term_of
               iter.srk
               (fun j -> iter.term_of_id.(j))
               recurrence.rec_add.(i)
