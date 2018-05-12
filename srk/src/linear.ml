@@ -599,6 +599,57 @@ let max_lds mA mB =
     (QQMatrix.zero, QQMatrix.zero)
     (SrkUtil.Int.Set.enum mTA_rows)
 
+let rational_spectral_decomposition mA =
+  let mAt = QQMatrix.transpose mA in
+  let dims = SrkUtil.Int.Set.elements (QQMatrix.row_set mAt) in
+  let identity = QQMatrix.identity dims in
+  List.fold_left (fun rsd (lambda, _) ->
+      let mE = (* A^t - lambda*I *)
+        QQMatrix.add mAt (QQMatrix.scalar_mul (QQ.negate lambda) identity)
+      in
+      let rec add_jordan_chain_rec rsd v =
+        match solve mE v with
+        | Some u -> add_jordan_chain_rec ((lambda,u)::rsd) u
+        | None -> rsd
+      in
+      let add_jordan_chain rsd v =
+        add_jordan_chain_rec ((lambda,v)::rsd) v
+      in
+      List.fold_left add_jordan_chain rsd (nullspace mE dims))
+    []
+    (QQMatrix.rational_eigenvalues mA)
+
+let mem_vector_space basis v =
+  let mA =
+    BatList.fold_lefti
+      (fun m i v -> QQMatrix.add_row i v m)
+      QQMatrix.zero
+      basis
+  in
+  match solve (QQMatrix.transpose mA) v with
+  | Some _ -> true
+  | None -> false
+
+let periodic_rational_spectral_decomposition mA =
+  let nb_dims = SrkUtil.Int.Set.cardinal (QQMatrix.row_set mA) in
+  let max_pow = nb_dims*nb_dims*nb_dims in
+  let rec go prsd i mA_pow =
+    if i == max_pow || List.length prsd == nb_dims then
+      prsd
+    else
+      let prsd =
+        List.fold_left (fun prsd (lambda, v) ->
+            if mem_vector_space (List.map (fun (_,_,v) -> v) prsd) v then
+              prsd
+            else
+              (i, lambda, v)::prsd)
+          prsd
+          (rational_spectral_decomposition mA_pow)
+      in
+      go prsd (i+1) (QQMatrix.mul mA mA_pow)
+  in
+  go [] 1 mA
+
 let rational_triangulation mA =
   let mAt = QQMatrix.transpose mA in
   let next_row =
