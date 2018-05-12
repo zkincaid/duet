@@ -298,7 +298,39 @@ and polynomial_of_vec cs vec =
   |> BatEnum.fold P.add (P.scalar const_coeff)
 
 let polynomial_of_term cs term =
-  polynomial_of_vec cs (vec_of_term cs term)
+  let admit = false in
+  let rec go term =
+    match Term.destruct cs.srk term with
+    | `Real k -> P.scalar k
+    | `App (symbol, []) ->
+      P.of_dim (cs_term_id ~admit cs (`App (symbol, [])))
+    | `App (symbol, xs) ->
+      let xs =
+        List.map (fun x ->
+            match Expr.refine cs.srk x with
+            | `Term t -> vec_of_term ~admit cs t
+            | `Formula _ -> assert false) (* TODO *)
+          xs
+      in
+      P.of_dim (cs_term_id ~admit cs (`App (symbol, xs)))
+
+    | `Var (_, _) -> assert false (* to do *)
+    | `Add xs -> List.fold_left (fun p t -> P.add p (go t)) P.zero xs
+    | `Mul xs -> List.fold_left (fun p t -> P.mul p (go t)) P.one xs
+    | `Binop (`Div, x, y) ->
+      let inverse =
+        P.of_dim (cs_term_id ~admit cs (`Inv (vec_of_term ~admit cs y)))
+      in
+      P.mul (go x) inverse
+    | `Binop (`Mod, x, y) ->
+      P.of_dim (cs_term_id ~admit cs (`Mod (vec_of_term ~admit cs x,
+                                            vec_of_term ~admit cs y)))
+    | `Unop (`Floor, x) ->
+      P.of_dim (cs_term_id ~admit cs (`Floor (vec_of_term ~admit cs x)))
+    | `Unop (`Neg, x) -> P.negate (go x)
+    | `Ite (_, _, _) -> assert false (* No ites in implicants *)
+  in
+  go term
 
 let term_of_polynomial cs = P.term_of cs.srk (term_of_coordinate cs)
 

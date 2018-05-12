@@ -139,6 +139,12 @@ module SymInterval = struct
   let upper x = x.upper
   let interval x = x.interval
   let floor x = make x.srk [] [] (Interval.floor x.interval)
+
+  let join x y =
+    let interval = Interval.join x.interval y.interval in
+    let lower = List.filter (fun b -> List.mem b y.lower) x.lower in
+    let upper = List.filter (fun b -> List.mem b y.upper) x.upper in
+    { srk = x.srk; lower; upper; interval }
 end
 
 (* Check if mul, div, mod, pow, log are registered, and register them if not *)
@@ -314,9 +320,13 @@ let linearize srk phi =
             | (Some "imod", [`Term x; `Term y])
             | (Some "mod", [`Term x; `Term y]) ->
               SymInterval.modulo (linearize_term env x) (linearize_term env y)
+            | (Some "_floor", [`Term x]) ->
+              SymInterval.floor (linearize_term env x)
             | _ -> SymInterval.top srk
           end
-        | `Var (_, _) | `Ite (_, _, _) -> assert false
+        | `Ite (_, x, y) ->
+          SymInterval.join (linearize_term env x) (linearize_term env y)
+        | `Var (_, _) -> assert false
       in
       (* conjoin symbolic intervals for all non-linear terms *)
       let bounds =
