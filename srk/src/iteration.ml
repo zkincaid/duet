@@ -1785,8 +1785,8 @@ module Vas : DomainPlus = struct
       begin match get_model srk formula with
         | `Unsat -> No_Point
         | `Unknown -> Unknown_Err
-        | `Sat interpret ->
-          let d1p1 = real interpret dim1  in
+       | `Sat interpret ->
+         let d1p1 = real interpret dim1  in
           let d2p1 = real interpret dim2 in
           let no_reset_cond = mk_and srk [formula; (mk_not srk (mk_eq srk (mk_const srk dim2) (mk_real srk d2p1)))] in
           begin match get_model srk no_reset_cond with
@@ -1815,12 +1815,12 @@ module Vas : DomainPlus = struct
       end
     in 
 
-    let rec pathways_info (form : 'a formula) dim1 dim2 ress incs  =
-      begin match get_model srk form with
+    let rec pathways_info (form_init : 'a formula) (form_new : 'a formula) dim1 dim2 ress incs  =
+      begin match get_model srk form_new with
         | `Unsat -> Abstraction {dim = (dim1, dim2); res = (QQSet.of_list ress); inc = (QQSet.of_list incs)}
         | `Unknown -> Unknown (dim1, dim2)
         | `Sat interpret ->
-          begin match select_implicant interpret form with
+          begin match select_implicant interpret (rewrite srk ~down:(nnf_rewriter srk) form_init) with
             | None -> Abstraction {dim = (dim1, dim2); res = (QQSet.of_list ress); inc = (QQSet.of_list incs)}
             | Some forms ->
               let combined_formula = mk_and srk forms in
@@ -1828,8 +1828,8 @@ module Vas : DomainPlus = struct
                 | No_Point -> assert false
                 | Infinite -> Bottom (dim1, dim2)
                 | Unknown_Err -> Unknown (dim1, dim2)
-                | Increment i -> pathways_info (mk_and srk [form; (mk_not srk (mk_and srk forms))]) dim1 dim2 ress (i :: incs)
-                | Reset r -> pathways_info (mk_and srk [form; (mk_not srk (mk_and srk forms))]) dim1 dim2 (r :: ress) incs
+                | Increment i -> pathways_info form_init (mk_and srk [form_new; (mk_not srk (mk_and srk forms))]) dim1 dim2 ress (i :: incs)
+                | Reset r -> pathways_info form_init (mk_and srk [form_new; (mk_not srk (mk_and srk forms))]) dim1 dim2 (r :: ress) incs
               end
           end
       end 
@@ -1837,7 +1837,7 @@ module Vas : DomainPlus = struct
     let rec multi_sv_vas symbols =
       begin match symbols with
         | [] -> []
-        | (a, b) :: tl -> (pathways_info body a b [] []) :: (multi_sv_vas tl)
+        | (a, b) :: tl -> (pathways_info body body a b [] []) :: (multi_sv_vas tl)
       end
     in
     {srk = srk; svvas = multi_sv_vas symbols; symbols = symbols}
