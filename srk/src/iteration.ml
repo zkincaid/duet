@@ -1652,12 +1652,81 @@ module Vas : DomainPlus = struct
   let equal s1 s2 = failwith "not here yet"
   let widen s1 s2 = failwith "not here yet"
   let join s1 s2 = failwith "not here yet"
-  let show s1 = failwith "nhy"
-  let pp s1 = failwith "nhy"
+
+  
+  
+  let show vassums =
+    let srk = vassums.srk in
+    let single_vas_string (vsum : vas_sum) =
+      begin match vsum with
+        | Bottom (s1, s2) ->
+          let str = "(" in
+          let str = str ^ (show_symbol srk s1) in
+          let str = str ^ ", " in
+          let str = str ^ (show_symbol srk s2) in
+          str ^ ") : Bottom"
+        | Unknown (s1, s2) ->
+          let str = "(" in
+          let str = str ^ (show_symbol srk s1) in
+          let str = str ^ ", " in
+          let str = str ^ (show_symbol srk s2) in
+          str ^ ") : Unknown"
+        | Abstraction v ->
+          let str = "(" in
+          let str = str ^ (show_symbol srk (fst v.dim)) in
+          let str = str ^ ", " in
+          let str = str ^ (show_symbol srk (snd v.dim)) in
+          let str = str ^ ") : \n Increments: " in
+        
+          let str = List.fold_left (fun acc ele ->  (acc ^ QQ.show ele ^ ", ")) str (QQSet.elements v.inc) in
+          let str = str ^ "\nResets: " in
+          List.fold_left (fun acc ele ->  (acc ^ QQ.show ele ^ ", ")) str (QQSet.elements v.res)
+      end
+    in
+    List.fold_left (fun acc vas -> acc ^ (single_vas_string vas) ^ "\n") "" vassums.svvas
+ 
+  let pp formatter vassums =
+    let srk = vassums.srk in
+    let single_vas_print (vsum : vas_sum) =
+      begin match vsum with
+        | Bottom (s1, s2) ->
+          (*
+          Format.pp_print_string formatter "(";
+          pp_symbol srk formatter s1;
+          Format.pp_print_string formatter ", ";
+          pp_symbol srk formatter s2;
+          Format.pp_print_string formatter ") : Bottom";
+          Format.pp_print_newline formatter ()*)
+          Format.fprintf formatter "(%a, %a) : Bottom@\n" (pp_symbol srk) s1 (pp_symbol srk) s2;
+        | Unknown (s1, s2) ->
+          Format.pp_print_string formatter "(";
+          pp_symbol srk formatter s1;
+          Format.pp_print_string formatter ", ";
+          pp_symbol srk formatter s2;
+          Format.pp_print_string formatter ") : Unknown";
+          Format.pp_print_newline formatter ()
+        | Abstraction v ->
+          Format.pp_print_string formatter "(";
+          pp_symbol srk formatter (fst v.dim);
+          Format.pp_print_string formatter ", ";
+          pp_symbol srk formatter (snd v.dim);
+          Format.pp_print_string formatter ": ";
+          Format.pp_print_newline formatter ();
+          Format.pp_print_string formatter "Increments: ";
+          List.iter (fun a -> QQ.pp formatter a; Format.pp_print_string formatter ", ") (QQSet.elements v.inc);
+          Format.pp_print_newline formatter ();
+          Format.pp_print_string formatter "Resets: ";
+          List.iter (fun a -> QQ.pp formatter a; Format.pp_print_string formatter ", ") (QQSet.elements v.res);
+          Format.pp_print_newline formatter ();
+      end
+    in
+    List.iter (fun a -> single_vas_print a) vassums.svvas
+ 
+  let show vassums = SrkUtil.mk_show pp vassums
 
   let tr_symbols vassums = vassums.symbols
 
-  let closureX (x : int) vassums =
+  let closureX (plus : bool) vassums =
     let srk = vassums.srk in
     let single_vas_closure (vsum : vas_sum) =
       begin match vsum with
@@ -1673,7 +1742,7 @@ module Vas : DomainPlus = struct
               | [] -> (newsymbs, terml)
               | hd :: tl -> 
                 let new_symb = mk_symbol srk `TyInt in
-                let this_mul = mk_mul srk [(mk_const srk new_symb); (mk_const srk d1)] in
+                let this_mul = mk_mul srk [(mk_const srk new_symb); (mk_real srk hd)] in
                 compute_inc_plusses tl (new_symb :: newsymbs) (mk_add srk [this_mul; terml])
             end
           in
@@ -1687,20 +1756,29 @@ module Vas : DomainPlus = struct
                                                                  plusses])); terml])
             end
           in
-          let base_form = compute_res_ors (QQSet.elements ress) 
-              (mk_eq srk (mk_const srk d2) (mk_add srk [(mk_const srk d1); plusses])) in
-          let base_form_nats = List.fold_left (fun form var -> mk_and srk [form; (mk_leq srk (mk_real srk QQ.zero) (mk_const srk var))]) base_form syms in
-          let k_largerx = mk_leq srk (mk_real srk (QQ.of_int x)) (mk_add srk (List.map (fun var -> mk_const srk var) syms)) in
-          List.fold_left (fun form var -> mk_exists_const srk var form) (mk_and srk [base_form_nats; k_largerx]) syms
+          let base_resets = compute_res_ors (QQSet.elements ress)  (mk_false srk) in
+          let base_form = 
+             if plus then (
+               if (List.length syms > 0) then (
+                 mk_or srk [base_resets; (mk_and srk [(mk_eq srk (mk_const srk d2) (mk_add srk [(mk_const srk d1); plusses]));
+                                                      mk_leq srk (mk_real srk (QQ.of_int 1)) (mk_add srk (List.map (fun var -> mk_const srk var) syms))])])
+               else base_resets)
+             else mk_or srk [base_resets; (mk_and srk [(mk_eq srk (mk_const srk d2) (mk_add srk [(mk_const srk d1); plusses]))])] in
+ 
+          let base_form_nats = mk_and srk [base_form; List.fold_left (fun form var -> mk_and srk [form; (mk_leq srk (mk_real srk QQ.zero) (mk_const srk var))]) (mk_true srk) syms] in
+                   (*let k_largerx = mk_leq srk (mk_real srk (QQ.of_int x)) (mk_add srk (List.map (fun var -> mk_const srk var) syms)) in
+          (*List.fold_left (fun form var -> mk_exists_const srk var form) (mk_and srk [base_form_nats; k_largerx]) syms*)
+          mk_and srk [base_form_nats; k_largerx]*)
+          base_form_nats
       end
     in
     List.fold_left (fun form vas -> mk_and srk [form; (single_vas_closure vas)]) (mk_true srk) vassums.svvas
 
 
 
-  let closure_plus vassums = closureX 1 vassums
+  let closure_plus vassums = closureX true vassums
 
-  let closure vassums = closureX 0 vassums
+  let closure vassums = closureX false vassums
 
   let abstract_iter ?(exists=fun x -> true) (srk : 'a context) (body : 'a formula) (symbols : (symbol * symbol) list)  =
     let polyhedron_analysis (formula : 'a formula) (dim1 : symbol) (dim2 : symbol) =
