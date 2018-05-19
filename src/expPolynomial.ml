@@ -48,56 +48,81 @@ let compose_left_affine f coeff add =
     zero
     (E.enum f)
 
-let term_sum p lambda =
-  let module M = Linear.QQMatrix in
-  let module V = Linear.QQVector in
-  if QQ.equal QQ.one lambda then
-    E.of_term (QQX.summation p) QQ.one
-  else
-    let sum_order = QQX.order p in
-    (* Create a system of linear equalities:
-         c_n*0^n + ... + c_1*0 + c_0 = lambda^0 * p(0)
-         c_n*1^n*lambda^1 + ... + c_1*1*lambda^1 + c_0 = lambda^0 * p(0) + lambda^1 * p(1)
-         ...
-         c_n*n^n*lambda^n + ... + c_1*1^lambda^n + c_0 = lambda^0 * p(0) + ... + lambda^n * p(n)
-       
-       We then solve for the c_i coefficients to get the sum *)
-    let c0 = V.add_term QQ.one (-1) V.zero in
-    let rec mk_sys k =
-      if k = 0 then begin
-        let rhs = QQX.eval p QQ.zero in
-        let lhs = V.add_term QQ.one 0 c0 in
-        (rhs, M.add_row 0 lhs M.zero, V.of_term rhs 0)
-      end else begin
-        let (prev, mat, b) = mk_sys (k - 1) in
-        let qq_k = QQ.of_int k in
-        let rhs = QQ.add prev (QQ.mul (QQ.exp lambda k) (QQX.eval p qq_k)) in
-        let vars = 0 -- sum_order in
-        let lhs =
-          BatEnum.fold
-            (fun (lhs, coeff) ord ->
-               (V.add_term coeff ord lhs, QQ.mul coeff qq_k))
-            (c0, QQ.exp lambda k)
-            vars
-          |> fst
-        in
-        (rhs, M.add_row k lhs mat, V.add_term rhs k b)
-      end
-    in
-    let (_, mat, b) = mk_sys (sum_order+1) in
-    let coeffs = Linear.solve_exn mat b in
-    let (const, coeffs) = V.pivot (-1) coeffs in
-    E.add_term
-      (QQX.scalar const)
-      QQ.one
-      (E.of_term (QQX.of_enum (V.enum coeffs)) lambda)
-
-let summation f =
-  BatEnum.fold (fun h (p, lambda) ->
-      add h (term_sum p lambda))
-    zero
-    (E.enum f)
-
 let of_polynomial p = E.of_term p QQ.one
 let of_exponential lambda = E.of_term QQX.one lambda
 let scalar k = E.of_term (QQX.scalar k) QQ.one
+
+(* Given a list of (lambda_1, d_1)...(lambda_n, d_n) pairs and a list of values (v_0,...,v_m)
+   find an exponential-polynomial of the form 
+   f(x) = (lambda_1^x)(c_{1,0} + c_1x + ... + c_{d_1}x^{d_1})
+          + ...
+          + (lambda_n^x)(c_{n,0} + c_1x + ... + c_{d_n}x^{d_n})
+   such that f(0) = v_0, ..., f(m) = v_m *)
+let fit_curve lambda_orders values =
+  let module M = Linear.QQMatrix in
+  let module V = Linear.QQVector in
+  (* Create a corresponding system of linear inequalities.  One row
+     for each value in the list, one variable for each unknown
+     coefficient. *)
+  let (m, b) =
+    BatList.fold_lefti (fun (m, b) i v ->
+        let (row, _) =
+          List.fold_left (fun (row, j) (lambda, order) ->
+              let lambdai = QQ.exp lambda i in
+              BatEnum.fold
+                (fun (row, j) d ->
+                  (V.add_term (QQ.mul lambdai (QQ.exp (QQ.of_int i) d)) j row, j + 1))
+                (row, j)
+                (0 -- order))
+            (V.zero, 0)
+            lambda_orders
+        in
+        (M.add_row i row m, V.add_term v i b))
+      (M.zero, V.zero)
+      values
+  in
+  let coeffs = Linear.solve_exn m b in
+  List.fold_left (fun (f, i) (lambda, order) ->
+      let (p, i) =
+        BatEnum.fold
+          (fun (p, i) d ->
+            (QQX.add_term (V.coeff i coeffs) d p, i + 1))
+          (QQX.zero, i)
+          (0 -- order)
+      in
+      (E.add_term p lambda f, i))
+    (E.zero, 0)
+    lambda_orders
+  |> fst
+
+let solve_term_rec coeff lambda p =
+  let p_order = QQX.order p in
+  let lambda_orders =
+    if QQ.equal coeff lambda then
+      [lambda, p_order + 1]
+    else
+      [(coeff, 0); (lambda, p_order)]
+  in
+  let (values, _) =
+    BatEnum.fold (fun (values, sum) i ->
+        let qqi = QQ.of_int i in
+        let sum =
+          QQ.add (QQ.mul coeff sum) (QQ.mul (QQ.exp lambda i) (QQX.eval p qqi))
+        in
+        (sum::values, sum))
+      ([], QQ.zero)
+      (0 -- (p_order + 3))
+  in
+  fit_curve lambda_orders (List.rev values)
+
+let summation f =
+  BatEnum.fold (fun h (p, lambda) ->
+      add h (solve_term_rec QQ.one lambda p))
+    zero
+    (E.enum f)
+
+let solve_rec coeff f =
+  BatEnum.fold (fun h (p, lambda) ->
+      add h (solve_term_rec coeff lambda p))
+    zero
+    (E.enum f)

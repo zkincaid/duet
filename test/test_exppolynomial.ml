@@ -14,6 +14,7 @@ module Infix = struct
   let x = ExpPolynomial.of_polynomial (QQX.of_term QQ.one 1)
   let exp n = ExpPolynomial.of_exponential (QQ.of_int n)
   let int n = ExpPolynomial.scalar (QQ.of_int n)
+  let frac n m = ExpPolynomial.scalar (QQ.of_frac n m)
   let ( - ) x y = ExpPolynomial.add x (ExpPolynomial.mul (int (-1)) y)
 end
 
@@ -94,10 +95,48 @@ let test_sum5 () =
   in
   assert_equal_exppoly expected_sum sum
 
+let test_rec1 () =
+  let open Infix in
+  let sln = ExpPolynomial.solve_rec (QQ.of_int 2) (int 1) in
+  let expected_sln =
+    (int 2)*(exp 2)-(int 1)
+  in
+  assert_equal_exppoly expected_sln sln
+
+let test_rec2 () =
+  let open Infix in
+  let sln = ExpPolynomial.solve_rec (QQ.of_int 2) x in
+  let expected_sln =
+    (int 2)*(exp 2)-x-(int 2)
+  in
+  assert_equal_exppoly expected_sln sln
+
+let test_rec3 () =
+  let open Infix in
+  let sln = ExpPolynomial.solve_rec (QQ.of_int 2) (exp 3) in
+  let expected_sln =
+    (int 3)*(exp 3)-(int 2)*(exp 2)
+  in
+  assert_equal_exppoly expected_sln sln
+
+let test_rec4 () =
+  let open Infix in
+  let sln = ExpPolynomial.solve_rec (QQ.of_int 3) (x*(exp 9) - x) in
+  let expected_sln =
+    (frac 1 4)*((int 2) * x
+                + (int 3)*(exp 9)*((int 2)*x - (int 1)) + (int 3))
+  in
+  assert_equal_exppoly expected_sln sln
+
+
 let suite = "ExpPolynomial" >::: [
       "sum1" >:: test_sum1;
       "sum2" >:: test_sum2;
       "sum3" >:: test_sum3;
       "sum4" >:: test_sum4;
       "sum5" >:: test_sum5;
+      "test_rec1" >:: test_rec1;
+      "test_rec2" >:: test_rec2;
+      "test_rec3" >:: test_rec3;
+      "test_rec4" >:: test_rec4;
   ]
