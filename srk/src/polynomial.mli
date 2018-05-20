@@ -21,7 +21,7 @@ module type Univariate = sig
 end
 
 (** Univariate polynomials over a given ring *)
-module Uvp (R : Ring.S) : Univariate with type scalar = R.t
+module MakeUnivariate (R : Ring.S) : Univariate with type scalar = R.t
 
 (** Univariate polynomials with rational coefficients *)
 module QQX : sig
@@ -90,17 +90,65 @@ module Monomial : sig
   val term_of : ('a context) -> (dim -> 'a term) -> t -> 'a term
 end
 
-(** Multi-variate polynomials *)
+(** Signature of multivariate polynmials *)
+module type Multivariate = sig
+  type t
+  type scalar
+
+  val equal : t -> t -> bool
+  val add : t -> t -> t
+  val negate : t -> t
+  val mul : t -> t -> t
+  val zero : t
+  val one : t
+
+  val sub : t -> t -> t
+
+  val pp : (Format.formatter -> scalar -> unit) ->
+           (Format.formatter -> int -> unit) ->
+           Format.formatter ->
+           t ->
+           unit
+
+  (** [add_term k m p] is the polynomial k*m + p *)
+  val add_term : scalar -> Monomial.t -> t -> t
+
+  (** Constant polynomial *)
+  val scalar : scalar -> t
+
+  (** Polynomial consisting of a single variable *)
+  val of_dim : int -> t
+
+  val scalar_mul : scalar -> t -> t
+
+  val pivot : Monomial.t -> t -> scalar * t
+  val enum : t -> (scalar * Monomial.t) BatEnum.t
+  val of_enum : (scalar * Monomial.t) BatEnum.t -> t
+  val of_list : (scalar * Monomial.t) list -> t
+
+  (** Exponentiation by a positive integer *)
+  val exp : t -> int -> t
+
+  (** Generalization of polynomial composition -- substitute each
+     dimension for a multivariate polynomial *)
+  val substitute : (int -> t) -> t -> t
+
+  (** Divide a polynomial by a monomial *)
+  val div_monomial : t -> Monomial.t -> t option
+
+  (** Enumerate the set of dimensions that appear in a polynomial *)
+  val dimensions : t -> int BatEnum.t
+end
+                    
+(** Multi-variate polynomials over a ring *)
+module MakeMultivariate (R : Ring.S) : Multivariate with type scalar = R.t
+
+(** Multi-variate polynomials with rational coefficients *)
 module QQXs : sig
-  include Ring.Vector with type dim = Monomial.t
-                       and type scalar = QQ.t
+  include Multivariate with type scalar = QQ.t
+
   val pp : (Format.formatter -> int -> unit) -> Format.formatter -> t -> unit
   val compare : t -> t -> int
-  val mul : t -> t -> t
-  val sub : t -> t -> t
-  val one : t
-  val scalar : QQ.t -> t
-  val of_dim : Monomial.dim -> t
 
   (** Convert a rational vector to a linear polynomial, where each dimension
       corresponds to a variable except the designated [const] dimension, which
@@ -119,19 +167,6 @@ module QQXs : sig
 
   val term_of : ('a context) -> (Monomial.dim -> 'a term) -> t -> 'a term
 
-  (** Exponentiation by a positive integer *)
-  val exp : t -> int -> t
-
-  (** Generalization of polynomial composition -- substitute each dimension
-      for a multivariate polynomial *)
-  val substitute : (Monomial.dim -> t) -> t -> t
-
-  (** Divide a polynomial by a monomial *)
-  val div_monomial : t -> Monomial.t -> t option
-
-  (** Enumerate the set of dimensions that appear in a polynomial *)
-  val dimensions : t -> int BatEnum.t
-
   (** Greatest common divisor of all coefficients. *)
   val content : t -> QQ.t
 
@@ -149,7 +184,7 @@ end
     [p], we have:
     1. [m <= n] implies [mp <= np]
     2. [m <= mp]
-*)
+ *)
 module Rewrite : sig
   type t
 
