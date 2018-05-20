@@ -1,4 +1,6 @@
 open BatPervasives
+open Syntax
+
 module QQX = Polynomial.QQX
 module QQMap = BatMap.Make(QQ)
 module E = Ring.RingMap(QQMap)(QQX)
@@ -126,3 +128,16 @@ let solve_rec coeff f =
       add h (solve_term_rec coeff lambda p))
     zero
     (E.enum f)
+
+let term_of srk t f =
+  Nonlinear.ensure_symbols srk;
+  E.enum f /@ (fun (p, lambda) ->
+      if QQ.equal lambda QQ.zero then
+        mk_real srk (QQ.zero)
+      else if QQ.equal lambda QQ.one then
+        QQX.term_of srk t p
+      else
+        mk_mul srk [QQX.term_of srk t p;
+                    Nonlinear.mk_pow srk (mk_real srk lambda) t])
+  |> BatList.of_enum
+  |> mk_add srk

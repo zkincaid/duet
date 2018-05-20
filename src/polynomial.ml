@@ -14,11 +14,6 @@ module type Univariate = sig
   val exp : t -> int -> t
 end
 
-module Int = struct
-  type t = int [@@deriving show,ord]
-  let tag k = k
-end
-
 module MakeUnivariate(R : Ring.S) = struct
   module IntMap = SrkUtil.Int.Map
 
@@ -159,10 +154,37 @@ module QQX = struct
         QQ.gcd coeff content)
       p
       QQ.zero
+
+  let choose k =
+    assert (k >= 0);
+    let rec go i next p =
+      if i = k then
+        p
+      else
+        let next' =
+          add_term (QQ.of_int (-1)) 0 next
+        in
+        go (i + 1) next' (mul next p)
+    in
+    let rec factorial = function
+      | 0 -> 1
+      | k -> k*(factorial (k-1))
+    in
+    scalar_mul (QQ.of_frac 1 (factorial k)) (go 0 identity one)
+
+  let term_of srk term p =
+    IntMap.fold (fun pow coeff product ->
+        let term =
+          Syntax.mk_mul srk [Syntax.mk_real srk coeff; Syntax.mk_pow srk term pow]
+        in
+        term::product)
+      p
+      []
+    |> Syntax.mk_add srk
 end
 
 module Monomial = struct
-  module IntMap = BatMap.Make(Int)
+  module IntMap = SrkUtil.Int.Map
 
   type dim = int
   type t = int IntMap.t
