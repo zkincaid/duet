@@ -1,3 +1,6 @@
+(** Operations on rings. *)
+
+(** Signature of rings *)
 module type S = sig
   type t
   val equal : t -> t -> bool

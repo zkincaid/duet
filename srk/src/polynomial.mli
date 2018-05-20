@@ -41,6 +41,13 @@ module QQX : sig
 
   (** Greatest common divisor of all coefficients. *)
   val content : t -> QQ.t
+
+  (** [choose k] is the polynomial [x*(x-1)*...*(x-k+1)/k!].  For any
+     natural n, p(n) evaluates to (n choose k). *)
+  val choose : int -> t
+
+  (** [term_of srk t p] computes a term representing [p(t)]. *)
+  val term_of : ('a context) -> 'a term -> t -> 'a term
 end
 
 (** Monomials *)

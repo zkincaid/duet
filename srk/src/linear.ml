@@ -463,6 +463,17 @@ let rational_triangulation mA =
     (QQMatrix.zero, QQMatrix.zero)
     (QQMatrix.rational_eigenvalues mA)
 
+let rec jordan_chain mA lambda v =
+  let residual = (* v*mA = lambda*v + residual *)
+    QQVector.sub
+      (QQMatrix.vector_left_mul v mA)
+      (QQVector.scalar_mul lambda v)
+  in
+  if QQVector.is_zero residual then
+    [v]
+  else
+    v::(jordan_chain mA lambda residual)
+
 (* Affine expressions over constant symbols.  dim_of_sym, const_dim, and
    sym_of_dim are used to translate between symbols and the dimensions of the
    coordinate space. *)
