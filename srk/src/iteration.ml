@@ -1646,7 +1646,7 @@ module Vas : DomainPlus = struct
 
   type vas = {dim : (symbol * symbol); res : QQSet.t ; inc : QQSet.t}
   type vas_sum = Abstraction of vas | Bottom of (symbol * symbol) | Unknown of (symbol * symbol)
-  type 'a t = {srk : 'a context; svvas : vas_sum list; symbols : (symbol * symbol) list}
+  type 'a t = {srk : 'a context; svvas : vas_sum list; symbols : (symbol * symbol) list; precondition : 'a formula; postcondition: 'a formula}
   type poly_cases = Increment of QQ.t | Reset of QQ.t | Infinite | Unknown_Err | No_Point
 
   let equal s1 s2 = failwith "not here yet"
@@ -1772,7 +1772,8 @@ module Vas : DomainPlus = struct
           base_form_nats
       end
     in
-    List.fold_left (fun form vas -> mk_and srk [form; (single_vas_closure vas)]) (mk_true srk) vassums.svvas
+    let prepost = if plus then mk_and srk [vassums.precondition; vassums.postcondition] else mk_true srk in
+    mk_and srk [prepost; List.fold_left (fun form vas -> mk_and srk [form; (single_vas_closure vas)]) (mk_true srk) vassums.svvas]
 
 
 
@@ -1840,7 +1841,13 @@ module Vas : DomainPlus = struct
         | (a, b) :: tl -> (pathways_info body body a b [] []) :: (multi_sv_vas tl)
       end
     in
-    {srk = srk; svvas = multi_sv_vas symbols; symbols = symbols}
+
+    let manager = Polka.manager_alloc_strict () in
+    let existsf pick =  (fun (x : symbol) -> List.mem x (List.fold_left (fun acc symb -> if exists (pick symb) then (pick symb) :: acc else acc) [] symbols)) in
+    let pre = SrkApron.formula_of_property (Abstract.abstract ~exists:(existsf fst) srk manager body) in
+    let post = SrkApron.formula_of_property (Abstract.abstract ~exists:(existsf snd) srk manager body) in
+ 
+    {srk = srk; svvas = multi_sv_vas symbols; symbols = symbols; precondition = pre; postcondition = post}
   
 
 
