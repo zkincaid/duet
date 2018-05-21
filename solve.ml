@@ -1,5 +1,7 @@
 (* Solve a max-plus recurrence *)
 
+open Graph;;
+
 (* Requisite types:
  *    weights: eventually GMP rationals; initially may be int; but, I do 
  *       need them to be allowed to be negative infinity
@@ -42,6 +44,9 @@ let wt_max w1 w2 =
         match w2 with | Ninf -> w1 | Fin v2 -> Fin (max v1 v2)
 ;;
 
+module RecurrenceGraph = Graph.Pack.Digraph;;
+
+let g = RecurrenceGraph.create ();;
 
 
 (*
