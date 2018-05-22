@@ -48,6 +48,14 @@ module RecurrenceGraph = Graph.Pack.Digraph;;
 
 let g = RecurrenceGraph.create ();;
 
+module Tests = struct
+    module Knee1 = struct
+        let matrix = [| [| (Fin 0);     Ninf;    Ninf    |];
+                        [| (Fin (-14)); (Fin 3); Ninf    |];
+                        [| Ninf;        (Fin 0); (Fin 1) |] |]
+    end;;
+end;;
+
 
 (*
 let createUpperBound () = 
