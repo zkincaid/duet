@@ -93,6 +93,7 @@ let matrixToGraph matrix =
 ;;
 
 module MPComponents = Graph.Components.Make(MPGraph);;
+module IntMap = Map.Make(struct type t = int let compare = compare end);;
 
 (* I chose Karp's algorithm because it was easy. *)
 (*   We could use a faster alternative if time complexity becomes a concern. *)
@@ -104,6 +105,7 @@ let karpMinimumCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
                     unfiltered in
     let edge_weight i j = MPGraph.E.label (MPGraph.find_edge graph i j) in
     let rec karpForSCC iSCC =
+        let nVertices = Array.length (mapSCCToVertices iSCC) in
         () in
     karpForSCC 0;
     ()
