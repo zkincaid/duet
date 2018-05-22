@@ -147,7 +147,7 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
         (* MORE CODE HERE let bestCycleMean = ... *)
         karpForSCC (iSCC + 1) bestCycleMean in
     let bestCycleMean = karpForSCC 0 IntMap.empty in
-    ()
+    bestCycleMean 
 ;;
 
 let createUpperBound graph = 
