@@ -44,9 +44,20 @@ let wt_max w1 w2 =
         match w2 with | Ninf -> w1 | Fin v2 -> Fin (max v1 v2)
 ;;
 
-module RecurrenceGraph = Graph.Pack.Digraph;;
+module V = struct
+  type t = int
+  let compare = Pervasives.compare
+  let hash = Hashtbl.hash
+  let equal = (=)
+end;;
+module E = struct
+  type t = weight
+  let compare = Pervasives.compare
+  let default = Ninf
+end;;
 
-let g = RecurrenceGraph.create ();;
+module RecurrenceGraph = Imperative.Graph.ConcreteLabeled(V)(E);;
+(* module RecurrenceGraph = Graph.Pack.Digraph;; *)
 
 module Tests = struct
     module Knee1 = struct
@@ -55,6 +66,14 @@ module Tests = struct
                         [| Ninf;        (Fin 0); (Fin 1) |] |]
     end;;
 end;;
+
+(*
+let matrixToGraph m = 
+    let g = RecurrenceGraph.create () in
+    let rec add_edges_in_row row
+    g
+;;
+*)  
 
 
 (*
