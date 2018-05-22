@@ -107,10 +107,11 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
         List.filter (fun j -> ((mapVertexToSCC i) = (mapVertexToSCC j)))
                     unfiltered in
     let edge_weight i j = MPGraph.E.label (MPGraph.find_edge graph i j) in
-    let rec karpForSCC iSCC =
-        let nVertices = Array.length (mapSCCToVertices iSCC) in
-        () in
-    karpForSCC 0;
+    let rec karpForSCC iSCC bestCycleMean =
+        if (iSCC >= nSCCs) then bestCycleMean
+        else let nVertices = Array.length (mapSCCToVertices iSCC) in
+             karpForSCC (iSCC + 1) bestCycleMean in
+    let bestCycleMean = karpForSCC 0 IntMap.empty in
     ()
 ;;
 
