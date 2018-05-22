@@ -56,8 +56,10 @@ module E = struct
   let default = Ninf
 end;;
 
-module RecurrenceGraph = Imperative.Graph.ConcreteLabeled(V)(E);;
-(* module RecurrenceGraph = Graph.Pack.Digraph;; *)
+(* Max-plus recurrence graph *)
+module MPGraph = Imperative.Graph.ConcreteLabeled(V)(E);;
+
+(* module MPGraph = Graph.Pack.Digraph;; *)
 
 module Tests = struct
     module Knee1 = struct
@@ -67,13 +69,16 @@ module Tests = struct
     end;;
 end;;
 
-(*
-let matrixToGraph m = 
-    let g = RecurrenceGraph.create () in
-    let rec add_edges_in_row row
-    g
+
+let matrixToGraph matrix = 
+    let graph = MPGraph.create () in
+    let add_edges_in_row i row =
+        let add_edge j wt = 
+            MPGraph.add_edge_e graph (MPGraph.E.create i wt j) in
+        Array.iteri add_edge row in
+    Array.iteri add_edges_in_row matrix
 ;;
-*)  
+  
 
 
 (*
