@@ -96,6 +96,7 @@ module MPComponents = Graph.Components.Make(MPGraph);;
 module IntMap = Map.Make(struct type t = int let compare = compare end);;
 module IntIntMap = Map.Make(struct type t = int * int let compare = compare end);;
 
+(* For easy dualization, I'm putting all maxes and mins in terms of best and worst *)
 let best x y = max x y;;
 let worst x y = min x y;;
 
@@ -132,14 +133,14 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
                     (steps, jVertex)
 
                     (let candidates = (List.map
-                        (fun iVertex -> 
-                            wt_add 
-                                (Fin (edge_weight iVertex jVertex)) 
-                                (IntIntMap.find (steps-1, iVertex) seqMap)) 
-                        (predecessors jVertex)) in
+                            (fun iVertex -> 
+                                wt_add 
+                                    (Fin (edge_weight iVertex jVertex)) 
+                                    (IntIntMap.find (steps-1, iVertex) seqMap))
+                            (predecessors jVertex)) in
 
-                    (List.fold_left
-                        (fun wt1 wt2 -> wt_best wt1 wt2) Ninf candidates))
+                        (List.fold_left
+                            (fun wt1 wt2 -> wt_best wt1 wt2) Ninf candidates))
 
                     seqMap) seqMap vertices) in
             findProgressions (steps + 1) seqMap in
