@@ -45,7 +45,7 @@ let wt_max w1 w2 =
 ;;
 
 module V = struct
-  type t = int
+  type t = int (* vertex number *)
   let compare = Pervasives.compare
   let hash = Hashtbl.hash
   let equal = (=)
@@ -59,6 +59,15 @@ end;;
 (* Max-plus recurrence graph *)
 module MPGraph = Imperative.Graph.ConcreteLabeled(V)(E);;
 
+module V2 = struct
+  type t = int (* SCC number *)
+  let compare = Pervasives.compare
+  let hash = Hashtbl.hash
+  let equal = (=)
+end;;
+
+module SCCGraph = Imperative.Graph.Concrete(V2);;
+
 (* module MPGraph = Graph.Pack.Digraph;; *)
 
 module Tests = struct
@@ -69,7 +78,6 @@ module Tests = struct
     end;;
 end;;
 
-
 let matrixToGraph matrix = 
     let graph = MPGraph.create () in
     let add_edges_in_row i row =
@@ -78,8 +86,14 @@ let matrixToGraph matrix =
         Array.iteri add_edge row in
     Array.iteri add_edges_in_row matrix
 ;;
-  
 
+module MPComponents = Graph.Components.Make(MPGraph);;
+
+
+let createUpperBound graph = 
+    let (nComponents, componentFromVertex) = (MPComponents.scc graph) in
+    ()
+;;
 
 (*
 let createUpperBound () = 
