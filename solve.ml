@@ -43,7 +43,7 @@ let wt_add w1 w2 =
         match w2 with | Ninf -> Ninf | Fin v2 -> Fin (v1 + v2)
 ;;
 
-let wt_max w1 w2 = 
+let wt_best w1 w2 = 
     match w1 with | Ninf -> w2 | Fin v1 ->
         match w2 with | Ninf -> w1 | Fin v2 -> Fin (max v1 v2)
 ;;
@@ -138,7 +138,8 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
                                 (IntIntMap.find (steps-1, iVertex) seqMap)) 
                         (predecessors jVertex)) in
 
-                    Ninf)
+                    (List.fold_left
+                        (fun wt1 wt2 -> wt_best wt1 wt2) Ninf candidates))
 
                     seqMap) seqMap vertices) in
             findProgressions (steps + 1) seqMap in
