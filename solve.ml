@@ -27,6 +27,7 @@ open Graph;;
  *    Topologically sort the strongly-connected components
  *    Find the ancestors of a component
  *    Find the descendants of a component
+ *    Compute the simple cycles
  *
  * Better operations:
  *    Use a faster algorithm to compute slopes
@@ -82,6 +83,7 @@ let matrixToGraph matrix =
     let graph = MPGraph.create () in
     let add_edges_in_row i row =
         let add_edge j wt = 
+            match wt with | Ninf -> () | _ ->
             MPGraph.add_edge_e graph (MPGraph.E.create i wt j) in
         Array.iteri add_edge row in
     Array.iteri add_edges_in_row matrix
@@ -99,6 +101,8 @@ let createUpperBound graph =
             let iComponent = (componentFromVertex iVertex) in
             verticesFromComponent.(iComponent) <- iVertex :: verticesFromComponent.(iComponent)
     in makeVertexLists 0;
+    let criticalWeight = Array.make nComponents Ninf in
+
     ()
 ;;
 
