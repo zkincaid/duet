@@ -109,11 +109,14 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
                     unfiltered in
     let edge_weight i j = MPGraph.E.label (MPGraph.find_edge graph i j) in
     let rec karpForSCC iSCC bestCycleMean =
-        (* Run Karp's algorithm on one SCC, the one having number iSCC *)
+        (* Run Karp's algorithm on one SCC, the one having number iSCC   *)
+        (* Note that, in the following code, iVertex and jVertex are not *)
+        (*   indices into the original graph's vertex map.  They are     *)
+        (*   vertices into this SCC's array of vertices.                 *)
         if (iSCC >= nSCCs) then bestCycleMean else
         let vertices = mapSCCToVertices iSCC in 
         let nVertices = Array.length vertices in
-        let startVertex = vertices.(0) in (* arbitrary start vertex *)
+        let startVertex = 0 in (* arbitrary start vertex: 0th member of SCC *)
         let rec findInitialProgressions iVertex initialProgressions = 
             (* Karp's F_0(v) is 0 when v==startVertex and Ninf otherwise *)
             if (iVertex >= nVertices) then initialProgressions else
@@ -127,9 +130,10 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
             (* Compute Karp's F_n(v) "minimum-weight edge progression." *)
             (*    I use "steps" in place of "n" for the number of steps. *)
             if (steps > nVertices) then bestProgression else
+            (* let rec findProgressionsEachVertex iVertex *)
             (* MORE CODE HERE let bestProgression = ... *)
             findProgressions (steps + 1) bestProgression in
-        let bestProgression = findProgressions 0 initialProgressions in
+        let bestProgression = findProgressions 1 initialProgressions in
         (* MORE CODE HERE let bestCycleMean = ... *)
         karpForSCC (iSCC + 1) bestCycleMean in
     let bestCycleMean = karpForSCC 0 IntMap.empty in
