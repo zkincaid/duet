@@ -33,7 +33,10 @@ open Graph;;
  *    Use a faster algorithm to compute slopes
  *)
 
-type weight = Ninf | Fin of int;; (* eventually use GMP rationals *)
+type fweight = int;;  (* Finite weight. *) 
+(* These are integers for now, but eventually we'll use GMP rationals *)
+
+type weight = Ninf | Fin of fweight;;
 
 let wt_add w1 w2 = 
     match w1 with | Ninf -> Ninf | Fin v1 ->
@@ -52,9 +55,9 @@ module V = struct
   let equal = (=)
 end;;
 module E = struct
-  type t = weight
+  type t = fweight
   let compare = Pervasives.compare
-  let default = Ninf
+  let default = 0
 end;;
 
 (* Max-plus recurrence graph *)
@@ -83,8 +86,8 @@ let matrixToGraph matrix =
     let graph = MPGraph.create () in
     let add_edges_in_row i row =
         let add_edge j wt = 
-            match wt with | Ninf -> () | _ ->
-            MPGraph.add_edge_e graph (MPGraph.E.create i wt j) in
+            match wt with | Ninf -> () | Fin fwt ->
+            MPGraph.add_edge_e graph (MPGraph.E.create i fwt j) in
         Array.iteri add_edge row in
     Array.iteri add_edges_in_row matrix
 ;;
@@ -94,10 +97,12 @@ module MPComponents = Graph.Components.Make(MPGraph);;
 (* I chose Karp's algorithm because it was easy. *)
 (*   We could use a faster alternative if time complexity becomes a concern. *)
 let karpMinimumCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices = 
-    (* Edges between SCCs are irrelevant *)
-    let edge_weight i j = if ((mapVertexToSCC i) = (mapVertexToSCC j)) 
-        then MPGraph.E.label (MPGraph.find_edge graph i j) 
-        else Ninf in
+    (* Edges between SCCs are irrelevant, so we filter them out: *)
+    let successors i = 
+        let unfiltered = MPGraph.succ graph i in
+        List.filter (fun j -> ((mapVertexToSCC i) = (mapVertexToSCC j)))
+                    unfiltered in
+    let edge_weight i j = MPGraph.E.label (MPGraph.find_edge graph i j) in
     let rec karpForSCC iSCC =
         () in
     karpForSCC 0;
