@@ -138,8 +138,7 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
                                     (IntIntMap.find (steps-1, iVertex) seqMap))
                             (predecessors jVertex)) in
 
-                        (List.fold_left
-                            (fun wt1 wt2 -> wt_best wt1 wt2) Ninf candidates))
+                        (List.fold_left wt_best Ninf candidates))
 
                     seqMap) seqMap vertices) in
             findProgressions (steps + 1) seqMap in
