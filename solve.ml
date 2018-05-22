@@ -91,7 +91,14 @@ module MPComponents = Graph.Components.Make(MPGraph);;
 
 
 let createUpperBound graph = 
+    let nVertices = MPGraph.nb_vertex graph in
     let (nComponents, componentFromVertex) = (MPComponents.scc graph) in
+    let verticesFromComponent = Array.make nComponents [] in
+    let rec makeVertexLists iVertex =
+        if iVertex >= nVertices then () else 
+            let iComponent = (componentFromVertex iVertex) in
+            verticesFromComponent.(iComponent) <- iVertex :: verticesFromComponent.(iComponent)
+    in makeVertexLists 0;
     ()
 ;;
 
