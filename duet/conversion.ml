@@ -173,18 +173,23 @@ let convert_insts (inst : inst) =
                      tick_list := !tick_list @ tick_tail;
                      []
   | Call(a,name,args) -> (
-    let func_var = Core.AddrOf(Variable(List.assoc name !fvars)) in
-    let asgn_var = (
-      match a with
-        Some(v) -> Some(get_lvar v)
-      | _ -> None
-    ) in
-    let create_arg var = (
-      convert_lsum var
-    ) in
-    let arg_list = List.map create_arg args in
-    [Core.Def.mk (Call(asgn_var,func_var,arg_list))]
+    if(not (List.mem_assoc name !fvars)) then
+      [] (* ignore the instruction if contains a call to an undefined function *)
+    else(
+      let func_var = Core.AddrOf(Variable(List.assoc name !fvars)) in
+      let asgn_var = (
+          match a with
+            Some(v) -> Some(get_lvar v)
+          | _ -> None
+        ) in
+      let create_arg var = (
+          convert_lsum var
+        ) in
+      let arg_list = List.map create_arg args in
+      [Core.Def.mk (Call(asgn_var,func_var,arg_list))]
+    )
   )
+
 
 (*Make a single point to start off the function*)
 let mk_pt dfunc inst =
