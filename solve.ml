@@ -147,6 +147,15 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
                     fMap) fMap vertices) in
             findProgressions (steps + 1) fMap in
         let fMap = findProgressions 1 fMap in
+        (*
+        let bestCycleMean = Array.fold_left (fun wt iVertex -> 
+            wt_best wt (List.fold_left (fun wt kSteps ->
+
+                (* Worst weight among fMap paths... *)
+
+                )))
+            Ninf vertices in
+        *)
         (* MORE CODE HERE let bestCycleMean = ... *)
         karpForSCC (iSCC + 1) bestCycleMean in
     let bestCycleMean = karpForSCC 0 IntMap.empty in
