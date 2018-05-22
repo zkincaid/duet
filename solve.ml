@@ -33,14 +33,14 @@ open Graph;;
  *    Use a faster algorithm to compute slopes
  *)
 
-type fweight = int;;  (* Finite weight. *) 
+type fweight = float;;  (* Finite weight. *) 
 (* These are integers for now, but eventually we'll use GMP rationals *)
 
 type weight = Ninf | Fin of fweight;;
 
 let wt_add w1 w2 = 
     match w1 with | Ninf -> Ninf | Fin v1 ->
-        match w2 with | Ninf -> Ninf | Fin v2 -> Fin (v1 + v2)
+        match w2 with | Ninf -> Ninf | Fin v2 -> Fin (v1 +. v2)
 ;;
 
 let wt_best w1 w2 = 
@@ -57,7 +57,7 @@ end;;
 module E = struct
   type t = fweight
   let compare = Pervasives.compare
-  let default = 0
+  let default = 0.0
 end;;
 
 (* Max-plus recurrence graph *)
@@ -76,9 +76,9 @@ module SCCGraph = Imperative.Graph.Concrete(V2);;
 
 module Tests = struct
     module Knee1 = struct
-        let matrix = [| [| (Fin 0);     Ninf;    Ninf    |];
-                        [| (Fin (-14)); (Fin 3); Ninf    |];
-                        [| Ninf;        (Fin 0); (Fin 1) |] |]
+        let matrix = [| [| (Fin 0.0);     Ninf;      Ninf      |];
+                        [| (Fin (-14.0)); (Fin 3.0); Ninf      |];
+                        [| Ninf;          (Fin 0.0); (Fin 1.0) |] |]
     end;;
 end;;
 
@@ -120,7 +120,7 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
         let seqMap = Array.fold_left
             (fun seqMap iVertex -> IntIntMap.add 
                 (0, iVertex)
-                (if (iVertex = startVertex) then (Fin 0) else Ninf) 
+                (if (iVertex = startVertex) then (Fin 0.0) else Ninf) 
                 seqMap) IntIntMap.empty vertices in
         (* Loop over the number of steps in a progression (Karp's "k") *)
         let rec findProgressions steps seqMap =
