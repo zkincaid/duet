@@ -103,13 +103,14 @@ let worst x y = min x y;;
 (*   We could use a faster alternative if time complexity becomes a concern. *)
 let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
     (* Edges between SCCs are irrelevant, so we filter them out: *)
-    let successors i =
-        let unfiltered = MPGraph.succ graph i in
+    let predecessors i =
+        let unfiltered = MPGraph.pred graph i in
         List.filter (fun j -> ((mapVertexToSCC i) = (mapVertexToSCC j)))
                     unfiltered in
     let edge_weight i j = MPGraph.E.label (MPGraph.find_edge graph i j) in
+    (* Loop over iSCC:, the SCC index *)
     let rec karpForSCC iSCC bestCycleMean =
-        (* Run Karp's algorithm on one SCC, the one having number iSCC   *)
+        (* We run Karp's algorithm on one SCC, the one having number iSCC   *)
         if (iSCC >= nSCCs) then bestCycleMean else
         let vertices = mapSCCToVertices iSCC in 
         let nVertices = Array.length vertices in
@@ -119,12 +120,20 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
                 (0, iVertex)
                 (if (iVertex = startVertex) then (Fin 0) else Ninf) 
                 initialProgressions) IntIntMap.empty vertices in
+        (* Loop over the number of steps in a progression (Karp's "k") *)
         let rec findProgressions steps bestProgression =
-            (* Compute Karp's F_n(v) "minimum-weight edge progression." *)
-            (*    I use "steps" in place of "n" for the number of steps. *)
+            (* Compute Karp's F_k(v) "minimum-weight edge progression." *)
             if (steps > nVertices) then bestProgression else
             (* let rec findProgressionsEachVertex iVertex *)
             (* MORE CODE HERE let bestProgression = ... *)
+            (*
+            (* Loop over v, the target vertex *)
+            let bestProgression = Array.fold_left
+                (fun newProgressions iVertex -> IntIntMap.add 
+                    (steps, iVertex)
+                    (if (iVertex = startVertex) then (Fin 0) else Ninf) 
+                    newProgressions) bestProgression vertices in
+            *)
             findProgressions (steps + 1) bestProgression in
         let bestProgression = findProgressions 1 initialProgressions in
         (* MORE CODE HERE let bestCycleMean = ... *)
