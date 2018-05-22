@@ -116,33 +116,33 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
         let vertices = mapSCCToVertices iSCC in 
         let nVertices = Array.length vertices in
         let startVertex = vertices.(0) in (* arbitrary start vertex *)
-        (* Initial conditions for seqMap (Karp's "F") *)
-        let seqMap = Array.fold_left
-            (fun seqMap iVertex -> IntIntMap.add 
+        (* Initial conditions for fMap (Karp's "F") *)
+        let fMap = Array.fold_left
+            (fun fMap iVertex -> IntIntMap.add 
                 (0, iVertex)
                 (if (iVertex = startVertex) then (Fin 0.0) else Ninf) 
-                seqMap) IntIntMap.empty vertices in
+                fMap) IntIntMap.empty vertices in
         (* Loop over the number of steps in a progression (Karp's "k") *)
-        let rec findProgressions steps seqMap =
+        let rec findProgressions steps fMap =
             (* Compute Karp's F_k(v) "minimum-weight edge progression." *)
-            if (steps > nVertices) then seqMap else
+            if (steps > nVertices) then fMap else
             (* Loop over jVertex (the target vertex, Karp's "v") *)
-            let seqMap = (Array.fold_left
-                (fun seqMap jVertex -> IntIntMap.add 
+            let fMap = (Array.fold_left
+                (fun fMap jVertex -> IntIntMap.add 
                     (steps, jVertex)
 
                     (let candidates = (List.map
                             (fun iVertex -> 
                                 wt_add 
                                     (Fin (edge_weight iVertex jVertex)) 
-                                    (IntIntMap.find (steps-1, iVertex) seqMap))
+                                    (IntIntMap.find (steps-1, iVertex) fMap))
                             (predecessors jVertex)) in
 
                         (List.fold_left wt_best Ninf candidates))
 
-                    seqMap) seqMap vertices) in
-            findProgressions (steps + 1) seqMap in
-        let seqMap = findProgressions 1 seqMap in
+                    fMap) fMap vertices) in
+            findProgressions (steps + 1) fMap in
+        let fMap = findProgressions 1 fMap in
         (* MORE CODE HERE let bestCycleMean = ... *)
         karpForSCC (iSCC + 1) bestCycleMean in
     let bestCycleMean = karpForSCC 0 IntMap.empty in
