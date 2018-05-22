@@ -91,6 +91,10 @@ let matrixToGraph matrix =
 
 module MPComponents = Graph.Components.Make(MPGraph);;
 
+let karpMinimumCycleMean graph nComponents componentFromVertex = 
+    let edge_weight i j = MPGraph.E.label (MPGraph.find_edge graph i j) in
+    ()
+;;
 
 let createUpperBound graph = 
     let nVertices = MPGraph.nb_vertex graph in
