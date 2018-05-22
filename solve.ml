@@ -97,9 +97,9 @@ module IntMap = Map.Make(struct type t = int let compare = compare end);;
 
 (* I chose Karp's algorithm because it was easy. *)
 (*   We could use a faster alternative if time complexity becomes a concern. *)
-let karpMinimumCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices = 
+let karpMinimumCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
     (* Edges between SCCs are irrelevant, so we filter them out: *)
-    let successors i = 
+    let successors i =
         let unfiltered = MPGraph.succ graph i in
         List.filter (fun j -> ((mapVertexToSCC i) = (mapVertexToSCC j)))
                     unfiltered in
