@@ -126,6 +126,11 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
                 initialProgressions in
             findInitialProgressions (iVertex + 1) initialProgressions in
         let initialProgressions = findInitialProgressions 0 IntIntMap.empty in
+        let initialProgressions = Array.fold_left
+            (fun initialProgressions iVertex -> IntIntMap.add 
+                (0, iVertex)
+                (if (iVertex = startVertex) then (Fin 0) else Ninf) 
+                initialProgressions) IntIntMap.empty vertices in
         let rec findProgressions steps bestProgression =
             (* Compute Karp's F_n(v) "minimum-weight edge progression." *)
             (*    I use "steps" in place of "n" for the number of steps. *)
