@@ -94,6 +94,7 @@ let matrixToGraph matrix =
 
 module MPComponents = Graph.Components.Make(MPGraph);;
 module IntMap = Map.Make(struct type t = int let compare = compare end);;
+module IntIntMap = Map.Make(struct type t = int * int let compare = compare end);;
 
 let best x y = max x y;;
 let worst x y = min x y;;
@@ -108,9 +109,29 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
                     unfiltered in
     let edge_weight i j = MPGraph.E.label (MPGraph.find_edge graph i j) in
     let rec karpForSCC iSCC bestCycleMean =
-        if (iSCC >= nSCCs) then bestCycleMean
-        else let nVertices = Array.length (mapSCCToVertices iSCC) in
-             karpForSCC (iSCC + 1) bestCycleMean in
+        (* Run Karp's algorithm on one SCC, the one having number iSCC *)
+        if (iSCC >= nSCCs) then bestCycleMean else
+        let vertices = mapSCCToVertices iSCC in 
+        let nVertices = Array.length vertices in
+        let startVertex = vertices.(0) in (* arbitrary start vertex *)
+        let rec findInitialProgressions iVertex initialProgressions = 
+            (* Karp's F_0(v) is 0 when v==startVertex and Ninf otherwise *)
+            if (iVertex >= nVertices) then initialProgressions else
+            let initialProgressions = IntIntMap.add 
+                (0, iVertex)
+                (if (iVertex = startVertex) then (Fin 0) else Ninf) 
+                initialProgressions in
+            findInitialProgressions (iVertex + 1) initialProgressions in
+        let initialProgressions = findInitialProgressions 0 IntIntMap.empty in
+        let rec findProgressions steps bestProgression =
+            (* Compute Karp's F_n(v) "minimum-weight edge progression." *)
+            (*    I use "steps" in place of "n" for the number of steps. *)
+            if (steps > nVertices) then bestProgression else
+            (* MORE CODE HERE let bestProgression = ... *)
+            findProgressions (steps + 1) bestProgression in
+        let bestProgression = findProgressions 0 initialProgressions in
+        (* MORE CODE HERE let bestCycleMean = ... *)
+        karpForSCC (iSCC + 1) bestCycleMean in
     let bestCycleMean = karpForSCC 0 IntMap.empty in
     ()
 ;;
