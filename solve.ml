@@ -115,8 +115,12 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
         if (iSCC >= nSCCs) then bestCycleMean else
         let vertices = mapSCCToVertices iSCC in 
         let nVertices = Array.length vertices in
-        let startVertex = vertices.(0) in (* arbitrary start vertex *)
-        (* Initial conditions for fMap (Karp's "F") *)
+        let startVertex = vertices.(0) in (* arbitrary start vertex      *)
+        (* In the following, fMap (which Karp calls "F") is an important *)
+        (*   data structure.  The (k,v) entry in fMap encodes the best   *)
+        (*   total weight that can be achieved in k steps starting at    *)
+        (*   startVertex and ending at v.                                *)
+        (* Set initial conditions for fMap *)
         let fMap = Array.fold_left
             (fun fMap iVertex -> IntIntMap.add 
                 (0, iVertex)
