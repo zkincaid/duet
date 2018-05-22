@@ -91,22 +91,21 @@ let matrixToGraph matrix =
 
 module MPComponents = Graph.Components.Make(MPGraph);;
 
-let karpMinimumCycleMean graph nComponents componentFromVertex = 
+let karpMinimumCycleMean graph nSCCs mapVertexToSCC = 
     let edge_weight i j = MPGraph.E.label (MPGraph.find_edge graph i j) in
     ()
 ;;
 
 let createUpperBound graph = 
     let nVertices = MPGraph.nb_vertex graph in
-    let (nComponents, componentFromVertex) = (MPComponents.scc graph) in
-    let verticesFromComponent = Array.make nComponents [] in
+    let (nSCCs, mapVertexToSCC) = (MPComponents.scc graph) in
+    let mapSCCToVertices = Array.make nSCCs [] in
     let rec makeVertexLists iVertex =
         if iVertex >= nVertices then () else 
-            let iComponent = (componentFromVertex iVertex) in
-            verticesFromComponent.(iComponent) <- iVertex :: verticesFromComponent.(iComponent)
+            let iSCC = (mapVertexToSCC iVertex) in
+            mapSCCToVertices.(iSCC) <- iVertex :: mapSCCToVertices.(iSCC)
     in makeVertexLists 0;
-    let criticalWeight = Array.make nComponents Ninf in
-
+    let criticalWeight = Array.make nSCCs Ninf in
     ()
 ;;
 
