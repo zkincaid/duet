@@ -126,7 +126,6 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
         let rec findProgressions steps seqMap =
             (* Compute Karp's F_k(v) "minimum-weight edge progression." *)
             if (steps > nVertices) then seqMap else
-            (* let rec findProgressionsEachVertex iVertex *)
             (* Loop over jVertex (the target vertex, Karp's "v") *)
             let seqMap = (Array.fold_left
                 (fun seqMap jVertex -> IntIntMap.add 
