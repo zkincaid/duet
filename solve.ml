@@ -175,36 +175,36 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
 
         (* The heart of Karp's algorithm: *)
         let iSCCBestCycleMean = (Array.fold_left (fun wt vVertex ->
-            (* The best, over all vertices (vVertex) ... *)
-            wt_best wt (
-              match (IntIntMap.find (nVertices, vVertex) fMap) with 
-              | Worst -> Worst
-              | Fin fnv -> 
-                (* The worst, over all numbers of steps (steps) ...         *)
-                (*                                                          *)
-                (* First, we scan over all numbers of steps k;              *)
-                (*   we filter out infinite F_k(v) values.                  *)
-                let pairs = loopFromMToN 0 (nVertices - 1) [] (fun steps pairs ->
-                    (* Look up Karp's F_k(v).                               *)
-                    match (IntIntMap.find (nVertices, vVertex) fMap) with 
-                    (* Ignore F_k(v) if it's infinite.                      *)
-                    | Worst -> pairs
-                    | Fin fin_fkv -> (steps, fin_fkv) :: pairs) in
-                (* Now scan over pairs (steps, fkv) having finite fkv       *)
-                match pairs with 
-                | [] -> failwith "Failure in Karp's algorithm"
-                | (steps, fkv) :: tail ->
-                  (* Compute a cycle mean using F_n(v), F_k(v), k, and n    *)
-                  let cycleMean steps fnv fkv = 
-                      (fwt_sub fnv fkv) /. (float_of_int (nVertices - steps)) in
-                  (* There had better be at least one finite fkv...         *)
-                  let firstCycleMean = cycleMean steps fnv fkv in
-                  let foldHelper fwt (steps, fkv) = 
-                      fwt_worst fwt (cycleMean steps fnv fkv) in
-                  (* Worst cycle mean among progressions ending at vVertex: *)
-                  Fin (List.fold_left foldHelper firstCycleMean tail)
-                  
-              ) ) Worst vertices ) in
+          (* The best, over all vertices (vVertex) ... *)
+          wt_best wt (
+            match (IntIntMap.find (nVertices, vVertex) fMap) with 
+            | Worst -> Worst
+            | Fin fnv -> 
+              (* The worst, over all numbers of steps (steps) ...         *)
+              (*                                                          *)
+              (* First, we scan over all numbers of steps k;              *)
+              (*   we filter out infinite F_k(v) values.                  *)
+              let pairs = loopFromMToN 0 (nVertices - 1) [] (fun steps pairs ->
+                  (* Look up Karp's F_k(v).                               *)
+                  match (IntIntMap.find (nVertices, vVertex) fMap) with 
+                  (* Ignore F_k(v) if it's infinite.                      *)
+                  | Worst -> pairs
+                  | Fin fin_fkv -> (steps, fin_fkv) :: pairs) in
+              (* Now scan over pairs (steps, fkv) having finite fkv       *)
+              match pairs with 
+              | [] -> failwith "Failure in Karp's algorithm"
+              | (steps, fkv) :: tail ->
+                (* Compute a cycle mean using F_n(v), F_k(v), k, and n    *)
+                let cycleMean steps fnv fkv = 
+                    (fwt_sub fnv fkv) /. (float_of_int (nVertices - steps)) in
+                (* There had better be at least one finite fkv...         *)
+                let firstCycleMean = cycleMean steps fnv fkv in
+                let foldHelper fwt (steps, fkv) = 
+                    fwt_worst fwt (cycleMean steps fnv fkv) in
+                (* Worst cycle mean among progressions ending at vVertex: *)
+                Fin (List.fold_left foldHelper firstCycleMean tail)
+                
+            ) ) Worst vertices ) in
 
         (* Add this SCC's best cycle mean to the map bestCycleMean:         *)
         (IntMap.add iSCC iSCCBestCycleMean bestCycleMean))
