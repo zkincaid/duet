@@ -238,7 +238,7 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
 let computeSlopes graph nSCCs mapVertexToSCC mapSCCToVertices criticalWeight = 
     let nVertices = MPGraph.nb_vertex graph in
     let condensation = condense graph mapVertexToSCC in
-    let transCondensation = SCCOper.transitive_closure condensation in
+    let transCondensation = SCCOper.transitive_closure condensation ~reflexive:true in
     (* Initialize bounding slopes *)
     let slopes = Array.make_matrix nVertices nVertices Worst in
     (* Compute bounding slopes *)
