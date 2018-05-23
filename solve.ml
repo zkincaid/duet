@@ -78,12 +78,19 @@ end;;
 
 module SCCGraph = Imperative.Graph.Concrete(V2);;
 
+(* Because Karp's algorithm uses a lot of data structures involving
+ *   arrays starting at zero, I use the following imperative construct: *)
 let loopZeroToN n init f = 
-    let rec loopZeroToNAux x i =
+    let rec loopZeroToNAux i x =
         if (i > n) then x else
-        loopZeroToNAux (f x i) (i + 1) in
-    loopZeroToNAux init 0
+        loopZeroToNAux (i + 1) (f i x) in
+    loopZeroToNAux 0 init
 ;;
+(* Usage:
+     let myResult = loopZeroToN n initial (fun i accum ->
+           (* compute new accum here using i and accum *)
+         ) in
+*)
 
 (*
 let condensation graph nSCCs mapVertexToSCC mapSCCToVertices = 
@@ -114,6 +121,12 @@ module MPComponents = Graph.Components.Make(MPGraph);;
 module IntMap = Map.Make(struct type t = int let compare = compare end);;
 module IntIntMap = Map.Make(struct type t = int * int let compare = compare end);;
 
+(* Usage:
+     let myResult = loopZeroToN n initial (fun i accum ->
+           (* compute new accum here using accum and i *)
+         ) in
+*)
+
 (* I chose Karp's algorithm because it was easy. *)
 (*   We could use a faster alternative if time complexity becomes a concern. *)
 let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
@@ -124,9 +137,8 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
                     unfiltered in
     let edge_weight u v = MPGraph.E.label (MPGraph.find_edge graph u v) in
     (* Loop over iSCC:, the SCC index *)
-    let rec karpForSCC iSCC bestCycleMean =
-        (* We run Karp's algorithm on one SCC, the one having number iSCC   *)
-        if (iSCC >= nSCCs) then bestCycleMean else
+    loopZeroToN nSCCs IntMap.empty (fun iSCC bestCycleMean ->
+        (* In this loop, we run Karp's algorithm on one SCC, having number iSCC *)
         let vertices = mapSCCToVertices iSCC in 
         let nVertices = Array.length vertices in
         let startVertex = vertices.(0) in (* arbitrary start vertex      *)
@@ -200,11 +212,8 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
                   
               ) ) Worst vertices ) in
 
-        let bestCycleMean = (IntMap.add iSCC iSCCBestCycleMean bestCycleMean) in
-
-        karpForSCC (iSCC + 1) bestCycleMean in
-    let bestCycleMean = karpForSCC 0 IntMap.empty in
-    bestCycleMean 
+        (* Add this SCC's best cycle mean to the map bestCycleMean:         *)
+        (IntMap.add iSCC iSCCBestCycleMean bestCycleMean))
 ;;
 
 let createUpperBound graph = 
