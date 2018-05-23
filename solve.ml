@@ -224,17 +224,8 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
         (IntMap.add iSCC iSCCBestCycleMean bestCycleMean))
 ;;
 
-let createUpperBound graph = 
+let computeSlopes graph nSCCs mapVertexToSCC mapSCCToVertices criticalWeight = 
     let nVertices = MPGraph.nb_vertex graph in
-    let (nSCCs, mapVertexToSCC) = (MPComponents.scc graph) in
-    let mapSCCToVertices = Array.make nSCCs [] in
-    let rec makeVertexLists uVertex =
-        if uVertex >= nVertices then () else 
-            let iSCC = (mapVertexToSCC uVertex) in
-            mapSCCToVertices.(iSCC) <- uVertex :: mapSCCToVertices.(iSCC)
-    in makeVertexLists 0;
-    let criticalWeight = 
-        karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices in 
     let condensation = condense graph mapVertexToSCC in
     let transCondensation = SCCOper.transitive_closure condensation in
     (* Initialize bounding slopes *)
@@ -255,8 +246,21 @@ let createUpperBound graph =
                 ) transCondensation jSCC
             ) iVertices
         ) transCondensation jSCC
-    ) in
+    ) 
 
+let createUpperBound graph = 
+    let nVertices = MPGraph.nb_vertex graph in
+    let (nSCCs, mapVertexToSCC) = (MPComponents.scc graph) in
+    let mapSCCToVertices = Array.make nSCCs [] in
+    let rec makeVertexLists uVertex =
+        if uVertex >= nVertices then () else 
+            let iSCC = (mapVertexToSCC uVertex) in
+            mapSCCToVertices.(iSCC) <- uVertex :: mapSCCToVertices.(iSCC)
+    in makeVertexLists 0;
+    let criticalWeight = 
+        karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices in 
+    let slopes = 
+        computeSlopes graph nSCCs mapVertexToSCC mapSCCToVertices criticalWeight in
     ()
 ;;
 
