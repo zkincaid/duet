@@ -93,14 +93,14 @@ let loopFromMToN m n init f =
          ) in
 *)
 
-let condensation graph mapVertexToSCC = 
-    let condensed = SCCGraph.create () in
+let condense graph mapVertexToSCC = 
+    let condensation = SCCGraph.create () in
     let doEdge e = 
         let srcSCC = mapVertexToSCC (MPGraph.E.src e) in 
         let dstSCC = mapVertexToSCC (MPGraph.E.dst e) in 
-        SCCGraph.add_edge condensed srcSCC dstSCC in 
+        SCCGraph.add_edge condensation srcSCC dstSCC in 
     MPGraph.iter_edges_e doEdge graph;
-    condensed
+    condensation
 ;;
 
 module Tests = struct
@@ -234,6 +234,7 @@ let createUpperBound graph =
     in makeVertexLists 0;
     let bestCycleMean = 
         karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices in 
+    let condensation = condense graph mapVertexToSCC in
     let criticalWeight = Array.make nSCCs Worst in
 
     ()
