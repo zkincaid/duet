@@ -157,29 +157,29 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
               match (IntIntMap.find (nVertices, vVertex) fMap) with 
               | Worst -> Worst
               | Fin fnv -> 
-                (* The worst, over all numbers of steps (steps) ... *)
-                (*                                                  *)
-                (* First, we scan over all numbers of steps;        *)
-                (*   we will filter out infinite F_k(v) values.     *)
+                (* The worst, over all numbers of steps (steps) ...         *)
+                (*                                                          *)
+                (* First, we scan over all numbers of steps;                *)
+                (*   we will filter out infinite F_k(v) values.             *)
                 let rec scanOverSteps steps pairs = 
                     if (steps >= nVertices) then pairs else
                     (* Karp's F_k(v) *)
                     let fkv = (IntIntMap.find (nVertices, vVertex) fMap) in
                     let pairs = match fkv with 
-                                (* Ignore the F_k(v) for this k if *)
-                                (*    this F_k(v) is infinite.     *)
+                                (* Ignore the F_k(v) for this k if          *)
+                                (*    this F_k(v) is infinite.              *)
                                 | Worst -> pairs
                                 | Fin fin_fkv -> (steps, fin_fkv) :: pairs in
                     scanOverSteps (steps + 1) pairs
                 in let pairs = (scanOverSteps 0 []) in
-                (* Now scan over pairs (steps, fkv) having finite fkv *)
+                (* Now scan over pairs (steps, fkv) having finite fkv       *)
                 match pairs with 
                 | [] -> failwith "Failure in Karp's algorithm"
                 | (steps, fkv) :: tail ->
-                  (* Compute a cycle mean using F_n(v), F_k(v), k, and n *)
+                  (* Compute a cycle mean using F_n(v), F_k(v), k, and n    *)
                   let cycleMean steps fnv fkv = 
                       (fwt_sub fnv fkv) /. (float_of_int (nVertices - steps)) in
-                  (* There had better be at least one finite fkv...       *)
+                  (* There had better be at least one finite fkv...         *)
                   let firstCycleMean = cycleMean steps fnv fkv in
                   let foldHelper fwt (steps, fkv) = 
                       fwt_worst fwt (cycleMean steps fnv fkv) in
