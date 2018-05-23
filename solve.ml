@@ -246,9 +246,12 @@ let createUpperBound graph =
             List.iter (fun iVertex ->
                 SCCGraph.iter_succ (fun kSCC -> 
                     let kVertices = mapSCCToVertices.(kSCC) in
-                        List.iter (fun kVertex ->
-                            ()
-                        ) kVertices
+                    List.iter (fun kVertex ->
+                        slopes.(iVertex).(kVertex) <-
+                            wt_best 
+                                slopes.(iVertex).(kVertex)
+                                (IntMap.find jSCC criticalWeight)
+                    ) kVertices
                 ) transCondensation jSCC
             ) iVertices
         ) transCondensation jSCC
