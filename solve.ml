@@ -54,6 +54,10 @@ let wt_best w1 w2 =
         match w2 with | Worst -> w1 | Fin v2 -> Fin (fwt_best v1 v2)
 ;;
 
+(*let wt_sub_fwt w1 fw2 =
+    match w1 with | Worst -> Worst | Fin v1 -> Fin (fwt_sub v1 fw2)
+;;*)
+
 module V = struct
   type t = int (* vertex number *)
   let compare = Pervasives.compare
@@ -246,7 +250,8 @@ let computeSlopes graph nSCCs mapVertexToSCC mapSCCToVertices criticalWeight =
                 ) transCondensation jSCC
             ) iVertices
         ) transCondensation jSCC
-    ) 
+    );
+    slopes
 ;;
 
 let computeIntercepts graph slopes =
@@ -256,7 +261,26 @@ let computeIntercepts graph slopes =
     loopFromMToN 0 (nVertices - 1) () (fun uVertex _ ->
         intercepts.(uVertex).(uVertex) <- Fin (0.0)
     );
-    ()
+    (* Compute bounding intercepts *)
+    loopFromMToN 0 (nVertices - 1) () (fun iInput _ ->
+        loopFromMToN 0 (nVertices - 1) () (fun iIteration _ ->
+            loopFromMToN 0 (nVertices - 1) () (fun iFrom _ ->
+                loopFromMToN 0 (nVertices - 1) () (fun iTo _ ->
+                    match slopes.(iTo).(iInput) with
+                    | Worst -> ()
+                    | Fin slope ->
+                        if (not (MPGraph.mem_edge graph iTo iFrom)) then ()
+                        else let edge = MPGraph.E.label 
+                                (MPGraph.find_edge graph iTo iFrom) in
+                            intercepts.(iTo).(iInput) <-
+                                wt_add intercepts.(iTo).(iInput)
+                                    (Fin (fwt_sub edge slope))
+
+                );
+            );
+        );
+    );
+    intercepts
 ;;
 
 let createUpperBound graph = 
@@ -270,7 +294,9 @@ let createUpperBound graph =
         karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices in 
     let slopes = 
         computeSlopes graph nSCCs mapVertexToSCC mapSCCToVertices criticalWeight in
-    ()
+    let intercepts = 
+        computeIntercepts graph slopes in
+    (slopes, intercepts)
 ;;
 
 (*
