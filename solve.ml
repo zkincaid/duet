@@ -247,6 +247,17 @@ let computeSlopes graph nSCCs mapVertexToSCC mapSCCToVertices criticalWeight =
             ) iVertices
         ) transCondensation jSCC
     ) 
+;;
+
+let computeIntercepts graph slopes =
+    let nVertices = MPGraph.nb_vertex graph in
+    (* Initialize bounding intercepts *)
+    let intercepts = Array.make_matrix nVertices nVertices Worst in
+    loopFromMToN 0 (nVertices - 1) () (fun uVertex _ ->
+        intercepts.(uVertex).(uVertex) <- Fin (0.0)
+    );
+    ()
+;;
 
 let createUpperBound graph = 
     let nVertices = MPGraph.nb_vertex graph in
