@@ -232,10 +232,9 @@ let createUpperBound graph =
             let iSCC = (mapVertexToSCC uVertex) in
             mapSCCToVertices.(iSCC) <- uVertex :: mapSCCToVertices.(iSCC)
     in makeVertexLists 0;
-    let bestCycleMean = 
+    let criticalWeight = 
         karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices in 
     let condensation = condense graph mapVertexToSCC in
-    let criticalWeight = Array.make nSCCs Worst in
 
     ()
 ;;
