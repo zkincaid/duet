@@ -36,6 +36,12 @@ open Graph;;
 type fweight = float;;  (* Finite weight. *) 
 (* These are integers for now, but eventually we'll use GMP rationals *)
 
+(* For easy dualization, I'm putting all maxes and mins in terms of best and worst *)
+let fwt_best x y = max x y;;
+let fwt_worst x y = min x y;;
+
+let fwt_sub fw1 fw2 = fw1 -. fw2;;
+
 type weight = Worst | Fin of fweight;;
 
 let wt_add w1 w2 = 
@@ -45,10 +51,8 @@ let wt_add w1 w2 =
 
 let wt_best w1 w2 = 
     match w1 with | Worst -> w2 | Fin v1 ->
-        match w2 with | Worst -> w1 | Fin v2 -> Fin (max v1 v2)
+        match w2 with | Worst -> w1 | Fin v2 -> Fin (fwt_best v1 v2)
 ;;
-
-let fwt_sub fw1 fw2 = fw1 -. fw2;;
 
 module V = struct
   type t = int (* vertex number *)
@@ -97,10 +101,6 @@ let matrixToGraph matrix =
 module MPComponents = Graph.Components.Make(MPGraph);;
 module IntMap = Map.Make(struct type t = int let compare = compare end);;
 module IntIntMap = Map.Make(struct type t = int * int let compare = compare end);;
-
-(* For easy dualization, I'm putting all maxes and mins in terms of best and worst *)
-let best x y = max x y;;
-let worst x y = min x y;;
 
 (* I chose Karp's algorithm because it was easy. *)
 (*   We could use a faster alternative if time complexity becomes a concern. *)
@@ -159,7 +159,8 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
               | Fin fnv -> 
                 (* The worst, over all numbers of steps (steps) ... *)
                 (*                                                  *)
-                (* First, we scan over all numbers of steps         *)
+                (* First, we scan over all numbers of steps;        *)
+                (*   we will filter out infinite F_k(v) values.     *)
                 let rec scanOverSteps steps pairs = 
                     if (steps >= nVertices) then pairs else
                     (* Karp's F_k(v) *)
@@ -171,14 +172,20 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
                                 | Fin fin_fkv -> (steps, fin_fkv) :: pairs in
                     scanOverSteps (steps + 1) pairs
                 in let pairs = (scanOverSteps 0 []) in
-                Worst
-              (*
-              wt_best wt (List.fold_left (fun wt kSteps ->
-
-                  (* Worst weight among fMap paths... *)
-
-                  ))
-              *)
+                (* Now scan over pairs (steps, fkv) having finite fkv *)
+                match pairs with 
+                | [] -> failwith "Failure in Karp's algorithm"
+                | (steps, fkv) :: tail ->
+                  (* Compute a cycle mean using F_n(v), F_k(v), k, and n *)
+                  let cycleMean steps fnv fkv = 
+                      (fwt_sub fnv fkv) /. (float_of_int (nVertices - steps)) in
+                  (* There had better be at least one finite fkv...       *)
+                  let firstCycleMean = cycleMean steps fnv fkv in
+                  let foldHelper fwt (steps, fkv) = 
+                      fwt_worst fwt (cycleMean steps fnv fkv) in
+                  (* Worst cycle mean among progressions ending at vVertex: *)
+                  Fin (List.fold_left foldHelper firstCycleMean tail)
+                  
               ) ) Worst vertices ) in
 
         let bestCycleMean = (IntMap.add iSCC iSCCBestCycleMean bestCycleMean) in
