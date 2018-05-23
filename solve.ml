@@ -128,9 +128,9 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
                 (0, uVertex)
                 (if (uVertex = startVertex) then (Fin 0.0) else Worst) 
                 fMap) IntIntMap.empty vertices in
-        (* Loop over the number of steps in a progression (Karp's "k") *)
+        (* Now, we will compute fMap (Karp's F_k(v)) using a recurrence. *)
+        (* Loop over the number of steps in a progression (Karp's "k"):  *)
         let rec findProgressions steps fMap =
-            (* Compute Karp's F_k(v) "minimum-weight edge progression." *)
             if (steps > nVertices) then fMap else
             (* Loop over vVertex (the target vertex, Karp's "v") *)
             let fMap = (Array.fold_left
