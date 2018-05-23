@@ -48,6 +48,8 @@ let wt_best w1 w2 =
         match w2 with | Worst -> w1 | Fin v2 -> Fin (max v1 v2)
 ;;
 
+let fwt_sub fw1 fw2 = fw1 -. fw2;;
+
 module V = struct
   type t = int (* vertex number *)
   let compare = Pervasives.compare
@@ -76,9 +78,9 @@ module SCCGraph = Imperative.Graph.Concrete(V2);;
 
 module Tests = struct
     module Knee1 = struct
-        let matrix = [| [| (Fin 0.0);     Worst;      Worst      |];
-                        [| (Fin (-14.0)); (Fin 3.0); Worst      |];
-                        [| Worst;          (Fin 0.0); (Fin 1.0) |] |]
+        let matrix = [| [| (Fin 0.0);     Worst;     Worst     |];
+                        [| (Fin (-14.0)); (Fin 3.0); Worst     |];
+                        [| Worst;         (Fin 0.0); (Fin 1.0) |] |]
     end;;
 end;;
 
@@ -147,15 +149,19 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
                     fMap) fMap vertices) in
             findProgressions (steps + 1) fMap in
         let fMap = findProgressions 1 fMap in
-        (*
+
         let bestCycleMean = Array.fold_left (fun wt iVertex -> 
+            IntMap.empty
+            (*
             wt_best wt (List.fold_left (fun wt kSteps ->
 
                 (* Worst weight among fMap paths... *)
 
-                )))
-            Worst vertices in
-        *)
+                ))
+            *)
+            )
+            IntMap.empty vertices in
+
         (* MORE CODE HERE let bestCycleMean = ... *)
         karpForSCC (iSCC + 1) bestCycleMean in
     let bestCycleMean = karpForSCC 0 IntMap.empty in
