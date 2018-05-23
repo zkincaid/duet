@@ -189,7 +189,7 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
                   match (IntIntMap.find (nVertices, vVertex) fMap) with 
                   (* Ignore F_k(v) if it's infinite.                      *)
                   | Worst -> pairs
-                  | Fin fin_fkv -> (steps, fin_fkv) :: pairs) in
+                  | Fin fkv -> (steps, fkv) :: pairs) in
               (* Now scan over pairs (steps, fkv) having finite fkv       *)
               match pairs with 
               | [] -> failwith "Failure in Karp's algorithm"
