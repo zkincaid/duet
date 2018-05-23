@@ -140,15 +140,17 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
     (* Loop over iSCC:, the SCC index *)
     loopFromMToN 0 (nSCCs - 1) IntMap.empty (fun iSCC bestCycleMean ->
         (* In this loop, we run Karp's algorithm on the iSCC^th SCC          *)
-        let vertices = mapSCCToVertices iSCC in 
-        let nVertices = Array.length vertices in
-        let startVertex = vertices.(0) in (* arbitrary start vertex          *)
+        let vertices = mapSCCToVertices.(iSCC) in 
+        match vertices with 
+        | [] -> failwith "Empty SCC" 
+        | startVertex::_ -> (* arbitrary start vertex                        *)
+        let nVertices = List.length vertices in
         (* In the following, fMap (which Karp calls "F") is an important     *)
         (*   data structure.  The (k,v) entry in fMap encodes the best       *)
         (*   total weight that can be achieved in k steps starting at        *)
         (*   startVertex and ending at v.                                    *)
         (* Set initial conditions for fMap *)
-        let fMap = Array.fold_left
+        let fMap = List.fold_left
             (fun fMap uVertex -> IntIntMap.add 
                 (0, uVertex)
                 (if (uVertex = startVertex) then (Fin 0.0) else Worst) 
@@ -171,7 +173,7 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
                     fMap in (* add that to the map fMap                      *)
 
             (* Loop over vVertex (the target vertex, Karp's "v"):            *)
-            (Array.fold_left addVertexToFMap fMap vertices)) in
+            (List.fold_left addVertexToFMap fMap vertices)) in
 
         (* The heart of Karp's algorithm: *)
         (* For any given vVertex, this function computes a cycle mean for a  *)
@@ -211,7 +213,7 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
         let foldHelper2 wt vVertex = wt_best wt (considerVertex vVertex) in
 
         (* The best cycle mean, over all final vertices (vVertex) ...        *)
-        let iSCCBestCycleMean = Array.fold_left foldHelper2 Worst vertices in
+        let iSCCBestCycleMean = List.fold_left foldHelper2 Worst vertices in
 
         (* Add this SCC's best cycle mean to the map bestCycleMean:          *)
         (IntMap.add iSCC iSCCBestCycleMean bestCycleMean))
@@ -226,8 +228,8 @@ let createUpperBound graph =
             let iSCC = (mapVertexToSCC uVertex) in
             mapSCCToVertices.(iSCC) <- uVertex :: mapSCCToVertices.(iSCC)
     in makeVertexLists 0;
-(*    let bestCycleMean = 
-        karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices in *)
+    let bestCycleMean = 
+        karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices in 
     let criticalWeight = Array.make nSCCs Worst in
 
     ()
