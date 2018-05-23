@@ -101,8 +101,7 @@ let condensation graph mapVertexToSCC =
         SCCGraph.add_edge condensed srcSCC dstSCC in 
     MPGraph.iter_edges_e doEdge graph;
     condensed
-
-(* module MPGraph = Graph.Pack.Digraph;; *)
+;;
 
 module Tests = struct
     module Knee1 = struct
