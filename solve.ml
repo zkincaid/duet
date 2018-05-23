@@ -124,25 +124,25 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
         (*   startVertex and ending at v.                                *)
         (* Set initial conditions for fMap *)
         let fMap = Array.fold_left
-            (fun fMap iVertex -> IntIntMap.add 
-                (0, iVertex)
-                (if (iVertex = startVertex) then (Fin 0.0) else Worst) 
+            (fun fMap uVertex -> IntIntMap.add 
+                (0, uVertex)
+                (if (uVertex = startVertex) then (Fin 0.0) else Worst) 
                 fMap) IntIntMap.empty vertices in
         (* Loop over the number of steps in a progression (Karp's "k") *)
         let rec findProgressions steps fMap =
             (* Compute Karp's F_k(v) "minimum-weight edge progression." *)
             if (steps > nVertices) then fMap else
-            (* Loop over jVertex (the target vertex, Karp's "v") *)
+            (* Loop over vVertex (the target vertex, Karp's "v") *)
             let fMap = (Array.fold_left
-                (fun fMap jVertex -> IntIntMap.add 
-                    (steps, jVertex)
+                (fun fMap vVertex -> IntIntMap.add 
+                    (steps, vVertex)
 
                     (let candidates = (List.map
-                            (fun iVertex -> 
+                            (fun uVertex -> 
                                 wt_add 
-                                    (Fin (edge_weight iVertex jVertex)) 
-                                    (IntIntMap.find (steps-1, iVertex) fMap))
-                            (predecessors jVertex)) in
+                                    (Fin (edge_weight uVertex vVertex)) 
+                                    (IntIntMap.find (steps-1, uVertex) fMap))
+                            (predecessors vVertex)) in
 
                         (List.fold_left wt_best Worst candidates))
 
@@ -150,8 +150,8 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
             findProgressions (steps + 1) fMap in
         let fMap = findProgressions 1 fMap in
 
-        let bestCycleMean = (IntMap.add iSCC (Array.fold_left (fun wt iVertex->
-            match (IntIntMap.find (nVertices, iVertex) fMap) with 
+        let bestCycleMean = (IntMap.add iSCC (Array.fold_left (fun wt uVertex->
+            match (IntIntMap.find (nVertices, uVertex) fMap) with 
             | Worst -> Worst
             | Fin uWt -> Worst
             (*
@@ -173,10 +173,10 @@ let createUpperBound graph =
     let nVertices = MPGraph.nb_vertex graph in
     let (nSCCs, mapVertexToSCC) = (MPComponents.scc graph) in
     let mapSCCToVertices = Array.make nSCCs [] in
-    let rec makeVertexLists iVertex =
-        if iVertex >= nVertices then () else 
-            let iSCC = (mapVertexToSCC iVertex) in
-            mapSCCToVertices.(iSCC) <- iVertex :: mapSCCToVertices.(iSCC)
+    let rec makeVertexLists uVertex =
+        if uVertex >= nVertices then () else 
+            let iSCC = (mapVertexToSCC uVertex) in
+            mapSCCToVertices.(iSCC) <- uVertex :: mapSCCToVertices.(iSCC)
     in makeVertexLists 0;
     let criticalWeight = Array.make nSCCs Worst in
     ()
