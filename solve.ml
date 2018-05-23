@@ -169,8 +169,8 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
 
                         (List.fold_left wt_best Worst candidates))
 
-                    fMap) (* add to the list fMap *)
-            fMap vertices)) in
+                    fMap)   (* add to the list fMap *)
+            fMap vertices)) (* fold over vertices, updating fMap *) in
 
         (* The heart of Karp's algorithm: *)
         let iSCCBestCycleMean = (Array.fold_left (fun wt vVertex->
