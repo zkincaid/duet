@@ -181,9 +181,9 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
             match (IntIntMap.find (nVertices, vVertex) fMap) with 
             | Worst -> Worst (* ignore *)
             | Fin fnv -> 
-              (* The worst, over all numbers of steps (steps) ...         *)
+              (* The worst, over all numbers of steps ...                 *)
               (*                                                          *)
-              (* First, we scan over all numbers of steps k;              *)
+              (* First, we scan over all numbers of steps (Karp's "k");   *)
               (*   we filter out infinite F_k(v) values.                  *)
               let pairs = loopFromMToN 0 (nVertices - 1) [] (fun steps pairs ->
                   (* Look up Karp's F_k(v).                               *)
