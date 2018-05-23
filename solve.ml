@@ -139,42 +139,38 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
     let edge_weight u v = MPGraph.E.label (MPGraph.find_edge graph u v) in
     (* Loop over iSCC:, the SCC index *)
     loopFromMToN 0 (nSCCs - 1) IntMap.empty (fun iSCC bestCycleMean ->
-        (* In this loop, we run Karp's algorithm on one SCC, having number iSCC *)
+        (* In this loop, we run Karp's algorithm on the iSCC^th SCC         *)
         let vertices = mapSCCToVertices iSCC in 
         let nVertices = Array.length vertices in
-        let startVertex = vertices.(0) in (* arbitrary start vertex      *)
-        (* In the following, fMap (which Karp calls "F") is an important *)
-        (*   data structure.  The (k,v) entry in fMap encodes the best   *)
-        (*   total weight that can be achieved in k steps starting at    *)
-        (*   startVertex and ending at v.                                *)
+        let startVertex = vertices.(0) in (* arbitrary start vertex         *)
+        (* In the following, fMap (which Karp calls "F") is an important    *)
+        (*   data structure.  The (k,v) entry in fMap encodes the best      *)
+        (*   total weight that can be achieved in k steps starting at       *)
+        (*   startVertex and ending at v.                                   *)
         (* Set initial conditions for fMap *)
         let fMap = Array.fold_left
             (fun fMap uVertex -> IntIntMap.add 
                 (0, uVertex)
                 (if (uVertex = startVertex) then (Fin 0.0) else Worst) 
                 fMap) IntIntMap.empty vertices in
-        (* Now, we will compute fMap (Karp's F_k(v)) using a recurrence. *)
-        (* Loop over the number of steps in a progression (Karp's "k"):  *)
-        (*let fMap = loopZeroToN nVertices*)
-        let rec findProgressions steps fMap =
-            if (steps > nVertices) then fMap else
-            (* Loop over vVertex (the target vertex, Karp's "v") *)
-            let fMap = (Array.fold_left
-                (fun fMap vVertex -> IntIntMap.add 
-                    (steps, vVertex)
+        (* Now, we will compute fMap (Karp's F_k(v)) using a recurrence.    *)
+        (* Loop over the number of steps in a progression (Karp's "k"):     *)
+        let fMap = loopFromMToN 1 nVertices fMap (fun steps fMap ->
+            (* Loop over vVertex (the target vertex, Karp's "v"): *)
+            (Array.fold_left (fun fMap vVertex -> 
+                 IntIntMap.add (steps, vVertex) (* add the following value: *)
 
                     (let candidates = (List.map
                             (fun uVertex -> 
                                 wt_add 
-                                    (Fin (edge_weight uVertex vVertex)) 
-                                    (IntIntMap.find (steps-1, uVertex) fMap))
+                                   (Fin (edge_weight uVertex vVertex)) 
+                                   (IntIntMap.find (steps-1, uVertex) fMap))
                             (predecessors vVertex)) in
 
                         (List.fold_left wt_best Worst candidates))
 
-                    fMap) fMap vertices) in
-            findProgressions (steps + 1) fMap in
-        let fMap = findProgressions 1 fMap in
+                    fMap) (* add to the list fMap *)
+            fMap vertices)) in
 
         (* The heart of Karp's algorithm: *)
         let iSCCBestCycleMean = (Array.fold_left (fun wt vVertex->
