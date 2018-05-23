@@ -93,12 +93,16 @@ let loopFromMToN m n init f =
          ) in
 *)
 
-(*
-let condensation graph nSCCs mapVertexToSCC mapSCCToVertices = 
-    let initialGraph = SCCGraph.create () in
-    let rec loopOverSCCs = 
+let condensation graph mapVertexToSCC = 
+    let condensed = SCCGraph.create () in
+    let doEdge e = 
+        let srcSCC = mapVertexToSCC (MPGraph.E.src e) in 
+        let dstSCC = mapVertexToSCC (MPGraph.E.dst e) in 
+        SCCGraph.add_edge condensed srcSCC dstSCC in 
+    MPGraph.iter_edges_e doEdge graph;
+    condensed
+
 (* module MPGraph = Graph.Pack.Digraph;; *)
-*)
 
 module Tests = struct
     module Knee1 = struct
