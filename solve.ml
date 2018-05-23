@@ -253,9 +253,8 @@ let createUpperBound graph =
     let (nSCCs, mapVertexToSCC) = (MPComponents.scc graph) in
     let mapSCCToVertices = Array.make nSCCs [] in
     loopFromMToN 0 (nVertices - 1) () (fun uVertex _ ->
-        if uVertex >= nVertices then () else 
-            let iSCC = (mapVertexToSCC uVertex) in
-            mapSCCToVertices.(iSCC) <- uVertex :: mapSCCToVertices.(iSCC));
+        let iSCC = (mapVertexToSCC uVertex) in
+        mapSCCToVertices.(iSCC) <- uVertex :: mapSCCToVertices.(iSCC));
     let criticalWeight = 
         karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices in 
     let slopes = 
