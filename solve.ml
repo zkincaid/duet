@@ -67,7 +67,7 @@ module E = struct
 end;;
 
 (* Max-plus recurrence graph *)
-module MPGraph = Imperative.Graph.ConcreteLabeled(V)(E);;
+module MPGraph = Imperative.Digraph.ConcreteLabeled(V)(E);;
 
 module V2 = struct
   type t = int (* SCC number *)
@@ -76,7 +76,7 @@ module V2 = struct
   let equal = (=)
 end;;
 
-module SCCGraph = Imperative.Graph.Concrete(V2);;
+module SCCGraph = Imperative.Digraph.Concrete(V2);;
 
 (* Because Karp's algorithm uses a lot of data structures involving
  *   arrays starting at zero, I use the following imperative construct: 
@@ -122,6 +122,7 @@ let matrixToGraph matrix =
 ;;
 
 module MPComponents = Graph.Components.Make(MPGraph);;
+module SCCOper = Graph.Oper.I(SCCGraph);;
 module IntMap = Map.Make(struct type t = int let compare = compare end);;
 module IntIntMap = Map.Make(struct type t = int * int let compare = compare end);;
 
@@ -235,6 +236,23 @@ let createUpperBound graph =
     let criticalWeight = 
         karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices in 
     let condensation = condense graph mapVertexToSCC in
+    let transCondensation = SCCOper.transitive_closure condensation in
+    (* Initialize bounding slopes *)
+    let slopes = Array.make_matrix nVertices nVertices Worst in
+    (* Compute bounding slopes *)
+    loopFromMToN 0 nSCCs () (fun jSCC _ -> 
+        SCCGraph.iter_pred (fun iSCC -> 
+            let iVertices = mapSCCToVertices.(iSCC) in
+            List.iter (fun iVertex ->
+                SCCGraph.iter_succ (fun kSCC -> 
+                    let kVertices = mapSCCToVertices.(kSCC) in
+                        List.iter (fun kVertex ->
+                            ()
+                        ) kVertices
+                ) transCondensation jSCC
+            ) iVertices
+        ) transCondensation jSCC
+    ) in
 
     ()
 ;;
