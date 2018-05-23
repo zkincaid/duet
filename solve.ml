@@ -2,6 +2,8 @@
 
 open Graph;;
 
+open Printf;;
+
 (* Requisite types:
  *    weights: eventually GMP rationals; initially may be int; but, I do 
  *       need them to be allowed to be negative infinity
@@ -57,6 +59,10 @@ let wt_best w1 w2 =
 (*let wt_sub_fwt w1 fw2 =
     match w1 with | Worst -> Worst | Fin v1 -> Fin (fwt_sub v1 fw2)
 ;;*)
+
+let wt_print wt = 
+    match wt with | Worst -> (printf "NA") | Fin fwt -> (printf "%f" fwt)
+;;
 
 module V = struct
   type t = int (* vertex number *)
@@ -236,7 +242,7 @@ let computeSlopes graph nSCCs mapVertexToSCC mapSCCToVertices criticalWeight =
     (* Initialize bounding slopes *)
     let slopes = Array.make_matrix nVertices nVertices Worst in
     (* Compute bounding slopes *)
-    loopFromMToN 0 nSCCs () (fun jSCC _ -> 
+    loopFromMToN 0 (nSCCs - 1) () (fun jSCC _ -> 
         SCCGraph.iter_pred (fun iSCC -> 
             let iVertices = mapSCCToVertices.(iSCC) in
             List.iter (fun iVertex ->
@@ -254,6 +260,8 @@ let computeSlopes graph nSCCs mapVertexToSCC mapSCCToVertices criticalWeight =
     );
     slopes
 ;;
+
+(* (printf "nSCCs: %d\n" nSCCs); *)
 
 let computeIntercepts graph slopes =
     let nVertices = MPGraph.nb_vertex graph in
@@ -300,10 +308,32 @@ let createUpperBound graph =
     (slopes, intercepts)
 ;;
 
+let printMatrix matrix =
+    loopFromMToN 0 ((Array.length matrix) - 1) () (fun iRow _ ->
+        (printf "[");
+        let row = matrix.(iRow) in
+        let rowLength = (Array.length row) in 
+        loopFromMToN 0 (rowLength - 1) () (fun iCol _ ->
+            (wt_print row.(iCol));
+            if (iCol < rowLength - 1) then (printf ",") else ()
+        );
+        (printf "]\n");
+    )
+;;
+
+let printResults slopes intercepts = 
+    (printf "Slopes:\n");
+    printMatrix slopes;
+    (printf "Intercepts:\n");
+    printMatrix intercepts;
+    (printf "\n")
+;;
+
 let _ = 
     let graph = matrixToGraph Tests.Knee1.matrix in
     let (slopes,intercepts) = createUpperBound graph in
-    ()
+    printResults slopes intercepts
+;;
 
 (*
 let createUpperBound () = 
