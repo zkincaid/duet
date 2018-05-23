@@ -79,15 +79,16 @@ end;;
 module SCCGraph = Imperative.Graph.Concrete(V2);;
 
 (* Because Karp's algorithm uses a lot of data structures involving
- *   arrays starting at zero, I use the following imperative construct: *)
-let loopZeroToN n init f = 
-    let rec loopZeroToNAux i x =
+ *   arrays starting at zero, I use the following imperative construct: 
+ * This loops setting i from m (inclusive) up to n (inclusive). *)
+let loopFromMToN m n init f = 
+    let rec loopFromMToNAux i x =
         if (i > n) then x else
-        loopZeroToNAux (i + 1) (f i x) in
-    loopZeroToNAux 0 init
+        loopFromMToNAux (i + 1) (f i x) in
+    loopFromMToNAux m init
 ;;
 (* Usage:
-     let myResult = loopZeroToN n initial (fun i accum ->
+     let myResult = loopFromMToN m n initial (fun i accum ->
            (* compute new accum here using i and accum *)
          ) in
 *)
@@ -123,7 +124,7 @@ module IntIntMap = Map.Make(struct type t = int * int let compare = compare end)
 
 (* Usage:
      let myResult = loopZeroToN n initial (fun i accum ->
-           (* compute new accum here using accum and i *)
+           (* compute new accum here using i and accum *)
          ) in
 *)
 
@@ -137,7 +138,7 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
                     unfiltered in
     let edge_weight u v = MPGraph.E.label (MPGraph.find_edge graph u v) in
     (* Loop over iSCC:, the SCC index *)
-    loopZeroToN nSCCs IntMap.empty (fun iSCC bestCycleMean ->
+    loopFromMToN 0 (nSCCs - 1) IntMap.empty (fun iSCC bestCycleMean ->
         (* In this loop, we run Karp's algorithm on one SCC, having number iSCC *)
         let vertices = mapSCCToVertices iSCC in 
         let nVertices = Array.length vertices in
@@ -154,6 +155,7 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
                 fMap) IntIntMap.empty vertices in
         (* Now, we will compute fMap (Karp's F_k(v)) using a recurrence. *)
         (* Loop over the number of steps in a progression (Karp's "k"):  *)
+        (*let fMap = loopZeroToN nVertices*)
         let rec findProgressions steps fMap =
             if (steps > nVertices) then fMap else
             (* Loop over vVertex (the target vertex, Karp's "v") *)
