@@ -36,16 +36,16 @@ open Graph;;
 type fweight = float;;  (* Finite weight. *) 
 (* These are integers for now, but eventually we'll use GMP rationals *)
 
-type weight = Ninf | Fin of fweight;;
+type weight = Worst | Fin of fweight;;
 
 let wt_add w1 w2 = 
-    match w1 with | Ninf -> Ninf | Fin v1 ->
-        match w2 with | Ninf -> Ninf | Fin v2 -> Fin (v1 +. v2)
+    match w1 with | Worst -> Worst | Fin v1 ->
+        match w2 with | Worst -> Worst | Fin v2 -> Fin (v1 +. v2)
 ;;
 
 let wt_best w1 w2 = 
-    match w1 with | Ninf -> w2 | Fin v1 ->
-        match w2 with | Ninf -> w1 | Fin v2 -> Fin (max v1 v2)
+    match w1 with | Worst -> w2 | Fin v1 ->
+        match w2 with | Worst -> w1 | Fin v2 -> Fin (max v1 v2)
 ;;
 
 module V = struct
@@ -76,9 +76,9 @@ module SCCGraph = Imperative.Graph.Concrete(V2);;
 
 module Tests = struct
     module Knee1 = struct
-        let matrix = [| [| (Fin 0.0);     Ninf;      Ninf      |];
-                        [| (Fin (-14.0)); (Fin 3.0); Ninf      |];
-                        [| Ninf;          (Fin 0.0); (Fin 1.0) |] |]
+        let matrix = [| [| (Fin 0.0);     Worst;      Worst      |];
+                        [| (Fin (-14.0)); (Fin 3.0); Worst      |];
+                        [| Worst;          (Fin 0.0); (Fin 1.0) |] |]
     end;;
 end;;
 
@@ -86,7 +86,7 @@ let matrixToGraph matrix =
     let graph = MPGraph.create () in
     let add_edges_in_row i row =
         let add_edge j wt = 
-            match wt with | Ninf -> () | Fin fwt ->
+            match wt with | Worst -> () | Fin fwt ->
             MPGraph.add_edge_e graph (MPGraph.E.create i fwt j) in
         Array.iteri add_edge row in
     Array.iteri add_edges_in_row matrix
@@ -124,7 +124,7 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
         let fMap = Array.fold_left
             (fun fMap iVertex -> IntIntMap.add 
                 (0, iVertex)
-                (if (iVertex = startVertex) then (Fin 0.0) else Ninf) 
+                (if (iVertex = startVertex) then (Fin 0.0) else Worst) 
                 fMap) IntIntMap.empty vertices in
         (* Loop over the number of steps in a progression (Karp's "k") *)
         let rec findProgressions steps fMap =
@@ -142,7 +142,7 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
                                     (IntIntMap.find (steps-1, iVertex) fMap))
                             (predecessors jVertex)) in
 
-                        (List.fold_left wt_best Ninf candidates))
+                        (List.fold_left wt_best Worst candidates))
 
                     fMap) fMap vertices) in
             findProgressions (steps + 1) fMap in
@@ -154,7 +154,7 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
                 (* Worst weight among fMap paths... *)
 
                 )))
-            Ninf vertices in
+            Worst vertices in
         *)
         (* MORE CODE HERE let bestCycleMean = ... *)
         karpForSCC (iSCC + 1) bestCycleMean in
@@ -171,7 +171,7 @@ let createUpperBound graph =
             let iSCC = (mapVertexToSCC iVertex) in
             mapSCCToVertices.(iSCC) <- iVertex :: mapSCCToVertices.(iSCC)
     in makeVertexLists 0;
-    let criticalWeight = Array.make nSCCs Ninf in
+    let criticalWeight = Array.make nSCCs Worst in
     ()
 ;;
 
