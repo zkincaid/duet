@@ -160,8 +160,9 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
         let fMap = loopFromMToN 1 nVertices fMap (fun steps fMap ->
             (* For each number of steps, this is what we do for each vertex: *)
             let addVertexToFMap fMap vVertex = 
-                 IntIntMap.add (steps, vVertex) (* add the following value:  *)
+                 IntIntMap.add (steps, vVertex) (* Add the following value:  *)
                     (let candidates = (List.map
+                            (* Try adding one edge to the edge progresion:   *) 
                             (fun uVertex -> 
                                 wt_add 
                                    (Fin (edge_weight uVertex vVertex)) 
@@ -170,7 +171,7 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
 
                         (* Find the best extension of this edge progression: *)
                         (List.fold_left wt_best Worst candidates))
-                    fMap in (* add that to the map fMap                      *)
+                    fMap in (* Add that value to the map fMap                *)
 
             (* Loop over vVertex (the target vertex, Karp's "v"):            *)
             (List.fold_left addVertexToFMap fMap vertices)) in
