@@ -61,7 +61,7 @@ let wt_best w1 w2 =
 ;;*)
 
 let wt_print wt = 
-    match wt with | Worst -> (printf "NA") | Fin fwt -> (printf "%f" fwt)
+    match wt with | Worst -> (printf "NA") | Fin fwt -> (printf "%.1f" fwt)
 ;;
 
 module V = struct
@@ -315,13 +315,17 @@ let printMatrix matrix =
         let rowLength = (Array.length row) in 
         loopFromMToN 0 (rowLength - 1) () (fun iCol _ ->
             (wt_print row.(iCol));
-            if (iCol < rowLength - 1) then (printf ",") else ()
+            if (iCol < rowLength - 1) then (printf ",\t") else ()
         );
         (printf "]\n");
     )
 ;;
 
-let printResults slopes intercepts = 
+let doTest matrix = 
+    (printf "Input matrix:\n");
+    printMatrix matrix;
+    let graph = matrixToGraph matrix in
+    let (slopes,intercepts) = createUpperBound graph in
     (printf "Slopes:\n");
     printMatrix slopes;
     (printf "Intercepts:\n");
@@ -330,9 +334,8 @@ let printResults slopes intercepts =
 ;;
 
 let _ = 
-    let graph = matrixToGraph Tests.Knee1.matrix in
-    let (slopes,intercepts) = createUpperBound graph in
-    printResults slopes intercepts
+    doTest Tests.Knee1.matrix;
+    ()
 ;;
 
 (*
