@@ -78,7 +78,19 @@ end;;
 
 module SCCGraph = Imperative.Graph.Concrete(V2);;
 
+let loopZeroToN n init f = 
+    let rec loopZeroToNAux x i =
+        if (i > n) then x else
+        loopZeroToNAux (f x i) (i + 1) in
+    loopZeroToNAux init 0
+;;
+
+(*
+let condensation graph nSCCs mapVertexToSCC mapSCCToVertices = 
+    let initialGraph = SCCGraph.create () in
+    let rec loopOverSCCs = 
 (* module MPGraph = Graph.Pack.Digraph;; *)
+*)
 
 module Tests = struct
     module Knee1 = struct
@@ -204,7 +216,10 @@ let createUpperBound graph =
             let iSCC = (mapVertexToSCC uVertex) in
             mapSCCToVertices.(iSCC) <- uVertex :: mapSCCToVertices.(iSCC)
     in makeVertexLists 0;
+(*    let bestCycleMean = 
+        karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices in *)
     let criticalWeight = Array.make nSCCs Worst in
+
     ()
 ;;
 
