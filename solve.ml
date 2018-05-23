@@ -150,11 +150,28 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
             findProgressions (steps + 1) fMap in
         let fMap = findProgressions 1 fMap in
 
+        (* The heart of Karp's algorithm: *)
         let iSCCBestCycleMean = (Array.fold_left (fun wt vVertex->
-            wt_add wt (
+            (* The best, over all vertices (vVertex) ... *)
+            wt_best wt (
               match (IntIntMap.find (nVertices, vVertex) fMap) with 
               | Worst -> Worst
-              | Fin uWt -> Worst
+              | Fin fnv -> 
+                (* The worst, over all numbers of steps (steps) ... *)
+                (*                                                  *)
+                (* First, we scan over all numbers of steps         *)
+                let rec scanOverSteps steps pairs = 
+                    if (steps >= nVertices) then pairs else
+                    (* Karp's F_k(v) *)
+                    let fkv = (IntIntMap.find (nVertices, vVertex) fMap) in
+                    let pairs = match fkv with 
+                                (* Ignore the F_k(v) for this k if *)
+                                (*    this F_k(v) is infinite.     *)
+                                | Worst -> pairs
+                                | Fin fin_fkv -> (steps, fin_fkv) :: pairs in
+                    scanOverSteps (steps + 1) pairs
+                in let pairs = (scanOverSteps 0 []) in
+                Worst
               (*
               wt_best wt (List.fold_left (fun wt kSteps ->
 
