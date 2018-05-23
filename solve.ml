@@ -106,11 +106,11 @@ module IntIntMap = Map.Make(struct type t = int * int let compare = compare end)
 (*   We could use a faster alternative if time complexity becomes a concern. *)
 let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
     (* Edges between SCCs are irrelevant, so we filter them out: *)
-    let predecessors i =
-        let unfiltered = MPGraph.pred graph i in
-        List.filter (fun j -> ((mapVertexToSCC i) = (mapVertexToSCC j)))
+    let predecessors v =
+        let unfiltered = MPGraph.pred graph v in
+        List.filter (fun u -> ((mapVertexToSCC u) = (mapVertexToSCC v)))
                     unfiltered in
-    let edge_weight i j = MPGraph.E.label (MPGraph.find_edge graph i j) in
+    let edge_weight u v = MPGraph.E.label (MPGraph.find_edge graph u v) in
     (* Loop over iSCC:, the SCC index *)
     let rec karpForSCC iSCC bestCycleMean =
         (* We run Karp's algorithm on one SCC, the one having number iSCC   *)
