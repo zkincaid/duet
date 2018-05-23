@@ -122,7 +122,8 @@ let matrixToGraph matrix =
             match wt with | Worst -> () | Fin fwt ->
             MPGraph.add_edge_e graph (MPGraph.E.create i fwt j) in
         Array.iteri add_edge row in
-    Array.iteri add_edges_in_row matrix
+    Array.iteri add_edges_in_row matrix;
+    graph
 ;;
 
 module MPComponents = Graph.Components.Make(MPGraph);;
@@ -298,6 +299,11 @@ let createUpperBound graph =
         computeIntercepts graph slopes in
     (slopes, intercepts)
 ;;
+
+let _ = 
+    let graph = matrixToGraph Tests.Knee1.matrix in
+    let (slopes,intercepts) = createUpperBound graph in
+    ()
 
 (*
 let createUpperBound () = 
