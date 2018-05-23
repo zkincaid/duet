@@ -201,7 +201,7 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
                     (fwt_sub fnv fkv) /. (float_of_int (nVertices - steps)) in
                 (* We'll initialize our fold with a finite fkv               *)
                 let firstCycleMean = cycleMean steps fnv fkv in
-                (* Here we specify that we want the worst:                   *)
+                (* Here we specify that we want the worst, using a fold:     *)
                 let foldHelper1 fwt (steps, fkv) = 
                     fwt_worst fwt (cycleMean steps fnv fkv) in
                 (* Worst cycle mean among progressions ending at vVertex:    *)
