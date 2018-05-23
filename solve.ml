@@ -315,7 +315,7 @@ let printMatrix matrix =
         let rowLength = (Array.length row) in 
         loopFromMToN 0 (rowLength - 1) () (fun iCol _ ->
             (wt_print row.(iCol));
-            if (iCol < rowLength - 1) then (printf ",\t") else ()
+            if (iCol < rowLength - 1) then (printf "\t") else ()
         );
         (printf "]\n");
     )
