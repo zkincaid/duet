@@ -174,7 +174,7 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
             (Array.fold_left addVertexToFMap fMap vertices)) in
 
         (* The heart of Karp's algorithm: *)
-        let iSCCBestCycleMean = (Array.fold_left (fun wt vVertex->
+        let iSCCBestCycleMean = (Array.fold_left (fun wt vVertex ->
             (* The best, over all vertices (vVertex) ... *)
             wt_best wt (
               match (IntIntMap.find (nVertices, vVertex) fMap) with 
@@ -185,11 +185,9 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
                 (* First, we scan over all numbers of steps k;              *)
                 (*   we filter out infinite F_k(v) values.                  *)
                 let pairs = loopFromMToN 0 (nVertices - 1) [] (fun steps pairs ->
-                    (* Karp's F_k(v) *)
-                    let fkv = (IntIntMap.find (nVertices, vVertex) fMap) in
-                    match fkv with 
-                    (* Ignore the F_k(v) for this k if this F_k(v) is       *)
-                    (*    infinite.                                         *)
+                    (* Look up Karp's F_k(v).                               *)
+                    match (IntIntMap.find (nVertices, vVertex) fMap) with 
+                    (* Ignore F_k(v) if it's infinite.                      *)
                     | Worst -> pairs
                     | Fin fin_fkv -> (steps, fin_fkv) :: pairs) in
                 (* Now scan over pairs (steps, fkv) having finite fkv       *)
