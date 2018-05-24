@@ -369,7 +369,7 @@ let createUpperBound graph =
         mapSCCToVertices.(iSCC) <- uVertex :: mapSCCToVertices.(iSCC));
     let criticalWeight = 
         karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices in 
-    let _ = printCriticalWeights criticalWeight mapSCCToVertices in 
+    (*let _ = printCriticalWeights criticalWeight mapSCCToVertices in *)
     let slopes = 
         computeSlopes graph nSCCs mapVertexToSCC mapSCCToVertices criticalWeight in
     let intercepts = 
