@@ -1755,7 +1755,7 @@ let abstract ?exists:(p=fun x -> true) ?(subterm=fun x -> true) srk phi =
   let phi = SrkSimplify.simplify_terms srk phi in
   logf "Abstracting formula@\n%a"
     (Formula.pp srk) phi;
-  let solver = Smt.mk_solver ~theory:"QF_UFLRA" srk in
+  let solver = Smt.mk_solver ~theory:"QF_LIRA" srk in
   let uninterp_phi =
     rewrite srk
       ~down:(nnf_rewriter srk)

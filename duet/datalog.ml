@@ -101,7 +101,6 @@ class monolithicSolver dir name  =
           f (List.map int_of_string (BatString.nsplit x " "))
         done
       with End_of_file -> close_in chan
-         | Failure "int_of_string" -> assert false
 
     (** Pretty print a tuples file, and store it in relation.tuples.pretty *)
     method pretty_tuples (fs : (int -> string) list) relation =
