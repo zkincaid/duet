@@ -88,7 +88,7 @@ module SCCGraph = Imperative.Digraph.Concrete(V2);;
 
 (* Because Karp's algorithm uses a lot of data structures involving
  *   arrays starting at zero, I use the following imperative construct: 
- * This loops setting i from m (inclusive) up to n (inclusive). *)
+ * We repeat f, setting i from m (inclusive) up to n (inclusive). *)
 let loopFromMToN m n init f = 
     let inc = if (n >= m) then 1 else -1 in
     let test = if (n >= m) then (fun i -> i > n) else (fun i -> i < n) in
