@@ -128,7 +128,6 @@ let tests = [
      [| na;        (d 0); (d 1) |] 
     |] };
 
-
     {name="knee-2b"; matrix=[| 
      [| (d 5); na;    na;    na;    na;    na     |];
      [| (d 0); (d 0); na;    na;    na;    na     |];
@@ -136,6 +135,33 @@ let tests = [
      [| na;    na;    (d 0); (d 0); na;    na     |];
      [| na;    na;    na;    (d 0); (d 0); na     |];
      [| na;    na;    na;    na;    (d 0); (d 1); |];
+    |] };
+
+    {name="zigzag-2b"; matrix=[| 
+     [| na;    na;    na;    (d 7)  |];
+     [| (d 0); na;    na;    na     |];
+     [| na;    (d 0); na;    na     |];
+     [| na;    na;    (d 1); na     |];
+    |] };
+
+    {name="zigzag-3"; matrix=[| 
+     [| na;       na;       na;        (d (-3)) |];
+     [| (d (-1)); na;       na;        na       |];
+     [| na;       (d (-1)); na;        na       |];
+     [| na;       na;       (d (-15)); na       |];
+    |] };
+
+    {name="zigzag-4"; matrix=[| 
+     [| na;    (d (-1)); |];
+     [| (d 1); na;       |];
+    |] };
+
+    {name="knee-5"; matrix=[| 
+     [| na;    (d 2); na;    na;     na;    |];
+     [| (d 0); na;    na;    na;     na;    |];
+     [| na;    na;    na;    (d 10); na;    |];
+     [| na;    na;    (d 0); na;     na;    |];
+     [| (d 0); na;    na;    (d 0);  na;    |];
     |] };
 
 ];;
