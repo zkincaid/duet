@@ -345,11 +345,13 @@ let computeIntercepts graph slopes =
                     | Worst -> ()
                     | Fin slope ->
                         if (not (MPGraph.mem_edge graph iTo iFrom)) then ()
-                        else let edge = MPGraph.E.label 
+                        else let edgeLabel = MPGraph.E.label 
                                 (MPGraph.find_edge graph iTo iFrom) in
                             intercepts.(iTo).(iInput) <-
-                                wt_add intercepts.(iTo).(iInput)
-                                    (Fin (fwt_sub edge slope))
+                                wt_best intercepts.(iTo).(iInput)
+                                    (wt_add intercepts.(iFrom).(iInput)
+                                        (Fin (fwt_sub edgeLabel 
+                                                      slope)))
 
                 );
             );
