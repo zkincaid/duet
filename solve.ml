@@ -1,4 +1,4 @@
-(* Solve a max-plus recurrence *)
+(* Siolve a max-plus recurrence *)
 
 open Graph;;
 
@@ -36,7 +36,7 @@ open Printf;;
  *)
 
 type fweight = float;;  (* Finite weight. *) 
-(* These are integers for now, but eventually we'll use GMP rationals *)
+(* These are floats for now, but eventually we'll use GMP rationals *)
 
 (* For easy dualization, I'm putting all maxes and mins in terms of best and worst *)
 let fwt_best x y = max x y;;
@@ -56,13 +56,11 @@ let wt_best w1 w2 =
         match w2 with | Worst -> w1 | Fin v2 -> Fin (fwt_best v1 v2)
 ;;
 
-(*let wt_sub_fwt w1 fw2 =
-    match w1 with | Worst -> Worst | Fin v1 -> Fin (fwt_sub v1 fw2)
-;;*)
-
-let wt_print wt = 
-    match wt with | Worst -> (printf "NA") | Fin fwt -> (printf "%.1f" fwt)
+let wt_sprintf wt = 
+    match wt with | Worst -> (sprintf "NA") | Fin fwt -> (sprintf "%.1f" fwt)
 ;;
+
+let wt_print wt = print_string (wt_sprintf wt);;
 
 module V = struct
   type t = int (* vertex number *)
@@ -92,9 +90,11 @@ module SCCGraph = Imperative.Digraph.Concrete(V2);;
  *   arrays starting at zero, I use the following imperative construct: 
  * This loops setting i from m (inclusive) up to n (inclusive). *)
 let loopFromMToN m n init f = 
+    let inc = if (n >= m) then 1 else -1 in
+    let test = if (n >= m) then (fun i -> i > n) else (fun i -> i < n) in
     let rec loopFromMToNAux i x =
-        if (i > n) then x else
-        loopFromMToNAux (i + 1) (f i x) in
+        if (test i) then x else
+        loopFromMToNAux (i + inc) (f i x) in
     loopFromMToNAux m init
 ;;
 (* Usage:
@@ -181,6 +181,49 @@ let printCriticalWeights criticalWeight mapSCCToVertices =
          wt_print wt;
          printf "\n") in
     IntMap.iter printACriticalWeight criticalWeight
+;;
+
+let rec spaces i = if i <= 0 then "" else " "^(spaces (i-1))
+;;
+
+let alphabet = ["a"; "b"; "c"; "d"; "e"; "f"; "g"; "h"; "i"; "j"; "k"; "l"; "m";
+                "n"; "o"; "p"; "q"; "r"; "s"; "t"; "u"; "v"; "w"; "x"; "y"; "z"]
+;;
+
+let printUpperBound ?(variableNames=alphabet) slopes intercepts =
+    let getVarName i =
+        if (i < List.length variableNames) then List.nth variableNames i
+        else "var("^(string_of_int i)^")" in
+    let nVariables = Array.length slopes in
+    let slopeString uVar vVar = 
+        let slope = slopes.(uVar).(vVar) in
+        match slope with 
+        | Worst -> (false,"") 
+        | Fin 0.0 -> (true,"")
+        | Fin fwt -> (true,(sprintf " + (K * %s)" (wt_sprintf slope))) in
+    let interceptString uVar vVar = 
+        let intercept = intercepts.(uVar).(vVar) in
+        match intercept with 
+        | Worst -> (false,"") 
+        | Fin 0.0 -> (true,"")
+        | Fin fwt -> (true,(sprintf " + %s" (wt_sprintf intercept))) in 
+    loopFromMToN 0 (nVariables - 1) () (fun uVar _ ->
+        let header = (sprintf "%s[K] <= " (getVarName uVar)) in
+        let prefix = spaces (4 + (String.length header)) in
+        (print_string header);
+        let subterms = loopFromMToN (nVariables - 1) 0 [] (fun vVar subterms ->
+            let (bSlope, sSlope) = slopeString uVar vVar in
+            let (bIntercept, sIntercept) = interceptString uVar vVar in
+            if (not bSlope || not bIntercept) then subterms else
+            let s = (sprintf "%s[0]%s%s" (getVarName vVar) sSlope sIntercept)
+            in s :: subterms) in
+        match subterms with 
+        | [] -> printf "No bound\n"
+        | str :: tail ->
+            if ((List.length tail) = 0) then (printf "%s\n" str)
+            else (printf "max(%s" str;
+                  List.iter (fun str -> printf ",\n%s%s" prefix str) tail;
+                  printf ")\n"))
 ;;
 
 (*
@@ -382,11 +425,16 @@ let doTest matrix =
     printMatrix matrix;
     let graph = matrixToGraph matrix in
     let (slopes,intercepts) = createUpperBound graph in
+    (*
     (printf "Slopes:\n");
     printMatrix slopes;
     (printf "Intercepts:\n");
     printMatrix intercepts;
     (printf "\n")
+    *)
+    printf "Upper bound:\n";
+    printUpperBound ~variableNames:alphabet slopes intercepts;
+    ()
 ;;
 
 let _ = 
