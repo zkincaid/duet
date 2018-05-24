@@ -113,13 +113,18 @@ let condense graph mapVertexToSCC =
     condensation
 ;;
 
-module Tests = struct
-    module Knee1 = struct
-        let matrix = [| [| (Fin 0.0);     Worst;     Worst     |];
-                        [| (Fin (-14.0)); (Fin 3.0); Worst     |];
-                        [| Worst;         (Fin 0.0); (Fin 1.0) |] |]
-    end;;
-end;;
+type mpTest = {
+    name : string;
+    matrix : weight array array;
+};;
+
+let tests = [
+    {name="knee-1"; matrix=[| 
+     [| (Fin 0.0);     Worst;     Worst     |];
+     [| (Fin (-14.0)); (Fin 3.0); Worst     |];
+     [| Worst;         (Fin 0.0); (Fin 1.0) |] 
+    |] };
+];;
 
 let matrixToGraph matrix = 
     let graph = MPGraph.create () in
@@ -139,7 +144,7 @@ module IntIntMap = Map.Make(struct type t = int * int let compare = compare end)
 
 let printMatrix matrix =
     loopFromMToN 0 ((Array.length matrix) - 1) () (fun iRow _ ->
-        (printf "[");
+        (printf "    [");
         let row = matrix.(iRow) in
         let rowLength = (Array.length row) in 
         loopFromMToN 0 (rowLength - 1) () (fun iCol _ ->
@@ -191,6 +196,7 @@ let alphabet = ["a"; "b"; "c"; "d"; "e"; "f"; "g"; "h"; "i"; "j"; "k"; "l"; "m";
 ;;
 
 let printUpperBound ?(variableNames=alphabet) slopes intercepts =
+    let globalPrefix = "    " in
     let getVarName i =
         if (i < List.length variableNames) then List.nth variableNames i
         else "var("^(string_of_int i)^")" in
@@ -208,8 +214,8 @@ let printUpperBound ?(variableNames=alphabet) slopes intercepts =
         | Fin 0.0 -> (true,"")
         | Fin fwt -> (true,(sprintf " + %s" (wt_sprintf intercept))) in 
     loopFromMToN 0 (nVariables - 1) () (fun uVar _ ->
-        let header = (sprintf "%s[K] <= " (getVarName uVar)) in
-        let prefix = spaces (4 + (String.length header)) in
+        let header = (sprintf "%s%s[K] <= " globalPrefix (getVarName uVar)) in
+        let prefix = (spaces (4 + (String.length header))) in
         (print_string header);
         let subterms = loopFromMToN (nVariables - 1) 0 [] (fun vVar subterms ->
             let (bSlope, sSlope) = slopeString uVar vVar in
@@ -421,7 +427,7 @@ let createUpperBound graph =
 ;;
 
 let doTest matrix = 
-    (printf "Input matrix:\n");
+    (printf "  Input matrix:\n");
     printMatrix matrix;
     let graph = matrixToGraph matrix in
     let (slopes,intercepts) = createUpperBound graph in
@@ -432,14 +438,15 @@ let doTest matrix =
     printMatrix intercepts;
     (printf "\n")
     *)
-    printf "Upper bound:\n";
+    printf "  Upper bound:\n";
     printUpperBound ~variableNames:alphabet slopes intercepts;
     ()
 ;;
 
 let _ = 
-    doTest Tests.Knee1.matrix;
-    ()
+    List.iter (fun test ->
+        printf "**** TEST %s****\n" test.name; doTest test.matrix; printf "\n") 
+        tests
 ;;
 
 (*
