@@ -137,6 +137,64 @@ module SCCOper = Graph.Oper.I(SCCGraph);;
 module IntMap = Map.Make(struct type t = int let compare = compare end);;
 module IntIntMap = Map.Make(struct type t = int * int let compare = compare end);;
 
+let printMatrix matrix =
+    loopFromMToN 0 ((Array.length matrix) - 1) () (fun iRow _ ->
+        (printf "[");
+        let row = matrix.(iRow) in
+        let rowLength = (Array.length row) in 
+        loopFromMToN 0 (rowLength - 1) () (fun iCol _ ->
+            (wt_print row.(iCol));
+            if (iCol < rowLength - 1) then (printf "\t") else ()
+        );
+        (printf "]\n")
+    )
+;;
+
+let rec printIntList intList = 
+    match intList with | [] -> () | i :: rest ->
+        (printf "%d " i; printIntList rest)
+;;
+
+let rec printIntFloatPairList theList = 
+    match theList with | [] -> () | (i,f) :: rest ->
+        (printf "(%d,%f) " i f; printIntFloatPairList rest)
+;;
+
+let rec printFMapEntries fMap iVertex = 
+    let rec printFMapEntriesForOneVertex fMap iVertex steps = 
+        if not (IntIntMap.mem (steps, iVertex) fMap) then () else 
+         (wt_print (IntIntMap.find (steps, iVertex) fMap);
+          printf " "; 
+          printFMapEntriesForOneVertex fMap iVertex (steps + 1)) in
+    if not (IntIntMap.mem (0, iVertex) fMap) then () else 
+        (printf "Vertex %d has the sequence [ " iVertex;
+         printFMapEntriesForOneVertex fMap iVertex 0;
+         printf "]\n";
+         printFMapEntries fMap (iVertex + 1))
+;;
+
+let printCriticalWeights criticalWeight mapSCCToVertices = 
+    let printACriticalWeight iSCC wt = 
+        (printf "SCC %d is [ " iSCC; 
+         printIntList mapSCCToVertices.(iSCC); 
+         printf "] and its critical weight is ";
+         wt_print wt;
+         printf "\n") in
+    IntMap.iter printACriticalWeight criticalWeight
+;;
+
+(*
+let printFMap iSCC fMap = 
+    let printOneFMapEntry ( wt = 
+        (printf "FMap entry for SCC %d is:\n" iSCC;
+         printVertexList mapSCCToVertices.(iSCC);
+         printf "] and its critical weight is ";
+         wt_print wt;
+         printf "\n") in
+    IntMap.iter printOneFMapEntry fMap
+;;
+*)
+
 (* Usage:
      let myResult = loopZeroToN n initial (fun i accum ->
            (* compute new accum here using i and accum *)
@@ -171,7 +229,7 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
                 (if (uVertex = startVertex) then (Fin 0.0) else Worst) 
                 fMap) IntIntMap.empty vertices in
         (* Now, we will compute fMap (Karp's F_k(v)) using a recurrence.     *)
-        (* Loop over the number of steps in a progression (Karp's "k"):      *)
+        (* Loop over the number of steps (Karp's "k") in a progression:      *)
         let fMap = loopFromMToN 1 nVertices fMap (fun steps fMap ->
             (* For each number of steps, this is what we do for each vertex: *)
             let addVertexToFMap fMap vVertex = 
@@ -191,6 +249,8 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
             (* Loop over vVertex (the target vertex, Karp's "v"):            *)
             (List.fold_left addVertexToFMap fMap vertices)) in
 
+        (*let _ = (printFMapEntries fMap startVertex) in*)
+        
         (* The heart of Karp's algorithm: *)
         (* For any given vVertex, this function computes a cycle mean for a  *)
         (*   cycle that forms part of an edge sequence ending at vVertex     *)
@@ -205,20 +265,26 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
               (*   we filter out infinite F_k(v) values.                     *)
               let pairs = loopFromMToN 0 (nVertices - 1) [] (fun steps pairs ->
                   (* Look up Karp's F_k(v).                                  *)
-                  match (IntIntMap.find (nVertices, vVertex) fMap) with 
+                  match (IntIntMap.find (steps, vVertex) fMap) with 
                   (* Ignore F_k(v) if it's infinite.                         *)
                   | Worst -> pairs
                   | Fin fkv -> (steps, fkv) :: pairs) in
+
+              (*let _ = (printIntFloatPairList pairs; printf "\n") in*)
+
               (* Now scan over pairs (steps, fkv) having finite fkv          *)
               match pairs with 
               (* There had better be at least one finite fkv...              *)
               | [] -> failwith "Failure in Karp's algorithm"
               | (steps, fkv) :: tail ->
+                (*let _ = (printf "Now fnv is %f\n" fnv) in*)
+                (*let _ = (printf "And fkv is %f\n" fkv) in*)
                 (* Compute a cycle mean: (F_n(v) - F_k(v)) / (n - k)         *)
                 let cycleMean steps fnv fkv = 
                     (fwt_sub fnv fkv) /. (float_of_int (nVertices - steps)) in
                 (* We'll initialize our fold with a finite fkv               *)
                 let firstCycleMean = cycleMean steps fnv fkv in
+                (*let _ = (printf "First cycle mean is %f\n" firstCycleMean) in*)
                 (* Here we specify that we want the worst, using a fold:     *)
                 let foldHelper1 fwt (steps, fkv) = 
                     fwt_worst fwt (cycleMean steps fnv fkv) in
@@ -301,24 +367,12 @@ let createUpperBound graph =
         mapSCCToVertices.(iSCC) <- uVertex :: mapSCCToVertices.(iSCC));
     let criticalWeight = 
         karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices in 
+    let _ = printCriticalWeights criticalWeight mapSCCToVertices in 
     let slopes = 
         computeSlopes graph nSCCs mapVertexToSCC mapSCCToVertices criticalWeight in
     let intercepts = 
         computeIntercepts graph slopes in
     (slopes, intercepts)
-;;
-
-let printMatrix matrix =
-    loopFromMToN 0 ((Array.length matrix) - 1) () (fun iRow _ ->
-        (printf "[");
-        let row = matrix.(iRow) in
-        let rowLength = (Array.length row) in 
-        loopFromMToN 0 (rowLength - 1) () (fun iCol _ ->
-            (wt_print row.(iCol));
-            if (iCol < rowLength - 1) then (printf "\t") else ()
-        );
-        (printf "]\n");
-    )
 ;;
 
 let doTest matrix = 
