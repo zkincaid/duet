@@ -118,12 +118,26 @@ type mpTest = {
     matrix : weight array array;
 };;
 
+let na = Worst;;
+let d fwt = Fin (float_of_int fwt);;
 let tests = [
+
     {name="knee-1"; matrix=[| 
-     [| (Fin 0.0);     Worst;     Worst     |];
-     [| (Fin (-14.0)); (Fin 3.0); Worst     |];
-     [| Worst;         (Fin 0.0); (Fin 1.0) |] 
+     [| (d 0);     na;    na    |];
+     [| (d (-14)); (d 3); na    |];
+     [| na;        (d 0); (d 1) |] 
     |] };
+
+
+    {name="knee-2b"; matrix=[| 
+     [| (d 5); na;    na;    na;    na;    na     |];
+     [| (d 0); (d 0); na;    na;    na;    na     |];
+     [| na;    (d 0); (d 0); na;    na;    na     |];
+     [| na;    na;    (d 0); (d 0); na;    na     |];
+     [| na;    na;    na;    (d 0); (d 0); na     |];
+     [| na;    na;    na;    na;    (d 0); (d 1); |];
+    |] };
+
 ];;
 
 let matrixToGraph matrix = 
@@ -144,14 +158,14 @@ module IntIntMap = Map.Make(struct type t = int * int let compare = compare end)
 
 let printMatrix matrix =
     loopFromMToN 0 ((Array.length matrix) - 1) () (fun iRow _ ->
-        (printf "    [");
+        (printf "    [ ");
         let row = matrix.(iRow) in
         let rowLength = (Array.length row) in 
         loopFromMToN 0 (rowLength - 1) () (fun iCol _ ->
             (wt_print row.(iCol));
             if (iCol < rowLength - 1) then (printf "\t") else ()
         );
-        (printf "]\n")
+        (printf " ]\n")
     )
 ;;
 
