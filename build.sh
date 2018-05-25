@@ -1,3 +1,3 @@
 #!/bin/bash
-ocamlbuild solve.cmx -package ocamlgraph
-ocamlbuild solve.native -package ocamlgraph
+ocamlbuild solve.cmx -package ocamlgraph -package gmp
+ocamlbuild solve.native -package ocamlgraph -package gmp

@@ -8,20 +8,18 @@ open Printf;;
 type fweight = float;;  (* Finite weight. *) 
 
 (* For easy dualization, I'm putting all maxes and mins in terms of best and worst *)
+let fwt_add x y = x +. y;;
+let fwt_sub x y = x -. y;;
 let fwt_best x y = max x y;;
 let fwt_worst x y = min x y;;
-
-let fwt_sub fw1 fw2 = fw1 -. fw2;;
-
 let fwt_from_int i = float_of_int i;;
-
 let fwt_default = 0.0;;
 
 type weight = Worst | Fin of fweight;;
 
 let wt_add w1 w2 = 
     match w1 with | Worst -> Worst | Fin v1 ->
-        match w2 with | Worst -> Worst | Fin v2 -> Fin (v1 +. v2)
+        match w2 with | Worst -> Worst | Fin v2 -> Fin (fwt_add v1 v2)
 ;;
 
 let wt_best w1 w2 = 
@@ -494,5 +492,6 @@ let doTest matrix =
 let _ = 
     List.iter (fun test ->
         printf "**** TEST %s****\n" test.name; doTest test.matrix; printf "\n") 
-        tests
+        tests;
+    (printf "**** ALL TESTS COMPLETE\n")
 ;;
