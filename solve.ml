@@ -13,6 +13,10 @@ let fwt_worst x y = min x y;;
 
 let fwt_sub fw1 fw2 = fw1 -. fw2;;
 
+let fwt_from_int i = float_of_int i;;
+
+let fwt_default = 0.0;;
+
 type weight = Worst | Fin of fweight;;
 
 let wt_add w1 w2 = 
@@ -40,7 +44,7 @@ end;;
 module E = struct
   type t = fweight
   let compare = Pervasives.compare
-  let default = 0.0
+  let default = fwt_default
 end;;
 
 (* Max-plus recurrence graph *)
@@ -89,7 +93,7 @@ type mpTest = {
 };;
 
 let na = Worst;;
-let d fwt = Fin (float_of_int fwt);;
+let d fwt = Fin (fwt_from_int fwt);;
 let tests = [
 
     {name="knee-1"; matrix=[| 
