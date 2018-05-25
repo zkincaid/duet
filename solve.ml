@@ -125,7 +125,7 @@ let tests = [
     {name="knee-1"; matrix=[| 
      [| (d 0);     na;    na    |];
      [| (d (-14)); (d 3); na    |];
-     [| na;        (d 0); (d 1) |] 
+     [| na;        (d 0); (d 1) |];
     |] };
 
     {name="knee-2b"; matrix=[| 
@@ -162,6 +162,28 @@ let tests = [
      [| na;    na;    na;    (d 10); na;    |];
      [| na;    na;    (d 0); na;     na;    |];
      [| (d 0); na;    na;    (d 0);  na;    |];
+    |] };
+
+    {name="cornercases-onevar"; matrix=[| 
+     [| (d 5)|];
+    |] };
+
+    {name="cornercases-all-infinite-1"; matrix=[| 
+     [| na;        na;    na    |];
+     [| (d 0);     na;    na    |];
+     [| (d (-14)); (d 3); na    |];
+    |] };
+
+    {name="cornercases-all-infinite-2"; matrix=[| 
+     [| (d 0);     na;    na    |];
+     [| na;        na;    na    |];
+     [| (d (-14)); (d 3); na    |];
+    |] };
+
+    {name="cornercases-all-infinite-3"; matrix=[| 
+     [| (d 0);     na;    na    |];
+     [| (d (-14)); (d 3); na    |];
+     [| na;        na;    na    |];
     |] };
 
 ];;
