@@ -166,8 +166,8 @@ let tests = [
      [| (d 0); na;    na;    (d 0);  na;    |];
     |] };
 
-(*    {name="cornercases-zerovars"; matrix=[| 
-    |] };*)
+    {name="cornercases-zerovars"; matrix=[| 
+    |] };
 
     {name="cornercases-onevar"; matrix=[| 
      [| (d 5)|];
