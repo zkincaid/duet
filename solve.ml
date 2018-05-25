@@ -89,12 +89,12 @@ module SCCGraph = Imperative.Digraph.Concrete(V2);;
 (* Because Karp's algorithm uses a lot of data structures involving
  *   arrays starting at zero, I use the following imperative construct: 
  * We repeat f, setting i from m (inclusive) up to n (inclusive). *)
-let loopFromMToN m n init f = 
-    let inc = if (n >= m) then 1 else -1 in
-    let test = if (n >= m) then (fun i -> i > n) else (fun i -> i < n) in
+let loopFromMToN m n ?(increment=1) init f = 
+(*    let inc = if (n >= m) then 1 else -1 in *)
+    let test = if (increment > 0) then (fun i -> i > n) else (fun i -> i < n) in
     let rec loopFromMToNAux i x =
         if (test i) then x else
-        loopFromMToNAux (i + inc) (f i x) in
+        loopFromMToNAux (i + increment) (f i x) in
     loopFromMToNAux m init
 ;;
 (* Usage:
@@ -103,8 +103,10 @@ let loopFromMToN m n init f =
          ) in
 *)
 
-let condense graph mapVertexToSCC = 
+let condense graph nSCCs mapVertexToSCC = 
     let condensation = SCCGraph.create () in
+    loopFromMToN 0 (nSCCs - 1) () (fun iSCC _ -> 
+        SCCGraph.add_vertex condensation iSCC);
     let doEdge e = 
         let srcSCC = mapVertexToSCC (MPGraph.E.src e) in 
         let dstSCC = mapVertexToSCC (MPGraph.E.dst e) in 
@@ -164,8 +166,15 @@ let tests = [
      [| (d 0); na;    na;    (d 0);  na;    |];
     |] };
 
+(*    {name="cornercases-zerovars"; matrix=[| 
+    |] };*)
+
     {name="cornercases-onevar"; matrix=[| 
      [| (d 5)|];
+    |] };
+
+    {name="cornercases-onevar-all-infinite"; matrix=[| 
+     [| na |];
     |] };
 
     {name="cornercases-all-infinite-1"; matrix=[| 
@@ -190,6 +199,7 @@ let tests = [
 
 let matrixToGraph matrix = 
     let graph = MPGraph.create () in
+    Array.iteri (fun iVar row -> MPGraph.add_vertex graph iVar) matrix;
     let add_edges_in_row i row =
         let add_edge j wt = 
             match wt with | Worst -> () | Fin fwt ->
@@ -205,7 +215,9 @@ module IntMap = Map.Make(struct type t = int let compare = compare end);;
 module IntIntMap = Map.Make(struct type t = int * int let compare = compare end);;
 
 let printMatrix matrix =
-    loopFromMToN 0 ((Array.length matrix) - 1) () (fun iRow _ ->
+    let nRows = Array.length matrix in 
+    if nRows = 0 then () else
+    loopFromMToN 0 (nRows - 1) () (fun iRow _ ->
         (printf "    [ ");
         let row = matrix.(iRow) in
         let rowLength = (Array.length row) in 
@@ -279,7 +291,7 @@ let printUpperBound ?(variableNames=alphabet) slopes intercepts =
         let header = (sprintf "%s%s[K] <= " globalPrefix (getVarName uVar)) in
         let prefix = (spaces (4 + (String.length header))) in
         (print_string header);
-        let subterms = loopFromMToN (nVariables - 1) 0 [] (fun vVar subterms ->
+        let subterms = loopFromMToN (nVariables - 1) 0 ~increment:(-1) [] (fun vVar subterms ->
             let (bSlope, sSlope) = slopeString uVar vVar in
             let (bIntercept, sIntercept) = interceptString uVar vVar in
             if (not bSlope || not bIntercept) then subterms else
@@ -414,7 +426,7 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
 
 let computeSlopes graph nSCCs mapVertexToSCC mapSCCToVertices criticalWeight = 
     let nVertices = MPGraph.nb_vertex graph in
-    let condensation = condense graph mapVertexToSCC in
+    let condensation = condense graph nSCCs mapVertexToSCC in
     let transCondensation = SCCOper.transitive_closure condensation ~reflexive:true in
     (* Initialize bounding slopes *)
     let slopes = Array.make_matrix nVertices nVertices Worst in
@@ -471,16 +483,27 @@ let computeIntercepts graph slopes =
     intercepts
 ;;
 
+let computeInverseVertexMap nSCCs nVertices mapVertexToSCC = 
+    let mapSCCToVertices = Array.make nSCCs [] in
+    let _ = printf "Got just before reverser loop\n" in
+    loopFromMToN 0 (nVertices - 1) () (fun uVertex _ ->
+        let _ = printf "Got just inside the loop\n" in
+        let iSCC = (mapVertexToSCC uVertex) in
+        let _ = printf "Got inside the loop\n" in
+        mapSCCToVertices.(iSCC) <- uVertex :: mapSCCToVertices.(iSCC));
+    mapSCCToVertices
+;;
+
 let createUpperBound graph = 
     let nVertices = MPGraph.nb_vertex graph in
     let (nSCCs, mapVertexToSCC) = (MPComponents.scc graph) in
-    let mapSCCToVertices = Array.make nSCCs [] in
-    loopFromMToN 0 (nVertices - 1) () (fun uVertex _ ->
-        let iSCC = (mapVertexToSCC uVertex) in
-        mapSCCToVertices.(iSCC) <- uVertex :: mapSCCToVertices.(iSCC));
+    let _ = printf "Got just past making SCCs\n" in
+    let mapSCCToVertices = computeInverseVertexMap nSCCs nVertices mapVertexToSCC in
+    let _ = printf "Got just before Karp's\n" in
     let criticalWeight = 
         karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices in 
-    (*let _ = printCriticalWeights criticalWeight mapSCCToVertices in *)
+    (*let _ = printCriticalWeights criticalWeight mapSCCToVertices in*)
+    let _ = printf "Got past Karp's\n" in
     let slopes = 
         computeSlopes graph nSCCs mapVertexToSCC mapSCCToVertices criticalWeight in
     let intercepts = 
