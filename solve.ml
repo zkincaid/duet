@@ -449,11 +449,8 @@ let computeIntercepts graph slopes =
 
 let computeInverseVertexMap nSCCs nVertices mapVertexToSCC = 
     let mapSCCToVertices = Array.make nSCCs [] in
-    let _ = printf "Got just before reverser loop\n" in
     loopFromMToN 0 (nVertices - 1) () (fun uVertex _ ->
-        let _ = printf "Got just inside the loop\n" in
         let iSCC = (mapVertexToSCC uVertex) in
-        let _ = printf "Got inside the loop\n" in
         mapSCCToVertices.(iSCC) <- uVertex :: mapSCCToVertices.(iSCC));
     mapSCCToVertices
 ;;
@@ -462,14 +459,11 @@ let createUpperBound graph =
     let nVertices = MPGraph.nb_vertex graph in
     (*  Step 1. Compute the condensation of our graph *)
     let (nSCCs, mapVertexToSCC) = (MPComponents.scc graph) in
-    let _ = printf "Got just past making SCCs\n" in
     let mapSCCToVertices = computeInverseVertexMap nSCCs nVertices mapVertexToSCC in
-    let _ = printf "Got just before Karp's\n" in
     (*  Step 2. Compute critical circuit average weights *)
     let criticalWeight = 
         karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices in 
     (*let _ = printCriticalWeights criticalWeight mapSCCToVertices in*)
-    let _ = printf "Got past Karp's\n" in
     (*  Step 3. Compute the bounding slopes: *)
     let slopes = 
         computeSlopes graph nSCCs mapVertexToSCC mapSCCToVertices criticalWeight in
@@ -501,14 +495,3 @@ let _ =
         printf "**** TEST %s****\n" test.name; doTest test.matrix; printf "\n") 
         tests
 ;;
-
-(*
-let createUpperBound () = 
-  (*    First, initialize the values *)
-
-
-;;
-*)
-
-
-
