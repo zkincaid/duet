@@ -350,14 +350,11 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
               (* There had better be at least one finite fkv...              *)
               | [] -> failwith "Failure in Karp's algorithm"
               | (steps, fkv) :: tail ->
-                (*let _ = (printf "Now fnv is %f\n" fnv) in*)
-                (*let _ = (printf "And fkv is %f\n" fkv) in*)
                 (* Compute a cycle mean: (F_n(v) - F_k(v)) / (n - k)         *)
                 let cycleMean steps fnv fkv = 
                     (fwt_sub fnv fkv) /. (float_of_int (nVertices - steps)) in
                 (* We'll initialize our fold with a finite fkv               *)
                 let firstCycleMean = cycleMean steps fnv fkv in
-                (*let _ = (printf "First cycle mean is %f\n" firstCycleMean) in*)
                 (* Here we specify that we want the worst, using a fold:     *)
                 let foldHelper1 fwt (steps, fkv) = 
                     fwt_worst fwt (cycleMean steps fnv fkv) in
