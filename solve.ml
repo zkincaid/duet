@@ -85,88 +85,6 @@ let condense graph nSCCs mapVertexToSCC =
     condensation
 ;;
 
-type mpTest = {
-    name : string;
-    matrix : weight array array;
-};;
-
-let na = Worst;;
-let d fwt = Fin (fwt_from_int fwt);;
-let tests = [
-
-    {name="knee-1"; matrix=[| 
-     [| (d 0);     na;    na    |];
-     [| (d (-14)); (d 3); na    |];
-     [| na;        (d 0); (d 1) |];
-    |] };
-
-    {name="knee-2b"; matrix=[| 
-     [| (d 5); na;    na;    na;    na;    na     |];
-     [| (d 0); (d 0); na;    na;    na;    na     |];
-     [| na;    (d 0); (d 0); na;    na;    na     |];
-     [| na;    na;    (d 0); (d 0); na;    na     |];
-     [| na;    na;    na;    (d 0); (d 0); na     |];
-     [| na;    na;    na;    na;    (d 0); (d 1); |];
-    |] };
-
-    {name="zigzag-2b"; matrix=[| 
-     [| na;    na;    na;    (d 7)  |];
-     [| (d 0); na;    na;    na     |];
-     [| na;    (d 0); na;    na     |];
-     [| na;    na;    (d 1); na     |];
-    |] };
-
-    {name="zigzag-3"; matrix=[| 
-     [| na;       na;       na;        (d (-3)) |];
-     [| (d (-1)); na;       na;        na       |];
-     [| na;       (d (-1)); na;        na       |];
-     [| na;       na;       (d (-15)); na       |];
-    |] };
-
-    {name="zigzag-4"; matrix=[| 
-     [| na;    (d (-1)); |];
-     [| (d 1); na;       |];
-    |] };
-
-    {name="knee-5"; matrix=[| 
-     [| na;    (d 2); na;    na;     na;    |];
-     [| (d 0); na;    na;    na;     na;    |];
-     [| na;    na;    na;    (d 10); na;    |];
-     [| na;    na;    (d 0); na;     na;    |];
-     [| (d 0); na;    na;    (d 0);  na;    |];
-    |] };
-
-    {name="cornercases-zerovars"; matrix=[| 
-    |] };
-
-    {name="cornercases-onevar"; matrix=[| 
-     [| (d 5)|];
-    |] };
-
-    {name="cornercases-onevar-all-infinite"; matrix=[| 
-     [| na |];
-    |] };
-
-    {name="cornercases-all-infinite-1"; matrix=[| 
-     [| na;        na;    na    |];
-     [| (d 0);     na;    na    |];
-     [| (d (-14)); (d 3); na    |];
-    |] };
-
-    {name="cornercases-all-infinite-2"; matrix=[| 
-     [| (d 0);     na;    na    |];
-     [| na;        na;    na    |];
-     [| (d (-14)); (d 3); na    |];
-    |] };
-
-    {name="cornercases-all-infinite-3"; matrix=[| 
-     [| (d 0);     na;    na    |];
-     [| (d (-14)); (d 3); na    |];
-     [| na;        na;    na    |];
-    |] };
-
-];;
-
 let matrixToGraph matrix = 
     let graph = MPGraph.create () in
     Array.iteri (fun iVar row -> MPGraph.add_vertex graph iVar) matrix;
@@ -471,6 +389,88 @@ let createUpperBound graph =
         computeIntercepts graph slopes in
     (slopes, intercepts)
 ;;
+
+type mpTest = {
+    name : string;
+    matrix : weight array array;
+};;
+
+let na = Worst;;
+let d fwt = Fin (fwt_from_int fwt);;
+let tests = [
+
+    {name="knee-1"; matrix=[| 
+     [| (d 0);     na;    na    |];
+     [| (d (-14)); (d 3); na    |];
+     [| na;        (d 0); (d 1) |];
+    |] };
+
+    {name="knee-2b"; matrix=[| 
+     [| (d 5); na;    na;    na;    na;    na     |];
+     [| (d 0); (d 0); na;    na;    na;    na     |];
+     [| na;    (d 0); (d 0); na;    na;    na     |];
+     [| na;    na;    (d 0); (d 0); na;    na     |];
+     [| na;    na;    na;    (d 0); (d 0); na     |];
+     [| na;    na;    na;    na;    (d 0); (d 1); |];
+    |] };
+
+    {name="zigzag-2b"; matrix=[| 
+     [| na;    na;    na;    (d 7)  |];
+     [| (d 0); na;    na;    na     |];
+     [| na;    (d 0); na;    na     |];
+     [| na;    na;    (d 1); na     |];
+    |] };
+
+    {name="zigzag-3"; matrix=[| 
+     [| na;       na;       na;        (d (-3)) |];
+     [| (d (-1)); na;       na;        na       |];
+     [| na;       (d (-1)); na;        na       |];
+     [| na;       na;       (d (-15)); na       |];
+    |] };
+
+    {name="zigzag-4"; matrix=[| 
+     [| na;    (d (-1)); |];
+     [| (d 1); na;       |];
+    |] };
+
+    {name="knee-5"; matrix=[| 
+     [| na;    (d 2); na;    na;     na;    |];
+     [| (d 0); na;    na;    na;     na;    |];
+     [| na;    na;    na;    (d 10); na;    |];
+     [| na;    na;    (d 0); na;     na;    |];
+     [| (d 0); na;    na;    (d 0);  na;    |];
+    |] };
+
+    {name="cornercases-zerovars"; matrix=[| 
+    |] };
+
+    {name="cornercases-onevar"; matrix=[| 
+     [| (d 5)|];
+    |] };
+
+    {name="cornercases-onevar-all-infinite"; matrix=[| 
+     [| na |];
+    |] };
+
+    {name="cornercases-all-infinite-1"; matrix=[| 
+     [| na;        na;    na    |];
+     [| (d 0);     na;    na    |];
+     [| (d (-14)); (d 3); na    |];
+    |] };
+
+    {name="cornercases-all-infinite-2"; matrix=[| 
+     [| (d 0);     na;    na    |];
+     [| na;        na;    na    |];
+     [| (d (-14)); (d 3); na    |];
+    |] };
+
+    {name="cornercases-all-infinite-3"; matrix=[| 
+     [| (d 0);     na;    na    |];
+     [| (d (-14)); (d 3); na    |];
+     [| na;        na;    na    |];
+    |] };
+
+];;
 
 let doTest matrix = 
     (printf "  Input matrix:\n");
