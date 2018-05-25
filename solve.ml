@@ -1,42 +1,11 @@
-(* Siolve a max-plus recurrence *)
+(* Solve a max-plus recurrence *)
 
 open Graph;;
 
 open Printf;;
 
-(* Requisite types:
- *    weights: eventually GMP rationals; initially may be int; but, I do 
- *       need them to be allowed to be negative infinity
- *
- * Requisite data structures:
- *    Some numeric type...
- *    Matrix for input
- *        integer access, weight elements
- *    Digraph for matrix 
- *        Vertices have integers
- *        Edges have weight-type (eventually GMP rationals, I guess)
- *    Condensed (acyclic) digraph
- *        Vertices are addressed by integers
- *        Each vertex stands for a set of integers
- *        Edges are unweighted
- *
- *    Convenience data structures / operations:
- *         - map from components to contents
- *         - map from node to component ID
- *
- * Requisite operations:
- *    Compute a graph condensation:
- *    Topologically sort the strongly-connected components
- *    Find the ancestors of a component
- *    Find the descendants of a component
- *    Compute the simple cycles
- *
- * Better operations:
- *    Use a faster algorithm to compute slopes
- *)
-
-type fweight = float;;  (* Finite weight. *) 
 (* These are floats for now, but eventually we'll use GMP rationals *)
+type fweight = float;;  (* Finite weight. *) 
 
 (* For easy dualization, I'm putting all maxes and mins in terms of best and worst *)
 let fwt_best x y = max x y;;
@@ -90,7 +59,6 @@ module SCCGraph = Imperative.Digraph.Concrete(V2);;
  *   arrays starting at zero, I use the following imperative construct: 
  * We repeat f, setting i from m (inclusive) up to n (inclusive). *)
 let loopFromMToN m n ?(increment=1) init f = 
-(*    let inc = if (n >= m) then 1 else -1 in *)
     let test = if (increment > 0) then (fun i -> i > n) else (fun i -> i < n) in
     let rec loopFromMToNAux i x =
         if (test i) then x else
@@ -306,24 +274,6 @@ let printUpperBound ?(variableNames=alphabet) slopes intercepts =
                   printf ")\n"))
 ;;
 
-(*
-let printFMap iSCC fMap = 
-    let printOneFMapEntry ( wt = 
-        (printf "FMap entry for SCC %d is:\n" iSCC;
-         printVertexList mapSCCToVertices.(iSCC);
-         printf "] and its critical weight is ";
-         wt_print wt;
-         printf "\n") in
-    IntMap.iter printOneFMapEntry fMap
-;;
-*)
-
-(* Usage:
-     let myResult = loopZeroToN n initial (fun i accum ->
-           (* compute new accum here using i and accum *)
-         ) in
-*)
-
 (* I chose Karp's algorithm because it was easy. *)
 (*   We could use a faster alternative if time complexity becomes a concern. *)
 let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
@@ -431,6 +381,16 @@ let computeSlopes graph nSCCs mapVertexToSCC mapSCCToVertices criticalWeight =
     (* Initialize bounding slopes *)
     let slopes = Array.make_matrix nVertices nVertices Worst in
     (* Compute bounding slopes *)
+    (*    The bounding slope in position (i,k) is the highest critical       *)
+    (*    weight that is found in any circuit that is reachable from i       *) 
+    (*    and that can reach k.                                              *)
+    (*    So, we loop over each SCC (call it j),                             *)
+    (*      find all upstream SCCs (call each such i),                       *)
+    (*      and downstream SCCs (call each such k);                          *)
+    (*      then, what we have is (SCC_i) --*--> (SCC_j) --*--> (SCC_k)      *)
+    (*    Each time we find such a j, we update our slope for (i,k) to be    *)
+    (*      j's critical weight if j's critical weight is greater than our   *)
+    (*      current slope for (i,k).                                         *)
     loopFromMToN 0 (nSCCs - 1) () (fun jSCC _ -> 
         SCCGraph.iter_pred (fun iSCC -> 
             let iVertices = mapSCCToVertices.(iSCC) in
@@ -450,8 +410,6 @@ let computeSlopes graph nSCCs mapVertexToSCC mapSCCToVertices criticalWeight =
     slopes
 ;;
 
-(* (printf "nSCCs: %d\n" nSCCs); *)
-
 let computeIntercepts graph slopes =
     let nVertices = MPGraph.nb_vertex graph in
     (* Initialize bounding intercepts *)
@@ -464,6 +422,12 @@ let computeIntercepts graph slopes =
         loopFromMToN 0 (nVertices - 1) () (fun iIteration _ ->
             loopFromMToN 0 (nVertices - 1) () (fun iFrom _ ->
                 loopFromMToN 0 (nVertices - 1) () (fun iTo _ ->
+                    (* Briefly:                           *)
+                    (*   intercept[iTo,iInput] <-         *)
+                    (*     best (intercept[iTo,iInput],   *)
+                    (*           intercept[iFrom,iInput]  *)
+                    (*           + edge[iTo,iFrom]        *)
+                    (*           - slope[iTo,iInput])     *)
                     match slopes.(iTo).(iInput) with
                     | Worst -> ()
                     | Fin slope ->
@@ -496,16 +460,20 @@ let computeInverseVertexMap nSCCs nVertices mapVertexToSCC =
 
 let createUpperBound graph = 
     let nVertices = MPGraph.nb_vertex graph in
+    (*  Step 1. Compute the condensation of our graph *)
     let (nSCCs, mapVertexToSCC) = (MPComponents.scc graph) in
     let _ = printf "Got just past making SCCs\n" in
     let mapSCCToVertices = computeInverseVertexMap nSCCs nVertices mapVertexToSCC in
     let _ = printf "Got just before Karp's\n" in
+    (*  Step 2. Compute critical circuit average weights *)
     let criticalWeight = 
         karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices in 
     (*let _ = printCriticalWeights criticalWeight mapSCCToVertices in*)
     let _ = printf "Got past Karp's\n" in
+    (*  Step 3. Compute the bounding slopes: *)
     let slopes = 
         computeSlopes graph nSCCs mapVertexToSCC mapSCCToVertices criticalWeight in
+    (*  Step 4. Compute the bounding intercept: *)
     let intercepts = 
         computeIntercepts graph slopes in
     (slopes, intercepts)
@@ -536,21 +504,8 @@ let _ =
 
 (*
 let createUpperBound () = 
-  (*  1. Construct a graph representation of the loop body matrix *) 
-  (*  2. Compute the condensation of our graph *)
-  (*  3. Compute critical circuit average weights (a.k.a. "critical weights") *)
-  (*  4. Compute the bounding slopes: *)
   (*    First, initialize the values *)
 
-  (*    The bounding slope in position (i,k) is the highest critical weight that is found    *)
-  (*      in any circuit that is reachable from i and that can reach k.                      *)
-  (*    So, we loop over each SCC (call it j),                                               *)
-  (*      find all upstream SCCs (call each such i),                                         *)
-  (*      and downstream SCCs (call each such k);                                            *)
-  (*      then, what we have is (SCC_i) --*--> (SCC_j) --*--> (SCC_k)                        *)
-  (*    Each time we find such a j, we update our slope for (i,k) to be j's critical weight  *)
-  (*      if j's critical weight is greater than our current slope for (i,k).                *)
-  (*  5. Compute the bounding intercepts (perform the "intercept propagation" steps)         *)
 
 ;;
 *)
