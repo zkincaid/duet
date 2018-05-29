@@ -33,6 +33,46 @@ let wt_sprintf wt =
 
 let wt_print wt = print_string (wt_sprintf wt);;
 
+(* ------------------------------------------------------------------------- *)
+
+type subscript = 
+  | SAdd of string * int    (** n+1, n+2, ... *)
+  | SSVar of string         (** n *)
+(*  | SSDiv of string * int   (** n/2, n/3, .. *) *)
+  ;;
+
+type expr = 
+(* Use N-ary MPProduct and MPSum in preference to these *)
+(*        | Plus of expr * expr     (** Binary addition *)
+          | Minus of expr * expr    (** Binary subtraction *)
+          | Times of expr * expr    (** Binary multiplication *)
+          | Divide of expr * expr   (** Binary division *) *)
+          | MPProduct of expr list    (** N-ary formal times; really plus *)
+          | MPSum of expr list        (** N-ary formal plus; really max *)
+          | Symbolic_Constant of string (** "x", "y", etc *)
+          | Base_case of string * int   (** y_0, y_1, ... *)
+          | Output_variable of string * subscript (** y_n, y_n+1, y_n+2, ... *)
+          | Input_variable of string    (** Index variable *)
+
+          | Rational of Mpq.t       (** @see <http://www.inrialpes.fr/pop-art/people/bjeannet/mlxxxidl-forge/mlgmpidl/html/Mpq.html> Not the package used here, but is equivalent to the documentation used in ocaml format*)
+
+(*          | Pow of expr * expr      (** Binary exponentiation *) *)
+(*          | Iif of string * subscript   (** Impliciltly intrepreted function *) *)
+          ;;
+
+type ovec = Ovec of string array * subscript;;
+
+type matrix_rec =
+          | VEquals of ovec * Mpq.t array array * ovec * expr array
+(* for future use: *)
+(*        | VLess of ovec * Mpq.t array array * ovec * expr array
+          | VLessEq of ovec * Mpq.t array array * ovec * expr array
+          | VGreater of ovec * Mpq.t array array * ovec * expr array
+          | VGreaterEq of ovec * Mpq.t array array * ovec * expr array *)
+          ;;
+
+(* ------------------------------------------------------------------------- *)
+
 module V = struct
   type t = int (* vertex number *)
   let compare = Pervasives.compare
