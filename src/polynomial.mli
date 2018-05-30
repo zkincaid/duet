@@ -128,6 +128,7 @@ module type Multivariate = sig
 
   val scalar_mul : scalar -> t -> t
 
+  val coeff : Monomial.t -> t -> scalar
   val pivot : Monomial.t -> t -> scalar * t
   val enum : t -> (scalar * Monomial.t) BatEnum.t
   val of_enum : (scalar * Monomial.t) BatEnum.t -> t
