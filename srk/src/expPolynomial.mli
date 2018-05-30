@@ -43,6 +43,10 @@ val term_of : ('a context) -> 'a term -> t -> 'a term
 
 val eval : t -> int -> QQ.t
 
+val enum : t -> (Polynomial.QQX.t * QQ.t) BatEnum.t
+val add_term : Polynomial.QQX.t -> QQ.t -> t -> t
+val of_term : Polynomial.QQX.t -> QQ.t -> t
+
 module UltPeriodic : sig
   type elt = t
   type t

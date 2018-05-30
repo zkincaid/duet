@@ -21,6 +21,14 @@ module ZZVector = struct
     IntMap.enum vec
     |> Format.fprintf formatter "[@[%a@]]" (SrkUtil.pp_print_enum pp_elt)
 
+  let pp_term pp_dim formatter vec =
+    let pp_elt formatter (k, v) = Format.fprintf formatter "%a * %a" ZZ.pp v pp_dim k in
+    if IntMap.is_empty vec then
+      Format.pp_print_string formatter "0"
+    else
+      IntMap.enum vec
+      |> Format.fprintf formatter "[@[%a@]]" (SrkUtil.pp_print_enum pp_elt)
+
   let show = SrkUtil.mk_show pp
   let compare = IntMap.compare ZZ.compare
   let hash = IntMap.hash ZZ.hash
@@ -34,6 +42,14 @@ module QQVector = struct
     IntMap.enum vec
     |> Format.fprintf formatter "[@[%a@]]" (SrkUtil.pp_print_enum pp_elt)
 
+  let pp_term pp_dim formatter vec =
+    let pp_elt formatter (k, v) = Format.fprintf formatter "%a * %a" QQ.pp v pp_dim k in
+    if IntMap.is_empty vec then
+      Format.pp_print_string formatter "0"
+    else
+      IntMap.enum vec
+      |> Format.fprintf formatter "[@[%a@]]" (SrkUtil.pp_print_enum pp_elt)
+
   let show = SrkUtil.mk_show pp
   let compare = IntMap.compare QQ.compare
   let hash = IntMap.hash QQ.hash
@@ -44,22 +60,27 @@ module QQMatrix = struct
   let pp = pp QQ.pp
   let show = SrkUtil.mk_show pp
 
-  let rational_eigenvalues m =
+  let exp m p =
+    let one =
+      identity (SrkUtil.Int.Set.elements (SrkUtil.Int.Set.union (row_set m) (column_set m)))
+    in
+    SrkUtil.exp mul one m p
+
+  let rational_eigenvalues m dims =
     let denominator =
       BatEnum.fold (fun d (_, _, entry) ->
           ZZ.lcm d (QQ.denominator entry))
         ZZ.one
         (entries m)
     in
-    let dims =
-      SrkUtil.Int.Set.union (row_set m) (column_set m)
-    in
-    let nb_dims = SrkUtil.Int.Set.cardinal dims in
+    let dim_array = Array.of_list dims in
     let m =
-      Array.init nb_dims (fun i ->
-          Array.init nb_dims (fun j ->
+      Array.map (fun i ->
+          Array.map (fun j ->
               let (num, den) = QQ.to_zzfrac (entry i j m) in
-              Ntl.ZZ.of_mpz (ZZ.div (ZZ.mul num denominator) den)))
+              Ntl.ZZ.of_mpz (ZZ.div (ZZ.mul num denominator) den))
+            dim_array)
+        dim_array
     in
     let charpoly = Ntl.ZZMatrix.charpoly m in
     let (_, factors) = Ntl.ZZX.factor charpoly in
@@ -371,9 +392,8 @@ let max_lds mA mB =
     (QQMatrix.zero, QQMatrix.zero)
     (SrkUtil.Int.Set.enum mTA_rows)
 
-let rational_spectral_decomposition mA =
+let rational_spectral_decomposition mA dims =
   let mAt = QQMatrix.transpose mA in
-  let dims = SrkUtil.Int.Set.elements (QQMatrix.row_set mAt) in
   let identity = QQMatrix.identity dims in
   List.fold_left (fun rsd (lambda, _) ->
       let mE = (* A^t - lambda*I *)
@@ -385,11 +405,12 @@ let rational_spectral_decomposition mA =
         | None -> rsd
       in
       let add_jordan_chain rsd v =
+           Log.errorf "Eigenvector: %a" QQVector.pp v;
         add_jordan_chain_rec ((lambda,v)::rsd) v
       in
       List.fold_left add_jordan_chain rsd (nullspace mE dims))
     []
-    (QQMatrix.rational_eigenvalues mA)
+    (QQMatrix.rational_eigenvalues mA dims)
 
 let mem_vector_space basis v =
   let mA =
@@ -402,11 +423,11 @@ let mem_vector_space basis v =
   | Some _ -> true
   | None -> false
 
-let periodic_rational_spectral_decomposition mA =
-  let nb_dims = SrkUtil.Int.Set.cardinal (QQMatrix.row_set mA) in
+let periodic_rational_spectral_decomposition mA dims =
+  let nb_dims = List.length dims in
   let max_pow = nb_dims*nb_dims*nb_dims in
   let rec go prsd i mA_pow =
-    if i == max_pow || List.length prsd == nb_dims then
+    if i > max_pow || List.length prsd == nb_dims then
       prsd
     else
       let prsd =
@@ -416,7 +437,7 @@ let periodic_rational_spectral_decomposition mA =
             else
               (i, lambda, v)::prsd)
           prsd
-          (rational_spectral_decomposition mA_pow)
+          (rational_spectral_decomposition mA_pow dims)
       in
       go prsd (i+1) (QQMatrix.mul mA mA_pow)
   in
@@ -461,7 +482,7 @@ let rational_triangulation mA =
       List.fold_left add_jordan_chain (mM, mT) (nullspace mE dims)
     )
     (QQMatrix.zero, QQMatrix.zero)
-    (QQMatrix.rational_eigenvalues mA)
+    (QQMatrix.rational_eigenvalues mA dims)
 
 let rec jordan_chain mA lambda v =
   let residual = (* v*mA = lambda*v + residual *)

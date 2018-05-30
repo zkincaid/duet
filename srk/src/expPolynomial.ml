@@ -19,7 +19,10 @@ let pp formatter f =
   let pp_sep fomatter () =
     Format.fprintf formatter "@ + "
   in
-  SrkUtil.pp_print_enum_nobox ~pp_sep pp_elt formatter (E.enum f)
+  if E.equal E.zero f then
+    Format.pp_print_string formatter "0"
+  else
+    SrkUtil.pp_print_enum_nobox ~pp_sep pp_elt formatter (E.enum f)
 
 let show = SrkUtil.mk_show pp
 
@@ -149,6 +152,10 @@ let eval f x =
   /@ (fun (p, lambda) ->
       (QQ.mul (QQX.eval p qq_x) (QQ.exp lambda x)))
   |> BatEnum.fold QQ.add QQ.zero
+
+let enum = E.enum
+let add_term = E.add_term
+let of_term = E.of_term
 
 module UltPeriodic = struct
   type elt = t
