@@ -6,12 +6,67 @@ open Printf;;
 
 (* ------------------------------------------------------------------------- *)
 
+type subscript = 
+  | SAdd of string * int    (** n+1, n+2, ... *)
+  | SSVar of string         (** n *)
+(*  | SSDiv of string * int   (** n/2, n/3, .. *) *)
+  ;;
+
+type expr = 
+(* Use N-ary MPProduct and MPSum in preference to these *)
+(*        | Plus of expr * expr     (** Binary addition *)
+          | Minus of expr * expr    (** Binary subtraction *)
+          | Times of expr * expr    (** Binary multiplication *)
+          | Divide of expr * expr   (** Binary division *) *)
+          | Product of expr list    (** N-ary multiplication *)
+          | Sum of expr list        (** N-ary addition *)
+          | Max of expr list        (** N-ary max *)
+          | Min of expr list        (** N-ary min *)
+       (* | Symbolic_Constant of string (** "x", "y", etc *) *)
+          | Base_case of string * int   (** y_0, y_1, ... *)
+          | Output_variable of string * subscript (** y_n, y_n+1, y_n+2, ... *)
+          | Input_variable of string    (** Index variable *)
+
+          | Rational of Mpq.t       (** @see <http://www.inrialpes.fr/pop-art/people/bjeannet/mlxxxidl-forge/mlgmpidl/html/Mpq.html> Not the package used here, but is equivalent to the documentation used in ocaml format*)
+
+(*          | Pow of expr * expr      (** Binary exponentiation *) *)
+(*          | Iif of string * subscript   (** Impliciltly intrepreted function *) *)
+          ;;
+
+type ovec = Ovec of string array * subscript;;
+
+type matrix_rec =
+          | VEquals of ovec * Mpq.t array array * ovec * expr array
+(* for future use: *)
+(*        | VLess of ovec * Mpq.t array array * ovec * expr array
+          | VLessEq of ovec * Mpq.t array array * ovec * expr array
+          | VGreater of ovec * Mpq.t array array * ovec * expr array
+          | VGreaterEq of ovec * Mpq.t array array * ovec * expr array *)
+          ;;
+
+          
+type inequation = 
+          | Equals of expr * expr
+          | LessEq of expr * expr
+ (*       | Less of expr * expr *)
+          | GreaterEq of expr * expr
+ (*       | Greater of expr * expr *)
+;;
+
+(* ------------------------------------------------------------------------- *)
+
 (* Finite weights: *)
 type fweight = Mpq.t;;
 
 (* I should really make the following into a module that is a parameter to 
  *  the algorithm below, which should be another module *)
+
 (* For easy dualization, I'm putting all maxes and mins in terms of best and worst *)
+let fwt_best x y = if Mpq.cmp x y >= 0 then x else y;;  (* DUALIZE *)
+let fwt_best_expr elist = Max elist;;                   (* DUALIZE *)
+let fwt_bound e1 e2 = LessEq (e1, e2);;                 (* DUALIZE *)
+let fwt_worst x y = if Mpq.cmp x y >= 0 then y else x;; (* DUALIZE *)
+
 let fwt_add x y = 
     let retval = Mpq.init () in
     let _ = Mpq.add retval x y in
@@ -24,8 +79,6 @@ let fwt_div x y =
     let retval = Mpq.init () in
     let _ = Mpq.div retval x y in
     retval;;
-let fwt_best x y = if Mpq.cmp x y >= 0 then x else y;;
-let fwt_worst x y = if Mpq.cmp x y >= 0 then y else x;;
 let fwt_from_int i = 
     let retval = Mpq.init () in 
     let _ = Mpq.set_si retval i 1 in
@@ -56,45 +109,6 @@ let wt_sprintf wt =
 ;;
 
 let wt_print wt = print_string (wt_sprintf wt);;
-
-(* ------------------------------------------------------------------------- *)
-
-type subscript = 
-  | SAdd of string * int    (** n+1, n+2, ... *)
-  | SSVar of string         (** n *)
-(*  | SSDiv of string * int   (** n/2, n/3, .. *) *)
-  ;;
-
-type expr = 
-(* Use N-ary MPProduct and MPSum in preference to these *)
-(*        | Plus of expr * expr     (** Binary addition *)
-          | Minus of expr * expr    (** Binary subtraction *)
-          | Times of expr * expr    (** Binary multiplication *)
-          | Divide of expr * expr   (** Binary division *) *)
-          | Product of expr list    (** N-ary multiplication *)
-          | Sum of expr list        (** N-ary addition *)
-          | Max of expr list        (** N-ary max *)
-       (* | Symbolic_Constant of string (** "x", "y", etc *) *)
-          | Base_case of string * int   (** y_0, y_1, ... *)
-          | Output_variable of string * subscript (** y_n, y_n+1, y_n+2, ... *)
-          | Input_variable of string    (** Index variable *)
-
-          | Rational of Mpq.t       (** @see <http://www.inrialpes.fr/pop-art/people/bjeannet/mlxxxidl-forge/mlgmpidl/html/Mpq.html> Not the package used here, but is equivalent to the documentation used in ocaml format*)
-
-(*          | Pow of expr * expr      (** Binary exponentiation *) *)
-(*          | Iif of string * subscript   (** Impliciltly intrepreted function *) *)
-          ;;
-
-type ovec = Ovec of string array * subscript;;
-
-type matrix_rec =
-          | VEquals of ovec * Mpq.t array array * ovec * expr array
-(* for future use: *)
-(*        | VLess of ovec * Mpq.t array array * ovec * expr array
-          | VLessEq of ovec * Mpq.t array array * ovec * expr array
-          | VGreater of ovec * Mpq.t array array * ovec * expr array
-          | VGreaterEq of ovec * Mpq.t array array * ovec * expr array *)
-          ;;
 
 (* ------------------------------------------------------------------------- *)
 
@@ -460,6 +474,32 @@ let createUpperBound graph =
         computeIntercepts graph slopes in
     (slopes, intercepts)
 ;;
+
+let createInequations loopCounterName variableNames slopes intercepts = 
+    let loopCounter = Input_variable loopCounterName in 
+    let subscript = SSVar loopCounterName in
+    let nVars = Array.length slopes in 
+    loopFromMToN 0 (nVars - 1) [] (fun iOut inequations ->
+        let subterms = loopFromMToN 0 (nVars - 1) [] (fun iIn subterms ->
+            match slopes.(iOut).(iIn) with 
+            | Worst -> subterms 
+            | Fin slope -> match intercepts.(iOut).(iIn) with
+                | Worst -> subterms 
+                | Fin intercept -> let subterm = 
+                    (*   k * slope + intercept + inVar_0    *)
+                    Sum [ Product [loopCounter; Rational slope];
+                          Rational intercept;
+                          Base_case (variableNames.(iIn), 0) ] in
+                    subterm :: subterms
+        ) in if List.length subterms = 0 then inequations (* no bound *)
+        else let outVar = Output_variable (variableNames.(iOut), subscript) in
+        (* inequation is a max/min over one or more subterms *)
+        let inequation = fwt_bound outVar (fwt_best_expr subterms) in
+        inequation :: inequations (* we built a new inequation *)
+    )
+;;
+
+(* ------------------------------------------------------------------------- *)
 
 type mpTest = {
     name : string;
