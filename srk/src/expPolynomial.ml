@@ -101,6 +101,9 @@ let fit_curve lambda_orders values =
     lambda_orders
   |> fst
 
+(* Find a function f such that
+   f(0) = 0
+   f(n+1) = coeff*f(n) + lambda^n*p(n) *)
 let solve_term_rec coeff lambda p =
   let p_order = QQX.order p in
   let lambda_orders =
@@ -116,22 +119,24 @@ let solve_term_rec coeff lambda p =
           QQ.add (QQ.mul coeff sum) (QQ.mul (QQ.exp lambda i) (QQX.eval p qqi))
         in
         (sum::values, sum))
-      ([], QQ.zero)
-      (0 -- (p_order + 1))
+      ([QQ.zero], QQ.zero)
+      (0 -- p_order)
   in
   fit_curve lambda_orders (List.rev values)
 
-let summation f =
-  BatEnum.fold (fun h (p, lambda) ->
-      add h (solve_term_rec QQ.one lambda p))
-    zero
-    (E.enum f)
+(* Find a function g such that
+   g(0) = initial
+   g(n+1) = coeff*g(n) + f(n) *)
+let solve_rec ?(initial=QQ.zero) coeff f =
+  let homogenous =
+    BatEnum.fold (fun h (p, lambda) ->
+        add h (solve_term_rec coeff lambda p))
+      zero
+      (E.enum f)
+  in
+  E.add_term (QQX.scalar initial) coeff homogenous
 
-let solve_rec coeff f =
-  BatEnum.fold (fun h (p, lambda) ->
-      add h (solve_term_rec coeff lambda p))
-    zero
-    (E.enum f)
+let of_exponential lambda = E.of_term QQX.one lambda
 
 let term_of srk t f =
   Nonlinear.ensure_symbols srk;
@@ -153,136 +158,264 @@ let eval f x =
       (QQ.mul (QQX.eval p qq_x) (QQ.exp lambda x)))
   |> BatEnum.fold QQ.add QQ.zero
 
+let summation f =
+  solve_rec ~initial:(eval f 0) QQ.one (compose_left_affine f 1 1)
+
 let enum = E.enum
 let add_term = E.add_term
 let of_term = E.of_term
 
+module EP = struct
+  type nonrec t = t
+  let pp = pp
+  let compose_left_affine = compose_left_affine
+  let eval = eval
+  let add = add
+  let mul = mul
+  let scalar = scalar
+  let zero = zero
+  let one = one
+  let negate = negate
+  let equal = equal
+  let term_of = term_of
+  let scalar_mul = scalar_mul
+  let enum = enum
+  let add_term = add_term
+  let of_term = of_term
+end
+
 module UltPeriodic = struct
-  type elt = t
+  type elt = EP.t
+  type t = QQ.t list * elt list
 
-  let pp_elt = pp
+  let lcm x y =
+    match ZZ.to_int (ZZ.lcm (ZZ.of_int x) (ZZ.of_int y)) with
+    | Some lcm -> lcm
+    | None -> invalid_arg "Period length too long"
 
-  include Ring.MakeUltPeriodicSeq(struct
-      type t = elt
-      let equal = equal
-      let add = add
-      let mul = mul
-      let one = one
-      let zero = zero
-      let negate = negate
-    end)
+  let gcd x y =
+    match ZZ.to_int (ZZ.gcd (ZZ.of_int x) (ZZ.of_int y)) with
+    | Some lcm -> lcm
+    | None -> assert false
 
-  let pp = pp pp_elt
+  let pp formatter (t, p) =
+    if t = [] then
+      Format.fprintf
+        formatter
+        "<%a>"
+        (SrkUtil.pp_print_enum EP.pp) (BatList.enum p)
+    else
+      Format.fprintf
+        formatter
+        "<%a; %a>"
+        (SrkUtil.pp_print_enum QQ.pp) (BatList.enum t)
+        (SrkUtil.pp_print_enum EP.pp) (BatList.enum p)
+
   let show = SrkUtil.mk_show pp
 
-  (* Given a periodic sequence of exponential-polynomials
-     f_0 f_1 ... = [p_1;...;p_m]^omega
-     and a coefficient coeff, comptue a (periodic) solution to the recurrence
-     g_0(0) = f_0(0)
-     g_n(n) = coeff*g_{n-1}(n-1) + f_n(n) *)
-  let solve_rec_periodic coeff period =
-    (* period is [p_1; ...; p_m] *)
-    let len = List.length period in
+  let transient_len (t, _) = List.length t
+  let period_len (_, p) = List.length p
 
-    let full_period = (* coeff^{m-1} * p_1(x) + ... + coeff^0 * p_m(x+m-1) *)
+  let transient (t, _) = t
+  let periodic (_, p) = p
+
+  let mul_period k xs =
+    (0 -- (k - 1))
+    |> BatEnum.map (fun i ->
+           List.map (fun f -> EP.compose_left_affine f k i) xs)
+    |> BatEnum.reduce List.append
+
+  let elongate_transient k (t, p) =
+    let period_enum =
+      BatEnum.range 0 /@ (fun i ->
+        BatList.enum p /@ (fun f -> EP.eval f i))
+      |> BatEnum.concat
+    in
+    let current_transient = List.length t in
+    BatEnum.drop current_transient period_enum;
+    t @ (BatList.of_enum (BatEnum.take (k - current_transient) period_enum))
+
+  let pointwise g f seq seq' =
+    let t_len = max (transient_len seq) (transient_len seq') in
+    let p_len = lcm (period_len seq) (period_len seq') in
+    (List.map2 g
+       (elongate_transient t_len seq)
+       (elongate_transient t_len seq'),
+     List.map2 f
+       (mul_period (p_len/(period_len seq)) (periodic seq))
+       (mul_period (p_len/(period_len seq')) (periodic seq')))
+
+  let add = pointwise QQ.add EP.add
+
+  let mul = pointwise QQ.mul EP.mul
+
+  let make t p = (t, p)
+
+  let scalar k = ([], [EP.scalar k])
+  let zero = ([], [EP.zero])
+  let one = ([], [EP.one])
+  let negate (t, p) = (List.map QQ.negate t, List.map EP.negate p)
+  let equal seq seq' =
+    let (t, p) = pointwise QQ.equal EP.equal seq seq' in
+    List.for_all (fun x -> x) (t@p)
+
+  let term_of srk q r up =
+    let period_len = period_len up in
+    let k = mk_add srk [mk_mul srk [q; mk_real srk (QQ.of_int period_len)]; r] in
+    BatList.fold_righti (fun i f else_ ->
+        mk_ite srk
+          (mk_eq srk k (mk_real srk (QQ.of_int i)))
+          (mk_real srk f)
+          else_)
+      (transient up)
+      (BatList.fold_lefti (fun else_ i f ->
+           mk_ite srk
+             (mk_eq srk r (mk_real srk (QQ.of_int (i + 1))))
+             (EP.term_of srk q f)
+             else_)
+         (EP.term_of srk q (List.hd (periodic up)))
+         (List.tl (periodic up)))
+
+  let compose_left_affine seq a b =
+    assert (a > 0);
+    assert (b >= 0);
+    let t = transient seq in
+    let p = periodic seq in
+    let p_len = List.length p in
+    let rec transient current = function
+      | (x::xs) when current = 0 -> x::(transient (a - 1) xs)
+      | (x::xs) -> transient (current - 1) xs
+      | [] -> []
+    in
+    let first_periodic = b mod p_len in
+    let coeff = a / (gcd a p_len) in
+    let rec periodic current offset =
+      let next = (current + a) mod p_len in
+      let offset' = offset + ((current + a) / p_len) in
+      let current_fun =
+        EP.compose_left_affine (List.nth p current) coeff offset
+      in
+      if next = first_periodic then [current_fun]
+      else current_fun::(periodic next offset')
+    in
+    make (transient b t) (periodic first_periodic (b / p_len))
+
+  (* Given a periodic sequence of exponential-polynomials
+        p_0, ..., p_{m-1}
+     and a coefficient coeff, comptue a (periodic) solution to the recurrence
+     g_0(0) = initial
+     g_n(n+1) = coeff*g_{n}(n) + f_n(n) *)
+  let solve_rec_periodic coeff period initial =
+    let len = List.length period in
+    let full_period = (* coeff^{m-1} * p_0(x) + ... + coeff^0 * p_{m-1}(x) *)
       BatList.fold_lefti (fun ps i f ->
-          E.add (scalar_mul coeff ps) (compose_left_affine f 1 i))
-        E.zero
+          EP.add (EP.scalar_mul coeff ps) f)
+        EP.zero
         period
     in
-    let root_map = (* map each lambda^m to lambda *)
-      BatEnum.fold (fun root_map (_, lambda) ->
-          QQMap.add (QQ.exp lambda len) lambda root_map)
-        (QQMap.add (QQ.exp coeff len) coeff QQMap.empty)
-        (E.enum full_period)
+
+    (* full_period_sln is a solution to the recurrence
+       full_period_sln(0) = initial
+       full_period_sln(n+1) = coeff^m * full_period_sln(n) + full_period(n) *)
+    let full_period_sln =
+      solve_rec ~initial (QQ.exp coeff len) full_period
     in
 
-    (* fp_sln is a solution to the recurrence
-       fp_sln(0) = full_period(0)
-       fp_sln(n+1) = coeff^m * fp_sln(n) + full_period(m*n) *)
-    let fp_sln =
-      solve_rec (QQ.exp coeff len) (compose_left_affine full_period len 0)
-    in
-    (* next_full_period overshoots the solution to the next full
-       period.  tail is the correction term. *)
-    let next_full_period offset = (* fp_sln((x-offset)/m) *)
-      let g = (* (x-offset)/m *)
-        QQX.add_term
-          (QQ.of_frac 1 len)
-          1
-          (QQX.scalar (QQ.of_frac (-offset) len))
-      in
-      BatEnum.fold (fun h (p, lambda) ->
-          let root_lambda = QQMap.find lambda root_map in
-          E.add_term
-            (QQX.scalar_mul (QQ.inverse (QQ.exp root_lambda offset)) (QQX.compose p g))
-            root_lambda
-            h)
-        E.zero
-        (E.enum fp_sln)
-    in
-    let tail i = (* p_{i+1}(x+1) + ... + p_m(x+m-i) *)
-      BatList.fold_lefti (fun sum i f ->
-          E.add (scalar_mul coeff sum) (compose_left_affine f 1 (i + 1)))
-        E.zero
-        (BatList.drop (i+1) period)
-    in
     BatList.map (fun i ->
-        E.scalar_mul
-          (QQX.scalar (QQ.exp coeff (i - len + 1)))
-          (E.add (next_full_period i) (E.negate (tail i))))
+        (* coeff^{i}*full_period_sln(x) + sum_{j=0}^{i-1} coeff*{i-j-1} * f(j) *)
+        BatList.fold_left (fun total f ->
+            EP.add (EP.scalar_mul coeff total) f)
+          full_period_sln
+          (BatList.take i period))
       (BatList.of_enum (0 -- (len-1)))
 
-  (* [x_1; ...; x_n; x_{n+1}; ...; x_m] -> [x_{n+1}; ...; x_m; x_1; ... x_n] *)
-  let cyclic_shift n xs =
-    let rec go k xs ys =
-      if k = 0 then
-        xs @ (List.rev ys)
-      else
-        go (k - 1) (List.tl xs) ((List.hd xs)::ys)
-    in
-    go n xs []
+  let eval (t, p) k =
+    if k < (List.length t) then
+      List.nth t k
+    else
+      let period_len = List.length p in
+      let q = k / period_len in
+      let r = k mod period_len in
+      EP.eval (List.nth p r) q
 
-  let solve_rec coeff seq =
-    (* seq = t1 ... tn (p1 ... pm)^omega *)
-    (* We can think of seq as the pointwise sum of a periodic sequence
-       (p1' ... pm')^omega (some cyclic shift of (p1 ... pm)) and a
-       transient, ultimately zero sequence. *)
-    let period_len = period_len seq in
-    let transient_len = transient_len seq in
+  let enum f = BatEnum.range 0 /@ (eval f)
 
-    let shifted_period =
-      cyclic_shift (period_len - (transient_len mod period_len)) (periodic seq)
-    in
+  let solve_rec ?(initial=QQ.zero) lambda (t, p) =
+    match t with
+    | [] -> ([], solve_rec_periodic lambda p initial)
+    | _ ->
+      (* Solve the cyclic recurrence and compute a correction term to
+         account for the transient part. *)
+      let (total, rev_transient) =
+        List.fold_left (fun (next, ts) qq ->
+            let next' = QQ.add (QQ.mul lambda next) qq in
+            (next', next'::ts))
+          (initial, [initial])
+          t
+      in
+      let period_len = List.length p in
+      let transient_len = List.length t in
+      (* sum_{i=0}^{transient_len-1} coeff^{transient_len-i-1}*p(i) *)
+      let transient_period_total =
+        BatEnum.cycle (BatList.enum p)
+        |> BatEnum.mapi (fun k f -> EP.eval f (k / period_len))
+        |> BatEnum.take transient_len
+        |> BatEnum.fold (fun total next ->
+            QQ.add (QQ.mul lambda total) next)
+          QQ.zero
+      in
+      let correction_term i =
+        (* lambda^{i-transient_len} * (total - transient_period_total) *)
+        EP.of_term
+          (QQX.scalar
+             (QQ.mul
+                (QQ.exp lambda (i - transient_len))
+                (QQ.sub total transient_period_total)))
+          (QQ.exp lambda period_len)
+      in
+      let periodic =
+        solve_rec_periodic lambda p QQ.zero
+        |> BatList.mapi (fun i -> EP.add (correction_term i))
+      in
+      (List.rev rev_transient, periodic)
 
-    let (rev_transient, transient_sum) =
-      BatList.fold_lefti (fun (t, sum) i f ->
-          let sum' = QQ.add (QQ.mul coeff sum) (eval f i) in
-          ((scalar sum')::t, sum'))
-        ([], QQ.zero)
-        (transient seq)
-    in
-    (* Sum the periodic sequence up to the length of the transient. *)
-    let transient_period_sum =
-      BatEnum.foldi (fun i f sum ->
-          QQ.add (QQ.mul coeff sum) (eval f i))
-        QQ.zero
-        (BatEnum.take
-           transient_len
-           (enum (make [] shifted_period)))
-    in
-    let period_sln =
-      solve_rec_periodic coeff shifted_period
-      |> cyclic_shift (transient_len mod period_len) (* deshift *)
-      |> BatList.mapi (fun i f ->
-          let offset =
-            QQ.mul
-              (QQ.exp coeff (1-transient_len))
-              (QQ.sub transient_sum transient_period_sum)
-          in
-          E.add f (QQMap.singleton coeff (QQX.scalar offset)))
-    in
-    make (List.rev rev_transient) period_sln
+  let period_nth up total_period k =
+    List.nth (mul_period (total_period/(period_len up)) (periodic up)) k
 
-  let summation = solve_rec QQ.one
+  let flatten xs =
+    let period =
+      List.fold_left (fun period up -> lcm (period_len up) period) 1 xs
+    in
+    let xs_len = List.length xs in
+    let transient_len =
+      BatList.fold_lefti (fun transient i up ->
+          let up_t = transient_len up in
+          if up_t > 0 then
+            max (xs_len * up_t + i) transient
+          else
+            transient)
+        0
+        xs
+    in
+    let transient =
+      BatEnum.cycle (BatList.enum xs)
+      |> BatEnum.mapi (fun k up -> eval up (k / xs_len))
+      |> BatEnum.take transient_len
+      |> BatList.of_enum
+    in
+    let periodic =
+      (0 -- (period - 1))
+      /@ (fun i ->
+          BatList.enum xs
+        /@ (fun x -> period_nth x 1 i))
+      |> BatEnum.concat
+      |> BatList.of_enum
+    in
+    (transient, periodic)
+
+  let summation f = solve_rec ~initial:(eval f 0) QQ.one (compose_left_affine f 1 1)
+
+  let of_polynomial p = make [] [E.of_term p QQ.one]
+  let of_exponential lambda = make [] [E.of_term QQX.one lambda]
+  let of_exp_polynomial f = make [] [f]
 end

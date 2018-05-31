@@ -1,6 +1,7 @@
 open OUnit
 open Test_pervasives
 open Polynomial
+open BatPervasives
 
 let mk_qqx vec =
   List.fold_left
@@ -101,7 +102,7 @@ let test_rec1 () =
   let open Infix in
   let sln = ExpPolynomial.solve_rec (QQ.of_int 2) (int 1) in
   let expected_sln =
-    (int 2)*(exp 2)-(int 1)
+    (exp 2)-(int 1)
   in
   assert_equal_exppoly expected_sln sln
 
@@ -109,7 +110,7 @@ let test_rec2 () =
   let open Infix in
   let sln = ExpPolynomial.solve_rec (QQ.of_int 2) x in
   let expected_sln =
-    (int 2)*(exp 2)-x-(int 2)
+    (exp 2)-x-(int 1)
   in
   assert_equal_exppoly expected_sln sln
 
@@ -117,7 +118,7 @@ let test_rec3 () =
   let open Infix in
   let sln = ExpPolynomial.solve_rec (QQ.of_int 2) (exp 3) in
   let expected_sln =
-    (int 3)*(exp 3)-(int 2)*(exp 2)
+    (exp 3) - (exp 2)
   in
   assert_equal_exppoly expected_sln sln
 
@@ -125,21 +126,57 @@ let test_rec4 () =
   let open Infix in
   let sln = ExpPolynomial.solve_rec (QQ.of_int 3) (x*(exp 9) - x) in
   let expected_sln =
-    (frac 1 4)*((int 2) * x
-                + (int 3)*(exp 9)*((int 2)*x - (int 1)) + (int 3))
+    (frac 1 12) * ((int 6) * x
+                   + (exp 9)*((int 2)*x - (int 3))
+                   + (int 3))
   in
   assert_equal_exppoly expected_sln sln
 
 let rec_list lambda xs =
-  BatList.fold_lefti (fun (sum,xs) i f ->
-      let sum = QQ.add (QQ.mul lambda sum) (ExpPolynomial.eval f i) in
+  BatList.fold_lefti (fun (sum,xs) i x ->
+      let total = QQ.add (QQ.mul lambda sum) x in
+      (total,total::xs))
+    (QQ.zero,[QQ.zero])
+    xs
+  |> snd
+  |> BatList.rev
+
+let sum_list xs =
+  BatList.fold_left (fun (sum, xs) x ->
+      let sum = QQ.add sum x in
       (sum,sum::xs))
     (QQ.zero,[])
     xs
   |> snd
   |> BatList.rev
 
-let sum_list = rec_list QQ.one
+let test_up_compose () =
+  let f =
+    let open Infix in
+    UP.make [] [x; x]
+  in
+  let g =
+    let open Infix in
+    UP.make
+      (List.map QQ.of_int [1;2;3;4])
+      [x; (int 1) - x; (int 2)*x]
+  in
+  let check f a b x =
+    assert_equal_qq
+      (UP.eval f (a * x + b))
+      (UP.eval (UP.compose_left_affine f a b) x)
+  in
+  check f 1 2 0;
+  check f 1 2 1;
+  check f 1 3 3;
+  check f 2 3 1;
+  check f 2 0 10;
+  check f 3 0 10;
+  check f 3 5 10;
+  check g 1 2 0;
+  check g 2 2 1;
+  check g 2 3 4;
+  check g 7 9 10
 
 let test_up_sum1 () =
   let f =
@@ -149,70 +186,78 @@ let test_up_sum1 () =
   let sum = UP.summation f in
   let expected_sum =
     let open Infix in
-    UP.make [] [(frac 3 2)*x + (int 1); (frac 3 2)*x + (frac 3 2)]
+    UP.make [] [(int 3)*x + (int 1); (int 3)*x + (int 3)]
   in
+  assert_equal
+    ~printer:([%derive.show: QQ.t list])
+    (sum_list (BatList.of_enum ((0--100) /@ (UP.eval f))))
+    (BatList.of_enum ((0--100) /@ (UP.eval sum)));
   assert_equal_up_exppoly expected_sum sum
+
 let test_up_sum2 () =
   let f =
     let open Infix in
-    UP.make [int 5; int 4; int 0] [int 1; int 2]
+    UP.make (List.map QQ.of_int [5; 4; 0]) [int 1; int 2]
   in
   let sum = UP.summation f in
   let expected_sum =
     let open Infix in
-    UP.make [int 5; int 9; int 9] [(frac 3 2)*x + (frac 11 2); (frac 3 2)*x + (int 6)]
+    UP.make (List.map QQ.of_int [5; 9; 9]) [(int 6) + (int 3)*x; (int 8) + (int 3)*x]
   in
+  assert_equal
+    ~printer:([%derive.show: QQ.t list])
+    (sum_list (BatList.of_enum ((0--100) /@ (UP.eval f))))
+    (BatList.of_enum ((0--100) /@ (UP.eval sum)));
   assert_equal_up_exppoly expected_sum sum
 
 let test_up_sum3 () =
   let f =
     let open Infix in
-    UP.make [] [x; x + int 1]
+    UP.make [] [(int 2)*x; (int 2)*x + int 1]
   in
   let sum = UP.summation f in
   let expected_sum =
     let open Infix in
-    UP.make [] [(frac 1 2)*x*x + x; (frac 1 2)*(x*x + (int 2)*x + (int 1))]
+    UP.make [] [(int 2)*x*x + x; (int 2)*x*x + (int 3)*x + (int 1)]
   in
+  assert_equal
+    ~printer:([%derive.show: QQ.t list])
+    (sum_list (BatList.of_enum ((0--100) /@ (UP.eval f))))
+    (BatList.of_enum ((0--100) /@ (UP.eval sum)));
   assert_equal_up_exppoly expected_sum sum
 
 let test_up_sum4 () =
   let f =
     let open Infix in
-        UP.make [int 1] [x; exp 2]
+    UP.make [QQ.of_int 1] [x; exp 2]
   in
   let sum = UP.summation f in
-  let expected_sum =
-    let open Infix in
-    UP.make [int 1] [(frac 2 3)*(exp 2) + (frac 1 4)*x*x + (frac 1 2)*x - (frac 1 12);
-                     (frac 4 3)*(exp 2) + (frac 1 4)*x*x - (frac 1 3)]
-  in
-  assert_equal_up_exppoly expected_sum sum
+  assert_equal
+    ~printer:([%derive.show: QQ.t list])
+    (sum_list (BatList.of_enum ((0--100) /@ (UP.eval f))))
+    (BatList.of_enum ((0--100) /@ (UP.eval sum)))
+
 let test_up_sum5 () =
   let f =
     let open Infix in
-    UP.make [int 1; int 2] [x; x + (int 1); (int 2)*x]
+    UP.make [QQ.of_int 1; QQ.of_int 2] [x; x + (int 1); (int 2)*x]
   in
   let sum = UP.summation f in
-  let expected_sum =
-    let open Infix in
-    UP.make [int 1; int 3] [(frac 1 3) + x + (frac 2 3)*x*x;
-                            (int 1) + (frac 2 3)*(x*x + x);
-                            (int 1) + (frac 2 3)*x*x + (frac 4 3)*x]
-  in
-  assert_equal_up_exppoly expected_sum sum
+  assert_equal
+    ~printer:([%derive.show: QQ.t list])
+    (sum_list (BatList.of_enum ((0--100) /@ (UP.eval f))))
+    (BatList.of_enum ((0--100) /@ (UP.eval sum)))
 
 let test_up_rec1 () =
   let f =
     let open Infix in
-    UP.make [int 1; int 2; int 1] [x]
+    UP.make (List.map QQ.of_int [1; 2; 1]) [x]
   in
   let sln = UP.solve_rec (QQ.of_int 2) f in
-  let expected_sln =
-    let open Infix in
-    UP.make [int 1; int 4; int 9] [(frac 13 4)*(exp 2) - x - (int 2)]
-  in
-  assert_equal_up_exppoly expected_sln sln
+  assert_equal
+    ~printer:([%derive.show: QQ.t list])
+    (rec_list (QQ.of_int 2) (BatList.of_enum ((0--99) /@ (UP.eval f))))
+    (BatList.of_enum ((0--100) /@ (UP.eval sln)))
 
 let test_up_rec2 () =
   let f =
@@ -220,27 +265,21 @@ let test_up_rec2 () =
     UP.make [] [x; (int 2)*x]
   in
   let sln = UP.solve_rec (QQ.of_int 5) f in
-  let expected_sln =
-    let open Infix in
-    UP.make [] [(frac 155 288)*(exp 5) - (frac 11 24)*x - (frac 155 288);
-                (frac 155 288)*(exp 5) - (frac 7 24)*x - (frac 115 288)]
-  in
-  assert_equal_up_exppoly expected_sln sln
+  assert_equal
+    ~printer:([%derive.show: QQ.t list])
+    (rec_list (QQ.of_int 5) (BatList.of_enum ((0--99) /@ (UP.eval f))))
+    (BatList.of_enum ((0--100) /@ (UP.eval sln)))
 
 let test_up_rec3 () =
   let f =
     let open Infix in
-    UP.make [int 1; int 2; int 3] [x; exp 2]
+    UP.make (List.map QQ.of_int [1; 2; 3]) [x; exp 2]
   in
   let sln = UP.solve_rec (QQ.of_int 3) f in
-  let expected_sln =
-    let open Infix in
-    UP.make
-      [int 1; int 5; int 18]
-      [(exp 3)*(frac 3587 1440) - (frac 6 5)*(exp 2) - (frac 1 8)*x - (frac 9 32);
-       (exp 3)*(frac 3587 1440) - (frac 4 5)*(exp 2) - (frac 3 8)*x - (frac 15 32)]
-  in
-  assert_equal_up_exppoly expected_sln sln
+  assert_equal
+    ~printer:([%derive.show: QQ.t list])
+    (rec_list (QQ.of_int 3) (BatList.of_enum ((0--99) /@ (UP.eval f))))
+    (BatList.of_enum ((0--100) /@ (UP.eval sln)))
 
 let suite = "ExpPolynomial" >::: [
       "sum1" >:: test_sum1;
@@ -252,6 +291,7 @@ let suite = "ExpPolynomial" >::: [
       "test_rec2" >:: test_rec2;
       "test_rec3" >:: test_rec3;
       "test_rec4" >:: test_rec4;
+      "up_compose" >:: test_up_compose;
       "up_sum1" >:: test_up_sum1;
       "up_sum2" >:: test_up_sum2;
       "up_sum3" >:: test_up_sum3;
