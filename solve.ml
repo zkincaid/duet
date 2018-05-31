@@ -4,6 +4,8 @@ open Graph;;
 
 open Printf;;
 
+(* ------------------------------------------------------------------------- *)
+
 (* Finite weights: *)
 type fweight = Mpq.t;;
 
@@ -28,13 +30,14 @@ let fwt_from_int i =
     let retval = Mpq.init () in 
     let _ = Mpq.set_si retval i 1 in
     retval;;
-let fwt_zero = 
+let fwt_zero = (* Should this be a function taking () ? *)
     let retval = Mpq.init () in 
     (* let _ = Mpq.set_si retval 0 0 in *)
     retval;;
 let fwt_sprintf fwt = sprintf "%.1f" (Mpq.to_float fwt);;
 let fwt_is_zero fwt = if Mpq.sgn fwt = 0 then true else false;; (*convenience*)
 
+(* ------------------------------------------------------------------------- *)
 
 type weight = Worst | Fin of fweight;;
 
@@ -119,6 +122,15 @@ end;;
 
 module SCCGraph = Imperative.Digraph.Concrete(V2);;
 
+module MPComponents = Graph.Components.Make(MPGraph);;
+
+module SCCOper = Graph.Oper.I(SCCGraph);;
+
+module IntMap = Map.Make(struct type t = int let compare = compare end);;
+module IntIntMap = Map.Make(struct type t = int * int let compare = compare end);;
+
+(* ------------------------------------------------------------------------- *)
+
 (* Because Karp's algorithm uses a lot of data structures involving
  *   arrays starting at zero, I use the following imperative construct: 
  * We repeat f, setting i from m (inclusive) up to n (inclusive). *)
@@ -158,11 +170,6 @@ let matrixToGraph matrix =
     Array.iteri add_edges_in_row matrix;
     graph
 ;;
-
-module MPComponents = Graph.Components.Make(MPGraph);;
-module SCCOper = Graph.Oper.I(SCCGraph);;
-module IntMap = Map.Make(struct type t = int let compare = compare end);;
-module IntIntMap = Map.Make(struct type t = int * int let compare = compare end);;
 
 let printMatrix matrix =
     let nRows = Array.length matrix in 
