@@ -493,7 +493,10 @@ let createInequations loopCounterName variableNames slopes intercepts =
                     subterm :: subterms
         ) in if List.length subterms = 0 then inequations (* no bound *)
         else let outVar = Output_variable (variableNames.(iOut), subscript) in
-        (* inequation is a max/min over one or more subterms *)
+        (* inequation is a max/min over one or more subterms, like: *)
+        (*    outVar <= max( ... subterms ... )                     *)
+        (*      or, dually:                                         *)
+        (*    outVar >= min( ... subterms ... )                     *)
         let inequation = fwt_bound outVar (fwt_best_expr subterms) in
         inequation :: inequations (* we built a new inequation *)
     )
