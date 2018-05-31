@@ -5,15 +5,36 @@ open Graph;;
 open Printf;;
 
 (* These are floats for now, but eventually we'll use GMP rationals *)
-type fweight = float;;  (* Finite weight. *) 
+type fweight = Mpq.t;;  (* Finite weight. *) 
 
+(* I should really make the following into a module that is a parameter to 
+ *  the algorithm below, which should be another module *)
 (* For easy dualization, I'm putting all maxes and mins in terms of best and worst *)
-let fwt_add x y = x +. y;;
-let fwt_sub x y = x -. y;;
-let fwt_best x y = max x y;;
-let fwt_worst x y = min x y;;
-let fwt_from_int i = float_of_int i;;
-let fwt_default = 0.0;;
+let fwt_add x y = 
+    let retval = Mpq.init () in
+    let _ = Mpq.add retval x y in
+    retval;;
+let fwt_sub x y =
+    let retval = Mpq.init () in
+    let _ = Mpq.sub retval x y in
+    retval;;
+let fwt_div x y =
+    let retval = Mpq.init () in
+    let _ = Mpq.div retval x y in
+    retval;;
+let fwt_best x y = if Mpq.cmp x y >= 0 then x else y;;
+let fwt_worst x y = if Mpq.cmp x y >= 0 then y else x;;
+let fwt_from_int i = 
+    let retval = Mpq.init () in 
+    let _ = Mpq.set_si retval i 1 in
+    retval;;
+let fwt_zero = 
+    let retval = Mpq.init () in 
+    (* let _ = Mpq.set_si retval 0 0 in *)
+    retval;;
+let fwt_sprintf fwt = sprintf "%.1f" (Mpq.to_float fwt);;
+let fwt_is_zero fwt = if Mpq.sgn fwt = 0 then true else false;; (*convenience*)
+
 
 type weight = Worst | Fin of fweight;;
 
@@ -28,7 +49,7 @@ let wt_best w1 w2 =
 ;;
 
 let wt_sprintf wt = 
-    match wt with | Worst -> (sprintf "NA") | Fin fwt -> (sprintf "%.1f" fwt)
+    match wt with | Worst -> (sprintf "NA") | Fin fwt -> fwt_sprintf fwt
 ;;
 
 let wt_print wt = print_string (wt_sprintf wt);;
@@ -82,7 +103,7 @@ end;;
 module E = struct
   type t = fweight
   let compare = Pervasives.compare
-  let default = fwt_default
+  let default = fwt_zero
 end;;
 
 (* Max-plus recurrence graph *)
@@ -207,14 +228,14 @@ let printUpperBound ?(variableNames=alphabet) slopes intercepts =
         let slope = slopes.(uVar).(vVar) in
         match slope with 
         | Worst -> (false,"") 
-        | Fin 0.0 -> (true,"")
-        | Fin fwt -> (true,(sprintf " + (K * %s)" (wt_sprintf slope))) in
+        | Fin fwt -> if fwt_is_zero fwt then (true,"") else
+                     (true,(sprintf " + (K * %s)" (wt_sprintf slope))) in
     let interceptString uVar vVar = 
         let intercept = intercepts.(uVar).(vVar) in
         match intercept with 
         | Worst -> (false,"") 
-        | Fin 0.0 -> (true,"")
-        | Fin fwt -> (true,(sprintf " + %s" (wt_sprintf intercept))) in 
+        | Fin fwt -> if fwt_is_zero fwt then (true,"") else
+                     (true,(sprintf " + %s" (wt_sprintf intercept))) in 
     loopFromMToN 0 (nVariables - 1) () (fun uVar _ ->
         let header = (sprintf "%s%s[K] <= " globalPrefix (getVarName uVar)) in
         let prefix = (spaces (4 + (String.length header))) in
@@ -259,7 +280,7 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
         let fMap = List.fold_left
             (fun fMap uVertex -> IntIntMap.add 
                 (0, uVertex)
-                (if (uVertex = startVertex) then (Fin 0.0) else Worst) 
+                (if (uVertex = startVertex) then Fin fwt_zero else Worst) 
                 fMap) IntIntMap.empty vertices in
         (* Now, we will compute fMap (Karp's F_k(v)) using a recurrence.     *)
         (* Loop over the number of steps (Karp's "k") in a progression:      *)
@@ -312,7 +333,9 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
               | (steps, fkv) :: tail ->
                 (* Compute a cycle mean: (F_n(v) - F_k(v)) / (n - k)         *)
                 let cycleMean steps fnv fkv = 
-                    (fwt_sub fnv fkv) /. (float_of_int (nVertices - steps)) in
+                    fwt_div (fwt_sub fnv fkv) 
+                            (fwt_sub (fwt_from_int nVertices) 
+                                     (fwt_from_int steps)) in
                 (* We'll initialize our fold with a finite fkv               *)
                 let firstCycleMean = cycleMean steps fnv fkv in
                 (* Here we specify that we want the worst, using a fold:     *)
@@ -372,7 +395,7 @@ let computeIntercepts graph slopes =
     (* Initialize bounding intercepts *)
     let intercepts = Array.make_matrix nVertices nVertices Worst in
     loopFromMToN 0 (nVertices - 1) () (fun uVertex _ ->
-        intercepts.(uVertex).(uVertex) <- Fin (0.0)
+        intercepts.(uVertex).(uVertex) <- Fin fwt_zero 
     );
     (* Compute bounding intercepts *)
     loopFromMToN 0 (nVertices - 1) () (fun iInput _ ->
@@ -473,7 +496,7 @@ let tests = [
      [| (d 1); na;       |];
     |] };
 
-    {name="knee-5"; matrix=[| 
+    {name="zigzag-5"; matrix=[| 
      [| na;    (d 2); na;    na;     na;    |];
      [| (d 0); na;    na;    na;     na;    |];
      [| na;    na;    na;    (d 10); na;    |];
