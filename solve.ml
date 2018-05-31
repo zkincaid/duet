@@ -4,8 +4,8 @@ open Graph;;
 
 open Printf;;
 
-(* These are floats for now, but eventually we'll use GMP rationals *)
-type fweight = Mpq.t;;  (* Finite weight. *) 
+(* Finite weights: *)
+type fweight = Mpq.t;;
 
 (* I should really make the following into a module that is a parameter to 
  *  the algorithm below, which should be another module *)
@@ -68,9 +68,10 @@ type expr =
           | Minus of expr * expr    (** Binary subtraction *)
           | Times of expr * expr    (** Binary multiplication *)
           | Divide of expr * expr   (** Binary division *) *)
-          | MPProduct of expr list    (** N-ary formal times; really plus *)
-          | MPSum of expr list        (** N-ary formal plus; really max *)
-          | Symbolic_Constant of string (** "x", "y", etc *)
+          | Product of expr list    (** N-ary multiplication *)
+          | Sum of expr list        (** N-ary addition *)
+          | Max of expr list        (** N-ary max *)
+       (* | Symbolic_Constant of string (** "x", "y", etc *) *)
           | Base_case of string * int   (** y_0, y_1, ... *)
           | Output_variable of string * subscript (** y_n, y_n+1, y_n+2, ... *)
           | Input_variable of string    (** Index variable *)
