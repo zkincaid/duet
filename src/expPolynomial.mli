@@ -32,11 +32,12 @@ val compose_left_affine : t -> int -> int -> t
 (** [summation f] computes an exponential-polynomial [g] such that [g(n) = sum_{i=0}^n f(i)]. *)
 val summation : t -> t
 
-(** [solve_rec lambda g] computes an exponential-polynomial [g] such that
+(** [solve_rec ?initial lambda g] computes an exponential-polynomial [g] such that
     {ul
-      {- g(0) = f(0) }
-      {- g(n) = lambda*g(n-1) + f(n) }} *)
-val solve_rec : QQ.t -> t -> t
+      {- g(0) = initial }
+      {- g(n+1) = lambda*g(n) + f(n) }}.
+    If the initial value is omitted, it is taken to be 0. *)
+val solve_rec : ?initial:QQ.t -> QQ.t -> t -> t
 
 (** [term_of srk t f] computes a term representing [f(t)]. *)
 val term_of : ('a context) -> 'a term -> t -> 'a term
@@ -61,23 +62,44 @@ module UltPeriodic : sig
   val show : t -> string
 
   (** [make t p] constructs an ultimately periodic sequence *)
-  val make : elt list -> elt list -> t
+  val make : QQ.t list -> elt list -> t
 
   (** Retrieve the transient part of a sequence *)
-  val transient : t -> elt list
+  val transient : t -> QQ.t list
 
   (** Retrieve the periodic part of a sequence *)
   val periodic : t -> elt list
 
   (** Enumerate the sequence. *)
-  val enum : t -> elt BatEnum.t
+  val enum : t -> QQ.t BatEnum.t
 
+  val eval : t -> int -> QQ.t
   val period_len : t -> int
   val transient_len : t -> int
 
-  (** Given an ultimately periodic sequence [f1 f2 f3 ...] compute the
-      sequence [lambda n. sum_{i=1}^n fi(i)]. *)
+  (** Given a function f, compute the function [lambda n. sum_{i=0}^n f(i) *)
   val summation : t -> t
 
-  val solve_rec : QQ.t -> t -> t
+  (** [solve_rec ?initial coeff f] computes the function [g] that satisfies
+        g(0) = initial
+        g(n+1) = coeff*g_{n}(n) + f_n(n)
+      If initial is omitted, it is taken to be 0.
+  *)
+  val solve_rec : ?initial:QQ.t -> QQ.t -> t -> t
+
+  (** [term_of srk q r f] computes a term representing [f(qp + r)],
+      where [p] is the period of [f]. *)
+  val term_of : 'a context -> 'a term -> 'a term -> t -> 'a term
+
+  val scalar : QQ.t -> t
+  val of_polynomial : Polynomial.QQX.t -> t
+  val of_exponential : QQ.t -> t
+  val of_exp_polynomial : elt -> t
+
+  (** [compose_left_affine f a b] computes an ultimately periodic function g such that for all k
+       [g_i(i) = f_{ai+b}(ai+b)] *)
+  val compose_left_affine : t -> int -> int -> t
+
+  (** [flatten f_0 ... f_{p-1}] computes a function [g] such that [g(qp + r) = f_r(q)] *)
+  val flatten : t list -> t
 end
