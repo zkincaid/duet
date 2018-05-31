@@ -486,7 +486,7 @@ let createInequations loopCounterName variableNames slopes intercepts =
             | Fin slope -> match intercepts.(iOut).(iIn) with
                 | Worst -> subterms 
                 | Fin intercept -> let subterm = 
-                    (*   k * slope + intercept + inVar_0    *)
+                    (* subterms look like:  k * slope + intercept + inVar_0  *)
                     Sum [ Product [loopCounter; Rational slope];
                           Rational intercept;
                           Base_case (variableNames.(iIn), 0) ] in
