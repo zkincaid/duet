@@ -13,8 +13,44 @@ module DArray = BatDynArray
 module QQX = Polynomial.QQX
 module QQXs = Polynomial.QQXs
 module Monomial = Polynomial.Monomial
-
+module MonomialSet = Set.Make(Monomial)
 module CS = CoordinateSystem
+
+module UP = ExpPolynomial.UltPeriodic
+module UPXs = struct
+  include Polynomial.MakeMultivariate(UP)
+
+  let eval upxs k =
+    BatEnum.fold (fun e (up, m) ->
+        QQXs.add_term (UP.eval up k) m e)
+      QQXs.zero
+      (enum upxs)
+
+  let map_coeff f upxs =
+    BatEnum.fold (fun e (up, m) ->
+        add_term (f m up) m e)
+      zero
+      (enum upxs)
+
+  let flatten period =
+    let monomials =
+      List.fold_left (fun set upxs ->
+          BatEnum.fold (fun set (_, m) ->
+              MonomialSet.add m set)
+            set
+            (enum upxs))
+        MonomialSet.empty
+        period
+    in
+    MonomialSet.fold (fun m upxs ->
+        let up =
+          List.map (coeff m) period
+          |> UP.flatten
+        in
+        add_term up m upxs)
+      monomials
+      zero
+end
 
 module type PreDomain = sig
   type 'a t
@@ -39,133 +75,6 @@ end
 module type DomainPlus = sig
   include Domain
   val closure_plus : 'a t -> 'a formula
-end
-
-module Cf = struct
-  module IntMap = SrkUtil.Int.Map
-  include Ring.RingMap(IntMap)(QQX)
-
-  let k_minus_1 = QQX.add_term QQ.one 1 (QQX.scalar (QQ.of_int (-1)))
-
-  (* Compose a closed form with a uvp *)
-  let compose cf p =
-    IntMap.filter_map
-      (fun _ coeff ->
-         let coeff' = QQX.compose coeff p in
-         if QQX.is_zero coeff' then
-           None
-         else
-           Some coeff')
-      cf
-
-  let scalar_mul scalar vec =
-    if QQX.is_zero scalar then
-      zero
-    else
-      IntMap.map (QQX.mul scalar) vec
-
-  exception No_translation
-
-  let is_constant_expr cs env expr =
-    let is_constant_sym sym =
-      match env sym with
-      | Some cf ->
-        if IntMap.cardinal cf = 1 then
-          let (coord, coeff) = IntMap.choose cf in
-          QQX.equal QQX.one coeff
-          && (CS.cs_term_id cs (`App (sym, [])) = coord)
-        else
-          false
-      | None -> false
-    in
-    Symbol.Set.for_all is_constant_sym (symbols expr)
-
-  let const k =
-    IntMap.add Linear.const_dim k IntMap.empty
-
-  let mul cs u v =
-    let mul_dim x y =
-      if x = Linear.const_dim then
-        y
-      else if y = Linear.const_dim then
-        x
-      else
-        CS.cs_term_id ~admit:true cs (`Mul (V.of_term QQ.one x,
-                                            V.of_term QQ.one y))
-    in
-    SrkUtil.cartesian_product (enum u) (enum v)
-    /@ (fun ((xcoeff, xdim), (ycoeff, ydim)) ->
-        (QQX.mul xcoeff ycoeff, mul_dim xdim ydim))
-    |> of_enum
-
-  let rec of_term cs env term =
-    let admit = true in
-    let srk = CS.get_context cs in
-    match Term.destruct srk term with
-    | `App (v, []) ->
-      begin
-        match env v with
-        | Some cf -> compose cf k_minus_1
-        | None ->
-          raise No_translation
-      end
-    | `Real k -> const (QQX.scalar k)
-    | `Add xs ->
-      List.fold_right (fun x cf -> add (of_term cs env x) cf) xs zero
-    | `Mul [] -> const (QQX.scalar QQ.one)
-    | `Mul (x::xs) ->
-      List.fold_right
-        (fun x cf -> mul cs cf (of_term cs env x))
-        xs
-        (of_term cs env x)
-    | `Unop (`Neg, x) -> negate (of_term cs env x)
-    | _ ->
-      if is_constant_expr cs env term then
-        V.enum (CS.vec_of_term ~admit cs term)
-        /@ (fun (coeff, dim) -> (dim, QQX.scalar coeff))
-        |> IntMap.of_enum
-      else
-        raise No_translation
-  let of_term cs env term =
-    try Some (of_term cs env term)
-    with No_translation -> None
-
-  let summation cf =
-    (* QQX.summation computes q(n) = sum_{i=0}^n p(i); shift to compute
-       q(n) = sum_{i=1}^n p(i) *)
-    let sum_from_1 px =
-      QQX.add_term (QQ.negate (QQX.eval px QQ.zero)) 0 (QQX.summation px)
-    in
-    IntMap.map sum_from_1 cf
-
-  (* Convert a closed form into a term by instantiating the variable in the
-     polynomial coefficients of the closed form *)
-  let term_of cs cf k =
-    let srk = CS.get_context cs in
-    let polynomial_term px =
-      QQX.enum px
-      /@ (fun (coeff, order) ->
-          mk_mul srk
-            ((mk_real srk coeff)::(BatList.of_enum
-                                     ((1 -- order) /@ (fun _ -> k)))))
-      |> BatList.of_enum
-      |> mk_add srk
-    in
-    enum cf
-    /@ (fun (px, coord) ->
-        if coord = Linear.const_dim then
-          polynomial_term px
-        else
-          mk_mul srk [CS.term_of_coordinate cs coord;
-                      polynomial_term px])
-    |> BatList.of_enum
-    |> mk_add srk
-
-  let symbol cs p sym =
-    IntMap.add
-      (CS.cs_term_id ~admit:true cs (`App (sym, [])))
-      p
-      IntMap.empty
 end
 
 let reflexive_closure srk tr_symbols formula =
@@ -268,6 +177,27 @@ let matrix_polyvec_mul m polyvec =
           QQXs.add p (QQXs.scalar_mul coeff polyvec.(j)))
         QQXs.zero
         (V.enum (QQMatrix.row i m)))
+
+let polyvec_add polyvec polyvec' =
+  Array.init (Array.length polyvec) (fun i ->
+      QQXs.add polyvec.(i) polyvec'.(i))
+
+let vec_upxsvec_dot vec1 vec2 =
+  BatEnum.fold (fun ep i ->
+      UPXs.add
+        ep
+        (UPXs.scalar_mul (UP.scalar (V.coeff i vec1)) vec2.(i)))
+    UPXs.zero
+    (0 -- (Array.length vec2 - 1))
+
+let vec_qqxsvec_dot vec1 vec2 =
+  BatEnum.fold (fun ep i ->
+      QQXs.add
+        ep
+        (QQXs.scalar_mul (V.coeff i vec1) vec2.(i)))
+    QQXs.zero
+    (0 -- (Array.length vec2 - 1))
+
 
 (* Write the affine hull of a wedge as Ax' = Bx + c, where c is vector of
    polynomials in recurrence terms, and the non-zero rows of A are linearly
@@ -538,6 +468,95 @@ module Recurrence = struct
       let (mA,mB,rec_add) =
         extract_affine_transformation srk wedge rec_sym term_of_id rec_ideal
       in
+      let size = Array.length rec_add in
+      if size = 0 then
+        []
+      else
+        let rec_transform =
+          Array.init size (fun row ->
+              Array.init size (fun col ->
+                  QQMatrix.entry row col mB))
+        in
+        let rec_ideal' = ref rec_ideal in
+        for i = 0 to size - 1 do
+          DArray.add term_of_id (CS.term_of_vec cs (QQMatrix.row i mA))
+        done;
+        for i = 0 to size - 1 do
+          let rec_eq =
+            let lhs =
+              QQXs.of_vec ~const:CS.const_id (QQMatrix.row i mA)
+              |> QQXs.substitute (fun coord ->
+                  assert (IntMap.mem coord post_coord_map);
+                  QQXs.of_dim (IntMap.find coord post_coord_map))
+            in
+            let add =
+              QQXs.substitute (fun i ->
+                  (CS.polynomial_of_term cs (DArray.get term_of_id i)))
+                rec_add.(i)
+            in
+            let rhs =
+              BatEnum.fold (fun p (coeff, i) ->
+                  if i = CS.const_id then
+                    QQXs.add (QQXs.scalar coeff) p
+                  else
+                    QQXs.add p
+                      (QQXs.scalar_mul coeff
+                         (CS.polynomial_of_term cs
+                            (DArray.get term_of_id (offset + i)))))
+                QQXs.zero
+                (V.enum (QQMatrix.row i mB))
+              |> QQXs.add add
+            in
+            QQXs.add lhs (QQXs.negate rhs)
+          in
+          rec_ideal' := rec_eq::(!rec_ideal')
+        done;
+        { rec_transform; rec_add }::(fix (!rec_ideal'))
+    in
+    fix []
+
+  (* Extract a stratified system of matrix recurrences *)
+  let extract_periodic_rational_matrix_eq srk wedge rec_sym term_of_id =
+    let cs = Wedge.coordinate_system wedge in
+    let post_coord_map =
+      (* map pre-state coordinates to their post-state counterparts *)
+      List.fold_left
+        (fun map (sym, sym') ->
+           try
+             let coord = CS.cs_term_id cs (`App (sym, [])) in
+             let coord' = CS.cs_term_id cs (`App (sym', [])) in
+             IntMap.add coord coord' map
+           with Not_found -> map)
+        IntMap.empty
+        rec_sym
+    in
+
+    (* Detect stratified recurrences *)
+    let rec fix rec_ideal =
+      let offset = DArray.length term_of_id in
+      logf "New stratum (%d recurrence terms)" (DArray.length term_of_id);
+      let (mA,mB,rec_add) =
+        extract_affine_transformation srk wedge rec_sym term_of_id rec_ideal
+      in
+
+      let dims = SrkUtil.Int.Set.elements (QQMatrix.row_set mA) in
+      let prsd = Linear.periodic_rational_spectral_decomposition mB dims in
+      let mU =
+        BatList.fold_lefti (fun m i (p,lambda,v) ->
+            QQMatrix.add_row i v m)
+          QQMatrix.zero
+          prsd
+      in
+
+      let mUA = QQMatrix.mul mU mA in
+      let mUBA = QQMatrix.mul mU (QQMatrix.mul mB mA) in
+      let mB = match Linear.divide_right mUBA mUA with
+        | Some x -> x
+        | None -> assert false
+      in
+      let mA = mUA in
+      let rec_add = matrix_polyvec_mul mU rec_add in
+
       let size = Array.length rec_add in
       if size = 0 then
         []
@@ -1058,22 +1077,9 @@ module Recurrence = struct
     let postcondition =
       Wedge.exists (not % flip Symbol.Set.mem pre_symbols) wedge
     in
-    let (rec_wedge, rec_sym) =
-      let (non_recursive, rec_sym) =
-        List.fold_left (fun (set, rec_sym) (s,s') ->
-            if CS.admits cs (mk_const srk s) && CS.admits cs (mk_const srk s') then
-              (set, (s,s')::rec_sym)
-            else
-              (Symbol.Set.add s (Symbol.Set.add s' set), rec_sym))
-          (Symbol.Set.empty, [])
-          tr_symbols
-      in
-      if Symbol.Set.is_empty non_recursive then
-        (wedge, rec_sym)
-      else
-        (Wedge.exists (not % flip Symbol.Set.mem non_recursive) wedge, rec_sym)
-    in
-    let cs = Wedge.coordinate_system rec_wedge in
+    tr_symbols |> List.iter (fun (s,s') ->
+        CS.admit_cs_term cs (`App (s, []));
+        CS.admit_cs_term cs (`App (s', [])));
 
     let term_of_id = DArray.create () in
 
@@ -1098,8 +1104,8 @@ module Recurrence = struct
           DArray.add term_of_id term
     done;
     let nb_constants = DArray.length term_of_id in
-    let rec_eq = extract_eq srk rec_wedge rec_sym term_of_id in
-    let rec_leq = extract_leq srk rec_wedge rec_sym term_of_id in
+    let rec_eq = extract_eq srk wedge tr_symbols term_of_id in
+    let rec_leq = extract_leq srk wedge tr_symbols term_of_id in
     let result =
     { srk;
       symbols = tr_symbols;
@@ -1341,6 +1347,284 @@ module WedgeMatrix : DomainPlus = struct
     abstract_iter extract_matrix_eq extract_vector_leq ~exists srk
   let abstract_iter_wedge srk =
     abstract_iter_wedge extract_matrix_eq extract_vector_leq srk
+
+  let widen iter iter' =
+    let body = Wedge.widen (wedge_of_iter iter) (wedge_of_iter iter') in
+    assert(iter.symbols = iter'.symbols);
+    abstract_iter_wedge iter.srk body iter.symbols
+
+  let join iter iter' =
+    let body =
+      Wedge.join (wedge_of_iter iter) (wedge_of_iter iter')
+    in
+    assert(iter.symbols = iter'.symbols);
+    abstract_iter_wedge iter.srk body iter.symbols
+end
+
+module WedgeMatrixPeriodicRational : DomainPlus = struct
+  include Recurrence
+
+  (* Given a matrix in which each vector in the standard basis is a
+     periodic generalized eigenvector, find a PRSD over the standard
+     basis. *)
+  let standard_basis_prsd mA size =
+    let dims = BatList.of_enum (0 -- (size-1)) in
+    let new_prsd =
+      List.rev (Linear.periodic_rational_spectral_decomposition mA dims)
+    in
+    let id = QQMatrix.identity dims in
+    let get_period_eigenvalue v =
+      let (p, lambda, _) =
+        BatList.find (fun (p, lambda, _) ->
+            V.is_zero
+              (Linear.vector_left_mul v
+                 (QQMatrix.exp
+                    (QQMatrix.add
+                       (QQMatrix.exp mA p)
+                       (QQMatrix.scalar_mul (QQ.negate lambda) id))
+                    size)))
+          new_prsd
+      in
+      (p, lambda)
+    in
+    (0 -- (size - 1))
+    /@ (fun i ->
+        let v = V.of_term QQ.one i in
+        let (p, lambda) = get_period_eigenvalue v in
+        (p, lambda, v))
+    |> BatList.of_enum
+
+  let abstract_iter ?(exists=fun x -> true) srk =
+    abstract_iter extract_periodic_rational_matrix_eq extract_vector_leq ~exists srk
+
+  let abstract_iter_wedge srk =
+    abstract_iter_wedge extract_periodic_rational_matrix_eq extract_vector_leq srk
+
+  let closure_plus iter =
+    Nonlinear.ensure_symbols iter.srk;
+
+    let srk = iter.srk in
+    let loop_counter_sym = mk_symbol srk ~name:"K" `TyInt in
+    let loop_counter = mk_const srk loop_counter_sym in
+
+    let post_map = (* map pre-state vars to post-state vars *)
+      post_map iter.symbols
+    in
+
+    let postify =
+      let subst sym =
+        if Symbol.Map.mem sym post_map then
+          mk_const srk (Symbol.Map.find sym post_map)
+        else
+          mk_const srk sym
+      in
+      substitute_const srk subst
+    in
+
+    (* Map identifiers to their closed forms, so that they can be used in the
+       additive term of recurrences at higher strata *)
+    let cf =
+      Array.make (Array.length iter.term_of_id) UPXs.zero
+    in
+    (* Substitute closed forms in for a polynomial *)
+    let substitute_closed_forms p =
+      BatEnum.fold (fun up (coeff, m) ->
+          BatEnum.fold (fun m_up (i, pow) ->
+              UPXs.mul m_up (UPXs.exp cf.(i) pow))
+            (UPXs.scalar (UP.make [] [ExpPolynomial.scalar coeff]))
+            (Monomial.enum m)
+          |> UPXs.add up)
+        UPXs.zero
+        (QQXs.enum p)
+    in
+
+    (* For each period p, maintain a pair (q, r) such that loop_counter = qp + r *)
+    let qr_map = BatHashtbl.create 97 in
+    Hashtbl.add qr_map 1 (loop_counter, mk_real srk QQ.zero);
+    let get_qr n =
+      if Hashtbl.mem qr_map n then
+        Hashtbl.find qr_map n
+      else
+        let loop_q = mk_const srk (mk_symbol srk ~name:"q" `TyInt) in
+        let loop_r = mk_const srk (mk_symbol srk ~name:"r" `TyInt) in
+        Hashtbl.add qr_map n (loop_q, loop_r);
+        (loop_q, loop_r)
+    in
+
+    (* Close constant terms *)
+    for i = 0 to iter.nb_constants - 1 do
+      cf.(i) <- UPXs.of_dim i
+    done;
+
+    let close_matrix_rec recurrence offset =
+      let size = Array.length recurrence.rec_add in
+      let transform = QQMatrix.of_dense recurrence.rec_transform in
+      let prsd = standard_basis_prsd transform size in
+      let rec_add_cf =
+        Array.init (Array.length recurrence.rec_add) (fun i ->
+            substitute_closed_forms recurrence.rec_add.(i))
+      in
+
+      prsd |> List.map (fun (p, lambda, v) ->
+
+          (* v is a generalized eigenvector of transform^p.  Traverse
+             the Jordan chain generated by v from the bottom up,
+             computing closed forms along the way. *)
+          let jordan_chain =
+            Linear.jordan_chain (QQMatrix.exp transform p) lambda v
+          in
+
+          if QQ.equal lambda QQ.zero then begin
+            assert (p == 1);
+            BatList.fold_right (fun v cf ->
+                let cf_transform =
+                  BatEnum.fold (fun v_cf (coeff, i) ->
+                      UPXs.add_term
+                        (UP.make [coeff] [ExpPolynomial.zero])
+                        (Monomial.singleton (offset + i) 1)
+                        v_cf)
+                    UPXs.zero
+                    (V.enum v)
+                in
+                let cf_add =
+                  UPXs.map_coeff
+                    (fun _ -> UP.shift [QQ.zero])
+                    (UPXs.add cf (vec_upxsvec_dot v rec_add_cf))
+                in
+                UPXs.add cf_transform cf_add)
+              jordan_chain
+              UPXs.zero
+          end else begin
+            List.fold_right (fun v cf ->
+
+                let cf_transform =
+                  let v_Ai = (* vA^0, ..., vA^{p-1} *)
+                    BatEnum.fold (fun (v_transform, xs) i ->
+                        let next = Linear.vector_left_mul v_transform transform in
+                        (next, next::xs))
+                      (v, [v])
+                      (1 -- (p - 1))
+                    |> snd
+                    |> List.rev
+                  in
+                  BatEnum.fold (fun cf_A i ->
+                      let period =
+                        List.map (fun r ->
+                            ExpPolynomial.of_term (QQX.scalar (V.coeff i r)) lambda)
+                          v_Ai
+                      in
+                      let up = UP.make [] period in
+                      UPXs.add_term
+                        up
+                        (Monomial.singleton (offset + i) 1)
+                        cf_A)
+                    UPXs.zero
+                    (0 -- (size - 1))
+                in
+
+                let cf_add =
+                  (0 -- (p - 1)) |> BatEnum.map (fun i ->
+                      (* sum_{j=0}^{p-1} v * A^{p-j-1} * cf_add(pk+j+i) *)
+                      let sum_pk_i =
+                        BatEnum.fold (fun sum j ->
+                            UPXs.add
+                              sum
+                              (vec_upxsvec_dot
+                                 (Linear.vector_left_mul
+                                    v
+                                    (QQMatrix.exp transform (p-j-1)))
+                                 (Array.map
+                                    (UPXs.map_coeff (fun _ f ->
+                                         UP.compose_left_affine f p (j+i)))
+                                    rec_add_cf)))
+                          UPXs.zero
+                          (0 -- (p - 1))
+                      in
+                      (* sum_{j=0}^{i-1} v * A^{i-j-1} * cf_add(j) *)
+                      let initial =
+                        BatEnum.fold (fun sum j ->
+                            let cf_add_j =
+                              Array.map (fun f -> UPXs.eval f j) rec_add_cf
+                            in
+                            let vAij =
+                              Linear.vector_left_mul
+                                v
+                                (QQMatrix.exp transform (i-j-1))
+                            in
+                            QQXs.add sum (vec_qqxsvec_dot vAij cf_add_j))
+                          QQXs.zero
+                          (0 -- (i-1))
+                      in
+                      let get_initial m = QQXs.coeff m initial in
+                      UPXs.map_coeff
+                        (fun m f -> UP.solve_rec ~initial:(get_initial m) lambda f)
+                        (UPXs.add cf sum_pk_i))
+                  |> BatList.of_enum
+                  |> UPXs.flatten
+                in
+
+                UPXs.add cf_transform cf_add)
+              jordan_chain
+              UPXs.zero
+          end)
+    in
+
+    let rec close mk_compare offset closed = function
+      | [] -> (mk_and srk closed, offset)
+      | (recurrence::rest) ->
+        let size = Array.length recurrence.rec_add in
+        let recurrence_closed = close_matrix_rec recurrence offset in
+        let to_formula i closed =
+          let lhs = postify iter.term_of_id.(offset + i) in
+          let rhs =
+            (UPXs.enum closed)
+            /@ (fun (up, m) ->
+                let m = Monomial.term_of srk (fun i -> iter.term_of_id.(i)) m in
+                let (loop_q, loop_r) = get_qr (UP.period_len up) in
+                let up = UP.term_of srk loop_q loop_r up in
+                mk_mul srk [up; m])
+            |> BatList.of_enum
+            |> mk_add srk
+          in
+          mk_compare srk lhs rhs
+        in
+
+        recurrence_closed |> List.iteri (fun i closed ->
+            cf.(offset + i) <- closed);
+
+        let recurrence_closed_formula = BatList.mapi to_formula recurrence_closed in
+        close mk_compare (offset + size) (recurrence_closed_formula@closed) rest
+    in
+    let (closed_eq, offset) = close mk_eq iter.nb_constants [] iter.rec_eq in
+    let (closed_leq, _) = close mk_leq offset [] iter.rec_leq in
+    let qr_constraints =
+      Hashtbl.fold (fun n (q, r) rest ->
+          if n = 0 then
+            rest
+          else
+            let n = mk_real srk (QQ.of_int n) in
+            (* loop_counter = qn + r /\ 0 <= r < n *)
+            (mk_eq srk
+               loop_counter
+               (mk_add srk [mk_mul srk [q; n]; r]))
+            ::(mk_lt srk r n)
+            ::(mk_leq srk (mk_real srk QQ.zero) r)
+            ::rest)
+        qr_map
+        []
+      |> mk_and srk
+    in
+    mk_and srk [
+      Wedge.to_formula iter.precondition;
+      mk_leq srk (mk_real srk QQ.one) loop_counter;
+      Wedge.to_formula iter.postcondition;
+      closed_eq;
+      closed_leq;
+      qr_constraints
+    ]
+
+  let closure iter =
+    reflexive_closure iter.srk iter.symbols (closure_plus iter)
 
   let widen iter iter' =
     let body = Wedge.widen (wedge_of_iter iter) (wedge_of_iter iter') in

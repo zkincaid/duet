@@ -379,9 +379,6 @@ module UltPeriodic = struct
       in
       (List.rev rev_transient, periodic)
 
-  let period_nth up total_period k =
-    List.nth (mul_period (total_period/(period_len up)) (periodic up)) k
-
   let flatten xs =
     let period =
       List.fold_left (fun period up -> lcm (period_len up) period) 1 xs
@@ -391,7 +388,7 @@ module UltPeriodic = struct
       BatList.fold_lefti (fun transient i up ->
           let up_t = transient_len up in
           if up_t > 0 then
-            max (xs_len * up_t + i) transient
+            max (xs_len * (up_t - 1) + i + 1) transient
           else
             transient)
         0
@@ -403,12 +400,14 @@ module UltPeriodic = struct
       |> BatEnum.take transient_len
       |> BatList.of_enum
     in
+
     let periodic =
-      (0 -- (period - 1))
-      /@ (fun i ->
-          BatList.enum xs
-        /@ (fun x -> period_nth x 1 i))
-      |> BatEnum.concat
+      BatEnum.mapi (fun i up ->
+          let up_p = periodic up in
+          let up_p_len = List.length up_p in
+          let f = List.nth up_p ((i / xs_len) mod up_p_len) in
+          EP.compose_left_affine f (period / up_p_len) (i / (up_p_len*xs_len)))
+        (BatEnum.cycle ~times:period (BatList.enum xs))
       |> BatList.of_enum
     in
     (transient, periodic)
@@ -418,4 +417,15 @@ module UltPeriodic = struct
   let of_polynomial p = make [] [E.of_term p QQ.one]
   let of_exponential lambda = make [] [E.of_term QQX.one lambda]
   let of_exp_polynomial f = make [] [f]
+
+  let shift seq (t, p) =
+    let seq_len = List.length seq in
+    let period_len = List.length p in
+    let (first, second) = BatList.takedrop (period_len - (seq_len mod period_len)) p in
+    let offset = seq_len / period_len in
+    let period =
+      List.map (fun f -> EP.compose_left_affine f 1 (-offset - 1)) second
+      @ List.map (fun f -> EP.compose_left_affine f 1 (-offset)) first
+    in
+    (seq @ t, period)
 end

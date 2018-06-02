@@ -80,6 +80,8 @@ module type Matrix = sig
 
   (** [vector_left_mul v m] computes [(v^t)*m] *)
   val vector_left_mul : vector -> t -> vector
+
+  val of_dense : scalar array array -> t
 end
 
 module type Map = sig

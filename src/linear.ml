@@ -405,7 +405,6 @@ let rational_spectral_decomposition mA dims =
         | None -> rsd
       in
       let add_jordan_chain rsd v =
-           Log.errorf "Eigenvector: %a" QQVector.pp v;
         add_jordan_chain_rec ((lambda,v)::rsd) v
       in
       List.fold_left add_jordan_chain rsd (nullspace mE dims))
