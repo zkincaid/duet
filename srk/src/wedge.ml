@@ -849,7 +849,7 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
         end;
         for j = 0 to CS.dim wedge.cs - 1 do
           match CS.destruct_coordinate wedge.cs j with
-          | `App (func, [b'; t]) when func = log->
+          | `App (func, [b'; t]) when func = log ->
             let (base_eq, base_eq_prov) =
               let (reduced, prov) =
                 P.sub (poly_of_vec b) (poly_of_vec b')

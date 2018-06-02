@@ -9,6 +9,10 @@ module WV = struct
   include Iteration.WedgeMatrix
   let star srk symbols phi = closure (abstract_iter srk symbols phi)
 end
+module PRWM = struct
+  include Iteration.WedgeMatrixPeriodicRational
+  let star srk symbols phi = closure (abstract_iter srk symbols phi)
+end
 
 let assert_implies_nonlinear phi psi =
   match Wedge.is_sat srk (mk_and srk [phi; mk_not srk psi]) with
@@ -216,6 +220,98 @@ let stratified_ineq1 () =
   in
   assert_implies closure result
 
+let periodic_rational1 () =
+  let open Infix in
+  let phi =
+    x' = x + (int 1)
+    && y' = z
+    && z' = (int 0) - y
+  in
+  let closure =
+    x = (int 0)
+    && y = (int 42)
+    && PRWM.star srk phi tr_symbols
+  in
+  assert_implies closure (!(x' = int 8) || y' = (int 42));
+  assert_implies closure (!(x' = int 15) || z' = (int 42))
+
+let periodic_rational2 () =
+  let open Infix in
+  let phi =
+    x' = x + (int 1)
+    && x < (int 31)
+    && y' = z
+    && z' = z - y
+  in
+  let closure =
+    x = (int 0)
+    && y = (int 42)
+    && z = (int 24)
+    && PRWM.star srk phi tr_symbols
+    && (int 31) <= x'
+  in
+  assert_implies closure (z' = (int (-18)))
+
+let periodic_rational3 () =
+  let open Infix in
+  let phi =
+    w' = w + (int 1)
+    && x' = y
+    && y' = z
+    && z' = x + (int 1)
+  in
+  let closure =
+    w = (int 0)
+    && x = (int 0)
+    && y = (int 0)
+    && z = (int 0)
+    && PRWM.star srk phi tr_symbols
+  in
+  assert_implies closure (!(w' = (int 9)) || x' = (int 3));
+  assert_implies closure (!(w' = (int 10)) || x' = (int 3));
+  assert_implies closure (!(w' = (int 11)) || x' = (int 3));
+  assert_implies closure (!(w' = (int 12)) || x' = (int 4))
+
+let periodic_rational4 () =
+  let open Infix in
+  let phi =
+    w' = w + (int 1)
+    && x' = y
+    && y' = z
+    && z' = x + w
+  in
+  let closure =
+    w = (int 0)
+    && x = (int 0)
+    && y = (int 0)
+    && z = (int 0)
+    && PRWM.star srk phi tr_symbols
+  in
+  assert_implies closure (!(w' = (int 9)) || x' = (int 9));
+  assert_implies closure (!(w' = (int 10)) || x' = (int 12));
+  assert_implies closure (!(w' = (int 11)) || x' = (int 15))
+
+
+let periodic_rational5 () =
+  let open Infix in
+  let phi =
+    w' = w + (int 1)
+    && x' = w
+    && y' = x
+    && z' = y
+  in
+  let closure =
+    w = (int 0)
+    && x = (int 3)
+    && y = (int 2)
+    && z = (int 1)
+    && PRWM.star srk phi tr_symbols
+  in
+  assert_implies closure (!(w' = (int 1)) || z' = (int 2));
+  assert_implies closure (!(w' = (int 2)) || z' = (int 3));
+  assert_implies closure (!(w' = (int 3)) || z' = (int 0));
+  assert_implies closure (!(w' = (int 4)) || z' = (int 1))
+
 let suite = "Iteration" >::: [
     "prepost" >:: prepost;
     "simple_induction" >:: simple_induction;
@@ -223,8 +319,13 @@ let suite = "Iteration" >::: [
     "count_by_2" >:: count_by_2;
     "stratified1" >:: stratified1;
     "stratified2" >:: stratified2;
-    (*    "count_by_k" >:: count_by_k;*)
+    "count_by_k" >:: count_by_k;
     "ineq1" >:: ineq1;
     "ineq2" >:: ineq2;
     "stratified_ineq1" >:: stratified_ineq1;
+    "periodic_rational1" >:: periodic_rational1;
+    "periodic_rational2" >:: periodic_rational2;
+    "periodic_rational3" >:: periodic_rational3;
+    "periodic_rational4" >:: periodic_rational4;
+    "periodic_rational5" >:: periodic_rational5;
   ]

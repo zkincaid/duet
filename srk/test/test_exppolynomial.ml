@@ -281,6 +281,38 @@ let test_up_rec3 () =
     (rec_list (QQ.of_int 3) (BatList.of_enum ((0--99) /@ (UP.eval f))))
     (BatList.of_enum ((0--100) /@ (UP.eval sln)))
 
+let test_flatten () =
+  let f =
+    let open Infix in
+    UP.make (List.map QQ.of_int [1; 2; 3]) [x; x + (int 1); x + (int 2)]
+  in
+  let g =
+    let open Infix in
+    UP.make [] [x*x; x*x*x]
+  in
+  let h = UP.flatten [f; g] in
+  let flat x =
+    if x mod 2 = 0 then
+      UP.eval f (x/2)
+    else
+      UP.eval g (x/2)
+  in
+  assert_equal_qq (flat 0) (UP.eval h 0);
+  assert_equal_qq (flat 1) (UP.eval h 1);
+  assert_equal_qq (flat 5) (UP.eval h 5);
+
+  assert_equal_qq (flat 7) (UP.eval h 7);
+  assert_equal_qq (flat 8) (UP.eval h 8);
+  assert_equal_qq (flat 12) (UP.eval h 12);
+  assert_equal_qq (flat 13) (UP.eval h 13);
+
+  assert_equal_qq (flat 50) (UP.eval h 50);
+  assert_equal_qq (flat 51) (UP.eval h 51);
+  assert_equal_qq (flat 52) (UP.eval h 52);
+  assert_equal_qq (flat 53) (UP.eval h 53);
+
+  ()
+
 let suite = "ExpPolynomial" >::: [
       "sum1" >:: test_sum1;
       "sum2" >:: test_sum2;
@@ -300,4 +332,5 @@ let suite = "ExpPolynomial" >::: [
       "up_rec1" >:: test_up_rec1;
       "up_rec2" >:: test_up_rec2;
       "up_rec3" >:: test_up_rec3;
+      "flatten" >:: test_flatten;
   ]

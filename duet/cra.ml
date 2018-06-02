@@ -17,6 +17,7 @@ let forward_inv_gen = ref true
 let split_loops = ref false
 let matrix_rec = ref true
 let dump_goals = ref false
+let prsd = ref false
 let nb_goals = ref 0
 
 let dump_goal loc path_condition =
@@ -49,6 +50,10 @@ let _ =
     ("-cra-no-matrix",
      Arg.Clear matrix_rec,
      " Turn off matrix recurrences");
+  CmdLine.register_config
+    ("-cra-prsd",
+     Arg.Set prsd,
+     " Use periodic rational spectral decomposition");
   CmdLine.register_config
     ("-dump-goals",
      Arg.Set dump_goals,
@@ -155,13 +160,31 @@ module K = struct
       else
         left (WM.abstract_iter ~exists srk phi symbols)
   end
-  module D = struct
+  module DPRSD = struct
+    module PR = Iteration.WedgeMatrixPeriodicRational
+    module SplitPR = Iteration.Split(PR)
+    include Iteration.Sum(PR)(SplitPR)
+    let abstract_iter ?(exists=fun x -> true) srk phi symbols =
+      if !split_loops then
+        right (SplitPR.abstract_iter ~exists srk phi symbols)
+      else
+        left (PR.abstract_iter ~exists srk phi symbols)
+  end
+  module D1 = struct
     include Iteration.Sum(DPoly)(DMatrix)
     let abstract_iter ?(exists=fun x -> true) srk phi symbols =
       if !matrix_rec then
         right (DMatrix.abstract_iter ~exists srk phi symbols)
       else
         left (DPoly.abstract_iter ~exists srk phi symbols)
+  end
+  module D = struct
+    include Iteration.Sum(D1)(DPRSD)
+    let abstract_iter ?(exists=fun x -> true) srk phi symbols =
+      if !prsd then
+        right (DPRSD.abstract_iter ~exists srk phi symbols)
+      else
+        left (D1.abstract_iter ~exists srk phi symbols)
   end
   module I = Iter(D)
 

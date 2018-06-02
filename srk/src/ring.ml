@@ -103,6 +103,7 @@ module type Matrix = sig
 
   val vector_right_mul : t -> vector -> vector
   val vector_left_mul : vector -> t -> vector
+  val of_dense : scalar array array -> t
 end
 
 module AbelianGroupMap (M : Map) (G : AbelianGroup) = struct
@@ -296,6 +297,18 @@ module MakeMatrix (R : S) = struct
         V.add result (V.scalar_mul coeff (row k m)))
       v
       V.zero
+
+  let of_dense dense_matrix =
+    BatArray.fold_lefti (fun matrix i dense_row  ->
+        let row =
+          BatArray.fold_lefti (fun row j entry ->
+              V.add_term entry j row)
+            V.zero
+            dense_row
+        in
+        add_row i row matrix)
+      zero
+      dense_matrix
 end
 
 module MakeUltPeriodicSeq(R : S) = struct
@@ -374,7 +387,9 @@ module MakeUltPeriodicSeq(R : S) = struct
   let negate (t, p) =
     (List.map R.negate t, List.map R.negate p)
 
-  let make t p = (t, p)
+  let make t p = match p with
+    | [] -> invalid_arg "Cannot make ultimate periodic sequence with empty period"
+    | _ -> (t, p)
 
   let pp pp_elt formatter (t, p) =
     Format.fprintf formatter "%a(@[%a@])^omega"
