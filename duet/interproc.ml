@@ -11,7 +11,7 @@ module Seq = struct
     type block = Varinfo.t
     type ('a,'b) typ = ('a,'b) RecGraph.seq_typ
     let classify v = match v.dkind with
-      | Call (None, AddrOf (Variable (func, OffsetFixed 0)), []) ->
+      | Call (None, AddrOf (Variable (func, OffsetNone)), []) ->
         `Block func
       | Call (_, _, _) ->
         Log.fatalf "Unrecognized call: %a" pp v
@@ -28,11 +28,11 @@ module V = struct
   type block = Varinfo.t
   type ('a,'b) typ = ('a,'b) RecGraph.par_typ
   let classify v = match v.dkind with
-    | Call (None, AddrOf (Variable (func, OffsetFixed 0)), []) ->
+    | Call (None, AddrOf (Variable (func, OffsetNone)), []) ->
       `Block func
     | Call (_, _, _) ->
       Log.fatalf "Unrecognized call: %a" pp v
-    | Builtin (Fork (None, AddrOf (Variable (func, OffsetFixed 0)), [])) ->
+    | Builtin (Fork (None, AddrOf (Variable (func, OffsetNone)), [])) ->
       `ParBlock func
     | Builtin (Fork (_, _, _)) ->
       Log.fatalf "Unrecognized fork: %a" pp v;
@@ -51,7 +51,7 @@ module SeqRG = struct
                             and type atom = RG.atom
                             and type block = RG.block)
   let classify v = match v.dkind with
-    | Call (None, AddrOf (Variable (func, OffsetFixed 0)), []) ->
+    | Call (None, AddrOf (Variable (func, OffsetNone)), []) ->
       `Block func
     | Call (_, _, _) ->
       Log.fatalf "Unrecognized call: %a" Def.pp v

@@ -151,6 +151,7 @@ end
 type offset =
   | OffsetFixed of int
   | OffsetUnknown
+  | OffsetNone
       [@@deriving ord]
 
 module Offset = struct
@@ -159,10 +160,13 @@ module Offset = struct
       let pp fmt = function
         | OffsetFixed x -> Format.pp_print_int fmt x
         | OffsetUnknown -> Format.pp_print_string fmt "Top"
+        | OffsetNone -> ()
       let hash = Hashtbl.hash
     end)
   let add x y = match x,y with
     | (OffsetFixed x, OffsetFixed y) -> OffsetFixed (x + y)
+    | (OffsetNone, OffsetNone) -> OffsetNone
+    | (OffsetNone, OffsetFixed k) | (OffsetFixed k, OffsetNone) -> OffsetFixed k
     | _ -> OffsetUnknown
 end
 
@@ -320,6 +324,7 @@ and pp_typ formatter = function
 (** Try to resolve an offset to a sequence of field accesses. *)
 let rec resolve_offset typ offset =
   match resolve_type typ, offset with
+  | (_, OffsetNone) -> Some []
   | (Record ri, OffsetFixed offset) ->
     let found x =
       let new_offset = OffsetFixed (offset - x.fioffset) in
@@ -396,7 +401,7 @@ let rec typ_get_offsets typ = match resolve_type typ with
   | Union ri ->
     let f rest fi = Offset.Set.union (typ_get_offsets fi.fityp) rest in
     List.fold_left f Offset.Set.empty ri.rfields
-  | _ -> Offset.Set.singleton (OffsetFixed 0)
+  | _ -> Offset.Set.singleton OffsetNone
 
 module Var = struct
   include Putil.MakeCoreType(struct
@@ -430,7 +435,7 @@ module Var = struct
   let subscript (v,offset) ss = ({ v with vsubscript = ss }, offset)
   let unsubscript var = subscript var 0
   let get_subscript v = (fst v).vsubscript
-  let mk varinfo = (varinfo, OffsetFixed 0)
+  let mk varinfo = (varinfo, OffsetNone)
 end
 
 (* Functions on expressions ***************************************************)
@@ -475,6 +480,7 @@ and fold_bexpr f g =
 let aexpr_of_offset = function
   | OffsetUnknown -> Havoc (Concrete (Int unknown_width))
   | OffsetFixed n -> Constant (CInt (n, unknown_width))
+  | OffsetNone -> Constant (CInt (0, unknown_width))
 
 let rec aexpr_type = function
   | Havoc typ -> typ
