@@ -81,6 +81,7 @@ type varinfo [@@deriving show,ord]
 type offset =
   | OffsetFixed of int
   | OffsetUnknown
+  | OffsetNone
       [@@deriving ord]
 type var = varinfo * offset [@@deriving show]
 

@@ -17,6 +17,7 @@ let forward_inv_gen = ref true
 let split_loops = ref false
 let matrix_rec = ref true
 let dump_goals = ref false
+let prsd = ref false
 let nb_goals = ref 0
 
 let dump_goal loc path_condition =
@@ -49,6 +50,10 @@ let _ =
     ("-cra-no-matrix",
      Arg.Clear matrix_rec,
      " Turn off matrix recurrences");
+  CmdLine.register_config
+    ("-cra-prsd",
+     Arg.Set prsd,
+     " Use periodic rational spectral decomposition");
   CmdLine.register_config
     ("-dump-goals",
      Arg.Set dump_goals,
@@ -155,13 +160,31 @@ module MakeTransition(V : Transition.Var) = struct
       else
         left (WM.abstract_iter ~exists srk phi symbols)
   end
-  module D = struct
+  module DPRSD = struct
+    module PR = Iteration.WedgeMatrixPeriodicRational
+    module SplitPR = Iteration.Split(PR)
+    include Iteration.Sum(PR)(SplitPR)
+    let abstract_iter ?(exists=fun x -> true) srk phi symbols =
+      if !split_loops then
+        right (SplitPR.abstract_iter ~exists srk phi symbols)
+      else
+        left (PR.abstract_iter ~exists srk phi symbols)
+  end
+  module D1 = struct
     include Iteration.Sum(DPoly)(DMatrix)
     let abstract_iter ?(exists=fun x -> true) srk phi symbols =
       if !matrix_rec then
         right (DMatrix.abstract_iter ~exists srk phi symbols)
       else
         left (DPoly.abstract_iter ~exists srk phi symbols)
+  end
+  module D = struct
+    include Iteration.Sum(D1)(DPRSD)
+    let abstract_iter ?(exists=fun x -> true) srk phi symbols =
+      if !prsd then
+        right (DPRSD.abstract_iter ~exists srk phi symbols)
+      else
+        left (D1.abstract_iter ~exists srk phi symbols)
   end
   module I = Iter(D)
 
@@ -302,6 +325,7 @@ let populate_offset_table file =
   let add_offset (v, offset) =
     match offset with
     | OffsetUnknown -> ()
+    | OffsetNone -> ()
     | OffsetFixed k ->
       Varinfo.HT.modify_def Int.Set.empty v (Int.Set.add k) offset_table
   in
@@ -348,30 +372,76 @@ let populate_offset_table file =
       | Builtin (PrintBounds v) -> add_offset v
       | Builtin AtomicEnd | Builtin AtomicBegin | Builtin Exit -> ())
 
+let rec record_assign (lhs : varinfo) loff rhs roff fields =
+  fields |> List.map (fun { fityp; fioffset } ->
+      match resolve_type fityp with
+      | Record { rfields } ->
+        record_assign lhs (loff+fioffset) rhs (roff+fioffset) rfields
+      | Pointer _ | Func _ | Dynamic ->
+        let lhs = (lhs, OffsetFixed (loff + fioffset)) in
+        begin match tr_expr (AccessPath (Variable (rhs, OffsetFixed roff))) with
+          | TPointer rhs ->
+            BatList.reduce K.mul [
+              K.assign (VVal lhs) rhs.ptr_val;
+              K.assign (VPos lhs) rhs.ptr_pos;
+              K.assign (VWidth lhs) rhs.ptr_width;
+            ]
+          | TInt tint -> begin
+              BatList.reduce K.mul [
+                K.assign (VVal lhs) tint;
+                K.assign (VPos lhs) (nondet_const "type_err" `TyInt);
+                K.assign (VWidth lhs) (nondet_const "type_err" `TyInt)
+              ]
+            end
+        end
+      | _ ->
+        let lhs = (lhs, OffsetFixed (loff+fioffset)) in
+        let rhs = tr_expr_val (AccessPath (Variable (rhs, OffsetFixed (fioffset+roff)))) in
+        K.assign (VVal lhs) rhs)
+  |> BatList.reduce K.mul
+
 let weight def =
   let open K in
   match def.dkind with
   | Assume phi -> K.assume (tr_bexpr phi)
   | Assign (lhs, rhs) ->
-    if typ_has_offsets (Var.get_type lhs) then begin
-      match tr_expr rhs with
-      | TPointer rhs ->
-        BatList.reduce K.mul [
-          K.assign (VVal lhs) rhs.ptr_val;
-          K.assign (VPos lhs) rhs.ptr_pos;
-          K.assign (VWidth lhs) rhs.ptr_width;
-        ]
-      | TInt tint -> begin
-          (match Var.get_type lhs, rhs with
-           | (_, Havoc _) | (Concrete Dynamic, _) -> ()
-           | _ -> Log.errorf "Ill-typed pointer assignment: %a" Def.pp def);
-          BatList.reduce K.mul [
-            K.assign (VVal lhs) tint;
-            K.assign (VPos lhs) (nondet_const "type_err" `TyInt);
-            K.assign (VWidth lhs) (nondet_const "type_err" `TyInt)
-          ]
+    let lhs_typ = resolve_type (Var.get_type lhs) in
+    let rhs_typ = resolve_type (Aexpr.get_type rhs) in
+    begin match lhs_typ, rhs_typ with
+      | Record { rfields }, _ | _, Record { rfields } ->
+        let lhs, loff = match lhs with
+          | (lhs, OffsetFixed k) -> (lhs, k)
+          | (lhs, OffsetNone) -> (lhs, 0)
+          | _ -> invalid_arg "Unsupported record assignment"
+        in
+        begin match rhs with
+          | AccessPath (Variable (v, OffsetFixed k)) ->
+            record_assign lhs loff v k rfields
+          | AccessPath (Variable (v, OffsetNone)) ->
+            record_assign lhs loff v 0 rfields
+          | _ -> invalid_arg "Unsupported record assignment"
         end
-    end else K.assign (VVal lhs) (tr_expr_val rhs)
+      | Pointer _, _ | Func _, _ | Dynamic, _ ->
+        begin match tr_expr rhs with
+          | TPointer rhs ->
+            BatList.reduce K.mul [
+              K.assign (VVal lhs) rhs.ptr_val;
+              K.assign (VPos lhs) rhs.ptr_pos;
+              K.assign (VWidth lhs) rhs.ptr_width;
+            ]
+          | TInt tint -> begin
+              (match Var.get_type lhs, rhs with
+               | (_, Havoc _) | (Concrete Dynamic, _) -> ()
+               | _ -> Log.errorf "Ill-typed pointer assignment: %a" Def.pp def);
+              BatList.reduce K.mul [
+                K.assign (VVal lhs) tint;
+                K.assign (VPos lhs) (nondet_const "type_err" `TyInt);
+                K.assign (VWidth lhs) (nondet_const "type_err" `TyInt)
+              ]
+            end
+        end
+      | _, _ -> K.assign (VVal lhs) (tr_expr_val rhs)
+    end
   | Store (lhs, rhs) ->
     (* Havoc all the variables lhs could point to *)
     let open PointerAnalysis in
@@ -498,7 +568,7 @@ let make_transition_system rg =
               let tg = WG.add_vertex tg def.did in
               let label =
                 match def.dkind with
-                | Call (None, AddrOf (Variable (func, OffsetFixed 0)), []) ->
+                | Call (None, AddrOf (Variable (func, OffsetNone)), []) ->
                   call_edge func
                 | Assert (phi, msg) ->
                   let condition = tr_bexpr phi in

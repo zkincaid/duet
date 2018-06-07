@@ -68,26 +68,26 @@ val type_of_vec : 'a t -> Linear.QQVector.t -> [ `TyInt | `TyReal ]
 
 val type_of_monomial : 'a t -> Polynomial.Monomial.t -> [ `TyInt | `TyReal ]
 
-val type_of_polynomial : 'a t -> Polynomial.Mvp.t -> [ `TyInt | `TyReal ]
+val type_of_polynomial : 'a t -> Polynomial.QQXs.t -> [ `TyInt | `TyReal ]
 
 (** Find a polynomial associated with an admissible term over
     {i non-multiplicative} coordinates. *)
-val polynomial_of_term : 'a t -> 'a term -> Polynomial.Mvp.t
+val polynomial_of_term : 'a t -> 'a term -> Polynomial.QQXs.t
 
 (** Convert a vector to a polynomial {i without multiplicative coordinates}.
     Multiplicative coordinates are expanded into higher-degree polynomials
     over non-multiplicative coordinates. *)
-val polynomial_of_vec : 'a t -> Linear.QQVector.t -> Polynomial.Mvp.t
+val polynomial_of_vec : 'a t -> Linear.QQVector.t -> Polynomial.QQXs.t
 
-val polynomial_of_coordinate : 'a t -> int -> Polynomial.Mvp.t
+val polynomial_of_coordinate : 'a t -> int -> Polynomial.QQXs.t
 
-val term_of_polynomial : 'a t -> Polynomial.Mvp.t -> 'a term
+val term_of_polynomial : 'a t -> Polynomial.QQXs.t -> 'a term
 
 (** Does a coordinate system admit the given term? *)
 val admits : 'a t -> 'a term -> bool
 
 val project_ideal : 'a t ->
-  Polynomial.Mvp.t list ->
+  Polynomial.QQXs.t list ->
   ?subterm:(symbol -> bool) ->
   (symbol -> bool) ->
   (int * 'a term * 'a formula) list

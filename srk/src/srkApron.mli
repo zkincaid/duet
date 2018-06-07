@@ -15,6 +15,8 @@ val qq_of_scalar : scalar -> QQ.t
 val qq_of_coeff : coeff -> QQ.t option
 val coeff_of_qq : QQ.t -> coeff
 
+(** An environment maintains a mapping between symbols and dimensions
+   of an abstract domain. *)
 module Env : sig
   type 'a t
   val pp : Format.formatter -> 'a t -> unit
@@ -33,7 +35,10 @@ module Env : sig
   val filter : (symbol -> bool) -> 'a t -> 'a t
 end
 
+(** An [('a,'abs) property] is an element of an abstract domain ['abs]
+   expressed over a context ['a].  *)
 type ('a,'abs) property
+
 val pp : Format.formatter -> ('a,'abs) property -> unit
 val show : ('a,'abs) property -> string
 
@@ -56,7 +61,10 @@ val widen : ('a,'abs) property -> ('a,'abs) property -> ('a,'abs) property
 
 val exists : 'abs Manager.t -> (symbol -> bool) -> ('a,'abs) property -> ('a,'abs) property
 val add_vars : symbol BatEnum.t -> ('a,'abs) property -> ('a,'abs) property
+
+(** Compute the box hull of a property. *)
 val boxify : ('a,'abs) property -> ('a,'abs) property
+
 val rename : (symbol -> symbol) -> ('a,'abs) property -> ('a,'abs) property
 
 val lexpr_of_vec : 'a Env.t -> Linear.QQVector.t -> lexpr
@@ -72,6 +80,7 @@ val lcons_geqz : lexpr -> lcons
 val lcons_eqz : lexpr -> lcons
 val lcons_gtz : lexpr -> lcons
 
+(** Compute a formula equivalent to the given property. *)
 val formula_of_property : ('a,'abs) property -> 'a formula
 
 (** Evaluate an expression in the environment Top. *)

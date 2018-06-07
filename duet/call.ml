@@ -41,8 +41,8 @@ let build_callgraph file =
   let cg = Callgraph.create () in
   let add_calls func =
     let add_call_edge v = match v.dkind with
-      | Call (_, AddrOf (Variable (tgt, OffsetFixed 0)), _)
-      | Call (_, AccessPath (Variable (tgt, OffsetFixed 0)), _) ->
+      | Call (_, AddrOf (Variable (tgt, OffsetNone)), _)
+      | Call (_, AccessPath (Variable (tgt, OffsetNone)), _) ->
         Callgraph.add_edge cg func.fname tgt
       | Call _ ->
         failwith "Can't resolve non-static call"

@@ -3,7 +3,7 @@ open BatPervasives
 
 module V = Linear.QQVector
 module Monomial = Polynomial.Monomial
-module P = Polynomial.Mvp
+module P = Polynomial.QQXs
 module Rewrite = Polynomial.Rewrite
 module IntSet = SrkUtil.Int.Set
 
@@ -124,7 +124,7 @@ let type_of_polynomial cs polynomial =
     QQ.to_zz coeff != None
     && type_of_monomial cs monomial = `TyInt
   in
-  if BatEnum.for_all is_integral (Polynomial.Mvp.enum polynomial) then
+  if BatEnum.for_all is_integral (P.enum polynomial) then
     `TyInt
   else
     `TyReal
