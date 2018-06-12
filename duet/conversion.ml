@@ -41,14 +41,19 @@ let get_var (name,_) =
       List.assoc name !current_arg_map
     else
       List.assoc name !glob_map
-
+(*Convert values*)
 let get_lvalue_var v=
   match v with
   | InterIR.Var(name, typ) ->get_var (name,typ)
   |Undef -> raise (Unexpected_value ("Unexpected undef in left side of assignment"))
   | _ -> raise (Unexpected_value ("Found field access"))
 
-(*Convert values*)
+ let get_lvalue_var_opt v=
+  match v with
+  | InterIR.Var(name, typ) ->Some(get_var (name,typ))
+  |Undef -> None
+  | _ -> raise (Unexpected_value ("Found field access"))
+
 let get_lvalue v =
   match v with
   | InterIR.Var(name, typ) -> AccessPath(Variable(get_var (name,typ)))
@@ -105,6 +110,7 @@ let rec convert_rexpr ls =
                              let r_val = convert_rexpr r in
                              let bop = convert_binop op in
                              Core.BinaryOp(l_val,bop,r_val,Core.Concrete(Int(4)))
+  | Multiple(_) -> raise (Unexpected_value ("Found multiple. It should have been flattened at this point"))
 
 
 let convert_cond cond=
@@ -125,9 +131,11 @@ let create_func_return_vars  { funname ; fargs; flocs; fbody; frets}=
   let create_fun_return_var (name,ty) = mk_global_var !tmp_file (funname^name) (convert_type ty) in
   (funname, List.map create_fun_return_var frets)
 
-let make_caller_ret_assignment l_ret global=
-  let l_var = get_lvalue_var l_ret in
-  Core.Def.mk (Assign(l_var, AccessPath(Variable(global))))
+let make_caller_ret_assignment accum l_ret global=
+  match get_lvalue_var_opt l_ret with
+    Some(l_var) -> Core.Def.mk (Assign(l_var, AccessPath(Variable(global)))):: accum
+  | None -> accum
+
 let make_ret_assignment cfg global ret_var=
   let duet_return_var=get_lvalue (InterIR.Var ret_var) in
   CfgBuilder.mk_single cfg (Core.Def.mk (Assign(global,duet_return_var)))
@@ -145,7 +153,7 @@ let convert_insts (inst : inst) =
      match a with
        [] ->    [Core.Def.mk (Call(None,func_var,List.map convert_rexpr args))]
      | [one] ->    [Core.Def.mk (Call(Some(get_lvalue_var one),func_var,List.map convert_rexpr args))]
-     | rets ->let return_assignments= List.map2 make_caller_ret_assignment rets (List.assoc name !freturns) in
+     | rets ->let return_assignments= List.fold_left2 make_caller_ret_assignment [] rets (List.assoc name !freturns) in
               (Core.Def.mk (Call(None,func_var,List.map convert_rexpr args))):: return_assignments
 
 (*Make a single point to start off the function*)

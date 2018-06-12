@@ -33,6 +33,7 @@ type rexpr =
   | LVal of lvalue
   | BExpr of rexpr * binop * rexpr
   | UExpr of unop * rexpr
+  | Multiple of rexpr list
 
 
 type cop =
