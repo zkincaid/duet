@@ -152,7 +152,7 @@ let convert_insts (inst : inst) =
      let func_var = Core.AddrOf(Variable(List.assoc name !fvars)) in
      match a with
        [] ->    [Core.Def.mk (Call(None,func_var,List.map convert_rexpr args))]
-     | [one] ->    [Core.Def.mk (Call(Some(get_lvalue_var one),func_var,List.map convert_rexpr args))]
+     | [one] ->    [Core.Def.mk (Call(get_lvalue_var_opt one,func_var,List.map convert_rexpr args))]
      | rets ->let return_assignments= List.fold_left2 make_caller_ret_assignment [] rets (List.assoc name !freturns) in
               (Core.Def.mk (Call(None,func_var,List.map convert_rexpr args))):: return_assignments
 
