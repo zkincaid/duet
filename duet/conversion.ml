@@ -60,6 +60,18 @@ let get_lvalue v =
   |Undef -> Core.Havoc(Core.Concrete (Int(4)))
   | _ -> raise (Unexpected_value ("Found field access"))
 
+let is_boolean_op (binop : InterIR.binop)=
+  match binop with
+  | GTE -> true
+  | GT -> true
+  | LTE ->true
+  | LT ->true
+  | NE -> true
+  | EQ -> true
+  | And -> true
+  | Or -> true
+  | _ -> false
+
 (*Converts IR binops to ICRA binops*)
 let convert_binop (binop : InterIR.binop) =
   match binop with
@@ -73,6 +85,7 @@ let convert_binop (binop : InterIR.binop) =
   | InterIR.BXor -> BXor
   | InterIR.BAnd -> BAnd
   | InterIR.BOr  -> BOr
+  | _ -> raise (Unexpected_value ("Logical operator found in binary expression"))
 
 let convert_unop (unop : InterIR.unop) =
   match unop with
@@ -91,6 +104,7 @@ let convert_cop op =
   | LT -> (Core.Lt, false)
   | NE -> (Core.Ne, false)
   | EQ -> (Core.Eq, false)
+  | _ -> raise (Unexpected_value ("Arithmetic operator found in binary expressionn"))
 
 (*Given a type, get it's size.  We only have ints and pointers, so size is 4 or 8*)
 let get_type_size typ =
@@ -106,25 +120,35 @@ let rec convert_rexpr ls =
   | InterIR.UExpr(op,v) -> let sub_val = convert_rexpr v in
                            let op2 = convert_unop op in
                            Core.UnaryOp(op2,sub_val,Core.Concrete(Int(4)))
-  | InterIR.BExpr(l,op,r) -> let l_val = convert_rexpr l in
-                             let r_val = convert_rexpr r in
-                             let bop = convert_binop op in
-                             Core.BinaryOp(l_val,bop,r_val,Core.Concrete(Int(4)))
+  | InterIR.BExpr(l,op,r) ->if (is_boolean_op op) then
+                              Core.BoolExpr(convert_bexpr ls)
+                            else
+                              let l_val = convert_rexpr l in
+                              let r_val = convert_rexpr r in
+                              let bop = convert_binop op in
+                              Core.BinaryOp(l_val,bop,r_val,Core.Concrete(Int(4)))
   | Multiple(_) -> raise (Unexpected_value ("Found multiple. It should have been flattened at this point"))
+  and
+    convert_bexpr rexpr=
+    match rexpr with
+      InterIR.BExpr(l,cop,r)->( match cop with
+                                 InterIR.And -> Core.And(convert_bexpr l, convert_bexpr r)
+                               | InterIR.Or -> Core.Or(convert_bexpr l, convert_bexpr r)
+                               | _ -> let (op,switch) = convert_cop cop in
+                                      if switch then
+                                        Core.Atom(op,convert_rexpr r,convert_rexpr l)
+                                      else
+                                        Core.Atom(op,convert_rexpr l,convert_rexpr r)
+                             )
+    | _ ->  raise (Unexpected_value ("Condition has not a boolean type"))
 
 
-let convert_cond cond=
+let convert_cond cond :Core.bexpr=
   match cond with
     Jmp -> Core.Bexpr.ktrue
   | NonDet -> Core.Bexpr.ktrue
-  | Cond(l,cop,r) ->
-     let l_val = convert_rexpr l in
-     let r_val = convert_rexpr r in
-     let (op,switch) = convert_cop cop in
-     if switch then
-       Core.Atom(op,r_val,l_val)
-     else
-       Core.Atom(op, l_val, r_val)
+  | Cond(rexpr) -> convert_bexpr rexpr
+
 
 (* functions for dealing with return values *)
 let create_func_return_vars  { funname ; fargs; flocs; fbody; frets}=
@@ -245,8 +269,8 @@ let convert_funcs cs_func =
          (
            let condition = blk.bcond in
            match condition with
-             Some(Cond(l, cop, r)) -> (
-             let duet_cond=convert_cond (Cond(l, cop, r)) in
+             Some(Cond(rexpr)) -> (
+             let duet_cond=convert_cond (Cond(rexpr)) in
              let current_blk = Array.get blk_array x in
              let then_child = Array.get blk_array (List.hd children) in
              let else_child = Array.get blk_array  (List.hd (List.tl children))  in

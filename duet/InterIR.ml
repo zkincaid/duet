@@ -23,6 +23,14 @@ type binop =
   | BXor
   | BAnd
   | BOr
+  | And
+  | Or
+  | GTE
+  | GT
+  | LTE
+  | LT
+  | NE
+  | EQ
 
 type unop=
   | UNeg
@@ -35,16 +43,7 @@ type rexpr =
   | UExpr of unop * rexpr
   | Multiple of rexpr list
 
-
-type cop =
-  | GTE
-  | GT
-  | LTE
-  | LT
-  | NE
-  | EQ
-
-type cond = Cond of rexpr * cop * rexpr | NonDet | Jmp
+type cond = Cond of rexpr | NonDet | Jmp
 
 
 (* Control flow graphs for CS IR *)
