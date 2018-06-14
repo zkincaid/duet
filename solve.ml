@@ -48,24 +48,18 @@ type matrix_rec =
 type inequation = 
           | Equals of expr * expr
           | LessEq of expr * expr
- (*       | Less of expr * expr *)
           | GreaterEq of expr * expr
- (*       | Greater of expr * expr *)
 ;;
 
 (* ------------------------------------------------------------------------- *)
 
 (* Finite weights: *)
 type fweight = Mpq.t;;
+(* Possibly-infinite weights: *)
+type weight = Worst | Fin of fweight;;
 
 (* I should really make the following into a module that is a parameter to 
  *  the algorithm below, which should be another module *)
-
-(* For easy dualization, I'm putting all maxes and mins in terms of best and worst *)
-let fwt_best x y = if Mpq.cmp x y >= 0 then x else y;;  (* DUALIZE *)
-let fwt_best_expr elist = Max elist;;                   (* DUALIZE *)
-let fwt_bound e1 e2 = LessEq (e1, e2);;                 (* DUALIZE *)
-let fwt_worst x y = if Mpq.cmp x y >= 0 then y else x;; (* DUALIZE *)
 
 let fwt_add x y = 
     let retval = Mpq.init () in
@@ -92,7 +86,14 @@ let fwt_is_zero fwt = if Mpq.sgn fwt = 0 then true else false;; (*convenience*)
 
 (* ------------------------------------------------------------------------- *)
 
-type weight = Worst | Fin of fweight;;
+(* For easy dualization, I'm putting all maxes and mins in terms of best and worst *)
+let fwt_best x y = if Mpq.cmp x y >= 0 then x else y;;  (* DUALIZE *)
+let fwt_best_expr elist = Max elist;;                   (* DUALIZE *)
+let fwt_bound e1 e2 = LessEq (e1, e2);;                 (* DUALIZE *)
+let fwt_worst x y = if Mpq.cmp x y >= 0 then y else x;; (* DUALIZE *)
+
+(* ------------------------------------------------------------------------- *)
+
 
 let wt_add w1 w2 = 
     match w1 with | Worst -> Worst | Fin v1 ->
@@ -457,7 +458,7 @@ let computeInverseVertexMap nSCCs nVertices mapVertexToSCC =
     mapSCCToVertices
 ;;
 
-let createUpperBound graph = 
+let createUpperBound graph =
     let nVertices = MPGraph.nb_vertex graph in
     (*  Step 1. Compute the condensation of our graph *)
     let (nSCCs, mapVertexToSCC) = (MPComponents.scc graph) in
@@ -481,11 +482,11 @@ let createInequations loopCounterName variableNames slopes intercepts =
     let nVars = Array.length slopes in 
     loopFromMToN 0 (nVars - 1) [] (fun iOut inequations ->
         let subterms = loopFromMToN 0 (nVars - 1) [] (fun iIn subterms ->
-            match slopes.(iOut).(iIn) with 
-            | Worst -> subterms 
+            match slopes.(iOut).(iIn) with
+            | Worst -> subterms
             | Fin slope -> match intercepts.(iOut).(iIn) with
-                | Worst -> subterms 
-                | Fin intercept -> let subterm = 
+                | Worst -> subterms
+                | Fin intercept -> let subterm =
                     (* subterms look like:  k * slope + intercept + inVar_0  *)
                     Sum [ Product [loopCounter; Rational slope];
                           Rational intercept;
@@ -502,7 +503,29 @@ let createInequations loopCounterName variableNames slopes intercepts =
     )
 ;;
 
-(* ------------------------------------------------------------------------- *)
+(* ----------------------------------------------------------------------- *)
+(*    These functions are the public interface of our solver:              *)
+
+(* matrix is a weight array array *)
+let solveForBoundingMatricesFromMatrix matrix =
+    let graph = matrixToGraph matrix in
+    createUpperBound graph
+    (* returns a pair of weight array arrays: (slopes, intercepts) *)
+;;
+
+(* matrix is a weight array array *)
+(* variableNames is a string array *)
+(* loopCounterName is a string *)
+let solveForInequationsFromMatrix matrix variableNames loopCounterName =
+    let (slopes, intercepts) = solveForBoundingMatricesFromMatrix matrix in
+    createInequations loopCounterName variableNames slopes intercepts
+    (* returns an inequation list *)
+;;
+
+(* let computeBoundingMatricesFromEquations equations = ;; *)
+(* let computeInequationsFromEquations equations = ;; *)
+
+(* ----------------------------------------------------------------------- *)
 
 type mpTest = {
     name : string;
