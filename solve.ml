@@ -92,6 +92,36 @@ let fwt_best_expr elist = Max elist;;                   (* DUALIZE *)
 let fwt_bound e1 e2 = LessEq (e1, e2);;                 (* DUALIZE *)
 let fwt_worst x y = if Mpq.cmp x y >= 0 then y else x;; (* DUALIZE *)
 
+module type DIRECTION = 
+    sig
+        val best : fweight -> fweight -> fweight
+        val best_expr : expr list -> expr
+        val bound : expr -> expr -> inequation
+        val worst : fweight -> fweight -> fweight
+        val word : string
+        val symbol : string
+    end;;
+
+module MaxDirection = 
+    struct
+        let best x y = if Mpq.cmp x y >= 0 then x else y
+        let best_expr elist = Max elist
+        let bound e1 e2 = LessEq (e1, e2)
+        let bound_symbol = "<="
+        let worst x y = if Mpq.cmp x y >= 0 then y else x
+        let word = "Upper"
+    end;;
+
+module MinDirection = 
+    struct
+        let best x y = if Mpq.cmp x y <= 0 then x else y;;
+        let best_expr elist = Min elist;;
+        let bound e1 e2 = GreaterEq (e1, e2);;
+        let bound_symbol = ">="
+        let worst x y = if Mpq.cmp x y <= 0 then y else x;;
+        let word = "Lower"
+    end;;
+
 (* ------------------------------------------------------------------------- *)
 
 
