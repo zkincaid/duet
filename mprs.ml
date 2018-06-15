@@ -287,7 +287,9 @@ let alphabet = ["a"; "b"; "c"; "d"; "e"; "f"; "g"; "h"; "i"; "j"; "k"; "l"; "m";
 
 (* ------------------------------------------------------------------------- *)
 
-(* For easy dualization, I'm putting all maxes and mins in terms of best and worst *)
+(* For easy dualization, I wrote my algorithms in terms of "best" and "worst";
+ * in the max-plus semiring, best is max and worst is min;
+ * in the min-plus semiring, best is min and worst is max. *)
 
 module type DIRECTION = 
     sig

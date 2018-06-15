@@ -16,10 +16,19 @@ type inequation =
   | GreaterEq of expr * expr
 
 type fweight = Mpq.t
+
+(* An infinite weight is negative infinity in the max-plus semiring, and
+   positive infinity in the min-plus semiring. *)
 type weight = Inf | Fin of fweight
 
 val maxPlusTests : unit -> unit
 val minPlusTests : unit -> unit
+
+(* The following four functions assume that we're given a max-plus or min-plus 
+   matrix equation; they take the matrix of the equation as their only input. *) 
+
+(* The following two functions return a pair of matrices representing
+   the slopes and intercepts of a bound expression. *)
 
 val maxPlusSolveForBoundingMatricesFromMatrix :
   weight array array -> weight array array * weight array array
@@ -27,9 +36,13 @@ val maxPlusSolveForBoundingMatricesFromMatrix :
 val minPlusSolveForBoundingMatricesFromMatrix :
   weight array array -> weight array array * weight array array
 
+(* As a convenience, the following two functions return a list of 
+   inequations instead of a pair of slope and intercept matrices.  *)
+
 val maxPlusSolveForInequationsFromMatrix :
   weight array array -> string array -> string -> inequation list
 
 val minPlusSolveForInequationsFromMatrix :
   weight array array -> string array -> string -> inequation list
+
 
