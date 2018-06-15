@@ -56,7 +56,7 @@ type inequation =
 (* Finite weights: *)
 type fweight = Mpq.t;;
 (* Possibly-infinite weights: *)
-type weight = Worst | Fin of fweight;;
+type weight = Inf | Fin of fweight;;
 
 (* I should really make the following into a module that is a parameter to 
  *  the algorithm below, which should be another module *)
@@ -96,17 +96,17 @@ let fwt_worst x y = if Mpq.cmp x y >= 0 then y else x;; (* DUALIZE *)
 
 
 let wt_add w1 w2 = 
-    match w1 with | Worst -> Worst | Fin v1 ->
-        match w2 with | Worst -> Worst | Fin v2 -> Fin (fwt_add v1 v2)
+    match w1 with | Inf -> Inf | Fin v1 ->
+        match w2 with | Inf -> Inf | Fin v2 -> Fin (fwt_add v1 v2)
 ;;
 
 let wt_best w1 w2 = 
-    match w1 with | Worst -> w2 | Fin v1 ->
-        match w2 with | Worst -> w1 | Fin v2 -> Fin (fwt_best v1 v2)
+    match w1 with | Inf -> w2 | Fin v1 ->
+        match w2 with | Inf -> w1 | Fin v2 -> Fin (fwt_best v1 v2)
 ;;
 
 let wt_sprintf wt = 
-    match wt with | Worst -> (sprintf "NA") | Fin fwt -> fwt_sprintf fwt
+    match wt with | Inf -> (sprintf "NA") | Fin fwt -> fwt_sprintf fwt
 ;;
 
 let wt_print wt = print_string (wt_sprintf wt);;
@@ -179,7 +179,7 @@ let matrixToGraph matrix =
     Array.iteri (fun iVar row -> MPGraph.add_vertex graph iVar) matrix;
     let add_edges_in_row i row =
         let add_edge j wt = 
-            match wt with | Worst -> () | Fin fwt ->
+            match wt with | Inf -> () | Fin fwt ->
             MPGraph.add_edge_e graph (MPGraph.E.create i fwt j) in
         Array.iteri add_edge row in
     Array.iteri add_edges_in_row matrix;
@@ -250,13 +250,13 @@ let printUpperBound ?(variableNames=alphabet) slopes intercepts =
     let slopeString uVar vVar = 
         let slope = slopes.(uVar).(vVar) in
         match slope with 
-        | Worst -> (false,"") 
+        | Inf -> (false,"") 
         | Fin fwt -> if fwt_is_zero fwt then (true,"") else
                      (true,(sprintf " + (K * %s)" (wt_sprintf slope))) in
     let interceptString uVar vVar = 
         let intercept = intercepts.(uVar).(vVar) in
         match intercept with 
-        | Worst -> (false,"") 
+        | Inf -> (false,"") 
         | Fin fwt -> if fwt_is_zero fwt then (true,"") else
                      (true,(sprintf " + %s" (wt_sprintf intercept))) in 
     loopFromMToN 0 (nVariables - 1) () (fun uVar _ ->
@@ -303,7 +303,7 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
         let fMap = List.fold_left
             (fun fMap uVertex -> IntIntMap.add 
                 (0, uVertex)
-                (if (uVertex = startVertex) then Fin fwt_zero else Worst) 
+                (if (uVertex = startVertex) then Fin fwt_zero else Inf) 
                 fMap) IntIntMap.empty vertices in
         (* Now, we will compute fMap (Karp's F_k(v)) using a recurrence.     *)
         (* Loop over the number of steps (Karp's "k") in a progression:      *)
@@ -320,7 +320,7 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
                             (predecessors vVertex)) in
 
                         (* Find the best extension of this edge progression: *)
-                        (List.fold_left wt_best Worst candidates))
+                        (List.fold_left wt_best Inf candidates))
                     fMap in (* Add that value to the map fMap                *)
 
             (* Loop over vVertex (the target vertex, Karp's "v"):            *)
@@ -334,7 +334,7 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
         let considerVertex vVertex = 
             (* Look up F_n(v), and ignore it if it's infinite                *)
             match (IntIntMap.find (nVertices, vVertex) fMap) with 
-            | Worst -> Worst (* ignore *)
+            | Inf -> Inf (* ignore *)
             | Fin fnv -> 
               (* We want the worst value, over all numbers of steps.         *)
               (*                                                             *)
@@ -344,7 +344,7 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
                   (* Look up Karp's F_k(v).                                  *)
                   match (IntIntMap.find (steps, vVertex) fMap) with 
                   (* Ignore F_k(v) if it's infinite.                         *)
-                  | Worst -> pairs
+                  | Inf -> pairs
                   | Fin fkv -> (steps, fkv) :: pairs) in
 
               (*let _ = (printIntFloatPairList pairs; printf "\n") in*)
@@ -371,7 +371,7 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
         let foldHelper2 wt vVertex = wt_best wt (considerVertex vVertex) in
 
         (* The best cycle mean, over all final vertices (vVertex) ...        *)
-        let iSCCBestCycleMean = List.fold_left foldHelper2 Worst vertices in
+        let iSCCBestCycleMean = List.fold_left foldHelper2 Inf vertices in
 
         (* Add this SCC's best cycle mean to the map bestCycleMean:          *)
         (IntMap.add iSCC iSCCBestCycleMean bestCycleMean))
@@ -382,7 +382,7 @@ let computeSlopes graph nSCCs mapVertexToSCC mapSCCToVertices criticalWeight =
     let condensation = condense graph nSCCs mapVertexToSCC in
     let transCondensation = SCCOper.transitive_closure condensation ~reflexive:true in
     (* Initialize bounding slopes *)
-    let slopes = Array.make_matrix nVertices nVertices Worst in
+    let slopes = Array.make_matrix nVertices nVertices Inf in
     (* Compute bounding slopes *)
     (*    The bounding slope in position (i,k) is the highest critical       *)
     (*    weight that is found in any circuit that is reachable from i       *) 
@@ -416,7 +416,7 @@ let computeSlopes graph nSCCs mapVertexToSCC mapSCCToVertices criticalWeight =
 let computeIntercepts graph slopes =
     let nVertices = MPGraph.nb_vertex graph in
     (* Initialize bounding intercepts *)
-    let intercepts = Array.make_matrix nVertices nVertices Worst in
+    let intercepts = Array.make_matrix nVertices nVertices Inf in
     loopFromMToN 0 (nVertices - 1) () (fun uVertex _ ->
         intercepts.(uVertex).(uVertex) <- Fin fwt_zero 
     );
@@ -432,7 +432,7 @@ let computeIntercepts graph slopes =
                     (*           + edge[iTo,iFrom]        *)
                     (*           - slope[iTo,iInput])     *)
                     match slopes.(iTo).(iInput) with
-                    | Worst -> ()
+                    | Inf -> ()
                     | Fin slope ->
                         if (not (MPGraph.mem_edge graph iTo iFrom)) then ()
                         else let edgeLabel = MPGraph.E.label 
@@ -483,9 +483,9 @@ let createInequations loopCounterName variableNames slopes intercepts =
     loopFromMToN 0 (nVars - 1) [] (fun iOut inequations ->
         let subterms = loopFromMToN 0 (nVars - 1) [] (fun iIn subterms ->
             match slopes.(iOut).(iIn) with
-            | Worst -> subterms
+            | Inf -> subterms
             | Fin slope -> match intercepts.(iOut).(iIn) with
-                | Worst -> subterms
+                | Inf -> subterms
                 | Fin intercept -> let subterm =
                     (* subterms look like:  k * slope + intercept + inVar_0  *)
                     Sum [ Product [loopCounter; Rational slope];
@@ -532,7 +532,7 @@ type mpTest = {
     matrix : weight array array;
 };;
 
-let na = Worst;;
+let na = Inf;;
 let d fwt = Fin (fwt_from_int fwt);;
 let tests = [
 
