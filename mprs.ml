@@ -7,8 +7,7 @@ open Printf;;
 
 type subscript = 
           | SAdd of string * int    (** n+1, n+2, ... *)
-          | SSVar of string         (** n *)
-          ;;
+          | SSVar of string;;       (** n *)
 
 type expr = 
           | Product of expr list    (** N-ary multiplication *)
@@ -18,19 +17,15 @@ type expr =
           | Base_case of string * int   (** y_0, y_1, ... *)
           | Output_variable of string * subscript (** y_n, y_n+1, y_n+2, ... *)
           | Input_variable of string    (** Index variable *)
-          | Rational of Mpq.t       
-          ;;
+          | Rational of Mpq.t;; 
 
-          type inequation = 
+type inequation = 
           | Equals of expr * expr
           | LessEq of expr * expr
-          | GreaterEq of expr * expr
-;;
+          | GreaterEq of expr * expr;;
 
-(* 
-John suggested the following URL for documentation of Mpq and the rest of GMP:
-http://www.inrialpes.fr/pop-art/people/bjeannet/mlxxxidl-forge/mlgmpidl/html/Mpq.html
-*)
+(* John suggested the following URL for documentation of Mpq and the rest of GMP:
+http://www.inrialpes.fr/pop-art/people/bjeannet/mlxxxidl-forge/mlgmpidl/html/Mpq.html *)
 
 (* ------------------------------------------------------------------------- *)
 
@@ -386,6 +381,34 @@ let printBound ?(variableNames=alphabet) slopes intercepts =
                   printf ")\n"))
 ;;
 
+let augmentMatrix matrix vector =
+    let nVars = Array.length matrix in
+    let augmented = Array.make_matrix (nVars + 1) (nVars + 1) Inf in
+    loopFromMToN 0 nVars () (fun uVar _ ->
+        loopFromMToN 0 nVars () (fun vVar _ ->
+            if (vVar < nVars) then (
+                if (uVar < nVars) then 
+                    augmented.(uVar).(vVar) <- matrix.(uVar).(vVar)
+                else ()
+            ) else (
+                if (uVar < nVars) then 
+                    augmented.(uVar).(vVar) <- vector.(vVar)
+                else
+                    augmented.(uVar).(vVar) <- Fin fwt_zero)));
+    augmented;;
+
+let unaugmentMatrix augmented =
+    let nVars = (Array.length augmented) - 1 in
+    let matrix = Array.make_matrix nVars nVars Inf in
+    let vector = Array.make nVars Inf in
+    loopFromMToN 0 (nVars - 1) () (fun uVar _ ->
+        loopFromMToN 0 nVars () (fun vVar _ ->
+            if (vVar < nVars) then (
+                matrix.(uVar).(vVar) <- augmented.(uVar).(vVar) 
+            ) else (
+                vector.(vVar) <- augmented.(uVar).(vVar))));
+    (matrix, vector);;
+
 (* I chose Karp's algorithm because it was easy. *)
 (*   We could use a faster alternative if time complexity becomes a concern. *)
 let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
@@ -584,21 +607,30 @@ let createBound graph =
     (slopes, intercepts)
 ;;
 
-let createInequations loopCounterName variableNames slopes intercepts = 
-    let loopCounter = Input_variable loopCounterName in 
+let createInequations loopCounterName variableNames slopes intercepts hasConstantColumn =
+    let loopCounter = Input_variable loopCounterName in
     let subscript = SSVar loopCounterName in
-    let nVars = Array.length slopes in 
+    let nCols = Array.length slopes in
+    let nVars = if (hasConstantColumn) then nCols - 1 else nCols in
     loopFromMToN 0 (nVars - 1) [] (fun iOut inequations ->
-        let subterms = loopFromMToN 0 (nVars - 1) [] (fun iIn subterms ->
+        let subterms = loopFromMToN 0 nCols [] (fun iIn subterms ->
             match slopes.(iOut).(iIn) with
             | Inf -> subterms
-            | Fin slope -> match intercepts.(iOut).(iIn) with
+            | Fin slope ->
+                match intercepts.(iOut).(iIn) with
                 | Inf -> subterms
                 | Fin intercept -> let subterm =
-                    (* subterms look like:  k * slope + intercept + inVar_0  *)
-                    Sum [ Product [loopCounter; Rational slope];
-                          Rational intercept;
-                          Base_case (variableNames.(iIn), 0) ] in
+                    if (iIn < nVars) then
+                        (* This is for subterms based on variables. *)
+                        (* template:   k * slope + intercept + inVar_0   *)
+                        Sum [ Product [loopCounter; Rational slope];
+                              Rational intercept;
+                              Base_case (variableNames.(iIn), 0) ]
+                    else
+                        (* This is for the subterm based on a constant. *)
+                        (* template:   k * slope + intercept   *)
+                        Sum [ Product [loopCounter; Rational slope];
+                              Rational intercept ] in
                     subterm :: subterms
         ) in if List.length subterms = 0 then inequations (* no bound *)
         else let outVar = Output_variable (variableNames.(iOut), subscript) in
@@ -620,7 +652,7 @@ let solveForBoundingMatricesFromMatrix matrix =
 
 let solveForInequationsFromMatrix matrix variableNames loopCounterName =
     let (slopes, intercepts) = solveForBoundingMatricesFromMatrix matrix in
-    createInequations loopCounterName variableNames slopes intercepts
+    createInequations loopCounterName variableNames slopes intercepts false
 ;;
 
 (* let computeBoundingMatricesFromEquations equations = ;; *)
