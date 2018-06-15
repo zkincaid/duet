@@ -1,15 +1,14 @@
 (* Solve a max-plus or min-plus recurrence *)
 
 open Graph;;
-
 open Printf;;
 
 (* ------------------------------------------------------------------------- *)
 
 type subscript = 
-  | SAdd of string * int    (** n+1, n+2, ... *)
-  | SSVar of string         (** n *)
-  ;;
+          | SAdd of string * int    (** n+1, n+2, ... *)
+          | SSVar of string         (** n *)
+          ;;
 
 type expr = 
           | Product of expr list    (** N-ary multiplication *)
@@ -21,15 +20,17 @@ type expr =
           | Input_variable of string    (** Index variable *)
           | Rational of Mpq.t       
           ;;
-(* John's comment: 
-   See <http://www.inrialpes.fr/pop-art/people/bjeannet/mlxxxidl-forge/mlgmpidl/html/Mpq.html> 
-   for documentation of Mpq.  *)
 
-type inequation = 
+          type inequation = 
           | Equals of expr * expr
           | LessEq of expr * expr
           | GreaterEq of expr * expr
 ;;
+
+(* 
+John suggested the following URL for documentation of Mpq and the rest of GMP:
+http://www.inrialpes.fr/pop-art/people/bjeannet/mlxxxidl-forge/mlgmpidl/html/Mpq.html
+*)
 
 (* ------------------------------------------------------------------------- *)
 
@@ -63,7 +64,7 @@ let fwt_is_zero fwt = if Mpq.sgn fwt = 0 then true else false;; (*convenience*)
 
 (* ----------------------------------------------------------------------- *)
 
-type mpTest = {
+type mpMatrixTest = {
     name : string;
     matrix : weight array array;
 };;
@@ -648,7 +649,7 @@ let doAllTests () =
     (printf "BEGIN %s TESTS:\n\n" Dir.name);
     List.iter (fun test ->
         printf "**** TEST %s****\n" test.name; doTest test.matrix; printf "\n") 
-        tests;
+        tests;;
 
 (* ======================================================================= *)
 (*   The body of the Solver functor is not indented. *)
