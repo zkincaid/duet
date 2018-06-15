@@ -629,22 +629,15 @@ let createInequations loopCounterName variableNames slopes intercepts =
 ;;
 
 (* ----------------------------------------------------------------------- *)
-(*    These functions are the public interface of our solver:              *)
 
-(* matrix is a weight array array *)
 let solveForBoundingMatricesFromMatrix matrix =
     let graph = matrixToGraph matrix in
     createBound graph
-    (* returns a pair of weight array arrays: (slopes, intercepts) *)
 ;;
 
-(* matrix is a weight array array *)
-(* variableNames is a string array *)
-(* loopCounterName is a string *)
 let solveForInequationsFromMatrix matrix variableNames loopCounterName =
     let (slopes, intercepts) = solveForBoundingMatricesFromMatrix matrix in
     createInequations loopCounterName variableNames slopes intercepts
-    (* returns an inequation list *)
 ;;
 
 (* let computeBoundingMatricesFromEquations equations = ;; *)
@@ -678,17 +671,36 @@ let doAllTests () =
 (* ======================================================================= *)
 (*   The body of the Solver functor is not indented. *)
   end;;
-(* end of Solver functor *)
+(* This is the end of the Solver functor. *)
 
 module MaxPlus = Solver(MaxDirection);;
 module MinPlus = Solver(MinDirection);;
 
-
 (* ----------------------------------------------------------------------- *)
+(*    These functions are the public interface of our solver:              *)
 
-let _ = 
-    MaxPlus.doAllTests ();
-    (printf "==========================================================\n\n");
-    MinPlus.doAllTests ();
-    (printf "**** ALL TESTS COMPLETE\n")
+(* matrix is a weight array array *)
+let maxPlusSolveForBoundingMatricesFromMatrix =
+    MaxPlus.solveForBoundingMatricesFromMatrix
 ;;
+let minPlusSolveForBoundingMatricesFromMatrix =
+    MinPlus.solveForBoundingMatricesFromMatrix
+;;
+(* returns a pair of weight array arrays (slopes and intercepts) *)
+
+
+
+(* matrix is a weight array array *)
+(* variableNames is a string array *)
+(* loopCounterName is a string *)
+let maxPlusSolveForInequationsFromMatrix =
+    MaxPlus.solveForInequationsFromMatrix
+;;
+let minPlusSolveForInequationsFromMatrix =
+    MinPlus.solveForInequationsFromMatrix
+;;
+(* returns an inequation list *)
+
+(* let computeBoundingMatricesFromEquations equations = ;; *)
+(* let computeInequationsFromEquations equations = ;; *)
+
