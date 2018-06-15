@@ -311,21 +311,15 @@ let alphabet = ["a"; "b"; "c"; "d"; "e"; "f"; "g"; "h"; "i"; "j"; "k"; "l"; "m";
 (* ------------------------------------------------------------------------- *)
 
 (* For easy dualization, I'm putting all maxes and mins in terms of best and worst *)
-(*
-let fwt_best x y = if Mpq.cmp x y >= 0 then x else y;;  (* DUALIZE *)
-let fwt_best_expr elist = Max elist;;                   (* DUALIZE *)
-let fwt_bound e1 e2 = LessEq (e1, e2);;                 (* DUALIZE *)
-let fwt_worst x y = if Mpq.cmp x y >= 0 then y else x;; (* DUALIZE *)
-*)
 
 module type DIRECTION = 
     sig
         val best : fweight -> fweight -> fweight
         val best_expr : expr list -> expr
         val bound : expr -> expr -> inequation
-        val worst : fweight -> fweight -> fweight
-        val word : string
         val bound_symbol : string
+        val bound_adjective : string
+        val worst : fweight -> fweight -> fweight
         val name : string
     end;;
 
@@ -335,8 +329,8 @@ module MaxDirection =
         let best_expr elist = Max elist
         let bound e1 e2 = LessEq (e1, e2)
         let bound_symbol = "<="
+        let bound_adjective = "Upper"
         let worst x y = if Mpq.cmp x y >= 0 then y else x
-        let word = "Upper"
         let name = "Max-Plus"
     end;;
 
@@ -346,8 +340,8 @@ module MinDirection =
         let best_expr elist = Min elist;;
         let bound e1 e2 = GreaterEq (e1, e2);;
         let bound_symbol = ">="
+        let bound_adjective = "Lower"
         let worst x y = if Mpq.cmp x y <= 0 then y else x;;
-        let word = "Lower"
         let name = "Min-Plus"
     end;;
 
@@ -670,7 +664,7 @@ let doTest matrix =
     printMatrix intercepts;
     (printf "\n")
     *)
-    (printf "  %s bound:\n" Dir.word);
+    (printf "  %s bound:\n" Dir.bound_adjective);
     printBound ~variableNames:alphabet slopes intercepts;
     ()
 ;;
