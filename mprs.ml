@@ -9,41 +9,35 @@ open Printf;;
 type subscript = 
   | SAdd of string * int    (** n+1, n+2, ... *)
   | SSVar of string         (** n *)
-(*  | SSDiv of string * int   (** n/2, n/3, .. *) *)
   ;;
 
 type expr = 
-(* Use N-ary MPProduct and MPSum in preference to these *)
-(*        | Plus of expr * expr     (** Binary addition *)
-          | Minus of expr * expr    (** Binary subtraction *)
-          | Times of expr * expr    (** Binary multiplication *)
-          | Divide of expr * expr   (** Binary division *) *)
           | Product of expr list    (** N-ary multiplication *)
           | Sum of expr list        (** N-ary addition *)
           | Max of expr list        (** N-ary max *)
           | Min of expr list        (** N-ary min *)
-       (* | Symbolic_Constant of string (** "x", "y", etc *) *)
           | Base_case of string * int   (** y_0, y_1, ... *)
           | Output_variable of string * subscript (** y_n, y_n+1, y_n+2, ... *)
           | Input_variable of string    (** Index variable *)
-
-          | Rational of Mpq.t       (** @see <http://www.inrialpes.fr/pop-art/people/bjeannet/mlxxxidl-forge/mlgmpidl/html/Mpq.html> Not the package used here, but is equivalent to the documentation used in ocaml format*)
-
-(*          | Pow of expr * expr      (** Binary exponentiation *) *)
-(*          | Iif of string * subscript   (** Impliciltly intrepreted function *) *)
+          | Rational of Mpq.t       
           ;;
+(* John's comment: 
+   See <http://www.inrialpes.fr/pop-art/people/bjeannet/mlxxxidl-forge/mlgmpidl/html/Mpq.html> 
+   for documentation of Mpq.  *)
 
+(*
+(* for future use: *)
 type ovec = Ovec of string array * subscript;;
 
 type matrix_rec =
           | VEquals of ovec * Mpq.t array array * ovec * expr array
-(* for future use: *)
+(* for future future use: *)
 (*        | VLess of ovec * Mpq.t array array * ovec * expr array
           | VLessEq of ovec * Mpq.t array array * ovec * expr array
           | VGreater of ovec * Mpq.t array array * ovec * expr array
           | VGreaterEq of ovec * Mpq.t array array * ovec * expr array *)
           ;;
-
+*)
           
 type inequation = 
           | Equals of expr * expr
@@ -57,9 +51,6 @@ type inequation =
 type fweight = Mpq.t;;
 (* Possibly-infinite weights: *)
 type weight = Inf | Fin of fweight;;
-
-(* I should really make the following into a module that is a parameter to 
- *  the algorithm below, which should be another module *)
 
 let fwt_add x y = 
     let retval = Mpq.init () in
@@ -675,6 +666,11 @@ let doAllTests () =
 
 module MaxPlus = Solver(MaxDirection);;
 module MinPlus = Solver(MinDirection);;
+
+(* ----------------------------------------------------------------------- *)
+
+let maxPlusTests () = MaxPlus.doAllTests ();;
+let minPlusTests () = MinPlus.doAllTests ();;
 
 (* ----------------------------------------------------------------------- *)
 (*    These functions are the public interface of our solver:              *)

@@ -6,8 +6,8 @@ open Printf;;
 (* ----------------------------------------------------------------------- *)
 
 let _ = 
-    Mprs.MaxPlus.doAllTests ();
+    maxPlusTests ();
     (printf "==========================================================\n\n");
-    Mprs.MinPlus.doAllTests ();
+    minPlusTests ();
     (printf "**** ALL TESTS COMPLETE\n")
 ;;
