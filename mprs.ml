@@ -293,6 +293,7 @@ module type DIRECTION =
     sig
         val best : fweight -> fweight -> fweight
         val best_expr : expr list -> expr
+        val best_noun : string
         val bound : expr -> expr -> inequation
         val bound_symbol : string
         val bound_adjective : string
@@ -304,6 +305,7 @@ module MaxDirection =
     struct
         let best x y = if Mpq.cmp x y >= 0 then x else y
         let best_expr elist = Max elist
+        let best_noun = "max"
         let bound e1 e2 = LessEq (e1, e2)
         let bound_symbol = "<="
         let bound_adjective = "Upper"
@@ -315,6 +317,7 @@ module MinDirection =
     struct
         let best x y = if Mpq.cmp x y <= 0 then x else y;;
         let best_expr elist = Min elist;;
+        let best_noun = "min"
         let bound e1 e2 = GreaterEq (e1, e2);;
         let bound_symbol = ">="
         let bound_adjective = "Lower"
@@ -375,7 +378,7 @@ let printBound ?(variableNames=alphabet) slopes intercepts =
         | [] -> printf "No bound\n"
         | str :: tail ->
             if ((List.length tail) = 0) then (printf "%s\n" str)
-            else (printf "max(%s" str;
+            else (printf "%s(%s" Dir.best_noun str;
                   List.iter (fun str -> printf ",\n%s%s" prefix str) tail;
                   printf ")\n"))
 ;;
