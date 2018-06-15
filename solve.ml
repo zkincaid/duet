@@ -86,63 +86,6 @@ let fwt_is_zero fwt = if Mpq.sgn fwt = 0 then true else false;; (*convenience*)
 
 (* ------------------------------------------------------------------------- *)
 
-(* For easy dualization, I'm putting all maxes and mins in terms of best and worst *)
-let fwt_best x y = if Mpq.cmp x y >= 0 then x else y;;  (* DUALIZE *)
-let fwt_best_expr elist = Max elist;;                   (* DUALIZE *)
-let fwt_bound e1 e2 = LessEq (e1, e2);;                 (* DUALIZE *)
-let fwt_worst x y = if Mpq.cmp x y >= 0 then y else x;; (* DUALIZE *)
-
-module type DIRECTION = 
-    sig
-        val best : fweight -> fweight -> fweight
-        val best_expr : expr list -> expr
-        val bound : expr -> expr -> inequation
-        val worst : fweight -> fweight -> fweight
-        val word : string
-        val symbol : string
-    end;;
-
-module MaxDirection = 
-    struct
-        let best x y = if Mpq.cmp x y >= 0 then x else y
-        let best_expr elist = Max elist
-        let bound e1 e2 = LessEq (e1, e2)
-        let bound_symbol = "<="
-        let worst x y = if Mpq.cmp x y >= 0 then y else x
-        let word = "Upper"
-    end;;
-
-module MinDirection = 
-    struct
-        let best x y = if Mpq.cmp x y <= 0 then x else y;;
-        let best_expr elist = Min elist;;
-        let bound e1 e2 = GreaterEq (e1, e2);;
-        let bound_symbol = ">="
-        let worst x y = if Mpq.cmp x y <= 0 then y else x;;
-        let word = "Lower"
-    end;;
-
-(* ------------------------------------------------------------------------- *)
-
-
-let wt_add w1 w2 = 
-    match w1 with | Inf -> Inf | Fin v1 ->
-        match w2 with | Inf -> Inf | Fin v2 -> Fin (fwt_add v1 v2)
-;;
-
-let wt_best w1 w2 = 
-    match w1 with | Inf -> w2 | Fin v1 ->
-        match w2 with | Inf -> w1 | Fin v2 -> Fin (fwt_best v1 v2)
-;;
-
-let wt_sprintf wt = 
-    match wt with | Inf -> (sprintf "NA") | Fin fwt -> fwt_sprintf fwt
-;;
-
-let wt_print wt = print_string (wt_sprintf wt);;
-
-(* ------------------------------------------------------------------------- *)
-
 module V = struct
   type t = int (* vertex number *)
   let compare = Pervasives.compare
@@ -191,6 +134,16 @@ let loopFromMToN m n ?(increment=1) init f =
            (* compute new accum here using i and accum *)
          ) in
 *)
+
+(* ------------------------------------------------------------------------- *)
+
+let wt_sprintf wt = 
+    match wt with | Inf -> (sprintf "NA") | Fin fwt -> fwt_sprintf fwt
+;;
+
+let wt_print wt = print_string (wt_sprintf wt);;
+
+(* ------------------------------------------------------------------------- *)
 
 let condense graph nSCCs mapVertexToSCC = 
     let condensation = SCCGraph.create () in
@@ -270,6 +223,66 @@ let rec spaces i = if i <= 0 then "" else " "^(spaces (i-1))
 let alphabet = ["a"; "b"; "c"; "d"; "e"; "f"; "g"; "h"; "i"; "j"; "k"; "l"; "m";
                 "n"; "o"; "p"; "q"; "r"; "s"; "t"; "u"; "v"; "w"; "x"; "y"; "z"]
 ;;
+
+(* ------------------------------------------------------------------------- *)
+
+(* For easy dualization, I'm putting all maxes and mins in terms of best and worst *)
+let fwt_best x y = if Mpq.cmp x y >= 0 then x else y;;  (* DUALIZE *)
+let fwt_best_expr elist = Max elist;;                   (* DUALIZE *)
+let fwt_bound e1 e2 = LessEq (e1, e2);;                 (* DUALIZE *)
+let fwt_worst x y = if Mpq.cmp x y >= 0 then y else x;; (* DUALIZE *)
+
+module type DIRECTION = 
+    sig
+        val best : fweight -> fweight -> fweight
+        val best_expr : expr list -> expr
+        val bound : expr -> expr -> inequation
+        val worst : fweight -> fweight -> fweight
+        val word : string
+        val bound_symbol : string
+    end;;
+
+module MaxDirection = 
+    struct
+        let best x y = if Mpq.cmp x y >= 0 then x else y
+        let best_expr elist = Max elist
+        let bound e1 e2 = LessEq (e1, e2)
+        let bound_symbol = "<="
+        let worst x y = if Mpq.cmp x y >= 0 then y else x
+        let word = "Upper"
+    end;;
+
+module MinDirection = 
+    struct
+        let best x y = if Mpq.cmp x y <= 0 then x else y;;
+        let best_expr elist = Min elist;;
+        let bound e1 e2 = GreaterEq (e1, e2);;
+        let bound_symbol = ">="
+        let worst x y = if Mpq.cmp x y <= 0 then y else x;;
+        let word = "Lower"
+    end;;
+
+(* ------------------------------------------------------------------------- *)
+
+module Solver =
+    functor (Dir: DIRECTION) ->
+        struct
+
+(* continues without indentation: *)
+(* ======================================================================= *)
+
+
+let wt_add w1 w2 = 
+    match w1 with | Inf -> Inf | Fin v1 ->
+        match w2 with | Inf -> Inf | Fin v2 -> Fin (fwt_add v1 v2)
+;;
+
+let wt_best w1 w2 = 
+    match w1 with | Inf -> w2 | Fin v1 ->
+        match w2 with | Inf -> w1 | Fin v2 -> Fin (fwt_best v1 v2)
+;;
+
+(* ------------------------------------------------------------------------- *)
 
 let printUpperBound ?(variableNames=alphabet) slopes intercepts =
     let globalPrefix = "    " in
@@ -555,6 +568,15 @@ let solveForInequationsFromMatrix matrix variableNames loopCounterName =
 (* let computeBoundingMatricesFromEquations equations = ;; *)
 (* let computeInequationsFromEquations equations = ;; *)
 
+(* ======================================================================= *)
+
+  end;;
+(* end of Solver functor *)
+
+module MaxPlusSolver = Solver(MaxDirection);;
+module MinPlusSolver = Solver(MinDirection);;
+
+(*
 (* ----------------------------------------------------------------------- *)
 
 type mpTest = {
@@ -662,3 +684,4 @@ let _ =
         tests;
     (printf "**** ALL TESTS COMPLETE\n")
 ;;
+*)
