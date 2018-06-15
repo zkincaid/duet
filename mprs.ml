@@ -666,27 +666,20 @@ let minPlusTests () = MinPlus.doAllTests ();;
 (* ----------------------------------------------------------------------- *)
 (*    These functions are the public interface of our solver:              *)
 
-(* matrix is a weight array array *)
 let maxPlusSolveForBoundingMatricesFromMatrix =
     MaxPlus.solveForBoundingMatricesFromMatrix
 ;;
 let minPlusSolveForBoundingMatricesFromMatrix =
     MinPlus.solveForBoundingMatricesFromMatrix
 ;;
-(* returns a pair of weight array arrays (slopes and intercepts) *)
 
 
-
-(* matrix is a weight array array *)
-(* variableNames is a string array *)
-(* loopCounterName is a string *)
 let maxPlusSolveForInequationsFromMatrix =
     MaxPlus.solveForInequationsFromMatrix
 ;;
 let minPlusSolveForInequationsFromMatrix =
     MinPlus.solveForInequationsFromMatrix
 ;;
-(* returns an inequation list *)
 
 (* let computeBoundingMatricesFromEquations equations = ;; *)
 (* let computeInequationsFromEquations equations = ;; *)
