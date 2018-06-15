@@ -1,4 +1,4 @@
-(* Solve a max-plus recurrence *)
+(* Solve a max-plus or min-plus recurrence *)
 
 open Graph;;
 
@@ -25,20 +25,6 @@ type expr =
    See <http://www.inrialpes.fr/pop-art/people/bjeannet/mlxxxidl-forge/mlgmpidl/html/Mpq.html> 
    for documentation of Mpq.  *)
 
-(*
-(* for future use: *)
-type ovec = Ovec of string array * subscript;;
-
-type matrix_rec =
-          | VEquals of ovec * Mpq.t array array * ovec * expr array
-(* for future future use: *)
-(*        | VLess of ovec * Mpq.t array array * ovec * expr array
-          | VLessEq of ovec * Mpq.t array array * ovec * expr array
-          | VGreater of ovec * Mpq.t array array * ovec * expr array
-          | VGreaterEq of ovec * Mpq.t array array * ovec * expr array *)
-          ;;
-*)
-          
 type inequation = 
           | Equals of expr * expr
           | LessEq of expr * expr
