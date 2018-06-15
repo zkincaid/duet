@@ -84,6 +84,90 @@ let fwt_zero = (* Should this be a function taking () ? *)
 let fwt_sprintf fwt = sprintf "%.1f" (Mpq.to_float fwt);;
 let fwt_is_zero fwt = if Mpq.sgn fwt = 0 then true else false;; (*convenience*)
 
+(* ----------------------------------------------------------------------- *)
+
+type mpTest = {
+    name : string;
+    matrix : weight array array;
+};;
+
+let na = Inf;;
+let d fwt = Fin (fwt_from_int fwt);;
+let tests = [
+
+    {name="knee-1"; matrix=[| 
+     [| (d 0);     na;    na    |];
+     [| (d (-14)); (d 3); na    |];
+     [| na;        (d 0); (d 1) |];
+    |] };
+
+    {name="knee-2b"; matrix=[| 
+     [| (d 5); na;    na;    na;    na;    na     |];
+     [| (d 0); (d 0); na;    na;    na;    na     |];
+     [| na;    (d 0); (d 0); na;    na;    na     |];
+     [| na;    na;    (d 0); (d 0); na;    na     |];
+     [| na;    na;    na;    (d 0); (d 0); na     |];
+     [| na;    na;    na;    na;    (d 0); (d 1); |];
+    |] };
+
+    {name="zigzag-2b"; matrix=[| 
+     [| na;    na;    na;    (d 7)  |];
+     [| (d 0); na;    na;    na     |];
+     [| na;    (d 0); na;    na     |];
+     [| na;    na;    (d 1); na     |];
+    |] };
+
+    {name="zigzag-3"; matrix=[| 
+     [| na;       na;       na;        (d (-3)) |];
+     [| (d (-1)); na;       na;        na       |];
+     [| na;       (d (-1)); na;        na       |];
+     [| na;       na;       (d (-15)); na       |];
+    |] };
+
+    {name="zigzag-4"; matrix=[| 
+     [| na;    (d (-1)); |];
+     [| (d 1); na;       |];
+    |] };
+
+    {name="zigzag-5"; matrix=[| 
+     [| na;    (d 2); na;    na;     na;    |];
+     [| (d 0); na;    na;    na;     na;    |];
+     [| na;    na;    na;    (d 10); na;    |];
+     [| na;    na;    (d 0); na;     na;    |];
+     [| (d 0); na;    na;    (d 0);  na;    |];
+    |] };
+
+    {name="cornercases-zerovars"; matrix=[| 
+    |] };
+
+    {name="cornercases-onevar"; matrix=[| 
+     [| (d 5)|];
+    |] };
+
+    {name="cornercases-onevar-all-infinite"; matrix=[| 
+     [| na |];
+    |] };
+
+    {name="cornercases-all-infinite-1"; matrix=[| 
+     [| na;        na;    na    |];
+     [| (d 0);     na;    na    |];
+     [| (d (-14)); (d 3); na    |];
+    |] };
+
+    {name="cornercases-all-infinite-2"; matrix=[| 
+     [| (d 0);     na;    na    |];
+     [| na;        na;    na    |];
+     [| (d (-14)); (d 3); na    |];
+    |] };
+
+    {name="cornercases-all-infinite-3"; matrix=[| 
+     [| (d 0);     na;    na    |];
+     [| (d (-14)); (d 3); na    |];
+     [| na;        na;    na    |];
+    |] };
+
+];;
+
 (* ------------------------------------------------------------------------- *)
 
 module V = struct
@@ -227,10 +311,12 @@ let alphabet = ["a"; "b"; "c"; "d"; "e"; "f"; "g"; "h"; "i"; "j"; "k"; "l"; "m";
 (* ------------------------------------------------------------------------- *)
 
 (* For easy dualization, I'm putting all maxes and mins in terms of best and worst *)
+(*
 let fwt_best x y = if Mpq.cmp x y >= 0 then x else y;;  (* DUALIZE *)
 let fwt_best_expr elist = Max elist;;                   (* DUALIZE *)
 let fwt_bound e1 e2 = LessEq (e1, e2);;                 (* DUALIZE *)
 let fwt_worst x y = if Mpq.cmp x y >= 0 then y else x;; (* DUALIZE *)
+*)
 
 module type DIRECTION = 
     sig
@@ -240,6 +326,7 @@ module type DIRECTION =
         val worst : fweight -> fweight -> fweight
         val word : string
         val bound_symbol : string
+        val name : string
     end;;
 
 module MaxDirection = 
@@ -250,6 +337,7 @@ module MaxDirection =
         let bound_symbol = "<="
         let worst x y = if Mpq.cmp x y >= 0 then y else x
         let word = "Upper"
+        let name = "Max-Plus"
     end;;
 
 module MinDirection = 
@@ -260,6 +348,7 @@ module MinDirection =
         let bound_symbol = ">="
         let worst x y = if Mpq.cmp x y <= 0 then y else x;;
         let word = "Lower"
+        let name = "Min-Plus"
     end;;
 
 (* ------------------------------------------------------------------------- *)
@@ -267,7 +356,6 @@ module MinDirection =
 module Solver =
     functor (Dir: DIRECTION) ->
         struct
-
 (* continues without indentation: *)
 (* ======================================================================= *)
 
@@ -279,12 +367,12 @@ let wt_add w1 w2 =
 
 let wt_best w1 w2 = 
     match w1 with | Inf -> w2 | Fin v1 ->
-        match w2 with | Inf -> w1 | Fin v2 -> Fin (fwt_best v1 v2)
+        match w2 with | Inf -> w1 | Fin v2 -> Fin (Dir.best v1 v2)
 ;;
 
 (* ------------------------------------------------------------------------- *)
 
-let printUpperBound ?(variableNames=alphabet) slopes intercepts =
+let printBound ?(variableNames=alphabet) slopes intercepts =
     let globalPrefix = "    " in
     let getVarName i =
         if (i < List.length variableNames) then List.nth variableNames i
@@ -303,7 +391,7 @@ let printUpperBound ?(variableNames=alphabet) slopes intercepts =
         | Fin fwt -> if fwt_is_zero fwt then (true,"") else
                      (true,(sprintf " + %s" (wt_sprintf intercept))) in 
     loopFromMToN 0 (nVariables - 1) () (fun uVar _ ->
-        let header = (sprintf "%s%s[K] <= " globalPrefix (getVarName uVar)) in
+        let header = (sprintf "%s%s[K] %s " globalPrefix (getVarName uVar) Dir.bound_symbol) in
         let prefix = (spaces (4 + (String.length header))) in
         (print_string header);
         let subterms = loopFromMToN (nVariables - 1) 0 ~increment:(-1) [] (fun vVar subterms ->
@@ -406,7 +494,7 @@ let karpBestCycleMean graph nSCCs mapVertexToSCC mapSCCToVertices =
                 let firstCycleMean = cycleMean steps fnv fkv in
                 (* Here we specify that we want the worst, using a fold:     *)
                 let foldHelper1 fwt (steps, fkv) = 
-                    fwt_worst fwt (cycleMean steps fnv fkv) in
+                    Dir.worst fwt (cycleMean steps fnv fkv) in
                 (* Worst cycle mean among progressions ending at vVertex:    *)
                 Fin (List.fold_left foldHelper1 firstCycleMean tail) in
 
@@ -501,7 +589,7 @@ let computeInverseVertexMap nSCCs nVertices mapVertexToSCC =
     mapSCCToVertices
 ;;
 
-let createUpperBound graph =
+let createBound graph =
     let nVertices = MPGraph.nb_vertex graph in
     (*  Step 1. Compute the condensation of our graph *)
     let (nSCCs, mapVertexToSCC) = (MPComponents.scc graph) in
@@ -541,7 +629,7 @@ let createInequations loopCounterName variableNames slopes intercepts =
         (*    outVar <= max( ... subterms ... )                     *)
         (*      or, dually:                                         *)
         (*    outVar >= min( ... subterms ... )                     *)
-        let inequation = fwt_bound outVar (fwt_best_expr subterms) in
+        let inequation = Dir.bound outVar (Dir.best_expr subterms) in
         inequation :: inequations (* we built a new inequation *)
     )
 ;;
@@ -552,7 +640,7 @@ let createInequations loopCounterName variableNames slopes intercepts =
 (* matrix is a weight array array *)
 let solveForBoundingMatricesFromMatrix matrix =
     let graph = matrixToGraph matrix in
-    createUpperBound graph
+    createBound graph
     (* returns a pair of weight array arrays: (slopes, intercepts) *)
 ;;
 
@@ -568,104 +656,13 @@ let solveForInequationsFromMatrix matrix variableNames loopCounterName =
 (* let computeBoundingMatricesFromEquations equations = ;; *)
 (* let computeInequationsFromEquations equations = ;; *)
 
-(* ======================================================================= *)
-
-  end;;
-(* end of Solver functor *)
-
-module MaxPlusSolver = Solver(MaxDirection);;
-module MinPlusSolver = Solver(MinDirection);;
-
-(*
 (* ----------------------------------------------------------------------- *)
 
-type mpTest = {
-    name : string;
-    matrix : weight array array;
-};;
-
-let na = Inf;;
-let d fwt = Fin (fwt_from_int fwt);;
-let tests = [
-
-    {name="knee-1"; matrix=[| 
-     [| (d 0);     na;    na    |];
-     [| (d (-14)); (d 3); na    |];
-     [| na;        (d 0); (d 1) |];
-    |] };
-
-    {name="knee-2b"; matrix=[| 
-     [| (d 5); na;    na;    na;    na;    na     |];
-     [| (d 0); (d 0); na;    na;    na;    na     |];
-     [| na;    (d 0); (d 0); na;    na;    na     |];
-     [| na;    na;    (d 0); (d 0); na;    na     |];
-     [| na;    na;    na;    (d 0); (d 0); na     |];
-     [| na;    na;    na;    na;    (d 0); (d 1); |];
-    |] };
-
-    {name="zigzag-2b"; matrix=[| 
-     [| na;    na;    na;    (d 7)  |];
-     [| (d 0); na;    na;    na     |];
-     [| na;    (d 0); na;    na     |];
-     [| na;    na;    (d 1); na     |];
-    |] };
-
-    {name="zigzag-3"; matrix=[| 
-     [| na;       na;       na;        (d (-3)) |];
-     [| (d (-1)); na;       na;        na       |];
-     [| na;       (d (-1)); na;        na       |];
-     [| na;       na;       (d (-15)); na       |];
-    |] };
-
-    {name="zigzag-4"; matrix=[| 
-     [| na;    (d (-1)); |];
-     [| (d 1); na;       |];
-    |] };
-
-    {name="zigzag-5"; matrix=[| 
-     [| na;    (d 2); na;    na;     na;    |];
-     [| (d 0); na;    na;    na;     na;    |];
-     [| na;    na;    na;    (d 10); na;    |];
-     [| na;    na;    (d 0); na;     na;    |];
-     [| (d 0); na;    na;    (d 0);  na;    |];
-    |] };
-
-    {name="cornercases-zerovars"; matrix=[| 
-    |] };
-
-    {name="cornercases-onevar"; matrix=[| 
-     [| (d 5)|];
-    |] };
-
-    {name="cornercases-onevar-all-infinite"; matrix=[| 
-     [| na |];
-    |] };
-
-    {name="cornercases-all-infinite-1"; matrix=[| 
-     [| na;        na;    na    |];
-     [| (d 0);     na;    na    |];
-     [| (d (-14)); (d 3); na    |];
-    |] };
-
-    {name="cornercases-all-infinite-2"; matrix=[| 
-     [| (d 0);     na;    na    |];
-     [| na;        na;    na    |];
-     [| (d (-14)); (d 3); na    |];
-    |] };
-
-    {name="cornercases-all-infinite-3"; matrix=[| 
-     [| (d 0);     na;    na    |];
-     [| (d (-14)); (d 3); na    |];
-     [| na;        na;    na    |];
-    |] };
-
-];;
-
 let doTest matrix = 
-    (printf "  Input matrix:\n");
+    (printf "  Input (%s) matrix:\n" Dir.name);
     printMatrix matrix;
     let graph = matrixToGraph matrix in
-    let (slopes,intercepts) = createUpperBound graph in
+    let (slopes,intercepts) = createBound graph in
     (*
     (printf "Slopes:\n");
     printMatrix slopes;
@@ -673,15 +670,31 @@ let doTest matrix =
     printMatrix intercepts;
     (printf "\n")
     *)
-    printf "  Upper bound:\n";
-    printUpperBound ~variableNames:alphabet slopes intercepts;
+    (printf "  %s bound:\n" Dir.word);
+    printBound ~variableNames:alphabet slopes intercepts;
     ()
 ;;
 
-let _ = 
+let doAllTests () =
+    (printf "BEGIN %s TESTS:\n\n" Dir.name);
     List.iter (fun test ->
         printf "**** TEST %s****\n" test.name; doTest test.matrix; printf "\n") 
         tests;
+
+(* ======================================================================= *)
+(*   The body of the Solver functor is not indented. *)
+  end;;
+(* end of Solver functor *)
+
+module MaxPlus = Solver(MaxDirection);;
+module MinPlus = Solver(MinDirection);;
+
+
+(* ----------------------------------------------------------------------- *)
+
+let _ = 
+    MaxPlus.doAllTests ();
+    (printf "==========================================================\n\n");
+    MinPlus.doAllTests ();
     (printf "**** ALL TESTS COMPLETE\n")
 ;;
-*)
