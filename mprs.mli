@@ -21,8 +21,8 @@ type fweight = Mpq.t
    positive infinity in the min-plus semiring. *)
 type weight = Inf | Fin of fweight
 
-val maxPlusTests : unit -> unit
-val minPlusTests : unit -> unit
+val maxPlusMatrixTest : weight array array -> unit
+val minPlusMatrixTest : weight array array -> unit
 
 (* The following four functions assume that we're given a max-plus or min-plus 
    matrix equation; they take the matrix of the equation as their only input. *) 

@@ -61,90 +61,6 @@ let fwt_sprintf fwt = sprintf "%.1f" (Mpq.to_float fwt);;
 let fwt_is_zero fwt = if Mpq.sgn fwt = 0 then true else false;; (*convenience*)
 let fwt_is_one fwt = if Mpq.cmp_si fwt 1 1 = 0 then true else false;; (*convenience*)
 
-(* ----------------------------------------------------------------------- *)
-
-type mpMatrixTest = {
-    name : string;
-    matrix : weight array array;
-};;
-
-let na = Inf;;
-let d fwt = Fin (fwt_from_int fwt);;
-let tests = [
-
-    {name="knee-1"; matrix=[| 
-     [| (d 0);     na;    na    |];
-     [| (d (-14)); (d 3); na    |];
-     [| na;        (d 0); (d 1) |];
-    |] };
-
-    {name="knee-2b"; matrix=[| 
-     [| (d 5); na;    na;    na;    na;    na     |];
-     [| (d 0); (d 0); na;    na;    na;    na     |];
-     [| na;    (d 0); (d 0); na;    na;    na     |];
-     [| na;    na;    (d 0); (d 0); na;    na     |];
-     [| na;    na;    na;    (d 0); (d 0); na     |];
-     [| na;    na;    na;    na;    (d 0); (d 1); |];
-    |] };
-
-    {name="zigzag-2b"; matrix=[| 
-     [| na;    na;    na;    (d 7)  |];
-     [| (d 0); na;    na;    na     |];
-     [| na;    (d 0); na;    na     |];
-     [| na;    na;    (d 1); na     |];
-    |] };
-
-    {name="zigzag-3"; matrix=[| 
-     [| na;       na;       na;        (d (-3)) |];
-     [| (d (-1)); na;       na;        na       |];
-     [| na;       (d (-1)); na;        na       |];
-     [| na;       na;       (d (-15)); na       |];
-    |] };
-
-    {name="zigzag-4"; matrix=[| 
-     [| na;    (d (-1)); |];
-     [| (d 1); na;       |];
-    |] };
-
-    {name="zigzag-5"; matrix=[| 
-     [| na;    (d 2); na;    na;     na;    |];
-     [| (d 0); na;    na;    na;     na;    |];
-     [| na;    na;    na;    (d 10); na;    |];
-     [| na;    na;    (d 0); na;     na;    |];
-     [| (d 0); na;    na;    (d 0);  na;    |];
-    |] };
-
-    {name="cornercases-zerovars"; matrix=[| 
-    |] };
-
-    {name="cornercases-onevar"; matrix=[| 
-     [| (d 5)|];
-    |] };
-
-    {name="cornercases-onevar-all-infinite"; matrix=[| 
-     [| na |];
-    |] };
-
-    {name="cornercases-all-infinite-1"; matrix=[| 
-     [| na;        na;    na    |];
-     [| (d 0);     na;    na    |];
-     [| (d (-14)); (d 3); na    |];
-    |] };
-
-    {name="cornercases-all-infinite-2"; matrix=[| 
-     [| (d 0);     na;    na    |];
-     [| na;        na;    na    |];
-     [| (d (-14)); (d 3); na    |];
-    |] };
-
-    {name="cornercases-all-infinite-3"; matrix=[| 
-     [| (d 0);     na;    na    |];
-     [| (d (-14)); (d 3); na    |];
-     [| na;        na;    na    |];
-    |] };
-
-];;
-
 (* ------------------------------------------------------------------------- *)
 
 module V = struct
@@ -740,12 +656,6 @@ let doMatrixTest matrix =
     ()
 ;;
 
-let doAllTests () =
-    (printf "BEGIN %s TESTS:\n\n" Dir.name);
-    List.iter (fun test ->
-        printf "**** TEST %s****\n" test.name; doMatrixTest test.matrix; printf "\n") 
-        tests;;
-
 (* ======================================================================= *)
 (*   The body of the Solver functor is not indented. *)
   end;;
@@ -756,8 +666,8 @@ module MinPlus = Solver(MinDirection);;
 
 (* ----------------------------------------------------------------------- *)
 
-let maxPlusTests () = MaxPlus.doAllTests ();;
-let minPlusTests () = MinPlus.doAllTests ();;
+let maxPlusMatrixTest = MaxPlus.doMatrixTest;;
+let minPlusMatrixTest = MinPlus.doMatrixTest;;
 
 (* ----------------------------------------------------------------------- *)
 (*    These functions are the public interface of our solver:              *)
