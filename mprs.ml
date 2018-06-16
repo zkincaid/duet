@@ -434,7 +434,7 @@ let doMatrixTest matrix =
     (printf "  As inequations:\n");
     (List.iter 
         (fun ineq -> (printf "    %s\n" (Printing.stringifyInequation ineq))) 
-        inequations);
+        (List.rev inequations));
     (slopes,intercepts)
 ;;
 
@@ -452,7 +452,7 @@ let doMatrixVectorTest matrix vector =
     (printf "  As inequations:\n");
     (List.iter 
         (fun ineq -> (printf "    %s\n" (Printing.stringifyInequation ineq))) 
-        inequations);
+        (List.rev inequations));
     (unaugmentMatrix slopes, unaugmentMatrix intercepts)
 ;;
 
