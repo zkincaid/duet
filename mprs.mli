@@ -1,3 +1,19 @@
+(* In MPRS, the numeric type used by max-plus/min-plus matrix recurrences
+   is called "weight". *)
+
+(* A finite weight is a GMP multi-precision rational *)
+type fweight = Mpq.t
+
+(* A weight is either a finite weight or an infinite weight. *)
+(* An infinite weight is negative infinity in the max-plus semiring, and
+   positive infinity in the min-plus semiring. *)
+type weight = Inf | Fin of fweight
+
+(* The following types describe max-plus/min-plus expressions and
+   inequations; they are used to specify bounds on recurrence relations,
+   i.e., the output of MPRS; in the future, they may also be used to specify 
+   the recurrences themselves, i.e., the input to MPRS. *)
+(* -------------------------------------------------------------------- *)
 type subscript = SAdd of string * int | SSVar of string
 
 type expr =
@@ -14,20 +30,19 @@ type inequation =
     Equals of expr * expr
   | LessEq of expr * expr
   | GreaterEq of expr * expr
-
-type fweight = Mpq.t
-
-(* An infinite weight is negative infinity in the max-plus semiring, and
-   positive infinity in the min-plus semiring. *)
-type weight = Inf | Fin of fweight
-
+(* -------------------------------------------------------------------- *)
+(* The folowing functions are used only for testing and debugging *)
 val maxPlusMatrixTest : weight array array -> unit
 val minPlusMatrixTest : weight array array -> unit
 val maxPlusMatrixVectorTest : weight array array -> weight array -> unit
 val minPlusMatrixVectorTest : weight array array -> weight array -> unit
+(* -------------------------------------------------------------------- *)
+
+(* The remainder of this file gives the main interface functions of MPRS: *)
 
 (* The following four functions assume that we're given a max-plus or min-plus 
-   matrix equation; they take the matrix of the equation as their only input. *) 
+   matrix equation of the form x' = A x; they take the matrix A as their only
+   input. *) 
 
 (* The following two functions return a pair of matrices representing
    the slopes and intercepts of a bound expression. *)
