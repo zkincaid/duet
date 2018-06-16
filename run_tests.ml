@@ -2,13 +2,9 @@
 
 open Mprs;;
 open Printf;;
+open Printing;;
 
 (* ----------------------------------------------------------------------- *)
-
-let fwt_from_int i = 
-    let retval = Mpq.init () in 
-    let _ = Mpq.set_si retval i 1 in
-    retval;;
 
 type mpMatrixTest = {
     name : string;
@@ -16,7 +12,7 @@ type mpMatrixTest = {
 };;
 
 let na = Inf;;
-let d fwt = Fin (fwt_from_int fwt);;
+let d fwt = Fin (Type_defs.fwt_from_int fwt);;
 let tests = [
 
     {name="knee-1"; matrix=[| 
