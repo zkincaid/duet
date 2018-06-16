@@ -59,6 +59,7 @@ let fwt_zero = (* Should this be a function taking () ? *)
     retval;;
 let fwt_sprintf fwt = sprintf "%.1f" (Mpq.to_float fwt);;
 let fwt_is_zero fwt = if Mpq.sgn fwt = 0 then true else false;; (*convenience*)
+let fwt_is_one fwt = if Mpq.cmp_si fwt 1 1 = 0 then true else false;; (*convenience*)
 
 (* ----------------------------------------------------------------------- *)
 
@@ -250,7 +251,7 @@ let rec stringifyExpr = function
     | Sum el -> sprintf "Sum(%s)" (stringifyExprList el)
     | Max el -> sprintf "Max(%s)" (stringifyExprList el)
     | Min el -> sprintf "Min(%s)" (stringifyExprList el)
-    | Base_case (s,i) -> sprintf "Base_case(%s,%d)" s i
+    | Base_case (s,i) -> sprintf "Base_case(%s)^[%d]" s i
     | Output_variable (s, ss) -> sprintf "Output_variable(%s)%s" s (stringifySubscript ss)
     | Input_variable s -> sprintf "Input_variable(%s)" s
     | Rational r -> sprintf "%.3f" (Mpq.to_float r)
@@ -648,6 +649,8 @@ let createBound graph =
 let createInequations loopCounterName variableNames slopes intercepts hasConstantColumn =
     let loopCounter = Input_variable loopCounterName in
     let subscript = SSVar loopCounterName in
+    let makeBest subterms = if List.length subterms = 1 then
+        List.nth subterms 0 else Dir.best_expr subterms in 
     let nCols = Array.length slopes in
     let nVars = if (hasConstantColumn) then nCols - 1 else nCols in
     loopFromMToN 0 (nVars - 1) [] (fun iOut inequations ->
@@ -658,17 +661,27 @@ let createInequations loopCounterName variableNames slopes intercepts hasConstan
                 match intercepts.(iOut).(iIn) with
                 | Inf -> subterms
                 | Fin intercept -> let subterm =
+                    let addSlope summands = 
+                        if fwt_is_zero slope then summands else
+                        if fwt_is_one slope then loopCounter :: summands else
+                        Product [loopCounter; Rational slope] :: summands in
+                    let addIntercept summands = 
+                        if fwt_is_zero intercept then summands else
+                        Rational intercept :: summands in
+                    let makeSum summands = 
+                        match summands with 
+                        | [] -> Rational fwt_zero
+                        | one :: rest -> if List.length rest = 0 then one
+                            else Sum summands in
                     if (iIn < nVars) then
                         (* This is for subterms based on variables. *)
                         (* template:   k * slope + intercept + inVar_0   *)
-                        Sum [ Product [loopCounter; Rational slope];
-                              Rational intercept;
-                              Base_case (variableNames.(iIn), 0) ]
+                        makeSum (addSlope (addIntercept
+                            [ Base_case (variableNames.(iIn), 0) ]))
                     else
                         (* This is for the subterm based on a constant. *)
                         (* template:   k * slope + intercept   *)
-                        Sum [ Product [loopCounter; Rational slope];
-                              Rational intercept ] in
+                        makeSum (addSlope (addIntercept [])) in
                     subterm :: subterms
         ) in if List.length subterms = 0 then inequations (* no bound *)
         else let outVar = Output_variable (variableNames.(iOut), subscript) in
@@ -676,7 +689,7 @@ let createInequations loopCounterName variableNames slopes intercepts hasConstan
         (*    outVar <= max( ... subterms ... )                     *)
         (*      or, dually:                                         *)
         (*    outVar >= min( ... subterms ... )                     *)
-        let inequation = Dir.bound outVar (Dir.best_expr subterms) in
+        let inequation = Dir.bound outVar (makeBest subterms) in
         inequation :: inequations (* we built a new inequation *)
     )
 ;;
