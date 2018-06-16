@@ -80,7 +80,7 @@ let unaugmentMatrix augmented =
             if (vVar < nVars) then (
                 matrix.(uVar).(vVar) <- augmented.(uVar).(vVar) 
             ) else (
-                vector.(vVar) <- augmented.(uVar).(vVar))));
+                vector.(uVar) <- augmented.(uVar).(vVar))));
     (matrix, vector);;
 
 (* ------------------------------------------------------------------------- *)
@@ -435,7 +435,7 @@ let doMatrixTest matrix =
     (List.iter 
         (fun ineq -> (printf "    %s\n" (Printing.stringifyInequation ineq))) 
         inequations);
-    ()
+    (slopes,intercepts)
 ;;
 
 let doMatrixVectorTest matrix vector = 
@@ -453,7 +453,7 @@ let doMatrixVectorTest matrix vector =
     (List.iter 
         (fun ineq -> (printf "    %s\n" (Printing.stringifyInequation ineq))) 
         inequations);
-    ()
+    (unaugmentMatrix slopes, unaugmentMatrix intercepts)
 ;;
 
 (* ======================================================================= *)

@@ -53,6 +53,10 @@ let fwt_zero = (* Should this be a function taking () ? *)
     retval;;
 let fwt_is_zero fwt = if Mpq.sgn fwt = 0 then true else false;; (*convenience*)
 let fwt_is_one fwt = if Mpq.cmp_si fwt 1 1 = 0 then true else false;; (*convenience*)
+let fwt_neg fwt = 
+    let retval = Mpq.init () in
+    Mpq.neg retval fwt;
+    retval;;
 
 (* ------------------------------------------------------------------------- *)
 

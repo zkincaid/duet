@@ -6,6 +6,29 @@ open Printing;;
 
 (* ----------------------------------------------------------------------- *)
 
+(* Used for testing only: *)
+let dualizeMatrix matrix = 
+    let nVars = Array.length matrix in
+    let dual = Array.make_matrix nVars nVars Inf in
+    loopFromMToN 0 (nVars - 1) () (fun uVar _ ->
+        loopFromMToN 0 (nVars - 1) () (fun vVar _ ->
+            let wt = matrix.(uVar).(vVar) in
+            match wt with | Inf -> () | Fin fwt ->
+            dual.(uVar).(vVar) <- (Fin (Tropical_defs.fwt_neg fwt))));
+    dual;;
+
+(* Used for testing only: *)
+let dualizeVector vector =
+    let nVars = Array.length vector in
+    let dual = Array.make nVars Inf in
+    loopFromMToN 0 (nVars - 1) () (fun uVar _ ->
+        let wt = vector.(uVar) in
+        match wt with | Inf -> () | Fin fwt ->
+        dual.(uVar) <- Fin (Tropical_defs.fwt_neg fwt));
+    dual;;
+
+(* ----------------------------------------------------------------------- *)
+
 type mpMatrixTest = {
     name : string;
     matrix : weight array array;
@@ -133,22 +156,40 @@ let matrixVectorTests = [
 let maxPlusDoAllTests () =
     (printf "BEGIN MAX-PLUS TESTS:\n\n");
     List.iter (fun (test:mpMatrixTest) ->
-        printf "**** TEST %s****\n" test.name; maxPlusMatrixTest test.matrix; printf "\n") 
+        printf "**** TEST %s****\n" test.name; 
+        let _ = maxPlusMatrixTest test.matrix in 
+        printf "\n") 
         matrixTests;
     (printf "BEGIN MAX-PLUS VECTOR TESTS:\n\n");
     List.iter (fun (test:mpMatrixVectorTest) ->
-        printf "**** TEST %s****\n" test.name; maxPlusMatrixVectorTest test.matrix test.vector; printf "\n") 
+        printf "**** TEST %s****\n" test.name; 
+        let _ = maxPlusMatrixVectorTest test.matrix test.vector in 
+        printf "\n") 
         matrixVectorTests
 ;;
 
 let minPlusDoAllTests () =
     (printf "BEGIN MIN-PLUS TESTS:\n\n");
     List.iter (fun (test:mpMatrixTest) ->
-        printf "**** TEST %s****\n" test.name; minPlusMatrixTest test.matrix; printf "\n") 
+        printf "**** TEST %s****\n" test.name; 
+        let (minS,minI) = minPlusMatrixTest test.matrix in 
+        printf "\n";
+        let (maxS,maxI) = maxPlusSolveForBoundingMatricesFromMatrix (dualizeMatrix test.matrix) in
+        if (minS <> (dualizeMatrix maxS) || minI <> (dualizeMatrix maxI)) then
+            failwith "DUALIZATION ERRROR!\n"
+        else printf "Dualization check passed!\n\n") 
         matrixTests;
     (printf "BEGIN MIN-PLUS VECTOR TESTS:\n\n");
     List.iter (fun (test:mpMatrixVectorTest) ->
-        printf "**** TEST %s****\n" test.name; minPlusMatrixVectorTest test.matrix test.vector; printf "\n") 
+        printf "**** TEST %s****\n" test.name; 
+        let ((minSm,minSv),(minIm,minIv)) = minPlusMatrixVectorTest test.matrix test.vector in
+        printf "\n";
+        let ((maxSm,maxSv),(maxIm,maxIv)) = maxPlusSolveForBoundingMatricesFromMatrixAndVector 
+            (dualizeMatrix test.matrix) (dualizeVector test.vector) in
+        if (minSm <> (dualizeMatrix maxSm) || minIm <> (dualizeMatrix maxIm) ||
+            minSv <> (dualizeVector maxSv) || minIv <> (dualizeVector maxIv)) then
+            failwith "DUALIZATION ERRROR!\n"
+        else printf "Dualization check passed!\n\n")
         matrixVectorTests
 ;;
 

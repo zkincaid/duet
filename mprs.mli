@@ -32,10 +32,10 @@ type inequation =
   | GreaterEq of expr * expr
 (* -------------------------------------------------------------------- *)
 (* The folowing functions are used only for testing and debugging *)
-val maxPlusMatrixTest : weight array array -> unit
-val minPlusMatrixTest : weight array array -> unit
-val maxPlusMatrixVectorTest : weight array array -> weight array -> unit
-val minPlusMatrixVectorTest : weight array array -> weight array -> unit
+val maxPlusMatrixTest : weight array array -> weight array array * weight array array
+val minPlusMatrixTest : weight array array -> weight array array * weight array array
+val maxPlusMatrixVectorTest : weight array array -> weight array -> (weight array array * weight array) * (weight array array * weight array)
+val minPlusMatrixVectorTest : weight array array -> weight array -> (weight array array * weight array) * (weight array array * weight array)
 (* -------------------------------------------------------------------- *)
 
 (* The remainder of this file gives the main interface functions of MPRS: *)
