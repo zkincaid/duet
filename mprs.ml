@@ -55,6 +55,36 @@ let alphabet = [|"a"; "b"; "c"; "d"; "e"; "f"; "g"; "h"; "i"; "j"; "k"; "l"; "m"
 
 (* ------------------------------------------------------------------------- *)
 
+let augmentMatrix matrix vector =
+    let nVars = Array.length matrix in
+    let augmented = Array.make_matrix (nVars + 1) (nVars + 1) Inf in
+    loopFromMToN 0 nVars () (fun uVar _ ->
+        loopFromMToN 0 nVars () (fun vVar _ ->
+            if (vVar < nVars) then (
+                if (uVar < nVars) then 
+                    augmented.(uVar).(vVar) <- matrix.(uVar).(vVar)
+                else ()
+            ) else (
+                if (uVar < nVars) then 
+                    augmented.(uVar).(vVar) <- vector.(vVar)
+                else
+                    augmented.(uVar).(vVar) <- Fin fwt_zero)));
+    augmented;;
+
+let unaugmentMatrix augmented =
+    let nVars = (Array.length augmented) - 1 in
+    let matrix = Array.make_matrix nVars nVars Inf in
+    let vector = Array.make nVars Inf in
+    loopFromMToN 0 (nVars - 1) () (fun uVar _ ->
+        loopFromMToN 0 nVars () (fun vVar _ ->
+            if (vVar < nVars) then (
+                matrix.(uVar).(vVar) <- augmented.(uVar).(vVar) 
+            ) else (
+                vector.(vVar) <- augmented.(uVar).(vVar))));
+    (matrix, vector);;
+
+(* ------------------------------------------------------------------------- *)
+
 (* For easy dualization, I wrote my algorithms in terms of "best" and "worst";
  * in the max-plus semiring, best is max and worst is min;
  * in the min-plus semiring, best is min and worst is max. *)
@@ -115,34 +145,6 @@ let wt_best w1 w2 =
 ;;
 
 (* ------------------------------------------------------------------------- *)
-
-let augmentMatrix matrix vector =
-    let nVars = Array.length matrix in
-    let augmented = Array.make_matrix (nVars + 1) (nVars + 1) Inf in
-    loopFromMToN 0 nVars () (fun uVar _ ->
-        loopFromMToN 0 nVars () (fun vVar _ ->
-            if (vVar < nVars) then (
-                if (uVar < nVars) then 
-                    augmented.(uVar).(vVar) <- matrix.(uVar).(vVar)
-                else ()
-            ) else (
-                if (uVar < nVars) then 
-                    augmented.(uVar).(vVar) <- vector.(vVar)
-                else
-                    augmented.(uVar).(vVar) <- Fin fwt_zero)));
-    augmented;;
-
-let unaugmentMatrix augmented =
-    let nVars = (Array.length augmented) - 1 in
-    let matrix = Array.make_matrix nVars nVars Inf in
-    let vector = Array.make nVars Inf in
-    loopFromMToN 0 (nVars - 1) () (fun uVar _ ->
-        loopFromMToN 0 nVars () (fun vVar _ ->
-            if (vVar < nVars) then (
-                matrix.(uVar).(vVar) <- augmented.(uVar).(vVar) 
-            ) else (
-                vector.(vVar) <- augmented.(uVar).(vVar))));
-    (matrix, vector);;
 
 (* I chose Karp's algorithm because it was easy. *)
 (*   We could use a faster alternative if time complexity becomes a concern. *)
