@@ -29,6 +29,9 @@ http://www.inrialpes.fr/pop-art/people/bjeannet/mlxxxidl-forge/mlgmpidl/html/Mpq
 
 (* ------------------------------------------------------------------------- *)
 
+
+(* ------------------------------------------------------------------------- *)
+
 (* Finite weights: *)
 type fweight = Mpq.t;;
 (* Possibly-infinite weights: *)
@@ -226,6 +229,41 @@ let matrixToGraph matrix =
     graph
 ;;
 
+let rec implodeAux stringList sep = 
+    match stringList with | [] -> "" | s :: rest ->
+        (sep ^ s ^ (implodeAux rest sep))
+;;
+
+let implode stringList sep = 
+    match stringList with 
+    | [] -> ""
+    | s :: rest -> s ^ (implodeAux rest sep)
+;;
+
+let stringifySubscript =  function
+    | SAdd (s,i) -> sprintf "^[%s+%d]" s i
+    | SSVar s -> sprintf "^[%s]" s
+;;
+
+let rec stringifyExpr = function
+    | Product el -> sprintf "Product(%s)" (stringifyExprList el)
+    | Sum el -> sprintf "Sum(%s)" (stringifyExprList el)
+    | Max el -> sprintf "Max(%s)" (stringifyExprList el)
+    | Min el -> sprintf "Min(%s)" (stringifyExprList el)
+    | Base_case (s,i) -> sprintf "Base_case(%s,%d)" s i
+    | Output_variable (s, ss) -> sprintf "Output_variable(%s)%s" s (stringifySubscript ss)
+    | Input_variable s -> sprintf "Input_variable(%s)" s
+    | Rational r -> sprintf "%.3f" (Mpq.to_float r)
+
+and stringifyExprList el = implode (List.map stringifyExpr el) ","
+;; 
+
+let stringifyInequation = function
+    | Equals (e1,e2) -> sprintf "%s == %s" (stringifyExpr e1) (stringifyExpr e2)
+    | LessEq (e1,e2) -> sprintf "%s <= %s" (stringifyExpr e1) (stringifyExpr e2)
+    | GreaterEq (e1,e2) -> sprintf "%s >= %s" (stringifyExpr e1) (stringifyExpr e2)
+;;
+
 let printMatrix matrix =
     let nRows = Array.length matrix in 
     if nRows = 0 then () else
@@ -277,8 +315,8 @@ let printCriticalWeights criticalWeight mapSCCToVertices =
 let rec spaces i = if i <= 0 then "" else " "^(spaces (i-1))
 ;;
 
-let alphabet = ["a"; "b"; "c"; "d"; "e"; "f"; "g"; "h"; "i"; "j"; "k"; "l"; "m";
-                "n"; "o"; "p"; "q"; "r"; "s"; "t"; "u"; "v"; "w"; "x"; "y"; "z"]
+let alphabet = [|"a"; "b"; "c"; "d"; "e"; "f"; "g"; "h"; "i"; "j"; "k"; "l"; "m";
+                 "n"; "o"; "p"; "q"; "r"; "s"; "t"; "u"; "v"; "w"; "x"; "y"; "z"|]
 ;;
 
 (* ------------------------------------------------------------------------- *)
@@ -347,7 +385,7 @@ let wt_best w1 w2 =
 let printBound ?(variableNames=alphabet) slopes intercepts =
     let globalPrefix = "    " in
     let getVarName i =
-        if (i < List.length variableNames) then List.nth variableNames i
+        if (i < Array.length variableNames) then variableNames.(i)
         else "var("^(string_of_int i)^")" in
     let nVariables = Array.length slopes in
     let slopeString uVar vVar = 
@@ -613,7 +651,7 @@ let createInequations loopCounterName variableNames slopes intercepts hasConstan
     let nCols = Array.length slopes in
     let nVars = if (hasConstantColumn) then nCols - 1 else nCols in
     loopFromMToN 0 (nVars - 1) [] (fun iOut inequations ->
-        let subterms = loopFromMToN 0 nCols [] (fun iIn subterms ->
+        let subterms = loopFromMToN 0 (nCols - 1) [] (fun iIn subterms ->
             match slopes.(iOut).(iIn) with
             | Inf -> subterms
             | Fin slope ->
@@ -674,6 +712,11 @@ let doTest matrix =
     *)
     (printf "  %s bound:\n" Dir.bound_adjective);
     printBound ~variableNames:alphabet slopes intercepts;
+    let inequations = (createInequations "K" alphabet slopes intercepts false) in
+    (printf "  As inequations:\n");
+    (List.iter 
+        (fun ineq -> (printf "  %s\n" (stringifyInequation ineq))) 
+        inequations);
     ()
 ;;
 
