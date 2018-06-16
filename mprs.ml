@@ -706,23 +706,30 @@ let solveForInequationsFromMatrix matrix variableNames loopCounterName =
     createInequations loopCounterName variableNames slopes intercepts false
 ;;
 
+let solveForBoundingMatricesFromMatrixAndVector matrix vector =
+    let augmented = augmentMatrix matrix vector in 
+    let (slopes, intercepts) = solveForBoundingMatricesFromMatrix augmented in
+    (unaugmentMatrix slopes, unaugmentMatrix intercepts)
+;;
+
+let solveForInequationsFromMatrixAndVector matrix vector variableNames loopCounterName =
+    let augmented = augmentMatrix matrix vector in 
+    let (slopes, intercepts) = solveForBoundingMatricesFromMatrix augmented in
+    createInequations loopCounterName variableNames slopes intercepts true
+;;
+
 (* let computeBoundingMatricesFromEquations equations = ;; *)
 (* let computeInequationsFromEquations equations = ;; *)
 
 (* ----------------------------------------------------------------------- *)
 
-let doTest matrix = 
+let doMatrixTest matrix = 
     (printf "  Input (%s) matrix:\n" Dir.name);
     printMatrix matrix;
     let graph = matrixToGraph matrix in
     let (slopes,intercepts) = createBound graph in
-    (*
-    (printf "Slopes:\n");
-    printMatrix slopes;
-    (printf "Intercepts:\n");
-    printMatrix intercepts;
-    (printf "\n")
-    *)
+    (* (printf "Slopes:\n"); printMatrix slopes;
+    (printf "Intercepts:\n"); printMatrix intercepts; (printf "\n") *)
     (printf "  %s bound:\n" Dir.bound_adjective);
     printBound ~variableNames:alphabet slopes intercepts;
     let inequations = (createInequations "K" alphabet slopes intercepts false) in
@@ -736,7 +743,7 @@ let doTest matrix =
 let doAllTests () =
     (printf "BEGIN %s TESTS:\n\n" Dir.name);
     List.iter (fun test ->
-        printf "**** TEST %s****\n" test.name; doTest test.matrix; printf "\n") 
+        printf "**** TEST %s****\n" test.name; doMatrixTest test.matrix; printf "\n") 
         tests;;
 
 (* ======================================================================= *)
@@ -755,20 +762,20 @@ let minPlusTests () = MinPlus.doAllTests ();;
 (* ----------------------------------------------------------------------- *)
 (*    These functions are the public interface of our solver:              *)
 
-let maxPlusSolveForBoundingMatricesFromMatrix =
-    MaxPlus.solveForBoundingMatricesFromMatrix
-;;
-let minPlusSolveForBoundingMatricesFromMatrix =
-    MinPlus.solveForBoundingMatricesFromMatrix
-;;
+let maxPlusSolveForBoundingMatricesFromMatrix = MaxPlus.solveForBoundingMatricesFromMatrix ;;
+let minPlusSolveForBoundingMatricesFromMatrix = MinPlus.solveForBoundingMatricesFromMatrix ;;
 
 
-let maxPlusSolveForInequationsFromMatrix =
-    MaxPlus.solveForInequationsFromMatrix
-;;
-let minPlusSolveForInequationsFromMatrix =
-    MinPlus.solveForInequationsFromMatrix
-;;
+let maxPlusSolveForInequationsFromMatrix = MaxPlus.solveForInequationsFromMatrix ;;
+let minPlusSolveForInequationsFromMatrix = MinPlus.solveForInequationsFromMatrix ;;
+
+
+let maxPlusSolveForBoundingMatricesFromMatrixAndVector = MaxPlus.solveForBoundingMatricesFromMatrixAndVector ;;
+let minPlusSolveForBoundingMatricesFromMatrixAndVector = MinPlus.solveForBoundingMatricesFromMatrixAndVector ;;
+
+
+let maxPlusSolveForInequationsFromMatrixAndVector = MaxPlus.solveForInequationsFromMatrixAndVector ;;
+let minPlusSolveForInequationsFromMatrixAndVector = MinPlus.solveForInequationsFromMatrixAndVector ;;
 
 (* let computeBoundingMatricesFromEquations equations = ;; *)
 (* let computeInequationsFromEquations equations = ;; *)

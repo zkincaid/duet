@@ -45,4 +45,23 @@ val maxPlusSolveForInequationsFromMatrix :
 val minPlusSolveForInequationsFromMatrix :
   weight array array -> string array -> string -> inequation list
 
+(* The following four are like the above four, except that they take both a
+   matrix A and vector b, representing the equation x' = A x + b.  *)
+
+(* The following two return a pair of pairs; the first pair is a slope
+   matrix and slope vector, and the second pair is an intercept matrix
+   and an intercept vector *)
+
+val maxPlusSolveForBoundingMatricesFromMatrixAndVector :
+  weight array array -> weight array -> (weight array array * weight array) * (weight array array * weight array)
+
+val minPlusSolveForBoundingMatricesFromMatrixAndVector :
+  weight array array -> weight array -> (weight array array * weight array) * (weight array array * weight array)
+
+val maxPlusSolveForInequationsFromMatrixAndVector :
+  weight array array -> weight array -> string array -> string -> inequation list
+
+val minPlusSolveForInequationsFromMatrixAndVector :
+  weight array array -> weight array -> string array -> string -> inequation list
+
 
