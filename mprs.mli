@@ -38,8 +38,10 @@ val maxPlusSolveForBoundingMatricesFromMatrix :
 val minPlusSolveForBoundingMatricesFromMatrix :
   weight array array -> weight array array * weight array array
 
-(* As a convenience, the following two functions return a list of 
-   inequations instead of a pair of slope and intercept matrices.  *)
+(* The following two functions return a list of inequations (using the 
+   algebraic data types defined above) instead of a pair of slope and 
+   intercept matrices.  In order to build the inequations, we need to
+   have an array of variable names and a name for the loop counter variable. *)
 
 val maxPlusSolveForInequationsFromMatrix :
   weight array array -> string array -> string -> inequation list
@@ -52,13 +54,16 @@ val minPlusSolveForInequationsFromMatrix :
 
 (* The following two return a pair of pairs; the first pair is a slope
    matrix and slope vector, and the second pair is an intercept matrix
-   and an intercept vector *)
+   and an intercept vector. *)
 
 val maxPlusSolveForBoundingMatricesFromMatrixAndVector :
   weight array array -> weight array -> (weight array array * weight array) * (weight array array * weight array)
 
 val minPlusSolveForBoundingMatricesFromMatrixAndVector :
   weight array array -> weight array -> (weight array array * weight array) * (weight array array * weight array)
+
+(* These final two functions build inequations; so, you must supply a matrix,
+   a vector, an array of variable names, and a loop counter name. *)
 
 val maxPlusSolveForInequationsFromMatrixAndVector :
   weight array array -> weight array -> string array -> string -> inequation list
