@@ -23,6 +23,8 @@ type weight = Inf | Fin of fweight
 
 val maxPlusMatrixTest : weight array array -> unit
 val minPlusMatrixTest : weight array array -> unit
+val maxPlusMatrixVectorTest : weight array array -> weight array -> unit
+val minPlusMatrixVectorTest : weight array array -> weight array -> unit
 
 (* The following four functions assume that we're given a max-plus or min-plus 
    matrix equation; they take the matrix of the equation as their only input. *) 

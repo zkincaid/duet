@@ -2,7 +2,7 @@
 
 open Graph;;
 open Printf;;
-include Type_defs;;
+include Tropical_defs;;
 open Printing;;
 
 (* ------------------------------------------------------------------------- *)
@@ -66,7 +66,7 @@ let augmentMatrix matrix vector =
                 else ()
             ) else (
                 if (uVar < nVars) then 
-                    augmented.(uVar).(vVar) <- vector.(vVar)
+                    augmented.(uVar).(vVar) <- vector.(uVar)
                 else
                     augmented.(uVar).(vVar) <- Fin fwt_zero)));
     augmented;;
@@ -433,7 +433,25 @@ let doMatrixTest matrix =
     let inequations = (createInequations "K" alphabet slopes intercepts false) in
     (printf "  As inequations:\n");
     (List.iter 
-        (fun ineq -> (printf "  %s\n" (Printing.stringifyInequation ineq))) 
+        (fun ineq -> (printf "    %s\n" (Printing.stringifyInequation ineq))) 
+        inequations);
+    ()
+;;
+
+let doMatrixVectorTest matrix vector = 
+    (printf "  Input (%s) matrix and vector:\n" Dir.name);
+    printMatrixAndVector matrix vector;
+    let augmented = augmentMatrix matrix vector in
+    let graph = matrixToGraph augmented in
+    let (slopes, intercepts) = createBound graph in
+    (* (printf "Slopes:\n"); printMatrix slopes;
+    (printf "Intercepts:\n"); printMatrix intercepts; (printf "\n") *)
+    (*(printf "  %s bound:\n" Dir.bound_adjective);
+    printBound ~variableNames:alphabet slopes intercepts;*)
+    let inequations = (createInequations "K" alphabet slopes intercepts true) in
+    (printf "  As inequations:\n");
+    (List.iter 
+        (fun ineq -> (printf "    %s\n" (Printing.stringifyInequation ineq))) 
         inequations);
     ()
 ;;
@@ -450,6 +468,9 @@ module MinPlus = Solver(MinDirection);;
 
 let maxPlusMatrixTest = MaxPlus.doMatrixTest;;
 let minPlusMatrixTest = MinPlus.doMatrixTest;;
+
+let maxPlusMatrixVectorTest = MaxPlus.doMatrixVectorTest;;
+let minPlusMatrixVectorTest = MinPlus.doMatrixVectorTest;;
 
 (* ----------------------------------------------------------------------- *)
 (*    These functions are the public interface of our solver:              *)

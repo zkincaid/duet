@@ -11,9 +11,15 @@ type mpMatrixTest = {
     matrix : weight array array;
 };;
 
+type mpMatrixVectorTest = {
+    name : string;
+    matrix : weight array array;
+    vector : weight array;
+};;
+
 let na = Inf;;
-let d fwt = Fin (Type_defs.fwt_from_int fwt);;
-let tests = [
+let d fwt = Fin (Tropical_defs.fwt_from_int fwt);;
+let matrixTests = [
 
     {name="knee-1"; matrix=[| 
      [| (d 0);     na;    na    |];
@@ -88,19 +94,63 @@ let tests = [
 
 ];;
 
+let matrixVectorTests = [
+
+    {name="vector-zigzag-2b"; matrix=[| 
+     [| na;    na;    na;    (d 7)  |];
+     [| (d 0); na;    na;    na     |];
+     [| na;    (d 0); na;    na     |];
+     [| na;    na;    (d 1); na     |];
+    |]; vector = [|
+       (d 1);
+       na;
+       (d 50);
+       na;
+    |] };
+
+    {name="vector-zigzag-4"; matrix=[| 
+     [| na;    (d (-1)); |];
+     [| (d 1); na;       |];
+    |]; vector = [|
+       (d 0);
+       (d 10);
+    |] };
+
+    {name="vector-knee-1"; matrix=[| 
+     [| (d 0);     na;    na    |];
+     [| (d (-14)); (d 3); na    |];
+     [| na;        (d 0); (d 1) |];
+    |]; vector = [|
+       (d 1);
+       (d (-10));
+       (d 5);
+    |] };
+
+];;
+
 (* ----------------------------------------------------------------------- *)
 
 let maxPlusDoAllTests () =
     (printf "BEGIN MAX-PLUS TESTS:\n\n");
-    List.iter (fun test ->
+    List.iter (fun (test:mpMatrixTest) ->
         printf "**** TEST %s****\n" test.name; maxPlusMatrixTest test.matrix; printf "\n") 
-        tests;;
+        matrixTests;
+    (printf "BEGIN MAX-PLUS VECTOR TESTS:\n\n");
+    List.iter (fun (test:mpMatrixVectorTest) ->
+        printf "**** TEST %s****\n" test.name; maxPlusMatrixVectorTest test.matrix test.vector; printf "\n") 
+        matrixVectorTests
+;;
 
 let minPlusDoAllTests () =
     (printf "BEGIN MIN-PLUS TESTS:\n\n");
-    List.iter (fun test ->
+    List.iter (fun (test:mpMatrixTest) ->
         printf "**** TEST %s****\n" test.name; minPlusMatrixTest test.matrix; printf "\n") 
-        tests;;
+        matrixTests;
+    (printf "BEGIN MIN-PLUS VECTOR TESTS:\n\n");
+    List.iter (fun (test:mpMatrixVectorTest) ->
+        printf "**** TEST %s****\n" test.name; minPlusMatrixVectorTest test.matrix test.vector; printf "\n") 
+        matrixVectorTests
+;;
 
 let _ = 
     maxPlusDoAllTests ();

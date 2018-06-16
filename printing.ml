@@ -1,5 +1,5 @@
 open Printf;;
-open Type_defs;;
+open Tropical_defs;;
 
 let loopFromMToN m n ?(increment=1) init f = 
     let test = if (increment > 0) then (fun i -> i > n) else (fun i -> i < n) in
@@ -68,6 +68,23 @@ let printMatrix matrix =
             if (iCol < rowLength - 1) then (printf "\t") else ()
         );
         (printf " ]\n")
+    )
+;;
+
+let printMatrixAndVector matrix vector =
+    let nRows = Array.length matrix in 
+    if nRows = 0 then () else
+    loopFromMToN 0 (nRows - 1) () (fun iRow _ ->
+        (printf "    [ ");
+        let row = matrix.(iRow) in
+        let rowLength = (Array.length row) in 
+        loopFromMToN 0 (rowLength - 1) () (fun iCol _ ->
+            (wt_print row.(iCol));
+            if (iCol < rowLength - 1) then (printf "\t") else ()
+        );
+        (printf " ]    \t[ ");
+        (wt_print vector.(iRow));
+        (printf " ]\n");
     )
 ;;
 
