@@ -9,11 +9,11 @@ module TermPolynomial = struct
       int_of : 'a term -> int;
       of_int : int -> 'a term }
 
-  module Mvp = Polynomial.Mvp
+  module QQXs = Polynomial.QQXs
   module Monomial = Polynomial.Monomial
   module DynArray = BatDynArray
 
-  type 'a t = Mvp.t
+  type 'a t = QQXs.t
 
   let mk_context srk =
     let table = Expr.HT.create 991 in
@@ -32,12 +32,12 @@ module TermPolynomial = struct
 
   let rec of_term ctx =
     let srk = ctx.srk in
-    let mvp_term = Mvp.of_dim % ctx.int_of in
+    let mvp_term = QQXs.of_dim % ctx.int_of in
     let alg = function
-      | `Add xs -> List.fold_left Mvp.add Mvp.zero xs
-      | `Mul xs -> List.fold_left Mvp.mul Mvp.one xs
-      | `Real k -> Mvp.scalar k
-      | `Unop (`Neg, x) -> Mvp.negate x
+      | `Add xs -> List.fold_left QQXs.add QQXs.zero xs
+      | `Mul xs -> List.fold_left QQXs.mul QQXs.one xs
+      | `Real k -> QQXs.scalar k
+      | `Unop (`Neg, x) -> QQXs.negate x
       | `Unop (`Floor, x) -> mvp_term (mk_floor srk (term_of ctx x))
       | `App (f, args) -> mvp_term (mk_app srk f args)
       | `Binop (`Div, x, y) ->
@@ -52,7 +52,7 @@ module TermPolynomial = struct
     
   and term_of ctx p =
     let srk = ctx.srk in
-    (Mvp.enum p)
+    (QQXs.enum p)
     /@ (fun (coeff, monomial) ->
         let product =
           BatEnum.fold
@@ -79,12 +79,12 @@ let simplify_terms_rewriter srk =
         let polynomial =
           TermPolynomial.of_term ctx (mk_sub srk s t)
         in
-        let c = TermPolynomial.Mvp.content polynomial in
+        let c = TermPolynomial.QQXs.content polynomial in
         let polynomial =
           if QQ.equal c QQ.zero then
             polynomial
           else
-            TermPolynomial.Mvp.scalar_mul (QQ.inverse (QQ.abs c)) polynomial
+            TermPolynomial.QQXs.scalar_mul (QQ.inverse (QQ.abs c)) polynomial
         in
         TermPolynomial.term_of ctx polynomial
       in

@@ -559,6 +559,7 @@ module ApronInterpretation = struct
         let pos = match offset with
           | OffsetFixed x -> Texpr0.Cst (Coeff.s_of_int x)
           | OffsetUnknown -> havoc_int
+          | OffsetNone -> Texpr0.Cst (Coeff.s_of_int 0)
         in
         let width = typ_width (Varinfo.get_type v) in
         let p =

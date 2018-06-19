@@ -26,7 +26,8 @@ let load_math_formula filename =
                 pos.pos_lnum
                 (pos.pos_cnum - pos.pos_bol + 1))
 
-let load_smtlib2 filename = SrkZ3.load_smtlib2 srk (file_contents filename)
+let load_smtlib2 filename =
+  SrkZ3.load_smtlib2 srk (Bytes.to_string (file_contents filename))
 
 let load_formula filename =
   if Filename.check_suffix filename "m" then load_math_formula filename
