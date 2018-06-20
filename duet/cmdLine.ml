@@ -8,7 +8,7 @@ let parameterized   = ref false
 let sanity_checks   = ref true
 let display_graphs  = ref false
 let show_stats      = ref false
-let library_path    = ref "" (** Path to standard libraries *)
+let cflags          = ref "" (** Extra flags for C front-end *)
 
 let widening        = ref true
 
@@ -45,10 +45,10 @@ let stats_arg =
 let colorize_arg =
   ("-color", Arg.Set Log.colorize, " Use ANSI colors")
 
-let lib_arg =
-  ("-lib",
-   Arg.Set_string library_path,
-   " Change path to standard libraries")
+let cflags_arg =
+  ("-cflags",
+   Arg.Set_string cflags,
+   " Command line options for C pre-processor")
 
 (** Set the load path.  The load path should be a colon-delimited list
     of directories.  The load path determines which directories that
@@ -119,7 +119,7 @@ let config_args = ref
       stats_arg;
       colorize_arg;
       whole_program_arg;
-      lib_arg;
+      cflags_arg;
       load_path_arg;
       parameterized_arg;
       temp_dir_arg;
