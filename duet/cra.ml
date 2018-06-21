@@ -119,7 +119,8 @@ module K = struct
   module SPOne = SumWedge (SolvablePolynomial) (SolvablePolynomialOne) ()
   module SPPeriodicRational = SumWedge (SPOne) (SolvablePolynomialPeriodicRational) ()
   module SPG = ProductWedge (SPPeriodicRational) (WedgeGuard)
-  module SPSplit = Sum (SPG) (Split(SPG)) ()
+  module SPGMaxPlus = Sum (SPG) (Product (SPG) (MaxPlus)) ()
+  module SPSplit = Sum (SPGMaxPlus) (Split(SPGMaxPlus)) ()
   module I = Iter(MakeDomain(SPSplit))
 
   let star x = Log.time "cra:star" I.star x
@@ -688,6 +689,10 @@ let _ =
     ("-cra-prsd",
      Arg.Clear K.SPPeriodicRational.abstract_left,
      " Use periodic rational spectral decomposition");
+  CmdLine.register_config
+    ("-cra-mprs",
+     Arg.Clear K.SPGMaxPlus.abstract_left,
+     " Use max-plus recurrences");
   CmdLine.register_config
     ("-dump-goals",
      Arg.Set dump_goals,

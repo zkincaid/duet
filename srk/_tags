@@ -1,5 +1,5 @@
 # OASIS_START
-# DO NOT EDIT (digest: 04b990ee7495778ac447426acb917eee)
+# DO NOT EDIT (digest: 8cde74ded572775ff6b700d58aa87de1)
 # Ignore VCS directories, you can use the same kind of rule outside
 # OASIS_START/STOP if you want to exclude directories that contains
 # useless stuff for the build process
@@ -14,6 +14,10 @@ true: annot, bin_annot
 ".git": not_hygienic
 "_darcs": -traverse
 "_darcs": not_hygienic
+# Library mprs
+"mprs/mprs.cmxs": use_mprs
+<mprs/*.ml{,i,y}>: pkg_gmp
+<mprs/*.ml{,i,y}>: pkg_ocamlgraph
 # Library srk
 "src/srk.cmxs": use_srk
 "src/srkUtil.cmx": for-pack(Srk)
@@ -48,6 +52,7 @@ true: annot, bin_annot
 "src/transitionSystem.cmx": for-pack(Srk)
 <src/*.ml{,i,y}>: pkg_ocamlgraph
 <src/*.ml{,i,y}>: pkg_ppx_deriving.show
+<src/*.ml{,i,y}>: use_mprs
 # Executable test_srk
 "test/test_srk.native": pkg_Z3
 "test/test_srk.native": pkg_apron
@@ -64,6 +69,7 @@ true: annot, bin_annot
 "test/test_srk.native": pkg_ppx_deriving
 "test/test_srk.native": pkg_ppx_deriving.ord
 "test/test_srk.native": pkg_ppx_deriving.show
+"test/test_srk.native": use_mprs
 "test/test_srk.native": use_srk
 <test/*.ml{,i,y}>: pkg_Z3
 <test/*.ml{,i,y}>: pkg_apron
@@ -80,6 +86,7 @@ true: annot, bin_annot
 <test/*.ml{,i,y}>: pkg_ppx_deriving
 <test/*.ml{,i,y}>: pkg_ppx_deriving.ord
 <test/*.ml{,i,y}>: pkg_ppx_deriving.show
+<test/*.ml{,i,y}>: use_mprs
 <test/*.ml{,i,y}>: use_srk
 # Executable bigtop
 "src/bigtop.native": pkg_Z3

@@ -1635,6 +1635,172 @@ module SolvablePolynomialPeriodicRational = struct
 
 end
 
+module MaxPlus = struct
+  open Mprs
+
+  type 'a t =
+    { pre : ('a term) array;
+      post : ('a term) array;
+      transform : Mprs.weight array array;
+      add : Mprs.weight array }
+
+  let pp srk tr_symbols formatter mpr =
+    let open Format in
+    let size = Array.length mpr.pre in
+    fprintf formatter " @[<v 0>";
+    for i = 0 to size - 1 do
+      let comma = ref false in
+      fprintf formatter "%a = max(@[<hov 1>"
+        (Term.pp srk) mpr.post.(i);
+      for j = 0 to size - 1 do
+        match mpr.transform.(i).(j) with
+        | Fin x ->
+          if !comma then
+            fprintf formatter ",@;";
+          fprintf formatter "%a + %a"
+            (Term.pp srk) mpr.pre.(j)
+            Mpq.print x;
+          comma := true
+        | _ -> ()
+      done;
+      if i == size - 1 then
+        fprintf formatter "@])"
+      else
+        fprintf formatter "@])@;"
+    done;
+    fprintf formatter "@]"
+
+
+  let abstract ?(exists=fun x -> true) srk tr_symbols phi =
+    let context = Z3.mk_context [] in
+    let max_plus_formula s max_plus =
+      max_plus |> List.map (fun (sym, c) ->
+          mk_eq srk (mk_const srk s) (mk_add srk [mk_const srk sym; mk_real srk c]))
+      |> mk_or srk
+    in
+    (* Does phi entail x = max(y1 + c1, ..., yn + cn)? *)
+    let valid_max_plus_equation s max_plus =
+      max_plus != [] (* Trivial *)
+      && Smt.entails srk phi (max_plus_formula s max_plus) = `Yes
+    in
+    (* For each post-state variable x', try to find a non-trivial max-plus equation
+       x' = max(y1 + c1, ..., yn + cn) entailed by phi.
+       First minimize (x'-yi) subject to phi to find the additive term ci, then
+       check that the max-plus equation is entailed. *)
+    let map =
+      List.fold_left (fun map (s, s') ->
+          let objectives =
+            List.map (fun (sym, _) ->
+                mk_sub srk (mk_const srk s') (mk_const srk sym))
+              tr_symbols
+          in
+          match SrkZ3.optimize_box ~context srk phi objectives with
+          | `Sat boxes ->
+            let max_plus =
+              List.fold_right2 (fun (sym, _) box mp ->
+                  match Interval.lower box with
+                  | Some lo -> (sym, lo)::mp
+                  | _ -> mp)
+                tr_symbols
+                boxes
+                []
+            in
+            if valid_max_plus_equation s' max_plus then
+              Symbol.Map.add s max_plus map
+            else
+              map
+          | _ -> map)
+        Symbol.Map.empty
+        tr_symbols
+    in
+    let post_map = post_map tr_symbols in
+    let postify sym = Symbol.Map.find sym post_map in
+
+    (* For each max-plus equation x = max(y1+c1,...,yn+cn), drop the
+       yi terms that don't satisfy a max-plus equation.  Drop the
+       whole max-plus equation for x if it is no longer entailed by
+       phi. *)
+    let rec fix map =
+      let changed = ref false in
+      let map' =
+        Symbol.Map.fold (fun s max_plus map' ->
+            let max_plus' =
+              List.filter (fun (sym, _) -> Symbol.Map.mem sym map) max_plus
+            in
+            if valid_max_plus_equation (postify s) max_plus' then
+              Symbol.Map.add s max_plus' map'
+            else
+              (changed := true; map'))
+          map
+          Symbol.Map.empty
+      in
+      if !changed then fix map'
+      else map
+    in
+    let map = fix map in
+    let (size, sym_to_int) =
+      Symbol.Map.fold (fun sym _ (m, sym_to_int) ->
+          (m+1, Symbol.Map.add sym m sym_to_int))
+        map
+        (0, Symbol.Map.empty)
+    in
+    let pre = Array.make size (mk_real srk QQ.zero) in
+    let post = Array.make size (mk_real srk QQ.zero) in
+    let transform = BatArray.make_matrix size size Inf in
+    (* To do -- additive vector is trivial for now *)
+    let add = Array.make size Inf in
+
+    sym_to_int |> Symbol.Map.iter (fun sym i ->
+        pre.(i) <- mk_const srk sym);
+    sym_to_int |> Symbol.Map.iter (fun sym i ->
+        post.(i) <- mk_const srk (postify sym));
+    map |> Symbol.Map.iter (fun sym max_plus ->
+        let i = Symbol.Map.find sym sym_to_int in
+        max_plus |> List.iter (fun (s, c) ->
+            let j = Symbol.Map.find s sym_to_int in
+            transform.(i).(j) <- Fin (Mpqf.to_mpq c)));
+    { pre; post; transform; add }
+
+  let size mpr = Array.length mpr.pre
+
+  let exp srk tr_symbols loop_counter mpr =
+    let size = size mpr in
+    let ((slope_mat, slope_vec), (inter_mat, inter_vec)) =
+      maxPlusSolveForBoundingMatricesFromMatrixAndVector mpr.transform mpr.add
+    in
+    (0 -- (size - 1))
+    /@ (fun i ->
+        let i_const_bound =
+          match slope_vec.(i), inter_vec.(i) with
+          | Fin slope, Fin inter ->
+            let bound =
+              mk_add srk [mk_mul srk [mk_real srk (Mpqf.of_mpq slope); loop_counter];
+                          mk_real srk (Mpqf.of_mpq inter)]
+            in
+            [mk_leq srk mpr.post.(i) bound]
+          | _, _ -> []
+        in
+        BatEnum.fold (fun bounds j ->
+            match slope_mat.(i).(j), inter_mat.(i).(j) with
+            | Fin slope, Fin inter ->
+              let bound =
+                mk_add srk [mpr.pre.(j);
+                            mk_mul srk [mk_real srk (Mpqf.of_mpq slope); loop_counter];
+                            mk_real srk (Mpqf.of_mpq inter)]
+              in
+              (mk_leq srk mpr.post.(i) bound)::bounds
+            | _, _ -> bounds)
+          i_const_bound
+          (0 -- (size - 1))
+        |> mk_and srk)
+    |> BatList.of_enum
+    |> mk_and srk
+
+  let equal _ _ mpr mpr' = failwith "Not yet implemented"
+  let join _ _ mpr mpr' = failwith "Not yet implemented"
+  let widen _ _ mpr mpr' = failwith "Not yet implemented"
+end
+
 module Product (A : PreDomain) (B : PreDomain) = struct
   type 'a t = 'a A.t * 'a B.t
 

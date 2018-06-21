@@ -1,5 +1,5 @@
 # OASIS_START
-# DO NOT EDIT (digest: 26bc3d6721d0636a2fcb1f973767214b)
+# DO NOT EDIT (digest: cf018290a05e1220da4f072f26bab78f)
 # Ignore VCS directories, you can use the same kind of rule outside
 # OASIS_START/STOP if you want to exclude directories that contains
 # useless stuff for the build process
@@ -14,6 +14,10 @@ true: annot, bin_annot
 ".git": not_hygienic
 "_darcs": -traverse
 "_darcs": not_hygienic
+# Library mprs
+"srk/mprs/mprs.cmxs": use_mprs
+<srk/mprs/*.ml{,i,y}>: pkg_gmp
+<srk/mprs/*.ml{,i,y}>: pkg_ocamlgraph
 # Library srk
 "srk/src/srk.cmxs": use_srk
 "srk/src/srkUtil.cmx": for-pack(Srk)
@@ -48,6 +52,7 @@ true: annot, bin_annot
 "srk/src/transitionSystem.cmx": for-pack(Srk)
 <srk/src/*.ml{,i,y}>: pkg_ocamlgraph
 <srk/src/*.ml{,i,y}>: pkg_ppx_deriving.show
+<srk/src/*.ml{,i,y}>: use_mprs
 # Executable test_srk
 "srk/test/test_srk.native": pkg_Z3
 "srk/test/test_srk.native": pkg_apron
@@ -64,6 +69,7 @@ true: annot, bin_annot
 "srk/test/test_srk.native": pkg_ppx_deriving
 "srk/test/test_srk.native": pkg_ppx_deriving.ord
 "srk/test/test_srk.native": pkg_ppx_deriving.show
+"srk/test/test_srk.native": use_mprs
 "srk/test/test_srk.native": use_srk
 <srk/test/*.ml{,i,y}>: pkg_Z3
 <srk/test/*.ml{,i,y}>: pkg_apron
@@ -80,6 +86,7 @@ true: annot, bin_annot
 <srk/test/*.ml{,i,y}>: pkg_ppx_deriving
 <srk/test/*.ml{,i,y}>: pkg_ppx_deriving.ord
 <srk/test/*.ml{,i,y}>: pkg_ppx_deriving.show
+<srk/test/*.ml{,i,y}>: use_mprs
 <srk/test/*.ml{,i,y}>: use_srk
 # Executable bigtop
 "srk/src/bigtop.native": pkg_Z3
@@ -141,6 +148,7 @@ true: annot, bin_annot
 "apak/test_apak.native": pkg_ppx_deriving
 "apak/test_apak.native": pkg_ppx_deriving.ord
 "apak/test_apak.native": pkg_ppx_deriving.show
+"apak/test_apak.native": use_mprs
 "apak/test_apak.native": use_srk
 <apak/*.ml{,i,y}>: pkg_Z3
 <apak/*.ml{,i,y}>: pkg_apron
@@ -157,6 +165,7 @@ true: annot, bin_annot
 <apak/*.ml{,i,y}>: pkg_ppx_deriving
 <apak/*.ml{,i,y}>: pkg_ppx_deriving.ord
 <apak/*.ml{,i,y}>: pkg_ppx_deriving.show
+<apak/*.ml{,i,y}>: use_mprs
 <apak/*.ml{,i,y}>: use_srk
 # Library pa
 "pa/pa.cmxs": use_pa
@@ -175,6 +184,7 @@ true: annot, bin_annot
 <pa/*.ml{,i,y}>: pkg_ppx_deriving
 <pa/*.ml{,i,y}>: pkg_ppx_deriving.ord
 <pa/*.ml{,i,y}>: pkg_ppx_deriving.show
+<pa/*.ml{,i,y}>: use_mprs
 <pa/*.ml{,i,y}>: use_srk
 # Executable test_patools
 "patools/test_patools.native": pkg_Z3
@@ -192,6 +202,7 @@ true: annot, bin_annot
 "patools/test_patools.native": pkg_ppx_deriving
 "patools/test_patools.native": pkg_ppx_deriving.ord
 "patools/test_patools.native": pkg_ppx_deriving.show
+"patools/test_patools.native": use_mprs
 "patools/test_patools.native": use_pa
 "patools/test_patools.native": use_srk
 <patools/*.ml{,i,y}>: pkg_oUnit
@@ -211,6 +222,7 @@ true: annot, bin_annot
 "patools/patools.native": pkg_ppx_deriving
 "patools/patools.native": pkg_ppx_deriving.ord
 "patools/patools.native": pkg_ppx_deriving.show
+"patools/patools.native": use_mprs
 "patools/patools.native": use_pa
 "patools/patools.native": use_srk
 <patools/*.ml{,i,y}>: pkg_Z3
@@ -227,6 +239,7 @@ true: annot, bin_annot
 <patools/*.ml{,i,y}>: pkg_ppx_deriving
 <patools/*.ml{,i,y}>: pkg_ppx_deriving.ord
 <patools/*.ml{,i,y}>: pkg_ppx_deriving.show
+<patools/*.ml{,i,y}>: use_mprs
 <patools/*.ml{,i,y}>: use_pa
 <patools/*.ml{,i,y}>: use_srk
 # Executable duet
@@ -247,6 +260,7 @@ true: annot, bin_annot
 "duet/duet.native": pkg_ppx_deriving.ord
 "duet/duet.native": pkg_ppx_deriving.show
 "duet/duet.native": use_apak
+"duet/duet.native": use_mprs
 "duet/duet.native": use_pa
 "duet/duet.native": use_srk
 <duet/*.ml{,i,y}>: pkg_Z3
@@ -266,6 +280,7 @@ true: annot, bin_annot
 <duet/*.ml{,i,y}>: pkg_ppx_deriving.ord
 <duet/*.ml{,i,y}>: pkg_ppx_deriving.show
 <duet/*.ml{,i,y}>: use_apak
+<duet/*.ml{,i,y}>: use_mprs
 <duet/*.ml{,i,y}>: use_pa
 <duet/*.ml{,i,y}>: use_srk
 # OASIS_STOP

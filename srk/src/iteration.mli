@@ -41,6 +41,8 @@ module SolvablePolynomialPeriodicRational : PreDomainWedge
 
 module WedgeGuard : PreDomainWedge
 
+module MaxPlus : PreDomain
+
 module Split(Iter : PreDomain) : PreDomain
 
 module Sum (A : PreDomain) (B : PreDomain) () : sig

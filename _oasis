@@ -8,12 +8,19 @@ Plugins:     META (0.4), StdFiles (0.4), DevFiles (0.4)
 AlphaFeatures: ocamlbuild_more_args
 BuildTools: ocamlbuild, ocamldoc, menhir
 
+Library mprs
+  Path: srk/mprs
+  FindlibName: mprs
+  Modules: Tropical_defs, Printing, Mprs
+  BuildDepends: ocamlgraph, gmp
+  XMETADescription: Max-Plus Recurrence Solver
+
 Library srk
   Path: srk/src
   FindlibName: srk
   Pack: true
   Modules:  SrkUtil, Log, DisjointSet, Memo, FeatureTree, QQ, ZZ, Syntax, Interval, Smt, SrkZ3, Ring, Linear, Polynomial, ExpPolynomial, Interpretation, SrkApron, Polyhedron, SrkSimplify, Abstract, Nonlinear, CoordinateSystem, Wedge, Quantifier, Iteration, Transition, BigO, Pathexpr, WeightedGraph, TransitionSystem
-  BuildDepends:     batteries, ppx_deriving, ppx_deriving.show, ppx_deriving.ord, gmp, camlidl, apron, Z3, ocrs, ntl, ocamlgraph
+  BuildDepends:     batteries, ppx_deriving, ppx_deriving.show, ppx_deriving.ord, gmp, camlidl, apron, Z3, ocrs, mprs, ntl, ocamlgraph
   XMETADescription: Symbolic Reasoning Kit
 
 Executable test_srk
