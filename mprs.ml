@@ -5,6 +5,8 @@ open Printf;;
 include Tropical_defs;;
 open Printing;;
 
+let verbose = ref false;;
+
 (* ------------------------------------------------------------------------- *)
 
 (* Because Karp's algorithm uses a lot of data structures involving
@@ -405,8 +407,13 @@ let solveForInequationsFromMatrix matrix variableNames loopCounterName =
 ;;
 
 let solveForBoundingMatricesFromMatrixAndVector matrix vector =
+    if !verbose then (printf "~~MPRS.solveForBoundingMatricesFromMatrixAndVector:\n";
+        printMatrixAndVector matrix vector) else ();
     let augmented = augmentMatrix matrix vector in 
     let (slopes, intercepts) = solveForBoundingMatricesFromMatrix augmented in
+    if !verbose then (printf "~~~~~~MPRS RESULT(1/2): augmented slopes:\n";
+        printMatrix slopes; printf "~~~~~~MPRS RESULT(2/2): augmented intercepts:\n";
+        printMatrix intercepts; printf "~~MPRS done\n") else ();
     (unaugmentMatrix slopes, unaugmentMatrix intercepts)
 ;;
 
