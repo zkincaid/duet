@@ -1673,6 +1673,7 @@ module MaxPlus = struct
 
   let abstract ?(exists=fun x -> true) srk tr_symbols phi =
     let context = Z3.mk_context [] in
+    let phi = Nonlinear.linearize srk phi in
     let max_plus_formula s max_plus =
       max_plus |> List.map (fun (sym, c) ->
           mk_eq srk (mk_const srk s) (mk_add srk [mk_const srk sym; mk_real srk c]))
