@@ -408,12 +408,12 @@ let solveForInequationsFromMatrix matrix variableNames loopCounterName =
 
 let solveForBoundingMatricesFromMatrixAndVector matrix vector =
     if !verbose then (printf "~~MPRS.solveForBoundingMatricesFromMatrixAndVector:\n";
-        printMatrixAndVector matrix vector) else ();
+        printMatrixAndVector matrix vector; printf "%!") else ();
     let augmented = augmentMatrix matrix vector in 
     let (slopes, intercepts) = solveForBoundingMatricesFromMatrix augmented in
     if !verbose then (printf "~~~~~~MPRS RESULT(1/2): augmented slopes:\n";
         printMatrix slopes; printf "~~~~~~MPRS RESULT(2/2): augmented intercepts:\n";
-        printMatrix intercepts; printf "~~MPRS done\n") else ();
+        printMatrix intercepts; printf "~~MPRS done\n%!") else ();
     (unaugmentMatrix slopes, unaugmentMatrix intercepts)
 ;;
 
