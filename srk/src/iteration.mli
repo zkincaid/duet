@@ -39,7 +39,7 @@ module SolvablePolynomialOne : PreDomainWedge
 module SolvablePolynomial : PreDomainWedge
 module SolvablePolynomialPeriodicRational : PreDomainWedge
 
-module Vas : DomainPlus
+module Vas : Domain
 module WedgeGuard : PreDomainWedge
 
 module Split(Iter : PreDomain) : PreDomain

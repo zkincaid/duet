@@ -2013,7 +2013,7 @@ module SumWedge (A : PreDomainWedge) (B : PreDomainWedge) () = struct
       Right (B.abstract_wedge srk tr_symbols wedge)
 end
 
-module Vas : DomainPlus = struct
+module Vas : Domain = struct
   include Interpretation
   include Smt
   module QQSet = Set.Make(QQ)
@@ -2156,7 +2156,7 @@ module Vas : DomainPlus = struct
 
   let closure vassums = closureX false vassums
 
-  let abstract_iter ?(exists=fun x -> true) (srk : 'a context) (body : 'a formula) (symbols : (symbol * symbol) list)  =
+  let abstract ?(exists=fun x -> true) (srk : 'a context) (symbols : (symbol * symbol) list) (body : 'a formula)  =
     let polyhedron_analysis (formula : 'a formula) (dim1 : symbol) (dim2 : symbol) =
       begin match get_model srk formula with
         | `Unsat -> No_Point
@@ -2239,4 +2239,20 @@ module Vas : DomainPlus = struct
     abstract_iter_wedge iter.srk body iter.symbols*)
 end
 
+
+module Mdvaso : Domain = struct
+  include Interpretation
+  include Smt
+  module QQSet = Set.Make(QQ)
+
+  type 'a t = 'a Mdvas.t
+  let equal s1 s2 = failwith "not here yet"
+  let widen s1 s2 = failwith "not here yet"
+  let join s1 s2 = failwith "not here yet"
+  let pp s1 s2 = failwith "not here yet"
+  let closure p1 = failwith "not here yet"
+  let abstract  = failwith "not here yet"
+  let tr_symbols s1 = failwith "not here yet"
+ 
+end
 
