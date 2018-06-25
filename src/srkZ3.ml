@@ -364,15 +364,16 @@ module Solver = struct
   let reset solver = Z3.Solver.reset solver.s
 
   let check solver args =
-    let res =
-      Log.time "solver.check"
-        (Z3.Solver.check solver.s)
-        (List.map solver.of_formula args)
-    in
-    match res with
-    | Z3.Solver.SATISFIABLE -> `Sat
-    | Z3.Solver.UNSATISFIABLE -> `Unsat
-    | Z3.Solver.UNKNOWN -> `Unknown
+    let args = List.map solver.of_formula args in
+    try
+      match Log.time "solver.check" (Z3.Solver.check solver.s) args with
+      | Z3.Solver.SATISFIABLE -> `Sat
+      | Z3.Solver.UNSATISFIABLE -> `Unsat
+      | Z3.Solver.UNKNOWN -> `Unknown
+    with Z3.Error x ->
+      logf ~level:`warn "Caught Z3 exception: %s" x;
+      `Unknown
+
 
   let expr_of_sym srk z3 symbol =
     let sort =
@@ -476,6 +477,8 @@ module Solver = struct
     | `Unknown -> `Unknown
     | `Unsat ->
       `Unsat (List.map solver.formula_of (Z3.Solver.get_unsat_core solver.s))
+
+  let get_reason_unknown solver = Z3.Solver.get_reason_unknown solver.s
 end
 
 let optimize_box ?(context=Z3.mk_context []) srk phi objectives =
@@ -499,8 +502,13 @@ let optimize_box ?(context=Z3.mk_context []) srk phi objectives =
         Some (qq_val lo)
       else if Z3.Expr.to_string lo = "(* (- 1) oo)" then
         None
+      else if Z3.Expr.to_string lo = "epsilon" then
+        Some QQ.zero
+      else if Z3.Arithmetic.is_mul lo then
+        (* x * epsilon *)
+        Some QQ.zero
       else if Z3.Arithmetic.is_add lo then
-        (* x + epsilon *)
+        (* x + y*epsilon *)
         Some (qq_val (List.hd (Z3.Expr.get_args lo)))
       else
         Log.fatalf "Smt.optimize_box: %s" (Z3.Expr.to_string lo)
@@ -511,18 +519,25 @@ let optimize_box ?(context=Z3.mk_context []) srk phi objectives =
         Some (qq_val hi)
       else if Z3.Expr.to_string hi = "oo" then
         None
+      else if Z3.Arithmetic.is_mul hi then
+        (* x*epsilon *)
+        Some QQ.zero
       else if Z3.Arithmetic.is_add hi then
-        (* x - epsilon *)
+        (* x - y*epsilon *)
         Some (qq_val (List.hd (Z3.Expr.get_args hi)))
       else
         Log.fatalf "Smt.optimize_box: %s" (Z3.Expr.to_string hi)
     in
     Interval.make lower upper
   in
-  match check opt with
-  | Z3.Solver.SATISFIABLE -> `Sat (List.map mk_interval handles)
-  | Z3.Solver.UNSATISFIABLE -> `Unsat
-  | Z3.Solver.UNKNOWN -> `Unknown
+  try
+    match check opt with
+    | Z3.Solver.SATISFIABLE -> `Sat (List.map mk_interval handles)
+    | Z3.Solver.UNSATISFIABLE -> `Unsat
+    | Z3.Solver.UNKNOWN -> `Unknown
+  with Z3.Error x ->
+    logf ~level:`warn "Caught Z3 exception: %s" x;
+    `Unknown
 
 let interpolate_seq ?(context=Z3.mk_context []) srk seq =
   let z3 = context in
@@ -591,6 +606,31 @@ let qe ?(context=Z3.mk_context []) srk phi =
   let g = Goal.mk_goal z3 false false false in
   Goal.add g [z3_of_formula srk z3 phi];
   of_apply_result srk (Tactic.apply qe g None)
+
+let simplify ?(context=Z3.mk_context []) srk phi =
+  let open Z3 in
+  let open Tactic in
+  let z3 = context in
+  let mk_tactic = mk_tactic z3 in
+  let solve_eqs =
+    when_ z3
+      (Probe.not_ z3 (Probe.mk_probe z3 "has-patterns"))
+      (mk_tactic "solve-eqs")
+  in
+  let simplify =
+    List.fold_left
+      (fun t t' -> Tactic.and_then z3 t t' [])
+      (mk_tactic "simplify")
+      [mk_tactic "propagate-values";
+       mk_tactic "simplify";
+       solve_eqs;
+       mk_tactic "simplify"]
+  in
+  let g = Goal.mk_goal z3 false false false in
+  Goal.add g [z3_of_formula srk z3 phi];
+  try
+    of_apply_result srk (Tactic.apply simplify g None)
+  with _ -> assert false
 
 module CHC = struct
   type 'a solver =
@@ -698,10 +738,14 @@ module CHC = struct
     let goal =
       z3_of_formula solver.srk solver.z3 (mk_app solver.srk solver.error [])
     in
-    match Z3.Fixedpoint.query solver.fp goal with
-    | Z3.Solver.UNSATISFIABLE -> `Sat
-    | Z3.Solver.SATISFIABLE -> `Unsat
-    | Z3.Solver.UNKNOWN -> `Unknown
+    try
+      match Z3.Fixedpoint.query solver.fp goal with
+      | Z3.Solver.UNSATISFIABLE -> `Sat
+      | Z3.Solver.SATISFIABLE -> `Unsat
+      | Z3.Solver.UNKNOWN -> `Unknown
+    with Z3.Error x ->
+      logf ~level:`warn "Caught Z3 exception: %s" x;
+      `Unknown
 
   let get_solution solver relation =
     let srk = solver.srk in

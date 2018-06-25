@@ -281,8 +281,6 @@ let mk_truncate srk t =
     (mk_floor srk t)
     (mk_ceiling srk t)
 
-(* Equivalent to mk_truncate srk (mk_div srk s t), but with built-in sign
-   analysis *)
 let mk_idiv srk s t =
   let zero = mk_zero srk in
   let div = mk_div srk s t in

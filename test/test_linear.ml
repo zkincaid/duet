@@ -168,7 +168,7 @@ let rational_eigenvalues1 () =
   let a = mk_matrix [[1; 2];
                      [2; 1]]
   in
-  match QQMatrix.rational_eigenvalues a with
+  match QQMatrix.rational_eigenvalues a [0; 1] with
   | [(x, 1); (y, 1)] when QQ.equal x (QQ.of_int 3) ->
     assert_equal_qq y (QQ.of_int (-1))
   | [(x, 1); (y, 1)] ->
@@ -182,7 +182,7 @@ let rational_eigenvalues2 () =
   let a = mk_qqmatrix [[half; QQ.one];
                        [QQ.zero; third]]
   in
-  match QQMatrix.rational_eigenvalues a with
+  match QQMatrix.rational_eigenvalues a [0; 1] with
   | [(x, 1); (y, 1)] when QQ.equal x half ->
     assert_equal_qq y third
   | [(x, 1); (y, 1)] ->
@@ -195,7 +195,7 @@ let rational_eigenvalues3 () =
                      [0; 0; 1];
                      [8; -12; 6]]
   in
-  match QQMatrix.rational_eigenvalues a with
+  match QQMatrix.rational_eigenvalues a [0; 1; 2] with
   | [(x, m)] ->
     assert_equal_qq x (QQ.of_int 2);
     assert_equal m 3
@@ -206,7 +206,7 @@ let rational_eigenvalues4 () =
                      [0; 0; 1];
                      [0; -1; 0]]
   in
-  match QQMatrix.rational_eigenvalues a with
+  match QQMatrix.rational_eigenvalues a [0; 1; 2] with
   | [(x, m)] ->
     assert_equal_qq x QQ.zero;
     assert_equal m 1
@@ -343,6 +343,194 @@ let max_lds3 () =
   assert_equal_qqmatrix m_expected m;
   assert_equal_qqmatrix b (QQMatrix.mul m a)
 
+let rsd1 () =
+  let m = mk_matrix [[1; 2];
+                     [2; 1]]
+  in
+  let ev1 = mk_vector [-1; 1] in
+  let ev3 = mk_vector [1; 1] in
+  match rational_spectral_decomposition m [0; 1] with
+  | [(lambda1,v1); (lambda3,v3)] when (QQ.equal lambda1 (QQ.of_int (-1))
+                                       && QQ.equal lambda3 (QQ.of_int 3)) ->
+     assert_equal_qqvector ev1 v1;
+     assert_equal_qqvector ev3 v3
+  | [(lambda3,v3); (lambda1,v1)] when (QQ.equal lambda1 (QQ.of_int (-1))
+                                       && QQ.equal lambda3 (QQ.of_int 3)) ->
+     assert_equal_qqvector ev1 v1;
+     assert_equal_qqvector ev3 v3
+  | _ -> assert false
+
+let rsd2 () =
+  let m = mk_matrix [[1; 1];
+                     [-1; 1]]
+  in
+  assert_equal [] (rational_spectral_decomposition m [0; 1])
+
+let rsd3 () =
+  let m = mk_matrix [[1; 0; 1];
+                     [1; 1; 0];
+                     [0; 1; 1]]
+  in
+  match rational_spectral_decomposition m [0; 1; 2] with
+  | [(lambda, v)] ->
+     assert_equal_qqvector (mk_vector [1;1;1]) v;
+     assert_equal_qq lambda (QQ.of_int 2)
+  | _ -> assert false
+
+let rsd4 () =
+  let m = mk_matrix [[1; 1];
+                     [2; 2]]
+  in
+  match rational_spectral_decomposition m [0; 1] with
+  | [(lambda1, v1); (lambda2, v2)] ->
+    if QQ.equal lambda1 QQ.zero then begin
+      assert_equal_qq lambda2 (QQ.of_int 3);
+      assert_equal_qqvector (mk_vector [-2;1]) v1;
+      assert_equal_qqvector (mk_vector [1;1]) v2
+    end else begin
+      assert_equal_qq lambda1 (QQ.of_int 3);
+      assert_equal_qq lambda2 QQ.zero;
+      assert_equal_qqvector (mk_vector [-2;1]) v2;
+      assert_equal_qqvector (mk_vector [1;1]) v1
+    end
+  | _ -> assert false
+
+let rsd5 () =
+  let m = mk_matrix [[1; 0];
+                     [0; 0]]
+  in
+  match rational_spectral_decomposition m [0; 1] with
+  | [(lambda1, v1); (lambda2, v2)] ->
+    if QQ.equal lambda1 QQ.zero then begin
+      assert_equal_qq lambda2 QQ.one;
+      assert_equal_qqvector (mk_vector [1;0]) v2;
+      assert_equal_qqvector (mk_vector [0;1]) v1
+    end else begin
+      assert_equal_qq lambda1 QQ.one;
+      assert_equal_qq lambda2 QQ.zero;
+      assert_equal_qqvector (mk_vector [1;0]) v1;
+      assert_equal_qqvector (mk_vector [0;1]) v2
+    end
+  | _ -> assert false
+
+
+let prsd1 () =
+  let m = mk_matrix [[1; 2];
+                     [2; 1]]
+  in
+  let ev1 = mk_vector [-1; 1] in
+  let ev3 = mk_vector [1; 1] in
+  match periodic_rational_spectral_decomposition m [0; 1] with
+  | [(1, lambda1,v1); (1, lambda3,v3)] when (QQ.equal lambda1 (QQ.of_int (-1))
+                                             && QQ.equal lambda3 (QQ.of_int 3)) ->
+     assert_equal_qqvector ev1 v1;
+     assert_equal_qqvector ev3 v3
+  | [(1, lambda3,v3); (1, lambda1,v1)] when (QQ.equal lambda1 (QQ.of_int (-1))
+                                             && QQ.equal lambda3 (QQ.of_int 3)) ->
+     assert_equal_qqvector ev1 v1;
+     assert_equal_qqvector ev3 v3
+  | _ -> assert false
+
+let prsd2 () =
+  let m = mk_matrix [[1; 1];
+                     [-1; 1]]
+  in
+  match periodic_rational_spectral_decomposition m [0; 1] with
+  | [(4, lambda1, v1); (4, lambda2, v2)] ->
+     assert_equal_qq (QQ.of_int (-4)) lambda1;
+     assert_equal_qq (QQ.of_int (-4)) lambda2
+  | _ -> assert false
+
+let prsd3 () =
+  let m = mk_matrix [[1; 1];
+                     [-1; -2]]
+  in
+  assert_equal [] (periodic_rational_spectral_decomposition m [0; 1])
+
+let prsd4 () =
+  let m = mk_matrix [[1; 0; 0];
+                     [0; 0; 1];
+                     [0; -1; 1]]
+  in
+  match periodic_rational_spectral_decomposition m [0; 1; 2] with
+  | [(3,lambda3,_); (3,lambda3',_); (1,lambda1,_)] ->
+     assert_equal_qq (QQ.of_int (-1)) lambda3;
+     assert_equal_qq (QQ.of_int (-1)) lambda3';
+     assert_equal_qq QQ.one lambda1;
+  | _ ->
+     assert false
+
+let prsd5 () =
+  let m = mk_matrix [[1; 0; 0; 0; 0];
+                     [0; 0; 1; 0; 0];
+                     [0; -1; 1; 0; 0];
+                     [0; 0; 0; 1; 1];
+                     [0; 0; 0; -1; -2]]
+  in
+  match periodic_rational_spectral_decomposition m [0; 1; 2] with
+  | [(3,lambda3,_); (3,lambda3',_); (1,lambda1,_)] ->
+     assert_equal_qq (QQ.of_int (-1)) lambda3;
+     assert_equal_qq (QQ.of_int (-1)) lambda3';
+     assert_equal_qq QQ.one lambda1;
+  | _ -> assert false
+
+let prsd6 () =
+  let m = mk_matrix [[1; 0; 0; 0; 0];
+                     [0; 0; 1; 0; 0];
+                     [0; -1; 1; 0; 0];
+                     [0; 0; 0; 0; 1];
+                     [0; 0; 0; -1; 0]]
+  in
+  let ev3 = mk_vector [0; 1; 0; 0; 0] in
+  let ev3' = mk_vector [0; 0; 1; 0; 0] in
+  let ev2 = mk_vector [0; 0; 0; 1; 0] in
+  let ev2' = mk_vector [0; 0; 0; 0; 1] in
+  match periodic_rational_spectral_decomposition m [0; 1; 2; 3; 4] with
+  | [(3,lambda3,v3); (3,lambda3',v3'); (2,lambda2, v2); (2,lambda2',v2'); (1,lambda1,v1)] ->
+     assert_equal_qq (QQ.of_int (-1)) lambda3;
+     assert_equal_qq (QQ.of_int (-1)) lambda3';
+     assert_equal_qq (QQ.of_int (-1)) lambda2;
+     assert_equal_qq (QQ.of_int (-1)) lambda2';
+     assert_equal_qq QQ.one lambda1;
+     assert_equal_qqvector (mk_vector [1;0;0;0;0;0]) v1;
+     if QQVector.equal ev2 v2 then
+       assert_equal_qqvector ev2' v2'
+     else begin
+         assert_equal_qqvector ev2 v2';
+         assert_equal_qqvector ev2' v2
+       end;
+     if QQVector.equal ev3 v3 then
+       assert_equal_qqvector ev3' v3'
+     else begin
+         assert_equal_qqvector ev3 v3';
+         assert_equal_qqvector ev3' v3
+       end
+  | _ -> assert false
+
+
+let prsd7 () =
+  let m = mk_matrix [[1; 1; 0];
+                     [0; 1; 1];
+                     [0; 0; 1]]
+  in
+  match periodic_rational_spectral_decomposition m [0; 1; 2] with
+  | [(1,lambda1,v1);(1,lambda2,v2);(1,lambda3,v3)] ->
+     assert_equal_qq QQ.one lambda1;
+     assert_equal_qq QQ.one lambda2;
+     assert_equal_qq QQ.one lambda3;
+     assert_equal_qqvector (mk_vector [0; 0; 1]) v1;
+     assert_equal_qqvector (mk_vector [0; 1; 0]) v2;
+     assert_equal_qqvector (mk_vector [1; 0; 0]) v3
+
+  | _ -> assert false
+
+let prsd8 () =
+  let m = mk_matrix [[42]] in
+  match periodic_rational_spectral_decomposition m [0] with
+  | [(1,lambda,v)] -> assert_equal_qq (QQ.of_int 42) lambda
+  | _ -> assert false
+
+
 let suite = "Linear" >::: [
     "dot" >:: dot;
     "mul" >:: mul;
@@ -371,4 +559,17 @@ let suite = "Linear" >::: [
     "max_lds1" >:: max_lds1;
     "max_lds2" >:: max_lds2;
     "max_lds3" >:: max_lds3;
+    "rsd1" >:: rsd1;
+    "rsd2" >:: rsd2;
+    "rsd3" >:: rsd3;
+    "rsd4" >:: rsd4;
+    "rsd5" >:: rsd5;
+    "prsd1" >:: prsd1;
+    "prsd2" >:: prsd2;
+    "prsd3" >:: prsd3;
+    "prsd4" >:: prsd4;
+    "prsd5" >:: prsd5;
+    "prsd6" >:: prsd6;
+    "prsd7" >:: prsd7;
+    "prsd8" >:: prsd8;
   ]

@@ -5,9 +5,17 @@ open SrkApron
 open Test_pervasives
 
 module QQMatrix = Linear.QQMatrix
-module WV = struct
-  include Iteration.WedgeMatrix
-  let star srk symbols phi = closure (abstract_iter srk symbols phi)
+module SP = struct
+  include Iteration.MakeDomain(Iteration.ProductWedge
+                                 (Iteration.SolvablePolynomial)
+                                 (Iteration.WedgeGuard))
+  let star srk symbols phi = closure (abstract srk symbols phi)
+end
+module SPPR = struct
+  include Iteration.MakeDomain(Iteration.ProductWedge
+                                 (Iteration.SolvablePolynomialPeriodicRational)
+                                 (Iteration.WedgeGuard))
+  let star srk symbols phi = closure (abstract srk symbols phi)
 end
 
 let assert_implies_nonlinear phi psi =
@@ -28,7 +36,7 @@ let prepost () =
   let closure =
     let open Infix in
     !(x = x')
-    && WV.star srk phi tr_symbols
+    && SP.star srk tr_symbols phi
   in
   assert_implies closure (Ctx.mk_leq (int 0) x);
   assert_implies closure (Ctx.mk_leq (int 0) x')
@@ -41,7 +49,7 @@ let simple_induction () =
     && y' = y + z
     && z = (int 3)
   in
-  let closure = WV.star srk phi tr_symbols in
+  let closure = SP.star srk tr_symbols phi in
   let result =
     let open Infix in
     (int 2)*(w' - w) = x' - x
@@ -59,7 +67,7 @@ let count_by_1 () =
   let closure =
     let open Infix in
     x = (int 0)
-    && WV.star srk phi tr_symbols
+    && SP.star srk tr_symbols phi
     && y <= x'
     && (int 0) <= y
   in
@@ -79,7 +87,7 @@ let count_by_2 () =
   let closure =
     let open Infix in
     x = (int 0)
-    && WV.star srk phi tr_symbols
+    && SP.star srk tr_symbols phi
     && y <= x'
     && (int 0) <= y
   in
@@ -101,7 +109,7 @@ let stratified1 () =
     x' = x + (int 1)
     && y' = y + z
   in
-  let closure = WV.star srk phi tr_symbols in
+  let closure = SP.star srk tr_symbols phi in
   let result =
     let open Infix in
     z*(x' - x) = (y' - y)
@@ -119,7 +127,7 @@ let stratified2 () =
     let open Infix in
     x = (int 0)
     && y = (int 0)
-    && WV.star srk phi tr_symbols
+    && SP.star srk tr_symbols phi
   in
   let result =
     let open Infix in
@@ -138,7 +146,7 @@ let count_by_k () =
     let open Infix in
     x = (int 0)
     && (int 1) <= z
-    && WV.star srk phi tr_symbols
+    && SP.star srk tr_symbols phi
     && y <= x'
   in
   let result =
@@ -164,7 +172,7 @@ let ineq1 () =
     x = (int 0)
     && y = (int 0)
     && z = (int 0)
-    && WV.star srk phi tr_symbols
+    && SP.star srk tr_symbols phi
   in
   let result =
     let open Infix in
@@ -186,7 +194,7 @@ let ineq2 () =
     let open Infix in
     x = (int 0)
     && y = (int 0)
-    && WV.star srk phi tr_symbols
+    && SP.star srk tr_symbols phi
   in
   let result =
     let open Infix in
@@ -206,7 +214,7 @@ let stratified_ineq1 () =
     let open Infix in
     x = (int 0)
     && y = (int 0)
-    && WV.star srk phi tr_symbols
+    && SP.star srk tr_symbols phi
   in
   let result =
     let open Infix in
@@ -216,6 +224,98 @@ let stratified_ineq1 () =
   in
   assert_implies closure result
 
+let periodic_rational1 () =
+  let open Infix in
+  let phi =
+    x' = x + (int 1)
+    && y' = z
+    && z' = (int 0) - y
+  in
+  let closure =
+    x = (int 0)
+    && y = (int 42)
+    && SPPR.star srk tr_symbols phi
+  in
+  assert_implies closure (!(x' = int 8) || y' = (int 42));
+  assert_implies closure (!(x' = int 15) || z' = (int 42))
+
+let periodic_rational2 () =
+  let open Infix in
+  let phi =
+    x' = x + (int 1)
+    && x < (int 31)
+    && y' = z
+    && z' = z - y
+  in
+  let closure =
+    x = (int 0)
+    && y = (int 42)
+    && z = (int 24)
+    && SPPR.star srk tr_symbols phi
+    && (int 31) <= x'
+  in
+  assert_implies closure (z' = (int (-18)))
+
+let periodic_rational3 () =
+  let open Infix in
+  let phi =
+    w' = w + (int 1)
+    && x' = y
+    && y' = z
+    && z' = x + (int 1)
+  in
+  let closure =
+    w = (int 0)
+    && x = (int 0)
+    && y = (int 0)
+    && z = (int 0)
+    && SPPR.star srk tr_symbols phi
+  in
+  assert_implies closure (!(w' = (int 9)) || x' = (int 3));
+  assert_implies closure (!(w' = (int 10)) || x' = (int 3));
+  assert_implies closure (!(w' = (int 11)) || x' = (int 3));
+  assert_implies closure (!(w' = (int 12)) || x' = (int 4))
+
+let periodic_rational4 () =
+  let open Infix in
+  let phi =
+    w' = w + (int 1)
+    && x' = y
+    && y' = z
+    && z' = x + w
+  in
+  let closure =
+    w = (int 0)
+    && x = (int 0)
+    && y = (int 0)
+    && z = (int 0)
+    && SPPR.star srk tr_symbols phi
+  in
+  assert_implies closure (!(w' = (int 9)) || x' = (int 9));
+  assert_implies closure (!(w' = (int 10)) || x' = (int 12));
+  assert_implies closure (!(w' = (int 11)) || x' = (int 15))
+
+
+let periodic_rational5 () =
+  let open Infix in
+  let phi =
+    w' = w + (int 1)
+    && x' = w
+    && y' = x
+    && z' = y
+  in
+  let closure =
+    w = (int 0)
+    && x = (int 3)
+    && y = (int 2)
+    && z = (int 1)
+    && SPPR.star srk tr_symbols phi
+  in
+  assert_implies closure (!(w' = (int 1)) || z' = (int 2));
+  assert_implies closure (!(w' = (int 2)) || z' = (int 3));
+  assert_implies closure (!(w' = (int 3)) || z' = (int 0));
+  assert_implies closure (!(w' = (int 4)) || z' = (int 1))
+
 let suite = "Iteration" >::: [
     "prepost" >:: prepost;
     "simple_induction" >:: simple_induction;
@@ -223,8 +323,13 @@ let suite = "Iteration" >::: [
     "count_by_2" >:: count_by_2;
     "stratified1" >:: stratified1;
     "stratified2" >:: stratified2;
-    (*    "count_by_k" >:: count_by_k;*)
+    "count_by_k" >:: count_by_k;
     "ineq1" >:: ineq1;
     "ineq2" >:: ineq2;
     "stratified_ineq1" >:: stratified_ineq1;
+    "periodic_rational1" >:: periodic_rational1;
+    "periodic_rational2" >:: periodic_rational2;
+    "periodic_rational3" >:: periodic_rational3;
+    "periodic_rational4" >:: periodic_rational4;
+    "periodic_rational5" >:: periodic_rational5;
   ]

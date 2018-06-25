@@ -3,7 +3,7 @@ open BatPervasives
 
 module V = Linear.QQVector
 module Monomial = Polynomial.Monomial
-module P = Polynomial.Mvp
+module P = Polynomial.QQXs
 module Rewrite = Polynomial.Rewrite
 module IntSet = SrkUtil.Int.Set
 
@@ -108,6 +108,23 @@ let type_of_vec cs vec =
     && (id = const_id || type_of_id cs id = `TyInt)
   in
   if BatEnum.for_all is_integral (V.enum vec) then
+    `TyInt
+  else
+    `TyReal
+
+let type_of_monomial cs monomial =
+  let is_integral (id, _) = type_of_id cs id = `TyInt in
+  if BatEnum.for_all is_integral (Polynomial.Monomial.enum monomial) then
+    `TyInt
+  else
+    `TyReal
+
+let type_of_polynomial cs polynomial =
+  let is_integral (coeff, monomial) =
+    QQ.to_zz coeff != None
+    && type_of_monomial cs monomial = `TyInt
+  in
+  if BatEnum.for_all is_integral (P.enum polynomial) then
     `TyInt
   else
     `TyReal
@@ -232,18 +249,18 @@ let vec_of_term ?(admit=false) cs =
     | `Mul xs ->
       (* Factor out scalar multiplication *)
       let (k, xs) =
-        List.fold_right (fun y (k,xs) ->
+        List.fold_left (fun (k,xs) y ->
             match const_of_vec y with
             | Some k' -> (QQ.mul k k', xs)
             | None -> (k, y::xs))
-          xs
           (QQ.one, [])
+          xs
       in
       begin match xs with
         | [] -> V.of_term k const_id
         | x::xs ->
           let mul x y =
-            V.of_term QQ.one (cs_term_id ~admit cs (`Mul (x, y)))
+            V.of_term QQ.one (cs_term_id ~admit cs (`Mul (y, x)))
           in
           V.scalar_mul k (List.fold_left mul x xs)
       end
@@ -273,6 +290,7 @@ let rec polynomial_of_coordinate cs id =
   match destruct_coordinate cs id with
   | `Mul (x, y) -> P.mul (polynomial_of_vec cs x) (polynomial_of_vec cs y)
   | _ -> P.of_dim id
+
 and polynomial_of_vec cs vec =
   let (const_coeff, vec) = V.pivot const_id vec in
   V.enum vec
@@ -280,7 +298,39 @@ and polynomial_of_vec cs vec =
   |> BatEnum.fold P.add (P.scalar const_coeff)
 
 let polynomial_of_term cs term =
-  polynomial_of_vec cs (vec_of_term cs term)
+  let admit = false in
+  let rec go term =
+    match Term.destruct cs.srk term with
+    | `Real k -> P.scalar k
+    | `App (symbol, []) ->
+      P.of_dim (cs_term_id ~admit cs (`App (symbol, [])))
+    | `App (symbol, xs) ->
+      let xs =
+        List.map (fun x ->
+            match Expr.refine cs.srk x with
+            | `Term t -> vec_of_term ~admit cs t
+            | `Formula _ -> assert false) (* TODO *)
+          xs
+      in
+      P.of_dim (cs_term_id ~admit cs (`App (symbol, xs)))
+
+    | `Var (_, _) -> assert false (* to do *)
+    | `Add xs -> List.fold_left (fun p t -> P.add p (go t)) P.zero xs
+    | `Mul xs -> List.fold_left (fun p t -> P.mul p (go t)) P.one xs
+    | `Binop (`Div, x, y) ->
+      let inverse =
+        P.of_dim (cs_term_id ~admit cs (`Inv (vec_of_term ~admit cs y)))
+      in
+      P.mul (go x) inverse
+    | `Binop (`Mod, x, y) ->
+      P.of_dim (cs_term_id ~admit cs (`Mod (vec_of_term ~admit cs x,
+                                            vec_of_term ~admit cs y)))
+    | `Unop (`Floor, x) ->
+      P.of_dim (cs_term_id ~admit cs (`Floor (vec_of_term ~admit cs x)))
+    | `Unop (`Neg, x) -> P.negate (go x)
+    | `Ite (_, _, _) -> assert false (* No ites in implicants *)
+  in
+  go term
 
 let term_of_polynomial cs = P.term_of cs.srk (term_of_coordinate cs)
 
@@ -365,7 +415,9 @@ let project_ideal cs ideal ?(subterm=fun x -> true) keep =
             | `App (_, _) -> raise Unsafe
           in
           let conclusion = mk_eq srk safe (term_of_coordinate cs i) in
-          logf ~level:`trace "Safe: %a -> %a" (Term.pp srk) (term_of_coordinate cs i)
+          logf ~level:`trace "Safe: %a -> %a"
+            (Term.pp srk)
+            (term_of_coordinate cs i)
             (Term.pp srk) safe;
           safe_term.(i) <- Some safe;
           integrity.(i) <- mk_if srk hypothesis conclusion;

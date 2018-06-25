@@ -59,6 +59,15 @@ let assert_equal_qq x y =
 let assert_equal_qqmatrix x y =
   assert_equal ~cmp:Linear.QQMatrix.equal ~printer:Linear.QQMatrix.show x y
 
+let assert_equal_qqvector x y =
+  assert_equal ~cmp:Linear.QQVector.equal ~printer:Linear.QQVector.show x y
+
+let assert_equal_exppoly x y =
+  assert_equal ~cmp:ExpPolynomial.equal ~printer:ExpPolynomial.show x y
+
+let assert_equal_up_exppoly x y =
+  assert_equal ~cmp:ExpPolynomial.UltPeriodic.equal ~printer:ExpPolynomial.UltPeriodic.show x y
+
 let assert_implies phi psi =
   if not (Smt.entails srk phi psi = `Yes) then
     assert_failure (Printf.sprintf "%s\ndoes not imply\n%s"

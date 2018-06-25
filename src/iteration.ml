@@ -11,171 +11,86 @@ module IntMap = SrkUtil.Int.Map
 module DArray = BatDynArray
 
 module QQX = Polynomial.QQX
-module QQMvp = Polynomial.Mvp
+module QQXs = Polynomial.QQXs
 module Monomial = Polynomial.Monomial
-
+module MonomialSet = Set.Make(Monomial)
 module CS = CoordinateSystem
+
+module UP = ExpPolynomial.UltPeriodic
+module UPXs = struct
+  include Polynomial.MakeMultivariate(UP)
+
+  let eval upxs k =
+    BatEnum.fold (fun e (up, m) ->
+        QQXs.add_term (UP.eval up k) m e)
+      QQXs.zero
+      (enum upxs)
+
+  let map_coeff f upxs =
+    BatEnum.fold (fun e (up, m) ->
+        add_term (f m up) m e)
+      zero
+      (enum upxs)
+
+  let flatten period =
+    let monomials =
+      List.fold_left (fun set upxs ->
+          BatEnum.fold (fun set (_, m) ->
+              MonomialSet.add m set)
+            set
+            (enum upxs))
+        MonomialSet.empty
+        period
+    in
+    MonomialSet.fold (fun m upxs ->
+        let up =
+          List.map (coeff m) period
+          |> UP.flatten
+        in
+        add_term up m upxs)
+      monomials
+      zero
+end
 
 module type PreDomain = sig
   type 'a t
+  val pp : 'a context -> (symbol * symbol) list -> Format.formatter -> 'a t -> unit
+  val exp : 'a context -> (symbol * symbol) list -> 'a term -> 'a t -> 'a formula
+  val join : 'a context -> (symbol * symbol) list -> 'a t -> 'a t -> 'a t
+  val widen : 'a context -> (symbol * symbol) list -> 'a t -> 'a t -> 'a t
+  val equal : 'a context -> (symbol * symbol) list -> 'a t -> 'a t -> bool
+  val abstract : ?exists:(symbol -> bool) ->
+    'a context ->
+    (symbol * symbol) list ->
+    'a formula ->
+    'a t
+end
+
+module type PreDomainWedge = sig
+  include PreDomain
+  val abstract_wedge : 'a context -> (symbol * symbol) list -> 'a Wedge.t -> 'a t
+end
+
+module type Domain = sig
+  type 'a t
   val pp : Format.formatter -> 'a t -> unit
-  val show : 'a t -> string
   val closure : 'a t -> 'a formula
   val join : 'a t -> 'a t -> 'a t
   val widen : 'a t -> 'a t -> 'a t
   val equal : 'a t -> 'a t -> bool
+  val abstract : ?exists:(symbol -> bool) ->
+    'a context ->
+    (symbol * symbol) list ->
+    'a formula ->
+    'a t
   val tr_symbols : 'a t -> (symbol * symbol) list
 end
 
-module type Domain = sig
-  include PreDomain
-  val abstract_iter : ?exists:(symbol -> bool) ->
-    'a context ->
-    'a formula ->
-    (symbol * symbol) list ->
-    'a t
-end
-
-module type DomainPlus = sig
-  include Domain
-  val closure_plus : 'a t -> 'a formula
-end
-
-module Cf = struct
-  module IntMap = SrkUtil.Int.Map
-  include Linear.RingMap(IntMap)(QQX)
-
-  let k_minus_1 = QQX.add_term QQ.one 1 (QQX.scalar (QQ.of_int (-1)))
-
-  (* Compose a closed form with a uvp *)
-  let compose cf p =
-    IntMap.filter_map
-      (fun _ coeff ->
-         let coeff' = QQX.compose coeff p in
-         if QQX.is_zero coeff' then
-           None
-         else
-           Some coeff')
-      cf
-
-  let scalar_mul scalar vec =
-    if QQX.is_zero scalar then
-      zero
-    else
-      IntMap.map (QQX.mul scalar) vec
-
-  exception No_translation
-
-  let is_constant_expr cs env expr =
-    let is_constant_sym sym =
-      match env sym with
-      | Some cf ->
-        if IntMap.cardinal cf = 1 then
-          let (coord, coeff) = IntMap.choose cf in
-          QQX.equal QQX.one coeff
-          && (CS.cs_term_id cs (`App (sym, [])) = coord)
-        else
-          false
-      | None -> false
-    in
-    Symbol.Set.for_all is_constant_sym (symbols expr)
-
-  let const k =
-    IntMap.add Linear.const_dim k IntMap.empty
-
-  let mul cs u v =
-    let mul_dim x y =
-      if x = Linear.const_dim then
-        y
-      else if y = Linear.const_dim then
-        x
-      else
-        CS.cs_term_id ~admit:true cs (`Mul (V.of_term QQ.one x,
-                                            V.of_term QQ.one y))
-    in
-    SrkUtil.cartesian_product (enum u) (enum v)
-    /@ (fun ((xcoeff, xdim), (ycoeff, ydim)) ->
-        (QQX.mul xcoeff ycoeff, mul_dim xdim ydim))
-    |> of_enum
-
-  let rec of_term cs env term =
-    let admit = true in
-    let srk = CS.get_context cs in
-    match Term.destruct srk term with
-    | `App (v, []) ->
-      begin
-        match env v with
-        | Some cf -> compose cf k_minus_1
-        | None ->
-          raise No_translation
-      end
-    | `Real k -> const (QQX.scalar k)
-    | `Add xs ->
-      List.fold_right (fun x cf -> add (of_term cs env x) cf) xs zero
-    | `Mul [] -> const (QQX.scalar QQ.one)
-    | `Mul (x::xs) ->
-      List.fold_right
-        (fun x cf -> mul cs cf (of_term cs env x))
-        xs
-        (of_term cs env x)
-    | `Unop (`Neg, x) -> negate (of_term cs env x)
-    | _ ->
-      if is_constant_expr cs env term then
-        V.enum (CS.vec_of_term ~admit cs term)
-        /@ (fun (coeff, dim) -> (dim, QQX.scalar coeff))
-        |> IntMap.of_enum
-      else
-        raise No_translation
-  let of_term cs env term =
-    try Some (of_term cs env term)
-    with No_translation -> None
-
-  let summation cf =
-    (* QQX.summation computes q(n) = sum_{i=0}^n p(i); shift to compute
-       q(n) = sum_{i=1}^n p(i) *)
-    let sum_from_1 px =
-      QQX.add_term (QQ.negate (QQX.eval px QQ.zero)) 0 (QQX.summation px)
-    in
-    IntMap.map sum_from_1 cf
-
-  (* Convert a closed form into a term by instantiating the variable in the
-     polynomial coefficients of the closed form *)
-  let term_of cs cf k =
-    let srk = CS.get_context cs in
-    let polynomial_term px =
-      QQX.enum px
-      /@ (fun (coeff, order) ->
-          mk_mul srk
-            ((mk_real srk coeff)::(BatList.of_enum
-                                     ((1 -- order) /@ (fun _ -> k)))))
-      |> BatList.of_enum
-      |> mk_add srk
-    in
-    enum cf
-    /@ (fun (px, coord) ->
-        if coord = Linear.const_dim then
-          polynomial_term px
-        else
-          mk_mul srk [CS.term_of_coordinate cs coord;
-                      polynomial_term px])
-    |> BatList.of_enum
-    |> mk_add srk
-
-  let symbol cs p sym =
-    IntMap.add
-      (CS.cs_term_id ~admit:true cs (`App (sym, [])))
-      p
-      IntMap.empty
-end
-
-let reflexive_closure srk tr_symbols formula =
-  let identity =
-    List.map (fun (sym, sym') ->
-        mk_eq srk (mk_const srk sym) (mk_const srk sym'))
-      tr_symbols
-    |> mk_and srk
-  in
-  mk_or srk [identity; formula]
+let identity srk tr_symbols =
+  List.map (fun (sym, sym') ->
+      mk_eq srk (mk_const srk sym) (mk_const srk sym'))
+    tr_symbols
+  |> mk_and srk
 
 let pre_symbols tr_symbols =
   List.fold_left (fun set (s,_) ->
@@ -265,9 +180,30 @@ let is_vector_negative vec =
 let matrix_polyvec_mul m polyvec =
   Array.init (QQMatrix.nb_rows m) (fun i ->
       BatEnum.fold (fun p (coeff, j) ->
-          QQMvp.add p (QQMvp.scalar_mul coeff polyvec.(j)))
-        QQMvp.zero
+          QQXs.add p (QQXs.scalar_mul coeff polyvec.(j)))
+        QQXs.zero
         (V.enum (QQMatrix.row i m)))
+
+let polyvec_add polyvec polyvec' =
+  Array.init (Array.length polyvec) (fun i ->
+      QQXs.add polyvec.(i) polyvec'.(i))
+
+let vec_upxsvec_dot vec1 vec2 =
+  BatEnum.fold (fun ep i ->
+      UPXs.add
+        ep
+        (UPXs.scalar_mul (UP.scalar (V.coeff i vec1)) vec2.(i)))
+    UPXs.zero
+    (0 -- (Array.length vec2 - 1))
+
+let vec_qqxsvec_dot vec1 vec2 =
+  BatEnum.fold (fun ep i ->
+      QQXs.add
+        ep
+        (QQXs.scalar_mul (V.coeff i vec1) vec2.(i)))
+    QQXs.zero
+    (0 -- (Array.length vec2 - 1))
+
 
 (* Write the affine hull of a wedge as Ax' = Bx + c, where c is vector of
    polynomials in recurrence terms, and the non-zero rows of A are linearly
@@ -314,10 +250,10 @@ let rec_affine_hull srk wedge tr_symbols rec_terms rec_ideal =
     rec_terms |> DArray.iteri (fun i t ->
         let vec = CS.vec_of_term cs t in
         let p =
-          QQMvp.add_term
+          QQXs.add_term
             (QQ.of_int (-1))
             (Monomial.singleton (i + cs_dim) 1)
-            (QQMvp.of_vec ~const:(CS.const_id) vec)
+            (QQXs.of_vec ~const:(CS.const_id) vec)
         in
         ideal := p::(!ideal));
     Polynomial.Rewrite.mk_rewrite elim_order (!ideal)
@@ -330,7 +266,7 @@ let rec_affine_hull srk wedge tr_symbols rec_terms rec_ideal =
     BatList.filter_map
       (fun x ->
          let x' = Polynomial.Rewrite.reduce rec_term_rewrite x in
-         if QQMvp.equal x' QQMvp.zero then
+         if QQXs.equal x' QQXs.zero then
            None
          else
            Some x')
@@ -339,12 +275,11 @@ let rec_affine_hull srk wedge tr_symbols rec_terms rec_ideal =
     |> Polynomial.Rewrite.grobner_basis
     |> Polynomial.Rewrite.generators
   in
-
   let (mA, mB, pvc, _) =
     logf ~attributes:[`Bold] "Vanishing ideal:";
     List.fold_left (fun (mA,mB,pvc,i) p ->
         try
-          logf "  @[%a@]" (QQMvp.pp pp_coord) p;
+          logf "  @[%a@]" (QQXs.pp pp_coord) p;
           let (vecA, vecB, pc) =
             BatEnum.fold (fun (vecA, vecB, pc) (coeff, monomial) ->
                 match BatList.of_enum (Monomial.enum monomial) with
@@ -356,24 +291,24 @@ let rec_affine_hull srk wedge tr_symbols rec_terms rec_ideal =
                   (vecA, V.add_term coeff dim vecB, pc)
                 | monomial_list ->
                   if List.for_all (additive_dim % fst) monomial_list then
-                    (vecA, vecB, QQMvp.add_term coeff monomial pc)
+                    (vecA, vecB, QQXs.add_term coeff monomial pc)
                   else
                     raise IllFormedRecurrence)
-              (V.zero, V.zero, QQMvp.zero)
-              (QQMvp.enum p)
+              (V.zero, V.zero, QQXs.zero)
+              (QQXs.enum p)
           in
           let (vecA, vecB, pc) =
             if is_vector_negative vecA then
-              (V.negate vecA, V.negate vecB, QQMvp.negate pc)
+              (V.negate vecA, V.negate vecB, QQXs.negate pc)
             else
               (vecA, vecB, pc)
           in
           let pc =
-            QQMvp.substitute (fun i ->
-                QQMvp.add_term
+            QQXs.substitute (fun i ->
+                QQXs.add_term
                   QQ.one
                   (Monomial.singleton (i - cs_dim) 1)
-                  QQMvp.zero)
+                  QQXs.zero)
               pc
           in
           let mAt = QQMatrix.transpose mA in
@@ -387,11 +322,11 @@ let rec_affine_hull srk wedge tr_symbols rec_terms rec_ideal =
               let pc =
                 let rpc = (* r*pvc *)
                   BatEnum.fold (fun p (coeff, i) ->
-                      QQMvp.add p (QQMvp.scalar_mul coeff (List.nth pvc i)))
-                    QQMvp.zero
+                      QQXs.add p (QQXs.scalar_mul coeff (List.nth pvc i)))
+                    QQXs.zero
                     (V.enum r)
                 in
-                QQMvp.sub pc rpc
+                QQXs.sub pc rpc
               in
               (mA,
                QQMatrix.add_row i vecB mB,
@@ -421,14 +356,63 @@ let extract_affine_transformation srk wedge tr_symbols rec_terms rec_ideal =
   logf " B: @[%a@]" QQMatrix.pp mB;
   (mA, mB, pvc)
 
+module WedgeGuard = struct
+  type 'a t =
+    { precondition : 'a Wedge.t;
+      postcondition : 'a Wedge.t }
+
+  let pp _ _ formatter iter =
+    Format.fprintf formatter "pre:@;  @[<v 0>%a@]@;post:@;  @[<v 0>%a@]"
+      Wedge.pp iter.precondition
+      Wedge.pp iter.postcondition
+
+  let abstract_wedge srk tr_symbols wedge =
+    let pre_symbols = pre_symbols tr_symbols in
+    let post_symbols = post_symbols tr_symbols in
+    let precondition =
+      Wedge.exists (not % flip Symbol.Set.mem post_symbols) wedge
+    in
+    let postcondition =
+      Wedge.exists (not % flip Symbol.Set.mem pre_symbols) wedge
+    in
+    { precondition; postcondition }
+
+  let abstract ?(exists=fun x -> true) srk tr_symbols phi =
+    let post_symbols = post_symbols tr_symbols in
+    let subterm x = not (Symbol.Set.mem x post_symbols) in
+    let wedge =
+      Wedge.abstract ~exists ~subterm srk phi
+    in
+    abstract_wedge srk tr_symbols wedge
+
+  let exp srk tr_symbols loop_counter guard =
+    mk_or srk [mk_and srk [mk_eq srk loop_counter (mk_real srk QQ.zero);
+                           identity srk tr_symbols];
+               mk_and srk [mk_leq srk (mk_real srk QQ.one) loop_counter;
+                           Wedge.to_formula guard.precondition;
+                           Wedge.to_formula guard.postcondition]]
+
+  let equal _ _ iter iter' =
+    Wedge.equal iter.precondition iter'.precondition
+    && Wedge.equal iter.postcondition iter'.postcondition
+
+  let join _ _ iter iter' =
+    { precondition = Wedge.join iter.precondition iter'.precondition;
+      postcondition = Wedge.join iter.postcondition iter'.postcondition }
+
+  let widen _ _ iter iter' =
+    { precondition = Wedge.widen iter.precondition iter'.precondition;
+      postcondition = Wedge.widen iter.postcondition iter'.postcondition }
+end
+
 module Recurrence = struct
   type matrix_rec =
     { rec_transform : QQ.t array array;
-      rec_add : QQMvp.t array }
+      rec_add : QQXs.t array }
 
   let rec_empty =
     { rec_transform = Array.make 0 (Array.make 0 QQ.zero);
-      rec_add = Array.make 0 QQMvp.zero }
+      rec_add = Array.make 0 QQXs.zero }
 
   (* Iteration domain element.  Recurrence equations have the form
      A_1 * x' = B_1 * A_1 * x + c_1
@@ -445,18 +429,13 @@ module Recurrence = struct
      A_1, term_of_id.(nb_constants+size(A_1)) corresponds to the first row of
      A_2, ...).  Similarly for inequations in rec_leq. *)
   type 'a t =
-    { srk : 'a context;
-      symbols : (symbol * symbol) list;
-      precondition : 'a Wedge.t;
-      postcondition : 'a Wedge.t;
-      term_of_id : ('a term) array;
+    { term_of_id : ('a term) array;
       nb_constants : int;
       rec_eq : matrix_rec list;
       rec_leq : matrix_rec list }
 
-  let pp formatter iter =
-    let srk = iter.srk in
-    let post_map = post_map iter.symbols in
+  let pp srk tr_symbols formatter iter =
+    let post_map = post_map tr_symbols in
     let postify =
       let subst sym =
         if Symbol.Map.mem sym post_map then
@@ -489,15 +468,8 @@ module Recurrence = struct
           if !nonzero then
             Format.fprintf formatter "@ + ";
           Format.fprintf formatter "%a@]@;"
-            (QQMvp.pp pp_id) recurrence.rec_add.(i))
+            (QQXs.pp pp_id) recurrence.rec_add.(i))
     in
-    Format.fprintf formatter
-      "{@[<v 0>pre symbols:@;  @[<v 0>%a@]@;post symbols:@;  @[<v 0>%a@]@;"
-      (SrkUtil.pp_print_enum (pp_symbol srk)) (BatList.enum iter.symbols /@ fst)
-      (SrkUtil.pp_print_enum (pp_symbol srk)) (BatList.enum iter.symbols /@ snd);
-    Format.fprintf formatter "pre:@;  @[<v 0>%a@]@;post:@;  @[<v 0>%a@]@;recurrences:@;  @[<v 0>"
-      Wedge.pp iter.precondition
-      Wedge.pp iter.postcondition;
     let offset =
       List.fold_left (fun offset recurrence ->
           pp_rec "=" offset formatter recurrence;
@@ -511,8 +483,6 @@ module Recurrence = struct
         offset
         iter.rec_leq);
     Format.fprintf formatter "@]@]}"
-
-  let show x = SrkUtil.mk_show pp x
 
   exception Not_a_polynomial
 
@@ -555,30 +525,119 @@ module Recurrence = struct
         for i = 0 to size - 1 do
           let rec_eq =
             let lhs =
-              QQMvp.of_vec ~const:CS.const_id (QQMatrix.row i mA)
-              |> QQMvp.substitute (fun coord ->
+              QQXs.of_vec ~const:CS.const_id (QQMatrix.row i mA)
+              |> QQXs.substitute (fun coord ->
                   assert (IntMap.mem coord post_coord_map);
-                  QQMvp.of_dim (IntMap.find coord post_coord_map))
+                  QQXs.of_dim (IntMap.find coord post_coord_map))
             in
             let add =
-              QQMvp.substitute (fun i ->
+              QQXs.substitute (fun i ->
                   (CS.polynomial_of_term cs (DArray.get term_of_id i)))
                 rec_add.(i)
             in
             let rhs =
               BatEnum.fold (fun p (coeff, i) ->
                   if i = CS.const_id then
-                    QQMvp.add (QQMvp.scalar coeff) p
+                    QQXs.add (QQXs.scalar coeff) p
                   else
-                    QQMvp.add p
-                      (QQMvp.scalar_mul coeff
+                    QQXs.add p
+                      (QQXs.scalar_mul coeff
                          (CS.polynomial_of_term cs
                             (DArray.get term_of_id (offset + i)))))
-                QQMvp.zero
+                QQXs.zero
                 (V.enum (QQMatrix.row i mB))
-              |> QQMvp.add add
+              |> QQXs.add add
             in
-            QQMvp.add lhs (QQMvp.negate rhs)
+            QQXs.add lhs (QQXs.negate rhs)
+          in
+          rec_ideal' := rec_eq::(!rec_ideal')
+        done;
+        { rec_transform; rec_add }::(fix (!rec_ideal'))
+    in
+    fix []
+
+  (* Extract a stratified system of matrix recurrences *)
+  let extract_periodic_rational_matrix_eq srk wedge rec_sym term_of_id =
+    let cs = Wedge.coordinate_system wedge in
+    let post_coord_map =
+      (* map pre-state coordinates to their post-state counterparts *)
+      List.fold_left
+        (fun map (sym, sym') ->
+           try
+             let coord = CS.cs_term_id cs (`App (sym, [])) in
+             let coord' = CS.cs_term_id cs (`App (sym', [])) in
+             IntMap.add coord coord' map
+           with Not_found -> map)
+        IntMap.empty
+        rec_sym
+    in
+
+    (* Detect stratified recurrences *)
+    let rec fix rec_ideal =
+      let offset = DArray.length term_of_id in
+      logf "New stratum (%d recurrence terms)" (DArray.length term_of_id);
+      let (mA,mB,rec_add) =
+        extract_affine_transformation srk wedge rec_sym term_of_id rec_ideal
+      in
+
+      let dims = SrkUtil.Int.Set.elements (QQMatrix.row_set mA) in
+      let prsd = Linear.periodic_rational_spectral_decomposition mB dims in
+      let mU =
+        BatList.fold_lefti (fun m i (p,lambda,v) ->
+            QQMatrix.add_row i v m)
+          QQMatrix.zero
+          prsd
+      in
+
+      let mUA = QQMatrix.mul mU mA in
+      let mUBA = QQMatrix.mul mU (QQMatrix.mul mB mA) in
+      let mB = match Linear.divide_right mUBA mUA with
+        | Some x -> x
+        | None -> assert false
+      in
+      let mA = mUA in
+      let rec_add = matrix_polyvec_mul mU rec_add in
+
+      let size = Array.length rec_add in
+      if size = 0 then
+        []
+      else
+        let rec_transform =
+          Array.init size (fun row ->
+              Array.init size (fun col ->
+                  QQMatrix.entry row col mB))
+        in
+        let rec_ideal' = ref rec_ideal in
+        for i = 0 to size - 1 do
+          DArray.add term_of_id (CS.term_of_vec cs (QQMatrix.row i mA))
+        done;
+        for i = 0 to size - 1 do
+          let rec_eq =
+            let lhs =
+              QQXs.of_vec ~const:CS.const_id (QQMatrix.row i mA)
+              |> QQXs.substitute (fun coord ->
+                  assert (IntMap.mem coord post_coord_map);
+                  QQXs.of_dim (IntMap.find coord post_coord_map))
+            in
+            let add =
+              QQXs.substitute (fun i ->
+                  (CS.polynomial_of_term cs (DArray.get term_of_id i)))
+                rec_add.(i)
+            in
+            let rhs =
+              BatEnum.fold (fun p (coeff, i) ->
+                  if i = CS.const_id then
+                    QQXs.add (QQXs.scalar coeff) p
+                  else
+                    QQXs.add p
+                      (QQXs.scalar_mul coeff
+                         (CS.polynomial_of_term cs
+                            (DArray.get term_of_id (offset + i)))))
+                QQXs.zero
+                (V.enum (QQMatrix.row i mB))
+              |> QQXs.add add
+            in
+            QQXs.add lhs (QQXs.negate rhs)
           in
           rec_ideal' := rec_eq::(!rec_ideal')
         done;
@@ -613,10 +672,10 @@ module Recurrence = struct
       rec_terms |> DArray.iteri (fun i t ->
           let vec = CS.vec_of_term cs t in
           let p =
-            QQMvp.add_term
+            QQXs.add_term
               (QQ.of_int (-1))
               (Monomial.singleton (i + cs_dim) 1)
-              (QQMvp.of_vec ~const:(CS.const_id) vec)
+              (QQXs.of_vec ~const:(CS.const_id) vec)
           in
           rewrite := (Polynomial.Rewrite.add_saturate (!rewrite) p));
         rewrite
@@ -624,15 +683,15 @@ module Recurrence = struct
     let recurrences = ref [] in
     let transform_one = [|[|QQ.one|]|] in
     let delta s s' = (* s' - s *)
-      QQMvp.sub
-        (QQMvp.of_dim (id_of_sym s'))
-        (QQMvp.of_dim (id_of_sym s))
+      QQXs.sub
+        (QQXs.of_dim (id_of_sym s'))
+        (QQXs.of_dim (id_of_sym s))
     in
     let add_recurrence s s' add =
       let polynomial =
-        QQMvp.sub
-          (QQMvp.of_dim (id_of_sym s))
-          (QQMvp.of_dim (cs_dim + (DArray.length rec_terms)))
+        QQXs.sub
+          (QQXs.of_dim (id_of_sym s))
+          (QQXs.of_dim (cs_dim + (DArray.length rec_terms)))
       in
       let recur =
         { rec_transform = transform_one;
@@ -644,7 +703,7 @@ module Recurrence = struct
     in
     let subst x =
       if additive_dim x then
-        QQMvp.of_dim (x - cs_dim)
+        QQXs.of_dim (x - cs_dim)
       else
         raise IllFormedRecurrence
     in
@@ -658,7 +717,7 @@ module Recurrence = struct
               let add =
                 delta s s'
                 |> Polynomial.Rewrite.reduce (!rewrite)
-                |> QQMvp.substitute subst
+                |> QQXs.substitute subst
               in
               add_recurrence s s' add;
               continue := true;
@@ -699,7 +758,7 @@ module Recurrence = struct
     let add_map =
       BatEnum.fold
         (fun map i ->
-           Symbol.Map.add (DArray.get add i) (QQMvp.of_dim i) map)
+           Symbol.Map.add (DArray.get add i) (QQXs.of_dim i) map)
         Symbol.Map.empty
         (0 -- (DArray.length add - 1))
     in
@@ -760,16 +819,16 @@ module Recurrence = struct
                    | `App (sym, []) ->
                      (try Symbol.Map.find sym add_map
                       with Not_found -> assert false)
-                   | `Real k -> QQMvp.scalar k
-                   | `Add xs -> List.fold_left QQMvp.add QQMvp.zero xs
-                   | `Mul xs -> List.fold_left QQMvp.mul QQMvp.one xs
+                   | `Real k -> QQXs.scalar k
+                   | `Add xs -> List.fold_left QQXs.add QQXs.zero xs
+                   | `Mul xs -> List.fold_left QQXs.mul QQXs.one xs
                    | _ -> raise Not_a_polynomial
                  in
                  let term =
-                   QQMvp.scalar_mul coeff (Term.eval srk to_mvp diff_term)
+                   QQXs.scalar_mul coeff (Term.eval srk to_mvp diff_term)
                  in
-                 (rec_term, QQMvp.add term rec_add))
-            ([], QQMvp.scalar c)
+                 (rec_term, QQXs.add term rec_add))
+            ([], QQXs.scalar c)
             (V.enum t)
         in
         if rec_term != [] then
@@ -910,7 +969,7 @@ module Recurrence = struct
         if nb_constraints = 0 then
           (QQMatrix.zero,
            Array.make 0 (Array.make 0 QQ.zero),
-           Array.make 0 QQMvp.zero)
+           Array.make 0 QQXs.zero)
         else
           let mA =
             BatEnum.fold (fun mA i ->
@@ -992,7 +1051,7 @@ module Recurrence = struct
           in
           let pvc =
             Array.init nb_constraints (fun i ->
-                QQMvp.scalar (V.coeff CS.const_id (DArray.get constraints i)))
+                QQXs.scalar (V.coeff CS.const_id (DArray.get constraints i)))
           in
           (mA,mB,pvc)
       else
@@ -1048,33 +1107,14 @@ module Recurrence = struct
     done;
     [{ rec_transform; rec_add }]
 
-  let abstract_iter_wedge extract_eq extract_leq srk wedge tr_symbols =
+  let abstract_iter_wedge extract_eq extract_leq srk tr_symbols wedge =
     logf "--------------- Abstracting wedge ---------------@\n%a)" Wedge.pp wedge;
     let cs = Wedge.coordinate_system wedge in
     let pre_symbols = pre_symbols tr_symbols in
     let post_symbols = post_symbols tr_symbols in
-    let precondition =
-      Wedge.exists (not % flip Symbol.Set.mem post_symbols) wedge
-    in
-    let postcondition =
-      Wedge.exists (not % flip Symbol.Set.mem pre_symbols) wedge
-    in
-    let (rec_wedge, rec_sym) =
-      let (non_recursive, rec_sym) =
-        List.fold_left (fun (set, rec_sym) (s,s') ->
-            if CS.admits cs (mk_const srk s) && CS.admits cs (mk_const srk s') then
-              (set, (s,s')::rec_sym)
-            else
-              (Symbol.Set.add s (Symbol.Set.add s' set), rec_sym))
-          (Symbol.Set.empty, [])
-          tr_symbols
-      in
-      if Symbol.Set.is_empty non_recursive then
-        (wedge, rec_sym)
-      else
-        (Wedge.exists (not % flip Symbol.Set.mem non_recursive) wedge, rec_sym)
-    in
-    let cs = Wedge.coordinate_system rec_wedge in
+    tr_symbols |> List.iter (fun (s,s') ->
+        CS.admit_cs_term cs (`App (s, []));
+        CS.admit_cs_term cs (`App (s', [])));
 
     let term_of_id = DArray.create () in
 
@@ -1099,55 +1139,44 @@ module Recurrence = struct
           DArray.add term_of_id term
     done;
     let nb_constants = DArray.length term_of_id in
-    let rec_eq = extract_eq srk rec_wedge rec_sym term_of_id in
-    let rec_leq = extract_leq srk rec_wedge rec_sym term_of_id in
+    let rec_eq = extract_eq srk wedge tr_symbols term_of_id in
+    let rec_leq = extract_leq srk wedge tr_symbols term_of_id in
     let result =
-    { srk;
-      symbols = tr_symbols;
-      precondition;
-      postcondition;
-      nb_constants;
+    { nb_constants;
       term_of_id = DArray.to_array term_of_id;
       rec_eq = rec_eq;
       rec_leq = rec_leq }
     in
-    logf "=============== Wedge/Matrix recurrence ===============@\n%a)" pp result;
+    logf "=============== Wedge/Matrix recurrence ===============@\n%a)"
+      (pp srk tr_symbols) result;
     result
 
-  let abstract_iter extract_eq extract_leq ?(exists=fun x -> true) srk phi symbols =
-    let post_symbols =
-      List.fold_left (fun set (_,s') ->
-          Symbol.Set.add s' set)
-        Symbol.Set.empty
-        symbols
-    in
+  let abstract_iter extract_eq extract_leq ?(exists=fun x -> true) srk symbols phi =
+    let post_symbols = post_symbols symbols in
     let subterm x = not (Symbol.Set.mem x post_symbols) in
     let wedge =
       Wedge.abstract ~exists ~subterm srk phi
     in
-    abstract_iter_wedge extract_eq extract_leq srk wedge symbols
+    abstract_iter_wedge extract_eq extract_leq srk symbols wedge
 
-  let closure_plus iter =
+  let exp srk tr_symbols loop_counter iter =
     let open Ocrs in
     let open Type_def in
 
-    Nonlinear.ensure_symbols iter.srk;
-
-    let loop_counter_sym = mk_symbol iter.srk ~name:"K" `TyInt in
-    let loop_counter = mk_const iter.srk loop_counter_sym in
+    Nonlinear.ensure_symbols srk;
 
     let post_map = (* map pre-state vars to post-state vars *)
-      post_map iter.symbols
+      post_map tr_symbols
     in
 
     let postify =
       let subst sym =
         if Symbol.Map.mem sym post_map then
-          mk_const iter.srk (Symbol.Map.find sym post_map)
+          mk_const srk (Symbol.Map.find sym post_map)
         else
-          mk_const iter.srk sym
+          mk_const srk sym
       in
-      substitute_const iter.srk subst
+      substitute_const srk subst
     in
 
     (* pre/post subscripts *)
@@ -1170,7 +1199,7 @@ module Recurrence = struct
         let id = int_of_string name in
         postify (iter.term_of_id.(id))
       in
-      term_of_ocrs iter.srk loop_counter pre_term_of_id post_term_of_id
+      term_of_ocrs srk loop_counter pre_term_of_id post_term_of_id
     in
     let close_matrix_rec recurrence offset =
       let size = Array.length recurrence.rec_add in
@@ -1185,7 +1214,7 @@ module Recurrence = struct
               /@ (fun (id, pow) -> Pow (cf.(id), Rational (Mpq.of_int pow)))
               |> BatList.of_enum
             in
-            QQMvp.enum recurrence.rec_add.(i)
+            QQXs.enum recurrence.rec_add.(i)
             /@ (fun (coeff, m) ->
                 Product (Rational (Mpqf.to_mpq coeff)::(cf_monomial m)))
             |> (fun x -> Sum (BatList.of_enum x)))
@@ -1202,9 +1231,9 @@ module Recurrence = struct
       in
       recurrence_closed
     in
-    let mk_int k = mk_real iter.srk (QQ.of_int k) in
+    let mk_int k = mk_real srk (QQ.of_int k) in
     let rec close mk_compare offset closed = function
-      | [] -> (mk_and iter.srk closed, offset)
+      | [] -> (mk_and srk closed, offset)
       | (recurrence::rest) ->
         let size = Array.length recurrence.rec_add in
         let recurrence_closed = close_matrix_rec recurrence offset in
@@ -1214,18 +1243,18 @@ module Recurrence = struct
           let piece_to_formula (ivl, ineq) =
             let hypothesis = match ivl with
               | Bounded (lo, hi) ->
-                mk_and iter.srk [mk_leq iter.srk (mk_int lo) loop_counter;
-                                 mk_leq iter.srk loop_counter (mk_int hi)]
+                mk_and srk [mk_leq srk (mk_int lo) loop_counter;
+                                 mk_leq srk loop_counter (mk_int hi)]
               | BoundBelow lo -> 
-                mk_and iter.srk [mk_leq iter.srk (mk_int lo) loop_counter]
+                mk_and srk [mk_leq srk (mk_int lo) loop_counter]
             in
             let conclusion = match ineq with
-              | Equals (x, y) -> mk_compare iter.srk (term_of_expr x) (term_of_expr y)
+              | Equals (x, y) -> mk_compare srk (term_of_expr x) (term_of_expr y)
               | _ -> assert false
             in
-            mk_if iter.srk hypothesis conclusion
+            mk_if srk hypothesis conclusion
           in
-          mk_and iter.srk (List.map piece_to_formula pieces)
+          mk_and srk (List.map piece_to_formula pieces)
         in
         recurrence_closed |> List.iteri (fun i ineq ->
             match ineq with
@@ -1236,39 +1265,31 @@ module Recurrence = struct
     in
     let (closed_eq, offset) = close mk_eq iter.nb_constants [] iter.rec_eq in
     let (closed_leq, _) = close mk_leq offset [] iter.rec_leq in
-    mk_and iter.srk [
-        Wedge.to_formula iter.precondition;
-        mk_leq iter.srk (mk_real iter.srk QQ.one) loop_counter;
-        Wedge.to_formula iter.postcondition;
-        closed_eq;
-        closed_leq
-    ]
+    mk_and srk [closed_eq; closed_leq]
 
-  let closure iter =
-    reflexive_closure iter.srk iter.symbols (closure_plus iter)
 
-  let wedge_of_iter iter =
+  let wedge_of srk tr_symbols iter =
     let post_map =
       List.fold_left
         (fun map (sym, sym') -> Symbol.Map.add sym sym' map)
         Symbol.Map.empty
-        iter.symbols
+        tr_symbols
     in
     let postify =
       let subst sym =
         if Symbol.Map.mem sym post_map then
-          mk_const iter.srk (Symbol.Map.find sym post_map)
+          mk_const srk (Symbol.Map.find sym post_map)
         else
-          mk_const iter.srk sym
+          mk_const srk sym
       in
-      substitute_const iter.srk subst
+      substitute_const srk subst
     in
     let rec_atoms mk_compare offset recurrence =
       recurrence.rec_transform |> Array.mapi (fun i row ->
           let term = iter.term_of_id.(offset + i) in
           let rhs_add =
-            QQMvp.term_of
-              iter.srk
+            QQXs.term_of
+              srk
               (fun j -> iter.term_of_id.(j))
               recurrence.rec_add.(i)
           in
@@ -1278,129 +1299,438 @@ module Recurrence = struct
                   rhs
                 else
                   let jterm =
-                    mk_mul iter.srk [mk_real iter.srk coeff;
+                    mk_mul srk [mk_real srk coeff;
                                      iter.term_of_id.(offset + j)]
                   in
                   jterm::rhs)
               [rhs_add]
               row
-            |> mk_add iter.srk
+            |> mk_add srk
           in
           mk_compare (postify term) rhs)
       |> BatArray.to_list
-    in
-    let atoms =
-      (Wedge.to_atoms iter.precondition)@(Wedge.to_atoms iter.postcondition)
     in
     let (offset, atoms) =
       BatList.fold_left (fun (offset, atoms) recurrence ->
           let size = Array.length recurrence.rec_add in
           (offset+size,
-           (rec_atoms (mk_eq iter.srk) offset recurrence)@atoms))
-        (iter.nb_constants, atoms)
+           (rec_atoms (mk_eq srk) offset recurrence)@atoms))
+        (iter.nb_constants, [])
         iter.rec_eq
     in
     let (_, atoms) =
       BatList.fold_left (fun (offset, atoms) recurrence ->
           let size = Array.length recurrence.rec_add in
           (offset+size,
-           (rec_atoms (mk_leq iter.srk) offset recurrence)@atoms))
+           (rec_atoms (mk_leq srk) offset recurrence)@atoms))
         (offset, atoms)
         iter.rec_leq
     in
-    Wedge.of_atoms iter.srk atoms
+    Wedge.of_atoms srk atoms
 
-  let equal iter iter' =
-    Wedge.equal (wedge_of_iter iter) (wedge_of_iter iter')
-
-  let tr_symbols iter = iter.symbols
+  let equal srk tr_symbols iter iter' =
+    Wedge.equal (wedge_of srk tr_symbols iter) (wedge_of srk tr_symbols iter')
 end
 
-module WedgeVector : DomainPlus = struct
+module SolvablePolynomialOne = struct
   include Recurrence
-  let abstract_iter ?(exists=fun x -> true) srk =
+
+  let abstract_wedge srk tr_symbols wedge =
+    abstract_iter_wedge extract_induction_vars extract_vector_leq srk tr_symbols wedge
+
+  let abstract ?(exists=fun x -> true) srk =
     abstract_iter extract_induction_vars extract_vector_leq ~exists srk
-  let abstract_iter_wedge srk =
-    abstract_iter_wedge extract_induction_vars extract_vector_leq srk
 
-  let widen iter iter' =
-    let body = Wedge.widen (wedge_of_iter iter) (wedge_of_iter iter') in
-    assert(iter.symbols = iter'.symbols);
-    abstract_iter_wedge iter.srk body iter.symbols
+  let join srk tr_symbols iter iter' =
+    Wedge.join (wedge_of srk tr_symbols iter) (wedge_of srk tr_symbols iter')
+    |> abstract_iter_wedge extract_induction_vars extract_vector_leq srk tr_symbols
 
-  let join iter iter' =
-    let body =
-      Wedge.join (wedge_of_iter iter) (wedge_of_iter iter')
-    in
-    assert(iter.symbols = iter'.symbols);
-    abstract_iter_wedge iter.srk body iter.symbols
+  let widen srk tr_symbols iter iter' =
+    Wedge.widen (wedge_of srk tr_symbols iter) (wedge_of srk tr_symbols iter')
+    |> abstract_iter_wedge extract_induction_vars extract_vector_leq srk tr_symbols
 end
 
-module WedgeMatrix : DomainPlus = struct
+module SolvablePolynomial = struct
   include Recurrence
-  let abstract_iter ?(exists=fun x -> true) srk =
+
+  let abstract_wedge srk tr_symbols wedge =
+    abstract_iter_wedge extract_matrix_eq extract_vector_leq srk tr_symbols wedge
+
+  let abstract ?(exists=fun x -> true) srk =
     abstract_iter extract_matrix_eq extract_vector_leq ~exists srk
-  let abstract_iter_wedge srk =
-    abstract_iter_wedge extract_matrix_eq extract_vector_leq srk
 
-  let widen iter iter' =
-    let body = Wedge.widen (wedge_of_iter iter) (wedge_of_iter iter') in
-    assert(iter.symbols = iter'.symbols);
-    abstract_iter_wedge iter.srk body iter.symbols
+  let join srk tr_symbols iter iter' =
+    Wedge.join (wedge_of srk tr_symbols iter) (wedge_of srk tr_symbols iter')
+    |> abstract_iter_wedge extract_matrix_eq extract_vector_leq srk tr_symbols
 
-  let join iter iter' =
-    let body =
-      Wedge.join (wedge_of_iter iter) (wedge_of_iter iter')
-    in
-    assert(iter.symbols = iter'.symbols);
-    abstract_iter_wedge iter.srk body iter.symbols
+  let widen srk tr_symbols iter iter' =
+    Wedge.widen (wedge_of srk tr_symbols iter) (wedge_of srk tr_symbols iter')
+    |> abstract_iter_wedge extract_matrix_eq extract_vector_leq srk tr_symbols
 end
 
-module Split (Iter : DomainPlus) = struct
-  type 'a t =
-    { srk : 'a context;
-      split : ('a, typ_bool, 'a Iter.t * 'a Iter.t) Expr.Map.t }
+module SolvablePolynomialPeriodicRational = struct
+  include Recurrence
 
-  let tr_symbols split_iter =
-    match BatEnum.get (Expr.Map.values split_iter.split) with
-    | Some (iter, _) -> Iter.tr_symbols iter
-    | None -> assert false
+  (* Given a matrix in which each vector in the standard basis is a
+     periodic generalized eigenvector, find a PRSD over the standard
+     basis. *)
+  let standard_basis_prsd mA size =
+    let dims = BatList.of_enum (0 -- (size-1)) in
+    let new_prsd =
+      List.rev (Linear.periodic_rational_spectral_decomposition mA dims)
+    in
+    let id = QQMatrix.identity dims in
+    let get_period_eigenvalue v =
+      let (p, lambda, _) =
+        BatList.find (fun (p, lambda, _) ->
+            V.is_zero
+              (Linear.vector_left_mul v
+                 (QQMatrix.exp
+                    (QQMatrix.add
+                       (QQMatrix.exp mA p)
+                       (QQMatrix.scalar_mul (QQ.negate lambda) id))
+                    size)))
+          new_prsd
+      in
+      (p, lambda)
+    in
+    (0 -- (size - 1))
+    /@ (fun i ->
+        let v = V.of_term QQ.one i in
+        let (p, lambda) = get_period_eigenvalue v in
+        (p, lambda, v))
+    |> BatList.of_enum
 
-  let pp formatter split_iter =
+  let abstract_wedge srk tr_symbols wedge =
+    abstract_iter_wedge extract_periodic_rational_matrix_eq extract_vector_leq srk tr_symbols wedge
+
+  let abstract ?(exists=fun x -> true) srk =
+    abstract_iter extract_periodic_rational_matrix_eq extract_vector_leq ~exists srk
+
+  let exp srk tr_symbols loop_counter iter =
+    Nonlinear.ensure_symbols srk;
+
+    let srk = srk in
+
+    let post_map = (* map pre-state vars to post-state vars *)
+      post_map tr_symbols
+    in
+
+    let postify =
+      let subst sym =
+        if Symbol.Map.mem sym post_map then
+          mk_const srk (Symbol.Map.find sym post_map)
+        else
+          mk_const srk sym
+      in
+      substitute_const srk subst
+    in
+
+    (* Map identifiers to their closed forms, so that they can be used in the
+       additive term of recurrences at higher strata *)
+    let cf =
+      Array.make (Array.length iter.term_of_id) UPXs.zero
+    in
+    (* Substitute closed forms in for a polynomial *)
+    let substitute_closed_forms p =
+      BatEnum.fold (fun up (coeff, m) ->
+          BatEnum.fold (fun m_up (i, pow) ->
+              UPXs.mul m_up (UPXs.exp cf.(i) pow))
+            (UPXs.scalar (UP.make [] [ExpPolynomial.scalar coeff]))
+            (Monomial.enum m)
+          |> UPXs.add up)
+        UPXs.zero
+        (QQXs.enum p)
+    in
+
+    (* For each period p, maintain a pair (q, r) such that loop_counter = qp + r *)
+    let qr_map = BatHashtbl.create 97 in
+    Hashtbl.add qr_map 1 (loop_counter, mk_real srk QQ.zero);
+    let get_qr n =
+      if Hashtbl.mem qr_map n then
+        Hashtbl.find qr_map n
+      else
+        let loop_q = mk_const srk (mk_symbol srk ~name:"q" `TyInt) in
+        let loop_r = mk_const srk (mk_symbol srk ~name:"r" `TyInt) in
+        Hashtbl.add qr_map n (loop_q, loop_r);
+        (loop_q, loop_r)
+    in
+
+    (* Close constant terms *)
+    for i = 0 to iter.nb_constants - 1 do
+      cf.(i) <- UPXs.of_dim i
+    done;
+
+    let close_matrix_rec recurrence offset =
+      let size = Array.length recurrence.rec_add in
+      let transform = QQMatrix.of_dense recurrence.rec_transform in
+      let prsd = standard_basis_prsd transform size in
+      let rec_add_cf =
+        Array.init (Array.length recurrence.rec_add) (fun i ->
+            substitute_closed_forms recurrence.rec_add.(i))
+      in
+
+      prsd |> List.map (fun (p, lambda, v) ->
+
+          (* v is a generalized eigenvector of transform^p.  Traverse
+             the Jordan chain generated by v from the bottom up,
+             computing closed forms along the way. *)
+          let jordan_chain =
+            Linear.jordan_chain (QQMatrix.exp transform p) lambda v
+          in
+
+          if QQ.equal lambda QQ.zero then begin
+            assert (p == 1);
+            BatList.fold_right (fun v cf ->
+                let cf_transform =
+                  BatEnum.fold (fun v_cf (coeff, i) ->
+                      UPXs.add_term
+                        (UP.make [coeff] [ExpPolynomial.zero])
+                        (Monomial.singleton (offset + i) 1)
+                        v_cf)
+                    UPXs.zero
+                    (V.enum v)
+                in
+                let cf_add =
+                  UPXs.map_coeff
+                    (fun _ -> UP.shift [QQ.zero])
+                    (UPXs.add cf (vec_upxsvec_dot v rec_add_cf))
+                in
+                UPXs.add cf_transform cf_add)
+              jordan_chain
+              UPXs.zero
+          end else begin
+            List.fold_right (fun v cf ->
+
+                let cf_transform =
+                  let v_Ai = (* vA^0, ..., vA^{p-1} *)
+                    BatEnum.fold (fun (v_transform, xs) i ->
+                        let next = Linear.vector_left_mul v_transform transform in
+                        (next, next::xs))
+                      (v, [v])
+                      (1 -- (p - 1))
+                    |> snd
+                    |> List.rev
+                  in
+                  BatEnum.fold (fun cf_A i ->
+                      let period =
+                        List.map (fun r ->
+                            ExpPolynomial.of_term (QQX.scalar (V.coeff i r)) lambda)
+                          v_Ai
+                      in
+                      let up = UP.make [] period in
+                      UPXs.add_term
+                        up
+                        (Monomial.singleton (offset + i) 1)
+                        cf_A)
+                    UPXs.zero
+                    (0 -- (size - 1))
+                in
+
+                let cf_add =
+                  (0 -- (p - 1)) |> BatEnum.map (fun i ->
+                      (* sum_{j=0}^{p-1} v * A^{p-j-1} * cf_add(pk+j+i) *)
+                      let sum_pk_i =
+                        BatEnum.fold (fun sum j ->
+                            UPXs.add
+                              sum
+                              (vec_upxsvec_dot
+                                 (Linear.vector_left_mul
+                                    v
+                                    (QQMatrix.exp transform (p-j-1)))
+                                 (Array.map
+                                    (UPXs.map_coeff (fun _ f ->
+                                         UP.compose_left_affine f p (j+i)))
+                                    rec_add_cf)))
+                          UPXs.zero
+                          (0 -- (p - 1))
+                      in
+                      (* sum_{j=0}^{i-1} v * A^{i-j-1} * cf_add(j) *)
+                      let initial =
+                        BatEnum.fold (fun sum j ->
+                            let cf_add_j =
+                              Array.map (fun f -> UPXs.eval f j) rec_add_cf
+                            in
+                            let vAij =
+                              Linear.vector_left_mul
+                                v
+                                (QQMatrix.exp transform (i-j-1))
+                            in
+                            QQXs.add sum (vec_qqxsvec_dot vAij cf_add_j))
+                          QQXs.zero
+                          (0 -- (i-1))
+                      in
+                      let get_initial m = QQXs.coeff m initial in
+                      UPXs.map_coeff
+                        (fun m f -> UP.solve_rec ~initial:(get_initial m) lambda f)
+                        (UPXs.add cf sum_pk_i))
+                  |> BatList.of_enum
+                  |> UPXs.flatten
+                in
+
+                UPXs.add cf_transform cf_add)
+              jordan_chain
+              UPXs.zero
+          end)
+    in
+
+    let rec close mk_compare offset closed = function
+      | [] -> (mk_and srk closed, offset)
+      | (recurrence::rest) ->
+        let size = Array.length recurrence.rec_add in
+        let recurrence_closed = close_matrix_rec recurrence offset in
+        let to_formula i closed =
+          let lhs = postify iter.term_of_id.(offset + i) in
+          let rhs =
+            (UPXs.enum closed)
+            /@ (fun (up, m) ->
+                let m = Monomial.term_of srk (fun i -> iter.term_of_id.(i)) m in
+                let (loop_q, loop_r) = get_qr (UP.period_len up) in
+                let up = UP.term_of srk loop_q loop_r up in
+                mk_mul srk [up; m])
+            |> BatList.of_enum
+            |> mk_add srk
+          in
+          mk_compare srk lhs rhs
+        in
+
+        recurrence_closed |> List.iteri (fun i closed ->
+            cf.(offset + i) <- closed);
+
+        let recurrence_closed_formula = BatList.mapi to_formula recurrence_closed in
+        close mk_compare (offset + size) (recurrence_closed_formula@closed) rest
+    in
+    let (closed_eq, offset) = close mk_eq iter.nb_constants [] iter.rec_eq in
+    let (closed_leq, _) = close mk_leq offset [] iter.rec_leq in
+    let qr_constraints =
+      Hashtbl.fold (fun n (q, r) rest ->
+          if n = 0 then
+            rest
+          else
+            let n = mk_real srk (QQ.of_int n) in
+            (* loop_counter = qn + r /\ 0 <= r < n *)
+            (mk_eq srk
+               loop_counter
+               (mk_add srk [mk_mul srk [q; n]; r]))
+            ::(mk_lt srk r n)
+            ::(mk_leq srk (mk_real srk QQ.zero) r)
+            ::rest)
+        qr_map
+        []
+      |> mk_and srk
+    in
+    mk_and srk [
+      closed_eq;
+      closed_leq;
+      qr_constraints
+    ]
+
+  let join srk tr_symbols iter iter' =
+    Wedge.join (wedge_of srk tr_symbols iter) (wedge_of srk tr_symbols iter')
+    |> abstract_iter_wedge extract_periodic_rational_matrix_eq extract_vector_leq srk tr_symbols
+
+  let widen srk tr_symbols iter iter' =
+    Wedge.widen (wedge_of srk tr_symbols iter) (wedge_of srk tr_symbols iter')
+    |> abstract_iter_wedge extract_periodic_rational_matrix_eq extract_vector_leq srk tr_symbols
+
+end
+
+module Product (A : PreDomain) (B : PreDomain) = struct
+  type 'a t = 'a A.t * 'a B.t
+
+  let pp srk tr_symbols formatter (a, b) =
+    Format.fprintf formatter "%a@;%a"
+      (A.pp srk tr_symbols) a
+      (B.pp srk tr_symbols) b
+
+  let exp srk tr_symbols loop_counter (a, b) =
+    mk_and srk [A.exp srk tr_symbols loop_counter a;
+                B.exp srk tr_symbols loop_counter b]
+
+  let join srk tr_symbols (a, b) (a', b') =
+    (A.join srk tr_symbols a a', B.join srk tr_symbols b b')
+
+  let widen srk tr_symbols (a, b) (a', b') =
+    (A.widen srk tr_symbols a a', B.widen srk tr_symbols b b')
+
+  let equal srk tr_symbols (a, b) (a', b') =
+    (A.equal srk tr_symbols a a')
+    && (B.equal srk tr_symbols b b')
+
+  let abstract ?(exists=fun x -> true) srk tr_symbols phi =
+    (A.abstract ~exists srk tr_symbols phi,
+     B.abstract ~exists srk tr_symbols phi)
+end
+
+module Sum (A : PreDomain) (B : PreDomain) () = struct
+  type 'a t = Left of 'a A.t | Right of 'a B.t
+
+  let abstract_left = ref true
+
+  let pp srk tr_symbols formatter = function
+    | Left a -> A.pp srk tr_symbols formatter a
+    | Right b -> B.pp srk tr_symbols formatter b
+
+  let left a = Left a
+
+  let right b = Right b
+
+  let exp srk tr_symbols loop_counter = function
+    | Left a -> A.exp srk tr_symbols loop_counter a
+    | Right b -> B.exp srk tr_symbols loop_counter b
+
+  let join srk tr_symbols x y = match x,y with
+    | Left x, Left y -> Left (A.join srk tr_symbols x y)
+    | Right x, Right y -> Right (B.join srk tr_symbols x y)
+    | _, _ -> invalid_arg "Join: incompatible elements"
+
+  let widen srk tr_symbols x y = match x,y with
+    | Left x, Left y -> Left (A.widen srk tr_symbols x y)
+    | Right x, Right y -> Right (B.widen srk tr_symbols x y)
+    | _, _ -> invalid_arg "Widen: incompatible elements"
+
+  let equal srk tr_symbols x y = match x,y with
+    | Left x, Left y -> A.equal srk tr_symbols x y
+    | Right x, Right y -> B.equal srk tr_symbols x y
+    | _, _ -> invalid_arg "Equal: incompatible elements"
+
+  let abstract ?(exists=fun x -> true) srk tr_symbols phi =
+    if !abstract_left then
+      Left (A.abstract ~exists srk tr_symbols phi)
+    else
+      Right (B.abstract ~exists srk tr_symbols phi)
+end
+
+module Split (Iter : PreDomain) = struct
+  type 'a t = ('a, typ_bool, 'a Iter.t * 'a Iter.t) Expr.Map.t
+
+  let pp srk tr_symbols formatter split_iter =
     let pp_elt formatter (pred,(left,right)) =
       Format.fprintf formatter "[@[<v 0>%a@; %a@; %a@]]"
-        (Formula.pp split_iter.srk) pred
-        Iter.pp left
-        Iter.pp right
+        (Formula.pp srk) pred
+        (Iter.pp srk tr_symbols) left
+        (Iter.pp srk tr_symbols) right
     in
     Format.fprintf formatter "<Split @[<v 0>%a@]>"
-      (SrkUtil.pp_print_enum pp_elt) (Expr.Map.enum split_iter.split)
-
-  let show x = SrkUtil.mk_show pp x
+      (SrkUtil.pp_print_enum pp_elt) (Expr.Map.enum split_iter)
 
   (* Lower a split iter into an iter by picking an arbitary split and joining
      both sides. *)
-  let lower_split split_iter =
-    match BatEnum.get (Expr.Map.values split_iter.split) with
-    | Some (iter, iter') -> Iter.join iter iter'
+  let lower_split srk tr_symbols split_iter =
+    match BatEnum.get (Expr.Map.values split_iter) with
+    | Some (iter, iter') -> Iter.join srk tr_symbols iter iter'
     | None -> assert false
 
-  let base_bottom srk symbols = Iter.abstract_iter srk (mk_false srk) symbols
+  let base_bottom srk tr_symbols = Iter.abstract srk tr_symbols (mk_false srk)
 
-  let lift_split srk iter =
-    { srk = srk;
-      split = (Expr.Map.add
-                 (mk_true srk)
-                 (iter, base_bottom srk (Iter.tr_symbols iter))
-                 Expr.Map.empty) }
+  let lift_split srk tr_symbols iter =
+    Expr.Map.add
+      (mk_true srk)
+      (iter, base_bottom srk tr_symbols)
+      Expr.Map.empty
 
-  let abstract_iter ?(exists=fun x -> true) srk body tr_symbols =
-    let post_symbols =
-      List.fold_left (fun set (_,s') ->
-          Symbol.Set.add s' set)
-        Symbol.Set.empty
-        tr_symbols
-    in
+  let abstract ?(exists=fun x -> true) srk tr_symbols body =
+    let post_symbols = post_symbols tr_symbols in
     let predicates =
       let preds = ref Expr.Set.empty in
       let prestate sym = exists sym && not (Symbol.Set.mem sym post_symbols) in
@@ -1482,19 +1812,19 @@ module Split (Iter : DomainPlus) = struct
         if sat_modulo_body (mk_and srk [psi; post_not_psi]) = `Unsat then
           (* {psi} body {psi} -> body* = ([not psi]body)*([psi]body)* *)
           let left_abstract =
-            Iter.abstract_iter ~exists srk not_psi_body tr_symbols
+            Iter.abstract ~exists srk tr_symbols not_psi_body
           in
           let right_abstract =
-            Iter.abstract_iter ~exists srk psi_body tr_symbols
+            Iter.abstract ~exists srk tr_symbols psi_body
           in
           Expr.Map.add not_psi (left_abstract, right_abstract) split_iter
         else if sat_modulo_body (mk_and srk [not_psi; post_psi]) = `Unsat then
           (* {not phi} body {not phi} -> body* = ([phi]body)*([not phi]body)* *)
           let left_abstract =
-            Iter.abstract_iter ~exists srk psi_body tr_symbols
+            Iter.abstract ~exists srk tr_symbols psi_body
           in
           let right_abstract =
-            Iter.abstract_iter ~exists srk not_psi_body tr_symbols
+            Iter.abstract ~exists srk tr_symbols not_psi_body
           in
           Expr.Map.add psi (left_abstract, right_abstract) split_iter
         else
@@ -1510,16 +1840,15 @@ module Split (Iter : DomainPlus) = struct
       if Expr.Map.is_empty split_iter then
         Expr.Map.add
           (mk_true srk)
-          (Iter.abstract_iter ~exists srk body tr_symbols,
+          (Iter.abstract ~exists srk tr_symbols body,
            base_bottom srk tr_symbols)
           Expr.Map.empty
       else
         split_iter
     in
-    let iter = { srk = srk; split = split_iter } in
     logf "abstract: %a" (Formula.pp srk) body;
-    logf "iter: %a" pp iter;
-    iter
+    logf "iter: %a" (pp srk tr_symbols) split_iter;
+    split_iter
 
   let sequence srk symbols phi psi =
     let (phi_map, psi_map) =
@@ -1549,93 +1878,139 @@ module Split (Iter : DomainPlus) = struct
     mk_and srk [substitute_const srk phi_subst phi;
                 substitute_const srk psi_subst psi]
 
-  let closure split_iter =
-    let srk = split_iter.srk in
-    let symbols = tr_symbols split_iter in
-    Expr.Map.enum split_iter.split
+  let exp srk tr_symbols loop_counter split_iter =
+    Expr.Map.enum split_iter
     /@ (fun (predicate, (left, right)) ->
         let not_predicate = mk_not srk predicate in
+        let left_counter = mk_const srk (mk_symbol srk ~name:"K" `TyInt) in
+        let right_counter = mk_const srk (mk_symbol srk ~name:"K" `TyInt) in
         let left_closure =
-          mk_and srk [Iter.closure_plus left; predicate]
-          |> reflexive_closure srk symbols
+          mk_and srk [Iter.exp srk tr_symbols left_counter left;
+                      mk_or srk [mk_eq srk (mk_real srk QQ.zero) left_counter;
+                                 predicate]]
         in
         let right_closure =
-          mk_and srk [Iter.closure_plus right; not_predicate]
-          |> reflexive_closure srk symbols
+          mk_and srk [Iter.exp srk tr_symbols right_counter right;
+                      mk_or srk [mk_eq srk (mk_real srk QQ.zero) right_counter;
+                                 not_predicate]]
         in
-        sequence srk symbols left_closure right_closure)
+        let left_right =
+          sequence srk tr_symbols left_closure right_closure
+        in
+        mk_and srk [left_right;
+                    mk_eq srk (mk_add srk [left_counter; right_counter]) loop_counter])
     |> BatList.of_enum
     |> mk_and srk
 
-  let join split_iter split_iter' =
+  let join srk tr_symbols split_iter split_iter' =
     let f _ a b = match a,b with
       | Some (a_left, a_right), Some (b_left, b_right) ->
-        Some (Iter.join a_left b_left, Iter.join a_right b_right)
+        Some (Iter.join srk tr_symbols a_left b_left,
+              Iter.join srk tr_symbols a_right b_right)
       | _, _ -> None
     in
-    let split_join = Expr.Map.merge f split_iter.split split_iter'.split in
+    let split_join = Expr.Map.merge f split_iter split_iter' in
     if Expr.Map.is_empty split_join then
-      lift_split
-        split_iter.srk
-        (Iter.join (lower_split split_iter) (lower_split split_iter))
+      lift_split srk tr_symbols
+        (Iter.join srk tr_symbols
+           (lower_split srk tr_symbols split_iter)
+           (lower_split srk tr_symbols split_iter'))
     else
-      { srk = split_iter.srk;
-        split = split_join }
+      split_join
 
-  let widen split_iter split_iter' =
+  let widen srk tr_symbols split_iter split_iter' =
     let f _ a b = match a,b with
       | Some (a_left, a_right), Some (b_left, b_right) ->
-        Some (Iter.widen a_left b_left, Iter.widen a_right b_right)
+        Some (Iter.widen srk tr_symbols a_left b_left,
+              Iter.widen srk tr_symbols a_right b_right)
       | _, _ -> None
     in
-    let split_widen = Expr.Map.merge f split_iter.split split_iter'.split in
+    let split_widen = Expr.Map.merge f split_iter split_iter' in
     if Expr.Map.is_empty split_widen then
-      lift_split
-        split_iter.srk
-        (Iter.widen (lower_split split_iter) (lower_split split_iter))
+      lift_split srk tr_symbols
+        (Iter.widen srk tr_symbols
+           (lower_split srk tr_symbols split_iter)
+           (lower_split srk tr_symbols split_iter))
     else
-      { srk = split_iter.srk;
-        split = split_widen }
+      split_widen
 
-  let equal split_iter split_iter' =
+  let equal srk tr_symbols split_iter split_iter' =
     BatEnum.for_all
       (fun ((p,(l,r)), (p',(l',r'))) ->
          Formula.equal p p'
-         && Iter.equal l l'
-         && Iter.equal r r')
+         && Iter.equal srk tr_symbols l l'
+         && Iter.equal srk tr_symbols r r')
       (BatEnum.combine
-         (Expr.Map.enum split_iter.split,
-          Expr.Map.enum split_iter'.split))
+         (Expr.Map.enum split_iter,
+          Expr.Map.enum split_iter'))
 end
 
-module Sum (A : PreDomain) (B : PreDomain) = struct
-  type 'a t = Left of 'a A.t | Right of 'a B.t
-  let pp formatter = function
-    | Left a -> A.pp formatter a
-    | Right b -> B.pp formatter b
-  let show = function
-    | Left a -> A.show a
-    | Right b -> B.show b
-  let left a = Left a
-  let right b = Right b
-  let closure = function
-    | Left a -> A.closure a
-    | Right b -> B.closure b
-  let join x y = match x,y with
-    | Left x, Left y -> Left (A.join x y)
-    | Right x, Right y -> Right (B.join x y)
-    | _, _ -> invalid_arg "Join: incompatible elements"
-  let widen x y = match x,y with
-    | Left x, Left y -> Left (A.widen x y)
-    | Right x, Right y -> Right (B.widen x y)
-    | _, _ -> invalid_arg "Widen: incompatible elements"
-  let equal x y = match x,y with
-    | Left x, Left y -> A.equal x y
-    | Right x, Right y -> B.equal x y
-    | _, _ -> invalid_arg "Equal: incompatible elements"
-  let tr_symbols = function
-    | Left x -> A.tr_symbols x
-    | Right x -> B.tr_symbols x
+module MakeDomain (Iter : PreDomain) = struct
+  type 'a t =
+    { srk : 'a context;
+      tr_symbols : (symbol * symbol) list;
+      iter : 'a Iter.t }
+
+  let equal iter iter' =
+    let srk = iter.srk in
+    let tr_symbols = iter.tr_symbols in
+    assert(iter.tr_symbols = iter'.tr_symbols);
+    Iter.equal srk tr_symbols iter.iter iter'.iter
+
+  let join iter iter' =
+    let srk = iter.srk in
+    let tr_symbols = iter.tr_symbols in
+    assert(iter.tr_symbols = iter'.tr_symbols);
+    let iter = Iter.join srk tr_symbols iter.iter iter'.iter in
+    { srk; tr_symbols; iter }
+
+  let widen iter iter' =
+    let srk = iter.srk in
+    let tr_symbols = iter.tr_symbols in
+    assert(iter.tr_symbols = iter'.tr_symbols);
+    let iter = Iter.widen srk tr_symbols iter.iter iter'.iter in
+    { srk; tr_symbols; iter }
+
+  let pp formatter iter =
+    Format.fprintf formatter "{@[<v 1>%a@]}"
+      (Iter.pp iter.srk iter.tr_symbols) iter.iter
+
+  let closure iter =
+    let srk = iter.srk in
+    let loop_counter_sym = mk_symbol srk ~name:"K" `TyInt in
+    let loop_counter = mk_const srk loop_counter_sym in
+    mk_and srk [Iter.exp iter.srk iter.tr_symbols loop_counter iter.iter;
+                mk_leq srk (mk_real srk QQ.zero) loop_counter]
+
+  let abstract ?(exists=fun x -> true) srk tr_symbols body =
+    let iter = Iter.abstract ~exists srk tr_symbols body in
+    { srk; tr_symbols; iter }
+
+  let tr_symbols iter = iter.tr_symbols
+end
+
+module ProductWedge (A : PreDomainWedge) (B : PreDomainWedge) = struct
+  include Product(A)(B)
+
+  let abstract_wedge srk tr_symbols wedge =
+    (A.abstract_wedge srk tr_symbols wedge,
+     B.abstract_wedge srk tr_symbols wedge)
+
+  let abstract ?(exists=fun x -> true) srk tr_symbols phi =
+    let post_symbols = post_symbols tr_symbols in
+    let subterm x = not (Symbol.Set.mem x post_symbols) in
+    let wedge = Wedge.abstract ~exists ~subterm srk phi in
+    abstract_wedge srk tr_symbols wedge
+end
+
+module SumWedge (A : PreDomainWedge) (B : PreDomainWedge) () = struct
+  include Sum(A)(B)()
+
+  let abstract_wedge srk tr_symbols wedge =
+    if !abstract_left then
+      Left (A.abstract_wedge srk tr_symbols wedge)
+    else
+      Right (B.abstract_wedge srk tr_symbols wedge)
 end
 
 module Vas : DomainPlus = struct

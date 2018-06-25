@@ -85,7 +85,7 @@ include Make(struct let name = "default" end)
 let debug_formatter =
   let chan = stdout in
   let out buf pos len =
-    if !debug_mode then output chan buf pos len
+    if !debug_mode then output_substring chan buf pos len
     else ()
   in
   let flush () = flush chan in

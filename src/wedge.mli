@@ -92,7 +92,7 @@ val coordinate_system : 'a t -> 'a CoordinateSystem.t
 
 val polyhedron : 'a t -> ([ `Eq | `Geq ] * Linear.QQVector.t) list
 
-val vanishing_ideal : 'a t -> Polynomial.Mvp.t list
+val vanishing_ideal : 'a t -> Polynomial.QQXs.t list
 
 val copy : 'a t -> 'a t
 
