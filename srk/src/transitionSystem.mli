@@ -48,8 +48,9 @@ module Make
   (** Crate an empty transition system. *)
   val empty : t
 
-  (** Create a query structure. *)
-  val mk_query : t -> query
+  (** Create a query structure.  The optional [delay] parameter specifies the
+      widening delay to use during summary computation. *)
+  val mk_query : ?delay:int -> t -> query
 
   (** Over-approximate the sum of the weights of all paths between two given
       vertices.  *)
@@ -64,6 +65,7 @@ module Make
       read or written to by the loop. *)
   val forward_invariants : t -> vertex -> (vertex * C.t formula) list
 
+  val forward_invariants_pa : C.t formula list -> t -> vertex -> (vertex * C.t formula) list
   (** Simplify a transition system by contracting vertices that do not satisfy
       the given predicate.  Simplification does not guarantee that all such
       vertices are contracted.  In particular, simplification will not

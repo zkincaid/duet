@@ -52,7 +52,7 @@ module MemLoc = struct
   module Elt = struct
     type t = memloc [@@deriving ord]
     let pp formatter (base, offset) = match offset with
-      | OffsetFixed 0 -> MemBase.pp formatter base
+      | OffsetNone -> MemBase.pp formatter base
       | _ ->
         Format.fprintf formatter "%a.%a"
           MemBase.pp base
@@ -144,7 +144,7 @@ module SimpleAP = struct
   include Elt
   module Set = Putil.Set.Make(Elt)
   let deref = function
-    | Lvl0 xv -> Lvl1 (xv, OffsetFixed 0)
+    | Lvl0 xv -> Lvl1 (xv, OffsetNone)
     | Lvl1 (_, _) -> failwith "Cannot dereference Lvl1 AP"
 end
 
@@ -198,6 +198,7 @@ module E = MakeEval(
     let change_offset f =
       let change = function
         | (rhs, OffsetFixed off) -> (rhs, f off)
+        | (rhs, OffsetNone) -> (rhs, f 0)
         | x -> x
       in
       SimpleRhs.Set.map change
@@ -221,8 +222,8 @@ let rec simplify_ap = function
             (* *(&var + offset) = var[offset] *)
             SimpleAP.Set.add (Lvl0 (var, offset)) set
           | RStr _ -> set (* (I /think/) it's safe to discard string RHSs,
-                             			       since constant strings are immutable (so once
-                             			       it is derefed it can't point to anything) *)
+                             since constant strings are immutable (so once it
+                             is derefed it can't point to anything) *)
         in
         SimpleRhs.Set.fold add set SimpleAP.Set.empty
     end

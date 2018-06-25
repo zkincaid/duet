@@ -1,5 +1,5 @@
 # OASIS_START
-# DO NOT EDIT (digest: 4387437b647f200cf5480b3f28ead39b)
+# DO NOT EDIT (digest: 26bc3d6721d0636a2fcb1f973767214b)
 # Ignore VCS directories, you can use the same kind of rule outside
 # OASIS_START/STOP if you want to exclude directories that contains
 # useless stuff for the build process
@@ -27,8 +27,10 @@ true: annot, bin_annot
 "srk/src/interval.cmx": for-pack(Srk)
 "srk/src/smt.cmx": for-pack(Srk)
 "srk/src/srkZ3.cmx": for-pack(Srk)
+"srk/src/ring.cmx": for-pack(Srk)
 "srk/src/linear.cmx": for-pack(Srk)
 "srk/src/polynomial.cmx": for-pack(Srk)
+"srk/src/expPolynomial.cmx": for-pack(Srk)
 "srk/src/interpretation.cmx": for-pack(Srk)
 "srk/src/srkApron.cmx": for-pack(Srk)
 "srk/src/polyhedron.cmx": for-pack(Srk)
@@ -41,24 +43,44 @@ true: annot, bin_annot
 "srk/src/iteration.cmx": for-pack(Srk)
 "srk/src/transition.cmx": for-pack(Srk)
 "srk/src/bigO.cmx": for-pack(Srk)
+"srk/src/pathexpr.cmx": for-pack(Srk)
 "srk/src/weightedGraph.cmx": for-pack(Srk)
+"srk/src/transitionSystem.cmx": for-pack(Srk)
 <srk/src/*.ml{,i,y}>: pkg_ocamlgraph
 <srk/src/*.ml{,i,y}>: pkg_ppx_deriving.show
 # Executable test_srk
-"srk/src/test_srk.native": pkg_Z3
-"srk/src/test_srk.native": pkg_apron
-"srk/src/test_srk.native": pkg_apron.boxMPQ
-"srk/src/test_srk.native": pkg_apron.octMPQ
-"srk/src/test_srk.native": pkg_apron.polkaMPQ
-"srk/src/test_srk.native": pkg_batteries
-"srk/src/test_srk.native": pkg_camlidl
-"srk/src/test_srk.native": pkg_gmp
-"srk/src/test_srk.native": pkg_ntl
-"srk/src/test_srk.native": pkg_oUnit
-"srk/src/test_srk.native": pkg_ocrs
-"srk/src/test_srk.native": pkg_ppx_deriving
-"srk/src/test_srk.native": pkg_ppx_deriving.ord
-<srk/src/*.ml{,i,y}>: pkg_oUnit
+"srk/test/test_srk.native": pkg_Z3
+"srk/test/test_srk.native": pkg_apron
+"srk/test/test_srk.native": pkg_apron.boxMPQ
+"srk/test/test_srk.native": pkg_apron.octMPQ
+"srk/test/test_srk.native": pkg_apron.polkaMPQ
+"srk/test/test_srk.native": pkg_batteries
+"srk/test/test_srk.native": pkg_camlidl
+"srk/test/test_srk.native": pkg_gmp
+"srk/test/test_srk.native": pkg_ntl
+"srk/test/test_srk.native": pkg_oUnit
+"srk/test/test_srk.native": pkg_ocamlgraph
+"srk/test/test_srk.native": pkg_ocrs
+"srk/test/test_srk.native": pkg_ppx_deriving
+"srk/test/test_srk.native": pkg_ppx_deriving.ord
+"srk/test/test_srk.native": pkg_ppx_deriving.show
+"srk/test/test_srk.native": use_srk
+<srk/test/*.ml{,i,y}>: pkg_Z3
+<srk/test/*.ml{,i,y}>: pkg_apron
+<srk/test/*.ml{,i,y}>: pkg_apron.boxMPQ
+<srk/test/*.ml{,i,y}>: pkg_apron.octMPQ
+<srk/test/*.ml{,i,y}>: pkg_apron.polkaMPQ
+<srk/test/*.ml{,i,y}>: pkg_batteries
+<srk/test/*.ml{,i,y}>: pkg_camlidl
+<srk/test/*.ml{,i,y}>: pkg_gmp
+<srk/test/*.ml{,i,y}>: pkg_ntl
+<srk/test/*.ml{,i,y}>: pkg_oUnit
+<srk/test/*.ml{,i,y}>: pkg_ocamlgraph
+<srk/test/*.ml{,i,y}>: pkg_ocrs
+<srk/test/*.ml{,i,y}>: pkg_ppx_deriving
+<srk/test/*.ml{,i,y}>: pkg_ppx_deriving.ord
+<srk/test/*.ml{,i,y}>: pkg_ppx_deriving.show
+<srk/test/*.ml{,i,y}>: use_srk
 # Executable bigtop
 "srk/src/bigtop.native": pkg_Z3
 "srk/src/bigtop.native": pkg_apron
@@ -246,45 +268,6 @@ true: annot, bin_annot
 <duet/*.ml{,i,y}>: use_apak
 <duet/*.ml{,i,y}>: use_pa
 <duet/*.ml{,i,y}>: use_srk
-# Executable cca
-"cca/cca.native": pkg_Z3
-"cca/cca.native": pkg_apron
-"cca/cca.native": pkg_apron.boxMPQ
-"cca/cca.native": pkg_apron.octMPQ
-"cca/cca.native": pkg_apron.polkaMPQ
-"cca/cca.native": pkg_batteries
-"cca/cca.native": pkg_camlidl
-"cca/cca.native": pkg_cil
-"cca/cca.native": pkg_cil.default-features
-"cca/cca.native": pkg_gmp
-"cca/cca.native": pkg_ntl
-"cca/cca.native": pkg_ocamlgraph
-"cca/cca.native": pkg_ocrs
-"cca/cca.native": pkg_ppx_deriving
-"cca/cca.native": pkg_ppx_deriving.ord
-"cca/cca.native": pkg_ppx_deriving.show
-"cca/cca.native": use_apak
-"cca/cca.native": use_pa
-"cca/cca.native": use_srk
-<cca/*.ml{,i,y}>: pkg_Z3
-<cca/*.ml{,i,y}>: pkg_apron
-<cca/*.ml{,i,y}>: pkg_apron.boxMPQ
-<cca/*.ml{,i,y}>: pkg_apron.octMPQ
-<cca/*.ml{,i,y}>: pkg_apron.polkaMPQ
-<cca/*.ml{,i,y}>: pkg_batteries
-<cca/*.ml{,i,y}>: pkg_camlidl
-<cca/*.ml{,i,y}>: pkg_cil
-<cca/*.ml{,i,y}>: pkg_cil.default-features
-<cca/*.ml{,i,y}>: pkg_gmp
-<cca/*.ml{,i,y}>: pkg_ntl
-<cca/*.ml{,i,y}>: pkg_ocamlgraph
-<cca/*.ml{,i,y}>: pkg_ocrs
-<cca/*.ml{,i,y}>: pkg_ppx_deriving
-<cca/*.ml{,i,y}>: pkg_ppx_deriving.ord
-<cca/*.ml{,i,y}>: pkg_ppx_deriving.show
-<cca/*.ml{,i,y}>: use_apak
-<cca/*.ml{,i,y}>: use_pa
-<cca/*.ml{,i,y}>: use_srk
 # OASIS_STOP
 "lib": not_hygienic
 true: use_menhir

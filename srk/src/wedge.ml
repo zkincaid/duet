@@ -3,7 +3,7 @@ open BatPervasives
 
 module V = Linear.QQVector
 module Monomial = Polynomial.Monomial
-module P = Polynomial.Mvp
+module P = Polynomial.QQXs
 module Scalar = Apron.Scalar
 module Coeff = Apron.Coeff
 module Abstract0 = Apron.Abstract0
@@ -248,6 +248,14 @@ let bound_vec wedge vec =
 let bound_coordinate wedge coordinate =
     bound_vec wedge (V.of_term QQ.one coordinate)
 
+let bound_monomial wedge monomial =
+  BatEnum.fold (fun ivl (dim, power) ->
+      Interval.mul
+        ivl
+        (Interval.exp_const (bound_coordinate wedge dim) power))
+    (Interval.const QQ.one)
+    (Monomial.enum monomial)
+
 let bound_polynomial wedge polynomial =
   let (t, p) = P.split_linear ~const:CS.const_id polynomial in
   BatEnum.fold (fun ivl (coeff, monomial) ->
@@ -283,10 +291,11 @@ let affine_hull wedge =
 
 let polynomial_cone wedge =
   let open Lincons0 in
+  let cs = wedge.cs in
   BatArray.enum (Abstract0.to_lincons_array (get_manager ()) wedge.abstract)
   |> BatEnum.filter_map (fun lcons ->
       match lcons.typ with
-      | SUPEQ | SUP -> Some (poly_of_vec (vec_of_linexpr wedge.env lcons.linexpr0))
+      | SUPEQ | SUP -> Some (CS.polynomial_of_vec cs (vec_of_linexpr wedge.env lcons.linexpr0))
       | _ -> None)
   |> BatList.of_enum
 
@@ -645,7 +654,10 @@ let strengthen_products integrity rewrite wedge =
   let srk = wedge.srk in
   let zero = mk_real srk QQ.zero in
   let mk_geqz p = (* p >= 0 *)
-    mk_leq srk (mk_neg srk (CS.term_of_polynomial wedge.cs p)) zero
+    let p = Polynomial.Rewrite.reduce rewrite p in
+    (* mk_geq is only used on polynomials that originate from the polynomial
+       cone of the given wedge -- no need to track provenance. *)
+    mk_leq srk (CS.term_of_polynomial wedge.cs (P.negate p)) zero
   in
   let provenance_formula ps =
     List.map (fun p -> mk_eq srk (CS.term_of_polynomial cs p) zero) ps
@@ -681,9 +693,9 @@ let strengthen_products integrity rewrite wedge =
   in
   add_products (polynomial_cone wedge)
 
-(* Tighten integral dimensions.  No need for integrity constraints -- the
-   added constraints are valid in all linear models. *)
-let strengthen_integral wedge =
+(* Tighten integral dimensions.  No need for integrity constraints if
+   the solver supports integers, but real solver requires them. *)
+let strengthen_integral integrity wedge =
   let srk = wedge.srk in
   for id = 0 to CS.dim wedge.cs - 1 do
     match CS.type_of_id wedge.cs id with
@@ -693,17 +705,74 @@ let strengthen_integral wedge =
       begin
         match Interval.lower interval with
         | Some lo when QQ.to_zz lo = None ->
-          meet_atoms wedge [mk_leq srk (mk_real srk lo) term]
+           let lo = QQ.of_zz (QQ.ceiling lo) in
+           let bound = mk_leq srk (mk_real srk lo) term in
+           integrity (mk_or srk [mk_leq srk term (mk_real srk (QQ.sub lo QQ.one));
+                                 bound]);
+           meet_atoms wedge [bound]
         | _ -> ()
       end;
       begin
         match Interval.upper interval with
         | Some hi when QQ.to_zz hi = None ->
-          meet_atoms wedge [mk_leq srk term (mk_real srk hi)]
+           let hi = QQ.of_zz (QQ.floor hi) in
+           let bound = mk_leq srk term (mk_real srk hi) in
+           integrity (mk_or srk [mk_leq srk (mk_real srk (QQ.add hi QQ.one)) term;
+                                 bound]);
+           meet_atoms wedge [bound]
         | _ -> ()
       end
     | _ -> ()
   done
+
+let strengthen_cut integrity rewrite wedge =
+  let srk = wedge.srk in
+  let cs = wedge.cs in
+  let zero = mk_real srk QQ.zero in
+  polynomial_cone wedge
+  |> List.iter (fun p -> (* p(x) >= 0 *)
+      let (k, pmk) = P.pivot Polynomial.Monomial.one p in
+      let (c, m, q) = P.factor_gcd pmk in (* c*m(x)*q(x) + k >= 0 *)
+      let cm_ivl = Interval.mul (Interval.const c) (bound_monomial wedge m) in
+      match Interval.upper (Interval.div (Interval.const (QQ.negate k)) cm_ivl) with
+      | Some rhs when (Interval.is_positive cm_ivl
+                       && CS.type_of_polynomial cs q = `TyInt) ->
+        (* q(x) >= rhs *)
+        let minus_p =
+          CS.term_of_polynomial cs (P.negate p)
+        in
+        let (q, provenance) =
+          Polynomial.Rewrite.preduce rewrite q
+        in
+        begin match vec_of_poly q with
+          | Some q ->
+            let provenance_formulas =
+              List.map (fun p -> mk_eq srk (CS.term_of_polynomial cs p) zero) provenance
+            in
+            let precondition =
+              BatEnum.fold (fun pre (id, _) ->
+                  let ivl = bound_coordinate wedge id in
+                  let term = CS.term_of_coordinate cs id in
+                  let pre = match Interval.lower ivl with
+                    | Some lo -> (mk_leq srk (mk_real srk lo) term)::pre
+                    | None -> pre
+                  in
+                  match Interval.upper ivl with
+                  | Some hi -> (mk_leq srk term (mk_real srk hi))::pre
+                  | None -> pre)
+                ([mk_leq srk minus_p zero]@provenance_formulas)
+                (Monomial.enum m)
+            in
+            let bound = (* ceil(rhs) <= q(x) *)
+              mk_leq srk
+                (mk_real srk (QQ.of_zz (QQ.ceiling rhs)))
+                (CS.term_of_vec cs q)
+            in
+            integrity (mk_or srk [mk_not srk (mk_and srk precondition); bound]);
+            meet_atoms wedge [bound]
+          | None -> ()
+        end
+      | _ -> ())
 
 let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
   Nonlinear.ensure_symbols wedge.srk;
@@ -780,7 +849,7 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
         end;
         for j = 0 to CS.dim wedge.cs - 1 do
           match CS.destruct_coordinate wedge.cs j with
-          | `App (func, [b'; t]) when func = log->
+          | `App (func, [b'; t]) when func = log ->
             let (base_eq, base_eq_prov) =
               let (reduced, prov) =
                 P.sub (poly_of_vec b) (poly_of_vec b')
@@ -917,9 +986,10 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
     | _ -> ()
   done;
 
+  strengthen_cut integrity rewrite wedge;
   strengthen_intervals integrity wedge;
   strengthen_products integrity rewrite wedge;
-  strengthen_integral wedge;
+  strengthen_integral integrity wedge;
 
   ignore (equational_saturation ~integrity wedge);
   logf "After strengthen: %a" pp wedge
@@ -1608,7 +1678,11 @@ let symbolic_bounds wedge symbol =
 
 let is_sat srk phi =
   let phi = eliminate_ite srk phi in
-  let solver = Smt.mk_solver srk in
+  let phi =
+    SrkSimplify.simplify_terms srk phi
+    |> SrkZ3.simplify srk
+  in
+  let solver = Smt.mk_solver ~theory:"QF_LIRA" srk in
   let uninterp_phi =
     rewrite srk
       ~down:(nnf_rewriter srk)
@@ -1653,23 +1727,35 @@ let is_sat srk phi =
       match Interpretation.select_implicant model lin_phi with
       | None -> assert false
       | Some implicant ->
-        let constraints =
+        let cs = CS.mk_empty srk in
+        let constraint_partition =
           List.map replace_defs implicant
-          |> of_atoms srk
+          |> Polyhedron.of_implicant ~admit:true cs
+          |> Polyhedron.try_fourier_motzkin cs (fun _ -> false)
+          |> Polyhedron.implicant_of cs
+          |> SrkSimplify.partition_implicant
         in
-        strengthen ~integrity constraints;
-        if is_bottom constraints then
-          go ()
-        else
+        let is_sat constraints =
+          let wedge = of_atoms srk constraints in
+          strengthen ~integrity wedge;
+          not (is_bottom wedge)
+        in
+        if List.for_all is_sat constraint_partition then
           `Unknown
+        else
+          go ()
   in
-  go ()
+  if Symbol.Map.is_empty nonlinear then
+    Smt.Solver.check solver []
+  else
+    go ()
 
 let abstract ?exists:(p=fun x -> true) ?(subterm=fun x -> true) srk phi =
   let phi = eliminate_ite srk phi in
+  let phi = SrkSimplify.simplify_terms srk phi in
   logf "Abstracting formula@\n%a"
     (Formula.pp srk) phi;
-  let solver = Smt.mk_solver srk in
+  let solver = Smt.mk_solver ~theory:"QF_LIRA" srk in
   let uninterp_phi =
     rewrite srk
       ~down:(nnf_rewriter srk)
@@ -1772,7 +1858,7 @@ let symbolic_bounds_formula ?exists:(p=fun x -> true) srk phi symbol =
 
   let symbol_term = mk_const srk symbol in
   let subterm x = x != symbol in
-  let solver = Smt.mk_solver srk in
+  let solver = Smt.mk_solver ~theory:"QF_LIRA" srk in
   let uninterp_phi =
     rewrite srk
       ~down:(nnf_rewriter srk)

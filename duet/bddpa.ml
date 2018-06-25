@@ -149,7 +149,6 @@ let emit_program d =
   cat (x, none, y) <-- "x = y";
   cat (x, y, unknown) <-- (("x != " ^ none) &&& ("y != " ^ none));
 
-
   resolveField(x, y) <-- "x = y";
   emit (resolveField("_", unknown) ^ ".");
   emit (resolveField(unknown, "_") ^ ".");

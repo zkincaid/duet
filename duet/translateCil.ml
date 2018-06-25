@@ -40,6 +40,8 @@ class arrayAccessVisitor = object (self)
                             idx,
                             typeOfLval lv)),
                 offset)
+    | Var v, Index (Const k, NoOffset) ->
+      DoChildren
     | Var v, Index (idx, offset) ->
       ChangeTo (Mem (BinOp (PlusPI,
                             Cil.mkAddrOf (Var v, NoOffset),
@@ -735,20 +737,9 @@ let parse filename =
     logf ~level:`trace "  Destination: %s" preprocessed;
     (* "preprocessed" is a fresh name where we can store the preprocessed
        file *)
-    let library_path =
-      if !CmdLine.library_path = "" then ""
-      else begin
-        logf ~level:`trace "  Using library: %s" !CmdLine.library_path;
-        " -I" ^ !CmdLine.library_path
-      end
-    in
-
-    logf ~level:`trace "Preprocessing:@\n  Library path: %s@\n  Destination: %s"
-      library_path
-      preprocessed;
 
     let pp_cmd =
-      Printf.sprintf "gcc %s -E %s -o %s" library_path filename preprocessed
+      Printf.sprintf "gcc %s -E %s -o %s" !CmdLine.cflags filename preprocessed
     in
     ignore (Sys.command pp_cmd);
     let file = simplify (Frontc.parse preprocessed ()) in

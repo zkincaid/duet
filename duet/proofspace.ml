@@ -538,7 +538,7 @@ let mk_block_graph file =
       `Transition (Tr.assign (v, 0) (index_expr 0 expr))
     | Builtin (Fork (_, expr, _)) ->
       let func = match Aexpr.strip_casts expr with
-        | AddrOf (Variable (func, OffsetFixed 0)) -> func
+        | AddrOf (Variable (func, OffsetNone)) -> func
         | _ -> assert false
       in
       `Fork func

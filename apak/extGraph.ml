@@ -459,7 +459,7 @@ module Blocks = struct
 
   end
 
-  module BidirectionalMinimal(S:Set.S)(HM:HM) = struct
+  module BidirectionalMinimal(S:BatSet.S)(HM:HM) = struct
 
     type vertex = HM.key
 
