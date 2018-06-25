@@ -1843,7 +1843,7 @@ module Vas : DomainPlus = struct
     in
 
     let manager = Polka.manager_alloc_strict () in
-    let existsf pick =  (fun (x : symbol) -> List.mem x (List.fold_left (fun acc symb -> if exists (pick symb) then (pick symb) :: acc else acc) [] symbols)) in
+    let existsf pick =  (fun (x : symbol) -> if exists x then List.mem x (List.fold_left (fun acc symb -> (pick symb) :: acc) [] symbols) else false) in
     let pre = SrkApron.formula_of_property (Abstract.abstract ~exists:(existsf fst) srk manager body) in
     let post = SrkApron.formula_of_property (Abstract.abstract ~exists:(existsf snd) srk manager body) in
  
