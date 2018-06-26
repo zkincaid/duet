@@ -4,6 +4,17 @@
 open Syntax
 
 type 'a t
+
+val gamma : 'a context ->  'a t -> (symbol * symbol) list -> 'a formula
+
+val abstract : ?exists:(symbol -> bool) -> 
+  'a context ->
+  (symbol * symbol) list -> 
+  'a formula ->
+  'a t
+
+
+
 (*
 val pp : Format.formatter -> 'a t -> unit
 

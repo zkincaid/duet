@@ -3,6 +3,7 @@ open BatPervasives
 
 module V = Linear.QQVector
 module M = Linear.QQMatrix
+module Z = Linear.ZZVector
 module Monomial = Polynomial.Monomial
 module P = Polynomial.QQXs
 module Scalar = Apron.Scalar
@@ -16,7 +17,7 @@ module CS = CoordinateSystem
 module A = BatDynArray
 
 module IntSet = SrkUtil.Int.Set
-
+module H = Abstract
 include Log.Make(struct let name = "srk.mdvas" end)
 
 let qq_of_scalar = function
@@ -64,12 +65,16 @@ let copy_env env =
   { int_dim = A.copy env.int_dim;
     real_dim = A.copy env.real_dim }
 
+type transformer =
+  { a : Z.t;
+   b : V.t }
+        [@@deriving ord]
 
 module Transformer = struct
-  type t = { a : bool array;
-             b : V.t }
+  type t = transformer
         [@@deriving ord]
 end
+(* Consider changing a to bool vector *)
 
 module TSet = Set.Make(Transformer)
 
@@ -77,9 +82,107 @@ type vas = TSet.t
 
 type vas_abs = { v : vas; alpha : M.t list }
 
-type 'a t = Vas of vas_abs | Top
+type 'a t = Vas of vas_abs | Top | Bottom
+
+(*let linterm_swap (srk : 'a context) (term : 'a term) (map : (symbol, symbol) Hashtbl.t) : 'a term =
+  let alg = function
+    | `Real qq -> mk_real srk qq
+    | _ -> mk_real srk QQ.zero
+    (*| `App (func, args) -> `App (func, args)
+    | `Var (v, `TyInt) -> (v, TyInt)
+    | _ -> 
+    | `Add sum -> List.fold_left add zero sum
+    | `Mul sum -> List.fold_left mul (real QQ.one) sum
+    | `Binop (`Div, x, y) -> scalar_mul (QQ.inverse (nonzero_qq_of y)) x
+    | `Binop (`Mod, x, y) -> real (QQ.modulo (qq_of x) (nonzero_qq_of y))
+    | `Unop (`Floor, x) -> real (QQ.of_zz (QQ.floor (qq_of x)))
+    | `Unop (`Neg, x) -> negate x
+    | `Ite (_, _, _) -> raise Nonlinear*)
+  in
+  Term.eval srk alg term
+*)
+
+let coproduct srk v1 v2 : 'a t =
+  match v1, v2 with
+  | Top, _ | _, Top -> Top
+  | Bottom, v2 -> v2
+  | v1, Bottom -> v1
+  | _ -> assert false
 
 
+let post_map srk tr_symbols =
+  List.fold_left
+    (fun map (sym, sym') -> Symbol.Map.add sym (mk_const srk sym') map)
+    Symbol.Map.empty
+    tr_symbols
+
+let gamma srk vas tr_symbols : 'a formula =
+  match vas with
+  | Bottom -> mk_false srk
+  | Top -> mk_true srk
+  | Vas {v; alpha} ->
+    let pre_map = post_map srk (List.map (fun (x, x') -> (x', x)) tr_symbols) in
+    let preify = substitute_map srk pre_map in
+    let term_list  = List.map (fun matrix -> 
+        ((M.rowsi matrix)
+         /@ (fun (_, row) -> 
+            let term = Linear.of_linterm srk row in
+            (preify term, term)))
+        |> BatList.of_enum)
+        alpha
+        |> List.flatten
+    in
+   let gamma_transformer t : 'a formula =
+     BatList.mapi (fun ind (pre_term, post_term) -> 
+         mk_eq srk 
+           post_term 
+           (mk_add srk [(mk_mul srk [pre_term; mk_real srk (QQ.of_zz (Z.coeff ind t.a))]);
+                       mk_real srk (V.coeff ind t.b)]))
+       term_list
+     |> mk_and srk
+    in
+    mk_or srk (List.map gamma_transformer (TSet.elements v))
+
+
+
+let abstract ?(exists=fun x -> true) (srk : 'a context) (symbols : (symbol * symbol) list) (body : 'a formula)  =
+  let (x''s, x''_forms) = 
+    List.split (List.fold_left (fun acc (x, x') -> 
+        let x'' = (mk_symbol srk `TyReal) in
+        let x''_form = (mk_eq srk (mk_const srk x'') 
+                          (mk_sub srk (mk_const srk x') (mk_const srk x))) in
+        ((x'', x'), x''_form) :: acc) [] symbols) in
+  let postify = substitute_map srk (post_map srk x''s) in
+  let alpha_hat (imp : 'a formula) = 
+    let r = H.affine_hull srk imp (List.map (fun (x, x') -> x') symbols) in
+    let i' = H.affine_hull srk (mk_and srk (imp :: x''_forms)) (List.map (fun (x'', x') -> x'') x''s) in
+    let i = List.map postify i' in
+    let add_dim m b a term a' =
+      let (b', v) = V.pivot (Linear.const_dim) (Linear.linterm_of srk term) in
+      (M.add_row (M.nb_rows m) v m, V.add_term (QQ.negate b') (M.nb_rows m) b, Z.add_term a' (M.nb_rows m) a)
+    in
+    let f t = List.fold_left (fun (m, b, a) ele -> add_dim m b a ele t) in
+    let (m,b,a) = f ZZ.zero (f ZZ.one (M.zero, V.zero, Z.zero) i) r in
+    Vas {v=TSet.singleton {a;b}; alpha=[m]} (* CHANGE M TO TWO LISTS *)
+  in
+
+  let solver = Smt.mk_solver srk in
+
+  let rec go vas =
+    Log.errorf "Current VAS: %a" (Formula.pp srk) (gamma srk vas symbols);
+    Smt.Solver.add solver [mk_not srk (gamma srk vas symbols)];
+    match Smt.Solver.get_model solver with
+    | `Unsat -> vas
+    | `Unknown -> Top
+    | `Sat m ->
+      match Interpretation.select_implicant m body with
+      | None -> assert false
+      | Some imp ->
+        let alpha_v = alpha_hat (mk_and srk imp) in
+        go (coproduct srk vas alpha_v)
+  in
+  Smt.Solver.add solver [body];
+  go Bottom
 
 (*let dim_of_id cs env id =
   let intd = A.length env.int_dim in
