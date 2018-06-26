@@ -2240,19 +2240,14 @@ module Vas : Domain = struct
 end
 
 
-module Mdvaso : Domain = struct
+module Mdvaso  = struct
   include Interpretation
   include Smt
   module QQSet = Set.Make(QQ)
 
-  type 'a t = 'a Mdvas.t
   let equal s1 s2 = failwith "not here yet"
   let widen s1 s2 = failwith "not here yet"
   let join s1 s2 = failwith "not here yet"
   let pp s1 s2 = failwith "not here yet"
-  let closure p1 = failwith "not here yet"
-  let abstract  = failwith "not here yet"
-  let tr_symbols s1 = failwith "not here yet"
- 
 end
 
