@@ -1793,7 +1793,7 @@ module MaxPlus = struct
             | _, _ -> bounds)
           i_const_bound
           (0 -- (size - 1))
-        |> mk_and srk)
+        |> mk_or srk)
     |> BatList.of_enum
     |> mk_and srk
 
