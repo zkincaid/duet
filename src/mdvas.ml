@@ -68,21 +68,28 @@ let copy_env env =
 type transformer =
   { a : Z.t;
    b : V.t }
-        [@@deriving ord]
+        [@@deriving ord, show]
 
 module Transformer = struct
   type t = transformer
-        [@@deriving ord]
+        [@@deriving ord, show]
 end
 (* Consider changing a to bool vector *)
 
-module TSet = Set.Make(Transformer)
+module TSet = BatSet.Make(Transformer)
 
 type vas = TSet.t
 
-type vas_abs = { v : vas; alpha : M.t list }
+let pp_vas formatter (vas : vas) : unit =
+  SrkUtil.pp_print_enum pp_transformer formatter (TSet.enum vas)  
 
-type 'a t = Vas of vas_abs | Top | Bottom
+type vas_abs = { v : vas; alphas : M.t list }
+[@@deriving show]
+
+type vas_abs_lift = Vas of vas_abs | Top | Bottom
+[@@deriving show]
+
+type 'a t = vas_abs_lift
 
 (*let linterm_swap (srk : 'a context) (term : 'a term) (map : (symbol, symbol) Hashtbl.t) : 'a term =
   let alg = function
@@ -102,12 +109,80 @@ type 'a t = Vas of vas_abs | Top | Bottom
   Term.eval srk alg term
 *)
 
-let coproduct srk v1 v2 : 'a t =
-  match v1, v2 with
+
+let unify (alphas : M.t list) : M.t =
+  (*let rows, unified =
+    List.fold_left (fun (rows, unified) alpha ->
+      let rows', unified' = M.row_set alpha, M.add unified alpha in
+      assert (SrkUtil.Int.Set.is_empty (SrkUtil.Int.Set.inter rows rows'));
+      SrkUtil.Int.Set.union rows' rows, unified) (SrkUtil.Int.Set.empty, M.zero) alphas
+  in*)
+  let unified = List.fold_left (fun matrix alphacell -> 
+      BatEnum.fold (fun matrix (dim, vector) ->
+          M.add_row (M.nb_rows matrix) vector matrix) 
+        matrix 
+        (M.rowsi alphacell))
+      M.zero alphas in
+  unified 
+
+(*let find_equiv_class_element morphism s row =
+  let s' = unify s in
+  let (v, m) = M.pivot row s' in
+  match BatEnum.get (V.enum v) with
+  | Some (scalar, dim) -> dim
+  | None -> assert false
+*)
+
+let coproduct srk vabs1 vabs2 : 'a t =
+  match vabs1, vabs2 with
   | Top, _ | _, Top -> Top
-  | Bottom, v2 -> v2
-  | v1, Bottom -> v1
-  | _ -> assert false
+  | Bottom, vabs2 -> Log.errorf "Current VABS: %a" pp_vas_abs_lift vabs2;
+    vabs2
+  | vabs1, Bottom -> Log.errorf "Current VABS: %a" pp_vas_abs_lift vabs1;
+    vabs1
+  | Vas vabs1, Vas vabs2 ->
+    let (v1, v2, alpha1, alpha2) = (vabs1.v, vabs2.v, vabs1.alphas, vabs2.alphas) in
+    let s1, s2, alphas =
+      List.fold_left (fun (s1, s2, alpha) alphalist1 -> 
+        let s1', s2', alpha' = 
+          (List.fold_left (fun (s1', s2', alpha') alphalist2 ->
+            let (c, d) = Linear.intersect_rowspace alphalist1 alphalist2 in
+            if M.equal c M.zero then (s1', s2', alpha') else (c :: s1', d :: s2', (M.mul c alphalist1) :: alpha'))
+              ([], [], []) alpha2) in
+        List.append s1' s1, List.append s2' s2, List.append alpha' alpha)
+        ([], [], []) alpha1
+    in
+    
+    let transformer_image (t : transformer) unified_morphism : transformer =
+      let a, b = t.a, t.b in
+      let b' = M.vector_right_mul (unified_morphism) b in
+      Log.errorf "Current ALPHA: %a" M.pp (unified_morphism);
+       Log.errorf "Current B: %a" V.pp b;
+      Log.errorf "Current B': %a" V.pp b';
+      let a' = BatEnum.fold (fun vector (dim', row) ->
+          let dim = match BatEnum.get (V.enum row) with
+            | None -> assert false
+            | Some (scalar, dim) -> dim
+          in
+          Z.add_term 
+            (Z.coeff dim a)
+            dim'
+            vector
+        )
+          Z.zero
+          (M.rowsi (unified_morphism)) (* Make a function that just computes all unified reps once *)
+      in
+      let t = {a=a'; b=b'} in
+      Log.errorf "Current transofmr: %a" pp_transformer t;
+      t
+    in
+    let ti_fun vas uni_m = TSet.fold (fun ele acc -> 
+        TSet.add (transformer_image ele uni_m) acc) vas TSet.empty in
+    let v = TSet.union (ti_fun v1 (unify s1)) (ti_fun v2 (unify s2)) in (* Should just put top if no transformers, bottom if conflicting *)
+    let vabs = Vas {v; alphas} in
+    Log.errorf "Current VABS: %a" pp_vas_abs_lift vabs;
+    vabs
+
 
 
 let post_map srk tr_symbols =
@@ -120,7 +195,7 @@ let gamma srk vas tr_symbols : 'a formula =
   match vas with
   | Bottom -> mk_false srk
   | Top -> mk_true srk
-  | Vas {v; alpha} ->
+  | Vas {v; alphas} ->
     let pre_map = post_map srk (List.map (fun (x, x') -> (x', x)) tr_symbols) in
     let preify = substitute_map srk pre_map in
     let term_list  = List.map (fun matrix -> 
@@ -129,7 +204,7 @@ let gamma srk vas tr_symbols : 'a formula =
             let term = Linear.of_linterm srk row in
             (preify term, term)))
         |> BatList.of_enum)
-        alpha
+        alphas
         |> List.flatten
     in
    let gamma_transformer t : 'a formula =
@@ -157,18 +232,24 @@ let abstract ?(exists=fun x -> true) (srk : 'a context) (symbols : (symbol * sym
     let r = H.affine_hull srk imp (List.map (fun (x, x') -> x') symbols) in
     let i' = H.affine_hull srk (mk_and srk (imp :: x''_forms)) (List.map (fun (x'', x') -> x'') x''s) in
     let i = List.map postify i' in
-    let add_dim m b a term a' =
+    let add_dim m b a term a' offset =
       let (b', v) = V.pivot (Linear.const_dim) (Linear.linterm_of srk term) in
-      (M.add_row (M.nb_rows m) v m, V.add_term (QQ.negate b') (M.nb_rows m) b, Z.add_term a' (M.nb_rows m) a)
+      (M.add_row (offset + (M.nb_rows m)) v m, V.add_term (QQ.negate b') (offset + (M.nb_rows m)) b, Z.add_term a' (offset + (M.nb_rows m)) a)
     in
-    let f t = List.fold_left (fun (m, b, a) ele -> add_dim m b a ele t) in
-    let (m,b,a) = f ZZ.zero (f ZZ.one (M.zero, V.zero, Z.zero) i) r in
-    Vas {v=TSet.singleton {a;b}; alpha=[m]} (* CHANGE M TO TWO LISTS *)
+    let f t offset = List.fold_left (fun (m, b, a) ele -> add_dim m b a ele t offset) in
+    let (mi,b,a) = f ZZ.one 0 (M.zero, V.zero, Z.zero) i in
+    let (mr, b, a) = f ZZ.zero (M.nb_rows mi) (M.zero, b, a) r in
+    match M.equal mi (M.zero), M.equal mr (M.zero) with
+    | true, true -> Top
+    | false, true -> Vas {v=TSet.singleton {a;b}; alphas=[mi]}
+    | true, false ->  Vas {v=TSet.singleton {a;b}; alphas=[mr]} 
+    | false, false -> Vas {v=TSet.singleton {a;b}; alphas=[mi;mr]} (* CHANGE M TO TWO LISTS *)
   in
 
   let solver = Smt.mk_solver srk in
 
-  let rec go vas =
+  let rec go vas count =
+    assert (count > 0);
     Log.errorf "Current VAS: %a" (Formula.pp srk) (gamma srk vas symbols);
     Smt.Solver.add solver [mk_not srk (gamma srk vas symbols)];
     match Smt.Solver.get_model solver with
@@ -179,10 +260,11 @@ let abstract ?(exists=fun x -> true) (srk : 'a context) (symbols : (symbol * sym
       | None -> assert false
       | Some imp ->
         let alpha_v = alpha_hat (mk_and srk imp) in
-        go (coproduct srk vas alpha_v)
+        if alpha_v = Top then Top else
+          go (coproduct srk vas alpha_v) (count - 1)
   in
   Smt.Solver.add solver [body];
-  go Bottom
+  go Bottom 20
 
 (*let dim_of_id cs env id =
   let intd = A.length env.int_dim in
