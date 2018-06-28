@@ -694,6 +694,10 @@ let _ =
      Arg.Clear K.SPGMaxPlus.abstract_left,
      " Use max-plus recurrences");
   CmdLine.register_config
+    ("-cra-mprs-verbose",
+     Arg.Set Mprs.verbose,
+     " Output max-plus recurrences in plain text format");
+  CmdLine.register_config
     ("-dump-goals",
      Arg.Set dump_goals,
      " Output goal assertions in SMTLIB2 format")
