@@ -36,6 +36,8 @@ val maxPlusMatrixTest : weight array array -> weight array array * weight array 
 val minPlusMatrixTest : weight array array -> weight array array * weight array array
 val maxPlusMatrixVectorTest : weight array array -> weight array -> (weight array array * weight array) * (weight array array * weight array)
 val minPlusMatrixVectorTest : weight array array -> weight array -> (weight array array * weight array) * (weight array array * weight array)
+
+val verbose : bool ref
 (* -------------------------------------------------------------------- *)
 
 (* The remainder of this file gives the main interface functions of MPRS: *)
