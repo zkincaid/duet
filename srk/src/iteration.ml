@@ -1684,6 +1684,21 @@ module MaxPlus = struct
       max_plus != [] (* Trivial *)
       && Smt.entails srk phi (max_plus_formula s max_plus) = `Yes
     in
+    let pre_symbols = pre_symbols tr_symbols in
+    let post_symbols = post_symbols tr_symbols in
+    let constant_symbols =
+      Symbol.Set.filter (fun x ->
+          exists x
+          && not (Symbol.Set.mem x pre_symbols)
+          && not (Symbol.Set.mem x post_symbols))
+        (symbols phi)
+      |> Symbol.Set.elements
+      |> List.map (fun s ->
+          Log.errorf "Constant: %a" (pp_symbol srk) s;
+          (s,s))
+    in
+    let var_symbols = constant_symbols @ tr_symbols in
+
     (* For each post-state variable x', try to find a non-trivial max-plus equation
        x' = max(y1 + c1, ..., yn + cn) entailed by phi.
        First minimize (x'-yi) subject to phi to find the additive term ci, then
@@ -1693,7 +1708,7 @@ module MaxPlus = struct
           let objectives =
             List.map (fun (sym, _) ->
                 mk_sub srk (mk_const srk s') (mk_const srk sym))
-              tr_symbols
+              var_symbols
           in
           match SrkZ3.optimize_box ~context srk phi objectives with
           | `Sat boxes ->
@@ -1702,7 +1717,7 @@ module MaxPlus = struct
                   match Interval.lower box with
                   | Some lo -> (sym, lo)::mp
                   | _ -> mp)
-                tr_symbols
+                var_symbols
                 boxes
                 []
             in
@@ -1712,10 +1727,14 @@ module MaxPlus = struct
               map
           | _ -> map)
         Symbol.Map.empty
-        tr_symbols
+        var_symbols
     in
     let post_map = post_map tr_symbols in
-    let postify sym = Symbol.Map.find sym post_map in
+    let postify sym =
+      try Symbol.Map.find sym post_map
+      with Not_found -> (* constant symbol *)
+        sym
+    in
 
     (* For each max-plus equation x = max(y1+c1,...,yn+cn), drop the
        yi terms that don't satisfy a max-plus equation.  Drop the
