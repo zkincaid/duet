@@ -411,9 +411,15 @@ let solveForBoundingMatricesFromMatrixAndVector matrix vector =
         printMatrixAndVector matrix vector; printf "%!") else ();
     let augmented = augmentMatrix matrix vector in 
     let (slopes, intercepts) = solveForBoundingMatricesFromMatrix augmented in
-    if !verbose then (printf "~~~~~~MPRS RESULT(1/2): augmented slopes:\n";
-        printMatrix slopes; printf "~~~~~~MPRS RESULT(2/2): augmented intercepts:\n";
-        printMatrix intercepts; printf "~~MPRS done\n%!") else ();
+    if !verbose then (printf "~~~~~~MPRS RESULT(1/3): augmented slopes:\n";
+        printMatrix slopes; printf "~~~~~~MPRS RESULT(2/3): augmented intercepts:\n";
+        printMatrix intercepts; 
+        printf "~~~~~MPRS RESULT INEQUATIONS (3/3):\n";
+        let inequations = createInequations "K" alphabet slopes intercepts true in
+        (List.iter 
+            (fun ineq -> (printf "    %s\n" (Printing.stringifyInequation ineq))) 
+            (List.rev inequations));
+        printf "~~MPRS done\n%!") else ();
     (unaugmentMatrix slopes, unaugmentMatrix intercepts)
 ;;
 

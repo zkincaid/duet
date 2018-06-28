@@ -115,6 +115,12 @@ let matrixTests = [
      [| na;        na;    na    |];
     |] };
 
+    {name="modified-prelim-1"; matrix=[| 
+     [| (d 8);   na;    na  |];
+     [| (d 0); (d 1); (d 5) |];
+     [| (d 2); (d 5); (d 1) |];
+    |] };
+
 ];;
 
 let matrixVectorTests = [
