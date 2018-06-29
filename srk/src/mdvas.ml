@@ -133,6 +133,21 @@ let unify (alphas : M.t list) : M.t =
   | None -> assert false
 *)
 
+
+
+let exp srk tr_symbols loop_counter vabs =
+  match vabs with
+  | Top -> mk_true srk
+  | Bottom -> mk_false srk
+  | Vas {v; alphas} -> assert false
+
+
+let push_rows matrix first_row =
+  BatEnum.fold 
+    (fun matrix (dim', row) -> Log.errorf "I am almost done %d first %d added %d" dim' first_row (dim' + first_row); M.add_row (dim' + first_row) row matrix) 
+    M.zero 
+    (M.rowsi matrix)
+
 let coproduct srk vabs1 vabs2 : 'a t =
   match vabs1, vabs2 with
   | Top, _ | _, Top -> Top
@@ -142,21 +157,40 @@ let coproduct srk vabs1 vabs2 : 'a t =
     vabs1
   | Vas vabs1, Vas vabs2 ->
     let (v1, v2, alpha1, alpha2) = (vabs1.v, vabs2.v, vabs1.alphas, vabs2.alphas) in
+    Log.errorf "Am I going insane alpha %a" M.pp (unify alpha1);
+    let push_counter_1 = ref 0 in
     let s1, s2, alphas =
-      List.fold_left (fun (s1, s2, alpha) alphalist1 -> 
-        let s1', s2', alpha' = 
+      List.fold_left (fun (s1, s2, alphas) alphalist1 -> 
+          let push_counter_2 = ref 0 in
+          let s1', s2', alpha' = 
           (List.fold_left (fun (s1', s2', alpha') alphalist2 ->
-            let (c, d) = Linear.intersect_rowspace alphalist1 alphalist2 in
-            if M.equal c M.zero then (s1', s2', alpha') else (c :: s1', d :: s2', (M.mul c alphalist1) :: alpha'))
+               let alphalist1, alphalist2 = (push_rows alphalist1 !push_counter_1, push_rows alphalist2 !push_counter_2) in
+               let (c, d) = Linear.intersect_rowspace alphalist1 alphalist2 in
+               push_counter_2 := (M.nb_rows alphalist2) + !push_counter_2; (* THIS IS EXTREMELY UNSAFE.... it requires every row of a given alpha list to start at 0 and have no gaps *)
+               Log.errorf " Current alpha1 cell %a" M.pp alphalist1;
+               Log.errorf " Current alpha2 cell %a" M.pp alphalist2;
+               Log.errorf " Current C VAL %a" M.pp c;
+               Log.errorf " Current D VAL %a" M.pp d;
+               if M.equal c M.zero then (s1', s2', alpha') else (c :: s1', d :: s2', (M.mul c alphalist1) :: alpha'))
               ([], [], []) alpha2) in
-        List.append s1' s1, List.append s2' s2, List.append alpha' alpha)
+        push_counter_1 := (M.nb_rows alphalist1) + !push_counter_1; 
+        List.append s1' s1, List.append s2' s2, List.append alpha' alphas)
         ([], [], []) alpha1
     in
+
+
+    Log.errorf "TROLOLOLOLO";
+    List.map (fun x -> Log.errorf "THIS IS A MATRIX IN ALPHA1 %a" M.pp x; () ) alpha1;
+    List.map (fun x -> Log.errorf "THIS IS A MATRIX IN S1 %a" M.pp x; () ) s1;
+    List.map (fun x -> Log.errorf "THIS IS A MATRIX IN ALPHA PRIME %a" M.pp x; () ) alphas;
     
-    let transformer_image (t : transformer) unified_morphism : transformer =
+    let transformer_image (t : transformer) unified_morphism test : transformer =
       let a, b = t.a, t.b in
       let b' = M.vector_right_mul (unified_morphism) b in
-      Log.errorf "Current ALPHA: %a" M.pp (unified_morphism);
+      Log.errorf "Current Morphism: %a" M.pp (unified_morphism);
+      Log.errorf "Current alpha: %a" M.pp (unify alphas);
+      Log.errorf "Prev alpha : %a" M.pp (if test then unify vabs1.alphas else unify vabs2.alphas);
+      Log.errorf "TEST: %b" test;
        Log.errorf "Current B: %a" V.pp b;
       Log.errorf "Current B': %a" V.pp b';
       let a' = BatEnum.fold (fun vector (dim', row) ->
@@ -176,9 +210,9 @@ let coproduct srk vabs1 vabs2 : 'a t =
       Log.errorf "Current transofmr: %a" pp_transformer t;
       t
     in
-    let ti_fun vas uni_m = TSet.fold (fun ele acc -> 
-        TSet.add (transformer_image ele uni_m) acc) vas TSet.empty in
-    let v = TSet.union (ti_fun v1 (unify s1)) (ti_fun v2 (unify s2)) in (* Should just put top if no transformers, bottom if conflicting *)
+    let ti_fun vas uni_m test = TSet.fold (fun ele acc -> 
+        TSet.add (transformer_image ele uni_m test) acc) vas TSet.empty in
+    let v = TSet.union (ti_fun v1 (unify s1) true) (ti_fun v2 (unify s2) false) in (* Should just put top if no transformers, bottom if conflicting *)
     let vabs = Vas {v; alphas} in
     Log.errorf "Current VABS: %a" pp_vas_abs_lift vabs;
     vabs
@@ -234,7 +268,7 @@ let abstract ?(exists=fun x -> true) (srk : 'a context) (symbols : (symbol * sym
     let i = List.map postify i' in
     let add_dim m b a term a' offset =
       let (b', v) = V.pivot (Linear.const_dim) (Linear.linterm_of srk term) in
-      (M.add_row (offset + (M.nb_rows m)) v m, V.add_term (QQ.negate b') (offset + (M.nb_rows m)) b, Z.add_term a' (offset + (M.nb_rows m)) a)
+      (M.add_row ((*offset +*) (M.nb_rows m)) v m, V.add_term (QQ.negate b') (offset + (M.nb_rows m)) b, Z.add_term a' (offset + (M.nb_rows m)) a)
     in
     let f t offset = List.fold_left (fun (m, b, a) ele -> add_dim m b a ele t offset) in
     let (mi,b,a) = f ZZ.one 0 (M.zero, V.zero, Z.zero) i in
@@ -243,7 +277,7 @@ let abstract ?(exists=fun x -> true) (srk : 'a context) (symbols : (symbol * sym
     | true, true -> Top
     | false, true -> Vas {v=TSet.singleton {a;b}; alphas=[mi]}
     | true, false ->  Vas {v=TSet.singleton {a;b}; alphas=[mr]} 
-    | false, false -> Vas {v=TSet.singleton {a;b}; alphas=[mi;mr]} (* CHANGE M TO TWO LISTS *)
+    | false, false -> Vas {v=TSet.singleton {a;b}; alphas=[mi;mr]} (* Matrix 1 row 1 maps to first element a, first elemebt b *)
   in
 
   let solver = Smt.mk_solver srk in
@@ -251,6 +285,7 @@ let abstract ?(exists=fun x -> true) (srk : 'a context) (symbols : (symbol * sym
   let rec go vas count =
     assert (count > 0);
     Log.errorf "Current VAS: %a" (Formula.pp srk) (gamma srk vas symbols);
+    Log.errorf "___________________________";
     Smt.Solver.add solver [mk_not srk (gamma srk vas symbols)];
     match Smt.Solver.get_model solver with
     | `Unsat -> vas
@@ -260,7 +295,7 @@ let abstract ?(exists=fun x -> true) (srk : 'a context) (symbols : (symbol * sym
       | None -> assert false
       | Some imp ->
         let alpha_v = alpha_hat (mk_and srk imp) in
-        if alpha_v = Top then Top else
+        (*if alpha_v = Top then Top else*)
           go (coproduct srk vas alpha_v) (count - 1)
   in
   Smt.Solver.add solver [body];
