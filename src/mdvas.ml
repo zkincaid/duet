@@ -133,6 +133,15 @@ let unify (alphas : M.t list) : M.t =
   | None -> assert false
 *)
 
+let post_map srk tr_symbols =
+  List.fold_left
+    (fun map (sym, sym') -> Symbol.Map.add sym (mk_const srk sym') map)
+    Symbol.Map.empty
+    tr_symbols
+
+let preify srk tr_symbols = substitute_map srk (post_map srk (List.map (fun (x, x') -> (x', x)) tr_symbols))
+ 
+
 let create_exp_vars srk num_cells num_rows num_trans =
   let rec create_k_ints k vars =
     begin match k <= 0 with
@@ -162,16 +171,123 @@ let create_exp_positive_reqs srk kvarst =
 
 let exp_full_transitions_reqs srk kvarst rvarst loop_counter =
   mk_and srk  
-    (List.mapi 
-        (fun (ind : int) (kvart_stack : 'a Syntax.term list)  -> 
-          let here : 'a Syntax.formula =
-           mk_iff srk
+    (List.map2 
+        (fun kvart_stack rvarsti -> 
+          mk_iff srk
              (mk_eq srk
                 (mk_add srk kvart_stack)
                 loop_counter)
-             (mk_eq srk (List.nth rvarst ind) (mk_real srk (QQ.of_int (-1)))) 
-          in here)
-        kvarst)
+             (mk_eq srk rvarsti (mk_real srk (QQ.of_int (-1)))))
+        kvarst rvarst)
+
+let all_pairs_kvarst_rvarst kvarst (rvarst : 'a Syntax.term list) =
+  let rec helper1 (stack1, r1) kvarst' rvarst' =
+    begin match kvarst', rvarst' with
+    | [], [] -> []
+    | khd :: ktl, rhd :: rtl -> 
+        (stack1, r1, khd, rhd) :: (helper1 (stack1, r1) ktl rtl)
+    | _ -> assert false
+    end
+  in
+  let rec helper2 kvarst rvarst =
+    match kvarst, rvarst with
+    | [], [] -> []
+    | khd :: khdd :: ktl, rhd :: rhdd :: rtl ->
+        (helper1 (khd, rhd) (khdd :: ktl) (rhdd :: rtl)) :: (helper2 (khdd :: ktl) (rhdd :: rtl))
+    | _ -> assert false
+  in
+  List.flatten (helper2 kvarst rvarst)
+
+let exp_perm_constraints srk krpairs =
+  mk_and srk
+    (List.map 
+      (fun (k1, r1, k2, r2) -> 
+        let lessthan k1 k2 = mk_and srk 
+          (List.map2 (fun k1' k2' ->
+            mk_leq srk k1' k2') k1 k2)
+        in
+        mk_or srk [lessthan k1 k2;  lessthan k2 k1])
+      krpairs)
+
+let exp_equality_k_constraints srk krpairs =
+  mk_and srk
+    (List.map
+      (fun (k1, r1, k2, r2) ->
+        mk_iff srk
+          (mk_eq srk
+            (mk_add srk k1)
+            (mk_add srk k2))
+          (mk_eq srk r1 r2))
+      krpairs)
+
+let exp_other_reset srk kvarst kstack trans_num =
+  mk_and srk
+    (List.map (fun kstack' ->
+      (mk_if srk
+        (mk_lt srk
+          (mk_add srk kstack)
+          (mk_add srk kstack'))
+        (mk_leq srk
+          (mk_one srk)
+          (List.nth kstack' trans_num))))
+    kvarst)
+
+let exp_sx_constraints_helper srk ri kstack svarstdims transformers kvarst unialpha tr_symbols =
+  let compute_single_svars svart dim  =
+    mk_or srk
+      ((mk_and srk
+        [(mk_eq srk svart (preify srk tr_symbols (Linear.of_linterm srk (M.row dim unialpha)))); (*pivot or row? need to make sure alpha and dim both indexed same *)
+         (mk_eq srk ri (mk_real srk (QQ.of_int (-1))))]) ::
+      (BatList.of_enum (BatEnum.mapi 
+       (fun ind {a; b} ->
+         if ZZ.equal (Z.coeff dim a) ZZ.one 
+         then (mk_false srk)
+         else 
+           mk_and srk
+           [(mk_eq srk svart (mk_real srk (V.coeff dim b)));
+           exp_other_reset srk kvarst kstack ind;
+           (mk_eq srk ri (mk_real srk (QQ.of_int ind)))])
+       (TSet.enum transformers))))
+    in
+  mk_and srk (List.map (fun (svar,dim) -> compute_single_svars svar dim) svarstdims)
+
+let exp_sx_constraints srk equiv_pairs transformers kvarst unialpha tr_symbols =
+  mk_and srk
+    (List.map (fun (kstack, svarstdims, ri) ->
+      exp_sx_constraints_helper srk ri kstack svarstdims transformers kvarst unialpha tr_symbols)
+    equiv_pairs)
+
+
+let form_equiv_pairs srk kvarst svarst rvarst =
+  List.mapi (fun ind kvar -> (kvar, [(List.nth svarst ind, ind)], List.nth rvarst ind)) kvarst
+
+let exp_lin_term_trans_constraints srk equiv_pairs transformers unialpha =
+  mk_and srk
+    (List.map (fun (kstack, svarstdims, ri) ->
+      mk_and srk (* the lack of or worries me a bit here *)
+        (List.map (fun (svar, dim) ->
+          mk_eq srk
+            (Linear.of_linterm srk (M.row dim unialpha))
+            (mk_add srk
+              (svar :: 
+              (BatList.of_enum (BatEnum.mapi
+                (fun ind {a; b} ->
+                  mk_mul srk [(List.nth kstack ind); mk_real srk (V.coeff dim b)])
+                (TSet.enum transformers))))))
+        svarstdims))
+    equiv_pairs)
+
+let exp_k_zero_on_reset srk equiv_pairs transformers =
+  mk_and srk
+    (List.map (fun (kstack, svarstdims, ri) ->
+      let (svar, dim) = List.hd svarstdims in
+      mk_and srk
+       (BatList.of_enum (BatEnum.mapi
+         (fun ind {a; b} ->
+           if ZZ.equal (Z.coeff dim a) ZZ.zero then (mk_eq srk (List.nth kstack ind) (mk_zero srk))
+           else mk_true srk)
+         (TSet.enum transformers))))
+    equiv_pairs)
 
 let exp srk tr_symbols loop_counter vabs =
   match vabs with
@@ -182,12 +298,21 @@ let exp srk tr_symbols loop_counter vabs =
     let num_cells = num_rows in
     let num_trans = TSet.cardinal v in
     let kvars, svars, rvars = create_exp_vars srk num_cells num_rows num_trans in
-    let map_terms = fun (var : Syntax.symbol) -> mk_const srk var in
-    let kvarst : 'a Syntax.term list = List.map (fun (listvars : Syntax.symbol list) -> map_terms listvars) kvars in
-    let svarst, rvarst = map_terms svars, map_terms rvars in
+    let map_terms = List.map (fun (var : Syntax.symbol) -> mk_const srk var) in
+    let kvarst : 'a Syntax.term list list  = List.map (fun listvars -> map_terms listvars) kvars in
+    let svarst, rvarst  = map_terms svars, map_terms rvars in
     let pos_constraints = create_exp_positive_reqs srk ([loop_counter] :: kvarst) in
     let full_trans_constraints = exp_full_transitions_reqs srk kvarst rvarst loop_counter in
-    assert false
+    let krpairs : ('a Syntax.term list * 'a Syntax.term * 'a Syntax.term list * 'a Syntax.term) list = 
+      all_pairs_kvarst_rvarst kvarst rvarst in
+    let perm_constraints = exp_perm_constraints srk krpairs in
+    let reset_together_constraints = exp_equality_k_constraints srk krpairs in
+    let equiv_pairs = form_equiv_pairs srk kvarst svarst rvarst in
+    let sx_constraints = exp_sx_constraints srk equiv_pairs v kvarst (unify alphas) tr_symbols in
+    let base_constraints = exp_lin_term_trans_constraints srk equiv_pairs v (unify alphas) in
+    let eq_zero_constraints = exp_k_zero_on_reset srk equiv_pairs v in
+    mk_and srk [pos_constraints; full_trans_constraints; perm_constraints;
+     reset_together_constraints; sx_constraints; base_constraints; eq_zero_constraints]
 
 
 let push_rows matrix first_row =
@@ -267,24 +392,16 @@ let coproduct srk vabs1 vabs2 : 'a t =
 
 
 
-let post_map srk tr_symbols =
-  List.fold_left
-    (fun map (sym, sym') -> Symbol.Map.add sym (mk_const srk sym') map)
-    Symbol.Map.empty
-    tr_symbols
-
 let gamma srk vas tr_symbols : 'a formula =
   match vas with
   | Bottom -> mk_false srk
   | Top -> mk_true srk
   | Vas {v; alphas} ->
-    let pre_map = post_map srk (List.map (fun (x, x') -> (x', x)) tr_symbols) in
-    let preify = substitute_map srk pre_map in
-    let term_list  = List.map (fun matrix -> 
+       let term_list  = List.map (fun matrix -> 
         ((M.rowsi matrix)
          /@ (fun (_, row) -> 
             let term = Linear.of_linterm srk row in
-            (preify term, term)))
+            (preify srk tr_symbols term, term)))
         |> BatList.of_enum)
         alphas
         |> List.flatten
