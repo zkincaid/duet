@@ -133,13 +133,61 @@ let unify (alphas : M.t list) : M.t =
   | None -> assert false
 *)
 
+let create_exp_vars srk num_cells num_rows num_trans =
+  let rec create_k_ints k vars =
+    begin match k <= 0 with
+      | true -> []
+      | false -> create_k_ints (k - 1) ((mk_symbol srk `TyInt) :: vars)
+    end
+  in
+  let rec helper num_cells num_rows kvars svars rvars =
+    match num_cells <= 0, num_rows <= 0 with
+    | true, true -> kvars, svars, rvars
+    | false, false -> 
+      let kvars = (create_k_ints num_trans []) :: kvars in
+      let rvars = (mk_symbol srk `TyInt) :: rvars in
+      let svars = (mk_symbol srk `TyReal) :: svars in
+      helper (num_cells - 1) (num_rows - 1) kvars svars rvars
+    | true, false ->
+      let svars = (mk_symbol srk `TyReal) :: svars in
+      helper num_cells (num_rows - 1) kvars svars rvars
+    | false, true -> assert false
+  in
+  helper num_cells num_rows [] [] []
 
+let create_exp_positive_reqs srk kvarst =
+  mk_and srk (List.map (fun var -> 
+      mk_leq srk (mk_zero srk) var) 
+      (List.flatten kvarst))
+
+let exp_full_transitions_reqs srk kvarst rvarst loop_counter =
+  mk_and srk  
+    (List.mapi 
+        (fun (ind : int) (kvart_stack : 'a Syntax.term list)  -> 
+          let here : 'a Syntax.formula =
+           mk_iff srk
+             (mk_eq srk
+                (mk_add srk kvart_stack)
+                loop_counter)
+             (mk_eq srk (List.nth rvarst ind) (mk_real srk (QQ.of_int (-1)))) 
+          in here)
+        kvarst)
 
 let exp srk tr_symbols loop_counter vabs =
   match vabs with
   | Top -> mk_true srk
   | Bottom -> mk_false srk
-  | Vas {v; alphas} -> assert false
+  | Vas {v; alphas} -> 
+    let num_rows = List.fold_left (fun acc alpha -> (M.nb_rows alpha) + acc) 0 alphas in
+    let num_cells = num_rows in
+    let num_trans = TSet.cardinal v in
+    let kvars, svars, rvars = create_exp_vars srk num_cells num_rows num_trans in
+    let map_terms = fun (var : Syntax.symbol) -> mk_const srk var in
+    let kvarst : 'a Syntax.term list = List.map (fun (listvars : Syntax.symbol list) -> map_terms listvars) kvars in
+    let svarst, rvarst = map_terms svars, map_terms rvars in
+    let pos_constraints = create_exp_positive_reqs srk ([loop_counter] :: kvarst) in
+    let full_trans_constraints = exp_full_transitions_reqs srk kvarst rvarst loop_counter in
+    assert false
 
 
 let push_rows matrix first_row =
