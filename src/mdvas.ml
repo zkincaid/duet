@@ -112,6 +112,9 @@ let pp _ _ = pp_vas_abs_lift
 *)
 
 
+let time marker =
+    Printf.printf "Execution time at %s : %fs\n" marker (Sys.time());()
+
 let unify (alphas : M.t list) : M.t =
   (*let rows, unified =
     List.fold_left (fun (rows, unified) alpha ->
@@ -293,6 +296,7 @@ let exp_k_zero_on_reset srk equiv_pairs transformers =
     equiv_pairs)
 
 let exp srk tr_symbols loop_counter vabs =
+  time "ENTERED EXP";
   match vabs with
   | Top -> mk_true srk
   | Bottom -> mk_false srk
@@ -318,6 +322,7 @@ let exp srk tr_symbols loop_counter vabs =
       mk_and srk [pos_constraints; full_trans_constraints; perm_constraints;
                   reset_together_constraints; sx_constraints; base_constraints; eq_zero_constraints] in
     Log.errorf " Current D VAL %a" (Formula.pp srk) form;
+    time "LEFT EXP";
     form
 
 
@@ -404,6 +409,7 @@ let gamma srk vas tr_symbols : 'a formula =
 
 
 let abstract ?(exists=fun x -> true) (srk : 'a context) (symbols : (symbol * symbol) list) (body : 'a formula)  =
+  time "START OF ABSTRACT FUNCTION";
   let body = (rewrite srk ~down:(nnf_rewriter srk) body) in
   let (x''s, x''_forms) = 
     List.split (List.fold_left (fun acc (x, x') -> 
@@ -433,9 +439,10 @@ let abstract ?(exists=fun x -> true) (srk : 'a context) (symbols : (symbol * sym
   let solver = Smt.mk_solver srk in
 
   let rec go vas count =
+    time "ITERATOIN IN LOOP";
     assert (count > 0);
-    Log.errorf "Current VAS: %a" (Formula.pp srk) (gamma srk vas symbols);
-    Log.errorf "___________________________";
+    (*Log.errorf "Current VAS: %a" (Formula.pp srk) (gamma srk vas symbols);
+    Log.errorf "___________________________";*)
     Smt.Solver.add solver [mk_not srk (gamma srk vas symbols)];
     match Smt.Solver.get_model solver with
     | `Unsat -> vas
@@ -444,12 +451,18 @@ let abstract ?(exists=fun x -> true) (srk : 'a context) (symbols : (symbol * sym
       match Interpretation.select_implicant m body with
       | None -> assert false
       | Some imp ->
+        time "PRE ALPHA";
         let alpha_v = alpha_hat (mk_and srk imp) in
+        time "POST ALPHA";
         (*if alpha_v = Top then Top else*)
           go (coproduct srk vas alpha_v) (count - 1)
   in
   Smt.Solver.add solver [body];
-  go Bottom 20
+  time "START OF MAIN LOOP";
+  let result = go Bottom 20 in
+  time "END OF MAIN LOOP";
+  time "END OF ABSTRACT FUNCTION";
+  result
 
 
 
