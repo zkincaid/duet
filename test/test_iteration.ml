@@ -320,12 +320,12 @@ let single_path_test () =
   let tr_symbols = [(xsym,xsym');(ysym,ysym')] in
  let phi =
     let open Infix in
-    (*y' = (int 1) || y' = (int 10)*)
+    (y' = (int 1) && x' = x + (int 6)) || (y' = (int 10) && x' = x + (int 18)) || (y' = y + (int 5) && x' = (int 3))
     (*(y' = y + (int 1) && (x' = x + (int 1))) || ((y' = x) && x' = x + (int 1))*)
     (*(y' = y + (int 1) && (x' = x + (int 1))) || ((y' = x))*)
     (*y' = y + (int 1) && y' = y + (int 2)*)
     (*(y' = y + (int 1) && y' = (int 3)) || (y' = y + (int 4) && y' = (int 5))*)
-    (int 2) * x' + y' = (int 2) * x + y
+    (*(int 2) * x' + y' = (int 2) * x + y*)
   in
   let psi =
     let open Infix in
