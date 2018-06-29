@@ -405,6 +405,81 @@ module WedgeGuard = struct
       postcondition = Wedge.widen iter.postcondition iter'.postcondition }
 end
 
+module LinearRecurrenceInequation = struct
+  type 'a t = ('a term * [ `Geq | `Eq ] * QQ.t) list
+
+  let pp srk tr_symbols formatter lr =
+    Format.fprintf formatter "@[<v 0>";
+    lr |> List.iter (fun (t, op, k) ->
+        let opstring = match op with
+          | `Geq -> ">="
+          | `Eq -> "="
+        in
+        Format.fprintf formatter "%a %s %a@;" (Term.pp srk) t opstring QQ.pp k);
+    Format.fprintf formatter "@]"
+
+  let abstract ?(exists=fun x -> true) srk tr_symbols phi =
+    let delta =
+      List.map (fun (s,_) ->
+          let name = "delta_" ^ (show_symbol srk s) in
+          mk_symbol srk ~name (typ_symbol srk s))
+        tr_symbols
+    in
+    let delta_map =
+      List.fold_left2 (fun map delta (s,s') ->
+          Symbol.Map.add
+            delta
+            (mk_sub srk (mk_const srk s') (mk_const srk s))
+            map)
+        Symbol.Map.empty
+        delta
+        tr_symbols
+    in
+    let delta_polyhedron =
+      let man = Polka.manager_alloc_strict () in
+      let exists x = Symbol.Map.mem x delta_map in
+      let delta_constraints =
+        Symbol.Map.fold (fun s diff xs ->
+            (mk_eq srk (mk_const srk s) diff)::xs)
+          delta_map
+          []
+      in
+      Abstract.abstract ~exists srk man (mk_and srk (phi::delta_constraints))
+      |> SrkApron.formula_of_property
+    in
+    let constraint_of_atom atom =
+      match Formula.destruct srk atom with
+      | `Atom (op, s, t) ->
+        let t = V.sub (Linear.linterm_of srk t) (Linear.linterm_of srk s) in
+        let (k, t) = V.pivot Linear.const_dim t in
+        let term = substitute_map srk delta_map (Linear.of_linterm srk t) in
+        begin match op with
+          | `Leq | `Lt -> (term, `Geq, QQ.negate k)
+          | `Eq -> (term, `Eq, QQ.negate k)
+        end
+      | _ -> assert false
+    in
+    match Formula.destruct srk delta_polyhedron with
+      | `And xs -> List.map constraint_of_atom xs
+      | `Tru -> []
+      | `Fls -> [mk_real srk QQ.zero, `Eq, QQ.one]
+      | _ -> [constraint_of_atom delta_polyhedron]
+
+  let exp srk tr_symbols loop_counter lr =
+    List.map (fun (delta, op, c) ->
+        match op with
+        | `Eq ->
+          mk_eq srk (mk_mul srk [mk_real srk c; loop_counter]) delta
+        | `Geq ->
+          mk_leq srk (mk_mul srk [mk_real srk c; loop_counter]) delta)
+      lr
+    |> mk_and srk
+
+  let equal _ _ _ _ = failwith "Not yet implemented"
+  let join _ _ _ _ = failwith "Not yet implemented"
+  let widen _ _ _ _ = failwith "Not yet implemented"
+end
+
 module Recurrence = struct
   type matrix_rec =
     { rec_transform : QQ.t array array;
