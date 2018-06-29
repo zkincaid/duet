@@ -2315,14 +2315,11 @@ module Vas : Domain = struct
 end
 
 
-module Mdvaso  = struct
+module Mdvas  = struct
   include Interpretation
   include Smt
   module QQSet = Set.Make(QQ)
+  include Mdvas
 
-  let equal s1 s2 = failwith "not here yet"
-  let widen s1 s2 = failwith "not here yet"
-  let join s1 s2 = failwith "not here yet"
-  let pp s1 s2 = failwith "not here yet"
 end
 
