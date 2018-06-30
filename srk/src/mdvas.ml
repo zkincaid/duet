@@ -148,19 +148,19 @@ let preify srk tr_symbols = substitute_map srk (post_map srk (List.map (fun (x, 
  
 
 let create_exp_vars srk num_cells num_rows num_trans =
-  let rec create_k_ints k vars =
+  let rec create_k_ints k vars equiv_num =
     begin match k <= 0 with
       | true -> vars
-      | false -> create_k_ints (k - 1) ((mk_symbol srk `TyInt) :: vars)
+      | false -> create_k_ints (k - 1) ((mk_symbol srk ~name:("K"^equiv_num^","^(string_of_int k))`TyInt) :: vars) equiv_num
     end
   in
   let rec helper num_cells num_rows kvars svars rvars =
     match num_cells <= 0, num_rows <= 0 with
     | true, true -> kvars, svars, rvars
     | false, false -> 
-      let kvars = (create_k_ints num_trans []) :: kvars in
-      let rvars = (mk_symbol srk `TyInt) :: rvars in
-      let svars = (mk_symbol srk `TyReal) :: svars in
+      let kvars = (create_k_ints num_trans [] (string_of_int num_cells)) :: kvars in
+      let rvars = (mk_symbol srk ~name:("R"^(string_of_int num_cells)) `TyInt) :: rvars in
+      let svars = (mk_symbol srk ~name:("S"^(string_of_int num_rows)) `TyReal) :: svars in
       helper (num_cells - 1) (num_rows - 1) kvars svars rvars
     | true, false ->
       let svars = (mk_symbol srk `TyReal) :: svars in
@@ -461,6 +461,7 @@ let abstract ?(exists=fun x -> true) (srk : 'a context) (symbols : (symbol * sym
   time "START OF MAIN LOOP";
   let result = go Bottom 20 in
   time "END OF MAIN LOOP";
+  Log.errorf "Final VAS: %a"  (Formula.pp srk) (gamma srk result symbols);
   time "END OF ABSTRACT FUNCTION";
   result
 
