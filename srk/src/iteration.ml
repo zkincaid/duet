@@ -1755,7 +1755,7 @@ module MaxPlus = struct
           Symbol.Map.empty
       in
       if !changed then fix map'
-      else map
+      else map'
     in
     let map = fix map in
     let (size, sym_to_int) =
