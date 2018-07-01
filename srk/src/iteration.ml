@@ -405,6 +405,59 @@ module WedgeGuard = struct
       postcondition = Wedge.widen iter.postcondition iter'.postcondition }
 end
 
+module PolyhedronGuard = struct
+  type 'a polyhedron = ('a, Polka.strict Polka.t) SrkApron.property
+  type 'a t =
+    { precondition : 'a polyhedron;
+      postcondition : 'a polyhedron }
+
+  let pp _ _ formatter iter =
+    Format.fprintf formatter "pre:@;  @[<v 0>%a@]@;post:@;  @[<v 0>%a@]"
+      SrkApron.pp iter.precondition
+      SrkApron.pp iter.postcondition
+
+  let abstract ?(exists=fun x -> true) srk tr_symbols phi =
+    let phi = Nonlinear.linearize srk phi in
+    let phi =
+      rewrite srk ~down:(nnf_rewriter srk) phi
+    in
+    let post_symbols = post_symbols tr_symbols in
+    let pre_symbols = pre_symbols tr_symbols in
+    let man = Polka.manager_alloc_strict () in
+    let precondition =
+      let exists x =
+        exists x && not (Symbol.Set.mem x post_symbols)
+      in
+      Abstract.abstract ~exists srk man phi
+    in
+    let postcondition =
+      let exists x =
+        exists x && not (Symbol.Set.mem x pre_symbols)
+      in
+      Abstract.abstract ~exists srk man phi
+    in
+    { precondition; postcondition }
+
+  let exp srk tr_symbols loop_counter guard =
+    mk_or srk [mk_and srk [mk_eq srk loop_counter (mk_real srk QQ.zero);
+                           identity srk tr_symbols];
+               mk_and srk [mk_leq srk (mk_real srk QQ.one) loop_counter;
+                           SrkApron.formula_of_property guard.precondition;
+                           SrkApron.formula_of_property guard.postcondition]]
+
+  let equal _ _ iter iter' =
+    SrkApron.equal iter.precondition iter'.precondition
+    && SrkApron.equal iter.postcondition iter'.postcondition
+
+  let join _ _ iter iter' =
+    { precondition = SrkApron.join iter.precondition iter'.precondition;
+      postcondition = SrkApron.join iter.postcondition iter'.postcondition }
+
+  let widen _ _ iter iter' =
+    { precondition = SrkApron.widen iter.precondition iter'.precondition;
+      postcondition = SrkApron.widen iter.postcondition iter'.postcondition }
+end
+
 module LinearRecurrenceInequation = struct
   type 'a t = ('a term * [ `Geq | `Eq ] * QQ.t) list
 
