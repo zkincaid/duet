@@ -40,6 +40,7 @@ module SolvablePolynomial : PreDomainWedge
 module SolvablePolynomialPeriodicRational : PreDomainWedge
 
 module WedgeGuard : PreDomainWedge
+module PolyhedronGuard : PreDomain
 module LinearRecurrenceInequation : PreDomain
 
 module Split(Iter : PreDomain) : PreDomain
