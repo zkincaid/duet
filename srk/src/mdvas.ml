@@ -147,10 +147,10 @@ let post_map srk tr_symbols =
 let preify srk tr_symbols = substitute_map srk (post_map srk (List.map (fun (x, x') -> (x', x)) tr_symbols))
  
 
-let create_exp_vars srk num_cells num_rows num_trans =
+(*let create_exp_vars srk num_cells num_rows num_trans =
   let rec create_k_ints k vars equiv_num =
     begin match k <= 0 with
-      | true -> vars
+      | true -> List.rev vars (*rev only to make debugging easier and have names match up... not needed *)
       | false -> create_k_ints (k - 1) ((mk_symbol srk ~name:("K"^equiv_num^","^(string_of_int k))`TyInt) :: vars) equiv_num
     end
   in
@@ -168,6 +168,31 @@ let create_exp_vars srk num_cells num_rows num_trans =
     | false, true -> assert false
   in
   helper num_cells num_rows [] [] []
+*)
+
+
+let create_exp_vars srk alphas num_trans =
+  let bdim = ref 0 in
+  let rec create_k_ints k vars basename equiv_num (arttype : Syntax.typ) =
+    begin match k <= 0 with
+      | true -> List.rev vars (*rev only to make debugging easier and have names match up... not needed *)
+      | false -> create_k_ints (k - 1) ((mk_symbol srk ~name:(basename^equiv_num^","^(string_of_int k)) arttype) :: vars) basename equiv_num arttype
+    end
+  in
+  let rec helper alphas kvars svars rvars equiv_pairs =
+    match alphas with
+    | [] -> kvars, svars, rvars, equiv_pairs
+    | hd :: tl -> 
+      let kstack = (create_k_ints num_trans [] "K" (string_of_int (List.length alphas)) `TyInt) in
+      let rvar = (mk_symbol srk ~name:("R"^(string_of_int (List.length alphas))) `TyInt) in
+      let svaralpha = create_k_ints (M.nb_rows hd) [] "S" (string_of_int (List.length alphas)) `TyReal in
+      let equiv_pair = (kstack, List.map (fun svar -> let res = (svar, !bdim) in bdim := !bdim + 1; res) svaralpha, rvar) in
+      helper tl (kstack :: kvars) (svaralpha :: svars) (rvar :: rvars) (equiv_pair :: equiv_pairs)
+  in
+  helper alphas [] [] [] []
+
+
+
 
 let create_exp_positive_reqs srk kvarst =
   mk_and srk (List.map (fun var -> 
@@ -264,8 +289,11 @@ let exp_sx_constraints srk equiv_pairs transformers kvarst unialpha tr_symbols =
     equiv_pairs)
 
 
-let form_equiv_pairs srk kvarst svarst rvarst =
+(*ilet form_equiv_pairs srk kvarst svarst rvarst alphas =
+  List.map (fun alpha -> 
+
   List.mapi (fun ind kvar -> (kvar, [(List.nth svarst ind, ind)], List.nth rvarst ind)) kvarst
+*)
 
 let exp_lin_term_trans_constraints srk equiv_pairs transformers unialpha =
   mk_and srk
@@ -302,22 +330,25 @@ let exp srk tr_symbols loop_counter vabs =
   | Bottom -> mk_false srk
   | Vas {v; alphas} -> 
     let num_rows = List.fold_left (fun acc alpha -> (M.nb_rows alpha) + acc) 0 alphas in
-    let num_cells = num_rows in
+    let num_cells = (List.length alphas) in
     let num_trans = TSet.cardinal v in
-    let kvars, svars, rvars = create_exp_vars srk num_cells num_rows num_trans in
+    let kvars, svars, rvars, equiv_pairs = create_exp_vars srk alphas num_trans in
+    let svars = List.flatten svars in
     let map_terms = List.map (fun (var : Syntax.symbol) -> mk_const srk var) in
     let kvarst : 'a Syntax.term list list  = List.map (fun listvars -> map_terms listvars) kvars in
     let svarst, rvarst  = map_terms svars, map_terms rvars in
+    let equiv_pairst = List.map (fun (kstack, svardims, rvar) ->
+        (map_terms kstack, List.map (fun (svar, dim) -> (mk_const srk svar), dim) svardims, mk_const srk rvar)) equiv_pairs in
     let pos_constraints = create_exp_positive_reqs srk ([loop_counter] :: kvarst) in
     let full_trans_constraints = exp_full_transitions_reqs srk kvarst rvarst loop_counter in
     let krpairs : ('a Syntax.term list * 'a Syntax.term * 'a Syntax.term list * 'a Syntax.term) list = 
       all_pairs_kvarst_rvarst kvarst rvarst in
     let perm_constraints = exp_perm_constraints srk krpairs in
     let reset_together_constraints = exp_equality_k_constraints srk krpairs in
-    let equiv_pairs = form_equiv_pairs srk kvarst svarst rvarst in
-    let sx_constraints = exp_sx_constraints srk equiv_pairs v kvarst (unify alphas) tr_symbols in
-    let base_constraints = exp_lin_term_trans_constraints srk equiv_pairs v (unify alphas) in
-    let eq_zero_constraints = exp_k_zero_on_reset srk equiv_pairs v in
+    (*let equiv_pairs = form_equiv_pairs srk kvarst svarst rvarst alphas in*)
+    let sx_constraints = exp_sx_constraints srk equiv_pairst v kvarst (unify alphas) tr_symbols in
+    let base_constraints = exp_lin_term_trans_constraints srk equiv_pairst v (unify alphas) in
+    let eq_zero_constraints = exp_k_zero_on_reset srk equiv_pairst v in
     let form = 
       mk_and srk [pos_constraints; full_trans_constraints; perm_constraints;
                   reset_together_constraints; sx_constraints; base_constraints; eq_zero_constraints] in
