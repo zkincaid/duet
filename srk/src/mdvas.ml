@@ -323,6 +323,15 @@ let exp_k_zero_on_reset srk equiv_pairs transformers =
          (TSet.enum transformers))))
     equiv_pairs)
 
+let exp_kstacks_at_most_k srk kvarst loop_counter=
+  mk_and srk
+    (List.map
+      (fun kstack -> mk_leq srk
+              (mk_add srk kstack)
+              loop_counter)
+      kvarst)
+
+
 let exp srk tr_symbols loop_counter vabs =
   time "ENTERED EXP";
   match vabs with
@@ -345,12 +354,13 @@ let exp srk tr_symbols loop_counter vabs =
       all_pairs_kvarst_rvarst kvarst rvarst in
     let perm_constraints = exp_perm_constraints srk krpairs in
     let reset_together_constraints = exp_equality_k_constraints srk krpairs in
+    let kstack_max_constraints = exp_kstacks_at_most_k srk kvarst loop_counter in
     (*let equiv_pairs = form_equiv_pairs srk kvarst svarst rvarst alphas in*)
     let sx_constraints = exp_sx_constraints srk equiv_pairst v kvarst (unify alphas) tr_symbols in
     let base_constraints = exp_lin_term_trans_constraints srk equiv_pairst v (unify alphas) in
     let eq_zero_constraints = exp_k_zero_on_reset srk equiv_pairst v in
     let form = 
-      mk_and srk [pos_constraints; full_trans_constraints; perm_constraints;
+      mk_and srk [pos_constraints; full_trans_constraints; perm_constraints; kstack_max_constraints;
                   reset_together_constraints; sx_constraints; base_constraints; eq_zero_constraints] in
     Log.errorf " Current D VAL %a" (Formula.pp srk) form;
     time "LEFT EXP";
