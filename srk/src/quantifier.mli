@@ -18,6 +18,9 @@ val maximize : 'a context -> 'a formula -> 'a term -> [ `Bounded of QQ.t
 (** Quantifier eliminiation via model-based projection *)
 val qe_mbp : 'a context -> 'a formula -> 'a formula
 
+(** Model-based projection *)
+val mbp : 'a context -> (symbol -> bool) -> 'a formula -> 'a formula
+
 (** Alternating quantifier satisfiability *)
 val easy_sat : 'a context -> 'a formula -> [ `Sat | `Unsat | `Unknown ]
 
@@ -46,3 +49,4 @@ val check_strategy : 'a context -> quantifier_prefix -> 'a formula ->
     variables. *)
 val normalize : 'a context -> 'a formula -> quantifier_prefix * 'a formula
 
+val is_presburger_atom : 'a context -> 'a formula -> bool

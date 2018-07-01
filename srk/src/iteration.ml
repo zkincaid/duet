@@ -458,6 +458,77 @@ module PolyhedronGuard = struct
       postcondition = SrkApron.widen iter.postcondition iter'.postcondition }
 end
 
+module LinearGuard = struct
+  type 'a t =
+    { precondition : 'a formula;
+      postcondition : 'a formula }
+
+  let abstract_presburger_rewriter srk expr =
+    match Expr.refine srk expr with
+    | `Formula phi -> begin match Formula.destruct srk phi with
+        | `Atom (_, _, _) ->
+          if Quantifier.is_presburger_atom srk phi then
+            expr
+          else
+            (mk_true srk :> ('a,typ_fo) expr)
+        | _ -> expr
+      end
+    | _ -> expr
+
+  let pp srk tr_symbols formatter guard =
+    Format.fprintf formatter
+      "@[<v 0>precondition: @[<hov> %a@]@;postcondition: @[<hov> %a@]@]"
+      (Formula.pp srk) guard.precondition
+      (Formula.pp srk) guard.postcondition
+
+  let abstract ?(exists=fun x -> true) srk tr_symbols phi =
+    let phi =
+      rewrite srk ~up:(abstract_presburger_rewriter srk) phi
+    in
+    let pre_symbols = pre_symbols tr_symbols in
+    let post_symbols = post_symbols tr_symbols in
+    let precondition =
+      Quantifier.mbp
+        srk
+        (fun x -> exists x && not (Symbol.Set.mem x post_symbols))
+        (Nonlinear.linearize srk phi)
+    in
+    let postcondition =
+      Quantifier.mbp
+        srk
+        (fun x -> exists x && not (Symbol.Set.mem x pre_symbols))
+        (Nonlinear.linearize srk phi)
+    in
+    { precondition; postcondition }
+
+  let exp srk tr_symbols loop_counter guard =
+    mk_or srk [mk_and srk [mk_eq srk loop_counter (mk_real srk QQ.zero);
+                           identity srk tr_symbols];
+               mk_and srk [mk_leq srk (mk_real srk QQ.one) loop_counter;
+                           guard.precondition;
+                           guard.postcondition]]
+
+  let join srk tr_symbols guard guard' =
+    { precondition = mk_or srk [guard.precondition; guard'.precondition];
+      postcondition = mk_or srk [guard.postcondition; guard'.postcondition] }
+
+  let widen srk tr_symbols guard guard' =
+    let man = Polka.manager_alloc_strict () in
+    let widen_formula phi psi =
+      if Smt.equiv srk phi psi = `Yes then phi
+      else
+        let p = Abstract.abstract srk man phi in
+        let p' = Abstract.abstract srk man psi in
+        SrkApron.formula_of_property (SrkApron.widen p p')
+    in
+    { precondition = widen_formula guard.precondition guard'.precondition;
+      postcondition = widen_formula guard.postcondition guard'.postcondition }
+
+  let equal srk tr_symbols guard guard' =
+    Smt.equiv srk guard.precondition guard'.precondition = `Yes
+    && Smt.equiv srk guard.postcondition guard'.postcondition = `Yes
+end
+
 module LinearRecurrenceInequation = struct
   type 'a t = ('a term * [ `Geq | `Eq ] * QQ.t) list
 
