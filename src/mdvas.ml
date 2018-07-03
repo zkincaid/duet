@@ -20,51 +20,6 @@ module IntSet = SrkUtil.Int.Set
 module H = Abstract
 include Log.Make(struct let name = "srk.mdvas" end)
 
-let qq_of_scalar = function
-  | Scalar.Float k -> QQ.of_float k
-  | Scalar.Mpqf k  -> k
-  | Scalar.Mpfrf k -> Mpfrf.to_mpqf k
-
-let qq_of_coeff = function
-  | Coeff.Scalar s -> Some (qq_of_scalar s)
-  | Coeff.Interval _ -> None
-
-let qq_of_coeff_exn = function
-  | Coeff.Scalar s -> qq_of_scalar s
-  | Coeff.Interval _ -> invalid_arg "qq_of_coeff_exn: argument must be a scalar"
-
-let coeff_of_qq = Coeff.s_of_mpqf
-
-let scalar_zero = Coeff.s_of_int 0
-let scalar_one = Coeff.s_of_int 1
-
-let mk_log = Nonlinear.mk_log
-let mk_pow = Nonlinear.mk_pow
-
-let vec_of_poly = P.vec_of ~const:CS.const_id
-let poly_of_vec = P.of_vec ~const:CS.const_id
-
-let get_manager =
-  let manager = ref None in
-  fun () ->
-    match !manager with
-    | Some man -> man
-    | None ->
-      let man = Polka.manager_alloc_strict () in
-      manager := Some man;
-      man
-
-(* Associate coordinates with apron dimensions.  Wedges may share coordinate
-    systems, but should *not* share environments -- if the coordinate system
-    of a wedge is updated, the wedge is brought back in sync using its
-    environment (see update_env). *)
-type env = { int_dim : int A.t;
-             real_dim : int A.t }
-
-let copy_env env =
-  { int_dim = A.copy env.int_dim;
-    real_dim = A.copy env.real_dim }
-
 type transformer =
   { a : Z.t;
    b : V.t }
@@ -93,35 +48,10 @@ type 'a t = vas_abs_lift
 
 let pp _ _ = pp_vas_abs_lift
 
-(*let linterm_swap (srk : 'a context) (term : 'a term) (map : (symbol, symbol) Hashtbl.t) : 'a term =
-  let alg = function
-    | `Real qq -> mk_real srk qq
-    | _ -> mk_real srk QQ.zero
-    (*| `App (func, args) -> `App (func, args)
-    | `Var (v, `TyInt) -> (v, TyInt)
-    | _ -> 
-    | `Add sum -> List.fold_left add zero sum
-    | `Mul sum -> List.fold_left mul (real QQ.one) sum
-    | `Binop (`Div, x, y) -> scalar_mul (QQ.inverse (nonzero_qq_of y)) x
-    | `Binop (`Mod, x, y) -> real (QQ.modulo (qq_of x) (nonzero_qq_of y))
-    | `Unop (`Floor, x) -> real (QQ.of_zz (QQ.floor (qq_of x)))
-    | `Unop (`Neg, x) -> negate x
-    | `Ite (_, _, _) -> raise Nonlinear*)
-  in
-  Term.eval srk alg term
-*)
-
-
 let time marker =
     Printf.printf "Execution time at %s : %fs\n" marker (Sys.time());()
 
 let unify (alphas : M.t list) : M.t =
-  (*let rows, unified =
-    List.fold_left (fun (rows, unified) alpha ->
-      let rows', unified' = M.row_set alpha, M.add unified alpha in
-      assert (SrkUtil.Int.Set.is_empty (SrkUtil.Int.Set.inter rows rows'));
-      SrkUtil.Int.Set.union rows' rows, unified) (SrkUtil.Int.Set.empty, M.zero) alphas
-  in*)
   let unified = List.fold_left (fun matrix alphacell -> 
       BatEnum.fold (fun matrix (dim, vector) ->
           M.add_row (M.nb_rows matrix) vector matrix) 
@@ -129,14 +59,6 @@ let unify (alphas : M.t list) : M.t =
         (M.rowsi alphacell))
       M.zero alphas in
   unified 
-
-(*let find_equiv_class_element morphism s row =
-  let s' = unify s in
-  let (v, m) = M.pivot row s' in
-  match BatEnum.get (V.enum v) with
-  | Some (scalar, dim) -> dim
-  | None -> assert false
-*)
 
 let post_map srk tr_symbols =
   List.fold_left
@@ -146,29 +68,6 @@ let post_map srk tr_symbols =
 
 let preify srk tr_symbols = substitute_map srk (post_map srk (List.map (fun (x, x') -> (x', x)) tr_symbols))
  
-
-(*let create_exp_vars srk num_cells num_rows num_trans =
-  let rec create_k_ints k vars equiv_num =
-    begin match k <= 0 with
-      | true -> List.rev vars (*rev only to make debugging easier and have names match up... not needed *)
-      | false -> create_k_ints (k - 1) ((mk_symbol srk ~name:("K"^equiv_num^","^(string_of_int k))`TyInt) :: vars) equiv_num
-    end
-  in
-  let rec helper num_cells num_rows kvars svars rvars =
-    match num_cells <= 0, num_rows <= 0 with
-    | true, true -> kvars, svars, rvars
-    | false, false -> 
-      let kvars = (create_k_ints num_trans [] (string_of_int num_cells)) :: kvars in
-      let rvars = (mk_symbol srk ~name:("R"^(string_of_int num_cells)) `TyInt) :: rvars in
-      let svars = (mk_symbol srk ~name:("S"^(string_of_int num_rows)) `TyReal) :: svars in
-      helper (num_cells - 1) (num_rows - 1) kvars svars rvars
-    | true, false ->
-      let svars = (mk_symbol srk `TyReal) :: svars in
-      helper num_cells (num_rows - 1) kvars svars rvars
-    | false, true -> assert false
-  in
-  helper num_cells num_rows [] [] []
-*)
 
 
 let create_exp_vars srk alphas num_trans =
@@ -190,9 +89,6 @@ let create_exp_vars srk alphas num_trans =
       helper tl (kstack :: kvars) (svaralpha :: svars) (rvar :: rvars) (equiv_pair :: equiv_pairs)
   in
   helper alphas [] [] [] []
-
-
-
 
 let create_exp_positive_reqs srk kvarst =
   mk_and srk (List.map (fun var -> 
@@ -289,11 +185,6 @@ let exp_sx_constraints srk equiv_pairs transformers kvarst unialpha tr_symbols =
     equiv_pairs)
 
 
-(*ilet form_equiv_pairs srk kvarst svarst rvarst alphas =
-  List.map (fun alpha -> 
-
-  List.mapi (fun ind kvar -> (kvar, [(List.nth svarst ind, ind)], List.nth rvarst ind)) kvarst
-*)
 
 let exp_lin_term_trans_constraints srk equiv_pairs transformers unialpha =
   mk_and srk
@@ -338,8 +229,6 @@ let exp srk tr_symbols loop_counter vabs =
   | Top -> mk_true srk
   | Bottom -> mk_false srk
   | Vas {v; alphas} -> 
-    let num_rows = List.fold_left (fun acc alpha -> (M.nb_rows alpha) + acc) 0 alphas in
-    let num_cells = (List.length alphas) in
     let num_trans = TSet.cardinal v in
     let kvars, svars, rvars, equiv_pairs = create_exp_vars srk alphas num_trans in
     let svars = List.flatten svars in
@@ -355,7 +244,6 @@ let exp srk tr_symbols loop_counter vabs =
     let perm_constraints = exp_perm_constraints srk krpairs in
     let reset_together_constraints = exp_equality_k_constraints srk krpairs in
     let kstack_max_constraints = exp_kstacks_at_most_k srk kvarst loop_counter in
-    (*let equiv_pairs = form_equiv_pairs srk kvarst svarst rvarst alphas in*)
     let sx_constraints = exp_sx_constraints srk equiv_pairst v kvarst (unify alphas) tr_symbols in
     let base_constraints = exp_lin_term_trans_constraints srk equiv_pairst v (unify alphas) in
     let eq_zero_constraints = exp_k_zero_on_reset srk equiv_pairst v in
@@ -511,3 +399,49 @@ let abstract ?(exists=fun x -> true) (srk : 'a context) (symbols : (symbol * sym
 let join  (srk :'a context) (tr_symbols : (symbol * symbol) list) (vabs1 : 'a t) (vabs2 : 'a t) = assert false
 let widen  (srk :'a context) (tr_symbols : (symbol * symbol) list) (vabs1 : 'a t) (vabs2 : 'a t) = assert false
 let equal (srk : 'a context) (tr_symbols : (symbol * symbol) list) (vabs1 : 'a t) (vabs2 : 'a t) = assert false
+
+
+
+module Mdvass = struct
+  module Int = SrkUtil.Int
+  type 'a t =
+    { label : ('a formula) array;
+      graph : vas array array;
+      simulation : M.t list }
+
+  let compute_edges srk nodes transformers = assert false
+     (*let solver = Smt.mk_solver srk in
+     let rec compute_for_node node nodes transformers =
+*)
+
+  let abstract ?(exists=fun x -> true) srk tr_symbols body =
+    let vas = abstract ~exists srk tr_symbols body in
+    match vas with
+    | Top -> assert false
+    | Bottom -> assert false
+    | Vas {v; alphas} ->
+      let nodes = failwith "test" in
+      let graph = compute_edges srk nodes v in
+      assert false
+
+  (*let exp srk tr_symbols loop_counter vassabs =
+    match vassabs with
+    | Bottom -> mk_false srk
+    | Top -> mk_true srk
+    | Vass ({v;alphas}, nodes) -> 
+      let edges = compute_edges srk nodes v in
+      assert false
+*)
+  module VassGraph = struct
+    type t = vas array array
+
+    module V = Int
+    let iter_vertex f g =
+      BatEnum.iter f (0 -- (Array.length g - 1))
+    let iter_succ f g v = Array.iteri (fun ind ele -> if not (TSet.is_empty ele) then f ind ) g.(v)
+  end
+
+  module GraphComp = Graph.Components.Make(VassGraph) 
+
+
+end
