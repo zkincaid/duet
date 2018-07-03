@@ -67,6 +67,7 @@ let post_map srk tr_symbols =
     tr_symbols
 
 let preify srk tr_symbols = substitute_map srk (post_map srk (List.map (fun (x, x') -> (x', x)) tr_symbols))
+let postify srk tr_symbols = substitute_map srk (post_map srk tr_symbols)
  
 
 
@@ -422,6 +423,21 @@ module Mdvass = struct
      let rec compute_for_node node nodes transformers =
 *)
 
+  module VassGraph = struct
+    type t = vas array array
+
+    module V = Int
+    let iter_vertex f g =
+      BatEnum.iter f (0 -- (Array.length g - 1))
+    let iter_succ f g v = Array.iteri (fun ind ele -> if not (TSet.is_empty ele) then f ind ) g.(v)
+  end
+
+  module GraphComp = Graph.Components.Make(VassGraph) 
+
+
+
+
+
   let abstract ?(exists=fun x -> true) srk tr_symbols body =
     let vas = abstract ~exists srk tr_symbols body in
     match vas with
@@ -451,13 +467,74 @@ module Mdvass = struct
                  kstack))
           kvarst)
           
-  let create_exs_ens srk num =
-    let exs = map_terms srk (create_n_vars srk num [] "EX") in
-    let ens = map_terms srk (create_n_vars srk num [] "ES") in
-    List.combine exs ens
+  let create_es_et srk num =
+    let es = map_terms srk (create_n_vars srk num [] "EX") in
+    let et = map_terms srk (create_n_vars srk num [] "ES") in
+    List.combine es et
 
-  let exp_compute_trans_in_out_index_numbers transformersmap num =
-   List.make num []
+  let exp_compute_trans_in_out_index_numbers transformersmap num sccs nvarst =
+    let num_sccs, func_sccs = sccs in
+    let in_sing, out_sing, in_scc, pre_scc = Array.make num [], Array.make num [], Array.make num_sccs [], Array.make num_sccs [] in
+      (*make_n_empty_lists num [], make_n_empty_lists num [], make_n_empty_lists num_sccs [], make_n_empty_lists num_sccs [] in*)
+    List.iteri (fun index (n1, trans, n2) -> in_sing.(n2)<-((List.nth nvarst index) :: in_sing.(n2)); out_sing.(n1)<- ((List.nth nvarst index) :: out_sing.(n1));
+                 pre_scc.(n1)<- ((List.nth nvarst index) :: pre_scc.(func_sccs n1));
+                 if not (func_sccs n1 = func_sccs n2) then begin 
+                   in_scc.(func_sccs n2)<-((List.nth nvarst index) :: in_scc.(func_sccs n2)) 
+                 end)
+      transformersmap;
+  in_sing, out_sing, in_scc, pre_scc
+        
+
+  let exp_consv_of_flow srk in_sing out_sing ests =
+    mk_and srk
+      (List.mapi (fun ind (es, et) ->
+          mk_eq srk
+            (mk_add srk (es :: in_sing.(ind)))
+            (mk_add srk (et :: out_sing.(ind))))
+          ests)
+
+  let exp_one_in_out_flow srk ests = 
+    let et, es = List.split ests in
+    mk_and srk 
+      [mk_eq srk (mk_add srk et) (mk_one srk);
+       mk_eq srk (mk_add srk et) (mk_one srk)]
+
+  let exp_each_ests_one_or_zero srk ests =
+    mk_and srk
+      (List.map (fun (es, et) -> 
+           mk_and srk
+             [mk_or srk [mk_eq srk es (mk_zero srk); mk_eq srk es (mk_one srk)];
+              mk_or srk [mk_eq srk et (mk_zero srk); mk_eq srk et (mk_one srk)]]
+         )
+          ests)
+
+  let exp_pre_post_conds srk ests label tr_symbols =
+    mk_and srk
+      (List.mapi (fun ind (es, et) ->
+           mk_and srk
+             [mk_if srk (mk_eq srk es (mk_one srk)) (label.(ind));
+              mk_if srk (mk_eq srk et (mk_one srk)) (postify srk tr_symbols (label.(ind)))])
+          ests)
+  
+  let exp_never_enter_scc srk ests in_scc pre_scc sccs =
+    let num_sccs, func_sccs = sccs in
+    let es_comp = Array.make num_sccs [] in
+    List.iteri (fun ind (es, et) -> es_comp.(func_sccs ind)<-(es :: (es_comp.(func_sccs ind)))) ests;
+    mk_and srk
+      (Array.to_list
+         (Array.mapi (fun ind in_scc_comp ->
+              mk_if srk
+                (mk_eq srk
+                   (mk_add srk
+                      [mk_add srk (es_comp.(ind));
+                       mk_add srk (in_scc_comp)])
+                   (mk_zero srk))
+                (mk_eq srk
+                   (mk_add srk (pre_scc.(ind)))
+                   (mk_zero srk)))
+             in_scc))
+
+
 
   let exp srk tr_symbols loop_counter vassabs =
     match vassabs with
@@ -479,19 +556,16 @@ module Mdvass = struct
         exp_base_helper srk tr_symbols loop_counter simulation transformers in
       let sum_n_eq_loop_counter = exp_nvars_eq_loop_counter srk nvarst loop_counter in
       let ks_less_than_ns = exp_kvarst_less_nvarst srk nvarst kvarst in
+      let sccs = GraphComp.scc graph in
+      let in_sing, out_sing, in_scc, pre_scc = exp_compute_trans_in_out_index_numbers transformersmap (Array.length label) sccs nvarst in
+      let ests = create_es_et srk (Array.length label) in
+      let flow_consv_req = exp_consv_of_flow srk in_sing out_sing ests in
+      let in_out_one = exp_one_in_out_flow srk ests in
+      let ests_one_or_zero = exp_each_ests_one_or_zero srk ests in
+      let pre_post_conds = exp_pre_post_conds srk ests label tr_symbols in
+      let never_enter_constraints = exp_never_enter_scc srk ests in_scc pre_scc sccs in
+      let pos_constraints = create_exp_positive_reqs srk [nvarst; fst (List.split ests); snd (List.split ests)] in
+      mk_and srk [form; sum_n_eq_loop_counter; ks_less_than_ns; flow_consv_req; in_out_one;
+                  ests_one_or_zero; pre_post_conds; never_enter_constraints; pos_constraints]
 
-      assert false
-
-  module VassGraph = struct
-    type t = vas array array
-
-    module V = Int
-    let iter_vertex f g =
-      BatEnum.iter f (0 -- (Array.length g - 1))
-    let iter_succ f g v = Array.iteri (fun ind ele -> if not (TSet.is_empty ele) then f ind ) g.(v)
   end
-
-  module GraphComp = Graph.Components.Make(VassGraph) 
-
-
-end
