@@ -222,17 +222,17 @@ let exp_kstacks_at_most_k srk kvarst loop_counter=
               loop_counter)
       kvarst)
 
-let map_terms = List.map (fun (var : Syntax.symbol) -> mk_const srk var) in
+let map_terms srk = List.map (fun (var : Syntax.symbol) -> mk_const srk var)
  
 
 let exp_base_helper srk tr_symbols loop_counter alphas transformers =
   let num_trans = BatList.length transformers in
   let kvars, svars, rvars, equiv_pairs = create_exp_vars srk alphas num_trans in
   let svars = List.flatten svars in
-  let kvarst : 'a Syntax.term list list  = List.map (fun listvars -> map_terms listvars) kvars in
-  let svarst, rvarst  = map_terms svars, map_terms rvars in
+  let kvarst : 'a Syntax.term list list  = List.map (fun listvars -> map_terms srk listvars) kvars in
+  let svarst, rvarst  = map_terms srk svars, map_terms srk rvars in
   let equiv_pairst = List.map (fun (kstack, svardims, rvar) ->
-        (map_terms kstack, List.map (fun (svar, dim) -> (mk_const srk svar), dim) svardims, mk_const srk rvar)) equiv_pairs in
+        (map_terms srk kstack, List.map (fun (svar, dim) -> (mk_const srk svar), dim) svardims, mk_const srk rvar)) equiv_pairs in
   
   let pos_constraints = create_exp_positive_reqs srk ([loop_counter] :: kvarst) in
   let full_trans_constraints = exp_full_transitions_reqs srk kvarst rvarst loop_counter in
@@ -432,14 +432,56 @@ module Mdvass = struct
       let graph = compute_edges srk nodes v in
       assert false
 
-  (*let exp srk tr_symbols loop_counter vassabs =
+
+  let rec create_n_vars srk num vars basename =
+    begin match num <= 0 with
+      | true -> List.rev vars (*rev only to make debugging easier and have names match up... not needed *)
+      | false -> create_n_vars srk (num - 1) ((mk_symbol srk ~name:(basename^"N"^(string_of_int num)) `TyInt) :: vars) basename
+    end
+
+  let exp_nvars_eq_loop_counter srk nvarst loop_counter =
+    mk_eq srk (mk_add srk nvarst) loop_counter
+
+  let exp_kvarst_less_nvarst srk nvarst kvarst =
+    mk_and srk
+      (List.map (fun kstack ->
+           mk_and srk
+             (List.mapi (fun ind k ->
+                  mk_leq srk k (List.nth nvarst ind))
+                 kstack))
+          kvarst)
+          
+  let create_exs_ens srk num =
+    let exs = map_terms srk (create_n_vars srk num [] "EX") in
+    let ens = map_terms srk (create_n_vars srk num [] "ES") in
+    List.combine exs ens
+
+  let exp_compute_trans_in_out_index_numbers transformersmap num =
+   List.make num []
+
+  let exp srk tr_symbols loop_counter vassabs =
     match vassabs with
-    | Bottom -> mk_false srk
-    | Top -> mk_true srk
-    | Vass ({v;alphas}, nodes) -> 
-      let edges = compute_edges srk nodes v in
+    (*| Bottom -> mk_false srk
+    | Top -> mk_true srk*)
+    | {label; graph; simulation} ->
+      let transformersmap = List.flatten 
+          (List.flatten 
+             (Array.to_list 
+                (Array.mapi (fun n1 arr -> 
+                     Array.to_list (Array.mapi (fun n2 vas ->
+                         BatEnum.fold (fun acc trans -> (n1, trans, n2) :: acc) [] (TSet.enum vas))
+                         arr))
+                    graph)))
+      in
+      let transformers = List.map (fun (_, t, _) -> t) transformersmap in
+      let nvarst = map_terms srk (create_n_vars srk (List.length transformers) [] "") in
+      let (form, (equiv_pairst, kvarst, svarst, rvarst)) =
+        exp_base_helper srk tr_symbols loop_counter simulation transformers in
+      let sum_n_eq_loop_counter = exp_nvars_eq_loop_counter srk nvarst loop_counter in
+      let ks_less_than_ns = exp_kvarst_less_nvarst srk nvarst kvarst in
+
       assert false
-*)
+
   module VassGraph = struct
     type t = vas array array
 
