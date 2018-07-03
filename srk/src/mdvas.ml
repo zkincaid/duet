@@ -165,7 +165,7 @@ let exp_sx_constraints_helper srk ri kstack svarstdims transformers kvarst unial
       ((mk_and srk
         [(mk_eq srk svart (preify srk tr_symbols (Linear.of_linterm srk (M.row dim unialpha)))); (*pivot or row? need to make sure alpha and dim both indexed same *)
          (mk_eq srk ri (mk_real srk (QQ.of_int (-1))))]) ::
-      (BatList.of_enum (BatEnum.mapi 
+      (BatList.mapi 
        (fun ind {a; b} ->
          if ZZ.equal (Z.coeff dim a) ZZ.one 
          then (mk_false srk)
@@ -174,7 +174,7 @@ let exp_sx_constraints_helper srk ri kstack svarstdims transformers kvarst unial
            [(mk_eq srk svart (mk_real srk (V.coeff dim b)));
            exp_other_reset srk kvarst kstack ind;
            (mk_eq srk ri (mk_real srk (QQ.of_int ind)))])
-       (TSet.enum transformers))))
+       transformers))
     in
   mk_and srk (List.map (fun (svar,dim) -> compute_single_svars svar dim) svarstdims)
 
@@ -195,10 +195,10 @@ let exp_lin_term_trans_constraints srk equiv_pairs transformers unialpha =
             (Linear.of_linterm srk (M.row dim unialpha))
             (mk_add srk
               (svar :: 
-              (BatList.of_enum (BatEnum.mapi
+              (BatList.mapi
                 (fun ind {a; b} ->
                   mk_mul srk [(List.nth kstack ind); mk_real srk (V.coeff dim b)])
-                (TSet.enum transformers))))))
+                 transformers))))
         svarstdims))
     equiv_pairs)
 
@@ -207,11 +207,11 @@ let exp_k_zero_on_reset srk equiv_pairs transformers =
     (List.map (fun (kstack, svarstdims, ri) ->
       let (svar, dim) = List.hd svarstdims in
       mk_and srk
-       (BatList.of_enum (BatEnum.mapi
+       (BatList.mapi
          (fun ind {a; b} ->
            if ZZ.equal (Z.coeff dim a) ZZ.zero then (mk_eq srk (List.nth kstack ind) (mk_zero srk))
            else mk_true srk)
-         (TSet.enum transformers))))
+          transformers))
     equiv_pairs)
 
 let exp_kstacks_at_most_k srk kvarst loop_counter=
@@ -222,35 +222,43 @@ let exp_kstacks_at_most_k srk kvarst loop_counter=
               loop_counter)
       kvarst)
 
+let map_terms = List.map (fun (var : Syntax.symbol) -> mk_const srk var) in
+ 
+
+let exp_base_helper srk tr_symbols loop_counter alphas transformers =
+  let num_trans = BatList.length transformers in
+  let kvars, svars, rvars, equiv_pairs = create_exp_vars srk alphas num_trans in
+  let svars = List.flatten svars in
+  let kvarst : 'a Syntax.term list list  = List.map (fun listvars -> map_terms listvars) kvars in
+  let svarst, rvarst  = map_terms svars, map_terms rvars in
+  let equiv_pairst = List.map (fun (kstack, svardims, rvar) ->
+        (map_terms kstack, List.map (fun (svar, dim) -> (mk_const srk svar), dim) svardims, mk_const srk rvar)) equiv_pairs in
+  
+  let pos_constraints = create_exp_positive_reqs srk ([loop_counter] :: kvarst) in
+  let full_trans_constraints = exp_full_transitions_reqs srk kvarst rvarst loop_counter in
+  let krpairs : ('a Syntax.term list * 'a Syntax.term * 'a Syntax.term list * 'a Syntax.term) list = 
+    all_pairs_kvarst_rvarst kvarst rvarst in
+  let perm_constraints = exp_perm_constraints srk krpairs in
+  let reset_together_constraints = exp_equality_k_constraints srk krpairs in
+  let kstack_max_constraints = exp_kstacks_at_most_k srk kvarst loop_counter in
+  let sx_constraints = exp_sx_constraints srk equiv_pairst transformers kvarst (unify alphas) tr_symbols in
+  let base_constraints = exp_lin_term_trans_constraints srk equiv_pairst transformers (unify alphas) in
+  let eq_zero_constraints = exp_k_zero_on_reset srk equiv_pairst transformers in
+  let form = 
+    mk_and srk [pos_constraints; full_trans_constraints; perm_constraints; kstack_max_constraints;
+                reset_together_constraints; sx_constraints; base_constraints; eq_zero_constraints] in
+  (form, (equiv_pairst, kvarst, svarst, rvarst))
+
+
 
 let exp srk tr_symbols loop_counter vabs =
   time "ENTERED EXP";
   match vabs with
   | Top -> mk_true srk
   | Bottom -> mk_false srk
-  | Vas {v; alphas} -> 
-    let num_trans = TSet.cardinal v in
-    let kvars, svars, rvars, equiv_pairs = create_exp_vars srk alphas num_trans in
-    let svars = List.flatten svars in
-    let map_terms = List.map (fun (var : Syntax.symbol) -> mk_const srk var) in
-    let kvarst : 'a Syntax.term list list  = List.map (fun listvars -> map_terms listvars) kvars in
-    let svarst, rvarst  = map_terms svars, map_terms rvars in
-    let equiv_pairst = List.map (fun (kstack, svardims, rvar) ->
-        (map_terms kstack, List.map (fun (svar, dim) -> (mk_const srk svar), dim) svardims, mk_const srk rvar)) equiv_pairs in
-    let pos_constraints = create_exp_positive_reqs srk ([loop_counter] :: kvarst) in
-    let full_trans_constraints = exp_full_transitions_reqs srk kvarst rvarst loop_counter in
-    let krpairs : ('a Syntax.term list * 'a Syntax.term * 'a Syntax.term list * 'a Syntax.term) list = 
-      all_pairs_kvarst_rvarst kvarst rvarst in
-    let perm_constraints = exp_perm_constraints srk krpairs in
-    let reset_together_constraints = exp_equality_k_constraints srk krpairs in
-    let kstack_max_constraints = exp_kstacks_at_most_k srk kvarst loop_counter in
-    let sx_constraints = exp_sx_constraints srk equiv_pairst v kvarst (unify alphas) tr_symbols in
-    let base_constraints = exp_lin_term_trans_constraints srk equiv_pairst v (unify alphas) in
-    let eq_zero_constraints = exp_k_zero_on_reset srk equiv_pairst v in
-    let form = 
-      mk_and srk [pos_constraints; full_trans_constraints; perm_constraints; kstack_max_constraints;
-                  reset_together_constraints; sx_constraints; base_constraints; eq_zero_constraints] in
-    Log.errorf " Current D VAL %a" (Formula.pp srk) form;
+  | Vas {v; alphas} ->
+    let (form, _) = exp_base_helper srk tr_symbols loop_counter alphas (TSet.to_list v) in
+          Log.errorf " Current D VAL %a" (Formula.pp srk) form;
     time "LEFT EXP";
     form
 
