@@ -319,30 +319,33 @@ let coproduct srk vabs1 vabs2 : 'a t =
 
 
 
+let term_list srk alphas tr_symbols = 
+  List.map (fun matrix -> 
+      ((M.rowsi matrix)
+       /@ (fun (_, row) -> 
+           let term = Linear.of_linterm srk row in
+           (preify srk tr_symbols term, term)))
+      |> BatList.of_enum)
+    alphas
+  |> List.flatten
+
+ let gamma_transformer srk term_list t =
+   BatList.mapi (fun ind (pre_term, post_term) -> 
+       mk_eq srk 
+         post_term 
+         (mk_add srk [(mk_mul srk [pre_term; mk_real srk (QQ.of_zz (Z.coeff ind t.a))]);
+                      mk_real srk (V.coeff ind t.b)]))
+     term_list
+   |> mk_and srk
+
+
 let gamma srk vas tr_symbols : 'a formula =
   match vas with
   | Bottom -> mk_false srk
   | Top -> mk_true srk
   | Vas {v; alphas} ->
-       let term_list  = List.map (fun matrix -> 
-        ((M.rowsi matrix)
-         /@ (fun (_, row) -> 
-            let term = Linear.of_linterm srk row in
-            (preify srk tr_symbols term, term)))
-        |> BatList.of_enum)
-        alphas
-        |> List.flatten
-    in
-   let gamma_transformer t : 'a formula =
-     BatList.mapi (fun ind (pre_term, post_term) -> 
-         mk_eq srk 
-           post_term 
-           (mk_add srk [(mk_mul srk [pre_term; mk_real srk (QQ.of_zz (Z.coeff ind t.a))]);
-                       mk_real srk (V.coeff ind t.b)]))
-       term_list
-     |> mk_and srk
-    in
-    mk_or srk (List.map gamma_transformer (TSet.elements v))
+    let term_list = term_list srk alphas tr_symbols in
+    mk_or srk (List.map (fun t -> gamma_transformer srk term_list t) (TSet.elements v))
 
 
 
@@ -418,10 +421,31 @@ module Mdvass = struct
       graph : vas array array;
       simulation : M.t list }
 
-  let compute_edges srk nodes transformers = assert false
-     (*let solver = Smt.mk_solver srk in
-     let rec compute_for_node node nodes transformers =
-*)
+
+  let compute_transformers_two_nodes srk l1 l2 transformers term_list tr_symbols =
+    let t = TSet.empty in
+    let solver = Smt.mk_solver srk in
+    TSet.filter (fun trans ->
+        Smt.Solver.reset solver;
+        let trans_constraint = gamma_transformer srk term_list trans in
+        Smt.Solver.add solver [mk_and srk [l1; trans_constraint; postify srk tr_symbols l2]]; (* does add just do and?*)
+        match Smt.Solver.get_model solver with
+        | `Unsat -> false
+        | `Unknown -> true
+        | `Sat _ -> true
+      ) transformers
+ 
+
+
+  let compute_edges srk nodes transformers tr_symbols alphas label =
+    let term_list = term_list srk alphas tr_symbols in 
+    let graph = Array.make_matrix (Array.length label) (Array.length label) (TSet.empty) in
+    BatArray.modifyi (fun ind1 arr -> 
+        BatArray.modifyi (fun ind2 _ ->
+            compute_transformers_two_nodes srk label.(ind1) label.(ind2) transformers term_list tr_symbols)
+          arr; arr) (*this seems fishy... i'm really just trying to modify inplace *)
+      graph;
+    graph
 
   module VassGraph = struct
     type t = vas array array
