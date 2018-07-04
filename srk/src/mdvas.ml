@@ -416,19 +416,32 @@ let equal (srk : 'a context) (tr_symbols : (symbol * symbol) list) (vabs1 : 'a t
 
 module Mdvass = struct
   module Int = SrkUtil.Int
-  type 'a t =
-    { label : ('a formula) array;
+
+  type 'a vass_abs = { label : ('a formula) array;
       graph : vas array array;
       simulation : M.t list }
+  (*[@@deriving show]*)
+
+  type 'a vass_abs_lift = Vass of 'a vass_abs | Top | Bottom
+  (*[@@deriving show]*)
+
+  type 'a t = 'a vass_abs_lift
+
+
+  let pp _ _ = assert false
+
+
+  let join  (srk :'a context) (tr_symbols : (symbol * symbol) list) (vabs1 : 'a t) (vabs2 : 'a t) = assert false
+  let widen  (srk :'a context) (tr_symbols : (symbol * symbol) list) (vabs1 : 'a t) (vabs2 : 'a t) = assert false
+  let equal (srk : 'a context) (tr_symbols : (symbol * symbol) list) (vabs1 : 'a t) (vabs2 : 'a t) = assert false
 
 
   let compute_transformers_two_nodes srk l1 l2 transformers term_list tr_symbols =
-    let t = TSet.empty in
     let solver = Smt.mk_solver srk in
     TSet.filter (fun trans ->
         Smt.Solver.reset solver;
         let trans_constraint = gamma_transformer srk term_list trans in
-        Smt.Solver.add solver [mk_and srk [l1; trans_constraint; postify srk tr_symbols l2]]; (* does add just do and?*)
+        Smt.Solver.add solver [l1; trans_constraint; postify srk tr_symbols l2];
         match Smt.Solver.get_model solver with
         | `Unsat -> false
         | `Unknown -> true
@@ -437,13 +450,13 @@ module Mdvass = struct
  
 
 
-  let compute_edges srk nodes transformers tr_symbols alphas label =
+  let compute_edges srk transformers tr_symbols alphas label =
     let term_list = term_list srk alphas tr_symbols in 
     let graph = Array.make_matrix (Array.length label) (Array.length label) (TSet.empty) in
-    BatArray.modifyi (fun ind1 arr -> 
+    BatArray.iteri (fun ind1 arr -> 
         BatArray.modifyi (fun ind2 _ ->
             compute_transformers_two_nodes srk label.(ind1) label.(ind2) transformers term_list tr_symbols)
-          arr; arr) (*this seems fishy... i'm really just trying to modify inplace *)
+          arr) 
       graph;
     graph
 
@@ -461,17 +474,92 @@ module Mdvass = struct
 
 
 
+  let pre_symbols tr_symbols =
+    List.fold_left (fun set (s,_) ->
+        Symbol.Set.add s set)
+      Symbol.Set.empty
+      tr_symbols
+
+  let post_symbols tr_symbols =
+    List.fold_left (fun set (_,s') ->
+        Symbol.Set.add s' set)
+      Symbol.Set.empty
+      tr_symbols
+
+
+  let get_a_labeling srk formula exists tr_symbols =
+    let pre_symbols = pre_symbols tr_symbols in
+    let post_symbols = post_symbols tr_symbols in
+    let solver = Smt.mk_solver srk in
+    let man = Polka.manager_alloc_strict () in
+    let exists_pre x =
+        exists x && not (Symbol.Set.mem x post_symbols)
+    in
+    let exists_post x =
+      exists x && not (Symbol.Set.mem x pre_symbols)
+    in
+    let rec find_pre labels = 
+      match Smt.Solver.get_model solver with
+      | `Unsat -> labels
+      | `Unknown -> assert false
+      | `Sat m ->
+        match Interpretation.select_implicant m formula with
+        | None -> assert false
+        | Some imp ->
+          let pre_imp = SrkApron.formula_of_property (Abstract.abstract ~exists:exists_pre srk man (mk_and srk imp)) in
+          Smt.Solver.add solver [mk_not srk pre_imp];
+          find_pre (pre_imp :: labels)
+    in
+    let rec find_post labels = 
+      match Smt.Solver.get_model solver with
+      | `Unsat -> labels
+      | `Unknown -> assert false
+      | `Sat m ->
+        match Interpretation.select_implicant m formula with
+        | None -> assert false
+        | Some imp -> 
+          let post_imp = SrkApron.formula_of_property (Abstract.abstract ~exists:exists_post srk man (mk_and srk imp)) in
+          Smt.Solver.add solver [mk_not srk post_imp];
+          find_post (post_imp :: labels)
+    in
+    Smt.Solver.reset solver;
+    Smt.Solver.add solver [formula];
+    let pre_labels = find_pre [] in
+    Smt.Solver.reset solver;
+    Smt.Solver.add solver [formula];
+    let post_labels = List.map (fun lab -> preify srk tr_symbols lab) (find_post []) in
+    let result = BatArray.of_list (pre_labels @ post_labels) in
+    Array.iteri (fun ind lab -> Log.errorf "LABEL NUM %d: %a" ind (Formula.pp srk) (lab)) result;
+    result
+  
+
+
 
   let abstract ?(exists=fun x -> true) srk tr_symbols body =
+    let body = (rewrite srk ~down:(nnf_rewriter srk) body) in 
+    let vas = abstract ~exists srk tr_symbols body in
+    match vas with
+    | Top -> Top
+    | Bottom -> Bottom
+    | Vas {v; alphas} ->
+      let label = get_a_labeling srk body exists tr_symbols in
+      let simulation = alphas in
+      let graph = compute_edges srk v tr_symbols alphas label in
+      Vass {label; graph; simulation}
+
+
+    
+
+  (*let vassabstract ?(exists=fun x -> true) srk tr_symbols body label =
     let vas = abstract ~exists srk tr_symbols body in
     match vas with
     | Top -> assert false
     | Bottom -> assert false
     | Vas {v; alphas} ->
-      let nodes = failwith "test" in
-      let graph = compute_edges srk nodes v in
-      assert false
-
+      let simulation = alphas in
+      let graph = compute_edges srk v tr_symbols alphas label in
+      {label; graph; simulation}
+*)
 
   let rec create_n_vars srk num vars basename =
     begin match num <= 0 with
@@ -499,9 +587,8 @@ module Mdvass = struct
   let exp_compute_trans_in_out_index_numbers transformersmap num sccs nvarst =
     let num_sccs, func_sccs = sccs in
     let in_sing, out_sing, in_scc, pre_scc = Array.make num [], Array.make num [], Array.make num_sccs [], Array.make num_sccs [] in
-      (*make_n_empty_lists num [], make_n_empty_lists num [], make_n_empty_lists num_sccs [], make_n_empty_lists num_sccs [] in*)
     List.iteri (fun index (n1, trans, n2) -> in_sing.(n2)<-((List.nth nvarst index) :: in_sing.(n2)); out_sing.(n1)<- ((List.nth nvarst index) :: out_sing.(n1));
-                 pre_scc.(n1)<- ((List.nth nvarst index) :: pre_scc.(func_sccs n1));
+                 pre_scc.(func_sccs n1)<- ((List.nth nvarst index) :: pre_scc.(func_sccs n1));
                  if not (func_sccs n1 = func_sccs n2) then begin 
                    in_scc.(func_sccs n2)<-((List.nth nvarst index) :: in_scc.(func_sccs n2)) 
                  end)
@@ -562,9 +649,9 @@ module Mdvass = struct
 
   let exp srk tr_symbols loop_counter vassabs =
     match vassabs with
-    (*| Bottom -> mk_false srk
-    | Top -> mk_true srk*)
-    | {label; graph; simulation} ->
+    | Bottom -> mk_false srk
+    | Top -> mk_true srk
+    | Vass {label; graph; simulation} ->
       let transformersmap = List.flatten 
           (List.flatten 
              (Array.to_list 
@@ -589,7 +676,9 @@ module Mdvass = struct
       let pre_post_conds = exp_pre_post_conds srk ests label tr_symbols in
       let never_enter_constraints = exp_never_enter_scc srk ests in_scc pre_scc sccs in
       let pos_constraints = create_exp_positive_reqs srk [nvarst; fst (List.split ests); snd (List.split ests)] in
-      mk_and srk [form; sum_n_eq_loop_counter; ks_less_than_ns; flow_consv_req; in_out_one;
-                  ests_one_or_zero; pre_post_conds; never_enter_constraints; pos_constraints]
-
+      let form = 
+        mk_and srk [form; sum_n_eq_loop_counter; ks_less_than_ns; flow_consv_req; in_out_one;
+                    ests_one_or_zero; pre_post_conds; never_enter_constraints; pos_constraints] in
+      Log.errorf " Current D VAL %a" (Formula.pp srk) form;
+      form
   end

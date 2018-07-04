@@ -120,9 +120,12 @@ module K = struct
   module SPPeriodicRational = SumWedge (SPOne) (SolvablePolynomialPeriodicRational) ()
   module SPG = ProductWedge (SPPeriodicRational) (WedgeGuard)
   module Vas = Product(Product(Mdvas)(WedgeGuard))(LinearRecurrenceInequation)
+  module Vass = Product(Product(Mdvass)(WedgeGuard))(LinearRecurrenceInequation)
   module SPSplit = Sum (SPG) (Split(SPG)) ()
-  module D = Sum(SPSplit)(Vas)()
+  module D = Sum(SPSplit)(Vass)()
   module I = Iter(MakeDomain(D))
+  module Temp = Sum(SPSplit)(Vas)()
+  module TempI = Iter(MakeDomain(D))
 
   let star x = Log.time "cra:star" I.star x
 
@@ -692,8 +695,12 @@ let _ =
      " Use periodic rational spectral decomposition");
   CmdLine.register_config
     ("-cra-vas",
-     Arg.Clear K.D.abstract_left,
+     Arg.Clear K.Temp.abstract_left,
      " Use VAS abstraction");
+  CmdLine.register_config
+    ("-cra-vass",
+     Arg.Clear K.D.abstract_left,
+     " Use VASS abstraction");
   CmdLine.register_config
     ("-dump-goals",
      Arg.Set dump_goals,
