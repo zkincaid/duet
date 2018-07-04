@@ -40,6 +40,8 @@ module SolvablePolynomial : PreDomainWedge
 module SolvablePolynomialPeriodicRational : PreDomainWedge
 
 module Vas : Domain
+module Mdvass : PreDomain
+module Mdvas : PreDomain
 module WedgeGuard : PreDomainWedge
 module LinearRecurrenceInequation : PreDomain
 
