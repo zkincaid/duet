@@ -116,13 +116,16 @@ module V = struct
 end
 
 module K = struct
-  include Transition.Make(Ctx)(V)
+  module Tr = Transition.Make(Ctx)(V)
+  include Tr
   open Iteration
   module SPOne = SumWedge (SolvablePolynomial) (SolvablePolynomialOne) ()
   module SPPeriodicRational = SumWedge (SPOne) (SolvablePolynomialPeriodicRational) ()
   module SPG = ProductWedge (SPPeriodicRational) (WedgeGuard)
-  module SPSplit = Sum (SPG) (Split(SPG)) ()
-  module I = Iter(MakeDomain(SPSplit))
+  module LinRec = Product (LinearRecurrenceInequation) (PolyhedronGuard)
+  module D = Sum(SPG)(LinRec)()
+  module SplitD = Sum (D) (Split(D)) ()
+  module I = Iter(MakeDomain(SplitD))
 
   let add x y =
     if is_zero x then y
@@ -137,15 +140,10 @@ module K = struct
 
   module CRARefinement = Refinement.DomainRefinement
       (struct
-         type t = Transition.Make(Ctx)(V).t
-         let mul = mul
-         let add = add
-         let zero = zero
-         let one = one
-         let star = I.star
-         let equal a b = ((Wedge.is_sat srk (guard a)) == `Unsat)
-         let compare = compare
-       end)
+        include Tr
+        let star = I.star
+        let equal a b = ((Wedge.is_sat srk (guard a)) == `Unsat)
+      end)
 
   let refine_star x = 
     let nnf_guard = Syntax.rewrite srk ~down:(Syntax.nnf_rewriter srk) (guard x) in
@@ -236,7 +234,6 @@ module K = struct
         else
           let result = CRARefinement.refinement x_dnf in
           result)    
-
 
   let star x = 
     if (!cra_refine) then 
@@ -803,7 +800,7 @@ let _ =
      " Turn off forward invariant generation");
   CmdLine.register_config
     ("-cra-split-loops",
-     Arg.Clear K.SPSplit.abstract_left,
+     Arg.Clear K.SplitD.abstract_left,
      " Turn on loop splitting");
   CmdLine.register_config
     ("-cra-no-matrix",
@@ -817,6 +814,10 @@ let _ =
     ("-cra-refine",
      Arg.Set cra_refine,
      " Turn on graph refinement");
+  CmdLine.register_config
+    ("-cra-lin-rec",
+     Arg.Clear K.D.abstract_left,
+     " Linear recurrence inequations");
   CmdLine.register_config
     ("-dump-goals",
      Arg.Set dump_goals,
