@@ -218,7 +218,7 @@ module MakeTransition(V : Transition.Var) = struct
 
   let refine_star x = 
     let nnf_guard = Syntax.rewrite srk ~down:(Syntax.nnf_rewriter srk) (guard x) in
-    Format.eprintf "  Top-level formula:  %a  \n" (Syntax.Formula.pp srk) nnf_guard;
+    (*Format.eprintf "  Top-level formula:  %a  \n" (Syntax.Formula.pp srk) nnf_guard;*)
     let to_dnf form = 
       match form with
       | `And top_and_list ->
@@ -271,7 +271,7 @@ module MakeTransition(V : Transition.Var) = struct
       | _ -> ([dnf_guard], true)
       )
       in
-    Format.eprintf " UnsimpGuard dnf size : %d\n Formula:  %a\n%!" (List.length guard_dis) (Syntax.Formula.pp srk) dnf_guard;
+    (*Format.eprintf " UnsimpGuard dnf size : %d\n Formula:  %a\n%!" (List.length guard_dis) (Syntax.Formula.pp srk) dnf_guard;*)
     if one_dis then I.star x
     else
       let rec build_dnf needed_dis disjuncts =
@@ -296,26 +296,22 @@ module MakeTransition(V : Transition.Var) = struct
         in
       let (needed_dis, bailed) = build_dnf [] guard_dis in
       if bailed then 
-        (print_endline "bailed";
-        I.star x)
+        I.star x
       else (
-        Format.eprintf " SimpGuard dnf size : %d\n Formula:  %a\n%!" (List.length needed_dis) (Syntax.Formula.pp srk) (Syntax.mk_or srk needed_dis);
+        (*Format.eprintf " SimpGuard dnf size : %d\n Formula:  %a\n%!" (List.length needed_dis) (Syntax.Formula.pp srk) (Syntax.mk_or srk needed_dis);*)
         let x_tr = BatEnum.fold (fun acc a -> a :: acc) [] (transform x) in
         let x_dnf = List.map (fun disjunct -> construct disjunct x_tr) needed_dis in
         if (List.length x_dnf) = 1 then I.star (List.hd x_dnf)
         else
           let result = CRARefinement.refinement x_dnf in
-          Format.eprintf " Star Guard result :  %a  \n%!" (Syntax.Formula.pp srk) (guard result);
           result)    
 
 
   let star x = 
     if (!cra_refine) then 
-      (print_endline ("cra refine star");
-      Log.time "cra:refine_star" refine_star x)
+      Log.time "cra:refine_star" refine_star x
     else 
-      (print_endline ("cra star");
-      Log.time "cra:star" I.star x)
+      Log.time "cra:star" I.star x
 
 end
 
