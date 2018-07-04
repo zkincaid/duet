@@ -38,6 +38,7 @@ install:
 
 clean:
 	$(SETUP) -clean
+	@rm -f setup.data
 
 test:
 	$(SETUP) -test

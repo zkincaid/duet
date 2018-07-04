@@ -83,6 +83,8 @@ type int_virtual_term =
     offset : ZZ.t }
   [@@deriving ord]
 
+exception Equal_int_term of int_virtual_term
+
 let pp_int_virtual_term srk formatter vt =
   begin
     if vt.divisor = 1 then
@@ -329,6 +331,16 @@ let simplify_atom srk op s t =
     end
   | `Leq ->
     `CompareZero (`Leq, snd (zz_linterm s))
+
+let is_presburger_atom srk atom =
+  try
+    begin match Interpretation.destruct_atom srk atom with
+      | `Literal (_, _) -> true
+      | `Comparison (op, s, t) ->
+        ignore (simplify_atom srk op s t);
+        true
+    end
+  with _ -> false
 
 let mk_divides srk divisor term =
   assert (ZZ.lt ZZ.zero divisor);
@@ -805,7 +817,11 @@ let select_int_term srk interp x atoms =
               | `Leq -> assert (ZZ.leq axv tv)
               | `Eq -> assert (ZZ.equal axv tv)
             end;
-            `Upper (vt, evaluate_vt vt)
+            begin match op with
+              | `Eq -> raise (Equal_int_term vt)
+              | _ ->
+                `Upper (vt, evaluate_vt vt)
+            end
           else
             let a = -a in
 
@@ -842,7 +858,11 @@ let select_int_term srk interp x atoms =
               | `Leq -> assert (ZZ.leq tv axv)
               | `Eq -> assert (ZZ.equal tv axv)
             end;
-            `Lower (vt, evaluate_vt vt)
+            begin match op with
+              | `Eq -> raise (Equal_int_term vt)
+              | _ ->
+                `Lower (vt, evaluate_vt vt)
+            end
         end
       | _ ->
         `None
@@ -877,6 +897,7 @@ let select_int_term srk interp x atoms =
   try
     select_int_term srk interp x atoms
   with
+  | Equal_int_term vt -> vt
   | Nonlinear ->
     Log.errorf "(nonlinear) select_int_term atoms:";
     List.iter (fun atom -> Log.errorf ">%a" (Formula.pp srk) atom) atoms;
@@ -1609,6 +1630,87 @@ let qe_mbp srk phi =
          mk_not srk (exists x (snd (normalize srk (mk_not srk phi)))))
     qf_pre
     phi
+
+let mbp srk exists phi =
+  let phi = eliminate_ite srk phi in
+  let phi = rewrite srk ~down:(nnf_rewriter srk) phi in
+  let project =
+    Symbol.Set.filter (not % exists) (symbols phi)
+  in
+  let solver = Smt.mk_solver srk in
+  let disjuncts = ref [] in
+  let is_true phi =
+    match Formula.destruct srk phi with
+    | `Tru -> true
+    | _ -> false
+  in
+  let rec loop () =
+    match Smt.Solver.get_model solver with
+    | `Sat interp ->
+      let implicant =
+        match select_implicant srk interp phi with
+        | Some x -> x
+        | None -> assert false
+      in
+      let (vt_map, implicant') =
+        Symbol.Set.fold (fun s (vt_map, implicant) ->
+            let vt = select_int_term srk interp s implicant in
+
+            (* floor(term/div) + offset ~> (term - ([[term]] mod div))/div + offset,
+               and add constraint that div | (term - ([[term]] mod div)) *)
+            let term_val =
+              let term_qq = evaluate_linterm (Interpretation.real interp) vt.term in
+              match QQ.to_zz term_qq with
+              | None -> assert false
+              | Some zz -> zz
+            in
+            let remainder =
+              Mpzf.fdiv_r term_val (ZZ.of_int vt.divisor)
+            in
+            let numerator =
+              V.add_term (QQ.of_zz (ZZ.negate remainder)) const_dim vt.term
+            in
+            let replacement =
+              V.scalar_mul (QQ.inverse (QQ.of_int vt.divisor)) numerator
+              |> V.add_term (QQ.of_zz vt.offset) const_dim
+              |> of_linterm srk
+            in
+
+            let subst =
+              substitute_const srk
+                (fun p -> if p = s then replacement else mk_const srk p)
+            in
+            let divides = mk_divides srk (ZZ.of_int vt.divisor) numerator in
+            let implicant =
+              BatList.filter (not % is_true) (divides::(List.map subst implicant))
+            in
+            let subst' =
+              substitute_const srk
+                (fun p -> if p = s then replacement else mk_const srk p)
+            in
+            let vt_map = Symbol.Map.map subst' vt_map in
+            (Symbol.Map.add s (term_of_virtual_term srk vt) vt_map,
+             implicant))
+          project
+          (Symbol.Map.empty, implicant)
+      in
+      let disjunct =
+        substitute_const
+          srk
+          (fun s ->
+             try Symbol.Map.find s vt_map
+             with Not_found -> mk_const srk s)
+          phi
+      in
+      assert(List.length (!disjuncts) < 10);
+      disjuncts := disjunct::(!disjuncts);
+      Smt.Solver.add solver [mk_not srk disjunct];
+      loop ()
+    | `Unsat -> mk_or srk (!disjuncts)
+    | `Unknown -> raise Unknown
+  in
+  Smt.Solver.add solver [phi];
+  loop ()
 
 let easy_sat srk phi =
   let constants = fold_constants Symbol.Set.add phi Symbol.Set.empty in
