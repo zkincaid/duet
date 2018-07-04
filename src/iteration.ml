@@ -2324,3 +2324,9 @@ module Mdvas  = struct
 
 end
 
+
+module Mdvass = struct
+  include Interpretation
+  include Smt
+  include Mdvas.Mdvass
+end
