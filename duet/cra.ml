@@ -235,6 +235,57 @@ module K = struct
           let result = CRARefinement.refinement x_dnf in
           result)    
 
+  let refine_star x =
+    let open Syntax in
+    let guard =
+      rewrite srk
+        ~down:(nnf_rewriter srk)
+        ~up:(Nonlinear.uninterpret_rewriter srk)
+        (guard x)
+    in
+    let x_tr = BatEnum.fold (fun acc a -> a :: acc) [] (transform x) in
+    let solver = Smt.mk_solver srk in
+    let rhs_symbols =
+      BatEnum.fold (fun rhs_symbols (_, t) ->
+          Symbol.Set.union rhs_symbols (symbols t))
+        Symbol.Set.empty
+        (transform x)
+    in
+    let project x =
+      match V.of_symbol x with
+      | Some _ -> true
+      | None -> Symbol.Set.mem x rhs_symbols
+    in
+    Smt.Solver.add solver [guard];
+    let rec split disjuncts =
+      match Smt.Solver.get_model solver with
+      | `Unknown -> [x]
+      | `Unsat ->
+        BatList.filter_map (fun guard ->
+            let interp_guard = Nonlinear.interpret srk guard in
+            if Wedge.is_sat srk interp_guard = `Unsat then
+              None
+            else
+              Some (construct interp_guard x_tr))
+          disjuncts
+      | `Sat m ->
+        let disjunct =
+          match Interpretation.select_implicant m guard with
+          | Some implicant ->
+            let cs = CoordinateSystem.mk_empty srk in
+            Polyhedron.of_implicant ~admit:true cs implicant
+            |> Polyhedron.try_fourier_motzkin cs project
+            |> Polyhedron.implicant_of cs
+            |> mk_and srk
+          | None -> assert false
+        in
+        Smt.Solver.add solver [mk_not srk disjunct];
+        split (disjunct::disjuncts)
+    in
+    let x_dnf = split [] in
+    if (List.length x_dnf) = 1 then I.star (List.hd x_dnf)
+    else CRARefinement.refinement x_dnf
+
   let star x = 
     if (!cra_refine) then 
       Log.time "cra:refine_star" refine_star x
