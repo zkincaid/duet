@@ -480,12 +480,6 @@ module DomainRefinement (PreKleene : PreKleeneAlgebra) = struct
         (fun pair ->
           PreKleene.equal (PreKleene.mul (IntMap.find (fst pair) label_to_atom) (IntMap.find (snd pair) label_to_atom)) PreKleene.zero
         ) all_pairs in
-    print_endline "";
-    print_endline "";
-    print_endline ("Eliminated pairs:" ^ (string_of_int (List.length infeasiblePairs)));
-    print_endline ("Total pairs:" ^ (string_of_int (List.length all_pairs)));
-    print_endline "";
-    print_endline "";
     let label_map input_label = 
       IntMap.find input_label label_to_atom
     in
