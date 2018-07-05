@@ -211,14 +211,10 @@ module DomainRefinement (PreKleene : PreKleeneAlgebra) = struct
       (fun v1 v2 -> 
         if v1 = v2 then self_loop_cycles := [v1] :: !self_loop_cycles
       ) refinement_graph;
-    let rec remove_dups lst =
-      match lst with
-      | [] -> []
-      | h::t -> h::(remove_dups (List.filter (fun x -> x<>h) t))
-    in
+    let remove_dups xs = BatList.sort_unique Stdlib.compare xs in
     let cycles = 
       if List.length !self_loop_cycles <> 0 then remove_dups (!self_loop_cycles @ cycles)      else cycles 
-      in
+    in
     let scc_cycles = Array.make nSCCs [] in
     List.iter
       (fun cycle ->

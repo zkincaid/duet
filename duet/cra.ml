@@ -153,90 +153,56 @@ module K = struct
          let compare = compare
        end)
 
-  let refine_star x = 
-    let nnf_guard = Syntax.rewrite srk ~down:(Syntax.nnf_rewriter srk) (guard x) in
-    Format.eprintf "  Top-level formula:  %a  \n" (Syntax.Formula.pp srk) nnf_guard;
-    let to_dnf form = 
-      match form with
-      | `And top_and_list ->
-        let dnf_form_no_labels = (* list list list *)
-          List.map
-            (fun top_and_child ->
-              match Syntax.Formula.destruct srk top_and_child with
-              | `Or or_list ->
-                List.map
-                  (fun or_child ->
-                    match Syntax.destruct srk or_child with
-                    | `And leaf -> leaf
-                    | _ -> [or_child]
-                  ) or_list
-              | `And and_list -> [and_list]
-              | _ -> [[top_and_child]]
-            ) top_and_list
-          in
-        let cartesian_prod =
-          let cartesian a b = List.concat (List.map (fun e1 -> List.map (fun e2 -> (e1 @ e2)) b) a) in 
-          List.fold_left cartesian ([([])])
-          in
-        let distributed_list = cartesian_prod dnf_form_no_labels in (* list list *)
-        Syntax.mk_or srk (List.map (Syntax.mk_and srk) distributed_list)
-      | `Or dnf_list ->
-        Syntax.mk_or srk
-          (List.concat
-            (List.map
-              (fun or_of_ands ->
-                match Syntax.Formula.destruct srk or_of_ands with
-                | `Or list_of_ands -> list_of_ands
-                | _ -> [or_of_ands]
-              ) dnf_list
-            )
-          )
-      | otherwise -> Syntax.Formula.construct srk otherwise
+  let refine_star x =
+    let open Syntax in
+    let guard =
+      rewrite srk
+        ~down:(nnf_rewriter srk)
+        ~up:(Nonlinear.uninterpret_rewriter srk)
+        (guard x)
     in
-    let dnf_guard = Syntax.Formula.eval_memo srk to_dnf nnf_guard in
-    let (guard_dis, one_dis) = 
-      (match Syntax.Formula.destruct srk dnf_guard with
-      | `Or disjuncts -> (disjuncts, false)
-      | _ -> ([dnf_guard], true)
-      )
-      in
-    Format.eprintf " UnsimpGuard dnf size : %d\n Formula:  %a\n%!" (List.length guard_dis) (Syntax.Formula.pp srk) dnf_guard;
-    if one_dis then star x
-    else
-      let rec build_dnf needed_dis disjuncts =
-        match disjuncts with
-        | [] -> (needed_dis, false)
-        | new_dis :: tl -> 
-          let cur_dnf = Syntax.mk_or srk needed_dis in
-          (match Smt.entails srk (guard x) cur_dnf with
-          | `Yes -> (needed_dis, false)
-          | `Unknown -> ([], true)
-          | `No ->
-            (match Smt.entails srk cur_dnf new_dis with
-            | `Yes -> build_dnf [new_dis] tl
-            | `Unknown -> ([], true)
-            | `No ->
-              (match Smt.entails srk new_dis cur_dnf with
-              | `Yes -> build_dnf needed_dis tl
-              | `Unknown -> ([], true)
-              | `No -> build_dnf (new_dis :: needed_dis) tl)
-            )
-          ) 
+    let x_tr = BatEnum.fold (fun acc a -> a :: acc) [] (transform x) in
+    let solver = Smt.mk_solver srk in
+    let rhs_symbols =
+      BatEnum.fold (fun rhs_symbols (_, t) ->
+          Symbol.Set.union rhs_symbols (symbols t))
+        Symbol.Set.empty
+        (transform x)
+    in
+    let project x =
+      match V.of_symbol x with
+      | Some _ -> true
+      | None -> Symbol.Set.mem x rhs_symbols
+    in
+    Smt.Solver.add solver [guard];
+    let rec split disjuncts =
+      match Smt.Solver.get_model solver with
+      | `Unknown -> [x]
+      | `Unsat ->
+        BatList.filter_map (fun guard ->
+            let interp_guard = Nonlinear.interpret srk guard in
+            if Wedge.is_sat srk interp_guard = `Unsat then
+              None
+            else
+              Some (construct interp_guard x_tr))
+          disjuncts
+      | `Sat m ->
+        let disjunct =
+          match Interpretation.select_implicant m guard with
+          | Some implicant ->
+            let cs = CoordinateSystem.mk_empty srk in
+            Polyhedron.of_implicant ~admit:true cs implicant
+            |> Polyhedron.try_fourier_motzkin cs project
+            |> Polyhedron.implicant_of cs
+            |> mk_and srk
+          | None -> assert false
         in
-      let (needed_dis, bailed) = build_dnf [] guard_dis in
-      if bailed then 
-        (print_endline "bailed";
-        star x)
-      else (
-        Format.eprintf " SimpGuard dnf size : %d\n Formula:  %a\n%!" (List.length needed_dis) (Syntax.Formula.pp srk) (Syntax.mk_or srk needed_dis);
-        let x_tr = BatEnum.fold (fun acc a -> a :: acc) [] (transform x) in
-        let x_dnf = List.map (fun disjunct -> construct disjunct x_tr) needed_dis in
-        if (List.length x_dnf) = 1 then star (List.hd x_dnf)
-        else
-          let result = CRARefinement.refinement x_dnf in
-          Format.eprintf " Star Guard result :  %a  \n%!" (Syntax.Formula.pp srk) (guard result);
-          result)    
-
+        Smt.Solver.add solver [mk_not srk disjunct];
+        split (disjunct::disjuncts)
+    in
+    let x_dnf = split [] in
+    if (List.length x_dnf) = 1 then star (List.hd x_dnf)
+    else CRARefinement.refinement x_dnf
 
   let star x = 
     if (!cra_refine) then 
