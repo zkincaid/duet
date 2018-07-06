@@ -554,15 +554,15 @@ module Mdvass = struct
         | true -> BatList.remove acc lb_2
         | false -> acc
       ) labels pairs
- 
 
-  let get_a_labeling srk formula exists tr_symbols =
+
+  let get_pre_post_labels srk formula exists tr_symbols =
     let pre_symbols = pre_symbols tr_symbols in
     let post_symbols = post_symbols tr_symbols in
     let solver = Smt.mk_solver srk in
     let man = Polka.manager_alloc_strict () in
     let exists_pre x =
-        exists x && not (Symbol.Set.mem x post_symbols)
+      exists x && not (Symbol.Set.mem x post_symbols)
     in
     let exists_post x =
       exists x && not (Symbol.Set.mem x pre_symbols)
@@ -597,11 +597,15 @@ module Mdvass = struct
     Smt.Solver.reset solver;
     Smt.Solver.add solver [formula];
     let post_labels = List.map (fun lab -> preify srk tr_symbols lab) (find_post []) in
-    let redund_reduced = remove_redundant_labels srk tr_symbols formula (pre_labels @ post_labels) in
+    pre_labels, post_labels
+
+  let get_a_labeling srk formula exists tr_symbols =
+    let pre, post = get_pre_post_labels srk formula exists tr_symbols in
+    let redund_reduced = remove_redundant_labels srk tr_symbols formula (pre @ post) in
     let result = BatArray.of_list redund_reduced in
     Array.iteri (fun ind lab -> Log.errorf "LABEL NUM %d: %a" ind (Formula.pp srk) (lab)) result;
     result
-  
+
 
 
 
@@ -637,30 +641,7 @@ module Mdvass = struct
        
 
   let get_transition_equiv_labeling srk formula exists tr_symbols transitions alphas =
-    let pre_symbols = pre_symbols tr_symbols in
-    let post_symbols = post_symbols tr_symbols in
-    let solver = Smt.mk_solver srk in
-    let man = Polka.manager_alloc_strict () in
-    let exists_pre x =
-        exists x && not (Symbol.Set.mem x post_symbols)
-    in
-    let exists_post x =
-      exists x && not (Symbol.Set.mem x pre_symbols)
-    in
-    let rec find_pre labels = 
-      match Smt.Solver.get_model solver with
-      | `Unsat -> labels
-      | `Unknown -> assert false
-      | `Sat m ->
-        match Interpretation.select_implicant m formula with
-        | None -> assert false
-        | Some imp ->
-          let pre_imp = SrkApron.formula_of_property (Abstract.abstract ~exists:exists_pre srk man (mk_and srk imp)) in
-          Smt.Solver.add solver [mk_not srk pre_imp];
-          find_pre (pre_imp :: labels)
-    in
-    Smt.Solver.add solver [formula];
-    let pre_labels = find_pre [] in
+    let pre, post = get_pre_post_labels srk formula exists tr_symbols in
     let term_list = term_list srk alphas tr_symbols in  
     let rec find_equiv_sing_label ele front back =
       match back with
@@ -677,7 +658,10 @@ module Mdvass = struct
         let hd', back' = find_equiv_sing_label hd [] tl in
         find_equiv_labels (hd' :: front) back'
     in
-    let result = BatArray.of_list ((mk_not srk (mk_or srk pre_labels)) :: (find_equiv_labels [] pre_labels)) in
+    let remaining_post = mk_and srk
+        [mk_or srk post;
+         mk_not srk (mk_or srk pre)] in
+    let result = BatArray.of_list (remaining_post :: (find_equiv_labels [] pre)) in
     Array.iteri (fun ind lab -> Log.errorf "LABEL NUM %d: %a" ind (Formula.pp srk) (lab)) result;
     result
 
@@ -692,7 +676,7 @@ module Mdvass = struct
     | Vas {v; alphas} ->
       Log.errorf "NUM ALPHAS %d" (List.length alphas);
       let label = get_transition_equiv_labeling srk body exists tr_symbols v alphas in
-      let label2 = get_a_labeling srk body exists tr_symbols in
+      (*let label2 = get_a_labeling srk body exists tr_symbols in*)
       let simulation = alphas in
       let graph = compute_edges srk v tr_symbols alphas label body in
       BatArray.iteri (fun ind arr -> 
