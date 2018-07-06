@@ -498,6 +498,64 @@ module Mdvass = struct
       tr_symbols
 
 
+
+
+
+  let remove_redundant_labels srk tr_symbols body labels =
+    let check_if_redund srk tr_symbols body lb_1 lb_2 labels' =
+      let solver = Smt.mk_solver srk in
+      Smt.Solver.add solver [body];
+      Smt.Solver.add solver (List.map (fun lab -> mk_not srk lab ) (lb_1 :: labels'));
+      match Smt.Solver.get_model solver with
+      | `Unsat -> 
+        Smt.Solver.reset solver;
+        Smt.Solver.add solver [body];
+        let post_labels = List.map (fun lab -> mk_not srk (postify srk tr_symbols lab)) (lb_1 :: labels') in
+        Smt.Solver.add solver post_labels;
+        begin match Smt.Solver.get_model solver with
+        | `Unsat -> true
+        | _ -> false
+        end
+      | _ -> false
+    in
+    let check_if_imp srk lb_1 lb_2 =
+      let solver = Smt.mk_solver srk in
+      let form = (rewrite srk ~down:(nnf_rewriter srk) (mk_not srk (mk_if srk lb_1 lb_2))) in 
+      Smt.Solver.add solver [form];
+      match Smt.Solver.get_model solver with
+      | `Unsat -> Log.errorf "MADEITHEREHEHREHEHERE"; true
+      | `Unknown -> false
+      | `Sat m -> Log.errorf "THIS IS INTREPT %a" (Interpretation.pp) m;
+        match Interpretation.select_implicant m form with
+        | None -> assert false
+        | Some imp -> Log.errorf "Imp is %a" (Formula.pp srk) (mk_and srk imp); false
+
+    in
+    let rec compute_pairs srk front (ele : 'a Syntax.formula) back pairs =
+      match back with
+      | [] -> pairs
+      | hd :: tl ->
+        Log.errorf "Pair here is %a %a" (Formula.pp srk) ele (Formula.pp srk) hd;
+        match check_if_imp srk ele hd, check_if_imp srk hd ele with
+        | true, true | true, false -> compute_pairs srk (hd :: front) ele tl ((ele, hd, (front @ back)) :: pairs)
+        | false, true ->  compute_pairs srk (hd :: front) ele tl ((hd, ele, (front @ back)) :: pairs)
+        | false, false ->  compute_pairs srk (hd :: front) ele tl pairs
+    in
+    let rec compute_all_pairs srk front back pairs =
+      match back with
+      | hd :: tl -> compute_all_pairs srk (hd :: front) tl ((compute_pairs srk front hd tl [] ) @ pairs)
+      | [] -> pairs
+    in
+    let pairs = compute_all_pairs srk [] labels [] in
+    Log.errorf "NUM PAIRS %d" (List.length pairs);
+    BatList.iteri (fun ind (lb1, lb2, labels') -> Log.errorf "Pair %d: %a %a" ind (Formula.pp srk) (lb1) (Formula.pp srk) (lb2)) pairs;
+    BatList.fold_left (fun acc (lb_1, lb_2, labels') ->
+        match check_if_redund srk tr_symbols body lb_1 lb_2 labels' with
+        | true -> BatList.remove acc lb_2
+        | false -> acc
+      ) labels pairs
+ 
+
   let get_a_labeling srk formula exists tr_symbols =
     let pre_symbols = pre_symbols tr_symbols in
     let post_symbols = post_symbols tr_symbols in
@@ -539,12 +597,91 @@ module Mdvass = struct
     Smt.Solver.reset solver;
     Smt.Solver.add solver [formula];
     let post_labels = List.map (fun lab -> preify srk tr_symbols lab) (find_post []) in
-    let result = BatArray.of_list (pre_labels @ post_labels) in
+    let redund_reduced = remove_redundant_labels srk tr_symbols formula (pre_labels @ post_labels) in
+    let result = BatArray.of_list redund_reduced in
     Array.iteri (fun ind lab -> Log.errorf "LABEL NUM %d: %a" ind (Formula.pp srk) (lab)) result;
     result
   
 
 
+
+        
+
+  let check_same_sing_tran srk l1 l2 transformers term_list tr_symbols formula =
+    let solver = Smt.mk_solver srk in
+    let diff = 
+      TSet.filter (fun trans ->
+          Smt.Solver.reset solver;
+          let trans_constraint = gamma_transformer srk term_list trans in
+          Smt.Solver.add solver [l1; trans_constraint; formula];
+          match Smt.Solver.get_model solver with
+          | `Unsat -> 
+            Smt.Solver.reset solver;
+            Smt.Solver.add solver [l2; trans_constraint; formula];
+            begin match Smt.Solver.get_model solver with
+              | `Unsat -> false
+              | _ -> true
+            end
+          | `Unknown -> true
+          | `Sat _ ->
+            Smt.Solver.reset solver;
+            Smt.Solver.add solver [l2; trans_constraint; formula];
+            begin match Smt.Solver.get_model solver with
+              | `Sat _ -> false
+              | _ -> true
+            end) 
+        transformers
+    in
+    TSet.is_empty diff
+
+       
+
+  let get_transition_equiv_labeling srk formula exists tr_symbols transitions alphas =
+    let pre_symbols = pre_symbols tr_symbols in
+    let post_symbols = post_symbols tr_symbols in
+    let solver = Smt.mk_solver srk in
+    let man = Polka.manager_alloc_strict () in
+    let exists_pre x =
+        exists x && not (Symbol.Set.mem x post_symbols)
+    in
+    let exists_post x =
+      exists x && not (Symbol.Set.mem x pre_symbols)
+    in
+    let rec find_pre labels = 
+      match Smt.Solver.get_model solver with
+      | `Unsat -> labels
+      | `Unknown -> assert false
+      | `Sat m ->
+        match Interpretation.select_implicant m formula with
+        | None -> assert false
+        | Some imp ->
+          let pre_imp = SrkApron.formula_of_property (Abstract.abstract ~exists:exists_pre srk man (mk_and srk imp)) in
+          Smt.Solver.add solver [mk_not srk pre_imp];
+          find_pre (pre_imp :: labels)
+    in
+    Smt.Solver.add solver [formula];
+    let pre_labels = find_pre [] in
+    let term_list = term_list srk alphas tr_symbols in  
+    let rec find_equiv_sing_label ele front back =
+      match back with
+      | [] -> ele, front
+      | hd :: tl -> 
+        if check_same_sing_tran srk ele hd transitions term_list tr_symbols formula then
+          find_equiv_sing_label (mk_or srk [ele; hd]) front tl
+        else find_equiv_sing_label ele (hd :: front) tl
+    in
+    let rec find_equiv_labels front back =
+      match back with
+      | [] -> front
+      | hd :: tl ->
+        let hd', back' = find_equiv_sing_label hd [] tl in
+        find_equiv_labels (hd' :: front) back'
+    in
+    let result = BatArray.of_list ((mk_not srk (mk_or srk pre_labels)) :: (find_equiv_labels [] pre_labels)) in
+    Array.iteri (fun ind lab -> Log.errorf "LABEL NUM %d: %a" ind (Formula.pp srk) (lab)) result;
+    result
+
+ 
 
   let abstract ?(exists=fun x -> true) srk tr_symbols body =
     let body = (rewrite srk ~down:(nnf_rewriter srk) body) in 
@@ -553,7 +690,9 @@ module Mdvass = struct
     | Top -> Top
     | Bottom -> Bottom
     | Vas {v; alphas} ->
-      let label = get_a_labeling srk body exists tr_symbols in
+      Log.errorf "NUM ALPHAS %d" (List.length alphas);
+      let label = get_transition_equiv_labeling srk body exists tr_symbols v alphas in
+      let label2 = get_a_labeling srk body exists tr_symbols in
       let simulation = alphas in
       let graph = compute_edges srk v tr_symbols alphas label body in
       BatArray.iteri (fun ind arr -> 
@@ -578,7 +717,7 @@ module Mdvass = struct
   let rec create_n_vars srk num vars basename =
     begin match num <= 0 with
       | true -> List.rev vars (*rev only to make debugging easier and have names match up... not needed *)
-      | false -> create_n_vars srk (num - 1) ((mk_symbol srk ~name:(basename^"N"^(string_of_int num)) `TyInt) :: vars) basename
+      | false -> create_n_vars srk (num - 1) ((mk_symbol srk ~name:(basename^(string_of_int num)) `TyInt) :: vars) basename
     end
 
   let exp_nvars_eq_loop_counter srk nvarst loop_counter =
@@ -594,8 +733,8 @@ module Mdvass = struct
           kvarst)
           
   let create_es_et srk num =
-    let es = map_terms srk (create_n_vars srk num [] "EX") in
-    let et = map_terms srk (create_n_vars srk num [] "ES") in
+    let es = map_terms srk (create_n_vars srk num [] "ESL") in
+    let et = map_terms srk (create_n_vars srk num [] "ETL") in
     List.combine es et
 
   let exp_compute_trans_in_out_index_numbers transformersmap num sccs nvarst =
@@ -622,7 +761,7 @@ module Mdvass = struct
     let et, es = List.split ests in
     mk_and srk 
       [mk_eq srk (mk_add srk et) (mk_one srk);
-       mk_eq srk (mk_add srk et) (mk_one srk)]
+       mk_eq srk (mk_add srk es) (mk_one srk)]
 
   let exp_each_ests_one_or_zero srk ests =
     mk_and srk
@@ -676,7 +815,7 @@ module Mdvass = struct
                     graph)))
       in
       let transformers = List.map (fun (_, t, _) -> t) transformersmap in
-      let nvarst = map_terms srk (create_n_vars srk (List.length transformers) [] "") in
+      let nvarst = map_terms srk (create_n_vars srk (List.length transformers) [] "N") in
       let (form, (equiv_pairst, kvarst, svarst, rvarst)) =
         exp_base_helper srk tr_symbols loop_counter simulation transformers in
       let sum_n_eq_loop_counter = exp_nvars_eq_loop_counter srk nvarst loop_counter in
