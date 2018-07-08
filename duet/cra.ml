@@ -14,10 +14,7 @@ let srk = Ctx.context
 include Log.Make(struct let name = "cra" end)
 
 let forward_inv_gen = ref true
-let split_loops = ref false
-let matrix_rec = ref true
 let dump_goals = ref false
-let prsd = ref false
 let nb_goals = ref 0
 
 let dump_goal loc path_condition =
@@ -36,28 +33,6 @@ let dump_goal loc path_condition =
     Pervasives.close_out chan;
     incr nb_goals
   end
-
-let _ =
-  CmdLine.register_config
-    ("-cra-no-forward-inv",
-     Arg.Clear forward_inv_gen,
-     " Turn off forward invariant generation");
-  CmdLine.register_config
-    ("-cra-split-loops",
-     Arg.Set split_loops,
-     " Turn on loop splitting");
-  CmdLine.register_config
-    ("-cra-no-matrix",
-     Arg.Clear matrix_rec,
-     " Turn off matrix recurrences");
-  CmdLine.register_config
-    ("-cra-prsd",
-     Arg.Set prsd,
-     " Use periodic rational spectral decomposition");
-  CmdLine.register_config
-    ("-dump-goals",
-     Arg.Set dump_goals,
-     " Output goal assertions in SMTLIB2 format")
 
 let tr_typ typ = match resolve_type typ with
   | Int _   -> `TyInt
@@ -140,53 +115,13 @@ end
 
 module MakeTransition(V : Transition.Var) = struct
   include Transition.Make(Ctx)(V)
-  module DPoly = struct
-    module WV = Iteration.WedgeVector
-    module SplitWV = Iteration.Split(WV)
-    include Iteration.Sum(WV)(SplitWV)
-    let abstract_iter ?(exists=fun x -> true) srk phi symbols =
-      if !split_loops then
-        right (SplitWV.abstract_iter ~exists srk phi symbols)
-      else
-        left (WV.abstract_iter ~exists srk phi symbols)
-  end
-  module DMatrix = struct
-    module WM = Iteration.WedgeMatrix
-    module SplitWM = Iteration.Split(WM)
-    include Iteration.Sum(WM)(SplitWM)
-    let abstract_iter ?(exists=fun x -> true) srk phi symbols =
-      if !split_loops then
-        right (SplitWM.abstract_iter ~exists srk phi symbols)
-      else
-        left (WM.abstract_iter ~exists srk phi symbols)
-  end
-  module DPRSD = struct
-    module PR = Iteration.WedgeMatrixPeriodicRational
-    module SplitPR = Iteration.Split(PR)
-    include Iteration.Sum(PR)(SplitPR)
-    let abstract_iter ?(exists=fun x -> true) srk phi symbols =
-      if !split_loops then
-        right (SplitPR.abstract_iter ~exists srk phi symbols)
-      else
-        left (PR.abstract_iter ~exists srk phi symbols)
-  end
-  module D1 = struct
-    include Iteration.Sum(DPoly)(DMatrix)
-    let abstract_iter ?(exists=fun x -> true) srk phi symbols =
-      if !matrix_rec then
-        right (DMatrix.abstract_iter ~exists srk phi symbols)
-      else
-        left (DPoly.abstract_iter ~exists srk phi symbols)
-  end
-  module D = struct
-    include Iteration.Sum(D1)(DPRSD)
-    let abstract_iter ?(exists=fun x -> true) srk phi symbols =
-      if !prsd then
-        right (DPRSD.abstract_iter ~exists srk phi symbols)
-      else
-        left (D1.abstract_iter ~exists srk phi symbols)
-  end
-  module I = Iter(D)
+  open Iteration
+  module SPOne = SumWedge (SolvablePolynomial) (SolvablePolynomialOne) ()
+  module SPG = ProductWedge (SPOne) (WedgeGuard)
+  module SPPeriodicRational = Sum (SPG) (PresburgerGuard) ()
+  module SPSplit = Sum (SPPeriodicRational) (Split(SPPeriodicRational)) ()
+
+  module I = Iter(MakeDomain(SPSplit))
 
   let star x = Log.time "cra:star" I.star x
 
@@ -320,7 +255,10 @@ let tr_bexpr bexpr =
 (* Populate table mapping variables to the offsets of that variable that
    appear in the program.  Must be called before calling weight *)
 let offset_table = Varinfo.HT.create 991
-let get_offsets v = Varinfo.HT.find offset_table v
+let get_offsets v =
+  try Varinfo.HT.find offset_table v
+  with Not_found -> Int.Set.empty
+
 let populate_offset_table file =
   let add_offset (v, offset) =
     match offset with
@@ -750,6 +688,28 @@ let resource_bound_analysis file =
             logf ~level:`always "Procedure %a has zero cost" Varinfo.pp procedure)
     end
   | _ -> assert false
+
+let _ =
+  CmdLine.register_config
+    ("-cra-no-forward-inv",
+     Arg.Clear forward_inv_gen,
+     " Turn off forward invariant generation");
+  CmdLine.register_config
+    ("-cra-split-loops",
+     Arg.Clear K.SPSplit.abstract_left,
+     " Turn on loop splitting");
+  CmdLine.register_config
+    ("-cra-no-matrix",
+     Arg.Clear K.SPOne.abstract_left,
+     " Turn off matrix recurrences");
+  CmdLine.register_config
+    ("-cra-prsd",
+     Arg.Clear K.SPPeriodicRational.abstract_left,
+     " Use periodic rational spectral decomposition");
+  CmdLine.register_config
+    ("-dump-goals",
+     Arg.Set dump_goals,
+     " Output goal assertions in SMTLIB2 format")
 
 let _ =
   CmdLine.register_pass

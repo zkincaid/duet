@@ -1,5 +1,5 @@
 # OASIS_START
-# DO NOT EDIT (digest: d1e74fe6c2d2108dfb503caabd378fa7)
+# DO NOT EDIT (digest: 26bc3d6721d0636a2fcb1f973767214b)
 # Ignore VCS directories, you can use the same kind of rule outside
 # OASIS_START/STOP if you want to exclude directories that contains
 # useless stuff for the build process
@@ -269,45 +269,6 @@ true: annot, bin_annot
 <duet/*.ml{,i,y}>: use_apak
 <duet/*.ml{,i,y}>: use_pa
 <duet/*.ml{,i,y}>: use_srk
-# Executable cca
-"cca/cca.native": pkg_Z3
-"cca/cca.native": pkg_apron
-"cca/cca.native": pkg_apron.boxMPQ
-"cca/cca.native": pkg_apron.octMPQ
-"cca/cca.native": pkg_apron.polkaMPQ
-"cca/cca.native": pkg_batteries
-"cca/cca.native": pkg_camlidl
-"cca/cca.native": pkg_cil
-"cca/cca.native": pkg_cil.default-features
-"cca/cca.native": pkg_gmp
-"cca/cca.native": pkg_ntl
-"cca/cca.native": pkg_ocamlgraph
-"cca/cca.native": pkg_ocrs
-"cca/cca.native": pkg_ppx_deriving
-"cca/cca.native": pkg_ppx_deriving.ord
-"cca/cca.native": pkg_ppx_deriving.show
-"cca/cca.native": use_apak
-"cca/cca.native": use_pa
-"cca/cca.native": use_srk
-<cca/*.ml{,i,y}>: pkg_Z3
-<cca/*.ml{,i,y}>: pkg_apron
-<cca/*.ml{,i,y}>: pkg_apron.boxMPQ
-<cca/*.ml{,i,y}>: pkg_apron.octMPQ
-<cca/*.ml{,i,y}>: pkg_apron.polkaMPQ
-<cca/*.ml{,i,y}>: pkg_batteries
-<cca/*.ml{,i,y}>: pkg_camlidl
-<cca/*.ml{,i,y}>: pkg_cil
-<cca/*.ml{,i,y}>: pkg_cil.default-features
-<cca/*.ml{,i,y}>: pkg_gmp
-<cca/*.ml{,i,y}>: pkg_ntl
-<cca/*.ml{,i,y}>: pkg_ocamlgraph
-<cca/*.ml{,i,y}>: pkg_ocrs
-<cca/*.ml{,i,y}>: pkg_ppx_deriving
-<cca/*.ml{,i,y}>: pkg_ppx_deriving.ord
-<cca/*.ml{,i,y}>: pkg_ppx_deriving.show
-<cca/*.ml{,i,y}>: use_apak
-<cca/*.ml{,i,y}>: use_pa
-<cca/*.ml{,i,y}>: use_srk
 # OASIS_STOP
 "lib": not_hygienic
 true: use_menhir

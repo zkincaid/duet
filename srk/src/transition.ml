@@ -155,20 +155,27 @@ struct
           mk_symbol srk ~name:(Var.show var ^ "'") (Var.typ var :> typ)
         | None -> assert false)
 
+  let to_transition_formula tr =
+    let (tr_symbols, post_def) =
+      M.fold (fun var term (symbols, post_def) ->
+          let pre_sym = Var.symbol_of var in
+          let post_sym = post_symbol pre_sym in
+          let post_term = mk_const srk post_sym in
+          ((pre_sym,post_sym)::symbols,
+           (mk_eq srk post_term term)::post_def))
+        tr.transform
+        ([], [])
+    in
+    let body =
+      SrkSimplify.simplify_terms srk (mk_and srk (tr.guard::post_def))
+    in
+    (tr_symbols, body)
+
   module Iter(D : Iteration.Domain) = struct
     type iter = C.t D.t
 
     let alpha tr =
-      let (tr_symbols, post_def) =
-        M.fold (fun var term (symbols, post_def) ->
-            let pre_sym = Var.symbol_of var in
-            let post_sym = post_symbol pre_sym in
-            let post_term = mk_const srk post_sym in
-            ((pre_sym,post_sym)::symbols,
-             (mk_eq srk post_term term)::post_def))
-          tr.transform
-          ([], [])
-      in
+      let (tr_symbols, body) = to_transition_formula tr in
       let exists =
         let post_symbols =
           List.fold_left
@@ -179,12 +186,9 @@ struct
         fun x ->
           match Var.of_symbol x with
           | Some _ -> true
-          | None -> Symbol.Set.mem x post_symbols
+        | None -> Symbol.Set.mem x post_symbols
       in
-      let body =
-        SrkSimplify.simplify_terms srk (mk_and srk (tr.guard::post_def))
-      in
-      D.abstract_iter ~exists srk body tr_symbols
+      D.abstract ~exists srk tr_symbols body
 
     let closure iter =
       let transform =
@@ -202,7 +206,6 @@ struct
     let widen = D.widen
     let equal = D.equal
     let pp = D.pp
-    let show = D.show
     let star = closure % alpha
   end
 
@@ -300,7 +303,11 @@ struct
     with | Not_found -> false
          | Not_normal -> false
 
-  let equal x y = compare x y = 0 || equiv x y
+  let equal x y =
+    compare x y = 0
+    || is_zero x && (Smt.is_sat srk y.guard) = `Unsat
+    || is_zero y && (Smt.is_sat srk x.guard) = `Unsat
+    || equiv x y
 
   let exists p tr =
     let transform = M.filter (fun k _ -> p k) tr.transform in

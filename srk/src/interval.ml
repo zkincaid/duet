@@ -291,3 +291,26 @@ let rec exp_const ivl n =
     if n mod 2 = 0 then q_squared
     else mul q q_squared
   end
+
+let exp base exponent =
+  let (>>/) a f = BatOption.map f a in
+  let (>>=) a f = BatOption.Monad.bind a f in
+  if is_nonnegative exponent then
+    match base.lower, base.upper with
+    | Some base_lo, Some base_hi when QQ.leq QQ.one base_lo ->
+      (* base^exp is monotone *)
+      { lower = lower exponent >>/ QQ.floor >>= ZZ.to_int >>/ QQ.exp base_lo;
+        upper = upper exponent >>/ QQ.floor >>= ZZ.to_int >>/ QQ.exp base_hi }
+
+    | Some base_lo, Some base_hi when QQ.leq QQ.zero base_lo && QQ.leq base_hi QQ.one ->
+      (* base^exp is antitone *)
+      let lo =
+        match upper exponent >>/ QQ.ceiling >>= ZZ.to_int >>/ QQ.exp base_lo with
+        | Some lo -> Some lo
+        | None -> Some QQ.zero
+      in
+      { lower = lo;
+        upper = lower exponent >>/ QQ.floor >>= ZZ.to_int >>/ QQ.exp base_lo }
+    | _ -> top
+  else
+    top

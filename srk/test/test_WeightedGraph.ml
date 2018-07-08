@@ -32,7 +32,8 @@ end
 module T = struct
   module SemiRing = Transition.Make(Ctx)(V)
   include SemiRing
-  module I = SemiRing.Iter(Iteration.Split(Iteration.WedgeMatrix))
+  open Iteration
+  module I = SemiRing.Iter(MakeDomain(Split(ProductWedge(SolvablePolynomial)(WedgeGuard))))
   let star = I.star
 end
 module WG = WeightedGraph
