@@ -485,19 +485,23 @@ module LinearGuard = struct
     let phi =
       rewrite srk ~up:(abstract_presburger_rewriter srk) phi
     in
+    let phi =
+      rewrite srk ~down:(nnf_rewriter srk) phi
+    in
     let pre_symbols = pre_symbols tr_symbols in
     let post_symbols = post_symbols tr_symbols in
+    let lin_phi = Nonlinear.linearize srk phi in
     let precondition =
       Quantifier.mbp
         srk
         (fun x -> exists x && not (Symbol.Set.mem x post_symbols))
-        (Nonlinear.linearize srk phi)
+        lin_phi
     in
     let postcondition =
       Quantifier.mbp
         srk
         (fun x -> exists x && not (Symbol.Set.mem x pre_symbols))
-        (Nonlinear.linearize srk phi)
+        lin_phi
     in
     { precondition; postcondition }
 
@@ -789,8 +793,8 @@ module Recurrence = struct
       in
 
       let mUA = QQMatrix.mul mU mA in
-      let mUBA = QQMatrix.mul mU (QQMatrix.mul mB mA) in
-      let mB = match Linear.divide_right mUBA mUA with
+      let mUB = QQMatrix.mul mU mB in
+      let mB = match Linear.divide_right mUB mU with
         | Some x -> x
         | None -> assert false
       in
@@ -1663,7 +1667,10 @@ module SolvablePolynomialPeriodicRational = struct
     let close_matrix_rec recurrence offset =
       let size = Array.length recurrence.rec_add in
       let transform = QQMatrix.of_dense recurrence.rec_transform in
-      let prsd = standard_basis_prsd transform size in
+      let prsd =
+        try standard_basis_prsd transform size
+        with Not_found -> assert false
+      in
       let rec_add_cf =
         Array.init (Array.length recurrence.rec_add) (fun i ->
             substitute_closed_forms recurrence.rec_add.(i))
@@ -2210,4 +2217,168 @@ module SumWedge (A : PreDomainWedge) (B : PreDomainWedge) () = struct
       Left (A.abstract_wedge srk tr_symbols wedge)
     else
       Right (B.abstract_wedge srk tr_symbols wedge)
+end
+
+module PresburgerGuard = struct
+  module SPPR = SolvablePolynomialPeriodicRational
+  include Product(SPPR)(PolyhedronGuard)
+
+  (* Given a term of the form floor(x/d) with d a positive int, retrieve the pair (x,d) *)
+  let destruct_idiv srk t =
+    match Term.destruct srk t with
+    | `Unop (`Floor, t) -> begin match Term.destruct srk t with
+        | `Binop (`Div, num, den) -> begin match Term.destruct srk den with
+            | `Real den -> begin match QQ.to_int den with
+                | Some den when den > 0 -> Some (num, den)
+                | _ -> None
+              end
+            | _ -> None
+          end
+        | _ -> None
+      end
+    | _ -> None
+
+  let idiv_to_ite srk expr =
+    match Expr.refine srk expr with
+    | `Term t -> begin match destruct_idiv srk t with
+        | Some (num, den) when den < 10 ->
+          let den_term = mk_real srk (QQ.of_int den) in
+          let num_over_den =
+            mk_mul srk [mk_real srk (QQ.of_frac 1 den); num]
+          in
+          let offset =
+            BatEnum.fold (fun else_ r ->
+                let remainder_is_r =
+                  mk_eq srk
+                    (mk_mod srk (mk_sub srk num (mk_real srk (QQ.of_int r))) den_term)
+                    (mk_real srk QQ.zero)
+                in
+                mk_ite srk
+                  remainder_is_r
+                  (mk_real srk (QQ.of_frac (-r) den))
+                  else_)
+              (mk_real srk QQ.zero)
+              (1 -- (den-1))
+          in
+          (mk_add srk [num_over_den; offset] :> ('a,typ_fo) expr)
+        | _ -> expr
+      end
+    | _ -> expr
+
+  (* Over-approximate a formula with a Presbuger formula.  Requires
+     expression to be in negation normal form *)
+  let abstract_presburger_rewriter srk expr =
+    match Expr.refine srk expr with
+    | `Formula phi -> begin match Formula.destruct srk phi with
+        | `Atom (_, _, _) ->
+          if Quantifier.is_presburger_atom srk phi then
+            expr
+          else
+            (mk_true srk :> ('a,typ_fo) expr)
+        | _ -> expr
+      end
+    | _ -> expr
+
+  let abstract_presburger srk phi =
+    let nnf_simplify expr =
+      nnf_rewriter srk expr(*(SrkSimplify.simplify_terms_rewriter srk expr)*)
+    in
+    rewrite srk ~up:(idiv_to_ite srk) phi
+    |> eliminate_ite srk
+    |> rewrite srk ~down:nnf_simplify ~up:(abstract_presburger_rewriter srk)
+
+  let exp srk tr_symbols loop_counter (sp, guard) =
+    let open Recurrence in
+
+    let open PolyhedronGuard in
+    let precondition = SrkApron.formula_of_property guard.precondition in
+    let postcondition = SrkApron.formula_of_property guard.postcondition in
+    let pre_symbols = (* + symbolic constants *)
+      Symbol.Set.union (symbols precondition) (pre_symbols tr_symbols)
+    in
+    let post_symbols = post_symbols tr_symbols in
+    let post_map = post_map tr_symbols in
+
+    (* Let cf(k,x,x') be the closed form of the affine map associated
+       with sp.  The presburger guard is
+          (forall 0 <= p < k, there exists y' such that cf(p,x,y') /\ pre(y'))
+
+       The existential quantifier is safe to over-approximate (by a Presburger formula),
+       and the universal quantifier eliminated precisely. *)
+    let presburger_guard =
+      let prev_counter_sym = mk_symbol srk ~name:"p" `TyInt in
+      let prev_counter = mk_const srk prev_counter_sym in
+
+      (* "fresh" set of post-state variables, to be existentially
+         quantified *)
+      let fresh_symbols = ref Symbol.Set.empty in
+      let fresh =
+        Memo.memo (fun s ->
+            let name = "_" ^ (show_symbol srk s) in
+            let sym = mk_symbol srk ~name (typ_symbol srk s) in
+            fresh_symbols := Symbol.Set.add sym (!fresh_symbols);
+            sym)
+      in
+      let freshify = substitute_const srk (fun s ->
+          if Symbol.Set.mem s post_symbols then
+            mk_const srk (fresh s)
+          else
+            mk_const srk s)
+      in
+
+      let fresh_tr_symbols =
+        List.map (fun (s,s') -> (s, fresh s')) tr_symbols
+      in
+
+      let closed =
+        let sp' =
+          let open Recurrence in
+          { sp with rec_eq = if List.length sp.rec_eq > 0 then [List.hd sp.rec_eq] else [];
+                    rec_leq = [] }
+        in
+        SPPR.exp srk fresh_tr_symbols prev_counter sp'
+      in
+
+      let prev_guard =
+        let fresh_pre = (* precondition, expressed over fresh symbols *)
+          substitute_const srk
+            (fun s ->
+               if Symbol.Map.mem s post_map then
+                 freshify (mk_const srk (Symbol.Map.find s post_map))
+               else
+                 mk_const srk s)
+            precondition
+        in
+        abstract_presburger srk (mk_and srk [fresh_pre; closed])
+      in
+      let exists_prev_guard =
+        let allowed_symbols =
+          Array.fold_left (fun set term ->
+              Symbol.Set.union set (symbols term))
+            (Symbol.Set.add prev_counter_sym pre_symbols)
+            sp.Recurrence.term_of_id
+        in
+        Quantifier.mbp srk (fun x -> Symbol.Set.mem x allowed_symbols) prev_guard
+      in
+      mk_if srk
+        (mk_and srk [mk_leq srk (mk_real srk QQ.zero) prev_counter;
+                     mk_lt srk prev_counter loop_counter])
+        (abstract_presburger srk exists_prev_guard)
+      |> mk_not srk
+      |> Quantifier.mbp srk (fun x -> x != prev_counter_sym)
+      |> mk_not srk
+      |> rewrite srk ~down:(nnf_rewriter srk) ~up:(SrkSimplify.simplify_terms_rewriter srk)
+    in
+
+    let guard_closure =
+      mk_or srk [mk_and srk [mk_eq srk loop_counter (mk_real srk QQ.zero);
+                             identity srk tr_symbols];
+                 mk_and srk [mk_leq srk (mk_real srk QQ.one) loop_counter;
+                             presburger_guard;
+                             precondition;
+                             postcondition]]
+    in
+    mk_and srk [SPPR.exp srk tr_symbols loop_counter sp;
+                guard_closure]
+
 end
