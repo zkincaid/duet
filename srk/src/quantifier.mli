@@ -18,8 +18,9 @@ val maximize : 'a context -> 'a formula -> 'a term -> [ `Bounded of QQ.t
 (** Quantifier eliminiation via model-based projection *)
 val qe_mbp : 'a context -> 'a formula -> 'a formula
 
-(** Model-based projection *)
-val mbp : 'a context -> (symbol -> bool) -> 'a formula -> 'a formula
+(** Model-based projection.  If [dnf] option is set, convert to
+   disjunctive normal form. *)
+val mbp : ?dnf:bool -> 'a context -> (symbol -> bool) -> 'a formula -> 'a formula
 
 (** Alternating quantifier satisfiability *)
 val easy_sat : 'a context -> 'a formula -> [ `Sat | `Unsat | `Unknown ]

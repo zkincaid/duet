@@ -117,9 +117,10 @@ module K = struct
   include Transition.Make(Ctx)(V)
   open Iteration
   module SPOne = SumWedge (SolvablePolynomial) (SolvablePolynomialOne) ()
-  module SPPeriodicRational = SumWedge (SPOne) (SolvablePolynomialPeriodicRational) ()
-  module SPG = ProductWedge (SPPeriodicRational) (WedgeGuard)
-  module SPSplit = Sum (SPG) (Split(SPG)) ()
+  module SPG = ProductWedge (SPOne) (WedgeGuard)
+  module SPPeriodicRational = Sum (SPG) (PresburgerGuard) ()
+  module SPSplit = Sum (SPPeriodicRational) (Split(SPPeriodicRational)) ()
+
   module I = Iter(MakeDomain(SPSplit))
 
   let star x = Log.time "cra:star" I.star x
