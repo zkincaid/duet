@@ -543,6 +543,7 @@ module LinearRecurrenceInequation = struct
     Format.fprintf formatter "@]"
 
   let abstract ?(exists=fun x -> true) srk tr_symbols phi =
+    let phi = Nonlinear.linearize srk phi in
     let phi = rewrite srk ~down:(nnf_rewriter srk) phi in
     let delta =
       List.map (fun (s,_) ->
