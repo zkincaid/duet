@@ -9,6 +9,7 @@ module WG = WeightedGraph
 module G = RG.G
 module Ctx = Srk.Syntax.MakeSimplifyingContext ()
 module Int = SrkUtil.Int
+
 let srk = Ctx.context
 
 include Log.Make(struct let name = "cra" end)
@@ -235,7 +236,7 @@ module K = struct
           let result = CRARefinement.refinement x_dnf in
           result)    
 
-  let refine_star x =
+  let to_dnf x =
     let open Syntax in
     let guard =
       rewrite srk
@@ -282,7 +283,10 @@ module K = struct
         Smt.Solver.add solver [mk_not srk disjunct];
         split (disjunct::disjuncts)
     in
-    let x_dnf = split [] in
+    split []
+
+  let refine_star x =
+    let x_dnf = to_dnf x in
     if (List.length x_dnf) = 1 then I.star (List.hd x_dnf)
     else CRARefinement.refinement x_dnf
 
@@ -291,6 +295,94 @@ module K = struct
       Log.time "cra:refine_star" refine_star x
     else 
       Log.time "cra:star" I.star x
+
+  let project = exists V.is_global
+end
+
+module RK = struct
+  module S = BatSet.Make(K)
+  type t = S.t
+
+  let k_leq x y =
+    let eq_transform (x,t) (x',t') =
+      V.equal x x' && Syntax.Term.equal t t'
+    in
+    BatEnum.equal eq_transform (K.transform x) (K.transform y)
+    && Smt.equiv srk
+      (Nonlinear.uninterpret srk (K.guard x))
+      (Nonlinear.uninterpret srk (K.guard y)) = `Yes
+
+  let antichain k =
+    let rec go = function
+      | [] -> []
+      | [x] -> [x]
+      | (x::xs) ->
+        let xs = go xs in
+        if List.exists (k_leq x) xs then
+          xs
+        else
+          x::(List.filter (fun y -> not (k_leq y x)) xs)
+    in
+    let is_consistent x =
+      Smt.is_sat srk (Nonlinear.uninterpret srk (K.guard x)) != `Unsat
+    in
+    S.of_list (go (List.filter is_consistent (S.elements k)))
+
+  let one = S.singleton K.one
+
+  let zero = S.empty
+
+  let add x y = antichain (S.union x y)
+
+  let mul x y =
+    BatEnum.fold (fun s x ->
+        BatEnum.fold (fun s y ->
+            S.add (K.mul x y) s)
+          s
+          (S.enum y))
+      S.empty
+      (S.enum x)
+    |> antichain
+
+  let star x =
+    match S.elements x with
+    | [] -> one
+    | [x] -> S.singleton (K.star x)
+    | xs -> S.singleton (K.CRARefinement.refinement xs)
+
+  let lower s = S.fold K.add s K.zero
+  let lift = S.singleton
+  let lift_dnf x = S.of_list (K.to_dnf x)
+  let project = S.map K.project
+
+  let equal x y =
+    S.cardinal x = S.cardinal y
+    && List.for_all2 K.equal (S.elements x) (S.elements y)
+
+  let widen x y =
+    if S.is_empty x then y
+    else lift (K.widen (lower x) (lower y))
+end
+
+module RefinedTS = struct
+  include WeightedGraph.MakeRecGraph(RK)
+  let of_transition_system ts =
+    let wg =
+      WeightedGraph.fold_vertex (fun v wg ->
+          WeightedGraph.add_vertex wg v)
+        ts
+        empty
+    in
+    WeightedGraph.fold_edges (fun (u, label, v) wg ->
+        let label' =
+          let open WeightedGraph in
+          match label with
+          | Call (x, y) -> Call (x, y)
+          | Weight tr -> Weight (RK.lift_dnf tr)
+        in
+        WeightedGraph.add_edge wg u label' v)
+      ts
+      wg
 
 end
 
@@ -745,31 +837,63 @@ let analyze file =
       let entry = (RG.block_entry rg main).did in
       let (ts, assertions) = make_transition_system rg in
 
-      (*TSDisplay.display ts;*)
+      (*      TSDisplay.display ts;*)
 
-      let query = TS.mk_query ts in
-      assertions |> SrkUtil.Int.Map.iter (fun v (phi, loc, msg) ->
-          let path = TS.path_weight query entry v in
-          let sigma sym =
-            match V.of_symbol sym with
-            | Some v when K.mem_transform v path ->
-              K.get_transform v path
-            | _ -> Ctx.mk_const sym
-          in
-          let phi = Syntax.substitute_const Ctx.context sigma phi in
-          let path_condition =
-            Ctx.mk_and [K.guard path; Ctx.mk_not phi]
-            |> SrkSimplify.simplify_terms srk
-          in
-          logf "Path condition:@\n%a"
-            (Syntax.pp_smtlib2 Ctx.context) path_condition;
-          dump_goal loc path_condition;
-          match Wedge.is_sat Ctx.context path_condition with
-          | `Sat -> Report.log_error loc msg
-          | `Unsat -> Report.log_safe ()
-          | `Unknown ->
-            logf ~level:`warn "Z3 inconclusive";
-            Report.log_error loc msg);
+      if !cra_refine then
+        begin
+          let rts = RefinedTS.of_transition_system ts in
+          let query = RefinedTS.mk_query rts in
+          assertions |> SrkUtil.Int.Map.iter (fun v (phi, loc, msg) ->
+              let path =
+                RK.lower (RefinedTS.path_weight query entry v)
+              in
+              let sigma sym =
+                match V.of_symbol sym with
+                | Some v when K.mem_transform v path ->
+                  K.get_transform v path
+                | _ -> Ctx.mk_const sym
+              in
+              let phi = Syntax.substitute_const Ctx.context sigma phi in
+              let path_condition =
+                Ctx.mk_and [K.guard path; Ctx.mk_not phi]
+                |> SrkSimplify.simplify_terms srk
+              in
+              logf "Path condition:@\n%a"
+                (Syntax.pp_smtlib2 Ctx.context) path_condition;
+              dump_goal loc path_condition;
+              match Wedge.is_sat Ctx.context path_condition with
+              | `Sat -> Report.log_error loc msg
+              | `Unsat -> Report.log_safe ()
+              | `Unknown ->
+                logf ~level:`warn "Z3 inconclusive";
+                Report.log_error loc msg)
+        end
+      else
+        begin
+          let query = TS.mk_query ts in
+          assertions |> SrkUtil.Int.Map.iter (fun v (phi, loc, msg) ->
+              let path = TS.path_weight query entry v in
+              let sigma sym =
+                match V.of_symbol sym with
+                | Some v when K.mem_transform v path ->
+                  K.get_transform v path
+                | _ -> Ctx.mk_const sym
+              in
+              let phi = Syntax.substitute_const Ctx.context sigma phi in
+              let path_condition =
+                Ctx.mk_and [K.guard path; Ctx.mk_not phi]
+                |> SrkSimplify.simplify_terms srk
+              in
+              logf "Path condition:@\n%a"
+                (Syntax.pp_smtlib2 Ctx.context) path_condition;
+              dump_goal loc path_condition;
+              match Wedge.is_sat Ctx.context path_condition with
+              | `Sat -> Report.log_error loc msg
+              | `Unsat -> Report.log_safe ()
+              | `Unknown ->
+                logf ~level:`warn "Z3 inconclusive";
+                Report.log_error loc msg)
+        end;
 
       Report.print_errors ();
       Report.print_safe ();
