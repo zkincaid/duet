@@ -452,7 +452,9 @@ module Mdvass = struct
     TSet.filter (fun trans ->
         Smt.Solver.reset solver;
         let trans_constraint = gamma_transformer srk term_list trans in
-        Smt.Solver.add solver [l1; trans_constraint; postify srk tr_symbols l2; formula];
+        let form = (rewrite srk ~down:(nnf_rewriter srk) (mk_and srk [l1; trans_constraint; postify srk tr_symbols l2; formula])) in 
+
+        Smt.Solver.add solver [form];
         match Smt.Solver.get_model solver with
         | `Unsat -> false
         | `Unknown -> true
@@ -554,6 +556,38 @@ module Mdvass = struct
         | true -> BatList.remove acc lb_2
         | false -> acc
       ) labels pairs
+
+
+
+  let get_pre_with_post_labels srk formula exists tr_symbols =
+    let pre_symbols = pre_symbols tr_symbols in
+    let post_symbols = post_symbols tr_symbols in
+    let solver = Smt.mk_solver srk in
+    let man = Polka.manager_alloc_strict () in
+    let exists_pre x =
+      exists x && not (Symbol.Set.mem x post_symbols)
+    in
+    let exists_post x =
+      exists x && not (Symbol.Set.mem x pre_symbols)
+    in
+    let rec find_prepost labels = 
+      match Smt.Solver.get_model solver with
+      | `Unsat -> labels
+      | `Unknown -> assert false
+      | `Sat m ->
+        match Interpretation.select_implicant m formula with
+        | None -> assert false
+        | Some imp ->
+          let pre_imp = SrkApron.formula_of_property (Abstract.abstract ~exists:exists_pre srk man (mk_and srk imp)) in
+          let post_imp = SrkApron.formula_of_property (Abstract.abstract ~exists:exists_post srk man (mk_and srk imp)) in
+          Smt.Solver.add solver [mk_not srk pre_imp];
+          find_prepost ((pre_imp, post_imp) :: labels)
+    in
+    Smt.Solver.reset solver;
+    Smt.Solver.add solver [formula];
+    let prepost_labels = List.map (fun (pre,post) -> pre, preify srk tr_symbols post) (find_prepost []) in
+    prepost_labels
+
 
 
   let get_pre_post_labels srk formula exists tr_symbols =
@@ -665,9 +699,187 @@ module Mdvass = struct
     Array.iteri (fun ind lab -> Log.errorf "LABEL NUM %d: %a" ind (Formula.pp srk) (lab)) result;
     result
 
- 
 
+  let get_largest_polyhedrons srk labels =
+    let rec helper_sing front ele back changed =
+      match back with
+      | [] -> front, ele, changed
+      | hd :: tl ->
+        let solver = Smt.mk_solver srk in
+        let form = (rewrite srk ~down:(nnf_rewriter srk) (mk_and srk [ele; hd])) in 
+        Smt.Solver.add solver [form];
+        match Smt.Solver.get_model solver with
+        | `Unsat -> helper_sing (hd :: front) ele tl changed
+        | `Unknown -> helper_sing (hd :: front) ele tl changed
+        | `Sat m -> helper_sing front (mk_or srk [ele; hd]) tl true
+    in
+
+    let rec loop_labels front back =
+      match back with
+      | [] -> front
+      | hd :: tl ->
+        let b', el, ch = helper_sing [] hd tl false in
+        if ch = true 
+          then loop_labels front (el :: b')
+          else loop_labels (el :: front) b'
+    in
+    loop_labels [] labels
+
+
+  let get_intersect_labeling srk formula exists tr_symbols =
+    let pre, post = get_pre_post_labels srk formula exists tr_symbols in
+    let pre', post' = get_largest_polyhedrons srk pre, get_largest_polyhedrons srk post in
+    List.iteri (fun ind lab -> Log.errorf "PRE LABEL NUM %d: %a" ind (Formula.pp srk) (lab)) pre';
+    List.iteri (fun ind lab -> Log.errorf "POST LABEL NUM %d: %a" ind (Formula.pp srk) (lab)) post;
+ 
+    let rec intersect_outer outer inner pairs =
+      match outer with
+      | [] -> pairs
+      | hd :: tl ->
+        let rec intersect_inner inner pairs =
+          match inner with
+          | [] -> pairs
+          | hd' :: tl' -> intersect_inner tl' ((mk_and srk [hd; hd']) :: pairs)
+        in
+        intersect_outer tl inner (intersect_inner inner pairs)
+    in
+    let intersects = intersect_outer pre' post [] in
+    let remain_pre = mk_and srk
+        [mk_or srk pre';
+         mk_not srk (mk_or srk intersects)] in
+    let remain_post = mk_and srk
+        [mk_or srk post;
+         mk_not srk (mk_or srk intersects)] in
+    let result = BatArray.of_list (remain_post :: remain_pre :: intersects) in
+    Array.iteri (fun ind lab -> Log.errorf "LABEL NUM %d: %a" ind (Formula.pp srk) (lab)) result;
+    result
+
+
+  let deterministic_phase_label_WRNG srk formula exists tr_symbols = 
+    let prepost = get_pre_with_post_labels srk formula exists tr_symbols in
+    let phase_trans = List.map (fun (pre,post) -> mk_and srk [post; mk_not srk pre]) prepost in
+    let comp_pre = List.map (fun (pre,post) -> mk_and srk [pre; mk_not srk (mk_or srk phase_trans)]) prepost in
+    let _, post = get_pre_post_labels srk formula exists tr_symbols in
+    let remain_post = mk_and srk ((mk_not srk (mk_or srk phase_trans)) :: (mk_not srk (mk_or srk comp_pre)) :: post) in
+    let result = BatArray.of_list (remain_post :: (comp_pre @ phase_trans)) in
+    Array.iteri (fun ind lab -> Log.errorf "LABEL NUM %d: %a" ind (Formula.pp srk) (lab)) result;
+    result
+
+  let rec split_labels srk formula exists tr_symbols term_list transformers (labels : ('a formula * 'a formula) list) counter =
+    assert (counter >= 0);
+    (*Log.errorf "enter";*) 
+    let pre_symbols = pre_symbols tr_symbols in
+    let post_symbols = post_symbols tr_symbols in
+    let man = Polka.manager_alloc_strict () in
+    let exists_post x =
+      exists x && not (Symbol.Set.mem x pre_symbols)
+    in
+    let indexedlabs = BatList.mapi (fun ind (ele, phase) -> (ind, ele, phase)) labels in
+
+    let rec inner_loop ind ele phase inner changed =
+      match inner with
+      | [] -> labels, changed
+      | (ind2, ele2, phase2) :: tl ->
+        if ind = ind2 
+        then inner_loop ind ele phase tl changed
+        else begin
+          Log.errorf "here p1";
+          let trans = compute_transformers_two_nodes srk ele ele2 transformers term_list tr_symbols formula in
+          Log.errorf "here p2";
+          if TSet.is_empty trans 
+          then inner_loop ind ele phase tl changed
+          else begin
+            let solver = Smt.mk_solver srk in
+            let form = (rewrite srk ~down:(nnf_rewriter srk) (mk_and srk [ele2; mk_not srk phase])) in 
+            Smt.Solver.add solver [form];
+            Log.errorf "here p3";
+            let m = Smt.Solver.get_model solver in
+            Log.errorf "reached here";
+            match m with
+            | `Unsat -> inner_loop ind ele phase tl changed
+             (* Smt.Solver.reset solver;
+              let form = (rewrite srk ~down:(nnf_rewriter srk) (mk_and srk [mk_not srk ele2; phase])) in 
+              Smt.Solver.add solver [form];
+              begin match Smt.Solver.get_model solver with
+              | `Unsat -> inner_loop ind ele phase tl changed
+              | `Unknown -> assert false
+              | `Sat m ->
+                Log.errorf "ON NUM %d and %d" ind ind2;
+                let labels' = BatList.remove_at ind labels in
+                let lab1_form = mk_and srk [formula; ele; postify srk tr_symbols phase; postify srk tr_symbols ele2] in
+                let lab2_form = mk_and srk [formula; ele; postify srk tr_symbols phase; mk_not srk (postify srk tr_symbols ele2)] in
+                let lab1_form = (rewrite srk ~down:(nnf_rewriter srk) lab1_form) in 
+                let lab2_form = (rewrite srk ~down:(nnf_rewriter srk) lab2_form) in 
+
+                let prepost1 = get_pre_with_post_labels srk lab1_form exists tr_symbols in
+                let phase_trans1 = List.map (fun (pre,post) -> (pre, mk_and srk [post; mk_not srk pre])) prepost1 in
+                let prepost2 = get_pre_with_post_labels srk lab2_form exists tr_symbols in
+                let phase_trans2 = List.map (fun (pre,post) -> (pre, mk_and srk [post; mk_not srk pre])) prepost2 in
+                phase_trans1 @ phase_trans2 @ labels', true
+              end
+FIX THIS*)
+
+            | `Unknown -> assert false
+            | `Sat m -> let labels' = BatList.remove_at ind2 labels in
+              Log.errorf "REPEATING HERE ON %d and %d" ind ind2;
+              let lab1_pre = mk_and srk [ele2; phase] in
+              let lab2_pre = mk_and srk [ele2; mk_not srk phase] in
+(*              let l1a = (rewrite srk ~down:(nnf_rewriter srk) (mk_and srk [formula; lab1_pre])) in 
+              let l2a = (rewrite srk ~down:(nnf_rewriter srk) (mk_and srk [formula; lab2_pre])) in 
+              let prepost1 = get_pre_with_post_labels srk l1a exists tr_symbols in
+              let phase_trans1 = List.map (fun (pre,post) -> (pre, mk_and srk [post; mk_not srk pre])) prepost1 in
+              let prepost2 = get_pre_with_post_labels srk l2a exists tr_symbols in
+              let phase_trans2 = List.map (fun (pre,post) -> (pre, mk_and srk [post; mk_not srk pre])) prepost2 in
+              phase_trans1 @ phase_trans2 @ labels', true
+*)
+              let l1a = (rewrite srk ~down:(nnf_rewriter srk) (mk_and srk [formula; lab1_pre])) in 
+              let l2a = (rewrite srk ~down:(nnf_rewriter srk) (mk_and srk [formula; lab2_pre])) in 
+              let lab1_post = SrkApron.formula_of_property (Abstract.abstract ~exists:exists_post srk man l1a) in
+              let lab2_post = SrkApron.formula_of_property (Abstract.abstract ~exists:exists_post srk man l2a) in
+              let lab1_phase = mk_and srk [lab1_post; mk_not srk lab1_pre] in
+              let lab2_phase = mk_and srk [lab2_post; mk_not srk lab2_pre] in
+              let lab1_phase = preify srk tr_symbols lab1_phase in
+              let lab2_phase = preify srk tr_symbols lab2_phase in
+              ((lab1_pre, lab1_phase) :: (lab2_pre, lab2_phase) :: labels', true)
+
+          end
+        end
+    in
+
+  let rec outer_loop outer =
+    match outer with
+      | [] -> labels
+      | (ind, ele1, phase1) :: hdd :: tl ->
+        let labs, changed = inner_loop ind ele1 phase1 indexedlabs false in
+        if changed then split_labels srk formula exists tr_symbols term_list transformers labs (counter - 1)
+        else outer_loop (hdd :: tl)
+      | _ -> labels
+    in
+    BatList.iter (fun (ind, ele, phase) -> Log.errorf "The %d item in ist is %a WITH %a" ind (Formula.pp srk) (SrkSimplify.simplify_terms srk ele) (Formula.pp srk) (SrkSimplify.simplify_terms srk phase)) indexedlabs;
+    outer_loop indexedlabs
+
+
+  let deterministic_phase_label srk formula exists tr_symbols alphas transformers =
+
+    let formula = (rewrite srk ~down:(nnf_rewriter srk) formula) in 
+
+    let term_list = term_list srk alphas tr_symbols in 
+    let prepost = get_pre_with_post_labels srk formula exists tr_symbols in
+    let phase_trans = List.map (fun (pre,post) -> (pre, mk_and srk [post; mk_not srk pre])) prepost in
+    let pre, post = get_pre_post_labels srk formula exists tr_symbols in
+    let remain_post = List.map (fun post_term -> mk_and srk [post_term; mk_not srk (mk_or srk pre)], mk_false srk) post in
+    let phase_trans = remain_post @ phase_trans in
+    let prephase = split_labels srk formula exists tr_symbols term_list transformers phase_trans 5 in
+    let newpre = List.map (fun (pre, phase) -> pre) prephase in
+    let result = BatArray.of_list newpre in
+    Array.iteri (fun ind lab -> Log.errorf "LABEL NUM %d: %a" ind (Formula.pp srk) (lab)) result;
+    result
+
+
+    
+ 
   let abstract ?(exists=fun x -> true) srk tr_symbols body =
+    Log.errorf "Body formula: %a" (Formula.pp srk) body;
     let body = (rewrite srk ~down:(nnf_rewriter srk) body) in 
     let vas = abstract ~exists srk tr_symbols body in
     match vas with
@@ -675,7 +887,9 @@ module Mdvass = struct
     | Bottom -> Bottom
     | Vas {v; alphas} ->
       Log.errorf "NUM ALPHAS %d" (List.length alphas);
-      let label = get_transition_equiv_labeling srk body exists tr_symbols v alphas in
+      let label = deterministic_phase_label srk body exists tr_symbols alphas v in
+      (*let label = get_intersect_labeling srk body exists tr_symbols in*)
+      (*let label = get_transition_equiv_labeling srk body exists tr_symbols v alphas in*)
       (*let label2 = get_a_labeling srk body exists tr_symbols in*)
       let simulation = alphas in
       let graph = compute_edges srk v tr_symbols alphas label body in
