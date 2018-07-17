@@ -33,6 +33,7 @@ module T = struct
   module SemiRing = Transition.Make(Ctx)(V)
   include SemiRing
   open Iteration
+  open SolvablePolynomial
   module I = SemiRing.Iter(MakeDomain(Split(ProductWedge(SolvablePolynomial)(WedgeGuard))))
   let star = I.star
 end
