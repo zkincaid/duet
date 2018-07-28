@@ -972,6 +972,18 @@ phase1 @ phase2 @ labels', true
                  end)
       transformersmap;
   in_sing, out_sing, in_scc, pre_scc
+
+
+  let compute_trans_post_cond srk prelabel postlabel trans (rtrans,rverts) alphas tr_symbols =
+    let term_list = term_list srk alphas tr_symbols in
+    let f' = TSet.fold (fun t acc -> mk_or srk [(gamma_transformer srk term_list t); acc]) rtrans (mk_false srk) in
+    assert false
+
+  let exp_post_conds_on_transformers srk label transformersmap reachability nvarst alphas tr_symbols =
+    BatArray.mapi (fun ind (n1, trans, n2) -> 
+        let post_cond = compute_trans_post_cond srk label.(n1) (postify srk tr_symbols label.(n2)) 
+            trans reachability.(n2) alphas tr_symbols in
+        mk_if srk (mk_lt srk (mk_zero srk) (List.nth nvarst ind)) post_cond) transformersmap
         
 
   let exp_consv_of_flow srk in_sing out_sing ests =
@@ -1034,6 +1046,8 @@ phase1 @ phase2 @ labels', true
           graph.(v).(v),
         v :: verts)
         (TSet.empty, []) graph ind) graph
+
+
 
   
   let exp srk tr_symbols loop_counter vassabs =
