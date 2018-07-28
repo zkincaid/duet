@@ -477,13 +477,16 @@ module Mdvass = struct
     type t = vas array array
 
     module V = Int
+    let is_directed = true
     let iter_vertex f g =
       BatEnum.iter f (0 -- (Array.length g - 1))
     let iter_succ f g v = Array.iteri (fun ind ele -> if not (TSet.is_empty ele) then f ind ) g.(v)
+    let fold_vertex f g a = BatEnum.fold (fun acc v -> f v acc) a (0 -- (Array.length g - 1))
+    let fold_succ f g v a = BatArray.fold_righti (fun ind ele acc -> if not (TSet.is_empty ele) then f ind acc else acc) g.(v) a
   end
 
   module GraphComp = Graph.Components.Make(VassGraph) 
-
+  module GraphTrav = Graph.Traverse.Dfs(VassGraph)
 
 
 
@@ -751,7 +754,7 @@ module Mdvass = struct
         [mk_or srk post;
          mk_not srk (mk_or srk intersects)] in
     let result = BatArray.of_list (remain_post :: remain_pre :: intersects) in
-    Array.iteri (fun ind lab -> Log.errorf "LABEL NUM %d: %a" ind (Formula.pp srk) (lab)) result;
+    Array.iteri (fun ind lab -> Log.errorf "LABEL NUM %d: %a" ind (Formula.pp srk) (SrkSimplify.simplify_terms srk lab)) result;
     result
 
 
@@ -824,23 +827,47 @@ FIX THIS*)
               Log.errorf "REPEATING HERE ON %d and %d" ind ind2;
               let lab1_pre = mk_and srk [ele2; phase] in
               let lab2_pre = mk_and srk [ele2; mk_not srk phase] in
-(*              let l1a = (rewrite srk ~down:(nnf_rewriter srk) (mk_and srk [formula; lab1_pre])) in 
-              let l2a = (rewrite srk ~down:(nnf_rewriter srk) (mk_and srk [formula; lab2_pre])) in 
+             let l1a = (rewrite srk ~down:(nnf_rewriter srk) lab1_pre) in 
+              let l2a = (rewrite srk ~down:(nnf_rewriter srk)  lab2_pre) in 
               let prepost1 = get_pre_with_post_labels srk l1a exists tr_symbols in
               let phase_trans1 = List.map (fun (pre,post) -> (pre, mk_and srk [post; mk_not srk pre])) prepost1 in
               let prepost2 = get_pre_with_post_labels srk l2a exists tr_symbols in
               let phase_trans2 = List.map (fun (pre,post) -> (pre, mk_and srk [post; mk_not srk pre])) prepost2 in
-              phase_trans1 @ phase_trans2 @ labels', true
+              let prelabs1 = get_largest_polyhedrons srk (List.map (fun (pre, pst) -> pre) prepost1) in
+              let prelabs2 = get_largest_polyhedrons srk (List.map (fun (pre, pst) -> pre) prepost2) in
+              let implabs pre = List.map (fun pre -> preify srk tr_symbols 
+                                             (SrkApron.formula_of_property 
+                                                (Abstract.abstract ~exists:exists_post srk man
+                                                   (rewrite srk ~down:(nnf_rewriter srk) (mk_and srk [formula; pre]))))) pre in
+              let postl1 = implabs prelabs1 in
+              let postl2 = implabs prelabs2 in
+
+              let phase1 = List.map2 (fun pre post -> (pre, mk_and srk [post; mk_not srk pre])) prelabs1 postl1 in
+              let phase2 = List.map2 (fun pre post -> (pre, mk_and srk [post; mk_not srk pre])) prelabs2 postl2 in
+
+
+
+
+(*              phase_trans1 @ phase_trans2 @ labels', true
 *)
-              let l1a = (rewrite srk ~down:(nnf_rewriter srk) (mk_and srk [formula; lab1_pre])) in 
-              let l2a = (rewrite srk ~down:(nnf_rewriter srk) (mk_and srk [formula; lab2_pre])) in 
               let lab1_post = SrkApron.formula_of_property (Abstract.abstract ~exists:exists_post srk man l1a) in
               let lab2_post = SrkApron.formula_of_property (Abstract.abstract ~exists:exists_post srk man l2a) in
               let lab1_phase = mk_and srk [lab1_post; mk_not srk lab1_pre] in
               let lab2_phase = mk_and srk [lab2_post; mk_not srk lab2_pre] in
               let lab1_phase = preify srk tr_symbols lab1_phase in
               let lab2_phase = preify srk tr_symbols lab2_phase in
-              ((lab1_pre, lab1_phase) :: (lab2_pre, lab2_phase) :: labels', true)
+Log.errorf "This is a #2  %a" (Formula.pp srk) (SrkSimplify.simplify_terms srk l2a);
+
+              BatList.iter (fun (ele, phase) -> Log.errorf "This is a prepst1 loop %a WITH %a" (Formula.pp srk) (SrkSimplify.simplify_terms srk ele) (Formula.pp srk) (SrkSimplify.simplify_terms srk phase)) phase_trans1;
+              BatList.iter (fun (ele, phase) -> Log.errorf "This is a prepst2 loop %a WITH %a" (Formula.pp srk) (SrkSimplify.simplify_terms srk ele) (Formula.pp srk) (SrkSimplify.simplify_terms srk phase)) phase_trans2;
+BatList.iter (fun (ele, phase) -> Log.errorf "This is a PHASE1 loop %a WITH %a" (Formula.pp srk) (SrkSimplify.simplify_terms srk ele) (Formula.pp srk) (SrkSimplify.simplify_terms srk phase)) phase1;
+              BatList.iter (fun (ele, phase) -> Log.errorf "This is a PHASE2 loop %a WITH %a" (Formula.pp srk) (SrkSimplify.simplify_terms srk ele) (Formula.pp srk) (SrkSimplify.simplify_terms srk phase)) phase2;
+
+Log.errorf "This is a NT 1 %a WITH %a" (Formula.pp srk) (SrkSimplify.simplify_terms srk lab1_pre) (Formula.pp srk) (SrkSimplify.simplify_terms srk lab1_phase);
+Log.errorf "This is a NT 2 %a WITH %a" (Formula.pp srk) (SrkSimplify.simplify_terms srk lab2_pre) (Formula.pp srk) (SrkSimplify.simplify_terms srk lab2_phase);
+              (*assert false; 
+              ((lab1_pre, lab1_phase) :: (lab2_pre, lab2_phase) :: labels', true)*)
+phase1 @ phase2 @ labels', true
 
           end
         end
@@ -887,8 +914,8 @@ FIX THIS*)
     | Bottom -> Bottom
     | Vas {v; alphas} ->
       Log.errorf "NUM ALPHAS %d" (List.length alphas);
-      let label = deterministic_phase_label srk body exists tr_symbols alphas v in
-      (*let label = get_intersect_labeling srk body exists tr_symbols in*)
+      (*let label = deterministic_phase_label srk body exists tr_symbols alphas v in*)
+      let label = get_intersect_labeling srk body exists tr_symbols in
       (*let label = get_transition_equiv_labeling srk body exists tr_symbols v alphas in*)
       (*let label2 = get_a_labeling srk body exists tr_symbols in*)
       let simulation = alphas in
@@ -997,7 +1024,18 @@ FIX THIS*)
              in_scc))
 
 
+  let get_reachable_trans graph =
+    BatArray.mapi (fun ind vert -> GraphTrav.fold_component (fun v (trans, verts) -> 
+        TSet.union
+          (List.fold_left 
+             (fun acc ele ->
+                TSet.union acc 
+                  (TSet.union graph.(ele).(v) graph.(v).(ele))) trans verts)
+          graph.(v).(v),
+        v :: verts)
+        (TSet.empty, []) graph ind) graph
 
+  
   let exp srk tr_symbols loop_counter vassabs =
     match vassabs with
     | Bottom -> mk_false srk
@@ -1019,6 +1057,14 @@ FIX THIS*)
       let sum_n_eq_loop_counter = exp_nvars_eq_loop_counter srk nvarst loop_counter in
       let ks_less_than_ns = exp_kvarst_less_nvarst srk nvarst kvarst in
       let sccs = GraphComp.scc graph in
+      let reachable_transitions = get_reachable_trans graph in
+      BatArray.iteri (fun ind (trans, verts) -> 
+          TSet.iter (fun trans ->
+              Log.errorf "Label %d admits trans %a" ind (Transformer.pp) trans) trans;
+          BatList.iter (fun vert ->
+              Log.errorf "Label %d trans to label %d" ind vert) verts) 
+        reachable_transitions;
+
       let in_sing, out_sing, in_scc, pre_scc = exp_compute_trans_in_out_index_numbers transformersmap (Array.length label) sccs nvarst in
       let ests = create_es_et srk (Array.length label) in
       let flow_consv_req = exp_consv_of_flow srk in_sing out_sing ests in
