@@ -303,7 +303,11 @@ struct
     with | Not_found -> false
          | Not_normal -> false
 
-  let equal x y = compare x y = 0 || equiv x y
+  let equal x y =
+    compare x y = 0
+    || is_zero x && (Smt.is_sat srk y.guard) = `Unsat
+    || is_zero y && (Smt.is_sat srk x.guard) = `Unsat
+    || equiv x y
 
   let exists p tr =
     let transform = M.filter (fun k _ -> p k) tr.transform in

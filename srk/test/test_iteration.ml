@@ -7,13 +7,13 @@ open Test_pervasives
 module QQMatrix = Linear.QQMatrix
 module SP = struct
   include Iteration.MakeDomain(Iteration.ProductWedge
-                                 (Iteration.SolvablePolynomial)
+                                 (SolvablePolynomial.SolvablePolynomial)
                                  (Iteration.WedgeGuard))
   let star srk symbols phi = closure (abstract srk symbols phi)
 end
 module SPPR = struct
   include Iteration.MakeDomain(Iteration.ProductWedge
-                                 (Iteration.SolvablePolynomialPeriodicRational)
+                                 (SolvablePolynomial.SolvablePolynomialPeriodicRational)
                                  (Iteration.WedgeGuard))
   let star srk symbols phi = closure (abstract srk symbols phi)
 end

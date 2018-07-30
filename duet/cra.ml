@@ -117,16 +117,19 @@ module K = struct
   include Transition.Make(Ctx)(V)
   open Iteration
   open Mdvas
-  module SPOne = SumWedge (SolvablePolynomial) (SolvablePolynomialOne) ()
-  module SPPeriodicRational = SumWedge (SPOne) (SolvablePolynomialPeriodicRational) ()
-  module SPG = ProductWedge (SPPeriodicRational) (WedgeGuard)
-  module Vas = Product(Product(Mdvas)(WedgeGuard))(LinearRecurrenceInequation)
+ module Vas = Product(Product(Mdvas)(WedgeGuard))(LinearRecurrenceInequation)
   module Vass = Product(Product(Mdvass)(WedgeGuard))(LinearRecurrenceInequation)
-  module SPSplit = Sum (SPG) (Split(SPG)) ()
   module D = Sum(SPSplit)(Vass)()
   module I = Iter(MakeDomain(D))
   module Temp = Sum(SPSplit)(Vas)()
   module TempI = Iter(MakeDomain(D))
+  open SolvablePolynomial
+  module SPOne = SumWedge (SolvablePolynomial) (SolvablePolynomialOne) ()
+  module SPG = ProductWedge (SPOne) (WedgeGuard)
+  module SPPeriodicRational = Sum (SPG) (PresburgerGuard) ()
+  module SPSplit = Sum (SPPeriodicRational) (Split(SPPeriodicRational)) ()
+
+  module I = Iter(MakeDomain(SPSplit))
 
   let star x = Log.time "cra:star" I.star x
 
@@ -258,7 +261,10 @@ let tr_bexpr bexpr =
 (* Populate table mapping variables to the offsets of that variable that
    appear in the program.  Must be called before calling weight *)
 let offset_table = Varinfo.HT.create 991
-let get_offsets v = Varinfo.HT.find offset_table v
+let get_offsets v =
+  try Varinfo.HT.find offset_table v
+  with Not_found -> Int.Set.empty
+
 let populate_offset_table file =
   let add_offset (v, offset) =
     match offset with

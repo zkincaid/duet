@@ -286,6 +286,9 @@ val mk_leq : 'a context -> 'a term -> 'a term -> 'a formula
 val mk_true : 'a context -> 'a formula
 val mk_false : 'a context -> 'a formula
 
+(** Given a formula [phi], compute an equivalent formula without
+   if-then-else terms.  [eliminate-ite] does not introduce new
+   symbols or quantifiers. *)
 val eliminate_ite : 'a context -> 'a formula -> 'a formula
 
 (** Print a formula as a satisfiability query in SMTLIB2 format.  The query
