@@ -735,7 +735,7 @@ module Mdvass = struct
     List.iteri (fun ind lab -> Log.errorf "PRE LABEL NUM %d: %a" ind (Formula.pp srk) (lab)) pre';
     List.iteri (fun ind lab -> Log.errorf "POST LABEL NUM %d: %a" ind (Formula.pp srk) (lab)) post;
  
-    let rec intersect_outer outer inner pairs =
+    (*let rec intersect_outer outer inner pairs =
       match outer with
       | [] -> pairs
       | hd :: tl ->
@@ -745,163 +745,18 @@ module Mdvass = struct
           | hd' :: tl' -> intersect_inner tl' ((mk_and srk [hd; hd']) :: pairs)
         in
         intersect_outer tl inner (intersect_inner inner pairs)
-    in
-    let intersects = intersect_outer pre' post [] in
+    in*)
+    (*let intersects = intersect_outer pre' post [] in
     let remain_pre = mk_and srk
         [mk_or srk pre';
-         mk_not srk (mk_or srk intersects)] in
+         mk_not srk (mk_or srk intersects)] in*)
+
     let remain_post = mk_and srk
         [mk_or srk post;
-         mk_not srk (mk_or srk intersects)] in
-    let result = BatArray.of_list (remain_post :: remain_pre :: intersects) in
+         mk_not srk (mk_or srk pre')] in(*might be nice to make remain_post polyhedron*)
+    let result = BatArray.of_list (remain_post :: pre') in
     Array.iteri (fun ind lab -> Log.errorf "LABEL NUM %d: %a" ind (Formula.pp srk) (SrkSimplify.simplify_terms srk lab)) result;
     result
-
-
-  let deterministic_phase_label_WRNG srk formula exists tr_symbols = 
-    let prepost = get_pre_with_post_labels srk formula exists tr_symbols in
-    let phase_trans = List.map (fun (pre,post) -> mk_and srk [post; mk_not srk pre]) prepost in
-    let comp_pre = List.map (fun (pre,post) -> mk_and srk [pre; mk_not srk (mk_or srk phase_trans)]) prepost in
-    let _, post = get_pre_post_labels srk formula exists tr_symbols in
-    let remain_post = mk_and srk ((mk_not srk (mk_or srk phase_trans)) :: (mk_not srk (mk_or srk comp_pre)) :: post) in
-    let result = BatArray.of_list (remain_post :: (comp_pre @ phase_trans)) in
-    Array.iteri (fun ind lab -> Log.errorf "LABEL NUM %d: %a" ind (Formula.pp srk) (lab)) result;
-    result
-
-  let rec split_labels srk formula exists tr_symbols term_list transformers (labels : ('a formula * 'a formula) list) counter =
-    assert (counter >= 0);
-    (*Log.errorf "enter";*) 
-    let pre_symbols = pre_symbols tr_symbols in
-    let post_symbols = post_symbols tr_symbols in
-    let man = Polka.manager_alloc_strict () in
-    let exists_post x =
-      exists x && not (Symbol.Set.mem x pre_symbols)
-    in
-    let indexedlabs = BatList.mapi (fun ind (ele, phase) -> (ind, ele, phase)) labels in
-
-    let rec inner_loop ind ele phase inner changed =
-      match inner with
-      | [] -> labels, changed
-      | (ind2, ele2, phase2) :: tl ->
-        if ind = ind2 
-        then inner_loop ind ele phase tl changed
-        else begin
-          Log.errorf "here p1";
-          let trans = compute_transformers_two_nodes srk ele ele2 transformers term_list tr_symbols formula in
-          Log.errorf "here p2";
-          if TSet.is_empty trans 
-          then inner_loop ind ele phase tl changed
-          else begin
-            let solver = Smt.mk_solver srk in
-            let form = (rewrite srk ~down:(nnf_rewriter srk) (mk_and srk [ele2; mk_not srk phase])) in 
-            Smt.Solver.add solver [form];
-            Log.errorf "here p3";
-            let m = Smt.Solver.get_model solver in
-            Log.errorf "reached here";
-            match m with
-            | `Unsat -> inner_loop ind ele phase tl changed
-             (* Smt.Solver.reset solver;
-              let form = (rewrite srk ~down:(nnf_rewriter srk) (mk_and srk [mk_not srk ele2; phase])) in 
-              Smt.Solver.add solver [form];
-              begin match Smt.Solver.get_model solver with
-              | `Unsat -> inner_loop ind ele phase tl changed
-              | `Unknown -> assert false
-              | `Sat m ->
-                Log.errorf "ON NUM %d and %d" ind ind2;
-                let labels' = BatList.remove_at ind labels in
-                let lab1_form = mk_and srk [formula; ele; postify srk tr_symbols phase; postify srk tr_symbols ele2] in
-                let lab2_form = mk_and srk [formula; ele; postify srk tr_symbols phase; mk_not srk (postify srk tr_symbols ele2)] in
-                let lab1_form = (rewrite srk ~down:(nnf_rewriter srk) lab1_form) in 
-                let lab2_form = (rewrite srk ~down:(nnf_rewriter srk) lab2_form) in 
-
-                let prepost1 = get_pre_with_post_labels srk lab1_form exists tr_symbols in
-                let phase_trans1 = List.map (fun (pre,post) -> (pre, mk_and srk [post; mk_not srk pre])) prepost1 in
-                let prepost2 = get_pre_with_post_labels srk lab2_form exists tr_symbols in
-                let phase_trans2 = List.map (fun (pre,post) -> (pre, mk_and srk [post; mk_not srk pre])) prepost2 in
-                phase_trans1 @ phase_trans2 @ labels', true
-              end
-FIX THIS*)
-
-            | `Unknown -> assert false
-            | `Sat m -> let labels' = BatList.remove_at ind2 labels in
-              Log.errorf "REPEATING HERE ON %d and %d" ind ind2;
-              let lab1_pre = mk_and srk [ele2; phase] in
-              let lab2_pre = mk_and srk [ele2; mk_not srk phase] in
-             let l1a = (rewrite srk ~down:(nnf_rewriter srk) lab1_pre) in 
-              let l2a = (rewrite srk ~down:(nnf_rewriter srk)  lab2_pre) in 
-              let prepost1 = get_pre_with_post_labels srk l1a exists tr_symbols in
-              let phase_trans1 = List.map (fun (pre,post) -> (pre, mk_and srk [post; mk_not srk pre])) prepost1 in
-              let prepost2 = get_pre_with_post_labels srk l2a exists tr_symbols in
-              let phase_trans2 = List.map (fun (pre,post) -> (pre, mk_and srk [post; mk_not srk pre])) prepost2 in
-              let prelabs1 = get_largest_polyhedrons srk (List.map (fun (pre, pst) -> pre) prepost1) in
-              let prelabs2 = get_largest_polyhedrons srk (List.map (fun (pre, pst) -> pre) prepost2) in
-              let implabs pre = List.map (fun pre -> preify srk tr_symbols 
-                                             (SrkApron.formula_of_property 
-                                                (Abstract.abstract ~exists:exists_post srk man
-                                                   (rewrite srk ~down:(nnf_rewriter srk) (mk_and srk [formula; pre]))))) pre in
-              let postl1 = implabs prelabs1 in
-              let postl2 = implabs prelabs2 in
-
-              let phase1 = List.map2 (fun pre post -> (pre, mk_and srk [post; mk_not srk pre])) prelabs1 postl1 in
-              let phase2 = List.map2 (fun pre post -> (pre, mk_and srk [post; mk_not srk pre])) prelabs2 postl2 in
-
-
-
-
-(*              phase_trans1 @ phase_trans2 @ labels', true
-*)
-              let lab1_post = SrkApron.formula_of_property (Abstract.abstract ~exists:exists_post srk man l1a) in
-              let lab2_post = SrkApron.formula_of_property (Abstract.abstract ~exists:exists_post srk man l2a) in
-              let lab1_phase = mk_and srk [lab1_post; mk_not srk lab1_pre] in
-              let lab2_phase = mk_and srk [lab2_post; mk_not srk lab2_pre] in
-              let lab1_phase = preify srk tr_symbols lab1_phase in
-              let lab2_phase = preify srk tr_symbols lab2_phase in
-Log.errorf "This is a #2  %a" (Formula.pp srk) (SrkSimplify.simplify_terms srk l2a);
-
-              BatList.iter (fun (ele, phase) -> Log.errorf "This is a prepst1 loop %a WITH %a" (Formula.pp srk) (SrkSimplify.simplify_terms srk ele) (Formula.pp srk) (SrkSimplify.simplify_terms srk phase)) phase_trans1;
-              BatList.iter (fun (ele, phase) -> Log.errorf "This is a prepst2 loop %a WITH %a" (Formula.pp srk) (SrkSimplify.simplify_terms srk ele) (Formula.pp srk) (SrkSimplify.simplify_terms srk phase)) phase_trans2;
-BatList.iter (fun (ele, phase) -> Log.errorf "This is a PHASE1 loop %a WITH %a" (Formula.pp srk) (SrkSimplify.simplify_terms srk ele) (Formula.pp srk) (SrkSimplify.simplify_terms srk phase)) phase1;
-              BatList.iter (fun (ele, phase) -> Log.errorf "This is a PHASE2 loop %a WITH %a" (Formula.pp srk) (SrkSimplify.simplify_terms srk ele) (Formula.pp srk) (SrkSimplify.simplify_terms srk phase)) phase2;
-
-Log.errorf "This is a NT 1 %a WITH %a" (Formula.pp srk) (SrkSimplify.simplify_terms srk lab1_pre) (Formula.pp srk) (SrkSimplify.simplify_terms srk lab1_phase);
-Log.errorf "This is a NT 2 %a WITH %a" (Formula.pp srk) (SrkSimplify.simplify_terms srk lab2_pre) (Formula.pp srk) (SrkSimplify.simplify_terms srk lab2_phase);
-              (*assert false; 
-              ((lab1_pre, lab1_phase) :: (lab2_pre, lab2_phase) :: labels', true)*)
-phase1 @ phase2 @ labels', true
-
-          end
-        end
-    in
-
-  let rec outer_loop outer =
-    match outer with
-      | [] -> labels
-      | (ind, ele1, phase1) :: hdd :: tl ->
-        let labs, changed = inner_loop ind ele1 phase1 indexedlabs false in
-        if changed then split_labels srk formula exists tr_symbols term_list transformers labs (counter - 1)
-        else outer_loop (hdd :: tl)
-      | _ -> labels
-    in
-    BatList.iter (fun (ind, ele, phase) -> Log.errorf "The %d item in ist is %a WITH %a" ind (Formula.pp srk) (SrkSimplify.simplify_terms srk ele) (Formula.pp srk) (SrkSimplify.simplify_terms srk phase)) indexedlabs;
-    outer_loop indexedlabs
-
-
-  let deterministic_phase_label srk formula exists tr_symbols alphas transformers =
-
-    let formula = (rewrite srk ~down:(nnf_rewriter srk) formula) in 
-
-    let term_list = term_list srk alphas tr_symbols in 
-    let prepost = get_pre_with_post_labels srk formula exists tr_symbols in
-    let phase_trans = List.map (fun (pre,post) -> (pre, mk_and srk [post; mk_not srk pre])) prepost in
-    let pre, post = get_pre_post_labels srk formula exists tr_symbols in
-    let remain_post = List.map (fun post_term -> mk_and srk [post_term; mk_not srk (mk_or srk pre)], mk_false srk) post in
-    let phase_trans = remain_post @ phase_trans in
-    let prephase = split_labels srk formula exists tr_symbols term_list transformers phase_trans 5 in
-    let newpre = List.map (fun (pre, phase) -> pre) prephase in
-    let result = BatArray.of_list newpre in
-    Array.iteri (fun ind lab -> Log.errorf "LABEL NUM %d: %a" ind (Formula.pp srk) (lab)) result;
-    result
-
 
     
  
@@ -994,11 +849,13 @@ phase1 @ phase2 @ labels', true
             (mk_add srk (et :: out_sing.(ind))))
           ests)
 
-  let exp_one_in_out_flow srk ests = 
+  let exp_one_in_out_flow srk ests nvarst = 
     let et, es = List.split ests in
-    mk_and srk 
-      [mk_eq srk (mk_add srk et) (mk_one srk);
-       mk_eq srk (mk_add srk es) (mk_one srk)]
+    mk_or srk
+      [mk_and srk 
+         [mk_eq srk (mk_add srk et) (mk_one srk);
+          mk_eq srk (mk_add srk es) (mk_one srk)];
+       mk_eq srk (mk_add srk nvarst) (mk_zero srk)]
 
   let exp_each_ests_one_or_zero srk ests =
     mk_and srk
@@ -1082,7 +939,7 @@ phase1 @ phase2 @ labels', true
       let in_sing, out_sing, in_scc, pre_scc = exp_compute_trans_in_out_index_numbers transformersmap (Array.length label) sccs nvarst in
       let ests = create_es_et srk (Array.length label) in
       let flow_consv_req = exp_consv_of_flow srk in_sing out_sing ests in
-      let in_out_one = exp_one_in_out_flow srk ests in
+      let in_out_one = exp_one_in_out_flow srk ests nvarst in
       let ests_one_or_zero = exp_each_ests_one_or_zero srk ests in
       let pre_post_conds = exp_pre_post_conds srk ests label tr_symbols in
       let never_enter_constraints = exp_never_enter_scc srk ests in_scc pre_scc sccs in
