@@ -1,7 +1,7 @@
 open Syntax
 open BatPervasives
 module LRI = Iteration.LinearRecurrenceInequation
-
+module PG = Iteration.PolyhedronGuard
 module V = Linear.QQVector
 module M = Linear.QQMatrix
 module Z = Linear.ZZVector
@@ -830,27 +830,38 @@ module Mdvass = struct
   in_sing, out_sing, in_scc, pre_scc
 
 
-  let compute_trans_post_cond srk exists prelabel postlabel trans (rtrans,rverts) alphas tr_symbols =
+  let compute_trans_post_cond srk prelabel postlabel (trans : transformer) (rtrans,rverts) alphas tr_symbols lc =
     let term_list = term_list srk alphas tr_symbols in
     let f' = TSet.fold (fun t acc -> mk_or srk [(gamma_transformer srk term_list t); acc]) rtrans (mk_false srk) in
     let pre_symbols = pre_symbols tr_symbols in
     let post_symbols = post_symbols tr_symbols in
     let man = Polka.manager_alloc_strict () in
-    let exists_post x =
-      exists x && not (Symbol.Set.mem x pre_symbols)
+    let exists_post x = not (Symbol.Set.mem x pre_symbols) in
+    let trans' = gamma_transformer srk term_list trans in
+    let ptrans_form = (rewrite srk ~down:(nnf_rewriter srk) (mk_and srk [prelabel;trans';postlabel])) in
+    let post_trans = SrkApron.formula_of_property (Abstract.abstract ~exists:exists_post srk man ptrans_form) in
+    let loop_counter = mk_const srk (mk_symbol srk ~name:("Counter") `TyInt) in
+    let lri_form = (rewrite srk ~down:(nnf_rewriter srk) f') in 
+    let lri = LRI.exp srk tr_symbols loop_counter (LRI.abstract srk tr_symbols lri_form) in
+    let pg = PG.postcondition (PG.abstract srk tr_symbols lri_form) in
+    let rslt = SrkApron.formula_of_property
+                 (Abstract.abstract ~exists:exists_post srk man (*Add new loop counter into exists?*)
+                    (mk_and srk
+                       [preify srk tr_symbols post_trans;
+                        lri;
+                        SrkApron.formula_of_property pg]))
     in
-    let post_trans = SrkApron.formula_of_property (Abstract.abstract ~exists:exists_post srk man (mk_and srk [prelabel; trans; postlabel])) in
-    let loop_counter = (mk_symbol srk ~name:("Counter") `TyInt) in
-    let lri = LRI.exp srk tr_symbols (mk_const srk loop_counter) (LRI.abstract ~exists srk tr_symbols f') in
-    assert false
+    let rslt = mk_and srk [rslt; mk_lt srk (mk_zero srk) loop_counter; mk_leq srk loop_counter lc] in
+    rslt
  
 
-  let exp_post_conds_on_transformers srk exists label transformersmap reachability nvarst alphas tr_symbols =
-    BatArray.mapi (fun ind (n1, trans, n2) -> 
-        let post_cond = compute_trans_post_cond srk exists label.(n1) (postify srk tr_symbols label.(n2)) 
-            trans reachability.(n2) alphas tr_symbols in
-        mk_if srk (mk_lt srk (mk_zero srk) (List.nth nvarst ind)) post_cond) transformersmap
-        
+  let exp_post_conds_on_transformers srk label transformersmap reachability nvarst alphas tr_symbols lc =
+    mk_and srk 
+      (BatList.mapi (fun ind (n1, trans, n2) -> 
+           let post_cond = compute_trans_post_cond srk label.(n1) (postify srk tr_symbols label.(n2)) 
+               trans reachability.(n2) alphas tr_symbols lc in
+           mk_if srk (mk_lt srk (mk_zero srk) (List.nth nvarst ind)) post_cond) transformersmap
+      ) 
 
   let exp_consv_of_flow srk in_sing out_sing ests =
     mk_and srk
@@ -923,7 +934,8 @@ module Mdvass = struct
     | Bottom -> mk_false srk
     | Top -> mk_true srk
     | Vass {label; graph; simulation} ->
-      let transformersmap = List.flatten 
+      let alphas = simulation in
+      let transformersmap : (int * transformer * int) list = List.flatten 
           (List.flatten 
              (Array.to_list 
                 (Array.mapi (fun n1 arr -> 
@@ -946,7 +958,8 @@ module Mdvass = struct
           BatList.iter (fun vert ->
               Log.errorf "Label %d trans to label %d" ind vert) verts) 
         reachable_transitions;
-
+      let post_conds_const = exp_post_conds_on_transformers srk label transformersmap reachable_transitions nvarst alphas tr_symbols loop_counter in
+ 
       let in_sing, out_sing, in_scc, pre_scc = exp_compute_trans_in_out_index_numbers transformersmap (Array.length label) sccs nvarst in
       let ests = create_es_et srk (Array.length label) in
       let flow_consv_req = exp_consv_of_flow srk in_sing out_sing ests in
@@ -957,7 +970,7 @@ module Mdvass = struct
       let pos_constraints = create_exp_positive_reqs srk [nvarst; fst (List.split ests); snd (List.split ests)] in
       let form = 
         mk_and srk [form; sum_n_eq_loop_counter; ks_less_than_ns; flow_consv_req; in_out_one;
-                    ests_one_or_zero; pre_post_conds; never_enter_constraints; pos_constraints] in
+                    ests_one_or_zero; pre_post_conds; never_enter_constraints; pos_constraints; post_conds_const] in
       Log.errorf " Current D VAL %a" (Formula.pp srk) form;
       form
   end
