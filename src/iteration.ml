@@ -2316,17 +2316,3 @@ module Vas : Domain = struct
 end
 
 
-module Mdvas  = struct
-  include Interpretation
-  include Smt
-  module QQSet = Set.Make(QQ)
-  include Mdvas
-
-end
-
-
-module Mdvass = struct
-  include Interpretation
-  include Smt
-  include Mdvas.Mdvass
-end

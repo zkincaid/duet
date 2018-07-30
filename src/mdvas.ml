@@ -1,5 +1,6 @@
 open Syntax
 open BatPervasives
+module LRI = Iteration.LinearRecurrenceInequation
 
 module V = Linear.QQVector
 module M = Linear.QQMatrix
@@ -829,14 +830,24 @@ module Mdvass = struct
   in_sing, out_sing, in_scc, pre_scc
 
 
-  let compute_trans_post_cond srk prelabel postlabel trans (rtrans,rverts) alphas tr_symbols =
+  let compute_trans_post_cond srk exists prelabel postlabel trans (rtrans,rverts) alphas tr_symbols =
     let term_list = term_list srk alphas tr_symbols in
     let f' = TSet.fold (fun t acc -> mk_or srk [(gamma_transformer srk term_list t); acc]) rtrans (mk_false srk) in
+    let pre_symbols = pre_symbols tr_symbols in
+    let post_symbols = post_symbols tr_symbols in
+    let man = Polka.manager_alloc_strict () in
+    let exists_post x =
+      exists x && not (Symbol.Set.mem x pre_symbols)
+    in
+    let post_trans = SrkApron.formula_of_property (Abstract.abstract ~exists:exists_post srk man (mk_and srk [prelabel; trans; postlabel])) in
+    let loop_counter = (mk_symbol srk ~name:("Counter") `TyInt) in
+    let lri = LRI.exp srk tr_symbols (mk_const srk loop_counter) (LRI.abstract ~exists srk tr_symbols f') in
     assert false
+ 
 
-  let exp_post_conds_on_transformers srk label transformersmap reachability nvarst alphas tr_symbols =
+  let exp_post_conds_on_transformers srk exists label transformersmap reachability nvarst alphas tr_symbols =
     BatArray.mapi (fun ind (n1, trans, n2) -> 
-        let post_cond = compute_trans_post_cond srk label.(n1) (postify srk tr_symbols label.(n2)) 
+        let post_cond = compute_trans_post_cond srk exists label.(n1) (postify srk tr_symbols label.(n2)) 
             trans reachability.(n2) alphas tr_symbols in
         mk_if srk (mk_lt srk (mk_zero srk) (List.nth nvarst ind)) post_cond) transformersmap
         
