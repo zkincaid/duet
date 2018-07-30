@@ -116,6 +116,7 @@ end
 module K = struct
   include Transition.Make(Ctx)(V)
   open Iteration
+  open Mdvas
   module SPOne = SumWedge (SolvablePolynomial) (SolvablePolynomialOne) ()
   module SPPeriodicRational = SumWedge (SPOne) (SolvablePolynomialPeriodicRational) ()
   module SPG = ProductWedge (SPPeriodicRational) (WedgeGuard)

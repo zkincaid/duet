@@ -21,6 +21,7 @@ val exp : 'a context -> (symbol * symbol) list -> 'a term -> 'a t -> 'a formula
   val widen : 'a context -> (symbol * symbol) list -> 'a t -> 'a t -> 'a t
   val equal : 'a context -> (symbol * symbol) list -> 'a t -> 'a t -> bool
 
+
 module Mdvass : sig
     type 'a t
   val pp : 'a context -> (symbol * symbol) list -> Format.formatter -> 'a t -> unit
