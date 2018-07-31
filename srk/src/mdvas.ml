@@ -830,7 +830,7 @@ module Mdvass = struct
   in_sing, out_sing, in_scc, pre_scc
 
 
-  let compute_trans_post_cond srk prelabel postlabel (trans : transformer) (rtrans,rverts) alphas tr_symbols lc =
+  let compute_trans_post_cond srk prelabel postlabel (trans : transformer) (rtrans,rverts) alphas tr_symbols lc ind =
     let term_list = term_list srk alphas tr_symbols in
     let f' = TSet.fold (fun t acc -> mk_or srk [(gamma_transformer srk term_list t); acc]) rtrans (mk_false srk) in
     let pre_symbols = pre_symbols tr_symbols in
@@ -840,7 +840,8 @@ module Mdvass = struct
     let trans' = gamma_transformer srk term_list trans in
     let ptrans_form = (rewrite srk ~down:(nnf_rewriter srk) (mk_and srk [prelabel;trans';postlabel])) in
     let post_trans = SrkApron.formula_of_property (Abstract.abstract ~exists:exists_post srk man ptrans_form) in
-    let loop_counter = mk_const srk (mk_symbol srk ~name:("Counter") `TyInt) in
+    if TSet.is_empty rtrans then post_trans else (
+    let loop_counter = mk_const srk (mk_symbol srk ~name:("Counter"^(string_of_int ind)) `TyInt) in
     let lri_form = (rewrite srk ~down:(nnf_rewriter srk) f') in 
     let lri = LRI.exp srk tr_symbols loop_counter (LRI.abstract srk tr_symbols lri_form) in
     let pg = PG.postcondition (PG.abstract srk tr_symbols lri_form) in
@@ -852,15 +853,16 @@ module Mdvass = struct
                         SrkApron.formula_of_property pg]))
     in
     let rslt = mk_and srk [rslt; mk_lt srk (mk_zero srk) loop_counter; mk_leq srk loop_counter lc] in
-    rslt
+    rslt)
  
 
   let exp_post_conds_on_transformers srk label transformersmap reachability nvarst alphas tr_symbols lc =
     mk_and srk 
       (BatList.mapi (fun ind (n1, trans, n2) -> 
            let post_cond = compute_trans_post_cond srk label.(n1) (postify srk tr_symbols label.(n2)) 
-               trans reachability.(n2) alphas tr_symbols lc in
-           mk_if srk (mk_lt srk (mk_zero srk) (List.nth nvarst ind)) post_cond) transformersmap
+               trans reachability.(n2) alphas tr_symbols lc ind in
+           Log.errorf "Pos %d post cond is %a" ind (Formula.pp srk) post_cond;
+           mk_if srk (mk_lt srk (mk_zero srk) (List.nth nvarst ind)) (mk_and srk [post_cond; mk_true srk])) transformersmap
       ) 
 
   let exp_consv_of_flow srk in_sing out_sing ests =
