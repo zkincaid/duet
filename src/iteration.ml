@@ -970,5 +970,3 @@ module Vas : Domain = struct
     assert(iter.symbols = iter'.symbols);
     abstract_iter_wedge iter.srk body iter.symbols*)
 end
-
-
