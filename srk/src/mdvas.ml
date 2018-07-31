@@ -488,7 +488,8 @@ module Mdvass = struct
 
   module GraphComp = Graph.Components.Make(VassGraph) 
   module GraphTrav = Graph.Traverse.Dfs(VassGraph)
-
+module Accelerate =
+Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Iteration.PolyhedronGuard))
 
 
   let pre_symbols tr_symbols =
@@ -831,6 +832,8 @@ module Mdvass = struct
 
 
   let compute_trans_post_cond srk prelabel postlabel (trans : transformer) (rtrans,rverts) alphas tr_symbols lc ind =
+    
+    
     let term_list = term_list srk alphas tr_symbols in
     let f' = TSet.fold (fun t acc -> mk_or srk [(gamma_transformer srk term_list t); acc]) rtrans (mk_false srk) in
     let pre_symbols = pre_symbols tr_symbols in
@@ -840,20 +843,21 @@ module Mdvass = struct
     let trans' = gamma_transformer srk term_list trans in
     let ptrans_form = (rewrite srk ~down:(nnf_rewriter srk) (mk_and srk [prelabel;trans';postlabel])) in
     let post_trans = SrkApron.formula_of_property (Abstract.abstract ~exists:exists_post srk man ptrans_form) in
-    if TSet.is_empty rtrans then post_trans else (
+    (*if TSet.is_empty rtrans then post_trans else *)
     let loop_counter = mk_const srk (mk_symbol srk ~name:("Counter"^(string_of_int ind)) `TyInt) in
     let lri_form = (rewrite srk ~down:(nnf_rewriter srk) f') in 
-    let lri = LRI.exp srk tr_symbols loop_counter (LRI.abstract srk tr_symbols lri_form) in
-    let pg = PG.postcondition (PG.abstract srk tr_symbols lri_form) in
+    (*let lri = LRI.exp srk tr_symbols loop_counter (LRI.abstract srk tr_symbols lri_form) in
+    let pg = PG.postcondition (PG.abstract srk tr_symbols lri_form) in*)
     let rslt = SrkApron.formula_of_property
                  (Abstract.abstract ~exists:exists_post srk man (*Add new loop counter into exists?*)
                     (mk_and srk
                        [preify srk tr_symbols post_trans;
-                        lri;
-                        SrkApron.formula_of_property pg]))
+                        Accelerate.closure (Accelerate.abstract srk tr_symbols lri_form)
+                        (*lri;
+                        SrkApron.formula_of_property pg*)]))
     in
     let rslt = mk_and srk [rslt; mk_lt srk (mk_zero srk) loop_counter; mk_leq srk loop_counter lc] in
-    rslt)
+    rslt
  
 
   let exp_post_conds_on_transformers srk label transformersmap reachability nvarst alphas tr_symbols lc =
