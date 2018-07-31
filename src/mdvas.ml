@@ -905,18 +905,20 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
   let exp_never_enter_scc srk ests in_scc pre_scc sccs =
     let num_sccs, func_sccs = sccs in
     let es_comp = Array.make num_sccs [] in
-    List.iteri (fun ind (es, et) -> es_comp.(func_sccs ind)<-(es :: (es_comp.(func_sccs ind)))) ests;
+    List.iteri (fun ind eset -> es_comp.(func_sccs ind)<-(eset :: (es_comp.(func_sccs ind)))) ests;
     mk_and srk
       (Array.to_list
          (Array.mapi (fun ind in_scc_comp ->
               mk_if srk
                 (mk_eq srk
                    (mk_add srk
-                      [mk_add srk (es_comp.(ind));
+                      [mk_add srk (List.map (fun (es, et) -> es) (es_comp.(ind)));
                        mk_add srk (in_scc_comp)])
                    (mk_zero srk))
                 (mk_eq srk
-                   (mk_add srk (pre_scc.(ind)))
+                   (mk_add srk
+                      [mk_add srk (List.map (fun (es,et) -> et) (es_comp.(ind)));
+                       (mk_add srk (pre_scc.(ind)))])
                    (mk_zero srk)))
              in_scc))
 
