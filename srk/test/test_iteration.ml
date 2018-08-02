@@ -295,7 +295,6 @@ let periodic_rational4 () =
   assert_implies closure (!(w' = (int 10)) || x' = (int 12));
   assert_implies closure (!(w' = (int 11)) || x' = (int 15))
 
-
 let periodic_rational5 () =
   let open Infix in
   let phi =
