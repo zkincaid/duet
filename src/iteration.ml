@@ -4,53 +4,7 @@ open BatPervasives
 include Log.Make(struct let name = "srk.iteration" end)
 
 module V = Linear.QQVector
-module QQMatrix = Linear.QQMatrix
-
-module IntSet = SrkUtil.Int.Set
-module IntMap = SrkUtil.Int.Map
-module DArray = BatDynArray
-
-module QQX = Polynomial.QQX
-module QQXs = Polynomial.QQXs
-module Monomial = Polynomial.Monomial
-module MonomialSet = Set.Make(Monomial)
 module CS = CoordinateSystem
-
-module UP = ExpPolynomial.UltPeriodic
-module UPXs = struct
-  include Polynomial.MakeMultivariate(UP)
-
-  let eval upxs k =
-    BatEnum.fold (fun e (up, m) ->
-        QQXs.add_term (UP.eval up k) m e)
-      QQXs.zero
-      (enum upxs)
-
-  let map_coeff f upxs =
-    BatEnum.fold (fun e (up, m) ->
-        add_term (f m up) m e)
-      zero
-      (enum upxs)
-
-  let flatten period =
-    let monomials =
-      List.fold_left (fun set upxs ->
-          BatEnum.fold (fun set (_, m) ->
-              MonomialSet.add m set)
-            set
-            (enum upxs))
-        MonomialSet.empty
-        period
-    in
-    MonomialSet.fold (fun m upxs ->
-        let up =
-          List.map (coeff m) period
-          |> UP.flatten
-        in
-        add_term up m upxs)
-      monomials
-      zero
-end
 
 module type PreDomain = sig
   type 'a t
