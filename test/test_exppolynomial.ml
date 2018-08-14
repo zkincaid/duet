@@ -176,7 +176,10 @@ let test_up_compose () =
   check g 1 2 0;
   check g 2 2 1;
   check g 2 3 4;
-  check g 7 9 10
+  check g 7 9 10;
+  check g 3 4 10;
+  check g 3 4 11;
+  check g 3 4 12
 
 let test_up_sum1 () =
   let f =
@@ -313,6 +316,23 @@ let test_flatten () =
 
   ()
 
+
+let test_flatten2 () =
+  let f =
+    let open Infix in
+    UP.make [] [x; x + (int 1); x + (int 2)]
+  in
+  let g = UP.flatten [f; f; f] in
+  let flat x = UP.eval f (x / 3) in
+  assert_equal_qq (flat 0) (UP.eval g 0);
+  assert_equal_qq (flat 1) (UP.eval g 1);
+  assert_equal_qq (flat 2) (UP.eval g 2);
+  assert_equal_qq (flat 3) (UP.eval g 3);
+  assert_equal_qq (flat 30) (UP.eval g 30);
+  assert_equal_qq (flat 31) (UP.eval g 31);
+  assert_equal_qq (flat 32) (UP.eval g 32);
+  assert_equal_qq (flat 33) (UP.eval g 33)
+
 let suite = "ExpPolynomial" >::: [
       "sum1" >:: test_sum1;
       "sum2" >:: test_sum2;
@@ -333,4 +353,5 @@ let suite = "ExpPolynomial" >::: [
       "up_rec2" >:: test_up_rec2;
       "up_rec3" >:: test_up_rec3;
       "flatten" >:: test_flatten;
+      "flatten2" >:: test_flatten2;
   ]

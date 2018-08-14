@@ -161,6 +161,36 @@ let iter_blocks f sp =
     sp
   |> ignore
 
+let pp_dim formatter i =
+  let rec to_string i =
+    if i < 26 then
+        Char.escaped (Char.chr (97 + i))
+    else
+      (to_string (i/26)) ^ (Char.escaped (Char.chr (97 + (i mod 26))))
+  in
+  Format.pp_print_string formatter (to_string i)
+
+let pp_block formatter block =
+  let open Format in
+  let size = block_size block in
+  fprintf formatter "@[<v 0>";
+  for i = 0 to (size - 1) do
+    if i = size / 2 then
+      fprintf formatter "|%a'| = |@[<h 1>" pp_dim i
+    else
+      fprintf formatter "|%a'|   |@[<h 1>" pp_dim i;
+    for j = 0 to (size - 1) do
+      fprintf formatter "%a@;" QQ.pp block.blk_transform.(i).(j)
+    done;
+    if i = size / 2 then
+      fprintf formatter "| |%a| + |%a|@]@;" pp_dim i (QQXs.pp pp_dim) block.blk_add.(i)
+    else
+      fprintf formatter "| |%a|   |%a|@]@;"
+        pp_dim i
+        (QQXs.pp pp_dim) block.blk_add.(i)
+  done;
+  fprintf formatter "@]"
+
 (* Compute closed-form representation of the dynamics of solvable
    polynomial map using OCRS *)
 let closure_ocrs sp =
@@ -282,7 +312,6 @@ let closure_periodic_rational sp =
           let jordan_chain =
             Linear.jordan_chain (QQMatrix.exp transform p) lambda v
           in
-
           let cf_i =
             if QQ.equal lambda QQ.zero then begin
               assert (p == 1);
@@ -306,7 +335,6 @@ let closure_periodic_rational sp =
                 UPXs.zero
             end else begin
               List.fold_right (fun v cf ->
-
                   let cf_transform =
                     let v_Ai = (* vA^0, ..., vA^{p-1} *)
                       BatEnum.fold (fun (v_transform, xs) i ->
@@ -350,6 +378,11 @@ let closure_periodic_rational sp =
                             UPXs.zero
                             (0 -- (p - 1))
                         in
+                        let cf_pk_i = (* cf(pk+i) *)
+                          UPXs.map_coeff (fun _ f ->
+                              UP.compose_left_affine f p i)
+                            cf
+                        in
                         (* sum_{j=0}^{i-1} v * A^{i-j-1} * cf_add(j) *)
                         let initial =
                           BatEnum.fold (fun sum j ->
@@ -368,11 +401,10 @@ let closure_periodic_rational sp =
                         let get_initial m = QQXs.coeff m initial in
                         UPXs.map_coeff
                           (fun m f -> UP.solve_rec ~initial:(get_initial m) lambda f)
-                          (UPXs.add cf sum_pk_i))
+                          (UPXs.add cf_pk_i sum_pk_i))
                     |> BatList.of_enum
                     |> UPXs.flatten
                   in
-
                   UPXs.add cf_transform cf_add)
                 jordan_chain
                 UPXs.zero
