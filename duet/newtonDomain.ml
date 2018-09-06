@@ -21,7 +21,7 @@ type value = Cra.value =
   | VWidth of Var.t
 
 module K = struct
-  include Cra.MakeTransition(V)
+  include Cra.MakeTransition(V)()
 
   let project tr =
     let is_global v = Var.is_global (Cra.var_of_value v) in
