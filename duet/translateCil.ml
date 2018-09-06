@@ -739,7 +739,7 @@ let parse filename =
        file *)
 
     let pp_cmd =
-      Printf.sprintf "gcc %s -E %s -o %s" !CmdLine.cflags filename preprocessed
+      Printf.sprintf "gcc -D__VERIFIER_duet %s -E %s -o %s" !CmdLine.cflags filename preprocessed
     in
     ignore (Sys.command pp_cmd);
     let file = simplify (Frontc.parse preprocessed ()) in

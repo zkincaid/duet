@@ -83,4 +83,3 @@ let inline_file file =
       with Not_found -> Varinfo.HT.add ht name None
   in
   Callgraph.Top.iter inline cg
-
