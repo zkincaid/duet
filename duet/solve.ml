@@ -1,7 +1,3 @@
-(** Solve an abstract interpretation problem.  This module contains
-    two analyses ({!IntervalAnalysis} and {!OctagonAnalysis}) that
-    check that array accesses are within bounds using two different
-    numerical domains. *)
 module S = Set
 open Core
 open Srk
@@ -481,3 +477,101 @@ module MakeBackwardCfgSolver (I : MinInterpretation) = struct
        let result = process_cfg func.cfg (!initial_value) in
        S.output result (Cfg.initial_vertex func.cfg))
 end
+
+module NumericalInvariants = struct
+  module AI = Ai.ApronInterpretation
+  module Cfg = CfgIr.Cfg
+  module D = struct
+    type t = AI.t
+    type edge = Cfg.E.t
+    let join = AI.join
+    let widening = AI.widen
+    let equal = AI.equal
+    let approx_call func input =
+      let file = CfgIr.get_gfile () in
+      if CfgIr.defined_function func file then
+        let globals =
+          AP.Set.filter AP.is_global (AI.get_domain input)
+        in
+        AI.cyl input globals
+      else
+        input
+
+    let analyze e input =
+      let v = Cfg.E.src e in
+      match v.dkind with
+      | Call (None, AddrOf (Variable (func, OffsetNone)), []) ->
+        approx_call func input
+      | Call (Some lhs, AddrOf (Variable (func, OffsetNone)), []) ->
+        let lhs_ap = Variable lhs in
+        if AP.Set.mem lhs_ap (AI.get_domain input) then
+          AI.cyl (approx_call func input) (AP.Set.singleton lhs_ap)
+        else
+          approx_call func input
+      | _ -> AI.transfer v input
+  end
+  module A = Graph.ChaoticIteration.Make(Cfg)(D)
+  module Wto = Graph.WeakTopological.Make(Cfg)
+
+  let analyze file =
+    Inline.inline_file file;
+    ignore (Bddpa.initialize file);
+    PointerAnalysis.simplify_calls file;
+    file.funcs |> List.iter (fun f ->
+        let open CfgIr in
+        let thresholds =
+          let module S = SrkUtil.Int.Set in
+          let t = ref (S.of_list [-1;0;1]) in
+          let rec const_aexpr = function
+            | Havoc _ | AddrOf _ | AccessPath _ -> ()
+            | Cast (_, expr) -> const_aexpr expr
+            | UnaryOp (_, expr, _) -> const_aexpr expr
+            | BinaryOp (e1, _, e2, _) -> const_aexpr e1; const_aexpr e2
+            | Constant (CInt (i, _)) -> t := S.add i (!t)
+            | Constant _ -> ()
+            | BoolExpr b -> const_bexpr b
+          and const_bexpr = function
+            | Atom (_, e1, e2) -> const_aexpr e1; const_aexpr e2
+            | And (e1, e2) -> const_bexpr e1; const_bexpr e2
+            | Or (e1, e2) -> const_bexpr e1; const_bexpr e2
+          in
+          f.cfg |> Cfg.iter_vertex (fun v ->
+              match v.dkind with
+              | Assert (phi, _) | Assume phi ->
+                const_bexpr phi
+              | _ -> ());
+          S.elements (!t)
+        in
+        let module D = struct
+          include D
+          let widening x y =
+            AI.widen_thresholds thresholds x y
+        end
+        in
+        let module A = Graph.ChaoticIteration.Make(Cfg)(D) in
+        let initial_vertex = Cfg.initial_vertex f.cfg in
+        let wto = Wto.recursive_scc f.cfg initial_vertex in
+        let init v =
+          if Def.equal v initial_vertex then
+            AI.top AP.Set.empty
+          else
+            AI.bottom AP.Set.empty
+        in
+        let inv = A.recurse f.cfg wto init Graph.ChaoticIteration.FromWto 10 in
+        f.cfg |> Cfg.iter_vertex (fun v ->
+            match v.dkind with
+            | Assert (phi, msg) ->
+              let prop = A.M.find v inv in
+              if AI.assert_true phi prop then
+                Report.log_safe ()
+              else
+                Report.log_error (Def.get_location v) msg
+            | _ -> ()
+          ));
+    Report.print_errors ();
+    Report.print_safe ()
+end
+
+let _ =
+  CmdLine.register_pass
+    ("-num-inv", NumericalInvariants.analyze, " Numerical invariant generation");

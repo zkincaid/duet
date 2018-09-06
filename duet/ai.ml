@@ -679,6 +679,36 @@ module ApronInterpretation = struct
     in
     { w with value = value }
 
+  let widen_thresholds thresholds x y =
+    let w = widen_preserve_leq x y in
+    let f a thresh value =
+      let texpr = (* a - thresh *)
+        Texpr0.of_expr
+          (int_binop Minus
+             (Texpr0.Cst (Coeff.s_of_int thresh))
+             (Texpr0.Dim a))
+      in
+      let tcons = Tcons0.make texpr Tcons0.SUPEQ in
+      if (Abstract0.sat_tcons (get_man()) x.value tcons
+          && Abstract0.sat_tcons (get_man()) y.value tcons
+          && not (Abstract0.sat_tcons (get_man()) value tcons))
+      then Abstract0.meet_tcons_array (get_man()) value [| tcons |]
+      else value
+    in
+    let value =
+      let g _ d value =
+        match d with
+        | VInt a ->
+          List.fold_left (fun value thresh ->
+              f a thresh value)
+            value
+            thresholds
+        | _ -> value
+      in
+      Env.fold g w.env w.value
+    in
+    { w with value = value }
+
   let assert_true bexpr av = assert_true (Bexpr.dnf bexpr) av
   let interp_bool bexpr av = interp_bool bexpr av
 

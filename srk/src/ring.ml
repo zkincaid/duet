@@ -104,6 +104,7 @@ module type Matrix = sig
   val vector_right_mul : t -> vector -> vector
   val vector_left_mul : vector -> t -> vector
   val of_dense : scalar array array -> t
+  val dense_of : t -> int -> int -> scalar array array
 end
 
 module AbelianGroupMap (M : Map) (G : AbelianGroup) = struct
@@ -309,6 +310,11 @@ module MakeMatrix (R : S) = struct
         add_row i row matrix)
       zero
       dense_matrix
+
+  let dense_of matrix rows cols =
+    Array.init rows (fun row ->
+        Array.init cols (fun col ->
+            entry row col matrix))
 end
 
 module MakeUltPeriodicSeq(R : S) = struct
