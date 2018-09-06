@@ -314,7 +314,7 @@ end
 module KK = struct
   module Voc = V
   module VocMap = Map.Make(Voc)
-  include Cra.MakeTransition(VV)
+  include Cra.MakeTransition(VV)()
 
 
   (* Detensor-transpose local variables and remove them from the footprint *)
