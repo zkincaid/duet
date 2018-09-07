@@ -113,16 +113,20 @@ module V = struct
   let is_global = Var.is_global % var_of_value
 end
 
-module MakeTransition (V : Transition.Var) () = struct
-  include Transition.Make(Ctx)(V)
+module IterDomain = struct
   open Iteration
   open SolvablePolynomial
   module SPOne = SumWedge (SolvablePolynomial) (SolvablePolynomialOne) ()
   module SPG = ProductWedge (SPOne) (WedgeGuard)
   module SPPeriodicRational = Sum (SPG) (PresburgerGuard) ()
   module SPSplit = Sum (SPPeriodicRational) (Split(SPPeriodicRational)) ()
+  include SPSplit
+end
 
-  module I = Iter(MakeDomain(SPSplit))
+module MakeTransition (V : Transition.Var) = struct
+  include Transition.Make(Ctx)(V)
+
+  module I = Iter(Iteration.MakeDomain(IterDomain))
 
   let star x = Log.time "cra:star" I.star x
 
@@ -138,7 +142,7 @@ module MakeTransition (V : Transition.Var) () = struct
     else mul x y
 end
 
-module K = MakeTransition(V)()
+module K = MakeTransition(V)
 
 type ptr_term =
   { ptr_val : Ctx.term;
@@ -697,15 +701,15 @@ let _ =
      " Turn off forward invariant generation");
   CmdLine.register_config
     ("-cra-split-loops",
-     Arg.Clear K.SPSplit.abstract_left,
+     Arg.Clear IterDomain.SPSplit.abstract_left,
      " Turn on loop splitting");
   CmdLine.register_config
     ("-cra-no-matrix",
-     Arg.Clear K.SPOne.abstract_left,
+     Arg.Clear IterDomain.SPOne.abstract_left,
      " Turn off matrix recurrences");
   CmdLine.register_config
     ("-cra-prsd",
-     Arg.Clear K.SPPeriodicRational.abstract_left,
+     Arg.Clear IterDomain.SPPeriodicRational.abstract_left,
      " Use periodic rational spectral decomposition");
   CmdLine.register_config
     ("-dump-goals",

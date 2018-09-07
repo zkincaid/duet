@@ -21,7 +21,7 @@ type value = Cra.value =
   | VWidth of Var.t
 
 module K = struct
-  include Cra.MakeTransition(V)()
+  include Cra.MakeTransition(V)
 
   let project tr =
     let is_global v = Var.is_global (Cra.var_of_value v) in
@@ -314,7 +314,7 @@ end
 module KK = struct
   module Voc = V
   module VocMap = Map.Make(Voc)
-  include Cra.MakeTransition(VV)()
+  include Cra.MakeTransition(VV)
 
 
   (* Detensor-transpose local variables and remove them from the footprint *)
