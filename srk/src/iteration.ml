@@ -639,8 +639,8 @@ module MakeDomain (Iter : PreDomain) = struct
   let equal iter iter' =
     let srk = iter.srk in
     let tr_symbols = iter.tr_symbols in
-    assert(iter.tr_symbols = iter'.tr_symbols);
-    Iter.equal srk tr_symbols iter.iter iter'.iter
+    iter.tr_symbols = iter'.tr_symbols
+    && Iter.equal srk tr_symbols iter.iter iter'.iter
 
   let join iter iter' =
     let srk = iter.srk in
