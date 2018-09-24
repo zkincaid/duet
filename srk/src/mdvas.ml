@@ -408,6 +408,8 @@ let abstract ?(exists=fun x -> true) (srk : 'a context) (symbols : (symbol * sym
         let alpha_v = alpha_hat (mk_and srk imp) in
         time "POST ALPHA";
         (*if alpha_v = Top then Top else*)
+        Log.errorf "Inter VAS: %a"  (Formula.pp srk) (gamma srk (coproduct srk vas alpha_v) symbols);
+ 
           go (coproduct srk vas alpha_v) (count - 1)
   in
   Smt.Solver.add solver [body];
