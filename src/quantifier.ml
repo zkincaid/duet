@@ -1867,3 +1867,76 @@ let check_strategy srk qf_pre phi strategy =
   in
   let strategy_formula = go qf_pre strategy in
   Smt.is_sat srk (mk_and srk [strategy_formula; mk_not srk phi]) = `Unsat
+
+let local_project_cube srk exists model cube =
+  (* Set of symbols to be projected *)
+  let project =
+    List.fold_left
+      (fun set phi -> Symbol.Set.union set (Symbol.Set.filter (not % exists) (symbols phi)))
+      Symbol.Set.empty
+      cube
+  in
+  let is_true phi =
+    match Formula.destruct srk phi with
+    | `Tru -> true
+    | _ -> false
+  in
+
+  Symbol.Set.fold (fun symbol cube ->
+      match typ_symbol srk symbol with
+      | `TyInt ->
+        let vt = select_int_term srk model symbol cube in
+
+        (* floor(term/div) + offset ~> (term - ([[term]] mod div))/div + offset,
+           and add constraint that div | (term - ([[term]] mod div)) *)
+        let term_val =
+          let term_qq = evaluate_linterm (Interpretation.real model) vt.term in
+          match QQ.to_zz term_qq with
+          | None -> assert false
+          | Some zz -> zz
+        in
+        let remainder =
+          Mpzf.fdiv_r term_val (ZZ.of_int vt.divisor)
+        in
+        let numerator =
+          V.add_term (QQ.of_zz (ZZ.negate remainder)) const_dim vt.term
+        in
+        let replacement =
+          V.scalar_mul (QQ.inverse (QQ.of_int vt.divisor)) numerator
+          |> V.add_term (QQ.of_zz vt.offset) const_dim
+          |> of_linterm srk
+        in
+
+        let replace =
+          substitute_const srk
+            (fun p -> if p = symbol then replacement else mk_const srk p)
+        in
+        let divides = mk_divides srk (ZZ.of_int vt.divisor) numerator in
+        BatList.filter (not % is_true) (divides::(List.map replace cube))
+
+      | `TyReal ->
+        let replacement = of_linterm srk (select_real_term srk model symbol cube) in
+        let replace =
+          substitute_const srk
+            (fun p -> if p = symbol then replacement else mk_const srk p)
+        in
+        BatList.filter_map (fun atom ->
+            let atom' = replace atom in
+            if is_true atom' then None else Some atom')
+          cube
+
+      | `TyBool ->
+        let t = match Interpretation.bool model symbol with
+          | true -> mk_true srk
+          | false -> mk_false srk
+        in
+        let replace =
+          substitute_const srk (fun p -> if p = symbol then t else mk_const srk p)
+        in
+        BatList.filter_map (fun atom ->
+            let atom' = replace atom in
+            if is_true atom' then None else Some atom')
+          cube
+      | `TyFun (_, _) -> invalid_arg "local_project_cube: Cannot project function symbols")
+    project
+    cube
