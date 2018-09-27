@@ -70,6 +70,20 @@ module TermPolynomial = struct
     |> mk_add ctx.srk
 end
 
+let simplify_term srk term =
+  let ctx = TermPolynomial.mk_context srk in
+  let polynomial =
+    TermPolynomial.of_term ctx term
+  in
+  let c = TermPolynomial.QQXs.content polynomial in
+  let polynomial =
+    if QQ.equal c QQ.zero then
+      polynomial
+    else
+      TermPolynomial.QQXs.scalar_mul (QQ.inverse (QQ.abs c)) polynomial
+  in
+  TermPolynomial.term_of ctx polynomial
+
 let simplify_terms_rewriter srk =
   let ctx = TermPolynomial.mk_context srk in
   fun expr ->

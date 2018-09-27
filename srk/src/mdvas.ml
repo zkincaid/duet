@@ -365,6 +365,7 @@ let gamma srk vas tr_symbols : 'a formula =
 let abstract ?(exists=fun x -> true) (srk : 'a context) (symbols : (symbol * symbol) list) (body : 'a formula)  =
   time "START OF ABSTRACT FUNCTION";
   let body = (rewrite srk ~down:(nnf_rewriter srk) body) in
+  let body = Nonlinear.linearize srk body in
   let (x''s, x''_forms) = 
     List.split (List.fold_left (fun acc (x, x') -> 
         let x'' = (mk_symbol srk `TyReal) in

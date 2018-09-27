@@ -10,7 +10,10 @@ module TermPolynomial : sig
 end
 
 val simplify_terms_rewriter : 'a context -> 'a rewriter
-val simplify_terms : 'a context -> ('a,'b) expr -> ('a,'b) expr
+
+val simplify_terms : 'a context -> 'a formula -> 'a formula
+
+val simplify_term : 'a context -> 'a term -> 'a term
 
 (** Purify function applications in a ground formula: replace each function
     application within a formula with a fresh symbol, and return both the

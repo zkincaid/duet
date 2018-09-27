@@ -281,9 +281,15 @@ let simplify_atom srk op s t =
       end
     | _ -> invalid_arg "simplify_atom: non-constant"
   in
-  let s =
-    if Term.equal t zero then s
-    else mk_sub srk s t
+  let (s, op) =
+    let s =
+      if Term.equal t zero then s
+      else mk_sub srk s t
+    in
+    match op with
+    | `Lt when (expr_typ srk s = `TyInt) ->
+      (SrkSimplify.simplify_term srk (mk_add srk [s; mk_real srk QQ.one]), `Leq)
+    | _ -> (SrkSimplify.simplify_term srk s, op)
   in
   (* Scale a linterm with rational coefficients so that all coefficients are
      integral *)
@@ -318,7 +324,27 @@ let simplify_atom srk op s t =
             `Divides (ZZ.mul multiplier modulus, lt)
         | _ -> `CompareZero (op, snd (zz_linterm s))
       end
-
+    | `Add [x; y] ->
+      begin match Term.destruct srk x, Term.destruct srk y with
+        | `Real k, `Binop (`Mod, dividend, modulus)
+        | `Binop (`Mod, dividend, modulus), `Real k when QQ.lt k QQ.zero && op = `Eq ->
+          let (multiplier, lt) = zz_linterm dividend in
+          let modulus = destruct_int modulus in
+          if ZZ.equal multiplier ZZ.one && QQ.lt k (QQ.of_zz modulus) then
+            let lt = V.add_term k const_dim lt in
+            `Divides (modulus, lt)
+          else
+            `CompareZero (op, snd (zz_linterm s))
+        | `Real k, `Unop (`Neg, z) | `Unop (`Neg, z), `Real k when QQ.equal k QQ.one ->
+          begin match Term.destruct srk z with
+            | `Binop (`Mod, dividend, modulus) ->
+              let modulus = destruct_int modulus in
+              let (multiplier, lt) = zz_linterm dividend in
+              `NotDivides (ZZ.mul multiplier modulus, lt)
+            | _ -> `CompareZero (op, snd (zz_linterm s))
+          end
+        | _, _ -> `CompareZero (op, snd (zz_linterm s))
+      end
     | _ -> `CompareZero (op, snd (zz_linterm s))
     end
   | `Lt ->
@@ -690,6 +716,12 @@ let select_real_term srk interp x atoms =
           (* Upper bound *)
           (None, Some (toa, toa_val, op = `Lt))
   in
+  let bound_of_atom atom =
+    if Symbol.Set.mem x (symbols atom) then
+      bound_of_atom atom
+    else
+      (None, None)
+  in
   try
     match List.fold_left merge (None, None) (List.map bound_of_atom atoms) with
     | (Some (t, _, false), _) | (_, Some (t, _, false)) ->
@@ -876,6 +908,12 @@ let select_int_term srk interp x atoms =
         end
       | _ ->
         `None
+  in
+  let bound_of_atom atom =
+    if Symbol.Set.mem x (symbols atom) then
+      bound_of_atom atom
+    else
+      `None
   in
   let vt_val vt =
     let tval = match QQ.to_zz (eval vt.term) with
@@ -1887,8 +1925,9 @@ let local_project_cube srk exists model cube =
       | `TyInt ->
         let vt = select_int_term srk model symbol cube in
 
-        (* floor(term/div) + offset ~> (term - ([[term]] mod div))/div + offset,
-           and add constraint that div | (term - ([[term]] mod div)) *)
+        (* floor(term/div) + offset ~> (term - ([[term]] mod div))/div
+           + offset, and add constraint that div | (term - ([[term]]
+           mod div)) *)
         let term_val =
           let term_qq = evaluate_linterm (Interpretation.real model) vt.term in
           match QQ.to_zz term_qq with
@@ -1915,15 +1954,39 @@ let local_project_cube srk exists model cube =
         BatList.filter (not % is_true) (divides::(List.map replace cube))
 
       | `TyReal ->
-        let replacement = of_linterm srk (select_real_term srk model symbol cube) in
+        (* cube_nonlin atoms do not contain symbol; cube_lin atoms
+           are linear *)
+        let (cube_nonlin, cube_lin) =
+          List.fold_left (fun (nonlinear, linear) atom ->
+              match Interpretation.destruct_atom srk atom with
+              | `Literal (_, _) -> (atom::nonlinear, linear)
+              | `Comparison (op, s, t) ->
+                try
+                  ignore (linterm_of srk s);
+                  ignore (linterm_of srk t);
+                  (nonlinear, atom::linear)
+                with Linear.Nonlinear ->
+                  if Symbol.Set.mem symbol (symbols atom) then
+                    (nonlinear, linear) (* drop atom *)
+                  else
+                    (atom::nonlinear, linear))
+            ([], [])
+            cube
+        in
+        let replacement =
+          of_linterm srk (select_real_term srk model symbol cube_lin)
+        in
         let replace =
           substitute_const srk
             (fun p -> if p = symbol then replacement else mk_const srk p)
         in
-        BatList.filter_map (fun atom ->
-            let atom' = replace atom in
-            if is_true atom' then None else Some atom')
-          cube
+        let cube_lin' =
+          BatList.filter_map (fun atom ->
+              let atom' = replace atom in
+              if is_true atom' then None else Some atom')
+            cube_lin
+        in
+        cube_nonlin@cube_lin'
 
       | `TyBool ->
         let t = match Interpretation.bool model symbol with
