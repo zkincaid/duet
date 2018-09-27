@@ -650,7 +650,11 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
     let exists_pre x =
       exists x && not (Symbol.Set.mem x post_symbols)
     in
-    let rec find_pre labels = 
+    let exists_post x =
+      exists x && not (Symbol.Set.mem x pre_symbols)
+    in
+    let rec find_pre labels =
+      Log.errorf "whyyy";
       match Smt.Solver.get_model solver with
       | `Unsat -> labels
       | `Unknown -> assert false
@@ -658,14 +662,34 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
         match Interpretation.select_implicant m formula with
         | None -> assert false
         | Some imp ->
+          Log.errorf "entry";
           let pre_imp = Q.local_project_cube srk exists_pre m imp in
           Smt.Solver.add solver [mk_not srk (mk_and srk pre_imp)];
+          Log.errorf "exit";
           find_pre ((mk_and srk pre_imp) :: labels)
     in
     Smt.Solver.reset solver;
     Smt.Solver.add solver [formula];
     let pre_labels = find_pre [] in
-    pre_labels
+    Log.errorf "Here";
+    let rec find_post labels =
+      Log.errorf "yEEE";
+      match Smt.Solver.get_model solver with
+      | `Unsat -> labels
+      | `Unknown -> assert false
+      | `Sat m ->
+        match Interpretation.select_implicant m
+                (mk_and srk [formula; mk_not srk (mk_or srk pre_labels)]) with
+        | None -> assert false
+        | Some imp ->
+          let post_imp = Q.local_project_cube srk exists_post m imp in
+          Smt.Solver.add solver [mk_not srk (mk_and srk post_imp)];
+          find_post ((mk_and srk post_imp) :: labels)
+    in
+       Smt.Solver.reset solver;
+    Smt.Solver.add solver [formula; mk_not srk (mk_or srk pre_labels)];
+    let post_labels = find_post [] in
+    pre_labels, post_labels
 
 
 
@@ -795,19 +819,13 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
 
 
   let get_intersect_cube_labeling srk formula exists tr_symbols =
-    let pre, post = get_pre_post_labels srk formula exists tr_symbols in
-    let pre = get_pre_cube_labels srk formula exists tr_symbols in
-    let _, post = get_pre_post_labels srk (mk_and srk [formula;
-                                                       mk_not srk (mk_or srk pre)]) exists tr_symbols in
+    let pre, post = get_pre_cube_labels srk formula exists tr_symbols in
     List.iteri (fun ind lab -> Log.errorf "PRE LABEL NUM %d: %a" ind (Formula.pp srk) (lab)) pre;
     List.iteri (fun ind lab -> Log.errorf "POST LABEL NUM %d: %a" ind (Formula.pp srk) (lab)) post;
     Log.errorf "BREAK HERE______________";
     let pre', post' = get_largest_polyhedrons srk pre, get_largest_polyhedrons srk post in
     List.iteri (fun ind lab -> Log.errorf "PRE LABEL NUM %d: %a" ind (Formula.pp srk) (lab)) pre';
     List.iteri (fun ind lab -> Log.errorf "POST LABEL NUM %d: %a" ind (Formula.pp srk) (lab)) post';
-    let remain_post = mk_and srk
-        [mk_or srk post;
-         mk_not srk (mk_or srk pre')] in(*might be nice to make remain_post polyhedron*)
     let result = BatArray.of_list (post' @ pre') in
     Array.iteri (fun ind lab -> Log.errorf "LABEL NUM %d: %a" ind (Formula.pp srk) (SrkSimplify.simplify_terms srk lab)) result;
     result
@@ -826,7 +844,7 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
       Log.errorf "NUM ALPHAS %d" (List.length alphas);
       (*let label = deterministic_phase_label srk body exists tr_symbols alphas v in*)
       let label = get_intersect_cube_labeling srk body exists tr_symbols in
-      let labeli = get_intersect_labeling srk body exists tr_symbols in
+      (*let labeli = get_intersect_labeling srk body exists tr_symbols in*)
       (*let label = get_transition_equiv_labeling srk body exists tr_symbols v alphas in*)
       (*let label2 = get_a_labeling srk body exists tr_symbols in*)
       let simulation = alphas in
