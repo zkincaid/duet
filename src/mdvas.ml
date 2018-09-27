@@ -797,16 +797,18 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
   let get_intersect_cube_labeling srk formula exists tr_symbols =
     let pre, post = get_pre_post_labels srk formula exists tr_symbols in
     let pre = get_pre_cube_labels srk formula exists tr_symbols in
+    let _, post = get_pre_post_labels srk (mk_and srk [formula;
+                                                       mk_not srk (mk_or srk pre)]) exists tr_symbols in
     List.iteri (fun ind lab -> Log.errorf "PRE LABEL NUM %d: %a" ind (Formula.pp srk) (lab)) pre;
     List.iteri (fun ind lab -> Log.errorf "POST LABEL NUM %d: %a" ind (Formula.pp srk) (lab)) post;
     Log.errorf "BREAK HERE______________";
     let pre', post' = get_largest_polyhedrons srk pre, get_largest_polyhedrons srk post in
     List.iteri (fun ind lab -> Log.errorf "PRE LABEL NUM %d: %a" ind (Formula.pp srk) (lab)) pre';
-    List.iteri (fun ind lab -> Log.errorf "POST LABEL NUM %d: %a" ind (Formula.pp srk) (lab)) post;
+    List.iteri (fun ind lab -> Log.errorf "POST LABEL NUM %d: %a" ind (Formula.pp srk) (lab)) post';
     let remain_post = mk_and srk
         [mk_or srk post;
          mk_not srk (mk_or srk pre')] in(*might be nice to make remain_post polyhedron*)
-    let result = BatArray.of_list (remain_post :: pre') in
+    let result = BatArray.of_list (post' @ pre') in
     Array.iteri (fun ind lab -> Log.errorf "LABEL NUM %d: %a" ind (Formula.pp srk) (SrkSimplify.simplify_terms srk lab)) result;
     result
 
