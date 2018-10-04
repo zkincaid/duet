@@ -332,7 +332,8 @@ let single_path_test () =
   let tr_symbols = [(xsym,xsym');(ysym,ysym')] in
  let phi =
     let open Infix in
-    (y' = (int 1) && x' = x + (int 6)) || (y' = (int 10) && x' = x + (int 18)) || (y' = y + (int 5) && x' = (int 3))
+    (*(y' = (int 1) && x' = x + (int 6)) || (y' = (int 10) && x' = x + (int 18)) || (y' = y + (int 5) && x' = (int 3))*)
+    (x' = (int 0) && x' = x - (int 1) && y'= y - (int 1)) || (x' = (int 2) &&  x' = x + (int 2) && y'=y+(int 2)) || (x' = x + (int 1) && (y' = y + (int 1))) || ((x' = (int 100)) && (y' = y + (int 1)))
     (*(y' = y + (int 1) && (x' = x + (int 1))) || ((y' = x) && x' = x + (int 1))*)
     (*(y' = y + (int 1) && (x' = x + (int 1))) || ((y' = x))*)
     (*y' = y + (int 1) && y' = y + (int 2)*)
@@ -343,13 +344,44 @@ let single_path_test () =
     let open Infix in
     y' + x' = (int 1)
   in
-  assert_equiv_formula (Mdvas.gamma srk (Mdvas.abstract srk tr_symbols phi) tr_symbols) psi
+  let exp = Mdvas.exp srk tr_symbols (int 10) (Mdvas.abstract srk tr_symbols phi) in
+  let open Infix in
+  assert_implies (exp && x = y) ((!(x' < (int 100)) || x' = y'));
+  ()
+  (*assert_equiv_formula (Mdvas.gamma srk (Mdvas.abstract srk tr_symbols phi) tr_symbols) psi*)
+  (*Log.errorf "VAS IS HERE _____________ %a" (Formula.pp srk) exp;
+    assert true*)
 
+let single_path_test2 () =
+  let tr_symbols = [(xsym,xsym');(ysym,ysym')] in
+  let open Mdvas in
+  let phi =
+    let open Infix in
+    (*(y' = (int 1) && x' = x + (int 6)) || (y' = (int 10) && x' = x + (int 18)) || (y' = y + (int 5) && x' = (int 3))*)
+    (x' = (int 0) && x' = x - (int 1) && y'= y - (int 1)) || (x' = (int 2) &&  x' = x + (int 2) && y'=y+(int 2)) || (x' = x + (int 1) && (y' = y + (int 1))) || ((x' = (int 100)) && (y' = y + (int 1)))
+    (*(y' = y + (int 1) && (x' = x + (int 1))) || ((y' = x) && x' = x + (int 1))*)
+    (*(y' = y + (int 1) && (x' = x + (int 1))) || ((y' = x))*)
+    (*y' = y + (int 1) && y' = y + (int 2)*)
+    (*(y' = y + (int 1) && y' = (int 3)) || (y' = y + (int 4) && y' = (int 5))*)
+    (*(int 2) * x' + y' = (int 2) * x + y*)
+  in
+  let psi =
+    let open Infix in
+    y' + x' = (int 1)
+  in
+  let vas = (Mdvas.abstract srk tr_symbols phi) in
+  let vas = Mdvas.remove_row vas 1 0 in
+  let vas = Mdvas.remove_row vas 2 0 in
+  Log.errorf "Final VAS: %a"  (Formula.pp srk) (Mdvas.gamma srk vas tr_symbols);
+  let exp = Mdvas.exp srk tr_symbols (int 10) vas in
+  let open Infix in
+  assert_implies (exp && x = y) ((!(x' < (int 100)) || x' = y'));
+  ()
 
 
 
 let suite = "Iteration" >::: [
-    "prepost" >:: prepost;
+    (*"prepost" >:: prepost;
     "simple_induction" >:: simple_induction;
     "count_by_1" >:: count_by_1;
     "count_by_2" >:: count_by_2;
@@ -363,6 +395,6 @@ let suite = "Iteration" >::: [
     "periodic_rational2" >:: periodic_rational2;
     "periodic_rational3" >:: periodic_rational3;
     "periodic_rational4" >:: periodic_rational4;
-    "periodic_rational5" >:: periodic_rational5;
-    "single_path_test" >:: single_path_test;
+    "periodic_rational5" >:: periodic_rational5;*)
+    "single_path_test2" >:: single_path_test2;
   ]

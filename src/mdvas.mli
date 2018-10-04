@@ -20,7 +20,7 @@ val exp : 'a context -> (symbol * symbol) list -> 'a term -> 'a t -> 'a formula
  val join : 'a context -> (symbol * symbol) list -> 'a t -> 'a t -> 'a t
   val widen : 'a context -> (symbol * symbol) list -> 'a t -> 'a t -> 'a t
   val equal : 'a context -> (symbol * symbol) list -> 'a t -> 'a t -> bool
-
+val remove_row: 'a t -> int -> int -> 'a t
 
 module Mdvass : sig
     type 'a t
