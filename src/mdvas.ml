@@ -388,6 +388,94 @@ let remove_row vas x y =
 
 
 
+let alpha_hat (srk : 'a context) (imp : 'a formula) symbols x''s  x''_forms = 
+  let postify = substitute_map srk (post_map srk x''s) in 
+  let r = H.affine_hull srk imp (List.map (fun (x, x') -> x') symbols) in
+  let i' = H.affine_hull srk (mk_and srk (imp :: x''_forms)) (List.map (fun (x'', x') -> x'') x''s) in
+  let i = List.map postify i' in
+  let add_dim m b a term a' offset =
+    let (b', v) = V.pivot (Linear.const_dim) (Linear.linterm_of srk term) in
+    (M.add_row ((*offset +*) (M.nb_rows m)) v m, V.add_term (QQ.negate b') (offset + (M.nb_rows m)) b, Z.add_term a' (offset + (M.nb_rows m)) a)
+  in
+  let f t offset = List.fold_left (fun (m, b, a) ele -> add_dim m b a ele t offset) in
+  let (mi,b,a) = f ZZ.one 0 (M.zero, V.zero, Z.zero) i in
+  let (mr, b, a) = f ZZ.zero (M.nb_rows mi) (M.zero, b, a) r in
+  match M.equal mi (M.zero), M.equal mr (M.zero) with
+  | true, true -> Top
+  | false, true -> Vas {v=TSet.singleton {a;b}; alphas=[mi]}
+  | true, false ->  Vas {v=TSet.singleton {a;b}; alphas=[mr]} 
+  | false, false -> Vas {v=TSet.singleton {a;b}; alphas=[mi;mr]} (* Matrix 1 row 1 maps to first element a, first elemebt b *)
+
+
+
+
+
+
+let find_invariants  (srk : 'a context) (symbols : (symbol * symbol) list) (body : 'a formula) =
+  let postify = substitute_map srk (post_map srk symbols) in
+  let (x''s, x''_forms) = 
+    List.split (List.fold_left (fun acc (x, x') -> 
+        let x'' = (mk_symbol srk `TyReal) in
+        let x''_form = (mk_eq srk (mk_const srk x'') 
+                          (mk_sub srk (mk_const srk x') (mk_const srk x))) in
+        ((x'', x'), x''_form) :: acc) [] symbols) in
+  let get_last_dim vector =
+    BatEnum.fold (fun (scal, high) (scalar, dim) ->
+        if dim > high then (scalar,dim) else (scal, high)) (QQ.zero, -1) (V.enum vector) in
+  match alpha_hat srk body symbols x''s x''_forms with
+  | Top -> assert false
+  | Vas {v;alphas=[hd]} -> assert false
+  | Vas {v;alphas=[mi;mr]} ->
+    let {a;b} = List.hd (TSet.elements v) in
+    BatEnum.fold (fun (body', invars) (dim', row) ->
+        Log.errorf "Dim %n of b is %a" dim' (QQ.pp) (V.coeff dim' b);
+        (*if(QQ.equal QQ.zero (V.coeff dim' b)) then *)
+          Log.errorf "Dim %n is 0" dim';
+          let vect = M.row dim' mi in
+          let matching_reset = 
+            BatEnum.fold (fun reset_dim (dim'', row) ->
+                if reset_dim = None then (
+                  if(vect = M.row dim'' mr) then Some dim'' else reset_dim
+                )
+                else reset_dim
+            ) None (M.rowsi mr)
+          in
+          match matching_reset with
+          | None -> (body', invars)
+          | Some dim'' ->
+            let scal, last_dim = get_last_dim vect in
+            let term_xy' = mk_mul srk 
+                [mk_sub srk (Linear.of_linterm srk (snd (V.pivot last_dim vect))) 
+                   (mk_real srk (V.coeff ((M.nb_rows mi) + dim'') b));
+                 mk_real srk (QQ.negate (QQ.inverse scal))] in
+            Log.errorf "New terk %a" (Term.pp srk) term_xy'; 
+            let term_xy = mk_mul srk
+                [mk_add srk 
+                   [mk_sub srk (Linear.of_linterm srk (snd (V.pivot last_dim vect))) 
+                      (mk_real srk (V.coeff ((M.nb_rows mi) + dim'') b));
+                    mk_real srk (V.coeff dim' b)];
+                 mk_real srk (QQ.negate (QQ.inverse scal))] in
+          let sym = match Linear.sym_of_dim last_dim with
+            |None -> assert false
+            | Some v -> v
+          in
+          let sym' = List.fold_left (fun acc (x, x') -> if x = sym then x' else acc) sym symbols in
+          let sym = List.fold_left (fun acc (x, x') -> if x' = sym' then x else acc) sym' symbols in
+          let body' = substitute_const srk (fun x -> if x = sym then preify srk symbols term_xy 
+                                            else if x = sym' then postify term_xy'
+                                            else mk_const srk x) body' in
+          Log.errorf "New body %a" (Formula.pp srk) body';
+          let invars = (mk_eq srk (mk_const srk sym') (term_xy')) :: (mk_eq srk (mk_const srk sym) (term_xy)) :: invars in
+          List.fold_left (fun _ invar -> Log.errorf "Invars is %a" (Formula.pp srk) invar;())() invars;
+          body',invars
+        )
+        (body,[])
+        (M.rowsi mi)
+  | _ -> assert false
+
+
+
+
 let abstract ?(exists=fun x -> true) (srk : 'a context) (symbols : (symbol * symbol) list) (body : 'a formula)  =
   time "START OF ABSTRACT FUNCTION";
   let body = (rewrite srk ~down:(nnf_rewriter srk) body) in
@@ -399,26 +487,9 @@ let abstract ?(exists=fun x -> true) (srk : 'a context) (symbols : (symbol * sym
                           (mk_sub srk (mk_const srk x') (mk_const srk x))) in
         ((x'', x'), x''_form) :: acc) [] symbols) in
   let postify = substitute_map srk (post_map srk x''s) in
-  let alpha_hat (imp : 'a formula) = 
-    let r = H.affine_hull srk imp (List.map (fun (x, x') -> x') symbols) in
-    let i' = H.affine_hull srk (mk_and srk (imp :: x''_forms)) (List.map (fun (x'', x') -> x'') x''s) in
-    let i = List.map postify i' in
-    let add_dim m b a term a' offset =
-      let (b', v) = V.pivot (Linear.const_dim) (Linear.linterm_of srk term) in
-      (M.add_row ((*offset +*) (M.nb_rows m)) v m, V.add_term (QQ.negate b') (offset + (M.nb_rows m)) b, Z.add_term a' (offset + (M.nb_rows m)) a)
-    in
-    let f t offset = List.fold_left (fun (m, b, a) ele -> add_dim m b a ele t offset) in
-    let (mi,b,a) = f ZZ.one 0 (M.zero, V.zero, Z.zero) i in
-    let (mr, b, a) = f ZZ.zero (M.nb_rows mi) (M.zero, b, a) r in
-    match M.equal mi (M.zero), M.equal mr (M.zero) with
-    | true, true -> Top
-    | false, true -> Vas {v=TSet.singleton {a;b}; alphas=[mi]}
-    | true, false ->  Vas {v=TSet.singleton {a;b}; alphas=[mr]} 
-    | false, false -> Vas {v=TSet.singleton {a;b}; alphas=[mi;mr]} (* Matrix 1 row 1 maps to first element a, first elemebt b *)
-  in
-
-  let solver = Smt.mk_solver srk in
-
+   let solver = Smt.mk_solver srk in
+  let body,invars = find_invariants srk symbols body in
+  Log.errorf "Here";
   let rec go vas count =
     time "ITERATOIN IN LOOP";
     assert (count > 0);
@@ -433,7 +504,7 @@ let abstract ?(exists=fun x -> true) (srk : 'a context) (symbols : (symbol * sym
       | None -> assert false
       | Some imp ->
         time "PRE ALPHA";
-        let alpha_v = alpha_hat (mk_and srk imp) in
+        let alpha_v = alpha_hat srk (mk_and srk imp) symbols x''s x''_forms in
         time "POST ALPHA";
         (*if alpha_v = Top then Top else*)
         Log.errorf "Inter VAS: %a"  (Formula.pp srk) (gamma srk (coproduct srk vas alpha_v) symbols);
@@ -699,7 +770,7 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
     Smt.Solver.add solver [SrkSimplify.simplify_terms srk formula];
     let pre_labels = find_pre [] in
     Log.errorf "Here";
-    (*let rec find_post labels =
+    let rec find_post labels =
       Log.errorf "yEEE";
       match Smt.Solver.get_model solver with
       | `Unsat -> labels
@@ -715,7 +786,7 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
     in
        Smt.Solver.reset solver;
     Smt.Solver.add solver [formula; mk_not srk (mk_or srk pre_labels)];
-    *)let post_labels = (*find_post*) [] in
+    let post_labels = find_post [] in
     pre_labels, post_labels
 
 
