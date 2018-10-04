@@ -181,3 +181,32 @@ let partition_implicant implicant =
     else
       zero_group::partitioned_implicant
   end
+
+let simplify_conjunction srk cube =
+  let cube = List.map (simplify_terms srk) cube in
+  let solver = SrkZ3.mk_solver srk in
+  let indicator_map =
+    List.fold_left (fun m prop ->
+        Symbol.Map.add (mk_symbol srk `TyBool) prop m)
+      Symbol.Map.empty
+      cube
+  in
+  SrkZ3.Solver.add solver [mk_not srk (mk_and srk cube)];
+  Symbol.Map.iter (fun indicator prop ->
+      SrkZ3.Solver.add solver [mk_if srk (mk_const srk indicator) prop])
+    indicator_map;
+  let assumptions =
+    Symbol.Map.fold
+      (fun indicator _ xs -> (mk_const srk indicator)::xs)
+      indicator_map
+      []
+  in
+  match SrkZ3.Solver.get_unsat_core solver assumptions with
+  | `Sat -> assert false
+  | `Unknown -> cube
+  | `Unsat core ->
+    List.map (fun ind ->
+        match Formula.destruct srk ind with
+        | `Proposition (`App (sym, [])) -> Symbol.Map.find sym indicator_map
+        | _ -> assert false)
+      core
