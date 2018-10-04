@@ -22,3 +22,8 @@ val simplify_term : 'a context -> 'a term -> 'a term
 val purify : 'a context -> 'a formula -> ('a formula * (('a,typ_fo) expr) Symbol.Map.t)
 
 val partition_implicant : ('a formula) list -> ('a formula) list list
+
+(** Given a list of formulas [xs], find a sublist [xs'] such that the
+   conjunction of all [xs] is equivalent to conjunction of all [xs'].
+   The sublist [xs'] is not guaranteed to be minimal. *)
+val simplify_conjunction : 'a context -> 'a formula list -> 'a formula list
