@@ -360,6 +360,32 @@ let gamma srk vas tr_symbols : 'a formula =
     let term_list = term_list srk alphas tr_symbols in
     mk_or srk (List.map (fun t -> gamma_transformer srk term_list t) (TSet.elements v))
 
+(*Very unsafe*)
+let remove_row vas x y =
+    begin match vas with
+    | Bottom -> vas
+    | Top -> vas
+    | Vas {v; alphas} ->
+      let v =
+        TSet.fold (fun ele acc ->
+            let {a; b} = ele in
+            let (_,a) = Z.pivot x a in
+            let (_,b) = V.pivot x b in
+            let a = Z.add_term (Z.coeff y a) x a in
+            let b = V.add_term (V.coeff y b) x b in
+            TSet.add ({a;b}) acc) v TSet.empty in
+      let (a1, a2) = BatList.split_at (x - 1) alphas in
+      (*begin match a2 with
+      | hd :: tl ->
+        let alphas = a1 @ a2 in
+        Vas {v; alphas}
+      | [] -> 
+        let alphas = a1 in
+        Vas {v; alphas}
+      end*)
+      Vas {v;alphas}
+    end
+
 
 
 let abstract ?(exists=fun x -> true) (srk : 'a context) (symbols : (symbol * symbol) list) (body : 'a formula)  =
@@ -666,13 +692,14 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
           let pre_imp = Q.local_project_cube srk exists_pre m imp in
           Smt.Solver.add solver [mk_not srk (mk_and srk pre_imp)];
           Log.errorf "exit";
+          Log.errorf "Num: %d" (List.length labels);
           find_pre ((mk_and srk pre_imp) :: labels)
     in
     Smt.Solver.reset solver;
-    Smt.Solver.add solver [formula];
+    Smt.Solver.add solver [SrkSimplify.simplify_terms srk formula];
     let pre_labels = find_pre [] in
     Log.errorf "Here";
-    let rec find_post labels =
+    (*let rec find_post labels =
       Log.errorf "yEEE";
       match Smt.Solver.get_model solver with
       | `Unsat -> labels
@@ -688,7 +715,7 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
     in
        Smt.Solver.reset solver;
     Smt.Solver.add solver [formula; mk_not srk (mk_or srk pre_labels)];
-    let post_labels = find_post [] in
+    *)let post_labels = (*find_post*) [] in
     pre_labels, post_labels
 
 
