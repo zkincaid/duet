@@ -40,18 +40,16 @@ type vas = TSet.t
 let pp_vas formatter (vas : vas) : unit =
   SrkUtil.pp_print_enum pp_transformer formatter (TSet.enum vas)  
 
-type vas_abs = { v : vas; alphas : M.t list }
-[@@deriving show]
 
-type vas_abs_lift = Vas of vas_abs | Top
-[@@deriving show]
+type 'a t = { v : vas; alphas : M.t list; invars : 'a formula list }
 
-type 'a t = vas_abs_lift
-
-let pp _ _ = pp_vas_abs_lift
 
 let time marker =
     Printf.printf "Execution time at %s : %fs\n" marker (Sys.time());()
+
+let mk_top = {v=TSet.empty; alphas=[]; invars=[]}
+
+
 
 let unify (alphas : M.t list) : M.t =
   let unified = List.fold_left (fun matrix alphacell -> 
@@ -238,7 +236,7 @@ let exp_kstack_eq_ksums srk equiv_pairs =
 let map_terms srk = List.map (fun (var : Syntax.symbol) -> mk_const srk var)
  
 
-let exp_base_helper srk tr_symbols loop_counter alphas transformers =
+let exp_base_helper srk tr_symbols loop_counter alphas transformers invars =
   let num_trans = BatList.length transformers in
   let kvars, svars, rvars, equiv_pairs, ksums = create_exp_vars srk alphas num_trans in
   let svars = List.flatten svars in
@@ -257,10 +255,11 @@ let exp_base_helper srk tr_symbols loop_counter alphas transformers =
   let base_constraints = exp_lin_term_trans_constraints srk equiv_pairst transformers (unify alphas) in
   let eq_zero_constraints = exp_k_zero_on_reset srk equiv_pairst transformers in
   let kstack_term_reduction = exp_kstack_eq_ksums srk equiv_pairst in
+  let invariants = mk_and srk invars in
   let form = 
     mk_and srk [pos_constraints; full_trans_constraints; perm_constraints; kstack_max_constraints;
                 reset_together_constraints; sx_constraints; base_constraints; eq_zero_constraints;
-               kstack_term_reduction] in
+                kstack_term_reduction; invariants] in
   (form, (equiv_pairst, kvarst, svarst, rvarst))
 
 
@@ -268,9 +267,8 @@ let exp_base_helper srk tr_symbols loop_counter alphas transformers =
 let exp srk tr_symbols loop_counter vabs =
   time "ENTERED EXP";
   match vabs with
-  | Top -> mk_true srk
-  | Vas {v; alphas} ->
-    let (form, _) = exp_base_helper srk tr_symbols loop_counter alphas (TSet.to_list v) in
+  | {v; alphas; invars} ->
+    let (form, _) = exp_base_helper srk tr_symbols loop_counter alphas (TSet.to_list v) invars in
           Log.errorf " Current D VAL %a" (Formula.pp srk) form;
     time "LEFT EXP";
     form
@@ -284,8 +282,7 @@ let push_rows matrix first_row =
 
 let coproduct srk vabs1 vabs2 : 'a t =
   match vabs1, vabs2 with
-  | Top, _ | _, Top -> Log.errorf "WHY AM I HERE?"; Top
-  | Vas vabs1, Vas vabs2 ->
+  | vabs1, vabs2 ->
     let (v1, v2, alpha1, alpha2) = (vabs1.v, vabs2.v, vabs1.alphas, vabs2.alphas) in
     let push_counter_1 = ref 0 in
     Log.errorf "In the right place";
@@ -296,8 +293,6 @@ let coproduct srk vabs1 vabs2 : 'a t =
           (List.fold_left (fun (s1', s2', alpha') alphalist2 ->
                let alphalist1, alphalist2 = (push_rows alphalist1 !push_counter_1, push_rows alphalist2 !push_counter_2) in
                let (c, d) = Linear.intersect_rowspace alphalist1 alphalist2 in
-               Log.errorf "Print dat matrix %a and %a" (M.pp) (M.mul c alphalist1) (M.pp) (c);
-               Log.errorf "Print both matricies %a and %a" (M.pp) (alphalist2) (M.pp) (alphalist1);
                push_counter_2 := (M.nb_rows alphalist2) + !push_counter_2; (* THIS IS EXTREMELY UNSAFE.... it requires every row of a given alpha list to start at 0 and have no gaps *)
                if M.equal c M.zero then (s1', s2', alpha') else (c :: s1', d :: s2', (M.mul c alphalist1) :: alpha'))
               ([], [], []) alpha2) in
@@ -328,7 +323,7 @@ let coproduct srk vabs1 vabs2 : 'a t =
     let ti_fun vas uni_m test = TSet.fold (fun ele acc -> 
         TSet.add (transformer_image ele uni_m test) acc) vas TSet.empty in
     let v = TSet.union (ti_fun v1 (unify s1) true) (ti_fun v2 (unify s2) false) in (* Should just put top if no transformers, bottom if conflicting *)
-    Vas {v; alphas}
+    {v; alphas;invars=[]}
 
 
 
@@ -354,16 +349,15 @@ let term_list srk alphas tr_symbols =
 
 let gamma srk vas tr_symbols : 'a formula =
   match vas with
-  | Top -> mk_true srk
-  | Vas {v; alphas} ->
+  | {v; alphas} ->
     let term_list = term_list srk alphas tr_symbols in
+    if List.length term_list = 0 then mk_true srk else
     mk_or srk (List.map (fun t -> gamma_transformer srk term_list t) (TSet.elements v))
 
 (*Very unsafe*)
 let remove_row vas x y =
     begin match vas with
-    | Top -> vas
-    | Vas {v; alphas} ->
+    | {v; alphas} ->
       let v =
         TSet.fold (fun ele acc ->
             let {a; b} = ele in
@@ -381,7 +375,7 @@ let remove_row vas x y =
         let alphas = a1 in
         Vas {v; alphas}
       end*)
-      Vas {v;alphas}
+      {v;alphas;invars=[]}
     end
 
 
@@ -399,10 +393,10 @@ let alpha_hat (srk : 'a context) (imp : 'a formula) symbols x''s  x''_forms =
   let (mi,b,a) = f ZZ.one 0 (M.zero, V.zero, Z.zero) i in
   let (mr, b, a) = f ZZ.zero (M.nb_rows mi) (M.zero, b, a) r in
   match M.equal mi (M.zero), M.equal mr (M.zero) with
-  | true, true -> Top
-  | false, true -> Vas {v=TSet.singleton {a;b}; alphas=[mi]}
-  | true, false ->  Vas {v=TSet.singleton {a;b}; alphas=[mr]} 
-  | false, false -> Vas {v=TSet.singleton {a;b}; alphas=[mi;mr]} (* Matrix 1 row 1 maps to first element a, first elemebt b *)
+  | true, true -> mk_top
+  | false, true -> {v=TSet.singleton {a;b}; alphas=[mi];invars=[]}
+  | true, false ->  {v=TSet.singleton {a;b}; alphas=[mr];invars=[]} 
+  | false, false -> {v=TSet.singleton {a;b}; alphas=[mi;mr];invars=[]} (* Matrix 1 row 1 maps to first element a, first elemebt b *)
 
 
 
@@ -421,38 +415,45 @@ let find_invariants  (srk : 'a context) (symbols : (symbol * symbol) list) (body
     BatEnum.fold (fun (scal, high) (scalar, dim) ->
         if dim > high then (scalar,dim) else (scal, high)) (QQ.zero, -1) (V.enum vector) in
   match alpha_hat srk body symbols x''s x''_forms with
-  | Top -> assert false
-  | Vas {v;alphas=[hd]} -> assert false
-  | Vas {v;alphas=[mi;mr]} ->
+  | {v;alphas=[]} -> (body, [])
+  | {v;alphas=[hd]} -> Log.errorf "THERE WERE NO INVARIANTS FOUND"; (body, [])
+  | {v;alphas=[mi;mr]} ->
+    Log.errorf "THE INVARIANT VAS IS: %a"  (Formula.pp srk) (gamma srk {v;alphas=[mi;mr];invars=[]} symbols);
     let {a;b} = List.hd (TSet.elements v) in
     BatEnum.fold (fun (body', invars) (dim', row) ->
         Log.errorf "Dim %n of b is %a" dim' (QQ.pp) (V.coeff dim' b);
         (*if(QQ.equal QQ.zero (V.coeff dim' b)) then *)
           Log.errorf "Dim %n is 0" dim';
           let vect = M.row dim' mi in
+          let matr = M.add_column 0 vect (M.zero) in
           let matching_reset = 
             BatEnum.fold (fun reset_dim (dim'', row) ->
                 if reset_dim = None then (
-                  if(vect = M.row dim'' mr) then Some dim'' else reset_dim
+                  match Linear.solve matr (M.row dim'' mr) with
+                  | None -> reset_dim
+                  | Some multiple -> Some ((V.coeff 0 multiple), dim'')
                 )
                 else reset_dim
             ) None (M.rowsi mr)
           in
           match matching_reset with
           | None -> (body', invars)
-          | Some dim'' ->
+          | Some (multiple, dim'') ->
+            let vect = V.scalar_mul multiple vect in
             let scal, last_dim = get_last_dim vect in
+            let resvect = M.row dim'' mr in
+            let rscal, rlast_dim = get_last_dim resvect in
             let term_xy' = mk_mul srk 
-                [mk_sub srk (Linear.of_linterm srk (snd (V.pivot last_dim vect))) 
+                [mk_sub srk (Linear.of_linterm srk (snd (V.pivot rlast_dim resvect))) 
                    (mk_real srk (V.coeff ((M.nb_rows mi) + dim'') b));
-                 mk_real srk (QQ.negate (QQ.inverse scal))] in
+                 mk_real srk (QQ.inverse (QQ.negate rscal))] in
             Log.errorf "New terk %a" (Term.pp srk) term_xy'; 
             let term_xy = mk_mul srk
                 [mk_add srk 
                    [mk_sub srk (Linear.of_linterm srk (snd (V.pivot last_dim vect))) 
-                      (mk_real srk (V.coeff ((M.nb_rows mi) + dim'') b));
+                      (mk_real srk (QQ.mul  multiple (V.coeff ((M.nb_rows mi) + dim'') b)));
                     mk_real srk (V.coeff dim' b)];
-                 mk_real srk (QQ.negate (QQ.inverse scal))] in
+                 mk_real srk (QQ.inverse (QQ.negate scal))] in
           let sym = match Linear.sym_of_dim last_dim with
             |None -> assert false
             | Some v -> v
@@ -479,10 +480,10 @@ let ident_matrix srk symbols =
 
 let mk_bottom srk symbols =
   Log.errorf "Matrix is %a" (M.pp) (ident_matrix srk symbols);
-  Vas {v=TSet.empty; alphas=[ident_matrix srk symbols]}
+  {v=TSet.empty; alphas=[ident_matrix srk symbols];invars=[]}
 
-let mk_top = Vas {v=TSet.empty; alphas=[]}
 
+let pp srk syms formatter vas = Format.fprintf formatter "%a" (Formula.pp srk) (gamma srk vas syms)
 
 let abstract ?(exists=fun x -> true) (srk : 'a context) (symbols : (symbol * symbol) list) (body : 'a formula)  =
   time "START OF ABSTRACT FUNCTION";
@@ -496,7 +497,9 @@ let abstract ?(exists=fun x -> true) (srk : 'a context) (symbols : (symbol * sym
         ((x'', x'), x''_form) :: acc) [] symbols) in
   let postify = substitute_map srk (post_map srk x''s) in
   let solver = Smt.mk_solver srk in
-  (*let body,invars = find_invariants srk symbols body in*)
+  let body,cinvars = find_invariants srk symbols body in
+  BatList.iter (fun invar -> Log.errorf "One invar is %a" (Formula.pp srk) invar) cinvars;
+  Log.errorf "The new formula is %a" (Formula.pp srk) body;
   Log.errorf "Here";
   let rec go vas count =
     time "ITERATOIN IN LOOP";
@@ -521,9 +524,8 @@ let abstract ?(exists=fun x -> true) (srk : 'a context) (symbols : (symbol * sym
   in
   Smt.Solver.add solver [body];
   time "START OF MAIN LOOP";
-  let result = go (mk_bottom srk symbols) 20 in
-  Log.errorf "Bottom VAS: %a"  (Formula.pp srk) (gamma srk (mk_bottom srk symbols) symbols);
-  Log.errorf "Top VAS %a" (Formula.pp srk) (gamma srk mk_top symbols);
+  let {v;alphas;_} = go (mk_bottom srk symbols) 20 in
+  let result = {v;alphas;invars=cinvars} in
   time "END OF MAIN LOOP";
   Log.errorf "Final VAS: %a"  (Formula.pp srk) (gamma srk result symbols);
   time "END OF ABSTRACT FUNCTION";
@@ -540,15 +542,12 @@ let equal (srk : 'a context) (tr_symbols : (symbol * symbol) list) (vabs1 : 'a t
 module Mdvass = struct
   module Int = SrkUtil.Int
 
-  type 'a vass_abs = { label : ('a formula) array;
+  
+  type 'a t = { label : ('a formula) array;
       graph : vas array array;
-      simulation : M.t list }
-  (*[@@deriving show]*)
+      simulation : M.t list;
+      invars : 'a formula list}
 
-  type 'a vass_abs_lift = Vass of 'a vass_abs | Top
-  (*[@@deriving show]*)
-
-  type 'a t = 'a vass_abs_lift
 
 
   let pp _ _ = assert false
@@ -946,8 +945,8 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
     let body = (rewrite srk ~down:(nnf_rewriter srk) body) in 
     let vas = abstract ~exists srk tr_symbols body in
     match vas with
-    | Top -> Top
-    | Vas {v; alphas} ->
+    | {v; alphas;invars} ->
+      let body,cinvars = find_invariants srk tr_symbols body in
       Log.errorf "NUM ALPHAS %d" (List.length alphas);
       (*let label = deterministic_phase_label srk body exists tr_symbols alphas v in*)
       let label = get_intersect_cube_labeling srk body exists tr_symbols in
@@ -959,7 +958,7 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
       BatArray.iteri (fun ind arr -> 
           BatArray.iteri (fun ind2 trans ->
               Log.errorf "Num connections from label %d to label %d is: %d" ind ind2 (TSet.cardinal trans)) arr) graph;
-      Vass {label; graph; simulation}
+      {label; graph; simulation; invars=invars @ cinvars}
 
 
     
@@ -1118,8 +1117,7 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
   
   let exp srk tr_symbols loop_counter vassabs =
     match vassabs with
-    | Top -> mk_true srk
-    | Vass {label; graph; simulation} ->
+    | {label; graph; simulation; invars} ->
       let alphas = simulation in
       let transformersmap : (int * transformer * int) list = List.flatten 
           (List.flatten 
@@ -1133,7 +1131,7 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
       let transformers = List.map (fun (_, t, _) -> t) transformersmap in
       let nvarst = map_terms srk (create_n_vars srk (List.length transformers) [] "N") in
       let (form, (equiv_pairst, kvarst, svarst, rvarst)) =
-        exp_base_helper srk tr_symbols loop_counter simulation transformers in
+        exp_base_helper srk tr_symbols loop_counter simulation transformers invars in
       let sum_n_eq_loop_counter = exp_nvars_eq_loop_counter srk nvarst loop_counter in
       let ks_less_than_ns = exp_kvarst_less_nvarst srk nvarst kvarst in
       let sccs = GraphComp.scc graph in
