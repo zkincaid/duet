@@ -43,7 +43,7 @@ let pp_vas formatter (vas : vas) : unit =
 type vas_abs = { v : vas; alphas : M.t list }
 [@@deriving show]
 
-type vas_abs_lift = Vas of vas_abs | Top | Bottom
+type vas_abs_lift = Vas of vas_abs | Top
 [@@deriving show]
 
 type 'a t = vas_abs_lift
@@ -269,7 +269,6 @@ let exp srk tr_symbols loop_counter vabs =
   time "ENTERED EXP";
   match vabs with
   | Top -> mk_true srk
-  | Bottom -> mk_false srk
   | Vas {v; alphas} ->
     let (form, _) = exp_base_helper srk tr_symbols loop_counter alphas (TSet.to_list v) in
           Log.errorf " Current D VAL %a" (Formula.pp srk) form;
@@ -285,12 +284,11 @@ let push_rows matrix first_row =
 
 let coproduct srk vabs1 vabs2 : 'a t =
   match vabs1, vabs2 with
-  | Top, _ | _, Top -> Top
-  | Bottom, vabs2 -> vabs2
-  | vabs1, Bottom -> vabs1
+  | Top, _ | _, Top -> Log.errorf "WHY AM I HERE?"; Top
   | Vas vabs1, Vas vabs2 ->
     let (v1, v2, alpha1, alpha2) = (vabs1.v, vabs2.v, vabs1.alphas, vabs2.alphas) in
     let push_counter_1 = ref 0 in
+    Log.errorf "In the right place";
     let s1, s2, alphas =
       List.fold_left (fun (s1, s2, alphas) alphalist1 -> 
           let push_counter_2 = ref 0 in
@@ -298,6 +296,8 @@ let coproduct srk vabs1 vabs2 : 'a t =
           (List.fold_left (fun (s1', s2', alpha') alphalist2 ->
                let alphalist1, alphalist2 = (push_rows alphalist1 !push_counter_1, push_rows alphalist2 !push_counter_2) in
                let (c, d) = Linear.intersect_rowspace alphalist1 alphalist2 in
+               Log.errorf "Print dat matrix %a and %a" (M.pp) (M.mul c alphalist1) (M.pp) (c);
+               Log.errorf "Print both matricies %a and %a" (M.pp) (alphalist2) (M.pp) (alphalist1);
                push_counter_2 := (M.nb_rows alphalist2) + !push_counter_2; (* THIS IS EXTREMELY UNSAFE.... it requires every row of a given alpha list to start at 0 and have no gaps *)
                if M.equal c M.zero then (s1', s2', alpha') else (c :: s1', d :: s2', (M.mul c alphalist1) :: alpha'))
               ([], [], []) alpha2) in
@@ -354,7 +354,6 @@ let term_list srk alphas tr_symbols =
 
 let gamma srk vas tr_symbols : 'a formula =
   match vas with
-  | Bottom -> mk_false srk
   | Top -> mk_true srk
   | Vas {v; alphas} ->
     let term_list = term_list srk alphas tr_symbols in
@@ -363,7 +362,6 @@ let gamma srk vas tr_symbols : 'a formula =
 (*Very unsafe*)
 let remove_row vas x y =
     begin match vas with
-    | Bottom -> vas
     | Top -> vas
     | Vas {v; alphas} ->
       let v =
@@ -474,6 +472,16 @@ let find_invariants  (srk : 'a context) (symbols : (symbol * symbol) list) (body
   | _ -> assert false
 
 
+let ident_matrix srk symbols =
+  BatList.fold_lefti (fun matr dim (x, x') ->
+      M.add_row dim (Linear.linterm_of srk (mk_const srk x')) matr) M.zero symbols
+
+
+let mk_bottom srk symbols =
+  Log.errorf "Matrix is %a" (M.pp) (ident_matrix srk symbols);
+  Vas {v=TSet.empty; alphas=[ident_matrix srk symbols]}
+
+let mk_top = Vas {v=TSet.empty; alphas=[]}
 
 
 let abstract ?(exists=fun x -> true) (srk : 'a context) (symbols : (symbol * symbol) list) (body : 'a formula)  =
@@ -487,8 +495,8 @@ let abstract ?(exists=fun x -> true) (srk : 'a context) (symbols : (symbol * sym
                           (mk_sub srk (mk_const srk x') (mk_const srk x))) in
         ((x'', x'), x''_form) :: acc) [] symbols) in
   let postify = substitute_map srk (post_map srk x''s) in
-   let solver = Smt.mk_solver srk in
-  let body,invars = find_invariants srk symbols body in
+  let solver = Smt.mk_solver srk in
+  (*let body,invars = find_invariants srk symbols body in*)
   Log.errorf "Here";
   let rec go vas count =
     time "ITERATOIN IN LOOP";
@@ -498,7 +506,7 @@ let abstract ?(exists=fun x -> true) (srk : 'a context) (symbols : (symbol * sym
     Smt.Solver.add solver [mk_not srk (gamma srk vas symbols)];
     match Smt.Solver.get_model solver with
     | `Unsat -> vas
-    | `Unknown -> Top
+    | `Unknown -> assert false
     | `Sat m ->
       match Interpretation.select_implicant m body with
       | None -> assert false
@@ -513,7 +521,9 @@ let abstract ?(exists=fun x -> true) (srk : 'a context) (symbols : (symbol * sym
   in
   Smt.Solver.add solver [body];
   time "START OF MAIN LOOP";
-  let result = go Bottom 20 in
+  let result = go (mk_bottom srk symbols) 20 in
+  Log.errorf "Bottom VAS: %a"  (Formula.pp srk) (gamma srk (mk_bottom srk symbols) symbols);
+  Log.errorf "Top VAS %a" (Formula.pp srk) (gamma srk mk_top symbols);
   time "END OF MAIN LOOP";
   Log.errorf "Final VAS: %a"  (Formula.pp srk) (gamma srk result symbols);
   time "END OF ABSTRACT FUNCTION";
@@ -535,7 +545,7 @@ module Mdvass = struct
       simulation : M.t list }
   (*[@@deriving show]*)
 
-  type 'a vass_abs_lift = Vass of 'a vass_abs | Top | Bottom
+  type 'a vass_abs_lift = Vass of 'a vass_abs | Top
   (*[@@deriving show]*)
 
   type 'a t = 'a vass_abs_lift
@@ -937,7 +947,6 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
     let vas = abstract ~exists srk tr_symbols body in
     match vas with
     | Top -> Top
-    | Bottom -> Bottom
     | Vas {v; alphas} ->
       Log.errorf "NUM ALPHAS %d" (List.length alphas);
       (*let label = deterministic_phase_label srk body exists tr_symbols alphas v in*)
@@ -1109,7 +1118,6 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
   
   let exp srk tr_symbols loop_counter vassabs =
     match vassabs with
-    | Bottom -> mk_false srk
     | Top -> mk_true srk
     | Vass {label; graph; simulation} ->
       let alphas = simulation in
