@@ -1,3 +1,8 @@
+
+open Srk
+include Log.Make(struct let name = "refine_ops" end)
+
+
 module type PreKleeneAlgebra = sig
   type t
   val mul : t -> t -> t
@@ -11,8 +16,33 @@ end
 
 open Graph
 
-module DomainRefinement (PreKleene : PreKleeneAlgebra) = struct
-    
+
+(*let refinetime = ref 0.0*)
+(*
+let timer f x = 
+  let start_time = Unix.gettimeofday () in
+  let result = f x in 
+  let time = (Unix.gettimeofday ()) -. start_time in
+*)
+(*refinetime := refinetime +. time;*)
+
+
+
+module DomainRefinement (PreKleeneWithoutTiming : PreKleeneAlgebra) = struct
+
+
+  module PreKleene = struct
+    type t = PreKleeneWithoutTiming.t
+    let mul x y = Log.time "refine_ops" (PreKleeneWithoutTiming.mul x) y
+    let add x y = Log.time "refine_ops" (PreKleeneWithoutTiming.add x) y
+    let zero = PreKleeneWithoutTiming.zero
+    let one = PreKleeneWithoutTiming.one
+    let star x = Log.time "refine_ops" PreKleeneWithoutTiming.star x
+    (*let equal = PreKleeneWithoutTiming.equal*)
+    let equal x y = Log.time "refine_edge_tests" (PreKleeneWithoutTiming.equal x) y
+    let compare = PreKleeneWithoutTiming.compare
+  end
+
 
   (* Minimum graph signature for Johnsons algorithm *)
   module type BasicG = sig
@@ -179,7 +209,7 @@ module DomainRefinement (PreKleene : PreKleeneAlgebra) = struct
   
   module TopL = Topological.Make(LGraph)
 
-  let build_refinement_graph labels infeasiblepairs = 
+(*  let build_refinement_graph labels infeasiblepairs = 
     let refinement_graph = RGraph.create () in
     List.iter (fun label -> RGraph.add_vertex refinement_graph label) labels;
     let edge_set = 
@@ -203,9 +233,65 @@ module DomainRefinement (PreKleene : PreKleeneAlgebra) = struct
                         (snd edge)
       ) edge_set;
     refinement_graph
+*)
 
   let get_scc_expr_cycles refinement_graph nSCCs mapToComp =
-    let cycles = Cycle.simpcycles refinement_graph in
+    let self_loop_cycles = ref [] in
+    RGraph.iter_edges
+      (fun v1 v2 ->
+        if v1 = v2 then self_loop_cycles := [v1] :: !self_loop_cycles
+      ) refinement_graph;
+    let self_loop_cycles = !self_loop_cycles in
+
+    let sccs = Array.make nSCCs [] in
+    RGraph.iter_vertex
+      (fun vertex ->
+        let comp_num = mapToComp vertex in
+        sccs.(comp_num) <- vertex :: sccs.(comp_num)
+      ) refinement_graph;
+
+    Array.map
+      (fun component ->
+        if (List.exists (fun v -> List.mem [v] self_loop_cycles) component) then List.map (fun x -> [x]) component
+        else
+          let comp_graph = RGraph.copy refinement_graph in
+          RGraph.iter_vertex
+            (fun v ->
+              if not (List.mem v component) then RGraph.remove_vertex comp_graph v
+            ) refinement_graph;
+          let cycle_list = Cycle.simpcycles comp_graph in
+          if cycle_list = [] then []
+          else
+            let remove_dups xs = BatList.sort_unique Stdlib.compare xs in
+            let unique_lengths = remove_dups (List.map List.length cycle_list) in
+            let common_labels =
+              List.fold_left
+                (fun common cycle ->
+                  List.filter (fun el -> List.mem el cycle) common
+                ) (List.hd cycle_list) cycle_list
+              in
+            if List.length unique_lengths = 1 && List.length common_labels <> 0 then (* if cycles in scc have the same length and have common label *)
+              if List.length cycle_list = 1 then cycle_list (* if it's just one cycle then output cycle *)
+              else
+                (* permute cycle to common label *)
+                let common_label = List.nth common_labels 0 in
+                let rec permute_to_label label lst prev =
+                  match lst with
+                  | [] -> List.rev prev
+                  | hd :: tl -> if label = hd then lst @ (List.rev prev)
+                                else permute_to_label label tl (hd :: prev)
+                in
+                (* output permuted cycles *)
+                List.map (fun cycle -> permute_to_label common_label cycle []) cycle_list
+            else
+              let sccLabels = remove_dups (List.concat cycle_list) in
+              (* output sum of labels *)
+              List.map (fun label -> [label]) sccLabels
+        ) sccs
+
+(*
+  let get_scc_expr_cycles refinement_graph nSCCs mapToComp =
+    let cycles = Log.time "refine_johnsons" Cycle.simpcycles refinement_graph in
     let self_loop_cycles = ref [] in
     RGraph.iter_edges 
       (fun v1 v2 -> 
@@ -250,10 +336,9 @@ module DomainRefinement (PreKleene : PreKleeneAlgebra) = struct
 	    (* output sum of labels *)
 	    List.map (fun label -> [label]) sccLabels
       ) scc_cycles
+*)
 
-
-  let refine labels infeasiblepairs label_to_atom = 
-    let refinement_graph = build_refinement_graph labels infeasiblepairs in
+  let refine _ label_to_atom refinement_graph = 
     (* get the strongly conncected components *)
     let (nSCCs, mapToComp) = SCCmod.scc refinement_graph in
 
@@ -432,7 +517,7 @@ module DomainRefinement (PreKleene : PreKleeneAlgebra) = struct
       ) rev_top;
 
     (* process the nodes in rev top order. Add expression to node_regex_map. Each expression represents an expression from the current node to the exit node *)
-    List.iter 
+    Log.time "refine_node_collapsing" (List.iter 
       (fun node -> 
 	let successor_exprs = LGraph.fold_succ
 	  (fun successor acc ->
@@ -450,10 +535,59 @@ module DomainRefinement (PreKleene : PreKleeneAlgebra) = struct
                           successor_expr_hd successor_expr_tl 
           in
 	node_regex_map := IntMap.add node node_expr !node_regex_map
-      ) rev_top;
+      )) rev_top;
 
     (* the overall expression is from (nSCCs - 1) (__Enter) to (0) (__EXIT) *)
     IntMap.find (-1) !node_regex_map
+
+  let build_refinement_graph labels label_to_atom =
+    let all_pairs =
+      List.concat (
+        List.map
+          (fun x -> List.map (fun y -> (x, y)) labels)
+        labels
+      ) in
+
+    let self_check_first a b =
+      if (fst a) = (snd a) then
+        if (fst b) = (snd b) then Stdlib.compare a b
+        else -1
+      else
+        if (fst b) = (snd b) then 1
+        else Stdlib.compare a b
+    in
+    let all_pairs = List.sort self_check_first all_pairs in
+
+    let refinement_graph = RGraph.create () in
+    List.iter (fun label -> RGraph.add_vertex refinement_graph label) labels;
+
+    let worklist = ref all_pairs in
+    let self_loops = ref IntSet.(empty) in
+
+    while List.length !worklist <> 0 do
+      let pair_to_check = List.hd !worklist in
+      worklist := List.tl !worklist;
+      let infeasible = PreKleene.equal (PreKleene.mul (IntMap.find (fst pair_to_check) label_to_atom) (IntMap.find (snd pair_to_check) label_to_atom)) PreKleene.zero in
+      if not infeasible then
+        RGraph.add_edge refinement_graph (fst pair_to_check) (snd pair_to_check);
+        if (fst pair_to_check) = (snd pair_to_check) then
+          self_loops := IntSet.add (fst pair_to_check) !self_loops;
+        let components_list = SCCmod.scc_list refinement_graph in
+        let v1_comp_collap = ref (-1, false) in
+        let v2_comp_collap = ref (-1, false) in
+        List.iteri
+          (fun list_index component ->
+            let contains_self_loop = List.exists (fun el -> IntSet.mem el !self_loops) component in
+            if List.mem (fst pair_to_check) component then v1_comp_collap := (list_index, contains_self_loop);
+            if List.mem (snd pair_to_check) component then v2_comp_collap := (list_index, contains_self_loop);
+            if contains_self_loop then
+              worklist := List.filter (fun pair -> not (List.mem (fst pair) component && List.mem (snd pair) component)) !worklist
+          ) components_list;
+        if (fst !v1_comp_collap <> fst !v2_comp_collap) && (snd !v1_comp_collap) && (snd !v2_comp_collap) then
+          worklist := List.filter (fun pair -> not (List.mem (fst pair) (List.nth components_list (fst !v1_comp_collap))) || not (List.mem (snd pair) (List.nth components_list (fst !v2_comp_collap)))) !worklist
+
+    done;
+    refinement_graph
 
 
   let refinement atoms = 
@@ -465,19 +599,9 @@ module DomainRefinement (PreKleene : PreKleeneAlgebra) = struct
     done;
     let labels = !labels in
     let label_to_atom = !label_to_atom in
-    let all_pairs = 
-      List.concat (
-        List.map 
-          (fun x -> List.map (fun y -> (x, y)) labels) 
-        labels
-      ) in
-    let infeasiblePairs = 
-      List.filter 
-        (fun pair ->
-          PreKleene.equal (PreKleene.mul (IntMap.find (fst pair) label_to_atom) (IntMap.find (snd pair) label_to_atom)) PreKleene.zero
-        ) all_pairs in
     let label_map input_label = 
       IntMap.find input_label label_to_atom
     in
-    refine labels infeasiblePairs label_map
+    let refinement_graph = build_refinement_graph labels label_to_atom in
+    Log.time "refine_final" (refine labels label_map) refinement_graph
 end

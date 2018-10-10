@@ -128,7 +128,8 @@ module V = struct
 end
 
 module K = struct
-  include Transition.Make(Ctx)(V)
+  module Tr = Transition.Make(Ctx)(V)
+  include Tr
 
   let add x y =
     if is_zero x then y
@@ -141,19 +142,18 @@ module K = struct
     else if is_one y then x
     else mul x y
 
+  (*
+  let mul x y = Log.time "refine" mul x y
+  let add x y = Log.time "refine" add x y
+  *)
+
   module CRARefinement = Refinement.DomainRefinement
       (struct
-         type t = Transition.Make(Ctx)(V).t
-         let mul = mul
-         let add = add
-         let zero = zero
-         let one = one
-         let star = star
-         let equal a _ = ((Wedge.is_sat srk (guard a)) == `Unsat)
-         let compare = compare
-       end)
+        include Tr
+        let equal a _ = ((Wedge.is_sat srk (guard a)) == `Unsat)
+      end)
 
-  let refine_star x =
+  let to_dnf x =
     let open Syntax in
     let guard =
       rewrite srk
@@ -200,7 +200,11 @@ module K = struct
         Smt.Solver.add solver [mk_not srk disjunct];
         split (disjunct::disjuncts)
     in
-    let x_dnf = split [] in
+    split []
+
+  let refine_star x =
+    (* let x_dnf = to_dnf x in *)
+    let x_dnf = Log.time "cra:to_dnf" to_dnf x in
     if (List.length x_dnf) = 1 then star (List.hd x_dnf)
     else CRARefinement.refinement x_dnf
 
@@ -209,9 +213,79 @@ module K = struct
       (print_endline ("cra refine star");
       Log.time "cra:refine_star" refine_star x)
     else 
-      (print_endline ("cra star");
-      Log.time "cra:star" star x)
+      Log.time "cra:star" star x
 
+  let project = exists V.is_global
+end
+
+module RK = struct
+  module S = BatSet.Make(K)
+  type t = S.t
+
+  let k_leq x y =
+    let eq_transform (x,t) (x',t') =
+      V.equal x x' && Syntax.ArithTerm.equal t t'
+    in
+    BatEnum.equal eq_transform (K.transform x) (K.transform y)
+    && Smt.equiv srk
+      (Nonlinear.uninterpret srk (K.guard x))
+      (Nonlinear.uninterpret srk (K.guard y)) = `Yes
+
+  let antichain k =
+    let rec go = function
+      | [] -> []
+      | [x] -> [x]
+      | (x::xs) ->
+        let xs = go xs in
+        if List.exists (k_leq x) xs then
+          xs
+        else
+          x::(List.filter (fun y -> not (k_leq y x)) xs)
+    in
+    let is_consistent x =
+      Smt.is_sat srk (Nonlinear.uninterpret srk (K.guard x)) != `Unsat
+    in
+    S.of_list (go (List.filter is_consistent (S.elements k)))
+
+  let antichain k = Log.time "cra:refine_antichain" antichain k
+
+  let one = S.singleton K.one
+
+  let zero = S.empty
+
+  let add x y = antichain (S.union x y)
+
+  let mul x y =
+    BatEnum.fold (fun s x ->
+        BatEnum.fold (fun s y ->
+            S.add (K.mul x y) s)
+          s
+          (S.enum y))
+      S.empty
+      (S.enum x)
+    |> antichain
+
+  let star x =
+    match S.elements x with
+    | [] -> one
+    | [x] -> S.singleton (K.star x)
+    | xs -> S.singleton (K.CRARefinement.refinement xs)
+
+  let star x = Log.time "cra:refine_star_RK" star x
+
+  let lower s = S.fold K.add s K.zero
+  let lift = S.singleton
+  (*let lift_dnf x = S.of_list (K.to_dnf x)*)
+  let lift_dnf x = S.of_list (Log.time "cra:to_dnf" K.to_dnf x)
+  let project = S.map K.project
+
+  let equal x y =
+    S.cardinal x = S.cardinal y
+    && List.for_all2 K.equal (S.elements x) (S.elements y)
+
+  let widen x y =
+    if S.is_empty x then y
+    else lift (K.widen (lower x) (lower y))
 end
 
 type ptr_term =
