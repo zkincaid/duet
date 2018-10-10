@@ -139,10 +139,18 @@ module K = struct
     else if is_one y then x
     else mul x y
 
+  (*
+  let mul x y = Log.time "refine" mul x y
+  let add x y = Log.time "refine" add x y
+  *)
+
   module CRARefinement = Refinement.DomainRefinement
       (struct
         include Tr
         let star = I.star
+
+        (*let star x = Log.time "refine" I.star x*)
+
         let equal a b = ((Wedge.is_sat srk (guard a)) == `Unsat)
       end)
 
@@ -286,7 +294,8 @@ module K = struct
     split []
 
   let refine_star x =
-    let x_dnf = to_dnf x in
+    (* let x_dnf = to_dnf x in *)
+    let x_dnf = Log.time "cra:to_dnf" to_dnf x in
     if (List.length x_dnf) = 1 then I.star (List.hd x_dnf)
     else CRARefinement.refinement x_dnf
 
@@ -328,6 +337,8 @@ module RK = struct
     in
     S.of_list (go (List.filter is_consistent (S.elements k)))
 
+  let antichain k = Log.time "cra:refine_antichain" antichain k
+
   let one = S.singleton K.one
 
   let zero = S.empty
@@ -350,9 +361,12 @@ module RK = struct
     | [x] -> S.singleton (K.star x)
     | xs -> S.singleton (K.CRARefinement.refinement xs)
 
+  let star x = Log.time "cra:refine_star_RK" star x
+
   let lower s = S.fold K.add s K.zero
   let lift = S.singleton
-  let lift_dnf x = S.of_list (K.to_dnf x)
+  (*let lift_dnf x = S.of_list (K.to_dnf x)*)
+  let lift_dnf x = S.of_list (Log.time "cra:to_dnf" K.to_dnf x)
   let project = S.map K.project
 
   let equal x y =
