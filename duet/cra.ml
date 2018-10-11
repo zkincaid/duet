@@ -123,7 +123,9 @@ module IterDomain = struct
   module SPOne = SumWedge (SolvablePolynomial) (SolvablePolynomialOne) ()
   module SPG = ProductWedge (SPOne) (WedgeGuard)
   module SPPeriodicRational = Sum (SPG) (PresburgerGuard) ()
-  module SPSplit = Sum (SPPeriodicRational) (Split(SPPeriodicRational)) ()
+  module LinRec = Product (LinearRecurrenceInequation) (PolyhedronGuard)
+  module D = Sum(SPPeriodicRational)(LinRec)()
+  module SPSplit = Sum(D) (Split(D)) ()
   include SPSplit
 end
 
@@ -996,11 +998,7 @@ let _ =
      " Turn off forward invariant generation");
   CmdLine.register_config
     ("-cra-split-loops",
-<<<<<<< HEAD
-     Arg.Clear K.SplitD.abstract_left,
-=======
      Arg.Clear IterDomain.SPSplit.abstract_left,
->>>>>>> 6cc1627936d15c4e8fa3da25cdcb2061c27b82f7
      " Turn on loop splitting");
   CmdLine.register_config
     ("-cra-no-matrix",
@@ -1016,7 +1014,7 @@ let _ =
      " Turn on graph refinement");
   CmdLine.register_config
     ("-cra-lin-rec",
-     Arg.Clear K.D.abstract_left,
+     Arg.Clear IterDomain.D.abstract_left,
      " Linear recurrence inequations");
   CmdLine.register_config
     ("-dump-goals",
