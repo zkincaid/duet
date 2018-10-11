@@ -7,13 +7,13 @@ open Test_pervasives
 module QQMatrix = Linear.QQMatrix
 module SP = struct
   include Iteration.MakeDomain(Iteration.ProductWedge
-                                 (Iteration.SolvablePolynomial)
+                                 (SolvablePolynomial.SolvablePolynomial)
                                  (Iteration.WedgeGuard))
   let star srk symbols phi = closure (abstract srk symbols phi)
 end
 module SPPR = struct
   include Iteration.MakeDomain(Iteration.ProductWedge
-                                 (Iteration.SolvablePolynomialPeriodicRational)
+                                 (SolvablePolynomial.SolvablePolynomialPeriodicRational)
                                  (Iteration.WedgeGuard))
   let star srk symbols phi = closure (abstract srk symbols phi)
 end
@@ -291,10 +291,22 @@ let periodic_rational4 () =
     && z = (int 0)
     && SPPR.star srk tr_symbols phi
   in
+  assert_implies closure (!(w' = (int 0)) || (x'-z') = (int 0));
+  assert_implies closure (!(w' = (int 1)) || (x'-z') = (int 0));
+  assert_implies closure (!(w' = (int 2)) || (x'-z') = (int (-1)));
+  assert_implies closure (!(w' = (int 3)) || (x'-z') = (int (-2)));
+  assert_implies closure (!(w' = (int 4)) || (x'-z') = (int (-2)));
+
+  assert_implies closure (!(w' = (int 0)) || z' = (int 0));
+  assert_implies closure (!(w' = (int 1)) || z' = (int 0));
+  assert_implies closure (!(w' = (int 2)) || z' = (int 1));
+  assert_implies closure (!(w' = (int 3)) || z' = (int 2));
+  assert_implies closure (!(w' = (int 4)) || z' = (int 3));
+
   assert_implies closure (!(w' = (int 9)) || x' = (int 9));
   assert_implies closure (!(w' = (int 10)) || x' = (int 12));
-  assert_implies closure (!(w' = (int 11)) || x' = (int 15))
-
+  assert_implies closure (!(w' = (int 11)) || x' = (int (15)));
+  ()
 
 let periodic_rational5 () =
   let open Infix in

@@ -82,6 +82,7 @@ module type Matrix = sig
   val vector_left_mul : vector -> t -> vector
 
   val of_dense : scalar array array -> t
+  val dense_of : t -> int -> int -> scalar array array
 end
 
 module type Map = sig

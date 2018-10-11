@@ -35,12 +35,13 @@ module type Domain = sig
   val tr_symbols : 'a t -> (symbol * symbol) list
 end
 
-module SolvablePolynomialOne : PreDomainWedge
-module SolvablePolynomial : PreDomainWedge
-module SolvablePolynomialPeriodicRational : PreDomainWedge
 
 module WedgeGuard : PreDomainWedge
-module PolyhedronGuard : PreDomain
+module PolyhedronGuard : sig
+  include PreDomain
+  val precondition : 'a t -> ('a, Polka.strict Polka.t) SrkApron.property
+  val postcondition : 'a t -> ('a, Polka.strict Polka.t) SrkApron.property
+end
 module LinearGuard : PreDomain
 
 module LinearRecurrenceInequation : PreDomain
@@ -61,6 +62,13 @@ module SumWedge (A : PreDomainWedge) (B : PreDomainWedge) () : sig
 end
 
 module Product (A : PreDomain) (B : PreDomain) : PreDomain
+  with type 'a t = 'a A.t * 'a B.t
+
+(** Same as product, but faster for iteration domains that abstract
+   through the wedge domain. *)
 module ProductWedge (A : PreDomainWedge) (B : PreDomainWedge) : PreDomainWedge
+  with type 'a t = 'a A.t * 'a B.t
 
 module MakeDomain(Iter : PreDomain) : Domain
+
+val identity : 'a context -> (symbol * symbol) list -> 'a formula

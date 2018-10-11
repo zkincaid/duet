@@ -492,6 +492,7 @@ let strengthen_intervals integrity wedge =
   let srk = wedge.srk in
   let zero = mk_real srk QQ.zero in
   let log = get_named_symbol srk "log" in
+  let pow = get_named_symbol srk "pow" in
   let add_bound precondition bound =
     logf ~level:`trace "Integrity: %a => %a"
       (Formula.pp srk) precondition
@@ -630,6 +631,30 @@ let strengthen_intervals integrity wedge =
         mk_and srk [lo;hi;lo';hi']
       in
       let (lo,hi) = mk_interval term (Interval.log base_ivl exp_ivl) in
+      add_bound precondition lo;
+      add_bound precondition hi
+
+    | `App (func, [base; exp]) when func = pow ->
+      let base_ivl = bound_vec wedge base in
+      let exp_ivl = bound_vec wedge exp in
+
+      let mk_interval t ivl =
+        let lo = match Interval.lower ivl with
+          | Some lo -> mk_leq srk (mk_real srk lo) t
+          | None -> mk_true srk
+        in
+        let hi = match Interval.upper ivl with
+          | Some hi -> mk_leq srk t (mk_real srk hi)
+          | None -> mk_true srk
+        in
+        (lo, hi)
+      in
+      let precondition =
+        let (lo,hi) = mk_interval (CS.term_of_vec cs base) base_ivl in
+        let (lo',hi') = mk_interval (CS.term_of_vec cs exp) exp_ivl in
+        mk_and srk [lo;hi;lo';hi']
+      in
+      let (lo,hi) = mk_interval term (Interval.exp base_ivl exp_ivl) in
       add_bound precondition lo;
       add_bound precondition hi
 

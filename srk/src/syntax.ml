@@ -1450,6 +1450,16 @@ struct
           | _, _ -> hc Div [num; den]
         end
 
+      | Mod, [num; den] ->
+        begin match num.obj, den.obj with
+          | _, Node (Real d, [], _) when QQ.equal d QQ.zero ->
+            hc Mod [num; den]
+          | (Node (Real num, [], _), Node (Real den, [], _)) ->
+            mk (Real (QQ.modulo num den)) []
+          | _, Node (Real den, [], _) when QQ.equal den QQ.zero -> num
+          | _, _ -> hc Mod [num; den]
+        end
+
       | Ite, [cond; bthen; _] when is_true cond -> bthen
       | Ite, [cond; _; belse] when is_false cond -> belse
       | Ite, [_; x; y] when x.tag = y.tag -> x

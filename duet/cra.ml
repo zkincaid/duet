@@ -116,17 +116,23 @@ module V = struct
   let is_global = Var.is_global % var_of_value
 end
 
-module K = struct
-  module Tr = Transition.Make(Ctx)(V)
-  include Tr
+
+module IterDomain = struct
   open Iteration
+  open SolvablePolynomial
   module SPOne = SumWedge (SolvablePolynomial) (SolvablePolynomialOne) ()
-  module SPPeriodicRational = SumWedge (SPOne) (SolvablePolynomialPeriodicRational) ()
-  module SPG = ProductWedge (SPPeriodicRational) (WedgeGuard)
-  module LinRec = Product (LinearRecurrenceInequation) (PolyhedronGuard)
-  module D = Sum(SPG)(LinRec)()
-  module SplitD = Sum (D) (Split(D)) ()
-  module I = Iter(MakeDomain(SplitD))
+  module SPG = ProductWedge (SPOne) (WedgeGuard)
+  module SPPeriodicRational = Sum (SPG) (PresburgerGuard) ()
+  module SPSplit = Sum (SPPeriodicRational) (Split(SPPeriodicRational)) ()
+  include SPSplit
+end
+
+module MakeTransition (V : Transition.Var) = struct
+  include Transition.Make(Ctx)(V)
+
+  module I = Iter(Iteration.MakeDomain(IterDomain))
+
+  let star x = Log.time "cra:star" I.star x
 
   let add x y =
     if is_zero x then y
@@ -138,11 +144,12 @@ module K = struct
     else if is_one x then y
     else if is_one y then x
     else mul x y
+end
 
-  (*
-  let mul x y = Log.time "refine" mul x y
-  let add x y = Log.time "refine" add x y
-  *)
+module K = struct
+  module Tr = MakeTransition(V)
+  include Tr
+
 
   module CRARefinement = Refinement.DomainRefinement
       (struct
@@ -989,15 +996,19 @@ let _ =
      " Turn off forward invariant generation");
   CmdLine.register_config
     ("-cra-split-loops",
+<<<<<<< HEAD
      Arg.Clear K.SplitD.abstract_left,
+=======
+     Arg.Clear IterDomain.SPSplit.abstract_left,
+>>>>>>> 6cc1627936d15c4e8fa3da25cdcb2061c27b82f7
      " Turn on loop splitting");
   CmdLine.register_config
     ("-cra-no-matrix",
-     Arg.Clear K.SPOne.abstract_left,
+     Arg.Clear IterDomain.SPOne.abstract_left,
      " Turn off matrix recurrences");
   CmdLine.register_config
     ("-cra-prsd",
-     Arg.Clear K.SPPeriodicRational.abstract_left,
+     Arg.Clear IterDomain.SPPeriodicRational.abstract_left,
      " Use periodic rational spectral decomposition");
   CmdLine.register_config
     ("-cra-refine",
