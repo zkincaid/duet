@@ -268,10 +268,12 @@ let exp srk tr_symbols loop_counter vabs =
   time "ENTERED EXP";
   match vabs with
   | {v; alphas; invars} ->
-    let (form, _) = exp_base_helper srk tr_symbols loop_counter alphas (TSet.to_list v) invars in
-          Log.errorf " Current D VAL %a" (Formula.pp srk) form;
-    time "LEFT EXP";
-    form
+    if(M.nb_rows (unify alphas) = 0) then mk_true srk else (
+      let (form, _) = exp_base_helper srk tr_symbols loop_counter alphas (TSet.to_list v) invars in
+      Log.errorf " Current D VAL %a" (Formula.pp srk) form;
+      time "LEFT EXP";
+      form
+    )
 
 
 let push_rows matrix first_row =
@@ -768,6 +770,7 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
         match Interpretation.select_implicant m formula with
         | None -> assert false
         | Some imp ->
+          (*let imp = [Nonlinear.linearize srk (mk_and srk imp)] in*) (*Does this change abstraction*)
           Log.errorf "entry";
           let pre_imp = Q.local_project_cube srk exists_pre m imp in
           Smt.Solver.add solver [mk_not srk (mk_and srk pre_imp)];
@@ -789,6 +792,7 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
                 (mk_and srk [formula; mk_not srk (mk_or srk pre_labels)]) with
         | None -> assert false
         | Some imp ->
+          (*let imp = [Nonlinear.linearize srk (mk_and srk imp)] in*)
           let post_imp = Q.local_project_cube srk exists_post m imp in
           Smt.Solver.add solver [mk_not srk (mk_and srk post_imp)];
           find_post ((mk_and srk post_imp) :: labels)
@@ -942,7 +946,8 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
  
   let abstract ?(exists=fun x -> true) srk tr_symbols body =
     Log.errorf "Body formula: %a" (Formula.pp srk) body;
-    let body = (rewrite srk ~down:(nnf_rewriter srk) body) in 
+    let body = (rewrite srk ~down:(nnf_rewriter srk) body) in
+    let body = Nonlinear.linearize srk body in (*Does this change abstraction*)
     let vas = abstract ~exists srk tr_symbols body in
     match vas with
     | {v; alphas;invars} ->
@@ -1119,42 +1124,44 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
     match vassabs with
     | {label; graph; simulation; invars} ->
       let alphas = simulation in
-      let transformersmap : (int * transformer * int) list = List.flatten 
-          (List.flatten 
-             (Array.to_list 
-                (Array.mapi (fun n1 arr -> 
-                     Array.to_list (Array.mapi (fun n2 vas ->
-                         BatEnum.fold (fun acc trans -> (n1, trans, n2) :: acc) [] (TSet.enum vas))
-                         arr))
-                    graph)))
-      in
-      let transformers = List.map (fun (_, t, _) -> t) transformersmap in
-      let nvarst = map_terms srk (create_n_vars srk (List.length transformers) [] "N") in
-      let (form, (equiv_pairst, kvarst, svarst, rvarst)) =
-        exp_base_helper srk tr_symbols loop_counter simulation transformers invars in
-      let sum_n_eq_loop_counter = exp_nvars_eq_loop_counter srk nvarst loop_counter in
-      let ks_less_than_ns = exp_kvarst_less_nvarst srk nvarst kvarst in
-      let sccs = GraphComp.scc graph in
-      let reachable_transitions = get_reachable_trans graph in
-      BatArray.iteri (fun ind (trans, verts) -> 
-          TSet.iter (fun trans ->
-              Log.errorf "Label %d admits trans %a" ind (Transformer.pp) trans) trans;
-          BatList.iter (fun vert ->
-              Log.errorf "Label %d trans to label %d" ind vert) verts) 
-        reachable_transitions;
-      let post_conds_const = exp_post_conds_on_transformers srk label transformersmap reachable_transitions nvarst alphas tr_symbols loop_counter in
- 
-      let in_sing, out_sing, in_scc, pre_scc = exp_compute_trans_in_out_index_numbers transformersmap (Array.length label) sccs nvarst in
-      let ests = create_es_et srk (Array.length label) in
-      let flow_consv_req = exp_consv_of_flow srk in_sing out_sing ests in
-      let in_out_one = exp_one_in_out_flow srk ests nvarst in
-      let ests_one_or_zero = exp_each_ests_one_or_zero srk ests in
-      let pre_post_conds = exp_pre_post_conds srk ests label tr_symbols in
-      let never_enter_constraints = exp_never_enter_scc srk ests in_scc pre_scc sccs in
-      let pos_constraints = create_exp_positive_reqs srk [nvarst; fst (List.split ests); snd (List.split ests)] in
-      let form = 
-        mk_and srk [form; sum_n_eq_loop_counter; ks_less_than_ns; flow_consv_req; in_out_one;
-                    ests_one_or_zero; pre_post_conds; never_enter_constraints; pos_constraints; post_conds_const] in
-      Log.errorf " Current D VAL %a" (Formula.pp srk) form;
-      form
+      if(M.nb_rows (unify alphas) = 0) then mk_true srk else (
+        let transformersmap : (int * transformer * int) list = List.flatten 
+            (List.flatten 
+               (Array.to_list 
+                  (Array.mapi (fun n1 arr -> 
+                       Array.to_list (Array.mapi (fun n2 vas ->
+                           BatEnum.fold (fun acc trans -> (n1, trans, n2) :: acc) [] (TSet.enum vas))
+                           arr))
+                      graph)))
+        in
+        let transformers = List.map (fun (_, t, _) -> t) transformersmap in
+        let nvarst = map_terms srk (create_n_vars srk (List.length transformers) [] "N") in
+        let (form, (equiv_pairst, kvarst, svarst, rvarst)) =
+          exp_base_helper srk tr_symbols loop_counter simulation transformers invars in
+        let sum_n_eq_loop_counter = exp_nvars_eq_loop_counter srk nvarst loop_counter in
+        let ks_less_than_ns = exp_kvarst_less_nvarst srk nvarst kvarst in
+        let sccs = GraphComp.scc graph in
+        let reachable_transitions = get_reachable_trans graph in
+        BatArray.iteri (fun ind (trans, verts) -> 
+            TSet.iter (fun trans ->
+                Log.errorf "Label %d admits trans %a" ind (Transformer.pp) trans) trans;
+            BatList.iter (fun vert ->
+                Log.errorf "Label %d trans to label %d" ind vert) verts) 
+          reachable_transitions;
+        let post_conds_const = exp_post_conds_on_transformers srk label transformersmap reachable_transitions nvarst alphas tr_symbols loop_counter in
+
+        let in_sing, out_sing, in_scc, pre_scc = exp_compute_trans_in_out_index_numbers transformersmap (Array.length label) sccs nvarst in
+        let ests = create_es_et srk (Array.length label) in
+        let flow_consv_req = exp_consv_of_flow srk in_sing out_sing ests in
+        let in_out_one = exp_one_in_out_flow srk ests nvarst in
+        let ests_one_or_zero = exp_each_ests_one_or_zero srk ests in
+        let pre_post_conds = exp_pre_post_conds srk ests label tr_symbols in
+        let never_enter_constraints = exp_never_enter_scc srk ests in_scc pre_scc sccs in
+        let pos_constraints = create_exp_positive_reqs srk [nvarst; fst (List.split ests); snd (List.split ests)] in
+        let form = 
+          mk_and srk [form; sum_n_eq_loop_counter; ks_less_than_ns; flow_consv_req; in_out_one;
+                      ests_one_or_zero; pre_post_conds; never_enter_constraints; pos_constraints; post_conds_const] in
+        Log.errorf " Current D VAL %a" (Formula.pp srk) form;
+        form
+      )
   end
