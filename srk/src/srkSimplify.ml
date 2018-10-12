@@ -70,6 +70,20 @@ module TermPolynomial = struct
     |> mk_add ctx.srk
 end
 
+let simplify_term srk term =
+  let ctx = TermPolynomial.mk_context srk in
+  let polynomial =
+    TermPolynomial.of_term ctx term
+  in
+  let c = TermPolynomial.QQXs.content polynomial in
+  let polynomial =
+    if QQ.equal c QQ.zero then
+      polynomial
+    else
+      TermPolynomial.QQXs.scalar_mul (QQ.inverse (QQ.abs c)) polynomial
+  in
+  TermPolynomial.term_of ctx polynomial
+
 let simplify_terms_rewriter srk =
   let ctx = TermPolynomial.mk_context srk in
   fun expr ->
@@ -167,3 +181,32 @@ let partition_implicant implicant =
     else
       zero_group::partitioned_implicant
   end
+
+let simplify_conjunction srk cube =
+  let cube = List.map (simplify_terms srk) cube in
+  let solver = SrkZ3.mk_solver srk in
+  let indicator_map =
+    List.fold_left (fun m prop ->
+        Symbol.Map.add (mk_symbol srk `TyBool) prop m)
+      Symbol.Map.empty
+      cube
+  in
+  SrkZ3.Solver.add solver [mk_not srk (mk_and srk cube)];
+  Symbol.Map.iter (fun indicator prop ->
+      SrkZ3.Solver.add solver [mk_if srk (mk_const srk indicator) prop])
+    indicator_map;
+  let assumptions =
+    Symbol.Map.fold
+      (fun indicator _ xs -> (mk_const srk indicator)::xs)
+      indicator_map
+      []
+  in
+  match SrkZ3.Solver.get_unsat_core solver assumptions with
+  | `Sat -> assert false
+  | `Unknown -> cube
+  | `Unsat core ->
+    List.map (fun ind ->
+        match Formula.destruct srk ind with
+        | `Proposition (`App (sym, [])) -> Symbol.Map.find sym indicator_map
+        | _ -> assert false)
+      core

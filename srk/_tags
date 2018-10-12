@@ -39,6 +39,7 @@ true: annot, bin_annot
 "src/nonlinear.cmx": for-pack(Srk)
 "src/coordinateSystem.cmx": for-pack(Srk)
 "src/wedge.cmx": for-pack(Srk)
+"src/mdvas.cmx": for-pack(Srk)
 "src/quantifier.cmx": for-pack(Srk)
 "src/iteration.cmx": for-pack(Srk)
 "src/solvablePolynomial.cmx": for-pack(Srk)

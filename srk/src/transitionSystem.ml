@@ -339,16 +339,16 @@ module Make
       | _, Bottom -> prop
       | State (predicates, store), State (predicates', store') ->
         if PS.equal predicates predicates' then
-          State (predicates,
-                 normalize predicates (Box.widening_store store store'))
+          State (predicates, Box.widening_store store store')
         else if PS.subset predicates' predicates then
+          let store = normalize predicates store in
+          let store' = normalize predicates' store' in
           State (PS.inter predicates predicates', Box.join_store store store')
         else
           (* Possible if, e.g., some abstract post computation returns some
              Unknowns *)
           let predicates = PS.inter predicates predicates' in
-          State (predicates,
-                 normalize predicates (Box.widening_store store store'))
+          State (predicates, Box.widening_store store store')
 
     let equal prop prop' =
       match prop, prop' with

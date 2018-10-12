@@ -12,7 +12,7 @@ Library srk
   Path: srk/src
   FindlibName: srk
   Pack: true
-  Modules:  SrkUtil, Log, DisjointSet, Memo, FeatureTree, QQ, ZZ, Syntax, Interval, Smt, SrkZ3, Ring, Linear, Polynomial, ExpPolynomial, Interpretation, SrkApron, Polyhedron, SrkSimplify, Abstract, Nonlinear, CoordinateSystem, Wedge, Quantifier, Iteration, SolvablePolynomial, Transition, BigO, Pathexpr, WeightedGraph, TransitionSystem
+  Modules:  SrkUtil, Log, DisjointSet, Memo, FeatureTree, QQ, ZZ, Syntax, Interval, Smt, SrkZ3, Ring, Linear, Polynomial, ExpPolynomial, Interpretation, SrkApron, Polyhedron, SrkSimplify, Abstract, Nonlinear, CoordinateSystem, Wedge, Mdvas, Quantifier, Iteration, SolvablePolynomial, Transition, BigO, Pathexpr, WeightedGraph, TransitionSystem
   BuildDepends:     batteries, ppx_deriving, ppx_deriving.show, ppx_deriving.ord, gmp, camlidl, apron, Z3, ocrs, ntl, ocamlgraph
   XMETADescription: Symbolic Reasoning Kit
 
@@ -37,7 +37,7 @@ Library apak
   FindlibName:      apak
   Pack:             true
   Modules:          WeakDynArray, Dll, Enumeration, EvalLink, ExtGraph, Fixpoint,Ka, Lattice, Loop, Monoid, Pathexp, Persistent, RecGraph, Semilattice, Sese, Sig, Tagged, Putil
-  BuildDepends:     batteries, ppx_deriving, ppx_deriving.show, ppx_deriving.ord, ocamlgraph, Z3, mathsat, srk
+  BuildDepends:     batteries, ppx_deriving, ppx_deriving.show, ppx_deriving.ord, ocamlgraph, Z3, srk
   BuildDepends:     batteries, ppx_deriving, ppx_deriving.show, ppx_deriving.ord, ocamlgraph, Z3, srk
   Install:          false
   XMETADescription: Algebraic Program Analysis Kit
