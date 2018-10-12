@@ -10,7 +10,10 @@ module TermPolynomial : sig
 end
 
 val simplify_terms_rewriter : 'a context -> 'a rewriter
-val simplify_terms : 'a context -> ('a,'b) expr -> ('a,'b) expr
+
+val simplify_terms : 'a context -> 'a formula -> 'a formula
+
+val simplify_term : 'a context -> 'a term -> 'a term
 
 (** Purify function applications in a ground formula: replace each function
     application within a formula with a fresh symbol, and return both the
@@ -19,3 +22,8 @@ val simplify_terms : 'a context -> ('a,'b) expr -> ('a,'b) expr
 val purify : 'a context -> 'a formula -> ('a formula * (('a,typ_fo) expr) Symbol.Map.t)
 
 val partition_implicant : ('a formula) list -> ('a formula) list list
+
+(** Given a list of formulas [xs], find a sublist [xs'] such that the
+   conjunction of all [xs] is equivalent to conjunction of all [xs'].
+   The sublist [xs'] is not guaranteed to be minimal. *)
+val simplify_conjunction : 'a context -> 'a formula list -> 'a formula list

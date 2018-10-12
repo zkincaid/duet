@@ -1425,6 +1425,10 @@ struct
           match non_const with
           | [x] -> x
           | _ -> hc Mul non_const
+        else if QQ.equal const (QQ.of_int (-1)) then
+          match non_const with
+          | [x] -> mk Neg [x]
+          | _ -> mk Neg [hc Mul (non_const)]
         else
           hc Mul ((mk (Real const) [])::non_const)
 

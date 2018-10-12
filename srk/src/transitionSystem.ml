@@ -342,7 +342,7 @@ module Make
           State (predicates, Box.widening_store store store')
         else if PS.subset predicates' predicates then
           let store = normalize predicates store in
-          let store' = normalize predicates' store in
+          let store' = normalize predicates' store' in
           State (PS.inter predicates predicates', Box.join_store store store')
         else
           (* Possible if, e.g., some abstract post computation returns some

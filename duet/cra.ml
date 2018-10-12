@@ -469,7 +469,8 @@ let is_int_array typ = match resolve_type typ with
 
 let nondet_const name typ = Ctx.mk_const (Ctx.mk_symbol ~name typ)
 
-let tr_expr expr =
+
+let rec tr_expr expr =
   let alg = function
     | OHavoc typ -> TInt (nondet_const "havoc" (tr_typ typ))
     | OConstant (CInt (k, _)) -> TInt (Ctx.mk_real (QQ.of_int k))
@@ -495,17 +496,16 @@ let tr_expr expr =
     (* No real translations for anything else -- just return a free var "tr"
        (which just acts like a havoc). *)
     | OUnaryOp (_, _, typ) -> TInt (nondet_const "tr" (tr_typ typ))
-    | OBoolExpr _ -> TInt (nondet_const "tr" `TyInt)
+    | OBoolExpr b -> TInt (Ctx.mk_ite (tr_bexpr b) (Ctx.mk_real (QQ.of_int 1)) (Ctx.mk_real (QQ.of_int 0)))
+      (*if (Bexpr.equal b Bexpr.ktrue) then TInt (Ctx.mk_real (QQ.of_int 1)) else TInt (Ctx.mk_real (QQ.of_int 0))*)
     | OAccessPath ap -> TInt (nondet_const "tr" (tr_typ (AP.get_type ap)))
     | OConstant _ -> TInt (nondet_const "tr" `TyInt)
   in
   Aexpr.fold alg expr
-
-let tr_expr_val expr = match tr_expr expr with
+and  tr_expr_val expr = match tr_expr expr with
   | TInt x -> x
   | TPointer x -> x.ptr_val
-
-let tr_bexpr bexpr =
+and tr_bexpr bexpr =
   let alg = function
     | Core.OAnd (a, b) -> Ctx.mk_and [a; b]
     | Core.OOr (a, b) -> Ctx.mk_or [a; b]
