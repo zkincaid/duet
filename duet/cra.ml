@@ -122,15 +122,11 @@ module K = struct
   module SPG = ProductWedge (SPOne) (WedgeGuard)
   module SPPeriodicRational = Sum (SPG) (PresburgerGuard) ()
   module SPSplit = Sum (SPPeriodicRational) (Split(SPPeriodicRational)) ()
-  module Vas = Product(Product(Mdvas)(WedgeGuard))(LinearRecurrenceInequation)
-  module Vass = Product(Product(Mdvass)(WedgeGuard))(LinearRecurrenceInequation)
-  module D = Sum(SPSplit)(Vass)()
+  module VasSwitch = Sum (Mdvas)(Mdvass) ()
+  module Vas = Product(VasSwitch)(Product(WedgeGuard)(LinearRecurrenceInequation))
+  module D = Sum(SPSplit)(Vas)()
   module I = Iter(MakeDomain(D))
-  module Temp = Sum(SPSplit)(Vas)()
-  module TempI = Iter(MakeDomain(D))
  
-  (*module I = Iter(MakeDomain(SPSplit))*)
-
   let star x = Log.time "cra:star" I.star x
 
   let add x y =
@@ -702,11 +698,11 @@ let _ =
      " Use periodic rational spectral decomposition");
   CmdLine.register_config
     ("-cra-vas",
-     Arg.Clear K.Temp.abstract_left,
+     Arg.Clear K.D.abstract_left,
      " Use VAS abstraction");
   CmdLine.register_config
     ("-cra-vass",
-     Arg.Clear K.D.abstract_left,
+     Arg.Unit (fun () -> K.VasSwitch.abstract_left := false; K.D.abstract_left := false),
      " Use VASS abstraction");
   CmdLine.register_config
     ("-dump-goals",
