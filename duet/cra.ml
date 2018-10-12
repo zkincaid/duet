@@ -117,9 +117,10 @@ module IterDomain = struct
   open Iteration
   open SolvablePolynomial
   module SPOne = SumWedge (SolvablePolynomial) (SolvablePolynomialOne) ()
-  module SPG = ProductWedge (SPOne) (WedgeGuard)
-  module SPPeriodicRational = Sum (SPG) (PresburgerGuard) ()
-  module SPSplit = Sum (SPPeriodicRational) (Split(SPPeriodicRational)) ()
+  module SPPeriodicRational = SumWedge (SPOne) (SolvablePolynomialPeriodicRational) ()
+  module SPG = ProductWedge (SPPeriodicRational) (WedgeGuard)
+  module SPPRG = Sum (SPG) (PresburgerGuard) ()
+  module SPSplit = Sum (SPPRG) (Split(SPPRG)) ()
   include SPSplit
 end
 
@@ -711,6 +712,10 @@ let _ =
     ("-cra-prsd",
      Arg.Clear IterDomain.SPPeriodicRational.abstract_left,
      " Use periodic rational spectral decomposition");
+  CmdLine.register_config
+    ("-cra-prsd-pg",
+     Arg.Clear IterDomain.SPPRG.abstract_left,
+     " Use periodic rational spectral decomposition w/ Presburger guard");
   CmdLine.register_config
     ("-dump-goals",
      Arg.Set dump_goals,
