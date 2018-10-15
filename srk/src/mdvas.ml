@@ -422,56 +422,45 @@ let find_invariants  (srk : 'a context) (symbols : (symbol * symbol) list) (body
   | {v;alphas=[mi;mr]} ->
     Log.errorf "THE INVARIANT VAS IS: %a"  (Formula.pp srk) (gamma srk {v;alphas=[mi;mr];invars=[]} symbols);
     let {a;b} = List.hd (TSet.elements v) in
-    BatEnum.fold (fun (body', invars) (dim', row) ->
-        Log.errorf "Dim %n of b is %a" dim' (QQ.pp) (V.coeff dim' b);
-        (*if(QQ.equal QQ.zero (V.coeff dim' b)) then *)
-          Log.errorf "Dim %n is 0" dim';
-          let vect = M.row dim' mi in
-          let matr = M.add_column 0 vect (M.zero) in
-          let matching_reset = 
-            BatEnum.fold (fun reset_dim (dim'', row) ->
-                if reset_dim = None then (
-                  match Linear.solve matr (M.row dim'' mr) with
-                  | None -> reset_dim
-                  | Some multiple -> Some ((V.coeff 0 multiple), dim'')
-                )
-                else reset_dim
-            ) None (M.rowsi mr)
-          in
-          match matching_reset with
-          | None -> (body', invars)
-          | Some (multiple, dim'') ->
-            let vect = V.scalar_mul multiple vect in
-            let scal, last_dim = get_last_dim vect in
-            let resvect = M.row dim'' mr in
-            let rscal, rlast_dim = get_last_dim resvect in
-            let term_xy' = mk_mul srk 
-                [mk_sub srk (Linear.of_linterm srk (snd (V.pivot rlast_dim resvect))) 
-                   (mk_real srk (V.coeff ((M.nb_rows mi) + dim'') b));
-                 mk_real srk (QQ.inverse (QQ.negate rscal))] in
-            Log.errorf "New terk %a" (Term.pp srk) term_xy'; 
-            let term_xy = mk_mul srk
-                [mk_add srk 
-                   [mk_sub srk (Linear.of_linterm srk (snd (V.pivot last_dim vect))) 
-                      (mk_real srk (QQ.mul  multiple (V.coeff ((M.nb_rows mi) + dim'') b)));
-                    mk_real srk (V.coeff dim' b)];
-                 mk_real srk (QQ.inverse (QQ.negate scal))] in
-          let sym = match Linear.sym_of_dim last_dim with
-            |None -> assert false
-            | Some v -> v
-          in
-          let sym' = List.fold_left (fun acc (x, x') -> if x = sym then x' else acc) sym symbols in
-          let sym = List.fold_left (fun acc (x, x') -> if x' = sym' then x else acc) sym' symbols in
-          let body' = substitute_const srk (fun x -> if x = sym then preify srk symbols term_xy 
-                                            else if x = sym' then postify term_xy'
-                                            else mk_const srk x) body' in
-          Log.errorf "New body %a" (Formula.pp srk) body';
-          let invars = (mk_eq srk (mk_const srk sym') (term_xy')) :: (mk_eq srk (mk_const srk sym) (term_xy)) :: invars in
-          List.fold_left (fun _ invar -> Log.errorf "Invars is %a" (Formula.pp srk) invar;())() invars;
-          body',invars
-        )
+    let (c, d) = Linear.intersect_rowspace mi mr in
+    BatEnum.fold (fun (body', invars) (dim', crow) ->
+        let vect = M.vector_left_mul crow mi in
+        let bi = V.dot crow b in 
+        let rrow = M.row dim' d in
+        let rrow' = 
+          BatEnum.fold (fun row_acc (ele, rdim) ->
+              V.add_term ele (rdim + (M.nb_rows mi)) row_acc) V.zero (V.enum rrow) in
+        let br = V.dot rrow' b in
+
+
+        let scal, last_dim = get_last_dim vect in
+        let term_xy' = mk_mul srk 
+            [mk_sub srk (Linear.of_linterm srk (snd (V.pivot last_dim vect))) 
+               (mk_real srk br);
+             mk_real srk (QQ.inverse (QQ.negate scal))] in
+        Log.errorf "New terk %a" (Term.pp srk) term_xy'; 
+        let term_xy = mk_mul srk
+            [mk_add srk 
+               [mk_sub srk (Linear.of_linterm srk (snd (V.pivot last_dim vect))) 
+                  (mk_real srk br);
+                mk_real srk  bi];
+             mk_real srk (QQ.inverse (QQ.negate scal))] in
+        let sym = match Linear.sym_of_dim last_dim with
+          | None -> assert false
+          | Some v -> v
+        in
+        let sym' = List.fold_left (fun acc (x, x') -> if x = sym then x' else acc) sym symbols in
+        let sym = List.fold_left (fun acc (x, x') -> if x' = sym' then x else acc) sym' symbols in
+        let body' = substitute_const srk (fun x -> if x = sym then preify srk symbols term_xy 
+                                           else if x = sym' then postify term_xy'
+                                           else mk_const srk x) body' in
+        Log.errorf "New body %a" (Formula.pp srk) body';
+        let invars = (mk_eq srk (mk_const srk sym') (term_xy')) :: (mk_eq srk (mk_const srk sym) (term_xy)) :: invars in
+        List.fold_left (fun _ invar -> Log.errorf "Invars is %a" (Formula.pp srk) invar;())() invars;
+        body',invars
+      )
         (body,[])
-        (M.rowsi mi)
+        (M.rowsi c)
   | _ -> assert false
 
 
