@@ -774,6 +774,8 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
     Smt.Solver.reset solver;
     Smt.Solver.add solver [SrkSimplify.simplify_terms srk formula];
     let pre_labels = find_pre [] in
+    let post_form = (rewrite srk ~down:(nnf_rewriter srk) 
+                       (mk_and srk [formula; mk_not srk (postify srk tr_symbols (mk_or srk pre_labels))])) in
     Log.errorf "Here";
     let rec find_post labels =
       Log.errorf "yEEE";
@@ -781,17 +783,18 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
       | `Unsat -> labels
       | `Unknown -> assert false
       | `Sat m ->
-        match Interpretation.select_implicant m
-                (mk_and srk [formula; mk_not srk (mk_or srk pre_labels)]) with
+        match Interpretation.select_implicant m post_form with
         | None -> assert false
         | Some imp ->
           (*let imp = [Nonlinear.linearize srk (mk_and srk imp)] in*)
           let post_imp = Q.local_project_cube srk exists_post m imp in
           Smt.Solver.add solver [mk_not srk (mk_and srk post_imp)];
+          Log.errorf "exit";
+          Log.errorf "Post lab Num: %d" (List.length labels);
           find_post ((mk_and srk post_imp) :: labels)
     in
        Smt.Solver.reset solver;
-    Smt.Solver.add solver [formula; mk_not srk (mk_or srk pre_labels)];
+    Smt.Solver.add solver [post_form];
     let post_labels = find_post [] in
     pre_labels, post_labels
 
@@ -1151,9 +1154,9 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
         let pre_post_conds = exp_pre_post_conds srk ests label tr_symbols in
         let never_enter_constraints = exp_never_enter_scc srk ests in_scc pre_scc sccs in
         let pos_constraints = create_exp_positive_reqs srk [nvarst; fst (List.split ests); snd (List.split ests)] in
-        let form = 
-          mk_and srk [form; sum_n_eq_loop_counter; ks_less_than_ns; flow_consv_req; in_out_one;
-                      ests_one_or_zero; pre_post_conds; never_enter_constraints; pos_constraints; post_conds_const] in
+        Log.errorf " Failure cause %a" (Formula.pp srk) pre_post_conds;
+        let form = mk_and srk [form; sum_n_eq_loop_counter; ks_less_than_ns; flow_consv_req; in_out_one;
+                                 ests_one_or_zero;  pre_post_conds; never_enter_constraints; pos_constraints; post_conds_const] in
         Log.errorf " Current D VAL %a" (Formula.pp srk) form;
         form
       )
