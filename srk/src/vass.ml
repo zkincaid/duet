@@ -20,7 +20,7 @@ module A = BatDynArray
 
 module IntSet = SrkUtil.Int.Set
 module H = Abstract
-include Log.Make(struct let name = "srk.mdvas" end)
+include Log.Make(struct let name = "srk.vass" end)
 open Mdvas
 module Mvass = Mdvas.Mdvass
 module Int = SrkUtil.Int
@@ -188,26 +188,36 @@ module Vassnew = struct
         else (x, y') :: acc) [] pre post
 
   (*Assumes that no vasses in the ordering are TOP *)
-  let closure_of_an_ordering srk syms loop_counter ordering sccsclosure subloop_counters sccgraph symmappings : 'a formula =
+  let closure_of_an_ordering srk syms loop_counter ordering sccsclosure subloop_counters sccgraph symmappings formula : 'a formula =
     if (valid_ordering ordering sccgraph = false) then (mk_false srk)
     else(
       let rec make_closure_helper ordering =
         match ordering with
         | [] -> assert false
-        | [hd] -> postify srk (merge_mappings symmappings.(hd) syms true false) sccsclosure.(hd)
-        | hd :: hdd :: tl -> (postify srk (merge_mappings sym symmappings.(hdd) true true) 
-                               postify srk (merge_mappings sym symmappings.(hd) false true) formula)
-                             :: make_closure_helper (hdd :: tl)
+        | [hd] -> [postify srk (merge_mappings syms symmappings.(hd) false true) sccsclosure.(hd)]
+        | hd :: hdd :: tl -> (postify srk (merge_mappings syms symmappings.(hdd) true true) 
+                               (postify srk (merge_mappings syms symmappings.(hd) false false) formula))
+                             :: (postify srk (merge_mappings syms symmappings.(hdd) false true) 
+                               (postify srk (merge_mappings syms symmappings.(hdd) true false) sccsclosure.(hdd)))
+                             :: (make_closure_helper (hdd :: tl))
       in
       let make_closure ordering =
         match ordering with
         | [] -> assert false
-        | [hd] -> postify srk (marge_mappings symmappings.(hdd) syms false true)
-                    postify srk (merge_mappings symmappings.(hd) syms true false) sccsclosure.(hd)
+        | [hd] -> (*postify srk (marge_mappings symmappings.(hdd) syms false true)
+                    postify srk (merge_mappings symmappings.(hd) syms true false) sccsclosure.(hd)*)
+          sccsclosure.(hd)
         | hd :: hdd :: tl ->
-          mk_and srk [postify srk (merge_mappings.(hdd) syms false true) sccsclosure.(hd); make_closure_helper ordering]
+          (*mk_and srk [postify srk (merge_mappings.(hdd) syms false true) sccsclosure.(hd); make_closure_helper ordering]*)
+          mk_and srk ((postify srk (merge_mappings syms symmappings.(hd) true false) sccsclosure.(hd)) :: (make_closure_helper ordering))
       in
-      (*MERGE THE CLOSURE OF FORMULAS ABOVE WITH THE CLOSURE OF EACH INDV CLOSURE USED AND SET SUB COUNTERS EQ MAIN COUNTER*)
+      let rec make_add_loop_counters ordering =
+        match ordering with
+        | [] -> []
+        | hd :: tl -> subloop_counters.(hd) :: (make_add_loop_counters tl)
+      in
+      mk_and srk [mk_eq srk (mk_add srk (make_add_loop_counters ordering)) loop_counter;
+                  make_closure ordering]
     )
 
 
@@ -217,14 +227,21 @@ module Vassnew = struct
     let order = List.rev (BGraphTopo.fold (fun v acc -> v :: acc) sccgraph []) in
     let orderedsets = sublists order in
     (* CHECK IF ANY VASS IS TOP HERE*)
-    let subloop_counters = false in
-    let symmappings = false in
-    (* MAKE SUB LOOP COUNTERS*)
-    let sccclosures = BatArray.map (fun vass -> closure_of_an_scc srk syms loop_counter vass) sccsform.vasses in
+    let subloop_counters = BatArray.mapi (fun ind1 scc ->
+        mk_const srk ((mk_symbol srk ~name:("counter_"^(string_of_int ind1)) `TyInt))) sccsform.vasses in
+    let symmappings = BatArray.mapi (fun ind1 scc ->
+        List.rev
+          (BatList.fold_lefti (fun acc ind2 (x, x') ->
+               ((mk_symbol srk ~name:("x_"^(string_of_int ind1)^","^(string_of_int ind2)) `TyReal),
+                (mk_symbol srk ~name:("x'_"^(string_of_int ind1)^","^(string_of_int ind2)) `TyReal)) :: acc) [] syms)) sccsform.vasses
+    in
+    (* MAKE SUB LOOP COUNTERS POS*)
+    let sccclosures = BatArray.mapi (fun ind vass -> closure_of_an_scc srk syms subloop_counters.(ind) vass) sccsform.vasses in
+    let sub_loops_geq_0 = create_exp_positive_reqs srk [Array.to_list subloop_counters] in
     let form =
       List.fold_left (fun acc orderedset ->
-          mk_or srk [closure_of_an_ordering srk syms loop_counter orderedset sccclosures subloop_counters sccgraph symmappings; acc]) (mk_false srk) orderedsets in
-    assert false
+            mk_or srk [closure_of_an_ordering srk syms loop_counter orderedset sccclosures subloop_counters sccgraph symmappings sccsform.formula; acc]) (mk_false srk) orderedsets in
+    mk_and srk [form; sub_loops_geq_0]
 
 
 
