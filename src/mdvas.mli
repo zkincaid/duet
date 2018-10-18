@@ -41,7 +41,8 @@ val exp_base_helper : 'a context -> (symbol * symbol) list -> 'a term ->
                                                               'a term list list * ('a, 'f) expr list *
                                                               ('a, 'g) expr list) 
 val create_exp_positive_reqs : 'a context -> 'a term list list -> 'a formula
-
+val preify : 'a context -> (symbol * symbol) list -> ('a, 'b) expr -> ('a, 'b) expr
+val postify : 'a context -> (symbol * symbol) list -> ('a, 'b) expr -> ('a, 'b) expr 
 
 module Mdvass : sig
   module Int = SrkUtil.Int
