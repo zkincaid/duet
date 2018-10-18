@@ -83,13 +83,6 @@ module Vassnew = struct
     graph
 
 
-  let find_smallest_components srk tr_symbols label body =
-    let vas = abstract srk tr_symbols body in
-    let graph = compute_edges srk tr_symbols label body in
-    (*let num_sccs, func_sccs = GraphComp.scc graph in*)
-    assert false
-    
-
   let compute_single_scc_vass ?(exists=fun x -> true) srk tr_symbols labels_lst =
     let formula = mk_or srk labels_lst in
     let {v; alphas;invars;invarmaxk} = abstract ~exists srk tr_symbols formula in
@@ -170,15 +163,52 @@ module Vassnew = struct
     let pre_post_conds = Mvass.exp_pre_post_conds srk ests label tr_symbols in
     let pos_constraints = create_exp_positive_reqs srk [nvarst; fst (List.split ests); snd (List.split ests)] in
     let form = mk_and srk [form; sum_n_eq_loop_counter; ks_less_than_ns; flow_consv_req; in_out_one;
-                           ests_one_or_zero;  pre_post_conds; never_enter_constraints; pos_constraints; post_conds_const] in
+                           ests_one_or_zero;  pre_post_conds;  pos_constraints; post_conds_const] in
     Log.errorf " Current D VAL %a" (Formula.pp srk) form;
     form
 
 
 
+  let rec valid_ordering ordering sccgraph =
+    match ordering with
+    | [] -> assert false
+    | [hd] -> true
+    | hd :: hdd :: tl ->
+      if sccgraph.(hd).(hdd) then valid_ordering (hdd :: tl) sccgraph
+      else false
+
+
+  let merge_mappings pre post use_pres_post use_posts_pre =
+    BatList.fold_left2 (fun acc (x, x') (y, y') -> 
+        if use_posts_pre then (
+          if use_pres_post then (x',  y) :: acc
+          else (x, y) :: acc
+        )
+        else if use_pres_post then (x', y') :: acc
+        else (x, y') :: acc) [] pre post
+
   (*Assumes that no vasses in the ordering are TOP *)
-  let closure_of_an_ordering srk syms loop_counter sccsform =
-    assert false
+  let closure_of_an_ordering srk syms loop_counter ordering sccsclosure subloop_counters sccgraph symmappings : 'a formula =
+    if (valid_ordering ordering sccgraph = false) then (mk_false srk)
+    else(
+      let rec make_closure_helper ordering =
+        match ordering with
+        | [] -> assert false
+        | [hd] -> postify srk (merge_mappings symmappings.(hd) syms true false) sccsclosure.(hd)
+        | hd :: hdd :: tl -> (postify srk (merge_mappings sym symmappings.(hdd) true true) 
+                               postify srk (merge_mappings sym symmappings.(hd) false true) formula)
+                             :: make_closure_helper (hdd :: tl)
+      in
+      let make_closure ordering =
+        match ordering with
+        | [] -> assert false
+        | [hd] -> postify srk (marge_mappings symmappings.(hdd) syms false true)
+                    postify srk (merge_mappings symmappings.(hd) syms true false) sccsclosure.(hd)
+        | hd :: hdd :: tl ->
+          mk_and srk [postify srk (merge_mappings.(hdd) syms false true) sccsclosure.(hd); make_closure_helper ordering]
+      in
+      (*MERGE THE CLOSURE OF FORMULAS ABOVE WITH THE CLOSURE OF EACH INDV CLOSURE USED AND SET SUB COUNTERS EQ MAIN COUNTER*)
+    )
 
 
   let exp srk syms loop_counter sccsform =
@@ -186,6 +216,14 @@ module Vassnew = struct
     let sccgraph = compute_edges srk syms scclabels sccsform.formula in
     let order = List.rev (BGraphTopo.fold (fun v acc -> v :: acc) sccgraph []) in
     let orderedsets = sublists order in
+    (* CHECK IF ANY VASS IS TOP HERE*)
+    let subloop_counters = false in
+    let symmappings = false in
+    (* MAKE SUB LOOP COUNTERS*)
+    let sccclosures = BatArray.map (fun vass -> closure_of_an_scc srk syms loop_counter vass) sccsform.vasses in
+    let form =
+      List.fold_left (fun acc orderedset ->
+          mk_or srk [closure_of_an_ordering srk syms loop_counter orderedset sccclosures subloop_counters sccgraph symmappings; acc]) (mk_false srk) orderedsets in
     assert false
 
 
