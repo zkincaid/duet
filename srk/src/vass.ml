@@ -83,8 +83,8 @@ module Vassnew = struct
     graph
 
 
-  let compute_single_scc_vass ?(exists=fun x -> true) srk tr_symbols labels_lst =
-    let formula = mk_or srk labels_lst in
+  let compute_single_scc_vass ?(exists=fun x -> true) srk tr_symbols labels_lst orig_form =
+    let formula = mk_and srk [mk_or srk labels_lst; orig_form] in
     let {v; alphas;invars;invarmaxk} = abstract ~exists srk tr_symbols formula in
     let graph = Mvass.compute_edges srk v tr_symbols alphas (Array.of_list labels_lst) formula in
     {label=Array.of_list labels_lst;graph;simulation=alphas;invars;invarmaxk}
@@ -94,14 +94,16 @@ module Vassnew = struct
     BatArray.iteri (fun ind sccvas ->
         Format.fprintf formatter "Vass %n has the following labels \n" ind;
         BatArray.iteri (fun ind2 lab -> Format.fprintf formatter "Label %n is %a \n" ind2 (Formula.pp srk) (lab)) sccvas.label;
+        Format.fprintf formatter "END LABELS \n\n" ;
         Format.fprintf formatter "Vass %n has the following graph \n" ind;
         BatArray.iteri (fun ind arr ->
             BatArray.iteri (fun ind2 trans ->
-                Format.fprintf formatter "Num connections from label %d to label %d is: %d" ind ind2 (TSet.cardinal trans);
+                Format.fprintf formatter "Num connections from label %d to label %d is: %d \n" ind ind2 (TSet.cardinal trans);
                 TSet.iter (fun trans ->
-                    Format.fprintf formatter "Label %d admits trans a: %a b: %a" ind (Z.pp) trans.a (V.pp) trans.b) trans) arr) sccvas.graph;
-        Format.fprintf formatter "Vass %n has the following alphas" ind;
-        BatList.iter (fun alph -> Format.fprintf formatter "Matrix %a" (M.pp) alph) sccvas.simulation) vasses.vasses
+                    Format.fprintf formatter "Label %d admits trans a: %a b: %a \n" ind (Z.pp) trans.a (V.pp) trans.b) trans) arr) sccvas.graph;
+        Format.fprintf formatter "END PRINT GRAPH \n\n";
+        Format.fprintf formatter "Vass %n has the following alphas \n" ind;
+        BatList.iter (fun alph -> Format.fprintf formatter "Matrix %a\n" (M.pp) alph) sccvas.simulation) vasses.vasses
 
 
   let abstract ?(exists=fun x -> true) srk tr_symbols body =
@@ -112,18 +114,19 @@ module Vassnew = struct
     BatArray.iteri (fun ind lab -> sccs.(func_sccs ind)<-(lab :: sccs.(func_sccs ind)))
       label;
     if num_sccs = 0 then assert false;
-    let vassarrays = BatArray.map (fun scc -> compute_single_scc_vass ~exists srk tr_symbols scc) sccs in
+    let vassarrays = BatArray.map (fun scc -> compute_single_scc_vass ~exists srk tr_symbols scc body) sccs in
     let result = {vasses=vassarrays;formula=body} in
-    (*let b = Buffer.create 16 in
-    pp srk tr_symbols (Format.formatter_of_buffer b) result;*)
+    Log.errorf "LOOK HERE";
+    let b = Buffer.create 16 in
+    logf ~level:`always "%a" (pp srk tr_symbols) result;
     result
 
 
 
   let rec sublists = function (*I stole this from the internet. Hopefully it works*)
-  | []    -> []
-  | x::xs -> let ls = sublists xs in
-               List.map (fun l -> x::l) ls @ ls
+    | []    -> [[]]
+    | x::xs -> let ls = sublists xs in
+      List.map (fun l -> x::l) ls @ ls
 
 
   let exp_compute_trans_in_out_index_numbers transformersmap num  nvarst =
@@ -163,7 +166,7 @@ module Vassnew = struct
     let pre_post_conds = Mvass.exp_pre_post_conds srk ests label tr_symbols in
     let pos_constraints = create_exp_positive_reqs srk [nvarst; fst (List.split ests); snd (List.split ests)] in
     let form = mk_and srk [form; sum_n_eq_loop_counter; ks_less_than_ns; flow_consv_req; in_out_one;
-                           ests_one_or_zero;  pre_post_conds;  pos_constraints; post_conds_const] in
+                           ests_one_or_zero; pre_post_conds; pos_constraints; post_conds_const] in
     Log.errorf " Current D VAL %a" (Formula.pp srk) form;
     form
 
@@ -195,9 +198,10 @@ module Vassnew = struct
         match ordering with
         | [] -> assert false
         | [hd] -> [postify srk (merge_mappings syms symmappings.(hd) false true) sccsclosure.(hd)]
-        | hd :: hdd :: tl -> (postify srk (merge_mappings syms symmappings.(hdd) true true) 
-                               (postify srk (merge_mappings syms symmappings.(hd) false false) formula))
-                             :: (postify srk (merge_mappings syms symmappings.(hdd) false true) 
+        | hd :: hdd :: tl -> let tempform =(postify srk (merge_mappings syms symmappings.(hdd) true true) 
+                               (postify srk (merge_mappings syms symmappings.(hd) false false) formula)) in
+          Log.errorf "THE INBETWEEN FORMULA IS %a" (Formula.pp srk) tempform;
+          tempform :: (postify srk (merge_mappings syms symmappings.(hdd) false true) 
                                (postify srk (merge_mappings syms symmappings.(hdd) true false) sccsclosure.(hdd)))
                              :: (make_closure_helper (hdd :: tl))
       in
@@ -206,7 +210,7 @@ module Vassnew = struct
         | [] -> assert false
         | [hd] -> (*postify srk (marge_mappings symmappings.(hdd) syms false true)
                     postify srk (merge_mappings symmappings.(hd) syms true false) sccsclosure.(hd)*)
-          sccsclosure.(hd)
+          Log.errorf "YOLENTA %d" hd;sccsclosure.(hd)
         | hd :: hdd :: tl ->
           (*mk_and srk [postify srk (merge_mappings.(hdd) syms false true) sccsclosure.(hd); make_closure_helper ordering]*)
           mk_and srk ((postify srk (merge_mappings syms symmappings.(hd) true false) sccsclosure.(hd)) :: (make_closure_helper ordering))
@@ -216,7 +220,10 @@ module Vassnew = struct
         | [] -> []
         | hd :: tl -> subloop_counters.(hd) :: (make_add_loop_counters tl)
       in
-      mk_and srk [mk_eq srk (mk_add srk (make_add_loop_counters ordering)) loop_counter;
+      mk_and srk [mk_eq srk (mk_add srk 
+                               ((mk_real srk (QQ.of_int ((List.length ordering) - 1))) 
+                                :: make_add_loop_counters ordering)) 
+                    loop_counter;
                   make_closure ordering]
     )
 
@@ -224,8 +231,8 @@ module Vassnew = struct
   let exp srk syms loop_counter sccsform =
     let scclabels = BatArray.map (fun scc -> mk_or srk (BatArray.to_list scc.label)) sccsform.vasses in
     let sccgraph = compute_edges srk syms scclabels sccsform.formula in
-    let order = List.rev (BGraphTopo.fold (fun v acc -> v :: acc) sccgraph []) in
-    let orderedsets = sublists order in
+    let order = List.rev (BGraphTopo.fold (fun v acc -> Log.errorf "THIS SCC REACHED %d" v; v :: acc) sccgraph []) in
+    let orderedsets = List.tl (List.rev (sublists order)) in
     (* CHECK IF ANY VASS IS TOP HERE*)
     let subloop_counters = BatArray.mapi (fun ind1 scc ->
         mk_const srk ((mk_symbol srk ~name:("counter_"^(string_of_int ind1)) `TyInt))) sccsform.vasses in
@@ -238,10 +245,19 @@ module Vassnew = struct
     (* MAKE SUB LOOP COUNTERS POS*)
     let sccclosures = BatArray.mapi (fun ind vass -> closure_of_an_scc srk syms subloop_counters.(ind) vass) sccsform.vasses in
     let sub_loops_geq_0 = create_exp_positive_reqs srk [Array.to_list subloop_counters] in
+    Log.errorf "EXP CLOSURE 1 is %a" (Formula.pp srk) (sccclosures.(1));
+    Log.errorf "Ordered sets size: %d" (List.length orderedsets);
+    (*let orderedsets = [List.nth orderedsets 2] in*)
+    List.iter (fun scc -> Log.errorf "%d with labels %a" scc (Formula.pp srk) (scclabels.(scc))) (List.hd orderedsets);
+
     let form =
       List.fold_left (fun acc orderedset ->
-            mk_or srk [closure_of_an_ordering srk syms loop_counter orderedset sccclosures subloop_counters sccgraph symmappings sccsform.formula; acc]) (mk_false srk) orderedsets in
-    mk_and srk [form; sub_loops_geq_0]
+          closure_of_an_ordering srk syms loop_counter orderedset sccclosures subloop_counters sccgraph symmappings sccsform.formula :: acc) [] orderedsets in
+    let result = mk_and srk [sub_loops_geq_0; mk_or srk form] in
+    Log.errorf "EXP CLOSURE 1 is %a" (Formula.pp srk) (List.hd form);
+    (*let result = mk_and srk [sccclosures.(1); sub_loops_geq_0; mk_eq srk subloop_counters.(1) loop_counter] in*)
+    Log.errorf "Final EXP is %a" (Formula.pp srk) result;
+    result
 
 
 
