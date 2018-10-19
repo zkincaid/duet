@@ -107,6 +107,8 @@ module Vassnew = struct
 
 
   let abstract ?(exists=fun x -> true) srk tr_symbols body =
+    let body = (rewrite srk ~down:(nnf_rewriter srk) body) in
+    let body = Nonlinear.linearize srk body in
     let label = Mvass.get_intersect_cube_labeling srk body exists tr_symbols in
     let graph = compute_edges srk tr_symbols label body in
     let num_sccs, func_sccs = BGraphComp.scc graph in
