@@ -139,7 +139,8 @@ let rec convert_rexpr ls =
                                         Core.Atom(op,convert_rexpr r,convert_rexpr l)
                                       else
                                         Core.Atom(op,convert_rexpr l,convert_rexpr r)
-                             )
+                              )
+    | InterIR.LVal(Undef) -> Core.Atom(Lt,Core.Constant(CInt(0,4)),  Core.Havoc(Core.Concrete (Int(4))))
     | _ ->  raise (Unexpected_value ("Condition has not a boolean type"))
 
 
