@@ -247,7 +247,6 @@ module Vassnew = struct
     (* MAKE SUB LOOP COUNTERS POS*)
     let sccclosures = BatArray.mapi (fun ind vass -> closure_of_an_scc srk syms subloop_counters.(ind) vass) sccsform.vasses in
     let sub_loops_geq_0 = create_exp_positive_reqs srk [Array.to_list subloop_counters] in
-    Log.errorf "EXP CLOSURE 1 is %a" (Formula.pp srk) (sccclosures.(1));
     Log.errorf "Ordered sets size: %d" (List.length orderedsets);
     (*let orderedsets = [List.nth orderedsets 2] in*)
     List.iter (fun scc -> Log.errorf "%d with labels %a" scc (Formula.pp srk) (scclabels.(scc))) (List.hd orderedsets);
