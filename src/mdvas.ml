@@ -256,7 +256,7 @@ let exp_base_helper srk tr_symbols loop_counter alphas transformers invars invar
   let base_constraints = exp_lin_term_trans_constraints srk equiv_pairst transformers (unify alphas) in
   let eq_zero_constraints = exp_k_zero_on_reset srk equiv_pairst transformers in
   let kstack_term_reduction = exp_kstack_eq_ksums srk equiv_pairst in
-  let invariants = mk_and srk invars in
+  let invariants = mk_or srk [mk_eq srk loop_counter (mk_zero srk); mk_and srk invars] in
   let form = 
     mk_and srk [pos_constraints; full_trans_constraints; perm_constraints; kstack_max_constraints;
                 reset_together_constraints; sx_constraints; base_constraints; eq_zero_constraints;
