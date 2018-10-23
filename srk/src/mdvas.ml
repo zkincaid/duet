@@ -76,7 +76,7 @@ let create_exp_vars srk alphas num_trans =
   let rec create_k_ints k vars basename equiv_num (arttype : Syntax.typ) =
     begin match k <= 0 with
       | true -> List.rev vars (*rev only to make debugging easier and have names match up... not needed *)
-      | false -> create_k_ints (k - 1) ((mk_symbol srk ~name:(basename^equiv_num^","^(string_of_int k)) arttype) :: vars) basename equiv_num arttype
+      | false -> create_k_ints (k - 1) ((mk_symbol srk ~name:(basename^equiv_num^"COM"^(string_of_int k)) arttype) :: vars) basename equiv_num arttype
     end
   in
   let rec helper alphas kvars svars rvars equiv_pairs ksums =
@@ -383,10 +383,10 @@ let remove_row vas x y =
 
 
 
-let alpha_hat (srk : 'a context) (imp : 'a formula) symbols x''s  x''_forms = 
+let alpha_hat (srk : 'a context) (imp : 'a formula) symbols x''s  x''_forms othersyms = 
   let postify = substitute_map srk (post_map srk x''s) in 
-  let r = H.affine_hull srk imp (List.map (fun (x, x') -> x') symbols) in
-  let i' = H.affine_hull srk (mk_and srk (imp :: x''_forms)) (List.map (fun (x'', x') -> x'') x''s) in
+  let r = H.affine_hull srk imp ((List.map (fun (x, x') -> x') symbols) @ othersyms) in
+  let i' = H.affine_hull srk (mk_and srk (imp :: x''_forms)) ((List.map (fun (x'', x') -> x'') x''s) @ othersyms) in
   let i = List.map postify i' in
   let add_dim m b a term a' offset =
     let (b', v) = V.pivot (Linear.const_dim) (Linear.linterm_of srk term) in
@@ -417,7 +417,7 @@ let find_invariants  (srk : 'a context) (symbols : (symbol * symbol) list) (body
   let get_last_dim vector =
     BatEnum.fold (fun (scal, high) (scalar, dim) ->
         if dim > high then (scalar,dim) else (scal, high)) (QQ.zero, -1) (V.enum vector) in
-  match alpha_hat srk body symbols x''s x''_forms with
+  match alpha_hat srk body symbols x''s x''_forms [] with
   | {v;alphas=[]} -> (body, [], false)
   | {v;alphas=[hd]} -> Log.errorf "THERE WERE NO INVARIANTS FOUND"; (body, [], false)
   | {v;alphas=[mi;mr]} ->
@@ -480,6 +480,10 @@ let pp srk syms formatter vas = Format.fprintf formatter "%a" (Formula.pp srk) (
 
 let abstract ?(exists=fun x -> true) (srk : 'a context) (symbols : (symbol * symbol) list) (body : 'a formula)  =
   time "START OF ABSTRACT FUNCTION";
+  let allsym = List.fold_left (fun acc (x, x') -> x :: x' :: acc) [] symbols in
+  let othersyms = Syntax.Symbol.Set.fold (fun sym acc -> if List.mem sym allsym then acc else sym :: acc) (Syntax.symbols body) [] in
+  Syntax.Symbol.Set.iter (fun s -> Log.errorf "Symbol is %a %B" (pp_symbol srk) s (exists s)) (Syntax.symbols body);
+  let othersyms = [] in
   let body = (rewrite srk ~down:(nnf_rewriter srk) body) in
   let body = Nonlinear.linearize srk body in
   let (x''s, x''_forms) = 
@@ -508,7 +512,7 @@ let abstract ?(exists=fun x -> true) (srk : 'a context) (symbols : (symbol * sym
       | None -> assert false
       | Some imp ->
         time "PRE ALPHA";
-        let alpha_v = alpha_hat srk (mk_and srk imp) symbols x''s x''_forms in
+        let alpha_v = alpha_hat srk (mk_and srk imp) symbols x''s x''_forms othersyms in
         time "POST ALPHA";
         (*if alpha_v = Top then Top else*)
         Log.errorf "Inter VAS: %a"  (Formula.pp srk) (gamma srk (coproduct srk vas alpha_v) symbols);
@@ -769,7 +773,7 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
           Smt.Solver.add solver [mk_not srk (mk_and srk pre_imp)];
           Log.errorf "exit";
           Log.errorf "Num: %d" (List.length labels);
-          find_pre ((mk_and srk pre_imp) :: labels)
+          find_pre ((preify srk tr_symbols (mk_and srk pre_imp)) :: labels)
     in
     Smt.Solver.reset solver;
     Smt.Solver.add solver [SrkSimplify.simplify_terms srk formula];
@@ -791,7 +795,7 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
           Smt.Solver.add solver [mk_not srk (mk_and srk post_imp)];
           Log.errorf "exit";
           Log.errorf "Post lab Num: %d" (List.length labels);
-          find_post ((mk_and srk post_imp) :: labels)
+          find_post ((preify srk tr_symbols (mk_and srk post_imp)) :: labels)
     in
        Smt.Solver.reset solver;
     Smt.Solver.add solver [post_form];
@@ -1023,7 +1027,7 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
     let ptrans_form = (rewrite srk ~down:(nnf_rewriter srk) (mk_and srk [prelabel;trans';postlabel])) in
     let post_trans = SrkApron.formula_of_property (Abstract.abstract ~exists:exists_post srk man ptrans_form) in
     (*if TSet.is_empty rtrans then post_trans else *)
-    let loop_counter = mk_const srk (mk_symbol srk ~name:("Counter"^(string_of_int ind)) `TyInt) in
+    let loop_counter = mk_const srk (mk_symbol srk ~name:("Trans_Counter"^(string_of_int ind)) `TyInt) in
     let lri_form = (rewrite srk ~down:(nnf_rewriter srk) f') in 
     (*let lri = LRI.exp srk tr_symbols loop_counter (LRI.abstract srk tr_symbols lri_form) in
     let pg = PG.postcondition (PG.abstract srk tr_symbols lri_form) in*)
