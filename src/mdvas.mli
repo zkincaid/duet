@@ -44,6 +44,9 @@ val create_exp_positive_reqs : 'a context -> 'a term list list -> 'a formula
 val preify : 'a context -> (symbol * symbol) list -> ('a, 'b) expr -> ('a, 'b) expr
 val postify : 'a context -> (symbol * symbol) list -> ('a, 'b) expr -> ('a, 'b) expr 
 
+val unify : M.t list -> M.t
+val ident_matrix : 'a context -> (symbol * symbol) list -> M.t
+
 module Mdvass : sig
   module Int = SrkUtil.Int
   module VassGraph : sig
