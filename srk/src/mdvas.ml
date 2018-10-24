@@ -1069,13 +1069,20 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
        mk_eq srk (mk_add srk nvarst) (mk_zero srk)]
 
   let exp_each_ests_one_or_zero srk ests =
-    mk_and srk
-      (List.map (fun (es, et) -> 
-           mk_and srk
-             [mk_or srk [mk_eq srk es (mk_zero srk); mk_eq srk es (mk_one srk)];
-              mk_or srk [mk_eq srk et (mk_zero srk); mk_eq srk et (mk_one srk)]]
-         )
-          ests)
+    if (List.length ests = 1) then
+      (
+        let (es, et) = List.hd ests in
+        mk_or srk [mk_and srk [mk_eq srk es (mk_one srk); mk_eq srk et (mk_one srk)];
+                   mk_and srk [mk_eq srk es (mk_zero srk); mk_eq srk et (mk_zero srk)]]
+      )
+    else(
+      mk_and srk
+        (List.map (fun (es, et) -> 
+             mk_and srk
+               [mk_or srk [mk_eq srk es (mk_zero srk); mk_eq srk es (mk_one srk)];
+                mk_or srk [mk_eq srk et (mk_zero srk); mk_eq srk et (mk_one srk)]]
+           )
+            ests))
 
   let exp_pre_post_conds srk ests label tr_symbols =
     mk_and srk
