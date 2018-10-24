@@ -140,6 +140,7 @@ module Vassnew = struct
   let rec sublists = function (*I stole this from the internet. Hopefully it works*)
     | []    -> [[]]
     | x::xs -> let ls = sublists xs in
+      Log.errorf "Pop";
       List.map (fun l -> x::l) ls @ ls
 
 
@@ -148,6 +149,25 @@ module Vassnew = struct
     List.iteri (fun index (n1, trans, n2) -> in_sing.(n2)<-((List.nth nvarst index) :: in_sing.(n2)); out_sing.(n1)<- ((List.nth nvarst index) :: out_sing.(n1)))
       transformersmap;
     in_sing, out_sing
+
+
+  let exp_each_ests_one_or_zero srk ests =
+    if (List.length ests = 1) then
+      (
+        let (es, et) = List.hd ests in
+        mk_and srk [mk_eq srk es (mk_one srk); mk_eq srk et (mk_one srk)]
+      )
+    else(
+      mk_and srk
+        (List.map (fun (es, et) -> 
+             mk_and srk
+               [mk_or srk [mk_eq srk es (mk_zero srk); mk_eq srk es (mk_one srk)];
+                mk_or srk [mk_eq srk et (mk_zero srk); mk_eq srk et (mk_one srk)]]
+           )
+            ests))
+
+
+
 
 
   (*MAKE LOOP_COUNTER AT LEAST 1.... but does this enforce other things must transition?....YOU NEED TO IMPLEMENT THE RESET SHIT*)
@@ -176,12 +196,11 @@ module Vassnew = struct
     let ests = Mvass.create_es_et srk (Array.length label) in
     let flow_consv_req = Mvass.exp_consv_of_flow srk in_sing out_sing ests in
     let in_out_one = Mvass.exp_one_in_out_flow srk ests nvarst in
-    let ests_one_or_zero = Mvass.exp_each_ests_one_or_zero srk ests in
+    let ests_one_or_zero = exp_each_ests_one_or_zero srk ests in
     let pre_post_conds = Mvass.exp_pre_post_conds srk ests label tr_symbols in
     let pos_constraints = create_exp_positive_reqs srk [nvarst; fst (List.split ests); snd (List.split ests)] in
     let form = mk_and srk [form; sum_n_eq_loop_counter; ks_less_than_ns; flow_consv_req; in_out_one;
                            ests_one_or_zero; pre_post_conds; pos_constraints; post_conds_const] in
-    Log.errorf " Current D VAL %a" (Formula.pp srk) form;
     form
 
 
@@ -220,9 +239,6 @@ module Vassnew = struct
                              :: (make_closure_helper (hdd :: hddd :: tl))
         | [hd; hdd] -> let tempform =(postify srk (merge_mappings syms symmappings.(hdd) true true) 
                                         (postify srk (merge_mappings syms symmappings.(hd) false false) formula)) in
-          Log.errorf "THE ORIG SCC FORM WAS %a" (Formula.pp srk) (sccsclosure.(hdd));
-          Log.errorf "THE NEW SCC FORM WAS %a" (Formula.pp srk) (postify srk (merge_mappings syms symmappings.(hdd) false true)  sccsclosure.(hdd));
-
           tempform :: [(postify srk (merge_mappings syms symmappings.(hdd) false true)  sccsclosure.(hdd))]
 
       in
@@ -249,6 +265,10 @@ module Vassnew = struct
     )
 
 
+  let no_trans_taken srk loop_counter syms =
+    let eqs = (List.map (fun (x, x') -> mk_eq srk (mk_const srk x) (mk_const srk x'))) syms in
+    mk_and srk ((mk_eq srk loop_counter (mk_zero srk)) :: eqs)
+
   let exp srk syms loop_counter sccsform =
     let contains_top = BatArray.fold_left (fun acc vass ->
         if(M.nb_rows (unify (vass.simulation)) = 0) then true else acc) false sccsform.vasses in
@@ -256,28 +276,35 @@ module Vassnew = struct
       let scclabels = BatArray.map (fun scc -> mk_or srk (BatArray.to_list scc.label)) sccsform.vasses in
       let sccgraph = compute_edges srk syms scclabels sccsform.formula in
       let order = List.rev (BGraphTopo.fold (fun v acc -> Log.errorf "THIS SCC REACHED %d" v; v :: acc) sccgraph []) in
+      Log.errorf "Reached here";
       let orderedsets = List.tl (List.rev (sublists order)) in
+      Log.errorf "Pop";
       (* CHECK IF ANY VASS IS TOP HERE*)
       let subloop_counters = BatArray.mapi (fun ind1 scc ->
           mk_const srk ((mk_symbol srk ~name:("counter_"^(string_of_int ind1)) `TyInt))) sccsform.vasses in
       let symmappings = BatArray.mapi (fun ind1 scc ->
           List.rev
             (BatList.fold_lefti (fun acc ind2 (x, x') ->
-                 ((mk_symbol srk ~name:("x_"^(string_of_int ind1)^","^(string_of_int ind2)) `TyReal),
-                  (mk_symbol srk ~name:("x'_"^(string_of_int ind1)^","^(string_of_int ind2)) `TyReal)) :: acc) [] syms)) sccsform.vasses
+                 ((mk_symbol srk ~name:("x_"^(string_of_int ind1)^"COM"^(string_of_int ind2)) `TyReal),
+                  (mk_symbol srk ~name:("x'_"^(string_of_int ind1)^"COM"^(string_of_int ind2)) `TyReal)) :: acc) [] syms)) sccsform.vasses
       in
+      Log.errorf "And here";
       (* MAKE SUB LOOP COUNTERS POS*)
       let sccclosures = BatArray.mapi (fun ind vass -> closure_of_an_scc srk syms subloop_counters.(ind) vass) sccsform.vasses in
+      Log.errorf "And finally here";
       let sub_loops_geq_0 = create_exp_positive_reqs srk [Array.to_list subloop_counters] in
       Log.errorf "Ordered sets size: %d" (List.length orderedsets);
-      (*let orderedsets = [List.nth orderedsets 2] in*) (*2 is bad*)
+      (*let orderedsetss = [List.nth orderedsets 7] in*) (*2 is bad*)
 
       let form =
         List.fold_left (fun acc orderedset ->
             closure_of_an_ordering srk syms loop_counter orderedset sccclosures subloop_counters sccgraph symmappings sccsform.formula :: acc) [] orderedsets in
-      let result = mk_and srk [sub_loops_geq_0; mk_or srk form] in
+      let result = mk_or srk [mk_and srk [sub_loops_geq_0; mk_or srk form];
+                              no_trans_taken srk loop_counter syms] in
+      let results = mk_and srk [sub_loops_geq_0; mk_or srk form] in
       (*let result = mk_and srk [sccclosures.(1); sub_loops_geq_0; mk_eq srk subloop_counters.(1) loop_counter] in*)
-      Log.errorf "Final EXP is %a" (Formula.pp srk) result;
+      (*Log.errorf "Final EXP is %a" (Formula.pp srk) result;*)
+      Log.errorf "Done";
       result
     )
 
