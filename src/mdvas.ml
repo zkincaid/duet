@@ -972,9 +972,6 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
       Log.errorf "NUM ALPHAS %d" (List.length alphas);
       (*let label = deterministic_phase_label srk body exists tr_symbols alphas v in*)
       let label = get_intersect_cube_labeling srk body exists tr_symbols in
-      (*let labeli = get_intersect_labeling srk body exists tr_symbols in*)
-      (*let label = get_transition_equiv_labeling srk body exists tr_symbols v alphas in*)
-      (*let label2 = get_a_labeling srk body exists tr_symbols in*)
       let simulation = alphas in
       let graph = compute_edges srk v tr_symbols alphas label body in
       BatArray.iteri (fun ind arr -> 
@@ -984,27 +981,18 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
 
 
     
-
-  (*let vassabstract ?(exists=fun x -> true) srk tr_symbols body label =
-    let vas = abstract ~exists srk tr_symbols body in
-    match vas with
-    | Top -> assert false
-    | Bottom -> assert false
-    | Vas {v; alphas} ->
-      let simulation = alphas in
-      let graph = compute_edges srk v tr_symbols alphas label in
-      {label; graph; simulation}
-*)
-
+  (*The N vars are the max number of times any transition was taken. Used for flow primarily*)
   let rec create_n_vars srk num vars basename =
     begin match num <= 0 with
       | true -> List.rev vars (*rev only to make debugging easier and have names match up... not needed *)
       | false -> create_n_vars srk (num - 1) ((mk_symbol srk ~name:(basename^(string_of_int num)) `TyInt) :: vars) basename
     end
 
+  (*Set N vars eq to loop counter*)
   let exp_nvars_eq_loop_counter srk nvarst loop_counter =
     mk_eq srk (mk_add srk nvarst) loop_counter
 
+  (* Set each kvar less or eq respective nvar*)
   let exp_kvarst_less_nvarst srk nvarst kvarst =
     mk_and srk
       (List.map (fun kstack ->
@@ -1014,11 +1002,15 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
                  kstack))
           kvarst)
           
+  (*ESL entry node for graph; ETL exit node for graph*)
   let create_es_et srk num =
     let es = map_terms srk (create_n_vars srk num [] "ESL") in
     let et = map_terms srk (create_n_vars srk num [] "ETL") in
     List.combine es et
 
+
+(* in_sing is which transformers enter single label; out single is which transformers exit single label
+ * in_scc is which transformers enter scc; pre_scc is which transformers originate in given scc*)
   let exp_compute_trans_in_out_index_numbers transformersmap num sccs nvarst =
     let num_sccs, func_sccs = sccs in
     let in_sing, out_sing, in_scc, pre_scc = Array.make num [], Array.make num [], Array.make num_sccs [], Array.make num_sccs [] in
@@ -1031,9 +1023,9 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
   in_sing, out_sing, in_scc, pre_scc
 
 
-  let compute_trans_post_cond srk prelabel postlabel (trans : transformer) (rtrans,rverts) alphas tr_symbols lc ind =
-    
-    
+
+  (*Compute the condition that must hold if a given transformer is taken*)
+  let compute_trans_post_cond srk prelabel postlabel (trans : transformer) (rtrans,rverts) alphas tr_symbols lc ind = 
     let term_list = term_list srk alphas tr_symbols in
     let f' = TSet.fold (fun t acc -> mk_or srk [(gamma_transformer srk term_list t); acc]) rtrans (mk_false srk) in
     let pre_symbols = pre_symbols tr_symbols in
@@ -1060,6 +1052,7 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
     rslt
  
 
+  (* If a transformers is taken, that transformer post condition must hold*)
   let exp_post_conds_on_transformers srk label transformersmap reachability nvarst alphas tr_symbols lc =
     mk_and srk 
       (BatList.mapi (fun ind (n1, trans, n2) -> 
@@ -1069,6 +1062,7 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
            mk_if srk (mk_lt srk (mk_zero srk) (List.nth nvarst ind)) (mk_and srk [post_cond; mk_true srk])) transformersmap
       ) 
 
+  (* Flow is conserved for the nvarst *)
   let exp_consv_of_flow srk in_sing out_sing ests =
     mk_and srk
       (List.mapi (fun ind (es, et) ->
@@ -1077,6 +1071,7 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
             (mk_add srk (et :: out_sing.(ind))))
           ests)
 
+  (*Either there is an entry node and exit node, or no transitions taken*)
   let exp_one_in_out_flow srk ests nvarst = 
     let et, es = List.split ests in
     mk_or srk
@@ -1085,6 +1080,7 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
           mk_eq srk (mk_add srk es) (mk_one srk)];
        mk_eq srk (mk_add srk nvarst) (mk_zero srk)]
 
+  (* Each es and et var either 1 or 0. If a single label, both 1 or both 0 *)
   let exp_each_ests_one_or_zero srk ests =
     if (List.length ests = 1) then
       (
@@ -1101,6 +1097,8 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
            )
             ests))
 
+  (* The initial label for graph must have precond satisfied; the final label for graph must have 
+   * post cond satisfied*)
   let exp_pre_post_conds srk ests label tr_symbols =
     mk_and srk
       (List.mapi (fun ind (es, et) ->
@@ -1108,7 +1106,8 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
              [mk_if srk (mk_eq srk es (mk_one srk)) (label.(ind));
               mk_if srk (mk_eq srk et (mk_one srk)) (postify srk tr_symbols (label.(ind)))])
           ests)
-  
+ 
+  (* If an scc is never entered, all transformers originating in that scc are never taken*)
   let exp_never_enter_scc srk ests in_scc pre_scc sccs =
     let num_sccs, func_sccs = sccs in
     let es_comp = Array.make num_sccs [] in
@@ -1130,6 +1129,7 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
              in_scc))
 
 
+  (*Compute the graph that is reachable from a given transformer*)
   let get_reachable_trans graph =
     BatArray.mapi (fun ind vert -> GraphTrav.fold_component (fun v (trans, verts) -> 
         TSet.union
