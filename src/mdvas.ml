@@ -40,17 +40,13 @@ type vas = TSet.t
 let pp_vas formatter (vas : vas) : unit =
   SrkUtil.pp_print_enum pp_transformer formatter (TSet.enum vas)  
 
-
 type 'a t = { v : vas; alphas : M.t list; invars : 'a formula list; invarmaxk : bool}
 
-
-let time marker =
-    Printf.printf "Execution time at %s : %fs\n" marker (Sys.time());()
 
 let mk_top = {v=TSet.empty; alphas=[]; invars=[]; invarmaxk=false}
 
 
-
+(*Vertically stack matrices*)
 let unify (alphas : M.t list) : M.t =
   let unified = List.fold_left (fun matrix alphacell -> 
       BatEnum.fold (fun matrix (dim, vector) ->
@@ -59,6 +55,7 @@ let unify (alphas : M.t list) : M.t =
         (M.rowsi alphacell))
       M.zero alphas in
   unified 
+
 
 let post_map srk tr_symbols =
   List.fold_left
@@ -70,7 +67,7 @@ let preify srk tr_symbols = substitute_map srk (post_map srk (List.map (fun (x, 
 let postify srk tr_symbols = substitute_map srk (post_map srk tr_symbols)
  
 
-
+(* 1 kvar for each transformer; 1 svar per row in equiv class; 1 rvar, 1 kstack for each equiv class*)
 let create_exp_vars srk alphas num_trans =
   let bdim = ref 0 in
   let rec create_k_ints k vars basename equiv_num (arttype : Syntax.typ) =
@@ -83,20 +80,27 @@ let create_exp_vars srk alphas num_trans =
     match alphas with
     | [] -> kvars, svars, rvars, equiv_pairs, ksums
     | hd :: tl -> 
+      (*Transformers for given equiv class*)
       let kstack = (create_k_ints num_trans [] "K" (string_of_int (List.length alphas)) `TyInt) in
+      (*Denotes which transformer a given equiv class was reset on*)
       let rvar = (mk_symbol srk ~name:("R"^(string_of_int (List.length alphas))) `TyInt) in
+      (*The sum of transformers for a given equiv class*)
       let kstacksum = (mk_symbol srk ~name:("KSUM"^(string_of_int (List.length alphas))) `TyInt) in 
+      (*Starting value for given row of equiv class*)
       let svaralpha = create_k_ints (M.nb_rows hd) [] "S" (string_of_int (List.length alphas)) `TyReal in
+      (*One grouping per equiv class*)
       let equiv_pair = (kstack, List.map (fun svar -> let res = (svar, !bdim) in bdim := !bdim + 1; res) svaralpha, rvar, kstacksum) in
       helper tl (kstack :: kvars) (svaralpha :: svars) (rvar :: rvars) (equiv_pair :: equiv_pairs) (kstacksum :: ksums)
   in
   helper alphas [] [] [] [] []
 
+(*Make passed in variables each be >= 0*)
 let create_exp_positive_reqs srk kvarst =
   mk_and srk (List.map (fun var -> 
       mk_leq srk (mk_zero srk) var) 
       (List.flatten kvarst))
 
+(*If a kstack is full, then that equiv class never reset*)
 let exp_full_transitions_reqs srk kvarst rvarst loop_counter =
   mk_and srk  
     (List.map2 
@@ -109,6 +113,7 @@ let exp_full_transitions_reqs srk kvarst rvarst loop_counter =
         kvarst rvarst)
     (* Replacing kvarst with ksums here seems to deoptimize. Unclear why *)
 
+(*Create every pairing of (ksum, kstack, reset var) for each equiv class*)
 let all_pairs_kvarst_rvarst ksumst kvarst (rvarst : 'a Syntax.term list) =
   let rec helper1 (sum1, kstack1, r1) ksumst' kvarst' rvarst' =
     begin match ksumst', kvarst', rvarst' with
@@ -128,6 +133,7 @@ let all_pairs_kvarst_rvarst ksumst kvarst (rvarst : 'a Syntax.term list) =
   in
   List.flatten (helper2 ksumst kvarst rvarst)
 
+(*Create every permutation of ordering for equiv classes*)
 let exp_perm_constraints srk krpairs =
   mk_and srk
     (List.map 
@@ -139,6 +145,7 @@ let exp_perm_constraints srk krpairs =
         mk_or srk [lessthan k1 k2;  lessthan k2 k1])
       krpairs)
 
+(*If two pairings have equal sums, must've been reset at same time*)
 let exp_equality_k_constraints srk krpairs =
   mk_and srk
     (List.map
@@ -150,6 +157,9 @@ let exp_equality_k_constraints srk krpairs =
           (mk_eq srk r1 r2))
       krpairs)
 
+
+(*If ksum equiv pair 1 smaller ksum equiv pair 2, ksum equiv pair 2
+ * took path that equiv pair 1 reset on at least once*)
 let exp_other_reset srk ksum ksums kvarst trans_num =
   mk_and srk
     (List.mapi (fun ind ksum' ->
@@ -162,6 +172,9 @@ let exp_other_reset srk ksum ksums kvarst trans_num =
           (List.nth (List.nth kvarst ind) trans_num))))
     ksums)
 
+
+(*Either svar for each row in equiv class in x and equiv class not reset or equiv class reset
+ * at transformer i and svars equal the reset dim at transformer i*)
 let exp_sx_constraints_helper srk ri ksum ksums svarstdims transformers kvarst unialpha tr_symbols =
   let compute_single_svars svart dim  =
     mk_or srk
@@ -181,6 +194,7 @@ let exp_sx_constraints_helper srk ri ksum ksums svarstdims transformers kvarst u
     in
   mk_and srk (List.map (fun (svar,dim) -> compute_single_svars svar dim) svarstdims)
 
+(*See helper function for description*)
 let exp_sx_constraints srk equiv_pairs transformers kvarst ksums unialpha tr_symbols =
   mk_and srk
     (List.map (fun (kstack, svarstdims, ri, ksum) ->
@@ -188,7 +202,7 @@ let exp_sx_constraints srk equiv_pairs transformers kvarst ksums unialpha tr_sym
     equiv_pairs)
 
 
-
+(*Make x' equal to the sum of start variable plus kvars * increase*)
 let exp_lin_term_trans_constraints srk equiv_pairs transformers unialpha =
   mk_and srk
     (List.map (fun (kstack, svarstdims, ri, _) ->
@@ -205,6 +219,7 @@ let exp_lin_term_trans_constraints srk equiv_pairs transformers unialpha =
         svarstdims))
     equiv_pairs)
 
+(*If a kvar in a kstack is a reset for given equiv class, this kvar must be 0*)
 let exp_k_zero_on_reset srk equiv_pairs transformers =
   mk_and srk
     (List.map (fun (kstack, svarstdims, ri, _) ->
@@ -217,6 +232,7 @@ let exp_k_zero_on_reset srk equiv_pairs transformers =
           transformers))
     equiv_pairs)
 
+(*A given ksum cannot be larger than loop counter*)
 let exp_kstacks_at_most_k srk ksumst loop_counter=
   mk_and srk
     (List.map
@@ -225,6 +241,7 @@ let exp_kstacks_at_most_k srk ksumst loop_counter=
               loop_counter)
       ksumst)
 
+(*Give ksums meaning*)
 let exp_kstack_eq_ksums srk equiv_pairs =
   mk_and srk
     (List.map (fun (kstack, _, _, ksum) ->
