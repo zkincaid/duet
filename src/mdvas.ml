@@ -253,7 +253,7 @@ let exp_kstack_eq_ksums srk equiv_pairs =
 let map_terms srk = List.map (fun (var : Syntax.symbol) -> mk_const srk var)
  
 
-let exp_base_helper srk tr_symbols loop_counter alphas transformers invars invarmaxk =
+let exp_base_helper srk tr_symbols loop_counter alphas transformers invars invarmaxk vas_only =
   let maxkinvar = if invarmaxk then (mk_leq srk loop_counter (mk_one srk)) else mk_true srk in
   let num_trans = BatList.length transformers in
   let kvars, svars, rvars, equiv_pairs, ksums = create_exp_vars srk alphas num_trans in
@@ -269,16 +269,17 @@ let exp_base_helper srk tr_symbols loop_counter alphas transformers invars invar
   let perm_constraints = exp_perm_constraints srk krpairs in
   let reset_together_constraints = exp_equality_k_constraints srk krpairs in
   let kstack_max_constraints = exp_kstacks_at_most_k srk ksumst loop_counter in
-  let sx_constraints = exp_sx_constraints srk equiv_pairst transformers kvarst ksumst (unify alphas) tr_symbols in
-  let base_constraints = exp_lin_term_trans_constraints srk equiv_pairst transformers (unify alphas) in
+   let base_constraints = exp_lin_term_trans_constraints srk equiv_pairst transformers (unify alphas) in
   let eq_zero_constraints = exp_k_zero_on_reset srk equiv_pairst transformers in
   let kstack_term_reduction = exp_kstack_eq_ksums srk equiv_pairst in
   let invariants = mk_or srk [mk_eq srk loop_counter (mk_zero srk); mk_and srk invars] in
+  let sx_constraints = if(vas_only) then exp_sx_constraints srk equiv_pairst transformers kvarst ksumst (unify alphas) tr_symbols 
+        else mk_true srk in
   let form = 
     mk_and srk [pos_constraints; full_trans_constraints; perm_constraints; kstack_max_constraints;
                 reset_together_constraints; sx_constraints; base_constraints; eq_zero_constraints;
                 kstack_term_reduction; invariants; maxkinvar] in
-  (form, (equiv_pairst, kvarst, svarst, rvarst))
+  (form, (equiv_pairst, kvarst, svarst, rvarst, ksumst))
 
 
 
@@ -286,7 +287,7 @@ let exp srk tr_symbols loop_counter vabs =
   match vabs with
   | {v; alphas; invars; invarmaxk} ->
     if(M.nb_rows (unify alphas) = 0) then mk_true srk else (
-      let (form, _) = exp_base_helper srk tr_symbols loop_counter alphas (TSet.to_list v) invars invarmaxk in
+      let (form, _) = exp_base_helper srk tr_symbols loop_counter alphas (TSet.to_list v) invars invarmaxk true in
       form
     )
 
@@ -760,6 +761,7 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
 
 
   let get_pre_cube_labels srk formula exists tr_symbols =
+    Log.errorf "Error in cube?";
     let pre_symbols = pre_symbols tr_symbols in
     let post_symbols = post_symbols tr_symbols in
     let solver = Smt.mk_solver srk in
@@ -813,21 +815,6 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
     let post_labels = find_post [] in
     pre_labels, post_labels
 
-
-
-
-
-  let get_a_labeling srk formula exists tr_symbols =
-    let pre, post = get_pre_post_labels srk formula exists tr_symbols in
-    let redund_reduced = remove_redundant_labels srk tr_symbols formula (pre @ post) in
-    let result = BatArray.of_list redund_reduced in
-    Array.iteri (fun ind lab -> Log.errorf "LABEL NUM %d: %a" ind (Formula.pp srk) (lab)) result;
-    result
-
-
-
-
-        
 
   let check_same_sing_tran srk l1 l2 transformers term_list tr_symbols formula =
     let solver = Smt.mk_solver srk in
@@ -1040,6 +1027,7 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
     let exists_post x = not (Symbol.Set.mem x pre_symbols) in
     let trans' = gamma_transformer srk term_list trans in
     let ptrans_form = (rewrite srk ~down:(nnf_rewriter srk) (mk_and srk [prelabel;trans';postlabel])) in
+    Log.errorf "Error here?";
     let post_trans = SrkApron.formula_of_property (Abstract.abstract ~exists:exists_post srk man ptrans_form) in
     (*if TSet.is_empty rtrans then post_trans else *)
     let loop_counter = mk_const srk (mk_symbol srk ~name:("Trans_Counter"^(string_of_int ind)) `TyInt) in
@@ -1069,13 +1057,15 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
       ) 
 
   (* Flow is conserved for the nvarst *)
-  let exp_consv_of_flow_new srk in_sing out_sing ests varst extra_one =
+  let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_label =
+    let in_sing_inds = in_sing in
     let in_sing = BatArray.map (fun indlist -> List.map (fun ind -> List.nth varst ind) indlist) in_sing in
     let out_sing = BatArray.map (fun indlist -> List.map (fun ind -> List.nth varst ind) indlist) out_sing in
     mk_and srk
       (List.mapi (fun ind (es, et) ->
           mk_eq srk
-            (mk_add srk ((if extra_one = -2 then es else if extra_one = ind then mk_one srk else mk_zero srk) :: in_sing.(ind)))
+            (mk_add srk ((if reset_label = -2 then es else if (BatList.mem reset_label in_sing_inds.(ind)) 
+                          then mk_one srk else mk_zero srk) :: in_sing.(ind)))
             (mk_add srk (et :: out_sing.(ind))))
           ests)
 
@@ -1189,7 +1179,8 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
 
 (*Either svar for each row in equiv class in x and equiv class not reset or equiv class reset
  * at transformer i and svars equal the reset dim at transformer i*)
-let exp_sx_constraints_helper_flow srk ri ksum ksums svarstdims transformers kvarst unialpha tr_symbols =
+let exp_sx_constraints_helper_flow srk ri ksum ksums svarstdims transformers kvarst unialpha tr_symbols kstack in_sing
+  out_sing ests in_scc pre_scc sccs =
   let compute_single_svars svart dim  =
     mk_or srk
       ((mk_and srk
@@ -1204,7 +1195,9 @@ let exp_sx_constraints_helper_flow srk ri ksum ksums svarstdims transformers kva
            mk_and srk
            [(mk_eq srk svart (mk_real srk (V.coeff dim b)));
            exp_other_reset srk ksum ksums kvarst ind;
-            (mk_eq srk ri (mk_real srk (QQ.of_int ind)))
+            (mk_eq srk ri (mk_real srk (QQ.of_int ind)));
+            exp_consv_of_flow_new srk in_sing out_sing ests kstack ind;
+            exp_never_enter_scc_new srk ests in_scc pre_scc sccs kstack ind
             (*(MAKE FLOW FOR ONE K CLASS MAKe SeNSE kstack in_scc pre_scc in_sing out_sing)*)])
        transformers))
     in
@@ -1212,10 +1205,11 @@ let exp_sx_constraints_helper_flow srk ri ksum ksums svarstdims transformers kva
 
 
 (*See helper function for description*)
-let exp_sx_constraints_flow srk equiv_pairs transformers kvarst ksums unialpha tr_symbols =
+let exp_sx_constraints_flow srk equiv_pairs transformers kvarst ksums unialpha tr_symbols in_sing out_sing ests in_scc pre_scc sccs =
   mk_and srk
     (List.map (fun (kstack, svarstdims, ri, ksum) ->
-      exp_sx_constraints_helper_flow srk ri ksum ksums svarstdims transformers kvarst unialpha tr_symbols)
+      exp_sx_constraints_helper_flow srk ri ksum ksums svarstdims transformers kvarst unialpha tr_symbols kstack in_sing out_sing ests
+in_scc pre_scc sccs)
     equiv_pairs)
 
 
@@ -1236,8 +1230,8 @@ let exp_sx_constraints_flow srk equiv_pairs transformers kvarst ksums unialpha t
         in
         let transformers = List.map (fun (_, t, _) -> t) transformersmap in
         let nvarst = map_terms srk (create_n_vars srk (List.length transformers) [] "N") in
-        let (form, (equiv_pairst, kvarst, svarst, rvarst)) =
-          exp_base_helper srk tr_symbols loop_counter simulation transformers invars invarmaxk in
+        let (form, (equiv_pairst, kvarst, svarst, rvarst, ksumst)) =
+          exp_base_helper srk tr_symbols loop_counter simulation transformers invars invarmaxk true in
         let sum_n_eq_loop_counter = exp_nvars_eq_loop_counter srk nvarst loop_counter in
         let ks_less_than_ns = exp_kvarst_less_nvarst srk nvarst kvarst in
         let sccs = GraphComp.scc graph in
@@ -1258,9 +1252,11 @@ let exp_sx_constraints_flow srk equiv_pairs transformers kvarst ksums unialpha t
         let pre_post_conds = exp_pre_post_conds srk ests label tr_symbols in
         let never_enter_constraints = exp_never_enter_scc_new srk ests in_scc pre_scc sccs nvarst (-2) in
         let pos_constraints = create_exp_positive_reqs srk [nvarst; fst (List.split ests); snd (List.split ests)] in
+        let sx_constraints = exp_sx_constraints_flow srk equiv_pairst transformers kvarst ksumst (unify alphas) tr_symbols in_sing out_sing
+        ests in_scc pre_scc sccs in
         Log.errorf " Failure cause %a" (Formula.pp srk) pre_post_conds;
         let form = mk_and srk [form; sum_n_eq_loop_counter; ks_less_than_ns; flow_consv_req; in_out_one;
-                                 ests_one_or_zero;  pre_post_conds; never_enter_constraints; pos_constraints; post_conds_const] in
+                               ests_one_or_zero;  pre_post_conds; never_enter_constraints; pos_constraints; post_conds_const(*; sx_constraints*)] in
         Log.errorf " Current D VAL %a" (Formula.pp srk) form;
         form
       )

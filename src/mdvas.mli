@@ -36,16 +36,19 @@ val remove_row: 'a t -> int -> int -> 'a t
 val postify : 'a context -> (symbol * symbol) list -> 'a formula -> 'a formula
 val map_terms : 'a context -> symbol list -> 'a term list
 val exp_base_helper : 'a context -> (symbol * symbol) list -> 'a term -> 
-  M.t list -> transformer list -> 'a formula list -> bool -> 'a formula * ((('a, 'b) expr list * (('a, 'c) expr * int) list *
-                                                               ('a, 'd) expr * ('a, 'e) expr) list * 
-                                                              'a term list list * ('a, 'f) expr list *
-                                                              ('a, 'g) expr list) 
+  M.t list -> transformer list -> 'a formula list -> bool -> bool -> 'a formula * ((('a, 'b) expr list * (('a, 'c) expr * int) list *
+                                                                            ('a, 'd) expr * ('a, 'e) expr)
+                                                                             list * 'a term list list * ('a, 'f) expr list *
+                                                                           ('a, 'g) expr list * ('a, 'h) expr list)
+                                                             
 val create_exp_positive_reqs : 'a context -> 'a term list list -> 'a formula
 val preify : 'a context -> (symbol * symbol) list -> ('a, 'b) expr -> ('a, 'b) expr
 val postify : 'a context -> (symbol * symbol) list -> ('a, 'b) expr -> ('a, 'b) expr 
 
 val unify : M.t list -> M.t
 val ident_matrix : 'a context -> (symbol * symbol) list -> M.t
+
+val exp_other_reset : 'a context -> 'a term -> 'a term list -> 'a term list list -> int -> 'a formula
 
 module Mdvass : sig
   module Int = SrkUtil.Int
@@ -80,4 +83,5 @@ module Mdvass : sig
   val exp_one_in_out_flow : 'a context -> ('a term * 'a term) list -> 'a term list -> 'a formula
   val exp_each_ests_one_or_zero : 'a context -> ('a term * 'a term) list -> 'a formula
   val exp_pre_post_conds : 'a context -> ('a term * 'a term) list -> 'a formula array -> (symbol * symbol) list -> 'a formula
+  val exp_consv_of_flow_new : 'a context -> int list array -> int list array -> ('a term * 'a term) list -> 'a term list -> int -> 'a formula
 end
