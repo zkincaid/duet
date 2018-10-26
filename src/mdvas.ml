@@ -625,66 +625,6 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
       Symbol.Set.empty
       tr_symbols
 
-
-
-
-
-  let remove_redundant_labels srk tr_symbols body labels =
-    let check_if_redund srk tr_symbols body lb_1 lb_2 labels' =
-      let solver = Smt.mk_solver srk in
-      Smt.Solver.add solver [body];
-      Smt.Solver.add solver (List.map (fun lab -> mk_not srk lab ) (lb_1 :: labels'));
-      match Smt.Solver.get_model solver with
-      | `Unsat -> 
-        Smt.Solver.reset solver;
-        Smt.Solver.add solver [body];
-        let post_labels = List.map (fun lab -> mk_not srk (postify srk tr_symbols lab)) (lb_1 :: labels') in
-        Smt.Solver.add solver post_labels;
-        begin match Smt.Solver.get_model solver with
-        | `Unsat -> true
-        | _ -> false
-        end
-      | _ -> false
-    in
-    let check_if_imp srk lb_1 lb_2 =
-      let solver = Smt.mk_solver srk in
-      let form = (rewrite srk ~down:(nnf_rewriter srk) (mk_not srk (mk_if srk lb_1 lb_2))) in 
-      Smt.Solver.add solver [form];
-      match Smt.Solver.get_model solver with
-      | `Unsat -> Log.errorf "MADEITHEREHEHREHEHERE"; true
-      | `Unknown -> false
-      | `Sat m -> Log.errorf "THIS IS INTREPT %a" (Interpretation.pp) m;
-        match Interpretation.select_implicant m form with
-        | None -> assert false
-        | Some imp -> Log.errorf "Imp is %a" (Formula.pp srk) (mk_and srk imp); false
-
-    in
-    let rec compute_pairs srk front (ele : 'a Syntax.formula) back pairs =
-      match back with
-      | [] -> pairs
-      | hd :: tl ->
-        Log.errorf "Pair here is %a %a" (Formula.pp srk) ele (Formula.pp srk) hd;
-        match check_if_imp srk ele hd, check_if_imp srk hd ele with
-        | true, true | true, false -> compute_pairs srk (hd :: front) ele tl ((ele, hd, (front @ back)) :: pairs)
-        | false, true ->  compute_pairs srk (hd :: front) ele tl ((hd, ele, (front @ back)) :: pairs)
-        | false, false ->  compute_pairs srk (hd :: front) ele tl pairs
-    in
-    let rec compute_all_pairs srk front back pairs =
-      match back with
-      | hd :: tl -> compute_all_pairs srk (hd :: front) tl ((compute_pairs srk front hd tl [] ) @ pairs)
-      | [] -> pairs
-    in
-    let pairs = compute_all_pairs srk [] labels [] in
-    Log.errorf "NUM PAIRS %d" (List.length pairs);
-    BatList.iteri (fun ind (lb1, lb2, labels') -> Log.errorf "Pair %d: %a %a" ind (Formula.pp srk) (lb1) (Formula.pp srk) (lb2)) pairs;
-    BatList.fold_left (fun acc (lb_1, lb_2, labels') ->
-        match check_if_redund srk tr_symbols body lb_1 lb_2 labels' with
-        | true -> BatList.remove acc lb_2
-        | false -> acc
-      ) labels pairs
-
-
-
   let get_pre_with_post_labels srk formula exists tr_symbols =
     let pre_symbols = pre_symbols tr_symbols in
     let post_symbols = post_symbols tr_symbols in
@@ -816,61 +756,6 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
     pre_labels, post_labels
 
 
-  let check_same_sing_tran srk l1 l2 transformers term_list tr_symbols formula =
-    let solver = Smt.mk_solver srk in
-    let diff = 
-      TSet.filter (fun trans ->
-          Smt.Solver.reset solver;
-          let trans_constraint = gamma_transformer srk term_list trans in
-          Smt.Solver.add solver [l1; trans_constraint; formula];
-          match Smt.Solver.get_model solver with
-          | `Unsat -> 
-            Smt.Solver.reset solver;
-            Smt.Solver.add solver [l2; trans_constraint; formula];
-            begin match Smt.Solver.get_model solver with
-              | `Unsat -> false
-              | _ -> true
-            end
-          | `Unknown -> true
-          | `Sat _ ->
-            Smt.Solver.reset solver;
-            Smt.Solver.add solver [l2; trans_constraint; formula];
-            begin match Smt.Solver.get_model solver with
-              | `Sat _ -> false
-              | _ -> true
-            end) 
-        transformers
-    in
-    TSet.is_empty diff
-
-       
-
-  let get_transition_equiv_labeling srk formula exists tr_symbols transitions alphas =
-    let pre, post = get_pre_post_labels srk formula exists tr_symbols in
-    let term_list = term_list srk alphas tr_symbols in  
-    let rec find_equiv_sing_label ele front back =
-      match back with
-      | [] -> ele, front
-      | hd :: tl -> 
-        if check_same_sing_tran srk ele hd transitions term_list tr_symbols formula then
-          find_equiv_sing_label (mk_or srk [ele; hd]) front tl
-        else find_equiv_sing_label ele (hd :: front) tl
-    in
-    let rec find_equiv_labels front back =
-      match back with
-      | [] -> front
-      | hd :: tl ->
-        let hd', back' = find_equiv_sing_label hd [] tl in
-        find_equiv_labels (hd' :: front) back'
-    in
-    let remaining_post = mk_and srk
-        [mk_or srk post;
-         mk_not srk (mk_or srk pre)] in
-    let result = BatArray.of_list (remaining_post :: (find_equiv_labels [] pre)) in
-    Array.iteri (fun ind lab -> Log.errorf "LABEL NUM %d: %a" ind (Formula.pp srk) (lab)) result;
-    result
-
-
   let get_largest_polyhedrons srk labels =
     let rec helper_sing front ele back changed =
       match back with
@@ -896,29 +781,12 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
     in
     loop_labels [] labels
 
-
   let get_intersect_labeling srk formula exists tr_symbols =
     let pre, post = get_pre_post_labels srk formula exists tr_symbols in
     let pre', post' = get_largest_polyhedrons srk pre, get_largest_polyhedrons srk post in
     List.iteri (fun ind lab -> Log.errorf "PRE LABEL NUM %d: %a" ind (Formula.pp srk) (lab)) pre';
     List.iteri (fun ind lab -> Log.errorf "POST LABEL NUM %d: %a" ind (Formula.pp srk) (lab)) post;
  
-    (*let rec intersect_outer outer inner pairs =
-      match outer with
-      | [] -> pairs
-      | hd :: tl ->
-        let rec intersect_inner inner pairs =
-          match inner with
-          | [] -> pairs
-          | hd' :: tl' -> intersect_inner tl' ((mk_and srk [hd; hd']) :: pairs)
-        in
-        intersect_outer tl inner (intersect_inner inner pairs)
-    in*)
-    (*let intersects = intersect_outer pre' post [] in
-    let remain_pre = mk_and srk
-        [mk_or srk pre';
-         mk_not srk (mk_or srk intersects)] in*)
-
     let remain_post = mk_and srk
         [mk_or srk post;
          mk_not srk (mk_or srk pre')] in(*might be nice to make remain_post polyhedron*)
