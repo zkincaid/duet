@@ -287,7 +287,6 @@ let exp srk tr_symbols loop_counter vabs =
   | {v; alphas; invars; invarmaxk} ->
     if(M.nb_rows (unify alphas) = 0) then mk_true srk else (
       let (form, _) = exp_base_helper srk tr_symbols loop_counter alphas (TSet.to_list v) invars invarmaxk in
-      Log.errorf " Current D VAL %a" (Formula.pp srk) form;
       form
     )
 
@@ -451,23 +450,27 @@ let find_invariants  (srk : 'a context) (symbols : (symbol * symbol) list) (body
 
 
         let scal, last_dim = get_last_dim vect in
-        let term_xy' = mk_mul srk 
-            [mk_sub srk (Linear.of_linterm srk (snd (V.pivot last_dim vect))) 
-               (mk_real srk br);
-             mk_real srk (QQ.inverse (QQ.negate scal))] in
-        Log.errorf "New terk %a" (Term.pp srk) term_xy'; 
-        let term_xy = mk_mul srk
-            [mk_add srk 
+        let term_xy' = postify  
+            (mk_mul srk 
                [mk_sub srk (Linear.of_linterm srk (snd (V.pivot last_dim vect))) 
                   (mk_real srk br);
-                mk_real srk  bi];
-             mk_real srk (QQ.inverse (QQ.negate scal))] in
+                mk_real srk (QQ.inverse (QQ.negate scal))]) in
+        Log.errorf "New terk %a" (Term.pp srk) term_xy'; 
+        let term_xy = preify srk symbols
+            (mk_mul srk
+               [mk_add srk 
+                  [mk_sub srk (Linear.of_linterm srk (snd (V.pivot last_dim vect)))
+                     (mk_real srk br);
+                   mk_real srk  bi];
+                mk_real srk (QQ.inverse (QQ.negate scal))]) in
         let sym = match Linear.sym_of_dim last_dim with
           | None -> assert false
           | Some v -> v
         in
         let sym' = List.fold_left (fun acc (x, x') -> if x = sym then x' else acc) sym symbols in
         let sym = List.fold_left (fun acc (x, x') -> if x' = sym' then x else acc) sym' symbols in
+        Log.errorf "SYMBOL IS %a" (Formula.pp srk) (mk_const srk sym);
+        Log.errorf "SYMBOL IS %a" (Formula.pp srk) (mk_const srk sym');
         let body' = substitute_const srk (fun x -> if x = sym then preify srk symbols term_xy 
                                            else if x = sym' then postify term_xy'
                                            else mk_const srk x) body' in
@@ -1014,6 +1017,18 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
   in_sing, out_sing, in_scc, pre_scc
 
 
+(* in_sing is which transformers enter single label; out single is which transformers exit single label
+ * in_scc is which transformers enter scc; pre_scc is which transformers originate in given scc*)
+  let exp_compute_trans_in_out_index_numbers transformersmap num sccs nvarst =
+    let num_sccs, func_sccs = sccs in
+    let in_sing, out_sing, in_scc, pre_scc = Array.make num [], Array.make num [], Array.make num_sccs [], Array.make num_sccs [] in
+    List.iteri (fun index (n1, trans, n2) -> in_sing.(n2)<-(index :: in_sing.(n2)); out_sing.(n1)<- (index :: out_sing.(n1));
+                 pre_scc.(func_sccs n1)<- (index :: pre_scc.(func_sccs n1));
+                 if not (func_sccs n1 = func_sccs n2) then begin 
+                   in_scc.(func_sccs n2)<-(index :: in_scc.(func_sccs n2)) 
+                 end)
+      transformersmap;
+  in_sing, out_sing, in_scc, pre_scc
 
   (*Compute the condition that must hold if a given transformer is taken*)
   let compute_trans_post_cond srk prelabel postlabel (trans : transformer) (rtrans,rverts) alphas tr_symbols lc ind = 
@@ -1054,13 +1069,26 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
       ) 
 
   (* Flow is conserved for the nvarst *)
-  let exp_consv_of_flow srk in_sing out_sing ests =
+  let exp_consv_of_flow_new srk in_sing out_sing ests varst extra_one =
+    let in_sing = BatArray.map (fun indlist -> List.map (fun ind -> List.nth varst ind) indlist) in_sing in
+    let out_sing = BatArray.map (fun indlist -> List.map (fun ind -> List.nth varst ind) indlist) out_sing in
     mk_and srk
       (List.mapi (fun ind (es, et) ->
           mk_eq srk
-            (mk_add srk (es :: in_sing.(ind)))
+            (mk_add srk ((if extra_one = -2 then es else if extra_one = ind then mk_one srk else mk_zero srk) :: in_sing.(ind)))
             (mk_add srk (et :: out_sing.(ind))))
           ests)
+
+  let exp_consv_of_flow srk in_sing out_sing ests =
+    let extra_one = -2 in
+    mk_and srk
+      (List.mapi (fun ind (es, et) ->
+          mk_eq srk
+            (mk_add srk ((if extra_one = -2 then es else if extra_one = ind then mk_one srk else mk_zero srk) :: in_sing.(ind)))
+            (mk_add srk (et :: out_sing.(ind))))
+          ests)
+
+
 
   (*Either there is an entry node and exit node, or no transitions taken*)
   let exp_one_in_out_flow srk ests nvarst = 
@@ -1099,9 +1127,35 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
           ests)
  
   (* If an scc is never entered, all transformers originating in that scc are never taken*)
-  let exp_never_enter_scc srk ests in_scc pre_scc sccs =
+  let exp_never_enter_scc_new srk ests in_scc pre_scc sccs varst extra_num =
     let num_sccs, func_sccs = sccs in
     let es_comp = Array.make num_sccs [] in
+    let in_scc_inds = in_scc in
+    let in_scc = BatArray.map (fun indlist -> List.map (fun ind -> List.nth varst ind) indlist) in_scc in 
+    let pre_scc = BatArray.map (fun indlist -> List.map (fun ind -> List.nth varst ind) indlist) pre_scc in 
+    List.iteri (fun ind eset -> es_comp.(func_sccs ind)<-(eset :: (es_comp.(func_sccs ind)))) ests;
+    mk_and srk
+      (Array.to_list
+         (Array.mapi (fun ind in_scc_comp ->
+              mk_if srk
+                (mk_eq srk
+                   (mk_add srk
+                      [mk_add srk (if extra_num = -2 then (List.map (fun (es, et) -> es) (es_comp.(ind)))
+                                   else if (List.mem extra_num (in_scc_inds.(ind))) then [mk_one srk]
+                                   else [mk_zero srk]);
+                       mk_add srk (in_scc_comp)])
+                   (mk_zero srk))
+                (mk_eq srk
+                   (mk_add srk
+                      [mk_add srk (List.map (fun (es,et) -> et) (es_comp.(ind)));
+                       (mk_add srk (pre_scc.(ind)))])
+                   (mk_zero srk)))
+             in_scc))
+ let exp_never_enter_scc srk ests in_scc pre_scc sccs =
+    let num_sccs, func_sccs = sccs in
+    let es_comp = Array.make num_sccs [] in
+    let in_scc_inds = in_scc in
+    let extra_num = -2 in
     List.iteri (fun ind eset -> es_comp.(func_sccs ind)<-(eset :: (es_comp.(func_sccs ind)))) ests;
     mk_and srk
       (Array.to_list
@@ -1120,6 +1174,7 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
              in_scc))
 
 
+
   (*Compute the graph that is reachable from a given transformer*)
   let get_reachable_trans graph =
     BatArray.mapi (fun ind vert -> GraphTrav.fold_component (fun v (trans, verts) -> 
@@ -1132,6 +1187,36 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
         v :: verts)
         (TSet.empty, []) graph ind) graph
 
+(*Either svar for each row in equiv class in x and equiv class not reset or equiv class reset
+ * at transformer i and svars equal the reset dim at transformer i*)
+let exp_sx_constraints_helper_flow srk ri ksum ksums svarstdims transformers kvarst unialpha tr_symbols =
+  let compute_single_svars svart dim  =
+    mk_or srk
+      ((mk_and srk
+        [(mk_eq srk svart (preify srk tr_symbols (Linear.of_linterm srk (M.row dim unialpha)))); (*pivot or row? need to make sure alpha and dim both indexed same *)
+         (mk_eq srk ri (mk_real srk (QQ.of_int (-1))))
+         (*(MAKE KSUM = N NUM)*)]) ::
+      (BatList.mapi 
+       (fun ind {a; b} ->
+         if ZZ.equal (Z.coeff dim a) ZZ.one 
+         then (mk_false srk)
+         else 
+           mk_and srk
+           [(mk_eq srk svart (mk_real srk (V.coeff dim b)));
+           exp_other_reset srk ksum ksums kvarst ind;
+            (mk_eq srk ri (mk_real srk (QQ.of_int ind)))
+            (*(MAKE FLOW FOR ONE K CLASS MAKe SeNSE kstack in_scc pre_scc in_sing out_sing)*)])
+       transformers))
+    in
+  mk_and srk (List.map (fun (svar,dim) -> compute_single_svars svar dim) svarstdims)
+
+
+(*See helper function for description*)
+let exp_sx_constraints_flow srk equiv_pairs transformers kvarst ksums unialpha tr_symbols =
+  mk_and srk
+    (List.map (fun (kstack, svarstdims, ri, ksum) ->
+      exp_sx_constraints_helper_flow srk ri ksum ksums svarstdims transformers kvarst unialpha tr_symbols)
+    equiv_pairs)
 
 
   
@@ -1167,11 +1252,11 @@ Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Ite
 
         let in_sing, out_sing, in_scc, pre_scc = exp_compute_trans_in_out_index_numbers transformersmap (Array.length label) sccs nvarst in
         let ests = create_es_et srk (Array.length label) in
-        let flow_consv_req = exp_consv_of_flow srk in_sing out_sing ests in
+        let flow_consv_req = exp_consv_of_flow_new srk in_sing out_sing ests nvarst (-2) in
         let in_out_one = exp_one_in_out_flow srk ests nvarst in
         let ests_one_or_zero = exp_each_ests_one_or_zero srk ests in
         let pre_post_conds = exp_pre_post_conds srk ests label tr_symbols in
-        let never_enter_constraints = exp_never_enter_scc srk ests in_scc pre_scc sccs in
+        let never_enter_constraints = exp_never_enter_scc_new srk ests in_scc pre_scc sccs nvarst (-2) in
         let pos_constraints = create_exp_positive_reqs srk [nvarst; fst (List.split ests); snd (List.split ests)] in
         Log.errorf " Failure cause %a" (Formula.pp srk) pre_post_conds;
         let form = mk_and srk [form; sum_n_eq_loop_counter; ks_less_than_ns; flow_consv_req; in_out_one;
