@@ -117,12 +117,13 @@ module K = struct
   include Transition.Make(Ctx)(V)
   open Iteration
   open Mdvas
+  open Vass
   open SolvablePolynomial
   module SPOne = SumWedge (SolvablePolynomial) (SolvablePolynomialOne) ()
   module SPG = ProductWedge (SPOne) (WedgeGuard)
   module SPPeriodicRational = Sum (SPG) (PresburgerGuard) ()
   module SPSplit = Sum (SPPeriodicRational) (Split(SPPeriodicRational)) ()
-  module VasSwitch = Sum (Mdvas)(Mdvass) ()
+  module VasSwitch = Sum (Mdvass)(Vassnew) ()
   module Vas = Product(VasSwitch)(Product(WedgeGuard)(LinearRecurrenceInequation))
   module D = Sum(SPSplit)(Vas)()
   module I = Iter(MakeDomain(D))
