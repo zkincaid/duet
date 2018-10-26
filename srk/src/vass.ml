@@ -146,7 +146,7 @@ module Vassnew = struct
 
   let exp_compute_trans_in_out_index_numbers transformersmap num  nvarst =
     let in_sing, out_sing = Array.make num [], Array.make num [] in
-    List.iteri (fun index (n1, trans, n2) -> in_sing.(n2)<-((List.nth nvarst index) :: in_sing.(n2)); out_sing.(n1)<- ((List.nth nvarst index) :: out_sing.(n1)))
+    List.iteri (fun index (n1, trans, n2) -> in_sing.(n2)<-(index :: in_sing.(n2)); out_sing.(n1)<- (index :: out_sing.(n1)))
       transformersmap;
     in_sing, out_sing
 
@@ -166,7 +166,62 @@ module Vassnew = struct
            )
             ests))
 
+  let exp_one_in_out_flow srk ests nvarst = 
+    let et, es = List.split ests in
+      mk_and srk 
+        [mk_eq srk (mk_add srk et) (mk_one srk);
+         mk_eq srk (mk_add srk es) (mk_one srk)]
 
+
+
+
+
+  (*Either svar for each row in equiv class in x and equiv class not reset or equiv class reset
+   * at transformer i and svars equal the reset dim at transformer i*)
+  let exp_sx_constraints_helper_flow srk ri ksum ksums svarstdims transformers kvarst unialpha tr_symbols kstack in_sing
+      out_sing ests =
+    let compute_single_svars svart dim  =
+      mk_or srk
+        ((mk_and srk
+            [(mk_eq srk svart (preify srk tr_symbols (Linear.of_linterm srk (M.row dim unialpha)))); (*pivot or row? need to make sure alpha and dim both indexed same *)
+             (mk_eq srk ri (mk_real srk (QQ.of_int (-1))))
+             (*(MAKE KSUM = N NUM)*)]) ::
+         (BatList.mapi 
+            (fun ind {a; b} ->
+               if ZZ.equal (Z.coeff dim a) ZZ.one 
+               then (mk_false srk)
+               else 
+                 mk_and srk
+                   [(mk_eq srk svart (mk_real srk (V.coeff dim b)));
+                    exp_other_reset srk ksum ksums kvarst ind;
+                    (mk_eq srk ri (mk_real srk (QQ.of_int ind)));
+                    Mvass.exp_consv_of_flow_new srk in_sing out_sing ests kstack ind
+                    (*(MAKE FLOW FOR ONE K CLASS MAKe SeNSE kstack in_scc pre_scc in_sing out_sing)*)])
+            transformers))
+    in
+    (*mk_and srk (List.map (fun (svar,dim) -> compute_single_svars svar dim) svarstdims)*)
+    mk_or srk
+      ((mk_and srk
+          (mk_eq srk ri (mk_real srk (QQ.of_int (-1))) ::
+           (List.map
+              (fun (svart, dim) -> (mk_eq srk svart (preify srk tr_symbols (Linear.of_linterm srk (M.row dim unialpha))))) svarstdims)))
+       :: (BatList.mapi (fun ind {a; b} -> if ZZ.equal (Z.coeff (snd (List.hd svarstdims)) a) ZZ.one then (mk_false srk)
+                          else (
+                            mk_and srk
+                              (Mvass.exp_consv_of_flow_new srk in_sing out_sing ests kstack ind ::
+                               (mk_eq srk ri (mk_real srk (QQ.of_int ind))) ::
+                               exp_other_reset srk ksum ksums kvarst ind ::
+                               (List.map
+                                  (fun (svart, dim) -> mk_eq srk svart (mk_real srk (V.coeff dim b))) svarstdims)))
+                          ) transformers))
+
+
+  (*See helper function for description*)
+  let exp_sx_constraints_flow srk equiv_pairs transformers kvarst ksums unialpha tr_symbols in_sing out_sing ests =
+    mk_and srk
+      (List.map (fun (kstack, svarstdims, ri, ksum) ->
+           exp_sx_constraints_helper_flow srk ri ksum ksums svarstdims transformers kvarst unialpha tr_symbols kstack in_sing out_sing ests)
+          equiv_pairs)
 
 
 
@@ -185,8 +240,8 @@ module Vassnew = struct
     in
     let transformers = List.map (fun (_, t, _) -> t) transformersmap in
     let nvarst = map_terms srk (Mvass.create_n_vars srk (List.length transformers) [] "N") in
-    let (form, (equiv_pairst, kvarst, svarst, rvarst)) =
-      exp_base_helper srk tr_symbols loop_counter simulation transformers invars invarmaxk in
+    let (form, (equiv_pairst, kvarst, svarst, rvarst, ksumst)) =
+      exp_base_helper srk tr_symbols loop_counter simulation transformers invars invarmaxk false in
     let sum_n_eq_loop_counter = Mvass.exp_nvars_eq_loop_counter srk nvarst loop_counter in
     let ks_less_than_ns = Mvass.exp_kvarst_less_nvarst srk nvarst kvarst in
     let reachable_transitions = Mvass.get_reachable_trans graph in
@@ -194,13 +249,15 @@ module Vassnew = struct
 
     let in_sing, out_sing  = exp_compute_trans_in_out_index_numbers transformersmap (Array.length label) nvarst in
     let ests = Mvass.create_es_et srk (Array.length label) in
-    let flow_consv_req = Mvass.exp_consv_of_flow srk in_sing out_sing ests in
+    let flow_consv_req = Mvass.exp_consv_of_flow_new srk in_sing out_sing ests nvarst (-2) in
     let in_out_one = Mvass.exp_one_in_out_flow srk ests nvarst in
     let ests_one_or_zero = exp_each_ests_one_or_zero srk ests in
     let pre_post_conds = Mvass.exp_pre_post_conds srk ests label tr_symbols in
     let pos_constraints = create_exp_positive_reqs srk [nvarst; fst (List.split ests); snd (List.split ests)] in
+    let sx_constraints = exp_sx_constraints_flow srk equiv_pairst transformers kvarst ksumst (unify alphas) tr_symbols in_sing out_sing
+        ests in
     let form = mk_and srk [form; sum_n_eq_loop_counter; ks_less_than_ns; flow_consv_req; in_out_one;
-                           ests_one_or_zero; pre_post_conds; pos_constraints; post_conds_const] in
+                           ests_one_or_zero; pre_post_conds; pos_constraints; post_conds_const; sx_constraints] in
     form
 
 
@@ -233,7 +290,6 @@ module Vassnew = struct
         | [hd] -> assert false(*[postify srk (merge_mappings syms symmappings.(hd) false true) sccsclosure.(hd)]*)
         | hd :: hdd :: hddd :: tl -> let tempform =(postify srk (merge_mappings syms symmappings.(hdd) true true) 
                                (postify srk (merge_mappings syms symmappings.(hd) false false) formula)) in
-          Log.errorf "THE INBETWEEN FORMULA IS %a" (Formula.pp srk) tempform;
           tempform :: (postify srk (merge_mappings syms symmappings.(hdd) false true) 
                                (postify srk (merge_mappings syms symmappings.(hdd) true false) sccsclosure.(hdd)))
                              :: (make_closure_helper (hdd :: hddd :: tl))
