@@ -283,13 +283,11 @@ let exp_base_helper srk tr_symbols loop_counter alphas transformers invars invar
 
 
 let exp srk tr_symbols loop_counter vabs =
-  time "ENTERED EXP";
   match vabs with
   | {v; alphas; invars; invarmaxk} ->
     if(M.nb_rows (unify alphas) = 0) then mk_true srk else (
       let (form, _) = exp_base_helper srk tr_symbols loop_counter alphas (TSet.to_list v) invars invarmaxk in
       Log.errorf " Current D VAL %a" (Formula.pp srk) form;
-      time "LEFT EXP";
       form
     )
 
@@ -496,7 +494,6 @@ let mk_bottom srk symbols =
 let pp srk syms formatter vas = Format.fprintf formatter "%a" (Formula.pp srk) (gamma srk vas syms)
 
 let abstract ?(exists=fun x -> true) (srk : 'a context) (symbols : (symbol * symbol) list) (body : 'a formula)  =
-  time "START OF ABSTRACT FUNCTION";
   let allsym = List.fold_left (fun acc (x, x') -> x :: x' :: acc) [] symbols in
   let othersyms = Syntax.Symbol.Set.fold (fun sym acc -> if List.mem sym allsym then acc else sym :: acc) (Syntax.symbols body) [] in
   Syntax.Symbol.Set.iter (fun s -> Log.errorf "Symbol is %a %B" (pp_symbol srk) s (exists s)) (Syntax.symbols body);
@@ -516,7 +513,6 @@ let abstract ?(exists=fun x -> true) (srk : 'a context) (symbols : (symbol * sym
   Log.errorf "The new formula is %a" (Formula.pp srk) body;
   Log.errorf "Here";
   let rec go vas count =
-    time "ITERATOIN IN LOOP";
     assert (count > 0);
     (*Log.errorf "Current VAS: %a" (Formula.pp srk) (gamma srk vas symbols);
     Log.errorf "___________________________";*)
@@ -528,21 +524,16 @@ let abstract ?(exists=fun x -> true) (srk : 'a context) (symbols : (symbol * sym
       match Interpretation.select_implicant m body with
       | None -> assert false
       | Some imp ->
-        time "PRE ALPHA";
         let alpha_v = alpha_hat srk (mk_and srk imp) symbols x''s x''_forms othersyms in
-        time "POST ALPHA";
         (*if alpha_v = Top then Top else*)
         Log.errorf "Inter VAS: %a"  (Formula.pp srk) (gamma srk (coproduct srk vas alpha_v) symbols);
  
           go (coproduct srk vas alpha_v) (count - 1)
   in
   Smt.Solver.add solver [body];
-  time "START OF MAIN LOOP";
   let {v;alphas;_} = go (mk_bottom srk symbols) 20 in
   let result = {v;alphas;invars=cinvars;invarmaxk} in
-  time "END OF MAIN LOOP";
   Log.errorf "Final VAS: %a"  (Formula.pp srk) (gamma srk result symbols);
-  time "END OF ABSTRACT FUNCTION";
   result
 
 
