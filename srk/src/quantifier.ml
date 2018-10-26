@@ -1923,7 +1923,10 @@ let local_project_cube srk exists model cube =
   Symbol.Set.fold (fun symbol cube ->
       match typ_symbol srk symbol with
       | `TyInt ->
-        let vt = select_int_term srk model symbol cube in
+        let (has_sym, no_sym) =
+          List.partition (fun atom -> Symbol.Set.mem symbol (symbols atom)) cube
+        in
+        let vt = select_int_term srk model symbol has_sym in
 
         (* floor(term/div) + offset ~> (term - ([[term]] mod div))/div
            + offset, and add constraint that div | (term - ([[term]]
@@ -1951,7 +1954,7 @@ let local_project_cube srk exists model cube =
             (fun p -> if p = symbol then replacement else mk_const srk p)
         in
         let divides = mk_divides srk (ZZ.of_int vt.divisor) numerator in
-        BatList.filter (not % is_true) (divides::(List.map replace cube))
+        no_sym@(BatList.filter (not % is_true) (divides::(List.map replace cube)))
 
       | `TyReal ->
         (* cube_nonlin atoms do not contain symbol; cube_lin atoms
