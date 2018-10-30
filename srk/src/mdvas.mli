@@ -35,11 +35,9 @@ val exp : 'a context -> (symbol * symbol) list -> 'a term -> 'a t -> 'a formula
 val remove_row: 'a t -> int -> int -> 'a t
 val postify : 'a context -> (symbol * symbol) list -> 'a formula -> 'a formula
 val map_terms : 'a context -> symbol list -> 'a term list
-val exp_base_helper : 'a context -> (symbol * symbol) list -> 'a term -> 
-  M.t list -> transformer list -> 'a formula list -> bool -> bool -> 'a formula * ((('a, 'b) expr list * (('a, 'c) expr * int) list *
-                                                                            ('a, 'd) expr * ('a, 'e) expr)
-                                                                             list * 'a term list list * ('a, 'f) expr list *
-                                                                           ('a, 'g) expr list * ('a, 'h) expr list)
+val exp_base_helper : 'a context -> (symbol * Symbol.Map.key) list -> 'a term -> M.t list -> transformer list -> 'a formula list -> bool -> bool -> 
+  'a formula * (('a term list * (('a, 'b) expr * Z.dim) list * ('a, 'c) expr * ('a, 'd) expr) list * 'a term list list * ('a, 'e) expr list *
+                ('a, 'f) expr list * ('a, 'g) expr list)
                                                              
 val create_exp_positive_reqs : 'a context -> 'a term list list -> 'a formula
 val preify : 'a context -> (symbol * symbol) list -> ('a, 'b) expr -> ('a, 'b) expr

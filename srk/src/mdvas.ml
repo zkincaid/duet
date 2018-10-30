@@ -220,17 +220,18 @@ let exp_lin_term_trans_constraints srk equiv_pairs transformers unialpha =
         equiv_pairs)
 
 (*If a kvar in a kstack is a reset for given equiv class, this kvar must be 0*)
-let exp_k_zero_on_reset srk equiv_pairs transformers =
-  mk_and srk
-    (List.map (fun (kstack, svarstdims, ri, _) ->
-         let (svar, dim) = List.hd svarstdims in
-         mk_and srk
-           (BatList.mapi
-              (fun ind {a; b} ->
-                 if ZZ.equal (Z.coeff dim a) ZZ.zero then (mk_eq srk (List.nth kstack ind) (mk_zero srk))
-                 else mk_true srk)
-              transformers))
-        equiv_pairs)
+let replace_resets_with_zero srk equiv_pairs transformers : ('a Syntax.term list * ('b * Z.dim) list * 'c * 'd) list =
+  (List.map (fun (kstack, svarstdims, ri, ksum) ->
+       let (svar, dim) = List.hd svarstdims in
+       let kstack =
+         (BatList.mapi
+            (fun ind {a; b} ->
+               if ZZ.equal (Z.coeff dim a) ZZ.zero then (mk_zero srk)
+               else (List.nth kstack ind))
+            transformers)
+       in
+       kstack,svarstdims, ri, ksum)
+      equiv_pairs)
 
 (*A given ksum cannot be larger than loop counter*)
 let exp_kstacks_at_most_k srk ksumst loop_counter=
@@ -262,7 +263,8 @@ let exp_base_helper srk tr_symbols loop_counter alphas transformers invars invar
   let svarst, rvarst, ksumst  = map_terms srk svars, map_terms srk rvars, map_terms srk ksums in
   let equiv_pairst = List.map (fun (kstack, svardims, rvar, ksum) ->
       (map_terms srk kstack, List.map (fun (svar, dim) -> (mk_const srk svar), dim) svardims, mk_const srk rvar, mk_const srk ksum)) equiv_pairs in
-
+  let equiv_pairst = replace_resets_with_zero srk equiv_pairst transformers in
+  let kvarst = List.map (fun (kstack, _, _, _) -> kstack) equiv_pairst in
   let pos_constraints = create_exp_positive_reqs srk ([loop_counter] :: kvarst) in
   let full_trans_constraints = exp_full_transitions_reqs srk kvarst rvarst loop_counter in
   let krpairs = all_pairs_kvarst_rvarst ksumst kvarst rvarst in
@@ -270,14 +272,13 @@ let exp_base_helper srk tr_symbols loop_counter alphas transformers invars invar
   let reset_together_constraints = exp_equality_k_constraints srk krpairs in
   let kstack_max_constraints = exp_kstacks_at_most_k srk ksumst loop_counter in
   let base_constraints = exp_lin_term_trans_constraints srk equiv_pairst transformers (unify alphas) in
-  let eq_zero_constraints = exp_k_zero_on_reset srk equiv_pairst transformers in
   let kstack_term_reduction = exp_kstack_eq_ksums srk equiv_pairst in
   let invariants = mk_or srk [mk_eq srk loop_counter (mk_zero srk); mk_and srk invars] in
   let sx_constraints = if(vas_only) then exp_sx_constraints srk equiv_pairst transformers kvarst ksumst (unify alphas) tr_symbols 
     else mk_true srk in
   let form = 
     mk_and srk [pos_constraints; full_trans_constraints; perm_constraints; kstack_max_constraints;
-                reset_together_constraints; sx_constraints; base_constraints; eq_zero_constraints;
+                reset_together_constraints; sx_constraints; base_constraints;
                 kstack_term_reduction; invariants; maxkinvar] in
   (form, (equiv_pairst, kvarst, svarst, rvarst, ksumst))
 
