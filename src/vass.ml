@@ -166,7 +166,7 @@ module Vassnew = struct
            )
             ests))
 
-  let exp_one_in_out_flow srk ests nvarst = 
+  let exp_one_in_out_flow srk ests = 
     let et, es = List.split ests in
       mk_and srk 
         [mk_eq srk (mk_add srk et) (mk_one srk);
@@ -229,36 +229,45 @@ module Vassnew = struct
   let closure_of_an_scc srk tr_symbols loop_counter vass =
     let label, graph, alphas, invars, invarmaxk = vass.label, vass.graph, vass.simulation, vass.invars, vass.invarmaxk in
     let simulation = alphas in
-    let transformersmap : (int * transformer * int) list = List.flatten
-        (List.flatten
-           (Array.to_list
-              (Array.mapi (fun n1 arr ->
-                   Array.to_list (Array.mapi (fun n2 vas ->
-                       BatEnum.fold (fun acc trans -> (n1, trans, n2) :: acc) [] (TSet.enum vas))
-                       arr))
-                  graph)))
-    in
-    let transformers = List.map (fun (_, t, _) -> t) transformersmap in
-    let nvarst = map_terms srk (Mvass.create_n_vars srk (List.length transformers) [] "N") in
-    let (form, (equiv_pairst, kvarst, svarst, rvarst, ksumst)) =
-      exp_base_helper srk tr_symbols loop_counter simulation transformers invars invarmaxk false in
-    let sum_n_eq_loop_counter = Mvass.exp_nvars_eq_loop_counter srk nvarst loop_counter in
-    let ks_less_than_ns = Mvass.exp_kvarst_less_nvarst srk nvarst kvarst in
-    let reachable_transitions = Mvass.get_reachable_trans graph in
-    let post_conds_const = Mvass.exp_post_conds_on_transformers srk label transformersmap reachable_transitions nvarst alphas tr_symbols loop_counter in
 
-    let in_sing, out_sing  = exp_compute_trans_in_out_index_numbers transformersmap (Array.length label) nvarst in
     let ests = Mvass.create_es_et srk (Array.length label) in
-    let flow_consv_req = Mvass.exp_consv_of_flow_new srk in_sing out_sing ests nvarst (-2) in
-    let in_out_one = Mvass.exp_one_in_out_flow srk ests nvarst in
+    let in_out_one = exp_one_in_out_flow srk ests in
     let ests_one_or_zero = exp_each_ests_one_or_zero srk ests in
     let pre_post_conds = Mvass.exp_pre_post_conds srk ests label tr_symbols in
-    let pos_constraints = create_exp_positive_reqs srk [nvarst; fst (List.split ests); snd (List.split ests)] in
-    let sx_constraints = exp_sx_constraints_flow srk equiv_pairst transformers kvarst ksumst (unify alphas) tr_symbols in_sing out_sing
-        ests in
-    let form = mk_and srk [form; sum_n_eq_loop_counter; ks_less_than_ns; flow_consv_req; in_out_one;
-                           ests_one_or_zero; pre_post_conds; pos_constraints; post_conds_const; sx_constraints] in
-    form, (fst (List.split ests))
+    let pos_constraints_1 = create_exp_positive_reqs srk [fst (List.split ests); snd (List.split ests)] in
+
+    if(M.nb_rows (unify (vass.simulation)) = 0) then
+      ((mk_and srk [in_out_one; ests_one_or_zero; pre_post_conds; pos_constraints_1]), (fst (List.split ests)))
+    else(
+
+
+
+      let transformersmap : (int * transformer * int) list = List.flatten
+          (List.flatten
+             (Array.to_list
+                (Array.mapi (fun n1 arr ->
+                     Array.to_list (Array.mapi (fun n2 vas ->
+                         BatEnum.fold (fun acc trans -> (n1, trans, n2) :: acc) [] (TSet.enum vas))
+                         arr))
+                    graph)))
+      in
+      let transformers = List.map (fun (_, t, _) -> t) transformersmap in
+      let nvarst = map_terms srk (Mvass.create_n_vars srk (List.length transformers) [] "N") in
+      let (form, (equiv_pairst, kvarst, svarst, rvarst, ksumst)) =
+        exp_base_helper srk tr_symbols loop_counter simulation transformers invars invarmaxk false in
+      let sum_n_eq_loop_counter = Mvass.exp_nvars_eq_loop_counter srk nvarst loop_counter in
+      let ks_less_than_ns = Mvass.exp_kvarst_less_nvarst srk nvarst kvarst in
+      let reachable_transitions = Mvass.get_reachable_trans graph in
+      let post_conds_const = Mvass.exp_post_conds_on_transformers srk label transformersmap reachable_transitions nvarst alphas tr_symbols loop_counter in
+
+      let in_sing, out_sing  = exp_compute_trans_in_out_index_numbers transformersmap (Array.length label) nvarst in
+      let flow_consv_req = Mvass.exp_consv_of_flow_new srk in_sing out_sing ests nvarst (-2) in
+      let pos_constraints = create_exp_positive_reqs srk [nvarst] in
+      let sx_constraints = exp_sx_constraints_flow srk equiv_pairst transformers kvarst ksumst (unify alphas) tr_symbols in_sing out_sing
+          ests in
+      let form = mk_and srk [form; sum_n_eq_loop_counter; ks_less_than_ns; flow_consv_req; in_out_one;
+                             ests_one_or_zero; pre_post_conds; pos_constraints; pos_constraints_1; post_conds_const; sx_constraints] in
+      form, (fst (List.split ests)))
 
 
 
@@ -425,50 +434,6 @@ module Vassnew = struct
       Log.errorf "Done";
       result
     )
-
-(*  let exp srk syms loop_counter sccsform =
-    let contains_top = BatArray.fold_left (fun acc vass ->
-        if(M.nb_rows (unify (vass.simulation)) = 0) then true else acc) false sccsform.vasses in
-    if contains_top then mk_true srk else(
-      let scclabels = BatArray.map (fun scc -> mk_or srk (BatArray.to_list scc.label)) sccsform.vasses in
-      let sccgraph = compute_edges srk syms scclabels sccsform.formula in
-      let order = List.rev (BGraphTopo.fold (fun v acc -> Log.errorf "THIS SCC REACHED %d" v; v :: acc) sccgraph []) in
-      Log.errorf "Reached here";
-      let orderedsets = List.tl (List.rev (sublists order)) in
-      Log.errorf "Pop";
-      (* CHECK IF ANY VASS IS TOP HERE*)
-      let subloop_counters = BatArray.mapi (fun ind1 scc ->
-          mk_const srk ((mk_symbol srk ~name:("counter_"^(string_of_int ind1)) `TyInt))) sccsform.vasses in
-      let symmappings = BatArray.mapi (fun ind1 scc ->
-          List.rev
-            (BatList.fold_lefti (fun acc ind2 (x, x') ->
-                 ((mk_symbol srk ~name:("x_"^(string_of_int ind1)^"COM"^(string_of_int ind2)) (typ_symbol srk x)),
-                  (mk_symbol srk ~name:("x'_"^(string_of_int ind1)^"COM"^(string_of_int ind2)) (typ_symbol srk x'))) :: acc) [] syms)) sccsform.vasses
-      in
-      Log.errorf "And here";
-      (* MAKE SUB LOOP COUNTERS POS*)
-      let sccclosures = BatArray.mapi (fun ind vass -> closure_of_an_scc srk syms subloop_counters.(ind) vass) sccsform.vasses in
-      Log.errorf "And finally here";
-      let sub_loops_geq_0 = create_exp_positive_reqs srk [Array.to_list subloop_counters] in
-      Log.errorf "Ordered sets size: %d" (List.length orderedsets);
-      (*let orderedsetss = [List.nth orderedsets 7] in*) (*2 is bad*)
-      let valid = ref 0 in
-      let invalid = ref 0 in
-      let form =
-        List.fold_left (fun acc orderedset ->
-            closure_of_an_ordering srk syms loop_counter orderedset sccclosures subloop_counters sccgraph symmappings sccsform.formula valid invalid
-            :: acc) [] orderedsets in
-      Log.errorf "VLAID ORDERINGS %d" (!valid); Log.errorf "INVALID ORDERINGS %d" (!invalid);
-      let result = mk_or srk [mk_and srk [sub_loops_geq_0; mk_or srk form];
-                              no_trans_taken srk loop_counter syms] in
-      let results = mk_and srk [sub_loops_geq_0; mk_or srk form] in
-      (*let result = mk_and srk [sccclosures.(1); sub_loops_geq_0; mk_eq srk subloop_counters.(1) loop_counter] in*)
-      (*Log.errorf "Final EXP is %a" (Formula.pp srk) result;*)
-      Log.errorf "Done";
-      result
-    )
-*)
-
 
 
   let join _ _ _ _ = assert false
