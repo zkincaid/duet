@@ -390,6 +390,19 @@ module Vassnew = struct
           (mk_and srk (BatList.map2 (fun (x, x') (sccx, sccx') -> mk_eq srk (mk_const srk x') (mk_const srk sccx'))
                          syms symmappings.(ind1)))) orderings_vars))
 
+  let topo_order_constraints srk order es scc_ordering =
+    let rec helper ind1 remaining_order =
+      match remaining_order with
+      | [] -> []
+      | hd :: tl -> mk_if srk (mk_lt srk scc_ordering.(hd) scc_ordering.(ind1)) (mk_eq srk (mk_zero srk) (mk_add srk es.(ind1))) :: (helper ind1 tl)
+    in
+    let rec outer ordering =
+      match ordering with
+      | [] -> []
+      | hd :: tl -> (helper hd tl) :: (outer tl)
+    in
+    mk_and srk (List.flatten (outer order))
+
   let exp srk syms loop_counter sccsform =
     let contains_top = BatArray.fold_left (fun acc vass ->
         if(M.nb_rows (unify (vass.simulation)) = 0) then true else acc) false sccsform.vasses in
@@ -409,8 +422,12 @@ module Vassnew = struct
           (postify srk (merge_mappings syms symmappings.(ind) false true) 
              (postify srk (merge_mappings syms symmappings.(ind) true false) closure))) sccclosures in
 
-      let num_scc_used = mk_const srk (mk_symbol srk ~name:("Num_scc_used") `TyInt) in
+      let scclabels = BatArray.map (fun scc -> mk_or srk (BatArray.to_list scc.label)) sccsform.vasses in		
+      let sccgraph = compute_edges srk syms scclabels sccsform.formula in
 
+
+      let num_scc_used = mk_const srk (mk_symbol srk ~name:("Num_scc_used") `TyInt) in
+      let order = List.rev (BGraphTopo.fold (fun v acc -> Log.errorf "THIS SCC REACHED %d" v; v :: acc) sccgraph []) in
 
  
       let sub_loops_geq_0 = create_exp_positive_reqs srk [Array.to_list subloop_counters] in
@@ -426,9 +443,10 @@ module Vassnew = struct
       let num_scc_used_bound = mk_lt srk num_scc_used (mk_real srk (QQ.of_int (BatArray.length sccclosures))) in
       let loop_bound = mk_eq srk (mk_add srk (num_scc_used :: (BatArray.to_list subloop_counters))) loop_counter in
       
+      let order_constr = topo_order_constraints srk order es scc_ordering in
       let debug = mk_eq srk scc_ordering.(0) (mk_zero srk) in 
       let result = mk_or srk [mk_and srk [order_bounds_const; sub_loops_geq_0; no_dups_constr; come_next_const; first_scc_const;
-                                          last_scc_const; num_scc_used_bound; loop_bound; mk_leq srk (mk_zero srk) loop_counter];
+                                          last_scc_const; num_scc_used_bound; loop_bound; mk_leq srk (mk_zero srk) loop_counter; order_constr];
                               no_trans_taken srk loop_counter syms] in
       (*let result = mk_and srk [sccclosures.(1); sub_loops_geq_0; mk_eq srk subloop_counters.(1) loop_counter] in*)
       Log.errorf "Done";
