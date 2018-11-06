@@ -253,8 +253,8 @@ module Vassnew = struct
       in
       let transformers = List.map (fun (_, t, _) -> t) transformersmap in
       let nvarst = map_terms srk (Mvass.create_n_vars srk (List.length transformers) [] "N") in
-      let (form, (equiv_pairst, kvarst, svarst, rvarst, ksumst)) =
-        exp_base_helper srk tr_symbols loop_counter simulation transformers invars invarmaxk false in
+      let (form, (equiv_pairst, kvarst, ksumst)) =
+        exp_base_helper srk tr_symbols loop_counter simulation transformers invars invarmaxk in
       let sum_n_eq_loop_counter = Mvass.exp_nvars_eq_loop_counter srk nvarst loop_counter in
       let ks_less_than_ns = Mvass.exp_kvarst_less_nvarst srk nvarst kvarst in
       let reachable_transitions = Mvass.get_reachable_trans graph in
