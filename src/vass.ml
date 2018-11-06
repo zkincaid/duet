@@ -119,13 +119,12 @@ module Vassnew = struct
     let sccs = Array.make num_sccs  [] in
     BatArray.iteri (fun ind lab -> sccs.(func_sccs ind)<-(lab :: sccs.(func_sccs ind)))
       label;
-    if num_sccs = 0 then (
-      (*{vasses= BatArray.make 1 {label=BatArray.make 1 (mk_false srk);
+    if num_sccs = 0 then
+      {vasses= BatArray.init 0 (fun x -> assert false); formula=body}(*{label=BatArray.make 1 (mk_false srk);
                                 graph=BatArray.make 1 (BatArray.make 1 (TSet.empty));
                                 simulation = [ident_matrix srk tr_symbols];
                                 invars = [];
-                                invarmaxk = false};
-          formula = body})*) assert false;)
+                                invarmaxk = false}*)
     else(
 
     let vassarrays = BatArray.map (fun scc -> compute_single_scc_vass ~exists srk tr_symbols scc body) sccs in
@@ -404,9 +403,7 @@ module Vassnew = struct
     mk_and srk (List.flatten (outer order))
 
   let exp srk syms loop_counter sccsform =
-    let contains_top = BatArray.fold_left (fun acc vass ->
-        if(M.nb_rows (unify (vass.simulation)) = 0) then true else acc) false sccsform.vasses in
-    if contains_top then mk_true srk else(
+    if BatArray.length sccsform.vasses = 0 then (mk_false srk) else(
       let subloop_counters = BatArray.mapi (fun ind1 scc ->
           mk_const srk ((mk_symbol srk ~name:("counter_"^(string_of_int ind1)) `TyInt))) sccsform.vasses in
       let symmappings = BatArray.mapi (fun ind1 scc ->
@@ -429,12 +426,12 @@ module Vassnew = struct
       let num_scc_used = mk_const srk (mk_symbol srk ~name:("Num_scc_used") `TyInt) in
       let order = List.rev (BGraphTopo.fold (fun v acc -> Log.errorf "THIS SCC REACHED %d" v; v :: acc) sccgraph []) in
 
- 
+
       let sub_loops_geq_0 = create_exp_positive_reqs srk [Array.to_list subloop_counters] in
       let scc_ordering = BatArray.mapi (fun ind1 scc ->
           mk_const srk ((mk_symbol srk ~name:("ordering_"^(string_of_int ind1)) `TyInt))) sccsform.vasses in
-      
-      
+
+
       let order_bounds_const = ordering_bounds srk scc_ordering (mk_real srk (QQ.of_int (BatArray.length sccclosures))) in
       let no_dups_constr = no_dups_ordering srk scc_ordering in
       let come_next_const = come_next_req srk scc_ordering es subloop_counters num_scc_used sccclosures symmappings syms sccsform.formula in
@@ -442,7 +439,7 @@ module Vassnew = struct
       let last_scc_const = used_last_scc srk scc_ordering num_scc_used symmappings syms in
       let num_scc_used_bound = mk_lt srk num_scc_used (mk_real srk (QQ.of_int (BatArray.length sccclosures))) in
       let loop_bound = mk_eq srk (mk_add srk (num_scc_used :: (BatArray.to_list subloop_counters))) loop_counter in
-      
+
       let order_constr = topo_order_constraints srk order es scc_ordering in
       let debug = mk_eq srk scc_ordering.(0) (mk_zero srk) in 
       let result = mk_or srk [mk_and srk [order_bounds_const; sub_loops_geq_0; no_dups_constr; come_next_const; first_scc_const;
@@ -452,6 +449,7 @@ module Vassnew = struct
       Log.errorf "Done";
       result
     )
+
 
 
   let join _ _ _ _ = assert false
