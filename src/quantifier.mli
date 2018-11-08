@@ -23,6 +23,10 @@ val qe_mbp : 'a context -> 'a formula -> 'a formula
    disjunctive normal form. *)
 val mbp : ?dnf:bool -> 'a context -> (symbol -> bool) -> 'a formula -> 'a formula
 
+(** Over-approximtate model-based projection.  If [dnf] option is set,
+   convert to disjunctive normal form. *)
+val mbp_cover : ?dnf:bool -> 'a context -> (symbol -> bool) -> 'a formula -> 'a formula
+
 (** Alternating quantifier satisfiability *)
 val easy_sat : 'a context -> 'a formula -> [ `Sat | `Unsat | `Unknown ]
 
@@ -58,9 +62,9 @@ val is_presburger_atom : 'a context -> 'a formula -> bool
    expressed over symbols that satisfy [p] such that [M |= cube' |=
    cube].  [local_project_cube] has a finite image in the sense that
    for any cube [c], the set [{ local_project_cube srk p m c : m |= c
-   }] is finite.  [local_project_cube] assumes a formula in [QF_LIA]
-   or [QF_LRA].  If given a formula in [QF_LIRA], [cube'] may not
-   entail [cube], but it is guaranteed to be satisfied by [M]. *)
+   }] is finite.  [local_project_cube] assumes a formula in [QF_LRA];
+   if not, then [cube'] may not entail [cube], but it is guaranteed to
+   be satisfied by [M]. *)
 val local_project_cube : 'a context ->
   (symbol -> bool) ->
   'a interpretation ->
