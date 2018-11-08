@@ -1066,12 +1066,11 @@ let rec pp_smtlib2 ?(env=Env.empty) srk formatter expr =
   let strings = Hashtbl.create 991 in
   let symbol_name = Hashtbl.create 991 in
   Symbol.Set.iter (fun symbol ->
-      let name = (fst (DynArray.get srk.symbols symbol)) in
-      let name' = symbol_of_string (fst (DynArray.get srk.symbols symbol)) in
-      if Hashtbl.mem strings name' then
+      let base_name = fst (DynArray.get srk.symbols symbol) in
+      let name = symbol_of_string base_name in
+      if Hashtbl.mem strings name then
         let rec go n =
-          let name' = name ^ (string_of_int n) in
-          let name' = symbol_of_string name' in 
+          let name' = symbol_of_string (base_name ^ (string_of_int n)) in
           if Hashtbl.mem strings name' then
             go (n + 1)
           else begin
@@ -1151,7 +1150,7 @@ let rec pp_smtlib2 ?(env=Env.empty) srk formatter expr =
         (go env) s
         (go env) t
     | Floor, [t] ->
-      fprintf formatter "(floor @[%a@])" (go env) t
+      fprintf formatter "(to_int @[%a@])" (go env) t
     | Neg, [{obj = Node (Real qq, [], _)}] ->
       QQ.pp formatter (QQ.negate qq)
     | Neg, [{obj = Node (App _, _, _)} as t]
