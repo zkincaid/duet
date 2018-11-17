@@ -12,8 +12,9 @@ Duet depends on several software packages.  The following dependencies need to b
  + [opam](http://opam.ocaml.org) (with OCaml >= 4.02 & native compiler)
  + GMP and MPFR
  + [NTL](http://www.shoup.net/ntl/): number theory library
+ + Java
 
-On Ubuntu, you can install these packages (except Java) with:
+On Ubuntu, you can install these packages with:
 ```
  sudo apt-get install opam libgmp-dev libmpfr-dev libntl-dev default-jre
 ```
@@ -26,7 +27,7 @@ On MacOS, you can install these packages (except Java) with:
 Next, add the [sv-opam](https://github.com/zkincaid/sv-opam) OPAM repository, and install the rest of duet's dependencies.  These are built from source, so grab a coffee &mdash; this may take a long time.
 ```
  opam remote add sv git://github.com/zkincaid/sv-opam.git
- opam install ocamlgraph batteries cil oasis ppx_deriving Z3 apron ounit menhir OCRS ntl
+ opam install ocamlgraph batteries cil oasis ppx_deriving Z3.4.7.1 apron ounit menhir OCRS ntl
 ```
 
 ### Building Duet
