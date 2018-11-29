@@ -283,57 +283,62 @@ let exp srk tr_symbols loop_counter vabs =
     )
 
 
+(*Move matrix down by first_row rows*)
 let push_rows matrix first_row =
   BatEnum.fold 
     (fun matrix (dim', row) ->  M.add_row (dim' + first_row) row matrix) 
     M.zero 
     (M.rowsi matrix)
 
+
 let coproduct srk vabs1 vabs2 : 'a t =
-  match vabs1, vabs2 with
-  | vabs1, vabs2 ->
-    let (v1, v2, alpha1, alpha2) = (vabs1.v, vabs2.v, vabs1.alphas, vabs2.alphas) in
-    let push_counter_1 = ref 0 in
-    Log.errorf "In the right place";
-    let s1, s2, alphas =
-      List.fold_left (fun (s1, s2, alphas) alphalist1 -> 
-          let push_counter_2 = ref 0 in
-          let s1', s2', alpha' = 
-            (List.fold_left (fun (s1', s2', alpha') alphalist2 ->
-                 let alphalist1, alphalist2 = (push_rows alphalist1 !push_counter_1, push_rows alphalist2 !push_counter_2) in
-                 let (c, d) = Linear.intersect_rowspace alphalist1 alphalist2 in
-                 push_counter_2 := (M.nb_rows alphalist2) + !push_counter_2; (* THIS IS EXTREMELY UNSAFE.... it requires every row of a given alpha list to start at 0 and have no gaps *)
-                 if M.equal c M.zero then (s1', s2', alpha') else (c :: s1', d :: s2', (M.mul c alphalist1) :: alpha'))
-                ([], [], []) alpha2) in
-          push_counter_1 := (M.nb_rows alphalist1) + !push_counter_1; 
-          List.append s1' s1, List.append s2' s2, List.append alpha' alphas)
-        ([], [], []) alpha1
+  let (v1, v2, alpha1, alpha2) = (vabs1.v, vabs2.v, vabs1.alphas, vabs2.alphas) in
+  let push_counter_1 = ref 0 in
+  let s1, s2, alphas =
+    List.fold_left (fun (s1, s2, alphas) alphalist1 -> 
+        let push_counter_2 = ref 0 in
+        let s1', s2', alpha' = 
+          (List.fold_left (fun (s1', s2', alpha') alphalist2 ->
+               (*Add offset to rows so that c and d are correct with regards to unified alpha*)
+               let alphalist1, alphalist2 = (push_rows alphalist1 !push_counter_1, push_rows alphalist2 !push_counter_2) in
+               let (c, d) = Linear.intersect_rowspace alphalist1 alphalist2 in
+               push_counter_2 := (M.nb_rows alphalist2) + !push_counter_2;
+               (*If c = 0, then intersection of equiv class alphalist1 and alphalist2 form empty equivalence class*)
+               if M.equal c M.zero then (s1', s2', alpha') else (c :: s1', d :: s2', (M.mul c alphalist1) :: alpha'))
+              ([], [], []) alpha2) in
+        push_counter_1 := (M.nb_rows alphalist1) + !push_counter_1; 
+        List.append s1' s1, List.append s2' s2, List.append alpha' alphas)
+      ([], [], []) alpha1
+  in
+
+  (*Computes a rep dimension from equivalence class for each row in morphism*)
+  let get_morphism_row_reps unified_morphism = 
+    BatEnum.map (fun (dim', row) ->
+        match BatEnum.get (V.enum row) with
+          | None -> assert false
+          | Some (scalar, dim) -> dim
+      )
+      (M.rowsi (unified_morphism))
+  in
+
+  let s1reps = get_morphism_row_reps (unify s1) in
+  let s2reps = get_morphism_row_reps (unify s2) in
+
+  let transformer_image (t : transformer) unified_morphism rowsreps : transformer =
+    let a, b = t.a, t.b in
+    let b' = M.vector_right_mul (unified_morphism) b in
+    let a' = BatEnum.foldi (fun ind dim vector ->
+        Z.add_term (Z.coeff dim a) ind vector
+      )
+        Z.zero
+        rowsreps
     in
-
-
-    let transformer_image (t : transformer) unified_morphism test : transformer =
-      let a, b = t.a, t.b in
-      let b' = M.vector_right_mul (unified_morphism) b in
-      let a' = BatEnum.fold (fun vector (dim', row) ->
-          let dim = match BatEnum.get (V.enum row) with
-            | None -> assert false
-            | Some (scalar, dim) -> dim
-          in
-          Z.add_term 
-            (Z.coeff dim a)
-            dim'
-            vector
-        )
-          Z.zero
-          (M.rowsi (unified_morphism)) (* Make a function that just computes all unified reps once *)
-      in
-      {a=a'; b=b'}
-    in
-    let ti_fun vas uni_m test = TSet.fold (fun ele acc -> 
-        TSet.add (transformer_image ele uni_m test) acc) vas TSet.empty in
-    let v = TSet.union (ti_fun v1 (unify s1) true) (ti_fun v2 (unify s2) false) in (* Should just put top if no transformers, bottom if conflicting *)
-    {v; alphas;invars=[];invarmaxk=false}
-
+    {a=a'; b=b'}
+  in
+  let ti_fun vas uni_m reps = TSet.fold (fun ele acc -> 
+      TSet.add (transformer_image ele uni_m reps) acc) vas TSet.empty in
+  let v = TSet.union (ti_fun v1 (unify s1) s1reps) (ti_fun v2 (unify s2) s2reps) in (* Should just put top if no transformers, bottom if conflicting *)
+  {v; alphas;invars=[];invarmaxk=false}
 
 
 let term_list srk alphas tr_symbols = 
