@@ -56,17 +56,6 @@ module Mdvass : sig
     module V = Int
   end
     type 'a t
-  val pp : 'a context -> (symbol * symbol) list -> Format.formatter -> 'a t -> unit
-  val exp : 'a context -> (symbol * symbol) list -> 'a term -> 'a t -> 'a formula
-  val join : 'a context -> (symbol * symbol) list -> 'a t -> 'a t -> 'a t
-  val widen : 'a context -> (symbol * symbol) list -> 'a t -> 'a t -> 'a t
-  val equal : 'a context -> (symbol * symbol) list -> 'a t -> 'a t -> bool
-  val abstract : ?exists:(symbol -> bool) ->
-    'a context ->
-    (symbol * symbol) list ->
-    'a formula ->
-    'a t
-  val get_intersect_cube_labeling : 'a context -> 'a formula -> (symbol -> bool) -> (symbol * symbol) list -> ('a formula) array
   val compute_edges : 'a context -> vas -> (symbol * symbol) list -> M.t list -> ('a formula) array -> ('a formula) -> vas array array
   val create_n_vars : 'a context -> int -> symbol list -> string -> symbol list
   val exp_nvars_eq_loop_counter : 'a context -> 'a term list -> 'a term -> 'a formula
@@ -78,8 +67,6 @@ module Mdvass : sig
            M.t list -> (symbol * symbol) list -> 'a term -> 'a formula
   val create_es_et : 'a context -> int -> (('a, 'b) expr * ('a, 'c) expr) list
   val exp_consv_of_flow : 'a context -> 'a term list array -> 'a term list array -> ('a term * 'a term) list -> 'a formula
-  val exp_one_in_out_flow : 'a context -> ('a term * 'a term) list -> 'a term list -> 'a formula
-  val exp_each_ests_one_or_zero : 'a context -> ('a term * 'a term) list -> 'a formula
   val exp_pre_post_conds : 'a context -> ('a term * 'a term) list -> 'a formula array -> (symbol * symbol) list -> 'a formula
   val exp_consv_of_flow_new : 'a context -> int list array -> int list array -> ('a term * 'a term) list -> 'a term list -> int -> 'a formula
 end
