@@ -337,10 +337,11 @@ let coproduct srk vabs1 vabs2 : 'a t =
   in
   let ti_fun vas uni_m reps = TSet.fold (fun ele acc -> 
       TSet.add (transformer_image ele uni_m reps) acc) vas TSet.empty in
-  let v = TSet.union (ti_fun v1 (unify s1) s1reps) (ti_fun v2 (unify s2) s2reps) in (* Should just put top if no transformers, bottom if conflicting *)
+  let v = TSet.union (ti_fun v1 (unify s1) s1reps) (ti_fun v2 (unify s2) s2reps) in
   {v; alphas;invars=[];invarmaxk=false}
 
 
+(*List of terms in alpha, preified and postified*)
 let term_list srk alphas tr_symbols = 
   List.map (fun matrix -> 
       ((M.rowsi matrix)
@@ -351,6 +352,7 @@ let term_list srk alphas tr_symbols =
     alphas
   |> List.flatten
 
+(*Gamma of single transformer*)
 let gamma_transformer srk term_list t =
   BatList.mapi (fun ind (pre_term, post_term) -> 
       mk_eq srk 
@@ -368,8 +370,8 @@ let gamma srk vas tr_symbols : 'a formula =
     if List.length term_list = 0 then mk_true srk else
       mk_or srk (List.map (fun t -> gamma_transformer srk term_list t) (TSet.elements v))
 
-(*Very unsafe*)
-let remove_row vas x y =
+(*Maybe uncomment for future test cases*)
+(*let remove_row vas x y =
   begin match vas with
     | {v; alphas} ->
       let v =
@@ -391,89 +393,71 @@ let remove_row vas x y =
               end*)
       {v;alphas;invars=[];invarmaxk=false}
   end
+*)
 
 
-
-let alpha_hat (srk : 'a context) (imp : 'a formula) symbols x''s  x''_forms othersyms = 
-  let postify = substitute_map srk (post_map srk x''s) in 
-  let r = H.affine_hull srk imp ((List.map (fun (x, x') -> x') symbols) @ othersyms) in
-  let i' = H.affine_hull srk (mk_and srk (imp :: x''_forms)) ((List.map (fun (x'', x') -> x'') x''s) @ othersyms) in
-  let i = List.map postify i' in
+let alpha_hat (srk : 'a context) (imp : 'a formula) symbols x''s  x''_forms doubleres  = 
+  let postify' = postify srk x''s in 
+  let r = H.affine_hull srk imp (List.map (fun (x, x') -> x') symbols) in
+  let i' = H.affine_hull srk (mk_and srk (imp :: x''_forms)) (List.map (fun (x'', x') -> x'') x''s) in
+  let i = List.map postify' i' in
+  (*Adds dim to m b a; offset to account for stacking of inc and res in transformer*)
   let add_dim m b a term a' offset =
     let (b', v) = V.pivot (Linear.const_dim) (Linear.linterm_of srk term) in
-    (M.add_row ((*offset +*) (M.nb_rows m)) v m, V.add_term (QQ.negate b') (offset + (M.nb_rows m)) b, Z.add_term a' (offset + (M.nb_rows m)) a)
+    (M.add_row (M.nb_rows m) v m, V.add_term (QQ.negate b') (offset + (M.nb_rows m)) b, Z.add_term a' (offset + (M.nb_rows m)) a)
   in
   let f t offset = List.fold_left (fun (m, b, a) ele -> add_dim m b a ele t offset) in
-  let (mi,b,a) = f ZZ.one 0 (M.zero, V.zero, Z.zero) i in
+  let (mi,b,a) = f (if doubleres then ZZ.zero else ZZ.one) 0 (M.zero, V.zero, Z.zero) i in
   let (mr, b, a) = f ZZ.zero (M.nb_rows mi) (M.zero, b, a) r in
   match M.equal mi (M.zero), M.equal mr (M.zero) with
   | true, true -> mk_top
   | false, true -> {v=TSet.singleton {a;b}; alphas=[mi];invars=[];invarmaxk=false}
   | true, false ->  {v=TSet.singleton {a;b}; alphas=[mr];invars=[];invarmaxk=false} 
-  | false, false -> {v=TSet.singleton {a;b}; alphas=[mi;mr];invars=[];invarmaxk=false} (* Matrix 1 row 1 maps to first element a, first elemebt b *)
-
-
-
+  | false, false -> {v=TSet.singleton {a;b}; alphas=[mi;mr];invars=[];invarmaxk=false}
 
 
 
 let find_invariants  (srk : 'a context) (symbols : (symbol * symbol) list) (body : 'a formula) =
-  let postify = substitute_map srk (post_map srk symbols) in
-  let (x''s, x''_forms) = 
-    List.split (List.fold_left (fun acc (x, x') -> 
-        let x'' = (mk_symbol srk `TyReal) in
-        let x''_form = (mk_eq srk (mk_const srk x'') 
-                          (mk_sub srk (mk_const srk x') (mk_const srk x))) in
-        ((x'', x'), x''_form) :: acc) [] symbols) in
   let get_last_dim vector =
     BatEnum.fold (fun (scal, high) (scalar, dim) ->
         if dim > high then (scalar,dim) else (scal, high)) (QQ.zero, -1) (V.enum vector) in
-  match alpha_hat srk body symbols x''s x''_forms [] with
+  match alpha_hat srk body symbols symbols [] true with
   | {v;alphas=[]} -> (body, [], false)
-  | {v;alphas=[hd]} -> Log.errorf "THERE WERE NO INVARIANTS FOUND"; (body, [], false)
-  | {v;alphas=[mi;mr]} ->
-    Log.errorf "THE INVARIANT VAS IS: %a"  (Formula.pp srk) (gamma srk {v;alphas=[mi;mr];invars=[];invarmaxk=false} symbols);
+  | {v;alphas=[hd]} -> (body, [], false)
+  | {v;alphas=[up;pr]} ->
     let {a;b} = List.hd (TSet.elements v) in
-    let (c, d) = Linear.intersect_rowspace mi mr in
+    let (c, d) = Linear.intersect_rowspace up pr in
     BatEnum.fold (fun (body', invars, invarmaxk) (dim', crow) ->
-        let vect = M.vector_left_mul crow mi in
+        let vect = M.vector_left_mul crow up in
         let bi = V.dot crow b in 
-        let invarmaxk' = if QQ.equal bi (QQ.zero) then invarmaxk else true in
         let rrow = M.row dim' d in
         let rrow' = 
           BatEnum.fold (fun row_acc (ele, rdim) ->
-              V.add_term ele (rdim + (M.nb_rows mi)) row_acc) V.zero (V.enum rrow) in
+              V.add_term ele (rdim + (M.nb_rows up)) row_acc) V.zero (V.enum rrow) in
         let br = V.dot rrow' b in
 
-
         let scal, last_dim = get_last_dim vect in
-        let term_xy' = postify  
+        let term_xy' =  
             (mk_mul srk 
                [mk_sub srk (Linear.of_linterm srk (snd (V.pivot last_dim vect))) 
                   (mk_real srk br);
                 mk_real srk (QQ.inverse (QQ.negate scal))]) in
-        Log.errorf "New terk %a" (Term.pp srk) term_xy'; 
         let term_xy = preify srk symbols
-            (mk_mul srk
-               [mk_add srk 
-                  [mk_sub srk (Linear.of_linterm srk (snd (V.pivot last_dim vect)))
-                     (mk_real srk br);
-                   mk_real srk  bi];
+            (mk_mul srk 
+               [mk_sub srk (Linear.of_linterm srk (snd (V.pivot last_dim vect))) 
+                  (mk_real srk bi);
                 mk_real srk (QQ.inverse (QQ.negate scal))]) in
-        let sym = match Linear.sym_of_dim last_dim with
+
+        let sym' = match Linear.sym_of_dim last_dim with
           | None -> assert false
           | Some v -> v
         in
-        let sym' = List.fold_left (fun acc (x, x') -> if x = sym then x' else acc) sym symbols in
         let sym = List.fold_left (fun acc (x, x') -> if x' = sym' then x else acc) sym' symbols in
-        Log.errorf "SYMBOL IS %a" (Formula.pp srk) (mk_const srk sym);
-        Log.errorf "SYMBOL IS %a" (Formula.pp srk) (mk_const srk sym');
         let body' = substitute_const srk (fun x -> if x = sym then preify srk symbols term_xy 
-                                           else if x = sym' then postify term_xy'
+                                           else if x = sym' then postify srk symbols term_xy'
                                            else mk_const srk x) body' in
-        Log.errorf "New body %a" (Formula.pp srk) body';
         let invars = (mk_eq srk (mk_const srk sym') (term_xy')) :: (mk_eq srk (mk_const srk sym) (term_xy)) :: invars in
-        List.fold_left (fun _ invar -> Log.errorf "Invars is %a" (Formula.pp srk) invar;())() invars;
+        let invarmaxk' = if QQ.equal bi br then invarmaxk else true in 
         body',invars, invarmaxk'
       )
       (body,[], false)
@@ -487,7 +471,6 @@ let ident_matrix srk symbols =
 
 
 let mk_bottom srk symbols =
-  Log.errorf "Matrix is %a" (M.pp) (ident_matrix srk symbols);
   {v=TSet.empty; alphas=[ident_matrix srk symbols];invars=[];invarmaxk=false}
 
 
@@ -495,27 +478,18 @@ let pp srk syms formatter vas = Format.fprintf formatter "%a" (Formula.pp srk) (
 
 let abstract ?(exists=fun x -> true) (srk : 'a context) (symbols : (symbol * symbol) list) (body : 'a formula)  =
   let allsym = List.fold_left (fun acc (x, x') -> x :: x' :: acc) [] symbols in
-  let othersyms = Syntax.Symbol.Set.fold (fun sym acc -> if List.mem sym allsym then acc else sym :: acc) (Syntax.symbols body) [] in
-  Syntax.Symbol.Set.iter (fun s -> Log.errorf "Symbol is %a %B" (pp_symbol srk) s (exists s)) (Syntax.symbols body);
-  let othersyms = [] in
   let body = (rewrite srk ~down:(nnf_rewriter srk) body) in
   let body = Nonlinear.linearize srk body in
   let (x''s, x''_forms) = 
     List.split (List.fold_left (fun acc (x, x') -> 
-        let x'' = (mk_symbol srk `TyReal) in
+        let x'' = (mk_symbol srk (typ_symbol srk x)) in
         let x''_form = (mk_eq srk (mk_const srk x'') 
                           (mk_sub srk (mk_const srk x') (mk_const srk x))) in
         ((x'', x'), x''_form) :: acc) [] symbols) in
-  let postify = substitute_map srk (post_map srk x''s) in
   let solver = Smt.mk_solver srk in
   let body,cinvars, invarmaxk = find_invariants srk symbols body in
-  BatList.iter (fun invar -> Log.errorf "One invar is %a" (Formula.pp srk) invar) cinvars;
-  Log.errorf "The new formula is %a" (Formula.pp srk) body;
-  Log.errorf "Here";
   let rec go vas count =
     assert (count > 0);
-    (*Log.errorf "Current VAS: %a" (Formula.pp srk) (gamma srk vas symbols);
-      Log.errorf "___________________________";*)
     Smt.Solver.add solver [mk_not srk (gamma srk vas symbols)];
     match Smt.Solver.get_model solver with
     | `Unsat -> vas
@@ -524,10 +498,7 @@ let abstract ?(exists=fun x -> true) (srk : 'a context) (symbols : (symbol * sym
       match Interpretation.select_implicant m body with
       | None -> assert false
       | Some imp ->
-        let alpha_v = alpha_hat srk (mk_and srk imp) symbols x''s x''_forms othersyms in
-        (*if alpha_v = Top then Top else*)
-        Log.errorf "Inter VAS: %a"  (Formula.pp srk) (gamma srk (coproduct srk vas alpha_v) symbols);
-
+        let alpha_v = alpha_hat srk (mk_and srk imp) symbols x''s x''_forms false in
         go (coproduct srk vas alpha_v) (count - 1)
   in
   Smt.Solver.add solver [body];

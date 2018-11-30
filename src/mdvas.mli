@@ -32,7 +32,6 @@ val exp : 'a context -> (symbol * symbol) list -> 'a term -> 'a t -> 'a formula
  val join : 'a context -> (symbol * symbol) list -> 'a t -> 'a t -> 'a t
   val widen : 'a context -> (symbol * symbol) list -> 'a t -> 'a t -> 'a t
   val equal : 'a context -> (symbol * symbol) list -> 'a t -> 'a t -> bool
-val remove_row: 'a t -> int -> int -> 'a t
 val postify : 'a context -> (symbol * symbol) list -> 'a formula -> 'a formula
 val map_terms : 'a context -> symbol list -> 'a term list
 val exp_base_helper : 'a context -> (symbol * Symbol.Map.key) list -> 'a term ->
