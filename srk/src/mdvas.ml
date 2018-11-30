@@ -474,10 +474,11 @@ let mk_bottom srk symbols =
   {v=TSet.empty; alphas=[ident_matrix srk symbols];invars=[];invarmaxk=false}
 
 
+
+(*Make a better pp function... need invars and maxk*)
 let pp srk syms formatter vas = Format.fprintf formatter "%a" (Formula.pp srk) (gamma srk vas syms)
 
 let abstract ?(exists=fun x -> true) (srk : 'a context) (symbols : (symbol * symbol) list) (body : 'a formula)  =
-  let allsym = List.fold_left (fun acc (x, x') -> x :: x' :: acc) [] symbols in
   let body = (rewrite srk ~down:(nnf_rewriter srk) body) in
   let body = Nonlinear.linearize srk body in
   let (x''s, x''_forms) = 
@@ -525,17 +526,7 @@ module Mdvass = struct
                 invars : 'a formula list;
                 invarmaxk : bool
               }
-
-
-
-  let pp _ _ = assert false
-
-
-  let join  (srk :'a context) (tr_symbols : (symbol * symbol) list) (vabs1 : 'a t) (vabs2 : 'a t) = assert false
-  let widen  (srk :'a context) (tr_symbols : (symbol * symbol) list) (vabs1 : 'a t) (vabs2 : 'a t) = assert false
-  let equal (srk : 'a context) (tr_symbols : (symbol * symbol) list) (vabs1 : 'a t) (vabs2 : 'a t) = assert false
-
-
+ 
   let compute_transformers_two_nodes srk l1 l2 transformers term_list tr_symbols formula =
     let solver = Smt.mk_solver srk in
     TSet.filter (fun trans ->
@@ -580,223 +571,6 @@ module Mdvass = struct
     Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Iteration.PolyhedronGuard))
 
 
-  let pre_symbols tr_symbols =
-    List.fold_left (fun set (s,_) ->
-        Symbol.Set.add s set)
-      Symbol.Set.empty
-      tr_symbols
-
-  let post_symbols tr_symbols =
-    List.fold_left (fun set (_,s') ->
-        Symbol.Set.add s' set)
-      Symbol.Set.empty
-      tr_symbols
-
-  let get_pre_with_post_labels srk formula exists tr_symbols =
-    let pre_symbols = pre_symbols tr_symbols in
-    let post_symbols = post_symbols tr_symbols in
-    let solver = Smt.mk_solver srk in
-    let man = Polka.manager_alloc_strict () in
-    let exists_pre x =
-      exists x && not (Symbol.Set.mem x post_symbols)
-    in
-    let exists_post x =
-      exists x && not (Symbol.Set.mem x pre_symbols)
-    in
-    let rec find_prepost labels = 
-      match Smt.Solver.get_model solver with
-      | `Unsat -> labels
-      | `Unknown -> assert false
-      | `Sat m ->
-        match Interpretation.select_implicant m formula with
-        | None -> assert false
-        | Some imp ->
-          let pre_imp = SrkApron.formula_of_property (Abstract.abstract ~exists:exists_pre srk man (mk_and srk imp)) in
-          let post_imp = SrkApron.formula_of_property (Abstract.abstract ~exists:exists_post srk man (mk_and srk imp)) in
-          Smt.Solver.add solver [mk_not srk pre_imp];
-          find_prepost ((pre_imp, post_imp) :: labels)
-    in
-    Smt.Solver.reset solver;
-    Smt.Solver.add solver [formula];
-    let prepost_labels = List.map (fun (pre,post) -> pre, preify srk tr_symbols post) (find_prepost []) in
-    prepost_labels
-
-
-
-  let get_pre_post_labels srk formula exists tr_symbols =
-    let pre_symbols = pre_symbols tr_symbols in
-    let post_symbols = post_symbols tr_symbols in
-    let solver = Smt.mk_solver srk in
-    let man = Polka.manager_alloc_strict () in
-    let exists_pre x =
-      exists x && not (Symbol.Set.mem x post_symbols)
-    in
-    let exists_post x =
-      exists x && not (Symbol.Set.mem x pre_symbols)
-    in
-    let rec find_pre labels = 
-      match Smt.Solver.get_model solver with
-      | `Unsat -> labels
-      | `Unknown -> assert false
-      | `Sat m ->
-        match Interpretation.select_implicant m formula with
-        | None -> assert false
-        | Some imp ->
-          let pre_imp = SrkApron.formula_of_property (Abstract.abstract ~exists:exists_pre srk man (mk_and srk imp)) in
-          Smt.Solver.add solver [mk_not srk pre_imp];
-          find_pre (pre_imp :: labels)
-    in
-    let rec find_post labels = 
-      match Smt.Solver.get_model solver with
-      | `Unsat -> labels
-      | `Unknown -> assert false
-      | `Sat m ->
-        match Interpretation.select_implicant m formula with
-        | None -> assert false
-        | Some imp -> 
-          let post_imp = SrkApron.formula_of_property (Abstract.abstract ~exists:exists_post srk man (mk_and srk imp)) in
-          Smt.Solver.add solver [mk_not srk post_imp];
-          find_post (post_imp :: labels)
-    in
-    Smt.Solver.reset solver;
-    Smt.Solver.add solver [formula];
-    let pre_labels = find_pre [] in
-    Smt.Solver.reset solver;
-    Smt.Solver.add solver [formula];
-    let post_labels = List.map (fun lab -> preify srk tr_symbols lab) (find_post []) in
-    pre_labels, post_labels
-
-
-  let get_pre_cube_labels srk formula exists tr_symbols =
-    Log.errorf "Error in cube?";
-    let pre_symbols = pre_symbols tr_symbols in
-    let post_symbols = post_symbols tr_symbols in
-    let solver = Smt.mk_solver srk in
-    let exists_pre x =
-      exists x && not (Symbol.Set.mem x post_symbols)
-    in
-    let exists_post x =
-      exists x && not (Symbol.Set.mem x pre_symbols)
-    in
-    let rec find_pre labels =
-      Log.errorf "whyyy";
-      match Smt.Solver.get_model solver with
-      | `Unsat -> labels
-      | `Unknown -> assert false
-      | `Sat m ->
-        match Interpretation.select_implicant m formula with
-        | None -> assert false
-        | Some imp ->
-          (*let imp = [Nonlinear.linearize srk (mk_and srk imp)] in*) (*Does this change abstraction*)
-          Log.errorf "entry";
-          let pre_imp = Q.local_project_cube srk exists_pre m imp in
-          Smt.Solver.add solver [mk_not srk (mk_and srk pre_imp)];
-          Log.errorf "exit";
-          Log.errorf "Num: %d" (List.length labels);
-          find_pre ((preify srk tr_symbols (mk_and srk pre_imp)) :: labels)
-    in
-    Smt.Solver.reset solver;
-    Smt.Solver.add solver [SrkSimplify.simplify_terms srk formula];
-    let pre_labels = find_pre [] in
-    let post_form = (rewrite srk ~down:(nnf_rewriter srk) 
-                       (mk_and srk [formula; mk_not srk (postify srk tr_symbols (mk_or srk pre_labels))])) in
-    Log.errorf "Here";
-    let rec find_post labels =
-      Log.errorf "yEEE";
-      match Smt.Solver.get_model solver with
-      | `Unsat -> labels
-      | `Unknown -> assert false
-      | `Sat m ->
-        match Interpretation.select_implicant m post_form with
-        | None -> assert false
-        | Some imp ->
-          (*let imp = [Nonlinear.linearize srk (mk_and srk imp)] in*)
-          let post_imp = Q.local_project_cube srk exists_post m imp in
-          Smt.Solver.add solver [mk_not srk (mk_and srk post_imp)];
-          Log.errorf "exit";
-          Log.errorf "Post lab Num: %d" (List.length labels);
-          find_post ((preify srk tr_symbols (mk_and srk post_imp)) :: labels)
-    in
-    Smt.Solver.reset solver;
-    Smt.Solver.add solver [post_form];
-    let post_labels = find_post [] in
-    pre_labels, post_labels
-
-
-  let get_largest_polyhedrons srk labels =
-    let rec helper_sing front ele back changed =
-      match back with
-      | [] -> front, ele, changed
-      | hd :: tl ->
-        let solver = Smt.mk_solver srk in
-        let form = (rewrite srk ~down:(nnf_rewriter srk) (mk_and srk [ele; hd])) in 
-        Smt.Solver.add solver [form];
-        match Smt.Solver.get_model solver with
-        | `Unsat -> helper_sing (hd :: front) ele tl changed
-        | `Unknown -> helper_sing (hd :: front) ele tl changed
-        | `Sat m -> helper_sing front (mk_or srk [ele; hd]) tl true
-    in
-
-    let rec loop_labels front back =
-      match back with
-      | [] -> front
-      | hd :: tl ->
-        let b', el, ch = helper_sing [] hd tl false in
-        if ch = true 
-        then loop_labels front (el :: b')
-        else loop_labels (el :: front) b'
-    in
-    loop_labels [] labels
-
-  let get_intersect_labeling srk formula exists tr_symbols =
-    let pre, post = get_pre_post_labels srk formula exists tr_symbols in
-    let pre', post' = get_largest_polyhedrons srk pre, get_largest_polyhedrons srk post in
-    List.iteri (fun ind lab -> Log.errorf "PRE LABEL NUM %d: %a" ind (Formula.pp srk) (lab)) pre';
-    List.iteri (fun ind lab -> Log.errorf "POST LABEL NUM %d: %a" ind (Formula.pp srk) (lab)) post;
-
-    let remain_post = mk_and srk
-        [mk_or srk post;
-         mk_not srk (mk_or srk pre')] in(*might be nice to make remain_post polyhedron*)
-    let result = BatArray.of_list (remain_post :: pre') in
-    Array.iteri (fun ind lab -> Log.errorf "LABEL NUM %d: %a" ind (Formula.pp srk) (SrkSimplify.simplify_terms srk lab)) result;
-    result
-
-
-  let get_intersect_cube_labeling srk formula exists tr_symbols =
-    let pre, post = get_pre_cube_labels srk formula exists tr_symbols in
-    List.iteri (fun ind lab -> Log.errorf "PRE LABEL NUM %d: %a" ind (Formula.pp srk) (lab)) pre;
-    List.iteri (fun ind lab -> Log.errorf "POST LABEL NUM %d: %a" ind (Formula.pp srk) (lab)) post;
-    Log.errorf "BREAK HERE______________";
-    let pre', post' = get_largest_polyhedrons srk pre, get_largest_polyhedrons srk post in
-    List.iteri (fun ind lab -> Log.errorf "PRE LABEL NUM %d: %a" ind (Formula.pp srk) (lab)) pre';
-    List.iteri (fun ind lab -> Log.errorf "POST LABEL NUM %d: %a" ind (Formula.pp srk) (lab)) post';
-    let result = BatArray.of_list (post' @ pre') in
-    Array.iteri (fun ind lab -> Log.errorf "LABEL NUM %d: %a" ind (Formula.pp srk) (SrkSimplify.simplify_terms srk lab)) result;
-    result
-
-
-
-
-  let abstract ?(exists=fun x -> true) srk tr_symbols body =
-    Log.errorf "Body formula: %a" (Formula.pp srk) body;
-    let body = (rewrite srk ~down:(nnf_rewriter srk) body) in
-    let body = Nonlinear.linearize srk body in (*Does this change abstraction*)
-    let vas = abstract ~exists srk tr_symbols body in
-    match vas with
-    | {v; alphas;invars;invarmaxk} ->
-      let body,cinvars,maxk = find_invariants srk tr_symbols body in
-      Log.errorf "NUM ALPHAS %d" (List.length alphas);
-      (*let label = deterministic_phase_label srk body exists tr_symbols alphas v in*)
-      let label = get_intersect_cube_labeling srk body exists tr_symbols in
-      let simulation = alphas in
-      let graph = compute_edges srk v tr_symbols alphas label body in
-      BatArray.iteri (fun ind arr -> 
-          BatArray.iteri (fun ind2 trans ->
-              Log.errorf "Num connections from label %d to label %d is: %d" ind ind2 (TSet.cardinal trans)) arr) graph;
-      {label; graph; simulation; invars=invars @ cinvars; invarmaxk}
-
-
-
   (*The N vars are the max number of times any transition was taken. Used for flow primarily*)
   let rec create_n_vars srk num vars basename =
     begin match num <= 0 with
@@ -825,32 +599,20 @@ module Mdvass = struct
     List.combine es et
 
 
-  (* in_sing is which transformers enter single label; out single is which transformers exit single label
-   * in_scc is which transformers enter scc; pre_scc is which transformers originate in given scc*)
-  let exp_compute_trans_in_out_index_numbers transformersmap num sccs nvarst =
-    let num_sccs, func_sccs = sccs in
-    let in_sing, out_sing, in_scc, pre_scc = Array.make num [], Array.make num [], Array.make num_sccs [], Array.make num_sccs [] in
-    List.iteri (fun index (n1, trans, n2) -> in_sing.(n2)<-((List.nth nvarst index) :: in_sing.(n2)); out_sing.(n1)<- ((List.nth nvarst index) :: out_sing.(n1));
-                 pre_scc.(func_sccs n1)<- ((List.nth nvarst index) :: pre_scc.(func_sccs n1));
-                 if not (func_sccs n1 = func_sccs n2) then begin 
-                   in_scc.(func_sccs n2)<-((List.nth nvarst index) :: in_scc.(func_sccs n2)) 
-                 end)
-      transformersmap;
-    in_sing, out_sing, in_scc, pre_scc
+
+  let pre_symbols tr_symbols =
+    List.fold_left (fun set (s,_) ->
+        Symbol.Set.add s set)
+      Symbol.Set.empty
+      tr_symbols
+
+  let post_symbols tr_symbols =
+    List.fold_left (fun set (_,s') ->
+        Symbol.Set.add s' set)
+      Symbol.Set.empty
+      tr_symbols
 
 
-  (* in_sing is which transformers enter single label; out single is which transformers exit single label
-   * in_scc is which transformers enter scc; pre_scc is which transformers originate in given scc*)
-  let exp_compute_trans_in_out_index_numbers transformersmap num sccs nvarst =
-    let num_sccs, func_sccs = sccs in
-    let in_sing, out_sing, in_scc, pre_scc = Array.make num [], Array.make num [], Array.make num_sccs [], Array.make num_sccs [] in
-    List.iteri (fun index (n1, trans, n2) -> in_sing.(n2)<-(index :: in_sing.(n2)); out_sing.(n1)<- (index :: out_sing.(n1));
-                 pre_scc.(func_sccs n1)<- (index :: pre_scc.(func_sccs n1));
-                 if not (func_sccs n1 = func_sccs n2) then begin 
-                   in_scc.(func_sccs n2)<-(index :: in_scc.(func_sccs n2)) 
-                 end)
-      transformersmap;
-    in_sing, out_sing, in_scc, pre_scc
 
   (*Compute the condition that must hold if a given transformer is taken*)
   let compute_trans_post_cond srk prelabel postlabel (trans : transformer) (rtrans,rverts) alphas tr_symbols lc ind = 
@@ -912,34 +674,6 @@ module Mdvass = struct
              (mk_add srk ((if extra_one = -2 then es else if extra_one = ind then mk_one srk else mk_zero srk) :: in_sing.(ind)))
              (mk_add srk (et :: out_sing.(ind))))
           ests)
-
-
-
-  (*Either there is an entry node and exit node, or no transitions taken*)
-  let exp_one_in_out_flow srk ests nvarst = 
-    let et, es = List.split ests in
-    mk_or srk
-      [mk_and srk 
-         [mk_eq srk (mk_add srk et) (mk_one srk);
-          mk_eq srk (mk_add srk es) (mk_one srk)];
-       mk_eq srk (mk_add srk nvarst) (mk_zero srk)]
-
-  (* Each es and et var either 1 or 0. If a single label, both 1 or both 0 *)
-  let exp_each_ests_one_or_zero srk ests =
-    if (List.length ests = 1) then
-      (
-        let (es, et) = List.hd ests in
-        mk_or srk [mk_and srk [mk_eq srk es (mk_one srk); mk_eq srk et (mk_one srk)];
-                   mk_and srk [mk_eq srk es (mk_zero srk); mk_eq srk et (mk_zero srk)]]
-      )
-    else(
-      mk_and srk
-        (List.map (fun (es, et) -> 
-             mk_and srk
-               [mk_or srk [mk_eq srk es (mk_zero srk); mk_eq srk es (mk_one srk)];
-                mk_or srk [mk_eq srk et (mk_zero srk); mk_eq srk et (mk_one srk)]]
-           )
-            ests))
 
   (* The initial label for graph must have precond satisfied; the final label for graph must have 
    * post cond satisfied*)
@@ -1046,53 +780,4 @@ module Mdvass = struct
            exp_sx_constraints_helper_flow srk ri ksum ksums svarstdims transformers kvarst unialpha tr_symbols kstack in_sing out_sing ests
              in_scc pre_scc sccs)
           equiv_pairs)
-
-
-
-  let exp srk tr_symbols loop_counter vassabs =
-    match vassabs with
-    | {label; graph; simulation; invars;invarmaxk} ->
-      let alphas = simulation in
-      if(M.nb_rows (unify alphas) = 0) then mk_true srk else (
-        let transformersmap : (int * transformer * int) list = List.flatten 
-            (List.flatten 
-               (Array.to_list 
-                  (Array.mapi (fun n1 arr -> 
-                       Array.to_list (Array.mapi (fun n2 vas ->
-                           BatEnum.fold (fun acc trans -> (n1, trans, n2) :: acc) [] (TSet.enum vas))
-                           arr))
-                      graph)))
-        in
-        let transformers = List.map (fun (_, t, _) -> t) transformersmap in
-        let nvarst = map_terms srk (create_n_vars srk (List.length transformers) [] "N") in
-        let (form, (equiv_pairst, kvarst, ksumst)) =
-          exp_base_helper srk tr_symbols loop_counter simulation transformers invars invarmaxk in
-        let sum_n_eq_loop_counter = exp_nvars_eq_loop_counter srk nvarst loop_counter in
-        let ks_less_than_ns = exp_kvarst_less_nvarst srk nvarst kvarst in
-        let sccs = GraphComp.scc graph in
-        let reachable_transitions = get_reachable_trans graph in
-        BatArray.iteri (fun ind (trans, verts) -> 
-            TSet.iter (fun trans ->
-                Log.errorf "Label %d admits trans %a" ind (Transformer.pp) trans) trans;
-            BatList.iter (fun vert ->
-                Log.errorf "Label %d trans to label %d" ind vert) verts) 
-          reachable_transitions;
-        let post_conds_const = exp_post_conds_on_transformers srk label transformersmap reachable_transitions nvarst alphas tr_symbols loop_counter in
-
-        let in_sing, out_sing, in_scc, pre_scc = exp_compute_trans_in_out_index_numbers transformersmap (Array.length label) sccs nvarst in
-        let ests = create_es_et srk (Array.length label) in
-        let flow_consv_req = exp_consv_of_flow_new srk in_sing out_sing ests nvarst (-2) in
-        let in_out_one = exp_one_in_out_flow srk ests nvarst in
-        let ests_one_or_zero = exp_each_ests_one_or_zero srk ests in
-        let pre_post_conds = exp_pre_post_conds srk ests label tr_symbols in
-        let never_enter_constraints = exp_never_enter_scc_new srk ests in_scc pre_scc sccs nvarst (-2) in
-        let pos_constraints = create_exp_positive_reqs srk [nvarst; fst (List.split ests); snd (List.split ests)] in
-        let sx_constraints = exp_sx_constraints_flow srk equiv_pairst transformers kvarst ksumst (unify alphas) tr_symbols in_sing out_sing
-            ests in_scc pre_scc sccs in
-        Log.errorf " Failure cause %a" (Formula.pp srk) pre_post_conds;
-        let form = mk_and srk [form; sum_n_eq_loop_counter; ks_less_than_ns; flow_consv_req; in_out_one;
-                               ests_one_or_zero;  pre_post_conds; never_enter_constraints; pos_constraints; post_conds_const(*; sx_constraints*)] in
-        Log.errorf " Current D VAL %a" (Formula.pp srk) form;
-        form
-      )
 end
