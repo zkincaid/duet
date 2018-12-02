@@ -257,45 +257,43 @@ module Vassnew = struct
 
 
 
+(* Flow is conserved for labels. Used both for master flow and also for equiv class flow *)
+let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
+  let in_sing_inds = in_sing in
+  let in_sing = BatArray.map (fun indlist -> List.map (fun ind -> List.nth varst ind) indlist) in_sing in
+  let out_sing = BatArray.map (fun indlist -> List.map (fun ind -> List.nth varst ind) indlist) out_sing in
+  mk_and srk
+    (List.mapi (fun ind (es, et) ->
+         mk_eq srk
+           (mk_add srk ((if reset_trans = -2 then es else if (BatList.mem reset_trans in_sing_inds.(ind)) 
+                         then mk_one srk else mk_zero srk) :: in_sing.(ind)))
+           (mk_add srk (et :: out_sing.(ind))))
+        ests)
+
 
   (*Either svar for each row in equiv class in x and equiv class not reset or equiv class reset
    * at transformer i and svars equal the reset dim at transformer i*)
   let exp_sx_constraints_helper_flow srk ri ksum ksums svarstdims transformers kvarst unialpha tr_symbols kstack in_sing
       out_sing ests =
-    let compute_single_svars svart dim  =
-      mk_or srk
-        ((mk_and srk
-            [(mk_eq srk svart (preify srk tr_symbols (Linear.of_linterm srk (M.row dim unialpha)))); (*pivot or row? need to make sure alpha and dim both indexed same *)
-             (mk_eq srk ri (mk_real srk (QQ.of_int (-1))))
-             (*(MAKE KSUM = N NUM)*)]) ::
-         (BatList.mapi 
-            (fun ind {a; b} ->
-               if ZZ.equal (Z.coeff dim a) ZZ.one 
-               then (mk_false srk)
-               else 
-                 mk_and srk
-                   [(mk_eq srk svart (mk_real srk (V.coeff dim b)));
-                    exp_other_reset srk ksum ksums kvarst ind;
-                    (mk_eq srk ri (mk_real srk (QQ.of_int ind)));
-                    Mvass.exp_consv_of_flow_new srk in_sing out_sing ests kstack ind
-                    (*(MAKE FLOW FOR ONE K CLASS MAKe SeNSE kstack in_scc pre_scc in_sing out_sing)*)])
-            transformers))
-    in
-    (*mk_and srk (List.map (fun (svar,dim) -> compute_single_svars svar dim) svarstdims)*)
     mk_or srk
       ((mk_and srk
           (mk_eq srk ri (mk_real srk (QQ.of_int (-1))) ::
            (List.map
-              (fun (svart, dim) -> (mk_eq srk svart (preify srk tr_symbols (Linear.of_linterm srk (M.row dim unialpha))))) svarstdims)))
-       :: (BatList.mapi (fun ind {a; b} -> if ZZ.equal (Z.coeff (snd (List.hd svarstdims)) a) ZZ.one then (mk_false srk)
+              (fun (svart, dim) -> 
+                 mk_eq srk svart (preify srk tr_symbols (Linear.of_linterm srk (M.row dim unialpha))))
+              svarstdims)))
+       :: (BatList.mapi 
+             (fun ind {a; b} -> 
+                if ZZ.equal (Z.coeff (snd (List.hd svarstdims)) a) ZZ.one then (mk_false srk)
                           else (
                             mk_and srk
-                              (Mvass.exp_consv_of_flow_new srk in_sing out_sing ests kstack ind ::
+                              (exp_consv_of_flow_new srk in_sing out_sing ests kstack ind ::
                                (mk_eq srk ri (mk_real srk (QQ.of_int ind))) ::
                                exp_other_reset srk ksum ksums kvarst ind ::
                                (List.map
                                   (fun (svart, dim) -> mk_eq srk svart (mk_real srk (V.coeff dim b))) svarstdims)))
-                          ) transformers))
+                        ) 
+             transformers))
 
 
   (*See helper function for description*)
@@ -343,9 +341,10 @@ module Vassnew = struct
       let post_conds_const = Mvass.exp_post_conds_on_transformers srk label transformersmap reachable_transitions nvarst alphas tr_symbols loop_counter in
 
       let in_sing, out_sing  = exp_compute_trans_in_out_index_numbers transformersmap (Array.length label) in
-      let flow_consv_req = Mvass.exp_consv_of_flow_new srk in_sing out_sing ests nvarst (-2) in
+      let flow_consv_req = exp_consv_of_flow_new srk in_sing out_sing ests nvarst (-2) in
       let pos_constraints = create_exp_positive_reqs srk [nvarst] in
-      let sx_constraints = exp_sx_constraints_flow srk equiv_pairst transformers kvarst ksumst (unify alphas) tr_symbols in_sing out_sing
+      let sx_constraints = exp_sx_constraints_flow srk equiv_pairst transformers (nvarst:: kvarst) 
+          ((mk_add srk nvarst) :: ksumst) (unify alphas) tr_symbols in_sing out_sing
           ests in
       let form = mk_and srk [form; sum_n_eq_loop_counter; ks_less_than_ns; flow_consv_req; in_out_one;
                              ests_one_or_zero; pre_post_conds; pos_constraints; pos_constraints_1; post_conds_const; sx_constraints] in

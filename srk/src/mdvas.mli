@@ -66,7 +66,5 @@ module Mdvass : sig
            (TSet.t * 'b) array -> 'a term list ->
            M.t list -> (symbol * symbol) list -> 'a term -> 'a formula
   val create_es_et : 'a context -> int -> (('a, 'b) expr * ('a, 'c) expr) list
-  val exp_consv_of_flow : 'a context -> 'a term list array -> 'a term list array -> ('a term * 'a term) list -> 'a formula
   val exp_pre_post_conds : 'a context -> ('a term * 'a term) list -> 'a formula array -> (symbol * symbol) list -> 'a formula
-  val exp_consv_of_flow_new : 'a context -> int list array -> int list array -> ('a term * 'a term) list -> 'a term list -> int -> 'a formula
 end
