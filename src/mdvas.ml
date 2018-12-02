@@ -651,30 +651,8 @@ module Mdvass = struct
                trans reachability.(n2) alphas tr_symbols lc ind in
            Log.errorf "Pos %d post cond is %a" ind (Formula.pp srk) post_cond;
            mk_if srk (mk_lt srk (mk_zero srk) (List.nth nvarst ind)) (mk_and srk [post_cond; mk_true srk])) transformersmap
-      ) 
-
-  (* Flow is conserved for the nvarst *)
-  let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_label =
-    let in_sing_inds = in_sing in
-    let in_sing = BatArray.map (fun indlist -> List.map (fun ind -> List.nth varst ind) indlist) in_sing in
-    let out_sing = BatArray.map (fun indlist -> List.map (fun ind -> List.nth varst ind) indlist) out_sing in
-    mk_and srk
-      (List.mapi (fun ind (es, et) ->
-           mk_eq srk
-             (mk_add srk ((if reset_label = -2 then es else if (BatList.mem reset_label in_sing_inds.(ind)) 
-                           then mk_one srk else mk_zero srk) :: in_sing.(ind)))
-             (mk_add srk (et :: out_sing.(ind))))
-          ests)
-
-  let exp_consv_of_flow srk in_sing out_sing ests =
-    let extra_one = -2 in
-    mk_and srk
-      (List.mapi (fun ind (es, et) ->
-           mk_eq srk
-             (mk_add srk ((if extra_one = -2 then es else if extra_one = ind then mk_one srk else mk_zero srk) :: in_sing.(ind)))
-             (mk_add srk (et :: out_sing.(ind))))
-          ests)
-
+      )
+      
   (* The initial label for graph must have precond satisfied; the final label for graph must have 
    * post cond satisfied*)
   let exp_pre_post_conds srk ests label tr_symbols =
@@ -745,39 +723,4 @@ module Mdvass = struct
           graph.(v).(v),
         v :: verts)
         (TSet.empty, []) graph ind) graph
-
-  (*Either svar for each row in equiv class in x and equiv class not reset or equiv class reset
-   * at transformer i and svars equal the reset dim at transformer i*)
-  let exp_sx_constraints_helper_flow srk ri ksum ksums svarstdims transformers kvarst unialpha tr_symbols kstack in_sing
-      out_sing ests in_scc pre_scc sccs =
-    let compute_single_svars svart dim  =
-      mk_or srk
-        ((mk_and srk
-            [(mk_eq srk svart (preify srk tr_symbols (Linear.of_linterm srk (M.row dim unialpha)))); (*pivot or row? need to make sure alpha and dim both indexed same *)
-             (mk_eq srk ri (mk_real srk (QQ.of_int (-1))))
-             (*(MAKE KSUM = N NUM)*)]) ::
-         (BatList.mapi 
-            (fun ind {a; b} ->
-               if ZZ.equal (Z.coeff dim a) ZZ.one 
-               then (mk_false srk)
-               else 
-                 mk_and srk
-                   [(mk_eq srk svart (mk_real srk (V.coeff dim b)));
-                    exp_other_reset srk ksum ksums kvarst ind;
-                    (mk_eq srk ri (mk_real srk (QQ.of_int ind)));
-                    exp_consv_of_flow_new srk in_sing out_sing ests kstack ind;
-                    exp_never_enter_scc_new srk ests in_scc pre_scc sccs kstack ind
-                    (*(MAKE FLOW FOR ONE K CLASS MAKe SeNSE kstack in_scc pre_scc in_sing out_sing)*)])
-            transformers))
-    in
-    mk_and srk (List.map (fun (svar,dim) -> compute_single_svars svar dim) svarstdims)
-
-
-  (*See helper function for description*)
-  let exp_sx_constraints_flow srk equiv_pairs transformers kvarst ksums unialpha tr_symbols in_sing out_sing ests in_scc pre_scc sccs =
-    mk_and srk
-      (List.map (fun (kstack, svarstdims, ri, ksum) ->
-           exp_sx_constraints_helper_flow srk ri ksum ksums svarstdims transformers kvarst unialpha tr_symbols kstack in_sing out_sing ests
-             in_scc pre_scc sccs)
-          equiv_pairs)
 end
