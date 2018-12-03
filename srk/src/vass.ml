@@ -58,6 +58,24 @@ module Vassnew = struct
   module BGraphComp = Graph.Components.Make(BoolGraph)
   module BGraphTrav = Graph.Traverse.Dfs(BoolGraph)
   module BGraphTopo = Graph.Topological.Make(BoolGraph)
+  module VassGraph = struct
+    type t = vas array array
+
+    module V = Int
+    let is_directed = true
+    let iter_vertex f g =
+      BatEnum.iter f (0 -- (Array.length g - 1))
+    let iter_succ f g v = Array.iteri (fun ind ele -> if not (TSet.is_empty ele) then f ind ) g.(v)
+    let fold_vertex f g a = BatEnum.fold (fun acc v -> f v acc) a (0 -- (Array.length g - 1))
+    let fold_succ f g v a = BatArray.fold_righti (fun ind ele acc -> if not (TSet.is_empty ele) then f ind acc else acc) g.(v) a
+  end
+
+  module GraphComp = Graph.Components.Make(VassGraph) 
+  module GraphTrav = Graph.Traverse.Dfs(VassGraph)
+  module Accelerate =
+    Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Iteration.PolyhedronGuard))
+
+
 
 
 
@@ -238,13 +256,20 @@ module Vassnew = struct
 
   (*each entry and exit label has value 1 or 0*)
   let exp_each_ests_one_or_zero srk ests =
-    mk_and srk
-      (List.map (fun (es, et) -> 
-           mk_and srk
-             [mk_or srk [mk_eq srk es (mk_zero srk); mk_eq srk es (mk_one srk)];
-              mk_or srk [mk_eq srk et (mk_zero srk); mk_eq srk et (mk_one srk)]]
-         )
-          ests)
+    (*This optimization seems to greatly reduce runtime for more complex cases*)
+    if (List.length ests = 1) then
+      (
+        let (es, et) = List.hd ests in
+        mk_and srk [mk_eq srk es (mk_one srk); mk_eq srk et (mk_one srk)]
+      )
+    else(
+      mk_and srk
+        (List.map (fun (es, et) -> 
+             mk_and srk
+               [mk_or srk [mk_eq srk es (mk_zero srk); mk_eq srk es (mk_one srk)];
+                mk_or srk [mk_eq srk et (mk_zero srk); mk_eq srk et (mk_one srk)]]
+           )
+            ests))
 
   (*An entry and an exit label must be taken. Note this is stronger than prev vass in which label must be taken or
    * loop counter is 0*)
@@ -304,24 +329,74 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
           equiv_pairs)
 
 
+  (*The N vars are the max number of times any transition was taken. Used for flow primarily*)
+  let rec create_n_vars srk num vars basename =
+    begin match num <= 0 with
+      | true -> List.rev vars (*rev only to make debugging easier and have names match up... not needed *)
+      | false -> create_n_vars srk (num - 1) ((mk_symbol srk ~name:(basename^(string_of_int num)) `TyInt) :: vars) basename
+    end
+
+
+
+  (*ESL entry node for graph; ETL exit node for graph*)
+  let create_es_et srk num =
+    let es = map_terms srk (create_n_vars srk num [] "ESL") in
+    let et = map_terms srk (create_n_vars srk num [] "ETL") in
+    List.combine es et
+
+ (* The initial label for graph must have precond satisfied; the final label for graph must have 
+   * post cond satisfied*)
+  let exp_pre_post_conds srk ests label tr_symbols =
+    mk_and srk
+      (List.mapi (fun ind (es, et) ->
+           mk_and srk
+             [mk_if srk (mk_eq srk es (mk_one srk)) (label.(ind));
+              mk_if srk (mk_eq srk et (mk_one srk)) (postify srk tr_symbols (label.(ind)))])
+          ests)
+
+  (*Set N vars eq to loop counter*)
+  let exp_nvars_eq_loop_counter srk nvarst loop_counter =
+    mk_eq srk (mk_add srk nvarst) loop_counter
+
+
+  (* Set each kvar less or eq respective nvar*)
+  let exp_kvarst_less_nvarst srk nvarst kvarst =
+    mk_and srk
+      (List.map (fun kstack ->
+           mk_and srk
+             (List.mapi (fun ind k ->
+                  mk_leq srk k (List.nth nvarst ind))
+                 kstack))
+          kvarst)
+
+
+  (*Compute the graph that is reachable from a given transformer*)
+  let get_reachable_trans graph =
+    BatArray.mapi (fun ind vert -> GraphTrav.fold_component (fun v (trans, verts) -> 
+        TSet.union
+          (List.fold_left 
+             (fun acc ele ->
+                TSet.union acc 
+                  (TSet.union graph.(ele).(v) graph.(v).(ele))) trans verts)
+          graph.(v).(v),
+        v :: verts)
+        (TSet.empty, []) graph ind) graph
+
 
   (*MAKE LOOP_COUNTER AT LEAST 1.... but does this enforce other things must transition?....YOU NEED TO IMPLEMENT THE RESET SHIT*)
   let closure_of_an_scc srk tr_symbols loop_counter vass =
     let label, graph, alphas, invars, invarmaxk = vass.label, vass.graph, vass.simulation, vass.invars, vass.invarmaxk in
     let simulation = alphas in
 
-    let ests = Mvass.create_es_et srk (Array.length label) in
+    let ests = create_es_et srk (Array.length label) in
     let in_out_one = exp_one_in_out_flow srk ests in
     let ests_one_or_zero = exp_each_ests_one_or_zero srk ests in
-    let pre_post_conds = Mvass.exp_pre_post_conds srk ests label tr_symbols in
+    let pre_post_conds = exp_pre_post_conds srk ests label tr_symbols in
     let pos_constraints_1 = create_exp_positive_reqs srk [fst (List.split ests); snd (List.split ests)] in
 
     if(M.nb_rows (unify (vass.simulation)) = 0) then
       ((mk_and srk [in_out_one; ests_one_or_zero; pre_post_conds; pos_constraints_1]), (fst (List.split ests)))
     else(
-
-
-
       let transformersmap : (int * transformer * int) list = List.flatten
           (List.flatten
              (Array.to_list
@@ -332,12 +407,12 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
                     graph)))
       in
       let transformers = List.map (fun (_, t, _) -> t) transformersmap in
-      let nvarst = map_terms srk (Mvass.create_n_vars srk (List.length transformers) [] "N") in
+      let nvarst = map_terms srk (create_n_vars srk (List.length transformers) [] "N") in
       let (form, (equiv_pairst, kvarst, ksumst)) =
         exp_base_helper srk tr_symbols loop_counter simulation transformers invars invarmaxk in
-      let sum_n_eq_loop_counter = Mvass.exp_nvars_eq_loop_counter srk nvarst loop_counter in
-      let ks_less_than_ns = Mvass.exp_kvarst_less_nvarst srk nvarst kvarst in
-      let reachable_transitions = Mvass.get_reachable_trans graph in
+      let sum_n_eq_loop_counter = exp_nvars_eq_loop_counter srk nvarst loop_counter in
+      let ks_less_than_ns = exp_kvarst_less_nvarst srk nvarst kvarst in
+      let reachable_transitions = get_reachable_trans graph in
       let post_conds_const = Mvass.exp_post_conds_on_transformers srk label transformersmap reachable_transitions nvarst alphas tr_symbols loop_counter in
 
       let in_sing, out_sing  = exp_compute_trans_in_out_index_numbers transformersmap (Array.length label) in

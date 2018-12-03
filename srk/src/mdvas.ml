@@ -571,33 +571,6 @@ module Mdvass = struct
     Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Iteration.PolyhedronGuard))
 
 
-  (*The N vars are the max number of times any transition was taken. Used for flow primarily*)
-  let rec create_n_vars srk num vars basename =
-    begin match num <= 0 with
-      | true -> List.rev vars (*rev only to make debugging easier and have names match up... not needed *)
-      | false -> create_n_vars srk (num - 1) ((mk_symbol srk ~name:(basename^(string_of_int num)) `TyInt) :: vars) basename
-    end
-
-  (*Set N vars eq to loop counter*)
-  let exp_nvars_eq_loop_counter srk nvarst loop_counter =
-    mk_eq srk (mk_add srk nvarst) loop_counter
-
-  (* Set each kvar less or eq respective nvar*)
-  let exp_kvarst_less_nvarst srk nvarst kvarst =
-    mk_and srk
-      (List.map (fun kstack ->
-           mk_and srk
-             (List.mapi (fun ind k ->
-                  mk_leq srk k (List.nth nvarst ind))
-                 kstack))
-          kvarst)
-
-  (*ESL entry node for graph; ETL exit node for graph*)
-  let create_es_et srk num =
-    let es = map_terms srk (create_n_vars srk num [] "ESL") in
-    let et = map_terms srk (create_n_vars srk num [] "ETL") in
-    List.combine es et
-
 
 
   let pre_symbols tr_symbols =
@@ -653,17 +626,7 @@ module Mdvass = struct
            mk_if srk (mk_lt srk (mk_zero srk) (List.nth nvarst ind)) (mk_and srk [post_cond; mk_true srk])) transformersmap
       )
       
-  (* The initial label for graph must have precond satisfied; the final label for graph must have 
-   * post cond satisfied*)
-  let exp_pre_post_conds srk ests label tr_symbols =
-    mk_and srk
-      (List.mapi (fun ind (es, et) ->
-           mk_and srk
-             [mk_if srk (mk_eq srk es (mk_one srk)) (label.(ind));
-              mk_if srk (mk_eq srk et (mk_one srk)) (postify srk tr_symbols (label.(ind)))])
-          ests)
-
-  (* If an scc is never entered, all transformers originating in that scc are never taken*)
+   (* If an scc is never entered, all transformers originating in that scc are never taken*)
   let exp_never_enter_scc_new srk ests in_scc pre_scc sccs varst extra_num =
     let num_sccs, func_sccs = sccs in
     let es_comp = Array.make num_sccs [] in
@@ -711,16 +674,4 @@ module Mdvass = struct
              in_scc))
 
 
-
-  (*Compute the graph that is reachable from a given transformer*)
-  let get_reachable_trans graph =
-    BatArray.mapi (fun ind vert -> GraphTrav.fold_component (fun v (trans, verts) -> 
-        TSet.union
-          (List.fold_left 
-             (fun acc ele ->
-                TSet.union acc 
-                  (TSet.union graph.(ele).(v) graph.(v).(ele))) trans verts)
-          graph.(v).(v),
-        v :: verts)
-        (TSet.empty, []) graph ind) graph
 end
