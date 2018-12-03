@@ -382,6 +382,60 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
         v :: verts)
         (TSet.empty, []) graph ind) graph
 
+  let entrance_bounds srk entvars num_labels = 
+    mk_and srk  (BatList.map 
+                   (fun var -> mk_and srk 
+                       [mk_leq srk (mk_zero srk) var;
+                        mk_leq srk var (mk_real srk (QQ.of_int num_labels))]) 
+                   entvars)
+
+
+  let entrance_source_cons srk entvars es =
+    mk_and srk (BatList.mapi
+                  (fun ind var ->
+                     mk_iff 
+                       srk 
+                       (mk_eq srk (List.nth es ind) (mk_one srk))
+                       (mk_eq srk var (mk_zero srk))) entvars)
+
+
+  let entrance_non_source_cons srk entvars transformermap nvarst in_sings =
+    mk_and srk (BatList.mapi 
+                  (fun ind var ->
+                     mk_if 
+                       srk 
+                       (mk_and srk
+                          [mk_lt srk (mk_zero srk) var;
+                           mk_lt srk var (mk_real srk (QQ.of_int (List.length entvars)))])
+                       (mk_or srk
+                          (List.fold_left
+                             (fun acc ele ->
+                                let (pred, _, _) = List.nth transformermap ele in
+                                (mk_and srk
+                                   [mk_leq srk (mk_one srk) (List.nth nvarst ele);
+                                    mk_eq srk (mk_sub srk (List.nth entvars pred) (mk_one srk)) var]) ::
+                                acc
+                             )
+                             [mk_false srk]
+                             in_sings.(ind))))
+                  entvars)
+
+
+  let entrance_n srk entvars eset in_sings out_sings nvarst =
+    mk_and srk 
+      (BatList.mapi
+         (fun ind var ->
+            let (es,et) = List.nth eset ind in
+            let in_sing_this = List.map (fun ind -> List.nth nvarst ind) in_sings.(ind) in
+            let out_sing_this = List.map (fun ind -> List.nth nvarst ind) out_sings.(ind) in
+            mk_if srk
+              (mk_eq srk var (mk_real srk (QQ.of_int (List.length entvars))))
+              (mk_and srk
+                 (List.map (fun term -> mk_eq srk (mk_zero srk) term) (es :: et :: (in_sing_this @ out_sing_this)))))
+         entvars)
+
+
+
 
   (*MAKE LOOP_COUNTER AT LEAST 1.... but does this enforce other things must transition?....YOU NEED TO IMPLEMENT THE RESET SHIT*)
   let closure_of_an_scc srk tr_symbols loop_counter vass =
@@ -408,6 +462,8 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
       in
       let transformers = List.map (fun (_, t, _) -> t) transformersmap in
       let nvarst = map_terms srk (create_n_vars srk (List.length transformers) [] "N") in
+      let entvars = map_terms srk (create_n_vars srk (Array.length label) [] "ENT") in
+ 
       let (form, (equiv_pairst, kvarst, ksumst)) =
         exp_base_helper srk tr_symbols loop_counter simulation transformers invars invarmaxk in
       let sum_n_eq_loop_counter = exp_nvars_eq_loop_counter srk nvarst loop_counter in
@@ -421,8 +477,13 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
       let sx_constraints = exp_sx_constraints_flow srk equiv_pairst transformers (nvarst:: kvarst) 
           ((mk_add srk nvarst) :: ksumst) (unify alphas) tr_symbols in_sing out_sing
           ests in
+      let ent_bounds = entrance_bounds srk entvars (Array.length label) in
+      let ent_source = entrance_source_cons srk entvars (fst (List.split ests)) in
+      let ent_non_source = entrance_non_source_cons srk entvars transformersmap nvarst in_sing in
+      let ent_max = entrance_n srk entvars ests in_sing out_sing nvarst in 
       let form = mk_and srk [form; sum_n_eq_loop_counter; ks_less_than_ns; flow_consv_req; in_out_one;
-                             ests_one_or_zero; pre_post_conds; pos_constraints; pos_constraints_1; post_conds_const; sx_constraints] in
+                             ests_one_or_zero; pre_post_conds; pos_constraints; pos_constraints_1; post_conds_const; sx_constraints;
+                             ent_bounds; ent_source; ent_non_source; ent_max] in
       form, (fst (List.split ests)))
 
 
