@@ -57,14 +57,8 @@ module Mdvass : sig
   end
     type 'a t
   val compute_edges : 'a context -> vas -> (symbol * symbol) list -> M.t list -> ('a formula) array -> ('a formula) -> vas array array
-  val create_n_vars : 'a context -> int -> symbol list -> string -> symbol list
-  val exp_nvars_eq_loop_counter : 'a context -> 'a term list -> 'a term -> 'a formula
-  val exp_kvarst_less_nvarst : 'a context -> 'a term list -> 'a term list list -> 'a formula
-  val get_reachable_trans : VassGraph.t -> (TSet.t * VassGraph.V.t list) array
   val exp_post_conds_on_transformers : 'a context -> 'a formula array ->
            (int * transformer * int) list ->
            (TSet.t * 'b) array -> 'a term list ->
            M.t list -> (symbol * symbol) list -> 'a term -> 'a formula
-  val create_es_et : 'a context -> int -> (('a, 'b) expr * ('a, 'c) expr) list
-  val exp_pre_post_conds : 'a context -> ('a term * 'a term) list -> 'a formula array -> (symbol * symbol) list -> 'a formula
 end
