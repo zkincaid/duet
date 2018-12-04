@@ -47,18 +47,10 @@ val unify : M.t list -> M.t
 val ident_matrix : 'a context -> (symbol * symbol) list -> M.t
 
 val exp_other_reset : 'a context -> 'a term -> 'a term list -> 'a term list list -> int -> 'a formula
-
+val term_list : 'a context -> M.t list -> (symbol * Symbol.Map.key) list -> (('a, typ_arith) expr * 'a term) list
+val gamma_transformer : 'a context -> ('a term * 'a term) list -> transformer -> 'a formula
 module Mdvass : sig
   module Int = SrkUtil.Int
-  module VassGraph : sig
-    type t = vas array array
-
-    module V = Int
-  end
     type 'a t
   val compute_edges : 'a context -> vas -> (symbol * symbol) list -> M.t list -> ('a formula) array -> ('a formula) -> vas array array
-  val exp_post_conds_on_transformers : 'a context -> 'a formula array ->
-           (int * transformer * int) list ->
-           (TSet.t * 'b) array -> 'a term list ->
-           M.t list -> (symbol * symbol) list -> 'a term -> 'a formula
 end
