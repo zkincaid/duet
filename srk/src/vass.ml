@@ -382,6 +382,7 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
         v :: verts)
         (TSet.empty, []) graph ind) graph
 
+  (*Set upper bounds on distance for each label from source. Can prob combine this function with ordering bounds*)
   let entrance_bounds srk entvars num_labels = 
     mk_and srk  (BatList.map 
                    (fun var -> mk_and srk 
@@ -389,7 +390,7 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
                         mk_leq srk var (mk_real srk (QQ.of_int num_labels))]) 
                    entvars)
 
-
+  (*Distance is 0 if and only if source label*)
   let entrance_source_cons srk entvars es =
     mk_and srk (BatList.mapi
                   (fun ind var ->
@@ -399,6 +400,7 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
                        (mk_eq srk var (mk_zero srk))) entvars)
 
 
+  (*If not source label, and reached (dist < n), then there is flow on an edge originating from a node with dist this dist - 1*)
   let entrance_non_source_cons srk entvars transformermap nvarst in_sings =
     mk_and srk (BatList.mapi 
                   (fun ind var ->
@@ -421,6 +423,7 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
                   entvars)
 
 
+  (*If no route from source to node with flow (dist = n), then no outgoing flow allowed*)
   let entrance_n srk entvars eset in_sings out_sings nvarst =
     mk_and srk 
       (BatList.mapi
@@ -431,13 +434,42 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
             mk_if srk
               (mk_eq srk var (mk_real srk (QQ.of_int (List.length entvars))))
               (mk_and srk
-                 (List.map (fun term -> mk_eq srk (mk_zero srk) term) (es :: et :: (in_sing_this @ out_sing_this)))))
+                 (*Really only out_sing_this needed here. Other options will be 0; playing with them to see if any added efficiency boost*)
+                 ((*[(mk_eq srk (mk_add srk (es :: et :: (in_sing_this @ out_sing_this))) (mk_zero srk))] ::*) 
+                 (List.map (fun term -> mk_eq srk (mk_zero srk) term) (es :: et :: (in_sing_this @ out_sing_this))))))
          entvars)
 
 
+  (*Compute the condition that must hold if a given transformer is taken... Confirm correctness of this*)
+  let compute_trans_post_cond srk prelabel postlabel (trans : transformer) (rtrans,rverts) alphas tr_symbols ind = 
+    let term_list = term_list srk alphas tr_symbols in
+    let f' = mk_or srk (List.map (fun ele -> gamma_transformer srk term_list ele) (TSet.elements rtrans)) in
+    let pre_symbols = pre_symbols tr_symbols in
+    let man = Polka.manager_alloc_strict () in
+    let exists_post x = not (Symbol.Set.mem x pre_symbols) in
+    let trans' = gamma_transformer srk term_list trans in
+    let ptrans_form = (mk_and srk [prelabel;trans';postlabel]) in
+    let post_trans = SrkApron.formula_of_property (Abstract.abstract ~exists:exists_post srk man ptrans_form) in
+    let lri_form = (rewrite srk ~down:(nnf_rewriter srk) f') in 
+    let rslt = SrkApron.formula_of_property
+        (Abstract.abstract ~exists:exists_post srk man
+           (mk_and srk
+              [preify srk tr_symbols post_trans;
+               Accelerate.closure (Accelerate.abstract srk tr_symbols lri_form)]))
+    in
+    rslt
 
 
-  (*MAKE LOOP_COUNTER AT LEAST 1.... but does this enforce other things must transition?....YOU NEED TO IMPLEMENT THE RESET SHIT*)
+  (* If a transformers is taken, that transformer post condition must hold*)
+  let exp_post_conds_on_transformers srk label transformersmap reachability nvarst alphas tr_symbols =
+    mk_and srk 
+      (BatList.mapi (fun ind (n1, trans, n2) -> 
+           let post_cond = compute_trans_post_cond srk label.(n1) (postify srk tr_symbols label.(n2)) 
+               trans reachability.(n2) alphas tr_symbols ind in
+           mk_if srk (mk_lt srk (mk_zero srk) (List.nth nvarst ind)) post_cond) transformersmap
+      )
+ 
+
   let closure_of_an_scc srk tr_symbols loop_counter vass =
     let label, graph, alphas, invars, invarmaxk = vass.label, vass.graph, vass.simulation, vass.invars, vass.invarmaxk in
     let simulation = alphas in
@@ -448,8 +480,9 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
     let pre_post_conds = exp_pre_post_conds srk ests label tr_symbols in
     let pos_constraints_1 = create_exp_positive_reqs srk [fst (List.split ests); snd (List.split ests)] in
 
+    (*If case is top localized to one scc; still require that a label is used*)
     if(M.nb_rows (unify (vass.simulation)) = 0) then
-      ((mk_and srk [in_out_one; ests_one_or_zero; pre_post_conds; pos_constraints_1]), (fst (List.split ests)))
+      ((mk_and srk [in_out_one; ests_one_or_zero; pre_post_conds(*; pos_constraints_1*)]), (fst (List.split ests)))
     else(
       let transformersmap : (int * transformer * int) list = List.flatten
           (List.flatten
@@ -469,8 +502,8 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
       let sum_n_eq_loop_counter = exp_nvars_eq_loop_counter srk nvarst loop_counter in
       let ks_less_than_ns = exp_kvarst_less_nvarst srk nvarst kvarst in
       let reachable_transitions = get_reachable_trans graph in
-      let post_conds_const = Mvass.exp_post_conds_on_transformers srk label transformersmap reachable_transitions nvarst alphas tr_symbols loop_counter in
-
+      let post_conds_const = exp_post_conds_on_transformers srk label 
+          transformersmap reachable_transitions nvarst alphas tr_symbols in
       let in_sing, out_sing  = exp_compute_trans_in_out_index_numbers transformersmap (Array.length label) in
       let flow_consv_req = exp_consv_of_flow_new srk in_sing out_sing ests nvarst (-2) in
       let pos_constraints = create_exp_positive_reqs srk [nvarst] in
@@ -486,17 +519,7 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
                              ent_bounds; ent_source; ent_non_source; ent_max] in
       form, (fst (List.split ests)))
 
-
-
-  let rec valid_ordering ordering sccgraph =
-    match ordering with
-    | [] -> assert false
-    | [hd] -> true
-    | hd :: hdd :: tl ->
-      if sccgraph.(hd).(hdd) then valid_ordering (hdd :: tl) sccgraph
-      else false
-
-
+  (*Take (x, x') list and (y, y') list and make a list that combine in some way*)
   let merge_mappings pre post use_pres_post use_posts_pre =
     BatList.fold_left2 (fun acc (x, x') (y, y') -> 
         if use_posts_pre then (
@@ -506,17 +529,18 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
         else if use_pres_post then (x', y') :: acc
         else (x, y') :: acc) [] pre post
 
+  (*If no trans is taken, vars do not change; loop counter is 0*)
   let no_trans_taken srk loop_counter syms =
     let eqs = (List.map (fun (x, x') -> mk_eq srk (mk_const srk x) (mk_const srk x'))) syms in
     mk_and srk ((mk_eq srk loop_counter (mk_zero srk)) :: eqs)
 
-
+  (*Bound each scc ordering var by 0 and max number sccs*)
   let ordering_bounds srk ordering_vars max =
     mk_and srk (BatArray.to_list (BatArray.map (fun var -> mk_and srk 
                                                   [mk_leq srk (mk_zero srk) var;
                                                    mk_lt srk var max]) ordering_vars))
 
-
+  (*No duplicates in the scc ordering vars*)
   let no_dups_ordering srk ordering_vars =
     let ord_list = BatArray.to_list ordering_vars in
     let rec helper_no_dups ele ord_tl =
@@ -531,11 +555,15 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
     in
     mk_and srk (helper_no_dups_2 ord_list)
 
-
+  
+  (*Requirements for composition of scc components*)
   let come_next_req srk ordering_vars es loop_counters num_scc_used scc_closures symmappings syms formula =
     mk_and srk (BatList.flatten (BatArray.to_list (BatArray.mapi (fun ind1 o_var1 ->
         BatArray.to_list (BatArray.mapi (fun ind2 o_var2 ->
             if ind1 <> ind2 then(
+              (*If o_vari immediatly precedes o_varj: if scci is off, then sccj must be too. Otherwise,
+               * Sccj is off and max sccs used is o_vari, or sccj is used, is linked to scci, and at least o_varj
+               * sccs are used*)
               mk_if srk (mk_eq srk o_var1 (mk_sub srk o_var2 (mk_one srk)))
                 (mk_ite srk (mk_eq srk (mk_add srk es.(ind1)) (mk_zero srk))
                    (mk_and srk [(mk_eq srk (mk_add srk es.(ind2)) (mk_zero srk));
@@ -550,7 +578,7 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
             else (mk_true srk))
             ordering_vars)) ordering_vars)))
 
-
+  (*Require first scc to be used; link up init x values to this scc*)
   let first_scc_used srk ordering_vars es sccs_closures symmappings syms =
     mk_and srk (BatArray.to_list (BatArray.mapi (fun ind1 o_var1 ->
         mk_if srk (mk_eq srk o_var1 (mk_zero srk))
@@ -558,12 +586,14 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
                        (BatList.map2 (fun (x, x') (sccx, sccx') -> mk_eq srk (mk_const srk x) (mk_const srk sccx))
                           syms symmappings.(ind1))))) ordering_vars))
 
+  (*If last scc used, link x' vars to this scc*)
   let used_last_scc srk orderings_vars num_scc_used symmappings syms =
     mk_and srk (BatArray.to_list (BatArray.mapi (fun ind1 o_var1 ->
         mk_if srk (mk_eq srk o_var1 num_scc_used)
           (mk_and srk (BatList.map2 (fun (x, x') (sccx, sccx') -> mk_eq srk (mk_const srk x') (mk_const srk sccx'))
                          syms symmappings.(ind1)))) orderings_vars))
 
+  (*If scci comes before sccj in topological sort, but sccj comes before scci in scc ordering, scci must be 0*)
   let topo_order_constraints srk order es scc_ordering =
     let rec helper ind1 remaining_order =
       match remaining_order with
@@ -577,36 +607,34 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
     in
     mk_and srk (List.flatten (outer order))
 
+
   let exp srk syms loop_counter sccsform =
+    (*No sccs means no labels found mean no transitions exist*)
     if BatArray.length sccsform.vasses = 0 then (mk_false srk) else(
       let subloop_counters = BatArray.mapi (fun ind1 scc ->
           mk_const srk ((mk_symbol srk ~name:("counter_"^(string_of_int ind1)) `TyInt))) sccsform.vasses in
       let symmappings = BatArray.mapi (fun ind1 scc ->
           List.rev
             (BatList.fold_lefti (fun acc ind2 (x, x') ->
-                 ((mk_symbol srk ~name:("x_"^(string_of_int ind1)^"COM"^(string_of_int ind2)) (typ_symbol srk x)),
-                  (mk_symbol srk ~name:("x'_"^(string_of_int ind1)^"COM"^(string_of_int ind2)) (typ_symbol srk x'))) :: acc) [] syms)) sccsform.vasses
+                 ((mk_symbol srk ~name:("x_"^(string_of_int ind1)^","^(string_of_int ind2)) (typ_symbol srk x)),
+                  (mk_symbol srk ~name:("x'_"^(string_of_int ind1)^","^(string_of_int ind2)) (typ_symbol srk x'))) :: acc) [] syms))
+          sccsform.vasses
       in
       let sccclosures_es = BatArray.mapi (fun ind vass -> closure_of_an_scc srk syms subloop_counters.(ind) vass) sccsform.vasses in
       let sccclosures, es = BatList.split (BatArray.to_list sccclosures_es) in
       let sccclosures, es = BatArray.of_list sccclosures, BatArray.of_list es in
+      (*We compute scc closure without scc specific x, x' and then add these in after closure*)
       let sccclosures = BatArray.mapi (fun ind closure ->  
           (postify srk (merge_mappings syms symmappings.(ind) false true) 
              (postify srk (merge_mappings syms symmappings.(ind) true false) closure))) sccclosures in
 
       let scclabels = BatArray.map (fun scc -> mk_or srk (BatArray.to_list scc.label)) sccsform.vasses in		
       let sccgraph = compute_edges srk syms scclabels sccsform.formula in
-
-
       let num_scc_used = mk_const srk (mk_symbol srk ~name:("Num_scc_used") `TyInt) in
       let order = List.rev (BGraphTopo.fold (fun v acc -> Log.errorf "THIS SCC REACHED %d" v; v :: acc) sccgraph []) in
-
-
       let sub_loops_geq_0 = create_exp_positive_reqs srk [Array.to_list subloop_counters] in
       let scc_ordering = BatArray.mapi (fun ind1 scc ->
           mk_const srk ((mk_symbol srk ~name:("ordering_"^(string_of_int ind1)) `TyInt))) sccsform.vasses in
-
-
       let order_bounds_const = ordering_bounds srk scc_ordering (mk_real srk (QQ.of_int (BatArray.length sccclosures))) in
       let no_dups_constr = no_dups_ordering srk scc_ordering in
       let come_next_const = come_next_req srk scc_ordering es subloop_counters num_scc_used sccclosures symmappings syms sccsform.formula in
@@ -614,13 +642,10 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
       let last_scc_const = used_last_scc srk scc_ordering num_scc_used symmappings syms in
       let num_scc_used_bound = mk_lt srk num_scc_used (mk_real srk (QQ.of_int (BatArray.length sccclosures))) in
       let loop_bound = mk_eq srk (mk_add srk (num_scc_used :: (BatArray.to_list subloop_counters))) loop_counter in
-
       let order_constr = topo_order_constraints srk order es scc_ordering in
-      let debug = mk_eq srk scc_ordering.(0) (mk_zero srk) in 
       let result = mk_or srk [mk_and srk [order_bounds_const; sub_loops_geq_0; no_dups_constr; come_next_const; first_scc_const;
                                           last_scc_const; num_scc_used_bound; loop_bound; mk_leq srk (mk_zero srk) loop_counter; order_constr];
                               no_trans_taken srk loop_counter syms] in
-      (*let result = mk_and srk [sccclosures.(1); sub_loops_geq_0; mk_eq srk subloop_counters.(1) loop_counter] in*)
       Log.errorf "Done";
       result
     )
