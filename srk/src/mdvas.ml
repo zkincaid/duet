@@ -291,8 +291,7 @@ let push_rows matrix first_row =
     (M.rowsi matrix)
 
 
-let coproduct srk vabs1 vabs2 : 'a t =
-  let (v1, v2, alpha1, alpha2) = (vabs1.v, vabs2.v, vabs1.alphas, vabs2.alphas) in
+let coprod_find_images alpha1 alpha2 = 
   let push_counter_1 = ref 0 in
   let s1, s2, alphas =
     List.fold_left (fun (s1, s2, alphas) alphalist1 -> 
@@ -310,23 +309,26 @@ let coproduct srk vabs1 vabs2 : 'a t =
         List.append s1' s1, List.append s2' s2, List.append alpha' alphas)
       ([], [], []) alpha1
   in
+  s1, s2, alphas
 
+let coprod_use_image v s  =
   (*Computes a rep dimension from equivalence class for each row in morphism*)
   let get_morphism_row_reps unified_morphism = 
     BatEnum.map (fun (dim', row) ->
         match BatEnum.get (V.enum row) with
-          | None -> assert false
-          | Some (scalar, dim) -> dim
+        | None -> assert false
+        | Some (scalar, dim) -> dim
       )
       (M.rowsi (unified_morphism))
   in
 
-  let s1reps = get_morphism_row_reps (unify s1) in
-  let s2reps = get_morphism_row_reps (unify s2) in
+  let sreps = get_morphism_row_reps (unify s) in
 
   let transformer_image (t : transformer) unified_morphism rowsreps : transformer =
+    Log.errorf "unified morphism is %a" (M.pp) (unified_morphism);
     let a, b = t.a, t.b in
     let b' = M.vector_right_mul (unified_morphism) b in
+    Log.errorf "b is %a" (V.pp) (b); Log.errorf "b' is %a" (V.pp) (b');
     let a' = BatEnum.foldi (fun ind dim vector ->
         Z.add_term (Z.coeff dim a) ind vector
       )
@@ -337,7 +339,15 @@ let coproduct srk vabs1 vabs2 : 'a t =
   in
   let ti_fun vas uni_m reps = TSet.fold (fun ele acc -> 
       TSet.add (transformer_image ele uni_m reps) acc) vas TSet.empty in
-  let v = TSet.union (ti_fun v1 (unify s1) s1reps) (ti_fun v2 (unify s2) s2reps) in
+  let v' = (ti_fun v (unify s) sreps) in
+  v'
+
+
+ 
+let coproduct srk vabs1 vabs2 : 'a t =
+  let (alpha1, alpha2, v1, v2) = (vabs1.alphas, vabs2.alphas, vabs1.v, vabs2.v) in 
+  let s1, s2, alphas = coprod_find_images alpha1 alpha2 in
+  let v = TSet.union (coprod_use_image v1 s1) (coprod_use_image v2 s2) in
   {v; alphas;invars=[];invarmaxk=false}
 
 
@@ -465,13 +475,18 @@ let find_invariants  (srk : 'a context) (symbols : (symbol * symbol) list) (body
   | _ -> assert false
 
 
-let ident_matrix srk symbols =
+let ident_matrix_syms srk symbols =
   BatList.fold_lefti (fun matr dim (x, x') ->
       M.add_row dim (Linear.linterm_of srk (mk_const srk x')) matr) M.zero symbols
 
+let ident_matrix_real n =
+  BatList.fold_left (fun matr dim  ->
+      M.add_entry dim dim (QQ.of_int 1) matr) M.zero (BatList.of_enum (0--n))
+
+
 
 let mk_bottom srk symbols =
-  {v=TSet.empty; alphas=[ident_matrix srk symbols];invars=[];invarmaxk=false}
+  {v=TSet.empty; alphas=[ident_matrix_syms srk symbols];invars=[];invarmaxk=false}
 
 
 
