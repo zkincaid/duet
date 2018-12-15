@@ -103,11 +103,83 @@ module Vassnew = struct
     graph
 
 
+
+  let compute_transformers_two_labels ?(exists=fun x -> true) srk symbols label1 label2 orig_form =
+    let new_form =  (rewrite srk ~down:(nnf_rewriter srk) (mk_and srk [label1; postify srk symbols label2; orig_form])) in 
+    let (x''s, x''_forms) = 
+      List.split (List.fold_left (fun acc (x, x') -> 
+          let x'' = (mk_symbol srk (typ_symbol srk x)) in
+          let x''_form = (mk_eq srk (mk_const srk x'') 
+                            (mk_sub srk (mk_const srk x') (mk_const srk x))) in
+          ((x'', x'), x''_form) :: acc) [] symbols) in
+    let solver = Smt.mk_solver srk in
+    let rec go vas count =
+      assert (count > 0);
+      Smt.Solver.add solver [mk_not srk (gamma srk vas symbols)];
+      match Smt.Solver.get_model solver with
+      | `Unsat -> vas
+      | `Unknown -> assert false
+      | `Sat m ->
+        match Interpretation.select_implicant m new_form with
+        | None -> assert false
+        | Some imp ->
+          let alpha_v = alpha_hat srk (mk_and srk imp) symbols x''s x''_forms false in
+          go (coproduct srk vas alpha_v) (count - 1)
+    in
+    Smt.Solver.add solver [new_form];
+    let {v;alphas} = go (mk_bottom srk symbols) 20 in
+    let result = (v,alphas) in
+    result
+
+
+
+
   let compute_single_scc_vass ?(exists=fun x -> true) srk tr_symbols labels_lst orig_form =
     let formula = mk_and srk [mk_or srk labels_lst; orig_form] in(*Don't really need orig_form here*)
     let {v; alphas;invars;invarmaxk} = abstract ~exists srk tr_symbols formula in
     (*This will be replaced in next iteration with localized transformers*)
-    let graph = Mvass.compute_edges srk v tr_symbols alphas (Array.of_list labels_lst) formula in
+    let pre_graph = BatArray.make 
+        (List.length labels_lst) 
+        (BatArray.make 
+           (List.length labels_lst) 
+           (TSet.empty,[]))
+    in
+    BatArray.iteri (fun ind1 arr ->
+        BatArray.modifyi (fun ind2 _ ->
+            compute_transformers_two_labels ~exists srk tr_symbols (List.nth labels_lst ind1) (List.nth labels_lst ind2) orig_form)
+          arr
+      ) pre_graph;
+    let imglist, alphas = BatArray.fold_left 
+        (fun (imglst, alphas) arr ->
+           BatArray.fold_left 
+             (fun (imglist, alphas) (vele, alphasele) ->
+                let s1, s2, alphas' = coprod_find_images alphas alphasele in
+                (s1, s2) :: imglist, alphas') (imglst, alphas) arr) ([], [ident_matrix_syms srk tr_symbols]) pre_graph
+    in
+    let graph = BatArray.make 
+        (List.length labels_lst)
+        (BatArray.make
+           (List.length labels_lst)
+           (TSet.empty))
+    in
+    let rec apply_images base_img imglist ind1 ind2 =
+      match imglist with
+      | (s1, s2) :: tl ->
+        let s1 = unify s1 in
+        let s2 = unify s2 in
+        let s1' = M.mul s1 base_img in
+        let s2' = M.mul s2 base_img in
+        Log.errorf "s2 is: %a" (M.pp) (s2');
+        let (v, _) = pre_graph.(ind1).(ind2) in
+        let v' = coprod_use_image v [s2'] in
+        graph.(ind1).(ind2)<-v';
+        let ind1', ind2' = if ind2 = 0 then ind1 - 1, (List.length labels_lst) - 1
+          else ind1, ind2 - 1 in
+        apply_images s1' tl ind1' ind2'
+      | [] -> ()
+    in
+    apply_images (ident_matrix_real 50) imglist ((List.length labels_lst) - 1) ((List.length labels_lst) - 1); (*find actual ident here*)
+    (*let graph = Mvass.compute_edges srk v tr_symbols alphas (Array.of_list labels_lst) formula in*)
     {label=Array.of_list labels_lst;graph;simulation=alphas;invars;invarmaxk}
 
 
