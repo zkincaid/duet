@@ -494,6 +494,9 @@ let tr_instr ctx instr =
 
       | ("__VERIFIER_print_hull", None, [AccessPath (Variable x)]) ->
         mk_def (Builtin (PrintBounds x))
+      | ("__VERIFIER_print_hull", None, [Cast (_, AccessPath Variable x)]) ->
+        mk_def (Builtin (PrintBounds x))
+
 
       (* CPROVER builtins *)
       | ("__CPROVER_atomic_begin", None, []) -> mk_def (Builtin AtomicBegin)
