@@ -146,3 +146,5 @@ val ap_is_shared : ap -> bool
         r = return v]}
 *)
 val simplify_calls : CfgIr.file -> unit
+
+val get_param : int -> Var.t
