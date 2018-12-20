@@ -105,7 +105,7 @@ module Vassnew = struct
 
 
   let compute_transformers_two_labels ?(exists=fun x -> true) srk symbols label1 label2 orig_form =
-    let new_form =  (rewrite srk ~down:(nnf_rewriter srk) (mk_and srk [label1; postify srk symbols label2; orig_form])) in 
+    let new_form =  (rewrite srk ~down:(nnf_rewriter srk) (mk_and srk [label1; postify srk symbols label2; orig_form])) in
     let (x''s, x''_forms) = 
       List.split (List.fold_left (fun acc (x, x') -> 
           let x'' = (mk_symbol srk (typ_symbol srk x)) in
@@ -135,18 +135,19 @@ module Vassnew = struct
 
 
   let compute_single_scc_vass ?(exists=fun x -> true) srk tr_symbols labels_lst orig_form =
-    let formula = mk_and srk [mk_or srk labels_lst; orig_form] in(*Don't really need orig_form here*)
-    let {v; alphas;invars;invarmaxk} = abstract ~exists srk tr_symbols formula in
-    (*This will be replaced in next iteration with localized transformers*)
-    let pre_graph = BatArray.make 
+    let postified_labels = List.map (fun lbl -> postify srk tr_symbols lbl) labels_lst in
+    let formula = mk_and srk [mk_or srk labels_lst; mk_or srk postified_labels; orig_form] in
+    let formula',invars, invarmaxk = find_invariants srk tr_symbols formula in
+    (*Look into removing conunction of labels from formula' after invars calculated*)
+    let pre_graph = BatArray.init 
         (List.length labels_lst) 
-        (BatArray.make 
+        (fun _ -> (BatArray.make 
            (List.length labels_lst) 
-           (TSet.empty,[]))
+           (TSet.empty,[])))
     in
     BatArray.iteri (fun ind1 arr ->
         BatArray.modifyi (fun ind2 _ ->
-            compute_transformers_two_labels ~exists srk tr_symbols (List.nth labels_lst ind1) (List.nth labels_lst ind2) orig_form)
+            compute_transformers_two_labels ~exists srk tr_symbols (List.nth labels_lst ind1) (List.nth labels_lst ind2) formula')
           arr
       ) pre_graph;
     let imglist, alphas = BatArray.fold_left 
@@ -156,7 +157,7 @@ module Vassnew = struct
                 let s1, s2, alphas' = coprod_find_images alphas alphasele in
                 (s1, s2) :: imglist, alphas') (imglst, alphas) arr) ([], [ident_matrix_syms srk tr_symbols]) pre_graph
     in
-    let graph = BatArray.make 
+     let graph = BatArray.make 
         (List.length labels_lst)
         (BatArray.make
            (List.length labels_lst)
@@ -169,7 +170,6 @@ module Vassnew = struct
         let s2 = unify s2 in
         let s1' = M.mul s1 base_img in
         let s2' = M.mul s2 base_img in
-        Log.errorf "s2 is: %a" (M.pp) (s2');
         let (v, _) = pre_graph.(ind1).(ind2) in
         let v' = coprod_use_image v [s2'] in
         graph.(ind1).(ind2)<-v';
@@ -178,8 +178,7 @@ module Vassnew = struct
         apply_images s1' tl ind1' ind2'
       | [] -> ()
     in
-    apply_images (ident_matrix_real 50) imglist ((List.length labels_lst) - 1) ((List.length labels_lst) - 1); (*find actual ident here*)
-    (*let graph = Mvass.compute_edges srk v tr_symbols alphas (Array.of_list labels_lst) formula in*)
+    apply_images (ident_matrix_real 100) imglist ((List.length labels_lst) - 1) ((List.length labels_lst) - 1); (*find actual ident here*)
     {label=Array.of_list labels_lst;graph;simulation=alphas;invars;invarmaxk}
 
 
@@ -246,7 +245,6 @@ module Vassnew = struct
                        (mk_and srk [formula; mk_not srk (postify srk tr_symbols (mk_or srk pre_labels))])) in
 
     let rec find_post labels =
-      Log.errorf "yEEE";
       match Smt.Solver.get_model solver with
       | `Unsat -> labels
       | `Unknown -> assert false
@@ -300,6 +298,7 @@ module Vassnew = struct
 
 
   let abstract ?(exists=fun x -> true) srk tr_symbols body =
+    Log.errorf "Init formula is: %a" (Formula.pp srk) body;
     let body = (rewrite srk ~down:(nnf_rewriter srk) body) in
     let body = Nonlinear.linearize srk body in
     let label = get_intersect_cube_labeling srk body exists tr_symbols in
@@ -681,8 +680,10 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
 
 
   let exp srk syms loop_counter sccsform =
+    Log.errorf "YOU ARE IN EXP";
     (*No sccs means no labels found mean no transitions exist*)
-    if BatArray.length sccsform.vasses = 0 then (mk_false srk) else(
+    if BatArray.length sccsform.vasses = 0 then (Log.errorf "NO SCC CASE";no_trans_taken srk loop_counter syms) else(
+      Log.errorf "SCC CASE";
       let subloop_counters = BatArray.mapi (fun ind1 scc ->
           mk_const srk ((mk_symbol srk ~name:("counter_"^(string_of_int ind1)) `TyInt))) sccsform.vasses in
       let symmappings = BatArray.mapi (fun ind1 scc ->
