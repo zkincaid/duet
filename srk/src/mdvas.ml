@@ -325,10 +325,8 @@ let coprod_use_image v s  =
   let sreps = get_morphism_row_reps (unify s) in
 
   let transformer_image (t : transformer) unified_morphism rowsreps : transformer =
-    Log.errorf "unified morphism is %a" (M.pp) (unified_morphism);
     let a, b = t.a, t.b in
     let b' = M.vector_right_mul (unified_morphism) b in
-    Log.errorf "b is %a" (V.pp) (b); Log.errorf "b' is %a" (V.pp) (b');
     let a' = BatEnum.foldi (fun ind dim vector ->
         Z.add_term (Z.coeff dim a) ind vector
       )
@@ -514,6 +512,7 @@ let abstract ?(exists=fun x -> true) (srk : 'a context) (symbols : (symbol * sym
       match Interpretation.select_implicant m body with
       | None -> assert false
       | Some imp ->
+        Log.errorf "INTERMEDIATE VAS: %a"  (Formula.pp srk) (gamma srk vas symbols); 
         let alpha_v = alpha_hat srk (mk_and srk imp) symbols x''s x''_forms false in
         go (coproduct srk vas alpha_v) (count - 1)
   in

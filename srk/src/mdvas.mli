@@ -54,6 +54,7 @@ val coproduct : 'b -> 'c t -> 'd t -> 'a t
 val mk_bottom : 'a context -> ('b * symbol) list -> 'c t
 val coprod_use_image : TSet.t -> M.t list -> TSet.t
 val coprod_find_images : M.t list -> M.t list -> Linear.QQMatrix.t list * Linear.QQMatrix.t list * M.t list
+val find_invariants : 'a context -> (symbol * symbol) list -> 'a formula -> 'a formula * 'a formula list * bool
 module Mdvass : sig
   module Int = SrkUtil.Int
   type 'a t
