@@ -296,6 +296,13 @@ val eliminate_ite : 'a context -> 'a formula -> 'a formula
 val pp_smtlib2 : ?env:(string Env.t) -> 'a context ->
     Format.formatter -> 'a formula -> unit
 
+(** Print an expression.  This variant of pp_expr avoids printing a symbol
+    number (e.g., "x:5") for a symbol S (i.e., a program variable or function 
+    name) if there does not exist any other symbol in the expression that has 
+    the same name as S.  *)
+val pp_expr_unnumbered : ?env:(string Env.t) -> 'a context -> 
+    Format.formatter -> ('a, 'b) expr -> unit
+
 module Formula : sig
   type 'a t = 'a formula
   val equal : 'a formula -> 'a formula -> bool
