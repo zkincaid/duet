@@ -492,7 +492,8 @@ let print_var_bounds formatter cost tr func =
     begin match lower with
       | Some lower ->
         let lower = Syntax.substitute_map srk param_map lower in
-        fprintf formatter "%a <= %a@\n" (Syntax.Term.pp srk) lower V.pp cost;
+        fprintf formatter "%a <= %a@\n" 
+          (Syntax.pp_expr_unnumbered srk) lower V.pp cost;
 
         fprintf formatter "%a is o(%a)@\n"
           V.pp cost
@@ -503,7 +504,8 @@ let print_var_bounds formatter cost tr func =
     begin match upper with
       | Some upper ->
         let upper = Syntax.substitute_map srk param_map upper in
-        fprintf formatter "%a <= %a@\n" V.pp cost (Syntax.Term.pp srk) upper;
+        fprintf formatter "%a <= %a@\n" 
+          V.pp cost (Syntax.pp_expr_unnumbered srk) upper;
         
         fprintf formatter "%a is O(%a)@\n"
           V.pp cost
