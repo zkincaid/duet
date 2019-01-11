@@ -260,6 +260,7 @@ module LinearRecurrenceInequation = struct
 
   let abstract ?(exists=fun x -> true) srk tr_symbols phi =
     let phi = rewrite srk ~down:(nnf_rewriter srk) phi in
+    let phi = Nonlinear.linearize srk phi in
     let delta =
       List.map (fun (s,_) ->
           let name = "delta_" ^ (show_symbol srk s) in
