@@ -689,8 +689,8 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
       let symmappings = BatArray.mapi (fun ind1 scc ->
           List.rev
             (BatList.fold_lefti (fun acc ind2 (x, x') ->
-                 ((mk_symbol srk ~name:("x_"^(string_of_int ind1)^","^(string_of_int ind2)) (typ_symbol srk x)),
-                  (mk_symbol srk ~name:("x'_"^(string_of_int ind1)^","^(string_of_int ind2)) (typ_symbol srk x'))) :: acc) [] syms))
+                 ((mk_symbol srk ~name:((show_symbol srk x)^"_"^(string_of_int ind1)) (typ_symbol srk x)),
+                  (mk_symbol srk ~name:((show_symbol srk x')^"_"^(string_of_int ind1)) (typ_symbol srk x'))) :: acc) [] syms))
           sccsform.vasses
       in
       let sccclosures_es = BatArray.mapi (fun ind vass -> closure_of_an_scc srk syms subloop_counters.(ind) vass) sccsform.vasses in
@@ -713,7 +713,9 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
       let come_next_const = come_next_req srk scc_ordering es subloop_counters num_scc_used sccclosures symmappings syms sccsform.formula in
       let first_scc_const = first_scc_used srk scc_ordering es sccclosures symmappings syms in
       let last_scc_const = used_last_scc srk scc_ordering num_scc_used symmappings syms in
-      let num_scc_used_bound = mk_lt srk num_scc_used (mk_real srk (QQ.of_int (BatArray.length sccclosures))) in
+      let num_scc_used_bound = mk_and srk 
+          [mk_lt srk num_scc_used (mk_real srk (QQ.of_int (BatArray.length sccclosures)));
+           mk_leq srk (mk_zero srk) num_scc_used] in
       let loop_bound = mk_eq srk (mk_add srk (num_scc_used :: (BatArray.to_list subloop_counters))) loop_counter in
       let order_constr = topo_order_constraints srk order es scc_ordering in
       let result = mk_or srk [mk_and srk [order_bounds_const; sub_loops_geq_0; no_dups_constr; come_next_const; first_scc_const;
