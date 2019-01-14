@@ -299,6 +299,7 @@ module Vassnew = struct
 
   let abstract ?(exists=fun x -> true) srk tr_symbols body =
     Log.errorf "Init formula is: %a" (Formula.pp srk) body;
+    Symbol.Set.iter (fun a -> Log.errorf "Symbol is %a" (pp_symbol srk) a) (symbols body);
     let body = (rewrite srk ~down:(nnf_rewriter srk) body) in
     let body = Nonlinear.linearize srk body in
     let label = get_intersect_cube_labeling srk body exists tr_symbols in
@@ -628,7 +629,7 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
 
   
   (*Requirements for composition of scc components*)
-  let come_next_req srk ordering_vars es loop_counters num_scc_used scc_closures symmappings syms formula =
+  let come_next_req srk ordering_vars es loop_counters num_scc_used scc_closures symmappings syms formula skolemmappings =
     mk_and srk (BatList.flatten (BatArray.to_list (BatArray.mapi (fun ind1 o_var1 ->
         BatArray.to_list (BatArray.mapi (fun ind2 o_var2 ->
             if ind1 <> ind2 then(
@@ -643,8 +644,9 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
                                             mk_eq srk loop_counters.(ind2) (mk_zero srk);
                                             mk_eq srk num_scc_used o_var1]);
                                mk_and srk [scc_closures.(ind2);
-                                           (postify srk (merge_mappings syms symmappings.(ind2) true true) 
-                                              (postify srk (merge_mappings syms symmappings.(ind1) false false) formula));
+                                           (postify srk skolemmappings.(ind1)
+                                              (postify srk (merge_mappings syms symmappings.(ind2) true true) 
+                                                 (postify srk (merge_mappings syms symmappings.(ind1) false false) formula)));
                                            mk_leq srk o_var2 num_scc_used]])))
             else (mk_true srk))
             ordering_vars)) ordering_vars)))
@@ -693,13 +695,38 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
                   (mk_symbol srk ~name:((show_symbol srk x')^"_"^(string_of_int ind1)) (typ_symbol srk x'))) :: acc) [] syms))
           sccsform.vasses
       in
+      let skolem_mappings = BatArray.mapi (fun ind1 scc ->
+          BatList.fold_left 
+            (fun acc x -> (x, (mk_symbol srk ~name:((show_symbol srk x)^"_"^(string_of_int ind1)) (typ_symbol srk x))) 
+                          :: acc)
+            []
+            (Symbol.Set.elements 
+               (Symbol.Set.diff 
+                  (symbols sccsform.formula)
+                  (Symbol.Set.of_list ((fst (List.split syms) @ (snd (List.split syms))))))))
+          sccsform.vasses
+      in
+      let skolem_mappings_transitions = BatArray.mapi (fun ind1 scc ->
+          BatList.fold_left 
+            (fun acc x -> (x, (mk_symbol srk ~name:((show_symbol srk x)^"_"^(string_of_int ind1)) (typ_symbol srk x))) 
+                          :: acc)
+            []
+            (Symbol.Set.elements 
+               (Symbol.Set.diff 
+                  (symbols sccsform.formula)
+                  (Symbol.Set.of_list ((fst (List.split syms) @ (snd (List.split syms))))))))
+          sccsform.vasses
+      in
+
       let sccclosures_es = BatArray.mapi (fun ind vass -> closure_of_an_scc srk syms subloop_counters.(ind) vass) sccsform.vasses in
       let sccclosures, es = BatList.split (BatArray.to_list sccclosures_es) in
       let sccclosures, es = BatArray.of_list sccclosures, BatArray.of_list es in
       (*We compute scc closure without scc specific x, x' and then add these in after closure*)
       let sccclosures = BatArray.mapi (fun ind closure ->  
-          (postify srk (merge_mappings syms symmappings.(ind) false true) 
-             (postify srk (merge_mappings syms symmappings.(ind) true false) closure))) sccclosures in
+          (postify srk skolem_mappings.(ind) 
+             (postify srk (merge_mappings syms symmappings.(ind) false true) 
+                (postify srk (merge_mappings syms symmappings.(ind) true false) closure))))
+          sccclosures in
 
       let scclabels = BatArray.map (fun scc -> mk_or srk (BatArray.to_list scc.label)) sccsform.vasses in		
       let sccgraph = compute_edges srk syms scclabels sccsform.formula in
@@ -710,7 +737,7 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
           mk_const srk ((mk_symbol srk ~name:("ordering_"^(string_of_int ind1)) `TyInt))) sccsform.vasses in
       let order_bounds_const = ordering_bounds srk scc_ordering (mk_real srk (QQ.of_int (BatArray.length sccclosures))) in
       let no_dups_constr = no_dups_ordering srk scc_ordering in
-      let come_next_const = come_next_req srk scc_ordering es subloop_counters num_scc_used sccclosures symmappings syms sccsform.formula in
+      let come_next_const = come_next_req srk scc_ordering es subloop_counters num_scc_used sccclosures symmappings syms sccsform.formula skolem_mappings_transitions in
       let first_scc_const = first_scc_used srk scc_ordering es sccclosures symmappings syms in
       let last_scc_const = used_last_scc srk scc_ordering num_scc_used symmappings syms in
       let num_scc_used_bound = mk_and srk 
