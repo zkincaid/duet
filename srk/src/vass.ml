@@ -40,7 +40,8 @@ module Vassnew = struct
 
   type 'a t = {
     vasses : 'a sccvas array;
-    formula : 'a formula
+    formula : 'a formula;
+    skolem_constants : Symbol.Set.t
   }
 
   module BoolGraph = struct
@@ -299,6 +300,7 @@ module Vassnew = struct
 
   let abstract ?(exists=fun x -> true) srk tr_symbols body =
     Log.errorf "Init formula is: %a" (Formula.pp srk) body;
+    let skolem_constants = Symbol.Set.filter (fun a -> not (exists a)) (symbols body) in
     Symbol.Set.iter (fun a -> Log.errorf "Symbol is %a" (pp_symbol srk) a) (symbols body);
     let body = (rewrite srk ~down:(nnf_rewriter srk) body) in
     let body = Nonlinear.linearize srk body in
@@ -309,10 +311,10 @@ module Vassnew = struct
     BatArray.iteri (fun ind lab -> sccs.(func_sccs ind)<-(lab :: sccs.(func_sccs ind)))
       label;
     if num_sccs = 0 then
-      {vasses= BatArray.init 0 (fun x -> assert false); formula=body}
+      {vasses= BatArray.init 0 (fun x -> assert false); formula=body; skolem_constants}
     else(
       let vassarrays = BatArray.map (fun scc -> compute_single_scc_vass ~exists srk tr_symbols scc body) sccs in
-      let result = {vasses=vassarrays;formula=body} in
+      let result = {vasses=vassarrays;formula=body; skolem_constants} in
       logf ~level:`always "%a" (pp srk tr_symbols) result;
       result
     )
@@ -700,10 +702,7 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
             (fun acc x -> (x, (mk_symbol srk ~name:((show_symbol srk x)^"_"^(string_of_int ind1)) (typ_symbol srk x))) 
                           :: acc)
             []
-            (Symbol.Set.elements 
-               (Symbol.Set.diff 
-                  (symbols sccsform.formula)
-                  (Symbol.Set.of_list ((fst (List.split syms) @ (snd (List.split syms))))))))
+            (Symbol.Set.elements sccsform.skolem_constants))
           sccsform.vasses
       in
       let skolem_mappings_transitions = BatArray.mapi (fun ind1 scc ->
@@ -711,10 +710,7 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
             (fun acc x -> (x, (mk_symbol srk ~name:((show_symbol srk x)^"_"^(string_of_int ind1)) (typ_symbol srk x))) 
                           :: acc)
             []
-            (Symbol.Set.elements 
-               (Symbol.Set.diff 
-                  (symbols sccsform.formula)
-                  (Symbol.Set.of_list ((fst (List.split syms) @ (snd (List.split syms))))))))
+            (Symbol.Set.elements sccsform.skolem_constants))
           sccsform.vasses
       in
 
