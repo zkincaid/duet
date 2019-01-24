@@ -1406,7 +1406,7 @@ let exists
       (* s >= t /\ b > 1 |= b^s >= b^t *)
       (* s <= t /\ b > 1 |= b^s <= b^t *)
       | `App (symbol, [b; s])
-        when (symbol = pow && safe_vector b && gt_one b) ->
+        when (symbol = pow && safe_vector b && safe_vector s && gt_one b) ->
 
         (* Find inequations of the form p*b^s + t >= 0, where p is a
            polynomial over safe dimensions and t is a linear term over safe
