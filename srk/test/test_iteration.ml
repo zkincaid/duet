@@ -361,7 +361,7 @@ let single_path_test2 () =
     (*(y' = (int 1) && x' = x + (int 6)) || (y' = (int 10) && x' = x + (int 18)) || (y' = y + (int 5) && x' = (int 3))*)
     (*(x' = (int 0) && x' = x - (int 1) && y'= y - (int 1)) || (x' = (int 2) &&  x' = x + (int 2) && y'=y+(int 2)) || (x' = x + (int 1) && (y' = y + (int 1))) || ((x' = (int 100)) && (y' = y + (int 1)))*)
     (*(y' = y + (int 1) && (x' = x + (int 1))) || ((y' = x) && x' = x + (int 1))*)
-    (y' = y + (int 0) && (x' = x + (int 0)) && x' + y' = (int 0) && x' = (int 0))
+    ((y' = y + (int 3) && (x' = x + (int 2))) || (y' = y + (int 1) && x' = (int 4)))
     (*y' = y + (int 1) && y' = (int 3) && x + y = (int 3) && x' + y' = (int 5)*)
     (*(y' = y + (int 1) && y' = (int 3)) || (y' = y + (int 4) && y' = (int 5))*)
     (*(int 2) * x' + y' = (int 2) * x + y*)
@@ -371,7 +371,7 @@ let single_path_test2 () =
     y' + x' = (int 1)
   in
   let vas = (Mdvas.abstract srk tr_symbols phi) in
-  Log.errorf "Final VAS: %a"  (Formula.pp srk) (Mdvas.gamma srk vas tr_symbols);
+  Log.errorf "Final VAS: %a"  (Formula.pp srk) (Mdvas.exp srk tr_symbols (int 10) vas );
   let open Infix in
   assert true
 

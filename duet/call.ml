@@ -63,17 +63,11 @@ end
 module Tcg = Graph.Imperative.Digraph.ConcreteLabeled(Varinfo)(DefLabel)
 let construct_tcg file =
   let tcg = Tcg.create () in
-  let lookup_thread thread =
-    try List.find (fun f -> Varinfo.equal thread f.fname) file.funcs
-    with Not_found ->
-      Log.fatalf "Can't resolve thread identifier `%a'" Varinfo.pp thread
-  in
-  let add_succs thread =
-    let func = lookup_thread thread in
+  let add_succs func =
     let f def = match def.dkind with
       | Builtin (Fork (_, expr, _)) -> begin
-          let add_edge func =
-            let edge = Tcg.E.create thread (Some def) func in
+          let add_edge target =
+            let edge = Tcg.E.create func.fname (Some def) target in
             Tcg.add_edge_e tcg edge
           in
           Varinfo.Set.iter add_edge (PointerAnalysis.resolve_call expr)
@@ -83,7 +77,7 @@ let construct_tcg file =
     Cfg.iter_vertex f func.cfg
   in
   List.iter (Tcg.add_vertex tcg) file.entry_points;
-  List.iter add_succs file.threads;
+  List.iter add_succs file.funcs;
   tcg
 
 let (iter_tcg_order, iter_reverse_tcg_order) =
