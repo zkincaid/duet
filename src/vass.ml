@@ -213,56 +213,51 @@ module Vassnew = struct
       Symbol.Set.empty
       tr_symbols
 
+  (* Project a formula onto the symbols that satisfy the "exists"
+     predicate, and convert to DNF *)
+  let project_dnf srk exists formula =
+    let formula =
+      rewrite srk ~down:(nnf_rewriter srk) formula
+      |> SrkSimplify.simplify_terms srk
+    in
+    let solver = Smt.mk_solver srk in
+    Smt.Solver.add solver [formula];
+    let rec go cubes =
+      match Smt.Solver.get_model solver with
+      | `Unsat -> cubes
+      | `Unknown -> assert false
+      | `Sat m ->
+        match Interpretation.select_implicant m formula with
+        | None -> assert false
+        | Some imp ->
+          let cube =
+            Q.local_project_cube srk exists m imp
+            |> SrkSimplify.simplify_conjunction srk
+            |> mk_and srk
+          in
+          Smt.Solver.add solver [mk_not srk cube];
+          go (cube :: cubes)
+    in
+    go []
 
   let get_pre_cube_labels srk formula exists tr_symbols =
     let pre_symbols = pre_symbols tr_symbols in
     let post_symbols = post_symbols tr_symbols in
-    let solver = Smt.mk_solver srk in
     let exists_pre x =
       exists x && not (Symbol.Set.mem x post_symbols)
     in
     let exists_post x =
       exists x && not (Symbol.Set.mem x pre_symbols)
     in
-    let rec find_pre labels =
-      match Smt.Solver.get_model solver with
-      | `Unsat -> labels
-      | `Unknown -> assert false
-      | `Sat m ->
-        match Interpretation.select_implicant m formula with
-        | None -> assert false
-        | Some imp ->
-          Log.errorf "entry";
-          let pre_imp = Q.local_project_cube srk exists_pre m imp in
-          Smt.Solver.add solver [mk_not srk (mk_and srk pre_imp)];
-          Log.errorf "exit";
-          Log.errorf "Num: %d" (List.length labels);
-          find_pre ((mk_and srk pre_imp) :: labels)
+    let pre_labels = project_dnf srk exists_pre formula in
+    let post_label =
+      mk_and srk [formula;
+                  mk_not srk (postify srk tr_symbols (mk_or srk pre_labels))]
+      |> project_dnf srk exists_post
+      |> mk_or srk
+      |> preify srk tr_symbols
     in
-    Smt.Solver.reset solver;
-    Smt.Solver.add solver [SrkSimplify.simplify_terms srk formula];
-    let pre_labels = find_pre [] in
-    let post_form = (rewrite srk ~down:(nnf_rewriter srk) 
-                       (mk_and srk [formula; mk_not srk (postify srk tr_symbols (mk_or srk pre_labels))])) in
-
-    let rec find_post labels =
-      match Smt.Solver.get_model solver with
-      | `Unsat -> labels
-      | `Unknown -> assert false
-      | `Sat m ->
-        match Interpretation.select_implicant m post_form with
-        | None -> assert false
-        | Some imp ->
-          let post_imp = Q.local_project_cube srk exists_post m imp in
-          Smt.Solver.add solver [mk_not srk (mk_and srk post_imp)];
-          Log.errorf "exit";
-          Log.errorf "Post lab Num: %d" (List.length labels);
-          find_post ((preify srk tr_symbols (mk_and srk post_imp)) :: labels)
-    in
-    Smt.Solver.reset solver;
-    Smt.Solver.add solver [post_form];
-    let post_labels = find_post [] in
-    pre_labels, post_labels
+    pre_labels, [post_label]
 
 
   (*Given a set of labels, combine labels that overlap...likely much more efficient way to do this*)
