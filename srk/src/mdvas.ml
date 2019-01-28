@@ -322,7 +322,7 @@ let coprod_use_image v s  =
       (M.rowsi (unified_morphism))
   in
 
-  let sreps = get_morphism_row_reps (unify s) in
+  let sreps = BatList.of_enum (get_morphism_row_reps (unify s)) in
 
   let transformer_image (t : transformer) unified_morphism rowsreps : transformer =
     let a, b = t.a, t.b in
@@ -336,7 +336,7 @@ let coprod_use_image v s  =
     {a=a'; b=b'}
   in
   let ti_fun vas uni_m reps = TSet.fold (fun ele acc -> 
-      TSet.add (transformer_image ele uni_m reps) acc) vas TSet.empty in
+      TSet.add (transformer_image ele uni_m (BatList.enum reps)) acc) vas TSet.empty in
   let v' = (ti_fun v (unify s) sreps) in
   v'
 
