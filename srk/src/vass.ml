@@ -519,7 +519,7 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
                                 let (pred, _, _) = List.nth transformermap ele in
                                 (mk_and srk
                                    [mk_leq srk (mk_one srk) (List.nth nvarst ele);
-                                    mk_eq srk (mk_sub srk (List.nth entvars pred) (mk_one srk)) var]) ::
+                                    mk_eq srk (mk_add srk [(List.nth entvars pred); (mk_one srk)]) var]) ::
                                 acc
                              )
                              [mk_false srk]
