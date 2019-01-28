@@ -335,9 +335,8 @@ let coprod_use_image v s  =
     in
     {a=a'; b=b'}
   in
-  let ti_fun vas uni_m reps = TSet.fold (fun ele acc -> 
-      TSet.add (transformer_image ele uni_m (BatList.enum reps)) acc) vas TSet.empty in
-  let v' = (ti_fun v (unify s) sreps) in
+  let v' = TSet.fold (fun ele acc -> 
+      TSet.add (transformer_image ele (unify s) (BatList.enum sreps)) acc) v TSet.empty in
   v'
 
 
@@ -527,44 +526,3 @@ let abstract ?(exists=fun x -> true) (srk : 'a context) (symbols : (symbol * sym
 let join  (srk :'a context) (tr_symbols : (symbol * symbol) list) (vabs1 : 'a t) (vabs2 : 'a t) = assert false
 let widen  (srk :'a context) (tr_symbols : (symbol * symbol) list) (vabs1 : 'a t) (vabs2 : 'a t) = assert false
 let equal (srk : 'a context) (tr_symbols : (symbol * symbol) list) (vabs1 : 'a t) (vabs2 : 'a t) = assert false
-
-
-
-module Mdvass = struct
-  module Int = SrkUtil.Int
-
-
-  type 'a t = { label : ('a formula) array;
-                graph : vas array array;
-                simulation : M.t list;
-                invars : 'a formula list;
-                invarmaxk : bool
-              }
- 
-  let compute_transformers_two_nodes srk l1 l2 transformers term_list tr_symbols formula =
-    let solver = Smt.mk_solver srk in
-    TSet.filter (fun trans ->
-        Smt.Solver.reset solver;
-        let trans_constraint = gamma_transformer srk term_list trans in
-        let form = (rewrite srk ~down:(nnf_rewriter srk) (mk_and srk [l1; trans_constraint; postify srk tr_symbols l2; formula])) in 
-
-        Smt.Solver.add solver [form];
-        match Smt.Solver.get_model solver with
-        | `Unsat -> false
-        | `Unknown -> true
-        | `Sat _ -> true
-      ) transformers
-
-
-
-  let compute_edges srk transformers tr_symbols alphas label formula =
-    let term_list = term_list srk alphas tr_symbols in 
-    let graph = Array.make_matrix (Array.length label) (Array.length label) (TSet.empty) in
-    BatArray.iteri (fun ind1 arr -> 
-        BatArray.modifyi (fun ind2 _ ->
-            compute_transformers_two_nodes srk label.(ind1) label.(ind2) transformers term_list tr_symbols formula)
-          arr) 
-      graph;
-    graph
-
-end
