@@ -22,7 +22,6 @@ module IntSet = SrkUtil.Int.Set
 module H = Abstract
 include Log.Make(struct let name = "srk.vass" end)
 open Mdvas
-module Mvass = Mdvas.Mdvass
 module Int = SrkUtil.Int
 
 
