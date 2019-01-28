@@ -133,55 +133,6 @@ module Vassnew = struct
 
 
 
-
-  let compute_single_scc_vass ?(exists=fun x -> true) srk tr_symbols labels_lst orig_form =
-    let postified_labels = List.map (fun lbl -> postify srk tr_symbols lbl) labels_lst in
-    let formula = mk_and srk [mk_or srk labels_lst; mk_or srk postified_labels; orig_form] in
-    let formula',invars, invarmaxk = find_invariants srk tr_symbols formula in
-    (*Look into removing conunction of labels from formula' after invars calculated*)
-    let pre_graph = BatArray.init 
-        (List.length labels_lst) 
-        (fun _ -> (BatArray.make 
-           (List.length labels_lst) 
-           (TSet.empty,[])))
-    in
-    BatArray.iteri (fun ind1 arr ->
-        BatArray.modifyi (fun ind2 _ ->
-            compute_transformers_two_labels ~exists srk tr_symbols (List.nth labels_lst ind1) (List.nth labels_lst ind2) formula')
-          arr
-      ) pre_graph;
-    let imglist, alphas = BatArray.fold_left 
-        (fun (imglst, alphas) arr ->
-           BatArray.fold_left 
-             (fun (imglist, alphas) (vele, alphasele) ->
-                let s1, s2, alphas' = coprod_find_images alphas alphasele in
-                (s1, s2) :: imglist, alphas') (imglst, alphas) arr) ([], [ident_matrix_syms srk tr_symbols]) pre_graph
-    in
-     let graph = BatArray.make 
-        (List.length labels_lst)
-        (BatArray.make
-           (List.length labels_lst)
-           (TSet.empty))
-    in
-    let rec apply_images base_img imglist ind1 ind2 =
-      match imglist with
-      | (s1, s2) :: tl ->
-        let s1 = unify s1 in
-        let s2 = unify s2 in
-        let s1' = M.mul s1 base_img in
-        let s2' = M.mul s2 base_img in
-        let (v, _) = pre_graph.(ind1).(ind2) in
-        let v' = coprod_use_image v [s2'] in
-        graph.(ind1).(ind2)<-v';
-        let ind1', ind2' = if ind2 = 0 then ind1 - 1, (List.length labels_lst) - 1
-          else ind1, ind2 - 1 in
-        apply_images s1' tl ind1' ind2'
-      | [] -> ()
-    in
-    apply_images (ident_matrix_real 100) imglist ((List.length labels_lst) - 1) ((List.length labels_lst) - 1); (*find actual ident here*)
-    {label=Array.of_list labels_lst;graph;simulation=alphas;invars;invarmaxk}
-
-
   let pp srk syms formatter vasses = 
     BatArray.iteri (fun ind sccvas ->
         Format.fprintf formatter "Vass %n has the following labels \n" ind;
@@ -196,6 +147,93 @@ module Vassnew = struct
         Format.fprintf formatter "END PRINT GRAPH \n\n";
         Format.fprintf formatter "Vass %n has the following alphas \n" ind;
         BatList.iter (fun alph -> Format.fprintf formatter "Matrix %a\n" (M.pp) alph) sccvas.simulation) vasses.vasses
+
+
+
+
+
+  let compute_single_scc_vass ?(exists=fun x -> true) srk tr_symbols labels_lst orig_form =
+    Log.errorf "STARTED COMPUTATION FOR A SINGLE VASS";
+    let postified_labels = List.map (fun lbl -> postify srk tr_symbols lbl) labels_lst in
+    let formula = mk_and srk [mk_or srk labels_lst; mk_or srk postified_labels; orig_form] in
+    let formula',invars, invarmaxk = find_invariants srk tr_symbols formula in
+    (*Look into removing conunction of labels from formula' after invars calculated*)
+    let pre_graph = BatArray.init 
+        (List.length labels_lst) 
+        (fun _ -> (BatArray.init 
+           (List.length labels_lst) 
+           (fun _ -> (TSet.empty,[]))))
+    in
+    BatArray.iteri (fun ind1 arr ->
+        BatArray.modifyi (fun ind2 _ ->
+            compute_transformers_two_labels ~exists srk tr_symbols (List.nth labels_lst ind1) (List.nth labels_lst ind2) formula')
+          arr
+      ) pre_graph;
+    let imglist, alphas = BatArray.fold_left 
+        (fun (imglst, alphas) arr ->
+           BatArray.fold_left 
+             (fun (imglist, alphas) (_, alphasele) ->
+                let s1, s2, alphas' = coprod_find_images alphas alphasele in
+                (s1, s2) :: imglist, alphas') (imglst, alphas) arr) ([], [ident_matrix_syms srk tr_symbols]) pre_graph
+    in
+     let graph = BatArray.make 
+        (List.length labels_lst)
+        (BatArray.make
+           (List.length labels_lst)
+           (TSet.empty))
+    in
+    let graph = BatArray.init 
+        (List.length labels_lst) 
+        (fun _ -> (BatArray.init 
+                     (List.length labels_lst) 
+                     (fun _ -> (TSet.empty))))
+    in
+
+    let rec apply_images base_img imglist ind1 ind2 =
+      match imglist with
+      | (s1, s2) :: tl ->
+        let s1 = unify s1 in
+        let s2 = unify s2 in
+        let s1' = M.mul base_img s1 in
+        let s2' = M.mul base_img s2 in
+        let (v, _) = pre_graph.(ind1).(ind2) in
+        let v' = coprod_use_image v [s2'] in
+        Log.errorf "Ind1 is %d and ind2 is %d" ind1 ind2;
+        Log.errorf "base image is %a" M.pp base_img;
+        Log.errorf "S1 is %a" M.pp s1;
+        Log.errorf "S2 is %a" M.pp s2;
+        Log.errorf "S1' is %a" (M.pp) s1';
+        Log.errorf "S2' is %a" (M.pp) s2';
+        Log.errorf "Start show v";
+        TSet.iter (fun t -> Log.errorf "a is %a" Z.pp t.a; Log.errorf "b is %a" V.pp t.b) v;
+        Log.errorf "Start show v'";
+        TSet.iter (fun t -> Log.errorf "a is %a" Z.pp t.a; Log.errorf "b is %a" V.pp t.b) v';
+        graph.(ind1).(ind2)<-v';
+        let ind1', ind2' = if ind2 = 0 then ind1 - 1, (List.length labels_lst) - 1
+          else ind1, ind2 - 1 in
+        Log.errorf "THIS IS TEMP END OF A SINGLE GRAPH UPDATE";
+        BatArray.iteri (fun ind arr ->
+            BatArray.iteri (fun ind2 trans ->
+                Log.errorf "Num connections from label %d to label %d is: %d \n" ind ind2 (TSet.cardinal trans);
+                TSet.iter (fun trans ->
+                    Log.errorf "Label %d admits trans a: %a b: %a \n" ind (Z.pp) trans.a (V.pp) trans.b) trans) arr) graph;
+
+
+
+
+        apply_images s1' tl ind1' ind2'
+      | [] -> ()
+    in
+    apply_images (ident_matrix_real 100) imglist ((List.length labels_lst) - 1) ((List.length labels_lst) - 1); (*find actual ident here*)
+    BatArray.iteri (fun ind arr ->
+            BatArray.iteri (fun ind2 trans ->
+            Log.errorf "Num connections from label %d to label %d is: %d \n" ind ind2 (TSet.cardinal trans);
+                TSet.iter (fun trans ->
+                    Log.errorf "Label %d admits trans a: %a b: %a \n" ind (Z.pp) trans.a (V.pp) trans.b) trans) arr) graph;
+     
+    {label=Array.of_list labels_lst;graph;simulation=alphas;invars;invarmaxk}
+
+
 
 
 
@@ -293,9 +331,7 @@ module Vassnew = struct
 
 
   let abstract ?(exists=fun x -> true) srk tr_symbols body =
-    Log.errorf "Init formula is: %a" (Formula.pp srk) body;
     let skolem_constants = Symbol.Set.filter (fun a -> not (exists a)) (symbols body) in
-    Symbol.Set.iter (fun a -> Log.errorf "Symbol is %a" (pp_symbol srk) a) (symbols body);
     let body = (rewrite srk ~down:(nnf_rewriter srk) body) in
     let body = Nonlinear.linearize srk body in
     let label = get_intersect_cube_labeling srk body exists tr_symbols in
@@ -678,10 +714,8 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
 
 
   let exp srk syms loop_counter sccsform =
-    Log.errorf "YOU ARE IN EXP";
     (*No sccs means no labels found mean no transitions exist*)
-    if BatArray.length sccsform.vasses = 0 then (Log.errorf "NO SCC CASE";no_trans_taken srk loop_counter syms) else(
-      Log.errorf "SCC CASE";
+    if BatArray.length sccsform.vasses = 0 then (no_trans_taken srk loop_counter syms) else(
       let subloop_counters = BatArray.mapi (fun ind1 scc ->
           mk_const srk ((mk_symbol srk ~name:("counter_"^(string_of_int ind1)) `TyInt))) sccsform.vasses in
       let symmappings = BatArray.mapi (fun ind1 scc ->
