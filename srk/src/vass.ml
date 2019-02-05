@@ -287,18 +287,18 @@ module Vassnew = struct
       exists x && not (Symbol.Set.mem x pre_symbols)
     in
     let pre_labels = project_dnf srk exists_pre formula in
-    let post_label =
+    (*let post_label =
       mk_and srk [formula;
                   mk_not srk (postify srk tr_symbols (mk_or srk pre_labels))]
       |> project_dnf srk exists_post
       |> mk_or srk
       |> preify srk tr_symbols
-    in
-    (*let post_labels = project_dnf srk exists_post 
+    in*)
+    let post_labels = project_dnf srk exists_post 
         (mk_and srk [formula; mk_not srk (postify srk tr_symbols (mk_or srk pre_labels))]) in
-    let post_labels = List.fold_left (fun acc ele -> (preify srk tr_symbols ele) :: acc) [] post_labels in*)
+    let post_labels = List.fold_left (fun acc ele -> (preify srk tr_symbols ele) :: acc) [] post_labels in
   
-    pre_labels, [post_label]
+    pre_labels, post_labels
 
 
   (*Given a set of labels, combine labels that overlap...likely much more efficient way to do this*)
@@ -312,7 +312,7 @@ module Vassnew = struct
         Smt.Solver.add solver [form];
         match Smt.Solver.get_model solver with
         | `Unsat -> helper_sing (hd :: front) ele tl changed
-        | `Unknown -> helper_sing (hd :: front) ele tl changed
+        | `Unknown -> assert false
         | `Sat m -> helper_sing front (mk_or srk [ele; hd]) tl true
     in
 
@@ -327,10 +327,38 @@ module Vassnew = struct
     in
     loop_labels [] labels
 
+  let merge_pre_post_polyhedrons srk pres posts =
+    let rec helper_sing front ele back changed =
+      match back with
+      | [] -> front, changed
+      | hd :: tl ->
+        let solver = Smt.mk_solver srk in
+        let form = (rewrite srk ~down:(nnf_rewriter srk) (mk_and srk [ele; hd])) in 
+        Smt.Solver.add solver [form];
+        match Smt.Solver.get_model solver with
+        | `Unsat -> helper_sing (hd :: front) ele tl changed
+        | `Unknown -> assert false
+        | `Sat m -> ((mk_or srk [ele; hd]) :: (front @ tl)), true
+    in
+
+    let rec loop_labels pres checked_posts remaining =
+      match remaining with
+      | [] -> (pres, checked_posts)
+      | hd :: tl ->
+        let pres', ch = helper_sing [] hd pres false in
+        if ch = true 
+        then loop_labels (get_largest_polyhedrons srk pres') checked_posts tl
+        else loop_labels pres (hd :: checked_posts) tl
+    in
+    loop_labels pres [] posts
+
+
   let get_intersect_cube_labeling srk formula exists tr_symbols =
     let pre, post = get_pre_cube_labels srk formula exists tr_symbols in
     let pre', post' = get_largest_polyhedrons srk pre, get_largest_polyhedrons srk post in
-    let result = BatArray.of_list (post' @ pre') in
+    let pre'', post'' = merge_pre_post_polyhedrons srk pre' post' in
+    let post_fin = [mk_or srk post''] in
+    let result = BatArray.of_list (post_fin @ pre'') in
     result
 
 
