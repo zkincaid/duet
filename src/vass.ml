@@ -295,7 +295,7 @@ module Vassnew = struct
       |> preify srk tr_symbols
     in*)
     let post_labels = project_dnf srk exists_post 
-        (mk_and srk [formula; mk_not srk (postify srk tr_symbols (mk_or srk pre_labels))]) in
+        (mk_and srk [formula(*; mk_not srk (postify srk tr_symbols (mk_or srk pre_labels))*)]) in
     let post_labels = List.fold_left (fun acc ele -> (preify srk tr_symbols ele) :: acc) [] post_labels in
   
     pre_labels, post_labels
@@ -355,10 +355,16 @@ module Vassnew = struct
 
   let get_intersect_cube_labeling srk formula exists tr_symbols =
     let pre, post = get_pre_cube_labels srk formula exists tr_symbols in
+    (*let sink_label = mk_not srk (mk_or srk pre) in
+    let result = BatArray.of_list (get_largest_polyhedrons srk (sink_label :: pre)) in*)
+    List.iter (fun lbl -> Log.errorf "OG Labeling is %a" (Formula.pp srk) lbl) (pre @ post);
     let pre', post' = get_largest_polyhedrons srk pre, get_largest_polyhedrons srk post in
-    let pre'', post'' = merge_pre_post_polyhedrons srk pre' post' in
+    List.iter (fun lbl -> Log.errorf "Label is %a" (Formula.pp srk) lbl) (pre' @ post');
+    (*let pre'', post'' = merge_pre_post_polyhedrons srk pre' post' in
     let post_fin = [mk_or srk post''] in
-    let result = BatArray.of_list (post_fin @ pre'') in
+    List.iter (fun lbl -> Log.errorf "NEW LABEL is %a" (Formula.pp srk) lbl) (post_fin @ pre'');
+    let result = BatArray.of_list (post_fin @ pre'') in*)
+    let result = BatArray.of_list (pre' @ post') in
     result
 
 
@@ -516,8 +522,6 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
               svarstdims)))
        :: (BatList.mapi 
              (fun ind {a; b} ->
-                Log.errorf "CONSV of FLOW is %a" (Formula.pp srk) (exp_consv_of_flow_new srk in_sing out_sing ests kstack ind); 
-                Log.errorf "Triggers on R with val %a" (Formula.pp srk)  (mk_eq srk ri (mk_real srk (QQ.of_int ind)));  
                 if ZZ.equal (Z.coeff (snd (List.hd svarstdims)) a) ZZ.one then (mk_false srk)
                           else (
                             mk_and srk
