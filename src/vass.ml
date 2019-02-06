@@ -40,6 +40,7 @@ module Vassnew = struct
   type 'a t = {
     vasses : 'a sccvas array;
     formula : 'a formula;
+    sink : 'a formula;
     skolem_constants : Symbol.Set.t
   }
 
@@ -296,7 +297,7 @@ module Vassnew = struct
     in*)
     let post_labels = project_dnf srk exists_post 
         (mk_and srk [formula(*; mk_not srk (postify srk tr_symbols (mk_or srk pre_labels))*)]) in
-    let post_labels = List.fold_left (fun acc ele -> (preify srk tr_symbols ele) :: acc) [] post_labels in
+    (*let post_labels = List.fold_left (fun acc ele -> (preify srk tr_symbols ele) :: acc) [] post_labels in*)
   
     pre_labels, post_labels
 
@@ -358,31 +359,31 @@ module Vassnew = struct
     (*let sink_label = mk_not srk (mk_or srk pre) in
     let result = BatArray.of_list (get_largest_polyhedrons srk (sink_label :: pre)) in*)
     List.iter (fun lbl -> Log.errorf "OG Labeling is %a" (Formula.pp srk) lbl) (pre @ post);
-    let pre', post' = get_largest_polyhedrons srk pre, get_largest_polyhedrons srk post in
-    List.iter (fun lbl -> Log.errorf "Label is %a" (Formula.pp srk) lbl) (pre' @ post');
+    let pre', sink = get_largest_polyhedrons srk pre, mk_or srk post in
+    (*List.iter (fun lbl -> Log.errorf "Label is %a" (Formula.pp srk) lbl) (pre' @ post');*)
     (*let pre'', post'' = merge_pre_post_polyhedrons srk pre' post' in
     let post_fin = [mk_or srk post''] in
     List.iter (fun lbl -> Log.errorf "NEW LABEL is %a" (Formula.pp srk) lbl) (post_fin @ pre'');
     let result = BatArray.of_list (post_fin @ pre'') in*)
-    let result = BatArray.of_list (pre' @ post') in
-    result
+    let result = BatArray.of_list pre' in
+    result, sink
 
 
   let abstract ?(exists=fun x -> true) srk tr_symbols body =
     let skolem_constants = Symbol.Set.filter (fun a -> not (exists a)) (symbols body) in
     let body = (rewrite srk ~down:(nnf_rewriter srk) body) in
     let body = Nonlinear.linearize srk body in
-    let label = get_intersect_cube_labeling srk body exists tr_symbols in
+    let label, sink = get_intersect_cube_labeling srk body exists tr_symbols in
     let graph = compute_edges srk tr_symbols label body in
     let num_sccs, func_sccs = BGraphComp.scc graph in
     let sccs = Array.make num_sccs  [] in
     BatArray.iteri (fun ind lab -> sccs.(func_sccs ind)<-(lab :: sccs.(func_sccs ind)))
       label;
     if num_sccs = 0 then
-      {vasses= BatArray.init 0 (fun x -> assert false); formula=body; skolem_constants}
+      {vasses= BatArray.init 0 (fun x -> assert false); formula=body; skolem_constants; sink=sink}
     else(
       let vassarrays = BatArray.map (fun scc -> compute_single_scc_vass ~exists srk tr_symbols scc body) sccs in
-      let result = {vasses=vassarrays;formula=body; skolem_constants} in
+      let result = {vasses=vassarrays;formula=body; skolem_constants; sink=sink} in
       logf ~level:`always "%a" (pp srk tr_symbols) result;
       result
     )
@@ -775,22 +776,26 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
   let exp srk syms loop_counter sccsform =
     (*No sccs means no labels found mean no transitions exist*)
     if BatArray.length sccsform.vasses = 0 then (no_trans_taken srk loop_counter syms) else(
-      let subloop_counters = BatArray.mapi (fun ind1 scc ->
-          mk_const srk ((mk_symbol srk ~name:("counter_"^(string_of_int ind1)) `TyInt))) sccsform.vasses in
-      let symmappings = BatArray.mapi (fun ind1 scc ->
+      let sink = sccsform.sink in
+      let doublex' = List.map (fun (x, x') -> (x', x')) syms in
+           let symmappings = BatArray.mapi (fun ind1 scc ->
           List.rev
             (BatList.fold_lefti (fun acc ind2 (x, x') ->
                  ((mk_symbol srk ~name:((show_symbol srk x)^"_"^(string_of_int ind1)) (typ_symbol srk x)),
                   (mk_symbol srk ~name:((show_symbol srk x')^"_"^(string_of_int ind1)) (typ_symbol srk x'))) :: acc) [] syms))
           sccsform.vasses
       in
+      let symmappings = BatArray.append symmappings (BatArray.make 1 doublex') in
+      let subloop_counters = BatArray.mapi (fun ind1 scc ->
+          mk_const srk ((mk_symbol srk ~name:("counter_"^(string_of_int ind1)) `TyInt))) symmappings in
+
       let skolem_mappings = BatArray.mapi (fun ind1 scc ->
           BatList.fold_left 
             (fun acc x -> (x, (mk_symbol srk ~name:((show_symbol srk x)^"_"^(string_of_int ind1)) (typ_symbol srk x))) 
                           :: acc)
             []
             (Symbol.Set.elements sccsform.skolem_constants))
-          sccsform.vasses
+          symmappings
       in
       let skolem_mappings_transitions = BatArray.mapi (fun ind1 scc ->
           BatList.fold_left 
@@ -798,38 +803,49 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
                           :: acc)
             []
             (Symbol.Set.elements sccsform.skolem_constants))
-          sccsform.vasses
+          symmappings
       in
 
       let sccclosures_es = BatArray.mapi (fun ind vass -> closure_of_an_scc srk syms subloop_counters.(ind) vass) sccsform.vasses in
       let sccclosures, es = BatList.split (BatArray.to_list sccclosures_es) in
       let sccclosures, es = BatArray.of_list sccclosures, BatArray.of_list es in
       (*We compute scc closure without scc specific x, x' and then add these in after closure*)
+      let sccclosures = BatArray.append sccclosures (BatArray.make 1 sink) in
       let sccclosures = BatArray.mapi (fun ind closure ->  
           (postify srk skolem_mappings.(ind) 
              (postify srk (merge_mappings syms symmappings.(ind) false true) 
                 (postify srk (merge_mappings syms symmappings.(ind) true false) closure))))
           sccclosures in
+      Log.errorf "MAKE IT HERE";
 
+      let es = BatArray.append es (BatArray.make 1 [(mk_real srk (QQ.of_int 1))]) in
       let scclabels = BatArray.map (fun scc -> mk_or srk (BatArray.to_list scc.label)) sccsform.vasses in		
       let sccgraph = compute_edges srk syms scclabels sccsform.formula in
       let num_scc_used = mk_const srk (mk_symbol srk ~name:("Num_scc_used") `TyInt) in
       let order = List.rev (BGraphTopo.fold (fun v acc -> Log.errorf "THIS SCC REACHED %d" v; v :: acc) sccgraph []) in
       let sub_loops_geq_0 = create_exp_positive_reqs srk [Array.to_list subloop_counters] in
-      let scc_ordering = BatArray.mapi (fun ind1 scc ->
+Log.errorf "MAKE IT HERE2";
+      let scc_ordering_pre_sink = BatArray.mapi (fun ind1 scc ->
           mk_const srk ((mk_symbol srk ~name:("ordering_"^(string_of_int ind1)) `TyInt))) sccsform.vasses in
+      let sink_ordering = mk_const srk (mk_symbol srk ~name:("ordering_SINK") `TyInt) in
+      let scc_ordering = BatArray.append scc_ordering_pre_sink (BatArray.make 1 sink_ordering) in
       let order_bounds_const = ordering_bounds srk scc_ordering (mk_real srk (QQ.of_int (BatArray.length sccclosures))) in
+Log.errorf "MAKE IT HERE3";
       let no_dups_constr = no_dups_ordering srk scc_ordering in
+Log.errorf "MAKE IT HERE4";
       let come_next_const = come_next_req srk scc_ordering es subloop_counters num_scc_used sccclosures symmappings syms sccsform.formula skolem_mappings_transitions in
+Log.errorf "MAKE IT HERE5";
       let first_scc_const = first_scc_used srk scc_ordering es sccclosures symmappings syms in
-      let last_scc_const = used_last_scc srk scc_ordering num_scc_used symmappings syms in
+Log.errorf "MAKE IT HERE6";
+      (*let last_scc_const = used_last_scc srk scc_ordering num_scc_used symmappings syms in*)
       let num_scc_used_bound = mk_and srk 
           [mk_lt srk num_scc_used (mk_real srk (QQ.of_int (BatArray.length sccclosures)));
            mk_leq srk (mk_zero srk) num_scc_used] in
+      let num_scc_used_sink = mk_eq srk num_scc_used sink_ordering in
       let loop_bound = mk_eq srk (mk_add srk (num_scc_used :: (BatArray.to_list subloop_counters))) loop_counter in
       let order_constr = topo_order_constraints srk order es scc_ordering in
       let result = mk_or srk [mk_and srk [order_bounds_const; sub_loops_geq_0; no_dups_constr; come_next_const; first_scc_const;
-                                          last_scc_const; num_scc_used_bound; loop_bound; mk_leq srk (mk_zero srk) loop_counter; order_constr];
+                                          (*last_scc_const;*) num_scc_used_bound; num_scc_used_sink; loop_bound; mk_leq srk (mk_zero srk) loop_counter; order_constr];
                               no_trans_taken srk loop_counter syms] (*mk_false srk*) in
       Log.errorf "Done";
       result
