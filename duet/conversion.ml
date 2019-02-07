@@ -187,6 +187,7 @@ let convert_insts (inst : inst) =
                    let r_val = convert_rexpr r in
                    [Core.Def.mk (Assign(l_var, r_val))]
   | Assume(cond) -> [Core.Def.mk (Assume (convert_cond cond))]
+  | Assert(cond) -> [Core.Def.mk (Assert((convert_cond cond), "assert"))]
   | Tick(v) -> raise (Unexpected_value ("Unexpected tick instruction"))
   | Call(a,name,args) ->
      let func_var = Core.AddrOf(Variable(List.assoc name !fvars)) in
