@@ -57,6 +57,7 @@ type inst =
   | Call of lvalue list * string * rexpr list
   | Tick of rexpr
   | Assume of cond
+  | Assert of cond
 
 type bblock =
   { bpreds: int list
