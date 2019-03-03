@@ -1,34 +1,24 @@
 open Syntax
 open BatPervasives
-module LRI = Iteration.LinearRecurrenceInequation
-module PG = Iteration.PolyhedronGuard
 module V = Linear.QQVector
 module M = Linear.QQMatrix
 module Z = Linear.ZZVector
-module Monomial = Polynomial.Monomial
-module P = Polynomial.QQXs
-module Scalar = Apron.Scalar
-module Coeff = Apron.Coeff
-module Abstract0 = Apron.Abstract0
-module Linexpr0 = Apron.Linexpr0
-module Lincons0 = Apron.Lincons0
-module Dim = Apron.Dim
-module Q = Quantifier
-
-module CS = CoordinateSystem
-module A = BatDynArray
-
-module IntSet = SrkUtil.Int.Set
 module H = Abstract
 include Log.Make(struct let name = "srk.mdvas" end)
 
+(* A transformer defines an affine transition
+ * X' = X diag(a) + b. "a" is {0, 1}^n, and b
+ * is Q^n.
+ *)
 type transformer =
   { a : Z.t;
     b : V.t }
 [@@deriving ord, show]
 
+
+(* Figure out way to clean up these types a bit *)
 module Transformer = struct
-  type t = transformer
+  type t = 
   [@@deriving ord, show]
 end
 
@@ -39,11 +29,45 @@ type vas = TSet.t
 let pp_vas formatter (vas : vas) : unit =
   SrkUtil.pp_print_enum pp_transformer formatter (TSet.enum vas)  
 
+(* A VAS abstraction contains a set of transformers, v,
+ * a list of linear simulations matrices, S_lst,
+ * a set of invariants, invars,
+ * and _____.
+ *
+ * Each matrix in S_lst starts at the 0th row. Unify
+ * is used to stack the elements in S_lst together for
+ * use with transformers.The first row of the first item
+ * in S_lst is matched with the first row of "a" and "b"
+ * in a given transformer.
+ *
+ * There is exactly one item in S_lst for each coherence class
+ * of v. A coherence class is defined as a set of rows that
+ * reset together in every transformer.
+ *
+ * invars is a list of invariants that hold after a single
+ * transition, and every transition thereafter. invars is
+ * used to remove variables from the formula. For instance,
+ * if x'= 3 is an invariant, we can substitute in 3 for x'
+ * when computing the transformers and just add this fact
+ * in during the closure.
+ *
+ * ____ is an optimization related to invariants. There
+ * are certain invariants that, when taken together, restrict
+ * the transition system to running at most once
+ * (for example, x' = 1 and x = x + 1).
+ *)
 type 'a t = { v : vas; alphas : M.t list; invars : 'a formula list; invarmaxk : bool}
+
 
 let mk_top = {v=TSet.empty; alphas=[]; invars=[]; invarmaxk=false}
 
-(*Vertically stack matrices*)
+(* This function is used to stack the matrices in S_lst
+ * on top of each other. Each matrix in S_lst must start at
+ * row 0. The matrices are stacked sequentially, with the first
+ * matrix in S_lst corresponding to the first rows of the output matrix.
+ * This function is primarily used to relate the dynamics matrix 
+ * (S, equiv S_lst stacked on each other) to the transformers.
+ *)
 let unify (alphas : M.t list) : M.t =
   let unified = List.fold_left (fun matrix alphacell -> 
       BatEnum.fold (fun matrix (dim, vector) ->
@@ -54,13 +78,23 @@ let unify (alphas : M.t list) : M.t =
   unified 
 
 
+(* Used in preify and postify to create symbol map.
+ * Is a way to substitute variables; for example
+ * x with x' or x' with x.
+ *)
 let post_map srk tr_symbols =
   List.fold_left
     (fun map (sym, sym') -> Symbol.Map.add sym (mk_const srk sym') map)
     Symbol.Map.empty
     tr_symbols
 
+(* preify takes in the context, the symbol tuple list, and a term.
+ * If symbol tuple list is of form (x, x'), as in tr_symbols,
+ * replace x' with x in term.
+ *)
 let preify srk tr_symbols = substitute_map srk (post_map srk (List.map (fun (x, x') -> (x', x)) tr_symbols))
+
+(* Same as preify, but replaces x with x' *)
 let postify srk tr_symbols = substitute_map srk (post_map srk tr_symbols)
 
 (* 1 kvar for each transformer; 1 svar per row in equiv class; 1 rvar, 1 kstack for each equiv class*)
@@ -90,13 +124,18 @@ let create_exp_vars srk alphas num_trans =
   in
   helper alphas []
 
-(*Make input terms in list each >= 0*)
+(* Make input terms in list each >= 0 *)
 let create_exp_positive_reqs srk kvarst =
   mk_and srk (List.map (fun var -> 
       mk_leq srk (mk_zero srk) var) 
       (List.flatten kvarst))
 
-(*If a kstack is full, then that equiv class never reset*)
+(* If a coherence class has, after its "final reset",
+ * taken the same number of transitions
+ * as the loop counter, then that coherence class was never reset. 
+ * In this case, its corresponding reset var is set to -1, which
+ * means exactly that this coherence class not not reset.
+ *)
 let exp_full_transitions_reqs srk kvarst rvarst loop_counter =
   mk_and srk  
     (List.map2 
@@ -109,7 +148,7 @@ let exp_full_transitions_reqs srk kvarst rvarst loop_counter =
        kvarst rvarst)
 (* Replacing kvarst with ksums here seems to deoptimize. Unclear why *)
 
-(*Create every pairing of (ksum, kstack, reset var) for each equiv class*)
+(* Creates list of pairs coherence class vars (for every pair) *)
 let all_pairs_kvarst_rvarst ksumst kvarst (rvarst : 'a Syntax.term list) =
   let rec helper1 (sum1, kstack1, r1) ksumst' kvarst' rvarst' =
     begin match ksumst', kvarst', rvarst' with
@@ -127,7 +166,7 @@ let all_pairs_kvarst_rvarst ksumst kvarst (rvarst : 'a Syntax.term list) =
   in
   List.flatten (helper2 ksumst kvarst rvarst)
 
-(*Create every permutation of ordering for equiv classes*)
+(* Create every permutation of ordering for coherence classes *)
 let exp_perm_constraints srk krpairs =
   mk_and srk
     (List.map 
@@ -139,7 +178,9 @@ let exp_perm_constraints srk krpairs =
           mk_or srk [lessthan k1 k2;  lessthan k2 k1])
        krpairs)
 
-(*If two pairings have equal sums, must've been reset at same time*)
+(*If two coherence classes have taken
+ * the same number of transitions after their last reset, 
+ * both coherence classes must've been reset at same time*)
 let exp_equality_k_constraints srk krpairs =
   mk_and srk
     (List.map
@@ -213,7 +254,11 @@ let exp_lin_term_trans_constraints srk equiv_pairs transformers unialpha =
                svarstdims))
         equiv_pairs)
 
-(*Replace terms in kvar with 0 when kvar matches to a reset for respective equiv class*)
+(* If kvar represents a coherence class/transformer pair, (C, T), such that
+ * coherence class C is reset on transformer T, then kvar is 0. Recall that
+ * the last reset for coherence class C is instead defined by the corresponding
+ * "r" var. This function replaces kvars in terms 
+ * (that match the just stated property) with 0 *)
 let replace_resets_with_zero srk equiv_pairs transformers : ('a Syntax.term list * ('b * Z.dim) list * 'c * 'd) list =
   (List.map (fun (kstack, svarstdims, ri, ksum) ->
        let (svar, dim) = List.hd svarstdims in
