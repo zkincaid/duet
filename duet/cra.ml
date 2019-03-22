@@ -9,15 +9,12 @@ module WG = WeightedGraph
 module G = RG.G
 module Ctx = Srk.Syntax.MakeSimplifyingContext ()
 module Int = SrkUtil.Int
-
 let srk = Ctx.context
 
 include Log.Make(struct let name = "cra" end)
 
 let forward_inv_gen = ref true
 let dump_goals = ref false
-let prsd = ref false
-let cra_refine = ref false
 let nb_goals = ref 0
 
 let dump_goal loc path_condition =
@@ -116,16 +113,14 @@ module V = struct
   let is_global = Var.is_global % var_of_value
 end
 
-
 module IterDomain = struct
   open Iteration
   open SolvablePolynomial
   module SPOne = SumWedge (SolvablePolynomial) (SolvablePolynomialOne) ()
-  module SPG = ProductWedge (SPOne) (WedgeGuard)
-  module SPPeriodicRational = Sum (SPG) (PresburgerGuard) ()
-  module LinRec = Product (LinearRecurrenceInequation) (PolyhedronGuard)
-  module D = Sum(SPPeriodicRational)(LinRec)()
-  module SPSplit = Sum(D) (Split(D)) ()
+  module SPPeriodicRational = SumWedge (SPOne) (SolvablePolynomialPeriodicRational) ()
+  module SPG = ProductWedge (SPPeriodicRational) (WedgeGuard)
+  module SPPRG = Sum (SPG) (PresburgerGuard) ()
+  module SPSplit = Sum (SPPRG) (Split(SPPRG)) ()
   include SPSplit
 end
 
@@ -148,266 +143,7 @@ module MakeTransition (V : Transition.Var) = struct
     else mul x y
 end
 
-module K = struct
-  module Tr = MakeTransition(V)
-  include Tr
-
-
-  module CRARefinement = Refinement.DomainRefinement
-      (struct
-        include Tr
-        let star = I.star
-
-        (*let star x = Log.time "refine" I.star x*)
-
-        let equal a b = ((Wedge.is_sat srk (guard a)) == `Unsat)
-      end)
-
-  let refine_star x = 
-    let nnf_guard = Syntax.rewrite srk ~down:(Syntax.nnf_rewriter srk) (guard x) in
-    (*Format.eprintf "  Top-level formula:  %a  \n" (Syntax.Formula.pp srk) nnf_guard;*)
-    let to_dnf form = 
-      match form with
-      | `And top_and_list ->
-        let dnf_form_no_labels = (* list list list *)
-          List.map
-            (fun top_and_child ->
-              match Syntax.Formula.destruct srk top_and_child with
-              | `Or or_list ->
-                List.map
-                  (fun or_child ->
-                    match Syntax.destruct srk or_child with
-                    | `And leaf -> leaf
-                    | _ -> [or_child]
-                  ) or_list
-              | `And and_list -> [and_list]
-              | _ -> [[top_and_child]]
-            ) top_and_list
-          in
-        let cartesian_prod =
-          let cartesian a b = List.concat (List.map (fun e1 -> List.map (fun e2 -> (e1 @ e2)) b) a) in 
-          List.fold_left cartesian ([([])])
-          in
-        let distributed_list = cartesian_prod dnf_form_no_labels in (* list list *)
-        Syntax.mk_or srk (List.map (Syntax.mk_and srk) distributed_list)
-      | `Or dnf_list ->
-        Syntax.mk_or srk
-          (List.concat
-            (List.map
-              (fun or_of_ands ->
-                match Syntax.Formula.destruct srk or_of_ands with
-                | `Or list_of_ands -> list_of_ands
-                | _ -> [or_of_ands]
-              ) dnf_list
-            )
-          )
-      | `Tru -> Syntax.mk_true srk
-      | `Fls -> Syntax.mk_false srk
-      | `Not x -> Syntax.mk_not srk x
-      | `Quantify (`Exists, str, typ, x) -> Syntax.mk_exists srk ~name:str typ x
-      | `Quantify (`Forall, str, typ, x) -> Syntax.mk_forall srk ~name:str typ x
-      | `Atom (`Eq, left, right) -> Syntax.mk_eq srk left right
-      | `Atom (`Leq, left, right) -> Syntax.mk_leq srk left right
-      | `Atom (`Lt, left, right) -> Syntax.mk_lt srk left right
-      | _ -> failwith "Don't support Prop, Ite"
-    in
-    let dnf_guard = Syntax.Formula.eval_memo srk to_dnf nnf_guard in
-    let (guard_dis, one_dis) = 
-      (match Syntax.Formula.destruct srk dnf_guard with
-      | `Or disjuncts -> (disjuncts, false)
-      | _ -> ([dnf_guard], true)
-      )
-      in
-    (*Format.eprintf " UnsimpGuard dnf size : %d\n Formula:  %a\n%!" (List.length guard_dis) (Syntax.Formula.pp srk) dnf_guard;*)
-    if one_dis then I.star x
-    else
-      let rec build_dnf needed_dis disjuncts =
-        match disjuncts with
-        | [] -> (needed_dis, false)
-        | new_dis :: tl -> 
-          let cur_dnf = Syntax.mk_or srk needed_dis in
-          (match Smt.entails srk (guard x) cur_dnf with
-          | `Yes -> (needed_dis, false)
-          | `Unknown -> ([], true)
-          | `No ->
-            (match Smt.entails srk cur_dnf new_dis with
-            | `Yes -> build_dnf [new_dis] tl
-            | `Unknown -> ([], true)
-            | `No ->
-              (match Smt.entails srk new_dis cur_dnf with
-              | `Yes -> build_dnf needed_dis tl
-              | `Unknown -> ([], true)
-              | `No -> build_dnf (new_dis :: needed_dis) tl)
-            )
-          ) 
-        in
-      let (needed_dis, bailed) = build_dnf [] guard_dis in
-      if bailed then 
-        I.star x
-      else (
-        (*Format.eprintf " SimpGuard dnf size : %d\n Formula:  %a\n%!" (List.length needed_dis) (Syntax.Formula.pp srk) (Syntax.mk_or srk needed_dis);*)
-        let x_tr = BatEnum.fold (fun acc a -> a :: acc) [] (transform x) in
-        let x_dnf = List.map (fun disjunct -> construct disjunct x_tr) needed_dis in
-        if (List.length x_dnf) = 1 then I.star (List.hd x_dnf)
-        else
-          let result = CRARefinement.refinement x_dnf in
-          result)    
-
-  let to_dnf x =
-    let open Syntax in
-    let guard =
-      rewrite srk
-        ~down:(nnf_rewriter srk)
-        ~up:(Nonlinear.uninterpret_rewriter srk)
-        (guard x)
-    in
-    let x_tr = BatEnum.fold (fun acc a -> a :: acc) [] (transform x) in
-    let solver = Smt.mk_solver srk in
-    let rhs_symbols =
-      BatEnum.fold (fun rhs_symbols (_, t) ->
-          Symbol.Set.union rhs_symbols (symbols t))
-        Symbol.Set.empty
-        (transform x)
-    in
-    let project x =
-      match V.of_symbol x with
-      | Some _ -> true
-      | None -> Symbol.Set.mem x rhs_symbols
-    in
-    Smt.Solver.add solver [guard];
-    let rec split disjuncts =
-      match Smt.Solver.get_model solver with
-      | `Unknown -> [x]
-      | `Unsat ->
-        BatList.filter_map (fun guard ->
-            let interp_guard = Nonlinear.interpret srk guard in
-            if Wedge.is_sat srk interp_guard = `Unsat then
-              None
-            else
-              Some (construct interp_guard x_tr))
-          disjuncts
-      | `Sat m ->
-        let disjunct =
-          match Interpretation.select_implicant m guard with
-          | Some implicant ->
-            let cs = CoordinateSystem.mk_empty srk in
-            Polyhedron.of_implicant ~admit:true cs implicant
-            |> Polyhedron.try_fourier_motzkin cs project
-            |> Polyhedron.implicant_of cs
-            |> mk_and srk
-          | None -> assert false
-        in
-        Smt.Solver.add solver [mk_not srk disjunct];
-        split (disjunct::disjuncts)
-    in
-    split []
-
-  let refine_star x =
-    (* let x_dnf = to_dnf x in *)
-    let x_dnf = Log.time "cra:to_dnf" to_dnf x in
-    if (List.length x_dnf) = 1 then I.star (List.hd x_dnf)
-    else CRARefinement.refinement x_dnf
-
-  let star x = 
-    if (!cra_refine) then 
-      Log.time "cra:refine_star" refine_star x
-    else 
-      Log.time "cra:star" I.star x
-
-  let project = exists V.is_global
-end
-
-module RK = struct
-  module S = BatSet.Make(K)
-  type t = S.t
-
-  let k_leq x y =
-    let eq_transform (x,t) (x',t') =
-      V.equal x x' && Syntax.Term.equal t t'
-    in
-    BatEnum.equal eq_transform (K.transform x) (K.transform y)
-    && Smt.equiv srk
-      (Nonlinear.uninterpret srk (K.guard x))
-      (Nonlinear.uninterpret srk (K.guard y)) = `Yes
-
-  let antichain k =
-    let rec go = function
-      | [] -> []
-      | [x] -> [x]
-      | (x::xs) ->
-        let xs = go xs in
-        if List.exists (k_leq x) xs then
-          xs
-        else
-          x::(List.filter (fun y -> not (k_leq y x)) xs)
-    in
-    let is_consistent x =
-      Smt.is_sat srk (Nonlinear.uninterpret srk (K.guard x)) != `Unsat
-    in
-    S.of_list (go (List.filter is_consistent (S.elements k)))
-
-  let antichain k = Log.time "cra:refine_antichain" antichain k
-
-  let one = S.singleton K.one
-
-  let zero = S.empty
-
-  let add x y = antichain (S.union x y)
-
-  let mul x y =
-    BatEnum.fold (fun s x ->
-        BatEnum.fold (fun s y ->
-            S.add (K.mul x y) s)
-          s
-          (S.enum y))
-      S.empty
-      (S.enum x)
-    |> antichain
-
-  let star x =
-    match S.elements x with
-    | [] -> one
-    | [x] -> S.singleton (K.star x)
-    | xs -> S.singleton (K.CRARefinement.refinement xs)
-
-  let star x = Log.time "cra:refine_star_RK" star x
-
-  let lower s = S.fold K.add s K.zero
-  let lift = S.singleton
-  (*let lift_dnf x = S.of_list (K.to_dnf x)*)
-  let lift_dnf x = S.of_list (Log.time "cra:to_dnf" K.to_dnf x)
-  let project = S.map K.project
-
-  let equal x y =
-    S.cardinal x = S.cardinal y
-    && List.for_all2 K.equal (S.elements x) (S.elements y)
-
-  let widen x y =
-    if S.is_empty x then y
-    else lift (K.widen (lower x) (lower y))
-end
-
-module RefinedTS = struct
-  include WeightedGraph.MakeRecGraph(RK)
-  let of_transition_system ts =
-    let wg =
-      WeightedGraph.fold_vertex (fun v wg ->
-          WeightedGraph.add_vertex wg v)
-        ts
-        empty
-    in
-    WeightedGraph.fold_edges (fun (u, label, v) wg ->
-        let label' =
-          let open WeightedGraph in
-          match label with
-          | Call (x, y) -> Call (x, y)
-          | Weight tr -> Weight (RK.lift_dnf tr)
-        in
-        WeightedGraph.add_edge wg u label' v)
-      ts
-      wg
-
-end
+module K = MakeTransition(V)
 
 type ptr_term =
   { ptr_val : Ctx.term;
@@ -860,63 +596,31 @@ let analyze file =
       let entry = (RG.block_entry rg main).did in
       let (ts, assertions) = make_transition_system rg in
 
-      (*      TSDisplay.display ts;*)
+      (*TSDisplay.display ts;*)
 
-      if !cra_refine then
-        begin
-          let rts = RefinedTS.of_transition_system ts in
-          let query = RefinedTS.mk_query rts in
-          assertions |> SrkUtil.Int.Map.iter (fun v (phi, loc, msg) ->
-              let path =
-                RK.lower (RefinedTS.path_weight query entry v)
-              in
-              let sigma sym =
-                match V.of_symbol sym with
-                | Some v when K.mem_transform v path ->
-                  K.get_transform v path
-                | _ -> Ctx.mk_const sym
-              in
-              let phi = Syntax.substitute_const Ctx.context sigma phi in
-              let path_condition =
-                Ctx.mk_and [K.guard path; Ctx.mk_not phi]
-                |> SrkSimplify.simplify_terms srk
-              in
-              logf "Path condition:@\n%a"
-                (Syntax.pp_smtlib2 Ctx.context) path_condition;
-              dump_goal loc path_condition;
-              match Wedge.is_sat Ctx.context path_condition with
-              | `Sat -> Report.log_error loc msg
-              | `Unsat -> Report.log_safe ()
-              | `Unknown ->
-                logf ~level:`warn "Z3 inconclusive";
-                Report.log_error loc msg)
-        end
-      else
-        begin
-          let query = TS.mk_query ts in
-          assertions |> SrkUtil.Int.Map.iter (fun v (phi, loc, msg) ->
-              let path = TS.path_weight query entry v in
-              let sigma sym =
-                match V.of_symbol sym with
-                | Some v when K.mem_transform v path ->
-                  K.get_transform v path
-                | _ -> Ctx.mk_const sym
-              in
-              let phi = Syntax.substitute_const Ctx.context sigma phi in
-              let path_condition =
-                Ctx.mk_and [K.guard path; Ctx.mk_not phi]
-                |> SrkSimplify.simplify_terms srk
-              in
-              logf "Path condition:@\n%a"
-                (Syntax.pp_smtlib2 Ctx.context) path_condition;
-              dump_goal loc path_condition;
-              match Wedge.is_sat Ctx.context path_condition with
-              | `Sat -> Report.log_error loc msg
-              | `Unsat -> Report.log_safe ()
-              | `Unknown ->
-                logf ~level:`warn "Z3 inconclusive";
-                Report.log_error loc msg)
-        end;
+      let query = TS.mk_query ts in
+      assertions |> SrkUtil.Int.Map.iter (fun v (phi, loc, msg) ->
+          let path = TS.path_weight query entry v in
+          let sigma sym =
+            match V.of_symbol sym with
+            | Some v when K.mem_transform v path ->
+              K.get_transform v path
+            | _ -> Ctx.mk_const sym
+          in
+          let phi = Syntax.substitute_const Ctx.context sigma phi in
+          let path_condition =
+            Ctx.mk_and [K.guard path; Ctx.mk_not phi]
+            |> SrkSimplify.simplify_terms srk
+          in
+          logf "Path condition:@\n%a"
+            (Syntax.pp_smtlib2 Ctx.context) path_condition;
+          dump_goal loc path_condition;
+          match Wedge.is_sat Ctx.context path_condition with
+          | `Sat -> Report.log_error loc msg
+          | `Unsat -> Report.log_safe ()
+          | `Unknown ->
+            logf ~level:`warn "Z3 inconclusive";
+            Report.log_error loc msg);
 
       Report.print_errors ();
       Report.print_safe ();
@@ -1009,19 +713,9 @@ let _ =
      Arg.Clear IterDomain.SPPeriodicRational.abstract_left,
      " Use periodic rational spectral decomposition");
   CmdLine.register_config
-<<<<<<< HEAD
-    ("-cra-refine",
-     Arg.Set cra_refine,
-     " Turn on graph refinement");
-  CmdLine.register_config
-    ("-cra-lin-rec",
-     Arg.Clear IterDomain.D.abstract_left,
-     " Linear recurrence inequations");
-=======
     ("-cra-prsd-pg",
      Arg.Clear IterDomain.SPPRG.abstract_left,
      " Use periodic rational spectral decomposition w/ Presburger guard");
->>>>>>> Newton-ark2
   CmdLine.register_config
     ("-dump-goals",
      Arg.Set dump_goals,
