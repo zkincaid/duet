@@ -1009,6 +1009,7 @@ let _ =
      Arg.Clear IterDomain.SPPeriodicRational.abstract_left,
      " Use periodic rational spectral decomposition");
   CmdLine.register_config
+<<<<<<< HEAD
     ("-cra-refine",
      Arg.Set cra_refine,
      " Turn on graph refinement");
@@ -1016,6 +1017,11 @@ let _ =
     ("-cra-lin-rec",
      Arg.Clear IterDomain.D.abstract_left,
      " Linear recurrence inequations");
+=======
+    ("-cra-prsd-pg",
+     Arg.Clear IterDomain.SPPRG.abstract_left,
+     " Use periodic rational spectral decomposition w/ Presburger guard");
+>>>>>>> Newton-ark2
   CmdLine.register_config
     ("-dump-goals",
      Arg.Set dump_goals,

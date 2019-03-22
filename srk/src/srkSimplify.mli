@@ -27,3 +27,8 @@ val partition_implicant : ('a formula) list -> ('a formula) list list
    conjunction of all [xs] is equivalent to conjunction of all [xs'].
    The sublist [xs'] is not guaranteed to be minimal. *)
 val simplify_conjunction : 'a context -> 'a formula list -> 'a formula list
+
+(** Given a term [t] and a constant symbol [x], find a coefficient [a]
+   and a term [s] such that [t] is equal to [a*x + s] ([a] may be 0).
+   Return [None] if this is not possible (e.g., the term [x*x]). *)
+val isolate_linear : 'a context -> symbol -> 'a term -> (QQ.t * 'a term) option

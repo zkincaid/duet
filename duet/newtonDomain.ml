@@ -444,8 +444,9 @@ let detensor_transpose tensored_tr =
     guard
     (VMap.enum transform |> BatList.of_enum)
 
-let print_var_bounds formatter cost tr =
+let print_var_bounds formatter cost tr func =
   let open Format in
+  let module Symbol = Syntax.Symbol in
   let cost_symbol = Ctx.mk_symbol `TyReal in
   let exists x =
     x = cost_symbol || match V.of_symbol x with
@@ -462,26 +463,54 @@ let print_var_bounds formatter cost tr =
     Ctx.mk_and [K.guard tr;
                 Ctx.mk_eq (Ctx.mk_const cost_symbol) rhs ]
   in
+  let param_map =
+    BatList.fold_lefti (fun map i formal ->
+        let param = PointerAnalysis.get_param i in
+        let pval = V.symbol_of (VVal param) in
+        let pwidth = V.symbol_of (VWidth param) in
+        let ppos = V.symbol_of (VWidth param) in
+        let fval = Ctx.mk_const (V.symbol_of (VVal (Var.mk formal))) in
+        let fwidth = Ctx.mk_const (V.symbol_of (VWidth (Var.mk formal))) in
+        let fpos = Ctx.mk_const (V.symbol_of (VPos (Var.mk formal))) in
+        map
+        |> Symbol.Map.add pval fval
+        |> Symbol.Map.add pwidth fwidth
+        |> Symbol.Map.add ppos fpos)
+      Symbol.Map.empty
+      func.CfgIr.formals
+  in
+  let pre_cost_zero =
+    let cost_symbol = V.symbol_of cost in
+    Syntax.substitute_const srk (fun sym ->
+        if sym = cost_symbol then
+          Ctx.mk_real QQ.zero
+        else
+          Ctx.mk_const sym)
+  in
   match Wedge.symbolic_bounds_formula ~exists srk guard cost_symbol with
   | `Sat (lower, upper) ->
     begin match lower with
       | Some lower ->
-        fprintf formatter "%a <= %a@\n" (Syntax.Term.pp srk) lower V.pp cost;
-(*
+        let lower = Syntax.substitute_map srk param_map lower in
+        fprintf formatter "%a <= %a@\n" 
+          (Syntax.pp_expr_unnumbered srk) lower V.pp cost;
+
         fprintf formatter "%a is o(%a)@\n"
           V.pp cost
-          BigO.pp (BigO.of_term srk lower)
-*)
+          BigO.pp (BigO.of_term srk (pre_cost_zero lower))
+
       | None -> ()
     end;
     begin match upper with
       | Some upper ->
-        fprintf formatter "%a <= %a@\n" V.pp cost (Syntax.Term.pp srk) upper
-        (*
+        let upper = Syntax.substitute_map srk param_map upper in
+        fprintf formatter "%a <= %a@\n" 
+          V.pp cost (Syntax.pp_expr_unnumbered srk) upper;
+        
         fprintf formatter "%a is O(%a)@\n"
           V.pp cost
-          BigO.pp (BigO.of_term srk upper)
-*)
+          BigO.pp (BigO.of_term srk (pre_cost_zero upper))
+
       | None -> ()
     end
   | `Unsat ->
@@ -579,19 +608,20 @@ let () =
           Format.pp_close_box formatter ())
        abstract);
 
-  Callback.register "print_var_bounds_callback" (fun indent varid tr ->
+  Callback.register "print_var_bounds_callback" (fun indent varid tr func_name ->
       let tick_var = ref None in
+      let func = CfgIr.lookup_function_name func_name (CfgIr.get_gfile()) in
       CfgIr.iter_vars (fun v ->
           if Varinfo.get_id v = varid then
             tick_var := Some (VVal (Var.mk v))
         ) (CfgIr.get_gfile());
       match !tick_var with
       | None -> Log.fatalf "Variable id %d not recognized" varid
-      | Some tick_var ->
+      | Some tick_var  ->
         SrkUtil.mk_show (fun formatter (tick_var, tr) ->
             Format.pp_open_vbox formatter indent;
             Format.pp_print_break formatter 0 0;
-            print_var_bounds formatter tick_var tr;
+            print_var_bounds formatter tick_var tr func;
             Format.pp_close_box formatter ()) (tick_var, tr));
 
   Callback.register "simplify_callback" (fun tr -> tr);

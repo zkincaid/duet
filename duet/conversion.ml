@@ -14,6 +14,11 @@ let current_loc_map = ref []
 let current_arg_map = ref []
 let print_file = "print.txt"
 
+let rec take k xs = match k with
+    | 0 -> []
+    | k -> match xs with
+           | [] -> failwith "take"
+           | y::ys -> y :: (take (k - 1) ys)
 
 (* Convert the types *)
 let rec convert_type t =
@@ -139,7 +144,8 @@ let rec convert_rexpr ls =
                                         Core.Atom(op,convert_rexpr r,convert_rexpr l)
                                       else
                                         Core.Atom(op,convert_rexpr l,convert_rexpr r)
-                             )
+                              )
+    | InterIR.LVal(Undef) -> Core.Atom(Lt,Core.Constant(CInt(0,4)),  Core.Havoc(Core.Concrete (Int(4))))
     | _ ->  raise (Unexpected_value ("Condition has not a boolean type"))
 
 
@@ -151,9 +157,19 @@ let convert_cond cond :Core.bexpr=
 
 
 (* functions for dealing with return values *)
-let create_func_return_vars  { funname ; fargs; flocs; fbody; frets}=
-  let create_fun_return_var (name,ty) = mk_global_var !tmp_file (funname^name) (convert_type ty) in
-  (funname, List.map create_fun_return_var frets)
+
+let rec make_return_var_list c n=
+  if c<n then
+      (mk_global_var !tmp_file ("return-"^(string_of_int c)) (Concrete(Int(4))) ):: (make_return_var_list (c+1) n)
+    else
+      []
+let create_return_vars func_list=
+  let get_rets_length  { funname ; fargs; flocs; fbody; frets}=
+    List.length frets
+  in
+  let lengths=List.map get_rets_length func_list in
+  let max_length=List.fold_left max 0 lengths in
+  make_return_var_list 0 max_length
 
 let make_caller_ret_assignment accum l_ret global=
   match get_lvalue_var_opt l_ret with
@@ -171,16 +187,15 @@ let convert_insts (inst : inst) =
                    let r_val = convert_rexpr r in
                    [Core.Def.mk (Assign(l_var, r_val))]
   | Assume(cond) -> [Core.Def.mk (Assume (convert_cond cond))]
+  | Assert(cond) -> [Core.Def.mk (Assert((convert_cond cond), "assert"))]
   | Tick(v) -> raise (Unexpected_value ("Unexpected tick instruction"))
   | Call(a,name,args) ->
      let func_var = Core.AddrOf(Variable(List.assoc name !fvars)) in
      match a with
        [] ->    [Core.Def.mk (Call(None,func_var,List.map convert_rexpr args))]
      | [one] ->    [Core.Def.mk (Call(get_lvalue_var_opt one,func_var,List.map convert_rexpr args))]
-     | rets ->let return_assignments= List.fold_left2 make_caller_ret_assignment [] rets (List.assoc name !freturns) in
+     | rets ->let return_assignments= List.fold_left2 make_caller_ret_assignment [] rets (take (List.length rets) !freturns) in
               (Core.Def.mk (Call(None,func_var,List.map convert_rexpr args))):: return_assignments
-
-
 
 (*Make a single point to start off the function*)
 let mk_pt dfunc inst =
@@ -189,7 +204,6 @@ let mk_pt dfunc inst =
 
 
 (*For each function, convert into an ICRA cfg*)
-
 let convert_funcs cs_func =
   let blist = cs_func.fbody in
   Printf.eprintf "converting function %s\n" cs_func.funname;
@@ -246,7 +260,7 @@ let convert_funcs cs_func =
         let ret_point = (match ret with
                            [] -> CfgBuilder.mk_single duet_func.cfg (Core.Def.mk (Return None))
                          | [ret_v] -> CfgBuilder.mk_single duet_func.cfg (Core.Def.mk (Return (Some(get_lvalue (InterIR.Var ret_v)))))
-                         | _ -> let return_assignments= List.map2 (make_ret_assignment duet_func.cfg) (List.assoc cs_func.funname !freturns) ret in
+                         | _ -> let return_assignments= List.map2 (make_ret_assignment duet_func.cfg) (take (List.length ret) !freturns) ret in
                                 CfgBuilder.mk_block duet_func.cfg (return_assignments @ [CfgBuilder.mk_single duet_func.cfg (Core.Def.mk (Return None))])
                         ) in
         (*See if their is a print_hull entry for this function in print.txt*)
@@ -368,7 +382,7 @@ let parse filename =
     (*create_assume_assert_list ();*)
     glob_map := List.map convert_global glos;
     fvars := List.map create_func_var func_list;
-    freturns := List.map create_func_return_vars func_list;
+    freturns :=create_return_vars func_list;
     Printf.eprintf "converting functions";
     (*Convert each duet function*)
     let duet_func_list = List.map convert_funcs func_list in

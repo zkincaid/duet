@@ -210,3 +210,59 @@ let simplify_conjunction srk cube =
         | `Proposition (`App (sym, [])) -> Symbol.Map.find sym indicator_map
         | _ -> assert false)
       core
+
+exception Nonlinear (* not exported *)
+let isolate_linear srk x term =
+  let rec go term =
+    match Term.destruct srk term with
+    | `Real k -> `Real k
+    | `App (sym, []) when sym = x -> `Lin (QQ.one, [])
+    | `Add xs ->
+      List.fold_left (fun s t ->
+          match s, (go t) with
+          | (`Real k, `Real k') -> `Real (QQ.add k k')
+          | (`Real k, `Lin (a, b))
+          | (`Lin (a, b), `Real k) -> `Lin (a, (mk_real srk k)::b)
+          | (`Lin (a, b), `Lin (a', b')) ->
+            `Lin (QQ.add a a', b@b'))
+        (`Real QQ.zero)
+        xs
+    | `Mul xs ->
+      List.fold_left (fun s t ->
+          match s, (go t) with
+          | (`Real k, `Real k') -> `Real (QQ.mul k k')
+          | (`Real k, _) when QQ.equal k QQ.zero -> `Real QQ.zero
+          | (_, `Real k) when QQ.equal k QQ.zero -> `Real QQ.zero
+          | (`Real k, `Lin (a, b)) | (`Lin (a, b), `Real k) ->
+            `Lin (QQ.mul a k, [mk_mul srk [mk_real srk k; mk_add srk b]])
+          | (`Lin (a, b), `Lin (a', b')) -> raise Nonlinear)
+        (`Real QQ.one)
+        xs
+    | `Binop (`Div, s, t) ->
+      begin match go s, go t with
+        | (`Real k, `Real k') when not (QQ.equal k' QQ.zero) ->
+          `Real (QQ.div k k')
+        | (`Lin (a, b), `Real k) when not (QQ.equal k QQ.zero) ->
+          `Lin (QQ.div a k, [mk_div srk (mk_add srk b) (mk_real srk k)])
+        | _ ->
+          if Symbol.Set.mem x (symbols term) then
+            raise Nonlinear
+          else
+            `Lin (QQ.zero, [term])
+      end
+    | `Unop (`Neg, t) ->
+      begin match go t with
+        | `Real k -> `Real (QQ.negate k)
+        | `Lin (a, b) -> `Lin (QQ.negate a, [mk_neg srk (mk_add srk b)])
+      end
+    | _ ->
+      if Symbol.Set.mem x (symbols term) then
+        raise Nonlinear
+      else
+        `Lin (QQ.zero, [term])
+  in
+  try
+    (match go term with
+     | `Lin (a, b) -> Some (a, mk_add srk b)
+     | `Real k -> Some (QQ.zero, mk_real srk k))
+  with Nonlinear -> None

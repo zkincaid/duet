@@ -325,15 +325,15 @@ let resolve_ap ap = (get_instance ())#resolve_ap ap
 let resolve_call x = (get_instance ())#resolve_call x
 let has_undefined_target expr = (get_instance ())#has_undefined_target expr
 
+let get_param =
+  Memo.memo
+    (fun i -> mk_thread_local_var
+        (get_gfile ())
+        ("param" ^ (string_of_int i))
+        (Concrete Dynamic))
+
 let simplify_calls file =
   let pa = get_instance () in
-  let get_param =
-    Memo.memo
-      (fun i -> mk_thread_local_var
-          file
-          ("param" ^ (string_of_int i))
-          (Concrete Dynamic))
-  in
   let return_var = mk_thread_local_var file "return" (Concrete Dynamic) in
   let simplify_func func =
     let cfg = func.cfg in
