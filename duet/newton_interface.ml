@@ -5,7 +5,7 @@ open Srk
 
 module RG = Interproc.RG
 module G = RG.G
-module K = NewtonDomain.K
+module K = NewtonDomain.ICRASum
 module Ctx = NewtonDomain.Ctx
 
 include Log.Make(struct let name = "cra_newton" end)
@@ -28,10 +28,13 @@ let analyze_basic file =
       ts |> WeightedGraph.iter_edges (fun (u, label, v) ->
           match label with
           | WeightedGraph.Call (s, t) ->
-            add_wpds_epsilon_rule K.one t;
-            add_wpds_call_rule K.one u s v
-          | WeightedGraph.Weight tr ->
-            add_wpds_rule tr u v);
+            add_wpds_epsilon_rule (K.one ()) t;
+            add_wpds_call_rule (K.one ()) u s v
+          | WeightedGraph.Weight tr ->  
+            if !K.use_left then
+              add_wpds_rule (K.make_left tr) u v
+            else
+              add_wpds_rule (K.make_right (NewtonDomain.RK.lift_dnf tr)) u v);
       assertions |> SrkUtil.Int.Map.iter (fun v (phi, loc, msg) ->
             add_wpds_error_rule
               (K.assume (Ctx.mk_not phi))
@@ -45,9 +48,9 @@ let analyze_basic file =
               (Def.get_location def).Cil.line
               (Var.get_id v)
           | _ -> ());
-      add_wpds_epsilon_rule K.one (RG.block_exit rg main).did;
+      add_wpds_epsilon_rule (K.one ()) (RG.block_exit rg main).did;
       set_vertices (RG.block_entry rg main).did (RG.block_exit rg main).did;
-      set_cWeight K.zero;
+      set_cWeight (K.zero ());
       Callback.register "procedure_of_vertex_callback" (fun vertex ->
           (Interproc.RG.vertices rg)
           |> BatEnum.find (fun (block, v) -> vertex = v.did)
