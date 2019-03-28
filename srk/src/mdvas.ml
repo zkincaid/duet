@@ -18,7 +18,7 @@ type transformer =
 
 (* Figure out way to clean up these types a bit *)
 module Transformer = struct
-  type t = 
+  type t = transformer 
   [@@deriving ord, show]
 end
 
@@ -448,32 +448,36 @@ let gamma srk vas tr_symbols : 'a formula =
 *)
 
 
-let alpha_hat (srk : 'a context) (imp : 'a formula) symbols x''s  x''_forms doubleres  = 
-  let postify' = postify srk x''s in 
-  let r = H.affine_hull srk imp (List.map (fun (x, x') -> x') symbols) in
-  let i' = H.affine_hull srk (mk_and srk (imp :: x''_forms)) (List.map (fun (x'', x') -> x'') x''s) in
-  let i = List.map postify' i' in
-  (*Adds dim to m b a; offset to account for stacking of inc and res in transformer*)
+
+let combine_affine_hulls srk aff1 aff2 a1 a2 =   
   let add_dim m b a term a' offset =
     let (b', v) = V.pivot (Linear.const_dim) (Linear.linterm_of srk term) in
     (M.add_row (M.nb_rows m) v m, V.add_term (QQ.negate b') (offset + (M.nb_rows m)) b, Z.add_term a' (offset + (M.nb_rows m)) a)
   in
-  let f t offset = List.fold_left (fun (m, b, a) ele -> add_dim m b a ele t offset) in
-  let (mi,b,a) = f (if doubleres then ZZ.zero else ZZ.one) 0 (M.zero, V.zero, Z.zero) i in
-  let (mr, b, a) = f ZZ.zero (M.nb_rows mi) (M.zero, b, a) r in
-  match M.equal mi (M.zero), M.equal mr (M.zero) with
+  let f a' offset = List.fold_left (fun (m, b, a) ele -> add_dim m b a ele a' offset) in
+  let (m1,b,a) = f a1 0 (M.zero, V.zero, Z.zero) aff1 in
+  let (m2, b, a) = f a2 (M.nb_rows m1) (M.zero, b, a) aff2 in
+  match M.equal m1 (M.zero), M.equal m2 (M.zero) with
   | true, true -> mk_top
-  | false, true -> {v=TSet.singleton {a;b}; alphas=[mi];invars=[];invarmaxk=false}
-  | true, false ->  {v=TSet.singleton {a;b}; alphas=[mr];invars=[];invarmaxk=false} 
-  | false, false -> {v=TSet.singleton {a;b}; alphas=[mi;mr];invars=[];invarmaxk=false}
+  | false, true -> {v=TSet.singleton {a;b}; alphas=[m1];invars=[];invarmaxk=false}
+  | true, false ->  {v=TSet.singleton {a;b}; alphas=[m2];invars=[];invarmaxk=false} 
+  | false, false -> {v=TSet.singleton {a;b}; alphas=[m1;m2];invars=[];invarmaxk=false}
 
-
+let alpha_hat srk imp tr_symbols xdeltpairs xdeltphis =
+  let postify' = postify srk xdeltpairs in 
+  let r = H.affine_hull srk imp (List.map (fun (x, x') -> x') tr_symbols) in
+  let i' = H.affine_hull srk (mk_and srk (imp :: xdeltphis)) (List.map (fun (x'', x') -> x'') xdeltpairs) in
+  let i = List.map postify' i' in
+  combine_affine_hulls srk i r ZZ.one ZZ.zero
 
 let find_invariants  (srk : 'a context) (symbols : (symbol * symbol) list) (body : 'a formula) =
   let get_last_dim vector =
     BatEnum.fold (fun (scal, high) (scalar, dim) ->
         if dim > high then (scalar,dim) else (scal, high)) (QQ.zero, -1) (V.enum vector) in
-  match alpha_hat srk body symbols symbols [] true with
+  let post = H.affine_hull srk body (List.map (fun (x, x') -> x') symbols) in
+  let pre = H.affine_hull srk body (List.map (fun (x, x') -> x) symbols) in
+  let pre' = List.map (postify srk symbols) pre in 
+  match combine_affine_hulls srk post pre' ZZ.zero ZZ.zero with
   | {v;alphas=[]} -> (body, [], false)
   | {v;alphas=[hd]} -> (body, [], false)
   | {v;alphas=[up;pr]} ->
@@ -525,45 +529,38 @@ let ident_matrix_real n =
   BatList.fold_left (fun matr dim  ->
       M.add_entry dim dim (QQ.of_int 1) matr) M.zero (BatList.of_enum (0--n))
 
-
-
 let mk_bottom srk symbols =
   {v=TSet.empty; alphas=[ident_matrix_syms srk symbols];invars=[];invarmaxk=false}
-
-
 
 (*Make a better pp function... need invars and maxk*)
 let pp srk syms formatter vas = Format.fprintf formatter "%a" (Formula.pp srk) (gamma srk vas syms)
 
-let abstract ?(exists=fun x -> true) (srk : 'a context) (symbols : (symbol * symbol) list) (body : 'a formula)  =
-  let body = (rewrite srk ~down:(nnf_rewriter srk) body) in
-  let body = Nonlinear.linearize srk body in
-  let (x''s, x''_forms) = 
+let abstract ?(exists=fun x -> true) srk tr_symbols phi  =
+  let phi = (rewrite srk ~down:(nnf_rewriter srk) phi) in
+  let phi = Nonlinear.linearize srk phi in
+  let (xdeltpairs, xdelta_formula) = 
     List.split (List.fold_left (fun acc (x, x') -> 
-        let x'' = (mk_symbol srk (typ_symbol srk x)) in
-        let x''_form = (mk_eq srk (mk_const srk x'') 
+        let xdelta = (mk_symbol srk (typ_symbol srk x)) in
+        let xdelta_formula = (mk_eq srk (mk_const srk xdelta) 
                           (mk_sub srk (mk_const srk x') (mk_const srk x))) in
-        ((x'', x'), x''_form) :: acc) [] symbols) in
+        ((xdelta, x'), xdelta_formula) :: acc) [] tr_symbols) in
+  let phi,cinvars, invarmaxk = find_invariants srk tr_symbols phi in
   let solver = Smt.mk_solver srk in
-  let body,cinvars, invarmaxk = find_invariants srk symbols body in
-  let rec go vas count =
-    assert (count > 0);
-    Smt.Solver.add solver [mk_not srk (gamma srk vas symbols)];
+  let rec go vas =
+    Smt.Solver.add solver [mk_not srk (gamma srk vas tr_symbols)];
     match Smt.Solver.get_model solver with
     | `Unsat -> vas
     | `Unknown -> assert false
     | `Sat m ->
-      match Interpretation.select_implicant m body with
+      match Interpretation.select_implicant m phi with
       | None -> assert false
       | Some imp ->
-        Log.errorf "INTERMEDIATE VAS: %a"  (Formula.pp srk) (gamma srk vas symbols); 
-        let alpha_v = alpha_hat srk (mk_and srk imp) symbols x''s x''_forms false in
-        go (coproduct srk vas alpha_v) (count - 1)
+        let sing_transformer_vas = alpha_hat srk (mk_and srk imp) tr_symbols xdeltpairs xdelta_formula in
+        go (coproduct srk vas sing_transformer_vas)
   in
-  Smt.Solver.add solver [body];
-  let {v;alphas;_} = go (mk_bottom srk symbols) 20 in
+  Smt.Solver.add solver [phi];
+  let {v;alphas;_} = go (mk_bottom srk tr_symbols) in
   let result = {v;alphas;invars=cinvars;invarmaxk} in
-  Log.errorf "Final VAS: %a"  (Formula.pp srk) (gamma srk result symbols);
   result
 
 

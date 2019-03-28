@@ -124,7 +124,7 @@ module Vassnew = struct
         match Interpretation.select_implicant m new_form with
         | None -> assert false
         | Some imp ->
-          let alpha_v = alpha_hat srk (mk_and srk imp) symbols x''s x''_forms false in
+          let alpha_v = alpha_hat srk (mk_and srk imp) symbols x''s x''_forms in
           go (coproduct srk vas alpha_v) (count - 1)
     in
     Smt.Solver.add solver [new_form];
