@@ -49,7 +49,7 @@ val ident_matrix_real : int -> M.t
 val exp_other_reset : 'a context -> 'a term -> 'a term list -> 'a term list list -> int -> 'a formula
 val term_list : 'a context -> M.t list -> (symbol * Symbol.Map.key) list -> (('a, typ_arith) expr * 'a term) list
 val gamma_transformer : 'a context -> ('a term * 'a term) list -> transformer -> 'a formula
-val alpha_hat  : 'a context -> 'a formula -> ('b * symbol) list -> (Symbol.Map.key * symbol) list -> 'a formula list -> bool -> 'c t
+val alpha_hat  : 'a context -> 'a formula -> ('b * symbol) list -> (Symbol.Map.key * symbol) list -> 'a formula list -> 'c t
 val coproduct : 'b -> 'c t -> 'd t -> 'a t
 val mk_bottom : 'a context -> ('b * symbol) list -> 'c t
 val coprod_use_image : TSet.t -> M.t list -> TSet.t
