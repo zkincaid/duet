@@ -70,12 +70,23 @@ let mk_top = {v=TSet.empty; alphas=[]; invars=[]; invarmaxk=false}
  *)
 let unify (alphas : M.t list) : M.t =
   let unified = List.fold_left (fun matrix alphacell -> 
-      BatEnum.fold (fun matrix (dim, vector) ->
+      BatEnum.fold (fun matrix (_, vector) ->
           M.add_row (M.nb_rows matrix) vector matrix) 
         matrix 
         (M.rowsi alphacell))
       M.zero alphas in
-  unified 
+  unified
+
+let unify_vects (vects : V.t list) : V.t =
+  let unified = List.fold_left (fun accvec v -> 
+      BatEnum.fold (fun accvec (ele, _) ->
+          V.add_term ele (BatEnum.count (V.enum accvec)) accvec) 
+        accvec 
+        (V.enum v))
+      V.zero vects in
+  unified
+
+
 
 
 (* Used in preify and postify to create symbol map.
@@ -449,6 +460,13 @@ let gamma srk vas tr_symbols : 'a formula =
 
 
 
+let matrixify_vectorize_term_list srk vl = 
+  let add_dim m b term =
+    let (b', v) = V.pivot (Linear.const_dim) (Linear.linterm_of srk term) in
+    M.add_row (M.nb_rows m) v m, V.add_term (QQ.negate b') (M.nb_rows m) b
+  in
+  List.fold_left (fun (m, b) ele -> add_dim m b ele) (M.zero, V.zero) vl
+
 let combine_affine_hulls srk aff1 aff2 a1 a2 =   
   let add_dim m b a term a' offset =
     let (b', v) = V.pivot (Linear.const_dim) (Linear.linterm_of srk term) in
@@ -471,26 +489,33 @@ let alpha_hat srk imp tr_symbols xdeltpairs xdeltphis =
   combine_affine_hulls srk i r ZZ.one ZZ.zero
 
 let find_invariants  (srk : 'a context) (symbols : (symbol * symbol) list) (body : 'a formula) =
+  (* Find rightmost dimension of vector, and coeff of that dim *)
   let get_last_dim vector =
-    BatEnum.fold (fun (scal, high) (scalar, dim) ->
-        if dim > high then (scalar,dim) else (scal, high)) (QQ.zero, -1) (V.enum vector) in
+    BatEnum.fold (fun (scal, max) (scalar, dim) ->
+        if dim > max then (scalar,dim) else (scal, max)) (QQ.zero, -1) (V.enum vector) in
+  (* Compute when constant relations on post state vars; on pre state vars *)
   let post = H.affine_hull srk body (List.map (fun (x, x') -> x') symbols) in
   let pre = H.affine_hull srk body (List.map (fun (x, x') -> x) symbols) in
-  let pre' = List.map (postify srk symbols) pre in 
+  (* Convert pre-state vars to post-states vars; for rowspace intersection *)
+  let pre' = List.map (postify srk symbols) pre in
+  (* Matrixify thr affine hulls *)
   match combine_affine_hulls srk post pre' ZZ.zero ZZ.zero with
   | {v;alphas=[]} -> (body, [], false)
   | {v;alphas=[hd]} -> (body, [], false)
   | {v;alphas=[up;pr]} ->
-    let {a;b} = List.hd (TSet.elements v) in
+    let b = (List.hd (TSet.elements v)).b in
     let (c, d) = Linear.intersect_rowspace up pr in
+    (* The intersection of c and d tells us which invariants hold
+     * at every step of the loop *)
     BatEnum.fold (fun (body', invars, invarmaxk) (dim', crow) ->
         let vect = M.vector_left_mul crow up in
-        let bi = V.dot crow b in 
-        let rrow = M.row dim' d in
-        let rrow' = 
+        let b_post = V.dot crow b in 
+        let prerow = M.row dim' d in
+        (* Shifting rows to account for offset in b *)
+        let prerow' = 
           BatEnum.fold (fun row_acc (ele, rdim) ->
-              V.add_term ele (rdim + (M.nb_rows up)) row_acc) V.zero (V.enum rrow) in
-        let br = V.dot rrow' b in
+              V.add_term ele (rdim + (M.nb_rows up)) row_acc) V.zero (V.enum prerow) in
+        let br = V.dot prerow' b in
 
         let scal, last_dim = get_last_dim vect in
         let term_xy' =  
@@ -501,7 +526,7 @@ let find_invariants  (srk : 'a context) (symbols : (symbol * symbol) list) (body
         let term_xy = preify srk symbols
             (mk_mul srk 
                [mk_sub srk (Linear.of_linterm srk (snd (V.pivot last_dim vect))) 
-                  (mk_real srk bi);
+                  (mk_real srk b_post);
                 mk_real srk (QQ.inverse (QQ.negate scal))]) in
 
         let sym' = match Linear.sym_of_dim last_dim with
@@ -513,7 +538,7 @@ let find_invariants  (srk : 'a context) (symbols : (symbol * symbol) list) (body
                                            else if x = sym' then postify srk symbols term_xy'
                                            else mk_const srk x) body' in
         let invars = (mk_eq srk (mk_const srk sym') (term_xy')) :: (mk_eq srk (mk_const srk sym) (term_xy)) :: invars in
-        let invarmaxk' = if QQ.equal bi br then invarmaxk else true in 
+        let invarmaxk' = if QQ.equal b_post br then invarmaxk else true in 
         body',invars, invarmaxk'
       )
       (body,[], false)
