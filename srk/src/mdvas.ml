@@ -56,10 +56,10 @@ let pp_vas formatter (vas : vas) : unit =
  * the transition system to running at most once
  * (for example, x' = 1 and x = x + 1).
  *)
-type 'a t = { v : vas; alphas : M.t list; invars : 'a formula list; invarmaxk : bool}
+type 'a t = { v : vas; alphas : M.t list; invars : 'a formula list; guarded_system : bool}
 
 
-let mk_top = {v=TSet.empty; alphas=[]; invars=[]; invarmaxk=false}
+let mk_top = {v=TSet.empty; alphas=[]; invars=[]; guarded_system=false}
 
 (* This function is used to stack the matrices in S_lst
  * on top of each other. Each matrix in S_lst must start at
@@ -77,13 +77,14 @@ let unify (alphas : M.t list) : M.t =
       M.zero alphas in
   unified
 
-let unify_vects (vects : V.t list) : V.t =
-  let unified = List.fold_left (fun accvec v -> 
-      BatEnum.fold (fun accvec (ele, _) ->
-          V.add_term ele (BatEnum.count (V.enum accvec)) accvec) 
-        accvec 
-        (V.enum v))
-      V.zero vects in
+let unify2 alphas vects =
+  let unified = List.fold_left2 (fun (matrix, v) alphacell b -> 
+      BatEnum.fold (fun (matrix, v) (dim, term) ->
+          M.add_row (M.nb_rows matrix) term matrix,
+          V.add_term (V.coeff dim b) (M.nb_rows matrix) v)
+        (matrix, v)
+        (M.rowsi alphacell))
+      (M.zero,V.zero) alphas vects in
   unified
 
 
@@ -303,8 +304,8 @@ let exp_kstack_eq_ksums srk equiv_pairs =
 
 let map_terms srk = List.map (fun (var : Syntax.symbol) -> mk_const srk var)
 
-let exp_base_helper srk tr_symbols loop_counter alphas transformers invars invarmaxk =
-  let maxkinvar = if invarmaxk then (mk_leq srk loop_counter (mk_one srk)) else mk_true srk in
+let exp_base_helper srk tr_symbols loop_counter alphas transformers invars guarded_system =
+  let maxkinvar = if guarded_system then (mk_leq srk loop_counter (mk_one srk)) else mk_true srk in
   let num_trans = BatList.length transformers in
   let equiv_pairs = create_exp_vars srk alphas num_trans in
   let equiv_pairst = List.map (fun (kstack, svardims, rvar, ksum) ->
@@ -331,9 +332,9 @@ let exp_base_helper srk tr_symbols loop_counter alphas transformers invars invar
 
 let exp srk tr_symbols loop_counter vabs =
   match vabs with
-  | {v; alphas; invars; invarmaxk} ->
+  | {v; alphas; invars; guarded_system} ->
     if(M.nb_rows (unify alphas) = 0) then mk_true srk else (
-      let (form, (equiv_pairst, kvarst, ksumst)) = exp_base_helper srk tr_symbols loop_counter alphas (TSet.to_list v) invars invarmaxk in
+      let (form, (equiv_pairst, kvarst, ksumst)) = exp_base_helper srk tr_symbols loop_counter alphas (TSet.to_list v) invars guarded_system in
       let sx_constraints = exp_sx_constraints srk equiv_pairst (TSet.to_list v) kvarst ksumst (unify alphas) tr_symbols in
       mk_and srk [form; sx_constraints]
     )
@@ -401,7 +402,7 @@ let coproduct srk vabs1 vabs2 : 'a t =
   let (alpha1, alpha2, v1, v2) = (vabs1.alphas, vabs2.alphas, vabs1.v, vabs2.v) in 
   let s1, s2, alphas = coprod_find_images alpha1 alpha2 in
   let v = TSet.union (coprod_use_image v1 s1) (coprod_use_image v2 s2) in
-  {v; alphas;invars=[];invarmaxk=false}
+  {v; alphas;invars=[];guarded_system=false}
 
 
 (*List of terms in alpha, preified and postified*)
@@ -467,63 +468,66 @@ let matrixify_vectorize_term_list srk vl =
   in
   List.fold_left (fun (m, b) ele -> add_dim m b ele) (M.zero, V.zero) vl
 
-let combine_affine_hulls srk aff1 aff2 a1 a2 =   
-  let add_dim m b a term a' offset =
-    let (b', v) = V.pivot (Linear.const_dim) (Linear.linterm_of srk term) in
-    (M.add_row (M.nb_rows m) v m, V.add_term (QQ.negate b') (offset + (M.nb_rows m)) b, Z.add_term a' (offset + (M.nb_rows m)) a)
-  in
-  let f a' offset = List.fold_left (fun (m, b, a) ele -> add_dim m b a ele a' offset) in
-  let (m1,b,a) = f a1 0 (M.zero, V.zero, Z.zero) aff1 in
-  let (m2, b, a) = f a2 (M.nb_rows m1) (M.zero, b, a) aff2 in
-  match M.equal m1 (M.zero), M.equal m2 (M.zero) with
-  | true, true -> mk_top
-  | false, true -> {v=TSet.singleton {a;b}; alphas=[m1];invars=[];invarmaxk=false}
-  | true, false ->  {v=TSet.singleton {a;b}; alphas=[m2];invars=[];invarmaxk=false} 
-  | false, false -> {v=TSet.singleton {a;b}; alphas=[m1;m2];invars=[];invarmaxk=false}
-
 let alpha_hat srk imp tr_symbols xdeltpairs xdeltphis =
-  let postify' = postify srk xdeltpairs in 
-  let r = H.affine_hull srk imp (List.map (fun (x, x') -> x') tr_symbols) in
-  let i' = H.affine_hull srk (mk_and srk (imp :: xdeltphis)) (List.map (fun (x'', x') -> x'') xdeltpairs) in
-  let i = List.map postify' i' in
-  combine_affine_hulls srk i r ZZ.one ZZ.zero
+  let r, b1 = matrixify_vectorize_term_list srk 
+      (H.affine_hull srk imp (List.map (fun (x, x') -> x') tr_symbols)) in
+  let i, b2 = matrixify_vectorize_term_list srk 
+      (List.map (postify srk xdeltpairs)
+         (H.affine_hull srk (mk_and srk (imp :: xdeltphis))
+            (List.map (fun (x'', x') -> x'') xdeltpairs))) in
+  let _, b = unify2 [i; r] [b2; b1] in
+  let add_dim a offset =
+    Z.add_term ZZ.one offset a
+  in
+  Log.errorf "Here";
+  let a, _ = BatEnum.fold
+      (fun (a, offset) _ -> (add_dim a offset, offset + 1))
+      (Z.zero, 0) (M.rowsi i)
+  in
+  Log.errorf "a is %a" (Z.pp) (a);
+  Log.errorf "b is %a" (V.pp) (b);
+  Log.errorf "i is %a" (M.pp) i;
+  Log.errorf "r is %a" (M.pp) r;
+  match M.equal r (M.zero), M.equal i (M.zero) with
+  | true, true -> mk_top
+  | false, true -> {v=TSet.singleton {a;b}; alphas=[r];invars=[];guarded_system=false}
+  | true, false ->  {v=TSet.singleton {a;b}; alphas=[i];invars=[];guarded_system=false} 
+  | false, false -> {v=TSet.singleton {a;b}; alphas=[i;r];invars=[];guarded_system=false}
 
-let find_invariants  (srk : 'a context) (symbols : (symbol * symbol) list) (body : 'a formula) =
+
+
+let find_invariants  srk tr_symbols phi =
   (* Find rightmost dimension of vector, and coeff of that dim *)
   let get_last_dim vector =
     BatEnum.fold (fun (scal, max) (scalar, dim) ->
         if dim > max then (scalar,dim) else (scal, max)) (QQ.zero, -1) (V.enum vector) in
   (* Compute when constant relations on post state vars; on pre state vars *)
-  let post = H.affine_hull srk body (List.map (fun (x, x') -> x') symbols) in
-  let pre = H.affine_hull srk body (List.map (fun (x, x') -> x) symbols) in
-  (* Convert pre-state vars to post-states vars; for rowspace intersection *)
-  let pre' = List.map (postify srk symbols) pre in
-  (* Matrixify thr affine hulls *)
-  match combine_affine_hulls srk post pre' ZZ.zero ZZ.zero with
-  | {v;alphas=[]} -> (body, [], false)
-  | {v;alphas=[hd]} -> (body, [], false)
-  | {v;alphas=[up;pr]} ->
-    let b = (List.hd (TSet.elements v)).b in
-    let (c, d) = Linear.intersect_rowspace up pr in
-    (* The intersection of c and d tells us which invariants hold
-     * at every step of the loop *)
-    BatEnum.fold (fun (body', invars, invarmaxk) (dim', crow) ->
-        let vect = M.vector_left_mul crow up in
-        let b_post = V.dot crow b in 
-        let prerow = M.row dim' d in
-        (* Shifting rows to account for offset in b *)
-        let prerow' = 
-          BatEnum.fold (fun row_acc (ele, rdim) ->
-              V.add_term ele (rdim + (M.nb_rows up)) row_acc) V.zero (V.enum prerow) in
-        let br = V.dot prerow' b in
-
+  let post_m, po_b = matrixify_vectorize_term_list srk 
+      (H.affine_hull srk phi (List.map (fun (x, x') -> x') tr_symbols)) in
+  let pre_m, pr_b = matrixify_vectorize_term_list srk
+      (List.map (postify srk tr_symbols) 
+         (H.affine_hull srk phi (List.map (fun (x, x') -> x) tr_symbols))) in
+  match M.nb_rows post_m, M.nb_rows pre_m with
+  | 0,_ -> (phi, [], false)
+  | _,0 -> (phi, [], false)
+  | _,_ ->
+    (* Intersection of post_m and pre_m gives us linear terms
+     * for invariants that hold at every step of loop *)
+    let (c, d) = Linear.intersect_rowspace post_m pre_m in
+    BatEnum.fold (fun (phi, invars, guarded_system) (dim', c_row) ->
+        let vect = M.vector_left_mul c_row post_m in
+        let b_post = V.dot c_row po_b in 
+        let d_row = M.row dim' d in
+        let br = V.dot d_row pr_b in
+        (* We will remove last dimension of inv from phi *)
         let scal, last_dim = get_last_dim vect in
+        (* Computed pre,post invars without final dim *)
         let term_xy' =  
             (mk_mul srk 
                [mk_sub srk (Linear.of_linterm srk (snd (V.pivot last_dim vect))) 
                   (mk_real srk br);
                 mk_real srk (QQ.inverse (QQ.negate scal))]) in
-        let term_xy = preify srk symbols
+        let term_xy = preify srk tr_symbols
             (mk_mul srk 
                [mk_sub srk (Linear.of_linterm srk (snd (V.pivot last_dim vect))) 
                   (mk_real srk b_post);
@@ -533,17 +537,22 @@ let find_invariants  (srk : 'a context) (symbols : (symbol * symbol) list) (body
           | None -> assert false
           | Some v -> v
         in
-        let sym = List.fold_left (fun acc (x, x') -> if x' = sym' then x else acc) sym' symbols in
-        let body' = substitute_const srk (fun x -> if x = sym then preify srk symbols term_xy 
-                                           else if x = sym' then postify srk symbols term_xy'
-                                           else mk_const srk x) body' in
-        let invars = (mk_eq srk (mk_const srk sym') (term_xy')) :: (mk_eq srk (mk_const srk sym) (term_xy)) :: invars in
-        let invarmaxk' = if QQ.equal b_post br then invarmaxk else true in 
-        body',invars, invarmaxk'
+        let sym = List.fold_left (fun acc (x, x') -> if x' = sym' then x else acc)
+            sym' tr_symbols in
+        (* Rewrite phi without sym or sym' *)
+        let phi' = substitute_const srk 
+            (fun x -> if x = sym then preify srk tr_symbols term_xy 
+              else if x = sym' then postify srk tr_symbols term_xy'
+              else mk_const srk x) phi in
+        let invars = (mk_eq srk (mk_const srk sym') (term_xy'))
+                     :: (mk_eq srk (mk_const srk sym) (term_xy))
+                     :: invars in
+        (* Determines if transition can only happen at most one time *)
+        let guarded_system = if QQ.equal b_post br then guarded_system else true in 
+        phi',invars, guarded_system
       )
-      (body,[], false)
+      (phi,[], false)
       (M.rowsi c)
-  | _ -> assert false
 
 
 let ident_matrix_syms srk symbols =
@@ -555,7 +564,7 @@ let ident_matrix_real n =
       M.add_entry dim dim (QQ.of_int 1) matr) M.zero (BatList.of_enum (0--n))
 
 let mk_bottom srk symbols =
-  {v=TSet.empty; alphas=[ident_matrix_syms srk symbols];invars=[];invarmaxk=false}
+  {v=TSet.empty; alphas=[ident_matrix_syms srk symbols];invars=[];guarded_system=false}
 
 (*Make a better pp function... need invars and maxk*)
 let pp srk syms formatter vas = Format.fprintf formatter "%a" (Formula.pp srk) (gamma srk vas syms)
@@ -569,7 +578,7 @@ let abstract ?(exists=fun x -> true) srk tr_symbols phi  =
         let xdelta_formula = (mk_eq srk (mk_const srk xdelta) 
                           (mk_sub srk (mk_const srk x') (mk_const srk x))) in
         ((xdelta, x'), xdelta_formula) :: acc) [] tr_symbols) in
-  let phi,cinvars, invarmaxk = find_invariants srk tr_symbols phi in
+  let phi,invars, guarded_system = find_invariants srk tr_symbols phi in
   let solver = Smt.mk_solver srk in
   let rec go vas =
     Smt.Solver.add solver [mk_not srk (gamma srk vas tr_symbols)];
@@ -580,12 +589,15 @@ let abstract ?(exists=fun x -> true) srk tr_symbols phi  =
       match Interpretation.select_implicant m phi with
       | None -> assert false
       | Some imp ->
-        let sing_transformer_vas = alpha_hat srk (mk_and srk imp) tr_symbols xdeltpairs xdelta_formula in
+        Log.errorf "HERE";
+        let sing_transformer_vas = alpha_hat srk (mk_and srk imp) 
+            tr_symbols xdeltpairs xdelta_formula in
+         Log.errorf "INTERMEDIATE VAS: %a"  (Formula.pp srk) (gamma srk vas tr_symbols); 
         go (coproduct srk vas sing_transformer_vas)
   in
   Smt.Solver.add solver [phi];
   let {v;alphas;_} = go (mk_bottom srk tr_symbols) in
-  let result = {v;alphas;invars=cinvars;invarmaxk} in
+  let result = {v;alphas;invars;guarded_system} in
   result
 
 

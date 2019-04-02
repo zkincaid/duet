@@ -34,7 +34,7 @@ module Vassnew = struct
       graph : vas array array;
       simulation : M.t list;
       invars : 'a formula list;
-      invarmaxk : bool
+      guarded_system : bool
     }
 
   type 'a t = {
@@ -125,6 +125,7 @@ module Vassnew = struct
         | None -> assert false
         | Some imp ->
           let alpha_v = alpha_hat srk (mk_and srk imp) symbols x''s x''_forms in
+          Log.errorf "Gamma is %a" (Formula.pp srk) (gamma srk vas symbols);
           go (coproduct srk vas alpha_v) (count - 1)
     in
     Smt.Solver.add solver [new_form];
@@ -157,7 +158,8 @@ module Vassnew = struct
     Log.errorf "STARTED COMPUTATION FOR A SINGLE VASS";
     let postified_labels = List.map (fun lbl -> postify srk tr_symbols lbl) labels_lst in
     let formula = mk_and srk [mk_or srk labels_lst; mk_or srk postified_labels; orig_form] in
-    let formula',invars, invarmaxk = find_invariants srk tr_symbols formula in
+    let formula',invars, guarded_system = find_invariants srk tr_symbols formula in
+    BatList.iter (fun f -> (Log.errorf "Equality invar is %a" (Formula.pp srk) f)) invars;
     (*Look into removing conunction of labels from formula' after invars calculated*)
     let pre_graph = BatArray.init 
         (List.length labels_lst) 
@@ -206,7 +208,7 @@ module Vassnew = struct
       | [] -> ()
     in
     apply_images (ident_matrix_real 100) imglist ((List.length labels_lst) - 1) ((List.length labels_lst) - 1); (*find actual ident here*)
-    {label=Array.of_list labels_lst;graph;simulation=alphas;invars;invarmaxk}
+    {label=Array.of_list labels_lst;graph;simulation=alphas;invars;guarded_system}
 
 
 
@@ -575,7 +577,7 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
  
 
   let closure_of_an_scc srk tr_symbols loop_counter vass =
-    let label, graph, alphas, invars, invarmaxk = vass.label, vass.graph, vass.simulation, vass.invars, vass.invarmaxk in
+    let label, graph, alphas, invars, guarded_system = vass.label, vass.graph, vass.simulation, vass.invars, vass.guarded_system in
     let simulation = alphas in
 
     let ests = create_es_et srk (Array.length label) in
@@ -604,7 +606,7 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
  
 
       let (form, (equiv_pairst, kvarst, ksumst)) =
-        exp_base_helper srk tr_symbols loop_counter simulation transformers invars invarmaxk in
+        exp_base_helper srk tr_symbols loop_counter simulation transformers invars guarded_system in
       let sum_n_eq_loop_counter = exp_nvars_eq_loop_counter srk nvarst loop_counter in
       let ks_less_than_ns = exp_kvarst_less_nvarst srk nvarst kvarst in
       let reachable_transitions = get_reachable_trans graph in

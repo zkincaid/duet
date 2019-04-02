@@ -15,7 +15,7 @@ module TSet : BatSet.S with type elt = transformer
 
 type vas = TSet.t
 
-type 'a t = { v : vas; alphas : M.t list; invars : 'a formula list; invarmaxk : bool}
+type 'a t = { v : vas; alphas : M.t list; invars : 'a formula list; guarded_system : bool}
 
 val gamma : 'a context ->  'a t -> (symbol * symbol) list -> 'a formula
 
