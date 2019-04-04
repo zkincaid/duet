@@ -15,7 +15,7 @@ module TSet : BatSet.S with type elt = transformer
 
 type vas = TSet.t
 
-type 'a t = { v : vas; alphas : M.t list; invars : 'a formula list; guarded_system : bool}
+type 'a t = { v : vas; s_lst : M.t list; invars : 'a formula list; guarded_system : bool}
 
 val gamma : 'a context ->  'a t -> (symbol * symbol) list -> 'a formula
 
@@ -46,7 +46,7 @@ val postify : 'a context -> (symbol * symbol) list -> ('a, 'b) expr -> ('a, 'b) 
 val unify : M.t list -> M.t
 val ident_matrix_syms : 'a context -> (symbol * symbol) list -> M.t
 val ident_matrix_real : int -> M.t 
-val exp_other_reset : 'a context -> 'a term -> 'a term list -> 'a term list list -> int -> 'a formula
+val exp_other_reset_helper : 'a context -> 'a term -> 'a term list -> 'a term list list -> int -> 'a formula
 val term_list : 'a context -> M.t list -> (symbol * Symbol.Map.key) list -> (('a, typ_arith) expr * 'a term) list
 val gamma_transformer : 'a context -> ('a term * 'a term) list -> transformer -> 'a formula
 val alpha_hat  : 'a context -> 'a formula -> ('b * symbol) list -> (Symbol.Map.key * symbol) list -> 'a formula list -> 'c t

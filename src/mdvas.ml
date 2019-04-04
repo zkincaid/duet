@@ -30,61 +30,64 @@ let pp_vas formatter (vas : vas) : unit =
   SrkUtil.pp_print_enum pp_transformer formatter (TSet.enum vas)  
 
 (* A VAS abstraction contains a set of transformers, v,
- * a list of linear simulations matrices, S_lst,
+ * a list of linear simulations matrices, s_lst,
  * a set of invariants, invars,
- * and _____.
+ * and a bit, guarded_system, representing if the transition
+ * system can only be taken once.
  *
- * Each matrix in S_lst starts at the 0th row. Unify
- * is used to stack the elements in S_lst together for
- * use with transformers.The first row of the first item
+ * Each matrix in S_lst starts at the 0th row. No S_lst
+ * may contain the column representing all 0s.
+ * The first row of the first item
  * in S_lst is matched with the first row of "a" and "b"
  * in a given transformer.
  *
  * There is exactly one item in S_lst for each coherence class
- * of v. A coherence class is defined as a set of rows that
+ * of V. A coherence class is defined as a set of rows that
  * reset together in every transformer.
  *
  * invars is a list of invariants that hold after a single
  * transition, and every transition thereafter. invars is
- * used to remove variables from the formula. For instance,
- * if x'= 3 is an invariant, we can substitute in 3 for x'
- * when computing the transformers and just add this fact
- * in during the closure.
+ * used to remove variables from the formula.
  *
- * ____ is an optimization related to invariants. There
- * are certain invariants that, when taken together, restrict
+ * There are certain invariants that, 
+ * when taken together, restrict
  * the transition system to running at most once
- * (for example, x' = 1 and x = x + 1).
+ * (for example, x' = 1 and x = x + 1). guarded_system is
+ * true if any of these pairs of invariants exist.
  *)
-type 'a t = { v : vas; alphas : M.t list; invars : 'a formula list; guarded_system : bool}
+type 'a t = { v : vas; s_lst : M.t list; invars : 'a formula list; guarded_system : bool}
 
 
-let mk_top = {v=TSet.empty; alphas=[]; invars=[]; guarded_system=false}
+let mk_top = {v=TSet.empty; s_lst=[]; invars=[]; guarded_system=false}
 
-(* This function is used to stack the matrices in S_lst
- * on top of each other. Each matrix in S_lst must start at
- * row 0. The matrices are stacked sequentially, with the first
- * matrix in S_lst corresponding to the first rows of the output matrix.
- * This function is primarily used to relate the dynamics matrix 
- * (S, equiv S_lst stacked on each other) to the transformers.
+(* This function is used to stack the matrices
+ * on top of each other to form a single matrix.
+ * Each matrix must start at
+ * row 0. No row may be 0.
+ * The matrices are stacked sequentially, with the first
+ * matrix corresponding to the first rows of the output matrix.
  *)
-let unify (alphas : M.t list) : M.t =
+let unify matrices =
   let unified = List.fold_left (fun matrix alphacell -> 
       BatEnum.fold (fun matrix (_, vector) ->
           M.add_row (M.nb_rows matrix) vector matrix) 
         matrix 
         (M.rowsi alphacell))
-      M.zero alphas in
+      M.zero matrices in
   unified
 
-let unify2 alphas vects =
+(* Similar to above, stacks matrices and vectors.
+ * Must be same number of matrices and vectors.
+ * Matrix i must have same number of rows as vector i.
+*)
+let unify2 matrices vects =
   let unified = List.fold_left2 (fun (matrix, v) alphacell b -> 
       BatEnum.fold (fun (matrix, v) (dim, term) ->
           M.add_row (M.nb_rows matrix) term matrix,
           V.add_term (V.coeff dim b) (M.nb_rows matrix) v)
         (matrix, v)
         (M.rowsi alphacell))
-      (M.zero,V.zero) alphas vects in
+      (M.zero,V.zero) matrices vects in
   unified
 
 
@@ -100,53 +103,70 @@ let post_map srk tr_symbols =
     Symbol.Map.empty
     tr_symbols
 
-(* preify takes in the context, the symbol tuple list, and a term.
- * If symbol tuple list is of form (x, x'), as in tr_symbols,
+(* For tr_symbols list of form (x, x'),
  * replace x' with x in term.
  *)
-let preify srk tr_symbols = substitute_map srk (post_map srk (List.map (fun (x, x') -> (x', x)) tr_symbols))
+let preify srk tr_symbols = substitute_map srk 
+    (post_map srk (List.map (fun (x, x') -> (x', x)) tr_symbols))
 
 (* Same as preify, but replaces x with x' *)
 let postify srk tr_symbols = substitute_map srk (post_map srk tr_symbols)
 
-(* 1 kvar for each transformer; 1 svar per row in equiv class; 1 rvar, 1 kstack for each equiv class*)
-let create_exp_vars srk alphas num_trans =
+(* Ki,j is number of times equiv class i took transformer j
+ * Ri is the transformer equiv class i was reset on (-1 if never reset)
+ * Si,j is the starting value for linear term row j of equiv class i matrix
+ * Each S var is also associated with dimension in unified VAS Abstraction;
+ * bdim keeps track of this
+ * Kstack[i] is just list of Ki,j vars for all j
+ * KSUMi is sum of Ki,j vars for all j
+ * equiv_pair groups all kinds of vars together for a given equiv class
+ *)
+let create_exp_vars srk s_lst num_trans =
   let bdim = ref 0 in
-  let rec create_k_ints k vars basename equiv_num (arttype : Syntax.typ) =
-    begin match k <= 0 with
-      | true -> List.rev vars (*rev only to make debugging easier and have names match up... not needed *)
-      | false -> create_k_ints (k - 1) ((mk_symbol srk ~name:(basename^equiv_num^","^(string_of_int k)) arttype) :: vars) basename equiv_num arttype
+  let rec create_k_ints x vars basename equiv_num (arttype : Syntax.typ) =
+    begin match x <= 0 with
+      | true -> List.rev vars
+      | false -> create_k_ints (x - 1) ((mk_symbol srk 
+                                           ~name:(basename^equiv_num^","^(string_of_int x))
+                                           arttype) :: vars)
+                   basename equiv_num arttype
     end
   in
-  let rec helper alphas equiv_pairs =
-    match alphas with
+  let rec helper s_lst equiv_pairs =
+    match s_lst with
     | [] -> equiv_pairs
     | hd :: tl -> 
-      (*Transformers for given equiv class*)
-      let kstack = (create_k_ints num_trans [] "K" (string_of_int (List.length alphas)) `TyInt) in
-      (*Denotes which transformer a given equiv class was reset on*)
-      let rvar = (mk_symbol srk ~name:("R"^(string_of_int (List.length alphas))) `TyInt) in
-      (*The sum of transformers for a given equiv class*)
-      let kstacksum = (mk_symbol srk ~name:("KSUM"^(string_of_int (List.length alphas))) `TyInt) in 
-      (*Starting value for given row of equiv class*)
-      let svaralpha = create_k_ints (M.nb_rows hd) [] "S" (string_of_int (List.length alphas)) `TyReal in
-      (*One grouping per equiv class*)
-      let equiv_pair = (kstack, List.map (fun svar -> let res = (svar, !bdim) in bdim := !bdim + 1; res) svaralpha, rvar, kstacksum) in
+      (*Create K vars*)
+      let kstack = (create_k_ints num_trans [] "K" 
+                      (string_of_int (List.length s_lst)) `TyInt) in
+      (*Create R vars*)
+      let rvar = (mk_symbol srk ~name:("R"^(string_of_int (List.length s_lst)))
+                    `TyInt) in
+      (*Create KSum vars*)
+      let ksum = (mk_symbol srk ~name:("KSUM"^(string_of_int (List.length s_lst)))
+                    `TyInt) in 
+      (*Create S vars*)
+      let svar = create_k_ints (M.nb_rows hd) [] "S" 
+          (string_of_int (List.length s_lst)) `TyReal in
+      (*Group vars together*)
+      let equiv_pair = (kstack, 
+                        List.map (fun svar -> 
+                            let res = (svar, !bdim) in bdim := !bdim + 1; res)
+                          svar,
+                        rvar, ksum) in
       helper tl (equiv_pair :: equiv_pairs)
   in
-  helper alphas []
+  helper s_lst []
 
-(* Make input terms in list each >= 0 *)
-let create_exp_positive_reqs srk kvarst =
+(* Make input terms each >= 0 *)
+let create_exp_positive_reqs srk term_lst_lst =
   mk_and srk (List.map (fun var -> 
       mk_leq srk (mk_zero srk) var) 
-      (List.flatten kvarst))
+      (List.flatten term_lst_lst))
 
-(* If a coherence class has, after its "final reset",
- * taken the same number of transitions
- * as the loop counter, then that coherence class was never reset. 
- * In this case, its corresponding reset var is set to -1, which
- * means exactly that this coherence class not not reset.
+(* Determine if equiv class was never reset (number
+ * transitions taken == number steps taken).
+ * In this case, its corresponding reset var is set to -1.
  *)
 let exp_full_transitions_reqs srk kvarst rvarst loop_counter =
   mk_and srk  
@@ -160,8 +180,8 @@ let exp_full_transitions_reqs srk kvarst rvarst loop_counter =
        kvarst rvarst)
 (* Replacing kvarst with ksums here seems to deoptimize. Unclear why *)
 
-(* Creates list of pairs coherence class vars (for every pair) *)
-let all_pairs_kvarst_rvarst ksumst kvarst (rvarst : 'a Syntax.term list) =
+(* Pair each coherence class *)
+let all_pairs_kvarst_rvarst ksumst kvarst rvarst =
   let rec helper1 (sum1, kstack1, r1) ksumst' kvarst' rvarst' =
     begin match ksumst', kvarst', rvarst' with
       | [], [], [] -> []
@@ -173,7 +193,8 @@ let all_pairs_kvarst_rvarst ksumst kvarst (rvarst : 'a Syntax.term list) =
   let rec helper2 ksumst kvarst rvarst =
     match ksumst, kvarst, rvarst with
     | [], [], [] -> []
-    | khd :: ktl, ksthd :: ksttl, rhd :: rtl -> (helper1 (khd, ksthd, rhd) ktl ksttl rtl) :: (helper2 ktl ksttl rtl)
+    | khd :: ktl, ksthd :: ksttl, rhd :: rtl -> 
+      (helper1 (khd, ksthd, rhd) ktl ksttl rtl) :: (helper2 ktl ksttl rtl)
     | _ -> assert false
   in
   List.flatten (helper2 ksumst kvarst rvarst)
@@ -205,14 +226,14 @@ let exp_equality_k_constraints srk krpairs =
        krpairs)
 
 
-(*If ksum equiv pair 1 smaller ksum equiv pair 2, ksum equiv pair 2
- * took path that equiv pair 1 reset on at least once*)
-let exp_other_reset srk ksum ksums kvarst trans_num =
+(*If ksumi less than ksumj, coh class j
+ * took transformer that coh class i reset on at least once*)
+let exp_other_reset_helper srk ksumi ksums kvarst trans_num =
   mk_and srk
     (List.mapi (fun ind ksum' ->
          (mk_if srk
             (mk_lt srk
-               ksum
+               ksumi
                ksum')
             (mk_leq srk
                (mk_one srk)
@@ -220,58 +241,70 @@ let exp_other_reset srk ksum ksums kvarst trans_num =
         ksums)
 
 
-(*Either svar for each row in equiv class in x and equiv class not reset or equiv class reset
- * at transformer i and svars equal the reset dim at transformer i*)
-let exp_sx_constraints_helper srk ri ksum ksums svarstdims transformers kvarst unialpha tr_symbols =
+(*This function sets the initial value for each dimension of an equiv class.
+ * Initial values for dimensions of same equiv class must correspond
+ * to same transformer reset. This is also where the above function,
+ * exp_other_reset_helper, is used to enforce that a given transformer
+ * is taken by equiv classes that having been running for more time without
+ * a reset.
+ *)
+let exp_sx_constraints_helper srk ri ksum ksums svarstdims transformers kvarst 
+    unified_s tr_symbols =
   let compute_single_svars svart dim  =
     mk_or srk
+      (*The never reset case*)
       ((mk_and srk
-          [(mk_eq srk svart (preify srk tr_symbols (Linear.of_linterm srk (M.row dim unialpha))));
-           (mk_eq srk ri (mk_real srk (QQ.of_int (-1))))]) ::
+          [(mk_eq srk svart (preify srk tr_symbols 
+                               (Linear.of_linterm srk (M.row dim unified_s))));
+           (mk_eq srk ri (mk_real srk (QQ.of_int (-1))))]) 
+       (*The reset case*)
+       ::
        (BatList.mapi 
           (fun ind {a; b} ->
              if ZZ.equal (Z.coeff dim a) ZZ.one 
-             then (mk_false srk) (*Are thesee faster to filter out prior to smt query?*) 
+             then (mk_false srk) (*May be nicer to filter these out prior to creating
+                                   smt query*) 
              else 
                mk_and srk
                  [(mk_eq srk svart (mk_real srk (V.coeff dim b)));
-                  exp_other_reset srk ksum ksums kvarst ind;
+                  exp_other_reset_helper srk ksum ksums kvarst ind;
                   (mk_eq srk ri (mk_real srk (QQ.of_int ind)))])
           transformers))
   in
   mk_and srk (List.map (fun (svar,dim) -> compute_single_svars svar dim) svarstdims)
 
-(*See helper function for description*)
-let exp_sx_constraints srk equiv_pairs transformers kvarst ksums unialpha tr_symbols =
+(*Uses sx_constraints_helper to set initial values for each dimension of each equiv class*)
+let exp_sx_constraints srk equiv_pairs transformers kvarst ksums unified_s tr_symbols =
   mk_and srk
     (List.map (fun (kstack, svarstdims, ri, ksum) ->
-         exp_sx_constraints_helper srk ri ksum ksums svarstdims transformers kvarst unialpha tr_symbols)
+         exp_sx_constraints_helper srk ri ksum ksums svarstdims transformers 
+           kvarst unified_s tr_symbols)
         equiv_pairs)
 
 
-(*Make x' equal to the sum of start variable plus kvars * increase*)
-let exp_lin_term_trans_constraints srk equiv_pairs transformers unialpha =
+(*Constraints for equalities of final termination value for each linear term*)
+let exp_lin_term_trans_constraints srk equiv_pairs transformers unified_s =
   mk_and srk
     (List.map (fun (kstack, svarstdims, ri, _) ->
          mk_and srk
            (List.map (fun (svar, dim) ->
                 mk_eq srk
-                  (Linear.of_linterm srk (M.row dim unialpha))
+                  (Linear.of_linterm srk (M.row dim unified_s))
                   (mk_add srk
                      (svar :: 
                       (BatList.mapi
                          (fun ind {a; b} ->
-                            mk_mul srk [(List.nth kstack ind); mk_real srk (V.coeff dim b)])
+                            mk_mul srk 
+                              [(List.nth kstack ind); mk_real srk (V.coeff dim b)])
                          transformers))))
                svarstdims))
         equiv_pairs)
 
-(* If kvar represents a coherence class/transformer pair, (C, T), such that
- * coherence class C is reset on transformer T, then kvar is 0. Recall that
- * the last reset for coherence class C is instead defined by the corresponding
- * "r" var. This function replaces kvars in terms 
- * (that match the just stated property) with 0 *)
-let replace_resets_with_zero srk equiv_pairs transformers : ('a Syntax.term list * ('b * Z.dim) list * 'c * 'd) list =
+(* If kvar represents a coherence class/transformer pair, (i, j), such that
+ * coherence class i is reset on transformer j, then kvari,j is 0.
+ * This function performs that replacement.
+ *)
+let replace_resets_with_zero srk equiv_pairs transformers =
   (List.map (fun (kstack, svarstdims, ri, ksum) ->
        let (svar, dim) = List.hd svarstdims in
        let kstack =
@@ -284,7 +317,7 @@ let replace_resets_with_zero srk equiv_pairs transformers : ('a Syntax.term list
        kstack,svarstdims, ri, ksum)
       equiv_pairs)
 
-(*A given ksum cannot be larger than loop counter*)
+(*No coh class can take more trans than loop counter*)
 let exp_kstacks_at_most_k srk ksumst loop_counter=
   mk_and srk
     (List.map
@@ -293,7 +326,7 @@ let exp_kstacks_at_most_k srk ksumst loop_counter=
            loop_counter)
        ksumst)
 
-(*Give ksums meaning*)
+(*Relate KSumi with Ki,j vars*)
 let exp_kstack_eq_ksums srk equiv_pairs =
   mk_and srk
     (List.map (fun (kstack, _, _, ksum) ->
@@ -304,10 +337,12 @@ let exp_kstack_eq_ksums srk equiv_pairs =
 
 let map_terms srk = List.map (fun (var : Syntax.symbol) -> mk_const srk var)
 
-let exp_base_helper srk tr_symbols loop_counter alphas transformers invars guarded_system =
-  let maxkinvar = if guarded_system then (mk_leq srk loop_counter (mk_one srk)) else mk_true srk in
-  let num_trans = BatList.length transformers in
-  let equiv_pairs = create_exp_vars srk alphas num_trans in
+(*Combines all of the closure constraints that are used
+ * in both VAS and VASS abstractions
+ *)
+let exp_base_helper srk tr_symbols loop_counter s_lst transformers invars guarded_system =
+  let guarded_system_constraint = if guarded_system then (mk_leq srk loop_counter (mk_one srk)) else mk_true srk in
+  let equiv_pairs = create_exp_vars srk s_lst (BatList.length transformers) in
   let equiv_pairst = List.map (fun (kstack, svardims, rvar, ksum) ->
       (map_terms srk kstack, List.map (fun (svar, dim) -> (mk_const srk svar), dim) svardims, mk_const srk rvar, mk_const srk ksum)) equiv_pairs in
   let equiv_pairst = replace_resets_with_zero srk equiv_pairst transformers in
@@ -319,23 +354,23 @@ let exp_base_helper srk tr_symbols loop_counter alphas transformers invars guard
   let perm_constraints = exp_perm_constraints srk krpairs in
   let reset_together_constraints = exp_equality_k_constraints srk krpairs in
   let kstack_max_constraints = exp_kstacks_at_most_k srk ksumst loop_counter in
-  let base_constraints = exp_lin_term_trans_constraints srk equiv_pairst transformers (unify alphas) in
+  let base_constraints = exp_lin_term_trans_constraints srk equiv_pairst transformers (unify s_lst) in
   let kstack_term_reduction = exp_kstack_eq_ksums srk equiv_pairst in
   let invariants = mk_or srk [mk_eq srk loop_counter (mk_zero srk); mk_and srk invars] in
   let form = 
     mk_and srk [pos_constraints; full_trans_constraints; perm_constraints; kstack_max_constraints;
                 reset_together_constraints; base_constraints;
-                kstack_term_reduction; invariants; maxkinvar] in
+                kstack_term_reduction; invariants; guarded_system_constraint] in
   (form, (equiv_pairst, kvarst, ksumst))
 
 
 
 let exp srk tr_symbols loop_counter vabs =
   match vabs with
-  | {v; alphas; invars; guarded_system} ->
-    if(M.nb_rows (unify alphas) = 0) then mk_true srk else (
-      let (form, (equiv_pairst, kvarst, ksumst)) = exp_base_helper srk tr_symbols loop_counter alphas (TSet.to_list v) invars guarded_system in
-      let sx_constraints = exp_sx_constraints srk equiv_pairst (TSet.to_list v) kvarst ksumst (unify alphas) tr_symbols in
+  | {v; s_lst; invars; guarded_system} ->
+    if(M.nb_rows (unify s_lst) = 0) then mk_true srk else (
+      let (form, (equiv_pairst, kvarst, ksumst)) = exp_base_helper srk tr_symbols loop_counter s_lst (TSet.to_list v) invars guarded_system in
+      let sx_constraints = exp_sx_constraints srk equiv_pairst (TSet.to_list v) kvarst ksumst (unify s_lst) tr_symbols in
       mk_and srk [form; sx_constraints]
     )
 
@@ -350,8 +385,8 @@ let push_rows matrix first_row =
 
 let coprod_find_images alpha1 alpha2 = 
   let push_counter_1 = ref 0 in
-  let s1, s2, alphas =
-    List.fold_left (fun (s1, s2, alphas) alphalist1 -> 
+  let s1, s2, s_lst =
+    List.fold_left (fun (s1, s2, s_lst) alphalist1 -> 
         let push_counter_2 = ref 0 in
         let s1', s2', alpha' = 
           (List.fold_left (fun (s1', s2', alpha') alphalist2 ->
@@ -363,10 +398,10 @@ let coprod_find_images alpha1 alpha2 =
                if M.equal c M.zero then (s1', s2', alpha') else (c :: s1', d :: s2', (M.mul c alphalist1) :: alpha'))
               ([], [], []) alpha2) in
         push_counter_1 := (M.nb_rows alphalist1) + !push_counter_1; 
-        List.append s1' s1, List.append s2' s2, List.append alpha' alphas)
+        List.append s1' s1, List.append s2' s2, List.append alpha' s_lst)
       ([], [], []) alpha1
   in
-  s1, s2, alphas
+  s1, s2, s_lst
 
 let coprod_use_image v s  =
   (*Computes a rep dimension from equivalence class for each row in morphism*)
@@ -399,21 +434,21 @@ let coprod_use_image v s  =
 
  
 let coproduct srk vabs1 vabs2 : 'a t =
-  let (alpha1, alpha2, v1, v2) = (vabs1.alphas, vabs2.alphas, vabs1.v, vabs2.v) in 
-  let s1, s2, alphas = coprod_find_images alpha1 alpha2 in
+  let (s_lst1, s_lst2, v1, v2) = (vabs1.s_lst, vabs2.s_lst, vabs1.v, vabs2.v) in 
+  let s1, s2, s_lst = coprod_find_images s_lst1 s_lst2 in
   let v = TSet.union (coprod_use_image v1 s1) (coprod_use_image v2 s2) in
-  {v; alphas;invars=[];guarded_system=false}
+  {v; s_lst;invars=[];guarded_system=false}
 
 
 (*List of terms in alpha, preified and postified*)
-let term_list srk alphas tr_symbols = 
+let term_list srk s_lst tr_symbols = 
   List.map (fun matrix -> 
       ((M.rowsi matrix)
        /@ (fun (_, row) -> 
            let term = Linear.of_linterm srk row in
            (preify srk tr_symbols term, term)))
       |> BatList.of_enum)
-    alphas
+    s_lst
   |> List.flatten
 
 (*Gamma of single transformer*)
@@ -429,8 +464,8 @@ let gamma_transformer srk term_list t =
 
 let gamma srk vas tr_symbols : 'a formula =
   match vas with
-  | {v; alphas} ->
-    let term_list = term_list srk alphas tr_symbols in
+  | {v; s_lst} ->
+    let term_list = term_list srk s_lst tr_symbols in
     if List.length term_list = 0 then mk_true srk else
       mk_or srk (List.map (fun t -> gamma_transformer srk term_list t) (TSet.elements v))
 
@@ -490,9 +525,9 @@ let alpha_hat srk imp tr_symbols xdeltpairs xdeltphis =
   Log.errorf "r is %a" (M.pp) r;
   match M.equal r (M.zero), M.equal i (M.zero) with
   | true, true -> mk_top
-  | false, true -> {v=TSet.singleton {a;b}; alphas=[r];invars=[];guarded_system=false}
-  | true, false ->  {v=TSet.singleton {a;b}; alphas=[i];invars=[];guarded_system=false} 
-  | false, false -> {v=TSet.singleton {a;b}; alphas=[i;r];invars=[];guarded_system=false}
+  | false, true -> {v=TSet.singleton {a;b}; s_lst=[r];invars=[];guarded_system=false}
+  | true, false ->  {v=TSet.singleton {a;b}; s_lst=[i];invars=[];guarded_system=false} 
+  | false, false -> {v=TSet.singleton {a;b}; s_lst=[i;r];invars=[];guarded_system=false}
 
 
 
@@ -564,7 +599,7 @@ let ident_matrix_real n =
       M.add_entry dim dim (QQ.of_int 1) matr) M.zero (BatList.of_enum (0--n))
 
 let mk_bottom srk symbols =
-  {v=TSet.empty; alphas=[ident_matrix_syms srk symbols];invars=[];guarded_system=false}
+  {v=TSet.empty; s_lst=[ident_matrix_syms srk symbols];invars=[];guarded_system=false}
 
 (*Make a better pp function... need invars and maxk*)
 let pp srk syms formatter vas = Format.fprintf formatter "%a" (Formula.pp srk) (gamma srk vas syms)
@@ -596,8 +631,8 @@ let abstract ?(exists=fun x -> true) srk tr_symbols phi  =
         go (coproduct srk vas sing_transformer_vas)
   in
   Smt.Solver.add solver [phi];
-  let {v;alphas;_} = go (mk_bottom srk tr_symbols) in
-  let result = {v;alphas;invars;guarded_system} in
+  let {v;s_lst;_} = go (mk_bottom srk tr_symbols) in
+  let result = {v;s_lst;invars;guarded_system} in
   result
 
 
