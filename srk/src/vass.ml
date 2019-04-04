@@ -129,8 +129,8 @@ module Vassnew = struct
           go (coproduct srk vas alpha_v) (count - 1)
     in
     Smt.Solver.add solver [new_form];
-    let {v;alphas} = go (mk_bottom srk symbols) 20 in
-    let result = (v,alphas) in
+    let {v;s_lst} = go (mk_bottom srk symbols) 20 in
+    let result = (v,s_lst) in
     result
 
 
@@ -472,7 +472,7 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
                             mk_and srk
                               (exp_consv_of_flow_new srk in_sing out_sing ests kstack ind ::
                                (mk_eq srk ri (mk_real srk (QQ.of_int ind))) ::
-                               exp_other_reset srk ksum ksums kvarst ind ::
+                               exp_other_reset_helper srk ksum ksums kvarst ind ::
                                entrance_source_cons_equiv_class srk entvar_equiv_class in_sing ind :: 
                                (List.map
                                   (fun (svart, dim) -> mk_eq srk svart (mk_real srk (V.coeff dim b))) svarstdims)))
