@@ -35,7 +35,7 @@ val equal : 'a context -> (symbol * symbol) list -> 'a t -> 'a t -> bool
 val postify : 'a context -> (symbol * symbol) list -> 'a formula -> 'a formula
 val map_terms : 'a context -> symbol list -> 'a term list
 val exp_base_helper : 'a context -> (symbol * Symbol.Map.key) list -> 'a term ->
-  M.t list -> transformer list -> 'a formula list -> bool -> 
+  M.t list -> transformer list -> 
   'a formula * (('a term list * (('a, 'b) expr * Z.dim) list * ('a, 'c) expr * ('a, 'd) expr)
                   list * 'a term list list * ('a, 'e) expr list)
 

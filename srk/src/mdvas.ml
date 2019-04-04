@@ -126,9 +126,12 @@ let create_exp_vars srk s_lst num_trans =
   let rec create_k_ints x vars basename equiv_num (arttype : Syntax.typ) =
     begin match x <= 0 with
       | true -> List.rev vars
-      | false -> create_k_ints (x - 1) ((mk_symbol srk 
-                                           ~name:(basename^equiv_num^","^(string_of_int x))
-                                           arttype) :: vars)
+      | false -> create_k_ints (x - 1) 
+                   ((mk_const srk 
+                        (mk_symbol srk 
+                           ~name:(basename^equiv_num^","^(string_of_int x))
+                           arttype))
+                    :: vars)
                    basename equiv_num arttype
     end
   in
@@ -140,11 +143,11 @@ let create_exp_vars srk s_lst num_trans =
       let kstack = (create_k_ints num_trans [] "K" 
                       (string_of_int (List.length s_lst)) `TyInt) in
       (*Create R vars*)
-      let rvar = (mk_symbol srk ~name:("R"^(string_of_int (List.length s_lst)))
-                    `TyInt) in
+      let rvar = mk_const srk 
+          (mk_symbol srk ~name:("R"^(string_of_int (List.length s_lst))) `TyInt) in
       (*Create KSum vars*)
-      let ksum = (mk_symbol srk ~name:("KSUM"^(string_of_int (List.length s_lst)))
-                    `TyInt) in 
+      let ksum = mk_const srk 
+          (mk_symbol srk ~name:("KSUM"^(string_of_int (List.length s_lst))) `TyInt) in 
       (*Create S vars*)
       let svar = create_k_ints (M.nb_rows hd) [] "S" 
           (string_of_int (List.length s_lst)) `TyReal in
@@ -340,39 +343,46 @@ let map_terms srk = List.map (fun (var : Syntax.symbol) -> mk_const srk var)
 (*Combines all of the closure constraints that are used
  * in both VAS and VASS abstractions
  *)
-let exp_base_helper srk tr_symbols loop_counter s_lst transformers invars guarded_system =
-  let guarded_system_constraint = if guarded_system then (mk_leq srk loop_counter (mk_one srk)) else mk_true srk in
+let exp_base_helper srk tr_symbols loop_counter s_lst transformers =
+ (*Create new symbols*)
   let equiv_pairs = create_exp_vars srk s_lst (BatList.length transformers) in
-  let equiv_pairst = List.map (fun (kstack, svardims, rvar, ksum) ->
-      (map_terms srk kstack, List.map (fun (svar, dim) -> (mk_const srk svar), dim) svardims, mk_const srk rvar, mk_const srk ksum)) equiv_pairs in
-  let equiv_pairst = replace_resets_with_zero srk equiv_pairst transformers in
-  let kvarst, rvarst, ksumst = List.map (fun (kstack, _, _, _) -> kstack) equiv_pairst, List.map (fun (_, _, rvarst, _) -> rvarst) equiv_pairst,
-                               List.map (fun (_, _, _, ksumst) -> ksumst) equiv_pairst in
-  let pos_constraints = create_exp_positive_reqs srk ([loop_counter] :: kvarst) in
-  let full_trans_constraints = exp_full_transitions_reqs srk kvarst rvarst loop_counter in
+  let equiv_pairs = replace_resets_with_zero srk equiv_pairs transformers in
+  let kvarst, rvarst, ksumst = List.map (fun (kstack, _, _, _) -> kstack) equiv_pairs, 
+                               List.map (fun (_, _, rvarst, _) -> rvarst) equiv_pairs,
+                               List.map (fun (_, _, _, ksumst) -> ksumst) equiv_pairs in
   let krpairs = all_pairs_kvarst_rvarst ksumst kvarst rvarst in
-  let perm_constraints = exp_perm_constraints srk krpairs in
-  let reset_together_constraints = exp_equality_k_constraints srk krpairs in
-  let kstack_max_constraints = exp_kstacks_at_most_k srk ksumst loop_counter in
-  let base_constraints = exp_lin_term_trans_constraints srk equiv_pairst transformers (unify s_lst) in
-  let kstack_term_reduction = exp_kstack_eq_ksums srk equiv_pairst in
-  let invariants = mk_or srk [mk_eq srk loop_counter (mk_zero srk); mk_and srk invars] in
-  let form = 
-    mk_and srk [pos_constraints; full_trans_constraints; perm_constraints; kstack_max_constraints;
-                reset_together_constraints; base_constraints;
-                kstack_term_reduction; invariants; guarded_system_constraint] in
-  (form, (equiv_pairst, kvarst, ksumst))
+
+  let constr1 = create_exp_positive_reqs srk ([loop_counter] :: kvarst) in
+  let constr2 = exp_full_transitions_reqs srk kvarst rvarst loop_counter in
+  let constr3 = exp_perm_constraints srk krpairs in
+  let constr4 = exp_equality_k_constraints srk krpairs in
+  let constr5 = exp_kstacks_at_most_k srk ksumst loop_counter in
+  let constr6 = exp_lin_term_trans_constraints srk equiv_pairs transformers (unify s_lst) in
+  let constr7 = exp_kstack_eq_ksums srk equiv_pairs in
+ let formula = 
+    mk_and srk 
+      [constr1; constr2; constr3; constr4; constr5; constr6; constr7] in
+  (formula, (equiv_pairs, kvarst, ksumst))
 
 
-
+(*Compute closure*)
 let exp srk tr_symbols loop_counter vabs =
-  match vabs with
-  | {v; s_lst; invars; guarded_system} ->
-    if(M.nb_rows (unify s_lst) = 0) then mk_true srk else (
-      let (form, (equiv_pairst, kvarst, ksumst)) = exp_base_helper srk tr_symbols loop_counter s_lst (TSet.to_list v) invars guarded_system in
-      let sx_constraints = exp_sx_constraints srk equiv_pairst (TSet.to_list v) kvarst ksumst (unify s_lst) tr_symbols in
-      mk_and srk [form; sx_constraints]
-    )
+  let {v; s_lst; invars; guarded_system} = vabs in
+  let invariants = mk_or srk [mk_eq srk loop_counter (mk_zero srk);
+                              mk_and srk invars] in
+  let gs_constr = if guarded_system 
+    then (mk_leq srk loop_counter (mk_one srk)) 
+    else mk_true srk in  
+  (* if top*)  
+  if(M.nb_rows (unify s_lst) = 0) 
+  then mk_and srk [invariants; gs_constr]
+  else (
+    let (formula, (equiv_pairst, kvarst, ksumst)) = exp_base_helper srk tr_symbols
+        loop_counter s_lst (TSet.to_list v) in
+    let constr1 = exp_sx_constraints srk equiv_pairst 
+        (TSet.to_list v) kvarst ksumst (unify s_lst) tr_symbols in
+    mk_and srk [formula; constr1; invariants; gs_constr]
+  )
 
 
 (*Move matrix down by first_row rows*)
@@ -383,25 +393,33 @@ let push_rows matrix first_row =
     (M.rowsi matrix)
 
 
-let coprod_find_images alpha1 alpha2 = 
-  let push_counter_1 = ref 0 in
-  let s1, s2, s_lst =
-    List.fold_left (fun (s1, s2, s_lst) alphalist1 -> 
-        let push_counter_2 = ref 0 in
-        let s1', s2', alpha' = 
-          (List.fold_left (fun (s1', s2', alpha') alphalist2 ->
-               (*Add offset to rows so that c and d are correct with regards to unified alpha*)
-               let alphalist1, alphalist2 = (push_rows alphalist1 !push_counter_1, push_rows alphalist2 !push_counter_2) in
-               let (c, d) = Linear.intersect_rowspace alphalist1 alphalist2 in
-               push_counter_2 := (M.nb_rows alphalist2) + !push_counter_2;
-               (*If c = 0, then intersection of equiv class alphalist1 and alphalist2 form empty equivalence class*)
-               if M.equal c M.zero then (s1', s2', alpha') else (c :: s1', d :: s2', (M.mul c alphalist1) :: alpha'))
-              ([], [], []) alpha2) in
-        push_counter_1 := (M.nb_rows alphalist1) + !push_counter_1; 
-        List.append s1' s1, List.append s2' s2, List.append alpha' s_lst)
-      ([], [], []) alpha1
+let coprod_find_images s_lst1 s_lst2 =
+  (*Offsets make sure we take intersections of coh classes
+   * using proper location in unified matrix
+   *)
+  let offset1 = ref 0 in
+  (*r1 is transformation from s_lst1 to s_lst;
+   *r2 is transformation from s_lst2 to s_lst
+   *)
+  let r1, r2, s_lst =
+    List.fold_left (fun (r1, r2, s_lst) cohclass1 -> 
+        let offset2 = ref 0 in
+        let r1', r2', s_lst' = 
+          (List.fold_left (fun (r1', r2', s_lst') cohlass2 ->
+               (*Adjust rows with offset*)
+               let cohclass1, cohclass2 = (push_rows cohclass1 !offset1,
+                                           push_rows cohlcass2 !offset2) in
+               let (u1, u2) = Linear.intersect_rowspace cohclass1 cohclass2 in
+               offset2 := (M.nb_rows cohclass2) + !offset2;
+               (*If matrix 0, no new coh class formed*)
+               if M.equal u1 M.zero then (r1', r2', s_lst') 
+               else (u1 :: r1', u2 :: r2', (M.mul u1 cohclass1) :: s_lst'))
+              ([], [], []) s_lst2) in
+        offset1 := (M.nb_rows cohclass1) + !offset1; 
+        List.append r1' r1, List.append r2' r2, List.append s_lst' s_lst)
+      ([], [], []) s_lst1
   in
-  s1, s2, s_lst
+  r1, r2, s_lst
 
 let coprod_use_image v s  =
   (*Computes a rep dimension from equivalence class for each row in morphism*)

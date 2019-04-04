@@ -585,10 +585,19 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
     let ests_one_or_zero = exp_each_ests_one_or_zero srk ests in
     let pre_post_conds = exp_pre_post_conds srk ests label tr_symbols in
     let pos_constraints_1 = create_exp_positive_reqs srk [fst (List.split ests); snd (List.split ests)] in
+    let invariants = mk_or srk [mk_eq srk loop_counter (mk_zero srk);
+                                mk_and srk invars] in
+    let gs_constr = if guarded_system 
+      then (mk_leq srk loop_counter (mk_one srk)) 
+      else mk_true srk in  
+
+
+
 
     (*If case is top localized to one scc; still require that a label is used*)
     if(M.nb_rows (unify (vass.simulation)) = 0) then
-      ((mk_and srk [in_out_one; ests_one_or_zero; pre_post_conds(*; pos_constraints_1*)]), (fst (List.split ests)))
+      ((mk_and srk [in_out_one; ests_one_or_zero; pre_post_conds(*; pos_constraints_1*);
+                    invariants; gs_constr]), (fst (List.split ests)))
     else(
       let transformersmap : (int * transformer * int) list = List.flatten
           (List.flatten
@@ -606,7 +615,7 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
  
 
       let (form, (equiv_pairst, kvarst, ksumst)) =
-        exp_base_helper srk tr_symbols loop_counter simulation transformers invars guarded_system in
+        exp_base_helper srk tr_symbols loop_counter simulation transformers in
       let sum_n_eq_loop_counter = exp_nvars_eq_loop_counter srk nvarst loop_counter in
       let ks_less_than_ns = exp_kvarst_less_nvarst srk nvarst kvarst in
       let reachable_transitions = get_reachable_trans graph in
@@ -624,7 +633,8 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
       let ent_max = entrance_n srk entvars ests in_sing out_sing nvarst in 
       let form = mk_and srk [form; sum_n_eq_loop_counter; ks_less_than_ns; flow_consv_req; in_out_one;
                              ests_one_or_zero; pre_post_conds; pos_constraints; pos_constraints_1; post_conds_const; sx_constraints;
-                             ent_bounds; ent_source; ent_non_source; ent_max] in
+                             ent_bounds; ent_source; ent_non_source; ent_max; invariants;
+                            gs_constr] in
       form, (fst (List.split ests)))
 
   (*Take (x, x') list and (y, y') list and make a list that combine in some way*)
