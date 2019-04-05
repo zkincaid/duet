@@ -33,7 +33,6 @@ val join : 'a context -> (symbol * symbol) list -> 'a t -> 'a t -> 'a t
 val widen : 'a context -> (symbol * symbol) list -> 'a t -> 'a t -> 'a t
 val equal : 'a context -> (symbol * symbol) list -> 'a t -> 'a t -> bool
 val postify : 'a context -> (symbol * symbol) list -> 'a formula -> 'a formula
-val map_terms : 'a context -> symbol list -> 'a term list
 val exp_base_helper : 'a context -> (symbol * Symbol.Map.key) list -> 'a term ->
   M.t list -> transformer list -> 
   'a formula * (('a term list * (('a, 'b) expr * Z.dim) list * ('a, 'c) expr * ('a, 'd) expr)
@@ -45,13 +44,12 @@ val postify : 'a context -> (symbol * symbol) list -> ('a, 'b) expr -> ('a, 'b) 
 
 val unify : M.t list -> M.t
 val ident_matrix_syms : 'a context -> (symbol * symbol) list -> M.t
-val ident_matrix_real : int -> M.t 
 val exp_other_reset_helper : 'a context -> 'a term -> 'a term list -> 'a term list list -> int -> 'a formula
 val term_list : 'a context -> M.t list -> (symbol * Symbol.Map.key) list -> (('a, typ_arith) expr * 'a term) list
 val gamma_transformer : 'a context -> ('a term * 'a term) list -> transformer -> 'a formula
 val alpha_hat  : 'a context -> 'a formula -> ('b * symbol) list -> (Symbol.Map.key * symbol) list -> 'a formula list -> 'c t
 val coproduct : 'b -> 'c t -> 'd t -> 'a t
 val mk_bottom : 'a context -> ('b * symbol) list -> 'c t
-val coprod_use_image : TSet.t -> M.t list -> TSet.t
-val coprod_find_images : M.t list -> M.t list -> Linear.QQMatrix.t list * Linear.QQMatrix.t list * M.t list
+val coprod_compute_image : TSet.t -> M.t list -> TSet.t
+val coprod_find_transformers : M.t list -> M.t list -> Linear.QQMatrix.t list * Linear.QQMatrix.t list * M.t list
 val find_invariants : 'a context -> (symbol * symbol) list -> 'a formula -> 'a formula * 'a formula list * bool

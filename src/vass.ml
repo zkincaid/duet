@@ -79,6 +79,14 @@ module Vassnew = struct
 
 
 
+let map_terms srk = List.map (fun (var : Syntax.symbol) -> mk_const srk var)
+
+
+let ident_matrix_real n =
+  BatList.fold_left (fun matr dim  ->
+      M.add_entry dim dim (QQ.of_int 1) matr) M.zero (BatList.of_enum (0--n))
+
+
 
   (*Determine if there is transition from l1 to l2*)
   let is_connected_two_nodes srk l1 l2 tr_symbols formula =
@@ -176,7 +184,7 @@ module Vassnew = struct
         (fun (imglst, alphas) arr ->
            BatArray.fold_left 
              (fun (imglist, alphas) (_, alphasele) ->
-                let s1, s2, alphas' = coprod_find_images alphas alphasele in
+                let s1, s2, alphas' = coprod_find_transformers alphas alphasele in
                 (s1, s2) :: imglist, alphas') (imglst, alphas) arr) ([], [ident_matrix_syms srk tr_symbols]) pre_graph
     in
      let graph = BatArray.make 
@@ -200,7 +208,7 @@ module Vassnew = struct
         let s1' = M.mul base_img s1 in
         let s2' = M.mul base_img s2 in
         let (v, _) = pre_graph.(ind1).(ind2) in
-        let v' = coprod_use_image v [s2'] in
+        let v' = coprod_compute_image v [s2'] in
         graph.(ind1).(ind2)<-v';
         let ind1', ind2' = if ind2 = 0 then ind1 - 1, (List.length labels_lst) - 1
           else ind1, ind2 - 1 in
