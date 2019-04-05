@@ -57,9 +57,6 @@ let pp_vas formatter (vas : vas) : unit =
  *)
 type 'a t = { v : vas; s_lst : M.t list; invars : 'a formula list; guarded_system : bool}
 
-
-let mk_top = {v=TSet.empty; s_lst=[]; invars=[]; guarded_system=false}
-
 (* This function is used to stack the matrices
  * on top of each other to form a single matrix.
  * Each matrix must start at
@@ -68,11 +65,11 @@ let mk_top = {v=TSet.empty; s_lst=[]; invars=[]; guarded_system=false}
  * matrix corresponding to the first rows of the output matrix.
  *)
 let unify matrices =
-  let unified = List.fold_left (fun matrix alphacell -> 
-      BatEnum.fold (fun matrix (_, vector) ->
-          M.add_row (M.nb_rows matrix) vector matrix) 
-        matrix 
-        (M.rowsi alphacell))
+  let unified = List.fold_left (fun acc_matrix matr -> 
+      BatEnum.fold (fun acc_matrix (_, vector) ->
+          M.add_row (M.nb_rows acc_matrix) vector acc_matrix) 
+        acc_matrix 
+        (M.rowsi matr))
       M.zero matrices in
   unified
 
@@ -81,16 +78,27 @@ let unify matrices =
  * Matrix i must have same number of rows as vector i.
 *)
 let unify2 matrices vects =
-  let unified = List.fold_left2 (fun (matrix, v) alphacell b -> 
-      BatEnum.fold (fun (matrix, v) (dim, term) ->
-          M.add_row (M.nb_rows matrix) term matrix,
-          V.add_term (V.coeff dim b) (M.nb_rows matrix) v)
-        (matrix, v)
-        (M.rowsi alphacell))
+  let unified = List.fold_left2 (fun (acc_matrix, v) matr b -> 
+      BatEnum.fold (fun (acc_matrix, v) (dim, term) ->
+          M.add_row (M.nb_rows acc_matrix) term acc_matrix,
+          V.add_term (V.coeff dim b) (M.nb_rows acc_matrix) v)
+        (acc_matrix, v)
+        (M.rowsi matr))
       (M.zero,V.zero) matrices vects in
   unified
 
 
+(*Creates matrix M in which 1 row of M for each sym in
+ * tr_symbols; row has a 1 exactly in the col for corresponding sym'*)
+let ident_matrix_syms srk tr_symbols =
+  BatList.fold_lefti (fun matr dim (x, x') ->
+      M.add_row dim (Linear.linterm_of srk (mk_const srk x')) matr) M.zero tr_symbols
+
+
+let mk_top = {v=TSet.empty; s_lst=[]; invars=[]; guarded_system=false}
+
+let mk_bottom srk symbols =
+  {v=TSet.empty; s_lst=[ident_matrix_syms srk symbols];invars=[];guarded_system=false}
 
 
 (* Used in preify and postify to create symbol map.
@@ -338,8 +346,6 @@ let exp_kstack_eq_ksums srk equiv_pairs =
            ksum)
         equiv_pairs)
 
-let map_terms srk = List.map (fun (var : Syntax.symbol) -> mk_const srk var)
-
 (*Combines all of the closure constraints that are used
  * in both VAS and VASS abstractions
  *)
@@ -582,15 +588,6 @@ let find_invariants  srk tr_symbols phi =
       )
       (phi,[], false)
       (M.rowsi c)
-
-(*Creates matrix M in which 1 row of M for each sym in
- * tr_symbols; row has a 1 exactly in the col for corresponding sym'*)
-let ident_matrix_syms srk tr_symbols =
-  BatList.fold_lefti (fun matr dim (x, x') ->
-      M.add_row dim (Linear.linterm_of srk (mk_const srk x')) matr) M.zero tr_symbols
-
-let mk_bottom srk symbols =
-  {v=TSet.empty; s_lst=[ident_matrix_syms srk symbols];invars=[];guarded_system=false}
 
 (*Make a better pp function... need invars and maxk*)
 let pp srk syms formatter vas = Format.fprintf formatter "%a" (Formula.pp srk) (gamma srk vas syms)
