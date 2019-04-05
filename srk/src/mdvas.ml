@@ -393,7 +393,7 @@ let push_rows matrix first_row =
     (M.rowsi matrix)
 
 
-let coprod_find_images s_lst1 s_lst2 =
+let coprod_find_transformers s_lst1 s_lst2 =
   (*Offsets make sure we take intersections of coh classes
    * using proper location in unified matrix
    *)
@@ -405,10 +405,10 @@ let coprod_find_images s_lst1 s_lst2 =
     List.fold_left (fun (r1, r2, s_lst) cohclass1 -> 
         let offset2 = ref 0 in
         let r1', r2', s_lst' = 
-          (List.fold_left (fun (r1', r2', s_lst') cohlass2 ->
+          (List.fold_left (fun (r1', r2', s_lst') cohclass2 ->
                (*Adjust rows with offset*)
                let cohclass1, cohclass2 = (push_rows cohclass1 !offset1,
-                                           push_rows cohlcass2 !offset2) in
+                                           push_rows cohclass2 !offset2) in
                let (u1, u2) = Linear.intersect_rowspace cohclass1 cohclass2 in
                offset2 := (M.nb_rows cohclass2) + !offset2;
                (*If matrix 0, no new coh class formed*)
@@ -421,23 +421,23 @@ let coprod_find_images s_lst1 s_lst2 =
   in
   r1, r2, s_lst
 
-let coprod_use_image v s  =
-  (*Computes a rep dimension from equivalence class for each row in morphism*)
-  let get_morphism_row_reps unified_morphism = 
-    BatEnum.map (fun (dim', row) ->
-        match BatEnum.get (V.enum row) with
-        | None -> assert false
-        | Some (scalar, dim) -> dim
-      )
-      (M.rowsi (unified_morphism))
+(*Takes in vas and lin transformer and compute image*)
+let coprod_compute_image v r =
+  let unifr = unify r in
+  (*Computes a representative dim for each coh class*)
+  let rowreps = 
+      BatList.map (fun (dim', row) ->
+          match BatEnum.get (V.enum row) with
+          | None -> assert false
+          | Some (scalar, dim) -> dim
+        )
+        (BatList.of_enum (M.rowsi unifr))
   in
-
-  let sreps = BatList.of_enum (get_morphism_row_reps (unify s)) in
-
-  let transformer_image (t : transformer) unified_morphism rowsreps : transformer =
+  (*image for single transformer*)
+  let transformer_image t rowsreps =
     let a, b = t.a, t.b in
-    let b' = M.vector_right_mul (unified_morphism) b in
-    let a' = BatEnum.foldi (fun ind dim vector ->
+    let b' = M.vector_right_mul unifr b in
+    let a' = BatList.fold_lefti (fun vector ind dim ->
         Z.add_term (Z.coeff dim a) ind vector
       )
         Z.zero
@@ -446,19 +446,20 @@ let coprod_use_image v s  =
     {a=a'; b=b'}
   in
   let v' = TSet.fold (fun ele acc -> 
-      TSet.add (transformer_image ele (unify s) (BatList.enum sreps)) acc) v TSet.empty in
+      TSet.add (transformer_image ele rowreps) acc) v TSet.empty in
   v'
 
 
  
 let coproduct srk vabs1 vabs2 : 'a t =
   let (s_lst1, s_lst2, v1, v2) = (vabs1.s_lst, vabs2.s_lst, vabs1.v, vabs2.v) in 
-  let s1, s2, s_lst = coprod_find_images s_lst1 s_lst2 in
-  let v = TSet.union (coprod_use_image v1 s1) (coprod_use_image v2 s2) in
+  let s1, s2, s_lst = coprod_find_transformers s_lst1 s_lst2 in
+  let v = TSet.union (coprod_compute_image v1 s1) (coprod_compute_image v2 s2) in
+  (*guard_system and invars computed over entire system and added in later*)
   {v; s_lst;invars=[];guarded_system=false}
 
 
-(*List of terms in alpha, preified and postified*)
+(*List of terms in s_lst, preified and postified*)
 let term_list srk s_lst tr_symbols = 
   List.map (fun matrix -> 
       ((M.rowsi matrix)
@@ -469,57 +470,36 @@ let term_list srk s_lst tr_symbols =
     s_lst
   |> List.flatten
 
-(*Gamma of single transformer*)
-let gamma_transformer srk term_list t =
-  BatList.mapi (fun ind (pre_term, post_term) -> 
-      mk_eq srk 
-        post_term 
-        (mk_add srk [(mk_mul srk [pre_term; mk_real srk (QQ.of_zz (Z.coeff ind t.a))]);
-                     mk_real srk (V.coeff ind t.b)]))
-    term_list
-  |> mk_and srk
-
-
-let gamma srk vas tr_symbols : 'a formula =
-  match vas with
-  | {v; s_lst} ->
-    let term_list = term_list srk s_lst tr_symbols in
-    if List.length term_list = 0 then mk_true srk else
-      mk_or srk (List.map (fun t -> gamma_transformer srk term_list t) (TSet.elements v))
-
-(*Maybe uncomment for future test cases*)
-(*let remove_row vas x y =
-  begin match vas with
-    | {v; alphas} ->
-      let v =
-        TSet.fold (fun ele acc ->
-            let {a; b} = ele in
-            let (_,a) = Z.pivot x a in
-            let (_,b) = V.pivot x b in
-            let a = Z.add_term (Z.coeff y a) x a in
-            let b = V.add_term (V.coeff y b) x b in
-            TSet.add ({a;b}) acc) v TSet.empty in
-      let (a1, a2) = BatList.split_at (x - 1) alphas in
-      (*begin match a2 with
-        | hd :: tl ->
-        let alphas = a1 @ a2 in
-        Vas {v; alphas}
-              | [] -> 
-              let alphas = a1 in
-              Vas {v; alphas}
-              end*)
-      {v;alphas;invars=[];invarmaxk=false}
-  end
-*)
-
-
-
+(*Turns a term list, prefied or postified, into matrix and col vector
+ * for constants. Similar to inverse of above operation, but acts
+ * on preified or postified
+ *)
 let matrixify_vectorize_term_list srk vl = 
   let add_dim m b term =
     let (b', v) = V.pivot (Linear.const_dim) (Linear.linterm_of srk term) in
     M.add_row (M.nb_rows m) v m, V.add_term (QQ.negate b') (M.nb_rows m) b
   in
   List.fold_left (fun (m, b) ele -> add_dim m b ele) (M.zero, V.zero) vl
+
+(*Gamma of single transformer*)
+let gamma_transformer srk term_list t =
+  BatList.mapi (fun ind (pre_term, post_term) -> 
+      mk_eq srk 
+        post_term 
+        (mk_add srk 
+           [(mk_mul srk [pre_term; mk_real srk (QQ.of_zz (Z.coeff ind t.a))]);
+            mk_real srk (V.coeff ind t.b)]))
+    term_list
+  |> mk_and srk
+
+
+let gamma srk vas tr_symbols =
+  match vas with
+  | {v; s_lst} ->
+    let term_list = term_list srk s_lst tr_symbols in
+    if List.length term_list = 0 then mk_true srk else
+      mk_or srk (List.map (fun t -> gamma_transformer srk term_list t) (TSet.elements v))
+
 
 let alpha_hat srk imp tr_symbols xdeltpairs xdeltphis =
   let r, b1 = matrixify_vectorize_term_list srk 
@@ -532,15 +512,11 @@ let alpha_hat srk imp tr_symbols xdeltpairs xdeltphis =
   let add_dim a offset =
     Z.add_term ZZ.one offset a
   in
-  Log.errorf "Here";
   let a, _ = BatEnum.fold
       (fun (a, offset) _ -> (add_dim a offset, offset + 1))
       (Z.zero, 0) (M.rowsi i)
   in
-  Log.errorf "a is %a" (Z.pp) (a);
-  Log.errorf "b is %a" (V.pp) (b);
-  Log.errorf "i is %a" (M.pp) i;
-  Log.errorf "r is %a" (M.pp) r;
+  (*guard_system and invars computed over entire system and added in later*)
   match M.equal r (M.zero), M.equal i (M.zero) with
   | true, true -> mk_top
   | false, true -> {v=TSet.singleton {a;b}; s_lst=[r];invars=[];guarded_system=false}
@@ -607,14 +583,11 @@ let find_invariants  srk tr_symbols phi =
       (phi,[], false)
       (M.rowsi c)
 
-
-let ident_matrix_syms srk symbols =
+(*Creates matrix M in which 1 row of M for each sym in
+ * tr_symbols; row has a 1 exactly in the col for corresponding sym'*)
+let ident_matrix_syms srk tr_symbols =
   BatList.fold_lefti (fun matr dim (x, x') ->
-      M.add_row dim (Linear.linterm_of srk (mk_const srk x')) matr) M.zero symbols
-
-let ident_matrix_real n =
-  BatList.fold_left (fun matr dim  ->
-      M.add_entry dim dim (QQ.of_int 1) matr) M.zero (BatList.of_enum (0--n))
+      M.add_row dim (Linear.linterm_of srk (mk_const srk x')) matr) M.zero tr_symbols
 
 let mk_bottom srk symbols =
   {v=TSet.empty; s_lst=[ident_matrix_syms srk symbols];invars=[];guarded_system=false}
@@ -642,10 +615,8 @@ let abstract ?(exists=fun x -> true) srk tr_symbols phi  =
       match Interpretation.select_implicant m phi with
       | None -> assert false
       | Some imp ->
-        Log.errorf "HERE";
         let sing_transformer_vas = alpha_hat srk (mk_and srk imp) 
             tr_symbols xdeltpairs xdelta_formula in
-         Log.errorf "INTERMEDIATE VAS: %a"  (Formula.pp srk) (gamma srk vas tr_symbols); 
         go (coproduct srk vas sing_transformer_vas)
   in
   Smt.Solver.add solver [phi];
