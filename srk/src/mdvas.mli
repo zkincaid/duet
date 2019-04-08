@@ -51,5 +51,5 @@ val alpha_hat  : 'a context -> 'a formula -> ('b * symbol) list -> (Symbol.Map.k
 val coproduct : 'b -> 'c t -> 'd t -> 'a t
 val mk_bottom : 'a context -> ('b * symbol) list -> 'c t
 val coprod_compute_image : TSet.t -> M.t list -> TSet.t
-val coprod_find_transformers : M.t list -> M.t list -> Linear.QQMatrix.t list * Linear.QQMatrix.t list * M.t list
+val coprod_find_transformation : M.t list -> M.t list -> Linear.QQMatrix.t list * Linear.QQMatrix.t list * M.t list
 val find_invariants : 'a context -> (symbol * symbol) list -> 'a formula -> 'a formula * 'a formula list * bool
