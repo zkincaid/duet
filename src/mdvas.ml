@@ -399,7 +399,7 @@ let push_rows matrix first_row =
     (M.rowsi matrix)
 
 
-let coprod_find_transformers s_lst1 s_lst2 =
+let coprod_find_transformation s_lst1 s_lst2 =
   (*Offsets make sure we take intersections of coh classes
    * using proper location in unified matrix
    *)
@@ -459,7 +459,7 @@ let coprod_compute_image v r =
  
 let coproduct srk vabs1 vabs2 : 'a t =
   let (s_lst1, s_lst2, v1, v2) = (vabs1.s_lst, vabs2.s_lst, vabs1.v, vabs2.v) in 
-  let s1, s2, s_lst = coprod_find_transformers s_lst1 s_lst2 in
+  let s1, s2, s_lst = coprod_find_transformation s_lst1 s_lst2 in
   let v = TSet.union (coprod_compute_image v1 s1) (coprod_compute_image v2 s2) in
   (*guard_system and invars computed over entire system and added in later*)
   {v; s_lst;invars=[];guarded_system=false}
@@ -589,7 +589,7 @@ let find_invariants  srk tr_symbols phi =
       (phi,[], false)
       (M.rowsi c)
 
-(*Make a better pp function... need invars and maxk*)
+(*TODO:Make a better pp function... need invars and maxk*)
 let pp srk syms formatter vas = Format.fprintf formatter "%a" (Formula.pp srk) (gamma srk vas syms)
 
 let abstract ?(exists=fun x -> true) srk tr_symbols phi  =
@@ -617,7 +617,7 @@ let abstract ?(exists=fun x -> true) srk tr_symbols phi  =
         go (coproduct srk vas sing_transformer_vas)
   in
   Smt.Solver.add solver [phi];
-  let {v;s_lst;_} = go (mk_bottom srk tr_symbols) in
+  let {v;s_lst} = go (mk_bottom srk tr_symbols) in
   let result = {v;s_lst;invars;guarded_system} in
   result
 

@@ -1,34 +1,53 @@
 open Syntax
 open BatPervasives
-module LRI = Iteration.LinearRecurrenceInequation
-module PG = Iteration.PolyhedronGuard
+open Mdvas
 module V = Linear.QQVector
 module M = Linear.QQMatrix
 module Z = Linear.ZZVector
-module Monomial = Polynomial.Monomial
-module P = Polynomial.QQXs
-module Scalar = Apron.Scalar
-module Coeff = Apron.Coeff
-module Abstract0 = Apron.Abstract0
-module Linexpr0 = Apron.Linexpr0
-module Lincons0 = Apron.Lincons0
-module Dim = Apron.Dim
 module Q = Quantifier
-
-module CS = CoordinateSystem
-module A = BatDynArray
-
-module IntSet = SrkUtil.Int.Set
-module H = Abstract
-include Log.Make(struct let name = "srk.vass" end)
-open Mdvas
 module Int = SrkUtil.Int
+module Accelerate =
+  Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)
+                         (Iteration.PolyhedronGuard))
+include Log.Make(struct let name = "srk.vass" end)
 
 
 
 
 module Vassnew = struct
 
+  (* sccvass is a vass abstraction such that
+   * the control states (vertices) form a strongly connected
+   * component.
+   * graph[i][j] contains the set of vas transformers from
+   * control state i to control state j (empty if no edge).
+   * vas transformers must overapproximate transitions from 
+   * transition states that model i to transition states that model 
+   * j when s_lst is used as lin simulation.
+   *
+   * s_lst (simulation list), invars, and guarded_system are
+   * defined as in mdvas:
+   *
+   * Each matrix in S_lst starts at the 0th row. No S_lst
+   * may contain the column representing all 0s.
+   * The first row of the first item
+   * in S_lst is matched with the first row of "a" and "b"
+   * in a given transformer.
+   *
+   * There is exactly one item in S_lst for each coherence class
+   * of V. A coherence class is defined as a set of rows that
+   * reset together in every transformer.
+   *
+   * invars is a list of invariants that hold after a single
+   * transition, and every transition thereafter. invars is
+   * used to remove variables from the formula.
+   *
+   * There are certain invariants that, 
+   * when taken together, restrict
+   * the transition system to running at most once
+   * (for example, x' = 1 and x = x + 1). guarded_system is
+   * true if any of these pairs of invariants exist.
+   *)
   type 'a sccvas = 
     { label : ('a formula) array;
       graph : vas array array;
@@ -37,6 +56,17 @@ module Vassnew = struct
       guarded_system : bool
     }
 
+  (* vasses are the set of maximal sccvass
+   * that can be formed for the derived control states
+   *
+   * formula is the initial formula used for this abstract
+   * interpretation procedure (consider replacing with affine hull)
+   *
+   * sink is the end state; all paths in closure must terminate here.
+   * Must at least overapproximate possible "post-states".
+   *
+   * skolem_constants...
+   *)
   type 'a t = {
     vasses : 'a sccvas array;
     formula : 'a formula;
@@ -44,38 +74,40 @@ module Vassnew = struct
     skolem_constants : Symbol.Set.t
   }
 
+
+  (* Adjacency matrix with boolean true in g[i][j] if
+   * edge from i to j.*)
   module BoolGraph = struct
     type t = bool array array
-
     module V = Int
     let is_directed = true
     let iter_vertex f g =
       BatEnum.iter f (0 -- (Array.length g - 1))
     let iter_succ f g v = Array.iteri (fun ind ele -> if ele then f ind ) g.(v)
     let fold_vertex f g a = BatEnum.fold (fun acc v -> f v acc) a (0 -- (Array.length g - 1))
-    let fold_succ f g v a = BatArray.fold_righti (fun ind ele acc -> if ele then f ind acc else acc) g.(v) a
+    let fold_succ f g v a = BatArray.fold_righti 
+        (fun ind ele acc -> if ele then f ind acc else acc) g.(v) a
+  end
+  (* Adjacency matrix; g[i][j] has set of vas transformers
+   * v which represent transformers that can be taken from i to j*)
+  module VassGraph = struct
+    type t = vas array array
+    module V = Int
+    let is_directed = true
+    let iter_vertex f g =
+      BatEnum.iter f (0 -- (Array.length g - 1))
+    let iter_succ f g v = Array.iteri 
+        (fun ind ele -> if not (TSet.is_empty ele) then f ind ) g.(v)
+    let fold_vertex f g a = BatEnum.fold (fun acc v -> f v acc) a (0 -- (Array.length g - 1))
+    let fold_succ f g v a = BatArray.fold_righti 
+        (fun ind ele acc -> if not (TSet.is_empty ele) then f ind acc else acc) g.(v) a
   end
 
   module BGraphComp = Graph.Components.Make(BoolGraph)
   module BGraphTrav = Graph.Traverse.Dfs(BoolGraph)
   module BGraphTopo = Graph.Topological.Make(BoolGraph)
-  module VassGraph = struct
-    type t = vas array array
-
-    module V = Int
-    let is_directed = true
-    let iter_vertex f g =
-      BatEnum.iter f (0 -- (Array.length g - 1))
-    let iter_succ f g v = Array.iteri (fun ind ele -> if not (TSet.is_empty ele) then f ind ) g.(v)
-    let fold_vertex f g a = BatEnum.fold (fun acc v -> f v acc) a (0 -- (Array.length g - 1))
-    let fold_succ f g v a = BatArray.fold_righti (fun ind ele acc -> if not (TSet.is_empty ele) then f ind acc else acc) g.(v) a
-  end
-
   module GraphComp = Graph.Components.Make(VassGraph) 
   module GraphTrav = Graph.Traverse.Dfs(VassGraph)
-  module Accelerate =
-    Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)(Iteration.PolyhedronGuard))
-
 
 
 
@@ -88,61 +120,30 @@ let ident_matrix_real n =
 
 
 
-  (*Determine if there is transition from l1 to l2*)
-  let is_connected_two_nodes srk l1 l2 tr_symbols formula =
+  (*Determine if there exists a transition from cs1 to cs2
+   * using transition system phi*)
+  let exists_transition srk cs1 cs2 tr_symbols phi =
     let solver = Smt.mk_solver srk in
     Smt.Solver.reset solver;
-    let form = (rewrite srk ~down:(nnf_rewriter srk) (mk_and srk [l1; postify srk tr_symbols l2; formula])) in
-    Smt.Solver.add solver [form];
+    let formula =  mk_and srk [cs1; postify srk tr_symbols cs2; phi] in
+    Smt.Solver.add solver [formula];
     match Smt.Solver.get_model solver with
     | `Unsat -> false
     | `Unknown -> true
     | `Sat _ -> true
 
-
-
-  (*Given set of labels and formula, compute graph*)
-  let compute_edges srk tr_symbols label formula =
-    let graph = Array.make_matrix (Array.length label) (Array.length label) false in
+  (*Compute boolean adjacency graph of control states for transition system phi*)
+  let compute_edges srk tr_symbols c_states phi =
+    let graph = Array.make_matrix (Array.length c_states) (Array.length c_states) false in
     BatArray.iteri (fun ind1 arr ->
         BatArray.modifyi (fun ind2 _ ->
-            is_connected_two_nodes srk label.(ind1) label.(ind2)  tr_symbols formula)
+            exists_transition srk c_states.(ind1) c_states.(ind2) tr_symbols phi)
           arr)
       graph;
     graph
 
 
-
-  let compute_transformers_two_labels ?(exists=fun x -> true) srk symbols label1 label2 orig_form =
-    let new_form =  (rewrite srk ~down:(nnf_rewriter srk) (mk_and srk [label1; postify srk symbols label2; orig_form])) in
-    let (x''s, x''_forms) = 
-      List.split (List.fold_left (fun acc (x, x') -> 
-          let x'' = (mk_symbol srk (typ_symbol srk x)) in
-          let x''_form = (mk_eq srk (mk_const srk x'') 
-                            (mk_sub srk (mk_const srk x') (mk_const srk x))) in
-          ((x'', x'), x''_form) :: acc) [] symbols) in
-    let solver = Smt.mk_solver srk in
-    let rec go vas count =
-      assert (count > 0);
-      Smt.Solver.add solver [mk_not srk (gamma srk vas symbols)];
-      match Smt.Solver.get_model solver with
-      | `Unsat -> vas
-      | `Unknown -> assert false
-      | `Sat m ->
-        match Interpretation.select_implicant m new_form with
-        | None -> assert false
-        | Some imp ->
-          let alpha_v = alpha_hat srk (mk_and srk imp) symbols x''s x''_forms in
-          Log.errorf "Gamma is %a" (Formula.pp srk) (gamma srk vas symbols);
-          go (coproduct srk vas alpha_v) (count - 1)
-    in
-    Smt.Solver.add solver [new_form];
-    let {v;s_lst} = go (mk_bottom srk symbols) 20 in
-    let result = (v,s_lst) in
-    result
-
-
-
+  (*TODO: make pretty print prettier*)
   let pp srk syms formatter vasses = 
     BatArray.iteri (fun ind sccvas ->
         Format.fprintf formatter "Vass %n has the following labels \n" ind;
@@ -158,69 +159,70 @@ let ident_matrix_real n =
         Format.fprintf formatter "Vass %n has the following alphas \n" ind;
         BatList.iter (fun alph -> Format.fprintf formatter "Matrix %a\n" (M.pp) alph) sccvas.simulation) vasses.vasses
 
-
-
-
-
-  let compute_single_scc_vass ?(exists=fun x -> true) srk tr_symbols labels_lst orig_form =
-    Log.errorf "STARTED COMPUTATION FOR A SINGLE VASS";
+  (*Computes vass for a given list of control states and formula*)
+  let compute_single_scc_vass ?(exists=fun x -> true) srk tr_symbols labels_lst phi =
+    (* Restrict phi to configurations that model a control state *)
     let postified_labels = List.map (fun lbl -> postify srk tr_symbols lbl) labels_lst in
-    let formula = mk_and srk [mk_or srk labels_lst; mk_or srk postified_labels; orig_form] in
-    let formula',invars, guarded_system = find_invariants srk tr_symbols formula in
-    BatList.iter (fun f -> (Log.errorf "Equality invar is %a" (Formula.pp srk) f)) invars;
-    (*Look into removing conunction of labels from formula' after invars calculated*)
+    let phi' = mk_and srk [mk_or srk labels_lst; mk_or srk postified_labels; phi] in
+    let phi'',invars, guarded_system = find_invariants srk tr_symbols phi' in
+    (*pre_graph represents adjacency (transformers, sim) graph for control states
+     * prior to converting all cells of graph to use same sim matrix*)
     let pre_graph = BatArray.init 
         (List.length labels_lst) 
         (fun _ -> (BatArray.init 
            (List.length labels_lst) 
            (fun _ -> (TSet.empty,[]))))
     in
+    (*Populate graph with transformers between two control states*)
     BatArray.iteri (fun ind1 arr ->
         BatArray.modifyi (fun ind2 _ ->
-            compute_transformers_two_labels ~exists srk tr_symbols (List.nth labels_lst ind1) (List.nth labels_lst ind2) formula')
+            let {v; s_lst} = abstract ~exists srk tr_symbols
+                (mk_and srk 
+                   [(List.nth labels_lst ind1); 
+                    postify srk tr_symbols (List.nth labels_lst ind2); 
+                    phi'']) 
+            in
+            (v, s_lst))
           arr
-      ) pre_graph;
-    let imglist, alphas = BatArray.fold_left 
-        (fun (imglst, alphas) arr ->
+      ) pre_graph; 
+    (* Computes list of lin transformation that determines
+     * how to transform each cell of pregraph to use same sim matrix
+     * Also computes the sim matrix that will be used *)
+    let imglist, s_lst = BatArray.fold_left 
+        (fun (imglst, s_lst) arr ->
            BatArray.fold_left 
-             (fun (imglist, alphas) (_, alphasele) ->
-                let s1, s2, alphas' = coprod_find_transformers alphas alphasele in
-                (s1, s2) :: imglist, alphas') (imglst, alphas) arr) ([], [ident_matrix_syms srk tr_symbols]) pre_graph
+             (fun (imglist, s_lst) (_, pregraph_s_lst) ->
+                let r1, r2, s_lst' = coprod_find_transformation s_lst pregraph_s_lst in
+                (r1, r2) :: imglist, s_lst') 
+             (imglst, s_lst) arr) 
+        ([], [ident_matrix_syms srk tr_symbols]) pre_graph
     in
-     let graph = BatArray.make 
-        (List.length labels_lst)
-        (BatArray.make
-           (List.length labels_lst)
-           (TSet.empty))
-    in
+    (*Will hold transformer adjacency graph such that each cell uses same sim matrix*)
     let graph = BatArray.init 
         (List.length labels_lst) 
-        (fun _ -> (BatArray.init 
-                     (List.length labels_lst) 
-                     (fun _ -> (TSet.empty))))
+        (fun _ -> 
+           (BatArray.init (List.length labels_lst) 
+              (fun _ -> (TSet.empty))))
     in
-
     let rec apply_images base_img imglist ind1 ind2 =
       match imglist with
-      | (s1, s2) :: tl ->
-        let s1 = unify s1 in
-        let s2 = unify s2 in
-        let s1' = M.mul base_img s1 in
-        let s2' = M.mul base_img s2 in
+      | (r1, r2) :: tl ->
+        let r1 = unify r1 in
+        let r2 = unify r2 in
+        let r1' = M.mul base_img r1 in
+        let r2' = M.mul base_img r2 in
         let (v, _) = pre_graph.(ind1).(ind2) in
-        let v' = coprod_compute_image v [s2'] in
+        let v' = coprod_compute_image v [r2'] in
         graph.(ind1).(ind2)<-v';
         let ind1', ind2' = if ind2 = 0 then ind1 - 1, (List.length labels_lst) - 1
           else ind1, ind2 - 1 in
-        apply_images s1' tl ind1' ind2'
+        apply_images r1' tl ind1' ind2'
       | [] -> ()
     in
-    apply_images (ident_matrix_real 100) imglist ((List.length labels_lst) - 1) ((List.length labels_lst) - 1); (*find actual ident here*)
-    {label=Array.of_list labels_lst;graph;simulation=alphas;invars;guarded_system}
-
-
-
-
+    (*TODO: 100 is magic number. should be something like largest s*)
+    apply_images (ident_matrix_real 100) imglist 
+      ((List.length labels_lst) - 1) ((List.length labels_lst) - 1);
+    {label=Array.of_list labels_lst;graph;simulation=s_lst;invars;guarded_system}
 
 
   let pre_symbols tr_symbols =
