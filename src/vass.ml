@@ -111,12 +111,24 @@ module Vassnew = struct
 
 
 
-let map_terms srk = List.map (fun (var : Syntax.symbol) -> mk_const srk var)
+  let map_terms srk = List.map (fun (var : Syntax.symbol) -> mk_const srk var)
 
 
-let ident_matrix_real n =
-  BatList.fold_left (fun matr dim  ->
-      M.add_entry dim dim (QQ.of_int 1) matr) M.zero (BatList.of_enum (0--n))
+  let ident_matrix_real n =
+    BatList.fold_left (fun matr dim  ->
+        M.add_entry dim dim (QQ.of_int 1) matr) M.zero (BatList.of_enum (0--n))
+
+  let pre_symbols tr_symbols =
+    List.fold_left (fun set (s,_) ->
+        Symbol.Set.add s set)
+      Symbol.Set.empty
+      tr_symbols
+
+  let post_symbols tr_symbols =
+    List.fold_left (fun set (_,s') ->
+        Symbol.Set.add s' set)
+      Symbol.Set.empty
+      tr_symbols
 
 
 
@@ -224,34 +236,21 @@ let ident_matrix_real n =
       ((List.length labels_lst) - 1) ((List.length labels_lst) - 1);
     {label=Array.of_list labels_lst;graph;simulation=s_lst;invars;guarded_system}
 
-
-  let pre_symbols tr_symbols =
-    List.fold_left (fun set (s,_) ->
-        Symbol.Set.add s set)
-      Symbol.Set.empty
-      tr_symbols
-
-  let post_symbols tr_symbols =
-    List.fold_left (fun set (_,s') ->
-        Symbol.Set.add s' set)
-      Symbol.Set.empty
-      tr_symbols
-
   (* Project a formula onto the symbols that satisfy the "exists"
      predicate, and convert to DNF *)
-  let project_dnf srk exists formula =
-    let formula =
-      rewrite srk ~down:(nnf_rewriter srk) formula
+  let project_dnf srk exists phi =
+    let phi =
+      rewrite srk ~down:(nnf_rewriter srk) phi
       |> SrkSimplify.simplify_terms srk
     in
     let solver = Smt.mk_solver srk in
-    Smt.Solver.add solver [formula];
+    Smt.Solver.add solver [phi];
     let rec go cubes =
       match Smt.Solver.get_model solver with
       | `Unsat -> cubes
       | `Unknown -> assert false
       | `Sat m ->
-        match Interpretation.select_implicant m formula with
+        match Interpretation.select_implicant m phi with
         | None -> assert false
         | Some imp ->
           let cube =
@@ -264,7 +263,35 @@ let ident_matrix_real n =
     in
     go []
 
-  let get_pre_cube_labels srk formula exists tr_symbols =
+  (*Given a set of control, combine control states that overlap*)
+  let get_largest_polyhedrons srk control_states =
+    let rec intersect_ele non_intersect ele unchecked changed =
+      match unchecked with
+      | [] -> non_intersect, ele, changed
+      | hd :: tl ->
+        let solver = Smt.mk_solver srk in
+        let phi = (rewrite srk ~down:(nnf_rewriter srk) (mk_and srk [ele; hd])) in 
+        Smt.Solver.add solver [phi];
+        match Smt.Solver.get_model solver with
+        | `Unsat -> intersect_ele (hd :: non_intersect) ele tl changed
+        | `Unknown -> assert false
+        | `Sat m -> intersect_ele non_intersect (mk_or srk [ele; hd]) tl true
+    in
+
+    let rec loop_states front back =
+      match back with
+      | [] -> front
+      | hd :: tl ->
+        let back', ele, changed = intersect_ele [] hd tl false in
+        if changed = true 
+        then loop_states front (ele :: back')
+        else loop_states (ele :: front) back'
+    in
+    loop_states [] control_states
+
+  (*Compute control states using projection to pre transition states.
+   * Also compute sink*)
+  let get_control_states ?(exists=fun x -> true) srk tr_symbols phi =
     let pre_symbols = pre_symbols tr_symbols in
     let post_symbols = post_symbols tr_symbols in
     let exists_pre x =
@@ -273,71 +300,29 @@ let ident_matrix_real n =
     let exists_post x =
       exists x && not (Symbol.Set.mem x pre_symbols)
     in
-    let pre_labels = project_dnf srk exists_pre formula in
-    (*let post_label =
-      mk_and srk [formula;
-                  mk_not srk (postify srk tr_symbols (mk_or srk pre_labels))]
-      |> project_dnf srk exists_post
-      |> mk_or srk
-      |> preify srk tr_symbols
-    in*)
-    let post_labels = project_dnf srk exists_post 
-        (mk_and srk [formula(*; mk_not srk (postify srk tr_symbols (mk_or srk pre_labels))*)]) in
-    (*let post_labels = List.fold_left (fun acc ele -> (preify srk tr_symbols ele) :: acc) [] post_labels in*)
-  
-    pre_labels, post_labels
+    let control_states = project_dnf srk exists_pre phi in
+    (*sink can also just be true given while exact phi used as transition to sink*)
+    let sink = mk_or srk (project_dnf srk exists_post phi) in 
+    let control_states' = get_largest_polyhedrons srk control_states in
+    BatArray.of_list control_states', sink
 
 
-  (*Given a set of labels, combine labels that overlap...likely much more efficient way to do this*)
-  let get_largest_polyhedrons srk labels =
-    let rec helper_sing front ele back changed =
-      match back with
-      | [] -> front, ele, changed
-      | hd :: tl ->
-        let solver = Smt.mk_solver srk in
-        let form = (rewrite srk ~down:(nnf_rewriter srk) (mk_and srk [ele; hd])) in 
-        Smt.Solver.add solver [form];
-        match Smt.Solver.get_model solver with
-        | `Unsat -> helper_sing (hd :: front) ele tl changed
-        | `Unknown -> assert false
-        | `Sat m -> helper_sing front (mk_or srk [ele; hd]) tl true
-    in
-
-    let rec loop_labels front back =
-      match back with
-      | [] -> front
-      | hd :: tl ->
-        let b', el, ch = helper_sing [] hd tl false in
-        if ch = true 
-        then loop_labels front (el :: b')
-        else loop_labels (el :: front) b'
-    in
-    loop_labels [] labels
-
-
-
-  let get_intersect_cube_labeling srk formula exists tr_symbols =
-    let pre, post = get_pre_cube_labels srk formula exists tr_symbols in
-    let pre', sink = get_largest_polyhedrons srk pre, mk_or srk post in
-    let result = BatArray.of_list pre' in
-    result, sink
-
-
-  let abstract ?(exists=fun x -> true) srk tr_symbols body =
-    let skolem_constants = Symbol.Set.filter (fun a -> not (exists a)) (symbols body) in
-    let body = (rewrite srk ~down:(nnf_rewriter srk) body) in
-    let body = Nonlinear.linearize srk body in
-    let label, sink = get_intersect_cube_labeling srk body exists tr_symbols in
-    let graph = compute_edges srk tr_symbols label body in
+  let abstract ?(exists=fun x -> true) srk tr_symbols phi =
+    let skolem_constants = Symbol.Set.filter (fun a -> not (exists a)) (symbols phi) in
+    let phi = Nonlinear.linearize srk (rewrite srk ~down:(nnf_rewriter srk) phi) in
+    let control_states, sink = get_control_states ~exists srk tr_symbols phi in
+    let graph = compute_edges srk tr_symbols control_states phi in
     let num_sccs, func_sccs = BGraphComp.scc graph in
     let sccs = Array.make num_sccs  [] in
     BatArray.iteri (fun ind lab -> sccs.(func_sccs ind)<-(lab :: sccs.(func_sccs ind)))
-      label;
+      control_states;
     if num_sccs = 0 then
-      {vasses= BatArray.init 0 (fun x -> assert false); formula=body; skolem_constants; sink=sink}
+      {vasses= BatArray.init 0 (fun x -> assert false); 
+       formula=phi; skolem_constants; sink=sink}
     else(
-      let vassarrays = BatArray.map (fun scc -> compute_single_scc_vass ~exists srk tr_symbols scc body) sccs in
-      let result = {vasses=vassarrays;formula=body; skolem_constants; sink=sink} in
+      let vassarrays = BatArray.map 
+          (fun scc -> compute_single_scc_vass ~exists srk tr_symbols scc phi) sccs in
+      let result = {vasses=vassarrays;formula=phi; skolem_constants; sink=sink} in
       logf ~level:`always "%a" (pp srk tr_symbols) result;
       result
     )
