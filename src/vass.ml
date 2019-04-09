@@ -328,109 +328,111 @@ module Vassnew = struct
     )
 
 
-  (*Create array of list of indices of transformers going in and out of a single label*)
-  let exp_compute_trans_in_out_index_numbers transformersmap num =
-    let in_sing, out_sing = Array.make num [], Array.make num [] in
-    List.iteri (fun index (n1, trans, n2) -> in_sing.(n2)<-(index :: in_sing.(n2)); out_sing.(n1)<- (index :: out_sing.(n1)))
+  (*Create array of list of indices of transformers going in and
+   * out of each single control state*)
+  let get_incoming_outgoing_edges transformersmap num_cs =
+    let entry, exit = Array.make num_cs [], Array.make num_cs [] in
+    List.iteri (fun index (n1, trans, n2) -> 
+        entry.(n2)<-(index :: entry.(n2)); exit.(n1)<- (index :: exit.(n1)))
       transformersmap;
-    in_sing, out_sing
+    entry, exit
 
 
-  (*each entry and exit label has value 1 or 0*)
-  let exp_each_ests_one_or_zero srk ests =
-    (*This optimization seems to greatly reduce runtime for more complex cases*)
-    if (List.length ests = 1) then
+  (*either node is local source/sink or is not*)
+  let exp_each_ests_one_or_zero srk local_s_t =
+    (*This redundant condition seems to reduce runtime for more complex cases*)
+    if (List.length local_s_t = 1) then
       (
-        let (es, et) = List.hd ests in
-        mk_and srk [mk_eq srk es (mk_one srk); mk_eq srk et (mk_one srk)]
+        let (source, sink) = List.hd local_s_t in
+        mk_and srk [mk_eq srk source (mk_one srk); mk_eq srk sink (mk_one srk)]
       )
     else(
       mk_and srk
-        (List.map (fun (es, et) -> 
+        (List.map (fun (source, sink) -> 
              mk_and srk
-               [mk_or srk [mk_eq srk es (mk_zero srk); mk_eq srk es (mk_one srk)];
-                mk_or srk [mk_eq srk et (mk_zero srk); mk_eq srk et (mk_one srk)]]
-           )
-            ests))
+               [mk_or srk [mk_eq srk source (mk_zero srk); mk_eq srk source (mk_one srk)];
+                mk_or srk [mk_eq srk sink (mk_zero srk); mk_eq srk sink (mk_one srk)]])
+            local_s_t))
 
-  (*An entry and an exit label must be taken. Note this is stronger than prev vass in which label must be taken or
-   * loop counter is 0*)
-  let exp_one_in_out_flow srk ests = 
-    let et, es = List.split ests in
+  (* Requires entry and exit point *)
+  let split_terms_add_to_one srk local_s_t = 
+    let source,sink = List.split local_s_t in
       mk_and srk 
-        [mk_eq srk (mk_add srk et) (mk_one srk);
-         mk_eq srk (mk_add srk es) (mk_one srk)]
+        [mk_eq srk (mk_add srk source) (mk_one srk);
+         mk_eq srk (mk_add srk sink) (mk_one srk)]
 
 
 
-  (*Set upper bounds on distance for each label from source. Can prob combine this function with ordering bounds*)
-  let entrance_bounds srk entvars num_labels = 
+  let upper_bound_terms srk terms upper_bound = 
     mk_and srk  (BatList.map 
                    (fun var -> mk_and srk 
                        [mk_leq srk (mk_zero srk) var;
-                        mk_leq srk var (mk_real srk (QQ.of_int num_labels))]) 
-                   entvars)
+                        mk_leq srk var (mk_real srk (QQ.of_int upper_bound))]) 
+                   terms)
 
 
- (*Distance is 0 if and only if source label*)
-  let entrance_source_cons_equiv_class srk entvars in_sing_inds reset_trans =
+  (*Distance is 0 if and only if source label; reset taken version*)
+  let set_flow_source_from_reset srk distvars entry reset_trans =
     mk_and srk (BatList.mapi
-                  (fun ind var ->
-                     if (BatList.mem reset_trans in_sing_inds.(ind))
-                     then (mk_eq srk var (mk_zero srk))
-                     else (mk_not srk (mk_eq srk var (mk_zero srk))))
-                  entvars)
+                  (fun ind distvar ->
+                     if (BatList.mem reset_trans entry.(ind))
+                     then (mk_eq srk distvar (mk_zero srk))
+                     else (mk_not srk (mk_eq srk distvar (mk_zero srk))))
+                  distvars)
 
 
 
-  (*Distance is 0 if and only if source label*)
-  let entrance_source_cons srk entvars es =
+  (*Distance is 0 if and only if source label; reset not taken version*)
+  let set_flow_source srk distvars sources =
     mk_and srk (BatList.mapi
-                  (fun ind var ->
+                  (fun ind distvar ->
                      mk_iff 
                        srk 
-                       (mk_eq srk (List.nth es ind) (mk_one srk))
-                       (mk_eq srk var (mk_zero srk))) entvars)
+                       (mk_eq srk (List.nth sources ind) (mk_one srk))
+                       (mk_eq srk distvar (mk_zero srk)))
+                  distvars)
 
 
-  (*If not source label, and reached (dist < n), then there is flow on an edge originating from a node with dist this dist - 1*)
-  let entrance_non_source_cons srk entvars transformermap nvarst in_sings =
+  (*For all control states, if is not source and there is a path from source with flow and
+   * (dist < n), then there is flow on an edge to control state
+   * originating from a node with dist - 1*)
+  let dist_vars_path srk distvars transformermap transformers entry =
     mk_and srk (BatList.mapi 
                   (fun ind var ->
-                     mk_if 
-                       srk 
+                     mk_if srk 
                        (mk_and srk
                           [mk_lt srk (mk_zero srk) var;
-                           mk_lt srk var (mk_real srk (QQ.of_int (List.length entvars)))])
+                           mk_lt srk var (mk_real srk (QQ.of_int (List.length distvars)))])
                        (mk_or srk
                           (List.fold_left
                              (fun acc ele ->
                                 let (pred, _, _) = List.nth transformermap ele in
                                 (mk_and srk
-                                   [mk_leq srk (mk_one srk) (List.nth nvarst ele);
-                                    mk_eq srk (mk_add srk [(List.nth entvars pred); (mk_one srk)]) var]) ::
-                                acc
-                             )
-                             [mk_false srk]
-                             in_sings.(ind))))
-                  entvars)
+                                   [mk_leq srk (mk_one srk) (List.nth transformers ele);
+                                    mk_eq srk 
+                                      (mk_add srk [(List.nth distvars pred); (mk_one srk)])
+                                      var]) 
+                                :: acc)
+                             [mk_false srk] 
+                             entry.(ind))))
+                  distvars)
 
 
-  (*If no route from source to node with flow (dist = n), then no outgoing flow allowed*)
-  let entrance_n srk entvars eset in_sings out_sings nvarst =
+  (*If dist from source = inf (n), then no outgoing flow allowed*)
+  let dist_inf_constr srk distvars local_s_t entry exit transformers =
     mk_and srk 
       (BatList.mapi
          (fun ind var ->
-            let (es,et) = List.nth eset ind in
-            let in_sing_this = List.map (fun ind -> List.nth nvarst ind) in_sings.(ind) in
-            let out_sing_this = List.map (fun ind -> List.nth nvarst ind) out_sings.(ind) in
+            let (_,sink) = List.nth local_s_t ind in
+            let entry_this = List.map (fun ind -> List.nth transformers ind) entry.(ind) in
+            let exit_this = List.map (fun ind -> List.nth transformers ind) exit.(ind) in
             mk_if srk
-              (mk_eq srk var (mk_real srk (QQ.of_int (List.length entvars))))
+              (mk_eq srk var (mk_real srk (QQ.of_int (List.length distvars))))
               (mk_and srk
-                 (*Really only out_sing_this needed here. Other options will be 0; playing with them to see if any added efficiency boost*)
-                 ((*[(mk_eq srk (mk_add srk (es :: et :: (in_sing_this @ out_sing_this))) (mk_zero srk))] ::*) 
-                 (List.map (fun term -> mk_eq srk (mk_zero srk) term) (et :: (in_sing_this @ out_sing_this))))))
-         entvars)
+                 (List.map 
+                    (fun term -> mk_eq srk (mk_zero srk) term) 
+                    (sink :: (entry_this @ exit_this)))))
+         distvars)
 
 
 
@@ -455,7 +457,7 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
     mk_or srk
       ((mk_and srk
           (mk_eq srk ri (mk_real srk (QQ.of_int (-1))) ::
-           entrance_source_cons srk entvar_equiv_class (fst (List.split ests)) :: 
+           set_flow_source srk entvar_equiv_class (fst (List.split ests)) :: 
            (List.map
               (fun (svart, dim) -> 
                  mk_eq srk svart (preify srk tr_symbols (Linear.of_linterm srk (M.row dim unialpha))))
@@ -468,7 +470,7 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
                               (exp_consv_of_flow_new srk in_sing out_sing ests kstack ind ::
                                (mk_eq srk ri (mk_real srk (QQ.of_int ind))) ::
                                exp_other_reset_helper srk ksum ksums kvarst ind ::
-                               entrance_source_cons_equiv_class srk entvar_equiv_class in_sing ind :: 
+                               set_flow_source_from_reset srk entvar_equiv_class in_sing ind :: 
                                (List.map
                                   (fun (svart, dim) -> mk_eq srk svart (mk_real srk (V.coeff dim b))) svarstdims)))
                         ) 
@@ -480,9 +482,9 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
     mk_and srk
       (List.mapi (fun ind (kstack, svarstdims, ri, ksum) ->
            mk_and srk [
-             entrance_bounds srk (List.nth ent_equiv_class_vars ind) num_labels;
-             entrance_non_source_cons srk (List.nth ent_equiv_class_vars ind) transformermap kstack in_sing;
-             entrance_n srk (List.nth ent_equiv_class_vars ind) ests in_sing out_sing kstack; 
+             upper_bound_terms srk (List.nth ent_equiv_class_vars ind) num_labels;
+             dist_vars_path srk (List.nth ent_equiv_class_vars ind) transformermap kstack in_sing;
+             dist_inf_constr srk (List.nth ent_equiv_class_vars ind) ests in_sing out_sing kstack; 
              exp_sx_constraints_helper_flow srk ri ksum ksums svarstdims transformers kvarst unialpha tr_symbols kstack in_sing out_sing ests (List.nth ent_equiv_class_vars ind)]
          )
           equiv_pairs)
@@ -576,7 +578,7 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
     let simulation = alphas in
 
     let ests = create_es_et srk (Array.length label) in
-    let in_out_one = exp_one_in_out_flow srk ests in
+    let in_out_one = split_terms_add_to_one srk ests in
     let ests_one_or_zero = exp_each_ests_one_or_zero srk ests in
     let pre_post_conds = exp_pre_post_conds srk ests label tr_symbols in
     let pos_constraints_1 = create_exp_positive_reqs srk [fst (List.split ests); snd (List.split ests)] in
@@ -616,16 +618,17 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
       let reachable_transitions = get_reachable_trans graph in
       let post_conds_const = exp_post_conds_on_transformers srk label 
           transformersmap reachable_transitions nvarst alphas tr_symbols in
-      let in_sing, out_sing  = exp_compute_trans_in_out_index_numbers transformersmap (Array.length label) in
+      let in_sing, out_sing  = get_incoming_outgoing_edges 
+          transformersmap (Array.length label) in
       let flow_consv_req = exp_consv_of_flow_new srk in_sing out_sing ests nvarst (-2) in
       let pos_constraints = create_exp_positive_reqs srk [nvarst] in
       let sx_constraints = exp_sx_constraints_flow srk equiv_pairst transformers (nvarst:: kvarst) 
           ((mk_add srk nvarst) :: ksumst) (unify alphas) tr_symbols in_sing out_sing
           ests ent_equiv_class_vars (Array.length label) transformersmap in
-      let ent_bounds = entrance_bounds srk entvars (Array.length label) in
-      let ent_source = entrance_source_cons srk entvars (fst (List.split ests)) in
-      let ent_non_source = entrance_non_source_cons srk entvars transformersmap nvarst in_sing in
-      let ent_max = entrance_n srk entvars ests in_sing out_sing nvarst in 
+      let ent_bounds = upper_bound_terms srk entvars (Array.length label) in
+      let ent_source = set_flow_source srk entvars (fst (List.split ests)) in
+      let ent_non_source = dist_vars_path srk entvars transformersmap nvarst in_sing in
+      let ent_max = dist_inf_constr srk entvars ests in_sing out_sing nvarst in 
       let form = mk_and srk [form; sum_n_eq_loop_counter; ks_less_than_ns; flow_consv_req; in_out_one;
                              ests_one_or_zero; pre_post_conds; pos_constraints; pos_constraints_1; post_conds_const; sx_constraints;
                              ent_bounds; ent_source; ent_non_source; ent_max; invariants;
