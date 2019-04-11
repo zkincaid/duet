@@ -143,9 +143,9 @@ let create_exp_vars srk s_lst num_trans =
                    basename equiv_num arttype
     end
   in
-  let rec helper s_lst equiv_pairs =
+  let rec helper s_lst coh_class_pairs =
     match s_lst with
-    | [] -> equiv_pairs
+    | [] -> coh_class_pairs
     | hd :: tl -> 
       (*Create K vars*)
       let kstack = (create_k_ints num_trans [] "K" 
@@ -165,7 +165,7 @@ let create_exp_vars srk s_lst num_trans =
                             let res = (svar, !bdim) in bdim := !bdim + 1; res)
                           svar,
                         rvar, ksum) in
-      helper tl (equiv_pair :: equiv_pairs)
+      helper tl (equiv_pair :: coh_class_pairs)
   in
   helper s_lst []
 
@@ -285,16 +285,16 @@ let exp_sx_constraints_helper srk ri ksum ksums svarstdims transformers kvarst
   mk_and srk (List.map (fun (svar,dim) -> compute_single_svars svar dim) svarstdims)
 
 (*Uses sx_constraints_helper to set initial values for each dimension of each equiv class*)
-let exp_sx_constraints srk equiv_pairs transformers kvarst ksums unified_s tr_symbols =
+let exp_sx_constraints srk coh_class_pairs transformers kvarst ksums unified_s tr_symbols =
   mk_and srk
     (List.map (fun (kstack, svarstdims, ri, ksum) ->
          exp_sx_constraints_helper srk ri ksum ksums svarstdims transformers 
            kvarst unified_s tr_symbols)
-        equiv_pairs)
+        coh_class_pairs)
 
 
 (*Constraints for equalities of final termination value for each linear term*)
-let exp_lin_term_trans_constraints srk equiv_pairs transformers unified_s =
+let exp_lin_term_trans_constraints srk coh_class_pairs transformers unified_s =
   mk_and srk
     (List.map (fun (kstack, svarstdims, ri, _) ->
          mk_and srk
@@ -309,13 +309,13 @@ let exp_lin_term_trans_constraints srk equiv_pairs transformers unified_s =
                               [(List.nth kstack ind); mk_real srk (V.coeff dim b)])
                          transformers))))
                svarstdims))
-        equiv_pairs)
+        coh_class_pairs)
 
 (* If kvar represents a coherence class/transformer pair, (i, j), such that
  * coherence class i is reset on transformer j, then kvari,j is 0.
  * This function performs that replacement.
  *)
-let replace_resets_with_zero srk equiv_pairs transformers =
+let replace_resets_with_zero srk coh_class_pairs transformers =
   (List.map (fun (kstack, svarstdims, ri, ksum) ->
        let (svar, dim) = List.hd svarstdims in
        let kstack =
@@ -326,7 +326,7 @@ let replace_resets_with_zero srk equiv_pairs transformers =
             transformers)
        in
        kstack,svarstdims, ri, ksum)
-      equiv_pairs)
+      coh_class_pairs)
 
 (*No coh class can take more trans than loop counter*)
 let exp_kstacks_at_most_k srk ksumst loop_counter=
@@ -338,24 +338,24 @@ let exp_kstacks_at_most_k srk ksumst loop_counter=
        ksumst)
 
 (*Relate KSumi with Ki,j vars*)
-let exp_kstack_eq_ksums srk equiv_pairs =
+let exp_kstack_eq_ksums srk coh_class_pairs =
   mk_and srk
     (List.map (fun (kstack, _, _, ksum) ->
          mk_eq srk
            (mk_add srk kstack)
            ksum)
-        equiv_pairs)
+        coh_class_pairs)
 
 (*Combines all of the closure constraints that are used
  * in both VAS and VASS abstractions
  *)
 let exp_base_helper srk tr_symbols loop_counter s_lst transformers =
  (*Create new symbols*)
-  let equiv_pairs = create_exp_vars srk s_lst (BatList.length transformers) in
-  let equiv_pairs = replace_resets_with_zero srk equiv_pairs transformers in
-  let kvarst, rvarst, ksumst = List.map (fun (kstack, _, _, _) -> kstack) equiv_pairs, 
-                               List.map (fun (_, _, rvarst, _) -> rvarst) equiv_pairs,
-                               List.map (fun (_, _, _, ksumst) -> ksumst) equiv_pairs in
+  let coh_class_pairs = create_exp_vars srk s_lst (BatList.length transformers) in
+  let coh_class_pairs = replace_resets_with_zero srk coh_class_pairs transformers in
+  let kvarst, rvarst, ksumst = List.map (fun (kstack, _, _, _) -> kstack) coh_class_pairs, 
+                               List.map (fun (_, _, rvarst, _) -> rvarst) coh_class_pairs,
+                               List.map (fun (_, _, _, ksumst) -> ksumst) coh_class_pairs in
   let krpairs = all_pairs_kvarst_rvarst ksumst kvarst rvarst in
 
   let constr1 = create_exp_positive_reqs srk ([loop_counter] :: kvarst) in
@@ -363,12 +363,13 @@ let exp_base_helper srk tr_symbols loop_counter s_lst transformers =
   let constr3 = exp_perm_constraints srk krpairs in
   let constr4 = exp_equality_k_constraints srk krpairs in
   let constr5 = exp_kstacks_at_most_k srk ksumst loop_counter in
-  let constr6 = exp_lin_term_trans_constraints srk equiv_pairs transformers (unify s_lst) in
-  let constr7 = exp_kstack_eq_ksums srk equiv_pairs in
+  let constr6 = exp_lin_term_trans_constraints srk coh_class_pairs 
+      transformers (unify s_lst) in
+  let constr7 = exp_kstack_eq_ksums srk coh_class_pairs in
  let formula = 
     mk_and srk 
       [constr1; constr2; constr3; constr4; constr5; constr6; constr7] in
-  (formula, (equiv_pairs, kvarst, ksumst))
+  (formula, (coh_class_pairs, kvarst, ksumst))
 
 
 (*Compute closure*)
