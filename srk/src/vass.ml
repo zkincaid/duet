@@ -396,7 +396,7 @@ module Vassnew = struct
   (*For all control states, if is not source and there is a path from source with flow and
    * (dist < n), then there is flow on an edge to control state
    * originating from a node with dist - 1*)
-  let dist_vars_path srk distvars transformermap transformers entry =
+  let dist_vars_path srk distvars transformer_w_ends coh_class_kvars entry =
     mk_and srk (BatList.mapi 
                   (fun ind var ->
                      mk_if srk 
@@ -406,9 +406,9 @@ module Vassnew = struct
                        (mk_or srk
                           (List.fold_left
                              (fun acc ele ->
-                                let (pred, _, _) = List.nth transformermap ele in
+                                let (pred, _, _) = List.nth transformer_w_ends ele in
                                 (mk_and srk
-                                   [mk_leq srk (mk_one srk) (List.nth transformers ele);
+                                   [mk_leq srk (mk_one srk) (List.nth coh_class_kvars ele);
                                     mk_eq srk 
                                       (mk_add srk [(List.nth distvars pred); (mk_one srk)])
                                       var]) 
@@ -419,13 +419,14 @@ module Vassnew = struct
 
 
   (*If dist from source = inf (n), then no outgoing flow allowed*)
-  let dist_inf_constr srk distvars local_s_t entry exit transformers =
+  let dist_inf_constr srk distvars local_s_t entry exit coh_class_kvars =
     mk_and srk 
       (BatList.mapi
          (fun ind var ->
             let (_,sink) = List.nth local_s_t ind in
-            let entry_this = List.map (fun ind -> List.nth transformers ind) entry.(ind) in
-            let exit_this = List.map (fun ind -> List.nth transformers ind) exit.(ind) in
+            let entry_this = List.map (fun ind -> List.nth coh_class_kvars ind) entry.(ind)
+            in
+            let exit_this = List.map (fun ind -> List.nth coh_class_kvars ind) exit.(ind) in
             mk_if srk
               (mk_eq srk var (mk_real srk (QQ.of_int (List.length distvars))))
               (mk_and srk
@@ -435,59 +436,103 @@ module Vassnew = struct
          distvars)
 
 
+  (* Generates consv of flow constraints for each individual label and a given coh classes
+   * transformers, assuming that flow starts on the active local source *) 
+  let consv_of_flow srk entry exit local_s_t coh_class_kvars =
+    let entry_kvars = BatArray.map 
+        (fun indlist -> List.map (fun ind -> List.nth coh_class_kvars ind) indlist) entry in
+    let exit_kvars = BatArray.map 
+        (fun indlist -> List.map (fun ind -> List.nth coh_class_kvars ind) indlist) exit in 
+    mk_and srk
+      (List.mapi (fun ind (source, sink) ->
+           mk_eq srk
+             (mk_add srk (source  :: entry_kvars.(ind)))
+             (mk_add srk (sink :: exit_kvars.(ind))))
+          local_s_t)
 
-(* Flow is conserved for labels. Used both for master flow and also for equiv class flow *)
-let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
-  let in_sing_inds = in_sing in
-  let in_sing = BatArray.map (fun indlist -> List.map (fun ind -> List.nth varst ind) indlist) in_sing in
-  let out_sing = BatArray.map (fun indlist -> List.map (fun ind -> List.nth varst ind) indlist) out_sing in
-  mk_and srk
-    (List.mapi (fun ind (es, et) ->
-         mk_eq srk
-           (mk_add srk ((if reset_trans = -2 then es else if (BatList.mem reset_trans in_sing_inds.(ind)) 
-                         then mk_one srk else mk_zero srk) :: in_sing.(ind)))
-           (mk_add srk (et :: out_sing.(ind))))
-        ests)
+  (* Generates consv of flow constraints for each individual label and a given coh classes
+   * transformers, assuming that flow starts on transformer reset_trans *)
+  let consv_of_flow_after_last_reset srk entry exit local_s_t coh_class_kvars reset_trans =
+    let entry_kvars = BatArray.map 
+        (fun indlist -> List.map (fun ind -> List.nth coh_class_kvars ind) indlist) entry in
+    let exit_kvars = BatArray.map 
+        (fun indlist -> List.map (fun ind -> List.nth coh_class_kvars ind) indlist) exit in
+    mk_and srk
+      (List.mapi (fun ind (_, sink) ->
+           mk_eq srk
+             (mk_add srk 
+                ((if (BatList.mem reset_trans entry.(ind)) 
+                  then mk_one srk 
+                  else mk_zero srk) :: entry_kvars.(ind)))
+             (mk_add srk (sink :: exit_kvars.(ind))))
+          local_s_t)
 
 
-  (*Either svar for each row in equiv class in x and equiv class not reset or equiv class reset
-   * at transformer i and svars equal the reset dim at transformer i*)
-  let exp_sx_constraints_helper_flow srk ri ksum ksums svarstdims transformers kvarst unialpha tr_symbols kstack in_sing
-      out_sing ests entvar_equiv_class =
+
+  (* The last reset for a given coh class determines the starting values for that
+   * dimensions of that coh class, the entry point for that coh class flow, and 
+   * a restriction that all coh class reset prior to this coh class must've taken
+   * the transformer this coh class was reset on. This function generates those
+   * constraints for a single coh class*)
+  let last_reset_constr_coh_class srk rvar ksum ksums svar_dim_pairs 
+      transformers kvars_coh_classes unified_s tr_symbols coh_class_kvars entry
+      exit local_s_t coh_class_dist_vars =
     mk_or srk
+      (* The coh class was never reset. Set the coh class reset indicator var to -1,
+       * Configure entry point for coh class flow. Set init val for lin terms of 
+       * coh class equal to val of lin terms at start of program execution.
+       * Consv of coh class flow taken care of by convs of master flow, 
+       * in another part of program. *)
       ((mk_and srk
-          (mk_eq srk ri (mk_real srk (QQ.of_int (-1))) ::
-           set_flow_source srk entvar_equiv_class (fst (List.split ests)) :: 
+          (mk_eq srk rvar (mk_real srk (QQ.of_int (-1))) ::
+           set_flow_source srk coh_class_dist_vars (fst (List.split local_s_t)) :: 
            (List.map
-              (fun (svart, dim) -> 
-                 mk_eq srk svart (preify srk tr_symbols (Linear.of_linterm srk (M.row dim unialpha))))
-              svarstdims)))
+              (fun (svar, dim) -> 
+                 mk_eq srk svar 
+                   (preify srk tr_symbols (Linear.of_linterm srk (M.row dim unified_s))))
+              svar_dim_pairs)))
+       (* The coh class was reset at some point. Set coh class reset indicator to
+        * denote transformer # last reset occured at. Set constraints for consv of coh
+        * class flow and starting point of coh class flow. Require that coh classes
+        * whose last reset occured earlier to this coh class last reset used the transformer
+        * that this coh class reset on. Set init val for lin terms of coh class to val
+        * at last reset*)
        :: (BatList.mapi 
              (fun ind {a; b} ->
-                if ZZ.equal (Z.coeff (snd (List.hd svarstdims)) a) ZZ.one then (mk_false srk)
-                          else (
-                            mk_and srk
-                              (exp_consv_of_flow_new srk in_sing out_sing ests kstack ind ::
-                               (mk_eq srk ri (mk_real srk (QQ.of_int ind))) ::
-                               exp_other_reset_helper srk ksum ksums kvarst ind ::
-                               set_flow_source_from_reset srk entvar_equiv_class in_sing ind :: 
-                               (List.map
-                                  (fun (svart, dim) -> mk_eq srk svart (mk_real srk (V.coeff dim b))) svarstdims)))
-                        ) 
+                if ZZ.equal (Z.coeff (snd (List.hd svar_dim_pairs)) a) ZZ.one 
+                then (mk_false srk)
+                else (
+                  mk_and srk
+                    (consv_of_flow_after_last_reset srk entry exit local_s_t 
+                       coh_class_kvars ind ::
+                     (mk_eq srk rvar (mk_real srk (QQ.of_int ind))) ::
+                     exp_other_reset_helper srk ksum ksums kvars_coh_classes ind ::
+                     set_flow_source_from_reset srk coh_class_dist_vars entry ind :: 
+                     (List.map
+                        (fun (svar, dim) -> 
+                           mk_eq srk svar (mk_real srk (V.coeff dim b))) svar_dim_pairs)))) 
              transformers))
 
 
-  (*See helper function for description*)
-  let exp_sx_constraints_flow srk equiv_pairs transformers kvarst ksums unialpha tr_symbols in_sing out_sing ests ent_equiv_class_vars num_labels transformermap =
+  (*For each coh class, set constraints  relating to the transformer on which this coh
+   * class takes last reset. Includes setting reset indicator var for coh class,
+   * setting init values for coh class dims, and setting up coh class flow constraints.
+   * *)
+  let coh_classes_last_reset_constr srk coh_class_pairs transformers kvars_coh_classes ksums
+      unified_s tr_symbols entry exit local_s_t coh_classes_dist_vars num_cs 
+      transformer_w_ends =
     mk_and srk
-      (List.mapi (fun ind (kstack, svarstdims, ri, ksum) ->
+      (List.mapi (fun ind (coh_class_kvars, svarstdims, rvar, ksum) ->
            mk_and srk [
-             upper_bound_terms srk (List.nth ent_equiv_class_vars ind) num_labels;
-             dist_vars_path srk (List.nth ent_equiv_class_vars ind) transformermap kstack in_sing;
-             dist_inf_constr srk (List.nth ent_equiv_class_vars ind) ests in_sing out_sing kstack; 
-             exp_sx_constraints_helper_flow srk ri ksum ksums svarstdims transformers kvarst unialpha tr_symbols kstack in_sing out_sing ests (List.nth ent_equiv_class_vars ind)]
-         )
-          equiv_pairs)
+             upper_bound_terms srk (List.nth coh_classes_dist_vars ind) num_cs;
+             dist_vars_path srk (List.nth coh_classes_dist_vars ind) transformer_w_ends
+               coh_class_kvars entry;
+             dist_inf_constr srk (List.nth coh_classes_dist_vars ind) local_s_t entry exit
+               coh_class_kvars; 
+             last_reset_constr_coh_class srk rvar ksum ksums svarstdims transformers
+               kvars_coh_classes unified_s tr_symbols coh_class_kvars entry exit local_s_t 
+               (List.nth coh_classes_dist_vars ind)])
+          coh_class_pairs)
 
 
   (*The N vars are the max number of times any transition was taken. Used for flow primarily*)
@@ -505,8 +550,8 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
     let et = map_terms srk (create_n_vars srk num [] "ETL") in
     List.combine es et
 
- (* The initial label for graph must have precond satisfied; the final label for graph must have 
-   * post cond satisfied*)
+  (* The initial label for graph must have precond satisfied; the final label for graph must have 
+    * post cond satisfied*)
   let exp_pre_post_conds srk ests label tr_symbols =
     mk_and srk
       (List.mapi (fun ind (es, et) ->
@@ -571,7 +616,7 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
                trans reachability.(n2) alphas tr_symbols ind in
            mk_if srk (mk_lt srk (mk_zero srk) (List.nth nvarst ind)) post_cond) transformersmap
       )
- 
+
 
   let closure_of_an_scc srk tr_symbols loop_counter vass =
     let label, graph, alphas, invars, guarded_system = vass.label, vass.graph, vass.simulation, vass.invars, vass.guarded_system in
@@ -609,7 +654,7 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
       let nvarst = map_terms srk (create_n_vars srk (List.length transformers) [] "N") in
       let entvars = map_terms srk (create_n_vars srk (Array.length label) [] "ENT") in
       let ent_equiv_class_vars = BatList.mapi (fun ind _ ->  map_terms srk (create_n_vars srk (Array.length label) [] ("ENTC"^(string_of_int ind)))) alphas in
- 
+
 
       let (form, (equiv_pairst, kvarst, ksumst)) =
         exp_base_helper srk tr_symbols loop_counter simulation transformers in
@@ -620,9 +665,9 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
           transformersmap reachable_transitions nvarst alphas tr_symbols in
       let in_sing, out_sing  = get_incoming_outgoing_edges 
           transformersmap (Array.length label) in
-      let flow_consv_req = exp_consv_of_flow_new srk in_sing out_sing ests nvarst (-2) in
+      let flow_consv_req = consv_of_flow srk in_sing out_sing ests nvarst in
       let pos_constraints = create_exp_positive_reqs srk [nvarst] in
-      let sx_constraints = exp_sx_constraints_flow srk equiv_pairst transformers (nvarst:: kvarst) 
+      let sx_constraints = coh_classes_last_reset_constr srk equiv_pairst transformers (nvarst:: kvarst) 
           ((mk_add srk nvarst) :: ksumst) (unify alphas) tr_symbols in_sing out_sing
           ests ent_equiv_class_vars (Array.length label) transformersmap in
       let ent_bounds = upper_bound_terms srk entvars (Array.length label) in
@@ -632,7 +677,7 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
       let form = mk_and srk [form; sum_n_eq_loop_counter; ks_less_than_ns; flow_consv_req; in_out_one;
                              ests_one_or_zero; pre_post_conds; pos_constraints; pos_constraints_1; post_conds_const; sx_constraints;
                              ent_bounds; ent_source; ent_non_source; ent_max; invariants;
-                            gs_constr] in
+                             gs_constr] in
       form, (fst (List.split ests)))
 
   (*Take (x, x') list and (y, y') list and make a list that combine in some way*)
@@ -653,8 +698,8 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
   (*Bound each scc ordering var by 0 and max number sccs*)
   let ordering_bounds srk ordering_vars max =
     mk_and srk (BatArray.to_list (BatArray.map (fun var -> mk_and srk 
-                                                  [mk_leq srk (mk_zero srk) var;
-                                                   mk_lt srk var max]) ordering_vars))
+                                                   [mk_leq srk (mk_zero srk) var;
+                                                    mk_lt srk var max]) ordering_vars))
 
   (*No duplicates in the scc ordering vars*)
   let no_dups_ordering srk ordering_vars =
@@ -671,7 +716,7 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
     in
     mk_and srk (helper_no_dups_2 ord_list)
 
-  
+
   (*Requirements for composition of scc components*)
   let come_next_req srk ordering_vars es loop_counters num_scc_used scc_closures symmappings syms formula skolemmappings =
     mk_and srk (BatList.flatten (BatArray.to_list (BatArray.mapi (fun ind1 o_var1 ->
@@ -723,7 +768,7 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
     if BatArray.length sccsform.vasses = 0 then (no_trans_taken srk loop_counter syms) else(
       let sink = sccsform.sink in
       let doublex' = List.map (fun (x, x') -> (x', x')) syms in
-           let symmappings = BatArray.mapi (fun ind1 scc ->
+      let symmappings = BatArray.mapi (fun ind1 scc ->
           List.rev
             (BatList.fold_lefti (fun acc ind2 (x, x') ->
                  ((mk_symbol srk ~name:((show_symbol srk x)^"_"^(string_of_int ind1)) (typ_symbol srk x)),
@@ -784,7 +829,7 @@ let exp_consv_of_flow_new srk in_sing out_sing ests varst reset_trans =
       let loop_bound = mk_eq srk (mk_add srk (num_scc_used :: (BatArray.to_list subloop_counters))) loop_counter in
       let order_constr = topo_order_constraints srk order es scc_ordering in
       let result = mk_or srk [mk_and srk [order_bounds_const; sub_loops_geq_0; no_dups_constr; come_next_const; first_scc_const;
-                                           num_scc_used_bound; num_scc_used_sink; loop_bound; mk_leq srk (mk_zero srk) loop_counter; order_constr];
+                                          num_scc_used_bound; num_scc_used_sink; loop_bound; mk_leq srk (mk_zero srk) loop_counter; order_constr];
                               no_trans_taken srk loop_counter syms] in
       Log.errorf "Done";
       result
