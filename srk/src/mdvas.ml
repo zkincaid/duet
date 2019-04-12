@@ -384,9 +384,9 @@ let exp srk tr_symbols loop_counter vabs =
   if(M.nb_rows (unify s_lst) = 0) 
   then mk_and srk [invariants; gs_constr]
   else (
-    let (formula, (equiv_pairst, kvarst, ksumst)) = exp_base_helper srk tr_symbols
+    let (formula, (coh_class_pairs, kvarst, ksumst)) = exp_base_helper srk tr_symbols
         loop_counter s_lst (TSet.to_list v) in
-    let constr1 = exp_sx_constraints srk equiv_pairst 
+    let constr1 = exp_sx_constraints srk coh_class_pairs
         (TSet.to_list v) kvarst ksumst (unify s_lst) tr_symbols in
     mk_and srk [formula; constr1; invariants; gs_constr]
   )
