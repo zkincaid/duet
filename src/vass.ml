@@ -535,70 +535,55 @@ module Vassnew = struct
           coh_class_pairs)
 
 
-  (*The N vars are the max number of times any transition was taken. Used for flow primarily*)
-  let rec create_n_vars srk num vars basename =
+  
+  let rec create_n_intvars srk num vars basename =
     begin match num <= 0 with
-      | true -> List.rev vars (*rev only to make debugging easier and have names match up... not needed *)
-      | false -> create_n_vars srk (num - 1) ((mk_symbol srk ~name:(basename^(string_of_int num)) `TyInt) :: vars) basename
+      | true -> List.rev vars
+      | false -> create_n_intvars srk (num - 1) 
+                   ((mk_symbol srk ~name:(basename^(string_of_int num)) `TyInt) :: vars
+                   ) basename
     end
 
 
 
-  (*ESL entry node for graph; ETL exit node for graph*)
-  let create_es_et srk num =
-    let es = map_terms srk (create_n_vars srk num [] "ESL") in
-    let et = map_terms srk (create_n_vars srk num [] "ETL") in
-    List.combine es et
+  (*Creates source and sink vars for a scc. 1 s/t pair per control state in scc
+   * 1 if s/t for scc, 0 otherwise*)
+  let create_local_s_t srk num =
+    let sources = map_terms srk (create_n_intvars srk num [] "source") in
+    let sinks = map_terms srk (create_n_intvars srk num [] "sink") in
+    List.combine sources sinks
 
-  (* The initial label for graph must have precond satisfied; the final label for graph must have 
-    * post cond satisfied*)
-  let exp_pre_post_conds srk ests label tr_symbols =
+  (* Each control state is a predicate; the source predicate must be satisified
+   * on entry and the sink predicate must be satisfied on exit for run of the vass *)
+  let source_sink_conds_satisfied srk local_s_t cs tr_symbols =
     mk_and srk
-      (List.mapi (fun ind (es, et) ->
+      (List.mapi (fun ind (source, sink) ->
            mk_and srk
-             [mk_if srk (mk_eq srk es (mk_one srk)) (label.(ind));
-              mk_if srk (mk_eq srk et (mk_one srk)) (postify srk tr_symbols (label.(ind)))])
-          ests)
+             [mk_if srk (mk_eq srk source (mk_one srk)) (cs.(ind));
+              mk_if srk (mk_eq srk sink (mk_one srk)) (postify srk tr_symbols (cs.(ind)))])
+          local_s_t)
 
-  (*Set N vars eq to loop counter*)
-  let exp_nvars_eq_loop_counter srk nvarst loop_counter =
-    mk_eq srk (mk_add srk nvarst) loop_counter
-
-
-  (* Set each kvar less or eq respective nvar*)
-  let exp_kvarst_less_nvarst srk nvarst kvarst =
+  (* Each coh class can take a transformer at most as many times
+   * as the "master coh class" (effectively a coh class with no resets) *)
+  let coh_class_trans_less_master_trans srk master kvars_coh_classes =
     mk_and srk
       (List.map (fun kstack ->
            mk_and srk
              (List.mapi (fun ind k ->
-                  mk_leq srk k (List.nth nvarst ind))
+                  mk_leq srk k (List.nth master ind))
                  kstack))
-          kvarst)
+          kvars_coh_classes)
 
-
-  (*Compute the graph that is reachable from a given transformer*)
-  let get_reachable_trans graph =
-    BatArray.mapi (fun ind vert -> GraphTrav.fold_component (fun v (trans, verts) -> 
-        TSet.union
-          (List.fold_left 
-             (fun acc ele ->
-                TSet.union acc 
-                  (TSet.union graph.(ele).(v) graph.(v).(ele))) trans verts)
-          graph.(v).(v),
-        v :: verts)
-        (TSet.empty, []) graph ind) graph
-
-  (*Compute the condition that must hold if a given transformer is taken... Confirm correctness of this*)
-  let compute_trans_post_cond srk prelabel postlabel (trans : transformer) (rtrans,rverts) alphas tr_symbols ind = 
-    let term_list = term_list srk alphas tr_symbols in
-    let f' = mk_or srk (List.map (fun ele -> gamma_transformer srk term_list ele) (TSet.elements rtrans)) in
+  (*Compute the condition that must hold if a given transformer is taken*)
+  let compute_trans_post_cond srk pre_cs post_cs trans gamma_trans term_list tr_symbols = 
     let pre_symbols = pre_symbols tr_symbols in
     let man = Polka.manager_alloc_strict () in
     let exists_post x = not (Symbol.Set.mem x pre_symbols) in
     let trans' = gamma_transformer srk term_list trans in
-    let ptrans_form = (mk_and srk [prelabel;trans';postlabel]) in
-    let post_trans = SrkApron.formula_of_property (Abstract.abstract ~exists:exists_post srk man ptrans_form) in
-    let lri_form = (rewrite srk ~down:(nnf_rewriter srk) f') in 
+    let complete_trans_form = (mk_and srk [pre_cs;trans';post_cs]) in
+    let post_trans = SrkApron.formula_of_property 
+        (Abstract.abstract ~exists:exists_post srk man complete_trans_form) in
+    let lri_form = (rewrite srk ~down:(nnf_rewriter srk) gamma_trans) in 
     let rslt = SrkApron.formula_of_property
         (Abstract.abstract ~exists:exists_post srk man
            (mk_and srk
@@ -609,76 +594,83 @@ module Vassnew = struct
 
 
   (* If a transformers is taken, that transformer post condition must hold*)
-  let exp_post_conds_on_transformers srk label transformersmap reachability nvarst alphas tr_symbols =
+  let transformers_post_conds_constrs srk cs transformersmap gamma_trans
+      term_list master tr_symbols =
     mk_and srk 
       (BatList.mapi (fun ind (n1, trans, n2) -> 
-           let post_cond = compute_trans_post_cond srk label.(n1) (postify srk tr_symbols label.(n2)) 
-               trans reachability.(n2) alphas tr_symbols ind in
-           mk_if srk (mk_lt srk (mk_zero srk) (List.nth nvarst ind)) post_cond) transformersmap
-      )
+           let post_cond = 
+             compute_trans_post_cond srk cs.(n1) (postify srk tr_symbols cs.(n2)) 
+               trans gamma_trans term_list tr_symbols in
+           mk_if srk (mk_lt srk (mk_zero srk) (List.nth master ind)) post_cond) 
+          transformersmap)
 
 
   let closure_of_an_scc srk tr_symbols loop_counter vass =
-    let label, graph, alphas, invars, guarded_system = vass.label, vass.graph, vass.simulation, vass.invars, vass.guarded_system in
-    let simulation = alphas in
+    let cs, graph, s_lst, invars, guarded_system = 
+      vass.label, vass.graph, vass.simulation, vass.invars, vass.guarded_system in
 
-    let ests = create_es_et srk (Array.length label) in
-    let in_out_one = split_terms_add_to_one srk ests in
-    let ests_one_or_zero = exp_each_ests_one_or_zero srk ests in
-    let pre_post_conds = exp_pre_post_conds srk ests label tr_symbols in
-    let pos_constraints_1 = create_exp_positive_reqs srk [fst (List.split ests); snd (List.split ests)] in
+    let local_s_t = create_local_s_t srk (Array.length cs) in
+    let constr1 = split_terms_add_to_one srk local_s_t in
+    let constr2 = exp_each_ests_one_or_zero srk local_s_t in
+    let constr3 = source_sink_conds_satisfied srk local_s_t cs tr_symbols in
     let invariants = mk_or srk [mk_eq srk loop_counter (mk_zero srk);
                                 mk_and srk invars] in
     let gs_constr = if guarded_system 
       then (mk_leq srk loop_counter (mk_one srk)) 
       else mk_true srk in  
 
-
-
-
-    (*If case is top localized to one scc; still require that a label is used*)
+    (*Even if top; still require that a label is used*)
     if(M.nb_rows (unify (vass.simulation)) = 0) then
-      ((mk_and srk [in_out_one; ests_one_or_zero; pre_post_conds(*; pos_constraints_1*);
-                    invariants; gs_constr]), (fst (List.split ests)))
+      ((mk_and srk [constr1; constr2; constr3;
+                    invariants; gs_constr]), (fst (List.split local_s_t)))
     else(
-      let transformersmap : (int * transformer * int) list = List.flatten
+      (* list of form (cs, trans, cs) *)
+      let transformersmap = List.flatten
           (List.flatten
              (Array.to_list
                 (Array.mapi (fun n1 arr ->
                      Array.to_list (Array.mapi (fun n2 vas ->
-                         BatEnum.fold (fun acc trans -> (n1, trans, n2) :: acc) [] (TSet.enum vas))
+                         BatEnum.fold (fun acc trans -> 
+                             (n1, trans, n2) :: acc) [] (TSet.enum vas))
                          arr))
                     graph)))
       in
       let transformers = List.map (fun (_, t, _) -> t) transformersmap in
-      let nvarst = map_terms srk (create_n_vars srk (List.length transformers) [] "N") in
-      let entvars = map_terms srk (create_n_vars srk (Array.length label) [] "ENT") in
-      let ent_equiv_class_vars = BatList.mapi (fun ind _ ->  map_terms srk (create_n_vars srk (Array.length label) [] ("ENTC"^(string_of_int ind)))) alphas in
+      (* kvars but for a path with no resets *)
+      let master = map_terms srk (create_n_intvars srk (List.length transformers) [] "N") in
+      (* Each coh class has a set of "distvars", including master coh class, which are used
+       * to ensure flow consistancy for that coh class path.*)
+      let distvarsmaster = map_terms srk 
+          (create_n_intvars srk (Array.length cs) [] "distM") in
+      let distvars_coh_classes = BatList.mapi 
+          (fun ind _ ->  map_terms srk 
+              (create_n_intvars srk (Array.length cs) [] ("distC"^(string_of_int ind)))) 
+          s_lst in
+      let gamma_trans = gamma srk 
+          {v=(TSet.of_list transformers);s_lst;invars;guarded_system} tr_symbols in
+      let (phi, (coh_class_pairs, kvars_equiv_classes, ksums)) =
+        exp_base_helper srk tr_symbols loop_counter s_lst transformers in
+      let entry, exit  = get_incoming_outgoing_edges transformersmap (Array.length cs) in
 
+      let constr4 = create_exp_positive_reqs srk [master] in
+      let constr5 = mk_eq srk (mk_add srk master) loop_counter in
+      let constr6 = coh_class_trans_less_master_trans srk master kvars_equiv_classes in
+      let constr7 = upper_bound_terms srk distvarsmaster (Array.length cs) in
+      let constr8 = set_flow_source srk distvarsmaster (fst (List.split local_s_t)) in
+      let constr9 = dist_vars_path srk distvarsmaster transformersmap master entry in
+      let constr10 = dist_inf_constr srk distvarsmaster local_s_t entry exit master in 
+      let constr11 = transformers_post_conds_constrs srk cs 
+          transformersmap gamma_trans (term_list srk s_lst tr_symbols) master tr_symbols in
+      let constr12 = consv_of_flow srk entry exit local_s_t master in
+      let constr13 = coh_classes_last_reset_constr srk coh_class_pairs 
+          transformers (master :: kvars_equiv_classes) 
+          ((mk_add srk master) :: ksums) (unify s_lst) tr_symbols entry exit
+          local_s_t distvars_coh_classes (Array.length cs) transformersmap in
 
-      let (form, (equiv_pairst, kvarst, ksumst)) =
-        exp_base_helper srk tr_symbols loop_counter simulation transformers in
-      let sum_n_eq_loop_counter = exp_nvars_eq_loop_counter srk nvarst loop_counter in
-      let ks_less_than_ns = exp_kvarst_less_nvarst srk nvarst kvarst in
-      let reachable_transitions = get_reachable_trans graph in
-      let post_conds_const = exp_post_conds_on_transformers srk label 
-          transformersmap reachable_transitions nvarst alphas tr_symbols in
-      let in_sing, out_sing  = get_incoming_outgoing_edges 
-          transformersmap (Array.length label) in
-      let flow_consv_req = consv_of_flow srk in_sing out_sing ests nvarst in
-      let pos_constraints = create_exp_positive_reqs srk [nvarst] in
-      let sx_constraints = coh_classes_last_reset_constr srk equiv_pairst transformers (nvarst:: kvarst) 
-          ((mk_add srk nvarst) :: ksumst) (unify alphas) tr_symbols in_sing out_sing
-          ests ent_equiv_class_vars (Array.length label) transformersmap in
-      let ent_bounds = upper_bound_terms srk entvars (Array.length label) in
-      let ent_source = set_flow_source srk entvars (fst (List.split ests)) in
-      let ent_non_source = dist_vars_path srk entvars transformersmap nvarst in_sing in
-      let ent_max = dist_inf_constr srk entvars ests in_sing out_sing nvarst in 
-      let form = mk_and srk [form; sum_n_eq_loop_counter; ks_less_than_ns; flow_consv_req; in_out_one;
-                             ests_one_or_zero; pre_post_conds; pos_constraints; pos_constraints_1; post_conds_const; sx_constraints;
-                             ent_bounds; ent_source; ent_non_source; ent_max; invariants;
-                             gs_constr] in
-      form, (fst (List.split ests)))
+      let phi' = mk_and srk [phi; constr1; constr2; constr3; constr4; constr5; constr6;
+                            constr7; constr8; constr9; constr10; constr11; constr12;
+                            constr13; invariants; gs_constr] in
+      phi', (fst (List.split local_s_t)))
 
   (*Take (x, x') list and (y, y') list and make a list that combine in some way*)
   let merge_mappings pre post use_pres_post use_posts_pre =
