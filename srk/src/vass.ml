@@ -651,6 +651,8 @@ module Vassnew = struct
       let (phi, (coh_class_pairs, kvars_equiv_classes, ksums)) =
         exp_base_helper srk tr_symbols loop_counter s_lst transformers in
       let entry, exit  = get_incoming_outgoing_edges transformersmap (Array.length cs) in
+      (* Having this constraint early makes things faster for unknown reason*)
+      let constr0 = consv_of_flow srk entry exit local_s_t master in
 
       let constr4 = create_exp_positive_reqs srk [master] in
       let constr5 = mk_eq srk (mk_add srk master) loop_counter in
@@ -661,15 +663,15 @@ module Vassnew = struct
       let constr10 = dist_inf_constr srk distvarsmaster local_s_t entry exit master in 
       let constr11 = transformers_post_conds_constrs srk cs 
           transformersmap gamma_trans (term_list srk s_lst tr_symbols) master tr_symbols in
-      let constr12 = consv_of_flow srk entry exit local_s_t master in
-      let constr13 = coh_classes_last_reset_constr srk coh_class_pairs 
+      let constr12 = coh_classes_last_reset_constr srk coh_class_pairs 
           transformers (master :: kvars_equiv_classes) 
           ((mk_add srk master) :: ksums) (unify s_lst) tr_symbols entry exit
           local_s_t distvars_coh_classes (Array.length cs) transformersmap in
 
-      let phi' = mk_and srk [phi; constr1; constr2; constr3; constr4; constr5; constr6;
+      let phi' = mk_and srk [phi; constr0; 
+                             constr1; constr2; constr3; constr4; constr5; constr6;
                             constr7; constr8; constr9; constr10; constr11; constr12;
-                            constr13; invariants; gs_constr] in
+                            invariants; gs_constr] in
       phi', (fst (List.split local_s_t)))
 
   (*Take (x, x') list and (y, y') list and makes new tuple of form
