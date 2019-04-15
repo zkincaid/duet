@@ -672,19 +672,22 @@ module Vassnew = struct
                             constr13; invariants; gs_constr] in
       phi', (fst (List.split local_s_t)))
 
-  (*Take (x, x') list and (y, y') list and make a list that combine in some way*)
-  let merge_mappings pre post use_pres_post use_posts_pre =
+  (*Take (x, x') list and (y, y') list and makes new tuple of form
+   * (x, y') on false false; (x, y) on false true; (x', y') on true false; 
+   * (x', y) on true true *)
+  let merge_mappings pre post use_x' use_y =
     BatList.fold_left2 (fun acc (x, x') (y, y') -> 
-        if use_posts_pre then (
-          if use_pres_post then (x',  y) :: acc
+        if use_y then (
+          if use_x' then (x',  y) :: acc
           else (x, y) :: acc
         )
-        else if use_pres_post then (x', y') :: acc
+        else if use_x' then (x', y') :: acc
         else (x, y') :: acc) [] pre post
 
   (*If no trans is taken, vars do not change; loop counter is 0*)
-  let no_trans_taken srk loop_counter syms =
-    let eqs = (List.map (fun (x, x') -> mk_eq srk (mk_const srk x) (mk_const srk x'))) syms in
+  let no_trans_taken srk loop_counter tr_symbols =
+    let eqs = (List.map (fun (x, x') -> 
+        mk_eq srk (mk_const srk x) (mk_const srk x'))) tr_symbols in
     mk_and srk ((mk_eq srk loop_counter (mk_zero srk)) :: eqs)
 
   (*Bound each scc ordering var by 0 and max number sccs*)
@@ -693,7 +696,7 @@ module Vassnew = struct
                                                    [mk_leq srk (mk_zero srk) var;
                                                     mk_lt srk var max]) ordering_vars))
 
-  (*No duplicates in the scc ordering vars*)
+  (*Each term in order_vars is unique*)
   let no_dups_ordering srk ordering_vars =
     let ord_list = BatArray.to_list ordering_vars in
     let rec helper_no_dups ele ord_tl =
@@ -709,43 +712,68 @@ module Vassnew = struct
     mk_and srk (helper_no_dups_2 ord_list)
 
 
-  (*Requirements for composition of scc components*)
-  let come_next_req srk ordering_vars es loop_counters num_scc_used scc_closures symmappings syms formula skolemmappings =
+  (* Constraints for sequence of sccs 
+   * sources is a [[si1, si2...], [sj1, sj2...]] where each inner list
+   * is a list of the source vars for the ith scc
+   *)
+  let seq_scc_constrs srk ordering_vars sources loop_counters num_scc_used 
+      scc_closures symmappings tr_symbols phi skolemmappings =
     mk_and srk (BatList.flatten (BatArray.to_list (BatArray.mapi (fun ind1 o_var1 ->
         BatArray.to_list (BatArray.mapi (fun ind2 o_var2 ->
             if ind1 <> ind2 then(
-              (*If o_vari immediatly precedes o_varj: if scci is off, then sccj must be too. Otherwise,
-               * Sccj is off and max sccs used is o_vari, or sccj is used, is linked to scci, and at least o_varj
-               * sccs are used*)
+              (*If o_vari immediatly precedes o_varj: 
+               * if scci is "unused" (no source var = 1), 
+               * then sccj must be unused too. 
+               * Otherwise, if scci is used (one of its source vars = 1)
+               * and sccj is unused, then num_of_sccs used is ovari
+               * (ovari represents the place in sequence in which
+               * scci and used and all prev scc in seq are also used).
+               * Finally, if both scci and sccj are used, then there
+               * is a transition from scci to sccj.
+               *)
               mk_if srk (mk_eq srk o_var1 (mk_sub srk o_var2 (mk_one srk)))
-                (mk_ite srk (mk_eq srk (mk_add srk es.(ind1)) (mk_zero srk))
-                   (mk_and srk [(mk_eq srk (mk_add srk es.(ind2)) (mk_zero srk));
+                (*scci unused*)
+                (mk_ite srk (mk_eq srk (mk_add srk sources.(ind1)) (mk_zero srk))
+                   (mk_and srk [(mk_eq srk (mk_add srk sources.(ind2)) (mk_zero srk));
                                 mk_eq srk loop_counters.(ind2) (mk_zero srk)])
-                   (mk_or srk [(mk_and srk [(mk_eq srk (mk_add srk es.(ind2)) (mk_zero srk));
-                                            mk_eq srk loop_counters.(ind2) (mk_zero srk);
-                                            mk_eq srk num_scc_used o_var1]);
-                               mk_and srk [scc_closures.(ind2);
-                                           (postify srk skolemmappings.(ind1)
-                                              (postify srk (merge_mappings syms symmappings.(ind2) true true) 
-                                                 (postify srk (merge_mappings syms symmappings.(ind1) false false) formula)));
-                                           mk_leq srk o_var2 num_scc_used]])))
-            else (mk_true srk))
-            ordering_vars)) ordering_vars)))
+                   (mk_or srk 
+                      (* scci used; sccj unused*)
+                      [(mk_and srk [(mk_eq srk (mk_add srk sources.(ind2)) 
+                                       (mk_zero srk));
+                                    mk_eq srk loop_counters.(ind2) (mk_zero srk);
+                                    mk_eq srk num_scc_used o_var1]);
+                       (* scci used and sccj used*)
+                       mk_and srk [scc_closures.(ind2);
+                                   (postify srk skolemmappings.(ind1)
+                                      (postify srk (merge_mappings tr_symbols 
+                                                      symmappings.(ind2) true true) 
+                                         (postify srk (merge_mappings tr_symbols
+                                                         symmappings.(ind1) 
+                                                         false false) phi)));
+                                   mk_leq srk o_var2 num_scc_used]])))
+            else (mk_true srk)) ordering_vars)) 
+        ordering_vars)))
 
-  (*Require first scc to be used; link up init x values to this scc*)
-  let first_scc_used srk ordering_vars es sccs_closures symmappings syms =
+  (* Constraint requiring scc in place 0 to be "used", and linking this scc unprimed vars
+   * up with real initial vals for respective vars *)
+  let first_scc_constrs srk ordering_vars sources sccs_closures symmappings tr_symbols =
     mk_and srk (BatArray.to_list (BatArray.mapi (fun ind1 o_var1 ->
         mk_if srk (mk_eq srk o_var1 (mk_zero srk))
-          (mk_and srk (mk_eq srk (mk_add srk es.(ind1)) (mk_one srk) :: sccs_closures.(ind1) ::
-                       (BatList.map2 (fun (x, x') (sccx, sccx') -> mk_eq srk (mk_const srk x) (mk_const srk sccx))
-                          syms symmappings.(ind1))))) ordering_vars))
+          (mk_and srk 
+             (mk_eq srk (mk_add srk sources.(ind1)) (mk_one srk) 
+              :: sccs_closures.(ind1) 
+              :: (BatList.map2 (fun (x, x') (sccx, sccx') -> 
+                  mk_eq srk (mk_const srk x) (mk_const srk sccx))
+                  tr_symbols symmappings.(ind1))))) ordering_vars))
 
   (*If scci comes before sccj in topological sort, but sccj comes before scci in scc ordering, scci must be 0*)
-  let topo_order_constraints srk order es scc_ordering =
+  let topo_order_constraints srk order sources scc_ordering =
     let rec helper ind1 remaining_order =
       match remaining_order with
       | [] -> []
-      | hd :: tl -> mk_if srk (mk_lt srk scc_ordering.(hd) scc_ordering.(ind1)) (mk_eq srk (mk_zero srk) (mk_add srk es.(ind1))) :: (helper ind1 tl)
+      | hd :: tl -> mk_if srk (mk_lt srk scc_ordering.(hd) scc_ordering.(ind1)) 
+                      (mk_eq srk (mk_zero srk) (mk_add srk sources.(ind1))) 
+                    :: (helper ind1 tl)
     in
     let rec outer ordering =
       match ordering with
@@ -812,8 +840,8 @@ module Vassnew = struct
       let scc_ordering = BatArray.append scc_ordering_pre_sink (BatArray.make 1 sink_ordering) in
       let order_bounds_const = ordering_bounds srk scc_ordering (mk_real srk (QQ.of_int (BatArray.length sccclosures))) in
       let no_dups_constr = no_dups_ordering srk scc_ordering in
-      let come_next_const = come_next_req srk scc_ordering es subloop_counters num_scc_used sccclosures symmappings syms sccsform.formula skolem_mappings_transitions in
-      let first_scc_const = first_scc_used srk scc_ordering es sccclosures symmappings syms in
+      let come_next_const = seq_scc_constrs srk scc_ordering es subloop_counters num_scc_used sccclosures symmappings syms sccsform.formula skolem_mappings_transitions in
+      let first_scc_const = first_scc_constrs srk scc_ordering es sccclosures symmappings syms in
       let num_scc_used_bound = mk_and srk 
           [mk_lt srk num_scc_used (mk_real srk (QQ.of_int (BatArray.length sccclosures)));
            mk_leq srk (mk_zero srk) num_scc_used] in
