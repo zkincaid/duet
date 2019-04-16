@@ -350,7 +350,15 @@ let exp_kstack_eq_ksums srk coh_class_pairs =
  * in both VAS and VASS abstractions
  *)
 let exp_base_helper srk tr_symbols loop_counter s_lst transformers =
- (*Create new symbols*)
+ (*Create new symbols
+  * Each coh class has:
+  * a set of kvars, where the ith coh class jth kvar is
+  * the number of times that coh class i took the jth transformer since last reset
+  * an rvar, where the ith coh class rvar = j for j >= 0 means that coh class i
+  * took last reset on transformer j; rvar = -1 means coh class i never reset
+  * a list of the form (s,d), where the the jth (s, d) in this list has the property
+  * that s is the starting value for the jth row of coh class i (after last reset),
+  * and d is the dim of this row in the unified simulation*)
   let coh_class_pairs = create_exp_vars srk s_lst (BatList.length transformers) in
   let coh_class_pairs = replace_resets_with_zero srk coh_class_pairs transformers in
   let kvarst, rvarst, ksumst = List.map (fun (kstack, _, _, _) -> kstack) coh_class_pairs, 

@@ -49,9 +49,9 @@ module Vassnew = struct
    * true if any of these pairs of invariants exist.
    *)
   type 'a sccvas = 
-    { label : ('a formula) array;
+    { control_states : ('a formula) array;
       graph : vas array array;
-      simulation : M.t list;
+      s_lst : M.t list;
       invars : 'a formula list;
       guarded_system : bool
     }
@@ -158,31 +158,31 @@ module Vassnew = struct
   (*TODO: make pretty print prettier*)
   let pp srk syms formatter vasses = 
     BatArray.iteri (fun ind sccvas ->
-        Format.fprintf formatter "Vass %n has the following labels \n" ind;
-        BatArray.iteri (fun ind2 lab -> Format.fprintf formatter "Label %n is %a \n" ind2 (Formula.pp srk) (lab)) sccvas.label;
+        Format.fprintf formatter "Vass %n has the following control states \n" ind;
+        BatArray.iteri (fun ind2 lab -> Format.fprintf formatter "Label %n is %a \n" ind2 (Formula.pp srk) (lab)) sccvas.control_states;
         Format.fprintf formatter "END LABELS \n\n" ;
         Format.fprintf formatter "Vass %n has the following graph \n" ind;
         BatArray.iteri (fun ind arr ->
             BatArray.iteri (fun ind2 trans ->
-                Format.fprintf formatter "Num connections from label %d to label %d is: %d \n" ind ind2 (TSet.cardinal trans);
+                Format.fprintf formatter "Num connections from control state %d to control state %d is: %d \n" ind ind2 (TSet.cardinal trans);
                 TSet.iter (fun trans ->
                     Format.fprintf formatter "Label %d admits trans a: %a b: %a \n" ind (Z.pp) trans.a (V.pp) trans.b) trans) arr) sccvas.graph;
         Format.fprintf formatter "END PRINT GRAPH \n\n";
         Format.fprintf formatter "Vass %n has the following alphas \n" ind;
-        BatList.iter (fun alph -> Format.fprintf formatter "Matrix %a\n" (M.pp) alph) sccvas.simulation) vasses.vasses
+        BatList.iter (fun alph -> Format.fprintf formatter "Matrix %a\n" (M.pp) alph) sccvas.s_lst) vasses.vasses
 
   (*Computes vass for a given list of control states and formula*)
-  let compute_single_scc_vass ?(exists=fun x -> true) srk tr_symbols labels_lst phi =
+  let compute_single_scc_vass ?(exists=fun x -> true) srk tr_symbols cs_lst phi =
     (* Restrict phi to configurations that model a control state *)
-    let postified_labels = List.map (fun lbl -> postify srk tr_symbols lbl) labels_lst in
-    let phi' = mk_and srk [mk_or srk labels_lst; mk_or srk postified_labels; phi] in
+    let postified_cs = List.map (fun lbl -> postify srk tr_symbols lbl) cs_lst in
+    let phi' = mk_and srk [mk_or srk cs_lst; mk_or srk postified_cs; phi] in
     let phi'',invars, guarded_system = find_invariants srk tr_symbols phi' in
     (*pre_graph represents adjacency (transformers, sim) graph for control states
      * prior to converting all cells of graph to use same sim matrix*)
     let pre_graph = BatArray.init 
-        (List.length labels_lst) 
+        (List.length cs_lst) 
         (fun _ -> (BatArray.init 
-           (List.length labels_lst) 
+           (List.length cs_lst) 
            (fun _ -> (TSet.empty,[]))))
     in
     (*Populate graph with transformers between two control states*)
@@ -190,8 +190,8 @@ module Vassnew = struct
         BatArray.modifyi (fun ind2 _ ->
             let {v; s_lst} = abstract ~exists srk tr_symbols
                 (mk_and srk 
-                   [(List.nth labels_lst ind1); 
-                    postify srk tr_symbols (List.nth labels_lst ind2); 
+                   [(List.nth cs_lst ind1); 
+                    postify srk tr_symbols (List.nth cs_lst ind2); 
                     phi'']) 
             in
             (v, s_lst))
@@ -211,9 +211,9 @@ module Vassnew = struct
     in
     (*Will hold transformer adjacency graph such that each cell uses same sim matrix*)
     let graph = BatArray.init 
-        (List.length labels_lst) 
+        (List.length cs_lst) 
         (fun _ -> 
-           (BatArray.init (List.length labels_lst) 
+           (BatArray.init (List.length cs_lst) 
               (fun _ -> (TSet.empty))))
     in
     let rec apply_images base_img imglist ind1 ind2 =
@@ -226,15 +226,15 @@ module Vassnew = struct
         let (v, _) = pre_graph.(ind1).(ind2) in
         let v' = coprod_compute_image v [r2'] in
         graph.(ind1).(ind2)<-v';
-        let ind1', ind2' = if ind2 = 0 then ind1 - 1, (List.length labels_lst) - 1
+        let ind1', ind2' = if ind2 = 0 then ind1 - 1, (List.length cs_lst) - 1
           else ind1, ind2 - 1 in
         apply_images r1' tl ind1' ind2'
       | [] -> ()
     in
     (*TODO: 100 is magic number. should be something like largest s*)
     apply_images (ident_matrix_real 100) imglist 
-      ((List.length labels_lst) - 1) ((List.length labels_lst) - 1);
-    {label=Array.of_list labels_lst;graph;simulation=s_lst;invars;guarded_system}
+      ((List.length cs_lst) - 1) ((List.length cs_lst) - 1);
+    {control_states=Array.of_list cs_lst;graph;s_lst;invars;guarded_system}
 
   (* Project a formula onto the symbols that satisfy the "exists"
      predicate, and convert to DNF *)
@@ -363,7 +363,7 @@ module Vassnew = struct
 
 
 
-  let upper_bound_terms srk terms upper_bound = 
+  let upper_bound_nonneg_terms srk terms upper_bound = 
     mk_and srk  (BatList.map 
                    (fun var -> mk_and srk 
                        [mk_leq srk (mk_zero srk) var;
@@ -371,7 +371,7 @@ module Vassnew = struct
                    terms)
 
 
-  (*Distance is 0 if and only if source label; reset taken version*)
+  (*Distance is 0 if and only if source cs; reset taken version*)
   let set_flow_source_from_reset srk distvars entry reset_trans =
     mk_and srk (BatList.mapi
                   (fun ind distvar ->
@@ -382,7 +382,7 @@ module Vassnew = struct
 
 
 
-  (*Distance is 0 if and only if source label; reset not taken version*)
+  (*Distance is 0 if and only if source cs; reset not taken version*)
   let set_flow_source srk distvars sources =
     mk_and srk (BatList.mapi
                   (fun ind distvar ->
@@ -436,7 +436,7 @@ module Vassnew = struct
          distvars)
 
 
-  (* Generates consv of flow constraints for each individual label and a given coh classes
+  (* Generates consv of flow constraints for each individual cs and a given coh classes
    * transformers, assuming that flow starts on the active local source *) 
   let consv_of_flow srk entry exit local_s_t coh_class_kvars =
     let entry_kvars = BatArray.map 
@@ -450,7 +450,7 @@ module Vassnew = struct
              (mk_add srk (sink :: exit_kvars.(ind))))
           local_s_t)
 
-  (* Generates consv of flow constraints for each individual label and a given coh classes
+  (* Generates consv of flow constraints for each individual cs and a given coh classes
    * transformers, assuming that flow starts on transformer reset_trans *)
   let consv_of_flow_after_last_reset srk entry exit local_s_t coh_class_kvars reset_trans =
     let entry_kvars = BatArray.map 
@@ -524,7 +524,7 @@ module Vassnew = struct
     mk_and srk
       (List.mapi (fun ind (coh_class_kvars, svarstdims, rvar, ksum) ->
            mk_and srk [
-             upper_bound_terms srk (List.nth coh_classes_dist_vars ind) num_cs;
+             upper_bound_nonneg_terms srk (List.nth coh_classes_dist_vars ind) num_cs;
              dist_vars_path srk (List.nth coh_classes_dist_vars ind) transformer_w_ends
                coh_class_kvars entry;
              dist_inf_constr srk (List.nth coh_classes_dist_vars ind) local_s_t entry exit
@@ -607,7 +607,7 @@ module Vassnew = struct
 
   let closure_of_an_scc srk tr_symbols loop_counter vass =
     let cs, graph, s_lst, invars, guarded_system = 
-      vass.label, vass.graph, vass.simulation, vass.invars, vass.guarded_system in
+      vass.control_states, vass.graph, vass.s_lst, vass.invars, vass.guarded_system in
 
     let local_s_t = create_local_s_t srk (Array.length cs) in
     let constr1 = split_terms_add_to_one srk local_s_t in
@@ -619,8 +619,8 @@ module Vassnew = struct
       then (mk_leq srk loop_counter (mk_one srk)) 
       else mk_true srk in  
 
-    (*Even if top; still require that a label is used*)
-    if(M.nb_rows (unify (vass.simulation)) = 0) then
+    (*Even if top; still require that a cs is used*)
+    if(M.nb_rows (unify (vass.s_lst)) = 0) then
       ((mk_and srk [constr1; constr2; constr3;
                     invariants; gs_constr]), (fst (List.split local_s_t)))
     else(
@@ -657,7 +657,7 @@ module Vassnew = struct
       let constr4 = create_exp_positive_reqs srk [master] in
       let constr5 = mk_eq srk (mk_add srk master) loop_counter in
       let constr6 = coh_class_trans_less_master_trans srk master kvars_equiv_classes in
-      let constr7 = upper_bound_terms srk distvarsmaster (Array.length cs) in
+      let constr7 = upper_bound_nonneg_terms srk distvarsmaster (Array.length cs) in
       let constr8 = set_flow_source srk distvarsmaster (fst (List.split local_s_t)) in
       let constr9 = dist_vars_path srk distvarsmaster transformersmap master entry in
       let constr10 = dist_inf_constr srk distvarsmaster local_s_t entry exit master in 
@@ -691,12 +691,6 @@ module Vassnew = struct
     let eqs = (List.map (fun (x, x') -> 
         mk_eq srk (mk_const srk x) (mk_const srk x'))) tr_symbols in
     mk_and srk ((mk_eq srk loop_counter (mk_zero srk)) :: eqs)
-
-  (*Bound each scc ordering var by 0 and max number sccs*)
-  let ordering_bounds srk ordering_vars max =
-    mk_and srk (BatArray.to_list (BatArray.map (fun var -> mk_and srk 
-                                                   [mk_leq srk (mk_zero srk) var;
-                                                    mk_lt srk var max]) ordering_vars))
 
   (*Each term in order_vars is unique*)
   let no_dups_ordering srk ordering_vars =
@@ -769,23 +763,6 @@ module Vassnew = struct
                   mk_eq srk (mk_const srk x) (mk_const srk sccx))
                   tr_symbols symmappings.(ind1))))) ordering_vars))
 
-  (*If scci comes before sccj in topological sort, but sccj comes before scci in scc ordering, scci must be 0*)
-  let topo_order_constraints srk order sources scc_ordering =
-    let rec helper ind1 remaining_order =
-      match remaining_order with
-      | [] -> []
-      | hd :: tl -> mk_if srk (mk_lt srk scc_ordering.(hd) scc_ordering.(ind1)) 
-                      (mk_eq srk (mk_zero srk) (mk_add srk sources.(ind1))) 
-                    :: (helper ind1 tl)
-    in
-    let rec outer ordering =
-      match ordering with
-      | [] -> []
-      | hd :: tl -> (helper hd tl) :: (outer tl)
-    in
-    mk_and srk (List.flatten (outer order))
-
-
   let exp srk tr_symbols loop_counter sccsform =
     (*No sccs <-> no possible transitions*)
     if BatArray.length sccsform.vasses = 0 then (no_trans_taken srk loop_counter tr_symbols) 
@@ -843,17 +820,15 @@ module Vassnew = struct
        * any transition is taken *)
       let sources = BatArray.append sources 
           (BatArray.make 1 [(mk_real srk (QQ.of_int 1))]) in
-      
-      let scclabels = BatArray.map (fun scc -> mk_or srk (BatArray.to_list scc.label)) sccsform.vasses in		
-      let sccgraph = compute_edges srk tr_symbols scclabels sccsform.formula in
-      let order = List.rev (BGraphTopo.fold (fun v acc -> Log.errorf "THIS SCC REACHED %d" v; v :: acc) sccgraph []) in
       let scc_ordering_pre_sink = BatArray.mapi (fun ind1 scc ->
-          mk_const srk ((mk_symbol srk ~name:("ordering_"^(string_of_int ind1)) `TyInt))) sccsform.vasses in
+          mk_const srk ((mk_symbol srk ~name:("ordering_"^(string_of_int ind1)) `TyInt))) 
+          sccsform.vasses in
       let sink_ordering = mk_const srk (mk_symbol srk ~name:("ordering_SINK") `TyInt) in
-      let scc_ordering = BatArray.append scc_ordering_pre_sink (BatArray.make 1 sink_ordering) in
+      let scc_ordering = BatArray.append scc_ordering_pre_sink 
+          (BatArray.make 1 sink_ordering) in
       let constr1 = create_exp_positive_reqs srk [Array.to_list subloop_counters] in 
-      let constr2 = ordering_bounds srk scc_ordering 
-          (mk_real srk (QQ.of_int (BatArray.length sccclosures))) in
+      let constr2 = upper_bound_nonneg_terms srk (Array.to_list scc_ordering) 
+          ((BatArray.length sccclosures) - 1) in
       let constr3 = no_dups_ordering srk scc_ordering in
       let constr4 = seq_scc_constrs srk scc_ordering sources subloop_counters 
           sink_ordering sccclosures symmappings tr_symbols sccsform.formula 
@@ -862,11 +837,9 @@ module Vassnew = struct
           tr_symbols in
       let constr6 = mk_eq srk 
           (mk_add srk (sink_ordering :: (BatArray.to_list subloop_counters))) loop_counter in
-      let constr7 = topo_order_constraints srk order sources scc_ordering in
       let result = mk_or srk 
-          [mk_and srk [constr1; constr2; constr3; constr4; constr5; constr6; (*constr7*)];
+          [mk_and srk [constr1; constr2; constr3; constr4; constr5; constr6];
            no_trans_taken srk loop_counter tr_symbols] in
-      Log.errorf "Done";
       result
     )
 
