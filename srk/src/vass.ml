@@ -16,6 +16,7 @@ include Log.Make(struct let name = "srk.vass" end)
 
 module Vassnew = struct
 
+  (* TODO: Experiment with affine hull of phi as scc transition function *)
   (* sccvass is a vass abstraction such that
    * the control states (vertices) form a strongly connected
    * component.
