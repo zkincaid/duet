@@ -718,7 +718,7 @@ module Vassnew = struct
    * sources is a [[si1, si2...], [sj1, sj2...]] where each inner list
    * is a list of the source vars for the ith scc
    *)
-  let seq_scc_constrs srk ordering_vars sources loop_counters num_scc_used 
+  let seq_scc_constrs srk ordering_vars sources loop_counters sink_ordering 
       scc_closures symmappings tr_symbols phi skolemmappings =
     mk_and srk (BatList.flatten (BatArray.to_list (BatArray.mapi (fun ind1 o_var1 ->
         BatArray.to_list (BatArray.mapi (fun ind2 o_var2 ->
@@ -727,9 +727,10 @@ module Vassnew = struct
                * if scci is "unused" (no source var = 1), 
                * then sccj must be unused too. 
                * Otherwise, if scci is used (one of its source vars = 1)
-               * and sccj is unused, then num_of_sccs used is ovari
-               * (ovari represents the place in sequence in which
-               * scci and used and all prev scc in seq are also used).
+               * and sccj is unused, then sink_ordering used is ovari
+               * (ovari is the largest ovar value used, and all smaller ovar
+               * values also have scc used). Another way to right this is
+               * that if ovari <= sink_ordering, then scci is turned on.
                * Finally, if both scci and sccj are used, then there
                * is a transition from scci to sccj.
                *)
@@ -743,7 +744,7 @@ module Vassnew = struct
                       [(mk_and srk [(mk_eq srk (mk_add srk sources.(ind2)) 
                                        (mk_zero srk));
                                     mk_eq srk loop_counters.(ind2) (mk_zero srk);
-                                    mk_eq srk num_scc_used o_var1]);
+                                    mk_eq srk sink_ordering o_var1]);
                        (* scci used and sccj used*)
                        mk_and srk [scc_closures.(ind2);
                                    (postify srk skolemmappings.(ind1)
@@ -752,7 +753,7 @@ module Vassnew = struct
                                          (postify srk (merge_mappings tr_symbols
                                                          symmappings.(ind1) 
                                                          false false) phi)));
-                                   mk_leq srk o_var2 num_scc_used]])))
+                                   mk_leq srk o_var2 sink_ordering]])))
             else (mk_true srk)) ordering_vars)) 
         ordering_vars)))
 
@@ -785,74 +786,86 @@ module Vassnew = struct
     mk_and srk (List.flatten (outer order))
 
 
-  let exp srk syms loop_counter sccsform =
-    (*No sccs means no labels found mean no transitions exist*)
-    if BatArray.length sccsform.vasses = 0 then (no_trans_taken srk loop_counter syms) else(
+  let exp srk tr_symbols loop_counter sccsform =
+    (*No sccs <-> no possible transitions*)
+    if BatArray.length sccsform.vasses = 0 then (no_trans_taken srk loop_counter tr_symbols) 
+    else(
+      (* Sink is formula over solely primed vars *)
       let sink = sccsform.sink in
-      let doublex' = List.map (fun (x, x') -> (x', x')) syms in
+      (* Each scc has its own unqiue (x, x') for each symbol *)
       let symmappings = BatArray.mapi (fun ind1 scc ->
           List.rev
             (BatList.fold_lefti (fun acc ind2 (x, x') ->
-                 ((mk_symbol srk ~name:((show_symbol srk x)^"_"^(string_of_int ind1)) (typ_symbol srk x)),
-                  (mk_symbol srk ~name:((show_symbol srk x')^"_"^(string_of_int ind1)) (typ_symbol srk x'))) :: acc) [] syms))
+                 ((mk_symbol srk 
+                     ~name:((show_symbol srk x)^"_"^(string_of_int ind1)) 
+                     (typ_symbol srk x)),
+                  (mk_symbol srk 
+                     ~name:((show_symbol srk x')^"_"^(string_of_int ind1)) 
+                     (typ_symbol srk x'))) :: acc) [] tr_symbols))
           sccsform.vasses
       in
-      let symmappings = BatArray.append symmappings (BatArray.make 1 doublex') in
+      (* By including a symmapping for sink, code is a bit nicer.
+       * But sink vars, which are only primed vars, should not change *)
+      let sink_mapping = List.map (fun (_, x') -> (x', x')) tr_symbols in
+      let symmappings = BatArray.append symmappings (BatArray.make 1 sink_mapping) in
+      (* Each scc has its own loop counter *)
       let subloop_counters = BatArray.mapi (fun ind1 scc ->
-          mk_const srk ((mk_symbol srk ~name:("counter_"^(string_of_int ind1)) `TyInt))) symmappings in
-
-      let skolem_mappings = BatArray.mapi (fun ind1 scc ->
-          BatList.fold_left 
-            (fun acc x -> (x, (mk_symbol srk ~name:((show_symbol srk x)^"_"^(string_of_int ind1)) (typ_symbol srk x))) 
-                          :: acc)
-            []
-            (Symbol.Set.elements sccsform.skolem_constants))
-          symmappings
-      in
+          mk_const srk ((mk_symbol srk ~name:("counter_"^(string_of_int ind1)) `TyInt))) 
+          symmappings in
+      (* Skolem vars in phi will need own copy of var when linking between sccs *)
       let skolem_mappings_transitions = BatArray.mapi (fun ind1 scc ->
           BatList.fold_left 
-            (fun acc x -> (x, (mk_symbol srk ~name:((show_symbol srk x)^"_"^(string_of_int ind1)) (typ_symbol srk x))) 
-                          :: acc)
+            (fun acc x -> 
+               (x, 
+                (mk_symbol srk ~name:((show_symbol srk x)^"_"^(string_of_int ind1)) 
+                   (typ_symbol srk x))) 
+               :: acc) 
             []
             (Symbol.Set.elements sccsform.skolem_constants))
           symmappings
       in
 
-      let sccclosures_es = BatArray.mapi (fun ind vass -> closure_of_an_scc srk syms subloop_counters.(ind) vass) sccsform.vasses in
-      let sccclosures, es = BatList.split (BatArray.to_list sccclosures_es) in
-      let sccclosures, es = BatArray.of_list sccclosures, BatArray.of_list es in
-      (*We compute scc closure without scc specific x, x' and then add these in after closure*)
+      let sccclosures_sources = BatArray.mapi (fun ind vass -> 
+          closure_of_an_scc srk tr_symbols subloop_counters.(ind) vass) sccsform.vasses in
+      (* The ith source array contains all source vars for the ith scc *)
+      let sccclosures, sources = BatList.split (BatArray.to_list sccclosures_sources) in
+      let sccclosures, sources = BatArray.of_list sccclosures, BatArray.of_list sources in
+      (* Add sink state to closures *)
       let sccclosures = BatArray.append sccclosures (BatArray.make 1 sink) in
-      let sccclosures = BatArray.mapi (fun ind closure ->  
-          (postify srk skolem_mappings.(ind) 
-             (postify srk (merge_mappings syms symmappings.(ind) false true) 
-                (postify srk (merge_mappings syms symmappings.(ind) true false) closure))))
+      (* The closures currently all use (x, x') from tr_symbols;
+       * switch to using the vars in symmappings *)
+      let sccclosures = BatArray.mapi (fun ind closure ->   
+             (postify srk (merge_mappings tr_symbols symmappings.(ind) false true) 
+                (postify srk (merge_mappings tr_symbols symmappings.(ind) true false) 
+                   closure)))
           sccclosures in
-      Log.errorf "MAKE IT HERE";
-
-      let es = BatArray.append es (BatArray.make 1 [(mk_real srk (QQ.of_int 1))]) in
+      (* Make the sources for sink always on (sink always an entered) if
+       * any transition is taken *)
+      let sources = BatArray.append sources 
+          (BatArray.make 1 [(mk_real srk (QQ.of_int 1))]) in
+      
       let scclabels = BatArray.map (fun scc -> mk_or srk (BatArray.to_list scc.label)) sccsform.vasses in		
-      let sccgraph = compute_edges srk syms scclabels sccsform.formula in
-      let num_scc_used = mk_const srk (mk_symbol srk ~name:("Num_scc_used") `TyInt) in
+      let sccgraph = compute_edges srk tr_symbols scclabels sccsform.formula in
       let order = List.rev (BGraphTopo.fold (fun v acc -> Log.errorf "THIS SCC REACHED %d" v; v :: acc) sccgraph []) in
-      let sub_loops_geq_0 = create_exp_positive_reqs srk [Array.to_list subloop_counters] in
       let scc_ordering_pre_sink = BatArray.mapi (fun ind1 scc ->
           mk_const srk ((mk_symbol srk ~name:("ordering_"^(string_of_int ind1)) `TyInt))) sccsform.vasses in
       let sink_ordering = mk_const srk (mk_symbol srk ~name:("ordering_SINK") `TyInt) in
       let scc_ordering = BatArray.append scc_ordering_pre_sink (BatArray.make 1 sink_ordering) in
-      let order_bounds_const = ordering_bounds srk scc_ordering (mk_real srk (QQ.of_int (BatArray.length sccclosures))) in
-      let no_dups_constr = no_dups_ordering srk scc_ordering in
-      let come_next_const = seq_scc_constrs srk scc_ordering es subloop_counters num_scc_used sccclosures symmappings syms sccsform.formula skolem_mappings_transitions in
-      let first_scc_const = first_scc_constrs srk scc_ordering es sccclosures symmappings syms in
-      let num_scc_used_bound = mk_and srk 
-          [mk_lt srk num_scc_used (mk_real srk (QQ.of_int (BatArray.length sccclosures)));
-           mk_leq srk (mk_zero srk) num_scc_used] in
-      let num_scc_used_sink = mk_eq srk num_scc_used sink_ordering in
-      let loop_bound = mk_eq srk (mk_add srk (num_scc_used :: (BatArray.to_list subloop_counters))) loop_counter in
-      let order_constr = topo_order_constraints srk order es scc_ordering in
-      let result = mk_or srk [mk_and srk [order_bounds_const; sub_loops_geq_0; no_dups_constr; come_next_const; first_scc_const;
-                                          num_scc_used_bound; num_scc_used_sink; loop_bound; mk_leq srk (mk_zero srk) loop_counter; order_constr];
-                              no_trans_taken srk loop_counter syms] in
+      let constr1 = create_exp_positive_reqs srk [Array.to_list subloop_counters] in 
+      let constr2 = ordering_bounds srk scc_ordering 
+          (mk_real srk (QQ.of_int (BatArray.length sccclosures))) in
+      let constr3 = no_dups_ordering srk scc_ordering in
+      let constr4 = seq_scc_constrs srk scc_ordering sources subloop_counters 
+          sink_ordering sccclosures symmappings tr_symbols sccsform.formula 
+          skolem_mappings_transitions in
+      let constr5 = first_scc_constrs srk scc_ordering sources sccclosures symmappings 
+          tr_symbols in
+      let constr6 = mk_eq srk 
+          (mk_add srk (sink_ordering :: (BatArray.to_list subloop_counters))) loop_counter in
+      let constr7 = topo_order_constraints srk order sources scc_ordering in
+      let result = mk_or srk 
+          [mk_and srk [constr1; constr2; constr3; constr4; constr5; constr6; (*constr7*)];
+           no_trans_taken srk loop_counter tr_symbols] in
       Log.errorf "Done";
       result
     )
