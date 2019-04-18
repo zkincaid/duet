@@ -26,8 +26,7 @@ module Vassnew = struct
    * transition states that model i to transition states that model 
    * j when s_lst is used as lin simulation.
    *
-   * s_lst (simulation list), invars, and guarded_system are
-   * defined as in mdvas:
+   * s_lst (simulation list) defined as in mdvas:
    *
    * Each matrix in S_lst starts at the 0th row. No S_lst
    * may contain the column representing all 0s.
@@ -39,22 +38,11 @@ module Vassnew = struct
    * of V. A coherence class is defined as a set of rows that
    * reset together in every transformer.
    *
-   * invars is a list of invariants that hold after a single
-   * transition, and every transition thereafter. invars is
-   * used to remove variables from the formula.
-   *
-   * There are certain invariants that, 
-   * when taken together, restrict
-   * the transition system to running at most once
-   * (for example, x' = 1 and x = x + 1). guarded_system is
-   * true if any of these pairs of invariants exist.
    *)
   type 'a sccvas = 
     { control_states : ('a formula) array;
       graph : vas array array;
-      s_lst : M.t list;
-      invars : 'a formula list;
-      guarded_system : bool
+      s_lst : M.t list
     }
 
   (* vasses are the set of maximal sccvass
@@ -177,7 +165,6 @@ module Vassnew = struct
     (* Restrict phi to configurations that model a control state *)
     let postified_cs = List.map (fun lbl -> postify srk tr_symbols lbl) cs_lst in
     let phi' = mk_and srk [mk_or srk cs_lst; mk_or srk postified_cs; phi] in
-    let phi'',invars, guarded_system = find_invariants srk tr_symbols phi' in
     (*pre_graph represents adjacency (transformers, sim) graph for control states
      * prior to converting all cells of graph to use same sim matrix*)
     let pre_graph = BatArray.init 
@@ -193,7 +180,7 @@ module Vassnew = struct
                 (mk_and srk 
                    [(List.nth cs_lst ind1); 
                     postify srk tr_symbols (List.nth cs_lst ind2); 
-                    phi'']) 
+                    phi']) 
             in
             (v, s_lst))
           arr
@@ -235,7 +222,7 @@ module Vassnew = struct
     (*TODO: 100 is magic number. should be something like largest s*)
     apply_images (ident_matrix_real 100) imglist 
       ((List.length cs_lst) - 1) ((List.length cs_lst) - 1);
-    {control_states=Array.of_list cs_lst;graph;s_lst;invars;guarded_system}
+    {control_states=Array.of_list cs_lst;graph;s_lst}
 
   (* Project a formula onto the symbols that satisfy the "exists"
      predicate, and convert to DNF *)
@@ -607,23 +594,15 @@ module Vassnew = struct
 
 
   let closure_of_an_scc srk tr_symbols loop_counter vass =
-    let cs, graph, s_lst, invars, guarded_system = 
-      vass.control_states, vass.graph, vass.s_lst, vass.invars, vass.guarded_system in
-
+    let cs, graph, s_lst = vass.control_states, vass.graph, vass.s_lst in
     let local_s_t = create_local_s_t srk (Array.length cs) in
     let constr1 = split_terms_add_to_one srk local_s_t in
     let constr2 = exp_each_ests_one_or_zero srk local_s_t in
     let constr3 = source_sink_conds_satisfied srk local_s_t cs tr_symbols in
-    let invariants = mk_or srk [mk_eq srk loop_counter (mk_zero srk);
-                                mk_and srk invars] in
-    let gs_constr = if guarded_system 
-      then (mk_leq srk loop_counter (mk_one srk)) 
-      else mk_true srk in  
 
     (*Even if top; still require that a cs is used*)
     if(M.nb_rows (unify (vass.s_lst)) = 0) then
-      ((mk_and srk [constr1; constr2; constr3;
-                    invariants; gs_constr]), (fst (List.split local_s_t)))
+      ((mk_and srk [constr1; constr2; constr3]), (fst (List.split local_s_t)))
     else(
       (* list of form (cs, trans, cs) *)
       let transformersmap = List.flatten
@@ -648,7 +627,7 @@ module Vassnew = struct
               (create_n_intvars srk (Array.length cs) [] ("distC"^(string_of_int ind)))) 
           s_lst in
       let gamma_trans = gamma srk 
-          {v=(TSet.of_list transformers);s_lst;invars;guarded_system} tr_symbols in
+          {v=(TSet.of_list transformers);s_lst} tr_symbols in
       let (phi, (coh_class_pairs, kvars_equiv_classes, ksums)) =
         exp_base_helper srk tr_symbols loop_counter s_lst transformers in
       let entry, exit  = get_incoming_outgoing_edges transformersmap (Array.length cs) in
@@ -671,8 +650,7 @@ module Vassnew = struct
 
       let phi' = mk_and srk [phi; constr0; 
                              constr1; constr2; constr3; constr4; constr5; constr6;
-                            constr7; constr8; constr9; constr10; constr11; constr12;
-                            invariants; gs_constr] in
+                            constr7; constr8; constr9; constr10; constr11; constr12] in
       phi', (fst (List.split local_s_t)))
 
   (*Take (x, x') list and (y, y') list and makes new tuple of form

@@ -13,7 +13,7 @@ type transformer =
 [@@deriving ord, show]
 module TSet : BatSet.S with type elt = transformer
 type vas = TSet.t
-type 'a t = { v : vas; s_lst : M.t list; invars : 'a formula list; guarded_system : bool}
+type 'a t = { v : vas; s_lst : M.t list}
 val gamma : 'a context ->  'a t -> (symbol * symbol) list -> 'a formula
 val abstract : ?exists:(symbol -> bool) -> 'a context -> (symbol * symbol) list -> 
   'a formula -> 'a t
@@ -41,5 +41,3 @@ val alpha_hat  : 'a context -> 'a formula -> ('b * symbol) list ->
 val coprod_compute_image : TSet.t -> M.t list -> TSet.t
 val coprod_find_transformation : M.t list -> M.t list -> 
   Linear.QQMatrix.t list * Linear.QQMatrix.t list * M.t list
-val find_invariants : 'a context -> (symbol * symbol) list -> 'a formula -> 
-  'a formula * 'a formula list * bool
