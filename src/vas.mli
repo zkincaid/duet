@@ -41,3 +41,4 @@ val alpha_hat  : 'a context -> 'a formula -> ('b * symbol) list ->
 val coprod_compute_image : TSet.t -> M.t list -> TSet.t
 val coprod_find_transformation : M.t list -> M.t list -> 
   Linear.QQMatrix.t list * Linear.QQMatrix.t list * M.t list
+
