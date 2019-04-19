@@ -344,18 +344,18 @@ let single_path_test () =
     let open Infix in
     y' + x' = (int 1)
   in
-  let exp = Mdvas.exp srk tr_symbols (int 10) (Mdvas.abstract srk tr_symbols phi) in
+  let exp = Vas.exp srk tr_symbols (int 10) (Vas.abstract srk tr_symbols phi) in
   let open Infix in
   assert_implies (exp && x = y) ((!(x' < (int 100)) || x' = y'));
   ()
-  (*assert_equiv_formula (Mdvas.gamma srk (Mdvas.abstract srk tr_symbols phi) tr_symbols) psi*)
+  (*assert_equiv_formula (Vas.gamma srk (Vas.abstract srk tr_symbols phi) tr_symbols) psi*)
   (*Log.errorf "VAS IS HERE _____________ %a" (Formula.pp srk) exp;
     assert true*)
 
 let single_path_test2 () =
   let tr_symbols = [(xsym,xsym');(ysym,ysym')] in
-  let open Vass.Vassnew in
-  let open Mdvas in
+  let open Vass in
+  let open Vas in
   let phi =
     let open Infix in
     (*(y' = (int 1) && x' = x + (int 6)) || (y' = (int 10) && x' = x + (int 18)) || (y' = y + (int 5) && x' = (int 3))*)
@@ -370,8 +370,8 @@ let single_path_test2 () =
     let open Infix in
     y' + x' = (int 1)
   in
-  let vas = (Mdvas.abstract srk tr_symbols phi) in
-  Log.errorf "Final VAS: %a"  (Formula.pp srk) (Mdvas.exp srk tr_symbols (int 10) vas );
+  let vas = (Vas.abstract srk tr_symbols phi) in
+  Log.errorf "Final VAS: %a"  (Formula.pp srk) (Vas.exp srk tr_symbols (int 10) vas );
   let open Infix in
   assert true
 

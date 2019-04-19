@@ -116,16 +116,14 @@ end
 module K = struct
   include Transition.Make(Ctx)(V)
   open Iteration
-  open Mdvas
-  open Vass
   open SolvablePolynomial
   module SPOne = SumWedge (SolvablePolynomial) (SolvablePolynomialOne) ()
   module SPG = ProductWedge (SPOne) (WedgeGuard)
   module SPPeriodicRational = Sum (SPG) (PresburgerGuard) ()
   module SPSplit = Sum (SPPeriodicRational) (Split(SPPeriodicRational)) ()
-  module VasSwitch = Sum (Mdvas)(Vassnew) ()
-  module Vas = Product(VasSwitch)(Product(WedgeGuard)(LinearRecurrenceInequation))
-  module D = Sum(SPSplit)(Vas)()
+  module VasSwitch = Sum (Vass)(Vass)()
+  module Vas_P = Product(VasSwitch)(Product(WedgeGuard)(LinearRecurrenceInequation))
+  module D = Sum(SPSplit)(Vas_P)()
   module I = Iter(MakeDomain(D))
  
   let star x = Log.time "cra:star" I.star x

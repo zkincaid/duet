@@ -4,7 +4,7 @@ module V = Linear.QQVector
 module M = Linear.QQMatrix
 module Z = Linear.ZZVector
 module H = Abstract
-include Log.Make(struct let name = "srk.mdvas" end)
+include Log.Make(struct let name = "srk.vas" end)
 
 (* A transformer defines an affine transition
  * X' = X diag(a) + b. "a" is {0, 1}^n, and b
