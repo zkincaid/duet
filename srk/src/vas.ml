@@ -498,7 +498,13 @@ let gamma srk vas tr_symbols =
       mk_or srk (List.map (fun t -> gamma_transformer srk term_list t) (TSet.elements v))
 
 
-let alpha_hat srk imp tr_symbols xdeltpairs xdeltphis =
+let alpha_hat srk imp tr_symbols =
+  let (xdeltpairs, xdeltphis) = 
+    List.split (List.fold_left (fun acc (x, x') -> 
+        let xdeltpairs = (mk_symbol srk (typ_symbol srk x)) in
+        let xdeltphis = (mk_eq srk (mk_const srk xdeltpairs) 
+                                (mk_sub srk (mk_const srk x') (mk_const srk x))) in
+        ((xdeltpairs, x'), xdeltphis) :: acc) [] tr_symbols) in
   let r, b1 = matrixify_vectorize_term_list srk 
       (H.affine_hull srk imp (List.map (fun (x, x') -> x') tr_symbols)) in
   let i, b2 = matrixify_vectorize_term_list srk 
@@ -525,12 +531,6 @@ let pp srk syms formatter vas = Format.fprintf formatter "%a" (Formula.pp srk) (
 let abstract ?(exists=fun x -> true) srk tr_symbols phi  =
   let phi = (rewrite srk ~down:(nnf_rewriter srk) phi) in
   let phi = Nonlinear.linearize srk phi in
-  let (xdeltpairs, xdelta_formula) = 
-    List.split (List.fold_left (fun acc (x, x') -> 
-        let xdelta = (mk_symbol srk (typ_symbol srk x)) in
-        let xdelta_formula = (mk_eq srk (mk_const srk xdelta) 
-                          (mk_sub srk (mk_const srk x') (mk_const srk x))) in
-        ((xdelta, x'), xdelta_formula) :: acc) [] tr_symbols) in
   let solver = Smt.mk_solver srk in
   let rec go vas =
     Smt.Solver.add solver [mk_not srk (gamma srk vas tr_symbols)];
@@ -541,8 +541,7 @@ let abstract ?(exists=fun x -> true) srk tr_symbols phi  =
       match Interpretation.select_implicant m phi with
       | None -> assert false
       | Some imp ->
-        let sing_transformer_vas = alpha_hat srk (mk_and srk imp) 
-            tr_symbols xdeltpairs xdelta_formula in
+        let sing_transformer_vas = alpha_hat srk (mk_and srk imp) tr_symbols in
         go (coproduct srk vas sing_transformer_vas)
   in
   Smt.Solver.add solver [phi];
