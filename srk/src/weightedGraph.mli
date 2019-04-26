@@ -1,6 +1,13 @@
+(** Operations for manipulating weighted graphs.
+
+   A weighted graph is a graph where edges are labeled by elements of
+   a regular algebra. *)
+
 type 'a weighted_graph
+
 type 'a t = 'a weighted_graph
 
+(** Regular algebra signature *)
 type 'a algebra =
   { mul : 'a -> 'a -> 'a;
     add : 'a -> 'a -> 'a;
@@ -8,6 +15,7 @@ type 'a algebra =
     zero : 'a;
     one : 'a }
 
+(** Unweighted graphs *)
 module U : Graph.Sig.G with type V.t = int
 
 type vertex = int
@@ -63,6 +71,7 @@ val fold_vertex : (vertex -> 'b -> 'b) -> 'a t -> 'b -> 'b
 val iter_vertex : (vertex -> unit) -> 'a t -> unit
 val mem_edge : 'a t -> vertex -> vertex -> bool
 
+(** Find the largest integer identifier for a vertex in a graph *)
 val max_vertex : 'a t -> int
 
 (** Weight algebras, equipped with additional operations for interpreting

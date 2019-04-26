@@ -77,12 +77,14 @@ module UltPeriodic : sig
   val period_len : t -> int
   val transient_len : t -> int
 
-  (** Given a function f, compute the function [lambda n. sum_{i=0}^n f(i) *)
+  (** Given a function f, compute the function [lambda n. sum_{i=0}^n f(i)] *)
   val summation : t -> t
 
   (** [solve_rec ?initial coeff f] computes the function [g] that satisfies
-        g(0) = initial
-        g(n+1) = coeff*g_{n}(n) + f_n(n)
+      {ul
+       {- [g(0) = initial] }
+       {- [g(n+1) = coeff*g(n) + f_n(n)] }}.
+
       If initial is omitted, it is taken to be 0.
   *)
   val solve_rec : ?initial:QQ.t -> QQ.t -> t -> t
