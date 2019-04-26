@@ -1,4 +1,3 @@
-# OASIS_START
 # DO NOT EDIT (digest: b3a5d2e7776b25ca13fab7292785ff93)
 # Ignore VCS directories, you can use the same kind of rule outside
 # OASIS_START/STOP if you want to exclude directories that contains
@@ -39,7 +38,8 @@ true: annot, bin_annot
 "srk/src/nonlinear.cmx": for-pack(Srk)
 "srk/src/coordinateSystem.cmx": for-pack(Srk)
 "srk/src/wedge.cmx": for-pack(Srk)
-"srk/src/mdvas.cmx": for-pack(Srk)
+"srk/src/vas.cmx": for-pack(Srk)
+"srk/src/vass.cmx": for-pack(Srk)
 "srk/src/quantifier.cmx": for-pack(Srk)
 "srk/src/iteration.cmx": for-pack(Srk)
 "srk/src/solvablePolynomial.cmx": for-pack(Srk)
