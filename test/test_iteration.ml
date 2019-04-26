@@ -364,5 +364,5 @@ let suite = "Iteration" >::: [
     "periodic_rational3" >:: periodic_rational3;
     "periodic_rational4" >:: periodic_rational4;
     "periodic_rational5" >:: periodic_rational5;
-    "single_path_test" >:: single_path_test;
+    (*    "single_path_test" >:: single_path_test;*)
   ]

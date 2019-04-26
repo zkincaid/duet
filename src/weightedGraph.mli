@@ -74,6 +74,29 @@ val mem_edge : 'a t -> vertex -> vertex -> bool
 (** Find the largest integer identifier for a vertex in a graph *)
 val max_vertex : 'a t -> int
 
+(** Compute least fixpoint solution to a system of constraints defined
+   over a weighted graph.  The type ['v] represents values in poset.
+   We compute the least annotation [inv] of the graph such that
+    {ul
+      {- [inv(v) >= init(v)] for all vertices [v] }
+      {- [update (inv src) weight (inv dst) = None] for each edge (src, weight, dst) } }
+   The update function associates each edge with a constraint.  The
+   constraint is satisfied when the update function returns [None];
+   otherwise [update pre weight post] should return the least value [post'] such that
+    {ul
+      {- [post' >= post] }
+      {- [update pre weight post' = None] (i.e., [post'] satisfies the associated constraint) }}
+
+    The poset ['v] is expected to satisfy the ascending chain condition, and
+    [update] is expected to be monotone in the sense that if [pre >= pre'] and
+    [update pre weight post = None], then [update pre' weight post = None]. *)
+val forward_analysis :
+  'a t ->
+  entry:int ->
+  update:(pre:'v -> 'a -> post:'v -> 'v option) ->
+  init:(int -> 'v) ->
+  (int -> 'v)
+
 (** Weight algebras, equipped with additional operations for interpreting
     recursive graphs *)
 module type Weight = sig
