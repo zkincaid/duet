@@ -13,14 +13,14 @@ Library srk
   FindlibName:      srk
   Pack:             true
   Modules:  SrkUtil, Log, DisjointSet, Memo, FeatureTree, QQ, ZZ, Syntax, Interval, Smt, SrkZ3, Ring, Linear, Polynomial, ExpPolynomial, Interpretation, SrkApron, Polyhedron, SrkSimplify, Abstract, Nonlinear, CoordinateSystem, Wedge, Mdvas, Quantifier, Iteration, SolvablePolynomial, Transition, BigO, Pathexpr, WeightedGraph, TransitionSystem
-  BuildDepends:     batteries, ppx_deriving, ppx_deriving.show, ppx_deriving.ord, gmp, camlidl, apron, Z3, ocrs, ntl, ocamlgraph
+  BuildDepends:     batteries, ppx_deriving, ppx_deriving.show, ppx_deriving.ord, ppx_deriving.eq, gmp, camlidl, apron, Z3, ocrs, ntl, ocamlgraph
   XMETADescription: Symbolic Reasoning Kit
 
 Executable test_srk
   Build$:         flag(tests)
   Path:           test
   MainIs:         test_srk.ml
-  BuildDepends:   batteries, ppx_deriving, ppx_deriving.ord, gmp, camlidl, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, oUnit, ocrs, ntl, ocamlgraph, srk
+  BuildDepends:   batteries, ppx_deriving, ppx_deriving.ord, ppx_deriving.eq, gmp, camlidl, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, oUnit, ocrs, ntl, ocamlgraph, srk
   CompiledObject: native
   Install:        false
 
@@ -28,7 +28,7 @@ Executable bigtop
   Build$:         flag(tests)
   Path:           src
   MainIs:         bigtop.ml
-  BuildDepends:   batteries, ppx_deriving, ppx_deriving.ord, gmp, camlidl, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, ocrs, ntl
+  BuildDepends:   batteries, ppx_deriving, ppx_deriving.ord, ppx_deriving.eq, gmp, camlidl, apron, apron.boxMPQ, apron.octMPQ, apron.polkaMPQ, Z3, ocrs, ntl
   CompiledObject: native
   Install:        false
 
