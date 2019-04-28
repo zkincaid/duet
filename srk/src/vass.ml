@@ -11,10 +11,6 @@ module Accelerate =
                          (Iteration.PolyhedronGuard))
 include Log.Make(struct let name = "srk.vass" end)
 
-
-
-
-
 (* TODO: Experiment with affine hull of phi as scc transition function *)
 (* sccvass is a vass abstraction such that
  * the control states (vertices) form a strongly connected
@@ -99,12 +95,44 @@ module GraphTrav = Graph.Traverse.Dfs(VassGraph)
 
 
 
-let map_terms srk = List.map (fun (var : Syntax.symbol) -> mk_const srk var)
+let mk_all_nonnegative srk terms =
+  terms
+  |> List.map (mk_leq srk (mk_zero srk))
+  |> mk_and srk
 
+let unify matrices =
+  BatList.enum matrices
+  /@ M.rowsi
+  |> BatEnum.concat
+  |> BatEnum.map snd
+  |> BatList.of_enum
+  |> M.of_rows
+
+let map_terms srk = List.map (fun (var : Syntax.symbol) -> mk_const srk var)
 
 let ident_matrix_real n =
   BatList.fold_left (fun matr dim  ->
       M.add_entry dim dim (QQ.of_int 1) matr) M.zero (BatList.of_enum (0--n))
+
+
+(* Used in preify and postify to create symbol map.
+ * Is a way to substitute variables; for example
+ * x with x' or x' with x.
+ *)
+let post_map srk tr_symbols =
+  List.fold_left
+    (fun map (sym, sym') -> Symbol.Map.add sym (mk_const srk sym') map)
+    Symbol.Map.empty
+    tr_symbols
+
+(* For tr_symbols list of form (x, x'),
+ * replace x' with x in term.
+ *)
+let preify srk tr_symbols = substitute_map srk
+    (post_map srk (List.map (fun (x, x') -> (x', x)) tr_symbols))
+
+(* Same as preify, but replaces x with x' *)
+let postify srk tr_symbols = substitute_map srk (post_map srk tr_symbols)
 
 let pre_symbols tr_symbols =
   List.fold_left (fun set (s,_) ->
@@ -123,14 +151,7 @@ let post_symbols tr_symbols =
 (*Determine if there exists a transition from cs1 to cs2
  * using transition system phi*)
 let exists_transition srk cs1 cs2 tr_symbols phi =
-  let solver = Smt.mk_solver srk in
-  Smt.Solver.reset solver;
-  let formula =  mk_and srk [cs1; postify srk tr_symbols cs2; phi] in
-  Smt.Solver.add solver [formula];
-  match Smt.Solver.get_model solver with
-  | `Unsat -> false
-  | `Unknown -> true
-  | `Sat _ -> true
+  Smt.is_sat srk (mk_and srk [cs1; postify srk tr_symbols cs2; phi]) != `Unsat
 
 (*Compute boolean adjacency graph of control states for transition system phi*)
 let compute_edges srk tr_symbols c_states phi =
@@ -187,14 +208,19 @@ let compute_single_scc_vass ?(exists=fun x -> true) srk tr_symbols cs_lst phi =
   (* Computes list of lin transformation that determines
    * how to transform each cell of pregraph to use same sim matrix
    * Also computes the sim matrix that will be used *)
-  let imglist, s_lst = BatArray.fold_left 
+  let imglist, s_lst =
+    let sim =
+      List.map (fun (_, x') -> V.of_term QQ.one (Linear.dim_of_sym x')) tr_symbols
+      |> M.of_rows
+    in
+    BatArray.fold_left
       (fun (imglst, s_lst) arr ->
          BatArray.fold_left 
            (fun (imglist, s_lst) (_, pregraph_s_lst) ->
               let r1, r2, s_lst' = coprod_find_transformation s_lst pregraph_s_lst in
               (r1, r2) :: imglist, s_lst') 
            (imglst, s_lst) arr) 
-      ([], [ident_matrix_syms srk tr_symbols]) pre_graph
+      ([], [sim]) pre_graph
   in
   (*Will hold transformer adjacency graph such that each cell uses same sim matrix*)
   let graph = BatArray.init 
@@ -310,7 +336,7 @@ let abstract ?(exists=fun x -> true) srk tr_symbols phi =
     let vassarrays = BatArray.map 
         (fun scc -> compute_single_scc_vass ~exists srk tr_symbols scc phi) sccs in
     let result = {vasses=vassarrays;formula=phi; skolem_constants; sink=sink} in
-    logf ~level:`always "%a" (pp srk tr_symbols) result;
+    logf "%a" (pp srk tr_symbols) result;
     result
   )
 
@@ -633,7 +659,7 @@ let closure_of_an_scc srk tr_symbols loop_counter vass =
     (* Having this constraint early makes things faster for unknown reason*)
     let constr0 = consv_of_flow srk entry exit local_s_t master in
 
-    let constr4 = create_exp_positive_reqs srk [master] in
+    let constr4 = mk_all_nonnegative srk master in
     let constr5 = mk_eq srk (mk_add srk master) loop_counter in
     let constr6 = coh_class_trans_less_master_trans srk master kvars_equiv_classes in
     let constr7 = upper_bound_nonneg_terms srk distvarsmaster (Array.length cs) in
@@ -804,7 +830,7 @@ let exp srk tr_symbols loop_counter sccsform =
     let sink_ordering = mk_const srk (mk_symbol srk ~name:("ordering_SINK") `TyInt) in
     let scc_ordering = BatArray.append scc_ordering_pre_sink 
         (BatArray.make 1 sink_ordering) in
-    let constr1 = create_exp_positive_reqs srk [Array.to_list subloop_counters] in 
+    let constr1 = mk_all_nonnegative srk (Array.to_list subloop_counters) in 
     let constr2 = upper_bound_nonneg_terms srk (Array.to_list scc_ordering) 
         ((BatArray.length sccclosures) - 1) in
     let constr3 = no_dups_ordering srk scc_ordering in
@@ -820,8 +846,6 @@ let exp srk tr_symbols loop_counter sccsform =
          no_trans_taken srk loop_counter tr_symbols] in
     result
   )
-
-
 
 let join _ _ _ _ = assert false
 let widen _ _ _ _ = assert false
