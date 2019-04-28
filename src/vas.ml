@@ -53,13 +53,12 @@ type 'a t = { v : vas; s_lst : M.t list}
  * matrix corresponding to the first rows of the output matrix.
  *)
 let unify matrices =
-  let unified = List.fold_left (fun acc_matrix matr -> 
-      BatEnum.fold (fun acc_matrix (_, vector) ->
-          M.add_row (M.nb_rows acc_matrix) vector acc_matrix) 
-        acc_matrix 
-        (M.rowsi matr))
-      M.zero matrices in
-  unified
+  BatList.enum matrices
+  /@ M.rowsi
+  |> BatEnum.concat
+  |> BatEnum.map snd
+  |> BatList.of_enum
+  |> M.of_rows
 
 (* Similar to above, stacks matrices and vectors.
  * Must be same number of matrices and vectors.
@@ -75,18 +74,16 @@ let unify2 matrices vects =
       (M.zero,V.zero) matrices vects in
   unified
 
-
-(*Creates matrix M in which 1 row of M for each sym in
- * tr_symbols; row has a 1 exactly in the col for corresponding sym'*)
-let ident_matrix_syms srk tr_symbols =
-  BatList.fold_lefti (fun matr dim (x, x') ->
-      M.add_row dim (Linear.linterm_of srk (mk_const srk x')) matr) M.zero tr_symbols
-
-
 let mk_top = {v=TSet.empty; s_lst=[]}
 
-let mk_bottom srk symbols =
-  {v=TSet.empty; s_lst=[ident_matrix_syms srk symbols]}
+let mk_bottom srk tr_symbols =
+  (* Matrix in which 1 row for each sym in * tr_symbols; row has a 1
+     exactly in the col for corresponding sym'*)
+  let sim =
+    List.map (fun (_, x') -> V.of_term QQ.one (Linear.dim_of_sym x')) tr_symbols
+    |> M.of_rows
+  in
+  {v=TSet.empty; s_lst=[sim]}
 
 
 (* Used in preify and postify to create symbol map.
@@ -102,7 +99,7 @@ let post_map srk tr_symbols =
 (* For tr_symbols list of form (x, x'),
  * replace x' with x in term.
  *)
-let preify srk tr_symbols = substitute_map srk 
+let preify srk tr_symbols = substitute_map srk
     (post_map srk (List.map (fun (x, x') -> (x', x)) tr_symbols))
 
 (* Same as preify, but replaces x with x' *)
@@ -117,51 +114,71 @@ let postify srk tr_symbols = substitute_map srk (post_map srk tr_symbols)
  * KSUMi is sum of Ki,j vars for all j
  * equiv_pair groups all kinds of vars together for a given equiv class
  *)
-let create_exp_vars srk s_lst num_trans =
+let create_exp_vars srk s_lst transformers =
   let bdim = ref 0 in
-  let rec create_k_ints x vars basename equiv_num (arttype : Syntax.typ) =
-    begin match x <= 0 with
-      | true -> List.rev vars
-      | false -> create_k_ints (x - 1) 
-                   ((mk_const srk 
-                        (mk_symbol srk 
-                           ~name:(basename^equiv_num^","^(string_of_int x))
-                           arttype))
-                    :: vars)
-                   basename equiv_num arttype
-    end
+  let mk_constants nb basename (typ : Syntax.typ) =
+    (0 -- (nb - 1))
+    /@ (fun i ->
+        let name = Format.sprintf "%s,%d" basename i in
+        mk_const srk (mk_symbol srk ~name typ))
+    |> BatList.of_enum
   in
-  let rec helper s_lst coh_class_pairs =
+  let rec helper s_lst coh_rep coh_class_pairs =
+    (* coh_rep is coherence class representative *)
     match s_lst with
     | [] -> coh_class_pairs
     | hd :: tl -> 
-      (*Create K vars*)
-      let kstack = (create_k_ints num_trans [] "K" 
-                      (string_of_int (List.length s_lst)) `TyInt) in
+      (* Create K vars. *)
+      let kstack =
+        List.mapi (fun i tr ->
+            (* If transformer j resets coherence class i, kvari,j is 0. *)
+            if ZZ.equal ZZ.zero (Z.coeff coh_rep tr.a) then
+              mk_zero srk
+            else
+              let name = Format.sprintf "K%d,%d" (List.length s_lst) i in
+              mk_const srk (mk_symbol srk ~name `TyInt))
+          transformers
+      in
       (*Create R vars*)
-      let rvar = mk_const srk 
-          (mk_symbol srk ~name:("R"^(string_of_int (List.length s_lst))) `TyInt) in
+      let rvar =
+        (* If no transformer resets coherence class i, r_i is -1. *)
+        if List.exists (fun tr -> ZZ.equal ZZ.zero (Z.coeff coh_rep tr.a)) transformers then
+          mk_const srk  (mk_symbol srk ~name:("R"^(string_of_int (List.length s_lst))) `TyInt)
+        else
+          mk_real srk (QQ.of_int (-1))
+      in
       (*Create KSum vars*)
-      let ksum = mk_const srk 
-          (mk_symbol srk ~name:("KSUM"^(string_of_int (List.length s_lst))) `TyInt) in 
+      let ksum =
+        mk_const srk (mk_symbol srk ~name:("KSUM"^(string_of_int (List.length s_lst))) `TyInt)
+      in
+
       (*Create S vars*)
-      let svar = create_k_ints (M.nb_rows hd) [] "S" 
-          (string_of_int (List.length s_lst)) `TyReal in
+      let svar =
+        mk_constants (M.nb_rows hd) ("S" ^ (string_of_int (List.length s_lst))) `TyReal
+      in
+
       (*Group vars together*)
       let equiv_pair = (kstack, 
                         List.map (fun svar -> 
-                            let res = (svar, !bdim) in bdim := !bdim + 1; res)
+                            let res = (svar, !bdim) in incr bdim; res)
                           svar,
                         rvar, ksum) in
-      helper tl (equiv_pair :: coh_class_pairs)
+      helper tl (coh_rep + (M.nb_rows hd)) (equiv_pair :: coh_class_pairs)
   in
-  helper s_lst []
+  helper s_lst 0 []
 
 (* Make input terms each >= 0 *)
-let create_exp_positive_reqs srk term_lst_lst =
-  mk_and srk (List.map (fun var -> 
-      mk_leq srk (mk_zero srk) var) 
-      (List.flatten term_lst_lst))
+let mk_all_nonnegative srk terms =
+  terms
+  |> List.map (mk_leq srk (mk_zero srk))
+  |> mk_and srk
+
+
+let mk_nat_leq srk x y =
+  match Term.destruct srk x, Term.destruct srk y with
+  | (`Real k, _) when QQ.equal k QQ.zero -> mk_true srk
+  | (_, `Real k) when QQ.equal k QQ.zero -> mk_eq srk x (mk_zero srk)
+  | (_, _) -> mk_leq srk x y
 
 (* Determine if equiv class was never reset (number
  * transitions taken == number steps taken).
@@ -204,8 +221,7 @@ let exp_perm_constraints srk krpairs =
     (List.map 
        (fun (_, k1, _, _, k2, _) -> 
           let lessthan k1 k2 = mk_and srk 
-              (List.map2 (fun k1' k2' ->
-                   mk_leq srk k1' k2') k1 k2)
+              (List.map2 (fun k1' k2' -> mk_nat_leq srk k1' k2') k1 k2)
           in
           mk_or srk [lessthan k1 k2;  lessthan k2 k1])
        krpairs)
@@ -231,9 +247,7 @@ let exp_other_reset_helper srk ksumi ksums kvarst trans_num =
   mk_and srk
     (List.mapi (fun ind ksum' ->
          (mk_if srk
-            (mk_lt srk
-               ksumi
-               ksum')
+            (mk_lt srk ksumi ksum')
             (mk_leq srk
                (mk_one srk)
                (List.nth (List.nth kvarst ind) trans_num))))
@@ -299,45 +313,22 @@ let exp_lin_term_trans_constraints srk coh_class_pairs transformers unified_s =
                svarstdims))
         coh_class_pairs)
 
-(* If kvar represents a coherence class/transformer pair, (i, j), such that
- * coherence class i is reset on transformer j, then kvari,j is 0.
- * This function performs that replacement.
- *)
-let replace_resets_with_zero srk coh_class_pairs transformers =
-  (List.map (fun (kstack, svarstdims, ri, ksum) ->
-       let (svar, dim) = List.hd svarstdims in
-       let kstack =
-         (BatList.mapi
-            (fun ind {a; b} ->
-               if ZZ.equal (Z.coeff dim a) ZZ.zero then (mk_zero srk)
-               else (List.nth kstack ind))
-            transformers)
-       in
-       kstack,svarstdims, ri, ksum)
-      coh_class_pairs)
-
 (*No coh class can take more trans than loop counter*)
 let exp_kstacks_at_most_k srk ksumst loop_counter=
-  mk_and srk
-    (List.map
-       (fun ksum -> mk_leq srk
-           ksum
-           loop_counter)
-       ksumst)
+  List.map (fun ksum -> mk_leq srk ksum loop_counter) ksumst
+  |> mk_and srk
 
 (*Relate KSumi with Ki,j vars*)
 let exp_kstack_eq_ksums srk coh_class_pairs =
   mk_and srk
     (List.map (fun (kstack, _, _, ksum) ->
-         mk_eq srk
-           (mk_add srk kstack)
-           ksum)
+         mk_eq srk (mk_add srk kstack) ksum)
         coh_class_pairs)
 
 (*Combines all of the closure constraints that are used
  * in both VAS and VASS abstractions
  *)
-let exp_base_helper srk tr_symbols loop_counter s_lst transformers =
+let exp_base_helper srk (tr_symbols : (symbol * symbol) list) loop_counter s_lst transformers =
  (*Create new symbols
   * Each coh class has:
   * a set of kvars, where the ith coh class jth kvar is
@@ -347,14 +338,13 @@ let exp_base_helper srk tr_symbols loop_counter s_lst transformers =
   * a list of the form (s,d), where the the jth (s, d) in this list has the property
   * that s is the starting value for the jth row of coh class i (after last reset),
   * and d is the dim of this row in the unified simulation*)
-  let coh_class_pairs = create_exp_vars srk s_lst (BatList.length transformers) in
-  let coh_class_pairs = replace_resets_with_zero srk coh_class_pairs transformers in
+  let coh_class_pairs = create_exp_vars srk s_lst transformers in
   let kvarst, rvarst, ksumst = List.map (fun (kstack, _, _, _) -> kstack) coh_class_pairs, 
                                List.map (fun (_, _, rvarst, _) -> rvarst) coh_class_pairs,
                                List.map (fun (_, _, _, ksumst) -> ksumst) coh_class_pairs in
   let krpairs = all_pairs_kvarst_rvarst ksumst kvarst rvarst in
 
-  let constr1 = create_exp_positive_reqs srk ([loop_counter] :: kvarst) in
+  let constr1 = mk_all_nonnegative srk (loop_counter :: (List.flatten kvarst)) in
   let constr2 = exp_full_transitions_reqs srk kvarst rvarst loop_counter in
   let constr3 = exp_perm_constraints srk krpairs in
   let constr4 = exp_equality_k_constraints srk krpairs in
@@ -448,7 +438,6 @@ let coprod_compute_image v r =
   v'
 
 
- 
 let coproduct srk vabs1 vabs2 : 'a t =
   let (s_lst1, s_lst2, v1, v2) = (vabs1.s_lst, vabs2.s_lst, vabs1.v, vabs2.v) in 
   let s1, s2, s_lst = coprod_find_transformation s_lst1 s_lst2 in
@@ -489,14 +478,10 @@ let gamma_transformer srk term_list t =
     term_list
   |> mk_and srk
 
-
 let gamma srk vas tr_symbols =
-  match vas with
-  | {v; s_lst} ->
-    let term_list = term_list srk s_lst tr_symbols in
-    if List.length term_list = 0 then mk_true srk else
-      mk_or srk (List.map (fun t -> gamma_transformer srk term_list t) (TSet.elements v))
-
+  let term_list = term_list srk vas.s_lst tr_symbols in
+  if List.length term_list = 0 then mk_true srk else
+    mk_or srk (List.map (fun t -> gamma_transformer srk term_list t) (TSet.elements vas.v))
 
 let alpha_hat srk imp tr_symbols =
   let (xdeltpairs, xdeltphis) = 
