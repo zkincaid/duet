@@ -22,17 +22,17 @@ val exp : 'a context -> (symbol * symbol) list -> 'a term -> 'a t -> 'a formula
 val join : 'a context -> (symbol * symbol) list -> 'a t -> 'a t -> 'a t
 val widen : 'a context -> (symbol * symbol) list -> 'a t -> 'a t -> 'a t
 val equal : 'a context -> (symbol * symbol) list -> 'a t -> 'a t -> bool
+
+(* TODO: remove exp_base_helper *)
 val exp_base_helper : 'a context -> (symbol * Symbol.Map.key) list -> 'a term ->
   M.t list -> transformer list -> 
-  'a formula * (('a term list * (('a, 'b) expr * Z.dim) list * ('a, 'c) expr * ('a, 'd) expr)
-                  list * 'a term list list * ('a, 'e) expr list)
-val create_exp_positive_reqs : 'a context -> 'a term list list -> 'a formula
-val preify : 'a context -> (symbol * symbol) list -> ('a, 'b) expr -> ('a, 'b) expr
-val postify : 'a context -> (symbol * symbol) list -> ('a, 'b) expr -> ('a, 'b) expr 
-val unify : M.t list -> M.t
-val ident_matrix_syms : 'a context -> (symbol * symbol) list -> M.t
+  'a formula * (('a term list * ('a term * Z.dim) list * 'a term * 'a term)
+                  list * 'a term list list * 'a term list)
+
+(* TODO: remove exp_other_reset_helper *)
 val exp_other_reset_helper : 'a context -> 'a term -> 'a term list -> 'a term list list 
   -> int -> 'a formula
+
 val term_list : 'a context -> M.t list -> (symbol * Symbol.Map.key) list -> 
   (('a, typ_arith) expr * 'a term) list
 val gamma_transformer : 'a context -> ('a term * 'a term) list -> transformer -> 'a formula
