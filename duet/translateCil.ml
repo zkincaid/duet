@@ -393,6 +393,16 @@ and tr_lval lval =
 (* ========================================================================== *)
 (** Definitions *)
 
+let verifier_builtins =
+  ["assume"; "__VERIFIER_assume"; "assert"; "__VERIFIER_assert"; "__VERIFIER_error";
+   "__assert_fail"; "malloc"; "xmalloc"; "calloc"; "realloc"; "xrealloc"; "__builtin_alloca";
+   "pthread_mutex_lock"; "pthread_mutex_unlock"; "spin_lock"; "spin_unlock";
+   "pthread_create"; "pthread_create"; "exit";
+   "rand"; "__VERIFIER_nondet_char"; "__VERIFIER_nondet_int"; "__VERIFIER_nondet_long";
+   "__VERIFIER_nondet_pointer"; "__VERIFIER_nondet_uint";
+   "__CPROVER_atomic_begin"; "__CPROVER_atomic_end";
+   "__VERIFIER_atomic_begin"; "__VERIFIER_atomic_end"]
+
 (* Translation context *)
 type ctx =
   { ctx_func : CfgIr.func;
@@ -630,6 +640,7 @@ let tr_func f =
         Log.errorf "Missing label (CIL frontend)";
         assert false
       end
+
   in
   let body =
     CfgIr.CfgBuilder.mk_block
@@ -693,10 +704,17 @@ let tr_file_funcs =
 
 let tr_file filename f =
   let open CfgIr in
+  let globals =
+    Cil.(f.globals |>
+         List.filter (function
+             | GVarDecl (v, _) | GVar (v, _, _) ->
+               not (List.mem v.Cil.vname verifier_builtins)
+             | _ -> true))
+  in
   let file = {
     filename = filename;
-    vars = tr_file_vars f.Cil.globals;
-    funcs = tr_file_funcs f.Cil.globals;
+    vars = tr_file_vars globals;
+    funcs = tr_file_funcs globals;
     types = HT.fold (fun _ typ rest -> typ::rest) named_hash [];
     entry_points = [];
     threads = [];
