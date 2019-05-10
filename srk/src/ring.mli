@@ -83,6 +83,9 @@ module type Matrix = sig
 
   val of_dense : scalar array array -> t
   val dense_of : t -> int -> int -> scalar array array
+
+  (** Given vectors [v_0,v_1,v_2,...,v_n] create a matrix where row [i] is [v_i] *)
+  val of_rows : vector list -> t
 end
 
 module type Map = sig

@@ -328,25 +328,6 @@ let periodic_rational5 () =
   assert_implies closure (!(w' = (int 3)) || z' = (int 0));
   assert_implies closure (!(w' = (int 4)) || z' = (int 1))
 
-let single_path_test () =
-  let tr_symbols = [(xsym,xsym');(ysym,ysym')] in
- let phi =
-    let open Infix in
-    (y' = (int 1) && x' = x + (int 6)) || (y' = (int 10) && x' = x + (int 18)) || (y' = y + (int 5) && x' = (int 3))
-    (*(y' = y + (int 1) && (x' = x + (int 1))) || ((y' = x) && x' = x + (int 1))*)
-    (*(y' = y + (int 1) && (x' = x + (int 1))) || ((y' = x))*)
-    (*y' = y + (int 1) && y' = y + (int 2)*)
-    (*(y' = y + (int 1) && y' = (int 3)) || (y' = y + (int 4) && y' = (int 5))*)
-    (*(int 2) * x' + y' = (int 2) * x + y*)
-  in
-  let psi =
-    let open Infix in
-    y' + x' = (int 1)
-  in
-  assert_equiv_formula (Mdvas.gamma srk (Mdvas.abstract srk tr_symbols phi) tr_symbols) psi
-
-
-
 
 let suite = "Iteration" >::: [
     "prepost" >:: prepost;
@@ -363,6 +344,5 @@ let suite = "Iteration" >::: [
     "periodic_rational2" >:: periodic_rational2;
     "periodic_rational3" >:: periodic_rational3;
     "periodic_rational4" >:: periodic_rational4;
-    "periodic_rational5" >:: periodic_rational5;
-    "single_path_test" >:: single_path_test;
+    "periodic_rational5" >:: periodic_rational5
   ]

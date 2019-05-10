@@ -1221,6 +1221,7 @@ let rec pp_smtlib2 ?(env=Env.empty) srk formatter expr =
         in
         go 0
       else begin
+        let name = symbol_of_string (fst (DynArray.get srk.symbols symbol)) in
         Hashtbl.add strings name ();
         Hashtbl.add symbol_name symbol name
       end)

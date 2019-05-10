@@ -121,7 +121,10 @@ module IterDomain = struct
   module SPG = ProductWedge (SPPeriodicRational) (WedgeGuard)
   module SPPRG = Sum (SPG) (PresburgerGuard) ()
   module SPSplit = Sum (SPPRG) (Split(SPPRG)) ()
-  include SPSplit
+  module VasSwitch = Sum (Vas)(Vass)()
+  module Vas_P = Product(VasSwitch)(Product(WedgeGuard)(LinearRecurrenceInequation))
+  module SpPlusSplitVas_P = Sum(SPSplit)(Vas_P)()
+  include SpPlusSplitVas_P
 end
 
 module MakeTransition (V : Transition.Var) = struct
@@ -716,6 +719,14 @@ let _ =
     ("-cra-prsd-pg",
      Arg.Clear IterDomain.SPPRG.abstract_left,
      " Use periodic rational spectral decomposition w/ Presburger guard");
+  CmdLine.register_config
+    ("-cra-vas",
+     Arg.Clear IterDomain.SpPlusSplitVas_P.abstract_left,
+     " Use VAS abstraction");
+  CmdLine.register_config
+    ("-cra-vass",
+     Arg.Unit (fun () -> IterDomain.VasSwitch.abstract_left := false; IterDomain.SpPlusSplitVas_P.abstract_left := false),
+     " Use VASS abstraction");
   CmdLine.register_config
     ("-dump-goals",
      Arg.Set dump_goals,

@@ -783,11 +783,11 @@ let extract_periodic_rational_matrix_eq srk wedge tr_symbols term_of_id =
   in
   fix []
 
-(* Extract recurrences of the form t' <= t + p, where p is a
+(* Extract recurrences of the form t' <= base * t + p, where p is a
    polynomial over recurrence terms *)
-let extract_vector_leq srk wedge tr_symbols term_of_id =
+let extract_vector_leq srk wedge tr_symbols term_of_id base =
   (* For each transition symbol (x,x'), allocate a symbol delta_x,
-     which is constrained to be equal to x'-x.  For each recurrence
+     which is constrained to be equal to x'-base*x.  For each recurrence
      term t, allocate a symbol add_t, which is constrained to be equal
      to (the pre-state value of) t.  After projecting out all
      variables *except* the delta and add variables, we have a wedge
@@ -825,10 +825,11 @@ let extract_vector_leq srk wedge tr_symbols term_of_id =
     List.fold_right Symbol.Set.add delta add_symbols
   in
   let constraints =
+    let base_term = mk_real srk base in
     (List.map2 (fun delta (s,s') ->
          mk_eq srk
            (mk_const srk delta)
-           (mk_sub srk (mk_const srk s') (mk_const srk s)))
+           (mk_sub srk (mk_const srk s') (mk_mul srk [base_term; mk_const srk s])))
         delta
         tr_symbols)
     @ (BatEnum.map
@@ -847,7 +848,7 @@ let extract_vector_leq srk wedge tr_symbols term_of_id =
     |> Wedge.exists ~subterm (fun x -> Symbol.Set.mem x diff_symbols)
   in
   let diff_cs = Wedge.coordinate_system diff_wedge in
-  let transform_one = [|[|QQ.one|]|] in
+  let base_transform = [|[|base|]|] in
   let recurrences = ref [] in
   let add_recurrence = function
     | (`Eq, _) ->
@@ -889,7 +890,7 @@ let extract_vector_leq srk wedge tr_symbols term_of_id =
       in
       if rec_term != [] then
         let recurrence =
-          { blk_transform = transform_one;
+          { blk_transform = base_transform;
             blk_add = [|blk_add|] }
         in
         recurrences := recurrence::(!recurrences);
@@ -1425,7 +1426,7 @@ module SolvablePolynomialOne = struct
     let term_of_id = extract_constant_symbols srk tr_symbols wedge in
     let nb_constants = DArray.length term_of_id in
     let block_eq = extract_induction_vars srk wedge tr_symbols term_of_id in
-    let block_leq = extract_vector_leq srk wedge tr_symbols term_of_id in
+    let block_leq = extract_vector_leq srk wedge tr_symbols term_of_id QQ.one in
     { nb_constants;
       term_of_id = DArray.to_array term_of_id;
       block_eq = block_eq;
@@ -1457,7 +1458,7 @@ module SolvablePolynomial = struct
     let term_of_id = extract_constant_symbols srk tr_symbols wedge in
     let nb_constants = DArray.length term_of_id in
     let block_eq = extract_solvable_polynomial_eq srk wedge tr_symbols term_of_id in
-    let block_leq = extract_vector_leq srk wedge tr_symbols term_of_id in
+    let block_leq = extract_vector_leq srk wedge tr_symbols term_of_id QQ.one in
     { nb_constants;
       term_of_id = DArray.to_array term_of_id;
       block_eq = block_eq;
@@ -1489,7 +1490,7 @@ module SolvablePolynomialPeriodicRational = struct
     let term_of_id = extract_constant_symbols srk tr_symbols wedge in
     let nb_constants = DArray.length term_of_id in
     let block_eq = extract_periodic_rational_matrix_eq srk wedge tr_symbols term_of_id in
-    let block_leq = extract_vector_leq srk wedge tr_symbols term_of_id in
+    let block_leq = extract_vector_leq srk wedge tr_symbols term_of_id QQ.one in
     { nb_constants;
       term_of_id = DArray.to_array term_of_id;
       block_eq = block_eq;

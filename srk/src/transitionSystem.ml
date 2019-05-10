@@ -76,6 +76,12 @@ module Make
       let dst (_, _, x) = x
       let label (_, x, _) = x
       let create x y z = (x, y, z)
+
+      (* Weighted graphs have at most one edge between any pair of
+         node, so sufficient to hash / check equality using endpoints
+         *)
+      let equal (s1, _, d1) (s2, _, d2) = s1 = s2 && d1 = d2
+      let hash (s, _, d) = Hashtbl.hash (s, d)
     end
 
     let iter_edges_e = WG.iter_edges
@@ -687,4 +693,135 @@ module Make
       else tg'
     in
     go tg
+
+  let loop_headers_live tg entry =
+    let rec loop_vertices vertices wto =
+      let open Graph.WeakTopological in
+      match wto with
+      | Vertex v -> Int.Set.add v vertices
+      | Component (v, rest) ->
+        fold_left loop_vertices (Int.Set.add v vertices) rest
+    in
+    let loop_references wto =
+      let vertices = loop_vertices Int.Set.empty wto in
+      Int.Set.fold (fun u vars ->
+          WG.fold_succ_e (fun (_, weight, v) vars ->
+              match weight with
+              | Weight tr when Int.Set.mem v vertices ->
+                VarSet.union vars (references tr)
+              | _ -> vars)
+            tg
+            u
+            vars)
+        vertices
+        VarSet.empty
+    in
+    let rec live hl wto =
+      let open Graph.WeakTopological in
+      match wto with
+      | Vertex v -> hl
+      | Component (v, rest) ->
+        fold_left live ((v, loop_references wto)::hl) rest
+    in
+    Graph.WeakTopological.fold_left live [] (Wto.recursive_scc tg entry)
+
+  let affine_invariants tg entry =
+    let man = Polka.manager_alloc_equalities () in
+    let update ~pre weight ~post =
+      match weight with
+      | Weight tr ->
+        (* Replace modified variable symbols with fresh Skolem
+           constants.  This allows the post-condition of the
+           transition formula tf to be expressed over the symbols
+           associated with the variables via Var.of_symbol /
+           Var.symbol_of *)
+        let subst =
+          BatEnum.fold (fun subst (v, _) ->
+              let pre_sym = mk_symbol srk ((Var.typ v) :> typ) in
+              let post_sym = Var.symbol_of v in
+              Symbol.Map.add post_sym (mk_const srk pre_sym) subst)
+            Symbol.Map.empty
+            (T.transform tr)
+        in
+        let transform_eqs =
+          T.transform tr
+          /@ (fun (v, t) ->
+              mk_eq srk (mk_const srk (Var.symbol_of v)) (substitute_map srk subst t))
+          |> BatList.of_enum
+        in
+        let pre_formula = SrkApron.formula_of_property pre in
+        let tf =
+          mk_and srk (substitute_map srk subst (T.guard tr)
+                      ::substitute_map srk subst pre_formula
+                      ::transform_eqs)
+        in
+        let symbols = (* Symbols in pre or defined by tr *)
+          VarSet.fold
+            (fun v set ->
+               Symbol.Set.add (Var.symbol_of v) set)
+            (references tr)
+            (Symbol.Set.filter
+               (fun s -> Var.of_symbol s != None)
+               (symbols pre_formula))
+          |> Symbol.Set.elements
+        in
+        let env = SrkApron.Env.of_list srk symbols in
+        if SrkApron.is_bottom post then
+          let post =
+            Abstract.affine_hull srk tf symbols
+            |> List.map (fun t ->
+                SrkApron.lexpr_of_vec env (Linear.linterm_of srk t)
+                |> SrkApron.lcons_eqz)
+            |> SrkApron.meet_lcons (SrkApron.top man env)
+          in
+          Some post
+        else
+          let solver = Smt.mk_solver srk in
+          Smt.Solver.add solver [tf];
+          let rec fix post =
+            Smt.Solver.add solver [mk_not srk (SrkApron.formula_of_property post)];
+            match Smt.Solver.get_model solver with
+            | `Sat m ->
+              let m_equalities =
+                List.map (fun sym ->
+                    Linear.QQVector.add_term
+                      (QQ.of_int (-1))
+                      (Linear.dim_of_sym sym)
+                      (Linear.const_linterm (Interpretation.real m sym))
+                    |> SrkApron.lexpr_of_vec env
+                    |> SrkApron.lcons_eqz
+                  ) symbols
+                |> SrkApron.meet_lcons (SrkApron.top man env)
+              in
+              fix (SrkApron.join post m_equalities)
+            | `Unsat -> post
+            | `Unknown ->
+              logf ~level:`warn "Unknown result in affine invariant update";
+              SrkApron.top man env
+          in
+          let post' = fix post in
+          if SrkApron.equal post post' then
+            None
+          else
+            Some post'
+      | Call (_, _) ->
+        let is_local s =
+          match Var.of_symbol s with
+          | None -> true
+          | Some v -> not (Var.is_global v)
+        in
+        let post' = SrkApron.exists man is_local pre in
+        if SrkApron.leq post post' then
+          None
+        else
+          Some (SrkApron.join post post')
+    in
+    let init v =
+      if v = entry then
+        SrkApron.top man (SrkApron.Env.empty srk)
+      else
+        SrkApron.bottom man (SrkApron.Env.empty srk)
+    in
+    let invariants = WG.forward_analysis tg ~entry ~update ~init in
+    invariants
 end

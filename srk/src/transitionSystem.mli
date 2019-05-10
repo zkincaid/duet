@@ -45,6 +45,8 @@ module Make
   type t = (transition label) WeightedGraph.t
   type query
 
+  module VarSet : BatSet.S with type elt = Var.t
+
   (** Crate an empty transition system. *)
   val empty : t
 
@@ -66,9 +68,18 @@ module Make
   val forward_invariants : t -> vertex -> (vertex * C.t formula) list
 
   val forward_invariants_pa : C.t formula list -> t -> vertex -> (vertex * C.t formula) list
+
   (** Simplify a transition system by contracting vertices that do not satisfy
       the given predicate.  Simplification does not guarantee that all such
       vertices are contracted.  In particular, simplification will not
       contract vertices with loops or vertices adjacent to call edges. *)
   val simplify : (vertex -> bool) -> t -> t
+
+  (** Given a transition system and entry, compute a set of loop
+     headers along with the set of variables that are read within the
+     body of the associated loop *)
+  val loop_headers_live : t -> int -> (int * VarSet.t) list
+
+  (** Find invariant affine equalities of a transition system *)
+  val affine_invariants : t -> int -> (int -> (C.t, Polka.equalities Polka.t) SrkApron.property)
 end
