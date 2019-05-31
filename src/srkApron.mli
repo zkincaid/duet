@@ -42,6 +42,9 @@ type ('a,'abs) property
 val pp : Format.formatter -> ('a,'abs) property -> unit
 val show : ('a,'abs) property -> string
 
+(** Retrieve the environment of a property *)
+val get_env : ('a, 'abs) property -> 'a Env.t
+
 val get_manager : ('a, 'abs) property -> 'abs Manager.t
 
 val is_bottom : ('a,'abs) property -> bool
@@ -85,3 +88,7 @@ val formula_of_property : ('a,'abs) property -> 'a formula
 
 (** Evaluate an expression in the environment Top. *)
 val eval_texpr : texpr -> Apron.Interval.t
+
+(** Compute the generator representation of a property. *)
+val generators : ('a, 'abs) property ->
+  (Linear.QQVector.t * [`Line | `Ray | `Vertex | `RayMod | `LineMod ]) list

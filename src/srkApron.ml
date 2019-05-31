@@ -451,9 +451,26 @@ let formula_of_property property =
   |> BatList.of_enum
   |> mk_and srk
 
+let get_env property = property.env
+
 let get_manager property = man property.prop
 
 (* Evaluate a closed expression to an interval *)
 let eval_texpr expr =
   let man = Box.manager_alloc () in
   Abstract0.bound_texpr man (Abstract0.top man 0 0) expr
+
+let generators property =
+  let man = get_manager property in
+  Abstract0.to_generator_array man property.prop
+  |> BatArray.to_list
+  |> List.map Generator0.(fun g ->
+      let vec = vec_of_lexpr property.env g.linexpr0 in
+      let typ = match g.typ with
+        | LINE -> `Line
+        | RAY -> `Ray
+        | VERTEX -> `Vertex
+        | LINEMOD -> `LineMod
+        | RAYMOD -> `RayMod
+      in
+      (vec, typ))
