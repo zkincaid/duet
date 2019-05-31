@@ -76,6 +76,8 @@ let spec_list = [
   ("-convex-hull",
    Arg.String (fun file ->
        let (qf, phi) = Quantifier.normalize srk (load_formula file) in
+       if List.exists (fun (q, _) -> q = `Forall) qf then
+         failwith "universal quantification not supported";
        let exists v =
          not (List.exists (fun (_, x) -> x = v) qf)
        in
@@ -105,29 +107,33 @@ let spec_list = [
        in
        Format.printf "Convex hull:@\n @[<v 0>%a@]@\n"
          pp_hull (Abstract.abstract ~exists srk polka phi)),
-   " Compute the convex hull of a linear arithmetic formula");
+   " Compute the convex hull of an existential linear arithmetic formula");
 
   ("-wedge-hull",
    Arg.String (fun file ->
        let (qf, phi) = Quantifier.normalize srk (load_formula file) in
+       if List.exists (fun (q, _) -> q = `Forall) qf then
+         failwith "universal quantification not supported";
        let exists v =
          not (List.exists (fun (_, x) -> x = v) qf)
        in
        let wedge = Wedge.abstract ~exists srk phi in
        Format.printf "Wedge hull:@\n @[<v 0>%a@]@\n" Wedge.pp wedge),
-   " Compute the wedge hull of a non-linear arithmetic formula");
+   " Compute the wedge hull of an existential non-linear arithmetic formula");
 
   ("-affine-hull",
    Arg.String (fun file ->
        let phi = load_formula file in
-       let (_, psi) = Quantifier.normalize srk phi in
+       let (qf, psi) = Quantifier.normalize srk phi in
+       if List.exists (fun (q, _) -> q = `Forall) qf then
+         failwith "universal quantification not supported";
        let symbols = (* omits skolem constants *)
          Symbol.Set.elements (symbols phi)
        in
        let aff_hull = Abstract.affine_hull srk phi symbols in
        Format.printf "Affine hull:@\n %a@\n"
          (SrkUtil.pp_print_enum (Term.pp srk)) (BatList.enum aff_hull)),
-   " Compute the affine hull of a linear arithmetic formula");
+   " Compute the affine hull of an existential linear arithmetic formula");
 
   ("-stats",
    Arg.String (fun file ->
