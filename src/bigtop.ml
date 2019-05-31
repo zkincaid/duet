@@ -1,5 +1,6 @@
 open SrkAst
 open SrkApron
+open Syntax
 
 module Ctx = SrkAst.Ctx
 module Infix = Syntax.Infix(Ctx)
@@ -83,9 +84,8 @@ let spec_list = [
          if !generator_rep then begin
            let env = SrkApron.get_env hull in
            let dim = SrkApron.Env.dimension env in
-           Format.printf "Symbols: [%a]@\n"
+           Format.printf "Symbols:   [%a]@\n@[<v 0>"
              (SrkUtil.pp_print_enum (Syntax.pp_symbol srk)) (SrkApron.Env.vars env);
-           Format.printf "Convex hull@\n @[<v 0>";
            SrkApron.generators hull
            |> List.iter (fun (generator, typ) ->
                Format.printf "%s [@[<hov 1>"
@@ -106,6 +106,28 @@ let spec_list = [
        Format.printf "Convex hull:@\n @[<v 0>%a@]@\n"
          pp_hull (Abstract.abstract ~exists srk polka phi)),
    " Compute the convex hull of a linear arithmetic formula");
+
+  ("-wedge-hull",
+   Arg.String (fun file ->
+       let (qf, phi) = Quantifier.normalize srk (load_formula file) in
+       let exists v =
+         not (List.exists (fun (_, x) -> x = v) qf)
+       in
+       let wedge = Wedge.abstract ~exists srk phi in
+       Format.printf "Wedge hull:@\n @[<v 0>%a@]@\n" Wedge.pp wedge),
+   " Compute the wedge hull of a non-linear arithmetic formula");
+
+  ("-affine-hull",
+   Arg.String (fun file ->
+       let phi = load_formula file in
+       let (_, psi) = Quantifier.normalize srk phi in
+       let symbols = (* omits skolem constants *)
+         Symbol.Set.elements (symbols phi)
+       in
+       let aff_hull = Abstract.affine_hull srk phi symbols in
+       Format.printf "Affine hull:@\n %a@\n"
+         (SrkUtil.pp_print_enum (Term.pp srk)) (BatList.enum aff_hull)),
+   " Compute the affine hull of a linear arithmetic formula");
 
   ("-stats",
    Arg.String (fun file ->
@@ -182,7 +204,9 @@ let spec_list = [
 let usage_msg = "bigtop: command line interface to srk \n\
   Usage:\n\
   \tbigtop [options] [-simsat|-nlsat] formula.smt2\n\
-  \tbigtop [options] -convex-hull formula.smt2\n\
+  \tbigtop [-generator] -convex-hull formula.smt2\n\
+  \tbigtop -affine-hull formula.smt2\n\
+  \tbigtop -wedge-hull formula.smt2\n\
   \tbigtop -stats formula.smt2\n\
   \tbigtop -random (A|E)* depth [dense|sparse]\n"
 
