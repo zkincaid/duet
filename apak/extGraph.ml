@@ -47,7 +47,7 @@ module type Vertex = sig
   module Set : Putil.Hashed.Set.S with type elt = t
 end
 
-let display_image = ref "eog"
+let display_image = ref "qlmanage -p "
 
 let display_dot output_dot graph =
   Putil.with_temp_filename "graph" ".png"

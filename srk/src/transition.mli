@@ -127,6 +127,8 @@ module Make
      of (pre-state, post-state) symbols. *)
   val to_transition_formula : t -> (((symbol * symbol) list) * C.t formula)
 
+  val to_transition_formula_with_consts: t -> symbol list -> (((symbol * symbol) list) * C.t formula)
+
   (** Iteration domain.  See {!Iteration}. *)
   module Iter (I : Iteration.Domain) : sig
     type iter = C.t I.t

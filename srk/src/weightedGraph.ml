@@ -5,6 +5,7 @@ include Log.Make(struct let name = "srk.weightedGraph" end)
 
 module U = Graph.Persistent.Digraph.ConcreteBidirectional(SrkUtil.Int)
 module WTO = Graph.WeakTopological.Make(U)
+module SCC = Graph.Components.Make(U)
 
 module IntPair = struct
   type t = int * int [@@deriving ord]
@@ -29,6 +30,10 @@ type 'a weighted_graph =
 type 'a t = 'a weighted_graph
 
 type vertex = int
+
+let get_algebra wg = wg.algebra
+
+let get_true_from_algebra wg = wg.algebra.one
 
 let empty algebra =
   { graph = U.empty;
@@ -56,6 +61,27 @@ let add_edge wg u weight v =
     { wg with graph = U.add_edge wg.graph u v;
               labels = M.add (u, v) weight wg.labels }
 
+let get_non_trivial_scc wg =
+  let l = SCC.scc_list wg.graph in
+  let non_trivial_l = 
+    List.filter 
+      (fun an_scc -> List.length an_scc > 1) l 
+  in
+  (List.length non_trivial_l, SCC.scc wg.graph, l)
+  (* if List.length non_trivial_l > 0 then
+      let simplified_l =
+        List.map 
+          (fun an_scc -> 
+            if List.length an_scc > 1 then an_scc else []) l 
+      in
+      Some (SCC.scc wg.graph, simplified_l)
+  else
+      None *)
+
+let get_scc wg = SCC.scc wg.graph
+
+let get_scc_list wg = SCC.scc_list wg.graph
+
 let remove_vertex wg u =
   let labels =
     U.fold_succ
@@ -70,6 +96,13 @@ let remove_vertex wg u =
   in
   { wg with graph = U.remove_vertex wg.graph u;
             labels = labels }
+
+let remove_edge wg u v =
+  let labels = M.remove (u, v) wg.labels in
+  {
+    wg with graph = U.remove_edge wg.graph u v;
+            labels = labels
+  }
 
 let contract_vertex wg v =
   (* List of all { (s, w(v,v)*w(v,s)) : (v,s) in E } *)
@@ -103,6 +136,8 @@ let contract_vertex wg v =
     (remove_vertex wg v)
 
 let max_vertex wg = U.fold_vertex max wg.graph 0
+
+let max_vertex_plus_1 wg = U.fold_vertex max wg.graph 1
 
 let path_weight wg src tgt =
   let start = max_vertex wg + 1 in

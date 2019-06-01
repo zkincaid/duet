@@ -1,0 +1,56 @@
+(* OASIS_START *)
+(* DO NOT EDIT (digest: 670ad49b09d40598555ce464928e4125) *)
+
+This is the INSTALL file for the duet distribution.
+
+This package uses OASIS to generate its build system. See section OASIS for
+full information.
+
+Dependencies
+============
+
+In order to compile this package, you will need:
+
+* ocaml for all, test apak, test patools, test regression, test srk, doc API
+* findlib
+* batteries
+* ppx_deriving
+* gmp for library srk, executable bigtop, executable duet,
+  executable test_srk
+* camlidl for library srk, executable bigtop, executable duet,
+  executable test_srk
+* apron for library srk, executable bigtop, executable duet,
+  executable patools, executable test_apak, executable test_patools,
+  executable test_srk
+* Z3
+* ocrs for library srk, executable bigtop, executable duet,
+  executable test_srk
+* ntl for library srk, executable bigtop, executable test_srk
+* ocamlgraph for library apak, library srk, executable test_apak
+* menhir for all, test apak, test patools, test regression, test srk, doc API
+* oUnit for executable test_apak, executable test_patools,
+  executable test_srk
+* cil for executable duet
+
+Installing
+==========
+
+1. Uncompress the source archive and go to the root of the package
+2. Run 'ocaml setup.ml -configure'
+3. Run 'ocaml setup.ml -build'
+4. Run 'ocaml setup.ml -install'
+
+Uninstalling
+============
+
+1. Go to the root of the package
+2. Run 'ocaml setup.ml -uninstall'
+
+OASIS
+=====
+
+OASIS is a program that generates a setup.ml file using a simple '_oasis'
+configuration file. The generated setup only depends on the standard OCaml
+installation: no additional library is required.
+
+(* OASIS_STOP *)

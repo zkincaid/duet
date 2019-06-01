@@ -6,7 +6,7 @@ module Log = Srk.Log
 let parameterized   = ref false
 
 let sanity_checks   = ref true
-let display_graphs  = ref false
+let display_graphs  = ref true
 let show_stats      = ref false
 let cflags          = ref "" (** Extra flags for C front-end *)
 

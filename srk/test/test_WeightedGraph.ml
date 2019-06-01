@@ -199,4 +199,4 @@ let suite = "WeightedGraph" >::: [
     "nested_loop" >:: nested_loop;
     "nonrec_call" >:: nonrec_call;
     "recursive" >:: recursive;
-  ]
+]

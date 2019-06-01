@@ -8,6 +8,8 @@ type 'a algebra =
     zero : 'a;
     one : 'a }
 
+val get_algebra: 'a t -> 'a algebra
+val get_true_from_algebra: 'a t -> 'a
 module U : Graph.Sig.G with type V.t = int
 
 type vertex = int
@@ -31,6 +33,8 @@ val path_weight : 'a t -> vertex -> vertex -> 'a
 
 (** Remove a vertex from a graph. *)
 val remove_vertex : 'a t -> vertex -> 'a t
+
+val remove_edge : 'a t -> vertex -> vertex -> 'a t
 
 (** [contract g v] removes vertex [v] from [g] while preserving all weighted
     paths among remaining vertices.  That is, for each pair of edges [p -pw->
@@ -64,6 +68,11 @@ val iter_vertex : (vertex -> unit) -> 'a t -> unit
 val mem_edge : 'a t -> vertex -> vertex -> bool
 
 val max_vertex : 'a t -> int
+val max_vertex_plus_1 : 'a t -> int
+
+val get_non_trivial_scc : 'a t -> (int * (int * (vertex -> int)) * vertex list list)
+(* val get_scc : 'a t -> int * (vertex -> int)
+val get_scc_list : 'a t -> vertex list list *)
 
 (** Weight algebras, equipped with additional operations for interpreting
     recursive graphs *)

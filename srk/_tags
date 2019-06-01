@@ -48,6 +48,7 @@ true: annot, bin_annot
 "src/pathexpr.cmx": for-pack(Srk)
 "src/weightedGraph.cmx": for-pack(Srk)
 "src/transitionSystem.cmx": for-pack(Srk)
+"src/nestedLoops.cmx": for-pack(Srk)
 <src/*.ml{,i,y}>: pkg_ocamlgraph
 <src/*.ml{,i,y}>: pkg_ppx_deriving.show
 # Executable test_srk

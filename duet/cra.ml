@@ -6,6 +6,8 @@ open BatPervasives
 
 module RG = Interproc.RG
 module WG = WeightedGraph
+module NL = NestedLoops
+module TM = Termination
 module G = RG.G
 module Ctx = Syntax.MakeSimplifyingContext ()
 module Int = SrkUtil.Int
@@ -438,9 +440,9 @@ let weight def =
 type 'a label = 'a WeightedGraph.label =
   | Weight of 'a
   | Call of int * int
-[@@deriving ord]
+[@@deriving ord, show]
 
-type klabel = K.t label [@@deriving ord]
+type klabel = K.t label [@@deriving ord, show]
 
 module TS = TransitionSystem.Make(Ctx)(V)(K)
 
@@ -615,6 +617,30 @@ let analyze file =
     end
   | _ -> assert false
 
+  
+
+let prove_termination_main file =
+  populate_offset_table file;
+  match file.entry_points with
+  | [main] -> begin
+      let rg = Interproc.make_recgraph file in
+      let entry = (RG.block_entry rg main).did in
+      let (ts, assertions) = make_transition_system rg in
+      TSDisplay.display ts;
+      let (l, fl) =  NL.compute_all_nested_loops ts entry in
+      let _ =  NL.print_flattened_results show_klabel fl in
+      let loops_without_calledges = List.map
+        (fun (kl1, kl2) -> match (kl1, kl2) with
+            | Weight l1, Weight l2 -> (l1, l2)
+            | _, _ -> assert false)
+        fl
+      in
+      let _ = TM.prove_termination_of_loops srk K.to_transition_formula_with_consts K.mul loops_without_calledges in
+      ()
+    end
+  | _ -> assert false
+
+
 let resource_bound_analysis file =
   populate_offset_table file;
   match file.entry_points with
@@ -716,5 +742,7 @@ let _ =
 let _ =
   CmdLine.register_pass
     ("-cra", analyze, " Compositional recurrence analysis");
+  CmdLine.register_pass
+    ("-termination", prove_termination_main, "Proof of termination");
   CmdLine.register_pass
     ("-rba", resource_bound_analysis, " Resource bound analysis")

@@ -171,6 +171,7 @@ struct
     in
     (tr_symbols, body)
 
+  
   module Iter(D : Iteration.Domain) = struct
     type iter = C.t D.t
 
@@ -438,4 +439,51 @@ struct
     |> Nonlinear.linearize srk
     |> rewrite srk ~down:(nnf_rewriter srk)
     |> Abstract.abstract ~exists srk man
+
+
+
+    let to_transition_formula_with_consts tr additional_symbols_list =
+    let (tr_symbols, post_def) =
+      M.fold (fun var term (symbols, post_def) ->
+          let pre_sym = Var.symbol_of var in
+          let post_sym = post_symbol pre_sym in
+          let post_term = mk_const srk post_sym in
+          ((pre_sym,post_sym)::symbols,
+           (mk_eq srk post_term term)::post_def))
+        tr.transform
+        ([], [])
+    in
+    let vars_list = [] in
+      (* List.map
+        (fun x -> match Var.of_symbol x with Some v -> v | of_ )
+        additional_symbols_list
+    in *)
+    let symbols_read = List.concat [(uses tr); vars_list] in
+    (* let symbols_written = defines tr in *)
+    let (tr_symbols_list, post_defs) =
+      List.fold_left 
+      (fun  (l_symbols, defs) symbol_read ->
+        let trans = tr.transform in
+          if M.mem symbol_read trans then
+            (l_symbols, defs)
+          else
+            begin
+              let pre_sym = Var.symbol_of symbol_read in
+              let pre_sym_exp = mk_const srk pre_sym in
+              let post_sym = post_symbol pre_sym in
+              let post_term = mk_const srk post_sym in
+                ((pre_sym, post_sym)::l_symbols,
+              (mk_eq srk post_term pre_sym_exp)::defs)
+            end
+      )
+        (tr_symbols, post_def)
+        symbols_read
+    in
+    let body =
+      SrkSimplify.simplify_terms srk (mk_and srk (tr.guard::post_defs))
+    in
+    (tr_symbols_list, body)
+
 end
+
+
