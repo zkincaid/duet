@@ -1705,7 +1705,6 @@ let is_sat srk phi =
   let phi = eliminate_ite srk phi in
   let phi =
     SrkSimplify.simplify_terms srk phi
-    |> SrkZ3.simplify srk
   in
   let solver = Smt.mk_solver ~theory:"QF_LIRA" srk in
   let uninterp_phi =
@@ -1889,6 +1888,7 @@ let symbolic_bounds_formula ?exists:(p=fun x -> true) srk phi symbol =
       ~down:(nnf_rewriter srk)
       ~up:(Nonlinear.uninterpret_rewriter srk)
       phi
+    |> SrkZ3.simplify srk
   in
   let (lin_phi, nonlinear) = SrkSimplify.purify srk uninterp_phi in
   let nonlinear_defs =
