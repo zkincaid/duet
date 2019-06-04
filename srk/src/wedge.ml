@@ -1242,13 +1242,15 @@ let symbolic_bounds_vec wedge vec forget =
   (!lower, !upper)
 
 
-let exists
+(** Attempt to eliminate symbols that do not satisfy [p] and (and
+   non-linear terms that contain symbols that do not satisfy
+   [subterm]).  [try_project] may fail to eliminate symbols, but is
+   guaranteed to not lose information.  *)
+let try_project
     ?integrity:(integrity=(fun _ -> ()))
     ?subterm:(subterm=(fun _ -> true))
     p
     wedge =
-  logf "Projection input: %a" pp wedge;
-  let wedge = copy wedge in
   let srk = wedge.srk in
   let cs = wedge.cs in
   Nonlinear.ensure_symbols srk;
@@ -1260,116 +1262,88 @@ let exists
   let safe_coordinates =
     CS.project_ideal cs (coordinate_ideal ~integrity wedge) ~subterm keep
   in
+  let module IntM = SrkUtil.Int.Map in
   List.iter (fun (_,_,thm) -> integrity thm) safe_coordinates;
-
-  (* Coordinates that must be projected out *)
-  let forget =
-    List.fold_left (fun set (i, _, _) ->
-        IntSet.remove i set)
-      (IntSet.of_enum (0 -- (CS.dim cs - 1)))
+  let safe_coordinate_map =
+    List.fold_left (fun map (id, term, _) ->
+        IntM.add id term map)
+      IntM.empty
       safe_coordinates
+  in
+  BatArray.enum (Abstract0.to_lincons_array (get_manager ()) wedge.abstract)
+  /@ (fun lincons ->
+      let open Lincons0 in
+      let term_of_coordinate i =
+        if IntM.mem i safe_coordinate_map then
+          IntM.find i safe_coordinate_map
+        else
+          CS.term_of_coordinate wedge.cs i
+      in
+      let term =
+        V.enum (vec_of_linexpr wedge.env lincons.linexpr0)
+        /@ (fun (coeff, id) ->
+            if id = CS.const_id then
+              mk_real srk coeff
+            else if QQ.equal QQ.one coeff then
+              term_of_coordinate id
+            else
+              mk_mul srk [mk_real srk coeff; term_of_coordinate id])
+        |> BatList.of_enum
+        |> mk_add srk
+      in
+      let zero = mk_real wedge.srk QQ.zero in
+      match lincons.typ with
+      | EQ -> mk_eq wedge.srk term zero
+      | SUPEQ -> mk_leq wedge.srk zero term
+      | SUP -> mk_lt wedge.srk zero term
+      | DISEQ | EQMOD _ -> assert false)
+  |> BatList.of_enum
+  |> of_atoms srk
+
+let exists
+    ?integrity:(integrity=(fun _ -> ()))
+    ?subterm:(subterm=(fun _ -> true))
+    p
+    wedge =
+  logf "Projection input: %a" pp wedge;
+  let wedge = try_project ~integrity ~subterm p wedge in
+  let srk = wedge.srk in
+  Nonlinear.ensure_symbols srk;
+  let cs = wedge.cs in
+  let log = get_named_symbol srk "log" in
+  let pow = get_named_symbol srk "pow" in
+  let keep x = p x || x = log || x = pow in
+  let subterm x = keep x && subterm x in
+  (* Removed coordinates corresponding to symbols that must be
+     projected. *)
+  let keep_coordinate i =
+    let t = CS.term_of_coordinate cs i in
+    match Term.destruct srk t with
+    | `App (symbol, []) -> keep symbol
+    | _ -> Symbol.Set.for_all subterm (symbols t)
+  in
+
+  let forget = (* coordinates to remove *)
+    BatEnum.fold (fun set i ->
+        if keep_coordinate i then set
+        else IntSet.add i set)
+      IntSet.empty
+      (0 -- (CS.dim cs - 1))
   in
   let forget_subterm =
-    List.fold_left (fun set (i, _, _) ->
+    BatEnum.fold (fun set i ->
         let t = CS.term_of_coordinate cs i in
-        if Symbol.Set.for_all subterm (symbols t) then
-          IntSet.remove i set
-        else
-          set)
-      (IntSet.of_enum (0 -- (CS.dim cs - 1)))
-      safe_coordinates
+        if Symbol.Set.for_all subterm (symbols t) then set
+        else IntSet.add i set)
+      IntSet.empty
+      (0 -- (CS.dim cs - 1))
   in
 
+
+  (* linear term is defined only over safe coordinates? *)
   let safe_vector vec = (* to do: rewrite first *)
     V.enum vec
     |> BatEnum.for_all (fun (_, dim) -> not (IntSet.mem dim forget))
-  in
-
-  (***************************************************************************
-   * Build environment of the projection and a translation into the projected
-   * environment.
-   ***************************************************************************)
-  let new_cs = CS.mk_empty srk in
-  let substitution =
-    safe_coordinates |> List.map (fun (id,term,_) ->
-        let dim = dim_of_id wedge.cs wedge.env id in
-        let rewrite_vec = CS.vec_of_term ~admit:true new_cs term in
-        (dim, rewrite_vec))
-  in
-  let new_env = mk_env new_cs in
-  let abstract = forget_ids wedge wedge.abstract (IntSet.elements forget) in
-
-  (* Ensure abstract has enough dimensions to be able to interpret the
-     substitution.  The substituion is interpreted within an implicit
-     ("virtual") environment. *)
-  let virtual_int_dim =
-    max (CS.int_dim cs) (CS.int_dim new_cs)
-  in
-  let virtual_dim_of_id id =
-    let open Env in
-    match CS.type_of_id new_cs id with
-    | `TyInt -> SrkUtil.search id new_env.int_dim
-    | `TyReal -> virtual_int_dim + (SrkUtil.search id new_env.real_dim)
-  in
-  let virtual_linexpr_of_vec vec =
-    let mk (coeff, id) =
-      (coeff_of_qq coeff, virtual_dim_of_id id)
-    in
-    let (const_coeff, rest) = V.pivot CS.const_id vec in
-    Linexpr0.of_list None
-      (BatList.of_enum (BatEnum.map mk (V.enum rest)))
-      (Some (coeff_of_qq const_coeff))
-  in
-
-  let abstract =
-    let int_dims = A.length wedge.env.int_dim in
-    let real_dims = A.length wedge.env.real_dim in
-    let added_int = max 0 ((A.length new_env.int_dim) - int_dims) in
-    let added_real = max 0 ((A.length new_env.real_dim) - real_dims) in
-    let added =
-      BatEnum.append
-        ((0 -- (added_int - 1)) /@ (fun _ -> int_dims))
-        ((0 -- (added_real - 1)) /@ (fun _ -> int_dims + real_dims))
-      |> BatArray.of_enum
-    in
-    Abstract0.add_dimensions
-      (get_manager ())
-      abstract
-      { Dim.dim = added;
-        Dim.intdim = added_int;
-        Dim.realdim = added_real }
-      false
-  in
-
-  logf ~level:`trace "Env (%d): %a"
-    (List.length substitution)
-    CS.pp new_cs;
-  substitution |> List.iter (fun (dim, replacement) ->
-      logf ~level:`trace "Replace %a => %a"
-        (Term.pp srk) (CS.term_of_coordinate wedge.cs (id_of_dim wedge.env dim))
-        (CS.pp_vector new_cs) replacement);
-
-  let abstract =
-    Abstract0.substitute_linexpr_array
-      (get_manager ())
-      abstract
-      (BatArray.of_list (List.map fst substitution))
-      (BatArray.of_list (List.map (virtual_linexpr_of_vec % snd) substitution))
-      None
-  in
-
-  (* Remove extra dimensions *)
-  let abstract =
-    apron_set_dimensions
-      (A.length new_env.int_dim)
-      (A.length new_env.real_dim)
-      abstract
-  in
-  let result =
-    { srk = srk;
-      cs = new_cs;
-      env = new_env;
-      abstract = abstract }
   in
 
   (***************************************************************************
@@ -1380,7 +1354,7 @@ let exists
       (Formula.pp srk) precondition
       (Formula.pp srk) bound;
     integrity (mk_if srk precondition bound);
-    meet_atoms result [bound]
+    meet_atoms wedge [bound]
   in
   (* find a polynomial p such that p*interp(i) = interp(j).  The coordinate j
      is assumed to be non-multiplicative. *)
@@ -1406,7 +1380,7 @@ let exists
       (* s >= t /\ b > 1 |= b^s >= b^t *)
       (* s <= t /\ b > 1 |= b^s <= b^t *)
       | `App (symbol, [b; s])
-        when (symbol = pow && safe_vector b && safe_vector s && gt_one b) ->
+        when (symbol = pow && safe_vector b && gt_one b) ->
 
         (* Find inequations of the form p*b^s + t >= 0, where p is a
            polynomial over safe dimensions and t is a linear term over safe
@@ -1432,6 +1406,13 @@ let exists
         |> Abstract0.to_lincons_array (get_manager ())
         |> Array.iter (fun lincons ->
             let open Lincons0 in
+            let mk_cmp =
+              match lincons.typ with
+              | EQ -> mk_eq srk
+              | SUP -> mk_lt srk
+              | SUPEQ -> mk_leq srk
+              | _ -> assert false
+            in
             let vec = V.negate (vec_of_linexpr wedge.env lincons.linexpr0) in
             (* rewrite vec as p*b^s + t *)
             let (p, t) =
@@ -1492,7 +1473,7 @@ let exists
                             mk_lt srk t_term (mk_real srk QQ.zero)]
               in
               let conclusion =
-                mk_leq srk
+                mk_cmp
                   (mk_add srk
                      [mk_log srk b_term p_term;
                       s_term])
@@ -1508,7 +1489,7 @@ let exists
                             mk_lt srk (mk_real srk QQ.zero) t_term]
               in
               let conclusion =
-                mk_leq srk
+                mk_cmp
                   (mk_log srk b_term t_term)
                   (mk_add srk
                      [mk_log srk b_term (mk_neg srk p_term);
@@ -1568,6 +1549,19 @@ let exists
         end
       | _ -> ());
 
+  let forget = (* coordinates to remove *)
+    BatEnum.fold (fun set i ->
+        if keep_coordinate i then set
+        else IntSet.add i set)
+      IntSet.empty
+      (0 -- (CS.dim cs - 1))
+  in
+
+  let result =
+    { wedge with abstract = forget_ids wedge wedge.abstract (IntSet.elements forget) }
+    |> to_atoms
+    |> of_atoms srk
+  in
   logf "Projection result: %a" pp result;
   result
 
@@ -1712,6 +1706,7 @@ let is_sat srk phi =
       ~down:(nnf_rewriter srk)
       ~up:(Nonlinear.uninterpret_rewriter srk)
       phi
+    |> SrkZ3.simplify srk
   in
   let (lin_phi, nonlinear) = SrkSimplify.purify srk uninterp_phi in
   let nonlinear_defs =
@@ -1888,7 +1883,6 @@ let symbolic_bounds_formula ?exists:(p=fun x -> true) srk phi symbol =
       ~down:(nnf_rewriter srk)
       ~up:(Nonlinear.uninterpret_rewriter srk)
       phi
-    |> SrkZ3.simplify srk
   in
   let (lin_phi, nonlinear) = SrkSimplify.purify srk uninterp_phi in
   let nonlinear_defs =
