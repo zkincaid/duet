@@ -1,9 +1,13 @@
 open SrkAst
 open SrkApron
+open Syntax
 
 module Ctx = SrkAst.Ctx
 module Infix = Syntax.Infix(Ctx)
 let srk = Ctx.context
+
+let generator_rep = ref false
+
 
 let file_contents filename =
   let chan = open_in filename in
@@ -48,9 +52,9 @@ let load_math_opt filename =
                 (pos.pos_cnum - pos.pos_bol + 1))
 
 let print_result = function
-  | `Sat -> Log.logf ~level:`always "sat"
-  | `Unsat -> Log.logf ~level:`always "unsat"
-  | `Unknown -> Log.logf ~level:`always "unknown"
+  | `Sat -> Format.printf "sat@\n"
+  | `Unsat -> Format.printf "unsat@\n"
+  | `Unknown -> Format.printf "unknown@\n"
 
 let spec_list = [
   ("-simsat",
@@ -64,6 +68,72 @@ let spec_list = [
        let phi = load_formula file in
        print_result (Wedge.is_sat srk (snd (Quantifier.normalize srk phi)))),
    " Test satisfiability of a non-linear ground formula (POPL'18)");
+
+  ("-generator",
+   Arg.Set generator_rep,
+   " Print generator representation of convex hull");
+
+  ("-convex-hull",
+   Arg.String (fun file ->
+       let (qf, phi) = Quantifier.normalize srk (load_formula file) in
+       if List.exists (fun (q, _) -> q = `Forall) qf then
+         failwith "universal quantification not supported";
+       let exists v =
+         not (List.exists (fun (_, x) -> x = v) qf)
+       in
+       let polka = Polka.manager_alloc_strict () in
+       let pp_hull formatter hull =
+         if !generator_rep then begin
+           let env = SrkApron.get_env hull in
+           let dim = SrkApron.Env.dimension env in
+           Format.printf "Symbols:   [%a]@\n@[<v 0>"
+             (SrkUtil.pp_print_enum (Syntax.pp_symbol srk)) (SrkApron.Env.vars env);
+           SrkApron.generators hull
+           |> List.iter (fun (generator, typ) ->
+               Format.printf "%s [@[<hov 1>"
+                 (match typ with
+                  | `Line    -> "line:     "
+                  | `Vertex  -> "vertex:   "
+                  | `Ray     -> "ray:      "
+                  | `LineMod -> "line mod: "
+                  | `RayMod  -> "ray mod:  ");
+               for i = 0 to dim - 2 do
+                 Format.printf "%a@;" QQ.pp (Linear.QQVector.coeff i generator)
+               done;
+               Format.printf "%a]@]@;" QQ.pp (Linear.QQVector.coeff (dim - 1) generator));
+           Format.printf "@]"
+         end else
+           SrkApron.pp formatter hull
+       in
+       Format.printf "Convex hull:@\n @[<v 0>%a@]@\n"
+         pp_hull (Abstract.abstract ~exists srk polka phi)),
+   " Compute the convex hull of an existential linear arithmetic formula");
+
+  ("-wedge-hull",
+   Arg.String (fun file ->
+       let (qf, phi) = Quantifier.normalize srk (load_formula file) in
+       if List.exists (fun (q, _) -> q = `Forall) qf then
+         failwith "universal quantification not supported";
+       let exists v =
+         not (List.exists (fun (_, x) -> x = v) qf)
+       in
+       let wedge = Wedge.abstract ~exists srk phi in
+       Format.printf "Wedge hull:@\n @[<v 0>%a@]@\n" Wedge.pp wedge),
+   " Compute the wedge hull of an existential non-linear arithmetic formula");
+
+  ("-affine-hull",
+   Arg.String (fun file ->
+       let phi = load_formula file in
+       let (qf, psi) = Quantifier.normalize srk phi in
+       if List.exists (fun (q, _) -> q = `Forall) qf then
+         failwith "universal quantification not supported";
+       let symbols = (* omits skolem constants *)
+         Symbol.Set.elements (symbols phi)
+       in
+       let aff_hull = Abstract.affine_hull srk phi symbols in
+       Format.printf "Affine hull:@\n %a@\n"
+         (SrkUtil.pp_print_enum (Term.pp srk)) (BatList.enum aff_hull)),
+   " Compute the affine hull of an existential linear arithmetic formula");
 
   ("-stats",
    Arg.String (fun file ->
@@ -140,7 +210,9 @@ let spec_list = [
 let usage_msg = "bigtop: command line interface to srk \n\
   Usage:\n\
   \tbigtop [options] [-simsat|-nlsat] formula.smt2\n\
-  \tbigtop [options] [-wedge|-polyhedron|-affine] formula.smt2\n\
+  \tbigtop [-generator] -convex-hull formula.smt2\n\
+  \tbigtop -affine-hull formula.smt2\n\
+  \tbigtop -wedge-hull formula.smt2\n\
   \tbigtop -stats formula.smt2\n\
   \tbigtop -random (A|E)* depth [dense|sparse]\n"
 

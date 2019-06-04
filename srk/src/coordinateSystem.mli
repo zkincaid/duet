@@ -86,6 +86,15 @@ val term_of_polynomial : 'a t -> Polynomial.QQXs.t -> 'a term
 (** Does a coordinate system admit the given term? *)
 val admits : 'a t -> 'a term -> bool
 
+(** [project_ideal cs basis subterm p] takes as input a coordinate
+   system [cs], a basis for a polynomial ideal [basis], and two
+   predicates [subterm] and [p], and computes a set of triples [(i, t,
+   lem)] such that [i] is a dimension of [cs], such that the term
+   associated with [i] is equal to [t] modulo [basis], [t] is a term
+   that refers only to symbols satisfyiing [p] (and symbols appearing
+   in non-linear sub-terms must satisfy [subterm]), and [lem] is a
+   lemma that is implied by [basis] and which is sufficient prove the
+   that [t] is equal to [term_of_coordinate cs i] modulo [basis]. *)
 val project_ideal : 'a t ->
   Polynomial.QQXs.t list ->
   ?subterm:(symbol -> bool) ->
