@@ -1283,7 +1283,7 @@ let rec pp_smtlib2 ?(env=Env.empty) srk formatter expr =
         (BatList.enum terms);
       fprintf formatter "@])"
     | Div, [s; t] ->
-      fprintf formatter "(/@[%a@ %a@])"
+      fprintf formatter "(/ @[%a@ %a@])"
         (go env) s
         (go env) t
     | Mod, [s; t] ->
