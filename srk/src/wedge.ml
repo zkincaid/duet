@@ -1706,7 +1706,6 @@ let is_sat srk phi =
       ~down:(nnf_rewriter srk)
       ~up:(Nonlinear.uninterpret_rewriter srk)
       phi
-    |> SrkZ3.simplify srk
   in
   let (lin_phi, nonlinear) = SrkSimplify.purify srk uninterp_phi in
   let nonlinear_defs =
