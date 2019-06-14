@@ -346,6 +346,28 @@ let substitute_map srk map sexpr =
   in
   substitute_const srk subst sexpr
 
+let substitute_sym srk subst sexpr =
+  let rec go depth sexpr =
+    let Node (label, children, _) = sexpr.obj in
+    match label with
+    | Exists (_, _) | Forall (_, _) ->
+      go_children label (depth + 1) children
+    | App k ->
+      let env =
+        List.fold_right
+          (fun c env -> Env.push (go depth c) env)
+          children
+          Env.empty
+      in
+      substitute srk (Env.find env) (subst k)
+      |> decapture srk 0 (depth - (List.length children))
+    | _ -> go_children label depth children
+  and go_children label depth children =
+    srk.mk label (List.map (go depth) children)
+  in
+  go 0 sexpr
+
+
 let fold_constants f sexpr acc =
   let rec go acc sexpr =
     let Node (label, children, _) = sexpr.obj in
