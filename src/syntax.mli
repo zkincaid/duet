@@ -113,21 +113,45 @@ val mk_app : 'a context -> symbol -> ('a, 'b) expr list -> ('a, 'typ) expr
 
 val mk_var : 'a context -> int -> typ_fo -> ('a, 'typ) expr
 
+(** Create an if-then-else expression. *)
 val mk_ite : 'a context -> 'a formula -> ('a, 'typ) expr -> ('a, 'typ) expr ->
   ('a, 'typ) expr
 
+(** Create an implication formula. *)
 val mk_if : 'a context -> 'a formula -> 'a formula -> 'a formula
 
+(** Create an if-and-only-if formula *)
 val mk_iff : 'a context -> 'a formula -> 'a formula -> 'a formula
 
+(** [substitute srk subst exp] replaces each occurrence of a variable
+   symbol with De Bruijn [i] with the expression [subst i].  If [subst
+   i] contains free variables, capture is avoided. *)
 val substitute : 'a context ->
   (int -> ('a,'b) expr) -> ('a,'typ) expr -> ('a,'typ) expr
 
+(** [substitute_const srk subst exp] replaces each occurrence of a
+   constant symbol [s] with the expression [subst s].  If [subst s]
+   contains free variables, capture is avoided.  Function symbols are
+   not affected. *)
 val substitute_const : 'a context ->
   (symbol -> ('a,'b) expr) -> ('a,'typ) expr -> ('a,'typ) expr
 
+(** [substitute_map srk subst exp] replaces each occurrence of a
+   constant symbol [s] in the domain of the map subst with the
+   expression [subst s].  If [subst s] contains free variables,
+   capture is avoided.  Function symbols are not affected. *)
 val substitute_map : 'a context ->
   (('a,'b) expr Symbol.Map.t) -> ('a,'typ) expr -> ('a,'typ) expr
+
+(** [substitute_sym srk subst exp] replaces each occurrence of a an
+   application [f(e_0,...,e_n)] with the result of replacing the De
+   Bruijn indices [0, ..., n] with [e_0, ..., e_n] in the expression
+   [subst f].  If [subst f] contains free variables (beyond
+   [0,...,n]), capture is avoided.  Constant symbols are treated as
+   nullary function applications, and so are also replaced according
+   to [subst]. *)
+val substitute_sym : 'a context ->
+  (symbol -> ('a,'b) expr) -> ('a,'typ) expr -> ('a,'typ) expr
 
 val fold_constants : (symbol -> 'a -> 'a) -> ('b, 'c) expr -> 'a -> 'a
 

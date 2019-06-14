@@ -582,8 +582,15 @@ let load_smtlib2 ?(context=Z3.mk_context []) srk str =
     fun decl ->
       let open Z3 in
       let sym = FuncDecl.get_name decl in
-      assert (FuncDecl.get_domain decl = []);
-      cos (Symbol.to_string sym, typ_of_sort (FuncDecl.get_range decl))
+      match FuncDecl.get_domain decl with
+      | [] ->
+        cos (Symbol.to_string sym, typ_of_sort (FuncDecl.get_range decl))
+      | dom ->
+        let typ =
+          `TyFun (List.map typ_of_sort dom,
+                  typ_of_sort (FuncDecl.get_range decl))
+        in
+        cos (Symbol.to_string sym, typ)
   in
   match Expr.refine srk (of_z3 srk sym_of_decl ast) with
   | `Formula phi -> phi
