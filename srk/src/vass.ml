@@ -181,7 +181,7 @@ let pp srk syms formatter vasses =
       BatList.iter (fun alph -> Format.fprintf formatter "Matrix %a\n" (M.pp) alph) sccvas.s_lst) vasses.vasses
 
 (*Computes vass for a given list of control states and formula*)
-let compute_single_scc_vass ?(exists=fun x -> true) srk tr_symbols cs_lst phi =
+let compute_single_scc_vass ?(exists=fun x -> true) srk tr_symbols symb_constants cs_lst phi =
   (* Restrict phi to configurations that model a control state *)
   let postified_cs = List.map (fun lbl -> postify srk tr_symbols lbl) cs_lst in
   let phi' = mk_and srk [mk_or srk cs_lst; mk_or srk postified_cs; phi] in
@@ -208,9 +208,10 @@ let compute_single_scc_vass ?(exists=fun x -> true) srk tr_symbols cs_lst phi =
   (* Computes list of lin transformation that determines
    * how to transform each cell of pregraph to use same sim matrix
    * Also computes the sim matrix that will be used *)
+  let double_symb = List.map (fun x -> (x, x)) (Symbol.Set.elements symb_constants) in 
   let imglist, s_lst =
     let sim =
-      List.map (fun (_, x') -> V.of_term QQ.one (Linear.dim_of_sym x')) tr_symbols
+      List.map (fun (_, x') -> V.of_term QQ.one (Linear.dim_of_sym x')) (tr_symbols @ double_symb)
       |> M.of_rows
     in
     BatArray.fold_left
@@ -304,14 +305,14 @@ let get_largest_polyhedrons srk control_states =
 
 (*Compute control states using projection to pre transition states.
  * Also compute sink*)
-let get_control_states ?(exists=fun x -> true) srk tr_symbols phi =
+let get_control_states ?(exists=fun x -> true) srk tr_symbols sym_constants phi =
   let pre_symbols = pre_symbols tr_symbols in
   let post_symbols = post_symbols tr_symbols in
   let exists_pre x =
-    exists x && not (Symbol.Set.mem x post_symbols)
+    Symbol.Set.mem x pre_symbols || Symbol.Set.mem x sym_constants
   in
   let exists_post x =
-    exists x && not (Symbol.Set.mem x pre_symbols)
+    Symbol.Set.mem x post_symbols || Symbol.Set.mem x sym_constants
   in
   let control_states = project_dnf srk exists_pre phi in
   (*sink can also just be true given while exact phi used as transition to sink*)
@@ -321,12 +322,19 @@ let get_control_states ?(exists=fun x -> true) srk tr_symbols phi =
 
 
 let abstract ?(exists=fun x -> true) srk tr_symbols phi =
+  Log.errorf "formula is %a" (Formula.pp srk) phi;
+  List.iter (fun sym -> Log.errorf "sym is %a" (Formula.pp srk) (mk_const srk sym)) (Symbol.Set.elements (symbols phi));
   let skolem_constants = Symbol.Set.filter (fun a -> not (exists a)) (symbols phi) in
+  let tr_flat = List.fold_left (fun lst (x, x') -> x :: x' :: lst) [] tr_symbols in
+  let symb_constants =  Symbol.Set.filter (fun a -> (exists a) && (not (List.mem a tr_flat))) (symbols phi) in 
+  let symb_eqs = List.fold_left (fun lst sym -> (mk_eq srk (mk_const srk sym) (mk_const srk sym)) :: lst) [] 
+      (Symbol.Set.elements symb_constants) in
+  let phi = mk_and srk (phi :: symb_eqs) in
   let phi = Nonlinear.linearize srk (rewrite srk ~down:(nnf_rewriter srk) phi) in
-  let control_states, sink = get_control_states ~exists srk tr_symbols phi in
+  let control_states, sink = get_control_states ~exists srk tr_symbols symb_constants phi in
   let graph = compute_edges srk tr_symbols control_states phi in
   let num_sccs, func_sccs = BGraphComp.scc graph in
-  let sccs = Array.make num_sccs  [] in
+  (*let sccs = Array.make num_sccs  [] in
   BatArray.iteri (fun ind lab -> sccs.(func_sccs ind)<-(lab :: sccs.(func_sccs ind)))
     control_states;
   if num_sccs = 0 then
@@ -334,7 +342,23 @@ let abstract ?(exists=fun x -> true) srk tr_symbols phi =
      formula=phi; skolem_constants; sink=sink}
   else(
     let vassarrays = BatArray.map 
-        (fun scc -> compute_single_scc_vass ~exists srk tr_symbols scc phi) sccs in
+        (fun scc -> compute_single_scc_vass ~exists srk tr_symbols symb_constants scc phi) sccs in
+    let result = {vasses=vassarrays;formula=phi; skolem_constants; sink=sink} in
+    logf "%a" (pp srk tr_symbols) result;
+    result
+  )*)
+  if num_sccs = 0 then
+    {vasses= BatArray.init 0 (fun x -> assert false);
+     formula=phi; skolem_constants; sink=sink}
+  else(
+
+
+    let num_sccs = 1 in
+    let sccs = Array.make num_sccs  [] in
+    BatArray.iteri (fun ind lab -> sccs.(0)<-(lab :: sccs.(0)))
+      control_states;
+    let vassarrays = BatArray.map
+        (fun scc -> compute_single_scc_vass ~exists srk tr_symbols symb_constants scc phi) sccs in
     let result = {vasses=vassarrays;formula=phi; skolem_constants; sink=sink} in
     logf "%a" (pp srk tr_symbols) result;
     result
