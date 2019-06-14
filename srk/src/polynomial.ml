@@ -376,7 +376,9 @@ module type Multivariate = sig
   val exp : t -> int -> t
   val substitute : (int -> t) -> t -> t
   val div_monomial : t -> Monomial.t -> t option
+  val qr_monomial : t -> Monomial.t -> t * t
   val dimensions : t -> int BatEnum.t
+  val degree : t -> int
 end
 
 module MakeMultivariate(R : Ring.S) = struct
@@ -452,13 +454,24 @@ module MakeMultivariate(R : Ring.S) = struct
       p
       (Some zero)
 
+  let qr_monomial p m =
+    MM.fold (fun n coeff (q, r) ->
+        match Monomial.div n m with
+        | Some qn -> (add_term coeff qn q, r)
+        | None -> (q, add_term coeff n r))
+      p
+      (zero, zero)
+
   let dimensions p =
     let module S = SrkUtil.Int.Set in
     MM.fold (fun m _ set ->
         Monomial.IntMap.fold (fun dim _ set -> S.add dim set) m set)
       p
       S.empty
-    |> S.enum  
+    |> S.enum
+
+  let degree p =
+    MM.fold (fun m _ d -> max (Monomial.total_degree m) d) p 0
 end
 
 module QQXs = struct
@@ -541,6 +554,19 @@ module QQXs = struct
           zero
       in
       (c, m, q)
+
+  let split_leading ord p =
+    let leading_monomial =
+      MM.fold (fun n _ m ->
+          if ord n m = `Gt then n
+          else m)
+        p
+        Monomial.one
+    in
+    (coeff leading_monomial p,
+     leading_monomial,
+     try MM.remove leading_monomial p
+     with Not_found -> p)
 end
 
 module Rewrite = struct

@@ -8,7 +8,6 @@ let srk = Ctx.context
 
 let generator_rep = ref false
 
-
 let file_contents filename =
   let chan = open_in filename in
   let len = in_channel_length chan in
@@ -34,9 +33,23 @@ let load_smtlib2 filename =
   SrkZ3.load_smtlib2 srk (Bytes.to_string (file_contents filename))
 
 let load_formula filename =
-  if Filename.check_suffix filename "m" then load_math_formula filename
-  else if Filename.check_suffix filename "smt2" then load_smtlib2 filename
-  else Log.fatalf "Unrecognized file extension for %s" filename
+  let formula =
+    if Filename.check_suffix filename "m" then load_math_formula filename
+    else if Filename.check_suffix filename "smt2" then load_smtlib2 filename
+    else Log.fatalf "Unrecognized file extension for %s" filename
+  in
+  Nonlinear.ensure_symbols srk;
+  let subst f =
+    match typ_symbol srk f with
+    | `TyReal | `TyInt | `TyBool -> mk_const srk f
+    | `TyFun (args, _) ->
+      let f =
+        try get_named_symbol srk (show_symbol srk f)
+        with Not_found -> f
+      in
+      mk_app srk f (List.mapi (fun i typ -> mk_var srk i typ) args)
+  in
+  substitute_sym srk subst formula
 
 let load_math_opt filename =
   let open Lexing in

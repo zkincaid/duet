@@ -214,6 +214,80 @@ let exists4 () =
   in
   assert_implies (Wedge.to_atoms phi) psi
 
+let exists_powlog () =
+  let phi =
+    Wedge.of_atoms srk
+      Infix.[y = mk_pow (int 2) x;
+             x = w;
+             (int 1) <= y;
+             z <= y;
+             y <= z]
+    |> Wedge.exists
+      (fun (sym : Syntax.symbol) -> sym = wsym || sym = zsym)
+      ~subterm:(fun sym -> sym = zsym)
+  in
+  let psi =
+    Infix.[mk_log (int 2) z <= w;
+           w <= mk_log (int 2) z]
+  in
+  assert_implies (Wedge.to_atoms phi) psi
+
+let exists_mul2 () =
+  let phi =
+    Wedge.of_atoms srk
+      Infix.[(int 0) <= x;
+             x <= y;
+             z <= x * x]
+    |> Wedge.exists
+      (fun (sym : Syntax.symbol) -> sym = ysym || sym = zsym)
+  in
+  let psi =
+    Infix.[z <= y * y]
+  in
+  assert_implies (Wedge.to_atoms phi) psi
+
+let exists_mul3 () =
+  let phi =
+    Wedge.of_atoms srk
+      Infix.[(int 0) <= x;
+             x <= y;
+             z <= x * x * x]
+    |> Wedge.exists
+      (fun (sym : Syntax.symbol) -> sym = ysym || sym = zsym)
+  in
+  let psi =
+    Infix.[z <= y * y * y]
+  in
+  assert_implies (Wedge.to_atoms phi) psi
+
+let exists_mul4 () =
+  let phi =
+    Wedge.of_atoms srk
+      Infix.[(int 0) <= x;
+             x <= y;
+             z <= x * x * x * x]
+    |> Wedge.exists
+      (fun (sym : Syntax.symbol) -> sym = ysym || sym = zsym)
+  in
+  let psi =
+    Infix.[z <= y * y * y * y]
+  in
+  assert_implies (Wedge.to_atoms phi) psi
+
+let exists_nlogn () =
+  let phi =
+    Wedge.of_atoms srk
+      Infix.[(int 0) <= x;
+             x <= y;
+             z <= x * (mk_log (int 2) x)]
+    |> Wedge.exists
+      (fun (sym : Syntax.symbol) -> sym = ysym || sym = zsym)
+  in
+  let psi =
+    Infix.[z <= y * (mk_log (int 2) y)]
+  in
+  assert_implies (Wedge.to_atoms phi) psi
+
 let widen1 () =
   let phi =
     let open Infix in
@@ -299,6 +373,11 @@ let suite = "Wedge" >::: [
     "exist2" >:: exists2;
     "exist3" >:: exists3;
     "exist4" >:: exists4;
+    "exists_powlog" >:: exists_powlog;
+    "exists_mul2" >:: exists_mul2;
+    "exists_mul3" >:: exists_mul3;
+    "exists_mul4" >:: exists_mul4;
+    "exists_nlogn" >:: exists_nlogn;
     "widen1" >:: widen1;
     "widen2" >:: widen2;
     "symbound" >:: symbound;

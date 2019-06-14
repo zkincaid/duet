@@ -794,8 +794,14 @@ let extract_vector_leq srk wedge tr_symbols term_of_id base =
      where each constraint corresponds to a recurrence inequation. *)
   let delta =
     List.map (fun (s,_) ->
-        let name = "delta_" ^ (show_symbol srk s) in
-        mk_symbol srk ~name (typ_symbol srk s))
+        let name = "delta[" ^ (show_symbol srk s) ^ "," ^ (QQ.show base) ^ "]" in
+        let typ =
+          if typ_symbol srk s == `TyInt && (QQ.to_zz base != None) then
+            `TyInt
+          else
+            `TyReal
+        in
+        mk_symbol srk ~name typ)
       tr_symbols
   in
   let add =

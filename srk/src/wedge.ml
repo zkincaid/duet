@@ -200,6 +200,21 @@ let to_atoms wedge =
 
 let to_formula wedge = mk_and wedge.srk (to_atoms wedge)
 
+let copy wedge =
+  { srk = wedge.srk;
+    cs = CS.copy wedge.cs;
+    env = copy_env wedge.env;
+    abstract = wedge.abstract }
+
+let equal wedge wedge' =
+  let srk = wedge.srk in
+  let phi = Nonlinear.uninterpret srk (to_formula wedge) in
+  let phi' = Nonlinear.uninterpret srk (to_formula wedge') in
+  match Smt.is_sat srk (mk_not srk (mk_iff srk phi phi')) with
+  | `Sat -> false
+  | `Unsat -> true
+  | `Unknown -> assert false
+
 let lincons_of_atom srk cs env atom =
   let vec_of_term = CS.vec_of_term cs in
   let linexpr_of_vec = linexpr_of_vec cs env in
@@ -255,6 +270,62 @@ let bound_monomial wedge monomial =
         (Interval.exp_const (bound_coordinate wedge dim) power))
     (Interval.const QQ.one)
     (Monomial.enum monomial)
+
+let mk_sign_axioms srk =
+  Nonlinear.ensure_symbols srk;
+  let mul = get_named_symbol srk "mul" in
+  let imul = get_named_symbol srk "imul" in
+  let inv = get_named_symbol srk "inv" in
+  let pow = get_named_symbol srk "pow" in
+  let log = get_named_symbol srk "log" in
+
+  let zero = mk_real srk QQ.zero in
+  let (&&) x y = mk_and srk [x; y] in
+  let (==>) x y = mk_if srk x y in
+  let (<=) x y = mk_leq srk x y in
+  let (<) x y = mk_leq srk x y in
+  let x = mk_var srk 0 `TyInt in
+  let y = mk_var srk 1 `TyInt in
+  let q = mk_var srk 0 `TyReal in
+  let r = mk_var srk 1 `TyReal in
+  (mk_forall srk `TyInt
+     (mk_forall srk `TyInt
+        ((zero <= x && zero <= y) ==> (zero <= (mk_app srk imul [x; y]))
+         && (x <= zero && y <= zero) ==> (zero <= (mk_app srk imul [x; y]))
+         && (x <= zero && zero <= y) ==> ((mk_app srk imul [x; y]) <= zero)
+         && (zero <= x && y <= zero) ==> ((mk_app srk imul [x; y]) <= zero))))
+  && (mk_forall srk `TyReal
+        (mk_forall srk `TyReal
+           ((zero <= q && zero <= r) ==> (zero <= (mk_app srk mul [q; r]))
+            && (q <= zero && r <= zero) ==> (zero <= (mk_app srk mul [q; r]))
+            && (q <= zero && zero <= r) ==> ((mk_app srk mul [q; r]) <= zero)
+            && (zero <= q && r <= zero) ==> ((mk_app srk mul [q; r]) <= zero))))
+  && (mk_forall srk `TyReal
+        (mk_forall srk `TyReal
+           ((zero <= q) ==> (zero <= (mk_app srk pow [q; r])))))
+  && (mk_forall srk `TyReal
+        ((zero < q) ==> (zero < (mk_app srk inv [q]))))
+  && (mk_forall srk `TyReal
+        (mk_forall srk `TyReal
+           ((zero <= q) ==> (zero <= (mk_app srk log [q; r])))))
+
+(* Does a given wedge entail a formula modulo LIRA + sign axioms? *)
+let wedge_entails wedge phi =
+  let srk = wedge.srk in
+  let s = Smt.mk_solver srk in
+  Smt.Solver.add s [
+    Nonlinear.uninterpret srk (to_formula wedge);
+    Nonlinear.uninterpret srk (mk_not srk phi);
+    mk_sign_axioms srk
+  ];
+  match Smt.Solver.check s [] with
+  | `Sat | `Unknown -> false
+  | `Unsat -> true
+
+let nonnegative_polynomial wedge p =
+  CS.term_of_polynomial wedge.cs p
+  |> mk_leq wedge.srk (mk_real wedge.srk QQ.zero)
+  |> wedge_entails wedge
 
 let bound_polynomial wedge polynomial =
   let (t, p) = P.split_linear ~const:CS.const_id polynomial in
@@ -484,6 +555,57 @@ let equational_saturation ?integrity:(integrity=(fun _ -> ())) wedge =
         end);
   done;
   !rewrite
+
+(* Exhaustively apply the rule
+
+   r >= qm   m >= p   q >= 0
+  ---------------------------
+           r >= qp
+
+  to the polynomial cone of the given wedge, where  r - qm and m - p
+  must be members of the cone and m is the leading term of m - p, with
+  respect to the given monomial ordering 'order'. *)
+let generalized_fourier_motzkin integrity order wedge =
+  let srk = wedge.srk in
+  let cs = wedge.cs in
+  let add_bound precondition bound =
+    logf ~level:`trace "Integrity: %a => %a"
+      (Formula.pp srk) precondition
+      (Formula.pp srk) bound;
+    integrity (mk_or srk [mk_not srk precondition; bound]);
+    meet_atoms wedge [bound]
+  in
+  let old_wedge = ref (bottom srk) in
+  while not (equal wedge (!old_wedge)) do
+    old_wedge := copy wedge;
+    let cone = polynomial_cone wedge in
+    cone |> List.iter (fun p ->
+        let (c, m, p) = P.split_leading order p in
+        if QQ.lt c QQ.zero then
+          let p = P.scalar_mul (QQ.negate (QQ.inverse c)) p in
+          (*  wedge |= p >= m *)
+          cone |> List.iter (fun q ->
+              let (quot, rem) = P.qr_monomial q m in
+              if (P.degree quot >= 1 (* degree 0 quotient is subsumed by classical FM *)
+                  && nonnegative_polynomial wedge quot) then begin
+                (* wedge |= quot >= 0 /\ quot*m + rem >= 0 *)
+                let mk_nonneg t = mk_leq srk (mk_real srk QQ.zero) t in
+                (* p - m *)
+                let p_sub_m = P.add_term (QQ.of_int (-1)) m p in
+                let hypothesis =
+                  [p_sub_m; quot; q]
+                  |> List.map (mk_nonneg % CS.term_of_polynomial cs)
+                  |> mk_and srk
+                in
+                let conclusion =
+                  P.add (P.mul quot p) rem
+                  |> CS.term_of_polynomial cs
+                  |> mk_nonneg
+                in
+                add_bound hypothesis conclusion
+              end))
+  done
+
 
 (* Compute bounds for synthetic dimensions using the bounds of their
    operands *)
@@ -1116,12 +1238,6 @@ let join ?integrity:(integrity=(fun _ -> ())) wedge wedge' =
       abstract =
         Abstract0.join (get_manager ()) wedge.abstract wedge'.abstract }
 
-let copy wedge =
-  { srk = wedge.srk;
-    cs = CS.copy wedge.cs;
-    env = copy_env wedge.env;
-    abstract = wedge.abstract }
-
 let meet wedge wedge' =
   if is_top wedge then copy wedge'
   else if is_top wedge' then copy wedge
@@ -1133,15 +1249,6 @@ let meet wedge wedge' =
 
 let join ?integrity:(integrity=(fun _ -> ())) wedge wedge' =
   Log.time "wedge join" (join ~integrity wedge) wedge'
-
-let equal wedge wedge' =
-  let srk = wedge.srk in
-  let phi = Nonlinear.uninterpret srk (to_formula wedge) in
-  let phi' = Nonlinear.uninterpret srk (to_formula wedge') in
-  match Smt.is_sat srk (mk_not srk (mk_iff srk phi phi')) with
-  | `Sat -> false
-  | `Unsat -> true
-  | `Unknown -> assert false
 
 (* Remove dimensions from an abstract value so that it has the specified
    number of integer and real dimensions *)
@@ -1313,7 +1420,7 @@ let exists
   let log = get_named_symbol srk "log" in
   let pow = get_named_symbol srk "pow" in
   let keep x = p x || x = log || x = pow in
-  let subterm x = keep x && subterm x in
+  let subterm x = keep x && (subterm x || x = log || x = pow) in
   (* Removed coordinates corresponding to symbols that must be
      projected. *)
   let keep_coordinate i =
@@ -1337,13 +1444,6 @@ let exists
         else IntSet.add i set)
       IntSet.empty
       (0 -- (CS.dim cs - 1))
-  in
-
-
-  (* linear term is defined only over safe coordinates? *)
-  let safe_vector vec = (* to do: rewrite first *)
-    V.enum vec
-    |> BatEnum.for_all (fun (_, dim) -> not (IntSet.mem dim forget))
   in
 
   (***************************************************************************
@@ -1379,8 +1479,7 @@ let exists
          |= log_b(p) + s <= log_b(t) *)
       (* s >= t /\ b > 1 |= b^s >= b^t *)
       (* s <= t /\ b > 1 |= b^s <= b^t *)
-      | `App (symbol, [b; s])
-        when (symbol = pow && safe_vector b && gt_one b) ->
+      | `App (symbol, [b; s]) when (symbol = pow && gt_one b) ->
 
         (* Find inequations of the form p*b^s + t >= 0, where p is a
            polynomial over safe dimensions and t is a linear term over safe
@@ -1548,6 +1647,12 @@ let exists
           | _ -> ()
         end
       | _ -> ());
+
+  (* Generalized Fourier-Motzkin *)
+  let elim_order =
+    Monomial.block [not % keep_coordinate] Monomial.degrevlex
+  in
+  generalized_fourier_motzkin integrity elim_order wedge;
 
   let forget = (* coordinates to remove *)
     BatEnum.fold (fun set i ->
@@ -1756,6 +1861,7 @@ let is_sat srk phi =
         let is_sat constraints =
           let wedge = of_atoms srk constraints in
           strengthen ~integrity wedge;
+          generalized_fourier_motzkin integrity Monomial.degrevlex wedge;
           not (is_bottom wedge)
         in
         if List.for_all is_sat constraint_partition then
@@ -1806,6 +1912,7 @@ let abstract ?exists:(p=fun x -> true) ?(subterm=fun x -> true) srk phi =
          try replace_defs_term (Symbol.Map.find x nonlinear)
          with Not_found -> mk_const srk x)
   in
+  Smt.Solver.add solver [mk_sign_axioms srk];
   Smt.Solver.add solver [lin_phi];
   Smt.Solver.add solver [nonlinear_defs];
   let integrity psi =
