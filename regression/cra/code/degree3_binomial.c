@@ -15,6 +15,6 @@ int main(int argc, char ** argv) {
     int P = (argv[1] != 0) ? atoi(argv[1]) : 0;
     work(P);
     int maxP0 = (P < 0) ? 0 : P;
-    __VERIFIER_assert(__cost == (maxP0 - 2) * (maxP0 - 1) * maxP0 / 6);
+    __VERIFIER_assert(6 * __cost == (maxP0 - 2) * (maxP0 - 1) * maxP0);
     return 0;
 }

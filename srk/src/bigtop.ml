@@ -8,7 +8,6 @@ let srk = Ctx.context
 
 let generator_rep = ref false
 
-
 let file_contents filename =
   let chan = open_in filename in
   let len = in_channel_length chan in
