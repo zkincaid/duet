@@ -342,15 +342,6 @@ let bound_polynomial wedge polynomial =
     (bound_vec wedge t)
     (P.enum polynomial)
 
-(* Test whether wedge |= x = y *)
-let sat_vec_equation wedge x y =
-  let eq_constraint =
-    Lincons0.make
-      (linexpr_of_vec wedge.cs wedge.env (V.add x (V.negate y)))
-      Lincons0.EQ
-  in
-  Abstract0.sat_lincons (get_manager ()) wedge.abstract eq_constraint
-
 let affine_hull wedge =
   let open Lincons0 in
   BatArray.enum (Abstract0.to_lincons_array (get_manager ()) wedge.abstract)
@@ -360,15 +351,26 @@ let affine_hull wedge =
       | _ -> None)
   |> BatList.of_enum
 
-let polynomial_cone wedge =
+let polynomial_constraints wedge =
   let open Lincons0 in
   let cs = wedge.cs in
   BatArray.enum (Abstract0.to_lincons_array (get_manager ()) wedge.abstract)
   |> BatEnum.filter_map (fun lcons ->
+      let polynomial =
+        CS.polynomial_of_vec cs (vec_of_linexpr wedge.env lcons.linexpr0)
+      in
       match lcons.typ with
-      | SUPEQ | SUP -> Some (CS.polynomial_of_vec cs (vec_of_linexpr wedge.env lcons.linexpr0))
+      | SUPEQ -> Some (`Nonneg, polynomial)
+      | SUP -> Some (`Pos, polynomial)
+      | EQ -> Some (`Zero, polynomial)
       | _ -> None)
   |> BatList.of_enum
+
+let polynomial_cone wedge =
+  polynomial_constraints wedge
+  |> BatList.filter_map (function
+      | (`Nonneg, p) | (`Pos, p) -> Some p
+      | (`Zero, p) -> None)
 
 let vanishing_ideal wedge =
   let open Lincons0 in
@@ -391,6 +393,9 @@ let vanishing_ideal wedge =
   done;
   !ideal
 
+(* Polynomial ideal consisting of affine equations entailed by the
+   underlying polyhedron of the wedge and definitional equalities for
+   coordinates. *)
 let coordinate_ideal ?integrity:(integrity=(fun _ -> ())) wedge =
   let srk = wedge.srk in
   let cs = wedge.cs in
@@ -921,6 +926,95 @@ let strengthen_cut integrity rewrite wedge =
         end
       | _ -> ())
 
+
+(* Divide out inverse coordinates with determined sign *)
+let strengthen_inverse ?integrity:(integrity=(fun _ -> ())) wedge =
+  let srk = wedge.srk in
+  let cs = wedge.cs in
+  let vec_sign vec =
+    let ivl = bound_vec wedge vec in
+    if Interval.is_nonnegative ivl then `Nonneg
+    else if Interval.is_nonpositive ivl then `Nonpos
+    else `Unknown
+  in
+  let add_bound precondition bound =
+    logf ~level:`trace  "Integrity: %a => %a"
+      (Formula.pp srk) precondition
+      (Formula.pp srk) bound;
+    integrity (mk_or srk [mk_not srk precondition; bound]);
+    meet_atoms wedge [bound]
+  in
+  let zero = mk_real srk QQ.zero in
+  polynomial_constraints wedge
+  |> List.iter (function (cmp, p) ->
+      let mk_cmp = match cmp with
+        | `Nonneg -> mk_leq srk zero
+        | `Pos -> mk_lt srk zero
+        | `Zero -> mk_eq srk zero
+      in
+
+      (* LCM of all monomials in p *)
+      let lcm =
+        BatEnum.fold (fun lcm (_, m) -> Monomial.lcm m lcm) Monomial.one (P.enum p)
+      in
+      (* inverse_lcm is lcm restricted to inverse coordinates w/
+         determined sign; sign is 1 if inverse_lcm is nonnegative; -1
+         if inverse_lcm is nonpositive*)
+      let (sign, inverse_lcm) =
+        BatEnum.fold (fun (sign, lcm) (dim, power) ->
+            match CS.destruct_coordinate cs dim with
+            | `Inv x when vec_sign x = `Nonneg ->
+              (sign, Monomial.mul_term dim power lcm)
+            | `Inv x when vec_sign x = `Nonpos ->
+              (-sign, Monomial.mul_term dim power lcm)
+            | _ -> (sign, lcm))
+          (1, Monomial.one)
+          (Monomial.enum lcm)
+      in
+      if not (Monomial.equal inverse_lcm Monomial.one) then
+        let sign = QQ.of_int sign in
+
+        (* p >?= 0 is equivalent to p/inverse_lcm >?= 0.  Divide by
+           inverse_lcm and simplify *)
+        let quotient =
+          (P.enum p)
+          /@ (fun (c, m) ->
+              let gcd = Monomial.gcd inverse_lcm m in (* terms in the GCD cancel *)
+              let (m_div_gcd, lcm_div_gcd) =
+                match Monomial.div m gcd, Monomial.div inverse_lcm gcd with
+                | Some x, Some y -> x, y
+                | _, _ -> assert false
+              in
+              let factor = (* sign / lcm_div_gcd *)
+                (Monomial.enum lcm_div_gcd)
+                /@ (fun (dim, pow) ->
+                    match CS.destruct_coordinate cs dim with
+                     | `Inv x -> P.exp (CS.polynomial_of_vec cs x) pow
+                     | _ -> assert false)
+                |> BatEnum.fold P.mul (P.scalar sign)
+              in
+              P.mul factor (P.add_term c m_div_gcd P.zero))
+          |> BatEnum.fold P.add P.zero
+          |> CS.term_of_polynomial cs
+        in
+        let hypothesis =
+          let inverse_lcm_sign =
+            (Monomial.enum inverse_lcm)
+            /@ (fun (dim, _) ->
+                match CS.destruct_coordinate cs dim with
+                | `Inv x when vec_sign x = `Nonneg ->
+                  mk_leq srk zero (CS.term_of_vec cs x)
+                | `Inv x when vec_sign x = `Nonpos ->
+                  mk_leq srk (CS.term_of_vec cs x) zero
+                | _ -> assert false)
+            |> BatList.of_enum
+          in
+          (mk_cmp (CS.term_of_polynomial cs p))::inverse_lcm_sign
+          |> mk_and srk
+        in
+        let conclusion = mk_cmp quotient in
+        add_bound hypothesis conclusion)
+
 let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
   Nonlinear.ensure_symbols wedge.srk;
   assert (env_consistent wedge);
@@ -945,6 +1039,9 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
   logf "Before strengthen: %a" pp wedge;
 
   let rewrite = equational_saturation ~integrity wedge in
+
+  strengthen_intervals integrity wedge;
+  strengthen_inverse ~integrity wedge;
 
   (* pow-log rule *)
   let vec_sign vec =
