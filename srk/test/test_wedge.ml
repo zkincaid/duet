@@ -288,6 +288,14 @@ let exists_nlogn () =
   in
   assert_implies (Wedge.to_atoms phi) psi
 
+let elim_inverse () =
+  let phi =
+    Infix.((int 0) <= (int 1) / x + ((int 1) / x) * y
+           && (int 0) <= x
+           && y <= (int (-2)))
+  in
+  assert_equal (Wedge.is_sat srk phi) `Unsat
+
 let widen1 () =
   let phi =
     let open Infix in
@@ -378,6 +386,7 @@ let suite = "Wedge" >::: [
     "exists_mul3" >:: exists_mul3;
     "exists_mul4" >:: exists_mul4;
     "exists_nlogn" >:: exists_nlogn;
+    "elim_inverse" >:: elim_inverse;
     "widen1" >:: widen1;
     "widen2" >:: widen2;
     "symbound" >:: symbound;

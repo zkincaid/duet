@@ -72,6 +72,9 @@ module Monomial : sig
   (** Least common multiple *)
   val lcm : t -> t -> t
 
+  (** Greatest common divisor *)
+  val gcd : t -> t -> t
+
   (** {2 Monomial orderings} *)
 
   (** Lexicographic order *)
@@ -152,6 +155,7 @@ module type Multivariate = sig
   (** Enumerate the set of dimensions that appear in a polynomial *)
   val dimensions : t -> int BatEnum.t
 
+  (** Maximum total degree of a monomial term *)
   val degree : t -> int
 end
                     
