@@ -2176,11 +2176,10 @@ let symbolic_bounds_formula ?exists:(p=fun x -> true) srk phi symbol =
             |> Polyhedron.try_fourier_motzkin cs p
             |> Polyhedron.implicant_of cs
           in
-          let wedge =
-            implicant'
-            |> of_atoms srk
-            |> exists ~integrity ~subterm p
-          in
+          let wedge = of_atoms srk implicant' in
+          strengthen ~integrity wedge;
+          let wedge = exists ~integrity ~subterm p wedge in
+
           if CS.admits wedge.cs (mk_const srk symbol) then
             symbolic_bounds wedge symbol
           else
