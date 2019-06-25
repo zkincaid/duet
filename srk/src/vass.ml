@@ -54,7 +54,7 @@ type 'a sccvas =
 *)
 type 'a t = {
   vasses : 'a sccvas array;
-  formula : 'a formula array array array array;
+  phi_graph : 'a formula array array array array;
   sink : 'a formula;
   skolem_constants : Symbol.Set.t
 }
@@ -322,9 +322,12 @@ let get_control_states ?(exists=fun x -> true) srk tr_symbols sym_constants phi 
   BatArray.of_list control_states', sink
 
 let populate_phi_graph ?(exists=fun x -> true) srk tr_symbols sccs phi =
+  Log.errorf "Reached";
+  let polka = Polka.manager_alloc_loose () in
   let phi_graph = BatArray.init 
       (BatArray.length sccs) 
       (fun scc_num -> 
+         Log.errorf "Scc num control states is %d" (BatList.length sccs.(scc_num));
          (BatArray.init 
             (BatList.length sccs.(scc_num)) 
             (fun cs_num -> 
@@ -337,16 +340,19 @@ let populate_phi_graph ?(exists=fun x -> true) srk tr_symbols sccs phi =
                            if scc_num = scc2_num then
                              mk_false srk
                            else(
-                             gamma srk (abstract ~exists srk tr_symbols
-                                          (mk_and srk [List.nth (sccs.(scc_num)) cs_num;
-                                                       postify srk tr_symbols (List.nth (sccs.(scc2_num)) cs2_num); phi]))
-                                       tr_symbols))))))))
+                             let restricted_phi = mk_and srk [List.nth (sccs.(scc_num)) cs_num;
+                                                              postify srk tr_symbols (List.nth (sccs.(scc2_num)) cs2_num); phi] in
+                             mk_and srk
+                               [gamma srk (abstract ~exists srk tr_symbols restricted_phi) tr_symbols;
+                               H.abstract ~exists srk polka restricted_phi |> SrkApron.formula_of_property]))))))))
   in
+  Log.errorf "reached2";
   (*TODO: add convex hull here too*)
   phi_graph
 
 
 let abstract ?(exists=fun x -> true) srk tr_symbols phi =
+  Log.errorf "Started";
   let skolem_constants = Symbol.Set.filter (fun a -> not (exists a)) (symbols phi) in
   let tr_flat = List.fold_left (fun lst (x, x') -> x :: x' :: lst) [] tr_symbols in
   let symb_constants =  Symbol.Set.filter (fun a -> (exists a) && (not (List.mem a tr_flat))) (symbols phi) in 
@@ -362,17 +368,20 @@ let abstract ?(exists=fun x -> true) srk tr_symbols phi =
   Log.errorf "Orig Form is %a" (Formula.pp srk) phi;
   Log.errorf "New form is %a" (Formula.pp srk) phi_conv;
   let sccs = Array.make num_sccs  [] in
-  let sccs_with_sink = BatArray.append sccs (BatArray.make 1 [sink]) in
-  let phi_graph = populate_phi_graph ~exists srk tr_symbols sccs_with_sink phi in
   BatArray.iteri (fun ind lab -> sccs.(func_sccs ind)<-(lab :: sccs.(func_sccs ind)))
     control_states;
-  if num_sccs = 0 then
+  let sccs_with_sink = BatArray.append sccs (BatArray.make 1 [sink]) in
+  let phi_graph = populate_phi_graph ~exists srk tr_symbols sccs_with_sink phi in
+ 
+  if num_sccs = 0 then(
+    Log.errorf "Reached firstZ";
     {vasses= BatArray.init 0 (fun x -> assert false); 
-     formula=phi_graph; skolem_constants; sink=sink}
+     phi_graph; skolem_constants; sink=sink})
   else(
+      Log.errorf "Reached second";
       let vassarrays = BatArray.map 
-        (fun scc -> compute_single_scc_vass ~exists srk tr_symbols symb_constants scc phi) sccs in
-    let result = {vasses=vassarrays;formula=phi_graph; skolem_constants; sink=sink} in
+          (fun scc -> Log.errorf "mapped"; compute_single_scc_vass ~exists srk tr_symbols symb_constants scc phi) sccs in
+    let result = {vasses=vassarrays;phi_graph; skolem_constants; sink=sink} in
     logf "%a" (pp srk tr_symbols) result;
     result
   )
@@ -769,22 +778,27 @@ let no_dups_ordering srk ordering_vars =
  * sources is a [[si1, si2...], [sj1, sj2...]] where each inner list
  * is a list of the source vars for the ith scc
 *)
-let seq_scc_constrs srk ordering_vars sources sinks loop_counters sink_ordering 
+let seq_scc_constrs srk ordering_vars (sources : ('a term list) array) sinks loop_counters sink_ordering 
     scc_closures symmappings tr_symbols phi_graph skolemmappings =
   mk_and srk (BatList.flatten (BatArray.to_list (BatArray.mapi (fun ind1 o_var1 ->
       BatArray.to_list (BatArray.mapi (fun ind2 o_var2 ->
           if ind1 <> ind2 then(
+            Log.errorf "ind1 is %d and ind2 is %d" ind1 ind2;
+            Log.errorf "phi_graph outmost size is %d and sources is %d and sinks is %d" (BatArray.length phi_graph) (BatArray.length sources) (BatArray.length sinks);
+            Log.errorf "reached pre forming";
             let inter_scc_tran_constr =
               mk_and srk 
-                (BatArray.mapi (fun cs_ind1 sinki ->
-                     mk_and srk
-                       (BatArray.mapi (fun cs_ind2 sourcej ->
-                            mk_if srk
-                              (mk_and srk [mk_eq srk sinki (mk_one srk);
-                                           mk_eq srk sourcej (mk_one srk)])
-                              phi_graph.(ind1).(cs_ind1).(ind2).(cs_ind2)) sources
-                       )) sinks)
+                    (BatList.mapi (fun cs_ind1 sinki ->
+                    Log.errorf "cs_ind1 is %d and scci of phi_graph is is %d" cs_ind1 (BatArray.length (phi_graph.(ind1)));
+                         mk_and srk
+                           (BatList.mapi (fun cs_ind2 (sourcej : 'a term) ->
+                                mk_if srk
+                                  (mk_and srk [mk_eq srk sinki (mk_one srk);
+                                               mk_eq srk sourcej (mk_one srk)])
+                                  phi_graph.(ind1).(cs_ind1).(ind2).(cs_ind2)) sources.(ind2))) 
+                        sinks.(ind1))
             in
+            Log.errorf "reached post forming";
 
             (*If o_vari immediatly precedes o_varj: 
              * if scci is "unused" (no source var = 1), 
@@ -833,9 +847,11 @@ let first_scc_constrs srk ordering_vars sources sccs_closures symmappings tr_sym
                 tr_symbols symmappings.(ind1))))) ordering_vars))
 
 let exp srk tr_symbols loop_counter sccsform =
+  Log.errorf "Started exp";
   (*No sccs <-> no possible transitions*)
   if BatArray.length sccsform.vasses = 0 then (no_trans_taken srk loop_counter tr_symbols) 
   else(
+    Log.errorf "reached3";
     (* Sink is formula over solely primed vars *)
     let sink = sccsform.sink in
     (* Each scc has its own unqiue (x, x') for each symbol *)
@@ -874,7 +890,7 @@ let exp srk tr_symbols loop_counter sccsform =
     let sccclosures_sources_sinks = BatArray.mapi (fun ind vass -> 
         closure_of_an_scc srk tr_symbols subloop_counters.(ind) vass) sccsform.vasses in
     (* The ith source array contains all source vars for the ith scc *)
-    let sccclosures, sources_sinks = BatList.split (BatArray.to_list sccclosures_sources) in
+    let sccclosures, sources_sinks = BatList.split (BatArray.to_list sccclosures_sources_sinks) in
     let sources, sinks = BatList.split sources_sinks in
     let sccclosures, sources, sinks = BatArray.of_list sccclosures, BatArray.of_list sources, BatArray.of_list sinks in
     (* Add sink state to closures *)
@@ -890,12 +906,13 @@ let exp srk tr_symbols loop_counter sccsform =
      * any transition is taken *)
     let sources = BatArray.append sources 
         (BatArray.make 1 [(mk_real srk (QQ.of_int 1))]) in
-    let sinks =  BatArray.append sources 
+    let sinks =  BatArray.append sinks 
         (BatArray.make 1 [(mk_real srk (QQ.of_int 1))]) in
     let scc_ordering_pre_sink = BatArray.mapi (fun ind1 scc ->
         mk_const srk ((mk_symbol srk ~name:("ordering_"^(string_of_int ind1)) `TyInt))) 
         sccsform.vasses in
     let sink_ordering = mk_const srk (mk_symbol srk ~name:("ordering_SINK") `TyInt) in
+    Log.errorf "reached4";
     let scc_ordering = BatArray.append scc_ordering_pre_sink 
         (BatArray.make 1 sink_ordering) in
     let constr1 = mk_all_nonnegative srk (Array.to_list subloop_counters) in 
@@ -905,6 +922,7 @@ let exp srk tr_symbols loop_counter sccsform =
     let constr4 = seq_scc_constrs srk scc_ordering sources sinks subloop_counters 
         sink_ordering sccclosures symmappings tr_symbols sccsform.phi_graph 
         skolem_mappings_transitions in
+    Log.errorf "reached5";
     let constr5 = first_scc_constrs srk scc_ordering sources sccclosures symmappings 
         tr_symbols in
     let constr6 = mk_eq srk 
@@ -912,6 +930,7 @@ let exp srk tr_symbols loop_counter sccsform =
     let result = mk_or srk 
         [mk_and srk [constr1; constr2; constr3; constr4; constr5; constr6];
          no_trans_taken srk loop_counter tr_symbols] in
+    Log.errorf "Ended exp";
     result
   )
 

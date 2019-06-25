@@ -440,9 +440,13 @@ let coprod_compute_image v r =
 
 
 let coproduct srk vabs1 vabs2 : 'a t =
-  let (s_lst1, s_lst2, v1, v2) = (vabs1.s_lst, vabs2.s_lst, vabs1.v, vabs2.v) in 
+  Log.errorf "coprod1";
+  let (s_lst1, s_lst2, v1, v2) = (vabs1.s_lst, vabs2.s_lst, vabs1.v, vabs2.v) in
+  Log.errorf "coprod2";
   let s1, s2, s_lst = coprod_find_transformation s_lst1 s_lst2 in
+  Log.errorf "coprod3";
   let v = TSet.union (coprod_compute_image v1 s1) (coprod_compute_image v2 s2) in
+  Log.errorf "coprod4";
   {v; s_lst}
 
 
@@ -536,7 +540,9 @@ let abstract ?(exists=fun x -> true) srk tr_symbols phi  =
       match Interpretation.select_implicant m phi with
       | None -> assert false
       | Some imp ->
+        Log.errorf "frozen";
         let sing_transformer_vas = alpha_hat srk (mk_and srk imp) tr_symbols symb_constants in
+        Log.errorf "passed";
         go (coproduct srk vas sing_transformer_vas)
   in
   Smt.Solver.add solver [phi];
