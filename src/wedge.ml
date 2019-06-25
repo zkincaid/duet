@@ -1233,6 +1233,40 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
           | _ -> ()
         done
       end
+
+    | `Mul (x, y) when vec_leq V.zero x && vec_leq V.zero y ->
+      (* 0 <= x && x <= x' && y <= y' |= x*y <= x'*y' *)
+      let x_term = CS.term_of_vec cs x in
+      let y_term = CS.term_of_vec cs y in
+      for j = 0 to CS.dim wedge.cs - 1 do
+        if i != j then
+          match CS.destruct_coordinate wedge.cs j with
+          | `Mul (x', y') when vec_leq x x' && vec_leq y y' ->
+            let hypothesis =
+              mk_and srk [mk_leq srk zero x_term;
+                          mk_leq srk zero y_term;
+                          mk_leq srk x_term (CS.term_of_vec cs x');
+                          mk_leq srk y_term (CS.term_of_vec cs y')]
+            in
+            let conclusion =
+              mk_leq srk (CS.term_of_coordinate cs i) (CS.term_of_coordinate cs j)
+            in
+            add_bound hypothesis conclusion
+
+          | `Mul (x', y') when vec_leq x y' && vec_leq y x' ->
+            let hypothesis =
+              mk_and srk [mk_leq srk zero x_term;
+                          mk_leq srk zero y_term;
+                          mk_leq srk x_term (CS.term_of_vec cs y');
+                          mk_leq srk y_term (CS.term_of_vec cs x')]
+            in
+            let conclusion =
+              mk_leq srk (CS.term_of_coordinate cs i) (CS.term_of_coordinate cs j)
+            in
+            add_bound hypothesis conclusion
+          | _ -> ()
+      done
+
     | _ -> ()
   done;
 
