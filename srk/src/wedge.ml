@@ -1056,15 +1056,20 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
   let vec_leq x y =
     Interval.is_nonpositive (bound_vec wedge (V.add x (V.negate y)))
   in
+
   for i = 0 to CS.dim wedge.cs - 1 do
     match CS.destruct_coordinate wedge.cs i with
     | `App (func, [b; s]) when func = pow ->
       if vec_sign b = `Positive then begin
+        (* Use bounds for b and b^s to find bounds for s *)
         begin
           let ivl = bound_coordinate wedge i in
+          (* Interval bounding log(b',b^s), where b' is in the
+             interval for b *)
           let logc_ivl = Interval.log (bound_vec wedge b) ivl in
           match Interval.lower ivl with
           | Some lo when QQ.lt QQ.zero lo ->
+            (* 0 < b /\ 0 < lo <= b^s ==> log(b,lo) <= s *)
             begin match Interval.lower logc_ivl with
               | Some logc ->
                 let hypothesis =
@@ -1079,12 +1084,13 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
             end;
             begin match Interval.upper ivl, Interval.upper logc_ivl with
               | Some hi, Some logc ->
+                (* 0 < b /\ 0 < b^s <= hi ==> s <= log(b,hi) *)
                 let hypothesis =
                   mk_and srk [mk_leq srk (CS.term_of_coordinate cs i) (mk_real srk hi);
                               mk_lt srk zero (CS.term_of_vec cs b)]
                 in
                 let conclusion =
-                  mk_leq srk (mk_real srk logc) (CS.term_of_vec cs s)
+                  mk_leq srk (CS.term_of_vec cs s) (mk_real srk logc)
                 in
                 add_bound hypothesis conclusion
               | _, _ -> ()
