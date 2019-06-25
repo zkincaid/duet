@@ -943,12 +943,12 @@ module Rewrite = struct
     add_saturate_op rewrite (op_of_qqxs rewrite.order p) (P.singleton p)
 
   let grobner_basis rewrite =
-    logf "Compute a Grobner basis for:@\n@[<v 0>%a@]"
+    logf ~level:`trace "Compute a Grobner basis for:@\n@[<v 0>%a@]"
       (pp pp_dim) rewrite;
 
     let rewrite = reduce_rewrite rewrite in
 
-    logf "After reduction:@\n@[<v 0>%a@]"
+    logf ~level:`trace "After reduction:@\n@[<v 0>%a@]"
       (pp pp_dim) rewrite;
 
     let pairs =
@@ -968,7 +968,7 @@ module Rewrite = struct
         rules = buchberger rewrite.order rewrite.rules pairs }
       |> reduce_rewrite
     in
-    logf "Grobner basis:@\n@[<v 0>%a@]"
+    logf ~level:`trace "Grobner basis:@\n@[<v 0>%a@]"
       (pp pp_dim) grobner;
     grobner
 
