@@ -44,13 +44,19 @@ type 'a sccvas =
 (* vasses are the set of maximal sccvass
  * that can be formed for the derived control states
  *
- * formula is the initial formula used for this abstract
- * interpretation procedure (consider replacing with affine hull)
+ * phi_graph is a four deep array in which each index is defined as follows:
+ * phi_graph[i][j][k][l] is an overapproximation of the transitions that
+ * start is the jth control state of scc i and end in the lth control state of scc k
+ * for i not equal to k (if i equals k then the cell is undefined). The
+ * specific overapproximation used does not matter; currently gamma of
+ * the best VAS abstraction together with the convex hull from phi restricted to j(x), l(x)' is used.
+ * Sink is counted as an SCC in phi_graph (and is always the last SCC).
+ * phi_graph is used to obtain inter-scc transitions in the closure.
  *
  * sink is the end state; all paths in closure must terminate here.
  * Must at least overapproximate possible "post-states".
  *
- * skolem_constants...
+ * skolem_constants are the skolem constants used in phi
 *)
 type 'a t = {
   vasses : 'a sccvas array;
@@ -183,9 +189,6 @@ let pp srk syms formatter vasses =
 
 (*Computes vass for a given list of control states and formula*)
 let compute_single_scc_vass ?(exists=fun x -> true) srk tr_symbols symb_constants cs_lst phi =
-  (* Restrict phi to configurations that model a control state *)
-  let postified_cs = List.map (fun lbl -> postify srk tr_symbols lbl) cs_lst in
-  let phi' = mk_and srk [mk_or srk cs_lst; mk_or srk postified_cs; phi] in
   (*pre_graph represents adjacency (transformers, sim) graph for control states
    * prior to converting all cells of graph to use same sim matrix*)
   let pre_graph = BatArray.init 
@@ -201,28 +204,25 @@ let compute_single_scc_vass ?(exists=fun x -> true) srk tr_symbols symb_constant
               (mk_and srk 
                  [(List.nth cs_lst ind1); 
                   postify srk tr_symbols (List.nth cs_lst ind2); 
-                  phi']) 
+                  phi]) 
           in
           (v, s_lst))
         arr
-    ) pre_graph; 
+    ) pre_graph;
   (* Computes list of lin transformation that determines
    * how to transform each cell of pregraph to use same sim matrix
    * Also computes the sim matrix that will be used *)
-  let double_symb = List.map (fun x -> (x, x)) (Symbol.Set.elements symb_constants) in 
   let imglist, s_lst =
-    let sim =
-      List.map (fun (_, x') -> V.of_term QQ.one (Linear.dim_of_sym x')) (tr_symbols @ double_symb)
-      |> M.of_rows
-    in
+    let sim = (mk_bottom tr_symbols (Symbol.Set.elements symb_constants)).s_lst in
     BatArray.fold_left
       (fun (imglst, s_lst) arr ->
+         (*TODO: there is a huge blowup here for guarded resets... fix this, perhaps with equality invariants*)
          BatArray.fold_left 
            (fun (imglist, s_lst) (_, pregraph_s_lst) ->
               let r1, r2, s_lst' = coprod_find_transformation s_lst pregraph_s_lst in
               (r1, r2) :: imglist, s_lst') 
            (imglst, s_lst) arr) 
-      ([], [sim]) pre_graph
+      ([], sim) pre_graph
   in
   (*Will hold transformer adjacency graph such that each cell uses same sim matrix*)
   let graph = BatArray.init 
@@ -306,14 +306,14 @@ let get_largest_polyhedrons srk control_states =
 
 (*Compute control states using projection to pre transition states.
  * Also compute sink*)
-let get_control_states ?(exists=fun x -> true) srk tr_symbols sym_constants phi =
+let get_control_states ?(exists=fun x -> true) srk tr_symbols symb_constants phi =
   let pre_symbols = pre_symbols tr_symbols in
   let post_symbols = post_symbols tr_symbols in
   let exists_pre x =
-    Symbol.Set.mem x pre_symbols || Symbol.Set.mem x sym_constants
+    Symbol.Set.mem x pre_symbols || Symbol.Set.mem x symb_constants
   in
   let exists_post x =
-    Symbol.Set.mem x post_symbols || Symbol.Set.mem x sym_constants
+    Symbol.Set.mem x post_symbols || Symbol.Set.mem x symb_constants
   in
   let control_states = project_dnf srk exists_pre phi in
   (*sink can also just be true given while exact phi used as transition to sink*)
@@ -321,13 +321,13 @@ let get_control_states ?(exists=fun x -> true) srk tr_symbols sym_constants phi 
   let control_states' = get_largest_polyhedrons srk control_states in
   BatArray.of_list control_states', sink
 
+(*Populates phi_graph. phi_graph overapproximates transition between sccs, at a control state to control state level*)
 let populate_phi_graph ?(exists=fun x -> true) srk tr_symbols sccs phi =
-  Log.errorf "Reached";
+  (* Loose vs strict? *)
   let polka = Polka.manager_alloc_loose () in
   let phi_graph = BatArray.init 
       (BatArray.length sccs) 
       (fun scc_num -> 
-         Log.errorf "Scc num control states is %d" (BatList.length sccs.(scc_num));
          (BatArray.init 
             (BatList.length sccs.(scc_num)) 
             (fun cs_num -> 
@@ -342,17 +342,16 @@ let populate_phi_graph ?(exists=fun x -> true) srk tr_symbols sccs phi =
                            else(
                              let restricted_phi = mk_and srk [List.nth (sccs.(scc_num)) cs_num;
                                                               postify srk tr_symbols (List.nth (sccs.(scc2_num)) cs2_num); phi] in
+                             (* should always use gamma to ensure VASS with sccs at least as good as VASS without sccs.
+                              * May be interesting to explore other restrictions to add to over-approximation*)
                              mk_and srk
                                [gamma srk (abstract ~exists srk tr_symbols restricted_phi) tr_symbols;
                                H.abstract ~exists srk polka restricted_phi |> SrkApron.formula_of_property]))))))))
   in
-  Log.errorf "reached2";
-  (*TODO: add convex hull here too*)
   phi_graph
 
 
 let abstract ?(exists=fun x -> true) srk tr_symbols phi =
-  Log.errorf "Started";
   let skolem_constants = Symbol.Set.filter (fun a -> not (exists a)) (symbols phi) in
   let tr_flat = List.fold_left (fun lst (x, x') -> x :: x' :: lst) [] tr_symbols in
   let symb_constants =  Symbol.Set.filter (fun a -> (exists a) && (not (List.mem a tr_flat))) (symbols phi) in 
@@ -363,10 +362,6 @@ let abstract ?(exists=fun x -> true) srk tr_symbols phi =
   let control_states, sink = get_control_states ~exists srk tr_symbols symb_constants phi in
   let graph = compute_edges srk tr_symbols control_states phi in
   let num_sccs, func_sccs = BGraphComp.scc graph in
-  let polka = Polka.manager_alloc_loose () in
-  let phi_conv = H.abstract ~exists srk polka phi |> SrkApron.formula_of_property in
-  Log.errorf "Orig Form is %a" (Formula.pp srk) phi;
-  Log.errorf "New form is %a" (Formula.pp srk) phi_conv;
   let sccs = Array.make num_sccs  [] in
   BatArray.iteri (fun ind lab -> sccs.(func_sccs ind)<-(lab :: sccs.(func_sccs ind)))
     control_states;
@@ -374,34 +369,15 @@ let abstract ?(exists=fun x -> true) srk tr_symbols phi =
   let phi_graph = populate_phi_graph ~exists srk tr_symbols sccs_with_sink phi in
  
   if num_sccs = 0 then(
-    Log.errorf "Reached firstZ";
     {vasses= BatArray.init 0 (fun x -> assert false); 
      phi_graph; skolem_constants; sink=sink})
   else(
-      Log.errorf "Reached second";
       let vassarrays = BatArray.map 
-          (fun scc -> Log.errorf "mapped"; compute_single_scc_vass ~exists srk tr_symbols symb_constants scc phi) sccs in
+          (fun scc -> compute_single_scc_vass ~exists srk tr_symbols symb_constants scc phi) sccs in
     let result = {vasses=vassarrays;phi_graph; skolem_constants; sink=sink} in
     logf "%a" (pp srk tr_symbols) result;
     result
   )
-  (*if num_sccs = 0 then
-    {vasses= BatArray.init 0 (fun x -> assert false);
-     formula=phi_conv; skolem_constants; sink=sink}
-  else(
-
-
-    let num_sccs = 1 in
-    let sccs = Array.make num_sccs  [] in
-    BatArray.iteri (fun ind lab -> sccs.(0)<-(lab :: sccs.(0)))
-      control_states;
-    let vassarrays = BatArray.map
-        (fun scc -> compute_single_scc_vass ~exists srk tr_symbols symb_constants scc phi) sccs in
-    let result = {vasses=vassarrays;formula=phi_conv; skolem_constants; sink=sink} in
-    logf "%a" (pp srk tr_symbols) result;
-    result
-  )*)
-
 
 (*Create array of list of indices of transformers going in and
  * out of each single control state*)
@@ -783,13 +759,15 @@ let seq_scc_constrs srk ordering_vars (sources : ('a term list) array) sinks loo
   mk_and srk (BatList.flatten (BatArray.to_list (BatArray.mapi (fun ind1 o_var1 ->
       BatArray.to_list (BatArray.mapi (fun ind2 o_var2 ->
           if ind1 <> ind2 then(
-            Log.errorf "ind1 is %d and ind2 is %d" ind1 ind2;
-            Log.errorf "phi_graph outmost size is %d and sources is %d and sinks is %d" (BatArray.length phi_graph) (BatArray.length sources) (BatArray.length sinks);
-            Log.errorf "reached pre forming";
+            (*Conjunction across all cs_ind1 cs_ind2 for scc ind1 and scc ind2 that
+             * says: if scc ind1 exits at control state cs_ind1,
+             * and scc ind2 enters at control state cs_ind2, then the formula representing
+             * overapproximation of transition from cs_ind1 to cs_ind2 must be true.
+             * This conjunction will be required to be true 
+             * if scc ind1 and cs ind2 are both "turned on"*)
             let inter_scc_tran_constr =
               mk_and srk 
                     (BatList.mapi (fun cs_ind1 sinki ->
-                    Log.errorf "cs_ind1 is %d and scci of phi_graph is is %d" cs_ind1 (BatArray.length (phi_graph.(ind1)));
                          mk_and srk
                            (BatList.mapi (fun cs_ind2 (sourcej : 'a term) ->
                                 mk_if srk
@@ -798,8 +776,6 @@ let seq_scc_constrs srk ordering_vars (sources : ('a term list) array) sinks loo
                                   phi_graph.(ind1).(cs_ind1).(ind2).(cs_ind2)) sources.(ind2))) 
                         sinks.(ind1))
             in
-            Log.errorf "reached post forming";
-
             (*If o_vari immediatly precedes o_varj: 
              * if scci is "unused" (no source var = 1), 
              * then sccj must be unused too. 
@@ -847,11 +823,9 @@ let first_scc_constrs srk ordering_vars sources sccs_closures symmappings tr_sym
                 tr_symbols symmappings.(ind1))))) ordering_vars))
 
 let exp srk tr_symbols loop_counter sccsform =
-  Log.errorf "Started exp";
   (*No sccs <-> no possible transitions*)
   if BatArray.length sccsform.vasses = 0 then (no_trans_taken srk loop_counter tr_symbols) 
   else(
-    Log.errorf "reached3";
     (* Sink is formula over solely primed vars *)
     let sink = sccsform.sink in
     (* Each scc has its own unqiue (x, x') for each symbol *)
@@ -912,7 +886,6 @@ let exp srk tr_symbols loop_counter sccsform =
         mk_const srk ((mk_symbol srk ~name:("ordering_"^(string_of_int ind1)) `TyInt))) 
         sccsform.vasses in
     let sink_ordering = mk_const srk (mk_symbol srk ~name:("ordering_SINK") `TyInt) in
-    Log.errorf "reached4";
     let scc_ordering = BatArray.append scc_ordering_pre_sink 
         (BatArray.make 1 sink_ordering) in
     let constr1 = mk_all_nonnegative srk (Array.to_list subloop_counters) in 
@@ -922,7 +895,6 @@ let exp srk tr_symbols loop_counter sccsform =
     let constr4 = seq_scc_constrs srk scc_ordering sources sinks subloop_counters 
         sink_ordering sccclosures symmappings tr_symbols sccsform.phi_graph 
         skolem_mappings_transitions in
-    Log.errorf "reached5";
     let constr5 = first_scc_constrs srk scc_ordering sources sccclosures symmappings 
         tr_symbols in
     let constr6 = mk_eq srk 
@@ -930,7 +902,6 @@ let exp srk tr_symbols loop_counter sccsform =
     let result = mk_or srk 
         [mk_and srk [constr1; constr2; constr3; constr4; constr5; constr6];
          no_trans_taken srk loop_counter tr_symbols] in
-    Log.errorf "Ended exp";
     result
   )
 

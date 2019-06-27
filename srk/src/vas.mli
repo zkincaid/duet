@@ -22,6 +22,7 @@ val exp : 'a context -> (symbol * symbol) list -> 'a term -> 'a t -> 'a formula
 val join : 'a context -> (symbol * symbol) list -> 'a t -> 'a t -> 'a t
 val widen : 'a context -> (symbol * symbol) list -> 'a t -> 'a t -> 'a t
 val equal : 'a context -> (symbol * symbol) list -> 'a t -> 'a t -> bool
+val mk_bottom : (symbol * symbol) list -> symbol list -> 'a t
 
 (* TODO: remove exp_base_helper *)
 val exp_base_helper : 'a context -> (symbol * Symbol.Map.key) list -> 'a term ->

@@ -76,7 +76,7 @@ let unify2 matrices vects =
 
 let mk_top = {v=TSet.empty; s_lst=[]}
 
-let mk_bottom srk tr_symbols symb_constants =
+let mk_bottom tr_symbols symb_constants =
   (* Matrix in which 1 row for each sym in * tr_symbols; row has a 1
      exactly in the col for corresponding sym'*)
   let double_symb = List.map (fun x -> (x, x)) symb_constants in
@@ -391,7 +391,7 @@ let coprod_find_transformation s_lst1 s_lst2 =
    *r2 is transformation from s_lst2 to s_lst
    *)
   let r1, r2, s_lst =
-    List.fold_left (fun (r1, r2, s_lst) cohclass1 -> 
+    List.fold_left (fun (r1, r2, s_lst) cohclass1 ->
         let offset2 = ref 0 in
         let r1', r2', s_lst' = 
           (List.fold_left (fun (r1', r2', s_lst') cohclass2 ->
@@ -440,13 +440,9 @@ let coprod_compute_image v r =
 
 
 let coproduct srk vabs1 vabs2 : 'a t =
-  Log.errorf "coprod1";
   let (s_lst1, s_lst2, v1, v2) = (vabs1.s_lst, vabs2.s_lst, vabs1.v, vabs2.v) in
-  Log.errorf "coprod2";
   let s1, s2, s_lst = coprod_find_transformation s_lst1 s_lst2 in
-  Log.errorf "coprod3";
   let v = TSet.union (coprod_compute_image v1 s1) (coprod_compute_image v2 s2) in
-  Log.errorf "coprod4";
   {v; s_lst}
 
 
@@ -489,6 +485,8 @@ let gamma srk vas tr_symbols =
     mk_or srk (List.map (fun t -> gamma_transformer srk term_list t) (TSet.elements vas.v))
 
 let alpha_hat srk imp tr_symbols symb_constants =
+  (* Note that we need to add m = m + 0 to increment portion of simulation matrix
+   * for all symbolic constants m in order to ensure coproduct works properly *)
   let double_symb = List.map (fun x -> (x, x)) symb_constants in 
   let (xdeltpairs, xdeltphis) = 
     List.split (List.fold_left (fun acc (x, x') -> 
@@ -528,7 +526,6 @@ let abstract ?(exists=fun x -> true) srk tr_symbols phi  =
   let phi = mk_and srk (phi :: symb_eqs) in
   let phi = (rewrite srk ~down:(nnf_rewriter srk) phi) in
   let phi = Nonlinear.linearize srk phi in
-  Log.errorf "formula is %a" (Formula.pp srk) phi;
  
   let solver = Smt.mk_solver srk in
   let rec go vas =
@@ -540,13 +537,11 @@ let abstract ?(exists=fun x -> true) srk tr_symbols phi  =
       match Interpretation.select_implicant m phi with
       | None -> assert false
       | Some imp ->
-        Log.errorf "frozen";
         let sing_transformer_vas = alpha_hat srk (mk_and srk imp) tr_symbols symb_constants in
-        Log.errorf "passed";
         go (coproduct srk vas sing_transformer_vas)
   in
   Smt.Solver.add solver [phi];
-  let {v;s_lst} = go (mk_bottom srk tr_symbols symb_constants) in
+  let {v;s_lst} = go (mk_bottom tr_symbols symb_constants) in
   let result = {v;s_lst} in
   result
 
