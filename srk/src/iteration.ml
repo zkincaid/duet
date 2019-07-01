@@ -779,18 +779,22 @@ module EqualityInv (Iter : PreDomain) = struct
           in
           let sym = List.fold_left (fun acc (x, x') -> if x' = sym' then x else acc)
               sym' tr_symbols in
+          let phi' = if List.mem sym symb_constants then  
+             mk_and srk [phi; mk_eq srk (preify srk tr_symbols term_xy) (postify srk tr_symbols term_xy')]
+            else phi in
+
           (* Rewrite phi without sym or sym' *)
-          let phi' = substitute_const srk
+          let phi'' = substitute_const srk
               (* TODO: Issue because in const symb x' = x*)
               (fun x -> if x = sym then preify srk tr_symbols term_xy 
                 else if x = sym' then postify srk tr_symbols term_xy'
-                else mk_const srk x) phi in
+                else mk_const srk x) phi' in
           let invars = (mk_eq srk (mk_const srk sym') (term_xy'))
                        :: (mk_eq srk (mk_const srk sym) (term_xy))
                        :: invars in
           (* Determines if transition can only happen at most one time *)
           let guarded_system = if QQ.equal b_post br then guarded_system else true in 
-          phi',invars, guarded_system
+          phi'',invars, guarded_system
         )
         (phi,[], false)
         (M.rowsi c)
