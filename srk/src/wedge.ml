@@ -2080,12 +2080,11 @@ let abstract ?exists:(p=fun x -> true) ?(subterm=fun x -> true) srk phi =
           |> Polyhedron.implicant_of cs
         in
         let new_wedge =
-          implicant'
-          |> of_atoms srk
-          |> exists ~integrity ~subterm p
+          let w = of_atoms srk implicant' in
+          strengthen ~integrity w;
+          exists ~integrity ~subterm p w
         in
         if is_bottom wedge then begin
-          strengthen ~integrity new_wedge;
           go new_wedge
         end else
           go (join ~integrity wedge new_wedge)
