@@ -494,6 +494,45 @@ let rec jordan_chain mA lambda v =
   else
     v::(jordan_chain mA lambda residual)
 
+module QQVectorSpace = struct
+  type t = QQVector.t list
+
+  let mem = mem_vector_space
+
+  let subspace vU vV =
+    List.for_all (mem_vector_space vV) vU
+
+  let equal vU vV = subspace vU vV && subspace vV vU
+
+  (* Create a matrix whose rows are a a basis for the space *)
+  let matrix_of vU =
+    BatList.fold_lefti
+      (fun m i v -> QQMatrix.add_row i v m)
+      QQMatrix.zero
+      vU
+
+  let of_matrix mM = BatList.of_enum (QQMatrix.rowsi mM /@ snd)
+
+  let intersect vU vV =
+    let (mU, mV) = (matrix_of vU, matrix_of vV) in
+    let (mC, _) = intersect_rowspace mU mV in
+    of_matrix (QQMatrix.mul mC mU)
+
+  let sum vU vV =
+    List.fold_left (fun vR v ->
+        if mem vR v then vR
+        else v::vR)
+      vV
+      vU
+
+  let diff vU vV =
+    List.fold_left (fun vR v ->
+        if mem (vR @ vV) v then vR
+        else v::vR)
+      []
+      vU
+end
+
 (* Affine expressions over constant symbols.  dim_of_sym, const_dim, and
    sym_of_dim are used to translate between symbols and the dimensions of the
    coordinate space. *)
