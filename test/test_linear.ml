@@ -530,6 +530,77 @@ let prsd8 () =
   | [(1,lambda,v)] -> assert_equal_qq (QQ.of_int 42) lambda
   | _ -> assert false
 
+let assert_equal_vs x y =
+  assert_equal ~cmp:QQVectorSpace.equal x y
+
+let vs_sum () =
+  let vU =
+    List.map mk_vector [
+      [1; 0; 0; 1];
+      [0; 1; 0; 1];
+    ]
+  in
+  let vV =
+    List.map mk_vector [
+      [0; 0; 1; 1];
+      [0; 0; 1; 0];
+    ]
+  in
+  let vW =
+    List.map mk_vector [
+      [1; 0; 0; 0];
+      [0; 1; 0; 0];
+      [0; 0; 1; 0];
+      [0; 0; 0; 1]
+    ]
+  in
+  assert_equal_vs (QQVectorSpace.sum vU vU) vU;
+  assert_equal_vs (QQVectorSpace.sum vU vV) vW;
+  assert_equal_vs (QQVectorSpace.sum vV vU) vW
+
+let vs_diff () =
+  let vU =
+    List.map mk_vector [
+      [1; 0; 0; 1];
+      [0; 1; 0; 1];
+      [1; 1; 1; 1];
+    ]
+  in
+  let vV =
+    List.map mk_vector [
+      [0; 0; 1; 1];
+      [1; 1; 0; 0];
+    ]
+  in
+  let vW =
+    List.map mk_vector [
+      [1; 0; 0; 1];
+      [0; 1; 0; 1];
+    ]
+  in
+  assert_equal_vs (QQVectorSpace.diff vU vU) [];
+  assert_equal_vs (QQVectorSpace.diff vU vV) vW;
+  assert_equal_vs (QQVectorSpace.sum vU (QQVectorSpace.diff vU vV)) vU;
+  assert_equal_vs (QQVectorSpace.sum vV (QQVectorSpace.diff vV vU)) vV
+
+let vs_intersect () =
+  let vU =
+    List.map mk_vector [
+      [1; 0; 0; 1];
+      [0; 1; 0; 1];
+      [1; 1; 1; 1];
+    ]
+  in
+  let vV =
+    List.map mk_vector [
+      [0; 0; 1; 1];
+      [1; 1; 0; 0];
+    ]
+  in
+  assert_equal_vs (QQVectorSpace.intersect vU vV) [mk_vector [1;1;1;1]];
+  assert_equal_vs
+    (QQVectorSpace.diff vU (QQVectorSpace.intersect vU vV))
+    (QQVectorSpace.diff vU vV)
 
 let suite = "Linear" >::: [
     "dot" >:: dot;
@@ -572,4 +643,8 @@ let suite = "Linear" >::: [
     "prsd6" >:: prsd6;
     "prsd7" >:: prsd7;
     "prsd8" >:: prsd8;
+    "prsd8" >:: prsd8;
+    "vs_sum" >:: vs_sum;
+    "vs_diff" >:: vs_diff;
+    "vs_intersect" >:: vs_intersect
   ]

@@ -105,6 +105,36 @@ val jordan_chain : QQMatrix.t -> QQ.t -> QQVector.t -> QQVector.t list
 
 val evaluate_affine : (int -> QQ.t) -> QQVector.t -> QQ.t
 
+(** {2 Rational vector spaces} *)
+module QQVectorSpace : sig
+  (** Vector spaces are represented by a list of basis vectors *)
+  type t = QQVector.t list
+
+  val equal : t -> t -> bool
+  val subspace : t -> t -> bool
+
+  (** Create a matrix whose rows form a basis for the space *)
+  val matrix_of : t -> QQMatrix.t
+
+  (** Given a matrix *with linearly independent rows*, get basis for its rowspace *)
+  val of_matrix : QQMatrix.t -> t
+
+  (** Given a vector space V and a vector v, does v belong to V *)
+  val mem : t -> QQVector.t -> bool
+
+  (** Intersect two vector spaces *)
+  val intersect : t -> t -> t
+
+  (** Given vector spaces U and V, compute a basis for the direct sum
+      [{ u+v : u in U, v in V }] *)
+  val sum : t -> t -> t
+
+  (** Given vector spaces U and V, compute a basis for a vector space W such that
+      [sum (diff U V) W = U].  NOTE: this vector space is not unique. *)
+  val diff : t -> t -> t
+end
+
+
 (** {2 Affine terms} *)
 
 (** Various operations for manipulating affine terms over symbols, represented
