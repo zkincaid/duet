@@ -40,7 +40,7 @@ module QQMatrix : sig
 end
 
 (** [nullspace mat dimensions] computes a basis for the vector space [{ x :
-    max*x = 0}], projected on to the set of dimensions [dimensions].  (Note
+    mat*x = 0}], projected on to the set of dimensions [dimensions].  (Note
     that the nullspace is not finitely generated in [int -> QQ], hence the
     projection). *)
 val nullspace : QQMatrix.t -> int list -> QQVector.t list
@@ -72,6 +72,11 @@ val intersect_rowspace : QQMatrix.t -> QQMatrix.t -> (QQMatrix.t * QQMatrix.t)
     exists).  C exists when the rowspace of B is contained in the rowspace of
     A.  If A and B are invertible, then C is exactly AB{^-1}. *)
 val divide_right : QQMatrix.t -> QQMatrix.t -> QQMatrix.t option
+
+(** Given two matrices A and B, compute a matrix C such that BC = A (if one
+    exists).  C exists when the columnspace of B is contained in the columnspace of
+    A.  If A and B are invertible, then C is exactly B{^-1}A. *)
+val divide_left : QQMatrix.t -> QQMatrix.t -> QQMatrix.t option
 
 (** Given matrices [A] and [B], find a matrix [C] whose rows constitute a
     basis for the vector space [{ v : exists u. uA = vB }] *)
@@ -111,7 +116,11 @@ module QQVectorSpace : sig
   type t = QQVector.t list
 
   val equal : t -> t -> bool
+
   val subspace : t -> t -> bool
+
+  val empty : t
+  val is_empty : t -> bool
 
   (** Create a matrix whose rows form a basis for the space *)
   val matrix_of : t -> QQMatrix.t
@@ -132,8 +141,72 @@ module QQVectorSpace : sig
   (** Given vector spaces U and V, compute a basis for a vector space W such that
       [sum (diff U V) W = U].  NOTE: this vector space is not unique. *)
   val diff : t -> t -> t
+
+  (** [standard_basis n] returns standard basis for n-dimensional space *)
+  val standard_basis : int -> t
+
+  (** Compute a basis for the vector space spanned by a given set of vectors *)
+  val basis : QQVector.t list -> t
+
+  (** Simplify a basis using Gauss-Jordan elimination *)
+  val simplify : t -> t
+
+  val dimension : t -> int
 end
 
+(** {2 Partial linear maps} *)
+module PartialLinearMap : sig
+
+  (** A partial linear map is a partial function that is linear and
+     whose domain is a vector space *)
+  type t
+
+  val equal : t -> t -> bool
+
+  (** [identity n] is the (total) identity map on the coordinates [0
+     .. n-1]; all other coordinates are sent to 0. *)
+  val identity : int -> t
+
+
+  (** [make A G] creates the partial map whose action is given by the
+     matrix A, and whose domain of definition is the set of all [v]
+     such that [g.v = 0] for all [g in G].  (I.e., [G] is a set of
+     equality constraints that must on the input for [make A G] to be
+     defined; the domain is the orthogonal complement of G). *)
+  val make : QQMatrix.t -> QQVector.t list -> t
+
+  val pp : Format.formatter -> t -> unit
+
+  (** (Partial) map composition *)
+  val compose : t -> t -> t
+
+  (** Repeatly compose a partial map with itself until the domain
+     stabilizes; return both iteration sequence and the ultimate guard
+     of the function.
+
+     We have guard(f) <= guard(f o f) <= guard(f o f o f) <= ...
+     and there is some (least) n such that guard(f^n) = guard(f^m)
+     for all m >= n.  The pair returned by [iteration_sequence f] is
+     [([f; f o f; ...; f^n], dom(f^n))].
+  *)
+  val iteration_sequence : t -> (t list) * (QQVector.t list)
+
+  (** Access the underlying (total) map of a partial map. *)
+  val map : t -> QQMatrix.t
+
+  (** Access the guard of a partial map.  The domain of the map is its
+     orthogonal complement *)
+  val guard : t -> QQVectorSpace.t
+
+  (** Given matrices [A] and [B] representing a system of equations
+     [Ax' = Bx], find a matrix [S] and a partial linear dynamical
+     system (PLDS) [f] such that:
+      1. [Ax' = Bx] implies [Sx' = f(Sx)]
+      2. if [g] is a PLDS and [T] is a matrix such that [Ax' = Bx]
+     implies [Tx' = g(Tx)], then there is some [U] such that [T = US]
+     and [y' = f(y)] implies [Uy' = g(Uy)].  *)
+  val max_plds : QQMatrix.t -> QQMatrix.t -> QQMatrix.t * t
+end
 
 (** {2 Affine terms} *)
 
@@ -178,3 +251,5 @@ val evaluate_linterm : (symbol -> QQ.t) -> QQVector.t -> QQ.t
 
 (** Count the number of dimensions with non-zero coefficients *)
 val linterm_size : QQVector.t -> int
+
+val term_of_vec : ('a context) -> (int -> 'a term) -> QQVector.t -> 'a term

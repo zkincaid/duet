@@ -1251,7 +1251,7 @@ let exp_ocrs srk tr_symbols loop_counter iter =
   in
   let mk_int k = mk_real srk (QQ.of_int k) in
 
-  (iter.nb_constants -- (Array.length iter.term_of_id - 1))
+  (iter.nb_constants -- ((Array.length cf) - 1))
   /@ (fun i ->
       let outvar = Output_variable (string_of_int i, ss_pre) in
       let PieceWiseIneq (ivar, pieces) =
@@ -1774,4 +1774,226 @@ module PresburgerGuard = struct
     mk_and srk [SPPR.exp srk tr_symbols loop_counter sp;
                 guard_closure]
 
+end
+
+module PLDS = struct
+  module PLM = Linear.PartialLinearMap
+  module VS = Linear.QQVectorSpace
+  module V = Linear.QQVector
+  module M = Linear.QQMatrix
+
+  type 'a t =
+    { plds : PLM.t;
+      simulation : ('a term) array }
+
+  let dimension iter = Array.length iter.simulation
+
+  let exp srk tr_symbols loop_count iter =
+    let open PLM in
+    let sim i = iter.simulation.(i) in
+    let post_map = (* map pre-state vars to post-state vars *)
+      post_map tr_symbols
+    in
+    let postify =
+      let subst sym =
+        if Symbol.Map.mem sym post_map then
+          mk_const srk (Symbol.Map.find sym post_map)
+        else
+          mk_const srk sym
+      in
+      substitute_const srk subst
+    in
+    let zero = mk_real srk QQ.zero in
+
+    let dim = dimension iter in
+
+    (* Iterate function until the guard stabilizes (i.e., dom(f^n) =
+       dom(f^{n+1})).  *)
+    let rec fix g i =
+      let h = PLM.compose iter.plds g in
+      if VS.dimension (PLM.guard g) == dim then
+        (* Ultimate domain is trivial.  Since one dimension of the
+           domain represents the constant 1, this is inconsistent. *)
+        mk_false srk
+      else if VS.equal (PLM.guard g) (PLM.guard h) then
+        (* Ultimate domain -- intersection of dom(f^i) over all i *)
+        let ult_dom =
+          Linear.nullspace (VS.matrix_of (PLM.guard g)) (BatList.of_enum (0 -- (dim - 1)))
+          |> VS.matrix_of
+          |> M.transpose
+        in
+
+        (* Writing S as the ult_dom domain and A as the transformation
+           of f, we want a square matrix B such that SA = BS.  Think
+           of S as a linear transformation into the ultimate domain,
+           so that B is a representation of the action of A on the
+           ultimate domain.  *)
+        let stable_transform =
+          match Linear.divide_left (M.mul (PLM.map iter.plds) ult_dom) ult_dom with
+          | None -> assert false
+          | Some f -> f
+        in
+        let ult_dim = QQMatrix.nb_rows ult_dom in
+        let closed =
+          let underlying_block =
+            { blk_transform = QQMatrix.dense_of stable_transform ult_dim ult_dim;
+              blk_add = Array.make ult_dim QQXs.zero }
+          in
+          let underlying_iter =
+            { term_of_id = iter.simulation;
+              nb_constants = 0;
+              block_eq = [underlying_block];
+              block_leq = [] }
+          in
+          SolvablePolynomial.exp srk tr_symbols loop_count underlying_iter
+        in
+        let domain_constraints =
+          try
+          List.map (fun t ->
+              let term = Linear.term_of_vec srk sim t in
+              mk_and srk [mk_eq srk term zero;
+                          mk_eq srk (postify term) zero])
+            (PLM.guard g)
+          |> mk_and srk
+          with _ -> assert false
+        in
+        mk_and srk [ closed
+                   ; domain_constraints
+                   ; mk_leq srk (mk_real srk (QQ.of_int i)) loop_count ]
+      else
+        let transform =
+          (0 -- (dim - 1))
+          /@ (fun i ->
+              let lhs = postify (sim i) in
+              let rhs =
+                Linear.term_of_vec srk sim (QQMatrix.row i (PLM.map g))
+              in
+              mk_eq srk lhs rhs)
+          |> BatList.of_enum
+        in
+        let guard =
+          List.map
+            (fun t -> mk_eq srk zero (Linear.term_of_vec srk sim t))
+            (PLM.guard g)
+        in
+        mk_or srk [ mk_and srk (mk_eq srk (mk_real srk (QQ.of_int i)) loop_count
+                                ::(guard @ transform))
+                  ; fix h (i+1) ]
+    in
+    fix (PLM.identity dim) 0
+
+  let pp_mat srk f formatter m =
+    Format.fprintf formatter "[@[<v 1>";
+    QQMatrix.rowsi m |> BatEnum.iter (fun (i, r) ->
+        Format.fprintf formatter "%d: %a@;"
+          i
+          (Term.pp srk) (Linear.term_of_vec srk f r));
+    Format.fprintf formatter "@]]"
+
+  let pp srk _ formatter iter =
+    let sim i = iter.simulation.(i) in
+    Format.fprintf formatter "@[<v 2>Map:";
+    iter.simulation |> BatArray.iteri (fun i term ->
+        let row =
+          Linear.term_of_vec srk sim (QQMatrix.row i (PLM.map iter.plds))
+        in
+        Format.fprintf formatter "@;%a := %a"
+          (Term.pp srk) term
+          (Term.pp srk) row);
+    Format.fprintf formatter "@]";
+    if (PLM.guard iter.plds) != [] then begin
+      Format.fprintf formatter "@;@[<v 2>when:";
+      (PLM.guard iter.plds) |> List.iter (fun eq ->
+          Format.fprintf formatter "@;%a = 0"
+            (Term.pp srk) (Linear.term_of_vec srk sim eq));
+      Format.fprintf formatter "@]"
+    end
+
+  let abstract ?(exists=fun x -> true) srk tr_symbols phi =
+    let phi = Nonlinear.linearize srk phi in
+    let pre_symbols = pre_symbols tr_symbols in
+    let post_symbols = post_symbols tr_symbols in
+    (* Detect constant terms *)
+    let is_symbolic_constant x =
+      not (Symbol.Set.mem x pre_symbols || Symbol.Set.mem x post_symbols)
+    in
+    let phi_symbols = Symbol.Set.elements (Symbol.Set.filter exists (symbols phi)) in
+    let constants = List.filter is_symbolic_constant phi_symbols in
+    (* pre_dims is a set of dimensions corresponding to pre-state
+       dimensions. pre_map is a mapping from dimensions that correspond to
+       post-state dimensions to their pre-state counterparts *)
+    let (pre_map, pre_dims) =
+      List.fold_left (fun (pre_map, pre_dims) (s,s') ->
+          let pre = Linear.dim_of_sym s in
+          let post = Linear.dim_of_sym s' in
+          (IntMap.add post pre pre_map, IntSet.add pre pre_dims))
+        (IntMap.empty, IntSet.empty)
+        tr_symbols
+    in
+    let (mA, mB, nb_rows) =
+      BatList.fold_left (fun (mA, mB, i) t ->
+          logf "Equation: %a = 0" (Term.pp srk) t;
+          let (a, b) =
+            BatEnum.fold (fun (a, b) (coeff, id) ->
+                if IntMap.mem id pre_map then
+                  (V.add_term (QQ.negate coeff) (IntMap.find id pre_map) a, b)
+                else if id == Linear.const_dim then
+                  (a, V.add_term coeff Linear.const_dim b)
+                else
+                  (a, V.add_term coeff id b))
+              (V.zero, V.zero)
+              (V.enum (Linear.linterm_of srk t))
+          in
+          (QQMatrix.add_row i a mA, QQMatrix.add_row i b mB, i + 1))
+        (QQMatrix.zero, QQMatrix.zero, 0)
+        (Abstract.affine_hull srk phi phi_symbols)
+    in
+    let (mA, mB, _) =
+      BatList.fold_left (fun (mA, mB, i) id ->
+          (QQMatrix.add_row i (V.of_term QQ.one id) mA,
+           QQMatrix.add_row i (V.of_term QQ.one id) mB,
+           i + 1))
+        (mA, mB, nb_rows)
+        (Linear.const_dim::(List.map Linear.dim_of_sym constants))
+    in
+    let (mS, plds) = PLM.max_plds mA mB in
+    let simulation =
+      QQMatrix.rowsi mS
+      /@ (Linear.of_linterm srk % snd)
+      |> BatArray.of_enum
+    in
+    let res = { plds; simulation } in
+    logf "Extracted:@? %a" (pp srk tr_symbols) res;
+    res
+
+  let equal _ _ iter1 iter2 =
+    PLM.equal iter1.plds iter2.plds
+    && BatArray.for_all2 Term.equal iter1.simulation iter2.simulation
+
+  let to_formula srk iter =
+    let sim i = iter.simulation.(i) in
+    let map =
+      (0 -- (dimension iter - 1))
+      /@ (fun i ->
+          let rhs =
+            Linear.term_of_vec srk sim (QQMatrix.row i (PLM.map iter.plds))
+          in
+          mk_eq srk (sim i) rhs)
+      |> BatList.of_enum
+      |> mk_and srk
+    in
+    let zero = mk_real srk QQ.zero in
+    let guard =
+      List.map
+        (fun vec -> mk_eq srk zero (Linear.term_of_vec srk sim vec))
+        (PLM.guard iter.plds)
+      |> mk_and srk
+    in
+    mk_and srk [map; guard]
+
+  let join srk tr_symbols iter1 iter2 =
+    abstract srk tr_symbols (mk_or srk [to_formula srk iter1;
+                                        to_formula srk iter2])
+
+  let widen = join
 end
