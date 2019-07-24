@@ -1,6 +1,6 @@
 open OUnit
 open Syntax
-
+open Linear
 module Ctx = MakeSimplifyingContext ()
 module Infix = Syntax.Infix(Ctx)
 let srk = Ctx.context
@@ -41,6 +41,30 @@ let z' : 'a term = Ctx.mk_const zsym'
 
 let frac num den = Ctx.mk_real (QQ.of_frac num den)
 let int k = Ctx.mk_real (QQ.of_int k)
+
+let mk_vector vec =
+  List.fold_left
+    (fun vec (i, k) -> QQVector.add_term k i vec)
+    QQVector.zero
+    (List.mapi (fun i k -> (i, QQ.of_int k)) vec)
+
+let mk_matrix mat =
+  List.fold_left
+    (fun mat (i, row) -> QQMatrix.add_row i row mat)
+    QQMatrix.zero
+    (List.mapi (fun i row -> (i, mk_vector row)) mat)
+
+let mk_qqvector vec =
+  List.fold_left
+    (fun vec (i, k) -> QQVector.add_term k i vec)
+    QQVector.zero
+    (List.mapi (fun i k -> (i, k)) vec)
+
+let mk_qqmatrix mat =
+  List.fold_left
+    (fun mat (i, row) -> QQMatrix.add_row i row mat)
+    QQMatrix.zero
+    (List.mapi (fun i row -> (i, mk_qqvector row)) mat)
 
 let assert_equal_term s t =
   assert_equal ~printer:(Term.show srk) s t
