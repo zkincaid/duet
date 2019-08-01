@@ -376,6 +376,25 @@ let plds4 () =
   assert_implies closure (z' = z || x + y = (int 0) || x + (int 2) = (int 0));
   assert_implies closure (z' - z <= (int 2))
 
+let plds5 () =
+  let open Infix in
+  let phi =
+    x' = x + (int 1)
+    && y' = y + (int 1)
+    && z' = z
+    && x = (int 0)
+    && y = (int 0)
+    && z = (int 1)
+  in
+  let closure = PLDS.star srk tr_symbols phi in
+  assert_implies closure (z' - z <= (int 1))
+
+let plds_false () =
+  let open Infix in
+  let closure = PLDS.star srk tr_symbols (mk_false srk) in
+  assert_implies closure (x' = x && y' = y && z' = z);
+  assert_equal (Smt.is_sat srk closure) `Sat
+
 let suite = "Iteration" >::: [
     "prepost" >:: prepost;
     "simple_induction" >:: simple_induction;
@@ -396,4 +415,6 @@ let suite = "Iteration" >::: [
     "plds2" >:: plds2;
     "plds3" >:: plds3;
     "plds4" >:: plds4;
+    "plds4" >:: plds5;
+    "plds_false" >:: plds_false;
   ]

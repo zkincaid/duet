@@ -208,33 +208,36 @@ let closure_ocrs sp =
   in
   let close_block block offset =
     let size = Array.length block.blk_add in
-    let dim_vec = Array.init size (fun i -> string_of_int (offset + i)) in
-    let ocrs_transform =
-      Array.map (Array.map Mpqf.to_mpq) block.blk_transform
-    in
-    let ocrs_add =
-      Array.init size (fun i ->
-          let cf_monomial m =
-            Monomial.enum m
-            /@ (fun (id, pow) -> Pow (cf.(id), Rational (Mpq.of_int pow)))
-            |> BatList.of_enum
-          in
-          QQXs.enum block.blk_add.(i)
-          /@ (fun (coeff, m) ->
-              Product (Rational (Mpqf.to_mpq coeff)::(cf_monomial m)))
-          |> (fun x -> Sum (BatList.of_enum x)))
-    in
-    let block_closed =
-      let mat_rec =
-        VEquals (Ovec (dim_vec, ss_post),
-                 ocrs_transform,
-                 Ovec (dim_vec, ss_pre),
-                 ocrs_add)
+    if size = 0 then
+      []
+    else
+      let dim_vec = Array.init size (fun i -> string_of_int (offset + i)) in
+      let ocrs_transform =
+        Array.map (Array.map Mpqf.to_mpq) block.blk_transform
       in
-      logf "Block:@\n%s" (Mat_helpers.matrix_rec_to_string mat_rec);
-      Log.time "OCRS" (Ocrs.solve_mat_recurrence mat_rec) false
-    in
-    block_closed
+      let ocrs_add =
+        Array.init size (fun i ->
+            let cf_monomial m =
+              Monomial.enum m
+              /@ (fun (id, pow) -> Pow (cf.(id), Rational (Mpq.of_int pow)))
+              |> BatList.of_enum
+            in
+            QQXs.enum block.blk_add.(i)
+            /@ (fun (coeff, m) ->
+                Product (Rational (Mpqf.to_mpq coeff)::(cf_monomial m)))
+            |> (fun x -> Sum (BatList.of_enum x)))
+      in
+      let block_closed =
+        let mat_rec =
+          VEquals (Ovec (dim_vec, ss_post),
+                   ocrs_transform,
+                   Ovec (dim_vec, ss_pre),
+                   ocrs_add)
+        in
+        logf "Block:@\n%s" (Mat_helpers.matrix_rec_to_string mat_rec);
+        Log.time "OCRS" (Ocrs.solve_mat_recurrence mat_rec) false
+      in
+      block_closed
   in
   sp |> iter_blocks (fun offset block ->
       close_block block offset
@@ -1788,6 +1791,33 @@ module PLDS = struct
 
   let dimension iter = Array.length iter.simulation
 
+  let pp_mat srk f formatter m =
+    Format.fprintf formatter "[@[<v 1>";
+    QQMatrix.rowsi m |> BatEnum.iter (fun (i, r) ->
+        Format.fprintf formatter "%d: %a@;"
+          i
+          (Term.pp srk) (Linear.term_of_vec srk f r));
+    Format.fprintf formatter "@]]"
+
+  let pp srk _ formatter iter =
+    let sim i = iter.simulation.(i) in
+    Format.fprintf formatter "@[<v 2>Map:";
+    iter.simulation |> BatArray.iteri (fun i term ->
+        let row =
+          Linear.term_of_vec srk sim (QQMatrix.row i (PLM.map iter.plds))
+        in
+        Format.fprintf formatter "@;%a := %a"
+          (Term.pp srk) term
+          (Term.pp srk) row);
+    Format.fprintf formatter "@]";
+    if (PLM.guard iter.plds) != [] then begin
+      Format.fprintf formatter "@;@[<v 2>when:";
+      (PLM.guard iter.plds) |> List.iter (fun eq ->
+          Format.fprintf formatter "@;%a = 0"
+            (Term.pp srk) (Linear.term_of_vec srk sim eq));
+      Format.fprintf formatter "@]"
+    end
+
   let exp srk tr_symbols loop_count iter =
     let open PLM in
     let sim i = iter.simulation.(i) in
@@ -1881,33 +1911,6 @@ module PLDS = struct
                   ; fix h (i+1) ]
     in
     fix (PLM.identity dim) 0
-
-  let pp_mat srk f formatter m =
-    Format.fprintf formatter "[@[<v 1>";
-    QQMatrix.rowsi m |> BatEnum.iter (fun (i, r) ->
-        Format.fprintf formatter "%d: %a@;"
-          i
-          (Term.pp srk) (Linear.term_of_vec srk f r));
-    Format.fprintf formatter "@]]"
-
-  let pp srk _ formatter iter =
-    let sim i = iter.simulation.(i) in
-    Format.fprintf formatter "@[<v 2>Map:";
-    iter.simulation |> BatArray.iteri (fun i term ->
-        let row =
-          Linear.term_of_vec srk sim (QQMatrix.row i (PLM.map iter.plds))
-        in
-        Format.fprintf formatter "@;%a := %a"
-          (Term.pp srk) term
-          (Term.pp srk) row);
-    Format.fprintf formatter "@]";
-    if (PLM.guard iter.plds) != [] then begin
-      Format.fprintf formatter "@;@[<v 2>when:";
-      (PLM.guard iter.plds) |> List.iter (fun eq ->
-          Format.fprintf formatter "@;%a = 0"
-            (Term.pp srk) (Linear.term_of_vec srk sim eq));
-      Format.fprintf formatter "@]"
-    end
 
   let abstract ?(exists=fun x -> true) srk tr_symbols phi =
     let phi = Nonlinear.linearize srk phi in
