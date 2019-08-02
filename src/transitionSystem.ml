@@ -800,7 +800,7 @@ module Make
               SrkApron.top man env
           in
           let post' = fix post in
-          if SrkApron.equal post post' then
+          if SrkApron.leq post' post then
             None
           else
             Some post'
@@ -811,7 +811,7 @@ module Make
           | Some v -> not (Var.is_global v)
         in
         let post' = SrkApron.exists man is_local pre in
-        if SrkApron.leq post post' then
+        if SrkApron.leq post' post then
           None
         else
           Some (SrkApron.join post post')

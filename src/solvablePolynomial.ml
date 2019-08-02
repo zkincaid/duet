@@ -1850,8 +1850,8 @@ module PLDS = struct
         let ult_dom =
           Linear.nullspace (VS.matrix_of (PLM.guard g)) (BatList.of_enum (0 -- (dim - 1)))
           |> VS.matrix_of
-          |> M.transpose
         in
+        let ult_dom_t = M.transpose ult_dom in
 
         (* Writing S as the ult_dom domain and A as the transformation
            of f, we want a square matrix B such that SA = BS.  Think
@@ -1859,18 +1859,20 @@ module PLDS = struct
            so that B is a representation of the action of A on the
            ultimate domain.  *)
         let stable_transform =
-          match Linear.divide_left (M.mul (PLM.map iter.plds) ult_dom) ult_dom with
+          match Linear.divide_left (M.mul (PLM.map iter.plds) ult_dom_t) ult_dom_t with
           | None -> assert false
           | Some f -> f
         in
-        let ult_dim = QQMatrix.nb_rows ult_dom in
+        let ult_dim = QQMatrix.nb_rows ult_dom_t in
         let closed =
           let underlying_block =
             { blk_transform = QQMatrix.dense_of stable_transform ult_dim ult_dim;
               blk_add = Array.make ult_dim QQXs.zero }
           in
           let underlying_iter =
-            { term_of_id = iter.simulation;
+            { term_of_id =
+                Array.init ult_dim (fun i ->
+                    Linear.term_of_vec srk sim (M.row i ult_dom));
               nb_constants = 0;
               block_eq = [underlying_block];
               block_leq = [] }
@@ -1878,14 +1880,12 @@ module PLDS = struct
           SolvablePolynomial.exp srk tr_symbols loop_count underlying_iter
         in
         let domain_constraints =
-          try
           List.map (fun t ->
               let term = Linear.term_of_vec srk sim t in
               mk_and srk [mk_eq srk term zero;
                           mk_eq srk (postify term) zero])
             (PLM.guard g)
           |> mk_and srk
-          with _ -> assert false
         in
         mk_and srk [ closed
                    ; domain_constraints
