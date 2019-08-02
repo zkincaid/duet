@@ -81,5 +81,5 @@ module Make
   val loop_headers_live : t -> int -> (int * VarSet.t) list
 
   (** Find invariant affine equalities of a transition system *)
-  val affine_invariants : t -> int -> (int -> (C.t, Polka.equalities Polka.t) SrkApron.property)
+  val affine_invariants : t -> vertex -> (vertex -> (C.t, Polka.equalities Polka.t) SrkApron.property)
 end

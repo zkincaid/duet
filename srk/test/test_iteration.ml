@@ -341,6 +341,7 @@ let plds1 () =
     && x = (int 0)
   in
   let closure = PLDS.star srk tr_symbols phi in
+  assert_equal (Smt.is_sat srk (closure && x < x')) `Sat;
   assert_implies closure (x' = x || x' = (int 1))
 
 let plds2 () =
@@ -352,6 +353,7 @@ let plds2 () =
     && x = y
   in
   let closure = PLDS.star srk tr_symbols phi in
+  assert_equal (Smt.is_sat srk (closure && x < x')) `Sat;
   assert_implies closure (z' = (int 2) * z || z' = z)
 
 let plds3 () =
@@ -373,6 +375,7 @@ let plds4 () =
     && z' = z + (int 1)
   in
   let closure = PLDS.star srk tr_symbols phi in
+  assert_equal (Smt.is_sat srk (closure && z' = z + (int 2))) `Sat;
   assert_implies closure (z' = z || x + y = (int 0) || x + (int 2) = (int 0));
   assert_implies closure (z' - z <= (int 2))
 
@@ -387,13 +390,27 @@ let plds5 () =
     && z = (int 1)
   in
   let closure = PLDS.star srk tr_symbols phi in
-  assert_implies closure (z' - z <= (int 1))
+  assert_equal (Smt.is_sat srk (closure && x' = x + (int 1))) `Sat;
+  assert_implies closure (x' - x <= (int 1))
 
 let plds_false () =
   let open Infix in
   let closure = PLDS.star srk tr_symbols (mk_false srk) in
   assert_implies closure (x' = x && y' = y && z' = z);
   assert_equal (Smt.is_sat srk closure) `Sat
+
+let plds_one () =
+  let open Infix in
+  let phi =
+    x' = x + (int 1)
+    && y' = y + (int 1)
+    && z' = z
+    && z = (int 1)
+    && x = y
+  in
+  let closure = PLDS.star srk tr_symbols phi in
+  assert_equal (Smt.is_sat srk (closure && x' = x + (int 100))) `Sat;
+  assert_implies closure (z' = z || z' = (int 1))
 
 let suite = "Iteration" >::: [
     "prepost" >:: prepost;
@@ -415,6 +432,7 @@ let suite = "Iteration" >::: [
     "plds2" >:: plds2;
     "plds3" >:: plds3;
     "plds4" >:: plds4;
-    "plds4" >:: plds5;
+    "plds5" >:: plds5;
     "plds_false" >:: plds_false;
+    "plds_one" >:: plds_one;
   ]
