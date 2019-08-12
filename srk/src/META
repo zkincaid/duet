@@ -1,9 +1,9 @@
 # OASIS_START
-# DO NOT EDIT (digest: 09b5fb992300f1b41f2bcef8a33333b7)
+# DO NOT EDIT (digest: 7b332f3d29d32e0dfbe5e2cd854d0976)
 version = "0.1.3"
 description = "Symbolic Reasoning Kit"
 requires =
-"batteries ppx_deriving ppx_deriving.show ppx_deriving.ord gmp camlidl apron Z3 ocrs ntl ocamlgraph"
+"batteries ppx_deriving ppx_deriving.show ppx_deriving.ord ppx_deriving.eq gmp camlidl apron Z3 ocrs ntl ocamlgraph"
 archive(byte) = "srk.cma"
 archive(byte, plugin) = "srk.cma"
 archive(native) = "srk.cmxa"

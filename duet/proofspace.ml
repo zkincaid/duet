@@ -7,6 +7,8 @@ open Pa
 
 include Log.Make(struct let name = "proofspace" end)
 
+let dump_emptiness = ref false
+
 let tr_typ typ =
   match resolve_type typ with
   | Int _   -> `TyInt
@@ -141,7 +143,12 @@ module Letter = struct
   include G.E
   let equal x y = compare x y = 0
   let hash edge = Hashtbl.hash (src edge, dst edge)
-  let pp formatter edge = Block.pp formatter (label edge)
+  let pp formatter edge =
+    Format.fprintf formatter "< %d,%d: %a >"
+      (src edge)
+      (dst edge)
+      Block.pp (label edge)
+
   let block = label
   let transition_of index e =
     match label e with
@@ -204,10 +211,19 @@ type block_graph =
     error : int (* designated error vertex *) }
 
 module PA = PredicateAutomata.Make
-    (Letter)
+    (struct
+      include Letter
+      let pp formatter letter =
+        SrkUtil.mk_show pp letter
+        |> String.map (fun c -> if c = '\n' then ' ' else c)
+        |> Format.pp_print_string formatter
+    end)
     (struct
       include P
-      let pp formatter p = Format.fprintf formatter "{%a}" pp p
+      let pp formatter predicate =
+        SrkUtil.mk_show pp predicate
+        |> String.map (fun c -> if c = '\n' then ' ' else c)
+        |> Format.fprintf formatter "{%s}"
     end)
 
 module E = PredicateAutomata.MakeEmpty(PA)
@@ -815,6 +831,19 @@ let verify file =
     logf ~level:`info "  Spurious counter-examples: %d " !number_cex;
   in
   let rec loop () =
+    if !dump_emptiness then begin
+      let filename =
+        Format.sprintf "%s%d.pa"
+          (Filename.chop_extension (Filename.basename file.CfgIr.filename))
+          (!number_cex)
+      in
+      let chan = Pervasives.open_out filename in
+      let formatter = Format.formatter_of_out_channel chan in
+      logf ~level:`always "Writing emptiness query to %s" filename;
+      E.pp formatter solver;
+      Format.pp_print_newline formatter ();
+      Pervasives.close_out chan
+    end;
     match check () with
     | Some trace ->
       logf ~attributes:[`Bold] "@\nFound error trace (%d):" (!number_cex);
@@ -862,4 +891,8 @@ let verify file =
 
 let _ =
   CmdLine.register_pass
-    ("-proofspace", verify, " Proof space")
+    ("-proofspace", verify, " Proof space");
+  CmdLine.register_config
+    ("-proofspace-dump-emptiness",
+     Arg.Set dump_emptiness,
+     " Save emptiness queries")

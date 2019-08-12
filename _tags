@@ -1,5 +1,4 @@
-# OASIS_START
-# DO NOT EDIT (digest: fb8f43a75c9e1ab28bc85c5f47ae1f6c)
+# DO NOT EDIT (digest: b3a5d2e7776b25ca13fab7292785ff93)
 # Ignore VCS directories, you can use the same kind of rule outside
 # OASIS_START/STOP if you want to exclude directories that contains
 # useless stuff for the build process
@@ -39,7 +38,8 @@ true: annot, bin_annot
 "srk/src/nonlinear.cmx": for-pack(Srk)
 "srk/src/coordinateSystem.cmx": for-pack(Srk)
 "srk/src/wedge.cmx": for-pack(Srk)
-"srk/src/mdvas.cmx": for-pack(Srk)
+"srk/src/vas.cmx": for-pack(Srk)
+"srk/src/vass.cmx": for-pack(Srk)
 "srk/src/quantifier.cmx": for-pack(Srk)
 "srk/src/iteration.cmx": for-pack(Srk)
 "srk/src/solvablePolynomial.cmx": for-pack(Srk)
@@ -66,6 +66,7 @@ true: annot, bin_annot
 "srk/test/test_srk.native": pkg_ocamlgraph
 "srk/test/test_srk.native": pkg_ocrs
 "srk/test/test_srk.native": pkg_ppx_deriving
+"srk/test/test_srk.native": pkg_ppx_deriving.eq
 "srk/test/test_srk.native": pkg_ppx_deriving.ord
 "srk/test/test_srk.native": pkg_ppx_deriving.show
 "srk/test/test_srk.native": use_srk
@@ -82,6 +83,7 @@ true: annot, bin_annot
 <srk/test/*.ml{,i,y}>: pkg_ocamlgraph
 <srk/test/*.ml{,i,y}>: pkg_ocrs
 <srk/test/*.ml{,i,y}>: pkg_ppx_deriving
+<srk/test/*.ml{,i,y}>: pkg_ppx_deriving.eq
 <srk/test/*.ml{,i,y}>: pkg_ppx_deriving.ord
 <srk/test/*.ml{,i,y}>: pkg_ppx_deriving.show
 <srk/test/*.ml{,i,y}>: use_srk
@@ -97,6 +99,7 @@ true: annot, bin_annot
 "srk/src/bigtop.native": pkg_ntl
 "srk/src/bigtop.native": pkg_ocrs
 "srk/src/bigtop.native": pkg_ppx_deriving
+"srk/src/bigtop.native": pkg_ppx_deriving.eq
 "srk/src/bigtop.native": pkg_ppx_deriving.ord
 <srk/src/*.ml{,i,y}>: pkg_Z3
 <srk/src/*.ml{,i,y}>: pkg_apron
@@ -109,6 +112,7 @@ true: annot, bin_annot
 <srk/src/*.ml{,i,y}>: pkg_ntl
 <srk/src/*.ml{,i,y}>: pkg_ocrs
 <srk/src/*.ml{,i,y}>: pkg_ppx_deriving
+<srk/src/*.ml{,i,y}>: pkg_ppx_deriving.eq
 <srk/src/*.ml{,i,y}>: pkg_ppx_deriving.ord
 # Library apak
 "apak/apak.cmxs": use_apak
@@ -143,6 +147,7 @@ true: annot, bin_annot
 "apak/test_apak.native": pkg_ocamlgraph
 "apak/test_apak.native": pkg_ocrs
 "apak/test_apak.native": pkg_ppx_deriving
+"apak/test_apak.native": pkg_ppx_deriving.eq
 "apak/test_apak.native": pkg_ppx_deriving.ord
 "apak/test_apak.native": pkg_ppx_deriving.show
 "apak/test_apak.native": use_srk
@@ -159,6 +164,7 @@ true: annot, bin_annot
 <apak/*.ml{,i,y}>: pkg_ocamlgraph
 <apak/*.ml{,i,y}>: pkg_ocrs
 <apak/*.ml{,i,y}>: pkg_ppx_deriving
+<apak/*.ml{,i,y}>: pkg_ppx_deriving.eq
 <apak/*.ml{,i,y}>: pkg_ppx_deriving.ord
 <apak/*.ml{,i,y}>: pkg_ppx_deriving.show
 <apak/*.ml{,i,y}>: use_srk
@@ -177,6 +183,7 @@ true: annot, bin_annot
 <pa/*.ml{,i,y}>: pkg_ocamlgraph
 <pa/*.ml{,i,y}>: pkg_ocrs
 <pa/*.ml{,i,y}>: pkg_ppx_deriving
+<pa/*.ml{,i,y}>: pkg_ppx_deriving.eq
 <pa/*.ml{,i,y}>: pkg_ppx_deriving.ord
 <pa/*.ml{,i,y}>: pkg_ppx_deriving.show
 <pa/*.ml{,i,y}>: use_srk
@@ -194,6 +201,7 @@ true: annot, bin_annot
 "patools/test_patools.native": pkg_ocamlgraph
 "patools/test_patools.native": pkg_ocrs
 "patools/test_patools.native": pkg_ppx_deriving
+"patools/test_patools.native": pkg_ppx_deriving.eq
 "patools/test_patools.native": pkg_ppx_deriving.ord
 "patools/test_patools.native": pkg_ppx_deriving.show
 "patools/test_patools.native": use_pa
@@ -213,6 +221,7 @@ true: annot, bin_annot
 "patools/patools.native": pkg_ocamlgraph
 "patools/patools.native": pkg_ocrs
 "patools/patools.native": pkg_ppx_deriving
+"patools/patools.native": pkg_ppx_deriving.eq
 "patools/patools.native": pkg_ppx_deriving.ord
 "patools/patools.native": pkg_ppx_deriving.show
 "patools/patools.native": use_pa
@@ -229,6 +238,7 @@ true: annot, bin_annot
 <patools/*.ml{,i,y}>: pkg_ocamlgraph
 <patools/*.ml{,i,y}>: pkg_ocrs
 <patools/*.ml{,i,y}>: pkg_ppx_deriving
+<patools/*.ml{,i,y}>: pkg_ppx_deriving.eq
 <patools/*.ml{,i,y}>: pkg_ppx_deriving.ord
 <patools/*.ml{,i,y}>: pkg_ppx_deriving.show
 <patools/*.ml{,i,y}>: use_pa
@@ -248,6 +258,7 @@ true: annot, bin_annot
 "duet/duet.native": pkg_ocamlgraph
 "duet/duet.native": pkg_ocrs
 "duet/duet.native": pkg_ppx_deriving
+"duet/duet.native": pkg_ppx_deriving.eq
 "duet/duet.native": pkg_ppx_deriving.ord
 "duet/duet.native": pkg_ppx_deriving.show
 "duet/duet.native": use_apak
@@ -267,6 +278,7 @@ true: annot, bin_annot
 <duet/*.ml{,i,y}>: pkg_ocamlgraph
 <duet/*.ml{,i,y}>: pkg_ocrs
 <duet/*.ml{,i,y}>: pkg_ppx_deriving
+<duet/*.ml{,i,y}>: pkg_ppx_deriving.eq
 <duet/*.ml{,i,y}>: pkg_ppx_deriving.ord
 <duet/*.ml{,i,y}>: pkg_ppx_deriving.show
 <duet/*.ml{,i,y}>: use_apak

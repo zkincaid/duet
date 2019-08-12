@@ -23,3 +23,6 @@ module SolvablePolynomialPeriodicRational : PreDomainWedge
    quantified precondition expressed over terms with
    Presurger-definable dynamics. *)
 module PresburgerGuard : PreDomain
+
+(** Partial linear dynamical systems *)
+module PLDS : PreDomain

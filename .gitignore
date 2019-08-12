@@ -14,7 +14,7 @@
 !.gitignore
 *~
 *.log
-*.merlin
+.merlin
 
 # generated files
 _build/

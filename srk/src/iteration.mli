@@ -36,7 +36,6 @@ module type Domain = sig
 end
 
 
-module Vas : Domain
 module WedgeGuard : PreDomainWedge
 module PolyhedronGuard : sig
   include PreDomain

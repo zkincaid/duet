@@ -1,5 +1,5 @@
 # OASIS_START
-# DO NOT EDIT (digest: 4302d091aa62dbec27ac98755aec3186)
+# DO NOT EDIT (digest: d6c5abfa781fe43382857e17445aec42)
 srk/src/SrkUtil
 srk/src/Log
 srk/src/DisjointSet
@@ -23,7 +23,12 @@ srk/src/Abstract
 srk/src/Nonlinear
 srk/src/CoordinateSystem
 srk/src/Wedge
+<<<<<<< HEAD
 srk/src/Mdvas
+=======
+srk/src/Vas
+srk/src/Vass
+>>>>>>> 209c0b65150ee3b3bab57c554827b1c9e6157cd1
 srk/src/Quantifier
 srk/src/Iteration
 srk/src/SolvablePolynomial
