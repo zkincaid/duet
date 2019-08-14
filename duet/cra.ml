@@ -14,6 +14,7 @@ let srk = Ctx.context
 include Log.Make(struct let name = "cra" end)
 
 let forward_inv_gen = ref true
+let forward_pred_abs = ref false
 let dump_goals = ref false
 let nb_goals = ref 0
 
@@ -480,9 +481,22 @@ module TSDisplay = ExtGraph.Display.MakeLabeled
     end)
 
 let decorate_transition_system predicates ts entry =
-  TS.forward_invariants_pa predicates ts entry
-  |> List.fold_left (fun ts (v, invariant) ->
+  let module AbsDom =
+    TS.Product
+      (TS.Product(TS.AffineRelation)(TS.Sign))
+      (TS.PredicateAbs(struct let universe = predicates end))
+  in
+  let inv = TS.forward_invariants (module AbsDom) ts entry in
+  let member varset sym =
+    match V.of_symbol sym with
+    | Some v -> TS.VarSet.mem v varset
+    | None -> false
+  in
+  TS.loop_headers_live ts entry
+  |> List.fold_left (fun ts (v, live) ->
       let fresh_id = (Def.mk (Assume Bexpr.ktrue)).did in
+      let invariant = AbsDom.formula_of (AbsDom.exists (member live) (inv v)) in
+      logf "Found invariant at %d:@;%a" v (Syntax.Formula.pp srk) invariant;
       WG.split_vertex ts v (Weight (K.assume invariant)) fresh_id)
     ts
 
@@ -529,18 +543,21 @@ let make_transition_system rg =
             TS.empty
         in
         let predicates =
-          RG.G.fold_vertex (fun def predicates ->
-              match def.dkind  with
-              | Assume phi when Bexpr.equal phi Bexpr.ktrue ->
-                predicates
-              | Assert (phi, _) | Assume phi ->
-                Syntax.Expr.Set.add (tr_bexpr phi) predicates
-              | _ ->
-                predicates)
-            graph
-            Syntax.Expr.Set.empty
-          |> Syntax.Expr.Set.enum
-          |> BatList.of_enum
+          if !forward_pred_abs then
+            RG.G.fold_vertex (fun def predicates ->
+                match def.dkind  with
+                | Assume phi when Bexpr.equal phi Bexpr.ktrue ->
+                  predicates
+                | Assert (phi, _) | Assume phi ->
+                  Syntax.Expr.Set.add (tr_bexpr phi) predicates
+                | _ ->
+                  predicates)
+              graph
+              Syntax.Expr.Set.empty
+            |> Syntax.Expr.Set.enum
+            |> BatList.of_enum
+          else
+            []
         in
 
         let entry = (RG.block_entry rg block).did in
@@ -683,6 +700,10 @@ let _ =
     ("-cra-no-forward-inv",
      Arg.Clear forward_inv_gen,
      " Turn off forward invariant generation");
+  CmdLine.register_config
+    ("-cra-pred-abs",
+     Arg.Clear forward_pred_abs,
+     " Turn on predicate abstraction in forward invariant generation");
   CmdLine.register_config
     ("-cra-split-loops",
      Arg.Clear K.SPSplit.abstract_left,
