@@ -27,10 +27,14 @@ myocamlbuild.ml
 ark/META
 apak/META
 pa/META
+srk/src/META
 duet/config.ml
 autom4te.cache
 config.status
 duet/duet
+API.odocl
+INSTALL.txt
+README.txt
 
 #tag files
 */tags

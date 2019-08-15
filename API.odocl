@@ -23,12 +23,8 @@ srk/src/Abstract
 srk/src/Nonlinear
 srk/src/CoordinateSystem
 srk/src/Wedge
-<<<<<<< HEAD
-srk/src/Mdvas
-=======
 srk/src/Vas
 srk/src/Vass
->>>>>>> 209c0b65150ee3b3bab57c554827b1c9e6157cd1
 srk/src/Quantifier
 srk/src/Iteration
 srk/src/SolvablePolynomial
