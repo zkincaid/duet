@@ -152,7 +152,10 @@ let spec_list = [
    Arg.String (fun file ->
        let open Syntax in
        let phi = load_formula file in
-       let result = Quantifier.qe_mbp srk phi in
+       let result =
+         Quantifier.qe_mbp srk phi
+         |> SrkSimplify.simplify_dda srk
+       in
        Format.printf "%a@\n" (pp_smtlib2 srk) result),
    " Eliminate quantifiers");
 
