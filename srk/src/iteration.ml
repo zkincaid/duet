@@ -700,6 +700,17 @@ module SumWedge (A : PreDomainWedge) (B : PreDomainWedge) () = struct
       Right (B.abstract_wedge srk tr_symbols wedge)
 end
 
+(* Computes vector space of invariants over program vars 
+ * for some transition formula F. Runs iteration domain
+ * over F with a var for each invariant substitued out.
+ * For instance, given some trans formula 
+ * y' + x' = 2 /\ y + x = 2 /\ G(x, y), will run iteration
+ * with G(2 - y, y); appends invariants to exp of iteration.
+ *
+ * Also computes when a transition formula is bound by one iteration
+ * due to pre/post state invariant mismatch (for example
+ * y' + x' = 2 /\ y + x = 1 /\ G(x, y))
+ *)
 module EqualityInv (Iter : PreDomain) = struct
   module M = Linear.QQMatrix
   module H = Abstract
