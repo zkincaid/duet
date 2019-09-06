@@ -312,5 +312,8 @@ let exp base exponent =
       { lower = lo;
         upper = lower exponent >>/ QQ.floor >>= ZZ.to_int >>/ QQ.exp base_lo }
     | _ -> top
+  else if is_nonnegative base then
+    { lower = Some QQ.zero;
+      upper = None }
   else
     top

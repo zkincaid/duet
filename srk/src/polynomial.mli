@@ -72,6 +72,9 @@ module Monomial : sig
   (** Least common multiple *)
   val lcm : t -> t -> t
 
+  (** Greatest common divisor *)
+  val gcd : t -> t -> t
+
   (** {2 Monomial orderings} *)
 
   (** Lexicographic order *)
@@ -144,8 +147,16 @@ module type Multivariate = sig
   (** Divide a polynomial by a monomial *)
   val div_monomial : t -> Monomial.t -> t option
 
+  (** Given polynomial p and monomial m, compute polynomials q and r
+     such that p = q*m + r, and such that m does not divide any term
+     in r. *)
+  val qr_monomial : t -> Monomial.t -> t * t
+
   (** Enumerate the set of dimensions that appear in a polynomial *)
   val dimensions : t -> int BatEnum.t
+
+  (** Maximum total degree of a monomial term *)
+  val degree : t -> int
 end
                     
 (** Multi-variate polynomials over a ring *)
@@ -182,6 +193,14 @@ module QQXs : sig
      of p, m is the greatest common divisors of all monomials in p,
      and q is the remainder. *)
   val factor_gcd : t -> (QQ.t * Monomial.t * t)
+
+  (** Write a polynomial p(x) as c*m(x) + q(x), where c is the leading
+     coefficient and q is the leading monomial of p (w.r.t. the given
+      monomial order *)
+  val split_leading :
+    (Monomial.t -> Monomial.t -> [ `Eq | `Lt | `Gt ]) ->
+    t ->
+    (QQ.t * Monomial.t * t)
 end
 
 (** Rewrite systems for multi-variate polynomials. A polynomial rewrite system

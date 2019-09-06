@@ -192,12 +192,12 @@ let uninterpret_rewriter srk =
 
     | `Mul xs ->
       let (coeff, ys) =
-        List.fold_right (fun y (coeff, ys) ->
+        List.fold_left (fun (coeff, ys) y ->
             match Term.destruct srk y with
             | `Real k -> (QQ.mul coeff k, ys)
             | _ -> (coeff, y::ys))
-          xs
           (QQ.one, [])
+          xs
       in
       let coeff_term = mk_real srk coeff in
       let term =
@@ -208,8 +208,8 @@ let uninterpret_rewriter srk =
           let product =
             List.fold_left (fun x y ->
                 match expr_typ srk x, expr_typ srk y with
-                | `TyInt, `TyInt -> mk_app srk imul [x; y]
-                | _, _ -> mk_app srk mul [x; y])
+                | `TyInt, `TyInt -> mk_app srk imul [y; x]
+                | _, _ -> mk_app srk mul [y; x])
               y
               ys
           in

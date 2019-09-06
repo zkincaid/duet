@@ -1,4 +1,5 @@
 S srk/src
+S srk/test
 S duet
 S apak
 S pa
@@ -7,5 +8,5 @@ B _build/srk/test
 B _build/duet
 B _build/apak
 B _build/pa
-PKG batteries ppx_deriving ppx_deriving.show ppx_deriving.ord gmp camlidl apron Z3 ocrs ntl ocamlgraph cil
+PKG batteries ppx_deriving ppx_deriving.show ppx_deriving.ord gmp camlidl apron Z3 ocrs ntl ocamlgraph cil oUnit
 EXT ppx_deriving

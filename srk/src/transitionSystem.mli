@@ -65,9 +65,13 @@ module Make
   (** Compute interval invariants for each loop header of a transition system.
       The invariant computed for a loop is defined only over the variables
       read or written to by the loop. *)
-  val forward_invariants : t -> vertex -> (vertex * C.t formula) list
+  val forward_invariants_ivl : t -> vertex -> (vertex * C.t formula) list
 
-  val forward_invariants_pa : C.t formula list -> t -> vertex -> (vertex * C.t formula) list
+  (** Compute interval-and-predicate invariants for each loop header
+     of a transition system.  The invariant computed for a loop is
+     defined only over the variables read or written to by the
+     loop. *)
+  val forward_invariants_ivl_pa : C.t formula list -> t -> vertex -> (vertex * C.t formula) list
 
   (** Simplify a transition system by contracting vertices that do not satisfy
       the given predicate.  Simplification does not guarantee that all such
@@ -80,6 +84,38 @@ module Make
      body of the associated loop *)
   val loop_headers_live : t -> int -> (int * VarSet.t) list
 
-  (** Find invariant affine equalities of a transition system *)
-  val affine_invariants : t -> int -> (int -> (C.t, Polka.equalities Polka.t) SrkApron.property)
+  (** Abstract domains suitable for symbolic abstraction as described
+     in Reps, Sagiv, Yorsh---"Symbolic implementation of the best
+     transformer", VMCAI 2004.  Domains must satisfy the ascending
+     chain condition, and are equipped with a function [of_model] that
+     computes the best abstraction of a single model. *)
+  module type AbstractDomain = sig
+    type t
+    val top : symbol list -> t
+    val bottom : t
+    val exists : (symbol -> bool) -> t -> t
+    val join : t -> t -> t
+    val equal : t -> t -> bool
+    val of_model : C.t Interpretation.interpretation -> symbol list -> t
+    val formula_of : t -> C.t Formula.t
+  end
+
+  (** Sign analysis determines whether each variables is positive,
+     nonnegative, zero, nonpositive, negative, or unknown. *)
+  module Sign : AbstractDomain
+
+  (** Domain of affine equatlities *)
+  module AffineRelation : AbstractDomain with type t = (C.t, Polka.equalities Polka.t) SrkApron.property
+
+  (** Predicate abstraction *)
+  module PredicateAbs (U : sig
+      val universe : C.t formula list
+    end) : AbstractDomain
+
+  (** Reduced product of abstract domains *)
+  module Product (A : AbstractDomain) (B : AbstractDomain) : AbstractDomain
+
+  (** [forward_invariants d ts entry] computes invariants for [ts]
+     starting from the node [entry] using the abstract domain [d] *)
+  val forward_invariants : (module AbstractDomain with type t = 'a) -> t -> vertex -> (vertex -> 'a)
 end
