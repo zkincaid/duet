@@ -22,3 +22,57 @@ val abstract : ?exists:(symbol -> bool) ->
   'abs Apron.Manager.t ->
   'a formula ->
   ('a,'abs) SrkApron.property
+
+(** Symbolic abstraction as described in Reps, Sagiv,
+   Yorsh---"Symbolic implementation of the best transformer", VMCAI
+   2004. *)
+module MakeAbstractRSY
+    (C : sig
+       type t
+       val context : t context
+     end) : sig
+
+  (** Domains must satisfy the ascending chain condition, and are
+     equipped with a function [of_model] that computes the best
+     abstraction of a single model. *)
+  module type Domain = sig
+    type t
+    val top : t
+    val bottom : t
+
+    (** Project property onto the symbols that satisfy the given
+       predicate *)
+    val exists : (symbol -> bool) -> t -> t
+
+    val join : t -> t -> t
+    val equal : t -> t -> bool
+
+    (** Best abstraction of a model, restricted to the symbols in the
+       given list.  *)
+    val of_model : C.t Interpretation.interpretation -> symbol list -> t
+
+    val formula_of : t -> C.t formula
+  end
+
+  (** Sign analysis determines whether each variables is positive,
+     nonnegative, zero, nonpositive, negative, or unknown. *)
+  module Sign : Domain
+
+  (** Domain of affine equalities *)
+  module AffineRelation : Domain
+    with type t = (C.t, Polka.equalities Polka.t) SrkApron.property
+
+  (** Predicate abstraction *)
+  module PredicateAbs (U : sig val universe : C.t formula list end) : Domain
+
+  (** Reduced product of abstract domains *)
+  module Product (A : Domain) (B : Domain) : Domain with type  t = A.t * B.t
+
+  (** Compute the best abstraction of a formula within a given domain.
+     For a formula [phi], this is an element of the abstract domain
+     [elt] such that: (1) [phi |= formula_of elt], (2) [elt] is
+     expressed only over the symbols that satisy the [exists]
+     predicate, and (3) for any [elt'] satisfying (1) and (2), we have
+     [elt <= elt'].  *)
+  val abstract : ?exists:(symbol -> bool) -> (module Domain with type t = 'a) -> C.t formula -> 'a
+end

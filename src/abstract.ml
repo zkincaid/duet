@@ -165,3 +165,200 @@ let abstract ?exists:(p=fun x -> true) srk man phi =
   in
   Smt.Solver.add solver [phi];
   Log.time "Abstraction" go (SrkApron.bottom man env_proj)
+
+module Sign = struct
+
+  type sign = Zero | NonNeg | Neg | NonPos | Pos  | Top
+
+  type t =
+    | Env of sign Symbol.Map.t
+    | Bottom
+
+  let formula_of srk signs =
+    let zero = mk_real srk QQ.zero in
+    match signs with
+    | Bottom -> mk_false srk
+    | Env map ->
+      Symbol.Map.fold (fun sym sign xs ->
+          let sym_sign =
+            match sign with
+            | Pos -> mk_lt srk zero (mk_const srk sym)
+            | Neg -> mk_lt srk (mk_const srk sym) zero
+            | Zero -> mk_eq srk (mk_const srk sym) zero
+            | NonNeg -> mk_leq srk zero (mk_const srk sym)
+            | NonPos -> mk_leq srk (mk_const srk sym) zero
+            | Top -> mk_true srk
+          in
+          sym_sign::xs)
+        map
+        []
+      |> mk_and srk
+
+  let join x y =
+    let join_sign x y =
+      match x, y with
+      | Zero, Zero -> Zero
+
+      | Zero, NonNeg | NonNeg, Zero
+      | Zero, Pos | Pos, Zero
+      | Pos, NonNeg | NonNeg, Pos
+      | NonNeg, NonNeg ->
+        NonNeg
+
+      | Pos, Pos -> Pos
+
+      | Zero, NonPos | NonPos, Zero
+      | Zero, Neg | Neg, Zero
+      | Neg, NonPos | NonPos, Neg
+      | NonPos, NonPos ->
+        NonPos
+
+      | Neg, Neg -> Neg
+
+      | Neg, Pos | Pos, Neg
+      | NonNeg, NonPos | NonPos, NonNeg -> Top
+      | _, Top | Top, _ -> Top
+      | Neg, NonNeg | NonNeg, Neg
+      | Pos, NonPos | NonPos, Pos -> Top
+    in
+    match x, y with
+    | Env x, Env y ->
+      Env (Symbol.Map.merge (fun _ x y -> match x, y with
+          | Some x, Some y -> Some (join_sign x y)
+          | _, _ -> Some Top) x y)
+    | Bottom, r | r, Bottom -> r
+
+  let equal x y = match x, y with
+    | Env x, Env y -> Symbol.Map.equal (=) x y
+    | Bottom, Bottom -> true
+    | _, _ -> false
+
+  let of_model m symbols =
+    let rational_sign x =
+      match QQ.compare x QQ.zero with
+      | 0 -> Zero
+      | c when c < 0 -> Neg
+      | _ -> Pos
+    in
+    let env =
+      List.fold_left (fun env sym ->
+          Symbol.Map.add sym (rational_sign (Interpretation.real m sym)) env)
+        Symbol.Map.empty
+        symbols
+    in
+    Env env
+
+  let top = Env Symbol.Map.empty
+
+  let bottom = Bottom
+
+  let exists p signs = match signs with
+    | Bottom -> Bottom
+    | Env m ->
+      Env (Symbol.Map.mapi (fun sym sign -> if p sym then sign else Top) m)
+end
+
+module MakeAbstractRSY (C : sig
+    type t
+    val context : t context
+  end) = struct
+
+  module type Domain = sig
+    type t
+    val top : t
+    val bottom : t
+    val exists : (symbol -> bool) -> t -> t
+    val join : t -> t -> t
+    val equal : t -> t -> bool
+    val of_model : C.t Interpretation.interpretation -> symbol list -> t
+    val formula_of : t -> C.t formula
+  end
+
+  module Sign = struct
+    include Sign
+    let formula_of = formula_of C.context
+  end
+
+  module AffineRelation = struct
+    type t = (C.t, Polka.equalities Polka.t) SrkApron.property
+
+    let man = Polka.manager_alloc_equalities ()
+
+    let top = SrkApron.top man (SrkApron.Env.of_list C.context [])
+    let bottom = SrkApron.bottom man (SrkApron.Env.empty C.context)
+
+    let of_model m symbols =
+      let env = SrkApron.Env.of_list C.context symbols in
+      List.map (fun sym ->
+          Linear.QQVector.add_term
+            (QQ.of_int (-1))
+            (Linear.dim_of_sym sym)
+            (Linear.const_linterm (Interpretation.real m sym))
+          |> SrkApron.lexpr_of_vec env
+          |> SrkApron.lcons_eqz
+        ) symbols
+      |> SrkApron.meet_lcons (SrkApron.top man env)
+
+    let exists p prop = SrkApron.exists man p prop
+    let join = SrkApron.join
+    let equal = SrkApron.equal
+    let formula_of = SrkApron.formula_of_property
+  end
+
+  module PredicateAbs (U : sig val universe : C.t formula list end) = struct
+    module PS = struct
+      include BatSet.Make(struct
+          type t = C.t formula
+          let compare = Formula.compare
+        end)
+      let pp formatter set =
+        SrkUtil.pp_print_enum (Formula.pp C.context) formatter (enum set)
+    end
+
+    type t = PS.t
+
+    let universe = PS.of_list U.universe
+
+    let exists p abs_state =
+      PS.filter (fun predicate ->
+          Symbol.Set.for_all p (symbols predicate))
+        abs_state
+    let top = PS.empty
+    let bottom = universe
+    let join = PS.inter
+    let equal = PS.equal
+    let of_model m _ = PS.filter (Interpretation.evaluate_formula m) universe
+    let formula_of abs_state = mk_and C.context (PS.elements abs_state)
+  end
+
+  module Product (A : Domain) (B : Domain) = struct
+    type t = A.t * B.t
+    let top = (A.top, B.top)
+    let bottom = (A.bottom, B.bottom)
+    let exists p (v1, v2) = (A.exists p v1, B.exists p v2)
+    let join (v1, v2) (v1', v2') = (A.join v1 v1', B.join v2 v2')
+    let equal (v1, v2) (v1', v2') = A.equal v1 v1' && B.equal v2 v2'
+    let of_model  m symbols = (A.of_model m symbols, B.of_model m symbols)
+    let formula_of  (v1, v2) = mk_and C.context [A.formula_of v1; B.formula_of v2]
+  end
+
+  let abstract (type a)
+      ?exists:(p=fun x -> true)
+      (module D : Domain with type t = a)
+      phi =
+    let phi_symbols = Symbol.Set.filter p (symbols phi) |> Symbol.Set.elements in
+    let solver = Smt.mk_solver C.context in
+    Smt.Solver.add solver [phi];
+    let rec fix prop =
+      Smt.Solver.add solver [mk_not C.context (D.formula_of prop)];
+      match Smt.Solver.get_model solver with
+      | `Sat m ->
+        fix (D.join (D.of_model m phi_symbols) prop)
+      | `Unsat -> prop
+      | `Unknown ->
+        logf ~level:`warn "Unknown result in MakeAbstractRSY.abstract";
+        D.top
+    in
+    fix D.bottom
+
+end
