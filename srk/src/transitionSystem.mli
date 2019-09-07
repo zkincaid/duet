@@ -84,36 +84,7 @@ module Make
      body of the associated loop *)
   val loop_headers_live : t -> int -> (int * VarSet.t) list
 
-  (** Abstract domains suitable for symbolic abstraction as described
-     in Reps, Sagiv, Yorsh---"Symbolic implementation of the best
-     transformer", VMCAI 2004.  Domains must satisfy the ascending
-     chain condition, and are equipped with a function [of_model] that
-     computes the best abstraction of a single model. *)
-  module type AbstractDomain = sig
-    type t
-    val top : symbol list -> t
-    val bottom : t
-    val exists : (symbol -> bool) -> t -> t
-    val join : t -> t -> t
-    val equal : t -> t -> bool
-    val of_model : C.t Interpretation.interpretation -> symbol list -> t
-    val formula_of : t -> C.t Formula.t
-  end
-
-  (** Sign analysis determines whether each variables is positive,
-     nonnegative, zero, nonpositive, negative, or unknown. *)
-  module Sign : AbstractDomain
-
-  (** Domain of affine equatlities *)
-  module AffineRelation : AbstractDomain with type t = (C.t, Polka.equalities Polka.t) SrkApron.property
-
-  (** Predicate abstraction *)
-  module PredicateAbs (U : sig
-      val universe : C.t formula list
-    end) : AbstractDomain
-
-  (** Reduced product of abstract domains *)
-  module Product (A : AbstractDomain) (B : AbstractDomain) : AbstractDomain
+  module type AbstractDomain = Abstract.MakeAbstractRSY(C).Domain
 
   (** [forward_invariants d ts entry] computes invariants for [ts]
      starting from the node [entry] using the abstract domain [d] *)

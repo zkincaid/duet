@@ -480,11 +480,13 @@ module TSDisplay = ExtGraph.Display.MakeLabeled
       let show = SrkUtil.mk_show pp
     end)
 
+module SA = Abstract.MakeAbstractRSY(Ctx)
+
 let decorate_transition_system predicates ts entry =
   let module AbsDom =
-    TS.Product
-      (TS.Product(TS.AffineRelation)(TS.Sign))
-      (TS.PredicateAbs(struct let universe = predicates end))
+    SA.Product
+      (SA.Product(SA.AffineRelation)(SA.Sign))
+      (SA.PredicateAbs(struct let universe = predicates end))
   in
   let inv = TS.forward_invariants (module AbsDom) ts entry in
   let member varset sym =
