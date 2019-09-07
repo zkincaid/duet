@@ -68,6 +68,11 @@ val vector_left_mul : QQVector.t -> QQMatrix.t -> QQVector.t
     = DB] is a basis for the intersection of the rowspaces of [A] and [B]. *)
 val intersect_rowspace : QQMatrix.t -> QQMatrix.t -> (QQMatrix.t * QQMatrix.t)
 
+(** Given two matrices [A] and [B], compute matrices [C] and [D] such
+   that [CA = DB], and for any [E] and [F] such that [EA = FB], there
+   exists a (unique) [U] such that [UCA = EA (= UDB = FB)] *)
+val pushout : QQMatrix.t -> QQMatrix.t -> (QQMatrix.t * QQMatrix.t)
+
 (** Given two matrices A and B, compute a matrix C such that CB = A (if one
     exists).  C exists when the rowspace of B is contained in the rowspace of
     A.  If A and B are invertible, then C is exactly AB{^-1}. *)
@@ -77,10 +82,6 @@ val divide_right : QQMatrix.t -> QQMatrix.t -> QQMatrix.t option
     exists).  C exists when the columnspace of B is contained in the columnspace of
     A.  If A and B are invertible, then C is exactly B{^-1}A. *)
 val divide_left : QQMatrix.t -> QQMatrix.t -> QQMatrix.t option
-
-(** Given matrices [A] and [B], find a matrix [C] whose rows constitute a
-    basis for the vector space [{ v : exists u. uA = vB }] *)
-val max_rowspace_projection : QQMatrix.t -> QQMatrix.t -> QQMatrix.t
 
 (** Given matrices [A] and [B] representing a system of equations [Ax' = Bx],
     find a matrix [T] and a square matrix [M] such that [y' = My] is the
