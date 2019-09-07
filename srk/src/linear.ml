@@ -301,6 +301,29 @@ let intersect_rowspace a b =
       | None -> ()));
   (!c, !d)
 
+(* pushout in the category of rational vector spaces.  [pushout A B]
+   Consists of a pair of matrices [C] and [D] such that [CA = DB] and
+   such that for any other matrices [E] and [F] such that [EA = FB],
+   there is a unique [U] such that [UCA = UDB = EA = FB]. *)
+let pushout mA mB =
+  (* { (c,d) : c*mA = d*mB } is a vector space *)
+  (* c*mA = d*mB <==> mA^T c^T = mB^T d^T <==> [mA^T mB^T][ c^T ] = 0
+                                                          [ d^T ]      *)
+  let module M = QQMatrix in
+  let mABt =
+    interlace_columns
+      (M.transpose mA)
+      (M.transpose (M.scalar_mul (QQ.of_int (-1)) mB))
+  in
+  let pairs =
+    nullspace mABt (IntSet.elements (M.column_set mABt))
+  in
+  BatList.fold_lefti (fun (mC, mD) i soln ->
+      let c, d = deinterlace_vec soln in
+      (M.add_row i c mC, M.add_row i d mD))
+    (M.zero, M.zero)
+    pairs
+
 let divide_right a b =
   try
     let b_tr = QQMatrix.transpose b in
