@@ -1,6 +1,6 @@
-open Syntax
-
 (** Various operations for the vector space [int -> QQ] *)
+
+open Syntax
 
 (** Raised for unsolvable systems of linear equations *)
 exception No_solution

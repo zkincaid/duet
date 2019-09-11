@@ -1,7 +1,7 @@
-(** Rational Vector Addition System with Resets Abstract Domain.
- * A rational vector addition system with resets is a set of 
- * {0, 1}^n x Q^n vector pairs. Each object describes
- * a reset or increment to n counters. *)
+(** Rational Vector Addition System with Resets Abstract Domain.  A
+   rational vector addition system with resets is a set of \{0,
+   1\}{^n} x QQ{^n} vector pairs. Each object describes a reset or
+   increment to n counters. *)
 open Syntax
 module V = Linear.QQVector
 module M = Linear.QQMatrix
