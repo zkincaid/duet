@@ -351,14 +351,17 @@ let affine_hull wedge =
       | _ -> None)
   |> BatList.of_enum
 
-let polynomial_constraints wedge =
+let polynomial_constraints ~lemma wedge =
   let open Lincons0 in
   let cs = wedge.cs in
+  let srk = wedge.srk in
   BatArray.enum (Abstract0.to_lincons_array (get_manager ()) wedge.abstract)
   |> BatEnum.filter_map (fun lcons ->
-      let polynomial =
-        CS.polynomial_of_vec cs (vec_of_linexpr wedge.env lcons.linexpr0)
-      in
+      let vec = vec_of_linexpr wedge.env lcons.linexpr0 in
+      let polynomial = CS.polynomial_of_vec cs vec in
+      (* polynomial_of_vec converts to sum-of-products -- need a lemma
+         asserting equality between the two forms.*)
+      lemma (mk_eq srk (CS.term_of_vec cs vec) (CS.term_of_polynomial cs polynomial));
       match lcons.typ with
       | SUPEQ -> Some (`Nonneg, polynomial)
       | SUP -> Some (`Pos, polynomial)
@@ -366,8 +369,8 @@ let polynomial_constraints wedge =
       | _ -> None)
   |> BatList.of_enum
 
-let polynomial_cone wedge =
-  polynomial_constraints wedge
+let polynomial_cone ~lemma wedge =
+  polynomial_constraints ~lemma wedge
   |> BatList.filter_map (function
       | (`Nonneg, p) | (`Pos, p) -> Some p
       | (`Zero, p) -> None)
@@ -396,7 +399,7 @@ let vanishing_ideal wedge =
 (* Polynomial ideal consisting of affine equations entailed by the
    underlying polyhedron of the wedge and definitional equalities for
    coordinates. *)
-let coordinate_ideal ?integrity:(integrity=(fun _ -> ())) wedge =
+let coordinate_ideal ?lemma:(lemma=(fun _ -> ())) wedge =
   let srk = wedge.srk in
   let cs = wedge.cs in
   let zero = mk_real srk QQ.zero in
@@ -412,7 +415,7 @@ let coordinate_ideal ?integrity:(integrity=(fun _ -> ())) wedge =
               (P.of_dim id)
               (P.mul (poly_of_vec x) (poly_of_vec y))
           in
-          integrity (mk_eq srk (CS.term_of_polynomial cs p) zero);
+          lemma (mk_eq srk (CS.term_of_polynomial cs p) zero);
           Some p
         | `Inv x ->
           let interval = bound_vec wedge x in
@@ -422,7 +425,7 @@ let coordinate_ideal ?integrity:(integrity=(fun _ -> ())) wedge =
             let p =
               P.sub (P.mul (poly_of_vec x) (P.of_dim id)) (P.scalar QQ.one)
             in
-            integrity (mk_or srk [mk_eq srk (CS.term_of_vec cs x) zero;
+            lemma (mk_or srk [mk_eq srk (CS.term_of_vec cs x) zero;
                                   mk_eq srk (CS.term_of_polynomial cs p) zero]);
             Some p
           end
@@ -437,7 +440,7 @@ let coordinate_ideal ?integrity:(integrity=(fun _ -> ())) wedge =
    coordinate ideal vanishes on P.  This procedure computes the greatest
    equationally saturated polyhedron contained in the underlying wedge of the
    polyhedron.  *)
-let equational_saturation ?integrity:(integrity=(fun _ -> ())) wedge =
+let equational_saturation ?lemma:(lemma=(fun _ -> ())) wedge =
   let cs = wedge.cs in
   let srk = wedge.srk in
   let zero = mk_real srk QQ.zero in
@@ -450,7 +453,7 @@ let equational_saturation ?integrity:(integrity=(fun _ -> ())) wedge =
   (* Rewrite maintains a Grobner basis for the coordinate ideal + the ideal of
      polynomials vanishing on the underlying polyhedron of the wedge *)
   let rewrite =
-    let ideal = coordinate_ideal ~integrity wedge in
+    let ideal = coordinate_ideal ~lemma wedge in
     ref (Polynomial.Rewrite.mk_rewrite Monomial.degrevlex ideal
          |> Polynomial.Rewrite.grobner_basis)
   in
@@ -469,10 +472,10 @@ let equational_saturation ?integrity:(integrity=(fun _ -> ())) wedge =
   in
 
   let add_bound precondition bound =
-    logf ~level:`trace "Integrity: %a => %a"
+    logf ~level:`trace "Lemma: %a => %a"
       (Formula.pp srk) precondition
       (Formula.pp srk) bound;
-    integrity (mk_or srk [mk_not srk precondition; bound]);
+    lemma (mk_or srk [mk_not srk precondition; bound]);
     meet_atoms wedge [bound]
   in
 
@@ -482,7 +485,7 @@ let equational_saturation ?integrity:(integrity=(fun _ -> ())) wedge =
     in
     let p_term = CS.term_of_polynomial wedge.cs p in
     let term = CS.term_of_vec wedge.cs vec in
-    let integrity =
+    let lemma =
       if Term.equal p_term term then
         mk_true srk
       else
@@ -490,7 +493,7 @@ let equational_saturation ?integrity:(integrity=(fun _ -> ())) wedge =
           (provenance_formula provenance)
           (mk_eq srk (CS.term_of_vec wedge.cs vec) p_term)
     in
-    (p_term, integrity)
+    (p_term, lemma)
   in
 
   while not !saturated do
@@ -518,8 +521,8 @@ let equational_saturation ?integrity:(integrity=(fun _ -> ())) wedge =
         (* Add [reduced->term] to the canonical map.  Or if there's already a
            mapping [reduced->rep], add the equation rep=term *)
         if Expr.HT.mem canonical reduced then begin
-          logf ~level:`trace "Integrity: %a" (Formula.pp srk) provenance;
-          integrity provenance;
+          logf ~level:`trace "Lemma: %a" (Formula.pp srk) provenance;
+          lemma provenance;
           meet_atoms wedge [mk_eq srk term (Expr.HT.find canonical reduced)]
         end else
           Expr.HT.add canonical reduced term
@@ -570,20 +573,20 @@ let equational_saturation ?integrity:(integrity=(fun _ -> ())) wedge =
   to the polynomial cone of the given wedge, where  r - qm and m - p
   must be members of the cone and m is the leading term of m - p, with
   respect to the given monomial ordering 'order'. *)
-let generalized_fourier_motzkin integrity order wedge =
+let generalized_fourier_motzkin lemma order wedge =
   let srk = wedge.srk in
   let cs = wedge.cs in
   let add_bound precondition bound =
-    logf ~level:`trace "Integrity: %a => %a"
+    logf ~level:`trace "Lemma: %a => %a"
       (Formula.pp srk) precondition
       (Formula.pp srk) bound;
-    integrity (mk_or srk [mk_not srk precondition; bound]);
+    lemma (mk_or srk [mk_not srk precondition; bound]);
     meet_atoms wedge [bound]
   in
   let old_wedge = ref (bottom srk) in
   while not (equal wedge (!old_wedge)) do
     old_wedge := copy wedge;
-    let cone = polynomial_cone wedge in
+    let cone = polynomial_cone ~lemma wedge in
     cone |> List.iter (fun p ->
         let (c, m, p) = P.split_leading order p in
         if QQ.lt c QQ.zero then
@@ -614,17 +617,17 @@ let generalized_fourier_motzkin integrity order wedge =
 
 (* Compute bounds for synthetic dimensions using the bounds of their
    operands *)
-let strengthen_intervals integrity wedge =
+let strengthen_intervals lemma wedge =
   let cs = wedge.cs in
   let srk = wedge.srk in
   let zero = mk_real srk QQ.zero in
   let log = get_named_symbol srk "log" in
   let pow = get_named_symbol srk "pow" in
   let add_bound precondition bound =
-    logf ~level:`trace "Integrity: %a => %a"
+    logf ~level:`trace "Lemma: %a => %a"
       (Formula.pp srk) precondition
       (Formula.pp srk) bound;
-    integrity (mk_or srk [mk_not srk precondition; bound]);
+    lemma (mk_or srk [mk_not srk precondition; bound]);
     meet_atoms wedge [bound]
   in
 
@@ -801,7 +804,7 @@ let strengthen_intervals integrity wedge =
     | `App (func, args) -> ()
   done
 
-let strengthen_products integrity rewrite wedge =
+let strengthen_products lemma rewrite wedge =
   let cs = wedge.cs in
   let srk = wedge.srk in
   let zero = mk_real srk QQ.zero in
@@ -816,10 +819,10 @@ let strengthen_products integrity rewrite wedge =
     |> mk_and srk
   in
   let add_bound precondition bound =
-    logf ~level:`trace "Integrity: %a => %a"
+    logf ~level:`trace "Lemma: %a => %a"
       (Formula.pp srk) precondition
       (Formula.pp srk) bound;
-    integrity (mk_or srk [mk_not srk precondition; bound]);
+    lemma (mk_or srk [mk_not srk precondition; bound]);
     meet_atoms wedge [bound]
   in
   let rec add_products = function
@@ -843,11 +846,11 @@ let strengthen_products integrity rewrite wedge =
           | None -> ());
       add_products cone
   in
-  add_products (polynomial_cone wedge)
+  add_products (polynomial_cone ~lemma wedge)
 
-(* Tighten integral dimensions.  No need for integrity constraints if
+(* Tighten integral dimensions.  No need for lemma constraints if
    the solver supports integers, but real solver requires them. *)
-let strengthen_integral integrity wedge =
+let strengthen_integral lemma wedge =
   let srk = wedge.srk in
   for id = 0 to CS.dim wedge.cs - 1 do
     match CS.type_of_id wedge.cs id with
@@ -859,7 +862,7 @@ let strengthen_integral integrity wedge =
         | Some lo when QQ.to_zz lo = None ->
            let lo = QQ.of_zz (QQ.ceiling lo) in
            let bound = mk_leq srk (mk_real srk lo) term in
-           integrity (mk_or srk [mk_leq srk term (mk_real srk (QQ.sub lo QQ.one));
+           lemma (mk_or srk [mk_leq srk term (mk_real srk (QQ.sub lo QQ.one));
                                  bound]);
            meet_atoms wedge [bound]
         | _ -> ()
@@ -869,7 +872,7 @@ let strengthen_integral integrity wedge =
         | Some hi when QQ.to_zz hi = None ->
            let hi = QQ.of_zz (QQ.floor hi) in
            let bound = mk_leq srk term (mk_real srk hi) in
-           integrity (mk_or srk [mk_leq srk (mk_real srk (QQ.add hi QQ.one)) term;
+           lemma (mk_or srk [mk_leq srk (mk_real srk (QQ.add hi QQ.one)) term;
                                  bound]);
            meet_atoms wedge [bound]
         | _ -> ()
@@ -877,11 +880,11 @@ let strengthen_integral integrity wedge =
     | _ -> ()
   done
 
-let strengthen_cut integrity rewrite wedge =
+let strengthen_cut lemma rewrite wedge =
   let srk = wedge.srk in
   let cs = wedge.cs in
   let zero = mk_real srk QQ.zero in
-  polynomial_cone wedge
+  polynomial_cone ~lemma wedge
   |> List.iter (fun p -> (* p(x) >= 0 *)
       let (k, pmk) = P.pivot Polynomial.Monomial.one p in
       let (c, m, q) = P.factor_gcd pmk in (* c*m(x)*q(x) + k >= 0 *)
@@ -920,7 +923,7 @@ let strengthen_cut integrity rewrite wedge =
                 (mk_real srk (QQ.of_zz (QQ.ceiling rhs)))
                 (CS.term_of_vec cs q)
             in
-            integrity (mk_or srk [mk_not srk (mk_and srk precondition); bound]);
+            lemma (mk_or srk [mk_not srk (mk_and srk precondition); bound]);
             meet_atoms wedge [bound]
           | None -> ()
         end
@@ -928,7 +931,7 @@ let strengthen_cut integrity rewrite wedge =
 
 
 (* Divide out inverse coordinates with determined sign *)
-let strengthen_inverse ?integrity:(integrity=(fun _ -> ())) wedge =
+let strengthen_inverse ?lemma:(lemma=(fun _ -> ())) wedge =
   let srk = wedge.srk in
   let cs = wedge.cs in
   let vec_sign vec =
@@ -938,14 +941,14 @@ let strengthen_inverse ?integrity:(integrity=(fun _ -> ())) wedge =
     else `Unknown
   in
   let add_bound precondition bound =
-    logf ~level:`trace  "Integrity: %a => %a"
+    logf ~level:`trace  "Lemma: %a => %a"
       (Formula.pp srk) precondition
       (Formula.pp srk) bound;
-    integrity (mk_or srk [mk_not srk precondition; bound]);
+    lemma (mk_or srk [mk_not srk precondition; bound]);
     meet_atoms wedge [bound]
   in
   let zero = mk_real srk QQ.zero in
-  polynomial_constraints wedge
+  polynomial_constraints ~lemma wedge
   |> List.iter (function (cmp, p) ->
       let mk_cmp = match cmp with
         | `Nonneg -> mk_leq srk zero
@@ -1015,7 +1018,7 @@ let strengthen_inverse ?integrity:(integrity=(fun _ -> ())) wedge =
         let conclusion = mk_cmp quotient in
         add_bound hypothesis conclusion)
 
-let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
+let strengthen ?lemma:(lemma=(fun _ -> ())) wedge =
   Nonlinear.ensure_symbols wedge.srk;
   assert (env_consistent wedge);
   let cs = wedge.cs in
@@ -1024,10 +1027,10 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
   let log = get_named_symbol srk "log" in
   let pow = get_named_symbol srk "pow" in
   let add_bound precondition bound =
-    logf ~level:`trace "Integrity: %a => %a"
+    logf ~level:`trace "Lemma: %a => %a"
       (Formula.pp srk) precondition
       (Formula.pp srk) bound;
-    integrity (mk_or srk [mk_not srk precondition; bound]);
+    lemma (mk_or srk [mk_not srk precondition; bound]);
     meet_atoms wedge [bound]
   in
 
@@ -1038,10 +1041,10 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
 
   logf "Before strengthen: %a" pp wedge;
 
-  let rewrite = equational_saturation ~integrity wedge in
+  let rewrite = equational_saturation ~lemma wedge in
 
-  strengthen_intervals integrity wedge;
-  strengthen_inverse ~integrity wedge;
+  strengthen_intervals lemma wedge;
+  strengthen_inverse ~lemma wedge;
 
   (* pow-log rule *)
   let vec_sign vec =
@@ -1270,12 +1273,12 @@ let strengthen ?integrity:(integrity=(fun _ -> ())) wedge =
     | _ -> ()
   done;
 
-  strengthen_cut integrity rewrite wedge;
-  strengthen_intervals integrity wedge;
-  strengthen_products integrity rewrite wedge;
-  strengthen_integral integrity wedge;
+  strengthen_cut lemma rewrite wedge;
+  strengthen_intervals lemma wedge;
+  strengthen_products lemma rewrite wedge;
+  strengthen_integral lemma wedge;
 
-  ignore (equational_saturation ~integrity wedge);
+  ignore (equational_saturation ~lemma wedge);
   logf "After strengthen: %a" pp wedge
 
 let of_atoms srk atoms =
@@ -1358,14 +1361,14 @@ let common_cs wedge wedge' =
   in
   (wedge, wedge')
 
-let join ?integrity:(integrity=(fun _ -> ())) wedge wedge' =
+let join ?lemma:(lemma=(fun _ -> ())) wedge wedge' =
   if is_bottom wedge then wedge'
   else if is_bottom wedge' then wedge
   else
     let (wedge, wedge') = common_cs wedge wedge' in
-    strengthen ~integrity wedge;
+    strengthen ~lemma wedge;
     update_env wedge';
-    strengthen ~integrity wedge';
+    strengthen ~lemma wedge';
     update_env wedge; (* strengthening wedge' may add dimensions to the common
                          coordinate system -- add those dimensions to wedge's
                          environment *)
@@ -1384,8 +1387,8 @@ let meet wedge wedge' =
     wedge
   end
 
-let join ?integrity:(integrity=(fun _ -> ())) wedge wedge' =
-  Log.time "wedge join" (join ~integrity wedge) wedge'
+let join ?lemma:(lemma=(fun _ -> ())) wedge wedge' =
+  Log.time "wedge join" (join ~lemma wedge) wedge'
 
 (* Remove dimensions from an abstract value so that it has the specified
    number of integer and real dimensions *)
@@ -1491,7 +1494,7 @@ let symbolic_bounds_vec wedge vec forget =
    [subterm]).  [try_project] may fail to eliminate symbols, but is
    guaranteed to not lose information.  *)
 let try_project
-    ?integrity:(integrity=(fun _ -> ()))
+    ?lemma:(lemma=(fun _ -> ()))
     ?subterm:(subterm=(fun _ -> true))
     p
     wedge =
@@ -1504,10 +1507,10 @@ let try_project
   let keep x = p x || x = log || x = pow in
   let subterm x = keep x && subterm x in
   let safe_coordinates =
-    CS.project_ideal cs (coordinate_ideal ~integrity wedge) ~subterm keep
+    CS.project_ideal cs (coordinate_ideal ~lemma wedge) ~subterm keep
   in
   let module IntM = SrkUtil.Int.Map in
-  List.iter (fun (_,_,thm) -> integrity thm) safe_coordinates;
+  List.iter (fun (_,_,thm) -> lemma thm) safe_coordinates;
   let safe_coordinate_map =
     List.fold_left (fun map (id, term, _) ->
         IntM.add id term map)
@@ -1545,12 +1548,12 @@ let try_project
   |> of_atoms srk
 
 let exists
-    ?integrity:(integrity=(fun _ -> ()))
+    ?lemma:(lemma=(fun _ -> ()))
     ?subterm:(subterm=(fun _ -> true))
     p
     wedge =
   logf "Projection input: %a" pp wedge;
-  let wedge = try_project ~integrity ~subterm p wedge in
+  let wedge = try_project ~lemma ~subterm p wedge in
   let srk = wedge.srk in
   Nonlinear.ensure_symbols srk;
   let cs = wedge.cs in
@@ -1587,10 +1590,10 @@ let exists
    * Find new non-linear terms to improve the projection
    ***************************************************************************)
   let add_bound precondition bound =
-    logf ~level:`trace "Integrity: %a => %a"
+    logf ~level:`trace "Lemma: %a => %a"
       (Formula.pp srk) precondition
       (Formula.pp srk) bound;
-    integrity (mk_if srk precondition bound);
+    lemma (mk_if srk precondition bound);
     meet_atoms wedge [bound]
   in
   (* find a polynomial p such that p*interp(i) = interp(j).  The coordinate j
@@ -1667,8 +1670,8 @@ let exists
             let p_term = CS.term_of_polynomial cs p in
             let t_term = CS.term_of_vec cs t in
 
-            (* integrity constraint needed to prove bounds for p *)
-            let p_ivl_integrity =
+            (* lemma constraint needed to prove bounds for p *)
+            let p_ivl_lemma =
               let (v,q) = P.split_linear p in
               let constraints =
                 BatEnum.fold (fun constraints dim ->
@@ -1715,7 +1718,7 @@ let exists
                       s_term])
                   (mk_log srk b_term (mk_neg srk t_term))
               in
-              integrity p_ivl_integrity;
+              lemma p_ivl_lemma;
               add_bound hypothesis conclusion
             else if Interval.is_negative p_ivl && Interval.is_positive t_ivl then
               let hypothesis =
@@ -1731,7 +1734,7 @@ let exists
                      [mk_log srk b_term (mk_neg srk p_term);
                       s_term])
               in
-              integrity p_ivl_integrity;
+              lemma p_ivl_lemma;
               add_bound hypothesis conclusion);
 
         let (lower_t, upper_t) =
@@ -1789,7 +1792,7 @@ let exists
   let elim_order =
     Monomial.block [not % keep_coordinate] Monomial.degrevlex
   in
-  generalized_fourier_motzkin integrity elim_order wedge;
+  generalized_fourier_motzkin lemma elim_order wedge;
 
   let forget = (* coordinates to remove *)
     BatEnum.fold (fun set i ->
@@ -1976,7 +1979,7 @@ let is_sat srk phi =
   in
   Smt.Solver.add solver [lin_phi];
   Smt.Solver.add solver nonlinear_defs;
-  let integrity psi =
+  let lemma psi =
     Smt.Solver.add solver [Nonlinear.uninterpret srk psi]
   in
   let rec go () =
@@ -1997,8 +2000,8 @@ let is_sat srk phi =
         in
         let is_sat constraints =
           let wedge = of_atoms srk constraints in
-          strengthen ~integrity wedge;
-          generalized_fourier_motzkin integrity Monomial.degrevlex wedge;
+          strengthen ~lemma wedge;
+          generalized_fourier_motzkin lemma Monomial.degrevlex wedge;
           not (is_bottom wedge)
         in
         if List.for_all is_sat constraint_partition then
@@ -2052,7 +2055,7 @@ let abstract ?exists:(p=fun x -> true) ?(subterm=fun x -> true) srk phi =
   Smt.Solver.add solver [mk_sign_axioms srk];
   Smt.Solver.add solver [lin_phi];
   Smt.Solver.add solver [nonlinear_defs];
-  let integrity psi =
+  let lemma psi =
     Smt.Solver.add solver [Nonlinear.uninterpret srk psi]
   in
   let rec go wedge =
@@ -2081,13 +2084,13 @@ let abstract ?exists:(p=fun x -> true) ?(subterm=fun x -> true) srk phi =
         in
         let new_wedge =
           let w = of_atoms srk implicant' in
-          strengthen ~integrity w;
-          exists ~integrity ~subterm p w
+          strengthen ~lemma w;
+          exists ~lemma ~subterm p w
         in
         if is_bottom wedge then begin
           go new_wedge
         end else
-          go (join ~integrity wedge new_wedge)
+          go (join ~lemma wedge new_wedge)
   in
   let result = go (bottom srk) in
   logf "Abstraction result:@\n%a" pp result;
@@ -2154,7 +2157,7 @@ let symbolic_bounds_formula ?exists:(p=fun x -> true) srk phi symbol =
   in
   Smt.Solver.add solver [lin_phi];
   Smt.Solver.add solver [nonlinear_defs];
-  let integrity psi =
+  let lemma psi =
     Smt.Solver.add solver [Nonlinear.uninterpret srk psi]
   in
   let rec go (lower, upper) =
@@ -2176,8 +2179,8 @@ let symbolic_bounds_formula ?exists:(p=fun x -> true) srk phi symbol =
             |> Polyhedron.implicant_of cs
           in
           let wedge = of_atoms srk implicant' in
-          strengthen ~integrity wedge;
-          let wedge = exists ~integrity ~subterm p wedge in
+          strengthen ~lemma wedge;
+          let wedge = exists ~lemma ~subterm p wedge in
 
           if CS.admits wedge.cs (mk_const srk symbol) then
             symbolic_bounds wedge symbol
