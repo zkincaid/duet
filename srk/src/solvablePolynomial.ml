@@ -684,8 +684,7 @@ let pp srk tr_symbols formatter iter =
       pp_rec "<=" offset formatter recurrence;
       (Array.length recurrence.blk_transform + offset))
       offset
-      iter.block_leq);
-  Format.fprintf formatter "@]@]}"
+      iter.block_leq)
 
 exception Not_a_polynomial
 
