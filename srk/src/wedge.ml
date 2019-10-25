@@ -371,9 +371,10 @@ let polynomial_constraints ~lemma wedge =
 
 let polynomial_cone ~lemma wedge =
   polynomial_constraints ~lemma wedge
-  |> BatList.filter_map (function
-      | (`Nonneg, p) | (`Pos, p) -> Some p
-      | (`Zero, p) -> None)
+  |> BatList.map (function
+      | (`Nonneg, p) | (`Pos, p) -> [p]
+      | (`Zero, p) -> [p; P.negate p])
+  |> BatList.flatten
 
 let vanishing_ideal wedge =
   let open Lincons0 in
@@ -584,7 +585,14 @@ let generalized_fourier_motzkin lemma order wedge =
     meet_atoms wedge [bound]
   in
   let old_wedge = ref (bottom srk) in
-  while not (equal wedge (!old_wedge)) do
+  let polyhedron_equal w1 w2 =
+    (* Provided that the coordinate system of w1 is an extension of
+       w2, they have the same coordinate system provided they have
+       equal dimension. *)
+    CS.dim w1.cs == CS.dim w2.cs
+    && Abstract0.is_eq (get_manager()) w1.abstract w2.abstract
+  in
+  while not (polyhedron_equal wedge (!old_wedge)) do
     old_wedge := copy wedge;
     let cone = polynomial_cone ~lemma wedge in
     cone |> List.iter (fun p ->
