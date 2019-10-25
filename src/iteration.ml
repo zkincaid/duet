@@ -398,8 +398,8 @@ module Split (Iter : PreDomain) = struct
         (Iter.pp srk tr_symbols) left
         (Iter.pp srk tr_symbols) right
     in
-    Format.fprintf formatter "<Split @[<v 0>%a@]>"
-      (SrkUtil.pp_print_enum pp_elt) (Expr.Map.enum split_iter)
+    Format.fprintf formatter "<@[<v 0>Split @[<v 0>%a@]@]>"
+      (SrkUtil.pp_print_enum_nobox pp_elt) (Expr.Map.enum split_iter)
 
   (* Lower a split iter into an iter by picking an arbitary split and joining
      both sides. *)
@@ -438,8 +438,8 @@ module Split (Iter : PreDomain) = struct
           if Symbol.Set.for_all prestate (symbols phi) then
             let redundant = match op with
               | `Eq -> false
-              | `Leq -> Expr.Set.mem (mk_lt srk t s) (!preds)
-              | `Lt -> Expr.Set.mem (mk_lt srk t s) (!preds)
+              | `Leq -> Expr.Set.mem (SrkSimplify.simplify_terms srk (mk_lt srk t s)) (!preds)
+              | `Lt -> Expr.Set.mem (SrkSimplify.simplify_terms srk (mk_leq srk t s)) (!preds)
             in
             if not redundant then
               preds := Expr.Set.add phi (!preds)
@@ -533,8 +533,6 @@ module Split (Iter : PreDomain) = struct
       else
         split_iter
     in
-    logf "abstract: %a" (Formula.pp srk) body;
-    logf "iter: %a" (pp srk tr_symbols) split_iter;
     split_iter
 
   let sequence srk symbols phi psi =
@@ -699,5 +697,3 @@ module SumWedge (A : PreDomainWedge) (B : PreDomainWedge) () = struct
     else
       Right (B.abstract_wedge srk tr_symbols wedge)
 end
-
-
