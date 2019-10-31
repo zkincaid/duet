@@ -204,6 +204,10 @@ module Expr : sig
     val inter : ('a, 'typ) t -> ('a, 'typ) t -> ('a, 'typ) t
     val enum : ('a, 'typ) t -> (('a, 'typ) expr) BatEnum.t
     val mem : ('a, 'typ) expr -> ('a, 'typ) t -> bool
+    val equal : ('a, 'typ) t -> ('a, 'typ) t -> bool
+    val of_list : ('a, 'typ) expr list -> ('a, 'typ) t
+    val elements : ('a, 'typ) t -> ('a, 'typ) expr list
+    val filter : (('a, 'typ) expr -> bool) -> ('a, 'typ) t -> ('a, 'typ) t
   end
 
   module Map : sig

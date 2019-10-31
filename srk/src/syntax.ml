@@ -743,6 +743,10 @@ module Expr = struct
     let inter = S.inter
     let enum = S.enum
     let mem = S.mem
+    let equal = S.equal
+    let of_list = S.of_list
+    let elements = S.elements
+    let filter = S.filter
   end
 
   module Map = struct

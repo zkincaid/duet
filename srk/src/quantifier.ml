@@ -177,7 +177,8 @@ let virtual_substitution srk x virtual_term phi =
                           m |= 's/b < x ==> (-s/b <= s/a) for all bx + s in T
    - vt is -oo otherwise *)
 let mbp_virtual_term srk interp x atoms =
-  assert (typ_symbol srk x == `TyReal);
+  if typ_symbol srk x != `TyReal then
+    invalid_arg "mbp: cannot eliminate non-real symbols";
 
   let x_val =
     try Interpretation.real interp x
@@ -1307,7 +1308,10 @@ let simsat_forward_core srk qf_pre phi =
             end
           | `Exists, k -> `Forall k)
     in
-    `Unsat (Skeleton.add_path srk path Skeleton.empty)
+    let skeleton = Skeleton.add_path srk path Skeleton.empty in
+    if negate then `Sat skeleton
+    else `Unsat skeleton
+
   | `Unknown -> `Unknown
   | `Sat (sat_ctx, unsat_ctx) ->
     let not_phi = sat_ctx.CSS.not_formula in

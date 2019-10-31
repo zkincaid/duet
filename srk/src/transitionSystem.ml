@@ -522,7 +522,7 @@ module Make
             Weight (T.exists (fun x -> not (VarSet.mem x tmp)) tr)
           with Not_found -> label)
 
-  let forward_invariants tg entry  =
+  let forward_invariants_ivl tg entry =
     let wto = Wto.recursive_scc tg entry in
     let init v =
       if v = entry then Box.top
@@ -577,7 +577,7 @@ module Make
     in
     Graph.WeakTopological.fold_left invariants [] wto
 
-  let forward_invariants_pa predicates tg entry  =
+  let forward_invariants_ivl_pa predicates tg entry =
     let wto = Wto.recursive_scc tg entry in
     let init v =
       if v = entry then PAxBox.top
@@ -725,8 +725,9 @@ module Make
     in
     Graph.WeakTopological.fold_left live [] (Wto.recursive_scc tg entry)
 
-  let affine_invariants tg entry =
-    let man = Polka.manager_alloc_equalities () in
+  module type AbstractDomain = Abstract.MakeAbstractRSY(C).Domain
+
+  let forward_invariants (type a) (module D : AbstractDomain with type t = a) tg entry =
     let update ~pre weight ~post =
       match weight with
       | Weight tr ->
@@ -749,7 +750,7 @@ module Make
               mk_eq srk (mk_const srk (Var.symbol_of v)) (substitute_map srk subst t))
           |> BatList.of_enum
         in
-        let pre_formula = SrkApron.formula_of_property pre in
+        let pre_formula = D.formula_of pre in
         let tf =
           mk_and srk (substitute_map srk subst (T.guard tr)
                       ::substitute_map srk subst pre_formula
@@ -765,63 +766,41 @@ module Make
                (symbols pre_formula))
           |> Symbol.Set.elements
         in
-        let env = SrkApron.Env.of_list srk symbols in
-        if SrkApron.is_bottom post then
-          let post =
-            Abstract.affine_hull srk tf symbols
-            |> List.map (fun t ->
-                SrkApron.lexpr_of_vec env (Linear.linterm_of srk t)
-                |> SrkApron.lcons_eqz)
-            |> SrkApron.meet_lcons (SrkApron.top man env)
-          in
-          Some post
+        let solver = Smt.mk_solver srk in
+        Smt.Solver.add solver [tf];
+        let rec fix post =
+          Smt.Solver.add solver [mk_not srk (D.formula_of post)];
+          match Smt.Solver.get_model solver with
+          | `Sat m ->
+            fix (D.join (D.of_model m symbols) post)
+          | `Unsat -> post
+          | `Unknown ->
+            logf ~level:`warn "Unknown result in affine invariant update";
+            D.top
+        in
+        let post' = fix post in
+        if D.equal post' post then
+          None
         else
-          let solver = Smt.mk_solver srk in
-          Smt.Solver.add solver [tf];
-          let rec fix post =
-            Smt.Solver.add solver [mk_not srk (SrkApron.formula_of_property post)];
-            match Smt.Solver.get_model solver with
-            | `Sat m ->
-              let m_equalities =
-                List.map (fun sym ->
-                    Linear.QQVector.add_term
-                      (QQ.of_int (-1))
-                      (Linear.dim_of_sym sym)
-                      (Linear.const_linterm (Interpretation.real m sym))
-                    |> SrkApron.lexpr_of_vec env
-                    |> SrkApron.lcons_eqz
-                  ) symbols
-                |> SrkApron.meet_lcons (SrkApron.top man env)
-              in
-              fix (SrkApron.join post m_equalities)
-            | `Unsat -> post
-            | `Unknown ->
-              logf ~level:`warn "Unknown result in affine invariant update";
-              SrkApron.top man env
-          in
-          let post' = fix post in
-          if SrkApron.equal post post' then
-            None
-          else
-            Some post'
+          Some post'
+
       | Call (_, _) ->
         let is_local s =
           match Var.of_symbol s with
           | None -> true
           | Some v -> not (Var.is_global v)
         in
-        let post' = SrkApron.exists man is_local pre in
-        if SrkApron.leq post post' then
+        let post' = D.exists is_local pre in
+        if D.equal post' post then
           None
         else
-          Some (SrkApron.join post post')
+          Some (D.join post post')
     in
     let init v =
       if v = entry then
-        SrkApron.top man (SrkApron.Env.empty srk)
+        D.top
       else
-        SrkApron.bottom man (SrkApron.Env.empty srk)
+        D.bottom
     in
-    let invariants = WG.forward_analysis tg ~entry ~update ~init in
-    invariants
+    WG.forward_analysis tg ~entry ~update ~init
 end

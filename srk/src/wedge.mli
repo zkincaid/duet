@@ -9,7 +9,7 @@ val pp : Format.formatter -> 'a t -> unit
 
 val show : 'a t -> string
 
-val join : ?integrity:('a formula -> unit) -> 'a t -> 'a t -> 'a t
+val join : ?lemma:('a formula -> unit) -> 'a t -> 'a t -> 'a t
 
 val meet : 'a t -> 'a t -> 'a t
 
@@ -30,7 +30,7 @@ val to_formula : 'a t -> 'a formula
 (** Project symbols out of a wedge that do not satisfy the given predicate.
     Additionally project out terms that contain a symbol that does not satisfy
     the subterm predicate. *)
-val exists : ?integrity:('a formula -> unit) ->
+val exists : ?lemma:('a formula -> unit) ->
   ?subterm:(symbol -> bool) ->
   (symbol -> bool) ->
   'a t ->
@@ -96,6 +96,6 @@ val vanishing_ideal : 'a t -> Polynomial.QQXs.t list
 
 val copy : 'a t -> 'a t
 
-val equational_saturation : ?integrity:('a formula -> unit) -> 'a t -> Polynomial.Rewrite.t
+val equational_saturation : ?lemma:('a formula -> unit) -> 'a t -> Polynomial.Rewrite.t
 
-val strengthen : ?integrity:('a formula -> unit) -> 'a t -> unit
+val strengthen : ?lemma:('a formula -> unit) -> 'a t -> unit

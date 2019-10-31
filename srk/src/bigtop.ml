@@ -148,6 +148,17 @@ let spec_list = [
          (SrkUtil.pp_print_enum (Term.pp srk)) (BatList.enum aff_hull)),
    " Compute the affine hull of an existential linear arithmetic formula");
 
+  ("-qe",
+   Arg.String (fun file ->
+       let open Syntax in
+       let phi = load_formula file in
+       let result =
+         Quantifier.qe_mbp srk phi
+         |> SrkSimplify.simplify_dda srk
+       in
+       Format.printf "%a@\n" (pp_smtlib2 srk) result),
+   " Eliminate quantifiers");
+
   ("-stats",
    Arg.String (fun file ->
        let open Syntax in
@@ -226,6 +237,7 @@ let usage_msg = "bigtop: command line interface to srk \n\
   \tbigtop [-generator] -convex-hull formula.smt2\n\
   \tbigtop -affine-hull formula.smt2\n\
   \tbigtop -wedge-hull formula.smt2\n\
+  \tbigtop -qe formula.smt2\n\
   \tbigtop -stats formula.smt2\n\
   \tbigtop -random (A|E)* depth [dense|sparse]\n"
 

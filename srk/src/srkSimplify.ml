@@ -266,3 +266,52 @@ let isolate_linear srk x term =
      | `Lin (a, b) -> Some (a, mk_add srk b)
      | `Real k -> Some (QQ.zero, mk_real srk k))
   with Nonlinear -> None
+
+let simplify_dda srk phi =
+  let solver = Smt.mk_solver srk in
+  let rec simplify_children star children =
+    let changed = ref false in
+    let rec go simplified = function
+      | [] -> List.rev simplified
+      | (phi::phis) ->
+        Smt.Solver.push solver;
+        Smt.Solver.add solver (List.map star simplified);
+        Smt.Solver.add solver (List.map star phis);
+        let simple_phi = simplify_dda_impl phi in
+        Smt.Solver.pop solver 1;
+        if not (Formula.equal phi simple_phi) then changed := true;
+        go (simple_phi::simplified) phis
+    in
+    let rec fix children =
+      let simplified = go [] children in
+      if !changed then begin
+        changed := false;
+        fix simplified
+      end else simplified
+    in
+    fix children
+
+  and simplify_dda_impl phi =
+    match Formula.destruct srk phi with
+    | `Or xs -> mk_or srk (simplify_children (mk_not srk) xs)
+    | `And xs -> mk_and srk (simplify_children (fun x -> x) xs)
+    | _ ->
+      Smt.Solver.push solver;
+      Smt.Solver.add solver [phi];
+      let simplified =
+        match Smt.Solver.check solver [] with
+        | `Unknown -> phi
+        | `Unsat -> mk_false srk
+        | `Sat ->
+          Smt.Solver.pop solver 1;
+          Smt.Solver.push solver;
+          Smt.Solver.add solver [mk_not srk phi];
+          match Smt.Solver.check solver [] with
+          | `Unknown -> phi
+          | `Unsat -> mk_true srk
+          | `Sat -> phi
+      in
+      Smt.Solver.pop solver 1;
+      simplified
+  in
+  simplify_dda_impl phi

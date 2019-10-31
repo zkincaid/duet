@@ -7,6 +7,7 @@ type t
 module V = Linear.QQVector
 
 val enum : t -> [ `EqZero of V.t | `LeqZero of V.t | `LtZero of V.t ] BatEnum.t
+
 val pp : 'a CoordinateSystem.t -> Format.formatter -> t -> unit
 
 val conjoin : t -> t -> t
