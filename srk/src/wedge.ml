@@ -547,7 +547,7 @@ let equational_saturation ?lemma:(lemma=(fun _ -> ())) wedge =
         | `Mod (num, den) ->
           let (num', nprov) = reduce_vec num in
           let (den', dprov) = reduce_vec den in
-          add_canonical (mk_mod srk num' den') provenance
+          add_canonical (mk_mod srk num' den') (mk_and srk [nprov; dprov])
         | `Floor t ->
           let (t', provenance) = reduce_vec t in
           add_canonical (mk_floor srk t') provenance
