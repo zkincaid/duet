@@ -70,6 +70,34 @@ val abstract : ?exists:(symbol -> bool) ->
   'a formula ->
   'a t
 
+(** A subwedge is an abstract domain that can be associated with a
+   sublattice of the disjunctive completion of the lattice of wedges
+   (see [abstract_subwedge]).  The [of_wedge] and [join] functions
+   come with a [lemma] parameter, which a subwedge domain is
+   responsible for invoking for each theory lemma that is not provable
+   in linear arithmetic. A safe (but inefficient) method for ensuring
+   safety is to call
+    lemma ((Wedge.to_formula in) => (subwedge.to_formula out))
+   in [of_wedge] and
+    lemma ((Wedge.to_formula in1) => (subwedge.to_formula out))
+    lemma ((Wedge.to_formula in2) => (subwedge.to_formula out))
+   in [join]. *)
+type ('a, 'b) subwedge =
+  { of_wedge : lemma:('a formula -> unit) -> 'a t -> 'b;
+    join : lemma:('a formula -> unit) -> 'b -> 'b -> 'b;
+    to_formula : 'b -> 'a formula }
+
+(** Compute a subwedge that over-approximates a given formula.  This
+   is typically faster than using [abstract] to compute an
+   over-approximating wedge and then *)
+val abstract_subwedge :
+  ('a, 'b) subwedge ->
+  ?exists:(symbol -> bool) ->
+  ?subterm:(symbol -> bool) ->
+  'a context ->
+  'a formula ->
+  'b
+
 (** Check if a formula is satisfiable by computing an over-approximating wedge
     and checking whether it is feasible.  This procedure improves on the naive
     implementation by returning [`Unknown] as soon as it finds a disjunct that
