@@ -207,6 +207,7 @@ let symbol_of_int x = x
 let int_of_symbol x = x
 
 let mk_real srk qq = srk.mk (Real qq) []
+let mk_int srk n = mk_real srk (QQ.of_int n)
 let mk_zero srk = mk_real srk QQ.zero
 let mk_one srk = mk_real srk QQ.one
 
@@ -1423,6 +1424,7 @@ module type Context = sig
   val mk_idiv : term -> term -> term
   val mk_mod : term -> term -> term
   val mk_real : QQ.t -> term
+  val mk_int : int -> term
   val mk_floor : term -> term
   val mk_neg : term -> term
   val mk_sub : term -> term -> term
@@ -1456,6 +1458,7 @@ module ImplicitContext(C : sig
   let mk_idiv = mk_idiv context
   let mk_mod = mk_mod context
   let mk_real = mk_real context
+  let mk_int = mk_int context
   let mk_floor = mk_floor context
   let mk_neg = mk_neg context
   let mk_sub = mk_sub context

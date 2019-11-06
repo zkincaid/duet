@@ -251,6 +251,7 @@ val mk_pow : 'a context -> 'a term -> int -> 'a term
 val mk_idiv : 'a context -> 'a term -> 'a term -> 'a term
 val mk_mod : 'a context -> 'a term -> 'a term -> 'a term
 val mk_real : 'a context -> QQ.t -> 'a term
+val mk_int : 'a context -> int -> 'a term
 val mk_zero : 'a context -> 'a term
 val mk_one : 'a context -> 'a term
 val mk_floor : 'a context -> 'a term -> 'a term
@@ -362,6 +363,7 @@ module type Context = sig
   val mk_idiv : term -> term -> term
   val mk_mod : term -> term -> term
   val mk_real : QQ.t -> term
+  val mk_int : int -> term
   val mk_floor : term -> term
   val mk_neg : term -> term
   val mk_sub : term -> term -> term
