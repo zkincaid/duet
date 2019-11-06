@@ -24,5 +24,5 @@ module SolvablePolynomialPeriodicRational : PreDomainWedge
    Presurger-definable dynamics. *)
 module PresburgerGuard : PreDomain
 
-(** Partial linear dynamical systems *)
-module PLDS : PreDomain
+(** Deterministic linear transition systems *)
+module DLTS : PreDomain

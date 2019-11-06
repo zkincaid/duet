@@ -799,7 +799,7 @@ module PartialLinearMap = struct
   let map f = f.map
   let guard f = f.guard
 
-  let max_plds mA mB =
+  let max_dlts mA mB =
     (* We have a system of the form Ax' = Bx, we need one of the form Ax' =
        B'Ax.  If we can factor B = B'A, we're done.  Otherwise, we compute an
        m-by-n matrix T' with m < n, and continue iterating with the system T'Ax'
