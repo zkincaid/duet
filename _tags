@@ -26,6 +26,7 @@ true: annot, bin_annot
 "src/interval.cmx": for-pack(Srk)
 "src/smt.cmx": for-pack(Srk)
 "src/srkZ3.cmx": for-pack(Srk)
+"src/hoare.cmx": for-pack(Srk)
 "src/ring.cmx": for-pack(Srk)
 "src/linear.cmx": for-pack(Srk)
 "src/polynomial.cmx": for-pack(Srk)

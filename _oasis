@@ -12,7 +12,7 @@ Library srk
   Path:             src
   FindlibName:      srk
   Pack:             true
-  Modules:  SrkUtil, Log, DisjointSet, Memo, FeatureTree, QQ, ZZ, Syntax, Interval, Smt, SrkZ3, Ring, Linear, Polynomial, ExpPolynomial, Interpretation, SrkApron, Polyhedron, SrkSimplify, Abstract, Nonlinear, CoordinateSystem, Wedge, Vas, Vass, Quantifier, Iteration, SolvablePolynomial, Transition, BigO, Pathexpr, WeightedGraph, TransitionSystem
+  Modules:  SrkUtil, Log, DisjointSet, Memo, FeatureTree, QQ, ZZ, Syntax, Interval, Smt, SrkZ3, Hoare, Ring, Linear, Polynomial, ExpPolynomial, Interpretation, SrkApron, Polyhedron, SrkSimplify, Abstract, Nonlinear, CoordinateSystem, Wedge, Vas, Vass, Quantifier, Iteration, SolvablePolynomial, Transition, BigO, Pathexpr, WeightedGraph, TransitionSystem
   BuildDepends:     batteries, ppx_deriving, ppx_deriving.show, ppx_deriving.ord, ppx_deriving.eq, gmp, camlidl, apron, Z3, ocrs, ntl, ocamlgraph
   XMETADescription: Symbolic Reasoning Kit
 
