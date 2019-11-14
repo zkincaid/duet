@@ -1567,6 +1567,8 @@ let exists
   let cs = wedge.cs in
   let log = get_named_symbol srk "log" in
   let pow = get_named_symbol srk "pow" in
+  let zero = mk_real srk QQ.zero in
+  let one = mk_real srk QQ.one in
   let keep x = p x || x = log || x = pow in
   let subterm x = keep x && (subterm x || x = log || x = pow) in
   (* Removed coordinates corresponding to symbols that must be
@@ -1616,14 +1618,13 @@ let exists
     Interval.is_positive
       (Interval.add (bound_vec wedge b) (Interval.const (QQ.of_int (-1))))
   in
-
   forget |> IntSet.iter (fun id ->
       let term = CS.term_of_coordinate cs id in
       match CS.destruct_coordinate cs id with
 
-      (* p*b^s + t >= 0 /\ b > 1 /\ p >= 0 && t <= 0
+      (* p*b^s + t >= 0 /\ b > 1 /\ p > 0 && t < 0
          |= log_b(p) + s >= log_b(t) *)
-      (* p*b^s + t >= 0 /\ b > 1 /\ p <= 0 && t >= 0
+      (* p*b^s + t >= 0 /\ b > 1 /\ p < 0 && t > 0
          |= log_b(p) + s <= log_b(t) *)
       (* s >= t /\ b > 1 |= b^s >= b^t *)
       (* s <= t /\ b > 1 |= b^s <= b^t *)
@@ -1715,9 +1716,9 @@ let exists
             if Interval.is_positive p_ivl && Interval.is_negative t_ivl then
               let hypothesis =
                 mk_and srk [atom_of_lincons wedge lincons;
-                            mk_lt srk (mk_real srk QQ.one) b_term;
-                            mk_lt srk (mk_real srk QQ.zero) p_term;
-                            mk_lt srk t_term (mk_real srk QQ.zero)]
+                            mk_lt srk one b_term;
+                            mk_lt srk zero p_term;
+                            mk_lt srk t_term zero]
               in
               let conclusion =
                 mk_cmp
@@ -1731,9 +1732,9 @@ let exists
             else if Interval.is_negative p_ivl && Interval.is_positive t_ivl then
               let hypothesis =
                 mk_and srk [atom_of_lincons wedge lincons;
-                            mk_lt srk (mk_real srk QQ.one) b_term;
-                            mk_lt srk p_term (mk_real srk QQ.zero);
-                            mk_lt srk (mk_real srk QQ.zero) t_term]
+                            mk_lt srk one b_term;
+                            mk_lt srk p_term zero;
+                            mk_lt srk zero t_term]
               in
               let conclusion =
                 mk_cmp
@@ -1745,32 +1746,23 @@ let exists
               lemma p_ivl_lemma;
               add_bound hypothesis conclusion);
 
-        let (lower_t, upper_t) =
-          symbolic_bounds_vec wedge
-            (CS.vec_of_term cs term)
-            (IntSet.elements forget_subterm)
-        in
         let (lower, upper) =
           symbolic_bounds_vec wedge s (IntSet.elements forget_subterm)
         in
         lower |> List.iter (fun lo ->
-            upper_t |> List.iter (fun hi ->
-                let hypothesis =
-                  mk_and srk [mk_lt srk (mk_real srk QQ.one) b_term;
-                              mk_leq srk lo s_term;
-                              mk_leq srk term hi]
-                in
-                let conclusion = mk_leq srk (mk_pow srk b_term lo) hi in
-                add_bound hypothesis conclusion));
+            let hypothesis =
+              mk_and srk [mk_lt srk one b_term;
+                          mk_leq srk lo s_term]
+            in
+            let conclusion = mk_leq srk (mk_pow srk b_term lo) term in
+            add_bound hypothesis conclusion);
         upper |> List.iter (fun hi ->
-            lower_t |> List.iter (fun lo ->
-                let hypothesis =
-                  mk_and srk [mk_lt srk (mk_real srk QQ.one) b_term;
-                              mk_leq srk s_term hi;
-                              mk_leq srk lo term]
-                in
-                let conclusion = mk_leq srk lo (mk_pow srk b_term hi) in
-                add_bound hypothesis conclusion));
+            let hypothesis =
+              mk_and srk [mk_lt srk one b_term;
+                          mk_leq srk s_term hi]
+            in
+            let conclusion = mk_leq srk term (mk_pow srk b_term hi) in
+            add_bound hypothesis conclusion);
 
       | `App (symbol, [base; x]) when symbol = log ->
         (* If 1 < base then
