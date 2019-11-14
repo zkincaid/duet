@@ -2123,20 +2123,7 @@ let ensure_min_max srk =
     [("min", `TyFun ([`TyReal; `TyReal], `TyReal));
      ("max", `TyFun ([`TyReal; `TyReal], `TyReal))]
 
-let symbolic_bounds_formula ?exists:(p=fun x -> true) srk phi symbol =
-  ensure_min_max srk;
-  let min = get_named_symbol srk "min" in
-  let max = get_named_symbol srk "max" in
-  let mk_min x y =
-    match Term.destruct srk x, Term.destruct srk y with
-    | `Real xr, `Real yr -> mk_real srk (QQ.min xr yr)
-    | _, _ -> mk_app srk min [x; y]
-  in
-  let mk_max x y =
-    match Term.destruct srk x, Term.destruct srk y with
-    | `Real xr, `Real yr -> mk_real srk (QQ.max xr yr)
-    | _, _ -> mk_app srk max [x; y]
-  in
+let symbolic_bounds_formula_list ?exists:(p=fun x -> true) srk phi symbol =
   let symbol_term = mk_const srk symbol in
   let subterm x = x != symbol in
   let of_wedge ~lemma wedge =
@@ -2180,19 +2167,40 @@ let symbolic_bounds_formula ?exists:(p=fun x -> true) srk phi symbol =
   match result with
   | None -> `Unsat
   | Some (lower, upper) ->
+    let lower = if List.mem [] lower then [] else lower in
+    let upper = if List.mem [] upper then [] else upper in
+    `Sat (lower, upper)
+
+let symbolic_bounds_formula ?exists:(p=fun x -> true) srk phi symbol =
+  ensure_min_max srk;
+  let min = get_named_symbol srk "min" in
+  let max = get_named_symbol srk "max" in
+  let mk_min x y =
+    match Term.destruct srk x, Term.destruct srk y with
+    | `Real xr, `Real yr -> mk_real srk (QQ.min xr yr)
+    | _, _ -> mk_app srk min [x; y]
+  in
+  let mk_max x y =
+    match Term.destruct srk x, Term.destruct srk y with
+    | `Real xr, `Real yr -> mk_real srk (QQ.max xr yr)
+    | _, _ -> mk_app srk max [x; y]
+  in
+  match symbolic_bounds_formula_list ~exists:p srk phi symbol with
+  | `Sat (lower, upper) ->
     let lower =
-      if List.mem [] lower then
-        None
-      else
+      match lower with
+      | [] -> None
+      | _ ->
         Some (BatList.reduce mk_min (List.map (BatList.reduce mk_max) lower))
     in
     let upper =
-      if List.mem [] upper then
-        None
-      else
+      match upper with
+      | [] -> None
+      | _ ->
         Some (BatList.reduce mk_max (List.map (BatList.reduce mk_min) upper))
     in
     `Sat (lower, upper)
+  | `Unsat -> `Unsat
 
 let symbolic_bounds_formula ?(exists=fun x -> true) srk phi symbol =
   Log.time "symbolic_bounds_formula" (symbolic_bounds_formula ~exists srk phi) symbol
