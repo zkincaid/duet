@@ -114,7 +114,16 @@ val symbolic_bounds_formula : ?exists:(symbol -> bool) ->
   'a context ->
   'a formula ->
   symbol ->
-  [ `Sat of ('a term) option * ('a term) option | `Unsat ]
+  [ `Sat of (('a term) option * ('a term) option) | `Unsat ]
+
+(** As [symbolic_bounds_formula], execept the lower bound is
+   represented as a min of maxes, and the upper bound is represented
+   as a max of mins. *)
+val symbolic_bounds_formula_list : ?exists:(symbol -> bool) ->
+  'a context ->
+  'a formula ->
+  symbol ->
+  [ `Sat of (('a term) list list) * (('a term) list list) | `Unsat ]
 
 val coordinate_system : 'a t -> 'a CoordinateSystem.t
 
