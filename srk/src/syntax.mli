@@ -183,6 +183,14 @@ module Expr : sig
   val refine : 'a context -> ('a, typ_fo) expr -> [ `Term of 'a term
                                                   | `Formula of 'a formula ]
 
+  (** Convert an expression to a term.  Raise [Invalid_arg] if the
+     expression is not a term. *)
+  val term_of : 'a context -> ('a, typ_fo) expr -> 'a term
+
+  (** Convert an expression to a formula.  Raise [Invalid_arg] if the
+     expression is not a formula. *)
+  val formula_of : 'a context -> ('a, typ_fo) expr -> 'a formula
+
   module HT : sig
     type ('a, 'typ, 'b) t
     val create : int -> ('a, 'typ, 'b) t

@@ -674,8 +674,13 @@ let resource_bound_analysis file =
               let rhs =
                 Syntax.substitute_const srk subst (K.get_transform cost summary)
               in
+              let simplify =
+                SrkSimplify.simplify_terms_rewriter srk
+                % Nonlinear.simplify_terms_rewriter srk
+              in
               Ctx.mk_and [Syntax.substitute_const srk subst (K.guard summary);
                           Ctx.mk_eq (Ctx.mk_const cost_symbol) rhs ]
+              |> Syntax.rewrite srk ~up:simplify
             in
             match Wedge.symbolic_bounds_formula ~exists srk guard cost_symbol with
             | `Sat (lower, upper) ->

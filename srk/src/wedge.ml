@@ -1600,6 +1600,11 @@ let exists
    * Find new non-linear terms to improve the projection
    ***************************************************************************)
   let add_bound precondition bound =
+    let bound =
+      rewrite srk
+        ~up:(SrkSimplify.simplify_terms_rewriter srk % Nonlinear.simplify_terms_rewriter srk)
+        bound
+    in
     logf ~level:`trace "Lemma: %a => %a"
       (Formula.pp srk) precondition
       (Formula.pp srk) bound;
