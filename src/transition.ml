@@ -167,7 +167,9 @@ struct
         ([], [])
     in
     let body =
-      SrkSimplify.simplify_terms srk (mk_and srk (tr.guard::post_def))
+      mk_and srk (tr.guard::post_def)
+      |> rewrite srk
+        ~up:(SrkSimplify.simplify_terms_rewriter srk % Nonlinear.simplify_terms_rewriter srk)
     in
     (tr_symbols, body)
 
