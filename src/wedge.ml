@@ -592,7 +592,10 @@ let generalized_fourier_motzkin lemma order wedge =
     CS.dim w1.cs == CS.dim w2.cs
     && Abstract0.is_eq (get_manager()) w1.abstract w2.abstract
   in
-  while not (polyhedron_equal wedge (!old_wedge)) do
+  let iterations = ref 0 in
+  while !iterations < 3 && not (polyhedron_equal wedge (!old_wedge)) do
+    incr iterations;
+    logf ~level:`trace "GFM iteration: %d" (!iterations);
     old_wedge := copy wedge;
     let cone = polynomial_cone ~lemma wedge in
     cone |> List.iter (fun p ->
