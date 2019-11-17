@@ -1,12 +1,12 @@
 (** Formula and term simplification. *)
 open Syntax
 
-module TermPolynomial : sig
-  type 'a polynomial_context
+module RationalTerm : sig
+  type 'a rt_context
   type 'a t
-  val mk_context : 'a context -> 'a polynomial_context
-  val of_term : 'a polynomial_context -> 'a term -> 'a t
-  val term_of : 'a polynomial_context -> 'a t -> 'a term
+  val mk_context : 'a context -> 'a rt_context
+  val of_term : 'a rt_context -> 'a term -> 'a t
+  val term_of : 'a rt_context -> 'a t -> 'a term
 end
 
 val simplify_terms_rewriter : 'a context -> 'a rewriter
