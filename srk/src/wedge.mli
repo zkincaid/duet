@@ -136,3 +136,10 @@ val copy : 'a t -> 'a t
 val equational_saturation : ?lemma:('a formula -> unit) -> 'a t -> Polynomial.Rewrite.t
 
 val strengthen : ?lemma:('a formula -> unit) -> 'a t -> unit
+
+(** Overapproximate existential quantifier elimination. *)
+val cover : ?subterm:(symbol -> bool) ->
+  'a context ->
+  (symbol -> bool) ->
+  'a formula ->
+  'a formula

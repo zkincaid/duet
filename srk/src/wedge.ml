@@ -2218,3 +2218,11 @@ let polyhedron wedge =
       | EQ -> Some (`Eq, vec_of_linexpr wedge.env lcons.linexpr0)
       | _ -> None)
   |> BatList.of_enum
+
+let cover ?subterm:(subterm=(fun _ -> true)) srk p phi =
+  let disj_wedge =
+    { of_wedge = (fun ~lemma w -> to_formula w);
+      join = (fun ~lemma w1 w2 -> mk_or srk [w1; w2]);
+      to_formula = (fun x -> x) }
+  in
+  Log.time "Cover" (abstract_subwedge disj_wedge ~exists:p ~subterm srk) phi
