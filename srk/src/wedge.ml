@@ -371,9 +371,10 @@ let polynomial_constraints ~lemma wedge =
 
 let polynomial_cone ~lemma wedge =
   polynomial_constraints ~lemma wedge
-  |> BatList.filter_map (function
-      | (`Nonneg, p) | (`Pos, p) -> Some p
-      | (`Zero, p) -> None)
+  |> BatList.map (function
+      | (`Nonneg, p) | (`Pos, p) -> [p]
+      | (`Zero, p) -> [p; P.negate p])
+  |> BatList.flatten
 
 let vanishing_ideal wedge =
   let open Lincons0 in
@@ -546,7 +547,7 @@ let equational_saturation ?lemma:(lemma=(fun _ -> ())) wedge =
         | `Mod (num, den) ->
           let (num', nprov) = reduce_vec num in
           let (den', dprov) = reduce_vec den in
-          add_canonical (mk_mod srk num' den') provenance
+          add_canonical (mk_mod srk num' den') (mk_and srk [nprov; dprov])
         | `Floor t ->
           let (t', provenance) = reduce_vec t in
           add_canonical (mk_floor srk t') provenance
@@ -584,7 +585,17 @@ let generalized_fourier_motzkin lemma order wedge =
     meet_atoms wedge [bound]
   in
   let old_wedge = ref (bottom srk) in
-  while not (equal wedge (!old_wedge)) do
+  let polyhedron_equal w1 w2 =
+    (* Provided that the coordinate system of w1 is an extension of
+       w2, they have the same coordinate system provided they have
+       equal dimension. *)
+    CS.dim w1.cs == CS.dim w2.cs
+    && Abstract0.is_eq (get_manager()) w1.abstract w2.abstract
+  in
+  let iterations = ref 0 in
+  while !iterations < 3 && not (polyhedron_equal wedge (!old_wedge)) do
+    incr iterations;
+    logf ~level:`trace "GFM iteration: %d" (!iterations);
     old_wedge := copy wedge;
     let cone = polynomial_cone ~lemma wedge in
     cone |> List.iter (fun p ->
@@ -1559,6 +1570,8 @@ let exists
   let cs = wedge.cs in
   let log = get_named_symbol srk "log" in
   let pow = get_named_symbol srk "pow" in
+  let zero = mk_real srk QQ.zero in
+  let one = mk_real srk QQ.one in
   let keep x = p x || x = log || x = pow in
   let subterm x = keep x && (subterm x || x = log || x = pow) in
   (* Removed coordinates corresponding to symbols that must be
@@ -1590,6 +1603,7 @@ let exists
    * Find new non-linear terms to improve the projection
    ***************************************************************************)
   let add_bound precondition bound =
+    let bound = Nonlinear.simplify_terms srk bound in
     logf ~level:`trace "Lemma: %a => %a"
       (Formula.pp srk) precondition
       (Formula.pp srk) bound;
@@ -1608,14 +1622,13 @@ let exists
     Interval.is_positive
       (Interval.add (bound_vec wedge b) (Interval.const (QQ.of_int (-1))))
   in
-
   forget |> IntSet.iter (fun id ->
       let term = CS.term_of_coordinate cs id in
       match CS.destruct_coordinate cs id with
 
-      (* p*b^s + t >= 0 /\ b > 1 /\ p >= 0 && t <= 0
+      (* p*b^s + t >= 0 /\ b > 1 /\ p > 0 && t < 0
          |= log_b(p) + s >= log_b(t) *)
-      (* p*b^s + t >= 0 /\ b > 1 /\ p <= 0 && t >= 0
+      (* p*b^s + t >= 0 /\ b > 1 /\ p < 0 && t > 0
          |= log_b(p) + s <= log_b(t) *)
       (* s >= t /\ b > 1 |= b^s >= b^t *)
       (* s <= t /\ b > 1 |= b^s <= b^t *)
@@ -1707,9 +1720,9 @@ let exists
             if Interval.is_positive p_ivl && Interval.is_negative t_ivl then
               let hypothesis =
                 mk_and srk [atom_of_lincons wedge lincons;
-                            mk_lt srk (mk_real srk QQ.one) b_term;
-                            mk_lt srk (mk_real srk QQ.zero) p_term;
-                            mk_lt srk t_term (mk_real srk QQ.zero)]
+                            mk_lt srk one b_term;
+                            mk_lt srk zero p_term;
+                            mk_lt srk t_term zero]
               in
               let conclusion =
                 mk_cmp
@@ -1723,9 +1736,9 @@ let exists
             else if Interval.is_negative p_ivl && Interval.is_positive t_ivl then
               let hypothesis =
                 mk_and srk [atom_of_lincons wedge lincons;
-                            mk_lt srk (mk_real srk QQ.one) b_term;
-                            mk_lt srk p_term (mk_real srk QQ.zero);
-                            mk_lt srk (mk_real srk QQ.zero) t_term]
+                            mk_lt srk one b_term;
+                            mk_lt srk p_term zero;
+                            mk_lt srk zero t_term]
               in
               let conclusion =
                 mk_cmp
@@ -1737,32 +1750,23 @@ let exists
               lemma p_ivl_lemma;
               add_bound hypothesis conclusion);
 
-        let (lower_t, upper_t) =
-          symbolic_bounds_vec wedge
-            (CS.vec_of_term cs term)
-            (IntSet.elements forget_subterm)
-        in
         let (lower, upper) =
           symbolic_bounds_vec wedge s (IntSet.elements forget_subterm)
         in
         lower |> List.iter (fun lo ->
-            upper_t |> List.iter (fun hi ->
-                let hypothesis =
-                  mk_and srk [mk_lt srk (mk_real srk QQ.one) b_term;
-                              mk_leq srk lo s_term;
-                              mk_leq srk term hi]
-                in
-                let conclusion = mk_leq srk (mk_pow srk b_term lo) hi in
-                add_bound hypothesis conclusion));
+            let hypothesis =
+              mk_and srk [mk_lt srk one b_term;
+                          mk_leq srk lo s_term]
+            in
+            let conclusion = mk_leq srk (mk_pow srk b_term lo) term in
+            add_bound hypothesis conclusion);
         upper |> List.iter (fun hi ->
-            lower_t |> List.iter (fun lo ->
-                let hypothesis =
-                  mk_and srk [mk_lt srk (mk_real srk QQ.one) b_term;
-                              mk_leq srk s_term hi;
-                              mk_leq srk lo term]
-                in
-                let conclusion = mk_leq srk lo (mk_pow srk b_term hi) in
-                add_bound hypothesis conclusion));
+            let hypothesis =
+              mk_and srk [mk_lt srk one b_term;
+                          mk_leq srk s_term hi]
+            in
+            let conclusion = mk_leq srk term (mk_pow srk b_term hi) in
+            add_bound hypothesis conclusion);
 
       | `App (symbol, [base; x]) when symbol = log ->
         (* If 1 < base then
@@ -2014,7 +2018,12 @@ let is_sat srk phi =
   else
     go ()
 
-let abstract ?exists:(p=fun x -> true) ?(subterm=fun x -> true) srk phi =
+type ('a, 'b) subwedge =
+  { of_wedge : lemma:('a formula -> unit) -> 'a t -> 'b;
+    join : lemma:('a formula -> unit) -> 'b -> 'b -> 'b;
+    to_formula : 'b -> 'a formula }
+
+let abstract_subwedge subwedge ?exists:(p=fun x -> true) ?(subterm=fun x -> true) srk phi =
   let phi = eliminate_ite srk phi in
   let phi = SrkSimplify.simplify_terms srk phi in
   logf "Abstracting formula@\n%a"
@@ -2058,19 +2067,19 @@ let abstract ?exists:(p=fun x -> true) ?(subterm=fun x -> true) srk phi =
   let lemma psi =
     Smt.Solver.add solver [Nonlinear.uninterpret srk psi]
   in
-  let rec go wedge =
+  let rec go prop =
     let blocking_clause =
-      to_formula wedge
+      subwedge.to_formula prop
       |> Nonlinear.uninterpret srk
       |> mk_not srk
     in
     logf ~level:`trace "Blocking clause %a" (Formula.pp srk) blocking_clause;
     Smt.Solver.add solver [blocking_clause];
     match Smt.Solver.get_model solver with
-    | `Unsat -> wedge
+    | `Unsat -> prop
     | `Unknown ->
       logf ~level:`warn "Symbolic abstraction failed; returning top";
-      top srk
+      subwedge.of_wedge ~lemma (top srk)
     | `Sat model ->
       match Interpretation.select_implicant model lin_phi with
       | None -> assert false
@@ -2087,14 +2096,20 @@ let abstract ?exists:(p=fun x -> true) ?(subterm=fun x -> true) srk phi =
           strengthen ~lemma w;
           exists ~lemma ~subterm p w
         in
-        if is_bottom wedge then begin
-          go new_wedge
-        end else
-          go (join ~lemma wedge new_wedge)
+        let new_prop = subwedge.of_wedge ~lemma new_wedge in
+        go (subwedge.join ~lemma prop new_prop)
   in
-  let result = go (bottom srk) in
-  logf "Abstraction result:@\n%a" pp result;
+  let result = go (subwedge.of_wedge ~lemma (bottom srk)) in
+  logf "Abstraction result:@\n%a" (Formula.pp srk) (subwedge.to_formula result);
   result
+
+let abstract ?exists:(p=fun x -> true) ?(subterm=fun x -> true) srk phi =
+  let wedge =
+    { of_wedge = (fun ~lemma w -> w);
+      join = (fun ~lemma w1 w2 -> join ~lemma w1 w2);
+      to_formula = to_formula }
+  in
+  Log.time "Wedge abstract" (abstract_subwedge wedge ~exists:p ~subterm srk) phi
 
 let ensure_min_max srk =
   List.iter
@@ -2104,8 +2119,55 @@ let ensure_min_max srk =
     [("min", `TyFun ([`TyReal; `TyReal], `TyReal));
      ("max", `TyFun ([`TyReal; `TyReal], `TyReal))]
 
+let symbolic_bounds_formula_list ?exists:(p=fun x -> true) srk phi symbol =
+  let symbol_term = mk_const srk symbol in
+  let subterm x = x != symbol in
+  let of_wedge ~lemma wedge =
+    if is_bottom wedge then
+      None
+    else if CS.admits wedge.cs (mk_const srk symbol) then
+      let lower, upper = symbolic_bounds wedge symbol in
+      Some ([lower],[upper])
+    else
+      Some ([[]], [[]])
+  in
+  let to_formula = function
+    | None -> mk_false srk
+    | Some (lower, upper) ->
+      let lower_bounds =
+        lower
+        |> List.map (fun case ->
+            case |> List.map (fun lower_bound -> mk_leq srk lower_bound symbol_term)
+            |> mk_and srk)
+        |> mk_or srk
+      in
+      let upper_bounds =
+        upper
+        |> List.map (fun case ->
+            case |> List.map (fun upper_bound -> mk_leq srk symbol_term upper_bound)
+            |> mk_and srk)
+        |> mk_or srk
+      in
+      mk_and srk [lower_bounds; upper_bounds]
+  in
+  let join ~lemma x y = match x, y with
+    | z, None | None, z -> z
+    | Some (lower1, upper1), Some (lower2, upper2) ->
+      Some (lower1 @ lower2, upper1 @ upper2)
+  in
+  let bound_subwedge = { of_wedge; to_formula; join } in
+  let result =
+    Log.time "Wedge.symbolic_bounds_formula"
+      (abstract_subwedge bound_subwedge ~exists:p ~subterm srk) phi
+  in
+  match result with
+  | None -> `Unsat
+  | Some (lower, upper) ->
+    let lower = if List.mem [] lower then [] else lower in
+    let upper = if List.mem [] upper then [] else upper in
+    `Sat (lower, upper)
+
 let symbolic_bounds_formula ?exists:(p=fun x -> true) srk phi symbol =
-  let phi = eliminate_ite srk phi in
   ensure_min_max srk;
   let min = get_named_symbol srk "min" in
   let max = get_named_symbol srk "max" in
@@ -2119,108 +2181,22 @@ let symbolic_bounds_formula ?exists:(p=fun x -> true) srk phi symbol =
     | `Real xr, `Real yr -> mk_real srk (QQ.max xr yr)
     | _, _ -> mk_app srk max [x; y]
   in
-
-  let symbol_term = mk_const srk symbol in
-  let subterm x = x != symbol in
-  let solver = Smt.mk_solver ~theory:"QF_LIRA" srk in
-  let uninterp_phi =
-    rewrite srk
-      ~down:(nnf_rewriter srk)
-      ~up:(Nonlinear.uninterpret_rewriter srk)
-      phi
-  in
-  let (lin_phi, nonlinear) = SrkSimplify.purify srk uninterp_phi in
-  let nonlinear_defs =
-    Symbol.Map.enum nonlinear
-    /@ (fun (symbol, expr) ->
-        match Expr.refine srk expr with
-        | `Term t -> mk_eq srk (mk_const srk symbol) t
-        | `Formula phi -> mk_iff srk (mk_const srk symbol) phi)
-    |> BatList.of_enum
-    |> mk_and srk
-  in
-  let nonlinear = Symbol.Map.map (Nonlinear.interpret srk) nonlinear in
-  let rec replace_defs_term term =
-    substitute_const
-      srk
-      (fun x ->
-         try replace_defs_term (Symbol.Map.find x nonlinear)
-         with Not_found -> mk_const srk x)
-      term
-  in
-  let replace_defs =
-    substitute_const
-      srk
-      (fun x ->
-         try replace_defs_term (Symbol.Map.find x nonlinear)
-         with Not_found -> mk_const srk x)
-  in
-  Smt.Solver.add solver [lin_phi];
-  Smt.Solver.add solver [nonlinear_defs];
-  let lemma psi =
-    Smt.Solver.add solver [Nonlinear.uninterpret srk psi]
-  in
-  let rec go (lower, upper) =
-    match Smt.Solver.get_model solver with
-    | `Unsat -> (lower, upper)
-    | `Unknown ->
-      logf ~level:`warn "Symbolic abstraction failed; returning top";
-      ([[]], [[]])
-    | `Sat model ->
-      match Interpretation.select_implicant model lin_phi with
-      | None -> assert false
-      | Some implicant ->
-        let (wedge_lower, wedge_upper) =
-          let cs = CoordinateSystem.mk_empty srk in
-          let implicant' =
-            List.map replace_defs implicant
-            |> Polyhedron.of_implicant ~admit:true cs
-            |> Polyhedron.try_fourier_motzkin cs p
-            |> Polyhedron.implicant_of cs
-          in
-          let wedge = of_atoms srk implicant' in
-          strengthen ~lemma wedge;
-          let wedge = exists ~lemma ~subterm p wedge in
-
-          if CS.admits wedge.cs (mk_const srk symbol) then
-            symbolic_bounds wedge symbol
-          else
-            ([], [])
-        in
-        let lower_blocking =
-          List.map
-            (fun lower_bound -> mk_lt srk symbol_term lower_bound)
-            wedge_lower
-          |> List.map (Nonlinear.uninterpret srk)
-          |> mk_or srk
-        in
-        let upper_blocking =
-          List.map
-            (fun upper_bound -> mk_lt srk upper_bound symbol_term)
-            wedge_upper
-          |> List.map (Nonlinear.uninterpret srk)
-          |> mk_or srk
-        in
-        Smt.Solver.add solver [mk_or srk [lower_blocking; upper_blocking]];
-        go (wedge_lower::lower, wedge_upper::upper)
-  in
-  let (lower, upper) = go ([], []) in
-  if lower = [] then
-    `Unsat
-  else
+  match symbolic_bounds_formula_list ~exists:p srk phi symbol with
+  | `Sat (lower, upper) ->
     let lower =
-      if List.mem [] lower then
-        None
-    else
-      Some (BatList.reduce mk_min (List.map (BatList.reduce mk_max) lower))
+      match lower with
+      | [] -> None
+      | _ ->
+        Some (BatList.reduce mk_min (List.map (BatList.reduce mk_max) lower))
     in
     let upper =
-      if List.mem [] upper then
-        None
-      else
+      match upper with
+      | [] -> None
+      | _ ->
         Some (BatList.reduce mk_max (List.map (BatList.reduce mk_min) upper))
     in
     `Sat (lower, upper)
+  | `Unsat -> `Unsat
 
 let symbolic_bounds_formula ?(exists=fun x -> true) srk phi symbol =
   Log.time "symbolic_bounds_formula" (symbolic_bounds_formula ~exists srk phi) symbol

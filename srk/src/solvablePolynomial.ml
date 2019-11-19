@@ -684,8 +684,7 @@ let pp srk tr_symbols formatter iter =
       pp_rec "<=" offset formatter recurrence;
       (Array.length recurrence.blk_transform + offset))
       offset
-      iter.block_leq);
-  Format.fprintf formatter "@]@]}"
+      iter.block_leq)
 
 exception Not_a_polynomial
 
@@ -1779,14 +1778,14 @@ module PresburgerGuard = struct
 
 end
 
-module PLDS = struct
+module DLTS = struct
   module PLM = Linear.PartialLinearMap
   module VS = Linear.QQVectorSpace
   module V = Linear.QQVector
   module M = Linear.QQMatrix
 
   type 'a t =
-    { plds : PLM.t;
+    { dlts : PLM.t;
       simulation : ('a term) array }
 
   let dimension iter = Array.length iter.simulation
@@ -1804,15 +1803,15 @@ module PLDS = struct
     Format.fprintf formatter "@[<v 2>Map:";
     iter.simulation |> BatArray.iteri (fun i term ->
         let row =
-          Linear.term_of_vec srk sim (QQMatrix.row i (PLM.map iter.plds))
+          Linear.term_of_vec srk sim (QQMatrix.row i (PLM.map iter.dlts))
         in
         Format.fprintf formatter "@;%a := %a"
           (Term.pp srk) term
           (Term.pp srk) row);
     Format.fprintf formatter "@]";
-    if (PLM.guard iter.plds) != [] then begin
+    if (PLM.guard iter.dlts) != [] then begin
       Format.fprintf formatter "@;@[<v 2>when:";
-      (PLM.guard iter.plds) |> List.iter (fun eq ->
+      (PLM.guard iter.dlts) |> List.iter (fun eq ->
           Format.fprintf formatter "@;%a = 0"
             (Term.pp srk) (Linear.term_of_vec srk sim eq));
       Format.fprintf formatter "@]"
@@ -1840,39 +1839,39 @@ module PLDS = struct
     (* Iterate function until the guard stabilizes (i.e., dom(f^n) =
        dom(f^{n+1})).  *)
     let rec fix g i =
-      let h = PLM.compose iter.plds g in
+      let h = PLM.compose iter.dlts g in
       if VS.dimension (PLM.guard g) == dim then
-        (* Ultimate domain is trivial.  Since one dimension of the
+        (* Invariant domain is trivial.  Since one dimension of the
            domain represents the constant 1, this is inconsistent. *)
         mk_false srk
       else if VS.equal (PLM.guard g) (PLM.guard h) then
-        (* Ultimate domain -- intersection of dom(f^i) over all i *)
-        let ult_dom =
+        (* Invariant domain -- intersection of dom(f^i) over all i *)
+        let inv_dom =
           Linear.nullspace (VS.matrix_of (PLM.guard g)) (BatList.of_enum (0 -- (dim - 1)))
           |> VS.matrix_of
         in
-        let ult_dom_t = M.transpose ult_dom in
+        let inv_dom_t = M.transpose inv_dom in
 
-        (* Writing S as the ult_dom domain and A as the transformation
+        (* Writing S as the inv_dom domain and A as the transformation
            of f, we want a square matrix B such that SA = BS.  Think
-           of S as a linear transformation into the ultimate domain,
+           of S as a linear transformation into the invariant domain,
            so that B is a representation of the action of A on the
-           ultimate domain.  *)
+           invariant domain.  *)
         let stable_transform =
-          match Linear.divide_left (M.mul (PLM.map iter.plds) ult_dom_t) ult_dom_t with
+          match Linear.divide_left (M.mul (PLM.map iter.dlts) inv_dom_t) inv_dom_t with
           | None -> assert false
           | Some f -> f
         in
-        let ult_dim = QQMatrix.nb_rows ult_dom_t in
+        let inv_dim = QQMatrix.nb_rows inv_dom_t in
         let closed =
           let underlying_block =
-            { blk_transform = QQMatrix.dense_of stable_transform ult_dim ult_dim;
-              blk_add = Array.make ult_dim QQXs.zero }
+            { blk_transform = QQMatrix.dense_of stable_transform inv_dim inv_dim;
+              blk_add = Array.make inv_dim QQXs.zero }
           in
           let underlying_iter =
             { term_of_id =
-                Array.init ult_dim (fun i ->
-                    Linear.term_of_vec srk sim (M.row i ult_dom));
+                Array.init inv_dim (fun i ->
+                    Linear.term_of_vec srk sim (M.row i inv_dom));
               nb_constants = 0;
               block_eq = [underlying_block];
               block_leq = [] }
@@ -1959,18 +1958,18 @@ module PLDS = struct
         (mA, mB, nb_rows)
         (Linear.const_dim::(List.map Linear.dim_of_sym constants))
     in
-    let (mS, plds) = PLM.max_plds mA mB in
+    let (mS, dlts) = PLM.max_dlts mA mB in
     let simulation =
       QQMatrix.rowsi mS
       /@ (Linear.of_linterm srk % snd)
       |> BatArray.of_enum
     in
-    let res = { plds; simulation } in
+    let res = { dlts; simulation } in
     logf "Extracted:@? %a" (pp srk tr_symbols) res;
     res
 
   let equal _ _ iter1 iter2 =
-    PLM.equal iter1.plds iter2.plds
+    PLM.equal iter1.dlts iter2.dlts
     && BatArray.for_all2 Term.equal iter1.simulation iter2.simulation
 
   let to_formula srk iter =
@@ -1979,7 +1978,7 @@ module PLDS = struct
       (0 -- (dimension iter - 1))
       /@ (fun i ->
           let rhs =
-            Linear.term_of_vec srk sim (QQMatrix.row i (PLM.map iter.plds))
+            Linear.term_of_vec srk sim (QQMatrix.row i (PLM.map iter.dlts))
           in
           mk_eq srk (sim i) rhs)
       |> BatList.of_enum
@@ -1989,7 +1988,7 @@ module PLDS = struct
     let guard =
       List.map
         (fun vec -> mk_eq srk zero (Linear.term_of_vec srk sim vec))
-        (PLM.guard iter.plds)
+        (PLM.guard iter.dlts)
       |> mk_and srk
     in
     mk_and srk [map; guard]

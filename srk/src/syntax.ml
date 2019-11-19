@@ -718,6 +718,18 @@ module Expr = struct
     | Node (_, _, `TyReal) -> `Term sexpr
     | Node (_, _, `TyBool) -> `Formula sexpr
 
+  let term_of srk sexpr =
+    match sexpr.obj with
+    | Node (_, _, `TyInt)
+    | Node (_, _, `TyReal) -> sexpr
+    | Node (_, _, `TyBool) -> invalid_arg "Syntax.term_of: not a term"
+
+  let formula_of srk sexpr =
+    match sexpr.obj with
+    | Node (_, _, `TyInt)
+    | Node (_, _, `TyReal) -> invalid_arg "Syntax.formula_of: not a formula"
+    | Node (_, _, `TyBool) -> sexpr
+
   let pp = pp_expr
 
   module HT = struct

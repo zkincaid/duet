@@ -17,9 +17,9 @@ module SPPR = struct
                                  (Iteration.WedgeGuard))
   let star srk symbols phi = closure (abstract srk symbols phi)
 end
-module PLDS = struct
+module DLTS = struct
   include Iteration.MakeDomain(Iteration.Product
-                                 (SolvablePolynomial.PLDS)
+                                 (SolvablePolynomial.DLTS)
                                  (Iteration.PolyhedronGuard))
   let star srk symbols phi = closure (abstract srk symbols phi)
 end
@@ -334,17 +334,17 @@ let periodic_rational5 () =
   assert_implies closure (!(w' = (int 3)) || z' = (int 0));
   assert_implies closure (!(w' = (int 4)) || z' = (int 1))
 
-let plds1 () =
+let dlts1 () =
   let open Infix in
   let phi =
     x' = x + (int 1)
     && x = (int 0)
   in
-  let closure = PLDS.star srk tr_symbols phi in
+  let closure = DLTS.star srk tr_symbols phi in
   assert_equal (Smt.is_sat srk (closure && x < x')) `Sat;
   assert_implies closure (x' = x || x' = (int 1))
 
-let plds2 () =
+let dlts2 () =
   let open Infix in
   let phi =
     x' = x + z
@@ -352,21 +352,21 @@ let plds2 () =
     && z' = (int 2) * z
     && x = y
   in
-  let closure = PLDS.star srk tr_symbols phi in
+  let closure = DLTS.star srk tr_symbols phi in
   assert_equal (Smt.is_sat srk (closure && x < x')) `Sat;
   assert_implies closure (z' = (int 2) * z || z' = z)
 
-let plds3 () =
+let dlts3 () =
   let open Infix in
   let phi =
     x' = (int 0)
     && y' = y + (int 2) * x
     && x = (int 0)
   in
-  let closure = PLDS.star srk tr_symbols phi in
+  let closure = DLTS.star srk tr_symbols phi in
   assert_implies closure (x = x' && y = y')
 
-let plds4 () =
+let dlts4 () =
   let open Infix in
   let phi =
     x' = (int 2) * x
@@ -374,12 +374,12 @@ let plds4 () =
     && y' = y + (int 2)
     && z' = z + (int 1)
   in
-  let closure = PLDS.star srk tr_symbols phi in
+  let closure = DLTS.star srk tr_symbols phi in
   assert_equal (Smt.is_sat srk (closure && z' = z + (int 2))) `Sat;
   assert_implies closure (z' = z || x + y = (int 0) || x + (int 2) = (int 0));
   assert_implies closure (z' - z <= (int 2))
 
-let plds5 () =
+let dlts5 () =
   let open Infix in
   let phi =
     x' = x + (int 1)
@@ -389,17 +389,17 @@ let plds5 () =
     && y = (int 0)
     && z = (int 1)
   in
-  let closure = PLDS.star srk tr_symbols phi in
+  let closure = DLTS.star srk tr_symbols phi in
   assert_equal (Smt.is_sat srk (closure && x' = x + (int 1))) `Sat;
   assert_implies closure (x' - x <= (int 1))
 
-let plds_false () =
+let dlts_false () =
   let open Infix in
-  let closure = PLDS.star srk tr_symbols (mk_false srk) in
+  let closure = DLTS.star srk tr_symbols (mk_false srk) in
   assert_implies closure (x' = x && y' = y && z' = z);
   assert_equal (Smt.is_sat srk closure) `Sat
 
-let plds_one () =
+let dlts_one () =
   let open Infix in
   let phi =
     x' = x + (int 1)
@@ -408,7 +408,7 @@ let plds_one () =
     && z = (int 1)
     && x = y
   in
-  let closure = PLDS.star srk tr_symbols phi in
+  let closure = DLTS.star srk tr_symbols phi in
   assert_equal (Smt.is_sat srk (closure && x' = x + (int 100))) `Sat;
   assert_implies closure (z' = z || z' = (int 1))
 
@@ -428,11 +428,11 @@ let suite = "Iteration" >::: [
     "periodic_rational3" >:: periodic_rational3;
     "periodic_rational4" >:: periodic_rational4;
     "periodic_rational5" >:: periodic_rational5;
-    "plds1" >:: plds1;
-    "plds2" >:: plds2;
-    "plds3" >:: plds3;
-    "plds4" >:: plds4;
-    "plds5" >:: plds5;
-    "plds_false" >:: plds_false;
-    "plds_one" >:: plds_one;
+    "dlts1" >:: dlts1;
+    "dlts2" >:: dlts2;
+    "dlts3" >:: dlts3;
+    "dlts4" >:: dlts4;
+    "dlts5" >:: dlts5;
+    "dlts_false" >:: dlts_false;
+    "dlts_one" >:: dlts_one;
   ]

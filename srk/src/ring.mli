@@ -44,7 +44,7 @@ module type Vector = sig
   (** [add_term a i v] adds [a] to the [i]th position of [v]. *)
   val add_term : scalar -> dim -> t -> t
 
-(** [of_term a i] is the all-zero vector except has [a] at position [i]. *)
+  (** [of_term a i] is the all-zero vector except has [a] at position [i]. *)
   val of_term : scalar -> dim -> t
 
   (** Enumerate over all (non-zero) entries of a vector and their position. *)

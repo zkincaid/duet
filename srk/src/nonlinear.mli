@@ -48,3 +48,13 @@ val optimize_box : ?context:SrkZ3.z3_context ->
   'a formula ->
   ('a term) list ->
   [ `Sat of Interval.t list | `Unsat | `Unknown ]
+
+
+(** Simplification rules power and log. *)
+val simplify_terms_rewriter : 'a context -> 'a rewriter
+
+(** Simplify power and log terms. *)
+val simplify_terms : 'a context -> 'a formula -> 'a formula
+
+(** Simplify power and log terms. *)
+val simplify_term : 'a context -> 'a term -> 'a term

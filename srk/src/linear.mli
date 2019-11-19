@@ -200,13 +200,13 @@ module PartialLinearMap : sig
   val guard : t -> QQVectorSpace.t
 
   (** Given matrices [A] and [B] representing a system of equations
-     [Ax' = Bx], find a matrix [S] and a partial linear dynamical
-     system (PLDS) [f] such that:
+     [Ax' = Bx], find a matrix [S] and a deterministic linear transition
+     system (DLTS) [f] such that:
       1. [Ax' = Bx] implies [Sx' = f(Sx)]
-      2. if [g] is a PLDS and [T] is a matrix such that [Ax' = Bx]
+      2. if [g] is a DLTS and [T] is a matrix such that [Ax' = Bx]
      implies [Tx' = g(Tx)], then there is some [U] such that [T = US]
      and [y' = f(y)] implies [Uy' = g(Uy)].  *)
-  val max_plds : QQMatrix.t -> QQMatrix.t -> QQMatrix.t * t
+  val max_dlts : QQMatrix.t -> QQMatrix.t -> QQMatrix.t * t
 end
 
 (** {2 Affine terms} *)
