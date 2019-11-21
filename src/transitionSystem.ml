@@ -727,7 +727,50 @@ module Make
 
   module type AbstractDomain = Abstract.MakeAbstractRSY(C).Domain
 
-  let forward_invariants (type a) (module D : AbstractDomain with type t = a) tg entry =
+  module type IncrAbstractDomain = sig
+    include AbstractDomain
+    val incr_abstract : C.t Interpretation.interpretation list -> symbol list -> C.t Smt.Solver.t -> t -> (t * C.t Interpretation.interpretation list)
+  end
+
+  module LiftIncr (A : AbstractDomain) = struct
+    include A
+    let incr_abstract models symbols solver post =
+      let start =      
+        List.fold_left (fun a m -> join a (of_model m symbols)) post models
+      in
+      let rec fix prop models =
+        Smt.Solver.add solver [mk_not srk (formula_of prop)];
+        match Smt.Solver.get_model solver with
+        | `Sat m ->
+          fix (join (of_model m symbols) prop) (m::models)
+        | `Unsat -> (prop, models)
+        | `Unknown ->
+          logf ~level:`warn "Unknown result in affine invariant update";
+          (top, models)
+      in
+      Smt.Solver.push solver;
+      let result = fix start models in
+      Smt.Solver.pop solver 1;
+      result
+  end
+
+  module ProductIncr (A : IncrAbstractDomain)(B : IncrAbstractDomain) = struct
+    type t = A.t * B.t
+    let top = (A.top, B.top)
+    let bottom = (A.bottom, B.bottom)
+    let exists p (v1, v2) = (A.exists p v1, B.exists p v2)
+    let join (v1, v2) (v1', v2') = (A.join v1 v1', B.join v2 v2')
+    let equal (v1, v2) (v1', v2') = A.equal v1 v1' && B.equal v2 v2'
+    let of_model  m symbols = (A.of_model m symbols, B.of_model m symbols)
+    let formula_of  (v1, v2) = mk_and C.context [A.formula_of v1; B.formula_of v2]
+
+    let incr_abstract models symbols solver (post_a, post_b) =
+      let (a, models) = A.incr_abstract models symbols solver post_a in
+      let (b, models) = B.incr_abstract models symbols solver post_b in
+      ((a,b), models)
+  end
+
+  let forward_invariants (type a) (module D : IncrAbstractDomain with type t = a) tg entry =
     let update ~pre weight ~post =
       match weight with
       | Weight tr ->
@@ -755,6 +798,7 @@ module Make
           mk_and srk (substitute_map srk subst (T.guard tr)
                       ::substitute_map srk subst pre_formula
                       ::transform_eqs)
+          |> Nonlinear.uninterpret srk
         in
         let symbols = (* Symbols in pre or defined by tr *)
           VarSet.fold
@@ -768,17 +812,7 @@ module Make
         in
         let solver = Smt.mk_solver srk in
         Smt.Solver.add solver [tf];
-        let rec fix post =
-          Smt.Solver.add solver [mk_not srk (D.formula_of post)];
-          match Smt.Solver.get_model solver with
-          | `Sat m ->
-            fix (D.join (D.of_model m symbols) post)
-          | `Unsat -> post
-          | `Unknown ->
-            logf ~level:`warn "Unknown result in affine invariant update";
-            D.top
-        in
-        let post' = fix post in
+        let (post', _) = D.incr_abstract [] symbols solver post in
         if D.equal post' post then
           None
         else
