@@ -490,9 +490,9 @@ module SA = Abstract.MakeAbstractRSY(Ctx)
 
 let decorate_transition_system predicates ts entry =
   let module AbsDom =
-    SA.Product
-      (SA.Product(SA.AffineRelation)(SA.Sign))
-      (SA.PredicateAbs(struct let universe = predicates end))
+    TS.ProductIncr
+      (TS.ProductIncr(TS.LiftIncr(SA.Sign))(TS.LiftIncr(SA.AffineRelation)))
+      (TS.LiftIncr(SA.PredicateAbs(struct let universe = predicates end)))
   in
   let inv = TS.forward_invariants (module AbsDom) ts entry in
   let member varset sym =
