@@ -1778,15 +1778,18 @@ module PresburgerGuard = struct
 
 end
 
+module PLM = Linear.PartialLinearMap
+
+type 'a dlts_abstraction =
+  { dlts : PLM.t;
+    simulation : ('a term) array }
+
 module DLTS = struct
-  module PLM = Linear.PartialLinearMap
   module VS = Linear.QQVectorSpace
   module V = Linear.QQVector
   module M = Linear.QQMatrix
 
-  type 'a t =
-    { dlts : PLM.t;
-      simulation : ('a term) array }
+  type 'a t = 'a dlts_abstraction
 
   let dimension iter = Array.length iter.simulation
 
@@ -1817,7 +1820,7 @@ module DLTS = struct
       Format.fprintf formatter "@]"
     end
 
-  let exp srk tr_symbols loop_count iter =
+  let exp_impl base_exp srk tr_symbols loop_count iter =
     let open PLM in
     let sim i = iter.simulation.(i) in
     let post_map = (* map pre-state vars to post-state vars *)
@@ -1876,7 +1879,7 @@ module DLTS = struct
               block_eq = [underlying_block];
               block_leq = [] }
           in
-          SolvablePolynomial.exp srk tr_symbols loop_count underlying_iter
+          base_exp srk tr_symbols loop_count underlying_iter
         in
         let domain_constraints =
           List.map (fun t ->
@@ -1910,6 +1913,9 @@ module DLTS = struct
                   ; fix h (i+1) ]
     in
     fix (PLM.identity dim) 0
+
+  let exp srk tr_symbols loop_count iter =
+    exp_impl SolvablePolynomialPeriodicRational.exp srk tr_symbols loop_count iter
 
   let abstract ?(exists=fun x -> true) srk tr_symbols phi =
     let phi = Nonlinear.linearize srk phi in
@@ -1998,4 +2004,90 @@ module DLTS = struct
                                         to_formula srk iter2])
 
   let widen = join
+end
+
+
+module DLTSPeriodicRational = struct
+  include DLTS
+
+  let abstract_spectral spectral_decomp ?(exists=fun x -> true) srk tr_symbols phi =
+    let { dlts; simulation } = DLTS.abstract ~exists srk tr_symbols phi in
+
+    let rec fix mA mB = (* Ax' = Bx *)
+      let (mS, dlts) = PLM.max_dlts mA mB in
+      let (seq, dom) = PLM.iteration_sequence dlts in
+
+      let mT = PLM.map (BatList.last seq) in
+      let dims = SrkUtil.Int.Set.elements (QQMatrix.row_set mS) in
+      let sd = spectral_decomp mT dims in
+
+      let mP = VS.matrix_of sd in
+      let mPS = QQMatrix.mul mP mS in
+      let mPTS = BatList.reduce QQMatrix.mul [mP; PLM.map dlts; mS] in
+      let mPDS =
+        BatList.reduce QQMatrix.mul [mP; VS.matrix_of (PLM.guard dlts); mS]
+      in
+      if List.length sd = QQMatrix.nb_rows mS then
+        let map = match Linear.divide_right mPTS mPS with
+          | Some t -> t
+          | None -> assert false
+        in
+        let guard = match Linear.divide_right mPDS mPS with
+          | Some mG -> VS.of_matrix mG
+          | None -> assert false
+        in
+        (mPS, PLM.make map guard)
+      else
+        let mB =
+          let size = QQMatrix.nb_rows mPS in
+          BatEnum.fold (fun m (i, row) ->
+              QQMatrix.add_row (i + size) row m)
+            mPTS
+            (QQMatrix.rowsi mPDS)
+        in
+        fix mPS mB
+    in
+    let (mS, pr_dlts) =
+      (* DLTS: x' = Tx when Dx = 0; represent in the form Ax' = Bx as
+         [ I ] x' = [ T ] x
+         [ 0 ]      [ D ]
+      *)
+      let size = Array.length simulation in
+      let mA =
+        QQMatrix.identity (BatList.of_enum (0 -- (size - 1)))
+      in
+      let mB =
+        BatList.fold_lefti (fun m i row ->
+            QQMatrix.add_row (i + size) row m)
+          (PLM.map dlts)
+          (PLM.guard dlts)
+      in
+      fix mA mB
+    in
+    let pr_simulation =
+      QQMatrix.rowsi mS
+      /@ (fun (_, row) ->
+          Linear.term_of_vec srk (fun i -> simulation.(i)) row
+          |> SrkSimplify.simplify_term srk)
+    |> BatArray.of_enum
+    in
+    { dlts = pr_dlts;
+      simulation = pr_simulation }
+
+  let abstract ?(exists=fun x -> true) srk tr_symbols phi =
+    let spectral_decomp m dims =
+      Linear.periodic_rational_spectral_decomposition m dims
+      |> List.map (fun (_, _, v) -> v)
+    in
+    abstract_spectral spectral_decomp ~exists srk tr_symbols phi
+
+  let abstract_rational ?(exists=fun x -> true) srk tr_symbols phi =
+    let spectral_decomp m dims =
+      Linear.rational_spectral_decomposition m dims
+      |> List.map (fun (_, v) -> v)
+    in
+    abstract_spectral spectral_decomp ~exists srk tr_symbols phi
+
+  let exp srk tr_symbols loop_count iter =
+    exp_impl SolvablePolynomialPeriodicRational.exp srk tr_symbols loop_count iter
 end

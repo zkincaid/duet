@@ -24,5 +24,21 @@ module SolvablePolynomialPeriodicRational : PreDomainWedge
    Presurger-definable dynamics. *)
 module PresburgerGuard : PreDomain
 
+type 'a dlts_abstraction =
+  { dlts : Linear.PartialLinearMap.t;
+    simulation : ('a term) array }
+
 (** Deterministic linear transition systems *)
-module DLTS : PreDomain
+module DLTS : PreDomain with type 'a t = 'a dlts_abstraction
+
+module DLTSPeriodicRational : sig
+  include PreDomain with type 'a t = 'a dlts_abstraction
+
+  (** Find best abstraction as a DLTS with rational (rather than
+     periodic rational) spectrum *)
+  val abstract_rational : ?exists:(symbol -> bool) ->
+    'a context ->
+    (symbol * symbol) list ->
+    'a formula ->
+    'a t
+end
