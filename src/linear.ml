@@ -570,7 +570,7 @@ module QQVectorSpace = struct
 
   let equal vU vV = subspace vU vV && subspace vV vU
 
-  (* Create a matrix whose rows are a a basis for the space *)
+  (* Create a matrix whose rows are a basis for the space *)
   let matrix_of vU =
     BatList.fold_lefti
       (fun m i v -> QQMatrix.add_row i v m)
@@ -789,7 +789,7 @@ module PartialLinearMap = struct
     let rec fix g =
       let h = compose f g in
       if VS.equal g.guard h.guard then
-        ([], g.guard)
+        ([g], g.guard)
       else
         let (seq, stable) = fix h in
         (g::seq, stable)

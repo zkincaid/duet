@@ -182,7 +182,7 @@ module PartialLinearMap : sig
   val compose : t -> t -> t
 
   (** Repeatly compose a partial map with itself until the domain
-     stabilizes; return both iteration sequence and the ultimate guard
+     stabilizes; return both iteration sequence and the invariant guard
      of the function.
 
      We have guard(f) <= guard(f o f) <= guard(f o f o f) <= ...
