@@ -2018,6 +2018,43 @@ let is_sat srk phi =
   else
     go ()
 
+let reduce ~lemma wedge =
+  let srk = wedge.srk in
+  let cs = wedge.cs in
+  let rewrite =
+    let ideal = List.map poly_of_vec (affine_hull wedge) in
+    Polynomial.Rewrite.mk_rewrite Monomial.degrevlex ideal
+    |> Polynomial.Rewrite.grobner_basis
+    |> Polynomial.Rewrite.reduce_rewrite
+  in
+  let zero = mk_zero srk in
+  let provenance_formula ps =
+    List.map (fun p -> mk_eq srk (CS.term_of_polynomial cs p) zero) ps
+    |> mk_and srk
+  in
+  let eqs =
+    List.map
+      (fun p -> mk_eq srk (CS.term_of_polynomial cs p) zero)
+      (Polynomial.Rewrite.generators rewrite)
+  in
+  let constraints =
+    polynomial_constraints ~lemma wedge
+    |> List.map (fun (cons, p) ->
+        let (q, prov) = Polynomial.Rewrite.preduce rewrite p in
+        lemma (mk_if srk
+                 (provenance_formula prov)
+                 (mk_eq srk (CS.term_of_polynomial cs p) (CS.term_of_polynomial cs q)));
+        let qterm = CS.term_of_polynomial cs q in
+        match cons with
+        | `Nonneg -> mk_leq srk (mk_real srk QQ.zero) qterm
+        | `Pos -> mk_lt srk (mk_real srk QQ.zero) qterm
+        | `Zero -> mk_eq srk (mk_real srk QQ.zero) qterm)
+  in
+  let simplify phi =
+    SrkSimplify.simplify_terms srk (Nonlinear.simplify_terms srk phi)
+  in
+  of_atoms srk (List.map simplify (eqs @ constraints))
+
 type ('a, 'b) subwedge =
   { of_wedge : lemma:('a formula -> unit) -> 'a t -> 'b;
     join : lemma:('a formula -> unit) -> 'b -> 'b -> 'b;
