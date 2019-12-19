@@ -1,6 +1,5 @@
 %{
 
-open BatPervasives
 open SrkAst
 
 let pp_pos formatter pos =
