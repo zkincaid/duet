@@ -1,7 +1,5 @@
 open OUnit
-open Abstract
 open Syntax
-open SrkApron
 open Test_pervasives
 
 module QQMatrix = Linear.QQMatrix

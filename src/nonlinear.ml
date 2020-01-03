@@ -28,7 +28,6 @@ module SymInterval = struct
       lower = [];
       interval = ivl }
 
-  let zero srk = of_interval srk Interval.zero
   let bottom srk = of_interval srk Interval.bottom
   let top srk = of_interval srk Interval.top
 
@@ -175,7 +174,7 @@ let uninterpret_rewriter srk =
         | (_, `Real k) when not (QQ.equal k QQ.zero) ->
           (* division by constant -> scalar mul *)
           (mk_mul srk [mk_real srk (QQ.inverse k); x] :> ('a,typ_fo) expr)
-        | (`Real k, _) -> (mk_mul srk [x; mk_app srk inv [y]] :> ('a,typ_fo) expr)
+        | (`Real _, _) -> (mk_mul srk [x; mk_app srk inv [y]] :> ('a,typ_fo) expr)
         | _ -> mk_app srk mul [x; mk_app srk inv [y]]
       end
     | `Binop (`Mod, x, y) ->

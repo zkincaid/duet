@@ -108,6 +108,7 @@ module Make
       return a sequence of intermediate assertions [phi_1 ... phi_n] that
       support the proof (for each [i], [{ phi_{i-1} } tr_i { phi_i }] holds,
       where [phi_0] is [true] and [phi_n] implies the post-condition). *)
+
   val interpolate : t list -> C.t formula -> [ `Valid of C.t formula list
                                              | `Invalid
                                              | `Unknown ]

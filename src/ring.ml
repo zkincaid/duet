@@ -135,8 +135,6 @@ module AbelianGroupMap (M : Map) (G : AbelianGroup) = struct
 
   let equal = M.equal G.equal
 
-  let compare = M.compare
-
   let of_term coeff dim = add_term coeff dim zero
 
   let negate = M.map G.negate
@@ -183,7 +181,6 @@ module MakeMatrix (R : S) = struct
 
   let equal = M.equal
   let pivot = M.pivot
-  let compare = IntMap.compare
   let add_row i vec = M.add_term vec i
   let rows = IntMap.values
   let rowsi = IntMap.enum

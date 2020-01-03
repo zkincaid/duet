@@ -18,6 +18,9 @@ module type Univariate = sig
 
   (** Exponentiation *)
   val exp : t -> int -> t
+
+  (** [mul_monomial k d p] multiplies the polynomial p by k * x^d *)
+  val mul_monomial : scalar -> int -> t -> t
 end
 
 (** Univariate polynomials over a given ring *)
@@ -143,6 +146,9 @@ module type Multivariate = sig
   (** Generalization of polynomial composition -- substitute each
      dimension for a multivariate polynomial *)
   val substitute : (int -> t) -> t -> t
+
+  (** Multiply a polynomial by a monomial *)
+  val mul_monomial : Monomial.t -> t -> t
 
   (** Divide a polynomial by a monomial *)
   val div_monomial : t -> Monomial.t -> t option

@@ -33,9 +33,6 @@ let qq_of_coeff_exn = function
 
 let coeff_of_qq = Coeff.s_of_mpqf
 
-let scalar_zero = Coeff.s_of_int 0
-let scalar_one = Coeff.s_of_int 1
-
 let mk_log = Nonlinear.mk_log
 let mk_pow = Nonlinear.mk_pow
 
@@ -340,7 +337,7 @@ let bound_polynomial wedge polynomial =
       in
       Interval.add ivl monomial_ivl)
     (bound_vec wedge t)
-    (P.enum polynomial)
+    (P.enum p)
 
 let affine_hull wedge =
   let open Lincons0 in
@@ -646,7 +643,7 @@ let strengthen_intervals lemma wedge =
     let term = CS.term_of_coordinate wedge.cs id in
     match CS.destruct_coordinate wedge.cs id with
     | `Mul (x, y) ->
-      let go (x,x_ivl,x_term) (y,y_ivl,y_term) =
+      let go (_,x_ivl,x_term) (y,y_ivl,y_term) =
         if Interval.is_nonnegative y_ivl then
           begin
             let y_nonnegative = mk_leq srk zero y_term in
@@ -799,7 +796,7 @@ let strengthen_intervals lemma wedge =
       add_bound precondition lo;
       add_bound precondition hi
 
-    | `Mod (x, y) ->
+    | `Mod (_, y) ->
       let y_ivl = bound_vec wedge y in
       let zero = mk_real srk QQ.zero in
       add_bound (mk_true srk) (mk_leq srk zero term);
@@ -812,7 +809,7 @@ let strengthen_intervals lemma wedge =
       else
         ()
 
-    | `App (func, args) -> ()
+    | `App (_, _) -> ()
   done
 
 let strengthen_products lemma rewrite wedge =
@@ -1685,7 +1682,7 @@ let exists
 
             (* lemma constraint needed to prove bounds for p *)
             let p_ivl_lemma =
-              let (v,q) = P.split_linear p in
+              let q = snd (P.split_linear p) in
               let constraints =
                 BatEnum.fold (fun constraints dim ->
                     let dim_ivl = bound_coordinate wedge dim in
@@ -2060,7 +2057,7 @@ type ('a, 'b) subwedge =
     join : lemma:('a formula -> unit) -> 'b -> 'b -> 'b;
     to_formula : 'b -> 'a formula }
 
-let abstract_subwedge subwedge ?exists:(p=fun x -> true) ?(subterm=fun x -> true) srk phi =
+let abstract_subwedge subwedge ?exists:(p=fun _ -> true) ?(subterm=fun _ -> true) srk phi =
   let phi = eliminate_ite srk phi in
   let phi = SrkSimplify.simplify_terms srk phi in
   logf "Abstracting formula@\n%a"
@@ -2212,9 +2209,9 @@ let abstract_subwedge_weak subwedge srk phi =
   logf "Abstraction result:@\n%a" (Formula.pp srk) (subwedge.to_formula result);
   result
 
-let abstract ?exists:(p=fun x -> true) ?(subterm=fun x -> true) srk phi =
+let abstract ?exists:(p=fun _ -> true) ?(subterm=fun _ -> true) srk phi =
   let wedge =
-    { of_wedge = (fun ~lemma w -> w);
+    { of_wedge = (fun ~lemma:_ w -> w);
       join = (fun ~lemma w1 w2 -> join ~lemma w1 w2);
       to_formula = to_formula }
   in
@@ -2228,7 +2225,7 @@ let ensure_min_max srk =
     [("min", `TyFun ([`TyReal; `TyReal], `TyReal));
      ("max", `TyFun ([`TyReal; `TyReal], `TyReal))]
 
-let symbolic_bounds_formula_list ?exists:(p=fun x -> true) srk phi symbol =
+let symbolic_bounds_formula_list ?exists:(p=fun _ -> true) srk phi symbol =
   let symbol_term = mk_const srk symbol in
   let subterm x = x != symbol in
   let of_wedge ~lemma wedge =
@@ -2266,7 +2263,7 @@ let symbolic_bounds_formula_list ?exists:(p=fun x -> true) srk phi symbol =
       in
       mk_and srk [lower_bounds; upper_bounds]
   in
-  let join ~lemma x y = match x, y with
+  let join ~lemma:_ x y = match x, y with
     | z, None | None, z -> z
     | Some (lower1, upper1), Some (lower2, upper2) ->
       Some (lower1 @ lower2, upper1 @ upper2)
@@ -2288,7 +2285,7 @@ let symbolic_bounds_formula_list ?exists:(p=fun x -> true) srk phi symbol =
     let upper = if List.mem [] upper then [[]] else upper in
     `Sat (lower, upper)
 
-let symbolic_bounds_formula ?exists:(p=fun x -> true) srk phi symbol =
+let symbolic_bounds_formula ?exists:(p=fun _ -> true) srk phi symbol =
   ensure_min_max srk;
   let min = get_named_symbol srk "min" in
   let max = get_named_symbol srk "max" in
@@ -2319,7 +2316,7 @@ let symbolic_bounds_formula ?exists:(p=fun x -> true) srk phi symbol =
     `Sat (lower, upper)
   | `Unsat -> `Unsat
 
-let symbolic_bounds_formula ?(exists=fun x -> true) srk phi symbol =
+let symbolic_bounds_formula ?(exists=fun _ -> true) srk phi symbol =
   Log.time "symbolic_bounds_formula" (symbolic_bounds_formula ~exists srk phi) symbol
 
 let bounds wedge term =
@@ -2342,8 +2339,8 @@ let polyhedron wedge =
 
 let cover ?subterm:(subterm=(fun _ -> true)) srk p phi =
   let disj_wedge =
-    { of_wedge = (fun ~lemma w -> to_formula w);
-      join = (fun ~lemma w1 w2 -> mk_or srk [w1; w2]);
+    { of_wedge = (fun ~lemma:_ w -> to_formula w);
+      join = (fun ~lemma:_ w1 w2 -> mk_or srk [w1; w2]);
       to_formula = (fun x -> x) }
   in
   Log.time "Cover" (abstract_subwedge disj_wedge ~exists:p ~subterm srk) phi

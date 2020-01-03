@@ -87,18 +87,6 @@ let test_sum4 () =
   in
   assert_equal_exppoly expected_sum sum
 
-let test_sum4 () =
-  let f =
-    let open Infix in
-    (x*x - x)
-  in
-  let sum = ExpPolynomial.summation f in
-  let expected_sum =
-    let open Infix in
-    (ExpPolynomial.scalar (QQ.of_frac 1 3))*(x - (int 1))*x*(x + (int 1))
-  in
-  assert_equal_exppoly expected_sum sum
-
 let test_sum5 () =
   let f =
     let open Infix in
@@ -151,7 +139,7 @@ let test_rec4 () =
   assert_equal_exppoly expected_sln sln
 
 let rec_list lambda xs =
-  BatList.fold_lefti (fun (sum,xs) i x ->
+  BatList.fold_left (fun (sum,xs) x ->
       let total = QQ.add (QQ.mul lambda sum) x in
       (total,total::xs))
     (QQ.zero,[QQ.zero])

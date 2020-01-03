@@ -1,6 +1,5 @@
 open OUnit
 open Ring
-open Test_pervasives
 
 module UPZ = MakeUltPeriodicSeq(struct
     type t = int

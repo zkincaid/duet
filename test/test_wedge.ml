@@ -1,7 +1,6 @@
 open OUnit
 open BatPervasives
 open Syntax
-open SrkApron
 open Test_pervasives
 
 module CS = CoordinateSystem
