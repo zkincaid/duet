@@ -55,7 +55,7 @@ module Make (M : Hashtbl.HashedType) = struct
 
   module SetMap = Map.Make(struct
       type t = set
-      let compare x y = Stdlib.compare x.id y.id
+      let compare x y = Pervasives.compare x.id y.id
     end)
   let reverse_map ds empty add =
     let map_add rep m map =
