@@ -1,5 +1,3 @@
-open SrkAst
-open SrkApron
 open Syntax
 
 module Ctx = SrkAst.Ctx
@@ -137,7 +135,7 @@ let spec_list = [
   ("-affine-hull",
    Arg.String (fun file ->
        let phi = load_formula file in
-       let (qf, psi) = Quantifier.normalize srk phi in
+       let qf = fst (Quantifier.normalize srk phi) in
        if List.exists (fun (q, _) -> q = `Forall) qf then
          failwith "universal quantification not supported";
        let symbols = (* omits skolem constants *)
@@ -167,8 +165,8 @@ let spec_list = [
        let constants = fold_constants Symbol.Set.add phi Symbol.Set.empty in
        let rec go phi =
          match Formula.destruct srk phi with
-         | `Quantify (`Exists, name, typ, psi) -> "E" ^ (go psi)
-         | `Quantify (`Forall, name, typ, psi) -> "A" ^ (go psi)
+         | `Quantify (`Exists, _, _, psi) -> "E" ^ (go psi)
+         | `Quantify (`Forall, _, _, psi) -> "A" ^ (go psi)
          | _ -> ""
        in
        let qf_pre =

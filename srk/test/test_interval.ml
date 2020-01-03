@@ -1,5 +1,4 @@
 open OUnit
-open Interval
 
 let assert_equal = assert_equal ~cmp:Interval.equal ~printer:Interval.show
 

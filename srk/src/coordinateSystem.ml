@@ -133,8 +133,6 @@ let join_typ s t = match s,t with
   | `TyInt, `TyInt -> `TyInt
   | _, _ -> `TyReal
 
-let srk cs = cs.srk
-
 let pp formatter cs =
   Format.fprintf formatter "[@[<v 0>";
   cs.id_def |> A.iteri (fun id _ ->
@@ -338,7 +336,7 @@ let admit_term cs term = ignore (vec_of_term ~admit:true cs term)
 let admit_cs_term cs term = ignore (cs_term_id ~admit:true cs term)
 
 exception Unsafe
-let project_ideal cs ideal ?(subterm=fun x -> true) keep =
+let project_ideal cs ideal ?(subterm=fun _ -> true) keep =
   let dimension = dim cs in
   let srk = cs.srk in
   let subterm x = subterm x && keep x in

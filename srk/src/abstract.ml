@@ -1,7 +1,6 @@
 open Syntax
 open Linear
 open BatPervasives
-open Polyhedron
 
 include Log.Make(struct let name = "srk.abstract" end)
 
@@ -99,7 +98,7 @@ let boxify srk phi terms =
   | `Unsat -> mk_false srk
   | `Unknown -> assert false
 
-let abstract ?exists:(p=fun x -> true) srk man phi =
+let abstract ?exists:(p=fun _ -> true) srk man phi =
   let solver = Smt.mk_solver srk in
   let phi_symbols = symbols phi in
   let symbol_list = Symbol.Set.elements phi_symbols in
@@ -311,8 +310,6 @@ module MakeAbstractRSY (C : sig
           type t = C.t formula
           let compare = Formula.compare
         end)
-      let pp formatter set =
-        SrkUtil.pp_print_enum (Formula.pp C.context) formatter (enum set)
     end
 
     type t = PS.t
@@ -343,7 +340,7 @@ module MakeAbstractRSY (C : sig
   end
 
   let abstract (type a)
-      ?exists:(p=fun x -> true)
+      ?exists:(p=fun _ -> true)
       (module D : Domain with type t = a)
       phi =
     let phi_symbols = Symbol.Set.filter p (symbols phi) |> Symbol.Set.elements in

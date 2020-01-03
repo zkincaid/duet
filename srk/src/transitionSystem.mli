@@ -29,7 +29,6 @@ module Make
        val mem_transform : var -> t -> bool
        val get_transform : var -> t -> C.t term
        val assume : C.t formula -> t
-       val compare : t -> t -> int
        val equal : t -> t -> bool
        val mul : t -> t -> t
        val add : t -> t -> t

@@ -17,7 +17,7 @@ let pp formatter f =
     else
       Format.fprintf formatter "(%a)%a^x" QQX.pp p QQ.pp lambda
   in
-  let pp_sep fomatter () =
+  let pp_sep formatter () =
     Format.fprintf formatter "@ + "
   in
   if E.equal E.zero f then
@@ -137,8 +137,6 @@ let solve_rec ?(initial=QQ.zero) coeff f =
   in
   E.add_term (QQX.scalar initial) coeff homogenous
 
-let of_exponential lambda = E.of_term QQX.one lambda
-
 let term_of srk t f =
   Nonlinear.ensure_symbols srk;
   E.enum f /@ (fun (p, lambda) ->
@@ -180,8 +178,6 @@ module EP = struct
   let equal = equal
   let term_of = term_of
   let scalar_mul = scalar_mul
-  let enum = enum
-  let add_term = add_term
   let of_term = of_term
 end
 
@@ -360,7 +356,7 @@ module UltPeriodic = struct
     let p_len = List.length p in
     let rec transient current = function
       | (x::xs) when current = 0 -> x::(transient (a - 1) xs)
-      | (x::xs) -> transient (current - 1) xs
+      | (_::xs) -> transient (current - 1) xs
       | [] -> []
     in
     let first_periodic = b mod p_len in
@@ -384,7 +380,7 @@ module UltPeriodic = struct
   let solve_rec_periodic coeff period initial =
     let len = List.length period in
     let full_period = (* coeff^{m-1} * p_0(x) + ... + coeff^0 * p_{m-1}(x) *)
-      BatList.fold_lefti (fun ps i f ->
+      BatList.fold_left (fun ps f ->
           EP.add (EP.scalar_mul coeff ps) f)
         EP.zero
         period

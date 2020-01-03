@@ -13,21 +13,17 @@ include Log.Make(struct let name = "srk.vas" end)
 type transformer =
   { a : Z.t;
     b : V.t }
-[@@deriving ord, show]
+    [@@deriving ord, show]
 
 
 (* Figure out way to clean up these types a bit *)
 module Transformer = struct
-  type t = transformer 
-  [@@deriving ord, show]
+  type t = transformer [@@deriving ord]
 end
 
 module TSet = BatSet.Make(Transformer)
 
 type vas = TSet.t
-
-let pp_vas formatter (vas : vas) : unit =
-  SrkUtil.pp_print_enum pp_transformer formatter (TSet.enum vas)  
 
 (* A VAS abstraction contains a set of transformers, v,
  * and a list of linear simulations matrices, s_lst.
@@ -76,7 +72,7 @@ let unify2 matrices vects =
 
 let mk_top = {v=TSet.empty; s_lst=[]}
 
-let mk_bottom srk tr_symbols =
+let mk_bottom tr_symbols =
   (* Matrix in which 1 row for each sym in * tr_symbols; row has a 1
      exactly in the col for corresponding sym'*)
   let sim =
@@ -289,7 +285,7 @@ let exp_sx_constraints_helper srk ri ksum ksums svarstdims transformers kvarst
 (*Uses sx_constraints_helper to set initial values for each dimension of each equiv class*)
 let exp_sx_constraints srk coh_class_pairs transformers kvarst ksums unified_s tr_symbols =
   mk_and srk
-    (List.map (fun (kstack, svarstdims, ri, ksum) ->
+    (List.map (fun (_, svarstdims, ri, ksum) ->
          exp_sx_constraints_helper srk ri ksum ksums svarstdims transformers 
            kvarst unified_s tr_symbols)
         coh_class_pairs)
@@ -298,7 +294,7 @@ let exp_sx_constraints srk coh_class_pairs transformers kvarst ksums unified_s t
 (*Constraints for equalities of final termination value for each linear term*)
 let exp_lin_term_trans_constraints srk coh_class_pairs transformers unified_s =
   mk_and srk
-    (List.map (fun (kstack, svarstdims, ri, _) ->
+    (List.map (fun (kstack, svarstdims, _, _) ->
          mk_and srk
            (List.map (fun (svar, dim) ->
                 mk_eq srk
@@ -306,7 +302,7 @@ let exp_lin_term_trans_constraints srk coh_class_pairs transformers unified_s =
                   (mk_add srk
                      (svar :: 
                       (BatList.mapi
-                         (fun ind {a; b} ->
+                         (fun ind {b; _} ->
                             mk_mul srk 
                               [(List.nth kstack ind); mk_real srk (V.coeff dim b)])
                          transformers))))
@@ -328,7 +324,7 @@ let exp_kstack_eq_ksums srk coh_class_pairs =
 (*Combines all of the closure constraints that are used
  * in both VAS and VASS abstractions
  *)
-let exp_base_helper srk (tr_symbols : (symbol * symbol) list) loop_counter s_lst transformers =
+let exp_base_helper srk (_ : (symbol * symbol) list) loop_counter s_lst transformers =
  (*Create new symbols
   * Each coh class has:
   * a set of kvars, where the ith coh class jth kvar is
@@ -414,10 +410,10 @@ let coprod_compute_image v r =
   let unifr = unify r in
   (*Computes a representative dim for each coh class*)
   let rowreps = 
-      BatList.map (fun (dim', row) ->
+      BatList.map (fun (_, row) ->
           match BatEnum.get (V.enum row) with
+          | Some (_, dim) -> dim
           | None -> assert false
-          | Some (scalar, dim) -> dim
         )
         (BatList.of_enum (M.rowsi unifr))
   in
@@ -438,7 +434,7 @@ let coprod_compute_image v r =
   v'
 
 
-let coproduct srk vabs1 vabs2 : 'a t =
+let coproduct vabs1 vabs2 : 'a t =
   let (s_lst1, s_lst2, v1, v2) = (vabs1.s_lst, vabs2.s_lst, vabs1.v, vabs2.v) in 
   let s1, s2, s_lst = coprod_find_transformation s_lst1 s_lst2 in
   let v = TSet.union (coprod_compute_image v1 s1) (coprod_compute_image v2 s2) in
@@ -491,11 +487,11 @@ let alpha_hat srk imp tr_symbols =
                                 (mk_sub srk (mk_const srk x') (mk_const srk x))) in
         ((xdeltpairs, x'), xdeltphis) :: acc) [] tr_symbols) in
   let r, b1 = matrixify_vectorize_term_list srk 
-      (H.affine_hull srk imp (List.map (fun (x, x') -> x') tr_symbols)) in
+      (H.affine_hull srk imp (List.map snd tr_symbols)) in
   let i, b2 = matrixify_vectorize_term_list srk 
       (List.map (postify srk xdeltpairs)
          (H.affine_hull srk (mk_and srk (imp :: xdeltphis))
-            (List.map (fun (x'', x') -> x'') xdeltpairs))) in
+            (List.map fst xdeltpairs))) in
   let _, b = unify2 [i; r] [b2; b1] in
   let add_dim a offset =
     Z.add_term ZZ.one offset a
@@ -513,7 +509,7 @@ let alpha_hat srk imp tr_symbols =
 (*TODO:Make a better pp function*)
 let pp srk syms formatter vas = Format.fprintf formatter "%a" (Formula.pp srk) (gamma srk vas syms)
 
-let abstract ?(exists=fun x -> true) srk tr_symbols phi  =
+let abstract ?exists:(_=fun _ -> true) srk tr_symbols phi  =
   let phi = (rewrite srk ~down:(nnf_rewriter srk) phi) in
   let phi = Nonlinear.linearize srk phi in
   let solver = Smt.mk_solver srk in
@@ -527,15 +523,13 @@ let abstract ?(exists=fun x -> true) srk tr_symbols phi  =
       | None -> assert false
       | Some imp ->
         let sing_transformer_vas = alpha_hat srk (mk_and srk imp) tr_symbols in
-        go (coproduct srk vas sing_transformer_vas)
+        go (coproduct vas sing_transformer_vas)
   in
   Smt.Solver.add solver [phi];
-  let {v;s_lst} = go (mk_bottom srk tr_symbols) in
+  let {v;s_lst} = go (mk_bottom tr_symbols) in
   let result = {v;s_lst} in
   result
 
-
-
-let join  (srk :'a context) (tr_symbols : (symbol * symbol) list) (vabs1 : 'a t) (vabs2 : 'a t) = assert false
-let widen  (srk :'a context) (tr_symbols : (symbol * symbol) list) (vabs1 : 'a t) (vabs2 : 'a t) = assert false
-let equal (srk : 'a context) (tr_symbols : (symbol * symbol) list) (vabs1 : 'a t) (vabs2 : 'a t) = assert false
+let join  _ _ _ _  = assert false
+let widen  _ _ _ _  = assert false
+let equal  _ _ _ _  = assert false

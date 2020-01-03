@@ -1,5 +1,4 @@
 open OUnit
-open SrkParse
 
 let suite = "Main" >::: [
     Test_memo.suite;

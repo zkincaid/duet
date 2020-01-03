@@ -143,9 +143,9 @@ let rec evaluate_term interp ?(env=Env.empty) term =
       end
     | `Add xs -> List.fold_left QQ.add QQ.zero xs
     | `Mul xs -> List.fold_left QQ.mul QQ.one xs
-    | `Binop (`Div, dividend, divisor) when QQ.equal divisor QQ.zero ->
+    | `Binop (`Div, _, divisor) when QQ.equal divisor QQ.zero ->
       raise Divide_by_zero
-    | `Binop (`Mod, t, modulus) when QQ.equal modulus QQ.zero ->
+    | `Binop (`Mod, _, modulus) when QQ.equal modulus QQ.zero ->
       raise Divide_by_zero
     | `Binop (`Div, dividend, divisor) -> QQ.div dividend divisor
     | `Binop (`Mod, t, modulus) -> QQ.modulo t modulus

@@ -1,7 +1,5 @@
 open OUnit
 open Abstract
-open Syntax
-open SrkApron
 open Nonlinear
 open Test_pervasives
 
