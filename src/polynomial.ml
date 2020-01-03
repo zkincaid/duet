@@ -50,7 +50,7 @@ module MakeUnivariate(R : Ring.S) = struct
     in
     IntMap.enum p
     |> BatList.of_enum
-    |> BatList.sort (fun x y -> Stdlib.compare (fst x) (fst y))
+    |> BatList.sort (fun x y -> Pervasives.compare (fst x) (fst y))
     |> go 0
 
   let scalar k = add_term k 0 zero
@@ -237,7 +237,7 @@ module Monomial = struct
 
   let equal = IntMap.equal (=)
 
-  let compare = IntMap.compare Stdlib.compare
+  let compare = IntMap.compare Pervasives.compare
 
   let singleton dim power = mul_term dim power one
 
