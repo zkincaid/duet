@@ -426,7 +426,7 @@ module DomainRefinement (PreKleeneWithoutTiming : PreKleeneAlgebra) = struct
                     next_node_val := !next_node_val + 1;
                     cond_node_to_label := IntMap.add cond_node (label_to_atom node) !cond_node_to_label;
                     r_node_to_tail := IntMap.add node cond_node !r_node_to_tail;
-                    RGraph.add_vertex condPlus node
+                    RGraph.add_vertex condPlus cond_node
                   ) cycle_tail_nodes;
                 let cycle_tail_to_cond = List.map (fun r_node -> IntMap.find r_node !r_node_to_tail) cycle_tail_nodes in
                 let _ = List.fold_left
