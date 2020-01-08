@@ -562,6 +562,9 @@ let equational_saturation ?lemma:(lemma=(fun _ -> ())) wedge =
   done;
   !rewrite
 
+
+let gfm_limit = 4 (* bound on number of generalized Fourier-Motzkin rounds *)
+
 (* Exhaustively apply the rule
 
    r >= qm   m >= p   q >= 0
@@ -590,7 +593,7 @@ let generalized_fourier_motzkin lemma order wedge =
     && Abstract0.is_eq (get_manager()) w1.abstract w2.abstract
   in
   let iterations = ref 0 in
-  while !iterations < 3 && not (polyhedron_equal wedge (!old_wedge)) do
+  while !iterations < gfm_limit && not (polyhedron_equal wedge (!old_wedge)) do
     incr iterations;
     logf ~level:`trace "GFM iteration: %d" (!iterations);
     old_wedge := copy wedge;
