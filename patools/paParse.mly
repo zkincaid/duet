@@ -2,7 +2,6 @@
 open Srk
 open PaFormula
 open PredicateAutomata
-open BatPervasives
 open Patop
 
 let pp_pos formatter pos =
@@ -51,7 +50,7 @@ main:
         in
         let start =
           PaFormula.substitute
-            (undefined ~message:"Start formula should be a sentence")
+            (BatPervasives.undefined ~message:"Start formula should be a sentence")
             start
         in
         let pa = A.make alphabet [] start [] in
@@ -104,7 +103,8 @@ main_formula:
          if p = rel then
            rhs'
          else
-           mk_atom p (BatList.of_enum ((0 -- (k - 1)) /@ (fun i -> Var i)))
+           (let open BatPervasives in
+           mk_atom p (BatList.of_enum ((0 -- (k - 1)) /@ (fun i -> Var i))))
        in
        PaFormula.atom_substitute replace_rel body
      }
