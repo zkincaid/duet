@@ -1,5 +1,4 @@
 open Syntax
-open BatPervasives
 
 type t =
     Polynomial of int
@@ -17,7 +16,7 @@ let pp formatter x =
   | Exp b -> fprintf formatter "%a^n" QQ.pp b
   | Unknown -> pp_print_string formatter "??"
 
-let rec compare x y =
+let compare x y =
   match x, y with
   | Polynomial 0, Polynomial 0 -> `Eq
   | Polynomial 0, _ -> `Leq
@@ -82,7 +81,7 @@ let of_term srk term =
   let rec go term =
     match Term.destruct srk term with
     | `Real _ -> Polynomial 0
-    | `App (const, []) -> Polynomial 1
+    | `App (_, []) -> Polynomial 1
     | `App (func, [base; exp]) when func = pow ->
       let exp = match Expr.refine srk exp with
         | `Term t -> t
@@ -92,7 +91,7 @@ let of_term srk term =
         | `Real b, Polynomial 1 -> Exp b
         | _ , _ -> Unknown
       end
-    | `App (func, [base; exp]) when func = log ->
+    | `App (func, [_; exp]) when func = log ->
       let exp = match Expr.refine srk exp with
         | `Term t -> t
         | _ -> assert false

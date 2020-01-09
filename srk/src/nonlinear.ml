@@ -28,7 +28,6 @@ module SymInterval = struct
       lower = [];
       interval = ivl }
 
-  let zero srk = of_interval srk Interval.zero
   let bottom srk = of_interval srk Interval.bottom
   let top srk = of_interval srk Interval.top
 
@@ -175,7 +174,7 @@ let uninterpret_rewriter srk =
         | (_, `Real k) when not (QQ.equal k QQ.zero) ->
           (* division by constant -> scalar mul *)
           (mk_mul srk [mk_real srk (QQ.inverse k); x] :> ('a,typ_fo) expr)
-        | (`Real k, _) -> (mk_mul srk [x; mk_app srk inv [y]] :> ('a,typ_fo) expr)
+        | (`Real _, _) -> (mk_mul srk [x; mk_app srk inv [y]] :> ('a,typ_fo) expr)
         | _ -> mk_app srk mul [x; mk_app srk inv [y]]
       end
     | `Binop (`Mod, x, y) ->
@@ -396,16 +395,20 @@ let linearize srk phi =
   end
 
 let mk_log srk (base : 'a term) (x : 'a term) =
+  let pow = get_named_symbol srk "pow" in
   match Term.destruct srk base, Term.destruct srk x with
   | `Real b, `Real x when (QQ.lt QQ.one b) && (QQ.equal x QQ.one) ->
     mk_real srk QQ.zero
   | `Real b, `Real x when (QQ.lt QQ.one b) && (QQ.equal x b) ->
     mk_real srk QQ.one
+  | _, `App (p, [base'; t]) when p = pow && Expr.equal (base :> ('a,typ_fo) expr) base' ->
+    Expr.term_of srk t
   | _, _ ->
     let log = get_named_symbol srk "log" in
     mk_app srk log [base; x]
 
 let rec mk_pow srk (base : 'a term) (x : 'a term) =
+  let log = get_named_symbol srk "log" in
   match Term.destruct srk base with
   | `Real b when QQ.equal b QQ.one ->
     mk_real srk QQ.one
@@ -416,6 +419,13 @@ let rec mk_pow srk (base : 'a term) (x : 'a term) =
       (mk_eq srk (mk_mod srk x (mk_real srk (QQ.of_int 2))) (mk_real srk QQ.zero))
       pow
       (mk_neg srk pow)
+  | `Real b when QQ.lt QQ.zero b && QQ.lt b QQ.one ->
+    (* b^x when 0<b<1 yields 1/[(1/b)^x] *)
+    mk_div srk
+      (mk_real srk QQ.one)
+      (mk_pow srk (mk_div srk (mk_real srk QQ.one) base) x)
+    (* OR: b^x when 0<b<1 yields (1/b)^(-x) *)
+    (*(mk_pow srk (mk_div srk (mk_real srk QQ.one) base) (mk_neg srk x))*)
   | _ ->
     match Term.destruct srk x with
     | `Real power ->
@@ -425,6 +435,17 @@ let rec mk_pow srk (base : 'a term) (x : 'a term) =
           let pow = get_named_symbol srk "pow" in
         mk_app srk pow [base; x]
       end
+
+    | `Add xs ->
+      mk_mul srk (List.map (mk_pow srk base) xs)
+
+    | `Unop (`Neg, x) ->
+      mk_div srk (mk_real srk QQ.one) (mk_pow srk base x)
+
+    | `App (p, [base'; t]) when p = log && Expr.equal (base :> ('a,typ_fo) expr) base' ->
+      (* TODO: Applies only when t >= 0 *)
+      Expr.term_of srk t
+
     | _ ->
       let pow = get_named_symbol srk "pow" in
       mk_app srk pow [base; x]
@@ -444,3 +465,21 @@ let optimize_box ?(context=Z3.mk_context []) srk phi objectives =
   in
   Log.time "optimize"
     (SrkZ3.optimize_box ~context srk lin_phi) objective_symbols
+
+let simplify_terms_rewriter srk =
+  ensure_symbols srk;
+  let pow = get_named_symbol srk "pow" in
+  let log = get_named_symbol srk "log" in
+  fun expr ->
+    match destruct srk expr with
+    | `App (func, [x; y]) when func = pow ->
+      (mk_pow srk (Expr.term_of srk x) (Expr.term_of srk y) :> ('a, typ_fo) expr)
+    | `App (func, [x; y]) when func = log ->
+      (mk_log srk (Expr.term_of srk x) (Expr.term_of srk y) :> ('a, typ_fo) expr)
+    | _ -> expr
+
+let simplify_terms srk expr =
+  rewrite srk ~up:(simplify_terms_rewriter srk) expr
+
+let simplify_term srk expr =
+  rewrite srk ~up:(simplify_terms_rewriter srk) expr

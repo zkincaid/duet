@@ -1,5 +1,4 @@
 open OUnit
-open SrkParse
 
 let suite = "Main" >::: [
     Test_memo.suite;
@@ -12,10 +11,12 @@ let suite = "Main" >::: [
     Test_polynomial.suite;
     Test_exppolynomial.suite;
     Test_apron.suite;
+    Test_simplify.suite;
     Test_quantifier.suite;
     Test_wedge.suite;
     Test_abstract.suite;
     Test_iteration.suite;
+    Test_LinearSemiautomaton.suite;
     Test_transition.suite;
     Test_WeightedGraph.suite;
 ]

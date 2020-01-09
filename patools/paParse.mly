@@ -100,6 +100,7 @@ main_formula:
          PaFormula.substitute subst rhs
        in
        let replace_rel p k =
+         let open BatPervasives in
          if p = rel then
            rhs'
          else

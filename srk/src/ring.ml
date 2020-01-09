@@ -68,44 +68,29 @@ module type Matrix = sig
   val add : t -> t -> t
   val scalar_mul : scalar -> t -> t
   val mul : t -> t -> t
-
   val zero : t
-
   val identity : dim list -> t
-
   val row : dim -> t -> vector
-
+  val column : dim -> t -> vector
   val rowsi : t -> (dim * vector) BatEnum.t
-
   val min_row : t -> dim * vector
-
   val add_row : dim -> vector -> t -> t
-
   val add_column : dim -> vector -> t -> t
-
   val add_entry : dim -> dim -> scalar -> t -> t
-
   val pivot : dim -> t -> vector * t
-
+  val pivot_column : dim -> t -> vector * t
   val transpose : t -> t
-
   val entry : dim -> dim -> t -> scalar
-
   val entries : t -> (dim * dim * scalar) BatEnum.t
-
   val row_set : t -> SrkUtil.Int.Set.t
   val column_set : t -> SrkUtil.Int.Set.t
-
   val nb_rows : t -> int
   val nb_columns : t -> int
-
   val map_rows : (vector -> vector) -> t -> t
-
   val vector_right_mul : t -> vector -> vector
   val vector_left_mul : vector -> t -> vector
   val of_dense : scalar array array -> t
   val dense_of : t -> int -> int -> scalar array array
-
   val of_rows : vector list -> t
 end
 
@@ -149,8 +134,6 @@ module AbelianGroupMap (M : Map) (G : AbelianGroup) = struct
   let of_list = List.fold_left (fun vec (x,y) -> add_term x y vec) zero
 
   let equal = M.equal G.equal
-
-  let compare = M.compare
 
   let of_term coeff dim = add_term coeff dim zero
 
@@ -198,11 +181,23 @@ module MakeMatrix (R : S) = struct
 
   let equal = M.equal
   let pivot = M.pivot
-  let compare = IntMap.compare
   let add_row i vec = M.add_term vec i
   let rows = IntMap.values
   let rowsi = IntMap.enum
   let entry i j mat = V.coeff j (row i mat)
+
+  let column j mat =
+    BatEnum.fold (fun column (i, row) ->
+        V.add_term (V.coeff j row) i column)
+      V.zero
+      (rowsi mat)
+
+  let pivot_column j mat =
+    BatEnum.fold (fun (column, mat') (i, row) ->
+        let (entry, row') = V.pivot j row in
+        (V.add_term entry i column, add_row i row' mat'))
+      (V.zero, zero)
+      (rowsi mat)
 
   let add_entry i j k mat =
     add_row i (V.of_term k j) mat

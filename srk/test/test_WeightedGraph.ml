@@ -1,7 +1,5 @@
 open OUnit
-open Abstract
 open Syntax
-open SrkApron
 open Test_pervasives
 
 module V = struct
@@ -201,7 +199,9 @@ let recursive () =
   assert_post (RG.path_weight query 0 2) (x + y = (int 100));
   assert_not_post (RG.path_weight query 0 2) (y <= (int 99))
 
-let affine_invariants = TS.forward_invariants (module TS.AffineRelation)
+module D = Abstract.MakeAbstractRSY(Ctx)
+
+let affine_invariants = TS.forward_invariants (module TS.LiftIncr(D.AffineRelation))
 
 let aff_eq1 () =
   let open Infix in

@@ -4,6 +4,7 @@ open Syntax
 module QQX = Polynomial.QQX
 module QQMap = BatMap.Make(QQ)
 module E = Ring.RingMap(QQMap)(QQX)
+module QQMatrix = Linear.QQMatrix
 
 type t = E.t
 
@@ -16,7 +17,7 @@ let pp formatter f =
     else
       Format.fprintf formatter "(%a)%a^x" QQX.pp p QQ.pp lambda
   in
-  let pp_sep fomatter () =
+  let pp_sep formatter () =
     Format.fprintf formatter "@ + "
   in
   if E.equal E.zero f then
@@ -136,8 +137,6 @@ let solve_rec ?(initial=QQ.zero) coeff f =
   in
   E.add_term (QQX.scalar initial) coeff homogenous
 
-let of_exponential lambda = E.of_term QQX.one lambda
-
 let term_of srk t f =
   Nonlinear.ensure_symbols srk;
   E.enum f /@ (fun (p, lambda) ->
@@ -179,10 +178,83 @@ module EP = struct
   let equal = equal
   let term_of = term_of
   let scalar_mul = scalar_mul
-  let enum = enum
-  let add_term = add_term
   let of_term = of_term
 end
+
+module Vector = struct
+  include Ring.MakeVector(EP)
+  let of_qqvector vec =
+    Linear.QQVector.enum vec
+    /@ (fun (k, dim) -> (EP.scalar k, dim))
+    |> of_enum
+end
+
+module Matrix = struct
+  include Ring.MakeMatrix(EP)
+  let of_qqmatrix mat =
+    BatEnum.fold
+      (fun m (i, row) ->
+         add_row i (Vector.of_qqvector row) m)
+      zero
+      (Linear.QQMatrix.rowsi mat)
+  let pp = pp EP.pp
+end
+
+let exponentiate_rational matrix =
+  let dims =
+    SrkUtil.Int.Set.union
+      (QQMatrix.row_set matrix)
+      (QQMatrix.column_set matrix)
+    |> SrkUtil.Int.Set.elements
+  in
+  let rsd = Linear.rational_spectral_decomposition matrix dims in
+  if List.length rsd != List.length dims then
+    None
+  else
+    let rsd_mat =
+      BatList.fold_lefti (fun rsd_mat i (_, v) ->
+          QQMatrix.add_row i v rsd_mat)
+        QQMatrix.zero
+        rsd
+    in
+    let cf_matrix = (* rsd_mat * matrix^k *)
+      BatList.fold_lefti (fun cf i (lambda, v) ->
+          if QQ.equal lambda QQ.zero then
+            cf
+          else
+            let lambdak = of_exponential lambda in
+            (* If we have a Jordan chain
+                  v_0*M = lambda*v_0 + v_1
+                  v_1*M = lambda*v_1 + v_2
+                  ...
+                  v_m*M = lambda*v_m,
+               then
+                  v_1*M^k = sum_i lambda^{k-i} * (k choose i) * v_i *)
+            let cf_v =
+              BatList.fold_lefti (fun cf i v ->
+                  let coeff =
+                    (* lambda^{k-i} * (k choose i) *)
+                    mul
+                      (scalar_mul (QQ.inverse (QQ.exp lambda i)) lambdak)
+                      (of_polynomial (Polynomial.QQX.choose i))
+                  in
+                  Vector.add
+                    (Vector.scalar_mul coeff (Vector.of_qqvector v))
+                    cf)
+                Vector.zero
+                (Linear.jordan_chain matrix lambda v)
+            in
+            Matrix.add_row i cf_v cf)
+        Matrix.zero
+        rsd
+    in
+    (* rsd_mat_inv * cf_matrix = rsd_mat_inv * rsd_mat * matrix^k = matrix^k *)
+    let rsd_mat_inv =
+      match Linear.divide_right (QQMatrix.identity dims) rsd_mat with
+      | Some m -> m
+      | _ -> assert false (* dimension of rsd is equal to matrix size *)
+    in
+    Some (Matrix.mul (Matrix.of_qqmatrix rsd_mat_inv) cf_matrix)
 
 module UltPeriodic = struct
   type elt = EP.t
@@ -284,7 +356,7 @@ module UltPeriodic = struct
     let p_len = List.length p in
     let rec transient current = function
       | (x::xs) when current = 0 -> x::(transient (a - 1) xs)
-      | (x::xs) -> transient (current - 1) xs
+      | (_::xs) -> transient (current - 1) xs
       | [] -> []
     in
     let first_periodic = b mod p_len in
@@ -308,7 +380,7 @@ module UltPeriodic = struct
   let solve_rec_periodic coeff period initial =
     let len = List.length period in
     let full_period = (* coeff^{m-1} * p_0(x) + ... + coeff^0 * p_{m-1}(x) *)
-      BatList.fold_lefti (fun ps i f ->
+      BatList.fold_left (fun ps f ->
           EP.add (EP.scalar_mul coeff ps) f)
         EP.zero
         period

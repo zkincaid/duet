@@ -1,12 +1,9 @@
 open BatPervasives
-open Syntax
 
 type t =
   { lower : QQ.t option;
     upper : QQ.t option }
     [@@deriving ord]
-
-let equal x y = compare x y = 0
 
 let pp formatter x =
   Format.fprintf
@@ -114,20 +111,9 @@ let widening x y =
         | _ -> None
       end
   }
+
 (* Is every member of the interval x inside the interval y? *)
 let leq x y = equal x (meet x y)
-
-(* Is every member of the interval x <= every member of the interval y? *)
-let left x y =
-  match x.upper, y.lower with
-  | (Some x_hi, Some y_lo) -> QQ.leq x_hi y_lo
-  | (_, _) -> false
-
-(* Is every member of the interval x < every member of the interval y? *)
-let strictly_left x y =
-  match x.upper, y.lower with
-  | (Some x_hi, Some y_lo) -> QQ.lt x_hi y_lo
-  | (_, _) -> false
 
 let is_nonnegative x =
   match x.lower with

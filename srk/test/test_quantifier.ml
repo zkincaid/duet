@@ -1,7 +1,12 @@
 open OUnit
 open Quantifier
-open Syntax
 open Test_pervasives
+
+let simsat_ground () =
+  assert_equal `Sat (simsat srk (Ctx.mk_leq x y))
+
+let simsat_forward_ground () =
+  assert_equal `Sat (simsat_forward srk (Ctx.mk_leq x y))
 
 let simsat1 () =
   let phi =
@@ -86,6 +91,8 @@ let strategy2 () =
   | _ -> assert false
 
 let suite = "Quantifier" >::: [
+    "simsat_ground" >:: simsat_ground;
+    "simsat_forward_ground" >:: simsat_forward_ground;
     "simsat1" >:: simsat1;
     "mbp1" >:: mbp1;
     "mbp2" >:: mbp2;

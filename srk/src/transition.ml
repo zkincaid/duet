@@ -167,7 +167,9 @@ struct
         ([], [])
     in
     let body =
-      SrkSimplify.simplify_terms srk (mk_and srk (tr.guard::post_def))
+      mk_and srk (tr.guard::post_def)
+      |> rewrite srk
+        ~up:(SrkSimplify.simplify_terms_rewriter srk % Nonlinear.simplify_terms_rewriter srk)
     in
     (tr_symbols, body)
 
@@ -245,7 +247,7 @@ struct
     in
     let exists sym =
       match Var.of_symbol sym with
-      | Some v -> true
+      | Some _ -> true
       | None -> Symbol.Set.mem sym post_sym
     in
     let to_wedge z =
@@ -336,7 +338,7 @@ struct
           let fresh_skolem =
             Memo.memo (fun sym ->
                 match Var.of_symbol sym with
-                | Some v -> mk_const srk sym
+                | Some _ -> mk_const srk sym
                 | None ->
                   let name = show_symbol srk sym in
                   let typ = typ_symbol srk sym in
@@ -384,7 +386,7 @@ struct
     in
     let ss_post = substitute_const srk subscript (mk_not srk post) in
     match SrkZ3.interpolate_seq srk (List.rev (ss_post::seq)) with
-    | `Sat m -> `Invalid
+    | `Sat _ -> `Invalid
     | `Unknown -> `Unknown
     | `Unsat itp ->
       `Valid (List.map (substitute_const srk unsubscript) itp)

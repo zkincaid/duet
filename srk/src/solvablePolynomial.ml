@@ -79,10 +79,6 @@ let matrix_polyvec_mul m polyvec =
         QQXs.zero
         (V.enum (QQMatrix.row i m)))
 
-let polyvec_add polyvec polyvec' =
-  Array.init (Array.length polyvec) (fun i ->
-      QQXs.add polyvec.(i) polyvec'.(i))
-
 let vec_upxsvec_dot vec1 vec2 =
   BatEnum.fold (fun ep i ->
       UPXs.add
@@ -243,7 +239,7 @@ let closure_ocrs sp =
       close_block block offset
       |> List.iteri (fun i ineq ->
           match ineq with
-          | Equals (x, y) -> cf.(offset + i) <- y
+          | Equals (_, y) -> cf.(offset + i) <- y
           | _ -> assert false));
   cf
 
@@ -340,7 +336,7 @@ let closure_periodic_rational sp =
               List.fold_right (fun v cf ->
                   let cf_transform =
                     let v_Ai = (* vA^0, ..., vA^{p-1} *)
-                      BatEnum.fold (fun (v_transform, xs) i ->
+                      BatEnum.fold (fun (v_transform, xs) _ ->
                           let next = Linear.vector_left_mul v_transform transform in
                           (next, next::xs))
                         (v, [v])
@@ -684,8 +680,7 @@ let pp srk tr_symbols formatter iter =
       pp_rec "<=" offset formatter recurrence;
       (Array.length recurrence.blk_transform + offset))
       offset
-      iter.block_leq);
-  Format.fprintf formatter "@]@]}"
+      iter.block_leq)
 
 exception Not_a_polynomial
 
@@ -760,7 +755,7 @@ let extract_periodic_rational_matrix_eq srk wedge tr_symbols term_of_id =
     let dims = SrkUtil.Int.Set.elements (QQMatrix.row_set mA) in
     let prsd = Linear.periodic_rational_spectral_decomposition mB dims in
     let mU =
-      BatList.fold_lefti (fun m i (p,lambda,v) ->
+      BatList.fold_lefti (fun m i (_,_,v) ->
           QQMatrix.add_row i v m)
         QQMatrix.zero
         prsd
@@ -814,7 +809,7 @@ let extract_vector_leq srk wedge tr_symbols term_of_id base =
       term_of_id
   in
   let delta_map =
-    List.fold_left2 (fun map delta (s,s') ->
+    List.fold_left2 (fun map delta (s,_) ->
         Symbol.Map.add delta (mk_const srk s) map)
       Symbol.Map.empty
       delta
@@ -1056,7 +1051,7 @@ let extract_matrix_leq srk wedge tr_symbols term_of_id =
 
         (* Find a non-negative M such that B=M*A *)
         let m_entries = (* corresponds to one generic row of M *)
-          Array.init nb_constraints (fun i -> mk_symbol srk `TyReal)
+          Array.init nb_constraints (fun _ -> mk_symbol srk `TyReal)
         in
         (* Each entry of M must be non-negative *)
         let pos_constraints =
@@ -1067,7 +1062,7 @@ let extract_matrix_leq srk wedge tr_symbols term_of_id =
         let m_times_a =
           (0 -- (Array.length tr_coord - 1))
           /@ (fun i ->
-              let (pre, post) = tr_coord.(i) in
+              let pre = fst (tr_coord.(i)) in
               (0 -- (nb_constraints - 1))
               /@ (fun j ->
                   mk_mul srk [mk_const srk m_entries.(j);
@@ -1082,7 +1077,7 @@ let extract_matrix_leq srk wedge tr_symbols term_of_id =
               let row_constraints =
                 (0 -- (Array.length tr_coord - 1))
                 /@ (fun j ->
-                    let (pre, post) = tr_coord.(j) in
+                    let pre = fst (tr_coord.(j)) in
                     mk_eq srk
                       m_times_a.(j)
                       (mk_real srk (V.coeff pre (DArray.get constraints i))))
@@ -1391,7 +1386,7 @@ module SolvablePolynomialOne = struct
         (QQXs.of_dim (id_of_sym s'))
         (QQXs.of_dim (id_of_sym s))
     in
-    let add_recurrence s s' add =
+    let add_recurrence s add =
       let polynomial =
         QQXs.sub
           (QQXs.of_dim (id_of_sym s))
@@ -1423,7 +1418,7 @@ module SolvablePolynomialOne = struct
                 |> Polynomial.Rewrite.reduce (!rewrite)
                 |> QQXs.substitute subst
               in
-              add_recurrence s s' add;
+              add_recurrence s add;
               continue := true;
               false
             with IllFormedRecurrence -> true)
@@ -1441,7 +1436,7 @@ module SolvablePolynomialOne = struct
       block_eq = block_eq;
       block_leq = block_leq }
 
-  let abstract ?(exists=fun x -> true) srk tr_symbols phi =
+  let abstract ?(exists=fun _ -> true) srk tr_symbols phi =
     let post_symbols = post_symbols tr_symbols in
     let subterm x = not (Symbol.Set.mem x post_symbols) in
     Wedge.abstract ~exists ~subterm srk phi
@@ -1473,7 +1468,7 @@ module SolvablePolynomial = struct
       block_eq = block_eq;
       block_leq = block_leq }
 
-  let abstract ?(exists=fun x -> true) srk tr_symbols phi =
+  let abstract ?(exists=fun _ -> true) srk tr_symbols phi =
     let post_symbols = post_symbols tr_symbols in
     let subterm x = not (Symbol.Set.mem x post_symbols) in
     Wedge.abstract ~exists ~subterm srk phi
@@ -1505,7 +1500,7 @@ module SolvablePolynomialPeriodicRational = struct
       block_eq = block_eq;
       block_leq = block_leq }
 
-  let abstract ?(exists=fun x -> true) srk tr_symbols phi =
+  let abstract ?(exists=fun _ -> true) srk tr_symbols phi =
     let post_symbols = post_symbols tr_symbols in
     let subterm x = not (Symbol.Set.mem x post_symbols) in
     Wedge.abstract ~exists ~subterm srk phi
@@ -1779,47 +1774,41 @@ module PresburgerGuard = struct
 
 end
 
-module PLDS = struct
-  module PLM = Linear.PartialLinearMap
+module PLM = Linear.PartialLinearMap
+
+type 'a dlts_abstraction =
+  { dlts : PLM.t;
+    simulation : ('a term) array }
+
+module DLTS = struct
   module VS = Linear.QQVectorSpace
   module V = Linear.QQVector
   module M = Linear.QQMatrix
 
-  type 'a t =
-    { plds : PLM.t;
-      simulation : ('a term) array }
+  type 'a t = 'a dlts_abstraction
 
   let dimension iter = Array.length iter.simulation
-
-  let pp_mat srk f formatter m =
-    Format.fprintf formatter "[@[<v 1>";
-    QQMatrix.rowsi m |> BatEnum.iter (fun (i, r) ->
-        Format.fprintf formatter "%d: %a@;"
-          i
-          (Term.pp srk) (Linear.term_of_vec srk f r));
-    Format.fprintf formatter "@]]"
 
   let pp srk _ formatter iter =
     let sim i = iter.simulation.(i) in
     Format.fprintf formatter "@[<v 2>Map:";
     iter.simulation |> BatArray.iteri (fun i term ->
         let row =
-          Linear.term_of_vec srk sim (QQMatrix.row i (PLM.map iter.plds))
+          Linear.term_of_vec srk sim (QQMatrix.row i (PLM.map iter.dlts))
         in
         Format.fprintf formatter "@;%a := %a"
           (Term.pp srk) term
           (Term.pp srk) row);
     Format.fprintf formatter "@]";
-    if (PLM.guard iter.plds) != [] then begin
+    if (PLM.guard iter.dlts) != [] then begin
       Format.fprintf formatter "@;@[<v 2>when:";
-      (PLM.guard iter.plds) |> List.iter (fun eq ->
+      (PLM.guard iter.dlts) |> List.iter (fun eq ->
           Format.fprintf formatter "@;%a = 0"
             (Term.pp srk) (Linear.term_of_vec srk sim eq));
       Format.fprintf formatter "@]"
     end
 
-  let exp srk tr_symbols loop_count iter =
-    let open PLM in
+  let exp_impl base_exp srk tr_symbols loop_count iter =
     let sim i = iter.simulation.(i) in
     let post_map = (* map pre-state vars to post-state vars *)
       post_map tr_symbols
@@ -1840,44 +1829,44 @@ module PLDS = struct
     (* Iterate function until the guard stabilizes (i.e., dom(f^n) =
        dom(f^{n+1})).  *)
     let rec fix g i =
-      let h = PLM.compose iter.plds g in
+      let h = PLM.compose iter.dlts g in
       if VS.dimension (PLM.guard g) == dim then
-        (* Ultimate domain is trivial.  Since one dimension of the
+        (* Invariant domain is trivial.  Since one dimension of the
            domain represents the constant 1, this is inconsistent. *)
         mk_false srk
       else if VS.equal (PLM.guard g) (PLM.guard h) then
-        (* Ultimate domain -- intersection of dom(f^i) over all i *)
-        let ult_dom =
+        (* Invariant domain -- intersection of dom(f^i) over all i *)
+        let inv_dom =
           Linear.nullspace (VS.matrix_of (PLM.guard g)) (BatList.of_enum (0 -- (dim - 1)))
           |> VS.matrix_of
         in
-        let ult_dom_t = M.transpose ult_dom in
+        let inv_dom_t = M.transpose inv_dom in
 
-        (* Writing S as the ult_dom domain and A as the transformation
+        (* Writing S as the inv_dom domain and A as the transformation
            of f, we want a square matrix B such that SA = BS.  Think
-           of S as a linear transformation into the ultimate domain,
+           of S as a linear transformation into the invariant domain,
            so that B is a representation of the action of A on the
-           ultimate domain.  *)
+           invariant domain.  *)
         let stable_transform =
-          match Linear.divide_left (M.mul (PLM.map iter.plds) ult_dom_t) ult_dom_t with
+          match Linear.divide_left (M.mul (PLM.map iter.dlts) inv_dom_t) inv_dom_t with
           | None -> assert false
           | Some f -> f
         in
-        let ult_dim = QQMatrix.nb_rows ult_dom_t in
+        let inv_dim = QQMatrix.nb_rows inv_dom_t in
         let closed =
           let underlying_block =
-            { blk_transform = QQMatrix.dense_of stable_transform ult_dim ult_dim;
-              blk_add = Array.make ult_dim QQXs.zero }
+            { blk_transform = QQMatrix.dense_of stable_transform inv_dim inv_dim;
+              blk_add = Array.make inv_dim QQXs.zero }
           in
           let underlying_iter =
             { term_of_id =
-                Array.init ult_dim (fun i ->
-                    Linear.term_of_vec srk sim (M.row i ult_dom));
+                Array.init inv_dim (fun i ->
+                    Linear.term_of_vec srk sim (M.row i inv_dom));
               nb_constants = 0;
               block_eq = [underlying_block];
               block_leq = [] }
           in
-          SolvablePolynomial.exp srk tr_symbols loop_count underlying_iter
+          base_exp srk tr_symbols loop_count underlying_iter
         in
         let domain_constraints =
           List.map (fun t ->
@@ -1912,7 +1901,10 @@ module PLDS = struct
     in
     fix (PLM.identity dim) 0
 
-  let abstract ?(exists=fun x -> true) srk tr_symbols phi =
+  let exp srk tr_symbols loop_count iter =
+    exp_impl SolvablePolynomialPeriodicRational.exp srk tr_symbols loop_count iter
+
+  let abstract ?(exists=fun _ -> true) srk tr_symbols phi =
     let phi = Nonlinear.linearize srk phi in
     let pre_symbols = pre_symbols tr_symbols in
     let post_symbols = post_symbols tr_symbols in
@@ -1922,15 +1914,14 @@ module PLDS = struct
     in
     let phi_symbols = Symbol.Set.elements (Symbol.Set.filter exists (symbols phi)) in
     let constants = List.filter is_symbolic_constant phi_symbols in
-    (* pre_dims is a set of dimensions corresponding to pre-state
-       dimensions. pre_map is a mapping from dimensions that correspond to
+    (* pre_map is a mapping from dimensions that correspond to
        post-state dimensions to their pre-state counterparts *)
-    let (pre_map, pre_dims) =
-      List.fold_left (fun (pre_map, pre_dims) (s,s') ->
+    let pre_map =
+      List.fold_left (fun pre_map (s,s') ->
           let pre = Linear.dim_of_sym s in
           let post = Linear.dim_of_sym s' in
-          (IntMap.add post pre pre_map, IntSet.add pre pre_dims))
-        (IntMap.empty, IntSet.empty)
+          IntMap.add post pre pre_map)
+        IntMap.empty
         tr_symbols
     in
     let (mA, mB, nb_rows) =
@@ -1959,18 +1950,18 @@ module PLDS = struct
         (mA, mB, nb_rows)
         (Linear.const_dim::(List.map Linear.dim_of_sym constants))
     in
-    let (mS, plds) = PLM.max_plds mA mB in
+    let (mS, dlts) = PLM.max_dlts mA mB in
     let simulation =
       QQMatrix.rowsi mS
       /@ (Linear.of_linterm srk % snd)
       |> BatArray.of_enum
     in
-    let res = { plds; simulation } in
+    let res = { dlts; simulation } in
     logf "Extracted:@? %a" (pp srk tr_symbols) res;
     res
 
   let equal _ _ iter1 iter2 =
-    PLM.equal iter1.plds iter2.plds
+    PLM.equal iter1.dlts iter2.dlts
     && BatArray.for_all2 Term.equal iter1.simulation iter2.simulation
 
   let to_formula srk iter =
@@ -1979,7 +1970,7 @@ module PLDS = struct
       (0 -- (dimension iter - 1))
       /@ (fun i ->
           let rhs =
-            Linear.term_of_vec srk sim (QQMatrix.row i (PLM.map iter.plds))
+            Linear.term_of_vec srk sim (QQMatrix.row i (PLM.map iter.dlts))
           in
           mk_eq srk (sim i) rhs)
       |> BatList.of_enum
@@ -1989,7 +1980,7 @@ module PLDS = struct
     let guard =
       List.map
         (fun vec -> mk_eq srk zero (Linear.term_of_vec srk sim vec))
-        (PLM.guard iter.plds)
+        (PLM.guard iter.dlts)
       |> mk_and srk
     in
     mk_and srk [map; guard]
@@ -1999,4 +1990,93 @@ module PLDS = struct
                                         to_formula srk iter2])
 
   let widen = join
+end
+
+
+module DLTSPeriodicRational = struct
+  include DLTS
+
+  let abstract_spectral spectral_decomp ?(exists=fun _ -> true) srk tr_symbols phi =
+    let { dlts; simulation } = DLTS.abstract ~exists srk tr_symbols phi in
+
+    let rec fix mA mB = (* Ax' = Bx *)
+      let (mS, dlts) = PLM.max_dlts mA mB in
+      let dom = snd (PLM.iteration_sequence dlts) in
+      (* T agrees with dlts for everything in the invariant domain;
+         sends everything not in invariant domain to 0. *)
+      let mT =
+        PLM.map (PLM.make (PLM.map dlts) dom)
+      in
+      let dims = SrkUtil.Int.Set.elements (QQMatrix.row_set mS) in
+      let sd = spectral_decomp mT dims in
+
+      let mP = VS.matrix_of sd in
+      let mPS = QQMatrix.mul mP mS in
+      let mPTS = BatList.reduce QQMatrix.mul [mP; PLM.map dlts; mS] in
+      let mPDS =
+        BatList.reduce QQMatrix.mul [mP; VS.matrix_of (PLM.guard dlts); mS]
+      in
+      if List.length sd = QQMatrix.nb_rows mS then
+        let map = match Linear.divide_right mPTS mPS with
+          | Some t -> t
+          | None -> assert false
+        in
+        let guard = match Linear.divide_right mPDS mPS with
+          | Some mG -> VS.of_matrix mG
+          | None -> assert false
+        in
+        (mPS, PLM.make map guard)
+      else
+        let mB =
+          let size = QQMatrix.nb_rows mPS in
+          BatEnum.fold (fun m (i, row) ->
+              QQMatrix.add_row (i + size) row m)
+            mPTS
+            (QQMatrix.rowsi mPDS)
+        in
+        fix mPS mB
+    in
+    let (mS, pr_dlts) =
+      (* DLTS: x' = Tx when Dx = 0; represent in the form Ax' = Bx as
+         [ I ] x' = [ T ] x
+         [ 0 ]      [ D ]
+      *)
+      let size = Array.length simulation in
+      let mA =
+        QQMatrix.identity (BatList.of_enum (0 -- (size - 1)))
+      in
+      let mB =
+        BatList.fold_lefti (fun m i row ->
+            QQMatrix.add_row (i + size) row m)
+          (PLM.map dlts)
+          (PLM.guard dlts)
+      in
+      fix mA mB
+    in
+    let pr_simulation =
+      QQMatrix.rowsi mS
+      /@ (fun (_, row) ->
+          Linear.term_of_vec srk (fun i -> simulation.(i)) row
+          |> SrkSimplify.simplify_term srk)
+    |> BatArray.of_enum
+    in
+    { dlts = pr_dlts;
+      simulation = pr_simulation }
+
+  let abstract ?(exists=fun _ -> true) srk tr_symbols phi =
+    let spectral_decomp m dims =
+      Linear.periodic_rational_spectral_decomposition m dims
+      |> List.map (fun (_, _, v) -> v)
+    in
+    abstract_spectral spectral_decomp ~exists srk tr_symbols phi
+
+  let abstract_rational ?(exists=fun _ -> true) srk tr_symbols phi =
+    let spectral_decomp m dims =
+      Linear.rational_spectral_decomposition m dims
+      |> List.map (fun (_, v) -> v)
+    in
+    abstract_spectral spectral_decomp ~exists srk tr_symbols phi
+
+  let exp srk tr_symbols loop_count iter =
+    exp_impl SolvablePolynomialPeriodicRational.exp srk tr_symbols loop_count iter
 end

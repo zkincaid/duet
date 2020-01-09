@@ -127,7 +127,13 @@ module K = struct
   module D = Sum(SPSplit)(Vas_P)()
   module I = Iter(MakeDomain(D))
  
-  let star x = Log.time "cra:star" I.star x
+  let star x =
+    let star x =
+      let abstract = I.alpha x in
+      logf "Loop abstraction:@\n%a" I.pp abstract;
+      I.closure abstract
+    in
+    Log.time "cra.star" star x
 
   let add x y =
     if is_zero x then y
@@ -480,11 +486,13 @@ module TSDisplay = ExtGraph.Display.MakeLabeled
       let show = SrkUtil.mk_show pp
     end)
 
+module SA = Abstract.MakeAbstractRSY(Ctx)
+
 let decorate_transition_system predicates ts entry =
   let module AbsDom =
-    TS.Product
-      (TS.Product(TS.AffineRelation)(TS.Sign))
-      (TS.PredicateAbs(struct let universe = predicates end))
+    TS.ProductIncr
+      (TS.ProductIncr(TS.LiftIncr(SA.Sign))(TS.LiftIncr(SA.AffineRelation)))
+      (TS.LiftIncr(SA.PredicateAbs(struct let universe = predicates end)))
   in
   let inv = TS.forward_invariants (module AbsDom) ts entry in
   let member varset sym =
@@ -666,8 +674,13 @@ let resource_bound_analysis file =
               let rhs =
                 Syntax.substitute_const srk subst (K.get_transform cost summary)
               in
+              let simplify =
+                SrkSimplify.simplify_terms_rewriter srk
+                % Nonlinear.simplify_terms_rewriter srk
+              in
               Ctx.mk_and [Syntax.substitute_const srk subst (K.guard summary);
                           Ctx.mk_eq (Ctx.mk_const cost_symbol) rhs ]
+              |> Syntax.rewrite srk ~up:simplify
             in
             match Wedge.symbolic_bounds_formula ~exists srk guard cost_symbol with
             | `Sat (lower, upper) ->

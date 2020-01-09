@@ -1,5 +1,4 @@
 open Syntax
-open Smt
 open Interpretation
 
 (** Satisfiability via strategy improvement *)

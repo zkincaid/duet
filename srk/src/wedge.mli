@@ -9,7 +9,7 @@ val pp : Format.formatter -> 'a t -> unit
 
 val show : 'a t -> string
 
-val join : ?integrity:('a formula -> unit) -> 'a t -> 'a t -> 'a t
+val join : ?lemma:('a formula -> unit) -> 'a t -> 'a t -> 'a t
 
 val meet : 'a t -> 'a t -> 'a t
 
@@ -30,7 +30,7 @@ val to_formula : 'a t -> 'a formula
 (** Project symbols out of a wedge that do not satisfy the given predicate.
     Additionally project out terms that contain a symbol that does not satisfy
     the subterm predicate. *)
-val exists : ?integrity:('a formula -> unit) ->
+val exists : ?lemma:('a formula -> unit) ->
   ?subterm:(symbol -> bool) ->
   (symbol -> bool) ->
   'a t ->
@@ -70,6 +70,34 @@ val abstract : ?exists:(symbol -> bool) ->
   'a formula ->
   'a t
 
+(** A subwedge is an abstract domain that can be associated with a
+   sublattice of the disjunctive completion of the lattice of wedges
+   (see [abstract_subwedge]).  The [of_wedge] and [join] functions
+   come with a [lemma] parameter, which a subwedge domain is
+   responsible for invoking for each theory lemma that is not provable
+   in linear arithmetic. A safe (but inefficient) method for ensuring
+   safety is to call
+    lemma ((Wedge.to_formula in) => (subwedge.to_formula out))
+   in [of_wedge] and
+    lemma ((Wedge.to_formula in1) => (subwedge.to_formula out))
+    lemma ((Wedge.to_formula in2) => (subwedge.to_formula out))
+   in [join]. *)
+type ('a, 'b) subwedge =
+  { of_wedge : lemma:('a formula -> unit) -> 'a t -> 'b;
+    join : lemma:('a formula -> unit) -> 'b -> 'b -> 'b;
+    to_formula : 'b -> 'a formula }
+
+(** Compute a subwedge that over-approximates a given formula.  This
+   is typically faster than using [abstract] to compute an
+   over-approximating wedge and then *)
+val abstract_subwedge :
+  ('a, 'b) subwedge ->
+  ?exists:(symbol -> bool) ->
+  ?subterm:(symbol -> bool) ->
+  'a context ->
+  'a formula ->
+  'b
+
 (** Check if a formula is satisfiable by computing an over-approximating wedge
     and checking whether it is feasible.  This procedure improves on the naive
     implementation by returning [`Unknown] as soon as it finds a disjunct that
@@ -86,7 +114,16 @@ val symbolic_bounds_formula : ?exists:(symbol -> bool) ->
   'a context ->
   'a formula ->
   symbol ->
-  [ `Sat of ('a term) option * ('a term) option | `Unsat ]
+  [ `Sat of (('a term) option * ('a term) option) | `Unsat ]
+
+(** As [symbolic_bounds_formula], execept the lower bound is
+   represented as a min of maxes, and the upper bound is represented
+   as a max of mins. *)
+val symbolic_bounds_formula_list : ?exists:(symbol -> bool) ->
+  'a context ->
+  'a formula ->
+  symbol ->
+  [ `Sat of (('a term) list list) * (('a term) list list) | `Unsat ]
 
 val coordinate_system : 'a t -> 'a CoordinateSystem.t
 
@@ -96,6 +133,18 @@ val vanishing_ideal : 'a t -> Polynomial.QQXs.t list
 
 val copy : 'a t -> 'a t
 
-val equational_saturation : ?integrity:('a formula -> unit) -> 'a t -> Polynomial.Rewrite.t
+val equational_saturation : ?lemma:('a formula -> unit) -> 'a t -> Polynomial.Rewrite.t
 
-val strengthen : ?integrity:('a formula -> unit) -> 'a t -> unit
+val strengthen : ?lemma:('a formula -> unit) -> 'a t -> unit
+
+(** Simplify the constraint represenation of the given wedge.  The
+   resulting wedge is equivalent the input, modulo LIRA + the lemmas
+   passed to the lemma procedure. *)
+val reduce : lemma:('a formula -> unit) -> 'a t -> 'a t
+
+(** Overapproximate existential quantifier elimination. *)
+val cover : ?subterm:(symbol -> bool) ->
+  'a context ->
+  (symbol -> bool) ->
+  'a formula ->
+  'a formula

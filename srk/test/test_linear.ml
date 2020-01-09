@@ -97,7 +97,7 @@ let rowspace2 () =
                      [0; 1; 1]]
   in
   let rowspace = mk_matrix [[1; 1; 1]] in
-  let (c, d) = intersect_rowspace a b in
+  let (_, d) = intersect_rowspace a b in
   assert_equal ~printer:QQMatrix.show rowspace (QQMatrix.mul d b)
 
 let rowspace3 () =
@@ -108,7 +108,7 @@ let rowspace3 () =
                      [0; 1; 1; 1]]
   in
   let rowspace = mk_matrix [[]] in
-  let (c, d) = intersect_rowspace a b in
+  let (_, d) = intersect_rowspace a b in
   assert_equal ~printer:QQMatrix.show rowspace (QQMatrix.mul d b)
 
 let div1 () =
@@ -412,7 +412,7 @@ let prsd2 () =
                      [-1; 1]]
   in
   match periodic_rational_spectral_decomposition m [0; 1] with
-  | [(4, lambda1, v1); (4, lambda2, v2)] ->
+  | [(4, lambda1, _); (4, lambda2, _)] ->
      assert_equal_qq (QQ.of_int (-4)) lambda1;
      assert_equal_qq (QQ.of_int (-4)) lambda2
   | _ -> assert false
@@ -503,7 +503,7 @@ let prsd7 () =
 let prsd8 () =
   let m = mk_matrix [[42]] in
   match periodic_rational_spectral_decomposition m [0] with
-  | [(1,lambda,v)] -> assert_equal_qq (QQ.of_int 42) lambda
+  | [(1,lambda,_)] -> assert_equal_qq (QQ.of_int 42) lambda
   | _ -> assert false
 
 let assert_equal_vs x y =

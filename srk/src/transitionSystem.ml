@@ -9,7 +9,6 @@ module Int = SrkUtil.Int
 type 'a label = 'a WeightedGraph.label =
   | Weight of 'a
   | Call of int * int
-[@@deriving ord]
 
 module Make
     (C : sig
@@ -36,7 +35,6 @@ module Make
        val mem_transform : var -> t -> bool
        val get_transform : var -> t -> C.t term
        val assume : C.t formula -> t
-       val compare : t -> t -> int
        val equal : t -> t -> bool
        val mul : t -> t -> t
        val add : t -> t -> t
@@ -50,7 +48,7 @@ module Make
 
   type vertex = int
   type transition = T.t
-  type tlabel = T.t label [@@deriving ord]
+  type tlabel = T.t label
 
   include WeightedGraph.MakeRecGraph(struct
       include T
@@ -61,30 +59,13 @@ module Make
   module WGG = struct
     type t = T.t label WG.t
 
-    module V = struct
-      include SrkUtil.Int
-      type label = int
-      let label x = x
-      let create x = x
-    end
+    module V = SrkUtil.Int
 
     module E = struct
-      type label = tlabel
-      type vertex = int
-      type t = int * tlabel * int [@@deriving ord]
+      type t = int * tlabel * int
       let src (x, _, _) = x
-      let dst (_, _, x) = x
-      let label (_, x, _) = x
-      let create x y z = (x, y, z)
-
-      (* Weighted graphs have at most one edge between any pair of
-         node, so sufficient to hash / check equality using endpoints
-         *)
-      let equal (s1, _, d1) (s2, _, d2) = s1 = s2 && d1 = d2
-      let hash (s, _, d) = Hashtbl.hash (s, d)
     end
 
-    let iter_edges_e = WG.iter_edges
     let iter_vertex = WG.iter_vertex
     let iter_succ f tg v =
       WG.U.iter_succ f (WG.forget_weights tg) v
@@ -96,12 +77,6 @@ module Make
   module VarSet = BatSet.Make(Var)
 
   let srk = C.context
-
-  let defines tr =
-    BatEnum.fold
-      (fun defs (var, _) -> VarSet.add var defs)
-      VarSet.empty
-      (T.transform tr)
 
   let uses tr =
     BatEnum.fold
@@ -135,7 +110,7 @@ module Make
           | None -> vars)
     in
     BatEnum.fold
-      (fun refs (var, term) -> VarSet.add var refs)
+      (fun refs (var, _) -> VarSet.add var refs)
       (add_symbols (symbols (T.guard tr)) VarSet.empty)
       (T.transform tr)
 
@@ -223,7 +198,7 @@ module Make
           end);
       mk_and srk (!boxes)
 
-    let analyze (_s, label, t) prop =
+    let analyze (_s, label, _t) prop =
       let context = Z3.mk_context [("timeout", "100")] in
       match prop, label with
       | Bottom, _ -> Bottom
@@ -555,7 +530,7 @@ module Make
     let rec invariants inv wto =
       let open Graph.WeakTopological in
       match wto with
-      | Vertex v -> inv
+      | Vertex _ -> inv
       | Component (v, rest) ->
         let invariant =
           match IntervalAnalysis.M.find v result with
@@ -632,7 +607,7 @@ module Make
     let rec invariants inv wto =
       let open Graph.WeakTopological in
       match wto with
-      | Vertex v -> inv
+      | Vertex _ -> inv
       | Component (v, rest) ->
         let invariant =
           match Analysis.M.find v result with
@@ -719,180 +694,58 @@ module Make
     let rec live hl wto =
       let open Graph.WeakTopological in
       match wto with
-      | Vertex v -> hl
+      | Vertex _ -> hl
       | Component (v, rest) ->
         fold_left live ((v, loop_references wto)::hl) rest
     in
     Graph.WeakTopological.fold_left live [] (Wto.recursive_scc tg entry)
 
-  module type AbstractDomain = sig
-    type t
-    val top : symbol list -> t
-    val bottom : t
-    val exists : (symbol -> bool) -> t -> t
-    val join : t -> t -> t
-    val equal : t -> t -> bool
-    val of_model : C.t Interpretation.interpretation -> symbol list -> t
-    val formula_of : t -> C.t Formula.t
+  module type AbstractDomain = Abstract.MakeAbstractRSY(C).Domain
+
+  module type IncrAbstractDomain = sig
+    include AbstractDomain
+    val incr_abstract : C.t Interpretation.interpretation list -> symbol list -> C.t Smt.Solver.t -> t -> (t * C.t Interpretation.interpretation list)
   end
 
-  module Sign = struct
-    type sign = Zero | NonNeg | Neg | NonPos | Pos  | Top
-    type t =
-      | Env of sign Symbol.Map.t
-      | Bottom
-
-    let formula_of signs =
-      let zero = mk_real srk QQ.zero in
-      match signs with
-      | Bottom -> mk_false srk
-      | Env map ->
-        Symbol.Map.fold (fun sym sign xs ->
-            let sym_sign =
-              match sign with
-              | Pos -> mk_lt srk zero (mk_const srk sym)
-              | Neg -> mk_lt srk (mk_const srk sym) zero
-              | Zero -> mk_eq srk (mk_const srk sym) zero
-              | NonNeg -> mk_leq srk zero (mk_const srk sym)
-              | NonPos -> mk_leq srk (mk_const srk sym) zero
-              | Top -> mk_true srk
-            in
-            sym_sign::xs)
-          map
-          []
-        |> mk_and srk
-
-    let join x y =
-      let join_sign x y =
-        match x, y with
-        | Zero, Zero -> Zero
-
-        | Zero, NonNeg | NonNeg, Zero
-        | Zero, Pos | Pos, Zero
-        | Pos, NonNeg | NonNeg, Pos
-        | NonNeg, NonNeg ->
-          NonNeg
-
-        | Pos, Pos -> Pos
-
-        | Zero, NonPos | NonPos, Zero
-        | Zero, Neg | Neg, Zero
-        | Neg, NonPos | NonPos, Neg
-        | NonPos, NonPos ->
-          NonPos
-
-        | Neg, Neg -> Neg
-
-        | Neg, Pos | Pos, Neg
-        | NonNeg, NonPos | NonPos, NonNeg -> Top
-        | _, Top | Top, _ -> Top
-        | Neg, NonNeg | NonNeg, Neg
-        | Pos, NonPos | NonPos, Pos -> Top
+  module LiftIncr (A : AbstractDomain) = struct
+    include A
+    let incr_abstract models symbols solver post =
+      let start =      
+        List.fold_left (fun a m -> join a (of_model m symbols)) post models
       in
-      match x, y with
-      | Env x, Env y ->
-        Env (Symbol.Map.merge (fun _ x y -> match x, y with
-            | Some x, Some y -> Some (join_sign x y)
-            | _, _ -> Some Top) x y)
-      | Bottom, r | r, Bottom -> r
-
-    let equal x y = match x, y with
-      | Env x, Env y -> Symbol.Map.equal (=) x y
-      | Bottom, Bottom -> true
-      | _, _ -> false
-
-    let of_model m symbols =
-      let rational_sign x =
-        match QQ.compare x QQ.zero with
-        | 0 -> Zero
-        | c when c < 0 -> Neg
-        | _ -> Pos
+      let rec fix prop models =
+        Smt.Solver.add solver [mk_not srk (formula_of prop)];
+        match Smt.Solver.get_model solver with
+        | `Sat m ->
+          fix (join (of_model m symbols) prop) (m::models)
+        | `Unsat -> (prop, models)
+        | `Unknown ->
+          logf ~level:`warn "Unknown result in affine invariant update";
+          (top, models)
       in
-      let env =
-        List.fold_left (fun env sym ->
-            Symbol.Map.add sym (rational_sign (Interpretation.real m sym)) env)
-          Symbol.Map.empty
-          symbols
-      in
-      Env env
-
-    let top symbols =
-      let env =
-        List.fold_left
-          (fun env sym -> Symbol.Map.add sym Top env)
-          Symbol.Map.empty
-          symbols
-      in
-      Env env
-
-    let bottom = Bottom
-
-    let exists p signs = match signs with
-      | Bottom -> Bottom
-      | Env m ->
-        Env (Symbol.Map.mapi (fun sym sign -> if p sym then sign else Top) m)
+      Smt.Solver.push solver;
+      let result = fix start models in
+      Smt.Solver.pop solver 1;
+      result
   end
 
-  module AffineRelation : AbstractDomain
-    with type t = (C.t, Polka.equalities Polka.t) SrkApron.property =
-  struct
-    type t = (C.t, Polka.equalities Polka.t) SrkApron.property
-    let man = Polka.manager_alloc_equalities ()
-    let top symbols =
-      SrkApron.top man (SrkApron.Env.of_list srk symbols)
-    let of_model m symbols =
-      let env = SrkApron.Env.of_list srk symbols in
-      List.map (fun sym ->
-          Linear.QQVector.add_term
-            (QQ.of_int (-1))
-            (Linear.dim_of_sym sym)
-            (Linear.const_linterm (Interpretation.real m sym))
-          |> SrkApron.lexpr_of_vec env
-          |> SrkApron.lcons_eqz
-        ) symbols
-      |> SrkApron.meet_lcons (SrkApron.top man env)
-    let bottom = SrkApron.bottom man (SrkApron.Env.empty srk)
-    let exists = SrkApron.exists man
-    let join = SrkApron.join
-    let equal = SrkApron.equal
-    let of_model = of_model
-    let formula_of = SrkApron.formula_of_property
-  end
-
-  module PredicateAbs (U : sig
-      val universe : C.t formula list
-    end) = struct
-    open U
-    module PS = PredicateSet
-    type t = PS.t
-
-    let universe = PredicateSet.of_list universe
-
-    let exists p abs_state =
-      PS.filter (fun predicate ->
-          Symbol.Set.for_all p (symbols predicate))
-        abs_state
-    let top = (fun _ -> PS.empty)
-    let bottom = universe
-    let exists = exists
-    let join = PS.inter
-    let equal = PS.equal
-    let of_model = (fun m _ -> PS.filter (Interpretation.evaluate_formula m) universe)
-    let formula_of = (fun abs_state -> mk_and srk (PS.elements abs_state))
-  end
-
-  module Product (A : AbstractDomain) (B : AbstractDomain) : AbstractDomain = struct
+  module ProductIncr (A : IncrAbstractDomain)(B : IncrAbstractDomain) = struct
     type t = A.t * B.t
-    let top symbols = (A.top symbols, B.top symbols)
+    let top = (A.top, B.top)
     let bottom = (A.bottom, B.bottom)
     let exists p (v1, v2) = (A.exists p v1, B.exists p v2)
     let join (v1, v2) (v1', v2') = (A.join v1 v1', B.join v2 v2')
     let equal (v1, v2) (v1', v2') = A.equal v1 v1' && B.equal v2 v2'
     let of_model  m symbols = (A.of_model m symbols, B.of_model m symbols)
-    let formula_of  (v1, v2) = mk_and srk [A.formula_of v1; B.formula_of v2]
+    let formula_of  (v1, v2) = mk_and C.context [A.formula_of v1; B.formula_of v2]
+
+    let incr_abstract models symbols solver (post_a, post_b) =
+      let (a, models) = A.incr_abstract models symbols solver post_a in
+      let (b, models) = B.incr_abstract models symbols solver post_b in
+      ((a,b), models)
   end
 
-  let forward_invariants (type a) (module D : AbstractDomain with type t = a) tg entry =
+  let forward_invariants (type a) (module D : IncrAbstractDomain with type t = a) tg entry =
     let update ~pre weight ~post =
       match weight with
       | Weight tr ->
@@ -920,6 +773,7 @@ module Make
           mk_and srk (substitute_map srk subst (T.guard tr)
                       ::substitute_map srk subst pre_formula
                       ::transform_eqs)
+          |> Nonlinear.uninterpret srk
         in
         let symbols = (* Symbols in pre or defined by tr *)
           VarSet.fold
@@ -933,17 +787,7 @@ module Make
         in
         let solver = Smt.mk_solver srk in
         Smt.Solver.add solver [tf];
-        let rec fix post =
-          Smt.Solver.add solver [mk_not srk (D.formula_of post)];
-          match Smt.Solver.get_model solver with
-          | `Sat m ->
-            fix (D.join (D.of_model m symbols) post)
-          | `Unsat -> post
-          | `Unknown ->
-            logf ~level:`warn "Unknown result in affine invariant update";
-            D.top symbols
-        in
-        let post' = fix post in
+        let (post', _) = D.incr_abstract [] symbols solver post in
         if D.equal post' post then
           None
         else
@@ -963,7 +807,7 @@ module Make
     in
     let init v =
       if v = entry then
-        D.top []
+        D.top
       else
         D.bottom
     in

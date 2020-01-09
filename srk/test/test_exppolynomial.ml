@@ -20,6 +20,24 @@ module Infix = struct
 end
 
 module UP = ExpPolynomial.UltPeriodic
+module EPVector = ExpPolynomial.Vector
+module EPMatrix = ExpPolynomial.Matrix
+
+let mk_ep_vector vec =
+  List.fold_left
+    (fun vec (i, k) -> EPVector.add_term k i vec)
+    EPVector.zero
+    (List.mapi (fun i k -> (i, k)) vec)
+
+let mk_ep_matrix mat =
+  List.fold_left
+    (fun mat (i, row) -> EPMatrix.add_row i row mat)
+    EPMatrix.zero
+    (List.mapi (fun i row -> (i, mk_ep_vector row)) mat)
+
+let assert_equal_ep_matrix =
+  let show_ep_matrix = SrkUtil.mk_show EPMatrix.pp in
+  assert_equal ~cmp:EPMatrix.equal ~printer:show_ep_matrix
 
 let two_to_x = ExpPolynomial.of_exponential (QQ.of_int 2)
 
@@ -54,18 +72,6 @@ let test_sum3 () =
     let open Infix in
     (ExpPolynomial.scalar (QQ.of_frac 3 4))
     * ((exp 3)*((int 2) * x * x + (int (-4)) * x + (int 3)) + (int (-3)))
-  in
-  assert_equal_exppoly expected_sum sum
-
-let test_sum4 () =
-  let f =
-    let open Infix in
-    (x*x - x)
-  in
-  let sum = ExpPolynomial.summation f in
-  let expected_sum =
-    let open Infix in
-    (ExpPolynomial.scalar (QQ.of_frac 1 3))*(x - (int 1))*x*(x + (int 1))
   in
   assert_equal_exppoly expected_sum sum
 
@@ -133,7 +139,7 @@ let test_rec4 () =
   assert_equal_exppoly expected_sln sln
 
 let rec_list lambda xs =
-  BatList.fold_lefti (fun (sum,xs) i x ->
+  BatList.fold_left (fun (sum,xs) x ->
       let total = QQ.add (QQ.mul lambda sum) x in
       (total,total::xs))
     (QQ.zero,[QQ.zero])
@@ -333,6 +339,73 @@ let test_flatten2 () =
   assert_equal_qq (flat 32) (UP.eval g 32);
   assert_equal_qq (flat 33) (UP.eval g 33)
 
+let exp_mat1 () =
+  let m = mk_matrix [[1; 0; 0];
+                     [1; 1; 0];
+                     [1; 1; 1]]
+  in
+  let m_exp =
+    match ExpPolynomial.exponentiate_rational m with
+    | Some m -> m
+    | None -> assert false
+  in
+  let r =
+    let open Infix in
+    mk_ep_matrix [[int 1; int 0; int 0];
+                  [x; int 1; int 0];
+                  [(frac 1 2)*(x*x + x); x; int 1]]
+  in
+  assert_equal_ep_matrix r m_exp
+
+let exp_mat2 () =
+  let m = mk_matrix [[0; 0; 0];
+                     [0; 2; 0];
+                     [0; 0; 3]]
+  in
+  let m_exp =
+    match ExpPolynomial.exponentiate_rational m with
+    | Some m -> m
+    | None -> assert false
+  in
+  let r =
+    let open Infix in
+    mk_ep_matrix [[int 0; int 0; int 0];
+                  [int 0; exp 2; int 0];
+                  [int 0; int 0; exp 3]]
+  in
+  assert_equal_ep_matrix r m_exp
+
+let exp_mat3 () =
+  let m = mk_matrix [[2; 1; -1];
+                     [-1; 1; 0];
+                     [0; -1; 3]]
+  in
+  let m_exp =
+    match ExpPolynomial.exponentiate_rational m with
+    | Some m -> m
+    | None -> assert false
+  in
+  let r =
+    let open Infix in
+    mk_ep_matrix [[(exp 2)*(frac 1 8)*(x - x*x + (int 8));
+                   (exp 2)*(x * (frac 1 2));
+                   (exp 2)*(frac (-1) 8)*(x*x + (int 3)*x)];
+                  [(exp 2)*(frac 1 8)*(x*x - (int 5)*x);
+                   (exp 2)*((frac (-1) 2)*x + (int 1));
+                   (exp 2)*(frac 1 8)*(x*x - x)];
+                  [(exp 2)*(frac 1 8)*(x*x - x);
+                   (exp 2)*(frac (-1) 2)*x;
+                   (exp 2)*(frac 1 8)*(x*x + (int 3)*x + (int 8))]]
+  in
+  assert_equal_ep_matrix r m_exp
+
+(* non-rational eigenvalues *)
+let exp_mat4 () =
+  let m = mk_matrix [[1; 1];
+                     [-1; 1]]
+  in
+  assert_equal (ExpPolynomial.exponentiate_rational m) None
+
 let suite = "ExpPolynomial" >::: [
       "sum1" >:: test_sum1;
       "sum2" >:: test_sum2;
@@ -354,4 +427,8 @@ let suite = "ExpPolynomial" >::: [
       "up_rec3" >:: test_up_rec3;
       "flatten" >:: test_flatten;
       "flatten2" >:: test_flatten2;
+      "exp_mat1" >:: exp_mat1;
+      "exp_mat2" >:: exp_mat2;
+      "exp_mat3" >:: exp_mat3;
+      "exp_mat4" >:: exp_mat4;
   ]

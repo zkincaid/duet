@@ -123,10 +123,8 @@ module CHC : sig
       These formulas should not be CHCs. *)
   val add : 'a solver -> ('a formula) list -> unit
 
-  val check : 'a solver -> 'a formula list -> [ `Sat | `Unsat | `Unknown ]
+  val check : 'a solver -> [ `Sat | `Unsat | `Unknown ]
   val get_solution : 'a solver -> symbol -> 'a formula
 
   val to_string : 'a solver -> string
-  val push : 'a solver -> unit
-  val pop : 'a solver -> unit
 end

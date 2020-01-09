@@ -37,6 +37,7 @@ end
 
 
 module WedgeGuard : PreDomainWedge
+
 module PolyhedronGuard : sig
   include PreDomain
   val precondition : 'a t -> ('a, Polka.strict Polka.t) SrkApron.property

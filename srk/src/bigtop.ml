@@ -1,5 +1,3 @@
-open SrkAst
-open SrkApron
 open Syntax
 
 module Ctx = SrkAst.Ctx
@@ -137,7 +135,7 @@ let spec_list = [
   ("-affine-hull",
    Arg.String (fun file ->
        let phi = load_formula file in
-       let (qf, psi) = Quantifier.normalize srk phi in
+       let qf = fst (Quantifier.normalize srk phi) in
        if List.exists (fun (q, _) -> q = `Forall) qf then
          failwith "universal quantification not supported";
        let symbols = (* omits skolem constants *)
@@ -148,6 +146,17 @@ let spec_list = [
          (SrkUtil.pp_print_enum (Term.pp srk)) (BatList.enum aff_hull)),
    " Compute the affine hull of an existential linear arithmetic formula");
 
+  ("-qe",
+   Arg.String (fun file ->
+       let open Syntax in
+       let phi = load_formula file in
+       let result =
+         Quantifier.qe_mbp srk phi
+         |> SrkSimplify.simplify_dda srk
+       in
+       Format.printf "%a@\n" (pp_smtlib2 srk) result),
+   " Eliminate quantifiers");
+
   ("-stats",
    Arg.String (fun file ->
        let open Syntax in
@@ -156,8 +165,8 @@ let spec_list = [
        let constants = fold_constants Symbol.Set.add phi Symbol.Set.empty in
        let rec go phi =
          match Formula.destruct srk phi with
-         | `Quantify (`Exists, name, typ, psi) -> "E" ^ (go psi)
-         | `Quantify (`Forall, name, typ, psi) -> "A" ^ (go psi)
+         | `Quantify (`Exists, _, _, psi) -> "E" ^ (go psi)
+         | `Quantify (`Forall, _, _, psi) -> "A" ^ (go psi)
          | _ -> ""
        in
        let qf_pre =
@@ -226,6 +235,7 @@ let usage_msg = "bigtop: command line interface to srk \n\
   \tbigtop [-generator] -convex-hull formula.smt2\n\
   \tbigtop -affine-hull formula.smt2\n\
   \tbigtop -wedge-hull formula.smt2\n\
+  \tbigtop -qe formula.smt2\n\
   \tbigtop -stats formula.smt2\n\
   \tbigtop -random (A|E)* depth [dense|sparse]\n"
 
