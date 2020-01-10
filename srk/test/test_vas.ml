@@ -4,6 +4,7 @@ open Nonlinear
 open Test_pervasives
 open Vas
 
+let tr_symbols = [(wsym,wsym');(xsym,xsym');(ysym,ysym');(zsym,zsym')]
 let hull_formula hull = Ctx.mk_and (List.map (Ctx.mk_eq (int 0)) hull)
 
 let non_neg1 () =
@@ -23,6 +24,17 @@ let non_neg2 () =
   let constr = mk_all_nonnegative  srk [] in
   assert_equiv_formula phi constr
 
+let no_resets1 () =
+  let phi =
+    let open Infix in
+    (x' = x + (int 1) && y' = y + (int 1)) || (x' = x + (int 1) && y' = (int 0))
+  in
+  let psi =
+    let open Infix in
+    x' = x + r
+  in 
+  let vas_closure = exp srk tr_symbols (Ctx.mk_const rsym) (abstract srk tr_symbols phi) in
+  assert_implies vas_closure psi
 
 let affine_hull2 () =
   let phi =
@@ -354,6 +366,7 @@ let lt_abstract () =
 let suite = "Vas" >::: [
     "non_neg1" >:: non_neg1;
     "non_neg2" >:: non_neg2;
+    "no_resets1" >:: no_resets1;
     "affine_hull2" >:: affine_hull2;
     "affine_hull3" >:: affine_hull3;
     "affine_hull4" >:: affine_hull4;
