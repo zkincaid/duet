@@ -2,20 +2,27 @@ open OUnit
 open Abstract
 open Nonlinear
 open Test_pervasives
+open Vas
 
 let hull_formula hull = Ctx.mk_and (List.map (Ctx.mk_eq (int 0)) hull)
 
-let affine_hull1 () =
+let non_neg1 () =
   let phi =
     let open Infix in
-    x = y && y = z + (int 1)
+    (Ctx.mk_leq (int 0) x) && (Ctx.mk_leq (int 0) y)
   in
-  let hull = affine_hull srk phi [xsym; ysym; zsym] in
-  let hull_xz = affine_hull srk phi [xsym; zsym] in
-  assert_equiv_formula phi (hull_formula hull);
-  assert_equiv_formula
-    (Ctx.mk_eq x (Ctx.mk_add [z; int 1]))
-    (hull_formula hull_xz)
+  let constr = mk_all_nonnegative  srk 
+  [Ctx.mk_const xsym; Ctx.mk_const ysym] in
+  assert_equiv_formula phi constr
+
+let non_neg2 () =
+  let phi =
+    let open Infix in
+    (Ctx.mk_true)
+  in
+  let constr = mk_all_nonnegative  srk [] in
+  assert_equiv_formula phi constr
+
 
 let affine_hull2 () =
   let phi =
@@ -344,8 +351,9 @@ let lt_abstract () =
   in
   assert_equiv_formula phi phi_abstract
 
-let suite = "Abstract" >::: [
-    "affine_hull1" >:: affine_hull1;
+let suite = "Vas" >::: [
+    "non_neg1" >:: non_neg1;
+    "non_neg2" >:: non_neg2;
     "affine_hull2" >:: affine_hull2;
     "affine_hull3" >:: affine_hull3;
     "affine_hull4" >:: affine_hull4;
