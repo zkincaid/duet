@@ -178,6 +178,26 @@ let fold_vertex f wg = U.fold_vertex f wg.graph
 let iter_vertex f wg = U.iter_vertex f wg.graph
 let mem_edge wg u v = M.mem (u, v) wg.labels
 
+(* Cut graph reduces a weighted graph to only those vertices in c, while preserving all weighted paths between pairs of vertices in c *)
+let cut_graph wg c =
+  let module Set = SrkUtil.Int.Set in
+  let cut_set = Set.of_list c in
+  let pre_vertex v = v in
+  let post_vertex =
+     let max = Set.fold max cut_set (max_vertex wg) + 1 in
+     Memo.memo (fun v -> if Set.mem v cut_set then v + max else v)
+  in
+  let path_graph =
+    let pg = Set.fold (fun v pg -> add_vertex (add_vertex pg (pre_vertex v)) (post_vertex v)) cut_set (empty wg.algebra) in
+    let pg = fold_vertex (fun v pg -> add_vertex pg v) wg pg in
+    fold_edges (fun (u, w, v) pg -> add_edge pg (pre_vertex u) w (post_vertex v)) wg pg
+  in
+  Set.fold (fun u cg ->
+    Set.fold (fun v cg ->
+      add_edge (add_vertex cg v) u (path_weight path_graph (pre_vertex u) (post_vertex v)) v
+    ) cut_set (add_vertex cg u)
+  ) cut_set (empty wg.algebra)
+
 (* Line graphs swaps vertices and edges *)
 module LineGraph = struct
   type t = U.t
