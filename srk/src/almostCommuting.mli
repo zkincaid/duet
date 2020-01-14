@@ -1,6 +1,7 @@
 open Linear
 
 val commuting_space : QQMatrix.t -> QQMatrix.t -> QQVectorSpace.t
+val commuting_segment : QQMatrix.t list -> (QQMatrix.t * QQMatrix.t list)
 
 type kind = Commute | Reset | Ignore
 
