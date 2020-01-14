@@ -93,7 +93,7 @@ val divide_left : QQMatrix.t -> QQMatrix.t -> QQMatrix.t option
     greatest linear dynamical system that approximates [Ax' = Bx], and [T] is
     the linear transformation into the linear dynamical system.  That is, [TB
     = MTA], and the rowspace of [TA] is maximal. *)
-val max_lds : QQMatrix.t -> QQMatrix.t -> QQMatrix.t * QQMatrix.t
+val max_lds : ?zero_rows:bool -> QQMatrix.t -> QQMatrix.t -> QQMatrix.t * QQMatrix.t
 
 (** Given a matrix [A], find a pair of matrices [(M,T)] such that [MA = TM],
     [T] is lower-triangular, and the rowspace of [MA] is maximal. *)

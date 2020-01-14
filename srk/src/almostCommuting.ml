@@ -28,8 +28,6 @@ let intersect_rowspaces matrices =
   else
     Array.fold_left 
       (fun mA mB -> 
-                  (fun mA mB -> 
-      (fun mA mB -> 
         let (mC, _) = intersect_rowspace mA mB in
         QQMatrix.mul mC mA)
       (Array.get matrices 0)
@@ -66,13 +64,14 @@ let mk_phased_segment pairs =
   let mT, _ = commuting_segment (Array.of_seq (iter_commute (Array.to_seq pairs))) in
   let rec fix mT =
     let ls_maxlds = Array.map 
-      (fun (k, m) -> 
+      (fun (k, m) ->
         if k == Reset then
-          max_lds mS (QQMatrix.mul mT m)
+          max_lds ~zero_rows:true mS (QQMatrix.mul mT m)
         else if k == Commute then
           max_lds mT (QQMatrix.mul mT m)
         else
-          mT, m)
+          mT, m
+        )
       pairs
     in
     let mTT = intersect_rowspaces 
