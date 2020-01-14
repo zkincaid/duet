@@ -29,12 +29,12 @@ let comm_space3 () =
   let res = commuting_space mA mB in
   assert_equal_qqvectorspace exp res
 
-let comm1 () =
+let comm_segment1 () =
   let eye = QQMatrix.identity [0; 1; 2] in
   let mS, _ = commuting_segment [eye; eye] in
   assert_equal_qqmatrix eye mS
 
-let comm2 () =
+let comm_segment2 () =
   let eye = QQMatrix.identity [0; 1; 2] in
   let m = mk_matrix [[1; 0; 0];
                      [0; 1; 0];
@@ -43,7 +43,7 @@ let comm2 () =
   let mS, _ = commuting_segment [eye; m] in
   assert_equal_qqmatrix m mS
 
-let comm3 () =
+let comm_segment3 () =
   let half = QQ.of_frac 1 2 in
   let mA = mk_qqmatrix [[QQ.of_int 3; QQ.zero];
                         [QQ.zero; half]]
@@ -59,7 +59,7 @@ let suite = "AlmostCommuting" >::: [
   "comm_space1" >:: comm_space1;
   "comm_space2" >:: comm_space2;
   "comm_space3" >:: comm_space3;
-  "comm1" >:: comm1;
-  "comm2" >:: comm2;
-  "comm3" >:: comm3
+  "comm_segment1" >:: comm_segment1;
+  "comm_segment2" >:: comm_segment2;
+  "comm_segment3" >:: comm_segment3
 ]
