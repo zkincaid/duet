@@ -31,7 +31,7 @@ let comm_space3 () =
 
 let comm_segment1 () =
   let eye = QQMatrix.identity [0; 1; 2] in
-  let mS, _ = commuting_segment [eye; eye] in
+  let mS, _ = commuting_segment [| eye; eye |] in
   assert_equal_qqmatrix eye mS
 
 let comm_segment2 () =
@@ -40,7 +40,7 @@ let comm_segment2 () =
                      [0; 1; 0];
                      [0; 0; 0]]
   in
-  let mS, _ = commuting_segment [eye; m] in
+  let mS, _ = commuting_segment [| eye; m |] in
   assert_equal_qqmatrix m mS
 
 let comm_segment3 () =
@@ -52,7 +52,7 @@ let comm_segment3 () =
                       [0; 2]]
   in
   let exp = mk_matrix [[0; 1]] in
-  let mS, _ = commuting_segment [mA; mB] in
+  let mS, _ = commuting_segment [| mA; mB |] in
   assert_equal_qqmatrix exp mS
 
 let suite = "AlmostCommuting" >::: [
