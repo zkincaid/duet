@@ -21,8 +21,8 @@ module PhasedSegment : sig
 
    val show : t -> string
    val equal : t -> t -> bool
+
+   val make : (kind * QQMatrix.t) array -> t
 end
 
 type phased_segmentation = phased_segment list
-
-val mk_phased_segment : (kind * QQMatrix.t) array -> phased_segment

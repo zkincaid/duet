@@ -81,7 +81,7 @@ let phased_segment1 () =
                       [0; 0; 1]]
   in
   let input = [| (Commute, mA); (Reset, mB); (Commute, mC) |] in
-  let output = mk_phased_segment input in
+  let output = PhasedSegment.make input in
   let sim1 = mk_matrix [[0; 0; 1]] in
   let m1 = mk_matrix [[1]] in
   let phase1 = [| m1; m1; m1 |] in
@@ -114,7 +114,7 @@ let phased_segment2 () =
                       [0; 0; 1]]
   in
   let input = [| (Commute, mA); (Commute, mB); (Reset, mC) |] in
-  let output = mk_phased_segment input in
+  let output = PhasedSegment.make input in
   let sim1 = mk_matrix [[0; 0; 1]] in
   let m1 = mk_matrix [[1]] in
   let phase1 = [| m1; m1; m1 |] in
