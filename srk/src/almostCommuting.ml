@@ -15,6 +15,27 @@ type phased_segment = {
 type phased_segmentation = phased_segment list
 
 
+module PhasedSegment = struct
+
+  type t = phased_segment
+
+  (* TODO: find proper representation *)
+  let show p = QQMatrix.show p.sim1
+
+  let equal p q =
+    QQMatrix.equal p.sim1 q.sim1 &&
+    QQMatrix.equal p.sim2 q.sim2 &&
+    BatArray.for_all2
+      QQMatrix.equal
+      p.phase1
+      q.phase1 &&
+    BatArray.for_all2
+      (fun (k1, m1) (k2, m2) -> k1 == k2 && QQMatrix.equal m1 m2)
+      p.phase2
+      q.phase2
+
+end
+
 let commuting_space mA mB =
   let dims = SrkUtil.Int.Set.elements (QQMatrix.row_set mA) in
   let mAB = QQMatrix.mul mA mB in

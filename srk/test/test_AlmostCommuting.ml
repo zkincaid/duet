@@ -55,6 +55,18 @@ let comm_segment3 () =
   let mS, _ = commuting_segment [| mA; mB |] in
   assert_equal_qqmatrix exp mS
 
+(* let assert_equal_phased_segment p q =
+  assert_equal_qqmatrix p.sim1 q.sim1;
+  assert_equal_qqmatrix p.sim2 q.sim2;
+  Array.map2
+    (fun m1 m2 -> assert_equal_qqmatrix m1 m2)
+    p.phase1
+    q.phase1;
+  Array.map2
+    (fun (k1, m1) (k2, m2) -> assert_equal k1 k2; assert_equal_qqmatrix m1 m2)
+    p.phase2
+    q.phase2 *)
+
 let phased_segment1 () = 
   let mA = mk_matrix [[1; 0; 1];
                       [0; 1; 1];
@@ -69,7 +81,7 @@ let phased_segment1 () =
                       [0; 0; 1]]
   in
   let input = [| (Commute, mA); (Reset, mB); (Commute, mC) |] in
-  let segment = mk_phased_segment input in
+  let output = mk_phased_segment input in
   let sim1 = mk_matrix [[0; 0; 1]] in
   let m1 = mk_matrix [[1]] in
   let phase1 = [| m1; m1; m1 |] in
@@ -80,14 +92,13 @@ let phased_segment1 () =
   let tC = mk_matrix [[1; 0]; [0; 1]] in
   let rB = mk_matrix [[2]; [1]] in
   let phase2 = [| (Commute, tA); (Reset, rB); (Commute, tC) |] in
-  assert_equal_qqmatrix sim1 segment.sim1;
-  assert_equal_qqmatrix sim2 segment.sim2;
-  assert_equal_qqmatrix m1 (Array.get segment.phase1 0);
-  assert_equal_qqmatrix m1 (Array.get segment.phase1 1);
-  assert_equal_qqmatrix m1 (Array.get segment.phase1 2);
-  assert_equal_qqmatrix tA (let _, m = Array.get segment.phase2 0 in m);
-  assert_equal_qqmatrix rB (let _, m = Array.get segment.phase2 1 in m);
-  assert_equal_qqmatrix tC (let _, m = Array.get segment.phase2 2 in m)
+  let expected =
+    { sim1 = sim1;
+      sim2 = sim2;
+      phase1 = phase1;
+      phase2 = phase2 }
+  in
+  assert_equal_phasedsegment expected output
 
 let phased_segment2 () = 
   let mA = mk_matrix [[1; 0; 1];
@@ -103,7 +114,7 @@ let phased_segment2 () =
                       [0; 0; 1]]
   in
   let input = [| (Commute, mA); (Commute, mB); (Reset, mC) |] in
-  let segment = mk_phased_segment input in
+  let output = mk_phased_segment input in
   let sim1 = mk_matrix [[0; 0; 1]] in
   let m1 = mk_matrix [[1]] in
   let phase1 = [| m1; m1; m1 |] in
@@ -114,14 +125,13 @@ let phased_segment2 () =
   let tB = mk_matrix [[1; 0]; [0; 1]] in
   let rC = mk_matrix [[3]; [1]] in
   let phase2 = [| (Commute, tA); (Commute, tB); (Reset, rC) |] in
-  assert_equal_qqmatrix sim1 segment.sim1;
-  assert_equal_qqmatrix sim2 segment.sim2;
-  assert_equal_qqmatrix m1 (Array.get segment.phase1 0);
-  assert_equal_qqmatrix m1 (Array.get segment.phase1 1);
-  assert_equal_qqmatrix m1 (Array.get segment.phase1 2);
-  assert_equal_qqmatrix tA (let _, m = Array.get segment.phase2 0 in m);
-  assert_equal_qqmatrix tB (let _, m = Array.get segment.phase2 1 in m);
-  assert_equal_qqmatrix rC (let _, m = Array.get segment.phase2 2 in m)
+  let expected =
+    { sim1 = sim1;
+      sim2 = sim2;
+      phase1 = phase1;
+      phase2 = phase2 }
+  in
+  assert_equal_phasedsegment expected output
 
 let suite = "AlmostCommuting" >::: [
   "comm_space1" >:: comm_space1;

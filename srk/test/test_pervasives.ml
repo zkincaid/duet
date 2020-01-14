@@ -89,6 +89,9 @@ let assert_equal_qqvector x y =
 let assert_equal_qqvectorspace x y =
   assert_equal ~cmp:Linear.QQVectorSpace.equal ~printer:Linear.QQVectorSpace.show x y
 
+let assert_equal_phasedsegment x y =
+  assert_equal ~cmp:AlmostCommuting.PhasedSegment.equal ~printer:AlmostCommuting.PhasedSegment.show x y
+
 let assert_equal_exppoly x y =
   assert_equal ~cmp:ExpPolynomial.equal ~printer:ExpPolynomial.show x y
 

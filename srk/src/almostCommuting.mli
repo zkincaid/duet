@@ -16,6 +16,13 @@ type phased_segment = {
                                          space to the phase 2 space *)
 }
 
+module PhasedSegment : sig
+   type t = phased_segment
+
+   val show : t -> string
+   val equal : t -> t -> bool
+end
+
 type phased_segmentation = phased_segment list
 
 val mk_phased_segment : (kind * QQMatrix.t) array -> phased_segment
