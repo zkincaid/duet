@@ -163,6 +163,40 @@ let phased_segment3 () =
   in
   assert_equal_phasedsegment expected output
 
+let phased_segment4 () = 
+  let mA = mk_matrix [[1; 0; 1];
+                      [0; 1; 1];
+                      [0; 0; 1]]
+  in
+  let mB = mk_matrix [[1; 0; -1];
+                      [0; 1; -1];
+                      [0; 0; 1]]
+  in
+  let mC = mk_matrix [[0; 0; 2];
+                      [0; 1; 2];
+                      [0; 0; 1]]
+  in
+  let mD = mk_matrix [[0; 1; 0];
+                      [0; 1; 0];
+                      [0; 0; 1]]
+  in
+  let input = [| (Commute, mA); (Commute, mB); (Commute, mC); (Commute, mD) |] in
+  let output = PhasedSegment.make input in
+  let sim1 = mk_matrix [[0; 1; 0]; [0; 0; 1]] in
+  let sA = mk_matrix [[1; 1]; [0; 1]] in
+  let sB = mk_matrix [[1; -1]; [0; 1]] in
+  let sC = mk_matrix [[1; 2]; [0; 1]] in
+  let sD = mk_matrix [[1; 0]; [0; 1]] in
+  let phase1 = [| sA; sB; sC; sD |] in
+  let phase2 = [| (Commute, sA); (Commute, sB); (Commute, sC); (Commute, sD) |] in
+  let expected =
+    { sim1 = sim1;
+      sim2 = sim1;
+      phase1 = phase1;
+      phase2 = phase2 }
+  in
+  assert_equal_phasedsegment expected output
+
 let suite = "AlmostCommuting" >::: [
   "comm_space1" >:: comm_space1;
   "comm_space2" >:: comm_space2;
@@ -173,4 +207,5 @@ let suite = "AlmostCommuting" >::: [
   "phased_segment1" >:: phased_segment1;
   "phased_segment2" >:: phased_segment2;
   "phased_segment3" >:: phased_segment3;
+  "phased_segment4" >:: phased_segment4;
 ]
