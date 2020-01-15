@@ -1292,6 +1292,14 @@ let _ =
          K.domain := (module ProductWedge(SolvablePolynomialPeriodicRational)(WedgeGuard))),
      " Use periodic rational spectral decomposition");
   CmdLine.register_config
+    ("-cra-refine",
+     Arg.Set cra_refine,
+     " Turn on loop refinement");
+  CmdLine.register_config
+    ("-cra-refine-full",
+    Arg.Unit (fun () -> cra_refine := true; K.CRARefinement.refine_full := true),
+    " Turn on unrestricted loop refinement");
+  CmdLine.register_config
     ("-cra-vas",
      Arg.Unit (fun () ->
          let open Iteration in
