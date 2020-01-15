@@ -12,6 +12,7 @@ module type Univariate = sig
   val identity : t
   val eval : t -> scalar -> scalar
   val exp : t -> int -> t
+  val mul_monomial : scalar -> int -> t -> t
 end
 
 module MakeUnivariate(R : Ring.S) = struct
@@ -27,7 +28,7 @@ module MakeUnivariate(R : Ring.S) = struct
 
   let identity = of_term R.one 1
 
-  let monomial_mul coeff power p =
+  let mul_monomial coeff power p =
     (IntMap.enum p)
     /@ (fun (power',coeff') -> (power * power', R.mul coeff coeff'))
     |> IntMap.of_enum
@@ -272,7 +273,7 @@ module Monomial = struct
     let f _ a b =
       match a, b with
       | Some a, Some b -> Some (min a b)
-      | Some x, None | None, Some x -> None
+      | Some _, None | None, Some _ -> None
       | None, None -> assert false
     in
     IntMap.merge f
@@ -298,8 +299,8 @@ module Monomial = struct
     let rec go m n =
       match m, n with
       | ([], []) -> `Eq
-      | ([], n) -> `Lt
-      | (m, []) -> `Gt
+      | ([], _) -> `Lt
+      | (_, []) -> `Gt
       | ((x, a)::m', (y, b)::n') ->
         if x = y then
           if a = b then go m' n'
@@ -375,8 +376,11 @@ module type Multivariate = sig
   val of_list : (scalar * Monomial.t) list -> t
   val exp : t -> int -> t
   val substitute : (int -> t) -> t -> t
+  val mul_monomial : Monomial.t -> t -> t
   val div_monomial : t -> Monomial.t -> t option
+  val qr_monomial : t -> Monomial.t -> t * t
   val dimensions : t -> int BatEnum.t
+  val degree : t -> int
 end
 
 module MakeMultivariate(R : Ring.S) = struct
@@ -397,7 +401,7 @@ module MakeMultivariate(R : Ring.S) = struct
         formatter
         (enum p)
 
-  let monomial_scalar_mul coeff monomial p =
+  let mul_monomial_scalar coeff monomial p =
     if R.equal coeff R.zero then
       zero
     else
@@ -406,12 +410,12 @@ module MakeMultivariate(R : Ring.S) = struct
           (Monomial.mul monomial monomial', R.mul coeff coeff'))
       |> MM.of_enum
 
-  let monomial_mul = monomial_scalar_mul R.one
+  let mul_monomial = mul_monomial_scalar R.one
 
   let mul p q =
     BatEnum.fold
       (fun r (monomial, coeff) ->
-         add r (monomial_scalar_mul coeff monomial q))
+         add r (mul_monomial_scalar coeff monomial q))
       zero
       (MM.enum p)
 
@@ -423,8 +427,6 @@ module MakeMultivariate(R : Ring.S) = struct
 
   let of_dim dim =
     of_term R.one (Monomial.singleton dim 1)
-
-  let compare = MM.compare
 
   let exp = SrkUtil.exp mul one
 
@@ -452,13 +454,24 @@ module MakeMultivariate(R : Ring.S) = struct
       p
       (Some zero)
 
+  let qr_monomial p m =
+    MM.fold (fun n coeff (q, r) ->
+        match Monomial.div n m with
+        | Some qn -> (add_term coeff qn q, r)
+        | None -> (q, add_term coeff n r))
+      p
+      (zero, zero)
+
   let dimensions p =
     let module S = SrkUtil.Int.Set in
     MM.fold (fun m _ set ->
         Monomial.IntMap.fold (fun dim _ set -> S.add dim set) m set)
       p
       S.empty
-    |> S.enum  
+    |> S.enum
+
+  let degree p =
+    MM.fold (fun m _ d -> max (Monomial.total_degree m) d) p 0
 end
 
 module QQXs = struct
@@ -541,6 +554,19 @@ module QQXs = struct
           zero
       in
       (c, m, q)
+
+  let split_leading ord p =
+    let leading_monomial =
+      MM.fold (fun n _ m ->
+          if ord n m = `Gt then n
+          else m)
+        p
+        Monomial.one
+    in
+    (coeff leading_monomial p,
+     leading_monomial,
+     try MM.remove leading_monomial p
+     with Not_found -> p)
 end
 
 module Rewrite = struct
@@ -917,12 +943,12 @@ module Rewrite = struct
     add_saturate_op rewrite (op_of_qqxs rewrite.order p) (P.singleton p)
 
   let grobner_basis rewrite =
-    logf "Compute a Grobner basis for:@\n@[<v 0>%a@]"
+    logf ~level:`trace "Compute a Grobner basis for:@\n@[<v 0>%a@]"
       (pp pp_dim) rewrite;
 
     let rewrite = reduce_rewrite rewrite in
 
-    logf "After reduction:@\n@[<v 0>%a@]"
+    logf ~level:`trace "After reduction:@\n@[<v 0>%a@]"
       (pp pp_dim) rewrite;
 
     let pairs =
@@ -942,7 +968,7 @@ module Rewrite = struct
         rules = buchberger rewrite.order rewrite.rules pairs }
       |> reduce_rewrite
     in
-    logf "Grobner basis:@\n@[<v 0>%a@]"
+    logf ~level:`trace "Grobner basis:@\n@[<v 0>%a@]"
       (pp pp_dim) grobner;
     grobner
 

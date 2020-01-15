@@ -48,6 +48,26 @@ val enum : t -> (Polynomial.QQX.t * QQ.t) BatEnum.t
 val add_term : Polynomial.QQX.t -> QQ.t -> t -> t
 val of_term : Polynomial.QQX.t -> QQ.t -> t
 
+(** Vectors with exponential-polynomial entries *)
+module Vector : sig
+  include Ring.Vector with type scalar = t
+                       and type dim = int
+  val of_qqvector : Linear.QQVector.t -> t
+end
+
+(** Matrices with exponential-polynomial entries *)
+module Matrix : sig
+  include Ring.Matrix with type scalar = t
+                       and type vector = Vector.t
+                       and type dim = int
+  val pp : Format.formatter -> t -> unit
+  val of_qqmatrix : Linear.QQMatrix.t -> t
+end
+
+(** Symbolically exponentiate a matrix with rational eigenvalues.
+   None indicates the matrix has irrational eigenvalues.  *)
+val exponentiate_rational : Linear.QQMatrix.t -> Matrix.t option
+
 module UltPeriodic : sig
   type elt = t
   type t
@@ -77,12 +97,14 @@ module UltPeriodic : sig
   val period_len : t -> int
   val transient_len : t -> int
 
-  (** Given a function f, compute the function [lambda n. sum_{i=0}^n f(i) *)
+  (** Given a function f, compute the function [lambda n. sum_{i=0}^n f(i)] *)
   val summation : t -> t
 
   (** [solve_rec ?initial coeff f] computes the function [g] that satisfies
-        g(0) = initial
-        g(n+1) = coeff*g_{n}(n) + f_n(n)
+      {ul
+       {- [g(0) = initial] }
+       {- [g(n+1) = coeff*g(n) + f_n(n)] }}.
+
       If initial is omitted, it is taken to be 0.
   *)
   val solve_rec : ?initial:QQ.t -> QQ.t -> t -> t

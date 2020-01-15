@@ -1,5 +1,5 @@
 open Syntax
-open Smt
+open Interpretation
 
 (** Satisfiability via strategy improvement *)
 val simsat : 'a context -> 'a formula -> [ `Sat | `Unsat | `Unknown ]
@@ -21,6 +21,10 @@ val qe_mbp : 'a context -> 'a formula -> 'a formula
 (** Model-based projection.  If [dnf] option is set, convert to
    disjunctive normal form. *)
 val mbp : ?dnf:bool -> 'a context -> (symbol -> bool) -> 'a formula -> 'a formula
+
+(** Over-approximtate model-based projection.  If [dnf] option is set,
+   convert to disjunctive normal form. *)
+val mbp_cover : ?dnf:bool -> 'a context -> (symbol -> bool) -> 'a formula -> 'a formula
 
 (** Alternating quantifier satisfiability *)
 val easy_sat : 'a context -> 'a formula -> [ `Sat | `Unsat | `Unknown ]
@@ -51,3 +55,17 @@ val check_strategy : 'a context -> quantifier_prefix -> 'a formula ->
 val normalize : 'a context -> 'a formula -> quantifier_prefix * 'a formula
 
 val is_presburger_atom : 'a context -> 'a formula -> bool
+
+(** Given an interpretation [M], a conjunctive formula [cube] such
+   that [M |= cube], and a predicate [p], find a cube [cube']
+   expressed over symbols that satisfy [p] such that [M |= cube' |=
+   cube].  [local_project_cube] has a finite image in the sense that
+   for any cube [c], the set [{ local_project_cube srk p m c : m |= c
+   }] is finite.  [local_project_cube] assumes a formula in [QF_LRA];
+   if not, then [cube'] may not entail [cube], but it is guaranteed to
+   be satisfied by [M]. *)
+val local_project_cube : 'a context ->
+  (symbol -> bool) ->
+  'a interpretation ->
+  'a formula list ->
+  'a formula list

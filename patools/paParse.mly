@@ -2,7 +2,6 @@
 open Srk
 open PaFormula
 open PredicateAutomata
-open BatPervasives
 open Patop
 
 let pp_pos formatter pos =
@@ -51,7 +50,7 @@ main:
         in
         let start =
           PaFormula.substitute
-            (undefined ~message:"Start formula should be a sentence")
+            (BatPervasives.undefined ~message:"Start formula should be a sentence")
             start
         in
         let pa = A.make alphabet [] start [] in
@@ -101,6 +100,7 @@ main_formula:
          PaFormula.substitute subst rhs
        in
        let replace_rel p k =
+         let open BatPervasives in
          if p = rel then
            rhs'
          else

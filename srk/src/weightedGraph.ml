@@ -1,4 +1,3 @@
-open BatHashcons
 open Pathexpr
 
 include Log.Make(struct let name = "srk.weightedGraph" end)
@@ -7,8 +6,7 @@ module U = Graph.Persistent.Digraph.ConcreteBidirectional(SrkUtil.Int)
 module WTO = Graph.WeakTopological.Make(U)
 
 module IntPair = struct
-  type t = int * int [@@deriving ord]
-  let equal (x,y) (x',y') = (x=x' && y=y')
+  type t = int * int [@@deriving ord, eq]
   let hash = Hashtbl.hash
 end
 
@@ -178,6 +176,88 @@ let iter_succ_e f wg u =
 let fold_vertex f wg = U.fold_vertex f wg.graph
 let iter_vertex f wg = U.iter_vertex f wg.graph
 let mem_edge wg u v = M.mem (u, v) wg.labels
+
+(* Line graphs swaps vertices and edges *)
+module LineGraph = struct
+  type t = U.t
+  module V = IntPair
+  let iter_vertex f graph = U.iter_edges (fun x y -> f (x, y)) graph
+  let iter_succ f graph (_, dst) =
+    U.iter_succ
+      (fun succ -> f (dst, succ))
+      graph
+      dst
+end
+module LGWTO = Graph.WeakTopological.Make(LineGraph)
+module ESet = Set.Make(IntPair)
+
+let forward_analysis wg ~entry ~update ~init =
+  let data_table = Hashtbl.create 991 in
+  let get_data v =
+    try Hashtbl.find data_table v
+    with Not_found ->
+      let data = init v in
+      Hashtbl.add data_table v data;
+      data
+  in
+  let set_data v data =
+    Hashtbl.replace data_table v data;
+  in
+
+  (* Set of edges that belong to an WTO component *)
+  let loop_edges wto =
+    let rec go edges wto =
+      let open Graph.WeakTopological in
+      match wto with
+      | Vertex e -> ESet.add e edges
+      | Component (e, rest) ->
+        fold_left go (ESet.add e edges) rest
+    in
+    go ESet.empty wto
+  in
+
+  let update_edge work ((src, dst) as e) =
+    if ESet.mem e work then
+      let work = ESet.remove e work in
+      let weight = edge_weight wg src dst in
+      match update ~pre:(get_data src) weight ~post:(get_data dst) with
+      | Some data ->
+        set_data dst data;
+        U.fold_succ_e ESet.add wg.graph dst work
+      | None -> work
+    else
+      work
+  in
+  let rec solve work wto =
+    let open Graph.WeakTopological in
+    match wto with
+    | Vertex e -> update_edge work e
+    | Component (e, rest) ->
+      let cmp_edges = loop_edges wto in
+      let rec fix work =
+        let work =
+          fold_left solve (update_edge work e) rest
+        in
+        if ESet.exists (fun e -> ESet.mem e work) cmp_edges then
+          fix work
+        else
+          work
+      in
+      fix work
+  in
+
+  (* Add an artificial edge to act as the entry point to the line
+     graph of graph. Don't add to the initial worklist, so update will
+     never be called on the artifical edge.  *)
+  let init_vertex = max_vertex wg + 1 in
+  let graph' = U.add_edge wg.graph init_vertex entry in
+
+  ignore (Graph.WeakTopological.fold_left
+            solve
+            (U.fold_succ_e ESet.add wg.graph entry ESet.empty)
+            (LGWTO.recursive_scc graph' (init_vertex, entry)));
+
+  get_data
 
 module type Weight = sig
   type t
@@ -357,7 +437,7 @@ module MakeRecGraph (W : Weight) = struct
       (* Create a fresh call vertex to serve as entry.  It will have an edge
            to every other call *)
       let callgraph_entry =
-        let (s, t) = CallSet.min_elt calls in
+        let s = fst (CallSet.min_elt calls) in
         (s-1, s-1)
       in
       (* Compute summaries *************************************************)
@@ -458,7 +538,7 @@ module MakeRecGraph (W : Weight) = struct
       (* For each (s,t) call containing a call (s',t'), add an edge from s to s'
          with the path weight from s to call(s',t'). *)
       CallSet.fold
-        (fun (src, tgt) query' -> add_call_edges query' src)
+        (fun (src, _) query' -> add_call_edges query' src)
         calls
         query
     end

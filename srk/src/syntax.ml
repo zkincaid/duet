@@ -8,9 +8,9 @@ type typ = [
   | `TyReal
   | `TyBool
   | `TyFun of (typ_fo list * typ_fo)
-] [@@ deriving ord]
+]
 
-type typ_arith = [ `TyInt | `TyReal ] [@@ deriving ord]
+type typ_arith = [ `TyInt | `TyReal ]
 type typ_bool = [ `TyBool ]
 type 'a typ_fun = [ `TyFun of (typ_fo list) * 'a ]
 
@@ -31,9 +31,6 @@ let pp_typ formatter = function
     Format.fprintf formatter "(@[%a@ -> %a@])"
       (SrkUtil.pp_print_enum ~pp_sep pp_typ_fo) (BatList.enum dom)
       pp_typ_fo cod
-
-let pp_typ_arith = pp_typ
-let pp_typ_fo = pp_typ
 
 let subtype s t = s = t || (s = `TyInt && t = `TyReal)
 
@@ -78,7 +75,6 @@ module HC = BatHashcons.MakeTable(struct
       && typ == typ'
       && List.length args == List.length args'
       && List.for_all2 (fun x y -> x.tag = y.tag) args args'
-    let compare = Pervasives.compare
     let hash (Node (label, args, _)) =
       Hashtbl.hash (label, List.map (fun sexpr -> sexpr.tag) args)
   end)
@@ -110,10 +106,6 @@ module Env = struct
   let empty = []
   let enum = BatList.enum
 end
-
-let rec eval_sexpr alg sexpr =
-  let (Node (label, children, typ)) = sexpr.obj in
-  alg label (List.map (eval_sexpr alg) children) typ
 
 let rec flatten_sexpr label sexpr =
   let Node (label', children, _) = sexpr.obj in
@@ -260,9 +252,6 @@ let is_zero phi = match phi.obj with
   | Node (Real k, [], _) -> QQ.equal k QQ.zero
   | _ -> false
 
-let is_one phi = match phi.obj with
-  | Node (Real k, [], _) -> QQ.equal k QQ.one
-  | _ -> false
 
 let mk_not srk phi = srk.mk Not [phi]
 let mk_and srk conjuncts = srk.mk And conjuncts
@@ -346,6 +335,28 @@ let substitute_map srk map sexpr =
   in
   substitute_const srk subst sexpr
 
+let substitute_sym srk subst sexpr =
+  let rec go depth sexpr =
+    let Node (label, children, _) = sexpr.obj in
+    match label with
+    | Exists (_, _) | Forall (_, _) ->
+      go_children label (depth + 1) children
+    | App k ->
+      let env =
+        List.fold_right
+          (fun c env -> Env.push (go depth c) env)
+          children
+          Env.empty
+      in
+      substitute srk (Env.find env) (subst k)
+      |> decapture srk 0 (depth - (List.length children))
+    | _ -> go_children label depth children
+  and go_children label depth children =
+    srk.mk label (List.map (go depth) children)
+  in
+  go 0 sexpr
+
+
 let fold_constants f sexpr acc =
   let rec go acc sexpr =
     let Node (label, children, _) = sexpr.obj in
@@ -396,7 +407,7 @@ let free_vars sexpr =
   go 0 sexpr;
   table
 
-let destruct srk sexpr =
+let destruct _srk sexpr =
   match sexpr.obj with
   | Node (Real qq, [], _) -> `Real qq
   | Node (App func, args, _) -> `App (func, args)
@@ -444,7 +455,7 @@ let rec pp_expr ?(env=Env.empty) srk formatter expr =
     fprintf formatter "%a(@[%a@])"
       (pp_symbol srk) func
       (SrkUtil.pp_print_enum_nobox (pp_expr ~env srk)) (BatList.enum args)
-  | Var (v, typ), [] ->
+  | Var (v, _), [] ->
     (try fprintf formatter "[%s:%d]" (Env.find env v) v
      with Not_found -> fprintf formatter "[free:%d]" v)
   | Add, terms ->
@@ -473,10 +484,10 @@ let rec pp_expr ?(env=Env.empty) srk formatter expr =
       (pp_expr ~env srk) t
   | Floor, [t] ->
     fprintf formatter "floor(@[%a@])" (pp_expr ~env srk) t
-  | Neg, [{obj = Node (Real qq, [], _)}] ->
+  | Neg, [{obj = Node (Real qq, [], _); _}] ->
     QQ.pp formatter (QQ.negate qq)
-  | Neg, [{obj = Node (App _, _, _)} as t]
-  | Neg, [{obj = Node (Var (_, _), [], _)} as t] ->
+  | Neg, [{obj = Node (App _, _, _); _} as t]
+  | Neg, [{obj = Node (Var (_, _), [], _); _} as t] ->
     fprintf formatter "-%a" (pp_expr ~env srk) t
   | Neg, [t] -> fprintf formatter "-(@[%a@])" (pp_expr ~env srk) t
   | True, [] -> pp_print_string formatter "true"
@@ -540,6 +551,147 @@ let rec pp_expr ?(env=Env.empty) srk formatter expr =
       (pp_expr ~env srk) belse
   | _ -> failwith "pp_expr: ill-formed expression"
 
+
+
+
+(* This variant of pp_expr avoids printing a symbol number (e.g., "x:5") for a
+   symbol S (i.e., a program variable or function name) if there does not exist
+   any other symbol in the expression that has the same name as S. *)
+let pp_expr_unnumbered ?(env=Env.empty) srk formatter expr =
+
+  (* find a unique string that can be used to identify each symbol *)
+  let strings = Hashtbl.create 991 in
+  let symbol_name = Hashtbl.create 991 in
+  Symbol.Set.iter (fun symbol ->
+      let name = fst (DynArray.get srk.symbols symbol) in
+      if Hashtbl.mem strings name then
+        let rec go n =
+          let name' = name ^ ":" ^ (string_of_int n) in
+          if Hashtbl.mem strings name' then
+            go (n + 1)
+          else begin
+            Hashtbl.add strings name' ();
+            Hashtbl.add symbol_name symbol name'
+          end
+        in
+        go 0
+      else begin
+        Hashtbl.add strings name ();
+        Hashtbl.add symbol_name symbol name
+      end)
+    (symbols expr);
+
+  let rec go ?(env=Env.empty) srk formatter expr =
+    let Node (label, children, _) = expr.obj in
+    let open Format in
+    match label, children with
+    | Real qq, [] -> QQ.pp formatter qq
+    | App k, [] -> 
+      pp_print_string formatter (Hashtbl.find symbol_name k)
+    | App func, args ->
+      fprintf formatter "%s(@[%a@])"
+      (Hashtbl.find symbol_name func)
+      (SrkUtil.pp_print_enum_nobox (go ~env srk)) (BatList.enum args)
+    | Var (v, _), [] ->
+      (try fprintf formatter "[%s:%d]" (Env.find env v) v
+       with Not_found -> fprintf formatter "[free:%d]" v)
+    | Add, terms ->
+      fprintf formatter "(@[";
+      SrkUtil.pp_print_enum
+        ~pp_sep:(fun formatter () -> fprintf formatter "@ + ")
+        (go ~env srk)
+        formatter
+        (BatList.enum terms);
+      fprintf formatter "@])"
+    | Mul, terms ->
+      fprintf formatter "(@[";
+      SrkUtil.pp_print_enum
+        ~pp_sep:(fun formatter () -> fprintf formatter "@ * ")
+        (go ~env srk)
+        formatter
+        (BatList.enum terms);
+      fprintf formatter "@])"
+    | Div, [s; t] ->
+      fprintf formatter "(@[%a@ / %a@])"
+        (go ~env srk) s
+        (go ~env srk) t
+    | Mod, [s; t] ->
+      fprintf formatter "(@[%a@ mod %a@])"
+        (go ~env srk) s
+        (go ~env srk) t
+    | Floor, [t] ->
+      fprintf formatter "floor(@[%a@])" (go ~env srk) t
+    | Neg, [{obj = Node (Real qq, [], _); _}] ->
+      QQ.pp formatter (QQ.negate qq)
+    | Neg, [{obj = Node (App _, _, _); _} as t]
+    | Neg, [{obj = Node (Var (_, _), [], _); _} as t] ->
+      fprintf formatter "-%a" (go ~env srk) t
+    | Neg, [t] -> fprintf formatter "-(@[%a@])" (go ~env srk) t
+    | True, [] -> pp_print_string formatter "true"
+    | False, [] -> pp_print_string formatter "false"
+    | Not, [phi] ->
+      fprintf formatter "!(@[%a@])" (go ~env srk) phi
+    | And, conjuncts ->
+      fprintf formatter "(@[";
+      SrkUtil.pp_print_enum
+        ~pp_sep:(fun formatter () -> fprintf formatter "@ /\\ ")
+        (go ~env srk)
+        formatter
+        (BatList.enum (List.concat (List.map (flatten_sexpr And) conjuncts)));
+      fprintf formatter "@])"
+    | Or, disjuncts ->
+      fprintf formatter "(@[";
+      SrkUtil.pp_print_enum
+        ~pp_sep:(fun formatter () -> fprintf formatter "@ \\/ ")
+        (go ~env srk)
+        formatter
+        (BatList.enum (List.concat (List.map (flatten_sexpr Or) disjuncts)));
+      fprintf formatter "@])"
+    | Eq, [x; y] ->
+      fprintf formatter "@[%a = %a@]"
+        (go ~env srk) x
+        (go ~env srk) y
+    | Leq, [x; y] ->
+      fprintf formatter "@[%a <= %a@]"
+        (go ~env srk) x
+        (go ~env srk) y
+    | Lt, [x; y] ->
+      fprintf formatter "@[%a < %a@]"
+        (go ~env srk) x
+        (go ~env srk) y
+    | Exists (name, typ), [psi] | Forall (name, typ), [psi] ->
+        let (quantifier_name, varinfo, psi) =
+          match label with
+          | Exists (_, _) ->
+            let (varinfo, psi) = flatten_existential psi in
+            ("exists", (name, typ)::varinfo, psi)
+          | Forall (_, _) ->
+            let (varinfo, psi) = flatten_universal psi in
+            ("forall", (name, typ)::varinfo, psi)
+          | _ -> assert false
+        in
+        let env =
+          List.fold_left (fun env (x,_) -> Env.push x env) env varinfo
+        in
+        fprintf formatter "(@[%s@ " quantifier_name;
+        SrkUtil.pp_print_enum
+          ~pp_sep:pp_print_space
+          (fun formatter (name, typ) ->
+             fprintf formatter "(%s : %a)" name pp_typ typ)
+          formatter
+          (BatList.enum varinfo);
+        fprintf formatter ".@ %a@])" (go ~env srk) psi
+    | Ite, [cond; bthen; belse] ->
+      fprintf formatter "ite(@[%a,@ %a,@ %a@])"
+        (go ~env srk) cond
+        (go ~env srk) bthen
+        (go ~env srk) belse
+    | _ -> failwith "pp_expr_unnumbered: ill-formed expression"
+
+  in go ~env srk formatter expr
+
+
+
 module Expr = struct
   module Inner = struct
     type t = sexpr hobj
@@ -549,11 +701,23 @@ module Expr = struct
   end
   include Inner
 
-  let refine srk sexpr =
+  let refine _srk sexpr =
     match sexpr.obj with
     | Node (_, _, `TyInt) -> `Term sexpr
     | Node (_, _, `TyReal) -> `Term sexpr
     | Node (_, _, `TyBool) -> `Formula sexpr
+
+  let term_of _srk sexpr =
+    match sexpr.obj with
+    | Node (_, _, `TyInt)
+    | Node (_, _, `TyReal) -> sexpr
+    | Node (_, _, `TyBool) -> invalid_arg "Syntax.term_of: not a term"
+
+  let formula_of _srk sexpr =
+    match sexpr.obj with
+    | Node (_, _, `TyInt)
+    | Node (_, _, `TyReal) -> invalid_arg "Syntax.formula_of: not a formula"
+    | Node (_, _, `TyBool) -> sexpr
 
   let pp = pp_expr
 
@@ -580,6 +744,10 @@ module Expr = struct
     let inter = S.inter
     let enum = S.enum
     let mem = S.mem
+    let equal = S.equal
+    let of_list = S.of_list
+    let elements = S.elements
+    let filter = S.filter
   end
 
   module Map = struct
@@ -607,11 +775,11 @@ module Term = struct
   let compare s t = Pervasives.compare s.tag t.tag
   let hash t = t.hcode
 
-  let eval srk alg t =
+  let eval _srk alg t =
     let rec go t =
       match t.obj with
       | Node (Real qq, [], _) -> alg (`Real qq)
-      | Node (App func, args, `TyBool) -> invalid_arg "eval: not a term"
+      | Node (App _, _, `TyBool) -> invalid_arg "eval: not a term"
       | Node (App func, args, `TyInt) | Node (App func, args, `TyReal) ->
         alg (`App (func, args))
       | Node (Var (v, typ), [], _) ->
@@ -642,7 +810,7 @@ module Term = struct
     try Some (eval srk alg' t)
     with Quit -> None
 
-  let destruct srk t = match t.obj with
+  let destruct _srk t = match t.obj with
     | Node (Real qq, [], _) -> `Real qq
     | Node (App _, _, `TyBool) -> invalid_arg "destruct: not a term"
     | Node (App func, args, `TyInt) | Node (App func, args, `TyReal) ->
@@ -674,7 +842,7 @@ module Formula = struct
   let compare s t = Pervasives.compare s.tag t.tag
   let hash t = t.hcode
 
-  let destruct srk phi = match phi.obj with
+  let destruct _srk phi = match phi.obj with
     | Node (True, [], _) -> `Tru
     | Node (False, [], _) -> `Fls
     | Node (And, conjuncts, _) -> `And conjuncts
@@ -757,7 +925,7 @@ module Formula = struct
 
   let skolemize_free srk phi =
     let skolem =
-      Memo.memo (fun (i, typ) -> mk_const srk (mk_symbol srk typ))
+      Memo.memo (fun (_, typ) -> mk_const srk (mk_symbol srk typ))
     in
     let rec go sexpr =
       let (Node (label, children, _)) = sexpr.obj in
@@ -858,7 +1026,7 @@ let node_typ symbols label children =
         if List.length args != List.length children then
           invalid_arg "Arity mis-match in function application";
         if (BatList.for_all2
-              (fun typ { obj = Node (_, _, typ') } -> subtype typ' typ)
+              (fun typ { obj = Node (_, _, typ'); _ } -> subtype typ' typ)
               args
               children)
         then
@@ -875,7 +1043,7 @@ let node_typ symbols label children =
   | Floor -> `TyInt
   | Div -> `TyReal
   | Add | Mul | Mod | Neg ->
-    List.fold_left (fun typ { obj = Node (_, _, typ') } ->
+    List.fold_left (fun typ { obj = Node (_, _, typ'); _ } ->
         match typ, typ' with
         | `TyInt, `TyInt -> `TyInt
         | `TyInt, `TyReal | `TyReal, `TyInt | `TyReal, `TyReal -> `TyReal
@@ -934,7 +1102,7 @@ let rec nnf_rewriter srk sexpr =
   | _ -> sexpr
 
 let rec rewrite srk ?down:(down=fun x -> x) ?up:(up=fun x -> x) sexpr =
-  let (Node (label, children, typ)) = (down sexpr).obj in
+  let (Node (label, children, _)) = (down sexpr).obj in
   up (srk.mk label (List.map (rewrite srk ~down ~up) children))
 
 let eliminate_ite srk phi =
@@ -1037,7 +1205,7 @@ let eliminate_ite srk phi =
   in
   elim_ite phi
 
-let rec pp_smtlib2 ?(env=Env.empty) srk formatter expr =
+let pp_smtlib2 ?(env=Env.empty) srk formatter expr =
   let open Format in
   let pp_sep = pp_print_space in
 
@@ -1066,10 +1234,11 @@ let rec pp_smtlib2 ?(env=Env.empty) srk formatter expr =
   let strings = Hashtbl.create 991 in
   let symbol_name = Hashtbl.create 991 in
   Symbol.Set.iter (fun symbol ->
-      let name = symbol_of_string (fst (DynArray.get srk.symbols symbol)) in
+      let base_name = fst (DynArray.get srk.symbols symbol) in
+      let name = symbol_of_string base_name in
       if Hashtbl.mem strings name then
         let rec go n =
-          let name' = name ^ (string_of_int n) in
+          let name' = symbol_of_string (base_name ^ (string_of_int n)) in
           if Hashtbl.mem strings name' then
             go (n + 1)
           else begin
@@ -1079,6 +1248,7 @@ let rec pp_smtlib2 ?(env=Env.empty) srk formatter expr =
         in
         go 0
       else begin
+        let name = symbol_of_string (fst (DynArray.get srk.symbols symbol)) in
         Hashtbl.add strings name ();
         Hashtbl.add symbol_name symbol name
       end)
@@ -1120,7 +1290,7 @@ let rec pp_smtlib2 ?(env=Env.empty) srk formatter expr =
       fprintf formatter "(%s %a)"
         (Hashtbl.find symbol_name func)
         (SrkUtil.pp_print_enum ~pp_sep (go env)) (BatList.enum args)
-    | Var (v, typ), [] ->
+    | Var (v, _), [] ->
       (try fprintf formatter "?%s_%d" (Env.find env v) v
        with Not_found -> fprintf formatter "[free:%d]" v)
     | Add, terms ->
@@ -1140,7 +1310,7 @@ let rec pp_smtlib2 ?(env=Env.empty) srk formatter expr =
         (BatList.enum terms);
       fprintf formatter "@])"
     | Div, [s; t] ->
-      fprintf formatter "(/@[%a@ %a@])"
+      fprintf formatter "(/ @[%a@ %a@])"
         (go env) s
         (go env) t
     | Mod, [s; t] ->
@@ -1148,10 +1318,10 @@ let rec pp_smtlib2 ?(env=Env.empty) srk formatter expr =
         (go env) s
         (go env) t
     | Floor, [t] ->
-      fprintf formatter "(floor @[%a@])" (go env) t
-    | Neg, [{obj = Node (Real qq, [], _)}] ->
+      fprintf formatter "(to_int @[%a@])" (go env) t
+    | Neg, [{obj = Node (Real qq, [], _); _}] ->
       QQ.pp formatter (QQ.negate qq)
-    | Neg, [{obj = Node (App _, _, _)} as t]
+    | Neg, [{obj = Node (App _, _, _); _} as t]
     | Neg, [t] -> fprintf formatter "(- @[%a@])" (go env) t
     | True, [] -> pp_print_string formatter "true"
     | False, [] -> pp_print_string formatter "false"
@@ -1425,6 +1595,10 @@ struct
           match non_const with
           | [x] -> x
           | _ -> hc Mul non_const
+        else if QQ.equal const (QQ.of_int (-1)) then
+          match non_const with
+          | [x] -> mk Neg [x]
+          | _ -> mk Neg [hc Mul (non_const)]
         else
           hc Mul ((mk (Real const) [])::non_const)
 

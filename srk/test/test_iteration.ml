@@ -1,7 +1,5 @@
 open OUnit
-open Abstract
 open Syntax
-open SrkApron
 open Test_pervasives
 
 module QQMatrix = Linear.QQMatrix
@@ -15,6 +13,12 @@ module SPPR = struct
   include Iteration.MakeDomain(Iteration.ProductWedge
                                  (SolvablePolynomial.SolvablePolynomialPeriodicRational)
                                  (Iteration.WedgeGuard))
+  let star srk symbols phi = closure (abstract srk symbols phi)
+end
+module DLTS = struct
+  include Iteration.MakeDomain(Iteration.Product
+                                 (SolvablePolynomial.DLTS)
+                                 (Iteration.PolyhedronGuard))
   let star srk symbols phi = closure (abstract srk symbols phi)
 end
 
@@ -328,6 +332,84 @@ let periodic_rational5 () =
   assert_implies closure (!(w' = (int 3)) || z' = (int 0));
   assert_implies closure (!(w' = (int 4)) || z' = (int 1))
 
+let dlts1 () =
+  let open Infix in
+  let phi =
+    x' = x + (int 1)
+    && x = (int 0)
+  in
+  let closure = DLTS.star srk tr_symbols phi in
+  assert_equal (Smt.is_sat srk (closure && x < x')) `Sat;
+  assert_implies closure (x' = x || x' = (int 1))
+
+let dlts2 () =
+  let open Infix in
+  let phi =
+    x' = x + z
+    && y' = y - z
+    && z' = (int 2) * z
+    && x = y
+  in
+  let closure = DLTS.star srk tr_symbols phi in
+  assert_equal (Smt.is_sat srk (closure && x < x')) `Sat;
+  assert_implies closure (z' = (int 2) * z || z' = z)
+
+let dlts3 () =
+  let open Infix in
+  let phi =
+    x' = (int 0)
+    && y' = y + (int 2) * x
+    && x = (int 0)
+  in
+  let closure = DLTS.star srk tr_symbols phi in
+  assert_implies closure (x = x' && y = y')
+
+let dlts4 () =
+  let open Infix in
+  let phi =
+    x' = (int 2) * x
+    && x' = (int 3) * x + y
+    && y' = y + (int 2)
+    && z' = z + (int 1)
+  in
+  let closure = DLTS.star srk tr_symbols phi in
+  assert_equal (Smt.is_sat srk (closure && z' = z + (int 2))) `Sat;
+  assert_implies closure (z' = z || x + y = (int 0) || x + (int 2) = (int 0));
+  assert_implies closure (z' - z <= (int 2))
+
+let dlts5 () =
+  let open Infix in
+  let phi =
+    x' = x + (int 1)
+    && y' = y + (int 1)
+    && z' = z
+    && x = (int 0)
+    && y = (int 0)
+    && z = (int 1)
+  in
+  let closure = DLTS.star srk tr_symbols phi in
+  assert_equal (Smt.is_sat srk (closure && x' = x + (int 1))) `Sat;
+  assert_implies closure (x' - x <= (int 1))
+
+let dlts_false () =
+  let open Infix in
+  let closure = DLTS.star srk tr_symbols (mk_false srk) in
+  assert_implies closure (x' = x && y' = y && z' = z);
+  assert_equal (Smt.is_sat srk closure) `Sat
+
+let dlts_one () =
+  let open Infix in
+  let phi =
+    x' = x + (int 1)
+    && y' = y + (int 1)
+    && z' = z
+    && z = (int 1)
+    && x = y
+  in
+  let closure = DLTS.star srk tr_symbols phi in
+  assert_equal (Smt.is_sat srk (closure && x' = x + (int 100))) `Sat;
+  assert_implies closure (z' = z || z' = (int 1))
+
 let suite = "Iteration" >::: [
     "prepost" >:: prepost;
     "simple_induction" >:: simple_induction;
@@ -344,4 +426,11 @@ let suite = "Iteration" >::: [
     "periodic_rational3" >:: periodic_rational3;
     "periodic_rational4" >:: periodic_rational4;
     "periodic_rational5" >:: periodic_rational5;
+    "dlts1" >:: dlts1;
+    "dlts2" >:: dlts2;
+    "dlts3" >:: dlts3;
+    "dlts4" >:: dlts4;
+    "dlts5" >:: dlts5;
+    "dlts_false" >:: dlts_false;
+    "dlts_one" >:: dlts_one;
   ]

@@ -20,6 +20,7 @@ val negate : t -> t
 
 val mul : t -> t -> t
 val div : t -> t -> t
+val abs : t -> t
 val modulo : t -> t -> t
 val add : t -> t -> t
 val floor : t -> t

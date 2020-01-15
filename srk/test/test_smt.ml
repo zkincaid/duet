@@ -186,7 +186,7 @@ let affine_interp2 () =
 let substitute_solution fp expr =
   let rewriter expr =
     match destruct srk expr with
-    | `App (k, []) -> expr
+    | `App (_, []) -> expr
     | `App (relation, args) ->
       (substitute srk
          (List.nth args)
@@ -200,7 +200,7 @@ let verify_chc relations rules =
   List.iter (SrkZ3.CHC.register_relation solver) relations;
   rules |> List.iter (fun (hypothesis, conclusion) ->
       SrkZ3.CHC.add_rule solver hypothesis conclusion);
-  assert_equal (SrkZ3.CHC.check solver []) `Sat;
+  assert_equal (SrkZ3.CHC.check solver) `Sat;
   rules |> List.iter (fun (hypothesis, conclusion) ->
       let check =
         mk_and srk [hypothesis; (mk_not srk conclusion)]
@@ -249,7 +249,7 @@ let chc2 () =
   List.iter (SrkZ3.CHC.register_relation solver) [psym; qsym];
   rules |> List.iter (fun (hypothesis, conclusion) ->
       SrkZ3.CHC.add_rule solver hypothesis conclusion);
-  assert_equal (SrkZ3.CHC.check solver []) `Unsat
+  assert_equal (SrkZ3.CHC.check solver) `Unsat
 
 let chc3 () =
   let psym1 = Ctx.mk_symbol ~name:"p1" (`TyFun ([`TyInt; `TyInt], `TyBool)) in

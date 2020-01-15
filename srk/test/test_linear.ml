@@ -2,30 +2,6 @@ open OUnit
 open Linear
 open Test_pervasives
 
-let mk_vector vec =
-  List.fold_left
-    (fun vec (i, k) -> QQVector.add_term k i vec)
-    QQVector.zero
-    (List.mapi (fun i k -> (i, QQ.of_int k)) vec)
-
-let mk_matrix mat =
-  List.fold_left
-    (fun mat (i, row) -> QQMatrix.add_row i row mat)
-    QQMatrix.zero
-    (List.mapi (fun i row -> (i, mk_vector row)) mat)
-
-let mk_qqvector vec =
-  List.fold_left
-    (fun vec (i, k) -> QQVector.add_term k i vec)
-    QQVector.zero
-    (List.mapi (fun i k -> (i, k)) vec)
-
-let mk_qqmatrix mat =
-  List.fold_left
-    (fun mat (i, row) -> QQMatrix.add_row i row mat)
-    QQMatrix.zero
-    (List.mapi (fun i row -> (i, mk_qqvector row)) mat)
-
 let dot () =
   let u = mk_vector [1; 2; 3] in
   let v = mk_vector [2; 3] in
@@ -121,7 +97,7 @@ let rowspace2 () =
                      [0; 1; 1]]
   in
   let rowspace = mk_matrix [[1; 1; 1]] in
-  let (c, d) = intersect_rowspace a b in
+  let (_, d) = intersect_rowspace a b in
   assert_equal ~printer:QQMatrix.show rowspace (QQMatrix.mul d b)
 
 let rowspace3 () =
@@ -132,7 +108,7 @@ let rowspace3 () =
                      [0; 1; 1; 1]]
   in
   let rowspace = mk_matrix [[]] in
-  let (c, d) = intersect_rowspace a b in
+  let (_, d) = intersect_rowspace a b in
   assert_equal ~printer:QQMatrix.show rowspace (QQMatrix.mul d b)
 
 let div1 () =
@@ -436,7 +412,7 @@ let prsd2 () =
                      [-1; 1]]
   in
   match periodic_rational_spectral_decomposition m [0; 1] with
-  | [(4, lambda1, v1); (4, lambda2, v2)] ->
+  | [(4, lambda1, _); (4, lambda2, _)] ->
      assert_equal_qq (QQ.of_int (-4)) lambda1;
      assert_equal_qq (QQ.of_int (-4)) lambda2
   | _ -> assert false
@@ -527,8 +503,126 @@ let prsd7 () =
 let prsd8 () =
   let m = mk_matrix [[42]] in
   match periodic_rational_spectral_decomposition m [0] with
-  | [(1,lambda,v)] -> assert_equal_qq (QQ.of_int 42) lambda
+  | [(1,lambda,_)] -> assert_equal_qq (QQ.of_int 42) lambda
   | _ -> assert false
+
+let assert_equal_vs x y =
+  assert_equal ~cmp:QQVectorSpace.equal x y
+
+let vs_sum () =
+  let vU =
+    List.map mk_vector [
+      [1; 0; 0; 1];
+      [0; 1; 0; 1];
+    ]
+  in
+  let vV =
+    List.map mk_vector [
+      [0; 0; 1; 1];
+      [0; 0; 1; 0];
+    ]
+  in
+  let vW =
+    List.map mk_vector [
+      [1; 0; 0; 0];
+      [0; 1; 0; 0];
+      [0; 0; 1; 0];
+      [0; 0; 0; 1]
+    ]
+  in
+  assert_equal_vs (QQVectorSpace.sum vU vU) vU;
+  assert_equal_vs (QQVectorSpace.sum vU vV) vW;
+  assert_equal_vs (QQVectorSpace.sum vV vU) vW
+
+let vs_diff () =
+  let vU =
+    List.map mk_vector [
+      [1; 0; 0; 1];
+      [0; 1; 0; 1];
+      [1; 1; 1; 1];
+    ]
+  in
+  let vV =
+    List.map mk_vector [
+      [0; 0; 1; 1];
+      [1; 1; 0; 0];
+    ]
+  in
+  let vW =
+    List.map mk_vector [
+      [1; 0; 0; 1];
+      [0; 1; 0; 1];
+    ]
+  in
+  assert_equal_vs (QQVectorSpace.diff vU vU) [];
+  assert_equal_vs (QQVectorSpace.diff vU vV) vW;
+  assert_equal_vs (QQVectorSpace.sum vU (QQVectorSpace.diff vU vV)) vU;
+  assert_equal_vs (QQVectorSpace.sum vV (QQVectorSpace.diff vV vU)) vV
+
+let vs_intersect () =
+  let vU =
+    List.map mk_vector [
+      [1; 0; 0; 1];
+      [0; 1; 0; 1];
+      [1; 1; 1; 1];
+    ]
+  in
+  let vV =
+    List.map mk_vector [
+      [0; 0; 1; 1];
+      [1; 1; 0; 0];
+    ]
+  in
+  assert_equal_vs (QQVectorSpace.intersect vU vV) [mk_vector [1;1;1;1]];
+  assert_equal_vs
+    (QQVectorSpace.diff vU (QQVectorSpace.intersect vU vV))
+    (QQVectorSpace.diff vU vV)
+
+module PLM = Linear.PartialLinearMap
+
+let assert_equal_plm x y =
+  assert_equal ~cmp:PLM.equal ~printer:(SrkUtil.mk_show PLM.pp) x y
+
+let plm_compose1 () =
+  let f =
+    let m = mk_matrix [[1; 0; 1];
+                       [0; 1; -1];
+                       [0; 0; 2]]
+    in
+    let guard = [mk_vector [1; -1; 0]] in
+    PLM.make m guard
+  in
+  let ff =
+    let m = mk_matrix [[1; 0; 0];
+                       [0; 1; 0];
+                       [0; 0; 0]]
+    in
+    let guard = [mk_vector [-1; 1; 0];
+               mk_vector [0; 0; 1]]
+    in
+    PLM.make m guard
+  in
+  assert_equal_plm ff (PLM.compose f f)
+
+let plm_compose2 () =
+  let f =
+    let m = mk_matrix [[0; 1; 1];
+                       [1; 0; 1];
+                       [-3; 3; 1]]
+    in
+    let guard = [mk_vector [3; -3; 0]] in
+    PLM.make m guard
+  in
+  let ff =
+    let m = mk_matrix [[1; 0; 2];
+                       [0; 1; 2];
+                       [0; 0; 1]]
+    in
+    let guard = [mk_vector [-1; 1; 0]]
+    in
+    PLM.make m guard
+  in
+  assert_equal_plm ff (PLM.compose f f)
 
 
 let suite = "Linear" >::: [
@@ -572,4 +666,10 @@ let suite = "Linear" >::: [
     "prsd6" >:: prsd6;
     "prsd7" >:: prsd7;
     "prsd8" >:: prsd8;
+    "prsd8" >:: prsd8;
+    "vs_sum" >:: vs_sum;
+    "vs_diff" >:: vs_diff;
+    "vs_intersect" >:: vs_intersect;
+    "plm_compose1" >:: plm_compose1;
+    "plm_compose2" >:: plm_compose2
   ]

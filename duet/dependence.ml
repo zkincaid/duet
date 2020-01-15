@@ -567,6 +567,8 @@ module Dependence (M : sig
     localMayReachCond(i,a,b) <-- (localMayReachCond(i, a, b_pred)
                                   &&& neg (killCond (i, b_pred))
                                   &&& descCond(b_pred, b, i));
+    localMayReachCond(i,a,b) <-- (localMayReachCond(i, a, b_pred)
+                                  &&& spawn(b_pred, b));
 
     inv (i,b,v) <-- (localMayReachCond(i, a, b) &&& definesCond(i, a, v));
     inv (i,b,v) <-- (localMayReachCond(i, a, b) &&& blockCond(i, a, v));

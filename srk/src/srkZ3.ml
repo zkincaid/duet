@@ -3,13 +3,9 @@ open BatPervasives
 
 include Log.Make(struct let name = "srk.srkZ3" end)
 
-exception Unknown_result
-
 type z3_context = Z3.context
 type z3_expr = Z3.Expr.expr
 type z3_func_decl = Z3.FuncDecl.func_decl
-
-type sort = Z3.Sort.sort
 
 type 'a open_expr = [
   | `Real of QQ.t
@@ -34,10 +30,6 @@ let bool_val x =
   | Z3enums.L_TRUE -> true
   | Z3enums.L_FALSE -> false
   | Z3enums.L_UNDEF -> invalid_arg "bool_val: not a Boolean"
-
-let int_val x = Z3.Arithmetic.Integer.get_int x
-
-let zz_val ast = ZZ.of_string (Z3.Arithmetic.Integer.numeral_to_string ast)
 
 let rec qq_val ast =
   if Z3.Expr.is_numeral ast then
@@ -210,7 +202,7 @@ and z3_of_term (srk : 'a context) z3 (term : 'a term) =
       let decl = decl_of_symbol z3 srk func in
       Z3.Expr.mk_app z3 decl (List.map (z3_of_expr srk z3) args)
 
-    | `Var (i, `TyFun (_, _)) | `Var (i, `TyBool) ->
+    | `Var (_, `TyFun (_, _)) | `Var (_, `TyBool) ->
       invalid_arg "z3_of.term: variable"
     | `Var (i, `TyInt) ->
       Z3.Quantifier.mk_bound z3 i (sort_of_typ z3 `TyInt)
@@ -402,7 +394,7 @@ module Solver = struct
         | Some x -> `Bool (bool_val x)
         | None -> assert false
       end
-    | `TyFun (params, ret) ->
+    | `TyFun (params, _) ->
       let decl = decl_of_symbol z3 srk sym in
       let finterp = match Z3.Model.get_func_interp m decl with
         | None -> assert false
@@ -462,8 +454,7 @@ module Solver = struct
     | `Sat ->
       begin match Z3.Solver.get_model solver.s with
         | Some m ->
-          let interp = Interpretation.wrap srk (model_get_value srk z3 m) in
-          `Sat interp
+          `Sat (Interpretation.wrap ~symbols srk (model_get_value srk z3 m))
         | None -> `Unknown
       end
     | `Unsat -> `Unsat
@@ -582,8 +573,15 @@ let load_smtlib2 ?(context=Z3.mk_context []) srk str =
     fun decl ->
       let open Z3 in
       let sym = FuncDecl.get_name decl in
-      assert (FuncDecl.get_domain decl = []);
-      cos (Symbol.to_string sym, typ_of_sort (FuncDecl.get_range decl))
+      match FuncDecl.get_domain decl with
+      | [] ->
+        cos (Symbol.to_string sym, typ_of_sort (FuncDecl.get_range decl))
+      | dom ->
+        let typ =
+          `TyFun (List.map typ_of_sort dom,
+                  typ_of_sort (FuncDecl.get_range decl))
+        in
+        cos (Symbol.to_string sym, typ)
   in
   match Expr.refine srk (of_z3 srk sym_of_decl ast) with
   | `Formula phi -> phi
@@ -664,10 +662,6 @@ module CHC = struct
     Z3.Fixedpoint.add solver.fp
       (List.map (z3_of_formula solver.srk solver.z3) phis)
 
-  let pop solver = Z3.Fixedpoint.pop solver.fp
-
-  let push solver = Z3.Fixedpoint.push solver.fp
-
   module M = SrkUtil.Int.Map
 
   let add_rule solver hypothesis conclusion =
@@ -734,7 +728,7 @@ module CHC = struct
       Z3.Fixedpoint.add_rule solver.fp err_rule None
     | _ -> add_rule solver hypothesis conclusion
 
-  let check solver assumptions =
+  let check solver =
     let goal =
       z3_of_formula solver.srk solver.z3 (mk_app solver.srk solver.error [])
     in

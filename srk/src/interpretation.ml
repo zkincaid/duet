@@ -143,9 +143,9 @@ let rec evaluate_term interp ?(env=Env.empty) term =
       end
     | `Add xs -> List.fold_left QQ.add QQ.zero xs
     | `Mul xs -> List.fold_left QQ.mul QQ.one xs
-    | `Binop (`Div, dividend, divisor) when QQ.equal divisor QQ.zero ->
+    | `Binop (`Div, _, divisor) when QQ.equal divisor QQ.zero ->
       raise Divide_by_zero
-    | `Binop (`Mod, t, modulus) when QQ.equal modulus QQ.zero ->
+    | `Binop (`Mod, _, modulus) when QQ.equal modulus QQ.zero ->
       raise Divide_by_zero
     | `Binop (`Div, dividend, divisor) -> QQ.div dividend divisor
     | `Binop (`Mod, t, modulus) -> QQ.modulo t modulus
@@ -397,14 +397,14 @@ let destruct_atom srk phi =
     begin match Formula.destruct srk psi with
       | `Proposition (`App (k, [])) -> `Literal (`Neg, `Const k)
       | `Proposition (`Var i) -> `Literal (`Neg, `Var i)
-      | _ -> invalid_arg "destruct_atomic: not atomic (not)"
+      | _ -> invalid_arg @@ Format.asprintf "destruct_atom: %a is not atomic" (Formula.pp srk) phi
     end
   | `Tru ->
     let zero = mk_real srk QQ.zero in
     `Comparison (`Eq, zero, zero)
   | `Fls -> `Comparison (`Eq, mk_real srk QQ.zero, mk_real srk QQ.one)
   | _ ->
-    invalid_arg ("destruct_atomic: not atomic: " ^ (Formula.show srk phi))
+    invalid_arg @@ Format.asprintf "destruct_atom: %a is not atomic" (Formula.pp srk) phi
 
 let select_ite interp ?(env=Env.empty) expr =
   let conditions = ref [] in

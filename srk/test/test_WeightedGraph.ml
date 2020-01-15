@@ -1,7 +1,5 @@
 open OUnit
-open Abstract
 open Syntax
-open SrkApron
 open Test_pervasives
 
 module V = struct
@@ -28,6 +26,9 @@ module V = struct
       Some (Hashtbl.find rev_sym_table sym)
     else
       None
+  let is_global _ = false
+  let equal = (=)
+  let hash = Hashtbl.hash
 end
 module T = struct
   module SemiRing = Transition.Make(Ctx)(V)
@@ -42,6 +43,8 @@ module RG = WeightedGraph.MakeRecGraph (struct
     include T
     let project x = x
   end)
+
+module TS = TransitionSystem.Make(Ctx)(V)(T)
 
 let () =
   V.register_var "i" `TyInt;
@@ -60,7 +63,7 @@ let j = Ctx.mk_const (V.symbol_of "j")
 let k = Ctx.mk_const (V.symbol_of "k")
 let n = Ctx.mk_const (V.symbol_of "n")
 
-let mk_query edges call_edges =
+let mk_ts edges call_edges =
   let rg =
     List.fold_left (fun rg (src, _, tgt) ->
         WG.add_vertex (WG.add_vertex rg src) tgt)
@@ -85,7 +88,10 @@ let mk_query edges call_edges =
       rg
       call_edges
   in
-  RG.mk_query rg
+  rg
+
+let mk_query edges call_edges =
+  RG.mk_query (mk_ts edges call_edges)
     
 let assert_post tr phi =
   let not_post =
@@ -193,10 +199,92 @@ let recursive () =
   assert_post (RG.path_weight query 0 2) (x + y = (int 100));
   assert_not_post (RG.path_weight query 0 2) (y <= (int 99))
 
+module D = Abstract.MakeAbstractRSY(Ctx)
+
+let affine_invariants = TS.forward_invariants (module TS.LiftIncr(D.AffineRelation))
+
+let aff_eq1 () =
+  let open Infix in
+  let ts =
+    mk_ts
+      [(0, T.parallel_assign [("x", int 0); ("y", int 10)], 1);
+       (1, T.assume (x <= (int 10)), 2);
+       (2, T.assign "x" (x + (int 1)), 3);
+       (3, T.assign "y" (y + (int 1)), 1)]
+      []
+  in
+  let inv = affine_invariants ts 0 in
+  assert_equiv_formula (y - x = (int 10)) (SrkApron.formula_of_property (inv 1));
+  assert_equiv_formula (y - x = (int 9)) (SrkApron.formula_of_property (inv 3))
+
+let aff_collatz () =
+  let open Infix in
+  let ts =
+    mk_ts
+      [
+        (0, T.assign "x" y, 1);
+       (1,
+        T.parallel_assign
+          [("x",
+            mk_ite srk
+              (x mod (int 2) = (int 0))
+              (x / (int 2))
+              ((int 3) * x + (int 1)));
+           ("y",
+            mk_ite srk
+              (y mod (int 2) = (int 0))
+              (y / (int 2))
+              ((int 3) * y + (int 1)))],
+        1)]
+      []
+  in
+  let inv = affine_invariants ts 0 in
+  assert_equiv_formula (x = y) (SrkApron.formula_of_property (inv 1))
+
+let aff_karr_fig4 () =
+  let open Infix in
+  let ts =
+    mk_ts
+      [
+        (0, T.assign "x" (y + (int 1)), 1);
+        (0, T.assign "y" (x + (int 1)), 2);
+        (1, T.assign "x" (x - (int 2)), 2);
+        (2, T.assign "y" (y - (int 2)), 1);
+      ]
+      []
+  in
+  let inv = affine_invariants ts 0 in
+  assert_equiv_formula (x = y + (int 1)) (SrkApron.formula_of_property (inv 1));
+  assert_equiv_formula (x = y - (int 1)) (SrkApron.formula_of_property (inv 2))
+
+let aff_karr_fig5 () =
+  let open Infix in
+  let ts =
+    mk_ts
+      [(0,
+        T.parallel_assign
+          [("x", int 2);
+           ("y", z + (int 5))],
+        1);
+       (1,
+        T.parallel_assign
+          [("x", x + int 1);
+           ("y", y + (int 3))],
+        1)]
+      []
+  in
+  let inv = affine_invariants ts 0 in
+  assert_equiv_formula ((int 3)*x - y + z = (int 1)) (SrkApron.formula_of_property (inv 1))
+
+
 let suite = "WeightedGraph" >::: [
     "simple_loop" >:: simple_loop;
     "simple_branch" >:: simple_branch;
     "nested_loop" >:: nested_loop;
     "nonrec_call" >:: nonrec_call;
     "recursive" >:: recursive;
+    "aff_eq1" >:: aff_eq1;
+    "aff_collatz" >:: aff_collatz;
+    "aff_karr_fig4" >:: aff_karr_fig4;
+    "aff_karr_fig5" >:: aff_karr_fig5;
   ]

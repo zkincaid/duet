@@ -21,7 +21,6 @@ let qq_of_coeff = function
 
 let coeff_of_qq = Coeff.s_of_mpqf
 
-let scalar_zero = Coeff.s_of_int 0
 let scalar_one = Coeff.s_of_int 1
 
 module Env = struct
@@ -155,9 +154,6 @@ module Env = struct
       with Invalid_argument _ -> invalid_arg "Env.var_of_dim: out of bounds"
     else
       env.int_dim.(dim)
-  let typ_of_dim env dim =
-    if dim >= (Array.length env.int_dim) then `TyReal else `TyInt
-  let equal e0 e1 = compare e0 e1 = 0
   let int_dim env = Array.length env.int_dim
   let real_dim env = Array.length env.real_dim
   let dimension env = int_dim env + real_dim env
@@ -364,11 +360,12 @@ let texpr_of_term env t =
         (Binop (Mul, s, t, atyp typ, Down), typ)
       in
       List.fold_left mul (Cst (coeff_of_qq QQ.one), `TyInt) terms
-    | `Binop (`Div, (s,s_typ), (t,t_typ)) ->
+    | `Binop (`Div, (s,_), (t,_)) ->
       (Binop (Div, s, t, Real, Zero), `TyReal)
     | `Binop (`Mod, (s,s_typ), (t,t_typ)) ->
-      (Binop (Mod, s, t, Int, Zero), `TyInt)
-    | `Unop (`Floor, (t, typ)) -> (Unop (Cast, t, Int, Down), `TyInt)
+       let typ = join_typ s_typ t_typ in
+      (Binop (Mod, s, t, atyp typ, Zero), typ)
+    | `Unop (`Floor, (t, _)) -> (Unop (Cast, t, Int, Down), `TyInt)
     | `Unop (`Neg, (t, typ)) ->
       (Binop (Mul, Cst (coeff_of_qq (QQ.negate QQ.one)), t, atyp typ, Down),
        typ)
@@ -451,9 +448,26 @@ let formula_of_property property =
   |> BatList.of_enum
   |> mk_and srk
 
+let get_env property = property.env
+
 let get_manager property = man property.prop
 
 (* Evaluate a closed expression to an interval *)
 let eval_texpr expr =
   let man = Box.manager_alloc () in
   Abstract0.bound_texpr man (Abstract0.top man 0 0) expr
+
+let generators property =
+  let man = get_manager property in
+  Abstract0.to_generator_array man property.prop
+  |> BatArray.to_list
+  |> List.map Generator0.(fun g ->
+      let vec = vec_of_lexpr property.env g.linexpr0 in
+      let typ = match g.typ with
+        | LINE -> `Line
+        | RAY -> `Ray
+        | VERTEX -> `Vertex
+        | LINEMOD -> `LineMod
+        | RAYMOD -> `RayMod
+      in
+      (vec, typ))

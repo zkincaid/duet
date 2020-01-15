@@ -117,8 +117,6 @@ let mem m polyhedron =
       | (Gt, t) -> QQ.lt QQ.zero (Linear.evaluate_affine m t))
     polyhedron
 
-let nonzero_coeff x vec = not (QQ.equal (V.coeff x vec) QQ.zero)
-
 let of_implicant ?(admit=false) cs conjuncts =
   let srk = CS.get_context cs in
   let linearize atom = match Interpretation.destruct_atom srk atom with

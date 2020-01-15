@@ -1,5 +1,4 @@
-# OASIS_START
-# DO NOT EDIT (digest: 2f15672c14eb8f6219f57ae6538d04eb)
+# DO NOT EDIT (digest: 6c9fcab29f1fb366855f006960356742)
 # Ignore VCS directories, you can use the same kind of rule outside
 # OASIS_START/STOP if you want to exclude directories that contains
 # useless stuff for the build process
@@ -39,6 +38,8 @@ true: annot, bin_annot
 "src/nonlinear.cmx": for-pack(Srk)
 "src/coordinateSystem.cmx": for-pack(Srk)
 "src/wedge.cmx": for-pack(Srk)
+"src/vas.cmx": for-pack(Srk)
+"src/vass.cmx": for-pack(Srk)
 "src/quantifier.cmx": for-pack(Srk)
 "src/iteration.cmx": for-pack(Srk)
 "src/solvablePolynomial.cmx": for-pack(Srk)
@@ -63,6 +64,7 @@ true: annot, bin_annot
 "test/test_srk.native": pkg_ocamlgraph
 "test/test_srk.native": pkg_ocrs
 "test/test_srk.native": pkg_ppx_deriving
+"test/test_srk.native": pkg_ppx_deriving.eq
 "test/test_srk.native": pkg_ppx_deriving.ord
 "test/test_srk.native": pkg_ppx_deriving.show
 "test/test_srk.native": use_srk
@@ -79,6 +81,7 @@ true: annot, bin_annot
 <test/*.ml{,i,y}>: pkg_ocamlgraph
 <test/*.ml{,i,y}>: pkg_ocrs
 <test/*.ml{,i,y}>: pkg_ppx_deriving
+<test/*.ml{,i,y}>: pkg_ppx_deriving.eq
 <test/*.ml{,i,y}>: pkg_ppx_deriving.ord
 <test/*.ml{,i,y}>: pkg_ppx_deriving.show
 <test/*.ml{,i,y}>: use_srk
@@ -94,6 +97,7 @@ true: annot, bin_annot
 "src/bigtop.native": pkg_ntl
 "src/bigtop.native": pkg_ocrs
 "src/bigtop.native": pkg_ppx_deriving
+"src/bigtop.native": pkg_ppx_deriving.eq
 "src/bigtop.native": pkg_ppx_deriving.ord
 <src/*.ml{,i,y}>: pkg_Z3
 <src/*.ml{,i,y}>: pkg_apron
@@ -106,6 +110,7 @@ true: annot, bin_annot
 <src/*.ml{,i,y}>: pkg_ntl
 <src/*.ml{,i,y}>: pkg_ocrs
 <src/*.ml{,i,y}>: pkg_ppx_deriving
+<src/*.ml{,i,y}>: pkg_ppx_deriving.eq
 <src/*.ml{,i,y}>: pkg_ppx_deriving.ord
 # OASIS_STOP
 true: use_menhir

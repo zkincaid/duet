@@ -12,21 +12,22 @@ Duet depends on several software packages.  The following dependencies need to b
  + [opam](http://opam.ocaml.org) (with OCaml >= 4.02 & native compiler)
  + GMP and MPFR
  + [NTL](http://www.shoup.net/ntl/): number theory library
+ + Java
 
-On Ubuntu, you can install these packages (except Java) with:
+On Ubuntu, you can install these packages with:
 ```
  sudo apt-get install opam libgmp-dev libmpfr-dev libntl-dev default-jre
 ```
 
 On MacOS, you can install these packages (except Java) with:
 ```
- brew install opam gmp mpfr
+ brew install opam gmp mpfr ntl
 ```
 
 Next, add the [sv-opam](https://github.com/zkincaid/sv-opam) OPAM repository, and install the rest of duet's dependencies.  These are built from source, so grab a coffee &mdash; this may take a long time.
 ```
  opam remote add sv git://github.com/zkincaid/sv-opam.git
- opam install ocamlgraph batteries cil oasis ppx_deriving Z3 apron ounit menhir OCRS ntl
+ opam install ocamlgraph batteries cil oasis ppx_deriving Z3.4.7.1 apron ounit menhir OCRS ntl
 ```
 
 ### Building Duet
@@ -39,7 +40,7 @@ After Duet's dependencies are installed, it can be built as follows:
 
 Duet's makefile has the following targets:
  + `make`: Build duet
- + `make ark`: Build the ark library and test suite
+ + `make srk`: Build the ark library and test suite
  + `make apak`: Build the apak library and test suite
  + `make doc`: Build documentation
  + `make test`: Run test suite
@@ -91,9 +92,9 @@ Duet is split into several packages:
 
   Algebraic program analysis kit.  This is a collection of utilities for implementing program analyzers.  It contains various graph algorithms (e.g., fixpoint computation, path expression algorithms) and utilities for constructing algebraic structures.
 
-* ark 
+* srk 
 
-  Arithmetic reasoning kit.  This is a high-level interface over Z3 and Apron.  Most of the work of compositional recurrence analysis lives in ark.
+  Symbolic reasoning kit.  This is a high-level interface over Z3 and Apron.  Most of the work of compositional recurrence analysis lives in srk.
 
 * pa
 

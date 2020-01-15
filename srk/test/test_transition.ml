@@ -1,7 +1,5 @@
 open OUnit
-open Abstract
 open Syntax
-open SrkApron
 open Test_pervasives
 
 module V = struct
@@ -246,14 +244,12 @@ let split2 () =
 
 let equal1 () =
   let tr1 =
-    let open Infix in
     mk_block [
       T.havoc ["x"];
       T.assign "y" x;
     ]
   in
   let tr2 =
-    let open Infix in
     mk_block [
       T.havoc ["y"];
       T.assign "x" y;

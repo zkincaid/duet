@@ -1,5 +1,4 @@
 open OUnit
-open BatPervasives
 open Syntax
 open SrkApron
 open Test_pervasives

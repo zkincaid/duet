@@ -14,7 +14,7 @@ let bool_val x =
   | Z3enums.L_UNDEF -> invalid_arg "bool_val: not a Boolean"
 
 let int_val x = Arithmetic.Integer.get_int x
-  
+
 module F = PaFormula
 
 class ['a] ctx opts = object(self)
@@ -123,7 +123,7 @@ let of_formula ctx phi =
 class ['a] model (ctx : 'a ctx) m = object(self)
   method eval_int term =
     match Model.eval m term true with
-    | Some x -> Arithmetic.Integer.get_int x (* todo: overflow *)
+    | Some x -> Arithmetic.Integer.get_int x
     | None -> assert false
   method sat phi =
     match Model.eval m (of_formula ctx phi) true with

@@ -15,6 +15,7 @@ let srk = Ctx.context
 include Log.Make(struct let name = "cra" end)
 
 let forward_inv_gen = ref true
+let forward_pred_abs = ref false
 let dump_goals = ref false
 let prsd = ref false
 let cra_refine = ref false
@@ -117,24 +118,26 @@ module V = struct
 end
 
 
-module IterDomain = struct
+module K = struct
+  include Transition.Make(Ctx)(V)
   open Iteration
   open SolvablePolynomial
   module SPOne = SumWedge (SolvablePolynomial) (SolvablePolynomialOne) ()
   module SPG = ProductWedge (SPOne) (WedgeGuard)
   module SPPeriodicRational = Sum (SPG) (PresburgerGuard) ()
-  module LinRec = Product (LinearRecurrenceInequation) (PolyhedronGuard)
-  module D = Sum(SPPeriodicRational)(LinRec)()
-  module SPSplit = Sum(D) (Split(D)) ()
-  include SPSplit
-end
+  module SPSplit = Sum (SPPeriodicRational) (Split(SPPeriodicRational)) ()
+  module VasSwitch = Sum (Vas)(Vass)()
+  module Vas_P = Product(VasSwitch)(Product(WedgeGuard)(LinearRecurrenceInequation))
+  module D = Sum(SPSplit)(Vas_P)()
+  module I = Iter(MakeDomain(D))
 
-module MakeTransition (V : Transition.Var) = struct
-  include Transition.Make(Ctx)(V)
-
-  module I = Iter(Iteration.MakeDomain(IterDomain))
-
-  let star x = Log.time "cra:star" I.star x
+  let star x =
+    let star x =
+      let abstract = I.alpha x in
+      logf "Loop abstraction:@\n%a" I.pp abstract;
+      I.closure abstract
+    in
+    Log.time "cra.star" star x
 
   let add x y =
     if is_zero x then y
@@ -146,21 +149,18 @@ module MakeTransition (V : Transition.Var) = struct
     else if is_one x then y
     else if is_one y then x
     else mul x y
-end
-
-module K = struct
-  module Tr = MakeTransition(V)
-  include Tr
 
 
   module CRARefinement = Refinement.DomainRefinement
       (struct
-        include Tr
-        let star = I.star
-
-        (*let star x = Log.time "refine" I.star x*)
-
+        type t = Transition.Make(Ctx)(V).t
+        let mul = mul
+        let add = add
+        let zero = zero
+        let one = one
+        let star = star
         let equal a b = ((Wedge.is_sat srk (guard a)) == `Unsat)
+        let compare = compare
       end)
 
   let refine_star x = 
@@ -469,7 +469,8 @@ let is_int_array typ = match resolve_type typ with
 
 let nondet_const name typ = Ctx.mk_const (Ctx.mk_symbol ~name typ)
 
-let tr_expr expr =
+
+let rec tr_expr expr =
   let alg = function
     | OHavoc typ -> TInt (nondet_const "havoc" (tr_typ typ))
     | OConstant (CInt (k, _)) -> TInt (Ctx.mk_real (QQ.of_int k))
@@ -495,17 +496,16 @@ let tr_expr expr =
     (* No real translations for anything else -- just return a free var "tr"
        (which just acts like a havoc). *)
     | OUnaryOp (_, _, typ) -> TInt (nondet_const "tr" (tr_typ typ))
-    | OBoolExpr _ -> TInt (nondet_const "tr" `TyInt)
+    | OBoolExpr b -> TInt (Ctx.mk_ite (tr_bexpr b) (Ctx.mk_real (QQ.of_int 1)) (Ctx.mk_real (QQ.of_int 0)))
+      (*if (Bexpr.equal b Bexpr.ktrue) then TInt (Ctx.mk_real (QQ.of_int 1)) else TInt (Ctx.mk_real (QQ.of_int 0))*)
     | OAccessPath ap -> TInt (nondet_const "tr" (tr_typ (AP.get_type ap)))
     | OConstant _ -> TInt (nondet_const "tr" `TyInt)
   in
   Aexpr.fold alg expr
-
-let tr_expr_val expr = match tr_expr expr with
+and  tr_expr_val expr = match tr_expr expr with
   | TInt x -> x
   | TPointer x -> x.ptr_val
-
-let tr_bexpr bexpr =
+and tr_bexpr bexpr =
   let alg = function
     | Core.OAnd (a, b) -> Ctx.mk_and [a; b]
     | Core.OOr (a, b) -> Ctx.mk_or [a; b]
@@ -750,10 +750,25 @@ module TSDisplay = ExtGraph.Display.MakeLabeled
       let show = SrkUtil.mk_show pp
     end)
 
+module SA = Abstract.MakeAbstractRSY(Ctx)
+
 let decorate_transition_system predicates ts entry =
-  TS.forward_invariants_pa predicates ts entry
-  |> List.fold_left (fun ts (v, invariant) ->
+  let module AbsDom =
+    TS.ProductIncr
+      (TS.ProductIncr(TS.LiftIncr(SA.Sign))(TS.LiftIncr(SA.AffineRelation)))
+      (TS.LiftIncr(SA.PredicateAbs(struct let universe = predicates end)))
+  in
+  let inv = TS.forward_invariants (module AbsDom) ts entry in
+  let member varset sym =
+    match V.of_symbol sym with
+    | Some v -> TS.VarSet.mem v varset
+    | None -> false
+  in
+  TS.loop_headers_live ts entry
+  |> List.fold_left (fun ts (v, live) ->
       let fresh_id = (Def.mk (Assume Bexpr.ktrue)).did in
+      let invariant = AbsDom.formula_of (AbsDom.exists (member live) (inv v)) in
+      logf "Found invariant at %d:@;%a" v (Syntax.Formula.pp srk) invariant;
       WG.split_vertex ts v (Weight (K.assume invariant)) fresh_id)
     ts
 
@@ -807,18 +822,21 @@ let make_transition_system rg =
             TS.empty
         in
         let predicates =
-          RG.G.fold_vertex (fun def predicates ->
-              match def.dkind  with
-              | Assume phi when Bexpr.equal phi Bexpr.ktrue ->
-                predicates
-              | Assert (phi, _) | Assume phi ->
-                Syntax.Expr.Set.add (tr_bexpr phi) predicates
-              | _ ->
-                predicates)
-            graph
-            Syntax.Expr.Set.empty
-          |> Syntax.Expr.Set.enum
-          |> BatList.of_enum
+          if !forward_pred_abs then
+            RG.G.fold_vertex (fun def predicates ->
+                match def.dkind  with
+                | Assume phi when Bexpr.equal phi Bexpr.ktrue ->
+                  predicates
+                | Assert (phi, _) | Assume phi ->
+                  Syntax.Expr.Set.add (tr_bexpr phi) predicates
+                | _ ->
+                  predicates)
+              graph
+              Syntax.Expr.Set.empty
+            |> Syntax.Expr.Set.enum
+            |> BatList.of_enum
+          else
+            []
         in
 
         let entry = (RG.block_entry rg block).did in
@@ -962,8 +980,13 @@ let resource_bound_analysis file =
               let rhs =
                 Syntax.substitute_const srk subst (K.get_transform cost summary)
               in
+              let simplify =
+                SrkSimplify.simplify_terms_rewriter srk
+                % Nonlinear.simplify_terms_rewriter srk
+              in
               Ctx.mk_and [Syntax.substitute_const srk subst (K.guard summary);
                           Ctx.mk_eq (Ctx.mk_const cost_symbol) rhs ]
+              |> Syntax.rewrite srk ~up:simplify
             in
             match Wedge.symbolic_bounds_formula ~exists srk guard cost_symbol with
             | `Sat (lower, upper) ->
@@ -997,25 +1020,33 @@ let _ =
      Arg.Clear forward_inv_gen,
      " Turn off forward invariant generation");
   CmdLine.register_config
+    ("-cra-pred-abs",
+     Arg.Clear forward_pred_abs,
+     " Turn on predicate abstraction in forward invariant generation");
+  CmdLine.register_config
     ("-cra-split-loops",
-     Arg.Clear IterDomain.SPSplit.abstract_left,
+     Arg.Clear K.SPSplit.abstract_left,
      " Turn on loop splitting");
   CmdLine.register_config
     ("-cra-no-matrix",
-     Arg.Clear IterDomain.SPOne.abstract_left,
+     Arg.Clear K.SPOne.abstract_left,
      " Turn off matrix recurrences");
   CmdLine.register_config
     ("-cra-prsd",
-     Arg.Clear IterDomain.SPPeriodicRational.abstract_left,
+     Arg.Clear K.SPPeriodicRational.abstract_left,
      " Use periodic rational spectral decomposition");
   CmdLine.register_config
     ("-cra-refine",
      Arg.Set cra_refine,
      " Turn on graph refinement");
   CmdLine.register_config
-    ("-cra-lin-rec",
-     Arg.Clear IterDomain.D.abstract_left,
-     " Linear recurrence inequations");
+    ("-cra-vas",
+     Arg.Clear K.D.abstract_left,
+     " Use VAS abstraction");
+  CmdLine.register_config
+    ("-cra-vass",
+     Arg.Unit (fun () -> K.VasSwitch.abstract_left := false; K.D.abstract_left := false),
+     " Use VASS abstraction");
   CmdLine.register_config
     ("-dump-goals",
      Arg.Set dump_goals,
