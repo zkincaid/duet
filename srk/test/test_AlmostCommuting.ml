@@ -30,20 +30,23 @@ let comm_space3 () =
   assert_equal_qqvectorspace exp res
 
 let comm_segment1 () =
-  let eye = QQMatrix.identity [0; 1; 2] in
-  let mS, _ = commuting_segment [| eye; eye |] in
+  let dims = [0; 1; 2] in
+  let eye = QQMatrix.identity dims in
+  let mS, _ = commuting_segment [| eye; eye |] dims in
   assert_equal_qqmatrix eye mS
 
 let comm_segment2 () =
-  let eye = QQMatrix.identity [0; 1; 2] in
+  let dims = [0; 1; 2] in
+  let eye = QQMatrix.identity dims in
   let m = mk_matrix [[1; 0; 0];
                      [0; 1; 0];
                      [0; 0; 0]]
   in
-  let mS, _ = commuting_segment [| eye; m |] in
+  let mS, _ = commuting_segment [| eye; m |] dims in
   assert_equal_qqmatrix m mS
 
 let comm_segment3 () =
+  let dims = [0; 1] in
   let half = QQ.of_frac 1 2 in
   let mA = mk_qqmatrix [[QQ.of_int 3; QQ.zero];
                         [QQ.zero; half]]
@@ -52,20 +55,8 @@ let comm_segment3 () =
                       [0; 2]]
   in
   let exp = mk_matrix [[0; 1]] in
-  let mS, _ = commuting_segment [| mA; mB |] in
+  let mS, _ = commuting_segment [| mA; mB |] dims in
   assert_equal_qqmatrix exp mS
-
-(* let assert_equal_phased_segment p q =
-  assert_equal_qqmatrix p.sim1 q.sim1;
-  assert_equal_qqmatrix p.sim2 q.sim2;
-  Array.map2
-    (fun m1 m2 -> assert_equal_qqmatrix m1 m2)
-    p.phase1
-    q.phase1;
-  Array.map2
-    (fun (k1, m1) (k2, m2) -> assert_equal k1 k2; assert_equal_qqmatrix m1 m2)
-    p.phase2
-    q.phase2 *)
 
 let phased_segment1 () = 
   let mA = mk_matrix [[1; 0; 1];
@@ -133,6 +124,45 @@ let phased_segment2 () =
   in
   assert_equal_phasedsegment expected output
 
+let phased_segment3 () = 
+  let mA = mk_matrix [[1; 0; 1];
+                      [0; 1; 1];
+                      [0; 0; 1]]
+  in
+  let mB = mk_matrix [[1; 0; -1];
+                      [0; 1; -1];
+                      [0; 0; 1]]
+  in
+  let mC = mk_matrix [[0; 0; 2];
+                      [0; 1; 2];
+                      [0; 0; 1]]
+  in
+  let mD = mk_matrix [[0; 1; 0];
+                      [0; 1; 0];
+                      [0; 0; 1]]
+  in
+  let input = [| (Commute, mA); (Commute, mB); (Reset, mC); (Reset, mD) |] in
+  let output = PhasedSegment.make input in
+  (* Phase 1 *)
+  let sim1 = mk_matrix [[0; 1; 0]; [0; 0; 1]] in
+  let sA = mk_matrix [[1; 1]; [0; 1]] in
+  let sB = mk_matrix [[1; -1]; [0; 1]] in
+  let sC = mk_matrix [[1; 2]; [0; 1]] in
+  let sD = mk_matrix [[1; 0]; [0; 1]] in
+  let phase1 = [| sA; sB; sC; sD |] in
+  (* Phase 2 *)
+  let sim2 = mk_matrix [[1; 0; 0]; [0; 1; 0]; [0; 0; 1]] in
+  let tC = mk_matrix [[0; 2]; [1; 2]; [0; 1]] in
+  let tD = mk_matrix [[1; 0]; [1; 0]; [0; 1]] in
+  let phase2 = [| (Commute, mA); (Commute, mB); (Reset, tC); (Reset, tD) |] in
+  let expected =
+    { sim1 = sim1;
+      sim2 = sim2;
+      phase1 = phase1;
+      phase2 = phase2 }
+  in
+  assert_equal_phasedsegment expected output
+
 let suite = "AlmostCommuting" >::: [
   "comm_space1" >:: comm_space1;
   "comm_space2" >:: comm_space2;
@@ -142,4 +172,5 @@ let suite = "AlmostCommuting" >::: [
   "comm_segment3" >:: comm_segment3;
   "phased_segment1" >:: phased_segment1;
   "phased_segment2" >:: phased_segment2;
+  "phased_segment3" >:: phased_segment3;
 ]
