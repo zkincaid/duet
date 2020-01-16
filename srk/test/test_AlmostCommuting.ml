@@ -197,6 +197,27 @@ let phased_segment4 () =
   in
   assert_equal_phasedsegment expected output
 
+let almost_commuting1 () = 
+  let mA = mk_matrix [[1; 0; 1];
+                      [0; 1; 1];
+                      [0; 0; 1]]
+  in
+  let mB = mk_matrix [[1; 0; -1];
+                      [0; 1; -1];
+                      [0; 0; 1]]
+  in
+  let mC = mk_matrix [[0; 0; 2];
+                      [0; 1; 2];
+                      [0; 0; 1]]
+  in
+  let mD = mk_matrix [[0; 1; 0];
+                      [0; 1; 0];
+                      [0; 0; 1]]
+  in
+  let output = PhasedSegmentation.best_almost_commuting [| mA; mB; mC; mD |] in
+  let dim = QQVectorSpace.dimension (PhasedSegmentation.almost_commuting_space output) in
+  assert_equal 3 dim
+
 let suite = "AlmostCommuting" >::: [
   "comm_space1" >:: comm_space1;
   "comm_space2" >:: comm_space2;
@@ -208,4 +229,5 @@ let suite = "AlmostCommuting" >::: [
   "phased_segment2" >:: phased_segment2;
   "phased_segment3" >:: phased_segment3;
   "phased_segment4" >:: phased_segment4;
+  "almost_commuting1" >:: almost_commuting1;
 ]
