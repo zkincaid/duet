@@ -13,7 +13,6 @@ type phased_segment = {
 
 type phased_segmentation = phased_segment list
 
-
 let commuting_space mA mB =
   let dims = SrkUtil.Int.Set.elements (QQMatrix.row_set mA) in
   let mAB = QQMatrix.mul mA mB in
@@ -50,12 +49,9 @@ let commuting_segment matrices dims =
   in
   fix mS
 
-let iter_all = Array.map (fun (_, m) -> m)
-
-let iter_reset = BatArray.filter_map (fun (k, m) -> if k == Reset then Some m else None)
-
+let iter_all     = Array.map (fun (_, m) -> m)
+let iter_reset   = BatArray.filter_map (fun (k, m) -> if k == Reset then Some m else None)
 let iter_commute = BatArray.filter_map (fun (k, m) -> if k == Commute then Some m else None)
-
 
 module PhasedSegment = struct
 
@@ -92,8 +88,7 @@ module PhasedSegment = struct
             else if k == Commute then
               max_lds mT (QQMatrix.mul mT m)
             else
-              mT, m
-            )
+              mT, m)
           pairs
         in
         let mTT = intersect_rowspaces
@@ -102,8 +97,8 @@ module PhasedSegment = struct
         in
         if rowspace_equal mT mTT then
           let phase2 = Array.mapi
-                        (fun i (_, m) -> let k, _ = Array.get pairs i in (k, m))
-                        ls_maxlds
+                         (fun i (_, m) -> let k, _ = Array.get pairs i in (k, m))
+                         ls_maxlds
           in
           { sim1 = mS;
             sim2 = mTT;
@@ -124,9 +119,8 @@ module PhasedSegmentation = struct
     let len = Array.length matrices in
     let products = BatList.n_cartesian_product (BatList.make len [Commute; Reset]) in
     let partitions = BatList.map 
-                      (fun p -> 
-                        Array.map2 (fun x y -> x, y) (Array.of_list p) matrices) 
-                      products
+                       (fun p -> Array.map2 (fun x y -> x, y) (Array.of_list p) matrices) 
+                       products
     in
     BatList.map PhasedSegment.make partitions
 
