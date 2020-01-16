@@ -1,5 +1,4 @@
 open Linear
-open Printf
 
 module VS = QQVectorSpace
 
@@ -114,5 +113,40 @@ module PhasedSegment = struct
           fix mTT
       in
       fix mT
+
+end
+
+module PhasedSegmentation = struct
+
+  type t = phased_segment list
+
+  let make_naive matrices = 
+    let len = Array.length matrices in
+    let products = BatList.n_cartesian_product (BatList.make len [Commute; Reset]) in
+    let partitions = BatList.map 
+                      (fun p -> 
+                        Array.map2 (fun x y -> x, y) (Array.of_list p) matrices) 
+                      products
+    in
+    BatList.map PhasedSegment.make partitions
+
+  let almost_commuting_space segmentation =
+    List.fold_left
+      (fun vU s -> VS.sum vU (VS.of_matrix s.sim2))
+      VS.empty
+      segmentation
+
+  let almost_commutes segmentation =
+    let vU = almost_commuting_space segmentation in
+    let dim = VS.dimension vU in
+    VS.equal vU (VS.standard_basis dim)
+
+  let rec best_almost_commuting matrices =
+    let segmentation = make_naive matrices in
+    if almost_commutes segmentation then
+      segmentation
+    else
+      let mC = VS.matrix_of (almost_commuting_space segmentation) in
+      best_almost_commuting (Array.map (fun m -> QQMatrix.mul mC m) matrices)
 
 end
