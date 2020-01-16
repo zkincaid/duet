@@ -36,6 +36,26 @@ let no_resets1 () =
   let vas_closure = exp srk tr_symbols (Ctx.mk_const rsym) (abstract srk tr_symbols phi) in
   assert_implies vas_closure psi
 
+
+let perm_test () =
+  let phi =
+    let open Infix in
+    ((x' = x + (int 1) && y' = y + (int 1) && z' = (int 0)) || 
+    (x' = x + (int 1) && y' = (int 0) && z' = z + (int 1)) ||
+    (x' = (int 0) && y' = y + (int 1) && z' = z + (int 1)))
+  in
+  let psi =
+    let open Infix in
+    (x' = (int 0) || y' = (int 0) || z' = (int 0)) &&
+    (!(x' = y') && !(y' = z') && !(z' = x'))
+  in 
+  let lam = 
+    let open Infix in
+    x = (int 0) && y = (int 1) && z = (int 2) && 
+    exp srk tr_symbols (Ctx.mk_const rsym) (abstract srk tr_symbols phi)
+  in
+  assert_implies lam psi
+
 let affine_hull2 () =
   let phi =
     let open Infix in
@@ -367,6 +387,7 @@ let suite = "Vas" >::: [
     "non_neg1" >:: non_neg1;
     "non_neg2" >:: non_neg2;
     "no_resets1" >:: no_resets1;
+    "perm_test" >:: perm_test;
     "affine_hull2" >:: affine_hull2;
     "affine_hull3" >:: affine_hull3;
     "affine_hull4" >:: affine_hull4;
