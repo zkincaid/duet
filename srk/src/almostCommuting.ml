@@ -29,7 +29,7 @@ let intersect_rowspaces matrices dims =
     (QQMatrix.identity dims)
     matrices
 
-let vspace_equal mA mB =
+let rowspace_equal mA mB =
   VS.equal (VS.of_matrix mA) (VS.of_matrix mB)
 
 let commuting_segment matrices dims =
@@ -43,7 +43,7 @@ let commuting_segment matrices dims =
                 (Array.map (fun m -> QQMatrix.mul m mS) sims)
                 dims
     in
-    if vspace_equal mS mSS then
+    if rowspace_equal mS mSS then
       mS, matr
     else
       fix mSS
@@ -100,7 +100,7 @@ module PhasedSegment = struct
                     (Array.map (fun (m, _) -> QQMatrix.mul m mT) ls_maxlds)
                     dims
         in
-        if vspace_equal mT mTT then
+        if rowspace_equal mT mTT then
           let phase2 = Array.mapi
                         (fun i (_, m) -> let k, _ = Array.get pairs i in (k, m))
                         ls_maxlds
