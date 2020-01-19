@@ -37,6 +37,12 @@ val edge_weight : 'a t -> vertex -> vertex -> 'a
     in [g]. *)
 val path_weight : 'a t -> vertex -> vertex -> 'a
 
+(** [cut_graph g c] computes the cut graph g'
+    g' = <c, {(u, w, v) : (u, v) in c x c,
+                          w is the sum of all paths from u to v in g not going
+                          through any node in c}> **)
+val cut_graph : 'a t -> vertex list -> 'a t
+
 (** Remove a vertex from a graph. *)
 val remove_vertex : 'a t -> vertex -> 'a t
 
