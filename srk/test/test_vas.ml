@@ -31,10 +31,14 @@ let no_resets1 () =
   in
   let psi =
     let open Infix in
-    x' = x + r
-  in 
-  let vas_closure = exp srk tr_symbols (Ctx.mk_const rsym) (abstract srk tr_symbols phi) in
-  assert_implies vas_closure psi
+    x' = x + r && y' <= x'
+  in
+  let lam = 
+    let open Infix in
+    x = y  && (int 0) <= x &&
+    exp srk tr_symbols (Ctx.mk_const rsym) (abstract srk tr_symbols phi)
+  in
+  assert_implies lam psi
 
 
 let perm_test () =
@@ -55,6 +59,47 @@ let perm_test () =
     exp srk tr_symbols (Ctx.mk_const rsym) (abstract srk tr_symbols phi)
   in
   assert_implies lam psi
+
+
+let last_reset_together () =
+  let phi =
+    let open Infix in
+    (x' = (int 0) && y' = y + (int 100)) || 
+    (x' = (int 0) && y' = (int 0)) ||
+    (x' = x + (int 1) && y' = y + (int 1))
+  in
+  let psi =
+    let open Infix in
+    (x' = y') || ((int 100) <= y')
+  in 
+  let lam = 
+    let open Infix in
+    x = (int 0) && y = (int 0) && 
+    exp srk tr_symbols (Ctx.mk_const rsym) (abstract srk tr_symbols phi)
+  in
+  assert_implies lam psi
+
+let resinc_not_skipped () =
+  let phi =
+    let open Infix in
+    (x' = (int (-100)) && y' = y + (int 100)) || 
+    (x' = (int 0) && y' = (int 0)) ||
+    (x' = x + (int 1) && y' = y + (int 1))
+  in
+  let psi =
+    let open Infix in
+    Ctx.mk_ite (x' < (int 0)) ((int 100) <= y') (Ctx.mk_true)
+  in 
+  let lam = 
+    let open Infix in
+    x = (int 0) && y = (int 0) && 
+    exp srk tr_symbols (Ctx.mk_const rsym) (abstract srk tr_symbols phi)
+  in
+  assert_implies lam psi
+
+
+
+
 
 let affine_hull2 () =
   let phi =
@@ -388,6 +433,8 @@ let suite = "Vas" >::: [
     "non_neg2" >:: non_neg2;
     "no_resets1" >:: no_resets1;
     "perm_test" >:: perm_test;
+    "last_reset_together" >:: last_reset_together;
+    "resinc_not_skipped" >:: resinc_not_skipped;
     "affine_hull2" >:: affine_hull2;
     "affine_hull3" >:: affine_hull3;
     "affine_hull4" >:: affine_hull4;
