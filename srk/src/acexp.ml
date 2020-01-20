@@ -171,6 +171,66 @@ let mk_all_nonnegative srk terms =
   |> mk_and srk
 
 
+let expmat_to_mat srk exp_matrix term =
+  BatEnum.fold
+    (fun output_matrix (dim1, dim2, entry) ->
+       Ring.Matrix.add_entry dim1 dim2 (ExpPolynomial.term_of srk term entry)
+         output_matrix)
+    Ring.Matrix.zero
+    (ExpPolynomial.Matrix.entries exp_m)
+
+(*Uses sx_constraints_helper to set initial values for each dimension of each equiv class*)
+let stateless_last_reset_core_logic_constrs srk tr_symbols aclts exp_vars pairs global_trans =
+  mk_and srk
+    (List.mapi (fun seg_ind (trans_exec, res, entrance, sum) ->
+         let res_taken =
+           mk_or srk
+            @@  BatArray.to_list 
+              @@ BatArray.mapi (fun trans_ind (kind, res_trans) ->
+                      match kind with
+                      | Commute -> mk_false srk
+                      | Ignore -> failwith "Ignore made it to exp"
+                      | Reset ->
+                        let more_recently_reset_phases_constr =
+                          BatList.mapi (fun seg2_ind (trans_exec2, _, _, sum2) ->
+                              if seg_ind = seg2_ind then mk_true srk
+                              else (mk_if srk (mk_lt srk sum sum2)
+                                      (mk_leq srk (mk_one srk) trans_exec2.(trans_ind))))
+                            exp_vars in
+                        let global_req = mk_leq srk (mk_one srk) global_trans.(trans_ind) in
+                        let res_assign = mk_eq srk res (mk_real srk (QQ.of_int trans_ind)) in
+                        let sim2'_assignments = 
+                          let phs1_commuting = 
+                            let identity = failwith "Should be SX" in
+                            BatArray.fold_lefti
+                              (fun acc trans_comm_ind transformer ->
+                                 let on_reset = if trans_comm_ind = trans_ind then mk_one srk
+                                   else mk_zero srk in 
+                                 match exponentiate_rational transformer with
+                                 | None -> failwith "No decomp"
+                                 | Some exp_m ->
+                                   Ring.Matrix.mul acc
+                                     (expmat_to_mat srk transformer
+                                        (mk_sub srk 
+                                           (mk_sub srk global_trans.(trans_comm_ind) 
+                                              trans_exec.(trans_comm_ind)) on_reset )))
+                              identity (List.nth aclts seg_ind).phase1
+                          in
+                          let rhs =
+                           BatArray.fold_lefti
+                            (fun acc trans_ac_ind (kind, transformer) ->
+                             Ring.Matrix.mul acc 
+                               (expmat_to_mat srk transformer trans_exec.(trans_ac_ind)))
+                            (Ring.Matrix.mul (Ring.Matrix.mul res_trans (List.nth aclts seg_ind).sim2)
+                               phs1_commuting) 
+                            (List.nth aclts seg_ind).phase2
+                          in
+                          failwith "Link LHS up w/ RHS"
+                        in
+                        mk_and srk (res_assign :: global_req :: more_recently_reset_phases_constr))
+                     (List.nth aclts seg_ind).phase2
+         in res_taken)
+        exp_vars)
 
 let exp srk tr_symbols loop_counter aclts =
   if (List.length aclts = 0) then failwith "Case of no phase segments not yet handled... prob just do mk_true here" 
@@ -179,8 +239,8 @@ let exp srk tr_symbols loop_counter aclts =
     let pairs = all_pairs exp_vars in
     let global_trans_exec = create_global_vars srk aclts in 
     let constr1 = (BatArray.to_list global_trans_exec) :: 
-                  (BatList.map (fun (trans_exec, _, _, _) -> BatArray.to_list trans_exec) exp_vars)
-                |> List.flatten
+      (BatList.map (fun (trans_exec, _, _, _) -> BatArray.to_list trans_exec) exp_vars)
+    |> List.flatten
                 |> mk_all_nonnegative srk in
     let constr2 = exp_reset_never_taken_constr srk exp_vars loop_counter in
     let constr3 = exp_perm_constraints srk pairs in
@@ -189,5 +249,7 @@ let exp srk tr_symbols loop_counter aclts =
     let constr6 = failwith "each counter less than master counter" in
     let constr7 = failwith "computer actual value; exp here" in
     let constr8 = exp_connect_sum_constraints srk exp_vars in
+    let constr9 = stateless_last_reset_core_logic_constrs srk tr_symbols aclts exp_vars
+        pairs global_trans_exec in
     failwith "test"
-  )
+      )
