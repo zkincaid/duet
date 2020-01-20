@@ -105,6 +105,7 @@ let simplify_term srk term =
     if QQ.equal c QQ.zero then
       rt
     else
+      let open RationalTerm in
       { rt with
         num = Polynomial.QQXs.scalar_mul (QQ.inverse (QQ.abs c)) (RationalTerm.num rt) }
   in
