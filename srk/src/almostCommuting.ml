@@ -135,12 +135,13 @@ module PhasedSegmentation = struct
     let dim = VS.dimension vU in
     VS.equal vU (VS.standard_basis dim)
 
-  let rec best_almost_commuting matrices =
+  let best_almost_commuting matrices =
     let segmentation = make_naive matrices in
-    if almost_commutes segmentation then
-      segmentation
-    else
-      let mC = VS.matrix_of (almost_commuting_space segmentation) in
-      best_almost_commuting (Array.map (fun m -> QQMatrix.mul mC m) matrices)
+    let mC = VS.matrix_of (almost_commuting_space segmentation) in
+    mC, (Array.map (fun m -> 
+                      match divide_right (QQMatrix.mul mC m) mC with
+                      | Some mM -> mM
+                      | None -> assert false)
+                   matrices)
 
 end

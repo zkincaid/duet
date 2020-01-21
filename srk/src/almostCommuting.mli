@@ -39,5 +39,5 @@ module PhasedSegmentation : sig
    val almost_commutes : t -> bool
 
    (** Computes the best almost commuting abstraction for the given LTS *)
-   val best_almost_commuting : QQMatrix.t array -> t
+   val best_almost_commuting : QQMatrix.t array -> (QQMatrix.t * QQMatrix.t array)
 end

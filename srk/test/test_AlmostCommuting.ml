@@ -214,7 +214,7 @@ let almost_commuting1 () =
                       [0; 1; 0];
                       [0; 0; 1]]
   in
-  let output = PhasedSegmentation.best_almost_commuting [| mA; mB; mC; mD |] in
+  let output = PhasedSegmentation.make_naive [| mA; mB; mC; mD |] in
   let dim = QQVectorSpace.dimension (PhasedSegmentation.almost_commuting_space output) in
   assert_equal 3 dim
 
