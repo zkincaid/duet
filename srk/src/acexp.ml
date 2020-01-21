@@ -173,21 +173,13 @@ let mk_all_nonnegative srk terms =
 
 
 
-module TermMatrix srk = struct
-  include Ring.MakeMatrix(Syntax.Term)
-  let one = mk_one srk in
-  let mul a b = mk_mul srk [a; b] in
-  let zero = mk_zero srk in
-  let add a b = mk_add srk [a; b] in
-  let negate a = mk_neg srk a in
-end
 
-let expmat_to_mat srk exp_matrix term =
+(*let expmat_to_mat srk exp_matrix term t_ring =
   BatEnum.fold
     (fun output_matrix (dim1, dim2, entry) ->
-       E.Matrix.add_entry dim1 dim2 (E.term_of srk term entry)
+       TM.add_entry dim1 dim2 (E.term_of srk term entry)
          output_matrix)
-    E.Matrix.zero
+    TM.zero
     (E.Matrix.entries exp_matrix)
 
 let mk_eq_vectors_LHS srk v1 v2 =
@@ -197,13 +189,14 @@ let mk_eq_vectors_LHS srk v1 v2 =
        mk_eq srk entry (E.Vector.coeff dim v2))
 
 let symb_vect srk sym_list =
-  failwith "TODO"
+  failwith "TODO"*)
   
 (*Uses sx_constraints_helper to set initial values for each dimension of each equiv class*)
 let stateless_last_reset_core_logic_constrs srk tr_symbols aclts exp_vars pairs 
-    global_trans sym_vector =
+    global_trans program_sym_map =
   mk_and srk
     (List.mapi (fun seg_ind (trans_exec, res, entrance, sum) ->
+         let this_seg = (List.nth aclts seg_ind) in
          let res_taken =
            mk_or srk
             @@  BatArray.to_list 
@@ -223,19 +216,21 @@ let stateless_last_reset_core_logic_constrs srk tr_symbols aclts exp_vars pairs
                         let sim2'_assignments = 
                           let phs1_commuting = 
                             BatArray.fold_lefti
-                              (fun acc trans_comm_ind transformer ->
+                              (fun termmap trans_comm_ind transformer ->
                                  let on_reset = if trans_comm_ind = trans_ind then mk_one srk
                                    else mk_zero srk in 
                                  match exponentiate_rational transformer with
                                  | None -> failwith "No decomp"
                                  | Some exp_m ->
-                                   E.Matrix.vector_right_mul
-                                     (expmat_to_mat srk transformer
-                                        (mk_sub srk 
-                                           (mk_sub srk global_trans.(trans_comm_ind) 
-                                              trans_exec.(trans_comm_ind)) on_reset ))
-                                     acc
-                              )
+                                   special_mult exp_m 
+                                     (if trans_comm_ind = trans_end then
+                                        mk_add srk [global_trans.(trans_comm_ind);
+                                                    mk_neg srk trans_exec.(trans_comm_ind);
+                                                    mk_neg srk (mk_one srk)]
+                                      else
+                                        mk_add srk [global_trans.(trans_comm_ind);
+                                                    mk_neg srk trans_exec.(trans_comm_ind)])
+                                     termmap)
                               (E.Matrix.vector_right_mul (List.nth aclts seg_ind).sim1 sym_vector)
                               (List.nth aclts seg_ind).phase1
                           in
@@ -258,7 +253,7 @@ let stateless_last_reset_core_logic_constrs srk tr_symbols aclts exp_vars pairs
          in res_taken)
         exp_vars)
 
-let exp srk tr_symbols loop_counter aclts =
+let exp (srk : 'a context) tr_symbols loop_counter aclts =
   if (List.length aclts = 0) then failwith "Case of no phase segments not yet handled... prob just do mk_true here" 
   else(
     let exp_vars = create_exp_vars srk aclts in
@@ -276,7 +271,8 @@ let exp srk tr_symbols loop_counter aclts =
     let constr7 = failwith "computer actual value; exp here" in
     let constr8 = exp_connect_sum_constraints srk exp_vars in
     let sym_vect = E.Vector.zero in
-    let constr9 = stateless_last_reset_core_logic_constrs srk tr_symbols aclts exp_vars
-        pairs global_trans_exec sym_vect in
+    (*let constr9 = stateless_last_reset_core_logic_constrs srk tr_symbols aclts exp_vars
+        pairs global_trans_exec sym_vect in*)
+    let module TermMap = Map.Make(Int) in
     failwith "test"
       )
