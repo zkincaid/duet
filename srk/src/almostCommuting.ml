@@ -80,8 +80,8 @@ module PhasedSegment = struct
       let dims = SrkUtil.Int.Set.elements (QQMatrix.column_set mA) in
       let mS, phase1 = commuting_segment (iter_all pairs) dims in
       let mT, _ = commuting_segment (iter_commute pairs) dims in
-      let rec fix mT =
-        let ls_maxlds = Array.map
+      let maxldss mT =
+        Array.map
           (fun (k, m) ->
             if k == Reset then
               max_lds ~zero_rows:true mS (QQMatrix.mul mT m)
@@ -90,24 +90,21 @@ module PhasedSegment = struct
             else
               mT, m)
           pairs
-        in
-        let mTT = intersect_rowspaces
-                    (Array.map (fun (m, _) -> QQMatrix.mul m mT) ls_maxlds)
-                    dims
-        in
-        if rowspace_equal mT mTT then
-          let phase2 = Array.mapi
-                         (fun i (_, m) -> let k, _ = Array.get pairs i in (k, m))
-                         ls_maxlds
-          in
-          { sim1 = mS;
-            sim2 = mTT;
-            phase1 = phase1;
-            phase2 = phase2 }
-        else
-          fix mTT
       in
-      fix mT
+      let ls = maxldss mT in
+      let mk_sim2 mT ls = intersect_rowspaces
+                            (Array.map (fun (m, _) -> QQMatrix.mul m mT) ls)
+                            dims
+      in
+      let mT' = mk_sim2 mT ls in
+      let ls' = if rowspace_equal mT mT' then ls else maxldss mT' in
+      let phase2 = Array.map2 (fun (k, _) (_, m) -> (k, m)) pairs ls' in
+      (* Abstraction fixpoint should be reached after at most two steps *)
+      assert (rowspace_equal mT' (mk_sim2 mT' ls'));
+      { sim1 = mS;
+        sim2 = mT';
+        phase1 = phase1;
+        phase2 = phase2 }
 
 end
 
