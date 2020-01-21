@@ -7,6 +7,7 @@ module Z = Linear.ZZVector
 module Q = Quantifier
 module Int = SrkUtil.Int
 module H = Abstract
+module E = ExpPolynomial
 module Accelerate =
   Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)
                          (Iteration.PolyhedronGuard))
@@ -171,16 +172,36 @@ let mk_all_nonnegative srk terms =
   |> mk_and srk
 
 
+
+module TermMatrix srk = struct
+  include Ring.MakeMatrix(Syntax.Term)
+  let one = mk_one srk in
+  let mul a b = mk_mul srk [a; b] in
+  let zero = mk_zero srk in
+  let add a b = mk_add srk [a; b] in
+  let negate a = mk_neg srk a in
+end
+
 let expmat_to_mat srk exp_matrix term =
   BatEnum.fold
     (fun output_matrix (dim1, dim2, entry) ->
-       Ring.Matrix.add_entry dim1 dim2 (ExpPolynomial.term_of srk term entry)
+       E.Matrix.add_entry dim1 dim2 (E.term_of srk term entry)
          output_matrix)
-    Ring.Matrix.zero
-    (ExpPolynomial.Matrix.entries exp_m)
+    E.Matrix.zero
+    (E.Matrix.entries exp_matrix)
 
+let mk_eq_vectors_LHS srk v1 v2 =
+  mk_and srk 
+  @@ BatEnum.fold
+    (fun (entry, dim) ->
+       mk_eq srk entry (E.Vector.coeff dim v2))
+
+let symb_vect srk sym_list =
+  failwith "TODO"
+  
 (*Uses sx_constraints_helper to set initial values for each dimension of each equiv class*)
-let stateless_last_reset_core_logic_constrs srk tr_symbols aclts exp_vars pairs global_trans =
+let stateless_last_reset_core_logic_constrs srk tr_symbols aclts exp_vars pairs 
+    global_trans sym_vector =
   mk_and srk
     (List.mapi (fun seg_ind (trans_exec, res, entrance, sum) ->
          let res_taken =
@@ -201,7 +222,6 @@ let stateless_last_reset_core_logic_constrs srk tr_symbols aclts exp_vars pairs 
                         let res_assign = mk_eq srk res (mk_real srk (QQ.of_int trans_ind)) in
                         let sim2'_assignments = 
                           let phs1_commuting = 
-                            let identity = failwith "Should be SX" in
                             BatArray.fold_lefti
                               (fun acc trans_comm_ind transformer ->
                                  let on_reset = if trans_comm_ind = trans_ind then mk_one srk
@@ -209,23 +229,29 @@ let stateless_last_reset_core_logic_constrs srk tr_symbols aclts exp_vars pairs 
                                  match exponentiate_rational transformer with
                                  | None -> failwith "No decomp"
                                  | Some exp_m ->
-                                   Ring.Matrix.mul acc
+                                   E.Matrix.vector_right_mul
                                      (expmat_to_mat srk transformer
                                         (mk_sub srk 
                                            (mk_sub srk global_trans.(trans_comm_ind) 
-                                              trans_exec.(trans_comm_ind)) on_reset )))
-                              identity (List.nth aclts seg_ind).phase1
+                                              trans_exec.(trans_comm_ind)) on_reset ))
+                                     acc
+                              )
+                              (E.Matrix.vector_right_mul (List.nth aclts seg_ind).sim1 sym_vector)
+                              (List.nth aclts seg_ind).phase1
                           in
                           let rhs =
                            BatArray.fold_lefti
                             (fun acc trans_ac_ind (kind, transformer) ->
-                             Ring.Matrix.mul acc 
+                             E.Matrix.mul acc 
                                (expmat_to_mat srk transformer trans_exec.(trans_ac_ind)))
-                            (Ring.Matrix.mul (Ring.Matrix.mul res_trans (List.nth aclts seg_ind).sim2)
+                            (E.Matrix.mul (E.Matrix.mul res_trans (List.nth aclts seg_ind).sim2)
                                phs1_commuting) 
                             (List.nth aclts seg_ind).phase2
                           in
-                          failwith "Link LHS up w/ RHS"
+                          mk_eq_vectors_LHS srk 
+                            (E.Matrix.vector_right_mul 
+                               (List.nth aclts seg_ind).sim2 sym_vector)
+                            rhs
                         in
                         mk_and srk (res_assign :: global_req :: more_recently_reset_phases_constr))
                      (List.nth aclts seg_ind).phase2
@@ -249,7 +275,8 @@ let exp srk tr_symbols loop_counter aclts =
     let constr6 = failwith "each counter less than master counter" in
     let constr7 = failwith "computer actual value; exp here" in
     let constr8 = exp_connect_sum_constraints srk exp_vars in
+    let sym_vect = E.Vector.zero in
     let constr9 = stateless_last_reset_core_logic_constrs srk tr_symbols aclts exp_vars
-        pairs global_trans_exec in
+        pairs global_trans_exec sym_vect in
     failwith "test"
       )
