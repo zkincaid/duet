@@ -339,6 +339,20 @@ let stateless_last_reset_core_logic_constrs srk tr_symbols aclts exp_vars pairs
          mk_or srk [res_taken; res_not_taken])
         exp_vars)
 
+let commuting_seg_counter_eq_lc srk global_trans_exec lc =
+  mk_eq srk (mk_add srk (BatArray.to_list global_trans_exec)) lc
+
+let phase_seg_counter_less_global_counters srk global_trans exp_vars =
+  mk_and srk 
+    @@ BatList.flatten
+         @@ BatList.map
+              (fun (trans_exec, _, _, _) ->
+                    BatArray.to_list
+                      @@ BatArray.map2 
+                           (fun trans_seg trans_global -> mk_leq srk trans_seg trans_global)
+                           trans_exec global_trans
+             ) exp_vars
+
 let exp (srk : 'a context) tr_symbols loop_counter aclts =
   if (List.length aclts = 0) then failwith "Case of no phase segments not yet handled... prob just do mk_true here" 
   else(
@@ -352,9 +366,8 @@ let exp (srk : 'a context) tr_symbols loop_counter aclts =
     let constr2 = exp_reset_never_taken_constr srk exp_vars loop_counter in
     let constr3 = exp_perm_constraints srk pairs in
     let constr4 = exp_equality_reset_together_constraints in
-    let constr5 = failwith "master trans counter = loop counter" in
-    let constr6 = failwith "each counter less than master counter" in
-    let constr7 = failwith "computer actual value; exp here" in
+    let constr5 = commuting_seg_counter_eq_lc srk global_trans_exec loop_counter in
+    let constr6 = phase_seg_counter_less_global_counters srk global_trans_exec exp_vars in
     let constr8 = exp_connect_sum_constraints srk exp_vars in
     let sym_vect = (BatArray.make 10 (mk_zero srk)) in
     let constr9 = stateless_last_reset_core_logic_constrs srk tr_symbols aclts exp_vars
