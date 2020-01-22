@@ -182,15 +182,76 @@ let mk_all_nonnegative srk terms =
     TM.zero
     (E.Matrix.entries exp_matrix)
 
-let mk_eq_vectors_LHS srk v1 v2 =
-  mk_and srk 
-  @@ BatEnum.fold
-    (fun (entry, dim) ->
-       mk_eq srk entry (E.Vector.coeff dim v2))
-
 let symb_vect srk sym_list =
   failwith "TODO"*)
-  
+
+
+
+(*let matr_right_mul_tm mattype srk mat termarray entryfun =
+  module MAT = (val mattype : Ring.Matrix)
+  let outputarr = (BatArray.make (BatArray.length termarray) (mk_zero srk)) in
+  BatEnum.iter
+    (fun (dim1, dim2, entry) ->
+      outputarr.(dim1)<-
+        mk_add srk [mk_mul srk [entryfun entry; termarray.(dim2)]; outputarr.(dim1)]) 
+    (MAT.entries mat);
+  outputarr*)
+
+let linmatr_right_mul_tm srk mat termarray =
+  let entryfun = (fun entry -> mk_real srk entry) in
+  let outputarr = (BatArray.make (BatArray.length termarray) (mk_zero srk)) in
+  BatEnum.iter
+    (fun (dim1, dim2, entry) ->
+      outputarr.(dim1)<-
+        mk_add srk [mk_mul srk [entryfun entry; termarray.(dim2)]; outputarr.(dim1)]) 
+    (M.entries mat);
+  outputarr
+
+let expmatr_right_mul_tm srk mat termarray exp_term =
+  let entryfun = (fun entry -> E.term_of srk exp_term entry) in
+  let outputarr = (BatArray.make (BatArray.length termarray) (mk_zero srk)) in
+  BatEnum.iter
+    (fun (dim1, dim2, entry) ->
+      outputarr.(dim1)<-
+        mk_add srk [mk_mul srk [entryfun entry; termarray.(dim2)]; outputarr.(dim1)]) 
+    (E.Matrix.entries mat);
+  outputarr
+
+
+
+
+(*let linmatr_right_mul_tm srk mat termarray =
+  matr_right_mul_tm srk mat termarray (fun entry -> mk_real srk entry)
+*)
+
+(*
+let expmatr_right_mul_tm srk expmat termarray exp_term =
+  matr_right_mul_tm srk E expmat termarray (fun entry -> E.term_of srk exp_term entry)
+*)
+
+(*let expmatr_right_mul_tm srk expmat expterm termmap =
+  BatEnum.fold
+    (fun outputmap (dim1, dim2, entry) ->
+       BatMap.modify_def (mk_zero srk) dim1 
+         (fun prev_term -> mk_add srk [mk_mul srk [E.term_of srk expterm entry; 
+                                                   (BatMap.find dim2 termmap)]; prev_term]) 
+         outputmap)
+    Map.Make(Int)
+    (E.Matrix.entries expmat)
+*)
+
+let mk_eq_symmaps_LHS srk a1 a2 =
+  mk_and srk 
+  @@ BatArray.to_list 
+  @@ BatArray.mapi
+    (fun ind term ->
+       mk_eq srk term a2.(ind))
+    a1
+
+
+
+
+
 (*Uses sx_constraints_helper to set initial values for each dimension of each equiv class*)
 let stateless_last_reset_core_logic_constrs srk tr_symbols aclts exp_vars pairs 
     global_trans program_sym_map =
@@ -219,37 +280,38 @@ let stateless_last_reset_core_logic_constrs srk tr_symbols aclts exp_vars pairs
                               (fun termmap trans_comm_ind transformer ->
                                  let on_reset = if trans_comm_ind = trans_ind then mk_one srk
                                    else mk_zero srk in 
-                                 match exponentiate_rational transformer with
+                                 match E.exponentiate_rational transformer with
                                  | None -> failwith "No decomp"
                                  | Some exp_m ->
-                                   special_mult exp_m 
-                                     (if trans_comm_ind = trans_end then
-                                        mk_add srk [global_trans.(trans_comm_ind);
-                                                    mk_neg srk trans_exec.(trans_comm_ind);
-                                                    mk_neg srk (mk_one srk)]
-                                      else
-                                        mk_add srk [global_trans.(trans_comm_ind);
-                                                    mk_neg srk trans_exec.(trans_comm_ind)])
-                                     termmap)
-                              (E.Matrix.vector_right_mul (List.nth aclts seg_ind).sim1 sym_vector)
-                              (List.nth aclts seg_ind).phase1
+                                   let exp_term = 
+                                     if trans_comm_ind = trans_ind then
+                                       mk_add srk [global_trans.(trans_comm_ind);
+                                                   mk_neg srk trans_exec.(trans_comm_ind);
+                                                   mk_neg srk (mk_one srk)]
+                                     else
+                                       mk_add srk [global_trans.(trans_comm_ind);
+                                                   mk_neg srk trans_exec.(trans_comm_ind)]
+                                   in
+                                   expmatr_right_mul_tm srk exp_m termmap exp_term)
+                              (linmatr_right_mul_tm srk this_seg.sim1 program_sym_map)
+                              this_seg.phase1
                           in
                           let rhs =
                            BatArray.fold_lefti
-                            (fun acc trans_ac_ind (kind, transformer) ->
-                             E.Matrix.mul acc 
-                               (expmat_to_mat srk transformer trans_exec.(trans_ac_ind)))
-                            (E.Matrix.mul (E.Matrix.mul res_trans (List.nth aclts seg_ind).sim2)
-                               phs1_commuting) 
-                            (List.nth aclts seg_ind).phase2
+                            (fun termmap trans_ac_ind (kind, transformer) ->
+                              match E.exponentiate_rational transformer with
+                              |None -> failwith "No decomp"
+                              | Some exp_m ->
+                                expmatr_right_mul_tm srk exp_m termmap trans_exec.(trans_ac_ind))
+                            (linmatr_right_mul_tm srk res_trans phs1_commuting) 
+                            this_seg.phase2
                           in
-                          mk_eq_vectors_LHS srk 
-                            (E.Matrix.vector_right_mul 
-                               (List.nth aclts seg_ind).sim2 sym_vector)
+                          mk_eq_symmaps_LHS srk 
+                            (linmatr_right_mul_tm srk this_seg.sim2 program_sym_map)
                             rhs
                         in
                         mk_and srk (res_assign :: global_req :: more_recently_reset_phases_constr))
-                     (List.nth aclts seg_ind).phase2
+                     this_seg.phase2
          in res_taken)
         exp_vars)
 
@@ -271,8 +333,8 @@ let exp (srk : 'a context) tr_symbols loop_counter aclts =
     let constr7 = failwith "computer actual value; exp here" in
     let constr8 = exp_connect_sum_constraints srk exp_vars in
     let sym_vect = E.Vector.zero in
-    (*let constr9 = stateless_last_reset_core_logic_constrs srk tr_symbols aclts exp_vars
-        pairs global_trans_exec sym_vect in*)
-    let module TermMap = Map.Make(Int) in
+  (*  let constr9 = stateless_last_reset_core_logic_constrs srk tr_symbols aclts exp_vars
+        pairs global_trans_exec Map.Make(Int) in
+    let module TermMap = Map.Make(Int) in*)
     failwith "test"
       )
