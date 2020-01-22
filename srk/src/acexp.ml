@@ -278,8 +278,6 @@ let stateless_last_reset_core_logic_constrs srk tr_symbols aclts exp_vars pairs
                           let phs1_commuting = 
                             BatArray.fold_lefti
                               (fun termmap trans_comm_ind transformer ->
-                                 let on_reset = if trans_comm_ind = trans_ind then mk_one srk
-                                   else mk_zero srk in 
                                  match E.exponentiate_rational transformer with
                                  | None -> failwith "No decomp"
                                  | Some exp_m ->
@@ -310,9 +308,35 @@ let stateless_last_reset_core_logic_constrs srk tr_symbols aclts exp_vars pairs
                             (linmatr_right_mul_tm srk this_seg.sim2 program_sym_map)
                             rhs
                         in
-                        mk_and srk (res_assign :: global_req :: more_recently_reset_phases_constr))
+                        mk_and srk (res_assign :: global_req :: sim2'_assignments :: more_recently_reset_phases_constr))
                      this_seg.phase2
-         in res_taken)
+         in 
+         let res_not_taken = 
+           let res_assign = mk_eq srk res (mk_real srk (QQ.of_int (-1))) in
+           let global_eq_seg =
+             BatArray.to_list 
+               @@
+               BatArray.map2 (fun trans_seg trans_global -> mk_eq srk trans_seg trans_global)
+               trans_exec global_trans
+           in
+           let sim2'_assignments =
+             let rhs =
+               BatArray.fold_lefti
+                 (fun termmap trans_ac_ind (kind, transformer) ->
+                    match E.exponentiate_rational transformer with
+                    |None -> failwith "No decomp"
+                    | Some exp_m ->
+                      expmatr_right_mul_tm srk exp_m termmap trans_exec.(trans_ac_ind))
+                 (linmatr_right_mul_tm srk this_seg.sim2 program_sym_map) 
+                 this_seg.phase2
+             in
+             mk_eq_symmaps_LHS srk 
+               (linmatr_right_mul_tm srk this_seg.sim2 program_sym_map)
+               rhs
+           in
+           mk_and srk (res_assign :: sim2'_assignments :: global_eq_seg)
+         in
+         mk_or srk [res_taken; res_not_taken])
         exp_vars)
 
 let exp (srk : 'a context) tr_symbols loop_counter aclts =
@@ -332,9 +356,8 @@ let exp (srk : 'a context) tr_symbols loop_counter aclts =
     let constr6 = failwith "each counter less than master counter" in
     let constr7 = failwith "computer actual value; exp here" in
     let constr8 = exp_connect_sum_constraints srk exp_vars in
-    let sym_vect = E.Vector.zero in
-  (*  let constr9 = stateless_last_reset_core_logic_constrs srk tr_symbols aclts exp_vars
-        pairs global_trans_exec Map.Make(Int) in
-    let module TermMap = Map.Make(Int) in*)
+    let sym_vect = (BatArray.make 10 (mk_zero srk)) in
+    let constr9 = stateless_last_reset_core_logic_constrs srk tr_symbols aclts exp_vars
+        pairs global_trans_exec sym_vect in
     failwith "test"
       )
