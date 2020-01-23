@@ -70,6 +70,13 @@ val abstract : ?exists:(symbol -> bool) ->
   'a formula ->
   'a t
 
+(** Compute a set of equations that are entailed by a given formula *)
+val abstract_equalities : ?exists:(symbol -> bool) ->
+  ?subterm:(symbol -> bool) ->
+  'a context ->
+  'a formula ->
+  'a t
+
 (** A subwedge is an abstract domain that can be associated with a
    sublattice of the disjunctive completion of the lattice of wedges
    (see [abstract_subwedge]).  The [of_wedge] and [join] functions
