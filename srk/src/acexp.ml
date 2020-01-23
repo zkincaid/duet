@@ -393,11 +393,11 @@ let exp (srk : 'a context) tr_symbols loop_counter aclts =
                 |> mk_all_nonnegative srk in
     let constr2 = exp_reset_never_taken_constr srk exp_vars loop_counter in
     let constr3 = exp_perm_constraints srk pairs in
-    let constr4 = exp_equality_reset_together_constraints in
+    let constr4 = exp_equality_reset_together_constraints srk pairs in
     let constr5 = commuting_seg_counter_eq_lc srk global_trans_exec loop_counter in
     let constr6 = phase_seg_counter_less_global_counters srk global_trans_exec exp_vars in
     let constr7 = exp_connect_sum_constraints srk exp_vars in
     let constr8 = stateless_last_reset_core_logic_constrs srk tr_symbols aclts exp_vars
         pairs global_trans_exec in
-    mk_and srk [constr1; constr2; constr3; constr4; constr5; constr6; constr7; constr8; constr9]
+    mk_and srk [constr1; constr2; constr3; constr4; constr5; constr6; constr7; constr8]
   )
