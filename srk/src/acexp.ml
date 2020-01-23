@@ -199,21 +199,33 @@ let symb_vect srk sym_list =
 
 let linmatr_right_mul_tm srk mat termarray =
   let entryfun = (fun entry -> mk_real srk entry) in
-  let outputarr = (BatArray.make (BatArray.length termarray) (mk_zero srk)) in
+  let outputarr = (BatArray.make (M.nb_rows mat) (mk_zero srk)) in
   BatEnum.iter
     (fun (dim1, dim2, entry) ->
+       if dim1 = -1 then ()
+       else (
+         let mult = 
+           if dim2 = -1 then mk_one srk
+           else termarray.(dim2)
+         in
       outputarr.(dim1)<-
-        mk_add srk [mk_mul srk [entryfun entry; termarray.(dim2)]; outputarr.(dim1)]) 
+        mk_add srk [mk_mul srk [entryfun entry; mult]; outputarr.(dim1)])) 
     (M.entries mat);
   outputarr
 
 let expmatr_right_mul_tm srk mat termarray exp_term =
   let entryfun = (fun entry -> E.term_of srk exp_term entry) in
-  let outputarr = (BatArray.make (BatArray.length termarray) (mk_zero srk)) in
+  let outputarr = (BatArray.make (E.Matrix.nb_rows mat) (mk_zero srk)) in
   BatEnum.iter
     (fun (dim1, dim2, entry) ->
-      outputarr.(dim1)<-
-        mk_add srk [mk_mul srk [entryfun entry; termarray.(dim2)]; outputarr.(dim1)]) 
+       if dim1 = -1 then ()
+       else (
+         let mult = 
+           if dim2 = -1 then mk_one srk
+           else termarray.(dim2)
+         in
+         outputarr.(dim1)<-
+           mk_add srk [mk_mul srk [entryfun entry; mult]; outputarr.(dim1)])) 
     (E.Matrix.entries mat);
   outputarr
 
@@ -248,13 +260,29 @@ let mk_eq_symmaps_LHS srk a1 a2 =
        mk_eq srk term a2.(ind))
     a1
 
+let simmatrix_to_termarray srk simmat =
+  let entryfun = (fun entry -> mk_real srk entry) in
+ let outputarr = (BatArray.make (M.nb_rows simmat) (mk_zero srk)) in
+  BatEnum.iter
+    (fun (dim1, dim2, entry) ->
+       if dim1 = -1 then ()
+       else (
+         let symterm = 
+           if dim2 = -1 then failwith "Const dim in lin comb for non-const dim row"
+           else mk_const srk (symbol_of_int dim2)
+         in
+         outputarr.(dim1)<-
+           mk_add srk [mk_mul srk [entryfun entry; symterm]; outputarr.(dim1)])) 
+    (M.entries simmat);
+  outputarr
+
 
 
 
 
 (*Uses sx_constraints_helper to set initial values for each dimension of each equiv class*)
 let stateless_last_reset_core_logic_constrs srk tr_symbols aclts exp_vars pairs 
-    global_trans program_sym_map =
+    global_trans =
   mk_and srk
     (List.mapi (fun seg_ind (trans_exec, res, entrance, sum) ->
          let this_seg = (List.nth aclts seg_ind) in
@@ -291,7 +319,7 @@ let stateless_last_reset_core_logic_constrs srk tr_symbols aclts exp_vars pairs
                                                    mk_neg srk trans_exec.(trans_comm_ind)]
                                    in
                                    expmatr_right_mul_tm srk exp_m termmap exp_term)
-                              (linmatr_right_mul_tm srk this_seg.sim1 program_sym_map)
+                              (simmatrix_to_termarray srk this_seg.sim1)
                               this_seg.phase1
                           in
                           let rhs =
@@ -305,7 +333,7 @@ let stateless_last_reset_core_logic_constrs srk tr_symbols aclts exp_vars pairs
                             this_seg.phase2
                           in
                           mk_eq_symmaps_LHS srk 
-                            (linmatr_right_mul_tm srk this_seg.sim2 program_sym_map)
+                            (simmatrix_to_termarray srk this_seg.sim2)
                             rhs
                         in
                         mk_and srk (res_assign :: global_req :: sim2'_assignments :: more_recently_reset_phases_constr))
@@ -327,11 +355,11 @@ let stateless_last_reset_core_logic_constrs srk tr_symbols aclts exp_vars pairs
                     |None -> failwith "No decomp"
                     | Some exp_m ->
                       expmatr_right_mul_tm srk exp_m termmap trans_exec.(trans_ac_ind))
-                 (linmatr_right_mul_tm srk this_seg.sim2 program_sym_map) 
+                 (simmatrix_to_termarray srk this_seg.sim2) 
                  this_seg.phase2
              in
              mk_eq_symmaps_LHS srk 
-               (linmatr_right_mul_tm srk this_seg.sim2 program_sym_map)
+               (simmatrix_to_termarray srk this_seg.sim2)
                rhs
            in
            mk_and srk (res_assign :: sim2'_assignments :: global_eq_seg)
@@ -368,9 +396,8 @@ let exp (srk : 'a context) tr_symbols loop_counter aclts =
     let constr4 = exp_equality_reset_together_constraints in
     let constr5 = commuting_seg_counter_eq_lc srk global_trans_exec loop_counter in
     let constr6 = phase_seg_counter_less_global_counters srk global_trans_exec exp_vars in
-    let constr8 = exp_connect_sum_constraints srk exp_vars in
-    let sym_vect = (BatArray.make 10 (mk_zero srk)) in
-    let constr9 = stateless_last_reset_core_logic_constrs srk tr_symbols aclts exp_vars
-        pairs global_trans_exec sym_vect in
-    failwith "test"
-      )
+    let constr7 = exp_connect_sum_constraints srk exp_vars in
+    let constr8 = stateless_last_reset_core_logic_constrs srk tr_symbols aclts exp_vars
+        pairs global_trans_exec in
+    mk_and srk [constr1; constr2; constr3; constr4; constr5; constr6; constr7; constr8; constr9]
+  )
