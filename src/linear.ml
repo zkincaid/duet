@@ -732,23 +732,31 @@ module PartialLinearMap = struct
 
   module IntMap = SrkUtil.Int.Map
 
-  (* Rewrite map so that each row belongs to the domain *)
+  (* After normalization, we have:
+     1. the vectors in guard are linearly independent
+     2. map sends every vector orthogonal to the domain to 0 *)
   let normalize f =
-    let rewrite =
-      List.fold_left
-        (fun m (k,v) -> IntMap.add k v m)
-        IntMap.empty
-        (orient (fun _ -> false) f.guard)
+    let guard = VS.basis f.guard in
+    let mG = VS.matrix_of guard in
+    let dims =
+      SrkUtil.Int.Set.elements (SrkUtil.Int.Set.union (M.column_set f.map) (M.column_set mG))
     in
-    let subst row =
-      BatEnum.fold
-        (fun v (coeff,dim) ->
-           try V.add v (V.scalar_mul coeff (IntMap.find dim rewrite))
-           with Not_found -> V.add_term coeff dim v)
-        V.zero
-        (V.enum row)
+    let dom = nullspace mG dims in
+    (* Expansion in the basis formed by the domain and its orthogonal
+       complement (guard). *)
+    let basis_change =
+      match divide_left (M.identity dims) (M.transpose (VS.matrix_of (dom @ guard))) with
+      | None -> assert false
+      | Some cob -> cob
     in
-    { f with map = QQMatrix.map_rows subst f.map }
+    let map =
+      M.mul (M.mul f.map (M.transpose (VS.matrix_of dom))) basis_change
+    in
+    dom |> List.iter (fun x ->
+        assert (V.equal (vector_right_mul f.map x) (vector_right_mul map x)));
+    f.guard |> List.iter (fun x ->
+        assert (V.equal V.zero (vector_right_mul map x)));
+    { map; guard }
 
   let equal f g =
     M.equal f.map g.map

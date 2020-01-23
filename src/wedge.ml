@@ -341,12 +341,15 @@ let bound_polynomial wedge polynomial =
 
 let affine_hull wedge =
   let open Lincons0 in
-  BatArray.enum (Abstract0.to_lincons_array (get_manager ()) wedge.abstract)
-  |> BatEnum.filter_map (fun lcons ->
-      match lcons.typ with
-      | EQ -> Some (vec_of_linexpr wedge.env lcons.linexpr0)
-      | _ -> None)
-  |> BatList.of_enum
+  if is_bottom wedge then
+    [ V.add_term QQ.one CS.const_id V.zero ]
+  else
+    BatArray.enum (Abstract0.to_lincons_array (get_manager ()) wedge.abstract)
+    |> BatEnum.filter_map (fun lcons ->
+        match lcons.typ with
+        | EQ -> Some (vec_of_linexpr wedge.env lcons.linexpr0)
+        | _ -> None)
+    |> BatList.of_enum
 
 let polynomial_constraints ~lemma wedge =
   let open Lincons0 in
@@ -377,22 +380,26 @@ let vanishing_ideal wedge =
   let open Lincons0 in
   let ideal = ref [] in
   let add p = ideal := p::(!ideal) in
-  Abstract0.to_lincons_array (get_manager ()) wedge.abstract
-  |> Array.iter (fun lcons ->
-      match lcons.typ with
-      | EQ ->
-        let vec = vec_of_linexpr wedge.env lcons.linexpr0 in
-        add (CS.polynomial_of_vec wedge.cs vec)
-      | _ -> ());
-  for id = 0 to CS.dim wedge.cs - 1 do
-    match CS.destruct_coordinate wedge.cs id with
-    | `Inv x ->
-      let interval = bound_vec wedge x in
-      if not (Interval.elem QQ.zero interval) then
-        add (P.sub (P.mul (poly_of_vec x) (P.of_dim id)) (P.scalar QQ.one))
-    | _ -> ()
-  done;
-  !ideal
+  if is_bottom wedge then
+    [ P.one ]
+  else begin
+    Abstract0.to_lincons_array (get_manager ()) wedge.abstract
+    |> Array.iter (fun lcons ->
+        match lcons.typ with
+        | EQ ->
+          let vec = vec_of_linexpr wedge.env lcons.linexpr0 in
+          add (CS.polynomial_of_vec wedge.cs vec)
+        | _ -> ());
+    for id = 0 to CS.dim wedge.cs - 1 do
+      match CS.destruct_coordinate wedge.cs id with
+      | `Inv x ->
+        let interval = bound_vec wedge x in
+        if not (Interval.elem QQ.zero interval) then
+          add (P.sub (P.mul (poly_of_vec x) (P.of_dim id)) (P.scalar QQ.one))
+      | _ -> ()
+    done;
+    !ideal
+  end
 
 (* Polynomial ideal consisting of affine equations entailed by the
    underlying polyhedron of the wedge and definitional equalities for
@@ -2347,3 +2354,16 @@ let cover ?subterm:(subterm=(fun _ -> true)) srk p phi =
       to_formula = (fun x -> x) }
   in
   Log.time "Cover" (abstract_subwedge disj_wedge ~exists:p ~subterm srk) phi
+
+let abstract_equalities ?exists:(p=fun _ -> true) ?subterm:(subterm=(fun _ -> true)) srk phi =
+  let zero = mk_real srk QQ.zero in
+  let wedge_eq =
+    { of_wedge = (fun ~lemma w ->
+          affine_hull w
+          |> List.map (fun x -> mk_eq srk (CS.term_of_vec w.cs x) zero)
+          |> of_atoms srk
+          |> exists p ~subterm);
+      join = (fun ~lemma w1 w2 -> join ~lemma w1 w2);
+      to_formula = to_formula }
+  in
+  abstract_subwedge_weak wedge_eq srk phi
