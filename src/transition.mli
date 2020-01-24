@@ -76,9 +76,10 @@ module Make
   (** Skip (unit of [mul]). *)
   val one : t
 
-  (** Widen abstracts both input transitions to the Cube abstract domain,
-      performs the Cube widening operator, and then converts back to a transition.
-      The resulting transition is normal in the sense described in [equal]. *)
+  (** Widen abstracts both input transitions to the Cube abstract
+     domain, performs the Cube widening operator, and then converts
+     back to a transition.  The resulting transition is normal in the
+     sense described in [equal]. *)
   val widen : t -> t -> t
 
   (** [exists ex tr] removes the variables that do not satisfy the predicate
