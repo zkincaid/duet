@@ -417,7 +417,7 @@ let algebraic1 () =
     && y' = y + (int 1)
     && x * x = y * y
   in
-  let closure = SP.star srk tr_symbols phi in
+  let closure = DLTS.star srk tr_symbols phi in
   assert_implies closure (x' = x || x' = x + (int 1) || x' = y')
 
 let algebraic2 () =
@@ -428,7 +428,7 @@ let algebraic2 () =
     && z' = z
     && z = y * y
   in
-  let closure = SP.star srk tr_symbols phi in
+  let closure = DLTS.star srk tr_symbols phi in
   assert_implies closure (x' <= x + (int 2))
 
 let suite = "Iteration" >::: [
