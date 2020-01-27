@@ -72,6 +72,8 @@ module PhasedSegment = struct
       p.phase2
       q.phase2
 
+  let dimension p = VS.dimension (VS.of_matrix p.sim2)
+
   let make pairs =
     if Array.length pairs == 0 then
       raise (Invalid_argument "Array of matrices should not be empty")
@@ -117,6 +119,12 @@ module PhasedSegment = struct
 
 end
 
+let set_kind ps i k =
+  let ps' = Array.copy ps in
+  let _, mM = Array.get ps' i in
+  Array.set ps' i (k, mM);
+  ps'
+
 module PhasedSegmentation = struct
 
   type t = phased_segment list
@@ -129,6 +137,26 @@ module PhasedSegmentation = struct
                        products
     in
     BatList.map PhasedSegment.make partitions
+
+  let make matrices =
+    let segments = BatQueue.create () in
+    let pairs = Array.map (fun mM -> (Ignore, mM)) matrices in
+    let rec iter ps dim i =
+      if i >= (Array.length ps) then
+        BatQueue.push (PhasedSegment.make ps) segments;
+      let ps' = set_kind ps i Reset in
+      let dim' = PhasedSegment.dimension (PhasedSegment.make ps') in
+      if dim' == dim then
+        iter ps' dim' (i+1)
+      else
+        let ps'' = set_kind ps i Commute in
+        let dim'' = PhasedSegment.dimension (PhasedSegment.make ps'') in
+        iter ps' dim' (i+1);
+        iter ps'' dim'' (i+1)
+    in
+    iter pairs (PhasedSegment.dimension (PhasedSegment.make pairs)) 0;
+    BatList.of_enum (BatQueue.enum segments)
+      
 
   let almost_commuting_space segmentation =
     List.fold_left
