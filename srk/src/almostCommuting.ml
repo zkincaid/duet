@@ -140,22 +140,33 @@ module PhasedSegmentation = struct
 
   let make matrices =
     let segments = BatQueue.create () in
-    let pairs = Array.map (fun mM -> (Ignore, mM)) matrices in
-    let rec iter ps dim i =
-      if i >= (Array.length ps) then
-        BatQueue.push (PhasedSegment.make ps) segments
-      else
-        let ps' = set_kind ps i Reset in
-        let dim' = PhasedSegment.dimension (PhasedSegment.make ps') in
-        if dim' == dim then
-          iter ps' dim' (i+1)
-        else
-          let ps'' = set_kind ps i Commute in
-          let dim'' = PhasedSegment.dimension (PhasedSegment.make ps'') in
-          iter ps' dim' (i+1);
-          iter ps'' dim'' (i+1)
+    let current_space = ref VS.empty in
+    let push s =
+      current_space := VS.sum !current_space (VS.of_matrix s.sim2);
+      BatQueue.push s segments
     in
-    iter pairs (PhasedSegment.dimension (PhasedSegment.make pairs)) 0;
+    (* Start with a segment where all matrices are non-resets *)
+    let pairs = Array.map (fun mM -> (Commute, mM)) matrices in
+    push (PhasedSegment.make pairs);
+    let rec iter ps seg i =
+      (* Only continue if rsp(seg.sim2) is not already contained in the current space *)
+      if not (VS.subspace (VS.of_matrix seg.sim2) !current_space) then
+        if i >= (Array.length ps) then
+          push seg
+        else
+          let ps' = set_kind ps i Reset in
+          let seg' = PhasedSegment.make ps' in
+          if (PhasedSegment.dimension seg') == (PhasedSegment.dimension seg) then
+            iter ps' seg' (i+1)
+          else
+            let ps'' = set_kind ps i Commute in
+            let seg'' = PhasedSegment.make ps'' in
+            iter ps' seg' (i+1);
+            iter ps'' seg'' (i+1)
+    in
+    let pairs = Array.map (fun mM -> (Ignore, mM)) matrices in
+    let seg = PhasedSegment.make pairs in
+    iter pairs seg 0;
     BatList.of_enum (BatQueue.enum segments)
       
 
