@@ -84,7 +84,16 @@ module PhasedSegment = struct
         Array.map
           (fun (k, m) ->
             if k == Reset then
-              max_lds ~zero_rows:true mS (QQMatrix.mul mT m)
+              let mC, mD = pushout (QQMatrix.mul mT m) mS in
+              (* pushout TA S returns C,D such that CTA = DS. We then take the
+                 rowspace intersection of the matrices CT for all A, and iterate
+                 with T' = \bigcap CT. A fixpoint should be reached after two
+                 iterations, i.e. we have rsp(T') = rsp(T). If the fixpoint is
+                 reached, then there exists a C' s.t. C'CT = T. We use C' to
+                 perform a change of basis in order to get TA = C'DS. *)
+              match divide_right mT (QQMatrix.mul mC mT) with
+              | Some mC' -> mC, (QQMatrix.mul mC' mD)
+              | None     -> mC, mD
             else if k == Commute then
               max_lds mT (QQMatrix.mul mT m)
             else
