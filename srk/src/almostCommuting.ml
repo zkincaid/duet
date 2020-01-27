@@ -143,16 +143,17 @@ module PhasedSegmentation = struct
     let pairs = Array.map (fun mM -> (Ignore, mM)) matrices in
     let rec iter ps dim i =
       if i >= (Array.length ps) then
-        BatQueue.push (PhasedSegment.make ps) segments;
-      let ps' = set_kind ps i Reset in
-      let dim' = PhasedSegment.dimension (PhasedSegment.make ps') in
-      if dim' == dim then
-        iter ps' dim' (i+1)
+        BatQueue.push (PhasedSegment.make ps) segments
       else
-        let ps'' = set_kind ps i Commute in
-        let dim'' = PhasedSegment.dimension (PhasedSegment.make ps'') in
-        iter ps' dim' (i+1);
-        iter ps'' dim'' (i+1)
+        let ps' = set_kind ps i Reset in
+        let dim' = PhasedSegment.dimension (PhasedSegment.make ps') in
+        if dim' == dim then
+          iter ps' dim' (i+1)
+        else
+          let ps'' = set_kind ps i Commute in
+          let dim'' = PhasedSegment.dimension (PhasedSegment.make ps'') in
+          iter ps' dim' (i+1);
+          iter ps'' dim'' (i+1)
     in
     iter pairs (PhasedSegment.dimension (PhasedSegment.make pairs)) 0;
     BatList.of_enum (BatQueue.enum segments)
