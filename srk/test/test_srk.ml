@@ -17,6 +17,7 @@ let suite = "Main" >::: [
     Test_abstract.suite;
     Test_iteration.suite;
     Test_LinearSemiautomaton.suite;
+    Test_AlmostCommuting.suite;
     Test_transition.suite;
     Test_WeightedGraph.suite;
 ]
