@@ -382,7 +382,7 @@ let max_rowspace_projection a b =
       | None -> ()));
   !c
 
-let max_lds ?zero_rows:(zero_rows=false) mA mB =
+let max_lds mA mB =
   (* We have a system of the form Ax' = Bx, we need one of the form Ax' =
      B'Ax.  If we can factor B = B'A, we're done.  Otherwise, we compute an
      m-by-n matrix T' with m < n, and continue iterating with the system T'Ax'
@@ -425,29 +425,26 @@ let max_lds ?zero_rows:(zero_rows=false) mA mB =
       (SrkUtil.Int.Set.union (QQMatrix.row_set mA) (QQMatrix.row_set mB))
   in
   let (mT, mM) = fix mA mB (QQMatrix.identity dims) in
-  if zero_rows then
-    mT, mM
-  else
-    (* Remove coordinates corresponding to zero rows of T*A *)
-    let mTA = QQMatrix.mul mT mA in
-    let mTA_rows = QQMatrix.row_set mTA in
-    BatEnum.foldi (fun i row (mT', mM') ->
-        let mT' =
-          QQMatrix.add_row i (QQMatrix.row row mT) mT'
+  (* Remove coordinates corresponding to zero rows of T*A *)
+  let mTA = QQMatrix.mul mT mA in
+  let mTA_rows = QQMatrix.row_set mTA in
+  BatEnum.foldi (fun i row (mT', mM') ->
+      let mT' =
+        QQMatrix.add_row i (QQMatrix.row row mT) mT'
+      in
+      let mM' =
+        let mM_row = QQMatrix.row row mM in
+        let rowi =
+          BatEnum.foldi (fun j col v ->
+              QQVector.add_term (QQVector.coeff col mM_row) j v)
+            QQVector.zero
+            (SrkUtil.Int.Set.enum mTA_rows)
         in
-        let mM' =
-          let mM_row = QQMatrix.row row mM in
-          let rowi =
-            BatEnum.foldi (fun j col v ->
-                QQVector.add_term (QQVector.coeff col mM_row) j v)
-              QQVector.zero
-              (SrkUtil.Int.Set.enum mTA_rows)
-          in
-          QQMatrix.add_row i rowi mM'
-        in
-        (mT', mM'))
-      (QQMatrix.zero, QQMatrix.zero)
-      (SrkUtil.Int.Set.enum mTA_rows)
+        QQMatrix.add_row i rowi mM'
+      in
+      (mT', mM'))
+    (QQMatrix.zero, QQMatrix.zero)
+    (SrkUtil.Int.Set.enum mTA_rows)
 
 let rational_spectral_decomposition mA dims =
   let mAt = QQMatrix.transpose mA in
