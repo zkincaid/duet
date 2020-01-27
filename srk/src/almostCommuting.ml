@@ -97,7 +97,7 @@ module PhasedSegment = struct
             else if k == Commute then
               max_lds mT (QQMatrix.mul mT m)
             else
-              mT, m)
+              (QQMatrix.identity dims), m)
           pairs
       in
       let ls = maxldss mT in
