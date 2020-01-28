@@ -59,9 +59,9 @@ let post_symbols tr_symbols =
     tr_symbols
 
 (* Map from pre-state vars to their post-state counterparts *)
-let post_map tr_symbols =
+let post_map srk tr_symbols =
   List.fold_left
-    (fun map (sym, sym') -> Symbol.Map.add sym sym' map)
+    (fun map (sym, sym') -> Symbol.Map.add sym (mk_const srk sym') map)
     Symbol.Map.empty
     tr_symbols
 
@@ -75,7 +75,7 @@ module WedgeGuard = struct
       Wedge.pp iter.precondition
       Wedge.pp iter.postcondition
 
-  let abstract_wedge srk tr_symbols wedge =
+  let abstract_wedge _ tr_symbols wedge =
     let pre_symbols = pre_symbols tr_symbols in
     let post_symbols = post_symbols tr_symbols in
     let precondition =
@@ -86,7 +86,7 @@ module WedgeGuard = struct
     in
     { precondition; postcondition }
 
-  let abstract ?(exists=fun x -> true) srk tr_symbols phi =
+  let abstract ?(exists=fun _ -> true) srk tr_symbols phi =
     let post_symbols = post_symbols tr_symbols in
     let subterm x = not (Symbol.Set.mem x post_symbols) in
     let wedge =
@@ -125,7 +125,7 @@ module PolyhedronGuard = struct
       SrkApron.pp iter.precondition
       SrkApron.pp iter.postcondition
 
-  let abstract ?(exists=fun x -> true) srk tr_symbols phi =
+  let abstract ?(exists=fun _ -> true) srk tr_symbols phi =
     let phi = Nonlinear.linearize srk phi in
     let phi =
       rewrite srk ~down:(nnf_rewriter srk) phi
@@ -187,13 +187,13 @@ module LinearGuard = struct
       end
     | _ -> expr
 
-  let pp srk tr_symbols formatter guard =
+  let pp srk _ formatter guard =
     Format.fprintf formatter
       "@[<v 0>precondition: @[<hov> %a@]@;postcondition: @[<hov> %a@]@]"
       (Formula.pp srk) guard.precondition
       (Formula.pp srk) guard.postcondition
 
-  let abstract ?(exists=fun x -> true) srk tr_symbols phi =
+  let abstract ?(exists=fun _ -> true) srk tr_symbols phi =
     let phi =
       rewrite srk ~up:(abstract_presburger_rewriter srk) phi
     in
@@ -224,11 +224,11 @@ module LinearGuard = struct
                            guard.precondition;
                            guard.postcondition]]
 
-  let join srk tr_symbols guard guard' =
+  let join srk _ guard guard' =
     { precondition = mk_or srk [guard.precondition; guard'.precondition];
       postcondition = mk_or srk [guard.postcondition; guard'.postcondition] }
 
-  let widen srk tr_symbols guard guard' =
+  let widen srk _ guard guard' =
     let man = Polka.manager_alloc_strict () in
     let widen_formula phi psi =
       if Smt.equiv srk phi psi = `Yes then phi
@@ -240,7 +240,7 @@ module LinearGuard = struct
     { precondition = widen_formula guard.precondition guard'.precondition;
       postcondition = widen_formula guard.postcondition guard'.postcondition }
 
-  let equal srk tr_symbols guard guard' =
+  let equal srk _ guard guard' =
     Smt.equiv srk guard.precondition guard'.precondition = `Yes
     && Smt.equiv srk guard.postcondition guard'.postcondition = `Yes
 end
@@ -248,7 +248,7 @@ end
 module LinearRecurrenceInequation = struct
   type 'a t = ('a term * [ `Geq | `Eq ] * QQ.t) list
 
-  let pp srk tr_symbols formatter lr =
+  let pp srk _ formatter lr =
     Format.fprintf formatter "@[<v 0>";
     lr |> List.iter (fun (t, op, k) ->
         let opstring = match op with
@@ -258,8 +258,7 @@ module LinearRecurrenceInequation = struct
         Format.fprintf formatter "%a %s %a@;" (Term.pp srk) t opstring QQ.pp k);
     Format.fprintf formatter "@]"
 
-  let abstract ?(exists=fun x -> true) srk tr_symbols phi =
-    let phi = Nonlinear.linearize srk phi in
+  let abstract ?exists:(_ = fun _ -> true) srk tr_symbols phi =
     let phi = rewrite srk ~down:(nnf_rewriter srk) phi in
     let phi = Nonlinear.linearize srk phi in
     let delta =
@@ -308,7 +307,7 @@ module LinearRecurrenceInequation = struct
       | `Fls -> [mk_real srk QQ.zero, `Eq, QQ.one]
       | _ -> [constraint_of_atom delta_polyhedron]
 
-  let exp srk tr_symbols loop_counter lr =
+  let exp srk _ loop_counter lr =
     List.map (fun (delta, op, c) ->
         match op with
         | `Eq ->
@@ -345,7 +344,7 @@ module Product (A : PreDomain) (B : PreDomain) = struct
     (A.equal srk tr_symbols a a')
     && (B.equal srk tr_symbols b b')
 
-  let abstract ?(exists=fun x -> true) srk tr_symbols phi =
+  let abstract ?(exists=fun _ -> true) srk tr_symbols phi =
     (A.abstract ~exists srk tr_symbols phi,
      B.abstract ~exists srk tr_symbols phi)
 end
@@ -382,7 +381,7 @@ module Sum (A : PreDomain) (B : PreDomain) () = struct
     | Right x, Right y -> B.equal srk tr_symbols x y
     | _, _ -> invalid_arg "Equal: incompatible elements"
 
-  let abstract ?(exists=fun x -> true) srk tr_symbols phi =
+  let abstract ?(exists=fun _ -> true) srk tr_symbols phi =
     if !abstract_left then
       Left (A.abstract ~exists srk tr_symbols phi)
     else
@@ -417,7 +416,7 @@ module Split (Iter : PreDomain) = struct
       (iter, base_bottom srk tr_symbols)
       Expr.Map.empty
 
-  let abstract ?(exists=fun x -> true) srk tr_symbols body =
+  let abstract ?(exists=fun _ -> true) srk tr_symbols body =
     let post_symbols = post_symbols tr_symbols in
     let predicates =
       let preds = ref Expr.Set.empty in
@@ -474,13 +473,7 @@ module Split (Iter : PreDomain) = struct
       (sat_modulo_body psi = `Sat)
       && (sat_modulo_body (mk_not srk psi) = `Sat)
     in
-    let post_map =
-      List.fold_left
-        (fun map (s, s') ->
-           Symbol.Map.add s (mk_const srk s') map)
-        Symbol.Map.empty
-        tr_symbols
-    in
+    let post_map = post_map srk tr_symbols in
     let postify =
       let subst sym =
         if Symbol.Map.mem sym post_map then
@@ -668,7 +661,7 @@ module MakeDomain (Iter : PreDomain) = struct
     mk_and srk [Iter.exp iter.srk iter.tr_symbols loop_counter iter.iter;
                 mk_leq srk (mk_real srk QQ.zero) loop_counter]
 
-  let abstract ?(exists=fun x -> true) srk tr_symbols body =
+  let abstract ?(exists=fun _ -> true) srk tr_symbols body =
     let iter = Iter.abstract ~exists srk tr_symbols body in
     { srk; tr_symbols; iter }
 
@@ -682,7 +675,7 @@ module ProductWedge (A : PreDomainWedge) (B : PreDomainWedge) = struct
     (A.abstract_wedge srk tr_symbols wedge,
      B.abstract_wedge srk tr_symbols wedge)
 
-  let abstract ?(exists=fun x -> true) srk tr_symbols phi =
+  let abstract ?(exists=fun _ -> true) srk tr_symbols phi =
     let post_symbols = post_symbols tr_symbols in
     let subterm x = not (Symbol.Set.mem x post_symbols) in
     let wedge = Wedge.abstract ~exists ~subterm srk phi in

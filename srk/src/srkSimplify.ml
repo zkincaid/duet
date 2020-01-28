@@ -93,7 +93,6 @@ module RationalTerm = struct
 
   let num x = x.num
   let den x = x.den
-  let frac num den = { num; den }
 end
 
 let simplify_term srk term =
@@ -154,8 +153,8 @@ let purify_rewriter srk table =
   fun expr ->
     match destruct srk expr with
     | `Quantify (_, _, _, _) -> invalid_arg "purify: free variable"
-    | `App (func, []) -> expr
-    | `App (func, args) ->
+    | `App (_, []) -> expr
+    | `App (_, _) ->
       let sym =
         try
           Expr.HT.find table expr
@@ -271,7 +270,7 @@ let isolate_linear srk x term =
           | (_, `Real k) when QQ.equal k QQ.zero -> `Real QQ.zero
           | (`Real k, `Lin (a, b)) | (`Lin (a, b), `Real k) ->
             `Lin (QQ.mul a k, [mk_mul srk [mk_real srk k; mk_add srk b]])
-          | (`Lin (a, b), `Lin (a', b')) -> raise Nonlinear)
+          | (`Lin (_, _), `Lin (_, _)) -> raise Nonlinear)
         (`Real QQ.one)
         xs
     | `Binop (`Div, s, t) ->

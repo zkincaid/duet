@@ -1,6 +1,5 @@
 (** Symbolic abstraction routines. *)
 open Syntax
-open Smt
 
 (** [affine_hull srk phi symbols] computes a basis for the affine hull of phi,
     projected onto the given set of symbols.  The basis is represented as a

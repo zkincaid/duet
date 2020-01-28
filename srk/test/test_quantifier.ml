@@ -1,6 +1,5 @@
 open OUnit
 open Quantifier
-open Syntax
 open Test_pervasives
 
 let simsat_ground () =

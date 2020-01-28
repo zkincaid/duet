@@ -33,9 +33,6 @@ let qq_of_coeff_exn = function
 
 let coeff_of_qq = Coeff.s_of_mpqf
 
-let scalar_zero = Coeff.s_of_int 0
-let scalar_one = Coeff.s_of_int 1
-
 let mk_log = Nonlinear.mk_log
 let mk_pow = Nonlinear.mk_pow
 
@@ -340,7 +337,7 @@ let bound_polynomial wedge polynomial =
       in
       Interval.add ivl monomial_ivl)
     (bound_vec wedge t)
-    (P.enum polynomial)
+    (P.enum p)
 
 let affine_hull wedge =
   let open Lincons0 in
@@ -565,6 +562,9 @@ let equational_saturation ?lemma:(lemma=(fun _ -> ())) wedge =
   done;
   !rewrite
 
+
+let gfm_limit = 4 (* bound on number of generalized Fourier-Motzkin rounds *)
+
 (* Exhaustively apply the rule
 
    r >= qm   m >= p   q >= 0
@@ -593,7 +593,7 @@ let generalized_fourier_motzkin lemma order wedge =
     && Abstract0.is_eq (get_manager()) w1.abstract w2.abstract
   in
   let iterations = ref 0 in
-  while !iterations < 3 && not (polyhedron_equal wedge (!old_wedge)) do
+  while !iterations < gfm_limit && not (polyhedron_equal wedge (!old_wedge)) do
     incr iterations;
     logf ~level:`trace "GFM iteration: %d" (!iterations);
     old_wedge := copy wedge;
@@ -646,7 +646,7 @@ let strengthen_intervals lemma wedge =
     let term = CS.term_of_coordinate wedge.cs id in
     match CS.destruct_coordinate wedge.cs id with
     | `Mul (x, y) ->
-      let go (x,x_ivl,x_term) (y,y_ivl,y_term) =
+      let go (_,x_ivl,x_term) (y,y_ivl,y_term) =
         if Interval.is_nonnegative y_ivl then
           begin
             let y_nonnegative = mk_leq srk zero y_term in
@@ -799,7 +799,7 @@ let strengthen_intervals lemma wedge =
       add_bound precondition lo;
       add_bound precondition hi
 
-    | `Mod (x, y) ->
+    | `Mod (_, y) ->
       let y_ivl = bound_vec wedge y in
       let zero = mk_real srk QQ.zero in
       add_bound (mk_true srk) (mk_leq srk zero term);
@@ -812,7 +812,7 @@ let strengthen_intervals lemma wedge =
       else
         ()
 
-    | `App (func, args) -> ()
+    | `App (_, _) -> ()
   done
 
 let strengthen_products lemma rewrite wedge =
@@ -1685,7 +1685,7 @@ let exists
 
             (* lemma constraint needed to prove bounds for p *)
             let p_ivl_lemma =
-              let (v,q) = P.split_linear p in
+              let q = snd (P.split_linear p) in
               let constraints =
                 BatEnum.fold (fun constraints dim ->
                     let dim_ivl = bound_coordinate wedge dim in
@@ -2018,12 +2018,49 @@ let is_sat srk phi =
   else
     go ()
 
+let reduce ~lemma wedge =
+  let srk = wedge.srk in
+  let cs = wedge.cs in
+  let rewrite =
+    let ideal = List.map poly_of_vec (affine_hull wedge) in
+    Polynomial.Rewrite.mk_rewrite Monomial.degrevlex ideal
+    |> Polynomial.Rewrite.grobner_basis
+    |> Polynomial.Rewrite.reduce_rewrite
+  in
+  let zero = mk_zero srk in
+  let provenance_formula ps =
+    List.map (fun p -> mk_eq srk (CS.term_of_polynomial cs p) zero) ps
+    |> mk_and srk
+  in
+  let eqs =
+    List.map
+      (fun p -> mk_eq srk (CS.term_of_polynomial cs p) zero)
+      (Polynomial.Rewrite.generators rewrite)
+  in
+  let constraints =
+    polynomial_constraints ~lemma wedge
+    |> List.map (fun (cons, p) ->
+        let (q, prov) = Polynomial.Rewrite.preduce rewrite p in
+        lemma (mk_if srk
+                 (provenance_formula prov)
+                 (mk_eq srk (CS.term_of_polynomial cs p) (CS.term_of_polynomial cs q)));
+        let qterm = CS.term_of_polynomial cs q in
+        match cons with
+        | `Nonneg -> mk_leq srk (mk_real srk QQ.zero) qterm
+        | `Pos -> mk_lt srk (mk_real srk QQ.zero) qterm
+        | `Zero -> mk_eq srk (mk_real srk QQ.zero) qterm)
+  in
+  let simplify phi =
+    SrkSimplify.simplify_terms srk (Nonlinear.simplify_terms srk phi)
+  in
+  of_atoms srk (List.map simplify (eqs @ constraints))
+
 type ('a, 'b) subwedge =
   { of_wedge : lemma:('a formula -> unit) -> 'a t -> 'b;
     join : lemma:('a formula -> unit) -> 'b -> 'b -> 'b;
     to_formula : 'b -> 'a formula }
 
-let abstract_subwedge subwedge ?exists:(p=fun x -> true) ?(subterm=fun x -> true) srk phi =
+let abstract_subwedge subwedge ?exists:(p=fun _ -> true) ?(subterm=fun _ -> true) srk phi =
   let phi = eliminate_ite srk phi in
   let phi = SrkSimplify.simplify_terms srk phi in
   logf "Abstracting formula@\n%a"
@@ -2103,9 +2140,81 @@ let abstract_subwedge subwedge ?exists:(p=fun x -> true) ?(subterm=fun x -> true
   logf "Abstraction result:@\n%a" (Formula.pp srk) (subwedge.to_formula result);
   result
 
-let abstract ?exists:(p=fun x -> true) ?(subterm=fun x -> true) srk phi =
+let abstract_subwedge_weak subwedge srk phi =
+  let phi = eliminate_ite srk phi in
+  let phi = SrkSimplify.simplify_terms srk phi in
+  logf "Abstracting formula@\n%a"
+    (Formula.pp srk) phi;
+  let solver = Smt.mk_solver ~theory:"QF_LIRA" srk in
+  let uninterp_phi =
+    rewrite srk
+      ~down:(nnf_rewriter srk)
+      ~up:(Nonlinear.uninterpret_rewriter srk)
+      phi
+  in
+  let (lin_phi, nonlinear) = SrkSimplify.purify srk uninterp_phi in
+  let nonlinear_defs =
+    Symbol.Map.enum nonlinear
+    /@ (fun (symbol, expr) ->
+        match Expr.refine srk expr with
+        | `Term t -> mk_eq srk (mk_const srk symbol) t
+        | `Formula phi -> mk_iff srk (mk_const srk symbol) phi)
+    |> BatList.of_enum
+    |> mk_and srk
+  in
+  let nonlinear = Symbol.Map.map (Nonlinear.interpret srk) nonlinear in
+  let rec replace_defs_term term =
+    substitute_const
+      srk
+      (fun x ->
+         try replace_defs_term (Symbol.Map.find x nonlinear)
+         with Not_found -> mk_const srk x)
+      term
+  in
+  let replace_defs =
+    substitute_const
+      srk
+      (fun x ->
+         try replace_defs_term (Symbol.Map.find x nonlinear)
+         with Not_found -> mk_const srk x)
+  in
+  Smt.Solver.add solver [mk_sign_axioms srk];
+  Smt.Solver.add solver [lin_phi];
+  Smt.Solver.add solver [nonlinear_defs];
+  let lemma psi =
+    Smt.Solver.add solver [Nonlinear.uninterpret srk psi]
+  in
+  let rec go prop =
+    let blocking_clause =
+      subwedge.to_formula prop
+      |> Nonlinear.uninterpret srk
+      |> mk_not srk
+    in
+    logf ~level:`trace "Blocking clause %a" (Formula.pp srk) blocking_clause;
+    Smt.Solver.add solver [blocking_clause];
+    match Smt.Solver.get_model solver with
+    | `Unsat -> prop
+    | `Unknown ->
+      logf ~level:`warn "Symbolic abstraction failed; returning top";
+      subwedge.of_wedge ~lemma (top srk)
+    | `Sat model ->
+      match Interpretation.select_implicant model lin_phi with
+      | None -> assert false
+      | Some implicant ->
+        let new_wedge =
+          List.map replace_defs implicant
+          |> of_atoms srk
+        in
+        let new_prop = subwedge.of_wedge ~lemma new_wedge in
+        go (subwedge.join ~lemma prop new_prop)
+  in
+  let result = go (subwedge.of_wedge ~lemma (bottom srk)) in
+  logf "Abstraction result:@\n%a" (Formula.pp srk) (subwedge.to_formula result);
+  result
+
+let abstract ?exists:(p=fun _ -> true) ?(subterm=fun _ -> true) srk phi =
   let wedge =
-    { of_wedge = (fun ~lemma w -> w);
+    { of_wedge = (fun ~lemma:_ w -> w);
       join = (fun ~lemma w1 w2 -> join ~lemma w1 w2);
       to_formula = to_formula }
   in
@@ -2119,10 +2228,11 @@ let ensure_min_max srk =
     [("min", `TyFun ([`TyReal; `TyReal], `TyReal));
      ("max", `TyFun ([`TyReal; `TyReal], `TyReal))]
 
-let symbolic_bounds_formula_list ?exists:(p=fun x -> true) srk phi symbol =
+let symbolic_bounds_formula_list ?exists:(p=fun _ -> true) srk phi symbol =
   let symbol_term = mk_const srk symbol in
   let subterm x = x != symbol in
   let of_wedge ~lemma wedge =
+    let wedge = exists ~lemma ~subterm p wedge in
     if is_bottom wedge then
       None
     else if CS.admits wedge.cs (mk_const srk symbol) then
@@ -2135,22 +2245,28 @@ let symbolic_bounds_formula_list ?exists:(p=fun x -> true) srk phi symbol =
     | None -> mk_false srk
     | Some (lower, upper) ->
       let lower_bounds =
-        lower
-        |> List.map (fun case ->
-            case |> List.map (fun lower_bound -> mk_leq srk lower_bound symbol_term)
-            |> mk_and srk)
-        |> mk_or srk
+        match lower with
+        | [] -> mk_true srk
+        | _ ->
+          lower
+          |> List.map (fun case ->
+              case |> List.map (fun lower_bound -> mk_leq srk lower_bound symbol_term)
+              |> mk_and srk)
+          |> mk_or srk
       in
       let upper_bounds =
-        upper
-        |> List.map (fun case ->
-            case |> List.map (fun upper_bound -> mk_leq srk symbol_term upper_bound)
-            |> mk_and srk)
-        |> mk_or srk
+        match upper with
+        | [] -> mk_true srk
+        | _ ->
+          upper
+          |> List.map (fun case ->
+              case |> List.map (fun upper_bound -> mk_leq srk symbol_term upper_bound)
+              |> mk_and srk)
+          |> mk_or srk
       in
       mk_and srk [lower_bounds; upper_bounds]
   in
-  let join ~lemma x y = match x, y with
+  let join ~lemma:_ x y = match x, y with
     | z, None | None, z -> z
     | Some (lower1, upper1), Some (lower2, upper2) ->
       Some (lower1 @ lower2, upper1 @ upper2)
@@ -2158,16 +2274,21 @@ let symbolic_bounds_formula_list ?exists:(p=fun x -> true) srk phi symbol =
   let bound_subwedge = { of_wedge; to_formula; join } in
   let result =
     Log.time "Wedge.symbolic_bounds_formula"
+      (abstract_subwedge_weak bound_subwedge srk) phi
+
+(* --- Alternate implementation ---
+    Log.time "Wedge.symbolic_bounds_formula"
       (abstract_subwedge bound_subwedge ~exists:p ~subterm srk) phi
+  If using the alternate, the projection in of_wedge can be omitted  *)
   in
   match result with
   | None -> `Unsat
   | Some (lower, upper) ->
-    let lower = if List.mem [] lower then [] else lower in
-    let upper = if List.mem [] upper then [] else upper in
+    let lower = if List.mem [] lower then [[]] else lower in
+    let upper = if List.mem [] upper then [[]] else upper in
     `Sat (lower, upper)
 
-let symbolic_bounds_formula ?exists:(p=fun x -> true) srk phi symbol =
+let symbolic_bounds_formula ?exists:(p=fun _ -> true) srk phi symbol =
   ensure_min_max srk;
   let min = get_named_symbol srk "min" in
   let max = get_named_symbol srk "max" in
@@ -2185,20 +2306,20 @@ let symbolic_bounds_formula ?exists:(p=fun x -> true) srk phi symbol =
   | `Sat (lower, upper) ->
     let lower =
       match lower with
-      | [] -> None
+      | [[]] -> None
       | _ ->
         Some (BatList.reduce mk_min (List.map (BatList.reduce mk_max) lower))
     in
     let upper =
       match upper with
-      | [] -> None
+      | [[]] -> None
       | _ ->
         Some (BatList.reduce mk_max (List.map (BatList.reduce mk_min) upper))
     in
     `Sat (lower, upper)
   | `Unsat -> `Unsat
 
-let symbolic_bounds_formula ?(exists=fun x -> true) srk phi symbol =
+let symbolic_bounds_formula ?(exists=fun _ -> true) srk phi symbol =
   Log.time "symbolic_bounds_formula" (symbolic_bounds_formula ~exists srk phi) symbol
 
 let bounds wedge term =
@@ -2218,3 +2339,11 @@ let polyhedron wedge =
       | EQ -> Some (`Eq, vec_of_linexpr wedge.env lcons.linexpr0)
       | _ -> None)
   |> BatList.of_enum
+
+let cover ?subterm:(subterm=(fun _ -> true)) srk p phi =
+  let disj_wedge =
+    { of_wedge = (fun ~lemma:_ w -> to_formula w);
+      join = (fun ~lemma:_ w1 w2 -> mk_or srk [w1; w2]);
+      to_formula = (fun x -> x) }
+  in
+  Log.time "Cover" (abstract_subwedge disj_wedge ~exists:p ~subterm srk) phi

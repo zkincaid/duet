@@ -136,3 +136,15 @@ val copy : 'a t -> 'a t
 val equational_saturation : ?lemma:('a formula -> unit) -> 'a t -> Polynomial.Rewrite.t
 
 val strengthen : ?lemma:('a formula -> unit) -> 'a t -> unit
+
+(** Simplify the constraint represenation of the given wedge.  The
+   resulting wedge is equivalent the input, modulo LIRA + the lemmas
+   passed to the lemma procedure. *)
+val reduce : lemma:('a formula -> unit) -> 'a t -> 'a t
+
+(** Overapproximate existential quantifier elimination. *)
+val cover : ?subterm:(symbol -> bool) ->
+  'a context ->
+  (symbol -> bool) ->
+  'a formula ->
+  'a formula

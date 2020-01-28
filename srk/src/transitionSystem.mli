@@ -29,7 +29,6 @@ module Make
        val mem_transform : var -> t -> bool
        val get_transform : var -> t -> C.t term
        val assume : C.t formula -> t
-       val compare : t -> t -> int
        val equal : t -> t -> bool
        val mul : t -> t -> t
        val add : t -> t -> t
@@ -86,7 +85,16 @@ module Make
 
   module type AbstractDomain = Abstract.MakeAbstractRSY(C).Domain
 
+  module type IncrAbstractDomain = sig
+    include AbstractDomain
+    val incr_abstract : C.t Interpretation.interpretation list -> symbol list -> C.t Smt.Solver.t -> t -> (t * C.t Interpretation.interpretation list)
+  end
+
+  module LiftIncr (A : AbstractDomain) : IncrAbstractDomain with type t = A.t
+
+  module ProductIncr (A : IncrAbstractDomain)(B : IncrAbstractDomain) : IncrAbstractDomain with type t = A.t * B.t
+
   (** [forward_invariants d ts entry] computes invariants for [ts]
      starting from the node [entry] using the abstract domain [d] *)
-  val forward_invariants : (module AbstractDomain with type t = 'a) -> t -> vertex -> (vertex -> 'a)
+  val forward_invariants : (module IncrAbstractDomain with type t = 'a) -> t -> vertex -> (vertex -> 'a)
 end

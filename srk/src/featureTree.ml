@@ -121,7 +121,7 @@ let enum ft =
     | (x::xs, bucket, tree) ->
       rest := (xs, bucket, tree);
       x
-    | ([], (fv,xs)::bucket, tree) ->
+    | ([], (_,xs)::bucket, tree) ->
       rest := (xs, bucket, tree);
       next ()
     | ([], [], (t::ts)) ->
@@ -203,6 +203,6 @@ let rebalance ft =
   to_bucket ft.tree;
   match !bucket with
   | [] -> empty ft.features
-  | (fv,x)::list ->
+  | (fv,_)::_ ->
     { features = ft.features;
       tree = mk_tree (Array.length fv) (!bucket) }

@@ -5,7 +5,7 @@ open BatPervasives
 include Log.Make(struct let name = "srk.quantifier" end)
 
 exception Equal_term of Linear.QQVector.t
-
+ 
 type quantifier_prefix = ([`Forall | `Exists] * symbol) list
 
 module V = Linear.QQVector
@@ -55,7 +55,7 @@ let coefficient_gcd term =
     (V.enum term)
 
 let select_implicant srk interp ?(env=Env.empty) phi =
-  match Interpretation.select_implicant interp phi with
+  match Interpretation.select_implicant interp ~env phi with
   | Some atoms ->
     logf ~level:`trace "Implicant Atoms:";
     List.iter
@@ -103,7 +103,6 @@ type virtual_term =
   | MinusInfinity
   | PlusEpsilon of V.t
   | Term of V.t
-        [@@deriving ord]
 
 let pp_virtual_term srk formatter =
   function
@@ -222,12 +221,18 @@ let mbp_virtual_term srk interp x atoms =
             (* Upper bound: discard *)
             None
   in
-  try
-    begin match List.fold_left merge None (List.map get_vt atoms) with
+  let vt =
+    try
+      begin match List.fold_left merge None (List.map get_vt atoms) with
       | Some (lower, _) -> PlusEpsilon lower
       | None -> MinusInfinity
-    end
-  with Equal_term t -> Term t
+      end
+    with Equal_term t -> Term t
+  in
+  logf ~level:`trace "Virtual term for %a: %a"
+    (pp_symbol srk) x
+    (pp_virtual_term srk) vt;
+  vt
 
 (* Given a prenex formula phi, compute a pair (qf_pre, psi) such that
    - qf_pre is a quantifier prefix [(Q0, a0);...;(Qn, an)] where each Qi is
@@ -511,7 +516,6 @@ module Skeleton = struct
           if is_true atom' then None else Some atom')
         implicant
 
-
   let const_of_move move =
     match move with
     | MReal t -> const_of_linterm t
@@ -530,7 +534,7 @@ module Skeleton = struct
   let pp srk formatter skeleton =
     let open Format in
     let rec pp formatter = function
-      | SForall (k, sk, t) ->
+      | SForall (_, sk, t) ->
         fprintf formatter "@[<v 2>(forall %a:@;%a)@]" (pp_symbol srk) sk pp t
       | SExists (k, mm) ->
         let pp_elt formatter (move, skeleton) =
@@ -651,7 +655,7 @@ module Skeleton = struct
 
   let rec paths = function
     | SEmpty -> [[]]
-    | SForall (k, sk, skeleton) ->
+    | SForall (k, _, skeleton) ->
       List.map (fun path -> (`Forall k)::path) (paths skeleton)
     | SExists (k, mm) ->
       BatEnum.fold (fun rest (move, skeleton) ->
@@ -788,8 +792,7 @@ let select_int_term srk interp x atoms =
          | `Comparison (op, s, t) ->
            match simplify_atom srk op s t with
            | `Divides (divisor, t) | `NotDivides (divisor, t) ->
-             let (a, t) = V.pivot (dim_of_sym x) t in
-             let a = match QQ.to_zz a with
+             let a = match QQ.to_zz (V.coeff (dim_of_sym x) t) with
                | None -> assert false
                | Some zz -> ZZ.abs zz
              in
@@ -1313,7 +1316,7 @@ let simsat_forward_core srk qf_pre phi =
     else `Unsat skeleton
 
   | `Unknown -> `Unknown
-  | `Sat (sat_ctx, unsat_ctx) ->
+  | `Sat (sat_ctx, _) ->
     let not_phi = sat_ctx.CSS.not_formula in
     let assert_param_constraints ctx parameter_interp =
       let open CSS in
@@ -1614,7 +1617,7 @@ let maximize_feasible srk phi t =
           let rec go skeleton =
             match skeleton with
             | SEmpty -> SEmpty
-            | SForall (k, sk, subskeleton) ->
+            | SForall (k, _, subskeleton) ->
               if Symbol.Set.mem k objective_constants then go subskeleton
               else skeleton
             | SExists (_, _) -> skeleton
@@ -1708,7 +1711,7 @@ let mbp ?(dnf=false) srk exists phi =
         | Some x -> x
         | None -> assert false
       in
-      let (vt_map, implicant') =
+      let (vt_map, _) =
         Symbol.Set.fold (fun s (vt_map, implicant) ->
             let vt = select_int_term srk interp s implicant in
 
@@ -1783,7 +1786,7 @@ let easy_sat srk phi =
   match CSS.initialize_pair select_term srk qf_pre phi with
   | `Unsat -> `Unsat
   | `Unknown -> `Unknown
-  | `Sat (sat_ctx, unsat_ctx) ->
+  | `Sat (sat_ctx, _) ->
     match CSS.get_counter_strategy select_term sat_ctx with
     | `Unsat -> `Sat
     | `Unknown -> `Unknown
@@ -1792,7 +1795,7 @@ let easy_sat srk phi =
 
 type 'a strategy = Strategy of ('a formula * Skeleton.move * 'a strategy) list
 
-let rec pp_strategy srk formatter (Strategy xs) =
+let pp_strategy srk formatter (Strategy xs) =
   let open Format in
   let pp_sep formatter () = Format.fprintf formatter "@;" in
   let rec pp formatter = function
@@ -1975,7 +1978,7 @@ let cover_virtual_term srk interp x atoms =
   let get_equal_term atom =
     match Interpretation.destruct_atom srk atom with
     | `Literal (_, _) -> None
-    | `Comparison (`Lt, s, t) -> None
+    | `Comparison (`Lt, _, _) -> None
     | `Comparison (_, s, t) ->
       let sval = Interpretation.evaluate_term interp s in
       let tval = Interpretation.evaluate_term interp t in
@@ -1996,7 +1999,7 @@ let cover_virtual_term srk interp x atoms =
   let get_vt atom =
     match Interpretation.destruct_atom srk atom with
     | `Literal (_, _) -> None
-    | `Comparison (op, s, t) ->
+    | `Comparison (_, s, t) ->
       match SrkSimplify.isolate_linear srk x (mk_sub srk s t) with
       | None -> raise Nonlinear
       | Some (a, b) when QQ.lt a QQ.zero ->
@@ -2026,8 +2029,8 @@ let cover_virtual_substitution srk x virtual_term phi =
       mk_lt srk s t
     | (`Eq, Some (a, _), _) when QQ.equal a QQ.zero ->
       mk_eq srk s t
-    | (`Eq, Some (a, _), CPlusEpsilon _)
-    | (`Eq, Some (a, _), CMinusInfinity) -> mk_false srk
+    | (`Eq, Some (_, _), CPlusEpsilon _)
+    | (`Eq, Some (_, _), CMinusInfinity) -> mk_false srk
     | (_, Some (a, _), CMinusInfinity) ->
       if QQ.lt a QQ.zero then mk_false srk
       else mk_true srk
@@ -2076,7 +2079,7 @@ let mbp_cover ?(dnf=true) srk exists phi =
         | Some x -> x
         | None -> assert false
       in
-      let (implicant', psi) =
+      let (_, psi) =
         Symbol.Set.fold (fun s (implicant, disjunct) ->
             let vt = cover_virtual_term srk m s implicant in
             logf "Found %a -> %a" (pp_symbol srk) s (pp_cover_virtual_term srk) vt;
@@ -2088,7 +2091,6 @@ let mbp_cover ?(dnf=true) srk exists phi =
           project
           (implicant, if dnf then (mk_and srk implicant) else phi)
       in
-      let psi = mk_and srk implicant' in
 
       disjuncts := psi::(!disjuncts);
       Smt.Solver.add solver [mk_not srk psi];

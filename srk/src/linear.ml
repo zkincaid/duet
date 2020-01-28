@@ -237,14 +237,6 @@ let interlace_columns m n =
     (IntSet.union (QQMatrix.row_set m) (QQMatrix.row_set n))
     QQMatrix.zero
 
-(* Inverse of interlace_columns *)
-let deinterlace_columns m =
-  BatEnum.fold (fun (a, b) (i, row) ->
-      let (u, v) = deinterlace_vec row in
-      (QQMatrix.add_row i u a, QQMatrix.add_row i v b))
-    (QQMatrix.zero, QQMatrix.zero)
-    (QQMatrix.rowsi m)
-
 let intersect_rowspace a b =
   (* Create a system lambda_1*A - lambda_2*B = 0.  lambda_1's occupy even
      columns and lambda_2's occupy odd. *)
@@ -570,7 +562,7 @@ module QQVectorSpace = struct
 
   let equal vU vV = subspace vU vV && subspace vV vU
 
-  (* Create a matrix whose rows are a a basis for the space *)
+  (* Create a matrix whose rows are a basis for the space *)
   let matrix_of vU =
     BatList.fold_lefti
       (fun m i v -> QQMatrix.add_row i v m)
@@ -789,7 +781,7 @@ module PartialLinearMap = struct
     let rec fix g =
       let h = compose f g in
       if VS.equal g.guard h.guard then
-        ([], g.guard)
+        ([g], g.guard)
       else
         let (seq, stable) = fix h in
         (g::seq, stable)
@@ -807,7 +799,7 @@ module PartialLinearMap = struct
     let module M = QQMatrix in
     let module V = QQVector in
     let module VS = QQVectorSpace in
-    let rec fix mA mB mT =
+    let rec fix mA mB =
       let mS = max_rowspace_projection mA mB in
       (* Since matrices are sparse, need to account for 0-rows of B -- they
          should always be in the max rowspace projection *)
@@ -826,16 +818,12 @@ module PartialLinearMap = struct
         |> fst
       in
       if M.nb_rows mB = M.nb_rows mS then
-        (mA, mB, mT)
+        (mA, mB)
       else
-        fix (M.mul mT' mA) (M.mul mT' mB) (M.mul mT' mT)
+        fix (M.mul mT' mA) (M.mul mT' mB)
 
     in
-    let dims =
-      SrkUtil.Int.Set.elements
-        (SrkUtil.Int.Set.union (M.row_set mA) (M.row_set mB))
-    in
-    let (mA, mB, mE) = fix mA mB (M.identity dims) in
+    let (mA, mB) = fix mA mB in
 
     (* S is the simulation matrix *)
     let mS = VS.matrix_of (VS.simplify (VS.basis (VS.of_matrix mA))) in

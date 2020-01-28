@@ -1,14 +1,6 @@
 %{
 
-open BatPervasives
 open SrkAst
-
-let pp_pos formatter pos =
-  let open Lexing in
-  Format.fprintf formatter "File \"%s\", line %d, position %d"
-    pos.pos_fname
-    pos.pos_lnum
-    (pos.pos_cnum - pos.pos_bol + 1)
 
 let symbol_of_string =
   Memo.memo (fun name -> Ctx.mk_symbol ~name `TyReal)

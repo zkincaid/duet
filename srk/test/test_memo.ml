@@ -10,7 +10,7 @@ module Fib = Tabulate.MakeRec(
       else if x = 1 then k 1
       else fib (x - 1) (fun x1 -> fib (x - 2) (fun x2 -> k (x1 + x2)))
     let hash x = x
-    let join x y = y
+    let join _ y = y
     let bottom = 0
     let dom_equal = (=)
     let cod_equal = (=)

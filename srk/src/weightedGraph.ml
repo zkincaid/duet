@@ -1,4 +1,3 @@
-open BatHashcons
 open Pathexpr
 
 include Log.Make(struct let name = "srk.weightedGraph" end)
@@ -183,7 +182,7 @@ module LineGraph = struct
   type t = U.t
   module V = IntPair
   let iter_vertex f graph = U.iter_edges (fun x y -> f (x, y)) graph
-  let iter_succ f graph (src, dst) =
+  let iter_succ f graph (_, dst) =
     U.iter_succ
       (fun succ -> f (dst, succ))
       graph
@@ -438,7 +437,7 @@ module MakeRecGraph (W : Weight) = struct
       (* Create a fresh call vertex to serve as entry.  It will have an edge
            to every other call *)
       let callgraph_entry =
-        let (s, t) = CallSet.min_elt calls in
+        let s = fst (CallSet.min_elt calls) in
         (s-1, s-1)
       in
       (* Compute summaries *************************************************)
@@ -539,7 +538,7 @@ module MakeRecGraph (W : Weight) = struct
       (* For each (s,t) call containing a call (s',t'), add an edge from s to s'
          with the path weight from s to call(s',t'). *)
       CallSet.fold
-        (fun (src, tgt) query' -> add_call_edges query' src)
+        (fun (src, _) query' -> add_call_edges query' src)
         calls
         query
     end
