@@ -17,17 +17,6 @@ end
 open Graph
 
 
-(*let refinetime = ref 0.0*)
-(*
-let timer f x = 
-  let start_time = Unix.gettimeofday () in
-  let result = f x in 
-  let time = (Unix.gettimeofday ()) -. start_time in
-*)
-(*refinetime := refinetime +. time;*)
-
-
-
 module DomainRefinement (PreKleeneWithoutTiming : PreKleeneAlgebra) = struct
 
 
@@ -540,7 +529,10 @@ module DomainRefinement (PreKleeneWithoutTiming : PreKleeneAlgebra) = struct
     (* the overall expression is from (nSCCs - 1) (__Enter) to (0) (__EXIT) *)
     IntMap.find (-1) !node_regex_map
 
-  let build_refinement_graph labels label_to_atom =
+
+  (* This function builds an incomplete refine graph. Using the result of this function
+  is only sound if one is not doing a complete refinement *)
+  let build_refinement_graph_incomplete labels label_to_atom =
     let all_pairs =
       List.concat (
         List.map
@@ -589,6 +581,49 @@ module DomainRefinement (PreKleeneWithoutTiming : PreKleeneAlgebra) = struct
     done;
     refinement_graph
 
+  let build_refinement_graph_complete labels label_to_atom =
+    let all_pairs =
+      List.concat (
+        List.map
+          (fun x -> List.map (fun y -> (x, y)) labels)
+        labels
+      ) in
+    let refinement_graph = RGraph.create () in
+    List.iter (fun label -> RGraph.add_vertex refinement_graph label) labels;
+
+    List.iter 
+      (fun (x, y) ->
+        let infeasible = PreKleene.equal (PreKleene.mul (IntMap.find x label_to_atom) (IntMap.find y label_to_atom)) PreKleene.zero in
+        if not infeasible then RGraph.add_edge refinement_graph x y
+      ) all_pairs;
+    refinement_graph
+
+
+  let refinement_full labels label_map refinement_graph = 
+    let pka : PreKleene.t WeightedGraph.algebra =
+      {
+        mul = PreKleene.mul;
+        add = PreKleene.add;
+        star = PreKleene.star;
+        zero = PreKleene.zero;
+        one = PreKleene.one
+      } in
+    let wg = ref (WeightedGraph.empty pka) in
+    wg := WeightedGraph.add_vertex !wg (-1); (*entry vertex*)
+    wg := WeightedGraph.add_vertex !wg (-2); (*exit vertex*)
+    RGraph.iter_vertex 
+      (fun v -> 
+        wg := WeightedGraph.add_vertex !wg v;
+        wg := WeightedGraph.add_edge !wg (-1) (label_map v) v;
+        wg := WeightedGraph.add_edge !wg v (pka.one) (-2)
+      ) refinement_graph;
+    RGraph.iter_edges 
+      (fun x y -> 
+        wg := WeightedGraph.add_edge !wg x (label_map y) y
+      ) refinement_graph;
+    WeightedGraph.path_weight !wg (-1) (-2)
+
+  let refine_full = ref false
 
   let refinement atoms = 
     let label_to_atom = ref IntMap.(empty) in
@@ -602,6 +637,10 @@ module DomainRefinement (PreKleeneWithoutTiming : PreKleeneAlgebra) = struct
     let label_map input_label = 
       IntMap.find input_label label_to_atom
     in
-    let refinement_graph = build_refinement_graph labels label_to_atom in
-    Log.time "refine_final" (refine labels label_map) refinement_graph
+    if !refine_full then
+      let refinement_graph = build_refinement_graph_complete labels label_to_atom in
+      Log.time "refine_full" (refinement_full labels label_map) refinement_graph
+    else (
+      let refinement_graph = build_refinement_graph_incomplete labels label_to_atom in
+      Log.time "refine_restrict" (refine labels label_map) refinement_graph)
 end
