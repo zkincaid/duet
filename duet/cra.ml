@@ -114,7 +114,6 @@ module V = struct
   let is_global = Var.is_global % var_of_value
 end
 
-<<<<<<< HEAD
 module IterDomain = struct
   open Iteration
   open SolvablePolynomial
@@ -133,21 +132,6 @@ module MakeTransition (V : Transition.Var) = struct
   include Transition.Make(Ctx)(V)
 
   module I = Iter(Iteration.MakeDomain(IterDomain))
-=======
-
-module K = struct
-  include Transition.Make(Ctx)(V)
-  open Iteration
-  open SolvablePolynomial
-  module SPOne = SumWedge (SolvablePolynomial) (SolvablePolynomialOne) ()
-  module SPG = ProductWedge (SPOne) (WedgeGuard)
-  module SPPeriodicRational = Sum (SPG) (PresburgerGuard) ()
-  module SPSplit = Sum (SPPeriodicRational) (Split(SPPeriodicRational)) ()
-  module VasSwitch = Sum (Vas)(Vass)()
-  module Vas_P = Product(VasSwitch)(Product(WedgeGuard)(LinearRecurrenceInequation))
-  module D = Sum(SPSplit)(Vas_P)()
-  module I = Iter(MakeDomain(D))
->>>>>>> cra-refine
 
   let star x =
     let star x =
