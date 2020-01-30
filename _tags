@@ -302,5 +302,6 @@ true: annot, bin_annot
 "duet/libduet.native.so": pkg_ppx_deriving.eq
 "duet/libduet.native.so": pkg_ppx_deriving.ord
 "duet/libduet.native.so": pkg_ppx_deriving.show
+<duet/*.ml{,i,y}>: for-pack(Libduet)
 "lib": not_hygienic
 true: use_menhir
