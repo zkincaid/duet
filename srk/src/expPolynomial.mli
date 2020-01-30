@@ -131,3 +131,8 @@ module UltPeriodic : sig
      the sequence [t_0, ..., t_{n-1}, f_0, f_1, f_2, ...]. *)
   val shift : QQ.t list -> t -> t
 end
+
+
+(** [term_of_vec srk t ex vec] creates a term representation of [vec(ex)] by
+   interpreting each dimension i as the term [t i]. *)
+val term_of_vec : ('a context) -> (int -> 'a term) -> 'a term -> Vector.t -> 'a term

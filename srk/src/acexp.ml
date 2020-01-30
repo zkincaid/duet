@@ -52,6 +52,19 @@ type phased_segment = {
 type 'a t = phased_segment list
 
 
+let create_sym_map srk tr_symbols =
+  List.fold_left
+    (fun map (sym, sym') -> Symbol.Map.add sym (mk_const srk sym') map)
+    Symbol.Map.empty
+    tr_symbols
+
+let postify srk tr_symbols = substitute_map srk (create_sym_map srk tr_symbols)
+
+let preify srk tr_symbols = substitute_map srk
+    (create_sym_map srk (List.map (fun (x, x') -> (x', x)) tr_symbols))
+
+
+
 
 (* Here we create a bunch of vars that will be used
  * reachability relation.
@@ -172,85 +185,16 @@ let mk_all_nonnegative srk terms =
   |> mk_and srk
 
 
+let linmatrix_to_term_array srk term_vec matrix =
+   QQMatrix.rowsi matrix
+   /@ (fun (_, row) -> Linear.term_of_vec srk term_vec row)
+   |> BatArray.of_enum
 
+let expmatrix_to_term_array srk term_vec matrix exp_term =
+   E.Matrix.rowsi matrix
+   /@ (fun (_, row) -> E.term_of_vec srk term_vec exp_term row)
+   |> BatArray.of_enum
 
-(*let expmat_to_mat srk exp_matrix term t_ring =
-  BatEnum.fold
-    (fun output_matrix (dim1, dim2, entry) ->
-       TM.add_entry dim1 dim2 (E.term_of srk term entry)
-         output_matrix)
-    TM.zero
-    (E.Matrix.entries exp_matrix)
-
-let symb_vect srk sym_list =
-  failwith "TODO"*)
-
-
-
-(*let matr_right_mul_tm mattype srk mat termarray entryfun =
-  module MAT = (val mattype : Ring.Matrix)
-  let outputarr = (BatArray.make (BatArray.length termarray) (mk_zero srk)) in
-  BatEnum.iter
-    (fun (dim1, dim2, entry) ->
-      outputarr.(dim1)<-
-        mk_add srk [mk_mul srk [entryfun entry; termarray.(dim2)]; outputarr.(dim1)]) 
-    (MAT.entries mat);
-  outputarr*)
-
-let linmatr_right_mul_tm srk mat termarray =
-  let entryfun = (fun entry -> mk_real srk entry) in
-  let outputarr = (BatArray.make (M.nb_rows mat) (mk_zero srk)) in
-  BatEnum.iter
-    (fun (dim1, dim2, entry) ->
-       if dim1 = -1 then ()
-       else (
-         let mult = 
-           if dim2 = -1 then mk_one srk
-           else termarray.(dim2)
-         in
-      outputarr.(dim1)<-
-        mk_add srk [mk_mul srk [entryfun entry; mult]; outputarr.(dim1)])) 
-    (M.entries mat);
-  outputarr
-
-let expmatr_right_mul_tm srk mat termarray exp_term =
-  let entryfun = (fun entry -> E.term_of srk exp_term entry) in
-  let outputarr = (BatArray.make (E.Matrix.nb_rows mat) (mk_zero srk)) in
-  BatEnum.iter
-    (fun (dim1, dim2, entry) ->
-       if dim1 = -1 then ()
-       else (
-         let mult = 
-           if dim2 = -1 then mk_one srk
-           else termarray.(dim2)
-         in
-         outputarr.(dim1)<-
-           mk_add srk [mk_mul srk [entryfun entry; mult]; outputarr.(dim1)])) 
-    (E.Matrix.entries mat);
-  outputarr
-
-
-
-
-(*let linmatr_right_mul_tm srk mat termarray =
-  matr_right_mul_tm srk mat termarray (fun entry -> mk_real srk entry)
-*)
-
-(*
-let expmatr_right_mul_tm srk expmat termarray exp_term =
-  matr_right_mul_tm srk E expmat termarray (fun entry -> E.term_of srk exp_term entry)
-*)
-
-(*let expmatr_right_mul_tm srk expmat expterm termmap =
-  BatEnum.fold
-    (fun outputmap (dim1, dim2, entry) ->
-       BatMap.modify_def (mk_zero srk) dim1 
-         (fun prev_term -> mk_add srk [mk_mul srk [E.term_of srk expterm entry; 
-                                                   (BatMap.find dim2 termmap)]; prev_term]) 
-         outputmap)
-    Map.Make(Int)
-    (E.Matrix.entries expmat)
-*)
 
 let mk_eq_symmaps_LHS srk a1 a2 =
   mk_and srk 
@@ -318,8 +262,16 @@ let stateless_last_reset_core_logic_constrs srk tr_symbols aclts exp_vars pairs
                                        mk_add srk [global_trans.(trans_comm_ind);
                                                    mk_neg srk trans_exec.(trans_comm_ind)]
                                    in
-                                   expmatr_right_mul_tm srk exp_m termmap exp_term)
-                              (simmatrix_to_termarray srk this_seg.sim1)
+                                   expmatrix_to_term_array srk (fun i -> termmap.(i)) exp_m exp_term)
+                              (linmatrix_to_term_array srk 
+                                 (fun i -> match Linear.sym_of_dim i with 
+                                    | Some s' -> 
+                                      begin match BatList.assoc_opt s' (BatList.map (fun (s, s') -> (s', s)) tr_symbols) with 
+                                        | Some s -> mk_const srk s
+                                        | None -> mk_const srk s'
+                                      end
+                                    | None -> mk_real srk QQ.one) 
+                                 this_seg.sim1)
                               this_seg.phase1
                           in
                           let rhs =
@@ -328,12 +280,20 @@ let stateless_last_reset_core_logic_constrs srk tr_symbols aclts exp_vars pairs
                               match E.exponentiate_rational transformer with
                               |None -> failwith "No decomp"
                               | Some exp_m ->
-                                expmatr_right_mul_tm srk exp_m termmap trans_exec.(trans_ac_ind))
-                            (linmatr_right_mul_tm srk res_trans phs1_commuting) 
+                                expmatrix_to_term_array srk (fun i -> termmap.(i)) exp_m trans_exec.(trans_ac_ind))
+                            (linmatrix_to_term_array srk (fun i -> phs1_commuting.(i)) res_trans)
                             this_seg.phase2
                           in
                           mk_eq_symmaps_LHS srk 
-                            (simmatrix_to_termarray srk this_seg.sim2)
+                            (linmatrix_to_term_array srk 
+                               (fun i -> match Linear.sym_of_dim i with 
+                                  | Some s -> 
+                                    begin match BatList.assoc_opt s tr_symbols with 
+                                      | Some s' -> mk_const srk s'
+                                      | None -> mk_const srk s
+                                    end
+                                  | None -> mk_real srk QQ.one) 
+                               this_seg.sim2)
                             rhs
                         in
                         mk_and srk (res_assign :: global_req :: sim2'_assignments :: more_recently_reset_phases_constr))
@@ -354,12 +314,28 @@ let stateless_last_reset_core_logic_constrs srk tr_symbols aclts exp_vars pairs
                     match E.exponentiate_rational transformer with
                     |None -> failwith "No decomp"
                     | Some exp_m ->
-                      expmatr_right_mul_tm srk exp_m termmap trans_exec.(trans_ac_ind))
-                 (simmatrix_to_termarray srk this_seg.sim2) 
+                      expmatrix_to_term_array srk (fun i -> termmap.(i)) exp_m trans_exec.(trans_ac_ind))
+                 (linmatrix_to_term_array srk 
+                    (fun i -> match Linear.sym_of_dim i with 
+                       | Some s' -> 
+                         begin match BatList.assoc_opt s' (BatList.map (fun (s, s') -> (s', s)) tr_symbols) with 
+                           | Some s -> mk_const srk s
+                           | None -> mk_const srk s'
+                         end
+                       | None -> mk_real srk QQ.one) 
+                    this_seg.sim2)
                  this_seg.phase2
              in
              mk_eq_symmaps_LHS srk 
-               (simmatrix_to_termarray srk this_seg.sim2)
+               (linmatrix_to_term_array srk 
+                  (fun i -> match Linear.sym_of_dim i with 
+                     | Some s -> 
+                       begin match BatList.assoc_opt s tr_symbols with 
+                         | Some s' -> mk_const srk s'
+                         | None -> mk_const srk s
+                       end
+                     | None -> mk_real srk QQ.one) 
+                  this_seg.sim2)
                rhs
            in
            mk_and srk (res_assign :: sim2'_assignments :: global_eq_seg)
