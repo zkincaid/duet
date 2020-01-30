@@ -1202,11 +1202,11 @@ let _ =
   CmdLine.register_config
     ("-cra-refine",
       Arg.Clear ICRASum.use_left,
-      " Turn on loop refinement")
+      " Turn on loop refinement");
   CmdLine.register_config
     ("-cra-refine-full",
     Arg.Unit (fun () -> ICRASum.use_left := false; RK.CRARefinement.refine_full := true; RKK.CRARefinement.refine_full := true),
-    " Turn on unrestricted loop refinement");
+    " Turn on unrestricted loop refinement")
 
 let () =
 

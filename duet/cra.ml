@@ -739,15 +739,15 @@ let _ =
      " Turn on predicate abstraction in forward invariant generation");
   CmdLine.register_config
     ("-cra-split-loops",
-     Arg.Clear K.SPSplit.abstract_left,
+     Arg.Clear IterDomain.SPSplit.abstract_left,
      " Turn on loop splitting");
   CmdLine.register_config
     ("-cra-no-matrix",
-     Arg.Clear K.SPOne.abstract_left,
+     Arg.Clear IterDomain.SPOne.abstract_left,
      " Turn off matrix recurrences");
   CmdLine.register_config
     ("-cra-prsd",
-     Arg.Clear K.SPPeriodicRational.abstract_left,
+     Arg.Clear IterDomain.SPPeriodicRational.abstract_left,
      " Use periodic rational spectral decomposition");
   CmdLine.register_config
     ("-cra-prsd-pg",
