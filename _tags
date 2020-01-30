@@ -284,5 +284,23 @@ true: annot, bin_annot
 <duet/*.ml{,i,y}>: use_pa
 <duet/*.ml{,i,y}>: use_srk
 # OASIS_STOP
+# NEW STUFF TO ENABLE LIBDUET
+"duet/libduet.native.so": pkg_Z3
+"duet/libduet.native.so": pkg_apron
+"duet/libduet.native.so": pkg_apron.boxMPQ
+"duet/libduet.native.so": pkg_apron.octMPQ
+"duet/libduet.native.so": pkg_apron.polkaMPQ
+"duet/libduet.native.so": pkg_batteries
+"duet/libduet.native.so": pkg_camlidl
+"duet/libduet.native.so": pkg_cil
+"duet/libduet.native.so": pkg_cil.default-features
+"duet/libduet.native.so": pkg_gmp
+"duet/libduet.native.so": pkg_ntl
+"duet/libduet.native.so": pkg_ocamlgraph
+"duet/libduet.native.so": pkg_ocrs
+"duet/libduet.native.so": pkg_ppx_deriving
+"duet/libduet.native.so": pkg_ppx_deriving.eq
+"duet/libduet.native.so": pkg_ppx_deriving.ord
+"duet/libduet.native.so": pkg_ppx_deriving.show
 "lib": not_hygienic
 true: use_menhir
