@@ -10,7 +10,7 @@ build: setup.ml setup.data
 duet: setup.ml setup.data duet/config.ml
 	ocamlbuild duet/duet.native
 
-newton:
+newton: setup.data
 	ocamlbuild duet/libduet.cmx
 	ocamlbuild -use-ocamlfind -tag 'runtime_variant(_pic)' duet/libduet.native.so
 
@@ -27,6 +27,7 @@ setup.ml: _oasis
 	oasis setup
 
 setup.data: setup.ml
+        ./configure
 	$(SETUP) -configure
 
 install:
