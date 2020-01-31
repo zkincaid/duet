@@ -15,6 +15,8 @@ open Proofspace
 open Dependence
 open ConcDep
 
+module Newton_interface = Newton_interface
+
 let usage_msg = "Duet program analyzer\nUsage: duet [OPTIONS] file.[c|bp|duet]"
 
 let anon_fun s = ignore (CmdLine.parse s)
