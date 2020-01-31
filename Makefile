@@ -2,7 +2,7 @@ SETUP = ocaml setup.ml
 
 all: build
 
-.PHONY: build duet srk apak patools test cca
+.PHONY: build duet srk apak patools test cca config
 
 build: setup.ml setup.data
 	$(SETUP) -build
@@ -10,7 +10,7 @@ build: setup.ml setup.data
 duet: setup.ml setup.data duet/config.ml
 	ocamlbuild duet/duet.native
 
-newton: setup.data
+newton: config
 	ocamlbuild duet/libduet.cmx
 	ocamlbuild -use-ocamlfind -tag 'runtime_variant(_pic)' duet/libduet.native.so
 
@@ -26,8 +26,10 @@ patools: setup.ml setup.data
 setup.ml: _oasis
 	oasis setup
 
-setup.data: setup.ml
+config:
 	./configure
+
+setup.data: setup.ml
 	$(SETUP) -configure
 
 install:
