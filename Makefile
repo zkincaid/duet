@@ -27,7 +27,7 @@ setup.ml: _oasis
 	oasis setup
 
 setup.data: setup.ml
-        ./configure
+	./configure
 	$(SETUP) -configure
 
 install:
