@@ -1,6 +1,5 @@
 open Syntax
 open BatPervasives
-open Vas
 module V = Linear.QQVector
 module M = Linear.QQMatrix
 module Z = Linear.ZZVector
@@ -8,10 +7,6 @@ module Q = Quantifier
 module Int = SrkUtil.Int
 module H = Abstract
 module E = ExpPolynomial
-module Accelerate =
-  Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)
-                         (Iteration.PolyhedronGuard))
-include Log.Make(struct let name = "srk.vass" end)
 open Linear
 
 module VS = QQVectorSpace

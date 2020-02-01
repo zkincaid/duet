@@ -43,7 +43,59 @@ let pp_vas formatter (vas : vas) : unit =
  * reset together in every transformer.
  *
  *)
-type 'a t = { v : vas; s_lst : M.t list}
+type 'a old_type = { v : vas; s_lst : M.t list}
+
+open Acexp
+
+type 'a t = 'a Acexp.t
+
+let old_type_to_new_type ot =
+  let cur_row = ref 0 in
+  let vas = ot.v in
+  let s_lst = ot.s_lst in
+  BatList.map (fun sim ->
+      let sim1 = M.add_entry 0 (Linear.const_dim) (QQ.one) (M.zero) in
+      let sim2 = 
+        BatEnum.fold (fun acc_matrix (dim, vec) ->
+            M.add_row (M.nb_rows acc_matrix) vec acc_matrix)
+        (M.add_entry 0 (Linear.const_dim) (QQ.one) (M.zero))
+        (M.rowsi sim)
+      in
+      let phase1 =
+        BatArray.map (fun trans ->
+            (M.add_entry 0 0 (QQ.one) (M.zero)))
+          (TSet.to_array vas)
+      in
+      let phase2 =
+        BatArray.map (fun trans ->
+            let a = trans.a in
+            let b = trans.b in
+            let new_trans = 
+              BatEnum.fold (fun acc_matrix dim ->
+                  M.add_entry (dim + 1) 0 (V.coeff (!cur_row + dim) b) acc_matrix)
+                (M.add_entry 0 0 (QQ.one) (M.zero))
+                (0 -- ((M.nb_rows sim) - 1))
+            in
+            if ZZ.equal (Z.coeff !cur_row a) (ZZ.zero)
+            then (Reset, new_trans)
+            else (
+              let new_trans = 
+                BatEnum.fold (fun acc_matrix dim ->
+                    M.add_entry (dim + 1) (dim + 1) QQ.one acc_matrix)
+                  new_trans
+                  (0 -- ((M.nb_rows sim) - 1))
+              in
+              (Commute, new_trans)
+            ))
+          (TSet.to_array vas)
+      in
+      cur_row := (M.nb_rows sim) + !cur_row;
+      {sim1; sim2; phase1; phase2}
+
+    )
+    s_lst
+
+
 
 (* This function is used to stack the matrices
  * on top of each other to form a single matrix.
@@ -359,20 +411,7 @@ let exp_base_helper srk (tr_symbols : (symbol * symbol) list) loop_counter s_lst
   (formula, (coh_class_pairs, kvarst, ksumst))
 
 
-(*Compute closure*)
-let exp srk tr_symbols loop_counter vabs =
-  let {v; s_lst} = vabs in
-  (* if top*)  
-  if(M.nb_rows (unify s_lst) = 0) 
-  then mk_true srk
-  else (
-    let (formula, (coh_class_pairs, kvarst, ksumst)) = exp_base_helper srk tr_symbols
-        loop_counter s_lst (TSet.to_list v) in
-    let constr1 = exp_sx_constraints srk coh_class_pairs
-        (TSet.to_list v) kvarst ksumst (unify s_lst) tr_symbols in
-    mk_and srk [formula; constr1]
-  )
-
+let exp = Acexp.exp
 
 (*Move matrix down by first_row rows*)
 let push_rows matrix first_row =
@@ -439,7 +478,7 @@ let coprod_compute_image v r =
   v'
 
 
-let coproduct srk vabs1 vabs2 : 'a t =
+let coproduct srk vabs1 vabs2 : 'a old_type =
   let (s_lst1, s_lst2, v1, v2) = (vabs1.s_lst, vabs2.s_lst, vabs1.v, vabs2.v) in
   let s1, s2, s_lst = coprod_find_transformation s_lst1 s_lst2 in
   let v = TSet.union (coprod_compute_image v1 s1) (coprod_compute_image v2 s2) in
@@ -515,9 +554,12 @@ let alpha_hat srk imp tr_symbols symb_constants =
   | false, false -> {v=TSet.singleton {a;b}; s_lst=[i;r]}
 
 (*TODO:Make a better pp function*)
-let pp srk syms formatter vas = Format.fprintf formatter "%a" (Formula.pp srk) (gamma srk vas syms)
+let pp srk syms formatter vas = failwith "TODO" (*Format.fprintf formatter "%a" (Formula.pp srk) (gamma srk vas syms)*)
 
-let abstract ?(exists=fun x -> true) srk tr_symbols phi  =
+
+
+
+let abstract_old ?(exists=fun x -> true) srk tr_symbols phi  =
   let tr_flat = List.fold_left (fun lst (x, x') -> x :: x' :: lst) [] tr_symbols in
   let symb_constants = Symbol.Set.elements
       (Symbol.Set.filter (fun a -> (exists a) && (not (List.mem a tr_flat))) (symbols phi)) in 
@@ -544,6 +586,9 @@ let abstract ?(exists=fun x -> true) srk tr_symbols phi  =
   let {v;s_lst} = go (mk_bottom tr_symbols symb_constants) in
   let result = {v;s_lst} in
   result
+
+let abstract ?(exists=fun x -> true) srk tr_symbols phi  =
+  old_type_to_new_type (abstract_old ~exists srk tr_symbols phi)
 
 
 

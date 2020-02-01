@@ -200,7 +200,7 @@ let compute_single_scc_vass ?(exists=fun x -> true) srk tr_symbols symb_constant
   (*Populate graph with transformers between two control states*)
   BatArray.iteri (fun ind1 arr ->
       BatArray.modifyi (fun ind2 _ ->
-          let {v; s_lst} = abstract ~exists srk tr_symbols
+          let {v; s_lst} = abstract_old ~exists srk tr_symbols
               (mk_and srk 
                  [(List.nth cs_lst ind1); 
                   postify srk tr_symbols (List.nth cs_lst ind2); 
@@ -345,7 +345,7 @@ let populate_phi_graph ?(exists=fun x -> true) srk tr_symbols sccs phi =
                              (* should always use gamma to ensure VASS with sccs at least as good as VASS without sccs.
                               * May be interesting to explore other restrictions to add to over-approximation*)
                              mk_and srk
-                               [gamma srk (abstract ~exists srk tr_symbols restricted_phi) tr_symbols;
+                               [gamma srk (abstract_old ~exists srk tr_symbols restricted_phi) tr_symbols;
                                H.abstract ~exists srk polka restricted_phi |> SrkApron.formula_of_property]))))))))
   in
   phi_graph
