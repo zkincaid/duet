@@ -12,4 +12,6 @@ type phased_segment = {
 
 type 'a t = phased_segment list
 
+val pp : 'a context -> (symbol * symbol) list -> Format.formatter -> 'a t -> unit
+   
 val exp : 'a context -> (symbol * symbol) list -> 'a term -> 'a t -> 'a formula
