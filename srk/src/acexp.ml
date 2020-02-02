@@ -85,7 +85,7 @@ let create_exp_vars srk aclts =
            ph_seg.phase2
        in
        let reset_transformer_var =
-         if BatArray.exists (fun (kind, _) -> kind = Commute) ph_seg.phase2 then
+         if BatArray.exists (fun (kind, _) -> kind = Reset) ph_seg.phase2 then
            mk_const srk  (mk_symbol srk ~name:("R"^(string_of_int phase_ind)) `TyInt)
          else
            mk_real srk (QQ.of_int (-1))
@@ -225,6 +225,9 @@ let stateless_last_reset_core_logic_constrs srk tr_symbols aclts exp_vars pairs
                             exp_vars in
                         let global_req = mk_leq srk (mk_one srk) global_trans.(trans_ind) in
                         let res_assign = mk_eq srk res (mk_real srk (QQ.of_int trans_ind)) in
+                        Log.errorf "res_assign_here %a" (Formula.pp srk) res_assign;
+                        Log.errorf "res is %a" (Term.pp srk) res;
+                        Log.errorf "mk_real is %a" (Term.pp srk) (mk_real srk (QQ.of_int trans_ind));
                         Log.errorf "Pop";
                         let sim2'_assignments =
                           Log.errorf "pre phs1";
@@ -287,6 +290,10 @@ let stateless_last_reset_core_logic_constrs srk tr_symbols aclts exp_vars pairs
                             rhs
                         in
                         Log.errorf "out of sim2";
+                        Log.errorf "res_assign: %a" (Formula.pp srk) res_assign;
+                        Log.errorf "global_req %a" (Formula.pp srk) global_req;
+                        Log.errorf "sim2'_assignments %a" (Formula.pp srk) sim2'_assignments;
+                        BatList.iter (fun term -> Log.errorf "more_recent_reset %a" (Formula.pp srk) term) more_recently_reset_phases_constr;
                         mk_and srk (res_assign :: global_req :: sim2'_assignments :: more_recently_reset_phases_constr))
                      this_seg.phase2
          in 
@@ -340,6 +347,8 @@ let stateless_last_reset_core_logic_constrs srk tr_symbols aclts exp_vars pairs
            in
            mk_and srk (res_assign :: sim2'_assignments :: global_eq_seg)
          in
+         Log.errorf "res_taken is %a" (Formula.pp srk) res_taken;
+         Log.errorf "res_not_taken is %a" (Formula.pp srk) res_not_taken;
          mk_or srk [res_taken; res_not_taken])
         exp_vars)
 
