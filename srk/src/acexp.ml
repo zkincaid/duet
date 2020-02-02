@@ -181,15 +181,17 @@ let mk_all_nonnegative srk terms =
   |> mk_and srk
 
 
-let linmatrix_to_term_array srk term_vec matrix =
-   QQMatrix.rowsi matrix
-   /@ (fun (_, row) -> Linear.term_of_vec srk term_vec row)
-   |> BatArray.of_enum
+let linmatrix_to_term_array srk term_vec matrix size =
+  BatEnum.fold
+    (fun arr (dim, row) -> arr.(dim)<-Linear.term_of_vec srk term_vec row; arr)
+    (BatArray.make size (mk_zero srk))
+    (QQMatrix.rowsi matrix)
 
-let expmatrix_to_term_array srk term_vec matrix exp_term =
-   E.Matrix.rowsi matrix
-   /@ (fun (_, row) -> E.term_of_vec srk term_vec exp_term row)
-   |> BatArray.of_enum
+let expmatrix_to_term_array srk term_vec matrix exp_term size=
+  BatEnum.fold
+    (fun arr (dim, row) -> arr.(dim)<-E.term_of_vec srk term_vec exp_term row; arr)
+    (BatArray.make size (mk_zero srk))
+    (E.Matrix.rowsi matrix)
 
 
 let mk_eq_symmaps_LHS srk a1 a2 =
@@ -199,25 +201,6 @@ let mk_eq_symmaps_LHS srk a1 a2 =
     (fun ind term ->
        mk_eq srk term a2.(ind))
     a1
-
-let simmatrix_to_termarray srk simmat =
-  let entryfun = (fun entry -> mk_real srk entry) in
- let outputarr = (BatArray.make (M.nb_rows simmat) (mk_zero srk)) in
-  BatEnum.iter
-    (fun (dim1, dim2, entry) ->
-       if dim1 = -1 then ()
-       else (
-         let symterm = 
-           if dim2 = -1 then failwith "Const dim in lin comb for non-const dim row"
-           else mk_const srk (symbol_of_int dim2)
-         in
-         outputarr.(dim1)<-
-           mk_add srk [mk_mul srk [entryfun entry; symterm]; outputarr.(dim1)])) 
-    (M.entries simmat);
-  outputarr
-
-
-
 
 
 (*Uses sx_constraints_helper to set initial values for each dimension of each equiv class*)
@@ -242,7 +225,9 @@ let stateless_last_reset_core_logic_constrs srk tr_symbols aclts exp_vars pairs
                             exp_vars in
                         let global_req = mk_leq srk (mk_one srk) global_trans.(trans_ind) in
                         let res_assign = mk_eq srk res (mk_real srk (QQ.of_int trans_ind)) in
-                        let sim2'_assignments = 
+                        Log.errorf "Pop";
+                        let sim2'_assignments =
+                          Log.errorf "pre phs1";
                           let phs1_commuting = 
                             BatArray.fold_lefti
                               (fun termmap trans_comm_ind transformer ->
@@ -258,7 +243,7 @@ let stateless_last_reset_core_logic_constrs srk tr_symbols aclts exp_vars pairs
                                        mk_add srk [global_trans.(trans_comm_ind);
                                                    mk_neg srk trans_exec.(trans_comm_ind)]
                                    in
-                                   expmatrix_to_term_array srk (fun i -> termmap.(i)) exp_m exp_term)
+                                   expmatrix_to_term_array srk (fun i -> termmap.(i)) exp_m exp_term (QQMatrix.nb_rows this_seg.sim2))
                               (linmatrix_to_term_array srk 
                                  (fun i -> match Linear.sym_of_dim i with 
                                     | Some s' -> 
@@ -267,18 +252,26 @@ let stateless_last_reset_core_logic_constrs srk tr_symbols aclts exp_vars pairs
                                         | None -> mk_const srk s'
                                       end
                                     | None -> mk_real srk QQ.one) 
-                                 this_seg.sim1)
+                                 this_seg.sim1
+                                 (QQMatrix.nb_rows this_seg.sim1))
                               this_seg.phase1
                           in
+                          Log.errorf "Post phs1";
                           let rhs =
                            BatArray.fold_lefti
                             (fun termmap trans_ac_ind (kind, transformer) ->
-                              match E.exponentiate_rational transformer with
-                              |None -> failwith "No decomp"
-                              | Some exp_m ->
-                                expmatrix_to_term_array srk (fun i -> termmap.(i)) exp_m trans_exec.(trans_ac_ind))
-                            (linmatrix_to_term_array srk (fun i -> phs1_commuting.(i)) res_trans)
-                            this_seg.phase2
+                              match kind with
+                              | Ignore -> failwith "Ignore in exp"
+                              | Reset -> termmap
+                              | Commute ->
+                                begin match E.exponentiate_rational transformer with
+                                  | None -> failwith "No decomp"
+                                  | Some exp_m ->
+                                    expmatrix_to_term_array srk (fun i -> termmap.(i)) exp_m trans_exec.(trans_ac_ind) 
+                                  (QQMatrix.nb_rows this_seg.sim2)
+                                end)
+                            (linmatrix_to_term_array srk (fun i -> phs1_commuting.(i)) res_trans (QQMatrix.nb_rows this_seg.sim2))
+                            this_seg.phase2 
                           in
                           mk_eq_symmaps_LHS srk 
                             (linmatrix_to_term_array srk 
@@ -289,9 +282,11 @@ let stateless_last_reset_core_logic_constrs srk tr_symbols aclts exp_vars pairs
                                       | None -> mk_const srk s
                                     end
                                   | None -> mk_real srk QQ.one) 
-                               this_seg.sim2)
+                               this_seg.sim2
+                               (QQMatrix.nb_rows this_seg.sim2))
                             rhs
                         in
+                        Log.errorf "out of sim2";
                         mk_and srk (res_assign :: global_req :: sim2'_assignments :: more_recently_reset_phases_constr))
                      this_seg.phase2
          in 
@@ -303,14 +298,20 @@ let stateless_last_reset_core_logic_constrs srk tr_symbols aclts exp_vars pairs
                BatArray.map2 (fun trans_seg trans_global -> mk_eq srk trans_seg trans_global)
                trans_exec global_trans
            in
+           Log.errorf "pop no res";
            let sim2'_assignments =
              let rhs =
                BatArray.fold_lefti
                  (fun termmap trans_ac_ind (kind, transformer) ->
-                    match E.exponentiate_rational transformer with
-                    |None -> failwith "No decomp"
-                    | Some exp_m ->
-                      expmatrix_to_term_array srk (fun i -> termmap.(i)) exp_m trans_exec.(trans_ac_ind))
+                    match kind with
+                    | Ignore -> failwith "Ignore in exp"
+                    | Reset -> termmap
+                    | Commute ->
+                      begin match E.exponentiate_rational transformer with
+                        |None -> failwith "No decomp"
+                        | Some exp_m ->
+                          expmatrix_to_term_array srk (fun i -> termmap.(i)) exp_m trans_exec.(trans_ac_ind) (QQMatrix.nb_rows this_seg.sim2)
+                      end)
                  (linmatrix_to_term_array srk 
                     (fun i -> match Linear.sym_of_dim i with 
                        | Some s' -> 
@@ -319,9 +320,11 @@ let stateless_last_reset_core_logic_constrs srk tr_symbols aclts exp_vars pairs
                            | None -> mk_const srk s'
                          end
                        | None -> mk_real srk QQ.one) 
-                    this_seg.sim2)
+                    this_seg.sim2
+                    (QQMatrix.nb_rows this_seg.sim2))
                  this_seg.phase2
              in
+             Log.errorf "out of no res sym 2";
              mk_eq_symmaps_LHS srk 
                (linmatrix_to_term_array srk 
                   (fun i -> match Linear.sym_of_dim i with 
@@ -331,7 +334,8 @@ let stateless_last_reset_core_logic_constrs srk tr_symbols aclts exp_vars pairs
                          | None -> mk_const srk s
                        end
                      | None -> mk_real srk QQ.one) 
-                  this_seg.sim2)
+                  this_seg.sim2
+                  (QQMatrix.nb_rows this_seg.sim2))
                rhs
            in
            mk_and srk (res_assign :: sim2'_assignments :: global_eq_seg)
@@ -362,7 +366,7 @@ let pp srk tr_symbols formatter aclts =
       Format.fprintf formatter "\n\nPrinting sim1 Arrays: \n";
       BatArray.iteri (fun indmat mat ->
           Format.fprintf formatter "Phase 1 transformer %d is \n %a \n\n" indmat (QQMatrix.pp) mat) seg.phase1;
-      Format.fprintf formatter "Sim2 matrix is %a \n" (QQMatrix.pp) seg.sim1;
+      Format.fprintf formatter "Sim2 matrix is %a \n" (QQMatrix.pp) seg.sim2;
       Format.fprintf formatter "\n\nPrinting sim2 Arrays: \n";
       BatArray.iteri (fun indmat (kind, mat) ->
           match kind with
@@ -381,7 +385,7 @@ let pp srk tr_symbols formatter aclts =
 
 let exp (srk : 'a context) tr_symbols loop_counter aclts =
   logf ~level:`always "%a" (pp srk tr_symbols) aclts;
-  if (List.length aclts = 0) then failwith "Case of no phase segments not yet handled... prob just do mk_true here" 
+  if (List.length aclts = 0) then  mk_true srk 
   else(
     Log.errorf "1";
     let exp_vars = create_exp_vars srk aclts in
