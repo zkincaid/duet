@@ -32,7 +32,7 @@ module PhasedSegmentation : sig
    (** Computes a phased segmentation for the given matrices by exhaustively exploring all partitions *)
    val make_naive : QQMatrix.t array -> t
 
-   (** Computes a phased segmentation for the given matrices. Running time is O(2^d) where d is the dimension of the LTS *)
+   (** Computes a phased segmentation for the given matrices *)
    val make : QQMatrix.t array -> t
 
    (** Returns the vector space where the given segmentation almost commutes *)
