@@ -154,11 +154,12 @@ module PhasedSegmentation = struct
         else
           let ps' = set_kind ps i Reset in
           let seg' = PhasedSegment.make ps' in
-          if (PhasedSegment.dimension seg') == (PhasedSegment.dimension seg) then
+          let ps'' = set_kind ps i Commute in
+          let seg'' = PhasedSegment.make ps'' in
+          (* We only have to consider the reset extension if it subsumes the non-reset extension *)
+          if (VS.subspace (VS.of_matrix seg''.sim2) (VS.of_matrix seg'.sim2)) then
             iter ps' seg' (i+1)
           else
-            let ps'' = set_kind ps i Commute in
-            let seg'' = PhasedSegment.make ps'' in
             iter ps' seg' (i+1);
             iter ps'' seg'' (i+1)
     in
