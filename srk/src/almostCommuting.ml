@@ -72,8 +72,6 @@ module PhasedSegment = struct
       p.phase2
       q.phase2
 
-  let dimension p = VS.dimension (VS.of_matrix p.sim2)
-
   let make pairs =
     if Array.length pairs == 0 then
       raise (Invalid_argument "Array of matrices should not be empty")
