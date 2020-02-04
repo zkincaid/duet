@@ -117,12 +117,6 @@ module PhasedSegment = struct
 
 end
 
-let set_kind ps i k =
-  let ps' = Array.copy ps in
-  let _, mM = Array.get ps' i in
-  Array.set ps' i (k, mM);
-  ps'
-
 module PhasedSegmentation = struct
 
   type t = phased_segment list
@@ -142,6 +136,12 @@ module PhasedSegmentation = struct
     let push s =
       current_space := VS.sum !current_space (VS.of_matrix s.sim2);
       BatQueue.push s segments
+    in
+    let set_kind ps i k =
+      let ps' = Array.copy ps in
+      let _, mM = Array.get ps' i in
+      Array.set ps' i (k, mM);
+      ps'
     in
     (* Start with a segment where all matrices are non-resets *)
     let pairs = Array.map (fun mM -> (Commute, mM)) matrices in
