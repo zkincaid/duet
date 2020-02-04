@@ -167,7 +167,6 @@ module PhasedSegmentation = struct
     let seg = PhasedSegment.make pairs in
     iter pairs seg 0;
     BatList.of_enum (BatQueue.enum segments)
-      
 
   let almost_commuting_space segmentation =
     List.fold_left
