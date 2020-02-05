@@ -571,6 +571,8 @@ module QQVectorSpace = struct
 
   let of_matrix mM = BatList.of_enum (QQMatrix.rowsi mM /@ snd)
 
+  let show vU = QQMatrix.show (matrix_of vU)
+
   let intersect vU vV =
     let (mU, mV) = (matrix_of vU, matrix_of vV) in
     let (mC, _) = intersect_rowspace mU mV in

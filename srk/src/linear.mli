@@ -129,6 +129,8 @@ module QQVectorSpace : sig
 
   val equal : t -> t -> bool
 
+  val show : t -> string
+
   (** [subspace a b] checks whether [a] is a subspace of [b] *)
   val subspace : t -> t -> bool
 
