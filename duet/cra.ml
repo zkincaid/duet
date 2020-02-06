@@ -6,6 +6,8 @@ open BatPervasives
 
 module RG = Interproc.RG
 module WG = WeightedGraph
+module NL = NestedLoops
+module TM = Termination
 module G = RG.G
 module Ctx = Syntax.MakeSimplifyingContext ()
 module Int = SrkUtil.Int
@@ -55,7 +57,7 @@ type value =
   | VVal of Var.t
   | VPos of Var.t
   | VWidth of Var.t
-    [@@deriving ord]
+[@@deriving ord]
 
 module Value = struct
   type t = value [@@deriving ord]
@@ -126,6 +128,7 @@ module K = struct
   module Vas_P = Product(VasSwitch)(Product(WedgeGuard)(LinearRecurrenceInequation))
   module D = Sum(SPSplit)(Vas_P)()
   module I = Iter(MakeDomain(D))
+<<<<<<< HEAD
  
   let star x =
     let star x =
@@ -134,6 +137,10 @@ module K = struct
       I.closure abstract
     in
     Log.time "cra.star" star x
+=======
+
+  let star x = Log.time "cra:star" I.star x
+>>>>>>> 3695ac369713d665b80fc1ec46a4edb256d9d72f
 
   let add x y =
     if is_zero x then y
@@ -235,7 +242,7 @@ let rec tr_expr expr =
        (which just acts like a havoc). *)
     | OUnaryOp (_, _, typ) -> TInt (nondet_const "tr" (tr_typ typ))
     | OBoolExpr b -> TInt (Ctx.mk_ite (tr_bexpr b) (Ctx.mk_real (QQ.of_int 1)) (Ctx.mk_real (QQ.of_int 0)))
-      (*if (Bexpr.equal b Bexpr.ktrue) then TInt (Ctx.mk_real (QQ.of_int 1)) else TInt (Ctx.mk_real (QQ.of_int 0))*)
+    (*if (Bexpr.equal b Bexpr.ktrue) then TInt (Ctx.mk_real (QQ.of_int 1)) else TInt (Ctx.mk_real (QQ.of_int 0))*)
     | OAccessPath ap -> TInt (nondet_const "tr" (tr_typ (AP.get_type ap)))
     | OConstant _ -> TInt (nondet_const "tr" `TyInt)
   in
@@ -440,9 +447,9 @@ let weight def =
 type 'a label = 'a WeightedGraph.label =
   | Weight of 'a
   | Call of int * int
-[@@deriving ord]
+[@@deriving ord, show]
 
-type klabel = K.t label [@@deriving ord]
+type klabel = K.t label [@@deriving ord, show]
 
 module TS = TransitionSystem.Make(Ctx)(V)(K)
 
@@ -486,7 +493,44 @@ module TSDisplay = ExtGraph.Display.MakeLabeled
       let show = SrkUtil.mk_show pp
     end)
 
+<<<<<<< HEAD
 module SA = Abstract.MakeAbstractRSY(Ctx)
+=======
+module TSNoCallEdgeDisplay = ExtGraph.Display.MakeLabeled
+    (struct
+      type t = K.t WeightedGraph.t
+
+      module V = struct
+        include SrkUtil.Int
+        type label = int
+        let label x = x
+        let create x = x
+      end
+
+      module E = struct
+        type label = K.t
+        type vertex = int
+        type t = int * K.t * int [@@deriving ord]
+        let src (x, _, _) = x
+        let dst (_, _, x) = x
+        let label (_, x, _) = x
+        let create x y z = (x, y, z)
+      end
+
+      let iter_edges_e = WG.iter_edges
+      let iter_vertex = WG.iter_vertex
+      let iter_succ f tg v =
+        WG.U.iter_succ f (WG.forget_weights tg) v
+      let fold_pred_e = WG.fold_pred_e
+    end)
+    (SrkUtil.Int)
+    (struct
+      open WeightedGraph
+      type t = K.t
+      let pp formatter w = K.pp formatter w
+      let show = SrkUtil.mk_show pp
+    end)
+>>>>>>> 3695ac369713d665b80fc1ec46a4edb256d9d72f
 
 let decorate_transition_system predicates ts entry =
   let module AbsDom =
@@ -635,6 +679,29 @@ let analyze file =
     end
   | _ -> assert false
 
+
+
+let prove_termination_main file =
+  populate_offset_table file;
+  match file.entry_points with
+  | [main] -> begin
+      let rg = Interproc.make_recgraph file in
+      let entry = (RG.block_entry rg main).did in
+      let (ts1, assertions) = make_transition_system rg in
+      if !CmdLine.display_graphs then
+        TSDisplay.display ts1;
+      let wg = TS.build_wg_with_no_call_edges ts1 entry in
+      (* let (ts, assertions) = make_transition_system wg in *)
+      if !CmdLine.display_graphs then
+        TSNoCallEdgeDisplay.display wg;
+      let (l, fl) =  NL.compute_all_nested_loops wg entry in
+      (* let _ =  NL.print_flattened_results show_klabel fl in *)
+      let _ = TM.prove_termination_of_loops srk K.to_transition_formula_with_consts fl in
+      ()
+    end
+  | _ -> assert false
+
+
 let resource_bound_analysis file =
   populate_offset_table file;
   match file.entry_points with
@@ -696,8 +763,8 @@ let resource_bound_analysis file =
                 | Some upper ->
                   logf ~level:`always "cost <= %a" (Syntax.Term.pp srk) upper;
                   logf ~level:`always "%a is O(%a)"
-                  Varinfo.pp procedure
-                  BigO.pp (BigO.of_term srk upper)
+                    Varinfo.pp procedure
+                    BigO.pp (BigO.of_term srk upper)
                 | None -> ()
               end
             | `Unsat ->
@@ -745,5 +812,7 @@ let _ =
 let _ =
   CmdLine.register_pass
     ("-cra", analyze, " Compositional recurrence analysis");
+  CmdLine.register_pass
+    ("-termination", prove_termination_main, "Proof of termination");
   CmdLine.register_pass
     ("-rba", resource_bound_analysis, " Resource bound analysis")

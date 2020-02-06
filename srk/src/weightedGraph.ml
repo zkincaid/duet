@@ -4,6 +4,7 @@ include Log.Make(struct let name = "srk.weightedGraph" end)
 
 module U = Graph.Persistent.Digraph.ConcreteBidirectional(SrkUtil.Int)
 module WTO = Graph.WeakTopological.Make(U)
+module SCC = Graph.Components.Make(U)
 
 module IntPair = struct
   type t = int * int [@@deriving ord, eq]
@@ -27,6 +28,8 @@ type 'a weighted_graph =
 type 'a t = 'a weighted_graph
 
 type vertex = int
+
+let get_algebra wg = wg.algebra
 
 let empty algebra =
   { graph = U.empty;
@@ -54,6 +57,10 @@ let add_edge wg u weight v =
     { wg with graph = U.add_edge wg.graph u v;
               labels = M.add (u, v) weight wg.labels }
 
+let get_scc wg = SCC.scc wg.graph
+
+let get_scc_list wg = SCC.scc_list wg.graph
+
 let remove_vertex wg u =
   let labels =
     U.fold_succ
@@ -68,6 +75,13 @@ let remove_vertex wg u =
   in
   { wg with graph = U.remove_vertex wg.graph u;
             labels = labels }
+
+let remove_edge wg u v =
+  let labels = M.remove (u, v) wg.labels in
+  {
+    wg with graph = U.remove_edge wg.graph u v;
+            labels = labels
+  }
 
 let contract_vertex wg v =
   (* List of all { (s, w(v,v)*w(v,s)) : (v,s) in E } *)
@@ -177,6 +191,7 @@ let fold_vertex f wg = U.fold_vertex f wg.graph
 let iter_vertex f wg = U.iter_vertex f wg.graph
 let mem_edge wg u v = M.mem (u, v) wg.labels
 
+<<<<<<< HEAD
 (* Cut graph reduces a weighted graph to only those vertices in c, while preserving all weighted paths between pairs of vertices in c *)
 let cut_graph wg c =
   let module Set = SrkUtil.Int.Set in
@@ -196,6 +211,25 @@ let cut_graph wg c =
       add_edge (add_vertex cg v) u (path_weight path_graph (pre_vertex u) (post_vertex v)) v
     ) cut_set (add_vertex cg u)
   ) cut_set (empty wg.algebra)
+=======
+(** there can be self-loops in the graph *)              
+let get_non_trivial_scc wg =
+  let l = SCC.scc_list wg.graph in
+  let non_trivial_l = 
+    List.filter 
+      (fun an_scc -> 
+        if List.length an_scc > 1 then true 
+        else
+          begin
+            let u = List.hd an_scc in
+            let flag = false in
+            fold_succ_e (fun (_, _, y) flag -> if y = u then true else flag) wg u flag
+          end
+      ) 
+      l 
+  in
+  (List.length non_trivial_l, SCC.scc wg.graph, non_trivial_l)
+>>>>>>> 3695ac369713d665b80fc1ec46a4edb256d9d72f
 
 (* Line graphs swaps vertices and edges *)
 module LineGraph = struct
@@ -368,7 +402,6 @@ module MakeRecGraph (W : Weight) = struct
     let one = Weight W.one in
     { add; mul; star; zero; one }
 
-  let empty = empty label_algebra
 
   let weight_algebra f = function
     | `Edge (s, t) -> f s t
@@ -384,6 +417,13 @@ module MakeRecGraph (W : Weight) = struct
       star = mk_star context;
       zero = mk_zero context;
       one = mk_one context }
+
+  let weight_algebra_from_W = 
+    { mul = W.mul;
+      add = W.add;
+      star = W.star; 
+      zero = W.zero;
+      one = W.one }
 
   (* For each (s,t) call reachable from [src], add an edge from [src] to [s]
      with the path weight from [src] to to the call.  *)
@@ -563,6 +603,22 @@ module MakeRecGraph (W : Weight) = struct
         query
     end
 
+  let build_wg_with_no_call_edges wg src =
+    let query = mk_query wg in
+    let query' = add_call_edges query src in
+    let weight =
+      weight_algebra (fun s t ->
+          match M.find (s, t) query'.labels with
+          | Weight w -> w
+          | Call (en, ex) -> M.find (en, ex) query'.summaries)
+    in
+    fold_edges 
+      (fun (s, w, t) ng -> 
+         let new_weight = eval ~table:query.table weight w in
+         add_edge ng s new_weight t
+      ) 
+      query'.graph (empty weight_algebra_from_W)
+
   let path_weight query src tgt =
     (* For each (s,t) call edge reachable from src, add corresponding edge
        from src to s with the path weight from src to s *)
@@ -575,4 +631,9 @@ module MakeRecGraph (W : Weight) = struct
     in
     path_weight query'.graph src tgt
     |> eval ~table:query.table weight
+
+
+
+  let empty = empty label_algebra
+
 end

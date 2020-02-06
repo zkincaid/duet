@@ -14,6 +14,7 @@
 !.gitignore
 *~
 *.log
+.merlin
 
 # generated files
 _build/
@@ -26,10 +27,15 @@ myocamlbuild.ml
 ark/META
 apak/META
 pa/META
+srk/src/META
 duet/config.ml
 autom4te.cache
 config.status
 duet/duet
+API.odocl
+AUTHORS.txt
+INSTALL.txt
+output
 
 #tag files
 */tags

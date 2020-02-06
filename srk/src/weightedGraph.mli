@@ -15,6 +15,8 @@ type 'a algebra =
     zero : 'a;
     one : 'a }
 
+val get_algebra: 'a t -> 'a algebra
+
 (** Unweighted graphs *)
 module U : Graph.Sig.G with type V.t = int
 
@@ -45,6 +47,8 @@ val cut_graph : 'a t -> vertex list -> 'a t
 
 (** Remove a vertex from a graph. *)
 val remove_vertex : 'a t -> vertex -> 'a t
+
+val remove_edge : 'a t -> vertex -> vertex -> 'a t
 
 (** [contract g v] removes vertex [v] from [g] while preserving all weighted
     paths among remaining vertices.  That is, for each pair of edges [p -pw->
@@ -79,6 +83,10 @@ val mem_edge : 'a t -> vertex -> vertex -> bool
 
 (** Find the largest integer identifier for a vertex in a graph *)
 val max_vertex : 'a t -> int
+
+val get_non_trivial_scc : 'a t -> (int * (int * (vertex -> int)) * vertex list list)
+(* val get_scc : 'a t -> int * (vertex -> int)
+val get_scc_list : 'a t -> vertex list list *)
 
 (** Compute least fixpoint solution to a system of constraints defined
    over a weighted graph.  The type ['v] represents values in poset.
@@ -150,4 +158,6 @@ module MakeRecGraph (W : Weight) : sig
   (** Over-approximate the sum of the weights of all paths between two given
       vertices.  *)
   val path_weight : query -> vertex -> vertex -> W.t
+
+  val build_wg_with_no_call_edges : t -> vertex -> W.t weighted_graph
 end
