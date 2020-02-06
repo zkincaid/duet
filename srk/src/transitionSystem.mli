@@ -54,6 +54,9 @@ module Make
       widening delay to use during summary computation. *)
   val mk_query : ?delay:int -> t -> query
 
+  (** I suspsect this is useless!!!!! *)
+  val build_wg_with_no_call_edges : t -> vertex -> transition WeightedGraph.t
+
   (** Over-approximate the sum of the weights of all paths between two given
       vertices.  *)
   val path_weight : query -> vertex -> vertex -> transition

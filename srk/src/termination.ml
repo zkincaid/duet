@@ -1,22 +1,17 @@
 open Abstract
 open Syntax
 open SrkApron
-(* open Test_pervasives *)
 open Printf
- module Vec = Linear.QQVector
- module Mat = Linear.QQMatrix
+open BatEnum
+
+module TLLRF = TerminationLLRF
+module Vec = Linear.QQVector
+module Mat = Linear.QQMatrix
+module NL = NestedLoops
 
 include Log.Make(struct let name = "Termination" end)
 
-(* module CRA = Cra *)
-(* module T = Cra.K *)
-(* module CtxM = Cra.Ctx *)
-(* module WG = WeightedGraph *)
-module NL = NestedLoops
-
-(* module Ctx = CRA.Ctx *)
-
-(* let srk = Ctx.context *)
+type typ_ineq = Tylt0 | Tyeq0 | Tyleq0
 
 let rec print_final_results tshow loops =
   if List.length loops > 0 then printf "\n\n\n=========== Showing final results ==========\n\n\n";
@@ -128,19 +123,16 @@ let get_coeff_matrix cs list_symbols constraints =
     (Mat.zero, 0)
     constraints
 
-let rec create_const_symbols srk name n =
-  if n = 1 then
-    let s = mk_const srk (mk_symbol srk ~name:name `TyReal) in
-      [s]
-  else
-    let s = mk_const srk (mk_symbol srk ~name:name `TyReal) in
-      s :: create_const_symbols srk name (n-1)
+let create_const_symbols srk name n = 
+  (1 -- n) /@ (fun _ -> mk_const srk (mk_symbol srk ~name:name `TyReal))
+  |> BatList.of_enum
 
 let build_formula srk lambdas mat n_rows n_cols op =
   let m = Mat.transpose mat in
   let formulas = ref (mk_true srk) in
   for i = 0 to n_cols-1 do
     let row_i = Mat.row i m in
+    let k = Linear.term_of_vec srk (List.nth lambdas) row_i in
     let lhs = (mk_zero srk) in
     let rlhs = ref lhs in
     for j = 0 to n_rows-1 do
@@ -152,12 +144,12 @@ let build_formula srk lambdas mat n_rows n_cols op =
     done;
     let lhs_exp = !rlhs in
     let formula = match op with
-    | "eq_0" -> mk_eq srk lhs_exp (mk_zero srk)
-    | "leq_0" -> mk_leq srk lhs_exp (mk_zero srk)
-    | "lt_0" -> mk_lt srk lhs_exp (mk_zero srk)
-    | _ -> assert false
+      | Tyeq0 -> mk_eq srk lhs_exp (mk_zero srk)
+      | Tyleq0 -> mk_leq srk lhs_exp (mk_zero srk)
+      | Tylt0 -> mk_lt srk lhs_exp (mk_zero srk)
     in
     formulas := mk_and srk [formula; !formulas]
+    (* create the list first using map and call mk_and after *)
   done;
   !formulas
 
@@ -179,20 +171,14 @@ let build_lambda_mat_prod_terms srk lambdas mat n_rows n_cols =
   done;
   !r
 
+
 let build_gt_zero srk lambdas =
-  List.fold_left
-    (fun f lambda ->
-      mk_and srk [f; mk_leq srk (mk_zero srk) lambda]
-    )
-    (mk_true srk)
-    lambdas
+  let zero = mk_zero srk in
+  List.map (mk_leq srk zero) lambdas
+  |> mk_and srk
 
 let rec build_subtracted_lambdas srk lambdas1 lambdas2 =
-  match lambdas1, lambdas2 with
-  | h1 :: t1, h2 :: t2 -> 
-    mk_sub srk h1 h2 :: build_subtracted_lambdas srk t1 t2
-  | [], [] -> []
-  | _, _ -> assert false
+  List.map2 (mk_sub srk) lambdas1 lambdas2
 
 let get_constants_vec cs constraints =
   BatList.fold_left
@@ -261,7 +247,7 @@ let print_ranking_func srk cs xp_list rf_terms_list rf_delta0 rf_delta interp =
   logf "\n\n***************************\n\n";
   ()
 
-let prove_termination srk tto_transition_formula tmul loop =
+let prove_termination srk tto_transition_formula loop =
   logf "======= printing poly loop body\n\n";
   (* x -> header -> xp -> body -> xpp *)
   let header, body = loop in
@@ -317,7 +303,7 @@ let prove_termination srk tto_transition_formula tmul loop =
   let cs = CoordinateSystem.mk_empty srk in
   let header_eqs = get_polyhedron_of_formula srk invariant_prop cs in
   let body_eqs = get_polyhedron_of_formula srk bodyf_prop cs in
-  List.iter
+  (* List.iter
     (fun (xp) -> 
       try let tid = (CoordinateSystem.cs_term_id cs (`App (xp, []))) in
         ()
@@ -330,7 +316,7 @@ let prove_termination srk tto_transition_formula tmul loop =
         ()
       with Not_found -> CoordinateSystem.admit_cs_term cs (`App (xpp, [])); ();
     )
-    xpp_list;
+    xpp_list; *)
   (* List.iter
     (fun (xp) -> 
       let tid = (CoordinateSystem.cs_term_id cs (`App (xp, []))) in
@@ -380,16 +366,16 @@ let prove_termination srk tto_transition_formula tmul loop =
   print_formula_to_stdout srk "\nConstraints lambda_1 >= 0:\n" l1gt0;
   let l2gt0 = build_gt_zero srk lambda2s in
   print_formula_to_stdout srk "\nConstraints lambda_2 >= 0:\n" l2gt0;
-  let eq1 = build_formula srk lambda1s mat_ap n_rows n_cols "eq_0" in
+  let eq1 = build_formula srk lambda1s mat_ap n_rows n_cols Tyeq0 in
   print_formula_to_stdout srk "\nConstraints eq1:\n" eq1;
   
-  let eq2 = build_formula srk subtractions mat_a n_rows n_cols "eq_0" in
+  let eq2 = build_formula srk subtractions mat_a n_rows n_cols Tyeq0 in
   print_formula_to_stdout srk "\nConstraints eq2:\n" eq2;
 
-  let eq3 = build_formula srk lambda2s (Mat.add mat_a mat_ap) n_rows n_cols "eq_0" in
+  let eq3 = build_formula srk lambda2s (Mat.add mat_a mat_ap) n_rows n_cols Tyeq0 in
   print_formula_to_stdout srk "\nConstraints eq3:\n" eq3;
 
-  let eq4 = build_formula srk lambda2s mat_b n_rows 1 "lt_0" in
+  let eq4 = build_formula srk lambda2s mat_b n_rows 1 Tylt0 in
   print_formula_to_stdout srk "\nConstraints eq4:\n" eq4;
 
   let all_eqs = mk_and srk [l1gt0; l2gt0; eq1; eq2; eq3; eq4] in
@@ -423,7 +409,12 @@ let prove_termination srk tto_transition_formula tmul loop =
   | `Unknown ->  (logf ~attributes:[`Bold; `Yellow] "unable to prove linear rf exists or not");()
   | `Unsat -> (logf ~attributes:[`Bold; `Red] "linear ranking function does not exist"); ()
 
-let prove_termination_of_loops srk tto_transition_formula tmul loops =
+(* let prove_termination_of_loops srk tto_transition_formula loops =
   List.iter
-    (fun loop -> prove_termination srk tto_transition_formula tmul loop)
+    (fun loop -> prove_termination srk tto_transition_formula loop)
+    loops *)
+
+let prove_termination_of_loops srk tto_transition_formula loops =
+  List.iter
+    (fun loop -> TLLRF.prove_LLRF_termination srk tto_transition_formula loop)
     loops

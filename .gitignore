@@ -33,8 +33,9 @@ autom4te.cache
 config.status
 duet/duet
 API.odocl
+AUTHORS.txt
 INSTALL.txt
-README.txt
+output
 
 #tag files
 */tags

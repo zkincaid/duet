@@ -32,8 +32,6 @@ type vertex = int
 
 let get_algebra wg = wg.algebra
 
-let get_true_from_algebra wg = wg.algebra.one
-
 let empty algebra =
   { graph = U.empty;
     labels = M.empty;
@@ -59,23 +57,6 @@ let add_edge wg u weight v =
   else
     { wg with graph = U.add_edge wg.graph u v;
               labels = M.add (u, v) weight wg.labels }
-
-let get_non_trivial_scc wg =
-  let l = SCC.scc_list wg.graph in
-  let non_trivial_l = 
-    List.filter 
-      (fun an_scc -> List.length an_scc > 1) l 
-  in
-  (List.length non_trivial_l, SCC.scc wg.graph, l)
-  (* if List.length non_trivial_l > 0 then
-      let simplified_l =
-        List.map 
-          (fun an_scc -> 
-            if List.length an_scc > 1 then an_scc else []) l 
-      in
-      Some (SCC.scc wg.graph, simplified_l)
-  else
-      None *)
 
 let get_scc wg = SCC.scc wg.graph
 
@@ -135,8 +116,6 @@ let contract_vertex wg v =
     (remove_vertex wg v)
 
 let max_vertex wg = U.fold_vertex max wg.graph 0
-
-let max_vertex_plus_1 wg = U.fold_vertex max wg.graph 1
 
 let path_weight wg src tgt =
   let start = max_vertex wg + 1 in
@@ -212,6 +191,24 @@ let iter_succ_e f wg u =
 let fold_vertex f wg = U.fold_vertex f wg.graph
 let iter_vertex f wg = U.iter_vertex f wg.graph
 let mem_edge wg u v = M.mem (u, v) wg.labels
+
+(** there can be self-loops in the graph *)              
+let get_non_trivial_scc wg =
+  let l = SCC.scc_list wg.graph in
+  let non_trivial_l = 
+    List.filter 
+      (fun an_scc -> 
+        if List.length an_scc > 1 then true 
+        else
+          begin
+            let u = List.hd an_scc in
+            let flag = false in
+            fold_succ_e (fun (_, _, y) flag -> if y = u then true else flag) wg u flag
+          end
+      ) 
+      l 
+  in
+  (List.length non_trivial_l, SCC.scc wg.graph, non_trivial_l)
 
 (* Line graphs swaps vertices and edges *)
 module LineGraph = struct
@@ -384,7 +381,6 @@ module MakeRecGraph (W : Weight) = struct
     let one = Weight W.one in
     { add; mul; star; zero; one }
 
-  let empty = empty label_algebra
 
   let weight_algebra f = function
     | `Edge (s, t) -> f s t
@@ -400,6 +396,13 @@ module MakeRecGraph (W : Weight) = struct
       star = mk_star context;
       zero = mk_zero context;
       one = mk_one context }
+
+  let weight_algebra_from_W = 
+    { mul = W.mul;
+      add = W.add;
+      star = W.star; 
+      zero = W.zero;
+      one = W.one }
 
   (* For each (s,t) call reachable from [src], add an edge from [src] to [s]
      with the path weight from [src] to to the call.  *)
@@ -579,6 +582,22 @@ module MakeRecGraph (W : Weight) = struct
         query
     end
 
+  let build_wg_with_no_call_edges wg src =
+    let query = mk_query wg in
+    let query' = add_call_edges query src in
+    let weight =
+      weight_algebra (fun s t ->
+          match M.find (s, t) query'.labels with
+          | Weight w -> w
+          | Call (en, ex) -> M.find (en, ex) query'.summaries)
+    in
+    fold_edges 
+      (fun (s, w, t) ng -> 
+         let new_weight = eval ~table:query.table weight w in
+         add_edge ng s new_weight t
+      ) 
+      query'.graph (empty weight_algebra_from_W)
+
   let path_weight query src tgt =
     (* For each (s,t) call edge reachable from src, add corresponding edge
        from src to s with the path weight from src to s *)
@@ -591,4 +610,9 @@ module MakeRecGraph (W : Weight) = struct
     in
     path_weight query'.graph src tgt
     |> eval ~table:query.table weight
+
+
+
+  let empty = empty label_algebra
+
 end

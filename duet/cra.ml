@@ -56,7 +56,7 @@ type value =
   | VVal of Var.t
   | VPos of Var.t
   | VWidth of Var.t
-    [@@deriving ord]
+[@@deriving ord]
 
 module Value = struct
   type t = value [@@deriving ord]
@@ -127,7 +127,7 @@ module K = struct
   module Vas_P = Product(VasSwitch)(Product(WedgeGuard)(LinearRecurrenceInequation))
   module D = Sum(SPSplit)(Vas_P)()
   module I = Iter(MakeDomain(D))
- 
+
   let star x = Log.time "cra:star" I.star x
 
   let add x y =
@@ -230,7 +230,7 @@ let rec tr_expr expr =
        (which just acts like a havoc). *)
     | OUnaryOp (_, _, typ) -> TInt (nondet_const "tr" (tr_typ typ))
     | OBoolExpr b -> TInt (Ctx.mk_ite (tr_bexpr b) (Ctx.mk_real (QQ.of_int 1)) (Ctx.mk_real (QQ.of_int 0)))
-      (*if (Bexpr.equal b Bexpr.ktrue) then TInt (Ctx.mk_real (QQ.of_int 1)) else TInt (Ctx.mk_real (QQ.of_int 0))*)
+    (*if (Bexpr.equal b Bexpr.ktrue) then TInt (Ctx.mk_real (QQ.of_int 1)) else TInt (Ctx.mk_real (QQ.of_int 0))*)
     | OAccessPath ap -> TInt (nondet_const "tr" (tr_typ (AP.get_type ap)))
     | OConstant _ -> TInt (nondet_const "tr" `TyInt)
   in
@@ -481,6 +481,41 @@ module TSDisplay = ExtGraph.Display.MakeLabeled
       let show = SrkUtil.mk_show pp
     end)
 
+module TSNoCallEdgeDisplay = ExtGraph.Display.MakeLabeled
+    (struct
+      type t = K.t WeightedGraph.t
+
+      module V = struct
+        include SrkUtil.Int
+        type label = int
+        let label x = x
+        let create x = x
+      end
+
+      module E = struct
+        type label = K.t
+        type vertex = int
+        type t = int * K.t * int [@@deriving ord]
+        let src (x, _, _) = x
+        let dst (_, _, x) = x
+        let label (_, x, _) = x
+        let create x y z = (x, y, z)
+      end
+
+      let iter_edges_e = WG.iter_edges
+      let iter_vertex = WG.iter_vertex
+      let iter_succ f tg v =
+        WG.U.iter_succ f (WG.forget_weights tg) v
+      let fold_pred_e = WG.fold_pred_e
+    end)
+    (SrkUtil.Int)
+    (struct
+      open WeightedGraph
+      type t = K.t
+      let pp formatter w = K.pp formatter w
+      let show = SrkUtil.mk_show pp
+    end)
+
 let decorate_transition_system predicates ts entry =
   TS.forward_invariants_pa predicates ts entry
   |> List.fold_left (fun ts (v, invariant) ->
@@ -612,7 +647,7 @@ let analyze file =
     end
   | _ -> assert false
 
-  
+
 
 let prove_termination_main file =
   populate_offset_table file;
@@ -620,17 +655,16 @@ let prove_termination_main file =
   | [main] -> begin
       let rg = Interproc.make_recgraph file in
       let entry = (RG.block_entry rg main).did in
-      let (ts, assertions) = make_transition_system rg in
-      TSDisplay.display ts;
-      let (l, fl) =  NL.compute_all_nested_loops ts entry in
-      let _ =  NL.print_flattened_results show_klabel fl in
-      let loops_without_calledges = List.map
-        (fun (kl1, kl2) -> match (kl1, kl2) with
-            | Weight l1, Weight l2 -> (l1, l2)
-            | _, _ -> assert false)
-        fl
-      in
-      let _ = TM.prove_termination_of_loops srk K.to_transition_formula_with_consts K.mul loops_without_calledges in
+      let (ts1, assertions) = make_transition_system rg in
+      if !CmdLine.display_graphs then
+        TSDisplay.display ts1;
+      let wg = TS.build_wg_with_no_call_edges ts1 entry in
+      (* let (ts, assertions) = make_transition_system wg in *)
+      if !CmdLine.display_graphs then
+        TSNoCallEdgeDisplay.display wg;
+      let (l, fl) =  NL.compute_all_nested_loops wg entry in
+      (* let _ =  NL.print_flattened_results show_klabel fl in *)
+      let _ = TM.prove_termination_of_loops srk K.to_transition_formula_with_consts fl in
       ()
     end
   | _ -> assert false
@@ -692,8 +726,8 @@ let resource_bound_analysis file =
                 | Some upper ->
                   logf ~level:`always "cost <= %a" (Syntax.Term.pp srk) upper;
                   logf ~level:`always "%a is O(%a)"
-                  Varinfo.pp procedure
-                  BigO.pp (BigO.of_term srk upper)
+                    Varinfo.pp procedure
+                    BigO.pp (BigO.of_term srk upper)
                 | None -> ()
               end
             | `Unsat ->

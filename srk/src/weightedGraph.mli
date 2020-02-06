@@ -16,7 +16,8 @@ type 'a algebra =
     one : 'a }
 
 val get_algebra: 'a t -> 'a algebra
-val get_true_from_algebra: 'a t -> 'a
+
+(** Unweighted graphs *)
 module U : Graph.Sig.G with type V.t = int
 
 type vertex = int
@@ -76,7 +77,6 @@ val mem_edge : 'a t -> vertex -> vertex -> bool
 
 (** Find the largest integer identifier for a vertex in a graph *)
 val max_vertex : 'a t -> int
-val max_vertex_plus_1 : 'a t -> int
 
 val get_non_trivial_scc : 'a t -> (int * (int * (vertex -> int)) * vertex list list)
 (* val get_scc : 'a t -> int * (vertex -> int)
@@ -152,4 +152,6 @@ module MakeRecGraph (W : Weight) : sig
   (** Over-approximate the sum of the weights of all paths between two given
       vertices.  *)
   val path_weight : query -> vertex -> vertex -> W.t
+
+  val build_wg_with_no_call_edges : t -> vertex -> W.t weighted_graph
 end
