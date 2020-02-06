@@ -191,7 +191,6 @@ let fold_vertex f wg = U.fold_vertex f wg.graph
 let iter_vertex f wg = U.iter_vertex f wg.graph
 let mem_edge wg u v = M.mem (u, v) wg.labels
 
-<<<<<<< HEAD
 (* Cut graph reduces a weighted graph to only those vertices in c, while preserving all weighted paths between pairs of vertices in c *)
 let cut_graph wg c =
   let module Set = SrkUtil.Int.Set in
@@ -211,7 +210,6 @@ let cut_graph wg c =
       add_edge (add_vertex cg v) u (path_weight path_graph (pre_vertex u) (post_vertex v)) v
     ) cut_set (add_vertex cg u)
   ) cut_set (empty wg.algebra)
-=======
 (** there can be self-loops in the graph *)              
 let get_non_trivial_scc wg =
   let l = SCC.scc_list wg.graph in
@@ -229,7 +227,6 @@ let get_non_trivial_scc wg =
       l 
   in
   (List.length non_trivial_l, SCC.scc wg.graph, non_trivial_l)
->>>>>>> 3695ac369713d665b80fc1ec46a4edb256d9d72f
 
 (* Line graphs swaps vertices and edges *)
 module LineGraph = struct

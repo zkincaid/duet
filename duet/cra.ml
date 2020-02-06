@@ -128,7 +128,6 @@ module K = struct
   module Vas_P = Product(VasSwitch)(Product(WedgeGuard)(LinearRecurrenceInequation))
   module D = Sum(SPSplit)(Vas_P)()
   module I = Iter(MakeDomain(D))
-<<<<<<< HEAD
  
   let star x =
     let star x =
@@ -137,10 +136,6 @@ module K = struct
       I.closure abstract
     in
     Log.time "cra.star" star x
-=======
-
-  let star x = Log.time "cra:star" I.star x
->>>>>>> 3695ac369713d665b80fc1ec46a4edb256d9d72f
 
   let add x y =
     if is_zero x then y
@@ -493,9 +488,7 @@ module TSDisplay = ExtGraph.Display.MakeLabeled
       let show = SrkUtil.mk_show pp
     end)
 
-<<<<<<< HEAD
 module SA = Abstract.MakeAbstractRSY(Ctx)
-=======
 module TSNoCallEdgeDisplay = ExtGraph.Display.MakeLabeled
     (struct
       type t = K.t WeightedGraph.t
@@ -530,7 +523,6 @@ module TSNoCallEdgeDisplay = ExtGraph.Display.MakeLabeled
       let pp formatter w = K.pp formatter w
       let show = SrkUtil.mk_show pp
     end)
->>>>>>> 3695ac369713d665b80fc1ec46a4edb256d9d72f
 
 let decorate_transition_system predicates ts entry =
   let module AbsDom =
