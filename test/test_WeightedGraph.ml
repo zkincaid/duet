@@ -1,3 +1,4 @@
+open Srk
 open OUnit
 open Syntax
 open Test_pervasives
@@ -19,7 +20,7 @@ module V = struct
   let pp = Format.pp_print_string
   let show x = x
   let typ = Hashtbl.find typ_table
-  let compare = Pervasives.compare
+  let compare = Stdlib.compare
   let symbol_of = Hashtbl.find sym_table
   let of_symbol sym =
     if Hashtbl.mem rev_sym_table sym then

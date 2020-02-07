@@ -1,3 +1,4 @@
+open Srk
 open OUnit
 open Linear
 open Test_pervasives

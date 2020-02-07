@@ -115,7 +115,7 @@ let rec eval alg ast =
   | SORT_AST
   | UNKNOWN_AST -> invalid_arg "eval: unknown ast type"
 
-let mk_quantifier_simplify_tactic z3 =
+let _mk_quantifier_simplify_tactic z3 =
   let open Z3 in
   let open Tactic in
   let mk_tactic = mk_tactic z3 in
@@ -530,37 +530,8 @@ let optimize_box ?(context=Z3.mk_context []) srk phi objectives =
     logf ~level:`warn "Caught Z3 exception: %s" x;
     `Unknown
 
-let interpolate_seq ?(context=Z3.mk_context []) srk seq =
-  let z3 = context in
-  let of_formula = z3_of_formula srk z3 in
-  let formula_of = formula_of_z3 srk in
-  let rec make_pattern phi = function
-    | [psi] ->
-      Z3.Boolean.mk_and z3 [
-        Z3.Interpolation.mk_interpolant z3 phi;
-        of_formula psi
-      ]
-    | psi::rest ->
-      make_pattern
-        (Z3.Boolean.mk_and z3 [
-            Z3.Interpolation.mk_interpolant z3 phi;
-            of_formula psi
-          ])
-        rest
-    | [] ->
-      invalid_arg "interpolate_seq: input sequence must be of length >= 2"
-  in
-  let params = Z3.Params.mk_params z3 in
-  let pattern =
-    if seq = [] then
-      invalid_arg "interpolate_seq: input sequence must be of length >= 2";
-    make_pattern (of_formula (List.hd seq)) (List.tl seq)
-  in
-  match Z3.Interpolation.compute_interpolant z3 pattern params with
-  | (_, Some interp, None) -> `Unsat (List.map formula_of interp)
-  | (_, None, Some m) ->
-    `Sat (Interpretation.wrap srk (Solver.model_get_value srk z3 m))
-  | (_, _, _) -> `Unknown
+let interpolate_seq ?context:_ _ _ =
+  failwith "SrkZ3.interpolate_seq not implemented"
 
 let load_smtlib2 ?(context=Z3.mk_context []) srk str =
   let z3 = context in
@@ -583,9 +554,12 @@ let load_smtlib2 ?(context=Z3.mk_context []) srk str =
         in
         cos (Symbol.to_string sym, typ)
   in
-  match Expr.refine srk (of_z3 srk sym_of_decl ast) with
-  | `Formula phi -> phi
-  | `Term _ -> invalid_arg "load_smtlib2"
+  Z3.AST.ASTVector.to_expr_list ast
+  |> List.map (fun expr ->
+         match Expr.refine srk (of_z3 srk sym_of_decl expr) with
+         | `Formula phi -> phi
+         | `Term _ -> invalid_arg "load_smtlib2")
+  |> mk_and srk
 
 let of_goal srk g =
   List.map (formula_of_z3 srk) (Z3.Goal.get_formulas g)
@@ -647,7 +621,6 @@ module CHC = struct
     Z3.Params.add_bool params (sym "xform.slice") false;
     Z3.Params.add_bool params (sym "xform.inline_linear") false;
     Z3.Params.add_bool params (sym "xform.inline_eager") false;
-    Z3.Params.add_bool params (sym "pdr.utvpi") false;
     Z3.Fixedpoint.set_parameters fp params;
 
     Z3.Fixedpoint.register_relation fp error_decl;
