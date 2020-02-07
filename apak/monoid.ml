@@ -100,11 +100,7 @@ module FunctionSpace = struct
       module LiftMap (M : Putil.Map.S) (Codomain : Sig.Monoid.Ordered.S) =
       struct
         include LiftMap(M)(Codomain)
-        module Compare_t = struct
-          type a = t
-          let compare = M.compare Codomain.compare
-        end
-        let compare = Compare_t.compare
+        let compare = M.compare Codomain.compare
       end
       module Make (Domain : Putil.Ordered) (Codomain : Sig.Monoid.Ordered.S) =
         LiftMap(Putil.Map.Make(Domain))(Codomain)
@@ -132,7 +128,6 @@ module FunctionSpace = struct
         && M.equal Codomain.equal f.map g.map
 
       let const v = { map = M.empty; default = v }
-      let unit = const Codomain.unit
 
       let update k v f =
         if Codomain.equal f.default v
@@ -178,14 +173,10 @@ module FunctionSpace = struct
       module LiftMap (M : Putil.Map.S) (Codomain : Sig.Monoid.Ordered.S) =
       struct
         include LiftMap(M)(Codomain)
-        module Compare_t = struct
-          type a = t
-          let compare f g =
-            match Codomain.compare f.default g.default with
-            | 0 -> M.compare Codomain.compare f.map g.map
-            | x -> x
-        end
-        let compare = Compare_t.compare
+        let compare f g =
+          match Codomain.compare f.default g.default with
+          | 0 -> M.compare Codomain.compare f.map g.map
+          | x -> x
       end
       module Make (Domain : Putil.Ordered) (Codomain : Sig.Monoid.Ordered.S) =
         LiftMap(Putil.Map.Make(Domain))(Codomain)

@@ -50,7 +50,7 @@ module MakeUnivariate(R : Ring.S) = struct
     in
     IntMap.enum p
     |> BatList.of_enum
-    |> BatList.sort (fun x y -> Pervasives.compare (fst x) (fst y))
+    |> BatList.sort (fun x y -> Stdlib.compare (fst x) (fst y))
     |> go 0
 
   let scalar k = add_term k 0 zero
@@ -237,7 +237,7 @@ module Monomial = struct
 
   let equal = IntMap.equal (=)
 
-  let compare = IntMap.compare Pervasives.compare
+  let compare = IntMap.compare Stdlib.compare
 
   let singleton dim power = mul_term dim power one
 
@@ -601,6 +601,7 @@ module Rewrite = struct
         let (_, x, y) = H.find_min queue in
         Some ((x, y), H.del_min queue)
     let empty = H.empty
+
     let mem queue (x, y) =
       let (m, _, _) = x in
       let (m', _, _) = y in
@@ -777,20 +778,8 @@ module Rewrite = struct
     { rules = RS.of_list rule_list;
       order }
 
-  let insert_rule order rule rules =
-    let rec insert (m,rhs,provenance) rules =
-      match rules with
-      | [] -> [(m,rhs,provenance)]
-      | (m',rhs',provenance')::rules' ->
-        if Monomial.total_degree m <= Monomial.total_degree m' then
-          (m,rhs,provenance)::rules
-        else
-          (m',rhs',provenance')::(insert (m,rhs,provenance) rules')
-    in
-    insert rule rules
-
   (* Buchberger's second criterion *)
-  let criterion2 r r' pairs rules =
+  let _criterion2 r r' pairs rules =
     let lcm =
       let (m, _, _) = r in
       let (m', _, _) = r' in
@@ -875,15 +864,6 @@ module Rewrite = struct
 
   let buchberger order rules pairs =
     Log.time "buchberger" (buchberger order rules) pairs
-
-  let compare_rule (m,rhs,provenance) (m',rhs',provenance') =
-    match Pervasives.compare (Monomial.total_degree m) (Monomial.total_degree m') with
-    | 0 ->
-      begin match Monomial.compare m m' with
-        | 0 -> Pervasives.compare rhs rhs'
-        | x -> x
-      end
-    | x -> x
 
   (* Ensure that every basis polynomial is irreducible w.r.t. every other
      basis polynomial *)

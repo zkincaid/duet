@@ -1,6 +1,5 @@
+open Apak
 open OUnit
-open Graph
-open RecGraph
 
 module ZMin = struct
   include Ka.ZMin

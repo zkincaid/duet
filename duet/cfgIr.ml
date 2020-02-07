@@ -34,7 +34,7 @@ module Cfg = struct
       end
     in
     Dfs.postfix set_rank cfg; (* postorder *)
-    fun x y -> Pervasives.compare (get_rank y) (get_rank x)
+    fun x y -> Stdlib.compare (get_rank y) (get_rank x)
 
   let initial_vertex g =
     let init = enum_initial g in
@@ -99,22 +99,6 @@ module CfgBuilder = struct
     ignore (mk_seq cfg bthen vexit);
     ignore (mk_seq cfg belse vexit);
     (fst ventry, fst vexit)
-
-  let mk_while_do cfg ?(loc=Cil.locUnknown) cond body =
-    let ventry = mk_single cfg (Def.mk ~loc (Assume cond)) in
-    let vexit = mk_single cfg (Def.mk ~loc (Assume (Bexpr.negate cond))) in
-    ignore (mk_seq cfg ventry body);
-    ignore (mk_seq cfg body ventry);
-    ignore (mk_seq cfg body vexit);
-    (ventry, vexit)
-
-  let mk_do_while cfg ?(loc=Cil.locUnknown) cond body =
-    let vloop = mk_single cfg (Def.mk ~loc (Assume cond)) in
-    let vexit = mk_single cfg (Def.mk ~loc (Assume (Bexpr.negate cond))) in
-    ignore (mk_seq cfg vloop body);
-    ignore (mk_seq cfg body vloop);
-    ignore (mk_seq cfg body vexit);
-    (fst body, vexit)
 end
 
 (** Inserts definition u into cfg directly before v *)
@@ -167,7 +151,7 @@ let factor_cfg cfg =
     end
   in
   let factor succs = function
-    | [v] -> ()
+    | [_] -> ()
     | vs ->
       let u = mk_skip () in
       let f v =
@@ -300,19 +284,6 @@ let defined_function name file =
 let is_local func var = List.exists (Varinfo.equal var) func.locals
 let is_formal func var = List.exists (Varinfo.equal var) func.formals
 
-let iter_vars f file =
-  let vfunc func =
-    List.iter f func.formals;
-    List.iter f func.locals;
-    f func.fname;
-    f (return_var func.fname)
-  in
-  List.iter vfunc file.funcs;
-  List.iter f file.vars;
-  match file.globinit with
-  | Some func -> vfunc func
-  | None -> ()
-
 (** Iterate over every definition of every thread of a file, as well as
     globinit *)
 let iter_defs f file =
@@ -331,21 +302,6 @@ let iter_func_defs f file =
   end;
   List.iter iter_func file.funcs
 
-let iter_entry_points f file =
-  let g thread = f (lookup_function thread file) in
-  List.iter g file.entry_points
-
-let clone_func func =
-  let name = Varinfo.clone func.fname in
-  begin match func.file with
-    | Some file -> file.vars <- name::file.vars
-    | None      -> ()
-  end;
-  { fname = name;
-    formals = func.formals;
-    locals = func.locals;
-    cfg = Cfg.clone func.cfg;
-    file = func.file }
 
 (** Remove the vertices of a CFG that are not reachable from the
     initial vertex. *)
@@ -408,7 +364,7 @@ let get_gfile () = match !gfile with
 (** Rewrite a file by applying sub_expr to every expression, sub_bexpr to
     every boolean expression, and sub_ap to every access path that occurs in
     any definition of any thread or globinit *)
-let rewrite sub_expr sub_bexpr sub_ap sub_var file =
+let _rewrite sub_expr sub_bexpr sub_ap sub_var file =
   let sub_builtin = function
     | Alloc (lhs, expr, loc) -> Alloc (sub_var lhs, sub_expr expr, loc)
     | Free expr -> Free (sub_expr expr)
@@ -515,7 +471,7 @@ let from_func_ast file func_ast =
     if StmtSet.mem stmt (!reached) then [] else begin
       reached := StmtSet.add stmt !reached;
       match stmt_kind stmt with
-      | Instr (x::xs) -> [x]
+      | Instr (x::_) -> [x]
       | ForkGoto _ -> [fork_lookup stmt]
       | _ -> next_defs_impl reached stmt
     end
@@ -536,7 +492,7 @@ let from_func_ast file func_ast =
   in
   let process_stmt stmt =
     match stmt_kind stmt with
-    | Instr (d::ds as defs) ->
+    | Instr (_::_ as defs) ->
       SrkUtil.adjacent_pairs (BatList.enum defs)
       |> BatEnum.iter (fun (x,y) -> Cfg.add_edge cfg x y);
       List.iter (Cfg.add_edge cfg (BatList.last defs)) (next_defs stmt)

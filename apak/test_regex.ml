@@ -1,11 +1,12 @@
 open Srk
+open Apak
 open OUnit
 open Regex
 
 let parse str =
   let str_len = String.length str in
   let ret x pos = Some (x, pos) in
-  let fail pos = None in
+  let fail _ = None in
   let next_char pos =
     if pos < str_len then Some (String.get str pos, pos + 1)
     else None

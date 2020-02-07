@@ -104,7 +104,7 @@ let vec_qqxsvec_dot vec1 vec2 =
     (0 -- (Array.length vec2 - 1))
 
 let term_of_ocrs srk loop_counter pre_term_of_id post_term_of_id =
-  let open Ocrs in
+  let open OCRS in
   let open Type_def in
   let ss_pre = SSVar "k" in
   let rec go = function
@@ -263,7 +263,7 @@ let pp_dim formatter i =
   in
   Format.pp_print_string formatter (to_string i)
 
-let pp_block formatter block =
+let _pp_block formatter block =
   let open Format in
   let size = block_size block in
   fprintf formatter "@[<v 0>";
@@ -287,7 +287,7 @@ let pp_block formatter block =
 (* Compute closed-form representation of the dynamics of solvable
    polynomial map using OCRS *)
 let closure_ocrs sp =
-  let open Ocrs in
+  let open OCRS in
   let open Type_def in
 
   (* pre/post subscripts *)
@@ -1007,7 +1007,7 @@ let extract_vector_leq srk wedge tr_symbols term_of_id base =
 (* Extract a system of recurrencs of the form Ax' <= BAx + b, where B
    has only positive entries and b is a vector of polynomials in
    recurrence terms at lower strata. *)
-let extract_matrix_leq srk wedge tr_symbols term_of_id =
+let _extract_matrix_leq srk wedge tr_symbols term_of_id =
   let open Apron in
   let cs = Wedge.coordinate_system wedge in
   let man = Polka.manager_alloc_loose () in
@@ -1301,7 +1301,7 @@ let extract_constant_symbols srk tr_symbols wedge =
   term_of_id
 
 let exp_ocrs srk tr_symbols loop_counter iter =
-  let open Ocrs in
+  let open OCRS in
   let open Type_def in
 
   Nonlinear.ensure_symbols srk;

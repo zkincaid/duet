@@ -1440,7 +1440,7 @@ let forget_ids wedge abstract forget =
   let forget_dims =
     Array.of_list (List.map (dim_of_id wedge.cs wedge.env) forget)
   in
-  BatArray.sort Pervasives.compare forget_dims;
+  BatArray.sort Stdlib.compare forget_dims;
   Abstract0.forget_array
     (get_manager ())
     abstract
@@ -2358,7 +2358,7 @@ let cover ?subterm:(subterm=(fun _ -> true)) srk p phi =
 let abstract_equalities ?exists:(p=fun _ -> true) ?subterm:(subterm=(fun _ -> true)) srk phi =
   let zero = mk_real srk QQ.zero in
   let wedge_eq =
-    { of_wedge = (fun ~lemma w ->
+    { of_wedge = (fun ~lemma:_ w ->
           affine_hull w
           |> List.map (fun x -> mk_eq srk (CS.term_of_vec w.cs x) zero)
           |> of_atoms srk

@@ -1,35 +1,22 @@
-SETUP = ocaml setup.ml
+.PHONY: build test
 
 all: build
 
-.PHONY: build ark test
-
-build: setup.ml setup.data
-	$(SETUP) -build
-
-ark: setup.ml setup.data
-	ocamlbuild src/test_ark.native -tag debug
-
-setup.ml: _oasis
-	oasis setup
-
-setup.data: setup.ml
-	$(SETUP) -configure --enable-tests
-
-install:
-	$(SETUP) -install
+build:
+	dune build
 
 clean:
-	$(SETUP) -clean
+	dune clean
 
 test:
-	$(SETUP) -test
+	dune runtest -f
+
+install:
+	dune build @install
+	dune install
 
 uninstall:
-	$(SETUP) -uninstall
+	dune uninstall
 
-reinstall:
-	$(SETUP) -reinstall
-
-doc: setup.ml setup.data
-	$(SETUP) -doc
+doc:
+	dune build @doc

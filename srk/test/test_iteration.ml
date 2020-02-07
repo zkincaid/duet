@@ -1,3 +1,4 @@
+open Srk
 open OUnit
 open Syntax
 open Test_pervasives

@@ -1,6 +1,5 @@
 open Core
 open CfgIr
-open Srk
 open Apak
 
 (** Static callgraph *)
@@ -30,7 +29,7 @@ struct
       with Not_found -> failwith "CfgIr.compute_topological_order: id not found"
     in
     Top.iter (fun x -> Varinfo.HT.add ht x (next_id ())) g;
-    fun x y -> Pervasives.compare (get_id y) (get_id x)
+    fun x y -> Stdlib.compare (get_id y) (get_id x)
   let vertex_clone x = x
   let vertex_string x = Varinfo.show x
 end

@@ -236,6 +236,7 @@ module AP : sig
   val is_shared : t -> bool
   val subscript : int -> ap -> ap
   val unsubscript : ap -> ap
+  val addr_of : ap -> aexpr
 
   val accessed : t -> Set.t
   val free_vars : t -> Var.Set.t

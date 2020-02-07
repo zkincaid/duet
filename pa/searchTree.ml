@@ -1,4 +1,3 @@
-open BatPervasives
 open Srk
 
 include Log.Make(struct let name = "SearchTree" end)
@@ -58,7 +57,7 @@ module Make (Base : Element) (Elt : Element) = struct
 
   let empty elts proj = { project = proj; elements = elts; tree = Leaf }
 
-  let pp_base formatter b =
+  let _pp_base formatter b =
     Format.fprintf formatter "{%a}"
     (SrkUtil.pp_print_enum Base.pp) (BaseSet.enum b)
 

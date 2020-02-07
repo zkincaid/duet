@@ -1,3 +1,3 @@
-ticket: patools.native diff-check @code/ticket-live.pa @code/ticket.pa @code/ticket.inv
-incdec: patools.native diff-check @code/incdec.cfa @code/incdec.pa @code/incdec.inv
-localdec: patools.native diff-check @code/localdec.cfa @code/localdec.pa @code/localdec.inv
+ticket: patools.exe diff-check @code/ticket-live.pa @code/ticket.pa @code/ticket.inv
+incdec: patools.exe diff-check @code/incdec.cfa @code/incdec.pa @code/incdec.inv
+localdec: patools.exe diff-check @code/localdec.cfa @code/localdec.pa @code/localdec.inv

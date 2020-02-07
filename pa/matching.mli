@@ -1,6 +1,3 @@
-open Pervasives
-open BatPervasives
-
 module type Vertex = sig
   type t
   val hash : t -> int

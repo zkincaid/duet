@@ -142,10 +142,6 @@ module MakeEmpty (A : sig
     type formula = (predicate, int) PaFormula.formula
     module Config : Struct.S with type predicate = predicate
                               and type t = config
-    module LetterSet : sig
-      type t = letter_set
-      val choose : t -> letter
-    end
     val pp_letter : Format.formatter -> letter -> unit
     val alphabet : t -> letter_set
     val successors : t -> config -> int -> (letter * config) BatEnum.t

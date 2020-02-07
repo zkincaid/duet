@@ -61,7 +61,7 @@ type ('a,'typ) expr = sexpr hobj
 type 'a term = ('a, typ_arith) expr
 type 'a formula = ('a, typ_bool) expr
 
-let compare_expr s t = Pervasives.compare s.tag t.tag
+let compare_expr s t = Stdlib.compare s.tag t.tag
 let compare_formula = compare_expr
 let compare_term = compare_expr
 
@@ -83,14 +83,14 @@ module DynArray = BatDynArray
 
 module Symbol = struct
   type t = symbol
-  let compare = Pervasives.compare
+  let compare = Stdlib.compare
   module Set = SrkUtil.Int.Set
   module Map = SrkUtil.Int.Map
 end
 
 module Var = struct
   module I = struct
-    type t = int * typ_fo [@@deriving show,ord]
+    type t = int * typ_fo [@@deriving ord]
   end
   include I
   module Set = BatSet.Make(I)
@@ -698,7 +698,7 @@ module Expr = struct
   module Inner = struct
     type t = sexpr hobj
     let equal s t = s.tag = t.tag
-    let compare s t = Pervasives.compare s.tag t.tag
+    let compare s t = Stdlib.compare s.tag t.tag
     let hash t = t.hcode
   end
   include Inner
@@ -774,7 +774,7 @@ end
 module Term = struct
   type 'a t = 'a term
   let equal s t = s.tag = t.tag
-  let compare s t = Pervasives.compare s.tag t.tag
+  let compare s t = Stdlib.compare s.tag t.tag
   let hash t = t.hcode
 
   let eval _srk alg t =
@@ -841,7 +841,7 @@ end
 module Formula = struct
   type 'a t = 'a formula
   let equal s t = s.tag = t.tag
-  let compare s t = Pervasives.compare s.tag t.tag
+  let compare s t = Stdlib.compare s.tag t.tag
   let hash t = t.hcode
 
   let destruct _srk phi = match phi.obj with

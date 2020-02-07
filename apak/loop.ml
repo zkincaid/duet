@@ -48,7 +48,7 @@ struct
   module VSet = Set.Make(G.V)
   let construct g =
     let extract_vertex g =
-      match PG.fold_vertex (fun v x -> Some v) g None with
+      match PG.fold_vertex (fun v _ -> Some v) g None with
       | Some v -> v
       | None -> failwith "Loop.extract_vertex: empty graph!"
     in
@@ -172,7 +172,7 @@ struct
     let rec get_headers g = SCCG.fold_vertex f g VSet.empty
     and f v headers =
       match v.vtype with
-      | Simple x -> headers
+      | Simple _ -> headers
       | Scc scc ->
         let headers = VSet.union headers (get_headers scc.graph) in
         List.fold_right VSet.add scc.entries headers
@@ -225,13 +225,9 @@ module SccInfo = struct
 
     module C = Graph.Components.Make(G)
     module VSet = BatSet.Make(G.V)
-
     type t = int * VSet.t
-    module Compare_t = struct
-      type a = t
-      let compare (a,_) (b,_) = Pervasives.compare a b
-    end
-    let compare = Compare_t.compare
+
+    let compare (a,_) (b,_) = Stdlib.compare a b
     let hash = Hashtbl.hash
     let equal (a,_) (b,_) = a = b
 
@@ -305,14 +301,6 @@ module SccInfo = struct
       in
       VSet.fold f scc []
 
-    let component_internals g (_,scc) =
-      let outside = not % flip VSet.mem scc in
-      let f v vs =
-        if not (exists_succ outside g v || exists_pred outside g v) then v::vs
-        else vs
-      in
-      VSet.fold f scc []
-
     let entries g =
       let f scc = (component_entries g scc, scc) in
       BatEnum.map f (scc g)
@@ -353,10 +341,10 @@ module Wto (G : G) = struct
     (from_sccg sccg, SCCG.is_header sccg)
 end
 
-let rec pp_wto pp_elt formatter wto =
+let pp_wto pp_elt formatter wto =
   let rec pp_item formatter = function
     | WSimple x -> Format.fprintf formatter "%a@;" pp_elt x
     | WLoop xs  ->
-      Format.fprintf formatter "[@[%a@]]" (SrkUtil.pp_print_list pp_item) wto
+      Format.fprintf formatter "[@[%a@]]" (SrkUtil.pp_print_list pp_item) xs
   in
   Format.fprintf formatter "[@[%a@]]" (SrkUtil.pp_print_list pp_item) wto

@@ -4,7 +4,6 @@
 
 open Core
 open CfgIr
-open Graph
 open Apak
 
 module R = Sese.Make(Cfg)
@@ -95,7 +94,6 @@ sig
     K.t
 end = struct
   module PE = Pathexp.MakeElim(G)(K)
-  open RecGraph
   let kleene rg g def_weight generalize s t =
     let region_vars = region_vars rg in
     let rec weight = function

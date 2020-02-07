@@ -157,7 +157,7 @@ module Letter = struct
       let reindex sym =
         match IV.of_symbol sym with
         | None -> Ctx.mk_const sym
-        | Some (v, i) ->
+        | Some (v, _) ->
           if Var.is_shared v then
             Ctx.mk_const sym
           else
@@ -374,7 +374,7 @@ let index_expr index =
 
     (* No real translations for anything else -- just return a free var "tr"
        (which just acts like a havoc). *)
-    | OBinaryOp (a, _, b, typ) -> gensym (tr_typ typ)
+    | OBinaryOp (_, _, _, typ) -> gensym (tr_typ typ)
     | OUnaryOp (_, _, typ) -> gensym (tr_typ typ)
     | OBoolExpr _ -> gensym `TyInt
     | OAccessPath ap -> gensym (tr_typ (AP.get_type ap))
@@ -686,7 +686,7 @@ let mk_block_graph file =
     in
 
     (* remove mhp entries for initial vertices *)
-    Varinfo.Map.fold (fun thread v mhp ->
+    Varinfo.Map.fold (fun _ v mhp ->
         PInt.Map.add v Letter.Set.empty mhp)
       initial
       mhp
@@ -694,7 +694,6 @@ let mk_block_graph file =
   { graph; initial; mhp; error }
 
 let program_automaton file =
-  let open Interproc in
   let main = match file.CfgIr.entry_points with
     | [x] -> x
     | _   -> failwith "PA: No support for multiple entry points"
@@ -837,12 +836,12 @@ let verify file =
           (Filename.chop_extension (Filename.basename file.CfgIr.filename))
           (!number_cex)
       in
-      let chan = Pervasives.open_out filename in
+      let chan = Stdlib.open_out filename in
       let formatter = Format.formatter_of_out_channel chan in
       logf ~level:`always "Writing emptiness query to %s" filename;
       E.pp formatter solver;
       Format.pp_print_newline formatter ();
-      Pervasives.close_out chan
+      Stdlib.close_out chan
     end;
     match check () with
     | Some trace ->

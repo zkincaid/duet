@@ -20,8 +20,8 @@ let may_use_conc v = Var.is_shared v || Varinfo.addr_taken (fst v)
 module LockPred = struct
   module LP = LockLogic.LockPred
   include LockLogic.CombinePred(Var)(LP)(LP)
-  let clear_fst (x, y) = (LP.unit, y)
-  let clear_snd (x, y) = (x, LP.unit)
+  let clear_fst (_, y) = (LP.unit, y)
+  let clear_snd (x, _) = (x, LP.unit)
   let make_acq x =
     let ls = { LP.acq = x;
                LP.rel = AP.Set.empty }
@@ -89,7 +89,7 @@ module Make(MakeEQ :
     include SeqDep.KillPred
     let subst sub_var set =
       let add iap set = match (iap, AP.psubst_var sub_var iap) with
-        | (Variable v, _) -> AP.Set.add iap set
+        | (Variable _, _) -> AP.Set.add iap set
         | (_, Some z) -> AP.Set.add z set
         | (_, None)   -> set
       in
@@ -100,8 +100,8 @@ module Make(MakeEQ :
         AP.Set.map (AP.subscript 0) (Bexpr.get_uses be)
       in
       match def.dkind with
-      | Store (lhs, rhs) -> assign_weight lhs
-      | Assign (lhs, rhs) -> assign_weight (Variable lhs)
+      | Store (lhs, _) -> assign_weight lhs
+      | Assign (lhs, _) -> assign_weight (Variable lhs)
       | Assume be | Assert (be, _) -> assume_weight be
       | AssertMemSafe (e, _) -> assume_weight (Bexpr.of_aexpr e)
       | Builtin (Alloc (lhs, _, _)) -> assign_weight (Variable lhs)
@@ -134,7 +134,7 @@ module Make(MakeEQ :
     let mul x y =
       filter (SeqDep.RDPred.mul x y)
 
-    let pred_weight def = unit
+    let pred_weight _ = unit
   end
 
   module LRDPred = LockLogic.CombinePred(Var)(LockPred)(RDPred)
@@ -235,7 +235,7 @@ module Make(MakeEQ :
   let filter_rd rd_tr =
     let frame = LRD.TR.get_frame rd_tr in
     let f minterm rest =
-      let (locks, pred) = LRDMinterm.get_pred minterm in
+      let (_, pred) = LRDMinterm.get_pred minterm in
       let add = match pred.SeqDep.current_name with
         | Some name -> not (AP.Set.mem name pred.SeqDep.killed)
         | None -> true
@@ -481,7 +481,7 @@ module Make(MakeEQ :
     let clear_fst =
       LK.TR.apply_pred (fun (ls, k) -> (LockPred.clear_fst ls, k))
     let clear_kill =
-      LK.TR.apply_pred (fun (ls, k) -> (ls, AP.Set.empty))
+      LK.TR.apply_pred (fun (ls, _) -> (ls, AP.Set.empty))
 
     let zero = { abspath = LK.TR.zero;
                  abspath_t = LK.TR.zero;
@@ -620,7 +620,7 @@ module Make(MakeEQ :
         tree_c = tree_c }
 
     let exists f a =
-      let g ((def, ap), rd) = match ap with
+      let g ((_, ap), rd) = match ap with
         | Variable v when not (f v) -> LRD.TR.zero
         | _ -> LRD.TR.exists f rd
       in
@@ -703,13 +703,13 @@ module Make(MakeEQ :
       | Assign (lhs, rhs) -> assign_weight (Variable lhs) rhs
       | Store  (lhs, rhs) -> assign_weight lhs rhs
       | Assume be | Assert (be, _) -> assume_weight be
-      | AssertMemSafe (e, s) -> assume_weight (Bexpr.of_aexpr e)
+      | AssertMemSafe (e, _) -> assume_weight (Bexpr.of_aexpr e)
       | Builtin (Alloc (lhs, _, _)) -> assign_weight (Variable lhs) (Havoc (Var.get_type lhs))
       | Builtin Exit -> LK.TR.zero
       | Builtin (Acquire e) -> acq_weight e
       | Builtin (Release e) -> rel_weight e
-      | Call   (vo, e, elst) -> failwith "Conc dep: Call encountered"
-      | Return eo            -> failwith "Conc dep: Return encountered"
+      | Call   (_, _, _) -> failwith "Conc dep: Call encountered"
+      | Return _            -> failwith "Conc dep: Return encountered"
       | _ -> LK.TR.one
 
     let rd_weight def =
@@ -735,7 +735,7 @@ module Make(MakeEQ :
       match def.dkind with
       | Store (lhs, rhs) -> assign_weight lhs rhs
       | Assign (lhs, rhs) when may_use_conc lhs -> assign_weight (Variable lhs) rhs
-      | Assume be | Assert (be, _) -> RDMap.unit (*assume_weight be*)
+      | Assume _ | Assert (_, _) -> RDMap.unit (*assume_weight be*)
       | AssertMemSafe (e, _) -> assume_weight (Bexpr.of_aexpr e)
       (* Doesn't handle offsets at the moment *)
       | Builtin (Alloc (lhs, _, _)) when may_use_conc lhs

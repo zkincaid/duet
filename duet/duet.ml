@@ -1,18 +1,16 @@
-open Core
-open CfgIr
-open Apak
 open Srk
-open Safety
+
+open! Safety
 
 (* Frontends *)
-open TranslateCil
-open TranslateCbp
+open! TranslateCil
+open! TranslateCbp
 
 (* Analyses *)
-open Cra
-open Proofspace
-open Dependence
-open ConcDep
+open! Cra
+open! Proofspace
+open! Dependence
+open! ConcDep 
 
 let usage_msg = "Duet program analyzer\nUsage: duet [OPTIONS] file.[c|bp]"
 
@@ -27,7 +25,7 @@ let _ =
       prerr_endline "You must supply a program to be analyzed";
       Arg.usage (Arg.align spec_list) usage_msg
     end
-  | Some x -> begin
+  | Some _ -> begin
       CmdLine.run (CfgIr.get_gfile());
       if !CmdLine.show_stats then Log.print_stats ()
     end

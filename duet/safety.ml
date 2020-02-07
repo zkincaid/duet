@@ -1,6 +1,5 @@
 open Core
 open CfgIr
-open Apak
 
 let assert_before cfg v cond msg =
   let assrt = Def.mk ~loc:(Def.get_location v) (Assert (cond, msg)) in

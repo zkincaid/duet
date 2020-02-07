@@ -93,17 +93,11 @@ module Make (A : Alphabet) (P : Predicate) = struct
   type letter = A.t [@@deriving show]
   type letter_set = A.Set.t
   type formula = (P.t, int) F.formula
-  type atom = P.t * int list [@@deriving ord]
+  type atom = P.t * int list
 
   module PSet = BatSet.Make(P)
   module PHT = BatHashtbl.Make(P)
   module LetterSet = A.Set
-
-  let pp_atom formatter (p,args) =
-    Format.fprintf formatter "@[%a(%a)@]"
-      P.pp p
-      (SrkUtil.pp_print_enum Format.pp_print_int) (BatList.enum args)
-
 
   (* A configuration is a finite structure over the vocabulary of the PA. *)
   module Config = Struct.Make(P)
@@ -208,13 +202,8 @@ module Make (A : Alphabet) (P : Predicate) = struct
 
   let alphabet pa = pa.alphabet
 
-  let same_alphabet pa qa = A.Set.equal pa.alphabet qa.alphabet
-
   let predicates pa = PHT.keys pa.arity |> PSet.of_enum
       
-  let disjoint_predicates pa qa =
-    PSet.is_empty (PSet.inter (predicates pa) (predicates qa))
-
   let union pa qa =
     if not (PSet.is_empty (PSet.inter (predicates pa) (predicates qa))) then
       invalid_arg "PredicateAutomata.union: input automata must have disjoint \
@@ -339,21 +328,6 @@ module Make (A : Alphabet) (P : Predicate) = struct
     in
     eval alg phi
 
-  let mem pa word =
-    let universe =
-      List.fold_left (fun m (_, k) -> max m k) 1 word
-    in
-    let start =
-      F.instantiate_quantifiers
-        pa.initial
-        (BatList.of_enum (1 -- universe))
-    in
-    List.fold_right
-      (fun (letter, i) phi -> concrete_post pa phi (letter, i))
-      word
-      start
-    |> accepting_formula pa
-
   let pp_formula phi = F.pp P.pp Format.pp_print_int phi
 
   let pp formatter pa =
@@ -413,7 +387,7 @@ module Make (A : Alphabet) (P : Predicate) = struct
     | `Atom (p, tuple) ->
       let lower = function
         | Const k -> k
-        | Var i -> assert false
+        | Var _ -> assert false
       in
       pp_print_int formatter (prop (p, (List.map lower tuple)))
     | `T -> pp_print_string formatter "true"
@@ -643,7 +617,7 @@ module MakeReachabilityGraph (A : sig
   module PSet = BatSet.Make(Config.Predicate)
   let make pa max_index =
     let preds pa =
-      let f (p, ar) preds =
+      let f (p, _) preds =
         PSet.add p preds
       in BatSet.fold f (BatSet.of_enum (A.vocabulary pa)) PSet.empty
     in
@@ -744,11 +718,11 @@ module MakeReachabilityGraph (A : sig
   (* Given a vertex v, try to find another vertex u which covers v.  If such a
      vertex is found, add the cover relation and return true.  Only look at
      ancestors of v in the ARG. *)
-  let close_ancestor arg vertex =
+  let _close_ancestor arg vertex =
     let config = label arg vertex in
     let rec find_covering_ancestor v =
       match parent arg v with
-      | Some (a,i,p) ->
+      | Some (_,_,p) ->
         if Config.embeds (label arg p) config then begin
           add_cover arg p vertex;
           logf ~level:`trace ~attributes:[`Green;`Bold] "Covered vertex:";
@@ -762,7 +736,7 @@ module MakeReachabilityGraph (A : sig
 
   (* Same as close_ancestor, except search through all vertices with lower
      id's *)
-  let close_all arg vertex =
+  let _close_all arg vertex =
     let config = label arg vertex in
     let rec find_cover u =
       if u >= vertex then
@@ -808,10 +782,6 @@ module MakeEmpty (A : sig
     type formula = (predicate, int) PaFormula.formula
     module Config : Struct.S with type predicate = predicate
                               and type t = config
-    module LetterSet : sig
-      type t = letter_set
-      val choose : t -> letter
-    end
     val pp_letter : Format.formatter -> letter -> unit
     val alphabet : t -> letter_set
     val successors : t -> config -> int -> (letter * config) BatEnum.t

@@ -1,5 +1,5 @@
 open OUnit
-open Graph
+open Apak
 open Regex
 
 module R = struct
@@ -19,9 +19,9 @@ module E = struct
   let default = None
 end
 module G = struct
-  include Persistent.Digraph.ConcreteLabeled(V)(E)
+  include Graph.Persistent.Digraph.ConcreteLabeled(V)(E)
 end
-module Oper = Oper.P(G)
+module Oper = Graph.Oper.P(G)
 open R
 
 let g =

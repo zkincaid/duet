@@ -49,7 +49,7 @@ module MkMin (A : MinAnalysis) : sig
   val do_analysis : A.st -> A.G.t -> (A.G.V.t -> A.absval) -> result
   val solve : result -> A.G.V.t list -> unit
   val lookup : result -> A.G.V.t -> A.absval
-  val display : ?widening : (A.G.V.t -> bool) -> result -> unit
+  val display : result -> unit
   val enum_result : result -> (A.G.V.t * A.absval) BatEnum.t
   val empty_result : A.st -> A.G.t -> result
   val init_result : result -> A.G.t -> (A.G.V.t -> A.absval) -> unit
@@ -113,7 +113,7 @@ end = struct
 
   (** Display an AFG with vertices annotated with the abstract values
       from map to the screen *)
-  let display ?(widening = (fun _ -> false)) result = 
+  let display result = 
     let module Show_v = struct
       type t = G.V.t
       let pp formatter v =
@@ -147,7 +147,7 @@ module Mk (A : Analysis) : sig
   val solve : result -> A.G.V.t list -> unit
   val input : result -> A.G.V.t -> A.absval
   val output : result -> A.G.V.t -> A.absval
-  val display : ?widening : (A.G.V.t -> bool) -> result -> unit
+  val display : result -> unit
   val enum_input : result -> (A.G.V.t * A.absval) BatEnum.t
   val enum_output : result -> (A.G.V.t * A.absval) BatEnum.t
   val empty_result : A.st -> A.G.t -> result
@@ -252,7 +252,7 @@ struct
       | Initial -> I.top (G.codomain graph def)
       | _ -> Pack.SetMap.fold combine map (I.top domain)
 
-    let join st def old_val new_val =
+    let join _st _def old_val new_val =
       let new_val = I.join old_val new_val in
       if I.equal old_val new_val then None else Some new_val
 
@@ -262,7 +262,7 @@ struct
         let limit = lookup_widening st def in
         if limit >= 0 then Some new_val
         else match def.dkind with
-          | Assume c | Assert (c, _) ->
+          | Assume _ | Assert (_, _) ->
             Some (I.transfer def (I.widen old_val new_val))
           | _ -> Some (I.widen old_val new_val)
       end
@@ -408,7 +408,7 @@ module MakeBackwardCfgSolver (I : MinInterpretation) = struct
     type absval = I.t
     type st = { thread_map : varinfo -> I.t }
 
-    let transfer st input def =
+    let transfer _st input def =
       I.transfer def input
 
     let flow_in st graph val_map v =
@@ -421,7 +421,7 @@ module MakeBackwardCfgSolver (I : MinInterpretation) = struct
         Varinfo.Set.fold join (PointerAnalysis.resolve_call tgt) input
       | _ -> input
 
-    let join st def x y =
+    let join _st _def x y =
       if I.equal x y then None else Some (I.join x y)
     let widen = None
 

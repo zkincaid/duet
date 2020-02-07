@@ -323,12 +323,12 @@ module PTSet (T : Tagged) : Putil.Hashed.Set.S with type elt = T.t = struct
     | Empty, Empty -> 0
     | Empty, _ -> 1
     | _, Empty -> -1
-    | Leaf k0, Leaf k1 -> Pervasives.compare (tag k0) (tag k1)
+    | Leaf k0, Leaf k1 -> Stdlib.compare (tag k0) (tag k1)
     | Leaf _, _ -> 1
     | _, Leaf _ -> -1
     | Branch (p,m,s0,s1), Branch (q,n,t0,t1) -> begin
-        match Pervasives.compare m n with
-        | 0 -> begin match Pervasives.compare p q with
+        match Stdlib.compare m n with
+        | 0 -> begin match Stdlib.compare p q with
             | 0 -> begin match compare s0 t0 with
                 | 0 -> compare s1 t1
                 | other -> other
@@ -349,27 +349,6 @@ module PTSet (T : Tagged) : Putil.Hashed.Set.S with type elt = T.t = struct
     | Empty -> 543159235
     | Leaf k -> Hashtbl.hash (tag k, 1)
     | Branch (_,_,left,right) -> Hashtbl.hash (hash left, hash right, 2)
-
-  (*i*)
-  let make l = List.fold_right add l empty
-  (*i*)
-
-  (*s Additional functions w.r.t to [Set.S]. *)
-
-  let rec intersect s1 s2 = match (s1,s2) with
-    | Empty, _ -> false
-    | _, Empty -> false
-    | Leaf k1, _ -> mem k1 s2
-    | _, Leaf k2 -> mem k2 s1
-    | Branch (p1,m1,l1,r1), Branch (p2,m2,l2,r2) ->
-      if m1 == m2 && p1 == p2 then
-        intersect l1 l2 || intersect r1 r2
-      else if m1 < m2 && match_prefix p2 p1 m1 then
-        intersect (if zero_bit p2 m1 then l1 else r1) s2
-      else if m1 > m2 && match_prefix p1 p2 m2 then
-        intersect s1 (if zero_bit p1 m2 then l2 else r2)
-      else
-        false
 
   (* Extra operations *)
 
@@ -402,7 +381,7 @@ module PTSet (T : Tagged) : Putil.Hashed.Set.S with type elt = T.t = struct
 
   let map f s = fold (fun v set -> add (f v) set) s empty
 
-  let rec filter_map f s =
+  let filter_map f s =
     let add v set =
       match f v with
       | Some u -> add u set
@@ -605,16 +584,6 @@ module PTMap (T : Tagged) = struct
 
   let rec filter pr = function
     | Empty -> Empty
-    | Leaf (_,v) as t -> if pr v then t else Empty
-    | Branch (p,m,t0,t1) -> branch (p, m, filter pr t0, filter pr t1)
-
-  let rec filterv pr = function
-    | Empty -> Empty
-    | Leaf (_,v) as t -> if pr v then t else Empty
-    | Branch (p,m,t0,t1) -> branch (p, m, filter pr t0, filter pr t1)
-
-  let rec filter pr = function
-    | Empty -> Empty
     | Leaf (k,v) as t -> if pr k v then t else Empty
     | Branch (p,m,t0,t1) -> branch (p, m, filter pr t0, filter pr t1)
 
@@ -703,15 +672,15 @@ module PTMap (T : Tagged) = struct
     | Empty, _ -> 1
     | _, Empty -> -1
     | Leaf (k0,v0), Leaf (k1,v1) -> begin
-        match Pervasives.compare (tag k0) (tag k1) with
+        match Stdlib.compare (tag k0) (tag k1) with
         | 0     -> cmp v0 v1
         | other -> other
       end
     | Leaf (_,_), _ -> 1
     | _, Leaf (_,_) -> -1
     | Branch (p,m,s0,s1), Branch (q,n,t0,t1) -> begin
-        match Pervasives.compare m n with
-        | 0 -> begin match Pervasives.compare p q with
+        match Stdlib.compare m n with
+        | 0 -> begin match Stdlib.compare p q with
             | 0 -> begin match compare cmp s0 t0 with
                 | 0 -> compare cmp s1 t1
                 | other -> other

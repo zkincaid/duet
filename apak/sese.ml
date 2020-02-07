@@ -20,7 +20,6 @@ end
 
 module Make(G : G) = struct
 
-  open Loop
   module U = Graph.Persistent.Graph.Concrete(G.V)
 
   module ExtG = struct
@@ -148,7 +147,6 @@ module Make(G : G) = struct
       vertex to a CEC, edge_class maps each edge to a CEC, and num_classes is
       the number of CECs in the graph. *)
   let compute_cec digraph init =
-    let open Dll in
     let open UDfsTree in
     let graph = undirected digraph init in
 
@@ -401,11 +399,9 @@ module Make(G : G) = struct
         [@@deriving show,ord]
 
     include Putil.MakeCoreType(struct
-        open RecGraph
         type t = (V.t, int) typ
             [@@deriving show,ord]
 
-        let equal u v = compare u v = 0
         let hash = function
           | `Atom v  -> Hashtbl.hash (G.V.hash v, 0)
           | `Block v -> Hashtbl.hash (v, 1)
@@ -442,7 +438,7 @@ module Make(G : G) = struct
 
   (** Display a region graph with boxes around each region *)
   let output_graph ch g =
-    let open Pervasives in
+    let open Stdlib in
     let emit s = output_string ch (s ^ "\n") in
     let max_region = ref 0 in
     let vstring v = String.escaped (SrkUtil.mk_show V.pp v) in
@@ -497,7 +493,6 @@ module Make(G : G) = struct
       PST bottom-up, collapsing canonical SESE regions into region vertices as
       it goes. *)
   let construct cfg init exit =
-    let open RecGraph in
     let ht = HT.create 991 in
 
     (* First id is 1: 0 is reserved for the top-level block *)
@@ -540,7 +535,6 @@ module Make(G : G) = struct
     R.add_block rg 0 g ~entry:(`Atom init) ~exit:(`Atom exit)
 
   let construct g ~entry:init ~exit:exit =
-    let open RecGraph in
     if G.nb_vertex g <= 2 then begin
       let sg =
         G.fold_vertex (fun v sg -> R.G.add_vertex sg (`Atom v)) g R.G.empty
@@ -556,19 +550,8 @@ module Make(G : G) = struct
           raise e
         end
 
-  let construct_triv g ~entry:init ~exit:exit =
-    let open RecGraph in
-    let sg =
-      G.fold_vertex (fun v sg -> R.G.add_vertex sg (`Atom v)) g R.G.empty
-    in
-    let sg =
-      G.fold_edges (fun v u sg -> R.G.add_edge sg (`Atom v) (`Atom u)) g sg
-    in
-    R.add_block R.empty 0 sg ~entry:(`Atom init) ~exit:(`Atom exit)
-
   module T = Graph.Topological.Make(R.G)
   let fold_sese f cfg init acc =
-    let open RecGraph in
     let rg =
       (* exit doesn't matter *)
       Log.time

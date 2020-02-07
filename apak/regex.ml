@@ -135,9 +135,7 @@ struct
       | NStar of t
       | NAlpha of M.t
       | NComplement of t
-    val pp : Format.formatter -> t -> unit
     val show : t -> string
-    val compare : t -> t -> int
     include Putil.Ordered with type t := t
   end = struct
     type t =
@@ -286,7 +284,7 @@ struct
     struct
       type t = int * int * N.t * N.t
       let compare (w0, x0, y0, z0) (w1, x1, y1, z1) =
-        match Pervasives.compare (w0+x0) (w1+x1) with
+        match Stdlib.compare (w0+x0) (w1+x1) with
         | 0 ->
           begin match N.compare y0 y1 with
             | 0 -> N.compare z0 z1

@@ -1,0 +1,13 @@
+(library
+  (public_name apak)
+  (modes native)
+  (libraries srk)
+  (modules (:standard \ test_apak test_recgraph test_regex test_sese test_pathexp))
+  (preprocess (pps ppx_deriving.ord ppx_deriving.eq ppx_deriving.show)))
+
+(test
+  (name test_apak)
+  (modes native)
+  (modules test_apak test_recgraph test_regex test_sese test_pathexp)
+  (libraries apak srk ocamlgraph oUnit apron apron.boxMPQ apron.octMPQ apron.polkaMPQ)
+  (preprocess (pps ppx_deriving.ord ppx_deriving.eq ppx_deriving.show)))

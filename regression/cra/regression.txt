@@ -1,41 +1,41 @@
 # loop free
-pointer_arith: duet.native -cra-no-forward-inv -cra @code/pointer_arith.c
-interproc: duet.native -cra-no-forward-inv -cra @code/interproc.c
+pointer_arith: duet.exe -cra-no-forward-inv -cra @code/pointer_arith.c
+interproc: duet.exe -cra-no-forward-inv -cra @code/interproc.c
 # linear
-count_by_1: duet.native -cra-no-forward-inv -cra @code/count_by_1.c
-count_by_1_variant: duet.native -cra-no-forward-inv -cra @code/count_by_1_variant.c
-count_up_down_safe: duet.native -cra-no-forward-inv -cra @code/count_up_down_safe.c
-count_up_down_unsafe: duet.native -cra-no-forward-inv -cra @code/count_up_down_unsafe.c
-nested: duet.native -cra-no-forward-inv -cra @code/nested.c
-count_by_2: duet.native -cra-no-forward-inv -cra @code/count_by_2.c
-count_by_nondet: duet.native -cra-no-forward-inv -cra @code/count_by_nondet.c
-rec1: duet.native -cra-no-forward-inv -cra @code/rec1.c
-rec2: duet.native -cra-no-forward-inv -cra @code/rec2.c
-rec1-param: duet.native -cra-no-forward-inv -cra @code/rec1-param.c
-rec2-param: duet.native -cra-no-forward-inv -cra @code/rec2-param.c
-half: duet.native -cra-split-loops -cra-no-forward-inv -cra @code/half.c
-const_false: duet.native -cra-split-loops -cra @code/const_false-unreach-call1.c
-wolfe1992_fig5: duet.native -cra-no-forward-inv -cra-prsd -cra @code/wolfe1992_fig5.c
-divide4: duet.native -cra-prsd -cra @code/divide4.c
-mbr2016: duet.native -cra-prsd -cra @code/mbr2016.c
+count_by_1: duet.exe -cra-no-forward-inv -cra @code/count_by_1.c
+count_by_1_variant: duet.exe -cra-no-forward-inv -cra @code/count_by_1_variant.c
+count_up_down_safe: duet.exe -cra-no-forward-inv -cra @code/count_up_down_safe.c
+count_up_down_unsafe: duet.exe -cra-no-forward-inv -cra @code/count_up_down_unsafe.c
+nested: duet.exe -cra-no-forward-inv -cra @code/nested.c
+count_by_2: duet.exe -cra-no-forward-inv -cra @code/count_by_2.c
+count_by_nondet: duet.exe -cra-no-forward-inv -cra @code/count_by_nondet.c
+rec1: duet.exe -cra-no-forward-inv -cra @code/rec1.c
+rec2: duet.exe -cra-no-forward-inv -cra @code/rec2.c
+rec1-param: duet.exe -cra-no-forward-inv -cra @code/rec1-param.c
+rec2-param: duet.exe -cra-no-forward-inv -cra @code/rec2-param.c
+half: duet.exe -cra-split-loops -cra-no-forward-inv -cra @code/half.c
+const_false: duet.exe -cra-split-loops -cra @code/const_false-unreach-call1.c
+wolfe1992_fig5: duet.exe -cra-no-forward-inv -cra-prsd -cra @code/wolfe1992_fig5.c
+divide4: duet.exe -cra-prsd -cra @code/divide4.c
+mbr2016: duet.exe -cra-prsd -cra @code/mbr2016.c
 # memory
-mem: duet.native -cra-no-forward-inv -check-array-bounds -cra @code/mem.c
-mem2: duet.native -cra-no-forward-inv -check-array-bounds -cra @code/mem2.c
+mem: duet.exe -cra-no-forward-inv -check-array-bounds -cra @code/mem.c
+mem2: duet.exe -cra-no-forward-inv -check-array-bounds -cra @code/mem2.c
 # nonlinear
-count_by_k: duet.native -cra-no-forward-inv -cra @code/count_by_k.c
-quotient: duet.native -cra @code/quotient.c
-quotient2: duet.native -cra-no-forward-inv -cra-split-loops -cra @code/quotient.c
-divide: duet.native -cra-no-forward-inv -cra @code/divide.c
-factor: duet.native -cra-no-forward-inv -cra @code/factor.c
-mult: duet.native -cra-no-forward-inv -cra @code/mult.c
-mult-rec: duet.native -cra-no-forward-inv -cra @code/mult-rec.c
-exponential: duet.native -cra-no-forward-inv -cra @code/exponential.c
-gauss_sum: duet.native -cra-no-forward-inv -cra @code/gauss_sum.c
-degree3_monomial: duet.native -cra-split-loops -cra-no-forward-inv -cra @code/degree3_monomial.c
-degree3_binomial: duet.native -cra-split-loops -cra-no-forward-inv -cra @code/degree3_binomial.c
-degree4_monomial: duet.native -cra-split-loops -cra-no-forward-inv -cra @code/degree4_monomial.c
-degree4_binomial: duet.native -cra-split-loops -cra-no-forward-inv -cra @code/degree4_binomial.c
-power_log: duet.native -cra @code/power_log.c
-log: duet.native -cra-split-loops -rba @code/log.c
-binary_search: duet.native -rba @code/binary_search.c
-fib_secure: duet.native -cra @code/fib_secure.c
+count_by_k: duet.exe -cra-no-forward-inv -cra @code/count_by_k.c
+quotient: duet.exe -cra @code/quotient.c
+quotient2: duet.exe -cra-no-forward-inv -cra-split-loops -cra @code/quotient.c
+divide: duet.exe -cra-no-forward-inv -cra @code/divide.c
+factor: duet.exe -cra-no-forward-inv -cra @code/factor.c
+mult: duet.exe -cra-no-forward-inv -cra @code/mult.c
+mult-rec: duet.exe -cra-no-forward-inv -cra @code/mult-rec.c
+exponential: duet.exe -cra-no-forward-inv -cra @code/exponential.c
+gauss_sum: duet.exe -cra-no-forward-inv -cra @code/gauss_sum.c
+degree3_monomial: duet.exe -cra-split-loops -cra-no-forward-inv -cra @code/degree3_monomial.c
+degree3_binomial: duet.exe -cra-split-loops -cra-no-forward-inv -cra @code/degree3_binomial.c
+degree4_monomial: duet.exe -cra-split-loops -cra-no-forward-inv -cra @code/degree4_monomial.c
+degree4_binomial: duet.exe -cra-split-loops -cra-no-forward-inv -cra @code/degree4_binomial.c
+power_log: duet.exe -cra @code/power_log.c
+log: duet.exe -cra-split-loops -rba @code/log.c
+binary_search: duet.exe -rba @code/binary_search.c
+fib_secure: duet.exe -cra @code/fib_secure.c

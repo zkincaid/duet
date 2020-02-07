@@ -26,12 +26,12 @@ let dump_goal loc path_condition =
         (!nb_goals)
         loc.Cil.line
     in
-    let chan = Pervasives.open_out filename in
+    let chan = Stdlib.open_out filename in
     let formatter = Format.formatter_of_out_channel chan in
     logf ~level:`always "Writing goal formula to %s" filename;
     Syntax.pp_smtlib2 srk formatter path_condition;
     Format.pp_print_newline formatter ();
-    Pervasives.close_out chan;
+    Stdlib.close_out chan;
     incr nb_goals
   end
 
@@ -318,9 +318,9 @@ let populate_offset_table file =
       | Builtin AtomicEnd | Builtin AtomicBegin | Builtin Exit -> ())
 
 let rec record_assign (lhs : varinfo) loff rhs roff fields =
-  fields |> List.map (fun { fityp; fioffset } ->
+  fields |> List.map (fun { fityp; fioffset; _ } ->
       match resolve_type fityp with
-      | Record { rfields } ->
+      | Record { rfields; _ } ->
         record_assign lhs (loff+fioffset) rhs (roff+fioffset) rfields
       | Pointer _ | Func _ | Dynamic ->
         let lhs = (lhs, OffsetFixed (loff + fioffset)) in
@@ -353,7 +353,7 @@ let weight def =
     let lhs_typ = resolve_type (Var.get_type lhs) in
     let rhs_typ = resolve_type (Aexpr.get_type rhs) in
     begin match lhs_typ, rhs_typ with
-      | Record { rfields }, _ | _, Record { rfields } ->
+      | Record { rfields; _ }, _ | _, Record { rfields; _ } ->
         let lhs, loff = match lhs with
           | (lhs, OffsetFixed k) -> (lhs, k)
           | (lhs, OffsetNone) -> (lhs, 0)
@@ -390,10 +390,10 @@ let weight def =
   | Store (lhs, rhs) ->
     (* Havoc all the variables lhs could point to *)
     let open PointerAnalysis in
-    let rhs_val, rhs_pos, rhs_width =
+    let rhs_val =
       match tr_expr rhs with
-      | TPointer rhs -> rhs.ptr_val, rhs.ptr_pos, rhs.ptr_width
-      | TInt tint -> tint, (nondet_const "type_err" `TyInt), (nondet_const "type_err" `TyInt)
+      | TPointer rhs -> rhs.ptr_val
+      | TInt tint -> tint
     in
     let add_target memloc tr = match memloc with
       | (MAddr v, offset) when is_int_array (Varinfo.get_type v) ->
@@ -483,7 +483,6 @@ module TSDisplay = ExtGraph.Display.MakeLabeled
       let pp formatter w = match w with
         | Weight w -> K.pp formatter w
         | Call (s,t) -> Format.fprintf formatter "call(%d, %d)" s t
-      let show = SrkUtil.mk_show pp
     end)
 
 module SA = Abstract.MakeAbstractRSY(Ctx)
@@ -638,7 +637,7 @@ let analyze file =
 let resource_bound_analysis file =
   populate_offset_table file;
   match file.entry_points with
-  | [main] -> begin
+  | [_] -> begin
       let rg = Interproc.make_recgraph file in
       let (ts, _) = make_transition_system rg in
       let query = TS.mk_query ts in

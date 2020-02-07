@@ -56,7 +56,7 @@ struct
   (** Iterate over the solution to the analysis.  An item in the solution
       consists of a program point (definition) along with a summary of the set
       of (interprocedurally valid) paths to that that point.  *)
-  let solve smash file init =
+  let solve smash file _ =
     let rg = Interproc.make_recgraph file in
     let main = match file.entry_points with
       | [x] -> x
@@ -91,7 +91,7 @@ struct
   (** Iterate over the solution to the analysis.  An item in the solution
       consists of a program point (definition) along with a summary of the set
       of (interprocedurally valid) paths to that that point.  *)
-  let solve rg root smash file init =
+  let solve rg root smash _ _ =
     let left_query = Left.mk_query rg A.left_weight Interproc.local root in
     let go (_, v, path_to_v) = smash path_to_v (A.right_weight v) in
     Left.remove_dead_code left_query;
@@ -247,9 +247,6 @@ struct
   let is_join def = match def.dkind with
     | Assume bexpr -> Bexpr.equal bexpr Bexpr.ktrue
     | _            -> false
-  let lookup_join def =
-    try Def.HT.find join_reverse_ht def
-    with Not_found -> assert false
 
   (* Split vertices ***********************************************************)
   let split_ht = DefAPSetHT.create 1024
@@ -716,7 +713,7 @@ struct
         let rd_tr = RDTransition.assume bexpr (AP.free_vars use) rd_pred in
         RDMap.update (def, use) rd_tr reaching
       in
-      let (killed, kill_lvl0, rd, rdlvl0) =
+      let (_, _, rd, rdlvl0) =
         let f ap (killed, lvl0, rd, rdlvl0) = match ap with
           | Variable v ->
             (killed, Var.Set.add v lvl0, rd,
@@ -750,12 +747,12 @@ struct
       | Assign (lhs, rhs) -> begin
           let lhs = Variable lhs in
           match strip_casts rhs with
-          | Constant (CString str) -> assign_string_const def lhs rhs
+          | Constant (CString _) -> assign_string_const def lhs rhs
           | _ -> assign_weight def lhs rhs
         end
       | Store (lhs, rhs) -> begin
           match strip_casts rhs with
-          | Constant (CString str) -> assign_string_const def lhs rhs
+          | Constant (CString _) -> assign_string_const def lhs rhs
           | _ -> assign_weight def lhs rhs
         end
       | Assume exp | Assert (exp, _) -> assume_weight def exp
@@ -935,7 +932,7 @@ struct
       let reaching_lvl0 = left.reaching_lvl0 in
       let var_killed = match left.abspath.kill_var with
         | Some x -> (fun v -> Var.Set.mem v x)
-        | None -> (fun v -> true)
+        | None -> (fun _ -> true)
       in
       let exposed_uses = right.EU.exposed_uses in
       let exposed_lvl0 = right.EU.exposed_var_uses in
@@ -1034,8 +1031,6 @@ let predicates aps =
 
 module ApronI =
   Exponential.Make(struct
-    type t = typ
-    let man = man
     let predicates = predicates
   end)
 module I = IExtra(ApronI)

@@ -106,7 +106,7 @@ module MakePath (P : Predicate with type var = Var.t) = struct
     let weight_builtin bi = match bi with
       | Acquire e
       | Release e -> assume Bexpr.ktrue (Aexpr.free_vars e) pw
-      | Alloc (v, e, targ) -> assign (Variable v) (Havoc (Var.get_type v)) pw
+      | Alloc (v, _, _) -> assign (Variable v) (Havoc (Var.get_type v)) pw
       | Free _
       | Fork (_, _, _)
       | AtomicBegin
@@ -115,12 +115,12 @@ module MakePath (P : Predicate with type var = Var.t) = struct
     in match def.dkind with
     | Assign (v, e)        -> assign (Variable v) e pw
     | Store  (a, e)        -> assign a e pw
-    | Call   (vo, e, elst) -> failwith "Lock logic: Call encountered"
+    | Call   (_, _, _) -> failwith "Lock logic: Call encountered"
     | Assume be
     | Assert (be, _)       -> assume be (Bexpr.free_vars be) pw
-    | AssertMemSafe (e, s) -> assume (Bexpr.of_aexpr e) (Aexpr.free_vars e) pw
+    | AssertMemSafe (e, _) -> assume (Bexpr.of_aexpr e) (Aexpr.free_vars e) pw
     | Initial              -> one
-    | Return eo            -> failwith "Lock logic: Return encountered"
+    | Return _             -> failwith "Lock logic: Return encountered"
     | Builtin bi -> weight_builtin bi
 end
 
@@ -335,8 +335,8 @@ module Domain = struct
 end
 
 let get_func e = match Aexpr.strip_all_casts e with
-  | AccessPath (Variable (func, voff)) -> func
-  | AddrOf     (Variable (func, voff)) -> func
+  | AccessPath (Variable (func, _)) -> func
+  | AddrOf     (Variable (func, _)) -> func
   | _  -> failwith "Lock Logic: Called/Forked expression not a function"
 
 module Datarace = struct
@@ -348,7 +348,7 @@ module Datarace = struct
     let lp = wt d in
     let uses = UseMap.update d lp UseMap.unit in
     match d.dkind with
-    | Assign (v, e) when Var.is_shared v ->
+    | Assign (v, _) when Var.is_shared v ->
       { lp = lp;
         def   = DefMap.update v lp DefMap.unit;
         def_c = DefMap.unit;
@@ -457,7 +457,7 @@ module Stabilizer (Min : EqLogic.Hashed.ConjFormula with type var = Var.t) = str
     Trans.mul pre (Trans.mul (wt def) post)
 end
 
-let analyze file =
+let analyze _ =
   let dra = get_races () in
   let f def v =
     Format.printf "%a --> %a" Def.pp def Var.Set.pp v

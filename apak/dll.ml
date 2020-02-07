@@ -17,10 +17,6 @@ let create () =
 
 let size dll = dll.size
 
-let singleton elt = DllNode { prev = DllEmpty;
-                              next = DllEmpty;
-                              elt  = elt }
-
 let set_next x y =
   begin match x with
     | DllNode x -> (x.next <- y)

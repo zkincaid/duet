@@ -1,6 +1,5 @@
 open Core
 open Srk
-open Apak
 
 (** Statement kind *)
 type stmt_kind =
@@ -35,7 +34,7 @@ and file = {
 module StmtHashTyp = struct
   type t = stmt
   let equal a b = (a.sid = b.sid)
-  let compare a b = Pervasives.compare (a.sid) (b.sid)
+  let compare a b = Stdlib.compare (a.sid) (b.sid)
   let hash stmt = stmt.sid
 end
 module StmtHT = Hashtbl.Make(StmtHashTyp)
@@ -129,50 +128,13 @@ let rec iter_defs_stmt f s = match stmt_kind s with
 let iter_defs_fundec f func = List.iter (iter_defs_stmt f) func.body
 let iter_defs_file f file = List.iter (iter_defs_fundec f) file.funcs
 
-
-exception No_final_element
-(* get the last element in a list *)
-let rec final lst = match lst with
-  | head::[] -> head
-  | head::tail -> final tail
-  | [] -> raise No_final_element
-
-(*******************************************************************************
- * AST visitor
- * Modelled after the cilVisitor from CIL
- ******************************************************************************)
-type 'a visitAction =
-  | SkipChildren   (** Do not visit the children; return the node *)
-  | DoChildren     (** Visit the children.  Rebuild the node on the way up if
-                       there are any changes to the children *)
-  | ChangeTo of 'a (** Replace the node *)
-class type astVisitor = object
-  method vexpr : aexpr -> aexpr visitAction
-  method vbexpr : bexpr -> bexpr visitAction
-  method vap : ap -> ap visitAction
-  method vstmt : stmt -> stmt visitAction
-  method vvarinfo : varinfo -> varinfo visitAction
-  method vfuncdec : funcdec -> funcdec visitAction
-end
-
-let mk_local_var func name typ =
-  let var = Varinfo.mk_local name typ in
-  func.locals <- var::func.locals;
-  var
-
-let mk_global_var file name typ =
-  let var = Varinfo.mk_global name typ in
-  file.vars <- var::file.vars;
-  var
-
 module StmtCfg = Graph.Imperative.Digraph.Concrete(StmtHashTyp)
 
 module Display = struct
   include StmtCfg;;
-  open Graph.Graphviz.DotAttributes;;
   let vertex_name v =
     "\"" ^ (String.escaped (SrkUtil.mk_show pp_stmt v)) ^ "\""
-  let get_subgraph v =  None
+  let get_subgraph _ =  None
   let default_vertex_attributes _ = []
   let default_edge_attributes _ = []
   let graph_attributes _ = []
@@ -180,7 +142,6 @@ module Display = struct
   let edge_attributes _ = []
 end
 module DotOutput = Graph.Graphviz.Dot(Display)
-let display g = ExtGraph.display_dot DotOutput.output_graph g
 
 let construct_cfg file func =
   let cfg = StmtCfg.create () in

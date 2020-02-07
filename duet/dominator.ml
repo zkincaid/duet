@@ -1,7 +1,5 @@
 (** Implementation of Lengauer and Tarjan's dominance algorithm *)
 
-open Core
-open Cil
 open Srk
 open Apak
 

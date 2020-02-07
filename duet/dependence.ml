@@ -1,7 +1,6 @@
 (** Dependence analysis *)
 open Core
 open CfgIr
-open Solve
 open Ai
 open Srk
 open Apak
@@ -82,8 +81,6 @@ let neg x = "!" ^ x
 (* The core of the dependence analysis.  Should not be exported.
    Called via run. *)
 module Dependence (M : sig
-    type t (** APRON type *)
-    val man : t Apron.Manager.t (** APRON manager *)
     val file : file
     val dir : string (** temp directory for dep analysis *)
     val pack : var -> Pack.t
@@ -236,7 +233,7 @@ module Dependence (M : sig
             end
           end
         | None -> match def.dkind with
-          | Store (lhs, rhs) ->
+          | Store (lhs, _) ->
             let open PointerAnalysis in
             let f memloc =
               match memloc with
@@ -758,8 +755,6 @@ let run file =
   let run dir =
     let module R =
       Dependence(struct
-        type t = Box.t
-        let man = Box.manager_alloc ()
         let file = file
         let dir = dir
         let pack = pack

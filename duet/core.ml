@@ -107,7 +107,6 @@ module Varinfo = struct
   include Putil.MakeCoreType(struct
       type t = varinfo [@@deriving show,ord]
       let hash x = Hashtbl.hash (x.vid, x.vsubscript)
-      let equal x y = x.vid = y.vid && x.vsubscript = y.vsubscript
     end)
 
   let get_visibility v = v.vviz
@@ -288,8 +287,8 @@ let rec typ_width typ = match resolve_type typ with
   | Lock -> 2 * machine_int_width
   | Func (_, _) -> pointer_width
   | Pointer _ -> pointer_width
-  | Array (typ, None) -> unknown_width
-  | Array (typ, Some (_, size)) -> size
+  | Array (_, None) -> unknown_width
+  | Array (_, Some (_, size)) -> size
   | Dynamic -> unknown_width
   | Enum _ -> machine_int_width
 and field_width fi = typ_width fi.fityp
@@ -318,7 +317,7 @@ let rec pp_ctyp formatter = function
   | Union r -> text formatter ("Union " ^ r.rname)
   | Dynamic -> text formatter "dynamic"
 and pp_typ formatter = function
-  | Named (name, i) -> text formatter ("`" ^ name ^ "`")
+  | Named (name, _) -> text formatter ("`" ^ name ^ "`")
   | Concrete ctyp   -> pp_ctyp formatter ctyp
 
 (** Try to resolve an offset to a sequence of field accesses. *)
@@ -335,13 +334,13 @@ let rec resolve_offset typ offset =
     let rec go = function
       | (x::_) when x.fioffset = offset -> found x
       | [x] -> found x
-      | (x::y::zs) when offset < y.fioffset -> found x
-      | (x::y::zs) -> go (y::zs)
+      | (x::y::_) when offset < y.fioffset -> found x
+      | (_::y::zs) -> go (y::zs)
       | [] -> None
     in
     go ri.rfields
   | (Union _, _) -> None (* not unique!*)
-  | (x, OffsetFixed 0) -> Some []
+  | (_, OffsetFixed 0) -> Some []
   | _ -> None
 
 let opt_equiv f x y = match (x,y) with
@@ -502,11 +501,11 @@ and ap_type ap =
     | Pointer typ -> typ
     | Func _ -> x (* todo *)
     | Dynamic -> Concrete Dynamic
-    | typ -> Concrete (Pointer (Concrete Dynamic))
+    | _ -> Concrete (Pointer (Concrete Dynamic))
   in
   match ap with
   | Variable v -> Var.get_type v
-  | Deref (BinaryOp (ptr,
+  | Deref (BinaryOp (_,
                      Add,
                      Constant (CInt (off, _)),
                      Concrete (Pointer typ))) -> begin
@@ -521,8 +520,8 @@ and ap_type ap =
 (* Try to rewrite an expression as ptr + constant offset.  This could be made
    significantly more general. *)
 let to_pointer_offset = function
-  | BinaryOp (ptr, Add, Constant (CInt (off, _)), typ)
-  | BinaryOp (Constant (CInt (off, _)), Add, ptr, typ) -> begin
+  | BinaryOp (ptr, Add, Constant (CInt (off, _)), _)
+  | BinaryOp (Constant (CInt (off, _)), Add, ptr, _) -> begin
       match resolve_type (aexpr_type ptr) with
       | Pointer _ -> Some (ptr, off)
       | _ -> None
@@ -535,7 +534,7 @@ let rec pp_aexpr formatter = function
     Format.fprintf formatter "(%a)%a"
       pp_typ typ
       pp_aexpr ex
-  | BinaryOp (ex1, b, ex2, tp) ->
+  | BinaryOp (ex1, b, ex2, _) ->
     let op = match b with
       | Add    -> "+"
       | Minus  -> "-"
@@ -552,7 +551,7 @@ let rec pp_aexpr formatter = function
       pp_aexpr ex1
       op
       pp_aexpr ex2
-  | UnaryOp (u, ex, tp) ->
+  | UnaryOp (u, ex, _) ->
     let op = match u with
       | Neg  -> "-"
       | BNot -> "~"
@@ -711,8 +710,6 @@ let pp_def formatter def =
     def.did
     pp_dk def.dkind
 
-let unknown_loc = Cil.locUnknown
-
 let eval_binop op i j = match op with
   | Add    -> i + j
   | Minus  -> i - j
@@ -735,10 +732,6 @@ let aexpr_apply apply_ap f = function
   | OBoolExpr b -> f (BoolExpr b)
   | OAccessPath ap -> f (AccessPath (apply_ap ap))
   | OAddrOf ap -> f (AddrOf (apply_ap ap))
-let bexpr_apply f = function
-  | OAtom (pred, a, b) -> f (Atom (pred, a, b))
-  | OAnd (a, b) -> f (And (a, b))
-  | OOr (a, b) -> f (Or (a, b))
 
 let aexpr_identity f_ap = function
   | OHavoc typ -> Havoc typ
@@ -922,7 +915,7 @@ let (simplify_expr, simplify_bexpr) =
     | OConstant (CInt (i, ik)) -> Constant (CInt (i, ik))
     | OConstant x -> Constant x
     | OCast (typ, e) -> Cast (typ, e)
-    | OBinaryOp (Constant (CInt (i, ik)), op, Constant (CInt (j, jk)), typ) ->
+    | OBinaryOp (Constant (CInt (i, ik)), op, Constant (CInt (j, _)), _) ->
       (match op with
        | Add -> Constant (CInt (i + j, ik))
        | Minus -> Constant (CInt (i - j, ik))
@@ -935,7 +928,7 @@ let (simplify_expr, simplify_bexpr) =
        | BAnd -> Constant (CInt (i land j, ik))
        | BOr -> Constant (CInt (i lor j, ik)))
     | OBinaryOp (left, op, right, typ) -> BinaryOp (left, op, right, typ)
-    | OUnaryOp (op, Constant (CInt (i, ik)), typ) ->
+    | OUnaryOp (op, Constant (CInt (i, ik)), _) ->
       (match op with
        | Neg -> Constant (CInt (0 - i, ik))
        | BNot -> Constant (CInt (lnot i, ik)))
@@ -991,7 +984,7 @@ module AP = struct
     | Deref aexpr -> aexpr
     | var        -> AddrOf var
 
-  let rec get_visibility = function
+  let get_visibility = function
     | Deref _ -> VzGlobal
     | Variable v -> Var.get_visibility v
   let is_global = vz_is_global % get_visibility
@@ -1159,8 +1152,8 @@ let dk_assigned_var = function
   | Builtin Exit ->
     None
 
-let rec lhs_accessed = function
-  | Variable v -> AP.Set.empty
+let lhs_accessed = function
+  | Variable _ -> AP.Set.empty
   | Deref aexpr -> Aexpr.accessed aexpr
 
 let dk_get_accessed = function
@@ -1214,7 +1207,7 @@ let exprlist_uses =
   let f l e = AP.Set.union (Aexpr.get_uses e) l in
   List.fold_left f AP.Set.empty
 
-let rec dk_get_uses = function
+let dk_get_uses = function
   | Assign (_, expr) -> Aexpr.get_uses expr
   | Store (_, expr) -> Aexpr.get_uses expr
   | Call (_, func, args) -> exprlist_uses (func::args)

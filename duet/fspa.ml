@@ -1,8 +1,7 @@
 (** Sparse, flow-sensitive, field-sensitive pointer analysis *)
 open Core
-open CfgIr
-open Pa
 open Apak
+open PointerAnalysis
 
 (* Convert a set of memory location to a map from memory base addresses to
    sets of offsets *)
@@ -53,7 +52,6 @@ module Domain = struct
   let top _ = const S.top
   let bottom _ = const S.bottom
 
-  open Pa
   module E = MakeEval(
     struct
       type t = MemLoc.Set.t
@@ -72,7 +70,7 @@ module Domain = struct
   let transfer def points_to =
     let env ap = match FS.eval points_to ap with
       | S.Set mem -> mem
-      | S.Neg mem -> MemLoc.Set.empty
+      | S.Neg _ -> MemLoc.Set.empty
     in
     begin match def.dkind with
       | Store (ap, expr) ->
@@ -144,13 +142,13 @@ let analyze dg =
     | Store (lhs, _) ->
       let points_to = Domain.FS.eval value lhs in
       Format.fprintf Format.std_formatter "%a -> %a@\n"
-        Def.format def
-        Domain.S.format points_to
+        Def.pp def
+        Domain.S.pp points_to
     | Assign (lhs, _) ->
       let points_to = Domain.FS.eval value (Variable lhs) in
       Format.fprintf Format.std_formatter "%a -> %a@\n"
-        Def.format def
-        Domain.S.format points_to
+        Def.pp def
+        Domain.S.pp points_to
     | _ -> ()
   in
   let result = Solve.do_analysis state dg in
@@ -177,16 +175,16 @@ let diff a b =
                          ^ " ap: " ^ (AP.show ap));
           begin match add with
             | S.Set add -> MemLoc.Set.iter print_plus add
-            | S.Neg add -> print_endline "+infinity"
+            | S.Neg _ -> print_endline "+infinity"
           end;
           begin match remove with
             | S.Set remove -> MemLoc.Set.iter print_minus remove
-            | S.Neg remove -> print_endline "-infinity"
+            | S.Neg _ -> print_endline "-infinity"
           end
         end
       in
       AP.Set.iter go_ap (Def.get_uses def)
-    with _ -> Log.debug ("No b output at : " ^ (Def.show def))
+    with _ -> Srk.Log.logf ~level:`debug "No b output at : %a" Def.pp def
   in
   BatEnum.iter go (Solve.S.enum_output a);
   print_endline ("Total diff count: " ^ (string_of_int (!change_count)))

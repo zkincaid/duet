@@ -28,7 +28,7 @@ end = struct
   module HT = Hashtbl.Make(G.V)
 
   (* Display a matrix of K-values *)
-  let print_matrix m size =
+  let _print_matrix m size =
     for i = 0 to size - 1 do
       for j = 0 to size - 1 do
         if not (K.equal m.(i).(j) K.zero) then begin
@@ -155,7 +155,7 @@ end = struct
       | (Real x, Real y) -> G.V.compare x y
       | (Real _, Dummy _) -> 1
       | (Dummy _, Real _) -> -1
-      | (Dummy x, Dummy y) -> Pervasives.compare x y
+      | (Dummy x, Dummy y) -> Stdlib.compare x y
     let equal x y = compare x y = 0
     let hash = function
       | Real x -> 4 * (G.V.hash x)
@@ -193,101 +193,6 @@ end = struct
       let pp formatter v =
         Format.fprintf formatter "Vertex %d" (get_id v)
     end)
-  let fold_dom : (WG.V.t -> 'a -> 'a) -> WG.t -> 'a -> 'a
-    = fun f g acc ->
-      (*      Log.errorf "Using fold_dom";*)
-      (*      WGD.display g;*)
-      let open Loop in
-      let open WGLoop in
-      let sccg = WGLoop.construct g in
-      let rec go acc v =
-        match v.vtype with
-        | Simple v ->
-          L.logf ~level:`trace "Visit: %d" (get_id v);
-          f v acc
-        | Scc scc -> go_graph scc.entries (scc.backedges@scc.exits) scc.graph acc
-      and go_graph initial exits graph acc =
-        assert(initial != []);
-        let is_initial v = List.exists (WG.V.equal v) initial in
-        let find_roots v roots =
-          match v.vtype with
-          | Simple w -> if is_initial w then v::roots else roots
-          | Scc _ -> roots
-        in
-        let roots = WGLoop.fold_vertex find_roots graph [] in
-        assert (List.length roots = List.length initial);
-
-        let exits = if exits = [] then initial else exits in
-        let is_exit v = List.exists (WG.V.equal v) exits in
-        let find_post_roots v roots =
-          match v.vtype with
-          | Simple w -> if is_exit w then v::roots else roots
-          | Scc scc ->
-            if (List.exists (fun v -> List.exists (WG.V.equal v) exits) scc.entries)
-               || (List.exists (fun v -> List.exists (WG.V.equal v) exits) scc.exits)
-            then v::roots
-            else roots
-        in
-        let post_roots = WGLoop.fold_vertex find_post_roots graph [] in
-        (*      Log.errorf "%d != %d" (List.length post_roots) (List.length exits);*)
-        assert (List.length post_roots != 0);
-        (*assert (List.length post_roots = List.length exits);*)
-
-        (* Connect the forest with a new root *)
-        let root =
-          { scc_id = -1;
-            vtype = Simple dummy_start }
-        in
-        let graph =
-          List.fold_left
-            (fun g v -> WGLoop.add_edge g root v)
-            graph
-            roots
-        in
-        let post_root =
-          { scc_id = -2;
-            vtype = Simple dummy_end }
-        in
-        let graph =
-          List.fold_left
-            (fun g v -> WGLoop.add_edge g v post_root)
-            graph
-            post_roots
-        in
-
-        let dom_tree =
-          LoopDom.compute_idom graph root
-          |> LoopDom.idom_to_dom_tree graph
-        in
-        let postdom =
-          LoopPostDom.compute_idom graph post_root
-          |> LoopPostDom.idom_to_dom
-        in
-        let rec visit acc v =
-          if List.length (dom_tree v) > 1
-          then go (visit_children acc v) v
-          else visit_children (go acc v) v
-
-        and visit_children acc v =
-          let rec go children acc = match children with
-            | [] -> acc
-            | (x::xs) ->
-              if List.exists (flip postdom x) xs then go (xs@[x]) acc
-              else go xs (visit acc x)
-          in
-          go (dom_tree v) acc
-        in
-
-        let visit_domtree_root acc v =
-          if List.exists (fun x -> x.scc_id = v.scc_id) roots
-          then visit_children acc v
-          else visit acc v
-        in
-        let acc = List.fold_left visit_domtree_root acc (dom_tree root) in
-        List.fold_left go acc roots
-      in
-      go_graph [dummy_start] [dummy_end] sccg acc
-
 
   module Re = Sese.Make(WG)
   module ReLoop = Loop.SccGraph(Re.G)
@@ -298,15 +203,13 @@ end = struct
   module ReGD = ExtGraph.Display.MakeSimple(Re.G)(struct
       type t = Re.G.V.t
       let pp formatter =
-        let open RecGraph in
         function
         | `Block k -> Format.fprintf formatter "Block %d" k
         | `Atom k -> Format.fprintf formatter "Atom %d" (get_id k)
     end)
 
   let fold_sese f wg acc =
-    let open RecGraph in
-    let rg = Re.construct wg dummy_start dummy_end in
+    let rg = Re.construct wg ~entry:dummy_start ~exit:dummy_end in
     let fold_body = ReLoop.fold_inside_out in
     let rec visit v acc =
       match v with

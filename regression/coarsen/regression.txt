@@ -1,10 +1,10 @@
-coarsen_init_condition: duet.native -no-whole-program -parameterized -coarsen @code/coarsen_init_condition.bp
-dekker_bp: duet.native -coarsen @code/dekker.bp
-dekker_c: duet.native -no-whole-program -coarsen @code/dekker.c
-multiround: duet.native -parameterized -no-whole-program -coarsen @code/multiround.bp
-nested_locks: duet.native -no-whole-program -coarsen @code/nested_locks.c
-rendez-vous: duet.native -no-whole-program -coarsen @code/rendez-vous.c
-producer_consumer: duet.native -no-whole-program -parameterized -coarsen @code/producer_consumer.c
-popl12fig2: duet.native -coarsen -parameterized @code/popl12fig2.c
-alias: duet.native -coarsen -no-whole-program -parameterized @code/alias.c
-fork_interproc: duet.native -coarsen @code/fork_interproc.c
+coarsen_init_condition: duet.exe -no-whole-program -parameterized -coarsen @code/coarsen_init_condition.bp
+dekker_bp: duet.exe -coarsen @code/dekker.bp
+dekker_c: duet.exe -no-whole-program -coarsen @code/dekker.c
+multiround: duet.exe -parameterized -no-whole-program -coarsen @code/multiround.bp
+nested_locks: duet.exe -no-whole-program -coarsen @code/nested_locks.c
+rendez-vous: duet.exe -no-whole-program -coarsen @code/rendez-vous.c
+producer_consumer: duet.exe -no-whole-program -parameterized -coarsen @code/producer_consumer.c
+popl12fig2: duet.exe -coarsen -parameterized @code/popl12fig2.c
+alias: duet.exe -coarsen -no-whole-program -parameterized @code/alias.c
+fork_interproc: duet.exe -coarsen @code/fork_interproc.c

@@ -134,7 +134,7 @@ module Make
       in
       SrkUtil.pp_print_enum pp_elt formatter (VarMap.enum store)
 
-    let pp formatter prop =
+    let _pp formatter prop =
       let open Format in
       match prop with
       | Bottom -> fprintf formatter "Bottom"
@@ -178,11 +178,6 @@ module Make
       match x, y with
       | Bottom, x | x, Bottom -> x
       | Store x, Store y -> Store (join_store x y)
-
-    let is_local s =
-      match Var.of_symbol s with
-      | None -> true
-      | Some v -> not (Var.is_global v)
 
     let to_formula store =
       let boxes = ref [] in

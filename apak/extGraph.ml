@@ -153,7 +153,7 @@ module Blocks = struct
     include X
     type 'a return = 'a t
     let is_empty m = (m = empty)
-    let create ?size () = assert false
+    let create ?size:_ () = assert false
     (* never call and not visible for the user thank's to signature
        constraints *)
     let create_from _ = empty
@@ -235,7 +235,7 @@ module Blocks = struct
 
     let in_degree g v =
       if not (mem_vertex v g) then invalid_arg "[apak] in_degree";
-      fold_pred (fun v n -> n + 1) g v 0
+      fold_pred (fun _ n -> n + 1) g v 0
 
     let iter_pred_e f g v =
       if not (mem_vertex v g) then invalid_arg "[apak] iter_pred_e";
@@ -283,8 +283,6 @@ module Blocks = struct
     let find_edge g v1 v2 = if mem_edge g v1 v2 then v1, v2 else raise Not_found
     let find_all_edges g v1 v2 = try [ find_edge g v1 v2 ] with Not_found -> []
 
-    let unsafe_remove_edge g v1 v2 = HM.add v1 (S.remove v2 (HM.find v1 g)) g
-    let unsafe_remove_edge_e g (v1, v2) = unsafe_remove_edge g v1 v2
 
     let remove_edge g v1 v2 =
       if not (HM.mem v2 g) then invalid_arg "[apak] remove_edge";
@@ -384,15 +382,6 @@ module Blocks = struct
       with Not_found ->
         []
 
-    let unsafe_remove_edge g v1 v2 =
-      HM.add
-        v1
-        (S.filter (fun (v2', _) -> not (V.equal v2 v2')) (HM.find v1 g))
-        g
-
-    let unsafe_remove_edge_e g (v1, l, v2) =
-      HM.add v1 (S.remove (v2, l) (HM.find v1 g)) g
-
     let remove_edge g v1 v2 =
       if not (HM.mem v2 g) then invalid_arg "[apak] remove_edge";
       HM.add
@@ -450,7 +439,7 @@ module Blocks = struct
         let f (v, s) = BatEnum.map (fun (w, l) -> (v, l, w)) (S.enum s) in
         BatEnum.concat (BatEnum.map f (HM.enum g))
       let edges g =
-        let f (v, s) = BatEnum.map (fun (w, l) -> (v, w)) (S.enum s) in
+        let f (v, s) = BatEnum.map (fun (w, _) -> (v, w)) (S.enum s) in
         BatEnum.concat (BatEnum.map f (HM.enum g))
     end
     include I
@@ -517,8 +506,6 @@ module Blocks = struct
       let g = HM.add v1 (in_set, S.remove v2 out_set) g in
       let in_set, out_set = HM.find v2 g in
       HM.add v2 (S.remove v1 in_set, out_set) g
-
-    let unsafe_remove_edge_e g (v1,v2) = unsafe_remove_edge g v1 v2
 
     let remove_edge g v1 v2 =
       if not (HM.mem v2 g && HM.mem v1 g) then
@@ -652,19 +639,6 @@ module Blocks = struct
       with Not_found ->
         []
 
-    let unsafe_remove_edge g v1 v2 =
-      let in_set, out_set = HM.find v1 g in
-      let del v set = S.filter (fun (v', _) -> not (V.equal v v')) set in
-      let g = HM.add v1 (in_set, del v2 out_set) g in
-      let in_set, out_set = HM.find v2 g in
-      HM.add v2 (del v1 in_set, out_set) g
-
-    let unsafe_remove_edge_e g (v1, l, v2) =
-      let in_set, out_set = HM.find v1 g in
-      let g = HM.add v1 (in_set, S.remove (v2, l) out_set) g in
-      let in_set, out_set = HM.find v2 g in
-      HM.add v2 (S.remove (v1, l) in_set, out_set) g
-
     let remove_edge g v1 v2 =
       let in_set, out_set = HM.find_and_raise v1 g "[apak] remove_edge" in
       let del v set = S.filter (fun (v', _) -> not (V.equal v v')) set in
@@ -737,7 +711,7 @@ module Blocks = struct
         BatEnum.concat (BatEnum.map f (HM.enum g))
       let edges g =
         let f (v, (_, s)) =
-          BatEnum.map (fun (w, l) -> (v, w)) (S.enum s)
+          BatEnum.map (fun (w, _) -> (v, w)) (S.enum s)
         in
         BatEnum.concat (BatEnum.map f (HM.enum g))
     end
@@ -887,7 +861,7 @@ module Persistent = struct
 
     let intersect =
       let m _ x y = match x, y with
-        | Some succ, None | None, Some succ -> None
+        | Some _, None | None, Some _ -> None
         | Some xs, Some ys -> Some (S.inter xs ys)
         | None, None -> assert false
       in
@@ -1343,14 +1317,6 @@ module DfsTree = struct
       if is_root v tree then None
       else Some (tree.vertex.(tree.parent.(get_dfs_num v tree)))
 
-    let parent_edge v graph tree =
-      if is_root v tree then None
-      else begin
-        let dfs_num = get_dfs_num v tree in
-        let parent = tree.parent.(dfs_num) in
-        Some (G.find_edge graph tree.vertex.(parent) v)
-      end
-
     let compute graph init =
       let next = ref 0 in
       let next_dfs_num () =
@@ -1496,10 +1462,9 @@ module DfsTree = struct
     let display vstring tree graph =
       let module Display = struct
         include G;;
-        open Graph.Graphviz.DotAttributes;;
         let vertex_name v =
           Printf.sprintf "\"#%d: %s\"" (get_dfs_num v tree) (vstring v)
-        let get_subgraph v = None
+        let get_subgraph _ = None
         let default_vertex_attributes _ = []
         let default_edge_attributes _ = []
         let graph_attributes _ = []
@@ -1574,7 +1539,7 @@ module Display = struct
       include G
       let vertex_name x =
         "\"" ^ (String.escaped ((SrkUtil.mk_show S.pp) x)) ^ "\""
-      let get_subgraph v =  None
+      let get_subgraph _ = None
       let default_vertex_attributes _ = []
       let default_edge_attributes _ = []
     end

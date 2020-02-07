@@ -18,6 +18,3 @@ else
 fi
 
 AC_OUTPUT(duet/config.ml)
-
-make setup.ml
-make setup.data

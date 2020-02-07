@@ -396,7 +396,7 @@ let mk_divides srk divisor term =
       (mk_mod srk (of_linterm srk term) (mk_real srk divisor))
       (mk_real srk QQ.zero)
 
-let mk_not_divides srk divisor term =
+let _mk_not_divides srk divisor term =
   assert(ZZ.lt ZZ.zero divisor);
   if ZZ.equal divisor ZZ.one || V.is_zero term then
     mk_false srk
@@ -1223,7 +1223,7 @@ module CSS = struct
       in
       is_sat ()
 
-  let minimize_skeleton param_interp ctx =
+  let _minimize_skeleton param_interp ctx =
     let solver = Smt.mk_solver ctx.srk in
     let paths = Skeleton.paths ctx.skeleton in
     let path_guards =
@@ -1817,7 +1817,9 @@ let pp_strategy srk formatter (Strategy xs) =
 let show_strategy srk = SrkUtil.mk_show (pp_strategy srk)
 
 (* Extract a winning strategy from a skeleton *)
-let extract_strategy srk skeleton phi =
+let extract_strategy _ _ _ =
+  failwith "Quantifier.extract_strategy not implemented"
+(*
   let open Skeleton in
   let z3 = Z3.mk_context [] in
   let rec go subst = function
@@ -1869,6 +1871,7 @@ let extract_strategy srk skeleton phi =
     strategy
   | (_, None, Some _) -> assert false
   | (_, _, _) -> assert false
+ *)
 
 let winning_strategy srk qf_pre phi =
   match simsat_forward_core srk qf_pre phi with
@@ -1915,7 +1918,7 @@ let check_strategy srk qf_pre phi strategy =
 
 (* Given an interpretation M and a cube C with M |= C, find a cube C'
    such that M |= C' |= C, and C does not contain any floor terms. *)
-let specialize_floor_cube srk model cube =
+let _specialize_floor_cube srk model cube =
   let div_constraints = ref [] in
   let add_div_constraint divisor term =
     let div =

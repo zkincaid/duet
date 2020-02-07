@@ -1,7 +1,6 @@
 (** Equality logic and Kleene algebras extending equality logic. *)
 
 open Core
-open CfgIr
 open Apak
 open Srk
 
@@ -87,7 +86,7 @@ struct
       if p v then begin match x with
         | None -> Some v
         | Some v0 as old ->
-          if Pervasives.compare v v0 < 0 then Some v else old
+          if Stdlib.compare v v0 < 0 then Some v else old
       end else x
     in
     let r = DS.reverse_map ds None minimum in
@@ -134,7 +133,7 @@ struct
   let canonicalize x =
     match x.equalities with
     | Canonical c -> c
-    | Noncanonical nc -> begin
+    | Noncanonical _ -> begin
         let ex = exists (fun _ -> true) x in
         x.predicates <- ex.predicates;
         x.equalities <- ex.equalities;
@@ -163,10 +162,6 @@ struct
     match P.compare x.predicates y.predicates with
     | 0 -> VMap.compare V.compare xc yc
     | other -> other
-  module Compare_t = struct
-    type a = t
-    let compare = compare
-  end
 
   let equal x y = compare x y = 0
 
@@ -202,8 +197,8 @@ struct
     if equal x unit then y
     else if equal y unit then x else begin
       let z_eq = match x.equalities, y.equalities with
-        | (Canonical x_eq, _) -> add_eqs y x.equalities
-        | (_, Canonical y_eq) -> add_eqs x y.equalities
+        | (Canonical _, _) -> add_eqs y x.equalities
+        | (_, Canonical _) -> add_eqs x y.equalities
         | (_, _) -> add_eqs x y.equalities
       in
       let z = { equalities = z_eq; predicates = P.unit } in
@@ -314,7 +309,6 @@ end = struct
        frame. *)
     module S = struct
       type var = Var.t
-      type pred = Minterm.pred
       type t = Var.Set.t * Minterm.t [@@deriving ord]
       let pp formatter (_, x) = Minterm.pp formatter x
 
@@ -479,7 +473,7 @@ end = struct
       (Var.Set.filter p xv,
        Log.time "exists" (TR.S.map (ConjTransition.exists p)) xk)
 
-    let assume bexpr frame pred =
+    let assume _bexpr frame pred =
       let frame_eqs =
         Var.Set.fold
           (fun x xs -> (Var.subscript x 0, Var.subscript x 1)::xs)

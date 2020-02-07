@@ -1,5 +1,3 @@
-open Srk
-
 (** Persistent, dynamic array *)
 module Array = struct
   type 'a t = 'a data ref
@@ -32,7 +30,7 @@ module Array = struct
         | Diff _ -> assert false
       end
 
-  let rec resize arr newsize f = 
+  let resize arr newsize f = 
     reroot arr;
     match !arr with
     | Array a -> 
@@ -301,8 +299,6 @@ module DisjointSet = struct
       Format.pp_open_box formatter 0;
       List.iter pp_elt (to_list ds);
       Format.pp_close_box formatter ()
-
-    let show = SrkUtil.mk_show pp
 
     let iter f ds = Map.iter (fun s _ -> f s) ds.map
     let fold f ds x = Map.fold (fun s _ -> f s) ds.map x

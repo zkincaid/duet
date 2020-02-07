@@ -1,6 +1,4 @@
 open Core
-open CfgIr
-open Solve
 open Apak
 
 let may_use def =

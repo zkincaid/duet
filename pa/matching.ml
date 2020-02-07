@@ -1,4 +1,3 @@
-open BatPervasives
 open Srk
 
 include Log.Make(struct let name = "BiGraph" end)

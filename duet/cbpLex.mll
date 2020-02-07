@@ -1,5 +1,4 @@
 {
-  open Printf;;
   open CbpParse;;
 
   let create_hashtable size init =

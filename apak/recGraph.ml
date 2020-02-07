@@ -58,8 +58,6 @@ struct
 
   type atom = V.atom
   type block = V.block
-  type vertex = V.t
-  type edge = G.E.t
   type ('a, 'b) typ = ('a, 'b) V.typ
 
   type block_def =

@@ -57,11 +57,7 @@ module FunctionSpace = struct
       module LiftMap (M : Putil.Map.S) (Codomain : Sig.Semilattice.Ordered.S) =
       struct
         include LiftMap(M)(Codomain)
-        module Compare_t = struct
-          type a = t
-          let compare = M.compare Codomain.compare
-        end
-        let compare = Compare_t.compare
+        let compare = M.compare Codomain.compare
       end
       module Make
           (Domain : Putil.Ordered)

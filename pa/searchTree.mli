@@ -1,6 +1,3 @@
-open Pervasives
-open BatPervasives
-
 module type Element = sig
   type t
   val compare : t -> t -> int

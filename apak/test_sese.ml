@@ -1,7 +1,7 @@
+open Apak
 open BatPervasives
 open Putil
 open OUnit
-open RecGraph
 
 module G = struct
   include Graph.Persistent.Digraph.Concrete(PInt)

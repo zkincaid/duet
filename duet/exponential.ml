@@ -14,8 +14,6 @@ module PSet = Putil.Set.Make(Pred)
 
 module Make
     (Man : sig
-       type t
-       val man : t Apron.Manager.t
        val predicates : AP.Set.t -> PSet.t
      end) =
 struct
@@ -56,28 +54,28 @@ struct
     let default = AI.inject (default func) (Def.get_defs def) in
     let aps = AI.get_domain default in
     let preds = Man.predicates aps in
-    let f func (st, av) = add_val preds (AI.transfer def av) func in
+    let f func (_, av) = add_val preds (AI.transfer def av) func in
     BatEnum.fold f (const default) (enum func)
 
   let assert_true bexpr func =
-    let p (st, av) = AI.assert_true bexpr av in
+    let p (_, av) = AI.assert_true bexpr av in
     BatEnum.for_all p (enum func)
 
   let assert_memsafe expr func =
-    let p (st, av) = AI.assert_memsafe expr av in
+    let p (_, av) = AI.assert_memsafe expr av in
     BatEnum.for_all p (enum func)
 
-  let cyl func aps =
+  let cyl func _aps =
     let aps = AI.get_domain (default func) in
     let preds = Man.predicates aps in
-    let f func (st, av) = add_val preds (AI.cyl av aps) func in
+    let f func (_, av) = add_val preds (AI.cyl av aps) func in
     BatEnum.fold f (const (AI.cyl (default func) aps)) (enum func)
 
   let inject func aps =
     let default = AI.inject (default func) aps in
     let aps = AI.get_domain default in
     let preds = Man.predicates aps in
-    let f func (st, av) = add_val preds (AI.inject av aps) func in
+    let f func (_, av) = add_val preds (AI.inject av aps) func in
     BatEnum.fold f (const default) (enum func)
 
   let rename func rename =

@@ -8,7 +8,6 @@ open Core
 open CfgIr
 open Srk
 open Apak
-open Datalog
 open PointerAnalysis
 
 
@@ -396,7 +395,7 @@ let solve file =
          (solve_impl file) (new Datalog.monolithicSolver dir "bddpa"))
 
 class pa file =
-  object(self)
+  object(_)
     inherit ptr_anal file
     val instance = solve file
     method ap_points_to = ap_points_to instance
@@ -460,7 +459,7 @@ let _ =
     let pp_memloc_set set =
       String.concat ", "
         (BatList.sort
-           Pervasives.compare
+           Stdlib.compare
            (BatList.map MemLoc.show (MemLoc.Set.elements set)))
     in
     let pp_pointsto memloc set =
@@ -472,7 +471,7 @@ let _ =
     in
     points_to#iter print;
     Log.log "Pointer analysis results:";
-    List.iter Log.log (BatList.sort Pervasives.compare (!pt));
+    List.iter Log.log (BatList.sort Stdlib.compare (!pt));
 
     CfgIr.iter_defs check file;
     Report.print_errors ();

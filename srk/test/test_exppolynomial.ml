@@ -1,3 +1,4 @@
+open Srk
 open OUnit
 open Test_pervasives
 open Polynomial
