@@ -130,6 +130,44 @@ module PhasedSegmentation = struct
     in
     BatList.map PhasedSegment.make partitions
 
+  let make matrices =
+    let segments = BatQueue.create () in
+    let current_space = ref VS.empty in
+    let push s =
+      current_space := VS.sum !current_space (VS.of_matrix s.sim2);
+      BatQueue.push s segments
+    in
+    let set_kind ps i k =
+      let ps' = Array.copy ps in
+      let _, mM = Array.get ps' i in
+      Array.set ps' i (k, mM);
+      ps'
+    in
+    (* Start with a segment where all matrices are non-resets *)
+    let pairs = Array.map (fun mM -> (Commute, mM)) matrices in
+    push (PhasedSegment.make pairs);
+    let rec iter ps seg i =
+      (* Only continue if rsp(seg.sim2) is not already contained in the current space *)
+      if not (VS.subspace (VS.of_matrix seg.sim2) !current_space) then
+        if i >= (Array.length ps) then
+          push seg
+        else
+          let ps' = set_kind ps i Reset in
+          let seg' = PhasedSegment.make ps' in
+          let ps'' = set_kind ps i Commute in
+          let seg'' = PhasedSegment.make ps'' in
+          (* It suffices to proceed with only the reset extension if it subsumes the non-reset extension *)
+          if (VS.subspace (VS.of_matrix seg''.sim2) (VS.of_matrix seg'.sim2)) then
+            iter ps' seg' (i+1)
+          else
+            iter ps' seg' (i+1);
+            iter ps'' seg'' (i+1)
+    in
+    let pairs = Array.map (fun mM -> (Ignore, mM)) matrices in
+    let seg = PhasedSegment.make pairs in
+    iter pairs seg 0;
+    BatList.of_enum (BatQueue.enum segments)
+
   let almost_commuting_space segmentation =
     List.fold_left
       (fun vU s -> VS.sum vU (VS.of_matrix s.sim2))
