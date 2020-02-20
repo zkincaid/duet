@@ -189,3 +189,18 @@ module PhasedSegmentation = struct
                    matrices)
 
 end
+
+module ACLTS = struct
+    module LTS = LinearSemiautomaton
+    type 'a t = phased_segment list
+    let abstract ?(exists=fun x -> true) srk tr_symbols phi =
+        let lts = LTS.abstract ~exists srk tr_symbols phi in
+        let trans_array = BatArray.of_list (LTS.transitions lts) in
+        let aclts = PhasedSegmentation.make trans_array in    
+        failwith "test"
+    let pp srk tr_symbols formatter aclts = failwith "pp"
+    let exp srk tr_symbols lc aclts = failwith "exp"
+    let join srk tr_symbols aclts1 aclts2 = failwith "join"
+    let widen srk tr_symbols aclts1 aclts2 = failwith "widen"
+    let equal srk tr_symbols aclts1 aclts2 = failwith "eq"
+end
