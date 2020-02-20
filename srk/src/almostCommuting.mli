@@ -14,7 +14,6 @@ type phased_segment = {
                                          simulation, or of kind Reset, in which case phase2.(i) gives
                                          a representation of transition i as a transformation from the 
                                          phase 1 space to the phase 2 space *)
-}
 
 module PhasedSegment : sig
    type t = phased_segment
@@ -44,3 +43,6 @@ module PhasedSegmentation : sig
    (** Computes the best almost commuting abstraction for the given LTS *)
    val best_almost_commuting : QQMatrix.t array -> (QQMatrix.t * QQMatrix.t array)
 end
+
+module ACLTS : PreDomain
+
