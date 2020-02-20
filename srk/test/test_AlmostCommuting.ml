@@ -252,6 +252,27 @@ let almost_commuting1 () =
   let dim = QQVectorSpace.dimension (PhasedSegmentation.almost_commuting_space output) in
   assert_equal 3 dim
 
+let almost_commuting2 () = 
+  let mA = mk_matrix [[1; 0; 1];
+                      [0; 1; 1];
+                      [0; 0; 1]]
+  in
+  let mB = mk_matrix [[1; 0; -1];
+                      [0; 1; -1];
+                      [0; 0; 1]]
+  in
+  let mC = mk_matrix [[0; 0; 2];
+                      [0; 1; 2];
+                      [0; 0; 1]]
+  in
+  let mD = mk_matrix [[0; 1; 0];
+                      [0; 1; 0];
+                      [0; 0; 1]]
+  in
+  let output = PhasedSegmentation.make [| mA; mB; mC; mD |] in
+  let dim = QQVectorSpace.dimension (PhasedSegmentation.almost_commuting_space output) in
+  assert_equal 3 dim
+
 let suite = "AlmostCommuting" >::: [
   "comm_space1" >:: comm_space1;
   "comm_space2" >:: comm_space2;
@@ -265,4 +286,5 @@ let suite = "AlmostCommuting" >::: [
   "phased_segment4" >:: phased_segment4;
   "phased_segment5" >:: phased_segment5;
   "almost_commuting1" >:: almost_commuting1;
+  "almost_commuting2" >:: almost_commuting2;
 ]
