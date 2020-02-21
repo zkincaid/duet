@@ -3,6 +3,7 @@
    1\}{^n} x QQ{^n} vector pairs. Each object describes a reset or
    increment to n counters. *)
 open Syntax
+open Iteration
 module V = Linear.QQVector
 module M = Linear.QQMatrix
 module Z = Linear.ZZVector
@@ -16,7 +17,7 @@ type vas = TSet.t
 
 type 'a old_type = { v : vas; s_lst : M.t list}
 
-type 'a t = 'a Acexp.t
+type 'a t = 'a AlmostCommuting.ACLTS.t
 val gamma : 'a context ->  'a old_type -> (symbol * symbol) list -> 'a formula
 val abstract : ?exists:(symbol -> bool) -> 'a context -> (symbol * symbol) list -> 
   'a formula -> 'a t
@@ -48,3 +49,8 @@ val coprod_compute_image : TSet.t -> M.t list -> TSet.t
 val coprod_find_transformation : M.t list -> M.t list -> 
   Linear.QQMatrix.t list * Linear.QQMatrix.t list * M.t list
 val mk_all_nonnegative : 'a context -> 'a term list -> 'a formula
+
+module EqualityInv (Iter : PreDomain) : PreDomain
+  with type 'a t = 'a Iter.t * 'a formula list * bool
+
+

@@ -65,9 +65,6 @@ end
 module Product (A : PreDomain) (B : PreDomain) : PreDomain
   with type 'a t = 'a A.t * 'a B.t
 
-module EqualityInv (Iter : PreDomain) : PreDomain
-  with type 'a t = 'a Iter.t * 'a formula list * bool
-
 (** Same as product, but faster for iteration domains that abstract
    through the wedge domain. *)
 module ProductWedge (A : PreDomainWedge) (B : PreDomainWedge) : PreDomainWedge
