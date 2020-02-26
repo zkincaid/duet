@@ -2,7 +2,7 @@ open Srk
 let load_path       = ref ["."]
 let temp_dir        = ref (None : string option)
 
-let set_load_path str = load_path := BatString.nsplit str ~by:":"
+let set_load_path str = load_path := BatString.split_on_char ':' str
 let set_temp_dir str = temp_dir := Some str
 
 include BatEnum.Infix

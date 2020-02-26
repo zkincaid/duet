@@ -98,7 +98,7 @@ class monolithicSolver dir name  =
         ignore (input_line chan); (* kill header *)
         while true do
           let x = BatString.rchop (input_line chan) in
-          f (List.map int_of_string (BatString.nsplit x ~by:" "))
+          f (List.map int_of_string (BatString.split_on_char ' ' x))
         done
       with End_of_file -> close_in chan
 

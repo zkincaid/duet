@@ -757,8 +757,8 @@ module Split (Iter : PreDomain) = struct
          && Iter.equal srk tr_symbols l l'
          && Iter.equal srk tr_symbols r r')
       (BatEnum.combine
-         (Expr.Map.enum split_iter,
-          Expr.Map.enum split_iter'))
+         (Expr.Map.enum split_iter)
+         (Expr.Map.enum split_iter'))
 end
 
 module MakeDomain (Iter : PreDomain) = struct
