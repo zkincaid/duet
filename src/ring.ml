@@ -370,7 +370,7 @@ module MakeUltPeriodicSeq(R : S) = struct
     let transient = max (transient_len seq) (transient_len seq') in
     let period = lcm (period_len seq) (period_len seq') in
     let e =
-      BatEnum.combine (enum seq, enum seq')
+      BatEnum.combine (enum seq) (enum seq')
       /@ (fun (x, y) -> f x y)
     in
     let t = take_skip e transient in
@@ -388,7 +388,7 @@ module MakeUltPeriodicSeq(R : S) = struct
   let equal seq seq' =
     let transient = max (transient_len seq) (transient_len seq') in
     let period = lcm (period_len seq) (period_len seq') in
-    (BatEnum.combine (enum seq, enum seq'))
+    (BatEnum.combine (enum seq) (enum seq'))
     |> BatEnum.take (transient+period)
     |> BatEnum.for_all (fun (x,y) -> R.equal x y)
 
