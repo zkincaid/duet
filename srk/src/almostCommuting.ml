@@ -2,6 +2,7 @@ open Linear
 
 module VS = QQVectorSpace
 
+
 type kind = Commute | Reset | Ignore
 
 type phased_segment = {
@@ -195,19 +196,10 @@ module ACLTS = struct
   module E = ExpPolynomial
   open Syntax
   open BatPervasives
+  include Log.Make(struct let name = "srk.aclts" end)
+
 
   type 'a t = phased_segmentation
-
-  let abstract ?(exists=fun x -> true) srk tr_symbols phi =
-    let lts = LTS.abstract ~exists srk phi tr_symbols in
-    let trans_array = BatArray.of_list (LTS.transitions lts) in
-    let aclts = PhasedSegmentation.make trans_array in
-    BatList.map (fun ph_seg -> 
-        {sim1 = QQMatrix.mul ph_seg.sim1 (LTS.simulation lts);
-         sim2 = QQMatrix.mul ph_seg.sim2 (LTS.simulation lts);
-         phase1 = ph_seg.phase1;
-         phase2 = ph_seg.phase2})
-      aclts
 
   (*TODO:Make a better pp function*)
   let pp srk tr_symbols formatter aclts = 
@@ -230,6 +222,21 @@ module ACLTS = struct
               Format.fprintf formatter "Phase 2 transformer %d is IGNORE and is \n %a \n\n" indmat (QQMatrix.pp) mat) 
           seg.phase2) 
       aclts
+
+
+
+  let abstract ?(exists=fun x -> true) srk tr_symbols phi =
+    let lts = LTS.abstract ~exists srk phi tr_symbols in
+    let trans_array = BatArray.of_list (LTS.transitions lts) in
+    let aclts = PhasedSegmentation.make trans_array in
+    let result = BatList.map (fun ph_seg -> 
+        {sim1 = QQMatrix.mul ph_seg.sim1 (LTS.simulation lts);
+         sim2 = QQMatrix.mul ph_seg.sim2 (LTS.simulation lts);
+         phase1 = ph_seg.phase1;
+         phase2 = ph_seg.phase2})
+        aclts
+    in
+    result
 
 
   let create_sym_map srk tr_symbols =
@@ -407,12 +414,7 @@ module ACLTS = struct
                        exp_vars in
                    let global_req = mk_leq srk (mk_one srk) global_trans.(trans_ind) in
                    let res_assign = mk_eq srk res (mk_real srk (QQ.of_int trans_ind)) in
-                   Log.errorf "res_assign_here %a" (Formula.pp srk) res_assign;
-                   Log.errorf "res is %a" (Term.pp srk) res;
-                   Log.errorf "mk_real is %a" (Term.pp srk) (mk_real srk (QQ.of_int trans_ind));
-                   Log.errorf "Pop";
                    let sim2'_assignments =
-                     Log.errorf "pre phs1";
                      let phs1_commuting = 
                        BatArray.fold_lefti
                          (fun termmap trans_comm_ind transformer ->
@@ -441,7 +443,6 @@ module ACLTS = struct
                             (QQMatrix.nb_rows this_seg.sim1))
                          this_seg.phase1
                      in
-                     Log.errorf "Post phs1";
                      let rhs =
                        BatArray.fold_lefti
                          (fun termmap trans_ac_ind (kind, transformer) ->
@@ -471,11 +472,6 @@ module ACLTS = struct
                           (QQMatrix.nb_rows this_seg.sim2))
                        rhs
                    in
-                   Log.errorf "out of sim2";
-                   Log.errorf "res_assign: %a" (Formula.pp srk) res_assign;
-                   Log.errorf "global_req %a" (Formula.pp srk) global_req;
-                   Log.errorf "sim2'_assignments %a" (Formula.pp srk) sim2'_assignments;
-                   BatList.iter (fun term -> Log.errorf "more_recent_reset %a" (Formula.pp srk) term) more_recently_reset_phases_constr;
                    mk_and srk (res_assign :: global_req :: sim2'_assignments :: more_recently_reset_phases_constr))
                this_seg.phase2
            in 
@@ -487,7 +483,6 @@ module ACLTS = struct
                BatArray.map2 (fun trans_seg trans_global -> mk_eq srk trans_seg trans_global)
                  trans_exec global_trans
              in
-             Log.errorf "pop no res";
              let sim2'_assignments =
                let rhs =
                  BatArray.fold_lefti
@@ -513,7 +508,6 @@ module ACLTS = struct
                       (QQMatrix.nb_rows this_seg.sim2))
                    this_seg.phase2
                in
-               Log.errorf "out of no res sym 2";
                mk_eq_symmaps_LHS srk 
                  (linmatrix_to_term_array srk 
                     (fun i -> match Linear.sym_of_dim i with 
@@ -529,8 +523,6 @@ module ACLTS = struct
              in
              mk_and srk (res_assign :: sim2'_assignments :: global_eq_seg)
            in
-           Log.errorf "res_taken is %a" (Formula.pp srk) res_taken;
-           Log.errorf "res_not_taken is %a" (Formula.pp srk) res_not_taken;
            mk_or srk [res_taken; res_not_taken])
           exp_vars)
 
@@ -553,28 +545,24 @@ module ACLTS = struct
 
 
   let exp (srk : 'a context) tr_symbols loop_counter aclts =
+    (*logf ~level:`always "%a" (pp srk tr_symbols) aclts;*)
     if (List.length aclts = 0) then  mk_true srk 
     else(
-      Log.errorf "1";
       let exp_vars = create_exp_vars srk aclts in
       let pairs = all_pairs exp_vars in
       let global_trans_exec = create_global_vars srk aclts in 
-      Log.errorf "2";
       let constr1 = (BatArray.to_list global_trans_exec) :: 
                     (BatList.map (fun (trans_exec, _, _, _) -> BatArray.to_list trans_exec) exp_vars)
                     |> List.flatten
                     |> mk_all_nonnegative srk in
       let constr2 = exp_reset_never_taken_constr srk exp_vars loop_counter in
       let constr3 = exp_perm_constraints srk pairs in
-      Log.errorf "3";
       let constr4 = exp_equality_reset_together_constraints srk pairs in
       let constr5 = commuting_seg_counter_eq_lc srk global_trans_exec loop_counter in
       let constr6 = phase_seg_counter_less_global_counters srk global_trans_exec exp_vars in
       let constr7 = exp_connect_sum_constraints srk exp_vars in
-      Log.errorf "4";
       let constr8 = stateless_last_reset_core_logic_constrs srk tr_symbols aclts exp_vars
           pairs global_trans_exec in
-      Log.errorf "5";
       mk_and srk [constr1; constr2; constr3; constr4; constr5; constr6; constr7; constr8]
     )
 
