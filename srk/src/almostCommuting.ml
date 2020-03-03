@@ -1,4 +1,5 @@
 open Linear
+open BatPervasives 
 
 module VS = QQVectorSpace
 
@@ -78,7 +79,7 @@ module PhasedSegment = struct
       raise (Invalid_argument "Array of matrices should not be empty")
     else
       let _, mA = Array.get pairs 0 in
-      let dims = SrkUtil.Int.Set.elements (QQMatrix.column_set mA) in
+      let dims = BatList.of_enum (0 -- ((QQMatrix.nb_columns mA) - 1)) in
       let mS, phase1 = commuting_segment (iter_all pairs) dims in
       let mT, _ = commuting_segment (iter_commute pairs) dims in
       let maxldss mT =
@@ -226,17 +227,31 @@ module ACLTS = struct
 
 
   let abstract ?(exists=fun x -> true) srk tr_symbols phi =
+    (*Log.errorf "formula is %a" (Formula.pp srk) phi;*)
     let lts = LTS.abstract ~exists srk phi tr_symbols in
+    (*Log.errorf "sim matrix is %a" (QQMatrix.pp) (LTS.simulation lts);
+    BatList.iter (fun transformer ->
+        Log.errorf "%a" (QQMatrix.pp) transformer
+      ) (LTS.transitions lts);
+
+    BatList.iter (fun transformer ->
+        match E.exponentiate_rational transformer with
+        | None -> Log.errorf "%a" (QQMatrix.pp) transformer; failwith "No decompose"
+        | Some exp_m -> Log.errorf "Decomposed"
+      ) (LTS.transitions lts);*)
     let trans_array = BatArray.of_list (LTS.transitions lts) in
-    let aclts = PhasedSegmentation.make trans_array in
-    let result = BatList.map (fun ph_seg -> 
-        {sim1 = QQMatrix.mul ph_seg.sim1 (LTS.simulation lts);
-         sim2 = QQMatrix.mul ph_seg.sim2 (LTS.simulation lts);
-         phase1 = ph_seg.phase1;
-         phase2 = ph_seg.phase2})
-        aclts
-    in
-    result
+    if BatArray.length trans_array = 0 then []
+    else(
+      let aclts = PhasedSegmentation.make trans_array in
+      let result = BatList.map (fun ph_seg -> 
+          {sim1 = QQMatrix.mul ph_seg.sim1 (LTS.simulation lts);
+           sim2 = QQMatrix.mul ph_seg.sim2 (LTS.simulation lts);
+           phase1 = ph_seg.phase1;
+           phase2 = ph_seg.phase2})
+          aclts
+      in
+      result
+    )
 
 
   let create_sym_map srk tr_symbols =
@@ -419,7 +434,7 @@ module ACLTS = struct
                        BatArray.fold_lefti
                          (fun termmap trans_comm_ind transformer ->
                             match E.exponentiate_rational transformer with
-                            | None -> failwith "No decomp"
+                            | None -> failwith "No decomp1"
                             | Some exp_m ->
                               let exp_term = 
                                 if trans_comm_ind = trans_ind then
@@ -451,7 +466,7 @@ module ACLTS = struct
                             | Reset -> termmap
                             | Commute ->
                               begin match E.exponentiate_rational transformer with
-                                | None -> failwith "No decomp"
+                                | None -> failwith "No decomp2"
                                 | Some exp_m ->
                                   expmatrix_to_term_array srk (fun i -> termmap.(i)) exp_m trans_exec.(trans_ac_ind) 
                                     (QQMatrix.nb_rows this_seg.sim2)
@@ -491,8 +506,9 @@ module ACLTS = struct
                       | Ignore -> failwith "Ignore in exp"
                       | Reset -> termmap
                       | Commute ->
+                        Log.errorf "Transformer is %a" (QQMatrix.pp) transformer;
                         begin match E.exponentiate_rational transformer with
-                          |None -> failwith "No decomp"
+                          | None -> Log.errorf "failed here %a" (QQMatrix.pp) transformer; failwith "No decomp3"
                           | Some exp_m ->
                             expmatrix_to_term_array srk (fun i -> termmap.(i)) exp_m trans_exec.(trans_ac_ind) (QQMatrix.nb_rows this_seg.sim2)
                         end)
@@ -545,7 +561,8 @@ module ACLTS = struct
 
 
   let exp (srk : 'a context) tr_symbols loop_counter aclts =
-    (*logf ~level:`always "%a" (pp srk tr_symbols) aclts;*)
+    logf ~level:`always "%a" (pp srk tr_symbols) aclts;
+    BatList.iter (fun (x, x') -> Log.errorf "sym x is %a x' is %a" (Syntax.pp_symbol srk) x (Syntax.pp_symbol srk) x) tr_symbols;
     if (List.length aclts = 0) then  mk_true srk 
     else(
       let exp_vars = create_exp_vars srk aclts in
