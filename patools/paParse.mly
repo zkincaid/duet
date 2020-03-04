@@ -104,7 +104,8 @@ main_formula:
          if p = rel then
            rhs'
          else
-           mk_atom p (BatList.of_enum ((0 -- (k - 1)) /@ (fun i -> Var i)))
+           (let open BatPervasives in
+           mk_atom p (BatList.of_enum ((0 -- (k - 1)) /@ (fun i -> Var i))))
        in
        PaFormula.atom_substitute replace_rel body
      }

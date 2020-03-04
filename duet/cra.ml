@@ -122,10 +122,12 @@ module K = struct
   module SPG = ProductWedge (SPOne) (WedgeGuard)
   module SPPeriodicRational = Sum (SPG) (PresburgerGuard) ()
   module SPSplit = Sum (SPPeriodicRational) (Split(SPPeriodicRational)) ()
-  module VasSwitch = Sum (Vas)(Vass)()
+  module VasSwitch = Sum (Vas.EqualityInv(Vas))(Vas.EqualityInv(Vass))()
   module Vas_P = Product(VasSwitch)(Product(WedgeGuard)(LinearRecurrenceInequation))
   module D = Sum(SPSplit)(Vas_P)()
-  module I = Iter(MakeDomain(D))
+  module AC = Product(AlmostCommuting.ACLTS)(Product(WedgeGuard)(LinearRecurrenceInequation)) 
+  module E = Sum(D)(AC)()
+  module I = Iter(MakeDomain(E))
  
   let star x =
     let star x =
@@ -737,6 +739,10 @@ let _ =
     ("-cra-vass",
      Arg.Unit (fun () -> K.VasSwitch.abstract_left := false; K.D.abstract_left := false),
      " Use VASS abstraction");
+  CmdLine.register_config
+    ("-cra-aclts",
+     Arg.Unit (fun () -> K.E.abstract_left := false),
+     " Use VASS abstraction"); 
   CmdLine.register_config
     ("-dump-goals",
      Arg.Set dump_goals,

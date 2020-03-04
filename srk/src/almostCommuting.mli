@@ -1,4 +1,5 @@
 open Linear
+open Iteration
 
 val commuting_space : QQMatrix.t -> QQMatrix.t -> QQVectorSpace.t
 val commuting_segment : QQMatrix.t array -> int list -> (QQMatrix.t * QQMatrix.t array)
@@ -44,3 +45,6 @@ module PhasedSegmentation : sig
    (** Computes the best almost commuting abstraction for the given LTS *)
    val best_almost_commuting : QQMatrix.t array -> (QQMatrix.t * QQMatrix.t array)
 end
+
+module ACLTS : PreDomain
+  with type 'a t = phased_segment list

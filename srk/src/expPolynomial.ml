@@ -501,3 +501,14 @@ module UltPeriodic = struct
     in
     (seq @ t, period)
 end
+
+
+let term_of_vec srk term_of_dim ex vec =
+  let open Vector in
+  enum vec
+  /@ (fun (f, dim) ->
+      mk_mul srk [term_of srk ex f; term_of_dim dim])
+  |> BatList.of_enum
+  |> mk_add srk
+
+

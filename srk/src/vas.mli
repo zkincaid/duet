@@ -3,6 +3,7 @@
    1\}{^n} x QQ{^n} vector pairs. Each object describes a reset or
    increment to n counters. *)
 open Syntax
+open Iteration
 module V = Linear.QQVector
 module M = Linear.QQMatrix
 module Z = Linear.ZZVector
@@ -13,15 +14,22 @@ type transformer =
 [@@deriving ord, show]
 module TSet : BatSet.S with type elt = transformer
 type vas = TSet.t
-type 'a t = { v : vas; s_lst : M.t list}
-val gamma : 'a context ->  'a t -> (symbol * symbol) list -> 'a formula
+
+type 'a old_type = { v : vas; s_lst : M.t list}
+
+type 'a t = 'a AlmostCommuting.ACLTS.t
+val gamma : 'a context ->  'a old_type -> (symbol * symbol) list -> 'a formula
 val abstract : ?exists:(symbol -> bool) -> 'a context -> (symbol * symbol) list -> 
   'a formula -> 'a t
+val abstract_old : ?exists:(symbol -> bool) -> 'a context -> (symbol * symbol) list -> 
+  'a formula -> 'a old_type
 val pp : 'a context -> (symbol * symbol) list -> Format.formatter -> 'a t -> unit
 val exp : 'a context -> (symbol * symbol) list -> 'a term -> 'a t -> 'a formula
 val join : 'a context -> (symbol * symbol) list -> 'a t -> 'a t -> 'a t
 val widen : 'a context -> (symbol * symbol) list -> 'a t -> 'a t -> 'a t
 val equal : 'a context -> (symbol * symbol) list -> 'a t -> 'a t -> bool
+val mk_bottom : (symbol * symbol) list -> symbol list -> 'a old_type
+val matrixify_vectorize_term_list : 'a context -> 'a Syntax.term list -> M.t * V.t
 
 (* TODO: remove exp_base_helper *)
 val exp_base_helper : 'a context -> (symbol * Symbol.Map.key) list -> 'a term ->
@@ -36,8 +44,13 @@ val exp_other_reset_helper : 'a context -> 'a term -> 'a term list -> 'a term li
 val term_list : 'a context -> M.t list -> (symbol * Symbol.Map.key) list -> 
   (('a, typ_arith) expr * 'a term) list
 val gamma_transformer : 'a context -> ('a term * 'a term) list -> transformer -> 'a formula
-val alpha_hat  : 'a context -> 'a formula -> (symbol * symbol) list ->  'c t
+val alpha_hat  : 'a context -> 'a formula -> (symbol * symbol) list -> symbol list -> 'c old_type
 val coprod_compute_image : TSet.t -> M.t list -> TSet.t
 val coprod_find_transformation : M.t list -> M.t list -> 
   Linear.QQMatrix.t list * Linear.QQMatrix.t list * M.t list
+val mk_all_nonnegative : 'a context -> 'a term list -> 'a formula
+
+module EqualityInv (Iter : PreDomain) : PreDomain
+  with type 'a t = 'a Iter.t * 'a formula list * bool
+
 

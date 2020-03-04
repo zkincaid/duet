@@ -1,6 +1,7 @@
 open OUnit
 
 let suite = "Main" >::: [
+    Test_vas.suite;
     Test_memo.suite;
     Test_scalar.suite;
     Test_syntax.suite;

@@ -691,3 +691,4 @@ module SumWedge (A : PreDomainWedge) (B : PreDomainWedge) () = struct
     else
       Right (B.abstract_wedge srk tr_symbols wedge)
 end
+

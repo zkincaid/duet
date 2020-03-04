@@ -1,4 +1,5 @@
 open Syntax
+open Iteration
 open BatPervasives
 module V = Linear.QQVector
 module M = Linear.QQMatrix
@@ -13,17 +14,21 @@ include Log.Make(struct let name = "srk.vas" end)
 type transformer =
   { a : Z.t;
     b : V.t }
-    [@@deriving ord, show]
+[@@deriving ord, show]
 
 
 (* Figure out way to clean up these types a bit *)
 module Transformer = struct
-  type t = transformer [@@deriving ord]
+  type t = transformer 
+  [@@deriving ord, show]
 end
 
 module TSet = BatSet.Make(Transformer)
 
 type vas = TSet.t
+
+let pp_vas formatter (vas : vas) : unit =
+  SrkUtil.pp_print_enum pp_transformer formatter (TSet.enum vas)  
 
 (* A VAS abstraction contains a set of transformers, v,
  * and a list of linear simulations matrices, s_lst.
@@ -39,7 +44,61 @@ type vas = TSet.t
  * reset together in every transformer.
  *
  *)
-type 'a t = { v : vas; s_lst : M.t list}
+type 'a old_type = { v : vas; s_lst : M.t list}
+
+open AlmostCommuting
+
+type 'a t = 'a AlmostCommuting.ACLTS.t
+
+let old_type_to_new_type (ot : 'a old_type)  : 'a AlmostCommuting.ACLTS.t =
+  Log.errorf "Here";
+  let cur_row = ref 0 in
+  let vas = ot.v in
+  let s_lst = ot.s_lst in
+  BatList.map (fun sim ->
+      let sim1 = M.add_entry 0 (Linear.const_dim) (QQ.one) (M.zero) in
+      let sim2 = 
+        BatEnum.fold (fun acc_matrix (dim, vec) ->
+            Log.errorf "Row added to sim2";
+            M.add_row (M.nb_rows acc_matrix) vec acc_matrix)
+        (M.add_entry 0 (Linear.const_dim) (QQ.one) (M.zero))
+        (M.rowsi sim)
+      in
+      let phase1 =
+        BatArray.map (fun trans ->
+            (M.add_entry 0 0 (QQ.one) (M.zero)))
+          (TSet.to_array vas)
+      in
+      let phase2 =
+        BatArray.map (fun trans ->
+            let a = trans.a in
+            let b = trans.b in
+            let new_trans = 
+              BatEnum.fold (fun acc_matrix dim ->
+                  M.add_entry (dim + 1) 0 (V.coeff (!cur_row + dim) b) acc_matrix)
+                (M.add_entry 0 0 (QQ.one) (M.zero))
+                (0 -- ((M.nb_rows sim) - 1))
+            in
+            if ZZ.equal (Z.coeff !cur_row a) (ZZ.zero)
+            then (Reset, new_trans)
+            else (
+              let new_trans = 
+                BatEnum.fold (fun acc_matrix dim ->
+                    M.add_entry (dim + 1) (dim + 1) QQ.one acc_matrix)
+                  new_trans
+                  (0 -- ((M.nb_rows sim) - 1))
+              in
+              (Commute, new_trans)
+            ))
+          (TSet.to_array vas)
+      in
+      cur_row := (M.nb_rows sim) + !cur_row;
+      Log.errorf "Made it to this loc";
+      {sim1; sim2; phase1; phase2}
+    )
+    s_lst
+
+
 
 (* This function is used to stack the matrices
  * on top of each other to form a single matrix.
@@ -72,11 +131,12 @@ let unify2 matrices vects =
 
 let mk_top = {v=TSet.empty; s_lst=[]}
 
-let mk_bottom tr_symbols =
+let mk_bottom tr_symbols symb_constants =
   (* Matrix in which 1 row for each sym in * tr_symbols; row has a 1
      exactly in the col for corresponding sym'*)
+  let double_symb = List.map (fun x -> (x, x)) symb_constants in
   let sim =
-    List.map (fun (_, x') -> V.of_term QQ.one (Linear.dim_of_sym x')) tr_symbols
+    List.map (fun (_, x') -> V.of_term QQ.one (Linear.dim_of_sym x')) (tr_symbols @ double_symb)
     |> M.of_rows
   in
   {v=TSet.empty; s_lst=[sim]}
@@ -285,7 +345,7 @@ let exp_sx_constraints_helper srk ri ksum ksums svarstdims transformers kvarst
 (*Uses sx_constraints_helper to set initial values for each dimension of each equiv class*)
 let exp_sx_constraints srk coh_class_pairs transformers kvarst ksums unified_s tr_symbols =
   mk_and srk
-    (List.map (fun (_, svarstdims, ri, ksum) ->
+    (List.map (fun (kstack, svarstdims, ri, ksum) ->
          exp_sx_constraints_helper srk ri ksum ksums svarstdims transformers 
            kvarst unified_s tr_symbols)
         coh_class_pairs)
@@ -294,7 +354,7 @@ let exp_sx_constraints srk coh_class_pairs transformers kvarst ksums unified_s t
 (*Constraints for equalities of final termination value for each linear term*)
 let exp_lin_term_trans_constraints srk coh_class_pairs transformers unified_s =
   mk_and srk
-    (List.map (fun (kstack, svarstdims, _, _) ->
+    (List.map (fun (kstack, svarstdims, ri, _) ->
          mk_and srk
            (List.map (fun (svar, dim) ->
                 mk_eq srk
@@ -302,7 +362,7 @@ let exp_lin_term_trans_constraints srk coh_class_pairs transformers unified_s =
                   (mk_add srk
                      (svar :: 
                       (BatList.mapi
-                         (fun ind {b; _} ->
+                         (fun ind {a; b} ->
                             mk_mul srk 
                               [(List.nth kstack ind); mk_real srk (V.coeff dim b)])
                          transformers))))
@@ -324,7 +384,7 @@ let exp_kstack_eq_ksums srk coh_class_pairs =
 (*Combines all of the closure constraints that are used
  * in both VAS and VASS abstractions
  *)
-let exp_base_helper srk (_ : (symbol * symbol) list) loop_counter s_lst transformers =
+let exp_base_helper srk (tr_symbols : (symbol * symbol) list) loop_counter s_lst transformers =
  (*Create new symbols
   * Each coh class has:
   * a set of kvars, where the ith coh class jth kvar is
@@ -354,20 +414,7 @@ let exp_base_helper srk (_ : (symbol * symbol) list) loop_counter s_lst transfor
   (formula, (coh_class_pairs, kvarst, ksumst))
 
 
-(*Compute closure*)
-let exp srk tr_symbols loop_counter vabs =
-  let {v; s_lst} = vabs in
-  (* if top*)  
-  if(M.nb_rows (unify s_lst) = 0) 
-  then mk_true srk
-  else (
-    let (formula, (coh_class_pairs, kvarst, ksumst)) = exp_base_helper srk tr_symbols
-        loop_counter s_lst (TSet.to_list v) in
-    let constr1 = exp_sx_constraints srk coh_class_pairs
-        (TSet.to_list v) kvarst ksumst (unify s_lst) tr_symbols in
-    mk_and srk [formula; constr1]
-  )
-
+let exp = AlmostCommuting.ACLTS.exp
 
 (*Move matrix down by first_row rows*)
 let push_rows matrix first_row =
@@ -386,7 +433,7 @@ let coprod_find_transformation s_lst1 s_lst2 =
    *r2 is transformation from s_lst2 to s_lst
    *)
   let r1, r2, s_lst =
-    List.fold_left (fun (r1, r2, s_lst) cohclass1 -> 
+    List.fold_left (fun (r1, r2, s_lst) cohclass1 ->
         let offset2 = ref 0 in
         let r1', r2', s_lst' = 
           (List.fold_left (fun (r1', r2', s_lst') cohclass2 ->
@@ -410,10 +457,10 @@ let coprod_compute_image v r =
   let unifr = unify r in
   (*Computes a representative dim for each coh class*)
   let rowreps = 
-      BatList.map (fun (_, row) ->
+      BatList.map (fun (dim', row) ->
           match BatEnum.get (V.enum row) with
-          | Some (_, dim) -> dim
           | None -> assert false
+          | Some (scalar, dim) -> dim
         )
         (BatList.of_enum (M.rowsi unifr))
   in
@@ -434,8 +481,8 @@ let coprod_compute_image v r =
   v'
 
 
-let coproduct vabs1 vabs2 : 'a t =
-  let (s_lst1, s_lst2, v1, v2) = (vabs1.s_lst, vabs2.s_lst, vabs1.v, vabs2.v) in 
+let coproduct srk vabs1 vabs2 : 'a old_type =
+  let (s_lst1, s_lst2, v1, v2) = (vabs1.s_lst, vabs2.s_lst, vabs1.v, vabs2.v) in
   let s1, s2, s_lst = coprod_find_transformation s_lst1 s_lst2 in
   let v = TSet.union (coprod_compute_image v1 s1) (coprod_compute_image v2 s2) in
   {v; s_lst}
@@ -479,19 +526,22 @@ let gamma srk vas tr_symbols =
   if List.length term_list = 0 then mk_true srk else
     mk_or srk (List.map (fun t -> gamma_transformer srk term_list t) (TSet.elements vas.v))
 
-let alpha_hat srk imp tr_symbols =
+let alpha_hat srk imp tr_symbols symb_constants =
+  (* Note that we need to add m = m + 0 to increment portion of simulation matrix
+   * for all symbolic constants m in order to ensure coproduct works properly *)
+  let double_symb = List.map (fun x -> (x, x)) symb_constants in 
   let (xdeltpairs, xdeltphis) = 
     List.split (List.fold_left (fun acc (x, x') -> 
         let xdeltpairs = (mk_symbol srk (typ_symbol srk x)) in
         let xdeltphis = (mk_eq srk (mk_const srk xdeltpairs) 
                                 (mk_sub srk (mk_const srk x') (mk_const srk x))) in
-        ((xdeltpairs, x'), xdeltphis) :: acc) [] tr_symbols) in
+        ((xdeltpairs, x'), xdeltphis) :: acc) [] (tr_symbols @ double_symb)) in
   let r, b1 = matrixify_vectorize_term_list srk 
-      (H.affine_hull srk imp (List.map snd tr_symbols)) in
+      (H.affine_hull srk imp ((List.map (fun (x, x') -> x') tr_symbols) @ symb_constants)) in
   let i, b2 = matrixify_vectorize_term_list srk 
       (List.map (postify srk xdeltpairs)
          (H.affine_hull srk (mk_and srk (imp :: xdeltphis))
-            (List.map fst xdeltpairs))) in
+            (List.map (fun (x'', x') -> x'') xdeltpairs))) in
   let _, b = unify2 [i; r] [b2; b1] in
   let add_dim a offset =
     Z.add_term ZZ.one offset a
@@ -507,11 +557,21 @@ let alpha_hat srk imp tr_symbols =
   | false, false -> {v=TSet.singleton {a;b}; s_lst=[i;r]}
 
 (*TODO:Make a better pp function*)
-let pp srk syms formatter vas = Format.fprintf formatter "%a" (Formula.pp srk) (gamma srk vas syms)
+let pp srk syms formatter vas = failwith "TODO" (*Format.fprintf formatter "%a" (Formula.pp srk) (gamma srk vas syms)*)
 
-let abstract ?exists:(_=fun _ -> true) srk tr_symbols phi  =
+
+
+
+let abstract_old ?(exists=fun x -> true) srk tr_symbols phi  =
+  let tr_flat = List.fold_left (fun lst (x, x') -> x :: x' :: lst) [] tr_symbols in
+  let symb_constants = Symbol.Set.elements
+      (Symbol.Set.filter (fun a -> (exists a) && (not (List.mem a tr_flat))) (symbols phi)) in 
+  let symb_eqs = List.fold_left (fun lst sym -> (mk_eq srk (mk_const srk sym) (mk_const srk sym)) :: lst) [] 
+      symb_constants in
+  let phi = mk_and srk (phi :: symb_eqs) in
   let phi = (rewrite srk ~down:(nnf_rewriter srk) phi) in
   let phi = Nonlinear.linearize srk phi in
+ 
   let solver = Smt.mk_solver srk in
   let rec go vas =
     Smt.Solver.add solver [mk_not srk (gamma srk vas tr_symbols)];
@@ -522,14 +582,153 @@ let abstract ?exists:(_=fun _ -> true) srk tr_symbols phi  =
       match Interpretation.select_implicant m phi with
       | None -> assert false
       | Some imp ->
-        let sing_transformer_vas = alpha_hat srk (mk_and srk imp) tr_symbols in
-        go (coproduct vas sing_transformer_vas)
+        let sing_transformer_vas = alpha_hat srk (mk_and srk imp) tr_symbols symb_constants in
+        go (coproduct srk vas sing_transformer_vas)
   in
   Smt.Solver.add solver [phi];
-  let {v;s_lst} = go (mk_bottom tr_symbols) in
+  let {v;s_lst} = go (mk_bottom tr_symbols symb_constants) in
   let result = {v;s_lst} in
   result
 
-let join  _ _ _ _  = assert false
-let widen  _ _ _ _  = assert false
-let equal  _ _ _ _  = assert false
+let abstract ?(exists=fun x -> true) srk tr_symbols phi  =
+  let result = old_type_to_new_type (abstract_old ~exists srk tr_symbols phi) in
+  Log.errorf "Finished abstract";
+  result
+
+
+
+let join  (srk :'a context) (tr_symbols : (symbol * symbol) list) (vabs1 : 'a t) (vabs2 : 'a t) = assert false
+let widen  (srk :'a context) (tr_symbols : (symbol * symbol) list) (vabs1 : 'a t) (vabs2 : 'a t) = assert false
+let equal (srk : 'a context) (tr_symbols : (symbol * symbol) list) (vabs1 : 'a t) (vabs2 : 'a t) = assert false
+
+
+
+(* Computes vector space of invariants over program vars 
+ * for some transition formula F. Runs iteration domain
+ * over F with a var for each invariant substitued out.
+ * For instance, given some trans formula 
+ * y' + x' = 2 /\ y + x = 2 /\ G(x, y), will run iteration
+ * with G(2 - y, y); appends invariants to exp of iteration.
+ *
+ * Also computes when a transition formula is bound by one iteration
+ * due to pre/post state invariant mismatch (for example
+ * y' + x' = 2 /\ y + x = 1 /\ G(x, y))
+ *)
+module EqualityInv (Iter : PreDomain) = struct
+  module M = Linear.QQMatrix
+  module H = Abstract
+
+  type 'a t = 'a Iter.t * 'a formula list * bool 
+
+  let pp srk tr_symbols formatter (abstraction, invariants, bounded_by_one) = 
+    Iter.pp srk tr_symbols formatter abstraction (* add invars *)
+
+  let exp srk tr_symbols loop_counter (abstraction, invariants, bounded_by_one) =
+    let formula = mk_and srk ((Iter.exp srk tr_symbols loop_counter abstraction) :: invariants) in
+    if bounded_by_one then
+      mk_and srk [formula; mk_leq srk loop_counter (mk_one srk)]
+    else
+      formula
+
+  (* Used in preify and postify to create symbol map.
+   * Is a way to substitute variables; for example
+   * x with x' or x' with x.
+  *)
+  let post_map srk tr_symbols =
+    List.fold_left
+      (fun map (sym, sym') -> Symbol.Map.add sym (mk_const srk sym') map)
+      Symbol.Map.empty
+      tr_symbols
+
+  (* For tr_symbols list of form (x, x'),
+   * replace x' with x in term.
+  *)
+  let preify srk tr_symbols = substitute_map srk
+      (post_map srk (List.map (fun (x, x') -> (x', x)) tr_symbols))
+
+  (* Same as preify, but replaces x with x' *)
+  let postify srk tr_symbols = substitute_map srk (post_map srk tr_symbols)
+
+
+  let find_invariants srk tr_symbols symb_constants phi =
+    (* Find rightmost dimension of vector, and coeff of that dim *)
+    let get_last_dim vector =
+      BatEnum.fold (fun (scal, max) (scalar, dim) ->
+          if dim > max then (scalar,dim) else (scal, max)) (QQ.zero, -1) (V.enum vector) in
+    (* Compute when constant relations on post state vars; on pre state vars *)
+    let post_m, po_b = matrixify_vectorize_term_list srk 
+        (H.affine_hull srk phi (symb_constants @ (List.map (fun (x, x') -> x') tr_symbols))) in
+    let pre_m, pr_b = matrixify_vectorize_term_list srk
+        (List.map (postify srk tr_symbols) 
+           (H.affine_hull srk phi (symb_constants @ (List.map (fun (x, x') -> x) tr_symbols)))) in
+    match M.nb_rows post_m, M.nb_rows pre_m with
+    | 0,_ -> (phi, [], false)
+    | _,0 -> (phi, [], false)
+    | _,_ ->
+      (* Intersection of post_m and pre_m gives us linear terms
+       * for invariants that hold at every step of loop *)
+      let (c, d) = Linear.intersect_rowspace post_m pre_m in
+      BatEnum.fold (fun (phi, invars, guarded_system) (dim', c_row) ->
+          let vect = M.vector_left_mul c_row post_m in
+          let b_post = V.dot c_row po_b in 
+          let d_row = M.row dim' d in
+          let br = V.dot d_row pr_b in
+          (* We will remove last dimension of inv from phi *)
+          let scal, last_dim = get_last_dim vect in
+          (* Computed pre,post invars without final dim *)
+          let term_xy' =  
+            (mk_mul srk 
+               [mk_sub srk (Linear.of_linterm srk (snd (V.pivot last_dim vect))) 
+                  (mk_real srk br);
+                mk_real srk (QQ.inverse (QQ.negate scal))]) in
+          let term_xy = preify srk tr_symbols
+              (mk_mul srk 
+                 [mk_sub srk (Linear.of_linterm srk (snd (V.pivot last_dim vect))) 
+                    (mk_real srk b_post);
+                  mk_real srk (QQ.inverse (QQ.negate scal))]) in
+
+          let sym' = match Linear.sym_of_dim last_dim with
+            | None -> assert false
+            | Some v -> v
+          in
+          let sym = List.fold_left (fun acc (x, x') -> if x' = sym' then x else acc)
+              sym' tr_symbols in
+          let phi' = if List.mem sym symb_constants then  
+             mk_and srk [phi; mk_eq srk (preify srk tr_symbols term_xy) (postify srk tr_symbols term_xy')]
+            else phi in
+
+          (* Rewrite phi without sym or sym' *)
+          let phi'' = substitute_const srk
+              (* TODO: Issue because in const symb x' = x*)
+              (fun x -> if x = sym then preify srk tr_symbols term_xy 
+                else if x = sym' then postify srk tr_symbols term_xy'
+                else mk_const srk x) phi' in
+          let invars = (mk_eq srk (mk_const srk sym') (term_xy'))
+                       :: (mk_eq srk (mk_const srk sym) (term_xy))
+                       :: invars in
+          (* Determines if transition can only happen at most one time *)
+          let guarded_system = if QQ.equal b_post br then guarded_system else true in 
+          phi'',invars, guarded_system
+        )
+        (phi,[], false)
+        (M.rowsi c)
+
+
+
+  let abstract ?(exists=fun x -> true) srk tr_symbols phi =
+    let tr_flat = List.fold_left (fun lst (x, x') -> x :: x' :: lst) [] tr_symbols in
+    let symb_constants = Symbol.Set.elements
+        (Symbol.Set.filter (fun a -> (exists a) && (not (List.mem a tr_flat))) (symbols phi)) in 
+    let symb_eqs = List.fold_left (fun lst sym -> (mk_eq srk (mk_const srk sym) (mk_const srk sym)) :: lst) [] 
+        symb_constants in
+    (*symb_eqs will be added twice*)
+    let phi = mk_and srk (phi :: symb_eqs) in
+    let phi', invars, bounded_by_one = find_invariants srk tr_symbols symb_constants phi in
+    let res = Iter.abstract ~exists srk tr_symbols phi' in
+    res, invars, bounded_by_one
+
+  let equal srk tr_symbols obj1 obj2 = assert false
+  let join srk tr_symbols obj1 obj2 = assert false
+  let widen srk tr_symbols obj1 obj2 = assert false
+
+end
