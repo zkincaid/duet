@@ -79,11 +79,27 @@ let ls_abstract6 () =
   in
   assert_equiv_formula phi_abs (A.to_transition_formula srk ls tr_symbols)
 
+let ls_abstract7 () =
+  let phi = (* Eigenvalues are (1+i), (1-i), and 2 *)
+    let open Infix in
+    x' = x - y
+    && y' = y + x
+    && z' = (int 2) * z + (int 1)
+  in
+  let ls = A.abstract srk phi tr_symbols in
+  let phi_abs =
+    let open Infix in
+    z' = (int 2) * z + (int 1)
+  in
+  assert_equiv_formula phi_abs (A.to_transition_formula srk ls tr_symbols)
+
+
 let suite = "LinearSemiautomaton" >::: [
     "ls_abstract1" >:: ls_abstract1;
     "ls_abstract2" >:: ls_abstract2;
     "ls_abstract3" >:: ls_abstract3;
     "ls_abstract4" >:: ls_abstract4;
     "ls_abstract5" >:: ls_abstract5;
-    "ls_abstract6" >:: ls_abstract6
+    "ls_abstract6" >:: ls_abstract6;
+    "ls_abstract7" >:: ls_abstract7
   ]

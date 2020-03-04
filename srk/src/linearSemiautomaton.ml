@@ -176,6 +176,22 @@ let abstract_tdlts srk phi tr_symbols const_symbols =
 
   (sim, transform)
 
+(* Find best abstraction of a TDLTS as a TDLTS with rational spectrum *)
+let abstract_tdlts_rational transform dim =
+  let dimensions = BatList.of_enum (0 -- (dim - 1)) in
+  let sim =
+    Linear.rational_spectral_decomposition transform dimensions
+    |> List.map snd
+    |> Linear.QQVectorSpace.matrix_of
+  in
+  (* simulation * transform = abstract_transform * simulation *)
+  let abstract_transform =
+    match Linear.divide_right (QQMatrix.mul sim transform) sim with
+    | Some m -> m
+    | None -> assert false
+  in
+  (sim, abstract_transform)
+
 let abstract ?(exists=fun x -> true) srk phi tr_symbols =
   let phi =
     rewrite srk ~down:(nnf_rewriter srk) phi
@@ -198,8 +214,16 @@ let abstract ?(exists=fun x -> true) srk phi tr_symbols =
       match Interpretation.select_implicant m phi with
       | None -> assert false
       | Some implicant ->
-        let (sim, tr) = abstract_tdlts srk (mk_and srk implicant) tr_symbols const_symbols in
-        let implicant_aut = { simulation = sim; transitions = [tr] } in
+        let (sim, tr) =
+          abstract_tdlts srk (mk_and srk implicant) tr_symbols const_symbols
+        in
+        let (qq_sim, tr) =
+          abstract_tdlts_rational tr (QQMatrix.nb_rows sim)
+        in
+        let implicant_aut =
+          { simulation = QQMatrix.mul qq_sim sim;
+            transitions = [tr] }
+        in
         go (join aut implicant_aut)
   in
   Smt.Solver.add solver [phi];
