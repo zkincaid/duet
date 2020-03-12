@@ -1699,11 +1699,11 @@ $as_echo_n "checking machine architecture... " >&6; }
 if test `uname -m` = "x86_64"; then
    { $as_echo "$as_me:${as_lineno-$LINENO}: result: 64 bit" >&5
 $as_echo "64 bit" >&6; }
-   ln -s lib/libbuddy.so.64 lib/libbuddy.so
+   ln -s $PWD/lib/libbuddy.so.64 $PWD/lib/libbuddy.so
 else
    { $as_echo "$as_me:${as_lineno-$LINENO}: result: 32 bit" >&5
 $as_echo "32 bit" >&6; }
-   ln -s lib/libbuddy.so.32 lib/libbuddy.so
+   ln -s $PWD/lib/libbuddy.so.32 $PWD/lib/libbuddy.so
 fi
 
 ac_config_files="$ac_config_files duet/config.ml"
