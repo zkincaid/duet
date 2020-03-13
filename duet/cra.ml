@@ -119,9 +119,9 @@ module K = struct
   open Iteration
   open SolvablePolynomial
   module SPOne = SumWedge (SolvablePolynomial) (SolvablePolynomialOne) ()
-  module SPG = ProductWedge (SPOne) (WedgeGuard)
-  module SPPeriodicRational = Sum (SPG) (PresburgerGuard) ()
-  module SPSplit = Sum (SPPeriodicRational) (Split(SPPeriodicRational)) ()
+  module SPPeriodicRational = SumWedge (SPOne) (SolvablePolynomialPeriodicRational) ()
+  module SPG = ProductWedge (SPPeriodicRational) (WedgeGuard)
+  module SPSplit = Sum (SPG) (Split(SPG)) ()
   module VasSwitch = Sum (Vas)(Vass)()
   module Vas_P = Product(VasSwitch)(Product(WedgeGuard)(LinearRecurrenceInequation))
   module D = Sum(SPSplit)(Vas_P)()

@@ -1691,12 +1691,16 @@ let qe_mbp srk phi =
     phi
 
 let mbp ?(dnf=false) srk exists phi =
-  let phi = eliminate_ite srk phi in
-  let phi = rewrite srk ~down:(nnf_rewriter srk) phi in
+  let phi =
+    eliminate_ite srk phi
+    |> rewrite srk
+      ~down:(nnf_rewriter srk)
+      ~up:(SrkSimplify.simplify_terms_rewriter srk)
+  in
   let project =
     Symbol.Set.filter (not % exists) (symbols phi)
   in
-  let solver = Smt.mk_solver ~theory:"QF_LIA" srk in
+  let solver = Smt.mk_solver ~theory:"QF_LIRA" srk in
   let disjuncts = ref [] in
   let is_true phi =
     match Formula.destruct srk phi with
