@@ -127,7 +127,16 @@ let simplify_terms_rewriter srk =
           { rf with
             num = Polynomial.QQXs.scalar_mul (QQ.inverse (QQ.abs c)) (RationalTerm.num rf) }
       in
-      let num_term = QQXs.term_of srk ctx.of_int (num rf) in
+      let num_term =
+        let denominator =
+          BatEnum.fold (fun d (coeff, _) ->
+              ZZ.lcm d (QQ.denominator coeff))
+            ZZ.one
+            (QQXs.enum (num rf))
+        in
+        QQXs.scalar_mul (QQ.of_zz denominator) (num rf)
+        |> QQXs.term_of srk ctx.of_int
+      in
       let den_term = Monomial.term_of srk ctx.of_int (den rf) in
 
       let zero = mk_real srk QQ.zero in
