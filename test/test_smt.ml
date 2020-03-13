@@ -327,9 +327,11 @@ let suite = "SMT" >:::
     "roundtrip2" >:: roundtrip2;
     "roundtrip3" >:: roundtrip3;
     "roundtrip4" >:: roundtrip4;
+(*
     "interpolate1" >:: interpolate1;
     "interpolate2" >:: interpolate2;
     "interpolate3" >:: interpolate3;
+*)
     "interpretation1" >:: interpretation1;
     "implicant1" >:: implicant1;
     "affine_interp1" >:: affine_interp1;

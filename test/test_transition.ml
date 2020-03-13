@@ -336,7 +336,9 @@ let suite = "Transition" >::: [
     "split" >:: split;
     "split2" >:: split2;
     "equal1" >:: equal1;
+(*
     "interpolate1" >:: interpolate1;
     "interpolate2" >:: interpolate2;
+*)
     "negative_eigenvalue" >:: negative_eigenvalue;
   ]
