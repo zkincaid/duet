@@ -557,12 +557,13 @@ let alpha_hat srk imp tr_symbols symb_constants =
   | false, false -> {v=TSet.singleton {a;b}; s_lst=[i;r]}
 
 (*TODO:Make a better pp function*)
-let pp srk syms formatter vas = failwith "TODO" (*Format.fprintf formatter "%a" (Formula.pp srk) (gamma srk vas syms)*)
+let pp_old srk syms formatter vas = Format.fprintf formatter "%a" (Formula.pp srk) (gamma srk vas syms)
 
-
+let pp srk syms formatter vas = failwith "TODO"
 
 
 let abstract_old ?(exists=fun x -> true) srk tr_symbols phi  =
+  Log.errorf "Formula is %a" (Formula.pp srk) phi;
   let tr_flat = List.fold_left (fun lst (x, x') -> x :: x' :: lst) [] tr_symbols in
   let symb_constants = Symbol.Set.elements
       (Symbol.Set.filter (fun a -> (exists a) && (not (List.mem a tr_flat))) (symbols phi)) in 
@@ -588,6 +589,7 @@ let abstract_old ?(exists=fun x -> true) srk tr_symbols phi  =
   Smt.Solver.add solver [phi];
   let {v;s_lst} = go (mk_bottom tr_symbols symb_constants) in
   let result = {v;s_lst} in
+  logf ~level:`always "vas is %a" (pp_old srk tr_symbols) result;
   result
 
 let abstract ?(exists=fun x -> true) srk tr_symbols phi  =

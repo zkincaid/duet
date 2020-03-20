@@ -227,18 +227,13 @@ module ACLTS = struct
 
 
   let abstract ?(exists=fun x -> true) srk tr_symbols phi =
-    (*Log.errorf "formula is %a" (Formula.pp srk) phi;*)
+    Log.errorf "formula is %a" (Formula.pp srk) phi;
     let lts = LTS.abstract ~exists srk phi tr_symbols in
-    (*Log.errorf "sim matrix is %a" (QQMatrix.pp) (LTS.simulation lts);
+    Log.errorf "LTS sim matrix is %a" (QQMatrix.pp) (LTS.simulation lts);
     BatList.iter (fun transformer ->
-        Log.errorf "%a" (QQMatrix.pp) transformer
+        Log.errorf "LTS transformer is %a" (QQMatrix.pp) transformer
       ) (LTS.transitions lts);
 
-    BatList.iter (fun transformer ->
-        match E.exponentiate_rational transformer with
-        | None -> Log.errorf "%a" (QQMatrix.pp) transformer; failwith "No decompose"
-        | Some exp_m -> Log.errorf "Decomposed"
-      ) (LTS.transitions lts);*)
     let trans_array = BatArray.of_list (LTS.transitions lts) in
     if BatArray.length trans_array = 0 then []
     else(
@@ -391,7 +386,7 @@ module ACLTS = struct
       (BatArray.make size (mk_zero srk))
       (QQMatrix.rowsi matrix)
 
-  let expmatrix_to_term_array srk term_vec matrix exp_term size=
+  let expmatrix_to_term_array srk term_vec matrix exp_term size =
     BatEnum.fold
       (fun arr (dim, row) -> arr.(dim)<-E.term_of_vec srk term_vec exp_term row; arr)
       (BatArray.make size (mk_zero srk))
@@ -403,6 +398,7 @@ module ACLTS = struct
     @@ BatArray.to_list 
     @@ BatArray.mapi
       (fun ind term ->
+         Log.errorf "new eq is %a" (Formula.pp srk) (mk_eq srk term a2.(ind));
          mk_eq srk term a2.(ind))
       a1
 
@@ -474,6 +470,7 @@ module ACLTS = struct
                          (linmatrix_to_term_array srk (fun i -> phs1_commuting.(i)) res_trans (QQMatrix.nb_rows this_seg.sim2))
                          this_seg.phase2 
                      in
+                     Log.errorf "enter 1";
                      mk_eq_symmaps_LHS srk 
                        (linmatrix_to_term_array srk 
                           (fun i -> match Linear.sym_of_dim i with 
@@ -524,6 +521,7 @@ module ACLTS = struct
                       (QQMatrix.nb_rows this_seg.sim2))
                    this_seg.phase2
                in
+               Log.errorf "enter2";
                mk_eq_symmaps_LHS srk 
                  (linmatrix_to_term_array srk 
                     (fun i -> match Linear.sym_of_dim i with 
@@ -563,7 +561,7 @@ module ACLTS = struct
   let exp (srk : 'a context) tr_symbols loop_counter aclts =
     logf ~level:`always "%a" (pp srk tr_symbols) aclts;
     BatList.iter (fun (x, x') -> Log.errorf "sym x is %a x' is %a" (Syntax.pp_symbol srk) x (Syntax.pp_symbol srk) x) tr_symbols;
-    if (List.length aclts = 0) then  mk_true srk 
+    if (List.length aclts = 0 || List.length aclts = 1 && QQMatrix.nb_rows (List.hd aclts).sim1 = 0) then  mk_true srk 
     else(
       let exp_vars = create_exp_vars srk aclts in
       let pairs = all_pairs exp_vars in

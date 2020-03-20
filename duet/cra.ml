@@ -123,9 +123,9 @@ module K = struct
   module SPPeriodicRational = Sum (SPG) (PresburgerGuard) ()
   module SPSplit = Sum (SPPeriodicRational) (Split(SPPeriodicRational)) ()
   module VasSwitch = Sum (Vas.EqualityInv(Vas))(Vas.EqualityInv(Vass))()
-  module Vas_P = Product(VasSwitch)(Product(WedgeGuard)(LinearRecurrenceInequation))
+  module Vas_P = Product(VasSwitch)(Product(PolyhedronGuard)(LinearRecurrenceInequation))
   module D = Sum(SPSplit)(Vas_P)()
-  module AC = Product(AlmostCommuting.ACLTS)(Product(WedgeGuard)(LinearRecurrenceInequation)) 
+  module AC = Product(AlmostCommuting.ACLTS)(Product(PolyhedronGuard)(LinearRecurrenceInequation)) 
   module E = Sum(D)(AC)()
   module I = Iter(MakeDomain(E))
  
@@ -742,7 +742,7 @@ let _ =
   CmdLine.register_config
     ("-cra-aclts",
      Arg.Unit (fun () -> K.E.abstract_left := false),
-     " Use VASS abstraction"); 
+     " Use ACLTS abstraction"); 
   CmdLine.register_config
     ("-dump-goals",
      Arg.Set dump_goals,
