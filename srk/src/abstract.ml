@@ -98,12 +98,38 @@ let boxify srk phi terms =
   | `Unsat -> mk_false srk
   | `Unknown -> assert false
 
+let nb_hulls = ref 0
+let dump_hull = ref false
+let dump_hull_prefix = ref ""
+
 let abstract ?exists:(p=fun _ -> true) srk man phi =
   let solver = Smt.mk_solver srk in
   let phi_symbols = symbols phi in
   let symbol_list = Symbol.Set.elements phi_symbols in
   let env_proj = SrkApron.Env.of_set srk (Symbol.Set.filter p phi_symbols) in
   let cs = CoordinateSystem.mk_empty srk in
+
+  if !dump_hull then begin
+      let query =
+        List.fold_left (fun phi s ->
+            if p s then
+              phi
+            else
+              mk_exists_const srk s phi)
+          phi
+          symbol_list
+      in
+      let filename =
+        Format.sprintf "%shull%d.smt2" (!dump_hull_prefix) (!nb_hulls)
+      in
+      let chan = Stdlib.open_out filename in
+      let formatter = Format.formatter_of_out_channel chan in
+      logf ~level:`always "Writing convex hull query to %s" filename;
+      Syntax.pp_smtlib2 srk formatter query;
+      Format.pp_print_newline formatter ();
+      Stdlib.close_out chan;
+      incr nb_hulls
+    end;
 
   let disjuncts = ref 0 in
   let rec go prop =

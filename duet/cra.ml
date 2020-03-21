@@ -597,6 +597,7 @@ let make_transition_system rg =
 
 let analyze file =
   populate_offset_table file;
+  Abstract.dump_hull_prefix := file.filename;
   match file.entry_points with
   | [main] -> begin
       let rg = Interproc.make_recgraph file in
@@ -739,7 +740,11 @@ let _ =
   CmdLine.register_config
     ("-dump-goals",
      Arg.Set dump_goals,
-     " Output goal assertions in SMTLIB2 format")
+     " Output goal assertions in SMTLIB2 format");
+  CmdLine.register_config
+    ("-dump-hulls",
+     Arg.Set Srk.Abstract.dump_hull,
+     " Output convex hull goals in SMTLIB2 format")
 
 let _ =
   CmdLine.register_pass

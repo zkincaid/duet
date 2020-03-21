@@ -22,6 +22,9 @@ val abstract : ?exists:(symbol -> bool) ->
   'a formula ->
   ('a,'abs) SrkApron.property
 
+val dump_hull : bool ref
+val dump_hull_prefix : string ref
+
 (** Symbolic abstraction as described in Reps, Sagiv,
    Yorsh---"Symbolic implementation of the best transformer", VMCAI
    2004. *)
