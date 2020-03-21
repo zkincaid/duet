@@ -1231,7 +1231,14 @@ let pp_smtlib2 ?(env=Env.empty) srk formatter expr =
       in
       "|" ^ replaced ^ "|"
   in
-    
+  let fresh_var_name =
+    let nb_vars = ref 0 in
+    fun name -> begin
+        incr nb_vars;
+        symbol_of_string (Format.sprintf "%s?%d" name (!nb_vars))
+      end
+  in
+
   (* find a unique string that can be used to identify each symbol *)
   let strings = Hashtbl.create 991 in
   let symbol_name = Hashtbl.create 991 in
@@ -1257,13 +1264,14 @@ let pp_smtlib2 ?(env=Env.empty) srk formatter expr =
     (symbols expr);
 
   fprintf formatter "@[<v 0>";
+
+  let pp_typ_fo formatter = function
+    | `TyReal -> pp_print_string formatter "Real"
+    | `TyInt -> pp_print_string formatter "Int"
+    | `TyBool -> pp_print_string formatter "Bool"
+  in
   (* print declarations *)
   symbol_name |> Hashtbl.iter (fun symbol name ->
-      let pp_typ_fo formatter = function
-        | `TyReal -> pp_print_string formatter "Real"
-        | `TyInt -> pp_print_string formatter "Int"
-        | `TyBool -> pp_print_string formatter "Bool"
-      in        
       match typ_symbol srk symbol with
       | `TyReal -> fprintf formatter "(declare-const %s Real)@;" name
       | `TyInt -> fprintf formatter "(declare-const %s Int)@;" name
@@ -1293,8 +1301,8 @@ let pp_smtlib2 ?(env=Env.empty) srk formatter expr =
         (Hashtbl.find symbol_name func)
         (SrkUtil.pp_print_enum ~pp_sep (go env)) (BatList.enum args)
     | Var (v, _), [] ->
-      (try fprintf formatter "?%s_%d" (Env.find env v) v
-       with Not_found -> fprintf formatter "[free:%d]" v)
+       (try pp_print_string formatter (Env.find env v)
+       with Not_found -> invalid_arg "pp_smtlib2: free variable")
     | Add, terms ->
       fprintf formatter "(+ @[";
       SrkUtil.pp_print_enum
@@ -1368,6 +1376,9 @@ let pp_smtlib2 ?(env=Env.empty) srk formatter expr =
           ("forall", (name, typ)::varinfo, psi)
         | _ -> assert false
       in
+      let varinfo =
+        List.map (fun (name, typ) -> (fresh_var_name name, typ)) varinfo
+      in
       let env =
         List.fold_left (fun env (x,_) -> Env.push x env) env varinfo
       in
@@ -1375,7 +1386,7 @@ let pp_smtlib2 ?(env=Env.empty) srk formatter expr =
       SrkUtil.pp_print_enum
         ~pp_sep
         (fun formatter (name, typ) ->
-           fprintf formatter "(%s %a)" name pp_typ typ)
+           fprintf formatter "(%s %a)" name pp_typ_fo typ)
         formatter
         (BatList.enum varinfo);
       fprintf formatter ")@ %a@])" (go env) psi
