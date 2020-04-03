@@ -227,18 +227,7 @@ module ACLTS = struct
 
 
   let abstract ?(exists=fun x -> true) srk tr_symbols phi =
-    (*Log.errorf "formula is %a" (Formula.pp srk) phi;*)
     let lts = LTS.abstract ~exists srk phi tr_symbols in
-    (*Log.errorf "sim matrix is %a" (QQMatrix.pp) (LTS.simulation lts);
-    BatList.iter (fun transformer ->
-        Log.errorf "%a" (QQMatrix.pp) transformer
-      ) (LTS.transitions lts);
-
-    BatList.iter (fun transformer ->
-        match E.exponentiate_rational transformer with
-        | None -> Log.errorf "%a" (QQMatrix.pp) transformer; failwith "No decompose"
-        | Some exp_m -> Log.errorf "Decomposed"
-      ) (LTS.transitions lts);*)
     let trans_array = BatArray.of_list (LTS.transitions lts) in
     if BatArray.length trans_array = 0 then []
     else(
@@ -506,7 +495,6 @@ module ACLTS = struct
                       | Ignore -> failwith "Ignore in exp"
                       | Reset -> termmap
                       | Commute ->
-                        Log.errorf "Transformer is %a" (QQMatrix.pp) transformer;
                         begin match E.exponentiate_rational transformer with
                           | None -> Log.errorf "failed here %a" (QQMatrix.pp) transformer; failwith "No decomp3"
                           | Some exp_m ->
@@ -561,8 +549,6 @@ module ACLTS = struct
 
 
   let exp (srk : 'a context) tr_symbols loop_counter aclts =
-    logf ~level:`always "%a" (pp srk tr_symbols) aclts;
-    BatList.iter (fun (x, x') -> Log.errorf "sym x is %a x' is %a" (Syntax.pp_symbol srk) x (Syntax.pp_symbol srk) x) tr_symbols;
     if (List.length aclts = 0) then  mk_true srk 
     else(
       let exp_vars = create_exp_vars srk aclts in

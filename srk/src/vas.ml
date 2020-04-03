@@ -51,7 +51,6 @@ open AlmostCommuting
 type 'a t = 'a AlmostCommuting.ACLTS.t
 
 let old_type_to_new_type (ot : 'a old_type)  : 'a AlmostCommuting.ACLTS.t =
-  Log.errorf "Here";
   let cur_row = ref 0 in
   let vas = ot.v in
   let s_lst = ot.s_lst in
@@ -59,7 +58,6 @@ let old_type_to_new_type (ot : 'a old_type)  : 'a AlmostCommuting.ACLTS.t =
       let sim1 = M.add_entry 0 (Linear.const_dim) (QQ.one) (M.zero) in
       let sim2 = 
         BatEnum.fold (fun acc_matrix (dim, vec) ->
-            Log.errorf "Row added to sim2";
             M.add_row (M.nb_rows acc_matrix) vec acc_matrix)
         (M.add_entry 0 (Linear.const_dim) (QQ.one) (M.zero))
         (M.rowsi sim)
@@ -93,7 +91,6 @@ let old_type_to_new_type (ot : 'a old_type)  : 'a AlmostCommuting.ACLTS.t =
           (TSet.to_array vas)
       in
       cur_row := (M.nb_rows sim) + !cur_row;
-      Log.errorf "Made it to this loc";
       {sim1; sim2; phase1; phase2}
     )
     s_lst
@@ -592,7 +589,6 @@ let abstract_old ?(exists=fun x -> true) srk tr_symbols phi  =
 
 let abstract ?(exists=fun x -> true) srk tr_symbols phi  =
   let result = old_type_to_new_type (abstract_old ~exists srk tr_symbols phi) in
-  Log.errorf "Finished abstract";
   result
 
 
