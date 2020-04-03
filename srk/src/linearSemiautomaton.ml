@@ -11,6 +11,10 @@ type t =
     (* Affine simulation is defined over the pre-state  *)
     simulation : QQMatrix.t  }
 
+type lts = QQMatrix.t * QQMatrix.t
+
+type tdlts_abstraction = QQMatrix.t * QQMatrix.t
+
 let dimension aut = QQMatrix.nb_rows aut.simulation
 
 let postify srk tr_symbols =
@@ -88,9 +92,21 @@ let to_transition_formula srk aut tr_symbols =
   List.map map_tf aut.transitions
   |> mk_or srk
 
-(* Find an total deterministic linear abstraction of a formula (i.e.,
-   a linear semiautomaton with a single transition) *)
-let abstract_tdlts srk phi tr_symbols const_symbols =
+let lts_simulates (mA, mB) (mA', mB') =
+  let ann =
+    QQMatrix.interlace_columns mA mB
+    |> VS.of_matrix
+  in
+  let ann' =
+    QQMatrix.interlace_columns mA' mB'
+    |> VS.of_matrix
+  in
+  VS.subspace ann' ann
+
+(* Find an linear abstraction of a formula (i.e., matrices A,B,C such
+   that F(x,x',y) |= Ax' = Bx + Cy, where x,x' are the transition
+   symbols and y are constant symbols (including 1). *)
+let abstract_lts srk phi tr_symbols const_symbols =
   let pre_syms =
     List.fold_left
       (fun syms (s, _) -> Symbol.Set.add s syms)
@@ -110,33 +126,82 @@ let abstract_tdlts srk phi tr_symbols const_symbols =
     Abstract.affine_hull srk phi symbols
   in
   (* write aff_hull as Ax' = Bx + Cy, where y is a set of constant symbols *)
-  let (mA, mB, mC) =
-    BatList.fold_lefti
-      (fun (mA, mB, mC) i eq ->
-         let (a, b, c) =
-           BatEnum.fold
-             (fun (a, b, c) (coeff, dim) ->
-                match Linear.sym_of_dim dim with
-                | None -> (a, b, QQVector.add_term coeff dim c)
-                | Some sym -> 
-                  if Symbol.Set.mem sym pre_syms then
-                    (a, QQVector.add_term coeff dim b, c)
-                  else if Symbol.Map.mem sym pre_of_post then
-                    let pre_dim =
-                      Linear.dim_of_sym (Symbol.Map.find sym pre_of_post)
-                    in
-                    (QQVector.add_term (QQ.negate coeff) pre_dim a, b, c)
-                  else
-                    (a, b, QQVector.add_term coeff dim c))
-             (QQVector.zero, QQVector.zero, QQVector.zero)
-             (QQVector.enum (Linear.linterm_of srk eq))
-         in
-         (QQMatrix.add_row i a mA,
-          QQMatrix.add_row i b mB,
-          QQMatrix.add_row i c mC))
-      (QQMatrix.zero, QQMatrix.zero, QQMatrix.zero)
-      aff_hull
+  BatList.fold_lefti
+    (fun (mA, mB, mC) i eq ->
+       let (a, b, c) =
+         BatEnum.fold
+           (fun (a, b, c) (coeff, dim) ->
+              match Linear.sym_of_dim dim with
+              | None -> (a, b, QQVector.add_term coeff dim c)
+              | Some sym ->
+                if Symbol.Set.mem sym pre_syms then
+                  (a, QQVector.add_term coeff dim b, c)
+                else if Symbol.Map.mem sym pre_of_post then
+                  let pre_dim =
+                    Linear.dim_of_sym (Symbol.Map.find sym pre_of_post)
+                  in
+                  (QQVector.add_term (QQ.negate coeff) pre_dim a, b, c)
+                else
+                  (a, b, QQVector.add_term coeff dim c))
+           (QQVector.zero, QQVector.zero, QQVector.zero)
+           (QQVector.enum (Linear.linterm_of srk eq))
+       in
+       (QQMatrix.add_row i a mA,
+        QQMatrix.add_row i b mB,
+        QQMatrix.add_row i c mC))
+    (QQMatrix.zero, QQMatrix.zero, QQMatrix.zero)
+    aff_hull
+
+let abstract_generalized_eigenspace (mA, mB) lambda rank =
+  (* Ax' = Bx |= ux' = lambda*ux iff there is some v such that vA = u /\ vB = lambda*u *)
+  let delta = (* (lambda*B) *)
+    QQMatrix.add mB (QQMatrix.scalar_mul (QQ.negate lambda) mA)
   in
+  let dims =
+    SrkUtil.Int.Set.union (QQMatrix.row_set mA) (QQMatrix.row_set mA)
+    |> SrkUtil.Int.Set.elements
+  in
+  (* Compute a triple (last, simulation, dynamics), where last is a
+     matrix of eigenvectors of rank r, simulation is a matrix of
+     eigenvectors of rank <= r, and dynamics is a dynamics matrix for
+     the simulation *)
+  let rec go rank =
+    if rank == 0 then
+      let eigenvectors = Linear.nullspace (QQMatrix.transpose delta) dims in
+      let dynamics =
+        QQMatrix.identity (List.mapi (fun i _ -> i) eigenvectors)
+        |> QQMatrix.scalar_mul lambda
+      in
+      let simulation = QQMatrix.mul (QQMatrix.of_rows eigenvectors) mA in
+      (simulation, simulation, dynamics)
+    else
+      let (last, simulation, dynamics) = go (rank - 1) in
+      let (mC, mD) = Linear.pushout delta last in
+      let sim_rows = QQMatrix.nb_rows simulation in
+      let (simulation', dynamics') =
+        BatEnum.fold (fun (simulation, dynamics) (i, v) ->
+            let dyn_row =
+              QQVector.add_term lambda (sim_rows + i) (QQMatrix.row i mD)
+            in
+            (QQMatrix.add_row (sim_rows + i) v simulation,
+             QQMatrix.add_row (sim_rows + i) dyn_row dynamics))
+          (simulation, dynamics)
+          (QQMatrix.rowsi (QQMatrix.mul mC mA))
+      in
+      (QQMatrix.sub simulation' simulation,
+       simulation',
+       dynamics')
+  in
+  if rank < 0 then
+    invalid_arg "rank must be non-negative"
+  else
+    let (_, simulation, dynamics) = go rank in
+    (simulation, dynamics)
+
+(* Find an total deterministic linear abstraction of a formula (i.e.,
+   a linear semiautomaton with a single transition) *)
+let abstract_tdlts srk phi tr_symbols const_symbols =
+  let (mA, mB, mC) = abstract_lts srk phi tr_symbols const_symbols in
   (* TB = MTA *)
   let (mT, mM) = Linear.max_lds mA mB in
   (* Ax' = Bx + Cy, so TAx' = TBx + TCy.
@@ -232,3 +297,23 @@ let abstract ?(exists=fun x -> true) srk phi tr_symbols =
 let transitions aut = aut.transitions
 
 let simulation aut = aut.simulation
+
+let lts_of_tdlts (sim, dyn) = (sim, QQMatrix.mul dyn sim)
+
+let tdlts_equiv tdlts1 tdlts2 =
+  let lts1 = lts_of_tdlts tdlts1 in
+  let lts2 = lts_of_tdlts tdlts2 in
+  lts_simulates lts1 lts2 && lts_simulates lts2 lts1
+
+let pp_tdlts formatter (sim, dyn) =
+  Format.fprintf formatter "Simulation:@\n @[%a@]@\n Dynamics:@\n @[%a@]"
+    QQMatrix.pp sim
+    QQMatrix.pp dyn
+
+let pp_lts formatter (mA, mB) =
+  Format.fprintf formatter "A:@\n @[%a@]@\n B:@\n @[%a@]"
+    QQMatrix.pp mA
+    QQMatrix.pp mB
+
+let mk_lts mA mB = (mA, mB)
+let mk_tdlts sim dyn = (sim, dyn)

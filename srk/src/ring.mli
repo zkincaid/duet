@@ -83,6 +83,12 @@ module type Matrix = sig
   (** Matrix addition. *)
   val add : t -> t -> t
 
+  (** Matrix subtraction. *)
+  val sub : t -> t -> t
+
+  (** Matrix negation. *)
+  val negate : t -> t
+
   (** Multiply a matrix by a scalar. *)
   val scalar_mul : scalar -> t -> t
 
@@ -178,6 +184,10 @@ module type Matrix = sig
 
   (** Given vectors v{_0},v{_1},v{_2},...,v{_n} create a matrix where row [i] is v{_i} *)
   val of_rows : vector list -> t
+
+  (** Given two matrices M and N, M and N into a single matrix, using
+     the even columns for M and the odd columns for N *)
+  val interlace_columns : t -> t -> t
 end
 
 (** Minimal signature for maps to support [RingMap]. *)
@@ -208,9 +218,18 @@ module RingMap
 
 (** Sparse vectors of infinite dimension, with entries drawn from a
    given ring. *)
-module MakeVector (R : S) : Vector with type scalar = R.t
-                                    and type dim = int
-                                    and type t = RingMap(SrkUtil.Int.Map)(R).t
+module MakeVector (R : S) : sig
+  include Vector with type scalar = R.t
+                  and type dim = int
+                  and type t = RingMap(SrkUtil.Int.Map)(R).t
+
+  (** Combine two vectors u and v into a single vector, using the even
+     coordinates for u and the odd coordinates for v *)
+  val interlace : t -> t -> t
+
+  (** Reverse the operation of [interlace] *)
+  val deinterlace : t -> (t * t)
+end
 
 (** Sparse matrices of infinite dimension, with entries drawn from a
    given ring. *)

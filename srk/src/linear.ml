@@ -35,7 +35,7 @@ module ZZVector = struct
 end
 
 module QQVector = struct
-  include Ring.RingMap(IntMap)(QQ)
+  include Ring.MakeVector(QQ)
 
   let pp formatter vec =
     let pp_elt formatter (k, v) = Format.fprintf formatter "%d:%a" k QQ.pp v in
@@ -204,39 +204,6 @@ let orient p system =
 let vector_right_mul = QQMatrix.vector_right_mul
 let vector_left_mul = QQMatrix.vector_left_mul
 
-(* Combine u and v into a single vector, using the even coordinates
-   for u and the odd coordinates for v *)
-let interlace_vec u v =
-  let u_shift =
-    BatEnum.fold
-      (fun s (coeff, i) -> QQVector.add_term coeff (2 * i) s)
-      QQVector.zero
-      (QQVector.enum u)
-  in
-  BatEnum.fold
-    (fun s (coeff, i) -> QQVector.add_term coeff (2 * i + 1) s)
-    u_shift
-    (QQVector.enum v)
-
-(* Inverse of interlace_vec *)
-let deinterlace_vec u =
-  BatEnum.fold
-    (fun (v, w) (coeff, i) ->
-       if i mod 2 == 0 then
-         (QQVector.add_term coeff (i / 2) v, w)
-       else
-         (v, QQVector.add_term coeff (i / 2) w))
-    (QQVector.zero, QQVector.zero)
-    (QQVector.enum u)
-
-(* Combine M and N into a single matrix, using the even columns for M
-   and the odd columns for N for u and the odd coordinates for v *)
-let interlace_columns m n =
-  IntSet.fold (fun i s ->
-      QQMatrix.add_row i (interlace_vec (QQMatrix.row i m) (QQMatrix.row i n)) s)
-    (IntSet.union (QQMatrix.row_set m) (QQMatrix.row_set n))
-    QQMatrix.zero
-
 let intersect_rowspace a b =
   (* Create a system lambda_1*A - lambda_2*B = 0.  lambda_1's occupy even
      columns and lambda_2's occupy odd. *)
@@ -303,7 +270,7 @@ let pushout mA mB =
                                                           [ d^T ]      *)
   let module M = QQMatrix in
   let mABt =
-    interlace_columns
+    M.interlace_columns
       (M.transpose mA)
       (M.transpose (M.scalar_mul (QQ.of_int (-1)) mB))
   in
@@ -311,7 +278,7 @@ let pushout mA mB =
     nullspace mABt (IntSet.elements (M.column_set mABt))
   in
   BatList.fold_lefti (fun (mC, mD) i soln ->
-      let c, d = deinterlace_vec soln in
+      let c, d = QQVector.deinterlace soln in
       (M.add_row i c mC, M.add_row i d mD))
     (M.zero, M.zero)
     pairs
@@ -339,7 +306,7 @@ let max_rowspace_projection a b =
   (* Create a system u*A - v*B = 0.  u's occupy even columns and v's occupy
      odd. *)
   let mat =
-    ref (interlace_columns
+    ref (QQMatrix.interlace_columns
            (QQMatrix.transpose a)
            (QQMatrix.transpose (QQMatrix.scalar_mul (QQ.of_int (-1)) b)))
   in
