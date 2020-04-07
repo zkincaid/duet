@@ -9,6 +9,8 @@ module NL = NestedLoops
 
 include Log.Make(struct let name = "TerminationLLRF" end)
 
+type analysis_result = ProvedToTerminate | Unknown
+
 let pre_symbols tr_symbols =
   List.fold_left (fun set (s,_) ->
       Symbol.Set.add s set)
@@ -388,7 +390,7 @@ let prove_LLRF_termination srk tto_transition_formula loop =
     let f_with_dx, dx_list, dx_set, x_to_dx, dx_to_x = add_diff_terms_to_formula srk body_formula x_xp in
     logf "\nformula with dx:\n%s\n\n" (Formula.show srk f_with_dx);
     let (success, dep, formula, qrfs) = find_quasi_rf 1 srk f_with_dx [] x_list xp_list dx_list x_set xp_set dx_set x_to_dx dx_to_x coeff_x_list coeff_x_set in
-    printf "\nSuccess: %s\nDepth: %s\n" (string_of_bool success) (string_of_int dep);
-    ()
-  | `Unknown -> failwith "SMT solver should not return unknown for QRA formulas"
-  | `Unsat -> (logf ~attributes:[`Bold; `Yellow] "Transition formula UNSAT, done"); ()
+    logf "\nSuccess: %s\nDepth: %s\n" (string_of_bool success) (string_of_int dep);
+    if success then ProvedToTerminate else Unknown
+  | `Unknown -> logf "SMT solver should not return unknown for QRA formulas"; Unknown
+  | `Unsat -> (logf ~attributes:[`Bold; `Yellow] "Transition formula UNSAT, done"); ProvedToTerminate

@@ -5,6 +5,7 @@ open Printf
 open BatEnum
 
 module TLLRF = TerminationLLRF
+module TDTA = TerminationDTA
 module Vec = Linear.QQVector
 module Mat = Linear.QQMatrix
 module NL = NestedLoops
@@ -14,23 +15,23 @@ include Log.Make(struct let name = "Termination" end)
 type typ_ineq = Tylt0 | Tyeq0 | Tyleq0
 
 let rec print_final_results tshow loops =
-  if List.length loops > 0 then printf "\n\n\n=========== Showing final results ==========\n\n\n";
+  if List.length loops > 0 then logf "\n\n\n=========== Showing final results ==========\n\n\n";
   List.iter 
     (fun loop ->
         NL.print_loop loop;
-        printf "path to header: %s\n" (tshow loop.NL.header_f);
-        printf "loop body: %s\n" (tshow loop.NL.body_f);
+        logf "path to header: %s\n" (tshow loop.NL.header_f);
+        logf "loop body: %s\n" (tshow loop.NL.body_f);
         print_final_results tshow loop.NL.children
     )
     loops
 
 let print_flattened_results tshow loops =
-printf "\n\n\n********* Printing flattened loops **********\n\n\n";
+logf "\n\n\n********* Printing flattened loops **********\n\n\n";
  List.iteri
   (fun i (header_f, body_f) -> 
-    printf "%d-th loop:\n" i;
-    printf "path to header: %s\n" (tshow header_f);
-    printf "loop body: %s\n" (tshow body_f);
+    logf "%d-th loop:\n" i;
+    logf "path to header: %s\n" (tshow header_f);
+    logf "loop body: %s\n" (tshow body_f);
   )
   loops
   
@@ -73,27 +74,14 @@ let get_polyhedron_of_formula srk apron_prop cs =
     BatList.of_enum e
   
 let get_coeff_of_symbol cs vec symbol =
-   (* Format.fprintf Format.std_formatter "\nExamining this vector:\n"; 
-   CoordinateSystem.pp_vector cs Format.std_formatter vec; 
-   Format.fprintf Format.std_formatter "\nLooking for id of symbol:\n"; 
-   pp_symbol srk Format.std_formatter symbol;  *)
   let tid = CoordinateSystem.cs_term_id cs (`App (symbol, [])) in
-    (* Format.fprintf Format.std_formatter "\nid for this symbol:\n"; 
-    Format.fprintf Format.std_formatter "%d\n" tid;  *)
     let c = Vec.coeff tid vec in
-       (* QQ.pp Format.std_formatter c;  *)
       c
 
 let get_coeffs_from_eq_as_if_leq0 cs eq_t list_symbols =
-   (* Format.fprintf Format.std_formatter "\nGetting row from this vector:\n"; 
-   CoordinateSystem.pp_vector cs Format.std_formatter eq_t;  *)
     BatList.fold_lefti
         (fun existing_coeffs i symbol -> 
-             (* Format.fprintf Format.std_formatter "\nFor %d-th symbol:\n" i; 
-             pp_symbol srk Format.std_formatter symbol;  *)
           let coeff = get_coeff_of_symbol cs eq_t symbol in
-             (* Format.fprintf Format.std_formatter "\nCoeff for this symbol:\n"; 
-             QQ.pp Format.std_formatter coeff;  *)
             Vec.add_term coeff i existing_coeffs 
         )
         Vec.zero
@@ -212,7 +200,6 @@ let print_formula_to_stdout srk descrip f =
   ()
 
 let print_ranking_func srk cs xp_list rf_terms_list rf_delta0 rf_delta interp =
-  (* let len = List.length xp_list in *)
   let rf = List.map
       (fun term -> Interpretation.evaluate_term interp term)
       rf_terms_list
@@ -230,7 +217,6 @@ let print_ranking_func srk cs xp_list rf_terms_list rf_delta0 rf_delta interp =
   let n_cols = List.length rf in
   for i = 0 to n_cols-1 do
     let real_var = List.nth xp_list i in
-    (* let xp = List.nth xp_list i in *)
     pp_symbol srk Format.std_formatter real_var;
     Format.fprintf Format.std_formatter " * ";
     let coe = List.nth rf i in
@@ -241,7 +227,6 @@ let print_ranking_func srk cs xp_list rf_terms_list rf_delta0 rf_delta interp =
   
   logf "\nIt has to decrese by this amount in each iter: %a" QQ.pp (QQ.sub QQ.zero (List.nth d 0)); 
 
-  (* let t = QQ.negate (List.nth d0 0) in *)
   let t = QQ.sub (List.nth d 0) (List.nth d0 0) in 
   logf "\nAnd its lower bound is: %a \n" QQ.pp t;
   logf "\n\n***************************\n\n";
@@ -249,35 +234,17 @@ let print_ranking_func srk cs xp_list rf_terms_list rf_delta0 rf_delta interp =
 
 let prove_termination srk tto_transition_formula loop =
   logf "======= printing poly loop body\n\n";
-  (* x -> header -> xp -> body -> xpp *)
   let header, body = loop in
   let (x_xp, header_formula) = tto_transition_formula header [] in
-  (* let (x_xpp, _) = tto_transition_formula (tmul header body) in *)
-  (* let xp_list_from_header = List.fold_right (fun (sp, spp) l -> spp :: l ) x_xp [] in *)
 
   let (xp_xpp, body_formula) = tto_transition_formula body [] in
 
-  (* let (xp_xpp, body_formula) = T.to_transition_formula body in *)
   let xp_list = List.fold_right (fun (sp, spp) l -> sp :: l ) xp_xpp [] in
   let xpp_list = List.fold_right (fun (sp, spp) l -> spp :: l ) xp_xpp [] in
-  (* let x_set = pre_symbols x_xp in *)
   let xp_set = pre_symbols xp_xpp in
-  (* let xp_set = Symbol.Set.inter (post_symbols x_xp) (pre_symbols xp_xpp) in *)
   let xpp_set = post_symbols xp_xpp in
-  (* Format.fprintf Format.std_formatter "\nx_set:\n"; *)
 
   
-  (* Format.fprintf Format.std_formatter "\nxp_set:\n";
-   let () = Symbol.Set.iter
-    (fun s -> pp_symbol srk Format.std_formatter s)
-    xp_set
-  in
-  Format.fprintf Format.std_formatter "\nxpp_set:\n";
-   let () = Symbol.Set.iter
-    (fun s -> pp_symbol srk Format.std_formatter s)
-    xpp_set
-  in
-  Format.fprintf Format.std_formatter "\n\n"; *)
 
   let man = Polka.manager_alloc_strict () in
   let header = rewrite srk ~down:(nnf_rewriter srk) header_formula in
@@ -303,44 +270,6 @@ let prove_termination srk tto_transition_formula loop =
   let cs = CoordinateSystem.mk_empty srk in
   let header_eqs = get_polyhedron_of_formula srk invariant_prop cs in
   let body_eqs = get_polyhedron_of_formula srk bodyf_prop cs in
-  (* List.iter
-    (fun (xp) -> 
-      try let tid = (CoordinateSystem.cs_term_id cs (`App (xp, []))) in
-        ()
-      with Not_found -> CoordinateSystem.admit_cs_term cs (`App (xp, [])); ();
-    )
-    xp_list;
-  List.iter
-    (fun (xpp) -> 
-      try let tid = (CoordinateSystem.cs_term_id cs (`App (xpp, []))) in
-        ()
-      with Not_found -> CoordinateSystem.admit_cs_term cs (`App (xpp, [])); ();
-    )
-    xpp_list; *)
-  (* List.iter
-    (fun (xp) -> 
-      let tid = (CoordinateSystem.cs_term_id cs (`App (xp, []))) in
-      pp_symbol srk Format.std_formatter xp;
-        Format.fprintf Format.std_formatter " -> %d:\n" tid;
-    )
-    xp_list;
-  List.iter
-    (fun (xpp) -> 
-      let tid = (CoordinateSystem.cs_term_id cs (`App (xpp, []))) in
-      pp_symbol srk Format.std_formatter xpp;
-        Format.fprintf Format.std_formatter " -> %d:\n" tid;
-    )
-    xpp_list; *)
-  (* let () = BatList.iter (function
-  | `LeqZero t -> Log.errorf "%a <= 0" (CoordinateSystem.pp_vector cs) t
-  | `LtZero t -> Log.errorf "%a < 0" (CoordinateSystem.pp_vector cs) t
-  | `EqZero t -> Log.errorf "%a = 0" (CoordinateSystem.pp_vector cs) t) header_eqs
-  in *)
-  (* let () = BatList.iter (function
-  | `LeqZero t -> Log.errorf "%a <= 0" (CoordinateSystem.pp_vector cs) t
-  | `LtZero t -> Log.errorf "%a < 0" (CoordinateSystem.pp_vector cs) t
-  | `EqZero t -> Log.errorf "%a = 0" (CoordinateSystem.pp_vector cs) t) body_eqs
-  in *)
   let constraints = BatList.concat [header_eqs; body_eqs] in
   let () = BatList.iter (function
   | `LeqZero t -> logf "%a <= 0" (CoordinateSystem.pp_vector cs) t
@@ -352,12 +281,6 @@ let prove_termination srk tto_transition_formula loop =
   let vec_b, n_rows3 = get_constants_vec cs constraints in
   let mat_b = Mat.zero in
   let mat_b = Mat.add_column 0 vec_b mat_b in
-    (* Format.fprintf Format.std_formatter "\nMatrix A:\n";
-    (Mat.pp Format.std_formatter mat_a);
-    Format.fprintf Format.std_formatter "\nMatrix A':\n";
-    (Mat.pp Format.std_formatter mat_ap);
-    Format.fprintf Format.std_formatter "\nMatrix b:\n";
-    (Mat.pp Format.std_formatter mat_b); *)
   let n_cols = List.length xp_list in
   let lambda1s = create_const_symbols srk "l" n_rows in
   let lambda2s = create_const_symbols srk "r" n_rows in
@@ -380,41 +303,28 @@ let prove_termination srk tto_transition_formula loop =
 
   let all_eqs = mk_and srk [l1gt0; l2gt0; eq1; eq2; eq3; eq4] in
   let rf_terms_list = build_lambda_mat_prod_terms srk lambda2s mat_ap n_rows n_cols in
-  (* List.iter (fun x -> Syntax.Term.pp srk Format.std_formatter x; Format.fprintf Format.std_formatter "\n" ) rf_terms_list; *)
   let rf_delta0 = build_lambda_mat_prod_terms srk lambda1s mat_b n_rows 1 in
   let rf_delta = build_lambda_mat_prod_terms srk lambda2s mat_b n_rows 1 in
-  (* let solver = SrkZ3.mk_solver srk in
-  SrkZ3.Solver.add solver [all_eqs]; *)
+  
   match Smt.get_model srk all_eqs with
   | `Sat interp -> 
     logf ~attributes:[`Bold; `Green] "\n\n\nSatisfiable, linear ranking function exists!!!\n\n";
-    (* List.iter (fun x -> pp_symbol srk Format.std_formatter x; ) xp_list; *)
     print_ranking_func srk cs xp_list rf_terms_list rf_delta0 rf_delta interp;
-    (* List.map
-      (fun term -> 
-        Format.fprintf Format.std_formatter "\nlambda_1s are: ";
-        let t = Interpretation.evaluate_term interp term in
-          QQ.pp Format.std_formatter t;
-        
-        )
-      lambda1s;
-    List.map
-      (fun term -> 
-        Format.fprintf Format.std_formatter "\nlambda_2s are: ";
-        let t = Interpretation.evaluate_term interp term in
-          QQ.pp Format.std_formatter t;
-        )
-      lambda2s; *)
+    
     ()
   | `Unknown ->  (logf ~attributes:[`Bold; `Yellow] "unable to prove linear rf exists or not");()
   | `Unsat -> (logf ~attributes:[`Bold; `Red] "linear ranking function does not exist"); ()
 
-(* let prove_termination_of_loops srk tto_transition_formula loops =
-  List.iter
-    (fun loop -> prove_termination srk tto_transition_formula loop)
-    loops *)
 
 let prove_termination_of_loops srk tto_transition_formula loops =
   List.iter
-    (fun loop -> TLLRF.prove_LLRF_termination srk tto_transition_formula loop)
+    (fun loop ->
+    begin
+      logf "start proving termination of loop";
+      match TLLRF.prove_LLRF_termination srk tto_transition_formula loop with
+      | ProvedToTerminate -> logf ~attributes:[`Bold; `Green] "\n\n\nLoop proved to terminate using lexicographic ranking functions\n\n";
+      | _ -> 
+        logf "Cannot prove termination of this loop using lexicographic ranking, continue to synthesize conditions for termination"; 
+        TDTA.generate_terminating_DTA_conditions srk tto_transition_formula loop
+    end)
     loops

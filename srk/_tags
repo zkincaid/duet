@@ -50,8 +50,8 @@ true: annot, bin_annot
 "src/transitionSystem.cmx": for-pack(Srk)
 "src/nestedLoops.cmx": for-pack(Srk)
 "src/termination.cmx": for-pack(Srk)
-"src/terminationLinRF.cmx": for-pack(Srk)
 "src/terminationLLRF.cmx": for-pack(Srk)
+"src/terminationDTA.cmx": for-pack(Srk)
 <src/*.ml{,i,y}>: pkg_ocamlgraph
 <src/*.ml{,i,y}>: pkg_ppx_deriving.show
 # Executable test_srk

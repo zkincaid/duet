@@ -4,7 +4,7 @@ open WeightedGraph
 
 include Log.Make(struct let name = "srk.nestedLoops" end)
 
-(* TODO: refactor loop nesting relation from label algebras *)
+(* FIXME: I currently cannot see how we get rid of label algebra here *)
 type 'a loops =
   { 
     header: vertex; (* loop header vertex *)
@@ -16,6 +16,7 @@ type 'a loops =
     header_f: 'a; (* loop header formula, representing all paths from the beginning to the header *)
     body_f: 'a; (* loop body formula, representing one iteration of the loop *)
   }
+
 
 let print_loop {header; splitted_hd; loop_body_vertices; back_edge; children; depth; header_f; body_f} =
   logf "\n======== Loop ======== \n";
@@ -116,7 +117,6 @@ let rec remove_all_backedges wg l_loops =
 *)
 let rec compute_nested_loops wg d =
   logf "\n\nComputing loop nesting relations at level %d\n" d;
-  (* if d>5 then assert false; *)
   let (m, (n, f), scc_list) = get_non_trivial_scc wg in
   if m = 0 then 
     begin
