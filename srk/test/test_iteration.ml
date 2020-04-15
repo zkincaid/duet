@@ -430,7 +430,11 @@ let algebraic2 () =
     && z = y * y
   in
   let closure = DLTS.star srk tr_symbols phi in
+<<<<<<< HEAD
   assert_implies_nonlinear closure (x' <= x + (int 2))
+=======
+  assert_implies closure (x' <= x + (int 2))
+>>>>>>> srk
 
 let suite = "Iteration" >::: [
     "prepost" >:: prepost;

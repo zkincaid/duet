@@ -1648,7 +1648,7 @@ let exists
           IntSet.filter (fun j ->
               match div_coordinate j id with
               | Some q ->
-                BatEnum.for_all
+                SrkUtil.Int.Set.for_all
                   (fun dim -> not (IntSet.mem dim forget_subterm))
                   (P.dimensions q)
               | None -> false)
@@ -1694,7 +1694,7 @@ let exists
             let p_ivl_lemma =
               let q = snd (P.split_linear p) in
               let constraints =
-                BatEnum.fold (fun constraints dim ->
+                SrkUtil.Int.Set.fold (fun dim constraints ->
                     let dim_ivl = bound_coordinate wedge dim in
                     let dim_term = CS.term_of_coordinate cs dim in
                     let constraints =
@@ -1707,8 +1707,8 @@ let exists
                     | Some hi ->
                       (mk_leq srk dim_term (mk_real srk hi))::constraints
                     | None -> constraints)
-                  []
                   (P.dimensions q)
+                  []
               in
               let q_ivl =
                 let ivl = bound_polynomial wedge q in

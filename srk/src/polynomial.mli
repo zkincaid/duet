@@ -158,8 +158,8 @@ module type Multivariate = sig
      in r. *)
   val qr_monomial : t -> Monomial.t -> t * t
 
-  (** Enumerate the set of dimensions that appear in a polynomial *)
-  val dimensions : t -> int BatEnum.t
+  (** The set of dimensions that appear in a polynomial *)
+  val dimensions : t -> SrkUtil.Int.Set.t
 
   (** Maximum total degree of a monomial term *)
   val degree : t -> int
@@ -251,4 +251,46 @@ module Rewrite : sig
   val add_saturate : t -> QQXs.t -> t
 
   val generators : t -> QQXs.t list
+end
+
+(** A polynomial ideal is a set of polynomials that is closed under
+   addition, and is closed under multiplication by any polynomial. *)
+module Ideal : sig
+  type t
+
+  (** Pretty print *)
+  val pp : (Format.formatter -> int -> unit) -> Format.formatter -> t -> unit
+
+  (** Compute the smallest ideal that contains a given set of polynomials *)
+  val make : QQXs.t list -> t
+
+  (** Compute a finite set of polynomials that generates the given
+     ideal.  Note [make (generators i) = i], but [generators (make g)]
+     is not necessarily equal to [g]. *)
+  val generators : t -> QQXs.t list
+
+  (** Is one ideal contained inside another? *)
+  val subset : t -> t -> bool
+
+  (** Is one ideal equal to another? *)
+  val equal : t -> t -> bool
+
+  (** Does an ideal contain a given polynomial? *)
+  val mem : QQXs.t -> t -> bool
+
+  (** Intersect two ideals. *)
+  val intersect : t -> t -> t
+
+  (** Compute the ideal consisting of all products of polynomials
+     belonging to the two given ideals *)
+  val product : t -> t -> t
+
+  (** Compute the ideal consisting of all sums of polynomials beloning
+     to the two given ideals *)
+  val sum : t -> t -> t
+
+  (** Compute the ideal consisting of all polynomials in the given
+     ideal that are defined only over dimensions satisfying the given
+     predicate. *)
+  val project : (int -> bool) -> t -> t
 end
