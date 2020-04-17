@@ -1,9 +1,0 @@
-3 : p=(*int)tmp -> {alloc#2}
-5 : r=(*int)tmp___0 -> {alloc#4}
-7 : q=(*int)tmp___1 -> {alloc#6}
-8 : q=(*int)&r -> {&r}
-13 : (*q)=(int)&havoc -> {&havoc}
-14 : q=(*int)(p-q) -> {alloc#2.Top, alloc#6.Top, &r.Top}
-23 : q=(*int)(q-r) -> {alloc#2.Top, alloc#4.Top, alloc#6.Top, &r.Top,
-                       &havoc.Top}
-27 : __retres8=0 -> {}

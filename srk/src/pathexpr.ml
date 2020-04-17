@@ -85,7 +85,7 @@ let eval ?(table=HT.create 991) (f : 'a open_pathexpr -> 'a) =
         | Mul (x, y) -> f (`Mul (go x, go y))
         | Add (x, y) -> f (`Add (go x, go y))
         | Star x -> f (`Star (go x))
-        | Edge (s, t) -> f (`Edge (s, t)) 
+        | Edge (s, t) -> f (`Edge (s, t))
       in
       HT.add table expr result;
       result

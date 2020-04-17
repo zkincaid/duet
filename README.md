@@ -90,10 +90,6 @@ Architecture
 ============
 Duet is split into several packages:
 
-* apak
-
-  Algebraic program analysis kit.  This is a collection of utilities for implementing program analyzers.  It contains various graph algorithms (e.g., fixpoint computation, path expression algorithms) and utilities for constructing algebraic structures.
-
 * srk 
 
   Symbolic reasoning kit.  This is a high-level interface over Z3 and Apron.  Most of the work of compositional recurrence analysis lives in srk.

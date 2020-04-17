@@ -10,7 +10,6 @@ open! TranslateCbp
 open! Cra
 open! Proofspace
 open! Dependence
-open! ConcDep 
 
 let usage_msg = "Duet program analyzer\nUsage: duet [OPTIONS] file.[c|bp]"
 

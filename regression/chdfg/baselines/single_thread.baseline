@@ -1,5 +1,0 @@
-./regression/chdfg/code/single_thread.c:15 >> Assertion failed: z == *y - 1
-{z, (*y)}. T
-
-1 errors total
-2 safe assertions
