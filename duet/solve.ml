@@ -20,6 +20,7 @@ module type G = sig
   module E : Graph.Sig.EDGE with type vertex = V.t
   val iter_vertex : (V.t -> unit) -> t -> unit
   val iter_succ : (V.t -> unit) -> t -> V.t -> unit
+  val iter_pred : (V.t -> unit) -> t -> V.t -> unit
   val fold_vertex : (V.t -> 'a -> 'a) -> t -> 'a -> 'a
   val fold_edges : (V.t -> V.t -> 'a -> 'a) -> t -> 'a -> 'a
   val iter_edges_e : (E.t -> unit) -> t -> unit
@@ -78,28 +79,52 @@ end = struct
   let init_result result graph f =
     G.iter_vertex (fun v -> HT.add result.map v (f v)) graph
 
-  module Fix = Fixpoint.Wto(G)
+  module L = Loop.Make(G)
+  module VSet = BatSet.Make(G.V)
 
   (* solve implementation *)
   let solve_impl result worklist =
     let graph = result.graph in
+    let marked = ref (List.fold_right VSet.add worklist VSet.empty) in
+    let is_marked v = VSet.mem v (!marked) in
+    let mark v = marked := VSet.add v (!marked) in
+    let unmark v = marked := VSet.remove v (!marked) in
+    let widen = match A.widen with
+      | Some w -> w
+      | None -> A.join
+    in
     let update join vertex =
-      let value = A.eval result.state result.graph (lookup result) vertex in
-      if HT.mem result.map vertex then begin
-        let old_value = lookup result vertex in
-        match join result.state vertex old_value value with
-        | Some new_value -> (HT.replace result.map vertex new_value; true)
-        | None -> false
-      end else (HT.add result.map vertex value; true)
+      is_marked vertex && begin
+          unmark vertex;
+          let value = A.eval result.state result.graph (lookup result) vertex in
+          let changed = 
+            if HT.mem result.map vertex then begin
+                let old_value = lookup result vertex in
+                match join result.state vertex old_value value with
+                | Some new_value ->
+                   HT.replace result.map vertex new_value;
+                   true
+                | None -> false
+              end else (HT.add result.map vertex value; true)
+          in
+          if changed then G.iter_succ mark graph vertex;
+          changed
+        end
     in
-    let wide_update = match A.widen with
-      | Some widen -> Some (update widen)
-      | None       -> None
+    let rec fix = function
+      | `Vertex x -> update A.join x
+      | `Loop loop ->
+         let f changed x = fix x || changed in
+         let rec go changed =
+           if List.fold_left f (update widen (L.header loop)) (L.children loop)
+           then go true
+           else changed
+         in
+         go false
     in
-    let worklist = List.fold_right Fix.VSet.add worklist Fix.VSet.empty in
     logf "Vertices: %d" (G.nb_vertex graph);
     logf "Edges: %d" (G.nb_edges graph);
-    Fix.fix result.graph ~init:worklist (update A.join) wide_update
+    List.iter (fun elt -> ignore (fix elt)) (L.loop_nest graph)
 
   let solve result =
     Log.phase ("Fixpoint computation: " ^ A.name) (solve_impl result)

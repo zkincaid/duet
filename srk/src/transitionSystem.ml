@@ -72,7 +72,7 @@ module Make
     let fold_pred_e = WG.fold_pred_e
   end
 
-  module Wto = Graph.WeakTopological.Make(WGG)
+  module L = Loop.Make(WGG)
   module VarMap = BatMap.Make(Var)
   module VarSet = BatSet.Make(Var)
 
@@ -193,7 +193,7 @@ module Make
           end);
       mk_and srk (!boxes)
 
-    let analyze (_s, label, _t) prop =
+    let transform (_s, label, _t) prop =
       let context = Z3.mk_context [("timeout", "100")] in
       match prop, label with
       | Bottom, _ -> Bottom
@@ -339,12 +339,12 @@ module Make
 
     (* Universe is a map from variables to the set of all predicates that
        involve that variable *)
-    let analyze universe (s, label, t) prop =
+    let transform universe (s, label, t) prop =
       match label, prop with
       | (_, Bottom) -> bottom
       | (Call (_, _), State (predicates, store)) ->
         let store' =
-          match Box.analyze (s, label, t) (Box.Store store) with
+          match Box.transform (s, label, t) (Box.Store store) with
           | Box.Store store' -> store'
           | Box.Bottom -> assert false
         in
@@ -366,7 +366,7 @@ module Make
           T.mul (T.assume (mk_and srk (PS.elements predicates))) tr
         in
 
-        match Box.analyze (s, Weight tr', t) (Box.Store store) with
+        match Box.transform (s, Weight tr', t) (Box.Store store) with
         | Box.Bottom -> Bottom
         | Box.Store store' ->
           let context = Z3.mk_context [("timeout", "100")] in
@@ -449,7 +449,7 @@ module Make
           res
   end
 
-  module IntervalAnalysis = Graph.ChaoticIteration.Make(WGG)(Box)
+  module IntervalAnalysis = Fixpoint.Make(WGG)(Box)
   module IntPair = struct
     type t = int * int [@@deriving ord]
     let equal (x,y) (x',y') = (x=x' && y=y')
@@ -493,27 +493,17 @@ module Make
           with Not_found -> label)
 
   let forward_invariants_ivl tg entry =
-    let wto = Wto.recursive_scc tg entry in
     let init v =
       if v = entry then Box.top
       else Box.bottom
     in
-    let result =
-      IntervalAnalysis.recurse tg wto init Graph.ChaoticIteration.FromWto 3
-    in
-    let rec loop_vertices vertices wto =
-      let open Graph.WeakTopological in
-      match wto with
-      | Vertex v -> Int.Set.add v vertices
-      | Component (v, rest) ->
-        fold_left loop_vertices (Int.Set.add v vertices) rest
-    in
-    let loop_references wto =
-      let vertices = loop_vertices Int.Set.empty wto in
-      Int.Set.fold (fun u vars ->
+    let interval = IntervalAnalysis.analyze ~delay:3 tg init in
+    let loop_references loop =
+      let vertices = L.body loop in
+      L.VertexSet.fold (fun u vars ->
           WG.fold_succ_e (fun (_, weight, v) vars ->
               match weight with
-              | Weight tr when Int.Set.mem v vertices ->
+              | Weight tr when L.VertexSet.mem v vertices ->
                 VarSet.union vars (references tr)
               | _ -> vars)
             tg
@@ -522,33 +512,29 @@ module Make
         vertices
         VarSet.empty
     in
-    let rec invariants inv wto =
-      let open Graph.WeakTopological in
-      match wto with
-      | Vertex _ -> inv
-      | Component (v, rest) ->
-        let invariant =
-          match IntervalAnalysis.M.find v result with
-          | Box.Bottom -> mk_false srk
-          | Box.Store store -> 
-            VarSet.fold (fun v inv ->
-                if VarMap.mem v store then
-                  VarMap.add v (VarMap.find v store) inv
-                else
-                  inv)
-              (loop_references wto)
-              VarMap.empty
-            |> Box.to_formula
-        in
-        logf "Found invariant at %d: %a"
-          v
-          (Formula.pp srk) invariant;
-        fold_left invariants ((v,invariant)::inv) rest
+    let invariants loop =
+      let header = L.header loop in
+      let invariant =
+        match interval header with
+        | Box.Bottom -> mk_false srk
+        | Box.Store store ->
+           VarSet.fold (fun v inv ->
+               if VarMap.mem v store then
+                 VarMap.add v (VarMap.find v store) inv
+               else
+                 inv)
+             (loop_references loop)
+             VarMap.empty
+           |> Box.to_formula
+      in
+      logf "Found invariant at %d: %a"
+        (L.header loop)
+        (Formula.pp srk) invariant;
+      (header, invariant)
     in
-    Graph.WeakTopological.fold_left invariants [] wto
+    List.map invariants (L.all_loops (L.loop_nest tg))
 
   let forward_invariants_ivl_pa predicates tg entry =
-    let wto = Wto.recursive_scc tg entry in
     let init v =
       if v = entry then PAxBox.top
       else PAxBox.bottom
@@ -570,27 +556,18 @@ module Make
         predicates
     in
     let module Analysis =
-      Graph.ChaoticIteration.Make(WGG)(struct
-        include PAxBox
-        let analyze = analyze universe
-      end)
+      Fixpoint.Make(WGG)(struct
+          include PAxBox
+          let transform = transform universe
+        end)
     in
-    let result =
-      Analysis.recurse tg wto init Graph.ChaoticIteration.FromWto 3
-    in
-    let rec loop_vertices vertices wto =
-      let open Graph.WeakTopological in
-      match wto with
-      | Vertex v -> Int.Set.add v vertices
-      | Component (v, rest) ->
-        fold_left loop_vertices (Int.Set.add v vertices) rest
-    in
-    let loop_references wto =
-      let vertices = loop_vertices Int.Set.empty wto in
-      Int.Set.fold (fun u vars ->
+    let annotation = Analysis.analyze ~delay:3 tg init in
+    let loop_references loop =
+      let vertices = L.body loop in
+      L.VertexSet.fold (fun u vars ->
           WG.fold_succ_e (fun (_, weight, v) vars ->
               match weight with
-              | Weight tr when Int.Set.mem v vertices ->
+              | Weight tr when L.VertexSet.mem v vertices ->
                 VarSet.union vars (references tr)
               | _ -> vars)
             tg
@@ -599,16 +576,13 @@ module Make
         vertices
         VarSet.empty
     in
-    let rec invariants inv wto =
-      let open Graph.WeakTopological in
-      match wto with
-      | Vertex _ -> inv
-      | Component (v, rest) ->
+    let invariants loop =
+      let header = L.header loop in
         let invariant =
-          match Analysis.M.find v result with
+          match annotation header with
           | PAxBox.Bottom -> mk_false srk
           | PAxBox.State (predicates, store) ->
-            let relevant = loop_references wto in
+            let relevant = loop_references loop in
             let box_formula =
               VarSet.fold (fun v inv ->
                   if VarMap.mem v store then
@@ -631,11 +605,11 @@ module Make
             mk_and srk (box_formula::(PredicateSet.elements relevant_predicates))
         in
         logf "Found invariant at %d: %a"
-          v
+          header
           (Formula.pp srk) invariant;
-        fold_left invariants ((v,invariant)::inv) rest
+        (header, invariant)
     in
-    Graph.WeakTopological.fold_left invariants [] wto
+    List.map invariants (L.all_loops (L.loop_nest tg))
 
   let simplify p tg =
     let rec go tg =
@@ -664,20 +638,13 @@ module Make
     in
     go tg
 
-  let loop_headers_live tg entry =
-    let rec loop_vertices vertices wto =
-      let open Graph.WeakTopological in
-      match wto with
-      | Vertex v -> Int.Set.add v vertices
-      | Component (v, rest) ->
-        fold_left loop_vertices (Int.Set.add v vertices) rest
-    in
-    let loop_references wto =
-      let vertices = loop_vertices Int.Set.empty wto in
-      Int.Set.fold (fun u vars ->
+  let loop_headers_live tg =
+    let loop_references loop =
+      let vertices = L.body loop in
+      L.VertexSet.fold (fun u vars ->
           WG.fold_succ_e (fun (_, weight, v) vars ->
               match weight with
-              | Weight tr when Int.Set.mem v vertices ->
+              | Weight tr when L.VertexSet.mem v vertices ->
                 VarSet.union vars (references tr)
               | _ -> vars)
             tg
@@ -686,14 +653,15 @@ module Make
         vertices
         VarSet.empty
     in
-    let rec live hl wto =
-      let open Graph.WeakTopological in
-      match wto with
-      | Vertex _ -> hl
-      | Component (v, rest) ->
-        fold_left live ((v, loop_references wto)::hl) rest
+    let rec live hl lnf =
+      match lnf with
+      | `Vertex _ -> hl
+      | `Loop loop ->
+         let references = loop_references loop in
+         let header = L.header loop in
+         List.fold_left live ((header, references)::hl) (L.children loop)
     in
-    Graph.WeakTopological.fold_left live [] (Wto.recursive_scc tg entry)
+    List.fold_left live [] (L.loop_nest tg)
 
   module type AbstractDomain = Abstract.MakeAbstractRSY(C).Domain
 

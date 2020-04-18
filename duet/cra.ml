@@ -499,7 +499,7 @@ let decorate_transition_system predicates ts entry =
     | Some v -> TS.VarSet.mem v varset
     | None -> false
   in
-  TS.loop_headers_live ts entry
+  TS.loop_headers_live ts
   |> List.fold_left (fun ts (v, live) ->
       let fresh_id = (Def.mk (Assume Bexpr.ktrue)).did in
       let invariant = AbsDom.formula_of (AbsDom.exists (member live) (inv v)) in
