@@ -15,6 +15,12 @@ type 'a algebra =
     zero : 'a;
     one : 'a }
 
+(** Omega algebra signature *)
+type ('a,'b) omega_algebra =
+  { omega : 'a -> 'b;
+    omega_add : 'b -> 'b -> 'b;
+    omega_mul : 'a -> 'b -> 'b }
+
 (** Unweighted graphs *)
 module U : Graph.Sig.G with type V.t = int
 
@@ -36,6 +42,10 @@ val edge_weight : 'a t -> vertex -> vertex -> 'a
 (** [path_weight g u v] computes the sum of all weighted paths from [u] to [v]
     in [g]. *)
 val path_weight : 'a t -> vertex -> vertex -> 'a
+
+(** [omega_path_weight g alg v] computes the sum of all weighted omega
+   paths starting at [v] in [g]. *)
+val omega_path_weight : 'a t -> ('a,'b) omega_algebra -> vertex -> 'b
 
 (** [cut_graph g c] computes the cut graph g'
     g' = <c, {(u, w, v) : (u, v) in c x c,
@@ -150,4 +160,8 @@ module MakeRecGraph (W : Weight) : sig
   (** Over-approximate the sum of the weights of all paths between two given
       vertices.  *)
   val path_weight : query -> vertex -> vertex -> W.t
+
+  (** Over-approximate the sum of the weights of all infinite paths
+     starting at a given vertex. *)
+  val omega_path_weight : query -> (W.t,'b) omega_algebra -> vertex -> 'b
 end

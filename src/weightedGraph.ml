@@ -19,6 +19,11 @@ type 'a algebra =
     zero : 'a;
     one : 'a }
 
+type ('a,'b) omega_algebra =
+  { omega : 'a -> 'b;
+    omega_add : 'b -> 'b -> 'b;
+    omega_mul : 'a -> 'b -> 'b }
+
 type 'a weighted_graph =
   { graph : U.t;
     labels : 'a M.t;
@@ -123,6 +128,66 @@ let path_weight wg src tgt =
   match edge_weight_opt contracted_graph start final with
   | None -> wg.algebra.zero
   | Some w -> w
+
+let omega_path_weight
+      (wg : 'a t)
+      (omega : ('a,'b) omega_algebra)
+      (src : vertex) =
+  let start = max_vertex wg + 1 in
+
+  (* Each vertex v is associated with the sum of the weights of all
+     omega paths beginning at v that *only* pass through contracted
+     vertices. *)
+  let omega_weights = BatHashtbl.create 991 in
+  let add_omega v weight =
+    if BatHashtbl.mem omega_weights v then
+      BatHashtbl.modify v (omega.omega_add weight) omega_weights
+    else
+      BatHashtbl.add omega_weights v weight
+  in
+  let contract_vertex g v =
+    (* If there are omega paths starting at v, when v is contracted
+       those omega paths now begin at v's predecessors *)
+    if M.mem (v, v) g.labels || BatHashtbl.mem omega_weights v then
+      begin
+        let loop =
+          (* Try to avoid omega addition if possible *)
+          try
+            let self_loop = omega.omega (M.find (v, v) g.labels) in
+            (try omega.omega_add (BatHashtbl.find omega_weights v) self_loop
+             with Not_found -> self_loop)
+          with Not_found ->
+            BatHashtbl.find omega_weights v
+        in
+        U.iter_pred (fun pred ->
+            if pred != v then
+              let pw = edge_weight g pred v in
+              add_omega pred (omega.omega_mul pw loop))
+          g.graph
+          v
+      end;
+    contract_vertex g v
+  in
+  let g = add_vertex wg start in
+  let g = add_edge g start wg.algebra.one src in
+  let rec go g elt =
+    match elt with
+    | `Vertex v -> contract_vertex g v
+    | `Loop loop ->
+       let header = L.header loop in
+       let g = List.fold_left go g (L.children loop) in
+       (* Contract v, then add v back the the graph along with
+          predecessor edges *)
+       U.fold_pred (fun pred g' ->
+           add_edge g' pred (edge_weight g pred header) header)
+         g.graph
+         header
+         (contract_vertex g header)
+  in
+  ignore (List.fold_left go g (L.loop_nest wg.graph));
+  try
+    BatHashtbl.find omega_weights start
+  with Not_found -> omega.omega wg.algebra.zero
 
 let split_vertex wg u weight v =
   U.fold_succ (fun w wg ->
@@ -375,7 +440,7 @@ module MakeRecGraph (W : Weight) = struct
       one = mk_one context }
 
   (* For each (s,t) call reachable from [src], add an edge from [src] to [s]
-     with the path weight from [src] to to the call.  *)
+     with the path weight from [src] to the call.  *)
   let add_call_edges query src =
     let weight_algebra =
       weight_algebra (fun s t ->
@@ -556,4 +621,33 @@ module MakeRecGraph (W : Weight) = struct
     in
     path_weight query'.graph src tgt
     |> eval ~table:query.table weight
+
+  let omega_pathexpr context =
+    { omega = mk_omega context;
+      omega_mul = mk_omega_mul context;
+      omega_add = mk_omega_add context }
+
+  let omega_path_weight query (omega : (W.t, 'b) omega_algebra) =
+    (* Memo table is constructed for [omega_path_weight query omega],
+       so the table can be re-used for multiple sources. *)
+    let omega_table = mk_omega_table query.table in
+    fun src -> begin
+        (* For each (s,t) call edge reachable from src, add
+           corresponding edge from src to s with the path weight from
+           src to s *)
+        let query' = add_call_edges query src in
+        let weight =
+          weight_algebra (fun s t ->
+              match M.find (s, t) query'.labels with
+              | Weight w -> w
+              | Call (en, ex) -> M.find (en, ex) query'.summaries)
+        in
+        let omega_weight = function
+          | `Omega x -> omega.omega x
+          | `Mul (x, y) -> omega.omega_mul x y
+          | `Add (x, y) -> omega.omega_add x y
+        in
+        omega_path_weight query'.graph (omega_pathexpr query.context) src
+        |> eval_omega ~table:omega_table weight omega_weight
+      end
 end
