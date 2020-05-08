@@ -488,7 +488,9 @@ module Make
         | Call _ -> label
         | Weight tr ->
           try
-            let tmp = PHT.find tmp_map (u, v) in
+            let tmp =
+              List.fold_right VarSet.remove (uses tr) (PHT.find tmp_map (u, v))
+            in
             Weight (T.exists (fun x -> not (VarSet.mem x tmp)) tr)
           with Not_found -> label)
 
