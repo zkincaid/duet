@@ -6,6 +6,9 @@ open BatPervasives
 
 module RG = Interproc.RG
 module WG = WeightedGraph
+module TLLRF = TerminationLLRF
+module TDTA = TerminationDTA
+module TM = Termination
 module G = RG.G
 module Ctx = Syntax.MakeSimplifyingContext ()
 module Int = SrkUtil.Int
@@ -125,8 +128,41 @@ module K = struct
   module VasSwitch = Sum (Vas)(Vass)()
   module Vas_P = Product(VasSwitch)(Product(WedgeGuard)(LinearRecurrenceInequation))
   module D = Sum(SPSplit)(Vas_P)()
-  module I = Iter(MakeDomain(D))
- 
+  (* module I = Iter(MakeDomain(D)) *)
+  module I = Iter(MakeDomain(Product(LinearRecurrenceInequation)(PolyhedronGuard)))
+
+  let star x =
+    let star x =
+      let abstract = I.alpha x in
+      logf "Loop abstraction:@\n%a" I.pp abstract;
+      I.closure abstract
+    in
+    Log.time "cra.star" star x
+
+  let add x y =
+    if is_zero x then y
+    else if is_zero y then x
+    else add x y
+
+  let mul x y =
+    if is_zero x || is_zero y then zero
+    else if is_one x then y
+    else if is_one y then x
+    else mul x y
+end
+
+module KMonotone = struct
+  include Transition.Make(Ctx)(V)
+  open Iteration
+  open SolvablePolynomial
+  module SPOne = SumWedge (SolvablePolynomial) (SolvablePolynomialOne) ()
+  module SPPeriodicRational = SumWedge (SPOne) (SolvablePolynomialPeriodicRational) ()
+  module SPG = ProductWedge (SPPeriodicRational) (WedgeGuard)
+  module SPSplit = Sum (SPG) (Split(SPG)) ()
+  module VasSwitch = Sum (Vas)(Vass)()
+  module Vas_P = Product(VasSwitch)(Product(WedgeGuard)(LinearRecurrenceInequation))
+  module D = Sum(SPSplit)(Vas_P)()
+  module I = Iter(MakeDomain(Product(LinearRecurrenceInequation)(PolyhedronGuard))) 
   let star x =
     let star x =
       let abstract = I.alpha x in
@@ -483,9 +519,44 @@ module TSDisplay = ExtGraph.Display.MakeLabeled
       let pp formatter w = match w with
         | Weight w -> K.pp formatter w
         | Call (s,t) -> Format.fprintf formatter "call(%d, %d)" s t
+      (* let show = SrkUtil.mk_show pp *)
     end)
 
 module SA = Abstract.MakeAbstractRSY(Ctx)
+(* module TSNoCallEdgeDisplay = ExtGraph.Display.MakeLabeled
+    (struct
+      type t = K.t WeightedGraph.t
+
+      module V = struct
+        include SrkUtil.Int
+        type label = int
+        let label x = x
+        let create x = x
+      end
+
+      module E = struct
+        type label = K.t
+        type vertex = int
+        type t = int * K.t * int [@@deriving ord]
+        let src (x, _, _) = x
+        let dst (_, _, x) = x
+        let label (_, x, _) = x
+        let create x y z = (x, y, z)
+      end
+
+      let iter_edges_e = WG.iter_edges
+      let iter_vertex = WG.iter_vertex
+      let iter_succ f tg v =
+        WG.U.iter_succ f (WG.forget_weights tg) v
+      let fold_pred_e = WG.fold_pred_e
+    end)
+    (SrkUtil.Int)
+    (struct
+      open WeightedGraph
+      type t = K.t
+      let pp formatter w = K.pp formatter w
+      let show = SrkUtil.mk_show pp
+    end) *)
 
 let decorate_transition_system predicates ts entry =
   let module AbsDom =
@@ -634,6 +705,66 @@ let analyze file =
     end
   | _ -> assert false
 
+(* module RG = WG.MakeRecGraph(K) *)
+let omega_algebra = 
+let open WeightedGraph in
+{
+
+  (** over-approximate possibly non-terminating conditions for a transition *)
+  omega = (fun transition -> 
+  begin
+    let x_xp, formula = K.to_transition_formula transition in
+    let exists =
+        let post_symbols =
+          List.fold_left
+            (fun set (_, sym') -> Syntax.Symbol.Set.add sym' set)
+            Syntax.Symbol.Set.empty
+            x_xp
+        in
+        fun x ->
+          match V.of_symbol x with
+          | Some _ -> true
+        | None -> Syntax.Symbol.Set.mem x post_symbols
+      in
+    let result = TLLRF.compute_swf srk x_xp formula in
+    match result with
+    | TLLRF.ProvedToTerminate -> Syntax.mk_false srk
+    | _ -> let cond = TDTA.compute_swf_via_DTA srk exists x_xp formula in
+    cond
+    end
+    );
+
+  (** combining possibly non-terminating conditions for multiple paths *)
+  omega_add = (fun cond1 cond2 -> Syntax.mk_or srk [cond1; cond2]);
+
+  (** propagate state formula through a transition *)
+  omega_mul = (fun transition state -> 
+    let t = K.mul transition (K.assume state) in
+      K.guard t
+  )
+}  
+
+let prove_termination_main file =
+  populate_offset_table file;
+  match file.entry_points with
+  | [main] -> begin
+      let rg = Interproc.make_recgraph file in
+      let entry = (RG.block_entry rg main).did in
+      let (ts1, _) = make_transition_system rg in
+      if !CmdLine.display_graphs then
+        TSDisplay.display ts1;
+      let query =  TS.mk_query ts1 in
+      let omega_paths_sum = TS.omega_path_weight query omega_algebra entry in
+      match Smt.is_sat srk omega_paths_sum with
+      | `Sat -> 
+        Format.printf "Program does not always necessarily terminate\n"; 
+        Format.printf "Terminating conditions:\n%s" (Syntax.Formula.show srk (Syntax.mk_not srk omega_paths_sum))
+      | `Unsat -> Format.printf "Program always terminates\n"
+      | `Unknown -> Format.printf "Unknown analysis result\n";
+      ()
+    end
+  | _ -> failwith "Cannot find main function within the C source file"
+
 let resource_bound_analysis file =
   populate_offset_table file;
   match file.entry_points with
@@ -744,5 +875,7 @@ let _ =
 let _ =
   CmdLine.register_pass
     ("-cra", analyze, " Compositional recurrence analysis");
+  CmdLine.register_pass
+    ("-termination", prove_termination_main, "Proof of termination");
   CmdLine.register_pass
     ("-rba", resource_bound_analysis, " Resource bound analysis")

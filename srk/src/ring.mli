@@ -199,6 +199,46 @@ module type Map = sig
     'c t
 end
 
+module type AbelianGroup = sig
+   type t
+   val equal : t -> t -> bool
+   val add : t -> t -> t
+   val negate : t -> t
+   val zero : t
+ end
+
+module AbelianGroupMap (M : Map) (G : AbelianGroup) : sig
+   type t = G.t M.t
+   type dim = M.key
+   type scalar = G.t
+  
+   val zero : t
+ 
+   val add : t -> t -> t
+ 
+   val add_term: scalar -> dim -> t -> t
+   
+   val coeff: dim -> t -> scalar
+ 
+   val enum: t -> (scalar * dim) BatEnum.t
+ 
+   
+   (* let of_enum = BatEnum.fold (fun vec (x,y) -> add_term x y vec) zero
+ 
+   let of_list = List.fold_left (fun vec (x,y) -> add_term x y vec) zero *)
+ 
+   (* let equal = M.equal G.equal
+ 
+   let of_term coeff dim = add_term coeff dim zero
+ 
+   let negate = M.map G.negate
+ 
+   let sub u v = add u (negate v)
+ 
+   let pivot dim vec =
+     (coeff dim vec, M.remove dim vec) *)
+ end
+
 (** Lift a map type over a ring to a left-module *)
 module RingMap
     (M : Map)

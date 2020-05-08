@@ -57,6 +57,10 @@ module Make
       vertices.  *)
   val path_weight : query -> vertex -> vertex -> transition
 
+  (** Over-approximate the sum of the weights of all infinite paths
+     starting at a given vertex. *)
+  val omega_path_weight : query -> (transition,'b) WeightedGraph.omega_algebra -> vertex -> 'b
+
   (** Project out local variables from each transition that are referenced
       only by that transition. *)
   val remove_temporaries : t -> t
