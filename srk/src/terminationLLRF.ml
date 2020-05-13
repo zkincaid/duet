@@ -17,7 +17,7 @@ let post_symbols tr_symbols =
       Symbol.Set.add s' set)
     Symbol.Set.empty
     tr_symbols
-
+    
 let get_polyhedron_of_formula srk f cs =
   let f = match Formula.destruct srk f with
     | `And xs -> xs
@@ -139,7 +139,7 @@ let build_system_of_ineq_for_non_inc srk cs ineqs dx_list coeff_x_list coeff_x_s
   logf "\n non-inc cone:\n%s\n\n" (Formula.show srk resulting_formula);
   property_of_formula
 
-let compute_non_inc_term_cone srk formula dx_list dx_set coeff_x_list coeff_x_set =
+let compute_non_inc_term_cone srk formula dx_list dx_set coeff_x_list coeff_x_set  =
   let polka = Polka.manager_alloc_strict () in
   let f = rewrite srk ~down:(nnf_rewriter srk) formula in
   let property_of_dx =

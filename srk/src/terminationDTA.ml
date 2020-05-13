@@ -48,7 +48,7 @@ let get_polyhedron_of_formula srk srkf cs =
   BatList.of_enum e
 
 
-let compute_linear_invariants srk inv_symbols_set formula =
+let compute_linear_invariants srk formula inv_symbols_set =
   let polka = Polka.manager_alloc_strict () in
   let f = rewrite srk ~down:(nnf_rewriter srk) formula in
   let linear_invariants_apron =
@@ -64,7 +64,7 @@ let compute_best_DLTS_abstraction srk exists tr_symbols transition_formula =
   let best_dlts = DLTSPeriodicRational.abstract_rational ~exists srk tr_symbols transition_formula in
   (* logf "Best DLTS abstraction:\n%a\n" (DLTS.pp srk tr_symbols best_dlts); *)
   let best_dlts_plm = best_dlts.dlts in
-  logf "%a\n" Linear.PartialLinearMap.pp  best_dlts_plm;
+  logf "Best DLTS partial linear map:\n%a\n" Linear.PartialLinearMap.pp  best_dlts_plm;
   let best_dlts_sim = best_dlts.simulation in
   Array.iter (fun t -> logf "Term: %a\n" (Term.pp srk) t) best_dlts_sim;
   best_dlts
@@ -292,7 +292,7 @@ let rewrite_term_condition srk simulation invariant_symbols formula =
   substitute_map srk m formula
 
 
-let generate_term_cond srk cs lhs exp_poly invariant_symbols invariant_terms ineq_type best_DLTS_abstraction x_set =
+let generate_term_cond srk cs lhs exp_poly invariant_symbols invariant_terms ineq_type best_DLTS_abstraction =
   let lt_vec, lhs_const = get_coeff_vec_for_expression cs lhs invariant_symbols in
   logf "\nlt_vec is: %a, LHS constant is: %a" 
     Vec.pp lt_vec 
@@ -370,7 +370,7 @@ let generate_term_cond srk cs lhs exp_poly invariant_symbols invariant_terms ine
       in
       (* let m = BatEnum.push m (ExpPolynomial.scalar lhs_const) in *)
       let conditions = BaseDegPairMap.rank srk m invariant_terms lhs_const ineq_type in
-      logf "terminating condition:%a" (Formula.pp srk) conditions;
+      logf "terminating condition: %a" (Formula.pp srk) conditions;
       conditions
     end
   in
@@ -386,8 +386,8 @@ let generate_term_cond srk cs lhs exp_poly invariant_symbols invariant_terms ine
       let sat_even_conditions' = analyze_entries entries in
       let sat_even_conditions'' = rewrite_term_condition srk best_DLTS_abstraction.simulation invariant_symbols sat_even_conditions' in
       let sat_even_conditions = sat_even_conditions'' in
-      let sat_even_conditions_disp = simplify_condition srk sat_even_conditions'' in
-      logf "sat_even conditions: %a " (Formula.pp srk) sat_even_conditions_disp;
+      (* let sat_even_conditions_disp = simplify_condition srk sat_even_conditions'' in *)
+      (* logf "sat_even conditions: %a " (Formula.pp srk) sat_even_conditions_disp; *)
       logf "start computing sat_odd conditions";
       let entries = ExpPolynomial.Matrix.entries mat in
       let entries_with_odd_exp = BatEnum.map (
@@ -400,15 +400,8 @@ let generate_term_cond srk cs lhs exp_poly invariant_symbols invariant_terms ine
           entries 
       in
       let sat_odd_conditions = analyze_entries entries_with_odd_exp in
-      let sat_odd_conditions_disp = Quantifier.mbp ~dnf:true srk (fun x -> Symbol.Set.mem x x_set) sat_odd_conditions in
-      logf "sat_odd conditions: %a" (Formula.pp srk) sat_odd_conditions_disp; 
-      (* let conditions_with_post_symbols = substitute_map srk subst_map sat_even_conditions in
-         logf "terminating conditions with post symbols: %a" (Formula.pp srk) conditions_with_post_symbols;
-         let f = Syntax.mk_and srk [body_formula; conditions_with_post_symbols] in
-         logf "transition formula and conditions: %a" (Formula.pp srk) f;
-         let sat_odd_conditions = List.fold_left (fun formula (x, xp) -> mk_exists_const srk xp f) f x_xp in
-         (* let sat_odd_conditions = Quantifier.mbp ~dnf:true srk (fun x -> Symbol.Set.mem x x_set) f in *)
-         logf "sat_odd conditions: %a" (Formula.pp srk) sat_odd_conditions; *) 
+      (* let sat_odd_conditions_disp = Quantifier.mbp ~dnf:true srk (fun x -> Symbol.Set.mem x x_set) sat_odd_conditions in *)
+      logf "sat_odd conditions: %a" (Formula.pp srk) sat_odd_conditions; 
       let results = Syntax.mk_and srk [sat_even_conditions; sat_odd_conditions] in
       logf "terminating conditions for this mat with neg spectrum: %a" (Formula.pp srk) results;
       results
@@ -421,7 +414,7 @@ let generate_term_cond srk cs lhs exp_poly invariant_symbols invariant_terms ine
 
 
 
-let analyze_inv_polyhedron srk cs invariants_polyhedron exp_poly invariant_symbols invariant_terms best_DLTS_abstraction  x_set   =
+let analyze_inv_polyhedron srk cs invariants_polyhedron exp_poly invariant_symbols invariant_terms best_DLTS_abstraction =
   let conditions_list = 
     BatList.fold_left
       (fun conditions eq -> 
@@ -430,7 +423,7 @@ let analyze_inv_polyhedron srk cs invariants_polyhedron exp_poly invariant_symbo
            | `EqZero t -> Eq0, t
            | `LeqZero t -> Leq0, t
          in 
-         let cond = generate_term_cond srk cs lhs exp_poly invariant_symbols invariant_terms ineqt best_DLTS_abstraction x_set in
+         let cond = generate_term_cond srk cs lhs exp_poly invariant_symbols invariant_terms ineqt best_DLTS_abstraction in
          logf "terminating conditions for this ineq: %a" (Formula.pp srk) cond;
          cond :: conditions 
       )
@@ -445,17 +438,13 @@ let compute_swf_via_DTA srk exists x_xp formula =
   | `Sat _ -> 
     logf "\nTransition formula:\n%s\n\n" (Formula.show srk body_formula);
     logf ~attributes:[`Bold] "\nTransition formula SAT\n";
-    (* let x_list = List.fold_right (fun (sp, _) l -> sp :: l ) x_xp [] in *)
-    (* let xp_list = List.fold_right (fun (_, spp) l -> spp :: l ) x_xp [] in *)
-    let x_set = pre_symbols x_xp in
-    (* let xp_set = post_symbols x_xp in *)
     let best_DLTS_abstraction = compute_best_DLTS_abstraction srk exists x_xp body_formula in 
-    let invariant_symbols, inv_equalities, inv_terms_set = build_symbols_for_inv_terms srk best_DLTS_abstraction.simulation in
+    let invariant_symbols, inv_equalities, invariant_symbol_set = build_symbols_for_inv_terms srk best_DLTS_abstraction.simulation in
     let invariant_terms = BatList.map (fun symbol -> mk_const srk symbol) invariant_symbols in
     let formula = mk_and srk [body_formula; mk_and srk inv_equalities] in
     logf "\nTransition formula with inv_terms:\n%s\n\n" (Formula.show srk formula);
     BatList.iter (fun symb -> print_endline (show_symbol srk symb) ) invariant_symbols;
-    let linear_invariants = compute_linear_invariants srk inv_terms_set formula in
+    let linear_invariants = compute_linear_invariants srk formula invariant_symbol_set in
     let cs = CoordinateSystem.mk_empty srk in
     let invariants_polyhedron = get_polyhedron_of_formula srk linear_invariants cs in
     logf "\nPrinting invariants polyhedron:\n";
@@ -465,7 +454,7 @@ let compute_swf_via_DTA srk exists x_xp formula =
         | `EqZero t -> logf "%a = 0" (CoordinateSystem.pp_vector cs) t) invariants_polyhedron
     in
     let exp_poly = compute_exp_polynomial best_DLTS_abstraction in
-    let results_in_inv_terms = analyze_inv_polyhedron srk cs invariants_polyhedron exp_poly invariant_symbols invariant_terms best_DLTS_abstraction x_set in
+    let results_in_inv_terms = analyze_inv_polyhedron srk cs invariants_polyhedron exp_poly invariant_symbols invariant_terms best_DLTS_abstraction in
     logf "terminating conditions in inv terms: %a" (Formula.pp srk) results_in_inv_terms;
     let results = rewrite_term_condition srk best_DLTS_abstraction.simulation invariant_symbols results_in_inv_terms in
     logf "terminating conditions before simplification: %a" (Formula.pp srk) results;

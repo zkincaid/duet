@@ -757,8 +757,10 @@ let prove_termination_main file =
       let omega_paths_sum = TS.omega_path_weight query omega_algebra entry in
       match Smt.is_sat srk omega_paths_sum with
       | `Sat -> 
-        Format.printf "Program does not always necessarily terminate\n"; 
-        Format.printf "Terminating conditions:\n%s" (Syntax.Formula.show srk (Syntax.mk_not srk omega_paths_sum))
+        Format.printf "Cannot prove that program always terminates\n"; 
+        let s = Syntax.mk_not srk omega_paths_sum in
+        let simplified = Quantifier.mbp ~dnf:true srk (fun _ -> true) s in
+        Format.printf "Sufficient terminating conditions:\n%s\n" (Syntax.Formula.show srk simplified)
       | `Unsat -> Format.printf "Program always terminates\n"
       | `Unknown -> Format.printf "Unknown analysis result\n";
       ()
