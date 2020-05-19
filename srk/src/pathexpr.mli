@@ -42,6 +42,8 @@ type context
 
 val pp : Format.formatter -> t -> unit
 val pp_omega : Format.formatter -> omega -> unit
+val show : t -> string
+val show_omega : omega -> string
 
 (** Create a new path expression context, with a given (optional) table size
     for hashconsed path expressions. *)
@@ -84,3 +86,6 @@ val eval_omega : ?table:(('a,'b) omega_table) ->
                  ('a,'b) omega_algebra ->
                  omega ->
                  'b
+
+(** Check whether two path expressions recognize the same language *)
+val equiv : context -> t -> t -> bool

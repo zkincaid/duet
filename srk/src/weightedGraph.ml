@@ -33,6 +33,11 @@ type 'a t = 'a weighted_graph
 
 type vertex = int
 
+(* Check invariant: 1-to-1 correspondence between labels & edges *)
+let _sat_inv wg =
+  (M.for_all (fun (u,v) _ -> U.mem_edge wg.graph u v) wg.labels)
+  && U.fold_edges (fun u v b -> b && M.mem (u,v) wg.labels) wg.graph true
+
 let empty algebra =
   { graph = U.empty;
     labels = M.empty;
@@ -51,10 +56,8 @@ let edge_weight wg u v =
 
 let add_edge wg u weight v =
   if M.mem (u, v) wg.labels then
-    let new_weight =
-      wg.algebra.add (M.find (u, v) wg.labels) weight
-    in
-    { wg with labels = M.add (u, v) new_weight wg.labels }
+    let labels' = M.modify (u, v) (wg.algebra.add weight) wg.labels in
+    { wg with labels = labels' }
   else
     { wg with graph = U.add_edge wg.graph u v;
               labels = M.add (u, v) weight wg.labels }
@@ -73,6 +76,40 @@ let remove_vertex wg u =
   in
   { wg with graph = U.remove_vertex wg.graph u;
             labels = labels }
+
+let remove_edge wg u v =
+  { wg with graph = U.remove_edge wg.graph u v;
+            labels = M.remove (u, v) wg.labels }
+
+let fold_incident_edges f graph v acc =
+  U.fold_succ
+    (fun u acc -> f (v, u) acc)
+    graph
+    v
+    (U.fold_pred
+       (fun u acc -> if u == v then acc else f (u, v) acc)
+       graph
+       v
+       acc)
+
+(* Rename vertex u to w.  If w already exists in the graph, then all
+   of the incident edges of u become incident to w instead (and u is
+   removed). *)
+let rename_vertex wg u w =
+  let g' = U.add_vertex (U.remove_vertex wg.graph u) w in
+  let rename v = if v = u then w else v in
+  fold_incident_edges (fun (v,v') wg ->
+      let (weight, labels) = M.extract (v, v') wg.labels in
+      let graph' =
+        U.add_edge wg.graph (rename v) (rename v')
+      in
+      let labels' =
+        M.add (rename v, rename v') weight labels
+      in
+        { wg with graph = graph'; labels = labels' })
+    wg.graph
+    u
+    { wg with graph = g' }
 
 let contract_vertex wg v =
   (* List of all { (s, w(v,v)*w(v,s)) : (v,s) in E } *)
@@ -128,6 +165,76 @@ let path_weight wg src tgt =
   match edge_weight_opt contracted_graph start final with
   | None -> wg.algebra.zero
   | Some w -> w
+
+let msat_path_weight wg srcs =
+  (* For each source vertex s, augment the graph with a fresh vertex
+     s' and an edge s' -> s with weight 1.  After bypassing all
+     vertices in the original graph, the edges leaving s' correspond
+     to paths leaving s. *)
+  let start = max_vertex wg + 1 in
+  let wg' =
+    List.fold_left (fun (wg, next) src ->
+        let wg = add_vertex wg next in
+        let wg = add_edge wg next wg.algebra.one src in
+        (wg, next + 1))
+      (wg, start)
+      srcs
+    |> fst
+  in
+
+  (* Contract the successor edges of a vertex.  In the resulting
+     graph, v has no outgoing edges but all paths that don't begin at
+     v are preserved. *)
+  let bypass_vertex wg v =
+    let mul = wg.algebra.mul in
+    (* If v has a loop, remove it and shift its weight to v's
+       predecessors *)
+    let wg =
+      if M.mem (v, v) wg.labels then begin
+          let loop = wg.algebra.star (M.find (v,v) wg.labels) in
+          let wg = remove_edge wg v v in
+          let labels' =
+            U.fold_pred (fun p labels ->
+                M.modify (p, v) (fun w -> mul w loop) labels)
+              wg.graph
+              v
+              wg.labels
+          in
+          { wg with labels = labels' }
+        end
+      else wg
+    in
+
+    (* For each successor s of v, connect s to all predecessors of v
+       and remove the s->v edge *)
+    let predecessors = (* Save predecessor edges to avoid repeated lookups *)
+      List.map (fun p -> (p, edge_weight wg p v)) (U.pred wg.graph v)
+    in
+
+    U.fold_succ (fun s wg ->
+        let v_to_s = edge_weight wg v s in
+        List.fold_left (fun wg (p, p_to_v) ->
+            add_edge wg p (mul p_to_v v_to_s) s)
+          (remove_edge wg v s)
+          predecessors)
+      wg.graph
+      v
+      wg
+  in
+  let rec go wg elt =
+    match elt with
+    | `Vertex v -> bypass_vertex wg v
+    | `Loop loop ->
+       let wg = List.fold_left go wg (L.children loop) in
+       bypass_vertex wg (L.header loop)
+  in
+  let wg' = List.fold_left go wg' (L.loop_nest wg.graph) in
+  List.fold_left (fun (wg, next) src ->
+      let wg = rename_vertex wg next src in
+      (wg, next + 1))
+    (wg', start)
+    srcs
+  |> fst
 
 let omega_path_weight
       (wg : 'a t)

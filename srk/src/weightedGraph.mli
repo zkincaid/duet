@@ -43,6 +43,12 @@ val edge_weight : 'a t -> vertex -> vertex -> 'a
     in [g]. *)
 val path_weight : 'a t -> vertex -> vertex -> 'a
 
+(** Multiple-source all-target path expressions. [msat_path_weight g
+   srcs] computes a function [f] which maps a vertex [u] belonging to
+   [src] and any other vertex [v] to to the sum of all weighted paths
+   from [u] to [v].  *)
+val msat_path_weight : 'a t -> vertex list -> 'a t
+
 (** [omega_path_weight g alg v] computes the sum of all weighted omega
    paths starting at [v] in [g]. *)
 val omega_path_weight : 'a t -> ('a,'b) omega_algebra -> vertex -> 'b

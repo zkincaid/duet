@@ -2,6 +2,7 @@ open Srk
 open OUnit
 open Syntax
 open Test_pervasives
+open BatPervasives
 
 module V = struct
   type t = string
@@ -94,6 +95,21 @@ let mk_ts edges call_edges =
 let mk_query edges call_edges =
   RG.mk_query (mk_ts edges call_edges)
     
+let pe_context = Pathexpr.mk_context ()
+
+let mk_pathgraph =
+  let open Pathexpr in
+  let alg =
+    WG.{ mul = mk_mul pe_context;
+         add = mk_add pe_context;
+         star = mk_star pe_context;
+         zero = mk_zero pe_context;
+         one = mk_one pe_context }
+  in
+  List.fold_left (fun wg (u,v) ->
+      WG.add_edge wg u (mk_edge pe_context u v) v)
+    (WG.empty alg)
+
 let assert_post tr phi =
   let not_post =
     rewrite srk ~down:(nnf_rewriter srk) (Ctx.mk_not phi)
@@ -336,6 +352,32 @@ let suite = "WeightedGraph" >::: [
     "aff_collatz" >:: aff_collatz;
     "aff_karr_fig4" >:: aff_karr_fig4;
     "aff_karr_fig5" >:: aff_karr_fig5;
+
+    "msat1" >:: (fun () ->
+      let g =
+        mk_pathgraph [(0, 0); (0, 1); (1, 2); (2, 3); (3, 2)]
+      in
+      let cg = WG.msat_path_weight g [0] in
+      (0 -- 3)
+      |> BatEnum.iter (fun v ->
+             assert_equal_pathexpr pe_context
+               (WG.path_weight g 0 v)
+               (WG.edge_weight cg 0 v))
+    );
+
+    "msat2" >:: (fun () ->
+      let g =
+        mk_pathgraph [(0, 2); (1, 2); (2, 3); (3, 1); (1, 4); (4, 2); (2, 0)]
+      in
+      let cg = WG.msat_path_weight g [0; 1; 2] in
+      (0 -- 2)
+      |> BatEnum.iter (fun u ->
+             (0 -- 4) |> BatEnum.iter (fun v ->
+                             assert_equal_pathexpr pe_context
+                               (WG.path_weight g u v)
+                               (WG.edge_weight cg u v))
+           )
+    );
 
     "deep_call" >:: (fun () ->
       let open Infix in
