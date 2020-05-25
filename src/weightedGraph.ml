@@ -440,22 +440,6 @@ let forward_analysis wg ~entry ~update ~init =
 
   get_data
 
-module type Weight = sig
-  type t
-  val mul : t -> t -> t
-  val add : t -> t -> t
-  val zero : t
-  val one : t
-  val star : t -> t
-  val equal : t -> t -> bool
-  val project : t -> t
-  val widen : t -> t -> t
-end
-
-type 'a label =
-  | Weight of 'a
-  | Call of int * int
-
 module RecGraph = struct
   module HT = BatHashtbl.Make(IntPair)
   module CallSet = BatSet.Make(IntPair)
@@ -803,74 +787,4 @@ module SummarizeIterative (D : sig
            HT.add abstract_summaries call abstract_zero);
     List.iter fix (CallGraphLoop.loop_nest callgraph);
     weight_query
-end
-
-module MakeRecGraph (W : Weight) = struct
-  type t = (W.t label) weighted_graph
-  module Q = SummarizeIterative(struct
-                 type weight = W.t
-                 type abstract_weight = W.t
-                 let concretize x = x
-                 let abstract x = x
-                 let equal = W.equal
-                 let widen = W.widen
-               end)
-
-  let label_algebra =
-    let add x y = match x, y with
-      | Weight x, Weight y -> Weight (W.add x y)
-      | _, _ -> invalid_arg "No weight operations for call edges" in
-    let mul x y = match x, y with
-      | Weight x, Weight y -> Weight (W.mul x y)
-      | _, _ -> invalid_arg "No weight operations for call edges" in
-    let star = function
-      | Weight x -> Weight (W.star x)
-      | _ -> invalid_arg "No weight operations for call edges" in
-    let zero = Weight W.zero in
-    let one = Weight W.one in
-    { add; mul; star; zero; one }
-
-  let empty = empty label_algebra
-
-  type query = int * t
-
-  let mk_query ?(delay=1) wg = (delay, wg)
-
-  let mk_weighted_query (delay, wg) src =
-    let rg =
-      U.fold_vertex
-        (fun rg v -> RecGraph.add_vertex v rg)
-        wg.graph
-        (RecGraph.empty ())
-      |> U.fold_edges (fun u v rg ->
-             match edge_weight wg u v with
-             | Call (en,ex) -> RecGraph.add_call_edge rg u (en,ex) v
-             | _ -> RecGraph.add_edge rg u v) wg.graph
-    in
-    let algebra = function
-      | `Zero -> W.zero
-      | `One -> W.one
-      | `Edge (u, v) ->
-         begin match edge_weight wg u v with
-         | Weight w -> w
-         | Call _ -> assert false end
-      | `Mul (x, y) -> W.mul x y
-      | `Add (x, y) -> W.add x y
-      | `Star x -> W.star x
-      | `Segment x -> W.project x
-    in
-    Q.mk_query ~delay rg src algebra
-
-  let path_weight query src =
-    let wquery = mk_weighted_query query src in
-    RecGraph.path_weight wquery
-
-  let omega_path_weight query omega_algebra src =
-    let wquery = mk_weighted_query query src in
-    let algebra = function
-      | `Mul (a,b) -> omega_algebra.omega_mul a b
-      | `Add (a,b) -> omega_algebra.omega_add a b
-      | `Omega a -> omega_algebra.omega a
-    in
-    RecGraph.omega_path_weight wquery algebra
 end

@@ -6,7 +6,7 @@ include Log.Make(struct let name = "srk.transitionSystem" end)
 module WG = WeightedGraph
 module Int = SrkUtil.Int
 
-type 'a label = 'a WeightedGraph.label =
+type 'a label =
   | Weight of 'a
   | Call of int * int
 
@@ -50,11 +50,66 @@ module Make
   type transition = T.t
   type tlabel = T.t label
 
-  include WeightedGraph.MakeRecGraph(struct
-      include T
-      let project = exists Var.is_global
-    end)
-      
+  module S = WG.SummarizeIterative (struct
+                 type weight = T.t
+                 type abstract_weight = T.t
+                 let abstract x = x
+                 let concretize x = x
+                 let equal = T.equal
+                 let widen = T.widen
+               end)
+
+  type query = T.t WG.RecGraph.weight_query
+
+  let mk_query ?(delay=1) ts source =
+    let rg =
+      WG.fold_vertex
+        (fun v rg -> WG.RecGraph.add_vertex rg v)
+        ts
+        (WG.RecGraph.empty ())
+      |> WG.fold_edges (fun (u, w, v) rg ->
+             match w with
+             | Call (en,ex) ->
+                WG.RecGraph.add_call_edge rg u (en,ex) v
+             | Weight _ -> WG.RecGraph.add_edge rg u v)
+           ts
+    in
+    let algebra = function
+      | `Edge (u,v) ->
+         begin match WG.edge_weight ts u v with
+         | Weight w -> w
+         | Call _ -> assert false
+         end
+      | `Add (x, y) -> T.add x y
+      | `Mul (x, y) -> T.mul x y
+      | `Star x -> T.star x
+      | `Segment x -> T.exists Var.is_global x
+      | `Zero -> T.zero
+      | `One -> T.one
+    in
+    S.mk_query ~delay rg source algebra
+
+  type t = (T.t label) WG.t
+
+  let path_weight = WG.RecGraph.path_weight
+  let call_weight = WG.RecGraph.call_weight
+
+  let label_algebra =
+    let add x y = match x, y with
+      | Weight x, Weight y -> Weight (T.add x y)
+      | _, _ -> invalid_arg "No weight operations for call edges" in
+    let mul x y = match x, y with
+      | Weight x, Weight y -> Weight (T.mul x y)
+      | _, _ -> invalid_arg "No weight operations for call edges" in
+    let star = function
+      | Weight x -> Weight (T.star x)
+      | _ -> invalid_arg "No weight operations for call edges" in
+    let zero = Weight T.zero in
+    let one = Weight T.one in
+    WG.{ add; mul; star; zero; one }
+
+  let empty = WG.empty label_algebra
+
   (* Weight-labeled graph module suitable for ocamlgraph *)
   module WGG = struct
     type t = T.t label WG.t

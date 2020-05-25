@@ -119,60 +119,6 @@ val forward_analysis :
   init:(int -> 'v) ->
   (int -> 'v)
 
-(** Weight algebras, equipped with additional operations for interpreting
-    recursive graphs *)
-module type Weight = sig
-  type t
-  val mul : t -> t -> t
-  val add : t -> t -> t
-  val zero : t
-  val one : t
-  val star : t -> t
-  val equal : t -> t -> bool
-  val project : t -> t
-  val widen : t -> t -> t
-end
-
-type 'a label =
-  | Weight of 'a
-  | Call of int * int
-
-(** A weighted recursive graph is a graph with two types of edges: weighted
-    edges and call edges.  Each call edges designates an entry vertex and exit
-    vertex, and weight queries treat the edge as having a weight that
-    over-approximates the weights of paths from entry to exit.  Since a call
-    edge [(s,t)] may appear between [s] and [t], recursive graphs can model
-    (mutually) recursive procedures.  *)
-module MakeRecGraph (W : Weight) : sig
-  (** A recursive graph is a weighted graph with edges are either weighted by
-      [W] or by calls.  Algebraic operations for call edges are undefined, and
-      weighted graph operations that would invoke an algebraic operation
-      (e.g., [contract_vertex], [path_weight]) on a call weight raise
-      [Invalid_arg]. *)
-  type t = (W.t label) weighted_graph
-
-  (** A query is an intermediate structure for perfoming path weight queries.
-      After creating a recursive graph, a query can be constructed using
-      [mk_query] and accessed using [path_weight]. *)
-  type query
-
-  (** Create an empty recursive graph. *)
-  val empty : t
-
-  (** Create a query structure.  The optional [delay] parameter specifies the
-      widening delay to use during summary computation. *)
-  val mk_query : ?delay:int -> t -> query
-
-  (** Over-approximate the sum of the weights of all paths between two given
-      vertices.  *)
-  val path_weight : query -> vertex -> vertex -> W.t
-
-  (** Over-approximate the sum of the weights of all infinite paths
-     starting at a given vertex. *)
-  val omega_path_weight : query -> (W.t,'b) omega_algebra -> vertex -> 'b
-end
-
-
 (** A recursive graph is a graph with two types of edges: simple edges
    and call edges.  Each call edge designates an entry vertex and exit
    vertex, and can be interpreted a set of paths that begin and entry
@@ -237,7 +183,6 @@ module RecGraph : sig
      weights to call edges. *)
   val mk_weight_query : query -> 'a Pathexpr.nested_algebra -> 'a weight_query
 
-
   (** Find the sum of weights of all interprocedural paths beginning
      at the query's source vertex and ending at a given target. *)
   val path_weight : 'a weight_query -> vertex -> 'a
@@ -248,6 +193,10 @@ module RecGraph : sig
 
   val get_summary : 'a weight_query -> call -> 'a
   val set_summary : 'a weight_query -> call -> 'a -> unit
+
+  (** Find the sum of weights of all infinite interprocedural paths
+     beginning at the query's source vertex. *)
+  val omega_path_weight : 'a weight_query -> ('a,'b) Pathexpr.omega_algebra -> 'b
 end
 
 (** Build call summaries via successive approximation. *)

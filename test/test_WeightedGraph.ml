@@ -28,7 +28,7 @@ module V = struct
       Some (Hashtbl.find rev_sym_table sym)
     else
       None
-  let is_global _ = false
+  let is_global _ = true
   let equal = (=)
   let hash = Hashtbl.hash
 end
@@ -41,11 +41,6 @@ module T = struct
   let star = I.star
 end
 module WG = WeightedGraph
-module RG = WeightedGraph.MakeRecGraph (struct
-    include T
-    let project x = x
-  end)
-
 module TS = TransitionSystem.Make(Ctx)(V)(T)
 
 let () =
@@ -69,7 +64,7 @@ let mk_ts edges call_edges =
   let rg =
     List.fold_left (fun rg (src, _, tgt) ->
         WG.add_vertex (WG.add_vertex rg src) tgt)
-      RG.empty
+      TS.empty
       edges
   in
   let rg =
@@ -80,20 +75,20 @@ let mk_ts edges call_edges =
   in
   let rg = 
     List.fold_left (fun rg (src, w, tgt) ->
-        WG.add_edge rg src (WeightedGraph.Weight w) tgt)
+        WG.add_edge rg src (TransitionSystem.Weight w) tgt)
       rg
       edges
   in
   let rg =
     List.fold_left (fun rg (src, (s,t), tgt) ->
-        WG.add_edge rg src (WeightedGraph.Call (s,t)) tgt)
+        WG.add_edge rg src (TransitionSystem.Call (s,t)) tgt)
       rg
       call_edges
   in
   rg
 
 let mk_query edges call_edges =
-  RG.mk_query (mk_ts edges call_edges)
+  TS.mk_query (mk_ts edges call_edges)
     
 let pe_context = Pathexpr.mk_context ()
 
@@ -143,8 +138,9 @@ let simple_loop () =
        (2, T.assign "x" (x + (int 1)), 1);
        (1, T.assume ((int 10) <= x), 3)]
       []
+      0
   in
-  let path = RG.path_weight query 0 3 in
+  let path = TS.path_weight query 3 in
   let post =
     let open Infix in
     (x = (int 10))
@@ -159,8 +155,9 @@ let simple_branch () =
        (1, T.assign "x" (x + (int 1)), 2);
        (1, T.assign "x" (x - (int 1)), 2)]
       []
+      0
   in
-  let path = RG.path_weight query 0 2 in
+  let path = TS.path_weight query 2 in
   assert_post path (x <= (int 1));
   assert_post path ((int (-1)) <= x)
 
@@ -179,8 +176,9 @@ let nested_loop () =
        (7, T.assign "x" (x + (int 1)), 2);
        (2, T.assume ((int 10) <= x), 8)]
       []
+      0
   in
-  let path = RG.path_weight query 0 8 in
+  let path = TS.path_weight query 8 in
   assert_post path (x = (int 10));
   assert_post path (y = (int 50));
   assert_post path (z = (int 5))
@@ -195,11 +193,12 @@ let nonrec_call () =
        (10, T.assign "x" (x + (int 1)), 11);
        (10, T.assign "x" (x - (int 1)), 11)]
       [(2, (10, 11), 1)]
+      0
   in
-  assert_post (RG.path_weight query 0 3) (x = (int 10));
-  assert_post (RG.path_weight query 0 1) (x <= (int 10));
-  assert_not_post (RG.path_weight query 10 11) (x <= (int 10));
-  assert_not_post (RG.path_weight query 0 1) ((int 0) <= x)
+  assert_post (TS.path_weight query 3) (x = (int 10));
+  assert_post (TS.path_weight query 1) (x <= (int 10));
+  assert_not_post (TS.call_weight query (10, 11)) (x <= (int 10));
+  assert_not_post (TS.path_weight query 1) ((int 0) <= x)
 
 let recursive () =
   let open Infix in
@@ -212,13 +211,15 @@ let recursive () =
        (14, T.assign "y" (y + (int 1)), 12)]
       [(1, (10, 12), 2);
        (13, (10, 12),14)]
+      0
   in
-  assert_post (RG.path_weight query 0 2) (x + y = (int 100));
-  assert_not_post (RG.path_weight query 0 2) (y <= (int 99))
+  assert_post (TS.path_weight query 2) (x + y = (int 100));
+  assert_not_post (TS.path_weight query 2) (y <= (int 99))
 
 module D = Abstract.MakeAbstractRSY(Ctx)
 
-let affine_invariants = TS.forward_invariants (module TS.LiftIncr(D.AffineRelation))
+let affine_invariants =
+  TS.forward_invariants (module TS.LiftIncr(D.AffineRelation))
 
 let aff_eq1 () =
   let open Infix in
@@ -306,41 +307,52 @@ module ISet = struct
 end
 
 (* Lengths of simple paths *)
-module Pathlen = WeightedGraph.MakeRecGraph (struct
-                     type t = ISet.t
-                     let add = ISet.union
-                     let one = ISet.singleton 0
-                     let zero = ISet.empty
-                     let equal = (=)
-                     let star _ = one
+module Pathlen = WeightedGraph.SummarizeIterative(struct
+                     type weight = ISet.t
+                     type abstract_weight = ISet.t
+                     let abstract x = x
+                     let concretize x = x
+                     let equal = ISet.equal
                      let widen = ISet.inter
-                     let project x = x
-                     let mul x y =
-                       SrkUtil.cartesian_product
-                         (ISet.enum x)
-                         (ISet.enum y)
-                       |> BatEnum.map (fun (x,y) -> x + y)
-                       |> ISet.of_enum
                    end)
 
-let mk_pathlen_query edges call_edges =
+let pathlen_algebra = function
+  | `Edge (_, _) -> ISet.singleton 1
+  | `Add (x, y) -> ISet.union x y
+  | `Zero -> ISet.empty
+  | `One -> ISet.singleton 0
+  | `Star _ -> ISet.singleton 0
+  | `Mul (x, y) ->
+     SrkUtil.cartesian_product
+       (ISet.enum x)
+       (ISet.enum y)
+     |> BatEnum.map (fun (x,y) -> x + y)
+     |> ISet.of_enum
+  | `Segment x -> x
+
+let pathlen_omega_algebra = function
+  | `Add (x, y) -> ISet.union x y;
+  | `Mul (_, y) -> y
+  | `Omega x -> x
+
+let mk_pathlen_query edges call_edges src =
   let open WG in
   let g =
     List.fold_left
-      (fun g (u,v) -> add_edge g u (Weight (ISet.singleton 1)) v)
-      Pathlen.empty
+      (fun g (u,v) -> RecGraph.add_edge g u v)
+      (RecGraph.empty ())
       edges
   in
-  List.fold_left
-    (fun g (u, (s, t), v) -> add_edge g u (Call (s, t)) v)
-    g
-    call_edges
-  |> Pathlen.mk_query
+  let g =
+    List.fold_left
+      (fun g (u, (s, t), v) -> RecGraph.add_call_edge g u (s, t) v)
+      g
+      call_edges
+  in
+  Pathlen.mk_query g src pathlen_algebra
 
 let get_cyclelen query =
-  Pathlen.omega_path_weight query WG.{ omega_add = ISet.union;
-                                       omega_mul = (fun _ y -> y);
-                                       omega = fun x -> x }
+  WG.RecGraph.omega_path_weight query pathlen_omega_algebra
 
 let suite = "WeightedGraph" >::: [
     "simple_loop" >:: simple_loop;
@@ -390,48 +402,53 @@ let suite = "WeightedGraph" >::: [
           [(1, (3, 5), 2);
            (4, (6, 8), 5);
            (7, (9, 10), 8)]
+          0
       in
-      assert_post (RG.path_weight query 0 7) (x = (int 3));
-      assert_not_post (RG.path_weight query 0 7) fls;
-      assert_post (RG.path_weight query 0 10) (x = (int 6));
-      assert_not_post (RG.path_weight query 0 10) fls);
+      assert_post (TS.path_weight query 7) (x = (int 3));
+      assert_not_post (TS.path_weight query 7) fls;
+      assert_post (TS.path_weight query 10) (x = (int 6));
+      assert_not_post (TS.path_weight query 10) fls);
 
     "branching_cycle" >:: (fun () ->
       let query = mk_pathlen_query
                     [(0, 1); (1, 2); (2, 3); (3, 1); (2, 1)]
                     []
+                    0
       in
       assert_equal ~cmp:ISet.equal ~printer:ISet.show
         (ISet.of_list [2; 3])
-        (get_cyclelen query 0));
+        (get_cyclelen query));
 
     "nested_cycle" >:: (fun () ->
       let query = mk_pathlen_query
                     [(0, 1); (1, 2); (2, 3); (3, 2); (3, 4); (4, 1); (4, 4)]
                     []
+                    0
       in
       assert_equal ~cmp:ISet.equal ~printer:ISet.show
         (ISet.of_list [1; 2; 4])
-        (get_cyclelen query 0));
+        (get_cyclelen query));
 
     "branch_loops" >:: (fun () ->
       let query = mk_pathlen_query
                     [(0, 1); (0, 2); (2, 3); (3, 2); (1, 1);
                      (4, 5); (5, 6); (6, 4)]
                     []
+                    0
       in
       assert_equal ~cmp:ISet.equal ~printer:ISet.show
         (ISet.of_list [1; 2])
-        (get_cyclelen query 0));
+        (get_cyclelen query));
 
     "recursive_cycle" >:: (fun () ->
       let query = mk_pathlen_query
                     [(0, 1); (1, 2); (2, 3); (3, 4)]
                     [(2, (0, 4), 4)]
+                    0
       in
       assert_equal ~cmp:ISet.equal ~printer:ISet.show
         (ISet.of_list [2])
-        (get_cyclelen query 0));
+        (get_cyclelen query));
 
     "mutual_recursive_cycle" >:: (fun () ->
       let query = mk_pathlen_query
@@ -439,8 +456,9 @@ let suite = "WeightedGraph" >::: [
                      (4, 5); (5, 6); (6, 7) ]
                     [(1, (4, 6), 3);
                      (5, (0, 3), 7)]
+                    0
       in
       assert_equal ~cmp:ISet.equal ~printer:ISet.show
         (ISet.of_list [2])
-        (get_cyclelen query 0))
+        (get_cyclelen query))
   ]
