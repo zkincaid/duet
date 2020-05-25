@@ -437,7 +437,7 @@ let weight def =
     Log.errorf "No translation for definition: %a" Def.pp def;
     assert false
 
-type 'a label = 'a WeightedGraph.label =
+type 'a label = 'a TransitionSystem.label =
   | Weight of 'a
   | Call of int * int
 [@@deriving ord]
@@ -478,7 +478,6 @@ module TSDisplay = ExtGraph.Display.MakeLabeled
     (TSG)
     (SrkUtil.Int)
     (struct
-      open WeightedGraph
       type t = klabel
       let pp formatter w = match w with
         | Weight w -> K.pp formatter w
@@ -605,9 +604,9 @@ let analyze file =
 
       (*TSDisplay.display ts;*)
 
-      let query = TS.mk_query ts in
+      let query = TS.mk_query ts entry in
       assertions |> SrkUtil.Int.Map.iter (fun v (phi, loc, msg) ->
-          let path = TS.path_weight query entry v in
+          let path = TS.path_weight query v in
           let sigma sym =
             match V.of_symbol sym with
             | Some v when K.mem_transform v path ->
@@ -637,10 +636,11 @@ let analyze file =
 let resource_bound_analysis file =
   populate_offset_table file;
   match file.entry_points with
-  | [_] -> begin
+  | [main] -> begin
       let rg = Interproc.make_recgraph file in
       let (ts, _) = make_transition_system rg in
-      let query = TS.mk_query ts in
+      let entry = (RG.block_entry rg main).did in
+      let query = TS.mk_query ts entry in
       let cost =
         let open CfgIr in
         let file = get_gfile () in
@@ -659,7 +659,7 @@ let resource_bound_analysis file =
       RG.blocks rg |> BatEnum.iter (fun procedure ->
           let entry = (RG.block_entry rg procedure).did in
           let exit = (RG.block_exit rg procedure).did in
-          let summary = TS.path_weight query entry exit in
+          let summary = WG.RecGraph.call_weight query (entry, exit) in
           if K.mem_transform cost summary then begin
             logf ~level:`always "Procedure: %a" Varinfo.pp procedure;
             (* replace cost with 0, add constraint cost = rhs *)

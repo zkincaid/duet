@@ -113,82 +113,84 @@ end
 
 module G = ExtGraph.Persistent.Digraph.MakeBidirectionalLabeled(PInt)(Block)
 
-module ThreadCount = struct
-  type t = int option [@@deriving ord,show]
-  type var = unit
-  let equal x y = compare x y = 0
-  let project x = x
-  let one = Some 0
-  let zero = Some 0
-  let add x y = match x, y with
-    | Some x, Some y -> Some (max x y)
-    | _, _ -> None
-  let mul x y = match x, y with
-    | Some x, Some y -> Some (x + y)
-    | _, _ -> None
-  let star x = match x with
-    | Some 0 -> Some 0
-    | _ -> None
-  let widen x y = match x, y with
-    | Some 0, x | x, Some 0 -> x
-    | Some x, Some y when x = y -> Some x
-    | _, _ -> None
-end
-
 module WG = WeightedGraph
 module RG = Interproc.RG
 
 (* thread count analysis *)
-module TCA = WG.MakeRecGraph(ThreadCount)
+module TCA = WG.SummarizeIterative(struct
+                 type weight = int option
+                 type abstract_weight = int option
+                 let equal = (=)
+                 let abstract x = x
+                 let concretize x = x
+                 let widen x y = match x, y with
+                   | Some 0, x | x, Some 0 -> x
+                   | Some x, Some y when x = y -> Some x
+                   | _, _ -> None
+               end)
 let tca rg main =
   (* For each thread, create a start node that increments the thread count *)
+  let thread_entries = ref SrkUtil.Int.Set.empty in
   let thread_entry =
     let module M = Memo.Make(Varinfo) in
     M.memo (fun _ ->
-        (Def.mk (Assume Bexpr.ktrue)).did)
+        let result =
+          (Def.mk (Assume Bexpr.ktrue)).did
+        in
+        thread_entries := SrkUtil.Int.Set.add result (!thread_entries);
+        result)
   in
   let fork_edge block =
-    WG.Call (thread_entry block, (RG.block_exit rg block).did)
+    (thread_entry block, (RG.block_exit rg block).did)
   in
   let call_edge block =
-    WG.Call ((RG.block_entry rg block).did, (RG.block_exit rg block).did)
+    ((RG.block_entry rg block).did, (RG.block_exit rg block).did)
+  in
+  let algebra = function
+    | `Edge (s, _) ->
+       if SrkUtil.Int.Set.mem s !thread_entries then
+         Some 1
+       else
+         Some 0
+    | `Add (Some x, Some y) -> Some (max x y)
+    | `Mul (Some x, Some y) -> Some (x + y)
+    | `Star (Some 0) -> Some 0
+    | `Zero -> Some 0
+    | `One -> Some 0
+    | `Segment x -> x
+    | _ -> None
   in
   let wg =
     BatEnum.fold (fun wg (block, graph) ->
         let wg =
-          WG.add_edge
+          WG.RecGraph.add_edge
             wg
             (thread_entry block)
-            (WG.Weight (Some 1))
             (RG.block_entry rg block).did
         in
         RG.G.fold_vertex (fun def wg ->
-            let wg = WG.add_vertex wg def.did in
-            let label =
+            let wg = WG.RecGraph.add_vertex wg def.did in
+            let add_succ succ wg =
               match def.dkind with
               | Call (None, AddrOf (Variable (func, OffsetNone)), []) ->
-                 call_edge func
+                 WG.RecGraph.add_call_edge wg def.did (call_edge func) succ.did
               | Builtin (Fork (None,
                                AddrOf (Variable (func, OffsetNone)),
                                [])) ->
-                 fork_edge func
+                 WG.RecGraph.add_call_edge wg def.did (fork_edge func) succ.did
               | _ ->
-                 Weight (Some 0)
+                 WG.RecGraph.add_edge wg def.did succ.did
             in
-            RG.G.fold_succ
-              (fun succ wg -> WG.add_edge wg def.did label succ.did)
-              graph
-              def
-              wg)
+            RG.G.fold_succ add_succ graph def wg)
           graph
           wg)
-      TCA.empty
+      (WG.RecGraph.empty ())
       (RG.bodies rg)
   in
-  let query = TCA.mk_query wg in
   let main_entry = (RG.block_entry rg main).did in
   let main_exit = (RG.block_exit rg main).did in
-  match TCA.path_weight query main_entry main_exit with
+  let query = TCA.mk_query wg main_entry algebra in
+  match WG.RecGraph.path_weight query main_exit with
   | Some x ->
      logf "Found bound on number of threads: %d" x;
      x
