@@ -17,7 +17,7 @@ module SPPR = struct
 end
 module DLTS = struct
   include Iteration.MakeDomain(Iteration.Product
-                                 (SolvablePolynomial.DLTS)
+                                 (SolvablePolynomial.DLTSSolvablePolynomial)
                                  (Iteration.PolyhedronGuard))
   let star srk symbols phi = closure (abstract srk symbols phi)
 end
@@ -410,6 +410,27 @@ let dlts_one () =
   assert_equal (Smt.is_sat srk (closure && x' = x + (int 100))) `Sat;
   assert_implies closure (z' = z || z' = (int 1))
 
+let algebraic1 () =
+  let open Infix in
+  let phi =
+    x' = x + (int 1)
+    && y' = y + (int 1)
+    && x * x = y * y
+  in
+  let closure = DLTS.star srk tr_symbols phi in
+  assert_implies closure (x' = x || x' = x + (int 1) || x' = y')
+
+let algebraic2 () =
+  let open Infix in
+  let phi =
+    x' = x + (int 1)
+    && y' = y + x * x
+    && z' = z
+    && z = y * y
+  in
+  let closure = DLTS.star srk tr_symbols phi in
+  assert_implies closure (x' <= x + (int 2))
+
 let suite = "Iteration" >::: [
     "prepost" >:: prepost;
     "simple_induction" >:: simple_induction;
@@ -433,4 +454,6 @@ let suite = "Iteration" >::: [
     "dlts5" >:: dlts5;
     "dlts_false" >:: dlts_false;
     "dlts_one" >:: dlts_one;
+    "algebraic1" >:: algebraic1;
+    "algebraic2" >:: algebraic2;
   ]

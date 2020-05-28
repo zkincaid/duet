@@ -45,7 +45,17 @@ module PolyhedronGuard : sig
 end
 module LinearGuard : PreDomain
 
+(** Abstract a transition formula F(x,x') by a system of recurrences of the form
+    a(x') >= a(x) + c
+    where a is a linear map and c is a scalar. *)
 module LinearRecurrenceInequation : PreDomain
+
+(** Abstract a transition formula F(x,x',y) (where y denotes a set of
+   symbolic constants) by a system of recurrences of the form
+    [ax' >= ax + t(y)]
+   where a is a linear map and t(y) is a (possibly non-linear)
+   term over y. *)
+module NonlinearRecurrenceInequation : PreDomainWedge
 
 module Split(Iter : PreDomain) : PreDomain
 

@@ -322,6 +322,143 @@ module LinearRecurrenceInequation = struct
   let widen _ _ _ _ = failwith "Not yet implemented"
 end
 
+module NonlinearRecurrenceInequation = struct
+  type 'a t = ('a term * [ `Geq | `Eq ] * 'a term) list
+
+  let pp srk _ formatter lr =
+    Format.fprintf formatter "NLE: @[<v 0>";
+    lr |> List.iter (fun (t, op, k) ->
+        let opstring = match op with
+          | `Geq -> ">="
+          | `Eq -> "="
+        in
+        Format.fprintf formatter "%a %s %a@;" (Term.pp srk) t opstring (Term.pp srk) k);
+    Format.fprintf formatter "@]"
+
+  module QQXs = Polynomial.QQXs
+
+  let abstract_delta_wedge srk tr_symbols delta_wedge delta delta_map =
+    let cs = Wedge.coordinate_system delta_wedge in
+    let delta_dim =
+      let dims =
+        List.fold_left (fun dims delta ->
+            try SrkUtil.Int.Set.add (CS.cs_term_id cs (`App (delta, []))) dims
+            with Not_found -> dims)
+          SrkUtil.Int.Set.empty
+          delta
+      in
+      fun i -> SrkUtil.Int.Set.mem i dims
+    in
+    let constraint_of_atom atom =
+      match Formula.destruct srk atom with
+      | `Atom (op, s, t) ->
+        let t = V.sub (CS.vec_of_term cs t) (CS.vec_of_term cs s) in
+        let (lhs, rhs) =
+          BatEnum.fold (fun (lhs, rhs) (coeff, dim) ->
+              if delta_dim dim then
+                (V.add_term coeff dim lhs, rhs)
+              else
+                (lhs, V.add_term (QQ.negate coeff) dim rhs))
+            (V.zero, V.zero)
+            (V.enum t)
+        in
+        if V.equal lhs V.zero then
+          None
+        else
+          let lhs = substitute_map srk delta_map (CS.term_of_vec cs lhs) in
+          let rhs = CS.term_of_vec cs rhs in
+          begin match op with
+            | `Leq | `Lt -> Some (lhs, `Geq, rhs)
+            | `Eq -> Some (lhs, `Eq, rhs)
+          end
+      | _ -> assert false
+    in
+    if Wedge.is_bottom delta_wedge then
+      []
+    else
+      BatList.filter_map constraint_of_atom (Wedge.to_atoms delta_wedge)
+
+  let make_deltas srk tr_symbols =
+    let delta =
+      List.map (fun (s,_) ->
+          let name = "delta_" ^ (show_symbol srk s) in
+          mk_symbol srk ~name (typ_symbol srk s))
+        tr_symbols
+    in
+    let delta_map =
+      List.fold_left2 (fun map delta (s,s') ->
+          Symbol.Map.add
+            delta
+            (mk_sub srk (mk_const srk s') (mk_const srk s))
+            map)
+        Symbol.Map.empty
+        delta
+        tr_symbols
+    in
+    (delta, delta_map)
+
+  let abstract_wedge srk tr_symbols wedge =
+    let (delta,delta_map) = make_deltas srk tr_symbols in
+    let syms =
+      List.fold_left (fun set (s,s') ->
+          Symbol.Set.add s (Symbol.Set.add s' set))
+        Symbol.Set.empty
+        tr_symbols
+    in
+    let delta_wedge =
+      let exists x = not (Symbol.Set.mem x syms) in
+      let subterm x = not (Symbol.Map.mem x delta_map) in
+      let delta_constraints =
+        Symbol.Map.fold (fun s diff xs ->
+            (mk_eq srk (mk_const srk s) diff)::xs)
+          delta_map
+          []
+      in
+      let delta_wedge = Wedge.copy wedge in
+      Wedge.meet_atoms delta_wedge delta_constraints;
+      Wedge.exists ~subterm exists delta_wedge
+    in
+    abstract_delta_wedge srk tr_symbols delta_wedge delta delta_map
+
+  let abstract ?(exists=fun _ -> true) srk tr_symbols phi =
+    let (delta,delta_map) = make_deltas srk tr_symbols in
+    let syms =
+      List.fold_left (fun set (s,s') ->
+          Symbol.Set.add s (Symbol.Set.add s' set))
+        Symbol.Set.empty
+        tr_symbols
+    in
+    let delta_wedge =
+      let exists x =
+        Symbol.Map.mem x delta_map || (exists x && not (Symbol.Set.mem x syms))
+      in
+      let subterm x = not (Symbol.Map.mem x delta_map) in
+      let delta_constraints =
+        Symbol.Map.fold (fun s diff xs ->
+            (mk_eq srk (mk_const srk s) diff)::xs)
+          delta_map
+          []
+      in
+      mk_and srk (phi::delta_constraints)
+      |> Wedge.abstract ~subterm ~exists srk
+    in
+    abstract_delta_wedge srk tr_symbols delta_wedge delta delta_map
+
+  let exp srk _ loop_counter lr =
+    List.map (fun (delta, op, c) ->
+        match op with
+        | `Eq ->
+          mk_eq srk (mk_mul srk [c; loop_counter]) delta
+        | `Geq ->
+          mk_leq srk (mk_mul srk [c; loop_counter]) delta)
+      lr
+    |> mk_and srk
+
+  let equal _ _ _ _ = failwith "Not yet implemented"
+  let join _ _ _ _ = failwith "Not yet implemented"
+  let widen _ _ _ _ = failwith "Not yet implemented"
+end
+
 module Product (A : PreDomain) (B : PreDomain) = struct
   type 'a t = 'a A.t * 'a B.t
 
