@@ -1,3 +1,4 @@
+open Srk
 open OUnit
 open Syntax
 open Test_pervasives
@@ -19,7 +20,7 @@ module V = struct
   let pp = Format.pp_print_string
   let show x = x
   let typ = Hashtbl.find typ_table
-  let compare = Pervasives.compare
+  let compare = Stdlib.compare
   let symbol_of = Hashtbl.find sym_table
   let of_symbol sym =
     if Hashtbl.mem rev_sym_table sym then
@@ -274,8 +275,56 @@ let aff_karr_fig5 () =
       []
   in
   let inv = affine_invariants ts 0 in
-  assert_equiv_formula ((int 3)*x - y + z = (int 1)) (SrkApron.formula_of_property (inv 1))
+  assert_equiv_formula
+    ((int 3)*x - y + z = (int 1))
+    (SrkApron.formula_of_property (inv 1))
 
+module G = Graph.Persistent.Digraph.ConcreteBidirectional(SrkUtil.Int)
+module ISet = struct
+  include SrkUtil.Int.Set
+  let show =
+    SrkUtil.mk_show
+      (fun formatter x ->
+        Format.fprintf formatter "{@[<hov 1>%a@]}"
+          (SrkUtil.pp_print_enum Format.pp_print_int) (enum x))
+end
+
+(* Lengths of simple paths *)
+module Pathlen = WeightedGraph.MakeRecGraph (struct
+                     type t = ISet.t
+                     let add = ISet.union
+                     let one = ISet.singleton 0
+                     let zero = ISet.empty
+                     let equal = (=)
+                     let star _ = one
+                     let widen = ISet.inter
+                     let project x = x
+                     let mul x y =
+                       SrkUtil.cartesian_product
+                         (ISet.enum x)
+                         (ISet.enum y)
+                       |> BatEnum.map (fun (x,y) -> x + y)
+                       |> ISet.of_enum
+                   end)
+
+let mk_pathlen_query edges call_edges =
+  let open WG in
+  let g =
+    List.fold_left
+      (fun g (u,v) -> add_edge g u (Weight (ISet.singleton 1)) v)
+      Pathlen.empty
+      edges
+  in
+  List.fold_left
+    (fun g (u, (s, t), v) -> add_edge g u (Call (s, t)) v)
+    g
+    call_edges
+  |> Pathlen.mk_query
+
+let get_cyclelen query =
+  Pathlen.omega_path_weight query WG.{ omega_add = ISet.union;
+                                       omega_mul = (fun _ y -> y);
+                                       omega = fun x -> x }
 
 let suite = "WeightedGraph" >::: [
     "simple_loop" >:: simple_loop;
@@ -287,4 +336,69 @@ let suite = "WeightedGraph" >::: [
     "aff_collatz" >:: aff_collatz;
     "aff_karr_fig4" >:: aff_karr_fig4;
     "aff_karr_fig5" >:: aff_karr_fig5;
+
+    "deep_call" >:: (fun () ->
+      let open Infix in
+      let query =
+        mk_query
+          [(0, T.assign "x" (int 0), 1);
+           (3, T.assign "x" (x + (int 1)), 4);
+           (6, T.assign "x" (x + (int 2)), 7);
+           (9, T.assign "x" (x + (int 3)), 10)]
+          [(1, (3, 5), 2);
+           (4, (6, 8), 5);
+           (7, (9, 10), 8)]
+      in
+      assert_post (RG.path_weight query 0 7) (x = (int 3));
+      assert_not_post (RG.path_weight query 0 7) fls;
+      assert_post (RG.path_weight query 0 10) (x = (int 6));
+      assert_not_post (RG.path_weight query 0 10) fls);
+
+    "branching_cycle" >:: (fun () ->
+      let query = mk_pathlen_query
+                    [(0, 1); (1, 2); (2, 3); (3, 1); (2, 1)]
+                    []
+      in
+      assert_equal ~cmp:ISet.equal ~printer:ISet.show
+        (ISet.of_list [2; 3])
+        (get_cyclelen query 0));
+
+    "nested_cycle" >:: (fun () ->
+      let query = mk_pathlen_query
+                    [(0, 1); (1, 2); (2, 3); (3, 2); (3, 4); (4, 1); (4, 4)]
+                    []
+      in
+      assert_equal ~cmp:ISet.equal ~printer:ISet.show
+        (ISet.of_list [1; 2; 4])
+        (get_cyclelen query 0));
+
+    "branch_loops" >:: (fun () ->
+      let query = mk_pathlen_query
+                    [(0, 1); (0, 2); (2, 3); (3, 2); (1, 1);
+                     (4, 5); (5, 6); (6, 4)]
+                    []
+      in
+      assert_equal ~cmp:ISet.equal ~printer:ISet.show
+        (ISet.of_list [1; 2])
+        (get_cyclelen query 0));
+
+    "recursive_cycle" >:: (fun () ->
+      let query = mk_pathlen_query
+                    [(0, 1); (1, 2); (2, 3); (3, 4)]
+                    [(2, (0, 4), 4)]
+      in
+      assert_equal ~cmp:ISet.equal ~printer:ISet.show
+        (ISet.of_list [2])
+        (get_cyclelen query 0));
+
+    "mutual_recursive_cycle" >:: (fun () ->
+      let query = mk_pathlen_query
+                    [(0, 1); (1, 2); (2, 3);
+                     (4, 5); (5, 6); (6, 7) ]
+                    [(1, (4, 6), 3);
+                     (5, (0, 3), 7)]
+      in
+      assert_equal ~cmp:ISet.equal ~printer:ISet.show
+        (ISet.of_list [2])
+        (get_cyclelen query 0))
   ]

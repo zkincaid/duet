@@ -26,7 +26,7 @@ let compact set =
 
 module D = struct
   module M = BatSet.Make(struct
-      type t = Def.t * AP.Set.t [@@deriving show,ord]
+      type t = Def.t * AP.Set.t [@@deriving ord]
     end)
   include M
   let pp formatter set =

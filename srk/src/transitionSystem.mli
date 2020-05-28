@@ -81,7 +81,7 @@ module Make
   (** Given a transition system and entry, compute a set of loop
      headers along with the set of variables that are read within the
      body of the associated loop *)
-  val loop_headers_live : t -> int -> (int * VarSet.t) list
+  val loop_headers_live : t -> (int * VarSet.t) list
 
   module type AbstractDomain = Abstract.MakeAbstractRSY(C).Domain
 

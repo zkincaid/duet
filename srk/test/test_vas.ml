@@ -1,7 +1,8 @@
 open OUnit
+open Test_pervasives
+open Srk
 open Abstract
 open Nonlinear
-open Test_pervasives
 open Vas
 
 let tr_symbols = [(wsym,wsym');(xsym,xsym');(ysym,ysym');(zsym,zsym')]
@@ -18,7 +19,6 @@ let non_neg1 () =
 
 let non_neg2 () =
   let phi =
-    let open Infix in
     (Ctx.mk_true)
   in
   let constr = mk_all_nonnegative  srk [] in

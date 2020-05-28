@@ -11,13 +11,10 @@ AC_SUBST(BDDBDDB_DIR,$BDDBDDB_DIR)
 AC_MSG_CHECKING(machine architecture)
 if test `uname -m` = "x86_64"; then
    AC_MSG_RESULT(64 bit)
-   ln -s lib/libbuddy.so.64 lib/libbuddy.so
+   ln -s $PWD/lib/libbuddy.so.64 $PWD/lib/libbuddy.so
 else
    AC_MSG_RESULT(32 bit)
-   ln -s lib/libbuddy.so.32 lib/libbuddy.so
+   ln -s $PWD/lib/libbuddy.so.32 $PWD/lib/libbuddy.so
 fi
 
 AC_OUTPUT(duet/config.ml)
-
-make setup.ml
-make setup.data

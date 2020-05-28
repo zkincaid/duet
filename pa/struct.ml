@@ -76,7 +76,7 @@ module Make (P : Symbol) = struct
 
   let show = SrkUtil.mk_show pp
 
-  let pp_formula formatter phi =
+  let _pp_formula formatter phi =
     F.pp P.pp Format.pp_print_int formatter phi
 
   let hash str =
@@ -90,7 +90,7 @@ module Make (P : Symbol) = struct
     x.universe = y.universe && AtomSet.equal x.prop y.prop
 
   let compare x y =
-    match Pervasives.compare x.universe y.universe with
+    match Stdlib.compare x.universe y.universe with
     | 0 -> AtomSet.compare x.prop y.prop
     | cmp -> cmp
   
@@ -100,22 +100,6 @@ module Make (P : Symbol) = struct
   let props x = AtomSet.enum x.prop
   let universe_size x = x.universe
   let universe x = 1 -- x.universe
-
-  (* Get the maximum constant used in a formula *)
-  let max_constant phi =
-    let term_const = function
-      | Const k -> k
-      | Var _ -> 0
-    in
-    let f = function
-      | `Eq (x, y) -> max (term_const x) (term_const y)
-      | `Neq (x, y) -> max (term_const x) (term_const y)
-      | `Atom (p, args) -> List.fold_left max 0 (List.map term_const args)
-      | `And (x, y) | `Or (x, y) -> max x y
-      | `Forall (_, x) | `Exists (_, x) -> x
-      | `T | `F -> 0
-    in
-    F.eval f phi
 
   let empty size =
     { universe = size;
@@ -136,29 +120,6 @@ module Make (P : Symbol) = struct
   let union x y =
     { universe = max x.universe y.universe;
       prop = AtomSet.union x.prop y.prop }
-
-  let add_minimal x xs =
-    let rec go rest = function
-      | (y::ys) ->
-        if substructure y x then xs
-        else if substructure x y then go rest ys
-        else go (y::rest) ys
-      | [] -> x::rest
-    in
-    go [] xs
-  let append_minimal xs ys =
-    let (big, small) =
-      if (List.length xs) >= (List.length ys) then (xs, ys)
-      else (ys, xs)
-    in
-    List.fold_left (flip add_minimal) big small
-  let minimal_of_enum enum =
-    let rec go rest =
-      match BatEnum.get enum with
-      | Some elt -> go (add_minimal elt rest)
-      | None -> rest
-    in
-    go []
 
   let rec models ?env:(env=[]) str phi =
     let term_val = function
@@ -291,7 +252,7 @@ module Make (P : Symbol) = struct
 
   (* Gets a list of all predicate symbols *)
   let get_preds str =
-    let f (head, args) preds =
+    let f (head, _) preds =
       PSet.add head preds
     in
     AtomSet.fold f str.prop PSet.empty
@@ -300,7 +261,7 @@ module Make (P : Symbol) = struct
 
   (* Gets a list of all predicate variables *)
   let get_ids str =
-    let f (head, args) ids =
+    let f (_, args) ids =
       let g ids id =
         KSet.add id ids
       in
@@ -348,7 +309,7 @@ module Make (P : Symbol) = struct
     (* && (PSet.subset (get_preds x) (get_preds y)) (* this is always true when using Search Tree *) *)
     && (AtomSet.subset x.prop y.prop || begin
     let monadic str =
-      let f (head, args) =
+      let f (_, args) =
         (List.length args) <= 1
       in
       AtomSet.for_all f str.prop

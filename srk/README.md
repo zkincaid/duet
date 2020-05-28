@@ -36,24 +36,27 @@ Building
 
 Srk depends on several software packages.  The following dependencies need to be installed manually.
 
- + [opam](http://opam.ocaml.org) (with OCaml >= 4.02 & native compiler)
+ + [opam](http://opam.ocaml.org) (with OCaml >= 4.08 & native compiler)
+   - If you have an older version of opam installed, you can install opam2 using `opam install opam-devel`
  + [GMP and MPFR](https://gmplib.org/)
  + [NTL](http://www.shoup.net/ntl/)
+ + Python 2.7
 
 On Ubuntu, you can install these packages with:
 ```
- sudo apt-get install opam libgmp-dev libmpfr-dev libntl-dev
+ sudo apt-get install opam libgmp-dev libmpfr-dev libntl-dev python2.7
 ```
 
 On MacOS, you can install these packages with:
 ```
- brew install opam gmp mpfr ntl
+ brew install opam gmp mpfr ntl python@2
 ```
 
 Next, add the [sv-opam](https://github.com/zkincaid/sv-opam) OPAM repository, and install the rest of duet's dependencies.  These are built from source, so grab a coffee &mdash; this may take a long time.
 ```
- opam remote add sv git://github.com/zkincaid/sv-opam.git
- opam install ocamlgraph batteries cil oasis ppx_deriving Z3 apron ounit menhir  OCRS ntl
+ opam remote add sv git://github.com/zkincaid/sv-opam.git#modern
+
+ opam install ocamlgraph batteries ppx_deriving z3 apron ounit menhir OCRS ntl
 ```
 
 ### Building srk
@@ -68,4 +71,4 @@ Running srk
 
 The srk library is packaged with a command-line utility `bigtop` that can be
 used to access some of its functionality.  Documentation for running `bigtop`
-can found by executing `bigtop.native -h`.
+can found by executing `bigtop.exe -h`.

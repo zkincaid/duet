@@ -226,7 +226,7 @@ module ApronInterpretation = struct
         Env.add x (VPointer p_rename) env
       | VDynamic -> Env.add x VDynamic env
     in
-    Array.sort Pervasives.compare forget_dim_array;
+    Array.sort Stdlib.compare forget_dim_array;
     let value =
       Abstract0.remove_dimensions (get_man()) av.value
         { dim = forget_dim_array;
@@ -315,7 +315,7 @@ module ApronInterpretation = struct
      common environment *)
   let common_env f x y =
     let get_aps z =
-      Env.fold (fun k v s -> AP.Set.add k s) z.env AP.Set.empty
+      Env.fold (fun k _ s -> AP.Set.add k s) z.env AP.Set.empty
     in
     let aps = AP.Set.union (get_aps x) (get_aps y) in
     let x = inject x aps in
@@ -371,7 +371,7 @@ module ApronInterpretation = struct
     in
     let (rename, env) = AP.Set.fold add aps ([], Env.empty) in
     let perm = Array.of_list rename in
-    Array.sort (fun x y -> Pervasives.compare (snd x) (snd y)) perm;
+    Array.sort (fun x y -> Stdlib.compare (snd x) (snd y)) perm;
 
     let x_val = add_dimensions x.value (!x_dim - (get_dimension x)) in
     let y_val = add_dimensions y.value (!y_dim - (get_dimension y)) in
@@ -517,9 +517,9 @@ module ApronInterpretation = struct
       VInt (int_binop op left.ptr_val havoc_int)
     | (VDynamic, op, VPointer right) ->
       VInt (int_binop op havoc_int right.ptr_val)
-    | (VDynamic, op, VDynamic) -> VDynamic
+    | (VDynamic, _, VDynamic) -> VDynamic
 
-  let rec apron_expr av expr =
+  let apron_expr av expr =
     let f = function
       | OHavoc typ ->
         begin match resolve_type typ with
@@ -547,14 +547,14 @@ module ApronInterpretation = struct
                                      ptr_width = Texpr0.Dim p.ptr_width }
           | VDynamic -> VDynamic
         end
-      | OCast (typ, x) -> x (* todo *)
+      | OCast (_, x) -> x (* todo *)
       | OBinaryOp (left, op, right, _) -> apron_binop op left right
       | OUnaryOp (Neg, VInt expr, _) ->
         VInt (Texpr0.Unop (Texpr0.Neg, expr, Texpr0.Int, Texpr0.Down))
       | OUnaryOp (Neg, VPointer expr, _) ->
         VInt (Texpr0.Unop (Texpr0.Neg, expr.ptr_val, Texpr0.Int, Texpr0.Down))
       | OUnaryOp (BNot, _, _) -> VInt havoc_int
-      | OBoolExpr expr -> VInt havoc_bool (* todo *)
+      | OBoolExpr _ -> VInt havoc_bool (* todo *)
       | OAddrOf (Variable (v, offset)) ->
         let pos = match offset with
           | OffsetFixed x -> Texpr0.Cst (Coeff.s_of_int x)
@@ -818,7 +818,7 @@ module ApronInterpretation = struct
         end
       | Cst (Interval _) -> None
       |	Dim d -> renv d
-      |	Unop (op, expr, typ, round) ->
+      |	Unop (op, expr, _, _) ->
         begin match go expr with
           | None -> None
           | Some expr ->
@@ -828,7 +828,7 @@ module ApronInterpretation = struct
               | Sqrt -> None
             end
         end
-      |	Binop (op, left, right, typ, round) ->
+      |	Binop (op, left, right, _, _) ->
         begin match go left, go right with
           | (None, _) | (_, None) -> None
           | (Some left, Some right) ->

@@ -1,8 +1,6 @@
 (** Sequential dependence graphs *)
 
 open Core
-open CfgIr
-open Solve
 open Apak
 
 module Pack = Var.Set
@@ -21,7 +19,7 @@ let construct file pack uses =
       begin match Def.assigned_var def with
         | Some v -> FS.update (pack v) (Def.Set.singleton def) rd
         | None -> match def.dkind with
-          | Store (lhs, rhs) ->
+          | Store (lhs, _) ->
             let open PointerAnalysis in
             let f memloc rd =
               match memloc with
@@ -88,7 +86,7 @@ let simplify_dg afg =
   let vertices = G.fold_vertex (fun v vs -> v::vs) afg [] in
   let remove_copy v =
     match v.dkind with
-    | Assign (lhs, AccessPath (Variable rhs)) ->
+    | Assign (_, AccessPath (Variable _)) ->
       let f pe se =
         let def_ap = S.fst (S.PairSet.choose (G.E.label pe)) in
         let use_ap = S.snd (S.PairSet.choose (G.E.label se)) in

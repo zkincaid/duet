@@ -20,6 +20,7 @@ module type G = sig
   module E : Graph.Sig.EDGE with type vertex = V.t
   val iter_vertex : (V.t -> unit) -> t -> unit
   val iter_succ : (V.t -> unit) -> t -> V.t -> unit
+  val iter_pred : (V.t -> unit) -> t -> V.t -> unit
   val fold_vertex : (V.t -> 'a -> 'a) -> t -> 'a -> 'a
   val fold_edges : (V.t -> V.t -> 'a -> 'a) -> t -> 'a -> 'a
   val iter_edges_e : (E.t -> unit) -> t -> unit
@@ -49,7 +50,7 @@ module MkMin (A : MinAnalysis) : sig
   val do_analysis : A.st -> A.G.t -> (A.G.V.t -> A.absval) -> result
   val solve : result -> A.G.V.t list -> unit
   val lookup : result -> A.G.V.t -> A.absval
-  val display : ?widening : (A.G.V.t -> bool) -> result -> unit
+  val display : result -> unit
   val enum_result : result -> (A.G.V.t * A.absval) BatEnum.t
   val empty_result : A.st -> A.G.t -> result
   val init_result : result -> A.G.t -> (A.G.V.t -> A.absval) -> unit
@@ -78,28 +79,52 @@ end = struct
   let init_result result graph f =
     G.iter_vertex (fun v -> HT.add result.map v (f v)) graph
 
-  module Fix = Fixpoint.Wto(G)
+  module L = Loop.Make(G)
+  module VSet = BatSet.Make(G.V)
 
   (* solve implementation *)
   let solve_impl result worklist =
     let graph = result.graph in
+    let marked = ref (List.fold_right VSet.add worklist VSet.empty) in
+    let is_marked v = VSet.mem v (!marked) in
+    let mark v = marked := VSet.add v (!marked) in
+    let unmark v = marked := VSet.remove v (!marked) in
+    let widen = match A.widen with
+      | Some w -> w
+      | None -> A.join
+    in
     let update join vertex =
-      let value = A.eval result.state result.graph (lookup result) vertex in
-      if HT.mem result.map vertex then begin
-        let old_value = lookup result vertex in
-        match join result.state vertex old_value value with
-        | Some new_value -> (HT.replace result.map vertex new_value; true)
-        | None -> false
-      end else (HT.add result.map vertex value; true)
+      is_marked vertex && begin
+          unmark vertex;
+          let value = A.eval result.state result.graph (lookup result) vertex in
+          let changed = 
+            if HT.mem result.map vertex then begin
+                let old_value = lookup result vertex in
+                match join result.state vertex old_value value with
+                | Some new_value ->
+                   HT.replace result.map vertex new_value;
+                   true
+                | None -> false
+              end else (HT.add result.map vertex value; true)
+          in
+          if changed then G.iter_succ mark graph vertex;
+          changed
+        end
     in
-    let wide_update = match A.widen with
-      | Some widen -> Some (update widen)
-      | None       -> None
+    let rec fix = function
+      | `Vertex x -> update A.join x
+      | `Loop loop ->
+         let f changed x = fix x || changed in
+         let rec go changed =
+           if List.fold_left f (update widen (L.header loop)) (L.children loop)
+           then go true
+           else changed
+         in
+         go false
     in
-    let worklist = List.fold_right Fix.VSet.add worklist Fix.VSet.empty in
     logf "Vertices: %d" (G.nb_vertex graph);
     logf "Edges: %d" (G.nb_edges graph);
-    Fix.fix result.graph ~init:worklist (update A.join) wide_update
+    List.iter (fun elt -> ignore (fix elt)) (L.loop_nest graph)
 
   let solve result =
     Log.phase ("Fixpoint computation: " ^ A.name) (solve_impl result)
@@ -113,7 +138,7 @@ end = struct
 
   (** Display an AFG with vertices annotated with the abstract values
       from map to the screen *)
-  let display ?(widening = (fun _ -> false)) result = 
+  let display result = 
     let module Show_v = struct
       type t = G.V.t
       let pp formatter v =
@@ -147,7 +172,7 @@ module Mk (A : Analysis) : sig
   val solve : result -> A.G.V.t list -> unit
   val input : result -> A.G.V.t -> A.absval
   val output : result -> A.G.V.t -> A.absval
-  val display : ?widening : (A.G.V.t -> bool) -> result -> unit
+  val display : result -> unit
   val enum_input : result -> (A.G.V.t * A.absval) BatEnum.t
   val enum_output : result -> (A.G.V.t * A.absval) BatEnum.t
   val empty_result : A.st -> A.G.t -> result
@@ -252,7 +277,7 @@ struct
       | Initial -> I.top (G.codomain graph def)
       | _ -> Pack.SetMap.fold combine map (I.top domain)
 
-    let join st def old_val new_val =
+    let join _st _def old_val new_val =
       let new_val = I.join old_val new_val in
       if I.equal old_val new_val then None else Some new_val
 
@@ -262,7 +287,7 @@ struct
         let limit = lookup_widening st def in
         if limit >= 0 then Some new_val
         else match def.dkind with
-          | Assume c | Assert (c, _) ->
+          | Assume _ | Assert (_, _) ->
             Some (I.transfer def (I.widen old_val new_val))
           | _ -> Some (I.widen old_val new_val)
       end
@@ -408,7 +433,7 @@ module MakeBackwardCfgSolver (I : MinInterpretation) = struct
     type absval = I.t
     type st = { thread_map : varinfo -> I.t }
 
-    let transfer st input def =
+    let transfer _st input def =
       I.transfer def input
 
     let flow_in st graph val_map v =
@@ -421,7 +446,7 @@ module MakeBackwardCfgSolver (I : MinInterpretation) = struct
         Varinfo.Set.fold join (PointerAnalysis.resolve_call tgt) input
       | _ -> input
 
-    let join st def x y =
+    let join _st _def x y =
       if I.equal x y then None else Some (I.join x y)
     let widen = None
 

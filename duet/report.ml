@@ -1,10 +1,5 @@
 (** Error reporting *)
 
-let errors = ref ""
-let error_count = ref 0
-let safe_count = ref 0
-let unreachable_count = ref 0
-
 let errors = ref []
 let error_count = ref 0
 let safe_count = ref 0

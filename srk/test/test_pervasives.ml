@@ -1,6 +1,8 @@
+open Srk
 open OUnit
 open Syntax
 open Linear
+
 module Ctx = MakeSimplifyingContext ()
 module Infix = Syntax.Infix(Ctx)
 let srk = Ctx.context

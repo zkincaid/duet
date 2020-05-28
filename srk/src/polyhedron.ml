@@ -259,7 +259,7 @@ let project_one max_add polyhedron x =
     in
     let nb_lower = List.length lower in
     let nb_upper = List.length upper in
-    if max_add > 0 && max_add > (nb_lower*nb_upper-nb_lower-nb_upper) then
+    if max_add < 0 || max_add > (nb_lower*nb_upper-nb_lower-nb_upper) then
       List.fold_left (fun polyhedron (strict, lo) ->
           List.fold_left (fun polyhedron (strict', hi) ->
               if strict || strict' then

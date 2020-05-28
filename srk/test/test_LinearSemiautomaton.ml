@@ -1,5 +1,6 @@
 open OUnit
 open Test_pervasives
+open Srk
 
 let tr_symbols = [(wsym,wsym');(xsym,xsym');(ysym,ysym');(zsym,zsym')]
 

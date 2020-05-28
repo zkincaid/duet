@@ -20,15 +20,12 @@ type transformer =
 (* Figure out way to clean up these types a bit *)
 module Transformer = struct
   type t = transformer 
-  [@@deriving ord, show]
+  [@@deriving ord]
 end
 
 module TSet = BatSet.Make(Transformer)
 
 type vas = TSet.t
-
-let pp_vas formatter (vas : vas) : unit =
-  SrkUtil.pp_print_enum pp_transformer formatter (TSet.enum vas)  
 
 (* A VAS abstraction contains a set of transformers, v,
  * and a list of linear simulations matrices, s_lst.
@@ -58,14 +55,14 @@ let old_type_to_new_type (ot : 'a old_type)  : 'a AlmostCommuting.ACLTS.t =
   BatList.map (fun sim ->
       let sim1 = M.add_entry 0 (Linear.const_dim) (QQ.one) (M.zero) in
       let sim2 = 
-        BatEnum.fold (fun acc_matrix (dim, vec) ->
+        BatEnum.fold (fun acc_matrix (_, vec) ->
             Log.errorf "Row added to sim2";
             M.add_row (M.nb_rows acc_matrix) vec acc_matrix)
         (M.add_entry 0 (Linear.const_dim) (QQ.one) (M.zero))
         (M.rowsi sim)
       in
       let phase1 =
-        BatArray.map (fun trans ->
+        BatArray.map (fun _ ->
             (M.add_entry 0 0 (QQ.one) (M.zero)))
           (TSet.to_array vas)
       in
@@ -309,52 +306,10 @@ let exp_other_reset_helper srk ksumi ksums kvarst trans_num =
                (List.nth (List.nth kvarst ind) trans_num))))
         ksums)
 
-
-(*This function sets the initial value for each dimension of an equiv class.
- * Initial values for dimensions of same equiv class must correspond
- * to same transformer reset. This is also where the above function,
- * exp_other_reset_helper, is used to enforce that a given transformer
- * is taken by equiv classes that having been running for more time without
- * a reset.
- *)
-let exp_sx_constraints_helper srk ri ksum ksums svarstdims transformers kvarst 
-    unified_s tr_symbols =
-  let compute_single_svars svart dim  =
-    mk_or srk
-      (*The never reset case*)
-      ((mk_and srk
-          [(mk_eq srk svart (preify srk tr_symbols 
-                               (Linear.of_linterm srk (M.row dim unified_s))));
-           (mk_eq srk ri (mk_real srk (QQ.of_int (-1))))]) 
-       (*The reset case*)
-       ::
-       (BatList.mapi 
-          (fun ind {a; b} ->
-             if ZZ.equal (Z.coeff dim a) ZZ.one 
-             then (mk_false srk) (*May be nicer to filter these out prior to creating
-                                   smt query*) 
-             else 
-               mk_and srk
-                 [(mk_eq srk svart (mk_real srk (V.coeff dim b)));
-                  exp_other_reset_helper srk ksum ksums kvarst ind;
-                  (mk_eq srk ri (mk_real srk (QQ.of_int ind)))])
-          transformers))
-  in
-  mk_and srk (List.map (fun (svar,dim) -> compute_single_svars svar dim) svarstdims)
-
-(*Uses sx_constraints_helper to set initial values for each dimension of each equiv class*)
-let exp_sx_constraints srk coh_class_pairs transformers kvarst ksums unified_s tr_symbols =
-  mk_and srk
-    (List.map (fun (kstack, svarstdims, ri, ksum) ->
-         exp_sx_constraints_helper srk ri ksum ksums svarstdims transformers 
-           kvarst unified_s tr_symbols)
-        coh_class_pairs)
-
-
 (*Constraints for equalities of final termination value for each linear term*)
 let exp_lin_term_trans_constraints srk coh_class_pairs transformers unified_s =
   mk_and srk
-    (List.map (fun (kstack, svarstdims, ri, _) ->
+    (List.map (fun (kstack, svarstdims, _, _) ->
          mk_and srk
            (List.map (fun (svar, dim) ->
                 mk_eq srk
@@ -362,7 +317,7 @@ let exp_lin_term_trans_constraints srk coh_class_pairs transformers unified_s =
                   (mk_add srk
                      (svar :: 
                       (BatList.mapi
-                         (fun ind {a; b} ->
+                         (fun ind {b;_} ->
                             mk_mul srk 
                               [(List.nth kstack ind); mk_real srk (V.coeff dim b)])
                          transformers))))
@@ -384,7 +339,7 @@ let exp_kstack_eq_ksums srk coh_class_pairs =
 (*Combines all of the closure constraints that are used
  * in both VAS and VASS abstractions
  *)
-let exp_base_helper srk (tr_symbols : (symbol * symbol) list) loop_counter s_lst transformers =
+let exp_base_helper srk loop_counter s_lst transformers =
  (*Create new symbols
   * Each coh class has:
   * a set of kvars, where the ith coh class jth kvar is
@@ -457,10 +412,10 @@ let coprod_compute_image v r =
   let unifr = unify r in
   (*Computes a representative dim for each coh class*)
   let rowreps = 
-      BatList.map (fun (dim', row) ->
+      BatList.map (fun (_, row) ->
           match BatEnum.get (V.enum row) with
           | None -> assert false
-          | Some (scalar, dim) -> dim
+          | Some (_, dim) -> dim
         )
         (BatList.of_enum (M.rowsi unifr))
   in
@@ -481,7 +436,7 @@ let coprod_compute_image v r =
   v'
 
 
-let coproduct srk vabs1 vabs2 : 'a old_type =
+let coproduct vabs1 vabs2 : 'a old_type =
   let (s_lst1, s_lst2, v1, v2) = (vabs1.s_lst, vabs2.s_lst, vabs1.v, vabs2.v) in
   let s1, s2, s_lst = coprod_find_transformation s_lst1 s_lst2 in
   let v = TSet.union (coprod_compute_image v1 s1) (coprod_compute_image v2 s2) in
@@ -537,11 +492,11 @@ let alpha_hat srk imp tr_symbols symb_constants =
                                 (mk_sub srk (mk_const srk x') (mk_const srk x))) in
         ((xdeltpairs, x'), xdeltphis) :: acc) [] (tr_symbols @ double_symb)) in
   let r, b1 = matrixify_vectorize_term_list srk 
-      (H.affine_hull srk imp ((List.map (fun (x, x') -> x') tr_symbols) @ symb_constants)) in
+      (H.affine_hull srk imp ((List.map (fun (_, x') -> x') tr_symbols) @ symb_constants)) in
   let i, b2 = matrixify_vectorize_term_list srk 
       (List.map (postify srk xdeltpairs)
          (H.affine_hull srk (mk_and srk (imp :: xdeltphis))
-            (List.map (fun (x'', x') -> x'') xdeltpairs))) in
+            (List.map (fun (x'', _) -> x'') xdeltpairs))) in
   let _, b = unify2 [i; r] [b2; b1] in
   let add_dim a offset =
     Z.add_term ZZ.one offset a
@@ -559,10 +514,10 @@ let alpha_hat srk imp tr_symbols symb_constants =
 (*TODO:Make a better pp function*)
 let pp_old srk syms formatter vas = Format.fprintf formatter "%a" (Formula.pp srk) (gamma srk vas syms)
 
-let pp srk syms formatter vas = failwith "TODO"
+let pp _ _ _ _ = failwith "TODO"
 
 
-let abstract_old ?(exists=fun x -> true) srk tr_symbols phi  =
+let abstract_old ?(exists=fun _ -> true) srk tr_symbols phi  =
   Log.errorf "Formula is %a" (Formula.pp srk) phi;
   let tr_flat = List.fold_left (fun lst (x, x') -> x :: x' :: lst) [] tr_symbols in
   let symb_constants = Symbol.Set.elements
@@ -584,7 +539,7 @@ let abstract_old ?(exists=fun x -> true) srk tr_symbols phi  =
       | None -> assert false
       | Some imp ->
         let sing_transformer_vas = alpha_hat srk (mk_and srk imp) tr_symbols symb_constants in
-        go (coproduct srk vas sing_transformer_vas)
+        go (coproduct vas sing_transformer_vas)
   in
   Smt.Solver.add solver [phi];
   let {v;s_lst} = go (mk_bottom tr_symbols symb_constants) in
@@ -592,16 +547,16 @@ let abstract_old ?(exists=fun x -> true) srk tr_symbols phi  =
   logf ~level:`always "vas is %a" (pp_old srk tr_symbols) result;
   result
 
-let abstract ?(exists=fun x -> true) srk tr_symbols phi  =
+let abstract ?(exists=fun _ -> true) srk tr_symbols phi  =
   let result = old_type_to_new_type (abstract_old ~exists srk tr_symbols phi) in
   Log.errorf "Finished abstract";
   result
 
 
 
-let join  (srk :'a context) (tr_symbols : (symbol * symbol) list) (vabs1 : 'a t) (vabs2 : 'a t) = assert false
-let widen  (srk :'a context) (tr_symbols : (symbol * symbol) list) (vabs1 : 'a t) (vabs2 : 'a t) = assert false
-let equal (srk : 'a context) (tr_symbols : (symbol * symbol) list) (vabs1 : 'a t) (vabs2 : 'a t) = assert false
+let join _ _ _ _ = assert false
+let widen _ _ _ _ = assert false
+let equal _ _ _ _ = assert false
 
 
 
@@ -622,7 +577,7 @@ module EqualityInv (Iter : PreDomain) = struct
 
   type 'a t = 'a Iter.t * 'a formula list * bool 
 
-  let pp srk tr_symbols formatter (abstraction, invariants, bounded_by_one) = 
+  let pp srk tr_symbols formatter (abstraction, _, _) = 
     Iter.pp srk tr_symbols formatter abstraction (* add invars *)
 
   let exp srk tr_symbols loop_counter (abstraction, invariants, bounded_by_one) =
@@ -659,10 +614,10 @@ module EqualityInv (Iter : PreDomain) = struct
           if dim > max then (scalar,dim) else (scal, max)) (QQ.zero, -1) (V.enum vector) in
     (* Compute when constant relations on post state vars; on pre state vars *)
     let post_m, po_b = matrixify_vectorize_term_list srk 
-        (H.affine_hull srk phi (symb_constants @ (List.map (fun (x, x') -> x') tr_symbols))) in
+        (H.affine_hull srk phi (symb_constants @ (List.map (fun (_, x') -> x') tr_symbols))) in
     let pre_m, pr_b = matrixify_vectorize_term_list srk
         (List.map (postify srk tr_symbols) 
-           (H.affine_hull srk phi (symb_constants @ (List.map (fun (x, x') -> x) tr_symbols)))) in
+           (H.affine_hull srk phi (symb_constants @ (List.map (fun (x, _) -> x) tr_symbols)))) in
     match M.nb_rows post_m, M.nb_rows pre_m with
     | 0,_ -> (phi, [], false)
     | _,0 -> (phi, [], false)
@@ -717,7 +672,7 @@ module EqualityInv (Iter : PreDomain) = struct
 
 
 
-  let abstract ?(exists=fun x -> true) srk tr_symbols phi =
+  let abstract ?(exists=fun _ -> true) srk tr_symbols phi =
     let tr_flat = List.fold_left (fun lst (x, x') -> x :: x' :: lst) [] tr_symbols in
     let symb_constants = Symbol.Set.elements
         (Symbol.Set.filter (fun a -> (exists a) && (not (List.mem a tr_flat))) (symbols phi)) in 
@@ -729,8 +684,8 @@ module EqualityInv (Iter : PreDomain) = struct
     let res = Iter.abstract ~exists srk tr_symbols phi' in
     res, invars, bounded_by_one
 
-  let equal srk tr_symbols obj1 obj2 = assert false
-  let join srk tr_symbols obj1 obj2 = assert false
-  let widen srk tr_symbols obj1 obj2 = assert false
+  let equal _ _ _ _ = assert false
+  let join _ _ _ _ = assert false
+  let widen _ _ _ _ = assert false
 
 end

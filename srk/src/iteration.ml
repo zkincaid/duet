@@ -337,7 +337,7 @@ module NonlinearRecurrenceInequation = struct
 
   module QQXs = Polynomial.QQXs
 
-  let abstract_delta_wedge srk tr_symbols delta_wedge delta delta_map =
+  let abstract_delta_wedge srk delta_wedge delta delta_map =
     let cs = Wedge.coordinate_system delta_wedge in
     let delta_dim =
       let dims =
@@ -418,7 +418,7 @@ module NonlinearRecurrenceInequation = struct
       Wedge.meet_atoms delta_wedge delta_constraints;
       Wedge.exists ~subterm exists delta_wedge
     in
-    abstract_delta_wedge srk tr_symbols delta_wedge delta delta_map
+    abstract_delta_wedge srk delta_wedge delta delta_map
 
   let abstract ?(exists=fun _ -> true) srk tr_symbols phi =
     let (delta,delta_map) = make_deltas srk tr_symbols in
@@ -442,7 +442,7 @@ module NonlinearRecurrenceInequation = struct
       mk_and srk (phi::delta_constraints)
       |> Wedge.abstract ~subterm ~exists srk
     in
-    abstract_delta_wedge srk tr_symbols delta_wedge delta delta_map
+    abstract_delta_wedge srk delta_wedge delta delta_map
 
   let exp srk _ loop_counter lr =
     List.map (fun (delta, op, c) ->
@@ -757,8 +757,8 @@ module Split (Iter : PreDomain) = struct
          && Iter.equal srk tr_symbols l l'
          && Iter.equal srk tr_symbols r r')
       (BatEnum.combine
-         (Expr.Map.enum split_iter,
-          Expr.Map.enum split_iter'))
+         (Expr.Map.enum split_iter)
+         (Expr.Map.enum split_iter'))
 end
 
 module MakeDomain (Iter : PreDomain) = struct

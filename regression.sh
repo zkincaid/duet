@@ -11,7 +11,7 @@
 DIR=`dirname $0`
 REGRESSION_DIR="$DIR/regression"
 REGRESSION_TXT="$REGRESSION_DIR/regression.txt"
-RUN_MAIN="$DIR/duet.native"
+RUN_MAIN="$DIR/duet.exe"
 WORKING="$REGRESSION_DIR/.working"
 
 phase () {

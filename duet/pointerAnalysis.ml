@@ -29,7 +29,6 @@ module MemBase = struct
       | MAlloc x -> Format.fprintf formatter "alloc#%d" x.did
       | MStr x -> Format.pp_print_string formatter ("string#" ^ x)
       | MTmp x -> Format.fprintf formatter "tmp#%d" x
-    let equal x y = compare x y = 0
     let hash = function
       | MAddr x -> Hashtbl.hash (0, Varinfo.hash x)
       | MAlloc x -> Hashtbl.hash (1, Def.hash x)
@@ -58,7 +57,6 @@ module MemLoc = struct
           MemBase.pp base
           Offset.pp offset
     let hash (base, offset) = Hashtbl.hash (MemBase.hash base, offset)
-    let equal x y = compare x y = 0
   end
   include Putil.MakeCoreType(Elt)
   let is_shared (x, _) = MemBase.is_shared x
@@ -105,7 +103,7 @@ struct
       | OUnaryOp (BNot, VConst x, _) -> VConst (lnot x)
       | OUnaryOp (_, VRhs a, _) -> VRhs (forget_offset a)
       | OAddrOf ap ->
-        let rec go offset = function
+        let go offset = function
           | Deref expr -> begin match eval expr env with
               | VConst x -> VConst (x + offset)
               | VRhs rhs ->
@@ -143,9 +141,6 @@ module SimpleAP = struct
   end
   include Elt
   module Set = Putil.Set.Make(Elt)
-  let deref = function
-    | Lvl0 xv -> Lvl1 (xv, OffsetNone)
-    | Lvl1 (_, _) -> failwith "Cannot dereference Lvl1 AP"
 end
 
 (* Representation of a right hand side of a pointer analysis constraint *)
@@ -235,14 +230,14 @@ and simplify_expr expr =
   in
   E.eval expr env
 
-class virtual ptr_anal file =
+class virtual ptr_anal _file =
   object (self)
     method virtual ap_points_to : ap -> MemLoc.Set.t
     method virtual expr_points_to : aexpr -> MemLoc.Set.t
     method resolve_call expr =
       let targets = match Aexpr.strip_casts expr with
         | AccessPath (Deref x) -> self#expr_points_to x
-        | AddrOf x -> self#expr_points_to expr
+        | AddrOf _ -> self#expr_points_to expr
         | AccessPath (Variable _) -> self#expr_points_to expr
         | expr -> begin
             Log.errorf "Could not resolve call `%a'" Aexpr.pp expr;

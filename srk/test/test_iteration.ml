@@ -1,3 +1,4 @@
+open Srk
 open OUnit
 open Syntax
 open Test_pervasives
@@ -418,7 +419,7 @@ let algebraic1 () =
     && x * x = y * y
   in
   let closure = DLTS.star srk tr_symbols phi in
-  assert_implies closure (x' = x || x' = x + (int 1) || x' = y')
+  assert_implies_nonlinear closure (x' = x || x' = x + (int 1) || x' = y')
 
 let algebraic2 () =
   let open Infix in
@@ -429,7 +430,7 @@ let algebraic2 () =
     && z = y * y
   in
   let closure = DLTS.star srk tr_symbols phi in
-  assert_implies closure (x' <= x + (int 2))
+  assert_implies_nonlinear closure (x' <= x + (int 2))
 
 let suite = "Iteration" >::: [
     "prepost" >:: prepost;

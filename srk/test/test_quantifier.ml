@@ -1,3 +1,4 @@
+open Srk
 open OUnit
 open Quantifier
 open Test_pervasives
@@ -98,6 +99,8 @@ let suite = "Quantifier" >::: [
     "mbp2" >:: mbp2;
     "sim1" >:: sim1;
     "sim2" >:: sim2;
+(*
     "strategy1" >:: strategy1;
     "strategy2" >:: strategy2;
+*)
   ]

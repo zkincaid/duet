@@ -172,7 +172,7 @@ let compute_edges srk tr_symbols c_states phi =
 
 
 (*TODO: make pretty print prettier*)
-let pp srk syms formatter vasses = 
+let pp srk _ formatter vasses = 
   BatArray.iteri (fun ind sccvas ->
       Format.fprintf formatter "Vass %n has the following control states \n" ind;
       BatArray.iteri (fun ind2 lab -> Format.fprintf formatter "Label %n is %a \n" ind2 (Formula.pp srk) (lab)) sccvas.control_states;
@@ -188,7 +188,7 @@ let pp srk syms formatter vasses =
       BatList.iter (fun alph -> Format.fprintf formatter "Matrix %a\n" (M.pp) alph) sccvas.s_lst) vasses.vasses
 
 (*Computes vass for a given list of control states and formula*)
-let compute_single_scc_vass ?(exists=fun x -> true) srk tr_symbols symb_constants cs_lst phi =
+let compute_single_scc_vass ?(exists=fun _ -> true) srk tr_symbols symb_constants cs_lst phi =
   (*pre_graph represents adjacency (transformers, sim) graph for control states
    * prior to converting all cells of graph to use same sim matrix*)
   let pre_graph = BatArray.init 
@@ -290,7 +290,7 @@ let get_largest_polyhedrons srk control_states =
       match Smt.Solver.get_model solver with
       | `Unsat -> intersect_ele (hd :: non_intersect) ele tl changed
       | `Unknown -> assert false
-      | `Sat m -> intersect_ele non_intersect (mk_or srk [ele; hd]) tl true
+      | `Sat _ -> intersect_ele non_intersect (mk_or srk [ele; hd]) tl true
   in
 
   let rec loop_states front back =
@@ -306,7 +306,7 @@ let get_largest_polyhedrons srk control_states =
 
 (*Compute control states using projection to pre transition states.
  * Also compute sink*)
-let get_control_states ?(exists=fun x -> true) srk tr_symbols symb_constants phi =
+let get_control_states srk tr_symbols symb_constants phi =
   let pre_symbols = pre_symbols tr_symbols in
   let post_symbols = post_symbols tr_symbols in
   let exists_pre x =
@@ -322,7 +322,7 @@ let get_control_states ?(exists=fun x -> true) srk tr_symbols symb_constants phi
   BatArray.of_list control_states', sink
 
 (*Populates phi_graph. phi_graph overapproximates transition between sccs, at a control state to control state level*)
-let populate_phi_graph ?(exists=fun x -> true) srk tr_symbols sccs phi =
+let populate_phi_graph ?(exists=fun _ -> true) srk tr_symbols sccs phi =
   (* Loose vs strict? *)
   let polka = Polka.manager_alloc_loose () in
   let phi_graph = BatArray.init 
@@ -351,7 +351,7 @@ let populate_phi_graph ?(exists=fun x -> true) srk tr_symbols sccs phi =
   phi_graph
 
 
-let abstract ?(exists=fun x -> true) srk tr_symbols phi =
+let abstract ?(exists=fun _ -> true) srk tr_symbols phi =
   let skolem_constants = Symbol.Set.filter (fun a -> not (exists a)) (symbols phi) in
   let tr_flat = List.fold_left (fun lst (x, x') -> x :: x' :: lst) [] tr_symbols in
   let symb_constants =  Symbol.Set.filter (fun a -> (exists a) && (not (List.mem a tr_flat))) (symbols phi) in 
@@ -359,7 +359,7 @@ let abstract ?(exists=fun x -> true) srk tr_symbols phi =
       (Symbol.Set.elements symb_constants) in
   let phi = mk_and srk (phi :: symb_eqs) in
   let phi = Nonlinear.linearize srk (rewrite srk ~down:(nnf_rewriter srk) phi) in
-  let control_states, sink = get_control_states ~exists srk tr_symbols symb_constants phi in
+  let control_states, sink = get_control_states srk tr_symbols symb_constants phi in
   let graph = compute_edges srk tr_symbols control_states phi in
   let num_sccs, func_sccs = BGraphComp.scc graph in
   let sccs = Array.make num_sccs  [] in
@@ -369,7 +369,7 @@ let abstract ?(exists=fun x -> true) srk tr_symbols phi =
   let phi_graph = populate_phi_graph ~exists srk tr_symbols sccs_with_sink phi in
  
   if num_sccs = 0 then(
-    {vasses= BatArray.init 0 (fun x -> assert false); 
+    {vasses= BatArray.init 0 (fun _ -> assert false); 
      phi_graph; skolem_constants; sink=sink})
   else(
       let vassarrays = BatArray.map 
@@ -383,7 +383,7 @@ let abstract ?(exists=fun x -> true) srk tr_symbols phi =
  * out of each single control state*)
 let get_incoming_outgoing_edges transformersmap num_cs =
   let entry, exit = Array.make num_cs [], Array.make num_cs [] in
-  List.iteri (fun index (n1, trans, n2) -> 
+  List.iteri (fun index (n1, _, n2) -> 
       entry.(n2)<-(index :: entry.(n2)); exit.(n1)<- (index :: exit.(n1)))
     transformersmap;
   entry, exit
@@ -692,7 +692,7 @@ let closure_of_an_scc srk tr_symbols loop_counter vass =
     let gamma_trans = gamma srk 
         {v=(TSet.of_list transformers);s_lst} tr_symbols in
     let (phi, (coh_class_pairs, kvars_equiv_classes, ksums)) =
-      exp_base_helper srk tr_symbols loop_counter s_lst transformers in
+      exp_base_helper srk  loop_counter s_lst transformers in
     let entry, exit  = get_incoming_outgoing_edges transformersmap (Array.length cs) in
     (* Having this constraint early makes things faster for unknown reason*)
     let constr0 = consv_of_flow srk entry exit local_s_t master in
@@ -818,7 +818,7 @@ let first_scc_constrs srk ordering_vars sources sccs_closures symmappings tr_sym
         (mk_and srk 
            (mk_eq srk (mk_add srk sources.(ind1)) (mk_one srk) 
             :: sccs_closures.(ind1) 
-            :: (BatList.map2 (fun (x, x') (sccx, sccx') -> 
+            :: (BatList.map2 (fun (x, _) (sccx, _) -> 
                 mk_eq srk (mk_const srk x) (mk_const srk sccx))
                 tr_symbols symmappings.(ind1))))) ordering_vars))
 
@@ -829,9 +829,9 @@ let exp srk tr_symbols loop_counter sccsform =
     (* Sink is formula over solely primed vars *)
     let sink = sccsform.sink in
     (* Each scc has its own unqiue (x, x') for each symbol *)
-    let symmappings = BatArray.mapi (fun ind1 scc ->
+    let symmappings = BatArray.mapi (fun ind1 _ ->
         List.rev
-          (BatList.fold_lefti (fun acc ind2 (x, x') ->
+          (BatList.fold_lefti (fun acc _ (x, x') ->
                ((mk_symbol srk 
                    ~name:((show_symbol srk x)^"_"^(string_of_int ind1)) 
                    (typ_symbol srk x)),
@@ -845,11 +845,11 @@ let exp srk tr_symbols loop_counter sccsform =
     let sink_mapping = List.map (fun (_, x') -> (x', x')) tr_symbols in
     let symmappings = BatArray.append symmappings (BatArray.make 1 sink_mapping) in
     (* Each scc has its own loop counter *)
-    let subloop_counters = BatArray.mapi (fun ind1 scc ->
+    let subloop_counters = BatArray.mapi (fun ind1 _ ->
         mk_const srk ((mk_symbol srk ~name:("counter_"^(string_of_int ind1)) `TyInt))) 
         symmappings in
     (* Skolem vars in phi will need own copy of var when linking between sccs *)
-    let skolem_mappings_transitions = BatArray.mapi (fun ind1 scc ->
+    let skolem_mappings_transitions = BatArray.mapi (fun ind1 _ ->
         BatList.fold_left 
           (fun acc x -> 
              (x, 
@@ -882,7 +882,7 @@ let exp srk tr_symbols loop_counter sccsform =
         (BatArray.make 1 [(mk_real srk (QQ.of_int 1))]) in
     let sinks =  BatArray.append sinks 
         (BatArray.make 1 [(mk_real srk (QQ.of_int 1))]) in
-    let scc_ordering_pre_sink = BatArray.mapi (fun ind1 scc ->
+    let scc_ordering_pre_sink = BatArray.mapi (fun ind1 _ ->
         mk_const srk ((mk_symbol srk ~name:("ordering_"^(string_of_int ind1)) `TyInt))) 
         sccsform.vasses in
     let sink_ordering = mk_const srk (mk_symbol srk ~name:("ordering_SINK") `TyInt) in

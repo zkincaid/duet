@@ -1,10 +1,6 @@
 open Batteries
 open Srk
 
-let sep formatter () = Format.fprintf formatter ";@ "
-let pp_print_list ?(pp_sep=sep) pp_elt formatter xs =
-    SrkUtil.pp_print_enum ~pp_sep pp_elt formatter (BatList.enum xs)
-
 let rec alpha_of_int i =
   assert (i >= 0);
   let shift = i + (Char.code 'a') in
@@ -222,12 +218,12 @@ let mk_true = True
 let mk_false = False
 let mk_and phi psi =
   match phi, psi with
-  | False, x | x, False -> False
+  | False, _ | _, False -> False
   | True, x | x, True -> x
   | _, _ -> And (phi, psi)
 let mk_or phi psi =
   match phi, psi with
-  | True, x | x, True -> True
+  | True, _ | _, True -> True
   | False, x | x, False -> x
   | _, _ -> Or (phi, psi)
 let mk_eq x y =
@@ -336,7 +332,7 @@ let tptp3_pp pp_rel pp_const formatter phi =
   in
   let gensym =
     let n = ref 0 in
-    fun x ->
+    fun _ ->
       incr n;
       "X" ^ (alpha_of_int (!n))
   in
@@ -393,7 +389,7 @@ let tptp3_pp pp_rel pp_const formatter phi =
     | True -> pp_print_string formatter "true"
     | False -> pp_print_string formatter "false"
   in
-  let undef x =
+  let undef _ =
     invalid_arg "format_tptp3: input must be a sentence"
   in
   format undef formatter phi
@@ -406,7 +402,7 @@ let smtlib2_pp pp_rel pp_const formatter phi =
   in
   let gensym =
     let n = ref 0 in
-    fun x ->
+    fun _ ->
       incr n;
       "X" ^ (alpha_of_int (!n))
   in
@@ -463,13 +459,13 @@ let smtlib2_pp pp_rel pp_const formatter phi =
     | True -> pp_print_string formatter "true"
     | False -> pp_print_string formatter "false"
   in
-  let undef x =
+  let undef _ =
     invalid_arg "format_smtlib2: input must be a sentence"
   in
   format undef formatter phi
 
 let atom_substitute sigma phi =
-  let f depth = function
+  let f _ = function
     | `Atom (head, args) ->
       let rhs = sigma head (List.length args) in
       let subs n =

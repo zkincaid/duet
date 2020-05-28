@@ -1,5 +1,0 @@
-./regression/chdfg/code/global_lock.c:7 >> Assertion failed: x == 0
-{x}. T
-
-1 errors total
-1 safe assertions

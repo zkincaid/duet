@@ -117,7 +117,7 @@ module ThreadCount = struct
   type t = int option [@@deriving ord,show]
   type var = unit
   let equal x y = compare x y = 0
-  let exists _ x = x
+  let project x = x
   let one = Some 0
   let zero = Some 0
   let add x y = match x, y with
@@ -133,11 +133,68 @@ module ThreadCount = struct
     | Some 0, x | x, Some 0 -> x
     | Some x, Some y when x = y -> Some x
     | _, _ -> None
-  let fork = function
-    | Some k -> Some (k + 1)
-    | None -> None
 end
-module TCA = Interproc.MakeParPathExpr(ThreadCount)
+
+module WG = WeightedGraph
+module RG = Interproc.RG
+
+(* thread count analysis *)
+module TCA = WG.MakeRecGraph(ThreadCount)
+let tca rg main =
+  (* For each thread, create a start node that increments the thread count *)
+  let thread_entry =
+    let module M = Memo.Make(Varinfo) in
+    M.memo (fun _ ->
+        (Def.mk (Assume Bexpr.ktrue)).did)
+  in
+  let fork_edge block =
+    WG.Call (thread_entry block, (RG.block_exit rg block).did)
+  in
+  let call_edge block =
+    WG.Call ((RG.block_entry rg block).did, (RG.block_exit rg block).did)
+  in
+  let wg =
+    BatEnum.fold (fun wg (block, graph) ->
+        let wg =
+          WG.add_edge
+            wg
+            (thread_entry block)
+            (WG.Weight (Some 1))
+            (RG.block_entry rg block).did
+        in
+        RG.G.fold_vertex (fun def wg ->
+            let wg = WG.add_vertex wg def.did in
+            let label =
+              match def.dkind with
+              | Call (None, AddrOf (Variable (func, OffsetNone)), []) ->
+                 call_edge func
+              | Builtin (Fork (None,
+                               AddrOf (Variable (func, OffsetNone)),
+                               [])) ->
+                 fork_edge func
+              | _ ->
+                 Weight (Some 0)
+            in
+            RG.G.fold_succ
+              (fun succ wg -> WG.add_edge wg def.did label succ.did)
+              graph
+              def
+              wg)
+          graph
+          wg)
+      TCA.empty
+      (RG.bodies rg)
+  in
+  let query = TCA.mk_query wg in
+  let main_entry = (RG.block_entry rg main).did in
+  let main_exit = (RG.block_exit rg main).did in
+  match TCA.path_weight query main_entry main_exit with
+  | Some x ->
+     logf "Found bound on number of threads: %d" x;
+     x
+  | None ->
+     logf "No static bound on number of threads";
+     -1
 
 module Letter = struct
   include G.E
@@ -157,7 +214,7 @@ module Letter = struct
       let reindex sym =
         match IV.of_symbol sym with
         | None -> Ctx.mk_const sym
-        | Some (v, i) ->
+        | Some (v, _) ->
           if Var.is_shared v then
             Ctx.mk_const sym
           else
@@ -374,7 +431,7 @@ let index_expr index =
 
     (* No real translations for anything else -- just return a free var "tr"
        (which just acts like a havoc). *)
-    | OBinaryOp (a, _, b, typ) -> gensym (tr_typ typ)
+    | OBinaryOp (_, _, _, typ) -> gensym (tr_typ typ)
     | OUnaryOp (_, _, typ) -> gensym (tr_typ typ)
     | OBoolExpr _ -> gensym `TyInt
     | OAccessPath ap -> gensym (tr_typ (AP.get_type ap))
@@ -686,7 +743,7 @@ let mk_block_graph file =
     in
 
     (* remove mhp entries for initial vertices *)
-    Varinfo.Map.fold (fun thread v mhp ->
+    Varinfo.Map.fold (fun _ v mhp ->
         PInt.Map.add v Letter.Set.empty mhp)
       initial
       mhp
@@ -694,7 +751,6 @@ let mk_block_graph file =
   { graph; initial; mhp; error }
 
 let program_automaton file =
-  let open Interproc in
   let main = match file.CfgIr.entry_points with
     | [x] -> x
     | _   -> failwith "PA: No support for multiple entry points"
@@ -794,20 +850,11 @@ let verify file =
       []
   in
   let max_index =
-    (* redundant -- recgraph has already been computed *)
-    let rg = Interproc.make_recgraph file in
     let main = match file.CfgIr.entry_points with
       | [x] -> x
       | _   -> failwith "PA: No support for multiple entry points"
     in
-    let query = TCA.mk_query rg (fun _ -> Some 0) (fun _ _ -> true) main in
-    match TCA.get_summary query main with
-    | Some x ->
-      logf "Found bound on number of threads: %d" x;
-      x
-    | None ->
-      logf "No static bound on number of threads";
-      -1
+    tca (Interproc.make_recgraph file) main
   in
 
   (* { false } def { false } *)
@@ -837,12 +884,12 @@ let verify file =
           (Filename.chop_extension (Filename.basename file.CfgIr.filename))
           (!number_cex)
       in
-      let chan = Pervasives.open_out filename in
+      let chan = Stdlib.open_out filename in
       let formatter = Format.formatter_of_out_channel chan in
       logf ~level:`always "Writing emptiness query to %s" filename;
       E.pp formatter solver;
       Format.pp_print_newline formatter ();
-      Pervasives.close_out chan
+      Stdlib.close_out chan
     end;
     match check () with
     | Some trace ->

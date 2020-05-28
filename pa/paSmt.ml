@@ -13,7 +13,7 @@ let bool_val x =
   | Z3enums.L_FALSE -> false
   | Z3enums.L_UNDEF -> invalid_arg "bool_val: not a Boolean"
 
-let int_val x = Arithmetic.Integer.get_int x
+let int_val x = Arithmetic.Integer.get_big_int x
 
 module F = PaFormula
 
@@ -120,10 +120,10 @@ let of_formula ctx phi =
   in
   go phi
 
-class ['a] model (ctx : 'a ctx) m = object(self)
+class ['a] model (ctx : 'a ctx) m = object(_)
   method eval_int term =
     match Model.eval m term true with
-    | Some x -> Arithmetic.Integer.get_int x
+    | Some x -> int_val x
     | None -> assert false
   method sat phi =
     match Model.eval m (of_formula ctx phi) true with
@@ -221,7 +221,7 @@ let get_min_model_linear_forward s =
   in
   let result =
     match s#get_model () with
-    | `Sat m -> `Sat (search 1)
+    | `Sat _ -> `Sat (search 1)
     | `Unsat -> `Unsat
     | `Unknown -> `Unknown
   in

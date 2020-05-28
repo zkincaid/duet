@@ -1,5 +1,3 @@
-open Sig.Lattice
-
 module type S = Sig.Lattice.S
 module Ordered = struct
   module type S = Sig.Lattice.Ordered.S
@@ -102,8 +100,6 @@ module FunctionSpace = struct
 end
 
 module Bounded = struct
-  open Sig.Lattice.Bounded
-
   type 'a bounded =
     | Top
     | Bottom
@@ -118,7 +114,7 @@ module Bounded = struct
     type t = L.t bounded [@@deriving show]
 
     let join d e = match (d, e) with
-      | (Top, x) | (x, Top) -> Top
+      | (Top, _) | (_, Top) -> Top
       | (Bottom, x) | (x, Bottom) -> x
       | (Value d, Value e) -> Value (L.join d e)
     let meet x y = match x, y with
@@ -200,7 +196,7 @@ module Bounded = struct
     let subset x y = match x, y with
       | (Set x, Set y) -> S.subset x y
       | (Set x, Neg y) -> S.is_empty (S.inter x y)
-      | (Neg x, Set y) -> false
+      | (Neg _, Set _) -> false
       | (Neg x, Neg y) -> S.subset y x
   end
 
@@ -267,7 +263,7 @@ module Bounded = struct
             else z
           in
           match x, y with
-          | x, Bottom | Bottom, x -> Bottom
+          | _, Bottom | Bottom, _ -> Bottom
           | Map f, Map g ->
             try Map (M.merge meet f g)
             with Bot -> Bottom
@@ -332,7 +328,6 @@ module Bounded = struct
     end
   end
   module Ordered = struct
-    open Ordered (* Sig.Lattice.Bounded.Ordered *)
     module Lift (L : Sig.Lattice.Ordered.S) = struct
       include Lift(L)
       let compare x y = match x,y with
@@ -343,10 +338,6 @@ module Bounded = struct
         | (Bottom, _) -> 1
         | (_, Bottom) -> -1
         | (Value x, Value y) -> L.compare x y
-      module Compare_t = struct
-        type a = t
-        let compare = compare
-      end
     end
   end
 end

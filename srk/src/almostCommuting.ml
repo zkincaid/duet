@@ -203,7 +203,7 @@ module ACLTS = struct
   type 'a t = phased_segmentation
 
   (*TODO:Make a better pp function*)
-  let pp srk tr_symbols formatter aclts = 
+  let pp _ _ formatter aclts = 
     Format.fprintf formatter "Printing aclts";
     BatList.iteri (fun ind seg ->
         Format.fprintf formatter "Currently Printing Phase %n \n _________________________ \n" ind;
@@ -226,7 +226,7 @@ module ACLTS = struct
 
 
 
-  let abstract ?(exists=fun x -> true) srk tr_symbols phi =
+  let abstract ?(exists=fun _ -> true) srk tr_symbols phi =
     Log.errorf "formula is %a" (Formula.pp srk) phi;
     let lts = LTS.abstract ~exists srk phi tr_symbols in
     Log.errorf "LTS sim matrix is %a" (QQMatrix.pp) (LTS.simulation lts);
@@ -248,17 +248,6 @@ module ACLTS = struct
       result
     )
 
-
-  let create_sym_map srk tr_symbols =
-    List.fold_left
-      (fun map (sym, sym') -> Symbol.Map.add sym (mk_const srk sym') map)
-      Symbol.Map.empty
-      tr_symbols
-
-  let postify srk tr_symbols = substitute_map srk (create_sym_map srk tr_symbols)
-
-  let preify srk tr_symbols = substitute_map srk
-      (create_sym_map srk (List.map (fun (x, x') -> (x', x)) tr_symbols))
 
 
   (* Here we create a bunch of vars that will be used
@@ -404,10 +393,10 @@ module ACLTS = struct
 
 
   (*Uses sx_constraints_helper to set initial values for each dimension of each equiv class*)
-  let stateless_last_reset_core_logic_constrs srk tr_symbols aclts exp_vars pairs 
+  let stateless_last_reset_core_logic_constrs srk tr_symbols aclts exp_vars 
       global_trans =
     mk_and srk
-      (List.mapi (fun seg_ind (trans_exec, res, entrance, sum) ->
+      (List.mapi (fun seg_ind (trans_exec, res, _, sum) ->
            let this_seg = (List.nth aclts seg_ind) in
            let res_taken =
              mk_or srk
@@ -560,7 +549,7 @@ module ACLTS = struct
 
   let exp (srk : 'a context) tr_symbols loop_counter aclts =
     logf ~level:`always "%a" (pp srk tr_symbols) aclts;
-    BatList.iter (fun (x, x') -> Log.errorf "sym x is %a x' is %a" (Syntax.pp_symbol srk) x (Syntax.pp_symbol srk) x) tr_symbols;
+    BatList.iter (fun (x, x') -> Log.errorf "sym x is %a x' is %a" (Syntax.pp_symbol srk) x (Syntax.pp_symbol srk) x') tr_symbols;
     if (List.length aclts = 0 || List.length aclts = 1 && QQMatrix.nb_rows (List.hd aclts).sim1 = 0) then  mk_true srk 
     else(
       let exp_vars = create_exp_vars srk aclts in
@@ -577,11 +566,11 @@ module ACLTS = struct
       let constr6 = phase_seg_counter_less_global_counters srk global_trans_exec exp_vars in
       let constr7 = exp_connect_sum_constraints srk exp_vars in
       let constr8 = stateless_last_reset_core_logic_constrs srk tr_symbols aclts exp_vars
-          pairs global_trans_exec in
+          global_trans_exec in
       mk_and srk [constr1; constr2; constr3; constr4; constr5; constr6; constr7; constr8]
     )
 
-  let join srk tr_symbols aclts1 aclts2 = failwith "join"
-  let widen srk tr_symbols aclts1 aclts2 = failwith "widen"
-  let equal srk tr_symbols aclts1 aclts2 = failwith "eq"
+  let join _ _ _ _ = failwith "join"
+  let widen _ _ _ _ = failwith "widen"
+  let equal _ _ _ _  = failwith "eq"
 end

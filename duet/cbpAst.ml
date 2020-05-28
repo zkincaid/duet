@@ -63,7 +63,7 @@ let rec fold_expr f = function
 let expr_height =
   let ht = function
     | OTrue | OFalse | OVar _ | OPrimeVar _ | OHavoc -> 1
-    | OBinop (op, l, r) -> 1 + (max l r)
+    | OBinop (_, l, r) -> 1 + (max l r)
     | OTernary (a, b, c) -> 1 + (max a (max b c))
     | ONot e -> 1 + e
   in
@@ -240,7 +240,7 @@ let simplify = function
       | x -> (x, [])
     in
     let (constrain, eq) = extract_equalities constrain in
-    let asn = List.filter (fun (x, y) -> not (List.mem x eq)) xs in
+    let asn = List.filter (fun (x, _) -> not (List.mem x eq)) xs in
     let sub = function
       | PrimeVar v -> if List.mem v eq then Var v else PrimeVar v
       | x -> x

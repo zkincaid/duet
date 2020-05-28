@@ -32,7 +32,7 @@ val mk_bottom : (symbol * symbol) list -> symbol list -> 'a old_type
 val matrixify_vectorize_term_list : 'a context -> 'a Syntax.term list -> M.t * V.t
 
 (* TODO: remove exp_base_helper *)
-val exp_base_helper : 'a context -> (symbol * Symbol.Map.key) list -> 'a term ->
+val exp_base_helper : 'a context -> 'a term ->
   M.t list -> transformer list -> 
   'a formula * (('a term list * ('a term * Z.dim) list * 'a term * 'a term)
                   list * 'a term list list * 'a term list)

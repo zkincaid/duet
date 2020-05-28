@@ -2,7 +2,7 @@ open Srk
 let load_path       = ref ["."]
 let temp_dir        = ref (None : string option)
 
-let set_load_path str = load_path := BatString.nsplit str ":"
+let set_load_path str = load_path := BatString.split_on_char ':' str
 let set_temp_dir str = temp_dir := Some str
 
 include BatEnum.Infix
@@ -71,7 +71,6 @@ module Set = struct
     let pp formatter set =
       Format.fprintf formatter "{@[%a@]}"
         (SrkUtil.pp_print_enum Ord.pp) (enum set)
-    let show = SrkUtil.mk_show pp
   end
 end
 
@@ -187,7 +186,6 @@ module MonoMap = struct
       in
       Format.fprintf formatter "[@[%a@]]"
         (SrkUtil.pp_print_enum pp_elt) (M.enum map)
-    let show = SrkUtil.mk_show pp
   end
 
   module Ordered = struct
@@ -285,14 +283,10 @@ module TotalFunction = struct
           include Codomain
           let equal x y = compare x y = 0
         end)
-      module Compare_t = struct
-        type a = t
-        let compare f g =
-          match Codomain.compare f.default g.default with
-          | 0 -> M.compare Codomain.compare f.map g.map
-          | x -> x
-      end
-      let compare = Compare_t.compare
+      let compare f g =
+        match Codomain.compare f.default g.default with
+        | 0 -> M.compare Codomain.compare f.map g.map
+        | x -> x
     end
   end
 end
@@ -302,7 +296,6 @@ module Hashed = struct
 
   let list h xs = Hashtbl.hash (List.map h xs)
   let combine x y = Hashtbl.hash (x, y)
-  let pair h0 h1 (x, y) = combine (h0 x) (h1 y)
 
   module type S = sig
     include S
@@ -344,9 +337,9 @@ let with_temp_filename base exn f =
 
 let with_temp_file base exn f =
   let go name =
-    let file = Pervasives.open_out name in
+    let file = Stdlib.open_out name in
     let result = f name file in
-    Pervasives.close_out file;
+    Stdlib.close_out file;
     result
   in
   with_temp_filename base exn go
@@ -412,25 +405,21 @@ end
 module PString = MakeCoreType(struct
     type t = string [@@deriving show,ord]
     let hash = Hashtbl.hash
-    let equal = (=)
   end)
 
 module PInt = MakeCoreType(struct
     type t = int [@@deriving show,ord]
     let hash = Hashtbl.hash
-    let equal = (=)
   end)
 
 module PUnit = MakeCoreType(struct
     type t = unit [@@deriving show,ord]
     let hash _ = 0
-    let equal _ _ = true
   end)
 
 module PChar = MakeCoreType(struct
     type t = char [@@deriving show,ord]
     let hash = Hashtbl.hash
-    let equal = (=)
   end)
 
 let rec compare_tuple = function

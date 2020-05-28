@@ -192,7 +192,7 @@ let abstract_tdlts_rational transform dim =
   in
   (sim, abstract_transform)
 
-let abstract ?(exists=fun x -> true) srk phi tr_symbols =
+let abstract ?(exists=fun _ -> true) srk phi tr_symbols =
   let phi =
     rewrite srk ~down:(nnf_rewriter srk) phi
     |> Nonlinear.linearize srk

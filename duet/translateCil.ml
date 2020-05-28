@@ -4,8 +4,6 @@ open Core
 open Aexpr
 open Srk
 open Apak
-open Pretty
-open Ast
 
 include Log.Make(struct let name = "translateCil" end)
 
@@ -26,9 +24,9 @@ let mk_label loc =
    doesn't simplify it.
    Todo: need to handle nested offsets
 *)
-class arrayAccessVisitor = object (self)
+class arrayAccessVisitor = object (_)
   inherit Cil.nopCilVisitor
-  method vlval lval =
+  method! vlval lval =
     let open Cil in
     match lval with
     | Mem exp, Index (idx, offset) ->
@@ -40,7 +38,7 @@ class arrayAccessVisitor = object (self)
                             idx,
                             typeOfLval lv)),
                 offset)
-    | Var v, Index (Const k, NoOffset) ->
+    | Var _, Index (Const _, NoOffset) ->
       DoChildren
     | Var v, Index (idx, offset) ->
       ChangeTo (Mem (BinOp (PlusPI,
@@ -52,9 +50,9 @@ class arrayAccessVisitor = object (self)
 end
 
 (* replace breaks with goto target *)
-class breakVisitor target = object (self)
+class breakVisitor target = object (_)
   inherit Cil.nopCilVisitor
-  method vstmt stmt =
+  method! vstmt stmt =
     let open Cil in
     match stmt.skind with
     | Break loc ->
@@ -69,9 +67,9 @@ class breakVisitor target = object (self)
 end
 
 (* replace continues with goto target *)
-class continueVisitor target = object (self)
+class continueVisitor target = object (_)
   inherit Cil.nopCilVisitor
-  method vstmt stmt =
+  method! vstmt stmt =
     let open Cil in
     match stmt.skind with
     | Continue loc ->
@@ -81,16 +79,16 @@ class continueVisitor target = object (self)
     | _ -> DoChildren
 end
 
-class loopVisitor = object (self)
+class loopVisitor = object (_)
   inherit Cil.nopCilVisitor
-  method vstmt stmt =
+  method! vstmt stmt =
     let open Cil in
     let break_target = mkEmptyStmt () in
     let cont_target = mkEmptyStmt () in
     let break_target_label = mk_label locUnknown in
     let cont_target_label = mk_label locUnknown in
     match stmt.skind with
-    | Loop (bl, loc, st1, st2) ->
+    | Loop (bl, loc, _, _) ->
       let block = visitCilBlock (new breakVisitor break_target) bl in
       let cblock =
         visitCilBlock (new continueVisitor cont_target) block
@@ -108,9 +106,9 @@ class loopVisitor = object (self)
 end
 
 (* Replace switches with ifs/gotos *)
-class switchVisitor = object (self)
+class switchVisitor = object (_)
   inherit Cil.nopCilVisitor
-  method vstmt stmt =
+  method! vstmt stmt =
     let open Cil in
     (* Replace case and default labels with regular labels, and build a list
        of targets.  Targets are (stmt, exp option) pairs, where stmt is the
@@ -142,7 +140,7 @@ class switchVisitor = object (self)
                     locUnknown))
     in
     match stmt.skind with
-    | Switch (exp, block, stmts, loc) ->
+    | Switch (exp, block, _, _) ->
       let break_target = mkEmptyStmt () in
       let block = visitCilBlock (new breakVisitor break_target) block in
       let targets = List.concat (List.map replace_cases block.bstmts) in
@@ -183,7 +181,7 @@ exception Not_constant of string
 let calc_expr x =
   match Cil.constFold true x with
   | Cil.Const Cil.CInt64 (i, _, _) -> Int64.to_int i
-  | exp -> raise (Not_constant (Pretty.sprint 79 (Cil.d_exp () exp)))
+  | exp -> raise (Not_constant (Pretty.sprint ~width:79 (Cil.d_exp () exp)))
 
 let type_size t = calc_expr (Cil.SizeOf t)
 
@@ -209,7 +207,7 @@ let rec tr_typ cil_typ =
   match cil_typ with
   | Cil.TNamed (tinfo, _) ->
     (match tinfo.Cil.ttype with
-     | Cil.TComp (cinfo, _) ->
+     | Cil.TComp (_, _) ->
        if (tinfo.Cil.tname = "pthread_mutex_t"
            || tinfo.Cil.tname = "spin_lock_t")
        then Concrete Lock
@@ -227,8 +225,8 @@ and tr_ctyp =
   let tr_enumi (s,e,_) = (s, calc_expr e) in
   function
   | Cil.TVoid _ -> Void
-  | Cil.TInt (ik, _) as typ -> Int (type_size typ)
-  | Cil.TFloat (fk, _) as typ -> Float (type_size typ)
+  | Cil.TInt (_, _) as typ -> Int (type_size typ)
+  | Cil.TFloat (_, _) as typ -> Float (type_size typ)
   | Cil.TPtr (base, _) -> Pointer (tr_typ base)
   | Cil.TArray (base, None, _) -> Array (tr_typ base, None)
   | Cil.TArray (base, Some expr, _) as typ ->
@@ -236,8 +234,8 @@ and tr_ctyp =
   | Cil.TEnum (en, _) ->
     Enum {enname = en.Cil.ename;
           enitems = List.map tr_enumi en.Cil.eitems}
-  | Cil.TFun (typ, None, bool, _) -> Dynamic
-  | Cil.TFun (typ, Some args, bool, _) ->
+  | Cil.TFun (_, None, _, _) -> Dynamic
+  | Cil.TFun (typ, Some args, _, _) ->
     Func (tr_typ typ,
           List.map (fun (_,t,_) -> tr_typ t) args)
   | Cil.TBuiltin_va_list _ -> Dynamic (* todo *)
@@ -280,8 +278,8 @@ let rec tr_expr = function
   | Cil.SizeOf t -> tr_expr (Cil.constFold true (Cil.SizeOf t))
   | Cil.SizeOfE e -> tr_expr (Cil.constFold true (Cil.SizeOfE e))
   | Cil.SizeOfStr s -> tr_expr (Cil.constFold true (Cil.SizeOfStr s))
-  | Cil.AlignOf t -> assert false
-  | Cil.AlignOfE e -> assert false
+  | Cil.AlignOf _ -> assert false
+  | Cil.AlignOfE _ -> assert false
   | Cil.UnOp (op, expr, typ) ->
     let expr = tr_expr expr in
     let typ = tr_typ typ in
@@ -334,7 +332,7 @@ let rec tr_expr = function
   | Cil.StartOf l ->
     (* Conversion of an array type to a pointer type *)
     addr_of (tr_lval l)
-  | Cil.Question (test, left, right, typ) -> assert false
+  | Cil.Question (_, _, _, _) -> assert false
 
 (* If ptr is a pointer and i is an integer, we convert
      ptr + i
@@ -358,10 +356,10 @@ and tr_constant = function
   | Cil.CInt64 (i, ik, _) ->
     CInt (Int64.to_int i, type_size (Cil.TInt (ik, [])))
   | Cil.CStr s -> CString s
-  | Cil.CWStr i -> assert false
+  | Cil.CWStr _ -> assert false
   | Cil.CChr c -> CChar c
   | Cil.CReal (f, fk, _) -> CFloat (f, type_size (Cil.TFloat (fk, [])))
-  | Cil.CEnum (e, s, ei) -> assert false
+  | Cil.CEnum (_, _, _) -> assert false
 
 (** Converts a Cil lval to an access path. *)
 and tr_lval lval =
@@ -575,7 +573,7 @@ and tr_stmt ctx stmt =
   (** File *)
 
 (* Create an explicit memory allocation instruction for a fixed-size array *)
-let add_array_initializer v il =
+let _add_array_initializer v il =
   match v.Cil.vtype with
   | Cil.TArray (typ, Some size, _) ->
     begin
@@ -605,7 +603,7 @@ let tr_initializer globals =
         | Cil.CompoundInit (ct, initl) ->
           Cil.foldLeftCompound
             ~implicit:false
-            ~doinit:(fun offset init typ il ->
+            ~doinit:(fun offset init _ il ->
                 mk_init (Cil.addOffsetLval offset lv) init il)
             ~ct:ct
             ~initl:initl
@@ -662,7 +660,7 @@ let rec tr_file_vars = function
   | [] -> []
 
 (* Provide definitions for argc/argv *)
-let define_args file =
+let _define_args file =
   let open CfgIr in
   let main = match file.entry_points with
     | [x] -> x

@@ -1,5 +1,0 @@
-./regression/chdfg/code/obj2.c:10 >> Assertion failed: o->contents == 0
-{(o)->contents}. T
-
-1 errors total
-1 safe assertions

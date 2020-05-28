@@ -147,7 +147,7 @@ let nullspace mat dimensions =
 
 let solve_exn mat b =
   let open QQMatrix in
-  logf "Solving system:@\nM:  %a@\nb:  %a" pp mat QQVector.pp b;
+  logf ~level:`trace "Solving system:@\nM:  %a@\nb:  %a" pp mat QQVector.pp b;
   let columns = column_set mat in
   let b_column = 1 + (IntSet.fold max columns 0) in
   let mat = add_column b_column b mat in
@@ -163,7 +163,7 @@ let solve_exn mat b =
     |> snd
     |> QQVector.negate
   in
-  logf "Solution: %a" QQVector.pp res;
+  logf ~level:`trace "Solution: %a" QQVector.pp res;
   res
 
 let solve mat b =

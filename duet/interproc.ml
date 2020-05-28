@@ -1,6 +1,5 @@
 open Core
 open CfgIr
-open Ai
 open Srk
 open Apak
 
@@ -19,7 +18,6 @@ module Seq = struct
   end
   module RG = RecGraph.Make(V)(Varinfo)
   module RGD = ExtGraph.Display.MakeSimple(RG.G)(Def)
-  module MakePathExpr = Pathexp.MakeSeqRG(RG)(Varinfo)
 end
 
 module V = struct
@@ -40,7 +38,6 @@ module V = struct
 end
 module RG = RecGraph.Make(V)(Varinfo)
 module RGD = ExtGraph.Display.MakeSimple(RG.G)(Def)
-module MakeParPathExpr = Pathexp.MakeParRG(RG)(Varinfo)
 
 module SeqRG = struct
   type ('a, 'b) typ = ('a, 'b) RecGraph.seq_typ
@@ -57,7 +54,6 @@ module SeqRG = struct
       Log.fatalf "Unrecognized call: %a" Def.pp v
     | _ -> `Atom v
 end
-module MakePathExpr = Pathexp.MakeSeqRG(SeqRG)(Varinfo)
 
 let local func_name =
   try

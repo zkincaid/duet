@@ -10,6 +10,7 @@
 *.so
 *.byte
 *.native
+*.exe
 .*
 !.gitignore
 *~

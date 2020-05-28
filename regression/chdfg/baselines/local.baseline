@@ -1,7 +1,0 @@
-./regression/chdfg/code/local.c:9 >> Assertion failed: x == 0
-{x}. x >= 0 && -x+1 >= 0
-./regression/chdfg/code/local.c:16 >> Assertion failed: *local == 1
-{(*local)}. (*local) >= 0 && -(*local)+1 >= 0
-
-2 errors total
-0 safe assertions

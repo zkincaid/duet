@@ -12,7 +12,6 @@ let kfalse = constant_bool 0
 module VMemo = Memo.Make(struct
     type t = CbpAst.var
     let hash v = v.CbpAst.vid
-    let compare x y = compare x.CbpAst.vid y.CbpAst.vid
     let equal x y = x.CbpAst.vid = y.CbpAst.vid
   end);;
 module Translation(S : sig
@@ -49,7 +48,7 @@ struct
     S.cbp_file.CbpAst.vars <- var::S.cbp_file.CbpAst.vars;
     (var, OffsetFixed 0)
 
-  let rec remove_havoc func tr_stmt =
+  let remove_havoc func tr_stmt =
     let mk_ternary var cond bt be =
       tr_stmt (mk_lstmt []
                  (If (cond,
