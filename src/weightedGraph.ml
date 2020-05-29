@@ -440,6 +440,15 @@ let forward_analysis wg ~entry ~update ~init =
 
   get_data
 
+module type AbstractWeight = sig
+  type weight
+  type abstract_weight
+  val abstract : weight -> abstract_weight
+  val concretize : abstract_weight -> weight
+  val equal : abstract_weight -> abstract_weight -> bool
+  val widen : abstract_weight -> abstract_weight -> abstract_weight
+end
+
 module RecGraph = struct
   module HT = BatHashtbl.Make(IntPair)
   module CallSet = BatSet.Make(IntPair)
@@ -464,6 +473,7 @@ module RecGraph = struct
         M.add u (CallSet.singleton v) callgraph
     let empty = M.empty
   end
+  module CallGraphLoop = Loop.Make(CallGraph)
 
   type call = vertex * vertex
 
@@ -702,6 +712,57 @@ module RecGraph = struct
     let paths = omega_pathexpr query.query in
     Pathexpr.eval_omega ~table:omega_table ~algebra ~omega_algebra paths
 
+  let summarize_iterative
+        (type a)
+        path_query
+        algebra
+        ?(delay=1)
+        (module A : AbstractWeight with type weight = a) =
+    let weight_query = mk_weight_query path_query algebra in
+    let callgraph = mk_callgraph path_query in
+    let project x = algebra (`Segment x) in
+    let abstract_summaries = HT.create 991 in
+    (* stabilize summaries within a WTO component, and add to unstable
+       all calls whose summary (may have) changed as a result. *)
+    let rec fix = function
+      | `Vertex call ->
+         call_weight weight_query call
+         |> project
+         |> set_summary weight_query call
+
+      | `Loop loop ->
+         let header = CallGraphLoop.header loop in
+         let rec fix_component delay =
+           let old_abs_weight = HT.find abstract_summaries header in
+           let (new_abs_weight, new_weight) =
+             let new_weight =
+               project (call_weight weight_query header)
+             in
+             let new_abs_weight = A.abstract new_weight in
+             if delay > 0 then
+               (new_abs_weight, new_weight)
+             else
+               let new_abs_weight = A.widen old_abs_weight new_abs_weight in
+               let new_weight = A.concretize new_abs_weight in
+               (new_abs_weight, new_weight)
+           in
+           HT.replace abstract_summaries header new_abs_weight;
+           set_summary weight_query header new_weight;
+           List.iter fix (CallGraphLoop.children loop);
+           if not (A.equal old_abs_weight new_abs_weight)
+           then fix_component (delay - 1)
+         in
+         fix_component delay
+    in
+    let zero = algebra `Zero in
+    let abstract_zero = A.abstract zero in
+    callgraph
+    |> CallGraph.iter_vertex (fun call ->
+           set_summary weight_query call zero;
+           HT.add abstract_summaries call abstract_zero);
+    List.iter fix (CallGraphLoop.loop_nest callgraph);
+    weight_query
+
   let empty () =
     let context = mk_context () in
     let algebra =
@@ -724,67 +785,4 @@ module RecGraph = struct
 
   let add_vertex rg v =
     { rg with path_graph = add_vertex rg.path_graph v }
-end
-
-module SummarizeIterative (D : sig
-             type weight
-             type abstract_weight
-             val abstract : weight -> abstract_weight
-             val concretize : abstract_weight -> weight
-             val equal : abstract_weight -> abstract_weight -> bool
-             val widen : abstract_weight -> abstract_weight -> abstract_weight
-           end) = struct
-
-  type query = D.weight RecGraph.weight_query
-
-  module CallGraph = RecGraph.CallGraph
-  module CallGraphLoop = Loop.Make(CallGraph)
-  module HT = BatHashtbl.Make(IntPair)
-
-  let mk_query ?(delay=1) rg src algebra =
-    let path_query = RecGraph.mk_query rg src in
-    let weight_query = RecGraph.mk_weight_query path_query algebra in
-    let callgraph = RecGraph.mk_callgraph path_query in
-    let project x = algebra (`Segment x) in
-    let abstract_summaries = HT.create 991 in
-    (* stabilize summaries within a WTO component, and add to unstable
-       all calls whose summary (may have) changed as a result. *)
-    let rec fix = function
-      | `Vertex call ->
-         RecGraph.call_weight weight_query call
-         |> project
-         |> RecGraph.set_summary weight_query call
-
-      | `Loop loop ->
-         let header = CallGraphLoop.header loop in
-         let rec fix_component delay =
-           let old_abs_weight = HT.find abstract_summaries header in
-           let (new_abs_weight, new_weight) =
-             let new_weight =
-               project (RecGraph.call_weight weight_query header)
-             in
-             let new_abs_weight = D.abstract new_weight in
-             if delay > 0 then
-               (new_abs_weight, new_weight)
-             else
-               let new_abs_weight = D.widen old_abs_weight new_abs_weight in
-               let new_weight = D.concretize new_abs_weight in
-               (new_abs_weight, new_weight)
-           in
-           HT.replace abstract_summaries header new_abs_weight;
-           RecGraph.set_summary weight_query header new_weight;
-           List.iter fix (CallGraphLoop.children loop);
-           if not (D.equal old_abs_weight new_abs_weight)
-           then fix_component (delay - 1)
-         in
-         fix_component delay
-    in
-    let zero = algebra `Zero in
-    let abstract_zero = D.abstract zero in
-    callgraph
-    |> CallGraph.iter_vertex (fun call ->
-           RecGraph.set_summary weight_query call zero;
-           HT.add abstract_summaries call abstract_zero);
-    List.iter fix (CallGraphLoop.loop_nest callgraph);
-    weight_query
 end

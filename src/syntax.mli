@@ -238,6 +238,7 @@ module Expr : sig
     val merge : ((('a, 'typ) expr) -> 'b option -> 'c option -> 'd option) ->
       ('a, 'typ, 'b) t -> ('a, 'typ, 'c) t -> ('a, 'typ, 'd) t
     val fold : (('a, 'typ) expr -> 'b -> 'c -> 'c) -> ('a, 'typ, 'b) t -> 'c -> 'c
+    val equal : ('b -> 'b -> bool) -> ('a, 'typ, 'b) t -> ('a, 'typ, 'b) t -> bool
   end
 end
 

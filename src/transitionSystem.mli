@@ -29,13 +29,11 @@ module Make
        val mem_transform : var -> t -> bool
        val get_transform : var -> t -> C.t term
        val assume : C.t formula -> t
-       val equal : t -> t -> bool
        val mul : t -> t -> t
        val add : t -> t -> t
        val zero : t
        val one : t
        val star : t -> t
-       val widen : t -> t -> t
        val exists : (var -> bool) -> t -> t
      end) : sig
 
@@ -51,7 +49,12 @@ module Make
 
   (** Create a query structure.  The optional [delay] parameter specifies the
       widening delay to use during summary computation. *)
-  val mk_query : ?delay:int -> t -> vertex -> query
+  val mk_query : ?delay:int ->
+                 t ->
+                 vertex ->
+                 (module WeightedGraph.AbstractWeight
+                         with type weight = transition) ->
+                 query
 
   (** Over-approximate the sum of the weights of all paths from the
      query's source vertex to the given target vertex. *)

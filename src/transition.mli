@@ -56,9 +56,9 @@ module Make
       [v]. *)
   val assign : var -> C.t term -> t
 
-  (** Parallel assignment of a list of terms to a list of variables.  If a
-      variable appears multiple times as a target for an assignment, the rightmost
-      assignment is taken. *)
+  (** Parallel assignment of a list of terms to a list of variables.
+     If a variable appears multiple times as a target for an
+     assignment, the rightmost assignment is taken. *)
   val parallel_assign : (var * C.t term) list -> t
 
   (** Assign a list of variables non-deterministic values. *)

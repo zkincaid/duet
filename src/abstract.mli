@@ -17,10 +17,21 @@ val boxify : 'a context -> 'a formula -> 'a term list -> 'a formula
     property is restricted to use only the symbols that satisfy the [?exists]
     predicate (which defaults to the constant [true] predicate). *)
 val abstract : ?exists:(symbol -> bool) ->
-  'a context ->
-  'abs Apron.Manager.t ->
-  'a formula ->
-  ('a,'abs) SrkApron.property
+               'a context ->
+               'abs Apron.Manager.t ->
+               'a formula ->
+               ('a,'abs) SrkApron.property
+
+module Sign : sig
+  type 'a t
+  val abstract : 'a context -> 'a formula -> 'a term list -> 'a t
+  val formula_of : 'a context -> 'a t -> 'a formula
+  val join : 'a t -> 'a t -> 'a t
+  val equal : 'a t -> 'a t -> bool
+  val bottom : 'a t
+  val top : 'a t
+  val exists : (symbol -> bool) -> 'a t -> 'a t
+end
 
 (** Symbolic abstraction as described in Reps, Sagiv,
    Yorsh---"Symbolic implementation of the best transformer", VMCAI
