@@ -59,19 +59,6 @@ module NonlinearRecurrenceInequation : PreDomainWedge
 
 module Split(Iter : PreDomain) : PreDomain
 
-module Sum (A : PreDomain) (B : PreDomain) () : sig
-  include PreDomain
-  val left : 'a A.t -> 'a t
-  val right : 'a B.t -> 'a t
-  val abstract_left : bool ref
-end
-module SumWedge (A : PreDomainWedge) (B : PreDomainWedge) () : sig
-  include PreDomainWedge
-  val left : 'a A.t -> 'a t
-  val right : 'a B.t -> 'a t
-  val abstract_left : bool ref
-end
-
 module Product (A : PreDomain) (B : PreDomain) : PreDomain
   with type 'a t = 'a A.t * 'a B.t
 
