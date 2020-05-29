@@ -35,13 +35,11 @@ module Make
        val mem_transform : var -> t -> bool
        val get_transform : var -> t -> C.t term
        val assume : C.t formula -> t
-       val equal : t -> t -> bool
        val mul : t -> t -> t
        val add : t -> t -> t
        val zero : t
        val one : t
        val star : t -> t
-       val widen : t -> t -> t
        val exists : (var -> bool) -> t -> t
      end)
 = struct
@@ -50,18 +48,9 @@ module Make
   type transition = T.t
   type tlabel = T.t label
 
-  module S = WG.SummarizeIterative (struct
-                 type weight = T.t
-                 type abstract_weight = T.t
-                 let abstract x = x
-                 let concretize x = x
-                 let equal = T.equal
-                 let widen = T.widen
-               end)
-
   type query = T.t WG.RecGraph.weight_query
 
-  let mk_query ?(delay=1) ts source =
+  let mk_query ?(delay=1) ts source dom =
     let rg =
       WG.fold_vertex
         (fun v rg -> WG.RecGraph.add_vertex rg v)
@@ -87,7 +76,11 @@ module Make
       | `Zero -> T.zero
       | `One -> T.one
     in
-    S.mk_query ~delay rg source algebra
+    WG.RecGraph.summarize_iterative
+      (WG.RecGraph.mk_query rg source)
+      algebra
+      ~delay
+      dom
 
   type t = (T.t label) WG.t
 

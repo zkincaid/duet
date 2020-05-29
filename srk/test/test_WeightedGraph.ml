@@ -87,8 +87,17 @@ let mk_ts edges call_edges =
   in
   rg
 
-let mk_query edges call_edges =
-  TS.mk_query (mk_ts edges call_edges)
+module TransitionDom = struct
+  type weight = T.t
+  type abstract_weight = T.t
+  let concretize x = x
+  let abstract x = x
+  let equal = T.equal
+  let widen = T.widen
+end
+
+let mk_query edges call_edges src =
+  TS.mk_query (mk_ts edges call_edges) src (module TransitionDom)
     
 let pe_context = Pathexpr.mk_context ()
 
@@ -307,15 +316,6 @@ module ISet = struct
 end
 
 (* Lengths of simple paths *)
-module Pathlen = WeightedGraph.SummarizeIterative(struct
-                     type weight = ISet.t
-                     type abstract_weight = ISet.t
-                     let abstract x = x
-                     let concretize x = x
-                     let equal = ISet.equal
-                     let widen = ISet.inter
-                   end)
-
 let pathlen_algebra = function
   | `Edge (_, _) -> ISet.singleton 1
   | `Add (x, y) -> ISet.union x y
@@ -335,6 +335,15 @@ let pathlen_omega_algebra = function
   | `Mul (_, y) -> y
   | `Omega x -> x
 
+module PathlenDomain = struct
+  type weight = ISet.t
+  type abstract_weight = ISet.t
+  let abstract x = x
+  let concretize x = x
+  let equal = ISet.equal
+  let widen = ISet.inter
+end
+
 let mk_pathlen_query edges call_edges src =
   let open WG in
   let g =
@@ -349,7 +358,8 @@ let mk_pathlen_query edges call_edges src =
       g
       call_edges
   in
-  Pathlen.mk_query g src pathlen_algebra
+  let query = RecGraph.mk_query g src in
+  RecGraph.summarize_iterative query pathlen_algebra (module PathlenDomain)
 
 let get_cyclelen query =
   WG.RecGraph.omega_path_weight query pathlen_omega_algebra

@@ -119,6 +119,15 @@ val forward_analysis :
   init:(int -> 'v) ->
   (int -> 'v)
 
+module type AbstractWeight = sig
+  type weight
+  type abstract_weight
+  val abstract : weight -> abstract_weight
+  val concretize : abstract_weight -> weight
+  val equal : abstract_weight -> abstract_weight -> bool
+  val widen : abstract_weight -> abstract_weight -> abstract_weight
+end
+
 (** A recursive graph is a graph with two types of edges: simple edges
    and call edges.  Each call edge designates an entry vertex and exit
    vertex, and can be interpreted a set of paths that begin and entry
@@ -183,6 +192,13 @@ module RecGraph : sig
      weights to call edges. *)
   val mk_weight_query : query -> 'a Pathexpr.nested_algebra -> 'a weight_query
 
+  (** Build call summaries via successive approximation. *)
+  val summarize_iterative : query ->
+                            'a Pathexpr.nested_algebra ->
+                            ?delay:int ->
+                            (module AbstractWeight
+                                    with type weight = 'a) ->
+                            'a weight_query
   (** Find the sum of weights of all interprocedural paths beginning
      at the query's source vertex and ending at a given target. *)
   val path_weight : 'a weight_query -> vertex -> 'a
@@ -197,21 +213,4 @@ module RecGraph : sig
   (** Find the sum of weights of all infinite interprocedural paths
      beginning at the query's source vertex. *)
   val omega_path_weight : 'a weight_query -> ('a,'b) Pathexpr.omega_algebra -> 'b
-end
-
-(** Build call summaries via successive approximation. *)
-module SummarizeIterative (D : sig
-             type weight
-             type abstract_weight
-             val abstract : weight -> abstract_weight
-             val concretize : abstract_weight -> weight
-             val equal : abstract_weight -> abstract_weight -> bool
-             val widen : abstract_weight -> abstract_weight -> abstract_weight
-           end) : sig
-  type query = D.weight RecGraph.weight_query
-  val mk_query : ?delay:int ->
-                 RecGraph.t ->
-                 vertex ->
-                 D.weight Pathexpr.nested_algebra ->
-                 query
 end

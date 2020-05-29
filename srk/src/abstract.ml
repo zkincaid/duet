@@ -169,8 +169,9 @@ module Sign = struct
 
   type sign = Zero | NonNeg | Neg | NonPos | Pos  | Top
 
-  type t =
-    | Env of sign Symbol.Map.t
+  module M = Expr.Map
+  type 'a t =
+    | Env of ('a, typ_arith, sign) M.t
     | Bottom
 
   let formula_of srk signs =
@@ -178,17 +179,17 @@ module Sign = struct
     match signs with
     | Bottom -> mk_false srk
     | Env map ->
-      Symbol.Map.fold (fun sym sign xs ->
-          let sym_sign =
+      M.fold (fun term sign xs ->
+          let term_sign =
             match sign with
-            | Pos -> mk_lt srk zero (mk_const srk sym)
-            | Neg -> mk_lt srk (mk_const srk sym) zero
-            | Zero -> mk_eq srk (mk_const srk sym) zero
-            | NonNeg -> mk_leq srk zero (mk_const srk sym)
-            | NonPos -> mk_leq srk (mk_const srk sym) zero
+            | Pos -> mk_lt srk zero term
+            | Neg -> mk_lt srk term zero
+            | Zero -> mk_eq srk term zero
+            | NonNeg -> mk_leq srk zero term
+            | NonPos -> mk_leq srk term zero
             | Top -> mk_true srk
           in
-          sym_sign::xs)
+          term_sign::xs)
         map
         []
       |> mk_and srk
@@ -222,17 +223,17 @@ module Sign = struct
     in
     match x, y with
     | Env x, Env y ->
-      Env (Symbol.Map.merge (fun _ x y -> match x, y with
+      Env (M.merge (fun _ x y -> match x, y with
           | Some x, Some y -> Some (join_sign x y)
           | _, _ -> Some Top) x y)
     | Bottom, r | r, Bottom -> r
 
   let equal x y = match x, y with
-    | Env x, Env y -> Symbol.Map.equal (=) x y
+    | Env x, Env y -> M.equal (=) x y
     | Bottom, Bottom -> true
     | _, _ -> false
 
-  let of_model m symbols =
+  let of_model m terms =
     let rational_sign x =
       match QQ.compare x QQ.zero with
       | 0 -> Zero
@@ -240,21 +241,34 @@ module Sign = struct
       | _ -> Pos
     in
     let env =
-      List.fold_left (fun env sym ->
-          Symbol.Map.add sym (rational_sign (Interpretation.real m sym)) env)
-        Symbol.Map.empty
-        symbols
+      List.fold_left (fun env term ->
+          M.add term (rational_sign (Interpretation.evaluate_term m term)) env)
+        M.empty
+        terms
     in
     Env env
 
-  let top = Env Symbol.Map.empty
+  let top = Env M.empty
 
   let bottom = Bottom
 
   let exists p signs = match signs with
     | Bottom -> Bottom
     | Env m ->
-      Env (Symbol.Map.mapi (fun sym sign -> if p sym then sign else Top) m)
+       Env (M.filter (fun term _ -> Symbol.Set.for_all p (symbols term)) m)
+
+  let abstract srk phi terms =
+    let solver = Smt.mk_solver srk in
+    Smt.Solver.add solver [phi];
+    let rec fix prop =
+      Smt.Solver.add solver [mk_not srk (formula_of srk prop)];
+      match Smt.Solver.get_model solver with
+      | `Sat m ->
+        fix (join (of_model m terms) prop)
+      | `Unsat -> prop
+      | `Unknown -> top
+    in
+    fix bottom
 end
 
 module MakeAbstractRSY (C : sig
@@ -274,8 +288,15 @@ module MakeAbstractRSY (C : sig
   end
 
   module Sign = struct
-    include Sign
-    let formula_of = formula_of C.context
+    type t = C.t Sign.t
+    let top = Sign.top
+    let bottom = Sign.bottom
+    let exists = Sign.exists
+    let join = Sign.join
+    let equal = Sign.equal
+    let of_model interp symbols =
+      Sign.of_model interp (List.map (mk_const C.context) symbols)
+    let formula_of = Sign.formula_of C.context
   end
 
   module AffineRelation = struct

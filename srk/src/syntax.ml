@@ -768,6 +768,7 @@ module Expr = struct
     let enum = M.enum
     let merge = M.merge
     let fold = M.fold
+    let equal = M.equal
   end
 end
 

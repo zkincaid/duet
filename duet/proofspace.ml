@@ -116,18 +116,19 @@ module G = ExtGraph.Persistent.Digraph.MakeBidirectionalLabeled(PInt)(Block)
 module WG = WeightedGraph
 module RG = Interproc.RG
 
+module TCADomain = struct
+  type weight = int option
+  type abstract_weight = int option
+  let abstract x = x
+  let concretize x = x
+  let widen x y = match x,y with
+    | Some 0, x | x, Some 0 -> x
+    | Some x, Some y when x = y -> Some x
+    | _, _ -> None
+  let equal = (=)
+end
+
 (* thread count analysis *)
-module TCA = WG.SummarizeIterative(struct
-                 type weight = int option
-                 type abstract_weight = int option
-                 let equal = (=)
-                 let abstract x = x
-                 let concretize x = x
-                 let widen x y = match x, y with
-                   | Some 0, x | x, Some 0 -> x
-                   | Some x, Some y when x = y -> Some x
-                   | _, _ -> None
-               end)
 let tca rg main =
   (* For each thread, create a start node that increments the thread count *)
   let thread_entries = ref SrkUtil.Int.Set.empty in
@@ -189,7 +190,12 @@ let tca rg main =
   in
   let main_entry = (RG.block_entry rg main).did in
   let main_exit = (RG.block_exit rg main).did in
-  let query = TCA.mk_query wg main_entry algebra in
+  let query =
+    WG.RecGraph.summarize_iterative
+      (WG.RecGraph.mk_query wg main_entry)
+      algebra
+      (module TCADomain)
+  in
   match WG.RecGraph.path_weight query main_exit with
   | Some x ->
      logf "Found bound on number of threads: %d" x;

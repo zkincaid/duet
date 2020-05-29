@@ -16,6 +16,7 @@ include Log.Make(struct let name = "cra" end)
 let forward_inv_gen = ref true
 let forward_pred_abs = ref false
 let dump_goals = ref false
+let monotone = ref false
 let nb_goals = ref 0
 
 let dump_goal loc path_condition =
@@ -446,6 +447,77 @@ type klabel = K.t label [@@deriving ord]
 
 module TS = TransitionSystem.Make(Ctx)(V)(K)
 
+module TransitionDom = struct
+  type weight = K.t
+  type abstract_weight = K.t
+  let concretize x = x
+  let abstract x = x
+  let equal = K.equal
+  let widen = K.widen
+end
+
+module MonotoneDom = struct
+  open Syntax
+  module Sign = Abstract.Sign
+  module A = Abstract.MakeAbstractRSY(Ctx)
+  module D = A.Product(A.AffineRelation)(A.Sign)
+  module SymbolSet = Syntax.Symbol.Set
+  type weight = K.t
+  type abstract_weight = (symbol * symbol) list * D.t * Ctx.t Sign.t
+  let abstract tr =
+    let tr_symbols, formula = K.to_transition_formula tr in
+    let all_symbols =
+      List.fold_left (fun syms (x, x') ->
+          SymbolSet.add x (SymbolSet.add x' syms))
+        SymbolSet.empty
+        tr_symbols
+    in
+    let abs =
+      A.abstract
+        ~exists:(fun x -> SymbolSet.mem x all_symbols)
+        (module D)
+        formula
+    in
+    let directions =
+      let deltas =
+        List.fold_left (fun deltas (x, x') ->
+            (mk_sub srk (mk_const srk x') (mk_const srk x))::deltas)
+          []
+          tr_symbols
+      in
+      Sign.abstract srk formula deltas
+    in
+    (tr_symbols, abs, directions)
+
+  let concretize (tr_symbols, abs, directions) =
+    let transform =
+      List.fold_left (fun assign (x,x') ->
+          match V.of_symbol x with
+          | Some v -> (v, mk_const srk x')::assign
+          | None -> assert false)
+        []
+        tr_symbols
+    in
+    let guard =
+      mk_and srk [D.formula_of abs;
+                  Sign.formula_of srk directions]
+    in
+    K.construct guard transform
+
+  let equal (tr_symbols1, abs1, dir1) (tr_symbols2, abs2, dir2) =
+    let pre_symbols tr_symbols =
+      List.fold_left (fun pre (x,_) ->
+          SymbolSet.add x pre)
+        SymbolSet.empty
+        tr_symbols
+    in
+    SymbolSet.equal (pre_symbols tr_symbols1) (pre_symbols tr_symbols2)
+    && D.equal abs1 abs2
+    && Abstract.Sign.equal dir1 dir2
+
+  let widen _ y = y
+end
+
 (* Weight-labeled graph module suitable for ocamlgraph *)
 module TSG = struct
   type t = TS.t
@@ -594,6 +666,13 @@ let make_transition_system rg =
   in
   (ts, !assertions)
 
+let mk_query ts entry =
+  TS.mk_query ts entry
+    (if !monotone then
+       (module MonotoneDom)
+     else
+       (module TransitionDom))
+
 let analyze file =
   populate_offset_table file;
   match file.entry_points with
@@ -603,8 +682,7 @@ let analyze file =
       let (ts, assertions) = make_transition_system rg in
 
       (*TSDisplay.display ts;*)
-
-      let query = TS.mk_query ts entry in
+      let query = mk_query ts entry in
       assertions |> SrkUtil.Int.Map.iter (fun v (phi, loc, msg) ->
           let path = TS.path_weight query v in
           let sigma sym =
@@ -640,7 +718,7 @@ let resource_bound_analysis file =
       let rg = Interproc.make_recgraph file in
       let (ts, _) = make_transition_system rg in
       let entry = (RG.block_entry rg main).did in
-      let query = TS.mk_query ts entry in
+      let query = mk_query ts entry in
       let cost =
         let open CfgIr in
         let file = get_gfile () in
@@ -739,7 +817,11 @@ let _ =
   CmdLine.register_config
     ("-dump-goals",
      Arg.Set dump_goals,
-     " Output goal assertions in SMTLIB2 format")
+     " Output goal assertions in SMTLIB2 format");
+  CmdLine.register_config
+    ("-monotone",
+     Arg.Set monotone,
+     " Disable non-monotone analysis features")
 
 let _ =
   CmdLine.register_pass
