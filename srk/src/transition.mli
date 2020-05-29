@@ -129,18 +129,6 @@ module Make
      of (pre-state, post-state) symbols. *)
   val to_transition_formula : t -> (((symbol * symbol) list) * C.t formula)
 
-  (** Iteration domain.  See {!Iteration}. *)
-  module Iter (I : Iteration.Domain) : sig
-    type iter = C.t I.t
-    val alpha : t -> iter
-    val closure : iter -> t
-    val star : t -> t
-
-    val equal : iter -> iter -> bool
-
-    val widen : iter -> iter -> iter
-    val join : iter -> iter -> iter
-
-    val pp : Format.formatter -> iter -> unit
-  end
+  val domain : (module Iteration.PreDomain) ref
+  val star : t -> t
 end

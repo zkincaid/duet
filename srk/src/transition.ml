@@ -173,43 +173,43 @@ struct
     in
     (tr_symbols, body)
 
-  module Iter(D : Iteration.Domain) = struct
-    type iter = C.t D.t
+  let domain =
+    let open Iteration in
+    let open SolvablePolynomial in
+    ref (module ProductWedge(SolvablePolynomial)(WedgeGuard) : PreDomain)
 
-    let alpha tr =
-      let (tr_symbols, body) = to_transition_formula tr in
-      let exists =
-        let post_symbols =
-          List.fold_left
-            (fun set (_, sym') -> Symbol.Set.add sym' set)
-            Symbol.Set.empty
-            tr_symbols
-        in
-        fun x ->
-          match Var.of_symbol x with
-          | Some _ -> true
-        | None -> Symbol.Set.mem x post_symbols
+  let star tr =
+    let (module D) = !domain in
+    let (tr_symbols, body) = to_transition_formula tr in
+    let exists =
+      let post_symbols =
+        List.fold_left
+          (fun set (_, sym') -> Symbol.Set.add sym' set)
+          Symbol.Set.empty
+          tr_symbols
       in
-      D.abstract ~exists srk tr_symbols body
-
-    let closure iter =
-      let transform =
-        List.fold_left (fun tr (pre, post) ->
-            match Var.of_symbol pre with
-            | Some v -> M.add v (mk_const srk post) tr
-            | None -> assert false)
-          M.empty
-          (D.tr_symbols iter)
-      in
-      { transform = transform;
-        guard = D.closure iter }
-
-    let join = D.join
-    let widen = D.widen
-    let equal = D.equal
-    let pp = D.pp
-    let star = closure % alpha
-  end
+      fun x ->
+      match Var.of_symbol x with
+      | Some _ -> true
+      | None -> Symbol.Set.mem x post_symbols
+    in
+    let iter = D.abstract ~exists srk tr_symbols body in
+    let transform =
+      List.fold_left (fun tr (pre, post) ->
+          match Var.of_symbol pre with
+          | Some v -> M.add v (mk_const srk post) tr
+          | None -> assert false)
+        M.empty
+        tr_symbols
+    in
+    let loop_counter_sym = mk_symbol srk ~name:"K" `TyInt in
+    let loop_counter = mk_const srk loop_counter_sym in
+    let closure =
+      mk_and srk [D.exp srk tr_symbols loop_counter iter;
+                  mk_leq srk (mk_real srk QQ.zero) loop_counter]
+    in
+    { transform = transform;
+      guard = closure }
 
   let zero =
     { transform = M.empty; guard = mk_false srk }

@@ -117,24 +117,6 @@ end
 
 module K = struct
   include Transition.Make(Ctx)(V)
-  open Iteration
-  open SolvablePolynomial
-  module SPOne = SumWedge (SolvablePolynomial) (SolvablePolynomialOne) ()
-  module SPPeriodicRational = SumWedge (SPOne) (SolvablePolynomialPeriodicRational) ()
-  module SPG = ProductWedge (SPPeriodicRational) (WedgeGuard)
-  module SPSplit = Sum (SPG) (Split(SPG)) ()
-  module VasSwitch = Sum (Vas)(Vass)()
-  module Vas_P = Product(VasSwitch)(Product(WedgeGuard)(LinearRecurrenceInequation))
-  module D = Sum(SPSplit)(Vas_P)()
-  module I = Iter(MakeDomain(D))
- 
-  let star x =
-    let star x =
-      let abstract = I.alpha x in
-      logf "Loop abstraction:@\n%a" I.pp abstract;
-      I.closure abstract
-    in
-    Log.time "cra.star" star x
 
   let add x y =
     if is_zero x then y
@@ -796,23 +778,26 @@ let _ =
      " Turn on predicate abstraction in forward invariant generation");
   CmdLine.register_config
     ("-cra-split-loops",
-     Arg.Clear K.SPSplit.abstract_left,
+     Arg.Unit (fun () -> K.domain := (module Iteration.Split(val !K.domain))),
      " Turn on loop splitting");
   CmdLine.register_config
-    ("-cra-no-matrix",
-     Arg.Clear K.SPOne.abstract_left,
-     " Turn off matrix recurrences");
-  CmdLine.register_config
     ("-cra-prsd",
-     Arg.Clear K.SPPeriodicRational.abstract_left,
+     Arg.Unit (fun () ->
+         let open Iteration in
+         let open SolvablePolynomial in
+         K.domain := (module ProductWedge(SolvablePolynomialPeriodicRational)(WedgeGuard))),
      " Use periodic rational spectral decomposition");
   CmdLine.register_config
     ("-cra-vas",
-     Arg.Clear K.D.abstract_left,
+     Arg.Unit (fun () ->
+         let open Iteration in
+         K.domain := (module Product(Product(LinearRecurrenceInequation)(PolyhedronGuard))(Vas))),
      " Use VAS abstraction");
   CmdLine.register_config
     ("-cra-vass",
-     Arg.Unit (fun () -> K.VasSwitch.abstract_left := false; K.D.abstract_left := false),
+     Arg.Unit (fun () ->
+         let open Iteration in
+         K.domain := (module Product(Product(LinearRecurrenceInequation)(PolyhedronGuard))(Vass))),
      " Use VASS abstraction");
   CmdLine.register_config
     ("-dump-goals",
@@ -820,7 +805,10 @@ let _ =
      " Output goal assertions in SMTLIB2 format");
   CmdLine.register_config
     ("-monotone",
-     Arg.Set monotone,
+     Arg.Unit (fun () ->
+         let open Iteration in
+         monotone := true;
+         K.domain := (module Product(LinearRecurrenceInequation)(PolyhedronGuard))),
      " Disable non-monotone analysis features")
 
 let _ =

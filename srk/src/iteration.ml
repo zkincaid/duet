@@ -486,45 +486,6 @@ module Product (A : PreDomain) (B : PreDomain) = struct
      B.abstract ~exists srk tr_symbols phi)
 end
 
-module Sum (A : PreDomain) (B : PreDomain) () = struct
-  type 'a t = Left of 'a A.t | Right of 'a B.t
-
-  let abstract_left = ref true
-
-  let pp srk tr_symbols formatter = function
-    | Left a -> A.pp srk tr_symbols formatter a
-    | Right b -> B.pp srk tr_symbols formatter b
-
-  let left a = Left a
-
-  let right b = Right b
-
-  let exp srk tr_symbols loop_counter = function
-    | Left a -> A.exp srk tr_symbols loop_counter a
-    | Right b -> B.exp srk tr_symbols loop_counter b
-
-  let join srk tr_symbols x y = match x,y with
-    | Left x, Left y -> Left (A.join srk tr_symbols x y)
-    | Right x, Right y -> Right (B.join srk tr_symbols x y)
-    | _, _ -> invalid_arg "Join: incompatible elements"
-
-  let widen srk tr_symbols x y = match x,y with
-    | Left x, Left y -> Left (A.widen srk tr_symbols x y)
-    | Right x, Right y -> Right (B.widen srk tr_symbols x y)
-    | _, _ -> invalid_arg "Widen: incompatible elements"
-
-  let equal srk tr_symbols x y = match x,y with
-    | Left x, Left y -> A.equal srk tr_symbols x y
-    | Right x, Right y -> B.equal srk tr_symbols x y
-    | _, _ -> invalid_arg "Equal: incompatible elements"
-
-  let abstract ?(exists=fun _ -> true) srk tr_symbols phi =
-    if !abstract_left then
-      Left (A.abstract ~exists srk tr_symbols phi)
-    else
-      Right (B.abstract ~exists srk tr_symbols phi)
-end
-
 module Split (Iter : PreDomain) = struct
   type 'a t = ('a, typ_bool, 'a Iter.t * 'a Iter.t) Expr.Map.t
 
@@ -817,14 +778,4 @@ module ProductWedge (A : PreDomainWedge) (B : PreDomainWedge) = struct
     let subterm x = not (Symbol.Set.mem x post_symbols) in
     let wedge = Wedge.abstract ~exists ~subterm srk phi in
     abstract_wedge srk tr_symbols wedge
-end
-
-module SumWedge (A : PreDomainWedge) (B : PreDomainWedge) () = struct
-  include Sum(A)(B)()
-
-  let abstract_wedge srk tr_symbols wedge =
-    if !abstract_left then
-      Left (A.abstract_wedge srk tr_symbols wedge)
-    else
-      Right (B.abstract_wedge srk tr_symbols wedge)
 end

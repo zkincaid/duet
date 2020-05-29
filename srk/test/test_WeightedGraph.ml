@@ -32,16 +32,12 @@ module V = struct
   let equal = (=)
   let hash = Hashtbl.hash
 end
-module T = struct
-  module SemiRing = Transition.Make(Ctx)(V)
-  include SemiRing
-  open Iteration
-  open SolvablePolynomial
-  module I = SemiRing.Iter(MakeDomain(Split(ProductWedge(SolvablePolynomial)(WedgeGuard))))
-  let star = I.star
-end
+module T = Transition.Make(Ctx)(V)
 module WG = WeightedGraph
 module TS = TransitionSystem.Make(Ctx)(V)(T)
+
+let () =
+  T.domain := (module Iteration.Split(val !T.domain))
 
 let () =
   V.register_var "i" `TyInt;
