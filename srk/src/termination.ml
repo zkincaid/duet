@@ -2,17 +2,11 @@ open Syntax
 open BatEnum
 
 module TLLRF = TerminationLLRF
-(* module TDTA = TerminationDTA *)
 module Vec = Linear.QQVector
 module Mat = Linear.QQMatrix
 (* module NL = NestedLoops *)
 
 include Log.Make(struct let name = "Termination" end)
-
-
-  
-
-
 
 type typ_ineq = Tylt0 | Tyeq0 | Tyleq0
   
@@ -296,16 +290,3 @@ let prove_termination srk tto_transition_formula loop =
   | `Unknown ->  (logf ~attributes:[`Bold; `Yellow] "unable to prove linear rf exists or not");()
   | `Unsat -> (logf ~attributes:[`Bold; `Red] "linear ranking function does not exist"); ()
 
-
-(* let prove_termination_of_loops srk tto_transition_formula loops =
-  List.iter
-    (fun loop ->
-    begin
-      logf "start proving termination of loop";
-      match TLLRF.prove_LLRF_termination srk tto_transition_formula loop with
-      | ProvedToTerminate -> logf ~attributes:[`Bold; `Green] "\n\n\nLoop proved to terminate using lexicographic ranking functions\n\n";
-      | _ -> 
-        logf "Cannot prove termination of this loop using lexicographic ranking, continue to synthesize conditions for termination"; 
-        (* TDTA.generate_terminating_DTA_conditions srk tto_transition_formula loop *)
-    end)
-    loops *)

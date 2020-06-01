@@ -726,7 +726,7 @@ let open WeightedGraph in
           | Some _ -> true
         | None -> Syntax.Symbol.Set.mem x post_symbols
       in
-    let result = TLLRF.compute_swf srk x_xp formula in
+    let result = TLLRF.compute_swf srk exists x_xp formula in
     match result with
     | TLLRF.ProvedToTerminate -> Syntax.mk_false srk
     | _ -> let cond = TDTA.compute_swf_via_DTA srk exists x_xp formula in

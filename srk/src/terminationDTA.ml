@@ -204,30 +204,8 @@ module BaseDegPairMap = struct
           dom_ranked_list
       in
       match ineq_type with
-      | Lt0 -> 
-        begin
-          if BatList.is_empty conditions_list_final then
-            (** we have started with a dominanting constant out of our control *)          
-            if QQ.leq QQ.zero lhs_const then 
-              (** if const on LHS is positive, always terminate *)
-              mk_true srk
-            else 
-              (** if const on LHS is negative, the invariant will always hold 
-                  for large enough no. of iterations *)
-              mk_false srk
-          else if encountered_const_order then
-            (** have control over the constants, build everything as usual *)
-            mk_not srk (mk_or srk conditions_list_final)
-          else
-            (** no control over the constant *)
-          if QQ.lt lhs_const QQ.zero then
-            (** but the constant itself alone is good enough, 
-                let all coefficients be 0 is fine here*)
-            mk_not srk (mk_or srk ( mk_and srk formula_stem_list :: conditions_list_final ))
-          else 
-            (** we want the constant to be dominated by something *)
-            mk_not srk (mk_or srk conditions_list_final)
-        end
+      | Lt0  -> 
+        mk_not srk (mk_or srk conditions_list_final)
       | Eq0 -> 
         begin
           if BatList.is_empty conditions_list_final then
@@ -253,30 +231,8 @@ module BaseDegPairMap = struct
             (** cannot remain 0 forever, has to terminate *)
             mk_true srk
         end
-      | Leq0 ->
-        begin
-          if BatList.is_empty conditions_list_final then
-            (** we have started with a dominanting constant out of our control *)          
-            if QQ.lt QQ.zero lhs_const then 
-              (** if const on LHS is positive, at far away terminate *)
-              mk_true srk
-            else 
-              (** if const on LHS is negative, the invariant is guaranteed to hold 
-                  for large enough no. of iterations *)
-              mk_false srk
-          else if encountered_const_order then
-            (** have control over the constants, build everything as usual *)
-            mk_not srk (mk_or srk (List.concat [conditions_list_final; formula_stem_list]))
-          else
-            (** no control over the constant *)
-          if QQ.leq lhs_const QQ.zero then
-            (** but the constant itself alone is good enough, 
-                let all coefficients be 0 is fine here*)
-            mk_not srk (mk_or srk ( mk_and srk formula_stem_list :: conditions_list_final ))
-          else 
-            (** we want the constant to be dominated by something *)
-            mk_not srk (mk_or srk conditions_list_final)
-        end
+      | Leq0 ->         
+        mk_not srk (mk_or srk ( (mk_and srk formula_stem_list) :: conditions_list_final)) 
     in
     conditions
 end
@@ -317,26 +273,6 @@ let generate_term_cond srk cs lhs exp_poly invariant_symbols invariant_terms ine
       mat_entries
   in
   let analyze_entries entries =
-    (* if ExpPolynomial.Matrix.nb_rows mat == 0 then
-       begin
-       logf "this matrix has no non-zero entry";
-       if ineq_type == Lt0 then
-        if QQ.lt lhs_const QQ.zero then 
-          mk_true srk 
-        else
-          mk_false srk
-       else if ineq_type == Eq0 then
-              if QQ.equal lhs_const QQ.zero then
-                mk_true srk 
-              else
-                mk_false srk
-          else
-          if QQ.leq lhs_const QQ.zero then
-            mk_true srk 
-          else
-            mk_false srk
-       end
-       else *)
     begin
       let m = BaseDegPairMap.empty in
       logf "start iterating entries";

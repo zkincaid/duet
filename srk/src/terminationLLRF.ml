@@ -257,7 +257,6 @@ let rec find_quasi_rf depth srk f qrfs x_list xp_list dx_list x_set xp_set dx_se
         (false, depth-1,formula, qrfs) 
       end
     else
-
       let c = SrkApron.meet non_inc_term_cone lb_term_cone in
       (* let c = Abstract.abstract srk polka intersection_cone in *)
       if (SrkApron.is_bottom c) then
@@ -340,8 +339,16 @@ let add_diff_terms_to_formula srk f x_xp =
     x_xp
     (f, [], Symbol.Set.empty, Symbol.Map.empty, Symbol.Map.empty)
 
-let compute_swf srk x_xp formula = 
+let compute_swf srk exists x_xp formula = 
   let body_formula = Nonlinear.linearize srk formula in
+  let x_list = List.fold_right (fun (sp, _) l -> sp :: l ) x_xp [] in
+  let xp_list = List.fold_right (fun (_, spp) l -> spp :: l ) x_xp [] in
+  let all_symbols = Symbol.Set.to_list (symbols formula) in
+  let is_sym_constant s = 
+    exists s && (not (List.mem s x_list)) && (not (List.mem s xp_list))
+  in
+  let constant_symbols = List.filter is_sym_constant all_symbols in
+  let x_xp = List.fold_left (fun l s -> (s, s) :: l) x_xp constant_symbols in
   match Smt.get_model srk body_formula with
   | `Sat _ -> 
     (* logf ~attributes:[`Bold; `Green] "\n\n\nTransition formula SAT\n\n"; *)
