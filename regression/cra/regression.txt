@@ -36,6 +36,4 @@ degree3_binomial: duet.exe -cra-split-loops -cra-no-forward-inv -cra @code/degre
 degree4_monomial: duet.exe -cra-split-loops -cra-no-forward-inv -cra @code/degree4_monomial.c
 degree4_binomial: duet.exe -cra-split-loops -cra-no-forward-inv -cra @code/degree4_binomial.c
 power_log: duet.exe -cra @code/power_log.c
-log: duet.exe -cra-split-loops -rba @code/log.c
-binary_search: duet.exe -rba @code/binary_search.c
 fib_secure: duet.exe -cra @code/fib_secure.c
