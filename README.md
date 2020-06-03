@@ -14,16 +14,16 @@ Duet depends on several software packages.  The following dependencies need to b
  + GMP and MPFR
  + [NTL](http://www.shoup.net/ntl/): number theory library
  + Java
- + Python 2.7
+ + Python
 
 On Ubuntu, you can install these packages with:
 ```
- sudo apt-get install opam libgmp-dev libmpfr-dev libntl-dev default-jre python2.7
+ sudo apt-get install opam libgmp-dev libmpfr-dev libntl-dev default-jre python
 ```
 
 On MacOS, you can install these packages (except Java) with:
 ```
- brew install opam gmp mpfr ntl python@2
+ brew install opam gmp mpfr ntl python
 ```
 
 Next, add the [sv-opam](https://github.com/zkincaid/sv-opam) OPAM repository, and install the rest of duet's dependencies.  These are built from source, so grab a coffee &mdash; this may take a long time.
