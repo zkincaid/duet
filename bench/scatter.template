@@ -1,0 +1,19 @@
+\begin{tikzpicture}
+  \begin{axis}[
+      xlabel={$x time (s)},
+      ylabel={$y time (s)},
+      xmax=$max,
+      ymax=$max,
+      xmin=$min,
+      ymin=$min,
+      xmode=log,
+      ymode=log,
+      mark size=1pt,
+      log ticks with fixed point
+    ]
+    \addplot+ [only marks] table {$data};
+    \addplot[mark=none,domain={$min:$max}] {x};
+    \addplot[mark=none,domain={$min:$max},dashed] {10*x};
+    \addplot[mark=none,domain={$min:$max},dashed] {0.1*x};
+  \end{axis}
+\end{tikzpicture}
