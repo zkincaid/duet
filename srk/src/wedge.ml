@@ -2243,7 +2243,8 @@ let symbolic_bounds_formula_list ?exists:(p=fun _ -> true) srk phi symbol =
        code marked as "Alternative Implementation" below is
        being used rather than the code marked as the
        "Original implementation". *)
-    (* let wedge = exists ~lemma ~subterm p wedge in *)
+    (* Using orig imp for time - jake *)
+    let wedge = exists ~lemma ~subterm p wedge in 
     if is_bottom wedge then
       None
     else if CS.admits wedge.cs (mk_const srk symbol) then
@@ -2285,11 +2286,11 @@ let symbolic_bounds_formula_list ?exists:(p=fun _ -> true) srk phi symbol =
   let bound_subwedge = { of_wedge; to_formula; join } in
   let result =
 (* --- Original implementation --- *)
-(*  Log.time "Wedge.symbolic_bounds_formula"
-      (abstract_subwedge_weak bound_subwedge srk) phi *)
+  Log.time "Wedge.symbolic_bounds_formula"
+      (abstract_subwedge_weak bound_subwedge srk) phi
 (* --- Alternate implementation --- *)
-    Log.time "Wedge.symbolic_bounds_formula"
-      (abstract_subwedge bound_subwedge ~exists:p ~subterm srk) phi
+   (* Log.time "Wedge.symbolic_bounds_formula"
+      (abstract_subwedge bound_subwedge ~exists:p ~subterm srk) phi*)
 (*  If using the alternate, the projection in of_wedge can be omitted  *)
   in
   match result with

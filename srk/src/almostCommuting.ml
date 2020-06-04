@@ -52,7 +52,7 @@ let commuting_segment matrices dims =
   fix mS
 
 let iter_all     = Array.map (fun (_, m) -> m)
-let iter_reset   = BatArray.filter_map (fun (k, m) -> if k == Reset then Some m else None)
+(*let iter_reset   = BatArray.filter_map (fun (k, m) -> if k == Reset then Some m else None)*)
 let iter_commute = BatArray.filter_map (fun (k, m) -> if k == Commute then Some m else None)
 
 module PhasedSegment = struct
