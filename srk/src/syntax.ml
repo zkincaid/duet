@@ -987,6 +987,114 @@ module Formula = struct
          | `Forall (name, typ) -> mk_forall srk ~name typ phi)
       qf_pre
       matrix
+
+
+
+
+
+
+let to_mfa srk phi =
+  let combine phis =
+    let f (qf_pre0, boundbyuniv0, phi0) (eqf_pre, boundbyuniv, phis) =
+      if boundbyuniv0 = true && boundbyuniv = true
+      then (
+        let eqf_pre0 = List.tl (List.rev qf_pre0) in
+        let depth = List.length eqf_pre  in 
+        let depth0 = List.length eqf_pre0 in (*not counting univ quant*)
+        let phis = List.map (decapture srk (depth + 1) depth0) phis in
+        (eqf_pre0@eqf_pre, boundbyuniv0 || boundbyuniv, 
+         (decapture srk 1 depth phi0)::phis)
+      )
+      else if boundbyuniv0 = true && boundbyuniv = false
+      then (
+        let eqf_pre0 = List.tl (List.rev qf_pre0) in
+        let depth = List.length eqf_pre  in 
+        let depth0 = List.length eqf_pre0 in (*not counting univ quant*)
+        let phis = List.map (decapture srk 0 1) phis in
+        let phis = List.map (decapture srk (depth + 1) depth0) phis in
+        (eqf_pre0@eqf_pre, boundbyuniv0 || boundbyuniv, 
+         (decapture srk 1 depth phi0)::phis)
+      )
+      else if boundbyuniv0 = false && boundbyuniv = true
+      then (
+        let eqf_pre0 = qf_pre0 in
+        let depth = List.length eqf_pre  in 
+        let depth0 = List.length eqf_pre0 in (*not counting univ quant*)
+        let phis = List.map (decapture srk (depth + 1) depth0) phis in
+        (eqf_pre0@eqf_pre, boundbyuniv0 || boundbyuniv, 
+         (decapture srk 0 (depth + 1) phi0)::phis)
+      )
+      else
+      (
+        let eqf_pre0 = qf_pre0 in
+        let depth = List.length eqf_pre  in 
+        let depth0 = List.length eqf_pre0 in (*not counting univ quant*)
+        let phis = List.map (decapture srk depth depth0) phis in
+        (eqf_pre0@eqf_pre, boundbyuniv0 || boundbyuniv, 
+         (decapture srk 0 depth phi0)::phis)
+      )
+      in
+      List.fold_right f phis ([], false, [])
+    in
+    let alg = function
+      | `Tru -> ([], false, mk_true srk)
+      | `Fls -> ([], false, mk_false srk)
+      | `Atom (`Eq, x, y) -> ([], false, mk_eq srk x y)
+      | `Atom (`Lt, x, y) -> ([], false, mk_lt srk x y)
+      | `Atom (`Leq, x, y) -> ([], false, mk_leq srk x y)
+      | `And conjuncts ->
+        let (eqf_pre, bbu, conjuncts) = combine conjuncts in
+        if bbu = false then
+          (eqf_pre, bbu, mk_and srk conjuncts)
+        else 
+          (eqf_pre@[`Forall ("_", `TyInt)], bbu, mk_and srk conjuncts)
+      | `Or disjuncts ->
+        let (eqf_pre, bbu, disjuncts) = combine disjuncts in
+        if bbu = false then
+          (eqf_pre, bbu, mk_or srk disjuncts)
+        else 
+          ((`Exists ("_", `TyInt)) :: eqf_pre@[`Forall ("_", `TyInt)], 
+           bbu, 
+           mk_or 
+             srk 
+             (List.mapi 
+                (fun ind disjunct -> 
+                   mk_and 
+                     srk 
+                     [disjunct; 
+                      mk_eq 
+                        srk 
+                        (mk_int srk ind)  
+                        (srk.mk (Var ((List.length eqf_pre) + 2, `TyInt)) [])]) 
+                disjuncts))
+      | `Quantify (`Exists, name, typ, (qf_pre, bbu, phi)) ->
+        (`Exists (name, typ)::qf_pre, bbu, phi)
+      | `Quantify (`Forall, name, typ, (qf_pre, bbu, phi)) ->
+        if bbu then failwith "not monic"
+        else (`Forall (name, typ)::qf_pre, true, phi)
+      | `Not (_, _, _) -> failwith "not positive"
+      | `Proposition (`Var i) -> ([], false, mk_var srk i `TyBool)
+      | `Proposition (`App (p, args)) -> ([], false, mk_app srk p args)
+      | `Ite (cond, bthen, belse) ->
+        begin match combine [cond; bthen; belse] with
+          | (qf_pre, bbu, [cond; bthen; belse]) ->
+            (qf_pre, bbu, mk_ite srk cond bthen belse)
+          | _ -> assert false
+        end
+    in
+    let (qf_pre, _, matrix) = eval srk alg phi in
+    List.fold_right
+      (fun qf phi ->
+         match qf with
+         | `Exists (name, typ) -> mk_exists srk ~name typ phi
+         | `Forall (name, typ) -> mk_forall srk ~name typ phi)
+      qf_pre
+      matrix
+
+(*
+let mfa_to_LRA eqf_pre matrix arrsyms =
+  failwith "todo"
+*)
 end
 
 let quantify_const srk qt sym phi =

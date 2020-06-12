@@ -81,6 +81,27 @@ let prenex () =
   in
   assert_equal_formula (Formula.prenex srk phi) psi
 
+(* This test will fail if the implementation of prenex changes the way that
+   unordered quantifiers get ordered (swap var 0 and var 1 in psi). *)
+let toMFA () =
+  let phi =
+    let open Infix in
+    exists `TyInt
+      ((forall `TyInt ((var 0 `TyInt) = (var 1 `TyInt)))
+      || (exists `TyReal ((var 0 `TyReal) <= (var 1 `TyInt))))
+  in
+  (*let psi =
+    let open Infix in
+    exists `TyReal
+      (exists `TyReal
+         (exists `TyReal
+            ((var 1 `TyReal) = (var 2 `TyReal)
+             && (var 0 `TyReal) <= (var 2 `TyReal))))
+  in*)
+  assert_equal_formula (Formula.to_mfa srk phi) (mk_false srk)
+
+
+
 let nnf () =
   let phi =
     let open Infix in
@@ -122,6 +143,7 @@ let suite = "Syntax" >:::
     "existential_closure1" >:: existential_closure1;
     "existential_closure2" >:: existential_closure2;
     "prenex" >:: prenex;
+    "toMFA" >:: toMFA;
     "nnf" >:: nnf;
     "elim_ite1" >:: elim_ite1;
     "elim_ite2" >:: elim_ite2;

@@ -359,6 +359,8 @@ module Formula : sig
   val universal_closure : 'a context -> 'a formula -> 'a formula
   val skolemize_free : 'a context -> 'a formula -> 'a formula
   val prenex : 'a context -> 'a formula -> 'a formula
+  val to_mfa : 'a context -> 'a formula -> 'a formula
+
 end
 
 (** {2 Contexts} *)
