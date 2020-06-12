@@ -7,6 +7,13 @@ open Syntax
     affine hull if every term in the list evaluates to 0 at [p]. *)
 val affine_hull : 'a context -> 'a formula -> symbol list -> 'a term list
 
+(** Let [cs = t1, ..., tn] be a list of terms. [t1, ..., tn] generates
+   a linear space of functions from interpretations to rationals;
+   [vanishing_space srk phi cs] computes a basis for the subspace of
+   functions from interpretations to rationals that evaluate to zero
+   on all models of [phi]. *)
+val vanishing_space : 'a context -> 'a formula -> 'a term array -> Linear.QQVectorSpace.t
+
 (** [boxify srk phi terms] computes the strongest formula of the form
     [/\ { lo <= t <= hi : t in terms }]
     that is implied by [phi]. *)
