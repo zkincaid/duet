@@ -438,40 +438,49 @@ module TransitionDom = struct
   let widen = K.widen
 end
 
+
 module MonotoneDom = struct
   open Syntax
   module Sign = Abstract.Sign
-  module A = Abstract.MakeAbstractRSY(Ctx)
-  module D = A.Product(A.AffineRelation)(A.Sign)
   module SymbolSet = Syntax.Symbol.Set
   type weight = K.t
-  type abstract_weight = (symbol * symbol) list * D.t * Ctx.t Sign.t
+  module VS = Linear.QQVectorSpace
+  type abstract_weight = (symbol * symbol) list * Ctx.t Sign.t * VS.t
+  let man = Polka.manager_alloc_equalities ()
+
+  (* Map a list of transition symbols to an affine coordinate system
+     for those symbols.  *)
+  let coordinates_of tr_symbols =
+    let enum =
+      (List.fold_left (fun syms (x, x') ->
+           SymbolSet.add x (SymbolSet.add x' syms))
+         SymbolSet.empty
+         tr_symbols
+       |> SymbolSet.enum)
+      /@ mk_const srk
+    in
+    BatEnum.push enum (mk_one srk);
+    BatArray.of_enum enum
+
   let abstract tr =
     let tr_symbols, formula = K.to_transition_formula tr in
-    let all_symbols =
-      List.fold_left (fun syms (x, x') ->
-          SymbolSet.add x (SymbolSet.add x' syms))
-        SymbolSet.empty
-        tr_symbols
+    let coordinates = coordinates_of tr_symbols in
+    let aff =
+      Abstract.vanishing_space srk formula coordinates
     in
-    let abs =
-      A.abstract
-        ~exists:(fun x -> SymbolSet.mem x all_symbols)
-        (module D)
-        formula
-    in
-    let directions =
+    let signs =
       let deltas =
         List.fold_left (fun deltas (x, x') ->
             (mk_sub srk (mk_const srk x') (mk_const srk x))::deltas)
           []
           tr_symbols
       in
-      Sign.abstract srk formula deltas
+      let vars = BatArray.to_list coordinates in
+      Sign.abstract srk formula (vars@deltas)
     in
-    (tr_symbols, abs, directions)
+    (tr_symbols, signs, aff)
 
-  let concretize (tr_symbols, abs, directions) =
+  let concretize (tr_symbols, signs, aff) =
     let transform =
       List.fold_left (fun assign (x,x') ->
           match V.of_symbol x with
@@ -480,13 +489,23 @@ module MonotoneDom = struct
         []
         tr_symbols
     in
+    let coordinates = coordinates_of tr_symbols in
+    let affine_guard =
+      let zero = mk_zero srk in
+      List.map
+        (fun vec ->
+          Linear.term_of_vec srk (fun dim -> coordinates.(dim)) vec
+          |> mk_eq srk zero)
+        aff
+      |> mk_and srk
+    in
     let guard =
-      mk_and srk [D.formula_of abs;
-                  Sign.formula_of srk directions]
+      mk_and srk [Sign.formula_of srk signs;
+                  affine_guard]
     in
     K.construct guard transform
 
-  let equal (tr_symbols1, abs1, dir1) (tr_symbols2, abs2, dir2) =
+  let equal (tr_symbols1, signs1, aff1) (tr_symbols2, signs2, aff2) =
     let pre_symbols tr_symbols =
       List.fold_left (fun pre (x,_) ->
           SymbolSet.add x pre)
@@ -494,8 +513,8 @@ module MonotoneDom = struct
         tr_symbols
     in
     SymbolSet.equal (pre_symbols tr_symbols1) (pre_symbols tr_symbols2)
-    && D.equal abs1 abs2
-    && Abstract.Sign.equal dir1 dir2
+    && Abstract.Sign.equal signs1 signs2
+    && VS.equal aff1 aff2
 
   let widen _ y = y
 end
