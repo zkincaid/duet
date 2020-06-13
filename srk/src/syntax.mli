@@ -123,6 +123,12 @@ val mk_if : 'a context -> 'a formula -> 'a formula -> 'a formula
 (** Create an if-and-only-if formula *)
 val mk_iff : 'a context -> 'a formula -> 'a formula -> 'a formula
 
+val decapture : 'a context -> 
+  int -> int -> ('a,'typ) expr -> ('a,'typ) expr          
+  
+
+
+
 (** [substitute srk subst exp] replaces each occurrence of a variable
    symbol with De Bruijn [i] with the expression [subst i].  If [subst
    i] contains free variables, capture is avoided. *)
@@ -359,8 +365,6 @@ module Formula : sig
   val universal_closure : 'a context -> 'a formula -> 'a formula
   val skolemize_free : 'a context -> 'a formula -> 'a formula
   val prenex : 'a context -> 'a formula -> 'a formula
-  val to_mfa : 'a context -> 'a formula -> 'a formula
-
 end
 
 (** {2 Contexts} *)

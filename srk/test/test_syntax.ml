@@ -80,7 +80,7 @@ let prenex () =
              && (var 0 `TyReal) <= (var 2 `TyReal))))
   in
   assert_equal_formula (Formula.prenex srk phi) psi
-
+(*
 (* This test will fail if the implementation of prenex changes the way that
    unordered quantifiers get ordered (swap var 0 and var 1 in psi). *)
 let toMFA () =
@@ -99,7 +99,7 @@ let toMFA () =
              && (var 0 `TyReal) <= (var 2 `TyReal))))
   in*)
   assert_equal_formula (Formula.to_mfa srk phi) (mk_false srk)
-
+*)
 
 
 let nnf () =
@@ -143,7 +143,6 @@ let suite = "Syntax" >:::
     "existential_closure1" >:: existential_closure1;
     "existential_closure2" >:: existential_closure2;
     "prenex" >:: prenex;
-    "toMFA" >:: toMFA;
     "nnf" >:: nnf;
     "elim_ite1" >:: elim_ite1;
     "elim_ite2" >:: elim_ite2;
