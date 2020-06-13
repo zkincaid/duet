@@ -523,40 +523,6 @@ module TSDisplay = ExtGraph.Display.MakeLabeled
     end)
 
 module SA = Abstract.MakeAbstractRSY(Ctx)
-(* module TSNoCallEdgeDisplay = ExtGraph.Display.MakeLabeled
-    (struct
-      type t = K.t WeightedGraph.t
-
-      module V = struct
-        include SrkUtil.Int
-        type label = int
-        let label x = x
-        let create x = x
-      end
-
-      module E = struct
-        type label = K.t
-        type vertex = int
-        type t = int * K.t * int [@@deriving ord]
-        let src (x, _, _) = x
-        let dst (_, _, x) = x
-        let label (_, x, _) = x
-        let create x y z = (x, y, z)
-      end
-
-      let iter_edges_e = WG.iter_edges
-      let iter_vertex = WG.iter_vertex
-      let iter_succ f tg v =
-        WG.U.iter_succ f (WG.forget_weights tg) v
-      let fold_pred_e = WG.fold_pred_e
-    end)
-    (SrkUtil.Int)
-    (struct
-      open WeightedGraph
-      type t = K.t
-      let pp formatter w = K.pp formatter w
-      let show = SrkUtil.mk_show pp
-    end) *)
 
 let decorate_transition_system predicates ts entry =
   let module AbsDom =
@@ -705,7 +671,6 @@ let analyze file =
     end
   | _ -> assert false
 
-(* module RG = WG.MakeRecGraph(K) *)
 let omega_algebra = 
 let open WeightedGraph in
 {
