@@ -21,6 +21,9 @@ let post_symbols tr_symbols =
 let simplify_condition srk condition_formula = 
   Quantifier.mbp ~dnf:true srk (fun _ -> true) condition_formula
 
+(** Create symbols that stands for some linear terms and their defining
+    equalities.
+ *)
 let build_symbols_for_inv_terms srk inv_terms =
   let l_symbols, l_equalities, symbol_set = 
     BatArray.fold_righti
@@ -36,6 +39,10 @@ let build_symbols_for_inv_terms srk inv_terms =
   in
   (l_symbols, l_equalities, symbol_set)
 
+(** Transform a formula representation of a convex set f into a list of linear 
+    inequalities. The linear inequalities are vectors where the meaning
+    of the dimensions are given by the coordinate system cs.
+*)
 let get_polyhedron_of_formula srk srkf cs =
   let f = match Formula.destruct srk srkf with
     | `And xs -> xs
@@ -43,11 +50,13 @@ let get_polyhedron_of_formula srk srkf cs =
     | `Atom _ -> [ srkf ]
     | _ -> failwith "should not happen for convex polyhedra"
   in
-  let ppp = Polyhedron.of_implicant ~admit:true cs f in
-  let e = Polyhedron.enum ppp in
-  BatList.of_enum e
+  Polyhedron.of_implicant ~admit:true cs f
+  |> Polyhedron.enum
+  |> BatList.of_enum
 
-
+(** Compute linear inequalities only involving the invariant symbols 
+    entailed by the formula.
+*)
 let compute_linear_invariants srk formula inv_symbols_set =
   let polka = Polka.manager_alloc_strict () in
   let f = rewrite srk ~down:(nnf_rewriter srk) formula in
@@ -59,7 +68,13 @@ let compute_linear_invariants srk formula inv_symbols_set =
   logf "\nInvariants on terms:\n%s\n\n" (Formula.show srk linear_invariants);
   linear_invariants
 
-(** distinguish between transition symbols, constants, and existentially quantified *)
+(** Compute the best deterministic linear transition system (DLTS) abstraction of
+    a transition formula.
+    exists: function used to distinguish between transition symbols from
+            constants and existentially quantified aux variables. 
+    tr_symbols: transition symbols.
+    transition_formula: the transition formula to be abstracted.
+*)
 let compute_best_DLTS_abstraction srk exists tr_symbols transition_formula =
   let best_dlts = DLTSPeriodicRational.abstract_rational ~exists srk tr_symbols transition_formula in
   (* logf "Best DLTS abstraction:\n%a\n" (DLTS.pp srk tr_symbols best_dlts); *)
@@ -69,6 +84,9 @@ let compute_best_DLTS_abstraction srk exists tr_symbols transition_formula =
   Array.iter (fun t -> logf "Term: %a\n" (Term.pp srk) t) best_dlts_sim;
   best_dlts
 
+(** Compute the exponential polynomial that represents the transitive
+    closure of a DLTS.
+  *)
 let compute_exp_polynomial ?(square=false) best_dlts =
   let m = Linear.PartialLinearMap.map best_dlts.dlts in
   let best_dlts_tr_matrix = if square then Linear.QQMatrix.mul m m else m in
@@ -80,11 +98,17 @@ let compute_exp_polynomial ?(square=false) best_dlts =
   logf "Printing exp poly:\n%a\n" ExpPolynomial.Matrix.pp exp_poly_mat;
   exp_poly_mat
 
+(** Get coefficient of a symbol within a linear term *)
 let get_coeff_of_symbol cs vec symbol =
   let tid = CoordinateSystem.cs_term_id cs (`App (symbol, [])) in
   let c = Vec.coeff tid vec in
   c
 
+(** For a linear term, get its vector representation w.r.t. a list of symbols. 
+    For example, x + 2z + 1 w.r.t. [x, y, z] is represented by a tuple 
+    containing a vector and the constant term:
+      ([1, 0, 2], 1)
+*)
 let get_coeff_vec_for_expression cs expression list_symbols = 
   let vec = 
     BatList.fold_lefti
@@ -103,6 +127,14 @@ let get_coeff_vec_for_expression cs expression list_symbols =
 
 type ineq_type = Lt0 | Eq0 | Leq0
 
+(** This data structure is a map with key type (QQ.t, int) and value type QQVector.
+    Ordering on the keys is the lexicographic ordering, and value types
+    form an Abelian group.
+    This is used to store a term in an exponential polynomial. 
+    For example, a term could look like 2^k * (k^3) * (2x + y + z) where
+    k is the symbolic loop counter, and x, y, z are the initial values of
+    variables x, y, z.
+*)
 module BaseDegPairMap = struct
   type pair = QQ.t * int [@@deriving ord]
   module M = BatMap.Make(struct type t = pair [@@deriving ord] end)
@@ -112,6 +144,13 @@ module BaseDegPairMap = struct
 
   let empty = E.zero
 
+  (** Put a term into the data structure. 
+      index_pair: the base and the degree of the symbolic loop counter.
+      factor: a multiplicative factor.
+      non_zero_dim: an int that correspond to a particular dimension, and
+          -1 correspond to constants
+      p: the Abelian group map
+   *)
   let put index_pair factor non_zero_dim p =
     let qqxvec = QQV.of_list [factor, non_zero_dim] in
     E.add_term qqxvec index_pair p
@@ -126,6 +165,15 @@ module BaseDegPairMap = struct
   let has_const_order base deg =
     QQ.equal QQ.one base && deg == 0
 
+  (** Rank the items in the data structure according to dominance ordering and
+      produce a formula for sufficient condition for termination.
+      p: the Abelian group map.
+      invariant_terms: these are the linear terms whose closed forms are computed
+          during the symbolic exponentiation of transition matrix. This is 
+          used to interpret the meaning of the vectors as values in the map.
+      lhs_const: the constant that appears in the closed form formula.
+      ineq_type: whether this inequality is <=, = or <.
+   *)
   let rank srk p invariant_terms lhs_const ineq_type =
     logf "entering rank";
     let e = E.enum p in
@@ -142,7 +190,6 @@ module BaseDegPairMap = struct
         []
         e
     in
-    (* let max_base, deg, qqt = BatList.hd dom_ranked_list in *)
     let conditions = 
       logf "start printing conditions list and formula stems";
       let conditions_list_final, formula_stem_list, encountered_const_order = 
@@ -237,6 +284,12 @@ module BaseDegPairMap = struct
     conditions
 end
 
+(** We obtained the termination condition in terms of some linear terms.
+    Now we want to rewrite it into a form that only contains program variables.
+    simulation: the linear terms in the DLTS abstraction
+    invariant_symbols: aux symbols that we have defined for these terms
+    formula: the conditions to be rewritten
+ *)
 let rewrite_term_condition srk simulation invariant_symbols formula =
   let m = BatList.fold_lefti
       (fun m i inv_symb -> 
@@ -247,7 +300,16 @@ let rewrite_term_condition srk simulation invariant_symbols formula =
   in
   substitute_map srk m formula
 
-
+(** The main function for generating terminating conditions. 
+    cs: coordinate system.
+    lhs: the invariant inequalities' LHS.
+    exp_poly: the closed form of the transitive closure.
+    invariant_symbols: aux symbols we have defined for the linear terms appears
+        in the DLTS abstraction process.
+    invariant_terms: list of linear terms appears in DLTS abstraction.
+    ineq_type: is the invariant inequality <, <= or =.
+    best_DLTS_abstraction: the best DLTS abstraction of the transition formula
+ *)
 let generate_term_cond srk cs lhs exp_poly invariant_symbols invariant_terms ineq_type best_DLTS_abstraction =
   let lt_vec, lhs_const = get_coeff_vec_for_expression cs lhs invariant_symbols in
   logf "\nlt_vec is: %a, LHS constant is: %a" 
@@ -274,9 +336,8 @@ let generate_term_cond srk cs lhs exp_poly invariant_symbols invariant_terms ine
   in
   let analyze_entries entries =
     begin
-      let m = BaseDegPairMap.empty in
       logf "start iterating entries";
-      let m = BaseDegPairMap.put (QQ.one, 0) lhs_const (-1) m in
+      let m = BaseDegPairMap.put (QQ.one, 0) lhs_const (-1) BaseDegPairMap.empty in
       let m = BatEnum.fold 
           ( fun m (idx, idy, entry) ->
               if idx != 0 then failwith "got a matrix with more than 1 row"
@@ -304,7 +365,6 @@ let generate_term_cond srk cs lhs exp_poly invariant_symbols invariant_terms ine
           m
           entries
       in
-      (* let m = BatEnum.push m (ExpPolynomial.scalar lhs_const) in *)
       let conditions = BaseDegPairMap.rank srk m invariant_terms lhs_const ineq_type in
       logf "terminating condition: %a" (Formula.pp srk) conditions;
       conditions
@@ -322,8 +382,8 @@ let generate_term_cond srk cs lhs exp_poly invariant_symbols invariant_terms ine
       let sat_even_conditions' = analyze_entries entries in
       let sat_even_conditions'' = rewrite_term_condition srk best_DLTS_abstraction.simulation invariant_symbols sat_even_conditions' in
       let sat_even_conditions = sat_even_conditions'' in
-      (* let sat_even_conditions_disp = simplify_condition srk sat_even_conditions'' in *)
-      (* logf "sat_even conditions: %a " (Formula.pp srk) sat_even_conditions_disp; *)
+      let sat_even_conditions_disp = simplify_condition srk sat_even_conditions'' in 
+      logf "sat_even conditions: %a " (Formula.pp srk) sat_even_conditions_disp;
       logf "start computing sat_odd conditions";
       let entries = ExpPolynomial.Matrix.entries mat in
       let entries_with_odd_exp = BatEnum.map (
@@ -336,7 +396,6 @@ let generate_term_cond srk cs lhs exp_poly invariant_symbols invariant_terms ine
           entries 
       in
       let sat_odd_conditions = analyze_entries entries_with_odd_exp in
-      (* let sat_odd_conditions_disp = Quantifier.mbp ~dnf:true srk (fun x -> Symbol.Set.mem x x_set) sat_odd_conditions in *)
       logf "sat_odd conditions: %a" (Formula.pp srk) sat_odd_conditions; 
       let results = Syntax.mk_and srk [sat_even_conditions; sat_odd_conditions] in
       logf "terminating conditions for this mat with neg spectrum: %a" (Formula.pp srk) results;
@@ -348,8 +407,17 @@ let generate_term_cond srk cs lhs exp_poly invariant_symbols invariant_terms ine
       analyze_entries mat_entries
     end
 
-
-
+(** Analyze the convex polyhedron entailed by the transition formula, get the invariant
+    inequalities, and extract sufficient terminating conditions by looking at these
+    inequalities.
+    cs: coordinate system.
+    invariants_polyhedron: the convex polyhedron entailed by the transition formula.
+    exp_poly: the closed form of the transitive closure.
+    invariant_symbols: aux symbols we have defined for the linear terms appears
+        in the DLTS abstraction process.
+    invariant_terms: list of linear terms appears in DLTS abstraction.
+    best_DLTS_abstraction: the best DLTS abstraction of the transition formula
+ *)
 let analyze_inv_polyhedron srk cs invariants_polyhedron exp_poly invariant_symbols invariant_terms best_DLTS_abstraction =
   let conditions_list = 
     BatList.fold_left
@@ -368,6 +436,7 @@ let analyze_inv_polyhedron srk cs invariants_polyhedron exp_poly invariant_symbo
   in
   mk_or srk conditions_list
 
+(** Provide the swf operator using the dominant term analysis. *)
 let compute_swf_via_DTA srk exists x_xp formula =
   let body_formula = Nonlinear.linearize srk formula in
   match Smt.get_model srk body_formula with
@@ -394,8 +463,6 @@ let compute_swf_via_DTA srk exists x_xp formula =
     logf "terminating conditions in inv terms: %a" (Formula.pp srk) results_in_inv_terms;
     let results = rewrite_term_condition srk best_DLTS_abstraction.simulation invariant_symbols results_in_inv_terms in
     logf "terminating conditions before simplification: %a" (Formula.pp srk) results;
-    (* let results_simplified = simplify_condition srk results in
-    logf "terminating conditions: %a" (Formula.pp srk) results_simplified; *)
     mk_not srk results
   | `Unknown -> failwith "SMT solver should not return unknown for QRA formulas"
   | `Unsat -> (logf ~attributes:[`Bold; `Green] "Transition formula UNSAT, done"); mk_false srk
