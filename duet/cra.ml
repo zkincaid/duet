@@ -6,6 +6,9 @@ open BatPervasives
 
 module RG = Interproc.RG
 module WG = WeightedGraph
+module TLLRF = TerminationLLRF
+module TDTA = TerminationDTA
+module TM = Termination
 module G = RG.G
 module Ctx = Syntax.MakeSimplifyingContext ()
 module Int = SrkUtil.Int
@@ -536,6 +539,7 @@ module TSDisplay = ExtGraph.Display.MakeLabeled
       let pp formatter w = match w with
         | Weight w -> K.pp formatter w
         | Call (s,t) -> Format.fprintf formatter "call(%d, %d)" s t
+      (* let show = SrkUtil.mk_show pp *)
     end)
 
 module SA = Abstract.MakeAbstractRSY(Ctx)
@@ -693,6 +697,57 @@ let analyze file =
     end
   | _ -> assert false
 
+let omega_algebra =  function
+  | `Omega transition ->
+     (** over-approximate possibly non-terminating conditions for a transition *)
+     begin
+       let x_xp, formula = K.to_transition_formula transition in
+       let exists =
+         let post_symbols =
+           List.fold_left
+             (fun set (_, sym') -> Syntax.Symbol.Set.add sym' set)
+              Syntax.Symbol.Set.empty
+              x_xp
+         in
+         fun x ->
+         match V.of_symbol x with
+         | Some _ -> true
+         | None -> Syntax.Symbol.Set.mem x post_symbols
+       in
+       match TLLRF.compute_swf srk exists x_xp formula with
+       | TLLRF.ProvedToTerminate -> Syntax.mk_false srk
+       | _ -> TDTA.compute_swf_via_DTA srk exists x_xp formula
+     end
+  | `Add (cond1, cond2) ->
+     (** combining possibly non-terminating conditions for multiple paths *)
+     Syntax.mk_or srk [cond1; cond2]
+  | `Mul (transition, state) ->
+     (** propagate state formula through a transition *)
+     K.guard (K.mul transition (K.assume state))
+
+let prove_termination_main file =
+  populate_offset_table file;
+  match file.entry_points with
+  | [main] -> begin
+      let rg = Interproc.make_recgraph file in
+      let entry = (RG.block_entry rg main).did in
+      let (ts1, _) = make_transition_system rg in
+      if !CmdLine.display_graphs then
+        TSDisplay.display ts1;
+      let query = mk_query ts1 entry in
+      let omega_paths_sum = TS.omega_path_weight query omega_algebra in
+      match Smt.is_sat srk omega_paths_sum with
+      | `Sat -> 
+        Format.printf "Cannot prove that program always terminates\n"; 
+        let s = Syntax.mk_not srk omega_paths_sum in
+        let simplified = Quantifier.mbp ~dnf:true srk (fun _ -> true) s in
+        Format.printf "Sufficient terminating conditions:\n%a\n" (Syntax.Formula.pp srk) simplified
+      | `Unsat -> Format.printf "Program always terminates\n"
+      | `Unknown -> Format.printf "Unknown analysis result\n";
+      ()
+    end
+  | _ -> failwith "Cannot find main function within the C source file"
+
 let resource_bound_analysis file =
   populate_offset_table file;
   match file.entry_points with
@@ -814,5 +869,7 @@ let _ =
 let _ =
   CmdLine.register_pass
     ("-cra", analyze, " Compositional recurrence analysis");
+  CmdLine.register_pass
+    ("-termination", prove_termination_main, "Proof of termination");
   CmdLine.register_pass
     ("-rba", resource_bound_analysis, " Resource bound analysis")
