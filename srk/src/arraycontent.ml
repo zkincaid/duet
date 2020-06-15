@@ -132,7 +132,7 @@ let mfa_to_lia srk (qfp, matrix) arr_preds =
   let matrix = decapture srk 0 numarrs matrix in
   let qfcounter = ref (List.length qfp) in
   let preqfmapsyms = Hashtbl.create numarrs in
-  let preqfmapinds = Hashtbl.create numarrs in
+  let preqfmapvars = Hashtbl.create numarrs in
   let termalg = function
     | `Real qq -> mk_real srk qq
     | `App (arrsym, [indvar]) -> 
@@ -142,9 +142,9 @@ let mfa_to_lia srk (qfp, matrix) arr_preds =
           if ind = numarrs then
             mk_var srk (Hashtbl.find arrenum arrsym) `TyInt
           else
-            begin match Hashtbl.find_opt preqfmapinds (arrsym, ind) with
+            begin match Hashtbl.find_opt preqfmapvars (arrsym, ind) with
               | Some existnum -> mk_var srk existnum `TyInt
-              | None -> Hashtbl.add preqfmapinds (arrsym, ind) !qfcounter;
+              | None -> Hashtbl.add preqfmapvars (arrsym, ind) !qfcounter;
                 qfcounter := !qfcounter + 1;
                 mk_var srk (!qfcounter - 1) `TyInt
             end
@@ -193,7 +193,38 @@ let mfa_to_lia srk (qfp, matrix) arr_preds =
   let matrix = Formula.eval srk alg matrix in
   let qfp = 
     (BatList.make 
-       ((Hashtbl.length preqfmapsyms) + (Hashtbl.length preqfmapinds)) 
+       ((Hashtbl.length preqfmapsyms) + (Hashtbl.length preqfmapvars)) 
        (`Exists ("_", `TyInt)))
     @qfp in
+  let clistconsts = Hashtbl.fold 
+      (fun (arrsym, sym) ind consistencylist ->
+         let conjunct = 
+         mk_if 
+           srk 
+           (mk_eq srk (mk_var srk numarrs `TyInt) (mk_const srk sym))
+           (mk_eq 
+              srk 
+              (mk_var srk (Hashtbl.find arrenum arrsym) `TyInt)
+              (mk_var srk ind `TyInt))
+         in
+         conjunct :: consistencylist)
+      preqfmapsyms
+      []
+  in
+  let clistvars = Hashtbl.fold 
+      (fun (arrsym, sym) ind consistencylist ->
+         let conjunct = 
+           mk_if 
+             srk 
+             (mk_eq srk (mk_var srk numarrs `TyInt) (mk_var srk sym `TyInt))
+             (mk_eq 
+                srk 
+                (mk_var srk (Hashtbl.find arrenum arrsym) `TyInt)
+                (mk_var srk ind `TyInt))
+         in
+         conjunct :: consistencylist)
+      preqfmapvars
+      []
+  in
+  let matrix = mk_and srk ([matrix]@clistconsts@clistvars) in
   add_prefix srk (qfp, matrix)
