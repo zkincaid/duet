@@ -4,9 +4,10 @@
            displayName="ComPact"
            timelimit="15min">
   <rundefinition name="termination-all">
-  <tasks name="Termination">
-    <includesfile>../tasks/termination_experiment.set</includesfile>
-    <propertyfile>../properties/termination.prp</propertyfile>
-  </tasks>
+  	<option name="-termination" />
+	  <tasks name="Termination">
+	    <includesfile>../tasks/termination_experiment.set</includesfile>
+	    <propertyfile>../properties/termination.prp</propertyfile>
+	  </tasks>
 </rundefinition>
 </benchmark>
