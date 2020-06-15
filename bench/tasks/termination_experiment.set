@@ -1,0 +1,11 @@
+termination-crafted/*.yml
+termination-crafted-lit/*.yml
+termination-numeric/*.yml
+termination-restricted-15/*.yml
+loops/*.yml
+loop-acceleration/*.yml
+loop-invgen/*.yml
+loop-lit/*.yml
+loop-new/*.yml
+recursive/*.yml
+recursive-simple/*.yml
