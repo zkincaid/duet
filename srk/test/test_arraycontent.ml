@@ -28,7 +28,7 @@ let pred_test () =
   let phi =
     let open Infix in
     exists `TyInt
-      ((forall `TyInt ((var 0 `TyInt) = a(x)))
+      ((forall `TyInt ((var 0 `TyInt) = a((var 0 `TyInt)) && a(x) = a(y)))
       || (exists `TyReal ((var 0 `TyReal) <= (var 1 `TyInt))))
   in
   (*let psi =

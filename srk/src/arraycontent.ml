@@ -119,15 +119,45 @@ let add_prefix srk (qf_pre, matrix) =
     qf_pre
     matrix
 
-let mfa_to_lia srk (eqfp, matrix) arr_preds =
-  let inner_depth = Symbol.Set.cardinal arr_preds in
-  let matrix = decapture srk (List.length eqfp) inner_depth matrix in
+let mfa_to_lia srk (qfp, matrix) arr_preds =
+  let enumcounter = ref 0 in
+  let numarrs = Symbol.Set.cardinal arr_preds in
+  let arrenum = Hashtbl.create numarrs in
+  Symbol.Set.iter 
+    (fun arrsym -> Hashtbl.add arrenum arrsym !enumcounter; 
+      enumcounter := !enumcounter + 1) 
+    arr_preds;
+  let innerqf = BatList.make numarrs (`Exists ("_", `TyInt)) in
+  let qfp = qfp@innerqf in
+  let matrix = decapture srk 0 numarrs matrix in
+  let qfcounter = ref (List.length qfp) in
+  let preqfmapsyms = Hashtbl.create numarrs in
+  let preqfmapinds = Hashtbl.create numarrs in
   let termalg = function
     | `Real qq -> mk_real srk qq
-    | `App (arrsym, [ind]) -> 
+    | `App (arrsym, [indvar]) -> 
       if Symbol.Set.mem arrsym arr_preds then
-        failwith "success"
-      else mk_app srk arrsym [ind]
+        begin match destruct srk indvar with
+        | `Var (ind, `TyInt) ->
+          if ind = numarrs then
+            mk_var srk (Hashtbl.find arrenum arrsym) `TyInt
+          else
+            begin match Hashtbl.find_opt preqfmapinds (arrsym, ind) with
+              | Some existnum -> mk_var srk existnum `TyInt
+              | None -> Hashtbl.add preqfmapinds (arrsym, ind) !qfcounter;
+                qfcounter := !qfcounter + 1;
+                mk_var srk (!qfcounter - 1) `TyInt
+            end
+        | `App (sym, []) -> 
+          begin match Hashtbl.find_opt preqfmapsyms (arrsym, sym) with
+            | Some existnum -> mk_var srk existnum `TyInt
+            | None -> Hashtbl.add preqfmapsyms (arrsym, sym) !qfcounter;
+              qfcounter := !qfcounter + 1;
+              mk_var srk (!qfcounter - 1) `TyInt
+          end
+        | _ -> failwith "not flat"
+        end
+      else mk_app srk arrsym [indvar]
     | `App (func, args) -> mk_app srk func args
     | `Var (i, `TyInt) -> mk_var srk i `TyInt
     | `Var (i, `TyReal) -> mk_var srk i `TyReal
@@ -161,4 +191,9 @@ let mfa_to_lia srk (eqfp, matrix) arr_preds =
       (fun sym -> mk_const srk (mk_symbol srk ~name:"test" `TyInt))
       matrix in*)
   let matrix = Formula.eval srk alg matrix in
-  add_prefix srk (eqfp, matrix)
+  let qfp = 
+    (BatList.make 
+       ((Hashtbl.length preqfmapsyms) + (Hashtbl.length preqfmapinds)) 
+       (`Exists ("_", `TyInt)))
+    @qfp in
+  add_prefix srk (qfp, matrix)
