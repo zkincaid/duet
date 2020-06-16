@@ -57,7 +57,13 @@ module LinearRecurrenceInequation : PreDomain
    term over y. *)
 module NonlinearRecurrenceInequation : PreDomainWedge
 
+(** Improve iteration operator using split invariants *)
 module Split(Iter : PreDomain) : PreDomain
+
+(** Improve iteration operator using variable directions (increasing,
+   decreasing, stable) to find phase splits. *)
+module InvariantDirection(Iter : PreDomain) : PreDomain
+
 
 module Product (A : PreDomain) (B : PreDomain) : PreDomain
   with type 'a t = 'a A.t * 'a B.t

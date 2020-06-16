@@ -797,7 +797,11 @@ let _ =
      " Turn on predicate abstraction in forward invariant generation");
   CmdLine.register_config
     ("-cra-split-loops",
-     Arg.Unit (fun () -> K.domain := (module Iteration.Split(val !K.domain))),
+     Arg.Unit (fun () ->
+         if !monotone then
+           K.domain := (module Iteration.InvariantDirection(val !K.domain))
+         else
+           K.domain := (module Iteration.Split(val !K.domain))),
      " Turn on loop splitting");
   CmdLine.register_config
     ("-cra-prsd",
