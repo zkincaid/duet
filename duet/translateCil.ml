@@ -746,6 +746,24 @@ let tr_file filename f =
   CfgIr.normalize file;
   file
 
+let parse_preprocessed filename =
+  let file = simplify (Frontc.parse filename ()) in
+  let cfgir = tr_file filename file in
+  let open CfgIr in
+  cfgir.funcs
+  |> List.iter (fun func ->
+         let name = Varinfo.show func.fname in
+         if BatString.starts_with name "__VERIFIER_atomic" then begin
+             let atomic_begin = Def.mk (Builtin AtomicBegin) in
+             let initial = Cfg.initial_vertex func.cfg in
+             Cfg.add_vertex func.cfg atomic_begin;
+             Cfg.add_edge func.cfg atomic_begin initial;
+             Cfg.enum_terminal func.cfg
+             |> BatEnum.iter (fun terminal ->
+                    insert_pre (Def.mk (Builtin AtomicEnd)) terminal func.cfg)
+           end);
+  cfgir
+
 let parse filename =
   let base = Filename.chop_extension (Filename.basename filename) in
   let go preprocessed =
@@ -758,22 +776,10 @@ let parse filename =
       Printf.sprintf "gcc -D__VERIFIER_duet %s -E %s -o %s" !CmdLine.cflags filename preprocessed
     in
     ignore (Sys.command pp_cmd);
-    let file = simplify (Frontc.parse preprocessed ()) in
-    let cfgir = tr_file filename file in
-    let open CfgIr in
-    cfgir.funcs |> List.iter (fun func ->
-        let name = Varinfo.show func.fname in
-        if BatString.starts_with name "__VERIFIER_atomic" then begin
-          let atomic_begin = Def.mk (Builtin AtomicBegin) in
-          let initial = Cfg.initial_vertex func.cfg in
-          Cfg.add_vertex func.cfg atomic_begin;
-          Cfg.add_edge func.cfg atomic_begin initial;
-          Cfg.enum_terminal func.cfg |> BatEnum.iter (fun terminal ->
-              insert_pre (Def.mk (Builtin AtomicEnd)) terminal func.cfg)
-        end
-      );
-    cfgir
+    parse_preprocessed preprocessed
   in
   Putil.with_temp_filename base ".i" go
 
-let _ = CmdLine.register_parser ("c", parse)
+let () =
+  CmdLine.register_parser ("c", parse);
+  CmdLine.register_parser ("i", parse_preprocessed);
