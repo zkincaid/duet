@@ -41,3 +41,9 @@ val coprod_compute_image : TSet.t -> M.t list -> TSet.t
 val coprod_find_transformation : M.t list -> M.t list -> 
   Linear.QQMatrix.t list * Linear.QQMatrix.t list * M.t list
 
+
+(** Monotone approximation of transitive closure based on Q-VASR.  The
+   transitions of the input transition formula are partitioned by the
+   direction of each variable (increasing, decreasing, or stable) and
+   there is one transition per cell. *)
+module Monotone : Iteration.PreDomain
