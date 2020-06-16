@@ -810,7 +810,14 @@ let _ =
     ("-cra-vas",
      Arg.Unit (fun () ->
          let open Iteration in
-         K.domain := (module Product(Product(LinearRecurrenceInequation)(PolyhedronGuard))(Vas))),
+         if !monotone then
+           K.domain := (module Product
+                                 (Product(Vas.Monotone)(PolyhedronGuard))
+                                 (LinearRecurrenceInequation))
+         else
+           K.domain := (module Product
+                                 (Product(Vas)(PolyhedronGuard))
+                                 (LinearRecurrenceInequation))),
      " Use VAS abstraction");
   CmdLine.register_config
     ("-cra-vass",

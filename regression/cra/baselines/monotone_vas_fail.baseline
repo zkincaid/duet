@@ -1,0 +1,4 @@
+./regression/cra/code/monotone_vas.c:9 >> x % 2 == 0
+
+1 errors total
+0 safe assertions
