@@ -31,6 +31,7 @@ duet/config.ml
 autom4te.cache
 config.status
 duet/duet
+bench/results
 
 #tag files
 */tags
