@@ -533,3 +533,45 @@ let abstract ?exists:(_=fun _ -> true) srk tr_symbols phi  =
 let join  _ _ _ _  = assert false
 let widen  _ _ _ _  = assert false
 let equal  _ _ _ _  = assert false
+
+module Monotone = struct
+  type nonrec 'a t = 'a t
+  let join = join
+  let widen = widen
+  let equal = equal
+  let pp = pp
+  let exp = exp
+
+  let abstract ?exists:(_=fun _ -> true) srk tr_symbols phi =
+    let phi = (rewrite srk ~down:(nnf_rewriter srk) phi) in
+    let phi = Nonlinear.linearize srk phi in
+    let solver = Smt.mk_solver srk in
+    let rec go vas =
+      Smt.Solver.add solver [mk_not srk (gamma srk vas tr_symbols)];
+      match Smt.Solver.get_model solver with
+      | `Unsat -> vas
+      | `Unknown -> assert false
+      | `Sat m ->
+         (* The cell of m consists of all transitions of phi in which
+            each variable is directed the same way that it's directed
+            in m (increasing, decreasing, stable). *)
+         let cell =
+           List.map (fun (x, x') ->
+               let cmp =
+                 QQ.compare (Interpretation.real m x) (Interpretation.real m x')
+               in
+               if cmp < 0 then
+                 mk_lt srk (mk_const srk x) (mk_const srk x')
+               else if cmp > 0 then
+                 mk_lt srk (mk_const srk x') (mk_const srk x)
+               else
+                 mk_eq srk (mk_const srk x) (mk_const srk x'))
+             tr_symbols
+         in
+         let cell_vas = alpha_hat srk (mk_and srk (phi::cell)) tr_symbols in
+         go (coproduct vas cell_vas)
+    in
+    Smt.Solver.add solver [phi];
+    let {v;s_lst} = go (mk_bottom tr_symbols) in
+    {v; s_lst}
+end

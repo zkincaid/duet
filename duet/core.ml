@@ -485,8 +485,7 @@ let rec aexpr_type = function
   | Havoc typ -> typ
   | Constant (CInt (_, ik)) -> Concrete (Int ik)
   | Constant (CString _) ->
-    (* probably Array (Int IChar), but this should be checked ... *)
-    assert false
+     Concrete (Pointer (Concrete (Int 1)))
   | Constant (CChar _) -> Concrete (Int 1)
   | Constant (CFloat (_, fk)) -> Concrete (Float fk)
   | Cast (typ, _) -> typ

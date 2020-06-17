@@ -18,6 +18,10 @@ const_false: duet.exe -cra-split-loops -cra @code/const_false-unreach-call1.c
 wolfe1992_fig5: duet.exe -cra-no-forward-inv -cra-prsd -cra @code/wolfe1992_fig5.c
 divide4: duet.exe -cra-prsd -cra @code/divide4.c
 mbr2016: duet.exe -cra-prsd -cra @code/mbr2016.c
+nonmonotone_vas_succ: duet.exe -cra -cra-vas @code/nonmonotone_vas.c
+nonmonotone_vas_fail: duet.exe -cra -monotone -cra-vas @code/nonmonotone_vas.c
+monotone_vas_succ: duet.exe -cra -monotone -cra-vas @code/monotone_vas.c
+monotone_vas_fail: duet.exe -cra -cra-vas @code/monotone_vas.c
 # memory
 mem: duet.exe -cra-no-forward-inv -check-array-bounds -cra @code/mem.c
 mem2: duet.exe -cra-no-forward-inv -check-array-bounds -cra @code/mem2.c
