@@ -448,7 +448,6 @@ let compute_swf_via_DTA srk exists x_xp formula =
     let invariant_terms = BatList.map (fun symbol -> mk_const srk symbol) invariant_symbols in
     let formula = mk_and srk [body_formula; mk_and srk inv_equalities] in
     logf "\nTransition formula with inv_terms:\n%s\n\n" (Formula.show srk formula);
-    BatList.iter (fun symb -> print_endline (show_symbol srk symb) ) invariant_symbols;
     let linear_invariants = compute_linear_invariants srk formula invariant_symbol_set in
     let cs = CoordinateSystem.mk_empty srk in
     let invariants_polyhedron = get_polyhedron_of_formula srk linear_invariants cs in
