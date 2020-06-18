@@ -3,11 +3,18 @@
 <benchmark tool="tools.two_ls" 
   displayName="2LS" timelimit="15min">
 
-<rundefinition name="termination-all">
+<rundefinition>
   <tasks name="Termination">
-    <includesfile>../tasks/termination_experiment.set</includesfile>
-    <propertyfile>../properties/termination.prp</propertyfile>
+    <includesfile>../tasks/termination.set</includesfile>
+    <propertyfile>../tasks/properties/termination.prp</propertyfile>
     <option name="--64"/>
+    <option name="--termination"/>
+  </tasks>
+  <tasks name="polybench">
+    <includesfile>../tasks/polybench.set</includesfile>
+    <propertyfile>../tasks/properties/termination.prp</propertyfile>
+    <option name="--64"/>
+    <option name="--termination"/>
   </tasks>
 </rundefinition>
 

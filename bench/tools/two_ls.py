@@ -27,9 +27,6 @@ class Tool(benchexec.tools.template.BaseTool):
         return self._version_from_tool(executable)
 
     def cmdline(self, executable, options, tasks, propertyfile, rlimits):
-        if propertyfile:
-            options = options + ["--propertyfile", propertyfile]
-
         return [executable] + options + tasks
 
     def determine_result(self, returncode, returnsignal, output, isTimeout):

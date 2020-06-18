@@ -1,19 +1,16 @@
 <?xml version="1.0"?>
 <!DOCTYPE benchmark PUBLIC "+//IDN sosy-lab.org//DTD BenchExec benchmark 1.18//EN" "https://www.sosy-lab.org/benchexec/benchmark-1.18.dtd">
-<benchmark tool="tools.compact"
-           displayName="ComPact"
+<benchmark tool="tools.termite"
+           displayName="Termite"
            timelimit="15min">
   <rundefinition>
-    <option name="-monotone" />
-    <option name="-cra-vas" />
-    <option name="-termination" />
     <tasks name="Termination">
       <includesfile>../tasks/termination.set</includesfile>
       <propertyfile>../tasks/properties/termination.prp</propertyfile>
     </tasks>
-    <tasks name="polybench">
-      <includesfile>../tasks/polybench.set</includesfile>
-      <propertyfile>../tasks/properties/termination.prp</propertyfile>
-    </tasks>
   </rundefinition>
+  <tasks name="polybench">
+    <includesfile>../tasks/polybench.set</includesfile>
+    <propertyfile>../tasks/properties/termination.prp</propertyfile>
+  </tasks>
 </benchmark>
