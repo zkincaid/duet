@@ -114,8 +114,8 @@ let to_mfa srk phi =
         | _ -> assert false
       end
   in
-  let qf_pre, _, matrix = Formula.eval srk alg phi in
-  qf_pre, matrix
+  let qf_pre, bbu, matrix = Formula.eval srk alg phi in
+  qf_pre, bbu, matrix
 
 let add_prefix srk (qf_pre, matrix) =
   List.fold_right
@@ -126,28 +126,27 @@ let add_prefix srk (qf_pre, matrix) =
     qf_pre
     matrix
 
-let mfa_to_lia srk (qfp, matrix) arr_preds =
+let mfa_to_lia srk (qfp, matrix) arruniv arrother bbu =
   let enumcounter = ref 0 in
-  let numarrs = Symbol.Set.cardinal arr_preds in
-  let arrenum = Hashtbl.create numarrs in
+  let arrunivcard = Symbol.Set.cardinal arruniv in
+  let arrunivenum = Hashtbl.create arrunivcard in
   Symbol.Set.iter 
-    (fun arrsym -> Hashtbl.add arrenum arrsym !enumcounter; 
+    (fun arrsym -> Hashtbl.add arrunivenum arrsym !enumcounter; 
       enumcounter := !enumcounter + 1) 
-    arr_preds;
-  let innerqf = BatList.make numarrs (`Exists ("_", `TyInt)) in
+    arruniv;
+  let innerqf = BatList.make arrunivcard (`Exists ("_", `TyInt)) in
   let qfp = qfp@innerqf in
-  let matrix = decapture srk 0 numarrs matrix in
+  let matrix = decapture srk 0 arrunivcard matrix in
   let qfcounter = ref (List.length qfp) in
-  let preqfmapsyms = Hashtbl.create numarrs in
-  let preqfmapvars = Hashtbl.create numarrs in
+  let preqfmapsyms = Hashtbl.create (Symbol.Set.cardinal arrother) in
+  let preqfmapvars = Hashtbl.create (Symbol.Set.cardinal arrother) in
   let rec termalg = function
     | `Real qq -> mk_real srk qq
     | `App (arrsym, [indvar]) -> 
-      if Symbol.Set.mem arrsym arr_preds then
-        begin match destruct srk indvar with
+      begin match destruct srk indvar with
         | `Var (ind, `TyInt) ->
-          if ind = numarrs then
-            mk_var srk (Hashtbl.find arrenum arrsym) `TyInt
+          if ind = arrunivcard && bbu then
+            mk_var srk (Hashtbl.find arrunivenum arrsym) `TyInt
           else
             begin match Hashtbl.find_opt preqfmapvars (arrsym, ind) with
               | Some existnum -> mk_var srk existnum `TyInt
@@ -163,8 +162,7 @@ let mfa_to_lia srk (qfp, matrix) arr_preds =
               mk_var srk (!qfcounter - 1) `TyInt
           end
         | _ -> failwith "not flat"
-        end
-      else failwith "unexpected error; arr var sym missing from arr sym list"
+      end
     | `App (f, args) ->
       mk_app 
         srk 
@@ -183,7 +181,12 @@ let mfa_to_lia srk (qfp, matrix) arr_preds =
     | `Binop (`Mod, s, t) -> mk_mod srk s t
     | `Unop (`Floor, t) -> mk_floor srk t
     | `Unop (`Neg, t) -> mk_neg srk t
-    | `Ite (cond, bthen, belse) -> mk_ite srk cond bthen belse
+    | `Ite (cond, bthen, belse) -> 
+      mk_ite 
+        srk 
+        (Formula.eval srk alg cond)
+        (Term.eval srk termalg  bthen)
+        (Term.eval srk termalg belse)
   and alg = function
     | `Tru -> mk_true srk
     | `Fls -> mk_false srk
@@ -224,37 +227,54 @@ let mfa_to_lia srk (qfp, matrix) arr_preds =
        ((Hashtbl.length preqfmapsyms) + (Hashtbl.length preqfmapvars)) 
        (`Exists ("_", `TyInt)))
     @qfp in
-  let clistconsts = Hashtbl.fold 
-      (fun (arrsym, sym) ind consistencylist ->
-         let conjunct = 
-         mk_if 
-           srk 
-           (mk_eq srk (mk_var srk numarrs `TyInt) (mk_const srk sym))
-           (mk_eq 
-              srk 
-              (mk_var srk (Hashtbl.find arrenum arrsym) `TyInt)
-              (mk_var srk ind `TyInt))
-         in
-         conjunct :: consistencylist)
-      preqfmapsyms
-      []
+  let matrix = 
+    if bbu = false then matrix
+    else(
+      let clistconsts = Hashtbl.fold 
+          (fun (arrsym, const) ind consistencylist ->
+             let conjunct =
+               begin match Hashtbl.find_opt arrunivenum arrsym with
+                 | None -> mk_true srk
+                 | Some debruin ->
+                   mk_if 
+                     srk 
+                     (mk_eq srk 
+                        (mk_var srk arrunivcard `TyInt) 
+                        (mk_const srk const))
+                     (mk_eq 
+                        srk 
+                        (mk_var srk debruin `TyInt)
+                        (mk_var srk ind `TyInt))
+               end
+             in
+             conjunct :: consistencylist)
+          preqfmapsyms
+          []
+      in
+      let clistvars = Hashtbl.fold 
+          (fun (arrsym, sym) ind consistencylist ->
+             let conjunct = 
+               begin match Hashtbl.find_opt arrunivenum arrsym with
+                 | None -> mk_true srk
+                 | Some debruin ->
+                   mk_if 
+                     srk 
+                     (mk_eq srk 
+                        (mk_var srk arrunivcard `TyInt) 
+                        (mk_var srk sym `TyInt))
+                     (mk_eq 
+                        srk 
+                        (mk_var srk debruin `TyInt)
+                        (mk_var srk ind `TyInt))
+               end
+             in
+             conjunct :: consistencylist)
+          preqfmapvars
+          []
+      in
+      mk_and srk ([matrix]@clistconsts@clistvars) 
+    )
   in
-  let clistvars = Hashtbl.fold 
-      (fun (arrsym, sym) ind consistencylist ->
-         let conjunct = 
-           mk_if 
-             srk 
-             (mk_eq srk (mk_var srk numarrs `TyInt) (mk_var srk sym `TyInt))
-             (mk_eq 
-                srk 
-                (mk_var srk (Hashtbl.find arrenum arrsym) `TyInt)
-                (mk_var srk ind `TyInt))
-         in
-         conjunct :: consistencylist)
-      preqfmapvars
-      []
-  in
-  let matrix = mk_and srk ([matrix]@clistconsts@clistvars) in
   add_prefix srk (qfp, matrix)
 
 (*let projection = failwith "todo 1"*)
@@ -341,9 +361,10 @@ module Array_analysis (Iter : PreDomain) = struct
   let join = failwith "todo 7"
 
   let exp srk _ _ phi =
-    let _, matr = to_mfa srk phi in
-    let _, _ = get_array_syms srk matr true in
-    failwith "todo 9"
+    let qpf, bbu, matr = to_mfa srk phi in
+    let arruniv, arrother = get_array_syms srk matr bbu in
+    let lia = mfa_to_lia srk (qpf, matr) arruniv arrother bbu in 
+    lia
 
   let pp = failwith "todo 10"
 
