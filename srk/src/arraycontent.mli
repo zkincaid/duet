@@ -1,4 +1,5 @@
 open Syntax
+open Iteration
 module V = Linear.QQVector
 module M = Linear.QQMatrix
 module Z = Linear.ZZVector
@@ -17,5 +18,13 @@ val to_mfa : 'a context -> 'a formula -> qfp * 'a t
  * Does not do any renaming/attempts to avoid capture *)
 val add_prefix : 'a context -> qfp * 'a t -> 'a t
 
-(* converts monic flat array to lia formula *)
+(* converts monic flat array to equiv lia formula; 
+ * TODO check for types for arr;, make sure quants have right type; fix
+ * types in general *)
 val mfa_to_lia : 'a context -> (qfp * 'a formula) -> Symbol.Set.t -> 'a t
+
+(*val projection : 'a context ->'a formula -> Symbol.Set.t -> 'a t*)
+
+
+module Array_analysis (Iter : PreDomain) : PreDomain
+  with type 'a t = 'a formula

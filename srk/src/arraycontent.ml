@@ -1,4 +1,5 @@
 open Syntax
+open Iteration
 module V = Linear.QQVector
 module M = Linear.QQMatrix
 module Z = Linear.ZZVector
@@ -11,47 +12,55 @@ type qfp =  [ `Exists of string * Syntax.typ_fo
             | `Forall of string * Syntax.typ_fo ] list
 
 let to_mfa srk phi =
-  let combine phis =
+  let combine deconstr_phis =
     let f (qf_pre0, boundbyuniv0, phi0) (eqf_pre, boundbyuniv, phis) =
+      (* we remove the univ quantifiers and then add them back after this 
+       * procedure; eqf_pre is the existential quantifier prefix. 
+       * boundbyuniv is a boolean which is true when a univ quant
+       * needs to be added. qf_pre0 still contains its univ quant;
+       * bounbyuniv0 is redundant info specifying if univ quant
+       * at head of qf_pre0. More complex optimizations
+       * can be made to avoid introducing so many vars during disjunction *)
       if boundbyuniv0 = true && boundbyuniv = true
       then (
         let eqf_pre0 = List.tl (List.rev qf_pre0) in
         let depth = List.length eqf_pre  in 
-        let depth0 = List.length eqf_pre0 in (*not counting univ quant*)
+        let depth0 = List.length eqf_pre0 in
         let phis = List.map (decapture srk (depth + 1) depth0) phis in
-        (eqf_pre0@eqf_pre, boundbyuniv0 || boundbyuniv, 
-         (decapture srk 1 depth phi0)::phis)
+        (eqf_pre0@eqf_pre, true, (decapture srk 1 depth phi0)::phis)
       )
       else if boundbyuniv0 = true && boundbyuniv = false
       then (
         let eqf_pre0 = List.tl (List.rev qf_pre0) in
         let depth = List.length eqf_pre  in 
-        let depth0 = List.length eqf_pre0 in (*not counting univ quant*)
+        let depth0 = List.length eqf_pre0 in 
         let phis = List.map (decapture srk 0 1) phis in
         let phis = List.map (decapture srk (depth + 1) depth0) phis in
-        (eqf_pre0@eqf_pre, boundbyuniv0 || boundbyuniv, 
-         (decapture srk 1 depth phi0)::phis)
+        (eqf_pre0@eqf_pre, true, (decapture srk 1 depth phi0)::phis)
       )
       else if boundbyuniv0 = false && boundbyuniv = true
       then (
         let eqf_pre0 = qf_pre0 in
         let depth = List.length eqf_pre  in 
-        let depth0 = List.length eqf_pre0 in (*not counting univ quant*)
+        let depth0 = List.length eqf_pre0 in 
         let phis = List.map (decapture srk (depth + 1) depth0) phis in
-        (eqf_pre0@eqf_pre, boundbyuniv0 || boundbyuniv, 
-         (decapture srk 0 (depth + 1) phi0)::phis)
+        (eqf_pre0@eqf_pre, true, (decapture srk 0 (depth + 1) phi0)::phis)
       )
       else
         (
           let eqf_pre0 = qf_pre0 in
           let depth = List.length eqf_pre  in 
-          let depth0 = List.length eqf_pre0 in (*not counting univ quant*)
+          let depth0 = List.length eqf_pre0 in 
           let phis = List.map (decapture srk depth depth0) phis in
-          (eqf_pre0@eqf_pre, boundbyuniv0 || boundbyuniv, 
-           (decapture srk 0 depth phi0)::phis)
+          (eqf_pre0@eqf_pre, false, (decapture srk 0 depth phi0)::phis)
         )
     in
-    List.fold_right f phis ([], false, [])
+    let eqf_pre, bbu, mat = List.fold_right f deconstr_phis ([], false, []) in
+    let qf_pre = 
+      if bbu then eqf_pre@[`Forall ("_", `TyInt)]
+      else eqf_pre 
+    in
+    qf_pre, bbu, mat
   in
   let alg = function
     | `Tru -> ([], false, mk_true srk)
@@ -59,39 +68,45 @@ let to_mfa srk phi =
     | `Atom (`Eq, x, y) -> ([], false, mk_eq srk x y)
     | `Atom (`Lt, x, y) -> ([], false, mk_lt srk x y)
     | `Atom (`Leq, x, y) -> ([], false, mk_leq srk x y)
-    | `And conjuncts ->
-      let (eqf_pre, bbu, conjuncts) = combine conjuncts in
+    | `And deconstructed_conjuncts ->
+      let (qf_pre, bbu, conjuncts_mat) = combine deconstructed_conjuncts in
+      qf_pre, bbu, mk_and srk conjuncts_mat
+    | `Or deconstructed_disjuncts ->
+      let (qf_pre, bbu, disjuncts_mat) = combine deconstructed_disjuncts in
       if bbu = false then
-        (eqf_pre, bbu, mk_and srk conjuncts)
+        (qf_pre, bbu, mk_or srk disjuncts_mat)
       else 
-        (eqf_pre@[`Forall ("_", `TyInt)], bbu, mk_and srk conjuncts)
-    | `Or disjuncts ->
-      let (eqf_pre, bbu, disjuncts) = combine disjuncts in
-      if bbu = false then
-        (eqf_pre, bbu, mk_or srk disjuncts)
-      else 
-        ((`Exists ("_", `TyInt)) :: eqf_pre@[`Forall ("_", `TyInt)], 
+        ((`Exists ("_", `TyInt)) :: qf_pre, 
          bbu, 
          mk_or 
            srk 
            (List.mapi 
-              (fun ind disjunct -> 
+              (fun ind disjunct_mat -> 
                  mk_and 
                    srk 
-                   [disjunct; 
+                   [disjunct_mat; 
                     mk_eq 
                       srk 
                       (mk_int srk ind)  
-                      (mk_var srk (List.length eqf_pre + 2) `TyInt)]) 
-              disjuncts))
-    | `Quantify (`Exists, name, typ, (qf_pre, bbu, phi)) ->
-      (`Exists (name, typ)::qf_pre, bbu, phi)
-    | `Quantify (`Forall, name, typ, (qf_pre, bbu, phi)) ->
+                      (mk_var srk (List.length qf_pre + 1) `TyInt)]) 
+              disjuncts_mat))
+    | `Quantify (`Exists, name, `TyInt, (qf_pre, bbu, phi)) ->
+      (`Exists (name,`TyInt)::qf_pre, bbu, phi)
+    | `Quantify (`Forall, name, `TyInt, (qf_pre, bbu, phi)) ->
       if bbu then failwith "not monic"
-      else (`Forall (name, typ)::qf_pre, true, phi)
+      else (`Forall (name, `TyInt)::qf_pre, true, phi)
+    | `Quantify (_, _, _, _) -> failwith "quantifier over non-int sort" 
     | `Not (_, _, _) -> failwith "not positive"
-    | `Proposition (`Var i) -> ([], false, mk_var srk i `TyBool)
-    | `Proposition (`App (p, args)) -> ([], false, mk_app srk p args)
+    | `Proposition (`Var i) -> ([], false, mk_var srk i `TyBool) 
+    | `Proposition (`App (p, args)) ->
+      [], 
+      false, 
+      mk_app srk p (List.map (fun arg -> 
+          begin match Expr.refine srk arg with 
+            | `Term t -> t
+            | `Formula _ -> failwith "invalid predicate"
+          end)
+          args)
     | `Ite (cond, bthen, belse) ->
       begin match combine [cond; bthen; belse] with
         | (qf_pre, bbu, [cond; bthen; belse]) ->
@@ -101,14 +116,6 @@ let to_mfa srk phi =
   in
   let qf_pre, _, matrix = Formula.eval srk alg phi in
   qf_pre, matrix
-(*List.fold_right
-  (fun qf phi ->
-     match qf with
-     | `Exists (name, typ) -> mk_exists srk ~name typ phi
-     | `Forall (name, typ) -> mk_forall srk ~name typ phi)
-  qf_pre
-  matrix
-*)
 
 let add_prefix srk (qf_pre, matrix) =
   List.fold_right
@@ -133,7 +140,7 @@ let mfa_to_lia srk (qfp, matrix) arr_preds =
   let qfcounter = ref (List.length qfp) in
   let preqfmapsyms = Hashtbl.create numarrs in
   let preqfmapvars = Hashtbl.create numarrs in
-  let termalg = function
+  let rec termalg = function
     | `Real qq -> mk_real srk qq
     | `App (arrsym, [indvar]) -> 
       if Symbol.Set.mem arrsym arr_preds then
@@ -157,8 +164,14 @@ let mfa_to_lia srk (qfp, matrix) arr_preds =
           end
         | _ -> failwith "not flat"
         end
-      else mk_app srk arrsym [indvar]
-    | `App (func, args) -> mk_app srk func args
+      else failwith "unexpected error; arr var sym missing from arr sym list"
+    | `App (f, args) ->
+      mk_app srk f (List.map (fun arg -> 
+          begin match Expr.refine srk arg with 
+            | `Term t -> Term.eval srk termalg t
+            | `Formula _ -> failwith "invalid predicate"
+          end)
+          args)
     | `Var (i, `TyInt) -> mk_var srk i `TyInt
     | `Var (i, `TyReal) -> mk_var srk i `TyReal
     | `Add sum -> mk_add srk sum
@@ -168,14 +181,21 @@ let mfa_to_lia srk (qfp, matrix) arr_preds =
     | `Unop (`Floor, t) -> mk_floor srk t
     | `Unop (`Neg, t) -> mk_neg srk t
     | `Ite (cond, bthen, belse) -> mk_ite srk cond bthen belse
-  in
-  let te = Term.eval srk termalg in
-  let alg = function
+  and alg = function
     | `Tru -> mk_true srk
     | `Fls -> mk_false srk
-    | `Atom (`Eq, x, y) -> mk_eq srk (te x) (te y)
-    | `Atom (`Lt, x, y) -> mk_lt srk (te x) (te y)
-    | `Atom (`Leq, x, y) -> mk_leq srk (te x) (te y)
+    | `Atom (`Eq, x, y) -> mk_eq 
+                             srk 
+                             (Term.eval srk termalg x) 
+                             (Term.eval srk termalg y)
+    | `Atom (`Lt, x, y) -> mk_lt 
+                             srk 
+                             (Term.eval srk termalg x) 
+                             (Term.eval srk termalg y)
+    | `Atom (`Leq, x, y) -> mk_leq 
+                              srk 
+                              (Term.eval srk termalg x) 
+                              (Term.eval srk termalg y)
     | `And conjuncts -> mk_and srk conjuncts
     | `Or disjuncts -> mk_or srk disjuncts
     | `Quantify _ ->
@@ -183,13 +203,15 @@ let mfa_to_lia srk (qfp, matrix) arr_preds =
     | `Not _ -> failwith "not positive"
     | `Proposition (`Var i) -> mk_var srk i `TyBool
     | `Proposition (`App (p, args)) ->
-       mk_app srk p args
+      mk_app srk p (List.map (fun arg -> 
+          begin match Expr.refine srk arg with 
+            | `Term t -> Term.eval srk termalg t
+            | `Formula _ -> failwith "invalid predicate"
+          end)
+          args)
     | `Ite (cond, bthen, belse) ->
           mk_ite srk cond bthen belse
   in
-  (*let matrix = substitute_sym srk 
-      (fun sym -> mk_const srk (mk_symbol srk ~name:"test" `TyInt))
-      matrix in*)
   let matrix = Formula.eval srk alg matrix in
   let qfp = 
     (BatList.make 
@@ -228,3 +250,87 @@ let mfa_to_lia srk (qfp, matrix) arr_preds =
   in
   let matrix = mk_and srk ([matrix]@clistconsts@clistvars) in
   add_prefix srk (qfp, matrix)
+
+(*let projection = failwith "todo 1"*)
+
+let get_array_syms srk matrix bbu =
+  let combine set_pairs = 
+    List.fold_left 
+      (fun (arrsymuniv, arrsymother) (arrsymuniv0, arrsymother0) ->
+         Symbol.Set.union arrsymuniv arrsymuniv0,
+         Symbol.Set.union arrsymother arrsymother0)
+      (Symbol.Set.empty, Symbol.Set.empty)
+      set_pairs
+
+  in
+  let rec termalg = function
+    | `Real _ | `Var _ -> Symbol.Set.empty, Symbol.Set.empty
+    | `App (arrsym, [indvar]) -> 
+        begin match destruct srk indvar with
+          | `Var (ind, `TyInt) ->
+            if bbu && ind = 0 then
+              Symbol.Set.add arrsym Symbol.Set.empty,
+              Symbol.Set.empty
+            else
+              Symbol.Set.empty,
+              Symbol.Set.add arrsym Symbol.Set.empty
+          | `App (_, []) -> 
+            Symbol.Set.empty,
+            Symbol.Set.add arrsym Symbol.Set.empty
+          | _ -> failwith "not flat"
+        end
+    | `App (_, _) -> failwith "figure out app"
+    | `Add sum -> combine sum
+    | `Mul product -> combine product
+    | `Binop (_, s, t) -> combine [s; t]
+    | `Unop (_, t) -> t
+    | `Ite (cond, bthen, belse) -> combine [Formula.eval srk alg cond;
+                                         bthen; belse]
+  and  alg = function
+    | `Tru | `Fls -> Symbol.Set.empty, Symbol.Set.empty
+    | `Atom (_, x, y) -> 
+      let arrsymuniv1, arrsymother1 = Term.eval srk termalg x in
+      let arrsymuniv2, arrsymother2 = Term.eval srk termalg y in
+      Symbol.Set.union arrsymuniv1 arrsymuniv2,
+      Symbol.Set.union arrsymother1 arrsymother2
+    | `And juncts 
+    | `Or juncts ->
+      combine juncts
+    | `Quantify _ -> failwith "not matrix"
+    | `Not _ -> failwith "not positive"
+    | `Proposition (`Var _) -> Symbol.Set.empty, Symbol.Set.empty
+    | `Proposition (`App (_, args)) -> 
+      combine (List.map (fun arg -> 
+          begin match Expr.refine srk arg with 
+            | `Term t -> Term.eval srk termalg t
+            | `Formula f -> Formula.eval srk alg f
+          end)
+          args)
+    | `Ite (cond, bthen, belse) -> combine [cond; bthen; belse]
+  in
+  Formula.eval srk alg matrix 
+
+
+
+
+
+module Array_analysis (Iter : PreDomain) = struct
+
+  type 'a t = 'a formula
+
+  let abstract = failwith "todo 4"
+
+  let equal = failwith "todo 5"
+
+  let widen = failwith "todo 6"
+
+  let join = failwith "todo 7"
+
+  let exp srk _ _ phi =
+    let _, matr = to_mfa srk phi in
+    let _, _ = get_array_syms srk matr true in
+    failwith "todo 9"
+
+  let pp = failwith "todo 10"
+
+end

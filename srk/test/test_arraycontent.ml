@@ -4,6 +4,9 @@ open Syntax
 open Test_pervasives
 open Arraycontent
 
+
+
+
 (* This test will fail if the implementation of prenex changes the way that
    unordered quantifiers get ordered (swap var 0 and var 1 in psi). *)
 let tomfa () =
@@ -11,7 +14,7 @@ let tomfa () =
     let open Infix in
     exists `TyInt
       ((forall `TyInt ((var 0 `TyInt) = (var 1 `TyInt)))
-      || (exists `TyReal ((var 0 `TyReal) <= (var 1 `TyInt))))
+      || (exists `TyInt ((var 0 `TyInt) <= (var 1 `TyInt))))
   in
   (*let psi =
     let open Infix in
@@ -28,8 +31,10 @@ let pred_test () =
   let phi =
     let open Infix in
     exists `TyInt
-      ((forall `TyInt ((var 0 `TyInt) = a((var 0 `TyInt)) && a(x) = a(y)))
-      || (exists `TyReal ((var 0 `TyReal) <= (var 1 `TyInt))))
+      ((forall `TyInt ((var 0 `TyInt) = a((var 0 `TyInt)) && a(x) = a(y)
+                      && mk_ite srk (predic(a(x))) 
+                        (a(x) = (int 10)) (a(x) = (int 20))))
+      || (exists `TyInt ((var 0 `TyInt) <= (var 1 `TyInt))))
   in
   (*let psi =
     let open Infix in
