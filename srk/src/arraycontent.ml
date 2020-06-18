@@ -104,7 +104,7 @@ let to_mfa srk phi =
       mk_app srk p (List.map (fun arg -> 
           begin match Expr.refine srk arg with 
             | `Term t -> t
-            | `Formula _ -> failwith "invalid predicate"
+            | `Formula _ -> failwith "TODO: formula in predicates"
           end)
           args)
     | `Ite (cond, bthen, belse) ->
@@ -166,12 +166,15 @@ let mfa_to_lia srk (qfp, matrix) arr_preds =
         end
       else failwith "unexpected error; arr var sym missing from arr sym list"
     | `App (f, args) ->
-      mk_app srk f (List.map (fun arg -> 
-          begin match Expr.refine srk arg with 
-            | `Term t -> Term.eval srk termalg t
-            | `Formula _ -> failwith "invalid predicate"
-          end)
-          args)
+      mk_app 
+        srk 
+        f 
+        (List.map (fun arg -> 
+             begin match Expr.refine srk arg with 
+               | `Term t -> ((Term.eval srk termalg t) :> ('a, typ_fo) expr)
+               | `Formula f -> ((Formula.eval srk alg f) :> ('a, typ_fo) expr)
+             end)
+            args) 
     | `Var (i, `TyInt) -> mk_var srk i `TyInt
     | `Var (i, `TyReal) -> mk_var srk i `TyReal
     | `Add sum -> mk_add srk sum
@@ -203,12 +206,15 @@ let mfa_to_lia srk (qfp, matrix) arr_preds =
     | `Not _ -> failwith "not positive"
     | `Proposition (`Var i) -> mk_var srk i `TyBool
     | `Proposition (`App (p, args)) ->
-      mk_app srk p (List.map (fun arg -> 
-          begin match Expr.refine srk arg with 
-            | `Term t -> Term.eval srk termalg t
-            | `Formula _ -> failwith "invalid predicate"
-          end)
-          args)
+      mk_app 
+        srk 
+        p 
+        (List.map (fun arg -> 
+             begin match Expr.refine srk arg with 
+               | `Term t -> ((Term.eval srk termalg t) :> ('a, typ_fo) expr)
+               | `Formula f -> ((Formula.eval srk alg f) :> ('a, typ_fo) expr)
+             end)
+            args) 
     | `Ite (cond, bthen, belse) ->
           mk_ite srk cond bthen belse
   in
@@ -279,7 +285,14 @@ let get_array_syms srk matrix bbu =
             Symbol.Set.add arrsym Symbol.Set.empty
           | _ -> failwith "not flat"
         end
-    | `App (_, _) -> failwith "figure out app"
+    | `App (_, args) -> 
+      combine  
+        (List.map (fun arg -> 
+             begin match Expr.refine srk arg with 
+               | `Term t -> Term.eval srk termalg t
+               | `Formula f -> Formula.eval srk alg f
+             end)
+            args)
     | `Add sum -> combine sum
     | `Mul product -> combine product
     | `Binop (_, s, t) -> combine [s; t]
@@ -300,7 +313,8 @@ let get_array_syms srk matrix bbu =
     | `Not _ -> failwith "not positive"
     | `Proposition (`Var _) -> Symbol.Set.empty, Symbol.Set.empty
     | `Proposition (`App (_, args)) -> 
-      combine (List.map (fun arg -> 
+      combine  
+        (List.map (fun arg -> 
           begin match Expr.refine srk arg with 
             | `Term t -> Term.eval srk termalg t
             | `Formula f -> Formula.eval srk alg f
