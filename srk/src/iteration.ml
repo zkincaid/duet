@@ -855,6 +855,7 @@ module InvariantDirection (Iter : PreDomain) = struct
   let widen _ = assert false
 
   let abstract ?(exists=fun _ -> true) srk tr_symbols phi =
+    let phi = Nonlinear.linearize srk phi in
     (* Use variable directions as candidate transition invariants *)
     let predicates =
       List.concat_map (fun (x,x') ->
