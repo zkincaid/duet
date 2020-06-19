@@ -54,6 +54,13 @@ let coefficient_gcd term =
     ZZ.zero
     (V.enum term)
 
+let common_denominator term =
+  BatEnum.fold (fun den (qq, _) ->
+      ZZ.lcm den (QQ.denominator qq))
+    ZZ.one
+    (V.enum term)
+
+
 let select_implicant srk interp ?(env=Env.empty) phi =
   match Interpretation.select_implicant interp ~env phi with
   | Some atoms ->
@@ -962,6 +969,46 @@ let select_int_term srk interp x atoms =
     List.iter (fun atom -> Log.errorf ">%a" (Formula.pp srk) atom) atoms;
     assert false
 
+
+(* Given an interpretation M and a cube C with M |= C, find a cube C'
+   such that M |= C' |= C, and C does not contain any floor terms. *)
+let specialize_floor_cube srk model cube =
+  let div_constraints = ref [] in
+  let add_div_constraint divisor term =
+    let div =
+      mk_eq srk (mk_mod srk term (mk_real srk (QQ.of_zz divisor))) (mk_real srk QQ.zero)
+    in
+    div_constraints := div::(!div_constraints)
+  in
+  let replace_floor expr = match destruct srk expr with
+    | `Unop (`Floor, t) ->
+       let v = linterm_of srk t in
+       let divisor = common_denominator v in
+       let qq_divisor = QQ.of_zz divisor in
+       let dividend = of_linterm srk (V.scalar_mul qq_divisor v) in
+       let remainder =
+         QQ.modulo (Interpretation.evaluate_term model dividend) qq_divisor
+       in
+       let dividend' = mk_sub srk dividend (mk_real srk remainder) in
+       let replacement =
+         V.add_term
+           (QQ.negate (QQ.div remainder qq_divisor))
+           Linear.const_dim
+           v
+         |> of_linterm srk
+       in
+       assert (QQ.equal
+                 (Interpretation.evaluate_term model replacement)
+                 (QQ.of_zz (QQ.floor (Interpretation.evaluate_term model t))));
+
+       add_div_constraint divisor dividend';
+       (replacement :> ('a,typ_fo) expr)
+    | _ -> expr
+  in
+  let cube' = List.map (rewrite srk ~up:replace_floor) cube in
+  (!div_constraints)@cube'
+
+
 (* Counter-strategy synthesis *)
 module CSS = struct
 
@@ -1712,7 +1759,7 @@ let mbp ?(dnf=false) srk exists phi =
     | `Sat interp ->
       let implicant =
         match select_implicant srk interp phi with
-        | Some x -> x
+        | Some x -> specialize_floor_cube srk interp x
         | None -> assert false
       in
       let (vt_map, _) =
@@ -1920,39 +1967,6 @@ let check_strategy srk qf_pre phi strategy =
   let strategy_formula = go qf_pre strategy in
   Smt.is_sat srk (mk_and srk [strategy_formula; mk_not srk phi]) = `Unsat
 
-(* Given an interpretation M and a cube C with M |= C, find a cube C'
-   such that M |= C' |= C, and C does not contain any floor terms. *)
-let _specialize_floor_cube srk model cube =
-  let div_constraints = ref [] in
-  let add_div_constraint divisor term =
-    let div =
-      mk_eq srk (mk_mod srk term (mk_real srk (QQ.of_zz divisor))) (mk_real srk QQ.zero)
-    in
-    div_constraints := div::(!div_constraints)
-  in
-  let replace_floor expr = match destruct srk expr with
-    | `Unop (`Floor, t) -> begin match Term.destruct srk t with
-        | `Binop (`Div, dividend, divisor) -> begin match Term.destruct srk divisor with
-            | `Real k ->
-              if QQ.equal k QQ.zero then assert false;
-
-              let (divisor, multiplier) = QQ.to_zzfrac k in
-              let dividend = mk_mul srk [mk_real srk (QQ.of_zz multiplier); dividend] in
-              let remainder =
-                QQ.modulo (Interpretation.evaluate_term model dividend) (QQ.of_zz divisor)
-              in
-              let dividend' = mk_sub srk dividend (mk_real srk remainder) in
-              let div = mk_div srk dividend' (mk_real srk (QQ.of_zz divisor)) in
-              add_div_constraint divisor dividend';
-              (div :> ('a,typ_fo) expr)
-            | _ -> invalid_arg "select_floor_cube: ill-formed floor"
-          end
-        | _ -> invalid_arg "select_floor_cube: ill-formed floor"
-      end
-    | _ -> expr
-  in
-  let cube' = List.map (rewrite srk ~up:replace_floor) cube in
-  (!div_constraints)@cube'
 
 (* Loos-Weispfenning virtual terms, plus a virtual term CUnknown
    indicating failure of virtual term selection.  Substituting
