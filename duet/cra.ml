@@ -21,6 +21,9 @@ let forward_pred_abs = ref false
 let dump_goals = ref false
 let monotone = ref false
 let nb_goals = ref 0
+let termination_exp = ref true
+let termination_llrf = ref true
+let termination_dta = ref true
 
 let dump_goal loc path_condition =
   if !dump_goals then begin
@@ -721,6 +724,7 @@ let omega_algebra =  function
      (** over-approximate possibly non-terminating conditions for a transition *)
      begin
        let x_xp, formula = K.to_transition_formula transition in
+       let formula = Nonlinear.linearize srk formula in
        let exists =
          let post_symbols =
            List.fold_left
@@ -733,9 +737,22 @@ let omega_algebra =  function
          | Some _ -> true
          | None -> Syntax.Symbol.Set.mem x post_symbols
        in
-       match TLLRF.compute_swf srk exists x_xp formula with
-       | TLLRF.ProvedToTerminate -> Syntax.mk_false srk
-       | _ -> TDTA.compute_swf_via_DTA srk exists x_xp formula
+       if !termination_llrf
+          && TLLRF.compute_swf srk exists x_xp formula = TLLRF.ProvedToTerminate
+       then
+         Syntax.mk_false srk
+       else
+         let dta =
+           if !termination_dta then
+             [TDTA.compute_swf_via_DTA srk exists x_xp formula]
+           else []
+         in
+         let exp =
+           if !termination_exp then
+             [Syntax.mk_not srk (TerminationExp.mp (!K.domain) srk exists x_xp formula)]
+           else []
+         in
+         Syntax.mk_and srk (dta@exp)
      end
   | `Add (cond1, cond2) ->
      (** combining possibly non-terminating conditions for multiple paths *)
@@ -758,8 +775,15 @@ let prove_termination_main file =
       match Smt.is_sat srk omega_paths_sum with
       | `Sat -> 
         Format.printf "Cannot prove that program always terminates\n"; 
-        let s = Syntax.mk_not srk omega_paths_sum in
-        let simplified = Quantifier.mbp ~dnf:true srk (fun _ -> true) s in
+        let simplified =
+          omega_paths_sum
+          |> Nonlinear.linearize srk
+          |> Quantifier.mbp srk (fun sym ->
+                 match V.of_symbol sym with
+                 | Some x -> V.is_global x
+                 | _ -> false)
+          |> Syntax.mk_not srk
+        in
         Format.printf "Sufficient terminating conditions:\n%a\n" (Syntax.Formula.pp srk) simplified
       | `Unsat -> Format.printf "Program always terminates\n"
       | `Unknown -> Format.printf "Unknown analysis result\n";
@@ -894,7 +918,19 @@ let _ =
          let open Iteration in
          monotone := true;
          K.domain := (module Product(LinearRecurrenceInequation)(PolyhedronGuard))),
-     " Disable non-monotone analysis features")
+     " Disable non-monotone analysis features");
+  CmdLine.register_config
+    ("-termination-no-exp",
+     Arg.Clear termination_exp,
+     " Disable exp-based termination analysis");
+  CmdLine.register_config
+    ("-termination-no-llrf",
+     Arg.Clear termination_llrf,
+     " Disable LLRF-based termination analysis");
+  CmdLine.register_config
+    ("-termination-no-dta",
+     Arg.Clear termination_dta,
+     " Disable DTA-based termination analysis")
 
 let _ =
   CmdLine.register_pass

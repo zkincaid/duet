@@ -5,7 +5,7 @@
            timelimit="15min">
   <rundefinition>
     <option name="-monotone" />
-    <option name="-cra-vas" />
+    <option name="-cra-split-loops" />
     <option name="-termination" />
     <tasks name="Termination">
       <includesfile>../tasks/termination.set</includesfile>
