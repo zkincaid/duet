@@ -27,6 +27,9 @@ val mfa_to_lia : 'a context -> (qfp * 'a formula) -> Symbol.Set.t ->
 val get_array_syms : 'a context -> 'a formula -> bool -> Symbol.Set.t *
                                                          Symbol.Set.t
 
+val new_to_mfa : 'a context -> 'a formula -> 'a formula
+ 
+
 (*val projection : 'a context ->'a formula -> Symbol.Set.t -> 'a t*)
 
 

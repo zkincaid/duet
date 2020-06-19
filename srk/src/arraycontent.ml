@@ -346,6 +346,106 @@ let get_array_syms srk matrix bbu =
 
 
 
+let new_to_mfa srk phi =
+  let substtbl = Hashtbl.create 10 in
+  let univequivclass = ref None in
+  let merge hashtbls =
+    let f (debruinoffset0, hashtbl0) (debruinoffset, hashtbl) =
+      let fromoff, fromtbl, intooff, intotbl =
+        if Hashtbl.length hashtbl0 > Hashtbl.length hashtbl then
+          debruinoffset, hashtbl, debruinoffset0, hashtbl0
+        else debruinoffset0, hashtbl0, debruinoffset, hashtbl
+      in
+      Hashtbl.iter 
+        (fun fromind fromsym ->
+           begin match Hashtbl.find_opt intotbl (intooff + fromind - fromoff)
+             with 
+           | Some intosym ->
+             BatUref.unite
+               (Hashtbl.find substtbl intosym)
+               (Hashtbl.find substtbl fromsym)
+           | None -> Hashtbl.add intotbl (intooff + fromind - fromoff) fromsym
+           end)
+        fromtbl;
+    intooff, intotbl
+    in
+    List.fold_left f (0, Hashtbl.create 0) hashtbls
+  in
+  let rec termalg = function
+    | `Real qq -> ((0, Hashtbl.create 0), mk_real srk qq)
+    | `App (arrsym, [indvar]) -> 
+      begin match destruct srk indvar with
+        | `Var (ind, `TyInt) ->
+          let fresh = mk_symbol srk `TyInt in
+          Hashtbl.add substtbl fresh (BatUref.uref fresh);
+          let fhashtbl = Hashtbl.create 10 in
+          Hashtbl.add fhashtbl ind fresh; 
+          ((0, fhashtbl), 
+          mk_app srk arrsym [mk_const srk fresh])
+        | `App (const, []) -> ((0, Hashtbl.create 0), mk_app srk arrsym 
+                                 [mk_const srk const]) 
+        | _ -> failwith "not in logical fragment"
+      end
+    | `Var (ind, `TyInt) -> 
+      let fresh = mk_symbol srk `TyInt in
+      Hashtbl.add substtbl fresh (BatUref.uref fresh);
+      let fhashtbl = Hashtbl.create 10 in
+      Hashtbl.add fhashtbl ind fresh; 
+      ((0, fhashtbl), mk_const srk fresh)
+    | `Add sum -> 
+      let tbls, terms = List.split sum in
+      merge tbls, mk_add srk terms
+    | `Mul product -> 
+      let tbls, terms = List.split product in
+      merge tbls, mk_mul srk terms
+    | `Binop (`Div, (tbl1, term1), (tbl2, term2)) -> 
+      merge [tbl1; tbl2], mk_div srk term1 term2
+    | `Binop (`Mod, (tbl1, term1), (tbl2, term2)) -> 
+      merge [tbl1; tbl2], mk_div srk term1 term2
+    | `Unop (`Floor, (tbl, t)) -> tbl, mk_floor srk t
+    | `Unop (`Neg, (tbl, t)) -> tbl, mk_neg srk t
+    | `Ite (_, _, _) -> 
+      (*mk_ite 
+        srk 
+        (Formula.eval srk alg cond)
+        (Term.eval srk termalg  bthen)
+        (Term.eval srk termalg belse)*) failwith "todo"
+    |  _ -> failwith "not in pmfa fragment"
+ and alg = function
+    | `Tru -> ((0, Hashtbl.create 0), mk_true srk)
+    | `Fls -> ((0, Hashtbl.create 0), mk_false srk)
+    | `Atom (`Eq, x, y) -> 
+      let tbl1, term1 = Term.eval srk termalg x in
+      let tbl2, term2 = Term.eval srk termalg y in
+      merge [tbl1; tbl2], mk_eq srk term1 term2
+    | `Atom (`Lt, x, y) ->
+      let tbl1, term1 = Term.eval srk termalg x in
+      let tbl2, term2 = Term.eval srk termalg y in
+      merge [tbl1; tbl2], mk_lt srk term1 term2
+    | `Atom (`Leq, x, y) ->
+      let tbl1, term1 = Term.eval srk termalg x in
+      let tbl2, term2 = Term.eval srk termalg y in
+      merge [tbl1; tbl2], mk_leq srk term1 term2
+    | `And cons ->
+      let tbls, terms = List.split cons in
+      merge tbls, mk_and srk terms
+    | `Or disj -> 
+      let tbls, terms = List.split disj in
+      merge tbls, mk_and srk terms
+    | `Quantify (`Exists, _, `TyInt, ((offset, tbl), phi)) ->
+      Hashtbl.remove tbl offset;
+      (offset+1, tbl), phi
+    | `Quantify (`Forall, _, `TyInt, ((offset, tbl), phi)) ->
+       if !univequivclass = None && Hashtbl.mem tbl offset then
+         univequivclass := Some (Hashtbl.find tbl offset)
+       else ();
+       Hashtbl.remove tbl offset;
+       (offset+1, tbl), phi
+    | _ -> failwith "not in pmfa logical fragment"
+  in
+  let ((_, _), matr) = Formula.eval srk alg phi in
+  matr
+
 
 
 module Array_analysis (Iter : PreDomain) = struct
