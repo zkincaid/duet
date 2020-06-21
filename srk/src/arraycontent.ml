@@ -344,117 +344,133 @@ let get_array_syms srk matrix bbu =
   in
   Formula.eval srk alg matrix 
 
-(*TODO: figure out a way to unify these*)
-let mkb label =
-  match label with
-  | `Div -> mk_div
-  | `Mod -> mk_mod
-let mku label =
-  match label with
-  | `Floor -> mk_floor
-  | `Neg -> mk_neg
-let mka label =
-  match label with
-  | `Eq -> mk_eq
-  | `Leq -> mk_leq 
-  | `Lt -> mk_lt
+let termalg_helper srk empty_case merge obj =
+  match obj with
+  | `Real qq -> empty_case, mk_real srk qq
+  | `Add sum -> 
+    let analy_objs, terms = List.split sum in
+    merge analy_objs, mk_add srk terms
+  | `Mul product -> 
+    let analy_objs, terms = List.split product in
+    merge analy_objs, mk_mul srk terms
+  | `Binop (`Div, (analy_obj1, term1), (analy_obj2, term2)) -> 
+    merge [analy_obj1; analy_obj2], mk_div srk term1 term2
+  | `Binop (`Mod, (analy_obj1, term1), (analy_obj2, term2)) -> 
+    merge [analy_obj1; analy_obj2], mk_mod srk term1 term2
+  | `Unop (`Floor, (analy_obj, t)) -> analy_obj, mk_floor srk t
+  | `Unop (`Neg, (analy_obj, t)) -> analy_obj, mk_neg srk t 
+  | `Ite (_, _, _) -> failwith "TOOD"
+  | _ -> failwith "unhandled case"
+
+let formalg_helper srk empty_case merge termalg obj =
+  match obj with
+  | `Tru -> empty_case, mk_true srk
+  | `Fls -> empty_case, mk_false srk
+  | `Atom (`Eq, x, y) ->
+    let analy_obj1, term1 = Term.eval srk termalg x in
+    let analy_obj2, term2 = Term.eval srk termalg y in
+    merge [analy_obj1; analy_obj2], mk_eq srk term1 term2
+  | `Atom (`Leq, x, y) ->
+    let analy_obj1, term1 = Term.eval srk termalg x in
+    let analy_obj2, term2 = Term.eval srk termalg y in
+    merge [analy_obj1; analy_obj2], mk_leq srk term1 term2
+  | `Atom (`Lt, x, y) ->
+    let analy_obj1, term1 = Term.eval srk termalg x in
+    let analy_obj2, term2 = Term.eval srk termalg y in
+    merge [analy_obj1; analy_obj2], mk_lt srk term1 term2
+  | `And cons ->
+    let analy_objs, forms = List.split cons in
+    merge analy_objs, mk_and srk forms
+  | `Or disj -> 
+    let analy_objs, forms = List.split disj in
+    merge analy_objs, mk_or srk forms
+  | `Ite _ -> failwith "TODO"
+  | `Not _ -> failwith "TOOD"             
+  |`Proposition (`App (_, [_])) -> failwith "TODO"
+  | _ -> failwith "unhandled case"
+
+
 
 let new_to_mfa srk phi =
-  let open Hashtbl in
-  let sb_tbl = create 10 in
+  let sub_tbl = Hashtbl.create 10 in
   let univequivclass = ref None in
-  let basecase_emp = (0, create 0) in
-  let basecase_var ind sym =
-    add sb_tbl sym (BatUref.uref sym);
-    let tbl = create 1 in
-    add tbl ind sym;
-    (0, tbl)
+  let empty_case = false, (0, Hashtbl.create 0) in
+  let var_case ind sym =
+    Hashtbl.add sub_tbl sym (BatUref.uref sym);
+    let tbl = Hashtbl.create 1 in
+    Hashtbl.add tbl ind sym;
+    (false, (0, tbl))
   in
-  let merge offset_tbls =
+  let merge objs =
+    let bools, offset_tbls = List.split objs in
     let merge_two (off0, tbl0) (off, tbl) =
       let frm_off, frm_tbl, to_off, to_tbl =
-        if length tbl0 > length tbl then off, tbl, off0, tbl0
+        if Hashtbl.length tbl0 > Hashtbl.length tbl then off, tbl, off0, tbl0
         else off0, tbl0, off, tbl
       in
       let unify frm_ind frm_sym =
-        match find_opt to_tbl (to_off + frm_ind - frm_off) with 
-        | Some to_sym -> BatUref.unite (find sb_tbl to_sym) (find sb_tbl frm_sym)
-        | None -> add to_tbl (to_off + frm_ind - frm_off) frm_sym 
+        match Hashtbl.find_opt to_tbl (to_off + frm_ind - frm_off) with 
+        | Some to_sym -> BatUref.unite 
+                           (Hashtbl.find sub_tbl to_sym) 
+                           (Hashtbl.find sub_tbl frm_sym)
+        | None -> Hashtbl.add to_tbl (to_off + frm_ind - frm_off) frm_sym 
       in
-      iter unify frm_tbl;
+      Hashtbl.iter unify frm_tbl;
       to_off, to_tbl
     in
-    List.fold_left merge_two basecase_emp offset_tbls
+    List.fold_left (||) false bools, List.fold_left merge_two (snd empty_case) offset_tbls
   in
   let rec termalg = function
-    | `Real qq -> (basecase_emp, mk_real srk qq)
     | `App (arrsym, [r_term]) -> 
       begin match destruct srk r_term with
         | `Var (ind, `TyInt) ->
           let fresh = mk_symbol srk `TyInt in
-          (basecase_var ind fresh, mk_app srk arrsym [mk_const srk fresh])
-        | `App (sym, []) -> (basecase_emp, mk_app srk arrsym [mk_const srk sym])
+          var_case ind fresh, mk_app srk arrsym [mk_const srk fresh]
+        | `App (sym, []) -> empty_case, mk_app srk arrsym [mk_const srk sym]
         | _ -> failwith "not in logical fragment"
       end
     | `Var (ind, `TyInt) -> 
       let fresh = mk_symbol srk `TyInt in
-      (basecase_var ind fresh, mk_const srk fresh)
-    | `Add sum -> 
-      let tbls, terms = List.split sum in
-      merge tbls, mk_add srk terms
-    | `Mul product -> 
-      let tbls, terms = List.split product in
-      merge tbls, mk_mul srk terms
-    | `Binop (lbl, (tbl1, term1), (tbl2, term2)) -> 
-      merge [tbl1; tbl2], (mkb lbl) srk term1 term2
-    | `Unop (lbl, (tbl, t)) -> tbl, (mku lbl) srk t
-    | `Ite (_, _, _) -> 
-      (*mk_ite 
-        srk 
-        (Formula.eval srk alg cond)
-        (Term.eval srk termalg  bthen)
-        (Term.eval srk termalg belse)*) failwith "todo"
-    |  _ -> failwith "not in pmfa fragment"
+      var_case ind fresh, mk_const srk fresh
+    | obj -> termalg_helper srk empty_case merge obj 
  and alg = function
-    | `Tru -> basecase_emp, mk_true srk
-    | `Fls -> basecase_emp, mk_false srk
-    | `Atom (lbl, x, y) ->
-      let tbl1, term1 = Term.eval srk termalg x in
-      let tbl2, term2 = Term.eval srk termalg y in
-      merge [tbl1; tbl2], (mka lbl) srk term1 term2
-    | `And cons ->
-      let tbls, terms = List.split cons in
-      merge tbls, mk_and srk terms
+    | `Quantify (`Exists, _, `TyInt, ((form_has_univ,(offset, tbl)), phi)) ->
+      Hashtbl.remove tbl offset;
+      (form_has_univ, (offset+1, tbl)), phi
+    | `Quantify (`Forall, _, `TyInt, ((_, (offset, tbl)), phi)) ->
+      let form_has_univ = 
+        if !univequivclass = None && Hashtbl.mem tbl offset then
+          (univequivclass := Some (Hashtbl.find sub_tbl (Hashtbl.find tbl offset)); true)
+        else false
+      in
+       Hashtbl.remove tbl offset;
+       (form_has_univ, (offset+1, tbl)), phi
     | `Or disj -> 
-      let tbls, terms = List.split disj in
-      merge tbls, mk_or srk terms
-    | `Quantify (`Exists, _, `TyInt, ((offset, tbl), phi)) ->
-      remove tbl offset;
-      (offset+1, tbl), phi
-    | `Quantify (`Forall, _, `TyInt, ((offset, tbl), phi)) ->
-       if !univequivclass = None && mem tbl offset then
-         univequivclass := Some (find sb_tbl (find tbl offset))
-       else ();
-       remove tbl offset;
-       (offset+1, tbl), phi
-    | _ -> failwith "not in pmfa logical fragment"
+      let fresh = mk_symbol srk `TyInt in
+      let f ind ((has_univ, offset_tbl), subform) =
+        if has_univ then 
+          ((has_univ, offset_tbl), 
+           mk_and srk [subform; mk_eq srk (mk_const srk fresh) (mk_int srk ind)])
+        else ((has_univ, offset_tbl), subform)
+      in
+      let disj = List.mapi f disj in
+      let analy_objs, forms = List.split disj in
+      merge analy_objs, mk_or srk forms
+    | obj -> formalg_helper srk empty_case merge termalg obj
   in
-  let ((_, _), matr) = Formula.eval srk alg phi in
-  let matr = 
-    substitute_const 
-      srk
-      (fun sym -> 
-         match find_opt sb_tbl sym with
-         | Some uref -> 
-           if Option.is_none !univequivclass || 
-              not (BatUref.equal (Option.get !univequivclass) uref)
-           then 
-             mk_const srk (BatUref.uget uref)
-           else mk_var srk 0 `TyInt
-         | None -> mk_const srk sym)
-    matr
+  let _, matr = Formula.eval srk alg phi in
+  let sub_map sym =
+    match Hashtbl.find_opt sub_tbl sym with
+    | Some uref -> 
+      if Option.is_none !univequivclass || 
+         not (BatUref.equal (Option.get !univequivclass) uref)
+      then 
+        mk_const srk (BatUref.uget uref)
+      else mk_var srk 0 `TyInt
+    | None -> mk_const srk sym
   in
-  mk_forall srk `TyInt matr
+  let matr = substitute_const srk sub_map matr in
+  matr
 
 
 module Array_analysis (Iter : PreDomain) = struct
