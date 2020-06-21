@@ -46,7 +46,14 @@ let bsym = Ctx.mk_symbol ~name:"b" (`TyFun ([`TyInt], `TyInt))
 let a : Ctx.term -> Ctx.term = fun x -> Ctx.mk_app asym [x] 
 let b : Ctx.term -> Ctx.term = fun x -> Ctx.mk_app bsym [x] 
 
-
+let predicsym = Ctx.mk_symbol ~name:"predic" (`TyFun ([`TyInt], `TyBool))
+let predic = fun x -> Ctx.mk_app predicsym [x] 
+(*
+let psym = Ctx.mk_symbol ~name:"p" (`TyFun ([`TyInt; `TyInt], `TyBool)) in
+let qsym = Ctx.mk_symbol ~name:"q" (`TyFun ([`TyInt; `TyInt], `TyBool)) in
+let p (x, y) = Ctx.mk_app psym [x; y] in
+let q (x, y) = Ctx.mk_app qsym [x; y] in
+*)
 let frac num den = Ctx.mk_real (QQ.of_frac num den)
 let int k = Ctx.mk_real (QQ.of_int k)
 

@@ -363,7 +363,13 @@ let new_to_mfa srk phi =
   let open Hashtbl in
   let sb_tbl = create 10 in
   let univequivclass = ref None in
-  let basecase = (0, create 0) in
+  let basecase_emp = (0, create 0) in
+  let basecase_var ind sym =
+    add sb_tbl sym (BatUref.uref sym);
+    let tbl = create 1 in
+    add tbl ind sym;
+    (0, tbl)
+  in
   let merge offset_tbls =
     let merge_two (off0, tbl0) (off, tbl) =
       let frm_off, frm_tbl, to_off, to_tbl =
@@ -373,33 +379,26 @@ let new_to_mfa srk phi =
       let unify frm_ind frm_sym =
         match find_opt to_tbl (to_off + frm_ind - frm_off) with 
         | Some to_sym -> BatUref.unite (find sb_tbl to_sym) (find sb_tbl frm_sym)
-        | None -> add intotbl (intooff + fromind - fromoff) fromsym 
+        | None -> add to_tbl (to_off + frm_ind - frm_off) frm_sym 
       in
-      iter unify fromtbl;
-      intooff, intotbl
+      iter unify frm_tbl;
+      to_off, to_tbl
     in
-    List.fold_left merge_two basecase offset_tbls
+    List.fold_left merge_two basecase_emp offset_tbls
   in
   let rec termalg = function
-    | `Real qq -> (basecase, mk_real srk qq)
-    | `App (arrsym, [indvar]) -> 
-      begin match destruct srk indvar with
+    | `Real qq -> (basecase_emp, mk_real srk qq)
+    | `App (arrsym, [r_term]) -> 
+      begin match destruct srk r_term with
         | `Var (ind, `TyInt) ->
           let fresh = mk_symbol srk `TyInt in
-          add substtbl fresh (BatUref.uref fresh);
-          let fhashtbl = create 10 in
-          add fhashtbl ind fresh; 
-          ((0, fhashtbl), 
-          mk_app srk arrsym [mk_const srk fresh])
-        | `App (const, []) -> (basecase, mk_app srk arrsym [mk_const srk const]) 
+          (basecase_var ind fresh, mk_app srk arrsym [mk_const srk fresh])
+        | `App (sym, []) -> (basecase_emp, mk_app srk arrsym [mk_const srk sym])
         | _ -> failwith "not in logical fragment"
       end
     | `Var (ind, `TyInt) -> 
       let fresh = mk_symbol srk `TyInt in
-      add substtbl fresh (BatUref.uref fresh);
-      let fhashtbl = create 10 in
-      add fhashtbl ind fresh; 
-      ((0, fhashtbl), mk_const srk fresh)
+      (basecase_var ind fresh, mk_const srk fresh)
     | `Add sum -> 
       let tbls, terms = List.split sum in
       merge tbls, mk_add srk terms
@@ -417,8 +416,8 @@ let new_to_mfa srk phi =
         (Term.eval srk termalg belse)*) failwith "todo"
     |  _ -> failwith "not in pmfa fragment"
  and alg = function
-    | `Tru -> basecase, mk_true srk
-    | `Fls -> basecase, mk_false srk
+    | `Tru -> basecase_emp, mk_true srk
+    | `Fls -> basecase_emp, mk_false srk
     | `Atom (lbl, x, y) ->
       let tbl1, term1 = Term.eval srk termalg x in
       let tbl2, term2 = Term.eval srk termalg y in
@@ -434,7 +433,7 @@ let new_to_mfa srk phi =
       (offset+1, tbl), phi
     | `Quantify (`Forall, _, `TyInt, ((offset, tbl), phi)) ->
        if !univequivclass = None && mem tbl offset then
-         univequivclass := Some (find substtbl (find tbl offset))
+         univequivclass := Some (find sb_tbl (find tbl offset))
        else ();
        remove tbl offset;
        (offset+1, tbl), phi
@@ -445,7 +444,7 @@ let new_to_mfa srk phi =
     substitute_const 
       srk
       (fun sym -> 
-         match find_opt substtbl sym with
+         match find_opt sb_tbl sym with
          | Some uref -> 
            if Option.is_none !univequivclass || 
               not (BatUref.equal (Option.get !univequivclass) uref)
