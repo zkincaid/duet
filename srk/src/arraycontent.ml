@@ -437,14 +437,13 @@ let new_to_mfa srk phi =
     | `Quantify (`Exists, _, `TyInt, ((form_has_univ,(offset, tbl)), phi)) ->
       Hashtbl.remove tbl offset;
       (form_has_univ, (offset+1, tbl)), phi
-    | `Quantify (`Forall, _, `TyInt, ((_, (offset, tbl)), phi)) ->
-      let form_has_univ = 
-        if !univequivclass = None && Hashtbl.mem tbl offset then
-          (univequivclass := Some (Hashtbl.find sub_tbl (Hashtbl.find tbl offset)); true)
-        else false
-      in
-       Hashtbl.remove tbl offset;
-       (form_has_univ, (offset+1, tbl)), phi
+    | `Quantify (`Forall, _, `TyInt, ((false, (offset, tbl)), phi)) ->
+      if !univequivclass = None && Hashtbl.mem tbl offset then
+        univequivclass := Some (Hashtbl.find sub_tbl (Hashtbl.find tbl offset))
+      else ();
+      let form_has_univ = if Hashtbl.mem tbl offset then true else false in
+      Hashtbl.remove tbl offset;
+      (form_has_univ, (offset+1, tbl)), phi
     | `Or disj -> 
       let fresh = mk_symbol srk `TyInt in
       let f ind ((has_univ, offset_tbl), subform) =
