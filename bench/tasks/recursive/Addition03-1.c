@@ -31,6 +31,6 @@ int main() {
     if (m < 100 || n < 100 || result >= 200) {
         return 0;
     } else {
-        ERROR: {reach_error();abort();}
+      //ERROR: {reach_error();abort();}
     }
 }

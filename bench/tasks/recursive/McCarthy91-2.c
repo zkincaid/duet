@@ -28,6 +28,6 @@ int main() {
     if (result == 91 || x > 101 && result == x - 10) {
         return 0;
     } else {
-        ERROR: {reach_error();abort();}
+      //ERROR: {reach_error();abort();}
     }
 }

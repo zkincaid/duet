@@ -11,8 +11,20 @@
       <includesfile>../tasks/termination.set</includesfile>
       <propertyfile>../tasks/properties/termination.prp</propertyfile>
     </tasks>
+    <tasks name="Nontermination">
+      <includesfile>../tasks/nontermination.set</includesfile>
+      <propertyfile>../tasks/properties/termination.prp</propertyfile>
+    </tasks>
     <tasks name="polybench">
       <includesfile>../tasks/polybench.set</includesfile>
+      <propertyfile>../tasks/properties/termination.prp</propertyfile>
+    </tasks>
+    <tasks name="bitprecise">
+      <includesfile>../tasks/bitprecise.set</includesfile>
+      <propertyfile>../tasks/properties/termination.prp</propertyfile>
+    </tasks>
+    <tasks name="recursive">
+      <includesfile>../tasks/recursive.set</includesfile>
       <propertyfile>../tasks/properties/termination.prp</propertyfile>
     </tasks>
   </rundefinition>

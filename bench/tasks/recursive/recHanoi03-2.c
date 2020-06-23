@@ -31,7 +31,7 @@ int main() {
     if (result >= n) {
         return 0;
     } else {
-        ERROR: {reach_error();abort();}
+      //ERROR: {reach_error();abort();}
     }
 }
 

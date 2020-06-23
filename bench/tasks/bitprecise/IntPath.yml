@@ -1,0 +1,7 @@
+format_version: '1.0'
+
+input_files: 'IntPath.c'
+
+properties:
+  - property_file: ../properties/termination.prp
+    expected_verdict: true

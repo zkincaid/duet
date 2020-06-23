@@ -33,7 +33,7 @@ int main() {
     if (result >= 0) {
         return 0;
     } else {
-        ERROR: {reach_error();abort();}
+      //ERROR: {reach_error();abort();}
     }
 }
 

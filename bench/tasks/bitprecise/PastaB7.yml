@@ -1,0 +1,7 @@
+format_version: '1.0'
+
+input_files: 'PastaB7.c'
+
+properties:
+  - property_file: ../properties/termination.prp
+    expected_verdict: true
