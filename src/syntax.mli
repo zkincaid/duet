@@ -315,8 +315,21 @@ type ('a,'b) open_formula = [
 
 val mk_forall : 'a context -> ?name:string -> typ_fo -> 'a formula -> 'a formula
 val mk_exists : 'a context -> ?name:string -> typ_fo -> 'a formula -> 'a formula
+
+(** Replace a constant symbol by a universally quantified variable. *)
 val mk_forall_const : 'a context -> symbol -> 'a formula -> 'a formula
+
+(** Replace a constant symbol by an existentially quantified variable. *)
 val mk_exists_const : 'a context -> symbol -> 'a formula -> 'a formula
+
+(** Replace all constant symbols that do not satisfy the given
+   predicate by universally quantified variables. *)
+val mk_forall_consts : 'a context -> (symbol -> bool) -> 'a formula -> 'a formula
+
+(** Replace all constant symbols that do not satisfy the given
+   predicate by existentially quantified variables. *)
+val mk_exists_consts : 'a context -> (symbol -> bool) -> 'a formula -> 'a formula
+
 
 val mk_and : 'a context -> 'a formula list -> 'a formula
 val mk_or : 'a context -> 'a formula list -> 'a formula
