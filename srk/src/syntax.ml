@@ -938,6 +938,41 @@ module Formula = struct
     in
     go phi
 
+  let skolemize_eqpf srk phi =
+    let skolemtbl = Hashtbl.create 991 in
+    (* There is no logic for handling not/ite statements;
+     * thus equisatisfiability not nec. preserved *)
+    let rec go depth first_univ_depth sexpr =
+      let (Node (label, children, _)) = sexpr.obj in
+      match label with
+      | Var (i, typ) ->
+        if Option.is_none first_univ_depth || depth - i < Option.get first_univ_depth
+        then Hashtbl.find skolemtbl (depth - i - 1)
+        else srk.mk (Var (i, typ)) []
+      | Forall (name, typ) ->
+        if Option.is_none first_univ_depth then 
+          srk.mk 
+            (Forall (name, typ)) 
+            (List.map (go (depth + 1) (Some (depth + 1))) children)
+        else
+          srk.mk 
+            (Forall (name, typ)) 
+            (List.map (go (depth + 1) first_univ_depth) children)
+      | Exists (name, typ) ->
+        if Option.is_none first_univ_depth then (
+          Hashtbl.add skolemtbl depth (mk_const srk (mk_symbol srk (typ :> typ)));
+          let res = go (depth + 1) first_univ_depth (List.hd children) in
+          Hashtbl.remove skolemtbl depth;
+          res
+        )
+        else
+          srk.mk 
+            (Exists (name, typ)) 
+            (List.map (go (depth + 1) first_univ_depth) children)
+      | _ -> srk.mk label (List.map (go depth first_univ_depth) children)
+    in
+    go 0 None phi
+
   let prenex srk phi =
     let negate_prefix =
       List.map (function
