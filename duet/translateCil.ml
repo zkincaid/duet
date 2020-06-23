@@ -395,7 +395,7 @@ let verifier_builtins =
   ["assume"; "__VERIFIER_assume"; "assert"; "__VERIFIER_assert"; "__VERIFIER_error";
    "__assert_fail"; "malloc"; "xmalloc"; "calloc"; "realloc"; "xrealloc"; "__builtin_alloca";
    "pthread_mutex_lock"; "pthread_mutex_unlock"; "spin_lock"; "spin_unlock";
-   "pthread_create"; "pthread_create"; "exit";
+   "pthread_create"; "pthread_create"; "exit"; "abort";
    "rand"; "__VERIFIER_nondet_char"; "__VERIFIER_nondet_int"; "__VERIFIER_nondet_long";
    "__VERIFIER_nondet_pointer"; "__VERIFIER_nondet_uint";
    "__CPROVER_atomic_begin"; "__CPROVER_atomic_end";
@@ -468,6 +468,7 @@ let tr_instr ctx instr =
       | ("pthread_create", None, [_;_;func;arg]) ->
         mk_def (Builtin (Fork (None, func, [arg])))
       | ("exit", _, [_]) -> mk_def (Builtin Exit)
+      | ("abort", _, []) -> mk_def (Builtin Exit)
 
       | ("rand", Some (Variable v), []) ->
         (* todo: should be non-negative *)
