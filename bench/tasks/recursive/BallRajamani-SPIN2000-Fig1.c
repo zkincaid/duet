@@ -29,6 +29,6 @@ int main() {
     A(g,h);
     A(g,h);
     if (g) {
-        ERROR: {reach_error();abort();}
+      //ERROR: {reach_error();abort();}
     }
 }

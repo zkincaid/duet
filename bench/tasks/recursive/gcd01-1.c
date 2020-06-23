@@ -37,7 +37,7 @@ int main() {
     }
     int z = gcd(m, n);
     if (z < 1 && m > 0 && n > 0) {
-        ERROR: {reach_error();abort();}
+      //ERROR: {reach_error();abort();}
     } else {
         return 0;
     }

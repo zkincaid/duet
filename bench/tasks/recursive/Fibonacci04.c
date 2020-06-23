@@ -31,7 +31,7 @@ int main() {
     if (x != 5 || result == 3) {
         return 0;
     } else {
-        ERROR: {reach_error();abort();}
+      //ERROR: {reach_error();abort();}
     }
 }
     

@@ -41,6 +41,6 @@ int main() {
     if (m < 2 || result >= 4) {
         return 0;
     } else {
-        ERROR: {reach_error();abort();}
+      //ERROR: {reach_error();abort();}
     }
 }
