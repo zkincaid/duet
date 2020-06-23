@@ -86,7 +86,7 @@ let map_atoms srk f phi =
 (* floor(term/divisor) + offset *)
 type int_virtual_term =
   { term : V.t;
-    divisor : int;
+    divisor : ZZ.t;
     offset : ZZ.t }
   [@@deriving ord]
 
@@ -94,12 +94,12 @@ exception Equal_int_term of int_virtual_term
 
 let pp_int_virtual_term srk formatter vt =
   begin
-    if vt.divisor = 1 then
+    if ZZ.equal vt.divisor ZZ.one then
       pp_linterm srk formatter vt.term
     else
-      Format.fprintf formatter "@[floor(@[%a@ / %d@])@]"
+      Format.fprintf formatter "@[floor(@[%a@ / %a@])@]"
         (pp_linterm srk) vt.term
-        vt.divisor
+        ZZ.pp vt.divisor
   end;
   if not (ZZ.equal vt.offset ZZ.zero) then
     Format.fprintf formatter " + %a@]" ZZ.pp vt.offset
@@ -421,10 +421,10 @@ let term_of_virtual_term srk vt =
   let term = of_linterm srk vt.term in
   let offset = mk_real srk (QQ.of_zz vt.offset) in
   let term_over_div =
-    if vt.divisor = 1 then
+    if ZZ.equal vt.divisor ZZ.one then
       term
     else
-      mk_floor srk (mk_div srk term (mk_real srk (QQ.of_int vt.divisor)))
+      mk_floor srk (mk_div srk term (mk_real srk (QQ.of_zz vt.divisor)))
   in
   mk_add srk [term_over_div; offset]
 
@@ -473,7 +473,7 @@ module Skeleton = struct
       begin match QQ.to_zz (evaluate_linterm model vt.term) with
         | None -> assert false
         | Some tv ->
-          ZZ.add (Mpzf.fdiv_q tv (ZZ.of_int vt.divisor)) vt.offset
+          ZZ.add (Mpzf.fdiv_q tv vt.divisor) vt.offset
           |> QQ.of_zz
       end
     | MReal t -> evaluate_linterm model t
@@ -497,13 +497,13 @@ module Skeleton = struct
         | Some zz -> zz
       in
       let remainder =
-        Mpzf.fdiv_r term_val (ZZ.of_int vt.divisor)
+        Mpzf.fdiv_r term_val vt.divisor
       in
       let numerator =
         V.add_term (QQ.of_zz (ZZ.negate remainder)) const_dim vt.term
       in
       let replacement =
-        V.scalar_mul (QQ.inverse (QQ.of_int vt.divisor)) numerator
+        V.scalar_mul (QQ.inverse (QQ.of_zz vt.divisor)) numerator
         |> V.add_term (QQ.of_zz vt.offset) const_dim
         |> of_linterm srk
       in
@@ -515,7 +515,7 @@ module Skeleton = struct
         substitute_const srk
           (fun p -> if p = x then replacement else mk_const srk p)
       in
-      let divides = mk_divides srk (ZZ.of_int vt.divisor) numerator in
+      let divides = mk_divides srk vt.divisor numerator in
       BatList.filter (not % is_true) (divides::(List.map subst implicant))
     | _ ->
       BatList.filter_map (fun atom ->
@@ -527,7 +527,7 @@ module Skeleton = struct
     match move with
     | MReal t -> const_of_linterm t
     | MInt vt ->
-      if vt.divisor = 1 then const_of_linterm vt.term
+      if ZZ.equal vt.divisor ZZ.one then const_of_linterm vt.term
       else None
     | MBool _ -> invalid_arg "const_of_move"
 
@@ -828,13 +828,11 @@ let select_int_term srk interp x atoms =
           let (a, t) = V.pivot (dim_of_sym x) t in
           let a = match QQ.to_zz a with
             | None -> assert false
-            | Some zz -> match ZZ.to_int zz with
-              | None -> assert false
-              | Some z -> z
+            | Some zz -> zz
           in
-          if a = 0 then
+          if ZZ.equal a ZZ.zero then
             `None
-          else if a > 0 then
+          else if ZZ.compare a ZZ.zero > 0 then
             (* ax + t (<|<=) 0 --> upper bound of floor(-t/a) *)
             (* x (<|<=) floor(-t/a) + ([[x - floor(-t/a)]] mod delta) - delta *)
             let numerator =
@@ -847,7 +845,7 @@ let select_int_term srk interp x atoms =
 
             let rhs_val = (* [[floor(numerator / a)]] *)
               match QQ.to_zz (eval numerator) with
-              | Some num -> Mpzf.fdiv_q num (ZZ.of_int a)
+              | Some num -> Mpzf.fdiv_q num a
               | None -> assert false
             in
             let vt =
@@ -860,7 +858,7 @@ let select_int_term srk interp x atoms =
             assert (ZZ.equal (ZZ.modulo (ZZ.sub vt_val x_val) delta) ZZ.zero);
             assert (ZZ.leq x_val vt_val);
             begin
-              let axv = ZZ.mul (ZZ.of_int a) vt_val in
+              let axv = ZZ.mul a vt_val in
               let tv = match QQ.to_zz (eval t) with
                 | Some zz -> ZZ.negate zz
                 | None -> assert false
@@ -876,19 +874,19 @@ let select_int_term srk interp x atoms =
                 `Upper (vt, evaluate_vt vt)
             end
           else
-            let a = -a in
+            let a = ZZ.negate a in
 
             (* (-a)x + t <= 0 --> lower bound of ceil(t/a) = floor((t+a-1)/a) *)
             (* (-a)x + t < 0 --> lower bound of ceil(t+1/a) = floor((t+a)/a) *)
             let numerator =
               if op = `Lt then
-                V.add_term (QQ.of_int a) const_dim t
+                V.add_term (QQ.of_zz a) const_dim t
               else
-                V.add_term (QQ.of_int (a - 1)) const_dim t
+                V.add_term (QQ.of_zz (ZZ.sub a ZZ.one)) const_dim t
             in
             let rhs_val = (* [[floor(numerator / a)]] *)
               match QQ.to_zz (eval numerator) with
-              | Some num -> Mpzf.fdiv_q num (ZZ.of_int a)
+              | Some num -> Mpzf.fdiv_q num a
               | None -> assert false
             in
 
@@ -901,7 +899,7 @@ let select_int_term srk interp x atoms =
             assert (ZZ.equal (ZZ.modulo (ZZ.sub vt_val x_val) delta) ZZ.zero);
             assert (ZZ.leq vt_val x_val);
             begin
-              let axv = ZZ.mul (ZZ.of_int a) vt_val in
+              let axv = ZZ.mul a vt_val in
               let tv = match QQ.to_zz (eval t) with
                 | Some zz -> zz
                 | None -> assert false
@@ -931,7 +929,7 @@ let select_int_term srk interp x atoms =
       | Some zz -> zz
       | None -> assert false
     in
-    ZZ.add (Mpzf.fdiv_q tval (ZZ.of_int vt.divisor)) vt.offset
+    ZZ.add (Mpzf.fdiv_q tval vt.divisor) vt.offset
   in
   match List.fold_left merge `None (List.map bound_of_atom atoms) with
   | `Lower (vt, _) ->
@@ -950,7 +948,7 @@ let select_int_term srk interp x atoms =
     (* Value of x is irrelevant *)
     logf ~level:`trace "Irrelevant: %a" (pp_symbol srk) x;
     let value = Linear.const_linterm (QQ.of_zz (ZZ.modulo x_val delta)) in
-    { term = value; divisor = 1; offset = ZZ.zero }
+    { term = value; divisor = ZZ.one; offset = ZZ.zero }
 
 let select_int_term srk interp x atoms =
   try
@@ -1349,7 +1347,7 @@ let simsat_forward_core srk qf_pre phi =
               | `TyInt ->
                 let vt =
                   { term = Linear.const_linterm QQ.zero;
-                    divisor = 1;
+                    divisor = ZZ.one;
                     offset = ZZ.zero }
                 in
                 `Exists (k, Skeleton.MInt vt)
@@ -1775,13 +1773,13 @@ let mbp ?(dnf=false) srk exists phi =
               | Some zz -> zz
             in
             let remainder =
-              Mpzf.fdiv_r term_val (ZZ.of_int vt.divisor)
+              Mpzf.fdiv_r term_val vt.divisor
             in
             let numerator =
               V.add_term (QQ.of_zz (ZZ.negate remainder)) const_dim vt.term
             in
             let replacement =
-              V.scalar_mul (QQ.inverse (QQ.of_int vt.divisor)) numerator
+              V.scalar_mul (QQ.inverse (QQ.of_zz vt.divisor)) numerator
               |> V.add_term (QQ.of_zz vt.offset) const_dim
               |> of_linterm srk
             in
@@ -1790,7 +1788,7 @@ let mbp ?(dnf=false) srk exists phi =
               substitute_const srk
                 (fun p -> if p = s then replacement else mk_const srk p)
             in
-            let divides = mk_divides srk (ZZ.of_int vt.divisor) numerator in
+            let divides = mk_divides srk vt.divisor numerator in
             let implicant =
               BatList.filter (not % is_true) (divides::(List.map subst implicant))
             in
