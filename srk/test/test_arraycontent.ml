@@ -32,8 +32,13 @@ let pred_test () =
   let phi =
     let open Infix in
     exists `TyInt
-      ((forall `TyInt ((var 0 `TyInt) = a((var 0 `TyInt)) && a(x) = a(y)))
+      (exists `TyInt
+      ((forall `TyInt (
+           exists  `TyInt 
+             ((var 0 `TyInt) = a((var 1 `TyInt)) 
+              && a((var 2 `TyInt)) = a(y))))
       || (exists `TyInt ((var 0 `TyInt) <= (var 1 `TyInt))))
+      && (var 0 `TyInt) = x)
   in
   (*let psi =
     let open Infix in
@@ -46,7 +51,38 @@ let pred_test () =
   (*let qpf, bbu, matr = to_mfa srk phi in
   let arruniv, arrother = get_array_syms srk matr bbu in
   let lia = mfa_to_lia srk (qpf, matr) arruniv arrother bbu in *)
-  let lia = new_mfa_to_lia srk (new_to_mfa srk phi) in
+  (*1let lia = new_mfa_to_lia srk (new_to_mfa srk phi) in*)
+  let lia = Formula.skolemize_eqpf srk phi in
+  let _ = new_to_mfa srk (mk_true srk) in
+  assert_equal_formula lia 
+    (mk_false srk)
+
+
+
+let pred_test2 () =
+  let phi =
+    let open Infix in
+    exists `TyInt
+      (exists `TyInt
+         ((forall `TyInt ( 
+              (var 0 `TyInt) = a((var 1 `TyInt)) 
+              && a((var 2 `TyInt)) = a(y)))
+          || (exists `TyInt ((var 0 `TyInt) <= (var 1 `TyInt))))
+       && (var 0 `TyInt) = x)
+  in
+  (*let psi =
+    let open Infix in
+    exists `TyReal
+      (exists `TyReal
+         (exists `TyReal
+            ((var 1 `TyReal) = (var 2 `TyReal)
+             && (var 0 ` <= (var 2 `TyReal))))
+    in*)
+  (*let qpf, bbu, matr = to_mfa srk phi in
+  let arruniv, arrother = get_array_syms srk matr bbu in
+  let lia = mfa_to_lia srk (qpf, matr) arruniv arrother bbu in *)
+  (*1let lia = new_mfa_to_lia srk (new_to_mfa srk phi) in*)
+  let lia = new_to_mfa srk phi in
   assert_equal_formula lia 
     (mk_false srk)
 
@@ -55,6 +91,6 @@ let pred_test () =
 
 let suite = "ArrayContent" >:::
   [
-    (*"tomfa" >:: tomfa;*)
+    "pred_test2" >:: pred_test2;
     "pred_test" >:: pred_test
   ]

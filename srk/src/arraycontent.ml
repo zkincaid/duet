@@ -49,69 +49,33 @@ let dataless_formalg_helper srk termalg obj =
 let new_to_mfa srk phi =
   let phi = Formula.skolemize_eqpf srk phi in
   let disj bool_list = List.fold_left (||) false bool_list in
-  let termalg = function
-    | `App (arrsym, [r_term]) -> 
-      begin match destruct srk r_term with
-        | `Var (ind, `TyInt) -> true, mk_app srk arrsym [mk_var srk ind `TyInt]
-        | `App (sym, []) -> false, mk_app srk arrsym [mk_const srk sym]
-        | _ -> failwith "not in logical fragment4"
-      end
-    | `Var (ind, `TyInt) -> true, mk_var srk ind `TyInt
-    | `App (sym, []) -> false, mk_const srk sym
-    | `Add summands -> 
-      let fvs, terms = List.split summands in
-      disj fvs, mk_add srk terms
-    | `Mul multiplicands -> 
-      let fvs, terms = List.split multiplicands in
-      disj fvs, mk_mul srk terms
-    | `Binop (`Div, (fv1, term1), (fv2, term2)) -> fv1 || fv2, mk_div srk term1 term2
-    | `Binop (`Mod, (fv1, term1), (fv2, term2)) -> fv1 || fv2, mk_mod srk term1 term2
-    | `Unop (`Floor, (fv, t)) -> fv, mk_floor srk t
-    | `Unop (`Neg, (fv, t)) -> fv, mk_neg srk t 
-    | `Ite (cond, (fv2, belse), (fv3, bthen)) -> fv2 || fv3, mk_ite srk cond belse bthen
-    | _ -> failwith "not in scope of logical fragment3"
-  in
   let alg = function
-    | `Quantify (`Forall, _, `TyInt, ((qfv, fv), phi)) -> (qfv || fv, fv), phi
+    | `Quantify (`Forall, _, `TyInt, (false, phi)) -> true, phi
     | `Or disjuncts -> 
-      let qfv_fvs, _ = List.split disjuncts in
-      let qfvs, fvs = List.split qfv_fvs in
+      let qfvs, _ = List.split disjuncts in
       let fresh = mk_symbol srk `TyInt in
-      let f ind ((qfv, _), phi) =
+      let f ind (qfv, phi) =
         if qfv then  
            mk_and srk [phi; mk_eq srk (mk_const srk fresh) (mk_int srk ind)]
         else phi
       in
-      (disj qfvs, disj fvs), mk_or srk (List.mapi f disjuncts)
-    | `Tru -> (false, false), mk_true srk
-    | `Fls -> (false, false), mk_false srk
-    | `Atom (`Eq, x, y) ->
-      let fv1, term1 = Term.eval srk termalg x in
-      let fv2, term2 = Term.eval srk termalg y in
-      (false, fv1 || fv2),  mk_eq srk term1 term2
-    | `Atom (`Leq, x, y) ->
-      let fv1, term1 = Term.eval srk termalg x in
-      let fv2, term2 = Term.eval srk termalg y in
-      (false, fv1 || fv2),  mk_leq srk term1 term2
-    | `Atom (`Lt, x, y) ->
-      let fv1, term1 = Term.eval srk termalg x in
-      let fv2, term2 = Term.eval srk termalg y in
-      (false, fv1 || fv2),  mk_lt srk term1 term2
+      disj qfvs, mk_or srk (List.mapi f disjuncts)
+    | `Tru -> false, mk_true srk
+    | `Fls -> false, mk_false srk
+    | `Atom (`Eq, x, y) -> false,  mk_eq srk x y
+    | `Atom (`Leq, x, y) -> false,  mk_leq srk x y
+    | `Atom (`Lt, x, y) -> false,  mk_lt srk x y
     | `And conjuncts ->
-      let qfv_fvs, phis = List.split conjuncts in
-      let qfvs, fvs = List.split qfv_fvs in
-      (disj qfvs, disj fvs), mk_and srk phis
-    | `Ite (((false, false), cond), ((qfv2, fv2), bthen), ((qfv3, fv3), belse)) ->
-      (qfv2 || qfv3, fv2 || fv3), mk_ite srk cond bthen belse
-    | `Not ((false, false), form) -> (false, false), mk_not srk form           
+      let qfvs, phis = List.split conjuncts in
+      disj qfvs, mk_and srk phis
+    | `Ite ((false, cond), (qfv2, bthen), (qfv3, belse)) -> qfv2 || qfv3, mk_ite srk cond bthen belse
+    | `Not (false, phi) -> false, mk_not srk phi          
     |`Proposition (`App (p, [expr])) ->
       begin match Expr.refine srk expr with
-        | `Term t -> 
-          let fv, term = Term.eval srk termalg t in
-          (false, fv), mk_app srk p [term]
-        | _ -> failwith "not in scope of logical fragment2"
+        | `Term t -> false, mk_app srk p [t]
+        | _ -> failwith "not in scope of logical fragment"
       end
-    | _ -> failwith "not in scope of logical fragment1"
+    | _ -> failwith "not in scope of logical fragment"
   in
   let _, matr = Formula.eval srk alg phi in
   matr
