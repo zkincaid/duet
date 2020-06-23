@@ -13,6 +13,7 @@ tools = ["CRA", "VASS"]
 suites = ["C4B", "HOLA"]
 timeout = 60
 cache = True
+replace_cached = True
 
 table_begin = """<?xml version="1.0" ?>
 <!DOCTYPE table PUBLIC "+//IDN sosy-lab.org//DTD BenchExec table 1.10//EN" "https://www.sosy-lab.org/benchexec/table-1.10.dtd">
@@ -44,6 +45,10 @@ def has_result(tool, suite):
 def run():
     for suite in suites:
         for tool in tools:
+            if replace_cached and has_result(tool,suite):
+                recent = recent_result(tool, suite)
+                os.remove(recent)
+
             if cache and has_result(tool, suite):
                 print("Result of %s on suite %s is cached" % (tool, suite))
             else:
@@ -284,6 +289,10 @@ if __name__ == "__main__":
             opts = opts[2:]
         elif (opts[0] == "--no-cache"):
             cache = False
+            opts = opts[1:]
+        elif (opts[0] == "--replace-cached"):
+            cache = False
+            replace_cached = True
             opts = opts[1:]
         else:
             print("Unrecognized option: %s" % opts[0])
