@@ -23,6 +23,5 @@ val new_mfa_to_lia : 'a context -> 'a formula -> 'a formula
 
 (*val projection : 'a context ->'a formula -> Symbol.Set.t -> 'a t*)
 
-
 module Array_analysis (Iter : PreDomain) : PreDomain
   with type 'a t = 'a formula

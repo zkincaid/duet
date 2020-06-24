@@ -435,6 +435,16 @@ let destruct _srk sexpr =
   | Node (Lt, [s; t], _) -> `Atom (`Lt, s, t)
   | Node (_, _, _) -> assert false
 
+  let custom_eval srk args eval phi =
+    let rec go args sexpr =
+      let (Node (label, children, _)) = sexpr.obj in
+      match eval srk args sexpr with
+      | Some t -> t
+      | None -> srk.mk label (List.map (go args) children)
+    in
+    go args phi
+
+
 let rec flatten_universal phi = match phi.obj with
   | Node (Forall (name, typ), [phi], _) ->
     let (varinfo, phi') = flatten_universal phi in
@@ -835,6 +845,19 @@ module Term = struct
       `Ite (cond, bthen, belse)
     | _ -> invalid_arg "destruct: not a term"
 
+  let construct _srk open_term = match open_term with
+    | `Real qq -> mk_real _srk qq
+    | `App(func, args) -> mk_app _srk func args
+    | `Var(v, `TyInt) -> mk_var _srk v `TyInt
+    | `Var(v, `TyReal) -> mk_var _srk v `TyReal
+    | `Add sum -> mk_add _srk sum
+    | `Mul product -> mk_mul _srk product
+    | `Binop (`Div, s, t) -> mk_div _srk s t
+    | `Binop (`Mod, s, t) -> mk_mod _srk s t
+    | `Unop (`Floor, t) -> mk_floor _srk t
+    | `Unop (`Neg, t) -> mk_neg _srk t
+    | `Ite (cond, bthen, belse) -> mk_ite _srk cond bthen belse
+
   let pp = pp_expr
   let show ?(env=Env.empty) srk t = SrkUtil.mk_show (pp ~env srk) t
 end
@@ -862,6 +885,21 @@ module Formula = struct
     | Node (App f, args, `TyBool) -> `Proposition (`App (f, args))
     | Node (Ite, [cond; bthen; belse], `TyBool) -> `Ite (cond, bthen, belse)
     | _ -> invalid_arg "destruct: not a formula"
+
+  let construct _srk open_formula = match open_formula with
+    | `Tru -> mk_true _srk
+    | `Fls -> mk_false _srk
+    | `And conjuncts -> mk_and _srk conjuncts
+    | `Or disjuncts -> mk_or _srk disjuncts
+    | `Not phi -> mk_not _srk phi
+    | `Quantify (`Exists, name, typ, phi) -> mk_exists _srk ~name typ phi
+    | `Quantify (`Forall, name, typ, phi) -> mk_forall _srk ~name typ phi
+    | `Atom (`Eq, s, t) -> mk_eq _srk s t
+    | `Atom (`Leq, s, t) -> mk_leq _srk s t
+    | `Atom (`Lt, s, t) -> mk_lt _srk s t
+    | `Proposition (`Var v) -> mk_const _srk v
+    | `Proposition (`App (f, args)) -> mk_app _srk f args
+    | `Ite (cond, bthen, belse) -> mk_ite _srk cond bthen belse
 
   let rec eval srk alg phi = match destruct srk phi with
     | `Tru -> alg `Tru
@@ -940,8 +978,8 @@ module Formula = struct
 
   let skolemize_eqpf srk phi =
     let skolemtbl = Hashtbl.create 991 in
-    (* There is no logic for handling not/ite statements;
-     * thus equisatisfiability not nec. preserved *)
+    (* No current reasoning for not/ite statements;
+     * equisatisfiability not preserved if these labels precede quantifiers *)
     let rec go depth first_univ_depth sexpr =
       let (Node (label, children, _)) = sexpr.obj in
       match label with

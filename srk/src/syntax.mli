@@ -101,6 +101,10 @@ val destruct : 'a context -> ('a, 'b) expr -> [
                       | `App of symbol * (('b, typ_fo) expr) list ]
   ]
 
+val custom_eval : 'a context -> 'b list -> 
+  ('a context -> 'b list -> ('a, 'c) expr -> ('a, 'c) expr option) ->
+  ('a, 'c) expr -> ('a, 'c) expr
+
 val expr_typ : 'a context -> ('a, 'b) expr -> typ
 
 val free_vars : ('a, 'b) expr -> (int, typ_fo) BatHashtbl.t
@@ -300,6 +304,7 @@ module Term : sig
     Format.formatter -> 'a term -> unit
   val show : ?env:(string Env.t) -> 'a context -> 'a term -> string
   val destruct : 'a context -> 'a term -> ('a term, 'a) open_term
+  val construct : 'a context -> ('a term, 'a) open_term -> 'a term
   val eval : 'a context -> (('b, 'a) open_term -> 'b) -> 'a term -> 'b
   val eval_partial : 'a context -> (('b, 'a) open_term -> 'b option) -> 'a term -> 'b option
 end
@@ -359,6 +364,7 @@ module Formula : sig
     Format.formatter -> 'a formula -> unit
   val show : ?env:(string Env.t) -> 'a context -> 'a formula -> string
   val destruct : 'a context -> 'a formula -> ('a formula, 'a) open_formula
+  val construct : 'a context -> ('a formula, 'a) open_formula -> 'a formula
   val eval : 'a context -> (('b, 'a) open_formula -> 'b) -> 'a formula -> 'b
   val eval_memo : 'a context -> (('b, 'a) open_formula -> 'b) -> 'a formula -> 'b
   val existential_closure : 'a context -> 'a formula -> 'a formula

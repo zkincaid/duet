@@ -10,44 +10,26 @@ type 'a t = 'a formula
 
 (*let projection = failwith "todo 1"*)
 
-  let dataless_termalg_helper srk obj =
-  match obj with
-  | `Real qq -> mk_real srk qq
-  | `Add summands -> mk_add srk summands
-  | `Mul products -> mk_mul srk products
-  | `Binop (`Div, s, t) -> mk_div srk s t
-  | `Binop (`Mod, s, t) -> mk_mod srk s t
-  | `Unop (`Floor, t) -> mk_floor srk t
-  | `Unop (`Neg, t) -> mk_neg srk t
-  | `Var (ind, `TyInt) -> mk_var srk ind `TyInt 
-  | `Ite (_, _, _) -> failwith "TOOD"
-  | `App (sym, []) -> mk_const srk sym (* case may be missing from data version *)
-  | _ -> failwith "not in scope of logical fragment"
-
-let dataless_formalg_helper srk termalg obj =
-  match obj with
-  | `Tru -> mk_true srk
-  | `Fls -> mk_false srk
-  | `Atom (`Eq, x, y) -> mk_eq srk (Term.eval srk termalg x) (Term.eval srk termalg y)
-  | `Atom (`Leq, x, y) -> mk_leq srk (Term.eval srk termalg x) (Term.eval srk termalg y)
-  | `Atom (`Lt, x, y) -> mk_lt srk (Term.eval srk termalg x) (Term.eval srk termalg y)
-  | `And cons -> mk_and srk cons
-  | `Or disj -> mk_or srk disj
-  | `Ite (cond, bthen, belse) -> mk_ite srk cond bthen belse
-  | `Not f -> mk_not srk f           
-  |`Proposition (`App (p, [expr])) ->
-    begin match Expr.refine srk expr with
-      | `Term t -> 
-        let term = Term.eval srk termalg t in
-        mk_app srk p [term]
-      | _ -> failwith "not in scope of logical fragment"
-    end
-  | _ -> failwith "not in scope of logical fragment"
-
-
-
-let new_to_mfa srk phi =
-  let phi = Formula.skolemize_eqpf srk phi in
+let new_to_mfa srk (phi : 'a formula) : 'a formula =
+  let skolemtbl = Hashtbl.create 100 in
+  let rec skolemize srk args expr =
+    let depth = Option.get (List.hd args) in
+    let univ_depth = List.nth args 1 in
+    match destruct srk expr with
+    | `Var (i, `TyInt) ->
+      if Option.is_none univ_depth || depth - i < Option.get univ_depth
+      then Some (Hashtbl.find skolemtbl (depth - i - 1))
+      else Some (mk_var srk i `TyInt)
+    | `Quantify (`Forall, name, `TyInt, phi) ->
+      Some (mk_forall srk ~name:name `TyInt (custom_eval srk [Some (depth + 1); Some (depth + 1)] skolemize phi))
+    | `Quantify (`Exists, _, `TyInt, phi) ->
+        Hashtbl.add skolemtbl depth (mk_const srk (mk_symbol srk `TyInt));
+        let res = custom_eval srk [Some (depth + 1); univ_depth] skolemize phi in
+        Hashtbl.remove skolemtbl depth;
+        Some res
+    | _ -> None
+  in
+  let phi = custom_eval srk [Some 0; None] skolemize phi in
   let disj bool_list = List.fold_left (||) false bool_list in
   let alg = function
     | `Quantify (`Forall, _, `TyInt, (false, phi)) -> true, phi
@@ -78,8 +60,8 @@ let new_to_mfa srk phi =
     | _ -> failwith "not in scope of logical fragment"
   in
   let _, matr = Formula.eval srk alg phi in
+  let matr = (matr :> 'a formula) in
   matr
-
 
 let new_mfa_to_lia srk matrix =
   let const_reads = Hashtbl.create 100 in
@@ -99,12 +81,26 @@ let new_mfa_to_lia srk matrix =
         | _ -> failwith "not flat"
       end
     | `Var (_, `TyInt) -> mk_const srk temp_univ_sym
-    | obj ->  dataless_termalg_helper srk obj 
+    | open_term -> Term.construct srk open_term 
   in
-  let matrix = Formula.eval srk (dataless_formalg_helper srk termalg) matrix in
+  let formalg = function
+    | `Atom (`Eq, x, y) -> mk_eq srk (Term.eval srk termalg x) (Term.eval srk termalg y)
+    | `Atom (`Leq, x, y) -> mk_leq srk (Term.eval srk termalg x) (Term.eval srk termalg y)
+    | `Atom (`Lt, x, y) -> mk_lt srk (Term.eval srk termalg x) (Term.eval srk termalg y)
+    | `Proposition (`App (p, [expr])) ->
+      begin match Expr.refine srk expr with
+        | `Term t -> 
+          let term = Term.eval srk termalg t in
+          mk_app srk p [term]
+        | _ -> failwith "not in scope of logical fragment"
+      end
+    | open_formula -> Formula.construct srk open_formula
+  in
+  let matrix : 'a formula = Formula.eval srk formalg matrix in
+  let uquant_depth = Hashtbl.length univ_reads in
   let subst_for_univ_sym sym = 
     if sym = temp_univ_sym 
-    then mk_var srk (Hashtbl.length univ_reads)`TyInt 
+    then mk_var srk uquant_depth `TyInt 
     else mk_const srk sym
   in
   let matrix = substitute_const srk subst_for_univ_sym matrix in
@@ -113,12 +109,12 @@ let new_mfa_to_lia srk matrix =
       (fun (arrsym, _) _ -> Hashtbl.mem univ_reads arrsym) 
       const_reads 
   in
-  let add_consistency_clause (arrsym, const) new_const conjuncts =
+  let add_consistency_clause (arrsym, readsym) new_sym conjuncts =
     let conjunct = 
       mk_if 
         srk 
-        (mk_eq srk (mk_var srk (Hashtbl.length univ_reads) `TyInt) (mk_const srk const))
-        (mk_eq srk (mk_var srk (Hashtbl.find univ_reads arrsym) `TyInt) (mk_const srk new_const))
+        (mk_eq srk (mk_var srk uquant_depth `TyInt) (mk_const srk readsym))
+        (mk_eq srk (mk_var srk (Hashtbl.find univ_reads arrsym) `TyInt) (mk_const srk new_sym))
     in
     conjunct :: conjuncts
   in
