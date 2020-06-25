@@ -8,9 +8,34 @@ include Log.Make(struct let name = "srk.array:" end)
 
 type 'a t = 'a formula
 
-(*let projection = failwith "todo 1"*)
+let projection srk phi arr_tr =
+  let j = mk_symbol srk `TyInt in
+  let j' = mk_symbol srk `TyInt in
+  let phi = 
+    mk_and 
+      srk 
+      [mk_eq srk (mk_const srk j) (mk_const srk j');
+       phi]
+  in
+  j,
+  List.fold_left 
+    (fun (assocs, phi) (a, a') ->
+       let z = mk_symbol srk `TyInt in
+       let z' = mk_symbol srk `TyInt in
+       (z, a) :: (z', a') :: assocs,
+       mk_and 
+         srk 
+         [mk_eq srk (mk_const srk z) (mk_app srk a [mk_const srk j]);
+          mk_eq srk (mk_const srk z') (mk_app srk a' [mk_const srk j]);
+          phi])
+    ([], phi) 
+    arr_tr
 
-let new_to_mfa srk (phi : 'a formula) : 'a formula =
+let symbols_by_sort srk tr_symbols =
+  List.partition (fun (s, _) -> typ_symbol srk s = `TyInt) tr_symbols
+
+
+let to_mfa srk (phi : 'a formula) =
   let skolemtbl = Hashtbl.create 100 in
   let rec skolemize srk args expr =
     let depth = Option.get (List.hd args) in
@@ -59,11 +84,11 @@ let new_to_mfa srk (phi : 'a formula) : 'a formula =
       end
     | _ -> failwith "not in scope of logical fragment"
   in
-  let _, matr = Formula.eval srk alg phi in
+  let qfv, matr = Formula.eval srk alg phi in
   let matr = (matr :> 'a formula) in
-  matr
+  qfv, matr
 
-let new_mfa_to_lia srk matrix =
+let mfa_to_lia srk matrix =
   let const_reads = Hashtbl.create 100 in
   let univ_reads = Hashtbl.create 100 in
   let temp_univ_sym = mk_symbol srk `TyInt in 
@@ -132,7 +157,14 @@ module Array_analysis (Iter : PreDomain) = struct
 
   type 'a t = 'a formula
 
-  let abstract = failwith "todo 4"
+  let abstract ?exists:(_=fun _ -> true) srk tr_symbols phi =
+    let _, arr_tr = symbols_by_sort srk tr_symbols in 
+    let _, (_, phi) = projection srk phi arr_tr in
+    let qfv, matrix = to_mfa srk phi in
+    let lia = mfa_to_lia srk matrix in
+    let lia = if qfv then mk_forall srk `TyInt lia else lia in
+    (*TODO: add in iter; change type *)lia
+
 
   let equal = failwith "todo 5"
 

@@ -52,8 +52,7 @@ let pred_test () =
   let arruniv, arrother = get_array_syms srk matr bbu in
   let lia = mfa_to_lia srk (qpf, matr) arruniv arrother bbu in *)
   (*1let lia = new_mfa_to_lia srk (new_to_mfa srk phi) in*)
-  let lia = Formula.skolemize_eqpf srk phi in
-  let _ = new_to_mfa srk (mk_true srk) in
+  let _, lia = to_mfa srk phi in
   assert_equal_formula lia 
     (mk_false srk)
 
@@ -82,7 +81,7 @@ let pred_test2 () =
   let arruniv, arrother = get_array_syms srk matr bbu in
   let lia = mfa_to_lia srk (qpf, matr) arruniv arrother bbu in *)
   (*1let lia = new_mfa_to_lia srk (new_to_mfa srk phi) in*)
-  let lia = new_to_mfa srk phi in
+  let _, lia = to_mfa srk phi in
   assert_equal_formula lia 
     (mk_false srk)
 

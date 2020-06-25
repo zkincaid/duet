@@ -17,9 +17,9 @@ type 'a t = 'a formula
  * TODO check for types for arr;, make sure quants have right type; fix
  * types in general *)
 
-val new_to_mfa : 'a context -> 'a formula -> 'a formula
+val to_mfa : 'a context -> 'a formula -> (bool * 'a formula)
  
-val new_mfa_to_lia : 'a context -> 'a formula -> 'a formula
+val mfa_to_lia : 'a context -> 'a formula -> 'a formula
 
 (*val projection : 'a context ->'a formula -> Symbol.Set.t -> 'a t*)
 
