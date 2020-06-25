@@ -397,7 +397,7 @@ let generate_term_cond srk cs lhs exp_poly invariant_symbols invariant_terms ine
       in
       let sat_odd_conditions = analyze_entries entries_with_odd_exp in
       logf "sat_odd conditions: %a" (Formula.pp srk) sat_odd_conditions; 
-      let results = Syntax.mk_and srk [sat_even_conditions; sat_odd_conditions] in
+      let results = Syntax.mk_or srk [sat_even_conditions; sat_odd_conditions] in
       logf "terminating conditions for this mat with neg spectrum: %a" (Formula.pp srk) results;
       results
     end
