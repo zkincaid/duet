@@ -24,6 +24,7 @@ let nb_goals = ref 0
 let termination_exp = ref true
 let termination_llrf = ref true
 let termination_dta = ref true
+let termination_llrf_residual_dta = ref true
 
 let dump_goal loc path_condition =
   if !dump_goals then begin
@@ -737,10 +738,69 @@ let omega_algebra =  function
          | Some _ -> true
          | None -> Syntax.Symbol.Set.mem x post_symbols
        in
-       if !termination_llrf
-          && TLLRF.compute_swf srk exists x_xp formula = TLLRF.ProvedToTerminate
-       then
-         Syntax.mk_false srk
+       if !termination_llrf then
+       begin
+          let result, residual_formula = TLLRF.compute_swf srk exists x_xp formula in 
+          logf "\nLLRF residual formula:\n%s\n" (Syntax.Formula.show srk residual_formula);
+          if result = TLLRF.ProvedToTerminate then
+          begin
+            logf "Proved to terminate using pure LLRF synthesis";
+            Syntax.mk_false srk 
+          end
+          else 
+            begin
+            let dta = 
+              if !termination_llrf_residual_dta then
+              begin
+                logf "Feed LLRF residual formula to DTA ...";
+                let terminating_condition = TDTA.compute_swf_via_DTA srk exists x_xp residual_formula in
+                logf "start calculating transitive closure";
+                logf "\nDTA precondition for residual:\n%s\n" (Syntax.Formula.show srk terminating_condition);
+                let (pre_to_post, post_sym) =
+                  List.fold_left (fun (pre_to_post, post_sym) (x, x') ->
+                      (Syntax.Symbol.Map.add x (Syntax.mk_const srk x') pre_to_post,
+                      Syntax.Symbol.Set.add x' post_sym))
+                    (Syntax.Symbol.Map.empty, Syntax.Symbol.Set.empty)
+                    x_xp
+                in
+                let subst_condition = (* phi[x -> x', x' -> x''] *)
+                  let rename_fresh =
+                    Memo.memo (fun sym ->
+                        Syntax.mk_const srk (Syntax.mk_symbol srk (Syntax.typ_symbol srk sym)))
+                  in
+                  let subst sym =
+                    if Syntax.Symbol.Map.mem sym pre_to_post then
+                      Syntax.Symbol.Map.find sym pre_to_post
+                    else if exists sym && not (Syntax.Symbol.Set.mem sym post_sym) then
+                      Syntax.mk_const srk sym (* sym is a symbolic constant *)
+                    else
+                      rename_fresh sym (* sym is post symbol or Skolem constant *)
+                  in
+                  Syntax.substitute_const srk subst terminating_condition
+                in
+                logf "\nSubst DTA precondition for residual:\n%s\n" (Syntax.Formula.show srk subst_condition);
+                let k_fold_tr_formula = TerminationExp.closure (!K.domain) srk exists x_xp residual_formula in
+                logf "Transitive closure is: %s" (Syntax.Formula.show srk k_fold_tr_formula);
+                let neg_subst_residual = Syntax.mk_and srk [k_fold_tr_formula; Syntax.mk_not srk subst_condition] in
+                logf "Formula to take preimage:\n%s\n" (Syntax.Formula.show srk neg_subst_residual);
+                let polka = Polka.manager_alloc_strict () in
+                let prop = Abstract.abstract srk ~exists:exists polka neg_subst_residual in
+                let mp_formula = SrkApron.formula_of_property prop in
+                logf "\nLLRF+DTA:\n%s\n" (Syntax.Formula.show srk mp_formula);
+                [mp_formula]
+              end
+              else if !termination_dta then 
+                [TDTA.compute_swf_via_DTA srk exists x_xp formula]
+              else []
+            in
+            let exp =
+              if !termination_exp then
+                [Syntax.mk_not srk (TerminationExp.mp (!K.domain) srk exists x_xp formula)]
+              else []
+            in
+              Syntax.mk_and srk (dta@exp)
+            end
+       end
        else
          let dta =
            if !termination_dta then
@@ -927,6 +987,10 @@ let _ =
     ("-termination-no-llrf",
      Arg.Clear termination_llrf,
      " Disable LLRF-based termination analysis");
+  CmdLine.register_config
+    ("-termination-no-llrf-combined-dta",
+     Arg.Clear termination_llrf_residual_dta,
+     " Disable LLRF-residual-DTA-based termination analysis");
   CmdLine.register_config
     ("-termination-no-dta",
      Arg.Clear termination_dta,
