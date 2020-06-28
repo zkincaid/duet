@@ -743,7 +743,7 @@ let omega_algebra =  function
        in
        let nonterm formula =
          if !termination_llrf
-            && TLLRF.compute_swf srk exists x_xp formula = TLLRF.ProvedToTerminate
+            && (let result, _ = TLLRF.compute_swf srk exists x_xp formula in result = TLLRF.ProvedToTerminate)
          then
            Syntax.mk_false srk
          else
