@@ -786,8 +786,6 @@ let omega_algebra =  function
                       failwith "Cannot run LLRF-residual based DTA without -monotone flag.";
                     let terminating_condition = 
                       Syntax.mk_not srk (TDTA.compute_swf_via_DTA srk exists x_xp residual_formula) in
-                    logf "\nDTA precondition for residual:\n%s\n" 
-                      (Syntax.Formula.show srk (Quantifier.mbp ~dnf:true srk (fun _ -> true) terminating_condition));
                     let subst_condition = Syntax.substitute_const srk subst terminating_condition
                     in
                     logf "\nSubst DTA precondition for residual:\n%s\n" (Syntax.Formula.show srk subst_condition);
@@ -808,8 +806,6 @@ let omega_algebra =  function
                     if not !monotone then 
                       failwith "Cannot run LLRF-residual based exp without -monotone flag.";
                     let terminating_condition = TerminationExp.mp (!K.domain) srk exists x_xp residual_formula in
-                    logf "\nneg of exp precondition for residual:\n%s\n" 
-                      (Syntax.Formula.show srk (Quantifier.mbp ~dnf:true srk (fun _ -> true) terminating_condition));
                     let subst_condition =                      
                       Syntax.substitute_const srk subst terminating_condition
                     in
