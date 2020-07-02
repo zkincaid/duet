@@ -63,7 +63,7 @@ type value =
   | VVal of Var.t
   | VPos of Var.t
   | VWidth of Var.t
-[@@deriving ord]
+    [@@deriving ord]
 
 module Value = struct
   type t = value [@@deriving ord]
@@ -225,7 +225,7 @@ let rec tr_expr expr =
        (which just acts like a havoc). *)
     | OUnaryOp (_, _, typ) -> TInt (nondet_const "tr" (tr_typ typ))
     | OBoolExpr b -> TInt (Ctx.mk_ite (tr_bexpr b) (Ctx.mk_real (QQ.of_int 1)) (Ctx.mk_real (QQ.of_int 0)))
-    (*if (Bexpr.equal b Bexpr.ktrue) then TInt (Ctx.mk_real (QQ.of_int 1)) else TInt (Ctx.mk_real (QQ.of_int 0))*)
+      (*if (Bexpr.equal b Bexpr.ktrue) then TInt (Ctx.mk_real (QQ.of_int 1)) else TInt (Ctx.mk_real (QQ.of_int 0))*)
     | OAccessPath ap -> TInt (nondet_const "tr" (tr_typ (AP.get_type ap)))
     | OConstant _ -> TInt (nondet_const "tr" `TyInt)
   in
@@ -461,8 +461,8 @@ module MonotoneDom = struct
     let enum =
       (List.fold_left (fun syms (x, x') ->
            SymbolSet.add x (SymbolSet.add x' syms))
-          SymbolSet.empty
-          tr_symbols
+         SymbolSet.empty
+         tr_symbols
        |> SymbolSet.enum)
       /@ mk_const srk
     in
@@ -501,8 +501,8 @@ module MonotoneDom = struct
       let zero = mk_zero srk in
       List.map
         (fun vec ->
-           Linear.term_of_vec srk (fun dim -> coordinates.(dim)) vec
-           |> mk_eq srk zero)
+          Linear.term_of_vec srk (fun dim -> coordinates.(dim)) vec
+          |> mk_eq srk zero)
         aff
       |> mk_and srk
     in
@@ -562,7 +562,7 @@ module TSDisplay = ExtGraph.Display.MakeLabeled
       let pp formatter w = match w with
         | Weight w -> K.pp formatter w
         | Call (s,t) -> Format.fprintf formatter "call(%d, %d)" s t
-        (* let show = SrkUtil.mk_show pp *)
+      (* let show = SrkUtil.mk_show pp *)
     end)
 
 module SA = Abstract.MakeAbstractRSY(Ctx)
@@ -722,7 +722,6 @@ let analyze file =
 
 let omega_algebra =  function
   | `Omega transition ->
-<<<<<<< HEAD
      (** over-approximate possibly non-terminating conditions for a transition *)
      begin
        let open Syntax in
@@ -783,171 +782,12 @@ let omega_algebra =  function
        in
        Syntax.mk_and srk ((nonterm formula)::phase_mp)
      end
-=======
-    (** over-approximate possibly non-terminating conditions for a transition *)
-    begin
-      let x_xp, formula = K.to_transition_formula transition in
-      let formula = Nonlinear.linearize srk formula in
-      let exists =
-        let post_symbols =
-          List.fold_left
-            (fun set (_, sym') -> Syntax.Symbol.Set.add sym' set)
-            Syntax.Symbol.Set.empty
-            x_xp
-        in
-        fun x ->
-          match V.of_symbol x with
-          | Some _ -> true
-          | None -> Syntax.Symbol.Set.mem x post_symbols
-      in
-      if !termination_llrf then
-        begin
-          let result, residual_formula = TLLRF.compute_swf srk exists x_xp formula in 
-          logf "\nLLRF residual formula:\n%s\n" (Syntax.Formula.show srk residual_formula);
-          if result = TLLRF.ProvedToTerminate then
-            begin
-              logf "Proved to terminate using pure LLRF synthesis";
-              Syntax.mk_false srk 
-            end
-          else 
-            begin
-              let k_fold_tr_formula = 
-                if !termination_llrf_residual_dta || !termination_llrf_residual_exp then
-                  TerminationExp.closure (!K.domain) srk exists x_xp residual_formula 
-                else Syntax.mk_false srk
-              in
-              let (pre_to_post, post_sym) =
-                List.fold_left (fun (pre_to_post, post_sym) (x, x') ->
-                    (Syntax.Symbol.Map.add x (Syntax.mk_const srk x') pre_to_post,
-                     Syntax.Symbol.Set.add x' post_sym))
-                  (Syntax.Symbol.Map.empty, Syntax.Symbol.Set.empty)
-                  x_xp
-              in
-              let rename_fresh =
-                Memo.memo (fun sym ->
-                    Syntax.mk_const srk (Syntax.mk_symbol srk (Syntax.typ_symbol srk sym)))
-              in
-              let subst sym =
-                if Syntax.Symbol.Map.mem sym pre_to_post then
-                  Syntax.Symbol.Map.find sym pre_to_post
-                else if exists sym && not (Syntax.Symbol.Set.mem sym post_sym) then
-                  Syntax.mk_const srk sym (* sym is a symbolic constant *)
-                else
-                  rename_fresh sym (* sym is post symbol or Skolem constant *)
-              in
-              let exist_pre x = match V.of_symbol x with
-                | Some _ -> true
-                | None -> Syntax.Symbol.Map.mem x pre_to_post
-              in
-              let qe = Quantifier.mbp srk in
-              let dta = 
-                if !termination_llrf_residual_dta then
-                  begin
-                    if not !monotone then 
-                      failwith "Cannot run LLRF-residual based DTA without -monotone flag.";
-                    let terminating_condition = 
-<<<<<<< HEAD
-                      TDTA.compute_swf_via_DTA srk exists x_xp residual_formula in
-                    logf "\nDTA precondition for residual:\n%s\n" 
-                      (Syntax.Formula.show srk terminating_condition);
-                    let (pre_to_post, post_sym) =
-                      List.fold_left (fun (pre_to_post, post_sym) (x, x') ->
-                          (Syntax.Symbol.Map.add x (Syntax.mk_const srk x') pre_to_post,
-                           Syntax.Symbol.Set.add x' post_sym))
-                        (Syntax.Symbol.Map.empty, Syntax.Symbol.Set.empty)
-                        x_xp
-                    in
-                    let subst_condition =
-                      let rename_fresh =
-                        Memo.memo (fun sym ->
-                            Syntax.mk_const srk (Syntax.mk_symbol srk (Syntax.typ_symbol srk sym)))
-                      in
-                      let subst sym =
-                        if Syntax.Symbol.Map.mem sym pre_to_post then
-                          Syntax.Symbol.Map.find sym pre_to_post
-                        else if exists sym && not (Syntax.Symbol.Set.mem sym post_sym) then
-                          Syntax.mk_const srk sym (* sym is a symbolic constant *)
-                        else
-                          rename_fresh sym (* sym is post symbol or Skolem constant *)
-                      in
-                      Syntax.substitute_const srk subst terminating_condition
-=======
-                      Syntax.mk_not srk (TDTA.compute_swf_via_DTA srk exists x_xp residual_formula) in
-                    logf "\nneg of DTA precondition for residual:\n%s\n" 
-                      (Syntax.Formula.show srk (Quantifier.mbp ~dnf:true srk (fun _ -> true) terminating_condition));
-                    let subst_condition = Syntax.substitute_const srk subst terminating_condition
->>>>>>> adding LLRF residual based exp
-                    in
-                    logf "\nSubst DTA precondition for residual:\n%s\n" (Syntax.Formula.show srk subst_condition);
-                    let k_fold_tr_formula = TerminationExp.closure (!K.domain) srk exists x_xp residual_formula in
-                    logf "Transitive closure is: %s" (Syntax.Formula.show srk k_fold_tr_formula);
-                    let neg_substed_condition = Syntax.mk_and srk [k_fold_tr_formula; Syntax.mk_not srk subst_condition] in
-<<<<<<< HEAD
-                    logf "Condition to take preimage:\n%s\n" (Syntax.Formula.show srk neg_substed_condition);
-                    let exist_pre x = match V.of_symbol x with
-                      | Some _ -> true
-                      | None -> Syntax.Symbol.Map.mem x pre_to_post
-                    in
-                    let qe = Quantifier.mbp srk in
-=======
-                    logf "neg of condition to take preimage:\n%s\n" (Syntax.Formula.show srk neg_substed_condition);
->>>>>>> adding LLRF residual based exp
-                    let condition = qe exist_pre neg_substed_condition in
-                    logf "\nCondition generated by LLRF residual+DTA:\n%s" (Syntax.Formula.show srk condition);
-                    [condition]
-                  end
-                else if !termination_dta then 
-                  [TDTA.compute_swf_via_DTA srk exists x_xp formula]
-                else []
-              in
-              let exp =
-                if !termination_llrf_residual_exp then
-                  begin
-                    if not !monotone then 
-                      failwith "Cannot run LLRF-residual based DTA without -monotone flag.";
-                    let terminating_condition = TerminationExp.mp (!K.domain) srk exists x_xp residual_formula in
-                    logf "\nneg of exp precondition for residual:\n%s\n" 
-                      (Syntax.Formula.show srk (Quantifier.mbp ~dnf:true srk (fun _ -> true) terminating_condition));
-                    let subst_condition =                      
-                      Syntax.substitute_const srk subst terminating_condition
-                    in
-                    logf "\nneg of subst exp precondition for residual:\n%s\n" (Syntax.Formula.show srk subst_condition);
-                    logf "Transitive closure is: %s" (Syntax.Formula.show srk k_fold_tr_formula);
-                    let neg_substed_condition = Syntax.mk_and srk [k_fold_tr_formula; Syntax.mk_not srk subst_condition] in
-                    logf "neg of condition to take preimage:\n%s\n" (Syntax.Formula.show srk neg_substed_condition);
-
-                    let condition = qe exist_pre neg_substed_condition in
-                    logf "\nneg of condition generated by LLRF residual+exp:\n%s" (Syntax.Formula.show srk (Quantifier.mbp ~dnf:true srk (fun _ -> true) condition));
-                    [condition]
-                  end
-                else
-                if !termination_exp then
-                  [Syntax.mk_not srk (TerminationExp.mp (!K.domain) srk exists x_xp formula)]
-                else []
-              in
-              Syntax.mk_and srk (dta@exp)
-            end
-        end
-      else
-        let dta =
-          if !termination_dta then
-            [TDTA.compute_swf_via_DTA srk exists x_xp formula]
-          else []
-        in
-        let exp =
-          if !termination_exp then
-            [Syntax.mk_not srk (TerminationExp.mp (!K.domain) srk exists x_xp formula)]
-          else []
-        in
-        Syntax.mk_and srk (dta@exp)
-    end
->>>>>>> finish the implementation of LLRF-residual and DTA
   | `Add (cond1, cond2) ->
-    (** combining possibly non-terminating conditions for multiple paths *)
-    Syntax.mk_or srk [cond1; cond2]
+     (** combining possibly non-terminating conditions for multiple paths *)
+     Syntax.mk_or srk [cond1; cond2]
   | `Mul (transition, state) ->
-    (** propagate state formula through a transition *)
-    K.guard (K.mul transition (K.assume state))
+     (** propagate state formula through a transition *)
+     K.guard (K.mul transition (K.assume state))
 
 let prove_termination_main file =
   populate_offset_table file;
@@ -967,15 +807,15 @@ let prove_termination_main file =
           omega_paths_sum
           |> Nonlinear.linearize srk
           |> Quantifier.mbp srk (fun sym ->
-              match V.of_symbol sym with
-              | Some x -> V.is_global x
-              | _ -> false)
+                 match V.of_symbol sym with
+                 | Some x -> V.is_global x
+                 | _ -> false)
           |> Syntax.mk_not srk
         in
         Format.printf "Sufficient terminating conditions:\n%a\n" (Syntax.Formula.pp srk) simplified
       | `Unsat -> Format.printf "Program always terminates\n"
       | `Unknown -> Format.printf "Unknown analysis result\n";
-        ()
+      ()
     end
   | _ -> failwith "Cannot find main function within the C source file"
 
@@ -1041,8 +881,8 @@ let resource_bound_analysis file =
                 | Some upper ->
                   logf ~level:`always "cost <= %a" (Syntax.Term.pp srk) upper;
                   logf ~level:`always "%a is O(%a)"
-                    Varinfo.pp procedure
-                    BigO.pp (BigO.of_term srk upper)
+                  Varinfo.pp procedure
+                  BigO.pp (BigO.of_term srk upper)
                 | None -> ()
               end
             | `Unsat ->
@@ -1083,12 +923,12 @@ let _ =
          let open Iteration in
          if !monotone then
            K.domain := (module Product
-                 (Product(Vas.Monotone)(PolyhedronGuard))
-                 (LinearRecurrenceInequation))
+                                 (Product(Vas.Monotone)(PolyhedronGuard))
+                                 (LinearRecurrenceInequation))
          else
            K.domain := (module Product
-                 (Product(Vas)(PolyhedronGuard))
-                 (LinearRecurrenceInequation))),
+                                 (Product(Vas)(PolyhedronGuard))
+                                 (LinearRecurrenceInequation))),
      " Use VAS abstraction");
   CmdLine.register_config
     ("-cra-vass",
@@ -1116,24 +956,6 @@ let _ =
      Arg.Clear termination_llrf,
      " Disable LLRF-based termination analysis");
   CmdLine.register_config
-<<<<<<< HEAD
-    ("-termination-no-attractor-for-llrf",
-     Arg.Clear termination_llrf_with_attractor,
-     " Disable attractor region computation for LLRF");
-  CmdLine.register_config
-=======
-<<<<<<< HEAD
-=======
-    ("-termination-no-llrf-combined-dta",
-     Arg.Clear termination_llrf_residual_dta,
-     " Disable LLRF-residual-DTA-based termination analysis");
-  CmdLine.register_config
-    ("-termination-no-llrf-combined-exp",
-     Arg.Clear termination_llrf_residual_exp,
-     " Disable LLRF-residual-DTA-based termination analysis");
-  CmdLine.register_config
->>>>>>> adding LLRF residual based exp
->>>>>>> adding LLRF residual based exp
     ("-termination-no-dta",
      Arg.Clear termination_dta,
      " Disable DTA-based termination analysis");
