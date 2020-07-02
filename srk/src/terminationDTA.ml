@@ -382,8 +382,6 @@ let generate_term_cond srk cs lhs exp_poly invariant_symbols invariant_terms ine
       let sat_even_conditions' = analyze_entries entries in
       let sat_even_conditions'' = rewrite_term_condition srk best_DLTS_abstraction.simulation invariant_symbols sat_even_conditions' in
       let sat_even_conditions = sat_even_conditions'' in
-      let sat_even_conditions_disp = simplify_condition srk sat_even_conditions'' in 
-      logf "sat_even conditions: %a " (Formula.pp srk) sat_even_conditions_disp;
       logf "start computing sat_odd conditions";
       let entries = ExpPolynomial.Matrix.entries mat in
       let entries_with_odd_exp = BatEnum.map (
@@ -461,7 +459,7 @@ let compute_swf_via_DTA srk exists x_xp formula =
     let results_in_inv_terms = analyze_inv_polyhedron srk cs invariants_polyhedron exp_poly invariant_symbols invariant_terms best_DLTS_abstraction in
     logf "terminating conditions in inv terms: %a" (Formula.pp srk) results_in_inv_terms;
     let results = rewrite_term_condition srk best_DLTS_abstraction.simulation invariant_symbols results_in_inv_terms in
-    logf "terminating conditions before simplification: %a" (Formula.pp srk) results;
+    logf "terminating conditions: %a" (Formula.pp srk) results;
     mk_not srk results
   | `Unknown -> failwith "SMT solver should not return unknown for QRA formulas"
   | `Unsat -> (logf ~attributes:[`Bold; `Green] "Transition formula UNSAT, done"); mk_false srk
