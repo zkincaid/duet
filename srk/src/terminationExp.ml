@@ -10,9 +10,10 @@ let closure (module I : Iteration.PreDomain) srk exists tr_symbols phi =
     I.abstract ~exists srk tr_symbols phi
     |> I.exp srk tr_symbols (mk_const srk k)
   in 
-  logf "abstraction completed";
-  logf "k-fold formula: %s" (Formula.show srk phi_k);
-  qe (fun sym -> sym != k) phi_k
+  let f = mk_and srk [mk_leq srk (mk_zero srk) (mk_const srk k);
+                      phi_k] in
+  logf "Abstraction completed, k-fold formula: %a" (Formula.pp srk) f;
+  qe (fun sym -> sym != k) f
 
 let mp (module I : Iteration.PreDomain) srk exists tr_symbols phi =
   let qe = Quantifier.mbp srk in
