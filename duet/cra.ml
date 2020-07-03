@@ -26,6 +26,7 @@ let termination_llrf = ref true
 let termination_dta = ref true
 let termination_llrf_residual_dta = ref true
 let termination_llrf_residual_exp = ref true
+let termination_llrf_with_attractor = ref true
 
 let dump_goal loc path_condition =
   if !dump_goals then begin
@@ -744,117 +745,128 @@ let omega_algebra =  function
         begin
           let result, residual_formula = TLLRF.compute_swf srk exists x_xp formula' in 
           logf "\nLLRF residual formula:\n%a\n" (Syntax.Formula.pp srk) residual_formula;
-          if result = TLLRF.ProvedToTerminate then
+          let llrf_result =
+            if result = TLLRF.ProvedToTerminate then
+              begin
+                logf "Proved to terminate using pure LLRF synthesis";
+                result 
+              end
+            else 
+            if !termination_llrf_with_attractor then 
+              begin
+                logf "Starting attractor region analysis";
+                let xp_leq_x_terms = BatList.fold_left (fun l (x, xp) -> 
+                    let open Syntax in (mk_leq srk (mk_const srk xp) (mk_const srk x), mk_const srk xp, mk_const srk x) :: l) [] x_xp 
+                in
+                let lower_bounds = BatList.map (fun (xp_leq_x_term, xp, x) -> 
+                    match SrkZ3.optimize_box srk (Syntax.mk_and srk [formula; xp_leq_x_term]) [xp] with
+                    | `Sat l ->  let h = BatList.hd l in (Interval.lower h, x)
+                    | _ -> (None, x)
+                  ) 
+                    xp_leq_x_terms in 
+                let x_leq_xp_terms = BatList.fold_left (fun l (x, xp) -> 
+                    let open Syntax in (mk_leq srk (mk_const srk x) (mk_const srk xp), mk_const srk xp, mk_const srk x) :: l) [] x_xp 
+                in
+                let upper_bounds = BatList.map (fun (x_leq_xp_term, xp, x) -> 
+                    match SrkZ3.optimize_box srk (Syntax.mk_and srk [formula; x_leq_xp_term]) [xp] with
+                    | `Sat l -> let h = BatList.hd l in (Interval.upper h, x)
+                    | _ -> (None, x)
+                  ) 
+                    x_leq_xp_terms 
+                in
+                let lb_x_ub = BatList.map2 (fun lb ub -> 
+                    let open Syntax in
+                    match lb, ub with 
+                    | (Some a, x), (Some b, y) -> [mk_leq srk (mk_real srk a) x; mk_leq srk y (mk_real srk b)] 
+                    | (Some a, x), _ -> [mk_leq srk (mk_real srk a) x]
+                    | _, (Some b, x) -> [mk_leq srk x (mk_real srk b)]
+                    | _ -> []
+                  ) 
+                    lower_bounds 
+                    upper_bounds
+                in
+                let formula'' = Syntax.mk_and srk (formula :: BatList.flatten lb_x_ub) in
+                logf "Formula with attractor regions:\n%a\n" (Syntax.Formula.pp srk) formula'';
+                let result, _ = TLLRF.compute_swf srk exists x_xp formula'' in 
+                if result = TLLRF.ProvedToTerminate then
+                  begin
+                    logf "Proved to terminate using LLRF + attractor region analysis";
+                    result 
+                  end
+                else
+                  TLLRF.Unknown
+              end
+            else
+              TLLRF.Unknown
+          in
+          match llrf_result with
+          |  TLLRF.ProvedToTerminate -> Syntax.mk_false srk
+          | _ ->
             begin
-              logf "Proved to terminate using pure LLRF synthesis";
-              Syntax.mk_false srk 
-            end
-          else 
-            begin
-              logf "Starting attractor region analysis";
-              let xp_leq_x_terms = BatList.fold_left (fun l (x, xp) -> 
-                  let open Syntax in (mk_leq srk (mk_const srk xp) (mk_const srk x), mk_const srk xp, mk_const srk x) :: l) [] x_xp 
+              let k_fold_tr_formula = 
+                if !termination_llrf_residual_dta || !termination_llrf_residual_exp then
+                  TerminationExp.closure (!K.domain) srk exists x_xp formula 
+                else Syntax.mk_false srk
               in
-              let lower_bounds = BatList.map (fun (xp_leq_x_term, xp, x) -> 
-                  match SrkZ3.optimize_box srk (Syntax.mk_and srk [formula; xp_leq_x_term]) [xp] with
-                  | `Sat l ->  let h = BatList.hd l in (Interval.lower h, x)
-                  | _ -> (None, x)
-                ) 
-                  xp_leq_x_terms in 
-              let x_leq_xp_terms = BatList.fold_left (fun l (x, xp) -> 
-                  let open Syntax in (mk_leq srk (mk_const srk x) (mk_const srk xp), mk_const srk xp, mk_const srk x) :: l) [] x_xp 
+              let (pre_to_post, post_sym) =
+                List.fold_left (fun (pre_to_post, post_sym) (x, x') ->
+                    (Syntax.Symbol.Map.add x (Syntax.mk_const srk x') pre_to_post,
+                     Syntax.Symbol.Set.add x' post_sym))
+                  (Syntax.Symbol.Map.empty, Syntax.Symbol.Set.empty)
+                  x_xp
               in
-              let upper_bounds = BatList.map (fun (x_leq_xp_term, xp, x) -> 
-                  match SrkZ3.optimize_box srk (Syntax.mk_and srk [formula; x_leq_xp_term]) [xp] with
-                  | `Sat l -> let h = BatList.hd l in (Interval.upper h, x)
-                  | _ -> (None, x)
-                ) 
-                  x_leq_xp_terms 
+              let rename_fresh =
+                Memo.memo (fun sym ->
+                    Syntax.mk_const srk (Syntax.mk_symbol srk (Syntax.typ_symbol srk sym)))
               in
-              let lb_x_ub = BatList.map2 (fun lb ub -> 
-                  let open Syntax in
-                  match lb, ub with 
-                  | (Some a, x), (Some b, y) -> [mk_leq srk (mk_real srk a) x; mk_leq srk y (mk_real srk b)] 
-                  | (Some a, x), _ -> [mk_leq srk (mk_real srk a) x]
-                  | _, (Some b, x) -> [mk_leq srk x (mk_real srk b)]
-                  | _ -> []
-                ) 
-                  lower_bounds 
-                  upper_bounds
+              let subst sym =
+                if Syntax.Symbol.Map.mem sym pre_to_post then
+                  Syntax.Symbol.Map.find sym pre_to_post
+                else if exists sym && not (Syntax.Symbol.Set.mem sym post_sym) then
+                  Syntax.mk_const srk sym (* sym is a symbolic constant *)
+                else
+                  rename_fresh sym (* sym is post symbol or Skolem constant *)
               in
-              let formula'' = Syntax.mk_and srk (formula :: BatList.flatten lb_x_ub) in
-              logf "Formula with attractor regions:\n%a\n" (Syntax.Formula.pp srk) formula'';
-              let result, _ = TLLRF.compute_swf srk exists x_xp formula'' in 
-              if result = TLLRF.ProvedToTerminate then
-                begin
-                  logf "Proved to terminate using LLRF + attractor region analysis";
-                  Syntax.mk_false srk 
-                end
-              else 
-                let k_fold_tr_formula = 
-                  if !termination_llrf_residual_dta || !termination_llrf_residual_exp then
-                    TerminationExp.closure (!K.domain) srk exists x_xp formula 
-                  else Syntax.mk_false srk
-                in
-                let (pre_to_post, post_sym) =
-                  List.fold_left (fun (pre_to_post, post_sym) (x, x') ->
-                      (Syntax.Symbol.Map.add x (Syntax.mk_const srk x') pre_to_post,
-                       Syntax.Symbol.Set.add x' post_sym))
-                    (Syntax.Symbol.Map.empty, Syntax.Symbol.Set.empty)
-                    x_xp
-                in
-                let rename_fresh =
-                  Memo.memo (fun sym ->
-                      Syntax.mk_const srk (Syntax.mk_symbol srk (Syntax.typ_symbol srk sym)))
-                in
-                let subst sym =
-                  if Syntax.Symbol.Map.mem sym pre_to_post then
-                    Syntax.Symbol.Map.find sym pre_to_post
-                  else if exists sym && not (Syntax.Symbol.Set.mem sym post_sym) then
-                    Syntax.mk_const srk sym (* sym is a symbolic constant *)
-                  else
-                    rename_fresh sym (* sym is post symbol or Skolem constant *)
-                in
-                let exist_pre x = match V.of_symbol x with
-                  | Some _ -> true
-                  | None -> false
-                in
-                let qe = Quantifier.mbp srk in
-                let dta = 
-                  if !termination_llrf_residual_dta then
-                    begin
-                      if not !monotone then 
-                        failwith "Cannot run LLRF-residual based DTA without -monotone flag.";
-                      let terminating_condition = 
-                        Syntax.mk_not srk (TDTA.compute_swf_via_DTA srk exists x_xp residual_formula) in
-                      let subst_condition = Syntax.substitute_const srk subst terminating_condition in
-                      let neg_substed_condition = Syntax.mk_and srk [k_fold_tr_formula; Syntax.mk_not srk subst_condition] in
-                      let condition = qe exist_pre neg_substed_condition in
-                      [condition; TDTA.compute_swf_via_DTA srk exists x_xp formula]
-                    end
-                  else if !termination_dta then 
-                    [TDTA.compute_swf_via_DTA srk exists x_xp formula]
-                  else []
-                in
-                let exp =
-                  if !termination_llrf_residual_exp then
-                    begin
-                      if not !monotone then 
-                        failwith "Cannot run LLRF-residual based exp without -monotone flag.";
-                      let terminating_condition = TerminationExp.mp (!K.domain) srk exists x_xp residual_formula in
-                      let subst_condition =                      
-                        Syntax.substitute_const srk subst terminating_condition
-                      in
-                      let neg_substed_condition = Syntax.mk_and srk [k_fold_tr_formula; Syntax.mk_not srk subst_condition] in
-                      let condition = qe exist_pre neg_substed_condition in
-                      [condition; Syntax.mk_not srk (TerminationExp.mp (!K.domain) srk exists x_xp formula)]
-                    end
-                  else
-                  if !termination_exp then
-                    [Syntax.mk_not srk (TerminationExp.mp (!K.domain) srk exists x_xp formula)]
-                  else []
-                in
-                Syntax.mk_and srk (dta@exp)
+              let exist_pre x = match V.of_symbol x with
+                | Some _ -> true
+                | None -> false
+              in
+              let qe = Quantifier.mbp srk in
+              let dta = 
+                if !termination_llrf_residual_dta then
+                  begin
+                    if not !monotone then 
+                      failwith "Cannot run LLRF-residual based DTA without -monotone flag.";
+                    let terminating_condition = 
+                      Syntax.mk_not srk (TDTA.compute_swf_via_DTA srk exists x_xp residual_formula) in
+                    let subst_condition = Syntax.substitute_const srk subst terminating_condition in
+                    let neg_substed_condition = Syntax.mk_and srk [k_fold_tr_formula; Syntax.mk_not srk subst_condition] in
+                    let condition = qe exist_pre neg_substed_condition in
+                    [condition; TDTA.compute_swf_via_DTA srk exists x_xp formula]
+                  end
+                else if !termination_dta then 
+                  [TDTA.compute_swf_via_DTA srk exists x_xp formula]
+                else []
+              in
+              let exp =
+                if !termination_llrf_residual_exp then
+                  begin
+                    if not !monotone then 
+                      failwith "Cannot run LLRF-residual based exp without -monotone flag.";
+                    let terminating_condition = TerminationExp.mp (!K.domain) srk exists x_xp residual_formula in
+                    let subst_condition =                      
+                      Syntax.substitute_const srk subst terminating_condition
+                    in
+                    let neg_substed_condition = Syntax.mk_and srk [k_fold_tr_formula; Syntax.mk_not srk subst_condition] in
+                    let condition = qe exist_pre neg_substed_condition in
+                    [condition; Syntax.mk_not srk (TerminationExp.mp (!K.domain) srk exists x_xp formula)]
+                  end
+                else
+                if !termination_exp then
+                  [Syntax.mk_not srk (TerminationExp.mp (!K.domain) srk exists x_xp formula)]
+                else []
+              in
+              Syntax.mk_and srk (dta@exp)
             end
         end
       else
@@ -1051,6 +1063,10 @@ let _ =
     ("-termination-no-llrf-combined-exp",
      Arg.Clear termination_llrf_residual_exp,
      " Disable LLRF-residual-DTA-based termination analysis");
+  CmdLine.register_config
+    ("-termination-no-attractor-for-llrf",
+     Arg.Clear termination_llrf_with_attractor,
+     " Disable attractor region computation for LLRF");
   CmdLine.register_config
     ("-termination-no-dta",
      Arg.Clear termination_dta,
