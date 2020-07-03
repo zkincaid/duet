@@ -7,6 +7,8 @@
     <option name="-monotone" />
     <option name="-cra-split-loops" />
     <option name="-termination" />
+    <option name="-termination-no-llrf-combined-dta" />
+    <option name="-termination-no-llrf-combined-exp" />
     <tasks name="Termination">
       <includesfile>../tasks/termination.set</includesfile>
       <propertyfile>../tasks/properties/termination.prp</propertyfile>

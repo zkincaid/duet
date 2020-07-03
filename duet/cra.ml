@@ -1062,7 +1062,7 @@ let _ =
   CmdLine.register_config
     ("-termination-no-llrf-combined-exp",
      Arg.Clear termination_llrf_residual_exp,
-     " Disable LLRF-residual-DTA-based termination analysis");
+     " Disable LLRF-residual-exp-based termination analysis");
   CmdLine.register_config
     ("-termination-no-attractor-for-llrf",
      Arg.Clear termination_llrf_with_attractor,
