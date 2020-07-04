@@ -76,3 +76,18 @@ module ProductWedge (A : PreDomainWedge) (B : PreDomainWedge) : PreDomainWedge
 module MakeDomain(Iter : PreDomain) : Domain
 
 val identity : 'a context -> (symbol * symbol) list -> 'a formula
+
+(** Given a transition formula T and a transition predicate p, we say
+   that p is an invariant of T if
+     T(x,x') /\ T(x',x'') /\ p(x,x') => p(x',x'')
+   A set of transition predicates defines a partition of T, which is acyclic
+   in the sense that when a computation leaves a cell it may never return.
+   This function takes a set of candidate transition predicates as input,
+   determines which are invariant, and returns the non-empty cells of the
+   partition. *)
+val invariant_partition : ?exists:(symbol -> bool) ->
+                          'a context ->
+                          (symbol * symbol) list ->
+                          ('a formula) list ->
+                          'a formula ->
+                          ('a formula) list

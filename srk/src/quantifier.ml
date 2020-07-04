@@ -772,13 +772,13 @@ let select_int_term srk interp x atoms =
           `Lower (s, s_val)
         else
           `Lower (t, t_val)
-    | (`Lower (t, t_val), _) | (_, `Lower (t, t_val)) -> `Lower (t, t_val)
     | (`Upper (s, s_val), `Upper (t, t_val)) ->
         if ZZ.lt s_val t_val then
           `Upper (s, s_val)
         else
           `Upper (t, t_val)
     | (`Upper (t, t_val), _) | (_, `Upper (t, t_val)) -> `Upper (t, t_val)
+    | (`Lower (t, t_val), _) | (_, `Lower (t, t_val)) -> `Lower (t, t_val)
     | `None, `None -> `None
   in
   let eval = evaluate_linterm (Interpretation.real interp) in

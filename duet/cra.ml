@@ -24,6 +24,7 @@ let nb_goals = ref 0
 let termination_exp = ref true
 let termination_llrf = ref true
 let termination_dta = ref true
+let termination_phase_analysis = ref true
 
 let dump_goal loc path_condition =
   if !dump_goals then begin
@@ -723,6 +724,7 @@ let omega_algebra =  function
   | `Omega transition ->
      (** over-approximate possibly non-terminating conditions for a transition *)
      begin
+       let open Syntax in
        let x_xp, formula = K.to_transition_formula transition in
        let formula = Nonlinear.linearize srk formula in
        let exists =
@@ -737,22 +739,48 @@ let omega_algebra =  function
          | Some _ -> true
          | None -> Syntax.Symbol.Set.mem x post_symbols
        in
-       if !termination_llrf
-          && TLLRF.compute_swf srk exists x_xp formula = TLLRF.ProvedToTerminate
-       then
-         Syntax.mk_false srk
-       else
-         let dta =
-           if !termination_dta then
-             [TDTA.compute_swf_via_DTA srk exists x_xp formula]
-           else []
-         in
-         let exp =
-           if !termination_exp then
-             [Syntax.mk_not srk (TerminationExp.mp (!K.domain) srk exists x_xp formula)]
-           else []
-         in
-         Syntax.mk_and srk (dta@exp)
+       let nonterm formula =
+         if !termination_llrf
+            && TLLRF.compute_swf srk exists x_xp formula = TLLRF.ProvedToTerminate
+         then
+           Syntax.mk_false srk
+         else
+           let dta =
+             if !termination_dta then
+               [TDTA.compute_swf_via_DTA srk exists x_xp formula]
+             else []
+           in
+           let exp =
+             if !termination_exp then
+               [Syntax.mk_not srk (TerminationExp.mp (!K.domain) srk exists x_xp formula)]
+             else []
+           in
+           Syntax.mk_and srk (dta@exp)
+       in
+       let phase_mp =
+         if !termination_phase_analysis then begin
+             let predicates =
+               (* Use variable directions & signs as candidate invariants *)
+               List.concat_map (fun (x,x') ->
+                   let x = mk_const srk x in
+                   let x' = mk_const srk x' in
+                   [mk_lt srk x x';
+                    mk_lt srk x' x;
+                    mk_leq srk (mk_zero srk) x;
+                    mk_leq srk x (mk_zero srk);
+                    mk_eq srk x x'])
+                 x_xp
+             in
+             let phased_nonterm =
+               Iteration.invariant_partition ~exists srk x_xp predicates formula
+               |> List.map (fun phase ->
+                      nonterm (Syntax.mk_and srk [formula; phase]))
+               |> Syntax.mk_or srk
+             in
+             [K.guard (K.mul (K.star transition) (K.assume phased_nonterm))]
+           end else []
+       in
+       Syntax.mk_and srk ((nonterm formula)::phase_mp)
      end
   | `Add (cond1, cond2) ->
      (** combining possibly non-terminating conditions for multiple paths *)
@@ -930,7 +958,12 @@ let _ =
   CmdLine.register_config
     ("-termination-no-dta",
      Arg.Clear termination_dta,
-     " Disable DTA-based termination analysis")
+     " Disable DTA-based termination analysis");
+  CmdLine.register_config
+    ("-termination-no-phase",
+     Arg.Clear termination_phase_analysis,
+     " Disable phase-based termination analysis")
+
 
 let _ =
   CmdLine.register_pass
