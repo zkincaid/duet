@@ -317,7 +317,7 @@ let rec find_quasi_rf depth srk f qrfs x_list xp_list dx_list x_set xp_set dx_se
         end
       else
         let gens = SrkApron.generators c in
-        let coeff_all_zero = not (BatList.exists (fun (_, typ) -> match typ with | `Ray | `RayMod | `Line | `LineMod -> true | _ -> false) gens) in
+        let coeff_all_zero = not (BatList.exists (fun (_, typ) -> match typ with | `Ray | `Line -> true | _ -> false) gens) in
         if coeff_all_zero then 
           begin
             logf ~attributes:[`Bold; `Red] "only all zero quasi ranking function exists at this level, fail";
