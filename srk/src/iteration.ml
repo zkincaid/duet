@@ -839,6 +839,38 @@ let invariant_transition_predicates srk exists phi tr_symbols predicates =
   in
   List.filter is_invariant predicates
 
+let invariant_partition ?(exists=fun _ -> true) srk tr_symbols candidates phi =
+  let phi = Nonlinear.linearize srk phi in
+  let predicates =
+    invariant_transition_predicates srk exists phi tr_symbols candidates
+    |> BatArray.of_list
+  in
+  let solver = Smt.mk_solver srk in
+  Smt.Solver.add solver [phi];
+  (* The predicate induce a parition of the transitions of T by
+     their valuation of the predicates; find the cells of this
+     partition *)
+  let rec find_cells cells =
+    Smt.Solver.push solver;
+    match Smt.Solver.get_model solver with
+    | `Sat m ->
+       let cell =
+         Array.map (Interpretation.evaluate_formula m) predicates
+       in
+       let cell_formula =
+         List.mapi (fun i sat ->
+             if sat then predicates.(i)
+             else mk_not srk predicates.(i))
+           (Array.to_list cell)
+         |> mk_and srk
+       in
+       Smt.Solver.add solver [mk_not srk cell_formula];
+       find_cells (cell_formula::cells)
+    | `Unsat -> cells
+    | `Unknown -> assert false (* to do *)
+  in
+  find_cells []
+
 module InvariantDirection (Iter : PreDomain) = struct
   type 'a t = 'a Iter.t list list
 
@@ -870,7 +902,7 @@ module InvariantDirection (Iter : PreDomain) = struct
     in
     let solver = Smt.mk_solver srk in
     Smt.Solver.add solver [phi];
-    (* The predicate induce a parition of the transitions of T by
+    (* The predicate induce a partition of the transitions of T by
        their valuation of the predicates; find the cells of this
        partition *)
     let rec find_cells cells =

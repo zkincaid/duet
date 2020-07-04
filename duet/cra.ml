@@ -24,6 +24,7 @@ let nb_goals = ref 0
 let termination_exp = ref true
 let termination_llrf = ref true
 let termination_dta = ref true
+let termination_phase_analysis = ref true
 
 let termination_llrf_with_attractor = ref true
 
@@ -963,7 +964,12 @@ let _ =
   CmdLine.register_config
     ("-termination-no-dta",
      Arg.Clear termination_dta,
-     " Disable DTA-based termination analysis")
+     " Disable DTA-based termination analysis");
+  CmdLine.register_config
+    ("-termination-no-phase",
+     Arg.Clear termination_phase_analysis,
+     " Disable phase-based termination analysis")
+
 
 let _ =
   CmdLine.register_pass
