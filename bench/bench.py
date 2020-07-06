@@ -13,7 +13,7 @@ tools = ["CRA", "VASS"]
 suites = ["C4B", "HOLA"]
 timeout = 60
 cache = True
-replace_cached = True
+replace_cached = False
 
 table_begin = """<?xml version="1.0" ?>
 <!DOCTYPE table PUBLIC "+//IDN sosy-lab.org//DTD BenchExec table 1.10//EN" "https://www.sosy-lab.org/benchexec/table-1.10.dtd">
