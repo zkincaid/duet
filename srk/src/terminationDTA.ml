@@ -23,7 +23,7 @@ let simplify_condition srk condition_formula =
 
 (** Create symbols that stands for some linear terms and their defining
     equalities.
- *)
+*)
 let build_symbols_for_inv_terms srk inv_terms =
   let l_symbols, l_equalities, symbol_set = 
     BatArray.fold_righti
@@ -86,12 +86,19 @@ let compute_best_DLTS_abstraction srk exists tr_symbols transition_formula =
 
 (** Compute the exponential polynomial that represents the transitive
     closure of a DLTS.
-  *)
+*)
 let compute_exp_polynomial ?(square=false) best_dlts =
-  let m = Linear.PartialLinearMap.map best_dlts.dlts in
+  (* let m = Linear.PartialLinearMap.map best_dlts.dlts in *)
+  let m =
+    let module PLM = Linear.PartialLinearMap in
+    let omega_domain = snd (PLM.iteration_sequence best_dlts.dlts) in
+    PLM.map (PLM.make (PLM.map best_dlts.dlts) omega_domain)
+  in
   let best_dlts_tr_matrix = if square then Linear.QQMatrix.mul m m else m in
-  let exp_poly' = ExpPolynomial.exponentiate_rational best_dlts_tr_matrix in
-  let exp_poly_mat = match exp_poly' with
+  logf "getting squared is: %b" square;
+  logf "matrix to be exponentiated: %a" (Linear.QQMatrix.pp) best_dlts_tr_matrix;
+  let exp_poly_mat = if Linear.QQMatrix.zero == m then ExpPolynomial.Matrix.zero else
+   match ExpPolynomial.exponentiate_rational best_dlts_tr_matrix with
     | None -> failwith "best rational DLTS abstraction produced a matrix with not all rational eigenvalues!"
     | Some mat -> mat
   in
@@ -150,7 +157,7 @@ module BaseDegPairMap = struct
       non_zero_dim: an int that correspond to a particular dimension, and
           -1 correspond to constants
       p: the Abelian group map
-   *)
+  *)
   let put index_pair factor non_zero_dim p =
     let qqxvec = QQV.of_list [factor, non_zero_dim] in
     E.add_term qqxvec index_pair p
@@ -173,7 +180,7 @@ module BaseDegPairMap = struct
           used to interpret the meaning of the vectors as values in the map.
       lhs_const: the constant that appears in the closed form formula.
       ineq_type: whether this inequality is <=, = or <.
-   *)
+  *)
   let rank srk p invariant_terms lhs_const ineq_type =
     logf "entering rank";
     let e = E.enum p in
@@ -289,7 +296,7 @@ end
     simulation: the linear terms in the DLTS abstraction
     invariant_symbols: aux symbols that we have defined for these terms
     formula: the conditions to be rewritten
- *)
+*)
 let rewrite_term_condition srk simulation invariant_symbols formula =
   let m = BatList.fold_lefti
       (fun m i inv_symb -> 
@@ -309,7 +316,7 @@ let rewrite_term_condition srk simulation invariant_symbols formula =
     invariant_terms: list of linear terms appears in DLTS abstraction.
     ineq_type: is the invariant inequality <, <= or =.
     best_DLTS_abstraction: the best DLTS abstraction of the transition formula
- *)
+*)
 let generate_term_cond srk cs lhs exp_poly invariant_symbols invariant_terms ineq_type best_DLTS_abstraction =
   let lt_vec, lhs_const = get_coeff_vec_for_expression cs lhs invariant_symbols in
   logf "\nlt_vec is: %a, LHS constant is: %a" 
@@ -382,8 +389,6 @@ let generate_term_cond srk cs lhs exp_poly invariant_symbols invariant_terms ine
       let sat_even_conditions' = analyze_entries entries in
       let sat_even_conditions'' = rewrite_term_condition srk best_DLTS_abstraction.simulation invariant_symbols sat_even_conditions' in
       let sat_even_conditions = sat_even_conditions'' in
-      let sat_even_conditions_disp = simplify_condition srk sat_even_conditions'' in 
-      logf "sat_even conditions: %a " (Formula.pp srk) sat_even_conditions_disp;
       logf "start computing sat_odd conditions";
       let entries = ExpPolynomial.Matrix.entries mat in
       let entries_with_odd_exp = BatEnum.map (
@@ -397,7 +402,7 @@ let generate_term_cond srk cs lhs exp_poly invariant_symbols invariant_terms ine
       in
       let sat_odd_conditions = analyze_entries entries_with_odd_exp in
       logf "sat_odd conditions: %a" (Formula.pp srk) sat_odd_conditions; 
-      let results = Syntax.mk_and srk [sat_even_conditions; sat_odd_conditions] in
+      let results = Syntax.mk_or srk [sat_even_conditions; sat_odd_conditions] in
       logf "terminating conditions for this mat with neg spectrum: %a" (Formula.pp srk) results;
       results
     end
@@ -417,7 +422,7 @@ let generate_term_cond srk cs lhs exp_poly invariant_symbols invariant_terms ine
         in the DLTS abstraction process.
     invariant_terms: list of linear terms appears in DLTS abstraction.
     best_DLTS_abstraction: the best DLTS abstraction of the transition formula
- *)
+*)
 let analyze_inv_polyhedron srk cs invariants_polyhedron exp_poly invariant_symbols invariant_terms best_DLTS_abstraction =
   let conditions_list = 
     BatList.fold_left
@@ -461,7 +466,7 @@ let compute_swf_via_DTA srk exists x_xp formula =
     let results_in_inv_terms = analyze_inv_polyhedron srk cs invariants_polyhedron exp_poly invariant_symbols invariant_terms best_DLTS_abstraction in
     logf "terminating conditions in inv terms: %a" (Formula.pp srk) results_in_inv_terms;
     let results = rewrite_term_condition srk best_DLTS_abstraction.simulation invariant_symbols results_in_inv_terms in
-    logf "terminating conditions before simplification: %a" (Formula.pp srk) results;
+    logf "terminating conditions: %a" (Formula.pp srk) results;
     mk_not srk results
   | `Unknown -> failwith "SMT solver should not return unknown for QRA formulas"
   | `Unsat -> (logf ~attributes:[`Bold; `Green] "Transition formula UNSAT, done"); mk_false srk

@@ -317,7 +317,7 @@ let rec find_quasi_rf depth srk f qrfs x_list xp_list dx_list x_set xp_set dx_se
         end
       else
         let gens = SrkApron.generators c in
-        let coeff_all_zero = not (BatList.exists (fun (_, typ) -> match typ with | `Ray -> true | _ -> false) gens) in
+        let coeff_all_zero = not (BatList.exists (fun (_, typ) -> match typ with | `Ray | `Line -> true | _ -> false) gens) in
         if coeff_all_zero then 
           begin
             logf ~attributes:[`Bold; `Red] "only all zero quasi ranking function exists at this level, fail";
@@ -360,9 +360,9 @@ let rec find_quasi_rf depth srk f qrfs x_list xp_list dx_list x_set xp_set dx_se
           let restricted_formula = mk_and srk (f :: new_constraints) in
           logf "\nrestricted formula for next iter:\n%s\n\n" (Formula.show srk restricted_formula);
           match Smt.equiv srk formula restricted_formula with
-          | `Unknown -> logf ~attributes:[`Bold; `Red] "cannot decide if there is any improvement at this level"; (false, depth, formula, qrfs)
-          | `Yes -> logf ~attributes:[`Bold; `Red] "no improvement at this level"; (false, depth, formula, qrfs)
-          | `No -> logf ~attributes:[`Bold; `Green] "there is improvement at this level";
+          | `Unknown -> logf ~attributes:[`Bold; `Red] "Cannot decide if there is any improvement at this level"; (false, depth, formula, qrfs)
+          | `Yes -> logf ~attributes:[`Bold; `Red] "No improvement at this level, halt LLRF synthesis"; (false, depth, formula, qrfs)
+          | `No -> logf ~attributes:[`Bold; `Green] "There is improvement at this level";
               match Smt.get_model srk restricted_formula with
               | `Sat _ -> 
                 logf ~attributes:[`Bold; `Yellow] "\n\n\nTransition formula SAT, try to synthesize next depth\n\n";
@@ -393,6 +393,11 @@ let add_diff_terms_to_formula srk f x_xp =
     x_xp
     (f, [], Symbol.Set.empty, Symbol.Map.empty, Symbol.Map.empty)
 
+(* let simplify_residual_formula srk x_set xp_set residual_formula = 
+  let polka = Polka.manager_alloc_strict () in
+  let exists = fun x -> (Symbol.Set.mem x x_set || Symbol.Set.mem x xp_set) in
+  Abstract.abstract ~exists:exists srk polka residual_formula
+  |> SrkApron.formula_of_property *)
 (** The actual swf operator only has true or false as outcomes, corresponding to
     able to prove or unable to prove results given here.
  *)
@@ -423,8 +428,8 @@ let compute_swf srk exists x_xp formula =
     let xp_set = post_symbols x_xp in
     let f_with_dx, dx_list, dx_set, x_to_dx, dx_to_x = add_diff_terms_to_formula srk body_formula x_xp in
     logf "\nformula with dx:\n%s\n" (Formula.show srk f_with_dx);
-    let (success, dep, _, _) = find_quasi_rf 1 srk f_with_dx [] x_list xp_list dx_list x_set xp_set dx_set x_to_dx dx_to_x coeff_x_list coeff_x_set in
+    let (success, dep, residual_formula, _) = find_quasi_rf 1 srk f_with_dx [] x_list xp_list dx_list x_set xp_set dx_set x_to_dx dx_to_x coeff_x_list coeff_x_set in
     logf "\nSuccess: %s\nDepth: %s\n" (string_of_bool success) (string_of_int dep);
-    if success then ProvedToTerminate else Unknown
-  | `Unknown -> logf "SMT solver should not return unknown for QRA formulas"; Unknown
-  | `Unsat -> (logf ~attributes:[`Bold; `Yellow] "Transition formula UNSAT, done"); ProvedToTerminate
+    if success then (ProvedToTerminate, mk_false srk) else (Unknown, residual_formula)
+  | `Unknown -> logf "SMT solver should not return unknown for QRA formulas"; (Unknown, mk_true srk)
+  | `Unsat -> (logf ~attributes:[`Bold; `Yellow] "Transition formula UNSAT, done"); (ProvedToTerminate, mk_false srk)

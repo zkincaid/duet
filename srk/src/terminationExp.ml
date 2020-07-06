@@ -1,9 +1,23 @@
 open Syntax
 
+include Log.Make(struct let name = "TerminationExp" end)
+
+
+let closure (module I : Iteration.PreDomain) srk exists tr_symbols phi =
+  let qe = Quantifier.mbp srk in
+  let k = mk_symbol srk `TyInt in
+  let phi_k = (* approximate k-fold composition of phi *)
+    I.abstract ~exists srk tr_symbols phi
+    |> I.exp srk tr_symbols (mk_const srk k)
+  in 
+  let f = mk_and srk [mk_leq srk (mk_zero srk) (mk_const srk k);
+                      phi_k] in
+  logf "Abstraction completed, k-fold formula: %a" (Formula.pp srk) f;
+  qe (fun sym -> sym != k) f
+
 let mp (module I : Iteration.PreDomain) srk exists tr_symbols phi =
   let qe = Quantifier.mbp srk in
   let k = mk_symbol srk `TyInt in
-
   let (pre_to_post, post_sym) =
     List.fold_left (fun (pre_to_post, post_sym) (x,x') ->
         (Symbol.Map.add x (mk_const srk x') pre_to_post,
