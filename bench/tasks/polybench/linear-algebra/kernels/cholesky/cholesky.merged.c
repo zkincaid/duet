@@ -3221,7 +3221,7 @@ void print_array(int n,
   int i, j;
 
   for (i = 0; i < n; i++)
-    for (i = 0; j < n; j++) {
+    for (j = 0; j < n; j++) {
     fprintf (
 # 49 "./linear-algebra/kernels/cholesky/cholesky.c" 3 4
             stderr

@@ -45,7 +45,7 @@ void print_array(int n,
   int i, j;
 
   for (i = 0; i < n; i++)
-    for (i = 0; j < n; j++) {
+    for (j = 0; j < n; j++) {
     fprintf (stderr, DATA_PRINTF_MODIFIER, A[i][j]);
     if ((i * N + j) % 20 == 0) fprintf (stderr, "\n");
   }
