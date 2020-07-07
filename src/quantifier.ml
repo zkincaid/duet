@@ -60,17 +60,6 @@ let common_denominator term =
     ZZ.one
     (V.enum term)
 
-
-let select_implicant srk interp ?(env=Env.empty) phi =
-  match Interpretation.select_implicant interp ~env phi with
-  | Some atoms ->
-    logf ~level:`trace "Implicant Atoms:";
-    List.iter
-      (fun atom -> logf ~level:`trace ">%a" (Formula.pp srk) atom)
-      atoms;
-    Some atoms
-  | None -> None
-
 let map_atoms srk f phi =
   let rewriter expr =
     match Expr.refine srk expr with
@@ -772,13 +761,13 @@ let select_int_term srk interp x atoms =
           `Lower (s, s_val)
         else
           `Lower (t, t_val)
-    | (`Lower (t, t_val), _) | (_, `Lower (t, t_val)) -> `Lower (t, t_val)
     | (`Upper (s, s_val), `Upper (t, t_val)) ->
         if ZZ.lt s_val t_val then
           `Upper (s, s_val)
         else
           `Upper (t, t_val)
     | (`Upper (t, t_val), _) | (_, `Upper (t, t_val)) -> `Upper (t, t_val)
+    | (`Lower (t, t_val), _) | (_, `Lower (t, t_val)) -> `Lower (t, t_val)
     | `None, `None -> `None
   in
   let eval = evaluate_linterm (Interpretation.real interp) in
@@ -1005,6 +994,17 @@ let specialize_floor_cube srk model cube =
   in
   let cube' = List.map (rewrite srk ~up:replace_floor) cube in
   (!div_constraints)@cube'
+
+
+let select_implicant srk interp ?(env=Env.empty) phi =
+  match Interpretation.select_implicant interp ~env phi with
+  | Some atoms ->
+    logf ~level:`trace "Implicant Atoms:";
+    List.iter
+      (fun atom -> logf ~level:`trace ">%a" (Formula.pp srk) atom)
+      atoms;
+    Some (specialize_floor_cube srk interp atoms)
+  | None -> None
 
 
 (* Counter-strategy synthesis *)
@@ -1541,6 +1541,9 @@ let simsat srk phi =
   let qf_pre =
     (List.map (fun k -> (`Exists, k)) (Symbol.Set.elements constants))@qf_pre
   in
+  CSS.max_improve_rounds := 2;
+  logf "Quantifier prefix: %s"
+    (String.concat "" (List.map (function (`Forall, _) -> "A" | (`Exists, _) -> "E") qf_pre));
   simsat_core srk qf_pre phi
 
 let simsat_forward srk phi =
