@@ -25,6 +25,7 @@ let termination_exp = ref true
 let termination_llrf = ref true
 let termination_dta = ref true
 let termination_phase_analysis = ref true
+let precondition = ref false
 
 let dump_goal loc path_condition =
   if !dump_goals then begin
@@ -720,6 +721,26 @@ let analyze file =
     end
   | _ -> assert false
 
+let preimage transition formula =
+  let open Syntax in
+  let fresh_skolem =
+    Memo.memo (fun sym ->
+        let name = show_symbol srk sym in
+        let typ = typ_symbol srk sym in
+        mk_const srk (mk_symbol srk ~name typ))
+  in
+  let subst sym =
+    match V.of_symbol sym with
+    | Some var ->
+       if K.mem_transform var transition then
+         K.get_transform var transition
+       else
+         mk_const srk sym
+    | None -> fresh_skolem sym
+  in
+  mk_and srk [Nonlinear.linearize srk (K.guard transition);
+              substitute_const srk subst formula]
+
 let omega_algebra =  function
   | `Omega transition ->
      (** over-approximate possibly non-terminating conditions for a transition *)
@@ -731,8 +752,8 @@ let omega_algebra =  function
          let post_symbols =
            List.fold_left
              (fun set (_, sym') -> Syntax.Symbol.Set.add sym' set)
-              Syntax.Symbol.Set.empty
-              x_xp
+             Syntax.Symbol.Set.empty
+             x_xp
          in
          fun x ->
          match V.of_symbol x with
@@ -752,7 +773,7 @@ let omega_algebra =  function
            in
            let exp =
              if !termination_exp then
-               [Syntax.mk_not srk (TerminationExp.mp (!K.domain) srk exists x_xp formula)]
+               [Syntax.mk_not srk (TerminationExp.mp (module Iteration.LinearRecurrenceInequation) srk exists x_xp formula)]
              else []
            in
            Syntax.mk_and srk (dta@exp)
@@ -777,17 +798,77 @@ let omega_algebra =  function
                       nonterm (Syntax.mk_and srk [formula; phase]))
                |> Syntax.mk_or srk
              in
-             [K.guard (K.mul (K.star transition) (K.assume phased_nonterm))]
+             [preimage (K.star transition) phased_nonterm]
            end else []
        in
-       Syntax.mk_and srk ((nonterm formula)::phase_mp)
+       Syntax.mk_and srk (formula::(nonterm formula)::phase_mp)
      end
   | `Add (cond1, cond2) ->
      (** combining possibly non-terminating conditions for multiple paths *)
      Syntax.mk_or srk [cond1; cond2]
   | `Mul (transition, state) ->
      (** propagate state formula through a transition *)
-     K.guard (K.mul transition (K.assume state))
+     preimage transition state
+
+(* Raise universal quantifiers to top-level.  *)
+let lift_universals srk phi =
+  let open Syntax in
+  let phi = rewrite srk ~down:(nnf_rewriter srk) phi in
+  let rec quantify_universals (nb, phi) =
+    if nb > 0 then
+      quantify_universals (nb - 1, mk_forall srk `TyInt phi)
+    else
+      phi
+  in
+  let alg = function
+    | `Tru -> (0, mk_true srk)
+    | `Fls -> (0, mk_false srk)
+    | `Atom (`Eq, x, y) -> (0, mk_eq srk x y)
+    | `Atom (`Lt, x, y) -> (0, mk_lt srk x y)
+    | `Atom (`Leq, x, y) -> (0, mk_leq srk x y)
+    | `And conjuncts ->
+       let max_nb = List.fold_left max 0 (List.map fst conjuncts) in
+       let shift_conjuncts =
+         conjuncts |> List.map (fun (nb,phi) ->
+                     let shift = max_nb - nb in
+                     substitute srk (fun i -> mk_var srk (i + shift) `TyInt) phi)
+       in
+       (max_nb, mk_and srk shift_conjuncts)
+    | `Or disjuncts ->
+       let max_nb = List.fold_left max 0 (List.map fst disjuncts) in
+       if max_nb == 0 then
+         (0, mk_or srk (List.map snd disjuncts))
+       else
+         (* Introduce a Skolem constant to distribute universals over disjunction:
+            (forall x. F(x)) \/ (forall x. G(x))
+            is equisatisfiable with
+            exists c. forall x. (F(x) /\ c = 0) \/ (G(x) /\ c = 1) *)
+         let sk = mk_const srk (mk_symbol srk ~name:"choice" `TyInt) in
+         let shift_disjuncts =
+           disjuncts |> BatList.mapi (fun idx (nb,phi) ->
+                            let shift = max_nb - nb in
+                            mk_and srk
+                              [substitute srk (fun i -> mk_var srk (i + shift) `TyInt) phi;
+                               mk_eq srk sk (mk_int srk idx)])
+         in
+         (max_nb, mk_or srk shift_disjuncts)
+
+    | `Quantify (`Exists, name, typ, qphi) ->
+       (0, mk_exists srk ~name typ (quantify_universals qphi))
+    | `Quantify (`Forall, _, `TyInt, (nb_universals, phi)) ->
+       (nb_universals + 1, phi)
+    | `Quantify (`Forall, name, typ, qphi) ->
+       (0, mk_forall srk ~name typ (quantify_universals qphi))
+    | `Not (_, _) -> assert false
+    | `Proposition (`Var i) -> (0, mk_var srk i `TyBool)
+    | `Proposition (`App (p, args)) -> (0, mk_app srk p args)
+    | `Ite (cond, bthen, belse) ->
+       (0, mk_ite srk
+             (quantify_universals cond)
+             (quantify_universals bthen)
+             (quantify_universals belse))
+  in
+  quantify_universals (Formula.eval srk alg phi)
 
 let prove_termination_main file =
   populate_offset_table file;
@@ -799,23 +880,32 @@ let prove_termination_main file =
       if !CmdLine.display_graphs then
         TSDisplay.display ts1;
       let query = mk_query ts1 entry in
-      let omega_paths_sum = TS.omega_path_weight query omega_algebra in
-      match Smt.is_sat srk omega_paths_sum with
+      let omega_paths_sum =
+        TS.omega_path_weight query omega_algebra
+        |> lift_universals srk
+        |> SrkSimplify.simplify_terms srk
+        |> SrkZ3.simplify srk
+      in
+
+      match Quantifier.simsat srk omega_paths_sum with
       | `Sat -> 
-        Format.printf "Cannot prove that program always terminates\n"; 
-        let simplified =
-          omega_paths_sum
-          |> Nonlinear.linearize srk
-          |> Quantifier.mbp srk (fun sym ->
-                 match V.of_symbol sym with
-                 | Some x -> V.is_global x
-                 | _ -> false)
-          |> Syntax.mk_not srk
-        in
-        Format.printf "Sufficient terminating conditions:\n%a\n" (Syntax.Formula.pp srk) simplified
+         Format.printf "Cannot prove that program always terminates\n";
+         if !precondition then
+           (* TODO: need to eliminate universal quantifiers first quantifiers first! *)
+           let simplified =
+             omega_paths_sum
+             |> Nonlinear.linearize srk
+             |> Quantifier.mbp srk (fun sym ->
+                    match V.of_symbol sym with
+                    | Some x -> V.is_global x
+                    | _ -> false)
+             |> Syntax.mk_not srk
+           in
+           Format.printf "Sufficient terminating conditions:\n%a\n"
+             (Syntax.Formula.pp srk)
+             simplified
       | `Unsat -> Format.printf "Program always terminates\n"
-      | `Unknown -> Format.printf "Unknown analysis result\n";
-      ()
+      | `Unknown -> Format.printf "Unknown analysis result\n"
     end
   | _ -> failwith "Cannot find main function within the C source file"
 
@@ -962,13 +1052,16 @@ let _ =
   CmdLine.register_config
     ("-termination-no-phase",
      Arg.Clear termination_phase_analysis,
-     " Disable phase-based termination analysis")
-
+     " Disable phase-based termination analysis");
+  CmdLine.register_config
+    ("-precondition",
+     Arg.Clear precondition,
+     " Synthesize mortal preconditions")
 
 let _ =
   CmdLine.register_pass
     ("-cra", analyze, " Compositional recurrence analysis");
   CmdLine.register_pass
-    ("-termination", prove_termination_main, "Proof of termination");
+    ("-termination", prove_termination_main, " Proof of termination");
   CmdLine.register_pass
     ("-rba", resource_bound_analysis, " Resource bound analysis")

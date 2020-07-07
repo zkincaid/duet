@@ -4,7 +4,7 @@ include Log.Make(struct let name = "TerminationExp" end)
 
 
 let closure (module I : Iteration.PreDomain) srk exists tr_symbols phi =
-  let qe = Quantifier.mbp srk in
+  let qe = Syntax.mk_exists_consts srk in
   let k = mk_symbol srk `TyInt in
   let phi_k = (* approximate k-fold composition of phi *)
     I.abstract ~exists srk tr_symbols phi
@@ -16,7 +16,7 @@ let closure (module I : Iteration.PreDomain) srk exists tr_symbols phi =
   qe (fun sym -> sym != k) f
 
 let mp (module I : Iteration.PreDomain) srk exists tr_symbols phi =
-  let qe = Quantifier.mbp srk in
+  let qe = Syntax.mk_exists_consts srk in
   let k = mk_symbol srk `TyInt in
   let (pre_to_post, post_sym) =
     List.fold_left (fun (pre_to_post, post_sym) (x,x') ->
@@ -45,4 +45,4 @@ let mp (module I : Iteration.PreDomain) srk exists tr_symbols phi =
                 halt_within_k]
     |> qe (fun sym -> sym != k) (* express over pre-state symbols + symbolic constants *)
   in
-  mk_or srk [mk_not srk pre; result]
+  result
