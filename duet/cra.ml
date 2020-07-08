@@ -921,7 +921,6 @@ let prove_termination_main file =
         TS.omega_path_weight query omega_algebra
         |> lift_universals srk
         |> SrkSimplify.simplify_terms srk
-        |> SrkZ3.simplify srk
       in
       match Quantifier.simsat srk omega_paths_sum with
       | `Sat -> 

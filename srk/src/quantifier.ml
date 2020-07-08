@@ -990,6 +990,20 @@ let specialize_floor_cube srk model cube =
 
        add_div_constraint divisor dividend';
        (replacement :> ('a,typ_fo) expr)
+    | `Binop (`Mod, t, m) ->
+       begin match destruct srk m with
+       | `Real m ->
+          let replacement =
+            mk_real srk (QQ.modulo (Interpretation.evaluate_term model t) m)
+          in
+          let m = match QQ.to_zz m with
+            | Some m -> m
+            | None -> assert false
+          in
+          add_div_constraint m (mk_sub srk t replacement);
+          (replacement :> ('a,typ_fo) expr)
+       | _ -> expr
+       end
     | _ -> expr
   in
   let cube' = List.map (rewrite srk ~up:replace_floor) cube in
