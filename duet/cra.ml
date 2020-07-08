@@ -721,8 +721,29 @@ let analyze file =
     end
   | _ -> assert false
 
+module TermMemo = Memo.Make(struct
+                      type t = (Ctx.t,Syntax.typ_fo) Syntax.expr
+                      let hash = Syntax.Expr.hash
+                      let equal = Syntax.Expr.equal
+                    end)
+
+let purify_floor =
+  let open Syntax in
+  let fresh_sym = TermMemo.memo (fun _ -> mk_const srk (mk_symbol srk `TyInt)) in
+  let rewriter expr =
+    match destruct srk expr with
+    | `Unop (`Floor, _) ->
+       if Symbol.Set.for_all (fun s -> typ_symbol srk s == `TyInt) (symbols expr) then
+         expr
+       else
+         fresh_sym expr
+    | _ -> expr
+  in
+  rewrite srk ~up:rewriter
+
 let preimage transition formula =
   let open Syntax in
+  let transition = K.linearize transition in
   let fresh_skolem =
     Memo.memo (fun sym ->
         let name = show_symbol srk sym in
@@ -738,7 +759,7 @@ let preimage transition formula =
          mk_const srk sym
     | None -> fresh_skolem sym
   in
-  mk_and srk [Nonlinear.linearize srk (K.guard transition);
+  mk_and srk [purify_floor (K.guard transition);
               substitute_const srk subst formula]
 
 let omega_algebra =  function
@@ -747,7 +768,9 @@ let omega_algebra =  function
      begin
        let open Syntax in
        let x_xp, formula = K.to_transition_formula transition in
-       let formula = Nonlinear.linearize srk formula in
+       let formula =
+          purify_floor (Nonlinear.linearize srk formula)
+       in
        let exists =
          let post_symbols =
            List.fold_left
@@ -801,7 +824,21 @@ let omega_algebra =  function
              [preimage (K.star transition) phased_nonterm]
            end else []
        in
-       Syntax.mk_and srk (formula::(nonterm formula)::phase_mp)
+       let pre =
+         let fresh_skolem =
+           Memo.memo (fun sym ->
+               let name = show_symbol srk sym in
+               let typ = typ_symbol srk sym in
+               mk_const srk (mk_symbol srk ~name typ))
+         in
+         let subst sym =
+           match V.of_symbol sym with
+           | Some _ -> mk_const srk sym
+           | None -> fresh_skolem sym
+         in
+         substitute_const srk subst formula
+       in
+       Syntax.mk_and srk (pre::(nonterm formula)::phase_mp)
      end
   | `Add (cond1, cond2) ->
      (** combining possibly non-terminating conditions for multiple paths *)
@@ -886,7 +923,6 @@ let prove_termination_main file =
         |> SrkSimplify.simplify_terms srk
         |> SrkZ3.simplify srk
       in
-
       match Quantifier.simsat srk omega_paths_sum with
       | `Sat -> 
          Format.printf "Cannot prove that program always terminates\n";

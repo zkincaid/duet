@@ -19,7 +19,7 @@ val simplify_term : 'a context -> 'a term -> 'a term
     application within a formula with a fresh symbol, and return both the
     resulting formula and a mapping from the fresh symbols to the terms they
     define. *)
-val purify : 'a context -> 'a formula -> ('a formula * (('a,typ_fo) expr) Symbol.Map.t)
+val purify : 'a context -> ('a,'b) expr -> (('a,'b) expr * (('a,typ_fo) expr) Symbol.Map.t)
 
 val partition_implicant : ('a formula) list -> ('a formula) list list
 

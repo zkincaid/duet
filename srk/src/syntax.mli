@@ -175,6 +175,7 @@ val nnf_rewriter : 'a context -> 'a rewriter
 module Expr : sig
   val equal : ('a,'b) expr -> ('a,'b) expr -> bool
   val compare : ('a,'b) expr -> ('a,'b) expr -> int
+  val hash : ('a,'b) expr -> int
   val pp : ?env:(string Env.t) ->
     'a context ->
     Format.formatter ->
