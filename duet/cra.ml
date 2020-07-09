@@ -796,10 +796,28 @@ let omega_algebra =  function
            in
            let exp =
              if !termination_exp then
-               [Syntax.mk_not srk (TerminationExp.mp (module Iteration.LinearRecurrenceInequation) srk exists x_xp formula)]
+               let mp =
+                 Syntax.mk_not srk
+                   (TerminationExp.mp (module Iteration.LinearRecurrenceInequation) srk exists x_xp formula)
+               in
+               let dta_entails_mp =
+                 (* if DTA |= mp, DTA /\ MP simplifies to DTA *)
+                 Syntax.mk_forall_consts
+                   srk
+                   (fun _ -> false)
+                   (Syntax.mk_or srk [mk_not srk (mk_and srk dta); mp])
+               in
+               match Quantifier.simsat srk dta_entails_mp with
+               | `Sat -> []
+               | _ -> [mp]
              else []
            in
-           Syntax.mk_and srk (dta@exp)
+           let result =
+             Syntax.mk_and srk (dta@exp)
+           in
+           match Quantifier.simsat srk result with
+           | `Unsat -> mk_false srk
+           | _ -> result
        in
        let phase_mp =
          if !termination_phase_analysis then begin
