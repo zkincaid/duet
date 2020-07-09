@@ -44,5 +44,13 @@ let mp (module I : Iteration.PreDomain) srk exists tr_symbols phi =
     mk_and srk [mk_leq srk (mk_zero srk) (mk_const srk k);
                 halt_within_k]
     |> qe (fun sym -> sym != k) (* express over pre-state symbols + symbolic constants *)
-  in
-  result
+  in match Quantifier.simsat srk result with
+  | `Unsat -> mk_false srk
+  | `Sat -> let f = mk_not srk (qe (fun _ -> false) result) in 
+    begin
+      match Quantifier.simsat srk f  with 
+      | `Unsat -> mk_true srk
+      | _ -> result
+    end
+  | _ -> result
+
