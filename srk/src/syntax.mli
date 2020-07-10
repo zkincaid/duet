@@ -56,6 +56,8 @@ val pp_symbol : 'a context -> Format.formatter -> symbol -> unit
 
 val typ_symbol : 'a context -> symbol -> typ
 
+val is_fo : 'a context -> symbol -> bool
+
 val show_symbol : 'a context -> symbol -> string
 
 val int_of_symbol : symbol -> int
@@ -127,12 +129,6 @@ val mk_if : 'a context -> 'a formula -> 'a formula -> 'a formula
 (** Create an if-and-only-if formula *)
 val mk_iff : 'a context -> 'a formula -> 'a formula -> 'a formula
 
-val decapture : 'a context -> 
-  int -> int -> ('a,'typ) expr -> ('a,'typ) expr          
-  
-
-
-
 (** [substitute srk subst exp] replaces each occurrence of a variable
    symbol with De Bruijn [i] with the expression [subst i].  If [subst
    i] contains free variables, capture is avoided. *)
@@ -145,6 +141,12 @@ val substitute : 'a context ->
    not affected. *)
 val substitute_const : 'a context ->
   (symbol -> ('a,'b) expr) -> ('a,'typ) expr -> ('a,'typ) expr
+
+(** [substitute_func srk subst exp] replaces each occurence of a
+   a function application [f(e_0,...,e_n)] with 
+   [(subst f)(substitute_func srk subst e_0,..., substitute_func srk subst e_n)].*)
+val substitute_func : 'a context -> 
+  (symbol -> symbol) -> ('a,'typ) expr -> ('a,'typ) expr 
 
 (** [substitute_map srk subst exp] replaces each occurrence of a
    constant symbol [s] in the domain of the map subst with the
@@ -333,6 +335,7 @@ val mk_and : 'a context -> 'a formula list -> 'a formula
 val mk_or : 'a context -> 'a formula list -> 'a formula
 val mk_not : 'a context -> 'a formula -> 'a formula
 val mk_eq : 'a context -> 'a term -> 'a term -> 'a formula
+val mk_arr_eq : 'a context -> symbol -> symbol -> 'a formula
 val mk_lt : 'a context -> 'a term -> 'a term -> 'a formula
 val mk_leq : 'a context -> 'a term -> 'a term -> 'a formula
 val mk_true : 'a context -> 'a formula

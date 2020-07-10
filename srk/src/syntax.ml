@@ -189,6 +189,10 @@ let symbol_name srk sym =
   else None
 
 let typ_symbol srk = snd % DynArray.get srk.symbols
+let is_fo srk sym = 
+  let typ = typ_symbol srk sym in 
+  typ = `TyInt || typ = `TyReal || typ = `TyBool
+
 let pp_symbol srk formatter symbol =
   Format.fprintf formatter "%s:%d"
     (fst (DynArray.get srk.symbols symbol))
@@ -261,6 +265,15 @@ let mk_or srk disjuncts = srk.mk Or disjuncts
 let mk_forall srk ?name:(name="_") typ phi = srk.mk (Forall (name, typ)) [phi]
 let mk_exists srk ?name:(name="_") typ phi = srk.mk (Exists (name, typ)) [phi]
 
+let mk_arr_eq srk a b = 
+  mk_forall 
+    srk
+    `TyInt
+    (mk_eq 
+       srk 
+       (mk_app srk a [(mk_var srk 0 `TyInt)]) 
+       (mk_app srk b [(mk_var srk 0 `TyInt)]))
+
 let mk_ite srk cond bthen belse = srk.mk Ite [cond; bthen; belse]
 let mk_iff srk phi psi =
   mk_or srk [mk_and srk [phi; psi]; mk_and srk [mk_not srk phi; mk_not srk psi]]
@@ -327,6 +340,15 @@ let substitute_const srk subst sexpr =
     srk.mk label (List.map (go depth) children)
   in
   go 0 sexpr
+
+let substitute_func srk subst sexpr =
+  let rec go sexpr =
+    let Node (label, children, _) = sexpr.obj in
+    match label with
+    | App k -> mk_app srk (subst k) (List.map go children)
+    | _ -> srk.mk label (List.map go children)
+  in
+  go sexpr
 
 let substitute_map srk map sexpr =
   let subst sym =

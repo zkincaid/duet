@@ -7,7 +7,7 @@ module type Var = sig
   type t
   val pp : Format.formatter -> t -> unit
   val show : t -> string
-  val typ : t -> [ `TyInt | `TyReal ]
+  val typ : t -> Syntax.typ
   val compare : t -> t -> int
   val symbol_of : t -> symbol
   val of_symbol : symbol -> t option
@@ -26,6 +26,7 @@ struct
 
   type t =
     { transform : (C.t term) M.t;
+      transform_arr : (symbol) M.t;
       guard : C.t formula }
 
   let compare x y =
@@ -59,11 +60,31 @@ struct
   let construct guard assignment =
     { transform =
         List.fold_left (fun m (v, term) -> M.add v term m) M.empty assignment;
+      transform_arr = M.empty;
       guard = guard }
 
   let assign v term =
     { transform = M.add v term M.empty;
+      transform_arr = M.empty;
       guard = mk_true srk }
+
+  let arr_assign a r term =
+    let asym' = mk_symbol srk (Var.typ a) in
+    let asym = Var.symbol_of a in
+    let i = mk_var srk 0 `TyInt in
+    { transform = M.empty;
+      transform_arr = M.add a asym' M.empty;
+      guard = 
+        mk_and
+          srk
+          [mk_eq srk (mk_app srk asym' [r]) term;
+           mk_forall 
+             srk 
+             `TyInt 
+             (mk_if 
+                srk 
+                (mk_not srk (mk_eq srk r i))
+                (mk_eq srk (mk_app srk asym' [i]) (mk_app srk asym [i])))] }
 
   let parallel_assign assignment = construct (mk_true srk) assignment
 
@@ -79,14 +100,14 @@ struct
         M.empty
         vars
     in
-    { transform = transform; guard = mk_true srk }
+    { transform = transform; transform_arr = M.empty; guard = mk_true srk }
 
   let mul left right =
     let fresh_skolem =
       Memo.memo (fun sym ->
           let name = show_symbol srk sym in
           let typ = typ_symbol srk sym in
-          mk_const srk (mk_symbol srk ~name typ))
+          mk_symbol srk ~name typ)
     in
     let left_subst sym =
       match Var.of_symbol sym with
@@ -95,11 +116,23 @@ struct
           M.find var left.transform
         else
           mk_const srk sym
-      | None -> fresh_skolem sym
+      | None -> mk_const srk (fresh_skolem sym)
+    in
+    let left_subst_arr sym =
+      match Var.of_symbol sym with
+      | Some var ->
+        if M.mem var left.transform_arr then
+          M.find var left.transform_arr
+        else
+          sym
+      | None -> fresh_skolem sym (*when is Var.of_symbol sym = None?*)
     in
     let guard =
       mk_and srk [left.guard;
-                  substitute_const srk left_subst right.guard]
+                  substitute_const
+                    srk
+                    left_subst
+                    (substitute_func srk left_subst_arr right.guard)]
     in
     let transform =
       M.fold (fun var term transform ->
@@ -108,43 +141,100 @@ struct
           else
             M.add var term transform)
         left.transform
-        (M.map (substitute_const srk left_subst) right.transform)
+        (M.map
+           (fun trans ->
+              substitute_const 
+                srk 
+                left_subst
+                (substitute_func srk left_subst_arr trans))
+           right.transform)
     in
-    { transform; guard }
+    let transform_arr =
+      M.fold (fun a a' transform_arr ->
+          if M.mem a transform_arr then
+            transform_arr
+          else
+            M.add a a' transform_arr)
+        left.transform_arr
+        right.transform_arr
+    in
+    { transform; transform_arr; guard }
 
   let add left right =
     let left_eq = ref [] in
     let right_eq = ref [] in
     let transform =
       let merge v x y =
-        match x, y with
-        | Some s, Some t when Term.equal s t -> Some s
-        | _, _ ->
-          let phi =
-            mk_symbol srk ~name:("phi_" ^ (Var.show v)) ((Var.typ v) :> typ)
-            |> mk_const srk
-          in
-          let left_term =
-            match x with
-            | Some s -> s
-            | None -> mk_const srk (Var.symbol_of v)
-          in
-          let right_term =
-            match y with
-            | Some t -> t
-            | None -> mk_const srk (Var.symbol_of v)
-          in
-          left_eq := (mk_eq srk left_term phi)::(!left_eq);
-          right_eq := (mk_eq srk right_term phi)::(!right_eq);
-          Some phi
+          match x, y with
+          | Some s, Some t when Term.equal s t -> Some s
+          | _, _ ->
+            let phi =
+              mk_symbol srk ~name:("phi_" ^ (Var.show v)) ((Var.typ v) :> typ)
+              |> mk_const srk
+            in
+            let left_term =
+              match x with
+              | Some s -> s
+              | None -> mk_const srk (Var.symbol_of v)
+            in
+            let right_term =
+              match y with
+              | Some t -> t
+              | None -> mk_const srk (Var.symbol_of v)
+            in
+            left_eq := (mk_eq srk left_term phi)::(!left_eq);
+            right_eq := (mk_eq srk right_term phi)::(!right_eq);
+            Some phi
       in
       M.merge merge left.transform right.transform
     in
-    let guard =
-      mk_or srk [mk_and srk (left.guard::(!left_eq));
-                 mk_and srk (right.guard::(!right_eq))]
+    let arr_map = 
+      Hashtbl.create 
+        ((M.cardinal left.transform_arr) + (M.cardinal right.transform_arr)) 
     in
-    { guard; transform }
+    let transform_arr =
+      let merge a b c =
+        match b, c with
+        | Some s, Some t when Symbol.compare s t = 0 -> Some s
+        | _, _ ->
+          let sym' =
+            mk_symbol srk ~name:("phi_" ^ (Var.show a)) ((Var.typ a) :> typ) 
+          in
+          begin match b with
+          | Some s -> Hashtbl.add arr_map s sym'
+          | None -> ()
+          end;
+          begin match c with
+            | Some t -> Hashtbl.add arr_map t sym'
+            | None -> ()
+          end;
+          Some sym'
+      in
+      M.merge merge left.transform_arr right.transform_arr
+    in
+    let subst_arr_term = 
+      substitute_func
+        srk
+        (fun sym -> if Hashtbl.mem arr_map sym 
+          then Hashtbl.find arr_map sym
+          else sym)
+    in
+    (* need dup funciton because some type error i can't figure out how to cast*)
+    let subst_arr_form = 
+      substitute_func
+        srk
+        (fun sym -> if Hashtbl.mem arr_map sym 
+          then Hashtbl.find arr_map sym
+          else sym)
+    in
+ 
+    let transform = M.map (fun trans -> subst_arr_term trans) transform in
+    let guard = 
+      subst_arr_form (
+        mk_or srk [mk_and srk (left.guard::(!left_eq));
+                 mk_and srk (right.guard::(!right_eq))])
+    in
+    { guard; transform_arr; transform }
 
   (* Canonical names for post-state symbols.  Having canonical names
      simplifies equality testing and widening. *)
@@ -166,8 +256,17 @@ struct
         tr.transform
         ([], [])
     in
+    let (tr_symbols, post_def_arr) =
+      M.fold (fun var sym (symbols, post_def) ->
+          let pre_sym = Var.symbol_of var in
+          let post_sym = post_symbol pre_sym in
+          ((pre_sym,post_sym)::symbols,
+           (mk_arr_eq srk post_sym sym)::post_def))
+        tr.transform_arr
+        (tr_symbols, [])
+    in
     let body =
-      mk_and srk (tr.guard::post_def)
+      mk_and srk (tr.guard::post_def@post_def_arr)
       |> rewrite srk
         ~up:(SrkSimplify.simplify_terms_rewriter srk % Nonlinear.simplify_terms_rewriter srk)
     in
@@ -194,13 +293,22 @@ struct
       | None -> Symbol.Set.mem x post_symbols
     in
     let iter = D.abstract ~exists srk tr_symbols body in
+    let fo_tr, arr_tr = List.partition (fun (s, _) -> is_fo srk s) tr_symbols in
     let transform =
       List.fold_left (fun tr (pre, post) ->
           match Var.of_symbol pre with
           | Some v -> M.add v (mk_const srk post) tr
           | None -> assert false)
         M.empty
-        tr_symbols
+        fo_tr
+    in
+    let transform_arr =
+      List.fold_left (fun tr (pre, post) ->
+          match Var.of_symbol pre with
+          | Some v -> M.add v post tr
+          | None -> assert false)
+        M.empty
+        arr_tr
     in
     let loop_counter_sym = mk_symbol srk ~name:"K" `TyInt in
     let loop_counter = mk_const srk loop_counter_sym in
@@ -208,14 +316,15 @@ struct
       mk_and srk [D.exp srk tr_symbols loop_counter iter;
                   mk_leq srk (mk_real srk QQ.zero) loop_counter]
     in
-    { transform = transform;
+    { transform;
+      transform_arr;
       guard = closure }
 
   let zero =
-    { transform = M.empty; guard = mk_false srk }
+    { transform = M.empty; transform_arr = M.empty; guard = mk_false srk }
 
   let one =
-    { transform = M.empty; guard = mk_true srk }
+    { transform = M.empty; transform_arr = M.empty; guard = mk_true srk }
 
   let is_zero tr =
     match Formula.destruct srk tr.guard with
@@ -224,7 +333,7 @@ struct
 
   let is_one tr =
     match Formula.destruct srk tr.guard with
-    | `Tru -> M.is_empty tr.transform
+    | `Tru -> M.is_empty tr.transform && M.is_empty tr.transform_arr
     | _ -> false
 
   let widen x y =
@@ -270,7 +379,7 @@ struct
       Wedge.widen (to_wedge x) (to_wedge y)
       |> Wedge.to_formula
     in
-    { transform; guard }
+    { transform; transform_arr = M.empty; guard }
 
   let widen x y =
     if is_zero x then y
@@ -325,6 +434,7 @@ struct
       mk_const srk sym'
     in
     { transform = M.map (substitute_const srk sigma) transform;
+      transform_arr = M.empty;
       guard = substitute_const srk sigma tr.guard }
 
   let mem_transform x tr = M.mem x tr.transform
@@ -345,6 +455,7 @@ struct
                   mk_const srk (mk_symbol srk ~name typ))
           in
           { transform = M.map (substitute_const srk fresh_skolem) tr.transform;
+            transform_arr = M.empty;
             guard = substitute_const srk fresh_skolem tr.guard })
     in
     let unsubscript_tbl = Hashtbl.create 991 in
