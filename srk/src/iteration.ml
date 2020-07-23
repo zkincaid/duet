@@ -779,3 +779,188 @@ module ProductWedge (A : PreDomainWedge) (B : PreDomainWedge) = struct
     let wedge = Wedge.abstract ~exists ~subterm srk phi in
     abstract_wedge srk tr_symbols wedge
 end
+
+
+(* A transition p(x,x') predicate is invariant for a transition relation T(x,x') if
+   T(x,x') /\ T(x',x'') /\ p(x,x') |= p(x',x'')
+   (i.e., if p holds on some iteration, it must hold on all subsequent iterations).
+   This procedure finds the subset of the input set of predicates that are invariant *)
+let invariant_transition_predicates srk exists phi tr_symbols predicates =
+  (* map' sends primed vars to midpoints; map sends unprimed vars to midpoints *)
+  let (map', map) =
+    List.fold_left (fun (subst1, subst2) (sym, sym') ->
+        let mid_name = "mid_" ^ (show_symbol srk sym) in
+        let mid_symbol =
+          mk_symbol srk ~name:mid_name (typ_symbol srk sym)
+        in
+        let mid = mk_const srk mid_symbol in
+        (Symbol.Map.add sym' mid subst1,
+         Symbol.Map.add sym mid subst2))
+      (Symbol.Map.empty, Symbol.Map.empty)
+      tr_symbols
+  in
+  let seq = (* T(x,x_mid) /\ T(x_mid,x') *)
+    let rename = (* rename Skolem constants *)
+      Memo.memo (fun symbol ->
+          mk_const srk (mk_symbol srk (typ_symbol srk symbol)))
+    in
+    (* substitution for first iteration *)
+    let subst1 symbol =
+      if Symbol.Map.mem symbol map' then
+        Symbol.Map.find symbol map'
+      else if exists symbol then
+        mk_const srk symbol
+      else rename symbol
+    in
+    mk_and srk [substitute_const srk subst1 phi;
+                substitute_map srk map phi]
+  in
+
+  let solver = Smt.mk_solver srk in
+  let models = ref [] in
+  Smt.Solver.add solver [seq];
+  let is_invariant p =
+    let inv = mk_if srk (substitute_map srk map' p) (substitute_map srk map p) in
+    List.for_all (fun m -> Interpretation.evaluate_formula m inv) !models && begin
+        Smt.Solver.push solver;
+        Smt.Solver.add solver [mk_not srk inv];
+        match Smt.Solver.get_model solver with
+        | `Sat m ->
+           Smt.Solver.pop solver 1;
+           models := m::(!models);
+           false
+        | `Unsat ->
+           Smt.Solver.pop solver 1;
+           true
+        | `Unknown ->
+           Smt.Solver.pop solver 1;
+           false
+      end
+  in
+  List.filter is_invariant predicates
+
+module InvariantDirection (Iter : PreDomain) = struct
+  type 'a t = 'a Iter.t list list
+
+  let pp srk tr_symbols formatter phases =
+    let pp_phase formatter phase =
+      Format.fprintf formatter "  @[<v 0>%a@]"
+        (SrkUtil.pp_print_enum (Iter.pp srk tr_symbols)) (BatList.enum phase)
+    in
+    Format.fprintf formatter "Phases@. @[<v 0>%a@]"
+      (SrkUtil.pp_print_enum pp_phase) (BatList.enum phases)
+
+  let equal _ = assert false
+  let join _ = assert false
+  let widen _ = assert false
+
+  let abstract ?(exists=fun _ -> true) srk tr_symbols phi =
+    let phi = Nonlinear.linearize srk phi in
+    (* Use variable directions as candidate transition invariants *)
+    let predicates =
+      List.concat_map (fun (x,x') ->
+          let x = mk_const srk x in
+          let x' = mk_const srk x' in
+          [mk_lt srk x x';
+           mk_lt srk x' x;
+           mk_eq srk x x'])
+        tr_symbols
+      |> invariant_transition_predicates srk exists phi tr_symbols
+      |> BatArray.of_list
+    in
+    let solver = Smt.mk_solver srk in
+    Smt.Solver.add solver [phi];
+    (* The predicate induce a parition of the transitions of T by
+       their valuation of the predicates; find the cells of this
+       partition *)
+    let rec find_cells cells =
+      Smt.Solver.push solver;
+      match Smt.Solver.get_model solver with
+      | `Sat m ->
+         let cell =
+           Array.map (Interpretation.evaluate_formula m) predicates
+         in
+         let cell_formula =
+           List.mapi (fun i sat ->
+               if sat then predicates.(i)
+               else mk_not srk predicates.(i))
+             (Array.to_list cell)
+           |> mk_and srk
+         in
+         Smt.Solver.add solver [mk_not srk cell_formula];
+         find_cells (cell::cells)
+      | `Unsat -> cells
+      | `Unknown -> assert false (* to do *)
+    in
+    (* # of true predicates.  Since they're invariant, transitions
+       belonging to a low-weight cell must precede transitions from
+       higher-weight cells, and cells with equal weight can't appear
+       in an execution *)
+    let compare_weight cell1 cell2 =
+      let weight cell =
+        Array.fold_left (fun i v -> if v then i+1 else i) 0 cell
+      in
+      compare (weight cell1) (weight cell2)
+    in
+    BatList.sort compare_weight (find_cells [])
+    |> BatList.group_consecutive (fun x y -> compare_weight x y = 0)
+    |> List.map (List.map (fun cell ->
+                     let cell_predicates =
+                       BatArray.fold_lefti
+                         (fun ps i v ->
+                           if v then predicates.(i)::ps
+                           else mk_not srk predicates.(i)::ps)
+                         []
+                         cell
+                     in
+                     let formula = mk_and srk (phi::cell_predicates) in
+                     Iter.abstract ~exists srk tr_symbols formula))
+
+  let exp srk tr_symbols k phases =
+    let exp_group mid_symbols k cells =
+      let subst =
+        BatList.fold_left2 (fun m (x, x') (sym, sym') ->
+            Symbol.Map.add sym (mk_const srk x)
+              (Symbol.Map.add sym' (mk_const srk x') m))
+          Symbol.Map.empty
+          mid_symbols
+          tr_symbols
+      in
+      List.map (fun cell_iter ->
+          Iter.exp srk tr_symbols k cell_iter
+          |> substitute_map srk subst)
+        cells
+      |> mk_or srk
+    in
+    let rec go groups tr_symbols exp_formulas loop_counters =
+      match groups with
+      | [ ] ->
+         (* formula is unsat *)
+         assert (loop_counters == []);
+         assert (exp_formulas == []);
+         ([identity srk tr_symbols], [mk_real srk QQ.zero])
+      | [x] ->
+         let k = mk_const srk (mk_symbol srk ~name:"k" `TyInt) in
+         ((exp_group tr_symbols k x)::exp_formulas,
+          k::loop_counters)
+      | (x::xs) ->
+         let mid =
+           List.map (fun (sym, _) ->
+               let name = "mid_" ^ (show_symbol srk sym) in
+               mk_symbol srk ~name:name (typ_symbol srk sym))
+             tr_symbols
+         in
+         let tr_symbols1 =
+           BatList.map2 (fun (sym, _) sym' -> (sym, sym')) tr_symbols mid
+         in
+         let tr_symbols2 =
+           BatList.map2 (fun sym (_, sym') -> (sym, sym')) mid tr_symbols
+         in
+         let k = mk_const srk (mk_symbol srk ~name:"k" `TyInt) in
+         go xs tr_symbols2 ((exp_group tr_symbols1 k x)::exp_formulas) (k::loop_counters)
+    in
+    let (formulas, loop_counters) =
+      go phases tr_symbols [] []
+    in
+    mk_and srk (mk_eq srk k (mk_add srk loop_counters)::formulas)
+end

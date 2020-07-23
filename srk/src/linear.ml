@@ -449,19 +449,13 @@ let max_lds mA mB =
 let rational_spectral_decomposition mA dims =
   let mAt = QQMatrix.transpose mA in
   let identity = QQMatrix.identity dims in
-  List.fold_left (fun rsd (lambda, _) ->
-      let mE = (* A^t - lambda*I *)
-        QQMatrix.add mAt (QQMatrix.scalar_mul (QQ.negate lambda) identity)
+  List.fold_left (fun rsd (lambda, multiplicity) ->
+      let mE = (* (A^t - lambda*I)^multiplicity *)
+        QQMatrix.exp
+          (QQMatrix.add mAt (QQMatrix.scalar_mul (QQ.negate lambda) identity))
+          multiplicity
       in
-      let rec add_jordan_chain_rec rsd v =
-        match solve mE v with
-        | Some u -> add_jordan_chain_rec ((lambda,u)::rsd) u
-        | None -> rsd
-      in
-      let add_jordan_chain rsd v =
-        add_jordan_chain_rec ((lambda,v)::rsd) v
-      in
-      List.fold_left add_jordan_chain rsd (nullspace mE dims))
+      List.fold_left (fun rsd v -> (lambda,v)::rsd) rsd (nullspace mE dims))
     []
     (QQMatrix.rational_eigenvalues mA dims)
 

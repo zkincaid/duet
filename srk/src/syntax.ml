@@ -1086,9 +1086,7 @@ end
 
 let quantify_const srk qt sym phi =
   let typ = match typ_symbol srk sym with
-    | `TyInt -> `TyInt
-    | `TyReal -> `TyReal
-    | `TyBool -> `TyBool
+    | #typ_fo as x -> x
     | `TyFun _ ->
       begin match qt with
         | `Forall ->
@@ -1109,6 +1107,44 @@ let quantify_const srk qt sym phi =
 
 let mk_exists_const srk = quantify_const srk `Exists
 let mk_forall_const srk = quantify_const srk `Forall
+
+let quantify_consts srk qt p phi =
+  let nb_vars = ref 0 in
+  let varinfo = ref [] in
+  let subst =
+    Memo.memo (fun sym ->
+        if p sym then
+          mk_const srk sym
+        else
+          let i = !nb_vars in
+          let typ =
+            match typ_symbol srk sym with
+            | #typ_fo as x -> x
+            | `TyFun _ ->
+               begin match qt with
+               | `Forall ->
+                  invalid_arg "mk_forall_consts: not a first-order constant"
+               | `Exists ->
+                  invalid_arg "mk_exists_consts: not a first-order constant"
+               end
+          in
+          incr nb_vars;
+          varinfo := (show_symbol srk sym, typ)::(!varinfo);
+          mk_var srk i typ)
+  in
+  let quantify =
+    match qt with
+    | `Forall -> mk_forall srk
+    | `Exists -> mk_exists srk
+  in
+  let matrix = substitute_const srk subst phi in
+  List.fold_right
+    (fun (name, typ) phi -> quantify ~name typ phi)
+    (!varinfo)
+    matrix
+
+let mk_exists_consts srk = quantify_consts srk `Exists
+let mk_forall_consts srk = quantify_consts srk `Forall
 
 let node_typ symbols label children =
   match label with
