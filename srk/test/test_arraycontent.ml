@@ -4,8 +4,8 @@ open Syntax
 open Test_pervasives
 open Iteration
 module A = Arraycontent
-(*module Array_vas = A.Array_analysis(Product(LinearRecurrenceInequation)(PolyhedronGuard))*)
-module Array_vas = A.Array_analysis(Product(Product(Vass)(PolyhedronGuard))(LinearRecurrenceInequation))
+module Array_vas = A.Array_analysis(Product(LinearRecurrenceInequation)(PolyhedronGuard))
+(*module Array_vas = A.Array_analysis(Product(Product(Vass)(PolyhedronGuard))(LinearRecurrenceInequation))*)
 
 (*
 (* This test will fail if the implementation of prenex changes the way that
@@ -133,20 +133,25 @@ let iter_test1 () =
   in
   let _, _, (trs_iter, proj_iter) = 
     Arraycontent.projection srk iter [(asym, asym')] in
+  Log.errorf "testfail4";
   let _, _, (trs_psi, proj_psi) = 
     Arraycontent.projection srk psi [(asym, asym')] in
+  Log.errorf "testfail3\n";
+  Log.errorf "result of iter is %a" (Formula.pp srk) iter;
   let lia_iter = 
     mk_forall 
       srk 
       `TyInt
       (Arraycontent.mfa_to_lia srk (Arraycontent.to_mfa srk proj_iter)) in
+  Log.errorf "testfail2";
   let lia_psi = 
     mk_forall 
       srk 
       `TyInt
       (Arraycontent.mfa_to_lia srk (Arraycontent.to_mfa srk proj_psi)) in
+  Log.errorf "testfail1";
   let consistency_syms = merge_proj_syms srk trs_iter trs_psi in
-  let pre_qf = (mk_if srk (mk_and srk (lia_psi :: consistency_syms))
+  (*let pre_qf = (mk_if srk (mk_and srk (lia_psi :: consistency_syms))
     (mk_and srk (lia_iter :: consistency_syms)))
   in
   let qf = Arraycontent.mbp_qe srk pre_qf in
@@ -156,7 +161,7 @@ let iter_test1 () =
   let formatter = Format.formatter_of_out_channel chan in
   Syntax.pp_smtlib2 srk formatter ass;
   Format.pp_print_newline formatter ();
-  Stdlib.close_out chan;
+  Stdlib.close_out chan;*)
   assert_equiv_formula 
     (mk_and srk (lia_iter :: consistency_syms)) 
     (mk_and srk (lia_psi :: consistency_syms))

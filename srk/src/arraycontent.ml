@@ -6,6 +6,11 @@ module Z = Linear.ZZVector
 module H = Abstract
 include Log.Make(struct let name = "srk.array:" end)
 
+let tbl_subst srk phi tbl = 
+  substitute_const 
+    srk 
+    (fun sym -> BatHashtbl.find_default tbl sym (mk_const srk sym))
+    phi
 
 let projection srk phi arr_tr =
   let arr_map = Hashtbl.create (2 * (List.length arr_tr)) in
@@ -190,7 +195,9 @@ module Array_analysis (Iter : PreDomain) = struct
     { iter_obj : 'a Iter.t; 
       proj_inds : Symbol.t * Symbol.t; 
       arr_map : (Symbol.t, Symbol.t) Hashtbl.t;
-      iter_trs : (Symbol.t * Symbol.t) list}
+      new_trs : (Symbol.t * Symbol.t) list;
+      iter_trs : (Symbol.t * Symbol.t) list;
+      projed_form : 'a formula}
     
   let abstract ?(exists=fun _ -> true) srk tr_symbols phi =
     let num_trs, arr_trs = symbols_by_sort srk tr_symbols in 
@@ -199,11 +206,14 @@ module Array_analysis (Iter : PreDomain) = struct
     let lia = mfa_to_lia srk matrix in
     let iter_trs = num_trs@new_trs in
     let lia = mk_forall srk `TyInt lia in
+    Log.errorf "proj os %a" (Formula.pp srk) lia;
     let ground = mbp_qe srk lia in
     {iter_obj=Iter.abstract ~exists srk iter_trs ground;
      proj_inds;
      arr_map;
-     iter_trs}
+     new_trs;
+     iter_trs;
+     projed_form=ground}
 
 
   let equal _ _ _ _= failwith "todo 5"
@@ -216,15 +226,116 @@ module Array_analysis (Iter : PreDomain) = struct
     let a, b = List.split lst in
     a @ b
 
+  (* may have conflict with existing named symbols s, p, x'', x'''*)
+  let special_step srk int_trs proj_phi proj_phi_exp temp_lc_sym lc arr_projs =
+    let mk_forall_const_lst srk lst phi = List.fold_left (fun phi const -> mk_forall_const srk const phi) phi lst in
+    let mk_exists_const_lst srk lst phi = List.fold_left (fun phi const -> mk_exists_const srk const phi) phi lst in
+    let step = mk_symbol srk ~name:"s" `TyInt in
+    let step_other = mk_symbol srk ~name:"p" `TyInt in
+    let pre_tbl : (symbol, ('a, 'c) expr) Hashtbl.t = Hashtbl.create (List.length int_trs) in
+    let post_tbl : (symbol, ('a, 'c) expr) Hashtbl.t = Hashtbl.create (List.length int_trs) in
+    let intermediate_tbl : (symbol, ('a, 'c) expr) Hashtbl.t = Hashtbl.create (2*(List.length int_trs)) in
+    let inter_syms = ref [] in
+    List.iter
+      (fun (sym, sym') -> 
+         let add'' sym = 
+           if symbol_name srk sym = None then mk_symbol srk `TyInt
+           else 
+             mk_symbol 
+               srk 
+               ~name:((Option.get (symbol_name srk sym))^"''") 
+               `TyInt 
+         in
+         let sym'' : symbol = add'' sym in
+         let sym''' : symbol = add'' sym' in
+         inter_syms := sym'' :: sym''' :: !inter_syms;
+         Hashtbl.add pre_tbl sym' (mk_const srk sym'');
+         Hashtbl.add intermediate_tbl sym (mk_const srk sym'');
+         Hashtbl.add intermediate_tbl sym' (mk_const srk sym''');
+         Hashtbl.add post_tbl sym' (mk_const srk sym'''))
+      int_trs;
+    let inter_syms = !inter_syms in
+    let equalities = 
+      List.fold_left 
+        (fun eqs (x, x') -> 
+           mk_eq srk (mk_const srk x) (Hashtbl.find intermediate_tbl x) ::
+           mk_eq srk (mk_const srk x') (Hashtbl.find intermediate_tbl x') ::
+           eqs)
+        []
+        arr_projs
+    in
+    let neutralize_step_at step =
+      Hashtbl.add 
+        post_tbl 
+        temp_lc_sym 
+        (mk_sub srk lc (mk_add srk [mk_int srk 1; mk_const srk step]));
+      Hashtbl.add pre_tbl temp_lc_sym (mk_const srk step);
+      let res = 
+        mk_and
+          srk
+          [tbl_subst srk proj_phi_exp pre_tbl;
+           tbl_subst srk proj_phi intermediate_tbl;
+           tbl_subst srk proj_phi_exp post_tbl]
+      in
+      Hashtbl.remove post_tbl temp_lc_sym;
+      Hashtbl.remove pre_tbl temp_lc_sym;
+      res
+    in
+    mk_forall_const
+      srk 
+      step
+      (mk_if
+         srk
+         (mk_and
+            srk
+            [mk_leq srk (mk_int srk 0) (mk_const srk step);
+             mk_lt srk (mk_const srk step) lc;
+             mk_forall_const_lst
+               srk
+               (step_other :: inter_syms)
+               (mk_if
+                  srk
+                  (mk_and
+                     srk
+                     [mk_leq srk (mk_int srk 0) (mk_const srk step_other);
+                      mk_lt srk (mk_const srk step_other) lc;
+                      mk_not srk (mk_eq srk (mk_const srk step) (mk_const srk step_other));
+                      neutralize_step_at step_other])
+                  (tbl_subst
+                     srk
+                     (mk_and 
+                        srk 
+                        (List.map 
+                           (fun (z, z') -> mk_eq srk (mk_const srk z) (mk_const srk z'))
+                           arr_projs))
+                     intermediate_tbl))])
+         (mk_exists_const_lst
+            srk
+            inter_syms
+            (mk_and
+               srk
+               (neutralize_step_at step ::
+                tbl_subst srk proj_phi intermediate_tbl ::
+                equalities))))
+
   let exp srk _ lc obj =
-    let iter_proj = Iter.exp srk obj.iter_trs lc obj.iter_obj in
-    (*let ground = mbp_qe srk iter_proj in*)
+    let fresh_lc = mk_symbol srk `TyInt in (*this erases relation between lc and syms in iteration... not good*)
+    let iter_proj = Iter.exp srk obj.iter_trs (mk_const srk fresh_lc) obj.iter_obj in
     let lc_syms = Symbol.Set.to_list (symbols lc) in
     let projed = Quantifier.mbp 
         srk 
-        (fun sym -> List.mem sym (lc_syms @ (split_append obj.iter_trs)))
+        (fun sym -> List.mem sym (fresh_lc :: lc_syms @ (split_append obj.iter_trs)))
         iter_proj
     in
+    Log.errorf "failure -1";
+    let noop_all_but_one = special_step srk obj.iter_trs obj.projed_form projed fresh_lc lc obj.new_trs in
+    let noop_ground = mbp_qe srk noop_all_but_one in
+    Log.errorf "failure0";
+    Log.errorf "noop is %a" (Formula.pp srk) (noop_all_but_one);
+    let projed_right_lc = substitute_const srk (fun sym -> if compare_symbol sym fresh_lc = 0 then lc else mk_const srk sym) projed in
+    Log.errorf "failure1";
+    let exp_res_pre = mk_and srk [noop_ground; projed_right_lc] in
+    Log.errorf "failure2";
     let map sym =  
       if sym = fst obj.proj_inds || sym = snd obj.proj_inds 
       then mk_var srk 0 `TyInt
@@ -232,8 +343,10 @@ module Array_analysis (Iter : PreDomain) = struct
       then mk_app srk (Hashtbl.find obj.arr_map sym) [mk_var srk 0 `TyInt] 
       else mk_const srk sym
     in
-    let substed = substitute_const srk map projed in
-    SrkSimplify.simplify_terms srk (mk_forall srk `TyInt substed)
+    Log.errorf "failure3";
+    let substed = substitute_const srk map exp_res_pre in
+    Log.errorf "failure4";
+    (*SrkSimplify.simplify_terms srk*) (mk_forall srk `TyInt substed)
 
 
   let pp _ _ _= failwith "todo 10"
