@@ -858,13 +858,14 @@ module InvariantDirection (Iter : PreDomain) = struct
     let phi = Nonlinear.linearize srk phi in
     (* Use variable directions as candidate transition invariants *)
     let predicates =
-      List.concat_map (fun (x,x') ->
+      List.concat
+        (List.map (fun (x,x') ->
           let x = mk_const srk x in
           let x' = mk_const srk x' in
           [mk_lt srk x x';
            mk_lt srk x' x;
            mk_eq srk x x'])
-        tr_symbols
+        tr_symbols)
       |> invariant_transition_predicates srk exists phi tr_symbols
       |> BatArray.of_list
     in
