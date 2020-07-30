@@ -170,37 +170,6 @@ let solve mat b =
   try Some (solve_exn mat b)
   with No_solution -> None
 
-let orient p system =
-  let module V = QQVector in
-  let rec reduce fin sys =
-    match sys with
-    | [] -> fin
-    | (eq::rest) ->
-      if V.equal eq V.zero then
-        reduce fin rest
-      else
-        try
-          let (coeff, dim) =
-            BatEnum.find (fun (_, dim) -> not (p dim)) (V.enum eq)
-          in
-          let coeff_inv = QQ.inverse coeff in
-          let sub eq' =
-            try
-              let coeff' = V.coeff dim eq' in
-              let k = QQ.negate (QQ.mul coeff_inv coeff') in
-              V.add (V.scalar_mul k eq) eq'
-            with Not_found -> eq'
-          in
-          let rhs =
-            V.scalar_mul (QQ.negate coeff_inv) (snd (V.pivot dim eq))
-          in
-          reduce
-            ((dim,rhs)::(List.map (fun (dim, rhs) -> (dim, sub rhs)) fin))
-            (List.map sub rest)
-        with Not_found -> reduce fin rest (* No variable to eliminate *)
-  in
-  reduce [] system
-
 let vector_right_mul = QQMatrix.vector_right_mul
 let vector_left_mul = QQMatrix.vector_left_mul
 
@@ -489,47 +458,6 @@ let periodic_rational_spectral_decomposition mA dims =
       go prsd (i+1) (QQMatrix.mul mA mA_pow)
   in
   go [] 1 mA
-
-let rational_triangulation mA =
-  let mAt = QQMatrix.transpose mA in
-  let next_row =
-    let r = ref 0 in
-    fun () ->
-      let nr = !r in
-      incr r;
-      nr
-  in
-  let dims = SrkUtil.Int.Set.elements (QQMatrix.row_set mAt) in
-  let identity = QQMatrix.identity dims in
-  List.fold_left (fun (mM, mT) (lambda, _) ->
-      let mE = (* A^t - lambda*I *)
-        QQMatrix.add mAt (QQMatrix.scalar_mul (QQ.negate lambda) identity)
-      in
-      (* Assuming that that the last row of M is v, add the Jordan chain of
-         lambda/v to M, and the corresponding Jordan block to T. *)
-      let rec add_jordan_chain_rec (mM, mT) v =
-        match solve mE v with
-        | Some u ->
-          let row = next_row () in
-          let mM = QQMatrix.add_row row u mM in
-          let t_row =
-            QQVector.of_list [(QQ.one, row-1); (lambda, row)]
-          in
-          let mT = QQMatrix.add_row row t_row mT in
-          add_jordan_chain_rec (mM, mT) u
-        | None -> (mM, mT)
-      in
-      let add_jordan_chain (mM, mT) v =
-        let row = next_row () in
-        let mM = QQMatrix.add_row row v mM in
-        let t_row = QQVector.of_term lambda row in
-        let mT = QQMatrix.add_row row t_row mT in
-        add_jordan_chain_rec (mM, mT) v
-      in
-      List.fold_left add_jordan_chain (mM, mT) (nullspace mE dims)
-    )
-    (QQMatrix.zero, QQMatrix.zero)
-    (QQMatrix.rational_eigenvalues mA dims)
 
 let rec jordan_chain mA lambda v =
   let residual = (* v*mA = lambda*v + residual *)

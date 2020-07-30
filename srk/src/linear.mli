@@ -58,11 +58,6 @@ val solve_exn : QQMatrix.t -> QQVector.t -> QQVector.t
     such a vector exists.  Otherwise, return [None]. *)
 val solve : QQMatrix.t -> QQVector.t -> QQVector.t option
 
-(** Given a predicate on dimensions and a list of terms (all implicitly equal
-    to zero), orient the equations as rewrite rules that eliminate dimensions
-    that don't satisfy the predicate. *)
-val orient : (int -> bool) -> QQVector.t list -> (int * QQVector.t) list
-
 (** [vector_right_mul m v] computes [m*v] *)
 val vector_right_mul : QQMatrix.t -> QQVector.t -> QQVector.t
 
@@ -94,10 +89,6 @@ val divide_left : QQMatrix.t -> QQMatrix.t -> QQMatrix.t option
     the linear transformation into the linear dynamical system.  That is, [TB
     = MTA], and the rowspace of [TA] is maximal. *)
 val max_lds : QQMatrix.t -> QQMatrix.t -> QQMatrix.t * QQMatrix.t
-
-(** Given a matrix [A], find a pair of matrices [(M,T)] such that [MA = TM],
-    [T] is lower-triangular, and the rowspace of [MA] is maximal. *)
-val rational_triangulation : QQMatrix.t -> (QQMatrix.t * QQMatrix.t)
 
 (** Compute a list of (rational eigenvalue, generalized eigenvector)
    pairs of a finite dimensional square submatrix of a given
