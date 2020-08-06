@@ -371,6 +371,9 @@ val pp_smtlib2 : ?env:(string Env.t) -> 'a context ->
 val pp_expr_unnumbered : ?env:(string Env.t) -> 'a context -> 
     Format.formatter -> ('a, 'b) expr -> unit
 
+(** Writes formula phi to smt2 file at filename *)
+val to_file : 'a context -> 'a formula -> string -> unit
+
 module Formula : sig
   type 'a t = 'a formula
   val equal : 'a formula -> 'a formula -> bool

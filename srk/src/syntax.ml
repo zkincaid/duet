@@ -1529,7 +1529,17 @@ let pp_smtlib2 ?(env=Env.empty) srk formatter expr =
         (go env) belse
     | _ -> failwith "pp_smtlib2: ill-formed expression"
   in
-  fprintf formatter "(assert %a)@;(check-sat)@]" (go env) expr;
+  fprintf formatter "(assert %a)@;(check-sat)@]" (go env) expr
+
+
+let to_file srk phi filename =
+  let chan = Stdlib.open_out filename in
+  let formatter = Format.formatter_of_out_channel chan in
+  pp_smtlib2 srk formatter phi;
+  Format.pp_print_newline formatter ();
+  Stdlib.close_out chan;
+
+
 
 module Infix (C : sig
     type t

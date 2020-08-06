@@ -96,31 +96,30 @@ let merge_proj_syms srk trs1 trs2 =
   a @ b
 
 
-let iter_test1 () =
+let iter_init () =
   let phi =
     let open Infix in
     x' = x + (int 1) &&
     forall `TyInt (
       (mk_if 
         srk 
-        ((var 0 `TyInt) = (int 5))
-        (a'(var 0 `TyInt)  = (int 9)))
+        ((var 0 `TyInt) = x)
+        (a'(var 0 `TyInt)  = (int 999)))
       &&
       (mk_if 
          srk 
-         (!((var 0 `TyInt) = (int 5)))
+         (!((var 0 `TyInt) = x))
          (a'(var 0 `TyInt)  = a(var 0 `TyInt))))
   in
   let psi =
     let open Infix in
-    x' = x + y &&
+    x' = x + y && (int 0) <= y &&
     forall `TyInt (
       (mk_ite 
         srk 
-        (*(x <= (var 0 `TyInt) && (var 0 `TyInt) < x')*)
-        ((int 0) < y && (var 0 `TyInt) = (int 5))
-        (a'(var 0 `TyInt)  = ( int 9))
-        (((int 0) <= y) && a'(var 0 `TyInt)  = a(var 0 `TyInt)))
+        ((int 0) < y && x <= (var 0 `TyInt) && (var 0 `TyInt) < x')
+        (a'(var 0 `TyInt)  = (int 999))
+        (a'(var 0 `TyInt)  = a(var 0 `TyInt)))
       )
   in
   let tr_symbols = [(xsym, xsym'); (asym, asym')] in
@@ -131,47 +130,95 @@ let iter_test1 () =
       y
       (Array_vas.abstract srk tr_symbols phi)
   in
-  let _, _, (trs_iter, proj_iter) = 
-    Arraycontent.projection srk iter [(asym, asym')] in
-  Log.errorf "testfail4";
-  let _, _, (trs_psi, proj_psi) = 
-    Arraycontent.projection srk psi [(asym, asym')] in
-  Log.errorf "testfail3\n";
-  Log.errorf "result of iter is %a" (Formula.pp srk) iter;
-  let lia_iter = 
-    mk_forall 
-      srk 
-      `TyInt
-      (Arraycontent.mfa_to_lia srk (Arraycontent.to_mfa srk proj_iter)) in
-  Log.errorf "testfail2";
-  let lia_psi = 
-    mk_forall 
-      srk 
-      `TyInt
-      (Arraycontent.mfa_to_lia srk (Arraycontent.to_mfa srk proj_psi)) in
-  Log.errorf "testfail1";
-  let consistency_syms = merge_proj_syms srk trs_iter trs_psi in
-  (*let pre_qf = (mk_if srk (mk_and srk (lia_psi :: consistency_syms))
-    (mk_and srk (lia_iter :: consistency_syms)))
+  assert (Arraycontent.is_eq_projs srk iter psi [(asym, asym')] = `Yes)
+
+
+let iter_non_null () =
+  let phi =
+    let open Infix in
+    x' = x + (int 1) &&
+    forall `TyInt (
+      (mk_if 
+        srk 
+        ((var 0 `TyInt) = x)
+        (a'(var 0 `TyInt)  = a(var 0 `TyInt) && !(a(var 0 `TyInt) = (int 0))))
+      &&
+      (mk_if 
+         srk 
+         (!((var 0 `TyInt) = x))
+         (a'(var 0 `TyInt)  = a(var 0 `TyInt))))
   in
-  let qf = Arraycontent.mbp_qe srk pre_qf in
-  let ass = mk_not srk qf in
-  let filename = "/Users/jakesilverman/Documents/duet/duet/HISISTEST.smt2" in
-  let chan = Stdlib.open_out filename in
-  let formatter = Format.formatter_of_out_channel chan in
-  Syntax.pp_smtlib2 srk formatter ass;
-  Format.pp_print_newline formatter ();
-  Stdlib.close_out chan;*)
-  assert_equiv_formula 
-    (mk_and srk (lia_iter :: consistency_syms)) 
-    (mk_and srk (lia_psi :: consistency_syms))
+  let psi =
+    let open Infix in
+    x' = x + y && (int 0) <= y &&
+    forall `TyInt (
+      (mk_ite 
+        srk 
+        ((int 0) < y && x <= (var 0 `TyInt) && (var 0 `TyInt) < x')
+        (a'(var 0 `TyInt)  = a(var 0 `TyInt) && !(a(var 0 `TyInt) = (int 0)))
+        (a'(var 0 `TyInt)  = a(var 0 `TyInt)))
+      )
+  in
+  let tr_symbols = [(xsym, xsym'); (asym, asym')] in
+  let iter = 
+    Array_vas.exp 
+      srk 
+      tr_symbols
+      y
+      (Array_vas.abstract srk tr_symbols phi)
+  in
+  assert (Arraycontent.is_eq_projs srk psi iter [(asym, asym')] = `Yes)
 
 
-
+(*this currently times out when showing iter -> psi *)
+let iter_same () =
+  let phi =
+    let open Infix in
+    x' = x + (int 1) &&
+    forall `TyInt (
+      (mk_if 
+        srk 
+        ((var 0 `TyInt) = (int 5))
+        (a'(var 0 `TyInt)  = (int 999)))
+      &&
+      (mk_if 
+         srk 
+         (!((var 0 `TyInt) = (int 5)))
+         (a'(var 0 `TyInt)  = a(var 0 `TyInt))))
+  in
+  let psi =
+    let open Infix in
+    x' = x + y && (int 0) <= y &&
+    forall `TyInt (
+      (mk_if
+         srk 
+         ((int 0) = y)
+         (a'(var 0 `TyInt)  = a(var 0 `TyInt))) &&
+      (mk_if
+         srk 
+         (!((var 0 `TyInt) = (int 5)))
+         (a'(var 0 `TyInt)  = a(var 0 `TyInt))) &&
+      (mk_if
+         srk 
+         ((int 0) < y && y < (int 3) && (var 0 `TyInt) = (int 5))
+         (a'(var 0 `TyInt)  = (int 999)))
+    )
+  in
+  let tr_symbols = [(xsym, xsym'); (asym, asym')] in
+  let iter = 
+    Array_vas.exp 
+      srk 
+      tr_symbols
+      y
+      (Array_vas.abstract srk tr_symbols phi)
+  in
+  assert (Arraycontent.is_eq_projs srk iter psi [(asym, asym')] = `Yes)
 
 let suite = "ArrayContent" >:::
   [
     "pred_test2" >:: pred_test2;
     "pred_test" >:: pred_test;
-    "iter_test1" >:: iter_test1
+    "iter_init" >:: iter_init;
+    "iter_non_null" >:: iter_non_null;
+    "iter_same" >:: iter_same
   ]

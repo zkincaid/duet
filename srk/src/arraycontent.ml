@@ -6,14 +6,16 @@ module Z = Linear.ZZVector
 module H = Abstract
 include Log.Make(struct let name = "srk.array:" end)
 
+(** Subsitute tbl[sym] for sym in phi for any sym that appears in tbl *)
 let tbl_subst srk phi tbl = 
   substitute_const 
     srk 
     (fun sym -> BatHashtbl.find_default tbl sym (mk_const srk sym))
     phi
 
-let projection srk phi arr_tr =
-  let arr_map = Hashtbl.create (2 * (List.length arr_tr)) in
+(* todo: figure out why the commented version causes infinite loop somewhere *)
+let projection srk phi arr_tr_syms =
+  let arr_map = Hashtbl.create (2 * (List.length arr_tr_syms)) in
   let j = mk_symbol srk ~name:"j" `TyInt in
   let j' = mk_symbol srk ~name:"j'" `TyInt in
   let phi = 
@@ -22,12 +24,12 @@ let projection srk phi arr_tr =
       [mk_eq srk (mk_const srk j) (mk_const srk j');
        phi]
   in
-  let f (new_num_trs, phi) (a, a') = 
+  let f (phi_proj_trs, phi_proj) (a, a') = 
     let z = mk_symbol srk ~name:"z"`TyInt in
     let z' = mk_symbol srk ~name:"z'" `TyInt in
     Hashtbl.add arr_map z a;
     Hashtbl.add arr_map z' a';
-    (z, z') :: new_num_trs,
+    (z, z') :: phi_proj_trs,
     mk_and
       srk
       [mk_forall srk `TyInt
@@ -38,18 +40,18 @@ let projection srk phi arr_tr =
                srk 
                [mk_eq srk (mk_const srk z) (mk_app srk a [mk_var srk 0 `TyInt]);
                 mk_eq srk (mk_const srk z') (mk_app srk a' [mk_var srk 0 `TyInt])]));
-       phi]
+       phi_proj]
     (*mk_and 
       srk 
       [mk_eq srk (mk_const srk z) (mk_app srk a [mk_const srk j]);
        mk_eq srk (mk_const srk z') (mk_app srk a' [mk_const srk j]);
-       phi]*)
+       phi_proj]*)
   in
-  (j, j'), arr_map, List.fold_left f ([(j, j')], phi) arr_tr
+  (j, j'), arr_map, List.fold_left f ([(j, j')], phi) arr_tr_syms
 
-let symbols_by_sort srk tr_symbols =
+(* Assumes only two sorts, int and int -> int*)
+let separate_symbols_by_sort srk tr_symbols =
   List.partition (fun (s, _) -> typ_symbol srk s = `TyInt) tr_symbols
-
 
 let to_mfa srk (phi : 'a formula) =
   let skolemtbl = Hashtbl.create 100 in
@@ -188,6 +190,36 @@ let mbp_qe srk phi =
   in
   remove_quant qt syms matr
 
+let pmfa_to_lia srk pmfa = mfa_to_lia srk (to_mfa srk pmfa)
+
+let merge_proj_syms srk trs1 trs2 =
+  let f (x, x') (y, y') = 
+    mk_eq srk (mk_const srk x) (mk_const srk y), 
+    (mk_eq srk (mk_const srk x') (mk_const srk y'))
+  in
+  let eqs = BatList.map2 f trs1 trs2 in
+  let a, b = List.split eqs in
+  a @ b
+
+let is_eq_projs srk phi1 phi2 tr =
+  let _, _, (trs1, phi1_proj) = projection srk phi1 tr in
+  let _, _, (trs2, phi2_proj) = projection srk phi2 tr in
+  let phi1_proj_lia = mk_forall srk `TyInt (pmfa_to_lia srk phi1_proj) in
+  let phi2_proj_lia = mk_forall srk `TyInt (pmfa_to_lia srk phi2_proj) in
+  let consistency_syms = merge_proj_syms srk trs1 trs2 in
+  let phi = mk_and srk (phi1_proj_lia :: consistency_syms) in
+  let psi = mk_and srk (phi2_proj_lia :: consistency_syms) in
+  Log.errorf "\n\n\nphi is %a" (Formula.pp srk) phi;
+  (*let imp = mk_not srk (mk_if srk phi psi) in*)
+  let equiv =   mk_or srk [mk_and srk [phi; mk_not srk psi];
+               mk_and srk [mk_not srk phi; psi]] in
+  Syntax.to_file srk equiv "/Users/jakesilverman/Documents/duet/duet/equiv.smt2"; 
+  Smt.equiv 
+    srk 
+    (mk_and srk (phi1_proj_lia :: consistency_syms)) 
+    (mk_and srk (phi2_proj_lia :: consistency_syms))
+
+
     
 module Array_analysis (Iter : PreDomain) = struct
 
@@ -200,9 +232,10 @@ module Array_analysis (Iter : PreDomain) = struct
       projed_form : 'a formula}
     
   let abstract ?(exists=fun _ -> true) srk tr_symbols phi =
-    let num_trs, arr_trs = symbols_by_sort srk tr_symbols in 
-    let proj_inds, arr_map, (new_trs, phi) = projection srk phi arr_trs in
-    let matrix = to_mfa srk phi in
+    let num_trs, arr_trs = separate_symbols_by_sort srk tr_symbols in 
+    let proj_inds, arr_map, (new_trs, phi_proj) = projection srk phi arr_trs in
+    let matrix = to_mfa srk phi_proj in
+    Log.errorf "%b" (exists (fst (List.hd tr_symbols)));
     let lia = mfa_to_lia srk matrix in
     let iter_trs = num_trs@new_trs in
     let lia = mk_forall srk `TyInt lia in
@@ -226,7 +259,6 @@ module Array_analysis (Iter : PreDomain) = struct
     let a, b = List.split lst in
     a @ b
 
-  (* may have conflict with existing named symbols s, p, x'', x'''*)
   let special_step srk int_trs proj_phi proj_phi_exp temp_lc_sym lc arr_projs =
     let mk_forall_const_lst srk lst phi = List.fold_left (fun phi const -> mk_forall_const srk const phi) phi lst in
     let mk_exists_const_lst srk lst phi = List.fold_left (fun phi const -> mk_exists_const srk const phi) phi lst in
@@ -239,11 +271,11 @@ module Array_analysis (Iter : PreDomain) = struct
     List.iter
       (fun (sym, sym') -> 
          let add'' sym = 
-           if symbol_name srk sym = None then mk_symbol srk `TyInt
-           else 
+           (*if symbol_name srk sym = None then mk_symbol srk `TyInt
+           else*) 
              mk_symbol 
                srk 
-               ~name:((Option.get (symbol_name srk sym))^"''") 
+               ~name:((show_symbol srk sym)^"''") 
                `TyInt 
          in
          let sym'' : symbol = add'' sym in
@@ -252,7 +284,7 @@ module Array_analysis (Iter : PreDomain) = struct
          Hashtbl.add pre_tbl sym' (mk_const srk sym'');
          Hashtbl.add intermediate_tbl sym (mk_const srk sym'');
          Hashtbl.add intermediate_tbl sym' (mk_const srk sym''');
-         Hashtbl.add post_tbl sym' (mk_const srk sym'''))
+         Hashtbl.add post_tbl sym (mk_const srk sym'''))
       int_trs;
     let inter_syms = !inter_syms in
     let equalities = 
@@ -321,20 +353,27 @@ module Array_analysis (Iter : PreDomain) = struct
   let exp srk _ lc obj =
     let fresh_lc = mk_symbol srk `TyInt in (*this erases relation between lc and syms in iteration... not good*)
     let iter_proj = Iter.exp srk obj.iter_trs (mk_const srk fresh_lc) obj.iter_obj in
+    Log.errorf "\n\nexp form is is %a" (Formula.pp srk) iter_proj;
     let lc_syms = Symbol.Set.to_list (symbols lc) in
     let projed = Quantifier.mbp 
         srk 
         (fun sym -> List.mem sym (fresh_lc :: lc_syms @ (split_append obj.iter_trs)))
         iter_proj
     in
-    Log.errorf "failure -1";
     let noop_all_but_one = special_step srk obj.iter_trs obj.projed_form projed fresh_lc lc obj.new_trs in
     let noop_ground = mbp_qe srk noop_all_but_one in
-    Log.errorf "failure0";
-    Log.errorf "noop is %a" (Formula.pp srk) (noop_all_but_one);
     let projed_right_lc = substitute_const srk (fun sym -> if compare_symbol sym fresh_lc = 0 then lc else mk_const srk sym) projed in
-    Log.errorf "failure1";
-    let exp_res_pre = mk_and srk [noop_ground; projed_right_lc] in
+    let noop_eqs = 
+      List.map 
+        (fun (x, x') -> mk_eq srk (mk_const srk x) (mk_const srk x'))
+        obj.iter_trs
+    in
+    let exp_res_pre = 
+      mk_or 
+        srk 
+        [mk_and srk ((mk_eq srk lc (mk_int srk 0)) :: noop_eqs);
+         mk_and srk [noop_ground; projed_right_lc]] 
+    in
     Log.errorf "failure2";
     let map sym =  
       if sym = fst obj.proj_inds || sym = snd obj.proj_inds 
@@ -346,6 +385,7 @@ module Array_analysis (Iter : PreDomain) = struct
     Log.errorf "failure3";
     let substed = substitute_const srk map exp_res_pre in
     Log.errorf "failure4";
+    Syntax.to_file srk noop_ground  "/Users/jakesilverman/Documents/duet/duet/projed_form.smt2"; 
     (*SrkSimplify.simplify_terms srk*) (mk_forall srk `TyInt substed)
 
 
