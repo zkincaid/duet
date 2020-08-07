@@ -744,7 +744,7 @@ let pathexp file =
                     Format.printf "Path expression for function `%a':@.  @[<hov 1>%a@]@."
                       Varinfo.pp func.fname
                       Pathexpr.pp pathexp;
-                    Format.printf " where @.  @[";
+                    Format.printf " where @.  @[<v 0>";
                     let algebra = function
                       | `Edge (s,t) -> EdgeSet.singleton (s,t)
                       | `Star x -> x
@@ -755,13 +755,14 @@ let pathexp file =
                     edges |> EdgeSet.iter (fun (s,t) ->
                                  match WG.edge_weight ts s t with
                                  | Call (x,y) ->
-                                    Format.printf "%d -> %d: call (%d, %d)@." s t x y
+                                    Format.printf "%d -> %d: call (%d, %d)@;" s t x y
                                  | Weight w ->
-                                    Format.printf "%d -> %d: @[<hov 1>%a@]@."
+                                    Format.printf "%d -> %d: @[<hov 1>%a@]@;"
                                       s
                                       t
                                       K.pp w);
-                    Format.printf "@]")
+                    Format.printf "@]");
+  Format.printf "@\n"
 
 
 let resource_bound_analysis file =
