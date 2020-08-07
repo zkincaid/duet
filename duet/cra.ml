@@ -712,6 +712,58 @@ let analyze file =
     end
   | _ -> assert false
 
+module EdgeSet = BatSet.Make(struct
+                     type t = int * int [@@deriving ord]
+                   end)
+let pathexp file =
+  populate_offset_table file;
+  let rg = Interproc.make_recgraph file in
+  let (ts, _) = make_transition_system rg in
+  let wg =
+    WG.fold_vertex
+      (fun v rg -> WG.RecGraph.add_vertex rg v)
+      ts
+      (WG.RecGraph.empty ())
+    |> WG.fold_edges (fun (u, w, v) rg ->
+           match w with
+           | Call (en,ex) ->
+              WG.RecGraph.add_call_edge rg u (en,ex) v
+           | Weight _ -> WG.RecGraph.add_edge rg u v)
+         ts
+  in
+  let query =
+    match file.entry_points with
+    | [main] ->
+        WG.RecGraph.mk_query wg (RG.block_entry rg main).did
+    | _ -> failwith "No `main' procedure found"
+  in
+  file.funcs |> List.iter (fun func ->
+                    let en = (RG.block_entry rg func.fname).did in
+                    let ex = (RG.block_exit rg func.fname).did in
+                    let pathexp = WG.RecGraph.call_pathexpr query (en, ex) in
+                    Format.printf "Path expression for function `%a':@.  @[<hov 1>%a@]@."
+                      Varinfo.pp func.fname
+                      Pathexpr.pp pathexp;
+                    Format.printf " where @.  @[";
+                    let algebra = function
+                      | `Edge (s,t) -> EdgeSet.singleton (s,t)
+                      | `Star x -> x
+                      | `Add (x,y) | `Mul (x,y) -> EdgeSet.union x y
+                      | `Zero | `One -> EdgeSet.empty
+                    in
+                    let edges = Pathexpr.eval ~algebra pathexp in
+                    edges |> EdgeSet.iter (fun (s,t) ->
+                                 match WG.edge_weight ts s t with
+                                 | Call (x,y) ->
+                                    Format.printf "%d -> %d: call (%d, %d)@." s t x y
+                                 | Weight w ->
+                                    Format.printf "%d -> %d: @[<hov 1>%a@]@."
+                                      s
+                                      t
+                                      K.pp w);
+                    Format.printf "@]")
+
+
 let resource_bound_analysis file =
   populate_offset_table file;
   match file.entry_points with
@@ -845,4 +897,7 @@ let _ =
   CmdLine.register_pass
     ("-cra", analyze, " Compositional recurrence analysis");
   CmdLine.register_pass
-    ("-rba", resource_bound_analysis, " Resource bound analysis")
+    ("-rba", resource_bound_analysis, " Resource bound analysis");
+  CmdLine.register_pass
+    ("-pathexp", pathexp, " Print path expressions")
+
