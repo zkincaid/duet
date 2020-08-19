@@ -17,7 +17,7 @@ module CS = CoordinateSystem
 
 module UP = ExpPolynomial.UltPeriodic
 
-module PLM = Linear.PartialLinearMap
+module PLM = Lts.PartialLinearMap
 
 (* Closed forms for solvable polynomial maps with periodic rational
    eigenvalues: multi-variate polynomials with ultimately periodic
@@ -698,10 +698,16 @@ let rec_affine_hull srk wedge tr_symbols rec_terms rec_ideal =
    the row space of A is maximal. *)
 let extract_affine_transformation srk wedge tr_symbols rec_terms rec_ideal =
   let (mA, mB, pvc) = rec_affine_hull srk wedge tr_symbols rec_terms rec_ideal in
-  let (mT, mB) = Linear.max_lds mA mB in
-  let mA = QQMatrix.mul mT mA in
-  let pvc = matrix_polyvec_mul mT (Array.of_list pvc) in
-
+  let (dlts, mT) = Lts.determinize (mA, mB) in
+  let mS =
+    let mD = QQMatrix.mul (PLM.map dlts) mT in
+    match Lts.containment_witness (mA,mB) (mT,mD) with
+    | Some k -> k
+    | None -> assert false
+  in
+  let mA = mT in
+  let mB = PLM.map dlts in
+  let pvc = matrix_polyvec_mul mS (Array.of_list pvc) in
   logf ~attributes:[`Blue] "Affine transformation:";
   logf " A: @[%a@]" QQMatrix.pp mA;
   logf " B: @[%a@]" QQMatrix.pp mB;
@@ -2031,7 +2037,7 @@ module DLTS = struct
         (mA, mB, nb_rows)
         (Linear.const_dim::(List.map Linear.dim_of_sym constants))
     in
-    let (mS, dlts) = PLM.max_dlts mA mB in
+    let (dlts, mS) = Lts.determinize (mA, mB) in
     let simulation =
       QQMatrix.rowsi mS
       /@ (Linear.of_linterm srk % snd)
@@ -2072,62 +2078,6 @@ module DLTS = struct
 
   let widen = join
 end
-
-(* Compute best abstraction of a DLTS as a DLTS that satisfies
-   spectral conditions. *)
-let dlts_abstract_spectral spectral_decomp dlts dim =
-  let module VS = Linear.QQVectorSpace in
-  let rec fix mA mB = (* Ax' = Bx *)
-    let (mS, dlts) = PLM.max_dlts mA mB in
-    let dom = snd (PLM.iteration_sequence dlts) in
-    (* T agrees with dlts for everything in the invariant domain;
-         sends everything orthogonal to the invariant domain to 0. *)
-    let mT =
-      PLM.map (PLM.make (PLM.map dlts) dom)
-    in
-    let dims = SrkUtil.Int.Set.elements (QQMatrix.row_set mS) in
-    let sd = spectral_decomp mT dims in
-
-    let mP = VS.matrix_of sd in
-    let mPS = QQMatrix.mul mP mS in
-    let mPTS = BatList.reduce QQMatrix.mul [mP; PLM.map dlts; mS] in
-    let mPDS =
-      BatList.reduce QQMatrix.mul [mP; VS.matrix_of (PLM.guard dlts); mS]
-    in
-    if List.length sd = QQMatrix.nb_rows mS then
-      let map = match Linear.divide_right mPTS mPS with
-        | Some t -> t
-        | None -> assert false
-      in
-      let guard = match Linear.divide_right mPDS mPS with
-        | Some mG -> VS.of_matrix mG
-        | None -> assert false
-      in
-      (mPS, PLM.make map guard)
-    else
-      let mB =
-        let size = QQMatrix.nb_rows mPS in
-        BatEnum.fold (fun m (i, row) ->
-            QQMatrix.add_row (i + size) row m)
-          mPTS
-          (QQMatrix.rowsi mPDS)
-      in
-      fix mPS mB
-  in
-  (* DLTS: x' = Tx when Dx = 0; represent in the form Ax' = Bx as
-      [ I ] x' = [ T ] x
-      [ 0 ]      [ D ]
-  *)
-  let mA =
-    QQMatrix.identity (BatList.of_enum (0 -- (dim - 1)))
-  in
-  let mB =
-    BatList.fold_lefti (fun m i row ->
-        QQMatrix.add_row (i + dim) row m)
-      (PLM.map dlts)
-      (PLM.guard dlts)
-  in
-  fix mA mB
 
 module DLTSSolvablePolynomial = struct
   include DLTS
@@ -2178,12 +2128,8 @@ module DLTSSolvablePolynomial = struct
             (QQXs.enum p))
     in
     let (dlts, sim) = dlts_of_solvable_algebraic pm ideal in
-    let (pr_sim, pr_dlts) =
-      let spectral_decomp m dims =
-        Linear.periodic_rational_spectral_decomposition m dims
-        |> List.map (fun (_, _, v) -> v)
-      in
-      dlts_abstract_spectral spectral_decomp dlts (Array.length sim)
+    let (pr_dlts, pr_sim) =
+      Lts.periodic_rational_spectrum_reflection dlts (Array.length sim)
     in
     let simulation =
       QQMatrix.rowsi pr_sim
@@ -2211,34 +2157,28 @@ end
 module DLTSPeriodicRational = struct
   include DLTS
 
-  let abstract_spectral spectral_decomp ?(exists=fun _ -> true) srk tr_symbols phi =
-    let { dlts; simulation } = DLTS.abstract ~exists srk tr_symbols phi in
-    let (mS, pr_dlts) =
-      dlts_abstract_spectral spectral_decomp dlts (Array.length simulation)
-    in
-    let pr_simulation =
-      QQMatrix.rowsi mS
-      /@ (fun (_, row) ->
-          Linear.term_of_vec srk (fun i -> simulation.(i)) row
-          |> SrkSimplify.simplify_term srk)
+  let compose_simulation srk mS simulation =
+    QQMatrix.rowsi mS
+    /@ (fun (_, row) ->
+      Linear.term_of_vec srk (fun i -> simulation.(i)) row
+      |> SrkSimplify.simplify_term srk)
     |> BatArray.of_enum
-    in
-    { dlts = pr_dlts;
-      simulation = pr_simulation }
 
   let abstract ?(exists=fun _ -> true) srk tr_symbols phi =
-    let spectral_decomp m dims =
-      Linear.periodic_rational_spectral_decomposition m dims
-      |> List.map (fun (_, _, v) -> v)
+    let { dlts; simulation } = DLTS.abstract ~exists srk tr_symbols phi in
+    let (dlts, mS) =
+      Lts.periodic_rational_spectrum_reflection dlts (Array.length simulation)
     in
-    abstract_spectral spectral_decomp ~exists srk tr_symbols phi
+    let simulation = compose_simulation srk mS simulation in
+    { dlts; simulation }
 
   let abstract_rational ?(exists=fun _ -> true) srk tr_symbols phi =
-    let spectral_decomp m dims =
-      Linear.rational_spectral_decomposition m dims
-      |> List.map (fun (_, v) -> v)
+    let { dlts; simulation } = DLTS.abstract ~exists srk tr_symbols phi in
+    let (dlts, mS) =
+      Lts.rational_spectrum_reflection dlts (Array.length simulation)
     in
-    abstract_spectral spectral_decomp ~exists srk tr_symbols phi
+    let simulation = compose_simulation srk mS simulation in
+    { dlts; simulation }
 
   let exp srk tr_symbols loop_count iter =
     exp_impl SolvablePolynomialPeriodicRational.exp srk tr_symbols loop_count iter

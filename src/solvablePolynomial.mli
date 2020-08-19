@@ -26,7 +26,7 @@ module PresburgerGuard : PreDomain
 
 (** Deterministic linear transition systems *)
 type 'a dlts_abstraction =
-  { dlts : Linear.PartialLinearMap.t;
+  { dlts : Lts.PartialLinearMap.t;
     simulation : ('a term) array }
 
 (** Deterministic linear transition systems *)

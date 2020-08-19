@@ -83,13 +83,6 @@ val divide_right : QQMatrix.t -> QQMatrix.t -> QQMatrix.t option
     A.  If A and B are invertible, then C is exactly B{^-1}A. *)
 val divide_left : QQMatrix.t -> QQMatrix.t -> QQMatrix.t option
 
-(** Given matrices [A] and [B] representing a system of equations [Ax' = Bx],
-    find a matrix [T] and a square matrix [M] such that [y' = My] is the
-    greatest linear dynamical system that approximates [Ax' = Bx], and [T] is
-    the linear transformation into the linear dynamical system.  That is, [TB
-    = MTA], and the rowspace of [TA] is maximal. *)
-val max_lds : QQMatrix.t -> QQMatrix.t -> QQMatrix.t * QQMatrix.t
-
 (** Compute a list of (rational eigenvalue, generalized eigenvector)
    pairs of a finite dimensional square submatrix of a given
    matrix. The submatrix is determined by the list of dimensions given
@@ -160,60 +153,6 @@ module QQVectorSpace : sig
 
   (** Find the dimension of the given vector space *)
   val dimension : t -> int
-end
-
-(** {2 Partial linear maps} *)
-module PartialLinearMap : sig
-
-  (** A partial linear map is a partial function that is linear and
-     whose domain is a vector space *)
-  type t
-
-  val equal : t -> t -> bool
-
-  (** [identity n] is the (total) identity map on the coordinates [0
-     .. n-1]; all other coordinates are sent to 0. *)
-  val identity : int -> t
-
-
-  (** [make A G] creates the partial map whose action is given by the
-     matrix A, and whose domain of definition is the set of all [v]
-     such that [g.v = 0] for all [g in G].  (I.e., [G] is a set of
-     equality constraints that must on the input for [make A G] to be
-     defined; the domain is the orthogonal complement of G). *)
-  val make : QQMatrix.t -> QQVector.t list -> t
-
-  val pp : Format.formatter -> t -> unit
-
-  (** (Partial) map composition *)
-  val compose : t -> t -> t
-
-  (** Repeatly compose a partial map with itself until the domain
-     stabilizes; return both iteration sequence and the invariant guard
-     of the function.
-
-     We have guard(f) <= guard(f o f) <= guard(f o f o f) <= ...
-     and there is some (least) n such that guard(f^n) = guard(f^m)
-     for all m >= n.  The pair returned by [iteration_sequence f] is
-     [([f; f o f; ...; f^n], dom(f^n))].
-  *)
-  val iteration_sequence : t -> (t list) * (QQVector.t list)
-
-  (** Access the underlying (total) map of a partial map. *)
-  val map : t -> QQMatrix.t
-
-  (** Access the guard of a partial map.  The domain of the map is its
-     orthogonal complement *)
-  val guard : t -> QQVectorSpace.t
-
-  (** Given matrices [A] and [B] representing a system of equations
-     [Ax' = Bx], find a matrix [S] and a deterministic linear transition
-     system (DLTS) [f] such that:
-      1. [Ax' = Bx] implies [Sx' = f(Sx)]
-      2. if [g] is a DLTS and [T] is a matrix such that [Ax' = Bx]
-     implies [Tx' = g(Tx)], then there is some [U] such that [T = US]
-     and [y' = f(y)] implies [Uy' = g(Uy)].  *)
-  val max_dlts : QQMatrix.t -> QQMatrix.t -> QQMatrix.t * t
 end
 
 (** {2 Affine terms} *)
