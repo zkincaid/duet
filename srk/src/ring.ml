@@ -92,6 +92,7 @@ module type Matrix = sig
   val of_dense : scalar array array -> t
   val dense_of : t -> int -> int -> scalar array array
   val of_rows : vector list -> t
+  val interlace_columns : t -> t -> t
 end
 
 module AbelianGroupMap (M : Map) (G : AbelianGroup) = struct
@@ -160,7 +161,31 @@ module RingMap (M : Map) (R : S) = struct
       (enum u)
 end
 
-module MakeVector (R : S) = RingMap(IntMap)(R)
+module MakeVector (R : S) = struct
+  include RingMap(IntMap)(R)
+
+  let interlace u v =
+    let u_shift =
+      BatEnum.fold
+        (fun s (coeff, i) -> add_term coeff (2 * i) s)
+        zero
+        (enum u)
+    in
+    BatEnum.fold
+      (fun s (coeff, i) -> add_term coeff (2 * i + 1) s)
+      u_shift
+      (enum v)
+
+  let deinterlace u =
+    BatEnum.fold
+      (fun (v, w) (coeff, i) ->
+         if i mod 2 == 0 then
+           (add_term coeff (i / 2) v, w)
+         else
+           (v, add_term coeff (i / 2) w))
+      (zero, zero)
+      (enum u)
+end
 
 module MakeMatrix (R : S) = struct
   module V = MakeVector(R)
@@ -316,6 +341,12 @@ module MakeMatrix (R : S) = struct
   let of_rows =
     BatList.fold_lefti (fun m i v ->
         add_row i v m)
+      zero
+
+  let interlace_columns m n =
+    IntSet.fold (fun i s ->
+        add_row i (V.interlace (row i m) (row i n)) s)
+      (IntSet.union (row_set m) (row_set n))
       zero
 end
 

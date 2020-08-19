@@ -353,7 +353,7 @@ let dlts2 () =
   in
   let closure = DLTS.star srk tr_symbols phi in
   assert_equal (Smt.is_sat srk (closure && x < x')) `Sat;
-  assert_implies closure (z' = (int 2) * z || z' = z)
+  assert_implies_nonlinear closure (z' = (int 2) * z || z' = z)
 
 let dlts3 () =
   let open Infix in
@@ -363,7 +363,7 @@ let dlts3 () =
     && x = (int 0)
   in
   let closure = DLTS.star srk tr_symbols phi in
-  assert_implies closure (x = x' && y = y')
+  assert_implies_nonlinear closure (x = x' && y = y')
 
 let dlts4 () =
   let open Infix in
@@ -375,8 +375,8 @@ let dlts4 () =
   in
   let closure = DLTS.star srk tr_symbols phi in
   assert_equal (Smt.is_sat srk (closure && z' = z + (int 2))) `Sat;
-  assert_implies closure (z' = z || x + y = (int 0) || x + (int 2) = (int 0));
-  assert_implies closure (z' - z <= (int 2))
+  assert_implies_nonlinear closure (z' = z || x + y = (int 0) || x + (int 2) = (int 0));
+  assert_implies_nonlinear closure (z' - z <= (int 2))
 
 let dlts5 () =
   let open Infix in
@@ -390,7 +390,7 @@ let dlts5 () =
   in
   let closure = DLTS.star srk tr_symbols phi in
   assert_equal (Smt.is_sat srk (closure && x' = x + (int 1))) `Sat;
-  assert_implies closure (x' - x <= (int 1))
+  assert_implies_nonlinear closure (x' - x <= (int 1))
 
 let dlts_false () =
   let open Infix in
