@@ -3,7 +3,7 @@
 all: build
 
 build:
-	dune build
+	dune build duet
 
 clean:
 	dune clean
