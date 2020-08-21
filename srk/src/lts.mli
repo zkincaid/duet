@@ -14,7 +14,7 @@ type lts = QQMatrix.t * QQMatrix.t
 val pp : (Format.formatter -> int -> unit) -> Format.formatter -> lts -> unit
 
 (** Find the best LTS abstraction of a transition formula w.r.t. affine simulations *)
-val abstract_lts : ?exists:(symbol -> bool) -> 'a context -> (symbol * symbol) list -> 'a formula -> lts
+val abstract_lts : 'a context -> 'a TransitionFormula.t -> lts
 
 (** Determine if the transition relation of one LTS is contained within another *)
 val contains : lts -> lts -> bool

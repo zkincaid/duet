@@ -7,17 +7,17 @@ open Iteration
 
 (** Solvable polynomial maps with eigenvalue 1.  Closed forms are
    polynomial. *)
-module SolvablePolynomialOne : PreDomainWedge
+module SolvablePolynomialOne : PreDomainWedgeIter
 
 (** Solvable polynomial maps without spectral assumptions.  Closed
    forms may use operators from Berg's operational calculus,
    represented as uninterpreted function symbols that will be
    allocated upon calling [exp]. *)
-module SolvablePolynomial : PreDomainWedge
+module SolvablePolynomial : PreDomainWedgeIter
 
 (** Solvable polynomial maps with periodic rational eigenvalues.
    Closed forms are exponential polynomials. *)
-module SolvablePolynomialPeriodicRational : PreDomainWedge
+module SolvablePolynomialPeriodicRational : PreDomainWedgeIter
 
 (** Extends [SolvablePolynomialPeriodicRational] with universally
    quantified precondition expressed over terms with
@@ -30,7 +30,7 @@ type 'a dlts_abstraction =
     simulation : ('a term) array }
 
 (** Deterministic linear transition systems *)
-module DLTS : PreDomain with type 'a t = 'a dlts_abstraction
+module DLTS : PreDomainIter with type 'a t = 'a dlts_abstraction
 
 (** Solvable polynomial maps with periodic rational eigenvalues,
    restricted to an algebraic variety, represented as a DLTS with a
@@ -38,13 +38,9 @@ module DLTS : PreDomain with type 'a t = 'a dlts_abstraction
 module DLTSSolvablePolynomial : PreDomainWedge with type 'a t = 'a dlts_abstraction
 
 module DLTSPeriodicRational : sig
-  include PreDomain with type 'a t = 'a dlts_abstraction
+  include PreDomainIter with type 'a t = 'a dlts_abstraction
 
   (** Find best abstraction as a DLTS with rational (rather than
      periodic rational) spectrum *)
-  val abstract_rational : ?exists:(symbol -> bool) ->
-    'a context ->
-    (symbol * symbol) list ->
-    'a formula ->
-    'a t
+  val abstract_rational : 'a context -> 'a TransitionFormula.t -> 'a t
 end
