@@ -19,6 +19,8 @@ module UP = ExpPolynomial.UltPeriodic
 
 module PLM = Lts.PartialLinearMap
 
+module TF = TransitionFormula
+
 (* Closed forms for solvable polynomial maps with periodic rational
    eigenvalues: multi-variate polynomials with ultimately periodic
    exponential polynomial coefficients *)
@@ -510,25 +512,6 @@ let closure_periodic_rational sp =
   cf
 
 (** Solvable polynomial abstractions ****************************************************)
-let pre_symbols tr_symbols =
-  List.fold_left (fun set (s,_) ->
-      Symbol.Set.add s set)
-    Symbol.Set.empty
-    tr_symbols
-
-let post_symbols tr_symbols =
-  List.fold_left (fun set (_,s') ->
-      Symbol.Set.add s' set)
-    Symbol.Set.empty
-    tr_symbols
-
-(* Map from pre-state vars to their post-state counterparts *)
-let post_map tr_symbols =
-  List.fold_left
-    (fun map (sym, sym') -> Symbol.Map.add sym sym' map)
-    Symbol.Map.empty
-    tr_symbols
-
 (* map pre-state coordinates to their post-state counterparts *)
 let post_coord_map cs tr_symbols =
   List.fold_left
@@ -737,11 +720,11 @@ let nb_equations iter =
   List.fold_left (+) 0 (List.map block_size iter.block_eq)
 
 let pp srk tr_symbols formatter iter =
-  let post_map = post_map tr_symbols in
+  let post_map = TF.post_map srk tr_symbols in
   let postify =
     let subst sym =
       if Symbol.Map.mem sym post_map then
-        mk_const srk (Symbol.Map.find sym post_map)
+        Symbol.Map.find sym post_map
       else
         mk_const srk sym
     in
@@ -1276,8 +1259,8 @@ let _extract_matrix_leq srk wedge tr_symbols term_of_id =
    polynomial map & simulation.  Should be called first. *)
 let extract_constant_symbols srk tr_symbols wedge =
   let cs = Wedge.coordinate_system wedge in
-  let pre_symbols = pre_symbols tr_symbols in
-  let post_symbols = post_symbols tr_symbols in
+  let pre_symbols = TF.pre_symbols tr_symbols in
+  let post_symbols = TF.post_symbols tr_symbols in
   tr_symbols |> List.iter (fun (s,s') ->
       CS.admit_cs_term cs (`App (s, []));
       CS.admit_cs_term cs (`App (s', [])));
@@ -1313,13 +1296,13 @@ let exp_ocrs srk tr_symbols loop_counter iter =
   Nonlinear.ensure_symbols srk;
 
   let post_map = (* map pre-state vars to post-state vars *)
-    post_map tr_symbols
+    TF.post_map srk tr_symbols
   in
 
   let postify =
     let subst sym =
       if Symbol.Map.mem sym post_map then
-        mk_const srk (Symbol.Map.find sym post_map)
+        Symbol.Map.find sym post_map
       else
         mk_const srk sym
     in
@@ -1539,11 +1522,8 @@ module SolvablePolynomialOne = struct
       block_eq = block_eq;
       block_leq = block_leq }
 
-  let abstract ?(exists=fun _ -> true) srk tr_symbols phi =
-    let post_symbols = post_symbols tr_symbols in
-    let subterm x = not (Symbol.Set.mem x post_symbols) in
-    Wedge.abstract ~exists ~subterm srk phi
-    |> abstract_wedge srk tr_symbols
+  let abstract srk tf =
+    abstract_wedge srk (TF.symbols tf) (TF.wedge_hull srk tf)
 
   let join srk tr_symbols iter iter' =
     Wedge.join (wedge_of srk tr_symbols iter) (wedge_of srk tr_symbols iter')
@@ -1571,11 +1551,8 @@ module SolvablePolynomial = struct
       block_eq = block_eq;
       block_leq = block_leq }
 
-  let abstract ?(exists=fun _ -> true) srk tr_symbols phi =
-    let post_symbols = post_symbols tr_symbols in
-    let subterm x = not (Symbol.Set.mem x post_symbols) in
-    Wedge.abstract ~exists ~subterm srk phi
-    |> abstract_wedge srk tr_symbols
+  let abstract srk tf =
+    abstract_wedge srk (TF.symbols tf) (TF.wedge_hull srk tf)
 
   let join srk tr_symbols iter iter' =
     Wedge.join (wedge_of srk tr_symbols iter) (wedge_of srk tr_symbols iter')
@@ -1603,23 +1580,20 @@ module SolvablePolynomialPeriodicRational = struct
       block_eq = block_eq;
       block_leq = block_leq }
 
-  let abstract ?(exists=fun _ -> true) srk tr_symbols phi =
-    let post_symbols = post_symbols tr_symbols in
-    let subterm x = not (Symbol.Set.mem x post_symbols) in
-    Wedge.abstract ~exists ~subterm srk phi
-    |> abstract_wedge srk tr_symbols 
+  let abstract srk tf =
+    abstract_wedge srk (TF.symbols tf) (TF.wedge_hull srk tf)
 
   let exp srk tr_symbols loop_counter iter =
     Nonlinear.ensure_symbols srk;
     let srk = srk in
 
     let post_map = (* map pre-state vars to post-state vars *)
-      post_map tr_symbols
+      TF.post_map srk tr_symbols
     in
     let postify =
       let subst sym =
         if Symbol.Map.mem sym post_map then
-          mk_const srk (Symbol.Map.find sym post_map)
+          Symbol.Map.find sym post_map
         else
           mk_const srk sym
       in
@@ -1776,10 +1750,10 @@ module PresburgerGuard = struct
     let precondition = SrkApron.formula_of_property (G.precondition guard) in
     let postcondition = SrkApron.formula_of_property (G.postcondition guard) in
     let pre_symbols = (* + symbolic constants *)
-      Symbol.Set.union (symbols precondition) (pre_symbols tr_symbols)
+      Symbol.Set.union (symbols precondition) (TF.pre_symbols tr_symbols)
     in
-    let post_symbols = post_symbols tr_symbols in
-    let post_map = post_map tr_symbols in
+    let post_symbols = TF.post_symbols tr_symbols in
+    let post_map = TF.post_map srk tr_symbols in
 
     (* Let cf(k,x,x') be the closed form of the affine map associated
        with sp.  The presburger guard is
@@ -1838,7 +1812,7 @@ module PresburgerGuard = struct
           substitute_const srk
             (fun s ->
                if Symbol.Map.mem s post_map then
-                 freshify (mk_const srk (Symbol.Map.find s post_map))
+                 freshify (Symbol.Map.find s post_map)
                else
                  mk_const srk s)
             precondition
@@ -1866,7 +1840,7 @@ module PresburgerGuard = struct
 
     let guard_closure =
       mk_or srk [mk_and srk [mk_eq srk loop_counter (mk_real srk QQ.zero);
-                             Iteration.identity srk tr_symbols];
+                             TF.formula (TF.identity srk tr_symbols)];
                  mk_and srk [mk_leq srk (mk_real srk QQ.one) loop_counter;
                              presburger_guard;
                              precondition;
@@ -1912,12 +1886,12 @@ module DLTS = struct
   let exp_impl base_exp srk tr_symbols loop_count iter =
     let sim i = iter.simulation.(i) in
     let post_map = (* map pre-state vars to post-state vars *)
-      post_map tr_symbols
+      TF.post_map srk tr_symbols
     in
     let postify =
       let subst sym =
         if Symbol.Map.mem sym post_map then
-          mk_const srk (Symbol.Map.find sym post_map)
+          Symbol.Map.find sym post_map
         else
           mk_const srk sym
       in
@@ -1991,16 +1965,13 @@ module DLTS = struct
   let exp srk tr_symbols loop_count iter =
     exp_impl SolvablePolynomial.exp srk tr_symbols loop_count iter
 
-  let abstract ?(exists=fun _ -> true) srk tr_symbols phi =
-    let phi = Nonlinear.linearize srk phi in
-    let pre_symbols = pre_symbols tr_symbols in
-    let post_symbols = post_symbols tr_symbols in
-    (* Detect constant terms *)
-    let is_symbolic_constant x =
-      not (Symbol.Set.mem x pre_symbols || Symbol.Set.mem x post_symbols)
+  let abstract srk tf =
+    let tr_symbols = TF.symbols tf in
+    let phi = Nonlinear.linearize srk (TF.formula tf) in
+    let phi_symbols =
+      Symbol.Set.elements (Symbol.Set.filter (TF.exists tf) (symbols phi))
     in
-    let phi_symbols = Symbol.Set.elements (Symbol.Set.filter exists (symbols phi)) in
-    let constants = List.filter is_symbolic_constant phi_symbols in
+    let constants = Symbol.Set.elements (TF.symbolic_constants tf) in
     (* pre_map is a mapping from dimensions that correspond to
        post-state dimensions to their pre-state counterparts *)
     let pre_map =
@@ -2073,8 +2044,10 @@ module DLTS = struct
     mk_and srk [map; guard]
 
   let join srk tr_symbols iter1 iter2 =
-    abstract srk tr_symbols (mk_or srk [to_formula srk iter1;
-                                        to_formula srk iter2])
+    abstract srk (TF.make
+                    (mk_or srk [to_formula srk iter1;
+                                to_formula srk iter2])
+                    tr_symbols)
 
   let widen = join
 end
@@ -2144,10 +2117,13 @@ module DLTSSolvablePolynomial = struct
     in
     { dlts = pr_dlts; simulation }
 
-  let abstract ?(exists=fun _ -> true) srk tr_symbols phi =
-    let post_symbols = post_symbols tr_symbols in
+  let abstract srk tf =
+    let tr_symbols = TF.symbols tf in
+    let post_symbols = TF.post_symbols tr_symbols in
     let subterm x = not (Symbol.Set.mem x post_symbols) in
-    let wedge = Wedge.abstract_equalities ~exists ~subterm srk phi in
+    let wedge =
+      Wedge.abstract_equalities ~exists:(TF.exists tf) ~subterm srk (TF.formula tf)
+    in
     abstract_wedge srk tr_symbols wedge
 
   let exp srk tr_symbols loop_count iter =
@@ -2164,16 +2140,16 @@ module DLTSPeriodicRational = struct
       |> SrkSimplify.simplify_term srk)
     |> BatArray.of_enum
 
-  let abstract ?(exists=fun _ -> true) srk tr_symbols phi =
-    let { dlts; simulation } = DLTS.abstract ~exists srk tr_symbols phi in
+  let abstract srk tf =
+    let { dlts; simulation } = DLTS.abstract srk tf in
     let (dlts, mS) =
       Lts.periodic_rational_spectrum_reflection dlts (Array.length simulation)
     in
     let simulation = compose_simulation srk mS simulation in
     { dlts; simulation }
 
-  let abstract_rational ?(exists=fun _ -> true) srk tr_symbols phi =
-    let { dlts; simulation } = DLTS.abstract ~exists srk tr_symbols phi in
+  let abstract_rational srk tf =
+    let { dlts; simulation } = DLTS.abstract srk tf in
     let (dlts, mS) =
       Lts.rational_spectrum_reflection dlts (Array.length simulation)
     in

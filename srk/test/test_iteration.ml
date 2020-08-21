@@ -8,19 +8,19 @@ module SP = struct
   include Iteration.MakeDomain(Iteration.ProductWedge
                                  (SolvablePolynomial.SolvablePolynomial)
                                  (Iteration.WedgeGuard))
-  let star srk symbols phi = closure (abstract srk symbols phi)
+  let star srk tf = closure (abstract srk tf)
 end
 module SPPR = struct
   include Iteration.MakeDomain(Iteration.ProductWedge
                                  (SolvablePolynomial.SolvablePolynomialPeriodicRational)
                                  (Iteration.WedgeGuard))
-  let star srk symbols phi = closure (abstract srk symbols phi)
+  let star srk tf = closure (abstract srk tf)
 end
 module DLTS = struct
   include Iteration.MakeDomain(Iteration.Product
                                  (SolvablePolynomial.DLTSSolvablePolynomial)
                                  (Iteration.PolyhedronGuard))
-  let star srk symbols phi = closure (abstract srk symbols phi)
+  let star srk tf = closure (abstract srk tf)
 end
 
 let assert_implies_nonlinear phi psi =
@@ -33,28 +33,31 @@ let assert_implies_nonlinear phi psi =
 
 let tr_symbols = [(wsym,wsym');(xsym,xsym');(ysym,ysym');(zsym,zsym')]
 
+
 let prepost () =
   let phi =
-    let open Infix in
-    (int 0) <= x && x <= x'
+    TransitionFormula.make
+      Infix.((int 0) <= x && x <= x')
+      tr_symbols
   in
   let closure =
     let open Infix in
     !(x = x')
-    && SP.star srk tr_symbols phi
+    && SP.star srk phi
   in
   assert_implies closure (Ctx.mk_leq (int 0) x);
   assert_implies closure (Ctx.mk_leq (int 0) x')
 
 let simple_induction () =
   let phi =
-    let open Infix in
-    w' = w + (int 1)
-    && x' = x + (int 2)
-    && y' = y + z
-    && z = (int 3)
+    TransitionFormula.make
+      Infix.(w' = w + (int 1)
+             && x' = x + (int 2)
+             && y' = y + z
+             && z = (int 3))
+      tr_symbols
   in
-  let closure = SP.star srk tr_symbols phi in
+  let closure = SP.star srk phi in
   let result =
     let open Infix in
     (int 2)*(w' - w) = x' - x
@@ -65,14 +68,15 @@ let simple_induction () =
 let count_by_1 () =
   let tr_symbols = [(xsym,xsym')] in
   let phi =
-    let open Infix in
-    x' = x + (int 1)
-    && x < y
+    TransitionFormula.make
+      Infix.(x' = x + (int 1)
+             && x < y)
+      tr_symbols
   in
   let closure =
     let open Infix in
     x = (int 0)
-    && SP.star srk tr_symbols phi
+    && SP.star srk phi
     && y <= x'
     && (int 0) <= y
   in
@@ -83,16 +87,16 @@ let count_by_1 () =
   assert_implies closure result
 
 let count_by_2 () =
-  let tr_symbols = [(xsym,xsym')] in
   let phi =
-    let open Infix in
-    x' = x + (int 2)
-    && x < y
+    TransitionFormula.make
+      Infix.(x' = x + (int 2)
+             && x < y)
+      [(xsym,xsym')]
   in
   let closure =
     let open Infix in
     x = (int 0)
-    && SP.star srk tr_symbols phi
+    && SP.star srk phi
     && y <= x'
     && (int 0) <= y
   in
@@ -108,13 +112,13 @@ let count_by_2 () =
   assert_implies (mk_and srk [closure; y_even]) result
 
 let stratified1 () =
-  let tr_symbols = [(xsym,xsym');(ysym,ysym')] in
   let phi =
-    let open Infix in
-    x' = x + (int 1)
-    && y' = y + z
+    TransitionFormula.make
+      Infix.(x' = x + (int 1)
+             && y' = y + z)
+      [(xsym,xsym');(ysym,ysym')]
   in
-  let closure = SP.star srk tr_symbols phi in
+  let closure = SP.star srk phi in
   let result =
     let open Infix in
     z*(x' - x) = (y' - y)
@@ -122,17 +126,17 @@ let stratified1 () =
   assert_implies closure result
 
 let stratified2 () =
-  let tr_symbols = [(xsym,xsym');(ysym,ysym')] in
   let phi =
-    let open Infix in
-    x' = x + (int 1)
-    && y' = y + x
+    TransitionFormula.make
+      Infix.(x' = x + (int 1)
+             && y' = y + x)
+      [(xsym,xsym');(ysym,ysym')]
   in
   let closure =
     let open Infix in
     x = (int 0)
     && y = (int 0)
-    && SP.star srk tr_symbols phi
+    && SP.star srk phi
   in
   let result =
     let open Infix in
@@ -141,17 +145,17 @@ let stratified2 () =
   assert_implies closure result
 
 let count_by_k () =
-  let tr_symbols = [(xsym,xsym')] in
   let phi =
-    let open Infix in
-    x' = x + z
-    && x < y
+    TransitionFormula.make
+      Infix.(x' = x + z
+             && x < y)
+      [(xsym,xsym')]
   in
   let closure =
     let open Infix in
     x = (int 0)
     && (int 1) <= z
-    && SP.star srk tr_symbols phi
+    && SP.star srk phi
     && y <= x'
   in
   let result =
@@ -167,17 +171,18 @@ let count_by_k () =
 
 let ineq1 () =
   let phi =
-    let open Infix in
-    z' = z + (int 1)
-    && ((x' = x + (int 1) && y' = y)
-        || (x' = x && y' = y + (int 1)))
+    TransitionFormula.make
+      Infix.(z' = z + (int 1)
+             && ((x' = x + (int 1) && y' = y)
+                 || (x' = x && y' = y + (int 1))))
+      tr_symbols
   in
   let closure =
     let open Infix in
     x = (int 0)
     && y = (int 0)
     && z = (int 0)
-    && SP.star srk tr_symbols phi
+    && SP.star srk phi
   in
   let result =
     let open Infix in
@@ -191,15 +196,16 @@ let ineq1 () =
 
 let ineq2 () =
   let phi =
-    let open Infix in
-    x' = x + (int 1)
-    && ((y' = y + (int 1) || y' = y + (int 10)))
+    TransitionFormula.make
+      Infix.(x' = x + (int 1)
+             && ((y' = y + (int 1) || y' = y + (int 10))))
+      tr_symbols
   in
   let closure =
     let open Infix in
     x = (int 0)
     && y = (int 0)
-    && SP.star srk tr_symbols phi
+    && SP.star srk phi
   in
   let result =
     let open Infix in
@@ -210,16 +216,17 @@ let ineq2 () =
 
 let stratified_ineq1 () =
   let phi =
-    let open Infix in
-    x' = x + (int 1)
-    && (int 0) <= x
-    && ((y' = y + (int 1) || y' = y + x + (int 1)))
+    TransitionFormula.make
+      Infix.(x' = x + (int 1)
+             && (int 0) <= x
+             && ((y' = y + (int 1) || y' = y + x + (int 1))))
+      tr_symbols
   in
   let closure =
     let open Infix in
     x = (int 0)
     && y = (int 0)
-    && SP.star srk tr_symbols phi
+    && SP.star srk phi
   in
   let result =
     let open Infix in
@@ -232,14 +239,16 @@ let stratified_ineq1 () =
 let periodic_rational1 () =
   let open Infix in
   let phi =
-    x' = x + (int 1)
-    && y' = z
-    && z' = (int 0) - y
+    TransitionFormula.make
+      (x' = x + (int 1)
+       && y' = z
+       && z' = (int 0) - y)
+      tr_symbols
   in
   let closure =
     x = (int 0)
     && y = (int 42)
-    && SPPR.star srk tr_symbols phi
+    && SPPR.star srk phi
   in
   assert_implies closure (!(x' = int 8) || y' = (int 42));
   assert_implies closure (!(x' = int 15) || z' = (int 42))
@@ -247,16 +256,18 @@ let periodic_rational1 () =
 let periodic_rational2 () =
   let open Infix in
   let phi =
-    x' = x + (int 1)
-    && x < (int 31)
-    && y' = z
-    && z' = z - y
+    TransitionFormula.make
+      (x' = x + (int 1)
+       && x < (int 31)
+       && y' = z
+       && z' = z - y)
+      tr_symbols
   in
   let closure =
     x = (int 0)
     && y = (int 42)
     && z = (int 24)
-    && SPPR.star srk tr_symbols phi
+    && SPPR.star srk phi
     && (int 31) <= x'
   in
   assert_implies closure (z' = (int (-18)))
@@ -264,17 +275,19 @@ let periodic_rational2 () =
 let periodic_rational3 () =
   let open Infix in
   let phi =
-    w' = w + (int 1)
-    && x' = y
-    && y' = z
-    && z' = x + (int 1)
+    TransitionFormula.make
+      (w' = w + (int 1)
+       && x' = y
+       && y' = z
+       && z' = x + (int 1))
+      tr_symbols
   in
   let closure =
     w = (int 0)
     && x = (int 0)
     && y = (int 0)
     && z = (int 0)
-    && SPPR.star srk tr_symbols phi
+    && SPPR.star srk phi
   in
   assert_implies closure (!(w' = (int 9)) || x' = (int 3));
   assert_implies closure (!(w' = (int 10)) || x' = (int 3));
@@ -284,17 +297,19 @@ let periodic_rational3 () =
 let periodic_rational4 () =
   let open Infix in
   let phi =
-    w' = w + (int 1)
-    && x' = y
-    && y' = z
-    && z' = x + w
+    TransitionFormula.make
+      (w' = w + (int 1)
+       && x' = y
+       && y' = z
+       && z' = x + w)
+      tr_symbols
   in
   let closure =
     w = (int 0)
     && x = (int 0)
     && y = (int 0)
     && z = (int 0)
-    && SPPR.star srk tr_symbols phi
+    && SPPR.star srk phi
   in
   assert_implies closure (!(w' = (int 0)) || (x'-z') = (int 0));
   assert_implies closure (!(w' = (int 1)) || (x'-z') = (int 0));
@@ -316,17 +331,19 @@ let periodic_rational4 () =
 let periodic_rational5 () =
   let open Infix in
   let phi =
-    w' = w + (int 1)
-    && x' = w
-    && y' = x
-    && z' = y
+    TransitionFormula.make
+      (w' = w + (int 1)
+       && x' = w
+       && y' = x
+       && z' = y)
+      tr_symbols
   in
   let closure =
     w = (int 0)
     && x = (int 3)
     && y = (int 2)
     && z = (int 1)
-    && SPPR.star srk tr_symbols phi
+    && SPPR.star srk phi
   in
   assert_implies closure (!(w' = (int 1)) || z' = (int 2));
   assert_implies closure (!(w' = (int 2)) || z' = (int 3));
@@ -336,44 +353,52 @@ let periodic_rational5 () =
 let dlts1 () =
   let open Infix in
   let phi =
-    x' = x + (int 1)
-    && x = (int 0)
+    TransitionFormula.make
+      (x' = x + (int 1)
+       && x = (int 0))
+      tr_symbols
   in
-  let closure = DLTS.star srk tr_symbols phi in
+  let closure = DLTS.star srk phi in
   assert_equal (Smt.is_sat srk (closure && x < x')) `Sat;
   assert_implies closure (x' = x || x' = (int 1))
 
 let dlts2 () =
   let open Infix in
   let phi =
-    x' = x + z
-    && y' = y - z
-    && z' = (int 2) * z
-    && x = y
+    TransitionFormula.make
+      (x' = x + z
+       && y' = y - z
+       && z' = (int 2) * z
+       && x = y)
+      tr_symbols
   in
-  let closure = DLTS.star srk tr_symbols phi in
+  let closure = DLTS.star srk phi in
   assert_equal (Smt.is_sat srk (closure && x < x')) `Sat;
   assert_implies_nonlinear closure (z' = (int 2) * z || z' = z)
 
 let dlts3 () =
   let open Infix in
   let phi =
-    x' = (int 0)
-    && y' = y + (int 2) * x
-    && x = (int 0)
+    TransitionFormula.make
+      (x' = (int 0)
+       && y' = y + (int 2) * x
+       && x = (int 0))
+      tr_symbols
   in
-  let closure = DLTS.star srk tr_symbols phi in
+  let closure = DLTS.star srk phi in
   assert_implies_nonlinear closure (x = x' && y = y')
 
 let dlts4 () =
   let open Infix in
   let phi =
-    x' = (int 2) * x
-    && x' = (int 3) * x + y
-    && y' = y + (int 2)
-    && z' = z + (int 1)
+    TransitionFormula.make
+      (x' = (int 2) * x
+       && x' = (int 3) * x + y
+       && y' = y + (int 2)
+       && z' = z + (int 1))
+      tr_symbols
   in
-  let closure = DLTS.star srk tr_symbols phi in
+  let closure = DLTS.star srk phi in
   assert_equal (Smt.is_sat srk (closure && z' = z + (int 2))) `Sat;
   assert_implies_nonlinear closure (z' = z || x + y = (int 0) || x + (int 2) = (int 0));
   assert_implies_nonlinear closure (z' - z <= (int 2))
@@ -381,55 +406,63 @@ let dlts4 () =
 let dlts5 () =
   let open Infix in
   let phi =
-    x' = x + (int 1)
-    && y' = y + (int 1)
-    && z' = z
-    && x = (int 0)
-    && y = (int 0)
-    && z = (int 1)
+    TransitionFormula.make
+      (x' = x + (int 1)
+       && y' = y + (int 1)
+       && z' = z
+       && x = (int 0)
+       && y = (int 0)
+       && z = (int 1))
+      tr_symbols
   in
-  let closure = DLTS.star srk tr_symbols phi in
+  let closure = DLTS.star srk phi in
   assert_equal (Smt.is_sat srk (closure && x' = x + (int 1))) `Sat;
   assert_implies_nonlinear closure (x' - x <= (int 1))
 
 let dlts_false () =
   let open Infix in
-  let closure = DLTS.star srk tr_symbols (mk_false srk) in
+  let closure = DLTS.star srk (TransitionFormula.make (mk_false srk) tr_symbols) in
   assert_implies closure (x' = x && y' = y && z' = z);
   assert_equal (Smt.is_sat srk closure) `Sat
 
 let dlts_one () =
   let open Infix in
   let phi =
-    x' = x + (int 1)
-    && y' = y + (int 1)
-    && z' = z
-    && z = (int 1)
-    && x = y
+    TransitionFormula.make
+      (x' = x + (int 1)
+       && y' = y + (int 1)
+       && z' = z
+       && z = (int 1)
+       && x = y)
+      tr_symbols
   in
-  let closure = DLTS.star srk tr_symbols phi in
+  let closure = DLTS.star srk phi in
   assert_equal (Smt.is_sat srk (closure && x' = x + (int 100))) `Sat;
   assert_implies closure (z' = z || z' = (int 1))
 
 let algebraic1 () =
   let open Infix in
   let phi =
-    x' = x + (int 1)
-    && y' = y + (int 1)
-    && x * x = y * y
+    TransitionFormula.make
+      (x' = x + (int 1)
+       && y' = y + (int 1)
+       && x * x = y * y)
+      tr_symbols
   in
-  let closure = DLTS.star srk tr_symbols phi in
+  let closure = DLTS.star srk phi in
   assert_implies_nonlinear closure (x' = x || x' = x + (int 1) || x' = y')
 
 let algebraic2 () =
   let open Infix in
   let phi =
-    x' = x + (int 1)
-    && y' = y + x * x
-    && z' = z
-    && z = y * y
+    TransitionFormula.make
+      (x' = x + (int 1)
+       && y' = y + x * x
+       && z' = z
+       && z = y * y)
+      tr_symbols
   in
-  let closure = DLTS.star srk tr_symbols phi in
+  let closure = DLTS.star srk phi in
   assert_implies_nonlinear closure (x' <= x + (int 2))
 
 let suite = "Iteration" >::: [

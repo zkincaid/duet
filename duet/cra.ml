@@ -9,6 +9,8 @@ module WG = WeightedGraph
 module G = RG.G
 module Ctx = Syntax.MakeSimplifyingContext ()
 module Int = SrkUtil.Int
+module TF = TransitionFormula
+
 let srk = Ctx.context
 
 include Log.Make(struct let name = "cra" end)
@@ -463,22 +465,22 @@ module MonotoneDom = struct
     BatArray.of_enum enum
 
   let abstract tr =
-    let tr_symbols, formula = K.to_transition_formula tr in
-    let coordinates = coordinates_of tr_symbols in
+    let tf = K.to_transition_formula tr in
+    let coordinates = coordinates_of (TF.symbols tf) in
     let aff =
-      Abstract.vanishing_space srk formula coordinates
+      Abstract.vanishing_space srk (TF.formula tf) coordinates
     in
     let signs =
       let deltas =
         List.fold_left (fun deltas (x, x') ->
             (mk_sub srk (mk_const srk x') (mk_const srk x))::deltas)
           []
-          tr_symbols
+          (TF.symbols tf)
       in
       let vars = BatArray.to_list coordinates in
-      Sign.abstract srk formula (vars@deltas)
+      Sign.abstract srk (TF.formula tf) (vars@deltas)
     in
-    (tr_symbols, signs, aff)
+    (TF.symbols tf, signs, aff)
 
   let concretize (tr_symbols, signs, aff) =
     let transform =

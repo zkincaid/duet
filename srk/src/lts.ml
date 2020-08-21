@@ -5,6 +5,7 @@ module QQMatrix = Linear.QQMatrix
 module QQVector = Linear.QQVector
 module QQVectorSpace = Linear.QQVectorSpace
 module IntMap = SrkUtil.Int.Map
+module TF = TransitionFormula
 
 type lts = QQMatrix.t * QQMatrix.t
 
@@ -29,27 +30,13 @@ let contains (mA, mA') (mB, mB') =
   | Some _ -> true
   | None -> false
 
-let pre_symbols tr_symbols =
-  List.fold_left (fun set (s,_) ->
-      Symbol.Set.add s set)
-    Symbol.Set.empty
-    tr_symbols
-
-let post_symbols tr_symbols =
-  List.fold_left (fun set (_,s') ->
-      Symbol.Set.add s' set)
-    Symbol.Set.empty
-    tr_symbols
-
-let abstract_lts ?(exists=fun _ -> true) srk tr_symbols phi =
-  let pre_symbols = pre_symbols tr_symbols in
-  let post_symbols = post_symbols tr_symbols in
-  let phi_symbols = Symbol.Set.elements (Symbol.Set.filter exists (symbols phi)) in
-  (* Detect constant terms *)
-  let is_symbolic_constant x =
-    not (Symbol.Set.mem x pre_symbols || Symbol.Set.mem x post_symbols)
+let abstract_lts srk tf =
+  let tr_symbols = TF.symbols tf in
+  let phi_symbols =
+    Symbol.Set.filter (TF.exists tf) (symbols (TF.formula tf))
+    |> Symbol.Set.elements
   in
-  let constants = List.filter is_symbolic_constant phi_symbols in
+  let constants = List.filter (TF.is_symbolic_constant tf) phi_symbols in
   (* pre_map is a mapping from dimensions that correspond to
      post-state dimensions to their pre-state counterparts *)
   let pre_map =
@@ -74,7 +61,7 @@ let abstract_lts ?(exists=fun _ -> true) srk tr_symbols phi =
         in
         (QQMatrix.add_row i a mA, QQMatrix.add_row i b mB, i + 1))
       (QQMatrix.zero, QQMatrix.zero, 0)
-      (Abstract.affine_hull srk phi phi_symbols)
+      (Abstract.affine_hull srk (TF.formula tf) phi_symbols)
   in
   let (mA, mB, _) =
     BatList.fold_left (fun (mA, mB, i) id ->
