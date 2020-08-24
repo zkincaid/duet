@@ -103,8 +103,8 @@ val destruct : 'a context -> ('a, 'b) expr -> [
                       | `App of symbol * (('b, typ_fo) expr) list ]
   ]
 
-val custom_eval : 'a context -> 'b list -> 
-  ('a context -> 'b list -> ('a, 'c) expr -> ('a, 'c) expr option) ->
+val custom_eval : 'a context -> 
+  ('a context -> ('a, 'c) expr -> ('a, 'c) expr option) ->
   ('a, 'c) expr -> ('a, 'c) expr
 
 val expr_typ : 'a context -> ('a, 'b) expr -> typ

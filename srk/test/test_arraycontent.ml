@@ -29,26 +29,20 @@ let tomfa () =
   assert_equal_formula (add_prefix srk (qf, matr)) (mk_false srk)
 *)
 
-let pred_test () =
+let pmfa_to_lia1 () =
   let phi =
     let open Infix in
-    exists `TyInt
-      (exists `TyInt
-      ((forall `TyInt (
-           exists  `TyInt 
-             ((var 0 `TyInt) = a((var 1 `TyInt)) 
-              && a((var 2 `TyInt)) = a(y))))
-      || (exists `TyInt ((var 0 `TyInt) <= (var 1 `TyInt))))
-      && (var 0 `TyInt) = x)
+    exists `TyInt (
+      exists `TyInt (
+        forall `TyInt ( 
+          (var 0 `TyInt) = a(var 1 `TyInt) && 
+          a(var 2 `TyInt) = a(y)))
+      || (exists `TyInt ((var 0 `TyInt) <= (var 1 `TyInt))
+      && (var 0 `TyInt) = x))
   in
-  (*let psi =
-    let open Infix in
-    exists `TyReal
-      (exists `TyReal
-         (exists `TyReal
-            ((var 1 `TyReal) = (var 2 `TyReal)
-             && (var 0 ` <= (var 2 `TyReal))))
-    in*)
+ (* let psi =
+    mk_forall `TyInt (
+    )*)
   (*let qpf, bbu, matr = to_mfa srk phi in
   let arruniv, arrother = get_array_syms srk matr bbu in
   let lia = mfa_to_lia srk (qpf, matr) arruniv arrother bbu in *)
@@ -56,6 +50,7 @@ let pred_test () =
   let lia = A.to_mfa srk phi in
   assert_equal_formula lia 
     (mk_false srk)
+
 
 
 
@@ -217,7 +212,7 @@ let iter_same () =
 let suite = "ArrayContent" >:::
   [
     "pred_test2" >:: pred_test2;
-    "pred_test" >:: pred_test;
+    "pmfa_to_lia1" >:: pmfa_to_lia1;
     "iter_init" >:: iter_init;
     "iter_non_null" >:: iter_non_null;
     "iter_same" >:: iter_same

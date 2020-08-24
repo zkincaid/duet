@@ -1,4 +1,5 @@
 open Syntax
+open BatPervasives
 open Iteration
 module V = Linear.QQVector
 module M = Linear.QQMatrix
@@ -53,123 +54,125 @@ let projection srk phi arr_tr_syms =
 let separate_symbols_by_sort srk tr_symbols =
   List.partition (fun (s, _) -> typ_symbol srk s = `TyInt) tr_symbols
 
+let get_arr_syms srk phi =
+  let symbols = Syntax.symbols phi in
+  Symbol.Set.filter (fun sym -> not (typ_symbol srk sym = `TyInt)) symbols
+
 let to_mfa srk (phi : 'a formula) =
   let skolemtbl = Hashtbl.create 100 in
-  let rec skolemize srk args expr =
-    let depth = Option.get (List.hd args) in
-    let univ_depth = List.nth args 1 in
+  (* skolemize every exist quant that has no preceding universal var quant *)
+  let rec skolem_exists_head depth univ_depth srk expr =
     match destruct srk expr with
     | `Var (i, `TyInt) ->
       if Option.is_none univ_depth || depth - i < Option.get univ_depth
       then Some (Hashtbl.find skolemtbl (depth - i - 1))
       else Some (mk_var srk i `TyInt)
     | `Quantify (`Forall, name, `TyInt, phi) ->
-      Some (mk_forall srk ~name:name `TyInt (custom_eval srk [Some (depth + 1); Some (depth + 1)] skolemize phi))
-    | `Quantify (`Exists, _, `TyInt, phi) ->
-        Hashtbl.add skolemtbl depth (mk_const srk (mk_symbol srk `TyInt));
-        let res = custom_eval srk [Some (depth + 1); univ_depth] skolemize phi in
+      if Option.is_some univ_depth then 
+        failwith "Nested univ quant in row not in PMFA fragment"
+      else (
+        let depth' = depth + 1 in
+        let phi' = custom_eval srk (skolem_exists_head depth' (Some depth')) phi in
+        Some (mk_forall srk ~name:name `TyInt phi'))
+    | `Quantify (`Exists, name, `TyInt, phi) ->
+        Hashtbl.add skolemtbl depth (mk_const srk (mk_symbol srk ~name:name `TyInt));
+        let res = custom_eval srk (skolem_exists_head (depth + 1) univ_depth) phi in
         Hashtbl.remove skolemtbl depth;
         Some res
     | _ -> None
   in
-  let phi = custom_eval srk [Some 0; None] skolemize phi in
+  let phi = custom_eval srk (skolem_exists_head 0 None) phi in
   let disj bool_list = List.fold_left (||) false bool_list in
+  (* merge univ quant so just a single univ quant *)
   let alg = function
     | `Quantify (`Forall, _, `TyInt, (false, phi)) -> true, phi
     | `Or disjuncts -> 
-      let qfvs, _ = List.split disjuncts in
+      let has_univs, _ = List.split disjuncts in
       let fresh = mk_symbol srk `TyInt in
-      let f ind (qfv, phi) =
-        if qfv then  
+      let f ind (has_univ, phi) =
+        if has_univ then  
            mk_and srk [phi; mk_eq srk (mk_const srk fresh) (mk_int srk ind)]
         else phi
       in
-      disj qfvs, mk_or srk (List.mapi f disjuncts)
+      disj has_univs, mk_or srk (List.mapi f disjuncts)
     | `Tru -> false, mk_true srk
     | `Fls -> false, mk_false srk
-    | `Atom (`Eq, x, y) -> false,  mk_eq srk x y
-    | `Atom (`Leq, x, y) -> false,  mk_leq srk x y
-    | `Atom (`Lt, x, y) -> false,  mk_lt srk x y
+    | `Atom a -> false, Formula.construct srk (`Atom a)
     | `And conjuncts ->
-      let qfvs, phis = List.split conjuncts in
-      disj qfvs, mk_and srk phis
-    | `Ite ((false, cond), (qfv2, bthen), (qfv3, belse)) -> qfv2 || qfv3, mk_ite srk cond bthen belse
-    | `Not (false, phi) -> false, mk_not srk phi          
-    |`Proposition (`App (p, [expr])) ->
-      begin match Expr.refine srk expr with
-        | `Term t -> false, mk_app srk p [t]
-        | _ -> failwith "not in scope of logical fragment"
-      end
+      let has_univs, phis = List.split conjuncts in
+      disj has_univs, mk_and srk phis
+    | `Ite ((false, cond), (has_univ2, bthen), (has_univ3, belse)) -> 
+      has_univ2 || has_univ3, mk_ite srk cond bthen belse
+    | `Not (false, phi) -> false, mk_not srk phi
     | _ -> failwith "not in scope of logical fragment"
   in
   let _, matr = Formula.eval srk alg phi in
-  let matr = (matr :> 'a formula) in
-  matr
+  (* observe that the leading univ quant not added back yet *)
+  mk_forall srk `TyInt matr
 
+(* we assume mfa formula have just a single (universal) quantifier. *)
 let mfa_to_lia srk matrix =
-  let const_reads = Hashtbl.create 100 in
-  let univ_reads = Hashtbl.create 100 in
-  let temp_univ_sym = mk_symbol srk `TyInt in 
+  let matrix = 
+    match destruct srk matrix with
+    | `Quantify (`Forall, _, `TyInt, matrix) -> matrix
+    | _ -> failwith "mfa formula needs to start with leading univ quant"
+  in
+  let uquant_depth' = Symbol.Set.cardinal (get_arr_syms srk matrix) in
+  let nonvarreadterms = Hashtbl.create 100 in
+  let arrcounter = ref 0 in
+  let symread_to_numsym =
+    Memo.memo (fun _ -> 
+        arrcounter := !arrcounter + 1;
+        mk_var srk (!arrcounter - 1) `TyInt)
+  in
+  let termreads = Hashtbl.create 100 in
+  let termread_to_numsym =
+    Memo.memo (fun (arrsym, readterm) -> 
+        Hashtbl.add termreads arrsym readterm;
+        mk_const srk (mk_symbol srk `TyInt))
+  in
   let termalg = function
-    | `App (arrsym, [readterm]) ->
+    | `App (arrsym, [readterm]) -> 
       begin match destruct srk readterm with
-        | `Var (_, `TyInt) ->
-          if not (Hashtbl.mem univ_reads arrsym) then
-            Hashtbl.add univ_reads arrsym (Hashtbl.length univ_reads) else ();
-          mk_var srk (Hashtbl.find univ_reads arrsym) `TyInt
-        | `App (const, []) -> 
-          if not (Hashtbl.mem const_reads (arrsym, const)) then
-            Hashtbl.add const_reads (arrsym, const) (mk_symbol srk `TyInt) else ();
-          mk_const srk (Hashtbl.find const_reads (arrsym, const))
-        | _ -> failwith "not flat"
+      | `Var (0, `TyInt) -> symread_to_numsym arrsym 
+      | `Var _ -> failwith "mfa formula should only have single bound var"
+      | _ -> termread_to_numsym (arrsym, readterm)
       end
-    | `Var (_, `TyInt) -> mk_const srk temp_univ_sym
+    | `Var (0, `TyInt) -> mk_var srk uquant_depth' `TyInt
+    | `Var _ -> failwith "mfa formula should only have single bound var"
     | open_term -> Term.construct srk open_term 
   in
   let formalg = function
-    | `Atom (`Eq, x, y) -> mk_eq srk (Term.eval srk termalg x) (Term.eval srk termalg y)
-    | `Atom (`Leq, x, y) -> mk_leq srk (Term.eval srk termalg x) (Term.eval srk termalg y)
-    | `Atom (`Lt, x, y) -> mk_lt srk (Term.eval srk termalg x) (Term.eval srk termalg y)
-    | `Proposition (`App (p, [expr])) ->
-      begin match Expr.refine srk expr with
-        | `Term t -> 
-          let term = Term.eval srk termalg t in
-          mk_app srk p [term]
-        | _ -> failwith "not in scope of logical fragment"
-      end
+    | `Atom (`Eq, x, y) -> 
+      mk_eq srk (Term.eval srk termalg x) (Term.eval srk termalg y)
+    | `Atom (`Leq, x, y) -> 
+      mk_leq srk (Term.eval srk termalg x) (Term.eval srk termalg y)
+    | `Atom (`Lt, x, y) -> 
+      mk_lt srk (Term.eval srk termalg x) (Term.eval srk termalg y)
     | open_formula -> Formula.construct srk open_formula
   in
   let matrix : 'a formula = Formula.eval srk formalg matrix in
-  let uquant_depth = Hashtbl.length univ_reads in
-  let subst_for_univ_sym sym = 
-    if sym = temp_univ_sym 
-    then mk_var srk uquant_depth `TyInt 
-    else mk_const srk sym
+  let functional_consistency_clauses =
+    List.map (fun (arrsym, readterm) ->
+        (* figure out how to not have to cast this *)
+        let readtermexpr = (readterm :> ('a, typ_fo) expr) in
+        mk_if 
+          srk 
+          (mk_eq srk (mk_var srk uquant_depth' `TyInt) readterm)
+          (mk_eq 
+             srk 
+             (symread_to_numsym arrsym) 
+             (termread_to_numsym (arrsym, readtermexpr))))
+      (BatHashtbl.to_list nonvarreadterms)
   in
-  let matrix = substitute_const srk subst_for_univ_sym matrix in
-  let both_reads = 
-    BatHashtbl.filteri 
-      (fun (arrsym, _) _ -> Hashtbl.mem univ_reads arrsym) 
-      const_reads 
-  in
-  let add_consistency_clause (arrsym, readsym) new_sym conjuncts =
-    let conjunct = 
-      mk_if 
-        srk 
-        (mk_eq srk (mk_var srk uquant_depth `TyInt) (mk_const srk readsym))
-        (mk_eq srk (mk_var srk (Hashtbl.find univ_reads arrsym) `TyInt) (mk_const srk new_sym))
-    in
-    conjunct :: conjuncts
-  in
-  let consistency_conjs = Hashtbl.fold add_consistency_clause both_reads [] in
-  let matrix = mk_and srk (matrix :: consistency_conjs) in
+  let matrix = mk_and srk (matrix :: functional_consistency_clauses) in
   let phi = 
-    Hashtbl.fold 
-      (fun _ _ phi -> mk_exists srk ~name:"_" `TyInt phi) 
-      univ_reads 
+    BatEnum.fold 
+      (fun phi _ -> mk_exists srk ~name:"_" `TyInt phi) 
       matrix
+      (0--(uquant_depth' - 1))
   in
-  phi
+  mk_forall srk `TyInt phi
 
 let mbp_qe srk phi =
   let qp, matr = Quantifier.normalize srk phi in
@@ -207,16 +210,14 @@ let is_eq_projs srk phi1 phi2 tr =
   let phi1_proj_lia = mk_forall srk `TyInt (pmfa_to_lia srk phi1_proj) in
   let phi2_proj_lia = mk_forall srk `TyInt (pmfa_to_lia srk phi2_proj) in
   let consistency_syms = merge_proj_syms srk trs1 trs2 in
-  (*let phi = mk_and srk (phi1_proj_lia :: consistency_syms) in
+  let phi = mk_and srk (phi1_proj_lia :: consistency_syms) in
   let psi = mk_and srk (phi2_proj_lia :: consistency_syms) in
-  (*let imp = mk_not srk (mk_if srk phi psi) in*)
   let equiv =   mk_or srk [mk_and srk [phi; mk_not srk psi];
                mk_and srk [mk_not srk phi; psi]] in
-  Syntax.to_file srk equiv "/Users/jakesilverman/Documents/duet/duet/equiv.smt2";*) 
-  Smt.equiv 
-    srk 
-    (mk_and srk (phi1_proj_lia :: consistency_syms)) 
-    (mk_and srk (phi2_proj_lia :: consistency_syms))
+  match Quantifier.simsat srk equiv with
+  | `Sat -> `No
+  | `Unsat -> `Yes
+  | `Unknown -> `Unknown
 
 
     
@@ -236,7 +237,6 @@ module Array_analysis (Iter : PreDomain) = struct
     let matrix = to_mfa srk phi_proj in
     let lia = mfa_to_lia srk matrix in
     let iter_trs = num_trs@new_trs in
-    let lia = mk_forall srk `TyInt lia in
     let ground = mbp_qe srk lia in
     {iter_obj=Iter.abstract ~exists srk iter_trs ground;
      proj_inds;
@@ -257,8 +257,6 @@ module Array_analysis (Iter : PreDomain) = struct
     a @ b
 
   let special_step srk int_trs proj_phi proj_phi_exp temp_lc_sym lc arr_projs =
-    let mk_forall_const_lst srk lst phi = List.fold_left (fun phi const -> mk_forall_const srk const phi) phi lst in
-    let mk_exists_const_lst srk lst phi = List.fold_left (fun phi const -> mk_exists_const srk const phi) phi lst in
     let step_focus = mk_symbol srk ~name:"s" `TyInt in
     let step_noop = mk_symbol srk ~name:"p" `TyInt in
     let pre_tbl = Hashtbl.create (List.length int_trs) in
@@ -312,9 +310,9 @@ module Array_analysis (Iter : PreDomain) = struct
             srk
             [mk_leq srk (mk_int srk 0) (mk_const srk step_focus);
              mk_lt srk (mk_const srk step_focus) lc;
-             mk_forall_const_lst
+             mk_forall_consts
                srk
-               (step_noop :: inter_syms)
+               (fun sym -> not (List.mem sym (step_noop :: inter_syms)))
                (mk_if
                   srk
                   (mk_and
@@ -331,9 +329,9 @@ module Array_analysis (Iter : PreDomain) = struct
                            (fun (z, z') -> mk_eq srk (mk_const srk z) (mk_const srk z'))
                            arr_projs))
                      intermediate_tbl))])
-         (mk_exists_const_lst
+         (mk_exists_consts
             srk
-            inter_syms
+            (fun sym -> not (List.mem sym inter_syms))
             (mk_and
                srk
                (neutralize_step_at step_focus ::

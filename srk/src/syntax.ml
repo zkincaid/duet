@@ -457,14 +457,14 @@ let destruct _srk sexpr =
   | Node (Lt, [s; t], _) -> `Atom (`Lt, s, t)
   | Node (_, _, _) -> assert false
 
-  let custom_eval srk args eval phi =
-    let rec go args sexpr =
+  let custom_eval srk eval phi =
+    let rec go sexpr =
       let (Node (label, children, _)) = sexpr.obj in
-      match eval srk args sexpr with
+      match eval srk sexpr with
       | Some t -> t
-      | None -> srk.mk label (List.map (go args) children)
+      | None -> srk.mk label (List.map go children)
     in
-    go args phi
+    go phi
 
 
 let rec flatten_universal phi = match phi.obj with
