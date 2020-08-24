@@ -14,6 +14,6 @@ addons:
     - mpfr
     - ntl
 env:
-  - PACKAGE=duet OCAML_VERSION=4.10 EXTRA_REMOTES=git://github.com/zkincaid/sv-opam.git#modern
+  - PACKAGE=duet OCAML_VERSION=4.09 EXTRA_REMOTES=git://github.com/zkincaid/sv-opam.git#modern
 os:
   - linux
