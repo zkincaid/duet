@@ -2,8 +2,17 @@ language: c
 sudo: required
 install: test -e .travis-opam.sh || wget https://raw.githubusercontent.com/ocaml/ocaml-ci-scripts/master/.travis-opam.sh
 script: bash -ex .travis-opam.sh
-before_install:
-  - sudo apt-get -y install libgmp-dev libmpfr-dev libntl-dev
+addons:
+  apt:
+    packages:
+    - libgmp-dev
+    - libmpfr-dev
+    - libntl-dev
+  homebrew:
+    packages:
+    - gmp
+    - mpfr
+    - ntl
 env:
   - PACKAGE=duet OCAML_VERSION=4.10 EXTRA_REMOTES=git://github.com/zkincaid/sv-opam.git#modern
 os:
