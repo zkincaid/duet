@@ -3,7 +3,7 @@ sudo: required
 install: test -e .travis-opam.sh || wget https://raw.githubusercontent.com/ocaml/ocaml-ci-scripts/master/.travis-opam.sh
 script: bash -ex .travis-opam.sh
 env:
-  - OCAML_VERSION=4.10
+  - PACKAGE=duet OCAML_VERSION=4.10 EXTRA_REMOTES=https://github.com/zkincaid/sv-opam#modern
 os:
   - freebsd
   - linux
