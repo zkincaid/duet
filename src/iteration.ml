@@ -707,13 +707,13 @@ module InvariantDirection (Iter : PreDomain) = struct
     let exists = TF.exists tf in
     (* Use variable directions as candidate transition invariants *)
     let predicates =
-      List.concat_map (fun (x,x') ->
+      List.concat (List.map (fun (x,x') ->
           let x = mk_const srk x in
           let x' = mk_const srk x' in
           [mk_lt srk x x';
            mk_lt srk x' x;
            mk_eq srk x x'])
-        tr_symbols
+        tr_symbols)
       |> invariant_transition_predicates srk tf
       |> BatArray.of_list
     in
