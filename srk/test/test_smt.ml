@@ -320,6 +320,20 @@ let chc_trivial_true () =
   in
   verify_chc [psym; qsym] rules
 
+let file_contents filename =
+  let chan = open_in filename in
+  let len = in_channel_length chan in
+  let buf = Bytes.create len in
+  really_input chan buf 0 len;
+  close_in chan;
+  buf
+
+let jaketest () = 
+  let filename = "/Users/jakesilverman/Documents/duet/duet/chctest.smt2" in
+  let phi = SrkZ3.load_smtlib2 srk (Bytes.to_string (file_contents filename)) in
+  Log.errorf "FORMULA IS %a" (Formula.pp srk) phi;
+  assert_equal phi (mk_true srk)
+
 let suite = "SMT" >:::
   [
     "roundtrip0" >:: roundtrip0;
@@ -341,4 +355,5 @@ let suite = "SMT" >:::
     "chc3" >:: chc3;
     "chc_trivial_false" >:: chc_trivial_false;
     "chc_trivial_true" >:: chc_trivial_true;
+    "jaketest" >:: jaketest
   ]
