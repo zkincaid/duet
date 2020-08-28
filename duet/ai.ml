@@ -2,7 +2,6 @@
     domains *)
 open Core
 open Srk
-open Apak
 open Apron
 
 type abstract_domain = Box | Octagon | Polyhedron

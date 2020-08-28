@@ -4,7 +4,6 @@
 
 open Core
 open Srk
-open Apak
 
 (* Set of predicates *)
 module Pred = struct

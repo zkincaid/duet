@@ -4,7 +4,6 @@
     of {i s} at {i d} can be the value read {i u}. *)
 
 open Graph
-open Apak
 open Core
 
 module Log = Srk.Log

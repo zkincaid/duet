@@ -1,7 +1,6 @@
 (** Sequential dependence graphs *)
 
 open Core
-open Apak
 
 module Pack = Var.Set
 module FS = Lattice.FunctionSpace.Total.Make(Pack)(Lattice.LiftSubset(Def.Set))

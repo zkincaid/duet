@@ -1,5 +1,4 @@
 open Core
-open Apak
 open Srk
 open CfgIr
 open BatPervasives
