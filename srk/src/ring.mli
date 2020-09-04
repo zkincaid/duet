@@ -68,6 +68,15 @@ module type Vector = sig
      result of removing the [i]th position (replacing it with 0).  If
      [(a,v') = pivot i v], then [add_term a i v' = v].  *)
   val pivot : dim -> t -> scalar * t
+
+  val pop : t -> (dim * scalar) * t
+
+  val map : (dim -> scalar -> scalar) -> t -> t
+  val merge : (dim -> scalar -> scalar -> scalar) -> t -> t -> t
+
+  val hash : (dim * scalar -> int) -> t -> int
+  val compare : (scalar -> scalar -> int) -> t -> t -> int
+  val fold : (dim -> scalar -> 'a -> 'a) -> t -> 'a -> 'a
 end
 
 (** Sparse matrices of infinite dimension. *)
@@ -184,30 +193,10 @@ module type Matrix = sig
   val interlace_columns : t -> t -> t
 end
 
-(** Minimal signature for maps to support [RingMap]. *)
-module type Map = sig
-  type 'a t
-  type key
-
-  val equal : ('a -> 'a -> bool) -> 'a t -> 'a t -> bool
-  val compare : ('a -> 'a -> int) -> 'a t -> 'a t -> int
-  val enum : 'a t -> (key * 'a) BatEnum.t
-  val map : ('a -> 'b) -> 'a t -> 'b t
-  val find : key -> 'a t -> 'a
-  val add : key -> 'a -> 'a t -> 'a t
-  val remove : key -> 'a t -> 'a t
-  val empty : 'a t
-  val merge : (key -> 'a option -> 'b option -> 'c option) ->
-    'a t ->
-    'b t ->
-    'c t
-end
-
 (** Lift a map type over a ring to a left-module *)
 module RingMap
-    (M : Map)
-    (R : S) : Vector with type t = R.t M.t
-                      and type dim = M.key
+    (K : BatInterfaces.OrderedType)
+    (R : S) : Vector with type dim = K.t
                       and type scalar = R.t
 
 (** Sparse vectors of infinite dimension, with entries drawn from a
@@ -215,7 +204,7 @@ module RingMap
 module MakeVector (R : S) : sig
   include Vector with type scalar = R.t
                   and type dim = int
-                  and type t = RingMap(SrkUtil.Int.Map)(R).t
+                  and type t = SparseMap.Make(SrkUtil.Int)(R).t
 
   (** Combine two vectors u and v into a single vector, using the even
      coordinates for u and the odd coordinates for v *)

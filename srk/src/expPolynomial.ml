@@ -2,8 +2,7 @@ open BatPervasives
 open Syntax
 
 module QQX = Polynomial.QQX
-module QQMap = BatMap.Make(QQ)
-module E = Ring.RingMap(QQMap)(QQX)
+module E = Ring.RingMap(QQ)(QQX)
 module QQMatrix = Linear.QQMatrix
 
 type t = E.t
@@ -57,7 +56,7 @@ let compose_left_affine f coeff add =
 let of_polynomial p = E.of_term p QQ.one
 let of_exponential lambda = E.of_term QQX.one lambda
 let scalar k = E.of_term (QQX.scalar k) QQ.one
-let scalar_mul lambda f = QQMap.map (QQX.scalar_mul lambda) f
+let scalar_mul lambda f = E.map (fun _ -> QQX.scalar_mul lambda) f
 
 (* Given a list of (lambda_1, d_1)...(lambda_n, d_n) pairs and a list of values (v_0,...,v_m)
    find an exponential-polynomial of the form 
