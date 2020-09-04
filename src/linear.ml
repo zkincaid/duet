@@ -3,56 +3,48 @@ open BatPervasives
 
 include Log.Make(struct let name = "srk.linear" end)
 
-module IntMap = struct
-  include SrkUtil.Int.Map
-  let hash ring_hash vec =
-    BatEnum.fold
-      (fun hash (k, v) -> hash + (Hashtbl.hash (k, ring_hash v)))
-      0
-      (enum vec)
-end
 module IntSet = SrkUtil.Int.Set
 
 module ZZVector = struct
   include Ring.MakeVector(ZZ)
 
   let pp formatter vec =
-    let pp_elt formatter (k, v) = Format.fprintf formatter "%d:%a" k ZZ.pp v in
-    IntMap.enum vec
+    let pp_elt formatter (v, k) = Format.fprintf formatter "%d:%a" k ZZ.pp v in
+    enum vec
     |> Format.fprintf formatter "[@[%a@]]" (SrkUtil.pp_print_enum pp_elt)
 
   let pp_term pp_dim formatter vec =
-    let pp_elt formatter (k, v) = Format.fprintf formatter "%a * %a" ZZ.pp v pp_dim k in
-    if IntMap.is_empty vec then
+    let pp_elt formatter (v, k) = Format.fprintf formatter "%a * %a" ZZ.pp v pp_dim k in
+    if is_zero vec then
       Format.pp_print_string formatter "0"
     else
-      IntMap.enum vec
+      enum vec
       |> Format.fprintf formatter "[@[%a@]]" (SrkUtil.pp_print_enum pp_elt)
 
   let show = SrkUtil.mk_show pp
-  let compare = IntMap.compare ZZ.compare
-  let hash = IntMap.hash ZZ.hash
+  let compare = compare ZZ.compare
+  let hash = hash (fun (dim, coeff) -> Hashtbl.hash (dim, ZZ.hash coeff))
 end
 
 module QQVector = struct
   include Ring.MakeVector(QQ)
 
   let pp formatter vec =
-    let pp_elt formatter (k, v) = Format.fprintf formatter "%d:%a" k QQ.pp v in
-    IntMap.enum vec
+    let pp_elt formatter (v, k) = Format.fprintf formatter "%d:%a" k QQ.pp v in
+    enum vec
     |> Format.fprintf formatter "[@[%a@]]" (SrkUtil.pp_print_enum pp_elt)
 
   let pp_term pp_dim formatter vec =
-    let pp_elt formatter (k, v) = Format.fprintf formatter "%a * %a" QQ.pp v pp_dim k in
-    if IntMap.is_empty vec then
+    let pp_elt formatter (v, k) = Format.fprintf formatter "%a * %a" QQ.pp v pp_dim k in
+    if is_zero vec then
       Format.pp_print_string formatter "0"
     else
-      IntMap.enum vec
+      enum vec
       |> Format.fprintf formatter "[@[%a@]]" (SrkUtil.pp_print_enum pp_elt)
 
   let show = SrkUtil.mk_show pp
-  let compare = IntMap.compare QQ.compare
-  let hash = IntMap.hash QQ.hash
+  let compare = compare QQ.compare
+  let hash = hash (fun (k,v) -> Hashtbl.hash (k, QQ.hash v))
 end
 
 module QQMatrix = struct

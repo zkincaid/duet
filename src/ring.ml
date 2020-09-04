@@ -1,6 +1,5 @@
 open BatPervasives
 
-module IntMap = SrkUtil.Int.Map
 module IntSet = SrkUtil.Int.Set
 
 include Log.Make(struct let name = "srk.ring" end)
@@ -17,24 +16,6 @@ module type S = sig
   include AbelianGroup
   val mul : t -> t -> t
   val one : t
-end
-
-module type Map = sig
-  type 'a t
-  type key
-
-  val equal : ('a -> 'a -> bool) -> 'a t -> 'a t -> bool
-  val compare : ('a -> 'a -> int) -> 'a t -> 'a t -> int
-  val enum : 'a t -> (key * 'a) BatEnum.t
-  val map : ('a -> 'b) -> 'a t -> 'b t
-  val find : key -> 'a t -> 'a
-  val add : key -> 'a -> 'a t -> 'a t
-  val remove : key -> 'a t -> 'a t
-  val empty : 'a t
-  val merge : (key -> 'a option -> 'b option -> 'c option) ->
-    'a t ->
-    'b t ->
-    'c t
 end
 
 module type Vector = sig
@@ -56,6 +37,12 @@ module type Vector = sig
   val of_list : (scalar * dim) list -> t
   val coeff : dim -> t -> scalar
   val pivot : dim -> t -> scalar * t
+  val pop : t -> (dim * scalar) * t
+  val map : (dim -> scalar -> scalar) -> t -> t
+  val merge : (dim -> scalar -> scalar -> scalar) -> t -> t -> t
+  val hash : (dim * scalar -> int) -> t -> int
+  val compare : (scalar -> scalar -> int) -> t -> t -> int
+  val fold : (dim -> scalar -> 'a -> 'a) -> t -> 'a -> 'a
 end
 
 module type Matrix = sig
@@ -95,64 +82,45 @@ module type Matrix = sig
   val interlace_columns : t -> t -> t
 end
 
-module AbelianGroupMap (M : Map) (G : AbelianGroup) = struct
-  type t = G.t M.t
-  type dim = M.key
+module AbelianGroupMap (K : BatInterfaces.OrderedType) (G : AbelianGroup) = struct
+  include SparseMap.Make(K)(G)
+  type dim = K.t
   type scalar = G.t
 
-  let is_scalar_zero x = G.equal x G.zero
+  let is_scalar_zero = G.equal G.zero
 
-  let zero = M.empty
-
-  let is_zero = M.equal G.equal zero
-
-  let add u v =
-    let f _ a b =
-      match a, b with
-      | Some a, Some b ->
-        let sum = G.add a b in
-        if is_scalar_zero sum then None else Some sum
-      | Some x, None | None, Some x -> Some x
-      | None, None -> assert false
-    in
-    M.merge f u v
+  let add = merge (fun _ -> G.add)
 
   let add_term coeff dim vec =
-    if is_scalar_zero coeff then vec else begin
-      try
-        let sum = G.add coeff (M.find dim vec) in
-        if not (is_scalar_zero sum) then M.add dim sum vec
-        else M.remove dim vec
-      with Not_found -> M.add dim coeff vec
-    end
+    if is_scalar_zero coeff then
+      vec
+    else
+      set dim (G.add coeff (get dim vec)) vec
 
-  let coeff dim vec = try M.find dim vec with Not_found -> G.zero
+  let coeff = get
 
-  let enum vec = M.enum vec /@ (fun (x,y) -> (y,x))
+  let enum m = BatEnum.map (fun (x,y) -> (y,x)) (enum m)
 
   let of_enum = BatEnum.fold (fun vec (x,y) -> add_term x y vec) zero
 
   let of_list = List.fold_left (fun vec (x,y) -> add_term x y vec) zero
 
-  let equal = M.equal G.equal
+  let of_term coeff dim = singleton dim coeff
 
-  let of_term coeff dim = add_term coeff dim zero
+  let negate = map (fun _ -> G.negate)
 
-  let negate = M.map G.negate
+  let sub = merge (fun _ x y -> G.add x (G.negate y))
 
-  let sub u v = add u (negate v)
-
-  let pivot dim vec =
-    (coeff dim vec, M.remove dim vec)
+  let pivot dim vec = extract dim vec
 end
 
-module RingMap (M : Map) (R : S) = struct
-  include AbelianGroupMap(M)(R)
+module RingMap (K : BatInterfaces.OrderedType) (R : S) = struct
+  include AbelianGroupMap(K)(R)
 
   let scalar_mul k vec =
     if R.equal k R.one then vec
-    else if R.equal k R.zero then M.empty
-    else M.map (fun coeff -> R.mul k coeff) vec
+    else if R.equal k R.zero then zero
+    else map (fun _ coeff -> R.mul k coeff) vec
 
   let dot u v =
     BatEnum.fold
@@ -162,7 +130,7 @@ module RingMap (M : Map) (R : S) = struct
 end
 
 module MakeVector (R : S) = struct
-  include RingMap(IntMap)(R)
+  include RingMap(SrkUtil.Int)(R)
 
   let interlace u v =
     let u_shift =
@@ -189,7 +157,7 @@ end
 
 module MakeMatrix (R : S) = struct
   module V = MakeVector(R)
-  module M = AbelianGroupMap(IntMap)(V)
+  module M = AbelianGroupMap(SrkUtil.Int)(V)
   type t = M.t
   type dim = int
   type scalar = R.t
@@ -197,8 +165,8 @@ module MakeMatrix (R : S) = struct
 
   let scalar_mul k mat =
     if R.equal k R.one then mat
-    else if R.equal k R.zero then IntMap.empty
-    else IntMap.map (fun vec -> V.scalar_mul k vec) mat
+    else if R.equal k R.zero then M.zero
+    else M.map (fun _ vec -> V.scalar_mul k vec) mat
 
   let row = M.coeff
   let add = M.add
@@ -207,8 +175,7 @@ module MakeMatrix (R : S) = struct
   let equal = M.equal
   let pivot = M.pivot
   let add_row i vec = M.add_term vec i
-  let rows = IntMap.values
-  let rowsi = IntMap.enum
+  let rowsi m = BatEnum.map (fun (x,y) -> (y,x)) (M.enum m)
   let entry i j mat = V.coeff j (row i mat)
 
   let column j mat =
@@ -237,7 +204,7 @@ module MakeMatrix (R : S) = struct
 
   let entries mat =
     rowsi mat
-    /@ (fun (i, row) -> IntMap.enum row /@ (fun (j, coeff) -> (i, j, coeff)))
+    /@ (fun (i, row) -> V.enum row /@ (fun (coeff, j) -> (i, j, coeff)))
     |> BatEnum.concat
 
   let row_set mat =
@@ -249,8 +216,8 @@ module MakeMatrix (R : S) = struct
   let column_set mat =
     rowsi mat
     |> BatEnum.fold (fun set (_, row) ->
-        IntMap.enum row
-        |> BatEnum.fold (fun set (j, _) -> IntSet.add j set) set)
+        V.enum row
+        |> BatEnum.fold (fun set (_, j) -> IntSet.add j set) set)
       IntSet.empty
 
   let nb_rows mat =
@@ -263,7 +230,7 @@ module MakeMatrix (R : S) = struct
     let pp_entry row formatter j =
       pp_scalar formatter (V.coeff j row)
     in
-    let pp_row formatter row =
+    let pp_row formatter (_, row) =
       Format.fprintf formatter "[%a]"
         (SrkUtil.pp_print_enum (pp_entry row)) (IntSet.enum cols)
     in
@@ -276,7 +243,7 @@ module MakeMatrix (R : S) = struct
       Format.fprintf formatter "@[<v 0>%a x %a@;%a@]"
         IntSet.pp (row_set mat)
         IntSet.pp cols
-        (SrkUtil.pp_print_enum_nobox ~pp_sep pp_row) (rows mat)
+        (SrkUtil.pp_print_enum_nobox ~pp_sep pp_row) (rowsi mat)
 
   let transpose mat =
     entries mat
@@ -297,27 +264,21 @@ module MakeMatrix (R : S) = struct
       zero
       (rowsi mat)
 
-  let min_row = IntMap.min_binding
+  let min_row m =
+    let (x,y) = BatEnum.get_exn (M.enum m) in
+    (y, x)
 
-  let map_rows f m =
-    let g _ row =
-      let row' = f row in
-      if V.is_zero row' then
-        None
-      else
-        Some row'
-    in
-    IntMap.filter_map g m
+  let map_rows f m = M.map (fun _ -> f) m
 
   let vector_right_mul m v =
-    m |> IntMap.filter_map (fun _ row ->
-        let cell = V.dot row v in
-        if R.equal cell R.zero then None
-        else Some cell)
+    M.fold (fun i row result ->
+        V.add_term (V.dot row v) i result)
+      m
+      V.zero
 
   let vector_left_mul v m =
-    IntMap.fold (fun k coeff result ->
-        V.add result (V.scalar_mul coeff (row k m)))
+    V.fold (fun i scalar result ->
+        V.add result (V.scalar_mul scalar (row i m)))
       v
       V.zero
 
