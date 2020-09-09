@@ -111,6 +111,8 @@ def summarize_result(tool, suite):
         elif (get_category(entry, 0) == "unknown"):
             result.unknown += 1
             result.times_excluding_timeouts.append(get_time(entry, 0))
+        else:
+            result.times_excluding_timeouts.append(get_time(entry, 0))
     return result
 
 def summary():
