@@ -145,7 +145,7 @@ def summary():
             row[tool] = r
             total_correct[tool] += r.correct
             total_time[tool] += r.time
-            times_excluding_timeout[tool].append(r.times_excluding_timeouts)
+            times_excluding_timeout[tool].extend(r.times_excluding_timeouts)
             num_timeout[tool] += r.timeout
         best_time[suite] = best_time_suite
         best_correct[suite] = best_correct_suite
