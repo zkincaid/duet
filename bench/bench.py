@@ -7,6 +7,7 @@ from string import Template
 import subprocess
 import tempfile
 import types
+import statistics
 
 # Configuration -- can be reconfigured via the command line
 tools = ["CRA", "VASS"]
@@ -98,6 +99,7 @@ def summarize_result(tool, suite):
     result.correct = 0
     result.timeout = 0
     result.unknown = 0
+    result.times_excluding_timeouts = []
     for entry in data:
         result.total += 1
         result.time += get_time(entry, 0)
@@ -105,8 +107,10 @@ def summarize_result(tool, suite):
             result.timeout += 1
         elif (get_category(entry, 0) == "correct"):
             result.correct += 1
+            result.times_excluding_timeouts.append(get_time(entry, 0))
         elif (get_category(entry, 0) == "unknown"):
             result.unknown += 1
+            result.times_excluding_timeouts.append(get_time(entry, 0))
     return result
 
 def summary():
@@ -117,10 +121,16 @@ def summary():
     num = {}
     total_correct = {}
     total_time = {}
+    num_timeout = {}
+    times_excluding_timeout = {}
+    mean_time_excluding_timeout = {}
+    median_time_excluding_timeout = {}
 
     for tool in tools:
         total_correct[tool] = 0
         total_time[tool] = 0
+        times_excluding_timeout[tool] = []
+        num_timeout[tool] = 0
 
     for suite in suites:
         row = {}
@@ -135,10 +145,16 @@ def summary():
             row[tool] = r
             total_correct[tool] += r.correct
             total_time[tool] += r.time
+            times_excluding_timeout[tool].append(r.times_excluding_timeouts)
+            num_timeout[tool] += r.timeout
         best_time[suite] = best_time_suite
         best_correct[suite] = best_correct_suite
         num[suite] = num_suite
         matrix[suite] = row
+
+    for tool in tools:
+        mean_time_excluding_timeout[tool] = statistics.mean(times_excluding_timeout[tool])
+        median_time_excluding_timeout[tool] = statistics.median(times_excluding_timeout[tool])
 
     print("\\begin{tabular}{@{}lc|%s@{}}" % ("|".join(["c@{}r"] * (len(tools)))))
     print("\\toprule")
@@ -179,6 +195,25 @@ def summary():
         else:
             print(" & %.1f" % total_time[tool],end='')
     print("\\\\")
+
+    print("Timeouts & ", end='');
+    for tool in tools:
+        print(" & %d" % num_timeout[tool], end='')
+
+    print("\\\\")
+
+    print("Mean time & ", end='');
+    for tool in tools:
+        print(" & %.1f" % mean_time_excluding_timeout[tool], end='')
+
+    print("\\\\")
+
+    print("Median time & ", end='');
+    for tool in tools:
+        print(" & %.1f" % median_time_excluding_timeout[tool], end='')
+
+    print("\\\\")
+
     print("\\bottomrule")
     print("\\end{tabular}")
 
