@@ -103,7 +103,7 @@ def summarize_result(tool, suite):
     for entry in data:
         result.total += 1
         result.time += get_time(entry, 0)
-        if (get_category(entry, 0) == "TIMEOUT"):
+        if (get_result(entry, 0) == "TIMEOUT"):
             result.timeout += 1
         elif (get_category(entry, 0) == "correct"):
             result.correct += 1
