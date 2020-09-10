@@ -12,12 +12,6 @@ module type AbelianGroup = sig
   val zero : t
 end
 
-module type S = sig
-  include AbelianGroup
-  val mul : t -> t -> t
-  val one : t
-end
-
 module type Vector = sig
   type t
   type dim
@@ -95,7 +89,7 @@ module AbelianGroupMap (K : BatInterfaces.OrderedType) (G : AbelianGroup) = stru
     if is_scalar_zero coeff then
       vec
     else
-      set dim (G.add coeff (get dim vec)) vec
+      modify dim (G.add coeff) vec
 
   let coeff = get
 
@@ -114,7 +108,7 @@ module AbelianGroupMap (K : BatInterfaces.OrderedType) (G : AbelianGroup) = stru
   let pivot dim vec = extract dim vec
 end
 
-module RingMap (K : BatInterfaces.OrderedType) (R : S) = struct
+module RingMap (K : BatInterfaces.OrderedType) (R : Algebra.Ring) = struct
   include AbelianGroupMap(K)(R)
 
   let scalar_mul k vec =
@@ -129,7 +123,7 @@ module RingMap (K : BatInterfaces.OrderedType) (R : S) = struct
       (enum u)
 end
 
-module MakeVector (R : S) = struct
+module MakeVector (R : Algebra.Ring) = struct
   include RingMap(SrkUtil.Int)(R)
 
   let interlace u v =
@@ -155,7 +149,7 @@ module MakeVector (R : S) = struct
       (enum u)
 end
 
-module MakeMatrix (R : S) = struct
+module MakeMatrix (R : Algebra.Ring) = struct
   module V = MakeVector(R)
   module M = AbelianGroupMap(SrkUtil.Int)(V)
   type t = M.t
@@ -311,7 +305,7 @@ module MakeMatrix (R : S) = struct
       zero
 end
 
-module MakeUltPeriodicSeq(R : S) = struct
+module MakeUltPeriodicSeq(R : Algebra.Ring) = struct
   type t = R.t list * R.t list
 
   let lcm x y =

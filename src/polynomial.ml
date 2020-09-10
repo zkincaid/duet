@@ -15,7 +15,7 @@ module type Univariate = sig
   val mul_monomial : scalar -> int -> t -> t
 end
 
-module MakeUnivariate(R : Ring.S) = struct
+module MakeUnivariate(R : Algebra.Ring) = struct
   include Ring.RingMap(SrkUtil.Int)(R)
 
   let order p = fold (fun power _ hi -> max hi power) p 0
@@ -381,7 +381,7 @@ module type Multivariate = sig
   val degree : t -> int
 end
 
-module MakeMultivariate(R : Ring.S) = struct
+module MakeMultivariate(R : Algebra.Ring) = struct
   include Ring.RingMap(Monomial)(R)
 
   let pp pp_scalar pp_dim formatter p =

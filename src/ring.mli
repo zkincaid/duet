@@ -1,16 +1,5 @@
 (** Operations on rings. *)
 
-(** Signature of rings *)
-module type S = sig
-  type t
-  val equal : t -> t -> bool
-  val add : t -> t -> t
-  val negate : t -> t
-  val zero : t
-  val mul : t -> t -> t
-  val one : t
-end
-
 (** Sparse vectors of infinite dimension. *)
 module type Vector = sig
   type t
@@ -196,12 +185,12 @@ end
 (** Lift a map type over a ring to a left-module *)
 module RingMap
     (K : BatInterfaces.OrderedType)
-    (R : S) : Vector with type dim = K.t
-                      and type scalar = R.t
+    (R : Algebra.Ring) : Vector with type dim = K.t
+                                 and type scalar = R.t
 
 (** Sparse vectors of infinite dimension, with entries drawn from a
    given ring. *)
-module MakeVector (R : S) : sig
+module MakeVector (R : Algebra.Ring) : sig
   include Vector with type scalar = R.t
                   and type dim = int
                   and type t = SparseMap.Make(SrkUtil.Int)(R).t
@@ -216,7 +205,7 @@ end
 
 (** Sparse matrices of infinite dimension, with entries drawn from a
    given ring. *)
-module MakeMatrix (R : S) : sig
+module MakeMatrix (R : Algebra.Ring) : sig
   include Matrix with type scalar = R.t
                   and type vector = MakeVector(R).t
   val pp : (Format.formatter -> scalar -> unit) -> Format.formatter -> t -> unit
@@ -231,8 +220,8 @@ end
     {- [(-f)(i) = -f(i)] }
     {- [(0)(i) = 0] }
     {- [(1)(i) = 1] } } *)
-module MakeUltPeriodicSeq (R : S) : sig
-  include S
+module MakeUltPeriodicSeq (R : Algebra.Ring) : sig
+  include Algebra.Ring
   val pp : (Format.formatter -> R.t -> unit) -> Format.formatter -> t -> unit
 
   (** [make t p] constructs an ultimately periodic sequence *)

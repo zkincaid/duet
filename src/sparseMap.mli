@@ -30,6 +30,9 @@ module type S = sig
   (** Apply a binary operation pointwise to two maps. *)
   val merge : (key -> value -> value -> value) -> t -> t -> t
 
+  (** [modify k f m] replaces the binding of [k] in [m] with [f (m k)]. *)
+  val modify : key -> (value -> value) -> t -> t
+
   (** Apply a unary operation pointwise to a map. *)
   val map : (key -> value -> value) -> t -> t
 
