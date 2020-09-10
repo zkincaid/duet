@@ -24,7 +24,7 @@ module type Univariate = sig
 end
 
 (** Univariate polynomials over a given ring *)
-module MakeUnivariate (R : Ring.S) : Univariate with type scalar = R.t
+module MakeUnivariate (R : Algebra.Ring) : Univariate with type scalar = R.t
 
 (** Univariate polynomials with rational coefficients *)
 module QQX : sig
@@ -166,7 +166,7 @@ module type Multivariate = sig
 end
                     
 (** Multi-variate polynomials over a ring *)
-module MakeMultivariate (R : Ring.S) : Multivariate with type scalar = R.t
+module MakeMultivariate (R : Algebra.Ring) : Multivariate with type scalar = R.t
 
 (** Multi-variate polynomials with rational coefficients *)
 module QQXs : sig

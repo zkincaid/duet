@@ -48,7 +48,10 @@ let _ =
 type absbool = Yes | No | Bottom | Top
 
 module type MinInterpretation = sig
-  include Sig.Semilattice.S
+  type t
+  val join : t -> t -> t
+  val equal : t -> t -> bool
+  val pp : Format.formatter -> t -> unit
   val widen : t -> t -> t
   val bottom : t
   val name : string

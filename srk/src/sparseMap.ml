@@ -9,9 +9,10 @@ module type S = sig
   val singleton : key -> value -> t
   val is_zero : t -> bool
   val merge : (key -> value -> value -> value) -> t -> t -> t
+  val modify : key -> (value -> value) -> t -> t
   val map : (key -> value -> value) -> t -> t
   val extract : key -> t -> (value * t)
-  val enum : t-> (key * value) BatEnum.t
+  val enum : t -> (key * value) BatEnum.t
   val of_enum : (key * value) BatEnum.t -> t
   val fold : (key -> value -> 'a -> 'a) -> t -> 'a -> 'a
   val min_support : t -> (key * value)
@@ -64,6 +65,20 @@ module Make
     M.filter_map
       (fun k v ->
         let result = f k v in
+        if V.equal result V.zero then
+          None
+        else
+          Some result)
+      m
+
+  let modify k f m =
+    M.modify_opt
+      k
+      (fun v ->
+        let result = match v with
+          | Some value -> f value
+          | None -> f V.zero
+        in
         if V.equal result V.zero then
           None
         else

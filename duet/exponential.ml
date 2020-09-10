@@ -18,7 +18,7 @@ module Make
 struct
   module AI = Ai.ApronInterpretation
 
-  include Lattice.FunctionSpace.Total.Make(PSet)(AI)
+  include Lattice.FunctionSpace.Make(PSet)(AI)
 
   let add k v f = update k (AI.join v (eval f k)) f
 

@@ -157,13 +157,7 @@ module PartialLinearMap = struct
   let guard f = f.guard
 end
 
-type dlts = PartialLinearMap.t
-
-(* Given an LTS Ax' = Bx, find a basis for the space of functionals
-   that are determined on the LTS; i.e.,
-     { f : forall u,v,w. Av = Bu /\ Aw = Bu ==> f(v) = f(w) }
-   or equivalently,
-     { f : exists g. gA = fB } *)
+type dlts = PartialLinearMap.t 
 
 (* A and B, find a matrix C whose rows constitute a basis for the
    vector space { v : exists u. uA = vB } *)
@@ -213,6 +207,11 @@ let max_rowspace_projection mA mB =
       | None -> ()));
   !c
 
+(* Given an LTS Ax' = Bx, find a basis for the space of functionals
+   that are determined on the LTS; i.e.,
+     { f : forall u,v,w. Av = Bu /\ Aw = Bu ==> f(v) = f(w) }
+   or equivalently,
+     { f : exists g. gA = fB } *)
 let determinize (mA, mB) =
   (* We have a system of the form Ax' = Bx, we need one of the form Ax' =
      B'Ax.  If we can factor B = B'A, we're done.  Otherwise, we compute an
