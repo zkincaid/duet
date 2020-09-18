@@ -1,22 +1,37 @@
 (* Constrainted horn clauses *)
 open Syntax
+open Iteration
 
 type 'a chccontext = 
   { srk : 'a context;  relations : (string * typ list) BatDynArray.t}
-type relation = string
-type 'a relation_atom = relation * 'a term list
-type 'a hypothesis = 'a relation_atom list * 'a formula
-type 'a conclusion = 'a relation_atom
-type 'a clause = 'a hypothesis * 'a conclusion
-type 'a chc = 'a clause list (*TODO: add queries*)
+type relation = string [@@deriving ord]
+type relation_atom = relation * symbol list
+type 'a hypothesis = relation_atom list * 'a formula
+type conclusion = relation_atom
+type 'a rule = 'a hypothesis * conclusion
+type 'a query = 'a hypothesis
+type 'a chc = {rules : 'a rule list; queries : 'a query list}
+
+module Relation = struct
+  type t = relation [@@deriving ord]
+end
+
+module RSet = BatSet.Make(Relation)
+
+
+let rel_sym_of (relation, _) = relation
+(* TODO: change params from expr list to sym list *)
+let params_of (_, params) = params
+
+
 
 let show_rel rel = "R_"^(rel)
 let show_rel_atom srk (rel, terms) = 
   let inner_paren = if BatList.is_empty terms then ""
     else (
       List.fold_left 
-        (fun str term -> str^", "^(Term.show srk term)) 
-        (Term.show srk (List.hd terms)) 
+        (fun str term -> str^", "^(show_symbol srk term)) 
+        (show_symbol srk (List.hd terms)) 
         (List.tl terms))
   in
   (show_rel rel)^"("^inner_paren^")"
@@ -30,17 +45,18 @@ let show_hypothesis srk (rel_atoms, phi) =
 
 let show_conclusion = show_rel_atom
 
-let show_clause srk (hypo,conc) = 
+let show_rule srk (hypo,conc) = 
   (show_hypothesis srk hypo)^"=>"^(show_conclusion srk conc)
 
 let show_chc srk chc =
-  List.fold_left (fun str rule -> str^"\n"^(show_clause srk rule)) "" chc
+  List.fold_left (fun str rule -> str^"\n"^(show_rule srk rule)) "" chc.rules
 
-let rl_atom_of_z3pred srk z3pred =
+let rl_atom_of_z3pred srk z3pred : relation_atom =
   let decl = Z3.Expr.get_func_decl z3pred in
   let rel = Z3.Symbol.to_string (Z3.FuncDecl.get_name decl) in
   let args = List.map (fun arg -> SrkZ3.term_of_z3 srk arg) (Z3.Expr.get_args z3pred) in
-  rel, args
+  let fresh_syms = List.map (fun arg -> mk_symbol srk (term_typ srk arg)) args in
+  rel, fresh_syms
 
 let parse_file ?(context=Z3.mk_context []) srk filename =
   let z3 = context in
@@ -83,4 +99,121 @@ let parse_file ?(context=Z3.mk_context []) srk filename =
       | _ -> failwith "Rule not well formed"
     end
   in
-  List.map parse_rule (Z3.Fixedpoint.get_rules fp)
+  let rules = List.map parse_rule (Z3.Fixedpoint.get_rules fp) in
+  {rules=rules; queries=[]}
+  (* TODO: queries *)
+
+
+module LinCHC = struct
+  open WeightedGraph
+  type 'a linhypo = relation_atom option * 'a formula
+  type 'a linrule = 'a linhypo * conclusion
+  type 'a linquery = 'a linhypo
+  type 'a linchc = {rules : 'a linrule list; queries : 'a linquery list}
+
+  let get_rel_syms linchc =
+    let add_hypo_opt rset rel_atom_opt =
+      match rel_atom_opt with
+      | None -> rset
+      | Some v -> RSet.add (rel_sym_of v) rset
+    in
+    let rset = 
+      List.fold_left 
+        (fun rset ((rel_atom_opt, _), conc) ->
+          let rset = RSet.add (rel_sym_of conc) rset in
+          add_hypo_opt rset rel_atom_opt)
+        RSet.empty
+        linchc.rules
+    in
+    List.fold_left 
+      (fun rset (rel_atom_opt, _) -> add_hypo_opt rset rel_atom_opt)
+      rset
+      linchc.queries
+
+  let to_weighted_graph srk linchc pd =
+    let emptyarr = BatArray.init 0 (fun f -> failwith "empty") in
+    let alg = 
+      let mk_subst_map a b =
+        BatArray.fold_lefti 
+          (fun map ind asym -> Symbol.Map.add asym (mk_const srk (b.(ind))) map)
+          Symbol.Map.empty
+          a
+      in
+      let is_one (pre, post, phi) = Formula.equal phi (mk_true srk) in
+      let is_zero (pre, post, phi) = Formula.equal phi (mk_false srk) in
+      let zero = emptyarr, emptyarr, mk_false srk in
+      let one = emptyarr, emptyarr, mk_true srk in
+      let add x y =
+        if is_zero x then y else if is_zero y then x
+        else if is_one x || is_one y then one
+        else (
+          let (pre1, post1, phi1) = x in
+          let (pre2, post2, phi2) = y in
+          let subst_map_pre = mk_subst_map pre2 pre1 in
+          let subst_map_post = mk_subst_map post2 post1 in
+          let rhs_map = Symbol.Map.union subst_map_pre subst_map_post in
+          pre1, post1, mk_or srk [phi1; (substitute_map srk rhs_map phi2)]
+        )
+      in
+      let mul x y =
+        if is_zero x || is_zero y then zero
+        else if is_one x then y else if is_one y then x
+        else (
+          let (pre1, post1, phi1) = x in
+          let (pre2, post2, phi2) = y in
+          let subst_map = mk_subst_map pre2 post1 in
+          pre1, post2, mk_and srk [phi1; (substitute_map srk subst_map phi2)] 
+        )
+      in
+      let star (pre, post, phi) =
+        let module PD = (val pd : Iteration.PreDomain) in
+        let trs =
+          BatArray.fold_lefti
+            (fun trs ind presym -> (presym, post.(ind)) :: trs)
+            []
+            pre
+        in
+        let lc = mk_symbol srk `TyInt in
+        let tr_phi = TransitionFormula.make phi trs in
+        pre, post, 
+        PD.exp srk trs (mk_const srk lc) (PD.abstract srk tr_phi)
+      in
+      {mul; add; star; zero; one}
+    in
+    let vertex_tbl = Hashtbl.create 100 in
+    let true_vert = 0 in
+    let false_vert = 1 in
+    let wg = WeightedGraph.add_vertex (WeightedGraph.empty alg) true_vert in
+    let wg = WeightedGrapg.add_vertex wg false_vert in
+    let vertexcounter = ref 2 in
+    let wg = List.fold_left 
+        (fun wg rel_sym -> 
+           Hashtbl.add vertex_tbl rel_sym vertexcounter;
+           vertexcounter := !vertexcounter + 1;
+           WeightedGraph.add_vertex wg (!vertexcounter - 1))
+        wg
+        (get_rel_syms chc)
+    in
+    List.fold_left
+      (fun wg ((rel_atom_opt, phi), conc) ->
+         match rel_atom_opt with
+         | None -> WeightedGraph.add_edge 
+                     wg 
+                     true_vert
+                     (emptyarr, params_of conc, phi)
+                     (Hashtbl.find vertex_tbl (rel_sym_of conc))
+         | Some hypo_atom ->
+           WeightedGraph.add_edge 
+             wg 
+             (Hashtbl.find vertex_tbl (rel_sym_of hypo_atom))
+             (BatArray.of_list (params_of hypo_atom), 
+              BatArray.of_list (params_of conc), 
+              phi)
+             (Hashtbl.find vertex_tbl (rel_sym_of conc)))
+      wg
+      linchc.rules
+      (* TODO: Queries *)
+
+
+
+end
