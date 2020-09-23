@@ -31,6 +31,9 @@ let load_math_formula filename =
 let load_smtlib2 filename =
   SrkZ3.load_smtlib2 srk (Bytes.to_string (file_contents filename))
 
+let load_chc filename = Chc.parse_file srk filename
+
+
 let load_formula filename =
   let formula =
     if Filename.check_suffix filename "m" then load_math_formula filename
@@ -211,6 +214,24 @@ let spec_list = [
    ],
    " Generate a random formula");
 
+  ("-reachable-goal",
+   Arg.String (fun file ->
+       let open Iteration in 
+       let chc = load_chc file in
+       let pd = 
+         (module Product(LinearRecurrenceInequation)(PolyhedronGuard) : PreDomain) 
+       in
+       let wg, init, goal = Chc.to_weighted_graph srk chc pd in
+       let _, _, phi = WeightedGraph.path_weight wg init goal in
+       let solver = Smt.mk_solver srk in
+       Smt.Solver.add solver [phi];
+       begin match Smt.Solver.get_model solver with
+       | `Unsat -> Format.printf "No path\n"
+       | `Unknown -> Format.printf "Unknown\n"
+       | `Sat _ -> Format.printf "Has path\n" (*TODO: print path*)
+       end),
+   " Determine if a linear CHC has reachable goals");
+
   ("-verbosity",
    Arg.String (fun v -> Log.verbosity_level := (Log.level_of_string v)),
    " Set verbosity level (higher = more verbose; defaults to 0)");
@@ -238,7 +259,8 @@ let usage_msg = "bigtop: command line interface to srk \n\
   \tbigtop -wedge-hull formula.smt2\n\
   \tbigtop -qe formula.smt2\n\
   \tbigtop -stats formula.smt2\n\
-  \tbigtop -random (A|E)* depth [dense|sparse]\n"
+  \tbigtop -random (A|E)* depth [dense|sparse]\n\
+  \tbigtop -reachable-goal chc.smt2\n"
 
 let anon_fun s = failwith ("Unknown option: " ^ s)
 
