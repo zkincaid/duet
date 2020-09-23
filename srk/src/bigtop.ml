@@ -220,7 +220,7 @@ let spec_list = [
        let chc = load_chc file in
        let pd = 
          (module Product(LinearRecurrenceInequation)(PolyhedronGuard) : PreDomain) 
-       in
+       in (*TODO: let user pick iter operation*)
        let wg, init, goal = Chc.to_weighted_graph srk chc pd in
        let _, _, phi = WeightedGraph.path_weight wg init goal in
        let solver = Smt.mk_solver srk in
