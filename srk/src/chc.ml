@@ -4,9 +4,9 @@ module DynArray = BatDynArray
 
 type relation = int
 type 'b relcontext = (string * typ list) DynArray.t
-type 'b relation_atom = relation * symbol list
-type ('a, 'b) hypothesis = 'b relation_atom list * 'a formula
-type ('a, 'b) rule = ('a, 'b) hypothesis * 'b relation_atom
+type ('a, 'b) relation_atom = relation * symbol list
+type ('a, 'b) hypothesis = ('a, 'b) relation_atom list * 'a formula
+type ('a, 'b) rule = ('a, 'b) hypothesis * ('a, 'b) relation_atom
 type ('a, 'b) query = relation
 type 'c rule_name = int
 type 'c query_name = int
@@ -30,6 +30,7 @@ module Relation = struct
   let name_of rel_ctx rel = fst (DynArray.get rel_ctx rel)
   let pp rel_ctx formatter rel =
     Format.fprintf formatter "@%s:R%n@" (name_of rel_ctx rel) rel
+  let show rel_ctx = SrkUtil.mk_show (pp rel_ctx)
 end
 
 let rel_sym_of (relation, _) = relation
@@ -53,12 +54,28 @@ let pp_rule srk rel_ctx formatter (hypo, conc) =
     (pp_relation_atom srk rel_ctx) conc
 let pp_query _ = Relation.pp
 
-
+let show_relation_atom srk rel_ctx = 
+  SrkUtil.mk_show (pp_relation_atom srk rel_ctx)
+let show_hypothesis srk rel_ctx = SrkUtil.mk_show (pp_hypothesis srk rel_ctx)
+let show_rule srk rel_ctx = SrkUtil.mk_show (pp_rule srk rel_ctx)
+let show_query srk rel_ctx = SrkUtil.mk_show (pp_query srk rel_ctx)
 
 module Chc = struct
   type ('a, 'b, 'c) t = ('a, 'b, 'c) chc 
 
-  let pp = failwith "TODO" 
+  let pp srk rel_ctx formatter chc = 
+    Format.fprintf formatter "(Rules:\n@[";
+    SrkUtil.pp_print_enum
+      ~pp_sep:(fun formatter () -> Format.fprintf formatter "@ \n ")
+      (pp_rule srk rel_ctx)
+      formatter
+      (BatHashtbl.values chc.rules);
+    Format.fprintf formatter "@]\nQueries:@[%a@])"
+    (SrkUtil.pp_print_enum_nobox (Relation.pp rel_ctx)) 
+      (BatHashtbl.values chc.queries)
+
+
+  let show srk rel_ctx = SrkUtil.mk_show (pp srk rel_ctx)
 
   let create ?(rlength=97) ?(qlength=97) () =
     let rules = Hashtbl.create rlength in
@@ -120,6 +137,136 @@ module Chc = struct
       (fun _ ((rel_atoms, _), _) acc -> acc && (List.length rel_atoms) <= 1)
       chc.rules
       true
+
+
+  let to_weighted_graph srk chc pd =
+    let open WeightedGraph in
+    let emptyarr = BatArray.init 0 (fun _ -> failwith "empty") in
+    let alg = 
+      let map_union m1 m2 = Symbol.Map.fold Symbol.Map.add m1 m2 in
+      let mk_subst_map a b =
+        BatArray.fold_lefti 
+          (fun map ind asym -> Symbol.Map.add asym (mk_const srk (b.(ind))) map)
+          Symbol.Map.empty
+          a
+      in
+      let is_one (_, _, phi) = Formula.equal phi (mk_true srk) in
+      let is_zero (_, _, phi) = Formula.equal phi (mk_false srk) in
+      let zero = emptyarr, emptyarr, mk_false srk in
+      let one = emptyarr, emptyarr, mk_true srk in
+      let add x y =
+        if is_zero x then y else if is_zero y then x
+        else if is_one x || is_one y then one
+        else (
+          let (pre, post, _) = x in
+          let pre' = Array.map (fun sym -> dup_symbol srk sym) pre in
+          let post' = Array.map (fun sym -> dup_symbol srk sym) post in
+          let subst (pre, post, phi) = 
+            substitute_map
+              srk 
+              (map_union (mk_subst_map pre pre') (mk_subst_map post post'))
+              phi
+          in
+          pre', post', mk_or srk [subst x; subst y])
+      in
+      let mul x y = 
+        if is_zero x || is_zero y then zero
+        else if is_one x then y else if is_one y then x
+        else (
+          let (pre1, post1, phi1) = x in
+          let (pre2, post2, phi2) = y in
+          let pre' = Array.map (fun sym -> dup_symbol srk sym) pre1 in
+          let post' = Array.map (fun sym -> dup_symbol srk sym) post2 in 
+          let rhs_subst = 
+            map_union (mk_subst_map post2 post') (mk_subst_map pre2 post1) 
+          in
+          let phi2 = substitute_map srk rhs_subst phi2 in
+          let phi1 = substitute_map srk (mk_subst_map pre1 pre') phi1 in
+          let phi' = 
+            Quantifier.mbp 
+              srk
+              (fun sym -> not (Array.mem sym post1))
+              (mk_and srk [phi1; phi2])
+          in
+          pre', post', phi'
+        )
+      in
+      let star (pre, post, phi) =
+        let module PD = (val pd : Iteration.PreDomain) in
+        let trs =
+          BatArray.fold_lefti
+            (fun trs ind presym -> (presym, post.(ind)) :: trs)
+            []
+            pre
+        in
+        let lc = mk_symbol srk `TyInt in
+        let tr_phi = TransitionFormula.make phi trs in
+        pre, post, 
+        PD.exp srk trs (mk_const srk lc) (PD.abstract srk tr_phi)
+      in
+      {mul; add; star; zero; one}
+    in
+    let vertex_tbl = Hashtbl.create 100 in
+    let true_vert = -1 in
+    let goal_vert = 2 in
+    let wg = WeightedGraph.add_vertex (WeightedGraph.empty alg) true_vert in
+    let wg = WeightedGraph.add_vertex wg goal_vert in
+    let vertexcounter = ref 0 in
+    let wg = Relation.Set.fold 
+        (fun rel_sym wg -> 
+           Hashtbl.add vertex_tbl rel_sym !vertexcounter;
+           vertexcounter := !vertexcounter + 1;
+           WeightedGraph.add_vertex wg (!vertexcounter - 1))
+        (get_relations_used chc)
+        wg
+    in
+    let wg = 
+      Hashtbl.fold
+        (fun _ ((rel_atoms, phi), conc) wg ->
+           match rel_atoms with
+           | [] -> WeightedGraph.add_edge 
+                     wg 
+                     true_vert
+                     (emptyarr, BatArray.of_list (params_of conc), phi)
+                     (Hashtbl.find vertex_tbl (rel_sym_of conc))
+           | [hd] ->
+             WeightedGraph.add_edge 
+               wg 
+               (Hashtbl.find vertex_tbl (rel_sym_of hd))
+               (BatArray.of_list (params_of hd), 
+                BatArray.of_list (params_of conc), 
+                phi)
+               (Hashtbl.find vertex_tbl (rel_sym_of conc))
+           | _ -> failwith "Rule with multiple relations in hypothesis")
+        chc.rules
+        wg
+    in
+    let wg =
+      Hashtbl.fold
+        (fun _ rel wg -> 
+           WeightedGraph.add_edge
+             wg
+             (Hashtbl.find vertex_tbl rel)
+             alg.one
+             goal_vert)
+        chc.queries
+        wg
+    in
+    wg, true_vert, goal_vert
+
+  let has_reachable_goal srk chc pd = 
+    if is_linear chc then (
+      let wg, true_vert, goal_vert = to_weighted_graph srk chc pd in
+      let _, _, phi = WeightedGraph.path_weight wg true_vert goal_vert in
+      let solver = Smt.mk_solver srk in
+      Smt.Solver.add solver [phi];
+      begin match Smt.Solver.get_model solver with
+        | `Unsat -> `No
+        | `Unknown -> `Unknown
+        | `Sat _ -> `Yes
+      end)
+    else failwith "No methods for solving non lin chc"
+
 
 end
 
@@ -269,151 +416,3 @@ module ChcSrkZ3 = struct
 
 
 end
-
-(*
-let show_rel rel = "R_"^(rel)
-let show_rel_atom srk (rel, symbols) =
-  let show_symbol srk sym = 
-    (show_symbol srk sym)^":"^(string_of_int (int_of_symbol sym)) 
-  in
-  let inner_paren = if BatList.is_empty symbols then ""
-    else (
-      List.fold_left 
-        (fun str symbol -> str^", "^(show_symbol srk symbol)) 
-        (show_symbol srk (List.hd symbols)) 
-        (List.tl symbols))
-  in
-  (show_rel rel)^"("^inner_paren^")"
-
-let show_hypothesis srk (rel_atoms, phi) =
-  (List.fold_left 
-     (fun str rel_atom -> (show_rel_atom srk rel_atom)^"/\\"^str) 
-     "" 
-     rel_atoms)
-  ^(Formula.show srk phi)
-
-let show_conclusion = show_rel_atom
-
-let show_rule srk (hypo,conc) = 
-  (show_hypothesis srk hypo)^"=>"^(show_conclusion srk conc)
-
-let show_chc srk chc =
-  List.fold_left (fun str rule -> str^"\n"^(show_rule srk rule)) "" chc.rules
-*)
-
-(*
-let to_weighted_graph srk chc pd =
-  let open WeightedGraph in
-  let emptyarr = BatArray.init 0 (fun _ -> failwith "empty") in
-  let alg = 
-    let map_union m1 m2 = Symbol.Map.fold Symbol.Map.add m1 m2 in
-    let mk_subst_map a b =
-      BatArray.fold_lefti 
-        (fun map ind asym -> Symbol.Map.add asym (mk_const srk (b.(ind))) map)
-        Symbol.Map.empty
-        a
-    in
-    let is_one (_, _, phi) = Formula.equal phi (mk_true srk) in
-    let is_zero (_, _, phi) = Formula.equal phi (mk_false srk) in
-    let zero = emptyarr, emptyarr, mk_false srk in
-    let one = emptyarr, emptyarr, mk_true srk in
-    let add x y =
-      if is_zero x then y else if is_zero y then x
-      else if is_one x || is_one y then one
-      else (
-        let (pre, post, _) = x in
-        let pre' = Array.map (fun sym -> dup_symbol srk sym) pre in
-        let post' = Array.map (fun sym -> dup_symbol srk sym) post in
-        let subst (pre, post, phi) = 
-          substitute_map
-            srk 
-            (map_union (mk_subst_map pre pre') (mk_subst_map post post'))
-            phi
-        in
-        pre', post', mk_or srk [subst x; subst y])
-    in
-    let mul x y = 
-      if is_zero x || is_zero y then zero
-      else if is_one x then y else if is_one y then x
-      else (
-        let (pre1, post1, phi1) = x in
-        let (pre2, post2, phi2) = y in
-        let pre' = Array.map (fun sym -> dup_symbol srk sym) pre1 in
-        let post' = Array.map (fun sym -> dup_symbol srk sym) post2 in 
-        let rhs_subst = 
-          map_union (mk_subst_map post2 post') (mk_subst_map pre2 post1) 
-        in
-        let phi2 = substitute_map srk rhs_subst phi2 in
-        let phi1 = substitute_map srk (mk_subst_map pre1 pre') phi1 in
-        let phi' = 
-          Quantifier.mbp 
-            srk
-            (fun sym -> not (Array.mem sym post1))
-            (mk_and srk [phi1; phi2])
-        in (* quantifiers are not allowed here... why? *)
-        pre', post', phi'
-      )
-    in
-    let star (pre, post, phi) =
-      let module PD = (val pd : Iteration.PreDomain) in
-      let trs =
-        BatArray.fold_lefti
-          (fun trs ind presym -> (presym, post.(ind)) :: trs)
-          []
-          pre
-      in
-      let lc = mk_symbol srk `TyInt in
-      let tr_phi = TransitionFormula.make phi trs in
-      pre, post, 
-      PD.exp srk trs (mk_const srk lc) (PD.abstract srk tr_phi)
-    in
-    {mul; add; star; zero; one}
-  in
-  let vertex_tbl = Hashtbl.create 100 in
-  let true_vert = 0 in
-  let goal_vert = 1 in
-  let wg = WeightedGraph.add_vertex (WeightedGraph.empty alg) true_vert in
-  let wg = WeightedGraph.add_vertex wg goal_vert in
-  let vertexcounter = ref 2 in
-  let wg = RSet.fold 
-      (fun rel_sym wg -> 
-         Hashtbl.add vertex_tbl rel_sym !vertexcounter;
-         vertexcounter := !vertexcounter + 1;
-         WeightedGraph.add_vertex wg (!vertexcounter - 1))
-      (get_rel_syms chc)
-      wg
-  in
-  let wg = 
-    List.fold_left
-      (fun wg ((rel_atoms, phi), conc) ->
-         match rel_atoms with
-         | [] -> WeightedGraph.add_edge 
-                   wg 
-                   true_vert
-                   (emptyarr, BatArray.of_list (params_of conc), phi)
-                   (Hashtbl.find vertex_tbl (rel_sym_of conc))
-         | [hd] ->
-           WeightedGraph.add_edge 
-             wg 
-             (Hashtbl.find vertex_tbl (rel_sym_of hd))
-             (BatArray.of_list (params_of hd), 
-              BatArray.of_list (params_of conc), 
-              phi)
-             (Hashtbl.find vertex_tbl (rel_sym_of conc))
-         | _ -> failwith "Rule with multiple relations in hypothesis")
-      wg
-      chc.rules
-  in
-  let wg =
-    List.fold_left
-      (fun wg rel -> 
-         WeightedGraph.add_edge
-           wg
-           (Hashtbl.find vertex_tbl rel)
-           alg.one
-           goal_vert)
-      wg
-      chc.queries
-  in
-  wg, true_vert, goal_vert
-   *)
