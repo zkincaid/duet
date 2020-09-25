@@ -1,0 +1,29 @@
+(library
+  (public_name srk)
+  (modules (:standard \ bigtop))
+  (modes native)
+  (libraries
+    batteries
+    ppx_deriving ppx_deriving.show ppx_deriving.ord ppx_deriving.eq
+    gmp
+    camlidl
+    apron apron.boxMPQ apron.octMPQ apron.polkaMPQ
+    z3
+    OCRS
+    ntl
+    ocamlgraph)
+  (preprocess (pps ppx_deriving.ord ppx_deriving.eq ppx_deriving.show)))
+
+(executable
+  (name bigtop)
+  (modules bigtop)
+  (modes native)
+  (promote (until-clean) (into ..))
+  (libraries srk oUnit apron apron.boxMPQ apron.octMPQ apron.polkaMPQ)
+  (preprocess (pps ppx_deriving.ord ppx_deriving.eq ppx_deriving.show)))
+
+(ocamllex
+  (modules srkLex))
+
+(menhir
+  (modules srkParse))

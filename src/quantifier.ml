@@ -54,15 +54,11 @@ let coefficient_gcd term =
     ZZ.zero
     (V.enum term)
 
-let select_implicant srk interp ?(env=Env.empty) phi =
-  match Interpretation.select_implicant interp ~env phi with
-  | Some atoms ->
-    logf ~level:`trace "Implicant Atoms:";
-    List.iter
-      (fun atom -> logf ~level:`trace ">%a" (Formula.pp srk) atom)
-      atoms;
-    Some atoms
-  | None -> None
+let common_denominator term =
+  BatEnum.fold (fun den (qq, _) ->
+      ZZ.lcm den (QQ.denominator qq))
+    ZZ.one
+    (V.enum term)
 
 let map_atoms srk f phi =
   let rewriter expr =
@@ -79,7 +75,7 @@ let map_atoms srk f phi =
 (* floor(term/divisor) + offset *)
 type int_virtual_term =
   { term : V.t;
-    divisor : int;
+    divisor : ZZ.t;
     offset : ZZ.t }
   [@@deriving ord]
 
@@ -87,12 +83,12 @@ exception Equal_int_term of int_virtual_term
 
 let pp_int_virtual_term srk formatter vt =
   begin
-    if vt.divisor = 1 then
+    if ZZ.equal vt.divisor ZZ.one then
       pp_linterm srk formatter vt.term
     else
-      Format.fprintf formatter "@[floor(@[%a@ / %d@])@]"
+      Format.fprintf formatter "@[floor(@[%a@ / %a@])@]"
         (pp_linterm srk) vt.term
-        vt.divisor
+        ZZ.pp vt.divisor
   end;
   if not (ZZ.equal vt.offset ZZ.zero) then
     Format.fprintf formatter " + %a@]" ZZ.pp vt.offset
@@ -396,7 +392,7 @@ let mk_divides srk divisor term =
       (mk_mod srk (of_linterm srk term) (mk_real srk divisor))
       (mk_real srk QQ.zero)
 
-let mk_not_divides srk divisor term =
+let _mk_not_divides srk divisor term =
   assert(ZZ.lt ZZ.zero divisor);
   if ZZ.equal divisor ZZ.one || V.is_zero term then
     mk_false srk
@@ -414,10 +410,10 @@ let term_of_virtual_term srk vt =
   let term = of_linterm srk vt.term in
   let offset = mk_real srk (QQ.of_zz vt.offset) in
   let term_over_div =
-    if vt.divisor = 1 then
+    if ZZ.equal vt.divisor ZZ.one then
       term
     else
-      mk_floor srk (mk_div srk term (mk_real srk (QQ.of_int vt.divisor)))
+      mk_floor srk (mk_div srk term (mk_real srk (QQ.of_zz vt.divisor)))
   in
   mk_add srk [term_over_div; offset]
 
@@ -466,7 +462,7 @@ module Skeleton = struct
       begin match QQ.to_zz (evaluate_linterm model vt.term) with
         | None -> assert false
         | Some tv ->
-          ZZ.add (Mpzf.fdiv_q tv (ZZ.of_int vt.divisor)) vt.offset
+          ZZ.add (Mpzf.fdiv_q tv vt.divisor) vt.offset
           |> QQ.of_zz
       end
     | MReal t -> evaluate_linterm model t
@@ -490,13 +486,13 @@ module Skeleton = struct
         | Some zz -> zz
       in
       let remainder =
-        Mpzf.fdiv_r term_val (ZZ.of_int vt.divisor)
+        Mpzf.fdiv_r term_val vt.divisor
       in
       let numerator =
         V.add_term (QQ.of_zz (ZZ.negate remainder)) const_dim vt.term
       in
       let replacement =
-        V.scalar_mul (QQ.inverse (QQ.of_int vt.divisor)) numerator
+        V.scalar_mul (QQ.inverse (QQ.of_zz vt.divisor)) numerator
         |> V.add_term (QQ.of_zz vt.offset) const_dim
         |> of_linterm srk
       in
@@ -508,7 +504,7 @@ module Skeleton = struct
         substitute_const srk
           (fun p -> if p = x then replacement else mk_const srk p)
       in
-      let divides = mk_divides srk (ZZ.of_int vt.divisor) numerator in
+      let divides = mk_divides srk vt.divisor numerator in
       BatList.filter (not % is_true) (divides::(List.map subst implicant))
     | _ ->
       BatList.filter_map (fun atom ->
@@ -520,7 +516,7 @@ module Skeleton = struct
     match move with
     | MReal t -> const_of_linterm t
     | MInt vt ->
-      if vt.divisor = 1 then const_of_linterm vt.term
+      if ZZ.equal vt.divisor ZZ.one then const_of_linterm vt.term
       else None
     | MBool _ -> invalid_arg "const_of_move"
 
@@ -765,13 +761,13 @@ let select_int_term srk interp x atoms =
           `Lower (s, s_val)
         else
           `Lower (t, t_val)
-    | (`Lower (t, t_val), _) | (_, `Lower (t, t_val)) -> `Lower (t, t_val)
     | (`Upper (s, s_val), `Upper (t, t_val)) ->
         if ZZ.lt s_val t_val then
           `Upper (s, s_val)
         else
           `Upper (t, t_val)
     | (`Upper (t, t_val), _) | (_, `Upper (t, t_val)) -> `Upper (t, t_val)
+    | (`Lower (t, t_val), _) | (_, `Lower (t, t_val)) -> `Lower (t, t_val)
     | `None, `None -> `None
   in
   let eval = evaluate_linterm (Interpretation.real interp) in
@@ -821,13 +817,11 @@ let select_int_term srk interp x atoms =
           let (a, t) = V.pivot (dim_of_sym x) t in
           let a = match QQ.to_zz a with
             | None -> assert false
-            | Some zz -> match ZZ.to_int zz with
-              | None -> assert false
-              | Some z -> z
+            | Some zz -> zz
           in
-          if a = 0 then
+          if ZZ.equal a ZZ.zero then
             `None
-          else if a > 0 then
+          else if ZZ.compare a ZZ.zero > 0 then
             (* ax + t (<|<=) 0 --> upper bound of floor(-t/a) *)
             (* x (<|<=) floor(-t/a) + ([[x - floor(-t/a)]] mod delta) - delta *)
             let numerator =
@@ -840,7 +834,7 @@ let select_int_term srk interp x atoms =
 
             let rhs_val = (* [[floor(numerator / a)]] *)
               match QQ.to_zz (eval numerator) with
-              | Some num -> Mpzf.fdiv_q num (ZZ.of_int a)
+              | Some num -> Mpzf.fdiv_q num a
               | None -> assert false
             in
             let vt =
@@ -853,7 +847,7 @@ let select_int_term srk interp x atoms =
             assert (ZZ.equal (ZZ.modulo (ZZ.sub vt_val x_val) delta) ZZ.zero);
             assert (ZZ.leq x_val vt_val);
             begin
-              let axv = ZZ.mul (ZZ.of_int a) vt_val in
+              let axv = ZZ.mul a vt_val in
               let tv = match QQ.to_zz (eval t) with
                 | Some zz -> ZZ.negate zz
                 | None -> assert false
@@ -869,19 +863,19 @@ let select_int_term srk interp x atoms =
                 `Upper (vt, evaluate_vt vt)
             end
           else
-            let a = -a in
+            let a = ZZ.negate a in
 
             (* (-a)x + t <= 0 --> lower bound of ceil(t/a) = floor((t+a-1)/a) *)
             (* (-a)x + t < 0 --> lower bound of ceil(t+1/a) = floor((t+a)/a) *)
             let numerator =
               if op = `Lt then
-                V.add_term (QQ.of_int a) const_dim t
+                V.add_term (QQ.of_zz a) const_dim t
               else
-                V.add_term (QQ.of_int (a - 1)) const_dim t
+                V.add_term (QQ.of_zz (ZZ.sub a ZZ.one)) const_dim t
             in
             let rhs_val = (* [[floor(numerator / a)]] *)
               match QQ.to_zz (eval numerator) with
-              | Some num -> Mpzf.fdiv_q num (ZZ.of_int a)
+              | Some num -> Mpzf.fdiv_q num a
               | None -> assert false
             in
 
@@ -894,7 +888,7 @@ let select_int_term srk interp x atoms =
             assert (ZZ.equal (ZZ.modulo (ZZ.sub vt_val x_val) delta) ZZ.zero);
             assert (ZZ.leq vt_val x_val);
             begin
-              let axv = ZZ.mul (ZZ.of_int a) vt_val in
+              let axv = ZZ.mul a vt_val in
               let tv = match QQ.to_zz (eval t) with
                 | Some zz -> zz
                 | None -> assert false
@@ -924,7 +918,7 @@ let select_int_term srk interp x atoms =
       | Some zz -> zz
       | None -> assert false
     in
-    ZZ.add (Mpzf.fdiv_q tval (ZZ.of_int vt.divisor)) vt.offset
+    ZZ.add (Mpzf.fdiv_q tval vt.divisor) vt.offset
   in
   match List.fold_left merge `None (List.map bound_of_atom atoms) with
   | `Lower (vt, _) ->
@@ -943,7 +937,7 @@ let select_int_term srk interp x atoms =
     (* Value of x is irrelevant *)
     logf ~level:`trace "Irrelevant: %a" (pp_symbol srk) x;
     let value = Linear.const_linterm (QQ.of_zz (ZZ.modulo x_val delta)) in
-    { term = value; divisor = 1; offset = ZZ.zero }
+    { term = value; divisor = ZZ.one; offset = ZZ.zero }
 
 let select_int_term srk interp x atoms =
   try
@@ -961,6 +955,57 @@ let select_int_term srk interp x atoms =
     Log.errorf "(inv arg) select_int_term atoms: %s" msg;
     List.iter (fun atom -> Log.errorf ">%a" (Formula.pp srk) atom) atoms;
     assert false
+
+
+(* Given an interpretation M and a cube C with M |= C, find a cube C'
+   such that M |= C' |= C, and C does not contain any floor terms. *)
+let specialize_floor_cube srk model cube =
+  let div_constraints = ref [] in
+  let add_div_constraint divisor term =
+    let div =
+      mk_eq srk (mk_mod srk term (mk_real srk (QQ.of_zz divisor))) (mk_real srk QQ.zero)
+    in
+    div_constraints := div::(!div_constraints)
+  in
+  let replace_floor expr = match destruct srk expr with
+    | `Unop (`Floor, t) ->
+       let v = linterm_of srk t in
+       let divisor = common_denominator v in
+       let qq_divisor = QQ.of_zz divisor in
+       let dividend = of_linterm srk (V.scalar_mul qq_divisor v) in
+       let remainder =
+         QQ.modulo (Interpretation.evaluate_term model dividend) qq_divisor
+       in
+       let dividend' = mk_sub srk dividend (mk_real srk remainder) in
+       let replacement =
+         V.add_term
+           (QQ.negate (QQ.div remainder qq_divisor))
+           Linear.const_dim
+           v
+         |> of_linterm srk
+       in
+       assert (QQ.equal
+                 (Interpretation.evaluate_term model replacement)
+                 (QQ.of_zz (QQ.floor (Interpretation.evaluate_term model t))));
+
+       add_div_constraint divisor dividend';
+       (replacement :> ('a,typ_fo) expr)
+    | _ -> expr
+  in
+  let cube' = List.map (rewrite srk ~up:replace_floor) cube in
+  (!div_constraints)@cube'
+
+
+let select_implicant srk interp ?(env=Env.empty) phi =
+  match Interpretation.select_implicant interp ~env phi with
+  | Some atoms ->
+    logf ~level:`trace "Implicant Atoms:";
+    List.iter
+      (fun atom -> logf ~level:`trace ">%a" (Formula.pp srk) atom)
+      atoms;
+    Some (specialize_floor_cube srk interp atoms)
+  | None -> None
+
 
 (* Counter-strategy synthesis *)
 module CSS = struct
@@ -1223,7 +1268,7 @@ module CSS = struct
       in
       is_sat ()
 
-  let minimize_skeleton param_interp ctx =
+  let _minimize_skeleton param_interp ctx =
     let solver = Smt.mk_solver ctx.srk in
     let paths = Skeleton.paths ctx.skeleton in
     let path_guards =
@@ -1302,7 +1347,7 @@ let simsat_forward_core srk qf_pre phi =
               | `TyInt ->
                 let vt =
                   { term = Linear.const_linterm QQ.zero;
-                    divisor = 1;
+                    divisor = ZZ.one;
                     offset = ZZ.zero }
                 in
                 `Exists (k, Skeleton.MInt vt)
@@ -1496,6 +1541,9 @@ let simsat srk phi =
   let qf_pre =
     (List.map (fun k -> (`Exists, k)) (Symbol.Set.elements constants))@qf_pre
   in
+  CSS.max_improve_rounds := 2;
+  logf "Quantifier prefix: %s"
+    (String.concat "" (List.map (function (`Forall, _) -> "A" | (`Exists, _) -> "E") qf_pre));
   simsat_core srk qf_pre phi
 
 let simsat_forward srk phi =
@@ -1691,12 +1739,16 @@ let qe_mbp srk phi =
     phi
 
 let mbp ?(dnf=false) srk exists phi =
-  let phi = eliminate_ite srk phi in
-  let phi = rewrite srk ~down:(nnf_rewriter srk) phi in
+  let phi =
+    eliminate_ite srk phi
+    |> rewrite srk
+      ~down:(nnf_rewriter srk)
+      ~up:(SrkSimplify.simplify_terms_rewriter srk)
+  in
   let project =
     Symbol.Set.filter (not % exists) (symbols phi)
   in
-  let solver = Smt.mk_solver ~theory:"QF_LIA" srk in
+  let solver = Smt.mk_solver ~theory:"QF_LIRA" srk in
   let disjuncts = ref [] in
   let is_true phi =
     match Formula.destruct srk phi with
@@ -1708,7 +1760,7 @@ let mbp ?(dnf=false) srk exists phi =
     | `Sat interp ->
       let implicant =
         match select_implicant srk interp phi with
-        | Some x -> x
+        | Some x -> specialize_floor_cube srk interp x
         | None -> assert false
       in
       let (vt_map, _) =
@@ -1724,13 +1776,13 @@ let mbp ?(dnf=false) srk exists phi =
               | Some zz -> zz
             in
             let remainder =
-              Mpzf.fdiv_r term_val (ZZ.of_int vt.divisor)
+              Mpzf.fdiv_r term_val vt.divisor
             in
             let numerator =
               V.add_term (QQ.of_zz (ZZ.negate remainder)) const_dim vt.term
             in
             let replacement =
-              V.scalar_mul (QQ.inverse (QQ.of_int vt.divisor)) numerator
+              V.scalar_mul (QQ.inverse (QQ.of_zz vt.divisor)) numerator
               |> V.add_term (QQ.of_zz vt.offset) const_dim
               |> of_linterm srk
             in
@@ -1739,7 +1791,7 @@ let mbp ?(dnf=false) srk exists phi =
               substitute_const srk
                 (fun p -> if p = s then replacement else mk_const srk p)
             in
-            let divides = mk_divides srk (ZZ.of_int vt.divisor) numerator in
+            let divides = mk_divides srk vt.divisor numerator in
             let implicant =
               BatList.filter (not % is_true) (divides::(List.map subst implicant))
             in
@@ -1817,7 +1869,9 @@ let pp_strategy srk formatter (Strategy xs) =
 let show_strategy srk = SrkUtil.mk_show (pp_strategy srk)
 
 (* Extract a winning strategy from a skeleton *)
-let extract_strategy srk skeleton phi =
+let extract_strategy _ _ _ =
+  failwith "Quantifier.extract_strategy not implemented"
+(*
   let open Skeleton in
   let z3 = Z3.mk_context [] in
   let rec go subst = function
@@ -1869,6 +1923,7 @@ let extract_strategy srk skeleton phi =
     strategy
   | (_, None, Some _) -> assert false
   | (_, _, _) -> assert false
+ *)
 
 let winning_strategy srk qf_pre phi =
   match simsat_forward_core srk qf_pre phi with
@@ -1913,39 +1968,6 @@ let check_strategy srk qf_pre phi strategy =
   let strategy_formula = go qf_pre strategy in
   Smt.is_sat srk (mk_and srk [strategy_formula; mk_not srk phi]) = `Unsat
 
-(* Given an interpretation M and a cube C with M |= C, find a cube C'
-   such that M |= C' |= C, and C does not contain any floor terms. *)
-let specialize_floor_cube srk model cube =
-  let div_constraints = ref [] in
-  let add_div_constraint divisor term =
-    let div =
-      mk_eq srk (mk_mod srk term (mk_real srk (QQ.of_zz divisor))) (mk_real srk QQ.zero)
-    in
-    div_constraints := div::(!div_constraints)
-  in
-  let replace_floor expr = match destruct srk expr with
-    | `Unop (`Floor, t) -> begin match Term.destruct srk t with
-        | `Binop (`Div, dividend, divisor) -> begin match Term.destruct srk divisor with
-            | `Real k ->
-              if QQ.equal k QQ.zero then assert false;
-
-              let (divisor, multiplier) = QQ.to_zzfrac k in
-              let dividend = mk_mul srk [mk_real srk (QQ.of_zz multiplier); dividend] in
-              let remainder =
-                QQ.modulo (Interpretation.evaluate_term model dividend) (QQ.of_zz divisor)
-              in
-              let dividend' = mk_sub srk dividend (mk_real srk remainder) in
-              let div = mk_div srk dividend' (mk_real srk (QQ.of_zz divisor)) in
-              add_div_constraint divisor dividend';
-              (div :> ('a,typ_fo) expr)
-            | _ -> invalid_arg "select_floor_cube: ill-formed floor"
-          end
-        | _ -> invalid_arg "select_floor_cube: ill-formed floor"
-      end
-    | _ -> expr
-  in
-  let cube' = List.map (rewrite srk ~up:replace_floor) cube in
-  (!div_constraints)@cube'
 
 (* Loos-Weispfenning virtual terms, plus a virtual term CUnknown
    indicating failure of virtual term selection.  Substituting

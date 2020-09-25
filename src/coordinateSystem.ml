@@ -368,11 +368,11 @@ let project_ideal cs ideal ?(subterm=fun _ -> true) keep =
       let term = P.term_of srk safe_term_of_coordinate p in
       let safe_term_constraints =
         P.dimensions p
-        /@ (fun i ->
+        |> SrkUtil.Int.Set.elements
+        |> List.map (fun i ->
             let term = term_of_coordinate cs i in
             let term' = safe_term_of_coordinate i in
             mk_eq srk term term')
-        |> BatList.of_enum
       in
       let provenance_constraints =
         List.map (fun q ->

@@ -15,6 +15,12 @@ type 'a algebra =
     zero : 'a;
     one : 'a }
 
+(** Omega algebra signature *)
+type ('a,'b) omega_algebra =
+  { omega : 'a -> 'b;
+    omega_add : 'b -> 'b -> 'b;
+    omega_mul : 'a -> 'b -> 'b }
+
 (** Unweighted graphs *)
 module U : Graph.Sig.G with type V.t = int
 
@@ -37,10 +43,20 @@ val edge_weight : 'a t -> vertex -> vertex -> 'a
     in [g]. *)
 val path_weight : 'a t -> vertex -> vertex -> 'a
 
+(** Multiple-source all-target path expressions. [msat_path_weight g
+   srcs] computes a function [f] which maps a vertex [u] belonging to
+   [src] and any other vertex [v] to to the sum of all weighted paths
+   from [u] to [v].  *)
+val msat_path_weight : 'a t -> vertex list -> 'a t
+
+(** [omega_path_weight g alg v] computes the sum of all weighted omega
+   paths starting at [v] in [g]. *)
+val omega_path_weight : 'a t -> ('a,'b) omega_algebra -> vertex -> 'b
+
 (** [cut_graph g c] computes the cut graph g'
-    g' = <c, {(u, w, v) : (u, v) in c x c,
+    g' = <c, \{ (u, w, v) : (u, v) in c x c,
                           w is the sum of all paths from u to v in g not going
-                          through any node in c}> **)
+                          through any node in c \}> **)
 val cut_graph : 'a t -> vertex list -> 'a t
 
 (** Remove a vertex from a graph. *)
@@ -103,51 +119,98 @@ val forward_analysis :
   init:(int -> 'v) ->
   (int -> 'v)
 
-(** Weight algebras, equipped with additional operations for interpreting
-    recursive graphs *)
-module type Weight = sig
-  type t
-  val mul : t -> t -> t
-  val add : t -> t -> t
-  val zero : t
-  val one : t
-  val star : t -> t
-  val equal : t -> t -> bool
-  val project : t -> t
-  val widen : t -> t -> t
+module type AbstractWeight = sig
+  type weight
+  type abstract_weight
+  val abstract : weight -> abstract_weight
+  val concretize : abstract_weight -> weight
+  val equal : abstract_weight -> abstract_weight -> bool
+  val widen : abstract_weight -> abstract_weight -> abstract_weight
 end
 
-type 'a label =
-  | Weight of 'a
-  | Call of int * int
+(** A recursive graph is a graph with two types of edges: simple edges
+   and call edges.  Each call edge designates an entry vertex and exit
+   vertex, and can be interpreted a set of paths that begin and entry
+   and end at exit. *)
+module RecGraph : sig
+  type t
+  type call = vertex * vertex
 
-(** A weighted recursive graph is a graph with two types of edges: weighted
-    edges and call edges.  Each call edges designates an entry vertex and exit
-    vertex, and weight queries treat the edge as having a weight that
-    over-approximates the weights of paths from entry to exit.  Since a call
-    edge [(s,t)] may appear between [s] and [t], recursive graphs can model
-    (mutually) recursive procedures.  *)
-module MakeRecGraph (W : Weight) : sig
-  (** A recursive graph is a weighted graph with edges are either weighted by
-      [W] or by calls.  Algebraic operations for call edges are undefined, and
-      weighted graph operations that would invoke an algebraic operation
-      (e.g., [contract_vertex], [path_weight]) on a call weight raise
-      [Invalid_arg]. *)
-  type t = (W.t label) weighted_graph
-
-  (** A query is an intermediate structure for perfoming path weight queries.
-      After creating a recursive graph, a query can be constructed using
-      [mk_query] and accessed using [path_weight]. *)
+  (** A query is an intermediate structure for perfoming path
+     expression queries.  After creating a recursive graph, a query
+     can be constructed using [mk_query] and accessed using
+     [pathexpr]. *)
   type query
 
-  (** Create an empty recursive graph. *)
-  val empty : t
+  (** A weight query is an intermediate structure for perfoming path
+     weight queries. *)
+  type 'a weight_query
 
-  (** Create a query structure.  The optional [delay] parameter specifies the
-      widening delay to use during summary computation. *)
-  val mk_query : ?delay:int -> t -> query
+  exception No_summary of call
 
-  (** Over-approximate the sum of the weights of all paths between two given
-      vertices.  *)
-  val path_weight : query -> vertex -> vertex -> W.t
+  (** The callgraph of a recursive graph has calls as vertices, and an
+     edge c1 to c2 iff a call to c2 appears on a path in c1.  A
+     callgraph can be constructed using [mk_callgraph]. *)
+  module CallGraph : sig
+    type t
+    module V : sig
+      type t = call
+    end
+    val iter_vertex : (call -> unit) -> t -> unit
+    val iter_succ  : (call -> unit) -> t -> call -> unit
+  end
+
+  val empty : unit -> t
+  val add_vertex : t -> vertex -> t
+  val add_edge : t -> vertex -> vertex -> t
+  val add_call_edge : t -> vertex -> call -> vertex -> t
+
+  (** Create a query for computing path expressions beginning at the
+     designated source vertex. *)
+  val mk_query : t -> vertex -> query
+
+  (** Find a nested path expression recognizing every interprocedural
+     path from the query's source vertex to the given target vertex.
+     Every complete entry-to-call edge path is enclosed in a
+     segment. *)
+  val pathexpr : query -> vertex -> Pathexpr.nested Pathexpr.t
+
+  (** Find a simple path expression recognizing every intraprocedural
+     path through a given call.  The call must appear on at least one
+     of the call edges of the recursive graph of the query. *)
+  val call_pathexpr : query -> call -> Pathexpr.simple Pathexpr.t
+
+  (** Find an omega regular expression recognizing every infinite
+     interprocedural path beginning at the query's source vertex. *)
+  val omega_pathexpr : query -> Pathexpr.nested Pathexpr.omega
+
+  val mk_callgraph : query -> CallGraph.t
+
+  (** Create a weighted query for computing path weights.  The
+     supplied algebra is used to assign weights to simple edges; the
+     query maintains summaries for each call that are used to assign
+     weights to call edges. *)
+  val mk_weight_query : query -> 'a Pathexpr.nested_algebra -> 'a weight_query
+
+  (** Build call summaries via successive approximation. *)
+  val summarize_iterative : query ->
+                            'a Pathexpr.nested_algebra ->
+                            ?delay:int ->
+                            (module AbstractWeight
+                                    with type weight = 'a) ->
+                            'a weight_query
+  (** Find the sum of weights of all interprocedural paths beginning
+     at the query's source vertex and ending at a given target. *)
+  val path_weight : 'a weight_query -> vertex -> 'a
+
+  (** Find the sum of weights of all intraprocedural paths through a
+     given call. *)
+  val call_weight : 'a weight_query -> call -> 'a
+
+  val get_summary : 'a weight_query -> call -> 'a
+  val set_summary : 'a weight_query -> call -> 'a -> unit
+
+  (** Find the sum of weights of all infinite interprocedural paths
+     beginning at the query's source vertex. *)
+  val omega_path_weight : 'a weight_query -> ('a,'b) Pathexpr.omega_algebra -> 'b
 end

@@ -7,6 +7,13 @@ open Syntax
     affine hull if every term in the list evaluates to 0 at [p]. *)
 val affine_hull : 'a context -> 'a formula -> symbol list -> 'a term list
 
+(** Let [cs = t1, ..., tn] be a list of terms. [t1, ..., tn] generates
+   a linear space of functions from interpretations to rationals;
+   [vanishing_space srk phi cs] computes a basis for the subspace of
+   functions from interpretations to rationals that evaluate to zero
+   on all models of [phi]. *)
+val vanishing_space : 'a context -> 'a formula -> 'a term array -> Linear.QQVectorSpace.t
+
 (** [boxify srk phi terms] computes the strongest formula of the form
     [/\ { lo <= t <= hi : t in terms }]
     that is implied by [phi]. *)
@@ -17,10 +24,21 @@ val boxify : 'a context -> 'a formula -> 'a term list -> 'a formula
     property is restricted to use only the symbols that satisfy the [?exists]
     predicate (which defaults to the constant [true] predicate). *)
 val abstract : ?exists:(symbol -> bool) ->
-  'a context ->
-  'abs Apron.Manager.t ->
-  'a formula ->
-  ('a,'abs) SrkApron.property
+               'a context ->
+               'abs Apron.Manager.t ->
+               'a formula ->
+               ('a,'abs) SrkApron.property
+
+module Sign : sig
+  type 'a t
+  val abstract : 'a context -> 'a formula -> 'a term list -> 'a t
+  val formula_of : 'a context -> 'a t -> 'a formula
+  val join : 'a t -> 'a t -> 'a t
+  val equal : 'a t -> 'a t -> bool
+  val bottom : 'a t
+  val top : 'a t
+  val exists : (symbol -> bool) -> 'a t -> 'a t
+end
 
 (** Symbolic abstraction as described in Reps, Sagiv,
    Yorsh---"Symbolic implementation of the best transformer", VMCAI

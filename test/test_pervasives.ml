@@ -1,6 +1,8 @@
+open Srk
 open OUnit
 open Syntax
 open Linear
+
 module Ctx = MakeSimplifyingContext ()
 module Infix = Syntax.Infix(Ctx)
 let srk = Ctx.context
@@ -91,6 +93,9 @@ let assert_equal_exppoly x y =
 
 let assert_equal_up_exppoly x y =
   assert_equal ~cmp:ExpPolynomial.UltPeriodic.equal ~printer:ExpPolynomial.UltPeriodic.show x y
+
+let assert_equal_pathexpr context x y =
+  assert_equal ~cmp:(Pathexpr.equiv context) ~printer:Pathexpr.show x y
 
 let assert_implies phi psi =
   if not (Smt.entails srk phi psi = `Yes) then

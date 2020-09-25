@@ -56,9 +56,9 @@ module Make
       [v]. *)
   val assign : var -> C.t term -> t
 
-  (** Parallel assignment of a list of terms to a list of variables.  If a
-      variable appears multiple times as a target for an assignment, the rightmost
-      assignment is taken. *)
+  (** Parallel assignment of a list of terms to a list of variables.
+     If a variable appears multiple times as a target for an
+     assignment, the rightmost assignment is taken. *)
   val parallel_assign : (var * C.t term) list -> t
 
   (** Assign a list of variables non-deterministic values. *)
@@ -76,9 +76,10 @@ module Make
   (** Skip (unit of [mul]). *)
   val one : t
 
-  (** Widen abstracts both input transitions to the Cube abstract domain,
-      performs the Cube widening operator, and then converts back to a transition.
-      The resulting transition is normal in the sense described in [equal]. *)
+  (** Widen abstracts both input transitions to the Cube abstract
+     domain, performs the Cube widening operator, and then converts
+     back to a transition.  The resulting transition is normal in the
+     sense described in [equal]. *)
   val widen : t -> t -> t
 
   (** [exists ex tr] removes the variables that do not satisfy the predicate
@@ -124,22 +125,9 @@ module Make
 
   val abstract_post : (C.t,'abs) SrkApron.property -> t -> (C.t,'abs) SrkApron.property
 
-  (** Compute a representation of a transition as a formula and a list
-     of (pre-state, post-state) symbols. *)
-  val to_transition_formula : t -> (((symbol * symbol) list) * C.t formula)
+  (** Compute a representation of a transition as a transition formula. *)
+  val to_transition_formula : t -> C.t TransitionFormula.t
 
-  (** Iteration domain.  See {!Iteration}. *)
-  module Iter (I : Iteration.Domain) : sig
-    type iter = C.t I.t
-    val alpha : t -> iter
-    val closure : iter -> t
-    val star : t -> t
-
-    val equal : iter -> iter -> bool
-
-    val widen : iter -> iter -> iter
-    val join : iter -> iter -> iter
-
-    val pp : Format.formatter -> iter -> unit
-  end
+  val domain : (module Iteration.PreDomain) ref
+  val star : t -> t
 end

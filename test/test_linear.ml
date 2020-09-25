@@ -1,6 +1,10 @@
+open Srk
 open OUnit
 open Linear
 open Test_pervasives
+
+let assert_equal_vs x y =
+  assert_equal ~cmp:QQVectorSpace.equal x y
 
 let dot () =
   let u = mk_vector [1; 2; 3] in
@@ -220,104 +224,6 @@ let nullspace3 () =
   basis |> List.iter (fun x ->
       assert_equal ~printer:QQVector.show QQVector.zero (vector_right_mul m x))
 
-let rational_triangulation1 () =
-  let a = mk_matrix [[1; 0; 0];
-                     [0; 2; 0];
-                     [0; 0; 3]]
-  in
-  let (m, t) = Linear.rational_triangulation a in
-  assert_equal_qqmatrix (QQMatrix.mul m a) (QQMatrix.mul t m);
-  assert_equal 3 (QQMatrix.nb_rows t)
-
-let rational_triangulation2 () =
-  let a = mk_matrix [[6; -2; -1];
-                     [3; 1; -1];
-                     [2; -1; 2]]
-  in
-  let (m, t) = Linear.rational_triangulation a in
-  assert_equal_qqmatrix (QQMatrix.mul m a) (QQMatrix.mul t m);
-  assert_equal 3 (QQMatrix.nb_rows t)
-
-let rational_triangulation3 () =
-  let a = mk_matrix [[5; 4; 2; 1];
-                     [0; 1; -1; -1];
-                     [-1; -1; 3; 0];
-                     [1; 1; -1; 2]]
-  in
-  let (m, t) = Linear.rational_triangulation a in
-  assert_equal_qqmatrix (QQMatrix.mul m a) (QQMatrix.mul t m);
-  assert_equal 4 (QQMatrix.nb_rows t)
-
-let rational_triangulation4 () =
-  let a = mk_matrix [[0; 1; 0];
-                     [0; 0; 1];
-                     [0; 1; 1]]
-  in
-  let (m, t) = Linear.rational_triangulation a in
-  assert_equal_qqmatrix (QQMatrix.mul m a) (QQMatrix.mul t m)
-
-let rational_triangulation5 () =
-  let a = mk_matrix [[0; 1; 0];
-                     [0; 0; 1];
-                     [1; -1; 1]]
-  in
-  let (m, t) = Linear.rational_triangulation a in
-  assert_equal_qqmatrix (QQMatrix.mul m a) (QQMatrix.mul t m);
-  assert_equal 1 (QQMatrix.nb_rows t)
-
-let max_lds1 () =
-  let a = mk_matrix [[1; 0];
-                     [0; 0]]
-  in
-  let b = mk_matrix [[1; 1];
-                     [0; 1]]
-  in
-  let (t, m) = Linear.max_lds a b in
-  let t_expected = mk_matrix [[1; -1]] in
-  let m_expected = mk_matrix [[1]] in
-  assert_equal_qqmatrix t_expected t;
-  assert_equal_qqmatrix m_expected m
-
-let max_lds2 () =
-  let a = mk_matrix [[1; 0];
-                     [0; 1];
-                     [0; 0]]
-  in
-  let b = mk_matrix [[1; 1];
-                     [1; 0];
-                     [0; 1]]
-  in
-  let (t, m) = Linear.max_lds a b in
-  let t_expected = mk_matrix [[1; 0];
-                              [0; 1]]
-  in
-  let m_expected = mk_matrix [[1; 1];
-                              [1; 0]]
-  in
-  assert_equal_qqmatrix t_expected t;
-  assert_equal_qqmatrix m_expected m
-
-let max_lds3 () =
-  let a = mk_matrix [[0; 1; 0];
-                     [0; 0; 1];
-                     [1; 0; 0]]
-  in
-  let b = mk_matrix [[2; 1; 0];
-                     [3; 3; 1];
-                     [1; 0; 0]]
-  in
-  let (t, m) = Linear.max_lds a b in
-  let t_expected = mk_matrix [[1; 0; 0];
-                              [0; 1; 0];
-                              [0; 0; 1]]
-  in
-  let m_expected = mk_matrix [[1; 0; 2];
-                              [3; 1; 3];
-                              [0; 0; 1]]
-  in
-  assert_equal_qqmatrix t_expected t;
-  assert_equal_qqmatrix m_expected m;
-  assert_equal_qqmatrix b (QQMatrix.mul m a)
 
 let rsd1 () =
   let m = mk_matrix [[1; 2];
@@ -494,9 +400,12 @@ let prsd7 () =
      assert_equal_qq QQ.one lambda1;
      assert_equal_qq QQ.one lambda2;
      assert_equal_qq QQ.one lambda3;
-     assert_equal_qqvector (mk_vector [0; 0; 1]) v1;
-     assert_equal_qqvector (mk_vector [0; 1; 0]) v2;
-     assert_equal_qqvector (mk_vector [1; 0; 0]) v3
+     let expected_vs =
+       [mk_vector [1; 0; 0];
+        mk_vector [0; 1; 0];
+        mk_vector [0; 0; 1]]
+     in
+     assert_equal_vs expected_vs [v1; v2; v3]
 
   | _ -> assert false
 
@@ -505,9 +414,6 @@ let prsd8 () =
   match periodic_rational_spectral_decomposition m [0] with
   | [(1,lambda,_)] -> assert_equal_qq (QQ.of_int 42) lambda
   | _ -> assert false
-
-let assert_equal_vs x y =
-  assert_equal ~cmp:QQVectorSpace.equal x y
 
 let vs_sum () =
   let vU =
@@ -578,53 +484,6 @@ let vs_intersect () =
     (QQVectorSpace.diff vU (QQVectorSpace.intersect vU vV))
     (QQVectorSpace.diff vU vV)
 
-module PLM = Linear.PartialLinearMap
-
-let assert_equal_plm x y =
-  assert_equal ~cmp:PLM.equal ~printer:(SrkUtil.mk_show PLM.pp) x y
-
-let plm_compose1 () =
-  let f =
-    let m = mk_matrix [[1; 0; 1];
-                       [0; 1; -1];
-                       [0; 0; 2]]
-    in
-    let guard = [mk_vector [1; -1; 0]] in
-    PLM.make m guard
-  in
-  let ff =
-    let m = mk_matrix [[1; 0; 0];
-                       [0; 1; 0];
-                       [0; 0; 0]]
-    in
-    let guard = [mk_vector [-1; 1; 0];
-               mk_vector [0; 0; 1]]
-    in
-    PLM.make m guard
-  in
-  assert_equal_plm ff (PLM.compose f f)
-
-let plm_compose2 () =
-  let f =
-    let m = mk_matrix [[0; 1; 1];
-                       [1; 0; 1];
-                       [-3; 3; 1]]
-    in
-    let guard = [mk_vector [3; -3; 0]] in
-    PLM.make m guard
-  in
-  let ff =
-    let m = mk_matrix [[1; 0; 2];
-                       [0; 1; 2];
-                       [0; 0; 1]]
-    in
-    let guard = [mk_vector [-1; 1; 0]]
-    in
-    PLM.make m guard
-  in
-  assert_equal_plm ff (PLM.compose f f)
-
-
 let suite = "Linear" >::: [
     "dot" >:: dot;
     "mul" >:: mul;
@@ -645,14 +504,6 @@ let suite = "Linear" >::: [
     "nullspace1" >:: nullspace1;
     "nullspace2" >:: nullspace2;
     "nullspace3" >:: nullspace3;
-    "rational_triangulation1" >:: rational_triangulation1;
-    "rational_triangulation2" >:: rational_triangulation2;
-    "rational_triangulation3" >:: rational_triangulation3;
-    "rational_triangulation4" >:: rational_triangulation4;
-    "rational_triangulation5" >:: rational_triangulation5;
-    "max_lds1" >:: max_lds1;
-    "max_lds2" >:: max_lds2;
-    "max_lds3" >:: max_lds3;
     "rsd1" >:: rsd1;
     "rsd2" >:: rsd2;
     "rsd3" >:: rsd3;
@@ -670,6 +521,4 @@ let suite = "Linear" >::: [
     "vs_sum" >:: vs_sum;
     "vs_diff" >:: vs_diff;
     "vs_intersect" >:: vs_intersect;
-    "plm_compose1" >:: plm_compose1;
-    "plm_compose2" >:: plm_compose2
   ]

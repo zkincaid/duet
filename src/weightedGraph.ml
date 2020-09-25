@@ -3,7 +3,7 @@ open Pathexpr
 include Log.Make(struct let name = "srk.weightedGraph" end)
 
 module U = Graph.Persistent.Digraph.ConcreteBidirectional(SrkUtil.Int)
-module WTO = Graph.WeakTopological.Make(U)
+module L = Loop.Make(U)
 
 module IntPair = struct
   type t = int * int [@@deriving ord, eq]
@@ -19,6 +19,11 @@ type 'a algebra =
     zero : 'a;
     one : 'a }
 
+type ('a,'b) omega_algebra =
+  { omega : 'a -> 'b;
+    omega_add : 'b -> 'b -> 'b;
+    omega_mul : 'a -> 'b -> 'b }
+
 type 'a weighted_graph =
   { graph : U.t;
     labels : 'a M.t;
@@ -27,6 +32,11 @@ type 'a weighted_graph =
 type 'a t = 'a weighted_graph
 
 type vertex = int
+
+(* Check invariant: 1-to-1 correspondence between labels & edges *)
+let _sat_inv wg =
+  (M.for_all (fun (u,v) _ -> U.mem_edge wg.graph u v) wg.labels)
+  && U.fold_edges (fun u v b -> b && M.mem (u,v) wg.labels) wg.graph true
 
 let empty algebra =
   { graph = U.empty;
@@ -46,10 +56,8 @@ let edge_weight wg u v =
 
 let add_edge wg u weight v =
   if M.mem (u, v) wg.labels then
-    let new_weight =
-      wg.algebra.add (M.find (u, v) wg.labels) weight
-    in
-    { wg with labels = M.add (u, v) new_weight wg.labels }
+    let labels' = M.modify (u, v) (wg.algebra.add weight) wg.labels in
+    { wg with labels = labels' }
   else
     { wg with graph = U.add_edge wg.graph u v;
               labels = M.add (u, v) weight wg.labels }
@@ -68,6 +76,40 @@ let remove_vertex wg u =
   in
   { wg with graph = U.remove_vertex wg.graph u;
             labels = labels }
+
+let remove_edge wg u v =
+  { wg with graph = U.remove_edge wg.graph u v;
+            labels = M.remove (u, v) wg.labels }
+
+let fold_incident_edges f graph v acc =
+  U.fold_succ
+    (fun u acc -> f (v, u) acc)
+    graph
+    v
+    (U.fold_pred
+       (fun u acc -> if u == v then acc else f (u, v) acc)
+       graph
+       v
+       acc)
+
+(* Rename vertex u to w.  If w already exists in the graph, then all
+   of the incident edges of u become incident to w instead (and u is
+   removed). *)
+let rename_vertex wg u w =
+  let g' = U.add_vertex (U.remove_vertex wg.graph u) w in
+  let rename v = if v = u then w else v in
+  fold_incident_edges (fun (v,v') wg ->
+      let (weight, labels) = M.extract (v, v') wg.labels in
+      let graph' =
+        U.add_edge wg.graph (rename v) (rename v')
+      in
+      let labels' =
+        M.add (rename v, rename v') weight labels
+      in
+        { wg with graph = graph'; labels = labels' })
+    wg.graph
+    u
+    { wg with graph = g' }
 
 let contract_vertex wg v =
   (* List of all { (s, w(v,v)*w(v,s)) : (v,s) in E } *)
@@ -112,18 +154,147 @@ let path_weight wg src tgt =
     let g = add_edge g start one src in
     let g = add_edge g tgt one final in
     let rec go g elt =
-      let open Graph.WeakTopological in
       match elt with
-      | Vertex v -> contract_vertex g v
-      | Component (v, rest) ->
-        let g = fold_left go g rest in
-        contract_vertex g v
+      | `Vertex v -> contract_vertex g v
+      | `Loop loop ->
+        let g = List.fold_left go g (L.children loop) in
+        contract_vertex g (L.header loop)
     in
-    Graph.WeakTopological.fold_left go g (WTO.recursive_scc wg.graph src)
+    List.fold_left go g (L.loop_nest wg.graph)
   in
   match edge_weight_opt contracted_graph start final with
   | None -> wg.algebra.zero
   | Some w -> w
+
+let msat_path_weight wg srcs =
+  (* For each source vertex s, augment the graph with a fresh vertex
+     s' and an edge s' -> s with weight 1.  After bypassing all
+     vertices in the original graph, the edges leaving s' correspond
+     to paths leaving s. *)
+  let start = max_vertex wg + 1 in
+  let wg' =
+    List.fold_left (fun (wg, next) src ->
+        let wg = add_vertex wg next in
+        let wg = add_edge wg next wg.algebra.one src in
+        (wg, next + 1))
+      (wg, start)
+      srcs
+    |> fst
+  in
+
+  (* Contract the successor edges of a vertex.  In the resulting
+     graph, v has no outgoing edges but all paths that don't begin at
+     v are preserved. *)
+  let bypass_vertex wg v =
+    let mul = wg.algebra.mul in
+    (* If v has a loop, remove it and shift its weight to v's
+       predecessors *)
+    let wg =
+      if M.mem (v, v) wg.labels then begin
+          let loop = wg.algebra.star (M.find (v,v) wg.labels) in
+          let wg = remove_edge wg v v in
+          let labels' =
+            U.fold_pred (fun p labels ->
+                M.modify (p, v) (fun w -> mul w loop) labels)
+              wg.graph
+              v
+              wg.labels
+          in
+          { wg with labels = labels' }
+        end
+      else wg
+    in
+
+    (* For each successor s of v, connect s to all predecessors of v
+       and remove the s->v edge *)
+    let predecessors = (* Save predecessor edges to avoid repeated lookups *)
+      List.map (fun p -> (p, edge_weight wg p v)) (U.pred wg.graph v)
+    in
+
+    U.fold_succ (fun s wg ->
+        let v_to_s = edge_weight wg v s in
+        List.fold_left (fun wg (p, p_to_v) ->
+            add_edge wg p (mul p_to_v v_to_s) s)
+          (remove_edge wg v s)
+          predecessors)
+      wg.graph
+      v
+      wg
+  in
+  let rec go wg elt =
+    match elt with
+    | `Vertex v -> bypass_vertex wg v
+    | `Loop loop ->
+       let wg = List.fold_left go wg (L.children loop) in
+       bypass_vertex wg (L.header loop)
+  in
+  let wg' = List.fold_left go wg' (L.loop_nest wg.graph) in
+  List.fold_left (fun (wg, next) src ->
+      let wg = rename_vertex wg next src in
+      (wg, next + 1))
+    (wg', start)
+    srcs
+  |> fst
+
+let omega_path_weight
+      (wg : 'a t)
+      (omega : ('a,'b) omega_algebra)
+      (src : vertex) =
+  let start = max_vertex wg + 1 in
+
+  (* Each vertex v is associated with the sum of the weights of all
+     omega paths beginning at v that *only* pass through contracted
+     vertices. *)
+  let omega_weights = BatHashtbl.create 991 in
+  let add_omega v weight =
+    if BatHashtbl.mem omega_weights v then
+      BatHashtbl.modify v (omega.omega_add weight) omega_weights
+    else
+      BatHashtbl.add omega_weights v weight
+  in
+  let contract_vertex g v =
+    (* If there are omega paths starting at v, when v is contracted
+       those omega paths now begin at v's predecessors *)
+    if M.mem (v, v) g.labels || BatHashtbl.mem omega_weights v then
+      begin
+        let loop =
+          (* Try to avoid omega addition if possible *)
+          try
+            let self_loop = omega.omega (M.find (v, v) g.labels) in
+            (try omega.omega_add (BatHashtbl.find omega_weights v) self_loop
+             with Not_found -> self_loop)
+          with Not_found ->
+            BatHashtbl.find omega_weights v
+        in
+        U.iter_pred (fun pred ->
+            if pred != v then
+              let pw = edge_weight g pred v in
+              add_omega pred (omega.omega_mul pw loop))
+          g.graph
+          v
+      end;
+    contract_vertex g v
+  in
+  let g = add_vertex wg start in
+  let g = add_edge g start wg.algebra.one src in
+  let rec go g elt =
+    match elt with
+    | `Vertex v -> contract_vertex g v
+    | `Loop loop ->
+       let header = L.header loop in
+       let g = List.fold_left go g (L.children loop) in
+       (* Contract v, then add v back the the graph along with
+          predecessor edges *)
+       U.fold_pred (fun pred g' ->
+           add_edge g' pred (edge_weight g pred header) header)
+         g.graph
+         header
+         (contract_vertex g header)
+  in
+  ignore (List.fold_left go g (L.loop_nest wg.graph));
+  try
+    BatHashtbl.find omega_weights start
+  with Not_found -> omega.omega wg.algebra.zero
 
 let split_vertex wg u weight v =
   U.fold_succ (fun w wg ->
@@ -208,8 +379,7 @@ module LineGraph = struct
       graph
       dst
 end
-module LGWTO = Graph.WeakTopological.Make(LineGraph)
-module ESet = Set.Make(IntPair)
+module LGLoop = Loop.Make(LineGraph)
 
 let forward_analysis wg ~entry ~update ~init =
   let data_table = Hashtbl.create 991 in
@@ -224,18 +394,7 @@ let forward_analysis wg ~entry ~update ~init =
     Hashtbl.replace data_table v data;
   in
 
-  (* Set of edges that belong to an WTO component *)
-  let loop_edges wto =
-    let rec go edges wto =
-      let open Graph.WeakTopological in
-      match wto with
-      | Vertex e -> ESet.add e edges
-      | Component (e, rest) ->
-        fold_left go (ESet.add e edges) rest
-    in
-    go ESet.empty wto
-  in
-
+  let module ESet = LGLoop.VertexSet in
   let update_edge work ((src, dst) as e) =
     if ESet.mem e work then
       let work = ESet.remove e work in
@@ -248,15 +407,17 @@ let forward_analysis wg ~entry ~update ~init =
     else
       work
   in
-  let rec solve work wto =
-    let open Graph.WeakTopological in
-    match wto with
-    | Vertex e -> update_edge work e
-    | Component (e, rest) ->
-      let cmp_edges = loop_edges wto in
+  let rec solve work loop_nest =
+    match loop_nest with
+    | `Vertex e -> update_edge work e
+    | `Loop loop ->
+      let cmp_edges = LGLoop.body loop in
       let rec fix work =
         let work =
-          fold_left solve (update_edge work e) rest
+          List.fold_left
+            solve
+            (update_edge work (LGLoop.header loop))
+            (LGLoop.children loop)
         in
         if ESet.exists (fun e -> ESet.mem e work) cmp_edges then
           fix work
@@ -272,34 +433,26 @@ let forward_analysis wg ~entry ~update ~init =
   let init_vertex = max_vertex wg + 1 in
   let graph' = U.add_edge wg.graph init_vertex entry in
 
-  ignore (Graph.WeakTopological.fold_left
+  ignore (List.fold_left
             solve
             (U.fold_succ_e ESet.add wg.graph entry ESet.empty)
-            (LGWTO.recursive_scc graph' (init_vertex, entry)));
+            (LGLoop.loop_nest graph'));
 
   get_data
 
-module type Weight = sig
-  type t
-  val mul : t -> t -> t
-  val add : t -> t -> t
-  val zero : t
-  val one : t
-  val star : t -> t
-  val equal : t -> t -> bool
-  val project : t -> t
-  val widen : t -> t -> t
+module type AbstractWeight = sig
+  type weight
+  type abstract_weight
+  val abstract : weight -> abstract_weight
+  val concretize : abstract_weight -> weight
+  val equal : abstract_weight -> abstract_weight -> bool
+  val widen : abstract_weight -> abstract_weight -> abstract_weight
 end
 
-type 'a label =
-  | Weight of 'a
-  | Call of int * int
-
-module MakeRecGraph (W : Weight) = struct
-
+module RecGraph = struct
+  module HT = BatHashtbl.Make(IntPair)
   module CallSet = BatSet.Make(IntPair)
   module VertexSet = SrkUtil.Int.Set
-
   module CallGraph = struct
     type t = CallSet.t M.t
     module V = IntPair
@@ -320,7 +473,60 @@ module MakeRecGraph (W : Weight) = struct
         M.add u (CallSet.singleton v) callgraph
     let empty = M.empty
   end
-  module CallGraphWTO = Graph.WeakTopological.Make(CallGraph)
+  module CallGraphLoop = Loop.Make(CallGraph)
+
+  type call = vertex * vertex
+
+  type t =
+    { path_graph : Pathexpr.simple Pathexpr.t weighted_graph;
+      call_edges : call M.t;
+      context : Pathexpr.context }
+
+  type query =
+    { recgraph : t;
+
+      (* The intraprocedural path graph has an edge u->v for
+         each entry vertex u and each vertex v reachable from u,
+         weighted with a path expression for the paths from u to v. *)
+      intraproc_paths : Pathexpr.simple Pathexpr.t weighted_graph;
+
+      (* The interprocedural graph has entries as vertices, and each
+         edge u->v is weighted by a path expression recognizing all
+         paths from u to an call edge (v, _) *)
+      interproc : Pathexpr.nested Pathexpr.t weighted_graph;
+
+      (* The interprocedural path graph has an edge src->v for each
+         entry vertex v weighted by a path expression for the paths in
+         the interprocedural graph from src to v *)
+      interproc_paths : Pathexpr.nested Pathexpr.t weighted_graph;
+
+      src : vertex (* designated source vertex *) }
+
+  (* The memo table and algebra of a weighted query should not be
+     accessed directly -- the memo table becomes stale when summaries
+     are updated.  Use the "prepare" function to fix the memo table
+     and get an algebra that also provides an interpretation for call
+     edges. *)
+  type 'a weight_query =
+    { query : query;
+      summaries : 'a HT.t; (* Map calls to their summaries *)
+
+      (* Memo table mapping path expressions to their weights *)
+      table : 'a Pathexpr.table;
+
+      (* Calls whose summaries have changed since they were last
+         evaluated *)
+      changed : CallSet.t ref;
+
+      (* An algebra for assigning weights to non-call edges and *)
+      algebra : 'a Pathexpr.nested_algebra }
+
+  let pathexpr_algebra context =
+    { mul = mk_mul context;
+      add = mk_add context;
+      star = mk_star context;
+      zero = mk_zero context;
+      one = mk_one context }
 
   let fold_reachable_edges f g v acc =
     let visited = ref VertexSet.empty in
@@ -328,251 +534,255 @@ module MakeRecGraph (W : Weight) = struct
       U.fold_succ (fun v acc ->
           let acc = f u v acc in
           if not (VertexSet.mem v !visited) then begin
-            visited := VertexSet.add v (!visited);
-            go v acc
-          end else
-            acc)
+              visited := VertexSet.add v (!visited);
+              go v acc
+            end
+          else acc)
         g.graph
         u
         acc
     in
     go v acc
 
-  type recgraph = (W.t label) weighted_graph
-
-  type query =
-    { summaries : W.t M.t; (* Map calls to weights that summarize all paths in
-                              the call *)
-      labels : (W.t label) M.t; (* Interpretation for all path expression edges *)
-      graph : Pathexpr.t t; (* Path expression weighted graph *)
-      table : W.t table; (* Path expression memo table  *)
-      context : Pathexpr.context (* Path expression context *) }
-
-
-  type t = recgraph
-
-  let label_algebra =
-    let add x y = match x, y with
-      | Weight x, Weight y -> Weight (W.add x y)
-      | _, _ -> invalid_arg "No weight operations for call edges"
-    in
-    let mul x y = match x, y with
-      | Weight x, Weight y -> Weight (W.mul x y)
-      | _, _ -> invalid_arg "No weight operations for call edges"
-    in
-    let star = function
-      | Weight x -> Weight (W.star x)
-      | _ -> invalid_arg "No weight operations for call edges"
-    in
-    let zero = Weight W.zero in
-    let one = Weight W.one in
-    { add; mul; star; zero; one }
-
-  let empty = empty label_algebra
-
-  let weight_algebra f = function
-    | `Edge (s, t) -> f s t
-    | `Mul (x, y) -> W.mul x y
-    | `Add (x, y) -> W.add x y
-    | `Star x -> W.star x
-    | `Zero -> W.zero
-    | `One -> W.one
-
-  let pathexp_algebra context =
-    { mul = mk_mul context;
-      add = mk_add context;
-      star = mk_star context;
-      zero = mk_zero context;
-      one = mk_one context }
-
-  (* For each (s,t) call reachable from [src], add an edge from [src] to [s]
-     with the path weight from [src] to to the call.  *)
-  let add_call_edges query src =
-    let weight_algebra =
-      weight_algebra (fun s t ->
-          match M.find (s, t) query.labels with
-          | Weight w -> w
-          | Call (en, ex) -> M.find (en, ex) query.summaries)
-    in
-    fold_reachable_edges
-      (fun u v query' ->
-         match M.find (u, v) query'.labels with
-         | Call (call, _) ->
-           let weight =
-             path_weight query.graph src u
-             |> eval ~table:query.table weight_algebra
-             |> W.project
-           in
-           if M.mem (src, call) query'.labels then
-             match M.find (src, call) query'.labels with
-             | Weight w ->
-               let label = Weight (W.add w weight) in
-               let labels' =
-                 M.add (src, call) label query'.labels
-               in
-               { query' with labels = labels' }
-             | _ -> assert false
-           else
-             let graph' =
-               add_edge query'.graph src (mk_edge query.context src call) call
-             in
-             let labels' = M.add (src, call) (Weight weight) query'.labels in
-             { query' with graph = graph';
-                           labels = labels' }
-         | _ -> query')
-      query.graph
-      src
-      query
-
-  let mk_query ?(delay=1) rg =
-    let table = mk_table () in
-    let context = mk_context () in
-    let calls = (* All calls that appear on a call edge *)
-      fold_edges (fun (_, label, _) callset ->
-          match label with
-          | Weight _ -> callset
-          | Call (en, ex) -> CallSet.add (en, ex) callset)
-        rg
+  let mk_query rg src =
+    (* All calls that appear on a call edge *)
+    let callset =
+      M.fold (fun _ call callset ->
+          CallSet.add call callset)
+        rg.call_edges
         CallSet.empty
     in
-    let path_graph =
-      { graph = rg.graph;
-        labels = M.mapi (fun (u,v) _ -> mk_edge context u v) rg.labels;
-        algebra = pathexp_algebra context }
+    let sources =
+      CallSet.fold (fun (src, _) -> VertexSet.add src) callset VertexSet.empty
+      |> VertexSet.add src
+      |> VertexSet.elements
     in
-
-    if CallSet.is_empty calls then
-      { summaries = M.empty;
-        table;
-        graph = path_graph;
-        context;
-        labels = rg.labels }
-    else begin
-      let call_pathexpr =
-        CallSet.fold (fun (src, tgt) pathexpr ->
-            M.add (src, tgt) (path_weight path_graph src tgt) pathexpr)
-          calls
-          M.empty
-      in
-      (* Create a fresh call vertex to serve as entry.  It will have an edge
-           to every other call *)
-      let callgraph_entry =
-        let s = fst (CallSet.min_elt calls) in
-        (s-1, s-1)
-      in
-      (* Compute summaries *************************************************)
-      let callgraph_wto =
-        let pe_calls = function
-          | `Edge (s, t) ->
-            begin match M.find (s, t) rg.labels with
-              | Call (en, ex) -> CallSet.singleton (en, ex)
-              | _ -> CallSet.empty
-            end
-          | `Mul (x, y) | `Add (x, y) -> CallSet.union x y
-          | `Star x -> x
-          | `Zero | `One -> CallSet.empty
-        in
-        let table = mk_table () in
-        let initial_callgraph =
-          CallSet.fold (fun call callgraph ->
-              CallGraph.add_edge callgraph callgraph_entry call)
-            calls
-            CallGraph.empty
-        in
-        (* If there is a call to (s,t) between s' and t', add a dependence
-           edge from (s',t') to (s,t) *)
-        let callgraph =
-          M.fold (fun proc pathexpr callgraph ->
-              CallSet.fold (fun target callgraph ->
-                  CallGraph.add_edge callgraph target proc)
-                (eval ~table pe_calls pathexpr)
-                callgraph)
-            call_pathexpr
-            initial_callgraph
-        in
-        CallGraphWTO.recursive_scc callgraph callgraph_entry
-      in
-      let summaries = ref (M.map (fun _ -> W.zero) call_pathexpr) in
-      let weight =
-        weight_algebra (fun s t ->
-            match M.find (s, t) rg.labels with
-            | Weight w -> w
-            | Call (en, ex) -> M.find (en, ex) (!summaries))
-      in
-      let is_stable_edge unstable s t =
-        match M.find (s, t) rg.labels with
-        | Weight _ -> true
-        | Call (s, t) -> not (CallSet.mem (s, t) unstable)
-      in
-      let rec loop_calls vertices wto = (* Collect all calls within an SCC *)
-        let open Graph.WeakTopological in
-        match wto with
-        | Vertex v -> CallSet.add v vertices
-        | Component (v, rest) ->
-          fold_left loop_calls (CallSet.add v vertices) rest
-      in
-
-      (* stabilize summaries within a WTO component, and add to unstable all
-         calls whose summary (may have) changed as a result. *)
-      let rec fix () wto =
-        let open Graph.WeakTopological in
-        match wto with
-        | Vertex call when call = callgraph_entry -> ()
-        | Vertex call ->
-          let pathexpr = M.find call call_pathexpr in
-          let new_weight =
-            eval ~table weight pathexpr
-            |> W.project
-          in
-          summaries := M.add call new_weight (!summaries)
-        | Component (call, rest) ->
-          let pathexpr = M.find call call_pathexpr in
-          let unstable = loop_calls CallSet.empty wto in
-          let rec fix_component delay =
-            let old_weight = M.find call (!summaries) in
-            let new_weight =
-              eval ~table weight pathexpr
-              |> W.project
-            in
-            let new_weight =
-              if delay > 0 then new_weight
-              else W.widen old_weight new_weight
-            in
-            summaries := M.add call new_weight (!summaries);
-            fold_left fix () rest;
-            if not (W.equal old_weight new_weight) then begin
-              forget table (is_stable_edge unstable);
-              fix_component (delay - 1)
-            end
-          in
-          fix_component delay
-      in
-      Graph.WeakTopological.fold_left fix () callgraph_wto;
-      let query =
-        { summaries = !summaries;
-          table;
-          graph = path_graph;
-          context;
-          labels = rg.labels }
-      in
-      (* For each (s,t) call containing a call (s',t'), add an edge from s to s'
-         with the path weight from s to call(s',t'). *)
-      CallSet.fold
-        (fun (src, _) query' -> add_call_edges query' src)
-        calls
-        query
-    end
-
-  let path_weight query src tgt =
-    (* For each (s,t) call edge reachable from src, add corresponding edge
-       from src to s with the path weight from src to s *)
-    let query' = add_call_edges query src in
-    let weight =
-      weight_algebra (fun s t ->
-          match M.find (s, t) query'.labels with
-          | Weight w -> w
-          | Call (en, ex) -> M.find (en, ex) query'.summaries)
+    let intraproc_paths = msat_path_weight rg.path_graph sources in
+    let interproc =
+      let intraproc_paths = edge_weight intraproc_paths in
+      List.fold_left (fun interproc_graph src ->
+          fold_reachable_edges (fun u v interproc_graph ->
+              try
+                let (en,_) = M.find (u,v) rg.call_edges in
+                let pathexpr =
+                  mk_segment rg.context (intraproc_paths src u)
+                in
+                add_edge interproc_graph src pathexpr en
+              with Not_found -> interproc_graph)
+            rg.path_graph
+            src
+            (add_vertex interproc_graph src))
+        (empty (pathexpr_algebra rg.context))
+        sources
     in
-    path_weight query'.graph src tgt
-    |> eval ~table:query.table weight
+    { recgraph = rg;
+      intraproc_paths = intraproc_paths;
+      interproc = interproc;
+      interproc_paths = msat_path_weight interproc [src];
+      src = src }
+
+  let call_pathexpr query (src, tgt) =
+    (* intraproc_paths is only set when src is an entry vertex *)
+    if not (U.mem_vertex query.interproc.graph src) then
+      invalid_arg "call_weight: unknown call";
+    edge_weight query.intraproc_paths src tgt
+
+  let mk_callgraph query =
+    (* If there is a call to (s,t) between s' and t', add a dependence
+       edge from (s',t') to (s,t) *)
+    let callset =
+      (* All calls that appear on a call edge *)
+      M.fold
+        (fun _ call callset -> CallSet.add call callset)
+        query.recgraph.call_edges
+        CallSet.empty
+    in
+    (* Collect the set of calls that appear in a path expression *)
+    let callset_algebra = function
+      | `Edge e ->
+         begin try
+             CallSet.singleton (M.find e query.recgraph.call_edges)
+           with Not_found -> CallSet.empty
+         end
+      | `Mul (x, y) | `Add (x, y) -> CallSet.union x y
+      | `Star x -> x
+      | `Zero | `One -> CallSet.empty
+    in
+    let table = mk_table () in
+    CallSet.fold (fun call callgraph ->
+          CallGraph.add_vertex callgraph call)
+        callset
+        CallGraph.empty
+    |> CallSet.fold (fun (en, ex) callgraph ->
+           let pathexpr = edge_weight query.intraproc_paths en ex in
+           CallSet.fold (fun target callgraph ->
+               CallGraph.add_edge callgraph target (en, ex))
+             (eval ~table ~algebra:callset_algebra pathexpr)
+             callgraph)
+         callset
+
+  let mk_omega_algebra context =
+    { omega = mk_omega context;
+      omega_add = mk_omega_add context;
+      omega_mul = mk_omega_mul context }
+
+  let omega_pathexpr (query : query) =
+    let context = query.recgraph.context in
+    let omega_algebra =mk_omega_algebra context in
+    let omega_inter_algebra = mk_omega_algebra context in
+    fold_vertex (fun entry w ->
+        let src_entry =
+          edge_weight query.interproc_paths query.src entry
+        in
+        let entry_omega =
+          omega_path_weight query.recgraph.path_graph omega_algebra entry
+          |> Pathexpr.promote_omega
+        in
+        let src_entry_omega =
+          Pathexpr.mk_omega_mul query.recgraph.context src_entry entry_omega
+        in
+        Pathexpr.mk_omega_add context w src_entry_omega)
+      query.interproc_paths
+      (omega_path_weight query.interproc omega_inter_algebra query.src)
+
+  let pathexpr query tgt =
+    (* The interprocedural path weight to tgt is the sum over all
+       entries of an interprocedural path from src to entry * an
+       intraprocedural path from entry to tgt *)
+    let context = query.recgraph.context in
+    U.fold_pred (fun entry w ->
+        if U.mem_edge query.interproc_paths.graph query.src entry then
+          let src_entry_tgt =
+            Pathexpr.mk_mul
+              context
+              (edge_weight query.interproc_paths query.src entry)
+              (Pathexpr.promote (edge_weight query.intraproc_paths entry tgt))
+          in
+          Pathexpr.mk_add context w src_entry_tgt
+        else w)
+      query.intraproc_paths.graph tgt (Pathexpr.mk_zero context)
+
+  exception No_summary of call
+
+  (* Prepare memo table & algebra for a weight query *)
+  let prepare (q : 'a weight_query) =
+    let call_edges = q.query.recgraph.call_edges in
+    let changed = !(q.changed) in
+    let algebra = function
+      | `Edge (s, t) when M.mem (s, t) call_edges ->
+         let call = M.find (s, t) call_edges in
+         (try HT.find q.summaries call
+          with Not_found -> raise (No_summary call))
+      | e -> q.algebra e
+    in
+    if not (CallSet.is_empty changed) then begin
+        forget q.table (fun s t ->
+            try not (CallSet.mem (M.find (s, t) call_edges) changed)
+            with Not_found -> true);
+        q.changed := CallSet.empty
+      end;
+    (q.table, algebra)
+
+  let get_summary query call =
+    try HT.find query.summaries call
+    with Not_found -> raise (No_summary call)
+
+  let set_summary query call weight =
+    query.changed := CallSet.add call !(query.changed);
+    HT.replace query.summaries call weight
+
+  let mk_weight_query query algebra =
+    { query = query;
+      summaries = HT.create 991;
+      changed = ref CallSet.empty;
+      table = Pathexpr.mk_table ();
+      algebra = algebra }
+
+  let path_weight query tgt =
+    let (table, algebra) = prepare query in
+    Pathexpr.eval_nested ~table ~algebra (pathexpr query.query tgt)
+
+  let call_weight query (src, tgt) =
+    let (table, algebra) = prepare query in
+    Pathexpr.eval ~table ~algebra (call_pathexpr query.query (src, tgt))
+
+  let omega_path_weight query omega_algebra =
+    let (table, algebra) = prepare query in
+    let omega_table = Pathexpr.mk_omega_table table in
+    let paths = omega_pathexpr query.query in
+    Pathexpr.eval_omega ~table:omega_table ~algebra ~omega_algebra paths
+
+  let summarize_iterative
+        (type a)
+        path_query
+        algebra
+        ?(delay=1)
+        (module A : AbstractWeight with type weight = a) =
+    let weight_query = mk_weight_query path_query algebra in
+    let callgraph = mk_callgraph path_query in
+    let project x = algebra (`Segment x) in
+    let abstract_summaries = HT.create 991 in
+    (* stabilize summaries within a WTO component, and add to unstable
+       all calls whose summary (may have) changed as a result. *)
+    let rec fix = function
+      | `Vertex call ->
+         call_weight weight_query call
+         |> project
+         |> set_summary weight_query call
+
+      | `Loop loop ->
+         let header = CallGraphLoop.header loop in
+         let rec fix_component delay =
+           let old_abs_weight = HT.find abstract_summaries header in
+           let (new_abs_weight, new_weight) =
+             let new_weight =
+               project (call_weight weight_query header)
+             in
+             let new_abs_weight = A.abstract new_weight in
+             if delay > 0 then
+               (new_abs_weight, new_weight)
+             else
+               let new_abs_weight = A.widen old_abs_weight new_abs_weight in
+               let new_weight = A.concretize new_abs_weight in
+               (new_abs_weight, new_weight)
+           in
+           HT.replace abstract_summaries header new_abs_weight;
+           set_summary weight_query header new_weight;
+           List.iter fix (CallGraphLoop.children loop);
+           if not (A.equal old_abs_weight new_abs_weight)
+           then fix_component (delay - 1)
+         in
+         fix_component delay
+    in
+    let zero = algebra `Zero in
+    let abstract_zero = A.abstract zero in
+    callgraph
+    |> CallGraph.iter_vertex (fun call ->
+           set_summary weight_query call zero;
+           HT.add abstract_summaries call abstract_zero);
+    List.iter fix (CallGraphLoop.loop_nest callgraph);
+    weight_query
+
+  let empty () =
+    let context = mk_context () in
+    let algebra =
+      { mul = mk_mul context;
+        add = mk_add context;
+        star = mk_star context;
+        zero = mk_zero context;
+        one = mk_one context }
+    in
+    { path_graph = empty algebra;
+      call_edges = M.empty;
+      context = context }
+
+  let add_call_edge rg u call v =
+    { rg with path_graph = add_edge rg.path_graph u (mk_edge rg.context u v) v;
+              call_edges = M.add (u,v) call rg.call_edges }
+
+  let add_edge rg u v =
+    { rg with path_graph = add_edge rg.path_graph u (mk_edge rg.context u v) v }
+
+  let add_vertex rg v =
+    { rg with path_graph = add_vertex rg.path_graph v }
 end

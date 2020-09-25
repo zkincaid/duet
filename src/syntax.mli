@@ -238,6 +238,7 @@ module Expr : sig
     val merge : ((('a, 'typ) expr) -> 'b option -> 'c option -> 'd option) ->
       ('a, 'typ, 'b) t -> ('a, 'typ, 'c) t -> ('a, 'typ, 'd) t
     val fold : (('a, 'typ) expr -> 'b -> 'c -> 'c) -> ('a, 'typ, 'b) t -> 'c -> 'c
+    val equal : ('b -> 'b -> bool) -> ('a, 'typ, 'b) t -> ('a, 'typ, 'b) t -> bool
   end
 end
 
@@ -263,8 +264,10 @@ val mk_pow : 'a context -> 'a term -> int -> 'a term
 val mk_idiv : 'a context -> 'a term -> 'a term -> 'a term
 val mk_mod : 'a context -> 'a term -> 'a term -> 'a term
 val mk_real : 'a context -> QQ.t -> 'a term
+
 val mk_zz : 'a context -> ZZ.t -> 'a term
 val mk_int : 'a context -> int -> 'a term
+
 val mk_zero : 'a context -> 'a term
 val mk_one : 'a context -> 'a term
 val mk_floor : 'a context -> 'a term -> 'a term
@@ -312,8 +315,21 @@ type ('a,'b) open_formula = [
 
 val mk_forall : 'a context -> ?name:string -> typ_fo -> 'a formula -> 'a formula
 val mk_exists : 'a context -> ?name:string -> typ_fo -> 'a formula -> 'a formula
+
+(** Replace a constant symbol by a universally quantified variable. *)
 val mk_forall_const : 'a context -> symbol -> 'a formula -> 'a formula
+
+(** Replace a constant symbol by an existentially quantified variable. *)
 val mk_exists_const : 'a context -> symbol -> 'a formula -> 'a formula
+
+(** Replace all constant symbols that do not satisfy the given
+   predicate by universally quantified variables. *)
+val mk_forall_consts : 'a context -> (symbol -> bool) -> 'a formula -> 'a formula
+
+(** Replace all constant symbols that do not satisfy the given
+   predicate by existentially quantified variables. *)
+val mk_exists_consts : 'a context -> (symbol -> bool) -> 'a formula -> 'a formula
+
 
 val mk_and : 'a context -> 'a formula list -> 'a formula
 val mk_or : 'a context -> 'a formula list -> 'a formula

@@ -1,3 +1,4 @@
+open Srk
 open OUnit
 open Polynomial
 open BatPervasives
@@ -25,6 +26,13 @@ let assert_equal_qqxs p q =
   in
   let show = SrkUtil.mk_show (QQXs.pp pp_dim) in
   assert_equal ~printer:show ~cmp:QQXs.equal p q
+
+let assert_equal_ideal p q =
+  let pp_dim formatter i =
+    Format.pp_print_string formatter (Char.escaped (Char.chr i))
+  in
+  let show = SrkUtil.mk_show (Ideal.pp pp_dim) in
+  assert_equal ~printer:show ~cmp:Ideal.equal p q
 
 let test_mul () =
   let p = mk_qqx [1; 1] in
@@ -160,6 +168,48 @@ let factor () =
   correct_factorization (qqx_of_list [(QQ.of_frac 1 2, 4);
                                       (QQ.of_frac 1 4, 2)])
 
+let intersect_ideal1 () =
+  let open QQXsInfix in
+  let x = dim 'x' in
+  let y = dim 'y' in
+  let z = dim 'z' in
+  let t = dim 't' in
+  let i = Ideal.make [x; y] in
+  let j = Ideal.make [z; x - t] in
+  let r = Ideal.make [x*z; y*z; x*y - t*y; x*x - t*x] in
+  assert_equal_ideal r (Ideal.intersect i j)
+
+let intersect_ideal2 () =
+  let open QQXsInfix in
+  let w = dim 'w' in
+  let x = dim 'x' in
+  let y = dim 'y' in
+  let z = dim 'z' in
+  let i = Ideal.make [z; w] in
+  let j = Ideal.make [x + z; y + w] in
+  let r = Ideal.product i j in
+  assert_equal_ideal r (Ideal.intersect i j)
+
+let intersect_ideal3 () =
+  let open QQXsInfix in
+  let w = dim 'w' in
+  let x = dim 'x' in
+  let z = dim 'z' in
+  let i = Ideal.make [z; w] in
+  let j = Ideal.make [x + z; w] in
+  let r = Ideal.make [w; x*z + z*z] in
+  assert_equal_ideal r (Ideal.intersect i j)
+
+let product_ideal () =
+  let open QQXsInfix in
+  let w = dim 'w' in
+  let x = dim 'x' in
+  let z = dim 'z' in
+  let i = Ideal.make [z; w] in
+  let j = Ideal.make [x + z; w] in
+  let r = Ideal.make [x*z + z*z; z*w; x*w; w*w] in
+  assert_equal_ideal r (Ideal.product i j)
+
 let suite = "Polynomial" >::: [
     "mul" >:: test_mul;
     "compose1" >:: test_compose1;
@@ -173,4 +223,8 @@ let suite = "Polynomial" >::: [
     "test_grobner2" >:: test_grobner2;
     "test_grobner_elim" >:: test_grobner_elim;
     "factor" >:: factor;
+    "intersect_ideal1" >:: intersect_ideal1;
+    "intersect_ideal2" >:: intersect_ideal2;
+    "intersect_ideal3" >:: intersect_ideal3;
+    "product_ideal" >:: product_ideal
   ]

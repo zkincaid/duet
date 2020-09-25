@@ -61,7 +61,7 @@ type ('a,'typ) expr = sexpr hobj
 type 'a term = ('a, typ_arith) expr
 type 'a formula = ('a, typ_bool) expr
 
-let compare_expr s t = Pervasives.compare s.tag t.tag
+let compare_expr s t = Stdlib.compare s.tag t.tag
 let compare_formula = compare_expr
 let compare_term = compare_expr
 
@@ -83,14 +83,14 @@ module DynArray = BatDynArray
 
 module Symbol = struct
   type t = symbol
-  let compare = Pervasives.compare
+  let compare = Stdlib.compare
   module Set = SrkUtil.Int.Set
   module Map = SrkUtil.Int.Map
 end
 
 module Var = struct
   module I = struct
-    type t = int * typ_fo [@@deriving show,ord]
+    type t = int * typ_fo [@@deriving ord]
   end
   include I
   module Set = BatSet.Make(I)
@@ -698,7 +698,7 @@ module Expr = struct
   module Inner = struct
     type t = sexpr hobj
     let equal s t = s.tag = t.tag
-    let compare s t = Pervasives.compare s.tag t.tag
+    let compare s t = Stdlib.compare s.tag t.tag
     let hash t = t.hcode
   end
   include Inner
@@ -768,13 +768,14 @@ module Expr = struct
     let enum = M.enum
     let merge = M.merge
     let fold = M.fold
+    let equal = M.equal
   end
 end
 
 module Term = struct
   type 'a t = 'a term
   let equal s t = s.tag = t.tag
-  let compare s t = Pervasives.compare s.tag t.tag
+  let compare s t = Stdlib.compare s.tag t.tag
   let hash t = t.hcode
 
   let eval _srk alg t =
@@ -841,7 +842,7 @@ end
 module Formula = struct
   type 'a t = 'a formula
   let equal s t = s.tag = t.tag
-  let compare s t = Pervasives.compare s.tag t.tag
+  let compare s t = Stdlib.compare s.tag t.tag
   let hash t = t.hcode
 
   let destruct _srk phi = match phi.obj with
@@ -990,9 +991,7 @@ end
 
 let quantify_const srk qt sym phi =
   let typ = match typ_symbol srk sym with
-    | `TyInt -> `TyInt
-    | `TyReal -> `TyReal
-    | `TyBool -> `TyBool
+    | #typ_fo as x -> x
     | `TyFun _ ->
       begin match qt with
         | `Forall ->
@@ -1013,6 +1012,44 @@ let quantify_const srk qt sym phi =
 
 let mk_exists_const srk = quantify_const srk `Exists
 let mk_forall_const srk = quantify_const srk `Forall
+
+let quantify_consts srk qt p phi =
+  let nb_vars = ref 0 in
+  let varinfo = ref [] in
+  let subst =
+    Memo.memo (fun sym ->
+        if p sym then
+          mk_const srk sym
+        else
+          let i = !nb_vars in
+          let typ =
+            match typ_symbol srk sym with
+            | #typ_fo as x -> x
+            | `TyFun _ ->
+               begin match qt with
+               | `Forall ->
+                  invalid_arg "mk_forall_consts: not a first-order constant"
+               | `Exists ->
+                  invalid_arg "mk_exists_consts: not a first-order constant"
+               end
+          in
+          incr nb_vars;
+          varinfo := (show_symbol srk sym, typ)::(!varinfo);
+          mk_var srk i typ)
+  in
+  let quantify =
+    match qt with
+    | `Forall -> mk_forall srk
+    | `Exists -> mk_exists srk
+  in
+  let matrix = substitute_const srk subst phi in
+  List.fold_right
+    (fun (name, typ) phi -> quantify ~name typ phi)
+    (!varinfo)
+    matrix
+
+let mk_exists_consts srk = quantify_consts srk `Exists
+let mk_forall_consts srk = quantify_consts srk `Forall
 
 let node_typ symbols label children =
   match label with
@@ -1231,7 +1268,14 @@ let pp_smtlib2 ?(env=Env.empty) srk formatter expr =
       in
       "|" ^ replaced ^ "|"
   in
-    
+  let fresh_var_name =
+    let nb_vars = ref 0 in
+    fun name -> begin
+        incr nb_vars;
+        symbol_of_string (Format.sprintf "%s?%d" name (!nb_vars))
+      end
+  in
+
   (* find a unique string that can be used to identify each symbol *)
   let strings = Hashtbl.create 991 in
   let symbol_name = Hashtbl.create 991 in
@@ -1257,13 +1301,14 @@ let pp_smtlib2 ?(env=Env.empty) srk formatter expr =
     (symbols expr);
 
   fprintf formatter "@[<v 0>";
+
+  let pp_typ_fo formatter = function
+    | `TyReal -> pp_print_string formatter "Real"
+    | `TyInt -> pp_print_string formatter "Int"
+    | `TyBool -> pp_print_string formatter "Bool"
+  in
   (* print declarations *)
   symbol_name |> Hashtbl.iter (fun symbol name ->
-      let pp_typ_fo formatter = function
-        | `TyReal -> pp_print_string formatter "Real"
-        | `TyInt -> pp_print_string formatter "Int"
-        | `TyBool -> pp_print_string formatter "Bool"
-      in        
       match typ_symbol srk symbol with
       | `TyReal -> fprintf formatter "(declare-const %s Real)@;" name
       | `TyInt -> fprintf formatter "(declare-const %s Int)@;" name
@@ -1293,8 +1338,8 @@ let pp_smtlib2 ?(env=Env.empty) srk formatter expr =
         (Hashtbl.find symbol_name func)
         (SrkUtil.pp_print_enum ~pp_sep (go env)) (BatList.enum args)
     | Var (v, _), [] ->
-      (try fprintf formatter "?%s_%d" (Env.find env v) v
-       with Not_found -> fprintf formatter "[free:%d]" v)
+       (try pp_print_string formatter (Env.find env v)
+       with Not_found -> invalid_arg "pp_smtlib2: free variable")
     | Add, terms ->
       fprintf formatter "(+ @[";
       SrkUtil.pp_print_enum
@@ -1368,6 +1413,9 @@ let pp_smtlib2 ?(env=Env.empty) srk formatter expr =
           ("forall", (name, typ)::varinfo, psi)
         | _ -> assert false
       in
+      let varinfo =
+        List.map (fun (name, typ) -> (fresh_var_name name, typ)) varinfo
+      in
       let env =
         List.fold_left (fun env (x,_) -> Env.push x env) env varinfo
       in
@@ -1375,7 +1423,7 @@ let pp_smtlib2 ?(env=Env.empty) srk formatter expr =
       SrkUtil.pp_print_enum
         ~pp_sep
         (fun formatter (name, typ) ->
-           fprintf formatter "(%s %a)" name pp_typ typ)
+           fprintf formatter "(%s %a)" name pp_typ_fo typ)
         formatter
         (BatList.enum varinfo);
       fprintf formatter ")@ %a@])" (go env) psi

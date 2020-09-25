@@ -4,7 +4,7 @@ open BatPervasives
 module A = BatDynArray
 
 (** Search for an index in a sorted array *)
-let search ?compare:(compare = Pervasives.compare) v array =
+let search ?compare:(compare = Stdlib.compare) v array =
   let rec go min max =
     if max < min then raise Not_found
     else begin
@@ -18,7 +18,7 @@ let search ?compare:(compare = Pervasives.compare) v array =
   go 0 (A.length array - 1)
 
 (** Merge two (sorted) arrays *)
-let merge_array ?compare:(compare = Pervasives.compare) a b =
+let merge_array ?compare:(compare = Stdlib.compare) a b =
   let alen = Array.length a in
   let blen = Array.length b in
   (* count the size of the intersection of a and b *)
