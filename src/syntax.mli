@@ -6,6 +6,9 @@
     contexts. *)
 type 'a context
 
+(** takes a context and outputs a tuple containing the (# of sexprs, # of symbols, # of named symbols) *)
+val context_stats : 'a context -> (int * int * int)
+
 (** Environments are maps whose domain is a set of free variable symbols.
     Typically used to travese quantified formulas. *)
 module Env : sig
@@ -345,8 +348,12 @@ val mk_false : 'a context -> 'a formula
    symbols or quantifiers. *)
 val eliminate_ite : 'a context -> 'a formula -> 'a formula
 
-(** Print a formula as a satisfiability query in SMTLIB2 format.  The query
-    includes function declarations and (check-sat). *)
+(** Print a formula as a satisfiability query in SMTLIB2 format.
+    The query includes function declarations and (check-sat). *)
+val pp_smtlib2_gen : ?named:bool -> ?env:(string Env.t) -> ?strings:((string, symbol) Hashtbl.t) ->
+    'a context -> Format.formatter -> ('a formula) list -> unit
+
+(** Same as pp_smtlib2_gen but only has one unnamed assertions *)
 val pp_smtlib2 : ?env:(string Env.t) -> 'a context ->
     Format.formatter -> 'a formula -> unit
 
@@ -410,6 +417,7 @@ module type Context = sig
   val mk_true : formula
   val mk_false : formula
   val mk_ite : formula -> (t, 'a) expr -> (t, 'a) expr -> (t, 'a) expr
+  val stats : unit -> (int * int * int)
 end
 
 module MakeContext () : Context
