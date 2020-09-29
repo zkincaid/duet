@@ -1702,7 +1702,7 @@ struct
             hc Mod [num; den]
           | (Node (Real num, [], _), Node (Real den, [], _)) ->
             mk (Real (QQ.modulo num den)) []
-          | _, Node (Real den, [], _) when QQ.equal den QQ.zero -> num
+          | Node (_, _, `TyInt), Node (Real den, [], _) when QQ.equal den QQ.one -> mk (Real QQ.zero) []
           | _, _ -> hc Mod [num; den]
         end
 

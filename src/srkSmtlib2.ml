@@ -318,7 +318,7 @@ module MakeSMT2Srk(C : sig type t val context : t Syntax.context end) = struct
           | `TyBool
           | `TyInt
           | `TyReal -> (mk_const srk (of_symbol srk_sym) :> 'a gexpr)
-          | `TyFun _ -> invalid_arg "Unespected function symbol"
+          | `TyFun _ -> invalid_arg "Unexpected function symbol"
           end
         | _ ->
           let sym = of_symbol srk_sym in
@@ -394,175 +394,11 @@ module MakeSMT2Srk(C : sig type t val context : t Syntax.context end) = struct
     in
     { new_symbol; reset }
 
-  let rec simplify_const_expr expr =
-    match Syntax.Expr.refine srk expr with
-    | `Term t -> (simplify_const_term t :> 'a gexpr)
-    | `Formula phi -> (simplify_const_formula phi :> 'a gexpr)
-  and simplify_const_term t =
-    let open Syntax in
-    match Term.destruct srk t with
-    | `Real _ | `Var _ -> t
-    | `App (sym, args) -> mk_app srk sym (List.map simplify_const_expr args)
-    | `Add sum ->
-      let rec go accQ accL = function
-        | [] ->
-        begin match accL with
-          | [] -> mk_real srk accQ
-          | _ ->
-            if QQ.equal accQ QQ.zero then
-              match accL with
-              | [t] -> t
-              | _ -> mk_add srk accL
-            else
-              mk_add srk ((mk_real srk accQ) :: accL)
-        end
-        | x :: rest ->
-          let x = simplify_const_term x in
-          match Term.destruct srk x with
-          | `Real qq -> go (QQ.add qq accQ) accL rest
-          | _ -> go accQ (x :: accL) rest
-      in go QQ.zero [] sum
-    | `Mul product ->
-      let rec go accQ accL = function
-        | [] ->
-        begin match accL with
-          | []
-          | _ when QQ.equal accQ QQ.zero -> mk_real srk accQ
-          | _ ->
-            if QQ.equal accQ QQ.one then
-              match accL with
-              | [t] -> t
-              | _ -> mk_mul srk accL
-            else
-              mk_mul srk ((mk_real srk accQ) :: accL)
-        end
-        | x :: rest ->
-          let x = simplify_const_term x in
-          match Term.destruct srk x with
-          | `Real qq -> go (QQ.mul qq accQ) accL rest
-          | _ -> go accQ (x :: accL) rest
-      in go QQ.one [] product
-    | `Binop (`Div, x, y) ->
-      let x = simplify_const_term x in
-      let y = simplify_const_term y in
-      begin match Term.destruct srk x, Term.destruct srk y with
-      | `Real x, `Real y -> mk_real srk (QQ.div x y)
-      | _, `Real y when QQ.equal y QQ.one -> x
-      | _ -> mk_div srk x y
-      end
-    | `Binop (`Mod, x, y) ->
-      let x = simplify_const_term x in
-      let y = simplify_const_term y in
-      begin match Term.destruct srk x, Term.destruct srk y with
-      | `Real x, `Real y -> mk_real srk (QQ.modulo x y)
-      | _, `Real y when (QQ.equal y QQ.one) && (term_typ srk x) = `TyInt -> mk_real srk QQ.zero
-      | _ -> mk_mod srk x y
-      end
-    | `Unop (`Floor, x) ->
-      let x = simplify_const_term x in
-      begin match Term.destruct srk x with
-      | `Real qq -> mk_zz srk (QQ.floor qq)
-      | _ -> mk_floor srk x
-      end
-    | `Unop (`Neg, x) ->
-      let x = simplify_const_term x in
-      begin match Term.destruct srk x with
-      | `Real qq -> mk_real srk (QQ.negate qq)
-      | _ -> mk_neg srk x
-      end
-    | `Ite (bcond, bthen, belse) ->
-      let bcond = simplify_const_formula bcond in
-      begin match Formula.destruct srk bcond with
-      | `Tru -> simplify_const_term bthen
-      | `Fls -> simplify_const_term belse
-      | _ ->
-        let bthen = simplify_const_term bthen in
-        let belse = simplify_const_term belse in
-        if compare_term bthen belse = 0 then bthen else
-        mk_ite srk bcond bthen belse
-      end
-  and simplify_const_formula phi =
-    let open Syntax in
-    match Formula.destruct srk phi with
-    | `Tru | `Fls | `Proposition (`Var _) -> phi
-    | `And conjuncts ->
-      let rec go acc = function
-        | [] ->
-          begin match acc with
-          | [] -> mk_true srk
-          | [x] -> x
-          | _ -> mk_and srk acc
-          end
-        | x :: rest ->
-          let x = simplify_const_formula x in
-          match Formula.destruct srk x with
-          | `Tru -> go acc rest
-          | `Fls -> mk_false srk
-          | _ -> go (x :: acc) rest
-      in go [] conjuncts
-    | `Or disjuncts ->
-      let rec go acc = function
-        | [] ->
-          begin match acc with
-          | [] -> mk_false srk
-          | [x] -> x
-          | _ -> mk_or srk acc
-          end
-        | x :: rest ->
-          let x = simplify_const_formula x in
-          match Formula.destruct srk x with
-          | `Fls -> go acc rest
-          | `Tru -> mk_true srk
-          | _ -> go (x :: acc) rest
-      in go [] disjuncts
-    | `Not phi ->
-      let phi = simplify_const_formula phi in
-      begin match Formula.destruct srk phi with
-      | `Tru -> mk_false srk
-      | `Fls -> mk_true srk
-      | _ -> mk_not srk phi
-      end
-    | `Quantify (q, name, typ, phi) ->
-      let phi = simplify_const_formula phi in
-      begin match Formula.destruct srk phi with
-      | `Tru -> mk_true srk
-      | `Fls -> mk_false srk
-      | _ ->
-        match q with
-        | `Forall -> mk_forall srk ~name typ phi
-        | `Exists -> mk_exists srk ~name typ phi
-      end
-    | `Atom (r, x, y) ->
-      let x = simplify_const_term x in
-      let y = simplify_const_term y in
-      let (mk, qr, if_eq) =
-        match r with
-        | `Eq -> (mk_eq srk, QQ.equal, mk_true srk)
-        | `Leq -> (mk_leq srk, QQ.leq, mk_true srk)
-        | `Lt -> (mk_lt srk, QQ.lt, mk_false srk)
-      in
-      begin match (Term.destruct srk x, Term.destruct srk y) with
-      | `Real x, `Real y -> if (qr x y) then mk_true srk else mk_false srk
-      | _ -> if compare_term x y = 0 then if_eq else mk x y
-      end
-    | `Proposition (`App (sym, args)) -> mk_app srk sym (List.map simplify_const_expr args)
-    | `Ite (bcond, bthen, belse) ->
-      let bcond = simplify_const_formula bcond in
-      begin match Formula.destruct srk bcond with
-      | `Tru -> simplify_const_formula bthen
-      | `Fls -> simplify_const_formula belse
-      | _ ->
-        let bthen = simplify_const_formula bthen in
-        let belse = simplify_const_formula belse in
-        if compare_formula bthen belse = 0 then bthen else
-        mk_ite srk bcond bthen belse
-      end
-
   (* functions are debruijn indexed *)
   let model_of_smt of_symbol (m : model) =
     let open Syntax in
-    let term_of_smt of_sym t = simplify_const_term (term_of_smt of_sym t) in
-    let formula_of_smt of_sym phi = simplify_const_formula (formula_of_smt of_sym phi) in
+    let term_of_smt of_sym t = term_of_smt of_sym t in
+    let formula_of_smt of_sym phi = formula_of_smt of_sym phi in
     List.map (fun (sym, formals, ret_typ, def) ->
       let sym = of_symbol sym in
       let value =
