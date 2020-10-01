@@ -3,9 +3,9 @@ open Syntax
 
 type relcontext
 type relation
-type relation_atom
-type 'a hypothesis
-type 'a rule
+type relation_atom = relation * symbol list
+type 'a hypothesis = relation_atom list * 'a formula
+type 'a rule = 'a hypothesis * relation_atom
 type query = relation
 type 'a chc = {rules : 'a rule list; queries : query list} 
 
@@ -28,48 +28,18 @@ val mk_relation : relcontext -> ?name:string -> typ list -> relation
 val type_of : relcontext -> relation -> typ list
 val name_of : relcontext -> relation -> string
 
+(** This function is recommended way to create relation atoms because
+ * it includes type-checking *)
 val mk_rel_atom : 'a context -> relcontext -> relation -> symbol list -> 
   relation_atom
-
-(** Creates a relation atom with a fresh relation using the
- * symbols provided as the atoms arguments *)
-val mk_rel_atom_fresh : 'a context -> relcontext -> ?name:string ->
-  symbol list -> relation_atom
-
-(** [mk_n_rel_atoms_fresh srk rel_ctx name syms n] calls 
- * [mk_rel_atom_fresh srk rel_ctx name syms] n times and returns the result.
- * That is, creates n relation atoms with same name and parameters but with
- * unique relation symbols *)
-val mk_n_rel_atoms_fresh : 'a context -> relcontext -> ?name:string ->
-  symbol list -> int -> relation_atom array
 
 val rel_of_atom : relation_atom -> relation
 val params_of_atom : relation_atom -> symbol list
 
-(** [postify_atom trs rel_atom] substitutes the parameters of rel_atom
- * with their post relation symbols in trs *)
-val postify_atom : (symbol * symbol) list -> relation_atom -> relation_atom
-
-(** [preify_atom trs rel_atom] substitutes the parameters of rel_atom
- * with their pre relation symbols in trs *)
-val preify_atom : (symbol * symbol) list -> relation_atom -> relation_atom
-
-
-
 val mk_hypo : relation_atom list -> 'a formula -> 'a hypothesis
 val mk_rule : 'a hypothesis -> relation_atom -> 'a rule
-(** shorthand for mk_rule with no relations in hypothesis *)
-val mk_fact : 'a formula -> relation_atom -> 'a rule
 
 
-
-(** [mk_mapped_rule trs hypo_atoms phi conc] creates a rule in which 
- * [preify_atom trs atom] is called for each atom in hypo_atoms and 
- * [postify_atom trs conc] is called for the conclusion atom. In short, the
- * parameters in the hypothesis atoms and "preified" 
- * and the paramters in the conclusion atom are "postified".*)
-val mk_mapped_rule : (symbol * symbol) list -> relation_atom list -> 
-  'a formula -> relation_atom -> 'a rule
 
 module Relation : sig
   type t = relation

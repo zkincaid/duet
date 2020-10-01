@@ -11,6 +11,43 @@ let pd = (module Product(LinearRecurrenceInequation)(PolyhedronGuard) :
   PreDomain)
 
 
+let postify_atom map (rel, syms) = 
+  let syms' = List.map 
+      (fun sym -> 
+         match BatList.assoc_opt sym map with
+         | None -> sym
+         | Some sym' -> sym')
+      syms
+  in
+  rel, syms'
+
+
+let preify_atom map (rel, syms') = 
+  let syms = List.map 
+      (fun sym -> 
+         try BatList.assoc_inv sym map 
+         with _ -> sym)
+      syms'
+  in
+  rel, syms
+
+let mk_mapped_rule map hypo_atoms phi conc_atom =
+  let hypo_atoms = List.map (preify_atom map) hypo_atoms in
+  let conc_atom = postify_atom map conc_atom in
+  (hypo_atoms, phi), conc_atom
+
+
+let mk_rel_atom_fresh srk rel_ctx ?(name="R") syms =
+  let typs = List.map (typ_symbol srk) syms in
+  let rel = mk_relation rel_ctx ~name typs in
+  mk_rel_atom srk rel_ctx rel syms
+
+let mk_n_rel_atoms_fresh srk rel_ctx ?(name="R") syms n = 
+  BatArray.init n (fun _ -> mk_rel_atom_fresh srk rel_ctx ~name syms)
+
+
+
+
 let countup1 () =
   let r1 = mk_relation rel_ctx [`TyInt] in
   let r2 = mk_relation rel_ctx [`TyInt] in
@@ -22,7 +59,8 @@ let countup1 () =
   let rule1 = mk_rule hypo1 atom2 in
   let hypo2 = mk_hypo [atom2] (mk_eq srk x (mk_add srk [mk_one srk; x'])) in
   let rule2 = mk_rule hypo2 atom1 in
-  let rule3 = mk_fact (mk_leq srk (mk_zero srk) x) atom1 in
+  let hypo3 = mk_hypo [] (mk_leq srk (mk_zero srk) x) in
+  let rule3 = mk_rule hypo3 atom1 in
   let error_hypo = mk_hypo [atom2] (mk_leq srk x' (mk_zero srk)) in
   let rule4 = mk_rule error_hypo error_atom in
   let query = error in
@@ -41,7 +79,8 @@ let countup2 () =
   let rule1 = mk_rule hypo1 atom2 in
   let hypo2 =  mk_hypo [atom2] (mk_eq srk x (mk_add srk [mk_one srk; x'])) in
   let rule2 = mk_rule hypo2 atom1 in
-  let rule3 = mk_fact (mk_leq srk (mk_zero srk) x) atom1 in
+  let hypo3 = mk_hypo [] (mk_leq srk (mk_zero srk) x) in
+  let rule3 = mk_rule hypo3 atom1 in
   let error_hypo = mk_hypo [atom2] (mk_leq srk (mk_zero srk) x') in
   let rule4 = mk_rule error_hypo error_atom in
   let query = error in

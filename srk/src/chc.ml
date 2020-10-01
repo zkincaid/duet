@@ -30,44 +30,8 @@ let mk_rel_atom srk rel_ctx rel syms =
     (List.map (typ_symbol srk) syms);
   rel, syms
 
-
-let postify_atom map (rel, syms) = 
-  let syms' = List.map 
-      (fun sym -> 
-         match BatList.assoc_opt sym map with
-         | None -> sym
-         | Some sym' -> sym')
-      syms
-  in
-  rel, syms'
-
-
-let preify_atom map (rel, syms') = 
-  let syms = List.map 
-      (fun sym -> 
-         try BatList.assoc_inv sym map 
-         with _ -> sym)
-      syms'
-  in
-  rel, syms
-
-
-
-let mk_rel_atom_fresh srk rel_ctx ?(name="R") syms =
-  let typs = List.map (typ_symbol srk) syms in
-  let rel = mk_relation rel_ctx ~name typs in
-  mk_rel_atom srk rel_ctx rel syms
-
-let mk_n_rel_atoms_fresh srk rel_ctx ?(name="R") syms n = 
-  BatArray.init n (fun _ -> mk_rel_atom_fresh srk rel_ctx ~name syms)
-
 let mk_hypo atoms phi = atoms, phi
 let mk_rule hypo atom = hypo, atom
-let mk_mapped_rule map hypo_atoms phi conc_atom =
-  let hypo_atoms = List.map (preify_atom map) hypo_atoms in
-  let conc_atom = postify_atom map conc_atom in
-  (hypo_atoms, phi), conc_atom
-let mk_fact phi atom = ([], phi), atom
 
 module Relation = struct
   type t = relation 
