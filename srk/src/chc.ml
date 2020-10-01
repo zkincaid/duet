@@ -226,15 +226,10 @@ module Chc = struct
       in
       {mul; add; star; zero; one}
     in
-    let vertex_tbl = Hashtbl.create 100 in
     let wg = WeightedGraph.add_vertex (WeightedGraph.empty alg) start_vert in
     let wg = WeightedGraph.add_vertex wg goal_vert in
-    let vertexcounter = ref 0 in
     let wg = Relation.Set.fold 
-        (fun rel_sym wg -> 
-           Hashtbl.add vertex_tbl rel_sym !vertexcounter;
-           vertexcounter := !vertexcounter + 1;
-           WeightedGraph.add_vertex wg (!vertexcounter - 1))
+        (fun rel_sym wg -> WeightedGraph.add_vertex wg rel_sym)
         (get_relations_used chc)
         wg
     in
@@ -246,15 +241,15 @@ module Chc = struct
                      wg 
                      start_vert
                      (emptyarr, BatArray.of_list (params_of_atom conc), phi)
-                     (Hashtbl.find vertex_tbl (rel_of_atom conc))
+                     (rel_of_atom conc)
            | [hd] ->
              WeightedGraph.add_edge 
                wg 
-               (Hashtbl.find vertex_tbl (rel_of_atom hd))
+               (rel_of_atom hd)
                (BatArray.of_list (params_of_atom hd), 
                 BatArray.of_list (params_of_atom conc), 
                 phi)
-               (Hashtbl.find vertex_tbl (rel_of_atom conc))
+               (rel_of_atom conc)
            | _ -> failwith "Rule with multiple relations in hypothesis")
         wg
         chc.rules
@@ -264,7 +259,7 @@ module Chc = struct
         (fun wg rel -> 
            WeightedGraph.add_edge
              wg
-             (Hashtbl.find vertex_tbl rel)
+             rel
              alg.one
              goal_vert)
         wg
@@ -288,8 +283,8 @@ module Chc = struct
       let wg = to_weighted_graph srk chc pd in
       let soln = 
         (fun rel -> 
-           let _, _, phi = WeightedGraph.path_weight wg start_vert rel in 
-           phi) 
+           let _, params, phi = WeightedGraph.path_weight wg start_vert rel in 
+           params, phi) 
       in
       soln)
     else failwith "No methods for solving non lin chc"

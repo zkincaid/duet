@@ -99,9 +99,28 @@ let xskipcount () =
       [rel_of_atom vert.(2)] 
   in
   let res = Chc.solve srk chc pd in
-  assert_equiv_formula (res (rel_of_atom (vert.(2)))) (mk_false srk)
+  assert_equiv_formula (snd (res (rel_of_atom (vert.(2))))) (mk_false srk)
 
-
+let dupuncontrsym () =
+  let vert = mk_n_rel_atoms_fresh srk rel_ctx [] 2 in
+  let map = [] in
+  let edge0 =
+    mk_mapped_rule
+      map
+      []
+      (mk_eq srk (mk_one srk) y)
+      vert.(0)
+  in
+  let edge1 =
+    mk_mapped_rule
+      map
+      [vert.(0)]
+      (mk_eq srk (mk_zero srk) y)
+      vert.(1)
+  in
+  let chc = Chc.chc_of [edge0; edge1] [rel_of_atom vert.(1)] in
+  let res = Chc.solve srk chc pd in
+  assert_not_implies (snd (res (rel_of_atom vert.(1) ))) (mk_false srk)
 
 
 
@@ -109,5 +128,6 @@ let suite = "Chc" >:::
   [
     "countup1" >:: countup1;
     "counterup2" >:: countup2;
-    "xskipcount" >:: xskipcount
+    "xskipcount" >:: xskipcount;
+    "dupunconstrsym" >:: dupuncontrsym;
   ]

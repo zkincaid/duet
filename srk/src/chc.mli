@@ -94,15 +94,18 @@ module Chc : sig
   (** [is_linear chc] returns true if chc is linear chc - that is, each
    * hypothesis has at most one relation atom *)
   val is_linear : 'a chc -> bool
-  (** [has_reachable_goal srk chc pd] returns yes if a query relation can
+  (** [has_reachable_goal srk chc pd] returns unknown if a query relation can
    * be reached in the chc where recursion over-approximated using the 
-   * star operator of the provided predomain *)
+   * star operator of the provided predomain [pd] and returns no otherwise.*)
   val has_reachable_goal : 
     'a context -> 'a chc -> (module Iteration.PreDomain) -> [> `No | `Unknown]
   (** Solves a chc where recursion is over-approximated using the
-   * star operator of the provided predomain*)
+   * star operator of the provided predomain [pd]. Where [f = solve srk chc pd]
+   * and [r] is a relation used in [chc] the set of solutions to [r] is given by
+   * [(syms, phi) = f r] where [phi] is a formula in which [syms.(i)]
+   * gives the symbol used for the [i]th argument to [r].*)
   val solve : 'a context -> 'a chc -> (module Iteration.PreDomain) ->
-    (relation -> 'a formula)
+    (relation -> symbol array * 'a formula)
 end
 
 module ChcSrkZ3 : sig
