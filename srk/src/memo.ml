@@ -1,7 +1,4 @@
-module Make (M : Hashtbl.HashedType) : sig
-  val memo : ?size:int -> (M.t -> 'a) -> (M.t -> 'a)
-  val memo_recursive: ?size:int -> ((M.t -> 'a) -> M.t -> 'a) -> (M.t -> 'a)
-end = struct
+module Make (M : Hashtbl.HashedType) = struct
   module HT = Hashtbl.Make(M)
   let memo ?size:(size=991) f =
     let memo_table = HT.create size in
@@ -17,6 +14,82 @@ end = struct
        with Not_found ->
          let result = f g x in
          HT.add memo_table x result;
+         result)
+    in
+    g
+end
+
+module MakeWeak(M : Hashtbl.HashedType) = struct 
+  (* module for weak hashtbl:
+     Ephemeron.K1 is a Key Value pair
+     The key is weak (as in the Weak module)
+     The value is considered alive while the key is alive. *)
+  module WHT = Ephemeron.K1.Make(M)
+  let memo ?size:(size=991) f =
+    let memo_table = WHT.create size in
+    fun x -> (try WHT.find memo_table x
+              with Not_found ->
+                let result = f x in
+                WHT.add memo_table x result;
+                result)
+    let memo_recursive ?size:(size=991) f =
+      let memo_table = WHT.create size in
+      let rec g x =
+        (try WHT.find memo_table x
+         with Not_found ->
+           let result = f g x in
+           WHT.add memo_table x result;
+           result)
+      in
+      g
+end
+
+(* Default cache params *)
+let default_params : Cache.cache_params = {
+  max_size = 1000;     (* trigger first resize/eviction when the 1001st element is added *)
+  hard_limit = 0;      (* can grow unboundedly if enough keys are used frequently enough *)
+  keys_hit_rate = 0.9; (* grow if 90% of keys are used within last two resize decisions *)
+  min_hits = 0.9;      (*    or if they were used very fequently in the past *)
+  aging_factor = 0.95; (* exponential decaying factor -- recent hits are worth more than older hits *)
+}
+
+module MakeCache(C : Cache.S) = struct
+  let memo ?(params = default_params) ?(size=991) f =
+    let memo_table = C.create ~params size in
+    fun x -> (try C.find memo_table x
+              with Not_found ->
+                let result = f x in
+                C.add memo_table x result;
+                result)
+
+  let memo_recursive ?(params = default_params) ?(size = 991) f =
+    let memo_table = C.create ~params size in
+    let rec g x =
+      (try C.find memo_table x
+       with Not_found ->
+         let result = f g x in
+         C.add memo_table x result;
+         result)
+    in
+    g
+end
+
+module MakeCacheHF(C : Cache.HashS) = struct
+  let memo ?(params = default_params) ?(size=991) f =
+    let memo_table = C.create ~params size in
+    fun x -> (try C.find memo_table x
+              with Not_found ->
+                let result = f x in
+                C.add memo_table x result;
+                result)
+
+  let memo_recursive ?(params = default_params) ?(size = 991) f =
+    let memo_table = C.create ~params size in
+    let rec g x =
+      (try C.find memo_table x
+       with Not_found ->
+         let result = f g x in
+         C.add memo_table x result;
          result)
     in
     g
@@ -42,6 +115,9 @@ let memo_recursive ?size:(size=991) f =
   in
   g
 
+module LRUMemo = MakeCache(Cache.LRU)
+let lru_memo = LRUMemo.memo
+let lru_memo_recursive = LRUMemo.memo_recursive
 
 module Tabulate = struct
 

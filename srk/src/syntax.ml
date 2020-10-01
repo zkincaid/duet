@@ -147,6 +147,8 @@ type 'a context =
     mk : label -> (sexpr hobj) list -> sexpr hobj;
     id : int }
 
+let context_stats srk = (HC.count srk.hashcons, DynArray.length srk.symbols, Hashtbl.length srk.named_symbols)
+
 let fresh_id =
   let max_id = ref (-1) in
   fun () ->
@@ -1244,7 +1246,7 @@ let eliminate_ite srk phi =
   in
   elim_ite phi
 
-let pp_smtlib2 ?(env=Env.empty) srk formatter expr =
+let pp_smtlib2_gen ?(named=false) ?(env=Env.empty) ?(strings=Hashtbl.create 991) srk formatter assertions =
   let open Format in
   let pp_sep = pp_print_space in
 
@@ -1276,8 +1278,13 @@ let pp_smtlib2 ?(env=Env.empty) srk formatter expr =
       end
   in
 
+  let all_symbols =
+    List.fold_left (fun syms phi ->
+      Symbol.Set.union syms (symbols phi)
+    ) Symbol.Set.empty assertions
+  in
+
   (* find a unique string that can be used to identify each symbol *)
-  let strings = Hashtbl.create 991 in
   let symbol_name = Hashtbl.create 991 in
   Symbol.Set.iter (fun symbol ->
       let base_name = fst (DynArray.get srk.symbols symbol) in
@@ -1288,17 +1295,17 @@ let pp_smtlib2 ?(env=Env.empty) srk formatter expr =
           if Hashtbl.mem strings name' then
             go (n + 1)
           else begin
-            Hashtbl.add strings name' ();
+            Hashtbl.add strings name' symbol;
             Hashtbl.add symbol_name symbol name'
           end
         in
         go 0
       else begin
         let name = symbol_of_string (fst (DynArray.get srk.symbols symbol)) in
-        Hashtbl.add strings name ();
+        Hashtbl.add strings name symbol;
         Hashtbl.add symbol_name symbol name
       end)
-    (symbols expr);
+    all_symbols;
 
   fprintf formatter "@[<v 0>";
 
@@ -1434,7 +1441,16 @@ let pp_smtlib2 ?(env=Env.empty) srk formatter expr =
         (go env) belse
     | _ -> failwith "pp_smtlib2: ill-formed expression"
   in
-  fprintf formatter "(assert %a)@;(check-sat)@]" (go env) expr;
+  List.iteri (fun i phi ->
+    if named then
+      fprintf formatter "(assert (! %a :named f%d))@;" (go env) phi i
+    else
+      fprintf formatter "(assert %a)@;" (go env) phi
+  ) assertions;
+  fprintf formatter "(check-sat)@]"
+
+let pp_smtlib2 ?(env=Env.empty) srk formatter expr =
+  pp_smtlib2_gen ~env srk formatter [expr]
 
 module Infix (C : sig
     type t
@@ -1496,6 +1512,7 @@ module type Context = sig
   val mk_true : formula
   val mk_false : formula
   val mk_ite : formula -> (t, 'a) expr -> (t, 'a) expr -> (t, 'a) expr
+  val stats : unit -> (int * int * int)
 end
 
 module ImplicitContext(C : sig
@@ -1531,6 +1548,7 @@ module ImplicitContext(C : sig
   let mk_true = mk_true context
   let mk_false = mk_false context
   let mk_ite = mk_ite context
+  let stats _ = context_stats context
 end
 
 module MakeContext () =
@@ -1684,7 +1702,7 @@ struct
             hc Mod [num; den]
           | (Node (Real num, [], _), Node (Real den, [], _)) ->
             mk (Real (QQ.modulo num den)) []
-          | _, Node (Real den, [], _) when QQ.equal den QQ.zero -> num
+          | Node (_, _, `TyInt), Node (Real den, [], _) when QQ.equal den QQ.one -> mk (Real QQ.zero) []
           | _, _ -> hc Mod [num; den]
         end
 
