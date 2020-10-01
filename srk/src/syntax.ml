@@ -243,7 +243,6 @@ let mk_false srk = srk.mk False []
 let mk_leq srk s t = srk.mk Leq [s; t]
 let mk_lt srk s t = srk.mk Lt [s; t]
 let mk_eq srk s t = srk.mk Eq [s; t]
-let mk_eq_syms srk s t = srk.mk Eq [mk_const srk s; mk_const srk t]
 
 let is_true phi = match phi.obj with
   | Node (True, [], _) -> true
@@ -268,6 +267,11 @@ let mk_ite srk cond bthen belse = srk.mk Ite [cond; bthen; belse]
 let mk_iff srk phi psi =
   mk_or srk [mk_and srk [phi; psi]; mk_and srk [mk_not srk phi; mk_not srk psi]]
 let mk_if srk phi psi = mk_or srk [mk_not srk phi; psi]
+
+let mk_eq_syms srk lst = 
+  mk_and 
+    srk 
+    (List.map (fun (s, t) -> srk.mk Eq [mk_const srk s; mk_const srk t]) lst)
 
 let mk_truncate srk t =
   mk_ite srk

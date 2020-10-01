@@ -3,38 +3,83 @@ open Syntax
 module DynArray = BatDynArray
 
 type relation = int
-type 'b relcontext = (string * typ list) DynArray.t
-type ('a, 'b) relation_atom = relation * symbol list
-type ('a, 'b) hypothesis = ('a, 'b) relation_atom list * 'a formula
-type ('a, 'b) rule = ('a, 'b) hypothesis * ('a, 'b) relation_atom
-type ('a, 'b) query = relation
-type 'c rule_name = int
-type 'c query_name = int
-type ('a, 'b, 'c) chc = 
-  {rules : ('c rule_name, ('a, 'b) rule)  Hashtbl.t;
-   rule_counter : int ref;
-   queries : ('c query_name, ('a, 'b) query)  Hashtbl.t;
-   query_counter : int ref}
+type relcontext = (string * typ list) DynArray.t
+type relation_atom = relation * symbol list
+type 'a hypothesis = relation_atom list * 'a formula
+type 'a rule = 'a hypothesis * relation_atom
+type query = relation
+type 'a chc = {rules : 'a rule list; queries : query list}
 
 let mk_relcontext = DynArray.create ()
+
+let mk_relation rel_ctx ?(name="R") typ =
+  DynArray.add rel_ctx (name, typ);
+  DynArray.length rel_ctx - 1
+let type_of rel_ctx rel = snd (DynArray.get rel_ctx rel)
+let name_of rel_ctx rel = fst (DynArray.get rel_ctx rel)
+
+let rel_of_atom (relation, _) = relation
+let params_of_atom (_, params) = params
+
+let mk_rel_atom srk rel_ctx rel syms =
+  BatList.iter2
+    (fun arg_typ sym_typ -> 
+       if arg_typ = sym_typ then ()
+       else failwith "Types Error Rel Atom")
+    (type_of rel_ctx rel)
+    (List.map (typ_symbol srk) syms);
+  rel, syms
+
+
+let postify_atom map (rel, syms) = 
+  let syms' = List.map 
+      (fun sym -> 
+         match BatList.assoc_opt sym map with
+         | None -> sym
+         | Some sym' -> sym')
+      syms
+  in
+  rel, syms'
+
+
+let preify_atom map (rel, syms') = 
+  let syms = List.map 
+      (fun sym -> 
+         try BatList.assoc_inv sym map 
+         with _ -> sym)
+      syms'
+  in
+  rel, syms
+
+
+
+let mk_rel_atom_fresh srk rel_ctx ?(name="R") syms =
+  let typs = List.map (typ_symbol srk) syms in
+  let rel = mk_relation rel_ctx ~name typs in
+  mk_rel_atom srk rel_ctx rel syms
+
+let mk_n_rel_atoms_fresh srk rel_ctx ?(name="R") syms n = 
+  BatArray.init n (fun _ -> mk_rel_atom_fresh srk rel_ctx ~name syms)
+
+let mk_hypo atoms phi = atoms, phi
+let mk_rule hypo atom = hypo, atom
+let mk_mapped_rule map hypo_atoms phi conc_atom =
+  let hypo_atoms = List.map (preify_atom map) hypo_atoms in
+  let conc_atom = postify_atom map conc_atom in
+  (hypo_atoms, phi), conc_atom
+let mk_fact phi atom = ([], phi), atom
 
 module Relation = struct
   type t = relation 
   module Set = SrkUtil.Int.Set 
   let compare = Stdlib.compare
-  let mk_relation rel_ctx ?(name="R") typ =
-      DynArray.add rel_ctx (name, typ);
-      DynArray.length rel_ctx - 1
 
-  let type_of rel_ctx rel = snd (DynArray.get rel_ctx rel)
-  let name_of rel_ctx rel = fst (DynArray.get rel_ctx rel)
   let pp rel_ctx formatter rel =
     Format.fprintf formatter "@%s:R%n@" (name_of rel_ctx rel) rel
   let show rel_ctx = SrkUtil.mk_show (pp rel_ctx)
 end
 
-let rel_sym_of (relation, _) = relation
-let params_of (_, params) = params
+
 
 let pp_relation_atom srk rel_ctx formatter (rel, symbols) =
     Format.fprintf formatter "%a(@[%a@])"
@@ -52,16 +97,16 @@ let pp_rule srk rel_ctx formatter (hypo, conc) =
   Format.fprintf formatter "(@[%a@ => %a@])"
     (pp_hypothesis srk rel_ctx) hypo
     (pp_relation_atom srk rel_ctx) conc
-let pp_query _ = Relation.pp
+let pp_query = Relation.pp
 
 let show_relation_atom srk rel_ctx = 
   SrkUtil.mk_show (pp_relation_atom srk rel_ctx)
 let show_hypothesis srk rel_ctx = SrkUtil.mk_show (pp_hypothesis srk rel_ctx)
 let show_rule srk rel_ctx = SrkUtil.mk_show (pp_rule srk rel_ctx)
-let show_query srk rel_ctx = SrkUtil.mk_show (pp_query srk rel_ctx)
+let show_query rel_ctx = SrkUtil.mk_show (pp_query rel_ctx)
 
 module Chc = struct
-  type ('a, 'b, 'c) t = ('a, 'b, 'c) chc 
+  type 'a t = 'a chc 
 
   let pp srk rel_ctx formatter chc = 
     Format.fprintf formatter "(Rules:\n@[";
@@ -69,76 +114,43 @@ module Chc = struct
       ~pp_sep:(fun formatter () -> Format.fprintf formatter "@ \n ")
       (pp_rule srk rel_ctx)
       formatter
-      (BatHashtbl.values chc.rules);
+      (BatList.enum chc.rules);
     Format.fprintf formatter "@]\nQueries:@[%a@])"
-    (SrkUtil.pp_print_enum_nobox (Relation.pp rel_ctx)) 
-      (BatHashtbl.values chc.queries)
+    (SrkUtil.pp_print_enum_nobox (pp_query rel_ctx)) 
+      (BatList.enum chc.queries)
 
 
   let show srk rel_ctx = SrkUtil.mk_show (pp srk rel_ctx)
 
-  let create ?(rlength=97) ?(qlength=97) () =
-    let rules = Hashtbl.create rlength in
-    let queries = Hashtbl.create qlength in
-    let rule_counter = ref 0 in
-    let query_counter = ref 0 in
-    {rules;rule_counter;queries;query_counter}
+  let create = {rules=[];queries=[]}
+  let chc_of rules queries = {rules; queries}
 
-  let copy chc = 
-    {rules=Hashtbl.copy chc.rules;
-     rule_counter = ref !(chc.rule_counter);
-     queries=Hashtbl.copy chc.queries;
-     query_counter = ref !(chc.query_counter)}
-
-  let add tbl counter obj =
-    Hashtbl.add tbl !counter obj;
-    counter := !(counter) + 1;
-    !(counter) - 1
-
-  let add_rule chc rule = add chc.rules chc.rule_counter rule
-  let add_query chc query = add chc.queries chc.query_counter query
-
-
-  let del tbl name =
-    if Hashtbl.mem tbl name then (
-      BatHashtbl.remove_all tbl name;
-      true)
-    else false
-
-  let del_rule chc rule_name = del chc.rules rule_name
-  let del_query chc query_name = del chc.queries query_name
-
-  let upd tbl name obj =
-    Hashtbl.add tbl name obj
-
-  let upd_rule chc rule_name rule = upd chc.rules rule_name rule
-  let upd_query chc query_name query = upd chc.queries query_name query
-
+  let add_rule chc rule = {rules=rule::chc.rules; queries=chc.queries} 
+  let add_query chc query = {rules=chc.rules; queries=query::chc.queries}
   let get_rules chc = chc.rules
   let get_queries chc = chc.queries
-  let get_rule chc rule_name = Hashtbl.find chc.rules rule_name
-  let get_query chc query_name = Hashtbl.find chc.queries query_name
 
   let get_relations_used chc =
-    Hashtbl.fold
-      (fun _ ((hypo_atoms, _), conc_atom) rset ->
+    List.fold_left
+      (fun rset ((hypo_atoms, _), conc_atom) ->
          List.fold_left
-           (fun rset rel_atom -> Relation.Set.add (rel_sym_of rel_atom) rset)
-           (Relation.Set.add (rel_sym_of conc_atom) rset)
+           (fun rset rel_atom -> Relation.Set.add (rel_of_atom rel_atom) rset)
+           (Relation.Set.add (rel_of_atom conc_atom) rset)
            hypo_atoms)
+      (List.fold_left 
+         (fun rset query -> Relation.Set.add query rset)
+         Relation.Set.empty
+         chc.queries)
       chc.rules
-      (Hashtbl.fold 
-         (fun _ query rset -> Relation.Set.add query rset)
-         chc.queries
-         Relation.Set.empty)
 
   let is_linear chc =
-    BatHashtbl.fold 
-      (fun _ ((rel_atoms, _), _) acc -> acc && (List.length rel_atoms) <= 1)
-      chc.rules
+    BatList.fold_left 
+      (fun acc ((rel_atoms, _), _) -> acc && (List.length rel_atoms) <= 1)
       true
+      chc.rules
 
-
+  let goal_vert = -2 
+  let start_vert = -1 
   let to_weighted_graph srk chc pd =
     let open WeightedGraph in
     let emptyarr = BatArray.init 0 (fun _ -> failwith "empty") in
@@ -177,18 +189,26 @@ module Chc = struct
           let (pre2, post2, phi2) = y in
           let pre' = Array.map (fun sym -> dup_symbol srk sym) pre1 in
           let post' = Array.map (fun sym -> dup_symbol srk sym) post2 in 
-          let rhs_subst = 
-            map_union (mk_subst_map post2 post') (mk_subst_map pre2 post1) 
+          let rhs_pre_postmap = 
+            map_union (mk_subst_map post2 post') (mk_subst_map pre2 post1)
           in
-          let phi2 = substitute_map srk rhs_subst phi2 in
+          let rhs_subst =
+            Memo.memo 
+              ~size:(Symbol.Set.cardinal (symbols phi2))
+              (fun sym -> 
+                 if Symbol.Map.mem sym rhs_pre_postmap then
+                   Symbol.Map.find sym rhs_pre_postmap
+                 else (
+                   mk_const 
+                     srk
+                     (mk_symbol 
+                        srk 
+                        ~name:(show_symbol srk sym) 
+                        (typ_symbol srk sym))))
+          in
+          let phi2 = substitute_const srk rhs_subst phi2 in
           let phi1 = substitute_map srk (mk_subst_map pre1 pre') phi1 in
-          let phi' = 
-            Quantifier.mbp 
-              srk
-              (fun sym -> not (Array.mem sym post1))
-              (mk_and srk [phi1; phi2])
-          in
-          pre', post', phi'
+          pre', post', mk_and srk [phi1; phi2]
         )
       in
       let star (pre, post, phi) =
@@ -207,9 +227,7 @@ module Chc = struct
       {mul; add; star; zero; one}
     in
     let vertex_tbl = Hashtbl.create 100 in
-    let true_vert = -1 in
-    let goal_vert = 2 in
-    let wg = WeightedGraph.add_vertex (WeightedGraph.empty alg) true_vert in
+    let wg = WeightedGraph.add_vertex (WeightedGraph.empty alg) start_vert in
     let wg = WeightedGraph.add_vertex wg goal_vert in
     let vertexcounter = ref 0 in
     let wg = Relation.Set.fold 
@@ -221,50 +239,59 @@ module Chc = struct
         wg
     in
     let wg = 
-      Hashtbl.fold
-        (fun _ ((rel_atoms, phi), conc) wg ->
+      List.fold_left
+        (fun wg ((rel_atoms, phi), conc) ->
            match rel_atoms with
            | [] -> WeightedGraph.add_edge 
                      wg 
-                     true_vert
-                     (emptyarr, BatArray.of_list (params_of conc), phi)
-                     (Hashtbl.find vertex_tbl (rel_sym_of conc))
+                     start_vert
+                     (emptyarr, BatArray.of_list (params_of_atom conc), phi)
+                     (Hashtbl.find vertex_tbl (rel_of_atom conc))
            | [hd] ->
              WeightedGraph.add_edge 
                wg 
-               (Hashtbl.find vertex_tbl (rel_sym_of hd))
-               (BatArray.of_list (params_of hd), 
-                BatArray.of_list (params_of conc), 
+               (Hashtbl.find vertex_tbl (rel_of_atom hd))
+               (BatArray.of_list (params_of_atom hd), 
+                BatArray.of_list (params_of_atom conc), 
                 phi)
-               (Hashtbl.find vertex_tbl (rel_sym_of conc))
+               (Hashtbl.find vertex_tbl (rel_of_atom conc))
            | _ -> failwith "Rule with multiple relations in hypothesis")
-        chc.rules
         wg
+        chc.rules
     in
     let wg =
-      Hashtbl.fold
-        (fun _ rel wg -> 
+      List.fold_left
+        (fun wg rel -> 
            WeightedGraph.add_edge
              wg
              (Hashtbl.find vertex_tbl rel)
              alg.one
              goal_vert)
-        chc.queries
         wg
+        chc.queries
     in
-    wg, true_vert, goal_vert
+    wg
 
   let has_reachable_goal srk chc pd = 
     if is_linear chc then (
-      let wg, true_vert, goal_vert = to_weighted_graph srk chc pd in
-      let _, _, phi = WeightedGraph.path_weight wg true_vert goal_vert in
-      let solver = Smt.mk_solver srk in
-      Smt.Solver.add solver [phi];
-      begin match Smt.Solver.get_model solver with
+      let wg = to_weighted_graph srk chc pd in
+      let _, _, phi = WeightedGraph.path_weight wg start_vert goal_vert in
+      begin match Smt.is_sat srk phi with
         | `Unsat -> `No
         | `Unknown -> `Unknown
-        | `Sat _ -> `Yes
+        | `Sat -> `Unknown
       end)
+    else failwith "No methods for solving non lin chc"
+
+  let solve srk chc pd =
+    if is_linear chc then (
+      let wg = to_weighted_graph srk chc pd in
+      let soln = 
+        (fun rel -> 
+           let _, _, phi = WeightedGraph.path_weight wg start_vert rel in 
+           phi) 
+      in
+      soln)
     else failwith "No methods for solving non lin chc"
 
 
@@ -300,7 +327,7 @@ module ChcSrkZ3 = struct
       if Hashtbl.mem rsym_to_int rsym then Hashtbl.find rsym_to_int rsym
       else (
         let typ = List.map (fun arg -> typ_symbol srk arg) args in
-        let res = Relation.mk_relation rel_ctx ~name:rsym typ in
+        let res = mk_relation rel_ctx ~name:rsym typ in
         Hashtbl.add rsym_to_int rsym res;
         res)
     in
@@ -371,9 +398,7 @@ module ChcSrkZ3 = struct
                      then mk_const srk (BatHashtbl.find ind_to_sym ind)
                      else failwith "Free var in rule formula not bound in rel")
                   phi)
-               :: (List.map 
-                     (fun (sym1, sym2) -> mk_eq_syms srk sym1 sym2) 
-                     eq_syms))
+               :: [mk_eq_syms srk eq_syms])
           in
           (atoms, phi), conc
         | (OP_UNINTERPRETED, _) ->
@@ -392,15 +417,9 @@ module ChcSrkZ3 = struct
         (Z3.Symbol.to_string 
            (Z3.FuncDecl.get_name (Z3.Expr.get_func_decl query)))
     in
-    let rules_list = List.map parse_rule (Z3.Fixedpoint.get_rules z3fp) in
-    let queries_list = List.map parse_query z3queries in
-    let rule_counter = ref (List.length rules_list) in
-    let query_counter = ref (List.length queries_list) in
-    let rules = Hashtbl.create !rule_counter in
-    let queries = Hashtbl.create !query_counter in
-    List.iteri (fun ind rule -> Hashtbl.add rules ind rule) rules_list;
-    List.iteri (fun ind query -> Hashtbl.add queries ind query) queries_list;
-    {rules; rule_counter; queries; query_counter}
+    let rules = List.map parse_rule (Z3.Fixedpoint.get_rules z3fp) in
+    let queries = List.map parse_query z3queries in
+    {rules; queries}
 
   let parse_file ?(context=Z3.mk_context []) srk rel_ctx filename =
     let z3 = context in
