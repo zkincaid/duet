@@ -64,6 +64,8 @@ val int_of_symbol : symbol -> int
 
 val symbol_of_int : int -> symbol
 
+val dup_symbol : 'a context -> symbol -> symbol
+
 val compare_symbol : symbol -> symbol -> int
 
 module Symbol : sig
@@ -349,6 +351,7 @@ val mk_or : 'a context -> 'a formula list -> 'a formula
 val mk_not : 'a context -> 'a formula -> 'a formula
 val mk_eq : 'a context -> 'a term -> 'a term -> 'a formula
 val mk_arr_eq : 'a context -> symbol -> symbol -> 'a formula
+val mk_eq_syms : 'a context -> (symbol * symbol) list -> 'a formula
 val mk_lt : 'a context -> 'a term -> 'a term -> 'a formula
 val mk_leq : 'a context -> 'a term -> 'a term -> 'a formula
 val mk_true : 'a context -> 'a formula

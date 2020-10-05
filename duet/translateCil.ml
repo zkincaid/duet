@@ -3,7 +3,6 @@
 open Core
 open Aexpr
 open Srk
-open Apak
 
 include Log.Make(struct let name = "translateCil" end)
 

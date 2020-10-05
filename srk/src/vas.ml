@@ -4,6 +4,7 @@ module V = Linear.QQVector
 module M = Linear.QQMatrix
 module Z = Linear.ZZVector
 module H = Abstract
+module TF = TransitionFormula
 include Log.Make(struct let name = "srk.vas" end)
 
 (* A transformer defines an affine transition
@@ -80,26 +81,6 @@ let mk_bottom tr_symbols =
     |> M.of_rows
   in
   {v=TSet.empty; s_lst=[sim]}
-
-
-(* Used in preify and postify to create symbol map.
- * Is a way to substitute variables; for example
- * x with x' or x' with x.
- *)
-let post_map srk tr_symbols =
-  List.fold_left
-    (fun map (sym, sym') -> Symbol.Map.add sym (mk_const srk sym') map)
-    Symbol.Map.empty
-    tr_symbols
-
-(* For tr_symbols list of form (x, x'),
- * replace x' with x in term.
- *)
-let preify srk tr_symbols = substitute_map srk
-    (post_map srk (List.map (fun (x, x') -> (x', x)) tr_symbols))
-
-(* Same as preify, but replaces x with x' *)
-let postify srk tr_symbols = substitute_map srk (post_map srk tr_symbols)
 
 (* Ki,j is number of times equiv class i took transformer j
  * Ri is the transformer equiv class i was reset on (-1 if never reset)
@@ -258,13 +239,13 @@ let exp_other_reset_helper srk ksumi ksums kvarst trans_num =
  * a reset.
  *)
 let exp_sx_constraints_helper srk ri ksum ksums svarstdims transformers kvarst 
-    unified_s tr_symbols =
+      unified_s tr_symbols =
+  let preify = substitute_map srk (TF.pre_map srk tr_symbols) in
   let compute_single_svars svart dim  =
     mk_or srk
       (*The never reset case*)
       ((mk_and srk
-          [(mk_eq srk svart (preify srk tr_symbols 
-                               (Linear.of_linterm srk (M.row dim unified_s))));
+          [(mk_eq srk svart (preify (Linear.of_linterm srk (M.row dim unified_s))));
            (mk_eq srk ri (mk_real srk (QQ.of_int (-1))))]) 
        (*The reset case*)
        ::
@@ -445,11 +426,12 @@ let coproduct vabs1 vabs2 : 'a t =
 
 (*List of terms in s_lst, preified and postified*)
 let term_list srk s_lst tr_symbols = 
+  let preify = substitute_map srk (TF.pre_map srk tr_symbols) in
   List.map (fun matrix -> 
       ((M.rowsi matrix)
        /@ (fun (_, row) -> 
            let term = Linear.of_linterm srk row in
-           (preify srk tr_symbols term, term)))
+           (preify term, term)))
       |> BatList.of_enum)
     s_lst
   |> List.flatten
@@ -490,8 +472,9 @@ let alpha_hat srk imp tr_symbols =
         ((xdeltpairs, x'), xdeltphis) :: acc) [] tr_symbols) in
   let r, b1 = matrixify_vectorize_term_list srk 
       (H.affine_hull srk imp (List.map snd tr_symbols)) in
+  let postify = substitute_map srk (TF.post_map srk xdeltpairs) in
   let i, b2 = matrixify_vectorize_term_list srk 
-      (List.map (postify srk xdeltpairs)
+      (List.map postify
          (H.affine_hull srk (mk_and srk (imp :: xdeltphis))
             (List.map fst xdeltpairs))) in
   let _, b = unify2 [i; r] [b2; b1] in
@@ -511,9 +494,13 @@ let alpha_hat srk imp tr_symbols =
 (*TODO:Make a better pp function*)
 let pp srk syms formatter vas = Format.fprintf formatter "%a" (Formula.pp srk) (gamma srk vas syms)
 
-let abstract ?exists:(_=fun _ -> true) srk tr_symbols phi  =
-  let phi = (rewrite srk ~down:(nnf_rewriter srk) phi) in
-  (*let phi = Nonlinear.linearize srk phi in*)
+let abstract srk tf =
+  let phi =
+    TF.formula tf
+    |> rewrite srk ~down:(nnf_rewriter srk)
+    |> Nonlinear.linearize srk
+  in
+  let tr_symbols = TF.symbols tf in
   let solver = Smt.mk_solver srk in
   let rec go vas =
     Smt.Solver.add solver [mk_not srk (gamma srk vas tr_symbols)];
@@ -533,21 +520,18 @@ let abstract ?exists:(_=fun _ -> true) srk tr_symbols phi  =
   Log.errorf "\n\nvas is %a\n\n" (Formula.pp srk) (gamma srk result tr_symbols);
   result
 
-let join  _ _ _ _  = assert false
-let widen  _ _ _ _  = assert false
-let equal  _ _ _ _  = assert false
-
 module Monotone = struct
   type nonrec 'a t = 'a t
-  let join = join
-  let widen = widen
-  let equal = equal
   let pp = pp
   let exp = exp
 
-  let abstract ?exists:(_=fun _ -> true) srk tr_symbols phi =
-    let phi = (rewrite srk ~down:(nnf_rewriter srk) phi) in
-    let phi = Nonlinear.linearize srk phi in
+  let abstract srk tf =
+    let phi =
+      TF.formula tf
+      |> rewrite srk ~down:(nnf_rewriter srk)
+      |> Nonlinear.linearize srk
+    in
+    let tr_symbols = TF.symbols tf in
     let solver = Smt.mk_solver srk in
     let rec go vas =
       Smt.Solver.add solver [mk_not srk (gamma srk vas tr_symbols)];

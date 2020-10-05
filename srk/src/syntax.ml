@@ -201,6 +201,8 @@ let pp_symbol srk formatter symbol =
 let show_symbol srk symbol = fst (DynArray.get srk.symbols symbol)
 let symbol_of_int x = x
 let int_of_symbol x = x
+let dup_symbol srk sym = 
+  mk_symbol srk ~name:(show_symbol srk sym) (typ_symbol srk sym)
 
 let mk_real srk qq = srk.mk (Real qq) []
 let mk_zz srk z = mk_real srk (QQ.of_zz z)
@@ -278,6 +280,11 @@ let mk_ite srk cond bthen belse = srk.mk Ite [cond; bthen; belse]
 let mk_iff srk phi psi =
   mk_or srk [mk_and srk [phi; psi]; mk_and srk [mk_not srk phi; mk_not srk psi]]
 let mk_if srk phi psi = mk_or srk [mk_not srk phi; psi]
+
+let mk_eq_syms srk lst = 
+  mk_and 
+    srk 
+    (List.map (fun (s, t) -> srk.mk Eq [mk_const srk s; mk_const srk t]) lst)
 
 let mk_truncate srk t =
   mk_ite srk

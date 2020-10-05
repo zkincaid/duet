@@ -17,7 +17,9 @@ module CS = CoordinateSystem
 
 module UP = ExpPolynomial.UltPeriodic
 
-module PLM = Linear.PartialLinearMap
+module PLM = Lts.PartialLinearMap
+
+module TF = TransitionFormula
 
 (* Closed forms for solvable polynomial maps with periodic rational
    eigenvalues: multi-variate polynomials with ultimately periodic
@@ -510,25 +512,6 @@ let closure_periodic_rational sp =
   cf
 
 (** Solvable polynomial abstractions ****************************************************)
-let pre_symbols tr_symbols =
-  List.fold_left (fun set (s,_) ->
-      Symbol.Set.add s set)
-    Symbol.Set.empty
-    tr_symbols
-
-let post_symbols tr_symbols =
-  List.fold_left (fun set (_,s') ->
-      Symbol.Set.add s' set)
-    Symbol.Set.empty
-    tr_symbols
-
-(* Map from pre-state vars to their post-state counterparts *)
-let post_map tr_symbols =
-  List.fold_left
-    (fun map (sym, sym') -> Symbol.Map.add sym sym' map)
-    Symbol.Map.empty
-    tr_symbols
-
 (* map pre-state coordinates to their post-state counterparts *)
 let post_coord_map cs tr_symbols =
   List.fold_left
@@ -698,10 +681,16 @@ let rec_affine_hull srk wedge tr_symbols rec_terms rec_ideal =
    the row space of A is maximal. *)
 let extract_affine_transformation srk wedge tr_symbols rec_terms rec_ideal =
   let (mA, mB, pvc) = rec_affine_hull srk wedge tr_symbols rec_terms rec_ideal in
-  let (mT, mB) = Linear.max_lds mA mB in
-  let mA = QQMatrix.mul mT mA in
-  let pvc = matrix_polyvec_mul mT (Array.of_list pvc) in
-
+  let (dlts, mT) = Lts.determinize (mA, mB) in
+  let mS =
+    let mD = QQMatrix.mul (PLM.map dlts) mT in
+    match Lts.containment_witness (mA,mB) (mT,mD) with
+    | Some k -> k
+    | None -> assert false
+  in
+  let mA = mT in
+  let mB = PLM.map dlts in
+  let pvc = matrix_polyvec_mul mS (Array.of_list pvc) in
   logf ~attributes:[`Blue] "Affine transformation:";
   logf " A: @[%a@]" QQMatrix.pp mA;
   logf " B: @[%a@]" QQMatrix.pp mB;
@@ -731,11 +720,11 @@ let nb_equations iter =
   List.fold_left (+) 0 (List.map block_size iter.block_eq)
 
 let pp srk tr_symbols formatter iter =
-  let post_map = post_map tr_symbols in
+  let post_map = TF.post_map srk tr_symbols in
   let postify =
     let subst sym =
       if Symbol.Map.mem sym post_map then
-        mk_const srk (Symbol.Map.find sym post_map)
+        Symbol.Map.find sym post_map
       else
         mk_const srk sym
     in
@@ -1270,8 +1259,8 @@ let _extract_matrix_leq srk wedge tr_symbols term_of_id =
    polynomial map & simulation.  Should be called first. *)
 let extract_constant_symbols srk tr_symbols wedge =
   let cs = Wedge.coordinate_system wedge in
-  let pre_symbols = pre_symbols tr_symbols in
-  let post_symbols = post_symbols tr_symbols in
+  let pre_symbols = TF.pre_symbols tr_symbols in
+  let post_symbols = TF.post_symbols tr_symbols in
   tr_symbols |> List.iter (fun (s,s') ->
       CS.admit_cs_term cs (`App (s, []));
       CS.admit_cs_term cs (`App (s', [])));
@@ -1307,13 +1296,13 @@ let exp_ocrs srk tr_symbols loop_counter iter =
   Nonlinear.ensure_symbols srk;
 
   let post_map = (* map pre-state vars to post-state vars *)
-    post_map tr_symbols
+    TF.post_map srk tr_symbols
   in
 
   let postify =
     let subst sym =
       if Symbol.Map.mem sym post_map then
-        mk_const srk (Symbol.Map.find sym post_map)
+        Symbol.Map.find sym post_map
       else
         mk_const srk sym
     in
@@ -1533,11 +1522,8 @@ module SolvablePolynomialOne = struct
       block_eq = block_eq;
       block_leq = block_leq }
 
-  let abstract ?(exists=fun _ -> true) srk tr_symbols phi =
-    let post_symbols = post_symbols tr_symbols in
-    let subterm x = not (Symbol.Set.mem x post_symbols) in
-    Wedge.abstract ~exists ~subterm srk phi
-    |> abstract_wedge srk tr_symbols
+  let abstract srk tf =
+    abstract_wedge srk (TF.symbols tf) (TF.wedge_hull srk tf)
 
   let join srk tr_symbols iter iter' =
     Wedge.join (wedge_of srk tr_symbols iter) (wedge_of srk tr_symbols iter')
@@ -1565,11 +1551,8 @@ module SolvablePolynomial = struct
       block_eq = block_eq;
       block_leq = block_leq }
 
-  let abstract ?(exists=fun _ -> true) srk tr_symbols phi =
-    let post_symbols = post_symbols tr_symbols in
-    let subterm x = not (Symbol.Set.mem x post_symbols) in
-    Wedge.abstract ~exists ~subterm srk phi
-    |> abstract_wedge srk tr_symbols
+  let abstract srk tf =
+    abstract_wedge srk (TF.symbols tf) (TF.wedge_hull srk tf)
 
   let join srk tr_symbols iter iter' =
     Wedge.join (wedge_of srk tr_symbols iter) (wedge_of srk tr_symbols iter')
@@ -1597,23 +1580,20 @@ module SolvablePolynomialPeriodicRational = struct
       block_eq = block_eq;
       block_leq = block_leq }
 
-  let abstract ?(exists=fun _ -> true) srk tr_symbols phi =
-    let post_symbols = post_symbols tr_symbols in
-    let subterm x = not (Symbol.Set.mem x post_symbols) in
-    Wedge.abstract ~exists ~subterm srk phi
-    |> abstract_wedge srk tr_symbols 
+  let abstract srk tf =
+    abstract_wedge srk (TF.symbols tf) (TF.wedge_hull srk tf)
 
   let exp srk tr_symbols loop_counter iter =
     Nonlinear.ensure_symbols srk;
     let srk = srk in
 
     let post_map = (* map pre-state vars to post-state vars *)
-      post_map tr_symbols
+      TF.post_map srk tr_symbols
     in
     let postify =
       let subst sym =
         if Symbol.Map.mem sym post_map then
-          mk_const srk (Symbol.Map.find sym post_map)
+          Symbol.Map.find sym post_map
         else
           mk_const srk sym
       in
@@ -1770,10 +1750,10 @@ module PresburgerGuard = struct
     let precondition = SrkApron.formula_of_property (G.precondition guard) in
     let postcondition = SrkApron.formula_of_property (G.postcondition guard) in
     let pre_symbols = (* + symbolic constants *)
-      Symbol.Set.union (symbols precondition) (pre_symbols tr_symbols)
+      Symbol.Set.union (symbols precondition) (TF.pre_symbols tr_symbols)
     in
-    let post_symbols = post_symbols tr_symbols in
-    let post_map = post_map tr_symbols in
+    let post_symbols = TF.post_symbols tr_symbols in
+    let post_map = TF.post_map srk tr_symbols in
 
     (* Let cf(k,x,x') be the closed form of the affine map associated
        with sp.  The presburger guard is
@@ -1832,7 +1812,7 @@ module PresburgerGuard = struct
           substitute_const srk
             (fun s ->
                if Symbol.Map.mem s post_map then
-                 freshify (mk_const srk (Symbol.Map.find s post_map))
+                 freshify (Symbol.Map.find s post_map)
                else
                  mk_const srk s)
             precondition
@@ -1860,7 +1840,7 @@ module PresburgerGuard = struct
 
     let guard_closure =
       mk_or srk [mk_and srk [mk_eq srk loop_counter (mk_real srk QQ.zero);
-                             Iteration.identity srk tr_symbols];
+                             TF.formula (TF.identity srk tr_symbols)];
                  mk_and srk [mk_leq srk (mk_real srk QQ.one) loop_counter;
                              presburger_guard;
                              precondition;
@@ -1906,12 +1886,12 @@ module DLTS = struct
   let exp_impl base_exp srk tr_symbols loop_count iter =
     let sim i = iter.simulation.(i) in
     let post_map = (* map pre-state vars to post-state vars *)
-      post_map tr_symbols
+      TF.post_map srk tr_symbols
     in
     let postify =
       let subst sym =
         if Symbol.Map.mem sym post_map then
-          mk_const srk (Symbol.Map.find sym post_map)
+          Symbol.Map.find sym post_map
         else
           mk_const srk sym
       in
@@ -1985,16 +1965,13 @@ module DLTS = struct
   let exp srk tr_symbols loop_count iter =
     exp_impl SolvablePolynomial.exp srk tr_symbols loop_count iter
 
-  let abstract ?(exists=fun _ -> true) srk tr_symbols phi =
-    let phi = Nonlinear.linearize srk phi in
-    let pre_symbols = pre_symbols tr_symbols in
-    let post_symbols = post_symbols tr_symbols in
-    (* Detect constant terms *)
-    let is_symbolic_constant x =
-      not (Symbol.Set.mem x pre_symbols || Symbol.Set.mem x post_symbols)
+  let abstract srk tf =
+    let tr_symbols = TF.symbols tf in
+    let phi = Nonlinear.linearize srk (TF.formula tf) in
+    let phi_symbols =
+      Symbol.Set.elements (Symbol.Set.filter (TF.exists tf) (symbols phi))
     in
-    let phi_symbols = Symbol.Set.elements (Symbol.Set.filter exists (symbols phi)) in
-    let constants = List.filter is_symbolic_constant phi_symbols in
+    let constants = Symbol.Set.elements (TF.symbolic_constants tf) in
     (* pre_map is a mapping from dimensions that correspond to
        post-state dimensions to their pre-state counterparts *)
     let pre_map =
@@ -2031,7 +2008,7 @@ module DLTS = struct
         (mA, mB, nb_rows)
         (Linear.const_dim::(List.map Linear.dim_of_sym constants))
     in
-    let (mS, dlts) = PLM.max_dlts mA mB in
+    let (dlts, mS) = Lts.determinize (mA, mB) in
     let simulation =
       QQMatrix.rowsi mS
       /@ (Linear.of_linterm srk % snd)
@@ -2067,67 +2044,13 @@ module DLTS = struct
     mk_and srk [map; guard]
 
   let join srk tr_symbols iter1 iter2 =
-    abstract srk tr_symbols (mk_or srk [to_formula srk iter1;
-                                        to_formula srk iter2])
+    abstract srk (TF.make
+                    (mk_or srk [to_formula srk iter1;
+                                to_formula srk iter2])
+                    tr_symbols)
 
   let widen = join
 end
-
-(* Compute best abstraction of a DLTS as a DLTS that satisfies
-   spectral conditions. *)
-let dlts_abstract_spectral spectral_decomp dlts dim =
-  let module VS = Linear.QQVectorSpace in
-  let rec fix mA mB = (* Ax' = Bx *)
-    let (mS, dlts) = PLM.max_dlts mA mB in
-    let dom = snd (PLM.iteration_sequence dlts) in
-    (* T agrees with dlts for everything in the invariant domain;
-         sends everything orthogonal to the invariant domain to 0. *)
-    let mT =
-      PLM.map (PLM.make (PLM.map dlts) dom)
-    in
-    let dims = SrkUtil.Int.Set.elements (QQMatrix.row_set mS) in
-    let sd = spectral_decomp mT dims in
-
-    let mP = VS.matrix_of sd in
-    let mPS = QQMatrix.mul mP mS in
-    let mPTS = BatList.reduce QQMatrix.mul [mP; PLM.map dlts; mS] in
-    let mPDS =
-      BatList.reduce QQMatrix.mul [mP; VS.matrix_of (PLM.guard dlts); mS]
-    in
-    if List.length sd = QQMatrix.nb_rows mS then
-      let map = match Linear.divide_right mPTS mPS with
-        | Some t -> t
-        | None -> assert false
-      in
-      let guard = match Linear.divide_right mPDS mPS with
-        | Some mG -> VS.of_matrix mG
-        | None -> assert false
-      in
-      (mPS, PLM.make map guard)
-    else
-      let mB =
-        let size = QQMatrix.nb_rows mPS in
-        BatEnum.fold (fun m (i, row) ->
-            QQMatrix.add_row (i + size) row m)
-          mPTS
-          (QQMatrix.rowsi mPDS)
-      in
-      fix mPS mB
-  in
-  (* DLTS: x' = Tx when Dx = 0; represent in the form Ax' = Bx as
-      [ I ] x' = [ T ] x
-      [ 0 ]      [ D ]
-  *)
-  let mA =
-    QQMatrix.identity (BatList.of_enum (0 -- (dim - 1)))
-  in
-  let mB =
-    BatList.fold_lefti (fun m i row ->
-        QQMatrix.add_row (i + dim) row m)
-      (PLM.map dlts)
-      (PLM.guard dlts)
-  in
-  fix mA mB
 
 module DLTSSolvablePolynomial = struct
   include DLTS
@@ -2178,12 +2101,8 @@ module DLTSSolvablePolynomial = struct
             (QQXs.enum p))
     in
     let (dlts, sim) = dlts_of_solvable_algebraic pm ideal in
-    let (pr_sim, pr_dlts) =
-      let spectral_decomp m dims =
-        Linear.periodic_rational_spectral_decomposition m dims
-        |> List.map (fun (_, _, v) -> v)
-      in
-      dlts_abstract_spectral spectral_decomp dlts (Array.length sim)
+    let (pr_dlts, pr_sim) =
+      Lts.periodic_rational_spectrum_reflection dlts (Array.length sim)
     in
     let simulation =
       QQMatrix.rowsi pr_sim
@@ -2198,10 +2117,13 @@ module DLTSSolvablePolynomial = struct
     in
     { dlts = pr_dlts; simulation }
 
-  let abstract ?(exists=fun _ -> true) srk tr_symbols phi =
-    let post_symbols = post_symbols tr_symbols in
+  let abstract srk tf =
+    let tr_symbols = TF.symbols tf in
+    let post_symbols = TF.post_symbols tr_symbols in
     let subterm x = not (Symbol.Set.mem x post_symbols) in
-    let wedge = Wedge.abstract_equalities ~exists ~subterm srk phi in
+    let wedge =
+      Wedge.abstract_equalities ~exists:(TF.exists tf) ~subterm srk (TF.formula tf)
+    in
     abstract_wedge srk tr_symbols wedge
 
   let exp srk tr_symbols loop_count iter =
@@ -2211,34 +2133,28 @@ end
 module DLTSPeriodicRational = struct
   include DLTS
 
-  let abstract_spectral spectral_decomp ?(exists=fun _ -> true) srk tr_symbols phi =
-    let { dlts; simulation } = DLTS.abstract ~exists srk tr_symbols phi in
-    let (mS, pr_dlts) =
-      dlts_abstract_spectral spectral_decomp dlts (Array.length simulation)
-    in
-    let pr_simulation =
-      QQMatrix.rowsi mS
-      /@ (fun (_, row) ->
-          Linear.term_of_vec srk (fun i -> simulation.(i)) row
-          |> SrkSimplify.simplify_term srk)
+  let compose_simulation srk mS simulation =
+    QQMatrix.rowsi mS
+    /@ (fun (_, row) ->
+      Linear.term_of_vec srk (fun i -> simulation.(i)) row
+      |> SrkSimplify.simplify_term srk)
     |> BatArray.of_enum
-    in
-    { dlts = pr_dlts;
-      simulation = pr_simulation }
 
-  let abstract ?(exists=fun _ -> true) srk tr_symbols phi =
-    let spectral_decomp m dims =
-      Linear.periodic_rational_spectral_decomposition m dims
-      |> List.map (fun (_, _, v) -> v)
+  let abstract srk tf =
+    let { dlts; simulation } = DLTS.abstract srk tf in
+    let (dlts, mS) =
+      Lts.periodic_rational_spectrum_reflection dlts (Array.length simulation)
     in
-    abstract_spectral spectral_decomp ~exists srk tr_symbols phi
+    let simulation = compose_simulation srk mS simulation in
+    { dlts; simulation }
 
-  let abstract_rational ?(exists=fun _ -> true) srk tr_symbols phi =
-    let spectral_decomp m dims =
-      Linear.rational_spectral_decomposition m dims
-      |> List.map (fun (_, v) -> v)
+  let abstract_rational srk tf =
+    let { dlts; simulation } = DLTS.abstract srk tf in
+    let (dlts, mS) =
+      Lts.rational_spectrum_reflection dlts (Array.length simulation)
     in
-    abstract_spectral spectral_decomp ~exists srk tr_symbols phi
+    let simulation = compose_simulation srk mS simulation in
+    { dlts; simulation }
 
   let exp srk tr_symbols loop_count iter =
     exp_impl SolvablePolynomialPeriodicRational.exp srk tr_symbols loop_count iter

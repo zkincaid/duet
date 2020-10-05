@@ -129,9 +129,8 @@ module Make
 
   val abstract_post : (C.t,'abs) SrkApron.property -> t -> (C.t,'abs) SrkApron.property
 
-  (** Compute a representation of a transition as a formula and a list
-     of (pre-state, post-state) symbols. *)
-  val to_transition_formula : t -> (((symbol * symbol) list) * C.t formula)
+  (** Compute a representation of a transition as a transition formula. *)
+  val to_transition_formula : t -> C.t TransitionFormula.t
 
   val domain : (module Iteration.PreDomain) ref
   val star : t -> t

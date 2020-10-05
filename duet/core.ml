@@ -2,7 +2,6 @@
     our internal representations, including the type [ap] of access paths and
     [expr] of expressions.  Further operations on expr can be found in
     [AExpr]. *)
-open Apak
 open Srk
 open BatPervasives
 

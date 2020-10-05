@@ -1,5 +1,4 @@
 open Core
-open Apak
 
 module type FlowGraph = sig
   include Graph.Sig.I

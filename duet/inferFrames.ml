@@ -1,7 +1,6 @@
 open Core
 open CfgIr
 open Srk
-open Apak
 open BatPervasives
 
 module P = Putil.Set.Make(AP.Set)

@@ -3,7 +3,6 @@ open Core
 open CfgIr
 open Ai
 open Srk
-open Apak
 
 module Pack = Var.Set
 module DefEnum = Enumeration.Make(Def)

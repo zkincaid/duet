@@ -229,16 +229,20 @@ module Array_analysis (Iter : PreDomain) = struct
       arr_map : (Symbol.t, Symbol.t) Hashtbl.t;
       new_trs : (Symbol.t * Symbol.t) list;
       iter_trs : (Symbol.t * Symbol.t) list;
-      projed_form : 'a formula}
-    
-  let abstract ?(exists=fun _ -> true) srk tr_symbols phi =
+      projed_form : 'a TransitionFormula.t}
+  
+  (* TODO:Clean up and actually use tf*)
+  let abstract srk tf =
+    let exists = TransitionFormula.exists tf in
+    let tr_symbols = TransitionFormula.symbols tf in
+    let phi = TransitionFormula.formula tf in
     let num_trs, arr_trs = separate_symbols_by_sort srk tr_symbols in 
     let proj_inds, arr_map, (new_trs, phi_proj) = projection srk phi arr_trs in
     let matrix = to_mfa srk phi_proj in
     let lia = mfa_to_lia srk matrix in
     let iter_trs = num_trs@new_trs in
-    let ground = mbp_qe srk lia in
-    {iter_obj=Iter.abstract ~exists srk iter_trs ground;
+    let ground = TransitionFormula.make ~exists (mbp_qe srk lia) iter_trs in
+    {iter_obj=Iter.abstract srk ground;
      proj_inds;
      arr_map;
      new_trs;
@@ -246,12 +250,12 @@ module Array_analysis (Iter : PreDomain) = struct
      projed_form=ground}
 
 
-  let equal _ _ _ _= failwith "todo 5"
+  (*let equal _ _ _ _= failwith "todo 5"
 
   let widen _ _ _ _= failwith "todo 6"
 
   let join _ _ _ _ = failwith "todo 7"
-
+*)
   let split_append lst = 
     let a, b = List.split lst in
     a @ b
@@ -347,7 +351,8 @@ module Array_analysis (Iter : PreDomain) = struct
         (fun sym -> List.mem sym (fresh_lc :: lc_syms @ (split_append obj.iter_trs)))
         iter_proj
     in
-    let noop_all_but_one = special_step srk obj.iter_trs obj.projed_form projed fresh_lc lc obj.new_trs in
+    (* Clean up later to make use of transitionformula obj*)
+    let noop_all_but_one = special_step srk obj.iter_trs (TransitionFormula.formula obj.projed_form) projed fresh_lc lc obj.new_trs in
     let noop_ground = mbp_qe srk noop_all_but_one in
     let projed_right_lc = substitute_const srk (fun sym -> if compare_symbol sym fresh_lc = 0 then lc else mk_const srk sym) projed in
     let noop_eqs = 

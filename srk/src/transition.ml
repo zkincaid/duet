@@ -270,16 +270,6 @@ struct
       |> rewrite srk
         ~up:(SrkSimplify.simplify_terms_rewriter srk % Nonlinear.simplify_terms_rewriter srk)
     in
-    (tr_symbols, body)
-
-  let domain =
-    let open Iteration in
-    let open SolvablePolynomial in
-    ref (module ProductWedge(SolvablePolynomial)(WedgeGuard) : PreDomain)
-
-  let star tr =
-    let (module D) = !domain in
-    let (tr_symbols, body) = to_transition_formula tr in
     let exists =
       let post_symbols =
         List.fold_left
@@ -292,7 +282,19 @@ struct
       | Some _ -> true
       | None -> Symbol.Set.mem x post_symbols
     in
-    let iter = D.abstract ~exists srk tr_symbols body in
+   TransitionFormula.make ~exists body tr_symbols
+
+  let domain =
+    let open Iteration in
+    let open SolvablePolynomial in
+    ref (module ProductWedge(SolvablePolynomial)(WedgeGuard) : PreDomain)
+
+ 
+  let star tr =
+    let (module D) = !domain in
+    let tf = to_transition_formula tr in
+    let iter = D.abstract srk tf in
+    let tr_symbols = TransitionFormula.symbols tf in
     let fo_tr, arr_tr = List.partition (fun (s, _) -> is_fo srk s) tr_symbols in
     let transform =
       List.fold_left (fun tr (pre, post) ->

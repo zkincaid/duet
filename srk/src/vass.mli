@@ -6,11 +6,4 @@ open Syntax
 type 'a t
 val pp : 'a context -> (symbol * symbol) list -> Format.formatter -> 'a t -> unit
 val exp : 'a context -> (symbol * symbol) list -> 'a term -> 'a t -> 'a formula
-val join : 'a context -> (symbol * symbol) list -> 'a t -> 'a t -> 'a t
-val widen : 'a context -> (symbol * symbol) list -> 'a t -> 'a t -> 'a t
-val equal : 'a context -> (symbol * symbol) list -> 'a t -> 'a t -> bool
-val abstract : ?exists:(symbol -> bool) ->
-  'a context ->
-  (symbol * symbol) list ->
-  'a formula ->
-  'a t
+val abstract : 'a context -> 'a TransitionFormula.t -> 'a t

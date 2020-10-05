@@ -17,10 +17,12 @@ let suite = "Main" >::: [
     Test_quantifier.suite;
     Test_wedge.suite;
     Test_abstract.suite;
+    Test_lts.suite;
     Test_iteration.suite;
     Test_transition.suite;
     Test_WeightedGraph.suite;
     Test_arraycontent.suite;
+    Test_chc.suite
 ]
 
 let _ =
