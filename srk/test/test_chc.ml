@@ -10,30 +10,36 @@ let rel_ctx = mk_relcontext
 let pd = (module Product(LinearRecurrenceInequation)(PolyhedronGuard) :
   PreDomain)
 
+let mk_eq_syms srk map = 
+  mk_and
+    srk
+    (List.map (fun (s, t) -> mk_eq srk (mk_const srk s) (mk_const srk t)) map)
 
-let postify_atom map (rel, syms) = 
+(* These are some functions for quickly creating atoms and rules.*)
+let postify_atom srk rel_ctx map rel_atom = 
   let syms' = List.map 
       (fun sym -> 
          match BatList.assoc_opt sym map with
          | None -> sym
          | Some sym' -> sym')
-      syms
+      (params_of_atom rel_atom)
   in
-  rel, syms'
+  mk_rel_atom srk rel_ctx (rel_of_atom rel_atom) syms'
 
 
-let preify_atom map (rel, syms') = 
+let preify_atom srk rel_ctx map rel_atom  = 
   let syms = List.map 
       (fun sym -> 
          try BatList.assoc_inv sym map 
          with _ -> sym)
-      syms'
+      (params_of_atom rel_atom)
   in
-  rel, syms
+  mk_rel_atom srk rel_ctx (rel_of_atom rel_atom) syms
 
-let mk_mapped_rule map hypo_atoms phi conc_atom =
-  let hypo_atoms = List.map (preify_atom map) hypo_atoms in
-  let conc_atom = postify_atom map conc_atom in
+
+let mk_mapped_rule srk rel_ctx map hypo_atoms phi conc_atom =
+  let hypo_atoms = List.map (preify_atom srk rel_ctx map) hypo_atoms in
+  let conc_atom = postify_atom srk rel_ctx map conc_atom in
   (hypo_atoms, phi), conc_atom
 
 
@@ -92,7 +98,9 @@ let xskipcount () =
   let vert = mk_n_rel_atoms_fresh srk rel_ctx [xsym; ysym] 3 in
   let map = [(xsym, xsym'); (ysym, ysym')] in
   let edge0 = 
-    mk_mapped_rule 
+    mk_mapped_rule
+      srk
+      rel_ctx
       map 
       [] 
       (mk_eq srk y' x')
@@ -100,6 +108,8 @@ let xskipcount () =
   in
   let edge1 = 
     mk_mapped_rule
+      srk
+      rel_ctx
       map
       [vert.(0)]
       (mk_and 
@@ -110,6 +120,8 @@ let xskipcount () =
   in 
   let edge2 = 
     mk_mapped_rule
+      srk
+      rel_ctx
       map
       [vert.(0)]
       (mk_eq_syms srk map)
@@ -117,6 +129,8 @@ let xskipcount () =
   in 
   let edge3 = 
     mk_mapped_rule
+      srk
+      rel_ctx
       map
       [vert.(1)]
       (mk_and 
@@ -127,6 +141,8 @@ let xskipcount () =
   in
   let edge4 =
     mk_mapped_rule
+      srk
+      rel_ctx
       map
       [vert.(0)]
       (mk_and srk [mk_lt srk y' x'; mk_eq_syms srk map])
@@ -145,6 +161,8 @@ let dupuncontrsym () =
   let map = [] in
   let edge0 =
     mk_mapped_rule
+      srk
+      rel_ctx
       map
       []
       (mk_eq srk (mk_one srk) y)
@@ -152,6 +170,8 @@ let dupuncontrsym () =
   in
   let edge1 =
     mk_mapped_rule
+      srk
+      rel_ctx
       map
       [vert.(0)]
       (mk_eq srk (mk_zero srk) y)

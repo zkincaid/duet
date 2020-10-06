@@ -268,11 +268,6 @@ let mk_iff srk phi psi =
   mk_or srk [mk_and srk [phi; psi]; mk_and srk [mk_not srk phi; mk_not srk psi]]
 let mk_if srk phi psi = mk_or srk [mk_not srk phi; psi]
 
-let mk_eq_syms srk lst = 
-  mk_and 
-    srk 
-    (List.map (fun (s, t) -> srk.mk Eq [mk_const srk s; mk_const srk t]) lst)
-
 let mk_truncate srk t =
   mk_ite srk
     (mk_leq srk (mk_zero srk) t)

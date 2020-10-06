@@ -3,7 +3,7 @@ open Syntax
 
 type relcontext
 type relation
-type relation_atom = relation * symbol list
+type relation_atom
 type 'a hypothesis = relation_atom list * 'a formula
 type 'a rule = 'a hypothesis * relation_atom
 type query = relation
@@ -28,8 +28,8 @@ val mk_relation : relcontext -> ?name:string -> typ list -> relation
 val type_of : relcontext -> relation -> typ list
 val name_of : relcontext -> relation -> string
 
-(** This function is recommended way to create relation atoms because
- * it includes type-checking *)
+(** This function includes typechecking. We hide the type of relation atoms 
+ * to force the use to have their atom type checked *)
 val mk_rel_atom : 'a context -> relcontext -> relation -> symbol list -> 
   relation_atom
 

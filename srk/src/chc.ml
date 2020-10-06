@@ -266,6 +266,9 @@ module ChcSrkZ3 = struct
     | BOOL_SORT -> `TyBool
     | _ -> failwith "TODO: allow function types"
 
+  (* Creates a relation atom from a z3 predicate in which each argument
+   * to the predicate is an integer. Replaces integer [i] with value
+   * located at key [i] in table [ind_to_sym] when such a key exists *)
   let rel_atom_of_z3 srk rel_ctx ind_to_sym rsym_to_int names z3pred =
     let args = List.map 
         (fun arg -> 
@@ -292,6 +295,9 @@ module ChcSrkZ3 = struct
     in
     relation, args
 
+  (* Similiar to above but always uses creates a fresh symbol. [eq_syms] tracks
+   * which fresh symbols we created for indices that already exist in 
+   * [ind_to_sym] *)
   let rel_atom_of_z3_fresh srk rel_ctx ind_to_sym rsym_to_int names z3pred =
     let fresh_index_map = BatHashtbl.create 91 in
     let eq_syms = ref [] in
@@ -341,7 +347,8 @@ module ChcSrkZ3 = struct
               | OP_UNINTERPRETED -> 
                 [rel_atom_of_z3 srk rel_ctx ind_to_sym rsym_to_int names hypo],
                 mk_true srk
-              | OP_OR -> failwith "TODO: OR Case"
+              (* Potentially need add special handling for "OR" case similar to
+               * "AND" case *)
               | _ -> [], SrkZ3.formula_of_z3 srk hypo
             end
           in
@@ -357,7 +364,12 @@ module ChcSrkZ3 = struct
                      then mk_const srk (BatHashtbl.find ind_to_sym ind)
                      else failwith "Free var in rule formula not bound in rel")
                   phi)
-               :: [mk_eq_syms srk eq_syms])
+               :: (List.map (fun (s, t) -> 
+                   mk_eq 
+                     srk 
+                     (mk_const srk s) 
+                     (mk_const srk t))
+                   eq_syms))
           in
           (atoms, phi), conc
         | (OP_UNINTERPRETED, _) ->
