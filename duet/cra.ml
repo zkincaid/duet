@@ -26,6 +26,7 @@ let termination_llrf = ref true
 let termination_dta = ref true
 let termination_phase_analysis = ref true
 let precondition = ref false
+let termination_attractor = ref true
 
 let dump_goal loc path_condition =
   if !dump_goals then begin
@@ -762,6 +763,42 @@ let preimage transition formula =
   mk_and srk [purify_floor (K.guard transition);
               substitute_const srk subst formula]
 
+let formula_with_attractor_region formula x_xp =
+  logf "Starting attractor region analysis";
+  let xp_leq_x_terms = BatList.fold_left (fun l (x, xp) -> 
+      let open Syntax in (mk_leq srk (mk_const srk xp) (mk_const srk x), mk_const srk xp, mk_const srk x) :: l) [] x_xp 
+  in
+  let lower_bounds = BatList.map (fun (xp_leq_x_term, xp, x) -> 
+      match SrkZ3.optimize_box srk (Syntax.mk_and srk [formula; xp_leq_x_term]) [xp] with
+      | `Sat l ->  let h = BatList.hd l in (Interval.lower h, x)
+      | _ -> (None, x)
+    ) 
+      xp_leq_x_terms in 
+  let x_leq_xp_terms = BatList.fold_left (fun l (x, xp) -> 
+      let open Syntax in (mk_leq srk (mk_const srk x) (mk_const srk xp), mk_const srk xp, mk_const srk x) :: l) [] x_xp 
+  in
+  let upper_bounds = BatList.map (fun (x_leq_xp_term, xp, x) -> 
+      match SrkZ3.optimize_box srk (Syntax.mk_and srk [formula; x_leq_xp_term]) [xp] with
+      | `Sat l -> let h = BatList.hd l in (Interval.upper h, x)
+      | _ -> (None, x)
+    ) 
+      x_leq_xp_terms 
+  in
+  let lb_x_ub = BatList.map2 (fun lb ub -> 
+      let open Syntax in
+      match lb, ub with 
+      | (Some a, x), (Some b, y) -> [mk_leq srk (mk_real srk a) x; mk_leq srk y (mk_real srk b)] 
+      | (Some a, x), _ -> [mk_leq srk (mk_real srk a) x]
+      | _, (Some b, x) -> [mk_leq srk x (mk_real srk b)]
+      | _ -> []
+    ) 
+      lower_bounds 
+      upper_bounds
+  in
+  let formula'' = Syntax.mk_and srk (formula :: BatList.flatten lb_x_ub) in
+  logf "Formula with attractor regions:\n%a\n" (Syntax.Formula.pp srk) formula'';
+  formula''
+
 let omega_algebra =  function
   | `Omega transition ->
      (** over-approximate possibly non-terminating conditions for a transition *)
@@ -782,6 +819,11 @@ let omega_algebra =  function
          match V.of_symbol x with
          | Some _ -> true
          | None -> Syntax.Symbol.Set.mem x post_symbols
+       in
+       let formula = 
+        if !termination_attractor then 
+          formula_with_attractor_region formula x_xp 
+        else formula 
        in
        let nonterm formula =
          if !termination_llrf
@@ -1106,6 +1148,10 @@ let _ =
     ("-termination-no-phase",
      Arg.Clear termination_phase_analysis,
      " Disable phase-based termination analysis");
+  CmdLine.register_config
+     ("-termination-no-attractor",
+      Arg.Clear termination_attractor,
+      " Disable attractor region computation for LLRF");
   CmdLine.register_config
     ("-precondition",
      Arg.Clear precondition,
