@@ -837,7 +837,10 @@ let invariant_transition_predicates srk exists phi tr_symbols predicates =
            false
       end
   in
-  List.filter is_invariant predicates
+  if Smt.Solver.check solver [] = `Unsat then
+    []
+  else
+    List.filter is_invariant predicates
 
 let invariant_partition ?(exists=fun _ -> true) srk tr_symbols candidates phi =
   let phi = Nonlinear.linearize srk phi in

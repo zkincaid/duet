@@ -78,7 +78,7 @@ module MakeDomain(Iter : PreDomain) : Domain
 val identity : 'a context -> (symbol * symbol) list -> 'a formula
 
 (** Given a transition formula T and a transition predicate p, we say
-   that p is an invariant of T if
+   that p is an invariant of T if T(x,x') /\ T(x',x'') is consistent and
      T(x,x') /\ T(x',x'') /\ p(x,x') => p(x',x'')
    A set of transition predicates defines a partition of T, which is acyclic
    in the sense that when a computation leaves a cell it may never return.

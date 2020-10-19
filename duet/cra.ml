@@ -878,7 +878,7 @@ let omega_algebra =  function
              let phased_nonterm =
               let cells = 
                Iteration.invariant_partition ~exists srk x_xp predicates formula
-              in 
+              in
                 Format.printf "Number of cells: %d\n" (List.length cells);
               cells
                |> List.map (fun phase ->
