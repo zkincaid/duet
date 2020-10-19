@@ -49,52 +49,100 @@ let typ_of_sort sort =
   | BOOL_SORT -> `TyBool
   | _ -> invalid_arg "typ_of_sort"
 
+let typ_of_sort_full sort =
+  let open Z3enums in
+  match Z3.Sort.get_sort_kind sort with
+  | REAL_SORT -> `TyReal
+  | INT_SORT -> `TyInt
+  | BOOL_SORT -> `TyBool
+  | ARRAY_SORT -> `TyFun ([`TyInt], `TyInt) 
+  | _ -> invalid_arg "typ_of_sort"
+
+
+
 let sort_of_typ z3 = function
   | `TyInt -> Z3.Arithmetic.Integer.mk_sort z3
   | `TyReal -> Z3.Arithmetic.Real.mk_sort z3
   | `TyBool -> Z3.Boolean.mk_sort z3
 
-let rec eval alg ast =
+let rec eval alg ?quants_added:(quants_added=0) ast =
   let open Z3 in
   let open Z3enums in
+  let rec eval_arr_term quants_added arr rdterm =
+    let decl = Expr.get_func_decl arr in
+    match FuncDecl.get_decl_kind decl with
+    | OP_UNINTERPRETED -> alg (`App (decl, [rdterm]))
+    | OP_STORE -> 
+      let i = eval alg ~quants_added (List.nth (Expr.get_args arr) 1) in
+      let v = eval alg ~quants_added (List.nth (Expr.get_args arr) 2) in
+      let a = eval_arr_term quants_added (List.hd (Expr.get_args arr)) rdterm in
+      alg (`Ite ((alg (`Atom (`Eq, i, rdterm))), v, a))
+    | _ -> invalid_arg ("eval: unknown array parse: " ^ (Expr.to_string arr))
+  in
+  let is_array_term expr =
+    if List.length (Expr.get_args expr) = 0 then false
+    else (
+      let decl = Expr.get_func_decl ast in
+      let fstarg = List.hd (Expr.get_args expr) in
+      if FuncDecl.get_decl_kind decl = OP_SELECT then true
+      else if FuncDecl.get_decl_kind decl = OP_EQ &&
+              (FuncDecl.get_decl_kind (Expr.get_func_decl fstarg) = OP_STORE ||
+               Sort.get_sort_kind (Expr.get_sort fstarg) = ARRAY_SORT)
+      then true
+      else false)
+  in
   match AST.get_ast_kind (Expr.ast_of_expr ast) with
   | APP_AST -> begin
       let decl = Expr.get_func_decl ast in
-      let args = List.map (eval alg) (Expr.get_args ast) in
-      match FuncDecl.get_decl_kind decl, args with
-      | (OP_UNINTERPRETED, args) -> alg (`App (decl, args))
-      | (OP_ADD, args) -> alg (`Add args)
-      | (OP_MUL, args) -> alg (`Mul args)
-      | (OP_SUB, [x;y]) -> alg (`Add [x; alg (`Unop (`Neg, y))])
-      | (OP_UMINUS, [x]) -> alg (`Unop (`Neg, x))
-      | (OP_MOD, [x;y]) -> alg (`Binop (`Mod, x, y))
-      | (OP_IDIV, [x;y]) -> alg (`Unop (`Floor, alg (`Binop (`Div, x, y))))
-      | (OP_DIV, [x;y]) -> alg (`Binop (`Div, x, y))
-      | (OP_TO_REAL, [x]) -> x
-      | (OP_TO_INT, [x]) -> alg (`Unop (`Floor, x))
+      if is_array_term ast then (
+        match FuncDecl.get_decl_kind decl, Expr.get_args ast with
+        | OP_SELECT, [a; i] -> 
+          eval_arr_term quants_added a (eval alg ~quants_added i)
+        | OP_EQ, [a; b] -> 
+          let i = alg (`Var (0, `TyInt)) in
+          alg (`Quantify (`Forall, 
+                          "i", 
+                          `TyInt,
+                          alg (`Atom (`Eq, 
+                                      eval_arr_term (quants_added + 1) a i, 
+                                      eval_arr_term (quants_added + 1) b i))))
+        | _ -> assert false)
+      else (
+        let args = List.map (eval alg ~quants_added) (Expr.get_args ast) in
+        match FuncDecl.get_decl_kind decl, args with
+        | (OP_UNINTERPRETED, args) -> alg (`App (decl, args))
+        | (OP_ADD, args) -> alg (`Add args)
+        | (OP_MUL, args) -> alg (`Mul args)
+        | (OP_SUB, [x;y]) -> alg (`Add [x; alg (`Unop (`Neg, y))])
+        | (OP_UMINUS, [x]) -> alg (`Unop (`Neg, x))
+        | (OP_MOD, [x;y]) -> alg (`Binop (`Mod, x, y))
+        | (OP_IDIV, [x;y]) -> alg (`Unop (`Floor, alg (`Binop (`Div, x, y))))
+        | (OP_DIV, [x;y]) -> alg (`Binop (`Div, x, y))
+        | (OP_TO_REAL, [x]) -> x
+        | (OP_TO_INT, [x]) -> alg (`Unop (`Floor, x))
 
-      | (OP_TRUE, []) -> alg `Tru
-      | (OP_FALSE, []) -> alg `Fls
-      | (OP_AND, args) -> alg (`And args)
-      | (OP_OR, args) -> alg (`Or args)
-      | (OP_IMPLIES, [phi;psi]) -> alg (`Or [alg (`Not phi); psi])
-      | (OP_IFF, [phi;psi]) ->
-        alg (`Or [alg (`And [phi; psi]);
-                  alg (`Not (alg (`Or [phi; psi])))])
-      | (OP_NOT, [phi]) -> alg (`Not phi)
-      | (OP_EQ, [s; t]) -> alg (`Atom (`Eq, s, t))
-      | (OP_LE, [s; t]) -> alg (`Atom (`Leq, s, t))
-      | (OP_GE, [s; t]) -> alg (`Atom (`Leq, t, s))
-      | (OP_LT, [s; t]) -> alg (`Atom (`Lt, s, t))
-      | (OP_GT, [s; t]) -> alg (`Atom (`Lt, t, s))
-      | (OP_ITE, [cond; s; t]) -> alg (`Ite (cond, s, t))
-      | (_, _) -> invalid_arg ("eval: unknown application: "
-                               ^ (Expr.to_string ast))
+        | (OP_TRUE, []) -> alg `Tru
+        | (OP_FALSE, []) -> alg `Fls
+        | (OP_AND, args) -> alg (`And args)
+        | (OP_OR, args) -> alg (`Or args)
+        | (OP_IMPLIES, [phi;psi]) -> alg (`Or [alg (`Not phi); psi])
+        | (OP_IFF, [phi;psi]) ->
+          alg (`Or [alg (`And [phi; psi]);
+                    alg (`Not (alg (`Or [phi; psi])))])
+        | (OP_NOT, [phi]) -> alg (`Not phi)
+        | (OP_EQ, [s; t]) -> alg (`Atom (`Eq, s, t))
+        | (OP_LE, [s; t]) -> alg (`Atom (`Leq, s, t))
+        | (OP_GE, [s; t]) -> alg (`Atom (`Leq, t, s))
+        | (OP_LT, [s; t]) -> alg (`Atom (`Lt, s, t))
+        | (OP_GT, [s; t]) -> alg (`Atom (`Lt, t, s))
+        | (OP_ITE, [cond; s; t]) -> alg (`Ite (cond, s, t))
+        | (_, _) -> invalid_arg ("eval: unknown application: "
+                                 ^ (Expr.to_string ast)))
     end
   | NUMERAL_AST ->
     alg (`Real (qq_val ast))
   | VAR_AST ->
-    let index = Z3.Quantifier.get_index ast in
+    let index = (Z3.Quantifier.get_index ast) + quants_added in
     alg (`Var (index, (typ_of_sort (Expr.get_sort ast))))
   | QUANTIFIER_AST ->
     let ast = Z3.Quantifier.quantifier_of_expr ast in
@@ -546,7 +594,7 @@ let load_smtlib2 ?(context=Z3.mk_context []) srk str =
       let sym = FuncDecl.get_name decl in
       match FuncDecl.get_domain decl with
       | [] ->
-        cos (Symbol.to_string sym, typ_of_sort (FuncDecl.get_range decl))
+        cos (Symbol.to_string sym, typ_of_sort_full (FuncDecl.get_range decl))
       | dom ->
         let typ =
           `TyFun (List.map typ_of_sort dom,

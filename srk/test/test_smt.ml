@@ -320,6 +320,16 @@ let chc_trivial_true () =
   in
   verify_chc [psym; qsym] rules
 
+let arr_read_write () = 
+  let smt2str = 
+      "(declare-const x Int)
+       (declare-const y Int)
+       (declare-const a1 (Array Int Int))
+       (assert (and (= (store a1 x y) a1) (not (= (select a1 x) y))))"
+  in 
+  let phi = SrkZ3.load_smtlib2 srk smt2str in
+  assert_equiv_formula phi (mk_false srk)
+
 let suite = "SMT" >:::
   [
     "roundtrip0" >:: roundtrip0;
@@ -341,4 +351,5 @@ let suite = "SMT" >:::
     "chc3" >:: chc3;
     "chc_trivial_false" >:: chc_trivial_false;
     "chc_trivial_true" >:: chc_trivial_true;
+    "arr_read_write" >:: arr_read_write
   ]
