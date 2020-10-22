@@ -1,14 +1,14 @@
-(* Constrainted horn clauses *)
+(* Constrained horn clauses *)
 open Syntax
 module DynArray = BatDynArray
 
 type relation = int
 type relcontext = (string * typ list) DynArray.t
 type relation_atom = relation * symbol list
-type 'a hypothesis = relation_atom list * 'a formula
-type 'a rule = 'a hypothesis * relation_atom
-type query = relation
-type 'a chc = {rules : 'a rule list; queries : query list}
+type 'a fp = {rules : (relation_atom list * 'a formula * relation_atom) list; 
+              queries : relation list} 
+
+
 
 let mk_relcontext = DynArray.create ()
 
@@ -22,16 +22,10 @@ let rel_of_atom (relation, _) = relation
 let params_of_atom (_, params) = params
 
 let mk_rel_atom srk rel_ctx rel syms =
-  BatList.iter2
-    (fun arg_typ sym_typ -> 
-       if arg_typ = sym_typ then ()
-       else failwith "Types Error Rel Atom")
-    (type_of rel_ctx rel)
-    (List.map (typ_symbol srk) syms);
-  rel, syms
+  if ((type_of rel_ctx rel) = (List.map (typ_symbol srk) syms))
+  then rel, syms
+  else failwith "Types Error Rel Atom"
 
-let mk_hypo atoms phi = atoms, phi
-let mk_rule hypo atom = hypo, atom
 
 module Relation = struct
   type t = relation 
@@ -49,28 +43,27 @@ let pp_relation_atom srk rel_ctx formatter (rel, symbols) =
     Format.fprintf formatter "%a(@[%a@])"
       (Relation.pp rel_ctx) rel
       (SrkUtil.pp_print_enum_nobox (pp_symbol srk)) (BatList.enum symbols)
-let pp_hypothesis srk rel_ctx formatter (rel_atoms, phi) =
-  Format.fprintf formatter "(@[";
-  SrkUtil.pp_print_enum
-    ~pp_sep:(fun formatter () -> Format.fprintf formatter "@ /\\ ")
-    (pp_relation_atom srk rel_ctx)
-    formatter
-    (BatList.enum rel_atoms);
-  Format.fprintf formatter "@]/\\%a)" (Formula.pp srk) phi
-let pp_rule srk rel_ctx formatter (hypo, conc) =
-  Format.fprintf formatter "(@[%a@ => %a@])"
-    (pp_hypothesis srk rel_ctx) hypo
-    (pp_relation_atom srk rel_ctx) conc
-let pp_query = Relation.pp
 
 let show_relation_atom srk rel_ctx = 
   SrkUtil.mk_show (pp_relation_atom srk rel_ctx)
-let show_hypothesis srk rel_ctx = SrkUtil.mk_show (pp_hypothesis srk rel_ctx)
-let show_rule srk rel_ctx = SrkUtil.mk_show (pp_rule srk rel_ctx)
-let show_query rel_ctx = SrkUtil.mk_show (pp_query rel_ctx)
 
-module Chc = struct
-  type 'a t = 'a chc 
+module Fp = struct
+  type 'a t = 'a fp
+
+  (*TODO: single pp function *)
+  let pp_hypothesis srk rel_ctx formatter (rel_atoms, phi) =
+    Format.fprintf formatter "(@[";
+    SrkUtil.pp_print_enum
+      ~pp_sep:(fun formatter () -> Format.fprintf formatter "@ /\\ ")
+      (pp_relation_atom srk rel_ctx)
+      formatter
+      (BatList.enum rel_atoms);
+    Format.fprintf formatter "@]/\\%a)" (Formula.pp srk) phi
+  let pp_rule srk rel_ctx formatter (rel_atoms, phi, conc) =
+    Format.fprintf formatter "(@[%a@ => %a@])"
+      (pp_hypothesis srk rel_ctx) (rel_atoms, phi)
+      (pp_relation_atom srk rel_ctx) conc
+
 
   let pp srk rel_ctx formatter chc = 
     Format.fprintf formatter "(Rules:\n@[";
@@ -80,23 +73,21 @@ module Chc = struct
       formatter
       (BatList.enum chc.rules);
     Format.fprintf formatter "@]\nQueries:@[%a@])"
-    (SrkUtil.pp_print_enum_nobox (pp_query rel_ctx)) 
+      (SrkUtil.pp_print_enum_nobox (Relation.pp rel_ctx)) 
       (BatList.enum chc.queries)
 
 
   let show srk rel_ctx = SrkUtil.mk_show (pp srk rel_ctx)
 
   let create = {rules=[];queries=[]}
-  let chc_of rules queries = {rules; queries}
 
-  let add_rule chc rule = {rules=rule::chc.rules; queries=chc.queries} 
+  let add_rule chc hypo_atoms phi conc = 
+    {rules=(hypo_atoms, phi, conc) :: chc.rules; queries=chc.queries} 
   let add_query chc query = {rules=chc.rules; queries=query::chc.queries}
-  let get_rules chc = chc.rules
-  let get_queries chc = chc.queries
 
   let get_relations_used chc =
     List.fold_left
-      (fun rset ((hypo_atoms, _), conc_atom) ->
+      (fun rset (hypo_atoms, _, conc_atom) ->
          List.fold_left
            (fun rset rel_atom -> Relation.Set.add (rel_of_atom rel_atom) rset)
            (Relation.Set.add (rel_of_atom conc_atom) rset)
@@ -109,7 +100,7 @@ module Chc = struct
 
   let is_linear chc =
     BatList.fold_left 
-      (fun acc ((rel_atoms, _), _) -> acc && (List.length rel_atoms) <= 1)
+      (fun acc (hypo_atoms, _, _) -> acc && (List.length hypo_atoms) <= 1)
       true
       chc.rules
 
@@ -162,13 +153,7 @@ module Chc = struct
               (fun sym -> 
                  if Symbol.Map.mem sym rhs_pre_postmap then
                    Symbol.Map.find sym rhs_pre_postmap
-                 else (
-                   mk_const 
-                     srk
-                     (mk_symbol 
-                        srk 
-                        ~name:(show_symbol srk sym) 
-                        (typ_symbol srk sym))))
+                 else (mk_const srk (dup_symbol srk sym)))
           in
           let phi2 = substitute_const srk rhs_subst phi2 in
           let phi1 = substitute_map srk (mk_subst_map pre1 pre') phi1 in
@@ -199,7 +184,7 @@ module Chc = struct
     in
     let wg = 
       List.fold_left
-        (fun wg ((rel_atoms, phi), conc) ->
+        (fun wg (rel_atoms, phi, conc) ->
            match rel_atoms with
            | [] -> WeightedGraph.add_edge 
                      wg 
@@ -231,7 +216,7 @@ module Chc = struct
     in
     wg
 
-  let has_reachable_goal srk chc pd = 
+  let check srk chc pd = 
     if is_linear chc then (
       let wg = to_weighted_graph srk chc pd in
       let _, _, phi = WeightedGraph.path_weight wg start_vert goal_vert in
@@ -371,14 +356,13 @@ module ChcSrkZ3 = struct
                      (mk_const srk t))
                    eq_syms))
           in
-          (atoms, phi), conc
+          atoms, phi, conc
         | (OP_UNINTERPRETED, _) ->
-          let hypo = [], mk_true srk in
           let ind_to_sym = BatHashtbl.create 91 in
           let conc = 
             rel_atom_of_z3 srk rel_ctx ind_to_sym rsym_to_int names matrix 
           in
-          hypo, conc
+          [], mk_true srk, conc
         | _ -> failwith "Rule not well formed"
       end
     in

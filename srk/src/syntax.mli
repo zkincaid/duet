@@ -62,6 +62,8 @@ val int_of_symbol : symbol -> int
 
 val symbol_of_int : int -> symbol
 
+(** [dup_symbol srk sym] returns a fresh symbol with the same name and type
+     as sym *)
 val dup_symbol : 'a context -> symbol -> symbol
 
 val compare_symbol : symbol -> symbol -> int
