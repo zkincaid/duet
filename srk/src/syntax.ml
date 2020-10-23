@@ -98,13 +98,67 @@ module Var = struct
 end
 
 module Env = struct
-  type 'a t = 'a list
-  let push x xs = x::xs
-  let find xs i =
-    try List.nth xs i
-    with Failure _ -> raise Not_found
+  type 'a node =
+    | Node of ('a * 'a node * 'a node)
+    | Leaf of 'a
+
+  type 'a elt =
+    { size : int;
+      tree : 'a node }
+
+  type 'a t = 'a elt list
+
+  let push (x : 'a) (env : 'a t) : 'a t = match env with
+    | (y::z::env) when y.size = z.size ->
+       let head =
+         { size = 2 * y.size + 1;
+           tree = Node (x, y.tree, z.tree) }
+       in
+       head::env
+    | _ -> { size = 1; tree = Leaf x } :: env
+
+  let rec find_tree tree i size =
+    match tree with
+    | Leaf x when i = 0 -> x
+    | Leaf _ -> assert false
+    | Node (x, left, right) ->
+       let halfsize = size / 2 in
+       if i = 0 then
+         x
+       else if i <= halfsize then
+         find_tree left (i - 1) halfsize
+       else
+         find_tree right (i - halfsize - 1) halfsize
+
+  let rec find (env : 'a t) (i : int) : 'a =
+    match env with
+    | [] -> raise Not_found
+    | x::_ when i < x.size ->
+       find_tree x.tree i x.size
+    | x::env -> find env (i - x.size)
+
   let empty = []
-  let enum = BatList.enum
+
+  let rec make_enum rest size =
+    let remaining = ref rest in
+    let nb_remaining = ref size in
+    let next () = match !remaining with
+      | [] -> raise BatEnum.No_more_elements
+      | Leaf x::xs ->
+         remaining := xs;
+         decr nb_remaining;
+         x
+      | Node (x, left, right)::xs ->
+         remaining := left::right::xs;
+         decr nb_remaining;
+         x
+    in
+    let count () = !nb_remaining in
+    let clone () = make_enum (!remaining) (!nb_remaining) in
+    BatEnum.make ~next ~count ~clone
+
+  let enum xs =
+    BatEnum.concat_map (fun elt -> make_enum [elt.tree] elt.size) (BatList.enum xs)
 end
 
 let rec flatten_sexpr label sexpr =

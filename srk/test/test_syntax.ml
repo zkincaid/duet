@@ -115,7 +115,6 @@ let elim_ite3 () =
   in
   assert_equiv_formula (eliminate_ite srk phi) phi
 
-
 let suite = "Syntax" >:::
   [
     "substitute" >:: substitute;
@@ -126,4 +125,11 @@ let suite = "Syntax" >:::
     "elim_ite1" >:: elim_ite1;
     "elim_ite2" >:: elim_ite2;
     "elim_ite3" >:: elim_ite3;
+    "env1" >:: (fun () ->
+      let e = List.fold_right Env.push [1;2;3;4;5] Env.empty in
+      assert_equal (Env.find e 0) 1;
+      assert_equal (Env.find e 1) 2;
+      assert_equal (Env.find e 2) 3;
+      assert_equal (Env.find e 3) 4;
+      assert_equal (Env.find e 4) 5)
   ]
