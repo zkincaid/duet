@@ -5,19 +5,20 @@ include Log.Make(struct let name = "srk.iteration" end)
 
 module V = Linear.QQVector
 module CS = CoordinateSystem
+module TF = TransitionFormula
 
 module type PreDomain = sig
   type 'a t
   val pp : 'a context -> (symbol * symbol) list -> Format.formatter -> 'a t -> unit
   val exp : 'a context -> (symbol * symbol) list -> 'a term -> 'a t -> 'a formula
-  val join : 'a context -> (symbol * symbol) list -> 'a t -> 'a t -> 'a t
-  val widen : 'a context -> (symbol * symbol) list -> 'a t -> 'a t -> 'a t
-  val equal : 'a context -> (symbol * symbol) list -> 'a t -> 'a t -> bool
-  val abstract : ?exists:(symbol -> bool) ->
-    'a context ->
-    (symbol * symbol) list ->
-    'a formula ->
-    'a t
+  val abstract : 'a context -> 'a TransitionFormula.t -> 'a t
+end
+
+module type PreDomainIter = sig
+  include PreDomain
+  val equal : ('a context) -> (symbol * symbol) list -> 'a t -> 'a t -> bool
+  val join : ('a context) -> (symbol * symbol) list -> 'a t -> 'a t -> 'a t
+  val widen : ('a context) -> (symbol * symbol) list -> 'a t -> 'a t -> 'a t
 end
 
 module type PreDomainWedge = sig
@@ -25,45 +26,18 @@ module type PreDomainWedge = sig
   val abstract_wedge : 'a context -> (symbol * symbol) list -> 'a Wedge.t -> 'a t
 end
 
+module type PreDomainWedgeIter = sig
+  include PreDomainIter
+  val abstract_wedge : 'a context -> (symbol * symbol) list -> 'a Wedge.t -> 'a t
+end
+
 module type Domain = sig
   type 'a t
   val pp : Format.formatter -> 'a t -> unit
   val closure : 'a t -> 'a formula
-  val join : 'a t -> 'a t -> 'a t
-  val widen : 'a t -> 'a t -> 'a t
-  val equal : 'a t -> 'a t -> bool
-  val abstract : ?exists:(symbol -> bool) ->
-    'a context ->
-    (symbol * symbol) list ->
-    'a formula ->
-    'a t
+  val abstract : 'a context -> 'a TransitionFormula.t -> 'a t
   val tr_symbols : 'a t -> (symbol * symbol) list
 end
-
-let identity srk tr_symbols =
-  List.map (fun (sym, sym') ->
-      mk_eq srk (mk_const srk sym) (mk_const srk sym'))
-    tr_symbols
-  |> mk_and srk
-
-let pre_symbols tr_symbols =
-  List.fold_left (fun set (s,_) ->
-      Symbol.Set.add s set)
-    Symbol.Set.empty
-    tr_symbols
-
-let post_symbols tr_symbols =
-  List.fold_left (fun set (_,s') ->
-      Symbol.Set.add s' set)
-    Symbol.Set.empty
-    tr_symbols
-
-(* Map from pre-state vars to their post-state counterparts *)
-let post_map srk tr_symbols =
-  List.fold_left
-    (fun map (sym, sym') -> Symbol.Map.add sym (mk_const srk sym') map)
-    Symbol.Map.empty
-    tr_symbols
 
 module WedgeGuard = struct
   type 'a t =
@@ -76,8 +50,8 @@ module WedgeGuard = struct
       Wedge.pp iter.postcondition
 
   let abstract_wedge _ tr_symbols wedge =
-    let pre_symbols = pre_symbols tr_symbols in
-    let post_symbols = post_symbols tr_symbols in
+    let pre_symbols = TF.pre_symbols tr_symbols in
+    let post_symbols = TF.post_symbols tr_symbols in
     let precondition =
       Wedge.exists (not % flip Symbol.Set.mem post_symbols) wedge
     in
@@ -86,17 +60,13 @@ module WedgeGuard = struct
     in
     { precondition; postcondition }
 
-  let abstract ?(exists=fun _ -> true) srk tr_symbols phi =
-    let post_symbols = post_symbols tr_symbols in
-    let subterm x = not (Symbol.Set.mem x post_symbols) in
-    let wedge =
-      Wedge.abstract ~exists ~subterm srk phi
-    in
-    abstract_wedge srk tr_symbols wedge
+  let abstract srk tf =
+    let wedge = TF.wedge_hull srk tf in
+    abstract_wedge srk (TF.symbols tf) wedge
 
   let exp srk tr_symbols loop_counter guard =
     mk_or srk [mk_and srk [mk_eq srk loop_counter (mk_real srk QQ.zero);
-                           identity srk tr_symbols];
+                           TF.formula (TF.identity srk tr_symbols)];
                mk_and srk [mk_leq srk (mk_real srk QQ.one) loop_counter;
                            Wedge.to_formula guard.precondition;
                            Wedge.to_formula guard.postcondition]]
@@ -125,23 +95,23 @@ module PolyhedronGuard = struct
       SrkApron.pp iter.precondition
       SrkApron.pp iter.postcondition
 
-  let abstract ?(exists=fun _ -> true) srk tr_symbols phi =
-    let phi = Nonlinear.linearize srk phi in
+  let abstract srk tf =
+    let phi = Nonlinear.linearize srk (TF.formula tf) in
     let phi =
       rewrite srk ~down:(nnf_rewriter srk) phi
     in
-    let post_symbols = post_symbols tr_symbols in
-    let pre_symbols = pre_symbols tr_symbols in
+    let post_symbols = TF.post_symbols (TF.symbols tf) in
+    let pre_symbols = TF.pre_symbols (TF.symbols tf) in
     let man = Polka.manager_alloc_strict () in
     let precondition =
       let exists x =
-        exists x && not (Symbol.Set.mem x post_symbols)
+        TF.exists tf x && not (Symbol.Set.mem x post_symbols)
       in
       Abstract.abstract ~exists srk man phi
     in
     let postcondition =
       let exists x =
-        exists x && not (Symbol.Set.mem x pre_symbols)
+        TF.exists tf x && not (Symbol.Set.mem x pre_symbols)
       in
       Abstract.abstract ~exists srk man phi
     in
@@ -149,7 +119,7 @@ module PolyhedronGuard = struct
 
   let exp srk tr_symbols loop_counter guard =
     mk_or srk [mk_and srk [mk_eq srk loop_counter (mk_real srk QQ.zero);
-                           identity srk tr_symbols];
+                           TF.formula (TF.identity srk tr_symbols)];
                mk_and srk [mk_leq srk (mk_real srk QQ.one) loop_counter;
                            SrkApron.formula_of_property guard.precondition;
                            SrkApron.formula_of_property guard.postcondition]]
@@ -193,15 +163,16 @@ module LinearGuard = struct
       (Formula.pp srk) guard.precondition
       (Formula.pp srk) guard.postcondition
 
-  let abstract ?(exists=fun _ -> true) srk tr_symbols phi =
+  let abstract srk tf =
     let phi =
-      rewrite srk ~up:(abstract_presburger_rewriter srk) phi
+      (TF.formula tf)
+      |> rewrite srk ~up:(abstract_presburger_rewriter srk)
+      |> rewrite srk ~down:(nnf_rewriter srk)
     in
-    let phi =
-      rewrite srk ~down:(nnf_rewriter srk) phi
-    in
-    let pre_symbols = pre_symbols tr_symbols in
-    let post_symbols = post_symbols tr_symbols in
+    let tr_symbols = TF.symbols tf in
+    let exists = TF.exists tf in
+    let pre_symbols = TF.pre_symbols tr_symbols in
+    let post_symbols = TF.post_symbols tr_symbols in
     let lin_phi = Nonlinear.linearize srk phi in
     let precondition =
       Quantifier.mbp
@@ -219,7 +190,7 @@ module LinearGuard = struct
 
   let exp srk tr_symbols loop_counter guard =
     mk_or srk [mk_and srk [mk_eq srk loop_counter (mk_real srk QQ.zero);
-                           identity srk tr_symbols];
+                           TF.formula (TF.identity srk tr_symbols)];
                mk_and srk [mk_leq srk (mk_real srk QQ.one) loop_counter;
                            guard.precondition;
                            guard.postcondition]]
@@ -258,14 +229,17 @@ module LinearRecurrenceInequation = struct
         Format.fprintf formatter "%a %s %a@;" (Term.pp srk) t opstring QQ.pp k);
     Format.fprintf formatter "@]"
 
-  let abstract ?exists:(_ = fun _ -> true) srk tr_symbols phi =
-    let phi = rewrite srk ~down:(nnf_rewriter srk) phi in
-    let phi = Nonlinear.linearize srk phi in
+  let abstract srk tf =
+    let phi =
+      TF.formula tf
+      |> rewrite srk ~down:(nnf_rewriter srk)
+      |> Nonlinear.linearize srk
+    in
     let delta =
       List.map (fun (s,_) ->
           let name = "delta_" ^ (show_symbol srk s) in
           mk_symbol srk ~name (typ_symbol srk s))
-        tr_symbols
+        (TF.symbols tf)
     in
     let delta_map =
       List.fold_left2 (fun map delta (s,s') ->
@@ -275,7 +249,7 @@ module LinearRecurrenceInequation = struct
             map)
         Symbol.Map.empty
         delta
-        tr_symbols
+        (TF.symbols tf)
     in
     let delta_polyhedron =
       let man = Polka.manager_alloc_strict () in
@@ -316,10 +290,6 @@ module LinearRecurrenceInequation = struct
           mk_leq srk (mk_mul srk [mk_real srk c; loop_counter]) delta)
       lr
     |> mk_and srk
-
-  let equal _ _ _ _ = failwith "Not yet implemented"
-  let join _ _ _ _ = failwith "Not yet implemented"
-  let widen _ _ _ _ = failwith "Not yet implemented"
 end
 
 module NonlinearRecurrenceInequation = struct
@@ -420,17 +390,17 @@ module NonlinearRecurrenceInequation = struct
     in
     abstract_delta_wedge srk delta_wedge delta delta_map
 
-  let abstract ?(exists=fun _ -> true) srk tr_symbols phi =
-    let (delta,delta_map) = make_deltas srk tr_symbols in
+  let abstract srk tf =
+    let (delta,delta_map) = make_deltas srk (TF.symbols tf) in
     let syms =
       List.fold_left (fun set (s,s') ->
           Symbol.Set.add s (Symbol.Set.add s' set))
         Symbol.Set.empty
-        tr_symbols
+        (TF.symbols tf)
     in
     let delta_wedge =
       let exists x =
-        Symbol.Map.mem x delta_map || (exists x && not (Symbol.Set.mem x syms))
+        Symbol.Map.mem x delta_map || (TF.exists tf x && not (Symbol.Set.mem x syms))
       in
       let subterm x = not (Symbol.Map.mem x delta_map) in
       let delta_constraints =
@@ -439,7 +409,7 @@ module NonlinearRecurrenceInequation = struct
           delta_map
           []
       in
-      mk_and srk (phi::delta_constraints)
+      mk_and srk ((TF.formula tf)::delta_constraints)
       |> Wedge.abstract ~subterm ~exists srk
     in
     abstract_delta_wedge srk delta_wedge delta delta_map
@@ -453,10 +423,6 @@ module NonlinearRecurrenceInequation = struct
           mk_leq srk (mk_mul srk [c; loop_counter]) delta)
       lr
     |> mk_and srk
-
-  let equal _ _ _ _ = failwith "Not yet implemented"
-  let join _ _ _ _ = failwith "Not yet implemented"
-  let widen _ _ _ _ = failwith "Not yet implemented"
 end
 
 module Product (A : PreDomain) (B : PreDomain) = struct
@@ -471,19 +437,8 @@ module Product (A : PreDomain) (B : PreDomain) = struct
     mk_and srk [A.exp srk tr_symbols loop_counter a;
                 B.exp srk tr_symbols loop_counter b]
 
-  let join srk tr_symbols (a, b) (a', b') =
-    (A.join srk tr_symbols a a', B.join srk tr_symbols b b')
-
-  let widen srk tr_symbols (a, b) (a', b') =
-    (A.widen srk tr_symbols a a', B.widen srk tr_symbols b b')
-
-  let equal srk tr_symbols (a, b) (a', b') =
-    (A.equal srk tr_symbols a a')
-    && (B.equal srk tr_symbols b b')
-
-  let abstract ?(exists=fun _ -> true) srk tr_symbols phi =
-    (A.abstract ~exists srk tr_symbols phi,
-     B.abstract ~exists srk tr_symbols phi)
+  let abstract srk tf =
+    (A.abstract srk tf, B.abstract srk tf)
 end
 
 module Split (Iter : PreDomain) = struct
@@ -499,23 +454,15 @@ module Split (Iter : PreDomain) = struct
     Format.fprintf formatter "<@[<v 0>Split @[<v 0>%a@]@]>"
       (SrkUtil.pp_print_enum_nobox pp_elt) (Expr.Map.enum split_iter)
 
-  (* Lower a split iter into an iter by picking an arbitary split and joining
-     both sides. *)
-  let lower_split srk tr_symbols split_iter =
-    match BatEnum.get (Expr.Map.values split_iter) with
-    | Some (iter, iter') -> Iter.join srk tr_symbols iter iter'
-    | None -> assert false
 
-  let base_bottom srk tr_symbols = Iter.abstract srk tr_symbols (mk_false srk)
+  let base_bottom srk tr_symbols =
+    Iter.abstract srk (TF.make (mk_false srk) tr_symbols)
 
-  let lift_split srk tr_symbols iter =
-    Expr.Map.add
-      (mk_true srk)
-      (iter, base_bottom srk tr_symbols)
-      Expr.Map.empty
-
-  let abstract ?(exists=fun _ -> true) srk tr_symbols body =
-    let post_symbols = post_symbols tr_symbols in
+  let abstract srk tf =
+    let body = TF.formula tf in
+    let tr_symbols = TF.symbols tf in
+    let exists = TF.exists tf in
+    let post_symbols = TF.post_symbols tr_symbols in
     let predicates =
       let preds = ref Expr.Set.empty in
       let prestate sym = exists sym && not (Symbol.Set.mem sym post_symbols) in
@@ -571,7 +518,7 @@ module Split (Iter : PreDomain) = struct
       (sat_modulo_body psi = `Sat)
       && (sat_modulo_body (mk_not srk psi) = `Sat)
     in
-    let post_map = post_map srk tr_symbols in
+    let post_map = TF.post_map srk tr_symbols in
     let postify =
       let subst sym =
         if Symbol.Map.mem sym post_map then
@@ -580,6 +527,9 @@ module Split (Iter : PreDomain) = struct
           mk_const srk sym
       in
       substitute_const srk subst
+    in
+    let abstract formula =
+      Iter.abstract srk (TF.make ~exists formula tr_symbols)
     in
     let add_split_predicate split_iter psi =
       if is_split_predicate psi then
@@ -590,21 +540,13 @@ module Split (Iter : PreDomain) = struct
         let not_psi_body = mk_and srk [body; not_psi] in
         if sat_modulo_body (mk_and srk [psi; post_not_psi]) = `Unsat then
           (* {psi} body {psi} -> body* = ([not psi]body)*([psi]body)* *)
-          let left_abstract =
-            Iter.abstract ~exists srk tr_symbols not_psi_body
-          in
-          let right_abstract =
-            Iter.abstract ~exists srk tr_symbols psi_body
-          in
+          let left_abstract = abstract not_psi_body in
+          let right_abstract = abstract psi_body in
           Expr.Map.add not_psi (left_abstract, right_abstract) split_iter
         else if sat_modulo_body (mk_and srk [not_psi; post_psi]) = `Unsat then
           (* {not phi} body {not phi} -> body* = ([phi]body)*([not phi]body)* *)
-          let left_abstract =
-            Iter.abstract ~exists srk tr_symbols psi_body
-          in
-          let right_abstract =
-            Iter.abstract ~exists srk tr_symbols not_psi_body
-          in
+          let left_abstract = abstract psi_body in
+          let right_abstract = abstract not_psi_body in
           Expr.Map.add psi (left_abstract, right_abstract) split_iter
         else
           split_iter
@@ -619,41 +561,12 @@ module Split (Iter : PreDomain) = struct
       if Expr.Map.is_empty split_iter then
         Expr.Map.add
           (mk_true srk)
-          (Iter.abstract ~exists srk tr_symbols body,
-           base_bottom srk tr_symbols)
+          (Iter.abstract srk tf, base_bottom srk tr_symbols)
           Expr.Map.empty
       else
         split_iter
     in
     split_iter
-
-  let sequence srk symbols phi psi =
-    let (phi_map, psi_map) =
-      List.fold_left (fun (phi_map, psi_map) (sym, sym') ->
-          let mid_name = "mid_" ^ (show_symbol srk sym) in
-          let mid_symbol =
-            mk_symbol srk ~name:mid_name (typ_symbol srk sym)
-          in
-          let mid = mk_const srk mid_symbol in
-          (Symbol.Map.add sym' mid phi_map,
-           Symbol.Map.add sym mid psi_map))
-        (Symbol.Map.empty, Symbol.Map.empty)
-        symbols
-    in
-    let phi_subst symbol =
-      if Symbol.Map.mem symbol phi_map then
-        Symbol.Map.find symbol phi_map
-      else
-        mk_const srk symbol
-    in
-    let psi_subst symbol =
-      if Symbol.Map.mem symbol psi_map then
-        Symbol.Map.find symbol psi_map
-      else
-        mk_const srk symbol
-    in
-    mk_and srk [substitute_const srk phi_subst phi;
-                substitute_const srk psi_subst psi]
 
   let exp srk tr_symbols loop_counter split_iter =
     Expr.Map.enum split_iter
@@ -672,54 +585,15 @@ module Split (Iter : PreDomain) = struct
                                  not_predicate]]
         in
         let left_right =
-          sequence srk tr_symbols left_closure right_closure
+          TF.mul srk
+            (TF.make left_closure tr_symbols)
+            (TF.make right_closure tr_symbols)
+          |> TF.formula
         in
         mk_and srk [left_right;
                     mk_eq srk (mk_add srk [left_counter; right_counter]) loop_counter])
     |> BatList.of_enum
     |> mk_and srk
-
-  let join srk tr_symbols split_iter split_iter' =
-    let f _ a b = match a,b with
-      | Some (a_left, a_right), Some (b_left, b_right) ->
-        Some (Iter.join srk tr_symbols a_left b_left,
-              Iter.join srk tr_symbols a_right b_right)
-      | _, _ -> None
-    in
-    let split_join = Expr.Map.merge f split_iter split_iter' in
-    if Expr.Map.is_empty split_join then
-      lift_split srk tr_symbols
-        (Iter.join srk tr_symbols
-           (lower_split srk tr_symbols split_iter)
-           (lower_split srk tr_symbols split_iter'))
-    else
-      split_join
-
-  let widen srk tr_symbols split_iter split_iter' =
-    let f _ a b = match a,b with
-      | Some (a_left, a_right), Some (b_left, b_right) ->
-        Some (Iter.widen srk tr_symbols a_left b_left,
-              Iter.widen srk tr_symbols a_right b_right)
-      | _, _ -> None
-    in
-    let split_widen = Expr.Map.merge f split_iter split_iter' in
-    if Expr.Map.is_empty split_widen then
-      lift_split srk tr_symbols
-        (Iter.widen srk tr_symbols
-           (lower_split srk tr_symbols split_iter)
-           (lower_split srk tr_symbols split_iter))
-    else
-      split_widen
-
-  let equal srk tr_symbols split_iter split_iter' =
-    BatEnum.for_all
-      (fun ((p,(l,r)), (p',(l',r'))) ->
-         Formula.equal p p'
-         && Iter.equal srk tr_symbols l l'
-         && Iter.equal srk tr_symbols r r')
-      (BatEnum.combine
-         (Expr.Map.enum split_iter)
-         (Expr.Map.enum split_iter'))
 end
 
 module MakeDomain (Iter : PreDomain) = struct
@@ -727,26 +601,6 @@ module MakeDomain (Iter : PreDomain) = struct
     { srk : 'a context;
       tr_symbols : (symbol * symbol) list;
       iter : 'a Iter.t }
-
-  let equal iter iter' =
-    let srk = iter.srk in
-    let tr_symbols = iter.tr_symbols in
-    iter.tr_symbols = iter'.tr_symbols
-    && Iter.equal srk tr_symbols iter.iter iter'.iter
-
-  let join iter iter' =
-    let srk = iter.srk in
-    let tr_symbols = iter.tr_symbols in
-    assert(iter.tr_symbols = iter'.tr_symbols);
-    let iter = Iter.join srk tr_symbols iter.iter iter'.iter in
-    { srk; tr_symbols; iter }
-
-  let widen iter iter' =
-    let srk = iter.srk in
-    let tr_symbols = iter.tr_symbols in
-    assert(iter.tr_symbols = iter'.tr_symbols);
-    let iter = Iter.widen srk tr_symbols iter.iter iter'.iter in
-    { srk; tr_symbols; iter }
 
   let pp formatter iter =
     Format.fprintf formatter "{@[<v 1>%a@]}"
@@ -759,8 +613,9 @@ module MakeDomain (Iter : PreDomain) = struct
     mk_and srk [Iter.exp iter.srk iter.tr_symbols loop_counter iter.iter;
                 mk_leq srk (mk_real srk QQ.zero) loop_counter]
 
-  let abstract ?(exists=fun _ -> true) srk tr_symbols body =
-    let iter = Iter.abstract ~exists srk tr_symbols body in
+  let abstract srk tf =
+    let iter = Iter.abstract srk tf in
+    let tr_symbols = TF.symbols tf in
     { srk; tr_symbols; iter }
 
   let tr_symbols iter = iter.tr_symbols
@@ -773,11 +628,8 @@ module ProductWedge (A : PreDomainWedge) (B : PreDomainWedge) = struct
     (A.abstract_wedge srk tr_symbols wedge,
      B.abstract_wedge srk tr_symbols wedge)
 
-  let abstract ?(exists=fun _ -> true) srk tr_symbols phi =
-    let post_symbols = post_symbols tr_symbols in
-    let subterm x = not (Symbol.Set.mem x post_symbols) in
-    let wedge = Wedge.abstract ~exists ~subterm srk phi in
-    abstract_wedge srk tr_symbols wedge
+  let abstract srk tf =
+    abstract_wedge srk (TF.symbols tf) (TF.wedge_hull srk tf)
 end
 
 
@@ -785,7 +637,7 @@ end
    T(x,x') /\ T(x',x'') /\ p(x,x') |= p(x',x'')
    (i.e., if p holds on some iteration, it must hold on all subsequent iterations).
    This procedure finds the subset of the input set of predicates that are invariant *)
-let invariant_transition_predicates srk exists phi tr_symbols predicates =
+let invariant_transition_predicates srk tf predicates =
   (* map' sends primed vars to midpoints; map sends unprimed vars to midpoints *)
   let (map', map) =
     List.fold_left (fun (subst1, subst2) (sym, sym') ->
@@ -797,7 +649,7 @@ let invariant_transition_predicates srk exists phi tr_symbols predicates =
         (Symbol.Map.add sym' mid subst1,
          Symbol.Map.add sym mid subst2))
       (Symbol.Map.empty, Symbol.Map.empty)
-      tr_symbols
+      (TF.symbols tf)
   in
   let seq = (* T(x,x_mid) /\ T(x_mid,x') *)
     let rename = (* rename Skolem constants *)
@@ -808,14 +660,13 @@ let invariant_transition_predicates srk exists phi tr_symbols predicates =
     let subst1 symbol =
       if Symbol.Map.mem symbol map' then
         Symbol.Map.find symbol map'
-      else if exists symbol then
+      else if TF.exists tf symbol then
         mk_const srk symbol
       else rename symbol
     in
-    mk_and srk [substitute_const srk subst1 phi;
-                substitute_map srk map phi]
+    mk_and srk [substitute_const srk subst1 (TF.formula tf);
+                substitute_map srk map (TF.formula tf)]
   in
-
   let solver = Smt.mk_solver srk in
   let models = ref [] in
   Smt.Solver.add solver [seq];
@@ -842,14 +693,14 @@ let invariant_transition_predicates srk exists phi tr_symbols predicates =
   else
     List.filter is_invariant predicates
 
-let invariant_partition ?(exists=fun _ -> true) srk tr_symbols candidates phi =
-  let phi = Nonlinear.linearize srk phi in
+let invariant_partition srk candidates tf =
+  let tf = TF.linearize srk tf in
   let predicates =
-    invariant_transition_predicates srk exists phi tr_symbols candidates
+    invariant_transition_predicates srk tf candidates
     |> BatArray.of_list
   in
   let solver = Smt.mk_solver srk in
-  Smt.Solver.add solver [phi];
+  Smt.Solver.add solver [TF.formula tf];
   (* The predicate induce a parition of the transitions of T by
      their valuation of the predicates; find the cells of this
      partition *)
@@ -885,27 +736,25 @@ module InvariantDirection (Iter : PreDomain) = struct
     Format.fprintf formatter "Phases@. @[<v 0>%a@]"
       (SrkUtil.pp_print_enum pp_phase) (BatList.enum phases)
 
-  let equal _ = assert false
-  let join _ = assert false
-  let widen _ = assert false
-
-  let abstract ?(exists=fun _ -> true) srk tr_symbols phi =
-    let phi = Nonlinear.linearize srk phi in
+  let abstract srk tf =
+    let tf = TF.linearize srk tf in
+    let tr_symbols = TF.symbols tf in
+    let exists = TF.exists tf in
     (* Use variable directions as candidate transition invariants *)
     let predicates =
-      List.concat_map (fun (x,x') ->
+      List.concat (List.map (fun (x,x') ->
           let x = mk_const srk x in
           let x' = mk_const srk x' in
           [mk_lt srk x x';
            mk_lt srk x' x;
            mk_eq srk x x'])
-        tr_symbols
-      |> invariant_transition_predicates srk exists phi tr_symbols
+        tr_symbols)
+      |> invariant_transition_predicates srk tf
       |> BatArray.of_list
     in
     let solver = Smt.mk_solver srk in
-    Smt.Solver.add solver [phi];
-    (* The predicate induce a partition of the transitions of T by
+    Smt.Solver.add solver [TF.formula tf];
+    (* The predicate induce a parition of the transitions of T by
        their valuation of the predicates; find the cells of this
        partition *)
     let rec find_cells cells =
@@ -948,8 +797,13 @@ module InvariantDirection (Iter : PreDomain) = struct
                          []
                          cell
                      in
-                     let formula = mk_and srk (phi::cell_predicates) in
-                     Iter.abstract ~exists srk tr_symbols formula))
+                     let tf' =
+                       TF.make
+                         ~exists
+                         (mk_and srk ((TF.formula tf)::cell_predicates))
+                         tr_symbols
+                     in
+                     Iter.abstract srk tf'))
 
   let exp srk tr_symbols k phases =
     let exp_group mid_symbols k cells =
@@ -973,7 +827,8 @@ module InvariantDirection (Iter : PreDomain) = struct
          (* formula is unsat *)
          assert (loop_counters == []);
          assert (exp_formulas == []);
-         ([identity srk tr_symbols], [mk_real srk QQ.zero])
+         ([TF.formula (TF.identity srk tr_symbols)],
+          [mk_real srk QQ.zero])
       | [x] ->
          let k = mk_const srk (mk_symbol srk ~name:"k" `TyInt) in
          ((exp_group tr_symbols k x)::exp_formulas,

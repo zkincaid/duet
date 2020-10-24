@@ -1,6 +1,5 @@
 open Core
 open CfgIr
-open Apak
 
 (** Static callgraph *)
 module Callgraph =

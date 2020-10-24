@@ -1,7 +1,6 @@
 (** Common operations for pointer analyses *)
 
 open Core
-open Apak
 
 (** {2 Core pointer analysis types and operations} *)
 

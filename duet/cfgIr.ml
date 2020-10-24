@@ -3,7 +3,6 @@ open Core
 open Afg
 open Ast
 open Srk
-open Apak
 
 module DefMemo = Memo.Make(Def)
 

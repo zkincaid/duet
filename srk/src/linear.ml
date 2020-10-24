@@ -3,56 +3,48 @@ open BatPervasives
 
 include Log.Make(struct let name = "srk.linear" end)
 
-module IntMap = struct
-  include SrkUtil.Int.Map
-  let hash ring_hash vec =
-    BatEnum.fold
-      (fun hash (k, v) -> hash + (Hashtbl.hash (k, ring_hash v)))
-      0
-      (enum vec)
-end
 module IntSet = SrkUtil.Int.Set
 
 module ZZVector = struct
-  include Ring.RingMap(IntMap)(ZZ)
+  include Ring.MakeVector(ZZ)
 
   let pp formatter vec =
-    let pp_elt formatter (k, v) = Format.fprintf formatter "%d:%a" k ZZ.pp v in
-    IntMap.enum vec
+    let pp_elt formatter (v, k) = Format.fprintf formatter "%d:%a" k ZZ.pp v in
+    enum vec
     |> Format.fprintf formatter "[@[%a@]]" (SrkUtil.pp_print_enum pp_elt)
 
   let pp_term pp_dim formatter vec =
-    let pp_elt formatter (k, v) = Format.fprintf formatter "%a * %a" ZZ.pp v pp_dim k in
-    if IntMap.is_empty vec then
+    let pp_elt formatter (v, k) = Format.fprintf formatter "%a * %a" ZZ.pp v pp_dim k in
+    if is_zero vec then
       Format.pp_print_string formatter "0"
     else
-      IntMap.enum vec
+      enum vec
       |> Format.fprintf formatter "[@[%a@]]" (SrkUtil.pp_print_enum pp_elt)
 
   let show = SrkUtil.mk_show pp
-  let compare = IntMap.compare ZZ.compare
-  let hash = IntMap.hash ZZ.hash
+  let compare = compare ZZ.compare
+  let hash = hash (fun (dim, coeff) -> Hashtbl.hash (dim, ZZ.hash coeff))
 end
 
 module QQVector = struct
-  include Ring.RingMap(IntMap)(QQ)
+  include Ring.MakeVector(QQ)
 
   let pp formatter vec =
-    let pp_elt formatter (k, v) = Format.fprintf formatter "%d:%a" k QQ.pp v in
-    IntMap.enum vec
+    let pp_elt formatter (v, k) = Format.fprintf formatter "%d:%a" k QQ.pp v in
+    enum vec
     |> Format.fprintf formatter "[@[%a@]]" (SrkUtil.pp_print_enum pp_elt)
 
   let pp_term pp_dim formatter vec =
-    let pp_elt formatter (k, v) = Format.fprintf formatter "%a * %a" QQ.pp v pp_dim k in
-    if IntMap.is_empty vec then
+    let pp_elt formatter (v, k) = Format.fprintf formatter "%a * %a" QQ.pp v pp_dim k in
+    if is_zero vec then
       Format.pp_print_string formatter "0"
     else
-      IntMap.enum vec
+      enum vec
       |> Format.fprintf formatter "[@[%a@]]" (SrkUtil.pp_print_enum pp_elt)
 
   let show = SrkUtil.mk_show pp
-  let compare = IntMap.compare QQ.compare
-  let hash = IntMap.hash QQ.hash
+  let compare = compare QQ.compare
+  let hash = hash (fun (k,v) -> Hashtbl.hash (k, QQ.hash v))
 end
 
 module QQMatrix = struct
@@ -170,72 +162,8 @@ let solve mat b =
   try Some (solve_exn mat b)
   with No_solution -> None
 
-let orient p system =
-  let module V = QQVector in
-  let rec reduce fin sys =
-    match sys with
-    | [] -> fin
-    | (eq::rest) ->
-      if V.equal eq V.zero then
-        reduce fin rest
-      else
-        try
-          let (coeff, dim) =
-            BatEnum.find (fun (_, dim) -> not (p dim)) (V.enum eq)
-          in
-          let coeff_inv = QQ.inverse coeff in
-          let sub eq' =
-            try
-              let coeff' = V.coeff dim eq' in
-              let k = QQ.negate (QQ.mul coeff_inv coeff') in
-              V.add (V.scalar_mul k eq) eq'
-            with Not_found -> eq'
-          in
-          let rhs =
-            V.scalar_mul (QQ.negate coeff_inv) (snd (V.pivot dim eq))
-          in
-          reduce
-            ((dim,rhs)::(List.map (fun (dim, rhs) -> (dim, sub rhs)) fin))
-            (List.map sub rest)
-        with Not_found -> reduce fin rest (* No variable to eliminate *)
-  in
-  reduce [] system
-
 let vector_right_mul = QQMatrix.vector_right_mul
 let vector_left_mul = QQMatrix.vector_left_mul
-
-(* Combine u and v into a single vector, using the even coordinates
-   for u and the odd coordinates for v *)
-let interlace_vec u v =
-  let u_shift =
-    BatEnum.fold
-      (fun s (coeff, i) -> QQVector.add_term coeff (2 * i) s)
-      QQVector.zero
-      (QQVector.enum u)
-  in
-  BatEnum.fold
-    (fun s (coeff, i) -> QQVector.add_term coeff (2 * i + 1) s)
-    u_shift
-    (QQVector.enum v)
-
-(* Inverse of interlace_vec *)
-let deinterlace_vec u =
-  BatEnum.fold
-    (fun (v, w) (coeff, i) ->
-       if i mod 2 == 0 then
-         (QQVector.add_term coeff (i / 2) v, w)
-       else
-         (v, QQVector.add_term coeff (i / 2) w))
-    (QQVector.zero, QQVector.zero)
-    (QQVector.enum u)
-
-(* Combine M and N into a single matrix, using the even columns for M
-   and the odd columns for N for u and the odd coordinates for v *)
-let interlace_columns m n =
-  IntSet.fold (fun i s ->
-      QQMatrix.add_row i (interlace_vec (QQMatrix.row i m) (QQMatrix.row i n)) s)
-    (IntSet.union (QQMatrix.row_set m) (QQMatrix.row_set n))
-    QQMatrix.zero
 
 let intersect_rowspace a b =
   (* Create a system lambda_1*A - lambda_2*B = 0.  lambda_1's occupy even
@@ -303,7 +231,7 @@ let pushout mA mB =
                                                           [ d^T ]      *)
   let module M = QQMatrix in
   let mABt =
-    interlace_columns
+    QQMatrix.interlace_columns
       (M.transpose mA)
       (M.transpose (M.scalar_mul (QQ.of_int (-1)) mB))
   in
@@ -311,7 +239,7 @@ let pushout mA mB =
     nullspace mABt (IntSet.elements (M.column_set mABt))
   in
   BatList.fold_lefti (fun (mC, mD) i soln ->
-      let c, d = deinterlace_vec soln in
+      let c, d = QQVector.deinterlace soln in
       (M.add_row i c mC, M.add_row i d mD))
     (M.zero, M.zero)
     pairs
@@ -332,119 +260,6 @@ let divide_left a b =
   match divide_right (QQMatrix.transpose a) (QQMatrix.transpose b) with
   | Some m -> Some (QQMatrix.transpose m)
   | None -> None
-
-(* Given matrices A and B, find a matrix C whose rows constitute a basis for
-   the vector space { v : exists u. uA = vB } *)
-let max_rowspace_projection a b =
-  (* Create a system u*A - v*B = 0.  u's occupy even columns and v's occupy
-     odd. *)
-  let mat =
-    ref (interlace_columns
-           (QQMatrix.transpose a)
-           (QQMatrix.transpose (QQMatrix.scalar_mul (QQ.of_int (-1)) b)))
-  in
-  let c = ref QQMatrix.zero in
-  let c_rows = ref 0 in
-  let mat_rows =
-    ref (BatEnum.fold (fun m (i, _) -> max m i) 0 (QQMatrix.rowsi (!mat)) + 1)
-  in
-
-  (* Loop through the columns col of A/B, trying to find a vector u and v such
-     that uA = vB and v has 1 in col's entry.  If yes, add v to C, and add a
-     constraint to mat that (in all future rows of C), col's entry is 0.  This
-     ensures that the rows of C are linearly independent. *)
-  (* to do: repeatedly solving super systems of the same system of equations
-       -- can be made more efficient *)
-  (QQMatrix.rowsi b)
-  |> (BatEnum.iter (fun (r, _) ->
-      let col = 2*r + 1 in
-      let mat' =
-        QQMatrix.add_row
-          (!mat_rows)
-          (QQVector.of_term QQ.one col)
-          (!mat)
-      in
-      match solve mat' (QQVector.of_term QQ.one (!mat_rows)) with
-      | Some solution ->
-        let c_row =
-          BatEnum.fold (fun c_row (entry, i) ->
-              if i mod 2 = 1 then
-                QQVector.add_term entry (i/2) c_row
-              else
-                c_row)
-            QQVector.zero
-            (QQVector.enum solution)
-        in
-        assert (not (QQVector.equal c_row QQVector.zero));
-        c := QQMatrix.add_row (!c_rows) c_row (!c);
-        mat := mat';
-        incr c_rows; incr mat_rows
-      | None -> ()));
-  !c
-
-let max_lds mA mB =
-  (* We have a system of the form Ax' = Bx, we need one of the form Ax' =
-     B'Ax.  If we can factor B = B'A, we're done.  Otherwise, we compute an
-     m-by-n matrix T' with m < n, and continue iterating with the system T'Ax'
-     = T'Bx. *)
-  let rec fix mA mB mT =
-    let mS = max_rowspace_projection mA mB in
-    (* Since matrices are sparse, need to account for 0-rows of B -- they
-       should always be in the max rowspace projection *)
-    let mT' =
-      SrkUtil.Int.Set.fold
-        (fun i (mT', nb_rows) ->
-           if QQVector.is_zero (QQMatrix.row i mB) then
-             let mT' =
-               QQMatrix.add_row nb_rows (QQVector.of_term QQ.one i) mT'
-             in
-             (mT', nb_rows + 1)
-           else
-             (mT', nb_rows))
-        (QQMatrix.row_set mA)
-        (mS, QQMatrix.nb_rows mB)
-      |> fst
-    in
-    if QQMatrix.nb_rows mB = QQMatrix.nb_rows mS then
-      match divide_right mB mA with
-      | Some mM ->
-        assert (QQMatrix.equal (QQMatrix.mul mM mA) mB);
-
-        (mT, mM)
-      | None ->
-        (* mS's rows are linearly independent -- if it has as many rows as B,
-           then the rowspace of B is contained inside the rowspace of A, and
-           B/A is defined. *)
-        assert false
-    else
-      fix (QQMatrix.mul mT' mA) (QQMatrix.mul mT' mB) (QQMatrix.mul mT' mT)
-
-  in
-  let dims =
-    SrkUtil.Int.Set.elements
-      (SrkUtil.Int.Set.union (QQMatrix.row_set mA) (QQMatrix.row_set mB))
-  in
-  let (mT, mM) = fix mA mB (QQMatrix.identity dims) in
-  (* Remove coordinates corresponding to zero rows of T*A *)
-  let mTA = QQMatrix.mul mT mA in
-  let mTA_rows = QQMatrix.row_set mTA in
-  BatEnum.foldi (fun i row (mT', mM') ->
-      let mT' =
-        QQMatrix.add_row i (QQMatrix.row row mT) mT'
-      in
-      let mM' =
-        let mM_row = QQMatrix.row row mM in
-        let rowi =
-          BatEnum.foldi (fun j col v ->
-              QQVector.add_term (QQVector.coeff col mM_row) j v)
-            QQVector.zero
-            (SrkUtil.Int.Set.enum mTA_rows)
-        in
-        QQMatrix.add_row i rowi mM'
-      in
-      (mT', mM'))
-    (QQMatrix.zero, QQMatrix.zero)
-    (SrkUtil.Int.Set.enum mTA_rows)
 
 let rational_spectral_decomposition mA dims =
   let mAt = QQMatrix.transpose mA in
@@ -489,47 +304,6 @@ let periodic_rational_spectral_decomposition mA dims =
       go prsd (i+1) (QQMatrix.mul mA mA_pow)
   in
   go [] 1 mA
-
-let rational_triangulation mA =
-  let mAt = QQMatrix.transpose mA in
-  let next_row =
-    let r = ref 0 in
-    fun () ->
-      let nr = !r in
-      incr r;
-      nr
-  in
-  let dims = SrkUtil.Int.Set.elements (QQMatrix.row_set mAt) in
-  let identity = QQMatrix.identity dims in
-  List.fold_left (fun (mM, mT) (lambda, _) ->
-      let mE = (* A^t - lambda*I *)
-        QQMatrix.add mAt (QQMatrix.scalar_mul (QQ.negate lambda) identity)
-      in
-      (* Assuming that that the last row of M is v, add the Jordan chain of
-         lambda/v to M, and the corresponding Jordan block to T. *)
-      let rec add_jordan_chain_rec (mM, mT) v =
-        match solve mE v with
-        | Some u ->
-          let row = next_row () in
-          let mM = QQMatrix.add_row row u mM in
-          let t_row =
-            QQVector.of_list [(QQ.one, row-1); (lambda, row)]
-          in
-          let mT = QQMatrix.add_row row t_row mT in
-          add_jordan_chain_rec (mM, mT) u
-        | None -> (mM, mT)
-      in
-      let add_jordan_chain (mM, mT) v =
-        let row = next_row () in
-        let mM = QQMatrix.add_row row v mM in
-        let t_row = QQVector.of_term lambda row in
-        let mT = QQMatrix.add_row row t_row mT in
-        add_jordan_chain_rec (mM, mT) v
-      in
-      List.fold_left add_jordan_chain (mM, mT) (nullspace mE dims)
-    )
-    (QQMatrix.zero, QQMatrix.zero)
-    (QQMatrix.rational_eigenvalues mA dims)
 
 let rec jordan_chain mA lambda v =
   let residual = (* v*mA = lambda*v + residual *)
@@ -708,154 +482,3 @@ let term_of_vec srk term_of_dim vec =
       mk_mul srk [mk_real srk coeff; term_of_dim dim])
   |> BatList.of_enum
   |> mk_add srk
-
-
-module PartialLinearMap = struct
-  module V = QQVector
-  module M = QQMatrix
-  module VS = QQVectorSpace
-
-  type t =
-    { (* Each row should belong to domain *)
-      map : M.t;
-
-      (* Guard is the othogonal complement of the domain.  That is, v
-         belongs to dom(f) iff it is orthogonal to every vector in
-         guard. *)
-      guard : VS.t }
-
-  module IntMap = SrkUtil.Int.Map
-
-  (* After normalization, we have:
-     1. the vectors in guard are linearly independent
-     2. map sends every vector orthogonal to the domain to 0 *)
-  let normalize f =
-    let guard = VS.basis f.guard in
-    let mG = VS.matrix_of guard in
-    let dims =
-      SrkUtil.Int.Set.elements (SrkUtil.Int.Set.union (M.column_set f.map) (M.column_set mG))
-    in
-    let dom = nullspace mG dims in
-    (* Expansion in the basis formed by the domain and its orthogonal
-       complement (guard). *)
-    let basis_change =
-      match divide_left (M.identity dims) (M.transpose (VS.matrix_of (dom @ guard))) with
-      | None -> assert false
-      | Some cob -> cob
-    in
-    let map =
-      M.mul (M.mul f.map (M.transpose (VS.matrix_of dom))) basis_change
-    in
-    dom |> List.iter (fun x ->
-        assert (V.equal (vector_right_mul f.map x) (vector_right_mul map x)));
-    f.guard |> List.iter (fun x ->
-        assert (V.equal V.zero (vector_right_mul map x)));
-    { map; guard }
-
-  let equal f g =
-    M.equal f.map g.map
-    && VS.equal f.guard g.guard
-
-  let identity dim =
-    { map = QQMatrix.identity (BatList.of_enum (0 -- (dim - 1)));
-      guard = [] }
-
-  let make map guard =
-    normalize { map; guard }
-
-  let pp formatter f =
-    Format.fprintf formatter "@[ %a@;Subject to: {@[%a@]}@]"
-      M.pp f.map
-      (SrkUtil.pp_print_enum V.pp) (BatList.enum f.guard)
-
-  let compose f g =
-    let guard =
-      M.rowsi (M.mul (VS.matrix_of f.guard) g.map)
-      /@ snd
-      |> BatList.of_enum
-      |> VS.sum g.guard
-    in
-    { map = M.mul f.map g.map;
-      guard = guard }
-    |> normalize
-
-  let iteration_sequence f =
-    let rec fix g =
-      let h = compose f g in
-      if VS.equal g.guard h.guard then
-        ([g], g.guard)
-      else
-        let (seq, stable) = fix h in
-        (g::seq, stable)
-    in
-    fix f
-
-  let map f = f.map
-  let guard f = f.guard
-
-  let max_dlts mA mB =
-    (* We have a system of the form Ax' = Bx, we need one of the form Ax' =
-       B'Ax.  If we can factor B = B'A, we're done.  Otherwise, we compute an
-       m-by-n matrix T' with m < n, and continue iterating with the system T'Ax'
-       = T'Bx. *)
-    let module M = QQMatrix in
-    let module V = QQVector in
-    let module VS = QQVectorSpace in
-    let rec fix mA mB =
-      let mS = max_rowspace_projection mA mB in
-      (* Since matrices are sparse, need to account for 0-rows of B -- they
-         should always be in the max rowspace projection *)
-      let mT' =
-        SrkUtil.Int.Set.fold
-          (fun i (mT', nb_rows) ->
-             if V.is_zero (M.row i mB) then
-               let mT' =
-                 M.add_row nb_rows (V.of_term QQ.one i) mT'
-               in
-               (mT', nb_rows + 1)
-             else
-               (mT', nb_rows))
-          (M.row_set mA)
-          (mS, M.nb_rows mB)
-        |> fst
-      in
-      if M.nb_rows mB = M.nb_rows mS then
-        (mA, mB)
-      else
-        fix (M.mul mT' mA) (M.mul mT' mB)
-
-    in
-    let (mA, mB) = fix mA mB in
-
-    (* S is the simulation matrix *)
-    let mS = VS.matrix_of (VS.simplify (VS.basis (VS.of_matrix mA))) in
-    let mD = (* DA = S *)
-      match divide_right mS mA with
-      | Some mD -> mD
-      | None -> assert false
-    in
-    let mT = (* DB = TS *)
-      match divide_right (M.mul mD mB) mS with
-      | Some mT -> mT
-      | None -> assert false
-    in
-    (* We now have S and T such that Ax' = Bx |= Sx' = TSx, and S has
-       full rank.  Now, we need to find a guard; i.e., a basis for the
-       space G = { g : Ax' = Bx |= gSx = 0 }. *)
-    let dims =
-    SrkUtil.Int.Set.elements
-      (SrkUtil.Int.Set.union (M.row_set mA) (M.row_set mB))
-    in
-    let mN =
-      nullspace (M.transpose mA) dims (* { n : nA = 0 } *)
-      |> VS.matrix_of
-    in
-    let guard =
-      match divide_right (M.mul mN mB) mS with
-      | Some mG ->
-        (* 0 = NAx' = NBx = GSx *)
-        VS.of_matrix mG
-      | None -> assert false
-    in
-    (mS, make mT guard)
-end

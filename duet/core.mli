@@ -2,8 +2,6 @@
     our internal representations, including the type [ap] of access paths and
     [expr] of expressions. *)
 
-open Apak
-
 (** {2 Core types} *)
 
 (** Record containing the information of enumeration (in C), use java

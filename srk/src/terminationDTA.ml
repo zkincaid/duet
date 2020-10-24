@@ -3,6 +3,7 @@ open SolvablePolynomial
 
 module Vec = Linear.QQVector
 module Mat = Linear.QQMatrix
+module TF = TransitionFormula
 
 include Log.Make(struct let name = "TerminationDTA" end)
 
@@ -68,29 +69,12 @@ let compute_linear_invariants srk formula inv_symbols_set =
   logf "\nInvariants on terms:\n%s\n\n" (Formula.show srk linear_invariants);
   linear_invariants
 
-(** Compute the best deterministic linear transition system (DLTS) abstraction of
-    a transition formula.
-    exists: function used to distinguish between transition symbols from
-            constants and existentially quantified aux variables. 
-    tr_symbols: transition symbols.
-    transition_formula: the transition formula to be abstracted.
-*)
-let compute_best_DLTS_abstraction srk exists tr_symbols transition_formula =
-  let best_dlts = DLTSPeriodicRational.abstract_rational ~exists srk tr_symbols transition_formula in
-  (* logf "Best DLTS abstraction:\n%a\n" (DLTS.pp srk tr_symbols best_dlts); *)
-  let best_dlts_plm = best_dlts.dlts in
-  logf "Best DLTS partial linear map:\n%a\n" Linear.PartialLinearMap.pp  best_dlts_plm;
-  let best_dlts_sim = best_dlts.simulation in
-  Array.iter (fun t -> logf "Term: %a\n" (Term.pp srk) t) best_dlts_sim;
-  best_dlts
-
 (** Compute the exponential polynomial that represents the transitive
     closure of a DLTS.
 *)
 let compute_exp_polynomial ?(square=false) best_dlts =
-  (* let m = Linear.PartialLinearMap.map best_dlts.dlts in *)
   let m =
-    let module PLM = Linear.PartialLinearMap in
+    let module PLM = Lts.PartialLinearMap in
     let omega_domain = snd (PLM.iteration_sequence best_dlts.dlts) in
     PLM.map (PLM.make (PLM.map best_dlts.dlts) omega_domain)
   in
@@ -144,9 +128,9 @@ type ineq_type = Lt0 | Eq0 | Leq0
 *)
 module BaseDegPairMap = struct
   type pair = QQ.t * int [@@deriving ord]
-  module M = BatMap.Make(struct type t = pair [@@deriving ord] end)
   module QQV = Linear.QQVector
-  module E = Ring.AbelianGroupMap(M)(QQV)
+  module E = SparseMap.Make(struct type t = pair [@@deriving ord] end)(QQV)
+
   type t = E.t
 
   let empty = E.zero
@@ -160,7 +144,7 @@ module BaseDegPairMap = struct
   *)
   let put index_pair factor non_zero_dim p =
     let qqxvec = QQV.of_list [factor, non_zero_dim] in
-    E.add_term qqxvec index_pair p
+    E.set index_pair (QQV.add (E.get index_pair p) qqxvec) p
 
 
   let has_higher_order_than_const base deg =
@@ -187,8 +171,8 @@ module BaseDegPairMap = struct
     let dim_to_term = fun d -> if d < 0 then mk_one srk else BatList.nth invariant_terms d in
     let dom_ranked_list = 
       BatEnum.fold
-        (fun l (qqt, (base, deg)) -> 
-           logf "base:%a deg:%d vec:%a\n" 
+        (fun l ((base, deg), qqt) -> 
+           logf "base:%a deg:%d vec:%a\n"
              QQ.pp base 
              deg 
              QQV.pp qqt;
@@ -442,16 +426,16 @@ let analyze_inv_polyhedron srk cs invariants_polyhedron exp_poly invariant_symbo
   mk_or srk conditions_list
 
 (** Provide the swf operator using the dominant term analysis. *)
-let compute_swf_via_DTA srk exists x_xp formula =
-  let body_formula = Nonlinear.linearize srk formula in
-  match Smt.get_model srk body_formula with
-  | `Sat _ -> 
-    logf "\nTransition formula:\n%s\n\n" (Formula.show srk body_formula);
-    logf ~attributes:[`Bold] "\nTransition formula SAT\n";
-    let best_DLTS_abstraction = compute_best_DLTS_abstraction srk exists x_xp body_formula in 
-    let invariant_symbols, inv_equalities, invariant_symbol_set = build_symbols_for_inv_terms srk best_DLTS_abstraction.simulation in
+let compute_swf_via_DTA srk tf =
+  let tf = TF.linearize srk tf in
+  match Smt.is_sat srk (TF.formula tf) with
+  | `Sat ->
+    let best_DLTS_abstraction = DLTSPeriodicRational.abstract_rational srk tf in
+    let invariant_symbols, inv_equalities, invariant_symbol_set =
+      build_symbols_for_inv_terms srk best_DLTS_abstraction.simulation
+    in
     let invariant_terms = BatList.map (fun symbol -> mk_const srk symbol) invariant_symbols in
-    let formula = mk_and srk [body_formula; mk_and srk inv_equalities] in
+    let formula = mk_and srk [TF.formula tf; mk_and srk inv_equalities] in
     logf "\nTransition formula with inv_terms:\n%s\n\n" (Formula.show srk formula);
     let linear_invariants = compute_linear_invariants srk formula invariant_symbol_set in
     let cs = CoordinateSystem.mk_empty srk in

@@ -1,5 +1,4 @@
 open Core
-open Apak
 open Srk
 open CfgIr
 open BatPervasives
@@ -12,6 +11,8 @@ module TM = Termination
 module G = RG.G
 module Ctx = Syntax.MakeSimplifyingContext ()
 module Int = SrkUtil.Int
+module TF = TransitionFormula
+
 let srk = Ctx.context
 
 include Log.Make(struct let name = "cra" end)
@@ -472,22 +473,22 @@ module MonotoneDom = struct
     BatArray.of_enum enum
 
   let abstract tr =
-    let tr_symbols, formula = K.to_transition_formula tr in
-    let coordinates = coordinates_of tr_symbols in
+    let tf = K.to_transition_formula tr in
+    let coordinates = coordinates_of (TF.symbols tf) in
     let aff =
-      Abstract.vanishing_space srk formula coordinates
+      Abstract.vanishing_space srk (TF.formula tf) coordinates
     in
     let signs =
       let deltas =
         List.fold_left (fun deltas (x, x') ->
             (mk_sub srk (mk_const srk x') (mk_const srk x))::deltas)
           []
-          tr_symbols
+          (TF.symbols tf)
       in
       let vars = BatArray.to_list coordinates in
-      Sign.abstract srk formula (vars@deltas)
+      Sign.abstract srk (TF.formula tf) (vars@deltas)
     in
-    (tr_symbols, signs, aff)
+    (TF.symbols tf, signs, aff)
 
   let concretize (tr_symbols, signs, aff) =
     let transform =
@@ -763,10 +764,11 @@ let preimage transition formula =
   mk_and srk [purify_floor (K.guard transition);
               substitute_const srk subst formula]
 
-let formula_with_attractor_region formula x_xp =
+let formula_with_attractor_region tf =
   logf "Starting attractor region analysis";
+  let formula = TF.formula tf in
   let xp_leq_x_terms = BatList.fold_left (fun l (x, xp) -> 
-      let open Syntax in (mk_leq srk (mk_const srk xp) (mk_const srk x), mk_const srk xp, mk_const srk x) :: l) [] x_xp 
+      let open Syntax in (mk_leq srk (mk_const srk xp) (mk_const srk x), mk_const srk xp, mk_const srk x) :: l) [] (TF.symbols tf)
   in
   let lower_bounds = BatList.map (fun (xp_leq_x_term, xp, x) -> 
       match SrkZ3.optimize_box srk (Syntax.mk_and srk [formula; xp_leq_x_term]) [xp] with
@@ -775,7 +777,7 @@ let formula_with_attractor_region formula x_xp =
     ) 
       xp_leq_x_terms in 
   let x_leq_xp_terms = BatList.fold_left (fun l (x, xp) -> 
-      let open Syntax in (mk_leq srk (mk_const srk x) (mk_const srk xp), mk_const srk xp, mk_const srk x) :: l) [] x_xp 
+      let open Syntax in (mk_leq srk (mk_const srk x) (mk_const srk xp), mk_const srk xp, mk_const srk x) :: l) [] (TF.symbols tf)
   in
   let upper_bounds = BatList.map (fun (x_leq_xp_term, xp, x) -> 
       match SrkZ3.optimize_box srk (Syntax.mk_and srk [formula; x_leq_xp_term]) [xp] with
@@ -797,50 +799,40 @@ let formula_with_attractor_region formula x_xp =
   in
   let formula'' = Syntax.mk_and srk (formula :: BatList.flatten lb_x_ub) in
   logf "Formula with attractor regions:\n%a\n" (Syntax.Formula.pp srk) formula'';
-  formula''
+  TF.map_formula (fun _ -> formula'') tf
 
 let omega_algebra =  function
   | `Omega transition ->
      (** over-approximate possibly non-terminating conditions for a transition *)
      begin
        let open Syntax in
-       let x_xp, formula = K.to_transition_formula transition in
-       let formula =
-          purify_floor (Nonlinear.linearize srk formula)
+       let tf =
+         TF.map_formula
+           (fun phi -> purify_floor (Nonlinear.linearize srk phi))
+           (K.to_transition_formula transition)
        in
-       let exists =
-         let post_symbols =
-           List.fold_left
-             (fun set (_, sym') -> Syntax.Symbol.Set.add sym' set)
-             Syntax.Symbol.Set.empty
-             x_xp
-         in
-         fun x ->
-         match V.of_symbol x with
-         | Some _ -> true
-         | None -> Syntax.Symbol.Set.mem x post_symbols
-       in
-       let formula = 
+       let tf =
         if !termination_attractor then 
-          formula_with_attractor_region formula x_xp 
-        else formula 
+          formula_with_attractor_region tf
+        else tf
        in
-       let nonterm formula =
+
+       let nonterm tf =
          if !termination_llrf
-            && (let result, _ = TLLRF.compute_swf srk exists x_xp formula in result = TLLRF.ProvedToTerminate)
+            && (let result, _ = TLLRF.compute_swf srk tf in result = TLLRF.ProvedToTerminate)
          then
            Syntax.mk_false srk
          else
            let dta =
              if !termination_dta then
-               [TDTA.compute_swf_via_DTA srk exists x_xp formula]
+               [TDTA.compute_swf_via_DTA srk tf]
              else []
            in
            let exp =
              if !termination_exp then
                let mp =
                  Syntax.mk_not srk
-                   (TerminationExp.mp (module Iteration.LinearRecurrenceInequation) srk exists x_xp formula)
+                   (TerminationExp.mp (module Iteration.LinearRecurrenceInequation) srk tf)
                in
                let dta_entails_mp =
                  (* if DTA |= mp, DTA /\ MP simplifies to DTA *)
@@ -873,17 +865,17 @@ let omega_algebra =  function
                     mk_leq srk (mk_zero srk) x;
                     mk_leq srk x (mk_zero srk);
                     mk_eq srk x x'])
-                 x_xp
+                 (TF.symbols tf)
              in
              let phased_nonterm =
               let cells = 
-               Iteration.invariant_partition ~exists srk x_xp predicates formula
+               Iteration.invariant_partition srk predicates tf
               in
                 Format.printf "Number of cells: %d\n" (List.length cells);
-              cells
-               |> List.map (fun phase ->
-                      nonterm (Syntax.mk_and srk [formula; phase]))
-               |> Syntax.mk_or srk
+                cells
+                |> List.map (fun phase ->
+                       nonterm (TF.map_formula (fun phi -> mk_and srk [phi; phase]) tf))
+                |> Syntax.mk_or srk
              in
              [preimage (K.star transition) phased_nonterm]
            end else []
@@ -900,9 +892,9 @@ let omega_algebra =  function
            | Some _ -> mk_const srk sym
            | None -> fresh_skolem sym
          in
-         substitute_const srk subst formula
+         substitute_const srk subst (TF.formula tf)
        in
-       Syntax.mk_and srk (pre::(nonterm formula)::phase_mp)
+       Syntax.mk_and srk (pre::(nonterm tf)::phase_mp)
      end
   | `Add (cond1, cond2) ->
      (** combining possibly non-terminating conditions for multiple paths *)

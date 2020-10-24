@@ -15,12 +15,10 @@ module type Univariate = sig
   val mul_monomial : scalar -> int -> t -> t
 end
 
-module MakeUnivariate(R : Ring.S) = struct
-  module IntMap = SrkUtil.Int.Map
+module MakeUnivariate(R : Algebra.Ring) = struct
+  include Ring.RingMap(SrkUtil.Int)(R)
 
-  include Ring.RingMap(IntMap)(R)
-
-  let order p = IntMap.fold (fun power _ hi -> max hi power) p 0
+  let order p = fold (fun power _ hi -> max hi power) p 0
 
   let scalar k = of_term k 0
 
@@ -29,28 +27,28 @@ module MakeUnivariate(R : Ring.S) = struct
   let identity = of_term R.one 1
 
   let mul_monomial coeff power p =
-    (IntMap.enum p)
-    /@ (fun (power',coeff') -> (power * power', R.mul coeff coeff'))
-    |> IntMap.of_enum
+    (enum p)
+    /@ (fun (coeff',power') -> (R.mul coeff coeff', power * power'))
+    |> of_enum
 
   let mul p q =
     BatEnum.fold
-      (fun r ((pp,pc), (qp,qc)) -> add_term (R.mul pc qc) (pp + qp) r)
+      (fun r ((pc,pp), (qc,qp)) -> add_term (R.mul pc qc) (pp + qp) r)
       zero
-      (SrkUtil.cartesian_product (IntMap.enum p) (IntMap.enum q))
+      (SrkUtil.cartesian_product (enum p) (enum q))
 
   let exp = SrkUtil.exp mul one
 
   let compose p q =
     let rec go n = function
       | [] -> zero
-      | (k,coeff)::xs ->
+      | (coeff,k)::xs ->
         let multiplier = exp q (k-n) in
         mul multiplier (add_term coeff 0 (go k xs))
     in
-    IntMap.enum p
+    enum p
     |> BatList.of_enum
-    |> BatList.sort (fun x y -> Stdlib.compare (fst x) (fst y))
+    |> BatList.sort (fun x y -> Stdlib.compare (snd x) (snd y))
     |> go 0
 
   let scalar k = add_term k 0 zero
@@ -62,7 +60,7 @@ module QQX = struct
   include MakeUnivariate(QQ)
 
   let pp formatter p =
-    let pp_monomial formatter (order, coeff) =
+    let pp_monomial formatter (coeff, order) =
       if order = 0 then
         QQ.pp formatter coeff
       else if QQ.equal coeff QQ.one then
@@ -76,7 +74,7 @@ module QQX = struct
       ~pp_sep:(fun formatter () -> Format.fprintf formatter "@ + ")
       pp_monomial
       formatter
-      (IntMap.enum p)
+      (enum p)
 
   let show = SrkUtil.mk_show pp
 
@@ -151,7 +149,7 @@ module QQX = struct
     (content, factors)
 
   let content p =
-    IntMap.fold (fun _ coeff content ->
+    fold (fun _ coeff content ->
         QQ.gcd coeff content)
       p
       QQ.zero
@@ -174,7 +172,7 @@ module QQX = struct
     scalar_mul (QQ.of_frac 1 (factorial k)) (go 0 identity one)
 
   let term_of srk term p =
-    IntMap.fold (fun pow coeff product ->
+    fold (fun pow coeff product ->
         let term =
           Syntax.mk_mul srk [Syntax.mk_real srk coeff; Syntax.mk_pow srk term pow]
         in
@@ -383,12 +381,11 @@ module type Multivariate = sig
   val degree : t -> int
 end
 
-module MakeMultivariate(R : Ring.S) = struct
-  module MM = BatMap.Make(Monomial)
-  include Ring.RingMap(MM)(R)
+module MakeMultivariate(R : Algebra.Ring) = struct
+  include Ring.RingMap(Monomial)(R)
 
   let pp pp_scalar pp_dim formatter p =
-    if MM.is_empty p then
+    if is_zero p then
       Format.pp_print_string formatter "0"
     else
       SrkUtil.pp_print_enum_nobox
@@ -405,19 +402,19 @@ module MakeMultivariate(R : Ring.S) = struct
     if R.equal coeff R.zero then
       zero
     else
-      (MM.enum p)
-      /@ (fun (monomial', coeff') ->
-          (Monomial.mul monomial monomial', R.mul coeff coeff'))
-      |> MM.of_enum
+      (enum p)
+      /@ (fun (coeff', monomial') ->
+          (R.mul coeff coeff', Monomial.mul monomial monomial'))
+      |> of_enum
 
   let mul_monomial = mul_monomial_scalar R.one
 
   let mul p q =
     BatEnum.fold
-      (fun r (monomial, coeff) ->
+      (fun r (coeff, monomial) ->
          add r (mul_monomial_scalar coeff monomial q))
       zero
-      (MM.enum p)
+      (enum p)
 
   let sub p q = add p (scalar_mul (R.negate R.one) q)
 
@@ -431,7 +428,7 @@ module MakeMultivariate(R : Ring.S) = struct
   let exp = SrkUtil.exp mul one
 
   let substitute subst p =
-    MM.fold (fun monomial coeff p ->
+    fold (fun monomial coeff p ->
         let q =
           Monomial.IntMap.fold (fun dim pow q ->
               mul q (exp (subst dim) pow))
@@ -443,7 +440,7 @@ module MakeMultivariate(R : Ring.S) = struct
       zero
 
   let div_monomial p m =
-    MM.fold (fun n coeff p ->
+    fold (fun n coeff p ->
         match p with
         | Some p ->
           begin match Monomial.div n m with
@@ -455,7 +452,7 @@ module MakeMultivariate(R : Ring.S) = struct
       (Some zero)
 
   let qr_monomial p m =
-    MM.fold (fun n coeff (q, r) ->
+    fold (fun n coeff (q, r) ->
         match Monomial.div n m with
         | Some qn -> (add_term coeff qn q, r)
         | None -> (q, add_term coeff n r))
@@ -464,13 +461,13 @@ module MakeMultivariate(R : Ring.S) = struct
 
   let dimensions p =
     let module S = SrkUtil.Int.Set in
-    MM.fold (fun m _ set ->
+    fold (fun m _ set ->
         Monomial.IntMap.fold (fun dim _ set -> S.add dim set) m set)
       p
       S.empty
 
   let degree p =
-    MM.fold (fun m _ d -> max (Monomial.total_degree m) d) p 0
+    fold (fun m _ d -> max (Monomial.total_degree m) d) p 0
 end
 
 module QQXs = struct
@@ -479,7 +476,7 @@ module QQXs = struct
   module IntSet = SrkUtil.Int.Set
 
   let pp pp_dim formatter p =
-    if MM.is_empty p then
+    if is_zero p then
       Format.pp_print_string formatter "0"
     else
       SrkUtil.pp_print_enum_nobox
@@ -503,7 +500,7 @@ module QQXs = struct
     |> BatEnum.fold add (scalar const_coeff)
 
   let split_linear ?(const=Linear.const_dim) p =
-    MM.fold (fun monomial coeff (vec, poly) ->
+    fold (fun monomial coeff (vec, poly) ->
         match BatList.of_enum (Monomial.enum monomial) with
         | [] -> (V.add_term coeff const vec, poly)
         | [(x,1)] -> (V.add_term coeff x vec, poly)
@@ -519,34 +516,34 @@ module QQXs = struct
       None
 
   let term_of srk dim_term p =
-    MM.fold (fun monomial coeff sum ->
+    fold (fun monomial coeff sum ->
         (Syntax.mk_mul srk [Syntax.mk_real srk coeff;
                             Monomial.term_of srk dim_term monomial])::sum)
       p
       []
     |> Syntax.mk_add srk
 
-  let compare = MM.compare QQ.compare
+  let compare = compare QQ.compare
 
   let content p =
-    MM.fold (fun _ coeff content ->
+    fold (fun _ coeff content ->
         QQ.gcd coeff content)
       p
       QQ.zero
 
   let factor_gcd p =
-    if MM.is_empty p then
+    if is_zero p then
       (QQ.one, Monomial.one, p)
     else
-      let ((m, c), p') = MM.pop p in
+      let ((m, c), p') = pop p in
       let (c, m) =
-        MM.fold (fun monomial coeff (c, m) ->
+        fold (fun monomial coeff (c, m) ->
             (QQ.gcd coeff c, Monomial.gcd m monomial))
           p'
           (c, m)
       in
       let q =
-        MM.fold (fun n coeff q ->
+        fold (fun n coeff q ->
             match Monomial.div n m with
             | Some r -> add_term (QQ.div coeff c) r q
             | None -> assert false)
@@ -557,16 +554,14 @@ module QQXs = struct
 
   let split_leading ord p =
     let leading_monomial =
-      MM.fold (fun n _ m ->
+      fold (fun n _ m ->
           if ord n m = `Gt then n
           else m)
         p
         Monomial.one
     in
-    (coeff leading_monomial p,
-     leading_monomial,
-     try MM.remove leading_monomial p
-     with Not_found -> p)
+    let (coeff, rest) = pivot leading_monomial p in
+    (coeff, leading_monomial, rest)
 end
 
 module Rewrite = struct
@@ -727,7 +722,7 @@ module Rewrite = struct
         | `Gt -> -1)
 
   let qqxs_of_op p =
-    List.fold_left (fun q (c, m) -> QQXs.MM.add m c q) QQXs.zero p
+    List.fold_left (fun q (c, m) -> QQXs.add_term c m q) QQXs.zero p
 
   let rec reduce_op rewrite polynomial =
     match polynomial with

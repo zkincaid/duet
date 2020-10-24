@@ -1,7 +1,6 @@
 (** Implementation of Lengauer and Tarjan's dominance algorithm *)
 
 open Srk
-open Apak
 
 module Make (G : Graph.Sig.G) = struct
 

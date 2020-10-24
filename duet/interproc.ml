@@ -1,7 +1,6 @@
 open Core
 open CfgIr
 open Srk
-open Apak
 
 module Seq = struct
   module V = struct

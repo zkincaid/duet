@@ -7,7 +7,6 @@
 open Core
 open CfgIr
 open Srk
-open Apak
 open PointerAnalysis
 
 

@@ -1,23 +1,12 @@
 open Syntax
 module Vec = Linear.QQVector
 module Mat = Linear.QQMatrix
+module TF = TransitionFormula
 
 include Log.Make(struct let name = "TerminationLLRF" end)
 
 type analysis_result = ProvedToTerminate | Unknown
 
-let pre_symbols tr_symbols =
-  List.fold_left (fun set (s,_) ->
-      Symbol.Set.add s set)
-    Symbol.Set.empty
-    tr_symbols
-
-let post_symbols tr_symbols =
-  List.fold_left (fun set (_,s') ->
-      Symbol.Set.add s' set)
-    Symbol.Set.empty
-    tr_symbols
-    
 (** Transform a formula representation of a convex set f into a list of linear 
     inequalities. The linear inequalities are vectors where the meaning
     of the dimensions are given by the coordinate system cs.
@@ -401,17 +390,15 @@ let add_diff_terms_to_formula srk f x_xp =
 (** The actual swf operator only has true or false as outcomes, corresponding to
     able to prove or unable to prove results given here.
  *)
-let compute_swf srk exists x_xp formula = 
-  let body_formula = Nonlinear.linearize srk formula in
-  let x_list = List.fold_right (fun (sp, _) l -> sp :: l ) x_xp [] in
-  let xp_list = List.fold_right (fun (_, spp) l -> spp :: l ) x_xp [] in
-  let all_symbols = Symbol.Set.to_list (symbols formula) in
-  let is_sym_constant s = 
-    exists s && (not (List.mem s x_list)) && (not (List.mem s xp_list))
+let compute_swf srk tf =
+  let tf = TF.linearize srk tf in
+  let all_symbols = Symbol.Set.to_list (symbols (TF.formula tf)) in
+  let constant_symbols = List.filter (TF.is_symbolic_constant tf) all_symbols in
+
+  let x_xp =
+    List.fold_left (fun l s -> (s, s) :: l) (TF.symbols tf) constant_symbols
   in
-  let constant_symbols = List.filter is_sym_constant all_symbols in
-  let x_xp = List.fold_left (fun l s -> (s, s) :: l) x_xp constant_symbols in
-  match Smt.get_model srk body_formula with
+  match Smt.get_model srk (TF.formula tf) with
   | `Sat _ -> 
     let x_list = List.fold_right (fun (sp, _) l -> sp :: l ) x_xp [] in
     let xp_list = List.fold_right (fun (_, spp) l -> spp :: l ) x_xp [] in
@@ -424,11 +411,15 @@ let compute_swf srk exists x_xp formula =
         x_list
         ([], Symbol.Set.empty)
     in
-    let x_set = pre_symbols x_xp in
-    let xp_set = post_symbols x_xp in
-    let f_with_dx, dx_list, dx_set, x_to_dx, dx_to_x = add_diff_terms_to_formula srk body_formula x_xp in
+    let x_set = TF.pre_symbols x_xp in
+    let xp_set = TF.post_symbols x_xp in
+    let f_with_dx, dx_list, dx_set, x_to_dx, dx_to_x =
+      add_diff_terms_to_formula srk (TF.formula tf) x_xp
+    in
     logf "\nformula with dx:\n%s\n" (Formula.show srk f_with_dx);
-    let (success, dep, residual_formula, _) = find_quasi_rf 1 srk f_with_dx [] x_list xp_list dx_list x_set xp_set dx_set x_to_dx dx_to_x coeff_x_list coeff_x_set in
+    let (success, dep, residual_formula, _) =
+      find_quasi_rf 1 srk f_with_dx [] x_list xp_list dx_list x_set xp_set dx_set x_to_dx dx_to_x coeff_x_list coeff_x_set
+    in
     logf "\nSuccess: %s\nDepth: %s\n" (string_of_bool success) (string_of_int dep);
     if success then (ProvedToTerminate, mk_false srk) else (Unknown, residual_formula)
   | `Unknown -> logf "SMT solver should not return unknown for QRA formulas"; (Unknown, mk_true srk)

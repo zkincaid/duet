@@ -2,7 +2,7 @@
     "Applications of Path Compression on Balanced Trees"). *)
 
 exception Not_in_pc
-module Make (Elem : Hashtbl.HashedType) (Val : Sig.Semigroup.S) : sig
+module Make (Elem : Hashtbl.HashedType) (Val : Srk.Algebra.Semigroup) : sig
   type t
   type node
   val link : t -> Elem.t -> Elem.t -> unit

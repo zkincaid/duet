@@ -98,13 +98,67 @@ module Var = struct
 end
 
 module Env = struct
-  type 'a t = 'a list
-  let push x xs = x::xs
-  let find xs i =
-    try List.nth xs i
-    with Failure _ -> raise Not_found
+  type 'a node =
+    | Node of ('a * 'a node * 'a node)
+    | Leaf of 'a
+
+  type 'a elt =
+    { size : int;
+      tree : 'a node }
+
+  type 'a t = 'a elt list
+
+  let push (x : 'a) (env : 'a t) : 'a t = match env with
+    | (y::z::env) when y.size = z.size ->
+       let head =
+         { size = 2 * y.size + 1;
+           tree = Node (x, y.tree, z.tree) }
+       in
+       head::env
+    | _ -> { size = 1; tree = Leaf x } :: env
+
+  let rec find_tree tree i size =
+    match tree with
+    | Leaf x when i = 0 -> x
+    | Leaf _ -> assert false
+    | Node (x, left, right) ->
+       let halfsize = size / 2 in
+       if i = 0 then
+         x
+       else if i <= halfsize then
+         find_tree left (i - 1) halfsize
+       else
+         find_tree right (i - halfsize - 1) halfsize
+
+  let rec find (env : 'a t) (i : int) : 'a =
+    match env with
+    | [] -> raise Not_found
+    | x::_ when i < x.size ->
+       find_tree x.tree i x.size
+    | x::env -> find env (i - x.size)
+
   let empty = []
-  let enum = BatList.enum
+
+  let rec make_enum rest size =
+    let remaining = ref rest in
+    let nb_remaining = ref size in
+    let next () = match !remaining with
+      | [] -> raise BatEnum.No_more_elements
+      | Leaf x::xs ->
+         remaining := xs;
+         decr nb_remaining;
+         x
+      | Node (x, left, right)::xs ->
+         remaining := left::right::xs;
+         decr nb_remaining;
+         x
+    in
+    let count () = !nb_remaining in
+    let clone () = make_enum (!remaining) (!nb_remaining) in
+    BatEnum.make ~next ~count ~clone
+
+  let enum xs =
+    BatEnum.concat_map (fun elt -> make_enum [elt.tree] elt.size) (BatList.enum xs)
 end
 
 let rec flatten_sexpr label sexpr =
@@ -146,6 +200,8 @@ type 'a context =
     named_symbols : (string,int) Hashtbl.t;
     mk : label -> (sexpr hobj) list -> sexpr hobj;
     id : int }
+
+let context_stats srk = (HC.count srk.hashcons, DynArray.length srk.symbols, Hashtbl.length srk.named_symbols)
 
 let fresh_id =
   let max_id = ref (-1) in
@@ -1244,7 +1300,7 @@ let eliminate_ite srk phi =
   in
   elim_ite phi
 
-let pp_smtlib2 ?(env=Env.empty) srk formatter expr =
+let pp_smtlib2_gen ?(named=false) ?(env=Env.empty) ?(strings=Hashtbl.create 991) srk formatter assertions =
   let open Format in
   let pp_sep = pp_print_space in
 
@@ -1276,8 +1332,13 @@ let pp_smtlib2 ?(env=Env.empty) srk formatter expr =
       end
   in
 
+  let all_symbols =
+    List.fold_left (fun syms phi ->
+      Symbol.Set.union syms (symbols phi)
+    ) Symbol.Set.empty assertions
+  in
+
   (* find a unique string that can be used to identify each symbol *)
-  let strings = Hashtbl.create 991 in
   let symbol_name = Hashtbl.create 991 in
   Symbol.Set.iter (fun symbol ->
       let base_name = fst (DynArray.get srk.symbols symbol) in
@@ -1288,17 +1349,17 @@ let pp_smtlib2 ?(env=Env.empty) srk formatter expr =
           if Hashtbl.mem strings name' then
             go (n + 1)
           else begin
-            Hashtbl.add strings name' ();
+            Hashtbl.add strings name' symbol;
             Hashtbl.add symbol_name symbol name'
           end
         in
         go 0
       else begin
         let name = symbol_of_string (fst (DynArray.get srk.symbols symbol)) in
-        Hashtbl.add strings name ();
+        Hashtbl.add strings name symbol;
         Hashtbl.add symbol_name symbol name
       end)
-    (symbols expr);
+    all_symbols;
 
   fprintf formatter "@[<v 0>";
 
@@ -1434,7 +1495,16 @@ let pp_smtlib2 ?(env=Env.empty) srk formatter expr =
         (go env) belse
     | _ -> failwith "pp_smtlib2: ill-formed expression"
   in
-  fprintf formatter "(assert %a)@;(check-sat)@]" (go env) expr;
+  List.iteri (fun i phi ->
+    if named then
+      fprintf formatter "(assert (! %a :named f%d))@;" (go env) phi i
+    else
+      fprintf formatter "(assert %a)@;" (go env) phi
+  ) assertions;
+  fprintf formatter "(check-sat)@]"
+
+let pp_smtlib2 ?(env=Env.empty) srk formatter expr =
+  pp_smtlib2_gen ~env srk formatter [expr]
 
 module Infix (C : sig
     type t
@@ -1496,6 +1566,7 @@ module type Context = sig
   val mk_true : formula
   val mk_false : formula
   val mk_ite : formula -> (t, 'a) expr -> (t, 'a) expr -> (t, 'a) expr
+  val stats : unit -> (int * int * int)
 end
 
 module ImplicitContext(C : sig
@@ -1531,6 +1602,7 @@ module ImplicitContext(C : sig
   let mk_true = mk_true context
   let mk_false = mk_false context
   let mk_ite = mk_ite context
+  let stats _ = context_stats context
 end
 
 module MakeContext () =
@@ -1684,7 +1756,7 @@ struct
             hc Mod [num; den]
           | (Node (Real num, [], _), Node (Real den, [], _)) ->
             mk (Real (QQ.modulo num den)) []
-          | _, Node (Real den, [], _) when QQ.equal den QQ.zero -> num
+          | Node (_, _, `TyInt), Node (Real den, [], _) when QQ.equal den QQ.one -> mk (Real QQ.zero) []
           | _, _ -> hc Mod [num; den]
         end
 
