@@ -200,19 +200,19 @@ def summary():
 
     print("Timeouts & ", end='');
     for tool in tools:
-        print(" & %d" % num_timeout[tool], end='')
+        print(" & \\multicolumn{2}{c}{%d}" % num_timeout[tool], end='')
 
     print("\\\\")
 
     print("Mean time & ", end='');
     for tool in tools:
-        print(" & %.1f" % mean_time_excluding_timeout[tool], end='')
+        print(" & \\multicolumn{2}{c}{%.1f}" % mean_time_excluding_timeout[tool], end='')
 
     print("\\\\")
 
     print("Median time & ", end='');
     for tool in tools:
-        print(" & %.1f" % median_time_excluding_timeout[tool], end='')
+        print(" & \\multicolumn{2}{c}{%.1f}" % median_time_excluding_timeout[tool], end='')
 
     print("\\\\")
 

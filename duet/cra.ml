@@ -880,6 +880,7 @@ let omega_algebra =  function
                Iteration.invariant_partition ~exists srk x_xp predicates formula
               in
                 Format.printf "Number of cells: %d\n" (List.length cells);
+              cells |> List.iteri (fun i phase -> Format.printf "Cell %d: %a\n" i (Expr.pp srk) phase);
               cells
                |> List.map (fun phase ->
                       nonterm (Syntax.mk_and srk [formula; phase]))

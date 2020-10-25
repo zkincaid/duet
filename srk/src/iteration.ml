@@ -842,7 +842,7 @@ let invariant_transition_predicates srk exists phi tr_symbols predicates =
   else
     List.filter is_invariant predicates
 
-let invariant_partition ?(exists=fun _ -> true) srk tr_symbols candidates phi =
+let invariant_partition_old ?(exists=fun _ -> true) srk tr_symbols candidates phi =
   let phi = Nonlinear.linearize srk phi in
   let predicates =
     invariant_transition_predicates srk exists phi tr_symbols candidates
@@ -873,6 +873,93 @@ let invariant_partition ?(exists=fun _ -> true) srk tr_symbols candidates phi =
     | `Unknown -> assert false (* to do *)
   in
   find_cells []
+
+  let invariant_partition ?(exists=fun _ -> true) srk tr_symbols candidates phi =
+    let phi = Nonlinear.linearize srk phi in
+    let predicates =
+      invariant_transition_predicates srk exists phi tr_symbols candidates
+      |> BatArray.of_list
+    in
+    let solver = Smt.mk_solver srk in
+    Smt.Solver.add solver [phi];
+    (* The predicate induce a parition of the transitions of T by
+       their valuation of the predicates; find the cells of this
+       partition *)
+    let rec find_cells cells cell_formula =
+      Smt.Solver.push solver;
+      match Smt.Solver.get_model solver with
+      | `Sat m ->
+         let cell =
+           Array.map (Interpretation.evaluate_formula m) predicates
+         in
+         let new_cell = 
+          BatList.fold_lefti (
+            fun (true_preds, false_preds) i sat -> 
+              if sat then (BatSet.Int.add i true_preds, false_preds)
+              else (true_preds, BatSet.Int.add i false_preds))
+              (BatSet.Int.empty, BatSet.Int.empty)
+              (Array.to_list cell)
+          in
+         let new_cell_formula =
+           List.mapi (fun i sat ->
+               if sat then predicates.(i)
+               else mk_not srk predicates.(i))
+             (Array.to_list cell)
+           |> mk_and srk
+         in
+         Smt.Solver.add solver [mk_not srk cell_formula];
+         find_cells (new_cell::cells) (mk_and srk [cell_formula; new_cell_formula])
+      | `Unsat -> cells
+      | `Unknown -> assert false (* to do *)
+    in
+    predicates, find_cells [] (mk_true srk)
+  
+(* Ranked cells is a map fron int to (list of sets) *)
+let rank_cells cells =
+  let ranked_cells = BatMap.Int.empty in
+  BatList.fold_left
+    (fun m (positive_preds, _) -> 
+      let num_pos_preds = BatSet.Int.cardinal positive_preds in
+      match BatMap.Int.find_opt num_pos_preds m with 
+      | Some l -> BatMap.Int.update num_pos_preds num_pos_preds (positive_preds::l) m
+      | None -> BatMap.Int.add num_pos_preds [positive_preds] m
+    )
+    ranked_cells
+    cells
+
+let build_graph srk exists phi tr_symbols inv_predicates algebra cells =
+   (* map' sends primed vars to midpoints; map sends unprimed vars to midpoints *)
+   let (map', map) =
+   List.fold_left (fun (subst1, subst2) (sym, sym') ->
+       let mid_name = "mid_" ^ (show_symbol srk sym) in
+       let mid_symbol =
+         mk_symbol srk ~name:mid_name (typ_symbol srk sym)
+       in
+       let mid = mk_const srk mid_symbol in
+       (Symbol.Map.add sym' mid subst1,
+        Symbol.Map.add sym mid subst2))
+     (Symbol.Map.empty, Symbol.Map.empty)
+     tr_symbols
+ in
+ let seq = (* T(x,x_mid) /\ T(x_mid,x') *)
+   let rename = (* rename Skolem constants *)
+     Memo.memo (fun symbol ->
+         mk_const srk (mk_symbol srk (typ_symbol srk symbol)))
+   in
+   (* substitution for first iteration *)
+   let subst1 symbol =
+     if Symbol.Map.mem symbol map' then
+       Symbol.Map.find symbol map'
+     else if exists symbol then
+       mk_const srk symbol
+     else rename symbol
+   in
+   mk_and srk [substitute_const srk subst1 phi;
+               substitute_map srk map phi]
+ in
+
+  let wg = WeightedGraph.empty algebra in
+
 
 module InvariantDirection (Iter : PreDomain) = struct
   type 'a t = 'a Iter.t list list
