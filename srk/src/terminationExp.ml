@@ -1,21 +1,21 @@
 open Syntax
 
 include Log.Make(struct let name = "TerminationExp" end)
+module TF = TransitionFormula
 
-
-let closure (module I : Iteration.PreDomain) srk exists tr_symbols phi =
+let closure (module I : Iteration.PreDomain) srk tf =
   let qe = Syntax.mk_exists_consts srk in
   let k = mk_symbol srk `TyInt in
   let phi_k = (* approximate k-fold composition of phi *)
-    I.abstract ~exists srk tr_symbols phi
-    |> I.exp srk tr_symbols (mk_const srk k)
+    I.abstract srk tf
+    |> I.exp srk (TF.symbols tf) (mk_const srk k)
   in 
   let f = mk_and srk [mk_leq srk (mk_zero srk) (mk_const srk k);
                       phi_k] in
   logf "Abstraction completed, k-fold formula: %a" (Formula.pp srk) f;
   qe (fun sym -> sym != k) f
 
-let mp (module I : Iteration.PreDomain) srk exists tr_symbols phi =
+let mp (module I : Iteration.PreDomain) srk tf =
   let qe = Syntax.mk_exists_consts srk in
   let k = mk_symbol srk `TyInt in
   let (pre_to_post, post_sym) =
@@ -23,21 +23,21 @@ let mp (module I : Iteration.PreDomain) srk exists tr_symbols phi =
         (Symbol.Map.add x (mk_const srk x') pre_to_post,
          Symbol.Set.add x' post_sym))
       (Symbol.Map.empty, Symbol.Set.empty)
-      tr_symbols
+      (TF.symbols tf)
   in
   let phi_k = (* approximate k-fold composition of phi *)
-    I.abstract ~exists srk tr_symbols phi
-    |> I.exp srk tr_symbols (mk_const srk k)
+    I.abstract srk tf
+    |> I.exp srk (TF.symbols tf) (mk_const srk k)
   in
   let pre =
-    qe (fun sym -> exists sym && not (Symbol.Set.mem sym post_sym)) phi
+    qe (fun sym -> TF.exists tf sym && not (Symbol.Set.mem sym post_sym)) (TF.formula tf)
   in
   let pre' = (* pre'[x -> x', x' -> x''] *)
     substitute_map srk pre_to_post pre
   in
   let halt_within_k = (* pre-states for which computation must halt within k steps *)
     mk_and srk [phi_k; pre']
-    |> qe (fun sym -> sym = k || (exists sym && not (Symbol.Set.mem sym post_sym)))
+    |> qe (fun sym -> sym = k || (TF.exists tf sym && not (Symbol.Set.mem sym post_sym)))
     |> mk_not srk
   in
   let result =

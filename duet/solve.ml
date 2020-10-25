@@ -1,7 +1,6 @@
 module S = Set
 open Core
 open Srk
-open Apak
 open Ai
 open CfgIr
 

@@ -1,5 +1,4 @@
 open Core
-open Apak
 
 let may_use def =
   let open PointerAnalysis in

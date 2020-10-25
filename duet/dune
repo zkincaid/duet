@@ -1,9 +1,9 @@
 (executable
-(name duet)
-(modes native)
-(promote (until-clean) (into ..))
-(libraries srk apak cil cil.default-features pa apron apron.boxMPQ apron.octMPQ apron.polkaMPQ)
-(preprocess (pps ppx_deriving.ord ppx_deriving.eq ppx_deriving.show)))
+  (name duet)
+  (modes native)
+  (promote (until-clean) (into ..))
+  (libraries srk cil cil.default-features pa apron apron.boxMPQ apron.octMPQ apron.polkaMPQ)
+  (preprocess (pps ppx_deriving.ord ppx_deriving.eq ppx_deriving.show)))
 
 (ocamllex
 (modules cbpLex))

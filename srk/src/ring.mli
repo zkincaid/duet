@@ -1,16 +1,5 @@
 (** Operations on rings. *)
 
-(** Signature of rings *)
-module type S = sig
-  type t
-  val equal : t -> t -> bool
-  val add : t -> t -> t
-  val negate : t -> t
-  val zero : t
-  val mul : t -> t -> t
-  val one : t
-end
-
 (** Sparse vectors of infinite dimension. *)
 module type Vector = sig
   type t
@@ -68,6 +57,15 @@ module type Vector = sig
      result of removing the [i]th position (replacing it with 0).  If
      [(a,v') = pivot i v], then [add_term a i v' = v].  *)
   val pivot : dim -> t -> scalar * t
+
+  val pop : t -> (dim * scalar) * t
+
+  val map : (dim -> scalar -> scalar) -> t -> t
+  val merge : (dim -> scalar -> scalar -> scalar) -> t -> t -> t
+
+  val hash : (dim * scalar -> int) -> t -> int
+  val compare : (scalar -> scalar -> int) -> t -> t -> int
+  val fold : (dim -> scalar -> 'a -> 'a) -> t -> 'a -> 'a
 end
 
 (** Sparse matrices of infinite dimension. *)
@@ -178,83 +176,36 @@ module type Matrix = sig
 
   (** Given vectors v{_0},v{_1},v{_2},...,v{_n} create a matrix where row [i] is v{_i} *)
   val of_rows : vector list -> t
+
+  (** Given two matrices M and N, M and N into a single matrix, using
+      the even columns for M and the odd columns for N *)
+  val interlace_columns : t -> t -> t
 end
-
-(** Minimal signature for maps to support [RingMap]. *)
-module type Map = sig
-  type 'a t
-  type key
-
-  val equal : ('a -> 'a -> bool) -> 'a t -> 'a t -> bool
-  val compare : ('a -> 'a -> int) -> 'a t -> 'a t -> int
-  val enum : 'a t -> (key * 'a) BatEnum.t
-  val map : ('a -> 'b) -> 'a t -> 'b t
-  val find : key -> 'a t -> 'a
-  val add : key -> 'a -> 'a t -> 'a t
-  val remove : key -> 'a t -> 'a t
-  val empty : 'a t
-  val merge : (key -> 'a option -> 'b option -> 'c option) ->
-    'a t ->
-    'b t ->
-    'c t
-end
-
-module type AbelianGroup = sig
-   type t
-   val equal : t -> t -> bool
-   val add : t -> t -> t
-   val negate : t -> t
-   val zero : t
- end
-
-module AbelianGroupMap (M : Map) (G : AbelianGroup) : sig
-   type t = G.t M.t
-   type dim = M.key
-   type scalar = G.t
-  
-   val zero : t
- 
-   val add : t -> t -> t
- 
-   val add_term: scalar -> dim -> t -> t
-   
-   val coeff: dim -> t -> scalar
- 
-   val enum: t -> (scalar * dim) BatEnum.t
- 
-   
-   (* let of_enum = BatEnum.fold (fun vec (x,y) -> add_term x y vec) zero
- 
-   let of_list = List.fold_left (fun vec (x,y) -> add_term x y vec) zero *)
- 
-   (* let equal = M.equal G.equal
- 
-   let of_term coeff dim = add_term coeff dim zero
- 
-   let negate = M.map G.negate
- 
-   let sub u v = add u (negate v)
- 
-   let pivot dim vec =
-     (coeff dim vec, M.remove dim vec) *)
- end
 
 (** Lift a map type over a ring to a left-module *)
 module RingMap
-    (M : Map)
-    (R : S) : Vector with type t = R.t M.t
-                      and type dim = M.key
-                      and type scalar = R.t
+    (K : BatInterfaces.OrderedType)
+    (R : Algebra.Ring) : Vector with type dim = K.t
+                                 and type scalar = R.t
 
 (** Sparse vectors of infinite dimension, with entries drawn from a
    given ring. *)
-module MakeVector (R : S) : Vector with type scalar = R.t
-                                    and type dim = int
-                                    and type t = RingMap(SrkUtil.Int.Map)(R).t
+module MakeVector (R : Algebra.Ring) : sig
+  include Vector with type scalar = R.t
+                  and type dim = int
+                  and type t = SparseMap.Make(SrkUtil.Int)(R).t
+
+  (** Combine two vectors u and v into a single vector, using the even
+     coordinates for u and the odd coordinates for v *)
+  val interlace : t -> t -> t
+
+  (** Reverse the operation of [interlace] *)
+  val deinterlace : t -> (t * t)
+end
 
 (** Sparse matrices of infinite dimension, with entries drawn from a
    given ring. *)
-module MakeMatrix (R : S) : sig
+module MakeMatrix (R : Algebra.Ring) : sig
   include Matrix with type scalar = R.t
                   and type vector = MakeVector(R).t
   val pp : (Format.formatter -> scalar -> unit) -> Format.formatter -> t -> unit
@@ -269,8 +220,8 @@ end
     {- [(-f)(i) = -f(i)] }
     {- [(0)(i) = 0] }
     {- [(1)(i) = 1] } } *)
-module MakeUltPeriodicSeq (R : S) : sig
-  include S
+module MakeUltPeriodicSeq (R : Algebra.Ring) : sig
+  include Algebra.Ring
   val pp : (Format.formatter -> R.t -> unit) -> Format.formatter -> t -> unit
 
   (** [make t p] constructs an ultimately periodic sequence *)

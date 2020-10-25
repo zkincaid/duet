@@ -1,5 +1,3 @@
-open Apak
-
 module HT = Hashtbl
 
 let wait_for_bddbddb input =

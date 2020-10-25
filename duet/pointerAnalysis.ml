@@ -2,7 +2,6 @@
 
 open Core
 open Srk
-open Apak
 open CfgIr
 
 type membase =

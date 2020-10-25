@@ -5,6 +5,7 @@ module V = Linear.QQVector
 module M = Linear.QQMatrix
 module Z = Linear.ZZVector
 module Q = Quantifier
+module TF = TransitionFormula
 module Int = SrkUtil.Int
 module Accelerate =
   Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)
@@ -115,43 +116,11 @@ let ident_matrix_real n =
       M.add_entry dim dim (QQ.of_int 1) matr) M.zero (BatList.of_enum (0--n))
 
 
-(* Used in preify and postify to create symbol map.
- * Is a way to substitute variables; for example
- * x with x' or x' with x.
- *)
-let post_map srk tr_symbols =
-  List.fold_left
-    (fun map (sym, sym') -> Symbol.Map.add sym (mk_const srk sym') map)
-    Symbol.Map.empty
-    tr_symbols
-
-(* For tr_symbols list of form (x, x'),
- * replace x' with x in term.
- *)
-let preify srk tr_symbols = substitute_map srk
-    (post_map srk (List.map (fun (x, x') -> (x', x)) tr_symbols))
-
-(* Same as preify, but replaces x with x' *)
-let postify srk tr_symbols = substitute_map srk (post_map srk tr_symbols)
-
-let pre_symbols tr_symbols =
-  List.fold_left (fun set (s,_) ->
-      Symbol.Set.add s set)
-    Symbol.Set.empty
-    tr_symbols
-
-let post_symbols tr_symbols =
-  List.fold_left (fun set (_,s') ->
-      Symbol.Set.add s' set)
-    Symbol.Set.empty
-    tr_symbols
-
-
-
 (*Determine if there exists a transition from cs1 to cs2
  * using transition system phi*)
 let exists_transition srk cs1 cs2 tr_symbols phi =
-  Smt.is_sat srk (mk_and srk [cs1; postify srk tr_symbols cs2; phi]) != `Unsat
+  let postify = substitute_map srk (TF.post_map srk tr_symbols) in
+  Smt.is_sat srk (mk_and srk [cs1; postify cs2; phi]) != `Unsat
 
 (*Compute boolean adjacency graph of control states for transition system phi*)
 let compute_edges srk tr_symbols c_states phi =
@@ -183,7 +152,8 @@ let pp srk _tr_symbols formatter vasses =
 (*Computes vass for a given list of control states and formula*)
 let compute_single_scc_vass ?(exists=fun _ -> true) srk tr_symbols cs_lst phi =
   (* Restrict phi to configurations that model a control state *)
-  let postified_cs = List.map (fun lbl -> postify srk tr_symbols lbl) cs_lst in
+  let postify = substitute_map srk (TF.post_map srk tr_symbols) in
+  let postified_cs = List.map postify cs_lst in
   let phi' = mk_and srk [mk_or srk cs_lst; mk_or srk postified_cs; phi] in
   (*pre_graph represents adjacency (transformers, sim) graph for control states
    * prior to converting all cells of graph to use same sim matrix*)
@@ -194,12 +164,17 @@ let compute_single_scc_vass ?(exists=fun _ -> true) srk tr_symbols cs_lst phi =
                    (fun _ -> (TSet.empty,[]))))
   in
   (*Populate graph with transformers between two control states*)
+  let abstract formula =
+    abstract srk (TF.make ~exists formula tr_symbols)
+  in
+  let postify = substitute_map srk (TF.post_map srk tr_symbols) in
   BatArray.iteri (fun ind1 arr ->
       BatArray.modifyi (fun ind2 _ ->
-          let {v; s_lst} = abstract ~exists srk tr_symbols
+          let {v; s_lst} =
+            abstract
               (mk_and srk 
                  [(List.nth cs_lst ind1); 
-                  postify srk tr_symbols (List.nth cs_lst ind2); 
+                  postify (List.nth cs_lst ind2);
                   phi']) 
           in
           (v, s_lst))
@@ -304,26 +279,31 @@ let get_largest_polyhedrons srk control_states =
 
 (*Compute control states using projection to pre transition states.
  * Also compute sink*)
-let get_control_states ?(exists=fun _ -> true) srk tr_symbols phi =
-  let pre_symbols = pre_symbols tr_symbols in
-  let post_symbols = post_symbols tr_symbols in
+let get_control_states srk tf =
+  let tr_symbols = TF.symbols tf in
+  let pre_symbols = TF.pre_symbols tr_symbols in
+  let post_symbols = TF.post_symbols tr_symbols in
   let exists_pre x =
-    exists x && not (Symbol.Set.mem x post_symbols)
+    TF.exists tf x && not (Symbol.Set.mem x post_symbols)
   in
   let exists_post x =
-    exists x && not (Symbol.Set.mem x pre_symbols)
+    TF.exists tf x && not (Symbol.Set.mem x pre_symbols)
   in
-  let control_states = project_dnf srk exists_pre phi in
+  let control_states = project_dnf srk exists_pre (TF.formula tf) in
   (*sink can also just be true given while exact phi used as transition to sink*)
-  let sink = mk_or srk (project_dnf srk exists_post phi) in 
+  let sink = mk_or srk (project_dnf srk exists_post (TF.formula tf)) in
   let control_states' = get_largest_polyhedrons srk control_states in
   BatArray.of_list control_states', sink
 
 
-let abstract ?(exists=fun _ -> true) srk tr_symbols phi =
-  let skolem_constants = Symbol.Set.filter (fun a -> not (exists a)) (symbols phi) in
-  let phi = Nonlinear.linearize srk (rewrite srk ~down:(nnf_rewriter srk) phi) in
-  let control_states, sink = get_control_states ~exists srk tr_symbols phi in
+let abstract srk tf =
+  let exists = TF.exists tf in
+  let tr_symbols = TF.symbols tf in
+  let skolem_constants =
+    Symbol.Set.filter (fun a -> not (exists a)) (symbols (TF.formula tf))
+  in
+  let phi = Nonlinear.linearize srk (rewrite srk ~down:(nnf_rewriter srk) (TF.formula tf)) in
+  let control_states, sink = get_control_states srk tf in
   let graph = compute_edges srk tr_symbols control_states phi in
   let num_sccs, func_sccs = BGraphComp.scc graph in
   let sccs = Array.make num_sccs  [] in
@@ -490,6 +470,7 @@ let consv_of_flow_after_last_reset srk entry exit local_s_t coh_class_kvars rese
 let last_reset_constr_coh_class srk rvar ksum ksums svar_dim_pairs 
     transformers kvars_coh_classes unified_s tr_symbols coh_class_kvars entry
     exit local_s_t coh_class_dist_vars =
+  let preify = substitute_map srk (TF.pre_map srk tr_symbols) in
   mk_or srk
     (* The coh class was never reset. Set the coh class reset indicator var to -1,
      * Configure entry point for coh class flow. Set init val for lin terms of 
@@ -502,7 +483,7 @@ let last_reset_constr_coh_class srk rvar ksum ksums svar_dim_pairs
          (List.map
             (fun (svar, dim) -> 
                mk_eq srk svar 
-                 (preify srk tr_symbols (Linear.of_linterm srk (M.row dim unified_s))))
+                 (preify (Linear.of_linterm srk (M.row dim unified_s))))
             svar_dim_pairs)))
      (* The coh class was reset at some point. Set coh class reset indicator to
       * denote transformer # last reset occured at. Set constraints for consv of coh
@@ -569,11 +550,12 @@ let create_local_s_t srk num =
 (* Each control state is a predicate; the source predicate must be satisified
  * on entry and the sink predicate must be satisfied on exit for run of the vass *)
 let source_sink_conds_satisfied srk local_s_t cs tr_symbols =
+  let postify = substitute_map srk (TF.post_map srk tr_symbols) in
   mk_and srk
     (List.mapi (fun ind (source, sink) ->
          mk_and srk
            [mk_if srk (mk_eq srk source (mk_one srk)) (cs.(ind));
-            mk_if srk (mk_eq srk sink (mk_one srk)) (postify srk tr_symbols (cs.(ind)))])
+            mk_if srk (mk_eq srk sink (mk_one srk)) (postify (cs.(ind)))])
         local_s_t)
 
 (* Each coh class can take a transformer at most as many times
@@ -589,30 +571,36 @@ let coh_class_trans_less_master_trans srk master kvars_coh_classes =
 
 (*Compute the condition that must hold if a given transformer is taken*)
 let compute_trans_post_cond srk pre_cs post_cs trans gamma_trans term_list tr_symbols = 
-  let pre_symbols = pre_symbols tr_symbols in
+  let pre_symbols = TF.pre_symbols tr_symbols in
   let man = Polka.manager_alloc_strict () in
   let exists_post x = not (Symbol.Set.mem x pre_symbols) in
   let trans' = gamma_transformer srk term_list trans in
   let complete_trans_form = (mk_and srk [pre_cs;trans';post_cs]) in
   let post_trans = SrkApron.formula_of_property 
       (Abstract.abstract ~exists:exists_post srk man complete_trans_form) in
-  let lri_form = (rewrite srk ~down:(nnf_rewriter srk) gamma_trans) in 
+  let lri_form =
+    TF.make
+      (rewrite srk ~down:(nnf_rewriter srk) gamma_trans)
+      tr_symbols
+  in
+  let preify = substitute_map srk (TF.pre_map srk tr_symbols) in
   let rslt = SrkApron.formula_of_property
       (Abstract.abstract ~exists:exists_post srk man
          (mk_and srk
-            [preify srk tr_symbols post_trans;
-             Accelerate.closure (Accelerate.abstract srk tr_symbols lri_form)]))
+            [preify post_trans;
+             Accelerate.closure (Accelerate.abstract srk lri_form)]))
   in
   rslt
 
 
 (* If a transformers is taken, that transformer post condition must hold*)
 let transformers_post_conds_constrs srk cs transformersmap gamma_trans
-    term_list master tr_symbols =
+      term_list master tr_symbols =
+  let postify = substitute_map srk (TF.post_map srk tr_symbols) in
   mk_and srk 
     (BatList.mapi (fun ind (n1, trans, n2) -> 
          let post_cond = 
-           compute_trans_post_cond srk cs.(n1) (postify srk tr_symbols cs.(n2)) 
+           compute_trans_post_cond srk cs.(n1) (postify cs.(n2))
              trans gamma_trans term_list tr_symbols in
          mk_if srk (mk_lt srk (mk_zero srk) (List.nth master ind)) post_cond) 
         transformersmap)
@@ -731,7 +719,8 @@ let seq_scc_constrs srk ordering_vars sources loop_counters sink_ordering
              * that if ovari <= sink_ordering, then scci is turned on.
              * Finally, if both scci and sccj are used, then there
              * is a transition from scci to sccj.
-            *)
+             *)
+            let subst symbol_pairs = substitute_map srk (TF.post_map srk symbol_pairs) in
             mk_if srk (mk_eq srk o_var1 (mk_sub srk o_var2 (mk_one srk)))
               (*scci unused*)
               (mk_ite srk (mk_eq srk (mk_add srk sources.(ind1)) (mk_zero srk))
@@ -745,10 +734,10 @@ let seq_scc_constrs srk ordering_vars sources loop_counters sink_ordering
                                   mk_eq srk sink_ordering o_var1]);
                      (* scci used and sccj used*)
                      mk_and srk [scc_closures.(ind2);
-                                 (postify srk skolemmappings.(ind1)
-                                    (postify srk (merge_mappings tr_symbols 
+                                 (subst skolemmappings.(ind1)
+                                    (subst (merge_mappings tr_symbols
                                                     symmappings.(ind2) true true) 
-                                       (postify srk (merge_mappings tr_symbols
+                                       (subst (merge_mappings tr_symbols
                                                        symmappings.(ind1) 
                                                        false false) phi)));
                                  mk_leq srk o_var2 sink_ordering]])))
@@ -815,9 +804,10 @@ let exp srk tr_symbols loop_counter sccsform =
     let sccclosures = BatArray.append sccclosures (BatArray.make 1 sink) in
     (* The closures currently all use (x, x') from tr_symbols;
      * switch to using the vars in symmappings *)
+    let subst symbol_pairs = substitute_map srk (TF.post_map srk symbol_pairs) in
     let sccclosures = BatArray.mapi (fun ind closure ->   
-        (postify srk (merge_mappings tr_symbols symmappings.(ind) false true) 
-           (postify srk (merge_mappings tr_symbols symmappings.(ind) true false) 
+        (subst (merge_mappings tr_symbols symmappings.(ind) false true)
+           (subst (merge_mappings tr_symbols symmappings.(ind) true false)
               closure)))
         sccclosures in
     (* Make the sources for sink always on (sink always an entered) if
@@ -846,9 +836,5 @@ let exp srk tr_symbols loop_counter sccsform =
          no_trans_taken srk loop_counter tr_symbols] in
     result
   )
-
-let join _ _ _ _ = assert false
-let widen _ _ _ _ = assert false
-let equal _ _ _ _ = assert false
 
 

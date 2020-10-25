@@ -97,7 +97,9 @@ let mk_segment pe x = match x.obj with
   | One -> mk_one pe
   | _ -> HC.hashcons pe (Segment x)
 
-let mk_omega pe x = HC.hashcons pe (Omega x)
+let mk_omega pe x = match x.obj with
+  | Zero -> mk_zero pe
+  | _ -> HC.hashcons pe (Omega x)
 let mk_omega_add = mk_add
 let mk_omega_mul = mk_mul
 let promote x = x
@@ -194,6 +196,7 @@ let eval_omega
         | Omega x -> omega_algebra (`Omega (eval_nested ~table ~algebra x))
         | Add (x, y) -> omega_algebra (`Add (go x, go y))
         | Mul (x, y) -> omega_algebra (`Mul (eval_nested ~table ~algebra x, go y))
+        | Zero -> omega_algebra (`Omega (eval_nested ~table ~algebra expr))
         | _ -> assert false
       in
       HT.add omega_table expr result;
