@@ -857,7 +857,7 @@ let omega_algebra =  function
          if !termination_phase_analysis then begin
              let predicates =
                (* Use variable directions & signs as candidate invariants *)
-               List.concat_map (fun (x,x') ->
+               List.map (fun (x,x') ->
                    let x = mk_const srk x in
                    let x' = mk_const srk x' in
                    [mk_lt srk x x';
@@ -866,6 +866,7 @@ let omega_algebra =  function
                     mk_leq srk x (mk_zero srk);
                     mk_eq srk x x'])
                  (TF.symbols tf)
+               |> List.concat
              in
              let phased_nonterm =
               let cells = 
