@@ -50,7 +50,6 @@ let show_relation_atom srk rel_ctx =
 module Fp = struct
   type 'a t = 'a fp
 
-  (*TODO: single pp function *)
   let pp_hypothesis srk rel_ctx formatter (rel_atoms, phi) =
     Format.fprintf formatter "(@[";
     SrkUtil.pp_print_enum

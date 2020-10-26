@@ -18,9 +18,6 @@ let mk_rel_atom_fresh srk rel_ctx ?(name="R") syms =
 let mk_n_rel_atoms_fresh srk rel_ctx ?(name="R") syms n = 
   BatArray.init n (fun _ -> mk_rel_atom_fresh srk rel_ctx ~name syms)
 
-
-
-
 let countup1 () =
   let r1 = mk_relation rel_ctx [`TyInt] in
   let r2 = mk_relation rel_ctx [`TyInt] in
@@ -129,7 +126,6 @@ let dupuncontrsym () =
   in
   let res = Fp.solve srk fp pd in
   assert_not_implies (snd (res (rel_of_atom vert.(1) ))) (mk_false srk)
-
 
 
 let suite = "Chc" >:::
