@@ -4,7 +4,6 @@ open Syntax
 module Ctx = SrkAst.Ctx
 module Infix = Syntax.Infix(Ctx)
 let srk = Ctx.context
-let rel_ctx = Chc.mk_relcontext
 
 let generator_rep = ref false
 
@@ -32,7 +31,7 @@ let load_math_formula filename =
 let load_smtlib2 filename =
   SrkZ3.load_smtlib2 srk (Bytes.to_string (file_contents filename))
 
-let load_chc filename = Chc.ChcSrkZ3.parse_file srk rel_ctx filename
+let load_chc fp filename = Chc.ChcSrkZ3.parse_file srk fp filename
 
 
 let load_formula filename =
@@ -217,8 +216,9 @@ let spec_list = [
 
   ("-chc",
    Arg.String (fun file ->
-       let open Iteration in 
-       let fp = load_chc file in
+       let open Iteration in
+       let fp = Chc.Fp.create () in
+       let fp = load_chc fp file in
        let pd = 
          (module Product(LinearRecurrenceInequation)(PolyhedronGuard) : PreDomain) 
        in (*TODO: let user pick iter operation*)
@@ -231,8 +231,8 @@ let spec_list = [
             let syms, phi = sln rel in
             let syms = BatArray.to_list syms in
             Format.fprintf formatter "@%a : %a@"
-            (Chc.pp_relation_atom srk rel_ctx)
-            (Chc.mk_rel_atom srk rel_ctx rel syms)
+            (Chc.pp_rel_atom srk fp)
+            (Chc.mk_rel_atom srk fp rel syms)
             (Formula.pp srk)
             phi)
          Format.std_formatter
