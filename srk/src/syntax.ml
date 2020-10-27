@@ -253,6 +253,8 @@ let pp_symbol srk formatter symbol =
 let show_symbol srk symbol = fst (DynArray.get srk.symbols symbol)
 let symbol_of_int x = x
 let int_of_symbol x = x
+let dup_symbol srk sym = 
+  mk_symbol srk ~name:(show_symbol srk sym) (typ_symbol srk sym)
 
 let mk_real srk qq = srk.mk (Real qq) []
 let mk_zz srk z = mk_real srk (QQ.of_zz z)
