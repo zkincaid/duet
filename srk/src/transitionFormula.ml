@@ -5,6 +5,7 @@ type 'a t =
     symbols : (symbol * symbol) list;
     exists : (symbol -> bool) }
 
+
 let identity srk symbols =
   let formula = 
     List.map (fun (sym, sym') ->
@@ -14,6 +15,8 @@ let identity srk symbols =
   in
   let exists _ = true in
   { formula; symbols; exists }
+
+let zero srk symbols = let exists _ = true in { formula = mk_false srk; symbols; exists}
 
 let pre_symbols tr_symbols =
   List.fold_left (fun set (s,_) ->
@@ -107,3 +110,19 @@ let linearize srk tf =
   { tf with formula = Nonlinear.linearize srk tf.formula }
 
 let map_formula f tf = { tf with formula = f tf.formula }
+
+let preimage srk tf state =
+  let open Syntax in
+  let tf = linearize srk tf in
+  let fresh_skolem =
+    Memo.memo (fun sym ->
+        let name = show_symbol srk sym in
+        let typ = typ_symbol srk sym in
+        mk_const srk (mk_symbol srk ~name typ))
+  in
+  let subst sym =
+    match ((exists tf) sym) with
+    | true -> mk_const srk sym
+    | false -> fresh_skolem sym
+  in
+  substitute_const srk subst state

@@ -6,6 +6,7 @@ include Log.Make(struct let name = "srk.iteration" end)
 module V = Linear.QQVector
 module CS = CoordinateSystem
 module TF = TransitionFormula
+module WG = WeightedGraph
 
 module type PreDomain = sig
   type 'a t
@@ -725,7 +726,8 @@ let invariant_partition srk candidates tf =
   in
   find_cells []
 
-  (* let invariant_partition ?(exists=fun _ -> true) srk candidates tf =
+  (* Each cell is i, (pos_pred_indices, neg_pred_indices), cell_formula *)
+let invariant_complex_partition srk candidates tf =
     let tf = TF.linearize srk tf in
     let predicates =
       invariant_transition_predicates srk tf candidates
@@ -736,7 +738,7 @@ let invariant_partition srk candidates tf =
     (* The predicate induce a parition of the transitions of T by
        their valuation of the predicates; find the cells of this
        partition *)
-    let rec find_cells cells cell_formula =
+    let rec find_cells cells =
       Smt.Solver.push solver;
       match Smt.Solver.get_model solver with
       | `Sat m ->
@@ -758,60 +760,211 @@ let invariant_partition srk candidates tf =
              (Array.to_list cell)
            |> mk_and srk
          in
-         Smt.Solver.add solver [mk_not srk cell_formula];
-         find_cells (new_cell::cells) (mk_and srk [cell_formula; new_cell_formula])
+         Smt.Solver.add solver [mk_not srk new_cell_formula];
+         find_cells ((new_cell, new_cell_formula)::cells) 
       | `Unsat -> cells
       | `Unknown -> assert false (* to do *)
     in
-    predicates, find_cells [] (mk_true srk)
+    predicates, find_cells []
   
-(* Ranked cells is a map fron int to (list of sets) *)
+(*  Ranked cells is a map from int to (list of sets), where int is the number of 
+    positive predicates.
+*)
 let rank_cells cells =
   let ranked_cells = BatMap.Int.empty in
-  BatList.fold_left
-    (fun m (positive_preds, _) -> 
+  BatList.fold_lefti
+    (fun m i ((positive_preds, negative_preds), f) -> 
       let num_pos_preds = BatSet.Int.cardinal positive_preds in
       match BatMap.Int.find_opt num_pos_preds m with 
-      | Some l -> BatMap.Int.update num_pos_preds num_pos_preds (positive_preds::l) m
-      | None -> BatMap.Int.add num_pos_preds [positive_preds] m
+      | Some l -> BatMap.Int.update num_pos_preds num_pos_preds ((i, (positive_preds, negative_preds), f)::l) m
+      | None -> BatMap.Int.add num_pos_preds [(i, (positive_preds, negative_preds), f)] m
     )
-    ranked_cells
-    cells
+  ranked_cells
+  cells
 
-let build_graph srk exists phi tr_symbols inv_predicates algebra cells =
-   (* map' sends primed vars to midpoints; map sends unprimed vars to midpoints *)
-   let (map', map) =
-   List.fold_left (fun (subst1, subst2) (sym, sym') ->
-       let mid_name = "mid_" ^ (show_symbol srk sym) in
-       let mid_symbol =
-         mk_symbol srk ~name:mid_name (typ_symbol srk sym)
-       in
-       let mid = mk_const srk mid_symbol in
-       (Symbol.Map.add sym' mid subst1,
-        Symbol.Map.add sym mid subst2))
-     (Symbol.Map.empty, Symbol.Map.empty)
-     tr_symbols
- in
- let seq = (* T(x,x_mid) /\ T(x_mid,x') *)
-   let rename = (* rename Skolem constants *)
-     Memo.memo (fun symbol ->
-         mk_const srk (mk_symbol srk (typ_symbol srk symbol)))
-   in
-   (* substitution for first iteration *)
-   let subst1 symbol =
-     if Symbol.Map.mem symbol map' then
-       Symbol.Map.find symbol map'
-     else if exists symbol then
-       mk_const srk symbol
-     else rename symbol
-   in
-   mk_and srk [substitute_const srk subst1 phi;
-               substitute_map srk map phi]
- in () *)
+let build_graph_and_compute_mp srk tf inv_predicates omega_algebra ranked_cells =
+  (* map' sends primed vars to midpoints; map sends unprimed vars to midpoints *)
+  let (map', map) =
+  List.fold_left (fun (subst1, subst2) (sym, sym') ->
+      let mid_name = "mid_" ^ (show_symbol srk sym) in
+      let mid_symbol =
+        mk_symbol srk ~name:mid_name (typ_symbol srk sym)
+      in
+      let mid = mk_const srk mid_symbol in
+      (Symbol.Map.add sym' mid subst1,
+      Symbol.Map.add sym mid subst2))
+    (Symbol.Map.empty, Symbol.Map.empty)
+    (TF.symbols tf)
+  in
+  let seq = (* T(x,x_mid) /\ T(x_mid,x') *)
+    let rename = (* rename Skolem constants *)
+      Memo.memo (fun symbol ->
+          mk_const srk (mk_symbol srk (typ_symbol srk symbol)))
+    in
+    (* substitution for first iteration *)
+    let subst1 symbol =
+      if Symbol.Map.mem symbol map' then
+        Symbol.Map.find symbol map'
+      else if TF.exists tf symbol then
+        mk_const srk symbol
+      else rename symbol
+    in
+    mk_and srk [substitute_const srk subst1 (TF.formula tf);
+                substitute_map srk map (TF.formula tf)]
+  in
+  let indicators = 
+    BatArray.mapi (fun ind pred -> 
+      let indicator_name_px = "ind_1_for_pred_" ^ (string_of_int ind) in  
+      let indicator_symbol = mk_symbol srk ~name:indicator_name_px `TyBool in       
+      let predicate_clause = (* p(x, x_mid) *) substitute_map srk map' pred in
+      let clause_1 = mk_iff srk (mk_const srk indicator_symbol) predicate_clause in
+      let indicator_name_px' = "ind_2_for_pred_" ^ (string_of_int ind) in  
+      let indicator_symbol' = mk_symbol srk ~name:indicator_name_px' `TyBool in       
+      let predicate_clause' = (* p(x_mid, x') *) substitute_map srk map' pred in
+      let clause_2 = mk_iff srk (mk_const srk indicator_symbol') predicate_clause' in
+      mk_and srk [clause_1; clause_2]
+      )
+    inv_predicates
+    |> BatArray.to_list
+  in
+  let phi = mk_and srk (seq::indicators) in 
+  let solver = Smt.mk_solver srk in
+  let models = ref [] in
+  Smt.Solver.add solver [phi];
 
-  (* let wg = WeightedGraph.empty algebra in *)
-
-
+  let can_follow cell1 cell2 solver models =
+    let cell1_pos, cell1_neg = cell1 in
+    let cell2_pos, cell2_neg = cell2 in
+    BatSet.Int.subset cell1_pos cell2_pos && 
+    begin
+      let cond_pos_clause = 
+        (BatSet.Int.to_list cell1_pos)
+        |>  BatList.map (fun ind -> 
+              let indicator_name_px = "ind_1_for_pred_" ^ (string_of_int ind) in  
+              let indicator_symbol = mk_symbol srk ~name:indicator_name_px `TyBool in 
+              mk_const srk indicator_symbol
+            ) 
+        |> mk_and srk 
+      in 
+      let cond_neg_clause = 
+        (BatSet.Int.to_list cell1_neg)
+        |>  BatList.map (fun ind -> 
+              let indicator_name_px = "ind_1_for_pred_" ^ (string_of_int ind) in  
+              let indicator_symbol = mk_symbol srk ~name:indicator_name_px `TyBool in 
+              mk_not srk (mk_const srk indicator_symbol)
+            ) 
+        |> mk_and srk 
+      in 
+      let new_pos_inds = BatSet.Int.diff cell2_pos cell1_pos in 
+      let result_pos_clause = 
+        (BatSet.Int.to_list new_pos_inds)
+        |>  BatList.map (fun ind -> 
+              let indicator_name_px = "ind_2_for_pred_" ^ (string_of_int ind) in  
+              let indicator_symbol = mk_symbol srk ~name:indicator_name_px `TyBool in 
+              mk_const srk indicator_symbol
+            ) 
+        |> mk_and srk 
+      in 
+      let result_neg_clause = 
+        (BatSet.Int.to_list cell2_neg)
+        |>  BatList.map (fun ind -> 
+              let indicator_name_px = "ind_2_for_pred_" ^ (string_of_int ind) in  
+              let indicator_symbol = mk_symbol srk ~name:indicator_name_px `TyBool in 
+              mk_not srk (mk_const srk indicator_symbol)
+            ) 
+        |> mk_and srk 
+      in 
+      let cell2_can_follow_cell1 = mk_and srk [cond_neg_clause; cond_pos_clause; result_neg_clause; result_pos_clause] in
+      List.exists (fun m -> Interpretation.evaluate_formula m cell2_can_follow_cell1) !models && 
+      begin
+        (* use the Solver.check to avoid pushing and popping, pass in a list of boolean vars *)
+        Smt.Solver.push solver;
+        Smt.Solver.add solver [cell2_can_follow_cell1];
+        match Smt.Solver.get_model solver with
+        | `Sat m ->
+           Smt.Solver.pop solver 1;
+           models := m::(!models);
+           true
+        | `Unsat ->
+           Smt.Solver.pop solver 1;
+           false
+        | `Unknown ->
+           Smt.Solver.pop solver 1;
+           true
+      end
+    end
+  in
+  let module E = LinearRecurrenceInequation in
+  let star tf = 
+    let k = mk_symbol srk `TyInt in   
+    let exists x = x != k in
+      TF.make ~exists (E.exp srk (TF.symbols tf) (mk_const srk k) (E.abstract srk tf)) (TF.symbols tf)
+  in
+  let algebra = WG.{
+    mul = TF.mul srk;
+    add = TF.add srk;
+    one = TF.identity srk (TF.symbols tf);
+    zero = TF.zero srk (TF.symbols tf);
+    star = star
+  } 
+  in
+  let wg = ref (WG.empty algebra) in
+  (* node 0 as the virtual entry *)
+  wg := WG.add_vertex !wg 0;
+  (* virtual entry -> every cell with 0 indegree: weight 1
+      self-loop for every cell: weight tf /\ cell_formula
+      edge from cell A to cell B: weight 1
+   *)
+  let combine tf f = TF.make ~exists:(TF.exists tf) (mk_and srk [TF.formula tf; f]) (TF.symbols tf) in
+  let zero_indegree_vertices = ref (BatSet.Int.empty) in
+  BatMap.Int.iter (fun _ cell_list ->
+    BatList.iter (fun (cell_ind, (_, _), cell_formula) ->
+      begin
+        wg := WG.add_edge 
+        !wg 
+        (cell_ind+1) 
+        (combine tf cell_formula)
+        (cell_ind+1);
+        zero_indegree_vertices := BatSet.Int.add (cell_ind+1) !zero_indegree_vertices;
+      end
+       )
+    cell_list
+    )
+  ranked_cells;
+  let levels = BatArray.of_enum (BatMap.Int.keys ranked_cells) in
+  for interval_len = 1 to (BatArray.length levels) - 1 do
+    logf "interval_len = %d" interval_len;
+    for start = 0 to (BatArray.length levels) - interval_len - 1 do
+      logf "start = %d" start;
+      let start_level = levels.(start) in
+      let target_level = levels.(start+interval_len) in
+      let sources = BatMap.Int.find start_level ranked_cells in 
+      let targets = BatMap.Int.find target_level ranked_cells in
+      BatList.iter (fun (i, (pos_preds_i, neg_preds_i), cell_formula_i) -> 
+        begin
+          BatList.iter (fun (j, (pos_preds_j, neg_preds_j), _) -> 
+            begin
+            if can_follow (pos_preds_i, neg_preds_i) (pos_preds_j, neg_preds_j) solver models then 
+              wg := WG.add_edge !wg (i+1) (combine tf cell_formula_i) (j+1);
+            zero_indegree_vertices := BatSet.Int.remove (j+1) !zero_indegree_vertices;
+            end
+          ) 
+          targets
+        end
+      )
+      sources;
+    done;
+  done;
+  BatSet.Int.iter (fun v -> wg := WG.add_edge !wg 0 algebra.one v;) !zero_indegree_vertices;
+  WG.omega_path_weight !wg omega_algebra 0
+  
+let compute_mp_with_phase_DAG srk candidate_predicates tf omega_algebra =
+  let invariant_predicates, cells = invariant_complex_partition srk candidate_predicates tf in 
+  logf "invariant partition completed";
+  let ranked_cells = rank_cells cells in 
+  logf "cell ranking completed";
+  build_graph_and_compute_mp srk tf invariant_predicates omega_algebra ranked_cells
+  
 module InvariantDirection (Iter : PreDomain) = struct
   type 'a t = 'a Iter.t list list
 

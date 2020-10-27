@@ -84,3 +84,9 @@ val invariant_partition : 'a context ->
                           ('a formula) list ->
                           'a TransitionFormula.t ->
                           ('a formula) list
+
+val compute_mp_with_phase_DAG : 'a context -> 
+                                ('a formula) list ->
+                                'a TransitionFormula.t ->
+                                ('a TransitionFormula.t, 'a formula) WeightedGraph.omega_algebra ->
+                                'a formula

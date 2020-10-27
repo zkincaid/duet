@@ -24,6 +24,9 @@ val make : ?exists:(symbol -> bool) -> 'a formula -> (symbol * symbol) list -> '
 (** Identity relation *)
 val identity : 'a context -> (symbol * symbol) list -> 'a t
 
+(** Zero *)
+val zero : 'a context -> (symbol * symbol) list -> 'a t
+
 (** Sequential composition *)
 val mul : 'a context -> 'a t -> 'a t -> 'a t
 
@@ -69,3 +72,5 @@ val post_symbols : (symbol * symbol) list -> Symbol.Set.t
 (** Apply a transformation to the formula, leaving existentially
    quantified variables and transition symbols fixed. *)
 val map_formula : ('a Formula.t -> 'a Formula.t) -> 'a t -> 'a t
+
+val preimage : 'a context -> 'a t -> 'a Formula.t -> 'a Formula.t

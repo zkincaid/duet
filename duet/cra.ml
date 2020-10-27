@@ -801,6 +801,12 @@ let formula_with_attractor_region tf =
   logf "Formula with attractor regions:\n%a\n" (Syntax.Formula.pp srk) formula'';
   TF.map_formula (fun _ -> formula'') tf
 
+let omega_algebra_for_phase srk nonterm = WG.{
+  omega = nonterm;
+  omega_add = (fun p1 p2 -> Syntax.mk_or srk [p1; p2]);
+  omega_mul = (fun transition state -> TF.preimage srk transition state )
+} 
+
 let omega_algebra =  function
   | `Omega transition ->
      (** over-approximate possibly non-terminating conditions for a transition *)
@@ -868,8 +874,8 @@ let omega_algebra =  function
                  (TF.symbols tf)
                |> List.concat
              in
-             let phased_nonterm =
-              let cells = 
+             (* let phased_nonterm = *)
+              (* let cells = 
                Iteration.invariant_partition srk predicates tf
               in
                 Format.printf "Number of cells: %d\n" (List.length cells);
@@ -878,7 +884,9 @@ let omega_algebra =  function
                        nonterm (TF.map_formula (fun phi -> mk_and srk [phi; phase]) tf))
                 |> Syntax.mk_or srk
              in
-             [preimage (K.star transition) phased_nonterm]
+             [preimage (K.star transition) phased_nonterm] *)
+             let omega_algebra = omega_algebra_for_phase srk nonterm in
+             [Iteration.compute_mp_with_phase_DAG srk predicates tf omega_algebra]
            end else []
        in
        let pre =
