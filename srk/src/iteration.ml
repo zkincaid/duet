@@ -945,6 +945,7 @@ let build_graph_and_compute_mp srk tf inv_predicates omega_algebra ranked_cells 
           BatList.iter (fun (j, (pos_preds_j, neg_preds_j), _) -> 
             begin
             if can_follow (pos_preds_i, neg_preds_i) (pos_preds_j, neg_preds_j) solver models then 
+              logf "cell %d could follow cell %d" j i;
               wg := WG.add_edge !wg (i+1) (combine tf cell_formula_i) (j+1);
             zero_indegree_vertices := BatSet.Int.remove (j+1) !zero_indegree_vertices;
             end

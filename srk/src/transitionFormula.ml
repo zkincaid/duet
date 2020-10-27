@@ -120,9 +120,15 @@ let preimage srk tf state =
         let typ = typ_symbol srk sym in
         mk_const srk (mk_symbol srk ~name typ))
   in
+  let post_map = post_map srk tf.symbols in
   let subst sym =
     match ((exists tf) sym) with
-    | true -> mk_const srk sym
+    | true -> 
+      begin 
+      match (Symbol.Map.find_opt sym post_map) with 
+        | Some sym' -> sym'
+        | _ -> mk_const srk sym
+      end
     | false -> fresh_skolem sym
   in
-  substitute_const srk subst state
+  mk_and srk [formula tf; substitute_const srk subst state]
