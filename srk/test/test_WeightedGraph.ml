@@ -97,18 +97,33 @@ let mk_query edges call_edges src =
     
 let pe_context = Pathexpr.mk_context ()
 
+let pe_algebra =
+  let open Pathexpr in
+  WG.{ mul = mk_mul pe_context;
+       add = mk_add pe_context;
+       star = mk_star pe_context;
+       zero = mk_zero pe_context;
+       one = mk_one pe_context }
+
 let mk_pathgraph =
   let open Pathexpr in
-  let alg =
-    WG.{ mul = mk_mul pe_context;
-         add = mk_add pe_context;
-         star = mk_star pe_context;
-         zero = mk_zero pe_context;
-         one = mk_one pe_context }
-  in
   List.fold_left (fun wg (u,v) ->
       WG.add_edge wg u (mk_edge pe_context u v) v)
-    (WG.empty alg)
+    (WG.empty pe_algebra)
+
+let pathexpr_naive wg src tgt =
+  let start = WG.max_vertex wg + 1 in
+  let final = start + 1 in
+  let wg' = WG.add_vertex (WG.add_vertex wg start) final in
+  let wg' =
+    WG.add_edge
+      (WG.add_edge wg' tgt pe_algebra.one final)
+      start
+      pe_algebra.one
+      src
+  in
+  let result = WG.fold_vertex (fun v wg -> WG.contract_vertex wg v) wg wg' in
+  WG.edge_weight result start final
 
 let assert_post tr phi =
   let not_post =
@@ -331,6 +346,14 @@ let pathlen_omega_algebra = function
   | `Mul (_, y) -> y
   | `Omega x -> x
 
+let omega_pathexpr
+    : (Pathexpr.simple Pathexpr.t,
+       Pathexpr.simple Pathexpr.omega) WG.omega_algebra =
+  let open Pathexpr in
+  WG.{ omega = mk_omega pe_context;
+       omega_add = mk_omega_add pe_context;
+       omega_mul = mk_omega_mul pe_context }
+
 module PathlenDomain = struct
   type weight = ISet.t
   type abstract_weight = ISet.t
@@ -376,23 +399,96 @@ let suite = "WeightedGraph" >::: [
         mk_pathgraph [(0, 0); (0, 1); (1, 2); (2, 3); (3, 2)]
       in
       let cg = WG.msat_path_weight g [0] in
+      (0 -- 0)
+      |> BatEnum.iter (fun v ->
+             assert_equal_pathexpr pe_context
+               (pathexpr_naive g 0 v)
+               (WG.edge_weight cg 0 v))
+    );
+
+    "nested" >:: (fun () ->
+      let g =
+        mk_pathgraph [(0, 1); (1, 2); (2, 3); (3, 4); (4, 3); (4, 5); (5, 1); (5, 5)]
+      in
+      let cg = WG.msat_path_weight g [0] in
+      (0 -- 5)
+      |> BatEnum.iter (fun v ->
+             assert_equal_pathexpr pe_context
+               (pathexpr_naive g 0 v)
+               (WG.edge_weight cg 0 v))
+    );
+
+    "irreducible" >:: (fun () ->
+      let g =
+        mk_pathgraph [(0, 1); (0, 2); (1, 2); (2, 1)]
+      in
+      let cg = WG.msat_path_weight g [0] in
+      (0 -- 2)
+      |> BatEnum.iter (fun v ->
+             assert_equal_pathexpr pe_context
+               (pathexpr_naive g 0 v)
+               (WG.edge_weight cg 0 v))
+    );
+
+    "dag1" >:: (fun () ->
+      let g =
+        mk_pathgraph [(0, 1); (1, 2); (2, 3); (1, 3)]
+      in
+      let cg = WG.msat_path_weight g [0] in
       (0 -- 3)
       |> BatEnum.iter (fun v ->
              assert_equal_pathexpr pe_context
-               (WG.path_weight g 0 v)
+               (pathexpr_naive g 0 v)
                (WG.edge_weight cg 0 v))
+    );
+
+    "dag2" >:: (fun () ->
+      let g =
+        mk_pathgraph [(0, 1); (1, 2); (1, 3); (3, 4); (4, 5); (0, 5); (2, 4)]
+      in
+      let cg = WG.msat_path_weight g [0] in
+      (0 -- 5)
+      |> BatEnum.iter (fun v ->
+             assert_equal_pathexpr pe_context
+               (pathexpr_naive g 0 v)
+               (WG.edge_weight cg 0 v))
+    );
+
+    "branch_loop" >:: (fun () ->
+      let g =
+        mk_pathgraph [(0, 1); (1, 2); (1, 3); (3, 1); (2, 4); (4, 1)]
+      in
+      let cg = WG.msat_path_weight g [0] in
+      (0 -- 4)
+      |> BatEnum.iter (fun v ->
+             assert_equal_pathexpr pe_context
+               (pathexpr_naive g 0 v)
+               (WG.edge_weight cg 0 v))
+    );
+
+    "unreachable" >:: (fun () ->
+      let g =
+        mk_pathgraph [(0, 1); (1, 0); (2, 3); (3, 1); (4, 4)]
+      in
+      let cg = WG.msat_path_weight g [0; 1; 2; 3; 4] in
+      (0 -- 4)
+      |> BatEnum.iter (fun u ->
+             (0 -- 4) |> BatEnum.iter (fun v ->
+                             assert_equal_pathexpr pe_context
+                               (pathexpr_naive g u v)
+                               (WG.edge_weight cg u v)))
     );
 
     "msat2" >:: (fun () ->
       let g =
-        mk_pathgraph [(0, 2); (1, 2); (2, 3); (3, 1); (1, 4); (4, 2); (2, 0)]
+        mk_pathgraph [(0, 2); (1, 2); (2, 3); (1, 4); (4, 2); (2, 0); (3, 1)]
       in
       let cg = WG.msat_path_weight g [0; 1; 2] in
       (0 -- 2)
       |> BatEnum.iter (fun u ->
              (0 -- 4) |> BatEnum.iter (fun v ->
                              assert_equal_pathexpr pe_context
-                               (WG.path_weight g u v)
+                               (pathexpr_naive g u v)
                                (WG.edge_weight cg u v))
            )
     );

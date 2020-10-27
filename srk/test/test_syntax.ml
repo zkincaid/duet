@@ -2,6 +2,7 @@ open Srk
 open OUnit
 open Syntax
 open Test_pervasives
+open BatPervasives
 
 let substitute () =
   let subst =
@@ -115,7 +116,6 @@ let elim_ite3 () =
   in
   assert_equiv_formula (eliminate_ite srk phi) phi
 
-
 let suite = "Syntax" >:::
   [
     "substitute" >:: substitute;
@@ -126,4 +126,14 @@ let suite = "Syntax" >:::
     "elim_ite1" >:: elim_ite1;
     "elim_ite2" >:: elim_ite2;
     "elim_ite3" >:: elim_ite3;
+    "env1" >:: (fun () ->
+      let e = List.fold_right Env.push [1;2;3;4;5] Env.empty in
+      (0 -- 4) |> BatEnum.iter (fun i ->
+                      assert_equal (Env.find e i) (i + 1)));
+    "env2" >:: (fun () ->
+      let e = List.fold_right Env.push [1;2;3;4;5] Env.empty in
+      let e' = List.fold_right Env.push [-2;-1;0] e in
+      assert_equal (Env.find e 0) 1;
+      (0 -- 7) |> BatEnum.iter (fun i ->
+                      assert_equal (Env.find e' i) (i - 2)));
   ]

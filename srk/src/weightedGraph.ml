@@ -4,6 +4,8 @@ include Log.Make(struct let name = "srk.weightedGraph" end)
 
 module U = Graph.Persistent.Digraph.ConcreteBidirectional(SrkUtil.Int)
 module L = Loop.Make(U)
+module D = Graph.Dominator.Make(U)
+module C = Graph.Components.Make(U)
 
 module IntPair = struct
   type t = int * int [@@deriving ord, eq]
@@ -33,6 +35,11 @@ type 'a t = 'a weighted_graph
 
 type vertex = int
 
+let omega_trivial =
+  { omega = (fun _ -> ());
+    omega_add = (fun _ _ -> ());
+    omega_mul = (fun _ _ -> ()) }
+
 (* Check invariant: 1-to-1 correspondence between labels & edges *)
 let _sat_inv wg =
   (M.for_all (fun (u,v) _ -> U.mem_edge wg.graph u v) wg.labels)
@@ -45,10 +52,6 @@ let empty algebra =
 
 let add_vertex wg vertex =
   { wg with graph = U.add_vertex wg.graph vertex }
-
-let edge_weight_opt wg u v =
-  try Some (M.find (u, v) wg.labels)
-  with Not_found -> None
 
 let edge_weight wg u v =
   try M.find (u, v) wg.labels
@@ -95,7 +98,7 @@ let fold_incident_edges f graph v acc =
 (* Rename vertex u to w.  If w already exists in the graph, then all
    of the incident edges of u become incident to w instead (and u is
    removed). *)
-let rename_vertex wg u w =
+let _rename_vertex wg u w =
   let g' = U.add_vertex (U.remove_vertex wg.graph u) w in
   let rename v = if v = u then w else v in
   fold_incident_edges (fun (v,v') wg ->
@@ -144,82 +147,43 @@ let contract_vertex wg v =
 
 let max_vertex wg = U.fold_vertex max wg.graph 0
 
-let path_weight wg src tgt =
-  let start = max_vertex wg + 1 in
-  let final = start + 1 in
-  let one = wg.algebra.one in
-  let contracted_graph =
-    let g = add_vertex wg start in
-    let g = add_vertex g final in
-    let g = add_edge g start one src in
-    let g = add_edge g tgt one final in
-    let rec go g elt =
-      match elt with
-      | `Vertex v -> contract_vertex g v
-      | `Loop loop ->
-        let g = List.fold_left go g (L.children loop) in
-        contract_vertex g (L.header loop)
-    in
-    List.fold_left go g (L.loop_nest wg.graph)
-  in
-  match edge_weight_opt contracted_graph start final with
-  | None -> wg.algebra.zero
-  | Some w -> w
-
-let msat_path_weight wg srcs =
-  (* For each source vertex s, augment the graph with a fresh vertex
-     s' and an edge s' -> s with weight 1.  After bypassing all
-     vertices in the original graph, the edges leaving s' correspond
-     to paths leaving s. *)
-  let start = max_vertex wg + 1 in
-  let wg' =
-    List.fold_left (fun (wg, next) src ->
-        let wg = add_vertex wg next in
-        let wg = add_edge wg next wg.algebra.one src in
-        (wg, next + 1))
-      (wg, start)
-      srcs
-    |> fst
-  in
-
-  (* Contract the successor edges of a vertex.  In the resulting
-     graph, v has no outgoing edges but all paths that don't begin at
-     v are preserved. *)
+(* Contract edges in the graph, preserving path weight from src to
+   every other vertex.  Remaining edges start at src or are a
+   self-loop. *)
+let _solve_dense (wg : 'a weighted_graph) (src : vertex) =
+  let mul = wg.algebra.mul in
+  (* Contract the successor edges of a vertex, except self-loops. *)
   let bypass_vertex wg v =
-    let mul = wg.algebra.mul in
-    (* If v has a loop, remove it and shift its weight to v's
-       predecessors *)
-    let wg =
-      if M.mem (v, v) wg.labels then begin
-          let loop = wg.algebra.star (M.find (v,v) wg.labels) in
-          let wg = remove_edge wg v v in
-          let labels' =
-            U.fold_pred (fun p labels ->
-                M.modify (p, v) (fun w -> mul w loop) labels)
-              wg.graph
-              v
-              wg.labels
-          in
-          { wg with labels = labels' }
-        end
-      else wg
-    in
-
-    (* For each successor s of v, connect s to all predecessors of v
-       and remove the s->v edge *)
-    let predecessors = (* Save predecessor edges to avoid repeated lookups *)
-      List.map (fun p -> (p, edge_weight wg p v)) (U.pred wg.graph v)
-    in
-
-    U.fold_succ (fun s wg ->
-        let v_to_s = edge_weight wg v s in
-        List.fold_left (fun wg (p, p_to_v) ->
-            add_edge wg p (mul p_to_v v_to_s) s)
-          (remove_edge wg v s)
-          predecessors)
-      wg.graph
-      v
+    if v = src then
       wg
+    else
+      let predecessors =
+        let mul_loop =
+          if M.mem (v, v) wg.labels then
+            let loop = wg.algebra.star (M.find (v,v) wg.labels) in
+            (fun x -> mul x loop)
+          else
+            (fun x -> x)
+        in
+        BatList.filter_map (fun p ->
+            if p = v then None
+            else Some (p, mul_loop (edge_weight wg p v)))
+          (U.pred wg.graph v)
+      in
+      (* For each succesor s of v, connect s to all predecessors of v
+         and remove the s->v edge *)
+      U.fold_succ (fun s wg ->
+          if s = v then
+            wg
+          else
+            let v_to_s = edge_weight wg v s in
+            List.fold_left (fun wg (p, p_to_v) ->
+                add_edge wg p (mul p_to_v v_to_s) s)
+              (remove_edge wg v s)
+              predecessors)
+        wg.graph
+        v
+        wg
   in
   let rec go wg elt =
     match elt with
@@ -228,73 +192,141 @@ let msat_path_weight wg srcs =
        let wg = List.fold_left go wg (L.children loop) in
        bypass_vertex wg (L.header loop)
   in
-  let wg' = List.fold_left go wg' (L.loop_nest wg.graph) in
-  List.fold_left (fun (wg, next) src ->
-      let wg = rename_vertex wg next src in
-      (wg, next + 1))
-    (wg', start)
-    srcs
-  |> fst
+  List.fold_left go wg (L.loop_nest wg.graph)
 
-let omega_path_weight
+(* Main logic for single-source multi-target path weights and omega
+   path weights.  The algorithm is a variation of Tarjan's algorithm
+   from "Fast Algorithms for Solving Path Problems", JACM '81.
+   Returns a triple (omega_weight, path_weight, reachable), where
+   omega_weight is the sum of weights of all omega paths starting at
+   src, path_weight v is the sum of weights of all paths from src to
+   v, and reachable is an enumeration of the vertices reachable from
+   src.  *)
+let _path_weight
       (wg : 'a t)
-      (omega : ('a,'b) omega_algebra)
+      (omega : ('a, 'b) omega_algebra)
       (src : vertex) =
-  let start = max_vertex wg + 1 in
+  (* Ensure that src has no incoming edges *)
+  let (wg, src) =
+    let start = max_vertex wg + 1 in
+    (add_edge (add_vertex wg start) start wg.algebra.one src, start)
+  in
 
-  (* Each vertex v is associated with the sum of the weights of all
-     omega paths beginning at v that *only* pass through contracted
-     vertices. *)
-  let omega_weights = BatHashtbl.create 991 in
-  let add_omega v weight =
-    if BatHashtbl.mem omega_weights v then
-      BatHashtbl.modify v (omega.omega_add weight) omega_weights
-    else
-      BatHashtbl.add omega_weights v weight
+  let module F = CompressedWeightedForest in
+  let mul = wg.algebra.mul in
+  let one = wg.algebra.one in
+  let star = wg.algebra.star in
+  let forest =
+    F.create ~mul:(fun x y -> mul y x) ~one
   in
-  let contract_vertex g v =
-    (* If there are omega paths starting at v, when v is contracted
-       those omega paths now begin at v's predecessors *)
-    if M.mem (v, v) g.labels || BatHashtbl.mem omega_weights v then
-      begin
-        let loop =
-          (* Try to avoid omega addition if possible *)
-          try
-            let self_loop = omega.omega (M.find (v, v) g.labels) in
-            (try omega.omega_add (BatHashtbl.find omega_weights v) self_loop
-             with Not_found -> self_loop)
-          with Not_found ->
-            BatHashtbl.find omega_weights v
-        in
-        U.iter_pred (fun pred ->
-            if pred != v then
-              let pw = edge_weight g pred v in
-              add_omega pred (omega.omega_mul pw loop))
-          g.graph
-          v
-      end;
-    contract_vertex g v
+  let wg_to_forest = BatHashtbl.create 97 in
+  let forest_to_wg = BatHashtbl.create 97 in
+  let to_forest v =
+    if BatHashtbl.mem wg_to_forest v then
+      BatHashtbl.find wg_to_forest v
+    else begin
+        let r = F.root forest in
+        BatHashtbl.add wg_to_forest v r;
+        BatHashtbl.add forest_to_wg r v;
+        r
+      end
   in
-  let g = add_vertex wg start in
-  let g = add_edge g start wg.algebra.one src in
-  let rec go g elt =
-    match elt with
-    | `Vertex v -> contract_vertex g v
-    | `Loop loop ->
-       let header = L.header loop in
-       let g = List.fold_left go g (L.children loop) in
-       (* Contract v, then add v back the the graph along with
-          predecessor edges *)
-       U.fold_pred (fun pred g' ->
-           add_edge g' pred (edge_weight g pred header) header)
-         g.graph
-         header
-         (contract_vertex g header)
+  let find v =
+    BatHashtbl.find forest_to_wg (F.find forest (to_forest v))
   in
-  ignore (List.fold_left go g (L.loop_nest wg.graph));
-  try
-    BatHashtbl.find omega_weights start
-  with Not_found -> omega.omega wg.algebra.zero
+  let link u weight v =
+    F.link forest ~child:(to_forest u) weight ~parent:(to_forest v)
+  in
+  let eval v = F.eval forest (to_forest v) in
+  let idom = D.compute_idom wg.graph src in
+  let children = D.idom_to_dom_tree wg.graph idom in
+  let rec solve (v : vertex) =
+    let children_omega = List.map solve (children v) in
+
+    (* Graph where vertices are children of v, and there is an edge u
+       -> w iff there is a path from u to w consisting only of
+       vertices strictly dominated by v *)
+    let sibling_graph =
+      List.fold_left
+        (fun sg child ->
+          U.fold_pred (fun pred sg ->
+              let pred = find pred in
+              if pred = v then sg
+              else U.add_edge sg pred child)
+            wg.graph
+            child
+            (U.add_vertex sg child))
+        U.empty
+        (children v)
+    in
+    (* Traverse SCCs in topological order *)
+    let omega_weight =
+      List.fold_right
+        (fun component omega_weight ->
+          let component_wg =
+            List.fold_left (fun component_wg v ->
+                U.fold_pred (fun p component_wg ->
+                    let weight = mul (eval p) (edge_weight wg p v) in
+                    add_edge component_wg (find p) weight v)
+                  wg.graph
+                  v
+                  component_wg)
+              (empty wg.algebra)
+              component
+          in
+          let reduced = _solve_dense component_wg v in
+          List.fold_left (fun omega_weight c ->
+              let v_to_c = edge_weight reduced v c in
+              let (omega_weight, weight) =
+                if U.mem_edge reduced.graph c c then
+                  let c_to_c = edge_weight reduced c c in
+                  let v_c_omega = omega.omega_mul v_to_c (omega.omega c_to_c) in
+                  (omega.omega_add omega_weight v_c_omega,
+                   mul v_to_c (star c_to_c))
+                else (omega_weight, v_to_c)
+              in
+              link c weight v;
+              omega_weight)
+            omega_weight
+            component)
+        (C.scc_list sibling_graph)
+        (omega.omega wg.algebra.zero)
+    in
+    BatList.fold_left2 (fun v_omega c c_omega ->
+        omega.omega_add v_omega (omega.omega_mul (eval c) c_omega))
+      omega_weight
+      (children v)
+      children_omega
+  in
+  let omega_weight = solve src in
+  (* src is an artificial start node -- it's not reachable and its
+     path weight 0 *)
+  let path_weight x =
+    if Hashtbl.mem wg_to_forest x && find x = src && x != src then eval x
+    else wg.algebra.zero
+  in
+  let reachable =
+    BatEnum.filter (fun x -> x != src && find x = src) (BatHashtbl.keys wg_to_forest)
+  in
+  (omega_weight, path_weight, reachable)
+
+let path_weight wg src =
+  let (_, path_weight, _) = (_path_weight wg omega_trivial src) in
+  path_weight
+
+let omega_path_weight wg omega src =
+  let (omega_weight, _, _) = _path_weight wg omega src in
+  omega_weight
+
+let msat_path_weight wg sources =
+  List.fold_left (fun g src ->
+      let (_, path_weight, reachable) = _path_weight wg omega_trivial src in
+      BatEnum.fold
+        (fun g v -> add_edge g src (path_weight v) v)
+        (add_vertex g src)
+        reachable)
+    (empty wg.algebra)
+    sources
 
 let split_vertex wg u weight v =
   U.fold_succ (fun w wg ->
