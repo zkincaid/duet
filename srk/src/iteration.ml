@@ -729,6 +729,7 @@ let invariant_partition srk candidates tf =
   (* Each cell is i, (pos_pred_indices, neg_pred_indices), cell_formula *)
 let invariant_complex_partition srk candidates tf =
     let tf = TF.linearize srk tf in
+    logf "linearized transition formula to be partitioned: %a" (Formula.pp srk) (TF.formula tf);
     let predicates =
       invariant_transition_predicates srk tf candidates
       |> BatArray.of_list
@@ -742,6 +743,7 @@ let invariant_complex_partition srk candidates tf =
       Smt.Solver.push solver;
       match Smt.Solver.get_model solver with
       | `Sat m ->
+        logf "transition formula SAT, finding cell";
          let cell =
            Array.map (Interpretation.evaluate_formula m) predicates
          in
@@ -760,9 +762,12 @@ let invariant_complex_partition srk candidates tf =
              (Array.to_list cell)
            |> mk_and srk
          in
+         logf "adding cell: %a" (Formula.pp srk) new_cell_formula;
          Smt.Solver.add solver [mk_not srk new_cell_formula];
          find_cells ((new_cell, new_cell_formula)::cells) 
-      | `Unsat -> cells
+      | `Unsat -> 
+        logf "transition formula UNSAT, no further cells";
+        cells
       | `Unknown -> assert false (* to do *)
     in
     predicates, find_cells []
@@ -784,6 +789,7 @@ let rank_cells cells =
 
 let build_graph_and_compute_mp srk tf inv_predicates omega_algebra ranked_cells =
   (* map' sends primed vars to midpoints; map sends unprimed vars to midpoints *)
+  logf "start building phase transition graph";
   let (map', map) =
   List.fold_left (fun (subst1, subst2) (sym, sym') ->
       let mid_name = "mid_" ^ (show_symbol srk sym) in
@@ -917,13 +923,17 @@ let build_graph_and_compute_mp srk tf inv_predicates omega_algebra ranked_cells 
    *)
   let combine tf f = TF.make ~exists:(TF.exists tf) (mk_and srk [TF.formula tf; f]) (TF.symbols tf) in
   let zero_indegree_vertices = ref (BatSet.Int.empty) in
-  BatMap.Int.iter (fun _ cell_list ->
+  logf "printing cell structure";
+  BatMap.Int.iter (fun level cell_list ->
+    logf "level %d: ========" level;
     BatList.iter (fun (cell_ind, (_, _), cell_formula) ->
       begin
+        let restricted_tf = combine tf cell_formula in
+        logf "adding cell %d as node %d with self-loop %a" (cell_ind) (cell_ind+1) (Formula.pp srk) (TF.formula restricted_tf) ;
         wg := WG.add_edge 
         !wg 
         (cell_ind+1) 
-        (combine tf cell_formula)
+        restricted_tf
         (cell_ind+1);
         zero_indegree_vertices := BatSet.Int.add (cell_ind+1) !zero_indegree_vertices;
       end
@@ -935,19 +945,23 @@ let build_graph_and_compute_mp srk tf inv_predicates omega_algebra ranked_cells 
   for interval_len = 1 to (BatArray.length levels) - 1 do
     logf "interval_len = %d" interval_len;
     for start = 0 to (BatArray.length levels) - interval_len - 1 do
-      logf "start = %d" start;
       let start_level = levels.(start) in
       let target_level = levels.(start+interval_len) in
+      logf "start level = %d" start_level;
+      logf "target level = %d" target_level;
       let sources = BatMap.Int.find start_level ranked_cells in 
       let targets = BatMap.Int.find target_level ranked_cells in
       BatList.iter (fun (i, (pos_preds_i, neg_preds_i), cell_formula_i) -> 
         begin
           BatList.iter (fun (j, (pos_preds_j, neg_preds_j), _) -> 
             begin
+            logf "checking if cell %d could be followed by cell %d" i j;
             if can_follow (pos_preds_i, neg_preds_i) (pos_preds_j, neg_preds_j) solver models then 
-              logf "cell %d could follow cell %d" j i;
-              wg := WG.add_edge !wg (i+1) (combine tf cell_formula_i) (j+1);
-            zero_indegree_vertices := BatSet.Int.remove (j+1) !zero_indegree_vertices;
+              begin
+                logf "cell %d could be followed by cell %d" i j;
+                wg := WG.add_edge !wg (i+1) (combine tf cell_formula_i) (j+1);
+                zero_indegree_vertices := BatSet.Int.remove (j+1) !zero_indegree_vertices;
+              end
             end
           ) 
           targets
@@ -956,11 +970,22 @@ let build_graph_and_compute_mp srk tf inv_predicates omega_algebra ranked_cells 
       sources;
     done;
   done;
-  BatSet.Int.iter (fun v -> wg := WG.add_edge !wg 0 algebra.one v;) !zero_indegree_vertices;
+  BatSet.Int.iter (
+    fun v -> 
+      logf "adding edge between virtual start and %d" v; 
+      wg := WG.add_edge !wg 0 algebra.one v;
+  ) 
+  !zero_indegree_vertices;
   WG.omega_path_weight !wg omega_algebra 0
   
 let compute_mp_with_phase_DAG srk candidate_predicates tf omega_algebra =
   let invariant_predicates, cells = invariant_complex_partition srk candidate_predicates tf in 
+  logf "number of cells: %d" (List.length cells);
+  List.iteri (
+    fun i ((_, _), cell_formula) -> 
+      logf "cell %d: %a" i (Formula.pp srk) cell_formula
+  ) 
+  cells;
   logf "invariant partition completed";
   let ranked_cells = rank_cells cells in 
   logf "cell ranking completed";

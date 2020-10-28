@@ -826,8 +826,11 @@ let omega_algebra =  function
        let nonterm tf =
          if !termination_llrf
             && (let result, _ = TLLRF.compute_swf srk tf in result = TLLRF.ProvedToTerminate)
-         then
-           Syntax.mk_false srk
+         then 
+            begin
+              logf "proved to terminate by LLRF";
+              Syntax.mk_false srk
+            end
          else
            let dta =
              if !termination_dta then
@@ -874,8 +877,8 @@ let omega_algebra =  function
                  (TF.symbols tf)
                |> List.concat
              in
-             (* let phased_nonterm = *)
-              (* let cells = 
+             (* let phased_nonterm =
+               let cells = 
                Iteration.invariant_partition srk predicates tf
               in
                 Format.printf "Number of cells: %d\n" (List.length cells);

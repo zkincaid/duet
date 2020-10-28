@@ -5,6 +5,8 @@ type 'a t =
     symbols : (symbol * symbol) list;
     exists : (symbol -> bool) }
 
+include Log.Make(struct let name = "srk.transitionFormula" end)
+
 
 let identity srk symbols =
   let formula = 
@@ -112,6 +114,8 @@ let linearize srk tf =
 let map_formula f tf = { tf with formula = f tf.formula }
 
 let preimage srk tf state =
+  logf "preimage of transition formula: %a" (Formula.pp srk) tf.formula;
+  logf "and state formula: %a" (Formula.pp srk) state;
   let open Syntax in
   let tf = linearize srk tf in
   let fresh_skolem =
@@ -120,15 +124,41 @@ let preimage srk tf state =
         let typ = typ_symbol srk sym in
         mk_const srk (mk_symbol srk ~name typ))
   in
-  let post_map = post_map srk tf.symbols in
-  let subst sym =
+  let post_map =
+    List.fold_left
+      (fun map (sym, sym') -> Symbol.Map.add sym sym' map)
+      Symbol.Map.empty
+      tf.symbols
+  in
+  let pre_map =
+    List.fold_left
+      (fun map (sym, sym') -> Symbol.Map.add sym' sym map)
+      Symbol.Map.empty
+      tf.symbols
+  in
+  (* let post_map = post_map srk tf.symbols in *)
+  (* let pre_map = pre_map srk tf.symbols in *)
+  let pre_to_fresh_skolems_map = Symbol.Map.fold 
+    (fun sym _ m -> 
+      Symbol.Map.add sym (fresh_skolem sym) m)
+    post_map 
+    Symbol.Map.empty in
+  let subst_tf sym = 
+    match Symbol.Map.find_opt sym pre_map with 
+    | Some pre_symbol -> Symbol.Map.find pre_symbol pre_to_fresh_skolems_map 
+    | None -> mk_const srk sym 
+  in
+  let subst_state sym =
     match ((exists tf) sym) with
     | true -> 
       begin 
-      match (Symbol.Map.find_opt sym post_map) with 
-        | Some sym' -> sym'
-        | _ -> mk_const srk sym
+        match (Symbol.Map.find_opt sym post_map) with 
+          | Some _ -> Symbol.Map.find sym pre_to_fresh_skolems_map 
+          | _ -> mk_const srk sym
       end
     | false -> fresh_skolem sym
   in
-  mk_and srk [formula tf; substitute_const srk subst state]
+  let result = mk_and srk [substitute_const srk subst_tf (formula tf); substitute_const srk subst_state state]
+  in
+  logf "result state formula: %a" (Formula.pp srk) result;
+  result 
