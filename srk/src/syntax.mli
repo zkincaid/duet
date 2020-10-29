@@ -59,6 +59,8 @@ val pp_symbol : 'a context -> Format.formatter -> symbol -> unit
 
 val typ_symbol : 'a context -> symbol -> typ
 
+val is_fo : 'a context -> symbol -> bool
+
 val show_symbol : 'a context -> symbol -> string
 
 val int_of_symbol : symbol -> int
@@ -108,6 +110,10 @@ val destruct : 'a context -> ('a, 'b) expr -> [
                       | `App of symbol * (('b, typ_fo) expr) list ]
   ]
 
+val custom_eval : 'a context -> 
+  ('a context -> ('a, 'c) expr -> ('a, 'c) expr option) ->
+  ('a, 'c) expr -> ('a, 'c) expr
+
 val expr_typ : 'a context -> ('a, 'b) expr -> typ
 
 val free_vars : ('a, 'b) expr -> (int, typ_fo) BatHashtbl.t
@@ -142,6 +148,12 @@ val substitute : 'a context ->
    not affected. *)
 val substitute_const : 'a context ->
   (symbol -> ('a,'b) expr) -> ('a,'typ) expr -> ('a,'typ) expr
+
+(** [substitute_func srk subst exp] replaces each occurence of a
+   a function application [f(e_0,...,e_n)] with 
+   [(subst f)(substitute_func srk subst e_0,..., substitute_func srk subst e_n)].*)
+val substitute_func : 'a context -> 
+  (symbol -> symbol) -> ('a,'typ) expr -> ('a,'typ) expr 
 
 (** [substitute_map srk subst exp] replaces each occurrence of a
    constant symbol [s] in the domain of the map subst with the
@@ -301,6 +313,7 @@ module Term : sig
     Format.formatter -> 'a term -> unit
   val show : ?env:(string Env.t) -> 'a context -> 'a term -> string
   val destruct : 'a context -> 'a term -> ('a term, 'a) open_term
+  val construct : 'a context -> ('a term, 'a) open_term -> 'a term
   val eval : 'a context -> (('b, 'a) open_term -> 'b) -> 'a term -> 'b
   val eval_partial : 'a context -> (('b, 'a) open_term -> 'b option) -> 'a term -> 'b option
 end
@@ -342,6 +355,8 @@ val mk_and : 'a context -> 'a formula list -> 'a formula
 val mk_or : 'a context -> 'a formula list -> 'a formula
 val mk_not : 'a context -> 'a formula -> 'a formula
 val mk_eq : 'a context -> 'a term -> 'a term -> 'a formula
+val mk_arr_eq : 'a context -> symbol -> symbol -> 'a formula
+val mk_eq_syms : 'a context -> (symbol * symbol) list -> 'a formula
 val mk_lt : 'a context -> 'a term -> 'a term -> 'a formula
 val mk_leq : 'a context -> 'a term -> 'a term -> 'a formula
 val mk_true : 'a context -> 'a formula
@@ -380,6 +395,9 @@ val pp_smtlib2 : ?env:(string Env.t) -> 'a context ->
 val pp_expr_unnumbered : ?env:(string Env.t) -> 'a context -> 
     Format.formatter -> ('a, 'b) expr -> unit
 
+(** Writes formula phi to smt2 file at filename *)
+val to_file : 'a context -> 'a formula -> string -> unit
+
 module Formula : sig
   type 'a t = 'a formula
   val equal : 'a formula -> 'a formula -> bool
@@ -389,11 +407,13 @@ module Formula : sig
     Format.formatter -> 'a formula -> unit
   val show : ?env:(string Env.t) -> 'a context -> 'a formula -> string
   val destruct : 'a context -> 'a formula -> ('a formula, 'a) open_formula
+  val construct : 'a context -> ('a formula, 'a) open_formula -> 'a formula
   val eval : 'a context -> (('b, 'a) open_formula -> 'b) -> 'a formula -> 'b
   val eval_memo : 'a context -> (('b, 'a) open_formula -> 'b) -> 'a formula -> 'b
   val existential_closure : 'a context -> 'a formula -> 'a formula
   val universal_closure : 'a context -> 'a formula -> 'a formula
   val skolemize_free : 'a context -> 'a formula -> 'a formula
+  val skolemize_eqpf : 'a context -> 'a formula -> 'a formula
   val prenex : 'a context -> 'a formula -> 'a formula
 end
 

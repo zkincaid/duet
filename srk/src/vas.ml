@@ -131,7 +131,7 @@ let create_exp_vars srk s_lst transformers =
 
       (*Create S vars*)
       let svar =
-        mk_constants (M.nb_rows hd) ("S" ^ (string_of_int (List.length s_lst))) `TyReal
+        mk_constants (M.nb_rows hd) ("S" ^ (string_of_int (List.length s_lst))) `TyInt
       in
 
       (*Group vars together*)
@@ -346,7 +346,9 @@ let exp srk tr_symbols loop_counter vabs =
         loop_counter s_lst (TSet.to_list v) in
     let constr1 = exp_sx_constraints srk coh_class_pairs
         (TSet.to_list v) kvarst ksumst (unify s_lst) tr_symbols in
-    mk_and srk [formula; constr1]
+    let r = mk_and srk [formula; constr1] in
+    Log.errorf "result is %a" (Formula.pp srk) r;
+    r
   )
 
 
@@ -515,6 +517,7 @@ let abstract srk tf =
   Smt.Solver.add solver [phi];
   let {v;s_lst} = go (mk_bottom tr_symbols) in
   let result = {v;s_lst} in
+  Log.errorf "\n\nvas is %a\n\n" (Formula.pp srk) (gamma srk result tr_symbols);
   result
 
 module Monotone = struct

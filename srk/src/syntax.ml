@@ -245,6 +245,10 @@ let symbol_name srk sym =
   else None
 
 let typ_symbol srk = snd % DynArray.get srk.symbols
+let is_fo srk sym = 
+  let typ = typ_symbol srk sym in 
+  typ = `TyInt || typ = `TyReal || typ = `TyBool
+
 let pp_symbol srk formatter symbol =
   Format.fprintf formatter "%s:%d"
     (fst (DynArray.get srk.symbols symbol))
@@ -319,6 +323,15 @@ let mk_or srk disjuncts = srk.mk Or disjuncts
 let mk_forall srk ?name:(name="_") typ phi = srk.mk (Forall (name, typ)) [phi]
 let mk_exists srk ?name:(name="_") typ phi = srk.mk (Exists (name, typ)) [phi]
 
+let mk_arr_eq srk a b = 
+  mk_forall 
+    srk
+    `TyInt
+    (mk_eq 
+       srk 
+       (mk_app srk a [(mk_var srk 0 `TyInt)]) 
+       (mk_app srk b [(mk_var srk 0 `TyInt)]))
+
 let mk_ite srk cond bthen belse = srk.mk Ite [cond; bthen; belse]
 let mk_iff srk phi psi =
   mk_or srk [mk_and srk [phi; psi]; mk_and srk [mk_not srk phi; mk_not srk psi]]
@@ -385,6 +398,15 @@ let substitute_const srk subst sexpr =
     srk.mk label (List.map (go depth) children)
   in
   go 0 sexpr
+
+let substitute_func srk subst sexpr =
+  let rec go sexpr =
+    let Node (label, children, _) = sexpr.obj in
+    match label with
+    | App k -> mk_app srk (subst k) (List.map go children)
+    | _ -> srk.mk label (List.map go children)
+  in
+  go sexpr
 
 let substitute_map srk map sexpr =
   let subst sym =
@@ -492,6 +514,16 @@ let destruct _srk sexpr =
   | Node (Leq, [s; t], _) -> `Atom (`Leq, s, t)
   | Node (Lt, [s; t], _) -> `Atom (`Lt, s, t)
   | Node (_, _, _) -> assert false
+
+  let custom_eval srk eval phi =
+    let rec go sexpr =
+      let (Node (label, children, _)) = sexpr.obj in
+      match eval srk sexpr with
+      | Some t -> t
+      | None -> srk.mk label (List.map go children)
+    in
+    go phi
+
 
 let rec flatten_universal phi = match phi.obj with
   | Node (Forall (name, typ), [phi], _) ->
@@ -893,6 +925,19 @@ module Term = struct
       `Ite (cond, bthen, belse)
     | _ -> invalid_arg "destruct: not a term"
 
+  let construct _srk open_term = match open_term with
+    | `Real qq -> mk_real _srk qq
+    | `App(func, args) -> mk_app _srk func args
+    | `Var(v, `TyInt) -> mk_var _srk v `TyInt
+    | `Var(v, `TyReal) -> mk_var _srk v `TyReal
+    | `Add sum -> mk_add _srk sum
+    | `Mul product -> mk_mul _srk product
+    | `Binop (`Div, s, t) -> mk_div _srk s t
+    | `Binop (`Mod, s, t) -> mk_mod _srk s t
+    | `Unop (`Floor, t) -> mk_floor _srk t
+    | `Unop (`Neg, t) -> mk_neg _srk t
+    | `Ite (cond, bthen, belse) -> mk_ite _srk cond bthen belse
+
   let pp = pp_expr
   let show ?(env=Env.empty) srk t = SrkUtil.mk_show (pp ~env srk) t
 end
@@ -920,6 +965,21 @@ module Formula = struct
     | Node (App f, args, `TyBool) -> `Proposition (`App (f, args))
     | Node (Ite, [cond; bthen; belse], `TyBool) -> `Ite (cond, bthen, belse)
     | _ -> invalid_arg "destruct: not a formula"
+
+  let construct _srk open_formula = match open_formula with
+    | `Tru -> mk_true _srk
+    | `Fls -> mk_false _srk
+    | `And conjuncts -> mk_and _srk conjuncts
+    | `Or disjuncts -> mk_or _srk disjuncts
+    | `Not phi -> mk_not _srk phi
+    | `Quantify (`Exists, name, typ, phi) -> mk_exists _srk ~name typ phi
+    | `Quantify (`Forall, name, typ, phi) -> mk_forall _srk ~name typ phi
+    | `Atom (`Eq, s, t) -> mk_eq _srk s t
+    | `Atom (`Leq, s, t) -> mk_leq _srk s t
+    | `Atom (`Lt, s, t) -> mk_lt _srk s t
+    | `Proposition (`Var v) -> mk_const _srk v
+    | `Proposition (`App (f, args)) -> mk_app _srk f args
+    | `Ite (cond, bthen, belse) -> mk_ite _srk cond bthen belse
 
   let rec eval srk alg phi = match destruct srk phi with
     | `Tru -> alg `Tru
@@ -995,6 +1055,41 @@ module Formula = struct
       | _ -> srk.mk label (List.map go children)
     in
     go phi
+
+  let skolemize_eqpf srk phi =
+    let skolemtbl = Hashtbl.create 991 in
+    (* No current reasoning for not/ite statements;
+     * equisatisfiability not preserved if these labels precede quantifiers *)
+    let rec go depth first_univ_depth sexpr =
+      let (Node (label, children, _)) = sexpr.obj in
+      match label with
+      | Var (i, typ) ->
+        if Option.is_none first_univ_depth || depth - i < Option.get first_univ_depth
+        then Hashtbl.find skolemtbl (depth - i - 1)
+        else srk.mk (Var (i, typ)) []
+      | Forall (name, typ) ->
+        if Option.is_none first_univ_depth then 
+          srk.mk 
+            (Forall (name, typ)) 
+            (List.map (go (depth + 1) (Some (depth + 1))) children)
+        else
+          srk.mk 
+            (Forall (name, typ)) 
+            (List.map (go (depth + 1) first_univ_depth) children)
+      | Exists (name, typ) ->
+        if Option.is_none first_univ_depth then (
+          Hashtbl.add skolemtbl depth (mk_const srk (mk_symbol srk (typ :> typ)));
+          let res = go (depth + 1) first_univ_depth (List.hd children) in
+          Hashtbl.remove skolemtbl depth;
+          res
+        )
+        else
+          srk.mk 
+            (Exists (name, typ)) 
+            (List.map (go (depth + 1) first_univ_depth) children)
+      | _ -> srk.mk label (List.map (go depth first_univ_depth) children)
+    in
+    go 0 None phi
 
   let prenex srk phi =
     let negate_prefix =
@@ -1507,6 +1602,16 @@ let pp_smtlib2_gen ?(named=false) ?(env=Env.empty) ?(strings=Hashtbl.create 991)
 
 let pp_smtlib2 ?(env=Env.empty) srk formatter expr =
   pp_smtlib2_gen ~env srk formatter [expr]
+  fprintf formatter "(assert %a)@;(check-sat)@]" (go env) expr
+
+
+let to_file srk phi filename =
+  let chan = Stdlib.open_out filename in
+  let formatter = Format.formatter_of_out_channel chan in
+  pp_smtlib2 srk formatter phi;
+  Format.pp_print_newline formatter ();
+  Stdlib.close_out chan;
+
 
 module Infix (C : sig
     type t

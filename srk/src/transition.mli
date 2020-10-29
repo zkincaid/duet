@@ -5,7 +5,7 @@ module type Var = sig
   type t
   val pp : Format.formatter -> t -> unit
   val show : t -> string
-  val typ : t -> [ `TyInt | `TyReal ]
+  val typ : t -> Syntax.typ
   val compare : t -> t -> int
   val symbol_of : t -> symbol
   val of_symbol : symbol -> t option
@@ -55,6 +55,10 @@ module Make
   (** [assign v t] is a transition that assigns the term [t] to the variable
       [v]. *)
   val assign : var -> C.t term -> t
+
+  (** [assign a r t] is a transition that assigns the term [t] to the value 
+      stored at index r of array a [a(r)]. *)
+  val arr_assign : var -> C.t term -> C.t term -> t
 
   (** Parallel assignment of a list of terms to a list of variables.
      If a variable appears multiple times as a target for an

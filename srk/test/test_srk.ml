@@ -21,6 +21,7 @@ let suite = "Main" >::: [
     Test_iteration.suite;
     Test_transition.suite;
     Test_WeightedGraph.suite;
+    Test_arraycontent.suite;
     Test_chc.suite
 ]
 
