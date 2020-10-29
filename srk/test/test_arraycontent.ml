@@ -118,12 +118,13 @@ let iter_init () =
       )
   in
   let tr_symbols = [(xsym, xsym'); (asym, asym')] in
+  let tf = TransitionFormula.make phi tr_symbols in
   let iter = 
     Array_vas.exp 
       srk 
       tr_symbols
       y
-      (Array_vas.abstract srk tr_symbols phi)
+      (Array_vas.abstract srk tf)
   in
   assert (Arraycontent.is_eq_projs srk iter psi [(asym, asym')] = `Yes)
 
@@ -155,12 +156,13 @@ let iter_non_null () =
       )
   in
   let tr_symbols = [(xsym, xsym'); (asym, asym')] in
+  let tf = TransitionFormula.make phi tr_symbols in
   let iter = 
     Array_vas.exp 
       srk 
       tr_symbols
       y
-      (Array_vas.abstract srk tr_symbols phi)
+      (Array_vas.abstract srk tf)
   in
   assert (Arraycontent.is_eq_projs srk psi iter [(asym, asym')] = `Yes)
 
@@ -200,12 +202,13 @@ let iter_same () =
     )
   in
   let tr_symbols = [(xsym, xsym'); (asym, asym')] in
+  let tf = TransitionFormula.make phi tr_symbols in
   let iter = 
     Array_vas.exp 
       srk 
       tr_symbols
       y
-      (Array_vas.abstract srk tr_symbols phi)
+      (Array_vas.abstract srk tf)
   in
   assert (Arraycontent.is_eq_projs srk iter psi [(asym, asym')] = `Yes)
 

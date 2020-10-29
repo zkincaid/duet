@@ -356,7 +356,6 @@ val mk_or : 'a context -> 'a formula list -> 'a formula
 val mk_not : 'a context -> 'a formula -> 'a formula
 val mk_eq : 'a context -> 'a term -> 'a term -> 'a formula
 val mk_arr_eq : 'a context -> symbol -> symbol -> 'a formula
-val mk_eq_syms : 'a context -> (symbol * symbol) list -> 'a formula
 val mk_lt : 'a context -> 'a term -> 'a term -> 'a formula
 val mk_leq : 'a context -> 'a term -> 'a term -> 'a formula
 val mk_true : 'a context -> 'a formula

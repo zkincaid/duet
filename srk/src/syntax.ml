@@ -1593,16 +1593,15 @@ let pp_smtlib2_gen ?(named=false) ?(env=Env.empty) ?(strings=Hashtbl.create 991)
     | _ -> failwith "pp_smtlib2: ill-formed expression"
   in
   List.iteri (fun i phi ->
-    if named then
-      fprintf formatter "(assert (! %a :named f%d))@;" (go env) phi i
-    else
-      fprintf formatter "(assert %a)@;" (go env) phi
-  ) assertions;
+      if named then
+        fprintf formatter "(assert (! %a :named f%d))@;" (go env) phi i
+      else
+        fprintf formatter "(assert %a)@;" (go env) phi
+    ) assertions;
   fprintf formatter "(check-sat)@]"
 
 let pp_smtlib2 ?(env=Env.empty) srk formatter expr =
   pp_smtlib2_gen ~env srk formatter [expr]
-  fprintf formatter "(assert %a)@;(check-sat)@]" (go env) expr
 
 
 let to_file srk phi filename =
