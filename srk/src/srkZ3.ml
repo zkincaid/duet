@@ -1,6 +1,6 @@
 open Syntax
 open BatPervasives
-
+module DynArray = BatDynArray
 include Log.Make(struct let name = "srk.srkZ3" end)
 
 type z3_context = Z3.context
@@ -11,6 +11,8 @@ type 'a open_expr = [
   | `Real of QQ.t
   | `App of z3_func_decl * 'a list
   | `Var of int * typ_fo
+  | `Const of symbol
+  | `ArrVar of symbol * 'a
   | `Add of 'a list
   | `Mul of 'a list
   | `Binop of [ `Div | `Mod ] * 'a * 'a
@@ -65,19 +67,28 @@ let sort_of_typ z3 = function
   | `TyReal -> Z3.Arithmetic.Real.mk_sort z3
   | `TyBool -> Z3.Boolean.mk_sort z3
 
-let rec eval alg ?quants_added:(quants_added=0) ast =
+let rec eval alg ?(quants_added=0) ?(skolemized_quants=Hashtbl.create 91) ast =
   let open Z3 in
   let open Z3enums in
   let rec eval_arr_term quants_added arr rdterm =
-    let decl = Expr.get_func_decl arr in
-    match FuncDecl.get_decl_kind decl with
-    | OP_UNINTERPRETED -> alg (`App (decl, [rdterm]))
-    | OP_STORE -> 
-      let i = eval alg ~quants_added (List.nth (Expr.get_args arr) 1) in
-      let v = eval alg ~quants_added (List.nth (Expr.get_args arr) 2) in
-      let a = eval_arr_term quants_added (List.hd (Expr.get_args arr)) rdterm in
-      alg (`Ite ((alg (`Atom (`Eq, i, rdterm))), v, a))
-    | _ -> invalid_arg ("eval: unknown array parse: " ^ (Expr.to_string arr))
+    match AST.get_ast_kind (Expr.ast_of_expr arr) with
+    |APP_AST -> begin
+        let decl = Expr.get_func_decl arr in
+        match FuncDecl.get_decl_kind decl with
+        | OP_UNINTERPRETED -> alg (`App (decl, [rdterm]))
+        | OP_STORE -> 
+          let i = eval alg ~quants_added ~skolemized_quants (List.nth (Expr.get_args arr) 1) in
+          let v = eval alg ~quants_added ~skolemized_quants (List.nth (Expr.get_args arr) 2) in
+          let a = eval_arr_term quants_added (List.hd (Expr.get_args arr)) rdterm in
+          alg (`Ite ((alg (`Atom (`Eq, i, rdterm))), v, a))
+        | _ -> invalid_arg ("eval: unknown array parse: " ^ (Expr.to_string arr))
+      end
+    | VAR_AST ->
+      let index = (Z3.Quantifier.get_index arr) in
+      if Hashtbl.mem skolemized_quants index = false then 
+        failwith "Array bound vars must be skolemized"
+      else alg (`ArrVar (Hashtbl.find skolemized_quants index, rdterm))
+    | _ ->  invalid_arg "eval: unknown ast type"
   in
   let is_array_term expr =
     if List.length (Expr.get_args expr) = 0 then false
@@ -86,8 +97,7 @@ let rec eval alg ?quants_added:(quants_added=0) ast =
       let fstarg = List.hd (Expr.get_args expr) in
       if FuncDecl.get_decl_kind decl = OP_SELECT then true
       else if FuncDecl.get_decl_kind decl = OP_EQ &&
-              (FuncDecl.get_decl_kind (Expr.get_func_decl fstarg) = OP_STORE ||
-               Sort.get_sort_kind (Expr.get_sort fstarg) = ARRAY_SORT)
+              Sort.get_sort_kind (Expr.get_sort fstarg) = ARRAY_SORT
       then true
       else false)
   in
@@ -97,7 +107,7 @@ let rec eval alg ?quants_added:(quants_added=0) ast =
       if is_array_term ast then (
         match FuncDecl.get_decl_kind decl, Expr.get_args ast with
         | OP_SELECT, [a; i] -> 
-          eval_arr_term quants_added a (eval alg ~quants_added i)
+          eval_arr_term quants_added a (eval alg ~quants_added ~skolemized_quants i)
         | OP_EQ, [a; b] -> 
           let i = alg (`Var (0, `TyInt)) in
           alg (`Quantify (`Forall, 
@@ -108,7 +118,7 @@ let rec eval alg ?quants_added:(quants_added=0) ast =
                                       eval_arr_term (quants_added + 1) b i))))
         | _ -> assert false)
       else (
-        let args = List.map (eval alg ~quants_added) (Expr.get_args ast) in
+        let args = List.map (eval alg ~quants_added ~skolemized_quants) (Expr.get_args ast) in
         match FuncDecl.get_decl_kind decl, args with
         | (OP_UNINTERPRETED, args) -> alg (`App (decl, args))
         | (OP_ADD, args) -> alg (`Add args)
@@ -142,8 +152,11 @@ let rec eval alg ?quants_added:(quants_added=0) ast =
   | NUMERAL_AST ->
     alg (`Real (qq_val ast))
   | VAR_AST ->
-    let index = (Z3.Quantifier.get_index ast) + quants_added in
-    alg (`Var (index, (typ_of_sort (Expr.get_sort ast))))
+    let index = (Z3.Quantifier.get_index ast) in
+    if Hashtbl.mem skolemized_quants index then
+      alg (`Const (Hashtbl.find skolemized_quants index))
+    else
+      alg (`Var (index + quants_added, (typ_of_sort (Expr.get_sort ast))))
   | QUANTIFIER_AST ->
     let ast = Z3.Quantifier.quantifier_of_expr ast in
     let qt =
@@ -307,7 +320,7 @@ and z3_of_formula srk z3 =
   Formula.eval_memo srk alg
 
 type 'a gexpr = ('a, typ_fo) Syntax.expr
-let of_z3 context sym_of_decl expr =
+let of_z3 context ?(skolemized_quants=Hashtbl.create 91) sym_of_decl expr =
   let term expr =
     match Expr.refine context expr with
     | `Term t -> t
@@ -322,6 +335,11 @@ let of_z3 context sym_of_decl expr =
     function
     | `Real qq -> (mk_real context qq :> 'a gexpr)
     | `Var (i, typ) -> mk_var context i typ
+    | `ArrVar (arr, rd) ->
+      if typ_symbol context arr <> `TyFun ([`TyInt], `TyInt)
+      then failwith "Array symbol type mismatch"
+      else (mk_app context arr [rd])
+    | `Const sym -> mk_const context sym
     | `App (decl, args) ->
       let const_sym = sym_of_decl decl in
       mk_app context const_sym args
@@ -355,7 +373,7 @@ let of_z3 context sym_of_decl expr =
     | `Atom (`Lt, s, t) -> (mk_lt context (term s) (term t) :> 'a gexpr)
     | `Ite (cond, bthen, belse) -> mk_ite context (formula cond) bthen belse
   in
-  eval alg expr
+  eval alg ~skolemized_quants expr
 
 (* sym_of_decl is sufficient for round-tripping, since srk symbols become
    Z3 int symbols *)
@@ -364,17 +382,17 @@ let sym_of_decl decl =
   assert (Z3.Symbol.is_int_symbol sym);
   symbol_of_int (Z3.Symbol.get_int sym)
 
-let term_of_z3 context term =
-  match Expr.refine context (of_z3 context sym_of_decl term) with
+let term_of_z3 context ?(skolemized_quants=Hashtbl.create 91) term =
+  match Expr.refine context (of_z3 context ~skolemized_quants sym_of_decl term) with
   | `Term t -> t
   | _ -> invalid_arg "term_of"
 
-let formula_of_z3 context phi =
-  match Expr.refine context (of_z3 context sym_of_decl phi) with
+let formula_of_z3 context ?(skolemized_quants=Hashtbl.create 91) phi =
+  match Expr.refine context (of_z3 context ~skolemized_quants sym_of_decl phi) with
   | `Formula phi -> phi
   |  _ -> invalid_arg "formula_of"
 
-let expr_of_z3 context expr = of_z3 context sym_of_decl expr
+let expr_of_z3 context ?(skolemized_quants=Hashtbl.create 91) expr = of_z3 context ~skolemized_quants sym_of_decl expr
 
 type 'a solver =
   { srk : 'a context;

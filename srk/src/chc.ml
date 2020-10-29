@@ -244,7 +244,21 @@ module ChcSrkZ3 = struct
     | REAL_SORT -> `TyReal
     | INT_SORT -> `TyInt
     | BOOL_SORT -> `TyBool
-    | _ -> failwith "TODO: allow function types"
+    | ARRAY_SORT -> `TyFun ([`TyInt], `TyInt) 
+    |_ -> failwith "TODO: allow function types"
+
+  let is_array_sym srk sym = typ_symbol srk sym = `TyFun([`TyInt], `TyInt)
+
+  let mk_eq_arrs srk a1 a2 = 
+    mk_forall 
+      srk 
+      ~name:"i" 
+      `TyInt 
+      (mk_eq 
+         srk 
+         (mk_app srk a1 [mk_var srk 0 `TyInt])
+         (mk_app srk a2 [mk_var srk 0 `TyInt]))  
+
 
   (* Creates a relation atom from a z3 predicate in which each argument
    * to the predicate is an integer. Replaces integer [i] with value
@@ -299,7 +313,7 @@ module ChcSrkZ3 = struct
       let names, matrix =
         if Z3.AST.is_quantifier (Z3.Expr.ast_of_expr rule) then
           let q = Z3.Quantifier.quantifier_of_expr rule in
-          BatArray.of_list (Z3.Quantifier.get_bound_variable_names q), 
+          BatArray.of_list (List.rev (Z3.Quantifier.get_bound_variable_names q)),
           Z3.Quantifier.get_body q
         else BatArray.init 0 (fun _ -> failwith "empty array"), rule
       in
@@ -309,10 +323,10 @@ module ChcSrkZ3 = struct
         | (OP_IMPLIES, [hypo;conc]) ->
           let ind_to_sym = BatHashtbl.create 91 in
           let hypo_decl = decl_kind hypo in
-          let (atoms, phi) = 
+          let (atoms, z3phis) = 
             begin match hypo_decl with
               | OP_AND ->
-                let (rels, phis) = 
+                let (rels, z3phis) = 
                   List.partition 
                     (fun arg -> decl_kind arg = OP_UNINTERPRETED)
                     (Z3.Expr.get_args hypo) 
@@ -322,35 +336,31 @@ module ChcSrkZ3 = struct
                     (rel_atom_of_z3 srk fp ind_to_sym rsym_to_int names)
                     rels
                 in
-                let phis = List.map (SrkZ3.formula_of_z3 srk) phis in
-                rel_atoms, (mk_and srk phis)
+               rel_atoms, z3phis
               | OP_UNINTERPRETED -> 
-                [rel_atom_of_z3 srk fp ind_to_sym rsym_to_int names hypo],
-                mk_true srk
+                [rel_atom_of_z3 srk fp ind_to_sym rsym_to_int names hypo], []
               (* Potentially need add special handling for "OR" case similar to
                * "AND" case *)
-              | _ -> [], SrkZ3.formula_of_z3 srk hypo
+              | _ -> [], [hypo] 
             end
           in
           let conc, eq_syms = 
             rel_atom_of_z3_fresh srk fp ind_to_sym rsym_to_int names conc 
           in
-          let phi = mk_and 
+          let phi = 
+            mk_and 
               srk 
-              ((substitute 
-                  srk 
-                  (fun ind -> 
-                     if BatHashtbl.mem ind_to_sym ind 
-                     then mk_const srk (BatHashtbl.find ind_to_sym ind)
-                     else failwith "Free var in rule formula not bound in rel")
-                  phi)
-               :: (List.map (fun (s, t) -> 
-                   mk_eq 
-                     srk 
-                     (mk_const srk s) 
-                     (mk_const srk t))
-                   eq_syms))
+              (List.map (SrkZ3.formula_of_z3 srk ~skolemized_quants:ind_to_sym) z3phis) 
           in
+          let eqs = 
+            List.map (fun (s, t) ->
+                if is_array_sym srk s then
+                  mk_eq_arrs srk s t
+                else 
+                  mk_eq srk (mk_const srk s) (mk_const srk t))
+              eq_syms
+          in
+          let phi = mk_and srk (phi :: eqs) in
           atoms, phi, conc
         | (OP_UNINTERPRETED, _) ->
           let ind_to_sym = BatHashtbl.create 91 in

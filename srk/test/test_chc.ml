@@ -91,10 +91,34 @@ let dupuncontrsym () =
   let res = Fp.solve srk fp pd in
   assert_not_implies (snd (res (rel_of_atom vert.(1) ))) (mk_false srk)
 
+let arr_read_write () =
+  let smt2str =
+     "(declare-rel L ((Array Int Int) Int))
+      (declare-rel Entry ((Array Int Int) Int))
+      (declare-rel Error ())
+      (declare-var i Int)
+      (declare-var |i'| Int)
+      (declare-var a1 (Array Int Int))
+      (rule (=> (= i 0) (Entry a1 i)))
+      (rule (=> (and (Entry a1 i) (= (+ i 1) |i'|) (= (select a1 i) 0)) (L a1 |i'|)))
+     (rule (=> (and (L a1 i) (= (+ i 1) |i'|) (= (select a1 i) 0)) (L a1 |i'|)))
+
+     (rule (=> (and (L a1 i) (< 0 i) (= (select a1 i) 1)) Error))
+
+      (query Error)"
+  in
+  let fp = Chc.Fp.create () in
+  Log.errorf "HERE";
+  let fp = Chc.ChcSrkZ3.parse_string srk fp smt2str in
+  Log.errorf "JERE@";
+  Log.errorf "fp is %a" (Chc.Fp.pp srk) fp;
+  assert true
+  
 let suite = "Chc" >:::
   [
-    "countup1" >:: countup1;
+(*    "countup1" >:: countup1;
     "counterup2" >:: countup2;
     "xskipcount" >:: xskipcount;
-    "dupunconstrsym" >:: dupuncontrsym;
+    "dupunconstrsym" >:: dupuncontrsym;*)
+    "arr_read_write" >:: arr_read_write
   ]
