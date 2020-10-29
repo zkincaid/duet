@@ -55,7 +55,7 @@ let wedge_hull srk tf =
 let is_symbolic_constant tf =
   let pre_symbols = pre_symbols tf.symbols in
   let post_symbols = post_symbols tf.symbols in
-  fun x -> (not (Symbol.Set.mem x pre_symbols || Symbol.Set.mem x post_symbols))
+  fun x -> tf.exists x && (not (Symbol.Set.mem x pre_symbols || Symbol.Set.mem x post_symbols))
 
 let symbolic_constants tf =
   Symbol.Set.filter (is_symbolic_constant tf) (Syntax.symbols tf.formula)
