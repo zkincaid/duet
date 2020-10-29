@@ -392,13 +392,11 @@ let add_diff_terms_to_formula srk f x_xp =
  *)
 let compute_swf srk tf =
   let tf = TF.linearize srk tf in
-  (* let all_symbols = Symbol.Set.to_list (symbols (TF.formula tf)) in *)
-  (* let constant_symbols = List.filter (TF.is_symbolic_constant tf) all_symbols in
-
+  let all_symbols = Symbol.Set.to_list (symbols (TF.formula tf)) in
+  let constant_symbols = List.filter (TF.is_symbolic_constant tf) all_symbols in
   let x_xp =
     List.fold_left (fun l s -> (s, s) :: l) (TF.symbols tf) constant_symbols
-  in *)
-  let x_xp = TF.symbols tf in
+  in
   match Smt.get_model srk (TF.formula tf) with
   | `Sat _ -> 
     let x_list = List.fold_right (fun (sp, _) l -> sp :: l ) x_xp [] in

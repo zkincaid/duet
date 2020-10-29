@@ -5,7 +5,7 @@ open Syntax
 (** A transition formula is a logical formula that describes a binary
    relation on a set of states.  Transition formulas are assumed to be
    quantifier-free, and are over four sets of symbols: pre-state
-   symbols, post-state symbols symbolic constants, and Skolem
+   symbols, post-state symbols, symbolic constants, and Skolem
    constants.  Pre-state and post-state symbols are in 1-1
    correspondence and define the space on which the transition formula
    acts.  Symbolic constants are parameters that do not change during

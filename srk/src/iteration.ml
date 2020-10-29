@@ -881,7 +881,7 @@ let build_graph_and_compute_mp srk tf inv_predicates omega_algebra ranked_cells 
         |> mk_and srk 
       in 
       let cell2_can_follow_cell1 = mk_and srk [cond_neg_clause; cond_pos_clause; result_neg_clause; result_pos_clause] in
-      List.exists (fun m -> Interpretation.evaluate_formula m cell2_can_follow_cell1) !models && 
+      List.exists (fun m -> Interpretation.evaluate_formula m cell2_can_follow_cell1) !models || 
       begin
         (* use the Solver.check to avoid pushing and popping, pass in a list of boolean vars *)
         Smt.Solver.push solver;
@@ -903,7 +903,7 @@ let build_graph_and_compute_mp srk tf inv_predicates omega_algebra ranked_cells 
   let module E = LinearRecurrenceInequation in
   let star tf = 
     let k = mk_symbol srk `TyInt in   
-    let exists x = x != k in
+    let exists x = x != k && (TF.exists tf) x in
       TF.make ~exists (E.exp srk (TF.symbols tf) (mk_const srk k) (E.abstract srk tf)) (TF.symbols tf)
   in
   let algebra = WG.{
