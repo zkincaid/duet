@@ -63,12 +63,14 @@ let symbolic_constants tf =
 let mul srk tf1 tf2 =
   if (tf1.symbols != tf2.symbols) then
     invalid_arg "TransitionFormula.mul: incompatible transition formulas";
+  let fresh_symbols = ref Symbol.Set.empty in
   let (map1, map2) =
     List.fold_left (fun (phi_map, psi_map) (sym, sym') ->
         let mid_name = "mid_" ^ (show_symbol srk sym) in
         let mid_symbol =
           mk_symbol srk ~name:mid_name (typ_symbol srk sym)
         in
+        fresh_symbols := Symbol.Set.add mid_symbol (!fresh_symbols);
         let mid = mk_const srk mid_symbol in
         (Symbol.Map.add sym' mid phi_map,
          Symbol.Map.add sym mid psi_map))
@@ -76,7 +78,6 @@ let mul srk tf1 tf2 =
       tf1.symbols
   in
   let subst1 = substitute_map srk map1 in
-  let fresh_symbols = ref Symbol.Set.empty in
   let rename =
     Memo.memo (fun x ->
         let fresh =
