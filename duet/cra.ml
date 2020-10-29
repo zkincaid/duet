@@ -871,8 +871,8 @@ let omega_algebra =  function
                    let x' = mk_const srk x' in
                    [mk_lt srk x x';
                     mk_lt srk x' x;
-                    mk_leq srk (mk_zero srk) x;
-                    mk_leq srk x (mk_zero srk);
+                    (* mk_leq srk (mk_zero srk) x; *)
+                    (* mk_leq srk x (mk_zero srk); *)
                     mk_eq srk x x'])
                  (TF.symbols tf)
                |> List.concat
