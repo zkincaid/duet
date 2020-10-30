@@ -817,12 +817,6 @@ let omega_algebra =  function
            (fun phi -> purify_floor (Nonlinear.linearize srk phi))
            (K.to_transition_formula transition)
        in
-       let tf =
-        if !termination_attractor then 
-          formula_with_attractor_region tf
-        else tf
-       in
-
        let nonterm tf =
          if !termination_llrf
             && (let result, _ = TLLRF.compute_swf srk tf in result = TLLRF.ProvedToTerminate)
@@ -832,6 +826,19 @@ let omega_algebra =  function
               Syntax.mk_false srk
             end
          else
+           let tf_for_llrf =
+            if !termination_attractor then 
+              formula_with_attractor_region tf
+            else tf
+          in
+          if !termination_llrf
+            && (let result, _ = TLLRF.compute_swf srk tf_for_llrf in result = TLLRF.ProvedToTerminate)
+          then 
+            begin
+              logf "proved to terminate by LLRF with attractor region";
+              Syntax.mk_false srk
+            end
+          else
            let dta =
              if !termination_dta then
                [TDTA.compute_swf_via_DTA srk tf]
