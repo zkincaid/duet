@@ -942,27 +942,40 @@ let build_graph_and_compute_mp srk tf inv_predicates omega_algebra ranked_cells 
     )
   ranked_cells;
   let levels = BatArray.of_enum (BatMap.Int.keys ranked_cells) in
-  for interval_len = 1 to (BatArray.length levels) - 1 do
-    logf "interval_len = %d" interval_len;
-    for start = 0 to (BatArray.length levels) - interval_len - 1 do
-      let start_level = levels.(start) in
-      let target_level = levels.(start+interval_len) in
-      logf "start level = %d" start_level;
-      logf "target level = %d" target_level;
-      let sources = BatMap.Int.find start_level ranked_cells in 
-      let targets = BatMap.Int.find target_level ranked_cells in
+  let ancestors = BatArray.make (BatArray.length inv_predicates) BatSet.Int.empty in
+  let descendants = BatArray.make (BatArray.length inv_predicates) BatSet.Int.empty in
+  for current_level = 1 to (BatArray.length levels) - 1 do 
+    logf "current level = %d" current_level;
+    let targets = BatMap.Int.find current_level ranked_cells in
+    for prev_level = current_level - 1 downto 0 do 
+      logf "previous level = %d" prev_level;
+      let sources = BatMap.Int.find prev_level ranked_cells in 
       BatList.iter (fun (i, (pos_preds_i, neg_preds_i), cell_formula_i) -> 
         begin
           BatList.iter (fun (j, (pos_preds_j, neg_preds_j), _) -> 
             begin
             logf "checking if cell %d could be followed by cell %d" i j;
-            if can_follow (pos_preds_i, neg_preds_i) (pos_preds_j, neg_preds_j) solver models then 
-              begin
-                logf "cell %d could be followed by cell %d" i j;
-                wg := WG.add_edge !wg (i+1) (combine tf cell_formula_i) (j+1);
-                zero_indegree_vertices := BatSet.Int.remove (j+1) !zero_indegree_vertices;
+            if not (BatSet.Int.mem j (descendants.(i))) then
+              (* j is not one of i's descendants, check if i -> j *)
+              if can_follow (pos_preds_i, neg_preds_i) (pos_preds_j, neg_preds_j) solver models then 
+                begin
+                  logf "cell %d could be followed by cell %d" i j;
+                  (* Cell # i is the (i+1)-th vertex in the graph *)
+                  wg := WG.add_edge !wg (i+1) (combine tf cell_formula_i) (j+1);
+                  zero_indegree_vertices := BatSet.Int.remove (j+1) !zero_indegree_vertices;
+                  (* Adding i and i's ancestors into j's ancestors set *)
+                  logf "updating ancestors and predecessors";
+                  let i_ancestors = ancestors.(i) in
+                  let j_ancestors = BatSet.Int.union ancestors.(j) i_ancestors in
+                  BatArray.set ancestors j (BatSet.Int.add i j_ancestors);
+                  (* Adding j to all its ancestors' descendants sets *)
+                  BatSet.Int.iter (fun k -> 
+                    let descendants_of_k = descendants.(k) in
+                    BatArray.set descendants k (BatSet.Int.add j descendants_of_k); 
+                    )
+                  ancestors.(j);
+                end
               end
-            end
           ) 
           targets
         end
