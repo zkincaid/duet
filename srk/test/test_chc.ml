@@ -4,9 +4,13 @@ open Syntax
 open Test_pervasives
 open Chc
 open Iteration
+module A = Arraycontent
 
 let pd = (module Product(LinearRecurrenceInequation)(PolyhedronGuard) :
   PreDomain)
+
+let ad = (module A.Array_analysis(Product(LinearRecurrenceInequation)(PolyhedronGuard)) : PreDomain)
+
 
 let mk_rel_atom_fresh srk fp ?(name="R") syms =
   let typs = List.map (typ_symbol srk) syms in
@@ -99,20 +103,23 @@ let arr_read_write () =
       (declare-var i Int)
       (declare-var |i'| Int)
       (declare-var a1 (Array Int Int))
+      (declare-var a2 (Array Int Int))
       (rule (=> (= i 0) (Entry a1 i)))
-      (rule (=> (and (Entry a1 i) (= (+ i 1) |i'|) (= (select a1 i) 0)) (L a1 |i'|)))
-     (rule (=> (and (L a1 i) (= (+ i 1) |i'|) (= (select a1 i) 0)) (L a1 |i'|)))
+      (rule (=> (and (Entry a1 i) (= a1 a2) (= (select a1 i) 99) (= (+ i 1) |i'|)) (L a2 |i'|)))
+     (rule (=> (and (L a1 i) (= (+ i 1) |i'|) (= a1 a2) (= (select a1 i) 99)) (L a2 |i'|)))
 
-     (rule (=> (and (L a1 i) (< 0 i) (= (select a1 i) 1)) Error))
+     (rule (=> (and (L a1 i) (< 10 i) (= (select a1 5) 1)) Error))
 
       (query Error)"
   in
   let fp = Chc.Fp.create () in
   Log.errorf "HERE";
   let fp = Chc.ChcSrkZ3.parse_string srk fp smt2str in
-  Log.errorf "JERE@";
-  Log.errorf "fp is %a" (Chc.Fp.pp srk) fp;
-  assert true
+  Log.errorf "CHC is %a" (Chc.Fp.pp srk) fp;
+  Log.errorf "HERE2";
+  let res = Fp.check srk fp ad in
+  Log.errorf "FAILEDHERE";
+  assert (res = `No)
   
 let suite = "Chc" >:::
   [

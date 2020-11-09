@@ -67,7 +67,7 @@ let sort_of_typ z3 = function
   | `TyReal -> Z3.Arithmetic.Real.mk_sort z3
   | `TyBool -> Z3.Boolean.mk_sort z3
 
-let rec eval alg ?(quants_added=0) ?(skolemized_quants=Hashtbl.create 91) ast =
+let rec eval alg ?(quants_added=0) ?(skolemized_quants=Hashtbl.create 91) ?(quants_seen=0) ast =
   let open Z3 in
   let open Z3enums in
   let rec eval_arr_term quants_added arr rdterm =
@@ -77,17 +77,17 @@ let rec eval alg ?(quants_added=0) ?(skolemized_quants=Hashtbl.create 91) ast =
         match FuncDecl.get_decl_kind decl with
         | OP_UNINTERPRETED -> alg (`App (decl, [rdterm]))
         | OP_STORE -> 
-          let i = eval alg ~quants_added ~skolemized_quants (List.nth (Expr.get_args arr) 1) in
-          let v = eval alg ~quants_added ~skolemized_quants (List.nth (Expr.get_args arr) 2) in
+          let i = eval alg ~quants_added ~skolemized_quants ~quants_seen (List.nth (Expr.get_args arr) 1) in
+          let v = eval alg ~quants_added ~skolemized_quants ~quants_seen (List.nth (Expr.get_args arr) 2) in
           let a = eval_arr_term quants_added (List.hd (Expr.get_args arr)) rdterm in
           alg (`Ite ((alg (`Atom (`Eq, i, rdterm))), v, a))
         | _ -> invalid_arg ("eval: unknown array parse: " ^ (Expr.to_string arr))
       end
     | VAR_AST ->
       let index = (Z3.Quantifier.get_index arr) in
-      if Hashtbl.mem skolemized_quants index = false then 
+      if Hashtbl.mem skolemized_quants (index + quants_seen) = false then 
         failwith "Array bound vars must be skolemized"
-      else alg (`ArrVar (Hashtbl.find skolemized_quants index, rdterm))
+      else alg (`ArrVar (Hashtbl.find skolemized_quants (index + quants_seen), rdterm))
     | _ ->  invalid_arg "eval: unknown ast type"
   in
   let is_array_term expr =
@@ -107,7 +107,7 @@ let rec eval alg ?(quants_added=0) ?(skolemized_quants=Hashtbl.create 91) ast =
       if is_array_term ast then (
         match FuncDecl.get_decl_kind decl, Expr.get_args ast with
         | OP_SELECT, [a; i] -> 
-          eval_arr_term quants_added a (eval alg ~quants_added ~skolemized_quants i)
+          eval_arr_term quants_added a (eval alg ~quants_added ~skolemized_quants ~quants_seen i)
         | OP_EQ, [a; b] -> 
           let i = alg (`Var (0, `TyInt)) in
           alg (`Quantify (`Forall, 
@@ -118,7 +118,7 @@ let rec eval alg ?(quants_added=0) ?(skolemized_quants=Hashtbl.create 91) ast =
                                       eval_arr_term (quants_added + 1) b i))))
         | _ -> assert false)
       else (
-        let args = List.map (eval alg ~quants_added ~skolemized_quants) (Expr.get_args ast) in
+        let args = List.map (eval alg ~quants_added ~skolemized_quants ~quants_seen) (Expr.get_args ast) in
         match FuncDecl.get_decl_kind decl, args with
         | (OP_UNINTERPRETED, args) -> alg (`App (decl, args))
         | (OP_ADD, args) -> alg (`Add args)
@@ -153,10 +153,13 @@ let rec eval alg ?(quants_added=0) ?(skolemized_quants=Hashtbl.create 91) ast =
     alg (`Real (qq_val ast))
   | VAR_AST ->
     let index = (Z3.Quantifier.get_index ast) in
-    if Hashtbl.mem skolemized_quants index then
-      alg (`Const (Hashtbl.find skolemized_quants index))
+    if Hashtbl.mem skolemized_quants (index + quants_seen) then
+      alg (`Const (Hashtbl.find skolemized_quants (index + quants_seen)))
     else
+    if index >= quants_seen then
       alg (`Var (index + quants_added, (typ_of_sort (Expr.get_sort ast))))
+    else
+      alg (`Var (index, (typ_of_sort (Expr.get_sort ast))))
   | QUANTIFIER_AST ->
     let ast = Z3.Quantifier.quantifier_of_expr ast in
     let qt =
@@ -171,7 +174,7 @@ let rec eval alg ?(quants_added=0) ?(skolemized_quants=Hashtbl.create 91) ast =
                          body)))
       (Z3.Quantifier.get_bound_variable_names ast)
       (Z3.Quantifier.get_bound_variable_sorts ast)
-      (eval alg (Z3.Quantifier.get_body ast))
+      (eval alg ~quants_added ~skolemized_quants ~quants_seen:(quants_seen+1) (Z3.Quantifier.get_body ast))
   | FUNC_DECL_AST
   | SORT_AST
   | UNKNOWN_AST -> invalid_arg "eval: unknown ast type"

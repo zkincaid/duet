@@ -118,31 +118,33 @@ let mfa_to_lia srk matrix =
     | _ -> failwith "mfa formula needs to start with leading univ quant"
   in
   let uquant_depth' = Symbol.Set.cardinal (get_arr_syms srk matrix) in
-  let nonvarreadterms = Hashtbl.create 100 in
   let arrcounter = ref 0 in
   let symread_to_numsym =
     Memo.memo (fun _ -> 
         arrcounter := !arrcounter + 1;
         mk_var srk (!arrcounter - 1) `TyInt)
   in
-  let termreads = Hashtbl.create 100 in
-  let termread_to_numsym =
+  let termreads : (symbol, 'a term) Hashtbl.t = Hashtbl.create 100 in
+  let termread_to_numsym : 'c * 'd -> 'a term =
     Memo.memo (fun (arrsym, readterm) -> 
         Hashtbl.add termreads arrsym readterm;
         mk_const srk (mk_symbol srk `TyInt))
   in
-  let termalg = function
-    | `App (arrsym, [readterm]) -> 
+  let rec termalg = function
+    | `App (arrsym, [readterm]) ->
+      let readterm = Expr.term_of srk readterm in
       begin match destruct srk readterm with
       | `Var (0, `TyInt) -> symread_to_numsym arrsym 
       | `Var _ -> failwith "mfa formula should only have single bound var"
-      | _ -> termread_to_numsym (arrsym, readterm)
+      | _ -> (termread_to_numsym (arrsym, readterm) :> ('a, typ_arith) expr)
       end
     | `Var (0, `TyInt) -> mk_var srk uquant_depth' `TyInt
     | `Var _ -> failwith "mfa formula should only have single bound var"
+    | `Ite (cond, bthen, belse) -> (*TODO: confirm right*)Log.errorf "\n\nTERMCONDCOND is%a" (Formula.pp srk) cond;
+      mk_ite srk (Formula.eval srk formalg cond) bthen belse
     | open_term -> Term.construct srk open_term 
-  in
-  let formalg = function
+  
+  and formalg = function
     | `Atom (`Eq, x, y) -> 
       mk_eq srk (Term.eval srk termalg x) (Term.eval srk termalg y)
     | `Atom (`Leq, x, y) -> 
@@ -155,15 +157,14 @@ let mfa_to_lia srk matrix =
   let functional_consistency_clauses =
     List.map (fun (arrsym, readterm) ->
         (* figure out how to not have to cast this *)
-        let readtermexpr = (readterm :> ('a, typ_fo) expr) in
         mk_if 
           srk 
           (mk_eq srk (mk_var srk uquant_depth' `TyInt) readterm)
           (mk_eq 
              srk 
              (symread_to_numsym arrsym) 
-             (termread_to_numsym (arrsym, readtermexpr))))
-      (BatHashtbl.to_list nonvarreadterms)
+             (termread_to_numsym (arrsym, readterm))))
+      (BatHashtbl.to_list termreads)
   in
   let matrix = mk_and srk (matrix :: functional_consistency_clauses) in
   let phi = 
@@ -219,6 +220,18 @@ let is_eq_projs srk phi1 phi2 tr =
   | `Unsat -> `Yes
   | `Unknown -> `Unknown
 
+let lift srk (proj, proj') arr_map phi =
+  let map sym =  
+    if sym = proj || sym = proj' 
+    then mk_var srk 0 `TyInt
+    else if Hashtbl.mem arr_map sym 
+    then mk_app srk (Hashtbl.find arr_map sym) [mk_var srk 0 `TyInt] 
+    else mk_const srk sym
+  in
+  mk_forall srk `TyInt (substitute_const srk map phi)
+
+
+ 
 
     
 module Array_analysis (Iter : PreDomain) = struct
@@ -236,6 +249,7 @@ module Array_analysis (Iter : PreDomain) = struct
     let exists = TransitionFormula.exists tf in
     let tr_symbols = TransitionFormula.symbols tf in
     let phi = TransitionFormula.formula tf in
+    Log.errorf "\n\nFORMuLA IS %a" (Formula.pp srk) phi;
     let num_trs, arr_trs = separate_symbols_by_sort srk tr_symbols in 
     let proj_inds, arr_map, (new_trs, phi_proj) = projection srk phi arr_trs in
     let matrix = to_mfa srk phi_proj in

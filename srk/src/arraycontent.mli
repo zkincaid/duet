@@ -36,6 +36,9 @@ val projection :  'a context ->
            (symbol, symbol) Hashtbl.t *
            ((symbol * symbol) list * 'a formula)
 
+val lift : 'a context -> (symbol * symbol) -> (symbol, symbol) Hashtbl.t -> 
+  'a formula -> 'a formula
+
 val is_eq_projs : 
   'a Syntax.context -> 
   'a Syntax.formula -> 

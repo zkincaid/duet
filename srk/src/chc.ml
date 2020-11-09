@@ -23,6 +23,8 @@ let mk_rel_atom srk fp rel syms =
   then rel, syms
   else failwith "Types Error Rel Atom"
 
+let is_array_sym srk sym = typ_symbol srk sym = `TyFun([`TyInt], `TyInt)
+
 
 module Relation = struct
   type t = relation 
@@ -112,6 +114,9 @@ module Fp = struct
           Symbol.Map.empty
           a
       in
+      let sym_args sym =
+        if is_array_sym srk sym then [mk_var srk 0 `TyInt] else []
+      in
       let is_one (_, _, phi) = Formula.equal phi (mk_true srk) in
       let is_zero (_, _, phi) = Formula.equal phi (mk_false srk) in
       let zero = emptyarr, emptyarr, mk_false srk in
@@ -138,24 +143,38 @@ module Fp = struct
           let (pre1, post1, phi1) = x in
           let (pre2, post2, phi2) = y in
           let pre' = Array.map (fun sym -> dup_symbol srk sym) pre1 in
-          let post' = Array.map (fun sym -> dup_symbol srk sym) post2 in 
-          let rhs_pre_postmap = 
-            map_union (mk_subst_map post2 post') (mk_subst_map pre2 post1)
+          let post' = Array.map (fun sym -> dup_symbol srk sym) post2 in
+          let lhs_subst =
+            (fun sym ->
+               if Array.mem sym pre1 then
+                 mk_app 
+                   srk 
+                   (pre'.(BatArray.findi (fun s -> s = sym) pre1))
+                   (sym_args sym)
+               else mk_app srk sym (sym_args sym))
           in
           let rhs_subst =
             Memo.memo 
-              ~size:(2 * (Symbol.Set.cardinal (symbols phi2)))
+              ~size:((Symbol.Set.cardinal (symbols phi2) * 4/3))
               (fun sym -> 
-                 if Symbol.Map.mem sym rhs_pre_postmap then
-                   Symbol.Map.find sym rhs_pre_postmap
-                 else (mk_const srk (dup_symbol srk sym)))
+                 if Array.mem sym pre2 then
+                   mk_app 
+                     srk 
+                     (post1.(BatArray.findi (fun s -> s = sym) pre2))
+                     (sym_args sym)
+                 else if Array.mem sym post2 then
+                   mk_app 
+                     srk 
+                     (post'.(BatArray.findi (fun s -> s = sym) post2))
+                     (sym_args sym)
+                 else mk_app srk (dup_symbol srk sym) (sym_args sym))
           in
-          let phi2 = substitute_const srk rhs_subst phi2 in
-          let phi1 = substitute_map srk (mk_subst_map pre1 pre') phi1 in
+          let phi2 = substitute_sym srk rhs_subst phi2 in
+          let phi1 = substitute_sym srk lhs_subst phi1 in
           pre', post', mk_and srk [phi1; phi2]
         )
       in
-      let star (pre, post, phi) =
+      let star (pre, post, phi) = Log.errorf "\n\nEMPEMPEMP\n\n";
         let module PD = (val pd : Iteration.PreDomain) in
         let trs =
           BatArray.fold_lefti
@@ -247,8 +266,7 @@ module ChcSrkZ3 = struct
     | ARRAY_SORT -> `TyFun ([`TyInt], `TyInt) 
     |_ -> failwith "TODO: allow function types"
 
-  let is_array_sym srk sym = typ_symbol srk sym = `TyFun([`TyInt], `TyInt)
-
+  
   let mk_eq_arrs srk a1 a2 = 
     mk_forall 
       srk 
