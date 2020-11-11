@@ -1598,7 +1598,7 @@ let pp_smtlib2_gen ?(named=false) ?(env=Env.empty) ?(strings=Hashtbl.create 991)
       else
         fprintf formatter "(assert %a)@;" (go env) phi
     ) assertions;
-  fprintf formatter "(check-sat)@]"
+  fprintf formatter "(check-sat)(get-model)@]"
 
 let pp_smtlib2 ?(env=Env.empty) srk formatter expr =
   pp_smtlib2_gen ~env srk formatter [expr]

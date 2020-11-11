@@ -5,7 +5,28 @@ module V = Linear.QQVector
 module M = Linear.QQMatrix
 module Z = Linear.ZZVector
 module H = Abstract
+module T = TransitionFormula
 include Log.Make(struct let name = "srk.array:" end)
+
+(* Assumes only two sorts, int and int -> int*)
+let partition_trs srk tr_symbols =
+  List.partition (fun (s, _) -> typ_symbol srk s = `TyInt) tr_symbols
+
+let arr_trs srk tf = snd (partition_trs srk (T.symbols tf))
+(*let int_trs srk tf = fst (partition_trs srk (T.symbols tf))*)
+
+module Bitbl = struct
+  type ('a, 'b) t = ('a, 'b) Hashtbl.t * ('b, 'a) Hashtbl.t
+  let create size = Hashtbl.create size, Hashtbl.create size
+  let mem (tbl, _) a = Hashtbl.mem tbl a
+  let rev_mem (_, inv) b = Hashtbl.mem inv b
+  let add (tbl, inv) a b =
+    if Hashtbl.mem tbl a || Hashtbl.mem inv b then
+      failwith "Attempted to add matched element to bimap"
+    else (Hashtbl.add tbl a b; Hashtbl.add inv b a)
+  let find (tbl, _) a = Hashtbl.find tbl a
+  let rev_find (_, inv) b = Hashtbl.find inv b
+end
 
 (** Subsitute tbl[sym] for sym in phi for any sym that appears in tbl *)
 let tbl_subst srk phi tbl = 
@@ -14,51 +35,39 @@ let tbl_subst srk phi tbl =
     (fun sym -> BatHashtbl.find_default tbl sym (mk_const srk sym))
     phi
 
-(* todo: figure out why the commented version causes infinite loop somewhere *)
-let projection srk phi arr_tr_syms =
-  let arr_map = Hashtbl.create (2 * (List.length arr_tr_syms)) in
+let projection srk tf =
+  let map = Hashtbl.create (List.length (arr_trs srk tf) * 8 / 3) in
   let j = mk_symbol srk ~name:"j" `TyInt in
-  let j' = mk_symbol srk ~name:"j'" `TyInt in
+let j' = mk_symbol srk ~name:"j'" `TyInt in
   let phi = 
     mk_and 
       srk 
       [mk_eq srk (mk_const srk j) (mk_const srk j');
-       phi]
+       (T.formula tf)]
   in
-  let f (phi_proj_trs, phi_proj) (a, a') = 
+  let f (trs, phi_proj) (a, a') = 
     let z = mk_symbol srk ~name:"z"`TyInt in
     let z' = mk_symbol srk ~name:"z'" `TyInt in
-    Hashtbl.add arr_map z a;
-    Hashtbl.add arr_map z' a';
-    (z, z') :: phi_proj_trs,
-    mk_and
-      srk
-      [mk_forall srk `TyInt
-         (mk_if 
-            srk 
-            (mk_eq srk (mk_var srk 0 `TyInt) (mk_const srk j))
-            (mk_and 
-               srk 
-               [mk_eq srk (mk_const srk z) (mk_app srk a [mk_var srk 0 `TyInt]);
-                mk_eq srk (mk_const srk z') (mk_app srk a' [mk_var srk 0 `TyInt])]));
-       phi_proj]
-    (*mk_and 
+    Hashtbl.add map z a;
+    Hashtbl.add map z' a';
+    (z, z') :: trs,
+    mk_and 
       srk 
       [mk_eq srk (mk_const srk z) (mk_app srk a [mk_const srk j]);
        mk_eq srk (mk_const srk z') (mk_app srk a' [mk_const srk j]);
-       phi_proj]*)
+       phi_proj]
   in
-  (j, j'), arr_map, List.fold_left f ([(j, j')], phi) arr_tr_syms
+  let trs, phi' = 
+    List.fold_left f ([(j, j')], phi) (arr_trs srk tf) 
+  in
+  (j, j'), map, T.make ~exists:(T.exists tf) phi' trs 
 
-(* Assumes only two sorts, int and int -> int*)
-let separate_symbols_by_sort srk tr_symbols =
-  List.partition (fun (s, _) -> typ_symbol srk s = `TyInt) tr_symbols
 
 let get_arr_syms srk phi =
   let symbols = Syntax.symbols phi in
   Symbol.Set.filter (fun sym -> not (typ_symbol srk sym = `TyInt)) symbols
 
-let to_mfa srk (phi : 'a formula) =
+let to_mfa srk tf =
   let skolemtbl = Hashtbl.create 100 in
   (* skolemize every exist quant that has no preceding universal var quant *)
   let rec skolem_exists_head depth univ_depth srk expr =
@@ -81,7 +90,7 @@ let to_mfa srk (phi : 'a formula) =
         Some res
     | _ -> None
   in
-  let phi = custom_eval srk (skolem_exists_head 0 None) phi in
+  let phi = custom_eval srk (skolem_exists_head 0 None) (T.formula tf) in
   let disj bool_list = List.fold_left (||) false bool_list in
   (* merge univ quant so just a single univ quant *)
   let alg = function
@@ -110,8 +119,11 @@ let to_mfa srk (phi : 'a formula) =
   (* observe that the leading univ quant not added back yet *)
   mk_forall srk `TyInt matr
 
+let flatten syms = List.fold_left (fun acc (sym, sym') -> sym :: sym' :: acc) [] syms 
+
+
 (* we assume mfa formula have just a single (universal) quantifier. *)
-let mfa_to_lia srk matrix =
+let mfa_to_lia srk matrix free_num_syms =
   let matrix = 
     match destruct srk matrix with
     | `Quantify (`Forall, _, `TyInt, matrix) -> matrix
@@ -173,7 +185,7 @@ let mfa_to_lia srk matrix =
       matrix
       (0--(uquant_depth' - 1))
   in
-  mk_forall srk `TyInt phi
+  mk_exists_consts srk (fun sym -> List.mem sym (flatten free_num_syms)) (mk_forall srk `TyInt phi)
 
 let mbp_qe srk phi =
   let qp, matr = Quantifier.normalize srk phi in
@@ -194,31 +206,7 @@ let mbp_qe srk phi =
   in
   remove_quant qt syms matr
 
-let pmfa_to_lia srk pmfa = mfa_to_lia srk (to_mfa srk pmfa)
-
-let merge_proj_syms srk trs1 trs2 =
-  let f (x, x') (y, y') = 
-    mk_eq srk (mk_const srk x) (mk_const srk y), 
-    (mk_eq srk (mk_const srk x') (mk_const srk y'))
-  in
-  let eqs = BatList.map2 f trs1 trs2 in
-  let a, b = List.split eqs in
-  a @ b
-
-let is_eq_projs srk phi1 phi2 tr =
-  let _, _, (trs1, phi1_proj) = projection srk phi1 tr in
-  let _, _, (trs2, phi2_proj) = projection srk phi2 tr in
-  let phi1_proj_lia = mk_forall srk `TyInt (pmfa_to_lia srk phi1_proj) in
-  let phi2_proj_lia = mk_forall srk `TyInt (pmfa_to_lia srk phi2_proj) in
-  let consistency_syms = merge_proj_syms srk trs1 trs2 in
-  let phi = mk_and srk (phi1_proj_lia :: consistency_syms) in
-  let psi = mk_and srk (phi2_proj_lia :: consistency_syms) in
-  let equiv =   mk_or srk [mk_and srk [phi; mk_not srk psi];
-               mk_and srk [mk_not srk phi; psi]] in
-  match Quantifier.simsat srk equiv with
-  | `Sat -> `No
-  | `Unsat -> `Yes
-  | `Unknown -> `Unknown
+(*let pmfa_to_lia srk pmfa syms = mfa_to_lia srk (to_mfa srk pmfa) syms*)
 
 let lift srk (proj, proj') arr_map phi =
   let map sym =  
@@ -231,14 +219,13 @@ let lift srk (proj, proj') arr_map phi =
   mk_forall srk `TyInt (substitute_const srk map phi)
 
 
- 
 
     
 module Array_analysis (Iter : PreDomain) = struct
 
   type 'a t = 
     { iter_obj : 'a Iter.t; 
-      proj_inds : Symbol.t * Symbol.t; 
+      proj_ind : Symbol.t * Symbol.t; 
       arr_map : (Symbol.t, Symbol.t) Hashtbl.t;
       new_trs : (Symbol.t * Symbol.t) list;
       iter_trs : (Symbol.t * Symbol.t) list;
@@ -248,16 +235,16 @@ module Array_analysis (Iter : PreDomain) = struct
   let abstract srk tf =
     let exists = TransitionFormula.exists tf in
     let tr_symbols = TransitionFormula.symbols tf in
-    let phi = TransitionFormula.formula tf in
-    Log.errorf "\n\nFORMuLA IS %a" (Formula.pp srk) phi;
-    let num_trs, arr_trs = separate_symbols_by_sort srk tr_symbols in 
-    let proj_inds, arr_map, (new_trs, phi_proj) = projection srk phi arr_trs in
-    let matrix = to_mfa srk phi_proj in
-    let lia = mfa_to_lia srk matrix in
-    let iter_trs = num_trs@new_trs in
-    let ground = TransitionFormula.make ~exists (mbp_qe srk lia) iter_trs in
+let num_trs, _ = partition_trs srk tr_symbols in 
+    let proj_ind, arr_map, tf_proj = projection srk tf in
+    let matrix = to_mfa srk tf_proj in
+    let new_trs = T.symbols tf_proj in
+ 
+let iter_trs = num_trs@new_trs in 
+    let lia = mfa_to_lia srk matrix iter_trs in
+  let ground = TransitionFormula.make ~exists (mbp_qe srk lia) iter_trs in
     {iter_obj=Iter.abstract srk ground;
-     proj_inds;
+     proj_ind;
      arr_map;
      new_trs;
      iter_trs;
@@ -381,8 +368,8 @@ module Array_analysis (Iter : PreDomain) = struct
          mk_and srk [noop_ground; projed_right_lc]] 
     in
     let map sym =  
-      if sym = fst obj.proj_inds || sym = snd obj.proj_inds 
-      then mk_var srk 0 `TyInt
+if sym = fst obj.proj_ind || sym = snd obj.proj_ind 
+then mk_var srk 0 `TyInt
       else if Hashtbl.mem obj.arr_map sym 
       then mk_app srk (Hashtbl.find obj.arr_map sym) [mk_var srk 0 `TyInt] 
       else mk_const srk sym

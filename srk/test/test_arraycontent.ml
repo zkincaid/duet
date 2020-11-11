@@ -4,6 +4,7 @@ open Syntax
 open Test_pervasives
 open Iteration
 module A = Arraycontent
+module T = TransitionFormula
 module Array_vas = A.Array_analysis(Product(LinearRecurrenceInequation)(PolyhedronGuard))
 (*module Array_vas = A.Array_analysis(Product(Product(Vass)(PolyhedronGuard))(LinearRecurrenceInequation))*)
 
@@ -43,6 +44,43 @@ let assert_equiv_quant_formula s t =
     ~printer:(Formula.show srk)
     ~cmp:(fun _ _ -> Quantifier.simsat srk equiv_formula = `Unsat) s t
 
+let merge_proj_syms srk trs1 trs2 =
+  let f (x, x') (y, y') = 
+    mk_eq srk (mk_const srk x) (mk_const srk y), 
+    (mk_eq srk (mk_const srk x') (mk_const srk y'))
+  in
+  let eqs = BatList.map2 f trs1 trs2 in
+  let a, b = List.split eqs in
+  a @ b
+
+let pmfa_to_lia srk pmfa syms = A.mfa_to_lia srk (A.to_mfa srk pmfa) syms
+
+
+
+let mk_eq_projs srk phi1 phi2 tr num_trs =
+  let (j1, j1'), map1, phi1_proj = A.projection srk phi1 in
+  let (j2, j2'), map2, phi2_proj = A.projection srk phi2 in
+  let map1 = invert map1 in
+  let map2 = invert map2 in
+  let trs1 = List.map (fun (a, a') -> (Hashtbl.find map1 a, Hashtbl.find map1 a')) tr in
+  let trs2 = List.map (fun (a, a') -> (Hashtbl.find map2 a, Hashtbl.find map2 a')) tr in
+  let trs1 = (j1, j1') :: trs1 in
+  let trs2 = (j2, j2') :: trs2 in
+
+
+  let phi1_proj_lia = pmfa_to_lia srk phi1_proj ((T.symbols phi1_proj) @ num_trs) in
+  to_file srk phi1_proj_lia "/Users/jakesilverman/Documents/duet/duet/projtest2.smt2" ; 
+ 
+  let phi2_proj_lia = pmfa_to_lia srk phi2_proj ((T.symbols phi2_proj) @ num_trs) in
+  let consistency_syms = merge_proj_syms srk trs1 trs2 in
+  let phi = mk_and srk (phi1_proj_lia :: consistency_syms) in
+  let psi = mk_and srk (phi2_proj_lia :: consistency_syms) in
+  let all_num_trs = num_trs @ (T.symbols phi1_proj) @ (T.symbols phi2_proj) in
+  let tr_syms_flat = List.fold_left (fun acc (sym, sym') -> sym :: sym' :: acc) [] all_num_trs in
+  let phi = mk_exists_consts srk (fun sym -> List.mem sym tr_syms_flat) phi in
+  let psi = mk_exists_consts srk (fun sym -> List.mem sym tr_syms_flat) psi in
+  A.mbp_qe srk phi, A.mbp_qe srk psi
+
 
 
 let pmfa_to_lia0 () =
@@ -52,30 +90,31 @@ let pmfa_to_lia0 () =
     forall `TyInt (a(var 0 `TyInt) = b(var 0 `TyInt) &&
                    a(x) = (int 99))
   in
-  let (j, j'), map, (new_trs, phi_proj) = A.projection srk phi [(asym, bsym)] in
+  let tf = T.make phi [(asym, bsym); (xsym, xsym')] in
+  let (j, _), map, phi_proj = A.projection srk tf in
   let matrix = A.to_mfa srk phi_proj in
-  let lia = A.mfa_to_lia srk matrix in
-  let tr_syms_flat = List.fold_left (fun acc (sym, sym') -> sym :: sym' :: acc) [] new_trs in
+  let lia = A.mfa_to_lia srk matrix (T.symbols phi_proj) in
+  (*let tr_syms_flat = List.fold_left (fun acc (sym, sym') -> sym :: sym' :: acc) [] new_trs in
   let tr_syms_flat = xsym :: xsym' :: tr_syms_flat in
   let lia = mk_exists_consts srk (fun sym -> List.mem sym tr_syms_flat) lia in
-  Log.errorf "LIA is %a\n\n" (Formula.pp srk) lia;
+  Log.errorf "LIA is %a\n\n" (Formula.pp srk) lia;*)
   let lia = A.mbp_qe srk lia in
   let map = invert map in
   let (z, z') = mk_const srk (Hashtbl.find map asym), mk_const srk (Hashtbl.find map bsym) in
-  let j, j' = mk_const srk j, mk_const srk j' in
+  let j = mk_const srk j in
   let lam =
     let open Infix in
-    x' = x + (int 1) && j = j' && z = z' && (z = (int 99) || !(x = j))
+    x' = x + (int 1) && z = z' && (z = (int 99) || !(x = j))
   in
   let equiv_formula =
-    mk_or srk [mk_and srk [lam; mk_not srk lia];
-               (*mk_and srk [mk_not srk lam; lia]*)]
+    mk_or srk [(*mk_and srk [lam; mk_not srk lia];*)
+               mk_and srk [mk_not srk lam; lia]]
   in
-  Log.errorf "EQUIV is \n\n %a" (pp_smtlib2 srk) equiv_formula; 
+  to_file srk equiv_formula "/Users/jakesilverman/Documents/duet/duet/projtest.smt2" ; 
   assert_equiv_formula lam lia
 
 
-let pmfa_to_lia1 () =
+(*let pmfa_to_lia1 () =
   let phi =
     let open Infix in
     exists `TyInt (
@@ -97,9 +136,9 @@ let pmfa_to_lia1 () =
   assert_equal_formula lia 
     (mk_false srk)
 
+*)
 
-
-
+(*
 let pred_test2 () =
   let phi =
     let open Infix in
@@ -126,7 +165,7 @@ let pred_test2 () =
   let lia = A.to_mfa srk phi in
   assert_equal_formula lia 
     (mk_false srk)
-
+*)
 let merge_proj_syms srk trs1 trs2 =
   let f (x, x') (y, y') = 
     mk_eq srk (mk_const srk x) (mk_const srk y), 
@@ -172,9 +211,18 @@ let iter_init () =
       y
       (Array_vas.abstract srk tf)
   in
-  assert (Arraycontent.is_eq_projs srk iter psi [(asym, asym')] = `Yes)
+  let iter = T.make iter [(asym, asym'); (xsym, xsym'); (ysym, ysym)] in
+  let psi = T.make psi [(asym, asym'); (xsym, xsym'); (ysym, ysym)] in 
+  let phi, psi = mk_eq_projs srk iter psi [(asym, asym')] [(xsym, xsym'); (ysym, ysym)] in
+  let equiv_formula =
+    mk_or srk [mk_and srk [phi; mk_not srk psi];
+               (*mk_and srk [mk_not srk phi; psi]*)]
+  in
+  to_file srk equiv_formula 
+    "/Users/jakesilverman/Documents/duet/duet/equiv_form.smt2";
+  assert_equiv_formula phi psi
 
-
+(*
 let iter_non_null () =
   let phi =
     let open Infix in
@@ -210,11 +258,11 @@ let iter_non_null () =
       y
       (Array_vas.abstract srk tf)
   in
-  assert (Arraycontent.is_eq_projs srk psi iter [(asym, asym')] = `Yes)
+  assert (Arraycontent.is_eq_projs srk psi iter [(asym, asym')] [] = `Yes)
 
-
+*)
 (*this currently times out when showing iter -> psi *)
-let iter_same () =
+(*let iter_same () =
   let phi =
     let open Infix in
     x' = x + (int 1) &&
@@ -256,14 +304,14 @@ let iter_same () =
       y
       (Array_vas.abstract srk tf)
   in
-  assert (Arraycontent.is_eq_projs srk iter psi [(asym, asym')] = `Yes)
-
+  assert (Arraycontent.is_eq_projs srk iter psi [(asym, asym')] [] = `Yes)
+*)
 let suite = "ArrayContent" >:::
   [
     "pmfa_to_lia0" >:: pmfa_to_lia0;
-    "pred_test2" >:: pred_test2;
-    "pmfa_to_lia1" >:: pmfa_to_lia1;
+    (*"pred_test2" >:: pred_test2;
+    "pmfa_to_lia1" >:: pmfa_to_lia1;*)
     "iter_init" >:: iter_init;
-    "iter_non_null" >:: iter_non_null;
-    "iter_same" >:: iter_same
+    (*"iter_non_null" >:: iter_non_null;
+    "iter_same" >:: iter_same*)
   ]
