@@ -818,54 +818,70 @@ let omega_algebra =  function
            (K.to_transition_formula transition)
        in
        let nonterm tf =
-         if !termination_llrf
-            && (let result, _ = TLLRF.compute_swf srk tf in result = TLLRF.ProvedToTerminate)
-         then 
-            begin
-              logf "proved to terminate by LLRF";
-              Syntax.mk_false srk
-            end
-         else
-           let tf_for_llrf =
-            if !termination_attractor then 
-              formula_with_attractor_region tf
-            else tf
-          in
-          if !termination_llrf
-            && (let result, _ = TLLRF.compute_swf srk tf_for_llrf in result = TLLRF.ProvedToTerminate)
-          then 
-            begin
-              logf "proved to terminate by LLRF with attractor region";
-              Syntax.mk_false srk
-            end
+        let llrf_conditions = 
+          if !termination_llrf then 
+            let result, _ = TLLRF.compute_swf srk tf in 
+             if result = TLLRF.ProvedToTerminate then
+              begin
+                logf "proved to terminate by LLRF";
+                [Syntax.mk_false srk]
+              end
+             else
+              let pre =
+                let fresh_skolem =
+                  Memo.memo (fun sym ->
+                      let name = show_symbol srk sym in
+                      let typ = typ_symbol srk sym in
+                      mk_const srk (mk_symbol srk ~name typ))
+                in
+                let subst sym =
+                  match V.of_symbol sym with
+                  | Some _ -> mk_const srk sym
+                  | None -> fresh_skolem sym
+                in
+                substitute_const srk subst (TF.formula tf)
+              in
+              if !termination_attractor then 
+                let tf_for_llrf = formula_with_attractor_region tf in
+                let result, _ = TLLRF.compute_swf srk tf_for_llrf in
+                if result = TLLRF.ProvedToTerminate then 
+                  begin
+                    logf "proved to terminate by LLRF with attractor region";
+                    [Syntax.mk_false srk]
+                  end
+                else [pre]
+              else 
+                [pre]
           else
-           let dta =
-             if !termination_dta then
-               [TDTA.compute_swf_via_DTA srk tf]
-             else []
-           in
-           let exp =
-             if !termination_exp then
-               let mp =
-                 Syntax.mk_not srk
-                   (TerminationExp.mp (module Iteration.LinearRecurrenceInequation) srk tf)
-               in
-               let dta_entails_mp =
-                 (* if DTA |= mp, DTA /\ MP simplifies to DTA *)
-                 Syntax.mk_forall_consts
-                   srk
-                   (fun _ -> false)
-                   (Syntax.mk_or srk [mk_not srk (mk_and srk dta); mp])
-               in
-               match Quantifier.simsat srk dta_entails_mp with
-               | `Sat -> []
-               | _ -> [mp]
-             else []
-           in
-           let result =
-             Syntax.mk_and srk (dta@exp)
-           in
-           match Quantifier.simsat srk result with
+            []
+        in
+        let dta =
+          if !termination_dta then
+            [TDTA.compute_swf_via_DTA srk tf]
+          else []
+        in
+        let exp =
+          if !termination_exp then
+            let mp =
+              Syntax.mk_not srk
+                (TerminationExp.mp (module Iteration.LinearRecurrenceInequation) srk tf)
+            in
+            let dta_entails_mp =
+              (* if DTA |= mp, DTA /\ MP simplifies to DTA *)
+              Syntax.mk_forall_consts
+                srk
+                (fun _ -> false)
+                (Syntax.mk_or srk [mk_not srk (mk_and srk dta); mp])
+            in
+            match Quantifier.simsat srk dta_entails_mp with
+            | `Sat -> []
+            | _ -> [mp]
+          else []
+        in
+        let result =
+          Syntax.mk_and srk (llrf_conditions@dta@exp)
+        in
+        match Quantifier.simsat srk result with
            | `Unsat -> mk_false srk
            | _ -> result
        in
