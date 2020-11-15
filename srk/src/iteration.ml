@@ -949,7 +949,7 @@ let build_graph_and_compute_mp srk tf inv_predicates omega_algebra ranked_cells 
     logf "current level = %d" current_level;
     let targets = BatMap.Int.find current_level ranked_cells in
     logf "found targets";
-    for prev_level_idx = current_level - 1 downto 0 do 
+    for prev_level_idx = current_level_idx - 1 downto 0 do 
       let prev_level = levels.(prev_level_idx) in
       logf "previous level = %d" prev_level;
       let sources = BatMap.Int.find prev_level ranked_cells in 
