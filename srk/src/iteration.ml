@@ -787,7 +787,7 @@ let rank_cells cells =
   ranked_cells
   cells
 
-let build_graph_and_compute_mp srk tf inv_predicates omega_algebra ranked_cells =
+let build_graph_and_compute_mp srk tf inv_predicates omega_algebra ranked_cells num_cells =
   (* map' sends primed vars to midpoints; map sends unprimed vars to midpoints *)
   logf "start building phase transition graph";
   let (map', map) =
@@ -942,25 +942,23 @@ let build_graph_and_compute_mp srk tf inv_predicates omega_algebra ranked_cells 
     )
   ranked_cells;
   let levels = BatArray.of_enum (BatMap.Int.keys ranked_cells) in
-  let ancestors = BatArray.make (BatArray.length inv_predicates) BatSet.Int.empty in
-  let descendants = BatArray.make (BatArray.length inv_predicates) BatSet.Int.empty in
+  let ancestors = BatArray.make num_cells BatSet.Int.empty in
+  let descendants = BatArray.make num_cells BatSet.Int.empty in
   for current_level_idx = 1 to (BatArray.length levels) - 1 do 
     let current_level = levels.(current_level_idx) in
     logf "current level = %d" current_level;
     let targets = BatMap.Int.find current_level ranked_cells in
-    logf "found targets";
     for prev_level_idx = current_level_idx - 1 downto 0 do 
       let prev_level = levels.(prev_level_idx) in
       logf "previous level = %d" prev_level;
       let sources = BatMap.Int.find prev_level ranked_cells in 
-      logf "found sources";
       BatList.iter (fun (i, (pos_preds_i, neg_preds_i), cell_formula_i) -> 
         begin
           BatList.iter (fun (j, (pos_preds_j, neg_preds_j), _) -> 
             begin
             logf "checking if cell %d could be followed by cell %d" i j;
             if not (BatSet.Int.mem j (descendants.(i))) then
-              (* j is not one of i's descendants, check if i -> j *)
+              logf "j is not one of i's descendants, check if i -> j";
               if can_follow (pos_preds_i, neg_preds_i) (pos_preds_j, neg_preds_j) solver models then 
                 begin
                   logf "cell %d could be followed by cell %d" i j;
@@ -1006,7 +1004,7 @@ let compute_mp_with_phase_DAG srk candidate_predicates tf omega_algebra =
   logf "invariant partition completed";
   let ranked_cells = rank_cells cells in 
   logf "cell ranking completed";
-  build_graph_and_compute_mp srk tf invariant_predicates omega_algebra ranked_cells
+  build_graph_and_compute_mp srk tf invariant_predicates omega_algebra ranked_cells (List.length cells)
   
 module InvariantDirection (Iter : PreDomain) = struct
   type 'a t = 'a Iter.t list list
