@@ -944,12 +944,16 @@ let build_graph_and_compute_mp srk tf inv_predicates omega_algebra ranked_cells 
   let levels = BatArray.of_enum (BatMap.Int.keys ranked_cells) in
   let ancestors = BatArray.make (BatArray.length inv_predicates) BatSet.Int.empty in
   let descendants = BatArray.make (BatArray.length inv_predicates) BatSet.Int.empty in
-  for current_level = 1 to (BatArray.length levels) - 1 do 
+  for current_level_idx = 1 to (BatArray.length levels) - 1 do 
+    let current_level = levels.(current_level_idx) in
     logf "current level = %d" current_level;
     let targets = BatMap.Int.find current_level ranked_cells in
-    for prev_level = current_level - 1 downto 0 do 
+    logf "found targets";
+    for prev_level_idx = current_level - 1 downto 0 do 
+      let prev_level = levels.(prev_level_idx) in
       logf "previous level = %d" prev_level;
       let sources = BatMap.Int.find prev_level ranked_cells in 
+      logf "found sources";
       BatList.iter (fun (i, (pos_preds_i, neg_preds_i), cell_formula_i) -> 
         begin
           BatList.iter (fun (j, (pos_preds_j, neg_preds_j), _) -> 
