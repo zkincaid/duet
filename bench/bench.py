@@ -293,7 +293,7 @@ def scatter_plot():
     for i in range(len(matrix)):
         if get_category(matrix[i],0) in ok_results and get_category(matrix[i],1) in ok_results:
             time1 = get_time(matrix[i],0)
-            time2 = get_time(matrix[i],0)
+            time2 = get_time(matrix[i],1)
             out.write("%f %f\n" % (time1, time2))
 
             min_time = min(min_time,time1,time2)
