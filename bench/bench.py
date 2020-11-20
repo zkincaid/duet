@@ -294,7 +294,7 @@ def scatter_plot():
     legendentry_tt = "%s %s both correct" % (tools[0], tools[1])
 
     for i in range(len(matrix)):
-        if get_category(matrix[i],0) in ok_results and get_category(matrix[i],1) in ok_results:
+        # if get_category(matrix[i],0) in ok_results and get_category(matrix[i],1) in ok_results:
             if get_category(matrix[i],0) == "correct" and get_category(matrix[i],1) == "correct":
                 time1 = get_time(matrix[i],0)
                 time2 = get_time(matrix[i],1)
@@ -312,7 +312,7 @@ def scatter_plot():
     legendentry_tf = "%s correct, %s not correct" % (tools[0], tools[1])
 
     for i in range(len(matrix)):
-        if get_category(matrix[i],0) in ok_results and get_category(matrix[i],1) in ok_results:
+        # if get_category(matrix[i],0) in ok_results and get_category(matrix[i],1) in ok_results:
             if get_category(matrix[i],0) == "correct" and get_category(matrix[i],1) != "correct":
                 time1 = get_time(matrix[i],0)
                 time2 = get_time(matrix[i],1)
@@ -330,7 +330,7 @@ def scatter_plot():
     legendentry_ft = "%s not correct, %s correct" % (tools[0], tools[1])
 
     for i in range(len(matrix)):
-        if get_category(matrix[i],0) in ok_results and get_category(matrix[i],1) in ok_results:
+        # if get_category(matrix[i],0) in ok_results and get_category(matrix[i],1) in ok_results:
             if get_category(matrix[i],0) != "correct" and get_category(matrix[i],1) == "correct":
                 time1 = get_time(matrix[i],0)
                 time2 = get_time(matrix[i],1)
@@ -348,7 +348,7 @@ def scatter_plot():
     legendentry_ff = "%s %s both not correct" % (tools[0], tools[1])
 
     for i in range(len(matrix)):
-        if get_category(matrix[i],0) in ok_results and get_category(matrix[i],1) in ok_results:
+        # if get_category(matrix[i],0) in ok_results and get_category(matrix[i],1) in ok_results:
             if get_category(matrix[i],0) != "correct" and get_category(matrix[i],1) != "correct":
                 time1 = get_time(matrix[i],0)
                 time2 = get_time(matrix[i],1)
