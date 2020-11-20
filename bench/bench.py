@@ -281,23 +281,81 @@ def scatter_plot():
 
     matrix = recent_result_data(tools, suites)
 
-    filename = "scatter_%s_%s.dat" % (tools[0], tools[1])
-    print ("Writing data to %s" % filename)
-    out = open(filename, "w")
-    min_time = 1
-    max_time = 1
-
     # Don't include points where one tool gave a wrong answer
     ok_results = ["correct", "TIMEOUT", "unknown"]
 
+    min_time = 1
+    max_time = 1
+
+    # both correct figure
+    filename_tt = "scatter_%s_%s_tt.dat" % (tools[0], tools[1])
+    print ("Writing data to %s" % filename_tt)
+    out = open(filename_tt, "w")
+    legendentry_tt = "%s %s both correct" % (tools[0], tools[1])
+
     for i in range(len(matrix)):
         if get_category(matrix[i],0) in ok_results and get_category(matrix[i],1) in ok_results:
-            time1 = get_time(matrix[i],0)
-            time2 = get_time(matrix[i],1)
-            out.write("%f %f\n" % (time1, time2))
+            if get_category(matrix[i],0) == "correct" and get_category(matrix[i],1) == "correct":
+                time1 = get_time(matrix[i],0)
+                time2 = get_time(matrix[i],1)
+                out.write("%f %f\n" % (time1, time2))
 
-            min_time = min(min_time,time1,time2)
-            max_time = max(max_time,time1,time2)
+                min_time = min(min_time,time1,time2)
+                max_time = max(max_time,time1,time2)
+
+    out.close()
+
+    # first tool correct, second tool not correct
+    filename_tf = "scatter_%s_%s_tf.dat" % (tools[0], tools[1])
+    print ("Writing data to %s" % filename_tf)
+    out = open(filename_tf, "w")
+    legendentry_tf = "%s correct, %s not correct" % (tools[0], tools[1])
+
+    for i in range(len(matrix)):
+        if get_category(matrix[i],0) in ok_results and get_category(matrix[i],1) in ok_results:
+            if get_category(matrix[i],0) == "correct" and get_category(matrix[i],1) != "correct":
+                time1 = get_time(matrix[i],0)
+                time2 = get_time(matrix[i],1)
+                out.write("%f %f\n" % (time1, time2))
+
+                min_time = min(min_time,time1,time2)
+                max_time = max(max_time,time1,time2)
+
+    out.close()
+
+    # first tool correct, second tool not correct
+    filename_ft = "scatter_%s_%s_ft.dat" % (tools[0], tools[1])
+    print ("Writing data to %s" % filename_ft)
+    out = open(filename_ft, "w")
+    legendentry_ft = "%s not correct, %s correct" % (tools[0], tools[1])
+
+    for i in range(len(matrix)):
+        if get_category(matrix[i],0) in ok_results and get_category(matrix[i],1) in ok_results:
+            if get_category(matrix[i],0) != "correct" and get_category(matrix[i],1) == "correct":
+                time1 = get_time(matrix[i],0)
+                time2 = get_time(matrix[i],1)
+                out.write("%f %f\n" % (time1, time2))
+
+                min_time = min(min_time,time1,time2)
+                max_time = max(max_time,time1,time2)
+
+    out.close()
+
+    # first tool correct, second tool not correct
+    filename_ff = "scatter_%s_%s_ff.dat" % (tools[0], tools[1])
+    print ("Writing data to %s" % filename_ff)
+    out = open(filename_ff, "w")
+    legendentry_ff = "%s %s both not correct" % (tools[0], tools[1])
+
+    for i in range(len(matrix)):
+        if get_category(matrix[i],0) in ok_results and get_category(matrix[i],1) in ok_results:
+            if get_category(matrix[i],0) != "correct" and get_category(matrix[i],1) != "correct":
+                time1 = get_time(matrix[i],0)
+                time2 = get_time(matrix[i],1)
+                out.write("%f %f\n" % (time1, time2))
+
+                min_time = min(min_time,time1,time2)
+                max_time = max(max_time,time1,time2)
 
     out.close()
     
@@ -305,7 +363,15 @@ def scatter_plot():
                  max = max_time,
                  x = tools[0],
                  y = tools[1],
-                 data = filename)
+                 datatt = filename_tt,
+                 ttlegend = legendentry_tt,
+                 datatf = filename_tf,
+                 tflegend = legendentry_tf,
+                 dataft = filename_ft,
+                 ftlegend = legendentry_ft,
+                 dataff = filename_ff,
+                 fflegend = legendentry_ff,
+                 )
     print (Template(open("scatter.template").read()).substitute(subst))
 
 if __name__ == "__main__":
