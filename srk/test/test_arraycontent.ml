@@ -6,6 +6,17 @@ open Iteration
 module A = Arraycontent
 module T = TransitionFormula
 module Array_vas = A.Array_analysis(Product(LinearRecurrenceInequation)(PolyhedronGuard))
+
+
+let time =
+    let t = Sys.time() in
+    Log.errorf "Curr time: %fs\n" (t); t
+
+let diff t1 t2 =
+    Log.errorf "Execution time: %fs\n" (t2 -. t1)
+
+
+
 (*module Array_vas = A.Array_analysis(Product(Product(Vass)(PolyhedronGuard))(LinearRecurrenceInequation))*)
 
 (*
@@ -58,19 +69,18 @@ let pmfa_to_lia srk pmfa syms = A.mfa_to_lia srk (A.to_mfa srk pmfa) syms
 
 
 let mk_eq_projs srk phi1 phi2 tr num_trs =
-  let (j1, j1'), map1, phi1_proj = A.projection srk phi1 in
-  let (j2, j2'), map2, phi2_proj = A.projection srk phi2 in
+  let j1, map1, phi1_proj = A.projection srk phi1 in
+  let j2, map2, phi2_proj = A.projection srk phi2 in
   let map1 = invert map1 in
   let map2 = invert map2 in
   let trs1 = List.map (fun (a, a') -> (Hashtbl.find map1 a, Hashtbl.find map1 a')) tr in
   let trs2 = List.map (fun (a, a') -> (Hashtbl.find map2 a, Hashtbl.find map2 a')) tr in
-  let trs1 = (j1, j1') :: trs1 in
-  let trs2 = (j2, j2') :: trs2 in
+  let trs1 = (j1, j1) :: trs1 in
+  let trs2 = (j2, j2) :: trs2 in
 
 
   let phi1_proj_lia = pmfa_to_lia srk phi1_proj ((T.symbols phi1_proj) @ num_trs) in
-  to_file srk phi1_proj_lia "/Users/jakesilverman/Documents/duet/duet/projtest2.smt2" ; 
- 
+  to_file srk phi1_proj_lia "/Users/jakesilverman/Documents/duet/duet/projtest.smt2" ; 
   let phi2_proj_lia = pmfa_to_lia srk phi2_proj ((T.symbols phi2_proj) @ num_trs) in
   let consistency_syms = merge_proj_syms srk trs1 trs2 in
   let phi = mk_and srk (phi1_proj_lia :: consistency_syms) in
@@ -79,7 +89,8 @@ let mk_eq_projs srk phi1 phi2 tr num_trs =
   let tr_syms_flat = List.fold_left (fun acc (sym, sym') -> sym :: sym' :: acc) [] all_num_trs in
   let phi = mk_exists_consts srk (fun sym -> List.mem sym tr_syms_flat) phi in
   let psi = mk_exists_consts srk (fun sym -> List.mem sym tr_syms_flat) psi in
-  A.mbp_qe srk phi, A.mbp_qe srk psi
+  phi, psi
+  (*fst (A.mbp_qe srk phi false), fst (A.mbp_qe srk psi false)*)
 
 
 
@@ -91,14 +102,14 @@ let pmfa_to_lia0 () =
                    a(x) = (int 99))
   in
   let tf = T.make phi [(asym, bsym); (xsym, xsym')] in
-  let (j, _), map, phi_proj = A.projection srk tf in
+  let j, map, phi_proj = A.projection srk tf in
   let matrix = A.to_mfa srk phi_proj in
   let lia = A.mfa_to_lia srk matrix (T.symbols phi_proj) in
   (*let tr_syms_flat = List.fold_left (fun acc (sym, sym') -> sym :: sym' :: acc) [] new_trs in
   let tr_syms_flat = xsym :: xsym' :: tr_syms_flat in
   let lia = mk_exists_consts srk (fun sym -> List.mem sym tr_syms_flat) lia in
   Log.errorf "LIA is %a\n\n" (Formula.pp srk) lia;*)
-  let lia = A.mbp_qe srk lia in
+  let lia, _ = A.mbp_qe srk lia false in
   let map = invert map in
   let (z, z') = mk_const srk (Hashtbl.find map asym), mk_const srk (Hashtbl.find map bsym) in
   let j = mk_const srk j in
@@ -110,7 +121,7 @@ let pmfa_to_lia0 () =
     mk_or srk [(*mk_and srk [lam; mk_not srk lia];*)
                mk_and srk [mk_not srk lam; lia]]
   in
-  to_file srk equiv_formula "/Users/jakesilverman/Documents/duet/duet/projtest.smt2" ; 
+  to_file srk equiv_formula "/Users/jakesilverman/Documents/duet/duet/projtest2.smt2" ; 
   assert_equiv_formula lam lia
 
 
@@ -177,6 +188,7 @@ let merge_proj_syms srk trs1 trs2 =
 
 
 let iter_init () =
+  Log.errorf "ENTER INIT\n"; let t1 = time in
   let phi =
     let open Infix in
     x' = x + (int 1) &&
@@ -205,23 +217,37 @@ let iter_init () =
   let tr_symbols = [(xsym, xsym'); (asym, asym')] in
   let tf = TransitionFormula.make phi tr_symbols in
   let iter = 
-    Array_vas.exp 
+    Array_vas.exp
       srk 
       tr_symbols
       y
       (Array_vas.abstract srk tf)
   in
+
+  let equiv_formula =
+    mk_or srk [mk_and srk [iter; mk_not srk psi];
+               mk_and srk [mk_not srk iter; psi]]
+  in
+  to_file srk equiv_formula
+    "/Users/jakesilverman/Documents/duet/duet/arrform.smt2";
+ 
+  to_file srk iter
+    "/Users/jakesilverman/Documents/duet/duet/iter2.smt2";
+ 
   let iter = T.make iter [(asym, asym'); (xsym, xsym'); (ysym, ysym)] in
   let psi = T.make psi [(asym, asym'); (xsym, xsym'); (ysym, ysym)] in 
   let phi, psi = mk_eq_projs srk iter psi [(asym, asym')] [(xsym, xsym'); (ysym, ysym)] in
   let equiv_formula =
     mk_or srk [mk_and srk [phi; mk_not srk psi];
-               (*mk_and srk [mk_not srk phi; psi]*)]
+               mk_and srk [mk_not srk phi; psi]]
   in
-  to_file srk equiv_formula 
+  to_file srk equiv_formula
     "/Users/jakesilverman/Documents/duet/duet/equiv_form.smt2";
-  assert_equiv_formula phi psi
-
+  Log.errorf "Pre Simsat Init"; let t2 = time in
+  diff t1 t2;
+  assert (Quantifier.simsat_forward srk equiv_formula = `Unsat)
+  (*assert_equiv_formula phi psi*)
+  (*assert false*)
 (*
 let iter_non_null () =
   let phi =

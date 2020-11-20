@@ -33,9 +33,12 @@ val to_mfa : 'a context -> 'a T.t -> 'a formula
  
 val mfa_to_lia : 'a context -> 'a formula -> (Syntax.symbol * Syntax.symbol) list -> 'a formula
 
+
+
+
 (*val projection : 'a context ->'a formula -> Symbol.Set.t -> 'a t*)
 
-val mbp_qe : 'a context -> 'a formula -> 'a formula
+val mbp_qe : ?flag:bool -> 'a context -> 'a formula -> bool -> 'a formula * symbol list
 
 
 (** Projects array trans. formula to lia trans formula at symbolic dimension.
@@ -44,10 +47,11 @@ val mbp_qe : 'a context -> 'a formula -> 'a formula
       mapping from array symbol to its lia symbol
       lia trans. symbols and formula *)
 val projection :  
-  'a context -> 'a T.t -> (symbol * symbol) * (symbol, symbol) Hashtbl.t * 'a T.t
+  'a context -> 'a T.t -> symbol * (symbol, symbol) Hashtbl.t * 'a T.t
 
 val lift : 'a context -> (symbol * symbol) -> (symbol, symbol) Hashtbl.t -> 
   'a formula -> 'a formula
 
-module Array_analysis (Iter : PreDomain) : PreDomain
- 
+module Array_analysis (Iter : PreDomain) : sig
+  include PreDomain
+end

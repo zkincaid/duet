@@ -120,12 +120,40 @@ let arr_read_write () =
   let res = Fp.check srk fp ad in
   Log.errorf "FAILEDHERE";
   assert (res = `No)
-  
-let suite = "Chc" >:::
-  [
+
+let test_init () =
+  let fp = Chc.Fp.create () in
+  let fp = Chc.ChcSrkZ3.parse_file srk fp "/Users/jakesilverman/Documents/arraycopy.smt2" in 
+  let res = Fp.check srk fp ad in
+  assert (res = `No)
+
+let test_subs ()  =
+  let phi =
+    let open Infix in
+    (exists `TyInt ((forall `TyInt (a (var 1 `TyInt) = (int 99)))))
+  in
+  let subst =
+    substitute_sym 
+      srk
+      (fun sym ->
+         if sym = xsym then x else
+           mk_app 
+             srk
+             sym
+             [(mk_var srk 1 `TyInt)])
+      phi
+  in
+  Log.errorf "subst is %a" (Formula.pp srk) subst;
+  assert (1 = 2)
+
+
+  let suite = "Chc" >:::
+              [
 (*    "countup1" >:: countup1;
     "counterup2" >:: countup2;
     "xskipcount" >:: xskipcount;
     "dupunconstrsym" >:: dupuncontrsym;*)
-    "arr_read_write" >:: arr_read_write
+    (*"arr_read_write" >:: arr_read_write*)
+    "test_init" >:: test_init
+    (*"test_subs" >:: test_subs*)
   ]

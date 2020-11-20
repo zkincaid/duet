@@ -603,8 +603,11 @@ let interpolate_seq ?context:_ _ _ =
   failwith "SrkZ3.interpolate_seq not implemented"
 
 let load_smtlib2 ?(context=Z3.mk_context []) srk str =
+  Log.errorf "string is %s" str;
   let z3 = context in
+  Log.errorf "here1";
   let ast = Z3.SMT.parse_smtlib2_string z3 str [] [] [] [] in
+  Log.errorf "Here0 %n" (Z3.AST.ASTVector.get_size ast);
   let sym_of_decl =
     let cos =
       Memo.memo (fun (name, typ) ->
@@ -623,8 +626,9 @@ let load_smtlib2 ?(context=Z3.mk_context []) srk str =
         in
         cos (Symbol.to_string sym, typ)
   in
+  Log.errorf "Here %s" (Z3.AST.ASTVector.to_string ast);
   Z3.AST.ASTVector.to_expr_list ast
-  |> List.map (fun expr ->
+  |> List.map (fun expr ->Log.errorf "Here2";
          match Expr.refine srk (of_z3 srk sym_of_decl expr) with
          | `Formula phi -> phi
          | `Term _ -> invalid_arg "load_smtlib2")

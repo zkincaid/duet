@@ -430,8 +430,9 @@ let substitute_sym srk subst sexpr =
           children
           Env.empty
       in
-      substitute srk (Env.find env) (subst k)
-      |> decapture srk 0 (depth - (List.length children))
+      let f ind = try (Env.find env ind) with _ -> (mk_var srk ind `TyInt) in
+      decapture srk (List.length children) (depth - (List.length children)) (subst k)
+      |> substitute srk f
     | _ -> go_children label depth children
   and go_children label depth children =
     srk.mk label (List.map (go depth) children)
