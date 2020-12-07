@@ -2149,42 +2149,154 @@ let local_project_cube srk exists model cube =
     project
     cube
 
-let naive_rewrite_elim srk exists phi =
-  let intersect lsts = ... in
-  let union lsts = List.flatten lsts in
+(*Integer maps with a constant time "decrement all keys" operation*)
+module DecMap = struct
+  let empty = BatMap.empty,0
+  let add k v (map, c) = (BatMap.add (k + c) v map), c
+  let remove k (map, c) = BatMap.remove (k + c) map, c
+  let dec k (map, c) = map, c + k
+  let mem k (map, c) = BatMap.mem (k + c) map
+  let union dmap1 (m2, c2)= 
+    BatMap.foldi (fun k v m -> add (k + c2) v m) m2 dmap1
+  let of_enum e = BatMap.of_enum e, 0
+  let get_dec (_, c) = c
+end
+
+(* This miniscope procedure
+ * distributes quantifiers over and/or/not when possible.
+ * Quantifiers may be reordered. Dnf form or the like is never attempted
+ * even if distribution over and/or fails.
+ **)
+let miniscope srk phi : 'a formula =
+  let flip (qtyp, name, typ) =
+    match qtyp with
+    | `Exists -> `Forall, name, typ
+    | `Forall -> `Exists, name, typ
+  in
+  let pass_through qtyp expr_typ =
+    match qtyp, expr_typ with
+    | `Exists, `Exists -> `Pass
+    | `Exists, `Forall -> `Blocking
+    | `Forall, `Forall -> `Pass
+    | `Forall, `Exists -> `Blocking
+    | `Forall, `And -> `Pass
+    | `Exists, `And -> `Blocking
+    | `Exists, `Or -> `Pass
+    | `Forall, `Or -> `Blocking
+  in
+  (* This function pushes a quantifier further down into an expression.
+   * delta denotes the change in quantifier depth (# quants we have
+   * pushed through during this instance of pushdown).
+   * tot_del denotes the number of quantifiers that have been removed
+   * between the initial quantifier location and the current node.
+   * qnt contains the information of the quantifier we are pushing down 
+   * (qtyp, name, typ).
+   * node contains the subexpression we have pushing the quantifier into
+   **)
+  let rec pushdown delta tot_del qnt node =
+    let qtyp, name, typ = qnt in
+    let vars, q_del, content = node in
+    (* We use tot_del in this way to avoid updating children nodes *) 
+    let is_q_used tot_del vars = DecMap.mem delta (DecMap.dec tot_del vars) in
+    if not (is_q_used tot_del vars)
+    then (DecMap.dec 1 vars, q_del + 1, content)
+    else ( 
+      let vars' = DecMap.remove delta vars in
+      let tot_del = tot_del + q_del in
+      match content with
+      | `Tru -> node
+      | `Fls -> node
+      | `Atom _  | `Prop _ -> 
+        DecMap.dec 1 vars', 0, `Quantifier(qtyp, name, typ, node)
+      | `Not node -> 
+        DecMap.dec 1 vars, q_del, `Not(pushdown delta tot_del (flip qnt) node)
+      | `Junct (jtyp, juncts) ->
+        let l1, l2 = 
+          List.partition (fun (vars, _, _) -> is_q_used tot_del vars) juncts
+        in
+        if pass_through qtyp jtyp = `Pass || List.length l1 <= 1 then (
+          let l2 = List.map (fun (v, d, c) -> DecMap.dec 1 v, d + 1, c) l2 in
+          let c = `Junct (jtyp, (List.map (pushdown delta tot_del qnt) l1) @ l2) in
+          DecMap.dec 1 vars, q_del, c)
+        else DecMap.dec 1 vars', 0, `Quantifier (qtyp, name, typ, node)
+      | `Quantifier(q, n, t, node') ->
+        if pass_through qtyp q = `Blocking then
+          (DecMap.dec 1 vars', 0, `Quantifier(qtyp, name, typ, node))
+        else (
+          DecMap.dec 1 vars',
+          q_del,
+          `Quantifier(q, n, t, pushdown (delta + 1) tot_del qnt node')))
+  in
+  let free_vars_map expr = DecMap.of_enum (BatHashtbl.enum (free_vars expr)) in
+  (* The output is a node with 3 pieces of data:
+   * 1) the free vars
+   * 2) the quantifiers that have been pushed through this node
+   * 4) the node content (essentially the formula)
+   **)
   let alg = function
-    | `Tru -> ([], [], mk_true srk)
-    | `Fls -> ([], [], mk_false srk)
-    | `Atom (`Eq, x, y) -> ([(x, y)], [], mk_eq srk x y)
-    | `Atom (`Lt, x, y) -> ([], [], mk_lt srk x y)
-    | `Atom (`Leq, x, y) -> ([], [], mk_leq srk x y)
+    | `Tru -> DecMap.empty,0,`Tru
+    | `Fls -> DecMap.empty,0,`Fls
+    | `Atom (`Eq, x, y) ->
+      DecMap.union (free_vars_map x) (free_vars_map y),0,`Atom(mk_eq srk x y)
+    | `Atom (`Lt, x, y) ->
+      DecMap.union (free_vars_map x) (free_vars_map y),0,`Atom(mk_lt srk x y)
+    | `Atom (`Leq, x, y) ->
+      DecMap.union (free_vars_map x) (free_vars_map y),0,`Atom(mk_leq srk x y)
     | `And conjuncts ->
-      let (eqs, diseqs, conjs) = 
-        List.fold_left (fun (eqs, diseqs, conjs) (eq, diseq, conj) ->
-            eq :: eqs. diseq :: diseqs, conj :: conjs)
-          ([], [], [])
-          conjuncts
-      in
-      union eqs, intersect diseqs, mk_and srk conjs
+      let vars = List.map (fun (vars, _, _) -> vars) conjuncts in
+      let vars' = List.fold_left (DecMap.union) (DecMap.empty) vars in
+      vars',0, `Junct(`And, conjuncts)
     | `Or disjuncts ->
-       let (eqs, diseqs, disjs) = 
-        List.fold_left (fun (eqs, diseqs, conjs) (eq, diseq, disj) ->
-            eq :: eqs. diseq :: diseqs, disj :: disjs)
-          ([], [], [])
-          disjuncts
-      in
-      union eqs, intersect diseqs, mk_or srk disjs
-    | `Quantify (`Exists, name, typ, (qf_pre, phi)) ->
-    | `Quantify (`Forall, name, typ, (qf_pre, phi)) ->
-      (`Forall (name, typ)::qf_pre, phi)
-    | `Not (qf_pre, phi) -> (negate_prefix qf_pre, mk_not srk phi)
-    | `Proposition (`Var i) -> ([], mk_var srk i `TyBool)
-    | `Proposition (`App (p, args)) -> ([], mk_app srk p args)
-    | `Ite (cond, bthen, belse) ->
-      begin match combine [cond; bthen; belse] with
+      let vars = List.map (fun (vars, _, _) -> vars) disjuncts in
+      let vars' = List.fold_left (DecMap.union) 
+          (DecMap.empty) vars in
+      vars', 0, `Junct(`Or, disjuncts)
+    | `Quantify (qtyp, name, typ, sexpr) ->
+      pushdown 0 0 (qtyp, name, typ) sexpr
+    | `Not (vars, q_del, content) -> vars, 0, `Not(vars, q_del, content)
+    | `Proposition (`Var i) -> 
+      DecMap.add i `TyBool (DecMap.empty), 0, `Prop(mk_var srk i `TyBool)
+    | `Proposition (`App (p, args)) -> 
+      free_vars_map (mk_app srk p args), 0, `Prop(mk_app srk p args)
+    | `Ite _ -> failwith "TODO: ITE"
+      (*begin match combine [cond; bthen; belse] with
         | (qf_pre, [cond; bthen; belse]) ->
           (qf_pre, mk_ite srk cond bthen belse)
         | _ -> assert false
-      end
+      end*)
   in
+  let mk_junc op =
+    match op with
+    | `Or -> mk_or srk
+    | `And -> mk_and srk
+  in
+  let mk_q op =
+    match op with
+    | `Exists -> mk_exists srk
+    | `Forall -> mk_forall srk
+  in
+  let q_map = BatHashtbl.create 97 in
+  (* This function reconstructs the formula *)
+  let rec compute_expr tot_del depth node : 'a formula =
+    let vars,q_del, content = node in
+    let c = DecMap.get_dec vars in
+    let subst t = 
+      substitute srk (fun i ->
+          let (q_depth, typ) = Hashtbl.find q_map (i - c - tot_del) in
+          mk_var srk (depth - q_depth - 1) typ)
+        t
+    in
+    let tot_del = tot_del + q_del in
+    match content with
+    | `Tru -> mk_true srk
+    | `Fls -> mk_false srk
+    | `Atom phi | `Prop phi -> subst phi
+    | `Not node -> mk_not srk (compute_expr tot_del depth node)
+    | `Junct(op, juncts) ->
+      (mk_junc op) (List.map (compute_expr tot_del depth) juncts)
+    | `Quantifier (qtyp, name, typ, node) ->
+      Hashtbl.add q_map (depth) (depth, typ);
+      (mk_q qtyp) ~name typ (compute_expr tot_del (depth + 1) node)
+  in
+  compute_expr 0 0 (Formula.eval srk alg phi)
 
