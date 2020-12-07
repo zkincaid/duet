@@ -52,6 +52,7 @@ let affine_interpretation srk interp phi =
          match Interpretation.value interp sym with
          | `Bool b -> Interpretation.add_bool sym b sai
          | `Real k -> Interpretation.add_real sym k sai
+         | `Arr _ -> assert false
          | `Fun body ->
            match typ_symbol srk sym with
            | `TyFun (args, `TyReal) when List.for_all ((=) `TyReal) args ->
@@ -83,6 +84,7 @@ let affine_interpretation srk interp phi =
            match sym_interp with
            | `Bool b -> Interpretation.add_bool sym b interp
            | `Real k -> Interpretation.add_real sym k interp
+           | `Arr _ -> assert false
            | `Fun body ->
              Interpretation.add_fun
                sym

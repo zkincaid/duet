@@ -21,9 +21,11 @@ end
 
 (** {2 Types} *)
 type typ_arith = [ `TyInt | `TyReal ]
-type typ_fo = [ `TyInt | `TyReal | `TyBool ]
-type typ = [ `TyInt | `TyReal | `TyBool | `TyFun of (typ_fo list) * typ_fo]
+type typ_term = [ `TyInt | `TyReal | `TyArr ]
+type typ_fo = [ `TyInt | `TyReal | `TyBool  | `TyArr ]
+type typ = [ `TyInt | `TyReal | `TyBool | `TyArr | `TyFun of (typ_fo list) * typ_fo]
 type typ_bool = [ `TyBool ]
+type typ_arr = [ `TyArr ]
 type 'a typ_fun = [ `TyFun of (typ_fo list) * 'a ]
 
 val pp_typ : Format.formatter -> [< typ] -> unit
@@ -83,7 +85,7 @@ end
 (** {2 Expressions} *)
 
 type ('a, +'typ) expr
-type 'a term = ('a, typ_arith) expr
+type 'a term = ('a, typ_term) expr
 type 'a formula = ('a, typ_bool) expr
 
 val compare_expr : ('a,'typ) expr -> ('a,'typ) expr -> int
@@ -93,11 +95,12 @@ val compare_term : 'a term -> 'a term -> int
 val destruct : 'a context -> ('a, 'b) expr -> [
     | `Real of QQ.t
     | `App of symbol * (('a, typ_fo) expr list)
-    | `Var of int * typ_arith
+    | `Var of int * typ_term
     | `Add of ('a term) list
     | `Mul of ('a term) list
-    | `Binop of [ `Div | `Mod ] * ('a term) * ('a term)
-    | `Unop of [ `Floor | `Neg ] * ('a term)
+    | `Store of 'a term * 'a term * 'a term
+    | `Binop of [ `Div | `Mod | `Select] * ('a term) * ('a term)
+    | `Unop of [ `Floor | `Neg | `ConstArr ] * ('a term)
     | `Ite of ('a formula) * ('a,'b) expr * ('a,'b) expr
     | `Tru
     | `Fls
@@ -266,12 +269,13 @@ end
 type ('a,'b) open_term = [
   | `Real of QQ.t
   | `App of symbol * (('b, typ_fo) expr list)
-  | `Var of int * typ_arith
+  | `Var of int * typ_term
   | `Add of 'a list
   | `Mul of 'a list
-  | `Binop of [ `Div | `Mod ] * 'a * 'a
-  | `Unop of [ `Floor | `Neg ] * 'a
+  | `Binop of [ `Div | `Mod | `Select ] * 'a * 'a
+  | `Unop of [ `Floor | `Neg | `ConstArr ] * 'a
   | `Ite of ('b formula) * 'a * 'a
+  | `Store of 'a * 'a * 'a
 ]
 
 val mk_add : 'a context -> 'a term list -> 'a term
@@ -302,7 +306,12 @@ val mk_neg : 'a context -> 'a term -> 'a term
 (** Subtraction *)
 val mk_sub : 'a context -> 'a term -> 'a term -> 'a term
 
-val term_typ : 'a context -> 'a term -> typ_arith
+(** Array operations *)
+val mk_select : 'a context -> 'a term -> 'a term -> 'a term
+val mk_store : 'a context -> 'a term -> 'a term -> 'a term -> 'a term
+val mk_const_arr : 'a context -> 'a term -> 'a term
+
+val term_typ : 'a context -> 'a term -> typ_term
 
 module Term : sig
   type 'a t = 'a term
@@ -421,7 +430,7 @@ end
 module type Context = sig
   type t (* magic type parameter unique to this context *)
   val context : t context
-  type term = (t, typ_arith) expr
+  type term = (t, typ_term) expr
   type formula = (t, typ_bool) expr
 
   val mk_symbol : ?name:string -> typ -> symbol
@@ -439,6 +448,9 @@ module type Context = sig
   val mk_floor : term -> term
   val mk_neg : term -> term
   val mk_sub : term -> term -> term
+  val mk_select : term -> term -> term
+  val mk_store : term -> term -> term -> term
+  val mk_const_arr : term -> term
   val mk_forall : ?name:string -> typ_fo -> formula -> formula
   val mk_exists : ?name:string -> typ_fo -> formula -> formula
   val mk_forall_const : symbol -> formula -> formula
@@ -482,6 +494,10 @@ module Infix (C : sig
   val ( mod ) : C.t term -> C.t term -> C.t term
   val const : symbol -> (C.t, 'typ) expr
   val var : int -> typ_fo -> (C.t, 'typ) expr
+
+  val ( .%[] ) : C.t term -> C.t term -> C.t term
+  val ( .%[]<- ) : C.t term -> C.t term -> C.t term -> C.t term
+  val const_arr : C.t term -> C.t term
 end
 
 (** A context table is a hash table mapping contents to values.  If a context

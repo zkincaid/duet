@@ -10,13 +10,14 @@ type z3_func_decl = Z3.FuncDecl.func_decl
 type 'a open_expr = [
   | `Real of QQ.t
   | `App of z3_func_decl * 'a list
+  | `Store of 'a * 'a * 'a
   | `Var of int * typ_fo
   | `Const of symbol
   | `ArrVar of symbol * 'a
   | `Add of 'a list
   | `Mul of 'a list
-  | `Binop of [ `Div | `Mod ] * 'a * 'a
-  | `Unop of [ `Floor | `Neg ] * 'a
+  | `Binop of [ `Div | `Mod | `Select ] * 'a * 'a
+  | `Unop of [ `Floor | `Neg | `ConstArr ] * 'a
   | `Tru
   | `Fls
   | `And of 'a list
@@ -43,111 +44,80 @@ let rec qq_val ast =
     qq_val (List.hd (Z3.Expr.get_args ast))
   else invalid_arg "qq_val"
 
+let arr_val x =
+  let body = Z3.Quantifier.get_body (Z3.Quantifier.quantifier_of_expr x) in
+  let rec parse_lambda x =
+    match Z3.AST.get_ast_kind (Z3.Expr.ast_of_expr x) with
+    | APP_AST ->
+      begin match Z3.FuncDecl.get_decl_kind (Z3.Expr.get_func_decl x), 
+                  Z3.Expr.get_args x with
+      | (OP_ITE, [cond; s; t]) ->
+        let i = qq_val (List.nth (Z3.Expr.get_args cond) 1) in
+        let v = qq_val s in
+        let a = parse_lambda t in
+        Interpretation.QQArray.add a i v
+      | _ -> invalid_arg "arr_val1"
+      end
+    | NUMERAL_AST -> Interpretation.QQArray.create (qq_val x)
+    | _ -> invalid_arg "arr_val2"
+  in
+  parse_lambda body
+
+
 let typ_of_sort sort =
   let open Z3enums in
   match Z3.Sort.get_sort_kind sort with
   | REAL_SORT -> `TyReal
   | INT_SORT -> `TyInt
   | BOOL_SORT -> `TyBool
+  | ARRAY_SORT -> `TyArr
   | _ -> invalid_arg "typ_of_sort"
 
-let typ_of_sort_full sort =
-  let open Z3enums in
-  match Z3.Sort.get_sort_kind sort with
-  | REAL_SORT -> `TyReal
-  | INT_SORT -> `TyInt
-  | BOOL_SORT -> `TyBool
-  | ARRAY_SORT -> `TyFun ([`TyInt], `TyInt) 
-  | _ -> invalid_arg "typ_of_sort"
-
-
-
-let sort_of_typ z3 = function
+let rec sort_of_typ z3 = function
   | `TyInt -> Z3.Arithmetic.Integer.mk_sort z3
   | `TyReal -> Z3.Arithmetic.Real.mk_sort z3
   | `TyBool -> Z3.Boolean.mk_sort z3
+  | `TyArr -> 
+    Z3.Z3Array.mk_sort z3 (sort_of_typ z3 `TyInt) (sort_of_typ z3 `TyInt)
 
-let rec eval alg ?(quants_added=0) ?(skolemized_quants=Hashtbl.create 91) ?(quants_seen=0) ast =
+let rec eval alg ?(skolemized_quants=Hashtbl.create 91) ?(quants_seen=0) ast =
   let open Z3 in
   let open Z3enums in
-  let rec eval_arr_term quants_added arr rdterm =
-    match AST.get_ast_kind (Expr.ast_of_expr arr) with
-    |APP_AST -> begin
-        let decl = Expr.get_func_decl arr in
-        match FuncDecl.get_decl_kind decl with
-        | OP_UNINTERPRETED -> alg (`App (decl, [rdterm]))
-        | OP_STORE -> 
-          let i = eval alg ~quants_added ~skolemized_quants ~quants_seen (List.nth (Expr.get_args arr) 1) in
-          let v = eval alg ~quants_added ~skolemized_quants ~quants_seen (List.nth (Expr.get_args arr) 2) in
-          let a = eval_arr_term quants_added (List.hd (Expr.get_args arr)) rdterm in
-          alg (`Ite ((alg (`Atom (`Eq, i, rdterm))), v, a))
-        | _ -> invalid_arg ("eval: unknown array parse: " ^ (Expr.to_string arr))
-      end
-    | VAR_AST ->
-      let index = (Z3.Quantifier.get_index arr) in
-      if Hashtbl.mem skolemized_quants (index + quants_seen) = false then 
-        failwith "Array bound vars must be skolemized"
-      else alg (`ArrVar (Hashtbl.find skolemized_quants (index + quants_seen), rdterm))
-    | _ ->  invalid_arg "eval: unknown ast type"
-  in
-  let is_array_term expr =
-    if List.length (Expr.get_args expr) = 0 then false
-    else (
-      let decl = Expr.get_func_decl ast in
-      let fstarg = List.hd (Expr.get_args expr) in
-      if FuncDecl.get_decl_kind decl = OP_SELECT then true
-      else if FuncDecl.get_decl_kind decl = OP_EQ &&
-              Sort.get_sort_kind (Expr.get_sort fstarg) = ARRAY_SORT
-      then true
-      else false)
-  in
   match AST.get_ast_kind (Expr.ast_of_expr ast) with
   | APP_AST -> begin
       let decl = Expr.get_func_decl ast in
-      if is_array_term ast then (
-        match FuncDecl.get_decl_kind decl, Expr.get_args ast with
-        | OP_SELECT, [a; i] -> 
-          eval_arr_term quants_added a (eval alg ~quants_added ~skolemized_quants ~quants_seen i)
-        | OP_EQ, [a; b] -> 
-          let i = alg (`Var (0, `TyInt)) in
-          alg (`Quantify (`Forall, 
-                          "i", 
-                          `TyInt,
-                          alg (`Atom (`Eq, 
-                                      eval_arr_term (quants_added + 1) a i, 
-                                      eval_arr_term (quants_added + 1) b i))))
-        | _ -> assert false)
-      else (
-        let args = List.map (eval alg ~quants_added ~skolemized_quants ~quants_seen) (Expr.get_args ast) in
-        match FuncDecl.get_decl_kind decl, args with
-        | (OP_UNINTERPRETED, args) -> alg (`App (decl, args))
-        | (OP_ADD, args) -> alg (`Add args)
-        | (OP_MUL, args) -> alg (`Mul args)
-        | (OP_SUB, [x;y]) -> alg (`Add [x; alg (`Unop (`Neg, y))])
-        | (OP_UMINUS, [x]) -> alg (`Unop (`Neg, x))
-        | (OP_MOD, [x;y]) -> alg (`Binop (`Mod, x, y))
-        | (OP_IDIV, [x;y]) -> alg (`Unop (`Floor, alg (`Binop (`Div, x, y))))
-        | (OP_DIV, [x;y]) -> alg (`Binop (`Div, x, y))
-        | (OP_TO_REAL, [x]) -> x
-        | (OP_TO_INT, [x]) -> alg (`Unop (`Floor, x))
+      let args = List.map (eval alg ~skolemized_quants ~quants_seen) (Expr.get_args ast) in
+      match FuncDecl.get_decl_kind decl, args with
+      | (OP_UNINTERPRETED, args) -> alg (`App (decl, args))
+      | (OP_ADD, args) -> alg (`Add args)
+      | (OP_MUL, args) -> alg (`Mul args)
+      | (OP_SUB, [x;y]) -> alg (`Add [x; alg (`Unop (`Neg, y))])
+      | (OP_UMINUS, [x]) -> alg (`Unop (`Neg, x))
+      | (OP_MOD, [x;y]) -> alg (`Binop (`Mod, x, y))
+      | (OP_IDIV, [x;y]) -> alg (`Unop (`Floor, alg (`Binop (`Div, x, y))))
+      | (OP_DIV, [x;y]) -> alg (`Binop (`Div, x, y))
+      | (OP_TO_REAL, [x]) -> x
+      | (OP_TO_INT, [x]) -> alg (`Unop (`Floor, x))
+      | (OP_STORE, [a; i; v]) -> alg (`Store (a, i, v))
+      | (OP_SELECT, [a; i]) -> alg (`Binop(`Select, a, i))
 
-        | (OP_TRUE, []) -> alg `Tru
-        | (OP_FALSE, []) -> alg `Fls
-        | (OP_AND, args) -> alg (`And args)
-        | (OP_OR, args) -> alg (`Or args)
-        | (OP_IMPLIES, [phi;psi]) -> alg (`Or [alg (`Not phi); psi])
-        | (OP_IFF, [phi;psi]) ->
-          alg (`Or [alg (`And [phi; psi]);
-                    alg (`Not (alg (`Or [phi; psi])))])
-        | (OP_NOT, [phi]) -> alg (`Not phi)
-        | (OP_EQ, [s; t]) -> alg (`Atom (`Eq, s, t))
-        | (OP_LE, [s; t]) -> alg (`Atom (`Leq, s, t))
-        | (OP_GE, [s; t]) -> alg (`Atom (`Leq, t, s))
-        | (OP_LT, [s; t]) -> alg (`Atom (`Lt, s, t))
-        | (OP_GT, [s; t]) -> alg (`Atom (`Lt, t, s))
-        | (OP_ITE, [cond; s; t]) -> alg (`Ite (cond, s, t))
-        | (_, _) -> invalid_arg ("eval: unknown application: "
-                                 ^ (Expr.to_string ast)))
+      | (OP_TRUE, []) -> alg `Tru
+      | (OP_FALSE, []) -> alg `Fls
+      | (OP_AND, args) -> alg (`And args)
+      | (OP_OR, args) -> alg (`Or args)
+      | (OP_IMPLIES, [phi;psi]) -> alg (`Or [alg (`Not phi); psi])
+      | (OP_IFF, [phi;psi]) ->
+        alg (`Or [alg (`And [phi; psi]);
+                  alg (`Not (alg (`Or [phi; psi])))])
+      | (OP_NOT, [phi]) -> alg (`Not phi)
+      | (OP_EQ, [s; t]) -> alg (`Atom (`Eq, s, t))
+      | (OP_LE, [s; t]) -> alg (`Atom (`Leq, s, t))
+      | (OP_GE, [s; t]) -> alg (`Atom (`Leq, t, s))
+      | (OP_LT, [s; t]) -> alg (`Atom (`Lt, s, t))
+      | (OP_GT, [s; t]) -> alg (`Atom (`Lt, t, s))
+      | (OP_ITE, [cond; s; t]) -> alg (`Ite (cond, s, t))
+      | (_, _) -> invalid_arg ("eval: unknown application: "
+                               ^ (Expr.to_string ast))
     end
   | NUMERAL_AST ->
     alg (`Real (qq_val ast))
@@ -155,9 +125,6 @@ let rec eval alg ?(quants_added=0) ?(skolemized_quants=Hashtbl.create 91) ?(quan
     let index = (Z3.Quantifier.get_index ast) in
     if Hashtbl.mem skolemized_quants (index + quants_seen) then
       alg (`Const (Hashtbl.find skolemized_quants (index + quants_seen)))
-    else
-    if index >= quants_seen then
-      alg (`Var (index + quants_added, (typ_of_sort (Expr.get_sort ast))))
     else
       alg (`Var (index, (typ_of_sort (Expr.get_sort ast))))
   | QUANTIFIER_AST ->
@@ -174,7 +141,7 @@ let rec eval alg ?(quants_added=0) ?(skolemized_quants=Hashtbl.create 91) ?(quan
                          body)))
       (Z3.Quantifier.get_bound_variable_names ast)
       (Z3.Quantifier.get_bound_variable_sorts ast)
-      (eval alg ~quants_added ~skolemized_quants ~quants_seen:(quants_seen+1) (Z3.Quantifier.get_body ast))
+      (eval alg ~skolemized_quants ~quants_seen:(quants_seen+1) (Z3.Quantifier.get_body ast))
   | FUNC_DECL_AST
   | SORT_AST
   | UNKNOWN_AST -> invalid_arg "eval: unknown ast type"
@@ -232,7 +199,7 @@ let z3_of_symbol z3 sym = Z3.Symbol.mk_int z3 (int_of_symbol sym)
 
 let decl_of_symbol z3 srk sym =
   let (param_sorts, return_sort) = match typ_symbol srk sym with
-    | `TyInt | `TyReal | `TyBool ->
+    | `TyInt | `TyReal | `TyBool | `TyArr ->
       invalid_arg "decl_of_symbol: not a function symbol"
     | `TyFun (params, return) ->
       (List.map (sort_of_typ z3) params, sort_of_typ z3 return)
@@ -256,6 +223,7 @@ and z3_of_term (srk : 'a context) z3 (term : 'a term) =
       let sort = match typ_symbol srk sym with
         | `TyInt -> sort_of_typ z3 `TyInt
         | `TyReal -> sort_of_typ z3 `TyReal
+        | `TyArr -> sort_of_typ z3 `TyArr
         | `TyBool | `TyFun (_,_) ->
           invalid_arg "z3_of.term: ill-typed application"
       in
@@ -265,19 +233,23 @@ and z3_of_term (srk : 'a context) z3 (term : 'a term) =
     | `App (func, args) ->
       let decl = decl_of_symbol z3 srk func in
       Z3.Expr.mk_app z3 decl (List.map (z3_of_expr srk z3) args)
-
     | `Var (_, `TyFun (_, _)) | `Var (_, `TyBool) ->
       invalid_arg "z3_of.term: variable"
     | `Var (i, `TyInt) ->
       Z3.Quantifier.mk_bound z3 i (sort_of_typ z3 `TyInt)
     | `Var (i, `TyReal) ->
       Z3.Quantifier.mk_bound z3 i (sort_of_typ z3 `TyReal)
+    | `Var (i, `TyArr) ->
+      Z3.Quantifier.mk_bound z3 i (sort_of_typ z3 `TyArr)
     | `Add sum -> Z3.Arithmetic.mk_add z3 sum
     | `Mul product -> Z3.Arithmetic.mk_mul z3 product
     | `Binop (`Div, s, t) -> Z3.Arithmetic.mk_div z3 s t
     | `Binop (`Mod, s, t) -> Z3.Arithmetic.Integer.mk_mod z3 s t
     | `Unop (`Floor, t) -> Z3. Arithmetic.Real.mk_real2int z3 t
     | `Unop (`Neg, t) -> Z3.Arithmetic.mk_unary_minus z3 t
+    | `Binop (`Select, a, i) -> Z3.Z3Array.mk_select z3 a i
+    | `Store (a, i, v) -> Z3.Z3Array.mk_store z3 a i v
+    | `Unop (`ConstArr, _) -> assert false
     | `Ite (cond, bthen, belse) ->
       Z3.Boolean.mk_ite z3 (z3_of_formula srk z3 cond) bthen belse
   in
@@ -352,6 +324,9 @@ let of_z3 context ?(skolemized_quants=Hashtbl.create 91) sym_of_decl expr =
     | `Binop (`Mod, s, t) -> (mk_mod context (term s) (term t) :> 'a gexpr)
     | `Unop (`Floor, t) -> (mk_floor context (term t) :> 'a gexpr)
     | `Unop (`Neg, t) -> (mk_neg context (term t) :> 'a gexpr)
+    | `Binop (`Select, a, i) -> (mk_select context (term a) (term i) :> 'a gexpr) 
+    | `Store (a, i, v) -> (mk_store context (term a) (term i) (term v) :> 'a gexpr)
+    | `Unop (`ConstArr, _) -> assert false
     | `Tru -> (mk_true context :> 'a gexpr)
     | `Fls -> (mk_false context :> 'a gexpr)
     | `And conjuncts ->
@@ -442,6 +417,7 @@ module Solver = struct
       | `TyReal -> sort_of_typ z3 `TyReal
       | `TyInt -> sort_of_typ z3 `TyInt
       | `TyBool -> sort_of_typ z3 `TyBool
+      | `TyArr -> sort_of_typ z3 `TyArr
       | _ -> assert false
     in
     let decl =
@@ -455,6 +431,16 @@ module Solver = struct
       let t = expr_of_sym srk z3 sym in
       begin match Z3.Model.eval m t true with
         | Some x -> `Real (qq_val x)
+        | None -> assert false
+      end
+    | `TyArr ->
+      let t = expr_of_sym srk z3 sym in
+      begin match Z3.Model.eval m t true with
+        | Some x ->
+          Log.errorf "expr is %s" (Z3.Expr.to_string x);
+          let zzarr = arr_val x in
+          Log.errorf "\n zzarr is \n%a" (Interpretation.QQArray.pp) zzarr;
+          `Arr zzarr
         | None -> assert false
       end
     | `TyBool ->
@@ -618,7 +604,7 @@ let load_smtlib2 ?(context=Z3.mk_context []) srk str =
       let sym = FuncDecl.get_name decl in
       match FuncDecl.get_domain decl with
       | [] ->
-        cos (Symbol.to_string sym, typ_of_sort_full (FuncDecl.get_range decl))
+        cos (Symbol.to_string sym, typ_of_sort (FuncDecl.get_range decl))
       | dom ->
         let typ =
           `TyFun (List.map typ_of_sort dom,

@@ -1,16 +1,19 @@
 open BatPervasives
 open BatHashcons
 
-type typ_fo = [ `TyInt | `TyReal | `TyBool ] [@@ deriving ord]
+type typ_fo = [ `TyInt | `TyReal | `TyBool  | `TyArr ] [@@ deriving ord]
 
 type typ = [
   | `TyInt
   | `TyReal
   | `TyBool
+  | `TyArr
   | `TyFun of (typ_fo list * typ_fo)
 ]
 
+type typ_arr = [ `TyArr ]
 type typ_arith = [ `TyInt | `TyReal ]
+type typ_term = [ `TyInt | `TyReal | `TyArr ]
 type typ_bool = [ `TyBool ]
 type 'a typ_fun = [ `TyFun of (typ_fo list) * 'a ]
 
@@ -21,11 +24,13 @@ let pp_typ_fo formatter = function
   | `TyReal -> Format.pp_print_string formatter "real"
   | `TyInt -> Format.pp_print_string formatter "int"
   | `TyBool -> Format.pp_print_string formatter "bool"
+  | `TyArr -> Format.pp_print_string formatter "array"
 
 let pp_typ formatter = function
   | `TyInt -> pp_typ_fo formatter `TyInt
   | `TyReal -> pp_typ_fo formatter `TyReal
   | `TyBool -> pp_typ_fo formatter `TyBool
+  | `TyArr -> pp_typ_fo formatter `TyArr
   | `TyFun (dom, cod) ->
     let pp_sep formatter () = Format.fprintf formatter "@ * " in
     Format.fprintf formatter "(@[%a@ -> %a@])"
@@ -55,10 +60,13 @@ type label =
   | Neg
   | Real of QQ.t
   | Ite
+  | Store
+  | Select
+  | ConstArr
 
 type sexpr = Node of label * ((sexpr hobj) list) * typ_fo
 type ('a,'typ) expr = sexpr hobj
-type 'a term = ('a, typ_arith) expr
+type 'a term = ('a, typ_term) expr
 type 'a formula = ('a, typ_bool) expr
 
 let compare_expr s t = Stdlib.compare s.tag t.tag
@@ -171,12 +179,13 @@ let rec flatten_sexpr label sexpr =
 type ('a, 'b) open_term = [
   | `Real of QQ.t
   | `App of symbol * (('b, typ_fo) expr list)
-  | `Var of int * typ_arith
+  | `Var of int * typ_term
   | `Add of 'a list
   | `Mul of 'a list
-  | `Binop of [ `Div | `Mod ] * 'a * 'a
-  | `Unop of [ `Floor | `Neg ] * 'a
+  | `Binop of [ `Div | `Mod | `Select ] * 'a * 'a
+  | `Unop of [ `Floor | `Neg | `ConstArr] * 'a
   | `Ite of ('b formula) * 'a * 'a
+  | `Store of 'a * 'a * 'a
 ]
 
 type ('a,'b) open_formula = [
@@ -269,6 +278,10 @@ let mk_one srk = mk_real srk QQ.one
 let mk_const srk k = srk.mk (App k) []
 let mk_app srk symbol actuals = srk.mk (App symbol) actuals
 let mk_var srk v typ = srk.mk (Var (v, typ)) []
+
+let mk_select srk a i = srk.mk Select [a; i]
+let mk_store srk a i v = srk.mk Store [a; i; v]
+let mk_const_arr srk v = srk.mk ConstArr [v]
 
 let mk_neg srk t = srk.mk Neg [t]
 let mk_div srk s t = srk.mk Div [s; t]
@@ -504,6 +517,9 @@ let destruct _srk sexpr =
   | Node (Floor, [t], _) -> `Unop (`Floor, t)
   | Node (Neg, [t], _) -> `Unop (`Neg, t)
   | Node (Ite, [cond; bthen; belse], _) -> `Ite (cond, bthen, belse)
+  | Node (Store, [a; i; v], `TyArr) -> `Store (a, i, v)
+  | Node (Select, [a; i], _) -> `Binop(`Select, a, i)
+  | Node (ConstArr, [v], `TyArr) -> `Unop(`ConstArr, v)
   | Node (True, [], _) -> `Tru
   | Node (False, [], _) -> `Fls
   | Node (And, conjuncts, _) -> `And conjuncts
@@ -615,6 +631,18 @@ let rec pp_expr ?(env=Env.empty) srk formatter expr =
     fprintf formatter "@[%a < %a@]"
       (pp_expr ~env srk) x
       (pp_expr ~env srk) y
+  | Store, [a; i; v] ->
+    fprintf formatter "@[%a[%a ~> %a]@]"
+      (pp_expr ~env srk) a
+      (pp_expr ~env srk) i
+      (pp_expr ~env srk) v
+  | Select, [a; i] ->
+    fprintf formatter "@[%a[%a]@]"
+      (pp_expr ~env srk) a
+      (pp_expr ~env srk) i
+  | ConstArr, [v] ->
+    fprintf formatter "@[const(%a)@]"
+      (pp_expr ~env srk) v
   | Exists (name, typ), [psi] | Forall (name, typ), [psi] ->
       let (quantifier_name, varinfo, psi) =
         match label with
@@ -752,6 +780,18 @@ let pp_expr_unnumbered ?(env=Env.empty) srk formatter expr =
       fprintf formatter "@[%a < %a@]"
         (go ~env srk) x
         (go ~env srk) y
+    | Store, [a; i; v] ->
+      fprintf formatter "@[%a[%a ~> %a@]"
+        (pp_expr ~env srk) a
+        (pp_expr ~env srk) i
+        (pp_expr ~env srk) v
+    | Select, [a; i] ->
+      fprintf formatter "@[%a[%a@]"
+        (pp_expr ~env srk) a
+        (pp_expr ~env srk) i
+    | ConstArr, [v] ->
+      fprintf formatter "@[const(%a)@]"
+        (pp_expr ~env srk) v
     | Exists (name, typ), [psi] | Forall (name, typ), [psi] ->
         let (quantifier_name, varinfo, psi) =
           match label with
@@ -798,18 +838,21 @@ module Expr = struct
     match sexpr.obj with
     | Node (_, _, `TyInt) -> `Term sexpr
     | Node (_, _, `TyReal) -> `Term sexpr
+    | Node (_, _, `TyArr) -> `Term sexpr
     | Node (_, _, `TyBool) -> `Formula sexpr
 
   let term_of _srk sexpr =
     match sexpr.obj with
     | Node (_, _, `TyInt)
-    | Node (_, _, `TyReal) -> sexpr
+    | Node (_, _, `TyReal)
+    | Node (_, _, `TyArr) -> sexpr
     | Node (_, _, `TyBool) -> invalid_arg "Syntax.term_of: not a term"
 
   let formula_of _srk sexpr =
     match sexpr.obj with
     | Node (_, _, `TyInt)
-    | Node (_, _, `TyReal) -> invalid_arg "Syntax.formula_of: not a formula"
+    | Node (_, _, `TyReal) 
+    | Node (_, _, `TyArr) -> invalid_arg "Syntax.formula_of: not a formula"
     | Node (_, _, `TyBool) -> sexpr
 
   let pp = pp_expr
@@ -874,12 +917,14 @@ module Term = struct
       match t.obj with
       | Node (Real qq, [], _) -> alg (`Real qq)
       | Node (App _, _, `TyBool) -> invalid_arg "eval: not a term"
-      | Node (App func, args, `TyInt) | Node (App func, args, `TyReal) ->
+      | Node (App func, args, `TyInt) | Node (App func, args, `TyReal)
+      | Node (App func, args, `TyArr) ->
         alg (`App (func, args))
       | Node (Var (v, typ), [], _) ->
         begin match typ with
           | `TyInt -> alg (`Var (v, `TyInt))
           | `TyReal -> alg (`Var (v, `TyReal))
+          | `TyArr -> alg (`Var (v, `TyArr))
           | `TyBool -> invalid_arg "eval: not a term"
         end
       | Node (Add, sum, _) -> alg (`Add (List.map go sum))
@@ -888,6 +933,9 @@ module Term = struct
       | Node (Mod, [s; t], _) -> alg (`Binop (`Mod, go s, go t))
       | Node (Floor, [t], _) -> alg (`Unop (`Floor, go t))
       | Node (Neg, [t], _) -> alg (`Unop (`Neg, go t))
+      | Node (Select, [a; i], `TyInt) -> alg(`Binop (`Select, go a, go i))
+      | Node (Store, [a; i; v], `TyArr) -> alg(`Store(go a, go i, go v))
+      | Node (ConstArr, [v], `TyArr) -> alg(`Unop (`ConstArr, go v))
       | Node (Ite, [cond; bthen; belse], `TyReal)
       | Node (Ite, [cond; bthen; belse], `TyInt) ->
         alg (`Ite (cond, go bthen, go belse))
@@ -913,6 +961,7 @@ module Term = struct
       begin match typ with
         | `TyInt -> `Var (v, `TyInt)
         | `TyReal -> `Var (v, `TyReal)
+        | `TyArr -> `Var (v, `TyArr)
         | `TyBool -> invalid_arg "destruct: not a term"
       end
     | Node (Add, sum, _) -> `Add sum
@@ -921,6 +970,9 @@ module Term = struct
     | Node (Mod, [s; t], _) -> `Binop (`Mod, s, t)
     | Node (Floor, [t], _) -> `Unop (`Floor, t)
     | Node (Neg, [t], _) -> `Unop (`Neg, t)
+    | Node (Select, [a; i], _) -> `Binop(`Select, a, i)
+    | Node (Store, [a; i; v], `TyArr) -> `Store(a, i, v)
+    | Node (ConstArr, [v], `TyArr) -> `Unop(`ConstArr, v)
     | Node (Ite, [cond; bthen; belse], `TyReal)
     | Node (Ite, [cond; bthen; belse], `TyInt) ->
       `Ite (cond, bthen, belse)
@@ -1229,7 +1281,31 @@ let node_typ symbols label children =
       | `TyInt when children = [] -> `TyInt
       | `TyReal when children = [] -> `TyReal
       | `TyBool when children = [] -> `TyBool
+      | `TyArr when children = [] -> `TyArr
       | _ -> invalid_arg "Application of a non-function symbol"
+    end
+  | Store ->
+    begin match children with
+      | [a; i; v] -> begin match a.obj, i.obj, v.obj with
+          | Node (_, _, `TyArr), Node(_, _, `TyInt), Node (_, _, `TyInt)  -> `TyArr
+          | _ -> invalid_arg "invalid array store"
+        end
+      |  _ -> assert false
+    end
+  | Select -> 
+    begin match children with
+      | [a; i] -> begin match a.obj, i.obj with
+          | Node (_, _, `TyArr), Node(_, _, `TyInt) -> `TyInt
+          | _ -> invalid_arg "invalid array select"
+        end
+      |  _ -> assert false
+    end
+  | ConstArr -> begin match children with
+      | [v] -> begin match v.obj with
+          | Node (_, _, `TyInt) -> `TyArr
+          | _ -> invalid_arg "invalid const arr"
+        end
+      |_ -> assert false
     end
   | Forall (_, _) | Exists (_, _) | And | Or | Not
   | True | False | Eq | Leq | Lt  -> `TyBool
@@ -1255,6 +1331,8 @@ let node_typ symbols label children =
           | Node (_, _, `TyBool), Node (_, _, `TyReal), Node (_, _, `TyInt)
           | Node (_, _, `TyBool), Node (_, _, `TyReal), Node (_, _, `TyReal) ->
             `TyReal
+          | Node (_, _, `TyArr), Node (_, _, `TyArr), Node (_, _, `TyArr) ->
+            `TyArr
           | _, _, _ -> invalid_arg "ill-typed if-then-else"
         end
       | _ -> assert false
@@ -1264,12 +1342,14 @@ let term_typ _ node =
   match node.obj with
   | Node (_, _, `TyInt) -> `TyInt
   | Node (_, _, `TyReal) -> `TyReal
+  | Node (_, _, `TyArr) -> `TyArr
   | Node (_, _, `TyBool) -> invalid_arg "term_typ: not an arithmetic term"
 
 let expr_typ _ node =
   match node.obj with
   | Node (_, _, `TyInt) -> `TyInt
   | Node (_, _, `TyReal) -> `TyReal
+  | Node (_, _, `TyArr) -> `TyArr
   | Node (_, _, `TyBool) -> `TyBool
 
 type 'a rewriter = ('a, typ_fo) expr -> ('a, typ_fo) expr
@@ -1342,6 +1422,7 @@ let eliminate_ite srk phi =
       map_ite (fun t -> `Term (mk_neg srk t)) (promote_ite x)
     | `Unop (`Floor, x) ->
       map_ite (fun t -> `Term (mk_floor srk t)) (promote_ite x)
+    | `Binop(`Select, _, _) | `Store (_, _, _) | `Unop(`ConstArr, _) -> failwith "TODO"
     | `App (func, args) ->
       List.fold_right (fun x rest ->
           match Expr.refine srk x with
@@ -1465,6 +1546,7 @@ let pp_smtlib2_gen ?(named=false) ?(env=Env.empty) ?(strings=Hashtbl.create 991)
     | `TyReal -> pp_print_string formatter "Real"
     | `TyInt -> pp_print_string formatter "Int"
     | `TyBool -> pp_print_string formatter "Bool"
+    | `TyArr -> pp_print_string formatter "(Array (Int) Int)"
   in
   (* print declarations *)
   symbol_name |> Hashtbl.iter (fun symbol name ->
@@ -1472,6 +1554,7 @@ let pp_smtlib2_gen ?(named=false) ?(env=Env.empty) ?(strings=Hashtbl.create 991)
       | `TyReal -> fprintf formatter "(declare-const %s Real)@;" name
       | `TyInt -> fprintf formatter "(declare-const %s Int)@;" name
       | `TyBool -> fprintf formatter "(declare-const %s Bool)@;" name
+      | `TyArr -> fprintf formatter "(declare-const %s (Array (Int) Int))@;" name
       | `TyFun (args, ret) ->
         fprintf formatter "(declare-fun %s (%a) %a)@;"
           name
@@ -1527,6 +1610,18 @@ let pp_smtlib2_gen ?(named=false) ?(env=Env.empty) ?(strings=Hashtbl.create 991)
       fprintf formatter "(to_int @[%a@])" (go env) t
     | Neg, [{obj = Node (Real qq, [], _); _}] ->
       QQ.pp formatter (QQ.negate qq)
+    | Select, [a; i] ->
+       fprintf formatter "(select %a %a)"
+        (go env) a 
+        (go env) i
+    | Store, [a; i; v] ->
+      fprintf formatter "(store %a %a %a)"
+        (go env) a 
+        (go env) i
+        (go env) v
+    | ConstArr, [v] ->
+      fprintf formatter "((as const (Array Int Int)) %a)"
+        (go env) v
     | Neg, [{obj = Node (App _, _, _); _} as t]
     | Neg, [t] -> fprintf formatter "(- @[%a@])" (go env) t
     | True, [] -> pp_print_string formatter "true"
@@ -1637,12 +1732,15 @@ struct
   let forall = mk_forall C.context
   let exists = mk_exists C.context
   let var = mk_var C.context
+  let ( .%[] ) = mk_select C.context
+  let ( .%[]<- ) = mk_store C.context
+  let const_arr = mk_const_arr C.context
 end
 
 module type Context = sig
   type t (* magic type parameter unique to this context *)
   val context : t context
-  type term = (t, typ_arith) expr
+  type term = (t, typ_term) expr
   type formula = (t, typ_bool) expr
 
   val mk_symbol : ?name:string -> typ -> symbol
@@ -1660,6 +1758,9 @@ module type Context = sig
   val mk_floor : term -> term
   val mk_neg : term -> term
   val mk_sub : term -> term -> term
+  val mk_select : term -> term -> term
+  val mk_store : term -> term -> term -> term
+  val mk_const_arr : term -> term
   val mk_forall : ?name:string -> typ_fo -> formula -> formula
   val mk_exists : ?name:string -> typ_fo -> formula -> formula
   val mk_forall_const : symbol -> formula -> formula
@@ -1696,6 +1797,9 @@ module ImplicitContext(C : sig
   let mk_floor = mk_floor context
   let mk_neg = mk_neg context
   let mk_sub = mk_sub context
+  let mk_select = mk_select context
+  let mk_store = mk_store context
+  let mk_const_arr = mk_const_arr context
   let mk_forall = mk_forall context
   let mk_exists = mk_exists context
   let mk_forall_const = mk_forall_const context
@@ -1715,7 +1819,7 @@ end
 module MakeContext () =
 struct
   type t = unit
-  type term = (t, typ_arith) expr
+  type term = (t, typ_term) expr
   type formula = (t, typ_bool) expr
 
   let context =
@@ -1738,7 +1842,7 @@ end
 module MakeSimplifyingContext () =
 struct
   type t = unit
-  type term = (t, typ_arith) expr
+  type term = (t, typ_term) expr
   type formula = (t, typ_bool) expr
 
   let context =

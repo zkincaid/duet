@@ -326,6 +326,9 @@ let linearize srk phi =
         | `Ite (_, x, y) ->
           SymInterval.join (linearize_term env x) (linearize_term env y)
         | `Var (_, _) -> assert false
+        | `Binop (`Select, _, _) -> assert false
+        | `Store (_, _, _) -> assert false
+        | `Unop(`ConstArr, _) -> assert false
       in
       (* conjoin symbolic intervals for all non-linear terms *)
       let bounds =

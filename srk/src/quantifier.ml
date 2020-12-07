@@ -498,7 +498,7 @@ module Skeleton = struct
       in
 
       assert (QQ.equal
-                (Interpretation.evaluate_term interp replacement)
+                (Interpretation.evaluate_term_qq interp replacement)
                 (evaluate_move (Interpretation.real interp) move));
       let subst =
         substitute_const srk
@@ -974,7 +974,7 @@ let specialize_floor_cube srk model cube =
        let qq_divisor = QQ.of_zz divisor in
        let dividend = of_linterm srk (V.scalar_mul qq_divisor v) in
        let remainder =
-         QQ.modulo (Interpretation.evaluate_term model dividend) qq_divisor
+         QQ.modulo (Interpretation.evaluate_term_qq model dividend) qq_divisor
        in
        let dividend' = mk_sub srk dividend (mk_real srk remainder) in
        let replacement =
@@ -985,8 +985,8 @@ let specialize_floor_cube srk model cube =
          |> of_linterm srk
        in
        assert (QQ.equal
-                 (Interpretation.evaluate_term model replacement)
-                 (QQ.of_zz (QQ.floor (Interpretation.evaluate_term model t))));
+                 (Interpretation.evaluate_term_qq model replacement)
+                 (QQ.of_zz (QQ.floor (Interpretation.evaluate_term_qq model t))));
 
        add_div_constraint divisor dividend';
        (replacement :> ('a,typ_fo) expr)
@@ -1315,6 +1315,7 @@ let simsat_forward_core srk qf_pre phi =
     | `TyInt -> Skeleton.MInt (select_int_term srk model x atoms)
     | `TyReal -> Skeleton.MReal (select_real_term srk model x atoms)
     | `TyBool -> Skeleton.MBool (Interpretation.bool model x)
+    | `TyArr -> failwith "TODO"
     | `TyFun (_, _) -> assert false
   in
 
@@ -1373,6 +1374,7 @@ let simsat_forward_core srk qf_pre phi =
             Smt.Solver.add ctx.solver [mk_not srk (mk_const srk k)]
           | (k, `Bool true) ->
             Smt.Solver.add ctx.solver [mk_const srk k]
+          | (_, `Arr _) -> assert false
           | (_, `Fun _) -> ())
         (Interpretation.enum parameter_interp)
     in
@@ -1526,6 +1528,7 @@ let simsat_core srk qf_pre phi =
     | `TyInt -> Skeleton.MInt (select_int_term srk model x phi)
     | `TyReal -> Skeleton.MReal (select_real_term srk model x phi)
     | `TyBool -> Skeleton.MBool (Interpretation.bool model x)
+    | `TyArr -> failwith "TODO"
     | `TyFun (_, _) -> assert false
   in
   match CSS.initialize_pair select_term srk qf_pre phi with
@@ -1589,6 +1592,7 @@ let maximize_feasible srk phi t =
       | `TyInt -> Skeleton.MInt (select_int_term srk m x phi)
       | `TyReal -> Skeleton.MReal (select_real_term srk m x phi)
       | `TyBool -> Skeleton.MBool (Interpretation.bool m x)
+      | `TyArr -> failwith "TODO"
       | `TyFun (_, _) -> assert false
   in
   CSS.max_improve_rounds := 1;
@@ -1833,6 +1837,7 @@ let easy_sat srk phi =
     | `TyInt -> Skeleton.MInt (select_int_term srk model x phi)
     | `TyReal -> Skeleton.MReal (select_real_term srk model x phi)
     | `TyBool -> Skeleton.MBool (Interpretation.bool model x)
+    | `TyArr -> failwith "TODO"
     | `TyFun (_, _) -> assert false
   in
   match CSS.initialize_pair select_term srk qf_pre phi with
@@ -2002,8 +2007,8 @@ let cover_virtual_term srk interp x atoms =
     | `Literal (_, _) -> None
     | `Comparison (`Lt, _, _) -> None
     | `Comparison (_, s, t) ->
-      let sval = Interpretation.evaluate_term interp s in
-      let tval = Interpretation.evaluate_term interp t in
+      let sval = Interpretation.evaluate_term_qq interp s in
+      let tval = Interpretation.evaluate_term_qq interp t in
       if QQ.equal sval tval then
         match SrkSimplify.isolate_linear srk x (mk_sub srk s t) with
         | Some (a, b) when not (QQ.equal a QQ.zero) ->
@@ -2026,7 +2031,7 @@ let cover_virtual_term srk interp x atoms =
       | None -> raise Nonlinear
       | Some (a, b) when QQ.lt a QQ.zero ->
         let b_over_a = mk_mul srk [mk_real srk (QQ.inverse (QQ.negate a)); b] in
-        let b_over_a_val = Interpretation.evaluate_term interp b_over_a in
+        let b_over_a_val = Interpretation.evaluate_term_qq interp b_over_a in
         Some (b_over_a, b_over_a_val)
       | _ -> None
   in
@@ -2143,3 +2148,43 @@ let local_project_cube srk exists model cube =
       |> List.filter (not % is_true))
     project
     cube
+
+let naive_rewrite_elim srk exists phi =
+  let intersect lsts = ... in
+  let union lsts = List.flatten lsts in
+  let alg = function
+    | `Tru -> ([], [], mk_true srk)
+    | `Fls -> ([], [], mk_false srk)
+    | `Atom (`Eq, x, y) -> ([(x, y)], [], mk_eq srk x y)
+    | `Atom (`Lt, x, y) -> ([], [], mk_lt srk x y)
+    | `Atom (`Leq, x, y) -> ([], [], mk_leq srk x y)
+    | `And conjuncts ->
+      let (eqs, diseqs, conjs) = 
+        List.fold_left (fun (eqs, diseqs, conjs) (eq, diseq, conj) ->
+            eq :: eqs. diseq :: diseqs, conj :: conjs)
+          ([], [], [])
+          conjuncts
+      in
+      union eqs, intersect diseqs, mk_and srk conjs
+    | `Or disjuncts ->
+       let (eqs, diseqs, disjs) = 
+        List.fold_left (fun (eqs, diseqs, conjs) (eq, diseq, disj) ->
+            eq :: eqs. diseq :: diseqs, disj :: disjs)
+          ([], [], [])
+          disjuncts
+      in
+      union eqs, intersect diseqs, mk_or srk disjs
+    | `Quantify (`Exists, name, typ, (qf_pre, phi)) ->
+    | `Quantify (`Forall, name, typ, (qf_pre, phi)) ->
+      (`Forall (name, typ)::qf_pre, phi)
+    | `Not (qf_pre, phi) -> (negate_prefix qf_pre, mk_not srk phi)
+    | `Proposition (`Var i) -> ([], mk_var srk i `TyBool)
+    | `Proposition (`App (p, args)) -> ([], mk_app srk p args)
+    | `Ite (cond, bthen, belse) ->
+      begin match combine [cond; bthen; belse] with
+        | (qf_pre, [cond; bthen; belse]) ->
+          (qf_pre, mk_ite srk cond bthen belse)
+        | _ -> assert false
+      end
+  in
+

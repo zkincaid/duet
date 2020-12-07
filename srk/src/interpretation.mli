@@ -2,7 +2,17 @@ open Syntax
 
 exception Divide_by_zero
 
-type 'a value = [`Real of QQ.t | `Bool of bool | `Fun of ('a, typ_fo) expr ]
+module QQArray : sig
+  type t
+  val create : QQ.t -> t
+  val add : t -> QQ.t -> QQ.t -> t
+  val pp : Format.formatter -> t -> unit
+  val select : t -> QQ.t -> QQ.t
+  val equal : t -> t -> bool
+end
+
+type 'a value = [`Real of QQ.t | `Bool of bool | `Fun of ('a, typ_fo) expr 
+                | `Arr of QQArray.t ]
 
 (** An interpretation is a mapping from symbols to values.  Interpretations
     are a collection of concrete bindings (explicit (symbol, value) pairs)
@@ -33,9 +43,7 @@ val value : 'a interpretation -> symbol -> 'a value
 
 (** Enumerate the concrete bindings in an interpretation. *)
 val enum : 'a interpretation ->
-  (symbol * [ `Real of QQ.t
-            | `Bool of bool
-            | `Fun of ('a, typ_fo) expr ]) BatEnum.t
+  (symbol * 'a value) BatEnum.t
 
 (** Replace constant symbols by their interpretations within an expression.  A
     constant symbol that is not defined within the interpretation is not
@@ -43,6 +51,11 @@ val enum : 'a interpretation ->
 val substitute : 'a interpretation -> ('a,'typ) expr -> ('a,'typ) expr
 
 val evaluate_term : 'a interpretation ->
+  ?env:[`Real of QQ.t | `Bool of bool] Env.t ->
+  'a term ->
+  [`QQ of QQ.t | `Arr of QQArray.t]
+
+val evaluate_term_qq : 'a interpretation ->
   ?env:[`Real of QQ.t | `Bool of bool] Env.t ->
   'a term ->
   QQ.t

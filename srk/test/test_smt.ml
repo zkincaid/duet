@@ -60,6 +60,15 @@ let roundtrip4 () =
   in
   assert_equal_term term (term_of_z3 (z3_of_term term))
 
+let roundtrip5 () =
+  let formula =
+    let open Infix in
+    mk_forall_const srk a1sym ((( a1.%[x]<-y).%[y]<-z).%[(int 5)] = (int 5))
+  in
+  assert_equal_formula formula (formula_of_z3 (z3_of_formula formula))
+
+
+
 let is_interpolant phi psi itp =
   (Smt.entails srk phi itp = `Yes)
   && Smt.is_sat srk (mk_and srk [itp; psi]) = `Unsat
@@ -124,6 +133,19 @@ let interpretation1 () =
     let open Infix in
     (int 0) = x && x <= y
     && g(x, y) < g(y, x) && g(int 0, int 0) = (int 0)
+  in
+  match Smt.get_model srk phi with
+  | `Sat m ->
+    assert_bool "is_model"
+      (Interpretation.evaluate_formula m phi)
+  | _ -> assert false
+
+let interpretation2 () =
+  let phi =
+    let open Infix in
+    (forall ~name:"a" `TyInt ((a1.%[var 0 `TyInt]) = (var 0 `TyInt)) )
+    (*(int 5) < (a1.%[(int 5)]) && (int 10) = (a1.%[x]) &&
+    (a1.%[y]) = (int 2) && a1 = a2*)
   in
   match Smt.get_model srk phi with
   | `Sat m ->
@@ -337,12 +359,14 @@ let suite = "SMT" >:::
     "roundtrip2" >:: roundtrip2;
     "roundtrip3" >:: roundtrip3;
     "roundtrip4" >:: roundtrip4;
+    "roundtrip5" >:: roundtrip5;
 (*
     "interpolate1" >:: interpolate1;
     "interpolate2" >:: interpolate2;
     "interpolate3" >:: interpolate3;
 *)
     "interpretation1" >:: interpretation1;
+    "interpretation2" >:: interpretation2;
     "implicant1" >:: implicant1;
     "affine_interp1" >:: affine_interp1;
     "affine_interp2" >:: affine_interp2;

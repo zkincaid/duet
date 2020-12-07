@@ -440,6 +440,7 @@ let linterm_of srk term =
     | `Unop (`Floor, x) -> real (QQ.of_zz (QQ.floor (qq_of x)))
     | `Unop (`Neg, x) -> negate x
     | `Ite (_, _, _) -> raise Nonlinear
+    | `Binop (`Select, _, _) | `Store (_, _, _) | `Unop (`ConstArr, _) -> raise Nonlinear
   in
   Term.eval srk alg term
 

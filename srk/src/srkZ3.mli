@@ -14,8 +14,9 @@ type 'a open_expr = [
   | `Const of symbol
   | `Add of 'a list
   | `Mul of 'a list
-  | `Binop of [ `Div | `Mod ] * 'a * 'a
-  | `Unop of [ `Floor | `Neg ] * 'a
+  | `Store of 'a * 'a * 'a
+  | `Binop of [ `Div | `Mod | `Select ] * 'a * 'a
+  | `Unop of [ `Floor | `Neg | `ConstArr ] * 'a
   | `Tru
   | `Fls
   | `And of 'a list

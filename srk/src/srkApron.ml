@@ -347,6 +347,7 @@ let texpr_of_term env t =
     | `App (sym, []) ->
       (Dim (Env.dim_of_var env sym), typ_symbol env.Env.srk sym)
     | `App (_, _) | `Ite (_, _, _) | `Var (_, _) -> assert false
+    | `Binop(`Select, _, _) | `Store (_, _, _) | `Unop (`ConstArr, _) -> assert false
     | `Add terms ->
       let add (s,s_typ) (t,t_typ) =
         let typ = join_typ s_typ t_typ in

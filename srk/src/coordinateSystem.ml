@@ -203,6 +203,7 @@ let cs_term_id ?(admit=false) cs t =
           | `TyFun (_, `TyInt) | `TyInt -> `TyInt
           | `TyFun (_, `TyReal) | `TyReal -> `TyReal
           | `TyFun (_, `TyBool) | `TyBool -> `TyInt
+          | `TyArr | `TyFun (_, `TyArr) -> assert false (* TODO *)
         in
         let level =
           List.fold_left max 0 (List.map (level_of_vec cs) args)
@@ -243,6 +244,7 @@ let vec_of_term ?(admit=false) cs =
       V.of_term QQ.one (cs_term_id ~admit cs (`App (symbol, xs)))
 
     | `Var (_, _) -> assert false (* to do *)
+    | `Binop(`Select, _, _) | `Store (_, _, _) | `Unop (`ConstArr, _) -> assert false (* TODO *)
     | `Add xs -> List.fold_left V.add V.zero xs
     | `Mul xs ->
       (* Factor out scalar multiplication *)
@@ -313,6 +315,7 @@ let polynomial_of_term cs term =
       P.of_dim (cs_term_id ~admit cs (`App (symbol, xs)))
 
     | `Var (_, _) -> assert false (* to do *)
+    | `Binop (`Select, _, _) | `Store (_, _, _) | `Unop (`ConstArr, _) -> assert false
     | `Add xs -> List.fold_left (fun p t -> P.add p (go t)) P.zero xs
     | `Mul xs -> List.fold_left (fun p t -> P.mul p (go t)) P.one xs
     | `Binop (`Div, x, y) ->

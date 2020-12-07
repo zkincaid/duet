@@ -81,6 +81,10 @@ module RationalTerm = struct
       | `Ite (cond, bthen, belse) ->
         rat_term (mk_ite srk cond (term_of ctx bthen) (term_of ctx belse))
       | `Var (v, typ) -> rat_term (mk_var srk v (typ :> typ_fo))
+      | `Binop (`Select, a, i) -> rat_term (mk_select srk (term_of ctx a) (term_of ctx i))
+      | `Unop (`ConstArr, v) -> rat_term (mk_const_arr srk (term_of ctx v))
+      | `Store (a, i, v) -> 
+        rat_term (mk_store srk (term_of ctx a) (term_of ctx i) (term_of ctx v))
     in
     Term.eval srk alg
     

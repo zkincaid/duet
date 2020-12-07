@@ -3,8 +3,34 @@ open BatPervasives
 
 exception Divide_by_zero
 
+module QQArray = struct
+  module Map = BatMap.Make(QQ)
+  type t = {stores : QQ.t Map.t; def : QQ.t}
+  let create def = {stores=Map.empty;def}
+  let add a i v = {stores=(Map.add i v a.stores);def=a.def}
+  let select a i = Map.find_default a.def i a.stores
+  let equal a b = 
+    let sub a b = 
+      Map.fold (fun k v eq -> QQ.equal v (select b k) && eq) a.stores true 
+    in
+    sub a b && sub b a && QQ.equal a.def b.def
+  let pp formatter a =
+    Format.fprintf formatter "@[(";
+    SrkUtil.pp_print_enum
+      ~pp_sep:(fun formatter () -> Format.fprintf formatter "@[")
+      (fun formatter (k, v) ->  
+         Format.fprintf formatter "%a ~> %a; @]"
+           QQ.pp k
+           QQ.pp v)
+      formatter
+      (Map.enum a.stores);
+    Format.fprintf formatter "def ~> %a )@]"
+      QQ.pp a.def
+end
+
 module SM = Symbol.Map
-type 'a value = [ `Bool of bool | `Real of QQ.t | `Fun of ('a, typ_fo) expr ]
+type 'a value = [ `Bool of bool | `Real of QQ.t | `Fun of ('a, typ_fo) expr
+                | `Arr of QQArray.t]
 type 'a interpretation =
   { srk : 'a context;
     default : symbol -> 'a value;
@@ -53,6 +79,11 @@ let real interp k =
   match value interp k with
   | `Real v -> v
   | _ -> invalid_arg "real: constant symbol is not real"
+
+let array interp k =
+  match value interp k with
+  | `Arr v -> v
+  | _ -> invalid_arg "array: constant symbol is not arr"
 
 let bool interp k =
   match value interp k with
@@ -113,6 +144,7 @@ let substitute interpretation expr =
              | `Real qq -> (mk_real srk qq :> ('a, typ_fo) expr)
              | `Bool true -> (mk_true srk :> ('a, typ_fo) expr)
              | `Bool false -> (mk_false srk :> ('a, typ_fo) expr)
+             | `Arr _ -> assert false
              | `Fun _ -> assert false)
           with Not_found -> expr
         end
@@ -126,36 +158,53 @@ let substitute interpretation expr =
     expr
 
 let rec evaluate_term interp ?(env=Env.empty) term =
+  let cast_to_qq xs = 
+    List.map (fun x -> match x with `QQ q -> q | _ -> assert false) xs
+  in
   let f = function
-    | `Real qq -> qq
-    | `App (k, []) -> real interp k
+    | `Real qq -> `QQ qq
+    | `App (k, []) -> 
+      begin match typ_symbol interp.srk k with
+      | `TyArr -> `Arr (array interp k)
+      | _ -> `QQ (real interp k)
+      end
     | `App (func, args) ->
       begin match Expr.refine interp.srk (unfold_app interp func args) with
-        | `Term t ->
-          evaluate_term interp ~env t
+        | `Term t -> (evaluate_term interp ~env t)
         | `Formula _ ->
           invalid_arg "evaluate_term: ill-typed function application"
       end
-    | `Var (i, _) ->
+    | `Binop (`Select, `Arr a, `QQ i) -> `QQ (QQArray.select a i)
+    | `Store (`Arr a, `QQ i, `QQ v) -> `Arr (QQArray.add a i v)
+    | `Var (i, _) -> (* TODO: Check *)
       begin match Env.find env i with
-        | `Real qq -> qq
+        | `Real qq -> `QQ qq
+        | `Arr a -> `Arr a
         | `Bool _ -> invalid_arg "evaluate_term: ill-typed variable"
       end
-    | `Add xs -> List.fold_left QQ.add QQ.zero xs
-    | `Mul xs -> List.fold_left QQ.mul QQ.one xs
-    | `Binop (`Div, _, divisor) when QQ.equal divisor QQ.zero ->
+    | `Add xs -> let xs = cast_to_qq xs in
+      `QQ (List.fold_left QQ.add QQ.zero xs) 
+    | `Mul xs -> let xs = cast_to_qq xs in 
+      `QQ (List.fold_left QQ.mul QQ.one xs)
+    | `Binop (`Div, _, `QQ divisor) when QQ.equal divisor QQ.zero ->
       raise Divide_by_zero
-    | `Binop (`Mod, _, modulus) when QQ.equal modulus QQ.zero ->
-      raise Divide_by_zero
-    | `Binop (`Div, dividend, divisor) -> QQ.div dividend divisor
-    | `Binop (`Mod, t, modulus) -> QQ.modulo t modulus
-    | `Unop (`Floor, t) -> QQ.of_zz (QQ.floor t)
-    | `Unop (`Neg, t) -> QQ.negate t
-    | `Ite (cond, bthen, belse) ->
+    | `Binop (`Mod, _, `QQ modulus) when QQ.equal modulus QQ.zero ->
+      raise Divide_by_zero 
+    | `Binop (`Div, `QQ dividend, `QQ divisor) -> `QQ (QQ.div dividend divisor)
+    | `Binop (`Mod, `QQ t, `QQ modulus) -> `QQ (QQ.modulo t modulus)
+    | `Unop (`Floor, `QQ t) -> `QQ (QQ.of_zz (QQ.floor t))
+    | `Unop (`Neg, `QQ t) -> `QQ (QQ.negate t)
+    | `Ite (cond, `QQ bthen, `QQ belse) ->
       if evaluate_formula interp ~env cond then
-        bthen
+        `QQ bthen
       else
-        belse
+        `QQ belse
+    | `Ite (cond, `Arr bthen, `Arr belse) ->
+      if evaluate_formula interp ~env cond then
+        `Arr bthen
+      else
+        `Arr belse
+    | _ -> invalid_arg "evaluate_term: ill-typed term"
   in
   try
     Term.eval interp.srk f term
@@ -172,10 +221,12 @@ and evaluate_formula interp ?(env=Env.empty) phi =
       begin try
           let s = evaluate_term interp ~env s in
           let t = evaluate_term interp ~env t in
-          begin match op with
-            | `Leq -> QQ.leq s t
-            | `Eq -> QQ.equal s t
-            | `Lt -> QQ.lt s t
+          begin match op, s ,t with
+            | `Leq, `QQ s, `QQ t -> QQ.leq s t
+            | `Eq, `QQ s, `QQ t-> QQ.equal s t
+            | `Lt, `QQ s, `QQ t-> QQ.lt s t
+            | `Eq, `Arr s, `Arr t -> QQArray.equal s t
+            | _ -> invalid_arg "evaluate_formula: ill-formed atom"
           end
         with Divide_by_zero -> false
       end
@@ -200,6 +251,12 @@ and evaluate_formula interp ?(env=Env.empty) phi =
     Formula.eval interp.srk f phi
   with Not_found ->
     invalid_arg "evaluate_formula: no interpretation for constant symbol"
+
+let evaluate_term_qq interp ?(env=Env.empty) term =
+  match evaluate_term interp ~env term with
+  | `QQ q -> q
+  | _ -> assert false
+
 
 let get_context interp = interp.srk
 
@@ -237,6 +294,8 @@ let select_implicant interp ?(env=Env.empty) phi =
           ([], [])
       in
       (mk_mul srk products, implicant)
+    | `Unop (`ConstArr, _) -> assert false
+    | `Binop (`Select, _, _) -> assert false
     | `Binop (op, s, t) ->
       let (s_term, s_impl) = term s in
       let (t_term, t_impl) = term t in
@@ -244,6 +303,7 @@ let select_implicant interp ?(env=Env.empty) phi =
         match op with
         | `Div -> mk_div srk s_term t_term
         | `Mod -> mk_mod srk s_term t_term
+        | `Select -> assert false
       in
       (term, s_impl@t_impl)
     | `Unop (op, t) ->
@@ -251,8 +311,10 @@ let select_implicant interp ?(env=Env.empty) phi =
       let term = match op with
         | `Floor -> mk_floor srk t_term
         | `Neg -> mk_neg srk t_term
+        | `ConstArr -> assert false
       in
       (term, t_impl)
+    |  `Store (_, _, _) -> invalid_arg "EMP"
     | `Ite (cond, bthen, belse) ->
       begin match formula cond with
         | Some implicant ->
@@ -300,14 +362,14 @@ let select_implicant interp ?(env=Env.empty) phi =
             if (Formula.destruct srk phi) = `Tru then atoms
             else phi::atoms
           in
-          begin match op with
-            | `Eq when QQ.equal s_val t_val ->
+          begin match op, s_val, t_val with
+            | `Eq, `QQ s_val, `QQ t_val when QQ.equal s_val t_val ->
               Some (cons_nontriv (mk_eq srk s_term t_term) (s_impl@t_impl))
-            | `Leq when QQ.leq s_val t_val ->
+            | `Leq, `QQ s_val, `QQ t_val when QQ.leq s_val t_val ->
               Some (cons_nontriv (mk_leq srk s_term t_term) (s_impl@t_impl))
-            | `Lt when QQ.lt s_val t_val ->
+            | `Lt, `QQ s_val, `QQ t_val when QQ.lt s_val t_val ->
               Some (cons_nontriv (mk_lt srk s_term t_term) (s_impl@t_impl))
-            | _ ->
+            | _ -> (*TODO: arrs *)
               None
           end
         with Divide_by_zero -> None

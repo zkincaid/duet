@@ -56,6 +56,12 @@ let qsym = Ctx.mk_symbol ~name:"q" (`TyFun ([`TyInt; `TyInt], `TyBool)) in
 let p (x, y) = Ctx.mk_app psym [x; y] in
 let q (x, y) = Ctx.mk_app qsym [x; y] in
 *)
+
+let a1sym = Ctx.mk_symbol ~name:"a1" `TyArr
+let a2sym = Ctx.mk_symbol ~name:"a2" `TyArr
+let a1 = Ctx.mk_const a1sym
+let a2 = Ctx.mk_const a2sym
+
 let frac num den = Ctx.mk_real (QQ.of_frac num den)
 let int k = Ctx.mk_real (QQ.of_int k)
 
