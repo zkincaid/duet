@@ -360,3 +360,147 @@ let simplify_dda srk phi =
       simplified
   in
   simplify_dda_impl phi
+
+(* Given a term of the form floor(x/d) with d a positive int, retrieve the pair (x,d) *)
+let destruct_idiv srk t =
+  match Term.destruct srk t with
+  | `Unop (`Floor, t) -> begin match Term.destruct srk t with
+      | `Binop (`Div, num, den) -> begin match Term.destruct srk den with
+          | `Real den -> begin match QQ.to_int den with
+              | Some den when den > 0 -> Some (num, den)
+              | _ -> None
+            end
+          | _ -> None
+        end
+      | _ -> None
+    end
+  | _ -> None
+
+let idiv_to_ite srk expr =
+  match Expr.refine srk expr with
+  | `Term t -> begin match destruct_idiv srk t with
+      | Some (num, den) when den < 10 ->
+        let den_term = mk_real srk (QQ.of_int den) in
+        let num_over_den =
+          mk_mul srk [mk_real srk (QQ.of_frac 1 den); num]
+        in
+        let offset =
+          BatEnum.fold (fun else_ r ->
+              let remainder_is_r =
+                mk_eq srk
+                  (mk_mod srk (mk_sub srk num (mk_real srk (QQ.of_int r))) den_term)
+                  (mk_real srk QQ.zero)
+              in
+              mk_ite srk
+                remainder_is_r
+                (mk_real srk (QQ.of_frac (-r) den))
+                else_)
+            (mk_real srk QQ.zero)
+            (1 -- (den-1))
+        in
+        (mk_add srk [num_over_den; offset] :> ('a,typ_fo) expr)
+      | _ -> expr
+    end
+  | _ -> expr
+
+let purify_floor srk formula = 
+  let f = rewrite srk ~up:(idiv_to_ite srk) formula in
+  eliminate_ite srk f
+
+  let simplify_integer_atom srk op s t =
+    let zero = mk_real srk QQ.zero in
+    let destruct_int term =
+      match Term.destruct srk term with
+      | `Real q ->
+        begin match QQ.to_zz q with
+          | Some z -> z
+          | None -> invalid_arg "simplify_atom: non-integral value"
+        end
+      | _ -> invalid_arg "simplify_atom: non-constant"
+    in
+    let (s, op) =
+      let s =
+        if Term.equal t zero then s
+        else mk_sub srk s t
+      in
+      match op with
+      | `Lt when (expr_typ srk s = `TyInt) ->
+        (simplify_term srk (mk_add srk [s; mk_real srk QQ.one]), `Leq)
+      | _ -> (simplify_term srk s, op)
+    in
+    (* Scale a linterm with rational coefficients so that all coefficients are
+       integral *)
+    let zz_linterm term =
+      let qq_linterm = Linear.linterm_of srk term in
+      let multiplier = 
+        BatEnum.fold (fun multiplier (qq, _) ->
+            ZZ.lcm (QQ.denominator qq) multiplier)
+          ZZ.one
+          (Linear.QQVector.enum qq_linterm)
+      in
+      (multiplier, Linear.QQVector.scalar_mul (QQ.of_zz multiplier) qq_linterm)
+    in
+    match op with
+    | `Eq | `Leq ->
+      begin match Term.destruct srk s with
+      | `Binop (`Mod, dividend, modulus) ->
+        (* Divisibility constraint *)
+        let modulus = destruct_int modulus in
+        let (multiplier, lt) = zz_linterm dividend in
+        `Divides (ZZ.mul multiplier modulus, lt)
+      | `Unop (`Neg, s') ->
+        begin match Term.destruct srk s' with
+          | `Binop (`Mod, dividend, modulus) ->
+            if op = `Leq then
+              (* trivial *)
+              `CompareZero (`Leq, Linear.QQVector.zero)
+            else
+              (* Divisibility constraint *)
+              let modulus = destruct_int modulus in
+              let (multiplier, lt) = zz_linterm dividend in
+              `Divides (ZZ.mul multiplier modulus, lt)
+          | _ -> `CompareZero (op, snd (zz_linterm s))
+        end
+      | `Add [x; y] ->
+        begin match Term.destruct srk x, Term.destruct srk y with
+          | `Real k, `Binop (`Mod, dividend, modulus)
+          | `Binop (`Mod, dividend, modulus), `Real k when QQ.lt k QQ.zero && op = `Eq ->
+            let (multiplier, lt) = zz_linterm dividend in
+            let modulus = destruct_int modulus in
+            if ZZ.equal multiplier ZZ.one && QQ.lt k (QQ.of_zz modulus) then
+              let lt = Linear.QQVector.add_term k Linear.const_dim lt in
+              `Divides (modulus, lt)
+            else
+              `CompareZero (op, snd (zz_linterm s))
+          | `Real k, `Unop (`Neg, z) | `Unop (`Neg, z), `Real k when QQ.equal k QQ.one ->
+            begin match Term.destruct srk z with
+              | `Binop (`Mod, dividend, modulus) ->
+                let modulus = destruct_int modulus in
+                let (multiplier, lt) = zz_linterm dividend in
+                `NotDivides (ZZ.mul multiplier modulus, lt)
+              | _ -> `CompareZero (op, snd (zz_linterm s))
+            end
+          | _, _ -> `CompareZero (op, snd (zz_linterm s))
+        end
+      | _ -> `CompareZero (op, snd (zz_linterm s))
+      end
+    | `Lt ->
+      begin match Term.destruct srk s with
+        | `Binop (`Mod, dividend, modulus) ->
+          (* Indivisibility constraint: dividend % modulus < 0. *)
+          let modulus = destruct_int modulus in
+          let (multiplier, lt) = zz_linterm dividend in
+          `NotDivides (ZZ.mul multiplier modulus, lt)
+  
+        | `Unop (`Neg, s') ->
+          begin match Term.destruct srk s' with
+            | `Binop (`Mod, dividend, modulus) ->
+              (* Indivisibility constraint: dividend % modulus > 0 *)
+              let modulus = destruct_int modulus in
+              let (multiplier, lt) = zz_linterm dividend in
+              `NotDivides (ZZ.mul multiplier modulus, lt)
+            | _ -> `CompareZero (`Lt, snd (zz_linterm s))
+          end
+  
+        | _ -> `CompareZero (`Lt, snd (zz_linterm s))
+      end

@@ -37,3 +37,13 @@ val isolate_linear : 'a context -> symbol -> 'a term -> (QQ.t * 'a term) option
    Aiken: "Small formulas for large programs: on-line constraint
    simplification in scalable static analysis", SAS 2010. *)
 val simplify_dda : 'a context -> 'a formula -> 'a formula
+
+(** Purify floors in a formula by converting them to ite expressions then 
+   eliminating the ite expressions. *)
+val purify_floor : 'a context -> 'a formula -> 'a formula
+
+(** Simplify an atomic formula that consists of a binary operation of integers. *)
+val simplify_integer_atom : 'a context -> [`Eq | `Leq | `Lt ] -> 'a term -> 'a term ->
+   [ `CompareZero of [ `Eq | `Leq | `Lt ] * Linear.QQVector.t
+      | `Divides of ZZ.t * Linear.QQVector.t
+      | `NotDivides of ZZ.t * Linear.QQVector.t ]
