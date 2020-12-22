@@ -2,20 +2,41 @@
 
 open Syntax
 
+(** Convex polyhedra. *)
 type t
 
 module V = Linear.QQVector
 
-val enum : t -> [ `EqZero of V.t | `LeqZero of V.t | `LtZero of V.t ] BatEnum.t
+(** Kinds of polyhedral constraints.  Each polyhedral constraint
+   constrains a vector to be either equal to zero, non-negative, or
+   positive. *)
+type constraint_kind = [ `Zero | `Nonneg | `Pos ]
 
-val pp : 'a CoordinateSystem.t -> Format.formatter -> t -> unit
+(** Kinds of polyhedral generators.  Each generator is either a single
+   point, a directed ray, or a line (equivalent to two rays in
+   opposite directions). *)
+type generator_kind = [ `Vertex | `Ray | `Line ]
 
-val conjoin : t -> t -> t
+(** Enumerate the constraints of a polyhedron. *)
+val enum_constraints : t -> (constraint_kind * V.t) BatEnum.t
+
+(** Enumerate the generators of a polyhedron.  Can take exponential
+   time in the number of constraints. *)
+val enum_generators : int -> t -> (generator_kind * V.t) BatEnum.t
+
+val pp : (Format.formatter -> int -> unit) -> Format.formatter -> t -> unit
+
+(** Intersect two polyhedra. *)
+val meet : t -> t -> t
+
+(** Polyhedron representing the whole ambient space. *)
 val top : t
 
 (** Convert formula that contains only conjunction and linear equalities and
     disequalities into a polyhedron. *)
 val of_formula : ?admit:bool -> 'a CoordinateSystem.t -> 'a formula -> t
+
+val of_constraints : (constraint_kind * V.t) BatEnum.t -> t
 
 (** Inverse of [of_formula] *)
 val to_formula : 'a CoordinateSystem.t -> t -> 'a formula
@@ -47,3 +68,36 @@ val project : int list -> t -> t
     linearly and are "easy" to eliminate.  Symbols that do not appear linearly
     are not projected.  *)
 val try_fourier_motzkin : 'a CoordinateSystem.t -> (symbol -> bool) -> t -> t
+
+(** Compute a constraint representation for the dual cone of a
+   polyhedron: the set of functionals on QQ^omega that are
+   non-negative on every point in p. *)
+val dual_cone : t -> t
+
+(** [conical_hull n p] takes a natural [n] and a polyhedron [p] in
+   QQ^n and computes the smallest cone that contains [p], represented
+   as a polyhedron.  All half-spaces making up the conical hull are
+   linear (rather than affine) halfspaces. *)
+val conical_hull : t -> t
+
+(** Test whether two polyhedra are equal (as sets of points in
+   QQ^omega). *)
+val equal : t -> t -> bool
+
+(** [constraint_space p] computes a basis for the vector space of
+   linear functionals that are bounded (on at least one side) over the
+   polyhedron.  For every halfspace [a^T x <= b] that contains [p],
+   [a] belongs to this space. *)
+val constraint_space : t -> Linear.QQVectorSpace.t
+
+(** [apron0_of man n p] converts [p] to an [n]-dimensional abstract
+   value using the supplied abstract domain manager [man].  The
+   supplied dimension [n] should be at least as large as the greatest
+   dimension with a non-zero coefficient in a constraint defining
+   [p]. *)
+val apron0_of : 'a Apron.Manager.t -> int -> t -> 'a Apron.Abstract0.t
+
+(** [of_apron0 man v] converts an abstract value [v] to a
+   polyhedron. *)
+val of_apron0 : 'a Apron.Manager.t -> 'a Apron.Abstract0.t -> t
+
