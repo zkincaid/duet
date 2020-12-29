@@ -16,30 +16,11 @@ module T = TransitionFormula
  * TODO check for types for arr;, make sure quants have right type; fix
  * types in general *)
 
-(* Bidirectional Hashtbl *)
-module Bitbl : sig
-  type ('a, 'b) t
-  val create : int -> ('a, 'b) t
-  val mem : ('a, 'b) t -> 'a -> bool
-  val rev_mem : ('a, 'b) t -> 'b -> bool
-  val add : ('a, 'b) t -> 'a -> 'b -> unit
-  val find : ('a, 'b) t -> 'a -> 'b
-  val rev_find : ('a, 'b) t -> 'b -> 'a
-end
 
-
-
-val to_mfa : 'a context -> 'a T.t -> 'a formula
+val pmfa_to_lia : 'a context -> 'a T.t -> 'a T.t
  
-val mfa_to_lia : 'a context -> 'a formula -> (Syntax.symbol * Syntax.symbol) list -> 'a formula
-
-
-
 
 (*val projection : 'a context ->'a formula -> Symbol.Set.t -> 'a t*)
-
-val mbp_qe : ?flag:bool -> 'a context -> 'a formula -> bool -> 'a formula * symbol list
-
 
 (** Projects array trans. formula to lia trans formula at symbolic dimension.
     Return is tuple containing:
@@ -48,9 +29,6 @@ val mbp_qe : ?flag:bool -> 'a context -> 'a formula -> bool -> 'a formula * symb
       lia trans. symbols and formula *)
 val projection :  
   'a context -> 'a T.t -> symbol * (symbol, symbol) Hashtbl.t * 'a T.t
-
-val lift : 'a context -> (symbol * symbol) -> (symbol, symbol) Hashtbl.t -> 
-  'a formula -> 'a formula
 
 module Array_analysis (Iter : PreDomain) : sig
   include PreDomain

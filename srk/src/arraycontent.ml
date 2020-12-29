@@ -16,30 +16,12 @@ let diff t1 t2 s =
     Log.errorf "\n%s Execution time: %fs\n" s (t2 -. t1)
 
 let arr_trs srk tf = 
-  List.filter 
-    (fun (s, _) -> typ_symbol srk s = `TyFun([`TyInt], `TyInt))
-    (T.symbols tf)
-let fo_trs srk tf =
-  List.filter 
-    (fun (s, _) -> 
-       (typ_symbol srk s = `TyInt) ||
-       (typ_symbol srk s = `TyReal) ||
-       (typ_symbol srk s = `TyBool))
-    (T.symbols tf)
+  List.filter (fun (s, _) -> typ_symbol srk s = `TyArr) (T.symbols tf)
 
+let int_trs srk tf =
+  List.filter (fun (s, _) -> (typ_symbol srk s = `TyInt)) (T.symbols tf)
 
-module Bitbl = struct
-  type ('a, 'b) t = ('a, 'b) Hashtbl.t * ('b, 'a) Hashtbl.t
-  let create size = Hashtbl.create size, Hashtbl.create size
-  let mem (tbl, _) a = Hashtbl.mem tbl a
-  let rev_mem (_, inv) b = Hashtbl.mem inv b
-  let add (tbl, inv) a b =
-    if Hashtbl.mem tbl a || Hashtbl.mem inv b then
-      failwith "Attempted to add matched element to bimap"
-    else (Hashtbl.add tbl a b; Hashtbl.add inv b a)
-  let find (tbl, _) a = Hashtbl.find tbl a
-  let rev_find (_, inv) b = Hashtbl.find inv b
-end
+let flatten syms = List.fold_left (fun acc (sym, sym') -> sym :: sym' :: acc) [] syms 
 
 (** Subsitute tbl[sym] for sym in phi for any sym that appears in tbl *)
 let tbl_subst srk phi tbl = 
@@ -48,120 +30,127 @@ let tbl_subst srk phi tbl =
     (fun sym -> BatHashtbl.find_default tbl sym (mk_const srk sym))
     phi
 
+(* Projects an array transition formula [tf] down to a single symbolic index
+ * [j]. The dynamics of element [j]  of array transition variables (a, a') 
+ * are captured with the integer transition variables ([map] a, [map] a'). *)
 let projection srk tf =
   let map = Hashtbl.create (List.length (arr_trs srk tf) * 8 / 3) in
   let j = mk_symbol srk ~name:"j" `TyInt in
-  let f (trs, phi_proj) (a, a') = 
-    let z = mk_symbol srk ~name:"z"`TyInt in
-    let z' = mk_symbol srk ~name:"z'" `TyInt in
+  let f (trs, phi) (a, a') = 
+    let z = mk_symbol srk ~name:("z"^(show_symbol srk a)) `TyInt in
+    let z' = mk_symbol srk ~name:("z'"^(show_symbol srk a')) `TyInt in
     Hashtbl.add map z a;
     Hashtbl.add map z' a';
     (z, z') :: trs,
     mk_and 
       srk 
-      [mk_eq srk (mk_const srk z) (mk_app srk a [mk_const srk j]);
-       mk_eq srk (mk_const srk z') (mk_app srk a' [mk_const srk j]);
-       phi_proj]
+      [mk_eq srk (mk_const srk z) (mk_select srk (mk_const srk a) (mk_const srk j));
+       mk_eq srk (mk_const srk z') (mk_select srk (mk_const srk a') (mk_const srk j));
+       phi]
   in
-  let trs, phi' = 
-    List.fold_left f ((j, j) :: fo_trs srk tf, T.formula tf) (arr_trs srk tf) 
+  let integer_trs, phi = 
+    List.fold_left f ((j, j) :: int_trs srk tf, T.formula tf) (arr_trs srk tf) 
   in
-  j, map, T.make ~exists:(T.exists tf) phi' trs 
+  (* TODO: This quantifies symbolic constants - is that an issue? *)
+  let phi = 
+    mk_exists_consts srk (fun sym -> List.mem sym (flatten integer_trs)) phi 
+  in
+  j, map, T.make phi integer_trs 
 
-
-let get_arr_syms srk phi =
-  let symbols = Syntax.symbols phi in
-  Symbol.Set.filter (fun sym -> not (typ_symbol srk sym = `TyInt)) symbols
-
+(* Convert from a pmfa formula to an mfa formula.
+ * We achieve this by converting the pmfa formula to an equivalent formula
+ * in qnf such that there is a single universal quantifier. The key algorithm
+ * thus is just a merging of the matrices under potentially many (non-nested) 
+ * universal quantifiers. We factor the universal quantifier over disjunction
+ * by introducing a new quantified integer sorted variable that acts a boolean
+ * and determines which disjunct is "on".*)
 let to_mfa srk tf =
-  to_file srk (T.formula tf) "/Users/jakesilverman/Documents/duet/duet/MFAenter.smt2" ; 
-  let rec partial_skolemization expr skolem_lst =
-    let f expr = partial_skolemization expr skolem_lst in
+  (* We first subsitute in for each existentially quantified variable
+   * a new variable symbol. This allows us to focus solely on the universal
+   * quantifiers during the merging function that follows. We undo this
+   * substitution prior to the end of this function.*)
+  (* TODO: Quantifier elim via equality checking becomes much more difficult 
+   * after this step. Make sure a go at it happens prior to this step *)
+  let new_vars = ref (Symbol.Set.empty) in 
+  let rec subst_existentials subst_lst expr =
     match Formula.destruct srk expr with
-    | `Quantify (`Exists, name, `TyInt, phi) ->
-      partial_skolemization 
-        phi
-        ((mk_const srk (mk_symbol srk ~name `TyInt)) :: skolem_lst)
+    | `Quantify (`Exists, name, typ, phi) ->
+      let new_subst_var = mk_symbol srk ~name (typ :> typ) in
+      new_vars := Symbol.Set.add new_subst_var (!new_vars);
+      subst_existentials ((mk_const srk new_subst_var) :: subst_lst) phi
     | `And conjuncts -> 
-      mk_and srk (List.map (fun conj -> f conj) conjuncts)
+      mk_and srk (List.map (subst_existentials subst_lst) conjuncts)
     | `Or disjuncts ->
-      mk_or srk (List.map (fun disj -> f disj) disjuncts)
+      mk_or srk (List.map (subst_existentials subst_lst) disjuncts)
     | open_form ->
+      (* TODO: make substitute more efficient *)
       substitute
         srk
-        (fun i -> List.nth skolem_lst i)
+        (fun i -> List.nth subst_lst i)
         (Formula.construct srk open_form)
   in
-  let phi = partial_skolemization (T.formula tf) [] in
-  to_file srk (phi) "/Users/jakesilverman/Documents/duet/duet/MFA2.smt2" ;   
-  let rec merge_univ expr disj_syms =
+  let phi = subst_existentials [] (T.formula tf) in
+  (*TODO: If we convert to DNF first, we can likely limit ourselves to introducing
+   * only a single new quantifier. This should have payoffs when in comes to
+   * eliminating the quantifiers later on *)
+  let rec merge_univ merge_eqs expr =
     match Formula.destruct srk expr with
-    | `Quantify (`Forall, _, `TyInt, phi) ->
-      let merge_equalities =
-        List.map 
-          (fun (ind, sym) -> mk_eq srk (mk_const srk sym) (mk_int srk ind))
-          disj_syms
-      in
-      mk_and srk (phi :: merge_equalities) 
-    | `And conjuncts -> 
-      mk_and srk (List.map (fun conj -> merge_univ conj disj_syms) conjuncts)
-    | `Or disjuncts ->
+    | `Quantify (`Forall, _, `TyInt, phi) -> mk_and srk (phi :: merge_eqs)
+    | `And conjs -> mk_and srk (List.map (merge_univ merge_eqs) conjs)
+    | `Or disjs ->
       let sym = mk_symbol srk `TyInt in
-      mk_or 
-        srk 
-        (List.mapi 
-           (fun ind disj -> merge_univ disj ((ind, sym) :: disj_syms))
-           disjuncts)
+      new_vars := Symbol.Set.add sym (!new_vars); 
+      let s = mk_const srk sym in
+      let append_ind_eqlty ind = mk_eq srk (mk_int srk ind) s ::  merge_eqs in
+      mk_or srk (List.mapi (fun ind -> merge_univ (append_ind_eqlty ind)) disjs)
     | open_form -> Formula.construct srk open_form
   in
-  let matr = merge_univ phi [] in
-  (* TODO: return tf... maybe do sanity check*)
-  let res = mk_forall srk `TyInt matr in
-  to_file srk res "/Users/jakesilverman/Documents/duet/duet/MFAexi.smt2" ; 
-  res
+  let body = merge_univ [] phi in
+  mk_forall srk `TyInt body, !new_vars
  
 
-let flatten syms = List.fold_left (fun acc (sym, sym') -> sym :: sym' :: acc) [] syms 
-
-
-
-(* we assume mfa formula have just a single (universal) quantifier. *)
-let mfa_to_lia srk matrix free_num_syms =
-  to_file srk matrix "/Users/jakesilverman/Documents/duet/duet/PRELIA.smt2" ;  
-  let matrix = 
-    match destruct srk matrix with
-    | `Quantify (`Forall, _, `TyInt, matrix) -> matrix
+let mfa_to_lia srk phi =
+  let body = 
+    match destruct srk phi with
+    | `Quantify (`Forall, _, `TyInt, body) -> body
     | _ -> failwith "mfa formula needs to start with leading univ quant"
   in
-  let fresh = mk_symbol srk `TyInt in
-  let freshs = mk_const srk fresh in
-  let arr_syms = get_arr_syms srk matrix in
-  let matr = substitute srk (fun deb -> if deb = 0 then freshs else assert false) matrix in
-
-  let uquant_depth' = Symbol.Set.cardinal arr_syms in
-  let arrcounter = ref 0 in
-  let symread_to_numsym =
+  (* We are going to introduce a bunch of new quantifiers later on. We set
+   * the univ quant var to a symbol to cut down on number of substs performed*)
+  let uq_sym = mk_symbol srk `TyInt in
+  let uq_term = mk_const srk uq_sym in
+  let body = 
+    substitute srk (fun i -> if i = 0 then uq_term else assert false) body 
+  in
+  let uqr_syms = ref Symbol.Set.empty in
+  (* Maps the term a[i] to an integer symbol where i is the universally
+   * quantified var *)
+  let uq_read =
     Memo.memo (fun _ -> 
-        arrcounter := !arrcounter + 1;
         let sym = mk_symbol srk ~name:"SYMREAD"`TyInt in
+        uqr_syms := Symbol.Set.add sym !uqr_syms;
         sym)
   in
-  let termreads : (symbol, 'a term) Hashtbl.t = Hashtbl.create 100 in
-  let termread_to_numsym : 'c * 'd -> 'a term =
-    Memo.memo (fun (arrsym, readterm) -> 
-        Hashtbl.add termreads arrsym readterm;
-        mk_const srk (mk_symbol srk `TyInt))
+  let nuqr_syms = ref Symbol.Set.empty in
+  let func_consist_reqs : ('a term, 'a term) Hashtbl.t = Hashtbl.create 100 in
+  (* Maps the term a[i] to an integer symbol where i is not the universally
+   * quantified var *)
+  let non_uq_read : 'c * 'd -> 'a term =
+    Memo.memo (fun (arr, read) -> 
+        Hashtbl.add func_consist_reqs arr read;
+        let sym = mk_symbol srk `TyInt in
+        nuqr_syms := Symbol.Set.add sym !nuqr_syms;
+        mk_const srk sym)
   in
+  (* TODO: Make sure that array reads normalized for efficiency *)
   let rec termalg = function
-    | `App (arrsym, [readterm]) ->
-      let readterm = Expr.term_of srk readterm in
-      if Expr.equal readterm  freshs then
-        (mk_const srk (symread_to_numsym arrsym))
-      else (termread_to_numsym (arrsym, readterm) :> ('a, typ_arith) expr)
-    | `Ite (cond, bthen, belse) -> (*TODO: confirm right*)
+    | `Binop(`Select, a, i) -> 
+      if Term.equal i uq_term 
+      then (mk_const srk (uq_read a))
+      else (non_uq_read (a, i) :> ('a, typ_term) expr)
+    | `Ite (cond, bthen, belse) ->
       mk_ite srk (Formula.eval srk formalg cond) bthen belse
     | open_term -> Term.construct srk open_term 
-  
   and formalg = function
     | `Atom (`Eq, x, y) -> 
       let lhs = (Term.eval srk termalg x) in
@@ -173,80 +162,32 @@ let mfa_to_lia srk matrix free_num_syms =
       mk_lt srk (Term.eval srk termalg x) (Term.eval srk termalg y)
     | open_formula -> Formula.construct srk open_formula
   in
-  let matrix : 'a formula = Formula.eval srk formalg matr in
+  let reads_replaced = Formula.eval srk formalg body in
   let functional_consistency_clauses =
-    List.map (fun (arrsym, readterm) ->
-        (* figure out how to not have to cast this *)
+    List.map (fun (arr, read) ->
         mk_if 
           srk 
-          (mk_eq srk freshs readterm)
-          (mk_eq 
-             srk 
-             (mk_const srk (symread_to_numsym arrsym)) 
-             (termread_to_numsym (arrsym, readterm))))
-      (BatHashtbl.to_list termreads)
+          (mk_eq srk uq_term read)
+          (mk_eq srk (mk_const srk (uq_read arr)) (non_uq_read (arr, read))))
+      (BatHashtbl.to_list func_consist_reqs)
   in
-  let matrix = mk_and srk (matrix :: functional_consistency_clauses) in
+  let matrix = mk_and srk (reads_replaced :: functional_consistency_clauses) in
+  let phi' = 
+    mk_exists_consts srk (fun sym -> not (Symbol.Set.mem sym !uqr_syms)) matrix 
+  in
+  let phi' = mk_forall_const srk uq_sym phi' in
+  mk_exists_consts srk (fun sym -> not (Symbol.Set.mem sym !nuqr_syms)) phi'
+
+let pmfa_to_lia srk tf =
+  let mfa, new_vars = to_mfa srk tf in
+  let lia = mfa_to_lia srk mfa in
   let phi = 
-    BatEnum.fold 
-      (fun phi _ -> mk_exists srk ~name:"_" `TyInt phi) 
-      matrix
-      (0--(uquant_depth' - 1))
+    mk_exists_consts srk (fun sym -> (not (Symbol.Set.mem sym new_vars))) lia
   in
-  let arrsymreads = Symbol.Set.map (fun ele -> let res = symread_to_numsym ele in res) arr_syms in
-  let phi' = mk_exists_consts srk (fun sym -> not (Symbol.Set.mem sym arrsymreads)) phi in
-  to_file srk phi' "/Users/jakesilverman/Documents/duet/duet/PENTULTLIA.smt2" ;
-  List.iter (fun sym -> Log.errorf "sym is %a" (pp_symbol srk) sym) (flatten free_num_syms);
-  let res = mk_exists_consts srk (fun sym -> List.mem sym (flatten free_num_syms)) (mk_forall_const srk fresh phi') in
-  to_file srk res "/Users/jakesilverman/Documents/duet/duet/POSTLIA.smt2" ; 
-  res
+  T.make ~exists:(T.exists tf) phi (T.symbols tf)
+
  
 
-let mbp_qe ?(flag = false) srk phi head =
-  let t1 = time "Enter MBP" in
-  let qp, matr = Quantifier.normalize srk phi in
-  (if flag then (Log.errorf "\nMBP1\n") else ());
-  let remove_quant quant_typ syms matr =
-    if quant_typ = None then matr
-    else if Option.get quant_typ = `Forall then
-      mk_not srk (Quantifier.mbp srk (fun sym -> not (List.mem sym syms)) (mk_not srk matr))
-    else Quantifier.mbp srk (fun sym -> not (List.mem sym syms))  matr
-  in
-  let qt, syms, matr = 
-    List.fold_right
-      (fun (qt, sym) (quant_typ, syms, matr) ->
-         if quant_typ = None then (Some qt, [sym], matr)
-         else if Option.get quant_typ = qt then (quant_typ, sym :: syms, matr)
-         else (Some qt, [sym], remove_quant quant_typ syms matr))
-      qp
-      (None, [], matr)
-  in
-  let res = 
-    if head then
-    match qt with
-    | None -> matr, []
-    | Some `Exists -> matr, syms
-    | Some `Forall -> remove_quant qt syms matr, []
-    else remove_quant qt syms matr, []
-  in
-  let t2 = time "EXIT MBP" in
-  diff t1 t2 "MBP"; res
-
-(*let pmfa_to_lia srk pmfa syms = mfa_to_lia srk (to_mfa srk pmfa) syms*)
-
-let lift srk (proj, proj') arr_map phi =
-  let map sym =  
-    if sym = proj || sym = proj' 
-    then mk_var srk 0 `TyInt
-    else if Hashtbl.mem arr_map sym 
-    then mk_app srk (Hashtbl.find arr_map sym) [mk_var srk 0 `TyInt] 
-    else mk_const srk sym
-  in
-  mk_forall srk `TyInt (substitute_const srk map phi)
-
-
-
-    
 module Array_analysis (Iter : PreDomain) = struct
 
   type 'a t = 
@@ -268,25 +209,25 @@ module Array_analysis (Iter : PreDomain) = struct
       | `TyBool -> flag := true; List.tl tr_symbols
       | _ -> tr_symbols 
     in
-    let tf = T.make ~exists:(T.exists tf) (T.formula tf) tr_symbols in
+    let tf = T.make ~exists:(T.exists tf) (eliminate_stores srk (T.formula tf)) tr_symbols in
     let proj_ind, arr_map, tf_proj = projection srk tf in
-    let matrix = to_mfa srk tf_proj in
-    let iter_trs = T.symbols tf_proj in
-    let lia = mfa_to_lia srk matrix iter_trs in
-    let new_trs = List.filter (fun a -> not (List.mem a tr_symbols)) iter_trs in
-    let ground, new_consts = mbp_qe ~flag:!flag srk lia true in
-    let exists = fun sym -> (not (List.mem sym new_consts)) && exists sym in
-    let ground_tf = TransitionFormula.make ~exists ground  iter_trs in
+    let lia = pmfa_to_lia srk tf_proj in
+    let phi = Quantifier.miniscope srk (T.formula lia) in
+    let phi = Quantifier.naive_rewrite_elim srk phi in
+    to_file srk phi "/Users/jakesilverman/Documents/duet/duet/REWRITE.smt2";
+    let new_trs = List.filter (fun a -> not (List.mem a tr_symbols)) (T.symbols lia) in
+    let ground  = Quantifier.eager_mbp_qe srk phi in
+    let ground_tf = TransitionFormula.make ~exists ground (T.symbols lia) in
     let iter_obj = Iter.abstract srk ground_tf in
-    let projed_form = mk_exists_consts srk (fun sym -> not (List.mem sym new_consts)) ground in
+    to_file srk ground "/Users/jakesilverman/Documents/duet/duet/GROUND2.smt2";
     let t2 = time "EXIT abstract" in
     diff t1 t2 "ABSTRACT";
     {iter_obj;
      proj_ind;
      arr_map;
      new_trs;
-     iter_trs;
-     projed_form;
+     iter_trs=(T.symbols lia);
+     projed_form=ground;
      flag=(!flag)}
 
 
@@ -402,13 +343,20 @@ module Array_analysis (Iter : PreDomain) = struct
         (fun sym -> List.mem sym (obj.proj_ind :: fresh_lc :: lc_syms @ (split_append obj.iter_trs)))
         iter_proj
     in
+    to_file srk projed "/Users/jakesilverman/Documents/duet/duet/PROJED.smt2";
+    to_file srk obj.projed_form "/Users/jakesilverman/Documents/duet/duet/PROJED2.smt2";
     let t4 = time "EXP SPEC PROJ" in
     diff t3 t4 "EXP SPEC PROJ";
     (* Clean up later to make use of transitionformula obj*)
     let noop_all_but_one = special_step srk obj.iter_trs (obj.projed_form) projed fresh_lc lc obj.new_trs obj.proj_ind in
     (*let noop_ground, _ = mbp_qe srk noop_all_but_one false in*)
     let noop_ground = noop_all_but_one in
-    to_file srk noop_ground "/Users/jakesilverman/Documents/duet/duet/ITERPRENEW.smt2";   
+    to_file srk noop_ground "/Users/jakesilverman/Documents/duet/duet/ITERPRENEW.smt2";  
+    let noop_ground = Quantifier.miniscope srk noop_ground in
+    let noop_ground = Quantifier.naive_rewrite_elim srk noop_ground in
+    to_file srk noop_ground "/Users/jakesilverman/Documents/duet/duet/REWRITEGROUND.smt2";
+    let noop_ground = Quantifier.eager_mbp_qe srk noop_ground in
+    to_file srk noop_ground "/Users/jakesilverman/Documents/duet/duet/GROUNDELIM.smt2";
     let t5 = time "EXP SEC" in
     diff t4 t5 "EXP SEC";
     let projed_right_lc = substitute_const srk (fun sym -> if compare_symbol sym fresh_lc = 0 then lc else mk_const srk sym) projed in
@@ -421,7 +369,7 @@ module Array_analysis (Iter : PreDomain) = struct
       mk_or 
         srk 
         [mk_and srk ((mk_eq srk lc (mk_int srk 0)) :: noop_eqs);
-         mk_and srk [(*noop_ground;*) projed_right_lc]] 
+         mk_and srk [noop_ground; projed_right_lc]] 
     in
     let t6 = time "EXP TH" in
     diff t5 t6 "EXP TH";
@@ -429,7 +377,8 @@ module Array_analysis (Iter : PreDomain) = struct
       if sym = obj.proj_ind 
       then mk_var srk 0 `TyInt
       else if Hashtbl.mem obj.arr_map sym 
-      then mk_app srk (Hashtbl.find obj.arr_map sym) [mk_var srk 0 `TyInt] 
+      then mk_select srk (mk_const srk (Hashtbl.find obj.arr_map sym)) 
+          (mk_var srk 0 `TyInt) 
       else mk_const srk sym
     in
     let t7 = time "EXP SIX" in
