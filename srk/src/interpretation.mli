@@ -39,6 +39,7 @@ val wrap : ?symbols:symbol list ->
   'a interpretation
 
 val add_real : symbol -> QQ.t -> 'a interpretation -> 'a interpretation
+val add_array : symbol -> QQArray.t -> 'a interpretation -> 'a interpretation
 val add_bool : symbol -> bool -> 'a interpretation -> 'a interpretation
 val add_fun : symbol -> ('a,typ_fo) expr -> 'a interpretation -> 'a interpretation
 val add : symbol -> 'a value -> 'a interpretation -> 'a interpretation

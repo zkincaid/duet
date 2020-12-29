@@ -51,6 +51,11 @@ let add_real k v interp =
   | `TyReal | `TyInt -> { interp with map = SM.add k (`Real v) interp.map }
   | _ -> invalid_arg "add_real: constant symbol is non-arithmetic"
 
+let add_array k v interp =
+  match typ_symbol interp.srk k with
+  | `TyArr -> { interp with map = SM.add k (`Arr v) interp.map }
+  | _ -> invalid_arg "add_array: constant symbol is non-array"
+
 let add_bool k v interp =
   match typ_symbol interp.srk k with
   | `TyBool -> { interp with map = SM.add k (`Bool v) interp.map }

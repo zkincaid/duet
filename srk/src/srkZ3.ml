@@ -1,6 +1,5 @@
 open Syntax
 open BatPervasives
-module DynArray = BatDynArray
 include Log.Make(struct let name = "srk.srkZ3" end)
 
 type z3_context = Z3.context
@@ -13,11 +12,10 @@ type 'a open_expr = [
   | `Store of 'a * 'a * 'a
   | `Var of int * typ_fo
   | `Const of symbol
-  | `ArrVar of symbol * 'a
   | `Add of 'a list
   | `Mul of 'a list
   | `Binop of [ `Div | `Mod | `Select ] * 'a * 'a
-  | `Unop of [ `Floor | `Neg | `ConstArr ] * 'a
+  | `Unop of [ `Floor | `Neg ] * 'a
   | `Tru
   | `Fls
   | `And of 'a list
@@ -58,6 +56,7 @@ let arr_val x =
         Interpretation.QQArray.add a i v
       | _ -> invalid_arg "arr_val1"
       end
+      (* We assume def value is an integer. *)
     | NUMERAL_AST -> Interpretation.QQArray.create (qq_val x)
     | _ -> invalid_arg "arr_val2"
   in
@@ -80,13 +79,13 @@ let rec sort_of_typ z3 = function
   | `TyArr -> 
     Z3.Z3Array.mk_sort z3 (sort_of_typ z3 `TyInt) (sort_of_typ z3 `TyInt)
 
-let rec eval alg ?(skolemized_quants=Hashtbl.create 91) ?(quants_seen=0) ast =
+let rec eval alg ?(skolemized_quants=Hashtbl.create 91) ?(depth=0) ast =
   let open Z3 in
   let open Z3enums in
   match AST.get_ast_kind (Expr.ast_of_expr ast) with
   | APP_AST -> begin
       let decl = Expr.get_func_decl ast in
-      let args = List.map (eval alg ~skolemized_quants ~quants_seen) (Expr.get_args ast) in
+      let args = List.map (eval alg ~skolemized_quants ~depth) (Expr.get_args ast) in
       match FuncDecl.get_decl_kind decl, args with
       | (OP_UNINTERPRETED, args) -> alg (`App (decl, args))
       | (OP_ADD, args) -> alg (`Add args)
@@ -123,8 +122,9 @@ let rec eval alg ?(skolemized_quants=Hashtbl.create 91) ?(quants_seen=0) ast =
     alg (`Real (qq_val ast))
   | VAR_AST ->
     let index = (Z3.Quantifier.get_index ast) in
-    if Hashtbl.mem skolemized_quants (index + quants_seen) then
-      alg (`Const (Hashtbl.find skolemized_quants (index + quants_seen)))
+    (* TODO: Confirm this should be plus and not minus *)
+    if Hashtbl.mem skolemized_quants (index - depth) then
+      alg (`Const (Hashtbl.find skolemized_quants (index - depth)))
     else
       alg (`Var (index, (typ_of_sort (Expr.get_sort ast))))
   | QUANTIFIER_AST ->
@@ -141,7 +141,7 @@ let rec eval alg ?(skolemized_quants=Hashtbl.create 91) ?(quants_seen=0) ast =
                          body)))
       (Z3.Quantifier.get_bound_variable_names ast)
       (Z3.Quantifier.get_bound_variable_sorts ast)
-      (eval alg ~skolemized_quants ~quants_seen:(quants_seen+1) (Z3.Quantifier.get_body ast))
+      (eval alg ~skolemized_quants ~depth:(depth+1) (Z3.Quantifier.get_body ast))
   | FUNC_DECL_AST
   | SORT_AST
   | UNKNOWN_AST -> invalid_arg "eval: unknown ast type"
@@ -249,7 +249,6 @@ and z3_of_term (srk : 'a context) z3 (term : 'a term) =
     | `Unop (`Neg, t) -> Z3.Arithmetic.mk_unary_minus z3 t
     | `Binop (`Select, a, i) -> Z3.Z3Array.mk_select z3 a i
     | `Store (a, i, v) -> Z3.Z3Array.mk_store z3 a i v
-    | `Unop (`ConstArr, _) -> assert false
     | `Ite (cond, bthen, belse) ->
       Z3.Boolean.mk_ite z3 (z3_of_formula srk z3 cond) bthen belse
   in
@@ -310,10 +309,6 @@ let of_z3 context ?(skolemized_quants=Hashtbl.create 91) sym_of_decl expr =
     function
     | `Real qq -> (mk_real context qq :> 'a gexpr)
     | `Var (i, typ) -> mk_var context i typ
-    | `ArrVar (arr, rd) ->
-      if typ_symbol context arr <> `TyFun ([`TyInt], `TyInt)
-      then failwith "Array symbol type mismatch"
-      else (mk_app context arr [rd])
     | `Const sym -> mk_const context sym
     | `App (decl, args) ->
       let const_sym = sym_of_decl decl in
@@ -326,7 +321,6 @@ let of_z3 context ?(skolemized_quants=Hashtbl.create 91) sym_of_decl expr =
     | `Unop (`Neg, t) -> (mk_neg context (term t) :> 'a gexpr)
     | `Binop (`Select, a, i) -> (mk_select context (term a) (term i) :> 'a gexpr) 
     | `Store (a, i, v) -> (mk_store context (term a) (term i) (term v) :> 'a gexpr)
-    | `Unop (`ConstArr, _) -> assert false
     | `Tru -> (mk_true context :> 'a gexpr)
     | `Fls -> (mk_false context :> 'a gexpr)
     | `And conjuncts ->
@@ -436,11 +430,7 @@ module Solver = struct
     | `TyArr ->
       let t = expr_of_sym srk z3 sym in
       begin match Z3.Model.eval m t true with
-        | Some x ->
-          Log.errorf "expr is %s" (Z3.Expr.to_string x);
-          let zzarr = arr_val x in
-          Log.errorf "\n zzarr is \n%a" (Interpretation.QQArray.pp) zzarr;
-          `Arr zzarr
+        | Some x -> `Arr (arr_val x)
         | None -> assert false
       end
     | `TyBool ->
@@ -589,11 +579,8 @@ let interpolate_seq ?context:_ _ _ =
   failwith "SrkZ3.interpolate_seq not implemented"
 
 let load_smtlib2 ?(context=Z3.mk_context []) srk str =
-  Log.errorf "string is %s" str;
   let z3 = context in
-  Log.errorf "here1";
   let ast = Z3.SMT.parse_smtlib2_string z3 str [] [] [] [] in
-  Log.errorf "Here0 %n" (Z3.AST.ASTVector.get_size ast);
   let sym_of_decl =
     let cos =
       Memo.memo (fun (name, typ) ->
@@ -612,9 +599,8 @@ let load_smtlib2 ?(context=Z3.mk_context []) srk str =
         in
         cos (Symbol.to_string sym, typ)
   in
-  Log.errorf "Here %s" (Z3.AST.ASTVector.to_string ast);
   Z3.AST.ASTVector.to_expr_list ast
-  |> List.map (fun expr ->Log.errorf "Here2";
+  |> List.map (fun expr ->
          match Expr.refine srk (of_z3 srk sym_of_decl expr) with
          | `Formula phi -> phi
          | `Term _ -> invalid_arg "load_smtlib2")

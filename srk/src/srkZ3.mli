@@ -10,13 +10,12 @@ type 'a open_expr = [
   | `Real of QQ.t
   | `App of z3_func_decl * 'a list
   | `Var of int * typ_fo
-  | `ArrVar of symbol * 'a
   | `Const of symbol
   | `Add of 'a list
   | `Mul of 'a list
   | `Store of 'a * 'a * 'a
   | `Binop of [ `Div | `Mod | `Select ] * 'a * 'a
-  | `Unop of [ `Floor | `Neg | `ConstArr ] * 'a
+  | `Unop of [ `Floor | `Neg ] * 'a
   | `Tru
   | `Fls
   | `And of 'a list
@@ -32,15 +31,18 @@ val z3_of_formula : 'a context -> z3_context -> 'a formula -> z3_expr
 val z3_of_expr : 'a context -> z3_context -> ('a,typ_fo) expr -> z3_expr
 
 (** Convert a Z3 expression into a term.  Raises [Invalid_argument] on
-    failure. *)
+    failure. [skolemized_quants] can be used to set free variable [i] to
+    the predefined symbol [skolemized_quants i].*)
 val term_of_z3 : 'a context -> ?skolemized_quants:(int, symbol) Hashtbl.t -> z3_expr -> 'a term
 
 (** Convert a Z3 expression into a formula.  Raises [Invalid_argument] on
-    failure. *)
+    failure. [skolemized_quants] can be used to set free variable [i] to
+    the predefined symbol [skolemized_quants i].*)
 val formula_of_z3 : 'a context -> ?skolemized_quants:(int, symbol) Hashtbl.t -> z3_expr -> 'a formula
 
 (** Convert a Z3 expression into an expression.  Raises [Invalid_argument] on
-    failure. *)
+    failure. [skolemized_quants] can be used to set free variable [i] to
+    the predefined symbol [skolemized_quants i].*)
 val expr_of_z3 : 'a context -> ?skolemized_quants:(int, symbol) Hashtbl.t -> z3_expr -> ('a,typ_fo) expr
 
 module Solver : sig

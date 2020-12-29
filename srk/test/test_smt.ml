@@ -143,9 +143,8 @@ let interpretation1 () =
 let interpretation2 () =
   let phi =
     let open Infix in
-    (forall ~name:"a" `TyInt ((a1.%[var 0 `TyInt]) = (var 0 `TyInt)) )
-    (*(int 5) < (a1.%[(int 5)]) && (int 10) = (a1.%[x]) &&
-    (a1.%[y]) = (int 2) && a1 = a2*)
+    (int 5) < (a1.%[(int 5)]) && (int 10) = (a1.%[x]) &&
+    (a1.%[y]) = (int 2) && a1 = a2
   in
   match Smt.get_model srk phi with
   | `Sat m ->
@@ -171,6 +170,26 @@ let implicant1 () =
       | None -> assert false
     end
   | _ -> assert false
+
+let implicant2 () =
+  let phi =
+    let open Infix in
+    a1 = a2 && a1.%[x] = (int 99) && a2.%[y] = (int 98) 
+    && (x = y || y = (int 5))
+  in
+  match Smt.get_model srk phi with
+  | `Sat m ->
+    begin match Interpretation.select_implicant m phi with
+      | Some implicant ->
+        List.iter (fun psi ->
+            assert_bool "is_model"
+              (Interpretation.evaluate_formula m psi))
+          implicant
+      | None -> assert false
+    end
+  | _ -> assert false
+
+
 
 let affine_interp1 () =
   let phi =
@@ -351,6 +370,32 @@ let arr_read_write () =
   in 
   let phi = SrkZ3.load_smtlib2 srk smt2str in
   assert_equiv_formula phi (mk_false srk)
+(* This test stalls out when run together with arraycontent suite. Unclear why.
+let skolemized_quants () = 
+  let smt2str = 
+      "(assert 
+        (exists ((x Int))
+          (and 
+           (forall ((y Int)) (< y x))
+          (= x 5))))"
+  in 
+  let phi = SrkZ3.load_smtlib2 srk smt2str in
+  let ctx = Z3.mk_context [] in
+  let z3 = SrkZ3.z3_of_formula srk ctx phi in
+  let body = Z3.Quantifier.get_body (Z3.Quantifier.quantifier_of_expr z3) in
+  let sk_quants = Hashtbl.create 1 in
+  Hashtbl.add sk_quants 0 xsym;
+  let psi = SrkZ3.formula_of_z3 srk ~skolemized_quants:sk_quants body in
+  let lam =
+    mk_and 
+    srk 
+    [mk_forall srk ~name:"y" `TyInt (mk_lt srk (mk_var srk 0 `TyInt) x);
+    mk_eq srk x (mk_int srk 5)]
+  in
+  assert_equal_formula psi lam
+*)
+
+
 
 let suite = "SMT" >:::
   [
@@ -368,6 +413,7 @@ let suite = "SMT" >:::
     "interpretation1" >:: interpretation1;
     "interpretation2" >:: interpretation2;
     "implicant1" >:: implicant1;
+    "implicant2" >:: implicant2;
     "affine_interp1" >:: affine_interp1;
     "affine_interp2" >:: affine_interp2;
     "chc1" >:: chc1;
@@ -375,5 +421,6 @@ let suite = "SMT" >:::
     "chc3" >:: chc3;
     "chc_trivial_false" >:: chc_trivial_false;
     "chc_trivial_true" >:: chc_trivial_true;
-    "arr_read_write" >:: arr_read_write
+    "arr_read_write" >:: arr_read_write;
+    (*"skolemized_quants" >:: skolemized_quants*)
   ]
