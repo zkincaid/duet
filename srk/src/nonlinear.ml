@@ -328,7 +328,6 @@ let linearize srk phi =
         | `Var (_, _) -> assert false
         | `Binop (`Select, _, _) -> assert false
         | `Store (_, _, _) -> assert false
-        | `Unop(`ConstArr, _) -> assert false
       in
       (* conjoin symbolic intervals for all non-linear terms *)
       let bounds =
