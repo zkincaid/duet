@@ -23,9 +23,9 @@ end
 type typ_arith = [ `TyInt | `TyReal ]
 type typ_term = [ `TyInt | `TyReal | `TyArr ]
 type typ_fo = [ `TyInt | `TyReal | `TyBool  | `TyArr ]
-type typ = [ `TyInt | `TyReal | `TyBool | `TyArr | `TyFun of (typ_fo list) * typ_fo]
+type typ = 
+  [ `TyInt | `TyReal | `TyBool | `TyArr | `TyFun of (typ_fo list) * typ_fo]
 type typ_bool = [ `TyBool ]
-type typ_arr = [ `TyArr ]
 type 'a typ_fun = [ `TyFun of (typ_fo list) * 'a ]
 
 val pp_typ : Format.formatter -> [< typ] -> unit
@@ -60,8 +60,6 @@ val symbol_name : 'a context -> symbol -> string option
 val pp_symbol : 'a context -> Format.formatter -> symbol -> unit
 
 val typ_symbol : 'a context -> symbol -> typ
-
-val is_fo : 'a context -> symbol -> bool
 
 val show_symbol : 'a context -> symbol -> string
 
@@ -100,7 +98,7 @@ val destruct : 'a context -> ('a, 'b) expr -> [
     | `Mul of ('a term) list
     | `Store of 'a term * 'a term * 'a term
     | `Binop of [ `Div | `Mod | `Select] * ('a term) * ('a term)
-    | `Unop of [ `Floor | `Neg | `ConstArr ] * ('a term)
+    | `Unop of [ `Floor | `Neg ] * ('a term)
     | `Ite of ('a formula) * ('a,'b) expr * ('a,'b) expr
     | `Tru
     | `Fls
@@ -112,10 +110,6 @@ val destruct : 'a context -> ('a, 'b) expr -> [
     | `Proposition of [ `Var of int
                       | `App of symbol * (('b, typ_fo) expr) list ]
   ]
-
-val custom_eval : 'a context -> 
-  ('a context -> ('a, 'c) expr -> ('a, 'c) expr option) ->
-  ('a, 'c) expr -> ('a, 'c) expr
 
 val expr_typ : 'a context -> ('a, 'b) expr -> typ
 
@@ -145,18 +139,17 @@ val mk_iff : 'a context -> 'a formula -> 'a formula -> 'a formula
 val substitute : 'a context ->
   (int -> ('a,'b) expr) -> ('a,'typ) expr -> ('a,'typ) expr
 
+(** Same as substitute but passes along type information too. Useful if some
+ * vars to be unchanged. *)
+val substitute_with_typ : 'a context ->
+  ((int * typ_fo) -> ('a,'b) expr) -> ('a,'typ) expr -> ('a,'typ) expr
+
 (** [substitute_const srk subst exp] replaces each occurrence of a
    constant symbol [s] with the expression [subst s].  If [subst s]
    contains free variables, capture is avoided.  Function symbols are
    not affected. *)
 val substitute_const : 'a context ->
   (symbol -> ('a,'b) expr) -> ('a,'typ) expr -> ('a,'typ) expr
-
-(** [substitute_func srk subst exp] replaces each occurence of a
-   a function application [f(e_0,...,e_n)] with 
-   [(subst f)(substitute_func srk subst e_0,..., substitute_func srk subst e_n)].*)
-val substitute_func : 'a context -> 
-  (symbol -> symbol) -> ('a,'typ) expr -> ('a,'typ) expr 
 
 (** [substitute_map srk subst exp] replaces each occurrence of a
    constant symbol [s] in the domain of the map subst with the
@@ -273,7 +266,7 @@ type ('a,'b) open_term = [
   | `Add of 'a list
   | `Mul of 'a list
   | `Binop of [ `Div | `Mod | `Select ] * 'a * 'a
-  | `Unop of [ `Floor | `Neg | `ConstArr ] * 'a
+  | `Unop of [ `Floor | `Neg ] * 'a
   | `Ite of ('b formula) * 'a * 'a
   | `Store of 'a * 'a * 'a
 ]
@@ -309,7 +302,6 @@ val mk_sub : 'a context -> 'a term -> 'a term -> 'a term
 (** Array operations *)
 val mk_select : 'a context -> 'a term -> 'a term -> 'a term
 val mk_store : 'a context -> 'a term -> 'a term -> 'a term -> 'a term
-val mk_const_arr : 'a context -> 'a term -> 'a term
 
 val term_typ : 'a context -> 'a term -> typ_term
 
@@ -364,7 +356,6 @@ val mk_and : 'a context -> 'a formula list -> 'a formula
 val mk_or : 'a context -> 'a formula list -> 'a formula
 val mk_not : 'a context -> 'a formula -> 'a formula
 val mk_eq : 'a context -> 'a term -> 'a term -> 'a formula
-val mk_arr_eq : 'a context -> symbol -> symbol -> 'a formula
 val mk_lt : 'a context -> 'a term -> 'a term -> 'a formula
 val mk_leq : 'a context -> 'a term -> 'a term -> 'a formula
 val mk_true : 'a context -> 'a formula
@@ -403,7 +394,7 @@ val pp_smtlib2 : ?env:(string Env.t) -> 'a context ->
 val pp_expr_unnumbered : ?env:(string Env.t) -> 'a context -> 
     Format.formatter -> ('a, 'b) expr -> unit
 
-(** Writes formula phi to smt2 file at filename *)
+(** [to_file srk phi filename] writes formula phi in smt2 format to filename *)
 val to_file : 'a context -> 'a formula -> string -> unit
 
 module Formula : sig
@@ -421,7 +412,6 @@ module Formula : sig
   val existential_closure : 'a context -> 'a formula -> 'a formula
   val universal_closure : 'a context -> 'a formula -> 'a formula
   val skolemize_free : 'a context -> 'a formula -> 'a formula
-  val skolemize_eqpf : 'a context -> 'a formula -> 'a formula
   val prenex : 'a context -> 'a formula -> 'a formula
 end
 
@@ -450,7 +440,6 @@ module type Context = sig
   val mk_sub : term -> term -> term
   val mk_select : term -> term -> term
   val mk_store : term -> term -> term -> term
-  val mk_const_arr : term -> term
   val mk_forall : ?name:string -> typ_fo -> formula -> formula
   val mk_exists : ?name:string -> typ_fo -> formula -> formula
   val mk_forall_const : symbol -> formula -> formula
@@ -497,7 +486,6 @@ module Infix (C : sig
 
   val ( .%[] ) : C.t term -> C.t term -> C.t term
   val ( .%[]<- ) : C.t term -> C.t term -> C.t term -> C.t term
-  val const_arr : C.t term -> C.t term
 end
 
 (** A context table is a hash table mapping contents to values.  If a context

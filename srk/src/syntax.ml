@@ -11,7 +11,6 @@ type typ = [
   | `TyFun of (typ_fo list * typ_fo)
 ]
 
-type typ_arr = [ `TyArr ]
 type typ_arith = [ `TyInt | `TyReal ]
 type typ_term = [ `TyInt | `TyReal | `TyArr ]
 type typ_bool = [ `TyBool ]
@@ -62,7 +61,6 @@ type label =
   | Ite
   | Store
   | Select
-  | ConstArr
 
 type sexpr = Node of label * ((sexpr hobj) list) * typ_fo
 type ('a,'typ) expr = sexpr hobj
@@ -183,7 +181,7 @@ type ('a, 'b) open_term = [
   | `Add of 'a list
   | `Mul of 'a list
   | `Binop of [ `Div | `Mod | `Select ] * 'a * 'a
-  | `Unop of [ `Floor | `Neg | `ConstArr] * 'a
+  | `Unop of [ `Floor | `Neg ] * 'a
   | `Ite of ('b formula) * 'a * 'a
   | `Store of 'a * 'a * 'a
 ]
@@ -254,9 +252,6 @@ let symbol_name srk sym =
   else None
 
 let typ_symbol srk = snd % DynArray.get srk.symbols
-let is_fo srk sym = 
-  let typ = typ_symbol srk sym in 
-  typ = `TyInt || typ = `TyReal || typ = `TyBool
 
 let pp_symbol srk formatter symbol =
   Format.fprintf formatter "%s:%d"
@@ -281,7 +276,6 @@ let mk_var srk v typ = srk.mk (Var (v, typ)) []
 
 let mk_select srk a i = srk.mk Select [a; i]
 let mk_store srk a i v = srk.mk Store [a; i; v]
-let mk_const_arr srk v = srk.mk ConstArr [v]
 
 let mk_neg srk t = srk.mk Neg [t]
 let mk_div srk s t = srk.mk Div [s; t]
@@ -335,15 +329,6 @@ let mk_and srk conjuncts = srk.mk And conjuncts
 let mk_or srk disjuncts = srk.mk Or disjuncts
 let mk_forall srk ?name:(name="_") typ phi = srk.mk (Forall (name, typ)) [phi]
 let mk_exists srk ?name:(name="_") typ phi = srk.mk (Exists (name, typ)) [phi]
-
-let mk_arr_eq srk a b = 
-  mk_forall 
-    srk
-    `TyInt
-    (mk_eq 
-       srk 
-       (mk_app srk a [(mk_var srk 0 `TyInt)]) 
-       (mk_app srk b [(mk_var srk 0 `TyInt)]))
 
 let mk_ite srk cond bthen belse = srk.mk Ite [cond; bthen; belse]
 let mk_iff srk phi psi =
@@ -412,15 +397,6 @@ let substitute_const srk subst sexpr =
   in
   go 0 sexpr
 
-let substitute_func srk subst sexpr =
-  let rec go sexpr =
-    let Node (label, children, _) = sexpr.obj in
-    match label with
-    | App k -> mk_app srk (subst k) (List.map go children)
-    | _ -> srk.mk label (List.map go children)
-  in
-  go sexpr
-
 let substitute_map srk map sexpr =
   let subst sym =
     if Symbol.Map.mem sym map then
@@ -429,6 +405,23 @@ let substitute_map srk map sexpr =
       mk_const srk sym
   in
   substitute_const srk subst sexpr
+
+let substitute_with_typ srk subst sexpr =
+  let rec go depth sexpr =
+    let Node (label, children, _) = sexpr.obj in
+    match label with
+    | Exists (_, _) | Forall (_, _) ->
+      go_children label (depth + 1) children
+    | Var (v, typ) ->
+      if v < depth then (* bound var *)
+        sexpr
+      else
+        decapture srk 0 depth (subst ((v - depth), typ))
+    | _ -> go_children label depth children
+  and go_children label depth children =
+    srk.mk label (List.map (go depth) children)
+  in
+  go 0 sexpr
 
 let substitute_sym srk subst sexpr =
   let rec go depth sexpr =
@@ -443,9 +436,9 @@ let substitute_sym srk subst sexpr =
           children
           Env.empty
       in
-      let f ind = try (Env.find env ind) with _ -> (mk_var srk ind `TyInt) in
+      let f (ind, typ) = try (Env.find env ind) with _ -> (mk_var srk ind typ) in
       decapture srk (List.length children) (depth - (List.length children)) (subst k)
-      |> substitute srk f
+      |> substitute_with_typ srk f
     | _ -> go_children label depth children
   and go_children label depth children =
     srk.mk label (List.map (go depth) children)
@@ -519,7 +512,6 @@ let destruct _srk sexpr =
   | Node (Ite, [cond; bthen; belse], _) -> `Ite (cond, bthen, belse)
   | Node (Store, [a; i; v], `TyArr) -> `Store (a, i, v)
   | Node (Select, [a; i], _) -> `Binop(`Select, a, i)
-  | Node (ConstArr, [v], `TyArr) -> `Unop(`ConstArr, v)
   | Node (True, [], _) -> `Tru
   | Node (False, [], _) -> `Fls
   | Node (And, conjuncts, _) -> `And conjuncts
@@ -531,16 +523,6 @@ let destruct _srk sexpr =
   | Node (Leq, [s; t], _) -> `Atom (`Leq, s, t)
   | Node (Lt, [s; t], _) -> `Atom (`Lt, s, t)
   | Node (_, _, _) -> assert false
-
-  let custom_eval srk eval phi =
-    let rec go sexpr =
-      let (Node (label, children, _)) = sexpr.obj in
-      match eval srk sexpr with
-      | Some t -> t
-      | None -> srk.mk label (List.map go children)
-    in
-    go phi
-
 
 let rec flatten_universal phi = match phi.obj with
   | Node (Forall (name, typ), [phi], _) ->
@@ -632,7 +614,7 @@ let rec pp_expr ?(env=Env.empty) srk formatter expr =
       (pp_expr ~env srk) x
       (pp_expr ~env srk) y
   | Store, [a; i; v] ->
-    fprintf formatter "@[%a[%a ~> %a]@]"
+    fprintf formatter "@(store %a %a %a)@]"
       (pp_expr ~env srk) a
       (pp_expr ~env srk) i
       (pp_expr ~env srk) v
@@ -640,9 +622,6 @@ let rec pp_expr ?(env=Env.empty) srk formatter expr =
     fprintf formatter "@[%a[%a]@]"
       (pp_expr ~env srk) a
       (pp_expr ~env srk) i
-  | ConstArr, [v] ->
-    fprintf formatter "@[const(%a)@]"
-      (pp_expr ~env srk) v
   | Exists (name, typ), [psi] | Forall (name, typ), [psi] ->
       let (quantifier_name, varinfo, psi) =
         match label with
@@ -781,7 +760,7 @@ let pp_expr_unnumbered ?(env=Env.empty) srk formatter expr =
         (go ~env srk) x
         (go ~env srk) y
     | Store, [a; i; v] ->
-      fprintf formatter "@[%a[%a ~> %a@]"
+      fprintf formatter "@(store %a %a %a)@]"
         (pp_expr ~env srk) a
         (pp_expr ~env srk) i
         (pp_expr ~env srk) v
@@ -789,9 +768,6 @@ let pp_expr_unnumbered ?(env=Env.empty) srk formatter expr =
       fprintf formatter "@[%a[%a@]"
         (pp_expr ~env srk) a
         (pp_expr ~env srk) i
-    | ConstArr, [v] ->
-      fprintf formatter "@[const(%a)@]"
-        (pp_expr ~env srk) v
     | Exists (name, typ), [psi] | Forall (name, typ), [psi] ->
         let (quantifier_name, varinfo, psi) =
           match label with
@@ -935,7 +911,6 @@ module Term = struct
       | Node (Neg, [t], _) -> alg (`Unop (`Neg, go t))
       | Node (Select, [a; i], `TyInt) -> alg(`Binop (`Select, go a, go i))
       | Node (Store, [a; i; v], `TyArr) -> alg(`Store(go a, go i, go v))
-      | Node (ConstArr, [v], `TyArr) -> alg(`Unop (`ConstArr, go v))
       | Node (Ite, [cond; bthen; belse], `TyReal)
       | Node (Ite, [cond; bthen; belse], `TyInt) ->
         alg (`Ite (cond, go bthen, go belse))
@@ -955,7 +930,8 @@ module Term = struct
   let destruct _srk t = match t.obj with
     | Node (Real qq, [], _) -> `Real qq
     | Node (App _, _, `TyBool) -> invalid_arg "destruct: not a term"
-    | Node (App func, args, `TyInt) | Node (App func, args, `TyReal) ->
+    | Node (App func, args, `TyInt) | Node (App func, args, `TyReal) 
+    | Node (App func, args, `TyArr)->
       `App (func, args)
     | Node (Var (v, typ), [], _) ->
       begin match typ with
@@ -972,7 +948,6 @@ module Term = struct
     | Node (Neg, [t], _) -> `Unop (`Neg, t)
     | Node (Select, [a; i], _) -> `Binop(`Select, a, i)
     | Node (Store, [a; i; v], `TyArr) -> `Store(a, i, v)
-    | Node (ConstArr, [v], `TyArr) -> `Unop(`ConstArr, v)
     | Node (Ite, [cond; bthen; belse], `TyReal)
     | Node (Ite, [cond; bthen; belse], `TyInt) ->
       `Ite (cond, bthen, belse)
@@ -983,12 +958,15 @@ module Term = struct
     | `App(func, args) -> mk_app _srk func args
     | `Var(v, `TyInt) -> mk_var _srk v `TyInt
     | `Var(v, `TyReal) -> mk_var _srk v `TyReal
+    | `Var(v, `TyArr) -> mk_var _srk v `TyArr
     | `Add sum -> mk_add _srk sum
     | `Mul product -> mk_mul _srk product
     | `Binop (`Div, s, t) -> mk_div _srk s t
     | `Binop (`Mod, s, t) -> mk_mod _srk s t
+    | `Binop (`Select, a, i) -> mk_select _srk a i
     | `Unop (`Floor, t) -> mk_floor _srk t
     | `Unop (`Neg, t) -> mk_neg _srk t
+    | `Store (a, i, v) -> mk_store _srk a i v
     | `Ite (cond, bthen, belse) -> mk_ite _srk cond bthen belse
 
   let pp = pp_expr
@@ -1108,41 +1086,6 @@ module Formula = struct
       | _ -> srk.mk label (List.map go children)
     in
     go phi
-
-  let skolemize_eqpf srk phi =
-    let skolemtbl = Hashtbl.create 991 in
-    (* No current reasoning for not/ite statements;
-     * equisatisfiability not preserved if these labels precede quantifiers *)
-    let rec go depth first_univ_depth sexpr =
-      let (Node (label, children, _)) = sexpr.obj in
-      match label with
-      | Var (i, typ) ->
-        if Option.is_none first_univ_depth || depth - i < Option.get first_univ_depth
-        then Hashtbl.find skolemtbl (depth - i - 1)
-        else srk.mk (Var (i, typ)) []
-      | Forall (name, typ) ->
-        if Option.is_none first_univ_depth then 
-          srk.mk 
-            (Forall (name, typ)) 
-            (List.map (go (depth + 1) (Some (depth + 1))) children)
-        else
-          srk.mk 
-            (Forall (name, typ)) 
-            (List.map (go (depth + 1) first_univ_depth) children)
-      | Exists (name, typ) ->
-        if Option.is_none first_univ_depth then (
-          Hashtbl.add skolemtbl depth (mk_const srk (mk_symbol srk (typ :> typ)));
-          let res = go (depth + 1) first_univ_depth (List.hd children) in
-          Hashtbl.remove skolemtbl depth;
-          res
-        )
-        else
-          srk.mk 
-            (Exists (name, typ)) 
-            (List.map (go (depth + 1) first_univ_depth) children)
-      | _ -> srk.mk label (List.map (go depth first_univ_depth) children)
-    in
-    go 0 None phi
 
   let prenex srk phi =
     let negate_prefix =
@@ -1300,13 +1243,6 @@ let node_typ symbols label children =
         end
       |  _ -> assert false
     end
-  | ConstArr -> begin match children with
-      | [v] -> begin match v.obj with
-          | Node (_, _, `TyInt) -> `TyArr
-          | _ -> invalid_arg "invalid const arr"
-        end
-      |_ -> assert false
-    end
   | Forall (_, _) | Exists (_, _) | And | Or | Not
   | True | False | Eq | Leq | Lt  -> `TyBool
   | Floor -> `TyInt
@@ -1316,6 +1252,7 @@ let node_typ symbols label children =
         match typ, typ' with
         | `TyInt, `TyInt -> `TyInt
         | `TyInt, `TyReal | `TyReal, `TyInt | `TyReal, `TyReal -> `TyReal
+        | `TyArr, _ | _, `TyArr -> invalid_arg "Array as argument to arithmetic function"
         | _, _ -> assert false)
       `TyInt
       children
@@ -1422,7 +1359,7 @@ let eliminate_ite srk phi =
       map_ite (fun t -> `Term (mk_neg srk t)) (promote_ite x)
     | `Unop (`Floor, x) ->
       map_ite (fun t -> `Term (mk_floor srk t)) (promote_ite x)
-    | `Binop(`Select, _, _) | `Store (_, _, _) | `Unop(`ConstArr, _) -> failwith "TODO"
+    | `Binop(`Select, _, _) | `Store (_, _, _) -> failwith "TODO"
     | `App (func, args) ->
       List.fold_right (fun x rest ->
           match Expr.refine srk x with
@@ -1619,9 +1556,6 @@ let pp_smtlib2_gen ?(named=false) ?(env=Env.empty) ?(strings=Hashtbl.create 991)
         (go env) a 
         (go env) i
         (go env) v
-    | ConstArr, [v] ->
-      fprintf formatter "((as const (Array Int Int)) %a)"
-        (go env) v
     | Neg, [{obj = Node (App _, _, _); _} as t]
     | Neg, [t] -> fprintf formatter "(- @[%a@])" (go env) t
     | True, [] -> pp_print_string formatter "true"
@@ -1734,7 +1668,6 @@ struct
   let var = mk_var C.context
   let ( .%[] ) = mk_select C.context
   let ( .%[]<- ) = mk_store C.context
-  let const_arr = mk_const_arr C.context
 end
 
 module type Context = sig
@@ -1760,7 +1693,6 @@ module type Context = sig
   val mk_sub : term -> term -> term
   val mk_select : term -> term -> term
   val mk_store : term -> term -> term -> term
-  val mk_const_arr : term -> term
   val mk_forall : ?name:string -> typ_fo -> formula -> formula
   val mk_exists : ?name:string -> typ_fo -> formula -> formula
   val mk_forall_const : symbol -> formula -> formula
@@ -1799,7 +1731,6 @@ module ImplicitContext(C : sig
   let mk_sub = mk_sub context
   let mk_select = mk_select context
   let mk_store = mk_store context
-  let mk_const_arr = mk_const_arr context
   let mk_forall = mk_forall context
   let mk_exists = mk_exists context
   let mk_forall_const = mk_forall_const context
@@ -1875,7 +1806,7 @@ struct
         begin match x.obj, y.obj with
           | Node (Real xv, [], _), Node (Real yv, [], _) ->
             if QQ.equal xv yv then true_ else false_
-          | _ -> hc label [x; y]
+          | _ -> if x = y then true_ else hc label [x; y]
         end
 
       | And, conjuncts ->
