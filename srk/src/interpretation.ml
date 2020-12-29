@@ -144,7 +144,7 @@ let substitute interpretation expr =
              | `Real qq -> (mk_real srk qq :> ('a, typ_fo) expr)
              | `Bool true -> (mk_true srk :> ('a, typ_fo) expr)
              | `Bool false -> (mk_false srk :> ('a, typ_fo) expr)
-             | `Arr _ -> assert false
+             | `Arr _ -> failwith "Array substitution not implemented"
              | `Fun _ -> assert false)
           with Not_found -> expr
         end
@@ -176,10 +176,10 @@ let rec evaluate_term interp ?(env=Env.empty) term =
       end
     | `Binop (`Select, `Arr a, `QQ i) -> `QQ (QQArray.select a i)
     | `Store (`Arr a, `QQ i, `QQ v) -> `Arr (QQArray.add a i v)
-    | `Var (i, _) -> (* TODO: Check *)
+    | `Var (i, _) -> 
       begin match Env.find env i with
         | `Real qq -> `QQ qq
-        | `Arr a -> `Arr a
+        | `Array a -> `Arr a
         | `Bool _ -> invalid_arg "evaluate_term: ill-typed variable"
       end
     | `Add xs -> let xs = cast_to_qq xs in
@@ -294,8 +294,6 @@ let select_implicant interp ?(env=Env.empty) phi =
           ([], [])
       in
       (mk_mul srk products, implicant)
-    | `Unop (`ConstArr, _) -> assert false
-    | `Binop (`Select, _, _) -> assert false
     | `Binop (op, s, t) ->
       let (s_term, s_impl) = term s in
       let (t_term, t_impl) = term t in
@@ -303,7 +301,7 @@ let select_implicant interp ?(env=Env.empty) phi =
         match op with
         | `Div -> mk_div srk s_term t_term
         | `Mod -> mk_mod srk s_term t_term
-        | `Select -> assert false
+        | `Select -> mk_select srk s_term t_term
       in
       (term, s_impl@t_impl)
     | `Unop (op, t) ->
@@ -311,10 +309,13 @@ let select_implicant interp ?(env=Env.empty) phi =
       let term = match op with
         | `Floor -> mk_floor srk t_term
         | `Neg -> mk_neg srk t_term
-        | `ConstArr -> assert false
       in
       (term, t_impl)
-    |  `Store (_, _, _) -> invalid_arg "EMP"
+    | `Store (a, i, v) ->
+        let (a_term, a_impl) = term a in
+        let (i_term, i_impl) = term i in
+        let (v_term, v_impl) = term v in
+        mk_store srk a_term i_term v_term, a_impl@i_impl@v_impl
     | `Ite (cond, bthen, belse) ->
       begin match formula cond with
         | Some implicant ->
@@ -369,8 +370,9 @@ let select_implicant interp ?(env=Env.empty) phi =
               Some (cons_nontriv (mk_leq srk s_term t_term) (s_impl@t_impl))
             | `Lt, `QQ s_val, `QQ t_val when QQ.lt s_val t_val ->
               Some (cons_nontriv (mk_lt srk s_term t_term) (s_impl@t_impl))
-            | _ -> (*TODO: arrs *)
-              None
+            | `Eq, `Arr s_val, `Arr t_val when QQArray.equal s_val t_val ->
+              Some (cons_nontriv (mk_eq srk s_term t_term) (s_impl@t_impl))  
+            | _ -> None
           end
         with Divide_by_zero -> None
       end

@@ -2,6 +2,12 @@ open Syntax
 
 exception Divide_by_zero
 
+
+(** A representation of an integer array as a map and a
+    default value. Essentially mirrors the encoding of array interps in Z3.
+    TODO: May be nice to have def value be function of index as opposed
+    to a constant, although I don't believe that Z3 interps 
+    can exhibit this behavior. *)
 module QQArray : sig
   type t
   val create : QQ.t -> t
@@ -51,12 +57,12 @@ val enum : 'a interpretation ->
 val substitute : 'a interpretation -> ('a,'typ) expr -> ('a,'typ) expr
 
 val evaluate_term : 'a interpretation ->
-  ?env:[`Real of QQ.t | `Bool of bool] Env.t ->
+  ?env:[`Real of QQ.t | `Bool of bool | `Array of QQArray.t] Env.t ->
   'a term ->
   [`QQ of QQ.t | `Arr of QQArray.t]
-
+(* Same as evaluate_term but fails if not case QQ *)
 val evaluate_term_qq : 'a interpretation ->
-  ?env:[`Real of QQ.t | `Bool of bool] Env.t ->
+  ?env:[`Real of QQ.t | `Bool of bool | `Array of QQArray.t] Env.t ->
   'a term ->
   QQ.t
     
