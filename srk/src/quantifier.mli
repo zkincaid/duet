@@ -47,7 +47,9 @@ val miniscope : 'a context -> 'a formula -> 'a formula
  * Multiple consecutive runs of this function may yield new eliminations. *)
 val eq_guided_qe : 'a context -> 'a formula -> 'a formula
 
-val eager_mbp_qe : 'a context -> 'a formula -> 'a formula
+(** Similar to qe_mbp but does without conversion to prenex. Eliminates
+ * quantifiers one at a time rather than block by block. *)
+val mbp_qe_inplace : 'a context -> 'a formula -> 'a formula
 
 (** Compute a winning SAT/UNSAT strategy for a formula.  The formula is
     represented in prenex form (quantifier prefix + matrix). *)

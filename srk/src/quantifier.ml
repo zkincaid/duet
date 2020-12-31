@@ -2424,40 +2424,30 @@ let eq_guided_qe srk phi =
   let _, _, phi = Formula.eval srk alg phi in
   phi
 
-let eager_mbp_qe srk phi =
-  let counter = ref 0 in
+let mbp_qe_inplace srk phi =
   let phi = eliminate_ite srk phi in
   let alg = function
-    | `Quantify (qt, name, `TyInt, body) ->
-      counter := !counter + 1;
-      if Syntax.size body < 100000000000000 then(
+    | `Quantify (qt, _, `TyInt, body) ->
+        (* TODO: Slight performance improvement if don't do/undo
+         * the var substitution for every quantifier *)
         let rev_tbl = Hashtbl.create 97 in
         let tbl = Memo.memo (fun ind -> 
             let fresh = mk_symbol srk `TyInt in
             Hashtbl.add rev_tbl fresh (mk_var srk (ind - 1) `TyInt);
             fresh)
         in
-        let phi = 
-          substitute
-            srk
-            (fun i -> mk_const srk (tbl i)) 
-            body
-        in
-        to_file srk phi ("/Users/jakesilverman/Documents/duet/duet/COUNTER"^(string_of_int (!counter))^".smt2");
+        let phi = substitute srk (fun i -> mk_const srk (tbl i)) body in
         let phi = if qt = `Forall then mk_not srk phi else phi in
         let phi' = (mbp srk (fun s -> not (s = (tbl 0))) phi) in
-(*        to_file srk (mk_true srk) ("/Users/jakesilverman/Documents/duet/duet/DONE"^(string_of_int !counter)^".smt2");*)
         let phi' =  
           (substitute_const
              srk
-             (fun sym -> if Hashtbl.mem rev_tbl sym then Hashtbl.find rev_tbl sym
-               else mk_const srk sym)
+             (fun s -> 
+               if Hashtbl.mem rev_tbl s then Hashtbl.find rev_tbl s
+               else mk_const srk s)
              phi')
         in
-        if qt = `Forall then mk_not srk phi' else phi')
-      else if qt = `Forall then
-        mk_forall srk ~name:name `TyInt body
-      else mk_exists srk ~name:name `TyInt body
+        if qt = `Forall then mk_not srk phi' else phi'
     | open_form -> Formula.construct srk open_form
   in
   Formula.eval srk alg phi
