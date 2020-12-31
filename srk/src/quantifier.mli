@@ -37,7 +37,17 @@ val pp_strategy : 'a context -> Format.formatter -> 'a strategy -> unit
 
 val show_strategy : 'a context -> 'a strategy -> string
 
+(** Pushes quantifiers further into expression tree. Does not preserve 
+ * quantifier ordering. Eliminates unused quantifiers. For better results
+ * may want to convert to dnf prior to calling.*)
 val miniscope : 'a context -> 'a formula -> 'a formula
+
+(** Uses equality terms to eliminate quantifiers. Works ground up
+ * eliminating quantifiers when possible with no backtracing. 
+ * Multiple consecutive runs of this function may yield new eliminations. *)
+val eq_guided_qe : 'a context -> 'a formula -> 'a formula
+
+val eager_mbp_qe : 'a context -> 'a formula -> 'a formula
 
 (** Compute a winning SAT/UNSAT strategy for a formula.  The formula is
     represented in prenex form (quantifier prefix + matrix). *)
