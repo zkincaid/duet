@@ -56,10 +56,6 @@ module Make
       [v]. *)
   val assign : var -> C.t term -> t
 
-  (** [assign a r t] is a transition that assigns the term [t] to the value 
-      stored at index r of array a [a(r)]. *)
-  val arr_assign : var -> C.t term -> C.t term -> t
-
   (** Parallel assignment of a list of terms to a list of variables.
      If a variable appears multiple times as a target for an
      assignment, the rightmost assignment is taken. *)
