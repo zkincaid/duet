@@ -103,18 +103,21 @@ module Fp = struct
       fp.rules
 
   let get_relations_declared fp =
-    BatList.of_enum (0 -- ((DynArray.length fp.rel_ctx) - 1)) 
+    BatList.of_enum (0 -- ((DynArray.length fp.rel_ctx) - 1))
 
-  let is_linear fp =
+  let get_max_rel fp =
+    (DynArray.length fp.rel_ctx) - 1
+
+  let is_linear rules =
     BatList.fold_left 
-      (fun acc (hypo_atoms, _, _) -> acc && (List.length hypo_atoms) <= 1)
+      (fun acc (hypo_atoms, _, _) -> Log.errorf "LENGTH OF HYPOS IS %n" (List.length hypo_atoms); acc && (List.length hypo_atoms) <= 1)
       true
-      fp.rules
+      rules
 
   let goal_vert = -2 
   let start_vert = -1 
   let to_weighted_graph srk fp pd =
-    let stars_test = ref 0 in
+    let graphcounter = ref 0 in
     let open WeightedGraph in
     let emptyarr = BatArray.init 0 (fun _ -> failwith "empty") in
     let alg = 
@@ -127,6 +130,10 @@ module Fp = struct
       let one = emptyarr, emptyarr, mk_true srk in
       let add x y =
         let t1  = time "IN ADD" in
+        let _, _, phi1 = x in
+        let _, _, phi2 = y in
+        to_file srk phi1 ("/Users/jakesilverman/Documents/duet/duet/addinp1_"^(string_of_int !graphcounter)^".smt2");
+         to_file srk phi2 ("/Users/jakesilverman/Documents/duet/duet/addinp2_"^(string_of_int !graphcounter)^".smt2"); 
         let (x, y, res) = if is_zero x then y else if is_zero y then x
           else if is_one x || is_one y then one
           else (
@@ -154,7 +161,8 @@ module Fp = struct
         in
         let t2 = time "OUT ADD" in
         diff t1 t2 "ADD";
-        to_file srk res "/Users/jakesilverman/Documents/duet/duet/add.smt2";
+        to_file srk res ("/Users/jakesilverman/Documents/duet/duet/addout_"^(string_of_int !graphcounter)^".smt2");
+        graphcounter := !graphcounter + 1;
         (x, y, res)
 
       in
@@ -162,8 +170,34 @@ module Fp = struct
         let t1 = time "IN MUL" in
         let (pre1, post1, phi1) = x in
         let (pre2, post2, phi2) = y in
-        to_file srk phi1 "/Users/jakesilverman/Documents/duet/duet/mul1.smt2";
-        to_file srk phi2 "/Users/jakesilverman/Documents/duet/duet/mul2.smt2";
+        to_file srk phi1 ("/Users/jakesilverman/Documents/duet/duet/mulinp1_"^(string_of_int !graphcounter)^".smt2");
+        to_file srk phi2 ("/users/jakesilverman/documents/duet/duet/mulinp2_"^(string_of_int !graphcounter)^".smt2");
+        
+        let prel = BatArray.to_list pre1 in
+        let postl = BatArray.to_list post1 in
+        let syms = prel @ postl in
+        let phi1 = 
+          mk_exists_consts srk (fun s -> List.mem s syms) phi1 in
+        to_file srk phi1 ("/users/jakesilverman/documents/duet/duet/mulprerewritein1_"^(string_of_int !graphcounter)^".smt2"); 
+        let phi1 = Quantifier.miniscope srk phi1 in
+        let phi1 = Quantifier.eq_guided_qe srk phi1 in
+        to_file srk phi1 ("/users/jakesilverman/documents/duet/duet/mulpostrewritein1_"^(string_of_int !graphcounter)^".smt2"); 
+
+        let prel = BatArray.to_list pre2 in
+        let postl = BatArray.to_list post2 in
+        let syms = prel @ postl in
+        let phi2 = 
+          mk_exists_consts srk (fun s -> List.mem s syms) phi2 in
+        to_file srk phi2 ("/users/jakesilverman/documents/duet/duet/mulprerewritein2_"^(string_of_int !graphcounter)^".smt2");
+        Log.errorf "phi is %a" (Formula.pp srk) phi2;
+        let phi2 = Quantifier.miniscope srk phi2 in
+        Log.errorf "MINI DONE";
+        let phi2 = Quantifier.eq_guided_qe srk phi2 in
+        to_file srk phi2 ("/users/jakesilverman/documents/duet/duet/mulpostrewritein2_"^(string_of_int !graphcounter)^".smt2"); 
+        Log.errorf "REW DONE";
+
+
+
         let (x, y, res) = 
           if is_zero x || is_zero y then zero
           else if is_one x then y else if is_one y then x
@@ -198,18 +232,40 @@ module Fp = struct
             in
             let phi2 = substitute_sym srk rhs_subst phi2 in
             let phi1 = substitute_sym srk lhs_subst phi1 in
-            pre', post', mk_and srk [phi1; phi2]
+            let prel = BatArray.to_list pre' in
+            let postl = BatArray.to_list post' in
+            let syms = prel @ postl in
+            let phi = 
+              mk_exists_consts srk (fun s -> List.mem s syms) 
+                (mk_and srk [phi1; phi2]) in
+            to_file srk phi ("/users/jakesilverman/documents/duet/duet/mulprerewrite_"^(string_of_int !graphcounter)^".smt2");
+            Log.errorf "\n\nREWRITE PHI IS\n\n%a\n\n" (Formula.pp srk) phi;
+            let phi = Quantifier.miniscope srk phi in
+            let phi = Quantifier.eq_guided_qe srk phi in
+            to_file srk phi ("/users/jakesilverman/documents/duet/duet/mulpostrewrite_"^(string_of_int !graphcounter)^".smt2"); 
+
+            pre', post', phi
           )
         in
         let t2 = time "OUT MUL" in
         diff t1 t2 "MUL";
-        to_file srk res "/Users/jakesilverman/Documents/duet/duet/mul.smt2";
+        to_file srk res ("/Users/jakesilverman/Documents/duet/duet/mulout_"^(string_of_int !graphcounter)^".smt2");
+        graphcounter := !graphcounter + 1;
         (x, y, res)
       in
       let star (pre, post, phi) = Log.errorf "\n\nEMPEMPEMP\n\n";
+        to_file srk phi ("/Users/jakesilverman/Documents/duet/duet/starinp1_"^(string_of_int !graphcounter)^".smt2");
+
+        let prel = BatArray.to_list pre in
+        let postl = BatArray.to_list post in
+        let syms = prel @ postl in
+        List.iter (fun sym -> Log.errorf "Syms is %a\n" (pp_symbol srk) sym) syms;
+        Log.errorf "phi is \n\n%a\n\n" (Formula.pp srk) phi;
+        let phi = mk_exists_consts srk (fun s -> List.mem s syms) phi in
+        let phi = Quantifier.miniscope srk phi in
+        let phi = Quantifier.eq_guided_qe srk phi in
+        to_file srk phi ("/Users/jakesilverman/Documents/duet/duet/starrewritep1_"^(string_of_int !graphcounter)^".smt2");
         let t1 = time "STAR IN" in
-        stars_test := 1 + !stars_test;
-        to_file srk phi "/Users/jakesilverman/Documents/duet/duet/star.smt2";
         let module PD = (val pd : Iteration.PreDomain) in
         let trs =
           BatArray.fold_lefti
@@ -218,19 +274,36 @@ module Fp = struct
             pre
         in
         let lc = mk_symbol srk `TyInt in
-        let flag_sym = mk_symbol srk ~name:"FLAG" `TyBool in
+        (*let flag_sym = mk_symbol srk ~name:"FLAG" `TyBool in*)
         let tr_phi = TransitionFormula.make phi trs in
         let res = 
-          if !stars_test = 3 then (
+          (*if !stars_test = 4 then (
             let tr_phi = TransitionFormula.make phi ((flag_sym, flag_sym) :: trs) in
             let abs = PD.abstract srk tr_phi in
             Log.errorf "ABS DONE";
           PD.exp srk trs (mk_const srk lc) abs)
-        else
+        else*)
           PD.exp srk trs (mk_const srk lc) (PD.abstract srk tr_phi) 
         in
         let t2 = time "OUT STAR" in
         diff t1 t2 "STAR";
+        to_file srk res ("/Users/jakesilverman/Documents/duet/duet/starout_"^(string_of_int !graphcounter)^".smt2");
+        (*(if !graphcounter = 15 then assert false); *)
+        let res = mk_exists_consts srk (fun s -> List.mem s syms) res in
+        let res = Quantifier.miniscope srk res in
+        let res = Quantifier.eq_guided_qe srk res in
+        to_file srk res ("/Users/jakesilverman/Documents/duet/duet/staroutrewrite_"^(string_of_int !graphcounter)^".smt2");
+
+        (* DEBUG *)
+        let tf_res = TransitionFormula.make res trs in
+        let _, _, tf_proj_res = Arraycontent.projection srk tf_res in
+        let lia_res = Arraycontent.pmfa_to_lia srk tf_proj_res in
+        let phi_res = Quantifier.miniscope srk (TransitionFormula.formula lia_res) in
+        let phi_res = Quantifier.eq_guided_qe srk phi_res in
+        to_file srk phi_res ("/Users/jakesilverman/Documents/duet/duet/staroutTRANS_"^(string_of_int !graphcounter)^".smt2");
+        (* END *)
+
+        graphcounter := !graphcounter + 1;
         pre, post,res 
       in
       {mul; add; star; zero; one}
@@ -277,52 +350,169 @@ module Fp = struct
     in
     wg
 
+  (*module BoolGraph = struct
+    type t = bool array array
+    module V = Int
+    let is_directed = true
+    let iter_vertex f g =
+      BatEnum.iter f (0 -- (Array.length g - 1))
+    let iter_succ f g v = Array.iteri (fun ind ele -> if ele then f ind ) g.(v)
+    let fold_vertex f g a = BatEnum.fold (fun acc v -> f v acc) a (0 -- (Array.length g - 1))
+    let fold_succ f g v a = BatArray.fold_righti
+        (fun ind ele acc -> if ele then f ind acc else acc) g.(v) a
+  end
+  module BGraphComp = Graph.Components.Make(BoolGraph)
+*)
+
+  module D = Graph.Pack.Digraph
+  let solve_super_lin srk fp pd =
+    Log.errorf "MAX REL IS %n" (get_max_rel fp);
+    let verts = BatArray.init ((get_max_rel fp) + 1) D.V.create in
+    let graph = Graph.Pack.Digraph.create () in
+    BatArray.iter (fun v -> D.add_vertex graph v) verts;
+    Log.errorf "CHECK1";
+    let _ = verts.(0) in
+    Log.errorf "CHECK2";
+    let _ = verts.(1) in
+    Log.errorf "CHECK3";
+    let _ = verts.(2) in
+    Log.errorf "CHECK4";
+    Log.errorf "HERE";
+    BatList.iter (fun (hypo_atoms, _, conc_atom) ->
+        List.iter (fun hatom ->
+            Graph.Pack.Digraph.add_edge 
+              graph
+              (verts.(rel_of_atom hatom))
+              (verts.(rel_of_atom conc_atom)))
+          hypo_atoms)
+      fp.rules;
+    Log.errorf "EARLIER";
+    let sccs = D.Components.scc_array graph in
+    let scc_rep = Array.map (fun scc ->  List.hd scc) sccs in
+    let path_check = D.PathCheck.create graph in
+    let sccverts = BatArray.init (Array.length sccs) D.V.create in
+    let of_vert arr v = BatArray.findi (fun v' -> v = v') arr in
+    let sccgraph = Graph.Pack.Digraph.create () in
+    BatArray.iter (fun v -> D.add_vertex sccgraph v) sccverts;
+    BatArray.iteri (fun scc1 rel1 ->
+        BatArray.iteri (fun scc2 rel2 ->
+            if D.PathCheck.check_path 
+                path_check
+                rel1
+                rel2
+            then
+              D.add_edge
+                sccgraph
+                (sccverts.(scc1))
+                (sccverts.(scc2))
+            else
+              ())
+          scc_rep)
+      scc_rep;
+    let subset r = List.filter (fun (_, _, conc_atom) ->
+        Relation.Set.mem (rel_of_atom conc_atom) r)
+        fp.rules
+    in
+    let solution = Hashtbl.create ((get_max_rel fp) + 1) in
+    D.Topological.iter (fun scc_num ->
+        Log.errorf "HERE?";
+        let rels = 
+          Relation.Set.of_list (List.map (fun v -> of_vert verts v) sccs.(of_vert sccverts scc_num)) 
+        in
+        Log.errorf "YES";
+        let ruleset = subset rels in
+        let ruleset' = List.map (fun (hypo_atoms, constr, conc) ->
+            let h', c' = 
+              List.fold_left (fun (hypo_atoms, constr) hypo_atom -> 
+                  if Hashtbl.mem solution (rel_of_atom hypo_atom) then (
+                    Log.errorf "HYPO FOUND";
+                    let syms, phi = Hashtbl.find solution (rel_of_atom hypo_atom) in
+                    let subst =
+                      (fun sym ->
+                         if Array.mem sym syms then
+                           mk_const
+                             srk
+                             (List.nth
+                                (params_of_atom hypo_atom)
+                                (BatArray.findi (fun s -> s = sym) syms))
+                         else mk_const srk sym)
+                    in
+                    let phi' = substitute_const srk subst phi in
+                    hypo_atoms, mk_and srk [phi'; constr])
+                  else(Log.errorf "HYPO NOT FOUND";
+                    hypo_atom :: hypo_atoms, constr))
+                ([], constr)
+                hypo_atoms
+            in
+            h', c', conc)
+            ruleset
+        in 
+        if is_linear ruleset' then (
+          let sub_fp = {rules=ruleset'; queries=[]; rel_ctx=fp.rel_ctx} in
+          let wg = to_weighted_graph srk sub_fp pd in
+          let sub_soln = 
+            (fun rel -> 
+               let _, params, phi = WeightedGraph.path_weight wg start_vert rel in 
+               params, phi) 
+          in
+          Relation.Set.iter (fun rel -> Hashtbl.add solution rel (sub_soln rel)) rels
+        )
+        else (
+          let sub_fp = {rules=ruleset'; queries=[]; rel_ctx=fp.rel_ctx} in
+          Log.errorf "NON LIN FP IS %a" (pp srk) sub_fp; 
+          assert false))
+      sccgraph;
+    let goal = mk_or srk (List.map (fun rel -> snd (Hashtbl.find solution rel)) fp.queries) in
+    Hashtbl.add solution goal_vert (BatArray.init 0 (fun _ -> failwith "empty"), goal);  
+    let res rel = Hashtbl.find solution rel in
+    res
+
   let check srk fp pd =
     let t1 = time "CHECK IN" in
-    if is_linear fp then (
-      let wg = to_weighted_graph srk fp pd in
+    if true then (
+      let res = solve_super_lin srk fp pd in 
       Log.errorf "FP is\n\n %a" (pp srk) fp;
-      assert (1 = 2);
-
-      let pre, post, phi = WeightedGraph.path_weight wg start_vert goal_vert in    
+      let _, phi = res goal_vert in   
+      let phi = Arraycontent.eliminate_stores srk phi in
       let filename =  "/Users/jakesilverman/Documents/duet/duet/final_SRK.smt2" in
       let chan = Stdlib.open_out filename in
       let formatter = Format.formatter_of_out_channel chan in
       Formula.pp srk formatter phi;
       Format.pp_print_newline formatter ();
       Stdlib.close_out chan; 
-      to_file srk phi "/Users/jakesilverman/Documents/duet/duet/final_phi.smt2";
+      to_file srk phi "/Users/jakesilverman/Documents/duet/duet/final_phiNEW.smt2";
       let t2 = time "CHECK MID" in
       diff t1 t2 "CHECK MID";
-      let trs = [] in
+      let trs = [] (*List.map (fun s -> (s, s)) (Symbol.Set.to_list (symbols phi))*) in
       Log.errorf "trs size is %n" (List.length trs);
-      Log.errorf "pre isze is %n post size is %n" (Array.length pre) (Array.length post);
 
 
 
       let tf = TransitionFormula.make phi trs in
       let _, _, tf_proj = Arraycontent.projection srk tf in
-      let matrix = Arraycontent.to_mfa srk tf_proj in
-      let iter_trs = TransitionFormula.symbols tf_proj in
-      Log.errorf "iter_trs size is %n" (List.length iter_trs);
-      let lia = Arraycontent.mfa_to_lia srk matrix iter_trs in
+      let lia = TransitionFormula.formula (Arraycontent.pmfa_to_lia srk tf_proj) in
+      Log.errorf "lia is %a" (Formula.pp srk) lia;
       let tlia = time "CHECK LIA" in
       diff t2 tlia "CHECK LIA";
-      to_file srk lia "/Users/jakesilverman/Documents/duet/duet/real_final_phi.smt2";
-      let ground, _ = Arraycontent.mbp_qe srk lia true in
-      to_file srk ground "/Users/jakesilverman/Documents/duet/duet/final_ground.smt2";
-      let tground = time "CHECK GROUND" in
-      diff tlia tground "CHECK GROUND";
-      assert (1 = 2);
-      begin match Quantifier.simsat_forward srk lia with
-        | `Unsat -> let t3 = time "CHECK END" in diff t1 t3 "CHECK END"; `No
+      to_file srk lia "/Users/jakesilverman/Documents/duet/duet/real_final_phiNEW.smt2";
+      let lia = Quantifier.miniscope srk lia in
+      let lia = Quantifier.eq_guided_qe srk lia in 
+      to_file srk lia "/Users/jakesilverman/Documents/duet/duet/rewritten_liaNEW.smt2";
+      let qfp, lia = Quantifier.normalize srk lia in
+      begin match Quantifier.winning_strategy srk qfp lia with
+        | `Unsat s -> let t3 = time "CHECK END" in diff t1 t3 "CHECK END"; 
+          Log.errorf "STRAT IS \n\n%a"(Quantifier.pp_strategy srk) s; 
+          `No
         | `Unknown -> let t3 = time "CHECK END" in diff t1 t3 "CHECK END";`Unknown
-        | `Sat -> let t3 = time "CHECK END" in diff t1 t3 "CEHCK END";`Unknown
+        | `Sat s -> 
+          Log.errorf "STRAT IS \n\n%a"(Quantifier.pp_strategy srk) s; 
+
+          let t3 = time "CHECK END" in diff t1 t3 "CEHCK END";`Yes (*TODO: Change to unknown after debugging*)
       end)
     else failwith "No methods for solving non lin fp"
 
   let solve srk fp pd =
-    if is_linear fp then (
+    if is_linear fp.rules then (
       let wg = to_weighted_graph srk fp pd in
       let soln = 
         (fun rel -> 
@@ -343,13 +533,13 @@ module ChcSrkZ3 = struct
     | REAL_SORT -> `TyReal
     | INT_SORT -> `TyInt
     | BOOL_SORT -> `TyBool
-    | ARRAY_SORT -> `TyFun ([`TyInt], `TyInt) 
+    | ARRAY_SORT -> `TyArr
     |_ -> failwith "TODO: allow function types"
 
   let mk_eq_by_sort srk s1 s2 =
     assert (typ_symbol srk s1 = typ_symbol srk s2);
     match typ_symbol srk s1 with
-    | `TyInt | `TyReal -> mk_eq srk (mk_const srk s1) (mk_const srk s2)
+    | `TyInt | `TyReal | `TyArr -> mk_eq srk (mk_const srk s1) (mk_const srk s2)
     | `TyBool -> mk_iff srk (mk_const srk s1) (mk_const srk s2)
     | `TyFun ([`TyInt], `TyInt) ->
       mk_forall 
@@ -367,16 +557,20 @@ module ChcSrkZ3 = struct
    * to the predicate is an integer. Replaces integer [i] with value
    * located at key [i] in table [ind_to_sym] when such a key exists *)
   let rel_atom_of_z3 srk fp ind_to_sym rsym_to_int names z3pred =
-    Log.errorf "FAILED IN HERE";
+    Log.errorf "Length is %n" (Hashtbl.length ind_to_sym);
+    Hashtbl.iter (fun k _ -> Log.errorf "HAS KEY %n\n" k) ind_to_sym;
     let eqs = ref [] in
     let args = List.map 
         (fun arg ->
            begin match Z3.AST.get_ast_kind (Z3.Expr.ast_of_expr arg) with
              | VAR_AST ->
+               Log.errorf "HAS 5?%b" (BatHashtbl.mem ind_to_sym 5);
                let index = Z3.Quantifier.get_index arg in
+               Log.errorf "\n GETTING IND %n" index;
                if BatHashtbl.mem ind_to_sym index then
-                 BatHashtbl.find ind_to_sym index
+                 (Log.errorf "FOUND"; BatHashtbl.find ind_to_sym index)
                else (
+                 Log.errorf "NOT FOUND";
                  let sort = typ_of_sort (Z3.Expr.get_sort arg) in
                  let sym = 
                    mk_symbol srk ~name:(Z3.Symbol.to_string names.(index)) sort 
@@ -434,7 +628,7 @@ module ChcSrkZ3 = struct
     let syms = symbols phi in
     let bool_syms = Symbol.Set.filter (fun s -> typ_symbol srk s = `TyBool) syms in
     let bsym_to_isym = BatHashtbl.create 91 in
-    Symbol.Set.iter (fun e -> BatHashtbl.add bsym_to_isym e (mk_symbol srk `TyInt)) bool_syms;
+    Symbol.Set.iter (fun e -> BatHashtbl.add bsym_to_isym e (mk_symbol srk ~name:(show_symbol srk e)`TyInt)) bool_syms;
     let phi = 
       substitute_const 
         srk
@@ -483,19 +677,22 @@ module ChcSrkZ3 = struct
     let rsym_to_int = BatHashtbl.create 91 in
     let decl_kind e = Z3.FuncDecl.get_decl_kind (Z3.Expr.get_func_decl e) in
     let parse_rule rule =
-      Log.errorf "\n\nRule is %s\n" (Z3.Expr.to_string rule);
+      Log.errorf "RULE IS %s\n" (Z3.Expr.to_string rule);
       let quanted, names, matrix =
         if Z3.AST.is_quantifier (Z3.Expr.ast_of_expr rule) then
           let q = Z3.Quantifier.quantifier_of_expr rule in
           List.combine 
             (List.rev (Z3.Quantifier.get_bound_variable_sorts q))
             (List.rev (Z3.Quantifier.get_bound_variable_names q)),
-BatArray.of_list (Z3.Quantifier.get_bound_variable_names q), 
+BatArray.of_list (List.rev (Z3.Quantifier.get_bound_variable_names q)), 
           Z3.Quantifier.get_body q
         else [], BatArray.init 0 (fun _ -> failwith "empty array"), rule
       in
+      Log.errorf "RULE IS %s" (Z3.Expr.to_string matrix);
       let ind_to_sym = BatHashtbl.create 91 in
+      Log.errorf "IND TO SYM HERE";
       BatList.iteri (fun ind (sort, name) ->
+          Log.errorf "Inserting %s at %n\n" (Z3.Symbol.to_string name) ind;
           let sym = 
             mk_symbol srk ~name:(Z3.Symbol.to_string name) (typ_of_sort sort)
           in
@@ -548,6 +745,7 @@ BatArray.of_list (Z3.Quantifier.get_bound_variable_names q),
           in
           let phi = mk_and srk (phi :: eqs @ eqs_args @ eqs_args_conc) in
           let r = atoms, phi, conc in
+          Log.errorf "\nREL ATOM IS \n%a\n" (pp_rel_atom srk fp) conc;
           unbooleanize srk r
         | (OP_UNINTERPRETED, _) ->
           let conc, eqs = 
@@ -565,7 +763,6 @@ BatArray.of_list (Z3.Quantifier.get_bound_variable_names q),
            (Z3.FuncDecl.get_name (Z3.Expr.get_func_decl query)))
     in
     let rules = List.map parse_rule (Z3.Fixedpoint.get_rules z3fp) in
-    assert (1 = 2);
     let queries = List.map parse_query z3queries in
     {rules; queries;rel_ctx=fp.rel_ctx}
 

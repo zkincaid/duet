@@ -18,7 +18,8 @@ module T = TransitionFormula
 
 
 val pmfa_to_lia : 'a context -> 'a T.t -> 'a T.t
- 
+
+val eliminate_stores : 'a context -> 'a formula -> 'a formula
 
 (*val projection : 'a context ->'a formula -> Symbol.Set.t -> 'a t*)
 

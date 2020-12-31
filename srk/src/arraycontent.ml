@@ -186,7 +186,42 @@ let pmfa_to_lia srk tf =
   in
   T.make ~exists:(T.exists tf) phi (T.symbols tf)
 
- 
+
+
+let eliminate_stores srk phi =
+  let rec rewrite_store index node =
+    match Term.destruct srk node with
+    | `Store (a, i, v) ->
+        let i = Term.eval srk term_alg i in
+        let v = Term.eval srk term_alg v in
+        mk_ite srk (mk_eq srk i index) v (rewrite_store index a)
+    | `Var (ind, `TyArr) -> mk_select srk (mk_var srk ind `TyArr) index
+    | `App (a, []) -> mk_select srk (mk_const srk a) index
+    | _ -> assert false (*invalid_arg "ill-formed array store"*)
+  and  term_alg = function 
+    | `Binop(`Select, a, i) -> rewrite_store i a
+    | open_term -> Term.construct srk open_term
+        in
+  let alg = function
+    | `Atom (`Eq, x, y) ->
+        begin match expr_typ srk x with
+        | `TyArr ->
+            let index = mk_symbol srk `TyInt in
+            let lhs = rewrite_store (mk_const srk index) x in
+            let rhs = rewrite_store (mk_const srk index) y in
+            mk_forall_const srk index (mk_eq srk lhs rhs)
+        | _ -> mk_eq srk (Term.eval srk term_alg x) (Term.eval srk term_alg y)
+      end
+        | `Atom (`Lt, x, y) -> 
+            mk_lt srk (Term.eval srk term_alg x) (Term.eval srk term_alg y)
+        | `Atom (`Leq, x, y) ->
+            mk_leq srk (Term.eval srk term_alg x) (Term.eval srk term_alg y)
+        | open_formula -> Formula.construct srk open_formula
+            in
+  Formula.eval srk alg phi
+
+
+
 
 module Array_analysis (Iter : PreDomain) = struct
 
@@ -213,10 +248,10 @@ module Array_analysis (Iter : PreDomain) = struct
     let proj_ind, arr_map, tf_proj = projection srk tf in
     let lia = pmfa_to_lia srk tf_proj in
     let phi = Quantifier.miniscope srk (T.formula lia) in
-    let phi = Quantifier.naive_rewrite_elim srk phi in
+    let phi = Quantifier.eq_guided_qe srk phi in
     to_file srk phi "/Users/jakesilverman/Documents/duet/duet/REWRITE.smt2";
     let new_trs = List.filter (fun a -> not (List.mem a tr_symbols)) (T.symbols lia) in
-    let ground  = Quantifier.eager_mbp_qe srk phi in
+    let ground  = Quantifier.mbp_qe_inplace srk phi in
     let ground_tf = TransitionFormula.make ~exists ground (T.symbols lia) in
     let iter_obj = Iter.abstract srk ground_tf in
     to_file srk ground "/Users/jakesilverman/Documents/duet/duet/GROUND2.smt2";
@@ -353,9 +388,9 @@ module Array_analysis (Iter : PreDomain) = struct
     let noop_ground = noop_all_but_one in
     to_file srk noop_ground "/Users/jakesilverman/Documents/duet/duet/ITERPRENEW.smt2";  
     let noop_ground = Quantifier.miniscope srk noop_ground in
-    let noop_ground = Quantifier.naive_rewrite_elim srk noop_ground in
+    let noop_ground = Quantifier.eq_guided_qe srk noop_ground in
     to_file srk noop_ground "/Users/jakesilverman/Documents/duet/duet/REWRITEGROUND.smt2";
-    let noop_ground = Quantifier.eager_mbp_qe srk noop_ground in
+    let noop_ground = Quantifier.mbp_qe_inplace srk noop_ground in
     to_file srk noop_ground "/Users/jakesilverman/Documents/duet/duet/GROUNDELIM.smt2";
     let t5 = time "EXP SEC" in
     diff t4 t5 "EXP SEC";

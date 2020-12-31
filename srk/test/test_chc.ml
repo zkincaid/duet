@@ -121,13 +121,140 @@ let arr_read_write () =
   Log.errorf "FAILEDHERE";
   assert (res = `No)
 
+let sup_lin1 () = 
+  let fp = Fp.create () in
+  let vert = mk_n_rel_atoms_fresh srk fp [xsym] 3 in
+  let () =
+    let open Infix in
+    Fp.add_rule fp [] (x <= (int 10)) (vert.(0));
+    Fp.add_rule fp [] ((int 0) <= x) (vert.(1));
+    Fp.add_rule fp [vert.(0); vert.(1)] tru (vert.(2));
+  in
+  let syms,phi = (Fp.solve_super_lin srk fp pd) (rel_of_atom (vert.(2))) in
+  let phi' = 
+    substitute_const srk (fun sym -> if sym = syms.(0) then x else assert false) phi 
+  in
+  let psi =
+    let open Infix in
+    (int 0) <= x && x <= (int 10)
+  in
+  Log.errorf "PHI IS %a" (Formula.pp srk) phi';
+  assert_equiv_formula phi' psi
+
+
+
+
+
 let test_init () =
   let fp = Chc.Fp.create () in
-  let fp = Chc.ChcSrkZ3.parse_file srk fp "/Users/jakesilverman/Documents/arraycopy.smt2" in 
+  let fp = Chc.ChcSrkZ3.parse_file srk fp "/Users/jakesilverman/Documents/arraycopy2.smt2" in
+  Log.errorf "Fp is %a" (Chc.Fp.pp srk) fp;
   let res = Fp.check srk fp ad in
+  (if res = `No then Log.errorf "RES IS NO" else if
+    res = `Unknown then Log.errorf "RES IS UKNNOWN" else
+     Log.errorf "RES IS YES");
   assert (res = `No)
 
-let test_subs ()  =
+
+
+let rec rewrite_subst_exists srk eqs (phi : 'a formula) : 'a formula = 
+  let unfil_candidates = 
+    List.map (fun (t1, t2) -> 
+        match Term.destruct srk t1, Term.destruct srk t2 with
+        | `Var (ind, _), `Var (ind2, _) ->
+          if not (ind = ind2)
+          then (Log.errorf "YES"; Some (ind, t2))
+          else None
+        | `Var(ind, _), _ ->
+          Log.errorf "WJHYWHY";
+          if not (Hashtbl.mem (free_vars t2) ind)
+          then Some (ind, t2)
+          else None
+        | _, `Var(ind, _) ->
+          Log.errorf "EMPEMP";
+          if not (Hashtbl.mem (free_vars t1) ind)
+          then Some (ind, t1)
+          else None
+        | _, _ -> (Log.errorf "WTF"; None)) eqs
+  in
+  let filtered_candidates = 
+    List.filter (fun cand ->
+        match cand with
+        | Some _ -> true
+        | None -> false) 
+      unfil_candidates
+  in
+  if List.length filtered_candidates = 0 then phi
+  else (
+    let (sym, term) = Option.get (List.hd filtered_candidates) in
+    let subst = 
+      substitute 
+        srk
+        (fun s -> if s = sym then term else mk_var srk s `TyInt)
+    in
+    let eqs' = List.map (fun (t1, t2) -> subst t1, subst t2) eqs in
+    rewrite_subst_exists srk eqs'
+      (substitute srk (fun s -> if s = sym then term else mk_var srk s `TyInt) phi) 
+  )
+
+   
+let naive_rewrite_elim srk phi =
+  let intersect _ = [] in
+  let union lsts = List.flatten lsts in
+  let alg = function
+    | `Tru -> ([], [], mk_true srk)
+    | `Fls -> ([], [], mk_false srk)
+    | `Atom (`Eq, x, y) -> ([(x, y)], [], mk_eq srk x y)
+    | `Atom (`Lt, x, y) -> ([], [], mk_lt srk x y)
+    | `Atom (`Leq, x, y) -> ([], [], mk_leq srk x y)
+    | `And conjuncts ->
+      let (eqs, diseqs, conjs) = 
+        List.fold_left (fun (eqs, diseqs, conjs) (eq, diseq, conj) ->
+            eq :: eqs, diseq :: diseqs, conj :: conjs)
+          ([], [], [])
+          conjuncts
+      in
+      union eqs, intersect diseqs, mk_and srk conjs
+    | `Or disjuncts ->
+       let (eqs, diseqs, disjs) = 
+        List.fold_left (fun (eqs, diseqs, disjs) (eq, diseq, disj) ->
+            eq :: eqs, diseq :: diseqs, disj :: disjs)
+          ([], [], [])
+          disjuncts
+      in
+      intersect eqs, union diseqs, mk_or srk disjs
+    | `Quantify (`Exists, name, typ, (eqs, _, phi)) ->
+      Log.errorf "\nPHI HERE IS %a\n" (Formula.pp srk) phi;
+      Log.errorf "AT EXISTS FOR %s" name;
+List.iter (fun (term1, term2) -> Log.errorf "\nOne eq is %a TO %a"
+                      (Term.pp srk) term1 (Term.pp srk) term2) eqs;
+    Log.errorf "\n PHI AFTER IS %a\n" (Formula.pp srk) (rewrite_subst_exists srk eqs phi);
+      [], [], mk_exists srk ~name typ (rewrite_subst_exists srk eqs phi)
+    | `Quantify (`Forall, name, typ, (eqs,diseqs, phi)) ->
+      eqs ,diseqs ,mk_forall srk ~name typ phi
+    | `Not (eqs, diseqs, phi) -> (diseqs, eqs, mk_not srk phi)
+    | `Proposition (`Var _) -> assert false
+    | `Proposition (`App (_, _)) -> assert false
+    | `Ite ((eq1, diseq1, cond), (eq2, diseq2, bthen), (eq3, diseq3, belse)) -> 
+      eq1 @ eq2 @ eq3, diseq1 @ diseq2 @ diseq3, mk_ite srk cond bthen belse
+    | _ -> assert false
+  in
+  Formula.eval srk alg phi
+
+
+let test_rewrite () =
+  let phi = 
+    mk_exists_const srk a1sym 
+      (mk_exists_const srk a2sym (
+        (mk_eq srk a1 a2)))
+  in
+  Log.errorf "\n\nPHI REWRITE is %a" (Formula.pp srk) phi;
+  let _, _, phi = naive_rewrite_elim srk phi in
+  Log.errorf "new phi is %a" (Formula.pp srk) phi;
+  assert false
+ 
+
+(*let test_subs ()  =
   let phi =
     let open Infix in
     (exists `TyInt ((forall `TyInt (a (var 1 `TyInt) = (int 99)))))
@@ -145,7 +272,7 @@ let test_subs ()  =
   in
   Log.errorf "subst is %a" (Formula.pp srk) subst;
   assert (1 = 2)
-
+*)
 
   let suite = "Chc" >:::
               [
@@ -154,6 +281,8 @@ let test_subs ()  =
     "xskipcount" >:: xskipcount;
     "dupunconstrsym" >:: dupuncontrsym;*)
     (*"arr_read_write" >:: arr_read_write*)
-    "test_init" >:: test_init
+                "sup_lin1" >:: sup_lin1;
+               "test_init" >:: test_init;
     (*"test_subs" >:: test_subs*)
+    (*"test_rewrite" >:: test_rewrite*)
   ]

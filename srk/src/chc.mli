@@ -42,13 +42,15 @@ module Fp : sig
   val show : 'a context  -> 'a fp -> string
   (** [is_linear fp] returns true if fp has only linear chc - that is, each
    * hypothesis has at most one relation atom *)
-  val is_linear : 'a fp -> bool
+  val is_linear : (rel_atom list * 'a formula * rel_atom) list -> bool
   (** [check srk fp pd] returns unknown if a query relation can
    * be reached in the fp where recursion over-approximated using the 
    * star operator of the provided predomain [pd] and returns no otherwise.*)
   val check : 
     'a context -> 'a fp -> (module Iteration.PreDomain) -> 
     [> `No | `Unknown | `Yes]
+  val solve_super_lin : 'a context -> 'a fp -> (module Iteration.PreDomain) ->
+    (relation -> symbol array * 'a formula)
   (** Solves a fp where recursion is over-approximated using the
    * star operator of the provided predomain [pd]. Where [f = solve srk fp pd]
    * and [r] is a relation used in [fp] the set of solutions to [r] is given by

@@ -43,7 +43,7 @@ let pmfa_to_lia0 () =
     x' = x + (int 1) &&
     a1 = a2 && a1.%[x] = (int 99)
     in
-  let phi = eliminate_stores srk phi in
+  let phi = Arraycontent.eliminate_stores srk phi in
   let tf = T.make phi [(a1sym, a2sym); (xsym, xsym')] in
   let j, map, phi_proj = A.projection srk tf in
   let lia = T.formula (A.pmfa_to_lia srk phi_proj) in
@@ -188,13 +188,13 @@ let iter_non_null () =
         (mk_if 
           srk 
           ((var 0 `TyInt) = x)
-          (a'(var 0 `TyInt)  = a(var 0 `TyInt) && 
-          !(a(var 0 `TyInt) = (int 0))))
+          (a2.%[var 0 `TyInt]  = a1.%[var 0 `TyInt] && 
+          !(a1.%[var 0 `TyInt] = (int 0))))
         &&
         (mk_if 
           srk 
           (!((var 0 `TyInt) = x))
-          (a'(var 0 `TyInt)  = a(var 0 `TyInt))))
+          (a2.%[var 0 `TyInt]  = a1.%[var 0 `TyInt])))
   in
   let psi =
     let open Infix in
@@ -203,8 +203,8 @@ let iter_non_null () =
       (mk_ite 
         srk 
         ((int 0) < y && x <= (var 0 `TyInt) && (var 0 `TyInt) < x')
-        (a'(var 0 `TyInt)  = a(var 0 `TyInt) && !(a(var 0 `TyInt) = (int 0)))
-        (a'(var 0 `TyInt)  = a(var 0 `TyInt))))
+        (a2.%[var 0 `TyInt]  = a1.%[var 0 `TyInt] && !(a1.%[var 0 `TyInt] = (int 0)))
+        (a2.%[var 0 `TyInt]  = a1.%[var 0 `TyInt])))
   in
  let tr_symbols = [(xsym, xsym'); (a1sym, a2sym)] in
  let tf = TransitionFormula.make phi tr_symbols in
