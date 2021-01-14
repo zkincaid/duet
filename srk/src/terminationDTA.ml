@@ -535,6 +535,7 @@ module XSeq = struct
     mk_not srk (BatDynArray.fold_left (fun c f -> mk_and srk [c; f]) (mk_true srk) x)
 
   let seq_of_exp modulo lambda =
+    logf "computing seq of exp base: %d, modulo: %d" lambda modulo;
     let seen = ref BatMap.Int.empty in 
     (* Map from value to its index *)
     seen := BatMap.Int.add 1 0 !seen;
@@ -542,12 +543,15 @@ module XSeq = struct
     let seq = BatDynArray.create () in 
     BatDynArray.add seq 1;
     let quit = ref false in
+    let i = ref (0) in
     while not !quit do 
       let new_tail = lambda*(BatDynArray.last seq) mod modulo in 
+      logf "new integer added to tail: %d" new_tail;
       match BatMap.Int.find_opt new_tail !seen with 
       | Some ind -> 
         begin
           d := (BatDynArray.length seq) - ind;
+          i := ind;
           quit := true;
         end
       | None ->
@@ -557,8 +561,9 @@ module XSeq = struct
         end        
     done;
     let len = BatDynArray.length seq in 
-    let m = if len mod !d == 0 then len / !d else 1 + (len / !d) in
+    let m = if !i mod !d == 0 then !i / !d else 1 + (!i / !d) in
     let j = !d * m in 
+    logf "m is: %d, seq len: %d, sub seq start: %d, sub seq length: %d" m len j !d;
     BatDynArray.sub seq j !d
 
     let seq_of_polynomial srk modulo poly =    
