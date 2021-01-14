@@ -405,7 +405,19 @@ let idiv_to_ite srk expr =
 
 let purify_floor srk formula = 
   let f = rewrite srk ~up:(idiv_to_ite srk) formula in
-  eliminate_ite srk f
+  let g = eliminate_ite srk f in
+  let rewriter expr =
+    match Expr.refine srk expr with
+    | `Term tt -> 
+      begin 
+        match Term.destruct srk tt with
+          | `Unop (`Floor, t) -> (t :> ('a,typ_fo) expr)
+          | _ -> expr
+      end
+    | _ -> expr
+  in
+  rewrite srk ~up:rewriter g
+
 
   let simplify_integer_atom srk op s t =
     let zero = mk_real srk QQ.zero in
