@@ -857,7 +857,8 @@ let omega_algebra =  function
         in
         let dta =
           if !termination_dta then
-            [TDTA.compute_swf_via_DTA srk tf]
+            (* [TDTA.compute_swf_via_DTA srk tf] *)
+            [TDTA.XSeq.terminating_conditions_of_formula_via_xseq srk tf]
           else []
         in
         let exp =

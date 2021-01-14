@@ -1,5 +1,7 @@
 open Syntax
 open SolvablePolynomial
+open BatPervasives
+
 
 module Vec = Linear.QQVector
 module Mat = Linear.QQMatrix
@@ -69,15 +71,17 @@ let compute_linear_invariants srk formula inv_symbols_set =
   logf "\nInvariants on terms:\n%s\n\n" (Formula.show srk linear_invariants);
   linear_invariants
 
+let compute_rep_matrix best_dlts = 
+  let module PLM = Lts.PartialLinearMap in
+  let omega_domain = snd (PLM.iteration_sequence best_dlts.dlts) in
+  let rep = PLM.map (PLM.make (PLM.map best_dlts.dlts) omega_domain) in
+  rep
+
+
 (** Compute the exponential polynomial that represents the transitive
     closure of a DLTS.
 *)
-let compute_exp_polynomial ?(square=false) best_dlts =
-  let m =
-    let module PLM = Lts.PartialLinearMap in
-    let omega_domain = snd (PLM.iteration_sequence best_dlts.dlts) in
-    PLM.map (PLM.make (PLM.map best_dlts.dlts) omega_domain)
-  in
+let compute_exp_polynomial ?(square=false) m =
   let best_dlts_tr_matrix = if square then Linear.QQMatrix.mul m m else m in
   logf "getting squared is: %b" square;
   logf "matrix to be exponentiated: %a" (Linear.QQMatrix.pp) best_dlts_tr_matrix;
@@ -225,7 +229,7 @@ module BaseDegPairMap = struct
              else
                (** ordinary dominant term analysis for terms that dominate constant*)
                begin
-                 logf "constant order base case";
+                 logf "bigger than constant order base case";
                  let condition_lhs = Linear.term_of_vec srk dim_to_term qqt in
                  let lhs_lt_zero = mk_lt srk condition_lhs (mk_zero srk) in
                  let lhs_eq_zero = mk_eq srk condition_lhs (mk_zero srk) in
@@ -246,6 +250,7 @@ module BaseDegPairMap = struct
         mk_not srk (mk_or srk conditions_list_final)
       | Eq0 -> 
         begin
+          logf "inequation type is = 0";
           if BatList.is_empty conditions_list_final then
             (** we have started with a dominanting constant out of our control,
                 behavior is captured by the constant on LHS *)          
@@ -258,7 +263,10 @@ module BaseDegPairMap = struct
               mk_true srk
           else if encountered_const_order then
             (** have control over the constants, build everything as usual *)
+            begin
+            logf "have encountered constant order terms";
             mk_not srk (mk_and srk formula_stem_list)
+            end
           else
             (** no control over the constant *)
           if QQ.equal lhs_const QQ.zero then
@@ -365,7 +373,8 @@ let generate_term_cond srk cs lhs exp_poly invariant_symbols invariant_terms ine
   if has_negative_base then
     begin
       logf "has negative eigenvalues, do alternative computation";
-      let exppoly2 = compute_exp_polynomial ~square:true best_DLTS_abstraction in
+      let m = compute_rep_matrix best_DLTS_abstraction in
+      let exppoly2 = compute_exp_polynomial ~square:true m in
       let closed_form_vec = ExpPolynomial.Matrix.vector_left_mul lt_vec_exppoly exppoly2 in
       let mat2 = ExpPolynomial.Matrix.of_rows [closed_form_vec] in
       logf "\nfinal matrix in this case is: %a" ExpPolynomial.Matrix.pp mat2;
@@ -425,6 +434,13 @@ let analyze_inv_polyhedron srk cs invariants_polyhedron exp_poly invariant_symbo
   in
   mk_or srk conditions_list
 
+  let compose_simulation srk mS simulation =
+    Linear.QQMatrix.rowsi mS
+    /@ (fun (_, row) ->
+      Linear.term_of_vec srk (fun i -> simulation.(i)) row
+      |> SrkSimplify.simplify_term srk)
+    |> BatArray.of_enum
+
 (** Provide the swf operator using the dominant term analysis. *)
 let compute_swf_via_DTA srk tf =
   let tf = TF.linearize srk tf in
@@ -446,12 +462,19 @@ let compute_swf_via_DTA srk tf =
         | `LtZero t -> logf "%a < 0" (CoordinateSystem.pp_vector cs) t
         | `EqZero t -> logf "%a = 0" (CoordinateSystem.pp_vector cs) t) invariants_polyhedron
     in
-    let exp_poly = compute_exp_polynomial best_DLTS_abstraction in
+    let m = compute_rep_matrix best_DLTS_abstraction in
+    let sim = best_DLTS_abstraction.simulation in
+    let module PLM = Lts.PartialLinearMap in
+    let omega_domain = snd (PLM.iteration_sequence best_DLTS_abstraction.dlts) in
+    let omega_dom_mat = Linear.QQMatrix.of_rows omega_domain in
+    let constraints_lhs = compose_simulation srk omega_dom_mat sim in
+    let constraints = BatArray.fold_left (fun f term -> mk_and srk [f; mk_eq srk (mk_zero srk) term]) (mk_true srk) constraints_lhs in
+    let exp_poly = compute_exp_polynomial m in
     let results_in_inv_terms = analyze_inv_polyhedron srk cs invariants_polyhedron exp_poly invariant_symbols invariant_terms best_DLTS_abstraction in
     logf "terminating conditions in inv terms: %a" (Formula.pp srk) results_in_inv_terms;
     let results = rewrite_term_condition srk best_DLTS_abstraction.simulation invariant_symbols results_in_inv_terms in
     logf "terminating conditions: %a" (Formula.pp srk) results;
-    mk_not srk results
+    mk_and srk [mk_not srk results; constraints]
   | `Unknown -> failwith "SMT solver should not return unknown for QRA formulas"
   | `Unsat -> (logf ~attributes:[`Bold; `Green] "Transition formula UNSAT, done"); mk_false srk
 
@@ -460,17 +483,18 @@ module XSeq = struct
   type 'a seq_type = ('a Formula.t) BatDynArray.t
 
   let seq_op op x y =
+    logf "entering seq_op";
     let x_len = BatDynArray.length x in 
     let y_len = BatDynArray.length y in 
     let common_len = match ZZ.to_int (ZZ.lcm (ZZ.of_int x_len) (ZZ.of_int y_len)) with 
     | None -> failwith "cannot compute lcm"
     | Some l -> l 
     in
+    logf "lcm of both lengths is: %d" common_len;
     let result = BatDynArray.make common_len in 
-    for i = 0 to common_len do 
-      BatDynArray.set 
+    for i = 0 to common_len-1 do 
+      BatDynArray.add 
       result 
-      i 
       (op 
         (BatDynArray.get x (i mod x_len)) 
         (BatDynArray.get y (i mod y_len)))
@@ -508,7 +532,7 @@ module XSeq = struct
     BatDynArray.map (fun f -> mk_eq srk f (mk_zero srk)) x
 
   let seq_conditions srk x = 
-    BatDynArray.fold_left (fun c f -> mk_and srk [c; f]) (mk_true srk) x
+    mk_not srk (BatDynArray.fold_left (fun c f -> mk_and srk [c; f]) (mk_true srk) x)
 
   let seq_of_exp modulo lambda =
     let seen = ref BatMap.Int.empty in 
@@ -652,7 +676,7 @@ module XSeq = struct
               m
               entries
           in
-          let conditions = BaseDegPairMap.rank srk m invariant_terms lhs_const ineq_type in
+          let conditions = mk_not srk (BaseDegPairMap.rank srk m invariant_terms lhs_const ineq_type) in
           logf "terminating condition: %a" (Formula.pp srk) conditions;
           conditions
         end
@@ -661,7 +685,8 @@ module XSeq = struct
       if has_negative_base then
         begin
           logf "has negative eigenvalues, do alternative computation";
-          let exppoly2 = compute_exp_polynomial ~square:true best_DLTS_abstraction in
+          let m = compute_rep_matrix best_DLTS_abstraction in
+          let exppoly2 = compute_exp_polynomial ~square:true m in
           let closed_form_vec = ExpPolynomial.Matrix.vector_left_mul lt_vec_exppoly exppoly2 in
           let mat2 = ExpPolynomial.Matrix.of_rows [closed_form_vec] in
           logf "\nfinal matrix in this case is: %a" ExpPolynomial.Matrix.pp mat2;
@@ -728,28 +753,65 @@ module XSeq = struct
       let s = seq_of_divides_atom srk zz_divisor dividend_vec exp_poly abstraction in 
       seq_not srk s
 
-    let seq_of_formula srk tf =
+  let integer_spectrum_abstraction srk tr_matrix simulation = 
+    let open Linear in
+    let dims =
+      SrkUtil.Int.Set.union
+        (QQMatrix.row_set tr_matrix)
+        (QQMatrix.column_set tr_matrix)
+      |> SrkUtil.Int.Set.elements
+    in
+    let rsd = Linear.rational_spectral_decomposition tr_matrix dims in
+    let int_eig_vecs, non_int_eig_vecs =
+      BatList.fold_left (fun (int_eig_vecs, non_int_eig_vecs) (lambda, v) ->
+        match QQ.to_zz lambda with 
+          Some _ -> (v :: int_eig_vecs, non_int_eig_vecs)
+        | None -> (int_eig_vecs, v :: non_int_eig_vecs)
+        )
+        ([], [])
+        rsd
+    in
+    let new_simulation_mat = QQMatrix.of_rows int_eig_vecs in
+    let dom_constraints_lhs = compose_simulation srk (QQMatrix.of_rows non_int_eig_vecs) simulation in
+    let constraints = BatArray.fold_left (fun f term -> mk_and srk [f; mk_eq srk (mk_zero srk) term]) (mk_true srk) dom_constraints_lhs in
+    let new_simulation = compose_simulation srk new_simulation_mat simulation in
+    (* new dynamics matrix N, rep matrix M, simulation matrix S: N S = S M  *)
+    let sm = QQMatrix.mul new_simulation_mat tr_matrix in 
+    match Linear.divide_right sm new_simulation_mat with 
+      None -> assert false 
+    | Some mat -> constraints, mat, new_simulation
+    
+    let terminating_conditions_of_formula_via_xseq srk tf =
       let tf = TF.linearize srk tf in
+      logf "\nTransition formula:\n%a\n\n" (Formula.pp srk) (TF.formula tf);
       match Smt.is_sat srk (TF.formula tf) with
       | `Sat ->
         let best_DLTS_abstraction = DLTSPeriodicRational.abstract_rational srk tf in
-        let exp_poly = compute_exp_polynomial best_DLTS_abstraction in
+        let m = compute_rep_matrix best_DLTS_abstraction in
+        logf "Representation matrix of best Q-DLTS abstraction: %a" Linear.QQMatrix.pp m;
+        let constraints, new_dynamics_mat, new_simulation = integer_spectrum_abstraction srk m best_DLTS_abstraction.simulation in
+        logf "integrality constraints: %a" (Formula.pp srk) constraints;
+        logf "New dynamics matrix: %a" Linear.QQMatrix.pp new_dynamics_mat;
+        let best_DLTS_abstraction = {dlts = Lts.PartialLinearMap.make new_dynamics_mat []; simulation = new_simulation } in
+        let exp_poly = compute_exp_polynomial new_dynamics_mat in
         let invariant_symbols, inv_equalities, invariant_symbol_set =
-          build_symbols_for_inv_terms srk best_DLTS_abstraction.simulation
+          build_symbols_for_inv_terms srk new_simulation
         in
         let invariant_terms = BatList.map (fun symbol -> mk_const srk symbol) invariant_symbols in
         let abstraction = (invariant_symbols, invariant_terms, best_DLTS_abstraction) in
-        let formula = mk_and srk [TF.formula tf; mk_and srk inv_equalities] in
-        logf "\nTransition formula with inv_terms:\n%s\n\n" (Formula.show srk formula);
-        let ground_formula = Quantifier.mbp ~dnf:true srk (fun s -> Symbol.Set.mem s invariant_symbol_set) formula in 
+        let formula = mk_and srk [TF.formula tf; mk_and srk inv_equalities; constraints] in
+        logf "\nTransition formula with simulation terms:\n%s\n\n" (Formula.show srk formula);
+        let ground_formula = Quantifier.mbp srk (fun s -> Symbol.Set.mem s invariant_symbol_set) formula in 
+        logf "Formula after model-based projection: %a" (Formula.pp srk) ground_formula;
         let no_floor = SrkSimplify.purify_floor srk ground_formula in
+        logf "Formula after removing floors: %a" (Formula.pp srk) no_floor;
         let algebra = function 
         | `Tru -> seq_of_true srk
         | `Fls -> seq_of_false srk
         | `And xs -> seq_and srk xs
         | `Or xs -> seq_or srk xs
-        | `Not _ -> failwith "should not encounter not here"
-        | `Quantify _ -> failwith "should not see quantifiers here"
+        | `Not x -> seq_not srk x
+        | `Quantify _ -> failwith "should not see quantifiers in the TF"
         | `Atom (op, s, t) -> 
           begin
             match SrkSimplify.simplify_integer_atom srk op s t with 
@@ -757,13 +819,13 @@ module XSeq = struct
               | `Divides (divisor, vec) -> seq_of_divides_atom srk divisor vec exp_poly abstraction
               | `NotDivides (divisor, vec) ->seq_of_notdivides_atom srk divisor vec exp_poly abstraction
           end
-        | `Proposition _ -> failwith "should not see proposition here"
-        | `Ite _ -> failwith "should not see ite here"
+        | `Proposition _ -> failwith "should not see proposition in the TF"
+        | `Ite _ -> failwith "should not see ite in the TF"
       in
       let xseq = Formula.eval srk algebra no_floor in 
       let results_in_inv_terms = seq_conditions srk xseq in 
       let results = rewrite_term_condition srk best_DLTS_abstraction.simulation invariant_symbols results_in_inv_terms in
-        logf "terminating conditions: %a" (Formula.pp srk) results;
+        logf "terminating conditions after rewrite: %a" (Formula.pp srk) results;
         mk_not srk results
       | `Unknown -> failwith "SMT solver should not return unknown for QRA formulas"
       | `Unsat -> (logf ~attributes:[`Bold; `Green] "Transition formula UNSAT, done"); mk_false srk
