@@ -32,7 +32,7 @@ let build_symbols_for_inv_terms srk inv_terms =
     BatArray.fold_righti
       (fun ind term (l_symbols, l_equalities, s) -> 
          let name_str = String.concat "_" ["dta"; "term"; (string_of_int ind)] in
-         let symbol = mk_symbol srk ~name:name_str `TyReal in
+         let symbol = mk_symbol srk ~name:name_str `TyInt in
          let const_expr = mk_const srk symbol in
          let equality = mk_eq srk term const_expr in
          (symbol :: l_symbols, equality :: l_equalities, Symbol.Set.add symbol s)
@@ -196,7 +196,7 @@ module BaseDegPairMap = struct
                begin
                  logf "constant order base case";
                  let condition_lhs = Linear.term_of_vec srk dim_to_term qqt in
-                 let lhs = mk_add srk [mk_real srk QQ.zero ; condition_lhs] in
+                 let lhs = mk_add srk [mk_int srk 0; condition_lhs] in
                  let lhs_lt_zero = mk_lt srk lhs (mk_zero srk) in
                  let lhs_eq_zero = mk_eq srk lhs (mk_zero srk) in
                  let current_condition = mk_and srk (lhs_lt_zero :: formula_stem) in
