@@ -1906,10 +1906,10 @@ let mbp ?(dnf=false) srk exists phi =
        (* Add substitituions for symbols *not* involved in equations
           to subst *)
        let subst =
-         Symbol.Set.fold (fun s (vt_map, implicant) ->
-             if Symbol.Map.mem s vt_map then
+         Symbol.Set.fold (fun s (subst, implicant) ->
+             if Symbol.Map.mem s subst then
                (* Skip symbols involved in equations *)
-               (vt_map, implicant)
+               (subst, implicant)
              else
                let vt = select_int_term srk interp s implicant in
 

@@ -534,37 +534,32 @@ module XSeq = struct
   let seq_conditions srk x = 
     mk_not srk (BatDynArray.fold_left (fun c f -> mk_and srk [c; f]) (mk_true srk) x)
 
-  let seq_of_exp modulo lambda =
-    logf "computing seq of exp base: %d, modulo: %d" lambda modulo;
-    let seen = ref BatMap.Int.empty in 
-    (* Map from value to its index *)
-    seen := BatMap.Int.add 1 0 !seen;
-    let d = ref (-1) in 
-    let seq = BatDynArray.create () in 
-    BatDynArray.add seq 1;
-    let quit = ref false in
-    let i = ref (0) in
-    while not !quit do 
-      let new_tail = lambda*(BatDynArray.last seq) mod modulo in 
-      logf "new integer added to tail: %d" new_tail;
-      match BatMap.Int.find_opt new_tail !seen with 
-      | Some ind -> 
-        begin
-          d := (BatDynArray.length seq) - ind;
-          i := ind;
-          quit := true;
-        end
-      | None ->
-        begin
-          BatDynArray.add seq new_tail;
-          seen := BatMap.Int.add new_tail ((BatDynArray.length seq)-1) !seen;
-        end        
-    done;
-    let len = BatDynArray.length seq in 
-    let m = if !i mod !d == 0 then !i / !d else 1 + (!i / !d) in
-    let j = !d * m in 
-    logf "m is: %d, seq len: %d, sub seq start: %d, sub seq length: %d" m len j !d;
-    BatDynArray.sub seq j !d
+  let seq_of_exp modulus lambda =
+    (* Find period & start of the ultimately periodic sequence *)
+    let rec detect_cycle i current seen =
+      if BatMap.Int.mem current seen then
+        let period = i - (BatMap.Int.find current seen) in
+        (* Multiple of period between previous & current occurrence *)
+        let start_pos = i - (i mod period) in
+        (start_pos, period)
+      else
+        let next = (lambda * current) mod modulus in
+        detect_cycle (i + 1) next (BatMap.Int.add current i seen)
+    in
+    let (start_pos, period) = detect_cycle 0 (1 mod modulus) BatMap.Int.empty in
+    let start = (* lambda^start_pos *)
+      SrkUtil.exp (fun x y -> (x * y) mod modulus) 1 lambda start_pos
+    in
+    let rec construct_seq current len seq =
+      if len == 0 then
+        List.rev seq
+      else
+        construct_seq
+          ((lambda * current) mod modulus)
+          (len - 1)
+          (current::seq)
+    in
+    BatDynArray.of_list (construct_seq start period [])
 
     let seq_of_polynomial srk modulo poly =    
       let seq = BatDynArray.create () in 

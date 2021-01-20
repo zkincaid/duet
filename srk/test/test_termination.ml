@@ -45,4 +45,19 @@ let suite = "Termination" >::: [
           Infix.(x <= y)
           (mp_exp tr_symbols tr)
       );
+
+      "exp_seq1" >:: (fun () ->
+        let seq = BatDynArray.to_list (TerminationDTA.XSeq.seq_of_exp 32 2) in
+        assert_equal seq [0]
+      );
+      "exp_seq2" >:: (fun () ->
+        let seq = BatDynArray.to_list (TerminationDTA.XSeq.seq_of_exp 6 2) in
+        assert_equal seq [4; 2]
+      );
+      "exp_seq3" >:: (fun () ->
+        let seq = BatDynArray.to_list (TerminationDTA.XSeq.seq_of_exp 5 3) in
+        assert_equal seq [1; 3; 4; 2]
+      )
+
+
     ]
