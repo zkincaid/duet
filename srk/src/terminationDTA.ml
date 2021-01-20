@@ -753,6 +753,23 @@ module XSeq = struct
       let s = seq_of_divides_atom srk zz_divisor dividend_vec exp_poly abstraction in 
       seq_not srk s
 
+  let scaling_simulation srk best_DLTS_abstraction = 
+    let sim = best_DLTS_abstraction.simulation in 
+    let lcm_of_denominators = BatArray.fold_left (fun d term -> 
+      let coeff_vec = Linear.linterm_of srk term in
+      let e = Linear.QQVector.enum coeff_vec in 
+      let t = BatEnum.fold (fun dd (coeff, _) -> let z = QQ.denominator coeff in ZZ.lcm dd z) ZZ.one e in 
+      ZZ.lcm d t
+     ) ZZ.one sim in
+    let new_sim = BatArray.map (fun orig_term -> 
+      let coeff_vec = Linear.linterm_of srk orig_term in 
+      let new_vec = Linear.QQVector.scalar_mul (QQ.of_zz lcm_of_denominators) coeff_vec in 
+      Linear.of_linterm srk new_vec)
+      sim
+    in
+    {dlts = best_DLTS_abstraction.dlts; simulation = new_sim}
+
+
   let integer_spectrum_abstraction srk tr_matrix simulation = 
     let open Linear in
     let dims =
@@ -787,6 +804,7 @@ module XSeq = struct
       match Smt.is_sat srk (TF.formula tf) with
       | `Sat ->
         let best_DLTS_abstraction = DLTSPeriodicRational.abstract_rational srk tf in
+        let best_DLTS_abstraction = scaling_simulation srk best_DLTS_abstraction in
         let m = compute_rep_matrix best_DLTS_abstraction in
         logf "Representation matrix of best Q-DLTS abstraction: %a" Linear.QQMatrix.pp m;
         let constraints, new_dynamics_mat, new_simulation = integer_spectrum_abstraction srk m best_DLTS_abstraction.simulation in
