@@ -756,6 +756,7 @@ let select_real_term srk interp x atoms =
      t)
 
 let select_int_term srk interp x atoms =
+  assert (typ_symbol srk x == `TyInt);
   let merge bound bound' =
     match bound, bound' with
     | (`Lower (s, s_val), `Lower (t, t_val)) ->
@@ -768,8 +769,8 @@ let select_int_term srk interp x atoms =
           `Upper (s, s_val)
         else
           `Upper (t, t_val)
-    | (`Upper (t, t_val), _) | (_, `Upper (t, t_val)) -> `Upper (t, t_val)
     | (`Lower (t, t_val), _) | (_, `Lower (t, t_val)) -> `Lower (t, t_val)
+    | (`Upper (t, t_val), _) | (_, `Upper (t, t_val)) -> `Upper (t, t_val)
     | `None, `None -> `None
   in
   let eval = evaluate_linterm (Interpretation.real interp) in
@@ -1910,7 +1911,7 @@ let mbp ?(dnf=false) srk exists phi =
              if Symbol.Map.mem s subst then
                (* Skip symbols involved in equations *)
                (subst, implicant)
-             else
+             else if typ_symbol srk s = `TyInt then
                let vt = select_int_term srk interp s implicant in
 
                (* floor(term/div) + offset ~> (term - ([[term]] mod div))/div + offset,
@@ -1941,7 +1942,22 @@ let mbp ?(dnf=false) srk exists phi =
                  BatList.filter (not % is_true) (divides::(List.map subst' implicant))
                in
                (seq_subst s (term_of_virtual_term srk vt) subst,
-                implicant))
+                implicant)
+             else if typ_symbol srk s = `TyReal then
+               let implicant_s =
+                 List.filter (fun atom -> Symbol.Set.mem s (symbols atom)) implicant
+               in
+               let t = Linear.of_linterm srk (select_real_term srk interp s implicant_s) in
+               let subst' =
+                 substitute_const srk
+                   (fun p -> if p = s then t else mk_const srk p)
+               in
+               let implicant =
+                 BatList.filter (not % is_true) (List.map subst' implicant)
+               in
+               (seq_subst s t subst,
+                implicant)
+             else assert false)
            project
            (subst, implicant)
          |> fst
@@ -1952,6 +1968,7 @@ let mbp ?(dnf=false) srk exists phi =
            subst
            (if dnf then (mk_and srk (div_constraints@implicant))
             else (mk_and srk (phi::div_constraints)))
+         |> SrkSimplify.simplify_terms srk
        in
        disjuncts := disjunct::(!disjuncts);
        Smt.Solver.add solver [mk_not srk disjunct];

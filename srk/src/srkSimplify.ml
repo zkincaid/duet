@@ -484,6 +484,13 @@ let purify_floor srk formula =
               `Divides (modulus, lt)
             else
               `CompareZero (op, snd (zz_linterm s))
+          | `Binop (`Mod, dividend, modulus), `Real k when QQ.equal QQ.one k && op = `Leq ->
+            let (multiplier, lt) = zz_linterm dividend in
+            let modulus = destruct_int modulus in
+            if ZZ.equal multiplier ZZ.one then
+              `NotDivides (modulus, lt)
+            else
+              `CompareZero (op, snd (zz_linterm s))
           | `Real k, `Unop (`Neg, z) | `Unop (`Neg, z), `Real k when QQ.equal k QQ.one ->
             begin match Term.destruct srk z with
               | `Binop (`Mod, dividend, modulus) ->
@@ -513,6 +520,7 @@ let purify_floor srk formula =
               `NotDivides (ZZ.mul multiplier modulus, lt)
             | _ -> `CompareZero (`Lt, snd (zz_linterm s))
           end
-  
+
         | _ -> `CompareZero (`Lt, snd (zz_linterm s))
       end
+
