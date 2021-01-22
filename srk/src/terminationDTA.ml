@@ -32,7 +32,9 @@ let build_symbols_for_inv_terms srk inv_terms =
     BatArray.fold_righti
       (fun ind term (l_symbols, l_equalities, s) -> 
          let name_str = String.concat "_" ["dta"; "term"; (string_of_int ind)] in
-         let symbol = mk_symbol srk ~name:name_str `TyReal in
+         let symbol =
+           mk_symbol srk ~name:name_str (expr_typ srk term)
+         in
          let const_expr = mk_const srk symbol in
          let equality = mk_eq srk term const_expr in
          (symbol :: l_symbols, equality :: l_equalities, Symbol.Set.add symbol s)
