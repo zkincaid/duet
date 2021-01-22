@@ -790,7 +790,22 @@ module XSeq = struct
         ([], [])
         rsd
     in
-    let new_simulation_mat = QQMatrix.of_rows int_eig_vecs in
+    let new_simulation_mat =
+      let simulation_mat =
+        Array.to_list simulation
+        |> List.map (Linear.linterm_of srk)
+        |> QQMatrix.of_rows
+      in
+      let int_eigenspace = QQMatrix.of_rows int_eig_vecs in
+      let int_eigenspace_sim =
+        Linear.QQVectorSpace.simplify
+          (Linear.QQVectorSpace.of_matrix (QQMatrix.mul int_eigenspace simulation_mat))
+        |> QQMatrix.of_rows
+      in
+      match Linear.divide_right int_eigenspace_sim simulation_mat with
+      | Some mS' -> mS'   (* simpl(ES) = mS' * mS*)
+      | None -> assert false
+    in
     let dom_constraints_lhs = compose_simulation srk (QQMatrix.of_rows non_int_eig_vecs) simulation in
     let constraints = BatArray.fold_left (fun f term -> mk_and srk [f; mk_eq srk (mk_zero srk) term]) (mk_true srk) dom_constraints_lhs in
     let new_simulation = compose_simulation srk new_simulation_mat simulation in
@@ -806,7 +821,6 @@ module XSeq = struct
       match Smt.is_sat srk (TF.formula tf) with
       | `Sat ->
         let best_DLTS_abstraction = DLTSPeriodicRational.abstract_rational srk tf in
-        let best_DLTS_abstraction = scaling_simulation srk best_DLTS_abstraction in
         let m = compute_rep_matrix best_DLTS_abstraction in
         logf "Representation matrix of best Q-DLTS abstraction: %a" Linear.QQMatrix.pp m;
         let constraints, new_dynamics_mat, new_simulation = integer_spectrum_abstraction srk m best_DLTS_abstraction.simulation in
