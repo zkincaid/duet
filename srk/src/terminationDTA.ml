@@ -198,7 +198,7 @@ module BaseDegPairMap = struct
                begin
                  logf "constant order base case";
                  let condition_lhs = Linear.term_of_vec srk dim_to_term qqt in
-                 let lhs = mk_add srk [mk_zero srk; condition_lhs] in
+                 let lhs = condition_lhs in
                  let lhs_lt_zero = mk_lt srk lhs (mk_zero srk) in
                  let lhs_eq_zero = mk_eq srk lhs (mk_zero srk) in
                  let current_condition = mk_and srk (lhs_lt_zero :: formula_stem) in
@@ -816,11 +816,15 @@ module XSeq = struct
     | Some mat -> constraints, mat, new_simulation
     
     let terminating_conditions_of_formula_via_xseq srk tf =
+      logf "DtA starts";
       let tf = TF.linearize srk tf in
-      logf "\nTransition formula:\n%a\n\n" (Formula.pp srk) (TF.formula tf);
+      logf "\nTransition formula linearized:\n%a\n\n" (Formula.pp srk) (TF.formula tf);
       match Smt.is_sat srk (TF.formula tf) with
       | `Sat ->
         let best_DLTS_abstraction = DLTSPeriodicRational.abstract_rational srk tf in
+        logf "finished computing best DLTS abstraction";
+        let best_DLTS_abstraction = scaling_simulation srk best_DLTS_abstraction in
+        logf "finished scaling up simulation";
         let m = compute_rep_matrix best_DLTS_abstraction in
         logf "Representation matrix of best Q-DLTS abstraction: %a" Linear.QQMatrix.pp m;
         let constraints, new_dynamics_mat, new_simulation = integer_spectrum_abstraction srk m best_DLTS_abstraction.simulation in
