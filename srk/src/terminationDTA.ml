@@ -533,8 +533,8 @@ module XSeq = struct
   let seq_eq_zero srk x = 
     BatDynArray.map (fun f -> mk_eq srk f (mk_zero srk)) x
 
-  let seq_conditions srk x = 
-    mk_not srk (BatDynArray.fold_left (fun c f -> mk_and srk [c; f]) (mk_true srk) x)
+  let seq_conditions srk x =
+    mk_not srk (mk_and srk (BatDynArray.to_list x))
 
   let seq_of_exp modulus lambda =
     (* Find period & start of the ultimately periodic sequence *)
@@ -749,11 +749,14 @@ module XSeq = struct
         (BatDynArray.of_list [])
         dividend_enum
       in
-      seq_eq_zero srk dividend_xseqs
+      let mk_divides t =
+        mk_eq srk (mk_mod srk t (mk_real srk (QQ.of_int divisor))) (mk_zero srk)
+      in
+      BatDynArray.map mk_divides dividend_xseqs
 
     let seq_of_notdivides_atom srk zz_divisor dividend_vec exp_poly abstraction =
-      let s = seq_of_divides_atom srk zz_divisor dividend_vec exp_poly abstraction in 
-      seq_not srk s
+      seq_of_divides_atom srk zz_divisor dividend_vec exp_poly abstraction
+      |> seq_not srk
 
   let scaling_simulation srk best_DLTS_abstraction = 
     let sim = best_DLTS_abstraction.simulation in 
