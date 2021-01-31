@@ -13,7 +13,8 @@ int main(int argc, char* argv[]) {
   }
 
   if (z % 2 == 0) { return 0; }
-  // y > z
+
+  // Precondition: y > z
 
   while(x > 0) {
     x = x - y + z;

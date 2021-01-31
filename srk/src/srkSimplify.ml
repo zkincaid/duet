@@ -379,7 +379,7 @@ let destruct_idiv srk t =
 let idiv_to_ite srk expr =
   match Expr.refine srk expr with
   | `Term t -> begin match destruct_idiv srk t with
-      | Some (num, den) when den < 10 ->
+      | Some (num, den) ->
         let den_term = mk_real srk (QQ.of_int den) in
         let num_over_den =
           mk_mul srk [mk_real srk (QQ.of_frac 1 den); num]
@@ -491,9 +491,11 @@ let purify_floor srk formula =
               `NotDivides (modulus, lt)
             else
               `CompareZero (op, snd (zz_linterm s))
-          | `Real k, `Unop (`Neg, z) | `Unop (`Neg, z), `Real k when QQ.equal k QQ.one ->
+          | `Real k, `Unop (`Neg, z) | `Unop (`Neg, z), `Real k
+               when QQ.equal k QQ.one && op = `Leq ->
             begin match Term.destruct srk z with
               | `Binop (`Mod, dividend, modulus) ->
+                 (* 1 <= dividend % modulus *)
                 let modulus = destruct_int modulus in
                 let (multiplier, lt) = zz_linterm dividend in
                 `NotDivides (ZZ.mul multiplier modulus, lt)

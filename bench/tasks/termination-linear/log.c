@@ -1,3 +1,5 @@
+/* Computation of log_2(log_2(n)) */
+
 extern int __VERIFIER_nondet_int(void);
 
 int log2(int n) {
