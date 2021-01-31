@@ -730,7 +730,8 @@ module XSeq = struct
 
     let seq_of_divides_atom srk zz_divisor dividend_vec exp_poly abstraction =
       let divisor = match ZZ.to_int zz_divisor with
-      Some i -> i | None -> failwith "see non-integer divisor, error"
+        | Some i -> i
+        | None -> failwith "see non-integer divisor, error"
       in
       let (invariant_symbols, _, _) = abstraction in
       let lt_vec, lhs_const = get_coeff_vec_wrt_symbol_list dividend_vec invariant_symbols in
@@ -738,16 +739,20 @@ module XSeq = struct
         Vec.pp lt_vec 
         QQ.pp lhs_const;
       let lt_vec_exppoly = ExpPolynomial.Vector.of_qqvector lt_vec in
-      let closed_form_dividend = ExpPolynomial.Matrix.vector_left_mul lt_vec_exppoly exp_poly in
-      let dividend_enum = ExpPolynomial.Vector.enum closed_form_dividend in 
-      let dividend_xseqs = BatEnum.fold 
-        (fun existing_seq (exppoly, dim) -> 
-          let current_seq = seq_mul_symbol srk (seq_of_exp_polynomial srk divisor exppoly) (List.nth invariant_symbols dim) in 
-          if BatDynArray.empty existing_seq then current_seq else 
-            seq_add srk existing_seq current_seq
-        )
-        (BatDynArray.of_list [])
-        dividend_enum
+      let closed_form_dividend =
+        (ExpPolynomial.Matrix.vector_left_mul lt_vec_exppoly exp_poly)
+      in
+      let dividend_xseqs =
+        BatEnum.fold
+          (fun existing_seq (exppoly, dim) ->
+            let current_seq =
+              seq_mul_symbol srk
+                (seq_of_exp_polynomial srk divisor exppoly)
+                (List.nth invariant_symbols dim)
+            in
+            seq_add srk existing_seq current_seq)
+          (BatDynArray.of_list [mk_real srk lhs_const])
+          (ExpPolynomial.Vector.enum closed_form_dividend)
       in
       let mk_divides t =
         mk_eq srk (mk_mod srk t (mk_real srk (QQ.of_int divisor))) (mk_zero srk)

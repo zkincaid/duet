@@ -13,6 +13,6 @@ int main(int argc, char* argv[]) {
       r = r - 10;
     }
     x++;
-  } while (r != 7);
+  } while (r != 6);
   return x;
 }
