@@ -835,6 +835,12 @@ module XSeq = struct
         logf "finished scaling up simulation";
         let m = compute_rep_matrix best_DLTS_abstraction in
         logf "Representation matrix of best Q-DLTS abstraction: %a" Linear.QQMatrix.pp m;
+        let module PLM = Lts.PartialLinearMap in
+        let omega_domain = snd (PLM.iteration_sequence best_DLTS_abstraction.dlts) in
+        let omega_dom_mat = Linear.QQMatrix.of_rows omega_domain in
+        let omega_dom_constraints_lhs = compose_simulation srk omega_dom_mat best_DLTS_abstraction.simulation in
+        let omega_dom_constraints = BatArray.fold_left (fun f term -> mk_and srk [f; mk_eq srk (mk_zero srk) term]) (mk_true srk) omega_dom_constraints_lhs in
+        logf "omega domain constraints: %a" (Formula.pp srk) omega_dom_constraints;
         let constraints, new_dynamics_mat, new_simulation = integer_spectrum_abstraction srk m best_DLTS_abstraction.simulation in
         logf "integrality constraints: %a" (Formula.pp srk) constraints;
         logf "New dynamics matrix: %a" Linear.QQMatrix.pp new_dynamics_mat;
@@ -874,7 +880,7 @@ module XSeq = struct
       let results_in_inv_terms = seq_conditions srk xseq in 
       let results = rewrite_term_condition srk best_DLTS_abstraction.simulation invariant_symbols results_in_inv_terms in
         logf "terminating conditions after rewrite: %a" (Formula.pp srk) results;
-        mk_not srk results
+        mk_and srk [mk_not srk results; omega_dom_constraints; constraints]
       | `Unknown -> failwith "SMT solver should not return unknown for QRA formulas"
       | `Unsat -> (logf ~attributes:[`Bold; `Green] "Transition formula UNSAT, done"); mk_false srk
     
