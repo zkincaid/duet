@@ -26,6 +26,10 @@
     <includesfile>../tasks/recursive.set</includesfile>
     <propertyfile>../tasks/properties/termination.prp</propertyfile>
   </tasks>
+  <tasks name="termination_linear">
+    <includesfile>../tasks/termination_linear.set</includesfile>
+    <propertyfile>../tasks/properties/termination.prp</propertyfile>
+  </tasks>
 </rundefinition>
 
 </benchmark>
