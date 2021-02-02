@@ -1,13 +1,14 @@
-/* Basic reasoning of modulo operations */
+/* Basic reasoning of integer division operations */
 
 extern int __VERIFIER_nondet_int(void);
 
 int main(int argc, char* argv[]) {
   int x = __VERIFIER_nondet_int();
   if (x <= 0 || x > 999999) return 0;
-  while (x > 0) {
-    if (x % 2 == 1) break;
+  int c = 0;
+  while (x % 2 == 0) {
     x = x / 2;
+    c = c + 1;
   }
   return 0;
 }

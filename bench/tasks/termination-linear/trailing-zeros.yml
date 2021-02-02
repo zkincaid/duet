@@ -1,6 +1,6 @@
 format_version: '1.0'
 
-input_files: 'nested_precond.c'
+input_files: 'trailing-zeros.c'
 
 properties:
   - property_file: ../properties/termination.prp
