@@ -818,13 +818,13 @@ let omega_algebra =  function
            (K.to_transition_formula transition)
        in
        let nonterm tf =
-        let llrf_conditions = 
+        let llrf_conditions, llrf_succ = 
           if !termination_llrf then 
             let result, _ = TLLRF.compute_swf srk tf in 
              if result = TLLRF.ProvedToTerminate then
               begin
                 logf "proved to terminate by LLRF";
-                [Syntax.mk_false srk]
+                [Syntax.mk_false srk], true
               end
              else
               let pre =
@@ -847,22 +847,22 @@ let omega_algebra =  function
                 if result = TLLRF.ProvedToTerminate then 
                   begin
                     logf "proved to terminate by LLRF with attractor region";
-                    [Syntax.mk_false srk]
+                    [Syntax.mk_false srk], false
                   end
-                else [pre]
+                else [pre], false
               else 
-                [pre]
+                [pre], false
           else
-            []
+            [], false
         in
         let dta =
-          if !termination_dta then
+          if (not llrf_succ) && !termination_dta then
             (* [TDTA.compute_swf_via_DTA srk tf] *)
             [TDTA.XSeq.terminating_conditions_of_formula_via_xseq srk tf]
           else []
         in
         let exp =
-          if !termination_exp then
+          if (not llrf_succ) && !termination_exp then
             let mp =
               Syntax.mk_not srk
                 (TerminationExp.mp (module Iteration.LinearRecurrenceInequation) srk tf)
