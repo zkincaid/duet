@@ -847,7 +847,7 @@ let omega_algebra =  function
                 if result = TLLRF.ProvedToTerminate then 
                   begin
                     logf "proved to terminate by LLRF with attractor region";
-                    [Syntax.mk_false srk], false
+                    [Syntax.mk_false srk], true
                   end
                 else [pre], false
               else 
