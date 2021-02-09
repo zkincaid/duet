@@ -512,3 +512,35 @@ let equal p q =
     Apron.Abstract0.is_eq man p0 q0
   else
     false
+
+let of_generators dim generators =
+  let open Apron in
+  let man = Polka.manager_alloc_loose () in
+  let (vertices, rays) =
+    BatEnum.fold Generator0.(fun (vertices, rays) (kind, vec) ->
+        match kind with
+        | `Line -> (vertices, (make (lexpr_of_vec vec) LINE)::rays)
+        | `Ray -> (vertices, (make (lexpr_of_vec vec) RAY)::rays)
+        | `Vertex -> (vec::vertices, rays))
+      ([], [])
+      generators
+  in
+  let polytope_of_point point =
+    Abstract0.of_lincons_array man 0 dim
+      (Array.init dim (fun i ->
+           (* x_i = point_i *)
+           let lexpr =
+             [(QQ.of_int (-1), i);
+              (V.coeff i point, Linear.const_dim)]
+             |> V.of_list
+             |> lexpr_of_vec
+           in
+           Lincons0.make lexpr Lincons0.EQ))
+  in
+  let polytope = (* Convex hull of verties *)
+    BatList.reduce
+      (Abstract0.join man)
+      (List.map polytope_of_point vertices)
+  in
+  Abstract0.add_ray_array man polytope (BatArray.of_list rays)
+  |> of_apron0 man

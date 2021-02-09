@@ -13,6 +13,13 @@ let mk_polyhedron halfspaces =
   |> Polyhedron.of_constraints
 
 
+let mk_polyhedron_generators dim vertices rays =
+  (List.map (fun v -> (`Vertex, mk_vector v)) vertices)
+  @(List.map (fun v -> (`Ray, mk_vector v)) rays)
+  |> BatList.enum
+  |> Polyhedron.of_generators dim
+  
+
 let assert_equal_polyhedron p q =
   assert_equal ~cmp:Polyhedron.equal p q
 
@@ -100,5 +107,49 @@ let suite = "Polyhedron" >::: [
         let cone = Polyhedron.conical_hull polyhedron in
         let ch = mk_polyhedron [] in
         assert_equal_polyhedron ch cone
-      )
+      );
+      "generator1" >:: (fun () ->
+        let p =
+          mk_polyhedron [([1; 0; 0], 0);
+                         ([0; 0; 1], 0)]
+        in
+        let q =
+          mk_polyhedron_generators 3
+            [[0; 0; 0]]
+            [[1; 0; 0];
+             [0; 1; 0];
+             [0; -1; 0];
+             [0; 0; 1]]
+        in
+        assert_equal_polyhedron p q);
+      "generator2" >:: (fun () ->
+        let p =
+          mk_polyhedron [([1; -1; 0], 0);
+                         ([-1; 1; 0], 0);
+                         ([0; 1; 0], -1);
+                         ([0; 0; 1], 42)]
+        in
+        let q =
+          mk_polyhedron_generators 3
+            [[-1; -1; 42]]
+            [[1; 1; 0];
+             [0; 0; 1]]
+        in
+        assert_equal_polyhedron p q);
+      "generator3" >:: (fun () ->
+        let p =
+          mk_polyhedron [([1; 0], 1);
+                         ([-1; 0], -2);
+                         ([0; 1], 3);
+                         ([0; -1], -4)]
+        in
+        let q =
+          mk_polyhedron_generators 2
+            [[1; 3];
+             [1; 4];
+             [2; 3];
+             [2; 4]]
+            []
+        in
+        assert_equal_polyhedron p q)
   ]

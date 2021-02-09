@@ -38,6 +38,8 @@ val of_formula : ?admit:bool -> 'a CoordinateSystem.t -> 'a formula -> t
 
 val of_constraints : (constraint_kind * V.t) BatEnum.t -> t
 
+val of_generators : int -> (generator_kind * V.t) BatEnum.t -> t
+
 (** Inverse of [of_formula] *)
 val to_formula : 'a CoordinateSystem.t -> t -> 'a formula
 
