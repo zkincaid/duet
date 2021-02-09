@@ -210,35 +210,3 @@ module MakeMatrix (R : Algebra.Ring) : sig
                   and type vector = MakeVector(R).t
   val pp : (Format.formatter -> scalar -> unit) -> Format.formatter -> t -> unit
 end
-
-(** Ultimately periodic sequences.  An ultimately periodic sequence is an
-    infinite sequence consisting of a finite transient phase and an infinite
-    periodic phase (with finite period).  Ring operations are pointwise:
-    {ul
-    {- [(f+g)(i) = f(i) + g(i)] }
-    {- [(f*g)(i) = f(i) * g(i)] (Hadamard product) }
-    {- [(-f)(i) = -f(i)] }
-    {- [(0)(i) = 0] }
-    {- [(1)(i) = 1] } } *)
-module MakeUltPeriodicSeq (R : Algebra.Ring) : sig
-  include Algebra.Ring
-  val pp : (Format.formatter -> R.t -> unit) -> Format.formatter -> t -> unit
-
-  (** [make t p] constructs an ultimately periodic sequence *)
-  val make : R.t list -> R.t list -> t
-
-  (** Retrieve the transient part of a sequence *)
-  val transient : t -> R.t list
-
-  (** Retrieve the periodic part of a sequence *)
-  val periodic : t -> R.t list
-
-  (** Enumerate the sequence. *)
-  val enum : t -> R.t BatEnum.t
-
-  (** Length of the period of a sequence *)
-  val period_len : t -> int
-
-  (** Length of the transient part of a sequence *)
-  val transient_len : t -> int
-end

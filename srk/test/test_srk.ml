@@ -9,6 +9,7 @@ let suite = "Main" >::: [
     Test_smt.suite;
     Test_interval.suite;
     Test_ring.suite;
+    Test_sequence.suite;
     Test_linear.suite;
     Test_polyhedron.suite;
     Test_polynomial.suite;
