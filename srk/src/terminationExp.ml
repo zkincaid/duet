@@ -46,14 +46,4 @@ let mp (module I : Iteration.PreDomain) srk tf =
     |> qe (fun sym -> sym != k) (* express over pre-state symbols + symbolic constants *)
   in
   result
-(*
-  match Quantifier.simsat srk result with
-  | `Unsat -> mk_false srk
-  | `Sat -> let f =  Syntax.mk_forall_consts srk (fun _ -> false) result in 
-    begin
-      match Quantifier.simsat srk f  with 
-      | `Sat -> mk_true srk
-      | _ -> result
-    end
-  | _ -> result
- *)
+  

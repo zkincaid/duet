@@ -1,10 +1,10 @@
+(* Linear ranking function synthesis, subsumed by LLRF synthesis. *)
 open Syntax
 open BatEnum
 
 module TLLRF = TerminationLLRF
 module Vec = Linear.QQVector
 module Mat = Linear.QQMatrix
-(* module NL = NestedLoops *)
 
 include Log.Make(struct let name = "Termination" end)
 

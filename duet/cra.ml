@@ -764,12 +764,14 @@ let preimage transition formula =
   mk_and srk [purify_floor (K.guard transition);
               substitute_const srk subst formula]
 
+(* Attractor region analysis *)
 let formula_with_attractor_region tf =
   logf "Starting attractor region analysis";
   let formula = TF.formula tf in
   let xp_leq_x_terms = BatList.fold_left (fun l (x, xp) -> 
       let open Syntax in (mk_leq srk (mk_const srk xp) (mk_const srk x), mk_const srk xp, mk_const srk x) :: l) [] (TF.symbols tf)
   in
+  (* TODO: add an incremental interface for optimize_box *)
   let lower_bounds = BatList.map (fun (xp_leq_x_term, xp, x) -> 
       match SrkZ3.optimize_box srk (Syntax.mk_and srk [formula; xp_leq_x_term]) [xp] with
       | `Sat l ->  let h = BatList.hd l in (Interval.lower h, x)
@@ -856,8 +858,8 @@ let omega_algebra =  function
             [], false
         in
         let dta =
+          (* If LLRF succeeds, then we do not try dta *)
           if (not llrf_succ) && !termination_dta then
-            (* [TDTA.compute_swf_via_DTA srk tf] *)
             [TDTA.XSeq.terminating_conditions_of_formula_via_xseq srk tf]
           else []
         in
@@ -895,23 +897,14 @@ let omega_algebra =  function
                    let x' = mk_const srk x' in
                    [mk_lt srk x x';
                     mk_lt srk x' x;
+                    (** The sign invariant seems to be problematic with a few benchmarks
+                        including the C-style string manipulating programs. *)
                     (* mk_leq srk (mk_zero srk) x; *)
                     (* mk_leq srk x (mk_zero srk); *)
                     mk_eq srk x x'])
                  (TF.symbols tf)
                |> List.concat
              in
-             (* let phased_nonterm =
-               let cells = 
-               Iteration.invariant_partition srk predicates tf
-              in
-                Format.printf "Number of cells: %d\n" (List.length cells);
-                cells
-                |> List.map (fun phase ->
-                       nonterm (TF.map_formula (fun phi -> mk_and srk [phi; phase]) tf))
-                |> Syntax.mk_or srk
-             in
-             [preimage (K.star transition) phased_nonterm] *)
              let omega_algebra = omega_algebra_for_phase srk nonterm in
              [Iteration.compute_mp_with_phase_DAG srk predicates tf omega_algebra]
            end else []
