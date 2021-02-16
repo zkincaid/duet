@@ -1,6 +1,7 @@
 open Syntax
 open SolvablePolynomial
 open BatPervasives
+open Sequence
 
 module Vec = Linear.QQVector
 module Mat = Linear.QQMatrix
@@ -302,324 +303,297 @@ match Linear.divide_right sm new_simulation_mat with
    Specifically, we have that for k sufficiently large, G(A^k x) = S_k.
 *)
 module XSeq = struct
-  type t 
-  (* type 'a seq_type = ('a Formula.t) BatDynArray.t *)
-
-  let seq_op op x y =
-    logf "entering seq_op";
-    let x_len = BatDynArray.length x in 
-    let y_len = BatDynArray.length y in 
-    let common_len = match ZZ.to_int (ZZ.lcm (ZZ.of_int x_len) (ZZ.of_int y_len)) with 
-    | None -> failwith "cannot compute lcm"
-    | Some l -> l 
-    in
-    logf "lcm of both lengths is: %d" common_len;
-    let result = BatDynArray.make common_len in 
-    for i = 0 to common_len-1 do 
-      BatDynArray.add 
-      result 
-      (op 
-        (BatDynArray.get x (i mod x_len)) 
-        (BatDynArray.get y (i mod y_len)))
-    done;
-    result
 
   let seq_of_true srk =
-    BatDynArray.of_list [mk_true srk]
+    Periodic.make [mk_true srk]
 
   let seq_of_false srk =
-    BatDynArray.of_list [mk_false srk]
+    Periodic.make [mk_false srk]
     
   let seq_and srk x y = 
-    seq_op (fun a b -> mk_and srk [a; b]) x y 
+    Periodic.map2 (fun a b -> mk_and srk [a; b]) x y
 
   let seq_and srk xs =
     BatList.fold_left (fun s x -> seq_and srk s x) (seq_of_true srk) xs
   
   let seq_or srk x y =
-    seq_op (fun a b -> mk_or srk [a; b]) x y
+    Periodic.map2 (fun a b -> mk_or srk [a; b]) x y
 
   let seq_or srk xs =
     BatList.fold_left (fun s x -> seq_or srk s x) (seq_of_false srk) xs
 
   let seq_add srk x y =
-    seq_op (fun a b -> mk_add srk [a; b]) x y
+    Periodic.map2 (fun a b -> mk_add srk [a; b]) x y
 
   let seq_mul_symbol srk x symbol =
-    BatDynArray.map (fun f -> mk_mul srk [f; mk_const srk symbol]) x
+    Periodic.map (fun f -> mk_mul srk [f; mk_const srk symbol]) x
 
   let seq_not srk x = 
-    BatDynArray.map (fun f -> mk_not srk f) x
+    Periodic.map (fun f -> mk_not srk f) x
 
-  let seq_eq_zero srk x = 
-    BatDynArray.map (fun f -> mk_eq srk f (mk_zero srk)) x
-
+  (* calculate the termination condition induced by characteristic sequence x *)
   let seq_conditions srk x =
-    mk_not srk (mk_and srk (BatDynArray.to_list x))
+    mk_not srk (mk_and srk (Periodic.period x))
 
-  let seq_of_exp modulus lambda =
-    (* Find period & start of the ultimately periodic sequence *)
-    let rec detect_cycle i current seen =
-      if BatMap.Int.mem current seen then
-        let period = i - (BatMap.Int.find current seen) in
-        (* Multiple of period between previous & current occurrence *)
-        let start_pos = i - (i mod period) in
-        (start_pos, period)
-      else
-        let next = (lambda * current) mod modulus in
-        detect_cycle (i + 1) next (BatMap.Int.add current i seen)
-    in
-    let (start_pos, period) = detect_cycle 0 (1 mod modulus) BatMap.Int.empty in
-    let start = (* lambda^start_pos *)
-      SrkUtil.exp (fun x y -> (x * y) mod modulus) 1 lambda start_pos
-    in
-    let rec construct_seq current len seq =
-      if len == 0 then
-        List.rev seq
-      else
-        construct_seq
-          ((lambda * current) mod modulus)
-          (len - 1)
-          (current::seq)
-    in
-    BatDynArray.of_list (construct_seq start period [])
+  (* seq_of_exp m t returns the characteristic sequence of t^k mod m, 
+  k = 0, 1, 2, ... *)
+  let seq_of_exp modulus lambda = 
+    UltimatelyPeriodic.unfold (fun power -> (power * lambda) mod modulus) 1 
+    |> periodic_approx
 
-    let seq_of_polynomial srk modulo poly =    
-      let seq = BatDynArray.create () in 
-      for i = 0 to (modulo - 1) do
-        let p_at_i = Polynomial.QQX.term_of srk (mk_int srk i) poly in
-        let p_at_i_mod = mk_mod srk p_at_i (mk_int srk modulo) in
-        BatDynArray.add seq p_at_i_mod;
-      done;
-      seq
 
-    let seq_of_single_base_exp_polynomial srk modulo poly base =
-      let seq_of_exp = seq_of_exp modulo base in
-      let seq_of_poly = seq_of_polynomial srk modulo poly in
-      seq_op 
-        (fun n term -> 
-            mk_mod 
-              srk 
-              (mk_mul srk [ (mk_int srk n); term]) 
-              (mk_int srk modulo)
-        ) 
-      seq_of_exp
-      seq_of_poly
+  (* seq_of_polynomial srk m p returns characteristic sequence of p(k) mod m, 
+  k = 0, 1, 2, ... *)
+  let seq_of_polynomial srk modulo poly = 
+    let seq = ref [] in 
+    for i = 0 to (modulo - 1) do
+      let p_at_i = Polynomial.QQX.term_of srk (mk_int srk i) poly in
+      let p_at_i_mod = mk_mod srk p_at_i (mk_int srk modulo) in
+      seq := p_at_i_mod :: !seq 
+    done;
+    Periodic.make (BatList.rev !seq)
 
-      let seq_of_exp_polynomial srk modulo exppoly =
-        let e = ExpPolynomial.enum exppoly in 
-        BatEnum.fold 
-          (fun existing_seq (poly, base) -> 
-            let b = match QQ.to_int base with 
-              Some i -> i 
-              | None -> failwith "Did not expect non-integer bases here"
-            in
-            let current_seq = seq_of_single_base_exp_polynomial srk modulo poly b in 
-            if (BatDynArray.empty existing_seq) then current_seq else
-              seq_add srk existing_seq current_seq
-          )
-        (BatDynArray.of_list [])
-        e 
-          
-    let generate_xseq srk lhs ineq_type exp_poly abstraction = 
-      let (invariant_symbols, invariant_terms, best_DLTS_abstraction) = abstraction in
-      let lt_vec, lhs_const = get_coeff_vec_wrt_symbol_list lhs invariant_symbols in
-      logf "\nlt_vec is: %a, LHS constant is: %a" 
-        Vec.pp lt_vec 
-        QQ.pp lhs_const;
-      let lt_vec_exppoly = ExpPolynomial.Vector.of_qqvector lt_vec in
-      let closed_form_vec = ExpPolynomial.Matrix.vector_left_mul lt_vec_exppoly exp_poly in
-      let mat = ExpPolynomial.Matrix.of_rows [closed_form_vec] in
-      logf "\nfinal matrix is: %a, with %d rows and %d cols" ExpPolynomial.Matrix.pp mat (ExpPolynomial.Matrix.nb_rows mat) (ExpPolynomial.Matrix.nb_columns mat);
-      let mat_entries = ExpPolynomial.Matrix.entries mat in
-      let has_negative_base = BatEnum.exists 
-          (fun (_, _, entry) -> 
-            begin
-              logf "looking into entry %a for negative eigenvalues" ExpPolynomial.pp entry;
-              let exppoly_terms_enum = ExpPolynomial.enum entry in
-              BatEnum.exists 
-                (fun (poly, base) -> 
-                    logf "this entry has polynomial %a and base %a" Polynomial.QQX.pp poly QQ.pp base; 
-                    QQ.lt base QQ.zero)
-                exppoly_terms_enum
-            end
-          )
-          mat_entries
-      in
-      let analyze_entries entries =
-        begin
-          logf "start iterating entries";
-          let m = BaseDegPairMap.put (QQ.one, 0) lhs_const (-1) BaseDegPairMap.empty in
-          let m = BatEnum.fold 
-              ( fun m (idx, idy, entry) ->
-                  if idx != 0 then failwith "got a matrix with more than 1 row"
-                  else
-                    logf "iterating this entry: %a at x: %d, y: %d" ExpPolynomial.pp entry idx idy;
-                  let exppoly_terms_enum = ExpPolynomial.enum entry in
-                  BatEnum.fold
-                    (fun m (poly, base) -> 
-                      let poly_terms_enum = Polynomial.QQX.enum poly in
-                      BatEnum.fold
-                        (fun m (coeff, deg) -> 
-                            let index_pair = (base, deg) in
-                            logf "putting into map: base: %a, deg: %d, coeff: %a" 
-                              QQ.pp base
-                              deg
-                              QQ.pp coeff;
-                            BaseDegPairMap.put index_pair coeff idy m
-                        )
-                        m
-                        poly_terms_enum
-                    )
-                    m
-                    exppoly_terms_enum
-              )
-              m
-              entries
-          in
-          let conditions = mk_not srk (BaseDegPairMap.rank srk m invariant_terms lhs_const ineq_type) in
-          logf "terminating condition: %a" (Formula.pp srk) conditions;
-          conditions
-        end
-      in
-      if has_negative_base then
-        begin
-          logf "has negative eigenvalues, do alternative computation";
-          let m = compute_rep_matrix best_DLTS_abstraction in
-          let exppoly2 = compute_exp_polynomial ~square:true m in
-          let closed_form_vec = ExpPolynomial.Matrix.vector_left_mul lt_vec_exppoly exppoly2 in
-          let mat2 = ExpPolynomial.Matrix.of_rows [closed_form_vec] in
-          logf "\nfinal matrix in this case is: %a" ExpPolynomial.Matrix.pp mat2;
-          let entries = ExpPolynomial.Matrix.entries mat2 in
-          let sat_even_conditions' = analyze_entries entries in
-          let sat_even_conditions'' = rewrite_term_condition srk best_DLTS_abstraction.simulation invariant_symbols sat_even_conditions' in
-          let sat_even_conditions = sat_even_conditions'' in
-          logf "start computing sat_odd conditions";
-          let entries = ExpPolynomial.Matrix.entries mat in
-          let entries_with_odd_exp = BatEnum.map (
-              fun (x, y, entry) -> 
-                let t = ExpPolynomial.compose_left_affine entry 2 1 in
-                logf "old entry at (%d, %d) is: %a" x y ExpPolynomial.pp entry;
-                logf "new entry at (%d, %d) is: %a" x y ExpPolynomial.pp t;
-                (x, y, t)
-            ) 
-              entries 
-          in
-          let sat_odd_conditions = analyze_entries entries_with_odd_exp in
-          logf "sat_odd conditions: %a" (Formula.pp srk) sat_odd_conditions; 
-          let results = BatDynArray.of_list [sat_even_conditions; sat_odd_conditions] in
-          results
-        end
-      else
-        begin
-          let mat_entries = ExpPolynomial.Matrix.entries mat in
-          let res = analyze_entries mat_entries in 
-          BatDynArray.of_list [res]
-        end
+  (* seq_of_polynomial srk m p b returns characteristic sequence of b^k p(k) mod m, 
+  k = 0, 1, 2, ... *)
+  let seq_of_single_base_exp_polynomial srk modulo poly base =
+    let seq_of_exp = seq_of_exp modulo base in
+    let seq_of_poly = seq_of_polynomial srk modulo poly in
+    Periodic.map2 
+      (fun n term -> 
+          mk_mod 
+            srk 
+            (mk_mul srk [ (mk_int srk n); term]) 
+            (mk_int srk modulo)
+      ) 
+    seq_of_exp
+    seq_of_poly
 
-    let seq_of_compare_zero_atom srk op vec exp_poly abstraction =
-      let ineq_type, lhs_vec = match op with
-           | `Lt -> Lt0, vec
-           | `Eq -> Eq0, vec
-           | `Leq -> Leq0, vec
-         in 
-      generate_xseq srk lhs_vec ineq_type exp_poly abstraction
-
-    let seq_of_divides_atom srk zz_divisor dividend_vec exp_poly abstraction =
-      let divisor = match ZZ.to_int zz_divisor with
-        | Some i -> i
-        | None -> failwith "see non-integer divisor, error"
-      in
-      let (invariant_symbols, _, _) = abstraction in
-      let lt_vec, lhs_const = get_coeff_vec_wrt_symbol_list dividend_vec invariant_symbols in
-      logf "\nlt_vec is: %a, LHS constant is: %a" 
-        Vec.pp lt_vec 
-        QQ.pp lhs_const;
-      let lt_vec_exppoly = ExpPolynomial.Vector.of_qqvector lt_vec in
-      let closed_form_dividend =
-        (ExpPolynomial.Matrix.vector_left_mul lt_vec_exppoly exp_poly)
-      in
-      let dividend_xseqs =
-        BatEnum.fold
-          (fun existing_seq (exppoly, dim) ->
-            let current_seq =
-              seq_mul_symbol srk
-                (seq_of_exp_polynomial srk divisor exppoly)
-                (List.nth invariant_symbols dim)
-            in
-            seq_add srk existing_seq current_seq)
-          (BatDynArray.of_list [mk_real srk lhs_const])
-          (ExpPolynomial.Vector.enum closed_form_dividend)
-      in
-      let mk_divides t =
-        mk_eq srk (mk_mod srk t (mk_real srk (QQ.of_int divisor))) (mk_zero srk)
-      in
-      BatDynArray.map mk_divides dividend_xseqs
-
-    let seq_of_notdivides_atom srk zz_divisor dividend_vec exp_poly abstraction =
-      seq_of_divides_atom srk zz_divisor dividend_vec exp_poly abstraction
-      |> seq_not srk
-
-    let terminating_conditions_of_formula_via_xseq srk tf =
-      logf "DTA starts";
-      let tf = TF.linearize srk tf in
-      logf "\nTransition formula linearized:\n%a\n\n" (Formula.pp srk) (TF.formula tf);
-      match Smt.is_sat srk (TF.formula tf) with
-      | `Sat ->
-        let best_DLTS_abstraction = DLTSPeriodicRational.abstract_rational srk tf in
-        logf "finished computing best DLTS abstraction";
-        let best_DLTS_abstraction = scaling_simulation srk best_DLTS_abstraction in
-        logf "finished scaling up simulation";
-        let m = compute_rep_matrix best_DLTS_abstraction in
-        logf "Representation matrix of best Q-DLTS abstraction: %a" Linear.QQMatrix.pp m;
-        let module PLM = Lts.PartialLinearMap in
-        let omega_domain = snd (PLM.iteration_sequence best_DLTS_abstraction.dlts) in
-        let omega_dom_mat = Linear.QQMatrix.of_rows omega_domain in
-        let omega_dom_constraints_lhs = compose_simulation srk omega_dom_mat best_DLTS_abstraction.simulation in
-        let omega_dom_constraints = BatArray.fold_left (fun f term -> mk_and srk [f; mk_eq srk (mk_zero srk) term]) (mk_true srk) omega_dom_constraints_lhs in
-        logf "omega domain constraints: %a" (Formula.pp srk) omega_dom_constraints;
-        let constraints, new_dynamics_mat, new_simulation = integer_spectrum_abstraction srk m best_DLTS_abstraction.simulation in
-        logf "integrality constraints: %a" (Formula.pp srk) constraints;
-        logf "New dynamics matrix: %a" Linear.QQMatrix.pp new_dynamics_mat;
-        let best_DLTS_abstraction = {dlts = Lts.PartialLinearMap.make new_dynamics_mat []; simulation = new_simulation } in
-        let exp_poly = compute_exp_polynomial new_dynamics_mat in
-        let invariant_symbols, inv_equalities, invariant_symbol_set =
-          build_symbols_for_inv_terms srk new_simulation
+  (* characteristic sequence of an exponential polynomial modulo some number *)
+  let seq_of_exp_polynomial srk modulo exppoly =
+    let e = ExpPolynomial.enum exppoly in 
+    BatEnum.fold 
+      (fun existing_seq (poly, base) -> 
+        let b = match QQ.to_int base with 
+          Some i -> i 
+          | None -> failwith "Did not expect non-integer bases here"
         in
-        let invariant_terms = BatList.map (fun symbol -> mk_const srk symbol) invariant_symbols in
-        let abstraction = (invariant_symbols, invariant_terms, best_DLTS_abstraction) in
-        let formula = mk_and srk [TF.formula tf; mk_and srk inv_equalities; constraints] in
-        logf "\nTransition formula with simulation terms:\n%s\n\n" (Formula.show srk formula);
-        let ground_formula = Quantifier.mbp srk (fun s -> Symbol.Set.mem s invariant_symbol_set) formula in 
-        logf "Formula after model-based projection: %a" (Formula.pp srk) ground_formula;
-        let no_floor = SrkSimplify.purify_floor srk ground_formula in
-        logf "Formula after removing floors: %a" (Formula.pp srk) no_floor;
-        let algebra = function 
-        | `Tru -> seq_of_true srk
-        | `Fls -> seq_of_false srk
-        | `And xs -> seq_and srk xs
-        | `Or xs -> seq_or srk xs
-        | `Not x -> seq_not srk x
-        | `Quantify _ -> failwith "should not see quantifiers in the TF"
-        | `Atom (op, s, t) -> 
+        let current_seq = seq_of_single_base_exp_polynomial srk modulo poly b in 
+          seq_add srk existing_seq current_seq
+      )
+    (Periodic.make [mk_zero srk])
+    e 
+          
+  (* Compute characteristic sequence of atoms with form p < 0, p <= 0, or p = 0. *)
+  let generate_xseq srk lhs ineq_type exp_poly abstraction = 
+    let (invariant_symbols, invariant_terms, best_DLTS_abstraction) = abstraction in
+    let lt_vec, lhs_const = get_coeff_vec_wrt_symbol_list lhs invariant_symbols in
+    logf "\nlt_vec is: %a, LHS constant is: %a" 
+      Vec.pp lt_vec 
+      QQ.pp lhs_const;
+    let lt_vec_exppoly = ExpPolynomial.Vector.of_qqvector lt_vec in
+    let closed_form_vec = ExpPolynomial.Matrix.vector_left_mul lt_vec_exppoly exp_poly in
+    let mat = ExpPolynomial.Matrix.of_rows [closed_form_vec] in
+    logf "\nClosed form matrix is: %a, with %d rows and %d cols" 
+    ExpPolynomial.Matrix.pp mat (ExpPolynomial.Matrix.nb_rows mat) (ExpPolynomial.Matrix.nb_columns mat);
+    let mat_entries = ExpPolynomial.Matrix.entries mat in
+    (* check if the dynamic matrix has negative eigenvalues *)
+    let has_negative_base = BatEnum.exists 
+        (fun (_, _, entry) -> 
           begin
-            match SrkSimplify.simplify_integer_atom srk op s t with 
-              `CompareZero (op, vec) -> seq_of_compare_zero_atom srk op vec exp_poly abstraction
-              | `Divides (divisor, vec) -> seq_of_divides_atom srk divisor vec exp_poly abstraction
-              | `NotDivides (divisor, vec) ->seq_of_notdivides_atom srk divisor vec exp_poly abstraction
+            logf "looking into entry %a for negative eigenvalues" ExpPolynomial.pp entry;
+            let exppoly_terms_enum = ExpPolynomial.enum entry in
+            BatEnum.exists 
+              (fun (poly, base) -> 
+                  logf "this entry has polynomial %a and base %a" Polynomial.QQX.pp poly QQ.pp base; 
+                  QQ.lt base QQ.zero)
+              exppoly_terms_enum
           end
-        | `Proposition _ -> failwith "should not see proposition in the TF"
-        | `Ite _ -> failwith "should not see ite in the TF"
+        )
+        mat_entries
+    in
+    let analyze_entries entries =
+      begin
+        logf "start iterating entries";
+        let m = BaseDegPairMap.put (QQ.one, 0) lhs_const (-1) BaseDegPairMap.empty in
+        let m = BatEnum.fold 
+            ( fun m (idx, idy, entry) ->
+                (* The closed form matrix must be a vector *)
+                if idx != 0 then failwith "got a matrix with more than 1 row"
+                else
+                  logf "iterating this entry: %a at x: %d, y: %d" ExpPolynomial.pp entry idx idy;
+                let exppoly_terms_enum = ExpPolynomial.enum entry in
+                BatEnum.fold
+                  (fun m (poly, base) -> 
+                    let poly_terms_enum = Polynomial.QQX.enum poly in
+                    BatEnum.fold
+                      (fun m (coeff, deg) -> 
+                          let index_pair = (base, deg) in
+                          logf "putting into map: base: %a, deg: %d, coeff: %a" 
+                            QQ.pp base
+                            deg
+                            QQ.pp coeff;
+                          BaseDegPairMap.put index_pair coeff idy m
+                      )
+                      m
+                      poly_terms_enum
+                  )
+                  m
+                  exppoly_terms_enum
+            )
+            m
+            entries
+        in
+        let conditions = mk_not srk (BaseDegPairMap.rank srk m invariant_terms lhs_const ineq_type) in
+        logf "terminating condition: %a" (Formula.pp srk) conditions;
+        conditions
+      end
+    in
+    if has_negative_base then
+      begin
+        logf "Dynamic matrix has negative eigenvalues, computing length-2 char sequence...";
+        let m = compute_rep_matrix best_DLTS_abstraction in
+        (* for dynamics matrix A, compute A^2 so that there is no negative eigenvalue *)
+        let exppoly2 = compute_exp_polynomial ~square:true m in
+        let closed_form_vec = ExpPolynomial.Matrix.vector_left_mul lt_vec_exppoly exppoly2 in
+        let mat2 = ExpPolynomial.Matrix.of_rows [closed_form_vec] in
+        logf "\nfinal matrix in this case is: %a" ExpPolynomial.Matrix.pp mat2;
+        let entries = ExpPolynomial.Matrix.entries mat2 in
+        let sat_even_conditions' = analyze_entries entries in
+        let sat_even_conditions'' = rewrite_term_condition srk best_DLTS_abstraction.simulation invariant_symbols sat_even_conditions' in
+        let sat_even_conditions = sat_even_conditions'' in
+        logf "start computing sat_odd conditions";
+        let entries = ExpPolynomial.Matrix.entries mat in
+        let entries_with_odd_exp = BatEnum.map (
+            fun (x, y, entry) -> 
+              let t = ExpPolynomial.compose_left_affine entry 2 1 in
+              logf "old entry at (%d, %d) is: %a" x y ExpPolynomial.pp entry;
+              logf "new entry at (%d, %d) is: %a" x y ExpPolynomial.pp t;
+              (x, y, t)
+          ) 
+            entries 
+        in
+        let sat_odd_conditions = analyze_entries entries_with_odd_exp in
+        logf "sat_odd conditions: %a" (Formula.pp srk) sat_odd_conditions; 
+        let results = Periodic.make [sat_even_conditions; sat_odd_conditions] in
+        results
+      end
+    else
+      begin
+        let mat_entries = ExpPolynomial.Matrix.entries mat in
+        let res = analyze_entries mat_entries in 
+        Periodic.make [res]
+      end
+  
+  (* Compute characteristic sequence of LHS < 0, LHS = 0, LHS <= 0. *)
+  let seq_of_compare_zero_atom srk op vec exp_poly abstraction =
+    let ineq_type, lhs_vec = match op with
+          | `Lt -> Lt0, vec
+          | `Eq -> Eq0, vec
+          | `Leq -> Leq0, vec
+        in 
+    generate_xseq srk lhs_vec ineq_type exp_poly abstraction
+
+  (* Compute characteristic sequence of atom q | w^T A^k x. 
+     zz_divisor: represents divisor q
+     dividend_vec: linear term of state variables
+     exp_poly: closed form of A^k x
+  *)
+  let seq_of_divides_atom srk zz_divisor dividend_vec exp_poly abstraction =
+    let divisor = match ZZ.to_int zz_divisor with
+      | Some i -> i
+      | None -> failwith "see non-integer divisor, error"
+    in
+    let (invariant_symbols, _, _) = abstraction in
+    let lt_vec, lhs_const = get_coeff_vec_wrt_symbol_list dividend_vec invariant_symbols in
+    logf "\nlt_vec is: %a, LHS constant is: %a" 
+      Vec.pp lt_vec 
+      QQ.pp lhs_const;
+    let lt_vec_exppoly = ExpPolynomial.Vector.of_qqvector lt_vec in
+    let closed_form_dividend =
+      (ExpPolynomial.Matrix.vector_left_mul lt_vec_exppoly exp_poly)
+    in
+    let dividend_xseqs =
+      BatEnum.fold
+        (fun existing_seq (exppoly, dim) ->
+          let current_seq =
+            seq_mul_symbol srk
+              (seq_of_exp_polynomial srk divisor exppoly)
+              (List.nth invariant_symbols dim)
+          in
+          seq_add srk existing_seq current_seq)
+        (Periodic.make [mk_real srk lhs_const])
+        (ExpPolynomial.Vector.enum closed_form_dividend)
+    in
+    let mk_divides t =
+      mk_eq srk (mk_mod srk t (mk_real srk (QQ.of_int divisor))) (mk_zero srk)
+    in
+    Periodic.map mk_divides dividend_xseqs
+
+  let seq_of_notdivides_atom srk zz_divisor dividend_vec exp_poly abstraction =
+    seq_of_divides_atom srk zz_divisor dividend_vec exp_poly abstraction
+    |> seq_not srk
+  
+  (* Compute a mortal precondition of a transition formula through characteristic sequences. *)  
+  let terminating_conditions_of_formula_via_xseq srk tf =
+    logf "DTA starts";
+    let tf = TF.linearize srk tf in
+    logf "\nTransition formula linearized:\n%a\n\n" (Formula.pp srk) (TF.formula tf);
+    match Smt.is_sat srk (TF.formula tf) with
+    | `Sat ->
+      let best_DLTS_abstraction = DLTSPeriodicRational.abstract_rational srk tf in
+      logf "finished computing best DLTS abstraction";
+      let best_DLTS_abstraction = scaling_simulation srk best_DLTS_abstraction in
+      logf "finished scaling up simulation";
+      let m = compute_rep_matrix best_DLTS_abstraction in
+      logf "Representation matrix of best Q-DLTS abstraction: %a" Linear.QQMatrix.pp m;
+      let module PLM = Lts.PartialLinearMap in
+      let omega_domain = snd (PLM.iteration_sequence best_DLTS_abstraction.dlts) in
+      let omega_dom_mat = Linear.QQMatrix.of_rows omega_domain in
+      let omega_dom_constraints_lhs = compose_simulation srk omega_dom_mat best_DLTS_abstraction.simulation in
+      let omega_dom_constraints = BatArray.fold_left (fun f term -> mk_and srk [f; mk_eq srk (mk_zero srk) term]) (mk_true srk) omega_dom_constraints_lhs in
+      logf "omega domain constraints: %a" (Formula.pp srk) omega_dom_constraints;
+      let constraints, new_dynamics_mat, new_simulation = integer_spectrum_abstraction srk m best_DLTS_abstraction.simulation in
+      logf "integrality constraints: %a" (Formula.pp srk) constraints;
+      logf "New dynamics matrix: %a" Linear.QQMatrix.pp new_dynamics_mat;
+      let best_DLTS_abstraction = {dlts = Lts.PartialLinearMap.make new_dynamics_mat []; simulation = new_simulation } in
+      let exp_poly = compute_exp_polynomial new_dynamics_mat in
+      let invariant_symbols, inv_equalities, invariant_symbol_set =
+        build_symbols_for_inv_terms srk new_simulation
       in
-      logf "start computing char sequence ...";
-      let xseq = Formula.eval srk algebra no_floor in 
-      logf "finished computing char sequence!";
-      let results_in_inv_terms = seq_conditions srk xseq in 
-      let results = rewrite_term_condition srk best_DLTS_abstraction.simulation invariant_symbols results_in_inv_terms in
-        logf "terminating conditions after rewrite: %a" (Formula.pp srk) results;
-        mk_and srk [mk_not srk results; omega_dom_constraints; constraints]
-      | `Unknown -> failwith "SMT solver should not return unknown for QRA formulas"
-      | `Unsat -> (logf ~attributes:[`Bold; `Green] "Transition formula UNSAT, done"); mk_false srk
+      let invariant_terms = BatList.map (fun symbol -> mk_const srk symbol) invariant_symbols in
+      let abstraction = (invariant_symbols, invariant_terms, best_DLTS_abstraction) in
+      let formula = mk_and srk [TF.formula tf; mk_and srk inv_equalities; constraints] in
+      logf "\nTransition formula with simulation terms:\n%s\n\n" (Formula.show srk formula);
+      let ground_formula = Quantifier.mbp srk (fun s -> Symbol.Set.mem s invariant_symbol_set) formula in 
+      logf "Formula after model-based projection: %a" (Formula.pp srk) ground_formula;
+      let no_floor = SrkSimplify.purify_floor srk ground_formula in
+      logf "Formula after removing floors: %a" (Formula.pp srk) no_floor;
+      let algebra = function 
+      | `Tru -> seq_of_true srk
+      | `Fls -> seq_of_false srk
+      | `And xs -> seq_and srk xs
+      | `Or xs -> seq_or srk xs
+      | `Not x -> seq_not srk x
+      | `Quantify _ -> failwith "should not see quantifiers in the TF"
+      | `Atom (op, s, t) -> 
+        begin
+          match SrkSimplify.simplify_integer_atom srk op s t with 
+              `CompareZero (op, vec) -> seq_of_compare_zero_atom srk op vec exp_poly abstraction
+            | `Divides (divisor, vec) -> seq_of_divides_atom srk divisor vec exp_poly abstraction
+            | `NotDivides (divisor, vec) ->seq_of_notdivides_atom srk divisor vec exp_poly abstraction
+        end
+      | `Proposition _ -> failwith "should not see proposition in the TF"
+      | `Ite _ -> failwith "should not see ite in the TF"
+    in
+    logf "start computing char sequence ...";
+    let xseq = Formula.eval srk algebra no_floor in 
+    logf "finished computing char sequence!";
+    let results_in_inv_terms = seq_conditions srk xseq in 
+    let results = rewrite_term_condition srk best_DLTS_abstraction.simulation invariant_symbols results_in_inv_terms in
+      logf "terminating conditions after rewrite: %a" (Formula.pp srk) results;
+      mk_and srk [mk_not srk results; omega_dom_constraints; constraints]
+    | `Unknown -> failwith "SMT solver should not return unknown for QRA formulas"
+    | `Unsat -> (logf ~attributes:[`Bold; `Green] "Transition formula UNSAT, done"); mk_false srk
 end
 
 
