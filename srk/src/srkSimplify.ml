@@ -403,21 +403,25 @@ let idiv_to_ite srk expr =
     end
   | _ -> expr
 
+let eliminate_idiv srk formula =
+  formula 
+  |> rewrite srk ~up:(idiv_to_ite srk) 
+  |> eliminate_ite srk
+
 let purify_floor srk formula = 
-  let f = rewrite srk ~up:(idiv_to_ite srk) formula in
-  let g = eliminate_ite srk f in
+  let open Syntax in
+  let f = eliminate_idiv srk formula in
+  let fresh_sym = Expr.ExprMemo.memo (fun _ -> mk_const srk (mk_symbol srk `TyInt)) in
   let rewriter expr =
-    match Expr.refine srk expr with
-    | `Term tt -> 
-      begin 
-        match Term.destruct srk tt with
-          | `Unop (`Floor, t) -> (t :> ('a,typ_fo) expr)
-          | _ -> expr
-      end
+    match destruct srk expr with
+    | `Unop (`Floor, _) ->
+       if Symbol.Set.for_all (fun s -> typ_symbol srk s == `TyInt) (symbols expr) then
+         expr
+       else
+         fresh_sym expr
     | _ -> expr
   in
-  rewrite srk ~up:rewriter g
-
+  rewrite srk ~up:rewriter f
 
   let simplify_integer_atom srk op s t =
     let zero = mk_real srk QQ.zero in

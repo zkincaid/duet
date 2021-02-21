@@ -694,40 +694,8 @@ let invariant_transition_predicates srk tf predicates =
   else
     List.filter is_invariant predicates
 
-let invariant_partition srk candidates tf =
-  let tf = TF.linearize srk tf in
-  let predicates =
-    invariant_transition_predicates srk tf candidates
-    |> BatArray.of_list
-  in
-  let solver = Smt.mk_solver srk in
-  Smt.Solver.add solver [TF.formula tf];
-  (* The predicate induce a parition of the transitions of T by
-     their valuation of the predicates; find the cells of this
-     partition *)
-  let rec find_cells cells =
-    Smt.Solver.push solver;
-    match Smt.Solver.get_model solver with
-    | `Sat m ->
-       let cell =
-         Array.map (Interpretation.evaluate_formula m) predicates
-       in
-       let cell_formula =
-         List.mapi (fun i sat ->
-             if sat then predicates.(i)
-             else mk_not srk predicates.(i))
-           (Array.to_list cell)
-         |> mk_and srk
-       in
-       Smt.Solver.add solver [mk_not srk cell_formula];
-       find_cells (cell_formula::cells)
-    | `Unsat -> cells
-    | `Unknown -> assert false (* to do *)
-  in
-  find_cells []
-
   (* Each cell is i, (pos_pred_indices, neg_pred_indices), cell_formula *)
-let invariant_complex_partition srk candidates tf =
+let invariant_partition srk candidates tf =
     let tf = TF.linearize srk tf in
     logf "linearized transition formula to be partitioned: %a" (Formula.pp srk) (TF.formula tf);
     let predicates =
@@ -771,23 +739,22 @@ let invariant_complex_partition srk candidates tf =
       | `Unknown -> assert false (* to do *)
     in
     predicates, find_cells []
-  
-(*  Ranked cells is a map from int to (list of sets), where int is the number of 
-    positive predicates.
-*)
-let rank_cells cells =
-  let ranked_cells = BatMap.Int.empty in
-  BatList.fold_lefti
-    (fun m i ((positive_preds, negative_preds), f) -> 
-      let num_pos_preds = BatSet.Int.cardinal positive_preds in
-      match BatMap.Int.find_opt num_pos_preds m with 
-      | Some l -> BatMap.Int.update num_pos_preds num_pos_preds ((i, (positive_preds, negative_preds), f)::l) m
-      | None -> BatMap.Int.add num_pos_preds [(i, (positive_preds, negative_preds), f)] m
-    )
-  ranked_cells
-  cells
 
-let build_graph_and_compute_mp srk tf inv_predicates omega_algebra ranked_cells num_cells =
+let build_graph_and_compute_mp srk tf inv_predicates omega_algebra cells =
+  (*  Ranked cells is a map from int to (list of sets), where int is the number of 
+      positive predicates. *)
+  let ranked_cells =
+    BatList.fold_lefti
+      (fun m i ((positive_preds, negative_preds), f) -> 
+        let num_pos_preds = BatSet.Int.cardinal positive_preds in
+        match BatMap.Int.find_opt num_pos_preds m with 
+        | Some l -> BatMap.Int.update num_pos_preds num_pos_preds ((i, (positive_preds, negative_preds), f)::l) m
+        | None -> BatMap.Int.add num_pos_preds [(i, (positive_preds, negative_preds), f)] m
+      )
+      BatMap.Int.empty
+     cells
+  in
+  let num_cells = BatList.length cells in
   (* map' sends primed vars to midpoints; map sends unprimed vars to midpoints *)
   logf "start building phase transition graph";
   let (map', map) =
@@ -826,19 +793,20 @@ let build_graph_and_compute_mp srk tf inv_predicates omega_algebra ranked_cells 
       let clause_1 = mk_iff srk (mk_const srk indicator_symbol) predicate_clause in
       let indicator_name_px' = "ind_2_for_pred_" ^ (string_of_int ind) in  
       let indicator_symbol' = mk_symbol srk ~name:indicator_name_px' `TyBool in       
-      let predicate_clause' = (* p(x_mid, x') *) substitute_map srk map' pred in
+      let predicate_clause' = (* p(x_mid, x') *) substitute_map srk map pred in
       let clause_2 = mk_iff srk (mk_const srk indicator_symbol') predicate_clause' in
-      mk_and srk [clause_1; clause_2]
+      (mk_and srk [clause_1; clause_2], (indicator_symbol, indicator_symbol'))
       )
     inv_predicates
-    |> BatArray.to_list
   in
-  let phi = mk_and srk (seq::indicators) in 
+  let indicator_clauses = BatArray.to_list (BatArray.map (fun (c, _) -> c) indicators) in
+  let indicator_vars = BatArray.map (fun (_, vars) -> vars) indicators in
+  let phi = mk_and srk (seq::indicator_clauses) in 
   let solver = Smt.mk_solver srk in
-  let models = ref [] in
+  (* let models = ref [] in *)
   Smt.Solver.add solver [phi];
 
-  let can_follow cell1 cell2 solver models =
+  let can_follow cell1 cell2 solver =
     let cell1_pos, cell1_neg = cell1 in
     let cell2_pos, cell2_neg = cell2 in
     BatSet.Int.subset cell1_pos cell2_pos && 
@@ -846,42 +814,38 @@ let build_graph_and_compute_mp srk tf inv_predicates omega_algebra ranked_cells 
       let cond_pos_clause = 
         (BatSet.Int.to_list cell1_pos)
         |>  BatList.map (fun ind -> 
-              let indicator_name_px = "ind_1_for_pred_" ^ (string_of_int ind) in  
-              let indicator_symbol = mk_symbol srk ~name:indicator_name_px `TyBool in 
+              let indicator_symbol, _ = BatArray.get indicator_vars ind in
               mk_const srk indicator_symbol
             ) 
-        |> mk_and srk 
       in 
       let cond_neg_clause = 
         (BatSet.Int.to_list cell1_neg)
         |>  BatList.map (fun ind -> 
-              let indicator_name_px = "ind_1_for_pred_" ^ (string_of_int ind) in  
-              let indicator_symbol = mk_symbol srk ~name:indicator_name_px `TyBool in 
+              let indicator_symbol, _ = BatArray.get indicator_vars ind in
               mk_not srk (mk_const srk indicator_symbol)
             ) 
-        |> mk_and srk 
       in 
       let new_pos_inds = BatSet.Int.diff cell2_pos cell1_pos in 
       let result_pos_clause = 
         (BatSet.Int.to_list new_pos_inds)
         |>  BatList.map (fun ind -> 
-              let indicator_name_px = "ind_2_for_pred_" ^ (string_of_int ind) in  
-              let indicator_symbol = mk_symbol srk ~name:indicator_name_px `TyBool in 
-              mk_const srk indicator_symbol
+              let _, indicator_symbol' = BatArray.get indicator_vars ind in
+              mk_const srk indicator_symbol'
             ) 
-        |> mk_and srk 
       in 
       let result_neg_clause = 
         (BatSet.Int.to_list cell2_neg)
         |>  BatList.map (fun ind -> 
-              let indicator_name_px = "ind_2_for_pred_" ^ (string_of_int ind) in  
-              let indicator_symbol = mk_symbol srk ~name:indicator_name_px `TyBool in 
-              mk_not srk (mk_const srk indicator_symbol)
+            let _, indicator_symbol' = BatArray.get indicator_vars ind in
+              mk_not srk (mk_const srk indicator_symbol')
             ) 
-        |> mk_and srk 
       in 
-      let cell2_can_follow_cell1 = mk_and srk [cond_neg_clause; cond_pos_clause; result_neg_clause; result_pos_clause] in
-      List.exists (fun m -> Interpretation.evaluate_formula m cell2_can_follow_cell1) !models || 
+      let cell2_can_follow_cell1 = BatList.concat [cond_neg_clause; cond_pos_clause; result_neg_clause; result_pos_clause] in
+      match Smt.Solver.check solver cell2_can_follow_cell1 with
+        | `Sat -> true
+        | `Unsat -> false
+        | `Unknown -> true
+      (* List.exists (fun m -> Interpretation.evaluate_formula m cell2_can_follow_cell1) !models || 
       begin
         (* use the Solver.check to avoid pushing and popping, pass in a list of boolean vars *)
         Smt.Solver.push solver;
@@ -897,7 +861,7 @@ let build_graph_and_compute_mp srk tf inv_predicates omega_algebra ranked_cells 
         | `Unknown ->
            Smt.Solver.pop solver 1;
            true
-      end
+      end *)
     end
   in
   let module E = LinearRecurrenceInequation in
@@ -921,6 +885,7 @@ let build_graph_and_compute_mp srk tf inv_predicates omega_algebra ranked_cells 
       self-loop for every cell: weight tf /\ cell_formula
       edge from cell A to cell B: weight 1
    *)
+  (* let combine tf f = TF.map (fun g -> mk_and srk [f; g]) tf in *)
   let combine tf f = TF.make ~exists:(TF.exists tf) (mk_and srk [TF.formula tf; f]) (TF.symbols tf) in
   let zero_indegree_vertices = ref (BatSet.Int.empty) in
   logf "printing cell structure";
@@ -959,7 +924,7 @@ let build_graph_and_compute_mp srk tf inv_predicates omega_algebra ranked_cells 
             logf "checking if cell %d could be followed by cell %d" i j;
             if not (BatSet.Int.mem j (descendants.(i))) then
               logf "j is not one of i's descendants, check if i -> j";
-              if can_follow (pos_preds_i, neg_preds_i) (pos_preds_j, neg_preds_j) solver models then 
+              if can_follow (pos_preds_i, neg_preds_i) (pos_preds_j, neg_preds_j) solver then 
                 begin
                   logf "cell %d could be followed by cell %d" i j;
                   (* Cell # i is the (i+1)-th vertex in the graph *)
@@ -994,7 +959,7 @@ let build_graph_and_compute_mp srk tf inv_predicates omega_algebra ranked_cells 
   WG.omega_path_weight !wg omega_algebra 0
   
 let compute_mp_with_phase_DAG srk candidate_predicates tf omega_algebra =
-  let invariant_predicates, cells = invariant_complex_partition srk candidate_predicates tf in 
+  let invariant_predicates, cells = invariant_partition srk candidate_predicates tf in 
   logf "number of cells: %d" (List.length cells);
   List.iteri (
     fun i ((_, _), cell_formula) -> 
@@ -1002,9 +967,7 @@ let compute_mp_with_phase_DAG srk candidate_predicates tf omega_algebra =
   ) 
   cells;
   logf "invariant partition completed";
-  let ranked_cells = rank_cells cells in 
-  logf "cell ranking completed";
-  build_graph_and_compute_mp srk tf invariant_predicates omega_algebra ranked_cells (List.length cells)
+  build_graph_and_compute_mp srk tf invariant_predicates omega_algebra cells
   
 module InvariantDirection (Iter : PreDomain) = struct
   type 'a t = 'a Iter.t list list

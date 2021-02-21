@@ -13,7 +13,6 @@ include Log.Make(struct let name = "TerminationDTA" end)
     equalities.
 *)
 let build_symbols_for_inv_terms srk inv_terms =
-  let l_symbols, l_equalities, symbol_set = 
     BatArray.fold_righti
       (fun ind term (l_symbols, l_equalities, s) -> 
          let name_str = String.concat "_" ["dta"; "term"; (string_of_int ind)] in
@@ -26,8 +25,6 @@ let build_symbols_for_inv_terms srk inv_terms =
       )
       inv_terms
       ([], [], Symbol.Set.empty )
-  in
-  (l_symbols, l_equalities, symbol_set)
 
 (* Compute the representation matrix of a DLTS that contains domain information *)
 let compute_rep_matrix best_dlts = 
@@ -63,9 +60,15 @@ type ineq_type = Lt0 | Eq0 | Leq0
     variables x, y, z.
 *)
 module BaseDegPairMap = struct
-  type pair = QQ.t * int [@@deriving ord]
   module QQV = Linear.QQVector
-  module E = SparseMap.Make(struct type t = pair [@@deriving ord] end)(QQV)
+  type pair = QQ.t * int
+  module E = SparseMap.Make(struct type t = pair
+                            let compare (lambda1, d1) (lambda2, d2) = 
+                              if not (QQ.equal lambda1 lambda2) then 
+                                QQ.compare lambda1 lambda2
+                            else 
+                                d1 - d2 
+                            end)(QQV)
   type t = E.t
   let empty = E.zero
 
@@ -234,14 +237,22 @@ let get_coeff_vec_wrt_symbol_list expression list_symbols =
   (vec, const)
 
 (* Scale a simulation such that it maps integer states to integer states *)
-let scaling_simulation srk best_DLTS_abstraction = 
+let scale_simulation srk best_DLTS_abstraction = 
   let sim = best_DLTS_abstraction.simulation in 
-  let lcm_of_denominators = BatArray.fold_left (fun d term -> 
-    let coeff_vec = Linear.linterm_of srk term in
-    let e = Linear.QQVector.enum coeff_vec in 
-    let t = BatEnum.fold (fun dd (coeff, _) -> let z = QQ.denominator coeff in ZZ.lcm dd z) ZZ.one e in 
-    ZZ.lcm d t
-    ) ZZ.one sim in
+  let lcm_of_denominators = BatArray.fold_left 
+    (fun d term -> 
+      let coeff_vec = Linear.linterm_of srk term in
+      ZZ.lcm 
+        d 
+        (BatEnum.fold 
+          (fun dd (coeff, _) -> 
+            ZZ.lcm dd (QQ.denominator coeff)) 
+          ZZ.one
+          (Linear.QQVector.enum coeff_vec))
+    ) 
+    ZZ.one 
+    sim 
+  in
   let new_sim = BatArray.map (fun orig_term -> 
     let coeff_vec = Linear.linterm_of srk orig_term in 
     let new_vec = Linear.QQVector.scalar_mul (QQ.of_zz lcm_of_denominators) coeff_vec in 
@@ -542,7 +553,7 @@ module XSeq = struct
     | `Sat ->
       let best_DLTS_abstraction = DLTSPeriodicRational.abstract_rational srk tf in
       logf "finished computing best DLTS abstraction";
-      let best_DLTS_abstraction = scaling_simulation srk best_DLTS_abstraction in
+      let best_DLTS_abstraction = scale_simulation srk best_DLTS_abstraction in
       logf "finished scaling up simulation";
       let m = compute_rep_matrix best_DLTS_abstraction in
       logf "Representation matrix of best Q-DLTS abstraction: %a" Linear.QQMatrix.pp m;

@@ -78,13 +78,9 @@ module MakeDomain(Iter : PreDomain) : Domain
    A set of transition predicates defines a partition of T, which is acyclic
    in the sense that when a computation leaves a cell it may never return.
    This function takes a set of candidate transition predicates as input,
-   determines which are invariant, and returns the non-empty cells of the
-   partition. *)
-val invariant_partition : 'a context ->
-                          ('a formula) list ->
-                          'a TransitionFormula.t ->
-                          ('a formula) list
-
+   determines which are invariant, and returns a sufficient condition of termination
+   via analyzing the phase transition graph.
+   *)
 val compute_mp_with_phase_DAG : 'a context -> 
                                 ('a formula) list ->
                                 'a TransitionFormula.t ->

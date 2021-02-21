@@ -826,6 +826,12 @@ module Expr = struct
     let fold = M.fold
     let equal = M.equal
   end
+
+  module ExprMemo = struct
+    module EM = Memo.Make(Inner)
+    let memo = EM.memo
+  end
+
 end
 
 module Term = struct

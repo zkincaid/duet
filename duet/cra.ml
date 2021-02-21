@@ -565,7 +565,6 @@ module TSDisplay = ExtGraph.Display.MakeLabeled
       let pp formatter w = match w with
         | Weight w -> K.pp formatter w
         | Call (s,t) -> Format.fprintf formatter "call(%d, %d)" s t
-      (* let show = SrkUtil.mk_show pp *)
     end)
 
 module SA = Abstract.MakeAbstractRSY(Ctx)
@@ -766,30 +765,30 @@ let preimage transition formula =
 
 (* Attractor region analysis *)
 let formula_with_attractor_region tf =
+  let open Syntax in
   logf "Starting attractor region analysis";
   let formula = TF.formula tf in
   let xp_leq_x_terms = BatList.fold_left (fun l (x, xp) -> 
-      let open Syntax in (mk_leq srk (mk_const srk xp) (mk_const srk x), mk_const srk xp, mk_const srk x) :: l) [] (TF.symbols tf)
+      (mk_leq srk (mk_const srk xp) (mk_const srk x), mk_const srk xp, mk_const srk x) :: l) [] (TF.symbols tf)
   in
   (* TODO: add an incremental interface for optimize_box *)
   let lower_bounds = BatList.map (fun (xp_leq_x_term, xp, x) -> 
-      match SrkZ3.optimize_box srk (Syntax.mk_and srk [formula; xp_leq_x_term]) [xp] with
-      | `Sat l ->  let h = BatList.hd l in (Interval.lower h, x)
+      match SrkZ3.optimize_box srk (mk_and srk [formula; xp_leq_x_term]) [xp] with
+      | `Sat [ivl] ->  (Interval.lower ivl, x)
       | _ -> (None, x)
     ) 
       xp_leq_x_terms in 
   let x_leq_xp_terms = BatList.fold_left (fun l (x, xp) -> 
-      let open Syntax in (mk_leq srk (mk_const srk x) (mk_const srk xp), mk_const srk xp, mk_const srk x) :: l) [] (TF.symbols tf)
+      (mk_leq srk (mk_const srk x) (mk_const srk xp), mk_const srk xp, mk_const srk x) :: l) [] (TF.symbols tf)
   in
   let upper_bounds = BatList.map (fun (x_leq_xp_term, xp, x) -> 
-      match SrkZ3.optimize_box srk (Syntax.mk_and srk [formula; x_leq_xp_term]) [xp] with
-      | `Sat l -> let h = BatList.hd l in (Interval.upper h, x)
+      match SrkZ3.optimize_box srk (mk_and srk [formula; x_leq_xp_term]) [xp] with
+      | `Sat [ivl] -> (Interval.upper ivl, x)
       | _ -> (None, x)
     ) 
       x_leq_xp_terms 
   in
   let lb_x_ub = BatList.map2 (fun lb ub -> 
-      let open Syntax in
       match lb, ub with 
       | (Some a, x), (Some b, y) -> [mk_leq srk (mk_real srk a) x; mk_leq srk y (mk_real srk b)] 
       | (Some a, x), _ -> [mk_leq srk (mk_real srk a) x]
@@ -799,8 +798,8 @@ let formula_with_attractor_region tf =
       lower_bounds 
       upper_bounds
   in
-  let formula'' = Syntax.mk_and srk (formula :: BatList.flatten lb_x_ub) in
-  logf "Formula with attractor regions:\n%a\n" (Syntax.Formula.pp srk) formula'';
+  let formula'' = mk_and srk (formula :: BatList.flatten lb_x_ub) in
+  logf "Formula with attractor regions:\n%a\n" (Formula.pp srk) formula'';
   TF.map_formula (fun _ -> formula'') tf
 
 let omega_algebra_for_phase srk nonterm = WG.{
@@ -831,6 +830,7 @@ let omega_algebra =  function
              else
               let pre =
                 let fresh_skolem =
+                  (* Memo.memo (fun sym -> mk_const srk (dup_symbol srk sym)) *)
                   Memo.memo (fun sym ->
                       let name = show_symbol srk sym in
                       let typ = typ_symbol srk sym in
@@ -874,7 +874,7 @@ let omega_algebra =  function
               Syntax.mk_forall_consts
                 srk
                 (fun _ -> false)
-                (Syntax.mk_or srk [mk_not srk (mk_and srk dta); mp])
+                (Syntax.mk_if srk (mk_not srk (mk_and srk dta)) mp)
             in
             match Quantifier.simsat srk dta_entails_mp with
             | `Sat -> []

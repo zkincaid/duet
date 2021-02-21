@@ -92,3 +92,7 @@ Suite descriptions
 * bitprecise: bit-precise variation of the Termination suite, minus
   two benchmarks for which Ultimate Automizer was able to prove
   non-termination (java_AG313 and SyntaxSupportPointer01-3).
+* termination-linear: check termination for non-recursive,
+  terminating benchmarks where there exists linear abstractions
+  of the original loops that terminate.
+  

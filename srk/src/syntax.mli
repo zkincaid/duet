@@ -244,6 +244,10 @@ module Expr : sig
     val fold : (('a, 'typ) expr -> 'b -> 'c -> 'c) -> ('a, 'typ, 'b) t -> 'c -> 'c
     val equal : ('b -> 'b -> bool) -> ('a, 'typ, 'b) t -> ('a, 'typ, 'b) t -> bool
   end
+
+  module ExprMemo : sig
+    val memo : ?size:symbol -> (('a, 'typ) expr -> 'b) -> ('a, 'typ) expr  -> 'b
+  end
 end
 
 (** {2 Terms} *)

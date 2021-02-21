@@ -38,8 +38,11 @@ val isolate_linear : 'a context -> symbol -> 'a term -> (QQ.t * 'a term) option
    simplification in scalable static analysis", SAS 2010. *)
 val simplify_dda : 'a context -> 'a formula -> 'a formula
 
-(** Purify floors in a formula by converting them to ite expressions then 
-   eliminating the ite expressions. *)
+(** Eliminate integer divisions in a formula by converting them to ite expressions then 
+   eliminating ite expressions. *)
+val eliminate_idiv : 'a context -> 'a formula -> 'a formula
+
+(** Purify floor functions in a formula. *)
 val purify_floor : 'a context -> 'a formula -> 'a formula
 
 (** Simplify an atomic formula that consists of a binary operation of integers. *)

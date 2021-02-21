@@ -25,6 +25,8 @@
   <tasks name="recursive">
     <includesfile>../tasks/recursive.set</includesfile>
     <propertyfile>../tasks/properties/termination.prp</propertyfile>
+    <option name="--64"/>
+    <option name="--termination"/>
   </tasks>
   <tasks name="termination_linear">
     <includesfile>../tasks/termination_linear.set</includesfile>
