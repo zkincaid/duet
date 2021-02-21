@@ -264,47 +264,47 @@ let scale_simulation srk best_DLTS_abstraction =
 (* Compute the integer spectrum restriction of a DLTS that contains a new dynamics matrix and
    domain restrictions. *)
 let integer_spectrum_abstraction srk tr_matrix simulation = 
-let open Linear in
-let dims =
-  SrkUtil.Int.Set.union
-    (QQMatrix.row_set tr_matrix)
-    (QQMatrix.column_set tr_matrix)
-  |> SrkUtil.Int.Set.elements
-in
-let rsd = Linear.rational_spectral_decomposition tr_matrix dims in
-let int_eig_vecs, non_int_eig_vecs =
-  BatList.fold_left (fun (int_eig_vecs, non_int_eig_vecs) (lambda, v) ->
-    match QQ.to_zz lambda with 
-      Some _ -> (v :: int_eig_vecs, non_int_eig_vecs)
-    | None -> (int_eig_vecs, v :: non_int_eig_vecs)
-    )
-    ([], [])
-    rsd
-in
-let new_simulation_mat =
-  let simulation_mat =
-    Array.to_list simulation
-    |> List.map (Linear.linterm_of srk)
-    |> QQMatrix.of_rows
+  let open Linear in
+  let dims =
+    SrkUtil.Int.Set.union
+      (QQMatrix.row_set tr_matrix)
+      (QQMatrix.column_set tr_matrix)
+    |> SrkUtil.Int.Set.elements
   in
-  let int_eigenspace = QQMatrix.of_rows int_eig_vecs in
-  let int_eigenspace_sim =
-    Linear.QQVectorSpace.simplify
-      (Linear.QQVectorSpace.of_matrix (QQMatrix.mul int_eigenspace simulation_mat))
-    |> QQMatrix.of_rows
+  let rsd = Linear.rational_spectral_decomposition tr_matrix dims in
+  let int_eig_vecs, non_int_eig_vecs =
+    BatList.fold_left (fun (int_eig_vecs, non_int_eig_vecs) (lambda, v) ->
+      match QQ.to_zz lambda with 
+        Some _ -> (v :: int_eig_vecs, non_int_eig_vecs)
+      | None -> (int_eig_vecs, v :: non_int_eig_vecs)
+      )
+      ([], [])
+      rsd
   in
-  match Linear.divide_right int_eigenspace_sim simulation_mat with
-  | Some mS' -> mS'   (* simpl(ES) = mS' * mS*)
-  | None -> assert false
-in
-let dom_constraints_lhs = compose_simulation srk (QQMatrix.of_rows non_int_eig_vecs) simulation in
-let constraints = BatArray.fold_left (fun f term -> mk_and srk [f; mk_eq srk (mk_zero srk) term]) (mk_true srk) dom_constraints_lhs in
-let new_simulation = compose_simulation srk new_simulation_mat simulation in
-(* new dynamics matrix N, rep matrix M, and simulation matrix S satisfy N S = S M *)
-let sm = QQMatrix.mul new_simulation_mat tr_matrix in 
-match Linear.divide_right sm new_simulation_mat with 
-  None -> assert false 
-| Some mat -> constraints, mat, new_simulation
+  let new_simulation_mat =
+    let simulation_mat =
+      Array.to_list simulation
+      |> List.map (Linear.linterm_of srk)
+      |> QQMatrix.of_rows
+    in
+    let int_eigenspace = QQMatrix.of_rows int_eig_vecs in
+    let int_eigenspace_sim =
+      Linear.QQVectorSpace.simplify
+        (Linear.QQVectorSpace.of_matrix (QQMatrix.mul int_eigenspace simulation_mat))
+      |> QQMatrix.of_rows
+    in
+    match Linear.divide_right int_eigenspace_sim simulation_mat with
+    | Some mS' -> mS'   (* simpl(ES) = mS' * mS*)
+    | None -> assert false
+  in
+  let dom_constraints_lhs = compose_simulation srk (QQMatrix.of_rows non_int_eig_vecs) simulation in
+  let constraints = BatArray.fold_left (fun f term -> mk_and srk [f; mk_eq srk (mk_zero srk) term]) (mk_true srk) dom_constraints_lhs in
+  let new_simulation = compose_simulation srk new_simulation_mat simulation in
+  (* new dynamics matrix N, rep matrix M, and simulation matrix S satisfy N S = S M *)
+  let sm = QQMatrix.mul new_simulation_mat tr_matrix in 
+  match Linear.divide_right sm new_simulation_mat with 
+    None -> assert false 
+  | Some mat -> constraints, mat, new_simulation
 
 (* 
    Characteristic sequence related operations 
@@ -577,7 +577,7 @@ module XSeq = struct
       logf "\nTransition formula with simulation terms:\n%s\n\n" (Formula.show srk formula);
       let ground_formula = Quantifier.mbp srk (fun s -> Symbol.Set.mem s invariant_symbol_set) formula in 
       logf "Formula after model-based projection: %a" (Formula.pp srk) ground_formula;
-      let no_floor = SrkSimplify.purify_floor srk ground_formula in
+      let no_floor = SrkSimplify.eliminate_floor srk ground_formula in
       logf "Formula after removing floors: %a" (Formula.pp srk) no_floor;
       let algebra = function 
       | `Tru -> seq_of_true srk

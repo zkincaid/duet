@@ -722,26 +722,6 @@ let analyze file =
     end
   | _ -> assert false
 
-module TermMemo = Memo.Make(struct
-                      type t = (Ctx.t,Syntax.typ_fo) Syntax.expr
-                      let hash = Syntax.Expr.hash
-                      let equal = Syntax.Expr.equal
-                    end)
-
-let purify_floor =
-  let open Syntax in
-  let fresh_sym = TermMemo.memo (fun _ -> mk_const srk (mk_symbol srk `TyInt)) in
-  let rewriter expr =
-    match destruct srk expr with
-    | `Unop (`Floor, _) ->
-       if Symbol.Set.for_all (fun s -> typ_symbol srk s == `TyInt) (symbols expr) then
-         expr
-       else
-         fresh_sym expr
-    | _ -> expr
-  in
-  rewrite srk ~up:rewriter
-
 let preimage transition formula =
   let open Syntax in
   let transition = K.linearize transition in
@@ -760,7 +740,7 @@ let preimage transition formula =
          mk_const srk sym
     | None -> fresh_skolem sym
   in
-  mk_and srk [purify_floor (K.guard transition);
+  mk_and srk [SrkSimplify.purify_floor srk (K.guard transition);
               substitute_const srk subst formula]
 
 (* Attractor region analysis *)
@@ -815,7 +795,7 @@ let omega_algebra =  function
        let open Syntax in
        let tf =
          TF.map_formula
-           (fun phi -> purify_floor (Nonlinear.linearize srk phi))
+           (fun phi -> SrkSimplify.purify_floor srk (Nonlinear.linearize srk phi))
            (K.to_transition_formula transition)
        in
        let nonterm tf =

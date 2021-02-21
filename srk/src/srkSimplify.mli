@@ -45,6 +45,9 @@ val eliminate_idiv : 'a context -> 'a formula -> 'a formula
 (** Purify floor functions in a formula. *)
 val purify_floor : 'a context -> 'a formula -> 'a formula
 
+(** Eliminate floor functions in a formula. *)
+val eliminate_floor : 'a context -> 'a formula -> 'a formula
+
 (** Simplify an atomic formula that consists of a binary operation of integers. *)
 val simplify_integer_atom : 'a context -> [`Eq | `Leq | `Lt ] -> 'a term -> 'a term ->
    [ `CompareZero of [ `Eq | `Leq | `Lt ] * Linear.QQVector.t
