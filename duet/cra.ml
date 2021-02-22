@@ -7,7 +7,6 @@ module RG = Interproc.RG
 module WG = WeightedGraph
 module TLLRF = TerminationLLRF
 module TDTA = TerminationDTA
-module TM = Termination
 module G = RG.G
 module Ctx = Syntax.MakeSimplifyingContext ()
 module Int = SrkUtil.Int
@@ -802,13 +801,9 @@ let omega_algebra =  function
                 [Syntax.mk_false srk], true
               end
              else
-              let pre =
+              let pre = 
                 let fresh_skolem =
-                  (* Memo.memo (fun sym -> mk_const srk (dup_symbol srk sym)) *)
-                  Memo.memo (fun sym ->
-                      let name = show_symbol srk sym in
-                      let typ = typ_symbol srk sym in
-                      mk_const srk (mk_symbol srk ~name typ))
+                  Memo.memo (fun sym -> mk_const srk (dup_symbol srk sym))
                 in
                 let subst sym =
                   match V.of_symbol sym with
@@ -848,7 +843,7 @@ let omega_algebra =  function
               Syntax.mk_forall_consts
                 srk
                 (fun _ -> false)
-                (Syntax.mk_if srk (mk_not srk (mk_and srk dta)) mp)
+                (Syntax.mk_if srk (mk_and srk dta) mp)
             in
             match Quantifier.simsat srk dta_entails_mp with
             | `Sat -> []

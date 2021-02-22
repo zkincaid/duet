@@ -19,7 +19,7 @@ let get_polyhedron_of_formula srk f cs =
     | _ -> failwith "formula is not convex polyhedron"
   in
   Polyhedron.of_implicant ~admit:true cs f
-  |> Polyhedron.enum
+  |> Polyhedron.enum_constraints
   |> BatList.of_enum
 
 (** From the vector representation of a linear inequality, get the coefficient
@@ -51,13 +51,13 @@ let build_system_of_ineq_for_non_inc srk cs ineqs dx_list coeff_x_list coeff_x_s
          let lambda_i_name = String.concat "_" ["lambda"; string_of_int i] in
          let lambda_i = mk_const srk (mk_symbol srk ~name:lambda_i_name `TyReal) in
          match ineq with
-         | `LeqZero _ ->
+         | `Nonneg, _ ->
            begin
              let newf = mk_and srk [mk_leq srk (mk_zero srk) lambda_i;  f] in
              (List.cons (lambda_i, lambda_i) lambdas, newf)
            end
-         | `LtZero _ -> failwith "expecting non-strict ineqs"
-         | `EqZero _ -> 
+         | `Pos, _ -> failwith "expecting non-strict ineqs"
+         | `Zero, _ -> 
            begin
              let lambda_ip_name = String.concat "_" ["lambda"; "neg"; string_of_int i] in
              let lambda_ip = mk_const srk (mk_symbol srk ~name:lambda_ip_name `TyReal) in
@@ -80,14 +80,14 @@ let build_system_of_ineq_for_non_inc srk cs ineqs dx_list coeff_x_list coeff_x_s
            BatList.fold_lefti 
              (fun rhs i ineq ->
                 match ineq with
-                | `LeqZero t ->
+                | `Nonneg, t ->
                   begin
                     let lambda_i, _ = List.nth lambdas i in
                     let coeff = get_coeff_of_symbol cs t sym in
                     mk_add srk [rhs; mk_mul srk [lambda_i; mk_real srk coeff] ]
                   end
-                | `LtZero _ -> failwith "expecting non-strict ineqs"
-                | `EqZero t -> 
+                | `Pos, _ -> failwith "expecting non-strict ineqs"
+                | `Zero, t -> 
                   begin
                     let coeff = get_coeff_of_symbol cs t sym in
                     let lambda_i, lambda_ip = List.nth lambdas i in
@@ -106,21 +106,21 @@ let build_system_of_ineq_for_non_inc srk cs ineqs dx_list coeff_x_list coeff_x_s
       f_with_non_neg_lambdas
       dx_list
   in
-  logf "\nformula of lambdas on non-inc:\n%s\n\n" (Formula.show srk answer);
+  logf "\nformula of lambdas on non-inc:\n%a\n\n" (Formula.pp srk) answer;
   (* finally add the constant constraints such that the final linear term is non-positive *)
   let formula_with_const_constraints = 
     let rhs =
       BatList.fold_lefti
         (fun term i ineq ->
            match ineq with
-           | `LeqZero t ->
+           | `Nonneg, t ->
              begin
                let c = Vec.coeff CoordinateSystem.const_id t in
                let lambda_i, _ = List.nth lambdas i in
                mk_add srk [mk_mul srk [mk_real srk c; lambda_i]; term]
              end
-           | `LtZero _ -> failwith "expecting non-strict ineqs"
-           | `EqZero t -> 
+           | `Pos, _ -> failwith "expecting non-strict ineqs"
+           | `Zero, t -> 
              begin
                let c = Vec.coeff CoordinateSystem.const_id t in
                let lambda_i, lambda_ip = List.nth lambdas i in
@@ -131,9 +131,9 @@ let build_system_of_ineq_for_non_inc srk cs ineqs dx_list coeff_x_list coeff_x_s
         (mk_zero srk)
         ineqs
     in
-    mk_and srk [answer; mk_leq srk (mk_zero srk) rhs]
+    mk_and srk [answer; mk_leq srk rhs (mk_zero srk)]
   in
-  logf "\nfinal formula for non-inc:\n%s\n" (Formula.show srk formula_with_const_constraints);
+  logf "\nfinal formula for non-inc:\n%a\n" (Formula.pp srk) formula_with_const_constraints;
   let polka = Polka.manager_alloc_strict () in
   let f = rewrite srk ~down:(nnf_rewriter srk) formula_with_const_constraints in
   let property_of_formula =
@@ -141,7 +141,7 @@ let build_system_of_ineq_for_non_inc srk cs ineqs dx_list coeff_x_list coeff_x_s
     Abstract.abstract ~exists:exists srk polka f
   in
   let resulting_formula = SrkApron.formula_of_property property_of_formula in
-  logf "\n non-inc cone:\n%s\n" (Formula.show srk resulting_formula);
+  logf "\n non-inc cone:\n%a\n" (Formula.pp srk) resulting_formula;
   property_of_formula
 
 (** The linear terms that are non-increasing form a cone. Here we actually compute
@@ -160,7 +160,7 @@ let compute_non_inc_term_cone srk formula dx_list dx_set coeff_x_list coeff_x_se
     Abstract.abstract ~exists:exists srk polka f
   in
   let formula_of_dx = SrkApron.formula_of_property property_of_dx in
-  logf "\nformula on dx:\n%s\n" (Formula.show srk formula_of_dx);
+  logf "\nformula on dx:\n%a\n" (Formula.pp srk) formula_of_dx;
   let cs = CoordinateSystem.mk_empty srk in
   let ineqs = get_polyhedron_of_formula srk formula_of_dx cs in
   let non_inc_cone = build_system_of_ineq_for_non_inc srk cs ineqs dx_list coeff_x_list coeff_x_set in
@@ -184,13 +184,13 @@ let build_system_of_ineq_for_lb_terms srk cs ineqs x_list coeff_x_list coeff_x_s
          let lambda_i_name = String.concat "_" ["lambda"; string_of_int i] in
          let lambda_i = mk_const srk (mk_symbol srk ~name:lambda_i_name `TyReal) in
          match ineq with
-         | `LeqZero _ ->
+         | `Nonneg, _ ->
            begin
              let newf = mk_and srk [mk_leq srk (mk_zero srk) lambda_i;  f] in
              (List.cons (lambda_i, lambda_i) lambdas, newf)
            end
-         | `LtZero _ -> failwith "expecting non-strict ineqs"
-         | `EqZero _ -> 
+         | `Pos, _ -> failwith "expecting non-strict ineqs"
+         | `Zero, _  -> 
            begin
              let lambda_ip_name = String.concat "_" ["lambda"; "neg"; string_of_int i] in
              let lambda_ip = mk_const srk (mk_symbol srk ~name:lambda_ip_name `TyReal) in
@@ -212,16 +212,18 @@ let build_system_of_ineq_for_lb_terms srk cs ineqs x_list coeff_x_list coeff_x_s
            BatList.fold_lefti 
              (fun rhs i ineq ->
                 match ineq with
-                | `LeqZero t ->
+                | `Nonneg, t ->
                   begin
                     let lambda_i, _ = List.nth lambdas i in
-                    let coeff = QQ.negate (get_coeff_of_symbol cs t sym) in
+                    (* let coeff = QQ.negate (get_coeff_of_symbol cs t sym) in *)
+                    let coeff = get_coeff_of_symbol cs t sym in
                     mk_add srk [rhs; mk_mul srk [lambda_i; mk_real srk coeff] ]
                   end
-                | `LtZero _ -> failwith "expecting non-strict ineqs"
-                | `EqZero t -> 
+                | `Pos, _ -> failwith "expecting non-strict ineqs"
+                | `Zero, t -> 
                   begin
-                    let coeff = QQ.negate (get_coeff_of_symbol cs t sym) in
+                    (* let coeff = QQ.negate (get_coeff_of_symbol cs t sym) in *)
+                    let coeff = get_coeff_of_symbol cs t sym in
                     let lambda_i, lambda_ip = List.nth lambdas i in
                     mk_add srk [rhs; 
                                 mk_mul srk [lambda_i; mk_real srk coeff];
@@ -238,7 +240,7 @@ let build_system_of_ineq_for_lb_terms srk cs ineqs x_list coeff_x_list coeff_x_s
       f_with_non_neg_lambdas
       x_list
   in
-  logf "\nformula of lambdas for lb:\n%s\n" (Formula.show srk answer);
+  logf "\nformula of lambdas for lb:\n%a\n" (Formula.pp srk) answer;
   let polka = Polka.manager_alloc_strict () in
   let f = rewrite srk ~down:(nnf_rewriter srk) answer in
   let property_of_formula =
@@ -246,7 +248,7 @@ let build_system_of_ineq_for_lb_terms srk cs ineqs x_list coeff_x_list coeff_x_s
     Abstract.abstract ~exists:exists srk polka f
   in
   let resulting_formula = SrkApron.formula_of_property property_of_formula in
-  logf "\nlower-bounded cone:\n%s\n" (Formula.show srk resulting_formula);
+  logf "\nlower-bounded cone:\n%a\n" (Formula.pp srk) resulting_formula;
   property_of_formula
 
 (** The linear terms that are bound from below also form a cone. 
@@ -264,7 +266,7 @@ let compute_lower_bound_term_cone srk cs formula x_list x_set coeff_x_list coeff
     Abstract.abstract ~exists:exists srk polka f
   in
   let formula_of_lbx = SrkApron.formula_of_property property_of_dx in
-  logf "\nformula of lower-bounded terms:\n%s\n\n" (Formula.show srk formula_of_lbx);
+  logf "\nformula of lower-bounded terms:\n%a\n\n" (Formula.pp srk) formula_of_lbx;
   let ineqs = get_polyhedron_of_formula srk formula_of_lbx cs in
   let non_inc_cone = build_system_of_ineq_for_lb_terms srk cs ineqs x_list coeff_x_list coeff_x_set in
   non_inc_cone
@@ -314,7 +316,7 @@ let rec find_quasi_rf depth srk f qrfs x_list xp_list dx_list x_set xp_set dx_se
           end
         else
           let resulting_cone = SrkApron.formula_of_property c in
-          logf "\ncone of qrfs:\n%s\n\n" (Formula.show srk resulting_cone);
+          logf "\ncone of qrfs:\n%a\n\n" (Formula.pp srk) resulting_cone;
 
           let get_orig_or_primed_expr_of_gen generator xs =
             let term = Linear.term_of_vec srk (
@@ -347,7 +349,7 @@ let rec find_quasi_rf depth srk f qrfs x_list xp_list dx_list x_set xp_set dx_se
               gens
           in
           let restricted_formula = mk_and srk (f :: new_constraints) in
-          logf "\nrestricted formula for next iter:\n%s\n\n" (Formula.show srk restricted_formula);
+          logf "\nrestricted formula for next iter:\n%a\n\n" (Formula.pp srk) restricted_formula;
           match Smt.equiv srk formula restricted_formula with
           | `Unknown -> logf ~attributes:[`Bold; `Red] "Cannot decide if there is any improvement at this level"; (false, depth, formula, qrfs)
           | `Yes -> logf ~attributes:[`Bold; `Red] "No improvement at this level, halt LLRF synthesis"; (false, depth, formula, qrfs)
@@ -415,7 +417,7 @@ let compute_swf srk tf =
     let f_with_dx, dx_list, dx_set, x_to_dx, dx_to_x =
       add_diff_terms_to_formula srk (TF.formula tf) x_xp
     in
-    logf "\nformula with dx:\n%s\n" (Formula.show srk f_with_dx);
+    logf "\nformula with dx:\n%a\n" (Formula.pp srk) f_with_dx;
     let (success, dep, residual_formula, _) =
       find_quasi_rf 1 srk f_with_dx [] x_list xp_list dx_list x_set xp_set dx_set x_to_dx dx_to_x coeff_x_list coeff_x_set
     in

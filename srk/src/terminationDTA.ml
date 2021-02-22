@@ -321,17 +321,17 @@ module XSeq = struct
   let seq_of_false srk =
     Periodic.make [mk_false srk]
     
-  let seq_and srk x y = 
-    Periodic.map2 (fun a b -> mk_and srk [a; b]) x y
+  (* let seq_and srk x y = 
+    Periodic.map2 (fun a b -> mk_and srk [a; b]) x y *)
 
   let seq_and srk xs =
-    BatList.fold_left (fun s x -> seq_and srk s x) (seq_of_true srk) xs
+    Periodic.mapn (mk_and srk) xs
   
-  let seq_or srk x y =
-    Periodic.map2 (fun a b -> mk_or srk [a; b]) x y
+  (* let seq_or srk x y =
+    Periodic.map2 (fun a b -> mk_or srk [a; b]) x y *)
 
   let seq_or srk xs =
-    BatList.fold_left (fun s x -> seq_or srk s x) (seq_of_false srk) xs
+    Periodic.mapn (mk_or srk) xs
 
   let seq_add srk x y =
     Periodic.map2 (fun a b -> mk_add srk [a; b]) x y
@@ -342,10 +342,6 @@ module XSeq = struct
   let seq_not srk x = 
     Periodic.map (fun f -> mk_not srk f) x
 
-  (* calculate the termination condition induced by characteristic sequence x *)
-  let seq_conditions srk x =
-    mk_not srk (mk_and srk (Periodic.period x))
-
   (* seq_of_exp m t returns the characteristic sequence of t^k mod m, 
   k = 0, 1, 2, ... *)
   let seq_of_exp modulus lambda = 
@@ -355,26 +351,34 @@ module XSeq = struct
 
   (* seq_of_polynomial srk m p returns characteristic sequence of p(k) mod m, 
   k = 0, 1, 2, ... *)
-  let seq_of_polynomial srk modulo poly = 
+  let seq_of_polynomial srk modulus poly = 
+    (* (0 -- (modulus - 1))
+    /@ (fun i -> 
+        match QQ.to_int (Polynomial.QQX.eval poly (QQ.of_int i)) with
+          | Some result -> result mod modulus
+          | None -> assert false)
+    |> BatList.of_enum
+    |> Periodic.make *)
     let seq = ref [] in 
-    for i = 0 to (modulo - 1) do
+    for i = 0 to (modulus - 1) do
       let p_at_i = Polynomial.QQX.term_of srk (mk_int srk i) poly in
-      let p_at_i_mod = mk_mod srk p_at_i (mk_int srk modulo) in
+      let p_at_i_mod = mk_mod srk p_at_i (mk_int srk modulus) in
       seq := p_at_i_mod :: !seq 
     done;
     Periodic.make (BatList.rev !seq)
 
   (* seq_of_polynomial srk m p b returns characteristic sequence of b^k p(k) mod m, 
   k = 0, 1, 2, ... *)
-  let seq_of_single_base_exp_polynomial srk modulo poly base =
-    let seq_of_exp = seq_of_exp modulo base in
-    let seq_of_poly = seq_of_polynomial srk modulo poly in
+  let seq_of_single_base_exp_polynomial srk modulus poly base =
+    let seq_of_exp = seq_of_exp modulus base in
+    let seq_of_poly = seq_of_polynomial srk modulus poly in
     Periodic.map2 
-      (fun n term -> 
+       (fun n term -> 
+          (* n * p mod modulus *)
           mk_mod 
             srk 
             (mk_mul srk [ (mk_int srk n); term]) 
-            (mk_int srk modulo)
+            (mk_int srk modulus)
       ) 
     seq_of_exp
     seq_of_poly
@@ -600,7 +604,7 @@ module XSeq = struct
     logf "start computing char sequence ...";
     let xseq = Formula.eval srk algebra no_floor in 
     logf "finished computing char sequence!";
-    let results_in_inv_terms = seq_conditions srk xseq in 
+    let results_in_inv_terms = mk_not srk (mk_and srk (Periodic.period xseq)) in 
     let results = rewrite_term_condition srk best_DLTS_abstraction.simulation invariant_symbols results_in_inv_terms in
       logf "terminating conditions after rewrite: %a" (Formula.pp srk) results;
       mk_and srk [mk_not srk results; omega_dom_constraints; constraints]

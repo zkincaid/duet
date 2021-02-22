@@ -412,11 +412,11 @@ let purify_floor srk formula =
   let fresh_sym = Expr.ExprMemo.memo (fun _ -> mk_const srk (mk_symbol srk `TyInt)) in
   let rewriter expr =
     match destruct srk expr with
-    | `Unop (`Floor, _) ->
-       if Symbol.Set.for_all (fun s -> typ_symbol srk s == `TyInt) (symbols expr) then
-         expr
+    | `Unop (`Floor, t) ->
+       if (expr_typ srk t) = `TyInt then 
+        (t :> ('a, typ_fo) expr)
        else
-         fresh_sym expr
+        fresh_sym expr
     | _ -> expr
   in
   rewrite srk ~up:rewriter formula
