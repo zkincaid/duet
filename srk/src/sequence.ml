@@ -208,4 +208,3 @@ let periodic_approx up =
     BatList.takedrop n (UltimatelyPeriodic.periodic up)
   in
   Periodic.make (suffix @ prefix)
-  

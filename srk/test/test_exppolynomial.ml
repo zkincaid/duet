@@ -432,4 +432,11 @@ let suite = "ExpPolynomial" >::: [
       "exp_mat2" >:: exp_mat2;
       "exp_mat3" >:: exp_mat3;
       "exp_mat4" >:: exp_mat4;
+      "exp_zero_mat" >:: (fun () ->
+        let m =
+          match ExpPolynomial.exponentiate_rational (mk_matrix []) with
+          | Some m -> m
+          | None -> assert false
+        in
+        assert_equal_ep_matrix m EPMatrix.zero)
   ]

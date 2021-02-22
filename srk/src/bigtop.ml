@@ -31,6 +31,9 @@ let load_math_formula filename =
 let load_smtlib2 filename =
   SrkZ3.load_smtlib2 srk (Bytes.to_string (file_contents filename))
 
+let load_chc fp filename = Chc.ChcSrkZ3.parse_file srk fp filename
+
+
 let load_formula filename =
   let formula =
     if Filename.check_suffix filename "m" then load_math_formula filename
@@ -211,6 +214,31 @@ let spec_list = [
    ],
    " Generate a random formula");
 
+  ("-chc",
+   Arg.String (fun file ->
+       let open Iteration in
+       let fp = Chc.Fp.create () in
+       let fp = load_chc fp file in
+       let pd = 
+         (module Product(LinearRecurrenceInequation)(PolyhedronGuard) : PreDomain) 
+       in (*TODO: let user pick iter operation*)
+       let rels = Chc.Fp.get_relations_used fp in
+       let sln = Chc.Fp.solve srk fp pd in
+       Format.printf "(Solution is:\n@[";
+       SrkUtil.pp_print_enum
+         ~pp_sep:(fun formatter () -> Format.fprintf formatter "@ \n ")
+         (fun formatter rel ->
+            let syms, phi = sln rel in
+            let syms = BatArray.to_list syms in
+            Format.fprintf formatter "@%a : %a@"
+            (Chc.pp_rel_atom srk fp)
+            (Chc.mk_rel_atom srk fp rel syms)
+            (Formula.pp srk)
+            phi)
+         Format.std_formatter
+         (Chc.Relation.Set.enum rels)),
+   " Output solution to system of constrained horn clauses");
+
   ("-verbosity",
    Arg.String (fun v -> Log.verbosity_level := (Log.level_of_string v)),
    " Set verbosity level (higher = more verbose; defaults to 0)");
@@ -238,7 +266,8 @@ let usage_msg = "bigtop: command line interface to srk \n\
   \tbigtop -wedge-hull formula.smt2\n\
   \tbigtop -qe formula.smt2\n\
   \tbigtop -stats formula.smt2\n\
-  \tbigtop -random (A|E)* depth [dense|sparse]\n"
+  \tbigtop -random (A|E)* depth [dense|sparse]\n\
+  \tbigtop -reachable-goal chc.smt2\n"
 
 let anon_fun s = failwith ("Unknown option: " ^ s)
 
