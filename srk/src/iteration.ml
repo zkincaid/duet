@@ -740,7 +740,13 @@ let invariant_partition srk candidates tf =
     in
     predicates, find_cells []
 
-let build_graph_and_compute_mp srk tf inv_predicates omega_algebra cells =
+let omega_algebra_for_phase srk nonterm = WG.{
+  omega = nonterm;
+  omega_add = (fun p1 p2 -> Syntax.mk_or srk [p1; p2]);
+  omega_mul = (fun transition state -> TF.preimage srk transition state )
+} 
+
+let build_graph_and_compute_mp srk tf inv_predicates cells nonterm =
   (*  Ranked cells is a map from int to (list of sets), where int is the number of 
       positive predicates. *)
   let ranked_cells =
@@ -803,7 +809,6 @@ let build_graph_and_compute_mp srk tf inv_predicates omega_algebra cells =
   let indicator_vars = BatArray.map (fun (_, vars) -> vars) indicators in
   let phi = mk_and srk (seq::indicator_clauses) in 
   let solver = Smt.mk_solver srk in
-  (* let models = ref [] in *)
   Smt.Solver.add solver [phi];
 
   let can_follow cell1 cell2 solver =
@@ -845,23 +850,6 @@ let build_graph_and_compute_mp srk tf inv_predicates omega_algebra cells =
         | `Sat -> true
         | `Unsat -> false
         | `Unknown -> true
-      (* List.exists (fun m -> Interpretation.evaluate_formula m cell2_can_follow_cell1) !models || 
-      begin
-        (* use the Solver.check to avoid pushing and popping, pass in a list of boolean vars *)
-        Smt.Solver.push solver;
-        Smt.Solver.add solver [cell2_can_follow_cell1];
-        match Smt.Solver.get_model solver with
-        | `Sat m ->
-           Smt.Solver.pop solver 1;
-           models := m::(!models);
-           true
-        | `Unsat ->
-           Smt.Solver.pop solver 1;
-           false
-        | `Unknown ->
-           Smt.Solver.pop solver 1;
-           true
-      end *)
     end
   in
   let module E = LinearRecurrenceInequation in
@@ -956,9 +944,9 @@ let build_graph_and_compute_mp srk tf inv_predicates omega_algebra cells =
       wg := WG.add_edge !wg 0 algebra.one v;
   ) 
   !zero_indegree_vertices;
-  WG.omega_path_weight !wg omega_algebra 0
+  WG.omega_path_weight !wg (omega_algebra_for_phase srk nonterm) 0
   
-let compute_mp_with_phase_DAG srk candidate_predicates tf omega_algebra =
+let compute_mp_with_phase_DAG srk candidate_predicates tf nonterm =
   let invariant_predicates, cells = invariant_partition srk candidate_predicates tf in 
   logf "number of cells: %d" (List.length cells);
   List.iteri (
@@ -967,7 +955,7 @@ let compute_mp_with_phase_DAG srk candidate_predicates tf omega_algebra =
   ) 
   cells;
   logf "invariant partition completed";
-  build_graph_and_compute_mp srk tf invariant_predicates omega_algebra cells
+  build_graph_and_compute_mp srk tf invariant_predicates cells nonterm
   
 module InvariantDirection (Iter : PreDomain) = struct
   type 'a t = 'a Iter.t list list

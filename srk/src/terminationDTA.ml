@@ -588,6 +588,7 @@ module XSeq = struct
       | `Quantify _ -> failwith "should not see quantifiers in the TF"
       | `Atom (op, s, t) -> 
         begin
+          logf "simplifying atomic formula";
           match SrkSimplify.simplify_integer_atom srk op s t with 
               `CompareZero (op, vec) -> seq_of_compare_zero_atom srk op vec exp_poly abstraction
             | `Divides (divisor, vec) -> seq_of_divides_atom srk divisor vec exp_poly abstraction

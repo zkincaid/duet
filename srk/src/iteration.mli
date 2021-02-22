@@ -77,12 +77,12 @@ module MakeDomain(Iter : PreDomain) : Domain
      T(x,x') /\ T(x',x'') /\ p(x,x') => p(x',x'')
    A set of transition predicates defines a partition of T, which is acyclic
    in the sense that when a computation leaves a cell it may never return.
-   This function takes a set of candidate transition predicates as input,
-   determines which are invariant, and returns a sufficient condition of termination
-   via analyzing the phase transition graph.
+   This function takes a set of candidate transition predicates, a transition formula,
+   and a mortal precondition operator and returns another mortal precondition
+   via analyzing the phase transition structure of the transition formula.
    *)
 val compute_mp_with_phase_DAG : 'a context -> 
                                 ('a formula) list ->
                                 'a TransitionFormula.t ->
-                                ('a TransitionFormula.t, 'a formula) WeightedGraph.omega_algebra ->
+                                ('a TransitionFormula.t -> 'a formula) ->
                                 'a formula
