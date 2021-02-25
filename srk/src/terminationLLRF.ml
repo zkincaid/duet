@@ -122,14 +122,11 @@ let rec compute_quasi_ranking_functions srk formula x_space_cs dx_space_cs dual_
                   (fun (gen_kind, vec) -> 
                     match gen_kind with 
                     | `Vertex -> mk_true srk
-                    | `Ray ->
+                    | `Ray | `Line ->
                       logf "looking at generator with vector: %a" Linear.QQVector.pp vec;
                       let unprimed_exp = Linear.term_of_vec srk (fun d -> let x, _ = BatList.nth x_xp d in mk_const srk x) vec in
                       let primed_exp = Linear.term_of_vec srk (fun d -> let _, xp = BatList.nth x_xp d in mk_const srk xp) vec in
                       mk_eq srk unprimed_exp primed_exp
-                    | `Line -> 
-                      let zero_term = Linear.term_of_vec srk (fun d -> let x, _ = BatList.nth x_xp d in mk_const srk x) vec in
-                      mk_eq srk (mk_zero srk) zero_term
                   ) 
                   qrf_cone_generators 
                 in
@@ -142,8 +139,8 @@ let rec compute_quasi_ranking_functions srk formula x_space_cs dx_space_cs dual_
                     logf ~attributes:[`Bold; `Red] "No improvement at this level, halt LLRF synthesis"; (false, formula)
                 | `No -> 
                     logf ~attributes:[`Bold; `Green] "There is improvement at this level";
-                    match Smt.get_model srk constrained_formula with
-                    | `Sat _ -> 
+                    match Smt.is_sat srk constrained_formula with
+                    | `Sat -> 
                       logf ~attributes:[`Bold; `Yellow] "Transition formula SAT, try to synthesize next depth";
                       compute_quasi_ranking_functions srk constrained_formula x_space_cs dx_space_cs dual_space_cs dual_space_dim x_xp dx_set x_set 
                     | `Unknown -> failwith "SMT solver should not return unknown"
@@ -164,8 +161,8 @@ let mp_llrf srk tf =
   let x_xp =
     List.fold_left (fun l s -> (s, s) :: l) (TF.symbols tf) constant_symbols
   in
-  match Smt.get_model srk (TF.formula tf) with
-  | `Sat _ -> 
+  match Smt.is_sat srk (TF.formula tf) with
+  | `Sat -> 
     let x_list = List.fold_right (fun (sp, _) l -> sp :: l ) x_xp [] in
     let x_set = TF.pre_symbols x_xp in
     let f_with_dx, dx_list, dx_set =

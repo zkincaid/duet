@@ -203,7 +203,7 @@ let compose_simulation srk mS simulation =
     containing a vector and the constant term:
       ([1, 0, 2], 1)
     *)
-let get_coeff_vec_wrt_symbol_list expression list_symbols = 
+let rewrite_exp_under_basis expression list_symbols = 
   let vec = 
     BatList.fold_lefti
       (fun existing_coeffs i symbol -> 
@@ -337,11 +337,11 @@ module XSeq = struct
       (Polynomial.QQX.enum poly)
     in
     let poly = Polynomial.QQX.scalar_mul (QQ.of_zz lcm_of_denoms) poly in
-    let m = modulus * (BatOption.get (ZZ.to_int lcm_of_denoms)) in
+    let modulus = modulus * (BatOption.get (ZZ.to_int lcm_of_denoms)) in
     (0 -- (modulus - 1))
     /@ (fun i -> 
         match QQ.to_int (Polynomial.QQX.eval poly (QQ.of_int i)) with
-          | Some result -> result mod m
+          | Some result -> result mod modulus
           | None -> assert false)
     |> BatList.of_enum
     |> Periodic.make
@@ -377,36 +377,26 @@ module XSeq = struct
   *)
   let generate_xseq srk lhs ineq_type exp_poly abstraction = 
     let (sim_symbols, invariant_terms, best_DLTS_abstraction) = abstraction in
-    let lt_vec, lhs_const = get_coeff_vec_wrt_symbol_list lhs sim_symbols in
+    let lt_vec, lhs_const = rewrite_exp_under_basis lhs sim_symbols in
     logf "\nlt_vec is: %a, LHS constant is: %a" Vec.pp lt_vec QQ.pp lhs_const;
     let lt_vec_exppoly = ExpPolynomial.Vector.of_qqvector lt_vec in
     let closed_form_vec = ExpPolynomial.Matrix.vector_left_mul lt_vec_exppoly exp_poly in
-    let mat = ExpPolynomial.Matrix.of_rows [closed_form_vec] in
-    logf "\nClosed form matrix is: %a, with %d rows and %d cols" 
-    ExpPolynomial.Matrix.pp mat (ExpPolynomial.Matrix.nb_rows mat) (ExpPolynomial.Matrix.nb_columns mat);
     (* check if the dynamic matrix has negative eigenvalues *)
     let has_negative_base = BatEnum.exists 
-        (fun (_, _, entry) -> 
-          begin
-            let exppoly_terms_enum = ExpPolynomial.enum entry in
+        (fun (entry, _) -> 
             BatEnum.exists 
-              (fun (_, base) -> 
-                  QQ.lt base QQ.zero)
-              exppoly_terms_enum
-          end
+              (fun (_, base) -> QQ.lt base QQ.zero)
+              (ExpPolynomial.enum entry)
         )
-        (ExpPolynomial.Matrix.entries mat)
+        (ExpPolynomial.Vector.enum closed_form_vec)
     in
     let analyze_entries entries =
       begin
         logf "start iterating entries";
         let m = BaseDegPairMap.put (QQ.one, 0) lhs_const (-1) BaseDegPairMap.empty in
         let m = BatEnum.fold 
-            ( fun m (idx, idy, entry) ->
-                (* The closed form matrix must be a vector *)
-                if idx != 0 then failwith "got a matrix with more than 1 row"
-                else
-                  logf "iterating this entry: %a at x: %d, y: %d" ExpPolynomial.pp entry idx idy;
+            ( fun m (entry, idx) ->                
+                logf "iterating this entry: %a at coordinate: %d" ExpPolynomial.pp entry idx;
                 let exppoly_terms_enum = ExpPolynomial.enum entry in
                 BatEnum.fold
                   (fun m (poly, base) -> 
@@ -418,7 +408,7 @@ module XSeq = struct
                             QQ.pp base
                             deg
                             QQ.pp coeff;
-                          BaseDegPairMap.put index_pair coeff idy m
+                          BaseDegPairMap.put index_pair coeff idx m
                       )
                       m
                       poly_terms_enum
@@ -441,22 +431,16 @@ module XSeq = struct
         (* for dynamics matrix A, compute A^2 so that there is no negative eigenvalue *)
         let exppoly2 = BatOption.get (ExpPolynomial.exponentiate_rational (Linear.QQMatrix.mul m m)) in
         let closed_form_vec = ExpPolynomial.Matrix.vector_left_mul lt_vec_exppoly exppoly2 in
-        let mat2 = ExpPolynomial.Matrix.of_rows [closed_form_vec] in
-        logf "\nfinal matrix in this case is: %a" ExpPolynomial.Matrix.pp mat2;
-        let entries = ExpPolynomial.Matrix.entries mat2 in
-        let sat_even_conditions' = analyze_entries entries in
+        let sat_even_conditions' = analyze_entries (ExpPolynomial.Vector.enum closed_form_vec) in
         let sat_even_conditions'' = rewrite_term_condition srk best_DLTS_abstraction.simulation sim_symbols sat_even_conditions' in
         let sat_even_conditions = sat_even_conditions'' in
         logf "start computing sat_odd conditions";
-        let entries = ExpPolynomial.Matrix.entries mat in
         let entries_with_odd_exp = BatEnum.map (
-            fun (x, y, entry) -> 
+            fun (entry, i) -> 
               let t = ExpPolynomial.compose_left_affine entry 2 1 in
-              logf "old entry at (%d, %d) is: %a" x y ExpPolynomial.pp entry;
-              logf "new entry at (%d, %d) is: %a" x y ExpPolynomial.pp t;
-              (x, y, t)
+              (t, i)
           ) 
-            entries 
+          (ExpPolynomial.Vector.enum closed_form_vec) 
         in
         let sat_odd_conditions = analyze_entries entries_with_odd_exp in
         logf "sat_odd conditions: %a" (Formula.pp srk) sat_odd_conditions; 
@@ -465,7 +449,7 @@ module XSeq = struct
       end
     else
       begin
-        let mat_entries = ExpPolynomial.Matrix.entries mat in
+        let mat_entries = ExpPolynomial.Vector.enum closed_form_vec in
         let res = analyze_entries mat_entries in 
         Periodic.make [res]
       end
@@ -490,7 +474,7 @@ module XSeq = struct
       | None -> failwith "see non-integer divisor, error"
     in
     let (sim_symbols, _, _) = abstraction in
-    let lt_vec, lhs_const = get_coeff_vec_wrt_symbol_list dividend_vec sim_symbols in
+    let lt_vec, lhs_const = rewrite_exp_under_basis dividend_vec sim_symbols in
     logf "\nlt_vec is: %a, LHS constant is: %a" 
       Vec.pp lt_vec 
       QQ.pp lhs_const;
