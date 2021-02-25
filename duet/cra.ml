@@ -794,7 +794,7 @@ let omega_algebra =  function
        let nonterm tf =
         let llrf_conditions, llrf_succ = 
           if !termination_llrf then 
-            let result, _ = TLLRF.compute_swf srk tf in 
+            let result, _ = TLLRF.mp_llrf srk tf in 
              if result = TLLRF.ProvedToTerminate then
               begin
                 logf "proved to terminate by LLRF";
@@ -814,7 +814,7 @@ let omega_algebra =  function
               in
               if !termination_attractor then 
                 let tf_for_llrf = formula_with_attractor_region tf in
-                let result, _ = TLLRF.compute_swf srk tf_for_llrf in
+                let result, _ = TLLRF.mp_llrf srk tf_for_llrf in
                 if result = TLLRF.ProvedToTerminate then 
                   begin
                     logf "proved to terminate by LLRF with attractor region";

@@ -32,6 +32,9 @@ val meet : t -> t -> t
 (** Polyhedron representing the whole ambient space. *)
 val top : t
 
+(** Empty polyhedron. *)
+val bottom : t
+
 (** Convert formula that contains only conjunction and linear equalities and
     disequalities into a polyhedron. *)
 val of_formula : ?admit:bool -> 'a CoordinateSystem.t -> 'a formula -> t

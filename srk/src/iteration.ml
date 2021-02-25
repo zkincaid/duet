@@ -873,8 +873,7 @@ let build_graph_and_compute_mp srk tf inv_predicates cells nonterm =
       self-loop for every cell: weight tf /\ cell_formula
       edge from cell A to cell B: weight 1
    *)
-  (* let combine tf f = TF.map (fun g -> mk_and srk [f; g]) tf in *)
-  let combine tf f = TF.make ~exists:(TF.exists tf) (mk_and srk [TF.formula tf; f]) (TF.symbols tf) in
+  let combine tf f = TF.map_formula (fun g -> mk_and srk [f; g]) tf in
   let zero_indegree_vertices = ref (BatSet.Int.empty) in
   logf "printing cell structure";
   BatMap.Int.iter (fun level cell_list ->

@@ -7,367 +7,13 @@ include Log.Make(struct let name = "TerminationLLRF" end)
 
 type analysis_result = ProvedToTerminate | Unknown
 
-(** Transform a formula representation of a convex set f into a list of linear 
-    inequalities. The linear inequalities are vectors where the meaning
-    of the dimensions are given by the coordinate system cs.
-*)
-let get_polyhedron_of_formula srk f cs =
-  let f = match Formula.destruct srk f with
-    | `And xs -> xs
-    | `Tru -> []
-    | `Atom _ -> [ f ]
-    | _ -> failwith "formula is not convex polyhedron"
-  in
-  Polyhedron.of_implicant ~admit:true cs f
-  |> Polyhedron.enum_constraints
-  |> BatList.of_enum
-
-(** From the vector representation of a linear inequality, get the coefficient
-    of a symbol.
- *)
-let get_coeff_of_symbol cs vec symbol =
-  try 
-    let tid = CoordinateSystem.cs_term_id cs (`App (symbol, [])) in
-    Vec.coeff tid vec
-  with Not_found -> QQ.zero
-
-(** Extracting linear terms that are non-increasing through one iteration.
-    Let X, X' be the sets of pre- and post-transition variables. 
-    Assume we have a convex polyhedron where variables range over X and X',
-    according to Farkas' lemma, every function of the form 
-    a(x - x') + b(y - y') >= 0 must be non-negative combinations of the 
-    half-spaces that consitute the boundaries of the polyhedron.
-    cs: coordinate system
-    ineqs: inequalities as list of vectors
-    dx_list: list of delta symbols defined using dx = x' - x for every x
-    coeff_x_list: a list of symbolic coefficients in the final linear terms
-    coeff_x_set: set of symbolic coefficients
-*)
-let build_system_of_ineq_for_non_inc srk cs ineqs dx_list coeff_x_list coeff_x_set =
-  (* first create the lambda symbols for each inequality and set that they are non-negative *)
-  let lambdas, f_with_non_neg_lambdas = 
-    BatList.fold_righti
-      (fun i ineq (lambdas, f) ->
-         let lambda_i_name = String.concat "_" ["lambda"; string_of_int i] in
-         let lambda_i = mk_const srk (mk_symbol srk ~name:lambda_i_name `TyReal) in
-         match ineq with
-         | `Nonneg, _ ->
-           begin
-             let newf = mk_and srk [mk_leq srk (mk_zero srk) lambda_i;  f] in
-             (List.cons (lambda_i, lambda_i) lambdas, newf)
-           end
-         | `Pos, _ -> failwith "expecting non-strict ineqs"
-         | `Zero, _ -> 
-           begin
-             let lambda_ip_name = String.concat "_" ["lambda"; "neg"; string_of_int i] in
-             let lambda_ip = mk_const srk (mk_symbol srk ~name:lambda_ip_name `TyReal) in
-             let newf1 = mk_and srk [mk_leq srk (mk_zero srk) lambda_i; f] in
-             let newf2 = mk_and srk [mk_leq srk (mk_zero srk) lambda_ip; newf1] in
-             (List.cons (lambda_i, lambda_ip) lambdas, newf2)
-           end
-      )
-      ineqs
-      ([], mk_true srk)
-  in
-  (** then add the coefficient constraints to the system: for each variable,
-      linear combination of its coefficient within each inequality results in  
-      the final coefficients of this variable in the final linear term
-   *)
-  let answer =
-    BatList.fold_lefti
-      (fun formulas i sym -> 
-         let full_rhs =
-           BatList.fold_lefti 
-             (fun rhs i ineq ->
-                match ineq with
-                | `Nonneg, t ->
-                  begin
-                    let lambda_i, _ = List.nth lambdas i in
-                    let coeff = get_coeff_of_symbol cs t sym in
-                    mk_add srk [rhs; mk_mul srk [lambda_i; mk_real srk coeff] ]
-                  end
-                | `Pos, _ -> failwith "expecting non-strict ineqs"
-                | `Zero, t -> 
-                  begin
-                    let coeff = get_coeff_of_symbol cs t sym in
-                    let lambda_i, lambda_ip = List.nth lambdas i in
-                    mk_add srk [rhs; 
-                                mk_mul srk [lambda_i; mk_real srk coeff];
-                                mk_mul srk [lambda_ip; mk_neg srk (mk_real srk coeff)] ]
-                  end
-             )
-             (mk_zero srk)
-             ineqs
-         in
-         let coeff_sym = List.nth coeff_x_list i in
-         let equ_for_this_var = mk_eq srk (mk_const srk coeff_sym) full_rhs in
-         mk_and srk [ equ_for_this_var ; formulas]
-      )
-      f_with_non_neg_lambdas
-      dx_list
-  in
-  logf "\nformula of lambdas on non-inc:\n%a\n\n" (Formula.pp srk) answer;
-  (* finally add the constant constraints such that the final linear term is non-positive *)
-  let formula_with_const_constraints = 
-    let rhs =
-      BatList.fold_lefti
-        (fun term i ineq ->
-           match ineq with
-           | `Nonneg, t ->
-             begin
-               let c = Vec.coeff CoordinateSystem.const_id t in
-               let lambda_i, _ = List.nth lambdas i in
-               mk_add srk [mk_mul srk [mk_real srk c; lambda_i]; term]
-             end
-           | `Pos, _ -> failwith "expecting non-strict ineqs"
-           | `Zero, t -> 
-             begin
-               let c = Vec.coeff CoordinateSystem.const_id t in
-               let lambda_i, lambda_ip = List.nth lambdas i in
-               mk_add srk [mk_mul srk [mk_real srk c; lambda_i]; 
-                           mk_mul srk [mk_neg srk (mk_real srk c); lambda_ip]; term]
-             end
-        )
-        (mk_zero srk)
-        ineqs
-    in
-    mk_and srk [answer; mk_leq srk rhs (mk_zero srk)]
-  in
-  logf "\nfinal formula for non-inc:\n%a\n" (Formula.pp srk) formula_with_const_constraints;
-  let polka = Polka.manager_alloc_strict () in
-  let f = rewrite srk ~down:(nnf_rewriter srk) formula_with_const_constraints in
-  let property_of_formula =
-    let exists x = Symbol.Set.mem x coeff_x_set in
-    Abstract.abstract ~exists:exists srk polka f
-  in
-  let resulting_formula = SrkApron.formula_of_property property_of_formula in
-  logf "\n non-inc cone:\n%a\n" (Formula.pp srk) resulting_formula;
-  property_of_formula
-
-(** The linear terms that are non-increasing form a cone. Here we actually compute
-    the generator representation of the cone.
-    formula: the formula from which we extract non-increasing linear terms
-    dx_list: list of delta symbols
-    dx_set: set of delta symbols
-    coeff_x_list: list containing symbolic coefficients of each variable in the final term
-    coeff_x_set: set of symbolic coefficients for easy look up
-*)
-let compute_non_inc_term_cone srk formula dx_list dx_set coeff_x_list coeff_x_set  =
-  let polka = Polka.manager_alloc_strict () in
-  let f = rewrite srk ~down:(nnf_rewriter srk) formula in
-  let property_of_dx =
-    let exists x = Symbol.Set.mem x dx_set in
-    Abstract.abstract ~exists:exists srk polka f
-  in
-  let formula_of_dx = SrkApron.formula_of_property property_of_dx in
-  logf "\nformula on dx:\n%a\n" (Formula.pp srk) formula_of_dx;
-  let cs = CoordinateSystem.mk_empty srk in
-  let ineqs = get_polyhedron_of_formula srk formula_of_dx cs in
-  let non_inc_cone = build_system_of_ineq_for_non_inc srk cs ineqs dx_list coeff_x_list coeff_x_set in
-  non_inc_cone, cs
-
-(** Similar to build_system_of_ineq_for_non_inc method, this method computes
-    linear terms over pre-transition variables that are guaranteed to be 
-    bounded from below.
-    cs: coordinate system
-    ineqs: inequalities as list of vectors
-    x_list: list of variable symbols
-    coeff_x_list: a list of symbolic coefficients in the final linear terms
-    coeff_x_set: set of symbolic coefficients
-    TODO: extract common logic into dual cone computation into polyhedron.ml
-*)
-let build_system_of_ineq_for_lb_terms srk cs ineqs x_list coeff_x_list coeff_x_set =
-  (* first create the lambda symbols for each inequality *)
-  let lambdas, f_with_non_neg_lambdas = 
-    BatList.fold_righti
-      (fun i ineq (lambdas, f) ->
-         let lambda_i_name = String.concat "_" ["lambda"; string_of_int i] in
-         let lambda_i = mk_const srk (mk_symbol srk ~name:lambda_i_name `TyReal) in
-         match ineq with
-         | `Nonneg, _ ->
-           begin
-             let newf = mk_and srk [mk_leq srk (mk_zero srk) lambda_i;  f] in
-             (List.cons (lambda_i, lambda_i) lambdas, newf)
-           end
-         | `Pos, _ -> failwith "expecting non-strict ineqs"
-         | `Zero, _  -> 
-           begin
-             let lambda_ip_name = String.concat "_" ["lambda"; "neg"; string_of_int i] in
-             let lambda_ip = mk_const srk (mk_symbol srk ~name:lambda_ip_name `TyReal) in
-             let newf1 = mk_and srk [mk_leq srk (mk_zero srk) lambda_i; f] in
-             let newf2 = mk_and srk [mk_leq srk (mk_zero srk) lambda_ip; newf1] in
-             (List.cons (lambda_i, lambda_ip) lambdas, newf2)
-           end
-      )
-      ineqs
-      ([], mk_true srk)
-  in
-  (* then add the coefficient constraints to the system, note this is slightly
-      different than above
-   *)
-  let answer =
-    BatList.fold_lefti
-      (fun formulas i sym -> 
-         let full_rhs =
-           BatList.fold_lefti 
-             (fun rhs i ineq ->
-                match ineq with
-                | `Nonneg, t ->
-                  begin
-                    let lambda_i, _ = List.nth lambdas i in
-                    (* let coeff = QQ.negate (get_coeff_of_symbol cs t sym) in *)
-                    let coeff = get_coeff_of_symbol cs t sym in
-                    mk_add srk [rhs; mk_mul srk [lambda_i; mk_real srk coeff] ]
-                  end
-                | `Pos, _ -> failwith "expecting non-strict ineqs"
-                | `Zero, t -> 
-                  begin
-                    (* let coeff = QQ.negate (get_coeff_of_symbol cs t sym) in *)
-                    let coeff = get_coeff_of_symbol cs t sym in
-                    let lambda_i, lambda_ip = List.nth lambdas i in
-                    mk_add srk [rhs; 
-                                mk_mul srk [lambda_i; mk_real srk coeff];
-                                mk_mul srk [lambda_ip; mk_neg srk (mk_real srk coeff)] ]
-                  end
-             )
-             (mk_zero srk)
-             ineqs
-         in
-         let coeff_sym = List.nth coeff_x_list i in
-         let equ_for_this_var = mk_eq srk (mk_const srk coeff_sym) full_rhs in
-         mk_and srk [ equ_for_this_var ; formulas]
-      )
-      f_with_non_neg_lambdas
-      x_list
-  in
-  logf "\nformula of lambdas for lb:\n%a\n" (Formula.pp srk) answer;
-  let polka = Polka.manager_alloc_strict () in
-  let f = rewrite srk ~down:(nnf_rewriter srk) answer in
-  let property_of_formula =
-    let exists x = Symbol.Set.mem x coeff_x_set in
-    Abstract.abstract ~exists:exists srk polka f
-  in
-  let resulting_formula = SrkApron.formula_of_property property_of_formula in
-  logf "\nlower-bounded cone:\n%a\n" (Formula.pp srk) resulting_formula;
-  property_of_formula
-
-(** The linear terms that are bound from below also form a cone. 
-    formula: the formula from which we extract bound-from-below linear terms
-    x_list: list of variable symbols
-    x_set: set of variable symbols
-    coeff_x_list: list containing symbolic coefficients of each variable in the final term
-    coeff_x_set: set of symbolic coefficients for easy look up
-*)
-let compute_lower_bound_term_cone srk cs formula x_list x_set coeff_x_list coeff_x_set =
-  let polka = Polka.manager_alloc_strict () in
-  let f = rewrite srk ~down:(nnf_rewriter srk) formula in
-  let property_of_dx =
-    let exists x = Symbol.Set.mem x x_set in
-    Abstract.abstract ~exists:exists srk polka f
-  in
-  let formula_of_lbx = SrkApron.formula_of_property property_of_dx in
-  logf "\nformula of lower-bounded terms:\n%a\n\n" (Formula.pp srk) formula_of_lbx;
-  let ineqs = get_polyhedron_of_formula srk formula_of_lbx cs in
-  let non_inc_cone = build_system_of_ineq_for_lb_terms srk cs ineqs x_list coeff_x_list coeff_x_set in
-  non_inc_cone
-
-(** Compute quasi-ranking functions for formula f at a certain depth.
-    This is done by intersecting the two cones at each depth, and then constraining
-    the formula by dictating that the term for generators of the
-    intersection has to stay the same, then recurse to the next depth with the 
-    residual formula.
-    depth: we are currently synthesizing the depth-th component of a lexicographic ranking function
-    qrfs: quasi ranking functions
-    x_list, xp_list, x_set, xp_set: list/set of pre- and post-transition symbols
-    dx_set: set of delta symbols
-    x_to_dx, dx_to_x: get the corresponding delta symbol for a variable symbol and vice versa
-    coeff_x_list: list containing symbolic coefficients of each variable in the final term
-    coeff_x_set: set of symbolic coefficients for easy look up
-*) 
-let rec find_quasi_rf depth srk f qrfs x_list xp_list dx_list x_set xp_set dx_set x_to_dx dx_to_x coeff_x_list coeff_x_set =
-  let formula = f in
-  let non_inc_term_cone, cs = compute_non_inc_term_cone srk formula dx_list dx_set coeff_x_list coeff_x_set in
-  if (SrkApron.is_bottom non_inc_term_cone) then 
-    begin
-      logf ~attributes:[`Bold; `Red] "non-increasing term cone is empty, fail";
-      (false, depth-1, formula, qrfs) 
-    end
-  else
-    let lb_term_cone = compute_lower_bound_term_cone srk cs formula x_list x_set coeff_x_list coeff_x_set in
-    if (SrkApron.is_bottom lb_term_cone) then 
-      begin
-        logf ~attributes:[`Bold; `Red] "bounded-term cone is empty, fail";
-        (false, depth-1,formula, qrfs) 
-      end
-    else
-      let c = SrkApron.meet non_inc_term_cone lb_term_cone in
-      if (SrkApron.is_bottom c) then
-        begin
-          logf ~attributes:[`Bold; `Red] "intersection of two cones is empty, fail";
-          (false, depth-1, formula, qrfs) 
-        end
-      else
-        let gens = SrkApron.generators c in
-        let coeff_all_zero = not (BatList.exists (fun (_, typ) -> match typ with | `Ray | `Line -> true | _ -> false) gens) in
-        if coeff_all_zero then 
-          begin
-            logf ~attributes:[`Bold; `Red] "only all zero quasi ranking function exists at this level, fail";
-            (false, depth-1, formula, qrfs) 
-          end
-        else
-          let resulting_cone = SrkApron.formula_of_property c in
-          logf "\ncone of qrfs:\n%a\n\n" (Formula.pp srk) resulting_cone;
-
-          let get_orig_or_primed_expr_of_gen generator xs =
-            let term = Linear.term_of_vec srk (
-                fun d -> 
-                  let coeffSym = symbol_of_int d in 
-                  let origSym = List.nth 
-                      xs 
-                      (let ind, _ = BatList.findi (fun _ a -> a = coeffSym) coeff_x_list in ind)
-                  in
-                  mk_const srk origSym
-              )
-                generator in
-            term
-          in
-          let new_qrfs = 
-            (BatList.map 
-               (fun (generator, _) ->
-                  get_orig_or_primed_expr_of_gen generator x_list
-               )
-               gens) :: qrfs
-          in
-          let new_constraints = 
-            BatList.map 
-              (fun (generator, _) ->
-                 let pre_trans_term = get_orig_or_primed_expr_of_gen generator x_list in
-                 let post_trans_term = get_orig_or_primed_expr_of_gen generator xp_list in
-                 let equ = mk_eq srk post_trans_term pre_trans_term in
-                 equ
-              )
-              gens
-          in
-          let restricted_formula = mk_and srk (f :: new_constraints) in
-          logf "\nrestricted formula for next iter:\n%a\n\n" (Formula.pp srk) restricted_formula;
-          match Smt.equiv srk formula restricted_formula with
-          | `Unknown -> logf ~attributes:[`Bold; `Red] "Cannot decide if there is any improvement at this level"; (false, depth, formula, qrfs)
-          | `Yes -> logf ~attributes:[`Bold; `Red] "No improvement at this level, halt LLRF synthesis"; (false, depth, formula, qrfs)
-          | `No -> logf ~attributes:[`Bold; `Green] "There is improvement at this level";
-              match Smt.get_model srk restricted_formula with
-              | `Sat _ -> 
-                logf ~attributes:[`Bold; `Yellow] "\n\n\nTransition formula SAT, try to synthesize next depth\n\n";
-                find_quasi_rf (depth+1) srk restricted_formula new_qrfs x_list xp_list dx_list x_set xp_set dx_set x_to_dx dx_to_x coeff_x_list coeff_x_set
-              | `Unknown -> failwith "SMT solver should not return unknown"
-              | `Unsat -> (logf ~attributes:[`Bold; `Green] "Transition formula UNSAT, done"); (true, depth, formula, qrfs)
-
 (** This is a utility function that creates the delta symbols for each variable symbol,
-    and relates the delta symbols with the original variable symbols by saying
+    and relates the delta symbols with the original variable symbols by specifying
     that each dx = x' - x.
 *)
 let add_diff_terms_to_formula srk f x_xp =
   List.fold_right
-    (fun (x, xp) (f, dx_list, dx_sym_set, x_to_dx, dx_to_x) -> 
+    (fun (x, xp) (f, dx_list, dx_sym_set) -> 
        let dname = String.concat "" ["d_"; show_symbol srk x] in
        let cx = mk_const srk x in
        let cxp = mk_const srk xp in 
@@ -377,22 +23,141 @@ let add_diff_terms_to_formula srk f x_xp =
        let f_with_dx = mk_and srk [f ; mk_eq srk dx diff] in
        (f_with_dx, 
         List.cons dx_sym dx_list,
-        Symbol.Set.add dx_sym dx_sym_set, 
-        Symbol.Map.add x dx_sym x_to_dx, 
-        Symbol.Map.add dx_sym x dx_to_x)
+        Symbol.Set.add dx_sym dx_sym_set)
     )
     x_xp
-    (f, [], Symbol.Set.empty, Symbol.Map.empty, Symbol.Map.empty)
+    (f, [], Symbol.Set.empty)
 
-(* let simplify_residual_formula srk x_set xp_set residual_formula = 
-  let polka = Polka.manager_alloc_strict () in
-  let exists = fun x -> (Symbol.Set.mem x x_set || Symbol.Set.mem x xp_set) in
-  Abstract.abstract ~exists:exists srk polka residual_formula
-  |> SrkApron.formula_of_property *)
-(** The actual swf operator only has true or false as outcomes, corresponding to
-    able to prove or unable to prove results given here.
+
+(** Resursively computing quasi-linear ranking function for termination. 
+    formula: current formula to reason about
+    x_space_cs: coordinate system that maps integers to transition variable x's
+    dx_space_cs: coordinate system that maps integers to corresponding delta variables,
+        order agrees with x_space_cs
+    dual_space_cs: coordinate system that maps integers i to the coefficient of the i-th transition variable 
+      in the linear functional
+    x_xp: pairs of x and x' variables
+    dx_set: set of delta variables 
+    x_set: set of transition variables
+*)
+let rec compute_quasi_ranking_functions srk formula x_space_cs dx_space_cs dual_space_cs dual_space_dim x_xp dx_set x_set =
+
+  let compute_non_inc_cone formula = 
+    let polka = Polka.manager_alloc_strict () in
+    let f = rewrite srk ~down:(nnf_rewriter srk) formula in
+    let property_of_dx =
+      let exists x = Symbol.Set.mem x dx_set in
+      Abstract.abstract ~exists:exists srk polka f
+    in
+    let formula_of_dx = SrkApron.formula_of_property property_of_dx in
+    let dx_ineqs = Polyhedron.of_formula dx_space_cs formula_of_dx in
+    let dual = Polyhedron.dual_cone dx_ineqs in 
+    let constraints = Polyhedron.enum_constraints dual in
+    let neg_constraints = BatEnum.map (fun (typ, v) -> (typ, Linear.QQVector.negate v)) constraints in
+    let neg_dual = Polyhedron.of_constraints neg_constraints in
+    neg_dual
+  in 
+
+  let compute_lower_bounded_cone formula = 
+    let polka = Polka.manager_alloc_strict () in
+    let f = rewrite srk ~down:(nnf_rewriter srk) formula in
+    let property_of_x =
+      let exists x = Symbol.Set.mem x x_set in
+      Abstract.abstract ~exists:exists srk polka f
+    in
+    let formula_of_lbx = SrkApron.formula_of_property property_of_x in
+    let poly = Polyhedron.of_formula x_space_cs formula_of_lbx in
+    let constraints = Polyhedron.enum_constraints poly in
+    let lb_cone_generators = BatEnum.map (
+      fun (constraint_kind, v) -> 
+        match constraint_kind with 
+        | `Nonneg | `Pos -> let _, w = Linear.QQVector.pivot (-1) v in (`Ray, w)
+        | `Zero -> let _, w = Linear.QQVector.pivot (-1) v in (`Line, w)
+      ) 
+      constraints 
+    in
+    (* Origin must belong to the lower-bounded terms cone *)
+    BatEnum.push lb_cone_generators (`Vertex, Linear.QQVector.zero);
+    let generators_list = BatList.of_enum lb_cone_generators in
+    let lb_cone = Polyhedron.of_generators dual_space_dim (BatList.enum generators_list) in
+    lb_cone
+  in
+
+  logf "calculating meet of non-inc cone and lower-bounded cone";
+  let non_inc_cone = compute_non_inc_cone formula in
+  if Polyhedron.equal non_inc_cone Polyhedron.bottom then
+  begin
+    logf ~attributes:[`Bold; `Red] "Non-increasing term cone is empty, LLRF fail";
+    (false, formula) 
+  end
+  else 
+  begin
+    let lb_cone = compute_lower_bounded_cone formula in
+    if Polyhedron.equal non_inc_cone Polyhedron.bottom then
+      begin
+        logf ~attributes:[`Bold; `Red] "Lower-bounded term cone is empty, LLRF fail";
+        (false, formula) 
+      end
+    else 
+      begin
+        let quasi_rf_cone = Polyhedron.meet non_inc_cone lb_cone in
+        logf "qrf cone: %a" (Formula.pp srk) (Polyhedron.to_formula dual_space_cs quasi_rf_cone);
+        if Polyhedron.equal quasi_rf_cone Polyhedron.bottom then
+          begin
+            logf ~attributes:[`Bold; `Red] "Quasi-ranking function cone is empty, LLRF fail";
+            (false, formula) 
+          end
+        else 
+          begin 
+            let qrf_cone_generators = BatList.of_enum (Polyhedron.enum_generators dual_space_dim quasi_rf_cone) in
+            let coeff_all_zero = not (BatList.exists (fun (typ, _) -> match typ with | `Ray | `Line -> true | _ -> false) qrf_cone_generators) in
+            if coeff_all_zero then 
+              begin
+                logf ~attributes:[`Bold; `Red] "only all zero quasi ranking function exists at this level, fail";
+                (false, formula) 
+              end
+            else
+              begin
+                let qrf_unchange_constraints = BatList.map 
+                  (fun (gen_kind, vec) -> 
+                    match gen_kind with 
+                    | `Vertex -> mk_true srk
+                    | `Ray ->
+                      logf "looking at generator with vector: %a" Linear.QQVector.pp vec;
+                      let unprimed_exp = Linear.term_of_vec srk (fun d -> let x, _ = BatList.nth x_xp d in mk_const srk x) vec in
+                      let primed_exp = Linear.term_of_vec srk (fun d -> let _, xp = BatList.nth x_xp d in mk_const srk xp) vec in
+                      mk_eq srk unprimed_exp primed_exp
+                    | `Line -> 
+                      let zero_term = Linear.term_of_vec srk (fun d -> let x, _ = BatList.nth x_xp d in mk_const srk x) vec in
+                      mk_eq srk (mk_zero srk) zero_term
+                  ) 
+                  qrf_cone_generators 
+                in
+                let constrained_formula = mk_and srk (formula :: qrf_unchange_constraints) in
+                logf "Constrained formula for the next level is: %a" (Formula.pp srk) constrained_formula;
+                match Smt.equiv srk formula constrained_formula with
+                | `Unknown -> 
+                    logf ~attributes:[`Bold; `Red] "Cannot decide if there is any improvement at this level"; (false, formula)
+                | `Yes -> 
+                    logf ~attributes:[`Bold; `Red] "No improvement at this level, halt LLRF synthesis"; (false, formula)
+                | `No -> 
+                    logf ~attributes:[`Bold; `Green] "There is improvement at this level";
+                    match Smt.get_model srk constrained_formula with
+                    | `Sat _ -> 
+                      logf ~attributes:[`Bold; `Yellow] "Transition formula SAT, try to synthesize next depth";
+                      compute_quasi_ranking_functions srk constrained_formula x_space_cs dx_space_cs dual_space_cs dual_space_dim x_xp dx_set x_set 
+                    | `Unknown -> failwith "SMT solver should not return unknown"
+                    | `Unsat -> (logf ~attributes:[`Bold; `Green] "Transition formula UNSAT, done"); (true, formula)
+              end
+          end
+      end
+  end
+
+(** Mortal precondition operator via lexicographic linear ranking function (LLRF) synthesis.
+    Returns a tuple (result, residual_formula) where the residual formula is a subset of 
+    the original transition whose termination cannot be proved by synthesizing LLRFs.
  *)
-let compute_swf srk tf =
+let mp_llrf srk tf =
   let tf = TF.linearize srk tf in
   let all_symbols = Symbol.Set.to_list (symbols (TF.formula tf)) in
   let constant_symbols = List.filter (TF.is_symbolic_constant tf) all_symbols in
@@ -402,26 +167,28 @@ let compute_swf srk tf =
   match Smt.get_model srk (TF.formula tf) with
   | `Sat _ -> 
     let x_list = List.fold_right (fun (sp, _) l -> sp :: l ) x_xp [] in
-    let xp_list = List.fold_right (fun (_, spp) l -> spp :: l ) x_xp [] in
-    let coeff_x_list, coeff_x_set = 
-      List.fold_right 
-        (fun x (l, s) ->
-           let coeff_sym = mk_symbol srk ~name:(String.concat "_" ["coeff"; show_symbol srk x]) `TyReal in
-           (coeff_sym :: l, Symbol.Set.add coeff_sym s)
-        )
-        x_list
-        ([], Symbol.Set.empty)
-    in
     let x_set = TF.pre_symbols x_xp in
-    let xp_set = TF.post_symbols x_xp in
-    let f_with_dx, dx_list, dx_set, x_to_dx, dx_to_x =
+    let f_with_dx, dx_list, dx_set =
       add_diff_terms_to_formula srk (TF.formula tf) x_xp
     in
-    logf "\nformula with dx:\n%a\n" (Formula.pp srk) f_with_dx;
-    let (success, dep, residual_formula, _) =
-      find_quasi_rf 1 srk f_with_dx [] x_list xp_list dx_list x_set xp_set dx_set x_to_dx dx_to_x coeff_x_list coeff_x_set
-    in
-    logf "\nSuccess: %s\nDepth: %s\n" (string_of_bool success) (string_of_int dep);
-    if success then (ProvedToTerminate, mk_false srk) else (Unknown, residual_formula)
+    logf "formula with delta variables: %a" (Formula.pp srk) f_with_dx;
+    let dual_space_cs = CoordinateSystem.mk_empty srk in
+      List.iter (
+        fun (x, _)-> 
+          let term_name = "coeff_" ^ (show_symbol srk x) in
+            CoordinateSystem.admit_term dual_space_cs (mk_const srk (mk_symbol srk (typ_symbol srk x) ~name:term_name))
+      ) x_xp;
+    let dual_space_dim = CoordinateSystem.dim dual_space_cs in
+    let x_space_cs, dx_space_cs = CoordinateSystem.mk_empty srk, CoordinateSystem.mk_empty srk in
+      List.iter2 (
+        fun x dx -> 
+            CoordinateSystem.admit_term x_space_cs (mk_const srk x);
+            CoordinateSystem.admit_term dx_space_cs (mk_const srk dx);
+            ()
+      ) x_list dx_list;
+    let (success, residual_formula) =
+      compute_quasi_ranking_functions srk f_with_dx x_space_cs dx_space_cs dual_space_cs dual_space_dim x_xp dx_set x_set
+    in 
+      if success then (ProvedToTerminate, mk_false srk) else (Unknown, residual_formula) 
   | `Unknown -> logf "SMT solver should not return unknown for QRA formulas"; (Unknown, mk_true srk)
-  | `Unsat -> (logf ~attributes:[`Bold; `Yellow] "Transition formula UNSAT, done"); (ProvedToTerminate, mk_false srk)
+  | `Unsat -> (logf ~attributes:[`Bold; `Yellow] "Transition formula UNSAT, nothing to do"); (ProvedToTerminate, mk_false srk)

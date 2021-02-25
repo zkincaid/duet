@@ -79,8 +79,7 @@ module MakeDomain(Iter : PreDomain) : Domain
    in the sense that when a computation leaves a cell it may never return.
    This function takes a set of candidate transition predicates, a transition formula,
    and a mortal precondition operator and returns another mortal precondition
-   via analyzing the phase transition structure of the transition formula.
-   *)
+   via analyzing the phase transition structure of the transition formula. *)
 val compute_mp_with_phase_DAG : 'a context -> 
                                 ('a formula) list ->
                                 'a TransitionFormula.t ->
