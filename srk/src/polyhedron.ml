@@ -377,7 +377,8 @@ let apron0_of man dim polyhedron =
     in
     Lincons0.make (lexpr_of_vec vec) cmp
   in
-  P.enum polyhedron /@ lincons_of
+  P.enum polyhedron
+  /@ lincons_of
   |> BatArray.of_enum
   |> Abstract0.of_lincons_array man 0 dim
 
@@ -537,7 +538,7 @@ let of_generators dim generators =
            in
            Lincons0.make lexpr Lincons0.EQ))
   in
-  let polytope = (* Convex hull of verties *)
+  let polytope = (* Convex hull of vertices *)
     BatList.reduce
       (Abstract0.join man)
       (List.map polytope_of_point vertices)

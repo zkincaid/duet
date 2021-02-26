@@ -15,13 +15,14 @@ let mp_exp =
        ~exists:(fun sym -> List.mem sym all_sym)
        phi
        tr_symbols)
-let build_tf phi = 
+
+let build_tf phi =
   let all_sym = (List.map fst tr_symbols)@(List.map snd tr_symbols) in
-  TransitionFormula.make 
+  TransitionFormula.make
     ~exists:(fun sym -> List.mem sym all_sym)
     phi
     tr_symbols
-                 
+
 let suite = "Termination" >::: [
       "even" >:: (fun () ->
         let tr =
@@ -50,34 +51,52 @@ let suite = "Termination" >::: [
           Infix.(x <= y)
           (mp_exp tr_symbols tr)
       );
-
       "llrf_1D" >:: (fun () ->
-        let phi = Infix.( ((int 0) < x) && x' = x - (int 1)) in
-        let result, _ = TerminationLLRF.mp_llrf srk (build_tf phi) in
-        assert_equal result TerminationLLRF.ProvedToTerminate
-      );
-
-      "llrf_2D" >:: (fun () ->
-        let phi = Infix.( (int 0) < x && 
-        ( ((int 0) < y && (y' = y - (int 1)) && x' = x) 
-          || (y <= (int 0)) && y' = (int 10) && x' = x - (int 1)))
+        let phi =
+          Infix.( ((int 0) < x) && x' = x - (int 1))
+          |> build_tf
         in
-        let result, _ = TerminationLLRF.mp_llrf srk (build_tf phi) in
-        assert_equal result TerminationLLRF.ProvedToTerminate
+        assert_bool "Has LLRF" (TerminationLLRF.has_llrf srk phi)
       );
-
-      "exp_seq1" >:: (fun () ->
-        let seq = Sequence.Periodic.period (TerminationDTA.XSeq.seq_of_exp 32 2) in
-        assert_equal seq [0]
+      "llrf_2D" >:: (fun () ->
+        let phi =
+          Infix.( (int 0) < x &&
+                    ( ((int 0) < y && (y' = y - (int 1)) && x' = x)
+                      || (y <= (int 0)) && y' = (int 10) && x' = x - (int 1)))
+          |> build_tf
+        in
+        assert_bool "Has LLRF" (TerminationLLRF.has_llrf srk phi)
       );
-      "exp_seq2" >:: (fun () ->
-        let seq = Sequence.Periodic.period (TerminationDTA.XSeq.seq_of_exp 6 2) in
-        assert_equal seq [4; 2]
+      "llrf_sym_const" >:: (fun () ->
+        let phi =
+          TransitionFormula.make
+            Infix.( (int 0) < x &&
+                      ( (z < y && (y' = y - x) && x' = x)
+                        || (y <= z) && x' = x - (int 1)))
+            [(xsym,xsym');(ysym,ysym')]
+        in
+        assert_bool "Has LLRF" (TerminationLLRF.has_llrf srk phi)
       );
-      "exp_seq3" >:: (fun () ->
-        let seq = Sequence.Periodic.period (TerminationDTA.XSeq.seq_of_exp 5 3) in
-        assert_equal seq [1; 3; 4; 2]
-      )
+      "no_llrf" >:: (fun () ->
+        let phi =
+          Infix.( (int 0) <= x &&
+                    (((y' = y - (int 1)) && x' = x)
+                     || x' = x - (int 1)))
+          |> build_tf
+        in
+        assert_bool "No LLRF" (not (TerminationLLRF.has_llrf srk phi))
+      );
+      "no_llrf_sym_const" >:: (fun () ->
+        let phi =
+          TransitionFormula.make
+            ~exists:(fun w -> List.mem w [xsym;xsym';ysym;ysym'])
+            Infix.( (int 0) < x &&
+                      ( (z < y && (y' = y - x) && x' = x)
+                        || (y <= z) && x' = x - (int 1)))
+            [(xsym,xsym');(ysym,ysym')]
+        in
+        assert_bool "No LLRF" (not (TerminationLLRF.has_llrf srk phi))
+      );
 
 
     ]

@@ -40,10 +40,6 @@ let mp (module I : Iteration.PreDomain) srk tf =
     |> qe (fun sym -> sym = k || (TF.exists tf sym && not (Symbol.Set.mem sym post_sym)))
     |> mk_not srk
   in
-  let result =
-    mk_and srk [mk_leq srk (mk_zero srk) (mk_const srk k);
-                halt_within_k]
-    |> qe (fun sym -> sym != k) (* express over pre-state symbols + symbolic constants *)
-  in
-  result
-  
+  mk_and srk [mk_leq srk (mk_zero srk) (mk_const srk k);
+              halt_within_k]
+  |> qe (fun sym -> sym != k) (* express over pre-state symbols + symbolic constants *)

@@ -747,34 +747,34 @@ let formula_with_attractor_region tf =
   let open Syntax in
   logf "Starting attractor region analysis";
   let formula = TF.formula tf in
-  let xp_leq_x_terms = BatList.fold_left (fun l (x, xp) -> 
+  let xp_leq_x_terms = BatList.fold_left (fun l (x, xp) ->
       (mk_leq srk (mk_const srk xp) (mk_const srk x), mk_const srk xp, mk_const srk x) :: l) [] (TF.symbols tf)
   in
   (* TODO: add an incremental interface for optimize_box *)
-  let lower_bounds = BatList.map (fun (xp_leq_x_term, xp, x) -> 
+  let lower_bounds = BatList.map (fun (xp_leq_x_term, xp, x) ->
       match SrkZ3.optimize_box srk (mk_and srk [formula; xp_leq_x_term]) [xp] with
       | `Sat [ivl] ->  (Interval.lower ivl, x)
       | _ -> (None, x)
-    ) 
-      xp_leq_x_terms in 
-  let x_leq_xp_terms = BatList.fold_left (fun l (x, xp) -> 
+    )
+      xp_leq_x_terms in
+  let x_leq_xp_terms = BatList.fold_left (fun l (x, xp) ->
       (mk_leq srk (mk_const srk x) (mk_const srk xp), mk_const srk xp, mk_const srk x) :: l) [] (TF.symbols tf)
   in
-  let upper_bounds = BatList.map (fun (x_leq_xp_term, xp, x) -> 
+  let upper_bounds = BatList.map (fun (x_leq_xp_term, xp, x) ->
       match SrkZ3.optimize_box srk (mk_and srk [formula; x_leq_xp_term]) [xp] with
       | `Sat [ivl] -> (Interval.upper ivl, x)
       | _ -> (None, x)
-    ) 
-      x_leq_xp_terms 
+    )
+      x_leq_xp_terms
   in
-  let lb_x_ub = BatList.map2 (fun lb ub -> 
-      match lb, ub with 
-      | (Some a, x), (Some b, y) -> [mk_leq srk (mk_real srk a) x; mk_leq srk y (mk_real srk b)] 
+  let lb_x_ub = BatList.map2 (fun lb ub ->
+      match lb, ub with
+      | (Some a, x), (Some b, y) -> [mk_leq srk (mk_real srk a) x; mk_leq srk y (mk_real srk b)]
       | (Some a, x), _ -> [mk_leq srk (mk_real srk a) x]
       | _, (Some b, x) -> [mk_leq srk x (mk_real srk b)]
       | _ -> []
-    ) 
-      lower_bounds 
+    )
+      lower_bounds
       upper_bounds
   in
   let formula'' = mk_and srk (formula :: BatList.flatten lb_x_ub) in
@@ -792,16 +792,15 @@ let omega_algebra =  function
            (K.to_transition_formula transition)
        in
        let nonterm tf =
-        let llrf_conditions, llrf_succ = 
-          if !termination_llrf then 
-            let result, _ = TLLRF.mp_llrf srk tf in 
-             if result = TLLRF.ProvedToTerminate then
+        let llrf_conditions, llrf_succ =
+          if !termination_llrf then
+             if TLLRF.has_llrf srk tf then
               begin
                 logf "proved to terminate by LLRF";
                 [Syntax.mk_false srk], true
               end
              else
-              let pre = 
+              let pre =
                 let fresh_skolem =
                   Memo.memo (fun sym -> mk_const srk (dup_symbol srk sym))
                 in
@@ -812,16 +811,15 @@ let omega_algebra =  function
                 in
                 substitute_const srk subst (TF.formula tf)
               in
-              if !termination_attractor then 
+              if !termination_attractor then
                 let tf_for_llrf = formula_with_attractor_region tf in
-                let result, _ = TLLRF.mp_llrf srk tf_for_llrf in
-                if result = TLLRF.ProvedToTerminate then 
+                if TLLRF.has_llrf srk tf_for_llrf then
                   begin
                     logf "proved to terminate by LLRF with attractor region";
                     [Syntax.mk_false srk], true
                   end
                 else [pre], false
-              else 
+              else
                 [pre], false
           else
             [], false
@@ -976,7 +974,7 @@ let prove_termination_main file =
         |> SrkSimplify.simplify_terms srk
       in
       match Quantifier.simsat srk omega_paths_sum with
-      | `Sat -> 
+      | `Sat ->
          Format.printf "Cannot prove that program always terminates\n";
          if !precondition then
            (* TODO: need to eliminate universal quantifiers first quantifiers first! *)

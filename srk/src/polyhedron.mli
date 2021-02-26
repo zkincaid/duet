@@ -105,4 +105,3 @@ val apron0_of : 'a Apron.Manager.t -> int -> t -> 'a Apron.Abstract0.t
 (** [of_apron0 man v] converts an abstract value [v] to a
    polyhedron. *)
 val of_apron0 : 'a Apron.Manager.t -> 'a Apron.Abstract0.t -> t
-
