@@ -15,7 +15,12 @@ let mp_exp =
        ~exists:(fun sym -> List.mem sym all_sym)
        phi
        tr_symbols)
-
+let build_tf phi = 
+  let all_sym = (List.map fst tr_symbols)@(List.map snd tr_symbols) in
+  TransitionFormula.make 
+    ~exists:(fun sym -> List.mem sym all_sym)
+    phi
+    tr_symbols
                  
 let suite = "Termination" >::: [
       "even" >:: (fun () ->
@@ -46,16 +51,31 @@ let suite = "Termination" >::: [
           (mp_exp tr_symbols tr)
       );
 
+      "llrf_1D" >:: (fun () ->
+        let phi = Infix.( ((int 0) < x) && x' = x - (int 1)) in
+        let result, _ = TerminationLLRF.mp_llrf srk (build_tf phi) in
+        assert_equal result TerminationLLRF.ProvedToTerminate
+      );
+
+      "llrf_2D" >:: (fun () ->
+        let phi = Infix.( (int 0) < x && 
+        ( ((int 0) < y && (y' = y - (int 1)) && x' = x) 
+          || (y <= (int 0)) && y' = (int 10) && x' = x - (int 1)))
+        in
+        let result, _ = TerminationLLRF.mp_llrf srk (build_tf phi) in
+        assert_equal result TerminationLLRF.ProvedToTerminate
+      );
+
       "exp_seq1" >:: (fun () ->
-        let seq = BatDynArray.to_list (TerminationDTA.XSeq.seq_of_exp 32 2) in
+        let seq = Sequence.Periodic.period (TerminationDTA.XSeq.seq_of_exp 32 2) in
         assert_equal seq [0]
       );
       "exp_seq2" >:: (fun () ->
-        let seq = BatDynArray.to_list (TerminationDTA.XSeq.seq_of_exp 6 2) in
+        let seq = Sequence.Periodic.period (TerminationDTA.XSeq.seq_of_exp 6 2) in
         assert_equal seq [4; 2]
       );
       "exp_seq3" >:: (fun () ->
-        let seq = BatDynArray.to_list (TerminationDTA.XSeq.seq_of_exp 5 3) in
+        let seq = Sequence.Periodic.period (TerminationDTA.XSeq.seq_of_exp 5 3) in
         assert_equal seq [1; 3; 4; 2]
       )
 
