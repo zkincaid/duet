@@ -872,7 +872,7 @@ let omega_algebra =  function
                  (TF.symbols tf)
                |> List.concat
              in
-             [Iteration.compute_mp_with_phase_DAG srk predicates tf nonterm]
+             [Iteration.phase_mp srk predicates tf nonterm]
            end else []
        in
        let pre =
