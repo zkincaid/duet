@@ -743,45 +743,38 @@ let preimage transition formula =
               substitute_const srk subst formula]
 
 (* Attractor region analysis *)
-let formula_with_attractor_region tf =
+let attractor_regions tf =
   let open Syntax in
-  logf "Starting attractor region analysis";
   let formula = TF.formula tf in
-  let xp_leq_x_terms = BatList.fold_left (fun l (x, xp) ->
-      (mk_leq srk (mk_const srk xp) (mk_const srk x), mk_const srk xp, mk_const srk x) :: l) [] (TF.symbols tf)
+  let attractors =
+    BatList.fold_left (fun xs (x, x') ->
+        let (x, x') = mk_const srk x, mk_const srk x' in
+        let lo =
+          let nonincreasing = mk_and srk [formula; mk_leq srk x' x] in
+          match SrkZ3.optimize_box srk (mk_and srk [formula; nonincreasing]) [x'] with
+          | `Sat [ivl] ->
+             (match Interval.lower ivl with
+              | Some lo -> [mk_leq srk (mk_real srk lo) x]
+              | None -> [])
+          | _ -> []
+        in
+        let hi =
+          let nondecreasing = mk_and srk [formula; mk_leq srk x x'] in
+          match SrkZ3.optimize_box srk (mk_and srk [formula; nondecreasing]) [x'] with
+          | `Sat [ivl] ->
+             (match Interval.upper ivl with
+              | Some hi -> [mk_leq srk x (mk_real srk hi)]
+              | None -> [])
+          | _ -> []
+        in
+        (lo@hi@xs))
+      []
+      (TF.symbols tf)
   in
-  (* TODO: add an incremental interface for optimize_box *)
-  let lower_bounds = BatList.map (fun (xp_leq_x_term, xp, x) ->
-      match SrkZ3.optimize_box srk (mk_and srk [formula; xp_leq_x_term]) [xp] with
-      | `Sat [ivl] ->  (Interval.lower ivl, x)
-      | _ -> (None, x)
-    )
-      xp_leq_x_terms in
-  let x_leq_xp_terms = BatList.fold_left (fun l (x, xp) ->
-      (mk_leq srk (mk_const srk x) (mk_const srk xp), mk_const srk xp, mk_const srk x) :: l) [] (TF.symbols tf)
-  in
-  let upper_bounds = BatList.map (fun (x_leq_xp_term, xp, x) ->
-      match SrkZ3.optimize_box srk (mk_and srk [formula; x_leq_xp_term]) [xp] with
-      | `Sat [ivl] -> (Interval.upper ivl, x)
-      | _ -> (None, x)
-    )
-      x_leq_xp_terms
-  in
-  let lb_x_ub = BatList.map2 (fun lb ub ->
-      match lb, ub with
-      | (Some a, x), (Some b, y) -> [mk_leq srk (mk_real srk a) x; mk_leq srk y (mk_real srk b)]
-      | (Some a, x), _ -> [mk_leq srk (mk_real srk a) x]
-      | _, (Some b, x) -> [mk_leq srk x (mk_real srk b)]
-      | _ -> []
-    )
-      lower_bounds
-      upper_bounds
-  in
-  let formula'' = mk_and srk (formula :: BatList.flatten lb_x_ub) in
-  logf "Formula with attractor regions:\n%a\n" (Formula.pp srk) formula'';
-  TF.map_formula (fun _ -> formula'') tf
+  TF.map_formula (fun _ -> mk_and srk (formula::attractors)) tf
 
-let omega_algebra =  function
+
+let omega_algebra = function
   | `Omega transition ->
      (** over-approximate possibly non-terminating conditions for a transition *)
      begin
@@ -792,100 +785,76 @@ let omega_algebra =  function
            (K.to_transition_formula transition)
        in
        let nonterm tf =
-        let llrf_conditions, llrf_succ =
-          if !termination_llrf then
+         let pre =
+           let fresh_skolem =
+             Memo.memo (fun sym -> mk_const srk (dup_symbol srk sym))
+           in
+           let subst sym =
+             match V.of_symbol sym with
+             | Some _ -> mk_const srk sym
+             | None -> fresh_skolem sym
+           in
+           substitute_const srk subst (TF.formula tf)
+         in
+         let llrf, has_llrf =
+           if !termination_llrf then
              if TLLRF.has_llrf srk tf then
-              begin
-                logf "proved to terminate by LLRF";
-                [Syntax.mk_false srk], true
-              end
+               [Syntax.mk_false srk], true
+             else if !termination_attractor
+                     && TLLRF.has_llrf srk (attractor_regions tf) then
+               [Syntax.mk_false srk], true
              else
-              let pre =
-                let fresh_skolem =
-                  Memo.memo (fun sym -> mk_const srk (dup_symbol srk sym))
-                in
-                let subst sym =
-                  match V.of_symbol sym with
-                  | Some _ -> mk_const srk sym
-                  | None -> fresh_skolem sym
-                in
-                substitute_const srk subst (TF.formula tf)
-              in
-              if !termination_attractor then
-                let tf_for_llrf = formula_with_attractor_region tf in
-                if TLLRF.has_llrf srk tf_for_llrf then
-                  begin
-                    logf "proved to terminate by LLRF with attractor region";
-                    [Syntax.mk_false srk], true
-                  end
-                else [pre], false
-              else
-                [pre], false
-          else
-            [], false
-        in
-        let dta =
-          (* If LLRF succeeds, then we do not try dta *)
-          if (not llrf_succ) && !termination_dta then
-            [TDTA.XSeq.terminating_conditions_of_formula_via_xseq srk tf]
-          else []
-        in
-        let exp =
-          if (not llrf_succ) && !termination_exp then
-            let mp =
-              Syntax.mk_not srk
-                (TerminationExp.mp (module Iteration.LinearRecurrenceInequation) srk tf)
-            in
-            let dta_entails_mp =
-              (* if DTA |= mp, DTA /\ MP simplifies to DTA *)
-              Syntax.mk_forall_consts
-                srk
-                (fun _ -> false)
-                (Syntax.mk_if srk (mk_and srk dta) mp)
-            in
-            match Quantifier.simsat srk dta_entails_mp with
-            | `Sat -> []
-            | _ -> [mp]
-          else []
-        in
-        let result =
-          Syntax.mk_and srk (llrf_conditions@dta@exp)
-        in
-        match Quantifier.simsat srk result with
-           | `Unsat -> mk_false srk
-           | _ -> result
-       in
-       let phase_mp =
-         if !termination_phase_analysis then begin
-             let predicates =
-               (* Use variable directions & signs as candidate invariants *)
-               List.map (fun (x,x') ->
-                   let x = mk_const srk x in
-                   let x' = mk_const srk x' in
-                   [mk_lt srk x x';
-                    mk_lt srk x' x;
-                    mk_eq srk x x'])
-                 (TF.symbols tf)
-               |> List.concat
+               [pre], false
+           else
+             (* If LLRF is disabled, default to pre *)
+             [pre], false
+         in
+         let dta =
+           (* If LLRF succeeds, then we do not try dta *)
+           if (not has_llrf) && !termination_dta then
+             [TDTA.XSeq.terminating_conditions_of_formula_via_xseq srk tf]
+           else []
+         in
+         let exp =
+           if (not has_llrf) && !termination_exp then
+             let mp =
+               Syntax.mk_not srk
+                 (TerminationExp.mp (module Iteration.LinearRecurrenceInequation) srk tf)
              in
-             [Iteration.phase_mp srk predicates tf nonterm]
-           end else []
-       in
-       let pre =
-         let fresh_skolem =
-           Memo.memo (fun sym ->
-               let name = show_symbol srk sym in
-               let typ = typ_symbol srk sym in
-               mk_const srk (mk_symbol srk ~name typ))
+             let dta_entails_mp =
+               (* if DTA |= mp, DTA /\ MP simplifies to DTA *)
+               Syntax.mk_forall_consts
+                 srk
+                 (fun _ -> false)
+                 (Syntax.mk_if srk (mk_and srk dta) mp)
+             in
+             match Quantifier.simsat srk dta_entails_mp with
+             | `Sat -> []
+             | _ -> [mp]
+           else []
          in
-         let subst sym =
-           match V.of_symbol sym with
-           | Some _ -> mk_const srk sym
-           | None -> fresh_skolem sym
+         let result =
+           Syntax.mk_and srk (llrf@dta@exp)
          in
-         substitute_const srk subst (TF.formula tf)
+         match Quantifier.simsat srk result with
+         | `Unsat -> mk_false srk
+         | _ -> result
        in
-       Syntax.mk_and srk (pre::(nonterm tf)::phase_mp)
+       if !termination_phase_analysis then begin
+           let predicates =
+             (* Use variable directions & signs as candidate invariants *)
+             List.map (fun (x,x') ->
+                 let x = mk_const srk x in
+                 let x' = mk_const srk x' in
+                 [mk_lt srk x x';
+                  mk_lt srk x' x;
+                  mk_eq srk x x'])
+               (TF.symbols tf)
+             |> List.concat
+           in
+           Iteration.phase_mp srk predicates tf nonterm
+         end else
+         nonterm tf
      end
   | `Add (cond1, cond2) ->
      (** combining possibly non-terminating conditions for multiple paths *)
@@ -960,10 +929,10 @@ let prove_termination_main file =
   | [main] -> begin
       let rg = Interproc.make_recgraph file in
       let entry = (RG.block_entry rg main).did in
-      let (ts1, _) = make_transition_system rg in
+      let (ts, _) = make_transition_system rg in
       if !CmdLine.display_graphs then
-        TSDisplay.display ts1;
-      let query = mk_query ts1 entry in
+        TSDisplay.display ts;
+      let query = mk_query ts entry in
       let omega_paths_sum =
         TS.omega_path_weight query omega_algebra
         |> lift_universals srk
