@@ -66,24 +66,21 @@ module BaseDegPairMap = struct
     let qqxvec = QQV.of_list [factor, non_zero_dim] in
     E.set index_pair (QQV.add (E.get index_pair p) qqxvec) p
 
-  let has_lower_order_than_const base =
-    (QQ.lt base (QQ.of_int 1) )
-
   let has_const_order base deg =
     QQ.equal QQ.one base && deg == 0
 
   (** Rank the items in the data structure according to dominance ordering and
       produce a formula for sufficient condition for termination.
       p: the Abelian group map.
-      invariant_terms: these are the linear terms whose closed forms are computed
+      sim_terms: these are the linear terms whose closed forms are computed
           during the symbolic exponentiation of transition matrix. This is 
           used to interpret the meaning of the vectors as values in the map.
       lhs_const: the constant that appears in the closed form formula.
       ineq_type: whether this inequality is <=, = or <.
   *)
-  let rank srk p invariant_terms lhs_const ineq_type =
+  let rank srk p sim_terms lhs_const ineq_type =
     logf "entering rank";
-    let dim_to_term = fun d -> if d < 0 then mk_one srk else BatList.nth invariant_terms d in
+    let dim_to_term = fun d -> if d < 0 then mk_one srk else BatList.nth sim_terms d in
     let dom_ranked_list = 
       BatEnum.fold
         (fun l ((base, deg), qqt) -> 
@@ -369,14 +366,21 @@ module XSeq = struct
       )
     (Periodic.make [0])
     (ExpPolynomial.enum exppoly)
-          
-  (* Compute characteristic sequence of atoms with form c^T x < 0, c^T x <= 0, or c^T x = 0. 
-      lhs: coefficients vector c
+  
+  (* Compute characteristic sequence of atomic formulas LHS < 0, LHS = 0, LHS <= 0. 
+     LHS has form c^T x < 0, c^T x <= 0, or c^T x = 0. 
+      op: <, <=, =
+      vec: coefficients vector c
       exp_poly: gives A^k x where A is the dynamics matrix, so that we get to compute 
-          c^T A^k x as an exponential polynomial in k.
+          c^T A^k x as an exponential polynomial in k
   *)
-  let generate_xseq srk lhs ineq_type exp_poly abstraction = 
-    let (sim_symbols, invariant_terms, best_DLTS_abstraction) = abstraction in
+  let seq_of_compare_zero_atom srk op vec exp_poly abstraction =
+    let ineq_type, lhs = match op with
+      | `Lt -> Lt0, vec
+      | `Eq -> Eq0, vec
+      | `Leq -> Leq0, vec
+    in 
+    let (sim_symbols, sim_terms, best_DLTS_abstraction) = abstraction in
     let lt_vec, lhs_const = rewrite_exp_under_basis lhs sim_symbols in
     logf "\nlt_vec is: %a, LHS constant is: %a" Vec.pp lt_vec QQ.pp lhs_const;
     let lt_vec_exppoly = ExpPolynomial.Vector.of_qqvector lt_vec in
@@ -419,7 +423,7 @@ module XSeq = struct
             m
             entries
         in
-        let conditions = mk_not srk (BaseDegPairMap.rank srk m invariant_terms lhs_const ineq_type) in
+        let conditions = mk_not srk (BaseDegPairMap.rank srk m sim_terms lhs_const ineq_type) in
         logf "terminating condition: %a" (Formula.pp srk) conditions;
         conditions
       end
@@ -453,15 +457,6 @@ module XSeq = struct
         let res = analyze_entries mat_entries in 
         Periodic.make [res]
       end
-  
-  (* Compute characteristic sequence of LHS < 0, LHS = 0, LHS <= 0. *)
-  let seq_of_compare_zero_atom srk op vec exp_poly abstraction =
-    let ineq_type, lhs_vec = match op with
-          | `Lt -> Lt0, vec
-          | `Eq -> Eq0, vec
-          | `Leq -> Leq0, vec
-        in 
-    generate_xseq srk lhs_vec ineq_type exp_poly abstraction
 
   (* Compute characteristic sequence of atom q | w^T A^k x. 
      zz_divisor: represents divisor q
@@ -530,8 +525,8 @@ module XSeq = struct
       let sim_symbols, inv_equalities, invariant_symbol_set =
         build_symbols_for_sim_terms srk new_simulation
       in
-      let invariant_terms = BatList.map (fun symbol -> mk_const srk symbol) sim_symbols in
-      let abstraction = (sim_symbols, invariant_terms, best_DLTS_abstraction) in
+      let sim_terms = BatList.map (fun symbol -> mk_const srk symbol) sim_symbols in
+      let abstraction = (sim_symbols, sim_terms, best_DLTS_abstraction) in
       let formula = mk_and srk [TF.formula tf; mk_and srk inv_equalities; constraints] in
       logf "\nTransition formula with simulation terms:\n%s\n\n" (Formula.show srk formula);
       let ground_formula = Quantifier.mbp srk (fun s -> Symbol.Set.mem s invariant_symbol_set) formula in 
