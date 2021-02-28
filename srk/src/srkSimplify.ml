@@ -405,26 +405,51 @@ let idiv_to_ite srk expr =
 
 let eliminate_idiv srk formula =
   formula 
-  |> rewrite srk ~up:(idiv_to_ite srk) 
+  |> rewrite srk ~up:(idiv_to_ite srk)
   |> eliminate_ite srk
 
-let purify_floor srk formula = 
-  let fresh_sym = Expr.ExprMemo.memo (fun _ -> mk_const srk (mk_symbol srk `TyInt)) in
+let purify_floor srk expr = 
+  let table = Expr.HT.create 991 in
   let rewriter expr =
     match destruct srk expr with
+    | `Quantify (_, _, _, _) -> invalid_arg "purify_floor: free variable" 
     | `Unop (`Floor, t) ->
        if (expr_typ srk t) = `TyInt then 
         (t :> ('a, typ_fo) expr)
        else
-        fresh_sym expr
+         let sym =
+           try
+             Expr.HT.find table t
+           with Not_found ->
+             let sym = mk_symbol srk ~name:"floor" `TyInt in
+             Expr.HT.add table t sym;
+             sym
+         in
+         mk_const srk sym
     | _ -> expr
   in
-  rewrite srk ~up:rewriter formula
+  let expr' = rewrite srk ~up:rewriter expr in
+  let map =
+    BatEnum.fold
+      (fun map (term, sym) -> Symbol.Map.add sym term map)
+      Symbol.Map.empty
+      (Expr.HT.enum table)
+  in
+  (expr', map)
 
-let eliminate_floor srk formula = 
-  formula 
-  |> eliminate_idiv srk 
-  |> purify_floor srk
+let eliminate_floor srk formula =
+  let formula = eliminate_idiv srk formula in
+  let (formula, map) = purify_floor srk formula in
+  let one = mk_int srk 1 in
+  (* For each term s = floor(t), we have t-1 < s <= t *)
+  let floor_constraints =
+    Symbol.Map.fold (fun sym term constraints ->
+        let s = mk_const srk sym in
+        (mk_leq srk s term)::(mk_lt srk (mk_sub srk term one) s)::constraints)
+      map
+      []
+  in
+  mk_and srk (formula::floor_constraints)
 
 let simplify_integer_atom srk op s t =
   let zero = mk_real srk QQ.zero in

@@ -42,10 +42,18 @@ val simplify_dda : 'a context -> 'a formula -> 'a formula
    eliminating ite expressions. *)
 val eliminate_idiv : 'a context -> 'a formula -> 'a formula
 
-(** Purify floor functions in a formula. *)
-val purify_floor : 'a context -> 'a formula -> 'a formula
+(** Purify floor functions in an expression: replace each function
+   application within a formula with a fresh symbol, and return both
+   the resulting formula [phi] and a mapping [f] from the fresh
+   symbols to terms, so that if we substitute each symbol [s] in the
+   domain of [f] with [floor (f s)], we get the original formula *)
+val purify_floor : 'a context ->
+                   ('a,'b) expr ->
+                   (('a,'b) expr * (('a,typ_arith) expr) Symbol.Map.t)
 
-(** Eliminate floor functions in a formula. *)
+(** Eliminate floor functions in a formula.  The formula is equivalent
+   to the original, modulo the fresh symbols introduced in floor
+   purification. *)
 val eliminate_floor : 'a context -> 'a formula -> 'a formula
 
 (** Simplify an atomic formula that consists of a binary operation of integers. *)

@@ -739,7 +739,7 @@ let preimage transition formula =
          mk_const srk sym
     | None -> fresh_skolem sym
   in
-  mk_and srk [SrkSimplify.purify_floor srk (K.guard transition);
+  mk_and srk [SrkSimplify.eliminate_floor srk (K.guard transition);
               substitute_const srk subst formula]
 
 (* Attractor region analysis *)
@@ -788,7 +788,7 @@ let omega_algebra =  function
        let open Syntax in
        let tf =
          TF.map_formula
-           (fun phi -> SrkSimplify.purify_floor srk (Nonlinear.linearize srk phi))
+           (fun phi -> SrkSimplify.eliminate_floor srk (Nonlinear.linearize srk phi))
            (K.to_transition_formula transition)
        in
        let nonterm tf =
@@ -864,10 +864,6 @@ let omega_algebra =  function
                    let x' = mk_const srk x' in
                    [mk_lt srk x x';
                     mk_lt srk x' x;
-                    (** The sign invariant seems to be problematic with a few benchmarks
-                        including the C-style string manipulating programs. *)
-                    (* mk_leq srk (mk_zero srk) x; *)
-                    (* mk_leq srk x (mk_zero srk); *)
                     mk_eq srk x x'])
                  (TF.symbols tf)
                |> List.concat
