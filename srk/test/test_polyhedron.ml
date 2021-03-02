@@ -113,9 +113,18 @@ let suite = "Polyhedron" >::: [
           mk_polyhedron [([1], 1);
                          ([-1], 1)]
         in
-        let dual_cone = Polyhedron.dual_cone polyhedron in
+        let dual_cone = Polyhedron.dual_cone 1 polyhedron in
         assert_equal_polyhedron (mk_polyhedron []) dual_cone
       );
+      "dual_cone_trivial" >:: (fun () ->
+        let dual_cone = Polyhedron.dual_cone 2 (mk_polyhedron []) in
+        let zero =
+          mk_polyhedron [([1; 0], 0); ([-1; 0], 0);
+                         ([0; 1], 0); ([0; -1], 0)]
+        in
+        assert_equal_polyhedron zero dual_cone
+      );
+
       "conical_hull_inconsistent" >:: (fun () ->
         let polyhedron =
           mk_polyhedron [([1], 1);

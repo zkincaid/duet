@@ -74,10 +74,12 @@ val project : int list -> t -> t
     are not projected.  *)
 val try_fourier_motzkin : 'a CoordinateSystem.t -> (symbol -> bool) -> t -> t
 
-(** Compute a constraint representation for the dual cone of a
-   polyhedron: the set of functionals on QQ^omega that are
-   non-negative on every point in p. *)
-val dual_cone : t -> t
+(** [dual_cone n p] computes a constraint representation for the dual
+   cone of the [n]-dimensional polyhedron [p]: the cone of functionals
+   on QQ^[n] that are non-negative on every point in [p].  The
+   supplied parameter dimension [n] must be >= the greatest dimension
+   involved in a constraint in [p].*)
+val dual_cone : int -> t -> t
 
 (** [conical_hull n p] takes a natural [n] and a polyhedron [p] in
    QQ^n and computes the smallest cone that contains [p], represented

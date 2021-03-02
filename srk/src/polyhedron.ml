@@ -400,14 +400,14 @@ let of_apron0 man abstract0 =
     P.top
     (Abstract0.to_lincons_array man abstract0)
 
-let dual_cone polyhedron =
+let dual_cone dim polyhedron =
   (* Given polyhedron Ax >= b, form the constraint system
      lambda * A = y /\ lambda * b >= 0.
      Then project out the lambda dimensions.
    *)
-  (* map [0 .. nb_constraints] to [max_dim .. max_dim + nb_constraints] *)
-  let max_dim = max_constrained_dim polyhedron + 1 in
-  let lambda i = max_dim + i in
+  (* map [0 .. nb_constraints] to [dim .. dim + nb_constraints] *)
+  assert (dim >= max_constrained_dim polyhedron);
+  let lambda i = dim + i in
   let lambda_nonnegative =
     BatEnum.foldi
       (fun i (cmp, _) constraints ->
@@ -423,7 +423,7 @@ let dual_cone polyhedron =
       BatEnum.fold
         (fun map dim -> IntMap.add dim (V.of_term (QQ.of_int (-1)) dim) map)
         IntMap.empty
-        (0 -- (max_dim - 1))
+        (0 -- (dim - 1))
     in
     let (lambdaA, lambdab) =
       BatEnum.foldi
@@ -445,7 +445,7 @@ let dual_cone polyhedron =
       (P.add (`Nonneg, lambdab) lambda_nonnegative)
   in
   project
-    (BatList.of_enum (max_dim -- (P.cardinal polyhedron + max_dim - 1)))
+    (BatList.of_enum (dim -- (P.cardinal polyhedron + dim - 1)))
     farkas_constraints
 
 let enum_generators dim polyhedron =
@@ -484,8 +484,9 @@ let invertible_image mM polyhedron =
     P.top
 
 let conical_hull polyhedron =
-  dual_cone polyhedron
-  |> enum_generators (max_constrained_dim polyhedron + 1)
+  let dim = (max_constrained_dim polyhedron + 1) in
+  dual_cone dim polyhedron 
+  |> enum_generators dim
   |> BatEnum.filter_map (function
          | `Vertex, vec ->
             assert (V.equal V.zero vec);

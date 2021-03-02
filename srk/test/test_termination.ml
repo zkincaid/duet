@@ -270,6 +270,4 @@ let suite = "Termination" >::: [
         let expected_cond = mk_lt srk (mk_zero srk) z in
         assert_implies expected_cond (mp_dta tf)
       );
-
-
     ]

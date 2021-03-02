@@ -46,7 +46,7 @@ let llrf_residual srk tf =
     in
     mk_and srk (nnf::diff)
   in
-  let dim = List.length x_xp + 1 in
+  let dim = List.length x_xp in
   let x_cs = cs_of_symbols srk (List.map fst x_xp) in
   let dx_cs = cs_of_symbols srk dx in
   let rec go formula =
@@ -62,7 +62,7 @@ let llrf_residual srk tf =
         Abstract.abstract ~exists:(mem_cs dx_cs) srk polka formula
         |> SrkApron.formula_of_property
         |> Polyhedron.of_formula dx_cs
-        |> Polyhedron.dual_cone
+        |> Polyhedron.dual_cone dim
       in
       let lb_cone =
         let lb_cone_generators =
