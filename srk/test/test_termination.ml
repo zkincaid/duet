@@ -55,7 +55,7 @@ let mp_llrf_with_phase tf =
       (TransitionFormula.symbols tf)
     |> List.concat
   in
-  mk_not srk (Iteration.compute_mp_with_phase_DAG srk predicates tf mp_llrf)
+  mk_not srk (Iteration.phase_mp srk predicates tf mp_llrf)
 
 let assert_equal_pz x y =
   assert_equal 
@@ -270,6 +270,4 @@ let suite = "Termination" >::: [
         let expected_cond = mk_lt srk (mk_zero srk) z in
         assert_implies expected_cond (mp_dta tf)
       );
-
-
     ]
