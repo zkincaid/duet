@@ -66,9 +66,6 @@ module BaseDegPairMap = struct
     let qqxvec = QQV.of_list [factor, non_zero_dim] in
     E.set index_pair (QQV.add (E.get index_pair p) qqxvec) p
 
-  let has_const_order base deg =
-    QQ.equal QQ.one base && deg == 0
-
   (** Rank the items in the data structure according to dominance ordering and
       produce a formula for sufficient condition for termination.
       p: the Abelian group map.
@@ -78,7 +75,7 @@ module BaseDegPairMap = struct
       lhs_const: the constant that appears in the closed form formula.
       ineq_type: whether this inequality is <=, = or <.
   *)
-  let rank srk p sim_terms lhs_const ineq_type =
+  let rank srk p sim_terms ineq_type =
     logf "entering rank";
     let dim_to_term = fun d -> if d < 0 then mk_one srk else BatList.nth sim_terms d in
     let dom_ranked_list = 
@@ -95,26 +92,9 @@ module BaseDegPairMap = struct
     in
     let conditions = 
       logf "start printing conditions list and formula stems";
-      let conditions_list_final, formula_stem_list, encountered_const_order = 
+      let conditions_list_final, formula_stem_list = 
         BatList.fold_left
-          (fun (conditions_list, formula_stem, flag) (base, deg, qqt)  ->
-             if has_const_order base deg then
-               (** where the coefficient for const order term is non-zero
-                   combine the term with the constant to derive a condition *)
-               begin
-                 logf "constant order base case";
-                 let condition_lhs = Linear.term_of_vec srk dim_to_term qqt in
-                 let lhs = condition_lhs in
-                 let lhs_lt_zero = mk_lt srk lhs (mk_zero srk) in
-                 let lhs_eq_zero = mk_eq srk lhs (mk_zero srk) in
-                 let current_condition = mk_and srk (lhs_lt_zero :: formula_stem) in
-                 let updated_stem = lhs_eq_zero :: formula_stem in
-                 logf "lhs_lt_zero is: %a" (Formula.pp srk) lhs_lt_zero;
-                 logf "lhs_eq_zero is: %a" (Formula.pp srk) lhs_eq_zero;
-                 logf "current_condition is: %a" (Formula.pp srk) current_condition;
-                 (current_condition :: conditions_list, updated_stem, true)           
-               end
-             else
+          (fun (conditions_list, formula_stem) (_, _, qqt)  ->
                (** ordinary dominant term analysis for terms that dominate constant*)
                begin
                  logf "bigger than constant order base case";
@@ -126,45 +106,18 @@ module BaseDegPairMap = struct
                  logf "lhs_lt_zero is: %a" (Formula.pp srk) lhs_lt_zero;
                  logf "lhs_eq_zero is: %a" (Formula.pp srk) lhs_eq_zero;
                  logf "current_condition is: %a" (Formula.pp srk) current_condition;
-                 (current_condition :: conditions_list, updated_stem, flag)
+                 (current_condition :: conditions_list, updated_stem)
                  (** the term being considered is dominated by constant *)
                end
           )
-          ([], [], false)
+          ([], [])
           dom_ranked_list
       in
       match ineq_type with
       | Lt0  -> 
         mk_not srk (mk_or srk conditions_list_final)
       | Eq0 -> 
-        begin
-          logf "inequation type is = 0";
-          if BatList.is_empty conditions_list_final then
-            (** we have started with a dominanting constant out of our control,
-                behavior is captured by the constant on LHS *)          
-            if QQ.equal QQ.zero lhs_const then 
-              (** if const on LHS is 0, at far away the LHS is 0 *)
-              mk_false srk
-            else 
-              (** if const on LHS is nonzero, the invariant will not hold 
-                  for large enough no. of iterations *)
-              mk_true srk
-          else if encountered_const_order then
-            (** have control over the constants, build everything as usual *)
-            begin
-            logf "have encountered constant order terms";
-            mk_not srk (mk_and srk formula_stem_list)
-            end
-          else
-            (** no control over the constant *)
-          if QQ.equal lhs_const QQ.zero then
-            (** but the constant itself alone is 0, 
-                let all coefficients be 0 is fine here*)
-            mk_not srk (mk_and srk formula_stem_list)
-          else 
-            (** cannot remain 0 forever, has to terminate *)
-            mk_true srk
-        end
+        mk_not srk (mk_and srk formula_stem_list)
       | Leq0 ->         
         mk_not srk (mk_or srk ( (mk_and srk formula_stem_list) :: conditions_list_final)) 
     in
@@ -204,16 +157,15 @@ let rewrite_exp_under_basis expression list_symbols =
   let vec = 
     BatList.fold_lefti
       (fun existing_coeffs i symbol -> 
-        try
           let coeff = Vec.coeff (Linear.dim_of_sym symbol) expression in
           Vec.add_term coeff i existing_coeffs 
-        with Not_found -> Vec.add_term QQ.zero i existing_coeffs 
       )
       Vec.zero
       list_symbols
   in
   let const = Vec.coeff CoordinateSystem.const_id expression in
-  (vec, const)
+  Vec.add_term const (-1) vec
+  (* (vec, const) *)
 
 (* Scale a simulation such that it maps integer states to integer states *)
 let scale_simulation srk best_DLTS_abstraction = 
@@ -381,8 +333,8 @@ module XSeq = struct
       | `Leq -> Leq0, vec
     in 
     let (sim_symbols, sim_terms, best_DLTS_abstraction) = abstraction in
-    let lt_vec, lhs_const = rewrite_exp_under_basis lhs sim_symbols in
-    logf "\nlt_vec is: %a, LHS constant is: %a" Vec.pp lt_vec QQ.pp lhs_const;
+    let lt_vec = rewrite_exp_under_basis lhs sim_symbols in
+    logf "\nlt_vec is: %a" Vec.pp lt_vec;
     let lt_vec_exppoly = ExpPolynomial.Vector.of_qqvector lt_vec in
     let closed_form_vec = ExpPolynomial.Matrix.vector_left_mul lt_vec_exppoly exp_poly in
     (* check if the dynamic matrix has negative eigenvalues *)
@@ -397,7 +349,7 @@ module XSeq = struct
     let analyze_entries entries =
       begin
         logf "start iterating entries";
-        let m = BaseDegPairMap.put (QQ.one, 0) lhs_const (-1) BaseDegPairMap.empty in
+        let m = BaseDegPairMap.put (QQ.one, 0) (Vec.coeff (-1) vec) (-1) BaseDegPairMap.empty in
         let m = BatEnum.fold 
             ( fun m (entry, idx) ->                
                 logf "iterating this entry: %a at coordinate: %d" ExpPolynomial.pp entry idx;
@@ -423,7 +375,7 @@ module XSeq = struct
             m
             entries
         in
-        let conditions = mk_not srk (BaseDegPairMap.rank srk m sim_terms lhs_const ineq_type) in
+        let conditions = mk_not srk (BaseDegPairMap.rank srk m sim_terms ineq_type) in
         logf "terminating condition: %a" (Formula.pp srk) conditions;
         conditions
       end
@@ -469,10 +421,8 @@ module XSeq = struct
       | None -> failwith "see non-integer divisor, error"
     in
     let (sim_symbols, _, _) = abstraction in
-    let lt_vec, lhs_const = rewrite_exp_under_basis dividend_vec sim_symbols in
-    logf "\nlt_vec is: %a, LHS constant is: %a" 
-      Vec.pp lt_vec 
-      QQ.pp lhs_const;
+    let lt_vec = rewrite_exp_under_basis dividend_vec sim_symbols in
+    logf "\nlt_vec is: %a" Vec.pp lt_vec;
     let lt_vec_exppoly = ExpPolynomial.Vector.of_qqvector lt_vec in
     let closed_form_dividend =
       (ExpPolynomial.Matrix.vector_left_mul lt_vec_exppoly exp_poly)
@@ -486,7 +436,7 @@ module XSeq = struct
               (List.nth sim_symbols dim)
           in
           seq_add_term srk existing_seq current_seq)
-        (Periodic.make [mk_real srk lhs_const])
+        (Periodic.make [mk_real srk (Vec.coeff (-1) dividend_vec)])
         (ExpPolynomial.Vector.enum closed_form_dividend)
     in
     let mk_divides t =
