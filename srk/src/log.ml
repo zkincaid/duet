@@ -110,7 +110,7 @@ let debugf fmt =
 let errorf fmt =
   if !colorize
   then Format.eprintf ("\x1b[31;1m" ^^ fmt ^^ "\x1b[0m@\n@?")
-  else Format.eprintf fmt
+  else Format.eprintf (fmt ^^ "@\n@?")
 let error msg = errorf msg
 let error_pp pp x = errorf "%a" pp x
 

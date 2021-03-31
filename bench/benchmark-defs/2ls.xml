@@ -1,0 +1,39 @@
+<?xml version="1.0"?>
+<!DOCTYPE benchmark PUBLIC "+//IDN sosy-lab.org//DTD BenchExec benchmark 1.18//EN" "https://www.sosy-lab.org/benchexec/benchmark-1.18.dtd">
+<benchmark tool="tools.two_ls" 
+  displayName="2LS" timelimit="15min">
+
+<rundefinition>
+  <tasks name="Termination">
+    <includesfile>../tasks/termination.set</includesfile>
+    <propertyfile>../tasks/properties/termination.prp</propertyfile>
+    <option name="--64"/>
+    <option name="--termination"/>
+  </tasks>
+  <tasks name="polybench">
+    <includesfile>../tasks/polybench.set</includesfile>
+    <propertyfile>../tasks/properties/termination.prp</propertyfile>
+    <option name="--64"/>
+    <option name="--termination"/>
+  </tasks>
+  <tasks name="bitprecise">
+    <includesfile>../tasks/bitprecise.set</includesfile>
+    <propertyfile>../tasks/properties/termination.prp</propertyfile>
+    <option name="--64"/>
+    <option name="--termination"/>
+  </tasks>
+  <tasks name="recursive">
+    <includesfile>../tasks/recursive.set</includesfile>
+    <propertyfile>../tasks/properties/termination.prp</propertyfile>
+    <option name="--64"/>
+    <option name="--termination"/>
+  </tasks>
+  <tasks name="termination_linear">
+    <includesfile>../tasks/termination_linear.set</includesfile>
+    <propertyfile>../tasks/properties/termination.prp</propertyfile>
+    <option name="--64"/>
+    <option name="--termination"/>
+  </tasks>
+</rundefinition>
+
+</benchmark>

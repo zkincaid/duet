@@ -5,6 +5,9 @@ type 'a t =
     symbols : (symbol * symbol) list;
     exists : (symbol -> bool) }
 
+include Log.Make(struct let name = "srk.transitionFormula" end)
+
+
 let identity srk symbols =
   let formula = 
     List.map (fun (sym, sym') ->
@@ -14,6 +17,8 @@ let identity srk symbols =
   in
   let exists _ = true in
   { formula; symbols; exists }
+
+let zero srk symbols = let exists _ = true in { formula = mk_false srk; symbols; exists}
 
 let pre_symbols tr_symbols =
   List.fold_left (fun set (s,_) ->
@@ -106,3 +111,55 @@ let add srk tf1 tf2 =
 
 let linearize srk tf =
   { tf with formula = Nonlinear.linearize srk tf.formula }
+
+let map_formula f tf = { tf with formula = f tf.formula }
+
+let preimage srk tf state =
+  logf "preimage of transition formula: %a" (Formula.pp srk) tf.formula;
+  logf "and state formula: %a" (Formula.pp srk) state;
+  let open Syntax in
+  let tf = linearize srk tf in
+  let fresh_skolem =
+    Memo.memo (fun sym ->
+        let name = show_symbol srk sym in
+        let typ = typ_symbol srk sym in
+        mk_const srk (mk_symbol srk ~name typ))
+  in
+  let post_map =
+    List.fold_left
+      (fun map (sym, sym') -> Symbol.Map.add sym sym' map)
+      Symbol.Map.empty
+      tf.symbols
+  in
+  let pre_map =
+    List.fold_left
+      (fun map (sym, sym') -> Symbol.Map.add sym' sym map)
+      Symbol.Map.empty
+      tf.symbols
+  in
+  (* let post_map = post_map srk tf.symbols in *)
+  (* let pre_map = pre_map srk tf.symbols in *)
+  let pre_to_fresh_skolems_map = Symbol.Map.fold 
+    (fun sym _ m -> 
+      Symbol.Map.add sym (fresh_skolem sym) m)
+    post_map 
+    Symbol.Map.empty in
+  let subst_tf sym = 
+    match Symbol.Map.find_opt sym pre_map with 
+    | Some pre_symbol -> Symbol.Map.find pre_symbol pre_to_fresh_skolems_map 
+    | None -> mk_const srk sym 
+  in
+  let subst_state sym =
+    match ((exists tf) sym) with
+    | true -> 
+      begin 
+        match (Symbol.Map.find_opt sym post_map) with 
+          | Some _ -> Symbol.Map.find sym pre_to_fresh_skolems_map 
+          | _ -> mk_const srk sym
+      end
+    | false -> fresh_skolem sym
+  in
+  let result = mk_and srk [substitute_const srk subst_tf (formula tf); substitute_const srk subst_state state]
+  in
+  logf "result state formula: %a" (Formula.pp srk) result;
+  result 

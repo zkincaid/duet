@@ -27,4 +27,3 @@
 
 (menhir
   (modules srkParse srkSmtlib2Parse))
-

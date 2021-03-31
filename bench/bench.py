@@ -7,6 +7,7 @@ from string import Template
 import subprocess
 import tempfile
 import types
+import statistics
 
 # Configuration -- can be reconfigured via the command line
 tools = ["CRA", "VASS"]
@@ -98,15 +99,20 @@ def summarize_result(tool, suite):
     result.correct = 0
     result.timeout = 0
     result.unknown = 0
+    result.times_excluding_timeouts = []
     for entry in data:
         result.total += 1
         result.time += get_time(entry, 0)
-        if (get_category(entry, 0) == "TIMEOUT"):
+        if (get_result(entry, 0) == "TIMEOUT"):
             result.timeout += 1
         elif (get_category(entry, 0) == "correct"):
             result.correct += 1
+            result.times_excluding_timeouts.append(get_time(entry, 0))
         elif (get_category(entry, 0) == "unknown"):
             result.unknown += 1
+            result.times_excluding_timeouts.append(get_time(entry, 0))
+        else:
+            result.times_excluding_timeouts.append(get_time(entry, 0))
     return result
 
 def summary():
@@ -117,10 +123,16 @@ def summary():
     num = {}
     total_correct = {}
     total_time = {}
+    num_timeout = {}
+    times_excluding_timeout = {}
+    mean_time_excluding_timeout = {}
+    median_time_excluding_timeout = {}
 
     for tool in tools:
         total_correct[tool] = 0
         total_time[tool] = 0
+        times_excluding_timeout[tool] = []
+        num_timeout[tool] = 0
 
     for suite in suites:
         row = {}
@@ -135,10 +147,16 @@ def summary():
             row[tool] = r
             total_correct[tool] += r.correct
             total_time[tool] += r.time
+            times_excluding_timeout[tool].extend(r.times_excluding_timeouts)
+            num_timeout[tool] += r.timeout
         best_time[suite] = best_time_suite
         best_correct[suite] = best_correct_suite
         num[suite] = num_suite
         matrix[suite] = row
+
+    for tool in tools:
+        mean_time_excluding_timeout[tool] = statistics.mean(times_excluding_timeout[tool])
+        median_time_excluding_timeout[tool] = statistics.median(times_excluding_timeout[tool])
 
     print("\\begin{tabular}{@{}lc|%s@{}}" % ("|".join(["c@{}r"] * (len(tools)))))
     print("\\toprule")
@@ -179,6 +197,25 @@ def summary():
         else:
             print(" & %.1f" % total_time[tool],end='')
     print("\\\\")
+
+    print("Timeouts & ", end='');
+    for tool in tools:
+        print(" & \\multicolumn{2}{c}{%d}" % num_timeout[tool], end='')
+
+    print("\\\\")
+
+    print("Mean time & ", end='');
+    for tool in tools:
+        print(" & \\multicolumn{2}{c}{%.1f}" % mean_time_excluding_timeout[tool], end='')
+
+    print("\\\\")
+
+    print("Median time & ", end='');
+    for tool in tools:
+        print(" & \\multicolumn{2}{c}{%.1f}" % median_time_excluding_timeout[tool], end='')
+
+    print("\\\\")
+
     print("\\bottomrule")
     print("\\end{tabular}")
 
@@ -244,23 +281,81 @@ def scatter_plot():
 
     matrix = recent_result_data(tools, suites)
 
-    filename = "scatter_%s_%s.dat" % (tools[0], tools[1])
-    print ("Writing data to %s" % filename)
-    out = open(filename, "w")
-    min_time = 1
-    max_time = 1
-
     # Don't include points where one tool gave a wrong answer
     ok_results = ["correct", "TIMEOUT", "unknown"]
 
-    for i in range(len(matrix)):
-        if get_category(matrix[i],0) in ok_results and get_category(matrix[i],1) in ok_results:
-            time1 = get_time(matrix[i],0)
-            time2 = get_time(matrix[i],0)
-            out.write("%f %f\n" % (time1, time2))
+    min_time = 1
+    max_time = 1
 
-            min_time = min(min_time,time1,time2)
-            max_time = max(max_time,time1,time2)
+    # both correct figure
+    filename_tt = "scatter_%s_%s_tt.dat" % (tools[0], tools[1])
+    print ("Writing data to %s" % filename_tt)
+    out = open(filename_tt, "w")
+    legendentry_tt = "%s %s both correct" % (tools[0], tools[1])
+
+    for i in range(len(matrix)):
+        # if get_category(matrix[i],0) in ok_results and get_category(matrix[i],1) in ok_results:
+            if get_category(matrix[i],0) == "correct" and get_category(matrix[i],1) == "correct":
+                time1 = get_time(matrix[i],0)
+                time2 = get_time(matrix[i],1)
+                out.write("%f %f\n" % (time1, time2))
+
+                min_time = min(min_time,time1,time2)
+                max_time = max(max_time,time1,time2)
+
+    out.close()
+
+    # first tool correct, second tool not correct
+    filename_tf = "scatter_%s_%s_tf.dat" % (tools[0], tools[1])
+    print ("Writing data to %s" % filename_tf)
+    out = open(filename_tf, "w")
+    legendentry_tf = "%s correct, %s not correct" % (tools[0], tools[1])
+
+    for i in range(len(matrix)):
+        # if get_category(matrix[i],0) in ok_results and get_category(matrix[i],1) in ok_results:
+            if get_category(matrix[i],0) == "correct" and get_category(matrix[i],1) != "correct":
+                time1 = get_time(matrix[i],0)
+                time2 = get_time(matrix[i],1)
+                out.write("%f %f\n" % (time1, time2))
+
+                min_time = min(min_time,time1,time2)
+                max_time = max(max_time,time1,time2)
+
+    out.close()
+
+    # first tool correct, second tool not correct
+    filename_ft = "scatter_%s_%s_ft.dat" % (tools[0], tools[1])
+    print ("Writing data to %s" % filename_ft)
+    out = open(filename_ft, "w")
+    legendentry_ft = "%s not correct, %s correct" % (tools[0], tools[1])
+
+    for i in range(len(matrix)):
+        # if get_category(matrix[i],0) in ok_results and get_category(matrix[i],1) in ok_results:
+            if get_category(matrix[i],0) != "correct" and get_category(matrix[i],1) == "correct":
+                time1 = get_time(matrix[i],0)
+                time2 = get_time(matrix[i],1)
+                out.write("%f %f\n" % (time1, time2))
+
+                min_time = min(min_time,time1,time2)
+                max_time = max(max_time,time1,time2)
+
+    out.close()
+
+    # first tool correct, second tool not correct
+    filename_ff = "scatter_%s_%s_ff.dat" % (tools[0], tools[1])
+    print ("Writing data to %s" % filename_ff)
+    out = open(filename_ff, "w")
+    legendentry_ff = "%s %s both not correct" % (tools[0], tools[1])
+
+    for i in range(len(matrix)):
+        # if get_category(matrix[i],0) in ok_results and get_category(matrix[i],1) in ok_results:
+            if get_category(matrix[i],0) != "correct" and get_category(matrix[i],1) != "correct":
+                time1 = get_time(matrix[i],0)
+                time2 = get_time(matrix[i],1)
+                out.write("%f %f\n" % (time1, time2))
+
+                min_time = min(min_time,time1,time2)
+                max_time = max(max_time,time1,time2)
 
     out.close()
     
@@ -268,7 +363,15 @@ def scatter_plot():
                  max = max_time,
                  x = tools[0],
                  y = tools[1],
-                 data = filename)
+                 datatt = filename_tt,
+                 ttlegend = legendentry_tt,
+                 datatf = filename_tf,
+                 tflegend = legendentry_tf,
+                 dataft = filename_ft,
+                 ftlegend = legendentry_ft,
+                 dataff = filename_ff,
+                 fflegend = legendentry_ff,
+                 )
     print (Template(open("scatter.template").read()).substitute(subst))
 
 if __name__ == "__main__":

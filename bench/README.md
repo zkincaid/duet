@@ -75,3 +75,24 @@ task suite named `SUITE`.
 
 Benchmark tasks should be defined by [YAML](https://yaml.org/) files,
 formatted according to [benchexec specifications](https://github.com/sosy-lab/benchexec/blob/master/doc/task-definition-example.yml)
+
+Suite descriptions
+------------------
+
+* Termination: check termination for the non-recursive, terminating
+  benchmarks f rom SV-COMP20 Termination-MainControlFlow.set
+* Nontermination: check termination for the non-terminating benchmarks
+  from SV-COMP20 Termination-MainControlFlow.set + the recursive
+  folder
+* recursive: check termination for the recursive, terminating
+  benchmarks from SV-COMP20 Termination-MainControlFlow.set + the
+  recursive folder
+* polybench: check termination for the [Polyhedral Benchmark
+  suite](https://web.cse.ohio-state.edu/~pouchet.2/software/polybench/)
+* bitprecise: bit-precise variation of the Termination suite, minus
+  two benchmarks for which Ultimate Automizer was able to prove
+  non-termination (java_AG313 and SyntaxSupportPointer01-3).
+* termination-linear: check termination for non-recursive,
+  terminating benchmarks where there exists linear abstractions
+  of the original loops that terminate.
+  

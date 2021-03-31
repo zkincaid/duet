@@ -1969,7 +1969,8 @@ module DLTS = struct
     let tr_symbols = TF.symbols tf in
     let phi = Nonlinear.linearize srk (TF.formula tf) in
     let phi_symbols =
-      Symbol.Set.elements (Symbol.Set.filter (TF.exists tf) (symbols phi))
+      Symbol.Set.filter (fun s -> typ_symbol srk s = `TyInt && TF.exists tf s) (symbols phi)
+      |> Symbol.Set.elements
     in
     let constants = Symbol.Set.elements (TF.symbolic_constants tf) in
     (* pre_map is a mapping from dimensions that correspond to

@@ -441,4 +441,28 @@ struct
     |> Nonlinear.linearize srk
     |> rewrite srk ~down:(nnf_rewriter srk)
     |> Abstract.abstract ~exists srk man
+
+  let linearize tr =
+    let (transform, defs) =
+      M.fold (fun var t (transform, defs) ->
+          let (pure_t, t_defs) =
+            SrkSimplify.purify srk (Nonlinear.uninterpret srk t)
+          in
+          let new_defs =
+            Symbol.Map.enum t_defs
+            /@ (fun (v,t) ->
+              match Expr.refine srk t with
+              | `Term t ->
+                 mk_eq srk (mk_const srk v) (Nonlinear.interpret srk t)
+              | _ -> assert false)
+            |> BatList.of_enum
+          in
+          (M.add var pure_t transform, new_defs@defs))
+        tr.transform
+        (M.empty, [])
+    in
+    let guard =
+      Nonlinear.linearize srk (mk_and srk (tr.guard::defs))
+    in
+    { transform; guard }
 end

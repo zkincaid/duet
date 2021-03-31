@@ -182,6 +182,7 @@ val nnf_rewriter : 'a context -> 'a rewriter
 module Expr : sig
   val equal : ('a,'b) expr -> ('a,'b) expr -> bool
   val compare : ('a,'b) expr -> ('a,'b) expr -> int
+  val hash : ('a,'b) expr -> int
   val pp : ?env:(string Env.t) ->
     'a context ->
     Format.formatter ->
@@ -246,6 +247,10 @@ module Expr : sig
       ('a, 'typ, 'b) t -> ('a, 'typ, 'c) t -> ('a, 'typ, 'd) t
     val fold : (('a, 'typ) expr -> 'b -> 'c -> 'c) -> ('a, 'typ, 'b) t -> 'c -> 'c
     val equal : ('b -> 'b -> bool) -> ('a, 'typ, 'b) t -> ('a, 'typ, 'b) t -> bool
+  end
+
+  module ExprMemo : sig
+    val memo : ?size:symbol -> (('a, 'typ) expr -> 'b) -> ('a, 'typ) expr  -> 'b
   end
 end
 

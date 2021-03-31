@@ -5,7 +5,7 @@ open Syntax
 (** A transition formula is a logical formula that describes a binary
    relation on a set of states.  Transition formulas are assumed to be
    quantifier-free, and are over four sets of symbols: pre-state
-   symbols, post-state symbols symbolic constants, and Skolem
+   symbols, post-state symbols, symbolic constants, and Skolem
    constants.  Pre-state and post-state symbols are in 1-1
    correspondence and define the space on which the transition formula
    acts.  Symbolic constants are parameters that do not change during
@@ -23,6 +23,9 @@ val make : ?exists:(symbol -> bool) -> 'a formula -> (symbol * symbol) list -> '
 
 (** Identity relation *)
 val identity : 'a context -> (symbol * symbol) list -> 'a t
+
+(** Zero *)
+val zero : 'a context -> (symbol * symbol) list -> 'a t
 
 (** Sequential composition *)
 val mul : 'a context -> 'a t -> 'a t -> 'a t
@@ -65,3 +68,9 @@ val pre_symbols : (symbol * symbol) list -> Symbol.Set.t
 
 (** Retrieve the set of post-state symbols *)
 val post_symbols : (symbol * symbol) list -> Symbol.Set.t
+
+(** Apply a transformation to the formula, leaving existentially
+   quantified variables and transition symbols fixed. *)
+val map_formula : ('a Formula.t -> 'a Formula.t) -> 'a t -> 'a t
+
+val preimage : 'a context -> 'a t -> 'a Formula.t -> 'a Formula.t

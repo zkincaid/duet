@@ -5,6 +5,8 @@ open BatPervasives
 
 module RG = Interproc.RG
 module WG = WeightedGraph
+module TLLRF = TerminationLLRF
+module TDTA = TerminationDTA
 module G = RG.G
 module Ctx = Syntax.MakeSimplifyingContext ()
 module Int = SrkUtil.Int
@@ -19,6 +21,12 @@ let forward_pred_abs = ref false
 let dump_goals = ref false
 let monotone = ref false
 let nb_goals = ref 0
+let termination_exp = ref true
+let termination_llrf = ref true
+let termination_dta = ref true
+let termination_phase_analysis = ref true
+let precondition = ref false
+let termination_attractor = ref true
 
 let dump_goal loc path_condition =
   if !dump_goals then begin
@@ -713,6 +721,245 @@ let analyze file =
     end
   | _ -> assert false
 
+let preimage transition formula =
+  let open Syntax in
+  let transition = K.linearize transition in
+  let fresh_skolem =
+    Memo.memo (fun sym ->
+        let name = show_symbol srk sym in
+        let typ = typ_symbol srk sym in
+        mk_const srk (mk_symbol srk ~name typ))
+  in
+  let subst sym =
+    match V.of_symbol sym with
+    | Some var ->
+       if K.mem_transform var transition then
+         K.get_transform var transition
+       else
+         mk_const srk sym
+    | None -> fresh_skolem sym
+  in
+  mk_and srk [SrkSimplify.eliminate_floor srk (K.guard transition);
+              substitute_const srk subst formula]
+
+(* Attractor region analysis *)
+let attractor_regions tf =
+  let open Syntax in
+  let formula = TF.formula tf in
+  let attractors =
+    BatList.fold_left (fun xs (x, x') ->
+        let (x, x') = mk_const srk x, mk_const srk x' in
+        let lo =
+          let nonincreasing = mk_and srk [formula; mk_leq srk x' x] in
+          match SrkZ3.optimize_box srk (mk_and srk [formula; nonincreasing]) [x'] with
+          | `Sat [ivl] ->
+             (match Interval.lower ivl with
+              | Some lo -> [mk_leq srk (mk_real srk lo) x]
+              | None -> [])
+          | _ -> []
+        in
+        let hi =
+          let nondecreasing = mk_and srk [formula; mk_leq srk x x'] in
+          match SrkZ3.optimize_box srk (mk_and srk [formula; nondecreasing]) [x'] with
+          | `Sat [ivl] ->
+             (match Interval.upper ivl with
+              | Some hi -> [mk_leq srk x (mk_real srk hi)]
+              | None -> [])
+          | _ -> []
+        in
+        (lo@hi@xs))
+      []
+      (TF.symbols tf)
+  in
+  TF.map_formula (fun _ -> mk_and srk (formula::attractors)) tf
+
+
+let omega_algebra = function
+  | `Omega transition ->
+     (** over-approximate possibly non-terminating conditions for a transition *)
+     begin
+       let open Syntax in
+       let tf =
+         TF.map_formula
+           (fun phi -> SrkSimplify.eliminate_floor srk (Nonlinear.linearize srk phi))
+           (K.to_transition_formula transition)
+       in
+       let nonterm tf =
+         let pre =
+           let fresh_skolem =
+             Memo.memo (fun sym -> mk_const srk (dup_symbol srk sym))
+           in
+           let subst sym =
+             match V.of_symbol sym with
+             | Some _ -> mk_const srk sym
+             | None -> fresh_skolem sym
+           in
+           substitute_const srk subst (TF.formula tf)
+         in
+         let llrf, has_llrf =
+           if !termination_llrf then
+             if TLLRF.has_llrf srk tf then
+               [Syntax.mk_false srk], true
+             else if !termination_attractor
+                     && TLLRF.has_llrf srk (attractor_regions tf) then
+               [Syntax.mk_false srk], true
+             else
+               [pre], false
+           else
+             (* If LLRF is disabled, default to pre *)
+             [pre], false
+         in
+         let dta =
+           (* If LLRF succeeds, then we do not try dta *)
+           if (not has_llrf) && !termination_dta then
+             [TDTA.XSeq.terminating_conditions_of_formula_via_xseq srk tf]
+           else []
+         in
+         let exp =
+           if (not has_llrf) && !termination_exp then
+             let mp =
+               Syntax.mk_not srk
+                 (TerminationExp.mp (module Iteration.LinearRecurrenceInequation) srk tf)
+             in
+             let dta_entails_mp =
+               (* if DTA |= mp, DTA /\ MP simplifies to DTA *)
+               Syntax.mk_forall_consts
+                 srk
+                 (fun _ -> false)
+                 (Syntax.mk_if srk (mk_and srk dta) mp)
+             in
+             match Quantifier.simsat srk dta_entails_mp with
+             | `Sat -> []
+             | _ -> [mp]
+           else []
+         in
+         let result =
+           Syntax.mk_and srk (llrf@dta@exp)
+         in
+         match Quantifier.simsat srk result with
+         | `Unsat -> mk_false srk
+         | _ -> result
+       in
+       if !termination_phase_analysis then begin
+           let predicates =
+             (* Use variable directions & signs as candidate invariants *)
+             List.map (fun (x,x') ->
+                 let x = mk_const srk x in
+                 let x' = mk_const srk x' in
+                 [mk_lt srk x x';
+                  mk_lt srk x' x;
+                  mk_eq srk x x'])
+               (TF.symbols tf)
+             |> List.concat
+           in
+           Iteration.phase_mp srk predicates tf nonterm
+         end else
+         nonterm tf
+     end
+  | `Add (cond1, cond2) ->
+     (** combining possibly non-terminating conditions for multiple paths *)
+     Syntax.mk_or srk [cond1; cond2]
+  | `Mul (transition, state) ->
+     (** propagate state formula through a transition *)
+     preimage transition state
+
+(* Raise universal quantifiers to top-level.  *)
+let lift_universals srk phi =
+  let open Syntax in
+  let phi = rewrite srk ~down:(nnf_rewriter srk) phi in
+  let rec quantify_universals (nb, phi) =
+    if nb > 0 then
+      quantify_universals (nb - 1, mk_forall srk `TyInt phi)
+    else
+      phi
+  in
+  let alg = function
+    | `Tru -> (0, mk_true srk)
+    | `Fls -> (0, mk_false srk)
+    | `Atom (`Eq, x, y) -> (0, mk_eq srk x y)
+    | `Atom (`Lt, x, y) -> (0, mk_lt srk x y)
+    | `Atom (`Leq, x, y) -> (0, mk_leq srk x y)
+    | `And conjuncts ->
+       let max_nb = List.fold_left max 0 (List.map fst conjuncts) in
+       let shift_conjuncts =
+         conjuncts |> List.map (fun (nb,phi) ->
+                     let shift = max_nb - nb in
+                     substitute srk (fun i -> mk_var srk (i + shift) `TyInt) phi)
+       in
+       (max_nb, mk_and srk shift_conjuncts)
+    | `Or disjuncts ->
+       let max_nb = List.fold_left max 0 (List.map fst disjuncts) in
+       if max_nb == 0 then
+         (0, mk_or srk (List.map snd disjuncts))
+       else
+         (* Introduce a Skolem constant to distribute universals over disjunction:
+            (forall x. F(x)) \/ (forall x. G(x))
+            is equisatisfiable with
+            exists c. forall x. (F(x) /\ c = 0) \/ (G(x) /\ c = 1) *)
+         let sk = mk_const srk (mk_symbol srk ~name:"choice" `TyInt) in
+         let shift_disjuncts =
+           disjuncts |> BatList.mapi (fun idx (nb,phi) ->
+                            let shift = max_nb - nb in
+                            mk_and srk
+                              [substitute srk (fun i -> mk_var srk (i + shift) `TyInt) phi;
+                               mk_eq srk sk (mk_int srk idx)])
+         in
+         (max_nb, mk_or srk shift_disjuncts)
+
+    | `Quantify (`Exists, name, typ, qphi) ->
+       (0, mk_exists srk ~name typ (quantify_universals qphi))
+    | `Quantify (`Forall, _, `TyInt, (nb_universals, phi)) ->
+       (nb_universals + 1, phi)
+    | `Quantify (`Forall, name, typ, qphi) ->
+       (0, mk_forall srk ~name typ (quantify_universals qphi))
+    | `Not (_, _) -> assert false
+    | `Proposition (`Var i) -> (0, mk_var srk i `TyBool)
+    | `Proposition (`App (p, args)) -> (0, mk_app srk p args)
+    | `Ite (cond, bthen, belse) ->
+       (0, mk_ite srk
+             (quantify_universals cond)
+             (quantify_universals bthen)
+             (quantify_universals belse))
+  in
+  quantify_universals (Formula.eval srk alg phi)
+
+let prove_termination_main file =
+  populate_offset_table file;
+  match file.entry_points with
+  | [main] -> begin
+      let rg = Interproc.make_recgraph file in
+      let entry = (RG.block_entry rg main).did in
+      let (ts, _) = make_transition_system rg in
+      if !CmdLine.display_graphs then
+        TSDisplay.display ts;
+      let query = mk_query ts entry in
+      let omega_paths_sum =
+        TS.omega_path_weight query omega_algebra
+        |> lift_universals srk
+        |> SrkSimplify.simplify_terms srk
+      in
+      match Quantifier.simsat srk omega_paths_sum with
+      | `Sat ->
+         Format.printf "Cannot prove that program always terminates\n";
+         if !precondition then
+           (* TODO: need to eliminate universal quantifiers first quantifiers first! *)
+           let simplified =
+             omega_paths_sum
+             |> Nonlinear.linearize srk
+             |> Quantifier.mbp srk (fun sym ->
+                    match V.of_symbol sym with
+                    | Some x -> V.is_global x
+                    | _ -> false)
+             |> Syntax.mk_not srk
+           in
+           Format.printf "Sufficient terminating conditions:\n%a\n"
+             (Syntax.Formula.pp srk)
+             simplified
+      | `Unsat -> Format.printf "Program always terminates\n"
+      | `Unknown -> Format.printf "Unknown analysis result\n"
+    end
+  | _ -> failwith "Cannot find main function within the C source file"
+
 let resource_bound_analysis file =
   populate_offset_table file;
   match file.entry_points with
@@ -840,10 +1087,36 @@ let _ =
          let open Iteration in
          monotone := true;
          K.domain := (module Product(LinearRecurrenceInequation)(PolyhedronGuard))),
-     " Disable non-monotone analysis features")
+     " Disable non-monotone analysis features");
+  CmdLine.register_config
+    ("-termination-no-exp",
+     Arg.Clear termination_exp,
+     " Disable exp-based termination analysis");
+  CmdLine.register_config
+    ("-termination-no-llrf",
+     Arg.Clear termination_llrf,
+     " Disable LLRF-based termination analysis");
+  CmdLine.register_config
+    ("-termination-no-dta",
+     Arg.Clear termination_dta,
+     " Disable DTA-based termination analysis");
+  CmdLine.register_config
+    ("-termination-no-phase",
+     Arg.Clear termination_phase_analysis,
+     " Disable phase-based termination analysis");
+  CmdLine.register_config
+     ("-termination-no-attractor",
+      Arg.Clear termination_attractor,
+      " Disable attractor region computation for LLRF");
+  CmdLine.register_config
+    ("-precondition",
+     Arg.Clear precondition,
+     " Synthesize mortal preconditions")
 
 let _ =
   CmdLine.register_pass
     ("-cra", analyze, " Compositional recurrence analysis");
+  CmdLine.register_pass
+    ("-termination", prove_termination_main, " Proof of termination");
   CmdLine.register_pass
     ("-rba", resource_bound_analysis, " Resource bound analysis")

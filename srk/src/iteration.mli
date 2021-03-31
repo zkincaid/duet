@@ -71,3 +71,17 @@ module ProductWedge (A : PreDomainWedge) (B : PreDomainWedge) : PreDomainWedge
   with type 'a t = 'a A.t * 'a B.t
 
 module MakeDomain(Iter : PreDomain) : Domain
+
+(** Given a transition formula T and a transition predicate p, we say
+   that p is an invariant of T if T(x,x') /\ T(x',x'') is consistent and
+     T(x,x') /\ T(x',x'') /\ p(x,x') => p(x',x'')
+   A set of transition predicates defines a partition of T, which is acyclic
+   in the sense that when a computation leaves a cell it may never return.
+   This function takes a set of candidate transition predicates, a transition formula,
+   and a mortal precondition operator and returns another mortal precondition
+   via analyzing the phase transition structure of the transition formula. *)
+val phase_mp : 'a context -> 
+               ('a formula) list ->
+               'a TransitionFormula.t ->
+               ('a TransitionFormula.t -> 'a formula) ->
+               'a formula

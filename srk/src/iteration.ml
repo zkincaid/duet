@@ -6,6 +6,7 @@ include Log.Make(struct let name = "srk.iteration" end)
 module V = Linear.QQVector
 module CS = CoordinateSystem
 module TF = TransitionFormula
+module WG = WeightedGraph
 
 module type PreDomain = sig
   type 'a t
@@ -688,7 +689,225 @@ let invariant_transition_predicates srk tf predicates =
            false
       end
   in
-  List.filter is_invariant predicates
+  if Smt.Solver.check solver [] = `Unsat then
+    []
+  else
+    List.filter is_invariant predicates
+
+(* Each cell is i, (pos_pred_indices, neg_pred_indices), cell_formula *)
+let invariant_partition srk candidates tf =
+    let tf = TF.linearize srk tf in
+    logf "linearized transition formula to be partitioned: %a" (Formula.pp srk) (TF.formula tf);
+    let predicates =
+      invariant_transition_predicates srk tf candidates
+      |> BatArray.of_list
+    in
+    let solver = Smt.mk_solver srk in
+    Smt.Solver.add solver [TF.formula tf];
+    (* The predicate induce a parition of the transitions of T by
+       their valuation of the predicates; find the cells of this
+       partition *)
+    let rec find_cells cells =
+      Smt.Solver.push solver;
+      match Smt.Solver.get_model solver with
+      | `Sat m ->
+        logf "transition formula SAT, finding cell";
+         let cell =
+           Array.map (Interpretation.evaluate_formula m) predicates
+         in
+         let new_cell =
+          BatList.fold_lefti (
+            fun (true_preds, false_preds) i sat ->
+              if sat then (BatSet.Int.add i true_preds, false_preds)
+              else (true_preds, BatSet.Int.add i false_preds))
+              (BatSet.Int.empty, BatSet.Int.empty)
+              (Array.to_list cell)
+          in
+         let new_cell_formula =
+           List.mapi (fun i sat ->
+               if sat then predicates.(i)
+               else mk_not srk predicates.(i))
+             (Array.to_list cell)
+           |> mk_and srk
+         in
+         logf "adding cell: %a" (Formula.pp srk) new_cell_formula;
+         Smt.Solver.add solver [mk_not srk new_cell_formula];
+         find_cells ((new_cell, new_cell_formula)::cells)
+      | `Unsat ->
+        logf "transition formula UNSAT, no further cells";
+        cells
+      | `Unknown -> assert false (* to do *)
+    in
+    predicates, find_cells []
+
+let mp_algebra srk nonterm = WG.{
+      omega = nonterm;
+      omega_add = (fun p1 p2 -> Syntax.mk_or srk [p1; p2]);
+      omega_mul = (fun transition state -> TF.preimage srk transition state ) }
+
+let tf_algebra srk symbols star = WG.{
+      mul = TF.mul srk;
+      add = TF.add srk;
+      one = TF.identity srk symbols;
+      zero = TF.zero srk symbols;
+      star = star }
+
+let phase_graph srk tf candidates algebra =
+  let inv_predicates, cells = invariant_partition srk candidates tf in
+  let num_cells = BatList.length cells in
+  (* map' sends primed vars to midpoints; map sends unprimed vars to midpoints *)
+  logf "start building phase transition graph";
+  let (map', map) =
+    List.fold_left (fun (subst1, subst2) (sym, sym') ->
+        let mid_name = "mid_" ^ (show_symbol srk sym) in
+        let mid_symbol =
+          mk_symbol srk ~name:mid_name (typ_symbol srk sym)
+        in
+        let mid = mk_const srk mid_symbol in
+        (Symbol.Map.add sym' mid subst1,
+         Symbol.Map.add sym mid subst2))
+      (Symbol.Map.empty, Symbol.Map.empty)
+      (TF.symbols tf)
+  in
+  let seq = (* T(x,x_mid) /\ T(x_mid,x') *)
+    let rename = (* rename Skolem constants *)
+      Memo.memo (fun symbol ->
+          mk_const srk (mk_symbol srk (typ_symbol srk symbol)))
+    in
+    (* substitution for first iteration *)
+    let subst1 symbol =
+      if Symbol.Map.mem symbol map' then
+        Symbol.Map.find symbol map'
+      else if TF.exists tf symbol then
+        mk_const srk symbol
+      else rename symbol
+    in
+    mk_and srk [substitute_const srk subst1 (TF.formula tf);
+                substitute_map srk map (TF.formula tf)]
+  in
+  let solver = Smt.mk_solver srk in
+  Smt.Solver.add solver [seq];
+  let indicators =
+    BatArray.mapi (fun ind predicate ->
+        let indicator =
+          mk_symbol srk ~name:("ind_1_for_pred_" ^ (string_of_int ind)) `TyBool
+          |> mk_const srk
+        in
+        let indicator' =
+          mk_symbol srk ~name:("ind_2_for_pred_" ^ (string_of_int ind)) `TyBool
+          |> mk_const srk
+        in
+        let pred = (* p(x, x_mid) *) substitute_map srk map' predicate in
+        let pred' = (* p(x_mid, x') *) substitute_map srk map predicate in
+        Smt.Solver.add solver
+          [mk_iff srk indicator pred;
+           mk_iff srk indicator' pred'];
+        (indicator, indicator'))
+      inv_predicates
+  in
+
+  let can_follow (cell1_pos,cell1_neg) (cell2_pos,cell2_neg) =
+    BatSet.Int.subset cell1_pos cell2_pos &&
+      begin
+        let cond_pos_clause =
+          (BatSet.Int.to_list cell1_pos)
+          |> BatList.map (fun ind -> fst (indicators.(ind)))
+        in
+        let cond_neg_clause =
+          (BatSet.Int.to_list cell1_neg)
+          |> BatList.map (fun ind -> mk_not srk (fst (indicators.(ind))))
+        in
+        let new_pos_inds = BatSet.Int.diff cell2_pos cell1_pos in
+        let result_pos_clause =
+          (BatSet.Int.to_list new_pos_inds)
+          |> BatList.map (fun ind -> snd (indicators.(ind)))
+        in
+        let result_neg_clause =
+          (BatSet.Int.to_list cell2_neg)
+          |> BatList.map (fun ind -> mk_not srk (snd (indicators.(ind))))
+        in
+        let cell2_can_follow_cell1 =
+          cond_neg_clause@cond_pos_clause@result_neg_clause@result_pos_clause
+        in
+        Smt.Solver.check solver cell2_can_follow_cell1 != `Unsat
+      end
+  in
+
+  (* self-loop for every cell with weight tf /\ cell_formula *)
+  let wg =
+    ref (BatList.fold_lefti (fun wg cell_ind ((_, _), cell_formula) ->
+             let cell_tf = TF.map_formula (fun f -> mk_and srk [f; cell_formula]) tf in
+             WG.add_edge (WG.add_vertex wg cell_ind) cell_ind cell_tf cell_ind)
+           (WG.empty algebra)
+           cells)
+  in
+
+  (*  Ranked cells is a map from int to (list of sets), where int is the number of
+      positive predicates. *)
+  let ranked_cells =
+    BatList.fold_lefti
+      (fun m i ((positive_preds, negative_preds), _) ->
+        BatMap.Int.modify_def []
+          (BatSet.Int.cardinal positive_preds)
+          (fun xs -> (i, (positive_preds, negative_preds))::xs)
+          m)
+      BatMap.Int.empty
+      cells
+  in
+  let levels = BatArray.of_enum (BatMap.Int.keys ranked_cells) in
+  let ancestors = BatArray.make num_cells BatSet.Int.empty in
+  let descendants = BatArray.make num_cells BatSet.Int.empty in
+  (* There can be an edge i -> j only if rank i < rank j *)
+  for current_level_idx = 1 to (BatArray.length levels) - 1 do
+    let current_level = levels.(current_level_idx) in
+    logf "current level = %d" current_level;
+    let targets = BatMap.Int.find current_level ranked_cells in
+    for prev_level_idx = current_level_idx - 1 downto 0 do
+      let prev_level = levels.(prev_level_idx) in
+      logf "previous level = %d" prev_level;
+      let sources = BatMap.Int.find prev_level ranked_cells in
+      BatList.iter (fun (i, cell_i) ->
+          BatList.iter (fun (j, cell_j) ->
+              if not (BatSet.Int.mem j descendants.(i))
+                 && can_follow cell_i cell_j then
+                begin
+                  wg := WG.add_edge !wg i algebra.one j;
+                  (* Add i and i's ancestors into j's ancestors set *)
+                  ancestors.(j) <-
+                    BatSet.Int.add i (BatSet.Int.union ancestors.(i) ancestors.(j));
+                  (* Add j to all its ancestors' descendants sets *)
+                  BatSet.Int.iter (fun k ->
+                      descendants.(k) <- BatSet.Int.add j descendants.(k))
+                    ancestors.(j);
+                end)
+            targets)
+        sources;
+    done;
+  done;
+  !wg
+
+let phase_mp srk candidate_predicates tf nonterm =
+  let star tf =
+    let module E = LinearRecurrenceInequation in
+    let k = mk_symbol srk `TyInt in
+    let exists x = x != k && (TF.exists tf) x in
+    TF.make ~exists
+      (E.exp srk (TF.symbols tf) (mk_const srk k) (E.abstract srk tf)) (TF.symbols tf)
+  in
+  let algebra = tf_algebra srk (TF.symbols tf) star in
+  let wg = phase_graph srk tf candidate_predicates algebra in
+  (* node (-1) is virtual entry.  Add edges to all isolated vertices
+     (only one in-edge, from its self-loop).  *)
+  let wg =
+    WG.fold_vertex (fun v wg ->
+        if WG.U.in_degree (WG.forget_weights wg) v == 1 then
+            WG.add_edge wg (-1) algebra.one v
+        else
+          wg)
+      wg
+      (WG.add_vertex wg (-1))
+  in
+  WG.omega_path_weight wg (mp_algebra srk nonterm) (-1)
 
 module InvariantDirection (Iter : PreDomain) = struct
   type 'a t = 'a Iter.t list list

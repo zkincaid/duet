@@ -11,6 +11,8 @@ type quantifier_prefix = ([`Forall | `Exists] * symbol) list
 module V = Linear.QQVector
 module VS = BatSet.Make(Linear.QQVector)
 module VM = BatMap.Make(Linear.QQVector)
+module ZZVector = Linear.ZZVector
+module IntSet = SrkUtil.Int.Set
 
 let substitute_const srk sigma expr =
   let simplify t = of_linterm srk (linterm_of srk t) in
@@ -754,6 +756,7 @@ let select_real_term srk interp x atoms =
      t)
 
 let select_int_term srk interp x atoms =
+  assert (typ_symbol srk x == `TyInt);
   let merge bound bound' =
     match bound, bound' with
     | (`Lower (s, s_val), `Lower (t, t_val)) ->
@@ -766,8 +769,8 @@ let select_int_term srk interp x atoms =
           `Upper (s, s_val)
         else
           `Upper (t, t_val)
-    | (`Upper (t, t_val), _) | (_, `Upper (t, t_val)) -> `Upper (t, t_val)
     | (`Lower (t, t_val), _) | (_, `Lower (t, t_val)) -> `Lower (t, t_val)
+    | (`Upper (t, t_val), _) | (_, `Upper (t, t_val)) -> `Upper (t, t_val)
     | `None, `None -> `None
   in
   let eval = evaluate_linterm (Interpretation.real interp) in
@@ -990,6 +993,20 @@ let specialize_floor_cube srk model cube =
 
        add_div_constraint divisor dividend';
        (replacement :> ('a,typ_fo) expr)
+    | `Binop (`Mod, t, m) ->
+       begin match destruct srk m with
+       | `Real m ->
+          let replacement =
+            mk_real srk (QQ.modulo (Interpretation.evaluate_term model t) m)
+          in
+          let m = match QQ.to_zz m with
+            | Some m -> m
+            | None -> assert false
+          in
+          add_div_constraint m (mk_sub srk t replacement);
+          (replacement :> ('a,typ_fo) expr)
+       | _ -> expr
+       end
     | _ -> expr
   in
   let cube' = List.map (rewrite srk ~up:replace_floor) cube in
@@ -1738,84 +1755,224 @@ let qe_mbp srk phi =
     qf_pre
     phi
 
+(* Given a set of dimensions to project and a set of equations, orient
+   the equations into a set rewrite rules of the form (a * x) -> t *)
+let _orient project eqs =
+  let simplify vec =
+    let gcd = (* GCD of coefficients *)
+      BatEnum.fold (fun gcd (a, _) -> ZZ.gcd gcd a) ZZ.zero (ZZVector.enum vec)
+    in
+    ZZVector.map (fun _ a -> ZZ.div a gcd) vec
+  in
+  (* Replace a*dim -> rhs in vec.  a must be positive. *)
+  let substitute (a, dim) rhs vec =
+    let (b,vec') = ZZVector.pivot dim vec in
+    if ZZ.equal ZZ.zero b then
+      vec
+    else
+      let lcm = ZZ.abs (ZZ.lcm a b) in
+      let rhs = ZZVector.scalar_mul (ZZ.div lcm a) rhs in
+      let vec' = ZZVector.scalar_mul (ZZ.div lcm b) vec' in
+      simplify (ZZVector.add rhs vec')
+  in
+  (* Simplify equations *)
+  let eqs =
+    eqs
+    |> List.map (fun vec ->
+           let den = common_denominator vec in
+           V.enum vec
+           /@ (fun (scalar, dim) ->
+             match QQ.to_zz (QQ.mul (QQ.of_zz den) scalar) with
+             | Some z -> (z, dim)
+             | None -> assert false)
+           |> ZZVector.of_enum
+           |> simplify)
+  in
+  let rec go eqs oriented =
+    (* Find orientation among all equations that minimizes the leading coefficient *)
+    let champion =
+      List.fold_left (fun champion vec ->
+          BatEnum.fold (fun champion (a, dim) ->
+              if  IntSet.mem dim project then
+                let candidate =
+                  if ZZ.lt a ZZ.zero then
+                    Some (ZZ.negate a, dim, snd (ZZVector.pivot dim vec))
+                  else
+                    Some (a, dim, ZZVector.negate (snd (ZZVector.pivot dim vec)))
+                in
+                match champion with
+                | Some (b, _, _) ->
+                   if ZZ.lt (ZZ.abs a) b then candidate
+                   else champion
+                | None -> candidate
+              else
+                champion)
+            champion
+            (ZZVector.enum vec))
+        None
+        eqs
+    in
+    match champion with
+    | Some (a, dim, rhs) ->
+       let reduced_eqs =
+         List.filter_map (fun vec ->
+             let vec' = substitute (a, dim) rhs vec in
+             if ZZVector.equal ZZVector.zero vec' then
+               None
+             else
+               Some vec')
+           eqs
+       in
+       go reduced_eqs ((a, dim, rhs)::oriented)
+    | None -> (List.rev oriented, eqs)
+  in
+  go eqs []
+
 let mbp ?(dnf=false) srk exists phi =
   let phi =
     eliminate_ite srk phi
     |> rewrite srk
-      ~down:(nnf_rewriter srk)
-      ~up:(SrkSimplify.simplify_terms_rewriter srk)
+         ~down:(nnf_rewriter srk)
+         ~up:(SrkSimplify.simplify_terms_rewriter srk)
   in
   let project =
     Symbol.Set.filter (not % exists) (symbols phi)
   in
-  let solver = Smt.mk_solver ~theory:"QF_LIRA" srk in
+  let project_int =
+    Symbol.Set.fold (fun s set ->
+        IntSet.add (Linear.dim_of_sym s) set)
+      project
+      IntSet.empty
+  in
+  let solver = Smt.mk_solver ~theory:"QF_LIA" srk in
   let disjuncts = ref [] in
   let is_true phi =
     match Formula.destruct srk phi with
     | `Tru -> true
     | _ -> false
   in
+  (* Sequentially compose [subst] with the substitution [symbol -> term] *)
+  let seq_subst symbol term subst =
+    let subst_symbol =
+      substitute_const srk
+        (fun s -> if s = symbol then term else mk_const srk s)
+    in
+    Symbol.Map.add symbol term (Symbol.Map.map subst_symbol subst)
+  in
   let rec loop () =
     match Smt.Solver.get_model solver with
     | `Sat interp ->
-      let implicant =
-        match select_implicant srk interp phi with
-        | Some x -> specialize_floor_cube srk interp x
-        | None -> assert false
-      in
-      let (vt_map, _) =
-        Symbol.Set.fold (fun s (vt_map, implicant) ->
-            let vt = select_int_term srk interp s implicant in
+       let implicant =
+         match select_implicant srk interp phi with
+         | Some x -> specialize_floor_cube srk interp x
+         | None -> assert false
+       in
+       (* Find substitutions for symbols involved in equations, along
+          with divisibility constarints *)
+       let (subst, div_constraints) =
+         let (oriented_eqs, _) =
+           List.filter_map (fun atom ->
+               match Interpretation.destruct_atom srk atom with
+               | `Comparison (op, s, t) ->
+                  begin match simplify_atom srk op s t with
+                  | `CompareZero (`Eq, t) -> Some t
+                  | _ -> None
+                  end
+               | _ -> None)
+             implicant
+           |> _orient project_int
+         in
+         List.fold_left (fun (subst, div_constraints) (a, dim, rhs) ->
+             let rhs_qq =
+               ZZVector.enum rhs
+               /@ (fun (b, dim) -> (QQ.of_zz b, dim))
+               |> V.of_enum
+             in
+             let sym = match Linear.sym_of_dim dim with
+               | Some s -> s
+               | None -> assert false
+             in
+             let sym_div = mk_divides srk a rhs_qq in
+             let rhs_term =
+               Linear.of_linterm srk
+                 (V.scalar_mul (QQ.of_zzfrac (ZZ.of_int 1) a) rhs_qq)
+             in
+             (seq_subst sym rhs_term subst, sym_div::div_constraints))
+           (Symbol.Map.empty, [])
+           oriented_eqs
+       in
+       let implicant =
+         List.map (substitute_map srk subst) (div_constraints@implicant)
+       in
+       (* Add substitituions for symbols *not* involved in equations
+          to subst *)
+       let subst =
+         Symbol.Set.fold (fun s (subst, implicant) ->
+             if Symbol.Map.mem s subst then
+               (* Skip symbols involved in equations *)
+               (subst, implicant)
+             else if typ_symbol srk s = `TyInt then
+               let vt = select_int_term srk interp s implicant in
 
-            (* floor(term/div) + offset ~> (term - ([[term]] mod div))/div + offset,
+               (* floor(term/div) + offset ~> (term - ([[term]] mod div))/div + offset,
                and add constraint that div | (term - ([[term]] mod div)) *)
-            let term_val =
-              let term_qq = evaluate_linterm (Interpretation.real interp) vt.term in
-              match QQ.to_zz term_qq with
-              | None -> assert false
-              | Some zz -> zz
-            in
-            let remainder =
-              Mpzf.fdiv_r term_val vt.divisor
-            in
-            let numerator =
-              V.add_term (QQ.of_zz (ZZ.negate remainder)) const_dim vt.term
-            in
-            let replacement =
-              V.scalar_mul (QQ.inverse (QQ.of_zz vt.divisor)) numerator
-              |> V.add_term (QQ.of_zz vt.offset) const_dim
-              |> of_linterm srk
-            in
-
-            let subst =
-              substitute_const srk
-                (fun p -> if p = s then replacement else mk_const srk p)
-            in
-            let divides = mk_divides srk vt.divisor numerator in
-            let implicant =
-              BatList.filter (not % is_true) (divides::(List.map subst implicant))
-            in
-            let subst' =
-              substitute_const srk
-                (fun p -> if p = s then replacement else mk_const srk p)
-            in
-            let vt_map = Symbol.Map.map subst' vt_map in
-            (Symbol.Map.add s (term_of_virtual_term srk vt) vt_map,
-             implicant))
-          project
-          (Symbol.Map.empty, implicant)
-      in
-      let disjunct =
-        substitute_const
-          srk
-          (fun s ->
-             try Symbol.Map.find s vt_map
-             with Not_found -> mk_const srk s)
-          (if dnf then (mk_and srk implicant) else phi)
-      in
-      disjuncts := disjunct::(!disjuncts);
-      Smt.Solver.add solver [mk_not srk disjunct];
-      loop ()
+               let term_val =
+                 let term_qq = evaluate_linterm (Interpretation.real interp) vt.term in
+                 match QQ.to_zz term_qq with
+                 | None -> assert false
+                 | Some zz -> zz
+               in
+               let remainder =
+                 Mpzf.fdiv_r term_val vt.divisor
+               in
+               let numerator =
+                 V.add_term (QQ.of_zz (ZZ.negate remainder)) const_dim vt.term
+               in
+               let replacement =
+                 V.scalar_mul (QQ.inverse (QQ.of_zz vt.divisor)) numerator
+                 |> V.add_term (QQ.of_zz vt.offset) const_dim
+                 |> of_linterm srk
+               in
+               let subst' =
+                 substitute_const srk
+                   (fun p -> if p = s then replacement else mk_const srk p)
+               in
+               let divides = mk_divides srk vt.divisor numerator in
+               let implicant =
+                 BatList.filter (not % is_true) (divides::(List.map subst' implicant))
+               in
+               (seq_subst s (term_of_virtual_term srk vt) subst,
+                implicant)
+             else if typ_symbol srk s = `TyReal then
+               let implicant_s =
+                 List.filter (fun atom -> Symbol.Set.mem s (symbols atom)) implicant
+               in
+               let t = Linear.of_linterm srk (select_real_term srk interp s implicant_s) in
+               let subst' =
+                 substitute_const srk
+                   (fun p -> if p = s then t else mk_const srk p)
+               in
+               let implicant =
+                 BatList.filter (not % is_true) (List.map subst' implicant)
+               in
+               (seq_subst s t subst,
+                implicant)
+             else assert false)
+           project
+           (subst, implicant)
+         |> fst
+       in
+       let disjunct =
+         substitute_map
+           srk
+           subst
+           (if dnf then (mk_and srk (div_constraints@implicant))
+            else (mk_and srk (phi::div_constraints)))
+         |> SrkSimplify.simplify_terms srk
+       in
+       disjuncts := disjunct::(!disjuncts);
+       Smt.Solver.add solver [mk_not srk disjunct];
+       loop ()
     | `Unsat -> mk_or srk (!disjuncts)
     | `Unknown -> raise Unknown
   in

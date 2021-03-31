@@ -86,6 +86,7 @@ module Make
 
   let path_weight = WG.RecGraph.path_weight
   let call_weight = WG.RecGraph.call_weight
+  let omega_path_weight = WG.RecGraph.omega_path_weight
 
   let label_algebra =
     let add x y = match x, y with
