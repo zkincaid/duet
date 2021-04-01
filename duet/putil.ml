@@ -236,7 +236,6 @@ module TotalFunction = struct
       Format.fprintf format "{@[map: %a;@ default: %a@]}"
         (M.pp Codomain.pp) map.map
         Codomain.pp map.default
-    let show = SrkUtil.mk_show pp
 
     let equal f g =
       Codomain.equal f.default g.default

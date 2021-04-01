@@ -5,7 +5,7 @@ module type Var = sig
   type t
   val pp : Format.formatter -> t -> unit
   val show : t -> string
-  val typ : t -> [ `TyInt | `TyReal ]
+  val typ : t -> Syntax.typ
   val compare : t -> t -> int
   val symbol_of : t -> symbol
   val of_symbol : symbol -> t option

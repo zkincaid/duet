@@ -56,7 +56,7 @@ let vanishing_space srk phi terms =
             Smt.Solver.pop solver 1;
             let point_row =
               BatArray.fold_lefti (fun row i t ->
-                  QQVector.add_term (Interpretation.evaluate_term point t) i row)
+                  QQVector.add_term (Interpretation.evaluate_term_qq point t) i row)
                 QQVector.zero
                 terms
             in
@@ -135,7 +135,7 @@ let abstract ?exists:(p=fun _ -> true) srk man phi =
           let valuation =
             let table : QQ.t array =
               Array.init (CS.dim cs) (fun i ->
-                  Interpretation.evaluate_term
+                  Interpretation.evaluate_term_qq
                     interp
                     (CS.term_of_coordinate cs i))
             in
@@ -166,7 +166,7 @@ module Sign = struct
 
   module M = Expr.Map
   type 'a t =
-    | Env of ('a, typ_arith, sign) M.t
+    | Env of ('a, typ_term, sign) M.t
     | Bottom
 
   let formula_of srk signs =
@@ -237,7 +237,7 @@ module Sign = struct
     in
     let env =
       List.fold_left (fun env term ->
-          M.add term (rational_sign (Interpretation.evaluate_term m term)) env)
+          M.add term (rational_sign (Interpretation.evaluate_term_qq m term)) env)
         M.empty
         terms
     in

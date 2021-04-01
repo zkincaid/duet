@@ -21,8 +21,10 @@ end
 
 (** {2 Types} *)
 type typ_arith = [ `TyInt | `TyReal ]
-type typ_fo = [ `TyInt | `TyReal | `TyBool ]
-type typ = [ `TyInt | `TyReal | `TyBool | `TyFun of (typ_fo list) * typ_fo]
+type typ_term = [ `TyInt | `TyReal | `TyArr ]
+type typ_fo = [ `TyInt | `TyReal | `TyBool  | `TyArr ]
+type typ = 
+  [ `TyInt | `TyReal | `TyBool | `TyArr | `TyFun of (typ_fo list) * typ_fo]
 type typ_bool = [ `TyBool ]
 type 'a typ_fun = [ `TyFun of (typ_fo list) * 'a ]
 
@@ -81,7 +83,7 @@ end
 (** {2 Expressions} *)
 
 type ('a, +'typ) expr
-type 'a term = ('a, typ_arith) expr
+type 'a term = ('a, typ_term) expr
 type 'a formula = ('a, typ_bool) expr
 
 val compare_expr : ('a,'typ) expr -> ('a,'typ) expr -> int
@@ -91,10 +93,11 @@ val compare_term : 'a term -> 'a term -> int
 val destruct : 'a context -> ('a, 'b) expr -> [
     | `Real of QQ.t
     | `App of symbol * (('a, typ_fo) expr list)
-    | `Var of int * typ_arith
+    | `Var of int * typ_term
     | `Add of ('a term) list
     | `Mul of ('a term) list
-    | `Binop of [ `Div | `Mod ] * ('a term) * ('a term)
+    | `Store of 'a term * 'a term * 'a term
+    | `Binop of [ `Div | `Mod | `Select] * ('a term) * ('a term)
     | `Unop of [ `Floor | `Neg ] * ('a term)
     | `Ite of ('a formula) * ('a,'b) expr * ('a,'b) expr
     | `Tru
@@ -135,6 +138,11 @@ val mk_iff : 'a context -> 'a formula -> 'a formula -> 'a formula
    i] contains free variables, capture is avoided. *)
 val substitute : 'a context ->
   (int -> ('a,'b) expr) -> ('a,'typ) expr -> ('a,'typ) expr
+
+(** Same as substitute but passes along type information too. Useful if some
+ * vars to be unchanged. *)
+val substitute_with_typ : 'a context ->
+  ((int * typ_fo) -> ('a,'b) expr) -> ('a,'typ) expr -> ('a,'typ) expr
 
 (** [substitute_const srk subst exp] replaces each occurrence of a
    constant symbol [s] with the expression [subst s].  If [subst s]
@@ -259,12 +267,13 @@ end
 type ('a,'b) open_term = [
   | `Real of QQ.t
   | `App of symbol * (('b, typ_fo) expr list)
-  | `Var of int * typ_arith
+  | `Var of int * typ_term
   | `Add of 'a list
   | `Mul of 'a list
-  | `Binop of [ `Div | `Mod ] * 'a * 'a
+  | `Binop of [ `Div | `Mod | `Select ] * 'a * 'a
   | `Unop of [ `Floor | `Neg ] * 'a
   | `Ite of ('b formula) * 'a * 'a
+  | `Store of 'a * 'a * 'a
 ]
 
 val mk_add : 'a context -> 'a term list -> 'a term
@@ -295,7 +304,11 @@ val mk_neg : 'a context -> 'a term -> 'a term
 (** Subtraction *)
 val mk_sub : 'a context -> 'a term -> 'a term -> 'a term
 
-val term_typ : 'a context -> 'a term -> typ_arith
+(** Array operations *)
+val mk_select : 'a context -> 'a term -> 'a term -> 'a term
+val mk_store : 'a context -> 'a term -> 'a term -> 'a term -> 'a term
+
+val term_typ : 'a context -> 'a term -> typ_term
 
 module Term : sig
   type 'a t = 'a term
@@ -306,6 +319,7 @@ module Term : sig
     Format.formatter -> 'a term -> unit
   val show : ?env:(string Env.t) -> 'a context -> 'a term -> string
   val destruct : 'a context -> 'a term -> ('a term, 'a) open_term
+  val construct : 'a context -> ('a term, 'a) open_term -> 'a term
   val eval : 'a context -> (('b, 'a) open_term -> 'b) -> 'a term -> 'b
   val eval_partial : 'a context -> (('b, 'a) open_term -> 'b option) -> 'a term -> 'b option
 end
@@ -385,6 +399,9 @@ val pp_smtlib2 : ?env:(string Env.t) -> 'a context ->
 val pp_expr_unnumbered : ?env:(string Env.t) -> 'a context -> 
     Format.formatter -> ('a, 'b) expr -> unit
 
+(** [to_file srk phi filename] writes formula phi in smt2 format to filename *)
+val to_file : 'a context -> 'a formula -> string -> unit
+
 module Formula : sig
   type 'a t = 'a formula
   val equal : 'a formula -> 'a formula -> bool
@@ -394,6 +411,7 @@ module Formula : sig
     Format.formatter -> 'a formula -> unit
   val show : ?env:(string Env.t) -> 'a context -> 'a formula -> string
   val destruct : 'a context -> 'a formula -> ('a formula, 'a) open_formula
+  val construct : 'a context -> ('a formula, 'a) open_formula -> 'a formula
   val eval : 'a context -> (('b, 'a) open_formula -> 'b) -> 'a formula -> 'b
   val eval_memo : 'a context -> (('b, 'a) open_formula -> 'b) -> 'a formula -> 'b
   val existential_closure : 'a context -> 'a formula -> 'a formula
@@ -407,7 +425,7 @@ end
 module type Context = sig
   type t (* magic type parameter unique to this context *)
   val context : t context
-  type term = (t, typ_arith) expr
+  type term = (t, typ_term) expr
   type formula = (t, typ_bool) expr
 
   val mk_symbol : ?name:string -> typ -> symbol
@@ -425,6 +443,8 @@ module type Context = sig
   val mk_floor : term -> term
   val mk_neg : term -> term
   val mk_sub : term -> term -> term
+  val mk_select : term -> term -> term
+  val mk_store : term -> term -> term -> term
   val mk_forall : ?name:string -> typ_fo -> formula -> formula
   val mk_exists : ?name:string -> typ_fo -> formula -> formula
   val mk_forall_const : symbol -> formula -> formula
@@ -468,6 +488,9 @@ module Infix (C : sig
   val ( mod ) : C.t term -> C.t term -> C.t term
   val const : symbol -> (C.t, 'typ) expr
   val var : int -> typ_fo -> (C.t, 'typ) expr
+
+  val ( .%[] ) : C.t term -> C.t term -> C.t term
+  val ( .%[]<- ) : C.t term -> C.t term -> C.t term -> C.t term
 end
 
 (** A context table is a hash table mapping contents to values.  If a context

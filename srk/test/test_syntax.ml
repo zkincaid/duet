@@ -28,6 +28,15 @@ let substitute () =
   in
   assert_equal_formula (substitute srk subst phi) psi
 
+let substitute1 () =
+  let phi = 
+    let open Infix in
+    (var 0 `TyInt)  + (int 5) = (var 1 `TyInt)
+  in
+  Log.errorf "SUBSTITUTE 1 %a" (Formula.pp srk) phi;
+  let phi' = Syntax.substitute srk (fun i -> mk_var srk i `TyInt) phi in
+  assert_equal_formula phi phi'
+
 let existential_closure1 () =
   let phi =
     let open Infix in
@@ -116,9 +125,60 @@ let elim_ite3 () =
   in
   assert_equiv_formula (eliminate_ite srk phi) phi
 
+let elim_stores1 () =
+  let phi =
+    let open Infix in
+    (a1.%[x]<-y) = a1 (*&& (a1.%[(var 0 `TyInt)]<-y) = a1 && ((a1.%[x]<-x).%[x]) = x*)
+  in
+  let lam =
+    let open Infix in
+    mk_forall 
+      srk
+      ~name:"K" 
+      `TyInt 
+      (Ctx.mk_ite (x = (var 0 `TyInt)) y (a1.%[(var 0 `TyInt)]) 
+       = a1.%[(var 0 `TyInt)])
+  in
+  assert_equal_formula (Arraycontent.eliminate_stores srk phi) lam
+
+let elim_stores2 () =
+  let phi =
+    let open Infix in
+    (a1.%[(var 0 `TyInt)]<-y) = a1
+  in
+  let lam =
+    let open Infix in
+    mk_forall 
+      srk
+      ~name:"K" 
+      `TyInt 
+      (Ctx.mk_ite ((var 1 `TyInt) = (var 0 `TyInt)) y (a1.%[(var 0 `TyInt)]) 
+       = a1.%[(var 0 `TyInt)])
+  in
+  assert_equal_formula (Arraycontent.eliminate_stores srk phi) lam
+
+
+let elim_stores3 () =
+  let phi =
+    let open Infix in
+    ((a1.%[x]<-x).%[x]) = x
+  in
+  let lam =
+    let open Infix in
+    (Ctx.mk_ite (x = x) x (a1.%[x]) = x)
+  in
+  assert_equal_formula (Arraycontent.eliminate_stores srk phi) lam
+
+let test_syn () =
+  (*let b = mk_symbol srk `TyBool in*)
+  let phi = mk_eq srk x x in
+  Log.errorf "\n\nFormula is: %a\n\n" (Formula.pp srk) phi;
+  assert false
+
 let suite = "Syntax" >:::
   [
-    "substitute" >:: substitute;
+    (*"substitute" >:: substitute;*)
+    "substitute1" >:: substitute1;
     "existential_closure1" >:: existential_closure1;
     "existential_closure2" >:: existential_closure2;
     "prenex" >:: prenex;
@@ -136,4 +196,8 @@ let suite = "Syntax" >:::
       assert_equal (Env.find e 0) 1;
       (0 -- 7) |> BatEnum.iter (fun i ->
                       assert_equal (Env.find e' i) (i - 2)));
+    "elim_stores1" >:: elim_stores1;
+    "elim_stores2" >:: elim_stores2;
+    "elim_stores3" >:: elim_stores3;
+    "test_syn" >:: test_syn
   ]

@@ -43,7 +43,7 @@ let load_formula filename =
   Nonlinear.ensure_symbols srk;
   let subst f =
     match typ_symbol srk f with
-    | `TyReal | `TyInt | `TyBool -> mk_const srk f
+    | `TyReal | `TyInt | `TyBool | `TyArr -> mk_const srk f
     | `TyFun (args, _) ->
       let f =
         try get_named_symbol srk (show_symbol srk f)

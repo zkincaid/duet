@@ -317,13 +317,14 @@ module MakeSMT2Srk(C : sig type t val context : t Syntax.context end) = struct
           begin match typ_symbol srk sym with
           | `TyBool
           | `TyInt
-          | `TyReal -> (mk_const srk (of_symbol srk_sym) :> 'a gexpr)
+          | `TyReal 
+          | `TyArr -> (mk_const srk (of_symbol srk_sym) :> 'a gexpr)
           | `TyFun _ -> invalid_arg "Unexpected function symbol"
           end
         | _ ->
           let sym = of_symbol srk_sym in
           match typ_symbol srk sym with
-          | `TyBool | `TyInt | `TyReal -> invalid_arg "Unexpected function application: Non-functional symbol"
+          | `TyBool | `TyInt | `TyReal | `TyArr -> invalid_arg "Unexpected function application: Non-functional symbol"
           | `TyFun (args_typ, _) ->
             if (List.length terms) != (List.length args_typ) then invalid_arg "Unexpected function application: arity mistmatch" else
             let args =

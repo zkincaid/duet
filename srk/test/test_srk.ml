@@ -24,7 +24,8 @@ let suite = "Main" >::: [
     Test_termination.suite;
     Test_transition.suite;
     Test_WeightedGraph.suite;
-    Test_chc.suite
+    (*Test_arraycontent.suite;*)
+    (*Test_chc.suite*)
 ]
 
 let _ =

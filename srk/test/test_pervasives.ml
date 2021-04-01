@@ -41,6 +41,13 @@ let x' : 'a term = Ctx.mk_const xsym'
 let y' : 'a term = Ctx.mk_const ysym'
 let z' : 'a term = Ctx.mk_const zsym'
 
+let a1sym = Ctx.mk_symbol ~name:"a1" `TyArr
+let a2sym = Ctx.mk_symbol ~name:"a2" `TyArr
+let a3sym = Ctx.mk_symbol ~name:"a3" `TyArr
+let a1 = Ctx.mk_const a1sym
+let a2 = Ctx.mk_const a2sym
+let a3 = Ctx.mk_const a3sym
+
 let frac num den = Ctx.mk_real (QQ.of_frac num den)
 let int k = Ctx.mk_real (QQ.of_int k)
 

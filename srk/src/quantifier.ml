@@ -500,7 +500,7 @@ module Skeleton = struct
       in
 
       assert (QQ.equal
-                (Interpretation.evaluate_term interp replacement)
+                (Interpretation.evaluate_term_qq interp replacement)
                 (evaluate_move (Interpretation.real interp) move));
       let subst =
         substitute_const srk
@@ -977,7 +977,7 @@ let specialize_floor_cube srk model cube =
        let qq_divisor = QQ.of_zz divisor in
        let dividend = of_linterm srk (V.scalar_mul qq_divisor v) in
        let remainder =
-         QQ.modulo (Interpretation.evaluate_term model dividend) qq_divisor
+         QQ.modulo (Interpretation.evaluate_term_qq model dividend) qq_divisor
        in
        let dividend' = mk_sub srk dividend (mk_real srk remainder) in
        let replacement =
@@ -988,8 +988,8 @@ let specialize_floor_cube srk model cube =
          |> of_linterm srk
        in
        assert (QQ.equal
-                 (Interpretation.evaluate_term model replacement)
-                 (QQ.of_zz (QQ.floor (Interpretation.evaluate_term model t))));
+                 (Interpretation.evaluate_term_qq model replacement)
+                 (QQ.of_zz (QQ.floor (Interpretation.evaluate_term_qq model t))));
 
        add_div_constraint divisor dividend';
        (replacement :> ('a,typ_fo) expr)
@@ -1332,6 +1332,7 @@ let simsat_forward_core srk qf_pre phi =
     | `TyInt -> Skeleton.MInt (select_int_term srk model x atoms)
     | `TyReal -> Skeleton.MReal (select_real_term srk model x atoms)
     | `TyBool -> Skeleton.MBool (Interpretation.bool model x)
+    | `TyArr -> failwith "TODO"
     | `TyFun (_, _) -> assert false
   in
 
@@ -1390,6 +1391,7 @@ let simsat_forward_core srk qf_pre phi =
             Smt.Solver.add ctx.solver [mk_not srk (mk_const srk k)]
           | (k, `Bool true) ->
             Smt.Solver.add ctx.solver [mk_const srk k]
+          | (_, `Arr _) -> assert false
           | (_, `Fun _) -> ())
         (Interpretation.enum parameter_interp)
     in
@@ -1543,6 +1545,7 @@ let simsat_core srk qf_pre phi =
     | `TyInt -> Skeleton.MInt (select_int_term srk model x phi)
     | `TyReal -> Skeleton.MReal (select_real_term srk model x phi)
     | `TyBool -> Skeleton.MBool (Interpretation.bool model x)
+    | `TyArr -> failwith "TODO"
     | `TyFun (_, _) -> assert false
   in
   match CSS.initialize_pair select_term srk qf_pre phi with
@@ -1606,6 +1609,7 @@ let maximize_feasible srk phi t =
       | `TyInt -> Skeleton.MInt (select_int_term srk m x phi)
       | `TyReal -> Skeleton.MReal (select_real_term srk m x phi)
       | `TyBool -> Skeleton.MBool (Interpretation.bool m x)
+      | `TyArr -> failwith "TODO"
       | `TyFun (_, _) -> assert false
   in
   CSS.max_improve_rounds := 1;
@@ -1990,6 +1994,7 @@ let easy_sat srk phi =
     | `TyInt -> Skeleton.MInt (select_int_term srk model x phi)
     | `TyReal -> Skeleton.MReal (select_real_term srk model x phi)
     | `TyBool -> Skeleton.MBool (Interpretation.bool model x)
+    | `TyArr -> failwith "TODO"
     | `TyFun (_, _) -> assert false
   in
   match CSS.initialize_pair select_term srk qf_pre phi with
@@ -2159,8 +2164,8 @@ let cover_virtual_term srk interp x atoms =
     | `Literal (_, _) -> None
     | `Comparison (`Lt, _, _) -> None
     | `Comparison (_, s, t) ->
-      let sval = Interpretation.evaluate_term interp s in
-      let tval = Interpretation.evaluate_term interp t in
+      let sval = Interpretation.evaluate_term_qq interp s in
+      let tval = Interpretation.evaluate_term_qq interp t in
       if QQ.equal sval tval then
         match SrkSimplify.isolate_linear srk x (mk_sub srk s t) with
         | Some (a, b) when not (QQ.equal a QQ.zero) ->
@@ -2183,7 +2188,7 @@ let cover_virtual_term srk interp x atoms =
       | None -> raise Nonlinear
       | Some (a, b) when QQ.lt a QQ.zero ->
         let b_over_a = mk_mul srk [mk_real srk (QQ.inverse (QQ.negate a)); b] in
-        let b_over_a_val = Interpretation.evaluate_term interp b_over_a in
+        let b_over_a_val = Interpretation.evaluate_term_qq interp b_over_a in
         Some (b_over_a, b_over_a_val)
       | _ -> None
   in
@@ -2300,3 +2305,306 @@ let local_project_cube srk exists model cube =
       |> List.filter (not % is_true))
     project
     cube
+
+(* Integer maps with a constant time "decrement all keys by k" operation *)
+module DecMap = struct
+  let empty = BatMap.empty,0
+  let add k v (map, c) = (BatMap.add (k - c) v map), c
+  let remove k (map, c) = BatMap.remove (k - c) map, c
+  let dec k (map, c) = map, c - k
+  let mem k (map, c) = BatMap.mem (k - c) map
+  let union dmap1 (m2, c2)= 
+    BatMap.foldi (fun k v m -> add (k + c2) v m) m2 dmap1
+  let of_enum e = BatMap.of_enum e, 0
+  let get_dec (_, c) = c
+end
+
+let miniscope srk phi : 'a formula =
+  (* TODO: level junctions *)
+  let flip (qtyp, name, typ) =
+    match qtyp with
+    | `Exists -> `Forall, name, typ
+    | `Forall -> `Exists, name, typ
+  in
+  let pass_through qtyp expr_typ =
+    match qtyp, expr_typ with
+    | `Exists, `Exists -> `Pass
+    | `Exists, `Forall -> `Blocking
+    | `Forall, `Forall -> `Pass
+    | `Forall, `Exists -> `Blocking
+    | `Forall, `And -> `Pass
+    | `Exists, `And -> `Blocking
+    | `Exists, `Or -> `Pass
+    | `Forall, `Or -> `Blocking
+  in
+  (* This function pushes a quantifier further down into an expression.
+   * delta denotes the change in quantifier depth.
+   * tot_del denotes the number of quantifiers that have been removed
+   * between the initial quantifier location and the current node.
+   * qnt contains the quantifier information (qtyp, name, typ).
+   * node contains the subexpression we are pushing the quantifier into
+   **)
+  let rec pushdown delta tot_del qnt node =
+    let qtyp, name, typ = qnt in
+    let vars, q_del, content = node in
+    let is_q_used tot_del vars = DecMap.mem delta (DecMap.dec tot_del vars) in
+    if not (is_q_used tot_del vars)
+    then (DecMap.dec 1 vars, q_del + 1, content)
+    else ( 
+      let vars' = DecMap.remove delta vars in
+      let tot_del' = tot_del + q_del in
+      match content with
+      | `Tru -> node
+      | `Fls -> node
+      (* TODO: We can do better on ITE *)
+      | `Atom _  | `Prop _ | `Ite _ -> 
+        DecMap.dec 1 vars', 0, `Quantifier(qtyp, name, typ, tot_del, delta, node)
+      | `Not node ->
+        DecMap.dec 1 vars, q_del, `Not(pushdown delta tot_del' (flip qnt) node)
+      | `Junct (jtyp, juncts) ->
+        let l1, l2 = 
+          List.partition (fun (vars, _, _) -> is_q_used tot_del' vars) juncts
+        in
+        if List.length l2 > 0 then (
+          let l1vars = List.map (fun (vars, _, _) -> vars) l1 in
+          let l1vars' = List.fold_left (DecMap.union) (DecMap.empty) l1vars in
+          let l1_node = 
+            pushdown delta tot_del' qnt (l1vars', 0, (`Junct (jtyp, l1))) 
+          in
+          let l2 = List.map (fun (v, d, c) -> DecMap.dec 1 v, d + 1, c) l2 in
+          let c = `Junct(jtyp, l1_node :: l2) in
+          DecMap.dec 1 vars, q_del, c)
+        else if pass_through qtyp jtyp = `Pass || List.length l1 <= 1 then (
+          (* We could explore pushing down further into l1 in certain cases
+           * even when l1 > 1*)
+          let c = `Junct (jtyp, (List.map (pushdown delta tot_del' qnt) l1)) in
+          DecMap.dec 1 vars, q_del, c)
+        else 
+          DecMap.dec 1 vars', 
+          0, 
+          `Quantifier (qtyp, name, typ, tot_del, delta, node)
+      | `Quantifier(q, n, t, d, del, node') ->
+        if pass_through qtyp q = `Blocking then
+          (DecMap.dec 1 vars', 
+          0, 
+          `Quantifier(qtyp, name, typ, tot_del, delta, node))
+        else (
+          DecMap.dec 1 vars',
+          q_del,
+          `Quantifier(q, n, t, d, del - 1, pushdown (delta + 1) tot_del' qnt node')))
+  in
+  let free_vars_map expr = DecMap.of_enum (BatHashtbl.enum (free_vars expr)) in
+  (* Each node has 3 pieces of data:
+   * 1) the free vars in the subexpression
+   * 2) the number at quantifiers that have been deleted at this node
+   * 3) the node subtree from which the formula can be derived
+   **)
+  let alg = function
+    | `Tru -> DecMap.empty,0,`Tru
+    | `Fls -> DecMap.empty,0,`Fls
+    | `Atom (`Eq, x, y) ->
+      DecMap.union (free_vars_map x) (free_vars_map y),0,`Atom(mk_eq srk x y)
+    | `Atom (`Lt, x, y) ->
+      DecMap.union (free_vars_map x) (free_vars_map y),0,`Atom(mk_lt srk x y)
+    | `Atom (`Leq, x, y) ->
+      DecMap.union (free_vars_map x) (free_vars_map y),0,`Atom(mk_leq srk x y)
+    | `And conjuncts ->
+      let vars = List.map (fun (vars, _, _) -> vars) conjuncts in
+      let vars' = List.fold_left (DecMap.union) (DecMap.empty) vars in
+      vars',0, `Junct(`And, conjuncts)
+    | `Or disjuncts ->
+      let vars = List.map (fun (vars, _, _) -> vars) disjuncts in
+      let vars' = List.fold_left (DecMap.union) (DecMap.empty) vars in
+      vars', 0, `Junct(`Or, disjuncts)
+    | `Quantify (qtyp, name, typ, sexpr) ->
+      pushdown 0 0 (qtyp, name, typ) sexpr
+    | `Not (vars, q_del, content) -> vars, 0, `Not(vars, q_del, content)
+    | `Proposition (`Var i) -> 
+      DecMap.add i `TyBool (DecMap.empty), 0, `Prop(mk_var srk i `TyBool)
+    | `Proposition (`App (p, args)) -> 
+      free_vars_map (mk_app srk p args), 0, `Prop(mk_app srk p args)
+    | `Ite (cond, bif, belse) ->
+      let vars1, _, _ = cond in
+      let vars2, _, _ = bif in
+      let vars3, _, _ = belse in
+      DecMap.union (DecMap.union vars1 vars2) vars3, 0, `Ite(cond, bif, belse)
+  in
+  let mk_junc op =
+    match op with
+    | `Or -> mk_or srk
+    | `And -> mk_and srk
+  in
+  let mk_q op =
+    match op with
+    | `Exists -> mk_exists srk
+    | `Forall -> mk_forall srk
+  in
+  let q_map = BatHashtbl.create 97 in
+  (* This function the constructs a formula *)
+  let rec compute_expr tot_del depth node =
+    let vars,q_del, content = node in
+    let c = DecMap.get_dec vars in
+    let tot_del' = tot_del + q_del in
+    (* The idea is that we place quantifier info in a hashtbl at the quantifiers
+     * depth in the original expression (where the outer-most quantifiers
+     * have depth 0).*)
+    match content with
+    | `Tru -> mk_true srk
+    | `Fls -> mk_false srk
+    | `Atom phi | `Prop phi ->
+        let orig_depth = depth + tot_del - c - 1 in
+        let subst t = 
+          substitute srk (fun i ->
+            let (q_depth, typ) = Hashtbl.find q_map (orig_depth - i) in
+            mk_var srk (depth - q_depth - 1) typ)
+          t
+        in
+        subst phi
+    | `Not node -> mk_not srk (compute_expr tot_del' depth node)
+    | `Ite (bcond, bif, bthen) ->  
+      mk_ite 
+        srk 
+        (compute_expr tot_del' depth bcond)
+        (compute_expr tot_del' depth bif)
+        (compute_expr tot_del' depth bthen)
+    | `Junct(op, juncts) -> 
+      (mk_junc op) (List.map (compute_expr tot_del' depth) juncts)
+    | `Quantifier (qtyp, name, typ, td, del, node) -> 
+      Hashtbl.add q_map (depth + tot_del' - del - td) (depth, typ);
+      (mk_q qtyp) ~name typ (compute_expr tot_del' (depth + 1) node)
+  in
+  compute_expr 0 0 (Formula.eval srk alg phi)
+
+(* Given a list of equalities, find a candidate
+ * term to substitute in for var 0 *)
+let get_subst_candidate srk eqs = 
+  let unfil_candidates = 
+    List.map (fun (f1, t1, f2, t2) -> 
+        match Term.destruct srk t1, Term.destruct srk t2 with
+        | `Var (ind1, _), `Var (ind2, _) when ind1 = 0 && (not (ind2 = 0)) ->
+          Some t2
+        | `Var (ind1, _), `Var (ind2, _) when (not (ind1 = 0)) && ind2 = 0 ->
+          Some t1
+        | `Var(ind, _), _ when ind = 0 ->
+          if not (DecMap.mem 0 f2)
+          then Some t2
+          else None
+        | _, `Var(ind, _) when ind = 0 -> 
+          if not (DecMap.mem 0 f1) 
+          then Some t1
+          else None
+        | _, _ ->  None) eqs
+  in
+  let filtered_candidates = 
+    List.filter (fun cand ->
+        match cand with
+        | Some _ -> true
+        | None -> false) 
+      unfil_candidates
+  in
+  if List.length filtered_candidates = 0 then None
+  else (List.hd filtered_candidates)
+
+
+(* I found that running this procedure multiple times yields much better
+ * results. *)
+let eq_guided_qe srk phi =
+  (* TODO: improve intersect *)
+  let intersect _ = [] in
+  let union lsts = List.flatten lsts in
+  let free_vars_map expr = DecMap.of_enum (BatHashtbl.enum (free_vars expr)) in
+  let alg = function
+    | `Tru -> ([], [], mk_true srk)
+    | `Fls -> ([], [], mk_false srk)
+    | `Atom (`Eq, x, y) -> 
+        ([free_vars_map x, x, free_vars_map y, y], [], mk_eq srk x y)
+    (* TODO: May be nice to use lt and leq terms to determine additional equalities *)
+    | `Atom (`Lt, x, y) -> ([], [], mk_lt srk x y)
+    | `Atom (`Leq, x, y) -> ([], [], mk_leq srk x y)
+    | `And conjuncts ->
+      let (eqs, diseqs, conjs) = 
+        List.fold_left (fun (eqs, diseqs, conjs) (eq, diseq, conj) ->
+            eq :: eqs, diseq :: diseqs, conj :: conjs)
+          ([], [], [])
+          conjuncts
+      in
+      union eqs, intersect diseqs, mk_and srk conjs
+    | `Or disjuncts ->
+       let (eqs, diseqs, disjs) = 
+        List.fold_left (fun (eqs, diseqs, disjs) (eq, diseq, disj) ->
+            eq :: eqs, diseq :: diseqs, disj :: disjs)
+          ([], [], [])
+          disjuncts
+      in
+      intersect eqs, union diseqs, mk_or srk disjs
+    | `Quantify (qtyp, name, typ, (eqs, diseqs, phi)) ->
+      let q_fun, cand_lst = 
+        if qtyp = `Forall then mk_forall, diseqs else mk_exists, eqs
+      in
+      let subst_term = get_subst_candidate srk cand_lst in
+      (* TODO: Better to just do one big subst at end *)
+      let subst ind0 phi =
+        substitute_with_typ srk (fun (ind, typ) ->
+          if ind = 0 then (ind0 ()) else mk_var srk (ind - 1) typ)
+          phi
+      in
+      let fls _ = assert false in
+      let sub_pairs ind0 lst = 
+        List.map (fun ((f1, t1, f2, t2)) -> 
+          DecMap.dec 1 f1, subst ind0 t1, DecMap.dec 1 f2, subst ind0 t2) 
+        lst
+      in
+      begin match subst_term with
+      | None ->
+        let filter_pairs lst = 
+          List.filter (fun (f1, _, f2, _) -> 
+            (not (DecMap.mem 0 f1)) &&
+            (not (DecMap.mem 0 f2)))
+          lst
+        in
+        let eqs = sub_pairs fls (filter_pairs eqs) in
+        let diseqs = sub_pairs fls (filter_pairs diseqs) in
+        eqs, diseqs, q_fun srk ~name typ phi
+      | Some t ->
+        let t' _ = subst fls t in
+        let eqs = sub_pairs t' eqs in
+        let diseqs = sub_pairs t' diseqs in
+        eqs, diseqs, subst t' phi
+      end
+    | `Not (eqs, diseqs, phi) -> (diseqs, eqs, mk_not srk phi)
+    | `Proposition (`Var ind) -> ([], [], mk_var srk ind `TyBool) 
+    | `Proposition (`App (f, args)) -> ([], [], mk_app srk f args)
+    | `Ite ((_, _, cond), (eq2, diseq2, bthen), (eq3, diseq3, belse)) -> 
+      intersect [eq2; eq3], diseq2 @ diseq3, mk_ite srk cond bthen belse
+    | _ -> assert false
+  in
+  let _, _, phi = Formula.eval srk alg phi in
+  phi
+
+let mbp_qe_inplace srk phi =
+  let phi = eliminate_ite srk phi in
+  let alg = function
+    | `Quantify (qt, _, `TyInt, body) ->
+        (* TODO: Slight performance improvement if don't do/undo
+         * the var substitution for every quantifier *)
+        let rev_tbl = Hashtbl.create 97 in
+        let tbl = Memo.memo (fun ind -> 
+            let fresh = mk_symbol srk `TyInt in
+            Hashtbl.add rev_tbl fresh (mk_var srk (ind - 1) `TyInt);
+            fresh)
+        in
+        let phi = substitute srk (fun i -> mk_const srk (tbl i)) body in
+        let phi = if qt = `Forall then mk_not srk phi else phi in
+        let phi' = (mbp srk (fun s -> not (s = (tbl 0))) phi) in
+        let phi' =  
+          (substitute_const
+             srk
+             (fun s -> 
+               if Hashtbl.mem rev_tbl s then Hashtbl.find rev_tbl s
+               else mk_const srk s)
+             phi')
+        in
+        if qt = `Forall then mk_not srk phi' else phi'
+    | open_form -> Formula.construct srk open_form
+  in
+  Formula.eval srk alg phi

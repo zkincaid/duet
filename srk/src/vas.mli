@@ -30,7 +30,7 @@ val exp_other_reset_helper : 'a context -> 'a term -> 'a term list -> 'a term li
   -> int -> 'a formula
 
 val term_list : 'a context -> M.t list -> (symbol * Symbol.Map.key) list -> 
-  (('a, typ_arith) expr * 'a term) list
+  ('a term * 'a term) list
 val gamma_transformer : 'a context -> ('a term * 'a term) list -> transformer -> 'a formula
 val alpha_hat  : 'a context -> 'a formula -> (symbol * symbol) list ->  'c t
 val coprod_compute_image : TSet.t -> M.t list -> TSet.t

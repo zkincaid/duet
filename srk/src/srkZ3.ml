@@ -1,6 +1,5 @@
 open Syntax
 open BatPervasives
-
 include Log.Make(struct let name = "srk.srkZ3" end)
 
 type z3_context = Z3.context
@@ -10,10 +9,12 @@ type z3_func_decl = Z3.FuncDecl.func_decl
 type 'a open_expr = [
   | `Real of QQ.t
   | `App of z3_func_decl * 'a list
+  | `Store of 'a * 'a * 'a
   | `Var of int * typ_fo
+  | `Const of symbol
   | `Add of 'a list
   | `Mul of 'a list
-  | `Binop of [ `Div | `Mod ] * 'a * 'a
+  | `Binop of [ `Div | `Mod | `Select ] * 'a * 'a
   | `Unop of [ `Floor | `Neg ] * 'a
   | `Tru
   | `Fls
@@ -41,26 +42,50 @@ let rec qq_val ast =
     qq_val (List.hd (Z3.Expr.get_args ast))
   else invalid_arg "qq_val"
 
+let arr_val x =
+  let body = Z3.Quantifier.get_body (Z3.Quantifier.quantifier_of_expr x) in
+  let rec parse_lambda x =
+    match Z3.AST.get_ast_kind (Z3.Expr.ast_of_expr x) with
+    | APP_AST ->
+      begin match Z3.FuncDecl.get_decl_kind (Z3.Expr.get_func_decl x), 
+                  Z3.Expr.get_args x with
+      | (OP_ITE, [cond; s; t]) ->
+        let i = qq_val (List.nth (Z3.Expr.get_args cond) 1) in
+        let v = qq_val s in
+        let a = parse_lambda t in
+        Interpretation.QQArray.add a i v
+      | _ -> invalid_arg "arr_val1"
+      end
+      (* We assume def value is an integer. *)
+    | NUMERAL_AST -> Interpretation.QQArray.create (qq_val x)
+    | _ -> invalid_arg "arr_val2"
+  in
+  parse_lambda body
+
+
 let typ_of_sort sort =
   let open Z3enums in
   match Z3.Sort.get_sort_kind sort with
   | REAL_SORT -> `TyReal
   | INT_SORT -> `TyInt
   | BOOL_SORT -> `TyBool
+  | ARRAY_SORT -> `TyArr
   | _ -> invalid_arg "typ_of_sort"
 
-let sort_of_typ z3 = function
+let rec sort_of_typ z3 = function
   | `TyInt -> Z3.Arithmetic.Integer.mk_sort z3
   | `TyReal -> Z3.Arithmetic.Real.mk_sort z3
   | `TyBool -> Z3.Boolean.mk_sort z3
+  | `TyArr -> 
+    Z3.Z3Array.mk_sort z3 (sort_of_typ z3 `TyInt) (sort_of_typ z3 `TyInt)
 
-let rec eval alg ast =
+let rec eval alg ?(skolemized_quants=Hashtbl.create 91) ?(depth=0) ast =
   let open Z3 in
   let open Z3enums in
   match AST.get_ast_kind (Expr.ast_of_expr ast) with
   | APP_AST -> begin
       let decl = Expr.get_func_decl ast in
-      let args = List.map (eval alg) (Expr.get_args ast) in
+      let args = List.map (eval alg ~skolemized_quants ~depth) (Expr.get_args ast) in
       match FuncDecl.get_decl_kind decl, args with
       | (OP_UNINTERPRETED, args) -> alg (`App (decl, args))
       | (OP_ADD, args) -> alg (`Add args)
@@ -72,6 +97,8 @@ let rec eval alg ast =
       | (OP_DIV, [x;y]) -> alg (`Binop (`Div, x, y))
       | (OP_TO_REAL, [x]) -> x
       | (OP_TO_INT, [x]) -> alg (`Unop (`Floor, x))
+      | (OP_STORE, [a; i; v]) -> alg (`Store (a, i, v))
+      | (OP_SELECT, [a; i]) -> alg (`Binop(`Select, a, i))
 
       | (OP_TRUE, []) -> alg `Tru
       | (OP_FALSE, []) -> alg `Fls
@@ -94,8 +121,12 @@ let rec eval alg ast =
   | NUMERAL_AST ->
     alg (`Real (qq_val ast))
   | VAR_AST ->
-    let index = Z3.Quantifier.get_index ast in
-    alg (`Var (index, (typ_of_sort (Expr.get_sort ast))))
+    let index = (Z3.Quantifier.get_index ast) in
+    (* TODO: Confirm this should be plus and not minus *)
+    if Hashtbl.mem skolemized_quants (index - depth) then
+      alg (`Const (Hashtbl.find skolemized_quants (index - depth)))
+    else
+      alg (`Var (index, (typ_of_sort (Expr.get_sort ast))))
   | QUANTIFIER_AST ->
     let ast = Z3.Quantifier.quantifier_of_expr ast in
     let qt =
@@ -110,7 +141,7 @@ let rec eval alg ast =
                          body)))
       (Z3.Quantifier.get_bound_variable_names ast)
       (Z3.Quantifier.get_bound_variable_sorts ast)
-      (eval alg (Z3.Quantifier.get_body ast))
+      (eval alg ~skolemized_quants ~depth:(depth+1) (Z3.Quantifier.get_body ast))
   | FUNC_DECL_AST
   | SORT_AST
   | UNKNOWN_AST -> invalid_arg "eval: unknown ast type"
@@ -168,7 +199,7 @@ let z3_of_symbol z3 sym = Z3.Symbol.mk_int z3 (int_of_symbol sym)
 
 let decl_of_symbol z3 srk sym =
   let (param_sorts, return_sort) = match typ_symbol srk sym with
-    | `TyInt | `TyReal | `TyBool ->
+    | `TyInt | `TyReal | `TyBool | `TyArr ->
       invalid_arg "decl_of_symbol: not a function symbol"
     | `TyFun (params, return) ->
       (List.map (sort_of_typ z3) params, sort_of_typ z3 return)
@@ -192,6 +223,7 @@ and z3_of_term (srk : 'a context) z3 (term : 'a term) =
       let sort = match typ_symbol srk sym with
         | `TyInt -> sort_of_typ z3 `TyInt
         | `TyReal -> sort_of_typ z3 `TyReal
+        | `TyArr -> sort_of_typ z3 `TyArr
         | `TyBool | `TyFun (_,_) ->
           invalid_arg "z3_of.term: ill-typed application"
       in
@@ -201,19 +233,22 @@ and z3_of_term (srk : 'a context) z3 (term : 'a term) =
     | `App (func, args) ->
       let decl = decl_of_symbol z3 srk func in
       Z3.Expr.mk_app z3 decl (List.map (z3_of_expr srk z3) args)
-
     | `Var (_, `TyFun (_, _)) | `Var (_, `TyBool) ->
       invalid_arg "z3_of.term: variable"
     | `Var (i, `TyInt) ->
       Z3.Quantifier.mk_bound z3 i (sort_of_typ z3 `TyInt)
     | `Var (i, `TyReal) ->
       Z3.Quantifier.mk_bound z3 i (sort_of_typ z3 `TyReal)
+    | `Var (i, `TyArr) ->
+      Z3.Quantifier.mk_bound z3 i (sort_of_typ z3 `TyArr)
     | `Add sum -> Z3.Arithmetic.mk_add z3 sum
     | `Mul product -> Z3.Arithmetic.mk_mul z3 product
     | `Binop (`Div, s, t) -> Z3.Arithmetic.mk_div z3 s t
     | `Binop (`Mod, s, t) -> Z3.Arithmetic.Integer.mk_mod z3 s t
     | `Unop (`Floor, t) -> Z3. Arithmetic.Real.mk_real2int z3 t
     | `Unop (`Neg, t) -> Z3.Arithmetic.mk_unary_minus z3 t
+    | `Binop (`Select, a, i) -> Z3.Z3Array.mk_select z3 a i
+    | `Store (a, i, v) -> Z3.Z3Array.mk_store z3 a i v
     | `Ite (cond, bthen, belse) ->
       Z3.Boolean.mk_ite z3 (z3_of_formula srk z3 cond) bthen belse
   in
@@ -259,7 +294,7 @@ and z3_of_formula srk z3 =
   Formula.eval_memo srk alg
 
 type 'a gexpr = ('a, typ_fo) Syntax.expr
-let of_z3 context sym_of_decl expr =
+let of_z3 context ?(skolemized_quants=Hashtbl.create 91) sym_of_decl expr =
   let term expr =
     match Expr.refine context expr with
     | `Term t -> t
@@ -274,6 +309,7 @@ let of_z3 context sym_of_decl expr =
     function
     | `Real qq -> (mk_real context qq :> 'a gexpr)
     | `Var (i, typ) -> mk_var context i typ
+    | `Const sym -> mk_const context sym
     | `App (decl, args) ->
       let const_sym = sym_of_decl decl in
       mk_app context const_sym args
@@ -283,6 +319,8 @@ let of_z3 context sym_of_decl expr =
     | `Binop (`Mod, s, t) -> (mk_mod context (term s) (term t) :> 'a gexpr)
     | `Unop (`Floor, t) -> (mk_floor context (term t) :> 'a gexpr)
     | `Unop (`Neg, t) -> (mk_neg context (term t) :> 'a gexpr)
+    | `Binop (`Select, a, i) -> (mk_select context (term a) (term i) :> 'a gexpr) 
+    | `Store (a, i, v) -> (mk_store context (term a) (term i) (term v) :> 'a gexpr)
     | `Tru -> (mk_true context :> 'a gexpr)
     | `Fls -> (mk_false context :> 'a gexpr)
     | `And conjuncts ->
@@ -307,7 +345,7 @@ let of_z3 context sym_of_decl expr =
     | `Atom (`Lt, s, t) -> (mk_lt context (term s) (term t) :> 'a gexpr)
     | `Ite (cond, bthen, belse) -> mk_ite context (formula cond) bthen belse
   in
-  eval alg expr
+  eval alg ~skolemized_quants expr
 
 (* sym_of_decl is sufficient for round-tripping, since srk symbols become
    Z3 int symbols *)
@@ -316,17 +354,17 @@ let sym_of_decl decl =
   assert (Z3.Symbol.is_int_symbol sym);
   symbol_of_int (Z3.Symbol.get_int sym)
 
-let term_of_z3 context term =
-  match Expr.refine context (of_z3 context sym_of_decl term) with
+let term_of_z3 context ?(skolemized_quants=Hashtbl.create 91) term =
+  match Expr.refine context (of_z3 context ~skolemized_quants sym_of_decl term) with
   | `Term t -> t
   | _ -> invalid_arg "term_of"
 
-let formula_of_z3 context phi =
-  match Expr.refine context (of_z3 context sym_of_decl phi) with
+let formula_of_z3 context ?(skolemized_quants=Hashtbl.create 91) phi =
+  match Expr.refine context (of_z3 context ~skolemized_quants sym_of_decl phi) with
   | `Formula phi -> phi
   |  _ -> invalid_arg "formula_of"
 
-let expr_of_z3 context expr = of_z3 context sym_of_decl expr
+let expr_of_z3 context ?(skolemized_quants=Hashtbl.create 91) expr = of_z3 context ~skolemized_quants sym_of_decl expr
 
 type 'a solver =
   { srk : 'a context;
@@ -373,6 +411,7 @@ module Solver = struct
       | `TyReal -> sort_of_typ z3 `TyReal
       | `TyInt -> sort_of_typ z3 `TyInt
       | `TyBool -> sort_of_typ z3 `TyBool
+      | `TyArr -> sort_of_typ z3 `TyArr
       | _ -> assert false
     in
     let decl =
@@ -386,6 +425,12 @@ module Solver = struct
       let t = expr_of_sym srk z3 sym in
       begin match Z3.Model.eval m t true with
         | Some x -> `Real (qq_val x)
+        | None -> assert false
+      end
+    | `TyArr ->
+      let t = expr_of_sym srk z3 sym in
+      begin match Z3.Model.eval m t true with
+        | Some x -> `Arr (arr_val x)
         | None -> assert false
       end
     | `TyBool ->

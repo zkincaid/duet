@@ -2,7 +2,23 @@ open Syntax
 
 exception Divide_by_zero
 
-type 'a value = [`Real of QQ.t | `Bool of bool | `Fun of ('a, typ_fo) expr ]
+
+(** A representation of an integer array as a map and a
+    default value. Essentially mirrors the encoding of array interps in Z3.
+    TODO: May be nice to have def value be function of index as opposed
+    to a constant, although I don't believe that Z3 interps 
+    can exhibit this behavior. *)
+module QQArray : sig
+  type t
+  val create : QQ.t -> t
+  val add : t -> QQ.t -> QQ.t -> t
+  val pp : Format.formatter -> t -> unit
+  val select : t -> QQ.t -> QQ.t
+  val equal : t -> t -> bool
+end
+
+type 'a value = [`Real of QQ.t | `Bool of bool | `Fun of ('a, typ_fo) expr 
+                | `Arr of QQArray.t ]
 
 (** An interpretation is a mapping from symbols to values.  Interpretations
     are a collection of concrete bindings (explicit (symbol, value) pairs)
@@ -23,6 +39,7 @@ val wrap : ?symbols:symbol list ->
   'a interpretation
 
 val add_real : symbol -> QQ.t -> 'a interpretation -> 'a interpretation
+val add_array : symbol -> QQArray.t -> 'a interpretation -> 'a interpretation
 val add_bool : symbol -> bool -> 'a interpretation -> 'a interpretation
 val add_fun : symbol -> ('a,typ_fo) expr -> 'a interpretation -> 'a interpretation
 val add : symbol -> 'a value -> 'a interpretation -> 'a interpretation
@@ -33,9 +50,7 @@ val value : 'a interpretation -> symbol -> 'a value
 
 (** Enumerate the concrete bindings in an interpretation. *)
 val enum : 'a interpretation ->
-  (symbol * [ `Real of QQ.t
-            | `Bool of bool
-            | `Fun of ('a, typ_fo) expr ]) BatEnum.t
+  (symbol * 'a value) BatEnum.t
 
 (** Replace constant symbols by their interpretations within an expression.  A
     constant symbol that is not defined within the interpretation is not
@@ -43,7 +58,12 @@ val enum : 'a interpretation ->
 val substitute : 'a interpretation -> ('a,'typ) expr -> ('a,'typ) expr
 
 val evaluate_term : 'a interpretation ->
-  ?env:[`Real of QQ.t | `Bool of bool] Env.t ->
+  ?env:[`Real of QQ.t | `Bool of bool | `Array of QQArray.t] Env.t ->
+  'a term ->
+  [`QQ of QQ.t | `Arr of QQArray.t]
+(* Same as evaluate_term but fails if not case QQ *)
+val evaluate_term_qq : 'a interpretation ->
+  ?env:[`Real of QQ.t | `Bool of bool | `Array of QQArray.t] Env.t ->
   'a term ->
   QQ.t
     

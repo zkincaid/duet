@@ -60,6 +60,15 @@ let roundtrip4 () =
   in
   assert_equal_term term (term_of_z3 (z3_of_term term))
 
+let roundtrip5 () =
+  let formula =
+    let open Infix in
+    mk_forall_const srk a1sym ((( a1.%[x]<-y).%[y]<-z).%[(int 5)] = (int 5))
+  in
+  assert_equal_formula formula (formula_of_z3 (z3_of_formula formula))
+
+
+
 let is_interpolant phi psi itp =
   (Smt.entails srk phi itp = `Yes)
   && Smt.is_sat srk (mk_and srk [itp; psi]) = `Unsat
@@ -131,6 +140,18 @@ let interpretation1 () =
       (Interpretation.evaluate_formula m phi)
   | _ -> assert false
 
+let interpretation2 () =
+  let phi =
+    let open Infix in
+    (int 5) < (a1.%[(int 5)]) && (int 10) = (a1.%[x]) &&
+    (a1.%[y]) = (int 2) && a1 = a2
+  in
+  match Smt.get_model srk phi with
+  | `Sat m ->
+    assert_bool "is_model"
+      (Interpretation.evaluate_formula m phi)
+  | _ -> assert false
+
 let implicant1 () =
   let phi =
     let open Infix in
@@ -149,6 +170,26 @@ let implicant1 () =
       | None -> assert false
     end
   | _ -> assert false
+
+let implicant2 () =
+  let phi =
+    let open Infix in
+    a1 = a2 && a1.%[x] = (int 99) && a2.%[y] = (int 98) 
+    && (x = y || y = (int 5))
+  in
+  match Smt.get_model srk phi with
+  | `Sat m ->
+    begin match Interpretation.select_implicant m phi with
+      | Some implicant ->
+        List.iter (fun psi ->
+            assert_bool "is_model"
+              (Interpretation.evaluate_formula m psi))
+          implicant
+      | None -> assert false
+    end
+  | _ -> assert false
+
+
 
 let affine_interp1 () =
   let phi =
@@ -320,6 +361,42 @@ let chc_trivial_true () =
   in
   verify_chc [psym; qsym] rules
 
+let arr_read_write () = 
+  let smt2str = 
+      "(declare-const x Int)
+       (declare-const y Int)
+       (declare-const a1 (Array Int Int))
+       (assert (and (= (store a1 x y) a1) (not (= (select a1 x) y))))"
+  in 
+  let phi = SrkZ3.load_smtlib2 srk smt2str in
+  assert_equiv_formula phi (mk_false srk)
+(* This test stalls out when run together with arraycontent suite. Unclear why.
+let skolemized_quants () = 
+  let smt2str = 
+      "(assert 
+        (exists ((x Int))
+          (and 
+           (forall ((y Int)) (< y x))
+          (= x 5))))"
+  in 
+  let phi = SrkZ3.load_smtlib2 srk smt2str in
+  let ctx = Z3.mk_context [] in
+  let z3 = SrkZ3.z3_of_formula srk ctx phi in
+  let body = Z3.Quantifier.get_body (Z3.Quantifier.quantifier_of_expr z3) in
+  let sk_quants = Hashtbl.create 1 in
+  Hashtbl.add sk_quants 0 xsym;
+  let psi = SrkZ3.formula_of_z3 srk ~skolemized_quants:sk_quants body in
+  let lam =
+    mk_and 
+    srk 
+    [mk_forall srk ~name:"y" `TyInt (mk_lt srk (mk_var srk 0 `TyInt) x);
+    mk_eq srk x (mk_int srk 5)]
+  in
+  assert_equal_formula psi lam
+*)
+
+
+
 let suite = "SMT" >:::
   [
     "roundtrip0" >:: roundtrip0;
@@ -327,13 +404,16 @@ let suite = "SMT" >:::
     "roundtrip2" >:: roundtrip2;
     "roundtrip3" >:: roundtrip3;
     "roundtrip4" >:: roundtrip4;
+    "roundtrip5" >:: roundtrip5;
 (*
     "interpolate1" >:: interpolate1;
     "interpolate2" >:: interpolate2;
     "interpolate3" >:: interpolate3;
 *)
     "interpretation1" >:: interpretation1;
+    "interpretation2" >:: interpretation2;
     "implicant1" >:: implicant1;
+    "implicant2" >:: implicant2;
     "affine_interp1" >:: affine_interp1;
     "affine_interp2" >:: affine_interp2;
     "chc1" >:: chc1;
@@ -341,4 +421,6 @@ let suite = "SMT" >:::
     "chc3" >:: chc3;
     "chc_trivial_false" >:: chc_trivial_false;
     "chc_trivial_true" >:: chc_trivial_true;
+    "arr_read_write" >:: arr_read_write;
+    (*"skolemized_quants" >:: skolemized_quants*)
   ]
