@@ -190,7 +190,7 @@ let substitute_solution fp expr =
     | `App (_, []) -> expr
     | `App (relation, args) ->
       (substitute srk
-         (List.nth args)
+         (fun (i, _) -> List.nth args i)
          (SrkZ3.CHC.get_solution fp relation) :> ('a,typ_fo) expr)
     | _ -> expr
   in

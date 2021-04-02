@@ -362,11 +362,11 @@ let substitute srk subst sexpr =
     match label with
     | Exists (_, _) | Forall (_, _) ->
       go_children label (depth + 1) children
-    | Var (v, _) ->
+    | Var (v, typ) ->
       if v < depth then (* bound var *)
         sexpr
       else
-        decapture srk 0 depth (subst (v - depth))
+        decapture srk 0 depth (subst ((v - depth), typ))
     | _ -> go_children label depth children
   and go_children label depth children =
     srk.mk label (List.map (go depth) children)
@@ -408,14 +408,14 @@ let substitute_sym srk subst sexpr =
           children
           Env.empty
       in
-      substitute srk (Env.find env) (subst k)
-      |> decapture srk 0 (depth - (List.length children))
+      decapture srk (List.length children) (depth - (List.length children)) (subst k)
+      |> substitute srk (fun (ind, typ) ->
+          try (Env.find env ind) with Not_found -> mk_var srk ind typ)
     | _ -> go_children label depth children
   and go_children label depth children =
     srk.mk label (List.map (go depth) children)
   in
   go 0 sexpr
-
 
 let fold_constants f sexpr acc =
   let rec go acc sexpr =
@@ -980,7 +980,7 @@ module Formula = struct
           vars
           SrkUtil.Int.Map.empty
       in
-      fun v -> SrkUtil.Int.Map.find v map
+      fun (v, _) -> SrkUtil.Int.Map.find v map
     in
     Array.fold_left
       (fun psi typ -> quantify typ psi)

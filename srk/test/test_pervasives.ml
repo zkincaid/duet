@@ -41,6 +41,10 @@ let x' : 'a term = Ctx.mk_const xsym'
 let y' : 'a term = Ctx.mk_const ysym'
 let z' : 'a term = Ctx.mk_const zsym'
 
+let fsym = Ctx.mk_symbol ~name:"f" (`TyFun ([`TyInt], `TyInt))
+let f : Ctx.term -> Ctx.term =
+  fun x -> Ctx.mk_app fsym [(x :> (Ctx.t, typ_fo) expr)]
+
 let frac num den = Ctx.mk_real (QQ.of_frac num den)
 let int k = Ctx.mk_real (QQ.of_int k)
 

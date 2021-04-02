@@ -339,7 +339,7 @@ module ChcSrkZ3 = struct
               srk 
               ((substitute 
                   srk 
-                  (fun ind -> 
+                  (fun (ind,_) -> 
                      if BatHashtbl.mem ind_to_sym ind 
                      then mk_const srk (BatHashtbl.find ind_to_sym ind)
                      else failwith "Free var in rule formula not bound in rel")
