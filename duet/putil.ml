@@ -214,6 +214,7 @@ module TotalFunction = struct
     val enum : t -> (dom * cod) BatEnum.t
     val support : t -> dom BatEnum.t
     val merge : (cod -> cod -> cod) -> t -> t -> t
+    val show : t -> string
     val default : t -> cod
     val const : cod -> t
     val equal : t -> t -> bool
