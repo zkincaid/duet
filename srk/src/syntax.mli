@@ -134,7 +134,7 @@ val mk_iff : 'a context -> 'a formula -> 'a formula -> 'a formula
    symbol with De Bruijn [i] with the expression [subst i].  If [subst
    i] contains free variables, capture is avoided. *)
 val substitute : 'a context ->
-  (int -> ('a,'b) expr) -> ('a,'typ) expr -> ('a,'typ) expr
+  (int * typ_fo -> ('a,'b) expr) -> ('a,'typ) expr -> ('a,'typ) expr
 
 (** [substitute_const srk subst exp] replaces each occurrence of a
    constant symbol [s] with the expression [subst s].  If [subst s]

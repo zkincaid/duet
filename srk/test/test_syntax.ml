@@ -8,8 +8,8 @@ let substitute () =
   let subst =
     let open Infix in
     function
-    | 0 -> x
-    | 2 -> (var 0 `TyInt)
+    | 0, _ -> x
+    | 2, _ -> (var 0 `TyInt)
     | _ -> raise Not_found
   in
   let phi =
@@ -27,6 +27,36 @@ let substitute () =
            && x < (var 1 `TyInt)))
   in
   assert_equal_formula (substitute srk subst phi) psi
+
+let subst_sym1 () =
+  let phi =
+    let open Infix in
+    exists `TyInt (forall `TyInt (f (var 1 `TyInt) = (int 99)))
+  in
+  let psi = 
+    substitute_sym
+      srk
+      (fun sym -> mk_app srk sym [(mk_var srk 0 `TyInt)]) 
+      phi
+  in
+  assert_equal_formula phi psi
+
+let subst_sym2 () =
+  let phi =
+    let open Infix in
+    exists `TyInt (forall `TyInt (f (var 1 `TyInt) = (int 99)))
+  in
+  let phi' = 
+    substitute_sym
+      srk
+      (fun sym -> mk_app srk sym [(mk_var srk 1 `TyInt)]) 
+      phi
+  in
+  let psi =
+    let open Infix in
+    exists `TyInt (forall `TyInt (f (var 2 `TyInt) = (int 99)))
+  in
+  assert_equal_formula phi' psi
 
 let existential_closure1 () =
   let phi =
@@ -119,6 +149,8 @@ let elim_ite3 () =
 let suite = "Syntax" >:::
   [
     "substitute" >:: substitute;
+    "subst_sym1" >:: subst_sym1;
+    "subst_sym2" >:: subst_sym2;
     "existential_closure1" >:: existential_closure1;
     "existential_closure2" >:: existential_closure2;
     "prenex" >:: prenex;

@@ -647,7 +647,7 @@ module CHC = struct
       let table = Hashtbl.create 991 in
       BatHashtbl.enum var_table
       |> BatEnum.iteri (fun i (j, typ) -> Hashtbl.add table j (mk_var srk i typ));
-      fun i -> Hashtbl.find table i
+      fun (i, _) -> Hashtbl.find table i
     in
     let rule =
       match destruct srk conclusion with
