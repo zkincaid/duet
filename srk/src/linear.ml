@@ -4,7 +4,7 @@ open BatPervasives
 include Log.Make(struct let name = "srk.linear" end)
 
 module IntSet = SrkUtil.Int.Set
-
+module Term = ArithTerm
 module ZZVector = struct
   include Ring.MakeVector(ZZ)
 
@@ -453,6 +453,7 @@ let linterm_of srk term =
     | `Binop (`Mod, x, y) -> real (QQ.modulo (qq_of x) (nonzero_qq_of y))
     | `Unop (`Floor, x) -> real (QQ.of_zz (QQ.floor (qq_of x)))
     | `Unop (`Neg, x) -> negate x
+    | `Select _ -> assert false
     | `Ite (_, _, _) -> raise Nonlinear
   in
   Term.eval srk alg term

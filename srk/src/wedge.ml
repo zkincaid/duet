@@ -15,6 +15,7 @@ module CS = CoordinateSystem
 module A = BatDynArray
 
 module IntSet = SrkUtil.Int.Set
+module Term = ArithTerm
 
 include Log.Make(struct let name = "srk.wedge" end)
 
@@ -1968,8 +1969,9 @@ let is_sat srk phi =
     Symbol.Map.enum nonlinear
     /@ (fun (symbol, expr) ->
         match Expr.refine srk expr with
-        | `Term t -> mk_eq srk (mk_const srk symbol) t
-        | `Formula phi -> mk_iff srk (mk_const srk symbol) phi)
+        | `ArithTerm t -> mk_eq srk (mk_const srk symbol) t
+        | `Formula phi -> mk_iff srk (mk_const srk symbol) phi
+        | `ArrTerm _ -> assert false)
     |> BatList.of_enum
   in
   let nonlinear = Symbol.Map.map (Nonlinear.interpret srk) nonlinear in
@@ -2084,8 +2086,9 @@ let abstract_subwedge subwedge ?exists:(p=fun _ -> true) ?(subterm=fun _ -> true
     Symbol.Map.enum nonlinear
     /@ (fun (symbol, expr) ->
         match Expr.refine srk expr with
-        | `Term t -> mk_eq srk (mk_const srk symbol) t
-        | `Formula phi -> mk_iff srk (mk_const srk symbol) phi)
+        | `ArithTerm t -> mk_eq srk (mk_const srk symbol) t
+        | `Formula phi -> mk_iff srk (mk_const srk symbol) phi
+        | `ArrTerm _ -> assert false)
     |> BatList.of_enum
     |> mk_and srk
   in
@@ -2164,8 +2167,9 @@ let abstract_subwedge_weak subwedge srk phi =
     Symbol.Map.enum nonlinear
     /@ (fun (symbol, expr) ->
         match Expr.refine srk expr with
-        | `Term t -> mk_eq srk (mk_const srk symbol) t
-        | `Formula phi -> mk_iff srk (mk_const srk symbol) phi)
+        | `ArithTerm t -> mk_eq srk (mk_const srk symbol) t
+        | `Formula phi -> mk_iff srk (mk_const srk symbol) phi
+        | `ArrTerm _ -> assert false)
     |> BatList.of_enum
     |> mk_and srk
   in

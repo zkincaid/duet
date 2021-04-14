@@ -22,10 +22,12 @@ module Make
 struct
   module M = BatMap.Make(Var)
 
+  module Term = ArithTerm
+
   type var = Var.t
 
   type t =
-    { transform : (C.t term) M.t;
+    { transform : (C.t arith_term) M.t;
       guard : C.t formula }
 
   let compare x y =
@@ -452,7 +454,7 @@ struct
             Symbol.Map.enum t_defs
             /@ (fun (v,t) ->
               match Expr.refine srk t with
-              | `Term t ->
+              | `ArithTerm t ->
                  mk_eq srk (mk_const srk v) (Nonlinear.interpret srk t)
               | _ -> assert false)
             |> BatList.of_enum

@@ -146,6 +146,49 @@ let elim_ite3 () =
   in
   assert_equiv_formula (eliminate_ite srk phi) phi
 
+let elim_stores1 () =
+  let phi =
+    let open Infix in
+    (a1.%[x]<-y) == a1
+  in
+  let lam =
+    let open Infix in
+    mk_forall 
+      srk
+      ~name:"K" 
+      `TyInt 
+      (Ctx.mk_ite (x = (var 0 `TyInt)) y (a1.%[(var 0 `TyInt)]) 
+       = a1.%[(var 0 `TyInt)])
+  in
+  assert_equal_formula (eliminate_stores srk phi) lam
+
+let elim_stores2 () =
+  let phi =
+    let open Infix in
+    (a1.%[(var 0 `TyInt)]<-y) == a1
+  in
+  let lam =
+    let open Infix in
+    mk_forall 
+      srk
+      ~name:"K" 
+      `TyInt 
+      (Ctx.mk_ite ((var 1 `TyInt) = (var 0 `TyInt)) y (a1.%[(var 0 `TyInt)]) 
+       = a1.%[(var 0 `TyInt)])
+  in
+  assert_equal_formula (eliminate_stores srk phi) lam
+
+let elim_stores3 () =
+  let phi =
+    let open Infix in
+    ((a1.%[x]<-x).%[x]) = x
+  in
+  let lam =
+    let open Infix in
+    (Ctx.mk_ite (x = x) x (a1.%[x]) = x)
+  in
+  assert_equal_formula (eliminate_stores srk phi) lam
+
 let suite = "Syntax" >:::
   [
     "substitute" >:: substitute;
@@ -158,6 +201,9 @@ let suite = "Syntax" >:::
     "elim_ite1" >:: elim_ite1;
     "elim_ite2" >:: elim_ite2;
     "elim_ite3" >:: elim_ite3;
+    "elim_stores1" >:: elim_stores1;
+    "elim_stores2" >:: elim_stores2;
+    "elim_stores3" >:: elim_stores3;
     "env1" >:: (fun () ->
       let e = List.fold_right Env.push [1;2;3;4;5] Env.empty in
       (0 -- 4) |> BatEnum.iter (fun i ->

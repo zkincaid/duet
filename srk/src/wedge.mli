@@ -49,15 +49,15 @@ val is_top : 'a t -> bool
     interpretation of this representation is that for any vector v,
     [wedge |= (vector0 . v) term0 + ... + (vectorn . v) termn = 0]
     where [.] represents the dot product. *)
-val farkas_equalities : 'a t -> ('a term * Linear.QQVector.t) list
+val farkas_equalities : 'a t -> ('a arith_term * Linear.QQVector.t) list
 
 (** Given a wedge [wedge] and a symbol [symbol], compute a list of lower bounds
     and upper bounds for [symbol] that are implied by [wedge]. *)
-val symbolic_bounds : 'a t -> symbol -> ('a term) list * ('a term) list
+val symbolic_bounds : 'a t -> symbol -> ('a arith_term) list * ('a arith_term) list
 
 (** Given a wedge [wedge] and a term [term], compute a lower and upper bounds
     for [term] within the region [wedge]. *)
-val bounds : 'a t -> 'a term -> Interval.t
+val bounds : 'a t -> 'a arith_term -> Interval.t
 
 (** Ensure that a context has named [max] and [min] symbols.  If the symbols
     are not present in the context [ensure_max_min] registers them. *)
@@ -121,7 +121,7 @@ val symbolic_bounds_formula : ?exists:(symbol -> bool) ->
   'a context ->
   'a formula ->
   symbol ->
-  [ `Sat of (('a term) option * ('a term) option) | `Unsat ]
+  [ `Sat of (('a arith_term) option * ('a arith_term) option) | `Unsat ]
 
 (** As [symbolic_bounds_formula], execept the lower bound is
    represented as a min of maxes, and the upper bound is represented
@@ -130,7 +130,7 @@ val symbolic_bounds_formula_list : ?exists:(symbol -> bool) ->
   'a context ->
   'a formula ->
   symbol ->
-  [ `Sat of (('a term) list list) * (('a term) list list) | `Unsat ]
+  [ `Sat of (('a arith_term) list list) * (('a arith_term) list list) | `Unsat ]
 
 val coordinate_system : 'a t -> 'a CoordinateSystem.t
 

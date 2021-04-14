@@ -21,8 +21,10 @@ end
 
 (** {2 Types} *)
 type typ_arith = [ `TyInt | `TyReal ]
-type typ_fo = [ `TyInt | `TyReal | `TyBool ]
-type typ = [ `TyInt | `TyReal | `TyBool | `TyFun of (typ_fo list) * typ_fo]
+type typ_arr = [ `TyArr ]
+type typ_term = [ `TyInt | `TyReal | `TyArr ]
+type typ_fo = [ `TyInt | `TyReal | `TyBool | `TyArr ]
+type typ = [ `TyInt | `TyReal | `TyBool | `TyArr | `TyFun of (typ_fo list) * typ_fo]
 type typ_bool = [ `TyBool ]
 type 'a typ_fun = [ `TyFun of (typ_fo list) * 'a ]
 
@@ -81,7 +83,9 @@ end
 (** {2 Expressions} *)
 
 type ('a, +'typ) expr
-type 'a term = ('a, typ_arith) expr
+type 'a term = ('a, typ_term) expr
+type 'a arith_term = ('a, typ_arith) expr
+type 'a arr_term = ('a, typ_arr) expr
 type 'a formula = ('a, typ_bool) expr
 
 val compare_expr : ('a,'typ) expr -> ('a,'typ) expr -> int
@@ -91,11 +95,13 @@ val compare_term : 'a term -> 'a term -> int
 val destruct : 'a context -> ('a, 'b) expr -> [
     | `Real of QQ.t
     | `App of symbol * (('a, typ_fo) expr list)
-    | `Var of int * typ_arith
-    | `Add of ('a term) list
-    | `Mul of ('a term) list
-    | `Binop of [ `Div | `Mod ] * ('a term) * ('a term)
-    | `Unop of [ `Floor | `Neg ] * ('a term)
+    | `Var of int * typ_term
+    | `Add of ('a arith_term) list
+    | `Mul of ('a arith_term) list
+    | `Binop of [ `Div | `Mod ] * ('a arith_term) * ('a arith_term)
+    | `Unop of [ `Floor | `Neg ] * ('a arith_term)
+    | `Store of 'a arr_term * 'a arith_term * 'a arith_term
+    | `Select of 'a arr_term * 'a arith_term
     | `Ite of ('a formula) * ('a,'b) expr * ('a,'b) expr
     | `Tru
     | `Fls
@@ -103,7 +109,9 @@ val destruct : 'a context -> ('a, 'b) expr -> [
     | `Or of ('a formula) list
     | `Not of ('a formula)
     | `Quantify of [`Exists | `Forall] * string * typ_fo * ('a formula)
-    | `Atom of [`Eq | `Leq | `Lt] * ('a term) * ('a term)
+    | `Atom of 
+        [ `Arith of [`Eq | `Leq | `Lt] * ('a arith_term) * ('a arith_term)
+        | `ArrEq of 'a arr_term * 'a arr_term ]
     | `Proposition of [ `Var of int
                       | `App of symbol * (('b, typ_fo) expr) list ]
   ]
@@ -188,7 +196,11 @@ module Expr : sig
     Format.formatter ->
     ('a, 'b) expr ->
     unit
-  val refine : 'a context -> ('a, typ_fo) expr -> [ `Term of 'a term
+  val refine : 'a context -> ('a, typ_fo) expr -> [ `ArithTerm of 'a arith_term
+                                                  | `ArrTerm of 'a arr_term
+                                                  | `Formula of 'a formula ]
+
+  val refine_coarse : 'a context -> ('a, typ_fo) expr -> [ `Term of 'a term
                                                   | `Formula of 'a formula ]
 
   (** Convert an expression to a term.  Raise [Invalid_arg] if the
@@ -198,6 +210,14 @@ module Expr : sig
   (** Convert an expression to a formula.  Raise [Invalid_arg] if the
      expression is not a formula. *)
   val formula_of : 'a context -> ('a, typ_fo) expr -> 'a formula
+
+  (** Convert an expression to an arith_term.  Raise [Invalid_arg] if the
+     expression is not an arith_term. *)
+  val arith_term_of : 'a context -> ('a, typ_fo) expr -> 'a arith_term
+
+(** Convert an expression to an arr_term.  Raise [Invalid_arg] if the
+     expression is not an arith_term. *)
+  val arr_term_of : 'a context -> ('a, typ_fo) expr -> 'a arr_term
 
   module HT : sig
     type ('a, 'typ, 'b) t
@@ -259,55 +279,115 @@ end
 type ('a,'b) open_term = [
   | `Real of QQ.t
   | `App of symbol * (('b, typ_fo) expr list)
+  | `Var of int * typ_term
+  | `Add of 'a list
+  | `Mul of 'a list
+  | `Binop of [ `Div | `Mod ] * 'a * 'a
+  | `Unop of [ `Floor | `Neg ] * 'a
+  | `Ite of ('b formula) * 'a * 'a
+  | `Store of 'a * 'a * 'a
+  | `Select of 'a * 'a
+]
+
+type ('a,'b) open_arith_term = [
+  | `Real of QQ.t
+  | `App of symbol * (('b, typ_fo) expr list)
   | `Var of int * typ_arith
   | `Add of 'a list
   | `Mul of 'a list
   | `Binop of [ `Div | `Mod ] * 'a * 'a
   | `Unop of [ `Floor | `Neg ] * 'a
   | `Ite of ('b formula) * 'a * 'a
+  | `Select of 'b arr_term * 'a
 ]
 
-val mk_add : 'a context -> 'a term list -> 'a term
-val mk_mul : 'a context -> 'a term list -> 'a term
-val mk_div : 'a context -> 'a term -> 'a term -> 'a term
-val mk_pow : 'a context -> 'a term -> int -> 'a term
+
+type ('a,'b) open_arr_term = [
+  | `App of symbol * (('b, typ_fo) expr list)
+  | `Var of int * typ_arr
+  | `Ite of ('b formula) * 'a * 'a
+  | `Store of 'a * 'b arith_term * 'b arith_term
+]
+
+val mk_add : 'a context -> 'a arith_term list -> 'a arith_term
+val mk_mul : 'a context -> 'a arith_term list -> 'a arith_term
+val mk_div : 'a context -> 'a arith_term -> 'a arith_term -> 'a arith_term
+val mk_pow : 'a context -> 'a arith_term -> int -> 'a arith_term
 
 (** C99 integer division.  Equivalent to truncate(x/y). *)
-val mk_idiv : 'a context -> 'a term -> 'a term -> 'a term
-val mk_mod : 'a context -> 'a term -> 'a term -> 'a term
-val mk_real : 'a context -> QQ.t -> 'a term
+val mk_idiv : 'a context -> 'a arith_term -> 'a arith_term -> 'a arith_term
+val mk_mod : 'a context -> 'a arith_term -> 'a arith_term -> 'a arith_term
+val mk_real : 'a context -> QQ.t -> 'a arith_term
 
-val mk_zz : 'a context -> ZZ.t -> 'a term
-val mk_int : 'a context -> int -> 'a term
+val mk_zz : 'a context -> ZZ.t -> 'a arith_term
+val mk_int : 'a context -> int -> 'a arith_term
 
-val mk_zero : 'a context -> 'a term
-val mk_one : 'a context -> 'a term
-val mk_floor : 'a context -> 'a term -> 'a term
-val mk_ceiling : 'a context -> 'a term -> 'a term
+val mk_zero : 'a context -> 'a arith_term
+val mk_one : 'a context -> 'a arith_term
+val mk_floor : 'a context -> 'a arith_term -> 'a arith_term
+val mk_ceiling : 'a context -> 'a arith_term -> 'a arith_term
 
 (** [truncate(t)] removes the fractional part of [t] (rounding it towards
     0).  *)
-val mk_truncate : 'a context -> 'a term -> 'a term
+val mk_truncate : 'a context -> 'a arith_term -> 'a arith_term
 
 (** Unary negation *)
-val mk_neg : 'a context -> 'a term -> 'a term
+val mk_neg : 'a context -> 'a arith_term -> 'a arith_term
 
 (** Subtraction *)
-val mk_sub : 'a context -> 'a term -> 'a term -> 'a term
+val mk_sub : 'a context -> 'a arith_term -> 'a arith_term -> 'a arith_term
 
-val term_typ : 'a context -> 'a term -> typ_arith
+(** Array operations *)
+val mk_select : 'a context -> 'a arr_term -> 'a arith_term -> 'a arith_term
+val mk_store : 'a context -> 'a arr_term -> 'a arith_term -> 'a arith_term -> 'a arr_term
 
 module Term : sig
   type 'a t = 'a term
-  val equal : 'a term -> 'a term -> bool
-  val compare : 'a term -> 'a term -> int
-  val hash : 'a term -> int
+  val equal : 'a t -> 'a t -> bool
+  val compare : 'a t -> 'a t -> int
+  val hash : 'a t -> int
   val pp : ?env:(string Env.t) -> 'a context ->
-    Format.formatter -> 'a term -> unit
-  val show : ?env:(string Env.t) -> 'a context -> 'a term -> string
-  val destruct : 'a context -> 'a term -> ('a term, 'a) open_term
-  val eval : 'a context -> (('b, 'a) open_term -> 'b) -> 'a term -> 'b
-  val eval_partial : 'a context -> (('b, 'a) open_term -> 'b option) -> 'a term -> 'b option
+    Format.formatter -> 'a t -> unit
+  val show : ?env:(string Env.t) -> 'a context -> 'a t -> string
+  val destruct : 'a context -> 'a t -> ('a t, 'a) open_term
+  val construct : 'a context -> ('a t, 'a) open_term -> 'a t
+  val eval : 'a context -> (('b, 'a) open_term -> 'b) -> 'a t -> 'b
+  val eval_partial : 'a context -> (('b, 'a) open_term -> 'b option) -> 'a t -> 'b option
+  val typ : 'a context -> 'a t -> typ_term
+  val refine : 'a context -> 'a t -> [ `ArithTerm of 'a arith_term
+                                     | `ArrTerm of 'a arr_term ]
+end
+
+module ArithTerm : sig
+  type 'a t = 'a arith_term
+  val equal : 'a t -> 'a t -> bool
+  val compare : 'a t -> 'a t -> int
+  val hash : 'a t -> int
+  val pp : ?env:(string Env.t) -> 'a context ->
+    Format.formatter -> 'a t -> unit
+  val show : ?env:(string Env.t) -> 'a context -> 'a t -> string
+  val destruct : 'a context -> 'a t -> ('a t, 'a) open_arith_term
+  val construct : 'a context -> ('a t, 'a) open_arith_term -> 'a t
+  val eval : 'a context -> (('b, 'a) open_arith_term -> 'b) -> 'a t -> 'b
+  val eval_partial : 'a context -> (('b, 'a) open_arith_term -> 'b option) -> 'a t -> 'b option 
+  (** Convert a term to an arith_term.  Raise [Invalid_arg] if the
+     expression is not an arith_term. *)
+  val arith_term_of : 'a context -> 'a term -> 'a arith_term
+  val typ : 'a context -> 'a t -> typ_arith
+end
+
+module ArrTerm : sig
+  type 'a t = 'a arr_term
+  val equal : 'a t -> 'a t -> bool
+  val compare : 'a t -> 'a t -> int
+  val hash : 'a t -> int
+  val pp : ?env:(string Env.t) -> 'a context ->
+    Format.formatter -> 'a t -> unit
+  val show : ?env:(string Env.t) -> 'a context -> 'a t -> string
+  val destruct : 'a context -> 'a t -> ('a t, 'a) open_arr_term
+  val construct : 'a context -> ('a t, 'a) open_arr_term -> 'a t
+  val eval : 'a context -> (('b, 'a) open_arr_term -> 'b) -> 'a t -> 'b
+  val eval_partial : 'a context -> (('b, 'a) open_arr_term -> 'b option) -> 'a t -> 'b option 
 end
 
 (** {2 Formulas} *)
@@ -319,7 +399,9 @@ type ('a,'b) open_formula = [
   | `Or of 'a list
   | `Not of 'a
   | `Quantify of [`Exists | `Forall] * string * typ_fo * 'a
-  | `Atom of [`Eq | `Leq | `Lt] * ('b term) * ('b term)
+  | `Atom of 
+      [ `Arith of [`Eq | `Leq | `Lt] * ('b arith_term) * ('b arith_term)
+      | `ArrEq of 'b arr_term * 'b arr_term ]
   | `Proposition of [ `Var of int
                     | `App of symbol * (('b, typ_fo) expr) list ]
   | `Ite of 'a * 'a * 'a
@@ -346,16 +428,27 @@ val mk_exists_consts : 'a context -> (symbol -> bool) -> 'a formula -> 'a formul
 val mk_and : 'a context -> 'a formula list -> 'a formula
 val mk_or : 'a context -> 'a formula list -> 'a formula
 val mk_not : 'a context -> 'a formula -> 'a formula
-val mk_eq : 'a context -> 'a term -> 'a term -> 'a formula
-val mk_lt : 'a context -> 'a term -> 'a term -> 'a formula
-val mk_leq : 'a context -> 'a term -> 'a term -> 'a formula
+val mk_eq : 'a context -> 'a arith_term -> 'a arith_term -> 'a formula
+val mk_lt : 'a context -> 'a arith_term -> 'a arith_term -> 'a formula
+val mk_leq : 'a context -> 'a arith_term -> 'a arith_term -> 'a formula
 val mk_true : 'a context -> 'a formula
 val mk_false : 'a context -> 'a formula
+
+(** This is syntactic sugar for intrinsic array equality *)
+val mk_arr_eq : 'a context -> 'a arr_term -> 'a arr_term -> 'a formula
 
 (** Given a formula [phi], compute an equivalent formula without
    if-then-else terms.  [eliminate-ite] does not introduce new
    symbols or quantifiers. *)
 val eliminate_ite : 'a context -> 'a formula -> 'a formula
+
+(** Given a formula [phi], compute an equivalent formula without
+   arr_eq terms. *)
+val eliminate_arr_eq : 'a context -> 'a formula -> 'a formula
+
+(** Given a formula [phi], compute an equivalent formula without
+   array stores. Note that this implicitly eliminates arr_eqs too.*)
+val eliminate_stores : 'a context -> 'a formula -> 'a formula
 
 (** Print a formula as a satisfiability query in SMTLIB2 format.
     The query includes function declarations and (check-sat).
@@ -394,8 +487,10 @@ module Formula : sig
     Format.formatter -> 'a formula -> unit
   val show : ?env:(string Env.t) -> 'a context -> 'a formula -> string
   val destruct : 'a context -> 'a formula -> ('a formula, 'a) open_formula
+  val construct : 'a context -> ('a formula, 'a) open_formula -> 'a formula
   val eval : 'a context -> (('b, 'a) open_formula -> 'b) -> 'a formula -> 'b
-  val eval_memo : 'a context -> (('b, 'a) open_formula -> 'b) -> 'a formula -> 'b
+  val eval_memo : 'a context -> (('b, 'a) open_formula -> 'b) -> 'a formula -> 
+    'b
   val existential_closure : 'a context -> 'a formula -> 'a formula
   val universal_closure : 'a context -> 'a formula -> 'a formula
   val skolemize_free : 'a context -> 'a formula -> 'a formula
@@ -407,24 +502,28 @@ end
 module type Context = sig
   type t (* magic type parameter unique to this context *)
   val context : t context
-  type term = (t, typ_arith) expr
+  type term = (t, typ_term) expr
+  type arith_term = (t, typ_arith) expr
+  type arr_term = (t, typ_arr) expr
   type formula = (t, typ_bool) expr
 
   val mk_symbol : ?name:string -> typ -> symbol
   val mk_const : symbol -> (t, 'typ) expr
   val mk_app : symbol -> (t, 'b) expr list -> (t, 'typ) expr
   val mk_var : int -> typ_fo -> (t, 'typ) expr
-  val mk_add : term list -> term
-  val mk_mul : term list -> term
-  val mk_div : term -> term -> term
-  val mk_idiv : term -> term -> term
-  val mk_mod : term -> term -> term
-  val mk_real : QQ.t -> term
-  val mk_zz : ZZ.t -> term
-  val mk_int : int -> term
-  val mk_floor : term -> term
-  val mk_neg : term -> term
-  val mk_sub : term -> term -> term
+  val mk_add : arith_term list -> arith_term
+  val mk_mul : arith_term list -> arith_term
+  val mk_div : arith_term -> arith_term -> arith_term
+  val mk_idiv : arith_term -> arith_term -> arith_term
+  val mk_mod : arith_term -> arith_term -> arith_term
+  val mk_real : QQ.t -> arith_term
+  val mk_zz : ZZ.t -> arith_term
+  val mk_int : int -> arith_term
+  val mk_floor : arith_term -> arith_term
+  val mk_neg : arith_term -> arith_term
+  val mk_sub : arith_term -> arith_term -> arith_term
+  val mk_select : arr_term -> arith_term -> arith_term
+  val mk_store : arr_term -> arith_term -> arith_term -> arr_term
   val mk_forall : ?name:string -> typ_fo -> formula -> formula
   val mk_exists : ?name:string -> typ_fo -> formula -> formula
   val mk_forall_const : symbol -> formula -> formula
@@ -432,9 +531,10 @@ module type Context = sig
   val mk_and : formula list -> formula
   val mk_or : formula list -> formula
   val mk_not : formula -> formula
-  val mk_eq : term -> term -> formula
-  val mk_lt : term -> term -> formula
-  val mk_leq : term -> term -> formula
+  val mk_eq : arith_term -> arith_term -> formula
+  val mk_lt : arith_term -> arith_term -> formula
+  val mk_leq : arith_term -> arith_term -> formula
+  val mk_arr_eq : arr_term -> arr_term -> formula
   val mk_true : formula
   val mk_false : formula
   val mk_ite : formula -> (t, 'a) expr -> (t, 'a) expr -> (t, 'a) expr
@@ -455,19 +555,24 @@ module Infix (C : sig
   val ( ! ) : C.t formula -> C.t formula
   val ( && ) : C.t formula -> C.t formula -> C.t formula
   val ( || ) : C.t formula -> C.t formula -> C.t formula
-  val ( < ) : C.t term -> C.t term -> C.t formula
-  val ( <= ) : C.t term -> C.t term -> C.t formula
-  val ( = ) : C.t term -> C.t term -> C.t formula
+  val ( < ) : C.t arith_term -> C.t arith_term -> C.t formula
+  val ( <= ) : C.t arith_term -> C.t arith_term -> C.t formula
+  val ( = ) : C.t arith_term -> C.t arith_term -> C.t formula
   val tru : C.t formula
   val fls : C.t formula
 
-  val ( + ) : C.t term -> C.t term -> C.t term
-  val ( - ) : C.t term -> C.t term -> C.t term
-  val ( * ) : C.t term -> C.t term -> C.t term
-  val ( / ) : C.t term -> C.t term -> C.t term
-  val ( mod ) : C.t term -> C.t term -> C.t term
+  val ( + ) : C.t arith_term -> C.t arith_term -> C.t arith_term
+  val ( - ) : C.t arith_term -> C.t arith_term -> C.t arith_term
+  val ( * ) : C.t arith_term -> C.t arith_term -> C.t arith_term
+  val ( / ) : C.t arith_term -> C.t arith_term -> C.t arith_term
+  val ( mod ) : C.t arith_term -> C.t arith_term -> C.t arith_term
   val const : symbol -> (C.t, 'typ) expr
   val var : int -> typ_fo -> (C.t, 'typ) expr
+
+  val ( .%[] ) : C.t arr_term -> C.t arith_term -> C.t arith_term
+  val ( .%[]<- ) : C.t arr_term -> C.t arith_term -> C.t arith_term -> 
+    C.t arr_term
+  val ( == ) : C.t arr_term -> C.t arr_term -> C.t formula
 end
 
 (** A context table is a hash table mapping contents to values.  If a context

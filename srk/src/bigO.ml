@@ -69,7 +69,7 @@ let maximum x y =
   | `Geq -> x
   | `Unknown -> Unknown
 
-let of_term srk term =
+let of_arith_term srk term =
   Nonlinear.ensure_symbols srk;
   Wedge.ensure_min_max srk;
 
@@ -79,12 +79,12 @@ let of_term srk term =
   let max = get_named_symbol srk "max" in
 
   let rec go term =
-    match Term.destruct srk term with
+    match ArithTerm.destruct srk term with
     | `Real _ -> Polynomial 0
     | `App (_, []) -> Polynomial 1
     | `App (func, [base; exp]) when func = pow ->
       let exp = match Expr.refine srk exp with
-        | `Term t -> t
+        | `ArithTerm t -> t
         | _ -> assert false
       in
       begin match destruct srk base, go exp with
@@ -93,7 +93,7 @@ let of_term srk term =
       end
     | `App (func, [_; exp]) when func = log ->
       let exp = match Expr.refine srk exp with
-        | `Term t -> t
+        | `ArithTerm t -> t
         | _ -> assert false
       in
       begin match go exp with
@@ -105,13 +105,13 @@ let of_term srk term =
       end
     | `App (func, [x; y]) when func = min ->
       let (x, y) = match Expr.refine srk x, Expr.refine srk y with
-        | (`Term s, `Term t) -> (s, t)
+        | (`ArithTerm s, `ArithTerm t) -> (s, t)
         | (_, _) -> assert false
       in
       minimum (go x) (go y)
     | `App (func, [x; y]) when func = max ->
       let (x, y) = match Expr.refine srk x, Expr.refine srk y with
-        | (`Term s, `Term t) -> (s, t)
+        | (`ArithTerm s, `ArithTerm t) -> (s, t)
         | (_, _) -> assert false
       in
       maximum (go x) (go y)

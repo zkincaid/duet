@@ -73,14 +73,14 @@ let of_formula ?(admit=false) cs phi =
     | `Tru -> top
     | `Fls -> bottom
     | `And xs -> List.fold_left meet top xs
-    | `Atom (`Eq, x, y) ->
+    | `Atom (`Arith (`Eq, x, y)) ->
       P.singleton (`Zero, V.sub (linearize y) (linearize x))
-    | `Atom (`Leq, x, y) ->
+    | `Atom (`Arith (`Leq, x, y)) ->
       P.singleton (`Nonneg, V.sub (linearize y) (linearize x))
-    | `Atom (`Lt, x, y) ->
+    | `Atom (`Arith (`Lt, x, y)) ->
       P.singleton (`Pos, V.sub (linearize y) (linearize x))
     | `Or _ | `Not _ | `Quantify (_, _, _, _) | `Proposition _
-    | `Ite (_, _, _) ->
+    | `Ite (_, _, _) | `Atom (`ArrEq _) ->
       invalid_arg "Polyhedron.of_formula"
   in
   Formula.eval (CS.get_context cs) alg phi

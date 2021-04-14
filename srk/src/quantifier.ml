@@ -22,19 +22,19 @@ let substitute_const srk sigma expr =
         begin
           try
             match Formula.destruct srk phi with
-            | `Atom (`Eq, s, t) ->
+            | `Atom (`Arith (`Eq, s, t)) ->
               (mk_eq srk (simplify s) (simplify t) :> ('a, typ_fo) expr)
-            | `Atom (`Leq, s, t) ->
+            | `Atom (`Arith (`Leq, s, t)) ->
               (mk_leq srk (simplify s) (simplify t) :> ('a, typ_fo) expr)
-            | `Atom (`Lt, s, t) ->
+            | `Atom (`Arith (`Lt, s, t)) ->
               (mk_lt srk (simplify s) (simplify t) :> ('a, typ_fo) expr)
             | `Proposition (`App (k, [])) ->
               (sigma k :> ('a, typ_fo) expr)
             | _ -> expr
           with Nonlinear -> expr
         end
-      | `Term t ->
-        begin match Term.destruct srk t with
+      | `ArithTerm t ->
+        begin match ArithTerm.destruct srk t with
           | `App (k, []) -> (sigma k :> ('a, typ_fo) expr)
           | `Binop (`Mod, s, t) ->
             begin
@@ -43,7 +43,8 @@ let substitute_const srk sigma expr =
               with Nonlinear -> expr
             end
           | _ -> expr
-        end)
+        end
+      | `ArrTerm _ -> assert false)
     expr
 
 (* Compute the GCD of all coefficients in an affine term (with integral
@@ -62,15 +63,16 @@ let common_denominator term =
     ZZ.one
     (V.enum term)
 
-let map_atoms srk f phi =
+let map_arith_atoms srk f phi =
   let rewriter expr =
     match Expr.refine srk expr with
     | `Formula phi ->
       begin match Formula.destruct srk phi with
-        | `Atom (op, s, t) -> (f op s t :> ('a, typ_fo) expr)
+        | `Atom (`Arith (op, s, t)) -> (f op s t :> ('a, typ_fo) expr)
         | _ -> expr
       end
-    | `Term _ -> expr
+    | `ArithTerm _ 
+    | `ArrTerm _ -> expr
   in
   rewrite srk ~up:rewriter phi
 
@@ -115,7 +117,7 @@ let virtual_substitution srk x virtual_term phi =
     V.pivot (dim_of_sym x) (linterm_of srk term)
   in
   let replace_atom op s zero =
-    assert (Term.equal zero (mk_real srk QQ.zero));
+    assert (ArithTerm.equal zero (mk_real srk QQ.zero));
 
     (* s == s' + ax, x not in fv(s') *)
     let (a, s') = pivot_term x s in
@@ -163,7 +165,7 @@ let virtual_substitution srk x virtual_term phi =
           (* -oo = x < -s'/a <==> true *)
           mk_true srk
   in
-  map_atoms srk replace_atom phi
+  map_arith_atoms srk replace_atom phi
 
 (* Model based projection, as in described in Anvesh Komuravelli, Arie
    Gurfinkel, Sagar Chaki: "SMT-based Model Checking for Recursive Programs".
@@ -238,20 +240,21 @@ let mbp_virtual_term srk interp x atoms =
    - psi is negation- and quantifier-free formula, and contains no free
      variables
    - every atom of in psi is either a propositial variable or an arithmetic
-     atom of the form t < 0, t <= 0, or t = 0
+     atom of the form t < 0, t <= 0, or t = 0 or array equality atom (meaning
+     array equality atoms are not expanded to intrinsic form) 
    - phi is equivalent to Q0 a0.Q1 a1. ... Qn. an. psi
 *)
 let normalize srk phi =
   let phi = Formula.prenex srk phi in
   let zero = mk_real srk QQ.zero in
   let rewriter env expr =
-    match Expr.refine srk expr with
+    match Expr.refine_coarse srk expr with
     | `Formula phi ->
       (begin match Formula.destruct srk phi with
          | `Proposition (`Var i) -> mk_const srk (Env.find env i)
-         | `Atom (`Eq, s, t) -> mk_eq srk (mk_sub srk s t) zero
-         | `Atom (`Leq, s, t) -> mk_leq srk (mk_sub srk s t) zero
-         | `Atom (`Lt, s, t) -> mk_lt srk (mk_sub srk s t) zero
+         | `Atom (`Arith (`Eq, s, t)) -> mk_eq srk (mk_sub srk s t) zero
+         | `Atom (`Arith (`Leq, s, t)) -> mk_leq srk (mk_sub srk s t) zero
+         | `Atom (`Arith (`Lt, s, t)) -> mk_lt srk (mk_sub srk s t) zero
          | _ -> phi
        end :> ('a, typ_fo) expr)
     | `Term t ->
@@ -277,7 +280,7 @@ let normalize srk phi =
 let simplify_atom srk op s t =
   let zero = mk_real srk QQ.zero in
   let destruct_int term =
-    match Term.destruct srk term with
+    match ArithTerm.destruct srk term with
     | `Real q ->
       begin match QQ.to_zz q with
         | Some z -> z
@@ -287,7 +290,7 @@ let simplify_atom srk op s t =
   in
   let (s, op) =
     let s =
-      if Term.equal t zero then s
+      if ArithTerm.equal t zero then s
       else mk_sub srk s t
     in
     match op with
@@ -309,14 +312,14 @@ let simplify_atom srk op s t =
   in
   match op with
   | `Eq | `Leq ->
-    begin match Term.destruct srk s with
+    begin match ArithTerm.destruct srk s with
     | `Binop (`Mod, dividend, modulus) ->
       (* Divisibility constraint *)
       let modulus = destruct_int modulus in
       let (multiplier, lt) = zz_linterm dividend in
       `Divides (ZZ.mul multiplier modulus, lt)
     | `Unop (`Neg, s') ->
-      begin match Term.destruct srk s' with
+      begin match ArithTerm.destruct srk s' with
         | `Binop (`Mod, dividend, modulus) ->
           if op = `Leq then
             (* trivial *)
@@ -329,7 +332,7 @@ let simplify_atom srk op s t =
         | _ -> `CompareZero (op, snd (zz_linterm s))
       end
     | `Add [x; y] ->
-      begin match Term.destruct srk x, Term.destruct srk y with
+      begin match ArithTerm.destruct srk x, ArithTerm.destruct srk y with
         | `Real k, `Binop (`Mod, dividend, modulus)
         | `Binop (`Mod, dividend, modulus), `Real k when QQ.lt k QQ.zero && op = `Eq ->
           let (multiplier, lt) = zz_linterm dividend in
@@ -340,7 +343,7 @@ let simplify_atom srk op s t =
           else
             `CompareZero (op, snd (zz_linterm s))
         | `Real k, `Unop (`Neg, z) | `Unop (`Neg, z), `Real k when QQ.equal k QQ.one ->
-          begin match Term.destruct srk z with
+          begin match ArithTerm.destruct srk z with
             | `Binop (`Mod, dividend, modulus) ->
               let modulus = destruct_int modulus in
               let (multiplier, lt) = zz_linterm dividend in
@@ -352,7 +355,7 @@ let simplify_atom srk op s t =
     | _ -> `CompareZero (op, snd (zz_linterm s))
     end
   | `Lt ->
-    begin match Term.destruct srk s with
+    begin match ArithTerm.destruct srk s with
       | `Binop (`Mod, dividend, modulus) ->
         (* Indivisibility constraint: dividend % modulus < 0. *)
         let modulus = destruct_int modulus in
@@ -360,7 +363,7 @@ let simplify_atom srk op s t =
         `NotDivides (ZZ.mul multiplier modulus, lt)
 
       | `Unop (`Neg, s') ->
-        begin match Term.destruct srk s' with
+        begin match ArithTerm.destruct srk s' with
           | `Binop (`Mod, dividend, modulus) ->
             (* Indivisibility constraint: dividend % modulus > 0 *)
             let modulus = destruct_int modulus in
@@ -1332,7 +1335,8 @@ let simsat_forward_core srk qf_pre phi =
     | `TyInt -> Skeleton.MInt (select_int_term srk model x atoms)
     | `TyReal -> Skeleton.MReal (select_real_term srk model x atoms)
     | `TyBool -> Skeleton.MBool (Interpretation.bool model x)
-    | `TyFun (_, _) -> assert false
+    | `TyFun (_, _) 
+    | `TyArr -> assert false
   in
 
   (* If the quantifier prefix leads with an existential, check satisfiability
@@ -1543,7 +1547,8 @@ let simsat_core srk qf_pre phi =
     | `TyInt -> Skeleton.MInt (select_int_term srk model x phi)
     | `TyReal -> Skeleton.MReal (select_real_term srk model x phi)
     | `TyBool -> Skeleton.MBool (Interpretation.bool model x)
-    | `TyFun (_, _) -> assert false
+    | `TyFun (_, _) 
+    | `TyArr -> assert false
   in
   match CSS.initialize_pair select_term srk qf_pre phi with
   | `Unsat -> `Unsat
@@ -1606,7 +1611,8 @@ let maximize_feasible srk phi t =
       | `TyInt -> Skeleton.MInt (select_int_term srk m x phi)
       | `TyReal -> Skeleton.MReal (select_real_term srk m x phi)
       | `TyBool -> Skeleton.MBool (Interpretation.bool m x)
-      | `TyFun (_, _) -> assert false
+      | `TyFun (_, _) 
+      | `TyArr -> assert false
   in
   CSS.max_improve_rounds := 1;
   let init =
@@ -1990,7 +1996,8 @@ let easy_sat srk phi =
     | `TyInt -> Skeleton.MInt (select_int_term srk model x phi)
     | `TyReal -> Skeleton.MReal (select_real_term srk model x phi)
     | `TyBool -> Skeleton.MBool (Interpretation.bool model x)
-    | `TyFun (_, _) -> assert false
+    | `TyFun (_, _) 
+    | `TyArr -> assert false
   in
   match CSS.initialize_pair select_term srk qf_pre phi with
   | `Unsat -> `Unsat
@@ -2132,16 +2139,16 @@ let check_strategy srk qf_pre phi strategy =
    over-approximate quantifier elimination. *)
 type 'a cover_virtual_term =
   | CMinusInfinity
-  | CPlusEpsilon of 'a term
-  | CTerm of 'a term
+  | CPlusEpsilon of 'a arith_term
+  | CTerm of 'a arith_term
   | CUnknown
 
 let pp_cover_virtual_term srk formatter =
   function
   | CMinusInfinity -> Format.pp_print_string formatter "-oo"
   | CPlusEpsilon t ->
-    Format.fprintf formatter "%a + epsilon" (Term.pp srk) t
-  | CTerm t -> Term.pp srk formatter t
+    Format.fprintf formatter "%a + epsilon" (ArithTerm.pp srk) t
+  | CTerm t -> ArithTerm.pp srk formatter t
   | CUnknown -> Format.pp_print_string formatter "??"
 
 let cover_virtual_term srk interp x atoms =
@@ -2199,7 +2206,7 @@ let cover_virtual_term srk interp x atoms =
 let cover_virtual_substitution srk x virtual_term phi =
   let zero = mk_real srk QQ.zero in
   let replace_atom op s t =
-    assert (Term.equal zero (mk_real srk QQ.zero));
+    assert (ArithTerm.equal zero (mk_real srk QQ.zero));
     match op, SrkSimplify.isolate_linear srk x (mk_sub srk s t), virtual_term with
     | (_, None, _) -> mk_true srk
     | (`Leq, Some (a, _), _) when QQ.equal a QQ.zero ->
@@ -2230,7 +2237,7 @@ let cover_virtual_substitution srk x virtual_term phi =
   | CUnknown ->
     let drop expr =
       match destruct srk expr with
-      | `Atom (_, _, _) ->
+      | `Atom _ ->
         if Symbol.Set.mem x (symbols expr) then
           (mk_true srk :> ('a, typ_fo) expr)
         else
@@ -2239,7 +2246,7 @@ let cover_virtual_substitution srk x virtual_term phi =
     in
     rewrite srk ~up:drop phi
   | _ ->
-    map_atoms srk replace_atom phi
+    map_arith_atoms srk replace_atom phi
 
 let mbp_cover ?(dnf=true) srk exists phi =
   let phi = eliminate_ite srk phi in

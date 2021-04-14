@@ -12,8 +12,9 @@ type 'a open_expr = [
   | `Var of int * typ_fo
   | `Add of 'a list
   | `Mul of 'a list
-  | `Binop of [ `Div | `Mod ] * 'a * 'a
+  | `Binop of [ `Div | `Mod | `Select ] * 'a * 'a
   | `Unop of [ `Floor | `Neg ] * 'a
+  | `Store of 'a * 'a * 'a
   | `Tru
   | `Fls
   | `And of 'a list
@@ -25,6 +26,8 @@ type 'a open_expr = [
 ]
 
 val z3_of_term : 'a context -> z3_context -> 'a term -> z3_expr
+val z3_of_arith_term : 'a context -> z3_context -> 'a arith_term -> z3_expr
+val z3_of_arr_term : 'a context -> z3_context -> 'a arr_term -> z3_expr
 val z3_of_formula : 'a context -> z3_context -> 'a formula -> z3_expr
 val z3_of_expr : 'a context -> z3_context -> ('a,typ_fo) expr -> z3_expr
 
@@ -83,7 +86,7 @@ val mk_solver : ?context:z3_context -> ?theory:string -> 'a context -> 'a Solver
 val optimize_box : ?context:z3_context ->
   'a context ->
   'a formula ->
-  ('a term) list ->
+  ('a arith_term) list ->
   [ `Sat of Interval.t list | `Unsat | `Unknown ]
 
 (** Quantifier elimination *)

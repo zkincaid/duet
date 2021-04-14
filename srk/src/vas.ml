@@ -23,6 +23,7 @@ module Transformer = struct
 end
 
 module TSet = BatSet.Make(Transformer)
+module Term = ArithTerm
 
 type vas = TSet.t
 

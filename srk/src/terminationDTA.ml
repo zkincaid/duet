@@ -470,7 +470,7 @@ module XSeq = struct
       | `Or xs -> seq_or srk xs
       | `Not x -> seq_not srk x
       | `Quantify _ -> failwith "should not see quantifiers in the TF"
-      | `Atom (op, s, t) -> 
+      | `Atom (`Arith (op, s, t)) -> 
         begin
           logf "simplifying atomic formula";
           match SrkSimplify.simplify_integer_atom srk op s t with 
@@ -478,6 +478,7 @@ module XSeq = struct
             | `Divides (divisor, vec) -> seq_of_divides_atom srk divisor vec exp_poly abstraction
             | `NotDivides (divisor, vec) ->seq_of_notdivides_atom srk divisor vec exp_poly abstraction
         end
+      | `Atom (`ArrEq _) -> failwith "should not see ArrEq in the TF"
       | `Proposition _ -> failwith "should not see proposition in the TF"
       | `Ite _ -> failwith "should not see ite in the TF"
     in

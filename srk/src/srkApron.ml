@@ -2,6 +2,8 @@ open Apron
 open BatPervasives
 open Syntax
 
+module Term = ArithTerm
+
 type dim = int
 type texpr = Texpr0.t
 type lexpr = Linexpr0.t
@@ -369,6 +371,7 @@ let texpr_of_term env t =
     | `Unop (`Neg, (t, typ)) ->
       (Binop (Mul, Cst (coeff_of_qq (QQ.negate QQ.one)), t, atyp typ, Down),
        typ)
+    | `Select _ -> assert false
   in
   Texpr0.of_expr (fst (Term.eval env.Env.srk alg t))
 
