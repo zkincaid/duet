@@ -264,8 +264,11 @@ module XSeq = struct
   let seq_add_int x y =
     Periodic.map2 (fun a b -> a + b) x y
 
+  let seq_add_qq x y =
+    Periodic.map2 (fun a b -> QQ.mul a b) x y
+
   let seq_mul_symbol srk x symbol =
-    Periodic.map (fun t -> mk_mul srk [mk_int srk t; mk_const srk symbol]) x
+    Periodic.map (fun t -> mk_mul srk [mk_real srk t; mk_const srk symbol]) x
 
   let seq_not srk x = 
     Periodic.map (fun f -> mk_not srk f) x
@@ -280,18 +283,18 @@ module XSeq = struct
   (* seq_of_polynomial srk m p returns characteristic sequence of p(k) mod m, 
   k = 0, 1, 2, ... *)
   let seq_of_polynomial modulus poly = 
+    if Polynomial.QQX.order poly = 0 then 
+      Periodic.make [QQ.modulo (Polynomial.QQX.eval poly QQ.zero) (QQ.of_int modulus)]
+    else
     let lcm_of_denoms =
       BatEnum.fold (fun current_lcm (coeff, _) -> ZZ.lcm current_lcm (QQ.denominator coeff)) 
       ZZ.one
       (Polynomial.QQX.enum poly)
     in
-    let poly = Polynomial.QQX.scalar_mul (QQ.of_zz lcm_of_denoms) poly in
-    let modulus = modulus * (BatOption.get (ZZ.to_int lcm_of_denoms)) in
-    (0 -- (modulus - 1))
-    /@ (fun i -> 
-        match QQ.to_int (Polynomial.QQX.eval poly (QQ.of_int i)) with
-          | Some result -> result mod modulus
-          | None -> assert false)
+    (* let poly = Polynomial.QQX.scalar_mul (QQ.of_zz lcm_of_denoms) poly in *)
+    let period = modulus * (BatOption.get (ZZ.to_int lcm_of_denoms)) in
+    (0 -- (period - 1))
+    /@ (fun i -> QQ.modulo (Polynomial.QQX.eval poly (QQ.of_int i)) (QQ.of_int modulus))
     |> BatList.of_enum
     |> Periodic.make
 
@@ -301,7 +304,7 @@ module XSeq = struct
     let seq_of_exp = seq_of_exp modulus base in
     let seq_of_poly = seq_of_polynomial modulus poly in
     Periodic.map2 
-      (fun n p -> n * p mod modulus)
+      (fun n p -> QQ.modulo (QQ.mul (QQ.of_int n) p) (QQ.of_int modulus))
       seq_of_exp
       seq_of_poly
 
@@ -314,9 +317,9 @@ module XSeq = struct
           | None -> failwith "Non-integer base in the exponential polynomial"
         in
         let current_seq = seq_of_single_base_exp_polynomial modulo poly b in 
-          seq_add_int existing_seq current_seq
+          seq_add_qq existing_seq current_seq
       )
-    (Periodic.make [0])
+    (Periodic.make [QQ.zero])
     (ExpPolynomial.enum exppoly)
   
   (* Compute characteristic sequence of atomic formulas LHS < 0, LHS = 0, LHS <= 0. 
@@ -386,11 +389,10 @@ module XSeq = struct
         let m = compute_rep_matrix best_DLTS_abstraction in
         (* for dynamics matrix A, compute A^2 so that there is no negative eigenvalue *)
         let exppoly2 = BatOption.get (ExpPolynomial.exponentiate_rational (Linear.QQMatrix.mul m m)) in
-        let closed_form_vec = ExpPolynomial.Matrix.vector_left_mul lt_vec_exppoly exppoly2 in
-        let sat_even_conditions' = analyze_entries (ExpPolynomial.Vector.enum closed_form_vec) in
-        let sat_even_conditions'' = rewrite_term_condition srk best_DLTS_abstraction.simulation sim_symbols sat_even_conditions' in
-        let sat_even_conditions = sat_even_conditions'' in
-        logf "start computing sat_odd conditions";
+        let closed_form_vec2 = ExpPolynomial.Matrix.vector_left_mul lt_vec_exppoly exppoly2 in
+        let sat_even_conditions' = analyze_entries (ExpPolynomial.Vector.enum closed_form_vec2) in
+        let sat_even_conditions = rewrite_term_condition srk best_DLTS_abstraction.simulation sim_symbols sat_even_conditions' in
+        (* logf "sat_even conditions: %a" (Formula.pp srk) (rewrite_term_condition srk best_DLTS_abstraction.simulation sim_symbols sat_even_conditions');  *)
         let entries_with_odd_exp = BatEnum.map (
             fun (entry, i) -> 
               let t = ExpPolynomial.compose_left_affine entry 2 1 in
@@ -399,15 +401,16 @@ module XSeq = struct
           (ExpPolynomial.Vector.enum closed_form_vec) 
         in
         let sat_odd_conditions = analyze_entries entries_with_odd_exp in
-        logf "sat_odd conditions: %a" (Formula.pp srk) sat_odd_conditions; 
-        let results = Periodic.make [sat_even_conditions; sat_odd_conditions] in
+        let sat_odd_conditions = rewrite_term_condition srk best_DLTS_abstraction.simulation sim_symbols sat_odd_conditions in
+        (* logf "sat_odd conditions: %a" (Formula.pp srk) (rewrite_term_condition srk best_DLTS_abstraction.simulation sim_symbols sat_odd_conditions);  *)
+        let results = Periodic.make [SrkSimplify.simplify_terms srk sat_even_conditions; SrkSimplify.simplify_terms srk sat_odd_conditions] in
         results
       end
     else
       begin
         let mat_entries = ExpPolynomial.Vector.enum closed_form_vec in
         let res = analyze_entries mat_entries in 
-        Periodic.make [res]
+        Periodic.make [SrkSimplify.simplify_terms srk res]
       end
 
   (* Compute characteristic sequence of atom q | w^T A^k x. 
@@ -492,11 +495,11 @@ module XSeq = struct
       | `Quantify _ -> failwith "should not see quantifiers in the TF"
       | `Atom (op, s, t) -> 
         begin
-          logf "simplifying atomic formula";
+          logf "processing atomic formula";
           match SrkSimplify.simplify_integer_atom srk op s t with 
-              `CompareZero (op, vec) -> seq_of_compare_zero_atom srk op vec exp_poly abstraction
-            | `Divides (divisor, vec) -> seq_of_divides_atom srk divisor vec exp_poly abstraction
-            | `NotDivides (divisor, vec) ->seq_of_notdivides_atom srk divisor vec exp_poly abstraction
+              `CompareZero (op, vec) -> logf "compare zero formula"; seq_of_compare_zero_atom srk op vec exp_poly abstraction
+            | `Divides (divisor, vec) -> logf "divides formula"; seq_of_divides_atom srk divisor vec exp_poly abstraction
+            | `NotDivides (divisor, vec) -> logf "Not divides formula"; seq_of_notdivides_atom srk divisor vec exp_poly abstraction
         end
       | `Proposition _ -> failwith "should not see proposition in the TF"
       | `Ite _ -> failwith "should not see ite in the TF"
@@ -506,6 +509,7 @@ module XSeq = struct
     logf "finished computing char sequence!";
     let results_in_sim_terms = mk_not srk (mk_and srk (Periodic.period xseq)) in 
     let results = rewrite_term_condition srk best_DLTS_abstraction.simulation sim_symbols results_in_sim_terms in
+    let results = SrkSimplify.simplify_terms srk results in
       logf "terminating conditions after rewrite: %a" (Formula.pp srk) results;
       mk_and srk [mk_not srk results; omega_dom_constraints; constraints]
     | `Unknown -> failwith "SMT solver should not return unknown for QRA formulas"
