@@ -335,7 +335,7 @@ module XSeq = struct
       | `Eq -> Eq0, vec
       | `Leq -> Leq0, vec
     in 
-    let (sim_symbols, sim_terms, best_DLTS_abstraction) = abstraction in
+    let (sim_symbols, sim_terms) = abstraction in
     let lt_vec = rewrite_exp_under_basis lhs sim_symbols in
     logf "\nlt_vec is: %a" Vec.pp lt_vec;
     let lt_vec_exppoly = ExpPolynomial.Vector.of_qqvector lt_vec in
@@ -386,12 +386,15 @@ module XSeq = struct
     if has_negative_base then
       begin
         logf "Dynamic matrix has negative eigenvalues, computing length-2 char sequence...";
-        let m = compute_rep_matrix best_DLTS_abstraction in
-        (* for dynamics matrix A, compute A^2 so that there is no negative eigenvalue *)
-        let exppoly2 = BatOption.get (ExpPolynomial.exponentiate_rational (Linear.QQMatrix.mul m m)) in
-        let closed_form_vec2 = ExpPolynomial.Matrix.vector_left_mul lt_vec_exppoly exppoly2 in
-        let sat_even_conditions' = analyze_entries (ExpPolynomial.Vector.enum closed_form_vec2) in
-        let sat_even_conditions = rewrite_term_condition srk best_DLTS_abstraction.simulation sim_symbols sat_even_conditions' in
+        let entries_with_even_exp = BatEnum.map (
+            fun (entry, i) -> 
+              let t = ExpPolynomial.compose_left_affine entry 2 0 in
+              (t, i)
+          ) 
+          (ExpPolynomial.Vector.enum closed_form_vec) 
+        in
+        let sat_even_conditions = analyze_entries entries_with_even_exp in
+        (* let sat_even_conditions = rewrite_term_condition srk best_DLTS_abstraction.simulation sim_symbols sat_even_conditions' in *)
         (* logf "sat_even conditions: %a" (Formula.pp srk) (rewrite_term_condition srk best_DLTS_abstraction.simulation sim_symbols sat_even_conditions');  *)
         let entries_with_odd_exp = BatEnum.map (
             fun (entry, i) -> 
@@ -401,7 +404,7 @@ module XSeq = struct
           (ExpPolynomial.Vector.enum closed_form_vec) 
         in
         let sat_odd_conditions = analyze_entries entries_with_odd_exp in
-        let sat_odd_conditions = rewrite_term_condition srk best_DLTS_abstraction.simulation sim_symbols sat_odd_conditions in
+        (* let sat_odd_conditions = rewrite_term_condition srk best_DLTS_abstraction.simulation sim_symbols sat_odd_conditions in *)
         (* logf "sat_odd conditions: %a" (Formula.pp srk) (rewrite_term_condition srk best_DLTS_abstraction.simulation sim_symbols sat_odd_conditions);  *)
         let results = Periodic.make [SrkSimplify.simplify_terms srk sat_even_conditions; SrkSimplify.simplify_terms srk sat_odd_conditions] in
         results
@@ -423,7 +426,7 @@ module XSeq = struct
       | Some i -> i
       | None -> failwith "see non-integer divisor, error"
     in
-    let (sim_symbols, _, _) = abstraction in
+    let (sim_symbols, _) = abstraction in
     let lt_vec = rewrite_exp_under_basis dividend_vec sim_symbols in
     logf "\nlt_vec is: %a" Vec.pp lt_vec;
     let lt_vec_exppoly = ExpPolynomial.Vector.of_qqvector lt_vec in
@@ -451,6 +454,49 @@ module XSeq = struct
     seq_of_divides_atom srk zz_divisor dividend_vec exp_poly abstraction
     |> seq_not srk
   
+  let omega_dom_basis_mat dim omega_dom_mat =
+    let g = Linear.nullspace omega_dom_mat (BatList.init dim (fun i -> i) ) in
+    let g = Linear.QQVectorSpace.simplify g in
+    Linear.QQMatrix.transpose (Linear.QQMatrix.of_rows g)
+
+  let tr_mat_restricted_to_omega_dom tr_mat omega_dom_basis_mat =
+    BatOption.get (Linear.divide_left (Linear.QQMatrix.mul tr_mat omega_dom_basis_mat) omega_dom_basis_mat)
+
+  let int_spec_abstraction nb_cols_omega_dom_basis_mat tr_omega =
+    let open Linear in
+    let t = QQMatrix.transpose tr_omega in 
+    let dims = (BatList.init nb_cols_omega_dom_basis_mat (fun i -> i) ) in
+    let rsd = rational_spectral_decomposition t dims in
+  let int_eig_vecs, _ = BatList.partition (fun (lambda, _) -> ZZ.equal (QQ.denominator lambda) ZZ.one ) rsd in
+  let int_eig_vecs = BatList.map (fun (_, v) -> v) int_eig_vecs in
+  let int_eig_vecs = Linear.QQVectorSpace.simplify int_eig_vecs in
+  (* let non_int_eig_vecs = BatList.map (fun (_, v) -> v) non_int_eig_vecs in *)
+  let g' = QQMatrix.transpose (QQMatrix.of_rows int_eig_vecs) in
+  g'
+    
+  let tr_mat_restricted_to_int_dom tr_mat g g' =
+    let gg' = Linear.QQMatrix.mul g g' in
+    BatOption.get (Linear.divide_left (Linear.QQMatrix.mul tr_mat gg') gg')
+
+  let build_symbols_for_gg'_cols srk gg' = 
+    let nb_cols = Linear.QQMatrix.nb_columns gg' in 
+    let list_symbols = BatList.init nb_cols (fun i -> 
+      let name_str = String.concat "_" ["dta"; "term"; (string_of_int i)] in
+      let symbol = mk_symbol srk ~name:name_str `TyInt in
+      symbol
+    ) in 
+    list_symbols
+
+  let build_eqs_for_dta_terms srk list_dta_symbols gg' simulation =
+    BatArray.fold_lefti (fun eqs i sim_term ->
+      let row = Linear.QQMatrix.row i gg' in 
+      (mk_eq srk 
+       (Linear.term_of_vec srk (fun j -> (mk_const srk (BatList.nth list_dta_symbols j))) row )
+        sim_term
+      ) :: eqs )
+      []
+      simulation
+
   (* Compute a mortal precondition of a transition formula through characteristic sequences. *)  
   let terminating_conditions_of_formula_via_xseq srk tf =
     logf "DTA starts";
@@ -462,30 +508,37 @@ module XSeq = struct
       logf "finished computing best DLTS abstraction";
       let best_DLTS_abstraction = scale_simulation srk best_DLTS_abstraction in
       logf "finished scaling up simulation";
-      let m = compute_rep_matrix best_DLTS_abstraction in
-      logf "Representation matrix of best Q-DLTS abstraction: %a" Linear.QQMatrix.pp m;
+      (* let m = compute_rep_matrix best_DLTS_abstraction in *)
+      (* logf "Representation matrix of best Q-DLTS abstraction: %a" Linear.QQMatrix.pp m; *)
       let module PLM = Lts.PartialLinearMap in
       let omega_domain = snd (PLM.iteration_sequence best_DLTS_abstraction.dlts) in
       let omega_dom_mat = Linear.QQMatrix.of_rows omega_domain in
-      let omega_dom_constraints_lhs = compose_simulation srk omega_dom_mat best_DLTS_abstraction.simulation in
+      let dim = BatArray.length best_DLTS_abstraction.simulation in
+      let g = omega_dom_basis_mat dim omega_dom_mat in
+      let tr = PLM.map best_DLTS_abstraction.dlts in
+      let tr_omega = tr_mat_restricted_to_omega_dom tr g in
+      let g' = int_spec_abstraction (Linear.QQMatrix.nb_columns g) tr_omega in
+      let tr_z = tr_mat_restricted_to_int_dom tr g g' in
+       logf "Dynamics matrix in restricted space: %a" Linear.QQMatrix.pp tr_z;
+      (* let omega_dom_constraints_lhs = compose_simulation srk omega_dom_mat best_DLTS_abstraction.simulation in
       let omega_dom_constraints = BatArray.fold_left (fun f term -> mk_and srk [f; mk_eq srk (mk_zero srk) term]) (mk_true srk) omega_dom_constraints_lhs in
       logf "omega domain constraints: %a" (Formula.pp srk) omega_dom_constraints;
       let constraints, new_dynamics_mat, new_simulation = integer_spectrum_abstraction srk m best_DLTS_abstraction.simulation in
       logf "integrality constraints: %a" (Formula.pp srk) constraints;
-      logf "New dynamics matrix: %a" Linear.QQMatrix.pp new_dynamics_mat;
-      let best_DLTS_abstraction = {dlts = Lts.PartialLinearMap.make new_dynamics_mat []; simulation = new_simulation } in
-      let exp_poly = BatOption.get (ExpPolynomial.exponentiate_rational new_dynamics_mat) in
-      let sim_symbols, inv_equalities, invariant_symbol_set =
-        build_symbols_for_sim_terms srk new_simulation
-      in
-      let sim_terms = BatList.map (fun symbol -> mk_const srk symbol) sim_symbols in
-      let abstraction = (sim_symbols, sim_terms, best_DLTS_abstraction) in
-      let formula = mk_and srk [TF.formula tf; mk_and srk inv_equalities; constraints] in
-      logf "\nTransition formula with simulation terms:\n%s\n\n" (Formula.show srk formula);
-      let ground_formula = Quantifier.mbp srk (fun s -> Symbol.Set.mem s invariant_symbol_set) formula in 
+      logf "New dynamics matrix: %a" Linear.QQMatrix.pp new_dynamics_mat; *)
+
+      (* exists x, x'. F(x, x') /\ G G' z = S x *)
+      let gg' = (Linear.QQMatrix.mul g g') in
+      let list_dta_symbols = build_symbols_for_gg'_cols srk gg' in
+      let dta_terms_eqs = build_eqs_for_dta_terms srk list_dta_symbols gg' best_DLTS_abstraction.simulation in
+      let formula = mk_and srk [TF.formula tf; mk_and srk dta_terms_eqs] in
+      let dta_symbols_set = Symbol.Set.of_list list_dta_symbols in
+      let ground_formula = Quantifier.mbp srk (fun s -> Symbol.Set.mem s dta_symbols_set) formula in 
       logf "Formula after model-based projection: %a" (Formula.pp srk) ground_formula;
       let no_floor = SrkSimplify.eliminate_floor srk ground_formula in
       logf "Formula after removing floors: %a" (Formula.pp srk) no_floor;
+      let exp_poly = BatOption.get (ExpPolynomial.exponentiate_rational tr_z) in
+      let abstraction = (list_dta_symbols, (BatList.map (fun s -> mk_const srk s) list_dta_symbols)) in
       let algebra = function 
       | `Tru -> seq_of_true srk
       | `Fls -> seq_of_false srk
@@ -507,11 +560,12 @@ module XSeq = struct
     logf "start computing char sequence ...";
     let xseq = Formula.eval srk algebra no_floor in 
     logf "finished computing char sequence!";
-    let results_in_sim_terms = mk_not srk (mk_and srk (Periodic.period xseq)) in 
-    let results = rewrite_term_condition srk best_DLTS_abstraction.simulation sim_symbols results_in_sim_terms in
-    let results = SrkSimplify.simplify_terms srk results in
+    let results_in_dta_terms = mk_not srk (mk_and srk (Periodic.period xseq)) in 
+    (* let results = rewrite_term_condition srk best_DLTS_abstraction.simulation sim_symbols results_in_sim_terms in *)
+    let results = SrkSimplify.simplify_terms srk results_in_dta_terms in
+    let results = mk_and srk (results::dta_terms_eqs) in
       logf "terminating conditions after rewrite: %a" (Formula.pp srk) results;
-      mk_and srk [mk_not srk results; omega_dom_constraints; constraints]
+      results
     | `Unknown -> failwith "SMT solver should not return unknown for QRA formulas"
     | `Unsat -> (logf ~attributes:[`Bold; `Green] "Transition formula UNSAT, done"); mk_false srk
 end

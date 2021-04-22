@@ -781,7 +781,7 @@ let omega_algebra = function
        let open Syntax in
        let tf =
          TF.map_formula
-           (fun phi -> SrkSimplify.eliminate_floor srk (Nonlinear.linearize srk phi))
+           (fun phi -> Nonlinear.linearize srk phi)
            (K.to_transition_formula transition)
        in
        let nonterm tf =
