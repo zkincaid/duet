@@ -1,0 +1,39 @@
+<?xml version="1.0"?>
+<!DOCTYPE benchmark PUBLIC "+//IDN sosy-lab.org//DTD BenchExec benchmark 1.18//EN" "https://www.sosy-lab.org/benchexec/benchmark-1.18.dtd">
+<benchmark tool="tools.compact"
+           displayName="BLACT"
+           timelimit="15min">
+  <rundefinition>
+    <option name="-monotone" />
+    <option name="-termination" />
+    <option name="-termination-no-phase" />
+    <option name="-termination-no-exp" />              
+    <option name="-termination-no-attractor" /> 
+    <option name="-termination-no-llrf" />    
+
+    <tasks name="Termination">
+      <includesfile>../tasks/termination.set</includesfile>
+      <propertyfile>../tasks/properties/termination.prp</propertyfile>
+    </tasks>
+    <tasks name="Nontermination">
+      <includesfile>../tasks/nontermination.set</includesfile>
+      <propertyfile>../tasks/properties/termination.prp</propertyfile>
+    </tasks>
+    <tasks name="polybench">
+      <includesfile>../tasks/polybench.set</includesfile>
+      <propertyfile>../tasks/properties/termination.prp</propertyfile>
+    </tasks>
+    <tasks name="bitprecise">
+      <includesfile>../tasks/bitprecise.set</includesfile>
+      <propertyfile>../tasks/properties/termination.prp</propertyfile>
+    </tasks>
+    <tasks name="recursive">
+      <includesfile>../tasks/recursive.set</includesfile>
+      <propertyfile>../tasks/properties/termination.prp</propertyfile>
+    </tasks>
+   <tasks name="termination_linear">
+    <includesfile>../tasks/termination_linear.set</includesfile>
+    <propertyfile>../tasks/properties/termination.prp</propertyfile>
+    </tasks>
+  </rundefinition>
+</benchmark>
