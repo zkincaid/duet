@@ -472,7 +472,7 @@ module MonotoneDom = struct
     BatArray.of_enum enum
 
   let abstract tr =
-    let tf = K.to_transition_formula tr in
+    let tf = TF.linearize srk (K.to_transition_formula tr) in
     let coordinates = coordinates_of (TF.symbols tf) in
     let aff =
       Abstract.vanishing_space srk (TF.formula tf) coordinates

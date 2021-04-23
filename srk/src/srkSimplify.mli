@@ -38,9 +38,10 @@ val isolate_linear : 'a context -> symbol -> 'a term -> (QQ.t * 'a term) option
    simplification in scalable static analysis", SAS 2010. *)
 val simplify_dda : 'a context -> 'a formula -> 'a formula
 
-(** Eliminate integer divisions in a formula by converting them to ite expressions then 
-   eliminating ite expressions. *)
-val eliminate_idiv : 'a context -> 'a formula -> 'a formula
+(** Find an equivalent formula that does not use integer division by
+   integer constants.  If [max] is provided, only eliminate integer
+   division with a dominator less than [max]. *)
+val eliminate_idiv : ?max:int -> 'a context -> 'a formula -> 'a formula
 
 (** Purify floor functions in an expression: replace each function
    application within a formula with a fresh symbol, and return both

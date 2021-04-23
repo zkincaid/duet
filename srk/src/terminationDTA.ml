@@ -479,7 +479,10 @@ module XSeq = struct
       let abstraction = (sim_symbols, sim_terms, best_DLTS_abstraction) in
       let formula = mk_and srk [TF.formula tf; mk_and srk inv_equalities; constraints] in
       logf "\nTransition formula with simulation terms:\n%s\n\n" (Formula.show srk formula);
-      let ground_formula = Quantifier.mbp srk (fun s -> Symbol.Set.mem s invariant_symbol_set) formula in 
+      let ground_formula =
+        Quantifier.mbp srk (fun s -> Symbol.Set.mem s invariant_symbol_set) formula
+        |> SrkSimplify.simplify_dda srk
+      in
       logf "Formula after model-based projection: %a" (Formula.pp srk) ground_formula;
       let no_floor = SrkSimplify.eliminate_floor srk ground_formula in
       logf "Formula after removing floors: %a" (Formula.pp srk) no_floor;
