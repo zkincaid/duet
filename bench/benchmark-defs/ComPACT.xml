@@ -1,14 +1,14 @@
 <?xml version="1.0"?>
 <!DOCTYPE benchmark PUBLIC "+//IDN sosy-lab.org//DTD BenchExec benchmark 1.18//EN" "https://www.sosy-lab.org/benchexec/benchmark-1.18.dtd">
 <benchmark tool="tools.compact"
-           displayName="ComPact"
+           displayName="ComPACT"
            timelimit="15min">
   <rundefinition>
     <option name="-monotone" />
-    <option name="-cra-split-loops" />
     <option name="-termination" />
-    <option name="-termination-no-llrf-combined-dta" />
-    <option name="-termination-no-llrf-combined-exp" />
+    <option name="-termination-no-attractor" /> 
+    <option name="-termination-no-dta" /> 
+
     <tasks name="Termination">
       <includesfile>../tasks/termination.set</includesfile>
       <propertyfile>../tasks/properties/termination.prp</propertyfile>
@@ -28,6 +28,10 @@
     <tasks name="recursive">
       <includesfile>../tasks/recursive.set</includesfile>
       <propertyfile>../tasks/properties/termination.prp</propertyfile>
+    </tasks>
+   <tasks name="termination_linear">
+    <includesfile>../tasks/termination_linear.set</includesfile>
+    <propertyfile>../tasks/properties/termination.prp</propertyfile>
     </tasks>
   </rundefinition>
 </benchmark>
