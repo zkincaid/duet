@@ -62,6 +62,11 @@ let assert_equal_pz x y =
     ~cmp:Sequence.Periodic.equal 
     ~printer:(SrkUtil.mk_show (Sequence.Periodic.pp Format.pp_print_int)) x y
 
+let assert_equal_pq x y =
+  assert_equal 
+    ~cmp:Sequence.Periodic.equal 
+    ~printer:(SrkUtil.mk_show (Sequence.Periodic.pp QQ.pp)) x y
+
 let mp_dta tf =
   mk_not srk (TerminationDTA.XSeq.terminating_conditions_of_formula_via_xseq srk tf)
 
@@ -177,9 +182,9 @@ let suite = "Termination" >::: [
       "char_seq_of_poly_mod" >:: (fun () ->
         let p = mk_qqx [1; 2; 1] in
         (* n^2 + 2n + 1 mod 5 *)
-        assert_equal_pz 
+        assert_equal_pq
           (TerminationDTA.XSeq.seq_of_polynomial 5 p) 
-          (Sequence.Periodic.make [1; 4; 4; 1; 0])
+          (Sequence.Periodic.map (fun i -> QQ.of_int i) (Sequence.Periodic.make [1; 4; 4; 1; 0]))
       );
       "char_seq_of_exp_poly" >:: (fun () ->
         let p = ExpPolynomial.of_exponential (QQ.of_int 2) in 
@@ -190,9 +195,9 @@ let suite = "Termination" >::: [
         let ep2 = ExpPolynomial.mul r s in
         let ep = ExpPolynomial.add ep1 ep2 in
         (* 2^n (n + 1) + 3^n (n^2) mod 5 *)
-        assert_equal_pz 
+        assert_equal_pq
           (TerminationDTA.XSeq.seq_of_exp_polynomial 5 ep) 
-          (Sequence.Periodic.make [1; 7; 3; 5; 1; 2; 7; 7; 8; 3; 4; 3; 7; 5; 4; 3; 3; 3; 2; 2])
+          (Sequence.Periodic.map (fun i -> QQ.of_int i) (Sequence.Periodic.make [1; 7; 3; 5; 1; 2; 7; 7; 8; 3; 4; 3; 7; 5; 4; 3; 3; 3; 2; 2]))
       );
       "dta_omega_dom" >:: (fun () ->
         let tf =

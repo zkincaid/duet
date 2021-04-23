@@ -67,7 +67,7 @@ module BaseDegPairMap = struct
     E.set index_pair (QQV.add (E.get index_pair p) qqxvec) p
 
   (** Rank the items in the data structure according to dominance ordering and
-      produce a formula for sufficient condition for termination.
+      produce a formula that is eventually always true.
       p: the Abelian group map.
       sim_terms: these are the linear terms whose closed forms are computed
           during the symbolic exponentiation of transition matrix. This is 
@@ -115,11 +115,11 @@ module BaseDegPairMap = struct
       in
       match ineq_type with
       | Lt0  -> 
-        mk_not srk (mk_or srk conditions_list_final)
+        mk_or srk conditions_list_final
       | Eq0 -> 
-        mk_not srk (mk_and srk formula_stem_list)
+        mk_and srk formula_stem_list
       | Leq0 ->         
-        mk_not srk (mk_or srk ( (mk_and srk formula_stem_list) :: conditions_list_final)) 
+        mk_or srk ( (mk_and srk formula_stem_list) :: conditions_list_final)
     in
     conditions
 end
@@ -265,7 +265,7 @@ module XSeq = struct
     Periodic.map2 (fun a b -> a + b) x y
 
   let seq_add_qq x y =
-    Periodic.map2 (fun a b -> QQ.mul a b) x y
+    Periodic.map2 (fun a b -> QQ.add a b) x y
 
   let seq_mul_symbol srk x symbol =
     Periodic.map (fun t -> mk_mul srk [mk_real srk t; mk_const srk symbol]) x
@@ -378,8 +378,8 @@ module XSeq = struct
             m
             entries
         in
-        let conditions = mk_not srk (BaseDegPairMap.rank srk m sim_terms ineq_type) in
-        logf "terminating condition: %a" (Formula.pp srk) conditions;
+        let conditions = BaseDegPairMap.rank srk m sim_terms ineq_type in
+        logf "ultimately invariant formula: %a" (Formula.pp srk) conditions;
         conditions
       end
     in
@@ -520,13 +520,6 @@ module XSeq = struct
       let g' = int_spec_abstraction (Linear.QQMatrix.nb_columns g) tr_omega in
       let tr_z = tr_mat_restricted_to_int_dom tr g g' in
        logf "Dynamics matrix in restricted space: %a" Linear.QQMatrix.pp tr_z;
-      (* let omega_dom_constraints_lhs = compose_simulation srk omega_dom_mat best_DLTS_abstraction.simulation in
-      let omega_dom_constraints = BatArray.fold_left (fun f term -> mk_and srk [f; mk_eq srk (mk_zero srk) term]) (mk_true srk) omega_dom_constraints_lhs in
-      logf "omega domain constraints: %a" (Formula.pp srk) omega_dom_constraints;
-      let constraints, new_dynamics_mat, new_simulation = integer_spectrum_abstraction srk m best_DLTS_abstraction.simulation in
-      logf "integrality constraints: %a" (Formula.pp srk) constraints;
-      logf "New dynamics matrix: %a" Linear.QQMatrix.pp new_dynamics_mat; *)
-
       (* exists x, x'. F(x, x') /\ G G' z = S x *)
       let gg' = (Linear.QQMatrix.mul g g') in
       let list_dta_symbols = build_symbols_for_gg'_cols srk gg' in
@@ -560,7 +553,7 @@ module XSeq = struct
     logf "start computing char sequence ...";
     let xseq = Formula.eval srk algebra no_floor in 
     logf "finished computing char sequence!";
-    let results_in_dta_terms = mk_not srk (mk_and srk (Periodic.period xseq)) in 
+    let results_in_dta_terms = mk_and srk (Periodic.period xseq) in 
     (* let results = rewrite_term_condition srk best_DLTS_abstraction.simulation sim_symbols results_in_sim_terms in *)
     let results = SrkSimplify.simplify_terms srk results_in_dta_terms in
     let results = mk_and srk (results::dta_terms_eqs) in
