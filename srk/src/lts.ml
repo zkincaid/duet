@@ -305,7 +305,7 @@ let dlts_abstract_spectral spectral_decomp dlts dim =
       PLM.map (PLM.make (PLM.map dlts) dom)
     in
     let dims = SrkUtil.Int.Set.elements (QQMatrix.row_set mS) in
-    let sd = spectral_decomp mT dims in
+    let sd = QQVectorSpace.simplify (spectral_decomp mT dims) in
 
     let mP = QQVectorSpace.matrix_of sd in
     let mPS = QQMatrix.mul mP mS in
