@@ -884,7 +884,7 @@ let lift_universals srk phi =
        let shift_conjuncts =
          conjuncts |> List.map (fun (nb,phi) ->
                      let shift = max_nb - nb in
-                     substitute srk (fun i -> mk_var srk (i + shift) `TyInt) phi)
+                     substitute srk (fun (i, typ) -> mk_var srk (i + shift) typ) phi)
        in
        (max_nb, mk_and srk shift_conjuncts)
     | `Or disjuncts ->
@@ -901,7 +901,7 @@ let lift_universals srk phi =
            disjuncts |> BatList.mapi (fun idx (nb,phi) ->
                             let shift = max_nb - nb in
                             mk_and srk
-                              [substitute srk (fun i -> mk_var srk (i + shift) `TyInt) phi;
+                              [substitute srk (fun (i, typ) -> mk_var srk (i + shift) typ) phi;
                                mk_eq srk sk (mk_int srk idx)])
          in
          (max_nb, mk_or srk shift_disjuncts)
