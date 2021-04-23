@@ -12,7 +12,7 @@ module type G = sig
   val iter_succ : (V.t -> unit) -> t -> V.t -> unit
 end
 
-(** Ordered loop nesting. forests *)
+(** Ordered loop nesting forests *)
 module Make(G : G) : sig
 
   (** A loop of a graph [G] is a pair [(h,B)] consisting of a set of

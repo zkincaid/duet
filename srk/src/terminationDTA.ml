@@ -508,8 +508,6 @@ module XSeq = struct
       logf "finished computing best DLTS abstraction";
       let best_DLTS_abstraction = scale_simulation srk best_DLTS_abstraction in
       logf "finished scaling up simulation";
-      (* let m = compute_rep_matrix best_DLTS_abstraction in *)
-      (* logf "Representation matrix of best Q-DLTS abstraction: %a" Linear.QQMatrix.pp m; *)
       let module PLM = Lts.PartialLinearMap in
       let omega_domain = snd (PLM.iteration_sequence best_DLTS_abstraction.dlts) in
       let omega_dom_mat = Linear.QQMatrix.of_rows omega_domain in
@@ -526,7 +524,7 @@ module XSeq = struct
       let dta_terms_eqs = build_eqs_for_dta_terms srk list_dta_symbols gg' best_DLTS_abstraction.simulation in
       let formula = mk_and srk [TF.formula tf; mk_and srk dta_terms_eqs] in
       let dta_symbols_set = Symbol.Set.of_list list_dta_symbols in
-      let ground_formula = Quantifier.mbp srk (fun s -> Symbol.Set.mem s dta_symbols_set) formula in 
+      let ground_formula = Quantifier.mbp srk (fun s -> Symbol.Set.mem s dta_symbols_set) formula |> SrkSimplify.simplify_dda srk in 
       logf "Formula after model-based projection: %a" (Formula.pp srk) ground_formula;
       let no_floor = SrkSimplify.eliminate_floor srk ground_formula in
       logf "Formula after removing floors: %a" (Formula.pp srk) no_floor;

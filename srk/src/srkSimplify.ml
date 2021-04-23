@@ -376,10 +376,11 @@ let destruct_idiv srk t =
     end
   | _ -> None
 
-let idiv_to_ite srk expr =
+let idiv_to_ite ?(max=max_int) srk expr =
   match Expr.refine srk expr with
-  | `Term t -> begin match destruct_idiv srk t with
-      | Some (num, den) ->
+  | `Term t ->
+     begin match destruct_idiv srk t with
+     | Some (num, den) when den < max ->
         let den_term = mk_real srk (QQ.of_int den) in
         let num_over_den =
           mk_mul srk [mk_real srk (QQ.of_frac 1 den); num]
@@ -399,13 +400,13 @@ let idiv_to_ite srk expr =
             (1 -- (den-1))
         in
         (mk_add srk [num_over_den; offset] :> ('a,typ_fo) expr)
-      | _ -> expr
-    end
+     | _ -> expr
+     end
   | _ -> expr
 
-let eliminate_idiv srk formula =
+let eliminate_idiv ?(max=max_int) srk formula =
   formula 
-  |> rewrite srk ~up:(idiv_to_ite srk)
+  |> rewrite srk ~up:(idiv_to_ite ~max srk)
   |> eliminate_ite srk
 
 let purify_floor srk expr = 
@@ -438,7 +439,7 @@ let purify_floor srk expr =
   (expr', map)
 
 let eliminate_floor srk formula =
-  let formula = eliminate_idiv srk formula in
+  let formula = eliminate_idiv ~max:10 srk formula in
   let (formula, map) = purify_floor srk formula in
   let one = mk_int srk 1 in
   (* For each term s = floor(t), we have t-1 < s <= t *)
