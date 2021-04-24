@@ -25,7 +25,7 @@ echo "Setting up opam ..."
 sudo -u $real_user opam init -y 
 sudo -u $real_user opam switch create 4.10.0
 sudo -u $real_user opam init -y
-sudo -u $real_user -s eval `opam config env`
+eval `opam config env`
 
 echo "Installing opam dependencies, this is going to take long ..."
 sudo -u $real_user opam remote add sv git://github.com/zkincaid/sv-opam.git#modern
