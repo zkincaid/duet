@@ -26,13 +26,6 @@ let build_symbols_for_sim_terms srk sim_terms =
       sim_terms
       ([], [], Symbol.Set.empty )
 
-(* Compute the representation matrix of a DLTS that contains domain information *)
-let compute_rep_matrix best_dlts = 
-  let module PLM = Lts.PartialLinearMap in
-  let omega_domain = snd (PLM.iteration_sequence best_dlts.dlts) in
-  let rep = PLM.map (PLM.make (PLM.map best_dlts.dlts) omega_domain) in
-  rep
-
 type ineq_type = Lt0 | Eq0 | Leq0
 
 (** This data structure is used to store a term in an exponential polynomial.
@@ -123,22 +116,6 @@ module BaseDegPairMap = struct
     in
     conditions
 end
-
-(** We obtained the termination condition in terms of some linear terms.
-    Now we need to rewrite it into a formula of state variables.
-    simulation: the linear terms in the DLTS abstraction
-    sim_symbols: aux symbols that we have defined for these terms
-    formula: the conditions to be rewritten
-*)
-let rewrite_term_condition srk simulation sim_symbols formula =
-  let m = BatList.fold_lefti
-      (fun m i inv_symb -> 
-         Symbol.Map.add inv_symb (BatArray.get simulation i) m
-      )
-      Symbol.Map.empty
-      sim_symbols
-  in
-  substitute_map srk m formula
 
 (* Compose two simulations mS and sim, where mS is a matrix and sim is an array of linear terms *)
 let compose_simulation srk mS simulation =
@@ -394,8 +371,6 @@ module XSeq = struct
           (ExpPolynomial.Vector.enum closed_form_vec) 
         in
         let sat_even_conditions = analyze_entries entries_with_even_exp in
-        (* let sat_even_conditions = rewrite_term_condition srk best_DLTS_abstraction.simulation sim_symbols sat_even_conditions' in *)
-        (* logf "sat_even conditions: %a" (Formula.pp srk) (rewrite_term_condition srk best_DLTS_abstraction.simulation sim_symbols sat_even_conditions');  *)
         let entries_with_odd_exp = BatEnum.map (
             fun (entry, i) -> 
               let t = ExpPolynomial.compose_left_affine entry 2 1 in
@@ -404,8 +379,6 @@ module XSeq = struct
           (ExpPolynomial.Vector.enum closed_form_vec) 
         in
         let sat_odd_conditions = analyze_entries entries_with_odd_exp in
-        (* let sat_odd_conditions = rewrite_term_condition srk best_DLTS_abstraction.simulation sim_symbols sat_odd_conditions in *)
-        (* logf "sat_odd conditions: %a" (Formula.pp srk) (rewrite_term_condition srk best_DLTS_abstraction.simulation sim_symbols sat_odd_conditions);  *)
         let results = Periodic.make [SrkSimplify.simplify_terms srk sat_even_conditions; SrkSimplify.simplify_terms srk sat_odd_conditions] in
         results
       end
@@ -552,7 +525,6 @@ module XSeq = struct
     let xseq = Formula.eval srk algebra no_floor in 
     logf "finished computing char sequence!";
     let results_in_dta_terms = mk_and srk (Periodic.period xseq) in 
-    (* let results = rewrite_term_condition srk best_DLTS_abstraction.simulation sim_symbols results_in_sim_terms in *)
     let results = SrkSimplify.simplify_terms srk results_in_dta_terms in
     let results = mk_and srk (results::dta_terms_eqs) in
       logf "terminating conditions after rewrite: %a" (Formula.pp srk) results;
