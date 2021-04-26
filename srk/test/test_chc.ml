@@ -5,11 +5,18 @@ open Test_pervasives
 open Chc
 open Iteration
 
-let pd = (module Product(LinearRecurrenceInequation)(PolyhedronGuard) :
+let pd = (module QLIALift(Product(LinearRecurrenceInequation)(PolyhedronGuard)) :
   PreDomain)
 
+let typ_symbol_fo srk sym =
+  match typ_symbol srk sym with
+  | `TyInt -> `TyInt
+  | `TyReal -> `TyReal
+  | `TyBool -> `TyBool
+  | _ -> assert false
+
 let mk_rel_atom_fresh srk fp ?(name="R") syms =
-  let typs = List.map (typ_symbol srk) syms in
+  let typs = List.map (typ_symbol_fo srk) syms in
   let rel = mk_relation fp ~name typs in
   mk_rel_atom srk fp rel syms
 
@@ -91,10 +98,106 @@ let dupuncontrsym () =
   let res = Fp.solve srk fp pd in
   assert_not_implies (snd (res (rel_of_atom vert.(1) ))) (mk_false srk)
 
+let countupsuplin () =
+  let fp = Fp.create () in
+  let r1 = mk_relation fp ~name:"R1" [`TyInt] in
+  let r2 = mk_relation fp ~name:"R2" [`TyInt] in
+  let r3 = mk_relation fp ~name:"R3" [`TyInt] in
+ 
+  let error = mk_relation fp [] in
+  let atom1 = mk_rel_atom srk fp r1 [xsym] in
+  let atom2 = mk_rel_atom srk fp r2 [xsym'] in
+  let atom3 = mk_rel_atom srk fp r3 [xsym'] in
+  let error_atom = mk_rel_atom srk fp error [] in
+  let () =
+    let open Infix in
+    Fp.add_rule fp [] (mk_true srk) atom3;
+    Fp.add_rule fp [atom1; atom3] (x' = x + (int 1)) atom2; 
+    Fp.add_rule fp [atom2] (x = x' + (int 1)) atom1;
+    Fp.add_rule fp [] ((int 0) <= x) atom1;
+    Fp.add_rule fp [atom2] (x' <= (int 0)) error_atom;
+    Fp.add_query fp error;
+  in
+  let res = Fp.check srk fp pd in
+  assert (res = `No)
+
+let failure_suplin () =
+  let fp = Fp.create () in
+  let r1 = mk_relation fp ~name:"R1" [`TyInt] in
+  let r2 = mk_relation fp ~name:"R2" [`TyInt] in
+  let r3 = mk_relation fp ~name:"R3" [`TyInt] in
+ 
+  let error = mk_relation fp [] in
+  let atom1 = mk_rel_atom srk fp r1 [xsym] in
+  let atom2 = mk_rel_atom srk fp r2 [xsym'] in
+  let atom3 = mk_rel_atom srk fp r3 [xsym'] in
+  let error_atom = mk_rel_atom srk fp error [] in
+  let () =
+    let open Infix in
+    Fp.add_rule fp [] (mk_true srk) atom3;
+    Fp.add_rule fp [atom1; atom3] (x' = x + (int 1)) atom2; 
+    Fp.add_rule fp [atom2] (x = x' + (int 1)) atom1;
+    Fp.add_rule fp [] ((int 0) <= x) atom1;
+    Fp.add_rule fp [atom2] (x' <= (int 0)) error_atom;
+    Fp.add_rule fp [atom1] (mk_true srk) atom3;
+    Fp.add_query fp error;
+  in
+  Fp.check srk fp pd
+
+let unbooleanize () =
+  let fp = Fp.create () in
+  let r1 = mk_relation fp [`TyInt; `TyBool] in
+  let r2 = mk_relation fp [`TyInt] in
+  let error = mk_relation fp [] in
+  let atom1 = mk_rel_atom srk fp r1 [xsym; bsym] in
+  let atom2 = mk_rel_atom srk fp r2 [xsym'] in
+  let error_atom = mk_rel_atom srk fp error [] in
+  let () =
+    let open Infix in
+    Fp.add_rule fp [atom1] (x' = x + (int 1) && b) atom2; 
+    Fp.add_rule fp [atom2] (x = x' + (int 1) && b) atom1;
+    Fp.add_rule fp [] ((int 0) <= x && b) atom1;
+    Fp.add_rule fp [atom2] (x' <= (int 0)) error_atom;
+    Fp.add_query fp error;
+  in
+  let (_, fp') = Fp.unbooleanize srk fp in
+  let res = Fp.check srk fp' pd in
+  assert (res = `No)
+
+let failure_unbooleanize () =
+  let fp = Fp.create () in
+  let r1 = mk_relation fp [`TyInt; `TyBool] in
+  let r2 = mk_relation fp [`TyInt] in
+  let error = mk_relation fp [] in
+  let atom1 = mk_rel_atom srk fp r1 [xsym; bsym] in
+  let atom2 = mk_rel_atom srk fp r2 [xsym'] in
+  let error_atom = mk_rel_atom srk fp error [] in
+  let () =
+    let open Infix in
+    Fp.add_rule fp [atom1] (x' = x + (int 1) && b) atom2; 
+    Fp.add_rule fp [atom2] (x = x' + (int 1) && b) atom1;
+    Fp.add_rule fp [] ((int 0) <= x && b) atom1;
+    Fp.add_rule fp [atom2] (x' <= (int 0)) error_atom;
+    Fp.add_query fp error;
+  in
+  let res = Fp.check srk fp pd in
+  assert (res = `No)
+
 let suite = "Chc" >:::
   [
+
     "countup1" >:: countup1;
     "counterup2" >:: countup2;
     "xskipcount" >:: xskipcount;
     "dupunconstrsym" >:: dupuncontrsym;
+    "countupsuplin" >:: countupsuplin;
+    "failure_suplin" >:: (fun _ -> 
+        assert_raises 
+          (Failure "No methods for solving non super linear chc systems") 
+          failure_suplin);
+    "unbooleanize" >:: unbooleanize;
+    "failure_unbooleanize" >:: (fun _ -> 
+        assert_raises 
+          (Invalid_argument "SrkApon: environment symbols must be number-typed") 
+          failure_unbooleanize);
   ]

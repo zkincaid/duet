@@ -426,6 +426,43 @@ module NonlinearRecurrenceInequation = struct
     |> mk_and srk
 end
 
+module QLIALift (A : PreDomain) = struct 
+  type 'a t = 'a A.t
+
+  let integer_qe_mbp srk phi =
+    let phi = eliminate_ite srk phi in
+    let alg = function
+      | `Quantify (qt, _, `TyInt, body) ->
+        let rev_tbl = Hashtbl.create 97 in
+        let tbl = Memo.memo (fun ind ->
+            let fresh = mk_symbol srk `TyInt in
+            Hashtbl.add rev_tbl fresh (mk_var srk (ind - 1) `TyInt);
+            fresh)
+        in
+        let phi = substitute srk (fun (i, _) -> mk_const srk (tbl i)) body in
+        let phi = if qt = `Forall then mk_not srk phi else phi in
+        let phi' = (Quantifier.mbp srk (fun s -> not (s = (tbl 0))) phi) in
+        let phi' =
+          (substitute_const
+             srk
+             (fun s ->
+                if Hashtbl.mem rev_tbl s then Hashtbl.find rev_tbl s
+                else mk_const srk s)
+             phi')
+        in
+        if qt = `Forall then mk_not srk phi' else phi'
+      | open_form -> Formula.construct srk open_form
+    in
+    Formula.eval srk alg phi
+
+  let abstract srk tf =
+    let tf' = TF.update_formula tf (integer_qe_mbp srk (TF.formula tf)) in
+    A.abstract srk tf'
+
+  let exp = A.exp
+  let pp = A.pp
+end
+
 module Product (A : PreDomain) (B : PreDomain) = struct
   type 'a t = 'a A.t * 'a B.t
 
