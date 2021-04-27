@@ -151,6 +151,9 @@ module QQVectorSpace : sig
   (** Simplify a basis using Gauss-Jordan elimination *)
   val simplify : t -> t
 
+  (** Scale a basis to have all integer coordinates. *)
+  val scale_integer : t -> t
+
   (** Find the dimension of the given vector space *)
   val dimension : t -> int
 end

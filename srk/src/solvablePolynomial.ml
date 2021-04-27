@@ -2050,6 +2050,45 @@ module DLTS = struct
                                 to_formula srk iter2])
                     tr_symbols)
 
+
+  let simplify srk ?(scale=false) abs =
+    let simulation_matrix =
+      BatArray.to_list abs.simulation
+      |> List.map (Linear.linterm_of srk)
+      |> QQMatrix.of_rows
+    in
+    let simple_simulation =
+      let basis =
+        VS.simplify (VS.of_matrix simulation_matrix)
+      in
+      let basis =
+        if scale then VS.scale_integer basis else basis
+      in
+      VS.matrix_of basis
+    in
+    (* change-of-basis: simple_simulation = cob*simulation_matrix *)
+    let cob =
+      BatOption.get (Linear.divide_right simple_simulation simulation_matrix)
+    in
+    (* inverse of cob *)
+    let cob_inv =
+      let identity =
+        QQMatrix.identity
+          (List.init (BatArray.length abs.simulation) (fun i -> i))
+      in
+      BatOption.get (Linear.divide_left identity cob)
+    in
+    let simple_dlts = (* cob o dlts o cob^-1 *)
+      PLM.compose (PLM.make cob [])
+        (PLM.compose abs.dlts (PLM.make cob_inv []))
+    in
+    let simple_sim_array =
+      QQMatrix.rowsi simple_simulation
+      /@ (fun (_, row) -> Linear.of_linterm srk row)
+      |> BatArray.of_enum
+    in
+    { dlts=simple_dlts; simulation=simple_sim_array }
+
   let widen = join
 end
 
