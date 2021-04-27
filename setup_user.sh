@@ -15,7 +15,7 @@ required_opam_ver="2.0.0"
 
 echo "Setting up opam ..."
 opam init -y 
-if opam switch list | grep -q '4.10.0'; then
+if ! opam switch list | grep -q '4.10.0'; then
     opam switch create 4.10.0
 fi
 opam init -y
