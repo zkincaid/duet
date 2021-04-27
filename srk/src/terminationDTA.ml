@@ -144,30 +144,6 @@ let rewrite_exp_under_basis expression list_symbols =
   Vec.add_term const (-1) vec
   (* (vec, const) *)
 
-(* Scale a simulation such that it maps integer states to integer states *)
-let scale_simulation srk best_DLTS_abstraction = 
-  let sim = best_DLTS_abstraction.simulation in 
-  let lcm_of_denominators = BatArray.fold_left 
-    (fun d term -> 
-      let coeff_vec = Linear.linterm_of srk term in
-      ZZ.lcm 
-        d 
-        (BatEnum.fold 
-          (fun dd (coeff, _) -> ZZ.lcm dd (QQ.denominator coeff)) 
-          ZZ.one
-          (Linear.QQVector.enum coeff_vec))
-    ) 
-    ZZ.one 
-    sim 
-  in
-  let new_sim = BatArray.map (fun orig_term -> 
-    let coeff_vec = Linear.linterm_of srk orig_term in 
-    let new_vec = Linear.QQVector.scalar_mul (QQ.of_zz lcm_of_denominators) coeff_vec in 
-    Linear.of_linterm srk new_vec)
-    sim
-  in
-  {dlts = best_DLTS_abstraction.dlts; simulation = new_sim}
-
 (* Compute the integer spectrum restriction of a DLTS that contains a new dynamics matrix and
    domain restrictions. *)
 let integer_spectrum_abstraction srk tr_matrix simulation = 
@@ -477,10 +453,11 @@ module XSeq = struct
     logf "\nTransition formula linearized:\n%a\n\n" (Formula.pp srk) (TF.formula tf);
     match Smt.is_sat srk (TF.formula tf) with
     | `Sat ->
-      let best_DLTS_abstraction = DLTSPeriodicRational.abstract_rational srk tf in
+       let best_DLTS_abstraction =
+         DLTSPeriodicRational.abstract_rational srk tf
+         |> DLTS.simplify srk ~scale:true
+       in
       logf "finished computing best DLTS abstraction";
-      let best_DLTS_abstraction = scale_simulation srk best_DLTS_abstraction in
-      logf "finished scaling up simulation";
       let module PLM = Lts.PartialLinearMap in
       let omega_domain = snd (PLM.iteration_sequence best_DLTS_abstraction.dlts) in
       let omega_dom_mat = Linear.QQMatrix.of_rows omega_domain in
@@ -532,5 +509,3 @@ module XSeq = struct
     | `Unknown -> failwith "SMT solver should not return unknown for QRA formulas"
     | `Unsat -> (logf ~attributes:[`Bold; `Green] "Transition formula UNSAT, done"); mk_false srk
 end
-
-

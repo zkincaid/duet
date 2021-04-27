@@ -389,6 +389,17 @@ module QQVectorSpace = struct
     in
     go [] basis
 
+  let scale_integer =
+    List.map
+      (fun vec ->
+        let common_denom =
+          (BatEnum.fold
+             (fun lcm (coeff, _) -> ZZ.lcm lcm (QQ.denominator coeff))
+             ZZ.one
+             (QQVector.enum vec))
+        in
+        QQVector.scalar_mul (QQ.of_zz common_denom) vec)
+
   let dimension = List.length
 end
 
