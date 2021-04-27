@@ -1,103 +1,94 @@
-Duet
+Overview
 ====
-Duet is a static analysis tool designed for analyzing concurrent programs.
 
-Building
-========
+The repository contains the implementation of ComPACT, a tool described in papers:
 
-### Dependencies
++ Termination Analysis without the Tears, Shaowei Zhu and Zachary Kincaid, PLDI 2021
++ Reflections on Termination of Linear Loops, Shaowei Zhu and Zachary Kincaid, CAV 2021
 
-Duet depends on several software packages.  The following dependencies need to be installed manually.
+The PLDI 2021 paper describes a framework for compositional and monotone
+termination analysis, and the CAV 2021 paper describes a particular analysis
+that can be used in that framework. As a result, if one wants to run the tool described by the CAV
+2021 paper in isolation, then one can do so by passing certain command line flags to the ComPACT
+executable. 
 
- + [opam](http://opam.ocaml.org) (version >= 2, with OCaml >= 4.08 & native compiler)
-   - If you have an older version of opam installed, you can install opam2 using `opam install opam-devel`
- + GMP and MPFR
- + [NTL](http://www.shoup.net/ntl/): number theory library
- + Java
- + Python
+Building and running from scratch
+====
 
-On Ubuntu, you can install these packages with:
+If starting out with a fresh ubuntu environment, we have provided scripts that install the required dependencies and compile ComPACT from source. We recommend using a recent ubuntu version (>= 18.04).
+Download the source from https://github.com/happypig95/duet/tree/modern and run (the setup_root.sh script needs root privileges to install packages, while the setup_user.sh should not be run as root user since opam is not designed to be run as root)
+
 ```
- sudo apt-get install opam libgmp-dev libmpfr-dev libntl-dev default-jre python
-```
-
-On MacOS, you can install these packages (except Java) with:
-```
- brew install opam gmp mpfr ntl python
+sudo bash setup_root.sh
+bash setup_user.sh
 ```
 
-Next, add the [sv-opam](https://github.com/zkincaid/sv-opam) OPAM repository, and install the rest of duet's dependencies.  These are built from source, so grab a coffee &mdash; this may take a long time.
-```
- opam remote add sv git://github.com/zkincaid/sv-opam.git#modern
- opam install ocamlgraph batteries ppx_deriving z3 apron ounit menhir cil OCRS ntl
-```
+After ComPACT has been compiled, there will be an executable duet.exe at the root of git repository.
+The full ComPACT (combining the PLDI 2021 and the CAV 2021 paper) could be run as
 
-### Building Duet
-
-After Duet's dependencies are installed, it can be built as follows:
 ```
- ./configure
- make
+./duet.exe -termination -monotone -termination-no-attractor path/to/c/program/on/disk.c
 ```
 
-Duet's makefile has the following targets:
- + `make`: Build duet
- + `make srk`: Build the ark library and test suite
- + `make apak`: Build the apak library and test suite
- + `make doc`: Build documentation
- + `make test`: Run test suite
+For example one can run ComPACT on a benchmark program that comes with this repository:
 
-Running Duet
-============
+```
+./duet.exe -termination -monotone -termination-no-attractor ./bench/tasks/termination-linear/nested.c
+```
 
-There are three main program analyses implemented in Duet:
+The subset of ComPACT as described in the CAV paper can be run on individual C programs as
 
-* Data flow graphs: `duet.native -coarsen FILE`
-* Proof spaces: `duet.native -proofspace FILE`
-* Compositional recurrence analysis: `duet.native -cra FILE`
-
-Duet supports two file types (and guesses which to use by file extension): C programs (.c), Boolean programs (.bp).
-
-By default, Duet checks user-defined assertions, which are specified by the built-in function `__VERIFIER_assert`. Alternatively, it can also instrument assertions as follows:
-
-    duet.native -check-array-bounds -check-null-deref -coarsen FILE
+```
+./duet.exe -termination -monotone -termination-no-attractor -termination-no-exp -termination-no-phase -termination-no-llrf path/to/c/program/on/disk.c
+```
 
 
-### Data flow graphs
+Source locations
+====
 
-The `-coarsen` flag implements an invariant generation procedure for multi-threaded programs with an unbounded number of threads. The analysis is described in
-* Azadeh Farzan and Zachary Kincaid: [Verification of Parameterized Concurrent Programs By Modular Reasoning about Data and Control](http://www.cs.princeton.edu/~zkincaid/pub/popl12.pdf).  POPL 2012.
+Most relevant source files can be found in `/srk/src`.
+In particular, the procedure that computes the best linear abstraction is implemented in `solvablePolynomial.ml` in the `abstract` method of the `DLTS` module. The mortal precondition operator that returns a terminating precondition for any transition formula based on the best linear abstraction is implemented in `terminationDTA.ml`.
 
-### Proof spaces
+New experiments
+====
+You can also write new programs to play with ComPACT. The following commands may 
+be used in the source C program in addition to usual C constructs: 
 
-The `-proofspace` flag implements a software model checking procedure for multi-threaded programs with an unbounded number of threads.  The procedure is described in
-* Azadeh Farzan, Zachary Kincaid, Andreas Podelski: [Proof Spaces for Unbounded Parallelism](http://www.cs.princeton.edu/~zkincaid/pub/popl15.pdf).  POPL 2015.
+```
+ __VERIFIER_assume( b_expr ); 
+```
 
-### Compositional recurrence analysis
+ This instructs ComPACT to assume that b_expr is always true whenever control 
+ reaches the assume statement. 
 
-The `-cra` flags an invariant generation procedure for sequential programs.  The analysis is described in
-* Azadeh Farzan and Zachary Kincaid: [Compositional Recurrence Analysis](http://www.cs.princeton.edu/~zkincaid/pub/fmcad15.pdf).  FMCAD 2015.
-* Zachary Kincaid, John Cyphert, Jason Breck, Thomas Reps: [Non-Linear Reasoning For Invariant Synthesis](http://www.cs.princeton.edu/~zkincaid/pub/popl18a.pdf).  POPL 2018.
+```
+__VERIFIER_nondet_int(); 
+```
 
-Typically, it is best to run CRA with `-cra-split-loops`.  By default, the `-cra` runs the analysis as described in POPL'18.  The FMCAD'15 analysis can be run by setting the `-cra-no-matrix` flag.
+ This non-deterministic function may return any (signed) integer. 
+ To obtain a non-negative integer, you can write something like: 
+ ```
+ N = __VERIFIER_nondet_int(); 
+ __VERIFIER_assume(N >= 0); 
+ ```
 
-The interprocedural variant is described in
-* Zachary Kincaid, Jason Breck, Ashkan Forouhi Boroujeni, Thomas Reps:  [Compositional Recurrence Analysis Revisited](http://www.cs.princeton.edu/~zkincaid/pub/pldi17.pdf). PLDI 2017.
+See the benchmark programs inside /home/zsw/termination/compact/bench/tasks for 
+examples of how these can be used. 
 
-is available in the *Newton-ark2* branch of this repository.  Build instructions to come.
+You could write any C program to try ComPACT, yet a simple benchmark program to try might look like the following
 
-Architecture
-============
-Duet is split into several packages:
+```C
+int main(int argc, char* argv[]) {
+  for (int i = 0; i < 20; i++) {
+    for (int j = 0; j < 20; j++) {
+      for (int k = 0; k < 20; k++) {
+      }
+    }
+  }
+   return 0;
+}
+```
 
-* srk 
-
-  Symbolic reasoning kit.  This is a high-level interface over Z3 and Apron.  Most of the work of compositional recurrence analysis lives in srk.
-
-* pa
-
-  Predicate automata library.
-
-* duet
-
-  Implements program analyses, frontends, and anything programming-language specific.
+Related work
+====
+ComPACT is implemented based on [Zachary Kincaid's previous work](https://github.com/zkincaid/duet).
