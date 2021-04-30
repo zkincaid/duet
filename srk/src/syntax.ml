@@ -1523,6 +1523,12 @@ let rec rewrite srk ?down:(down=fun x -> x) ?up:(up=fun x -> x) sexpr =
   let (Node (label, children, _)) = (down sexpr).obj in
   up (srk.mk label (List.map (rewrite srk ~down ~up) children))
 
+let mk_compare op =
+  match op with
+  | `Eq -> mk_eq
+  | `Lt -> mk_lt
+  | `Leq -> mk_leq
+
 let eliminate_ite srk phi =
   let rec map_ite f ite =
     match ite with
@@ -1539,12 +1545,6 @@ let eliminate_ite srk phi =
     | `Term phi -> phi
     | `Ite (cond, bthen, belse) ->
       mk_ite cond (ite_formula bthen) (ite_formula belse)
-  in
-  let mk_atom op =
-    match op with
-    | `Eq -> mk_eq srk
-    | `Leq -> mk_leq srk
-    | `Lt -> mk_lt srk
   in
   let rec promote_ite term =
     match Term.destruct srk term with
@@ -1614,7 +1614,7 @@ let eliminate_ite srk phi =
       | `Atom (`Arith (op, s, t)) -> 
         let promote_t = promote_ite t in
         map_ite
-          (fun s -> map_ite (fun t -> `Term (mk_atom op s t)) promote_t)
+          (fun s -> map_ite (fun t -> `Term (mk_compare op srk s t)) promote_t)
           (promote_ite s)
         |> ite_formula
       | `Atom (`ArrEq (s, t)) ->
@@ -1650,44 +1650,6 @@ let eliminate_arr_eq srk phi =
       let t_i = mk_select srk (decapture srk 0 1 t) (mk_var srk 0 `TyInt) in
       mk_forall srk ~name:"i" `TyInt (mk_eq srk s_i t_i)
     | phi -> Formula.construct srk phi
-  in
-  Formula.eval srk alg phi
-
-let eliminate_stores srk phi =
-  let mk_op op =
-    match op with
-    | `Eq -> mk_eq
-    | `Lt -> mk_lt
-    | `Leq -> mk_leq
-  in
-  let rec rewrite_store index node =
-    match ArrTerm.destruct srk node with
-    | `Store (a, i, v) ->
-      let i = ArithTerm.eval srk arith_alg i in
-      let v = ArithTerm.eval srk arith_alg v in
-      mk_ite srk (mk_eq srk i index) v (rewrite_store index a)
-    | `Var (ind, `TyArr) -> mk_select srk (mk_var srk ind `TyArr) index
-    | `App (a, []) -> mk_select srk (mk_const srk a) index
-    | `Ite (phi, a, b) -> 
-      mk_ite 
-        srk 
-        (Formula.eval srk alg phi) 
-        (rewrite_store index a)
-        (rewrite_store index b)
-    | _ -> assert false (*todo: func app*)
-  and  arith_alg = function
-    | `Select (a, i) -> rewrite_store i a
-    | `Ite (phi, x, y) -> mk_ite srk (Formula.eval srk alg phi) x y
-    | open_term -> Term.construct srk open_term
-  and alg = function
-    | `Atom (`Arith (op, x, y)) ->
-      (mk_op op) srk (ArithTerm.eval srk arith_alg x) (ArithTerm.eval srk arith_alg y)
-    | `Atom(`ArrEq (a, b)) -> 
-      let index = mk_symbol srk `TyInt in
-      let lhs = rewrite_store (mk_const srk index) a in
-      let rhs = rewrite_store (mk_const srk index) b in
-      mk_forall_const srk index (mk_eq srk lhs rhs)
-    | open_formula -> Formula.construct srk open_formula
   in
   Formula.eval srk alg phi
 

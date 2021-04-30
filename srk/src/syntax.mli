@@ -437,6 +437,10 @@ val mk_false : 'a context -> 'a formula
 (** This is syntactic sugar for intrinsic array equality *)
 val mk_arr_eq : 'a context -> 'a arr_term -> 'a arr_term -> 'a formula
 
+(** Syntactic sugar for creating arithmetic relation atoms *)
+val mk_compare : [ `Eq | `Leq | `Lt ] -> 'a context -> 'a arith_term -> 
+  'a arith_term -> 'a formula
+
 (** Given a formula [phi], compute an equivalent formula without
    if-then-else terms.  [eliminate-ite] does not introduce new
    symbols or quantifiers. *)
@@ -445,10 +449,6 @@ val eliminate_ite : 'a context -> 'a formula -> 'a formula
 (** Given a formula [phi], compute an equivalent formula without
    arr_eq terms. *)
 val eliminate_arr_eq : 'a context -> 'a formula -> 'a formula
-
-(** Given a formula [phi], compute an equivalent formula without
-   array stores. Note that this implicitly eliminates arr_eqs too.*)
-val eliminate_stores : 'a context -> 'a formula -> 'a formula
 
 (** Print a formula as a satisfiability query in SMTLIB2 format.
     The query includes function declarations and (check-sat).

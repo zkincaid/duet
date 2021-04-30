@@ -133,7 +133,7 @@ let rec evaluate_term interp ?(env=Env.empty) term =
       begin match Expr.refine interp.srk (unfold_app interp func args) with
         | `ArithTerm t ->
           evaluate_term interp ~env t
-        | `ArrTerm _ -> assert false
+        | `ArrTerm _
         | `Formula _ ->
           invalid_arg "evaluate_term: ill-typed function application"
       end
@@ -395,9 +395,8 @@ let select_implicant interp ?(env=Env.empty) phi =
 
 let destruct_atom srk phi =
   match Formula.destruct srk phi with
-  | `Atom (`Arith (op, s, t)) -> `Comparison (op, s, t)
-  | `Atom (`ArrEq _) ->  invalid_arg @@ Format.asprintf 
-      "destruct_atom: %a is syntactic sugar for quantified expression" (Formula.pp srk) phi
+  | `Atom (`Arith (op, s, t)) -> `Arith_Comparison (op, s, t)
+  | `Atom (`ArrEq (a, b)) ->  `Arr_Comparison (a, b)
   | `Proposition (`App (k, [])) ->
     `Literal (`Pos, `Const k)
   | `Proposition (`Var i) -> `Literal (`Pos, `Var i)
@@ -409,8 +408,8 @@ let destruct_atom srk phi =
     end
   | `Tru ->
     let zero = mk_real srk QQ.zero in
-    `Comparison (`Eq, zero, zero)
-  | `Fls -> `Comparison (`Eq, mk_real srk QQ.zero, mk_real srk QQ.one)
+    `Arith_Comparison (`Eq, zero, zero)
+  | `Fls -> `Arith_Comparison (`Eq, mk_real srk QQ.zero, mk_real srk QQ.one)
   | _ ->
     invalid_arg @@ Format.asprintf "destruct_atom: %a is not atomic" (Formula.pp srk) phi
 
