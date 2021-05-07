@@ -115,14 +115,14 @@ let mem m polyhedron =
 let of_implicant ?(admit=false) cs conjuncts =
   let srk = CS.get_context cs in
   let linearize atom = match Interpretation.destruct_atom srk atom with
-    | `Arith_Comparison (p, x, y) ->
+    | `ArithComparison (p, x, y) ->
       let t =
         V.sub (CS.vec_of_term ~admit cs y) (CS.vec_of_term ~admit cs x)
       in
       let p = match p with `Eq -> `Zero | `Leq -> `Nonneg | `Lt -> `Pos in
       P.singleton (p, t)
     | `Literal (_, _) -> top
-    | `Arr_Comparison _ -> top
+    | `ArrEq _ -> top
   in
   List.fold_left meet top (List.map linearize conjuncts)
 

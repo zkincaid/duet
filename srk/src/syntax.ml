@@ -1218,7 +1218,7 @@ module Formula = struct
     | `Atom (`Arith (`Leq, s, t)) -> mk_leq _srk s t
     | `Atom (`Arith (`Lt, s, t)) -> mk_lt _srk s t
     | `Atom (`ArrEq (s, t)) -> mk_arr_eq _srk s t
-    | `Proposition (`Var v) -> mk_const _srk v
+    | `Proposition (`Var v) -> mk_var _srk v `TyBool
     | `Proposition (`App (f, args)) -> mk_app _srk f args
     | `Ite (cond, bthen, belse) -> mk_ite _srk cond bthen belse
 
@@ -1850,6 +1850,15 @@ let pp_smtlib2_gen ?(named=false) ?(env=Env.empty) ?(strings=Hashtbl.create 991)
         (go env) cond
         (go env) bthen
         (go env) belse
+    | Select, [a; i] ->
+      fprintf formatter "(select %a %a)"
+        (go env) a
+        (go env) i
+    | Store, [a; i; v] ->
+      fprintf formatter "(store %a %a %a)"
+        (go env) a
+        (go env) i
+        (go env) v
     | _ -> failwith "pp_smtlib2: ill-formed expression"
   in
   List.iteri (fun i phi ->

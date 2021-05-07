@@ -328,6 +328,7 @@ let of_z3 context sym_of_decl expr =
     | `Atom (`Eq, s, t) ->
       begin match Expr.refine context s, Expr.refine context t with
         | `ArithTerm s, `ArithTerm t -> (mk_eq context s t :> 'a gexpr)
+        | `ArrTerm a, `ArrTerm b -> (mk_arr_eq context a b :> 'a gexpr)
         | `Formula phi, `Formula psi ->
           (mk_or context [mk_and context [phi; psi];
                           mk_and context [mk_not context phi;

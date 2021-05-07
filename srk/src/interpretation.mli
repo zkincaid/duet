@@ -69,6 +69,6 @@ val select_ite : 'a interpretation ->
 
 val destruct_atom : 'a context ->
   'a formula ->
-  [ `Arith_Comparison of ([`Lt | `Leq | `Eq] * 'a arith_term * 'a arith_term)
+  [ `ArithComparison of ([`Lt | `Leq | `Eq] * 'a arith_term * 'a arith_term)
   | `Literal of ([ `Pos | `Neg ] * [ `Const of symbol | `Var of int ])
-  | `Arr_Comparison of ('a arr_term * 'a arr_term) ]
+  | `ArrEq of ('a arr_term * 'a arr_term) ]

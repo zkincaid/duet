@@ -197,8 +197,8 @@ let mbp_virtual_term srk interp x atoms =
   let get_vt atom =
     match Interpretation.destruct_atom srk atom with
     | `Literal (_, _) -> None
-    | `Arr_Comparison _ -> None
-    | `Arith_Comparison (op, s, t) ->
+    | `ArrEq _ -> None
+    | `ArithComparison (op, s, t) ->
       let t =
         try V.add (linterm_of srk s) (V.negate (linterm_of srk t))
         with Nonlinear -> assert false
@@ -379,8 +379,8 @@ let is_presburger_atom srk atom =
   try
     begin match Interpretation.destruct_atom srk atom with
       | `Literal (_, _) -> true
-      | `Arr_Comparison _ -> false
-      | `Arith_Comparison (op, s, t) ->
+      | `ArrEq _ -> false
+      | `ArithComparison (op, s, t) ->
         ignore (simplify_atom srk op s t);
         true
     end
@@ -703,8 +703,8 @@ let select_real_term srk interp x atoms =
   let bound_of_atom atom =
     match Interpretation.destruct_atom srk atom with
     | `Literal (_, _) 
-    | `Arr_Comparison _ -> (None, None)
-    | `Arith_Comparison (op, s, t) ->
+    | `ArrEq _ -> (None, None)
+    | `ArithComparison (op, s, t) ->
       let t = V.add (linterm_of srk s) (V.negate (linterm_of srk t)) in
 
       let (a, t') = V.pivot (dim_of_sym x) t in
@@ -793,8 +793,8 @@ let select_int_term srk interp x atoms =
       (fun delta atom ->
          match Interpretation.destruct_atom srk atom with
          | `Literal (_, _) -> delta
-         | `Arr_Comparison _ -> delta
-         | `Arith_Comparison (op, s, t) ->
+         | `ArrEq _ -> delta
+         | `ArithComparison (op, s, t) ->
            match simplify_atom srk op s t with
            | `Divides (divisor, t) | `NotDivides (divisor, t) ->
              let a = match QQ.to_zz (V.coeff (dim_of_sym x) t) with
@@ -819,8 +819,8 @@ let select_int_term srk interp x atoms =
   let bound_of_atom atom =
     match Interpretation.destruct_atom srk atom with
     | `Literal (_, _) -> `None
-    | `Arr_Comparison _ -> `None
-    | `Arith_Comparison (op, s, t) ->
+    | `ArrEq _ -> `None
+    | `ArithComparison (op, s, t) ->
       match simplify_atom srk op s t with
       | `CompareZero (op, t) ->
         begin
@@ -1883,7 +1883,7 @@ let mbp ?(dnf=false) srk exists phi =
          let (oriented_eqs, _) =
            List.filter_map (fun atom ->
                match Interpretation.destruct_atom srk atom with
-               | `Arith_Comparison (op, s, t) ->
+               | `ArithComparison (op, s, t) ->
                   begin match simplify_atom srk op s t with
                   | `CompareZero (`Eq, t) -> Some t
                   | _ -> None
@@ -2168,9 +2168,9 @@ let cover_virtual_term srk interp x atoms =
   let get_equal_term atom =
     match Interpretation.destruct_atom srk atom with
     | `Literal (_, _) -> None
-    | `Arr_Comparison _ -> None
-    | `Arith_Comparison (`Lt, _, _) -> None
-    | `Arith_Comparison (_, s, t) ->
+    | `ArrEq _ -> None
+    | `ArithComparison (`Lt, _, _) -> None
+    | `ArithComparison (_, s, t) ->
       let sval = Interpretation.evaluate_term interp s in
       let tval = Interpretation.evaluate_term interp t in
       if QQ.equal sval tval then
@@ -2190,8 +2190,8 @@ let cover_virtual_term srk interp x atoms =
   let get_vt atom =
     match Interpretation.destruct_atom srk atom with
     | `Literal (_, _) -> None
-    | `Arr_Comparison _ -> None
-    | `Arith_Comparison (_, s, t) ->
+    | `ArrEq _ -> None
+    | `ArithComparison (_, s, t) ->
       match SrkSimplify.isolate_linear srk x (mk_sub srk s t) with
       | None -> raise Nonlinear
       | Some (a, b) when QQ.lt a QQ.zero ->

@@ -395,8 +395,8 @@ let select_implicant interp ?(env=Env.empty) phi =
 
 let destruct_atom srk phi =
   match Formula.destruct srk phi with
-  | `Atom (`Arith (op, s, t)) -> `Arith_Comparison (op, s, t)
-  | `Atom (`ArrEq (a, b)) ->  `Arr_Comparison (a, b)
+  | `Atom (`Arith (op, s, t)) -> `ArithComparison (op, s, t)
+  | `Atom (`ArrEq (a, b)) ->  `ArrEq (a, b)
   | `Proposition (`App (k, [])) ->
     `Literal (`Pos, `Const k)
   | `Proposition (`Var i) -> `Literal (`Pos, `Var i)
@@ -408,8 +408,8 @@ let destruct_atom srk phi =
     end
   | `Tru ->
     let zero = mk_real srk QQ.zero in
-    `Arith_Comparison (`Eq, zero, zero)
-  | `Fls -> `Arith_Comparison (`Eq, mk_real srk QQ.zero, mk_real srk QQ.one)
+    `ArithComparison (`Eq, zero, zero)
+  | `Fls -> `ArithComparison (`Eq, mk_real srk QQ.zero, mk_real srk QQ.one)
   | _ ->
     invalid_arg @@ Format.asprintf "destruct_atom: %a is not atomic" (Formula.pp srk) phi
 

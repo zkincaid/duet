@@ -217,33 +217,33 @@ let lincons_of_atom srk cs env atom =
   let vec_of_term = CS.vec_of_term cs in
   let linexpr_of_vec = linexpr_of_vec cs env in
   match Interpretation.destruct_atom srk atom with
-  | `Arith_Comparison (`Lt, x, y) ->
+  | `ArithComparison (`Lt, x, y) ->
     Lincons0.make
       (linexpr_of_vec
          (V.add (vec_of_term y) (V.negate (vec_of_term x))))
       Lincons0.SUP
-  | `Arith_Comparison (`Leq, x, y) ->
+  | `ArithComparison (`Leq, x, y) ->
     Lincons0.make
       (linexpr_of_vec
          (V.add (vec_of_term y) (V.negate (vec_of_term x))))
       Lincons0.SUPEQ
-  | `Arith_Comparison (`Eq, x, y) ->
+  | `ArithComparison (`Eq, x, y) ->
     Lincons0.make
       (linexpr_of_vec
          (V.add (vec_of_term y) (V.negate (vec_of_term x))))
       Lincons0.EQ
   | `Literal (_, _) 
-  | `Arr_Comparison _ -> assert false
+  | `ArrEq _ -> assert false
 
 let meet_atoms wedge atoms =
   (* Ensure that the coordinate system admits each atom *)
   atoms |> List.iter (fun atom ->
       match Interpretation.destruct_atom wedge.srk atom with
-      | `Arith_Comparison (_, x, y) ->
+      | `ArithComparison (_, x, y) ->
         CS.admit_term wedge.cs x;
         CS.admit_term wedge.cs y
       | `Literal (_, _) 
-      | `Arr_Comparison _ -> assert false);
+      | `ArrEq _ -> assert false);
   update_env wedge;
   let abstract =
     atoms
@@ -1306,11 +1306,11 @@ let of_atoms srk atoms =
   let cs = CS.mk_empty srk in
   let register_terms atom =
     match Interpretation.destruct_atom srk atom with
-    | `Arith_Comparison (_, x, y) ->
+    | `ArithComparison (_, x, y) ->
       CS.admit_term cs x;
       CS.admit_term cs y
     | `Literal (_, _) 
-    | `Arr_Comparison _ -> assert false
+    | `ArrEq _ -> assert false
   in
   List.iter register_terms atoms;
   let env = mk_env cs in
@@ -1348,11 +1348,11 @@ let common_cs wedge wedge' =
   let cs = CS.mk_empty srk in
   let register_terms atom =
     match Interpretation.destruct_atom srk atom with
-    | `Arith_Comparison (_, x, y) ->
+    | `ArithComparison (_, x, y) ->
       CS.admit_term cs x;
       CS.admit_term cs y
     | `Literal (_, _) 
-    | `Arr_Comparison _ -> assert false
+    | `ArrEq _ -> assert false
   in
   let atoms = to_atoms wedge in
   let atoms' = to_atoms wedge' in
