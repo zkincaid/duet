@@ -11,13 +11,16 @@ let formula_of_z3 = SrkZ3.formula_of_z3 srk
 let z3_of_formula = SrkZ3.z3_of_formula srk z3
 let term_of_z3 = SrkZ3.term_of_z3 srk
 let z3_of_term = SrkZ3.z3_of_term srk z3
+let z3_of_arith_term = SrkZ3.z3_of_arith_term srk z3
+let z3_of_arr_term = SrkZ3.z3_of_arr_term srk z3
+
 
 let qsym = Ctx.mk_symbol ~name:"q" `TyReal
 let rsym = Ctx.mk_symbol ~name:"r" `TyReal
 let ssym = Ctx.mk_symbol ~name:"s" `TyReal
-let q : 'a term = Ctx.mk_const qsym
-let r : 'a term = Ctx.mk_const rsym
-let s : 'a term = Ctx.mk_const ssym
+let q : 'a arith_term = Ctx.mk_const qsym
+let r : 'a arith_term = Ctx.mk_const rsym
+let s : 'a arith_term = Ctx.mk_const ssym
 
 let vsym = Ctx.mk_symbol ~name:"v" `TyInt
 let wsym = Ctx.mk_symbol ~name:"w" `TyInt
@@ -30,19 +33,26 @@ let xsym' = Ctx.mk_symbol ~name:"x'" `TyInt
 let ysym' = Ctx.mk_symbol ~name:"y'" `TyInt
 let zsym' = Ctx.mk_symbol ~name:"z'" `TyInt
 
-let v : 'a term = Ctx.mk_const vsym
-let w : 'a term = Ctx.mk_const wsym
-let x : 'a term = Ctx.mk_const xsym
-let y : 'a term = Ctx.mk_const ysym
-let z : 'a term = Ctx.mk_const zsym
-let v' : 'a term = Ctx.mk_const vsym'
-let w' : 'a term = Ctx.mk_const wsym'
-let x' : 'a term = Ctx.mk_const xsym'
-let y' : 'a term = Ctx.mk_const ysym'
-let z' : 'a term = Ctx.mk_const zsym'
+let v : 'a arith_term = Ctx.mk_const vsym
+let w : 'a arith_term = Ctx.mk_const wsym
+let x : 'a arith_term = Ctx.mk_const xsym
+let y : 'a arith_term = Ctx.mk_const ysym
+let z : 'a arith_term = Ctx.mk_const zsym
+let v' : 'a arith_term = Ctx.mk_const vsym'
+let w' : 'a arith_term = Ctx.mk_const wsym'
+let x' : 'a arith_term = Ctx.mk_const xsym'
+let y' : 'a arith_term = Ctx.mk_const ysym'
+let z' : 'a arith_term = Ctx.mk_const zsym'
+
+let a1sym = Ctx.mk_symbol ~name:"a1" `TyArr
+let a2sym = Ctx.mk_symbol ~name:"a2" `TyArr
+let a3sym = Ctx.mk_symbol ~name:"a3" `TyArr
+let a1 = Ctx.mk_const a1sym
+let a2 = Ctx.mk_const a2sym
+let a3 = Ctx.mk_const a3sym
 
 let fsym = Ctx.mk_symbol ~name:"f" (`TyFun ([`TyInt], `TyInt))
-let f : Ctx.term -> Ctx.term =
+let f : Ctx.arith_term -> Ctx.arith_term =
   fun x -> Ctx.mk_app fsym [(x :> (Ctx.t, typ_fo) expr)]
 
 let frac num den = Ctx.mk_real (QQ.of_frac num den)
@@ -72,8 +82,11 @@ let mk_qqmatrix mat =
     QQMatrix.zero
     (List.mapi (fun i row -> (i, mk_qqvector row)) mat)
 
+let assert_equal_arith_term s t =
+  assert_equal ~cmp:ArithTerm.equal ~printer:(ArithTerm.show srk) s t
+
 let assert_equal_term s t =
-  assert_equal ~printer:(Term.show srk) s t
+  assert_equal ~cmp:Term.equal ~printer:(Term.show srk) s t
 
 let assert_equal_formula s t =
   assert_equal ~printer:(Formula.show srk) s t

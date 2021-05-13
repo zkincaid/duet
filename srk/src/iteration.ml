@@ -11,7 +11,7 @@ module WG = WeightedGraph
 module type PreDomain = sig
   type 'a t
   val pp : 'a context -> (symbol * symbol) list -> Format.formatter -> 'a t -> unit
-  val exp : 'a context -> (symbol * symbol) list -> 'a term -> 'a t -> 'a formula
+  val exp : 'a context -> (symbol * symbol) list -> 'a arith_term -> 'a t -> 'a formula
   val abstract : 'a context -> 'a TransitionFormula.t -> 'a t
 end
 
@@ -149,7 +149,7 @@ module LinearGuard = struct
   let abstract_presburger_rewriter srk expr =
     match Expr.refine srk expr with
     | `Formula phi -> begin match Formula.destruct srk phi with
-        | `Atom (_, _, _) ->
+        | `Atom _ ->
           if Quantifier.is_presburger_atom srk phi then
             expr
           else
@@ -218,7 +218,7 @@ module LinearGuard = struct
 end
 
 module LinearRecurrenceInequation = struct
-  type 'a t = ('a term * [ `Geq | `Eq ] * QQ.t) list
+  type 'a t = ('a arith_term * [ `Geq | `Eq ] * QQ.t) list
 
   let pp srk _ formatter lr =
     Format.fprintf formatter "@[<v 0>";
@@ -227,7 +227,7 @@ module LinearRecurrenceInequation = struct
           | `Geq -> ">="
           | `Eq -> "="
         in
-        Format.fprintf formatter "%a %s %a@;" (Term.pp srk) t opstring QQ.pp k);
+        Format.fprintf formatter "%a %s %a@;" (ArithTerm.pp srk) t opstring QQ.pp k);
     Format.fprintf formatter "@]"
 
   let abstract srk tf =
@@ -266,7 +266,7 @@ module LinearRecurrenceInequation = struct
     in
     let constraint_of_atom atom =
       match Formula.destruct srk atom with
-      | `Atom (op, s, t) ->
+      | `Atom (`Arith (op, s, t)) ->
         let t = V.sub (Linear.linterm_of srk t) (Linear.linterm_of srk s) in
         let (k, t) = V.pivot Linear.const_dim t in
         let term = substitute_map srk delta_map (Linear.of_linterm srk t) in
@@ -294,7 +294,7 @@ module LinearRecurrenceInequation = struct
 end
 
 module NonlinearRecurrenceInequation = struct
-  type 'a t = ('a term * [ `Geq | `Eq ] * 'a term) list
+  type 'a t = ('a arith_term * [ `Geq | `Eq ] * 'a arith_term) list
 
   let pp srk _ formatter lr =
     Format.fprintf formatter "NLE: @[<v 0>";
@@ -303,7 +303,7 @@ module NonlinearRecurrenceInequation = struct
           | `Geq -> ">="
           | `Eq -> "="
         in
-        Format.fprintf formatter "%a %s %a@;" (Term.pp srk) t opstring (Term.pp srk) k);
+        Format.fprintf formatter "%a %s %a@;" (ArithTerm.pp srk) t opstring (ArithTerm.pp srk) k);
     Format.fprintf formatter "@]"
 
   module QQXs = Polynomial.QQXs
@@ -322,7 +322,7 @@ module NonlinearRecurrenceInequation = struct
     in
     let constraint_of_atom atom =
       match Formula.destruct srk atom with
-      | `Atom (op, s, t) ->
+      | `Atom (`Arith (op, s, t)) ->
         let t = V.sub (CS.vec_of_term cs t) (CS.vec_of_term cs s) in
         let (lhs, rhs) =
           BatEnum.fold (fun (lhs, rhs) (coeff, dim) ->
@@ -473,7 +473,7 @@ module Split (Iter : PreDomain) = struct
           if Symbol.Set.for_all prestate (symbols phi) then
             preds := Expr.Set.add phi (!preds);
           expr
-        | `Atom (op, s, t) ->
+        | `Atom (`Arith (op, s, t)) ->
           let phi =
             match op with
             | `Eq -> mk_eq srk s t

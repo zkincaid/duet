@@ -15,6 +15,7 @@ module CS = CoordinateSystem
 module A = BatDynArray
 
 module IntSet = SrkUtil.Int.Set
+module Term = ArithTerm
 
 include Log.Make(struct let name = "srk.wedge" end)
 
@@ -216,31 +217,33 @@ let lincons_of_atom srk cs env atom =
   let vec_of_term = CS.vec_of_term cs in
   let linexpr_of_vec = linexpr_of_vec cs env in
   match Interpretation.destruct_atom srk atom with
-  | `Comparison (`Lt, x, y) ->
+  | `ArithComparison (`Lt, x, y) ->
     Lincons0.make
       (linexpr_of_vec
          (V.add (vec_of_term y) (V.negate (vec_of_term x))))
       Lincons0.SUP
-  | `Comparison (`Leq, x, y) ->
+  | `ArithComparison (`Leq, x, y) ->
     Lincons0.make
       (linexpr_of_vec
          (V.add (vec_of_term y) (V.negate (vec_of_term x))))
       Lincons0.SUPEQ
-  | `Comparison (`Eq, x, y) ->
+  | `ArithComparison (`Eq, x, y) ->
     Lincons0.make
       (linexpr_of_vec
          (V.add (vec_of_term y) (V.negate (vec_of_term x))))
       Lincons0.EQ
-  | `Literal (_, _) -> assert false
+  | `Literal (_, _) 
+  | `ArrEq _ -> assert false
 
 let meet_atoms wedge atoms =
   (* Ensure that the coordinate system admits each atom *)
   atoms |> List.iter (fun atom ->
       match Interpretation.destruct_atom wedge.srk atom with
-      | `Comparison (_, x, y) ->
+      | `ArithComparison (_, x, y) ->
         CS.admit_term wedge.cs x;
         CS.admit_term wedge.cs y
-      | `Literal (_, _) -> assert false);
+      | `Literal (_, _) 
+      | `ArrEq _ -> assert false);
   update_env wedge;
   let abstract =
     atoms
@@ -1303,10 +1306,11 @@ let of_atoms srk atoms =
   let cs = CS.mk_empty srk in
   let register_terms atom =
     match Interpretation.destruct_atom srk atom with
-    | `Comparison (_, x, y) ->
+    | `ArithComparison (_, x, y) ->
       CS.admit_term cs x;
       CS.admit_term cs y
-    | `Literal (_, _) -> assert false
+    | `Literal (_, _) 
+    | `ArrEq _ -> assert false
   in
   List.iter register_terms atoms;
   let env = mk_env cs in
@@ -1344,10 +1348,11 @@ let common_cs wedge wedge' =
   let cs = CS.mk_empty srk in
   let register_terms atom =
     match Interpretation.destruct_atom srk atom with
-    | `Comparison (_, x, y) ->
+    | `ArithComparison (_, x, y) ->
       CS.admit_term cs x;
       CS.admit_term cs y
-    | `Literal (_, _) -> assert false
+    | `Literal (_, _) 
+    | `ArrEq _ -> assert false
   in
   let atoms = to_atoms wedge in
   let atoms' = to_atoms wedge' in
@@ -1968,8 +1973,9 @@ let is_sat srk phi =
     Symbol.Map.enum nonlinear
     /@ (fun (symbol, expr) ->
         match Expr.refine srk expr with
-        | `Term t -> mk_eq srk (mk_const srk symbol) t
-        | `Formula phi -> mk_iff srk (mk_const srk symbol) phi)
+        | `ArithTerm t -> mk_eq srk (mk_const srk symbol) t
+        | `Formula phi -> mk_iff srk (mk_const srk symbol) phi
+        | `ArrTerm _ -> assert false)
     |> BatList.of_enum
   in
   let nonlinear = Symbol.Map.map (Nonlinear.interpret srk) nonlinear in
@@ -2084,8 +2090,9 @@ let abstract_subwedge subwedge ?exists:(p=fun _ -> true) ?(subterm=fun _ -> true
     Symbol.Map.enum nonlinear
     /@ (fun (symbol, expr) ->
         match Expr.refine srk expr with
-        | `Term t -> mk_eq srk (mk_const srk symbol) t
-        | `Formula phi -> mk_iff srk (mk_const srk symbol) phi)
+        | `ArithTerm t -> mk_eq srk (mk_const srk symbol) t
+        | `Formula phi -> mk_iff srk (mk_const srk symbol) phi
+        | `ArrTerm _ -> assert false)
     |> BatList.of_enum
     |> mk_and srk
   in
@@ -2164,8 +2171,9 @@ let abstract_subwedge_weak subwedge srk phi =
     Symbol.Map.enum nonlinear
     /@ (fun (symbol, expr) ->
         match Expr.refine srk expr with
-        | `Term t -> mk_eq srk (mk_const srk symbol) t
-        | `Formula phi -> mk_iff srk (mk_const srk symbol) phi)
+        | `ArithTerm t -> mk_eq srk (mk_const srk symbol) t
+        | `Formula phi -> mk_iff srk (mk_const srk symbol) phi
+        | `ArrTerm _ -> assert false)
     |> BatList.of_enum
     |> mk_and srk
   in

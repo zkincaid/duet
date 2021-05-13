@@ -1,6 +1,5 @@
 open Srk
 open OUnit
-open Syntax
 open SrkApron
 open Test_pervasives
 
@@ -12,7 +11,7 @@ let roundtrip1 () =
     (x + y) / (int 5) + ((int 2) * x)
   in
   let t2 = term_of_texpr env (texpr_of_term env t) in
-  assert_equal ~cmp:Term.equal ~printer:(Term.show srk) t t2
+  assert_equal_arith_term t t2
 
 let roundtrip2 () =
   let t =
@@ -20,7 +19,7 @@ let roundtrip2 () =
     Ctx.mk_floor ((x + y) / (((int 2) / (int 5)) + z)) + (int 1)
   in
   let t2 = term_of_texpr env (texpr_of_term env t) in
-  assert_equal ~cmp:Term.equal ~printer:(Term.show srk) t t2
+  assert_equal_arith_term t t2
 
 let roundtrip3 () = 
   let t =
@@ -28,7 +27,7 @@ let roundtrip3 () =
     Ctx.mk_mod (x + (int 5)) (int 2)
   in
   let t2 = term_of_texpr env (texpr_of_term env t) in
-  assert_equal ~cmp:Term.equal ~printer:(Term.show srk) t t2
+  assert_equal_arith_term t t2
 
 module Vec = Linear.QQVector
 let roundtrip4 () =

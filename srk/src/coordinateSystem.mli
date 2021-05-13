@@ -27,7 +27,7 @@ val get_context : 'a t -> 'a context
 val copy : 'a t -> 'a t
 
 (** Extend a coordinate system to admit a term *)
-val admit_term : 'a t -> 'a term -> unit
+val admit_term : 'a t -> 'a arith_term -> unit
 
 (** Extend a coordinate system with one additional coordinate term, if that
     coordinate does not already belong to the system. *)
@@ -48,9 +48,9 @@ val real_dim : 'a t -> int
 val destruct_coordinate : 'a t -> int -> cs_term
 
 (** Find the term associated with a coordinate *)
-val term_of_coordinate : 'a t -> int -> 'a term
+val term_of_coordinate : 'a t -> int -> 'a arith_term
 
-val term_of_vec : 'a t -> Linear.QQVector.t -> 'a term
+val term_of_vec : 'a t -> Linear.QQVector.t -> 'a arith_term
 
 (** Find the coordinate associated with an coordinate term.  If the coordinate
     term is does not belong to the coorindate system and [admit] is set then
@@ -60,7 +60,7 @@ val cs_term_id : ?admit:bool -> 'a t -> cs_term -> int
 (** Find the vector associated with an admissible term.  If the term is
     inadmissible and [admit] is set then extend the coordinate system; otherwise,
     raise [Not_found]. *)
-val vec_of_term : ?admit:bool -> 'a t -> 'a term -> Linear.QQVector.t
+val vec_of_term : ?admit:bool -> 'a t -> 'a arith_term -> Linear.QQVector.t
 
 val type_of_id : 'a t -> int -> [ `TyInt | `TyReal ]
 
@@ -72,7 +72,7 @@ val type_of_polynomial : 'a t -> Polynomial.QQXs.t -> [ `TyInt | `TyReal ]
 
 (** Find a polynomial associated with an admissible term over
     {i non-multiplicative} coordinates. *)
-val polynomial_of_term : 'a t -> 'a term -> Polynomial.QQXs.t
+val polynomial_of_term : 'a t -> 'a arith_term -> Polynomial.QQXs.t
 
 (** Convert a vector to a polynomial {i without multiplicative coordinates}.
     Multiplicative coordinates are expanded into higher-degree polynomials
@@ -81,10 +81,10 @@ val polynomial_of_vec : 'a t -> Linear.QQVector.t -> Polynomial.QQXs.t
 
 val polynomial_of_coordinate : 'a t -> int -> Polynomial.QQXs.t
 
-val term_of_polynomial : 'a t -> Polynomial.QQXs.t -> 'a term
+val term_of_polynomial : 'a t -> Polynomial.QQXs.t -> 'a arith_term
 
 (** Does a coordinate system admit the given term? *)
-val admits : 'a t -> 'a term -> bool
+val admits : 'a t -> 'a arith_term -> bool
 
 (** [project_ideal cs basis subterm p] takes as input a coordinate
    system [cs], a basis for a polynomial ideal [basis], and two
@@ -99,7 +99,7 @@ val project_ideal : 'a t ->
   Polynomial.QQXs.t list ->
   ?subterm:(symbol -> bool) ->
   (symbol -> bool) ->
-  (int * 'a term * 'a formula) list
+  (int * 'a arith_term * 'a formula) list
 
 (** Find the set of all coordinates that are associated with subterms of the
     term associated with a given coordinate. *)

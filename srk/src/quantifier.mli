@@ -10,10 +10,10 @@ val simsat_forward : 'a context -> 'a formula -> [ `Sat
                                                  | `Unknown ]
 
 (** Alternating quantifier optimization *)
-val maximize : 'a context -> 'a formula -> 'a term -> [ `Bounded of QQ.t
-                                                      | `Infinity
-                                                      | `MinusInfinity
-                                                      | `Unknown ]
+val maximize : 'a context -> 'a formula -> 'a arith_term -> [ `Bounded of QQ.t
+                                                            | `Infinity
+                                                            | `MinusInfinity
+                                                            | `Unknown ]
 
 (** Quantifier eliminiation via model-based projection *)
 val qe_mbp : 'a context -> 'a formula -> 'a formula

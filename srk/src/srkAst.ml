@@ -1,6 +1,6 @@
 module Ctx = Syntax.MakeSimplifyingContext ()
 
-type term = Ctx.term
+type term = Ctx.arith_term
 type formula = Ctx.formula
 
 let mk_quantified mkq ks phi =

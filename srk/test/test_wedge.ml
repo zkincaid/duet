@@ -11,8 +11,8 @@ let (pow, log) =
   (get_named_symbol srk "pow",
    get_named_symbol srk "log")
 
-let mk_log (base : 'a term) (x : 'a term) = mk_app srk log [base; x]
-let mk_pow (base : 'a term) (exp : 'a term) = mk_app srk pow [base; exp]
+let mk_log (base : 'a arith_term) (x : 'a arith_term) = mk_app srk log [base; x]
+let mk_pow (base : 'a arith_term) (exp : 'a arith_term) = mk_app srk pow [base; exp]
 
 let assert_implies phi psi =
   psi |> List.iter (fun atom ->
@@ -32,8 +32,8 @@ let cs_roundtrip1 () =
   let yx = mk_mul srk [y; x] in
   CS.admit_term cs xy;
   CS.admit_term cs yx;
-  assert_equal_term xy (CS.term_of_vec cs (CS.vec_of_term cs xy));
-  assert_equal_term yx (CS.term_of_vec cs (CS.vec_of_term cs yx))
+  assert_equal_arith_term xy (CS.term_of_vec cs (CS.vec_of_term cs xy));
+  assert_equal_arith_term yx (CS.term_of_vec cs (CS.vec_of_term cs yx))
 
 let cs_roundtrip2 () =
   let cs = CoordinateSystem.mk_empty srk in
@@ -41,7 +41,7 @@ let cs_roundtrip2 () =
   let xx = mk_mul srk [x; x] in
   let fourxx = mk_mul srk [mk_real srk (QQ.of_int 4); xx] in
   CS.admit_term cs x4x;
-  assert_equal_term fourxx (CS.term_of_vec cs (CS.vec_of_term cs x4x))
+  assert_equal_arith_term fourxx (CS.term_of_vec cs (CS.vec_of_term cs x4x))
 
 let roundtrip1 () =
   let atoms =

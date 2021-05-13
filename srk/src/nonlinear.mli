@@ -32,9 +32,9 @@ val interpret : 'a context -> ('a,'b) expr -> ('a,'b) expr
 (** Compute a linear approximation of a non-linear formula. *)
 val linearize : 'a context -> 'a formula -> 'a formula
 
-val mk_log : 'a context -> 'a term -> 'a term -> 'a term
+val mk_log : 'a context -> 'a arith_term -> 'a arith_term -> 'a arith_term
 
-val mk_pow : 'a context -> 'a term -> 'a term -> 'a term
+val mk_pow : 'a context -> 'a arith_term -> 'a arith_term -> 'a arith_term
 
 (** Given a formula phi and a list of objectives [o1,...,on], find the least
     bounding interval for each objective within the feasible region defined by
@@ -42,7 +42,7 @@ val mk_pow : 'a context -> 'a term -> 'a term -> 'a term
 val optimize_box : ?context:SrkZ3.z3_context ->
   'a context ->
   'a formula ->
-  ('a term) list ->
+  ('a arith_term) list ->
   [ `Sat of Interval.t list | `Unsat | `Unknown ]
 
 
@@ -53,4 +53,4 @@ val simplify_terms_rewriter : 'a context -> 'a rewriter
 val simplify_terms : 'a context -> 'a formula -> 'a formula
 
 (** Simplify power and log terms. *)
-val simplify_term : 'a context -> 'a term -> 'a term
+val simplify_term : 'a context -> 'a arith_term -> 'a arith_term

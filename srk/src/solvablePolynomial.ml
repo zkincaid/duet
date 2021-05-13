@@ -21,6 +21,8 @@ module PLM = Lts.PartialLinearMap
 
 module TF = TransitionFormula
 
+module Term = ArithTerm
+
 (* Closed forms for solvable polynomial maps with periodic rational
    eigenvalues: multi-variate polynomials with ultimately periodic
    exponential polynomial coefficients *)
@@ -711,7 +713,7 @@ let extract_affine_transformation srk wedge tr_symbols rec_terms rec_ideal =
    A_1, term_of_id.(nb_constants+size(A_1)) corresponds to the first row of
    A_2, ...).  Similarly for inequations in rec_leq. *)
 type 'a t =
-  { term_of_id : ('a term) array;
+  { term_of_id : ('a arith_term) array;
     nb_constants : int;
     block_eq : block list;
     block_leq : block list }
@@ -891,7 +893,7 @@ let extract_vector_leq srk wedge tr_symbols term_of_id base =
   let add =
     DArray.map (fun t ->
         let name = "a[" ^ (Term.show srk t) ^ "]" in
-        mk_symbol srk ~name (term_typ srk t :> typ))
+        mk_symbol srk ~name (ArithTerm.typ srk t :> typ))
       term_of_id
   in
   let delta_map =
@@ -1698,7 +1700,7 @@ module PresburgerGuard = struct
 
   let idiv_to_ite srk expr =
     match Expr.refine srk expr with
-    | `Term t -> begin match destruct_idiv srk t with
+    | `ArithTerm t -> begin match destruct_idiv srk t with
         | Some (num, den) when den < 10 ->
           let den_term = mk_real srk (QQ.of_int den) in
           let num_over_den =
@@ -1728,7 +1730,7 @@ module PresburgerGuard = struct
   let abstract_presburger_rewriter srk expr =
     match Expr.refine srk expr with
     | `Formula phi -> begin match Formula.destruct srk phi with
-        | `Atom (_, _, _) ->
+        | `Atom _ ->
           if Quantifier.is_presburger_atom srk phi then
             expr
           else
@@ -1853,7 +1855,7 @@ end
 
 type 'a dlts_abstraction =
   { dlts : PLM.t;
-    simulation : ('a term) array }
+    simulation : ('a arith_term) array }
 
 module DLTS = struct
   module VS = Linear.QQVectorSpace

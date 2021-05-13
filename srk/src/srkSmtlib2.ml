@@ -137,7 +137,8 @@ module MakeSMT2Srk(C : sig type t val context : t Syntax.context end) = struct
   type 'a gexpr = ('a, Syntax.typ_fo) Syntax.expr
   let rec expr_of_smt of_symbol t =
     let formula_of = formula_of_smt of_symbol in
-    let term_of = term_of_smt of_symbol in
+    let arith_term_of = arith_term_of_smt of_symbol in
+    let arr_term_of = arr_term_of_smt of_symbol in
     let left_assoc f init args = List.fold_left f init args in
     let chain f init args =
       let rec go acc x = function
@@ -198,7 +199,7 @@ module MakeSMT2Srk(C : sig type t val context : t Syntax.context end) = struct
          | [] -> assert false
          | _ :: [] -> assert false
          | _ ->
-           let terms = List.map term_of terms in
+           let terms = List.map arith_term_of terms in
            let f x y phis = (mk_eq srk x y) :: phis in
            (mk_and srk (chain f [] terms) :> 'a gexpr)
          end
@@ -206,7 +207,7 @@ module MakeSMT2Srk(C : sig type t val context : t Syntax.context end) = struct
         begin match terms with
         | [] -> assert false
         | _ ->
-          let terms = List.map term_of terms in
+          let terms = List.map arith_term_of terms in
           let f x y phis = (mk_not srk (mk_eq srk x y)) :: phis in
           (mk_and srk (pair_wise f [] terms) :> 'a gexpr)
         end
@@ -222,44 +223,44 @@ module MakeSMT2Srk(C : sig type t val context : t Syntax.context end) = struct
       | "+" ->
         begin match terms with
         | [] -> assert false
-        | [t] -> (term_of t :> 'a gexpr)
-        | _ -> (mk_add srk (List.map term_of terms) :> 'a gexpr)
+        | [t] -> (arith_term_of t :> 'a gexpr)
+        | _ -> (mk_add srk (List.map arith_term_of terms) :> 'a gexpr)
         end
       | "-" -> (* neg or (sub left assoc) *)
         begin match terms with
         | [] -> assert false
-        | [t] -> (mk_neg srk (term_of t) :> 'a gexpr)
+        | [t] -> (mk_neg srk (arith_term_of t) :> 'a gexpr)
         | _ ->
-          let terms = List.map term_of terms in
+          let terms = List.map arith_term_of terms in
           (left_assoc (mk_sub srk) (List.hd terms) (List.tl terms) :> 'a gexpr)
         end
       | "*" ->
         begin match terms with
         | [] -> assert false
-        | [t] -> (term_of t :> 'a gexpr)
-        | _ -> (mk_mul srk (List.map term_of terms) :> 'a gexpr)
+        | [t] -> (arith_term_of t :> 'a gexpr)
+        | _ -> (mk_mul srk (List.map arith_term_of terms) :> 'a gexpr)
         end
       | "mod" ->
         begin match terms with
-        | [x; y] -> (mk_mod srk (term_of x) (term_of y) :> 'a gexpr)
+        | [x; y] -> (mk_mod srk (arith_term_of x) (arith_term_of y) :> 'a gexpr)
         | _ -> assert false
         end
       | "div" ->
         begin match terms with
-        | [x; y] -> (mk_idiv srk (term_of x) (term_of y) :> 'a gexpr)
+        | [x; y] -> (mk_idiv srk (arith_term_of x) (arith_term_of y) :> 'a gexpr)
         | _ -> assert false
         end
       | "abs" ->
         begin match terms with
         | [x] ->
-          let x = term_of x in
+          let x = arith_term_of x in
           (mk_ite srk (mk_lt srk x (mk_int srk 0)) (mk_neg srk x) x :> 'a gexpr)
         | _ -> assert false
         end
       | "<" -> (* chainable *)
          begin match terms with
          | _ :: _ :: _ ->
-           let terms = List.map term_of terms in
+           let terms = List.map arith_term_of terms in
            let f x y phis = (mk_lt srk x y) :: phis in
            (mk_and srk (chain f [] terms) :> 'a gexpr)
          | _ -> assert false
@@ -267,7 +268,7 @@ module MakeSMT2Srk(C : sig type t val context : t Syntax.context end) = struct
       | ">" ->
          begin match terms with
          | _ :: _ :: _ ->
-           let terms = List.rev_map term_of terms in
+           let terms = List.rev_map arith_term_of terms in
            let f x y phis = (mk_lt srk x y) :: phis in
            (mk_and srk (chain f [] terms) :> 'a gexpr)
          | _ -> assert false
@@ -275,7 +276,7 @@ module MakeSMT2Srk(C : sig type t val context : t Syntax.context end) = struct
       | "<=" ->
          begin match terms with
          | _ :: _ :: _ ->
-           let terms = List.map term_of terms in
+           let terms = List.map arith_term_of terms in
            let f x y phis = (mk_leq srk x y) :: phis in
            (mk_and srk (chain f [] terms) :> 'a gexpr)
          | _ -> assert false
@@ -283,30 +284,30 @@ module MakeSMT2Srk(C : sig type t val context : t Syntax.context end) = struct
       | ">=" ->
          begin match terms with
          | _ :: _ :: _ ->
-           let terms = List.rev_map term_of terms in
+           let terms = List.rev_map arith_term_of terms in
            let f x y phis = (mk_leq srk x y) :: phis in
            (mk_and srk (chain f [] terms) :> 'a gexpr)
          | _ -> assert false
          end
       | "/" ->
         begin match terms with
-        | [x; y] -> (mk_div srk (term_of x) (term_of y) :> 'a gexpr)
+        | [x; y] -> (mk_div srk (arith_term_of x) (arith_term_of y) :> 'a gexpr)
         | _ -> assert false
         end
       | "to_real" -> (* maybe this should be unsupported rather than being a noop in srk *)
         begin match terms with
-        | [t] -> (term_of t :> 'a gexpr)
+        | [t] -> (arith_term_of t :> 'a gexpr)
         | _ -> assert false
         end
       | "to_int" ->
         begin match terms with
-        | [t] -> (mk_floor srk (term_of t) :> 'a gexpr)
+        | [t] -> (mk_floor srk (arith_term_of t) :> 'a gexpr)
         | _ -> assert false
         end
       | "is_int" ->
         begin match terms with
         | [t] ->
-          let t = term_of t in
+          let t = arith_term_of t in
           (mk_eq srk (mk_floor srk t) t :> 'a gexpr)
         | _ -> assert false
         end
@@ -317,20 +318,22 @@ module MakeSMT2Srk(C : sig type t val context : t Syntax.context end) = struct
           begin match typ_symbol srk sym with
           | `TyBool
           | `TyInt
-          | `TyReal -> (mk_const srk (of_symbol srk_sym) :> 'a gexpr)
+          | `TyReal 
+          | `TyArr -> (mk_const srk (of_symbol srk_sym) :> 'a gexpr)
           | `TyFun _ -> invalid_arg "Unexpected function symbol"
           end
         | _ ->
           let sym = of_symbol srk_sym in
           match typ_symbol srk sym with
-          | `TyBool | `TyInt | `TyReal -> invalid_arg "Unexpected function application: Non-functional symbol"
+          | `TyBool | `TyInt | `TyReal | `TyArr -> invalid_arg "Unexpected function application: Non-functional symbol"
           | `TyFun (args_typ, _) ->
             if (List.length terms) != (List.length args_typ) then invalid_arg "Unexpected function application: arity mistmatch" else
             let args =
               List.map2 (fun term typ ->
                 match typ with
                 | `TyBool -> (formula_of term :> 'a gexpr)
-                | _ -> (term_of term :> 'a gexpr)
+                | `TyInt | `TyReal -> (arith_term_of term :> 'a gexpr)
+                | `TyArr -> (arr_term_of term :> 'a gexpr)
               ) terms args_typ
             in
             (mk_app srk sym args :> 'a gexpr)
@@ -339,7 +342,7 @@ module MakeSMT2Srk(C : sig type t val context : t Syntax.context end) = struct
     | App ((("divisible", [Num n]), None), terms) ->
       begin match terms with
       | [t] ->
-        let t = term_of t in
+        let t = arith_term_of t in
         let sym = mk_symbol srk `TyInt in
         let n = mk_zz srk n in
         (mk_exists_const srk sym (mk_eq srk t (mk_mul srk [n; mk_const srk sym])) :> 'a gexpr)
@@ -350,10 +353,14 @@ module MakeSMT2Srk(C : sig type t val context : t Syntax.context end) = struct
     | Exists (vars, t) -> invalid_arg "Unsupported" *)
     | App _ -> invalid_arg "Unknown function name"
     | _ -> invalid_arg "Match and attribute statments are not supported"
-  and term_of_smt of_symbol t =
+  and arith_term_of_smt of_symbol t =
     match Syntax.Expr.refine srk (expr_of_smt of_symbol t) with
-    | `Term t -> t
-    | _ -> invalid_arg "Term expected"
+    | `ArithTerm t -> t
+    | _ -> invalid_arg "Arithmatic Term expected"
+  and arr_term_of_smt of_symbol t =
+    match Syntax.Expr.refine srk (expr_of_smt of_symbol t) with
+    | `ArrTerm t -> t
+    | _ -> invalid_arg "Array Term expected"
   and formula_of_smt of_symbol t =
     match Syntax.Expr.refine srk (expr_of_smt of_symbol t) with
     | `Formula phi -> phi
@@ -397,7 +404,6 @@ module MakeSMT2Srk(C : sig type t val context : t Syntax.context end) = struct
   (* functions are debruijn indexed *)
   let model_of_smt of_symbol (m : model) =
     let open Syntax in
-    let term_of_smt of_sym t = term_of_smt of_sym t in
     let formula_of_smt of_sym phi = formula_of_smt of_sym phi in
     List.map (fun (sym, formals, ret_typ, def) ->
       let sym = of_symbol sym in
@@ -413,10 +419,11 @@ module MakeSMT2Srk(C : sig type t val context : t Syntax.context end) = struct
         | `TyInt, `TyInt
         | `TyReal, `TyReal ->
           assert (formals = []);
-          begin match Term.destruct srk (term_of_smt of_symbol def) with
+          begin match ArithTerm.destruct srk (arith_term_of_smt of_symbol def) with
           | `Real qq -> `Real qq
           | _ -> invalid_arg "Mismatch between model and symbol definitions 2"
           end
+        | `TyArr, `TyArr -> assert false (*TODO*)
         | `TyFun (args, `TyInt), `TyInt
         | `TyFun (args, `TyReal), `TyReal
         | `TyFun (args, `TyBool), `TyBool ->
@@ -441,7 +448,10 @@ module MakeSMT2Srk(C : sig type t val context : t Syntax.context end) = struct
           let def =
             match (typ_symbol srk sym) with
             | `TyFun (_, `TyBool) -> (formula_of_smt of_symbol def :> 'a gexpr)
-            | _ -> (term_of_smt of_symbol def :> 'a gexpr)
+            | `TyFun (_, `TyInt) 
+            | `TyFun(_, `TyReal) -> (arith_term_of_smt of_symbol def :> 'a gexpr)
+            | `TyFun(_, `TyArr) -> (arr_term_of_smt of_symbol def :> 'a gexpr)
+            | _ -> assert false
           in
           let res =
             substitute_const srk (fun sym ->
