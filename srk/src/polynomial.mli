@@ -251,6 +251,9 @@ module Rewrite : sig
   val add_saturate : t -> QQXs.t -> t
 
   val generators : t -> QQXs.t list
+
+  val get_monomial_ordering : t -> 
+    (Monomial.t -> Monomial.t -> [`Eq | `Lt | `Gt])
 end
 
 (** A polynomial ideal is a set of polynomials that is closed under
@@ -263,6 +266,16 @@ module Ideal : sig
 
   (** Compute the smallest ideal that contains a given set of polynomials *)
   val make : QQXs.t list -> t
+
+  val get_monomial_ordering : t ->
+    (Monomial.t -> Monomial.t -> [ `Eq | `Lt | `Gt ])
+
+  val change_monomial_ordering : t ->
+    (Monomial.t -> Monomial.t -> [ `Eq | `Lt | `Gt ]) -> t
+
+  val add_saturate : t -> QQXs.t -> t
+
+  val reduce : t -> QQXs.t -> QQXs.t
 
   (** Compute a finite set of polynomials that generates the given
      ideal.  Note [make (generators i) = i], but [generators (make g)]
