@@ -42,13 +42,13 @@ val symbols : 'a t -> (symbol * symbol) list
 (** Retrieve the predicate that identifies skolem constants *)
 val exists : 'a t -> (symbol -> bool)
 
-(** Retrieve the underlying formula *)
+(** Update the underlying formula *)
 val update_formula : 'a t -> 'a formula -> 'a t
 
-(** Retrieve the pre-state/post-state symbols of a transition formula *)
+(** Update the pre-state/post-state symbols of a transition formula *)
 val update_symbols : 'a t -> (symbol * symbol) list -> 'a t
 
-(** Retrieve the predicate that identifies skolem constants *)
+(** Update the predicate that identifies skolem constants *)
 val update_exists : 'a t -> (symbol -> bool) -> 'a t
 
 (** Retrieve a predicate that identifies symbolic constants *)
