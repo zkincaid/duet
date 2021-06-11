@@ -346,20 +346,26 @@ let of_z3 context sym_of_decl expr =
    Z3 int symbols *)
 let sym_of_decl decl =
   let sym = Z3.FuncDecl.get_name decl in
-  assert (Z3.Symbol.is_int_symbol sym);
-  symbol_of_int (Z3.Symbol.get_int sym)
+  match Z3.Symbol.kind sym with
+  | STRING_SYMBOL -> assert false
+   (* let name = Z3.Symbol.get_string sym in
+    if is_registered_name srk name
+    then get_named_symbol srk name
+    else register_named_symbol srk name; *)
+  | INT_SYMBOL -> symbol_of_int (Z3.Symbol.get_int sym)
 
-let term_of_z3 context term =
+let term_of_z3 context ?sym_of_decl:(sym_of_decl = sym_of_decl) term =
   match Expr.refine_coarse context (of_z3 context sym_of_decl term) with
   | `Term t -> t
   | _ -> invalid_arg "term_of"
 
-let formula_of_z3 context phi =
+let formula_of_z3 context ?sym_of_decl:(sym_of_decl = sym_of_decl) phi =
   match Expr.refine context (of_z3 context sym_of_decl phi) with
   | `Formula phi -> phi
   |  _ -> invalid_arg "formula_of"
 
-let expr_of_z3 context expr = of_z3 context sym_of_decl expr
+let expr_of_z3 context ?sym_of_decl:(sym_of_decl = sym_of_decl) expr = 
+  of_z3 context sym_of_decl expr
 
 type 'a solver =
   { srk : 'a context;

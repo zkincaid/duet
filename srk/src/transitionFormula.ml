@@ -49,6 +49,10 @@ let formula tf = tf.formula
 let symbols tf = tf.symbols
 let exists tf = tf.exists
 
+let update_formula tf phi = { tf with formula = phi }
+let update_exists tf exists = { tf with exists = exists }
+let update_symbols tf symbols = { tf with symbols = symbols }
+
 let make ?(exists=fun _ -> true) formula symbols =
   { exists; formula; symbols }
 
