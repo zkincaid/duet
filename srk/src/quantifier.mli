@@ -37,6 +37,9 @@ val pp_strategy : 'a context -> Format.formatter -> 'a strategy -> unit
 
 val show_strategy : 'a context -> 'a strategy -> string
 
+(** Pushes quantifiers further into expression tree. Does not preserve 
+ * quantifier ordering. May eliminate unused quantifiers.*)
+val miniscope : 'a context -> 'a formula -> 'a formula
 
 (** Compute a winning SAT/UNSAT strategy for a formula.  The formula is
     represented in prenex form (quantifier prefix + matrix). *)
