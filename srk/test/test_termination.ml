@@ -63,7 +63,7 @@ let assert_equal_pz x y =
     ~printer:(SrkUtil.mk_show (Sequence.Periodic.pp Format.pp_print_int)) x y
 
 let mp_dta tf =
-  mk_not srk (TerminationDTA.XSeq.terminating_conditions_of_formula_via_xseq srk tf)
+  TerminationDTA.XSeq.terminating_conditions_of_formula_via_xseq srk tf
 
 let suite = "Termination" >::: [
       "even" >:: (fun () ->
@@ -202,7 +202,7 @@ let suite = "Termination" >::: [
           [(xsym,xsym')]
         in
         let expected_cond = mk_not srk (mk_eq srk x (mk_zero srk)) in
-        assert_implies expected_cond (mp_dta tf)
+        assert_equiv_formula expected_cond (mp_dta tf)
       );
       "dta_cmp_0_atom_negative_coeff" >:: (fun () ->
         let tf =
@@ -212,7 +212,7 @@ let suite = "Termination" >::: [
           [(xsym,xsym');(ysym,ysym')]
         in
         let expected_cond = mk_true srk in
-        assert_implies expected_cond (mp_dta tf)
+        assert_equiv_formula expected_cond (mp_dta tf)
       );
       "dta_cmp_0_atom_poly" >:: (fun () ->
         let tf =
@@ -224,7 +224,7 @@ let suite = "Termination" >::: [
         let expected_cond = mk_or srk 
           [ mk_and srk [mk_lt srk x (mk_zero srk); mk_leq srk y (mk_zero srk)]; 
             mk_lt srk y (mk_zero srk)] in
-        assert_implies expected_cond (mp_dta tf)
+        assert_equiv_formula expected_cond (mp_dta tf)
       );
       "dta_divisibility_atom" >:: (fun () ->
         let tf =
@@ -242,7 +242,7 @@ let suite = "Termination" >::: [
             (mk_mod srk (mk_add srk [x; mk_mul srk [(mk_int srk 2); y]]) (mk_int srk 3)) 
             (mk_zero srk);
           ]) in
-        assert_implies expected_cond (mp_dta tf)
+        assert_equiv_formula expected_cond (mp_dta tf)
       );
       "dta_conjunction" >:: (fun () ->
         let tf =
@@ -251,14 +251,8 @@ let suite = "Termination" >::: [
           Infix.( ( x mod int 3 = int 0 && int 0 <= y) && y' = y - z && x' = x + int 2 && z' = z)
           [(xsym,xsym');(ysym,ysym');(zsym, zsym')]
         in
-        let expected_cond = mk_or srk [
-          mk_not srk (mk_and srk [
-            mk_eq srk (mk_mod srk x (mk_int srk 3)) (mk_zero srk);
-            mk_eq srk (mk_mod srk (mk_add srk [x; mk_int srk 1]) (mk_int srk 3)) (mk_zero srk);
-            mk_eq srk (mk_mod srk (mk_add srk [x; mk_int srk 2]) (mk_int srk 3)) (mk_zero srk);
-          ]); 
-          mk_lt srk (mk_zero srk) z] in
-        assert_implies expected_cond (mp_dta tf)
+        let expected_cond = mk_true srk in
+        assert_equiv_formula expected_cond (mp_dta tf)
       );
       "dta_disjunction" >:: (fun () ->
         let tf =
@@ -267,7 +261,10 @@ let suite = "Termination" >::: [
           Infix.( ((int 0) <= x || int 0 <= y) && y' = y - z && x' = x - z && z' = z)
           [(xsym,xsym');(ysym,ysym');(zsym, zsym')]
         in
-        let expected_cond = mk_lt srk (mk_zero srk) z in
-        assert_implies expected_cond (mp_dta tf)
+        let expected_cond =
+          Infix.((int 0) < z
+                 || ((int 0) = z && x < (int 0) && y < (int 0)))
+        in
+        assert_equiv_formula expected_cond (mp_dta tf)
       );
     ]
