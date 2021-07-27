@@ -1222,6 +1222,22 @@ module Formula = struct
     | `Proposition (`App (f, args)) -> mk_app _srk f args
     | `Ite (cond, bthen, belse) -> mk_ite _srk cond bthen belse
 
+  let map_construct srk map open_formula = match open_formula with
+    | `Tru -> mk_true srk
+    | `Fls -> mk_false srk
+    | `And conjuncts -> mk_and srk (List.map map conjuncts)
+    | `Or disjuncts -> mk_or srk (List.map map disjuncts)
+    | `Not phi -> mk_not srk (map phi)
+    | `Quantify (`Exists, name, typ, phi) -> mk_exists srk ~name typ (map phi)
+    | `Quantify (`Forall, name, typ, phi) -> mk_forall srk ~name typ (map phi)
+    | `Atom (`Arith (`Eq, s, t)) -> mk_eq srk s t
+    | `Atom (`Arith (`Leq, s, t)) -> mk_leq srk s t
+    | `Atom (`Arith (`Lt, s, t)) -> mk_lt srk s t
+    | `Atom (`ArrEq (s, t)) -> mk_arr_eq srk s t
+    | `Proposition (`Var v) -> mk_var srk v `TyBool
+    | `Proposition (`App (f, args)) -> mk_app srk f args
+    | `Ite (cond, bthen, belse) -> mk_ite srk (map cond) (map bthen) (map belse)
+
   let rec eval srk alg phi = match destruct srk phi with
     | `Tru -> alg `Tru
     | `Fls -> alg `Fls

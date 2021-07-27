@@ -2341,11 +2341,7 @@ let miniscope srk phi : 'a formula =
     | `Or -> mk_or srk juncts
     | `And -> mk_and srk juncts
   in
-  (* This is the logic for pushing the quantifier qnt into formula node.
-   * delta denotes the number of quantifiers that have by passed so far and
-   * tot_rem denotes the total number of quantifiers that were removed in the
-   * formula prior to node.
-   * *)
+  (* This is the logic for pushing the quantifier qnt into formula node.*)
   let rec pushdown qtyp name typ phi =
     let dec_fv_by_1 phi = 
       substitute
@@ -2353,7 +2349,7 @@ let miniscope srk phi : 'a formula =
         (fun (ind, typ) -> mk_var srk (ind - 1) typ)
         phi
     in
-    let recorder_first_2_qnts phi =
+    let reorder_first_2_qnts phi =
       substitute
         srk
         (fun (ind, typ) ->
