@@ -16,9 +16,7 @@ let build_symbols_for_sim_terms srk sim_terms =
     BatArray.fold_righti
       (fun ind term (l_symbols, l_equalities, s) -> 
          let name_str = String.concat "_" ["dta"; "term"; (string_of_int ind)] in
-         let symbol =
-           mk_symbol srk ~name:name_str (expr_typ srk term)
-         in
+         let symbol = mk_symbol srk ~name:name_str (expr_typ srk term) in
          let const_expr = mk_const srk symbol in
          let equality = mk_eq srk term const_expr in
          (symbol :: l_symbols, equality :: l_equalities, Symbol.Set.add symbol s)
@@ -142,7 +140,6 @@ let rewrite_exp_under_basis expression list_symbols =
   in
   let const = Vec.coeff CoordinateSystem.const_id expression in
   Vec.add_term const (-1) vec
-  (* (vec, const) *)
 
 (* Compute the integer spectrum restriction of a DLTS that contains a new dynamics matrix and
    domain restrictions. *)
@@ -155,7 +152,6 @@ let integer_spectrum_abstraction srk tr_matrix simulation =
     |> SrkUtil.Int.Set.elements
   in
   let rsd = Linear.rational_spectral_decomposition tr_matrix dims in
-
   let int_eig_vecs, non_int_eig_vecs = BatList.partition (fun (lambda, _) -> ZZ.equal (QQ.denominator lambda) ZZ.one ) rsd in
   let int_eig_vecs = BatList.map (fun (_, v) -> v) int_eig_vecs in
   let non_int_eig_vecs = BatList.map (fun (_, v) -> v) non_int_eig_vecs in
@@ -198,16 +194,10 @@ module XSeq = struct
 
   let seq_of_false srk =
     Periodic.make [mk_false srk]
-    
-  (* let seq_and srk x y = 
-    Periodic.map2 (fun a b -> mk_and srk [a; b]) x y *)
 
   let seq_and srk xs =
     Periodic.mapn (mk_and srk) xs
   
-  (* let seq_or srk x y =
-    Periodic.map2 (fun a b -> mk_or srk [a; b]) x y *)
-
   let seq_or srk xs =
     Periodic.mapn (mk_or srk) xs
 
@@ -355,7 +345,10 @@ module XSeq = struct
           (ExpPolynomial.Vector.enum closed_form_vec) 
         in
         let sat_odd_conditions = analyze_entries entries_with_odd_exp in
-        let results = Periodic.make [SrkSimplify.simplify_terms srk sat_even_conditions; SrkSimplify.simplify_terms srk sat_odd_conditions] in
+        let results = Periodic.make
+            [SrkSimplify.simplify_terms srk sat_even_conditions;
+             SrkSimplify.simplify_terms srk sat_odd_conditions]
+        in
         results
       end
     else
@@ -395,7 +388,10 @@ module XSeq = struct
         (ExpPolynomial.Vector.enum closed_form_dividend)
     in
     let mk_divides t =
-      mk_eq srk (mk_mod srk t (mk_real srk (QQ.of_int divisor))) (mk_zero srk)
+      mk_eq
+        srk
+        (mk_mod srk t (mk_real srk (QQ.of_int divisor)))
+        (mk_zero srk)
     in
     Periodic.map mk_divides dividend_xseqs
 
@@ -416,13 +412,11 @@ module XSeq = struct
     let t = QQMatrix.transpose tr_omega in 
     let dims = (BatList.init nb_cols_omega_dom_basis_mat (fun i -> i) ) in
     let rsd = rational_spectral_decomposition t dims in
-  let int_eig_vecs, _ = BatList.partition (fun (lambda, _) -> ZZ.equal (QQ.denominator lambda) ZZ.one ) rsd in
-  let int_eig_vecs = BatList.map (fun (_, v) -> v) int_eig_vecs in
-  let int_eig_vecs = Linear.QQVectorSpace.simplify int_eig_vecs in
-  (* let non_int_eig_vecs = BatList.map (fun (_, v) -> v) non_int_eig_vecs in *)
-  let g' = QQMatrix.transpose (QQMatrix.of_rows int_eig_vecs) in
-  g'
-    
+    let int_eig_vecs, _ = BatList.partition (fun (lambda, _) -> ZZ.equal (QQ.denominator lambda) ZZ.one ) rsd in
+    let int_eig_vecs = BatList.map (fun (_, v) -> v) int_eig_vecs in
+    let int_eig_vecs = Linear.QQVectorSpace.simplify int_eig_vecs in
+      QQMatrix.transpose (QQMatrix.of_rows int_eig_vecs)
+
   let tr_mat_restricted_to_int_dom tr_mat g g' =
     let gg' = Linear.QQMatrix.mul g g' in
     BatOption.get (Linear.divide_left (Linear.QQMatrix.mul tr_mat gg') gg')
@@ -440,9 +434,9 @@ module XSeq = struct
     BatArray.fold_lefti (fun eqs i sim_term ->
       let row = Linear.QQMatrix.row i gg' in 
       (mk_eq srk 
-       (Linear.term_of_vec srk (fun j -> (mk_const srk (BatList.nth list_dta_symbols j))) row )
+        (Linear.term_of_vec srk (fun j -> (mk_const srk (BatList.nth list_dta_symbols j))) row)
         sim_term
-      ) :: eqs )
+      ) :: eqs)
       []
       simulation
 
@@ -474,7 +468,9 @@ module XSeq = struct
       let dta_terms_eqs = build_eqs_for_dta_terms srk list_dta_symbols gg' best_DLTS_abstraction.simulation in
       let formula = mk_and srk [TF.formula tf; mk_and srk dta_terms_eqs] in
       let dta_symbols_set = Symbol.Set.of_list list_dta_symbols in
-      let ground_formula = Quantifier.mbp srk (fun s -> Symbol.Set.mem s dta_symbols_set) formula |> SrkSimplify.simplify_dda srk in 
+      let ground_formula = Quantifier.mbp srk (fun s -> Symbol.Set.mem s dta_symbols_set) formula
+                           |> SrkSimplify.simplify_dda srk
+      in
       logf "Formula after model-based projection: %a" (Formula.pp srk) ground_formula;
       let no_floor = SrkSimplify.eliminate_floor srk ground_formula in
       logf "Formula after removing floors: %a" (Formula.pp srk) no_floor;
@@ -491,9 +487,12 @@ module XSeq = struct
         begin
           logf "processing atomic formula";
           match SrkSimplify.simplify_integer_atom srk op s t with 
-              `CompareZero (op, vec) -> logf "compare zero formula"; seq_of_compare_zero_atom srk op vec exp_poly abstraction
-            | `Divides (divisor, vec) -> logf "divides formula"; seq_of_divides_atom srk divisor vec exp_poly abstraction
-            | `NotDivides (divisor, vec) -> logf "Not divides formula"; seq_of_notdivides_atom srk divisor vec exp_poly abstraction
+            `CompareZero (op, vec) ->
+              logf "compare zero formula"; seq_of_compare_zero_atom srk op vec exp_poly abstraction
+          | `Divides (divisor, vec) ->
+              logf "divides formula"; seq_of_divides_atom srk divisor vec exp_poly abstraction
+          | `NotDivides (divisor, vec) ->
+              logf "Not divides formula"; seq_of_notdivides_atom srk divisor vec exp_poly abstraction
         end
       | `Proposition _ -> failwith "should not see proposition in the TF"
       | `Ite _ -> failwith "should not see ite in the TF"
@@ -503,7 +502,7 @@ module XSeq = struct
     logf "finished computing char sequence!";
     let results_in_dta_terms = mk_and srk (Periodic.period xseq) in 
     let results = SrkSimplify.simplify_terms srk results_in_dta_terms in
-    let results = mk_and srk (results::dta_terms_eqs) in
+    let results = mk_and srk (results :: dta_terms_eqs) in
       logf "terminating conditions after rewrite: %a" (Formula.pp srk) results;
       results
     | `Unknown -> failwith "SMT solver should not return unknown for QRA formulas"
