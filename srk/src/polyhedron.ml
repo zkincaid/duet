@@ -400,6 +400,11 @@ let of_apron0 man abstract0 =
     P.top
     (Abstract0.to_lincons_array man abstract0)
 
+let affine_hull polyhedron =
+  let man = Polka.manager_alloc_strict () in
+  let dim = max_constrained_dim polyhedron in
+  of_apron0 man (apron0_of man dim polyhedron)
+
 let dual_cone dim polyhedron =
   (* Given polyhedron Ax >= b, form the constraint system
      lambda * A = y /\ lambda * b >= 0.

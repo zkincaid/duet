@@ -74,6 +74,8 @@ val project : int list -> t -> t
     are not projected.  *)
 val try_fourier_motzkin : 'a CoordinateSystem.t -> (symbol -> bool) -> t -> t
 
+val affine_hull : t -> t
+
 (** [dual_cone n p] computes a constraint representation for the dual
    cone of the [n]-dimensional polyhedron [p]: the cone of functionals
    on QQ^[n] that are non-negative on every point in [p].  The
