@@ -400,6 +400,7 @@ let of_apron0 man abstract0 =
     P.top
     (Abstract0.to_lincons_array man abstract0)
 
+(* TODO: rename this to normalize constraints or something *)
 let affine_hull polyhedron =
   let man = Polka.manager_alloc_strict () in
   let dim = max_constrained_dim polyhedron in

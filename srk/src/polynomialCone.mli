@@ -29,11 +29,13 @@ val change_monomial_ordering: t ->
  *)
 val make : Ideal.t -> QQXs.t BatList.t -> t
 
-val make_enclosing_cone : QQXs.t BatList.t -> t
+val make_enclosing_cone : Ideal.t -> QQXs.t BatList.t -> t
 
 val add_polynomial_to_ideal : t -> QQXs.t -> t
 
 val add_polynomial_to_cone : t -> QQXs.t -> t
+
+val add_polys_to_cone : t -> QQXs.t BatList.t -> QQXs.t BatList.t -> t
 
 (* This does not belong here in this interface *)
 (* val mk_nonnegative_cone_of_tf : ('a TransitionFormula.t -> t) *)

@@ -89,6 +89,7 @@ let find_implied_zero_polynomials polys basis =
                    |> Polyhedron.of_constraints
                    |> Polyhedron.affine_hull
   in
+  (* TODO: avoid converting to lists in intermediate steps *)
   let equality_constraints = Polyhedron.enum_constraints polyhedron |>
                              BatEnum.filter (fun (constraint_kind, _) ->
                                  match constraint_kind with
@@ -114,23 +115,29 @@ let find_implied_zero_polynomials polys basis =
   else
     (false, equality_constraints, geq_zero_constraints)
 
-let make_enclosing_cone poly_list =
+let rec make_enclosing_cone_impl finished basis geq_zero_polys =
+  if finished then (basis, geq_zero_polys)
+  else
+    let is_finished, new_zero_polys, geq_zero_polys = find_implied_zero_polynomials geq_zero_polys basis in
+    let new_basis = BatList.fold
+        (fun ideal zero_poly -> Ideal.add_saturate ideal zero_poly)
+        basis
+        new_zero_polys
+    in
+    let reduced_geq_polys = BatList.map (fun p -> Ideal.reduce new_basis p) geq_zero_polys in
+    make_enclosing_cone_impl is_finished new_basis reduced_geq_polys
 
-  let rec make_enclosing_cone_impl finished basis geq_zero_polys =
-    if finished then (basis, geq_zero_polys)
-    else
-      let is_finished, new_zero_polys, geq_zero_polys = find_implied_zero_polynomials geq_zero_polys basis in
-      let new_basis = BatList.fold
-          (fun ideal zero_poly -> Ideal.add_saturate ideal zero_poly)
-          basis
-          new_zero_polys
-      in
-      let reduced_geq_polys = BatList.map (fun p -> Ideal.reduce new_basis p) geq_zero_polys in
-      make_enclosing_cone_impl is_finished new_basis reduced_geq_polys
+let make_enclosing_cone init_ideal poly_list =
+  make_enclosing_cone_impl false init_ideal poly_list
+
+let add_polys_to_cone pc zero_polys nonneg_polys =
+  let basis, cone_generators = pc in
+  let new_basis = BatList.fold
+      (fun ideal zero_poly -> Ideal.add_saturate ideal zero_poly)
+      basis
+      zero_polys
   in
-
-  let basis = Ideal.make [] in
-  make_enclosing_cone_impl false basis poly_list
+  make_enclosing_cone_impl false new_basis (BatList.concat [cone_generators; nonneg_polys])
 
 let project_cone cone_generators f =
   let ordered_mono_map = order_monomial_terms_in_map (monomial_map_of_cone cone_generators) in
