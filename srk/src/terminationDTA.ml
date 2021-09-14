@@ -25,7 +25,7 @@ let build_symbols_for_sim_terms srk sim_terms =
       ([], [], Symbol.Set.empty )
 
 (* Compute the representation matrix of a DLTS that contains domain information *)
-let compute_rep_matrix best_dlts = 
+let compute_rep_matrix best_dlts =
   let module PLM = Lts.PartialLinearMap in
   let omega_domain = snd (PLM.iteration_sequence best_dlts.dlts) in
   let rep = PLM.map (PLM.make (PLM.map best_dlts.dlts) omega_domain) in
@@ -455,16 +455,16 @@ module XSeq = struct
         if i == Linear.const_dim then mk_one srk
         else best_DLTS_abstraction.simulation.(i)
       in
-      let algebra = function 
+      let algebra = function
       | `Tru -> seq_of_true srk
       | `Fls -> seq_of_false srk
       | `And xs -> seq_and srk xs
       | `Or xs -> seq_or srk xs
       | `Not x -> seq_not srk x
       | `Quantify _ -> failwith "should not see quantifiers in the TF"
-      | `Atom (`Arith (op, s, t)) -> 
+      | `Atom (`Arith (op, s, t)) ->
         begin
-          match SrkSimplify.simplify_integer_atom srk op s t with 
+          match SrkSimplify.simplify_integer_atom srk op s t with
           | `CompareZero (op, vec) ->
              let cf = closed_form list_dta_symbols (Vec.negate vec) exp_poly in
              let predicate = match op with
