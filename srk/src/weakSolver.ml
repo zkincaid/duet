@@ -31,7 +31,6 @@ let is_sat srk phi =
      not (p = 0) is not equiv to p > 0 or p < 0
      since don't have total order *)
   assert (BatList.for_all (fun quant -> match quant with `Exists, _ -> true | _ -> false) quantifiers = true);
-  (* let existentials = BatList.map (fun q -> match q with _, sym -> sym) quantifiers in *)
   let solver = Smt.mk_solver ~theory:"QF_LIRA" srk in
   let uninterp_phi =
     rewrite srk

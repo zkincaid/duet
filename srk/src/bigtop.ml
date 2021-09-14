@@ -84,6 +84,12 @@ let spec_list = [
        print_result (Wedge.is_sat srk (snd (Quantifier.normalize srk phi)))),
    " Test satisfiability of a non-linear ground formula (POPL'18)");
 
+  ("-weaktheorysat",
+   Arg.String (fun file ->
+       let phi = load_formula file in
+       print_result (WeakSolver.is_sat srk (snd (Quantifier.normalize srk phi)))),
+   " Test satisfiability of a non-linear ground formula using weak theory of arithmetic");
+
   ("-generator",
    Arg.Set generator_rep,
    " Print generator representation of convex hull");
