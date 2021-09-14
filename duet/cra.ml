@@ -140,12 +140,12 @@ module K = struct
 end
 
 type ptr_term =
-  { ptr_val : Ctx.term;
-    ptr_pos : Ctx.term;
-    ptr_width : Ctx.term }
+  { ptr_val : Ctx.arith_term;
+    ptr_pos : Ctx.arith_term;
+    ptr_width : Ctx.arith_term }
 
 type term =
-  | TInt of Ctx.term
+  | TInt of Ctx.arith_term
   | TPointer of ptr_term
 
 let int_binop op left right =
@@ -876,9 +876,10 @@ let lift_universals srk phi =
   let alg = function
     | `Tru -> (0, mk_true srk)
     | `Fls -> (0, mk_false srk)
-    | `Atom (`Eq, x, y) -> (0, mk_eq srk x y)
-    | `Atom (`Lt, x, y) -> (0, mk_lt srk x y)
-    | `Atom (`Leq, x, y) -> (0, mk_leq srk x y)
+    | `Atom (`Arith (`Eq, x, y)) -> (0, mk_eq srk x y)
+    | `Atom (`Arith (`Lt, x, y)) -> (0, mk_lt srk x y)
+    | `Atom (`Arith (`Leq, x, y)) -> (0, mk_leq srk x y)
+    | `Atom (`ArrEq (a, b)) -> (0, mk_arr_eq srk a b)
     | `And conjuncts ->
        let max_nb = List.fold_left max 0 (List.map fst conjuncts) in
        let shift_conjuncts =
@@ -1012,18 +1013,18 @@ let resource_bound_analysis file =
             | `Sat (lower, upper) ->
               begin match lower with
                 | Some lower ->
-                  logf ~level:`always "%a <= cost" (Syntax.Term.pp srk) lower;
+                  logf ~level:`always "%a <= cost" (Syntax.ArithTerm.pp srk) lower;
                   logf ~level:`always "%a is o(%a)"
                     Varinfo.pp procedure
-                    BigO.pp (BigO.of_term srk lower)
+                    BigO.pp (BigO.of_arith_term srk lower)
                 | None -> ()
               end;
               begin match upper with
                 | Some upper ->
-                  logf ~level:`always "cost <= %a" (Syntax.Term.pp srk) upper;
+                  logf ~level:`always "cost <= %a" (Syntax.ArithTerm.pp srk) upper;
                   logf ~level:`always "%a is O(%a)"
                   Varinfo.pp procedure
-                  BigO.pp (BigO.of_term srk upper)
+                  BigO.pp (BigO.of_arith_term srk upper)
                 | None -> ()
               end
             | `Unsat ->

@@ -13,8 +13,9 @@ type 'a open_expr = [
   | `Var of int * typ_fo
   | `Add of 'a list
   | `Mul of 'a list
-  | `Binop of [ `Div | `Mod ] * 'a * 'a
+  | `Binop of [ `Div | `Mod | `Select ] * 'a * 'a
   | `Unop of [ `Floor | `Neg ] * 'a
+  | `Store of 'a * 'a * 'a
   | `Tru
   | `Fls
   | `And of 'a list
@@ -47,12 +48,15 @@ let typ_of_sort sort =
   | REAL_SORT -> `TyReal
   | INT_SORT -> `TyInt
   | BOOL_SORT -> `TyBool
+  | ARRAY_SORT -> `TyArr
   | _ -> invalid_arg "typ_of_sort"
 
-let sort_of_typ z3 = function
+let rec sort_of_typ z3 = function
   | `TyInt -> Z3.Arithmetic.Integer.mk_sort z3
   | `TyReal -> Z3.Arithmetic.Real.mk_sort z3
   | `TyBool -> Z3.Boolean.mk_sort z3
+  | `TyArr -> 
+    Z3.Z3Array.mk_sort z3 (sort_of_typ z3 `TyInt) (sort_of_typ z3 `TyInt)
 
 let rec eval alg ast =
   let open Z3 in
@@ -73,6 +77,9 @@ let rec eval alg ast =
       | (OP_TO_REAL, [x]) -> x
       | (OP_TO_INT, [x]) -> alg (`Unop (`Floor, x))
 
+      | (OP_STORE, [a; i; v]) -> alg (`Store (a, i, v))
+      | (OP_SELECT, [a; i]) -> alg (`Binop(`Select, a, i))
+      
       | (OP_TRUE, []) -> alg `Tru
       | (OP_FALSE, []) -> alg `Fls
       | (OP_AND, args) -> alg (`And args)
@@ -168,7 +175,7 @@ let z3_of_symbol z3 sym = Z3.Symbol.mk_int z3 (int_of_symbol sym)
 
 let decl_of_symbol z3 srk sym =
   let (param_sorts, return_sort) = match typ_symbol srk sym with
-    | `TyInt | `TyReal | `TyBool ->
+    | `TyInt | `TyReal | `TyBool | `TyArr ->
       invalid_arg "decl_of_symbol: not a function symbol"
     | `TyFun (params, return) ->
       (List.map (sort_of_typ z3) params, sort_of_typ z3 return)
@@ -177,11 +184,40 @@ let decl_of_symbol z3 srk sym =
   Z3.FuncDecl.mk_func_decl z3 z3sym param_sorts return_sort
 
 let rec z3_of_expr srk z3 expr =
-  match Expr.refine srk expr with
+  match Expr.refine_coarse srk expr with
   | `Term t -> z3_of_term srk z3 t
   | `Formula phi -> z3_of_formula srk z3 phi
 
-and z3_of_term (srk : 'a context) z3 (term : 'a term) =
+and z3_of_term srk z3 term =
+  match Term.refine srk term with
+  | `ArithTerm t -> z3_of_arith_term srk z3 t
+  | `ArrTerm t -> z3_of_arr_term srk z3 t
+
+and z3_of_arr_term (srk : 'a context) z3 (term : 'a arr_term) =
+  let alg = function
+    | `App (sym, []) ->
+      let sort = match typ_symbol srk sym with
+        | `TyArr -> sort_of_typ z3 `TyArr
+        | `TyInt | `TyReal | `TyBool | `TyFun (_,_) ->
+          invalid_arg "z3_of_arr_term: ill-typed application"
+      in
+      let decl = Z3.FuncDecl.mk_const_decl z3 (z3_of_symbol z3 sym) sort in
+      Z3.Expr.mk_const_f z3 decl
+
+    | `App (func, args) ->
+      let decl = decl_of_symbol z3 srk func in
+      Z3.Expr.mk_app z3 decl (List.map (z3_of_expr srk z3) args)
+
+    | `Var (i, `TyArr) ->
+      Z3.Quantifier.mk_bound z3 i (sort_of_typ z3 `TyArr)
+    | `Store (a, i, v) -> 
+      Z3.Z3Array.mk_store z3 a (z3_of_arith_term srk z3 i) (z3_of_arith_term srk z3 v)
+    | `Ite (cond, bthen, belse) ->
+      Z3.Boolean.mk_ite z3 (z3_of_formula srk z3 cond) bthen belse
+  in
+  ArrTerm.eval srk alg term
+
+and z3_of_arith_term (srk : 'a context) z3 (term : 'a arith_term) =
   let alg = function
     | `Real qq ->
       begin match QQ.to_zz qq with
@@ -192,7 +228,7 @@ and z3_of_term (srk : 'a context) z3 (term : 'a term) =
       let sort = match typ_symbol srk sym with
         | `TyInt -> sort_of_typ z3 `TyInt
         | `TyReal -> sort_of_typ z3 `TyReal
-        | `TyBool | `TyFun (_,_) ->
+        | `TyBool | `TyFun (_,_) | `TyArr ->
           invalid_arg "z3_of.term: ill-typed application"
       in
       let decl = Z3.FuncDecl.mk_const_decl z3 (z3_of_symbol z3 sym) sort in
@@ -202,8 +238,6 @@ and z3_of_term (srk : 'a context) z3 (term : 'a term) =
       let decl = decl_of_symbol z3 srk func in
       Z3.Expr.mk_app z3 decl (List.map (z3_of_expr srk z3) args)
 
-    | `Var (_, `TyFun (_, _)) | `Var (_, `TyBool) ->
-      invalid_arg "z3_of.term: variable"
     | `Var (i, `TyInt) ->
       Z3.Quantifier.mk_bound z3 i (sort_of_typ z3 `TyInt)
     | `Var (i, `TyReal) ->
@@ -214,13 +248,15 @@ and z3_of_term (srk : 'a context) z3 (term : 'a term) =
     | `Binop (`Mod, s, t) -> Z3.Arithmetic.Integer.mk_mod z3 s t
     | `Unop (`Floor, t) -> Z3. Arithmetic.Real.mk_real2int z3 t
     | `Unop (`Neg, t) -> Z3.Arithmetic.mk_unary_minus z3 t
+    | `Select (a, i) -> Z3.Z3Array.mk_select z3 (z3_of_arr_term srk z3 a) i
     | `Ite (cond, bthen, belse) ->
       Z3.Boolean.mk_ite z3 (z3_of_formula srk z3 cond) bthen belse
   in
-  Term.eval srk alg term
+  ArithTerm.eval srk alg term
 
 and z3_of_formula srk z3 =
-  let of_term = z3_of_term srk z3 in
+  let of_arith_term = z3_of_arith_term srk z3 in
+  let of_arr_term = z3_of_arr_term srk z3 in
   let alg = function
     | `Tru -> Z3.Boolean.mk_true z3
     | `Fls -> Z3.Boolean.mk_false z3
@@ -239,9 +275,10 @@ and z3_of_formula srk z3 =
     | `Not phi -> Z3.Boolean.mk_not z3 phi
     | `Quantify (qt, name, typ, phi) ->
       mk_quantified z3 qt ~name typ phi
-    | `Atom (`Eq, s, t) -> Z3.Boolean.mk_eq z3 (of_term s) (of_term t)
-    | `Atom (`Leq, s, t) -> Z3.Arithmetic.mk_le z3 (of_term s) (of_term t)
-    | `Atom (`Lt, s, t) -> Z3.Arithmetic.mk_lt z3 (of_term s) (of_term t)
+    | `Atom (`Arith (`Eq, s, t)) -> Z3.Boolean.mk_eq z3 (of_arith_term s) (of_arith_term t)
+    | `Atom (`Arith (`Leq, s, t)) -> Z3.Arithmetic.mk_le z3 (of_arith_term s) (of_arith_term t)
+    | `Atom (`Arith (`Lt, s, t)) -> Z3.Arithmetic.mk_lt z3 (of_arith_term s) (of_arith_term t)
+    | `Atom (`ArrEq (s, t)) -> Z3.Boolean.mk_eq z3 (of_arr_term s) (of_arr_term t)
     | `Proposition (`Var i) ->
       Z3.Quantifier.mk_bound z3 i (sort_of_typ z3 `TyBool)
     | `Proposition (`App (p, [])) ->
@@ -260,16 +297,9 @@ and z3_of_formula srk z3 =
 
 type 'a gexpr = ('a, typ_fo) Syntax.expr
 let of_z3 context sym_of_decl expr =
-  let term expr =
-    match Expr.refine context expr with
-    | `Term t -> t
-    | _ -> invalid_arg "of_z3.term"
-  in
-  let formula expr =
-    match Expr.refine context expr with
-    | `Formula phi -> phi
-    | _ -> invalid_arg "of_z3.formula"
-  in
+  let arith_term = Syntax.Expr.arith_term_of context in
+  let arr_term = Syntax.Expr.arr_term_of context in
+  let formula = Syntax.Expr.formula_of context in
   let alg : (('a, typ_fo) Syntax.expr) open_expr -> ('a, typ_fo) Syntax.expr =
     function
     | `Real qq -> (mk_real context qq :> 'a gexpr)
@@ -277,12 +307,14 @@ let of_z3 context sym_of_decl expr =
     | `App (decl, args) ->
       let const_sym = sym_of_decl decl in
       mk_app context const_sym args
-    | `Add sum -> (mk_add context (List.map term sum) :> 'a gexpr)
-    | `Mul product -> (mk_mul context (List.map term product) :> 'a gexpr)
-    | `Binop (`Div, s, t) -> (mk_div context (term s) (term t) :> 'a gexpr)
-    | `Binop (`Mod, s, t) -> (mk_mod context (term s) (term t) :> 'a gexpr)
-    | `Unop (`Floor, t) -> (mk_floor context (term t) :> 'a gexpr)
-    | `Unop (`Neg, t) -> (mk_neg context (term t) :> 'a gexpr)
+    | `Add sum -> (mk_add context (List.map arith_term sum) :> 'a gexpr)
+    | `Mul product -> (mk_mul context (List.map arith_term product) :> 'a gexpr)
+    | `Binop (`Div, s, t) -> (mk_div context (arith_term s) (arith_term t) :> 'a gexpr)
+    | `Binop (`Mod, s, t) -> (mk_mod context (arith_term s) (arith_term t) :> 'a gexpr) 
+    | `Binop (`Select, a, i) -> (mk_select context (arr_term a) (arith_term i) :> 'a gexpr) 
+    | `Unop (`Floor, t) -> (mk_floor context (arith_term t) :> 'a gexpr)
+    | `Unop (`Neg, t) -> (mk_neg context (arith_term t) :> 'a gexpr)
+    | `Store (a, i, v) -> (mk_store context (arr_term a) (arith_term i) (arith_term v) :> 'a gexpr)
     | `Tru -> (mk_true context :> 'a gexpr)
     | `Fls -> (mk_false context :> 'a gexpr)
     | `And conjuncts ->
@@ -295,7 +327,8 @@ let of_z3 context sym_of_decl expr =
       (mk_forall context ~name:name typ (formula phi) :> 'a gexpr)
     | `Atom (`Eq, s, t) ->
       begin match Expr.refine context s, Expr.refine context t with
-        | `Term s, `Term t -> (mk_eq context s t :> 'a gexpr)
+        | `ArithTerm s, `ArithTerm t -> (mk_eq context s t :> 'a gexpr)
+        | `ArrTerm a, `ArrTerm b -> (mk_arr_eq context a b :> 'a gexpr)
         | `Formula phi, `Formula psi ->
           (mk_or context [mk_and context [phi; psi];
                           mk_and context [mk_not context phi;
@@ -303,8 +336,8 @@ let of_z3 context sym_of_decl expr =
            :> 'a gexpr)
         | _, _ -> invalid_arg "of_z3: equal"
       end
-    | `Atom (`Leq, s, t) -> (mk_leq context (term s) (term t) :> 'a gexpr)
-    | `Atom (`Lt, s, t) -> (mk_lt context (term s) (term t) :> 'a gexpr)
+    | `Atom (`Leq, s, t) -> (mk_leq context (arith_term s) (arith_term t) :> 'a gexpr)
+    | `Atom (`Lt, s, t) -> (mk_lt context (arith_term s) (arith_term t) :> 'a gexpr)
     | `Ite (cond, bthen, belse) -> mk_ite context (formula cond) bthen belse
   in
   eval alg expr
@@ -317,7 +350,7 @@ let sym_of_decl decl =
   symbol_of_int (Z3.Symbol.get_int sym)
 
 let term_of_z3 context term =
-  match Expr.refine context (of_z3 context sym_of_decl term) with
+  match Expr.refine_coarse context (of_z3 context sym_of_decl term) with
   | `Term t -> t
   | _ -> invalid_arg "term_of"
 
@@ -394,6 +427,7 @@ module Solver = struct
         | Some x -> `Bool (bool_val x)
         | None -> assert false
       end
+    | `TyArr -> assert false (* TODO: intepretations for arrays *)
     | `TyFun (params, _) ->
       let decl = decl_of_symbol z3 srk sym in
       let finterp = match Z3.Model.get_func_interp m decl with
@@ -409,7 +443,7 @@ module Solver = struct
       in
       let mk_eq x y = (* type-generic equality *)
         match Expr.refine srk x, Expr.refine srk y with
-        | `Term x, `Term y ->
+        | `ArithTerm x, `ArithTerm y ->
           (mk_eq srk x y :> ('a, 'typ_fo) Syntax.expr)
         | `Formula x, `Formula y ->
           (mk_iff srk x y :> ('a, 'typ_fo) Syntax.expr)
@@ -482,7 +516,7 @@ let optimize_box ?(context=Z3.mk_context []) srk phi objectives =
   set_parameters opt params;
   add opt [z3_of_formula srk z3 phi];
   let mk_handles t =
-    let z3t = z3_of_term srk z3 t in
+    let z3t = z3_of_arith_term srk z3 t in
     (minimize opt z3t, maximize opt z3t)
   in
   let handles = List.map mk_handles objectives in
@@ -556,7 +590,7 @@ let load_smtlib2 ?(context=Z3.mk_context []) srk str =
   in
   Z3.AST.ASTVector.to_expr_list ast
   |> List.map (fun expr ->
-         match Expr.refine srk (of_z3 srk sym_of_decl expr) with
+         match Expr.refine_coarse srk (of_z3 srk sym_of_decl expr) with
          | `Formula phi -> phi
          | `Term _ -> invalid_arg "load_smtlib2")
   |> mk_and srk

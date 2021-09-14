@@ -131,8 +131,9 @@ let rec evaluate_term interp ?(env=Env.empty) term =
     | `App (k, []) -> real interp k
     | `App (func, args) ->
       begin match Expr.refine interp.srk (unfold_app interp func args) with
-        | `Term t ->
+        | `ArithTerm t ->
           evaluate_term interp ~env t
+        | `ArrTerm _
         | `Formula _ ->
           invalid_arg "evaluate_term: ill-typed function application"
       end
@@ -149,6 +150,7 @@ let rec evaluate_term interp ?(env=Env.empty) term =
       raise Divide_by_zero
     | `Binop (`Div, dividend, divisor) -> QQ.div dividend divisor
     | `Binop (`Mod, t, modulus) -> QQ.modulo t modulus
+    | `Select _ -> assert false
     | `Unop (`Floor, t) -> QQ.of_zz (QQ.floor t)
     | `Unop (`Neg, t) -> QQ.negate t
     | `Ite (cond, bthen, belse) ->
@@ -158,7 +160,7 @@ let rec evaluate_term interp ?(env=Env.empty) term =
         belse
   in
   try
-    Term.eval interp.srk f term
+    ArithTerm.eval interp.srk f term
   with Not_found ->
     invalid_arg "evaluate_term: no interpretation for constant symbol"
 
@@ -168,7 +170,7 @@ and evaluate_formula interp ?(env=Env.empty) phi =
     | `Or xs -> List.exists (fun x -> x) xs
     | `Tru -> true
     | `Fls -> false
-    | `Atom (op, s, t) ->
+    | `Atom (`Arith (op, s, t)) ->
       begin try
           let s = evaluate_term interp ~env s in
           let t = evaluate_term interp ~env t in
@@ -179,11 +181,12 @@ and evaluate_formula interp ?(env=Env.empty) phi =
           end
         with Divide_by_zero -> false
       end
+    | `Atom (`ArrEq _) -> invalid_arg "evaluate_formula: array atom"
     | `Not v -> not v
     | `Ite (cond, bthen, belse) -> if cond then bthen else belse
     | `Proposition (`App (k, [])) -> bool interp k
     | `Proposition (`App (func, args)) ->
-      begin match Expr.refine interp.srk (unfold_app interp func args) with
+      begin match Expr.refine_coarse interp.srk (unfold_app interp func args) with
         | `Formula phi ->
           evaluate_formula interp ~env phi
         | `Term _ ->
@@ -206,7 +209,7 @@ let get_context interp = interp.srk
 let select_implicant interp ?(env=Env.empty) phi =
   let srk = interp.srk in
   let rec term t =
-    match Term.destruct srk t with
+    match ArithTerm.destruct srk t with
     | `Real _ | `App (_, []) | `Var (_, _) -> (t, [])
     | `App (func, args) ->
       let (args, implicant) =
@@ -253,6 +256,7 @@ let select_implicant interp ?(env=Env.empty) phi =
         | `Neg -> mk_neg srk t_term
       in
       (term, t_impl)
+    | `Select _ -> assert false
     | `Ite (cond, bthen, belse) ->
       begin match formula cond with
         | Some implicant ->
@@ -289,7 +293,7 @@ let select_implicant interp ?(env=Env.empty) phi =
       in
       (try Some (BatList.concat (List.map f conjuncts))
        with Not_found -> None)
-    | `Atom (op, s, t) ->
+    | `Atom (`Arith (op, s, t)) ->
       let (s_term, s_impl) = term s in
       let (t_term, t_impl) = term t in
       begin
@@ -312,6 +316,7 @@ let select_implicant interp ?(env=Env.empty) phi =
           end
         with Divide_by_zero -> None
       end
+    | `Atom (`ArrEq _) -> assert false
     | `Proposition (`App (p, [])) ->
       if bool interp p then Some [phi]
       else None
@@ -371,9 +376,10 @@ let select_implicant interp ?(env=Env.empty) phi =
     | `Quantify _ -> invalid_arg "select_implicant"
   and expr x =
     match Expr.refine srk x with
-    | `Term t ->
+    | `ArithTerm t ->
       let (t_term, t_impl) = term t in
       ((t_term :> ('a,typ_fo) expr), t_impl)
+    | `ArrTerm _ -> assert false
     | `Formula phi ->
       if evaluate_formula interp ~env phi then
         match formula phi with
@@ -389,7 +395,8 @@ let select_implicant interp ?(env=Env.empty) phi =
 
 let destruct_atom srk phi =
   match Formula.destruct srk phi with
-  | `Atom (op, s, t) -> `Comparison (op, s, t)
+  | `Atom (`Arith (op, s, t)) -> `ArithComparison (op, s, t)
+  | `Atom (`ArrEq (a, b)) ->  `ArrEq (a, b)
   | `Proposition (`App (k, [])) ->
     `Literal (`Pos, `Const k)
   | `Proposition (`Var i) -> `Literal (`Pos, `Var i)
@@ -401,8 +408,8 @@ let destruct_atom srk phi =
     end
   | `Tru ->
     let zero = mk_real srk QQ.zero in
-    `Comparison (`Eq, zero, zero)
-  | `Fls -> `Comparison (`Eq, mk_real srk QQ.zero, mk_real srk QQ.one)
+    `ArithComparison (`Eq, zero, zero)
+  | `Fls -> `ArithComparison (`Eq, mk_real srk QQ.zero, mk_real srk QQ.one)
   | _ ->
     invalid_arg @@ Format.asprintf "destruct_atom: %a is not atomic" (Formula.pp srk) phi
 

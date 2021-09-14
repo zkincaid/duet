@@ -27,10 +27,19 @@ module PresburgerGuard : PreDomain
 (** Deterministic linear transition systems *)
 type 'a dlts_abstraction =
   { dlts : Lts.PartialLinearMap.t;
-    simulation : ('a term) array }
+    simulation : ('a arith_term) array }
 
 (** Deterministic linear transition systems *)
-module DLTS : PreDomainIter with type 'a t = 'a dlts_abstraction
+module DLTS : sig
+  include PreDomainIter with type 'a t = 'a dlts_abstraction
+
+  (** Simplify the simulation function of a DLTS abstraction.  If
+     [scale] is set, the resulting simulation is scaled so that the
+     simulation matrix is integral.  Warning: this function performs a
+     change-of-basis that is incompatible with the expectations of
+     DLTS.exp.  *)
+  val simplify : 'a context -> ?scale:bool -> 'a t -> 'a t
+end
 
 (** Solvable polynomial maps with periodic rational eigenvalues,
    restricted to an algebraic variety, represented as a DLTS with a

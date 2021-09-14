@@ -6,7 +6,7 @@ module Monomial = Polynomial.Monomial
 module P = Polynomial.QQXs
 module Rewrite = Polynomial.Rewrite
 module IntSet = SrkUtil.Int.Set
-
+module Term = ArithTerm
 include Log.Make(struct let name = "srk.coordinateSystem" end)
 
 type cs_term = [ `Mul of V.t * V.t
@@ -203,6 +203,7 @@ let cs_term_id ?(admit=false) cs t =
           | `TyFun (_, `TyInt) | `TyInt -> `TyInt
           | `TyFun (_, `TyReal) | `TyReal -> `TyReal
           | `TyFun (_, `TyBool) | `TyBool -> `TyInt
+          | `TyArr | `TyFun (_, `TyArr) -> assert false 
         in
         let level =
           List.fold_left max 0 (List.map (level_of_vec cs) args)
@@ -236,13 +237,15 @@ let vec_of_term ?(admit=false) cs =
       let xs =
         List.map (fun x ->
             match Expr.refine cs.srk x with
-            | `Term t -> Term.eval cs.srk alg t
+            | `ArithTerm t -> Term.eval cs.srk alg t
+            | `ArrTerm _
             | `Formula _ -> assert false) (* TODO *)
           xs
       in
       V.of_term QQ.one (cs_term_id ~admit cs (`App (symbol, xs)))
 
     | `Var (_, _) -> assert false (* to do *)
+    | `Select _ -> assert false
     | `Add xs -> List.fold_left V.add V.zero xs
     | `Mul xs ->
       (* Factor out scalar multiplication *)
@@ -306,13 +309,15 @@ let polynomial_of_term cs term =
       let xs =
         List.map (fun x ->
             match Expr.refine cs.srk x with
-            | `Term t -> vec_of_term ~admit cs t
+            | `ArithTerm t -> vec_of_term ~admit cs t
+            | `ArrTerm _
             | `Formula _ -> assert false) (* TODO *)
           xs
       in
       P.of_dim (cs_term_id ~admit cs (`App (symbol, xs)))
 
     | `Var (_, _) -> assert false (* to do *)
+    | `Select _  -> assert false
     | `Add xs -> List.fold_left (fun p t -> P.add p (go t)) P.zero xs
     | `Mul xs -> List.fold_left (fun p t -> P.mul p (go t)) P.one xs
     | `Binop (`Div, x, y) ->

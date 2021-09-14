@@ -151,6 +151,9 @@ module QQVectorSpace : sig
   (** Simplify a basis using Gauss-Jordan elimination *)
   val simplify : t -> t
 
+  (** Scale a basis to have all integer coordinates. *)
+  val scale_integer : t -> t
+
   (** Find the dimension of the given vector space *)
   val dimension : t -> int
 end
@@ -183,11 +186,11 @@ val const_of_linterm : QQVector.t -> QQ.t option
 
 (** Convert a rational vector representing an affine term.  Raises [Nonlinear]
     if the input term is non-linear. *)
-val linterm_of : 'a context -> 'a term -> QQVector.t
+val linterm_of : 'a context -> 'a arith_term -> QQVector.t
 
 (** Convert a rational vector to an affine term.  The equation [of_linterm srk
     (linterm_of srk t) = t] must hold. *)
-val of_linterm : 'a context -> QQVector.t -> 'a term
+val of_linterm : 'a context -> QQVector.t -> 'a arith_term
 
 (** Pretty-print an affine term *)
 val pp_linterm : 'a context -> Format.formatter -> QQVector.t -> unit
@@ -201,7 +204,7 @@ val linterm_size : QQVector.t -> int
 
 (** [term_of_vec srk t vec] creates a term representation of [vec] by
    interpreting each dimension i as the term [t i]. *)
-val term_of_vec : ('a context) -> (int -> 'a term) -> QQVector.t -> 'a term
+val term_of_vec : ('a context) -> (int -> 'a arith_term) -> QQVector.t -> 'a arith_term
 
 (** Evaluate a vector by interpreting each coordinate according to the
    given interpretation (the interpretation of [const_dim] is fixed to

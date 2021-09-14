@@ -6,18 +6,18 @@ open Test_pervasives
 let b = Ctx.mk_const (Ctx.mk_symbol ~name:"b" `TyBool)
 
 let gsym = Ctx.mk_symbol ~name:"g" (`TyFun ([`TyInt; `TyInt], `TyInt))
-let g : Ctx.term * Ctx.term -> Ctx.term =
+let g : Ctx.arith_term * Ctx.arith_term -> Ctx.arith_term =
   fun (x, y) -> Ctx.mk_app gsym [x; y]
 
 let fsym = Ctx.mk_symbol ~name:"f" (`TyFun ([`TyInt; `TyBool], `TyInt))
-let f : Ctx.term * Ctx.formula -> Ctx.term =
+let f : Ctx.arith_term * Ctx.formula -> Ctx.arith_term =
   fun (x, y) -> Ctx.mk_app fsym [(x :> (Ctx.t, typ_fo) expr);
                                  (y :> (Ctx.t, typ_fo) expr)]
 
 let p = Ctx.mk_symbol ~name:"p" (`TyFun ([`TyInt; `TyBool], `TyBool))
 
 let hsym = Ctx.mk_symbol ~name:"h" (`TyFun ([`TyReal; `TyReal], `TyReal))
-let h : Ctx.term * Ctx.term -> Ctx.term =
+let h : Ctx.arith_term * Ctx.arith_term -> Ctx.arith_term =
   fun (x, y) -> Ctx.mk_app hsym [x; y]
 
 let roundtrip0 () =
@@ -31,7 +31,7 @@ let roundtrip1 () =
     let open Infix in
     x * x * x mod (int 10) + (frac 100 3) / (r - z + s)
   in
-  assert_equal_term term (term_of_z3 (z3_of_term term))
+  assert_equal_term (term :> 'a term) (term_of_z3 (z3_of_arith_term term))
 
 let roundtrip2 () =
   let phi =
@@ -58,7 +58,14 @@ let roundtrip4 () =
     let open Infix in
     (f (x, b)) + x
   in
-  assert_equal_term term (term_of_z3 (z3_of_term term))
+  assert_equal_term (term :> 'a term) (term_of_z3 (z3_of_arith_term term))
+
+let roundtrip5 () =
+  let formula =
+    let open Infix in
+    mk_forall_const srk a1sym ((( a1.%[x]<-y).%[y]<-z).%[(int 5)] = (int 5))
+  in
+  assert_equal_formula formula (formula_of_z3 (z3_of_formula formula))
 
 let is_interpolant phi psi itp =
   (Smt.entails srk phi itp = `Yes)
@@ -327,6 +334,7 @@ let suite = "SMT" >:::
     "roundtrip2" >:: roundtrip2;
     "roundtrip3" >:: roundtrip3;
     "roundtrip4" >:: roundtrip4;
+    "roundtrip5" >:: roundtrip5;
 (*
     "interpolate1" >:: interpolate1;
     "interpolate2" >:: interpolate2;

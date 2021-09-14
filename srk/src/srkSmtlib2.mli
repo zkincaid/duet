@@ -18,7 +18,8 @@ val string_parse_model : string -> model
 val typ_of_sort : sort -> Syntax.typ
 
 module MakeSMT2Srk(C : sig type t val context : t Syntax.context end) : sig
-  val term_of_smt : (symbol -> Syntax.symbol) -> term -> C.t Syntax.term
+  val arith_term_of_smt : (symbol -> Syntax.symbol) -> term -> C.t Syntax.arith_term
+  val arr_term_of_smt : (symbol -> Syntax.symbol) -> term -> C.t Syntax.arr_term
   val formula_of_smt : (symbol -> Syntax.symbol) -> term -> C.t Syntax.formula
   val expr_of_smt : (symbol -> Syntax.symbol) -> term -> (C.t, Syntax.typ_fo) Syntax.expr
 

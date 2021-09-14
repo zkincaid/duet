@@ -21,6 +21,8 @@ module PLM = Lts.PartialLinearMap
 
 module TF = TransitionFormula
 
+module Term = ArithTerm
+
 (* Closed forms for solvable polynomial maps with periodic rational
    eigenvalues: multi-variate polynomials with ultimately periodic
    exponential polynomial coefficients *)
@@ -711,7 +713,7 @@ let extract_affine_transformation srk wedge tr_symbols rec_terms rec_ideal =
    A_1, term_of_id.(nb_constants+size(A_1)) corresponds to the first row of
    A_2, ...).  Similarly for inequations in rec_leq. *)
 type 'a t =
-  { term_of_id : ('a term) array;
+  { term_of_id : ('a arith_term) array;
     nb_constants : int;
     block_eq : block list;
     block_leq : block list }
@@ -891,7 +893,7 @@ let extract_vector_leq srk wedge tr_symbols term_of_id base =
   let add =
     DArray.map (fun t ->
         let name = "a[" ^ (Term.show srk t) ^ "]" in
-        mk_symbol srk ~name (term_typ srk t :> typ))
+        mk_symbol srk ~name (ArithTerm.typ srk t :> typ))
       term_of_id
   in
   let delta_map =
@@ -1698,7 +1700,7 @@ module PresburgerGuard = struct
 
   let idiv_to_ite srk expr =
     match Expr.refine srk expr with
-    | `Term t -> begin match destruct_idiv srk t with
+    | `ArithTerm t -> begin match destruct_idiv srk t with
         | Some (num, den) when den < 10 ->
           let den_term = mk_real srk (QQ.of_int den) in
           let num_over_den =
@@ -1728,7 +1730,7 @@ module PresburgerGuard = struct
   let abstract_presburger_rewriter srk expr =
     match Expr.refine srk expr with
     | `Formula phi -> begin match Formula.destruct srk phi with
-        | `Atom (_, _, _) ->
+        | `Atom _ ->
           if Quantifier.is_presburger_atom srk phi then
             expr
           else
@@ -1853,7 +1855,7 @@ end
 
 type 'a dlts_abstraction =
   { dlts : PLM.t;
-    simulation : ('a term) array }
+    simulation : ('a arith_term) array }
 
 module DLTS = struct
   module VS = Linear.QQVectorSpace
@@ -2049,6 +2051,45 @@ module DLTS = struct
                     (mk_or srk [to_formula srk iter1;
                                 to_formula srk iter2])
                     tr_symbols)
+
+
+  let simplify srk ?(scale=false) abs =
+    let simulation_matrix =
+      BatArray.to_list abs.simulation
+      |> List.map (Linear.linterm_of srk)
+      |> QQMatrix.of_rows
+    in
+    let simple_simulation =
+      let basis =
+        VS.simplify (VS.of_matrix simulation_matrix)
+      in
+      let basis =
+        if scale then VS.scale_integer basis else basis
+      in
+      VS.matrix_of basis
+    in
+    (* change-of-basis: simple_simulation = cob*simulation_matrix *)
+    let cob =
+      BatOption.get (Linear.divide_right simple_simulation simulation_matrix)
+    in
+    (* inverse of cob *)
+    let cob_inv =
+      let identity =
+        QQMatrix.identity
+          (List.init (BatArray.length abs.simulation) (fun i -> i))
+      in
+      BatOption.get (Linear.divide_left identity cob)
+    in
+    let simple_dlts = (* cob o dlts o cob^-1 *)
+      PLM.compose (PLM.make cob [])
+        (PLM.compose abs.dlts (PLM.make cob_inv []))
+    in
+    let simple_sim_array =
+      QQMatrix.rowsi simple_simulation
+      /@ (fun (_, row) -> Linear.of_linterm srk row)
+      |> BatArray.of_enum
+    in
+    { dlts=simple_dlts; simulation=simple_sim_array }
 
   let widen = join
 end

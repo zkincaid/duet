@@ -43,7 +43,7 @@ let load_formula filename =
   Nonlinear.ensure_symbols srk;
   let subst f =
     match typ_symbol srk f with
-    | `TyReal | `TyInt | `TyBool -> mk_const srk f
+    | `TyReal | `TyInt | `TyBool | `TyArr -> mk_const srk f
     | `TyFun (args, _) ->
       let f =
         try get_named_symbol srk (show_symbol srk f)
@@ -75,7 +75,7 @@ let spec_list = [
   ("-simsat",
    Arg.String (fun file ->
        let phi = load_formula file in
-       print_result (Quantifier.simsat_forward srk phi)),
+       print_result (Quantifier.simsat srk phi)),
    " Test satisfiability of an LRA or LIA formula (IJCAI'16)");
 
   ("-nlsat",
@@ -147,7 +147,7 @@ let spec_list = [
        in
        let aff_hull = Abstract.affine_hull srk phi symbols in
        Format.printf "Affine hull:@\n %a@\n"
-         (SrkUtil.pp_print_enum (Term.pp srk)) (BatList.enum aff_hull)),
+         (SrkUtil.pp_print_enum (ArithTerm.pp srk)) (BatList.enum aff_hull)),
    " Compute the affine hull of an existential linear arithmetic formula");
 
   ("-qe",

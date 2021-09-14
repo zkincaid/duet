@@ -4,7 +4,7 @@ open BatPervasives
 include Log.Make(struct let name = "srk.linear" end)
 
 module IntSet = SrkUtil.Int.Set
-
+module Term = ArithTerm
 module ZZVector = struct
   include Ring.MakeVector(ZZ)
 
@@ -389,6 +389,17 @@ module QQVectorSpace = struct
     in
     go [] basis
 
+  let scale_integer =
+    List.map
+      (fun vec ->
+        let common_denom =
+          (BatEnum.fold
+             (fun lcm (coeff, _) -> ZZ.lcm lcm (QQ.denominator coeff))
+             ZZ.one
+             (QQVector.enum vec))
+        in
+        QQVector.scalar_mul (QQ.of_zz common_denom) vec)
+
   let dimension = List.length
 end
 
@@ -442,6 +453,7 @@ let linterm_of srk term =
     | `Binop (`Mod, x, y) -> real (QQ.modulo (qq_of x) (nonzero_qq_of y))
     | `Unop (`Floor, x) -> real (QQ.of_zz (QQ.floor (qq_of x)))
     | `Unop (`Neg, x) -> negate x
+    | `Select _ -> assert false
     | `Ite (_, _, _) -> raise Nonlinear
   in
   Term.eval srk alg term
