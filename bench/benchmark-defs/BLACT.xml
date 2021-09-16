@@ -1,13 +1,15 @@
 <?xml version="1.0"?>
 <!DOCTYPE benchmark PUBLIC "+//IDN sosy-lab.org//DTD BenchExec benchmark 1.18//EN" "https://www.sosy-lab.org/benchexec/benchmark-1.18.dtd">
 <benchmark tool="tools.compact"
-           displayName="ComPACT"
+           displayName="BLACT"
            timelimit="15min">
   <rundefinition>
     <option name="-monotone" />
     <option name="-termination" />
+    <option name="-termination-no-phase" />
+    <option name="-termination-no-exp" />              
     <option name="-termination-no-attractor" /> 
-    <option name="-termination-no-dta" /> 
+    <option name="-termination-no-llrf" />    
 
     <tasks name="Termination">
       <includesfile>../tasks/termination.set</includesfile>

@@ -14,11 +14,9 @@ include Log.Make(struct let name = "TerminationDTA" end)
 *)
 let build_symbols_for_sim_terms srk sim_terms =
     BatArray.fold_righti
-      (fun ind term (l_symbols, l_equalities, s) -> 
+      (fun ind term (l_symbols, l_equalities, s) ->
          let name_str = String.concat "_" ["dta"; "term"; (string_of_int ind)] in
-         let symbol =
-           mk_symbol srk ~name:name_str (expr_typ srk term)
-         in
+         let symbol = mk_symbol srk ~name:name_str (expr_typ srk term) in
          let const_expr = mk_const srk symbol in
          let equality = mk_eq srk term const_expr in
          (symbol :: l_symbols, equality :: l_equalities, Symbol.Set.add symbol s)
@@ -27,7 +25,7 @@ let build_symbols_for_sim_terms srk sim_terms =
       ([], [], Symbol.Set.empty )
 
 (* Compute the representation matrix of a DLTS that contains domain information *)
-let compute_rep_matrix best_dlts = 
+let compute_rep_matrix best_dlts =
   let module PLM = Lts.PartialLinearMap in
   let omega_domain = snd (PLM.iteration_sequence best_dlts.dlts) in
   let rep = PLM.map (PLM.make (PLM.map best_dlts.dlts) omega_domain) in
@@ -106,22 +104,6 @@ module EPTerm = struct
       (ExpPolynomial.Vector.enum ep_vec)
 end
 
-(** We obtained the termination condition in terms of some linear terms.
-    Now we need to rewrite it into a formula of state variables.
-    simulation: the linear terms in the DLTS abstraction
-    sim_symbols: aux symbols that we have defined for these terms
-    formula: the conditions to be rewritten
-*)
-let rewrite_term_condition srk simulation sim_symbols formula =
-  let m = BatList.fold_lefti
-      (fun m i inv_symb -> 
-         Symbol.Map.add inv_symb (BatArray.get simulation i) m
-      )
-      Symbol.Map.empty
-      sim_symbols
-  in
-  substitute_map srk m formula
-
 (* Compose two simulations mS and sim, where mS is a matrix and sim is an array of linear terms *)
 let compose_simulation srk mS simulation =
   Linear.QQMatrix.rowsi mS
@@ -130,28 +112,27 @@ let compose_simulation srk mS simulation =
     |> SrkSimplify.simplify_term srk)
   |> BatArray.of_enum
 
-(** For a linear term, get its vector representation w.r.t. a list of symbols. 
-    For example, x + 2z + 1 w.r.t. [x, y, z] is represented by a tuple 
+(** For a linear term, get its vector representation w.r.t. a list of symbols.
+    For example, x + 2z + 1 w.r.t. [x, y, z] is represented by a tuple
     containing a vector and the constant term:
       ([1, 0, 2], 1)
     *)
-let rewrite_exp_under_basis expression list_symbols = 
-  let vec = 
+let rewrite_exp_under_basis expression list_symbols =
+  let vec =
     BatList.fold_lefti
-      (fun existing_coeffs i symbol -> 
+      (fun existing_coeffs i symbol ->
           let coeff = Vec.coeff (Linear.dim_of_sym symbol) expression in
-          Vec.add_term coeff i existing_coeffs 
+          Vec.add_term coeff i existing_coeffs
       )
       Vec.zero
       list_symbols
   in
   let const = Vec.coeff CoordinateSystem.const_id expression in
   Vec.add_term const (-1) vec
-  (* (vec, const) *)
 
 (* Compute the integer spectrum restriction of a DLTS that contains a new dynamics matrix and
    domain restrictions. *)
-let integer_spectrum_abstraction srk tr_matrix simulation = 
+let integer_spectrum_abstraction srk tr_matrix simulation =
   let open Linear in
   let dims =
     SrkUtil.Int.Set.union
@@ -160,7 +141,6 @@ let integer_spectrum_abstraction srk tr_matrix simulation =
     |> SrkUtil.Int.Set.elements
   in
   let rsd = Linear.rational_spectral_decomposition tr_matrix dims in
-
   let int_eig_vecs, non_int_eig_vecs = BatList.partition (fun (lambda, _) -> ZZ.equal (QQ.denominator lambda) ZZ.one ) rsd in
   let int_eig_vecs = BatList.map (fun (_, v) -> v) int_eig_vecs in
   let non_int_eig_vecs = BatList.map (fun (_, v) -> v) non_int_eig_vecs in
@@ -184,16 +164,16 @@ let integer_spectrum_abstraction srk tr_matrix simulation =
   let constraints = mk_and srk (List.map (mk_eq srk (mk_zero srk)) (BatArray.to_list dom_constraints_lhs)) in
   let new_simulation = compose_simulation srk new_simulation_mat simulation in
   (* new dynamics matrix N, rep matrix M, and simulation matrix S satisfy N S = S M *)
-  let sm = QQMatrix.mul new_simulation_mat tr_matrix in 
-  match Linear.divide_right sm new_simulation_mat with 
-    None -> assert false 
+  let sm = QQMatrix.mul new_simulation_mat tr_matrix in
+  match Linear.divide_right sm new_simulation_mat with
+    None -> assert false
   | Some mat -> constraints, mat, new_simulation
 
-(* 
-   Characteristic sequence related operations 
+(*
+   Characteristic sequence related operations
 
-   A characteristic sequence S is a periodic sequence of formulas that encodes the 
-   long-time dynamics of an LIA formula G with respect to dynamics matrix A. 
+   A characteristic sequence S is a periodic sequence of formulas that encodes the
+   long-time dynamics of an LIA formula G with respect to dynamics matrix A.
    Specifically, we have that for k sufficiently large, G(A^k x) = S_k.
 *)
 module XSeq = struct
@@ -203,15 +183,9 @@ module XSeq = struct
 
   let seq_of_false srk =
     Periodic.make [mk_false srk]
-    
-  (* let seq_and srk x y = 
-    Periodic.map2 (fun a b -> mk_and srk [a; b]) x y *)
 
   let seq_and srk xs =
     Periodic.mapn (mk_and srk) xs
-  
-  (* let seq_or srk x y =
-    Periodic.map2 (fun a b -> mk_or srk [a; b]) x y *)
 
   let seq_or srk xs =
     Periodic.mapn (mk_or srk) xs
@@ -222,66 +196,69 @@ module XSeq = struct
   let seq_add_int x y =
     Periodic.map2 (fun a b -> a + b) x y
 
-  let seq_mul_symbol srk x symbol =
-    Periodic.map (fun t -> mk_mul srk [mk_int srk t; mk_const srk symbol]) x
+  let seq_add_qq x y =
+    Periodic.map2 (fun a b -> QQ.add a b) x y
 
-  let seq_not srk x = 
+  let seq_mul_symbol srk x symbol =
+    Periodic.map (fun t -> mk_mul srk [mk_real srk t; mk_const srk symbol]) x
+
+  let seq_not srk x =
     Periodic.map (fun f -> mk_not srk f) x
 
-  (* seq_of_exp m t returns the characteristic sequence of t^k mod m, 
+  (* seq_of_exp m t returns the characteristic sequence of t^k mod m,
   k = 0, 1, 2, ... *)
-  let seq_of_exp modulus lambda = 
-    UltimatelyPeriodic.unfold (fun power -> (power * lambda) mod modulus) 1 
+  let seq_of_exp modulus lambda =
+    UltimatelyPeriodic.unfold (fun power -> (power * lambda) mod modulus) 1
     |> periodic_approx
 
 
-  (* seq_of_polynomial srk m p returns characteristic sequence of p(k) mod m, 
+  (* seq_of_polynomial srk m p returns characteristic sequence of p(k) mod m,
   k = 0, 1, 2, ... *)
-  let seq_of_polynomial modulus poly = 
+  let seq_of_polynomial modulus poly =
+    if Polynomial.QQX.order poly = 0 then
+      Periodic.make [QQ.modulo (Polynomial.QQX.eval poly QQ.zero) (QQ.of_int modulus)]
+    else
     let lcm_of_denoms =
-      BatEnum.fold (fun current_lcm (coeff, _) -> ZZ.lcm current_lcm (QQ.denominator coeff)) 
+      BatEnum.fold (fun current_lcm (coeff, _) -> ZZ.lcm current_lcm (QQ.denominator coeff))
       ZZ.one
       (Polynomial.QQX.enum poly)
     in
-    let poly = Polynomial.QQX.scalar_mul (QQ.of_zz lcm_of_denoms) poly in
-    let modulus = modulus * (BatOption.get (ZZ.to_int lcm_of_denoms)) in
-    (0 -- (modulus - 1))
-    /@ (fun i -> 
-        match QQ.to_int (Polynomial.QQX.eval poly (QQ.of_int i)) with
-          | Some result -> result mod modulus
-          | None -> assert false)
+    (* let poly = Polynomial.QQX.scalar_mul (QQ.of_zz lcm_of_denoms) poly in *)
+    let period = modulus * (BatOption.get (ZZ.to_int lcm_of_denoms)) in
+    (0 -- (period - 1))
+    /@ (fun i -> QQ.modulo (Polynomial.QQX.eval poly (QQ.of_int i)) (QQ.of_int modulus))
     |> BatList.of_enum
     |> Periodic.make
 
-  (* seq_of_polynomial srk m p b returns characteristic sequence of b^k p(k) mod m, 
+  (* seq_of_polynomial srk m p b returns characteristic sequence of b^k p(k) mod m,
   k = 0, 1, 2, ... *)
   let seq_of_single_base_exp_polynomial modulus poly base =
     let seq_of_exp = seq_of_exp modulus base in
     let seq_of_poly = seq_of_polynomial modulus poly in
-    Periodic.map2 
-      (fun n p -> n * p mod modulus)
+    Periodic.map2
+      (fun n p -> QQ.modulo (QQ.mul (QQ.of_int n) p) (QQ.of_int modulus))
       seq_of_exp
       seq_of_poly
 
   (* characteristic sequence of an exponential polynomial modulo some number *)
   let seq_of_exp_polynomial modulo exppoly =
-    BatEnum.fold 
-      (fun existing_seq (poly, base) -> 
-        let b = match QQ.to_zz base with 
+    BatEnum.fold
+      (fun existing_seq (poly, base) ->
+        let b = match QQ.to_zz base with
           Some i -> BatOption.get (ZZ.to_int (ZZ.modulo i (ZZ.of_int modulo)))
           | None -> failwith "Non-integer base in the exponential polynomial"
         in
-        let current_seq = seq_of_single_base_exp_polynomial modulo poly b in 
-          seq_add_int existing_seq current_seq
+        let current_seq = seq_of_single_base_exp_polynomial modulo poly b in
+          seq_add_qq existing_seq current_seq
       )
-    (Periodic.make [0])
+    (Periodic.make [QQ.zero])
     (ExpPolynomial.enum exppoly)
-  
-  (* Compute characteristic sequence of atomic formulas LHS < 0, LHS = 0, LHS <= 0. 
-     LHS has form c^T x < 0, c^T x <= 0, or c^T x = 0. 
+
+  (* Compute characteristic sequence of atomic formulas LHS < 0, LHS = 0, LHS <= 0.
+     LHS has form c^T x < 0, c^T x <= 0, or c^T x = 0.
       op: <, <=, =
       vec: coefficients vector c
-      exp_poly: gives A^k x where A is the dynamics matrix, so that we get to compute 
+      exp_poly: gives A^k x where A is the dynamics matrix, so that we get to compute
           c^T A^k x as an exponential polynomial in k
   *)
   let seq_of_compare_atom srk op closed_form_vec term_of_dim =
@@ -319,7 +296,7 @@ module XSeq = struct
            | `Nonneg -> EPTerm.eventually_nonnegative srk ep_term term_of_dim
            | `Zero -> EPTerm.is_zero srk ep_term term_of_dim)
 
-  (* Compute characteristic sequence of atom q | w^T A^k x. 
+  (* Compute characteristic sequence of atom q | w^T A^k x.
      zz_divisor: represents divisor q
      dividend_vec: linear term of state variables
      exp_poly: closed form of A^k x
@@ -329,7 +306,7 @@ module XSeq = struct
       | Some i -> i
       | None -> failwith "see non-integer divisor, error"
     in
-    let (sim_symbols, _, _) = abstraction in
+    let (sim_symbols, _) = abstraction in
     let lt_vec = rewrite_exp_under_basis dividend_vec sim_symbols in
     logf "\nlt_vec is: %a" Vec.pp lt_vec;
     let lt_vec_exppoly = ExpPolynomial.Vector.of_qqvector lt_vec in
@@ -349,13 +326,79 @@ module XSeq = struct
         (ExpPolynomial.Vector.enum closed_form_dividend)
     in
     let mk_divides t =
-      mk_eq srk (mk_mod srk t (mk_real srk (QQ.of_int divisor))) (mk_zero srk)
+      mk_eq
+        srk
+        (mk_mod srk t (mk_real srk (QQ.of_int divisor)))
+        (mk_zero srk)
     in
     Periodic.map mk_divides dividend_xseqs
 
   let seq_of_notdivides_atom srk zz_divisor dividend_vec exp_poly abstraction =
     seq_of_divides_atom srk zz_divisor dividend_vec exp_poly abstraction
     |> seq_not srk
+
+  (* Compute a matrix G such that Gx for all vector x spans the omega domain.
+     The columns of G form a basis for the omega domain.
+  *)
+  let omega_dom_basis_mat dim omega_dom_mat =
+    let g = Linear.nullspace omega_dom_mat (BatList.init dim (fun i -> i) ) in
+    let g = Linear.QQVectorSpace.simplify g in
+    Linear.QQMatrix.transpose (Linear.QQMatrix.of_rows g)
+
+  (* Compute a transition matrix M that represents the linear mapping restricted to the omega domain.
+     Let the original transition matrix be T, and the matrix whose columns form a basis for the omega
+     domain be G. Then we must have GM = TG according to the following diagram
+          M
+     x   -->   Mx        (omega domain)
+     |         |
+     Gx  -->   GMx=TGx   (original domain)
+          T
+
+  *)
+  let tr_mat_restricted_to_omega_dom tr_mat omega_dom_basis_mat =
+    BatOption.get (Linear.divide_left (Linear.QQMatrix.mul tr_mat omega_dom_basis_mat) omega_dom_basis_mat)
+
+  (* Compute the integer spectrum restriction of a transition matrix.
+     This computes a matrix G' such that G'z for all z spans the integer domain on which the
+     state of the linear mapping always consists of integer vectors.
+  *)
+  let int_spec_abstraction nb_cols_omega_dom_basis_mat tr_omega =
+    let open Linear in
+    let t = QQMatrix.transpose tr_omega in
+    let dims = (BatList.init nb_cols_omega_dom_basis_mat (fun i -> i) ) in
+    let rsd = rational_spectral_decomposition t dims in
+    let int_eig_vecs, _ = BatList.partition (fun (lambda, _) -> ZZ.equal (QQ.denominator lambda) ZZ.one ) rsd in
+    let int_eig_vecs = BatList.map (fun (_, v) -> v) int_eig_vecs in
+    let int_eig_vecs = Linear.QQVectorSpace.simplify int_eig_vecs in
+      QQMatrix.transpose (QQMatrix.of_rows int_eig_vecs)
+
+  (* Further restricting the linear mapping to the integer domain, from which all states always remain integers.
+     This is achieved by solving for M in GG' M = T GG'.
+  *)
+  let tr_mat_restricted_to_int_dom tr_mat g g' =
+    let gg' = Linear.QQMatrix.mul g g' in
+    BatOption.get (Linear.divide_left (Linear.QQMatrix.mul tr_mat gg') gg')
+
+  (* Build a symbol for each column of GG'. *)
+  let build_symbols_for_gg'_cols srk gg' =
+    let nb_cols = Linear.QQMatrix.nb_columns gg' in
+    let list_symbols = BatList.init nb_cols (fun i ->
+      let name_str = String.concat "_" ["dta"; "term"; (string_of_int i)] in
+      let symbol = mk_symbol srk ~name:name_str `TyInt in
+      symbol
+    ) in
+    list_symbols
+
+  (* Tries to encode GG' x = S x, where S is the (composed) simulation function. *)
+  let build_eqs_for_dta_terms srk list_dta_symbols gg' simulation =
+    BatArray.fold_lefti (fun eqs i sim_term ->
+      let row = Linear.QQMatrix.row i gg' in
+      (mk_eq srk
+        (Linear.term_of_vec srk (fun j -> (mk_const srk (BatList.nth list_dta_symbols j))) row)
+        sim_term
+      ) :: eqs)
+      []
+      simulation
 
   (* Given: a sparse affine term t(x) (dimensions correspond to
      symbols), a list of symbols [x] defining a finite-dimensional
@@ -370,7 +413,7 @@ module XSeq = struct
     ExpPolynomial.Matrix.vector_left_mul (ExpPolynomial.Vector.of_qqvector vec) ep_mat
     |> ExpPolynomial.Vector.add_term (ExpPolynomial.scalar const) Linear.const_dim
 
-  (* Compute a mortal precondition of a transition formula through characteristic sequences. *)  
+  (* Compute a mortal precondition of a transition formula through characteristic sequences. *)
   let terminating_conditions_of_formula_via_xseq srk tf =
     logf "DTA starts";
     let tf = TF.linearize srk tf in
@@ -382,56 +425,48 @@ module XSeq = struct
          |> DLTS.simplify srk ~scale:true
        in
       logf "finished computing best DLTS abstraction";
-      let m = compute_rep_matrix best_DLTS_abstraction in
-      logf "Representation matrix of best Q-DLTS abstraction: %a" Linear.QQMatrix.pp m;
       let module PLM = Lts.PartialLinearMap in
       let omega_domain = snd (PLM.iteration_sequence best_DLTS_abstraction.dlts) in
       let omega_dom_mat = Linear.QQMatrix.of_rows omega_domain in
-      let omega_dom_constraints =
-        compose_simulation srk omega_dom_mat best_DLTS_abstraction.simulation
-        |> BatArray.to_list
-        |> List.map (mk_eq srk (mk_zero srk))
-        |> mk_and srk
-      in
-      logf "omega domain constraints: %a" (Formula.pp srk) omega_dom_constraints;
-      let constraints, new_dynamics_mat, new_simulation = integer_spectrum_abstraction srk m best_DLTS_abstraction.simulation in
-      logf "integrality constraints: %a" (Formula.pp srk) constraints;
-      logf "New dynamics matrix: %a" Linear.QQMatrix.pp new_dynamics_mat;
-      let best_DLTS_abstraction =
-        { dlts = Lts.PartialLinearMap.make new_dynamics_mat [];
-          simulation = new_simulation }
-      in
-      let exp_poly = BatOption.get (ExpPolynomial.exponentiate_rational new_dynamics_mat) in
-      let sim_symbols, inv_equalities, invariant_symbol_set =
-        build_symbols_for_sim_terms srk new_simulation
-      in
-      let sim_terms = BatList.map (fun symbol -> mk_const srk symbol) sim_symbols in
-      let abstraction = (sim_symbols, sim_terms, best_DLTS_abstraction) in
-      let formula = mk_and srk [TF.formula tf; mk_and srk inv_equalities; constraints] in
-      logf "\nTransition formula with simulation terms:\n%s\n\n" (Formula.show srk formula);
-      let ground_formula =
-        Quantifier.mbp srk (fun s -> Symbol.Set.mem s invariant_symbol_set) formula
-        |> SrkSimplify.simplify_dda srk
+      let dim = BatArray.length best_DLTS_abstraction.simulation in
+      (* Compute matrix G as a basis for omega domain. *)
+      let g = omega_dom_basis_mat dim omega_dom_mat in
+      let tr = PLM.map best_DLTS_abstraction.dlts in
+      let tr_omega = tr_mat_restricted_to_omega_dom tr g in
+      (* Compute matrix G' as a basis for integer domain. *)
+      let g' = int_spec_abstraction (Linear.QQMatrix.nb_columns g) tr_omega in
+      let tr_z = tr_mat_restricted_to_int_dom tr g g' in
+       logf "Dynamics matrix in restricted space: %a" Linear.QQMatrix.pp tr_z;
+      (* exists x, x'. F(x, x') /\ G G' z = S x *)
+      let gg' = (Linear.QQMatrix.mul g g') in
+      let list_dta_symbols = build_symbols_for_gg'_cols srk gg' in
+      let dta_terms_eqs = build_eqs_for_dta_terms srk list_dta_symbols gg' best_DLTS_abstraction.simulation in
+      let formula = mk_and srk [TF.formula tf; mk_and srk dta_terms_eqs] in
+      let dta_symbols_set = Symbol.Set.of_list list_dta_symbols in
+      let ground_formula = Quantifier.mbp srk (fun s -> Symbol.Set.mem s dta_symbols_set) formula
+                           |> SrkSimplify.simplify_dda srk
       in
       logf "Formula after model-based projection: %a" (Formula.pp srk) ground_formula;
       let no_floor = SrkSimplify.eliminate_floor srk ground_formula in
       logf "Formula after removing floors: %a" (Formula.pp srk) no_floor;
+      let exp_poly = BatOption.get (ExpPolynomial.exponentiate_rational tr_z) in
+      let abstraction = (list_dta_symbols, (BatList.map (fun s -> mk_const srk s) list_dta_symbols)) in
       let term_of_dim i =
         if i == Linear.const_dim then mk_one srk
         else best_DLTS_abstraction.simulation.(i)
       in
-      let algebra = function 
+      let algebra = function
       | `Tru -> seq_of_true srk
       | `Fls -> seq_of_false srk
       | `And xs -> seq_and srk xs
       | `Or xs -> seq_or srk xs
       | `Not x -> seq_not srk x
       | `Quantify _ -> failwith "should not see quantifiers in the TF"
-      | `Atom (`Arith (op, s, t)) -> 
+      | `Atom (`Arith (op, s, t)) ->
         begin
-          match SrkSimplify.simplify_integer_atom srk op s t with 
+          match SrkSimplify.simplify_integer_atom srk op s t with
           | `CompareZero (op, vec) ->
-             let cf = closed_form sim_symbols (Vec.negate vec) exp_poly in
+             let cf = closed_form list_dta_symbols (Vec.negate vec) exp_poly in
              let predicate = match op with
                | `Eq -> `Zero
                | `Leq -> `Nonneg
@@ -440,19 +475,21 @@ module XSeq = struct
              seq_of_compare_atom srk predicate cf term_of_dim
           | `Divides (divisor, vec) ->
              seq_of_divides_atom srk divisor vec exp_poly abstraction
-             |> Periodic.map (rewrite_term_condition srk best_DLTS_abstraction.simulation sim_symbols)
           | `NotDivides (divisor, vec) ->
              seq_of_notdivides_atom srk divisor vec exp_poly abstraction
-             |> Periodic.map (rewrite_term_condition srk best_DLTS_abstraction.simulation sim_symbols)
         end
       | `Atom (`ArrEq _) -> failwith "should not see ArrEq in the TF"
       | `Proposition _ -> failwith "should not see proposition in the TF"
       | `Ite _ -> failwith "should not see ite in the TF"
     in
     logf "start computing char sequence ...";
-    let xseq = Formula.eval srk algebra no_floor in 
+    let xseq = Formula.eval srk algebra no_floor in
     logf "finished computing char sequence!";
-    mk_not srk (mk_and srk (omega_dom_constraints::constraints::(Periodic.period xseq)))
+    let results_in_dta_terms = mk_and srk (Periodic.period xseq) in
+    let results = SrkSimplify.simplify_terms srk results_in_dta_terms in
+    let results = mk_and srk (results :: dta_terms_eqs) in
+      logf "terminating conditions after rewrite: %a" (Formula.pp srk) results;
+      results
     | `Unknown -> failwith "SMT solver should not return unknown for QRA formulas"
     | `Unsat -> (logf ~attributes:[`Bold; `Green] "Transition formula UNSAT, done"); mk_false srk
 end

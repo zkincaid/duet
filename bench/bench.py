@@ -10,9 +10,9 @@ import types
 import statistics
 
 # Configuration -- can be reconfigured via the command line
-tools = ["CRA", "VASS"]
-suites = ["C4B", "HOLA"]
-timeout = 60
+tools = ['ComPACT','CPAchecker','UAutomizer','2ls','Termite']
+suites = ['Termination','bitprecise','recursive','polybench']
+timeout = 600
 cache = True
 replace_cached = False
 
