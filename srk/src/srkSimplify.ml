@@ -3,11 +3,12 @@ open BatPervasives
 
 include Log.Make(struct let name = "srk.simplify" end)
 
+module Term = ArithTerm
 module RationalTerm = struct
   type 'a rt_context =
     { srk : 'a context;
-      int_of : 'a term -> int;
-      of_int : int -> 'a term }
+      int_of : 'a arith_term -> int;
+      of_int : int -> 'a arith_term }
 
   module QQXs = Polynomial.QQXs
   module Monomial = Polynomial.Monomial
@@ -49,7 +50,7 @@ module RationalTerm = struct
     let table = Expr.HT.create 991 in
     let enum = DynArray.create () in
     let of_int = DynArray.get enum in
-    let int_of term =
+    let int_of (term : 'a arith_term) =
       if Expr.HT.mem table term then
         Expr.HT.find table term
       else
@@ -62,7 +63,7 @@ module RationalTerm = struct
 
   let rec of_term ctx =
     let srk = ctx.srk in
-    let rat_term (term : 'a term) : 'a t =
+    let rat_term (term : 'a arith_term) : 'a t =
       { num = QQXs.of_dim (ctx.int_of term);
         den = Monomial.one }
     in
@@ -80,9 +81,10 @@ module RationalTerm = struct
         rat_term (mk_mod srk (term_of ctx x) (term_of ctx y))
       | `Ite (cond, bthen, belse) ->
         rat_term (mk_ite srk cond (term_of ctx bthen) (term_of ctx belse))
-      | `Var (v, typ) -> rat_term (mk_var srk v (typ :> typ_fo))
+      | `Var (v, _) -> rat_term (mk_var srk v `TyInt)
+      | `Select (a, i) -> rat_term (mk_select srk a (term_of ctx i))
     in
-    Term.eval srk alg
+    ArithTerm.eval srk alg
     
   and term_of ctx p =
     let srk = ctx.srk in
@@ -111,11 +113,11 @@ let simplify_term srk term =
   in
   RationalTerm.term_of ctx result
 
-let simplify_terms_rewriter srk =
+let simplify_terms_rewriter srk : 'a Syntax.rewriter =
   let ctx = RationalTerm.mk_context srk in
   fun expr ->
     match destruct srk expr with
-    | `Atom (op, s, t) ->
+    | `Atom (`Arith (op, s, t)) ->
       let open RationalTerm in
       let rf = (* s - t, as a rational function *)
         let rf =
@@ -378,9 +380,8 @@ let destruct_idiv srk t =
 
 let idiv_to_ite ?(max=max_int) srk expr =
   match Expr.refine srk expr with
-  | `Term t ->
-     begin match destruct_idiv srk t with
-     | Some (num, den) when den < max ->
+  | `ArithTerm t -> begin match destruct_idiv srk t with
+      | Some (num, den) when den < max ->
         let den_term = mk_real srk (QQ.of_int den) in
         let num_over_den =
           mk_mul srk [mk_real srk (QQ.of_frac 1 den); num]

@@ -72,8 +72,8 @@ val rename : (symbol -> symbol) -> ('a,'abs) property -> ('a,'abs) property
 
 val lexpr_of_vec : 'a Env.t -> Linear.QQVector.t -> lexpr
 val vec_of_lexpr : 'a Env.t -> lexpr -> Linear.QQVector.t
-val texpr_of_term : 'a Env.t -> 'a term -> texpr
-val term_of_texpr : 'a Env.t -> texpr -> 'a term
+val texpr_of_term : 'a Env.t -> 'a arith_term -> texpr
+val term_of_texpr : 'a Env.t -> texpr -> 'a arith_term
 
 val tcons_geqz : texpr -> tcons
 val tcons_eqz : texpr -> tcons

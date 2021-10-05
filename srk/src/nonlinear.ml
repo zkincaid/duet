@@ -1,13 +1,14 @@
 open Syntax
 open BatPervasives
+module Term = ArithTerm
 
 include Log.Make(struct let name = "srk.nonlinear" end)
 
 (* Symbolic intervals *)
 module SymInterval = struct
   type 'a t = { srk : 'a context;
-                upper : 'a term list;
-                lower : 'a term list;
+                upper : 'a arith_term list;
+                lower : 'a arith_term list;
                 interval : Interval.t }
 
   let cartesian srk f xs ys =
@@ -181,7 +182,7 @@ let uninterpret_rewriter srk =
       begin match Term.destruct srk y with
         | `Real k when (not (QQ.equal k QQ.zero)
                         && QQ.to_zz k != None
-                        && term_typ srk x = `TyInt) -> expr
+                        && Term.typ srk x = `TyInt) -> expr
 
         | _ ->
           match expr_typ srk x, expr_typ srk y with
@@ -227,7 +228,8 @@ let interpret_rewriter srk =
   let imodulo = get_named_symbol srk "imod" in
   let to_term expr =
     match Expr.refine srk expr with
-    | `Term t -> t
+    | `ArithTerm t -> t
+    | `ArrTerm _ 
     | `Formula _ -> assert false
   in
   fun expr ->
@@ -310,22 +312,23 @@ let linearize srk phi =
           SymInterval.mul linbound_minus_one (linearize_term env x)
         | `App (func, args) ->
           begin match symbol_name srk func, List.map (Expr.refine srk) args with
-            | (Some "imul", [`Term x; `Term y])
-            | (Some "mul", [`Term x; `Term y]) ->
+            | (Some "imul", [`ArithTerm x; `ArithTerm y])
+            | (Some "mul", [`ArithTerm x; `ArithTerm y]) ->
               SymInterval.mul (linearize_term env x) (linearize_term env y)
-            | (Some "inv", [`Term x]) ->
+            | (Some "inv", [`ArithTerm x]) ->
               let one = SymInterval.of_interval srk (Interval.const QQ.one) in
               SymInterval.div one (linearize_term env x)
-            | (Some "imod", [`Term x; `Term y])
-            | (Some "mod", [`Term x; `Term y]) ->
+            | (Some "imod", [`ArithTerm x; `ArithTerm y])
+            | (Some "mod", [`ArithTerm x; `ArithTerm y]) ->
               SymInterval.modulo (linearize_term env x) (linearize_term env y)
-            | (Some "_floor", [`Term x]) ->
+            | (Some "_floor", [`ArithTerm x]) ->
               SymInterval.floor (linearize_term env x)
             | _ -> SymInterval.top srk
           end
         | `Ite (_, x, y) ->
           SymInterval.join (linearize_term env x) (linearize_term env y)
         | `Var (_, _) -> assert false
+        | `Select _ -> SymInterval.top srk
       in
       (* conjoin symbolic intervals for all non-linear terms *)
       let bounds =
@@ -333,7 +336,8 @@ let linearize srk phi =
           Symbol.Map.fold (fun symbol expr (env, bounds) ->
               match Expr.refine srk expr with
               | `Formula _ -> (env, bounds)
-              | `Term term ->
+              | `ArrTerm _ -> (env, bounds)
+              | `ArithTerm term ->
                 let term_bounds = linearize_term env term in
                 let const = mk_const srk symbol in
                 let lower =
@@ -374,7 +378,8 @@ let linearize srk phi =
           Symbol.Map.enum nonlinear
           /@ (fun (symbol, expr) ->
               match Expr.refine srk expr with
-              | `Term t -> mk_eq srk (mk_const srk symbol) t
+              | `ArithTerm t -> mk_eq srk (mk_const srk symbol) t
+              | `ArrTerm t -> mk_arr_eq srk (mk_const srk symbol) t
               | `Formula phi -> mk_iff srk (mk_const srk symbol) phi)
           |> BatList.of_enum
           |> mk_and srk
@@ -394,7 +399,7 @@ let linearize srk phi =
       lin_phi
   end
 
-let mk_log srk (base : 'a term) (x : 'a term) =
+let mk_log srk base x =
   let pow = get_named_symbol srk "pow" in
   match Term.destruct srk base, Term.destruct srk x with
   | `Real b, `Real x when (QQ.lt QQ.one b) && (QQ.equal x QQ.one) ->
@@ -402,12 +407,12 @@ let mk_log srk (base : 'a term) (x : 'a term) =
   | `Real b, `Real x when (QQ.lt QQ.one b) && (QQ.equal x b) ->
     mk_real srk QQ.one
   | _, `App (p, [base'; t]) when p = pow && Expr.equal (base :> ('a,typ_fo) expr) base' ->
-    Expr.term_of srk t
+    (Expr.arith_term_of srk t)
   | _, _ ->
     let log = get_named_symbol srk "log" in
     mk_app srk log [base; x]
 
-let rec mk_pow srk (base : 'a term) (x : 'a term) =
+let rec mk_pow srk base x =
   let log = get_named_symbol srk "log" in
   match Term.destruct srk base with
   | `Real b when QQ.equal b QQ.one ->
@@ -444,7 +449,7 @@ let rec mk_pow srk (base : 'a term) (x : 'a term) =
 
     | `App (p, [base'; t]) when p = log && Expr.equal (base :> ('a,typ_fo) expr) base' ->
       (* TODO: Applies only when t >= 0 *)
-      Expr.term_of srk t
+      (Expr.arith_term_of srk t)
 
     | _ ->
       let pow = get_named_symbol srk "pow" in
@@ -454,7 +459,7 @@ let optimize_box ?(context=Z3.mk_context []) srk phi objectives =
   let phi = SrkSimplify.simplify_terms srk phi in
   let objective_symbols =
     List.map (fun t ->
-        mk_const srk (mk_symbol srk (term_typ srk t :> typ)))
+        mk_const srk (mk_symbol srk (Term.typ srk t :> typ)))
       objectives
   in
   let objective_eqs =
@@ -473,9 +478,9 @@ let simplify_terms_rewriter srk =
   fun expr ->
     match destruct srk expr with
     | `App (func, [x; y]) when func = pow ->
-      (mk_pow srk (Expr.term_of srk x) (Expr.term_of srk y) :> ('a, typ_fo) expr)
+      (mk_pow srk (Expr.arith_term_of srk x) (Expr.arith_term_of srk y) :> ('a, typ_fo) expr)
     | `App (func, [x; y]) when func = log ->
-      (mk_log srk (Expr.term_of srk x) (Expr.term_of srk y) :> ('a, typ_fo) expr)
+      (mk_log srk (Expr.arith_term_of srk x) (Expr.arith_term_of srk y) :> ('a, typ_fo) expr)
     | _ -> expr
 
 let simplify_terms srk expr =

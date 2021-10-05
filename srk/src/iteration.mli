@@ -4,7 +4,7 @@ open Syntax
 module type PreDomain = sig
   type 'a t
   val pp : 'a context -> (symbol * symbol) list -> Format.formatter -> 'a t -> unit
-  val exp : 'a context -> (symbol * symbol) list -> 'a term -> 'a t -> 'a formula
+  val exp : 'a context -> (symbol * symbol) list -> 'a arith_term -> 'a t -> 'a formula
   val abstract : 'a context -> 'a TransitionFormula.t -> 'a t
 end
 

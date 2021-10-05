@@ -44,7 +44,7 @@ val substitute : 'a interpretation -> ('a,'typ) expr -> ('a,'typ) expr
 
 val evaluate_term : 'a interpretation ->
   ?env:[`Real of QQ.t | `Bool of bool] Env.t ->
-  'a term ->
+  'a arith_term ->
   QQ.t
     
 val evaluate_formula : 'a interpretation ->
@@ -69,5 +69,6 @@ val select_ite : 'a interpretation ->
 
 val destruct_atom : 'a context ->
   'a formula ->
-  [ `Comparison of ([`Lt | `Leq | `Eq] * 'a term * 'a term)
-  | `Literal of ([ `Pos | `Neg ] * [ `Const of symbol | `Var of int ]) ]
+  [ `ArithComparison of ([`Lt | `Leq | `Eq] * 'a arith_term * 'a arith_term)
+  | `Literal of ([ `Pos | `Neg ] * [ `Const of symbol | `Var of int ])
+  | `ArrEq of ('a arr_term * 'a arr_term) ]

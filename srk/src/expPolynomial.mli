@@ -40,7 +40,7 @@ val summation : t -> t
 val solve_rec : ?initial:QQ.t -> QQ.t -> t -> t
 
 (** [term_of srk t f] computes a term representing [f(t)]. *)
-val term_of : ('a context) -> 'a term -> t -> 'a term
+val term_of : ('a context) -> 'a arith_term -> t -> 'a arith_term
 
 val eval : t -> int -> QQ.t
 
@@ -111,7 +111,7 @@ module UltPeriodic : sig
 
   (** [term_of srk q r f] computes a term representing [f(qp + r)],
       where [p] is the period of [f]. *)
-  val term_of : 'a context -> 'a term -> 'a term -> t -> 'a term
+  val term_of : 'a context -> 'a arith_term -> 'a arith_term -> t -> 'a arith_term
 
   val scalar : QQ.t -> t
   val of_polynomial : Polynomial.QQX.t -> t

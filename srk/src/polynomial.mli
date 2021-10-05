@@ -50,7 +50,7 @@ module QQX : sig
   val choose : int -> t
 
   (** [term_of srk t p] computes a term representing [p(t)]. *)
-  val term_of : ('a context) -> 'a term -> t -> 'a term
+  val term_of : ('a context) -> 'a arith_term -> t -> 'a arith_term
 end
 
 (** Monomials *)
@@ -100,7 +100,7 @@ module Monomial : sig
     (t -> t -> [ `Eq | `Lt | `Gt ]) ->
     (t -> t -> [ `Eq | `Lt | `Gt ])
 
-  val term_of : ('a context) -> (dim -> 'a term) -> t -> 'a term
+  val term_of : ('a context) -> (dim -> 'a arith_term) -> t -> 'a arith_term
 end
 
 (** Signature of multivariate polynmials *)
@@ -190,7 +190,7 @@ module QQXs : sig
       not linear. *)
   val vec_of : ?const:int -> t -> Linear.QQVector.t option
 
-  val term_of : ('a context) -> (Monomial.dim -> 'a term) -> t -> 'a term
+  val term_of : ('a context) -> (Monomial.dim -> 'a arith_term) -> t -> 'a arith_term
 
   (** Greatest common divisor of all coefficients. *)
   val content : t -> QQ.t
