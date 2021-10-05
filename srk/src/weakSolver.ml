@@ -12,25 +12,26 @@ module Lincons0 = Apron.Lincons0
 module Dim = Apron.Dim
 
 module CS = CoordinateSystem
-module A = BatDynArray
 
 module IntSet = SrkUtil.Int.Set
 
 include Log.Make(struct let name = "srk.weaksolver" end)
 
 
-let is_sat srk phi =
-  (* Use normalize in quantifier.ml to get the existentials *)
+let is_sat_model srk phi =
+  (* Use normalize in quantifier.ml to compute the prenex normal form and get the existentials *)
   let phi = eliminate_ite srk phi in
   let phi =
     SrkSimplify.simplify_terms srk phi
   in
   let quantifiers, phi = Quantifier.normalize srk phi in
+  logf "formula: %a" (Formula.pp srk) phi;
   (* This module should be sound wrt the theory, other things like x > 0 <=> x >= 1 happen in other modules *)
   (* cannot rewrite into negation normal form past equalities, since
      not (p = 0) is not equiv to p > 0 or p < 0
      since don't have total order *)
   assert (BatList.for_all (fun quant -> match quant with `Exists, _ -> true | _ -> false) quantifiers = true);
+
   let solver = Smt.mk_solver ~theory:"QF_LIRA" srk in
   let uninterp_phi =
     rewrite srk
@@ -38,8 +39,10 @@ let is_sat srk phi =
       ~up:(Nonlinear.uninterpret_rewriter srk)
       phi
   in
+  logf "Uninterpreted formula: %a" (Formula.pp srk) uninterp_phi;
   (* nonlinear is a map from symbols to term/formula *)
   let (lin_phi, nonlinear) = SrkSimplify.purify srk uninterp_phi in
+  logf "Linear formula skeleton: %a" (Formula.pp srk) lin_phi;
   (* Creating a list of relationships between symbols and their meanings *)
   let nonlinear_defs =
     Symbol.Map.enum nonlinear
@@ -68,6 +71,7 @@ let is_sat srk phi =
   Smt.Solver.add solver [lin_phi];
   Smt.Solver.add solver nonlinear_defs;
 
+  (* TODO: adding lemmas. Using preduce in Groebner basis to get a subset of atoms whose conjunction is unsat. *)
    let rec go () =
     match Smt.Solver.get_model solver with
     | `Unsat -> `Unsat
@@ -78,51 +82,115 @@ let is_sat srk phi =
       | Some implicant ->
         (* The formulas should be atoms, should be able to destruct to get t < c, t <= c, t = c *)
         let atoms = List.map replace_defs implicant in
-        let rec process_atoms l cs geqs eqs =
+        let rec process_atoms l cs geqs eqs ineqs =
           match l with
-          | [] -> (cs, geqs, eqs)
-          | h :: t -> match (destruct srk h) with
-              `Atom (`Eq, a, b) ->
+          | [] -> (cs, geqs, eqs, ineqs)
+          | h :: t ->
+              logf "Processing atom: %a" (Formula.pp srk) h;
+              match (Interpretation.destruct_atom srk h) with
+              `Comparison (`Eq, a, b) ->
               CS.admit_term cs a;
               CS.admit_term cs b;
-              process_atoms t cs geqs ((mk_sub srk a b) :: eqs)
-            | `Atom (`Leq, a, b) ->
+              process_atoms t cs geqs ((mk_sub srk a b) :: eqs) ineqs
+            | `Comparison (`Leq, a, b) ->
               CS.admit_term cs a;
               CS.admit_term cs b;
-              process_atoms t cs ((mk_sub srk b a) :: geqs) eqs
-            | `Atom (`Lt, a, b) ->
+              process_atoms t cs ((mk_sub srk b a) :: geqs) eqs ineqs
+            | `Comparison (`Lt, a, b) ->
               (* Handle disequations using polynomial cone membership *)
               CS.admit_term cs a;
               CS.admit_term cs b;
-              process_atoms t cs ((mk_sub srk (mk_sub srk b (mk_one srk)) a) :: geqs) eqs
-              | _ -> failwith "Encountered non-atom in the implicant selected."
+              let diff = mk_sub srk b a in
+              process_atoms t cs (diff :: geqs) eqs (diff :: ineqs)
+            | `Literal _ -> process_atoms t cs geqs eqs ineqs
+            (* | _ -> failwith "Encountered non-atom in the implicant selected." *)
         in
-        let cs, geqs, eqs = process_atoms atoms (CS.mk_empty srk) [] [] in
+        let cs, geqs, eqs, ineqs = process_atoms atoms (CS.mk_empty srk) [] [] [] in
         let geqs = BatList.map (fun expr -> CS.polynomial_of_term cs expr) geqs in
         let eqs = BatList.map (fun expr -> CS.polynomial_of_term cs expr) eqs in
+        let ineqs = BatList.map (fun expr -> CS.polynomial_of_term cs expr) ineqs in
         let initial_ideal = Polynomial.Ideal.make eqs in
+        logf "Start making enclosing cone";
         let pc = PolynomialCone.make_enclosing_cone initial_ideal geqs in
-        if not (PolynomialCone.is_proper pc) then `Sat
+        logf "Finish making enclosing cone";
+        (* Check if induced equalities contradict with strict inequalities appeared in the formula  *)
+        let contradictory = BatList.exists (fun nonzero -> PolynomialCone.mem (P.negate nonzero) pc) ineqs in
+        (* If the polynomial cone is not proper then the model is no longer consistent *)
+        if (PolynomialCone.is_proper pc) && not contradictory then `Sat (model, pc)
         else
           begin
-            Smt.Solver.add solver [(mk_not srk (mk_and srk atoms))]; go ()
+            Smt.Solver.add solver [(mk_not srk (mk_and srk implicant))]; go ()
           end
-        (* Getting two lists of polynomial constraints Z, P *)
-        (* call the procedure making_enclosing_cone to get the pair Z, P *)
-        (* is_sat only needs to get one model, just see if the generated polynomial cone is non-proper *)
-
-        (* if it is proper, then we get a model of this formula. If non-proper
-         * add the blocking clause based on the list of atoms. Similar to how DPLL(T) works.
-         * In the future, can try to get lemmas (find a subset of atoms whose conjunction is unsat)
-         * preduce in the Grobner basis can be used to generate this.
-         *
-         *  *)
-
   in
   if Symbol.Map.is_empty nonlinear then
-    Smt.Solver.check solver []
+    match Smt.Solver.get_model solver with
+      `Sat model -> `Sat (model, PolynomialCone.empty)
+    | `Unsat -> `Unsat
+    | `Unknown -> `Unknown
   else
     go ()
+
+let is_sat srk phi =
+  match is_sat_model srk phi with
+    `Sat _ -> `Sat
+  | `Unsat -> `Unsat
+  | `Unknown -> `Unknown
+
+(* Finding all implied equations and equalities within the weak theory.  *)
+let find_consequences srk phi =
+   let phi = eliminate_ite srk phi in
+  let phi =
+    SrkSimplify.simplify_terms srk phi
+  in
+  let quantifiers, phi = Quantifier.normalize srk phi in
+  logf "formula: %a" (Formula.pp srk) phi;
+  assert (BatList.for_all (fun quant -> match quant with `Exists, _ -> true | _ -> false) quantifiers = true);
+  let existential_vars = BatSet.of_list
+      (BatList.filter_map (fun quant -> match quant with `Exists, x -> Some x | _ -> None) quantifiers)
+  in
+  let pc = PolynomialCone.empty in
+  let term_of_int = fun i ->
+    let s = symbol_of_int i in
+    mk_const srk s
+  in
+  let rec go current_pc formula =
+    match is_sat_model srk formula with
+      `Sat (_, poly_cone) ->
+      begin
+        let projected_pc = PolynomialCone.project
+            poly_cone
+            (fun i -> let s = Syntax.symbol_of_int i in not (BatSet.mem s existential_vars))
+        in
+        let new_pc = PolynomialCone.intersection current_pc projected_pc in
+        let ideal = PolynomialCone.get_ideal new_pc in
+        let ideal_generators = Polynomial.Ideal.generators ideal in
+        let eq_zero_constraints = BatList.map
+            (fun p -> mk_eq srk (mk_zero srk) (P.term_of srk term_of_int p))
+            ideal_generators
+        in
+        let cone_generators = PolynomialCone.get_cone_generators new_pc in
+        let geq_zero_constraints = BatList.map
+            (fun p -> mk_leq srk (mk_zero srk) (P.term_of srk term_of_int p))
+            cone_generators
+        in
+        let augmented_formula = mk_and srk
+            [formula;
+             (mk_not srk (mk_and srk (eq_zero_constraints @ geq_zero_constraints)))]
+        in
+        go new_pc augmented_formula
+      end
+      | `Unsat -> current_pc
+      | `Unknown -> failwith "Cannot find a model for the current formula"
+  in
+  go pc phi
+
+
+
+
+  
+
+  
+
 
 (* lazy consequence finding depends on this is_sat, and ideally we should build a solver interface
  * that supports checking if there is a model of the formula, and adding clauses to the formula. *)

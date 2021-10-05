@@ -9,6 +9,8 @@ module IntMap = SrkUtil.Int.Map
 type constraint_kind = [`Zero | `Nonneg | `Pos] [@@deriving ord]
 type generator_kind = [`Vertex | `Ray | `Line]
 
+include Log.Make(struct let name = "srk.polyhedron" end)
+
 (* Replace x with replacement in term. *)
 let replace_term x replacement term =
   let (a, t) = V.pivot x term in
@@ -368,6 +370,7 @@ let vec_of_lexpr linexpr =
   | None -> assert false
 
 let apron0_of man dim polyhedron =
+  logf "computing apron of polyhedron with dim %d" dim;
   let open Apron in
   let lincons_of (cmp, vec) =
     let cmp = match cmp with
@@ -400,10 +403,10 @@ let of_apron0 man abstract0 =
     P.top
     (Abstract0.to_lincons_array man abstract0)
 
-(* TODO: rename this to normalize constraints or something *)
-let affine_hull polyhedron =
-  let man = Polka.manager_alloc_strict () in
-  let dim = max_constrained_dim polyhedron in
+let normalize_constraints polyhedron =
+  logf "trying to normalize constraints";
+  let man = Polka.manager_alloc_loose () in
+  let dim = 1 + max_constrained_dim polyhedron in
   of_apron0 man (apron0_of man dim polyhedron)
 
 let dual_cone dim polyhedron =
