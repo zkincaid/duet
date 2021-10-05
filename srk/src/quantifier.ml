@@ -2313,3 +2313,6 @@ let local_project_cube srk exists model cube =
       |> List.filter (not % is_true))
     project
     cube
+
+let eg_simplification _ _ = assert false
+let mbp_qe_inplace _ _ = assert false

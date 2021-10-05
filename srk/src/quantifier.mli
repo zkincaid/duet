@@ -69,3 +69,14 @@ val local_project_cube : 'a context ->
   'a interpretation ->
   'a formula list ->
   'a formula list
+
+
+(** Uses equality terms to eliminate quantifiers. Works ground up
+ * eliminating quantifiers when possible with no backtracing.
+ * Multiple consecutive runs of this function may yield new eliminations. *)
+val eg_simplification : 'a context -> 'a formula -> 'a formula
+
+
+(** Similar to qe_mbp but does without conversion to prenex. Eliminates
+ * quantifiers one at a time rather than block by block. *)
+val mbp_qe_inplace : 'a context -> 'a formula -> 'a formula
