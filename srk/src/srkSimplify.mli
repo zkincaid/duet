@@ -62,3 +62,6 @@ val simplify_integer_atom : 'a context -> [`Eq | `Leq | `Lt ] -> 'a arith_term -
    [ `CompareZero of [ `Eq | `Leq | `Lt ] * Linear.QQVector.t
       | `Divides of ZZ.t * Linear.QQVector.t
       | `NotDivides of ZZ.t * Linear.QQVector.t ]
+
+(** Flatten conjunctions and disjunctions *)
+val flatten : 'a context -> 'a formula -> 'a formula

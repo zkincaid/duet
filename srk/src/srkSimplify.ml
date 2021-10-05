@@ -559,3 +559,39 @@ let simplify_integer_atom srk op s t =
 
       | _ -> `CompareZero (`Lt, snd (zz_linterm s))
     end
+
+
+type 'a flatten_typ = Phi of 'a formula | Disj of 'a formula list | Conj of 'a formula list
+let flatten srk phi =
+  let phiize flatten_typ =
+    match flatten_typ with
+    | Phi phi -> phi
+    | Disj phis -> mk_or srk phis
+    | Conj phis -> mk_and srk phis
+  in
+  let alg = function
+    | `And conjs ->
+      let nested_conjs, others = 
+        BatList.partition_map (fun conj ->
+            match conj with
+            | Conj phis -> Left phis
+            | Phi phi -> Right phi
+            | Disj phis -> Right (mk_or srk phis))
+          conjs 
+      in
+      let nested_conjs = List.flatten nested_conjs in
+      Conj (nested_conjs @ others)
+    | `Or disjs ->
+      let nested_disjs, others = 
+        BatList.partition_map (fun disj ->
+            match disj with
+            | Conj phis -> Right (mk_and srk phis)
+            | Phi phi -> Right phi
+            | Disj phis -> Left phis)
+          disjs
+      in
+      let nested_disjs = List.flatten nested_disjs in
+      Disj (nested_disjs @ others)
+    | phi -> Phi (Formula.map_construct srk phiize phi)
+  in
+  phiize (Formula.eval srk alg phi)

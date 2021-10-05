@@ -2313,3 +2313,90 @@ let local_project_cube srk exists model cube =
       |> List.filter (not % is_true))
     project
     cube
+
+let miniscope srk phi : 'a formula =
+  let flip qtyp =
+    match qtyp with
+    | `Exists -> `Forall
+    | `Forall -> `Exists
+  in
+  let pass_thru qtyp expr_typ =
+    match qtyp, expr_typ with
+    | `Exists, `Exists -> `Pass
+    | `Exists, `Forall -> `Blocking
+    | `Forall, `Forall -> `Pass
+    | `Forall, `Exists -> `Blocking
+    | `Forall, `And -> `Pass
+    | `Exists, `And -> `Blocking
+    | `Exists, `Or -> `Pass
+    | `Forall, `Or -> `Blocking
+  in
+  let mk_quant qtyp name typ phi =
+    match qtyp with
+    | `Exists -> mk_exists srk ~name typ phi
+    | `Forall -> mk_forall srk ~name typ phi
+  in
+  let mk_junct jtyp juncts =
+    match jtyp with
+    | `Or -> mk_or srk juncts
+    | `And -> mk_and srk juncts
+  in
+  (* This is the logic for pushing the quantifier qnt into formula node.*)
+  let rec pushdown qtyp name typ phi =
+    let dec_fv_by_1 phi = 
+      substitute
+        srk
+        (fun (ind, typ) -> mk_var srk (ind - 1) typ)
+        phi
+    in
+    let reorder_first_2_qnts phi =
+      substitute
+        srk
+        (fun (ind, typ) ->
+           if ind = 0 then mk_var srk 1 typ
+           else if ind = 1 then mk_var srk 0 typ
+           else mk_var srk ind typ)
+        phi
+    in
+    let handle_juncts jtyp juncts =
+      let l1, l2 = 
+        List.partition (fun conj ->
+            BatHashtbl.mem (free_vars conj) 0)
+          juncts
+      in
+      let l2' = List.map dec_fv_by_1 l2 in
+      let c = 
+        if pass_thru qtyp jtyp = `Pass || List.length l1 <= 1 then (
+          mk_junct jtyp (List.map (pushdown qtyp name typ) l1))
+        else (mk_quant qtyp name typ (mk_junct jtyp l1))
+      in
+      mk_junct jtyp (c :: l2')
+    in
+    if not (BatHashtbl.mem (free_vars phi) 0)
+    then dec_fv_by_1 phi
+    else (
+      match Formula.destruct srk phi with
+      | `Tru -> assert false
+      | `Fls -> assert false
+      (* TODO: distribute over ITE, or elim ITE. *)
+      | `Atom _  | `Proposition _ | `Ite _ -> mk_quant qtyp name typ phi
+      | `Not phi -> mk_not srk (pushdown (flip qtyp) name typ phi)
+      | `And juncts -> handle_juncts `And juncts
+      | `Or juncts -> handle_juncts `Or juncts
+      | `Quantify((q, n, t, p)) ->
+        if pass_thru qtyp q = `Blocking then
+          mk_quant qtyp name typ phi
+        else (
+          mk_quant 
+            q
+            n
+            t
+            (pushdown qtyp name typ (reorder_first_2_qnts p))))
+  in
+  let alg = function
+   | `Quantify (qtyp, name, typ, phi) ->
+      pushdown qtyp name typ phi
+   | open_phi -> Formula.construct srk open_phi
+  in
+  let phi = (Formula.eval srk alg phi) in
+  phi

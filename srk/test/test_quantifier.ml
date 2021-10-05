@@ -91,6 +91,130 @@ let strategy2 () =
     assert_bool "strategy2" (check_strategy srk qf_prefix phi strategy)
   | _ -> assert false
 
+(* Exact output formula may differ if miniscope procedure is changed *)
+let miniscope1 () = 
+  let phi =
+    let open Infix in
+    exists ~name:"outer" `TyInt (
+      exists `TyInt (
+        (var 1 `TyInt = x) || (var 1 `TyInt) = (var 0 `TyInt)))
+  in
+  let psi = 
+    let open Infix in
+    exists `TyInt (exists ~name:"outer" `TyInt (var 0 `TyInt = var 1 `TyInt)) ||
+    exists ~name:"outer" `TyInt (var 0 `TyInt = x) 
+  in
+  assert_equal_formula (miniscope srk phi) psi
+
+let miniscope2 () = 
+  let phi =
+    let open Infix in
+    exists ~name:"one" `TyInt (
+      forall ~name:"two" `TyInt (
+        exists ~name:"three" `TyInt (var 2 `TyInt = x || var 2 `TyInt + (int 5) = var 1 `TyInt)))
+  in
+  let psi =
+    let open Infix in
+    exists ~name:"one" `TyInt (forall `TyInt ~name:"two" (var 1 `TyInt + (int 5) = var 0 `TyInt)) ||
+    exists ~name:"one" `TyInt (var 0 `TyInt = x)
+  in
+  assert_equal_formula (miniscope srk phi) psi
+
+let miniscope3 () =
+  let phi =
+    let open Infix in
+    forall ~name:"outer" `TyInt (
+      ! (exists `TyInt ((var 0 `TyInt = var 1 `TyInt) || var 0 `TyInt = (int 1))))
+  in
+  let psi =
+    let open Infix in
+    ! (exists `TyInt (exists ~name:"outer" `TyInt (var 1 `TyInt = var 0 `TyInt)) ||
+       exists `TyInt (var 0 `TyInt = (int 1)))
+  in
+  assert_equal_formula (miniscope srk phi) psi
+
+let miniscope4 () =
+  let phi =
+    let open Infix in
+    exists `TyInt (
+      exists `TyInt (var 0 `TyInt = (int 1) || var 0 `TyInt = (int 1)))
+  in
+  let psi =
+    let open Infix in
+    exists `TyInt (var 0 `TyInt = (int 1)) || exists `TyInt (var 0 `TyInt = (int 1))
+  in
+  assert_equal_formula (miniscope srk phi) psi
+
+let miniscope5 () =
+  let phi =
+    let open Infix in
+    exists `TyInt (
+      exists `TyInt (
+        forall `TyInt (var 0 `TyInt = var 2 `TyInt)))
+  in
+  let psi =
+    let open Infix in
+    exists `TyInt (forall `TyInt (var 0 `TyInt = var 1 `TyInt))
+  in
+  assert_equal_formula (miniscope srk phi) psi
+
+let miniscope6 () =
+  let phi =
+    let open Infix in
+    exists `TyInt (
+      forall `TyInt (
+        var 0 `TyInt + (int 5) = var 1 `TyInt))
+  in
+  assert_equal_formula (miniscope srk phi) phi
+
+
+let miniscope7 () =
+  let phi =
+    let open Infix in
+    exists ~name:"outer" `TyInt (
+      forall `TyInt (
+        exists `TyInt (
+        var 0 `TyInt + (int 5)= var 2 `TyInt)))
+  in
+  let psi = 
+    let open Infix in
+    exists `TyInt 
+      (exists ~name:"outer" `TyInt (var 1 `TyInt + (int 5)= var 0 `TyInt))
+  in
+  assert_equal_formula (miniscope srk phi) psi
+
+let miniscope8 () =
+  let phi = 
+    let open Infix in
+    exists ~name:"q1"`TyInt (
+      exists ~name:"q2" `TyInt (
+        exists `TyInt (
+          var 1 `TyInt = y))
+      &&
+      exists `TyInt (
+        var 1 `TyInt = x))
+  in
+  let psi =
+    let open Infix in
+    exists ~name:"q1" `TyInt (var 0 `TyInt = x) &&
+    exists ~name:"q2" `TyInt (var 0 `TyInt = y)
+  in
+  assert_equal_formula (miniscope srk phi) psi
+
+let miniscope9 () =
+  let phi = 
+    let open Infix in
+    forall ~name:"q1"`TyInt (
+      exists ~name:"q2" `TyInt (
+        Syntax.mk_and srk [var 0 `TyInt = x; var 0 `TyInt = y; var 1 `TyInt = x]))
+  in
+  let psi =
+    let open Infix in
+    forall ~name:"q1" `TyInt (var 0 `TyInt = x) &&
+    exists ~name:"q2" `TyInt (var 0 `TyInt = x && var 0 `TyInt = y)
+  in
+  assert_equal_formula (miniscope srk phi) psi
+
 let suite = "Quantifier" >::: [
     "simsat_ground" >:: simsat_ground;
     "simsat_forward_ground" >:: simsat_forward_ground;
@@ -99,6 +223,15 @@ let suite = "Quantifier" >::: [
     "mbp2" >:: mbp2;
     "sim1" >:: sim1;
     "sim2" >:: sim2;
+    "miniscope1" >:: miniscope1;
+    "miniscope2" >:: miniscope2;
+    "miniscope3" >:: miniscope3;
+    "miniscope4" >:: miniscope4;
+    "miniscope5" >:: miniscope5;
+    "miniscope6" >:: miniscope6;
+    "miniscope7" >:: miniscope7;
+    "miniscope8" >:: miniscope8;
+    "miniscope9" >:: miniscope9;
 (*
     "strategy1" >:: strategy1;
     "strategy2" >:: strategy2;
