@@ -513,6 +513,7 @@ let destruct _srk sexpr =
   | Node (App func, args, _) -> `App (func, args)
   | Node (Var (v, `TyReal), [], _) -> `Var (v, `TyReal)
   | Node (Var (v, `TyInt), [], _) -> `Var (v, `TyInt)
+  | Node (Var (v, `TyArr), [], _) -> `Var (v, `TyArr)
   | Node (Var (v, `TyBool), [], _) -> `Proposition (`Var v)
   | Node (Add, sum, _) -> `Add sum
   | Node (Mul, product, _) -> `Mul product
