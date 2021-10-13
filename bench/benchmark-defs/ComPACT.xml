@@ -8,7 +8,6 @@
     <option name="-termination" />
     <option name="-termination-no-attractor" /> 
     <option name="-termination-no-dta" /> 
-
     <tasks name="Termination">
       <includesfile>../tasks/termination.set</includesfile>
       <propertyfile>../tasks/properties/termination.prp</propertyfile>
