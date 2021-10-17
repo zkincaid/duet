@@ -99,17 +99,17 @@ let pvutil_merge pvutil poly =
     ordered_mono_list = ordered_mono_list;
   }
 
-let monomial_map_of_cone c =
-  BatList.fold (fun map poly ->
-      let f _ a b =
-        match a, b with
-        | Some a, _ -> Some a
-        | _, Some b -> Some b
-        | None, None -> assert false
-      in
-      MonomialMap.merge f map (monomial_map_of_polynomial poly))
-    MonomialMap.empty
-    c
+(* let monomial_map_of_cone c = *)
+(*   BatList.fold (fun map poly -> *)
+(*       let f _ a b = *)
+(*         match a, b with *)
+(*         | Some a, _ -> Some a *)
+(*         | _, Some b -> Some b *)
+(*         | None, None -> assert false *)
+(*       in *)
+(*       MonomialMap.merge f map (monomial_map_of_polynomial poly)) *)
+(*     MonomialMap.empty *)
+(*     c *)
 
 let vec_of_poly p pvutil =
   let mono_map = pvutil.mono_map in
