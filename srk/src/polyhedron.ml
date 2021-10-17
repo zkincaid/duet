@@ -371,7 +371,6 @@ let vec_of_lexpr linexpr =
   | None -> assert false
 
 let apron0_of man dim polyhedron =
-  logf "computing apron of polyhedron with dim %d" dim;
   let open Apron in
   let lincons_of (cmp, vec) =
     let cmp = match cmp with
@@ -405,7 +404,6 @@ let of_apron0 man abstract0 =
     (Abstract0.to_lincons_array man abstract0)
 
 let normalize_constraints polyhedron =
-  logf "trying to normalize constraints";
   let man = Polka.manager_alloc_loose () in
   let dim = 1 + max_constrained_dim polyhedron in
   of_apron0 man (apron0_of man dim polyhedron)

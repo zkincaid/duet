@@ -17,8 +17,7 @@ module IntSet = SrkUtil.Int.Set
 
 include Log.Make(struct let name = "srk.weaksolver" end)
 
-
-let is_sat_model srk phi =
+let get_model srk phi =
   (* Use normalize in quantifier.ml to compute the prenex normal form and get the existentials *)
   let phi = eliminate_ite srk phi in
   let phi =

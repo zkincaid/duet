@@ -24,13 +24,9 @@ let pp formatter pc =
   Format.pp_print_string formatter "Cone: ";
   SrkUtil.pp_print_list (QQXs.pp pp_dim) formatter cone
 
-let get_ideal pc =
-  let ideal, _ = pc in
-  ideal
+let get_ideal (ideal, _) = ideal
 
-let get_cone_generators pc =
-  let _, cone_generators = pc in
-  cone_generators
+let get_cone_generators (_, cone_generators) = cone_generators
 
 let make ideal cone_generators =
   (ideal, BatList.map (fun g -> Ideal.reduce ideal g) cone_generators)
@@ -127,9 +123,7 @@ let vec_of_poly p pvutil =
 let poly_of_vec vec pvutil =
   let ordered_mono_list = pvutil.ordered_mono_list in
   BatEnum.fold (fun p (coeff, index) ->
-      if index > -1 then
-        QQXs.add_term coeff (BatList.nth ordered_mono_list index) p
-      else QQXs.add_term coeff Monomial.one p)
+        QQXs.add_term coeff (BatList.nth ordered_mono_list index) p)
     (QQXs.zero)
     (Linear.QQVector.enum vec)
 
@@ -222,14 +216,14 @@ let project_cone cone_generators f =
   let pvutil = pvutil_of_polys cone_generators in
   let dim = MonomialMap.cardinal pvutil.mono_map in
   let polyhedron_rep_of_cone = polyhedron_of_cone cone_generators pvutil in
-  let remaining_dims = (0 -- (dim - 1)) |> BatEnum.filter
+  let elim_dims = (0 -- (dim - 1)) |> BatEnum.filter
                          (fun i ->
                             let monomial = BatList.nth pvutil.ordered_mono_list i in
-                            BatEnum.for_all
-                              (fun (d, _) -> f d)
+                            BatEnum.exists
+                              (fun (d, _) -> not (f d))
                               (Monomial.enum monomial)
                          ) |> BatList.of_enum in
-  let projected_polyhedron = Polyhedron.project remaining_dims polyhedron_rep_of_cone in
+  let projected_polyhedron = Polyhedron.project elim_dims polyhedron_rep_of_cone in
   let projected_cone_generators = BatEnum.map (fun (typ, vec_generator) ->
       match typ with
       |  `Ray ->
