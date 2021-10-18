@@ -15,7 +15,7 @@ val intersection : t -> t -> t
  *)
 val project : t -> (int -> bool) -> t
 
-val get_ideal : t -> Ideal.t
+val get_ideal : t -> Rewrite.t
 
 val get_cone_generators : t -> (QQXs.t BatList.t)
 
@@ -26,7 +26,7 @@ val change_monomial_ordering: t ->
 val empty : t
 
 (* Compute the smallest cone that contains the ideal and a given set of nonnegative polynomials. *)
-val make_enclosing_cone : Ideal.t -> QQXs.t BatList.t -> t
+val make_enclosing_cone : Polynomial.Rewrite.t -> QQXs.t BatList.t -> t
 
 (* Adding a list of zero polynomials and a list of nonnegative polynomials to an existing cone. *)
 val add_polys_to_cone : t -> QQXs.t BatList.t -> QQXs.t BatList.t -> t

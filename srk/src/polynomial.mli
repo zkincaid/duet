@@ -256,6 +256,17 @@ module Rewrite : sig
 
   val get_monomial_ordering : t -> 
     (Monomial.t -> Monomial.t -> [`Eq | `Lt | `Gt])
+
+  (** Given a Groebner basis for an ideal (under some monomial
+     ordering), compute a Groebner basis for the same ideal under the
+     given ordering. *)
+  val reorder_groebner : (Monomial.t -> Monomial.t -> [`Eq | `Lt | `Gt]) -> t -> t
+
+  (** Is one rewrite contained inside another? *)
+  val subset : t -> t -> bool
+
+  (** Is one rewrite equal to another? *)
+  val equal : t -> t -> bool
 end
 
 (** A polynomial ideal is a set of polynomials that is closed under
@@ -268,12 +279,6 @@ module Ideal : sig
 
   (** Compute the smallest ideal that contains a given set of polynomials *)
   val make : QQXs.t list -> t
-
-  val get_monomial_ordering : t ->
-    (Monomial.t -> Monomial.t -> [ `Eq | `Lt | `Gt ])
-
-  val change_monomial_ordering : t ->
-    (Monomial.t -> Monomial.t -> [ `Eq | `Lt | `Gt ]) -> t
 
   val add_saturate : t -> QQXs.t -> t
 

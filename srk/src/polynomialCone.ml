@@ -3,7 +3,7 @@ open BatPervasives
 
 include Log.Make(struct let name = "srk.polynomialCone" end)
 
-type t = Ideal.t * QQXs.t BatList.t
+type t = Rewrite.t * QQXs.t BatList.t
 module V = Linear.QQVector
 
 (* User should be able to give pp_dim *)
@@ -20,7 +20,7 @@ let pp_dim formatter i =
 let pp formatter pc =
   let ideal, cone = pc in
   Format.pp_print_string formatter "Ideal: ";
-  Ideal.pp pp_dim formatter ideal;
+  Rewrite.pp pp_dim formatter ideal;
   Format.pp_print_string formatter "Cone: ";
   SrkUtil.pp_print_list (QQXs.pp pp_dim) formatter cone
 
@@ -28,14 +28,13 @@ let get_ideal (ideal, _) = ideal
 
 let get_cone_generators (_, cone_generators) = cone_generators
 
-let empty = (Ideal.make [], [])
+let empty = (Rewrite.mk_rewrite Monomial.degrevlex [], [])
 
 (* Change monomial ordering of a polynomial cone. *)
-let change_monomial_ordering pc order =
-  let ideal, cone = pc in
-  let new_ideal = Ideal.change_monomial_ordering ideal order in
+let change_monomial_ordering (ideal, cone) order =
+  let new_ideal = Rewrite.reorder_groebner order ideal in
   (new_ideal,
-   BatList.map (fun g -> Ideal.reduce new_ideal g) cone)
+   BatList.map (Rewrite.reduce new_ideal) cone)
 
 module MonomialMap = BatMap.Make(Monomial)
 
@@ -150,7 +149,7 @@ let find_implied_zero_polynomials polys basis =
                              (* use |> tap (fun intermediate -> print) *)
                              |> BatList.of_enum
                              |> BatList.map (fun (_, v) ->
-                                 Ideal.reduce basis (poly_of_vec v pvutil))
+                                 Rewrite.reduce basis (poly_of_vec v pvutil))
                              |> BatList.filter (fun p -> not (QQXs.equal p QQXs.zero))
   in
   let geq_zero_constraints = Polyhedron.enum_constraints polyhedron |>
@@ -173,17 +172,17 @@ let rec make_enclosing_cone basis geq_zero_polys =
     pc
   else
     let new_basis = BatList.fold_left
-        (fun ideal zero_poly -> Ideal.add_saturate ideal zero_poly)
+        (fun ideal zero_poly -> Rewrite.add_saturate ideal zero_poly)
         basis
         new_zero_polys
     in
-    let reduced_geq_polys = BatList.map (fun p -> Ideal.reduce new_basis p) geq_zero_polys in
+    let reduced_geq_polys = BatList.map (Rewrite.reduce new_basis) geq_zero_polys in
     make_enclosing_cone new_basis reduced_geq_polys
 
 let add_polys_to_cone pc zero_polys nonneg_polys =
   let basis, cone_generators = pc in
   let new_basis = BatList.fold_left
-      (fun ideal zero_poly -> Ideal.add_saturate ideal zero_poly)
+      (fun ideal zero_poly -> Rewrite.add_saturate ideal zero_poly)
       basis
       zero_polys
   in
@@ -222,18 +221,26 @@ let project_cone cone_generators f =
   let projected_polyhedron = Polyhedron.project elim_dims polyhedron_rep_of_cone in
   cone_of_polyhedron projected_polyhedron pvutil
 
+let monomial_over pred monomial =
+  BatEnum.for_all (fun (d, _) -> pred d) (Monomial.enum monomial)
+
+let polynomial_over pred polynomial =
+  BatEnum.for_all (fun (_, m) -> monomial_over pred m) (QQXs.enum polynomial)
+
 let project pc f =
   let elim_order = Monomial.block [not % f] Monomial.degrevlex in
   let (ideal, cone) = change_monomial_ordering pc elim_order in
-  let projected_ideal = Ideal.project f ideal in
+  let projected_ideal =
+    Rewrite.generators ideal
+    |> List.filter (polynomial_over f)
+    |> Rewrite.mk_rewrite Monomial.degrevlex
+  in
   let projected_cone = project_cone cone f in
   (projected_ideal, projected_cone)
 
-let intersection pc1 pc2 =
-  let (i1, c1) = pc1 in
-  let (i2, c2) = pc2 in
-  let i1_gen = Ideal.generators i1 in
-  let i2_gen = Ideal.generators i2 in
+let intersection (i1, c1) (i2, c2) =
+  let i1_gen = Rewrite.generators i1 in
+  let i2_gen = Rewrite.generators i2 in
   let fresh_var =
     1 + (List.fold_left
            (fun m p ->
@@ -246,26 +253,28 @@ let intersection pc1 pc2 =
   let c1' = List.map (QQXs.mul (QQXs.of_dim fresh_var)) c1 in
   let i2' = List.map (QQXs.mul (QQXs.sub (QQXs.scalar QQ.one) (QQXs.of_dim fresh_var))) i2_gen in
   let c2' = List.map (QQXs.mul (QQXs.sub (QQXs.scalar QQ.one) (QQXs.of_dim fresh_var))) c2 in
-  let ideal = Ideal.make (i1' @ i2') in
-  let cone = List.map (Ideal.reduce ideal) (c1' @ c2') in
-  project (ideal, cone) (fun d -> d != fresh_var)
+  let ideal =
+    Rewrite.mk_rewrite (Monomial.block [fun x -> x = fresh_var] Monomial.degrevlex) (i1' @ i2')
+    |> Rewrite.grobner_basis
+  in
+  let cone =
+    project_cone
+      (List.map (Rewrite.reduce ideal) (c1' @ c2'))
+      (fun x -> x != fresh_var)
+  in
+  (ideal, cone)
 
+let equal (i1, c1) (i2, c2) =
+  Rewrite.equal i1 i2
+  && (let rewritten_c2 = List.map (Rewrite.reduce i1) c2 in
+      let pvutil = pvutil_of_polys rewritten_c2 in
+      Polyhedron.equal
+        (polyhedron_of_cone c1 pvutil)
+        (polyhedron_of_cone rewritten_c2 pvutil))
 
-let equal pc1 pc2 =
-  let (i1, c1) = pc1 in
-  let (i2, c2) = pc2 in
-  if not (Ideal.equal i1 i2) then false
-  else
-    let rewritten_c2 = List.map (Ideal.reduce i1) c2 in
-    let pvutil = pvutil_of_polys rewritten_c2 in
-    Polyhedron.equal
-      (polyhedron_of_cone c1 pvutil)
-      (polyhedron_of_cone rewritten_c2 pvutil)
-
-let mem p pc =
-  let ideal, cone_generators = pc in
+let mem p (ideal, cone_generators) =
   let cone_generators = QQXs.one :: cone_generators in
-  let reduced = Ideal.reduce ideal p in
+  let reduced = Rewrite.reduce ideal p in
   let mmap_of_p = monomial_map_of_polynomial reduced in
   (* Optimization: if a monomial appears in reduced but not cone_generators then return false
      immediately *)

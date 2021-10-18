@@ -982,7 +982,20 @@ module Rewrite = struct
     RS.enum rewrite.rules
     /@ (fun (lt, op, _) -> qqxs_of_op ((QQ.of_int (-1), lt)::op))
     |> BatList.of_enum
+
+  let reorder_groebner order p = 
+    (* Trivial conversion now.  TODO: implement Groebner walk *)
+    grobner_basis (mk_rewrite order (generators p))
+
+  let subset j k =
+    BatEnum.for_all
+      (fun (m, rhs, _) ->
+         fst (reduce_op k ((QQ.of_int (-1), m)::rhs)) = [])
+      (RS.enum j.rules)
+
+  let equal j k = subset j k && subset k j
 end
+
 
 module Ideal = struct
   type t = Rewrite.t
@@ -991,12 +1004,7 @@ module Ideal = struct
   (* Common monomial ordering *)
   let order = Monomial.degrevlex
   
-  let get_monomial_ordering p = Rewrite.get_monomial_ordering p
-
   let add_saturate ideal p = Rewrite.add_saturate ideal p
-
-  let change_monomial_ordering p new_order = 
-    grobner_basis (mk_rewrite new_order (generators p))
 
   let reduce ideal p = 
     Rewrite.reduce ideal p
@@ -1041,13 +1049,9 @@ module Ideal = struct
   let mem p j =
     (fst (reduce_op j (op_of_qqxs order p))) = []
 
-  let subset j k =
-    BatEnum.for_all
-      (fun (m, rhs, _) ->
-         fst (reduce_op k ((QQ.of_int (-1), m)::rhs)) = [])
-      (RS.enum j.rules)
+  let subset = subset
 
-  let equal j k = subset j k && subset k j
+  let equal = equal
 
   let make generators =
     grobner_basis (mk_rewrite order generators)

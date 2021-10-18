@@ -103,7 +103,9 @@ let get_model srk phi =
         let geqs = BatList.map (fun expr -> P.of_term srk expr) geqs in
         let eqs = BatList.map (fun expr -> P.of_term srk expr) eqs in
         let ineqs = BatList.map (fun expr -> P.of_term srk expr) ineqs in
-        let initial_ideal = Polynomial.Ideal.make eqs in
+        let initial_ideal =
+          Polynomial.Rewrite.mk_rewrite Polynomial.Monomial.degrevlex eqs
+        in
         logf "Start making enclosing cone";
         let pc = PolynomialCone.make_enclosing_cone initial_ideal geqs in
         logf "Finish making enclosing cone";
@@ -157,7 +159,7 @@ let find_consequences srk phi =
         in
         let new_pc = PolynomialCone.intersection current_pc projected_pc in
         let ideal = PolynomialCone.get_ideal new_pc in
-        let ideal_generators = Polynomial.Ideal.generators ideal in
+        let ideal_generators = Polynomial.Rewrite.generators ideal in
         let eq_zero_constraints = BatList.map
             (fun p -> mk_eq srk (mk_zero srk) (P.term_of srk term_of_int p))
             ideal_generators
