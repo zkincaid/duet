@@ -523,6 +523,30 @@ module QQXs = struct
       []
     |> Syntax.mk_add srk
 
+  let of_term srk term =
+    let qq_of poly =
+      if (degree poly) > 0 then failwith "Cannot convert non-const polynomial to qq"
+      else coeff Monomial.one poly
+    in
+    let nonzero_qq_of poly =
+      let qq = qq_of poly in
+      if QQ.equal qq QQ.zero then failwith "Cannot divide or modulo zero" else qq
+    in
+    let alg = function
+      | `Real qq -> scalar qq
+      | `App (k, []) -> of_dim (Syntax.int_of_symbol k)
+      | `Var (_, _) | `App (_, _) -> failwith "Cannot convert functions to polynomials"
+      | `Add sum -> BatList.fold_left add zero sum
+      | `Mul prod -> BatList.fold_left mul one prod
+      | `Binop (`Div, x, y) -> scalar_mul (QQ.inverse (nonzero_qq_of y)) x
+      | `Binop (`Mod, x, y) -> scalar (QQ.modulo (qq_of x) (nonzero_qq_of y))
+      | `Unop (`Floor, x) -> scalar (QQ.of_zz (QQ.floor (qq_of x)))
+      | `Unop (`Neg, x) -> negate x
+      | `Select _ -> assert false
+      | `Ite (_, _, _) -> failwith "Cannot convert ite expression to polynomials"
+    in
+    Syntax.ArithTerm.eval srk alg term
+
   let compare = compare QQ.compare
 
   let content p =

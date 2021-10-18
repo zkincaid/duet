@@ -82,33 +82,27 @@ let get_model srk phi =
       | Some implicant ->
         (* The formulas should be atoms, should be able to destruct to get t < c, t <= c, t = c *)
         let atoms = List.map replace_defs implicant in
-        let rec process_atoms l cs geqs eqs ineqs =
+        let rec process_atoms l geqs eqs ineqs =
           match l with
-          | [] -> (cs, geqs, eqs, ineqs)
+          | [] -> (geqs, eqs, ineqs)
           | h :: t ->
               logf "Processing atom: %a" (Formula.pp srk) h;
               match (Interpretation.destruct_atom srk h) with
               `ArithComparison (`Eq, a, b) ->
-              CS.admit_term cs a;
-              CS.admit_term cs b;
-              process_atoms t cs geqs ((mk_sub srk a b) :: eqs) ineqs
+              process_atoms t geqs ((mk_sub srk a b) :: eqs) ineqs
             | `ArithComparison (`Leq, a, b) ->
-              CS.admit_term cs a;
-              CS.admit_term cs b;
-              process_atoms t cs ((mk_sub srk b a) :: geqs) eqs ineqs
+              process_atoms t ((mk_sub srk b a) :: geqs) eqs ineqs
             | `ArithComparison (`Lt, a, b) ->
               (* Handle disequations using polynomial cone membership *)
-              CS.admit_term cs a;
-              CS.admit_term cs b;
               let diff = mk_sub srk b a in
-              process_atoms t cs (diff :: geqs) eqs (diff :: ineqs)
-            | `Literal _ -> process_atoms t cs geqs eqs ineqs
+              process_atoms t (diff :: geqs) eqs (diff :: ineqs)
+            | `Literal _ -> process_atoms t geqs eqs ineqs
             | _ -> failwith "Weak theory does not support arr expressions."
         in
-        let cs, geqs, eqs, ineqs = process_atoms atoms (CS.mk_empty srk) [] [] [] in
-        let geqs = BatList.map (fun expr -> CS.polynomial_of_term cs expr) geqs in
-        let eqs = BatList.map (fun expr -> CS.polynomial_of_term cs expr) eqs in
-        let ineqs = BatList.map (fun expr -> CS.polynomial_of_term cs expr) ineqs in
+        let geqs, eqs, ineqs = process_atoms atoms [] [] [] in
+        let geqs = BatList.map (fun expr -> P.of_term srk expr) geqs in
+        let eqs = BatList.map (fun expr -> P.of_term srk expr) eqs in
+        let ineqs = BatList.map (fun expr -> P.of_term srk expr) ineqs in
         let initial_ideal = Polynomial.Ideal.make eqs in
         logf "Start making enclosing cone";
         let pc = PolynomialCone.make_enclosing_cone initial_ideal geqs in

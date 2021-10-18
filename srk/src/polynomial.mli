@@ -192,6 +192,8 @@ module QQXs : sig
 
   val term_of : ('a context) -> (Monomial.dim -> 'a arith_term) -> t -> 'a arith_term
 
+  val of_term : ('a context) -> 'a arith_term -> t
+
   (** Greatest common divisor of all coefficients. *)
   val content : t -> QQ.t
 
