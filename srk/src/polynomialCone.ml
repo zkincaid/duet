@@ -99,18 +99,6 @@ let pvutil_merge pvutil poly =
     ordered_mono_list = ordered_mono_list;
   }
 
-(* let monomial_map_of_cone c = *)
-(*   BatList.fold (fun map poly -> *)
-(*       let f _ a b = *)
-(*         match a, b with *)
-(*         | Some a, _ -> Some a *)
-(*         | _, Some b -> Some b *)
-(*         | None, None -> assert false *)
-(*       in *)
-(*       MonomialMap.merge f map (monomial_map_of_polynomial poly)) *)
-(*     MonomialMap.empty *)
-(*     c *)
-
 let vec_of_poly p pvutil =
   let mono_map = pvutil.mono_map in
   let v = V.zero in
@@ -123,7 +111,7 @@ let vec_of_poly p pvutil =
 let poly_of_vec vec pvutil =
   let ordered_mono_list = pvutil.ordered_mono_list in
   BatEnum.fold (fun p (coeff, index) ->
-        QQXs.add_term coeff (BatList.nth ordered_mono_list index) p)
+      QQXs.add_term coeff (BatList.nth ordered_mono_list index) p)
     (QQXs.zero)
     (Linear.QQVector.enum vec)
 
@@ -141,6 +129,7 @@ let polyhedron_of_cone cone_generators pvutil =
   Polyhedron.of_generators dim generators_enum
 
 let find_implied_zero_polynomials polys basis =
+  let polys = QQXs.one :: polys in
   let pvutil = pvutil_of_polys polys in
   let polys_as_vectors = BatList.map
       (fun p -> vec_of_poly p pvutil)
@@ -179,13 +168,14 @@ let find_implied_zero_polynomials polys basis =
   (equality_constraints, geq_zero_constraints)
 
 let rec make_enclosing_cone basis geq_zero_polys =
-    let new_zero_polys, geq_zero_polys = find_implied_zero_polynomials geq_zero_polys basis in
-    if (BatList.length new_zero_polys) > 0 then
-      let pc = (basis, geq_zero_polys) in
-      logf "enclosing cone: %a" pp pc;
-      pc
-    else
-      let new_basis = BatList.fold
+  let geq_zero_polys = QQXs.one :: geq_zero_polys in
+  let new_zero_polys, geq_zero_polys = find_implied_zero_polynomials geq_zero_polys basis in
+  if (BatList.length new_zero_polys) > 0 then
+    let pc = (basis, geq_zero_polys) in
+    logf "enclosing cone: %a" pp pc;
+    pc
+  else
+    let new_basis = BatList.fold
         (fun ideal zero_poly -> Ideal.add_saturate ideal zero_poly)
         basis
         new_zero_polys
@@ -217,20 +207,21 @@ let cone_of_polyhedron poly pvutil =
       | `Vertex -> QQXs.zero
     )
       (Polyhedron.enum_generators dim poly)
-     |> BatList.of_enum
+                        |> BatList.of_enum
   in BatList.filter (fun p -> not (QQXs.equal p (QQXs.zero))) cone_generators
 
 let project_cone cone_generators f =
+  let cone_generators = QQXs.one :: cone_generators in
   let pvutil = pvutil_of_polys cone_generators in
   let dim = MonomialMap.cardinal pvutil.mono_map in
   let polyhedron_rep_of_cone = polyhedron_of_cone cone_generators pvutil in
   let elim_dims = (0 -- (dim - 1)) |> BatEnum.filter
-                         (fun i ->
-                            let monomial = BatList.nth pvutil.ordered_mono_list i in
-                            BatEnum.exists
-                              (fun (d, _) -> not (f d))
-                              (Monomial.enum monomial)
-                         ) |> BatList.of_enum in
+                    (fun i ->
+                       let monomial = BatList.nth pvutil.ordered_mono_list i in
+                       BatEnum.exists
+                         (fun (d, _) -> not (f d))
+                         (Monomial.enum monomial)
+                    ) |> BatList.of_enum in
   let projected_polyhedron = Polyhedron.project elim_dims polyhedron_rep_of_cone in
   cone_of_polyhedron projected_polyhedron pvutil
 
@@ -277,10 +268,11 @@ let equal pc1 pc2 =
 
 let mem p pc =
   let ideal, cone_generators = pc in
+  let cone_generators = QQXs.one :: cone_generators in
   let reduced = Ideal.reduce ideal p in
+  let mmap_of_p = monomial_map_of_polynomial reduced in
   (* Optimization: if a monomial appears in reduced but not cone_generators then return false
      immediately *)
-  let mmap_of_p = monomial_map_of_polynomial reduced in
   let pvutil_of_cone = pvutil_of_polys cone_generators in
   if BatEnum.exists (fun (mono, _) ->
       not (MonomialMap.mem mono pvutil_of_cone.mono_map))

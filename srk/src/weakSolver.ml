@@ -72,7 +72,7 @@ let get_model srk phi =
   Smt.Solver.add solver nonlinear_defs;
 
   (* TODO: adding lemmas. Using preduce in Groebner basis to get a subset of atoms whose conjunction is unsat. *)
-   let rec go () =
+  let rec go () =
     match Smt.Solver.get_model solver with
     | `Unsat -> `Unsat
     | `Unknown -> `Unknown
@@ -86,8 +86,8 @@ let get_model srk phi =
           match l with
           | [] -> (geqs, eqs, ineqs)
           | h :: t ->
-              logf "Processing atom: %a" (Formula.pp srk) h;
-              match (Interpretation.destruct_atom srk h) with
+            logf "Processing atom: %a" (Formula.pp srk) h;
+            match (Interpretation.destruct_atom srk h) with
               `ArithComparison (`Eq, a, b) ->
               process_atoms t geqs ((mk_sub srk a b) :: eqs) ineqs
             | `ArithComparison (`Leq, a, b) ->
@@ -132,7 +132,7 @@ let is_sat srk phi =
 
 (* Finding all implied equations and equalities within the weak theory.  *)
 let find_consequences srk phi =
-   let phi = eliminate_ite srk phi in
+  let phi = eliminate_ite srk phi in
   let phi =
     SrkSimplify.simplify_terms srk phi
   in
@@ -173,18 +173,7 @@ let find_consequences srk phi =
         in
         go new_pc augmented_formula
       end
-      | `Unsat -> current_pc
-      | `Unknown -> failwith "Cannot find a model for the current formula"
+    | `Unsat -> current_pc
+    | `Unknown -> failwith "Cannot find a model for the current formula"
   in
   go pc phi
-
-
-
-
-  
-
-  
-
-
-(* lazy consequence finding depends on this is_sat, and ideally we should build a solver interface
- * that supports checking if there is a model of the formula, and adding clauses to the formula. *)
