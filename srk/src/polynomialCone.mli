@@ -22,13 +22,6 @@ val get_cone_generators : t -> (QQXs.t BatList.t)
 val change_monomial_ordering: t ->
   (Monomial.t -> Monomial.t -> [ `Eq | `Lt | `Gt  ]) -> t
 
-(* Ideal contains the necessary monomial ordering *)
-(* Could generalize Ideal interface, when having binary operators of ideals
-   make sure they have the same monomial operation
-   Also need to be able to change monomial ordering of an ideal.
- *)
-val make : Ideal.t -> QQXs.t BatList.t -> t
-
 (* Making an empty polynomial cone. *)
 val empty : t
 

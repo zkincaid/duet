@@ -28,9 +28,6 @@ let get_ideal (ideal, _) = ideal
 
 let get_cone_generators (_, cone_generators) = cone_generators
 
-let make ideal cone_generators =
-  (ideal, BatList.map (fun g -> Ideal.reduce ideal g) cone_generators)
-
 let empty = (Ideal.make [], [])
 
 (* Change monomial ordering of a polynomial cone. *)
@@ -250,17 +247,16 @@ let intersection pc1 pc2 =
   let i2' = List.map (QQXs.mul (QQXs.sub (QQXs.scalar QQ.one) (QQXs.of_dim fresh_var))) i2_gen in
   let c2' = List.map (QQXs.mul (QQXs.sub (QQXs.scalar QQ.one) (QQXs.of_dim fresh_var))) c2 in
   let ideal = Ideal.make (i1' @ i2') in
-  let pc = make ideal (c1' @ c2') in
-  project pc (fun d -> d != fresh_var)
+  let cone = List.map (Ideal.reduce ideal) (c1' @ c2') in
+  project (ideal, cone) (fun d -> d != fresh_var)
 
 
 let equal pc1 pc2 =
   let (i1, c1) = pc1 in
   let (i2, c2) = pc2 in
   if not (Ideal.equal i1 i2) then false
-  else let monomial_ordering = Ideal.get_monomial_ordering i1 in
-    let i2' = Ideal.change_monomial_ordering i2 monomial_ordering in
-    let (_, rewritten_c2) = make i2' c2 in
+  else
+    let rewritten_c2 = List.map (Ideal.reduce i1) c2 in
     let pvutil = pvutil_of_polys rewritten_c2 in
     Polyhedron.equal
       (polyhedron_of_cone c1 pvutil)
