@@ -1,8 +1,12 @@
+(rule
+  (with-stdout-to link_flags.sexp
+   (run bash ./gen_flags.sh %{ocaml-config:system})))
+
 (executable
   (name duet)
   (modes native)
   (promote (until-clean) (into ..))
-  (link_flags -cclib -Wl,-keep_dwarf_unwind)
+  (link_flags (:standard) (:include link_flags.sexp))
   (libraries srk cil cil.default-features pa apron apron.boxMPQ apron.octMPQ apron.polkaMPQ)
   (preprocess (pps ppx_deriving.ord ppx_deriving.eq ppx_deriving.show)))
 

@@ -141,9 +141,7 @@ let polyhedron_of_cone cone_generators pvutil =
   Polyhedron.of_generators dim generators_enum
 
 let find_implied_zero_polynomials polys basis =
-  logf "finding implied zero polynomials";
   let pvutil = pvutil_of_polys polys in
-  logf "converting polys to vectors";
   let polys_as_vectors = BatList.map
       (fun p -> vec_of_poly p pvutil)
       polys
@@ -178,30 +176,22 @@ let find_implied_zero_polynomials polys basis =
                              |> BatEnum.map (fun (_, v) -> poly_of_vec v pvutil)
                              |> BatList.of_enum
   in
-  logf "finished finding %d equalities" (BatList.length equality_constraints);
-  if (BatList.length equality_constraints) > 0 then
-    (false, equality_constraints, geq_zero_constraints)
-  else
-    (true, equality_constraints, geq_zero_constraints)
+  (equality_constraints, geq_zero_constraints)
 
-let rec make_enclosing_cone_impl finished basis geq_zero_polys =
-  logf "computing enclosing cone ...";
-  if finished then
-    let pc = (basis, geq_zero_polys) in
-    logf "enclosing cone: %a" pp pc;
-    pc
-  else
-    let is_finished, new_zero_polys, geq_zero_polys = find_implied_zero_polynomials geq_zero_polys basis in
-    let new_basis = BatList.fold
+let rec make_enclosing_cone basis geq_zero_polys =
+    let new_zero_polys, geq_zero_polys = find_implied_zero_polynomials geq_zero_polys basis in
+    if (BatList.length new_zero_polys) > 0 then
+      let pc = (basis, geq_zero_polys) in
+      logf "enclosing cone: %a" pp pc;
+      pc
+    else
+      let new_basis = BatList.fold
         (fun ideal zero_poly -> Ideal.add_saturate ideal zero_poly)
         basis
         new_zero_polys
     in
     let reduced_geq_polys = BatList.map (fun p -> Ideal.reduce new_basis p) geq_zero_polys in
-    make_enclosing_cone_impl is_finished new_basis reduced_geq_polys
-
-let make_enclosing_cone init_ideal poly_list =
-  make_enclosing_cone_impl false init_ideal poly_list
+    make_enclosing_cone new_basis reduced_geq_polys
 
 let add_polys_to_cone pc zero_polys nonneg_polys =
   let basis, cone_generators = pc in
@@ -210,7 +200,25 @@ let add_polys_to_cone pc zero_polys nonneg_polys =
       basis
       zero_polys
   in
-  make_enclosing_cone_impl false new_basis (BatList.concat [cone_generators; nonneg_polys])
+  make_enclosing_cone new_basis (BatList.concat [cone_generators; nonneg_polys])
+
+let cone_of_polyhedron poly pvutil =
+  let dim = MonomialMap.cardinal pvutil.mono_map in
+  let cone_generators = BatEnum.map (fun (typ, vec_generator) ->
+      match typ with
+      |  `Ray ->
+        BatEnum.fold (fun p (coeff, index) ->
+            QQXs.add_term coeff (BatList.nth pvutil.ordered_mono_list index) p)
+          (QQXs.zero)
+          (Linear.QQVector.enum vec_generator)
+      (* salient cone should have no lines, thus the projection should also have no line *)
+      | `Line -> failwith "Polyhedra of salient cones should have no line but encountered one"
+      (* should always have one vertex at 0 *)
+      | `Vertex -> QQXs.zero
+    )
+      (Polyhedron.enum_generators dim poly)
+     |> BatList.of_enum
+  in BatList.filter (fun p -> not (QQXs.equal p (QQXs.zero))) cone_generators
 
 let project_cone cone_generators f =
   let pvutil = pvutil_of_polys cone_generators in
@@ -224,21 +232,7 @@ let project_cone cone_generators f =
                               (Monomial.enum monomial)
                          ) |> BatList.of_enum in
   let projected_polyhedron = Polyhedron.project elim_dims polyhedron_rep_of_cone in
-  let projected_cone_generators = BatEnum.map (fun (typ, vec_generator) ->
-      match typ with
-      |  `Ray ->
-        BatEnum.fold (fun p (coeff, index) ->
-            QQXs.add_term coeff (BatList.nth pvutil.ordered_mono_list index) p)
-          (QQXs.zero)
-          (Linear.QQVector.enum vec_generator)
-      (* salient cone should have no lines, thus the projection should also have no line *)
-      | `Line -> failwith "Polyhedra of salient cones should have no line but encountered one"
-      (* should always have one vertex at 0 *)
-      | `Vertex -> QQXs.zero
-    )
-      (Polyhedron.enum_generators dim projected_polyhedron)
-                                  |> BatList.of_enum
-  in BatList.filter (fun p -> not (QQXs.equal p (QQXs.zero))) projected_cone_generators
+  cone_of_polyhedron projected_polyhedron pvutil
 
 let project pc f =
   let elim_order = Monomial.block [not % f] Monomial.degrevlex in
@@ -277,7 +271,6 @@ let equal pc1 pc2 =
     let i2' = Ideal.change_monomial_ordering i2 monomial_ordering in
     let (_, rewritten_c2) = make i2' c2 in
     let pvutil = pvutil_of_polys rewritten_c2 in
-    (* let ordered_mono_map = order_monomial_terms_in_map (monomial_map_of_cone rewritten_c2) in *)
     Polyhedron.equal
       (polyhedron_of_cone c1 pvutil)
       (polyhedron_of_cone rewritten_c2 pvutil)

@@ -47,7 +47,8 @@ let get_model srk phi =
     Symbol.Map.enum nonlinear
     /@ (fun (symbol, expr) ->
         match Expr.refine srk expr with
-        | `Term t -> mk_eq srk (mk_const srk symbol) t
+        | `ArithTerm t -> mk_eq srk (mk_const srk symbol) t
+        | `ArrTerm _ -> failwith "Weak solver does not support ArrTerm"
         | `Formula phi -> mk_iff srk (mk_const srk symbol) phi)
     |> BatList.of_enum
   in
@@ -87,22 +88,22 @@ let get_model srk phi =
           | h :: t ->
               logf "Processing atom: %a" (Formula.pp srk) h;
               match (Interpretation.destruct_atom srk h) with
-              `Comparison (`Eq, a, b) ->
+              `ArithComparison (`Eq, a, b) ->
               CS.admit_term cs a;
               CS.admit_term cs b;
               process_atoms t cs geqs ((mk_sub srk a b) :: eqs) ineqs
-            | `Comparison (`Leq, a, b) ->
+            | `ArithComparison (`Leq, a, b) ->
               CS.admit_term cs a;
               CS.admit_term cs b;
               process_atoms t cs ((mk_sub srk b a) :: geqs) eqs ineqs
-            | `Comparison (`Lt, a, b) ->
+            | `ArithComparison (`Lt, a, b) ->
               (* Handle disequations using polynomial cone membership *)
               CS.admit_term cs a;
               CS.admit_term cs b;
               let diff = mk_sub srk b a in
               process_atoms t cs (diff :: geqs) eqs (diff :: ineqs)
             | `Literal _ -> process_atoms t cs geqs eqs ineqs
-            (* | _ -> failwith "Encountered non-atom in the implicant selected." *)
+            | _ -> failwith "Weak theory does not support arr expressions."
         in
         let cs, geqs, eqs, ineqs = process_atoms atoms (CS.mk_empty srk) [] [] [] in
         let geqs = BatList.map (fun expr -> CS.polynomial_of_term cs expr) geqs in
@@ -130,7 +131,7 @@ let get_model srk phi =
     go ()
 
 let is_sat srk phi =
-  match is_sat_model srk phi with
+  match get_model srk phi with
     `Sat _ -> `Sat
   | `Unsat -> `Unsat
   | `Unknown -> `Unknown
@@ -153,7 +154,7 @@ let find_consequences srk phi =
     mk_const srk s
   in
   let rec go current_pc formula =
-    match is_sat_model srk formula with
+    match get_model srk formula with
       `Sat (_, poly_cone) ->
       begin
         let projected_pc = PolynomialCone.project
