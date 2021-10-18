@@ -1,6 +1,12 @@
 (rule
-  (with-stdout-to link_flags.sexp
-   (run bash ./gen_flags.sh %{ocaml-config:system})))
+  (target link_flags.sexp)
+  (action (write-file link_flags.sexp "(-cclib -Wl,-keep_dwarf_unwind)"))
+  (enabled_if (= ${ocaml-config:system} macosx)))
+
+(rule
+  (target link_flags.sexp)
+  (action (write-file link_flags.sexp "()"))
+  (enabled_if (<> ${ocaml-config:system} macosx)))
 
 (library
   (public_name srk)

@@ -56,7 +56,7 @@ let monomial_map_of_polynomial p =
 
 let pvutil_of_polys polys =
   let map =
-    BatList.fold (fun map poly ->
+    BatList.fold_left (fun map poly ->
         let f _ a b =
           match a, b with
           | Some a, _ -> Some a
@@ -175,7 +175,7 @@ let rec make_enclosing_cone basis geq_zero_polys =
     logf "enclosing cone: %a" pp pc;
     pc
   else
-    let new_basis = BatList.fold
+    let new_basis = BatList.fold_left
         (fun ideal zero_poly -> Ideal.add_saturate ideal zero_poly)
         basis
         new_zero_polys
@@ -185,7 +185,7 @@ let rec make_enclosing_cone basis geq_zero_polys =
 
 let add_polys_to_cone pc zero_polys nonneg_polys =
   let basis, cone_generators = pc in
-  let new_basis = BatList.fold
+  let new_basis = BatList.fold_left
       (fun ideal zero_poly -> Ideal.add_saturate ideal zero_poly)
       basis
       zero_polys
