@@ -10,7 +10,7 @@ let mp_exp =
   let all_sym = (List.map fst tr_symbols)@(List.map snd tr_symbols) in
   fun tr_symbols phi ->
   TerminationExp.mp
-    (module Iteration.LinearRecurrenceInequation)
+    (module Iteration.LossyTranslation)
     srk
     (TransitionFormula.make
        ~exists:(fun sym -> List.mem sym all_sym)

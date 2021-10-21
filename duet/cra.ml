@@ -820,7 +820,7 @@ let omega_algebra = function
            if (not has_llrf) && !termination_exp then
              let mp =
                Syntax.mk_not srk
-                 (TerminationExp.mp (module Iteration.LinearRecurrenceInequation) srk tf)
+                 (TerminationExp.mp (module Iteration.LossyTranslation) srk tf)
              in
              let dta_entails_mp =
                (* if DTA |= mp, DTA /\ MP simplifies to DTA *)
@@ -1101,17 +1101,17 @@ let _ =
          if !monotone then
            K.domain := (module Product
                                  (Product(Vas.Monotone)(PolyhedronGuard))
-                                 (LinearRecurrenceInequation))
+                                 (LossyTranslation))
          else
            K.domain := (module Product
                                  (Product(Vas)(PolyhedronGuard))
-                                 (LinearRecurrenceInequation))),
+                                 (LossyTranslation))),
      " Use VAS abstraction");
   CmdLine.register_config
     ("-cra-vass",
      Arg.Unit (fun () ->
          let open Iteration in
-         K.domain := (module Product(Product(LinearRecurrenceInequation)(PolyhedronGuard))(Vass))),
+         K.domain := (module Product(Product(LossyTranslation)(PolyhedronGuard))(Vass))),
      " Use VASS abstraction");
   CmdLine.register_config
     ("-dump-goals",
@@ -1122,7 +1122,7 @@ let _ =
      Arg.Unit (fun () ->
          let open Iteration in
          monotone := true;
-         K.domain := (module Product(LinearRecurrenceInequation)(PolyhedronGuard))),
+         K.domain := (module Product(LossyTranslation)(PolyhedronGuard))),
      " Disable non-monotone analysis features");
   CmdLine.register_config
     ("-termination-no-exp",
