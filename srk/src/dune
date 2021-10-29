@@ -1,4 +1,4 @@
-1(rule
+(rule
   (target link_flags.sexp)
   (action (write-file link_flags.sexp "(-cclib -Wl,-keep_dwarf_unwind)"))
   (enabled_if (= ${ocaml-config:system} macosx)))
