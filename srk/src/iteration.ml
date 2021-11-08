@@ -40,6 +40,70 @@ module type Domain = sig
   val tr_symbols : 'a t -> (symbol * symbol) list
 end
 
+module WeakArithmeticTheory = struct
+  type 'a t = 'a TF.t
+
+  let pp srk _ formatter tf = let f = TF.formula tf in Formula.pp srk formatter f
+
+  let abstract _ tf = tf
+
+  let exp = WeakTheoryInvariants.find_tf_invs
+
+end
+
+module WeakTheoryGuard = struct
+  type 'a t =
+    { precondition : PolynomialCone.t;
+      postcondition : PolynomialCone.t }
+
+  let pp _ _ formatter iter =
+    Format.fprintf formatter "pre:@;  @[<v 0>%a@]@;post:@;  @[<v 0>%a@]"
+      PolynomialCone.pp iter.precondition
+      PolynomialCone.pp iter.postcondition
+
+  let abstract srk tf =
+    let post_symbols = TF.post_symbols (TF.symbols tf) in
+    let pre_symbols = TF.pre_symbols (TF.symbols tf) in
+    let precondition =
+      let exists x =
+        TF.exists tf x && not (Symbol.Set.mem x post_symbols)
+      in
+      WeakSolver.find_consequences srk (mk_exists_consts srk exists (TF.formula tf))
+    in
+    let postcondition =
+      let exists x =
+        TF.exists tf x && not (Symbol.Set.mem x pre_symbols)
+      in
+      WeakSolver.find_consequences srk (mk_exists_consts srk exists (TF.formula tf))
+    in
+    { precondition; postcondition }
+
+  (* Adds a to_formula method to the polynomial cone, that takes in a function that
+     maps dimensions to terms and then conjunction of ideal generators = 0 and cone generators >= 0
+       *)
+  let exp srk tr_symbols loop_counter guard =
+    let term_of_dim dim =
+      mk_const srk (symbol_of_int dim)
+    in
+    mk_or srk [mk_and srk [mk_eq srk loop_counter (mk_real srk QQ.zero);
+                           TF.formula (TF.identity srk tr_symbols)];
+               mk_and srk [mk_leq srk (mk_real srk QQ.one) loop_counter;
+                           PolynomialCone.to_formula srk term_of_dim guard.precondition;
+                           PolynomialCone.to_formula srk term_of_dim guard.postcondition]]
+
+  let equal _ _ iter iter' =
+    PolynomialCone.equal iter.precondition iter'.precondition
+    && PolynomialCone.equal iter.postcondition iter'.postcondition
+
+  let join _ _ iter iter' =
+    (* polynomial cone intersection *)
+    { precondition = PolynomialCone.intersection iter.precondition iter'.precondition;
+      postcondition = PolynomialCone.intersection iter.postcondition iter'.postcondition }
+
+  let widen _ _ _ _ =
+    failwith "Polynomial cone does not support widening."
+end
+
 module WedgeGuard = struct
   type 'a t =
     { precondition : 'a Wedge.t;

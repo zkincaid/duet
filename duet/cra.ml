@@ -1124,6 +1124,13 @@ let _ =
          monotone := true;
          K.domain := (module Product(LinearRecurrenceInequation)(PolyhedronGuard))),
      " Disable non-monotone analysis features");
+CmdLine.register_config
+    ("-weaktheory",
+     Arg.Unit (fun () ->
+         let open Iteration in
+         monotone := true;
+         K.domain := (module Product(WeakArithmeticTheory)(WeakTheoryGuard))),
+     " Use weak arithmetic theory");
   CmdLine.register_config
     ("-termination-no-exp",
      Arg.Clear termination_exp,

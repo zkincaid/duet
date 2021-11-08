@@ -272,6 +272,16 @@ let equal (i1, c1) (i2, c2) =
         (polyhedron_of_cone c1 pvutil)
         (polyhedron_of_cone rewritten_c2 pvutil))
 
+let to_formula srk term_of_dim (ideal, cone_generators) =
+  let open Syntax in
+  let ideal_eq_zero = BatList.map (fun p -> mk_eq srk (mk_real srk QQ.zero) (QQXs.term_of srk term_of_dim p))
+  (Rewrite.generators ideal)
+  in
+  let gen_geq_zero = BatList.map (fun p -> mk_leq srk (mk_real srk QQ.zero) (QQXs.term_of srk term_of_dim p))
+  cone_generators
+  in
+  mk_and srk (ideal_eq_zero @ gen_geq_zero)
+
 let mem p (ideal, cone_generators) =
   let cone_generators = QQXs.one :: cone_generators in
   let reduced = Rewrite.reduce ideal p in

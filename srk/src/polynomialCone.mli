@@ -1,5 +1,5 @@
 open Polynomial
-
+open Syntax
 
 type t
 
@@ -46,6 +46,8 @@ val is_proper: t -> bool
    or use the membership testing on the generators
  *)
 val equal: t -> t -> bool
+
+val to_formula : 'a context -> (int -> 'a arith_term) -> t -> 'a formula
 
 (* To get a fresh symbol for elimination https://github.com/zkincaid/duet/blob/modern/srk/src/polynomial.ml#L989 *)
 (* Consider using the dual space, polyhedron.ml to do the Farkas lemma stuff *)
