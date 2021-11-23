@@ -1,5 +1,30 @@
 open Polynomial
 
+module PrettyPrintDim = struct
+
+  let pp_ascii_dim formatter i =
+    Format.pp_print_string formatter (Char.escaped (Char.chr i))
+
+  let pp_numeric base formatter i =
+    Format.fprintf formatter "%s%d" base i
+
+end
+
+module PrettyPrintPoly = struct
+
+  let pp_list pp_elt =
+    Format.pp_print_list
+      ~pp_sep:(fun fmt _unit -> Format.fprintf fmt "@;")
+      (SrkUtil.pp_print_list pp_elt)
+
+  let pp_qq_list = pp_list QQ.pp
+
+  let pp_zz_list = pp_list ZZ.pp
+
+  let pp_poly_list pp_dim = SrkUtil.pp_print_list (QQXs.pp pp_dim)
+
+end
+
 module PolyVectorContext = struct
 
   exception Not_in_context
@@ -70,7 +95,18 @@ module PolyVectorContext = struct
 
   let num_dimensions ctxt = ctxt.size
 
-  let max_dimension ctxt = ctxt.size
+  let max_dimension ctxt =
+    SrkUtil.Int.Map.fold
+      (fun _idx mono max_dim_opt ->
+         BatEnum.fold
+           (fun curr_dim_opt (dim, _pow) ->
+              match curr_dim_opt with
+              | Some curr_dim ->
+                if curr_dim >= dim then Some curr_dim else Some dim
+              | None -> Some dim)
+           max_dim_opt (Monomial.enum mono))
+      ctxt.index_to_monomial
+      None
 
   let fold_over_dimensions f ctxt base =
     SrkUtil.Int.Map.fold f ctxt.index_to_monomial base
@@ -103,7 +139,7 @@ module PolyVectorContext = struct
 
   let pp dim_pp fmt conv_ctxt =
     let () = Format.fprintf Format.str_formatter
-        "[%a | %a]"
+        "@[[%a | %a]@]"
         (pp_i2m_map dim_pp) conv_ctxt.index_to_monomial
         (pp_m2i_map dim_pp) conv_ctxt.monomial_to_index in
     let s = Format.flush_str_formatter () in

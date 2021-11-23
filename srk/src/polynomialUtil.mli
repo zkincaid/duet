@@ -2,6 +2,26 @@
 
 open Polynomial
 
+module PrettyPrintDim : sig
+
+  val pp_ascii_dim : Format.formatter -> int -> unit
+
+  val pp_numeric : string -> Format.formatter -> int -> unit
+
+end
+
+module PrettyPrintPoly : sig
+
+  val pp_qq_list : Format.formatter -> QQ.t list list -> unit
+
+  val pp_zz_list : Format.formatter -> ZZ.t list list -> unit
+
+  val pp_poly_list : (Format.formatter -> int -> unit)
+    -> Format.formatter -> QQXs.t list -> unit
+
+end
+
+
 (** A polynomial-vector context is a bijective map between a set of monomials
     and the dimensions of the vector space spanned by that set of monomials.
 *)
@@ -27,7 +47,8 @@ module PolyVectorContext : sig
 
   val num_dimensions : t -> int
 
-  val max_dimension : t -> int
+  (** Maximum dimension (variable) that appears in some monomial in the context *)
+  val max_dimension : t -> int option
 
   (** Fold over context in increasing order of dimension *)
   val fold_over_dimensions: (Monomial.dim -> Monomial.t -> 'a -> 'a) -> t -> 'a -> 'a
