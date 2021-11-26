@@ -21,6 +21,7 @@ let cs_of_symbols srk symbols =
   cs
 
 let filter_polys_linear_in_dims dims polys =
+  logf "polys are";
   let polys_linear_in_dx = BatList.filter_map
       (fun poly -> let lin, higher = P.QQXs.split_linear poly in
         let higher_contains_dx =
@@ -55,10 +56,12 @@ let filter_polys_linear_in_dims dims polys =
 
 
 let find_inv_functionals dx_dims implied_ideal =
+  logf "finding inv functionals";
   let basis = P.Rewrite.generators implied_ideal in
   filter_polys_linear_in_dims dx_dims basis
 
 let find_tf_invs srk tr_symbols loop_counter tf =
+  logf "finding transition formula invs";
   let x_xp = tr_symbols in
   (* For each variable x, create a symbol d_x representing x - x' *)
   let dx =
@@ -80,8 +83,13 @@ let find_tf_invs srk tr_symbols loop_counter tf =
       x_xp
       dx
   in
+  let pp_dim = (fun formatter i ->
+      try Format.fprintf formatter "%a" (pp_symbol srk) (symbol_of_int i)
+      with _ -> Format.fprintf formatter "1")
+  in
   let formula_with_dx = mk_and srk ((TF.formula tf) :: diff) in
   let consequence_cone = WTS.find_consequences srk formula_with_dx in
+  logf "consequence cone is %a" (PC.pp pp_dim) consequence_cone;
   let implied_ideal = PC.get_ideal consequence_cone in
   let inv_functionals = find_inv_functionals dx_dims implied_ideal in
   BatList.iter (fun (inv, _) -> logf "Inv linear func: %a" V.pp inv) inv_functionals;
@@ -98,16 +106,18 @@ let find_tf_invs srk tr_symbols loop_counter tf =
       inv_functionals
   in
   let formula_with_dx_inv = mk_and srk (formula_with_dx :: inv_eqs) in
+  logf "formula with dx invs: %a" (Formula.pp srk) formula_with_dx_inv;
   let existential_formula = mk_exists_consts
       srk
       (fun symbol -> BatList.mem symbol dx || BatList.mem symbol zs)
       formula_with_dx_inv in
   let inv_cone = WTS.find_consequences srk existential_formula in
-  logf "polynomial cone of delta and inv lin funcs: %a" PC.pp inv_cone;
+  logf "polynomial cone of delta and inv lin funcs: %a" (PC.pp pp_dim) inv_cone;
+  logf "completed printing";
   let elim_z i = let sym = Syntax.symbol_of_int i in not (BatList.mem sym zs) in
   let elim_order = P.Monomial.block [not % elim_z] P.Monomial.degrevlex in
   let inv_cone_rewrite = PC.change_monomial_ordering inv_cone elim_order in
-  logf "polynomial cone with elim ordering: %a" PC.pp inv_cone_rewrite;
+  logf "polynomial cone with elim ordering: %a" (PC.pp pp_dim) inv_cone_rewrite;
   let ideal = PC.get_ideal inv_cone_rewrite in
   let implied_zero_polys_of_inv_funcs =
     BatList.filter_map (fun p ->

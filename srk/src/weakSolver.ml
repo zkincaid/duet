@@ -24,7 +24,7 @@ let get_model srk phi =
     SrkSimplify.simplify_terms srk phi
   in
   let quantifiers, phi = Quantifier.normalize srk phi in
-  logf "formula: %a" (Formula.pp srk) phi;
+  logf "getting model for formula: %a" (Formula.pp srk) phi;
   (* This module should be sound wrt the theory, other things like x > 0 <=> x >= 1 happen in other modules *)
   (* cannot rewrite into negation normal form past equalities, since
      not (p = 0) is not equiv to p > 0 or p < 0
@@ -84,7 +84,7 @@ let get_model srk phi =
         let atoms = List.map replace_defs implicant in
         let rec process_atoms l geqs eqs ineqs =
           match l with
-          | [] -> (geqs, eqs, ineqs)
+          | [] -> logf "list of atoms left is empty"; (geqs, eqs, ineqs)
           | h :: t ->
             logf "Processing atom: %a" (Formula.pp srk) h;
             match (Interpretation.destruct_atom srk h) with
@@ -118,13 +118,18 @@ let get_model srk phi =
             Smt.Solver.add solver [(mk_not srk (mk_and srk implicant))]; go ()
           end
   in
-  if Symbol.Map.is_empty nonlinear then
-    match Smt.Solver.get_model solver with
-      `Sat model -> `Sat (model, PolynomialCone.empty)
-    | `Unsat -> `Unsat
-    | `Unknown -> `Unknown
-  else
+  (* if Symbol.Map.is_empty nonlinear then *)
+  (*   begin *)
+  (*   logf "nonlinear part is empty, returning linear model and empty cone"; *)
+  (*   match Smt.Solver.get_model solver with *)
+  (*     `Sat model -> `Sat (model, PolynomialCone.empty) *)
+  (*   | `Unsat -> `Unsat *)
+  (*   | `Unknown -> `Unknown *)
+  (*   end *)
+  (* else *)
     go ()
+
+let pp_dim srk = (fun formatter i -> Format.fprintf formatter "%a" (pp_symbol srk) (symbol_of_int i))
 
 let is_sat srk phi =
   match get_model srk phi with
@@ -134,6 +139,7 @@ let is_sat srk phi =
 
 (* Finding all implied equations and equalities within the weak theory.  *)
 let find_consequences srk phi =
+  logf "find consequence in weak theory";
   let phi = eliminate_ite srk phi in
   let phi =
     SrkSimplify.simplify_terms srk phi
@@ -142,40 +148,49 @@ let find_consequences srk phi =
   logf "formula: %a" (Formula.pp srk) phi;
   assert (BatList.for_all (fun quant -> match quant with `Exists, _ -> true | _ -> false) quantifiers = true);
   let existential_vars = BatSet.of_list
-      (BatList.filter_map (fun quant -> match quant with `Exists, x -> Some x | _ -> None) quantifiers)
+      (BatList.filter_map (fun quant -> match quant with `Exists, x -> logf "exists %a" (Syntax.pp_symbol srk) x; Some x | _ -> None) quantifiers)
   in
-  let pc = PolynomialCone.empty in
-  let term_of_int = fun i ->
-    let s = symbol_of_int i in
-    mk_const srk s
-  in
+  let pc = PolynomialCone.trivial in
+  (* let term_of_int = fun i -> *)
+  (*   let s = symbol_of_int i in *)
+  (*   mk_const srk s *)
+  (* in *)
   let rec go current_pc formula =
-    match get_model srk formula with
+    logf "current formula: %a" (Formula.pp srk) formula;
+    (* logf "current poly cone: %a" PolynomialCone.pp (fun f i -> f  ) current_pc; *)
+        match get_model srk formula with
       `Sat (_, poly_cone) ->
       begin
+        logf "got model poly cone: %a" (PolynomialCone.pp (pp_dim srk)) poly_cone;
         let projected_pc = PolynomialCone.project
             poly_cone
             (fun i -> let s = Syntax.symbol_of_int i in not (BatSet.mem s existential_vars))
         in
+        logf "projected poly cone: %a" (PolynomialCone.pp (pp_dim srk)) projected_pc;
         let new_pc = PolynomialCone.intersection current_pc projected_pc in
-        let ideal = PolynomialCone.get_ideal new_pc in
-        let ideal_generators = Polynomial.Rewrite.generators ideal in
-        let eq_zero_constraints = BatList.map
-            (fun p -> mk_eq srk (mk_zero srk) (P.term_of srk term_of_int p))
-            ideal_generators
-        in
-        let cone_generators = PolynomialCone.get_cone_generators new_pc in
-        let geq_zero_constraints = BatList.map
-            (fun p -> mk_leq srk (mk_zero srk) (P.term_of srk term_of_int p))
-            cone_generators
-        in
-        let augmented_formula = mk_and srk
-            [formula;
-             (mk_not srk (mk_and srk (eq_zero_constraints @ geq_zero_constraints)))]
-        in
+        logf "intersection of poly cones: %a" (PolynomialCone.pp (pp_dim srk)) new_pc;
+        let term_of_dim dim = mk_const srk (symbol_of_int dim) in
+        let blocking_clause = PolynomialCone.to_formula srk term_of_dim pc |> mk_not srk in
+        let augmented_formula = mk_and srk [formula; blocking_clause] in
         go new_pc augmented_formula
+        (* let ideal = PolynomialCone.get_ideal new_pc in *)
+        (* let ideal_generators = Polynomial.Rewrite.generators ideal in *)
+        (* let eq_zero_constraints = BatList.map *)
+        (*     (fun p -> mk_eq srk (mk_real srk QQ.zero) (P.term_of srk term_of_int p)) *)
+        (*     ideal_generators *)
+        (* in *)
+        (* let cone_generators = PolynomialCone.get_cone_generators new_pc in *)
+        (* let geq_zero_constraints = BatList.map *)
+        (*     (fun p -> mk_leq srk (mk_real srk QQ.zero) (P.term_of srk term_of_int p)) *)
+        (*     cone_generators *)
+        (* in *)
+        (* let augmented_formula = mk_and srk *)
+        (*     [formula; *)
+        (*      (mk_not srk (mk_and srk (eq_zero_constraints @ geq_zero_constraints)))] *)
+        (* in *)
+        (* go new_pc augmented_formula *)
       end
-    | `Unsat -> current_pc
+    | `Unsat -> logf "consequence is: %a" (PolynomialCone.pp (pp_dim srk)) current_pc; current_pc
     | `Unknown -> failwith "Cannot find a model for the current formula"
   in
   go pc phi

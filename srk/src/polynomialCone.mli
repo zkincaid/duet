@@ -3,7 +3,7 @@ open Syntax
 
 type t
 
-val pp : Format.formatter -> t -> unit
+val pp :  (Format.formatter -> int -> unit) -> Format.formatter -> t -> unit
 
 val intersection : t -> t -> t
 
@@ -22,8 +22,8 @@ val get_cone_generators : t -> (QQXs.t BatList.t)
 val change_monomial_ordering: t ->
   (Monomial.t -> Monomial.t -> [ `Eq | `Lt | `Gt  ]) -> t
 
-(* Making an empty polynomial cone. *)
-val empty : t
+(* Making a minimal salient polynomial cone. *)
+val trivial : t
 
 (* Compute the smallest cone that contains the ideal and a given set of nonnegative polynomials. *)
 val make_enclosing_cone : Polynomial.Rewrite.t -> QQXs.t BatList.t -> t
