@@ -488,12 +488,11 @@ let pp pp_dim fmt lattice =
     (PrettyPrintPoly.pp_poly_list pp_dim) (snd lattice)
 
 let clear_denoms mpqf_list =
-  let pairs = List.map Mpqf.to_mpzf2 mpqf_list in
-  let max_denom = List.fold_left
-      (fun curr_max curr_pair ->
-         if Mpzf.cmp (snd curr_pair) curr_max > 0 then snd curr_pair else curr_max)
-      (Mpzf.of_int 0) pairs in
-  List.map (fun r -> fst (Mpqf.to_mpzf2 (Mpqf.mul r (Mpqf.of_mpz max_denom)))) mpqf_list
+  let lcm = List.fold_left
+              (fun curr_lcm rat ->
+                snd (Mpqf.to_mpzf2 rat) |> Mpzf.lcm curr_lcm)
+              (Mpzf.of_int 1) mpqf_list in
+  List.map (fun r -> Mpqf.mul r (Mpqf.of_mpz lcm) |> Mpqf.to_mpzf2 |> fst) mpqf_list
 
 let vectorize_and_add ctxt add_kind base polys =
   add_kind base
