@@ -7,7 +7,7 @@ type lattice
 (** Compute lattice spanned by given polynomials AND the constant polynomial 1. *)
 val lattice_spanned_by : Polynomial.QQXs.t list -> lattice
 
-val cutting_plane_closure : ?verbose:bool -> lattice -> PolynomialCone.t -> PolynomialCone.t
+val cutting_plane_closure : lattice -> PolynomialCone.t -> PolynomialCone.t
 
 val pp : (Format.formatter -> int -> unit) -> Format.formatter -> lattice -> unit
 
@@ -16,13 +16,14 @@ val pp : (Format.formatter -> int -> unit) -> Format.formatter -> lattice -> uni
 
 type transformation_data
 
-val compute_transformation : ?verbose:bool -> lattice
-  -> Polynomial.Monomial.t list -> transformation_data
+val compute_transformation :
+  lattice -> Polynomial.Monomial.t list -> transformation_data
 
 val pp_transformation_data : (Format.formatter -> int -> unit)
   -> Format.formatter -> transformation_data -> unit
 
-val rewrite_with_linear_map : ?verbose:bool -> lattice -> PolynomialCone.t
+val rewrite_with_linear_map :
+  lattice -> PolynomialCone.t
   -> transformation_data * Polynomial.QQXs.t list * Polynomial.QQXs.t list
 
 (** Temporarily export for testing purposes *)
@@ -64,14 +65,14 @@ module PolyhedralCone : sig
       Conditions 1 and 2 are needed for integer hull computation to coincide with
       the CP-closure.
   *)
-  val standard_cutting_plane: ?verbose:bool -> ?asserts:bool
-    -> polycone -> lattice -> polycone
+  val standard_cutting_plane:
+    ?asserts:bool -> polycone -> lattice -> polycone
 
   (** Given polyhedral cone generators C and a lattice basis B,
       both containing 1 in QQ, compute cl_{ZZ B}(QQ C).
   *)
-  val cutting_plane_closure : ?verbose:bool -> ?asserts:bool
-    -> polycone -> lattice -> polycone
+  val cutting_plane_closure :
+    ?asserts:bool -> polycone -> lattice -> polycone
 
   val pp_polycone : Format.formatter -> polycone -> unit
 
