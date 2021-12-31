@@ -227,10 +227,9 @@ module PolyhedralCone : PolyhedralCone = struct
     let cone_ptr1 = new_cone cone1 in
     let cone_ptr2 = new_cone cone2 in
     let projection = Result.get_ok (intersect_cone cone_ptr1 cone_ptr2) in
-    let cone_ptr = cone_ptr_of_hom projection in
-    { conic = get_extreme_rays cone_ptr
-    ; linear = get_lineality_space cone_ptr
-    ; cone_dim = get_embedding_dimension cone_ptr
+    { conic = get_extreme_rays projection
+    ; linear = get_lineality_space projection
+    ; cone_dim = get_embedding_dimension projection
     }
 
   (** Given
@@ -267,7 +266,7 @@ module PolyhedralCone : PolyhedralCone = struct
         else if polycone.cone_dim <> lattice.lattice_dim then
           Result.error "standard_cutting_plane: dimensions of cone and lattice must match"
         else
-          let dim = get_embedding_dimension (cone_ptr_of_hom projection) in
+          let dim = get_embedding_dimension projection in
           let one = one dim 0 in
           let* one_in_cone = contains cone_ptr one in
           let* one_in_lattice = contains lattice_ptr one in
@@ -298,7 +297,7 @@ module PolyhedralCone : PolyhedralCone = struct
     L.logf ~level:`trace "Polyhedron to hull is:\n%a\n" pp_inhom dehomogenized;
     Result.ok { conic = ineqs;
                 linear = eqns;
-                cone_dim = get_embedding_dimension (cone_ptr_of_hom transposed)
+                cone_dim = get_embedding_dimension transposed
               }
 
   let standard_cutting_plane
@@ -460,8 +459,8 @@ module PolyhedralCone : PolyhedralCone = struct
     let* final_cone = add_rays empty_cone conic_generators in
     let* final_cone = add_subspace_generators final_cone target_eqns in
     let final_cone_ptr = new_cone final_cone in
-    let rays = get_extreme_rays (cone_ptr_of_hom final_cone_ptr) in
-    let lineality = get_lineality_space (cone_ptr_of_hom final_cone_ptr) in
+    let rays = get_extreme_rays final_cone_ptr in
+    let lineality = get_lineality_space final_cone_ptr in
     Result.ok { conic = rays;
                 linear = lineality;
                 cone_dim = polycone.cone_dim
