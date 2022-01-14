@@ -21,7 +21,6 @@ let cs_of_symbols srk symbols =
   cs
 
 let filter_polys_linear_in_dims dims polys =
-  logf "polys are";
   let polys_linear_in_dx = BatList.filter_map
       (fun poly -> let lin, higher = P.QQXs.split_linear poly in
         let higher_contains_dx =

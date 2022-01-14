@@ -1519,6 +1519,35 @@ let rec nnf_rewriter srk sexpr =
     end
   | _ -> sexpr
 
+let rec nnf_rewriter_without_replacing_eq srk sexpr =
+  match sexpr.obj with
+  | Node (Not, [phi], _) ->
+    begin match phi.obj with
+      | Node (Not, [psi], _) -> nnf_rewriter_without_replacing_eq srk psi
+      | Node (And, conjuncts, _) -> mk_or srk (List.map (mk_not srk) conjuncts)
+      | Node (Or, conjuncts, _) -> mk_and srk (List.map (mk_not srk) conjuncts)
+      | Node (Leq, [_; _], _) -> sexpr
+      | Node (Eq, [_; _], _) -> sexpr
+      | Node (Lt, [_; _], _) -> sexpr
+      | Node (ArrEq, [s; t], _) ->
+        let s_i = mk_select srk (decapture srk 0 1 s) (mk_var srk 0 `TyInt) in
+        let t_i = mk_select srk (decapture srk 0 1 t) (mk_var srk 0 `TyInt) in
+        mk_exists
+          srk
+          ~name:"i"
+          `TyInt
+          (mk_or srk [mk_lt srk s_i t_i; mk_lt srk t_i s_i])
+      | Node (Exists (name, typ), [psi], _) ->
+        mk_forall srk ~name typ (mk_not srk psi)
+      | Node (Forall (name, typ), [psi], _) ->
+        mk_exists srk ~name typ (mk_not srk psi)
+      | Node (Ite, [cond; bthen; belse], `TyBool) ->
+        mk_ite srk cond (mk_not srk bthen) (mk_not srk belse)
+      | _ -> sexpr
+    end
+  | _ -> sexpr
+
+
 let rec rewrite srk ?down:(down=fun x -> x) ?up:(up=fun x -> x) sexpr =
   let (Node (label, children, _)) = (down sexpr).obj in
   up (srk.mk label (List.map (rewrite srk ~down ~up) children))

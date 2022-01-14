@@ -1,55 +1,48 @@
+(** Polynomial cone abstract domain. A polynomial cone corresponds to a set of polynomials.
+    It is used to maintain a maximal set of non-negative polynomials w.r.t. the weak theory. *)
 open Polynomial
 open Syntax
 
 type t
 
-val pp :  (Format.formatter -> int -> unit) -> Format.formatter -> t -> unit
+val pp : (Format.formatter -> int -> unit) -> Format.formatter -> t -> unit
 
+(** Compute the intersection of two polynomial cones. Intersection of polynomial cones A, B corresponds
+    to the join of their corresponding polynomial equations and inequalities. *)
 val intersection : t -> t -> t
 
-(* int refers to dimensions
-   already implemented polyhedron of a cone (wrt to the monomials as dimensions),
-   project out the dimensions that correspond to
-   monomials with variables we don't want, and take the generators of the
-   resulting cone is the projection.
- *)
+(** Compute the projection of a polynomial cone, given what dimensions to keep. *)
 val project : t -> (int -> bool) -> t
 
+(** Get the ideal part of a polynomial cone. *)
 val get_ideal : t -> Rewrite.t
 
+(** Get the cone part of a polynomial cone. *)
 val get_cone_generators : t -> (QQXs.t BatList.t)
 
+(** Change the monomial ordering of a polynomial cone. *)
 val change_monomial_ordering: t ->
   (Monomial.t -> Monomial.t -> [ `Eq | `Lt | `Gt  ]) -> t
 
-(* Making a minimal salient polynomial cone. *)
+(** A polynomial cone that corresponds to the empty set of polynomials. *)
 val trivial : t
 
-(* Compute the smallest cone that contains the ideal and a given set of nonnegative polynomials. *)
+(** Compute the maximal polynomial cone that contains a given ideal and a given set of nonnegative polynomials. *)
 val make_enclosing_cone : Polynomial.Rewrite.t -> QQXs.t BatList.t -> t
 
-(* Adding a list of zero polynomials and a list of nonnegative polynomials to an existing cone. *)
+(** Adding a list of zero polynomials and a list of nonnegative polynomials to the set represented by an existing cone. *)
 val add_polys_to_cone : t -> QQXs.t BatList.t -> QQXs.t BatList.t -> t
 
-(* This does not belong here in this interface *)
-(* val mk_nonnegative_cone_of_tf : ('a TransitionFormula.t -> t) *)
-
-(* Test if a polynomial is contained in the cone. *)
+(** Test if a polynomial is contained in the cone. *)
 val mem : QQXs.t -> t -> bool
 
-(* Does -1 belong to this cone? If yes then all polynomials belong to the cone thus
-   it will no longer be consistent. *)
+(** Test if a polynomial cone is proper. This is equivalent to querying if -1 belongs to this cone. *)
 val is_proper: t -> bool
 
-(* ideals must be the same, rewrite to the same monomial ordering and test
-   if cone are the same
-   or use the membership testing on the generators
- *)
+(** Test if two polynomial cones are equal. The internal representation of polynomials cones is unique
+    so that two polynomial cones are equal iff they have the same ideal and the same cone generators
+    under the same monomial ordering. *)
 val equal: t -> t -> bool
 
+(** Compute a (finite) formula representation of a polynomial cone. *)
 val to_formula : 'a context -> (int -> 'a arith_term) -> t -> 'a formula
-
-(* To get a fresh symbol for elimination https://github.com/zkincaid/duet/blob/modern/srk/src/polynomial.ml#L989 *)
-(* Consider using the dual space, polyhedron.ml to do the Farkas lemma stuff *)
-
-(* another module that takes in CoordinateSystem and compute polynomial cones for formulas *)

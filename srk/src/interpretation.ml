@@ -328,6 +328,7 @@ let select_implicant interp ?(env=Env.empty) phi =
       end
     | `Not psi ->
       begin match Formula.destruct srk psi with
+        | `Atom (_) -> if evaluate_formula interp ~env psi = false then Some [phi] else None
         | `Proposition (`App (p, [])) ->
           if not (bool interp p) then
             Some [phi]
@@ -410,6 +411,38 @@ let destruct_atom srk phi =
     let zero = mk_real srk QQ.zero in
     `ArithComparison (`Eq, zero, zero)
   | `Fls -> `ArithComparison (`Eq, mk_real srk QQ.zero, mk_real srk QQ.one)
+  | _ ->
+    invalid_arg @@ Format.asprintf "destruct_atom: %a is not atomic" (Formula.pp srk) phi
+
+let destruct_atom_for_weak_theory srk phi =
+  match Formula.destruct srk phi with
+  | `Atom (`Arith (op, s, t)) ->
+    begin match op with
+      |`Eq -> `ArithComparisonWeak (`Eq, s, t)
+      |`Lt -> `ArithComparisonWeak (`Lt, s, t)
+      |`Leq -> `ArithComparisonWeak (`Leq, s, t)
+    end
+  | `Atom (`ArrEq (a, b)) ->  `ArrEq (a, b)
+  | `Proposition (`App (k, [])) ->
+    `Literal (`Pos, `Const k)
+  | `Proposition (`Var i) -> `Literal (`Pos, `Var i)
+  | `Not psi ->
+    begin match Formula.destruct srk psi with
+      | `Proposition (`App (k, [])) -> `Literal (`Neg, `Const k)
+      | `Proposition (`Var i) -> `Literal (`Neg, `Var i)
+      | `Atom (`Arith (op, s, t)) ->
+        begin match op with
+            | `Eq -> `ArithComparisonWeak (`Neq, s, t)
+            | `Leq -> `ArithComparisonWeak (`Lt, t, s)
+            | `Lt -> `ArithComparisonWeak (`Leq, t, s)
+      end
+
+      | _ -> invalid_arg @@ Format.asprintf "destruct_atom: %a is not atomic" (Formula.pp srk) phi
+    end
+  | `Tru ->
+    let zero = mk_real srk QQ.zero in
+    `ArithComparisonWeak (`Eq, zero, zero)
+  | `Fls -> `ArithComparisonWeak (`Eq, mk_real srk QQ.zero, mk_real srk QQ.one)
   | _ ->
     invalid_arg @@ Format.asprintf "destruct_atom: %a is not atomic" (Formula.pp srk) phi
 
