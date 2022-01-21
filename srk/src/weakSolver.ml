@@ -93,7 +93,10 @@ let get_model srk phi =
         let pc = PolynomialCone.make_enclosing_cone initial_ideal geqs in
         logf "Finish making enclosing cone";
         (* Check if induced equalities contradict with strict inequalities as required by the formula.  *)
-        let contradictory = BatList.exists (fun nonzero -> PolynomialCone.mem (P.negate nonzero) pc) ineqs in
+        let contradictory = BatList.exists (fun nonzero -> let ideal = PolynomialCone.get_ideal pc in
+                                             let t = Polynomial.Rewrite.reduce ideal nonzero in
+                                             Polynomial.QQXs.equal t Polynomial.QQXs.zero
+                                             ) ineqs in
         logf "Strict inequalities cannot be satisfied: %b" contradictory;
         (* If the polynomial cone is not proper then the model is no longer consistent. *)
         if (PolynomialCone.is_proper pc) && not contradictory then
