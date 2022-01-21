@@ -50,8 +50,9 @@ module PolyVectorContext : sig
   (** Maximum dimension (variable) that appears in some monomial in the context *)
   val max_dimension : t -> int option
 
-  (** Fold over context in increasing order of dimension *)
-  val fold_over_dimensions: (Monomial.dim -> Monomial.t -> 'a -> 'a) -> t -> 'a -> 'a
+  val enum_by_dimension : t -> (Monomial.dim * Monomial.t) BatEnum.t
+
+  val enum_by_monomial : t -> (Monomial.t * Monomial.dim) BatEnum.t
 
   val pp : (Format.formatter -> int -> unit) -> Format.formatter -> t -> unit
 
@@ -67,12 +68,9 @@ end
 module PolyVectorConversion : sig
 
   (** Project polynomial into the vector space spanned by monomials in the context *)
-  val rational_poly_to_vector : PolyVectorContext.t -> QQXs.t -> Linear.QQVector.t
-
-  (** Project polynomial into the vector space spanned by monomials in the context *)
-  val rational_poly_to_scalars : PolyVectorContext.t -> QQXs.t -> Mpqf.t list
+  val poly_to_vector : PolyVectorContext.t -> QQXs.t -> Linear.QQVector.t
 
   (** Recover polynomial from its representation as a vector in the context *)
-  val scalars_to_rational_poly : PolyVectorContext.t -> Mpqf.t list -> QQXs.t
+  val vector_to_poly : PolyVectorContext.t -> Linear.QQVector.t -> QQXs.t
 
 end
